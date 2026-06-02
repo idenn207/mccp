@@ -1,0 +1,45 @@
+mccp — My Claude Code Plugin
+Copyright 2026 skypark207
+
+This product includes software derived from the following sources:
+
+================================================================
+ECC (Extensible Claude Code) — MIT License
+================================================================
+
+Copyright (c) ECC contributors
+
+Components ported into mccp (modified for namespace, packaging, and
+self-contained operation):
+
+  - plugins/mccp/commands/plan.md
+  - plugins/mccp/commands/prp-implement.md
+  - plugins/mccp/commands/pr.md
+  - plugins/mccp/commands/code-review.md
+  - plugins/mccp/commands/receipt-write.md
+  - plugins/mccp/commands/receipt-validate.md
+  - plugins/mccp/commands/receipt-status.md
+  - plugins/mccp/scripts/receipt/cli.js (and lib/)
+  - plugins/mccp/scripts/hooks/receipt-prompt.js
+  - plugins/mccp/scripts/hooks/receipt-skill.js
+  - plugins/mccp/agents/code-reviewer.md
+  - plugins/mccp/agents/security-reviewer.md
+
+ECC origin: <URL TBD — see .plan/mccp-bootstrap.plan.md §11 Q1>
+
+The original MIT License text from ECC, as applicable to the components
+above, is preserved in their respective file headers where present.
+
+================================================================
+impeccable — Apache License 2.0
+================================================================
+
+Copyright (c) impeccable contributors
+Project page: https://impeccable.style/
+
+Note: impeccable itself is NOT bundled in mccp. mccp's design philosophy
+references impeccable's anti-SLOP discipline, and users may install
+impeccable as a separate Claude Code plugin.
+
+This NOTICE is provided for attribution clarity. See the LICENSE file
+for the complete Apache License 2.0 terms governing mccp.

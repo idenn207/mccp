@@ -1,0 +1,13 @@
+{
+  "name": "mccp",
+  "owner": {
+    "name": "skypark207"
+  },
+  "plugins": [
+    {
+      "name": "mccp",
+      "source": "./plugins/mccp",
+      "description": "My Claude Code Plugin — ECC gate core, packaged as a self-contained Apache-2.0 plugin."
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "mccp-receipt",
+  "version": "1.0.0",
+  "description": "mccp /mccp:* command gate receipts + SHA validator. Mechanical enforcement layer for mccp command gates.",
+  "main": "cli.js",
+  "bin": {
+    "mccp-receipt": "./cli.js"
+  },
+  "scripts": {
+    "test": "node --test tests/"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "private": true
+}

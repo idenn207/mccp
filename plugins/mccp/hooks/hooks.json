@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "UserPromptExpansion": [
+      {
+        "matcher": "^mccp:.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/receipt-prompt.js\""
+          }
+        ],
+        "description": "mccp receipt gate at /mccp:* slash-command expansion time",
+        "id": "mccp:receipt-prompt"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/receipt-skill.js\""
+          }
+        ],
+        "description": "mccp receipt gate at Skill tool invocation (dual-ingress for /mccp:* skill names)",
+        "id": "mccp:receipt-skill"
+      }
+    ]
+  }
+}

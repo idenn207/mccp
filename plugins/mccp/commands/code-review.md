@@ -19,6 +19,8 @@ If `$ARGUMENTS` contains a PR number, PR URL, or `--pr`:
 Otherwise:
 → Use **Local Review Mode**.
 
+> **Note on receipts**: PR Review Mode runs the mccp `code-reviewer` gate which requires a preceding `mccp-pr-codex` receipt (produced by `/mccp:pr`). Local Review Mode does NOT produce a receipt — it is an advisory pre-commit review and skips the receipt chain entirely.
+
 ---
 
 ## Local Review Mode
@@ -102,6 +104,98 @@ Build review context:
 2. **Planning artifacts** — Check `.claude/prds/`, `.claude/plans/`, `.claude/reviews/`, and legacy `.claude/PRPs/{prds,plans,reports,reviews}/` for context related to this PR
 3. **PR intent** — Parse PR description for goals, linked issues, test plans
 4. **Changed files** — List all modified files and categorize by type (source, test, config, docs)
+
+### Phase 2.5 — mccp CODE-REVIEWER GATE PREP (자동, /mccp:code-review 진입 시 MANDATORY)
+
+This phase applies when invoked as `/mccp:code-review` in PR Review Mode. It implements the **Autonomy Contract** for the code-reviewer gate inline below. See `${CLAUDE_PLUGIN_ROOT}/docs/gate-design.md` for original design rationale (reference only — enforcement lives in this command body plus the receipt CLI and the two receipt hooks). **Do not skip and do not ask the user between sub-steps.**
+
+This runs **after** Phase 2 (CONTEXT) and **before** Phase 3 (REVIEW). Its purpose: enforce the gate execution order (PR-Impeccable → PR-Codex → security-reviewer → code-reviewer), feed preceding-gate findings into the code-reviewer's own review, and prevent duplicate Codex/security rounds.
+
+### 2.5.1 — Verify preceding mccp-pr-codex receipt
+
+```bash
+# Derive decision-slug from PR title or branch (kebab-case)
+DECISION_SLUG=<derived slug>
+
+node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate --command mccp:code-review
+```
+
+If exit 0: PR-Codex receipt exists for this decision. Read it via:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js status --json --gate mccp-pr-codex
+```
+
+Capture: `resolution.converged`, `resolution.accepted`, `resolution.rejected`, `resolution.open_questions`. These become Phase 3 input context (the code-reviewer must NOT re-challenge already-converged areas).
+
+If exit non-zero (no `mccp-pr-codex` receipt, or stale): output:
+
+```
+[MCCP-GATE-STOP] /mccp:code-review requires a preceding mccp-pr-codex receipt.
+Run /mccp:pr first, or write the receipt manually if you have already run Codex against this PR diff:
+
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
+    --gate mccp-pr-codex --decision <slug> --plan <plan-or-pr-title>
+
+Missing/stale: <CLI stderr output>
+```
+
+End the response.
+
+### 2.5.2 — Detect design signal (optional PR-Impeccable reuse)
+
+Inspect `gh pr diff <NUMBER> --name-only` for UI files (`*.tsx|jsx|vue|svelte|astro|css|scss|module.css|html`) or `.claude/design/*.design.plan.md` references in the plan. If design signal present, check the PR body for an existing `## Design Review` section (injected by `/mccp:pr` Phase 2.5.1). Reuse that section's findings for the report.
+
+If design signal present but PR body lacks `## Design Review`, call:
+
+```
+Skill(impeccable, "critique PR #<NUMBER>")
+Skill(impeccable, "audit PR #<NUMBER>")
+```
+
+If `impeccable` unavailable, record `> impeccable unavailable, skipped (auto-fallback)` and continue.
+
+### 2.5.3 — Security-sensitive area check (reuse-first)
+
+If the diff touches §0 security-sensitive areas (auth/authz, session/token, crypto/hash/sign/key, secret/credential, input validation, SQL/cmd injection, SSRF, path traversal, privilege escalation), check the PR body for `### Security Reviewer` subheading under `## Codex Adversarial Review` (injected by `/mccp:pr` Phase 2.5.5). Reuse those findings.
+
+If not present, invoke:
+
+```
+Skill(security-reviewer, "review PR #<NUMBER> against base <base>: <list affected security areas>")
+```
+
+Pass the PR-Codex receipt findings from 2.5.1 as context. Integrate findings into Phase 6 REPORT.
+
+### 2.5.4 — Auto-CRITICAL check (preceding gates)
+
+Scan the PR-Codex receipt's `resolution.open_questions` (from 2.5.1) and any security-reviewer findings (from 2.5.3) for §0 auto-CRITICAL items. If any unresolved:
+
+1. Do NOT proceed to Phase 3
+2. Output:
+   ```
+   [MCCP-GATE-STOP] CRITICAL Open Question from preceding gate is unresolved:
+   - <item> (source: mccp-pr-codex receipt or security-reviewer)
+   PR: #<NUMBER>
+   사용자 결정 필요. 진행 의사 또는 수정 지시를 주세요.
+   ```
+3. End the response.
+
+### 2.5.5 — Continue to Phase 3 with context loaded
+
+Proceed to Phase 3 REVIEW. The code-reviewer checklist (7 categories) runs as designed, but for each category, the assistant MUST first check the captured PR-Codex `resolution.accepted` / `resolution.rejected` lists — do not re-flag converged decisions. Mark cross-gate dedupe in the Phase 6 REPORT.
+
+Print one info line before Phase 3:
+
+```
+PR-Codex: reused from receipt (converged in <N> rounds) | Security: <reused | newly invoked | n/a>
+```
+
+### Forbidden during Phase 2.5
+
+Same forbidden phrase catalog as Plan-Codex Phase 7. No "shall I invoke Codex?" / "shall I run security-reviewer?" / inter-step yes/no prompts (2.5.4 CRITICAL stop only exception).
+
+---
 
 ### Phase 3 — REVIEW
 
@@ -260,6 +354,31 @@ gh api "repos/{owner}/{repo}/pulls/<NUMBER>/reviews" \
   -f body="<overall summary>" \
   --input comments.json  # [{"path": "file", "line": N, "body": "comment"}, ...]
 ```
+
+### Phase 7.5 — Write code-reviewer receipt (자동, PR Review Mode 전용)
+
+After the GitHub review is published, write the `code-reviewer` gate receipt. This closes the receipt chain (`mccp-plan-codex` → `mccp-implement-codex` → `mccp-pr-codex` → `code-reviewer`).
+
+```bash
+# Step A: verify the review report file was created in Phase 6
+test -f .claude/reviews/pr-<NUMBER>-review.md || {
+  echo "[MCCP-GATE-STOP] Phase 6 review report not found. Cannot write code-reviewer receipt."
+  exit 1
+}
+
+# Step B: write the receipt
+node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
+  --gate code-reviewer \
+  --decision ${DECISION_SLUG} \
+  --plan .claude/reviews/pr-<NUMBER>-review.md \
+  --quiet
+```
+
+Bash hook block handling: same as Plan-Codex Phase 7.6 — output `[MCCP-GATE-STOP]` with captured hook stderr and end the response. Do NOT print the Phase 8 output.
+
+If the review decision was `BLOCK` (CRITICAL findings) or `REQUEST CHANGES` (HIGH findings), still write the receipt — its `resolution.open_questions` will block downstream `/mccp:*` commands at preflight until the issues are addressed and a new round is recorded.
+
+For Local Review Mode (no PR number, no published review): SKIP this phase entirely. Local mode is advisory and does not enter the receipt chain.
 
 ### Phase 8 — OUTPUT
 

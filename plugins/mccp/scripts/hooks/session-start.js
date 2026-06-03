@@ -660,10 +660,57 @@ async function main() {
     log('[SessionStart] No specific project type detected');
   }
 
+  // The Codex contract: commit only when fix-task content actually rode all
+  // the way out — pushed to parts, survived limit truncation, and
+  // writeSessionStartPayload returned without throwing. Any earlier exit
+  // leaves fix-task.md in place so the next SessionStart re-delivers it.
+  let injectorRepoRoot = null;
+  let injectorFixTaskPushed = false;
+  const FIX_TASK_MARKER = '[mccp:fix-task — pending correction';
+  try {
+    const { execFileSync } = require('child_process');
+    try {
+      injectorRepoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 2000,
+      }).trim();
+    } catch (_e) {
+      injectorRepoRoot = process.cwd();
+    }
+    const injector = require('../state/state-injector');
+    const result = injector.inject(injectorRepoRoot);
+    if (result.stdout && shouldInjectContext) {
+      additionalContextParts.push(result.stdout.trim());
+      injectorFixTaskPushed = !!result.applied && !!result.applied.fixTask;
+    }
+  } catch (err) {
+    log(`[SessionStart] state-injector skipped: ${err.message}`);
+  }
+
   const additionalContext = shouldInjectContext
     ? limitSessionStartContext(additionalContextParts.join('\n\n'), maxContextChars)
     : '';
+
+  const fixTaskSurvivedLimit = injectorFixTaskPushed && additionalContext.includes(FIX_TASK_MARKER);
+
   await writeSessionStartPayload(additionalContext);
+
+  // Three conditions must all hold to commit:
+  //   1. fix-task body was pushed into additionalContextParts (caller injection enabled)
+  //   2. fix-task marker survived limitSessionStartContext truncation
+  //   3. writeSessionStartPayload above did not throw
+  // Any failure leaves fix-task.md intact for the next SessionStart to retry.
+  if (fixTaskSurvivedLimit && injectorRepoRoot) {
+    try {
+      const injector = require('../state/state-injector');
+      injector.commitFixTaskApplied(injectorRepoRoot);
+    } catch (err) {
+      log(`[SessionStart] commitFixTaskApplied skipped: ${err.message}`);
+    }
+  } else if (injectorFixTaskPushed && !fixTaskSurvivedLimit) {
+    log('[SessionStart] fix-task truncated by limitSessionStartContext; deferring rotate to next session');
+  }
 }
 
 function writeSessionStartPayload(additionalContext) {

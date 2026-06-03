@@ -668,6 +668,7 @@ async function main() {
   let injectorRepoRoot = null;
   let injectorFixTaskPushed = false;
   let injectorModule = null;
+  let depCheckNotice = '';
   try {
     injectorModule = require('../state/state-injector');
     const { execFileSync } = require('child_process');
@@ -687,6 +688,59 @@ async function main() {
     }
   } catch (err) {
     log(`[SessionStart] state-injector skipped: ${err.message}`);
+  }
+
+  // dep-check: warn once per 24h when codex plugin or impeccable CLI is
+  // missing. Silenced entirely when MCCP_CODEX_DISABLED=1 (user has opted
+  // into the no-Codex path; nothing to install).
+  if (process.env.MCCP_CODEX_DISABLED !== '1') {
+    try {
+      const depCheck = require('../lib/dep-check');
+      const stateWriter = require('../state/state-writer');
+      const result = depCheck.checkAll();
+      const missing = [];
+      if (!result.codex_plugin.installed) missing.push('codex@openai-codex');
+      if (!result.impeccable_cli.installed) missing.push('impeccable');
+
+      let priorAt = null;
+      let priorMissingKey = null;
+      try {
+        if (injectorRepoRoot) {
+          const existing = stateWriter.readState(injectorRepoRoot);
+          priorAt = existing.frontmatter.dep_check_at || null;
+          priorMissingKey = existing.frontmatter.dep_check_missing || null;
+        }
+      } catch (_e) {
+        // best-effort; treat as no prior dedupe state
+      }
+
+      const currentKey = missing.length > 0 ? missing.join(',') : null;
+      const ageMs = priorAt ? Date.now() - Date.parse(priorAt) : Infinity;
+      const within24h = Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 24 * 60 * 60 * 1000;
+      const sameSet = currentKey === priorMissingKey;
+      const shouldEmit = missing.length > 0 && !(sameSet && within24h);
+
+      if (shouldEmit) {
+        depCheckNotice = '[mccp] Missing dependencies: ' + missing.join(', ') + '. Run /mccp:setup to install.';
+        log(depCheckNotice);
+      }
+
+      if (injectorRepoRoot) {
+        try {
+          stateWriter.update(injectorRepoRoot, {
+            depCheck: { checkedAt: result.checked_at, missing: missing },
+          });
+        } catch (e) {
+          log(`[SessionStart] dep-check state update skipped: ${e.message}`);
+        }
+      }
+    } catch (err) {
+      log(`[SessionStart] dep-check skipped: ${err.message}`);
+    }
+  }
+
+  if (depCheckNotice && shouldInjectContext) {
+    additionalContextParts.push(depCheckNotice);
   }
 
   const additionalContext = shouldInjectContext

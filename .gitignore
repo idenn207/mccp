@@ -24,6 +24,11 @@ build/
 # Runtime receipts (working tree only, per plan §3.1 + Codex Q3 default)
 .claude/receipts/
 
+# v0.2 Stop-loop bounded counter and advisory locks (session-local).
+# STATE.md and fix-task.md remain git-tracked per plan §4.
+.claude/state/loop-counter.json
+.claude/state/*.lock
+
 # Local env
 .env
 .env.local

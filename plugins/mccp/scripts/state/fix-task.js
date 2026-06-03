@@ -1,0 +1,244 @@
+'use strict';
+
+// fix-task.md writer — Stop-loop failure → next-turn correction file.
+//
+// Schema: docs/v0.2-state-schema.md §2
+//
+// Atomic rename. Idempotent: same input produces same output (apart from
+// timestamps), and writing while the previous fix-task is still present
+// overwrites it (next-turn application takes the latest failure).
+
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+const FIX_TASK_VERSION = 1;
+const STATE_DIRNAME = path.join('.claude', 'state');
+const FIX_TASK_FILENAME = 'fix-task.md';
+const APPLIED_FILENAME = 'fix-task-applied.md';
+const DEFAULT_TTL_DAYS = 7;
+
+function fixTaskPath(repoRoot) {
+  return path.join(repoRoot, STATE_DIRNAME, FIX_TASK_FILENAME);
+}
+
+function appliedPath(repoRoot) {
+  return path.join(repoRoot, STATE_DIRNAME, APPLIED_FILENAME);
+}
+
+function ensureDir(target) {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function plusDays(date, days) {
+  const d = new Date(date);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString();
+}
+
+function summarizeFailures(failures) {
+  if (!Array.isArray(failures) || failures.length === 0) return [];
+  return failures.map(f => ({
+    stage: String(f.stage || 'unknown'),
+    exitCode: f.exitCode !== undefined ? f.exitCode : null,
+    excerpt: oneLineExcerpt(f.excerpt || f.stderr || f.stdout || ''),
+  }));
+}
+
+function oneLineExcerpt(text) {
+  if (!text) return '';
+  const flat = String(text).replace(/\r?\n/g, ' ').trim();
+  if (flat.length <= 200) return flat;
+  return flat.slice(0, 199) + '…';
+}
+
+function deriveTitle(failures, verdict) {
+  if (verdict === 'codex_critical') return 'Codex CRITICAL — stop and address';
+  if (verdict === 'codex_divergent') return 'Codex divergent — review concerns';
+  if (Array.isArray(failures) && failures.length) {
+    const first = failures[0];
+    return 'quality fail: ' + first.stage + ' (exit ' + (first.exitCode !== undefined ? first.exitCode : '?') + ')';
+  }
+  return 'Stop-loop fix required';
+}
+
+function deriveWhy(verdict) {
+  switch (verdict) {
+    case 'quality_fail':
+      return 'The Stop-loop quality runner found at least one failing stage. ' +
+        'Fix the listed failures, then end your next response — the Stop-loop will re-run.';
+    case 'codex_divergent':
+      return 'Codex review flagged unresolved concerns. ' +
+        'Address them in the next turn before ending the response.';
+    case 'codex_critical':
+      return 'Codex review hit an Auto-CRITICAL category. ' +
+        'Stop and address before proceeding. Do not bypass.';
+    default:
+      return 'Stop-loop fix required.';
+  }
+}
+
+function buildBody(input) {
+  const verdict = input.verdict || 'quality_fail';
+  const counter = Math.max(1, Math.min(2, input.counter || 1));
+  const escalate = Boolean(input.escalate);
+  const failures = summarizeFailures(input.failures || []);
+  const originating = Array.isArray(input.originatingReceipts) ? input.originatingReceipts : [];
+
+  const title = input.title || deriveTitle(failures, verdict);
+  const why = input.why || deriveWhy(verdict);
+
+  const nextActions = Array.isArray(input.nextActions) && input.nextActions.length
+    ? input.nextActions
+    : deriveNextActions(verdict, failures);
+
+  // YAML quirk: a bare `originating_receipts:` with no items below parses as
+  // null in strict YAML parsers, dropping receipt provenance. Emit `[]` for
+  // empty so the schema's sequence type is honored (Reviewer B Round 1 #8).
+  const originatingYaml = originating.length
+    ? ['originating_receipts:', ...originating.map(o => '  - ' + String(o))]
+    : ['originating_receipts: []'];
+
+  const frontmatter = [
+    '---',
+    'fix_task_version: ' + FIX_TASK_VERSION,
+    'task_fingerprint: ' + (input.taskFingerprint || ''),
+    'gate_id: stop-review-loop',
+    'decision_id: ' + (input.decisionId || 'default'),
+    'created_at: ' + nowIso(),
+    'expires_at: ' + plusDays(nowIso(), DEFAULT_TTL_DAYS),
+    'counter: ' + counter,
+    'verdict: ' + verdict,
+    'escalate: ' + (escalate ? 'true' : 'false'),
+    ...originatingYaml,
+    '---',
+    '',
+  ].join('\n');
+
+  const sections = [];
+  sections.push('## Title\n' + title);
+  sections.push('## Why\n' + why);
+
+  if (failures.length) {
+    sections.push('## Failures\n' + failures.map(f =>
+      '- ' + f.stage + ': exit=' + (f.exitCode !== null ? f.exitCode : '?') +
+      (f.excerpt ? ' | ' + f.excerpt : '')
+    ).join('\n'));
+  } else if (input.verdict === 'codex_critical' || input.verdict === 'codex_divergent') {
+    sections.push('## Failures\n- codex review: ' + (input.codexSummary || '(no summary)'));
+  } else {
+    sections.push('## Failures\n- (no failure detail recorded)');
+  }
+
+  sections.push('## Next Actions\n' + nextActions.map((a, i) => (i + 1) + '. ' + a).join('\n'));
+
+  if (originating.length) {
+    sections.push('## Originating Decisions\n' + originating.map(o => '- ' + o).join('\n'));
+  } else {
+    sections.push('## Originating Decisions\n- gate: stop-review-loop, decision: ' + (input.decisionId || 'default'));
+  }
+
+  if (escalate) {
+    const originalPrompt = (input.originalPrompt || '<original-prompt>').replace(/"/g, '\\"');
+    sections.push([
+      '## Dual Reviewer Escalation Required',
+      'Next: run /santa-loop "' + originalPrompt + '"',
+    ].join('\n'));
+  }
+
+  return frontmatter + sections.join('\n\n') + '\n';
+}
+
+function deriveNextActions(verdict, failures) {
+  if (verdict === 'codex_critical') {
+    return [
+      'Re-read the Codex review and identify the CRITICAL category.',
+      'Either remove the offending change or address the catalog item directly.',
+      'Do not bypass — the Stop-loop will re-fire on next turn.',
+    ];
+  }
+  if (verdict === 'codex_divergent') {
+    return [
+      'Re-read the Codex review and address each unresolved concern.',
+      'Update the implementation, then end the response so the Stop-loop re-runs.',
+    ];
+  }
+  if (Array.isArray(failures) && failures.length) {
+    const first = failures[0];
+    return [
+      'Re-run `' + (first.commandHint || 'npm run ' + first.stage) + '` locally and fix the surfaced errors.',
+      'After the fix, end the response — the Stop-loop will re-run the chain.',
+    ];
+  }
+  return ['Investigate why the Stop-loop failed and fix before the next response.'];
+}
+
+function bodyHash(body) {
+  return crypto.createHash('sha256').update(String(body || '')).digest('hex').slice(0, 12);
+}
+
+function write(repoRoot, input) {
+  const target = fixTaskPath(repoRoot);
+  ensureDir(target);
+  const body = buildBody(input || {});
+  const tmp = target + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
+  fs.writeFileSync(tmp, body, 'utf8');
+  try {
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch (_) { /* ignore */ }
+    throw err;
+  }
+  return { path: target, body: body, bodyHash: bodyHash(body) };
+}
+
+function read(repoRoot) {
+  const target = fixTaskPath(repoRoot);
+  if (!fs.existsSync(target)) return null;
+  return fs.readFileSync(target, 'utf8');
+}
+
+function clear(repoRoot) {
+  const target = fixTaskPath(repoRoot);
+  if (fs.existsSync(target)) fs.unlinkSync(target);
+}
+
+function markApplied(repoRoot) {
+  const src = fixTaskPath(repoRoot);
+  if (!fs.existsSync(src)) return false;
+  const dst = appliedPath(repoRoot);
+  ensureDir(dst);
+  fs.renameSync(src, dst);
+  return true;
+}
+
+function sweepStaleApplied(repoRoot, maxAgeMs) {
+  const target = appliedPath(repoRoot);
+  if (!fs.existsSync(target)) return false;
+  const cap = typeof maxAgeMs === 'number' ? maxAgeMs : DEFAULT_TTL_DAYS * 24 * 60 * 60 * 1000;
+  const stat = fs.statSync(target);
+  if (Date.now() - stat.mtimeMs > cap) {
+    fs.unlinkSync(target);
+    return true;
+  }
+  return false;
+}
+
+module.exports = {
+  FIX_TASK_VERSION: FIX_TASK_VERSION,
+  DEFAULT_TTL_DAYS: DEFAULT_TTL_DAYS,
+  fixTaskPath: fixTaskPath,
+  appliedPath: appliedPath,
+  buildBody: buildBody,
+  bodyHash: bodyHash,
+  write: write,
+  read: read,
+  clear: clear,
+  markApplied: markApplied,
+  sweepStaleApplied: sweepStaleApplied,
+  oneLineExcerpt: oneLineExcerpt,
+};

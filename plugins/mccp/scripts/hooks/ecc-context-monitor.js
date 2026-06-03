@@ -17,9 +17,14 @@ const { sanitizeSessionId, readBridge, renameWithRetry } = require('../lib/sessi
 
 const CONTEXT_WARNING_PCT = 35;
 const CONTEXT_CRITICAL_PCT = 25;
-const COST_NOTICE_USD = 5;
-const COST_WARNING_USD = 10;
-const COST_CRITICAL_USD = 50;
+// Thresholds raised to match v0.2 plan §"Auto-handoff (cost 기반)" target
+// (50 notice / 80 soft handoff / 100 hard ceiling). The legacy 5/10/50 values
+// were calibrated for ECC's lighter sessions and trigger constant noise on
+// mccp's heavier workflows. S10b will wire actual auto-handoff at these
+// boundaries; for now the constants just suppress premature warnings.
+const COST_NOTICE_USD = 50;
+const COST_WARNING_USD = 80;
+const COST_CRITICAL_USD = 100;
 const FILES_WARNING_COUNT = 20;
 const LOOP_THRESHOLD = 3;
 const STALE_SECONDS = 60;
@@ -37,6 +42,16 @@ function isEnabledEnv(value, defaultValue = true) {
 
 function costWarningsEnabled(env = process.env) {
   return isEnabledEnv(env.ECC_CONTEXT_MONITOR_COST_WARNINGS, true);
+}
+
+// Notify-only mode strips the imperative tail from cost messages so the
+// dollar amount is reported without telling the model to halt or change
+// course. Toggle via `ECC_CONTEXT_MONITOR_COST_MODE`:
+//   unset / anything else → default directive behavior
+//   notify | notification | info | informational → notify-only
+function costNotifyOnly(env = process.env) {
+  const value = String(env.ECC_CONTEXT_MONITOR_COST_MODE || '').trim().toLowerCase();
+  return value === 'notify' || value === 'notification' || value === 'info' || value === 'informational';
 }
 
 /**
@@ -141,23 +156,30 @@ function evaluateConditions(bridge, options = {}) {
   // Cost warnings
   if (options.costWarnings !== false) {
     const cost = bridge.total_cost_usd || 0;
+    const notifyOnly = options.costNotifyOnly === true;
     if (cost > COST_CRITICAL_USD) {
       warnings.push({
         severity: 3,
         type: 'cost',
-        message: `COST CRITICAL: Session cost is $${cost.toFixed(2)}. ` + 'Stop and inform the user about high cost before continuing.'
+        message: notifyOnly
+          ? `COST CRITICAL: Session cost is $${cost.toFixed(2)}.`
+          : `COST CRITICAL: Session cost is $${cost.toFixed(2)}. ` + 'Stop and inform the user about high cost before continuing.'
       });
     } else if (cost > COST_WARNING_USD) {
       warnings.push({
         severity: 2,
         type: 'cost',
-        message: `COST WARNING: Session cost is $${cost.toFixed(2)}. ` + 'Review whether the current approach justifies the expense.'
+        message: notifyOnly
+          ? `COST WARNING: Session cost is $${cost.toFixed(2)}.`
+          : `COST WARNING: Session cost is $${cost.toFixed(2)}. ` + 'Review whether the current approach justifies the expense.'
       });
     } else if (cost > COST_NOTICE_USD) {
       warnings.push({
         severity: 1,
         type: 'cost',
-        message: `COST NOTICE: Session cost is $${cost.toFixed(2)}. ` + 'Consider whether the current approach is efficient.'
+        message: notifyOnly
+          ? `COST NOTICE: Session cost is $${cost.toFixed(2)}.`
+          : `COST NOTICE: Session cost is $${cost.toFixed(2)}. ` + 'Consider whether the current approach is efficient.'
       });
     }
   }
@@ -217,7 +239,10 @@ function run(rawInput) {
     // If bridge is stale, null out context data (still check cost/scope/loop)
     const evalBridge = isStale ? { ...bridge, context_remaining_pct: null } : bridge;
 
-    const warnings = evaluateConditions(evalBridge, { costWarnings: costWarningsEnabled() });
+    const warnings = evaluateConditions(evalBridge, {
+      costWarnings: costWarningsEnabled(),
+      costNotifyOnly: costNotifyOnly()
+    });
     if (warnings.length === 0) return rawInput;
 
     // Debounce logic
@@ -271,4 +296,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { run, evaluateConditions, detectLoop, severityLabel, costWarningsEnabled };
+module.exports = { run, evaluateConditions, detectLoop, severityLabel, costWarningsEnabled, costNotifyOnly };

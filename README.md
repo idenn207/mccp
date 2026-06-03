@@ -27,11 +27,22 @@ Claude Code의 `/mccp:*` namespace에 게이트 시스템을 제공한다:
 # 2. plugin install
 /plugin install mccp@mccp
 
-# 3. (필수) Codex CLI 인증
-/codex:setup
+# 3. 의존성 + 인증 한 번에
+/mccp:setup
 ```
 
+`/mccp:setup`은 idempotent — codex plugin과 impeccable CLI 미설치 시 사용자 동의 후 자동 설치, 인증 미완료 시 `!codex login` 또는 `MCCP_CODEX_DISABLED=1` 옵션 제공. 이미 모든 게 갖춰진 상태면 zero-install로 통과.
+
 새 Claude Code 세션을 시작하면 `/mccp:*` 명령이 활성화된다.
+
+### 수동 단계 (`/mccp:setup` 미사용 시)
+
+```bash
+/plugin marketplace add openai/codex-plugin-cc --scope user
+/plugin install codex@openai-codex
+npm install -g impeccable && impeccable skills install
+/codex:setup
+```
 
 ## 제거
 

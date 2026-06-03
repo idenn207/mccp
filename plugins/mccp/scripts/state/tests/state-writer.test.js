@@ -161,3 +161,34 @@ test('recordChainProgress appends step entries', () => {
   assert.strictEqual(parsed.steps[1].step, 'pr');
   assert.strictEqual(parsed.steps[1].status, 'failed');
 });
+
+// v0.2.3 — dep-check dedupe state round-trip
+test('depCheck round-trip: writes dep_check_at + dep_check_missing, parses back', () => {
+  const repo = mkRepo();
+  sw.update(repo, {
+    event: 'precompact',
+    depCheck: {
+      checkedAt: '2026-06-04T05:00:00.000Z',
+      missing: ['codex_plugin', 'impeccable_cli'],
+    },
+  });
+  const raw = readRaw(repo);
+  assert.match(raw, /^dep_check_at: 2026-06-04T05:00:00\.000Z$/m);
+  assert.match(raw, /^dep_check_missing: codex_plugin,impeccable_cli$/m);
+
+  const reread = sw.readState(repo);
+  assert.strictEqual(reread.frontmatter.dep_check_at, '2026-06-04T05:00:00.000Z');
+  assert.strictEqual(reread.frontmatter.dep_check_missing, 'codex_plugin,impeccable_cli');
+});
+
+test('depCheck round-trip: empty missing list clears dep_check_missing', () => {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact', depCheck: { checkedAt: '2026-06-04T05:00:00.000Z', missing: ['codex_plugin'] } });
+  let raw = readRaw(repo);
+  assert.match(raw, /^dep_check_missing: codex_plugin$/m);
+
+  sw.update(repo, { event: 'precompact', depCheck: { checkedAt: '2026-06-04T05:30:00.000Z', missing: [] } });
+  raw = readRaw(repo);
+  assert.ok(!/^dep_check_missing:/m.test(raw), 'dep_check_missing should be omitted when null');
+  assert.match(raw, /^dep_check_at: 2026-06-04T05:30:00\.000Z$/m);
+});

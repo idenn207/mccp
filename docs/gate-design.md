@@ -59,6 +59,42 @@ timeout / `rate_limit` / `service_unavailable`, do not ask the user. Replace the
 with `> Codex unavailable, skipped (auto-fallback): <reason>` and proceed to receipt write.
 The skip is recorded in receipt metadata.
 
+### Codex Disable Toggle
+
+There are two distinct ways a gate can run without Codex review, and they record
+different reasons in the receipt:
+
+| Env / state | Receipt field | Meaning |
+|---|---|---|
+| `MCCP_CODEX_DISABLED=1` | `codex_skipped: true`, `reason: 'codex_disabled'` | **Policy**: user explicitly chose to skip Codex for every gate (set during `/mccp:setup` Phase 4 or manually). `codex-bridge.parseCodexResult()` short-circuits to `verdict='skipped'` before any text is parsed. No Codex call is attempted. |
+| Codex call attempted but failed | `codex_skipped: true`, `reason: 'service_unavailable' \| 'setup_required' \| 'not_authenticated' \| 'timeout' \| 'rate_limit'` | **Failure**: Codex was reachable, the call was made, the call did not return a usable verdict. `verdict='unavailable'`. The user may retry by re-running the gate later. |
+| `MCCP_ALLOW_CODEX_UNAVAILABLE=0` | gate fails closed | When set, an `unavailable` verdict stops the gate instead of fallback-passing it. Use in CI. |
+
+The receipt field is the same shape (`codex_skipped: true`), but `reason` distinguishes
+"don't call again" from "try again later." Downstream commands (`/mccp:prp-implement`,
+`/mccp:pr`) treat both as non-approving.
+
+### Setup Flow
+
+`/mccp:setup` is the idempotent entry point for installing mccp's external dependencies.
+
+1. **Detect** — `node scripts/lib/dep-check.js --json` reads
+   `~/.claude/plugins/installed_plugins.json` and runs the platform-appropriate `where` /
+   `which impeccable` to determine what is missing.
+2. **Install codex plugin** (if missing) — `claude plugin install codex@openai-codex`
+   under user scope.
+3. **Install impeccable CLI** (if missing) — `npm install -g impeccable` followed by
+   `impeccable skills install` which deploys SKILL files to `~/.claude/skills/`.
+4. **Chain `/codex:setup`** — invoked as `Skill(codex:setup)`. If Codex is installed but
+   not authenticated, the user picks among `!codex login`, set `MCCP_CODEX_DISABLED=1`
+   permanently, or skip.
+5. **Final report** — re-runs dep-check and prints the green/yellow table.
+
+`SessionStart` writes `dep_check_at` / `dep_check_missing` into STATE.md frontmatter
+on every boot. Re-warns only when the missing set changes or 24h have elapsed. When
+`MCCP_CODEX_DISABLED=1` is set, the warning emit path is silenced entirely (user has
+opted in to the no-Codex world; nothing to remind).
+
 ## Auto-CRITICAL catalog
 
 The only conditions that override the autonomous flow and require user input. If a Codex

@@ -114,8 +114,29 @@ function deriveSummary(text, focus) {
   return source.slice(0, MAX_SUMMARY_LEN - 1) + '…';
 }
 
+function isDisabled() {
+  return process.env.MCCP_CODEX_DISABLED === '1';
+}
+
 function parseCodexResult(rawText, focus) {
   try {
+    // MCCP_CODEX_DISABLED=1 short-circuits the bridge. The caller still
+    // wrote a receipt with codex_skipped=true and reason='codex_disabled';
+    // the bridge surfaces 'skipped' so downstream gate logic can tell the
+    // difference between "tried Codex and it failed" (unavailable) and
+    // "policy says don't call Codex" (skipped).
+    if (isDisabled()) {
+      return {
+        verdict: 'skipped',
+        rounds: 0,
+        openQuestions: [],
+        summary: deriveSummary('Codex skipped (MCCP_CODEX_DISABLED=1)', focus),
+        criticalCategory: null,
+        escalate: false,
+        reason: 'codex_disabled',
+      };
+    }
+
     const text = String(rawText || '');
 
     if (isUnavailable(text) || !text.trim()) {
@@ -169,6 +190,7 @@ function parseCodexResult(rawText, focus) {
 module.exports = {
   parseCodexResult: parseCodexResult,
   isUnavailable: isUnavailable,
+  isDisabled: isDisabled,
   detectCriticalCategory: detectCriticalCategory,
   parseRounds: parseRounds,
   parseOpenQuestions: parseOpenQuestions,

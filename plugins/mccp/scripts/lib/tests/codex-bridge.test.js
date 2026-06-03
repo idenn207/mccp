@@ -146,3 +146,33 @@ test('summary is truncated to 120 chars with ellipsis', () => {
   const r = parseCodexResult(long, 'focus');
   assert.ok(r.summary.length <= 120);
 });
+
+test('disabled fixture: MCCP_CODEX_DISABLED=1 → verdict skipped, reason=codex_disabled', () => {
+  const prev = process.env.MCCP_CODEX_DISABLED;
+  process.env.MCCP_CODEX_DISABLED = '1';
+  try {
+    const r = parseCodexResult('Round 1: APPROVE', 'focus');
+    assert.strictEqual(r.verdict, 'skipped');
+    assert.strictEqual(r.reason, 'codex_disabled');
+    assert.strictEqual(r.escalate, false);
+    assert.strictEqual(r.rounds, 0);
+    assert.match(r.summary, /skipped/i);
+  } finally {
+    if (prev === undefined) delete process.env.MCCP_CODEX_DISABLED;
+    else process.env.MCCP_CODEX_DISABLED = prev;
+  }
+});
+
+test('disabled fixture: env override beats CRITICAL detection (policy first)', () => {
+  const prev = process.env.MCCP_CODEX_DISABLED;
+  process.env.MCCP_CODEX_DISABLED = '1';
+  try {
+    // Even with a critical-pattern phrase present, disabled policy short-circuits.
+    const r = parseCodexResult('Round 1: api_key exposed leaked into commit', 'focus');
+    assert.strictEqual(r.verdict, 'skipped');
+    assert.strictEqual(r.criticalCategory, null);
+  } finally {
+    if (prev === undefined) delete process.env.MCCP_CODEX_DISABLED;
+    else process.env.MCCP_CODEX_DISABLED = prev;
+  }
+});

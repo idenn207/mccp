@@ -183,6 +183,10 @@ my-claude-code-plugin/
 ## 4. 자주 쓰는 명령 (Cheat Sheet)
 
 ```bash
+# 부트스트랩 (fresh install)
+/mccp:setup                         # codex plugin + impeccable CLI 자동 설치 + /codex:setup 체인 (idempotent)
+/mccp:setup --dry-run               # 설치 없이 검출만
+
 # 게이트 파이프라인
 /mccp:plan-prd <feature>            # PRD 작성
 /mccp:plan <feature-or-prd-path>    # 구현 plan + Codex R1/R2 수렴
@@ -215,6 +219,7 @@ MCCP_RECEIPT_GATE_MODE=soft|hard|off     # v0.2.2 live. default=hard. soft/off�
 MCCP_SKIP_RECEIPT=1                      # 일회성 bypass (한 호출만) ─ live
 MCCP_RECEIPT_DEBUG=1                     # 디버그 출력 활성화 ─ live
 MCCP_ALLOW_CODEX_UNAVAILABLE=1           # advisory mode (non-approving receipt). terminal /mccp:pr은 거부 ─ live (v0.2.2)
+MCCP_CODEX_DISABLED=1                    # Codex 호출 영구 skip (codex-bridge: verdict='skipped', reason='codex_disabled'). /mccp:setup Phase 4가 자동 write.
 
 # Auto-chain (v0.2.2)
 MCCP_AUTO_CHAIN_DISABLE=1                # kill switch ─ live

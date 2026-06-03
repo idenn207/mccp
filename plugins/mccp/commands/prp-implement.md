@@ -145,10 +145,15 @@ grep -q "^## Codex Implementation Review$" <plan or notes path> || {
   exit 1
 }
 
-# Step B: auto-write the mccp-implement-codex receipt
+# Step B: derive decision-slug (must match what /mccp:plan wrote — usually plan basename)
+DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:prp-implement \
+  --args "$ARGUMENTS")
+
+# Step C: auto-write the mccp-implement-codex receipt
 node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
   --gate mccp-implement-codex \
-  --decision <kebab-slug-of-plan-name> \
+  --decision ${DECISION_SLUG} \
   --plan <plan path> \
   --quiet
 ```

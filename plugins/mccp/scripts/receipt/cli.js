@@ -18,10 +18,11 @@ function showHelp() {
     '  git-refs [<base-ref>]         Print {baseSha, headSha, baseRef} as JSON',
     '',
     'Receipt core subcommands:',
-    '  write       --gate <id> --decision <slug> --plan <path> [--design-doc <p>] [--findings-file <p>] [--resolution-file <p>] [--auto-round] [--codex-skipped] [--quiet]',
-    '  validate    --command <slug> [--decision <slug>] [--plan <path>]',
-    '  preflight   --command <slug> [--decision <slug>] [--plan <path>]',
-    '  status      [--gate <id>] [--json]',
+    '  write            --gate <id> --decision <slug> --plan <path> [--design-doc <p>] [--findings-file <p>] [--resolution-file <p>] [--auto-round] [--codex-skipped] [--quiet]',
+    '  validate         --command <slug> [--decision <slug>] [--plan <path>]',
+    '  preflight        --command <slug> [--decision <slug>] [--plan <path>]',
+    '  status           [--gate <id>] [--json]',
+    '  derive-decision  --command <name> [--args "<raw args>"] [--cwd <path>]',
     '',
     'Subcommands not yet implemented (Phase 5 — fallback):',
     '  diff        --plan <path> --against <receipt.json>',
@@ -206,6 +207,24 @@ function cmdStatus(args) {
   return status(args);
 }
 
+function cmdDeriveDecision(args) {
+  const { deriveDecisionId } = require('./decision');
+  const commandName = args.command || (args._ && args._[0]);
+  if (!commandName) {
+    process.stderr.write('mccp-receipt derive-decision: --command <name> required\n');
+    return 1;
+  }
+  const commandArgs = (args.args === true || args.args === undefined) ? '' : String(args.args);
+  try {
+    const slug = deriveDecisionId(commandName, commandArgs, { cwd: args.cwd });
+    process.stdout.write(slug + '\n');
+    return 0;
+  } catch (err) {
+    process.stderr.write('mccp-receipt derive-decision: ' + err.message + '\n');
+    return 1;
+  }
+}
+
 async function main(argv) {
   const subcommand = argv[2];
   const rest = parseFlags(argv.slice(3));
@@ -239,6 +258,8 @@ async function main(argv) {
       return cmdPreflight(rest);
     case 'status':
       return cmdStatus(rest);
+    case 'derive-decision':
+      return cmdDeriveDecision(rest);
     case 'diff':
     case 'backfill':
       process.stderr.write('mccp-receipt ' + subcommand + ': not implemented yet (Phase 5)\n');

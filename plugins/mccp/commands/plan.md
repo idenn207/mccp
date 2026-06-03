@@ -255,10 +255,15 @@ grep -q "^## Codex Adversarial Review$" <plan path> || {
   exit 1
 }
 
-# Step B: auto-write the mccp-plan-codex receipt
+# Step B: derive decision-slug deterministically (must match what the hook computes)
+DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:plan \
+  --args "$ARGUMENTS")
+
+# Step C: auto-write the mccp-plan-codex receipt
 node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
   --gate mccp-plan-codex \
-  --decision <kebab-slug-of-plan-name> \
+  --decision ${DECISION_SLUG} \
   --plan <plan path> \
   --quiet
 ```

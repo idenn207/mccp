@@ -30,15 +30,13 @@ function readStdin() {
   });
 }
 
-function extractDecisionId(commandArgs) {
-  if (!commandArgs || typeof commandArgs !== 'string') return 'default';
-  const m = commandArgs.match(/--decision[=\s]+([a-z0-9][a-z0-9-]*)/i);
-  if (m) return m[1].toLowerCase();
-  const first = commandArgs.trim().split(/\s+/)[0];
-  if (first && /^[a-z][a-z0-9-]{0,80}$/i.test(first)) {
-    return first.toLowerCase();
+function loadDecisionModule() {
+  try {
+    return require(path.join(RECEIPT_DIR, 'decision'));
+  } catch (err) {
+    debug('cannot load decision module: ' + err.message);
+    return null;
   }
-  return 'default';
 }
 
 function debug(msg) {
@@ -114,7 +112,15 @@ async function main() {
     return allow();
   }
 
-  const decisionId = extractDecisionId(event.command_args);
+  const decisionMod = loadDecisionModule();
+  if (decisionMod && commandName.toLowerCase() === 'mccp:code-review' && decisionMod.isStandalone(event.command_args)) {
+    debug('--standalone bypass for ' + commandName);
+    return allow();
+  }
+
+  const decisionId = decisionMod
+    ? decisionMod.deriveDecisionId(commandName, event.command_args, { cwd: event.cwd || process.cwd() })
+    : 'default';
   let result;
   try {
     result = validateCommand(commandName, {

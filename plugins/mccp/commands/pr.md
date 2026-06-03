@@ -174,8 +174,10 @@ Scan the combined Codex + security-reviewer Open Questions for §0 auto-CRITICAL
 ### 2.5.7 — Write mccp-pr-codex receipt
 
 ```bash
-# Derive decision-slug from branch or PR title (kebab-case)
-DECISION_SLUG=<derived slug>
+# Derive decision-slug deterministically (must match what /mccp:plan and /mccp:prp-implement wrote)
+DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:pr \
+  --args "$ARGUMENTS")
 
 node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
   --gate mccp-pr-codex \

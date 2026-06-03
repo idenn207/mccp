@@ -1,6 +1,6 @@
 ---
-description: Code review — local uncommitted changes or GitHub PR (pass PR number/URL for PR mode)
-argument-hint: [pr-number | pr-url | blank for local review]
+description: Code review — local uncommitted changes or GitHub PR (pass PR number/URL for PR mode, --standalone for external PRs)
+argument-hint: "[pr-number | pr-url | blank for local review] [--standalone]"
 ---
 
 # Code Review
@@ -13,13 +13,15 @@ argument-hint: [pr-number | pr-url | blank for local review]
 
 ## Mode Selection
 
-If `$ARGUMENTS` contains a PR number, PR URL, or `--pr`:
-→ Jump to **PR Review Mode** below.
+Parse `$ARGUMENTS` for the `--standalone` flag. Remove it from the remaining argument string before further parsing.
 
-Otherwise:
-→ Use **Local Review Mode**.
+| Remaining args | Standalone? | Mode |
+|---|---|---|
+| PR number, PR URL, or `--pr` | no | **PR Review Mode (chain-aware)** — requires preceding `mccp-pr-codex` receipt, writes `code-reviewer` receipt |
+| PR number, PR URL, or `--pr` | yes | **PR Review Mode (standalone)** — runs full review without receipt chain, does NOT write `code-reviewer` receipt |
+| blank | (ignored) | **Local Review Mode** — advisory pre-commit review, skips receipt chain entirely |
 
-> **Note on receipts**: PR Review Mode runs the mccp `code-reviewer` gate which requires a preceding `mccp-pr-codex` receipt (produced by `/mccp:pr`). Local Review Mode does NOT produce a receipt — it is an advisory pre-commit review and skips the receipt chain entirely.
+> **When to use `--standalone`**: reviewing an external PR that was NOT created by `/mccp:pr` (third-party contributor, vendored fork, etc.). The flag tells the gate "this review is intentionally outside the receipt chain". Both `receipt-prompt.js` and `receipt-skill.js` recognize `--standalone` for `/mccp:code-review` and bypass receipt preflight. Skipping the flag for an external PR will produce a `[MCCP-RECEIPT-GATE]` block at preflight — that block is the correct behavior; if the omission was intentional, retry with `--standalone`.
 
 ---
 
@@ -111,11 +113,15 @@ This phase applies when invoked as `/mccp:code-review` in PR Review Mode. It imp
 
 This runs **after** Phase 2 (CONTEXT) and **before** Phase 3 (REVIEW). Its purpose: enforce the gate execution order (PR-Impeccable → PR-Codex → security-reviewer → code-reviewer), feed preceding-gate findings into the code-reviewer's own review, and prevent duplicate Codex/security rounds.
 
+**Standalone bypass**: if `--standalone` was parsed from `$ARGUMENTS` in Mode Selection, the receipt-prompt/skill hooks already let the command through. Skip sub-steps 2.5.1, 2.5.3 (security reuse-first), 2.5.4 entirely. Jump to 2.5.5 with empty PR-Codex context. **Phase 7.5 must NOT write a `code-reviewer` receipt in standalone mode** — see that phase for handling.
+
 ### 2.5.1 — Verify preceding mccp-pr-codex receipt
 
 ```bash
-# Derive decision-slug from PR title or branch (kebab-case)
-DECISION_SLUG=<derived slug>
+# Derive decision-slug deterministically (must match what /mccp:pr wrote)
+DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:code-review \
+  --args "$ARGUMENTS")
 
 node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate --command mccp:code-review
 ```
@@ -355,9 +361,15 @@ gh api "repos/{owner}/{repo}/pulls/<NUMBER>/reviews" \
   --input comments.json  # [{"path": "file", "line": N, "body": "comment"}, ...]
 ```
 
-### Phase 7.5 — Write code-reviewer receipt (자동, PR Review Mode 전용)
+### Phase 7.5 — Write code-reviewer receipt (자동, chain-aware PR Review Mode 전용)
 
 After the GitHub review is published, write the `code-reviewer` gate receipt. This closes the receipt chain (`mccp-plan-codex` → `mccp-implement-codex` → `mccp-pr-codex` → `code-reviewer`).
+
+**Skip entirely in two cases**:
+1. **Standalone PR Review Mode** (`--standalone` was passed): this mode is intentionally outside the receipt chain. Do NOT write a receipt. Print one info line `Standalone PR review — receipt chain bypassed by --standalone` and proceed to Phase 8.
+2. **Local Review Mode** (no PR number, no published review): advisory mode, no receipt.
+
+For **chain-aware PR Review Mode**:
 
 ```bash
 # Step A: verify the review report file was created in Phase 6
@@ -366,7 +378,7 @@ test -f .claude/reviews/pr-<NUMBER>-review.md || {
   exit 1
 }
 
-# Step B: write the receipt
+# Step B: write the receipt (DECISION_SLUG was derived in Phase 2.5.1)
 node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
   --gate code-reviewer \
   --decision ${DECISION_SLUG} \
@@ -377,8 +389,6 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
 Bash hook block handling: same as Plan-Codex Phase 7.6 — output `[MCCP-GATE-STOP]` with captured hook stderr and end the response. Do NOT print the Phase 8 output.
 
 If the review decision was `BLOCK` (CRITICAL findings) or `REQUEST CHANGES` (HIGH findings), still write the receipt — its `resolution.open_questions` will block downstream `/mccp:*` commands at preflight until the issues are addressed and a new round is recorded.
-
-For Local Review Mode (no PR number, no published review): SKIP this phase entirely. Local mode is advisory and does not enter the receipt chain.
 
 ### Phase 8 — OUTPUT
 

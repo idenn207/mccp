@@ -17,7 +17,7 @@
  * Fails silently if no formatter is found or installed.
  */
 
-const { execFileSync, spawnSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
 
 // Shell metacharacters that cmd.exe interprets as command separators/operators
@@ -54,21 +54,19 @@ function run(rawInput) {
         const args = formatter === 'biome' ? [...resolved.prefix, 'check', '--write', resolvedFilePath] : [...resolved.prefix, '--write', resolvedFilePath];
 
         if (process.platform === 'win32' && resolved.bin.endsWith('.cmd')) {
-          // Windows: .cmd files require shell to execute. Guard against
-          // command injection by rejecting paths with shell metacharacters.
+          // Node 16+ launches .cmd via cmd.exe automatically without shell:true,
+          // avoiding DEP0190 (Node 22+ warns when args array is concat'd into
+          // a shell command string without escaping). The unsafe-chars guard
+          // is kept as defense-in-depth even though execFileSync no longer
+          // exposes the path to cmd.exe parsing.
           if (UNSAFE_PATH_CHARS.test(resolvedFilePath)) {
             throw new Error('File path contains unsafe shell characters');
           }
-          const result = spawnSync(resolved.bin, args, {
+          execFileSync(resolved.bin, args, {
             cwd: projectRoot,
-            shell: true,
             stdio: 'pipe',
             timeout: 15000
           });
-          if (result.error) throw result.error;
-          if (typeof result.status === 'number' && result.status !== 0) {
-            throw new Error(result.stderr?.toString() || `Formatter exited with status ${result.status}`);
-          }
         } else {
           execFileSync(resolved.bin, args, {
             cwd: projectRoot,

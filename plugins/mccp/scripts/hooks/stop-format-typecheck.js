@@ -17,7 +17,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { execFileSync, spawnSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -66,8 +66,11 @@ function formatBatch(projectRoot, files, timeoutMs) {
         process.stderr.write('[Hook] stop-format-typecheck: skipping batch — unsafe path chars\n');
         return;
       }
-      const result = spawnSync(resolved.bin, fileArgs, { cwd: projectRoot, shell: true, stdio: 'pipe', timeout: timeoutMs });
-      if (result.error) throw result.error;
+      // Node 16+ launches .cmd via cmd.exe automatically without shell:true,
+      // avoiding DEP0190 (Node 22+ warns when args array is concat'd into a
+      // shell command string without escaping). execFileSync handles .cmd
+      // safely with shell:false.
+      execFileSync(resolved.bin, fileArgs, { cwd: projectRoot, stdio: 'pipe', timeout: timeoutMs });
     } else {
       execFileSync(resolved.bin, fileArgs, { cwd: projectRoot, stdio: ['pipe', 'pipe', 'pipe'], timeout: timeoutMs });
     }
@@ -100,14 +103,11 @@ function typecheckBatch(tsConfigDir, editedFiles, timeoutMs) {
 
   try {
     if (isWin) {
-      // .cmd files require shell: true on Windows
-      const result = spawnSync(npxBin, args, { ...opts, shell: true });
-      if (result.error) return; // timed out or not found — non-blocking
-      if (result.status !== 0) {
-        stdout = result.stdout || '';
-        stderr = result.stderr || '';
-        failed = true;
-      }
+      // .cmd files (npx.cmd) launch via cmd.exe automatically under Node 16+;
+      // shell:true was avoiding nothing and triggered DEP0190 in Node 22+.
+      // execFileSync surfaces non-zero exits via thrown error, matching the
+      // posix branch — so failures hit the catch below the same way.
+      execFileSync(npxBin, args, opts);
     } else {
       execFileSync(npxBin, args, opts);
     }

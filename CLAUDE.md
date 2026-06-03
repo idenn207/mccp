@@ -26,13 +26,13 @@
 
 ### 1.1 출처 (Fork Lineage)
 
-| 원본             | 라이선스    | 가져온 부분                          | 위치                   |
-| ---------------- | ----------- | ------------------------------------ | ---------------------- |
-| **ECC**          | MIT         | Phase 게이트 enforcement, hook 구조  | `plugins/mccp/`        |
-| **impeccable**   | Apache-2.0  | 일부 frontend/UI 관련 skill          | `plugins/mccp/skills/` |
-| **codex plugin** | (별도 설치) | adversarial review용 외부 model 호출 | 런타임 의존성          |
+| 원본             | 라이선스    | 가져온 부분                                              | 위치                                            |
+| ---------------- | ----------- | -------------------------------------------------------- | ----------------------------------------------- |
+| **ECC**          | MIT         | Phase 게이트 enforcement, hook 구조, 47개 skill          | `plugins/mccp/` (fork + namespace 이전)         |
+| **impeccable**   | Apache-2.0  | 디자인 critique skill (`Skill(impeccable, ...)` 호출 패턴 보존) | **번들 안 함 — 사용자가 별도 plugin 설치** (버전 분리 + namespace 충돌 회피) |
+| **codex plugin** | (별도 설치) | adversarial review용 외부 model 호출                     | 런타임 의존성 (아래 §1.2 참조)                  |
 
-mccp는 두 plugin을 단순 의존하는 게 아니라 **fork 후 self-contained 패키지로 재구성**했습니다. `~/.claude/rules/`, `~/.claude/hooks/` 같은 ECC 원본의 user-level scatter 의존성은 모두 plugin 내부로 흡수됨. 자세한 attribution은 [NOTICE](NOTICE) 참조.
+mccp는 ECC를 단순 의존하는 게 아니라 **fork 후 self-contained 패키지로 재구성**했습니다. `~/.claude/rules/`, `~/.claude/hooks/` 같은 ECC 원본의 user-level scatter 의존성은 모두 plugin 내부로 흡수됨. impeccable은 의도적으로 번들 제외 — mccp 본문이 `Skill(impeccable, ...)`을 그대로 호출하므로, mccp 안에 vendor하면 namespace가 `mccp:impeccable`로 바뀌어 호출이 깨집니다 (commit `2116c43`에서 제거 결정). 자세한 attribution은 [NOTICE](NOTICE) 참조.
 
 ### 1.2 핵심 가치: Multi-Model Dual Reviewer
 
@@ -40,9 +40,16 @@ mccp의 차별점은 **Claude(Opus) ↔ Codex(GPT-5.4 계열) cross-model advers
 
 - Claude가 plan/implement/PR을 작성 → Codex가 review → 두 모델 모두 APPROVE해야 게이트 통과.
 - 같은 모델이 작성하고 review하는 single-model blind spot을 방지 (skill `mccp:ai-regression-testing` 패턴 참고).
-- `codex` plugin이 **필수 의존성**입니다. 미설치 시 `/mccp:plan`, `/mccp:prp-implement`, `/mccp:pr` 모두 게이트 미통과로 실패합니다. 사용자에게 `/codex:setup` 안내하세요.
+- `codex` plugin은 **강력 권장 의존성**입니다. 현재 (v0.2.1) 동작:
+  - **모드 토글 없음** — 사실상 hard 고정. `MCCP_RECEIPT_GATE_MODE` env는 **미구현** (v0.2.2 예정, 아래 참조).
+  - 단, Codex unavailable 시 `codex_skipped` receipt를 발행하고 다음 게이트로 진행하는 fallback은 hard mode 안에서도 동작합니다 (S9 dogfood에서 auto-fallback 100% rate로 검증, [scripts/receipt/schema.js](plugins/mccp/scripts/receipt/schema.js)).
+- **v0.2.2 예정** — `MCCP_RECEIPT_GATE_MODE` 토글 도입 ([.claude/plans/mccp-v0.2.2.plan.md](.claude/plans/mccp-v0.2.2.plan.md)):
+  - `hard` (예정 default — chain-of-custody 유지) — 누락/skipped receipt는 게이트 미통과
+  - `soft` (opt-in only) — 누락 receipt에 skipped-soft placeholder write, downstream validator는 non-approving 처리
+  - `off` — receipt 게이트 자체 비활성 (테스트/CI 전용)
+- Codex 미설치 사용자는 `/codex:setup`로 인증 권장.
 
-### 1.3 자동화 파이프라인
+### 1.3 자동화 파이프라인 (v0.1 receipt chain)
 
 PRD부터 PR까지 전 라이프사이클을 단일 namespace(`/mccp:*`)로 자동화합니다:
 
@@ -53,14 +60,28 @@ PRD부터 PR까지 전 라이프사이클을 단일 namespace(`/mccp:*`)로 자�
         ↓
 /mccp:prp-implement → plan 실행 + Implement-Codex review + cross-gate dedupe
         ↓
-/mccp:code-review   → 변경 코드 multi-perspective review
+/mccp:code-review   → 변경 코드 multi-perspective review        (alias: /mccp:review-pr — PR Review Mode)
         ↓
 /mccp:prp-commit    → 자연어 파일 타겟팅 커밋
         ↓
-/mccp:prp-pr        → 디자인/보안/Codex review 통합 후 GitHub PR 생성
+/mccp:pr            → 디자인/보안/Codex review 통합 후 GitHub PR 생성   (alias: /mccp:prp-pr — verbatim)
 ```
 
-각 단계는 **receipt** (`.mccp/receipts/*.json`)를 발행하고, 다음 단계는 이전 receipt chain을 검증한 뒤에만 시작합니다 (mechanical enforcement, README.md 참조).
+각 단계는 **receipt** (`.claude/receipts/*.json`)를 발행하고, 다음 단계는 이전 receipt chain을 검증한 뒤에만 시작합니다 (mechanical enforcement). receipt 운용 모드는 §1.2의 `MCCP_RECEIPT_GATE_MODE` 참조.
+
+### 1.4 v0.2 자동 게이트 레이어 (receipt chain 위)
+
+brainstorming 분석 결과 v0.1의 receipt chain은 *"adversarial review가 일어났는가"* 만 검증하고, *"사람이 감시해야만 다음으로 넘어가는 chokepoint"* 는 그대로 남아 있었습니다. v0.2는 receipt chain 위에 자동화 layer 5개를 얹습니다 (자세한 sequence diagram + module boundary는 [docs/v0.2-architecture.md](docs/v0.2-architecture.md)):
+
+| 모듈                       | 역할                                                                                          | 상태         |
+| -------------------------- | --------------------------------------------------------------------------------------------- | ------------ |
+| **Stop-loop**              | Claude stop 직전 자동 `lint → typecheck → test → e2e` + (opt-in) Codex diff review. fail 시 `fix-task.md` 생성 + 최대 2회 bounded retry | S8 ship      |
+| **STATE.md continuity**    | `PreCompact`에서 write, `SessionStart`에서 inject — 세션 간 컨텍스트 자동 복원                | S10a ship    |
+| **Auto-handoff**           | 누적 비용 $50 notice / $80 soft / $100 hard ceiling 임계로 자동 세션 전환                     | S10b 미구현  |
+| **`/mccp:work`**           | 단일 entry로 PRD → plan → implement → PR 전 chain 자동 orchestration                          | S11 미구현   |
+| **dual-reviewer escalate** | CRITICAL/divergent 시 `fix-task.md`에 `Next: /santa-loop ...` 안내 추가 (자동 호출은 안 함)   | S12 미구현   |
+
+자동 게이트는 환경 변수로 토글합니다 — §4 cheat sheet의 "운영 토글" 블록 참조.
 
 ---
 
@@ -87,7 +108,9 @@ my-claude-code-plugin/
 ├── .claude/
 │   ├── PRPs/{plans,reports}/       ← 계획·구현 결과 산출물
 │   ├── notes/                      ← 작업 연속성 노트 (mccp-v0.2-continuation.md)
-│   ├── state/                      ← STATE.md (세션 간 연속성)
+│   ├── state/                      ← STATE.md + fix-task.md (git-tracked, 세션 간 연속성)
+│   │                                  loop-counter.json + *.lock (gitignored)
+│   ├── receipts/                   ← /mccp:* 게이트 receipt chain
 │   └── settings.json               ← 프로젝트 setting/hook 등록
 ├── CLAUDE.md                       ← (이 파일)
 ├── README.md, NOTICE, LICENSE
@@ -107,9 +130,10 @@ my-claude-code-plugin/
 
 `.claude/state/STATE.md`는 세션 간 연속성을 보존하는 단일 진실 원천입니다 (S10a v0.2).
 
-- `session-start.js` hook이 부팅 시 주입.
+- **git-tracked**: `STATE.md` / `fix-task.md` / `fix-task-applied.md`는 commit 대상입니다. worktree 리셋이나 pair-programming 핸드오프에서도 컨텍스트가 살아남도록 의도된 설계 (자세한 근거: [docs/v0.2-architecture.md](docs/v0.2-architecture.md) §7).
+- `session-start.js` hook이 부팅 시 inject (`<system-reminder>` 블록).
 - `pre-compact.js` hook이 compaction 직전 갱신.
-- 직접 편집하지 말고 `state-writer.js` API를 사용하세요.
+- 직접 편집하지 말고 `state-writer.js` API를 사용하세요 — frontmatter 스키마, atomic lock, CRLF normalization, schema version guard가 묶여 있습니다.
 
 ### 3.3 Codex 의존 작업의 실패 모드
 
@@ -155,6 +179,24 @@ Codex review가 invalid JSON, timeout, gateway error를 반환할 수 있습니�
 # Codex
 /codex:setup                        # CLI 인증 & gate 토글
 /codex:rescue <문제>                # 막혔을 때 Codex에게 위임
+```
+
+### 운영 토글 (환경 변수)
+
+`.claude/settings.json` 또는 셸에서 설정 — v0.2 자동 게이트 동작을 변경합니다.
+
+```bash
+# Stop-loop (Claude 응답 종료 직전 자동 게이트)
+MCCP_STOP_LOOP=off|observe|enforce       # default: observe (관측만, block 안 함)
+MCCP_STOP_LOOP_CODEX=0|1                 # default: 0 (Codex diff review opt-in)
+
+# Receipt 게이트 (Codex adversarial review)
+# MCCP_RECEIPT_GATE_MODE=soft|hard|off   # ⚠ v0.2.2 예정 (미구현). default=hard. soft/off는 opt-in only.
+MCCP_SKIP_RECEIPT=1                      # 일회성 bypass (한 호출만) ─ live
+MCCP_RECEIPT_DEBUG=1                     # 디버그 출력 활성화 ─ live
+
+# Auto-handoff
+# MCCP_AUTO_HANDOFF=off|notify|spawn     # ⚠ S10b 미구현. 환경변수만 예약된 상태.
 ```
 
 ---

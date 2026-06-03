@@ -27,3 +27,6 @@ build/
 # Local env
 .env
 .env.local
+
+# External seed (ECC fork checkout — reference only, not part of mccp scope)
+ECC/

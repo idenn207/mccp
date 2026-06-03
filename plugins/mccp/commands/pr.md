@@ -101,23 +101,48 @@ Capture the critique/audit highlights — they will be injected into the PR body
 
 If `impeccable` is not installed (`Skill` returns `unknown_skill` / `not found`), record `> impeccable unavailable, skipped (auto-fallback)` in the same `## Design Review` placeholder and continue.
 
-### 2.5.2 — Cross-gate dedupe check
+### 2.5.2 — Cross-gate dedupe check (deterministic)
 
-Read the most recent receipts via:
+Use the receipt CLI's `dedupe` subcommand instead of inferring file membership from the plan. The CLI parses the plan's `## Files to Change` table, runs `git diff --name-only` against the base ref, and (if the implement-codex receipt exists) layers on `git diff --name-only <implement.head_sha>..HEAD` so that planned files modified **after** the implement gate are not silently excluded.
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js status --json
+# Decision slug derives the same way as 2.5.7 (and as the hook computes it)
+DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:pr \
+  --args "$ARGUMENTS")
+
+# <plan-path> is whatever Phase 2 discovered under .claude/plans/. If Phase 2
+# found multiple plans, prefer the one whose basename matches ${DECISION_SLUG}.
+DEDUPE_JSON=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js dedupe \
+  --plan <plan-path> \
+  --base origin/<base> \
+  --decision ${DECISION_SLUG})
+echo "$DEDUPE_JSON"
 ```
 
-Filter for `gate_id ∈ {mccp-plan-codex, mccp-implement-codex}` whose `decision_id` matches this PR's feature slug (kebab-case from branch name or referenced plan path). If both receipts exist with `resolution.converged=true` AND the PR diff stays inside the same decision set (no files outside the plan's `Files to Change`), record this as a partial dedupe:
+Parse the JSON output (`ok`, `skip_safe`, `reason`, `residual`, `convergence`):
+
+| Case | Action |
+|---|---|
+| `ok === false` (plan parse failed or git failure) | **Fail closed.** Do NOT mark as deduped. Fall through to 2.5.3 with the **full** PR diff as the focus areas. Record `> dedupe inconclusive: <reason>` above the `## Codex Adversarial Review` section. |
+| `ok === true && skip_safe === true` | Record the dedupe note (template below) and jump to 2.5.6. PR-Codex skipped inside scope. |
+| `ok === true && skip_safe === false && residual.length > 0` | Feed `residual` as the focus areas to Codex in 2.5.3. Record a partial-dedupe note (template below). |
+
+Dedupe note template (write into the in-memory `## Codex Adversarial Review` section that Phase 4 will inject):
 
 ```markdown
 ## Codex Adversarial Review
 
-Decisions {decision-id} already converged in mccp-plan-codex (round N1) and mccp-implement-codex (round N2). PR-Codex limited to diff areas outside plan scope.
+Decision `${DECISION_SLUG}` already converged in mccp-plan-codex (round N1) and
+mccp-implement-codex (round N2). PR-Codex {skipped inside scope | limited to
+diff areas outside plan scope}.
+
+Residual areas reviewed:
+- <residual file 1>
+- <residual file 2>
 ```
 
-Then enumerate the residual diff areas. If residual is empty → jump to 2.5.6. Otherwise feed the residual list to Codex in 2.5.3.
+Use `convergence.plan_codex_receipt.round` and `convergence.implement_codex_receipt.round` from the JSON for N1 / N2. If either receipt is missing or `converged !== true`, the CLI sets `skip_safe = false` automatically with a `reason` like `"plan-codex receipt missing or not converged"`. Treat that as the normal non-deduped path.
 
 ### 2.5.3 — Invoke Codex with --base
 
@@ -129,9 +154,9 @@ Skill(codex:adversarial-review, "challenge this PR diff against base <base-branc
 
 Codex auto-fallback triggers (same as Plan-Codex Phase 7.2): `error: setup_required` / `not authenticated` / 60s timeout / `rate_limit` / `service_unavailable` → write `> Codex unavailable, skipped (auto-fallback): <reason>` into the `## Codex Adversarial Review` PR body placeholder and jump to 2.5.6.
 
-### 2.5.4 — Inject review section + auto-rerun on Divergent
+### 2.5.4 — Inject review section + auto-rerun on Divergent, persist body draft
 
-Construct the `## Codex Adversarial Review` PR body section (kept in memory until Phase 4 writes the PR body) with the same schema as Plan-Codex:
+Construct the `## Codex Adversarial Review` PR body section with the same schema as Plan-Codex:
 
 ```markdown
 ## Codex Adversarial Review
@@ -146,6 +171,34 @@ Construct the `## Codex Adversarial Review` PR body section (kept in memory unti
 ```
 
 Divergent re-rerun: same as Plan-Codex Phase 7.4 — up to **3 rounds total**. Cap at 3 even if still divergent — annotate `Open Questions: DIVERGENT_UNRESOLVED`.
+
+**Persist the draft body to disk** so it survives between phases without shell quoting. After the section text is final for this round, write it (combined with any `## Design Review` from 2.5.1 and the dedupe note from 2.5.2) to a body-file under `.git/mccp/tmp/`:
+
+```bash
+HEAD_SHA=$(git rev-parse HEAD)
+
+# Write content to a temp file first (multi-line shell-safe), then call CLI.
+TMP_CONTENT=$(mktemp 2>/dev/null || echo "$TMPDIR/mccp-pr-body-$$.md")
+cat > "$TMP_CONTENT" <<'EOF'
+## Design Review
+<inject 2.5.1 content here, or "> impeccable unavailable, skipped (auto-fallback)" if signal absent>
+
+## Codex Adversarial Review
+<inject the section constructed above>
+EOF
+
+BODY_FILE=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js pr-body \
+  --action write \
+  --decision ${DECISION_SLUG} \
+  --head ${HEAD_SHA} \
+  --content-file "$TMP_CONTENT")
+rm -f "$TMP_CONTENT"
+echo "PR body draft persisted at: $BODY_FILE"
+```
+
+The body-file path is `.git/mccp/tmp/pr-body-<slug>-<short-sha>.md`. Phase 4 reads it, prepends the title-derived summary, and passes the final file to `gh pr create --body-file`. Phase 4's cleanup step deletes it after a successful PR create.
+
+If 2.5.3 hit the Codex auto-fallback, still persist the body — the `> Codex unavailable, skipped (auto-fallback)` line and any `## Design Review` content must reach Phase 4.
 
 ### 2.5.5 — Security-sensitive branch (HIGH)
 
@@ -194,14 +247,14 @@ Bash hook block handling: same as Plan-Codex Phase 7.6 — output `[MCCP-GATE-ST
 node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate --command mccp:code-review
 ```
 
-If exit 0: proceed to Phase 3 (PUSH). Hold the `## Codex Adversarial Review` (and `## Design Review` if any) sections in memory — Phase 4 will append them to the PR body.
+If exit 0: proceed to Phase 3 (PUSH). The body-file persisted in 2.5.4 (under `.git/mccp/tmp/`) is the authoritative source for the `## Design Review` and `## Codex Adversarial Review` sections — Phase 4 will read it back instead of re-deriving from memory.
 
-If non-zero: do NOT push. Output validate stderr and end the response.
+If non-zero: do NOT push. Output validate stderr and end the response. Leave the body-file in place so the next attempt can re-read it.
 
 Print one info line before Phase 3:
 
 ```
-PR-Codex: converged in <N> rounds (or: skipped, auto-fallback) | Receipt: <path>
+PR-Codex: converged in <N> rounds (or: skipped, auto-fallback) | Receipt: <path> | Body: <body-file path>
 ```
 
 ### Forbidden during Phase 2.5
@@ -261,13 +314,46 @@ Use this default format:
 
 ### Create the PR
 
+The Phase 2.5 body-file under `.git/mccp/tmp/pr-body-${DECISION_SLUG}-${HEAD_SHA:0:12}.md` is authoritative for the `## Design Review` and `## Codex Adversarial Review` sections. Prepend the title-derived Summary / Changes / Files / Testing sections to that file (or to the template-filled body) and pass the final body via `--body-file`, not `--body`. This avoids shell-quoting truncation of multi-line review content.
+
 ```bash
+HEAD_SHA=$(git rev-parse HEAD)
+GATE_BODY=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js pr-body \
+  --action path \
+  --decision ${DECISION_SLUG} \
+  --head ${HEAD_SHA})
+
+# Build the final body by concatenating the title-driven sections with the
+# gate-generated sections. <tmp_final> ends up containing the complete body.
+TMP_FINAL=$(mktemp 2>/dev/null || echo "$TMPDIR/mccp-pr-final-$$.md")
+cat > "$TMP_FINAL" <<'EOF'
+<title-driven Summary / Changes / Files / Testing sections, OR the
+PR template filled in from Phase 2>
+
+EOF
+if [ -f "$GATE_BODY" ]; then
+  cat "$GATE_BODY" >> "$TMP_FINAL"
+fi
+
 gh pr create \
   --title "<PR title>" \
   --base <base-branch> \
-  --body "<PR body>"
+  --body-file "$TMP_FINAL"
   # Add --draft if the --draft flag was parsed from $ARGUMENTS
+
+# Cleanup: remove only the gate body-file on success. Keep $TMP_FINAL for
+# debug only if `gh pr create` failed; otherwise unlink it too.
+GH_EXIT=$?
+rm -f "$TMP_FINAL"
+if [ $GH_EXIT -eq 0 ]; then
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js pr-body \
+    --action delete \
+    --decision ${DECISION_SLUG} \
+    --head ${HEAD_SHA}
+fi
 ```
+
+If `gh pr create` fails, leave the gate body-file untouched — the next attempt re-reads it. A periodic sweep can be invoked with `node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js pr-body --action sweep` to clear bodies older than 7 days.
 
 ---
 

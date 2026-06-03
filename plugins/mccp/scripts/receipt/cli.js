@@ -23,6 +23,8 @@ function showHelp() {
     '  preflight        --command <slug> [--decision <slug>] [--plan <path>]',
     '  status           [--gate <id>] [--json]',
     '  derive-decision  --command <name> [--args "<raw args>"] [--cwd <path>]',
+    '  dedupe           --plan <path> --base <ref> --decision <slug> [--cwd <path>]',
+    '  pr-body          --decision <slug> --head <sha> --action write|path|delete|sweep [--content <text>] [--content-file <path>] [--cwd <path>]',
     '',
     'Subcommands not yet implemented (Phase 5 — fallback):',
     '  diff        --plan <path> --against <receipt.json>',
@@ -207,6 +209,102 @@ function cmdStatus(args) {
   return status(args);
 }
 
+function cmdPrBody(args) {
+  const prBody = require('./pr-body');
+  const action = args.action;
+  if (!action) {
+    process.stderr.write('mccp-receipt pr-body: --action <write|path|delete|sweep> required\n');
+    return 1;
+  }
+  let repoRoot;
+  try {
+    repoRoot = prBody.resolveRepoRoot(args.cwd);
+  } catch (err) {
+    process.stderr.write('mccp-receipt pr-body: ' + err.message + '\n');
+    return 1;
+  }
+  if (action === 'sweep') {
+    const maxAgeMs = args['max-age-ms'] !== undefined ? parseInt(args['max-age-ms'], 10) : undefined;
+    const removed = prBody.sweepStale(repoRoot, maxAgeMs);
+    process.stdout.write(JSON.stringify({ removed: removed }, null, 2) + '\n');
+    return 0;
+  }
+  const decision = args.decision;
+  const head = args.head;
+  if (!decision) {
+    process.stderr.write('mccp-receipt pr-body: --decision <slug> required\n');
+    return 1;
+  }
+  if (!head) {
+    process.stderr.write('mccp-receipt pr-body: --head <sha> required\n');
+    return 1;
+  }
+  if (action === 'path') {
+    process.stdout.write(prBody.bodyPath(repoRoot, decision, head) + '\n');
+    return 0;
+  }
+  if (action === 'write') {
+    let content;
+    if (args['content-file']) {
+      const fs = require('fs');
+      try {
+        content = fs.readFileSync(args['content-file'], 'utf8');
+      } catch (err) {
+        process.stderr.write('mccp-receipt pr-body: cannot read --content-file: ' + err.message + '\n');
+        return 1;
+      }
+    } else if (args.content !== undefined && args.content !== true) {
+      content = String(args.content);
+    } else {
+      process.stderr.write('mccp-receipt pr-body: --content <text> or --content-file <path> required for write\n');
+      return 1;
+    }
+    const written = prBody.writeBody(repoRoot, decision, head, content);
+    process.stdout.write(written + '\n');
+    return 0;
+  }
+  if (action === 'delete') {
+    const removed = prBody.deleteBody(repoRoot, decision, head);
+    process.stdout.write(JSON.stringify({ removed: removed, path: prBody.bodyPath(repoRoot, decision, head) }, null, 2) + '\n');
+    return 0;
+  }
+  process.stderr.write('mccp-receipt pr-body: unknown --action "' + action + '"\n');
+  return 1;
+}
+
+function cmdDedupe(args) {
+  const { evaluateForDedupe } = require('./dedupe');
+  const planPath = args.plan;
+  const baseRef = args.base;
+  const decisionId = args.decision;
+  if (!planPath) {
+    process.stderr.write('mccp-receipt dedupe: --plan <path> required\n');
+    return 1;
+  }
+  if (!baseRef) {
+    process.stderr.write('mccp-receipt dedupe: --base <ref> required\n');
+    return 1;
+  }
+  if (!decisionId) {
+    process.stderr.write('mccp-receipt dedupe: --decision <slug> required\n');
+    return 1;
+  }
+  try {
+    const result = evaluateForDedupe({
+      cwd: args.cwd,
+      planPath: planPath,
+      baseRef: baseRef,
+      decisionId: decisionId,
+    });
+    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+    if (!result.ok) return 2;
+    return 0;
+  } catch (err) {
+    process.stderr.write('mccp-receipt dedupe: ' + err.message + '\n');
+    return 1;
+  }
+}
+
 function cmdDeriveDecision(args) {
   const { deriveDecisionId } = require('./decision');
   const commandName = args.command || (args._ && args._[0]);
@@ -260,6 +358,10 @@ async function main(argv) {
       return cmdStatus(rest);
     case 'derive-decision':
       return cmdDeriveDecision(rest);
+    case 'dedupe':
+      return cmdDedupe(rest);
+    case 'pr-body':
+      return cmdPrBody(rest);
     case 'diff':
     case 'backfill':
       process.stderr.write('mccp-receipt ' + subcommand + ': not implemented yet (Phase 5)\n');

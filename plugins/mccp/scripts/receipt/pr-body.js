@@ -14,8 +14,30 @@ const fs = require('fs');
 const path = require('path');
 const { gitRepoRoot } = require('./hash');
 
+// In a worktree, `<repoRoot>/.git` is a *file* containing `gitdir: <path>`
+// pointing at the worktree-specific git directory (typically
+// `<main-repo>/.git/worktrees/<wt-name>`). Naively `path.join(repoRoot, '.git',
+// 'mccp', 'tmp')` then `fs.mkdirSync` fails with ENOTDIR. Read the pointer and
+// redirect to the real git directory. In the main repo `.git` is a directory
+// and this helper returns it unchanged.
+function gitDir(repoRoot) {
+  const dotGit = path.join(repoRoot, '.git');
+  let stat;
+  try { stat = fs.statSync(dotGit); } catch (_e) { return dotGit; }
+  if (stat.isDirectory()) return dotGit;
+  try {
+    const content = fs.readFileSync(dotGit, 'utf8');
+    const match = content.match(/^gitdir:\s*(.+)$/m);
+    if (match) {
+      const target = match[1].trim();
+      return path.isAbsolute(target) ? target : path.resolve(repoRoot, target);
+    }
+  } catch (_e) { /* fall through */ }
+  return dotGit;
+}
+
 function tmpDir(repoRoot) {
-  return path.join(repoRoot, '.git', 'mccp', 'tmp');
+  return path.join(gitDir(repoRoot), 'mccp', 'tmp');
 }
 
 function bodyPath(repoRoot, decisionSlug, headSha) {
@@ -78,6 +100,7 @@ function resolveRepoRoot(cwd) {
 }
 
 module.exports = {
+  gitDir: gitDir,
   tmpDir: tmpDir,
   bodyPath: bodyPath,
   writeBody: writeBody,

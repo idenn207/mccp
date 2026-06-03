@@ -53,7 +53,7 @@ test('codex_critical produces escalation section', () => {
   });
   assert.match(result.body, /escalate: true/);
   assert.match(result.body, /## Dual Reviewer Escalation Required/);
-  assert.match(result.body, /Next: run \/santa-loop "rename function"/);
+  assert.match(result.body, /Next: run \/mccp:santa-loop 'rename function'/);
 });
 
 test('codex_divergent without 3R does not escalate', () => {
@@ -117,14 +117,14 @@ test('sweepStaleApplied honors maxAgeMs', () => {
   assert.ok(!fs.existsSync(target));
 });
 
-test('escalation prompt quotes are escaped', () => {
+test('escalation prompt single quotes are escaped', () => {
   const repo = mkRepo();
   const result = ft.write(repo, {
     verdict: 'codex_critical',
     escalate: true,
-    originalPrompt: 'add "noop()" function',
+    originalPrompt: "add 'noop()' function",
   });
-  assert.match(result.body, /add \\"noop\(\)\\" function/);
+  assert.match(result.body, /add \\'noop\(\)\\' function/);
 });
 
 test('originatingReceipts surface as frontmatter list AND body section', () => {
@@ -139,4 +139,105 @@ test('originatingReceipts surface as frontmatter list AND body section', () => {
   });
   assert.match(result.body, /originating_receipts:\n {2}- plan-codex\/feat-x\n {2}- implement-codex\/feat-x/);
   assert.match(result.body, /## Originating Decisions\n- plan-codex\/feat-x\n- implement-codex\/feat-x/);
+});
+
+test('escalation prompt is truncated at 140 chars with ellipsis', () => {
+  const repo = mkRepo();
+  const longPrompt = 'a'.repeat(200);
+  const result = ft.write(repo, {
+    verdict: 'codex_critical',
+    escalate: true,
+    originalPrompt: longPrompt,
+  });
+  const expected = "Next: run /mccp:santa-loop '" + 'a'.repeat(139) + "…'";
+  assert.ok(
+    result.body.includes(expected),
+    'expected body to contain 139 chars + ellipsis, got: ' + result.body
+  );
+});
+
+test('escalation falls back to literal placeholder when originalPrompt is missing', () => {
+  const repo = mkRepo();
+  const result = ft.write(repo, {
+    verdict: 'codex_critical',
+    escalate: true,
+    // originalPrompt omitted
+  });
+  assert.match(result.body, /Next: run \/mccp:santa-loop '<original-prompt>'/);
+});
+
+test('escalation falls back to literal placeholder when originalPrompt is empty', () => {
+  const repo = mkRepo();
+  const result = ft.write(repo, {
+    verdict: 'codex_critical',
+    escalate: true,
+    originalPrompt: '',
+  });
+  assert.match(result.body, /Next: run \/mccp:santa-loop '<original-prompt>'/);
+});
+
+test('escalation normalizes newlines in original prompt to spaces', () => {
+  const repo = mkRepo();
+  const result = ft.write(repo, {
+    verdict: 'codex_critical',
+    escalate: true,
+    originalPrompt: 'first line\nsecond line',
+  });
+  assert.match(result.body, /Next: run \/mccp:santa-loop 'first line second line'/);
+});
+
+test('oneLineExcerpt normalizes CR, CRLF, and runs of newlines', () => {
+  assert.strictEqual(ft.oneLineExcerpt('a\rb'), 'a b');
+  assert.strictEqual(ft.oneLineExcerpt('a\r\nb'), 'a b');
+  assert.strictEqual(ft.oneLineExcerpt('a\n\r\nb'), 'a b');
+  assert.strictEqual(ft.oneLineExcerpt('a\r\rb'), 'a b');
+});
+
+test('escalation normalizes CR, CRLF, and runs of newlines to a single space', () => {
+  const repo = mkRepo();
+  const cases = [
+    { in: 'a\rb', expect: 'a b' },        // CR only (classic Mac)
+    { in: 'a\r\nb', expect: 'a b' },      // CRLF
+    { in: 'a\n\r\nb', expect: 'a b' },    // mixed run collapses to one space
+    { in: 'a\r\rb', expect: 'a b' },      // repeated CR collapses
+  ];
+  for (const c of cases) {
+    const result = ft.write(repo, {
+      verdict: 'codex_critical',
+      escalate: true,
+      originalPrompt: c.in,
+    });
+    const expectedLine = "Next: run /mccp:santa-loop '" + c.expect + "'";
+    assert.ok(
+      result.body.includes(expectedLine),
+      "input " + JSON.stringify(c.in) + " expected line " + JSON.stringify(expectedLine) +
+      "; body was: " + result.body
+    );
+  }
+});
+
+test('escalation truncates after escaping so quote-heavy prompts stay ≤140 chars', () => {
+  const repo = mkRepo();
+  // 140 single quotes — pre-escape length 140, post-escape length 280.
+  // Without escape-before-truncate, the 140-char contract is violated.
+  const result = ft.write(repo, {
+    verdict: 'codex_critical',
+    escalate: true,
+    originalPrompt: "'".repeat(140),
+  });
+  const prefix = "Next: run /mccp:santa-loop '";
+  const escalateLine = result.body.split('\n').find(l => l.startsWith(prefix));
+  assert.ok(escalateLine, 'escalate line not found in body: ' + result.body);
+  assert.ok(escalateLine.endsWith("'"), 'escalate line must close with quote');
+  const injected = escalateLine.slice(prefix.length, -1);
+  assert.ok(
+    injected.length <= 140,
+    'injected substring must be ≤140 chars post-escape, got ' + injected.length
+  );
+  assert.ok(injected.endsWith('…'), 'expected ellipsis suffix on truncated input');
+  // No dangling backslash from a half-cut \' pair.
+  assert.ok(
+    !injected.slice(0, -1).endsWith('\\'),
+    'expected no dangling backslash before ellipsis, got: ' + injected
+  );
 });

@@ -28,6 +28,10 @@ build/
 # STATE.md and fix-task.md remain git-tracked per plan §4.
 .claude/state/loop-counter.json
 .claude/state/*.lock
+# Codex stop-loop bridge scratch input — local-only.
+.claude/state/codex-stop-loop-input.txt
+# Dogfood ephemera (fixtures + sandboxes) — never committed.
+.claude/state/dogfood-*/
 
 # Local env
 .env

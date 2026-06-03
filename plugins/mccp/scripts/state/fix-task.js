@@ -51,7 +51,9 @@ function summarizeFailures(failures) {
 
 function oneLineExcerpt(text) {
   if (!text) return '';
-  const flat = String(text).replace(/\r?\n/g, ' ').trim();
+  // Match CR, LF, CRLF, and any run of them. `\r?\n` would miss bare \r
+  // and let it leak into the body — same hazard as the escalate inject.
+  const flat = String(text).replace(/[\r\n]+/g, ' ').trim();
   if (flat.length <= 200) return flat;
   return flat.slice(0, 199) + '…';
 }
@@ -143,10 +145,31 @@ function buildBody(input) {
   }
 
   if (escalate) {
-    const originalPrompt = (input.originalPrompt || '<original-prompt>').replace(/"/g, '\\"');
+    // F4: bounded inject — single-quote, ≤140 chars (post-escape), newlines normalized.
+    // Empty/missing originalPrompt → literal <original-prompt> fallback.
+    // Escape MUST precede truncate, otherwise quote-heavy prompts blow past
+    // the 140-char bound when each ' expands to \'.
+    const raw = typeof input.originalPrompt === 'string' ? input.originalPrompt : '';
+    // Match CR, LF, CRLF, and any run of them. `\r?\n` would miss bare \r
+    // (classic Mac / some transcript libs) and let it leak into the body.
+    const flat = raw.replace(/[\r\n]+/g, ' ').trim();
+    let promptForBody;
+    if (flat) {
+      const escaped = flat.replace(/'/g, "\\'");
+      if (escaped.length > 140) {
+        let cut = 139;
+        // Avoid leaving a dangling backslash from a half-cut \' pair.
+        if (escaped.charAt(cut - 1) === '\\') cut -= 1;
+        promptForBody = escaped.slice(0, cut) + '…';
+      } else {
+        promptForBody = escaped;
+      }
+    } else {
+      promptForBody = '<original-prompt>';
+    }
     sections.push([
       '## Dual Reviewer Escalation Required',
-      'Next: run /santa-loop "' + originalPrompt + '"',
+      "Next: run /mccp:santa-loop '" + promptForBody + "'",
     ].join('\n'));
   }
 

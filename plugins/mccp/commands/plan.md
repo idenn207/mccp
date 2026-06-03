@@ -9,6 +9,18 @@ This command creates a comprehensive implementation plan before writing any code
 
 Run inline by default. Do not call the Task tool or any subagent by default. This keeps `/mccp:plan` usable from plugin installs that ship commands without agent files.
 
+## Phase Map
+
+The command runs five sequential phases. **Phase 5 (the gate) is mandatory and automatic** — see the Autonomy Contract there.
+
+| # | Phase | Purpose |
+|---|---|---|
+| 1 | ANALYZE | Restate requirements, identify risks, estimate complexity |
+| 2 | GROUND | Search the codebase for patterns the implementation must mirror |
+| 3 | DECOMPOSE | Break the work into ordered, actionable tasks |
+| 4 | WRITE | Produce the plan artifact (inline or `.claude/plans/{name}.plan.md`) and WAIT for user confirmation |
+| 5 | PLAN-CODEX GATE | Auto-invoke Codex adversarial review, inject result, write receipt, hand off to `/mccp:prp-implement` |
+
 ## What This Command Does
 
 1. **Restate Requirements** - Clarify what needs to be built
@@ -190,13 +202,13 @@ After planning:
 
 ---
 
-## Phase 7 — mccp Gate Completion (자동, /mccp:plan 진입 시 MANDATORY)
+## Phase 5 — PLAN-CODEX GATE (자동, /mccp:plan 진입 시 MANDATORY)
 
 This phase applies when the command is invoked as `/mccp:plan`. It implements the **Autonomy Contract** for the plan gate inline below. The original gate design rationale is preserved at `${CLAUDE_PLUGIN_ROOT}/docs/gate-design.md` for reference only — enforcement lives in this command body plus the receipt CLI and the two receipt hooks. **Do not skip and do not ask the user between sub-steps**. Run all sub-steps in one response.
 
-After the plan artifact is written (Phase 6 / PRD artifact write):
+After the plan artifact is written in Phase 4:
 
-### 7.1 — Append placeholder section to the plan
+### 5.1 — Append placeholder section to the plan
 
 Edit the plan file to add at the bottom:
 
@@ -206,13 +218,13 @@ Edit the plan file to add at the bottom:
 <!-- placeholder: will be replaced by Phase 7.3 -->
 ```
 
-### 7.2 — Invoke Codex automatically
+### 5.2 — Invoke Codex automatically
 
 Call `Skill(codex:adversarial-review, "challenge the following plan decisions: <list 1-3 key decisions from the plan>")` immediately. **Do NOT** ask the user "shall I invoke Codex?".
 
-If the Skill call returns one of these failure signals — `error: setup_required` / `not authenticated` / 60s timeout / `rate_limit` / `service_unavailable` — replace the placeholder with `> Codex unavailable, skipped (auto-fallback): <one-line reason>` and jump to 7.5.
+If the Skill call returns one of these failure signals — `error: setup_required` / `not authenticated` / 60s timeout / `rate_limit` / `service_unavailable` — replace the placeholder with `> Codex unavailable, skipped (auto-fallback): <one-line reason>` and jump to 5.5.
 
-### 7.3 — Inject Codex result into the plan
+### 5.3 — Inject Codex result into the plan
 
 Edit the plan: replace the placeholder section with:
 
@@ -228,15 +240,15 @@ Edit the plan: replace the placeholder section with:
 - Codex session 참조: <task-id from Skill result>
 ```
 
-### 7.4 — Divergent auto-rerun (max 3 rounds)
+### 5.4 — Divergent auto-rerun (max 3 rounds)
 
-If Codex returned new objections in 7.2: update the plan body to address them, then re-invoke `Skill(codex:adversarial-review, ...)` with the same focus. Repeat up to **3 rounds total**. Cap at 3 even if still divergent — annotate as `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
+If Codex returned new objections in 5.2: update the plan body to address them, then re-invoke `Skill(codex:adversarial-review, ...)` with the same focus. Repeat up to **3 rounds total**. Cap at 3 even if still divergent — annotate as `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
 
-### 7.5 — Auto-CRITICAL check
+### 5.5 — Auto-CRITICAL check
 
 Scan Codex Open Questions for any auto-CRITICAL items (per §0 catalog: secret exposure, data loss, irreversible migration, auth bypass, external destination change, crypto key handling). If any present:
 
-1. Do NOT proceed to 7.6 / 7.7
+1. Do NOT proceed to 5.6 / 5.7
 2. Output:
    ```
    [MCCP-GATE-STOP] CRITICAL Open Question 감지:
@@ -246,12 +258,12 @@ Scan Codex Open Questions for any auto-CRITICAL items (per §0 catalog: secret e
    ```
 3. End the response.
 
-### 7.6 — Verify plan integrity, then write receipt
+### 5.6 — Verify plan integrity, then write receipt
 
 ```bash
 # Step A: verify Codex section was injected
 grep -q "^## Codex Adversarial Review$" <plan path> || {
-  echo "[MCCP-GATE-STOP] plan에 Codex 섹션 주입 실패. Phase 7.3 재시도 필요."
+  echo "[MCCP-GATE-STOP] plan에 Codex 섹션 주입 실패. Phase 5.3 재시도 필요."
   exit 1
 }
 
@@ -276,9 +288,9 @@ Hook 응답: <captured stderr>
 ~/.claude/settings.json permissions.allow에 등록 필요. 등록 후 같은 명령 재실행.
 ```
 
-and end the response. Do NOT print the Phase 7.7 handoff.
+and end the response. Do NOT print the Phase 5.7 handoff.
 
-### 7.7 — Read-back validate, then print one-line handoff
+### 5.7 — Read-back validate, then print one-line handoff
 
 ```bash
 # Verify the receipt is valid and unblocks /mccp:prp-implement
@@ -288,15 +300,15 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate --command mccp:prp-im
 If exit code is 0:
 
 ```
-Receipt: <receipt path from 7.6 stdout> | Codex: converged in <N> rounds  (or: skipped, auto-fallback)
+Receipt: <receipt path from 5.6 stdout> | Codex: converged in <N> rounds  (or: skipped, auto-fallback)
 Next: /mccp:prp-implement <plan path>
 ```
 
 If exit code is non-zero: do NOT print the handoff. Output the validate stderr and end the response — let the user inspect via `node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js status`.
 
-### Forbidden during Phase 7
+### Forbidden during Phase 5
 
 - "Codex 호출 진행할까요?" / "shall I invoke Codex?"
 - "receipt 직접 작성해주세요" / "receipt를 만드는 커맨드를 터미널에 입력해주세요"
 - "/mccp:prp-implement 직접 실행해주세요" / "다음 단계는 사용자가 직접 진행"
-- 단계 사이 yes/no/proceed/confirm 컨펌 요청 (7.5 CRITICAL stop만 예외)
+- 단계 사이 yes/no/proceed/confirm 컨펌 요청 (5.5 CRITICAL stop만 예외)

@@ -162,6 +162,16 @@ test('deriveDecisionId: branch-based commands always use git branch', function (
   }
 });
 
+test('deriveDecisionId: PRP/ECC aliases share branch-derivation with their canonical commands', function () {
+  const dir = makeTmpGitRepo('feat/alias-feature');
+  try {
+    assert.strictEqual(deriveDecisionId('mccp:prp-pr', 'main', { cwd: dir }), 'alias-feature');
+    assert.strictEqual(deriveDecisionId('mccp:review-pr', '42', { cwd: dir }), 'alias-feature');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('deriveDecisionId: unknown command returns "default"', function () {
   assert.strictEqual(deriveDecisionId('foo:bar', 'anything', { cwd: process.cwd() }), 'default');
   assert.strictEqual(deriveDecisionId(null, '', { cwd: process.cwd() }), 'default');

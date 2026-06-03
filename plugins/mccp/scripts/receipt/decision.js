@@ -22,7 +22,9 @@ const PLAN_PATH_COMMANDS = new Set([
 
 const BRANCH_BASED_COMMANDS = new Set([
   'mccp:pr',
+  'mccp:prp-pr',
   'mccp:code-review',
+  'mccp:review-pr',
 ]);
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;

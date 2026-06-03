@@ -53,3 +53,22 @@ test('aliases: code-review requires mccp-pr-codex', function () {
   const spec = getCommandSpec('/mccp:code-review');
   assert.ok(spec.requires_preceding.indexOf('mccp-pr-codex') !== -1);
 });
+
+test('aliases: plan-prd is registered but writes/requires nothing', function () {
+  const spec = getCommandSpec('/mccp:plan-prd');
+  assert.ok(spec, 'mccp:plan-prd must be registered so hooks recognize it explicitly');
+  assert.deepStrictEqual(spec.produces, [], 'PRD stage writes no receipt');
+  assert.deepStrictEqual(spec.requires_preceding, [], 'PRD has no preceding gate');
+});
+
+test('aliases: prp-pr mirrors pr verbatim (PRP-flow alias)', function () {
+  const pr = getCommandSpec('/mccp:pr');
+  const prpPr = getCommandSpec('/mccp:prp-pr');
+  assert.deepStrictEqual(prpPr, pr, 'prp-pr must be a verbatim alias of pr');
+});
+
+test('aliases: review-pr mirrors code-review verbatim (ECC alias)', function () {
+  const cr = getCommandSpec('/mccp:code-review');
+  const reviewPr = getCommandSpec('/mccp:review-pr');
+  assert.deepStrictEqual(reviewPr, cr, 'review-pr must be a verbatim alias of code-review');
+});

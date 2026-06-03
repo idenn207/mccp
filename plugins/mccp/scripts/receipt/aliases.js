@@ -11,6 +11,14 @@
 //
 // Keys are normalized: leading slash stripped, lowercased.
 const ALIAS_MATRIX = {
+  'mccp:plan-prd': {
+    // PRD stage is co-created with the user and writes no receipt.
+    // Listed here so hooks recognize it explicitly (rather than fall through
+    // to "unknown command, allow"), but produces/requires are empty.
+    produces: [],
+    requires_preceding: [],
+    design_optional: [],
+  },
   'mccp:plan': {
     produces: ['mccp-plan-codex'],
     requires_preceding: [],
@@ -26,7 +34,19 @@ const ALIAS_MATRIX = {
     requires_preceding: ['mccp-plan-codex', 'mccp-implement-codex'],
     design_optional: ['pr-impeccable'],
   },
+  // /mccp:prp-pr is a verbatim alias of /mccp:pr (PRP-flow naming).
+  'mccp:prp-pr': {
+    produces: ['mccp-pr-codex'],
+    requires_preceding: ['mccp-plan-codex', 'mccp-implement-codex'],
+    design_optional: ['pr-impeccable'],
+  },
   'mccp:code-review': {
+    produces: ['code-reviewer'],
+    requires_preceding: ['mccp-pr-codex'],
+    design_optional: ['pr-impeccable'],
+  },
+  // /mccp:review-pr is a verbatim alias of /mccp:code-review (ECC naming).
+  'mccp:review-pr': {
     produces: ['code-reviewer'],
     requires_preceding: ['mccp-pr-codex'],
     design_optional: ['pr-impeccable'],

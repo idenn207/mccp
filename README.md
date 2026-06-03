@@ -8,13 +8,13 @@ ECC 게이트 핵심을 self-contained Apache-2.0 plugin으로 패키징한 개�
 
 Claude Code의 `/mccp:*` namespace에 게이트 시스템을 제공한다:
 
-| Command | 역할 |
-|---|---|
-| `/mccp:plan` | Phase 7 자동 게이트 — plan 작성 → Codex adversarial review → receipt write → 다음 명령 핸드오프 |
-| `/mccp:prp-implement` | Phase 2.5 게이트 — Implement-Codex review + cross-gate dedupe |
-| `/mccp:pr` | PR 게이트 — 디자인/보안/Codex review 통합 |
-| `/mccp:code-review` | PR 게이트 + code-reviewer agent |
-| `/mccp:receipt-*` | receipt 작성·검증·상태 조회 |
+| Command               | 역할                                                                                            |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| `/mccp:plan`          | Phase 7 자동 게이트 — plan 작성 → Codex adversarial review → receipt write → 다음 명령 핸드오프 |
+| `/mccp:prp-implement` | Phase 2.5 게이트 — Implement-Codex review + cross-gate dedupe                                   |
+| `/mccp:pr`            | PR 게이트 — 디자인/보안/Codex review 통합                                                       |
+| `/mccp:code-review`   | PR 게이트 + code-reviewer agent                                                                 |
+| `/mccp:receipt-*`     | receipt 작성·검증·상태 조회                                                                     |
 
 게이트의 enforcement는 command 본문 + hook + receipt CLI script가 직접 수행한다. 별도 rule 파일 배포 없음.
 
@@ -22,7 +22,7 @@ Claude Code의 `/mccp:*` namespace에 게이트 시스템을 제공한다:
 
 ```bash
 # 1. marketplace 추가 (private repo면 git auth 사전 설정 필요)
-/plugin marketplace add https://github.com/skypark207/my-claude-code-plugin
+/plugin marketplace add https://github.com/idenn207/mccp
 
 # 2. plugin install
 /plugin install mccp@mccp
@@ -53,3 +53,4 @@ ECC(MIT)와 impeccable(Apache-2.0)에서 파생된 컴포넌트 정보는 [NOTIC
 ## 게이트 설계 노트
 
 원본 ECC §0 Autonomy Contract의 설계 의도는 [docs/gate-design.md](docs/gate-design.md)에 보존되어 있다 (학습용, enforcement는 코드에서 직접 수행).
+

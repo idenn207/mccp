@@ -105,6 +105,9 @@ function emptyState() {
       chain_aborted: false,
       chain_progress: null,
       last_pr_url: null,
+      // v0.2.3 — dep-check dedupe state (24h re-warn threshold)
+      dep_check_at: null,
+      dep_check_missing: null,
     },
     body: {
       goal: '',
@@ -247,6 +250,9 @@ function renderFrontmatter(fm) {
       : JSON.stringify(fm.chain_progress);
     for (const line of cp.split('\n')) out.push('  ' + line);
   }
+  // v0.2.3 — dep-check dedupe state (only rendered when set)
+  if (fm.dep_check_at) out.push('dep_check_at: ' + fm.dep_check_at);
+  if (fm.dep_check_missing) out.push('dep_check_missing: ' + fm.dep_check_missing);
   out.push('---');
   return out.join('\n');
 }
@@ -301,6 +307,12 @@ function mergeState(existing, patch) {
   if (patch.unsafeCheckpoint !== undefined) merged.frontmatter.unsafe_checkpoint = !!patch.unsafeCheckpoint;
   if (patch.confirmRequired !== undefined) merged.frontmatter.confirm_required = !!patch.confirmRequired;
   if (patch.nextChunk !== undefined) merged.frontmatter.next_chunk = patch.nextChunk;
+  if (patch.depCheck !== undefined) {
+    const dc = patch.depCheck || {};
+    merged.frontmatter.dep_check_at = dc.checkedAt || now;
+    const missing = Array.isArray(dc.missing) ? dc.missing.filter(Boolean) : [];
+    merged.frontmatter.dep_check_missing = missing.length > 0 ? missing.join(',') : null;
+  }
 
   // v0.2.2 Task 8 — auto-chain + cost ceiling fields
   if (patch.session_end_imminent !== undefined || patch.sessionEndImminent !== undefined) {

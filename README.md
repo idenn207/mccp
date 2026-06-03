@@ -54,3 +54,7 @@ ECC(MIT)와 impeccable(Apache-2.0)에서 파생된 컴포넌트 정보는 [NOTIC
 
 원본 ECC §0 Autonomy Contract의 설계 의도는 [docs/gate-design.md](docs/gate-design.md)에 보존되어 있다 (학습용, enforcement는 코드에서 직접 수행).
 
+## 환경변수 / 운영 토글
+
+`MCCP_*` / `ECC_*` 환경변수 전체 카탈로그(✅ live / 🚧 v0.2.2·setup·S10b 예정 포함)는 [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)에 정리되어 있다.
+

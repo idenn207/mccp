@@ -231,6 +231,44 @@ function run(rawInput) {
     const bridge = readBridge(sessionId);
     if (!bridge) return rawInput;
 
+    // v0.2.2 Task 7 — write canonical cost-current.json on every toolCall
+    // so auto-chain.js can read fresh, monotonic telemetry. Writes are
+    // monotonic (R2#1): hard_ceiling_reached + cost_usd are sticky.
+    // Best-effort: a write failure must NOT block the user's PostToolUse hook.
+    try {
+      const cost = bridge.total_cost_usd || 0;
+      const hardCeiling = cost > COST_CRITICAL_USD;
+      const costState = require('../lib/cost-state');
+      costState.writeStateMerged({
+        cost_usd: cost,
+        hard_ceiling_reached: hardCeiling,
+        last_write_ts: Date.now(),
+      });
+
+      // v0.2.2 Task 7 — also flip STATE.md session_end_imminent ($80) and
+      // chain_aborted ($100) so auto-chain.js's second channel agrees.
+      if (cost > COST_WARNING_USD) {
+        try {
+          const stateWriter = require('../state/state-writer');
+          const path = require('path');
+          // Locate repo root from PostToolUse cwd (input.cwd or process.cwd)
+          const cwd = input.cwd || process.cwd();
+          let repoRoot = cwd;
+          for (let i = 0; i < 12; i++) {
+            if (require('fs').existsSync(require('path').join(repoRoot, '.git'))) break;
+            const parent = path.dirname(repoRoot);
+            if (parent === repoRoot) { repoRoot = null; break; }
+            repoRoot = parent;
+          }
+          if (repoRoot && typeof stateWriter.update === 'function') {
+            const patch = { session_end_imminent: true };
+            if (hardCeiling) patch.chain_aborted = true;
+            try { stateWriter.update(repoRoot, patch); } catch { /* swallow */ }
+          }
+        } catch { /* state-writer optional */ }
+      }
+    } catch { /* swallow telemetry write errors */ }
+
     // Stale check for context warnings
     const now = Math.floor(Date.now() / 1000);
     const lastTs = bridge.last_timestamp ? Math.floor(new Date(bridge.last_timestamp).getTime() / 1000) : 0;

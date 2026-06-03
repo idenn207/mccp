@@ -18,6 +18,8 @@ const path = require('path');
 // harness (e.g. manual debugging).
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..', '..');
 const RECEIPT_DIR = path.join(PLUGIN_ROOT, 'scripts', 'receipt');
+const LIB_DIR = path.join(PLUGIN_ROOT, 'scripts', 'lib');
+const { resolveMode: resolveReceiptMode, warnIfOff } = require(path.join(LIB_DIR, 'receipt-mode'));
 
 function readStdin() {
   return new Promise(function (resolve) {
@@ -104,6 +106,18 @@ async function main() {
     return allow();
   }
 
+  // v0.2.2 Task 4 — MCCP_RECEIPT_GATE_MODE resolution.
+  // 'off' → bypass entirely with loud stderr warning (debugging only).
+  // 'soft' → opt-in, allow missing receipts (no placeholder write at hook time;
+  //          placeholders are operator-driven via /mccp:receipt-write).
+  // 'hard' (default) → existing behavior, block on missing/stale.
+  const receiptMode = resolveReceiptMode(process.env);
+  if (receiptMode === 'off') {
+    warnIfOff('off', 'UserPromptExpansion ' + commandName);
+    debug('MCCP_RECEIPT_GATE_MODE=off bypass');
+    return allow();
+  }
+
   let validateCommand;
   try {
     validateCommand = require(path.join(RECEIPT_DIR, 'validate-cmd')).validateCommand;
@@ -137,7 +151,21 @@ async function main() {
     return allow();
   }
 
-  debug('BLOCK ' + commandName + ' (decision="' + decisionId + '")');
+  // v0.2.2 Task 4 — soft mode: ONLY missing receipts pass; stale/blocking/critical
+  // still block (those are integrity failures, not Codex unavailability).
+  if (receiptMode === 'soft' &&
+      (result.stale || []).length === 0 &&
+      (result.blocking || []).length === 0 &&
+      (result.open_critical || []).length === 0) {
+    process.stderr.write(
+      '[mccp-receipt-prompt] MCCP_RECEIPT_GATE_MODE=soft: allowing ' + commandName +
+      ' with ' + (result.missing || []).length + ' missing receipt(s). ' +
+      'Audit-write a placeholder via: node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write --codex-skipped\n'
+    );
+    return allow();
+  }
+
+  debug('BLOCK ' + commandName + ' (decision="' + decisionId + '", mode=' + receiptMode + ')');
   return block(commandName, decisionId, result);
 }
 

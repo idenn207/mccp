@@ -14,6 +14,24 @@ argument-hint: "[base-branch] (default: main)"
 
 ---
 
+## Phase 0 — TERMINAL ADVISORY REJECTION (v0.2.2 R2#2)
+
+`/mccp:pr` is a terminal mutating command that creates a PR. Per the plan v0.2.2 R3#2 carry-over decision (and Codex R2#2), **terminal commands MUST refuse `MCCP_ALLOW_CODEX_UNAVAILABLE=1` advisory mode**. The rejection runs **before any `gh` invocation, before Phase 1 discovery, and writes no receipt**.
+
+```bash
+if [ "${MCCP_ALLOW_CODEX_UNAVAILABLE:-0}" = "1" ]; then
+  echo "[MCCP-GATE-STOP] /mccp:pr refuses advisory mode (MCCP_ALLOW_CODEX_UNAVAILABLE=1)." 1>&2
+  echo "Reason: terminal mutating command requires a converged Codex PR-Codex receipt." 1>&2
+  echo "Fix Codex availability (run /codex:setup or check the codex plugin install) and re-run." 1>&2
+  echo "No GitHub API calls were made. No receipt written." 1>&2
+  exit 1
+fi
+```
+
+This Phase 0 runs before `gh pr list` so an advisory invocation never touches GitHub. The auto-chain `pr` step from [auto-chain.js](../scripts/lib/auto-chain.js) mirrors this rejection at chain-orchestration time as defense-in-depth.
+
+---
+
 ## Phase 1 — VALIDATE
 
 Check preconditions:
@@ -144,15 +162,29 @@ Residual areas reviewed:
 
 Use `convergence.plan_codex_receipt.round` and `convergence.implement_codex_receipt.round` from the JSON for N1 / N2. If either receipt is missing or `converged !== true`, the CLI sets `skip_safe = false` automatically with a `reason` like `"plan-codex receipt missing or not converged"`. Treat that as the normal non-deduped path.
 
-### 2.5.3 — Invoke Codex with --base
+### 2.5.3 — Invoke Codex with --base (v0.2.2 fail-closed Bash wrapper)
 
-Build the focus text from: PR title (Phase 2), top 1-3 risky areas (migrations, auth, external calls, performance hotspots), and the residual diff areas from 2.5.2. Call:
+Build the focus text from: PR title (Phase 2), top 1-3 risky areas (migrations, auth, external calls, performance hotspots), and the residual diff areas from 2.5.2. Run the fail-closed wrapper from [scripts/lib/codex-invoke.js](../scripts/lib/codex-invoke.js):
 
+```bash
+mkdir -p .git/mccp/tmp
+CODEX_STDOUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js" adversarial-review \
+  --focus "challenge this PR diff against base <base-branch>: <focus text>" \
+  --base "<base-branch>" \
+  --timeout-ms 90000 \
+  --json 2> .git/mccp/tmp/codex-invoke.stderr)
+CODEX_EXIT=$?
+CODEX_BLOCKING=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.blocking?"1":"0")}catch{console.log("1")}' "$CODEX_STDOUT")
+CODEX_CLASS=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.classification||"unknown")}catch{console.log("parse-error")}' "$CODEX_STDOUT")
+
+# Phase 0 already rejected advisory mode for /mccp:pr (terminal command). Any non-ok
+# classification here is a hard failure — no advisory bypass possible at this stage.
+if [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || [ "$CODEX_CLASS" != "ok" ]; then
+  echo "[MCCP-GATE-STOP] Codex review failed (class=$CODEX_CLASS exit=$CODEX_EXIT)." 1>&2
+  echo "Inspect: cat .git/mccp/tmp/codex-invoke.stderr" 1>&2
+  exit 1
+fi
 ```
-Skill(codex:adversarial-review, "challenge this PR diff against base <base-branch>: <focus text>")
-```
-
-Codex auto-fallback triggers (same as Plan-Codex Phase 7.2): `error: setup_required` / `not authenticated` / 60s timeout / `rate_limit` / `service_unavailable` → write `> Codex unavailable, skipped (auto-fallback): <reason>` into the `## Codex Adversarial Review` PR body placeholder and jump to 2.5.6.
 
 ### 2.5.4 — Inject review section + auto-rerun on Divergent, persist body draft
 
@@ -161,7 +193,7 @@ Construct the `## Codex Adversarial Review` PR body section with the same schema
 ```markdown
 ## Codex Adversarial Review
 
-- 호출: `Skill(codex:adversarial-review)` --base <base-branch>
+- 호출: `node ${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js adversarial-review --base <base-branch>` (v0.2.2 fail-closed Bash wrapper)
 - 라운드 수: <N>
 - 합치 결론: <one-line summary>
 - 수용한 제안: <bullet list>

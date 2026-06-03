@@ -14,6 +14,8 @@ const path = require('path');
 
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..', '..');
 const RECEIPT_DIR = path.join(PLUGIN_ROOT, 'scripts', 'receipt');
+const LIB_DIR = path.join(PLUGIN_ROOT, 'scripts', 'lib');
+const { resolveMode: resolveReceiptMode, warnIfOff } = require(path.join(LIB_DIR, 'receipt-mode'));
 
 function readStdin() {
   return new Promise(function (resolve) {
@@ -72,6 +74,14 @@ async function main() {
     return 0;
   }
 
+  // v0.2.2 Task 4 — MCCP_RECEIPT_GATE_MODE resolution (mirrors receipt-prompt.js).
+  const receiptMode = resolveReceiptMode(process.env);
+  if (receiptMode === 'off') {
+    warnIfOff('off', 'Skill ' + skillName);
+    debug('MCCP_RECEIPT_GATE_MODE=off bypass');
+    return 0;
+  }
+
   let validateCommand;
   try {
     validateCommand = require(path.join(RECEIPT_DIR, 'validate-cmd')).validateCommand;
@@ -102,6 +112,18 @@ async function main() {
 
   if (result.ok) {
     debug('OK Skill ' + skillName + ' (decision="' + decisionId + '")');
+    return 0;
+  }
+
+  // v0.2.2 Task 4 — soft mode tolerates missing receipts only.
+  if (receiptMode === 'soft' &&
+      (result.stale || []).length === 0 &&
+      (result.blocking || []).length === 0 &&
+      (result.open_critical || []).length === 0) {
+    process.stderr.write(
+      '[mccp-receipt-skill] MCCP_RECEIPT_GATE_MODE=soft: allowing Skill ' + skillName +
+      ' with ' + (result.missing || []).length + ' missing receipt(s).\n'
+    );
     return 0;
   }
 

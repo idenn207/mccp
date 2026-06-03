@@ -130,3 +130,34 @@ test('confirm_required toggle reflects in frontmatter', () => {
   raw = readRaw(repo);
   assert.match(raw, /^confirm_required: false$/m);
 });
+
+// v0.2.2 Task 8 — new fields round-trip
+test('session_end_imminent + chain_aborted round-trip', () => {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact', session_end_imminent: true });
+  let raw = readRaw(repo);
+  assert.match(raw, /^session_end_imminent: true$/m);
+  assert.match(raw, /^chain_aborted: false$/m);
+  sw.update(repo, { event: 'precompact', chain_aborted: true });
+  raw = readRaw(repo);
+  assert.match(raw, /^session_end_imminent: true$/m);
+  assert.match(raw, /^chain_aborted: true$/m);
+});
+
+test('recordChainProgress appends step entries', () => {
+  const repo = mkRepo();
+  sw.recordChainProgress(repo, { step: 'commit', status: 'ok', receipt_path: '.claude/receipts/x.json' });
+  sw.recordChainProgress(repo, { step: 'pr', status: 'failed' });
+  const raw = readRaw(repo);
+  assert.match(raw, /chain_progress: \|/);
+  // chain_progress is a JSON serialization split across lines under YAML pipe;
+  // join the body and parse as JSON to assert structure.
+  const m = raw.match(/chain_progress: \|\s*\n((?:  .+\n)+)/);
+  assert.ok(m, 'chain_progress block missing: ' + raw);
+  const json = m[1].split('\n').map(l => l.replace(/^  /, '')).join('\n').trim();
+  const parsed = JSON.parse(json);
+  assert.strictEqual(parsed.steps.length, 2);
+  assert.strictEqual(parsed.steps[0].step, 'commit');
+  assert.strictEqual(parsed.steps[1].step, 'pr');
+  assert.strictEqual(parsed.steps[1].status, 'failed');
+});

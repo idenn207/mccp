@@ -127,6 +127,25 @@ function validateCommand(command, opts) {
         reason: 'preceding gate was skipped (meta.skipped=true, reason: ' + (receipt.meta.skip_reason || 'n/a') + ')',
       });
     }
+
+    // v0.2.2 Task 4 — codex_skipped + advisory receipts are non-approving.
+    // Plan R1#2: hollow-gate weakness fix. A receipt where Codex review was
+    // bypassed (auto-fallback, advisory mode, soft-mode placeholder) must not
+    // satisfy downstream gates as if Codex had approved.
+    if (receipt.meta && receipt.meta.codex_skipped === true && !receipt.meta.skipped) {
+      result.blocking.push({
+        gate_id: gateId,
+        decision_id: result.decisionId,
+        reason: 'preceding gate has meta.codex_skipped=true (non-approving — Codex did not converge)',
+      });
+    }
+    if (receipt.meta && receipt.meta.advisory === true) {
+      result.blocking.push({
+        gate_id: gateId,
+        decision_id: result.decisionId,
+        reason: 'preceding gate ran in advisory mode (meta.advisory=true — non-approving)',
+      });
+    }
   }
 
   result.ok = result.missing.length === 0

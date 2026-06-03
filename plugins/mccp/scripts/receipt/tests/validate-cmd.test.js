@@ -140,3 +140,41 @@ test('validate-cmd: skipped preceding gate is treated as blocking', function () 
     else process.env.MCCP_SKIP_RECEIPT = prev;
   }
 });
+
+// v0.2.2 Task 4 — codex_skipped + advisory mode receipts are non-approving (R1#2 hollow-gate fix).
+
+test('validate-cmd: receipt with meta.codex_skipped=true is non-approving', function () {
+  const { repo, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    const r = write({ gate: 'mccp-plan-codex', decision: 'feature-x', plan: planRel, 'codex-skipped': true });
+    const result = validateCommand('/mccp:prp-implement', { cwd: repo, decisionId: 'feature-x' });
+    assert.strictEqual(result.ok, false, JSON.stringify(result));
+    assert.ok(result.blocking.length >= 1);
+    assert.match(result.blocking[0].reason, /codex_skipped/);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('validate-cmd: receipt with meta.advisory=true is non-approving', function () {
+  const { repo, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    const r = write({ gate: 'mccp-plan-codex', decision: 'feature-x', plan: planRel });
+    // Hand-edit advisory flag (no CLI flag for this yet — set by future wrappers)
+    const raw = JSON.parse(fs.readFileSync(r.path, 'utf8'));
+    raw.meta.advisory = true;
+    // Re-sign to keep subject_hash consistent
+    const { subjectHash } = require('../hash');
+    raw.subject_hash = subjectHash(raw);
+    fs.writeFileSync(r.path, JSON.stringify(raw, null, 2));
+    const result = validateCommand('/mccp:prp-implement', { cwd: repo, decisionId: 'feature-x' });
+    assert.strictEqual(result.ok, false, JSON.stringify(result));
+    assert.ok(result.blocking.some(b => /advisory/.test(b.reason)));
+  } finally {
+    process.chdir(cwd);
+  }
+});

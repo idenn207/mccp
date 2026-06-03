@@ -134,3 +134,48 @@ The original ECC rule text covered several concepts mccp does not own:
   `plugins/mccp/commands/prp-implement.md`
 - Codex Skill (external dependency, installed separately):
   [openai-codex Claude Code plugin](https://github.com/openai/codex-plugin-cc)
+
+---
+
+## v0.2.2 — Codex Invocation Path + Mode + Auto-Chain
+
+### Codex Invocation Path
+
+The Skill interface `codex:adversarial-review` does not exist in the codex plugin's skill index (only `codex:codex-cli-runtime`, `codex:codex-result-handling`, `codex:gpt-5-4-prompting`), and the `/codex:adversarial-review` slash command has `disable-model-invocation: true` blocking model-driven auto-invocation. v0.2.2 replaces both paths with a **fail-closed Bash wrapper**:
+
+```
+node ${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js adversarial-review --focus "..." --json
+```
+
+See [scripts/lib/codex-invoke.js](../plugins/mccp/scripts/lib/codex-invoke.js). The wrapper resolves codex plugin via `~/.claude/plugins/installed_plugins.json`, verifies companion interface (`scripts/codex-companion.mjs` exists + plugin.json version matches compatible list `["1.0.x"]`), then spawns the companion via `process.execPath`. All non-`ok` classifications are blocking by default. Exit 12 = blocking, exit 0 = ok or advisory.
+
+Classification enum (see CLAUDE.md §3.3 table):
+`ok` / `registry-missing` / `registry-malformed` / `plugin-not-installed` / `install-path-stale` / `companion-not-found` / `companion-version-mismatch` / `not-authenticated` / `timeout` / `exit-nonzero` / `stdout-empty` / `spawn-enoent` / `parse-error`
+
+### Mode
+
+`MCCP_RECEIPT_GATE_MODE` env (`hard` default, `soft` opt-in, `off` debug-only). See [scripts/lib/receipt-mode.js](../plugins/mccp/scripts/lib/receipt-mode.js).
+
+- `hard`: receipt-prompt.js + receipt-skill.js block on any missing/stale/blocking/critical. validate-cmd.js treats `meta.codex_skipped=true` and `meta.advisory=true` as non-approving.
+- `soft`: ONLY missing receipts pass. Stale, schema-invalid, CRITICAL Open Questions still block.
+- `off`: Hook bypass with loud stderr warning. Chain-of-custody is broken; use for debugging only.
+
+### Auto-Chain
+
+[scripts/lib/auto-chain.js](../plugins/mccp/scripts/lib/auto-chain.js) is a decision API (not an executor):
+
+- `check --next-step <s>` → returns `{should_abort, reasons[]}`. 8 abort triggers.
+- `preflight <step>` → R2#2 terminal advisory rejection for `pr` step.
+- `record-step --step --status` → appends to STATE.md `chain_progress`.
+
+shouldAbort() checks: kill switch env, STATE.md `chain_aborted`, previous step failed, receipt validate failures (missing/stale/blocking/critical), and **cost telemetry from `~/.claude/plugins/data/mccp/cost-current.json`** (missing/stale/unreadable/`hard_ceiling_reached`).
+
+Cost writer ([scripts/lib/cost-state.js](../plugins/mccp/scripts/lib/cost-state.js)) uses **lockfile + monotonic merge**:
+
+- Lockfile `cost-current.lock` opened with `wx` (O_EXCL). 5 retries × 20ms.
+- **Unconditional sticky merge** (R2#1): `hard_ceiling_reached = prev OR new`, `cost_usd = max(prev, new)` regardless of `last_write_ts`. A stale older-true event still turns ceiling on.
+- Canonical path: `os.homedir()/.claude/plugins/data/mccp/`. Never cwd-relative.
+
+Terminal `pr` advisory rejection (R2#2): runs in two layers as defense-in-depth:
+1. `pr.md` Phase 0 preflight (before `gh pr list`, before any GitHub API)
+2. `auto-chain.js preflight pr` (before invoking `pr.md` from chain)

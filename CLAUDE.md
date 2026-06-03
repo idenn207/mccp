@@ -40,13 +40,14 @@ mccp의 차별점은 **Claude(Opus) ↔ Codex(GPT-5.4 계열) cross-model advers
 
 - Claude가 plan/implement/PR을 작성 → Codex가 review → 두 모델 모두 APPROVE해야 게이트 통과.
 - 같은 모델이 작성하고 review하는 single-model blind spot을 방지 (skill `mccp:ai-regression-testing` 패턴 참고).
-- `codex` plugin은 **강력 권장 의존성**입니다. 현재 (v0.2.1) 동작:
-  - **모드 토글 없음** — 사실상 hard 고정. `MCCP_RECEIPT_GATE_MODE` env는 **미구현** (v0.2.2 예정, 아래 참조).
-  - 단, Codex unavailable 시 `codex_skipped` receipt를 발행하고 다음 게이트로 진행하는 fallback은 hard mode 안에서도 동작합니다 (S9 dogfood에서 auto-fallback 100% rate로 검증, [scripts/receipt/schema.js](plugins/mccp/scripts/receipt/schema.js)).
-- **v0.2.2 예정** — `MCCP_RECEIPT_GATE_MODE` 토글 도입 ([.claude/plans/mccp-v0.2.2.plan.md](.claude/plans/mccp-v0.2.2.plan.md)):
-  - `hard` (예정 default — chain-of-custody 유지) — 누락/skipped receipt는 게이트 미통과
-  - `soft` (opt-in only) — 누락 receipt에 skipped-soft placeholder write, downstream validator는 non-approving 처리
-  - `off` — receipt 게이트 자체 비활성 (테스트/CI 전용)
+- `codex` plugin은 **강력 권장 의존성**입니다. 호출 경로 (v0.2.2):
+  - Skill interface `codex:adversarial-review`는 codex plugin의 skill index에 **존재하지 않음** + `/codex:adversarial-review` slash command는 `disable-model-invocation:true`로 차단. 두 경로 모두 막힌 상태.
+  - v0.2.2부터 mccp commands(plan/prp-implement/pr)는 **Bash 직접 호출**로 `node ${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js adversarial-review`를 통해 codex-companion.mjs를 호출 (fail-closed wrapper, exit 12 = blocking, classification enum 11종).
+  - Codex unavailable 시 **fail-closed 기본**: 모든 non-`ok` classification은 `blocking=true`로 게이트 미통과. `MCCP_ALLOW_CODEX_UNAVAILABLE=1`로만 advisory mode 활성(non-approving receipt). 단, **terminal `/mccp:pr`은 Phase 0 preflight에서 advisory mode를 명시적으로 거부** — gh 호출 전 즉시 exit 1, receipt 미작성 (R2#2 commitment).
+- **v0.2.2 `MCCP_RECEIPT_GATE_MODE` 토글 라이브**:
+  - `hard` (default — chain-of-custody 유지) — 누락/skipped/advisory receipt는 게이트 미통과
+  - `soft` (opt-in only) — 누락 receipt만 통과, stale/blocking/critical은 여전히 차단
+  - `off` — receipt 게이트 비활성 (loud stderr warning, 디버깅 전용)
 - Codex 미설치 사용자는 `/codex:setup`로 인증 권장.
 
 ### 1.3 자동화 파이프라인 (v0.1 receipt chain)
@@ -135,15 +136,34 @@ my-claude-code-plugin/
 - `pre-compact.js` hook이 compaction 직전 갱신.
 - 직접 편집하지 말고 `state-writer.js` API를 사용하세요 — frontmatter 스키마, atomic lock, CRLF normalization, schema version guard가 묶여 있습니다.
 
-### 3.3 Codex 의존 작업의 실패 모드
+### 3.3 Codex 의존 작업의 실패 모드 (v0.2.2 fail-closed matrix)
 
-Codex review가 invalid JSON, timeout, gateway error를 반환할 수 있습니다. 옵션:
+[scripts/lib/codex-invoke.js](plugins/mccp/scripts/lib/codex-invoke.js)의 classification enum과 정합화:
 
-1. `/codex:review --wait` 수동 재실행
-2. `/mccp:receipt-write` 로 게이트 receipt 수동 작성 후 bypass (이유 명시 필수)
-3. 일시적 Codex 장애면 nudge 후 잠시 대기
+| Classification | 원인 | 기본 동작 | Advisory mode 동작 |
+|---|---|---|---|
+| `ok` | 정상 응답 | 통과 (`blocking=false`) | n/a |
+| `registry-missing` | `~/.claude/plugins/installed_plugins.json` 없음 | block (exit 12) | warn + 통과 (non-approving receipt) |
+| `plugin-not-installed` | codex@openai-codex registry entry 없음 | block | warn + 통과 |
+| `install-path-stale` | installPath가 디스크에 없음 | block | warn + 통과 |
+| `companion-not-found` | `codex-companion.mjs` 미존재 | block | warn + 통과 |
+| `companion-version-mismatch` | plugin.json version이 compatible list(1.0.x)와 다름 | block | warn + 통과 |
+| `not-authenticated` | `not authenticated`/`setup_required` stderr 패턴 | block | warn + 통과 |
+| `timeout` | 90s 초과 | block | warn + 통과 |
+| `exit-nonzero` | companion이 exit 0 외 종료 | block | warn + 통과 |
+| `stdout-empty` | exit 0이지만 stdout 빈 출력 | block | warn + 통과 |
+| `spawn-enoent` | node 실행 실패 | block | warn + 통과 |
+| `parse-error` | wrapper JSON parse 실패 | block | warn + 통과 |
 
-자세한 fallback 매트릭스는 [docs/gate-design.md](docs/gate-design.md) 참조.
+복구 옵션 (우선순위 순):
+
+1. `/codex:setup` — 인증 + plugin 설치 상태 검증
+2. `MCCP_ALLOW_CODEX_UNAVAILABLE=1` (한 호출만) — advisory mode. **terminal `/mccp:pr`은 거부**.
+3. `MCCP_RECEIPT_GATE_MODE=soft` — opt-in. 누락 receipt만 통과.
+4. `/mccp:receipt-write` — 게이트 receipt 수동 작성 (이유 명시 필수)
+5. `MCCP_SKIP_RECEIPT=1` — 일회성 bypass (한 호출만)
+
+자세한 fallback 매트릭스 + sequence diagram은 [docs/gate-design.md](docs/gate-design.md) 참조.
 
 ### 3.4 코드 스타일 / 컨벤션
 
@@ -191,9 +211,14 @@ MCCP_STOP_LOOP=off|observe|enforce       # default: observe (관측만, block �
 MCCP_STOP_LOOP_CODEX=0|1                 # default: 0 (Codex diff review opt-in)
 
 # Receipt 게이트 (Codex adversarial review)
-# MCCP_RECEIPT_GATE_MODE=soft|hard|off   # ⚠ v0.2.2 예정 (미구현). default=hard. soft/off는 opt-in only.
+MCCP_RECEIPT_GATE_MODE=soft|hard|off     # v0.2.2 live. default=hard. soft/off는 opt-in only.
 MCCP_SKIP_RECEIPT=1                      # 일회성 bypass (한 호출만) ─ live
 MCCP_RECEIPT_DEBUG=1                     # 디버그 출력 활성화 ─ live
+MCCP_ALLOW_CODEX_UNAVAILABLE=1           # advisory mode (non-approving receipt). terminal /mccp:pr은 거부 ─ live (v0.2.2)
+
+# Auto-chain (v0.2.2)
+MCCP_AUTO_CHAIN_DISABLE=1                # kill switch ─ live
+MCCP_AUTO_CHAIN_SKIP_PR=1                # commit-only chain (직접 push cycles 용) ─ live
 
 # Auto-handoff
 # MCCP_AUTO_HANDOFF=off|notify|spawn     # ⚠ S10b 미구현. 환경변수만 예약된 상태.

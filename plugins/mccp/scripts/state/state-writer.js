@@ -100,6 +100,11 @@ function emptyState() {
       unsafe_checkpoint: false,
       confirm_required: false,
       next_chunk: null,
+      // v0.2.2 Task 8 — auto-chain + cost ceiling fields
+      session_end_imminent: false,
+      chain_aborted: false,
+      chain_progress: null,
+      last_pr_url: null,
     },
     body: {
       goal: '',
@@ -230,6 +235,18 @@ function renderFrontmatter(fm) {
       out.push('  ' + line);
     }
   }
+  // v0.2.2 Task 8 — auto-chain + cost ceiling fields (defaults emitted always
+  // so downstream readers can rely on presence).
+  out.push('session_end_imminent: ' + (fm.session_end_imminent ? 'true' : 'false'));
+  out.push('chain_aborted: ' + (fm.chain_aborted ? 'true' : 'false'));
+  if (fm.last_pr_url) out.push('last_pr_url: ' + String(fm.last_pr_url));
+  if (fm.chain_progress) {
+    out.push('chain_progress: |');
+    const cp = typeof fm.chain_progress === 'string'
+      ? fm.chain_progress
+      : JSON.stringify(fm.chain_progress);
+    for (const line of cp.split('\n')) out.push('  ' + line);
+  }
   out.push('---');
   return out.join('\n');
 }
@@ -284,6 +301,20 @@ function mergeState(existing, patch) {
   if (patch.unsafeCheckpoint !== undefined) merged.frontmatter.unsafe_checkpoint = !!patch.unsafeCheckpoint;
   if (patch.confirmRequired !== undefined) merged.frontmatter.confirm_required = !!patch.confirmRequired;
   if (patch.nextChunk !== undefined) merged.frontmatter.next_chunk = patch.nextChunk;
+
+  // v0.2.2 Task 8 — auto-chain + cost ceiling fields
+  if (patch.session_end_imminent !== undefined || patch.sessionEndImminent !== undefined) {
+    merged.frontmatter.session_end_imminent = !!(patch.session_end_imminent || patch.sessionEndImminent);
+  }
+  if (patch.chain_aborted !== undefined || patch.chainAborted !== undefined) {
+    merged.frontmatter.chain_aborted = !!(patch.chain_aborted || patch.chainAborted);
+  }
+  if (patch.last_pr_url !== undefined || patch.lastPrUrl !== undefined) {
+    merged.frontmatter.last_pr_url = patch.last_pr_url || patch.lastPrUrl || null;
+  }
+  if (patch.chain_progress !== undefined || patch.chainProgress !== undefined) {
+    merged.frontmatter.chain_progress = patch.chain_progress || patch.chainProgress || null;
+  }
 
   if (!merged.frontmatter.created_at) merged.frontmatter.created_at = now;
   merged.frontmatter.updated_at = now;
@@ -372,6 +403,30 @@ function update(repoRoot, patch) {
   });
 }
 
+// v0.2.2 Task 8 — append-only chain progress recorder for auto-chain.js.
+function recordChainProgress(repoRoot, entry) {
+  return withStateLock(repoRoot, function () {
+    const existing = readState(repoRoot);
+    let log;
+    if (existing.frontmatter.chain_progress) {
+      try { log = JSON.parse(existing.frontmatter.chain_progress); }
+      catch { log = { steps: [] }; }
+    } else {
+      log = { steps: [] };
+    }
+    if (!Array.isArray(log.steps)) log.steps = [];
+    log.steps.push({
+      step: String(entry.step || 'unknown'),
+      status: String(entry.status || 'unknown'),
+      receipt_path: entry.receipt_path || entry.receiptPath || null,
+      ts: nowIso(),
+    });
+    const merged = mergeState(existing, { chain_progress: JSON.stringify(log) });
+    writeStateAtomic(repoRoot, merged);
+    return { path: statePath(repoRoot), log: log };
+  });
+}
+
 module.exports = {
   STATE_VERSION: STATE_VERSION,
   VALID_EVENTS: VALID_EVENTS,
@@ -385,4 +440,5 @@ module.exports = {
   renderState: renderState,
   withStateLock: withStateLock,
   update: update,
+  recordChainProgress: recordChainProgress,
 };

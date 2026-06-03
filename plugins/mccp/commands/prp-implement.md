@@ -118,11 +118,32 @@ Then skip to 2.5.6 (receipt write). Otherwise continue.
 
 Enumerate decisions that the plan did NOT pre-commit to: file layout details, helper abstractions you'll introduce, library choices, concurrency primitives, error-handling shape. Capture as a short bullet list — this becomes the focus text for Codex.
 
-### 2.5.3 — Invoke Codex automatically
+### 2.5.3 — Invoke Codex automatically (v0.2.2 fail-closed Bash wrapper)
 
-Call `Skill(codex:adversarial-review, "challenge the following implement-time decisions: <bullet list from 2.5.2>")`. Do NOT ask "shall I invoke Codex?".
+Skill interface `codex:adversarial-review` does not exist and the slash command is `disable-model-invocation:true`. Use the fail-closed Bash wrapper from [scripts/lib/codex-invoke.js](../scripts/lib/codex-invoke.js). Do NOT ask "shall I invoke Codex?".
 
-Codex auto-fallback triggers (same as mccp-plan-codex Phase 7.2): `error: setup_required` / `not authenticated` / 60s timeout / `rate_limit` / `service_unavailable` → write `> Codex unavailable, skipped (auto-fallback): <reason>` into the `## Codex Implementation Review` section and jump to 2.5.6.
+```bash
+mkdir -p .git/mccp/tmp
+CODEX_STDOUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js" adversarial-review \
+  --focus "challenge the following implement-time decisions: <bullet list from 2.5.2>" \
+  --timeout-ms 90000 \
+  --json 2> .git/mccp/tmp/codex-invoke.stderr)
+CODEX_EXIT=$?
+CODEX_BLOCKING=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.blocking?"1":"0")}catch{console.log("1")}' "$CODEX_STDOUT")
+CODEX_CLASS=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.classification||"unknown")}catch{console.log("parse-error")}' "$CODEX_STDOUT")
+
+if [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || [ "$CODEX_CLASS" != "ok" ]; then
+  if [ "${MCCP_ALLOW_CODEX_UNAVAILABLE:-0}" = "1" ]; then
+    echo "[mccp] Codex unavailable in advisory mode (class=$CODEX_CLASS exit=$CODEX_EXIT)"
+    # Write '> Codex unavailable, skipped (auto-fallback): <class>' into the review section and jump to 2.5.6.
+    # Receipt will record advisory=true → downstream validator treats as non-approving.
+  else
+    echo "[MCCP-GATE-STOP] Codex unavailable (blocking=$CODEX_BLOCKING class=$CODEX_CLASS exit=$CODEX_EXIT)."
+    echo "Set MCCP_ALLOW_CODEX_UNAVAILABLE=1 to proceed in advisory mode (non-approving receipt)."
+    exit 1
+  fi
+fi
+```
 
 ### 2.5.4 — Inject review section + auto-rerun on Divergent
 
@@ -413,6 +434,49 @@ Report to user:
 
 > Next step: Run `/mccp:pr` to create a pull request, or `/mccp:code-review` to review changes first.
 ```
+
+---
+
+## Phase 7 — AUTO-CHAIN (v0.2.2, opt-in)
+
+After Phase 6 OUTPUT, query [scripts/lib/auto-chain.js](../scripts/lib/auto-chain.js) for chain orchestration. The chain steps are `commit` → `pr`. Each step is a separate slash command invocation; auto-chain.js only answers "should I proceed?" — it does not invoke commands itself.
+
+```bash
+# Pre-commit check
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/auto-chain.js" check \
+  --next-step commit \
+  --decision "<decision-slug>" 2> .git/mccp/tmp/auto-chain.stderr
+CHAIN_EXIT=$?
+```
+
+Behavior:
+- Exit 0: proceed by invoking `/mccp:prp-commit <message>`.
+- Exit 13: auto-chain decided to abort (8 triggers per `shouldAbort()`; e.g. cost hard ceiling, missing receipts, STATE.md `chain_aborted=true`). Read stdout JSON for `reasons`, log to STATE.md, end response quietly.
+- Other non-zero: configuration error. Stop chain, surface to user.
+
+After `/mccp:prp-commit` succeeds:
+
+```bash
+# Pre-PR preflight + check
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/auto-chain.js" preflight pr
+PREFLIGHT_EXIT=$?
+if [ "$PREFLIGHT_EXIT" != "0" ]; then
+  echo "[mccp] auto-chain pr step preflight refused (likely MCCP_ALLOW_CODEX_UNAVAILABLE=1 set)." 1>&2
+  exit 0  # quiet abort; user can manually run /mccp:pr later
+fi
+
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/auto-chain.js" check \
+  --next-step pr \
+  --validate-command mccp:pr \
+  --decision "<decision-slug>"
+CHAIN_EXIT=$?
+```
+
+If 0 → invoke `/mccp:pr`. If 13 → end response quietly.
+
+This Phase 7 is enabled by default. Opt-out via env:
+- `MCCP_AUTO_CHAIN_DISABLE=1` — kill switch (operator)
+- `MCCP_AUTO_CHAIN_SKIP_PR=1` — commit only, no PR (for direct-push cycles)
 
 ---
 

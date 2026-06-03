@@ -26,6 +26,10 @@ const AUTO_FALLBACK_PATTERNS = [
   /^codex unavailable/im,
   /\bauto-fallback\b/i,
   /timed?\s*out\s*\(?60s?\)?/i,
+  /codex[\s-]plugin[\s-]not[\s-]installed/i,
+  /codex[\s-]companion[\s-]not[\s-]found/i,
+  /cli[\s-]not[\s-]authenticated/i,
+  /process[\s-]exit[\s-]nonzero/i,
 ];
 
 // Auto-CRITICAL catalog mirrors docs/gate-design.md §Auto-CRITICAL.

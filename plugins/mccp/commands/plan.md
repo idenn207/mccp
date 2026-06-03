@@ -218,11 +218,37 @@ Edit the plan file to add at the bottom:
 <!-- placeholder: will be replaced by Phase 7.3 -->
 ```
 
-### 5.2 — Invoke Codex automatically
+### 5.2 — Invoke Codex automatically (v0.2.2 fail-closed Bash wrapper)
 
-Call `Skill(codex:adversarial-review, "challenge the following plan decisions: <list 1-3 key decisions from the plan>")` immediately. **Do NOT** ask the user "shall I invoke Codex?".
+Skill interface `codex:adversarial-review` does not exist in the codex plugin's skill index (only `codex-cli-runtime` / `codex-result-handling` / `gpt-5-4-prompting`), and the `/codex:adversarial-review` slash command sets `disable-model-invocation: true` to block model-driven auto-invocation. v0.2.2 replaces both blocked paths with a **fail-closed Bash wrapper** that spawns `codex-companion.mjs` directly via `node` and normalizes every failure to a JSON `classification` (see [scripts/lib/codex-invoke.js](../scripts/lib/codex-invoke.js)).
 
-If the Skill call returns one of these failure signals — `error: setup_required` / `not authenticated` / 60s timeout / `rate_limit` / `service_unavailable` — replace the placeholder with `> Codex unavailable, skipped (auto-fallback): <one-line reason>` and jump to 5.5.
+Run the wrapper. **Do NOT** ask the user "shall I invoke Codex?".
+
+```bash
+mkdir -p .git/mccp/tmp
+CODEX_STDOUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js" adversarial-review \
+  --focus "challenge the following plan decisions: <list 1-3 key decisions from the plan>" \
+  --timeout-ms 90000 \
+  --json 2> .git/mccp/tmp/codex-invoke.stderr)
+CODEX_EXIT=$?
+
+CODEX_BLOCKING=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.blocking?"1":"0")}catch{console.log("1")}' "$CODEX_STDOUT")
+CODEX_CLASS=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.classification||"unknown")}catch{console.log("parse-error")}' "$CODEX_STDOUT")
+
+if [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || [ "$CODEX_CLASS" != "ok" ]; then
+  if [ "${MCCP_ALLOW_CODEX_UNAVAILABLE:-0}" = "1" ]; then
+    echo "[mccp] Codex unavailable in advisory mode (class=$CODEX_CLASS exit=$CODEX_EXIT)"
+    # Replace the placeholder with auto-fallback marker + advisory annotation, then jump to 5.5
+    # The downstream receipt will stamp advisory=true → non-approving.
+  else
+    echo "[MCCP-GATE-STOP] Codex unavailable (blocking=$CODEX_BLOCKING class=$CODEX_CLASS exit=$CODEX_EXIT)."
+    echo "Set MCCP_ALLOW_CODEX_UNAVAILABLE=1 to proceed in advisory mode (yields non-approving receipt)."
+    exit 1
+  fi
+fi
+```
+
+Replace the placeholder with `> Codex unavailable, skipped (auto-fallback): <classification>` and jump to 5.5 when in advisory mode.
 
 ### 5.3 — Inject Codex result into the plan
 
@@ -231,7 +257,7 @@ Edit the plan: replace the placeholder section with:
 ```markdown
 ## Codex Adversarial Review
 
-- 호출: `Skill(codex:adversarial-review)`
+- 호출: `node ${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, v0.2.2)
 - 라운드 수: <N>
 - 합치 결론: <one-line summary>
 - 수용한 제안: <bullet list>
@@ -242,7 +268,7 @@ Edit the plan: replace the placeholder section with:
 
 ### 5.4 — Divergent auto-rerun (max 3 rounds)
 
-If Codex returned new objections in 5.2: update the plan body to address them, then re-invoke `Skill(codex:adversarial-review, ...)` with the same focus. Repeat up to **3 rounds total**. Cap at 3 even if still divergent — annotate as `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
+If Codex returned new objections in 5.2: update the plan body to address them, then re-invoke the same Bash wrapper from 5.2 with an updated focus reflecting commitments. Repeat up to **3 rounds total**. Cap at 3 even if still divergent — annotate as `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
 
 ### 5.5 — Auto-CRITICAL check
 

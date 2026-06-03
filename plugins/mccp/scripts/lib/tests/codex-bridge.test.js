@@ -103,6 +103,27 @@ test('unavailable fixture: empty text', () => {
   assert.strictEqual(r.verdict, 'unavailable');
 });
 
+// v0.2.2 Task 2 — new fallback patterns for codex-invoke.js classifications.
+test('unavailable fixture: codex-plugin-not-installed', () => {
+  const r = parseCodexResult('codex-plugin-not-installed', 'focus');
+  assert.strictEqual(r.verdict, 'unavailable');
+});
+
+test('unavailable fixture: codex-companion-not-found', () => {
+  const r = parseCodexResult('codex-companion-not-found', 'focus');
+  assert.strictEqual(r.verdict, 'unavailable');
+});
+
+test('unavailable fixture: cli-not-authenticated (hyphenated)', () => {
+  const r = parseCodexResult('cli-not-authenticated', 'focus');
+  assert.strictEqual(r.verdict, 'unavailable');
+});
+
+test('unavailable fixture: process-exit-nonzero', () => {
+  const r = parseCodexResult('process-exit-nonzero from companion', 'focus');
+  assert.strictEqual(r.verdict, 'unavailable');
+});
+
 test('open question parsing: multiple severities preserved in order', () => {
   const text = [
     'Round 1: review',

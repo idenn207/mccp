@@ -4,7 +4,7 @@
 **Last completed work**:
 
 - v0.2.1 (Q5) — shipped 2026-06-04 (1ea5cd9 + 961917e)
-- S10a (Q2) — STATE.md continuity layer. 79+ tests green. Codex stop-time review 2-round findings 모두 회귀 잠금 (rotate-in-inject + consume-without-deliver 3-layer guard). **Uncommitted on `feat/s10a-state-md-continuity` branch.**
+- S10a (Q2) — STATE.md continuity layer. 단일 commit `9d79795` + 후속 fix commit (Codex catch #3 = partial-delivery guard via paired HEAD/TAIL sentinels). 총 3 round Codex 회귀 잠금 완료 (rotate-in-inject + consume-without-deliver 3-layer guard + partial-delivery sentinel pair). state-injector 12/12 + T-Session-Bootstrap 6/6 + state-writer 8/8 = 26개 신규 + fix-task 19/19 회귀 없음.
 
 **다음 세션 첫 단계 (필수)**:
 

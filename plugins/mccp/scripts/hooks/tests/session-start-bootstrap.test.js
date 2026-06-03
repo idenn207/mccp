@@ -26,12 +26,13 @@ function mkRepo() {
   return repo;
 }
 
-function runSessionStart(repo) {
+function runSessionStart(repo, envOverrides) {
   const r = spawnSync(process.execPath, [SESSION_START], {
     cwd: repo,
     input: '{"session_id":"test"}',
     encoding: 'utf8',
     timeout: 15000,
+    env: Object.assign({}, process.env, envOverrides || {}),
   });
   return r;
 }
@@ -95,6 +96,31 @@ test('session-start exits 0 even when STATE.md is corrupt (injector failure isol
   fs.writeFileSync(path.join(stateDir, 'STATE.md'), 'totally broken\nnot frontmatter\n', 'utf8');
   const r = runSessionStart(repo);
   assert.strictEqual(r.status, 0, 'corrupt STATE.md must not abort session-start; stderr=' + r.stderr);
+});
+
+test('session-start does NOT rotate fix-task when truncation cuts mid-body (Codex stop-time finding: partial delivery)', () => {
+  const repo = mkRepo();
+  // Body large enough that the head marker fits inside MAX_CHARS but the
+  // tail marker does not — simulating limitSessionStartContext slicing
+  // through the middle of the fix-task body.
+  const bigExcerpt = 'X'.repeat(2000);
+  ft.write(repo, {
+    verdict: 'quality_fail',
+    counter: 1,
+    failures: [{ stage: 'test', exitCode: 1, excerpt: bigExcerpt }],
+  });
+  const r = runSessionStart(repo, { ECC_SESSION_START_MAX_CHARS: '300' });
+  assert.strictEqual(r.status, 0, 'session-start must still exit 0; stderr=' + r.stderr);
+  // Head appears in stdout (it's near the top of the slice).
+  assert.match(r.stdout, /\[mccp:fix-task — pending correction/);
+  // Tail does NOT appear — the slice cut before reaching it.
+  assert.ok(!r.stdout.includes('[mccp:fix-task — end of pending correction]'),
+    'tail marker MUST be truncated away in this test setup');
+  // The critical invariant: fix-task.md MUST still be on disk for redelivery.
+  const fixPath = path.join(repo, '.claude', 'state', 'fix-task.md');
+  const appliedPath = path.join(repo, '.claude', 'state', 'fix-task-applied.md');
+  assert.ok(fs.existsSync(fixPath), 'fix-task.md MUST survive a mid-body truncation (no premature rotation)');
+  assert.ok(!fs.existsSync(appliedPath), 'fix-task-applied.md MUST NOT be created when delivery was partial');
 });
 
 // TODO(s10a-followup): regression for shouldInjectContext=skip path. Env var

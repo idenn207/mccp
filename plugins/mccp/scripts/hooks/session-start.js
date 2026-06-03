@@ -661,13 +661,15 @@ async function main() {
   }
 
   // The Codex contract: commit only when fix-task content actually rode all
-  // the way out — pushed to parts, survived limit truncation, and
+  // the way out — pushed to parts, survived limit truncation (HEAD AND TAIL
+  // markers both present, proving no mid-body slice), and
   // writeSessionStartPayload returned without throwing. Any earlier exit
   // leaves fix-task.md in place so the next SessionStart re-delivers it.
   let injectorRepoRoot = null;
   let injectorFixTaskPushed = false;
-  const FIX_TASK_MARKER = '[mccp:fix-task — pending correction';
+  let injectorModule = null;
   try {
+    injectorModule = require('../state/state-injector');
     const { execFileSync } = require('child_process');
     try {
       injectorRepoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], {
@@ -678,8 +680,7 @@ async function main() {
     } catch (_e) {
       injectorRepoRoot = process.cwd();
     }
-    const injector = require('../state/state-injector');
-    const result = injector.inject(injectorRepoRoot);
+    const result = injectorModule.inject(injectorRepoRoot);
     if (result.stdout && shouldInjectContext) {
       additionalContextParts.push(result.stdout.trim());
       injectorFixTaskPushed = !!result.applied && !!result.applied.fixTask;
@@ -692,24 +693,31 @@ async function main() {
     ? limitSessionStartContext(additionalContextParts.join('\n\n'), maxContextChars)
     : '';
 
-  const fixTaskSurvivedLimit = injectorFixTaskPushed && additionalContext.includes(FIX_TASK_MARKER);
+  // Head-only check is unsafe: limitSessionStartContext is a hard prefix
+  // slice, so a cut anywhere in the fix-task body keeps the head marker
+  // (top of block) but drops the tail marker. Requiring BOTH proves the
+  // entire block crossed the truncation boundary intact (Codex finding:
+  // "fix-task can be rotated after partial delivery").
+  const fixTaskSurvivedLimit = injectorFixTaskPushed
+    && injectorModule
+    && additionalContext.includes(injectorModule.FIX_TASK_HEAD_MARKER)
+    && additionalContext.includes(injectorModule.FIX_TASK_TAIL_MARKER);
 
   await writeSessionStartPayload(additionalContext);
 
   // Three conditions must all hold to commit:
   //   1. fix-task body was pushed into additionalContextParts (caller injection enabled)
-  //   2. fix-task marker survived limitSessionStartContext truncation
+  //   2. fix-task HEAD and TAIL markers both survived limitSessionStartContext truncation
   //   3. writeSessionStartPayload above did not throw
   // Any failure leaves fix-task.md intact for the next SessionStart to retry.
   if (fixTaskSurvivedLimit && injectorRepoRoot) {
     try {
-      const injector = require('../state/state-injector');
-      injector.commitFixTaskApplied(injectorRepoRoot);
+      injectorModule.commitFixTaskApplied(injectorRepoRoot);
     } catch (err) {
       log(`[SessionStart] commitFixTaskApplied skipped: ${err.message}`);
     }
   } else if (injectorFixTaskPushed && !fixTaskSurvivedLimit) {
-    log('[SessionStart] fix-task truncated by limitSessionStartContext; deferring rotate to next session');
+    log('[SessionStart] fix-task truncated by limitSessionStartContext (head/tail check failed); deferring rotate to next session');
   }
 }
 

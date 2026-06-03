@@ -138,9 +138,16 @@ function formatStateBlock(body) {
     body + '\n</system-reminder>\n';
 }
 
+// Tail sentinel: paired with the head marker so the SessionStart guard can
+// verify the ENTIRE block survived limitSessionStartContext truncation, not
+// just the first few chars (Codex stop-time finding: head-only check accepts
+// a mid-body slice as "delivered" and rotates fix-task.md prematurely).
+const FIX_TASK_HEAD_MARKER = '[mccp:fix-task — pending correction from previous Stop-loop]';
+const FIX_TASK_TAIL_MARKER = '[mccp:fix-task — end of pending correction]';
+
 function formatFixTaskBlock(body) {
-  return '<system-reminder>\n[mccp:fix-task — pending correction from previous Stop-loop]\n\n' +
-    body + '\n</system-reminder>\n';
+  return '<system-reminder>\n' + FIX_TASK_HEAD_MARKER + '\n\n' +
+    body + '\n\n' + FIX_TASK_TAIL_MARKER + '\n</system-reminder>\n';
 }
 
 function inject(repoRoot) {
@@ -221,6 +228,8 @@ module.exports = {
   REQUIRED_FRONTMATTER_KEYS: REQUIRED_FRONTMATTER_KEYS,
   SUPPORTED_STATE_VERSION: SUPPORTED_STATE_VERSION,
   SUPPORTED_FIX_TASK_VERSION: SUPPORTED_FIX_TASK_VERSION,
+  FIX_TASK_HEAD_MARKER: FIX_TASK_HEAD_MARKER,
+  FIX_TASK_TAIL_MARKER: FIX_TASK_TAIL_MARKER,
   statePath: statePath,
   fixTaskPath: fixTaskPath,
   appliedPath: appliedPath,

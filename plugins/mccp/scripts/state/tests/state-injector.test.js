@@ -156,3 +156,19 @@ test('redelivery on stdout failure — re-running inject() after no commit re-em
   assert.strictEqual(second.applied.fixTask, true, 'fix-task must be re-deliverable until commit');
   assert.match(second.stdout, /\[mccp:fix-task — pending correction/);
 });
+
+test('fix-task block carries both HEAD and TAIL sentinel markers (partial-delivery guard)', () => {
+  const repo = mkRepo();
+  writeValidFixTask(repo);
+  const result = inj.inject(repo);
+  assert.ok(result.stdout.includes(inj.FIX_TASK_HEAD_MARKER), 'HEAD marker must appear');
+  assert.ok(result.stdout.includes(inj.FIX_TASK_TAIL_MARKER), 'TAIL marker must appear');
+  const headIdx = result.stdout.indexOf(inj.FIX_TASK_HEAD_MARKER);
+  const tailIdx = result.stdout.indexOf(inj.FIX_TASK_TAIL_MARKER);
+  assert.ok(headIdx < tailIdx, 'TAIL must come after HEAD');
+  // Mid-body prefix slice keeps HEAD but drops TAIL — this is exactly the
+  // condition the SessionStart guard must reject before rotating.
+  const midSlice = result.stdout.slice(0, headIdx + inj.FIX_TASK_HEAD_MARKER.length + 5);
+  assert.ok(midSlice.includes(inj.FIX_TASK_HEAD_MARKER), 'prefix slice keeps HEAD');
+  assert.ok(!midSlice.includes(inj.FIX_TASK_TAIL_MARKER), 'prefix slice drops TAIL');
+});

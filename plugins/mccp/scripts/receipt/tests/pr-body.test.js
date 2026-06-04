@@ -136,6 +136,46 @@ test('writeBody handles null/undefined content as empty string', function () {
   }
 });
 
+// Multi-line + special character round-trip. v0.2.3 PR #4 fixed worktree
+// ENOTDIR but the body content path itself was never regression-tested for
+// UTF-8 + markdown + non-ASCII formatting. Lock in byte-exact preservation
+// so that future changes to writeBody (e.g. switching encoding, normalizing
+// line endings, escaping markdown) are caught.
+test('writeBody/readBody preserves UTF-8 + emoji + markdown + leading whitespace exactly', function () {
+  const repo = mkTmpRepo();
+  try {
+    const body = [
+      '## Summary',
+      '',
+      '한국어 + English mixed.',
+      '🎉 emoji 🚀',
+      '`code` and **bold** and *italic*',
+      '   leading-spaces preserved',
+      'tab\tin\tline',
+      '$shell-like-var \\backslash',
+      'final line no trailing newline'
+    ].join('\n');
+    const target = prBody.writeBody(repo, 'mccp-roadmap', 'abcdef123456', body);
+    assert.strictEqual(prBody.readBody(repo, 'mccp-roadmap', 'abcdef123456'), body);
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), body);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('writeBody/readBody preserves mixed CRLF/LF line endings (no normalization)', function () {
+  const repo = mkTmpRepo();
+  try {
+    // gh accepts whatever it's handed via --body-file; our job is byte-fidelity,
+    // not normalization. If a future commit ever silently normalizes, this fails.
+    const body = 'line1\r\nline2\nline3\r\n';
+    prBody.writeBody(repo, 'mixed-eol', 'xyz1234567', body);
+    assert.strictEqual(prBody.readBody(repo, 'mixed-eol', 'xyz1234567'), body);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 // Worktree compatibility — Q5 followup for v0.2.3.
 //
 // In a worktree, `<wt>/.git` is a file containing `gitdir: <path>` pointing at

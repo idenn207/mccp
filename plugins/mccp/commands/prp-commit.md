@@ -5,6 +5,8 @@ argument-hint: "[target description] (blank = all changes)"
 
 # Smart Commit
 
+> If I disappear silently, run `/mccp:trace` or check `.claude/state/hook-trace/<session_id>/`
+
 > Adapted from PRPs-agentic-eng by Wirasm. Part of the PRP workflow series.
 
 **Input**: $ARGUMENTS

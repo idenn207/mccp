@@ -280,6 +280,17 @@
         ],
         "description": "Track failed MCP tool calls, mark unhealthy servers, and attempt reconnect",
         "id": "post:mcp-health-check"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-tool-use-failure.js\""
+          }
+        ],
+        "description": "mccp v0.2.7 L2b — universal PostToolUseFailure surface (systemMessage emit + opportunistic L1 shard write)",
+        "id": "mccp:post-tool-use-failure:surface"
       }
     ],
     "Stop": [

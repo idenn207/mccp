@@ -138,6 +138,19 @@ if (fs.existsSync(script)) {
     process.stdout.write(raw);
   }
 
+  // v0.2.7 L2c — append hook-caps probe + crash alerts after the regular
+  // session-start output. Failure here never blocks SessionStart.
+  try {
+    const event = raw ? JSON.parse(raw) : null;
+    const injector = require('./session-start-trace-injector');
+    const extra = injector.compute(event);
+    if (extra) {
+      process.stdout.write('\n' + extra + '\n');
+    }
+  } catch (err) {
+    process.stderr.write('[SessionStart] L2c trace injector skipped: ' + err.message + '\n');
+  }
+
   if (result.stderr) {
     process.stderr.write(result.stderr);
   }

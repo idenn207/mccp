@@ -5,6 +5,8 @@ argument-hint: "[base-branch] (default: main)"
 
 # Create Pull Request
 
+> If I disappear silently, run `/mccp:trace` or check `.claude/state/hook-trace/<session_id>/`
+
 **Input**: `$ARGUMENTS` — optional, may contain a base branch name and/or flags (e.g., `--draft`).
 
 **Parse `$ARGUMENTS`**:

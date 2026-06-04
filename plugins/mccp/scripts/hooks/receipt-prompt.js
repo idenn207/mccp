@@ -21,6 +21,14 @@ const RECEIPT_DIR = path.join(PLUGIN_ROOT, 'scripts', 'receipt');
 const LIB_DIR = path.join(PLUGIN_ROOT, 'scripts', 'lib');
 const { resolveMode: resolveReceiptMode, warnIfOff } = require(path.join(LIB_DIR, 'receipt-mode'));
 
+// v0.2.7 G1 invariant — hook-trace is loaded once at module scope so a failed
+// require during a catch block can't itself throw. C6: live hook state = event
+// payload only; we never reach into module/filesystem state to fabricate context.
+const hookTrace = (function () {
+  try { return require(path.join(LIB_DIR, 'hook-trace')); }
+  catch (_) { return null; }
+})();
+
 function readStdin() {
   return new Promise(function (resolve) {
     let buf = '';
@@ -48,6 +56,74 @@ function debug(msg) {
 }
 
 function allow() { return 0; }
+
+// v0.2.7 L2a — ALLOW-path systemMessage emit when MCCP_RECEIPT_DEBUG=1.
+// Mirror of v0.2.5 block-payload inline debug, but on the ALLOW side: gates
+// that pass silently are invisible, which is the original silent-hook UX
+// incident this milestone targets. v0.2.5 block-payload inline is preserved
+// orthogonally inside block() — this function only fires on ALLOW path.
+// Advanced opt-out: MCCP_RECEIPT_DEBUG_LEGACY_INLINE=0 (legacy-only mode).
+function allowWithMessage(commandName, decisionId) {
+  if (process.env.MCCP_RECEIPT_DEBUG !== '1') return 0;
+  if (process.env.MCCP_RECEIPT_DEBUG_LEGACY_INLINE === '0') return 0;
+  try {
+    process.stdout.write(JSON.stringify({
+      systemMessage: '[mccp] receipt-gate ALLOW ' + commandName +
+        ' (decision="' + decisionId + '")',
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptExpansion',
+        additionalContext: 'mccp ALLOW path: ' + commandName,
+      },
+    }));
+  } catch (_) { /* best-effort */ }
+  return 0;
+}
+
+// v0.2.7 G1 helpers — opportunistic L1 shard log + universal systemMessage emit
+// for any internal exception. Caller always returns 0 (allow) after this; the
+// surface is observability, not enforcement. event MAY be null when stdin parse
+// failed before assignment.
+function tryShardLog(event, opts) {
+  if (!hookTrace || !event) return null;
+  const sid = event.session_id;
+  const tuid = event.tool_use_id;
+  if (!sid || !tuid) return null;
+  try {
+    const result = hookTrace.recordWrite(
+      event.cwd || process.cwd(),
+      sid,
+      tuid,
+      'UserPromptExpansion',
+      {
+        layer: 'G1',
+        gate_decision: 'ALLOW_DUE_TO_INTERNAL_ERROR',
+        command_id: opts.commandId || null,
+        command_name: opts.commandName || null,
+        exception_class: opts.exceptionClass || null,
+        exit_code: 0,
+      }
+    );
+    return result && result.ok ? result.path : null;
+  } catch (_) { return null; }
+}
+
+function g1Allow(event, opts) {
+  const tracePath = tryShardLog(event, opts);
+  const msg = '[mccp] receipt-gate internal error (allowing): ' +
+    (opts.exceptionClass || 'unknown') +
+    (opts.reason ? ': ' + opts.reason : '') +
+    (tracePath ? '\n  trace: ' + tracePath : '');
+  try {
+    process.stdout.write(JSON.stringify({
+      systemMessage: msg,
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptExpansion',
+        additionalContext: 'mccp G1 fail-open: ' + (opts.exceptionClass || 'unknown'),
+      },
+    }));
+  } catch (_) { /* best-effort */ }
+  return 0;
+}
 
 function block(commandName, decisionId, result) {
   const lines = [];
@@ -129,7 +205,11 @@ async function main() {
     validateCommand = require(path.join(RECEIPT_DIR, 'validate-cmd')).validateCommand;
   } catch (err) {
     debug('cannot load validate-cmd: ' + err.message);
-    return allow();
+    return g1Allow(event, {
+      exceptionClass: 'ModuleLoadError',
+      reason: err.message,
+      commandName: commandName,
+    });
   }
 
   const decisionMod = loadDecisionModule();
@@ -155,12 +235,16 @@ async function main() {
     });
   } catch (err) {
     debug('validate error: ' + err.message);
-    return allow();
+    return g1Allow(event, {
+      exceptionClass: 'ValidationError',
+      reason: err.message,
+      commandName: commandName,
+    });
   }
 
   if (result.ok) {
     debug('OK ' + commandName + ' (decision="' + decisionId + '")');
-    return allow();
+    return allowWithMessage(commandName, decisionId);
   }
 
   // v0.2.2 Task 4 — soft mode: ONLY missing receipts pass; stale/blocking/critical

@@ -5,6 +5,8 @@ argument-hint: "[product/feature idea] (blank = start with questions)"
 
 # PRD Command (mccp)
 
+> If I disappear silently, run `/mccp:trace` or check `.claude/state/hook-trace/<session_id>/`
+
 Produces a **Product Requirements Document** — the requirements-phase artifact of the SDLC. Captures *what* must be true for success and *why*, and stops before *how*. Implementation decomposition is delegated to `/mccp:plan`.
 
 **Input**: `$ARGUMENTS`

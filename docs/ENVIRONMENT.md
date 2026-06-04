@@ -34,9 +34,18 @@ mccp 게이트의 표준 설정 위치는 **`settings.json`의 `env` 키**입니
 | 변수 | 값 | Default | 설명 |
 | --- | --- | --- | --- |
 | `MCCP_SKIP_RECEIPT` | `1` | unset | 단일 게이트 호출에 한해 receipt 발급 + 검증을 bypass. **운영용이 아닌 디버깅 용**. |
-| `MCCP_RECEIPT_DEBUG` | `1` | unset | receipt 관련 hook에서 진단 stderr 출력을 켭니다. |
+| `MCCP_RECEIPT_DEBUG` | `1` | unset | receipt 관련 hook에서 진단 stderr 출력을 켭니다. v0.2.7부터 ALLOW path에서 `systemMessage`도 emit합니다 (L2a). |
+| `MCCP_RECEIPT_DEBUG_LEGACY_INLINE` | `0` | unset | v0.2.7 advanced opt-out — `MCCP_RECEIPT_DEBUG=1`일 때 ALLOW-path `systemMessage`를 끄고 기존 block-payload inline 모드만 유지. |
 
 **사용처**: [receipt-prompt.js](../plugins/mccp/scripts/hooks/receipt-prompt.js), [receipt-skill.js](../plugins/mccp/scripts/hooks/receipt-skill.js), [receipt/write.js](../plugins/mccp/scripts/receipt/write.js), [receipt/preflight.js](../plugins/mccp/scripts/receipt/preflight.js).
+
+### MCCP_RECEIPT_DEBUG precedence (v0.2.7 C7)
+
+| `MCCP_RECEIPT_DEBUG` | `MCCP_RECEIPT_DEBUG_LEGACY_INLINE` | ALLOW path systemMessage | Block-payload inline | stderr |
+| --- | --- | --- | --- | --- |
+| unset / `0` | (any) | silent (default) | always on when blocked | silent |
+| `1` | unset / `1` (default) | **emit** (L2a active) | always on when blocked | verbose |
+| `1` | `0` (opt-out) | silent | always on when blocked | verbose |
 
 ---
 

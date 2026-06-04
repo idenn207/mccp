@@ -17,6 +17,55 @@ const RECEIPT_DIR = path.join(PLUGIN_ROOT, 'scripts', 'receipt');
 const LIB_DIR = path.join(PLUGIN_ROOT, 'scripts', 'lib');
 const { resolveMode: resolveReceiptMode, warnIfOff } = require(path.join(LIB_DIR, 'receipt-mode'));
 
+// v0.2.7 G1 invariant — hook-trace loaded once at module scope; require failure
+// can't itself throw in a catch block. C6: live hook state = event payload only.
+const hookTrace = (function () {
+  try { return require(path.join(LIB_DIR, 'hook-trace')); }
+  catch (_) { return null; }
+})();
+
+function tryShardLog(event, opts) {
+  if (!hookTrace || !event) return null;
+  const sid = event.session_id;
+  const tuid = event.tool_use_id;
+  if (!sid || !tuid) return null;
+  try {
+    const result = hookTrace.recordWrite(
+      event.cwd || process.cwd(),
+      sid,
+      tuid,
+      'PreToolUseSkill',
+      {
+        layer: 'G1',
+        gate_decision: 'ALLOW_DUE_TO_INTERNAL_ERROR',
+        command_id: opts.commandId || null,
+        command_name: opts.commandName || null,
+        exception_class: opts.exceptionClass || null,
+        exit_code: 0,
+      }
+    );
+    return result && result.ok ? result.path : null;
+  } catch (_) { return null; }
+}
+
+function g1Allow(event, opts) {
+  const tracePath = tryShardLog(event, opts);
+  const msg = '[mccp] Skill receipt-gate internal error (allowing): ' +
+    (opts.exceptionClass || 'unknown') +
+    (opts.reason ? ': ' + opts.reason : '') +
+    (tracePath ? '\n  trace: ' + tracePath : '');
+  try {
+    process.stdout.write(JSON.stringify({
+      systemMessage: msg,
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        additionalContext: 'mccp G1 fail-open: ' + (opts.exceptionClass || 'unknown'),
+      },
+    }));
+  } catch (_) { /* best-effort */ }
+  return 0;
+}
+
 function readStdin() {
   return new Promise(function (resolve) {
     let buf = '';
@@ -87,7 +136,11 @@ async function main() {
     validateCommand = require(path.join(RECEIPT_DIR, 'validate-cmd')).validateCommand;
   } catch (err) {
     debug('cannot load validate-cmd: ' + err.message);
-    return 0;
+    return g1Allow(event, {
+      exceptionClass: 'ModuleLoadError',
+      reason: err.message,
+      commandName: skillName,
+    });
   }
 
   const decisionMod = loadDecisionModule();
@@ -113,7 +166,11 @@ async function main() {
     });
   } catch (err) {
     debug('validate error: ' + err.message);
-    return 0;
+    return g1Allow(event, {
+      exceptionClass: 'ValidationError',
+      reason: err.message,
+      commandName: skillName,
+    });
   }
 
   if (result.ok) {

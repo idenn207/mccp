@@ -215,3 +215,62 @@ Cost writer ([scripts/lib/cost-state.js](../plugins/mccp/scripts/lib/cost-state.
 Terminal `pr` advisory rejection (R2#2): runs in two layers as defense-in-depth:
 1. `pr.md` Phase 0 preflight (before `gh pr list`, before any GitHub API)
 2. `auto-chain.js preflight pr` (before invoking `pr.md` from chain)
+
+---
+
+## v0.2.7 — Silent Hook UX (Observability Surface)
+
+**Goal**: ALLOW-path silent failure 제거. UserPromptExpansion hook이 통과시키고 다운스트림이 침묵하는 시나리오를 hook surface로 가시화.
+
+**Positioning**: observability + recovery hint system. **No trust claim. No machine-enforced attestation.** Operates strictly within Claude Code's documented hook API surface.
+
+### Layered Design v3-minimal
+
+| Layer | Priority | What it does |
+| --- | --- | --- |
+| **L1** | P0 | Per-invocation shard ledger at `.claude/state/hook-trace/<session_id>/<tool_use_id>-<phase>.jsonl`. Write-time allowlist enforced (C6 — event payload only). Per-shard cap 64KB / 100 entries. Global 100MB via SessionStart LRU evict (active-lease guarded). Atomic temp+rename; malformed shards auto-quarantine. |
+| **L2a** | P1 | `MCCP_RECEIPT_DEBUG=1` + ALLOW path → `systemMessage` emit from `receipt-prompt.js`. v0.2.5 block-payload inline mode preserved orthogonally. Advanced opt-out: `MCCP_RECEIPT_DEBUG_LEGACY_INLINE=0`. |
+| **L2b** | P0 | `PostToolUseFailure` surface (`post-tool-use-failure.js`). Reads event payload (`tool_use_id`, `tool_name`, `error`) and emits `systemMessage` + `hookSpecificOutput.additionalContext`. L1 shard write is opportunistic — surface keeps working even if L1 is disabled. |
+| **L2c** | P1 | `claude --version` external probe at SessionStart (`session-start-trace-injector.js` + `hook-caps.js`). Cache at `.claude/state/hook-caps.json` with provenance: `version`, `probed_at`, `binary_path`, `stderr_capture`, `supported_features`. Probe fail OR `version < 2.1.141` → minimum-spec mode (systemMessage only). Cross-session crash alerts injected as `<system-reminder>` blocks (≤3, active lease respected). |
+| **L5** | P1 | `SessionEnd` marker + compactor (`session-end-trace.js`). Writes `.end` marker, consolidates per-shard files into `consolidated.jsonl`, releases lease. Anchored to `SessionEnd` event (C1 — "Pre-Stop" does not exist). Active-session lease guard prevents touching concurrent session dirs (C3). |
+| **G1** | P0 | Loud Fail-Open invariant. `receipt-prompt.js` + `receipt-skill.js` route all internal exceptions (module load, validate execution) through `g1Allow(...)` → opportunistic L1 shard write + `systemMessage` emit + return ALLOW. Silent fail-open is now a regression detectable by `g1-guard.test.js`. |
+
+### Event-shape contract (G1 fail-open per hook event)
+
+| Hook event | ALLOW shape | Fail-open behavior on internal error |
+| --- | --- | --- |
+| `UserPromptExpansion` | `{decision:"block", reason}` on block; silent (exit 0) on allow | `systemMessage` + `hookSpecificOutput.additionalContext` via `g1Allow`. Decision = allow. |
+| `PreToolUse` (Skill) | exit 2 + stderr on block; exit 0 on allow | Same as above with `hookEventName: "PreToolUse"`. Decision = allow. |
+| `PostToolUseFailure` | `systemMessage` + `additionalContext` always | Last-ditch `systemMessage` with `internal error` message; exit 0 (never escalate). |
+| `Stop` | advisory | Caller-defined; v0.2 stop-loop preserves existing semantics. |
+| `SessionEnd` | advisory | runSync is sync best-effort; failures logged to debug stderr only. Marker + compactor failures never block SessionEnd. |
+
+### MUST constraints (R3 critical issues — non-negotiable)
+
+| # | Constraint | Where enforced |
+| --- | --- | --- |
+| **C1** | End-marker writes anchor to `SessionEnd` hook ("Pre-Stop" does not exist) | `session-end-trace.js` |
+| **C2** | `.claude/state/hook-trace/` listed in `.gitignore` from milestone's FIRST commit | `.gitignore` + Task 2.5.0 commit |
+| **C3** | SessionStart LRU eviction respects active-session leases | `hook-trace.js#evictLRU` + lease guard in `scanCrashAlerts` |
+| **C4** | Atomic temp + rename per shard write; malformed shards auto-quarantine; `hook-caps.json` corrupt → reprobe | `hook-trace.js#appendShardAtomic` + `quarantineShard`; `hook-caps.js#readCache` |
+| **C5** | `systemMessage` user-visibility integration-tested before L2a ships | `hook-trace-integration.test.js` |
+| **C6** | "live hook state" = event payload only — allowlist enforced at write | `hook-trace.js#SHARD_ENTRY_FIELDS` + `validateEntry` |
+| **C7** | `MCCP_RECEIPT_DEBUG` precedence table includes unset default | `ENVIRONMENT.md` precedence table |
+| **C8** | `claude --version` probe records binary path + stderr; attempted-feature-use fallback when probe fails | `hook-caps.js#probeBinary` + `buildPayload.stderr_capture` |
+
+### Accepted blind spots
+
+| ID | Scenario | Mitigation |
+| --- | --- | --- |
+| **B1** | `StopFailure` event fires + user does not resume | Manual ledger inspection via `/mccp:trace` |
+| **B2** | Power loss before shard write completes | Data loss accepted; atomic rename narrows the window to a single line |
+| **B3** | In-session Claude Code binary upgrade | Restart required for new probe; cache stays valid until next SessionStart |
+| **B4** | Concurrent ledger global ordering across shards | Per-shard ordering preserved; cross-shard global ordering is not guaranteed |
+| **B5** | L0 subagent contract attestation | Out of v0.2.7 scope — deferred to W2 workstream (separate plan). Hook API has no cryptographic transport so self-reported stamps are forgeable. |
+
+### Origin trace
+
+- Source incident: 2026-06-05 — `MCCP_RECEIPT_DEBUG=1` with `/mccp:pr` failure produced zero output (silent block due to v0.2.6 schema-bump forward-migration miss; see INC-001 in roadmap plan).
+- Brainstorming: Claude(자체) + subagent + Codex GPT-5.4 via `codex exec`.
+- Adversarial review: `mccp:santa-loop` R1 → R2 → R3 (v3-minimal converged after specific spec-gap findings).
+- INC-001-R3 absorbed: block-path observability is the same UX problem as ALLOW-path silent fail, now covered by L2a + G1.

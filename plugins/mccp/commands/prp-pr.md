@@ -5,6 +5,8 @@ argument-hint: "[base-branch] (default: main)"
 
 # PR Command (PRP alias)
 
+> If I disappear silently, run `/mccp:trace` or check `.claude/state/hook-trace/<session_id>/`
+
 `/mccp:prp-pr` is a **synonym for `/mccp:pr`**. It exists because users coming from the PRP (Plan-Reason-Pattern) workflow expect the `prp-` prefix on commit / pr commands. Behavior, phases, gates, and receipt chain are identical.
 
 **Run the body of `/mccp:pr` verbatim**, including:

@@ -4,6 +4,8 @@ description: Adversarial dual-review convergence loop — two independent model 
 
 # Santa Loop
 
+> If I disappear silently, run `/mccp:trace` or check `.claude/state/hook-trace/<session_id>/`
+
 Adversarial dual-review convergence loop using the santa-method skill. Two independent reviewers — different models, no shared context — must both return NICE before code ships.
 
 ## Purpose

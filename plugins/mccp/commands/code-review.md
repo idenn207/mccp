@@ -5,6 +5,8 @@ argument-hint: "[pr-number | pr-url | blank for local review] [--standalone]"
 
 # Code Review
 
+> If I disappear silently, run `/mccp:trace` or check `.claude/state/hook-trace/<session_id>/`
+
 > PR review mode adapted from PRPs-agentic-eng by Wirasm. Part of the PRP workflow series.
 
 **Input**: $ARGUMENTS

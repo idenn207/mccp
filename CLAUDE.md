@@ -200,6 +200,9 @@ my-claude-code-plugin/
 /mccp:receipt-validate <command>    # 특정 게이트의 receipt 유효성 검증
 /mccp:receipt-write <gate>          # 게이트 receipt 수동 작성
 
+# Observability (v0.2.7)
+/mccp:trace [<session_id>]          # hook-trace shard ledger 조회 (current + prior sessions, hook-caps.json 헬스)
+
 # Schema migrations (.claude/receipts/는 working-tree only — 각 사용자가 직접 실행)
 # 새 schema bump 후 mccp:* validate가 "schema invalid" 차단하면:
 node plugins/mccp/scripts/migrations/v0.2.4-security-fields.js .claude/receipts/*/*.json
@@ -228,6 +231,9 @@ MCCP_ALLOW_CODEX_UNAVAILABLE=1           # advisory mode (non-approving receipt)
 MCCP_CODEX_DISABLED=1                    # Codex 호출 영구 skip (codex-bridge: verdict='skipped', reason='codex_disabled'). /mccp:setup Phase 4가 자동 write.
 MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER="<reason>" # v0.2.4 audited escape. terminal /mccp:pr이 security-reviewer agent unavailable + 이 env var의 specific reason 설정 시 advisory mode 진입. receipt에 meta.security_force_override=true + reason 기록, PR body에 ## Security Reviewer Override section auto-inject (canonical audit source). 1-token reason(=1, =yes)은 schema warning 발동. 1회용 권장.
 MCCP_FORCE_PR_WITHOUT_IMPECCABLE="<reason>"        # v0.2.6 audited escape (Codex R1 F4 strict). terminal /mccp:pr에서 impeccable Skill 미가용 + 이 env var의 specific reason 설정 시 force-override 진입. v0.2.4 security와 달리 reason validator가 SCHEMA REJECT — empty/whitespace/1-token banlist(yes/ok/true)/URL-only/<30자/<3단어/placeholder는 receipt write 시점에 차단. receipt에 meta.impeccable_force_override=true + reason 기록, PR body에 ## Impeccable Override section auto-inject (canonical audit source). 1회용 권장.
+
+# Silent-hook UX (v0.2.7 — Observability Surface)
+MCCP_RECEIPT_DEBUG_LEGACY_INLINE=0                 # v0.2.7 advanced opt-out. MCCP_RECEIPT_DEBUG=1일 때 L2a ALLOW-path systemMessage emit을 끄고 기존 block-payload inline 모드만 유지. Default(unset 또는 =1)는 L2a active. 자세한 precedence는 docs/ENVIRONMENT.md §1.
 
 # Auto-chain (v0.2.2)
 MCCP_AUTO_CHAIN_DISABLE=1                # kill switch ─ live

@@ -5,6 +5,8 @@ argument-hint: "[PR-number-or-URL] [--focus=...] [--standalone]"
 
 # Review PR Command (ECC alias)
 
+> If I disappear silently, run `/mccp:trace` or check `.claude/state/hook-trace/<session_id>/`
+
 `/mccp:review-pr` is a **synonym for `/mccp:code-review`** when invoked with a PR number or URL. It exists because users coming from ECC expect a dedicated `review-pr` command for PR-targeted review.
 
 **Run the body of `/mccp:code-review` verbatim**, choosing the **PR Review Mode** branch:

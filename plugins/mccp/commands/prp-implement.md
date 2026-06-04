@@ -7,6 +7,8 @@ argument-hint: <path/to/plan.md>
 
 # PRP Implement
 
+> If I disappear silently, run `/mccp:trace` or check `.claude/state/hook-trace/<session_id>/`
+
 Execute a plan file step-by-step with continuous validation. Every change is verified immediately — never accumulate broken state.
 
 **Core Philosophy**: Validation loops catch mistakes early. Run checks after every change. Fix issues immediately.

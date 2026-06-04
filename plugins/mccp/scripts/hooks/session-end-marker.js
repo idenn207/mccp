@@ -20,6 +20,20 @@ function log(message) {
 
 function run(rawInput) {
   const output = rawInput || '';
+
+  // v0.2.7 L5 — hook-trace end marker + consolidate. Best-effort, never blocks
+  // the rest of SessionEnd. Caller emits raw payload as JSON; we parse here
+  // so the observer cleanup path below stays unaffected when parsing fails.
+  try {
+    const event = rawInput ? JSON.parse(rawInput) : null;
+    if (event) {
+      const trace = require('./session-end-trace');
+      trace.runSync(event);
+    }
+  } catch (err) {
+    process.stderr.write('[SessionEnd] hook-trace L5 skipped: ' + err.message + '\n');
+  }
+
   const sessionId = resolveSessionId();
 
   if (!sessionId) {

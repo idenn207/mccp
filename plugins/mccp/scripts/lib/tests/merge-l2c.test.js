@@ -76,10 +76,26 @@ test('mergeL2c: text stdout (non-JSON) → extra appended as separate paragraph'
   assert.ok(out.includes(EXTRA));
 });
 
-test('mergeL2c: empty stdout + extra → raw passthrough then extra', () => {
+test('mergeL2c: empty stdout + extra → synthesized hook response JSON (Codex R2 F#2)', () => {
+  // Codex Round 2 finding #2 (HIGH): the prior implementation passed `raw`
+  // (the input SessionStart event JSON) through and appended `extra` as text,
+  // recreating the {json}\n<system-reminder> shape that Round 1 was supposed
+  // to eliminate. raw is an INPUT event, not a hook response document — so
+  // appending reminder text after it produces a malformed combined output
+  // that Claude Code drops, defeating L2c again on degraded SessionStart.
+  //
+  // Fix: synthesize a fresh valid hook response with `extra` as the only
+  // additionalContext. Output must parse as a single JSON document.
   const out = mergeL2c('', RAW, EXTRA);
-  assert.ok(out.startsWith(RAW), 'raw event JSON passes through first');
-  assert.ok(out.includes(EXTRA), 'extra trails after');
+  let parsed;
+  assert.doesNotThrow(() => { parsed = JSON.parse(out); },
+    'output must be a single valid JSON document');
+  assert.strictEqual(parsed.hookSpecificOutput.hookEventName, 'SessionStart');
+  assert.strictEqual(parsed.hookSpecificOutput.additionalContext, EXTRA);
+  // Critically: `raw` must NOT leak into the output, otherwise we'd have
+  // produced {SessionStart-response}{SessionStart-event} or similar.
+  assert.ok(!out.includes('"hook_event_name":"SessionStart"'),
+    'raw event payload must not appear in response');
 });
 
 test('mergeL2c: JSON-array stdout (not object) → treated as non-JSON, text-appended', () => {

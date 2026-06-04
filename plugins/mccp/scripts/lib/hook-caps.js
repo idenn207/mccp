@@ -23,9 +23,17 @@ const CACHE_FILENAME = 'hook-caps.json';
 const CACHE_DIRNAME = path.join('.claude', 'state');
 const CACHE_FRESH_MS = 24 * 60 * 60 * 1000; // 24h
 const PROBE_TIMEOUT_MS = 5000;
+const RESOLVE_TIMEOUT_MS = 2000;
 const MIN_SUPPORTED_VERSION = '2.1.141';
 const MAX_CRASH_ALERTS = 3;
 const MAX_STDERR_BYTES = 4096;
+// Heartbeat window for "actively running" classification. listActiveLeases
+// keeps any lease with mtime < LEASE_STALE_MS (24h), but the lease is
+// heartbeated on every recordWrite — so a lease that hasn't moved in
+// LEASE_LIVE_MS is far more likely to be from a crashed session than a
+// genuinely idle one. Codex Round 2 F#1: skipping every "active" lease for
+// 24h hid recovery alerts after immediate post-SessionStart crashes.
+const LEASE_LIVE_MS = 10 * 60 * 1000; // 10 minutes
 
 function cachePath(repoRoot) {
   return path.join(repoRoot, CACHE_DIRNAME, CACHE_FILENAME);
@@ -62,9 +70,42 @@ function meetsMin(versionStr) {
   return compareSemver(v, min) >= 0;
 }
 
+// Resolve a binary name to its absolute PATH location so the cache can
+// distinguish "same binary" from "PATH shadowed by a stale install". Codex
+// Round 2 F#4: probeBinary previously recorded the literal `"claude"`, so a
+// stale or shadowed binary was indistinguishable from a healthy one.
+function resolveBinaryPath(binaryPath) {
+  const target = binaryPath || 'claude';
+  if (path.isAbsolute(target)) return target;
+  const isWin = process.platform === 'win32';
+  const cmd = isWin ? 'where' : 'which';
+  let r;
+  try {
+    r = spawnSync(cmd, [target], { encoding: 'utf8', timeout: RESOLVE_TIMEOUT_MS });
+  } catch (_) {
+    return target;
+  }
+  if (!r || r.status !== 0 || !r.stdout) return target;
+  const lines = String(r.stdout).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  return lines[0] || target;
+}
+
+function statMtime(filePath) {
+  if (!filePath) return null;
+  try { return fs.statSync(filePath).mtimeMs; }
+  catch { return null; }
+}
+
 function probeBinary(opts) {
-  // Returns { version, binary_path, stderr_capture, exit, error_class }
+  // Returns { version, binary_path, binary_resolved_path, binary_mtime_ms,
+  //           stderr_capture, exit, error_class }
   const binaryPath = (opts && opts.binaryPath) || 'claude';
+  const resolved = (opts && opts._resolved) || resolveBinaryPath(binaryPath);
+  // Only stat when resolution actually moved us to an absolute path —
+  // unresolved bare names give no useful mtime.
+  const binaryMtimeMs = (resolved && resolved !== binaryPath && path.isAbsolute(resolved))
+    ? statMtime(resolved)
+    : null;
   let r;
   try {
     r = spawnSync(binaryPath, ['--version'], {
@@ -75,6 +116,8 @@ function probeBinary(opts) {
     return {
       version: null,
       binary_path: binaryPath,
+      binary_resolved_path: resolved,
+      binary_mtime_ms: binaryMtimeMs,
       stderr_capture: '',
       exit: null,
       error_class: err.code || 'spawn_failed',
@@ -84,6 +127,8 @@ function probeBinary(opts) {
     return {
       version: null,
       binary_path: binaryPath,
+      binary_resolved_path: resolved,
+      binary_mtime_ms: binaryMtimeMs,
       stderr_capture: String(r.stderr || '').slice(0, MAX_STDERR_BYTES),
       exit: r.status,
       error_class: r.error.code || 'spawn_error',
@@ -94,6 +139,8 @@ function probeBinary(opts) {
   return {
     version: stdout,
     binary_path: binaryPath,
+    binary_resolved_path: resolved,
+    binary_mtime_ms: binaryMtimeMs,
     stderr_capture: stderr,
     exit: r.status,
     error_class: null,
@@ -118,6 +165,8 @@ function buildPayload(probe) {
     version: probe.version,
     probed_at: nowIso(),
     binary_path: probe.binary_path,
+    binary_resolved_path: probe.binary_resolved_path || null,
+    binary_mtime_ms: (typeof probe.binary_mtime_ms === 'number') ? probe.binary_mtime_ms : null,
     stderr_capture: probe.stderr_capture || '',
     exit: probe.exit,
     error_class: probe.error_class,
@@ -162,10 +211,27 @@ function probeAndCache(repoRoot, opts) {
   // Returns { payload, fromCache, reprobed }
   const cached = readCache(repoRoot);
   const force = !!(opts && opts.force);
-  if (!force && isFresh(cached, opts && opts.now)) {
+  const binaryPath = (opts && opts.binaryPath) || 'claude';
+  const resolved = resolveBinaryPath(binaryPath);
+  // Codex Round 2 F#4 — invalidate cache when the binary has been replaced
+  // (resolved path changed) or its mtime moved (in-place upgrade). Either
+  // signal beats the 24h TTL; otherwise a stale entry would mask a fresh
+  // install for nearly a day.
+  let invalidated = false;
+  if (cached) {
+    if (cached.binary_resolved_path && resolved && cached.binary_resolved_path !== resolved) {
+      invalidated = true;
+    } else if (resolved && path.isAbsolute(resolved) && cached.binary_mtime_ms != null) {
+      const currentMtime = statMtime(resolved);
+      if (currentMtime != null && currentMtime !== cached.binary_mtime_ms) {
+        invalidated = true;
+      }
+    }
+  }
+  if (!force && !invalidated && isFresh(cached, opts && opts.now)) {
     return { payload: cached, fromCache: true, reprobed: false };
   }
-  const probe = probeBinary(opts);
+  const probe = probeBinary(Object.assign({}, opts, { _resolved: resolved }));
   const payload = buildPayload(probe);
   try { writeCache(repoRoot, payload); }
   catch (_) { /* fs errors during cache write are non-fatal */ }
@@ -174,29 +240,41 @@ function probeAndCache(repoRoot, opts) {
 
 // ── Cross-session crash alerts ───────────────────────────────────────────────
 
-function scanCrashAlerts(repoRoot, currentSessionId) {
-  // List prior-session dirs lacking .end marker AND not held by an active
-  // lease (C3 guard). Bound to MAX_CRASH_ALERTS so a long history doesn't
-  // flood the SessionStart context.
+function scanCrashAlerts(repoRoot, currentSessionId, opts) {
+  // List prior-session dirs lacking .end marker. A session whose lease has
+  // been heartbeated within LEASE_LIVE_MS is treated as truly alive and
+  // skipped; an older lease is treated as abandoned-by-crash (Codex Round 2
+  // F#1) and surfaced with `staleLease: true` so the renderer can tell the
+  // user the session may have crashed mid-run.
+  //
+  // Order of operations (Codex Round 2 F#3): collect ALL eligible alerts,
+  // sort by mtime descending, THEN slice to MAX_CRASH_ALERTS — sorting after
+  // the cap previously discarded the newest alerts whenever filesystem
+  // enumeration order disagreed with mtime order.
   const sessions = ht.listSessionDirs(repoRoot);
   if (sessions.length === 0) return [];
   const leases = ht.listActiveLeases(repoRoot);
-  const alerts = [];
+  const now = (opts && typeof opts.now === 'number') ? opts.now : Date.now();
+  const eligible = [];
   for (const s of sessions) {
     if (s.sessionId === currentSessionId) continue;
-    if (leases[s.sessionId]) continue;
     if (ht.hasEndMarker(repoRoot, s.sessionId)) continue;
+    const lease = leases[s.sessionId];
+    if (lease && typeof lease.mtimeMs === 'number' && (now - lease.mtimeMs) < LEASE_LIVE_MS) {
+      // Heartbeat within the live window — session is genuinely running.
+      continue;
+    }
     const consolidatedPath = path.join(s.dir, ht.CONSOLIDATED_FILENAME);
-    alerts.push({
+    eligible.push({
       sessionId: s.sessionId,
       sessionDir: s.dir,
       consolidatedPath: fs.existsSync(consolidatedPath) ? consolidatedPath : null,
       mtimeMs: s.mtimeMs,
+      staleLease: !!lease,
     });
-    if (alerts.length >= MAX_CRASH_ALERTS) break;
   }
-  // Most recent first — older crashes are less actionable.
-  return alerts.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  eligible.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return eligible.slice(0, MAX_CRASH_ALERTS);
 }
 
 function renderCrashAlertReminder(alerts) {
@@ -208,7 +286,8 @@ function renderCrashAlertReminder(alerts) {
   for (const a of alerts) {
     lines.push('  - session=' + a.sessionId +
       ' dir=' + a.sessionDir +
-      (a.consolidatedPath ? ' consolidated=' + a.consolidatedPath : ''));
+      (a.consolidatedPath ? ' consolidated=' + a.consolidatedPath : '') +
+      (a.staleLease ? ' (stale lease — likely crashed mid-session)' : ''));
   }
   lines.push('Run /mccp:trace to inspect, or remove the dir to suppress.');
   lines.push('</system-reminder>');
@@ -244,10 +323,12 @@ module.exports = {
   MIN_SUPPORTED_VERSION,
   MAX_CRASH_ALERTS,
   PROBE_TIMEOUT_MS,
+  LEASE_LIVE_MS,
   cachePath,
   parseSemver,
   compareSemver,
   meetsMin,
+  resolveBinaryPath,
   probeBinary,
   computeFeatures,
   buildPayload,

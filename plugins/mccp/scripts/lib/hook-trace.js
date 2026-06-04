@@ -325,7 +325,10 @@ function listActiveLeases(repoRoot) {
     let payload = {};
     try { payload = JSON.parse(fs.readFileSync(leaseFile, 'utf8')); }
     catch { /* keep empty */ }
-    out[sid] = Object.assign({}, payload, { leaseFile: leaseFile });
+    out[sid] = Object.assign({}, payload, {
+      leaseFile: leaseFile,
+      mtimeMs: stat.mtimeMs,
+    });
   }
   return out;
 }

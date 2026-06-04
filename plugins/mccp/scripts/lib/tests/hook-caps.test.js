@@ -132,3 +132,115 @@ test('renderCrashAlertReminder: empty input returns empty string', () => {
   assert.match(out, /<system-reminder>/);
   assert.match(out, /session=s1/);
 });
+
+// ── Codex Round 2 regression tests ────────────────────────────────────────────
+
+test('scanCrashAlerts: stale lease (heartbeat > LEASE_LIVE_MS ago) surfaces alert with staleLease flag (R2 F#1)', () => {
+  // Round 2 finding #1 (HIGH): scanCrashAlerts used to skip any prior session
+  // with an "active" lease (≤24h mtime). A session that crashed right after
+  // SessionStart leaves a fresh lease, hiding the silent failure for 24 hours.
+  // Fix: distinguish "heartbeat within LEASE_LIVE_MS" from "lease present but
+  // mtime stale" — only the former skips, the latter surfaces with a flag.
+  withRepo((root) => {
+    ht.recordWrite(root, 'crashed', 'tu1', 'PreToolUse',
+      { layer: 'L1', gate_decision: 'ALLOW', command_name: 'mccp:plan' });
+    ht.acquireLease(root, 'crashed');
+    // Backdate the lease file mtime to LEASE_LIVE_MS + 1 minute ago — simulates
+    // a session whose hook process died before reaching SessionEnd.
+    const leasePath = ht.leasePath(root, 'crashed');
+    const stalePastMs = Date.now() - (caps.LEASE_LIVE_MS + 60 * 1000);
+    fs.utimesSync(leasePath, stalePastMs / 1000, stalePastMs / 1000);
+    const alerts = caps.scanCrashAlerts(root, 'currentSess');
+    const found = alerts.find((a) => a.sessionId === 'crashed');
+    assert.ok(found, 'stale-lease session must surface in crash alerts');
+    assert.strictEqual(found.staleLease, true, 'staleLease flag set so renderer can hint');
+    // Cleanup so the next test isn't affected
+    ht.releaseLease(root, 'crashed');
+  });
+});
+
+test('scanCrashAlerts: live lease (heartbeat within LEASE_LIVE_MS) is still skipped', () => {
+  // Counterpart to the previous test — a session whose recordWrite was
+  // just-now must NOT appear as a crash alert.
+  withRepo((root) => {
+    ht.recordWrite(root, 'alive', 'tu1', 'PreToolUse',
+      { layer: 'L1', gate_decision: 'ALLOW', command_name: 'mccp:plan' });
+    ht.acquireLease(root, 'alive'); // fresh — mtime ≈ now
+    const alerts = caps.scanCrashAlerts(root, 'currentSess');
+    const sids = alerts.map((a) => a.sessionId);
+    assert.ok(!sids.includes('alive'), 'live-lease session must not appear');
+    ht.releaseLease(root, 'alive');
+  });
+});
+
+test('scanCrashAlerts: with > MAX_CRASH_ALERTS sessions, newest by mtime are returned (R2 F#3)', () => {
+  // Round 2 finding #3 (MEDIUM): the prior `break` inside the loop truncated
+  // by filesystem enumeration order BEFORE sorting by mtime, so when the
+  // directory order disagreed with recency the newest alerts were dropped
+  // permanently. Fix: collect-all → sort → slice.
+  withRepo((root) => {
+    // Five eligible sessions, with controlled mtimes oldest→newest.
+    // Filesystem enumeration order is alphabetical (oldA, oldB, oldC, oldD, oldE),
+    // which matches our "oldest first" intent here.
+    const created = ['oldA', 'oldB', 'oldC', 'oldD', 'oldE'];
+    for (const sid of created) {
+      ht.recordWrite(root, sid, 'tu1', 'PreToolUse',
+        { layer: 'L1', gate_decision: 'ALLOW', command_name: 'mccp:plan' });
+    }
+    // Now hammer each session dir to a controlled mtime — older first.
+    const base = Date.now() - (10 * 60 * 60 * 1000); // 10h ago
+    created.forEach((sid, i) => {
+      const dir = ht.sessionDir(root, sid);
+      const t = (base + i * 60 * 1000) / 1000; // 1 minute apart
+      fs.utimesSync(dir, t, t);
+    });
+    const alerts = caps.scanCrashAlerts(root, 'currentSess');
+    assert.strictEqual(alerts.length, caps.MAX_CRASH_ALERTS);
+    const sids = alerts.map((a) => a.sessionId);
+    // Newest three: oldC, oldD, oldE — in sorted-desc order: oldE, oldD, oldC
+    assert.deepStrictEqual(sids, ['oldE', 'oldD', 'oldC'],
+      'newest by mtime must survive the cap, sorted desc');
+  });
+});
+
+test('probeBinary: records binary_resolved_path + binary_mtime_ms when binary is on PATH (R2 F#4)', () => {
+  // Round 2 finding #4 (MEDIUM): binary_path used to be the literal command
+  // (`"claude"`), so a PATH-shadowed/stale install was indistinguishable
+  // from a healthy one. Fix: record the absolute resolved path + mtime so
+  // the cache can detect replacement.
+  //
+  // We probe `node` (guaranteed on PATH because this test runs under node)
+  // to exercise the resolution path without needing the claude binary.
+  const probe = caps.probeBinary({ binaryPath: 'node' });
+  assert.ok(probe.binary_resolved_path, 'binary_resolved_path must be populated');
+  assert.notStrictEqual(probe.binary_resolved_path, 'node',
+    'resolved path must differ from the literal command name');
+  assert.ok(path.isAbsolute(probe.binary_resolved_path),
+    'resolved path must be absolute: ' + probe.binary_resolved_path);
+  assert.ok(typeof probe.binary_mtime_ms === 'number' && probe.binary_mtime_ms > 0,
+    'binary_mtime_ms must be populated when resolved path exists');
+});
+
+test('probeAndCache: cache invalidated when binary_resolved_path changes (R2 F#4)', () => {
+  // If a user updates claude or swaps shells (PATH change), the cached entry
+  // must be reprobed even while the 24h TTL is still fresh.
+  withRepo((root) => {
+    const stalePayload = caps.buildPayload({
+      version: '2.1.150',
+      binary_path: 'claude',
+      binary_resolved_path: '/old/path/to/claude',
+      binary_mtime_ms: 1000,
+      stderr_capture: '',
+      exit: 0,
+      error_class: null,
+    });
+    caps.writeCache(root, stalePayload);
+    // Simulate "binary on PATH now resolves to node" by probing for node.
+    // probeAndCache will resolve `node` (absolute path ≠ `/old/path/to/claude`)
+    // → cache invalidates → reprobe.
+    const out = caps.probeAndCache(root, { binaryPath: 'node' });
+    assert.strictEqual(out.fromCache, false,
+      'cache must be invalidated when resolved path differs');
+    assert.strictEqual(out.reprobed, true);
+  });
+});

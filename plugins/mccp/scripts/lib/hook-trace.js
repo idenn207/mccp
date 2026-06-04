@@ -30,7 +30,10 @@ const CONSOLIDATED_FILENAME = 'consolidated.jsonl';
 const PER_SHARD_MAX_BYTES = 64 * 1024;
 const PER_SHARD_MAX_ENTRIES = 100;
 const GLOBAL_MAX_BYTES = 100 * 1024 * 1024;
-const LEASE_STALE_MS = 5 * 60 * 1000;
+// Lease TTL: covers long sessions without false-crash. Sessions heartbeat the
+// lease on every recordWrite, so the absolute ceiling is reached only when a
+// session goes truly idle (or crashed without SessionEnd).
+const LEASE_STALE_MS = 24 * 60 * 60 * 1000;
 
 // Allowlist — only these fields permitted in entries (C6).
 const SHARD_ENTRY_FIELDS = new Set([
@@ -184,24 +187,19 @@ function countShardEntries(shardFile) {
 }
 
 function appendShardAtomic(shardFile, line) {
-  // Temp + rename keeps the existing shard intact if rename fails.
-  // For ≤64KB shards the read-modify-write cost is acceptable.
+  // O_APPEND single-syscall append — OS-level race-safe for concurrent writes
+  // when the payload fits in PIPE_BUF (typically 4096 bytes). A single JSONL
+  // entry is bounded by FIELD_MAX_CHARS × allowlist count (~9 × 256 ≈ 2.5KB
+  // worst case after JSON escaping), well under PIPE_BUF on Linux/macOS, and
+  // NTFS preserves O_APPEND atomicity for small writes on Windows.
+  //
+  // The old read-then-tmp-rename was last-writer-wins: two hooks both reading
+  // the same prior, the later rename erased the earlier line. O_APPEND fixes
+  // that without giving up the corruption-resistance — partial writes can
+  // only produce a malformed trailing line, which the read-side quarantines
+  // (see countShardEntries + consolidateSession validation).
   ensureDir(path.dirname(shardFile));
-  const tmp = shardFile + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
-  let prior = '';
-  try {
-    prior = fs.readFileSync(shardFile, 'utf8');
-  } catch (err) {
-    if (err.code !== 'ENOENT') throw err;
-  }
-  const next = prior + (prior && !prior.endsWith('\n') ? '\n' : '') + line + '\n';
-  fs.writeFileSync(tmp, next, 'utf8');
-  try {
-    fs.renameSync(tmp, shardFile);
-  } catch (err) {
-    try { fs.unlinkSync(tmp); } catch (_) { /* ignore */ }
-    throw err;
-  }
+  fs.appendFileSync(shardFile, line + '\n', 'utf8');
 }
 
 function quarantineShard(shardFile) {
@@ -261,6 +259,9 @@ function recordWrite(repoRoot, sessionId, toolUseId, phase, rawEntry) {
   } catch (err) {
     return { ok: false, code: err.code || 'write_failed', reason: err.message };
   }
+  // Heartbeat the lease so long sessions don't get false-crashed by the 24h
+  // TTL or LRU-evicted while still active. Best-effort — never fails the write.
+  try { renewLease(repoRoot, sessionId); } catch (_) { /* silent */ }
   return { ok: true, path: target };
 }
 
@@ -269,6 +270,32 @@ function recordWrite(repoRoot, sessionId, toolUseId, phase, rawEntry) {
 function acquireLease(repoRoot, sessionId) {
   ensureDir(repoBaseDir(repoRoot));
   const lease = leasePath(repoRoot, sessionId);
+  fs.writeFileSync(lease, JSON.stringify({
+    pid: process.pid,
+    sessionId: sessionId,
+    ts: nowIso(),
+  }), 'utf8');
+  return lease;
+}
+
+function renewLease(repoRoot, sessionId) {
+  // Heartbeat — refreshes the lease's mtime + ts so listActiveLeases() keeps
+  // treating the session as active across the long TTL.
+  //
+  // IMPORTANT: refresh-only, no lazy create. The lease is the SessionStart
+  // hook's responsibility (acquireLease in L2c); recordWrite must not
+  // fabricate leases for sessions that never went through SessionStart,
+  // because that would make every prior session look "active" and defeat
+  // crash detection (scanCrashAlerts uses lease absence as a crash signal).
+  // Returns the lease path if refreshed, null if no lease existed.
+  const lease = leasePath(repoRoot, sessionId);
+  let existed = true;
+  try { fs.accessSync(lease); }
+  catch (err) {
+    if (err.code === 'ENOENT') existed = false;
+    else throw err;
+  }
+  if (!existed) return null;
   fs.writeFileSync(lease, JSON.stringify({
     pid: process.pid,
     sessionId: sessionId,
@@ -325,21 +352,39 @@ function consolidateSession(repoRoot, sessionId) {
   if (!fs.existsSync(dir)) return { ok: false, code: 'no_session_dir' };
 
   const lines = [];
+  const quarantined = [];
   for (const name of fs.readdirSync(dir)) {
     if (name === CONSOLIDATED_FILENAME) continue;
     if (name === END_MARKER) continue;
     if (name === QUARANTINE_SUBDIR) continue;
     if (!name.endsWith('.jsonl')) continue;
     const full = path.join(dir, name);
+    let raw;
     try {
-      const raw = fs.readFileSync(full, 'utf8');
-      for (const ln of raw.split('\n')) {
-        const t = ln.trim();
-        if (t) lines.push(t);
-      }
+      raw = fs.readFileSync(full, 'utf8');
     } catch (_err) {
       try { quarantineShard(full); } catch (_) { /* best-effort */ }
+      quarantined.push(name);
+      continue;
     }
+    // Validate each JSONL line. A single malformed entry quarantines the
+    // whole shard — partial corruption (e.g. interrupted append) shouldn't
+    // poison consolidated.jsonl, which /mccp:trace relies on for recovery.
+    const shardLines = [];
+    let bad = false;
+    for (const ln of raw.split('\n')) {
+      const t = ln.trim();
+      if (!t) continue;
+      try { JSON.parse(t); }
+      catch (_) { bad = true; break; }
+      shardLines.push(t);
+    }
+    if (bad) {
+      try { quarantineShard(full); } catch (_) { /* best-effort */ }
+      quarantined.push(name);
+      continue;
+    }
+    for (const t of shardLines) lines.push(t);
   }
 
   const target = path.join(dir, CONSOLIDATED_FILENAME);
@@ -351,7 +396,7 @@ function consolidateSession(repoRoot, sessionId) {
     try { fs.unlinkSync(tmp); } catch (_) { /* ignore */ }
     return { ok: false, code: err.code || 'consolidate_failed', reason: err.message };
   }
-  return { ok: true, path: target, lines: lines.length };
+  return { ok: true, path: target, lines: lines.length, quarantined: quarantined };
 }
 
 // ── LRU eviction (SessionStart) ──────────────────────────────────────────────
@@ -427,6 +472,7 @@ module.exports = {
   validateEntry,
   recordWrite,
   acquireLease,
+  renewLease,
   releaseLease,
   listActiveLeases,
   markSessionEnd,

@@ -115,6 +115,8 @@ function resolvePluginRoot() {
   return claudeDir;
 }
 
+const { mergeL2c } = require(path.join(__dirname, '..', 'lib', 'merge-l2c'));
+
 const root = resolvePluginRoot();
 const script = path.join(root, rel);
 
@@ -132,23 +134,26 @@ if (fs.existsSync(script)) {
   );
 
   const stdout = typeof result.stdout === 'string' ? result.stdout : '';
-  if (stdout) {
-    process.stdout.write(stdout);
-  } else {
-    process.stdout.write(raw);
-  }
 
-  // v0.2.7 L2c — append hook-caps probe + crash alerts after the regular
-  // session-start output. Failure here never blocks SessionStart.
+  // v0.2.7 L2c — compute hook-caps probe + crash alerts BEFORE emitting stdout
+  // so JSON-emitting child hooks can have the extra text merged into their
+  // hookSpecificOutput.additionalContext field. Appending raw text after a
+  // JSON payload would produce an invalid combined output that Claude Code
+  // silently drops (defeating the very surface L2c is meant to expose).
+  let extraText = '';
   try {
     const event = raw ? JSON.parse(raw) : null;
     const injector = require('./session-start-trace-injector');
-    const extra = injector.compute(event);
-    if (extra) {
-      process.stdout.write('\n' + extra + '\n');
-    }
+    extraText = injector.compute(event) || '';
   } catch (err) {
     process.stderr.write('[SessionStart] L2c trace injector skipped: ' + err.message + '\n');
+  }
+
+  const finalOut = mergeL2c(stdout, raw, extraText);
+  if (finalOut) {
+    process.stdout.write(finalOut);
+  } else {
+    process.stdout.write(raw);
   }
 
   if (result.stderr) {

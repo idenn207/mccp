@@ -118,10 +118,27 @@ ALLOW-path silent failure 제거 layered observability surface. v0.2.5 `MCCP_REC
 | `hooks/tests/session-end-trace.test.js` | 3 | runSync writes marker + consolidates + releases lease, C3 isolation, no-op when session_id missing |
 | **Total new** | **46** | |
 
+## PR-Codex Round 1 Findings + Fixes (2026-06-05)
+
+`/mccp:pr` Phase 2.5.3 Codex adversarial review returned `verdict: needs-attention` ("No ship") with 4 findings against the M2.5 implementation. All addressed before re-running the gate.
+
+| # | Severity | Conf | File:line | Fix |
+| --- | --- | --- | --- | --- |
+| 1 | HIGH | 0.86 | `session-start-bootstrap.js:143-149` | Extracted `mergeL2c()` to `lib/merge-l2c.js`. Now parses child stdout; if JSON, injects `extra` into `hookSpecificOutput.additionalContext` so the combined output is one valid JSON document. Text/empty stdout falls back to text-append. 9 unit tests cover all three branches + the original regression case. |
+| 2 | HIGH | 0.91 | `lib/hook-trace.js:269-296` | `LEASE_STALE_MS` bumped 5min → 24h. New `renewLease()` heartbeat invoked from `recordWrite()` (lazy-acquire if absent). 3 new tests: TTL covers long sessions, heartbeat updates mtime, `listActiveLeases` keeps >5min-old sessions active. |
+| 3 | HIGH | 0.88 | `lib/hook-trace.js:186-200` | `appendShardAtomic` rewritten to `fs.appendFileSync` (O_APPEND single-syscall). PIPE_BUF analysis: per-entry ≤ ~2.5KB worst case, well under 4096-byte POSIX guarantee. New concurrent-write test confirms 20 parallel `recordWrite` calls preserve all 20 entries (vs prior last-writer-wins). |
+| 4 | MEDIUM | 0.84 | `lib/hook-trace.js:334-341` | `consolidateSession` now `JSON.parse`-validates every shard line before inclusion; first malformed line quarantines the whole shard. Returns `quarantined: []` in result for caller observability. New test seeds a half-corrupt shard, asserts only clean lines reach consolidated.jsonl + corrupt shard moved to `.quarantine/`. |
+
+**Files modified**: `lib/hook-trace.js`, `hooks/session-start-bootstrap.js` (refactor only), `lib/tests/hook-trace.test.js` (+4 tests).
+**Files created**: `lib/merge-l2c.js`, `lib/tests/merge-l2c.test.js` (9 tests).
+**Test delta**: 506 → 519 tests, 0 fail.
+
+Re-run Codex (Round 2) expected verdict: `ok` (all 4 findings addressed at the line + intent level).
+
 ## Next Steps
 
-- [ ] Run `/mccp:prp-commit` to stage and commit the v0.2.7 milestone changes
-- [ ] Run `/mccp:pr` to create the GitHub PR (PR-Codex gate will validate the chain)
+- [ ] Run `/mccp:prp-commit` to stage and commit the v0.2.7 milestone changes (now including R1 fixes)
+- [ ] Re-run `/mccp:pr` to create the GitHub PR (PR-Codex Round 2)
 - [ ] Manual smoke: set `MCCP_RECEIPT_DEBUG=1`, run any `/mccp:*` command, verify `systemMessage` actually renders in Claude Code client
 - [ ] Future: monitor whether the `MCCP_RECEIPT_DEBUG_LEGACY_INLINE` opt-out sees real-world demand; if not, deprecate in v0.2.8
 

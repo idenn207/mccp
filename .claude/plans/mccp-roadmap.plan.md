@@ -865,3 +865,14 @@ Verdict: **NEEDS-ATTENTION** (0 HIGH/CRITICAL → gate proceeds with implement-t
 
 **Why log here, not in `.claude/notes/`**
 roadmap이 단일 진입점이라 명시했으므로 ([CLAUDE.md §5](../../CLAUDE.md), [MEMORY.md:1](C:/Users/skypark207/.claude/projects/c---project-my-my-claude-code-plugin/memory/MEMORY.md)) operational incident도 본 plan에 누적. `.claude/notes/`는 archive only.
+
+**Absorption (2026-06-05 cycle, feat/v0.2.6-housekeeping)**
+
+| Residual | Status | Commit / Annotation |
+|---|---|---|
+| INC-001-R1 | **resolved** | Cumulative migration applied locally on all 11 receipts: 11/11 schema validate `ok`. Receipts are `.claude/receipts/`-gitignored, so the *commit story* is R4 (scripts in repo); per-workstation execution stays manual. |
+| INC-001-R2 | **partial** | `plugins/mccp/scripts/migrations/` directory established + 2 cumulative scripts shipped (v0.2.4 + v0.2.6). Schema migration runbook moved from "absent" to "tactical" — full v0.2.7 absorption still wants automated discovery (e.g. validate-cmd hint listing which migration to run). |
+| INC-001-R3 | **deferred** | Block-path observability stays in v0.2.7 silent-hook UX milestone scope. |
+| INC-001-R4 | **resolved** | Migration script promoted: `.claude/state/receipt-impeccable-migrate.js` → `plugins/mccp/scripts/migrations/v0.2.6-impeccable-fields.js` + sibling `v0.2.4-security-fields.js` added. Both expose `module.exports` for test-ability. CLAUDE.md §4 cheat sheet now lists migration invocation. |
+
+Residual finding (this absorption): the persistent FAIL chains for `default mccp:pr` + `v0-2-4-phase-7-2-5-restore mccp:prp-implement` after migration are *semantic* gate decisions (`codex_skipped=true` preserved from session-of-record), NOT schema bugs. fail-closed working as designed.

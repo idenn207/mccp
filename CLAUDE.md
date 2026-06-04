@@ -200,6 +200,12 @@ my-claude-code-plugin/
 /mccp:receipt-validate <command>    # 특정 게이트의 receipt 유효성 검증
 /mccp:receipt-write <gate>          # 게이트 receipt 수동 작성
 
+# Schema migrations (.claude/receipts/는 working-tree only — 각 사용자가 직접 실행)
+# 새 schema bump 후 mccp:* validate가 "schema invalid" 차단하면:
+node plugins/mccp/scripts/migrations/v0.2.4-security-fields.js .claude/receipts/*/*.json
+node plugins/mccp/scripts/migrations/v0.2.6-impeccable-fields.js .claude/receipts/*/*.json
+# 순서대로 (낮은 버전 먼저). --dry-run 옵션으로 미리 확인.
+
 # Codex
 /codex:setup                        # CLI 인증 & gate 토글
 /codex:rescue <문제>                # 막혔을 때 Codex에게 위임

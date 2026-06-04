@@ -19,6 +19,10 @@ argument-hint: "[base-branch] (default: main)"
 
 Receipt `gate_id` is still `mccp-pr-codex` regardless of which alias the user typed. The receipt-prompt and receipt-skill hooks recognize both `/mccp:pr` and `/mccp:prp-pr` (see `${CLAUDE_PLUGIN_ROOT}/scripts/hooks/receipt-prompt.js` command alias resolution).
 
+### Impeccable design gate (v0.2.6 Milestone 1)
+
+Inherited verbatim from `/mccp:pr` Phase 2.5.1. The pre-flight helper invocation `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect --mode pr --base "origin/<base>" --json` runs identically, and `MCCP_FORCE_PR_WITHOUT_IMPECCABLE` audited escape applies identically. The receipt records `meta.impeccable_skipped` / `meta.impeccable_force_override` on the same `mccp-pr-codex` receipt regardless of which alias the user typed. `Skill(impeccable, "critique ...")` invocations are also identical. When Skill unavailable, the fallback note `> impeccable unavailable, skipped (auto-fallback): skill-missing` is injected into the PR body's `## Design Review` section identically.
+
 For the full procedure, see [`pr.md`](./pr.md). Do not duplicate the body here — drift between the two files would silently weaken the gate.
 
 ## Why this command exists

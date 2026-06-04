@@ -148,18 +148,32 @@ Missing/stale: <CLI stderr output>
 
 End the response.
 
-### 2.5.2 — Detect design signal (optional PR-Impeccable reuse)
+### 2.5.2 — Detect design signal (reuse-first PR-Impeccable, v0.2.6 Milestone 1)
 
-Inspect `gh pr diff <NUMBER> --name-only` for UI files (`*.tsx|jsx|vue|svelte|astro|css|scss|module.css|html`) or `.claude/design/*.design.plan.md` references in the plan. If design signal present, check the PR body for an existing `## Design Review` section (injected by `/mccp:pr` Phase 2.5.1). Reuse that section's findings for the report.
+Pre-flight detection via standardized helper (`review` mode = git diff vs base + PR body reuse check):
 
-If design signal present but PR body lacks `## Design Review`, call:
-
+```bash
+DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
+  --mode review \
+  --base "origin/<base>" \
+  --json)
+SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
+SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
+DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
 ```
-Skill(impeccable, "critique PR #<NUMBER>")
-Skill(impeccable, "audit PR #<NUMBER>")
-```
 
-If `impeccable` unavailable, record `> impeccable unavailable, skipped (auto-fallback)` and continue.
+**Reuse-first**: If design signal present, check the PR body for an existing `## Design Review` section (injected by `/mccp:pr` Phase 2.5.1). Reuse those findings — do NOT re-invoke `Skill(impeccable, ...)`. Cross-gate dedupe — same PR shouldn't pay impeccable cost twice.
+
+Decision tree (reuse-first):
+
+| SKILL_AVAIL | SIGNAL | PR body has `## Design Review` | Action |
+|---|---|---|---|
+| * | 0 | * | Sub-step skip silently |
+| * | 1 | yes | Reuse existing `## Design Review` findings into Phase 6 REPORT |
+| 0 | 1 | no | Record `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` in Phase 6 REPORT. Export `IMPECCABLE_SKIPPED_REASON="$DETECT_REASON"`. code-reviewer gate is **lenient** — surfaces as warning, not blocking |
+| 1 | 1 | no | Invoke `Skill(impeccable, "critique PR #<NUMBER>")`. If Skill returns `unknown_skill` / `not found`, fall back to skipped path |
+
+Receipt-write at 7.5 MUST forward `--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when skipped or fell back.
 
 ### 2.5.3 — Security-sensitive area check (reuse-first)
 

@@ -100,6 +100,30 @@ Only after Phases 1-3 produced concrete (non-`Assumption`) answers for Problem, 
 mkdir -p .claude/prds
 ```
 
+### 4.0 — impeccable design direction (자동, /mccp:plan-prd 진입 시 MANDATORY, v0.2.6 Milestone 1)
+
+After the PRD is written (path captured as `$PRD_PATH`), pre-flight detection in `prd` mode reads the PRD artifact body for design surface keywords + `## Files to Change` UI extensions + `.claude/design/*.design.plan.md` references:
+
+```bash
+DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
+  --mode prd \
+  --plan "$PRD_PATH" \
+  --json)
+SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
+SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
+DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
+```
+
+Decision tree:
+
+| SKILL_AVAIL | SIGNAL | Action |
+|---|---|---|
+| 0 | * | Append `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` under a `## Design Direction` section in the PRD. No receipt is written at PRD stage (plan-prd has no codex gate). |
+| 1 | 0 | Sub-step skip silently — PRD declares no design surface. |
+| 1 | 1 | Invoke `Skill(impeccable, "shape <PRD title>")`. Append result under `## Design Direction` in the PRD body. If Skill returns `unknown_skill` / `not found`, fall back to skipped path. |
+
+This sub-step writes design direction into the PRD itself — downstream `/mccp:plan` will inherit it via `## Files to Change` and explicit `## Design Direction` section detection (see plan.md Phase 5.0).
+
 **Output path**: `.claude/prds/{kebab-case-name}.prd.md`
 
 ### PRD Template

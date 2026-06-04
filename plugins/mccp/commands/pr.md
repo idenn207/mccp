@@ -30,6 +30,32 @@ fi
 
 This Phase 0 runs before `gh pr list` so an advisory invocation never touches GitHub. The auto-chain `pr` step from [auto-chain.js](../scripts/lib/auto-chain.js) mirrors this rejection at chain-orchestration time as defense-in-depth.
 
+### Phase 0.1 — `MCCP_FORCE_PR_WITHOUT_IMPECCABLE` audited escape preflight (v0.2.6 Milestone 1 Task 1.6)
+
+Symmetric with the v0.2.4 security-reviewer audited escape but with **stricter reason validation** (Codex R1 F4 absorption). If the env var is set, validate the reason **before** 2.5.1 runs the impeccable gate, so a missing-Skill fallback can short-circuit to force-override path without re-prompting the user mid-flow.
+
+```bash
+if [ -n "${MCCP_FORCE_PR_WITHOUT_IMPECCABLE:-}" ]; then
+  REASON="$MCCP_FORCE_PR_WITHOUT_IMPECCABLE"
+  TRIMMED=$(echo -n "$REASON" | awk '{$1=$1; print}')
+  LEN=${#TRIMMED}
+  WORDS=$(echo "$TRIMMED" | wc -w)
+  if [ "$LEN" -lt 30 ] || [ "$WORDS" -lt 3 ]; then
+    echo "[MCCP-GATE-STOP] MCCP_FORCE_PR_WITHOUT_IMPECCABLE reason rejected (len=$LEN words=$WORDS)." 1>&2
+    echo "v0.2.6 hardening (Codex R1 F4): reason must be ≥30 chars + ≥3 words, no placeholder/URL-only/banlist." 1>&2
+    echo "Receipt CLI applies the same validator at schema time — reason is rejected upstream as well." 1>&2
+    exit 1
+  fi
+  # 1-token banlist, URL-only, placeholder checks are enforced by the receipt
+  # CLI helper (plugins/mccp/scripts/receipt/lib/force-override-reason.js). The
+  # write step at 2.5.7 will REJECT the receipt if those checks fail, so a
+  # bypass-attempting reason cannot survive past this command.
+  export IMPECCABLE_FORCE_OVERRIDE_REASON="$REASON"
+fi
+```
+
+When `IMPECCABLE_FORCE_OVERRIDE_REASON` is set, 2.5.1's missing-Skill fallback path takes the **force-override branch** instead of fail-stop: receipt-write (2.5.7) MUST forward `--impeccable-force-override --impeccable-force-override-reason "$IMPECCABLE_FORCE_OVERRIDE_REASON"` (mutually exclusive with `--impeccable-skipped` — schema invariant). Phase 4 MUST auto-inject a `## Impeccable Override` section into the PR body (canonical audit source — receipts dir is git-ignored).
+
 ---
 
 ## Phase 1 — VALIDATE
@@ -106,18 +132,31 @@ This phase applies when invoked as `/mccp:pr`. It implements the **Autonomy Cont
 
 This runs **after** Phase 2 (DISCOVER — template/commits/files) and **before** Phase 3 (PUSH).
 
-### 2.5.1 — Detect design signal (optional PR-Impeccable)
+### 2.5.1 — Detect design signal (PR-Impeccable, v0.2.6 Milestone 1)
 
-Inspect `git diff origin/<base>..HEAD --name-only` from Phase 2. If any file matches `*.tsx`, `*.jsx`, `*.vue`, `*.svelte`, `*.astro`, `*.css`, `*.scss`, `*.module.css`, `*.html`, OR any `.claude/design/*.design.plan.md` was added/modified, the PR carries a design surface. Call:
+Standardized helper invocation — `impeccable-detect.js` is the canonical
+gate-branch decision source (Codex R1 F2 absorption: skill_available is the
+primary axis, cli_available is telemetry only):
 
+```bash
+DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
+  --mode pr \
+  --base "origin/<base>" \
+  --json)
+SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
+SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
+DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
 ```
-Skill(impeccable, "critique <PR title or branch name>")
-Skill(impeccable, "audit <PR title or branch name>")
-```
 
-Capture the critique/audit highlights — they will be injected into the PR body as `## Design Review` in Phase 4. Skip this sub-step silently if no design signal is detected.
+Decision tree:
 
-If `impeccable` is not installed (`Skill` returns `unknown_skill` / `not found`), record `> impeccable unavailable, skipped (auto-fallback)` in the same `## Design Review` placeholder and continue.
+| SKILL_AVAIL | SIGNAL | Action |
+|---|---|---|
+| 0 | * | Record `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` in the in-memory `## Design Review` section. **Export** `IMPECCABLE_SKIPPED_REASON="$DETECT_REASON"` so 2.5.7 forwards it. Then check `MCCP_FORCE_PR_WITHOUT_IMPECCABLE` (see 2.5.5c). |
+| 1 | 0 | Sub-step skip silently — no design surface on this PR. No `## Design Review` section injected. |
+| 1 | 1 | Invoke `Skill(impeccable, "critique <PR title or branch name>")` and `Skill(impeccable, "audit <PR title or branch name>")`. Capture highlights — Phase 4 injects them into PR body as `## Design Review`. If Skill returns `unknown_skill` / `not found`, fall back to the skipped path (set `IMPECCABLE_SKIPPED_REASON="skill-missing"`). |
+
+The receipt-write step (2.5.7) MUST forward `--impeccable-skipped` + `--impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when SKILL_AVAIL=0 or Skill fell back. validate-cmd treats this as **blocking on strict gates (mccp-implement-codex, mccp-pr-codex)** without the audited force-override path (2.5.5c).
 
 ### 2.5.2 — Cross-gate dedupe check (deterministic)
 

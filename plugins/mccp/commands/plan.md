@@ -208,6 +208,30 @@ This phase applies when the command is invoked as `/mccp:plan`. It implements th
 
 After the plan artifact is written in Phase 4:
 
+### 5.0 — impeccable design gate (자동, /mccp:plan 진입 시 MANDATORY, v0.2.6 Milestone 1)
+
+Pre-flight detection — pre-commits to mode and feeds skill_available / design_signal:
+
+```bash
+DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
+  --mode plan \
+  --plan "<plan-path>" \
+  --json)
+SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
+SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
+DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
+```
+
+Decision tree:
+
+| SKILL_AVAIL | SIGNAL | Action |
+|---|---|---|
+| 0 | * | Append `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` to the plan body under a `## Design Critique` heading. Export `IMPECCABLE_SKIPPED_REASON="$DETECT_REASON"`. plan-codex is a lenient gate — `meta.impeccable_skipped=true` surfaces as warning, not blocking. |
+| 1 | 0 | Sub-step skip silently — plan declares no design surface. |
+| 1 | 1 | Invoke `Skill(impeccable, "critique <plan slug>")`. Append result to the plan body under `## Design Critique`. If Skill returns `unknown_skill` / `not found`, fall back to skipped path. |
+
+Receipt-write at 5.6 MUST forward `--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when skipped or fell back.
+
 ### 5.1 — Append placeholder section to the plan
 
 Edit the plan file to add at the bottom:

@@ -184,6 +184,29 @@ Integrate findings into the same `## Codex Implementation Review` section under
 a `### Security Reviewer` subheading. CRITICAL/HIGH security findings →
 MCCP-GATE-STOP.
 
+### 2.5.5b — impeccable design gate (자동, /mccp:prp-implement 진입 시 MANDATORY, v0.2.6 Milestone 1)
+
+Pre-flight detection — `implement` mode reads git diff for UI extensions + `.claude/design/*.design.plan.md` changes:
+
+```bash
+DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
+  --mode implement \
+  --json)
+SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
+SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
+DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
+```
+
+Decision tree (mirror of pr.md 2.5.1):
+
+| SKILL_AVAIL | SIGNAL | Action |
+|---|---|---|
+| 0 | * | Record `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` under `### Design Review` in `## Codex Implementation Review`. Export `IMPECCABLE_SKIPPED_REASON="$DETECT_REASON"`. mccp-implement-codex is a **strict gate** — receipt with `impeccable_skipped=true` BLOCKS downstream `/mccp:pr`. |
+| 1 | 0 | Sub-step skip silently — no design surface in this implementation. |
+| 1 | 1 | Invoke `Skill(impeccable, "audit <implementation summary>")`. Append result under `### Design Review` in `## Codex Implementation Review`. If Skill returns `unknown_skill` / `not found`, fall back to skipped path (set `IMPECCABLE_SKIPPED_REASON="skill-missing"`). |
+
+Receipt-write (2.5.6) MUST forward `--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when SKILL_AVAIL=0 or Skill fell back.
+
 ### 2.5.6 — Verify section, write mccp-implement-codex receipt
 
 ```bash

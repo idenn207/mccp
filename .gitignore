@@ -32,6 +32,8 @@ build/
 .claude/state/codex-stop-loop-input.txt
 # Dogfood ephemera (fixtures + sandboxes) — never committed.
 .claude/state/dogfood-*/
+# v0.2.7 hook-trace shard ledgers (per-invocation observability — local only).
+.claude/state/hook-trace/
 
 # Local env
 .env

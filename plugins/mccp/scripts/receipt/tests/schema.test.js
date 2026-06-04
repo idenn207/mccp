@@ -39,6 +39,10 @@ function valid() {
       security_skip_reason: null,
       security_force_override: false,
       security_force_override_reason: null,
+      impeccable_skipped: false,
+      impeccable_skip_reason: null,
+      impeccable_force_override: false,
+      impeccable_force_override_reason: null,
     },
   };
 }

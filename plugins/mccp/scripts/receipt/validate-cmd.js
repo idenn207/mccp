@@ -12,6 +12,12 @@ const { getCommandSpec, normalizeCommand } = require('./aliases');
 // they are read-only and cannot themselves introduce new security risk.
 const STRICT_SECURITY_GATES = ['mccp-implement-codex', 'mccp-pr-codex'];
 
+// v0.2.6 Milestone 1 Task 1.3 — impeccable_skipped parallel to security.
+// Codex R1 F1 absorption: no separate STRICT_DESIGN_GATES constant; reuse the
+// same strict list because the gate strictness comes from the WRITE-action
+// semantic (implement / pr), not the namespace.
+const STRICT_IMPECCABLE_GATES = ['mccp-implement-codex', 'mccp-pr-codex'];
+
 // Validate the receipt situation for a given /mccp:* command invocation.
 // Returns: { ok, command, decisionId, missing, stale, blocking, warnings, open_critical, reason? }
 function validateCommand(command, opts) {
@@ -190,6 +196,46 @@ function validateCommand(command, opts) {
         reason: 'preceding gate exercised MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER ' +
           '(audited escape — PR body is canonical audit source)',
         force_override_reason: receipt.meta.security_force_override_reason || null,
+      });
+    }
+
+    // v0.2.6 Milestone 1 Task 1.3 — impeccable_skipped enforcement.
+    // Mirrors security_skipped policy: strict for implement/pr (write actions),
+    // informational for read-only gates. Codex R1 F1 absorption: enforcement
+    // sits on the same primary codex receipt meta, not on a separate
+    // design_* namespace.
+    if (receipt.meta && receipt.meta.impeccable_skipped === true && !receipt.meta.skipped) {
+      const reason = 'preceding gate has meta.impeccable_skipped=true ' +
+        '(impeccable design-review auto-fallback — non-approving)' +
+        (receipt.meta.impeccable_skip_reason ? '; skip_reason: ' + receipt.meta.impeccable_skip_reason : '');
+      if (STRICT_IMPECCABLE_GATES.indexOf(gateId) !== -1) {
+        result.blocking.push({
+          gate_id: gateId,
+          decision_id: result.decisionId,
+          reason: reason,
+          impeccable_skip_reason: receipt.meta.impeccable_skip_reason || null,
+        });
+      } else {
+        result.warnings.push({
+          gate_id: gateId,
+          decision_id: result.decisionId,
+          reason: reason + ' (informational for non-strict gate)',
+          impeccable_skip_reason: receipt.meta.impeccable_skip_reason || null,
+        });
+      }
+    }
+
+    // v0.2.6 Milestone 1 Task 1.6 — impeccable_force_override warning.
+    // Reason validation has already happened at schema time (REJECT on bad
+    // reason). By the time we see force_override=true here, the reason is
+    // substantive. Surface as audit warning, not blocking.
+    if (receipt.meta && receipt.meta.impeccable_force_override === true) {
+      result.warnings.push({
+        gate_id: gateId,
+        decision_id: result.decisionId,
+        reason: 'preceding gate exercised MCCP_FORCE_PR_WITHOUT_IMPECCABLE ' +
+          '(audited escape — PR body is canonical audit source)',
+        impeccable_force_override_reason: receipt.meta.impeccable_force_override_reason || null,
       });
     }
   }

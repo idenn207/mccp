@@ -111,6 +111,10 @@ function buildReceipt(args) {
       security_skip_reason: args['security-skip-reason'] || null,
       security_force_override: args['security-force-override'] === true,
       security_force_override_reason: args['security-force-override-reason'] || null,
+      impeccable_skipped: args['impeccable-skipped'] === true,
+      impeccable_skip_reason: args['impeccable-skip-reason'] || null,
+      impeccable_force_override: args['impeccable-force-override'] === true,
+      impeccable_force_override_reason: args['impeccable-force-override-reason'] || null,
     },
   });
 

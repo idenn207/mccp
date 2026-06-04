@@ -1,5 +1,7 @@
 'use strict';
 
+const { validateReason } = require('./lib/force-override-reason');
+
 const SCHEMA_VERSION = 'v1';
 
 const PHASES = ['plan', 'implement', 'pr', 'review'];
@@ -167,6 +169,44 @@ function validate(receipt) {
         '(4-axis state matrix invariant: pick one — skipped = fall-through, ' +
         'force_override = deliberate audited bypass)');
     }
+
+    // v0.2.6 Milestone 1 Task 1.2 — impeccable_* axis (Codex R1 F1 absorption:
+    // primary codex receipt meta, no separate design_* namespace). Mirrors
+    // security_* shape; cross-namespace combos are allowed (security_skipped +
+    // impeccable_force_override is a legal state), only same-namespace combos
+    // are contradictions.
+    req(typeof m.impeccable_skipped === 'boolean',
+      'meta.impeccable_skipped must be a boolean');
+    if (m.impeccable_skip_reason !== null && m.impeccable_skip_reason !== undefined) {
+      req(typeof m.impeccable_skip_reason === 'string',
+        'meta.impeccable_skip_reason must be a string or null');
+    }
+    req(typeof m.impeccable_force_override === 'boolean',
+      'meta.impeccable_force_override must be a boolean');
+    if (m.impeccable_force_override_reason !== null && m.impeccable_force_override_reason !== undefined) {
+      req(typeof m.impeccable_force_override_reason === 'string',
+        'meta.impeccable_force_override_reason must be a string or null');
+    }
+
+    if (m.impeccable_skipped === true && m.impeccable_force_override === true) {
+      err('meta.impeccable_skipped + meta.impeccable_force_override cannot both be true ' +
+        '(state matrix invariant: pick one — skipped = fall-through, ' +
+        'force_override = deliberate audited bypass)');
+    }
+
+    // F4 hardening + F-Sec-1 absorption: strict namespace reason validator.
+    // When impeccable_force_override=true, reason must be substantive
+    // (≥30 chars, ≥3 words, no placeholder/URL-only/1-token). Helper holds
+    // the rules so v0.2.7 housekeeping can flip security namespace to strict
+    // without touching schema.js.
+    if (m.impeccable_force_override === true) {
+      const v = validateReason(m.impeccable_force_override_reason, { namespace: 'impeccable' });
+      if (!v.ok) {
+        err('meta.impeccable_force_override_reason rejected (' + v.reason + '): ' +
+          'force_override requires substantive reason ≥30 chars + ≥3 words, ' +
+          'no placeholder/URL-only/banlist token');
+      }
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -208,6 +248,10 @@ function makeSkeleton(overrides) {
       security_skip_reason: null,
       security_force_override: false,
       security_force_override_reason: null,
+      impeccable_skipped: false,
+      impeccable_skip_reason: null,
+      impeccable_force_override: false,
+      impeccable_force_override_reason: null,
     },
   }, o);
 }

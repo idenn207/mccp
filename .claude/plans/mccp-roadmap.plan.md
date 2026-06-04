@@ -589,3 +589,21 @@ node -e "console.log(require('./plugins/mccp/.claude-plugin/plugin.json').versio
   - **MEDIUM (security backport debt)** — F4 absorption이 v0.2.4 security_force_override와 강도 다르게 남음 (security=warning, impeccable=REJECT). v0.2.6 backport 권고 — 호환성 깨짐 risk 있어 별도 cycle.
   - **LOW (Milestone 0 split)** — F5 absorption의 migration script는 Milestone 0 머지 후 별도 maintenance commit. script 자체는 v0.2.5 cycle 진입 전에 작성/dry-run 실행 권장 (Step 2까지만 머지하고 사용자가 ready일 때 Step 3 실행).
 - Codex session 참조: threadId `019e9193-65fe-7871-ae60-95b8ddec2956` (R1, direct companion), threadId `019e91a2-2783-7382-bdfa-203adc739823` (R3 quota-deferred), `019e9184-19ce-7ed1-bba4-58510a78dd74` (preliminary working-tree review, background)
+
+## Codex Implementation Review
+
+decision-set already converged in mccp-plan-codex review (R1 + R2, F1-F5 absorbed). No new implement-time decisions detected — architectural choices (file structure per "Files to Change" table, abstraction boundaries between impeccable-detect.js / schema.js / cli.js / validate-cmd.js, no new external deps, sync concurrency model) all pre-committed. Micro-decisions remaining (skill registry probe shape, namespace-aware reason validator parametrization, STATE.md write ownership, fake Skill harness fixture) are implementation details, not architectural. **Cross-gate dedupe applied (Phase 2.5.1).**
+
+Decision-slug reused from plan-codex: `mccp-roadmap`. Implement-codex receipt will record this dedupe via standard receipt write.
+
+### Security Reviewer
+
+Verdict: **NEEDS-ATTENTION** (0 HIGH/CRITICAL → gate proceeds with implement-time absorption). 5 findings, all MEDIUM/LOW.
+
+- **F-Sec-1 (MEDIUM) — Reason validator cross-namespace divergence**: v0.2.5 impeccable_force_override_reason은 schema REJECT, v0.2.4 security_force_override_reason은 write-layer warning. write.js + schema.js 양쪽 검증 시 코드 중복. → **흡수**: Task 1.2 본문에 reason validator를 `plugins/mccp/scripts/receipt/lib/force-override-reason.js` 단일 helper로 분리. v0.2.7 housekeeping (originally v0.2.6 in plan)에서 security namespace backport 시 같은 helper에 namespace-aware strictness flag 추가.
+- **F-Sec-2 (MEDIUM) — Path traversal via `--plan <user-path>`**: impeccable-detect.js가 사용자 입력 경로를 검증 없이 fs로 읽음. → **흡수**: Task 1.1 본문에 `path.resolve(cwd, userPath)` + `path.relative(repoRoot, abs).startsWith('..')` 거부 추가. Unit test에 traversal positive case 추가.
+- **F-Sec-3 (LOW) — Skill registry probe telemetry on stdout**: stdout JSON에 `cli_available`이 섞이면 telemetry가 caller stdout에 노출. → **흡수**: Task 1.1 본문에 `--json` 출력은 `skill_available + design_signal + signal_files + mode + reason`만, `cli_available`은 별도 `--telemetry` flag로 분리하거나 같은 JSON 내에 두되 caller가 STATE.md write 외엔 사용 안 함을 코드 주석으로 명시.
+- **F-Sec-4 (MEDIUM) — Cross-namespace schema bypass via direct store.js write**: schema validator를 우회하면 same-namespace invariant 무효화. → **흡수**: Task 1.2 본문에 impeccable invariant를 schema.js에 명시(security와 대칭) + write.js buildReceipt가 validate() 호출 전에 sanitization 단계 추가 금지. write.js에 grep guard test 추가 (validate가 단일 진입점인지 확인).
+- **F-Sec-5 (LOW) — PR body Override section markdown injection**: v0.2.5 impeccable reason은 ≥30자 validator가 일부 방어, 그러나 v0.2.4 security override는 reason 미검증이라 v0.2.7 backport에서 bash escaping 필요. → **흡수**: Task 1.6 본문에 v0.2.5 impeccable Override section은 reason validator를 통과한 후 inject되므로 추가 escape 불필요라 명시; v0.2.4 backport debt에 escaping 항목 추가.
+
+세션 ref: security-reviewer agent direct invocation (Task tool), 2026-06-04 cycle.

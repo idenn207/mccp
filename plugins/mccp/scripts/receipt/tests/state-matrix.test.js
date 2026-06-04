@@ -168,6 +168,10 @@ test('matrix row 7: schema invariant fires on direct validate() call (no CLI lay
       security_skip_reason: 'auto-fallback',
       security_force_override: true,
       security_force_override_reason: 'override',
+      impeccable_skipped: false,
+      impeccable_skip_reason: null,
+      impeccable_force_override: false,
+      impeccable_force_override_reason: null,
     },
   };
   const r = validate(minimal);
@@ -205,6 +209,10 @@ test('matrix row 8: schema-valid baseline (all new fields default false) accepts
       security_skip_reason: null,
       security_force_override: false,
       security_force_override_reason: null,
+      impeccable_skipped: false,
+      impeccable_skip_reason: null,
+      impeccable_force_override: false,
+      impeccable_force_override_reason: null,
     },
   };
   const r = validate(minimal);
@@ -248,6 +256,144 @@ test('matrix: missing security_skipped field → schema reject (it is now requir
   assert.strictEqual(r.ok, false);
   assert.ok(r.errors.some((e) => /security_skipped/.test(e)),
     'security_skipped must be required: ' + JSON.stringify(r.errors));
+});
+
+// === Milestone 1 Task 1.4 — impeccable axis (Codex R1 F1 absorption) ===
+//
+// 6-axis is expressed as 4 security_* + 4 impeccable_* fields on the same
+// primary codex receipt meta (no separate namespace). Cross-namespace combos
+// are ALLOWED — they represent legitimate concurrent states. Same-namespace
+// invariant (skipped + force_override) → SCHEMA REJECT for both.
+
+test('matrix row 10: impeccable_skipped=true on strict gate (implement) → blocking', () => {
+  const { mkTmpRepo, writeFileSync } = require('./helpers');
+  const { write } = require('../write');
+  const { validateCommand } = require('../validate-cmd');
+  const path = require('path');
+  const repo = mkTmpRepo();
+  const plan = writeFileSync(repo, '.claude/plans/feature-x.plan.md', '# x\n');
+  const planRel = path.relative(repo, plan);
+  const cwd = process.cwd(); process.chdir(repo);
+  try {
+    write({ gate: 'mccp-plan-codex', decision: 'feature-x', plan: planRel });
+    write({ gate: 'mccp-implement-codex', decision: 'feature-x', plan: planRel,
+      'impeccable-skipped': true, 'impeccable-skip-reason': 'skill-missing' });
+    const r = validateCommand('/mccp:pr', { cwd: repo, decisionId: 'feature-x' });
+    assert.strictEqual(r.ok, false);
+    assert.ok(r.blocking.some((b) => b.gate_id === 'mccp-implement-codex' && /impeccable_skipped/.test(b.reason)));
+  } finally { process.chdir(cwd); }
+});
+
+test('matrix row 11: impeccable_skipped=true on lenient gate (plan) → warning', () => {
+  const { mkTmpRepo, writeFileSync } = require('./helpers');
+  const { write } = require('../write');
+  const { validateCommand } = require('../validate-cmd');
+  const path = require('path');
+  const repo = mkTmpRepo();
+  const plan = writeFileSync(repo, '.claude/plans/feature-x.plan.md', '# x\n');
+  const planRel = path.relative(repo, plan);
+  const cwd = process.cwd(); process.chdir(repo);
+  try {
+    write({ gate: 'mccp-plan-codex', decision: 'feature-x', plan: planRel,
+      'impeccable-skipped': true, 'impeccable-skip-reason': 'skill-missing' });
+    const r = validateCommand('/mccp:prp-implement', { cwd: repo, decisionId: 'feature-x' });
+    assert.strictEqual(r.ok, true);
+    assert.ok(r.warnings.some((w) => /impeccable_skipped/.test(w.reason)));
+  } finally { process.chdir(cwd); }
+});
+
+test('matrix row 12: same-namespace invariant — impeccable_skipped + impeccable_force_override → SCHEMA REJECT', () => {
+  const minimal = {
+    schema_version: 'v1', gate_id: 'mccp-implement-codex', phase: 'implement',
+    decision_id: 'feature-x', task_id: null,
+    plan_hash: 'sha256:' + '0'.repeat(64), design_doc_hash: [],
+    base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40), round: 1,
+    findings: [],
+    resolution: { converged: true, rounds: 1, accepted: [], rejected: [], open_questions: [] },
+    subject_hash: 'sha256:' + '1'.repeat(64), receipt_hash: 'sha256:' + '2'.repeat(64),
+    meta: {
+      created_at: '2026-06-02T00:00:00Z', command: '/x', cwd: '/x', git_branch: 'main',
+      skipped: false, skip_reason: null, codex_skipped: false, advisory: false,
+      security_skipped: false, security_skip_reason: null,
+      security_force_override: false, security_force_override_reason: null,
+      impeccable_skipped: true, impeccable_skip_reason: 'fallback',
+      impeccable_force_override: true,
+      impeccable_force_override_reason: 'Bypass impeccable for the duration of release-window today because Skill registry probe returns missing in CI sandbox',
+    },
+  };
+  const r = validate(minimal);
+  assert.strictEqual(r.ok, false);
+  assert.ok(r.errors.some((e) => /impeccable_skipped \+ meta\.impeccable_force_override cannot both be true/.test(e)),
+    'impeccable same-namespace invariant must fire: ' + JSON.stringify(r.errors));
+});
+
+test('matrix row 13: CROSS-namespace ALLOWED — security_skipped + impeccable_force_override (different gates)', () => {
+  const minimal = {
+    schema_version: 'v1', gate_id: 'mccp-pr-codex', phase: 'pr',
+    decision_id: 'feature-x', task_id: null,
+    plan_hash: 'sha256:' + '0'.repeat(64), design_doc_hash: [],
+    base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40), round: 1,
+    findings: [],
+    resolution: { converged: true, rounds: 1, accepted: [], rejected: [], open_questions: [] },
+    subject_hash: 'sha256:' + '1'.repeat(64), receipt_hash: 'sha256:' + '2'.repeat(64),
+    meta: {
+      created_at: '2026-06-02T00:00:00Z', command: '/x', cwd: '/x', git_branch: 'main',
+      skipped: false, skip_reason: null, codex_skipped: false, advisory: false,
+      security_skipped: true, security_skip_reason: 'agent not found',
+      security_force_override: false, security_force_override_reason: null,
+      impeccable_skipped: false, impeccable_skip_reason: null,
+      impeccable_force_override: true,
+      impeccable_force_override_reason: 'Override impeccable while CI lacks Skill registry access during the rollout window approved by team',
+    },
+  };
+  const r = validate(minimal);
+  assert.strictEqual(r.ok, true, 'cross-namespace combo must be allowed: ' + JSON.stringify(r.errors));
+});
+
+test('matrix row 14: CROSS-namespace ALLOWED — impeccable_skipped + security_force_override', () => {
+  const minimal = {
+    schema_version: 'v1', gate_id: 'mccp-pr-codex', phase: 'pr',
+    decision_id: 'feature-x', task_id: null,
+    plan_hash: 'sha256:' + '0'.repeat(64), design_doc_hash: [],
+    base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40), round: 1,
+    findings: [],
+    resolution: { converged: true, rounds: 1, accepted: [], rejected: [], open_questions: [] },
+    subject_hash: 'sha256:' + '1'.repeat(64), receipt_hash: 'sha256:' + '2'.repeat(64),
+    meta: {
+      created_at: '2026-06-02T00:00:00Z', command: '/x', cwd: '/x', git_branch: 'main',
+      skipped: false, skip_reason: null, codex_skipped: false, advisory: false,
+      security_skipped: false, security_skip_reason: null,
+      security_force_override: true, security_force_override_reason: 'lenient namespace, no strict validator yet',
+      impeccable_skipped: true, impeccable_skip_reason: 'skill-missing',
+      impeccable_force_override: false, impeccable_force_override_reason: null,
+    },
+  };
+  const r = validate(minimal);
+  assert.strictEqual(r.ok, true, 'cross-namespace combo must be allowed: ' + JSON.stringify(r.errors));
+});
+
+test('matrix row 15: missing impeccable_skipped field → schema reject (required after v0.2.6)', () => {
+  const v = {
+    schema_version: 'v1', gate_id: 'mccp-implement-codex', phase: 'implement',
+    decision_id: 'feature-x', task_id: null,
+    plan_hash: 'sha256:' + '0'.repeat(64), design_doc_hash: [],
+    base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40), round: 1,
+    findings: [],
+    resolution: { converged: true, rounds: 1, accepted: [], rejected: [], open_questions: [] },
+    subject_hash: 'sha256:' + '1'.repeat(64), receipt_hash: 'sha256:' + '2'.repeat(64),
+    meta: {
+      created_at: '2026-06-02T00:00:00Z', command: '/x', cwd: '/x', git_branch: 'main',
+      skipped: false, skip_reason: null, codex_skipped: false, advisory: false,
+      security_skipped: false, security_skip_reason: null,
+      security_force_override: false, security_force_override_reason: null,
+      // impeccable_skipped omitted
+      impeccable_force_override: false, impeccable_force_override_reason: null,
+    },
+  };
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.ok(r.errors.some((e) => /impeccable_skipped/.test(e)),
+    'impeccable_skipped must be required: ' + JSON.stringify(r.errors));
 });
 
 test('matrix row 9: advisory axis is writeable via --advisory flag (Codex Round 1 F1)', () => {

@@ -39,5 +39,8 @@ build/
 .env
 .env.local
 
+# Local Claude Code overrides (per-machine env vars, force-override reasons, etc.)
+.claude/settings.local.json
+
 # External seed (ECC fork checkout — reference only, not part of mccp scope)
 ECC/

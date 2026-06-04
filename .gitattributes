@@ -1,0 +1,15 @@
+# Repo-wide EOL policy. Text files normalize to LF in the index; the
+# working tree gets LF on checkout regardless of host OS (Windows, mac,
+# Linux). Windows-native script formats keep CRLF because their runtimes
+# choke on bare LF (PowerShell, cmd.exe shim, .bat).
+#
+# Binary detection is `text=auto`: git inspects content and skips files
+# that look binary (e.g. plugins/mccp/scripts/receipt/dedupe.js, which
+# contains an intentional `\0` separator). That auto-detection is fine —
+# do not promote `*.js text` blanket because it would break dedupe.js.
+
+* text=auto eol=lf
+
+*.ps1 eol=crlf
+*.cmd eol=crlf
+*.bat eol=crlf

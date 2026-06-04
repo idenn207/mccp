@@ -9,7 +9,8 @@
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50",
     "ECC_CONTEXT_MONITOR_COST_MODE": "notify",
     "ECC_DISABLED_HOOKS": "pre:bash:gateguard-fact-force,pre:edit-write:gateguard-fact-force",
-    "MCCP_RECEIPT_DEBUG": "1"
+    "MCCP_RECEIPT_DEBUG": "1",
+    "MCCP_RECEIPT_GATE_MODE": "soft"
   },
   "model": "opus",
   "outputStyle": "Explanatory",

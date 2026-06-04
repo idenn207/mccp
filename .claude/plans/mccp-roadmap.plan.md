@@ -818,3 +818,50 @@ Verdict: **NEEDS-ATTENTION** (0 HIGH/CRITICAL → gate proceeds with implement-t
 - **F-Sec-5 (LOW) — PR body Override section markdown injection**: v0.2.5 impeccable reason은 ≥30자 validator가 일부 방어, 그러나 v0.2.4 security override는 reason 미검증이라 v0.2.7 backport에서 bash escaping 필요. → **흡수**: Task 1.6 본문에 v0.2.5 impeccable Override section은 reason validator를 통과한 후 inject되므로 추가 escape 불필요라 명시; v0.2.4 backport debt에 escaping 항목 추가.
 
 세션 ref: security-reviewer agent direct invocation (Task tool), 2026-06-04 cycle.
+
+---
+
+## Operational Incidents Log
+
+> Roadmap 진행 중 발견된 운영 incident와 그 대응. 각 incident는 milestone scope에 들어가지 않더라도, **schema/wiring 가설**이 명시적으로 흔들린 시점이므로 plan에 누적 기록한다. 후속 milestone이 incident pattern을 흡수해야 함.
+
+### INC-001 (2026-06-05) — `/mccp:prp-implement` silent block: v0.2.6 schema 확장 후 forward-migration 누락
+
+**증상**
+- `/mccp:prp-implement .claude/plans/mccp-roadmap.plan.md` 실행 시 출력 없이 즉시 종료. error/stderr surface 0건.
+- `MCCP_RECEIPT_GATE_MODE=soft` + `MCCP_RECEIPT_DEBUG=1` 설정 상태에서도 동일.
+
+**근본 원인**
+1. v0.2.6 Milestone 1 Task 1.2 — [schema.js:178-189](../../plugins/mccp/scripts/receipt/schema.js#L178-L189)가 receipt `meta`에 4개 boolean/string 필드를 **required**로 추가:
+   - `impeccable_skipped` (boolean)
+   - `impeccable_skip_reason` (string|null)
+   - `impeccable_force_override` (boolean)
+   - `impeccable_force_override_reason` (string|null)
+2. v0.2.4 schema로 발행된 기존 receipt들(`.claude/receipts/mccp-{plan,implement}-codex/mccp-roadmap.json` 포함 11개)은 이 4개 필드가 부재 → [validate-cmd.js:80-88](../../plugins/mccp/scripts/receipt/validate-cmd.js#L80-L88)가 첫 검증인 `validateSchema()`에서 **blocking** 분류 (stale이 아니라).
+3. `MCCP_RECEIPT_GATE_MODE=soft`는 [receipt-prompt.js:168-178](../../plugins/mccp/scripts/hooks/receipt-prompt.js#L168-L178) 라인에서 `missing` 만 통과시키고 `blocking/stale/critical`은 그대로 막음 — `soft` 의미와 정합.
+4. [receipt-prompt.js:78-87](../../plugins/mccp/scripts/hooks/receipt-prompt.js#L78-L87) 가 `decision: block` JSON 페이로드를 stdout으로 emit하는데, `UserPromptExpansion` hook이 그 payload를 슬래시 명령 확장 단계에서 처리하므로 사용자에게는 명령이 "사라진" 것처럼 보임. [receipt-prompt.js:75-76](../../plugins/mccp/scripts/hooks/receipt-prompt.js#L75-L76) 의 self-comment("hook stderr is not surfaced in UserPromptExpansion block payload")가 이를 인정.
+
+**v0.2.7 design intent와의 정합**
+- v0.2.7 silent-hook UX milestone (`feedback-loud-fail-open` 메모리 + roadmap 후속 cycle)이 **fail-open 침묵**을 잡는 ALLOW-path observability를 다루지만, 본 incident는 **fail-closed silent block** — 정반대 축. 같은 UX 문제(operator가 왜 막혔는지 안 보임)이므로 v0.2.7 scope에 _block-path observability_ 항목 추가가 합당.
+- v0.2.6 강화(`impeccable_force_override_reason` strict REJECT)는 의도된 동작이지만, 강화 시 **기존 receipt에 대한 forward-migration 책임이 schema 변경자에게 없었음** — v0.2.4→v0.2.6 schema bump가 migration script 동반 없이 ship됨.
+
+**우회 + 복구 (INC-001 적용 분)**
+1. forward-migration 스크립트 작성: [.claude/state/receipt-impeccable-migrate.js](../state/receipt-impeccable-migrate.js)
+   - `meta`에 4개 default 필드(`false`/`null`/`false`/`null`) 보강
+   - `receipt_hash` 재계산 (canonical JSON 직렬화 — `subject_hash`는 `SUBJECT_FIELDS` ⊃ meta 미포함이라 변경 없음, [hash.js:178-196](../../plugins/mccp/scripts/receipt/hash.js#L178-L196))
+   - `validateSchema()` re-run으로 성공 확인 후에만 write
+2. chain 게이트(mccp-roadmap)에 적용: 2개 receipt 마이그레이션
+   - `.claude/receipts/mccp-plan-codex/mccp-roadmap.json` → `receipt_hash=sha256:0020407823a394ced28ab3436856eea50ac5b19e6c0c261502c04936a81b0621`
+   - `.claude/receipts/mccp-implement-codex/mccp-roadmap.json` → `receipt_hash=sha256:cb620648a8c05719fe583693f996594a2a10361534f0d7a2b71285468a0a1837`
+3. 검증: `mccp:plan / mccp:prp-implement / mccp:pr` 전 chain `validate` 결과 `{ok:true}`.
+
+**Residual debt (Milestone scope에 흡수해야 함)**
+| ID | Severity | 항목 | 흡수 milestone |
+|---|---|---|---|
+| INC-001-R1 | MEDIUM | 다른 9개 receipt(`default`, `main`, `mccp`, `s10a`, `s10a-state-md-continuity`, `v0-2-4-phase-7-2-5-restore` 등)도 같은 schema 결함. 현재 chain에 영향 없으나 audit·CI·`receipt-status`에서 모두 blocking 상태. | v0.2.6 housekeeping batch — `node .claude/state/receipt-impeccable-migrate.js $(ls .claude/receipts/*/*.json)` 일괄 적용 |
+| INC-001-R2 | HIGH | **Schema migration runbook 부재**. v0.2.6 ship 시 `meta` required 필드 추가가 BREAKING change임에도 `tests/` 만 갱신되고 기존 receipt migration이 빠짐. | v0.2.7 silent-hook UX (또는 v0.2.6 housekeeping) — schema bump 시 `migrations/` 디렉토리에 forward-migration 스크립트 동반을 acceptance에 추가 |
+| INC-001-R3 | MEDIUM | **Block-path observability 부재**. `UserPromptExpansion` block payload가 클라이언트 UI에서 silent하게 처리됨. `MCCP_RECEIPT_DEBUG=1`도 도움 안 됨. | v0.2.7 silent-hook UX — ALLOW-path observability에 BLOCK-path 추가. 후보: hook이 `~/.claude/logs/mccp-receipt-block.log`에 동시 fsync, `/mccp:receipt-status` 가 마지막 block 사유 표시 |
+| INC-001-R4 | LOW | migration 스크립트 위치 (`.claude/state/`)는 1회용 임시 — `plugins/mccp/scripts/migrations/v0.2.6-impeccable-fields.js` 로 이전하면서 idempotent 검증 추가 권장 | v0.2.6 housekeeping |
+
+**Why log here, not in `.claude/notes/`**
+roadmap이 단일 진입점이라 명시했으므로 ([CLAUDE.md §5](../../CLAUDE.md), [MEMORY.md:1](C:/Users/skypark207/.claude/projects/c---project-my-my-claude-code-plugin/memory/MEMORY.md)) operational incident도 본 plan에 누적. `.claude/notes/`는 archive only.

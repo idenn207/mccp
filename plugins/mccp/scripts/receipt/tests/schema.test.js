@@ -34,6 +34,11 @@ function valid() {
       skipped: false,
       skip_reason: null,
       codex_skipped: false,
+      advisory: false,
+      security_skipped: false,
+      security_skip_reason: null,
+      security_force_override: false,
+      security_force_override_reason: null,
     },
   };
 }

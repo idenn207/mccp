@@ -118,6 +118,22 @@ function isStandalone(args) {
   return /(?:^|\s)--standalone(?:\s|=|$)/.test(args);
 }
 
+// Local Review Mode detector for /mccp:code-review.
+// Spec (commands/code-review.md §Mode Selection + Phase 1 FETCH table):
+// blank args (only flags or no args) means Local Review Mode and the receipt
+// chain is skipped. ANY positional argument (PR number, PR URL, OR branch
+// name resolved via `gh pr list --head <branch>`) means PR Review Mode.
+// A typo'd branch name still goes to PR Mode and is rejected later by `gh`
+// — that's intentional, the local-vs-PR decision is positional/flag shape,
+// not string-content classification.
+function isLocalReviewMode(args) {
+  if (!args || typeof args !== 'string') return true;
+  if (/(?:^|\s)--pr(?:\s|=|$)/i.test(args)) return false;
+  const first = firstNonFlag(args);
+  if (!first) return true;
+  return false;
+}
+
 module.exports = {
   deriveDecisionId: deriveDecisionId,
   explicitDecision: explicitDecision,
@@ -126,6 +142,7 @@ module.exports = {
   firstNonFlag: firstNonFlag,
   normalizeCommand: normalizeCommand,
   isStandalone: isStandalone,
+  isLocalReviewMode: isLocalReviewMode,
   PLAN_PATH_COMMANDS: PLAN_PATH_COMMANDS,
   BRANCH_BASED_COMMANDS: BRANCH_BASED_COMMANDS,
   SLUG_RE: SLUG_RE,

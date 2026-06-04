@@ -127,9 +127,15 @@ async function main() {
   }
 
   const decisionMod = loadDecisionModule();
-  if (decisionMod && commandName.toLowerCase() === 'mccp:code-review' && decisionMod.isStandalone(event.command_args)) {
-    debug('--standalone bypass for ' + commandName);
-    return allow();
+  if (decisionMod && commandName.toLowerCase() === 'mccp:code-review') {
+    if (decisionMod.isStandalone(event.command_args)) {
+      debug('--standalone bypass for ' + commandName);
+      return allow();
+    }
+    if (decisionMod.isLocalReviewMode(event.command_args)) {
+      debug('Local Review Mode bypass for ' + commandName + ' (no PR target in args)');
+      return allow();
+    }
   }
 
   const decisionId = decisionMod

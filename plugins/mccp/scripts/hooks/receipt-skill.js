@@ -91,9 +91,15 @@ async function main() {
   }
 
   const decisionMod = loadDecisionModule();
-  if (decisionMod && skillName.toLowerCase() === 'mccp:code-review' && decisionMod.isStandalone(ti.arguments)) {
-    debug('--standalone bypass for Skill ' + skillName);
-    return 0;
+  if (decisionMod && skillName.toLowerCase() === 'mccp:code-review') {
+    if (decisionMod.isStandalone(ti.arguments)) {
+      debug('--standalone bypass for Skill ' + skillName);
+      return 0;
+    }
+    if (decisionMod.isLocalReviewMode(ti.arguments)) {
+      debug('Local Review Mode bypass for Skill ' + skillName + ' (no PR target in args)');
+      return 0;
+    }
   }
 
   const decisionId = decisionMod

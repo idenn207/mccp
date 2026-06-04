@@ -171,7 +171,7 @@ mkdir -p .git/mccp/tmp
 CODEX_STDOUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js" adversarial-review \
   --focus "challenge this PR diff against base <base-branch>: <focus text>" \
   --base "<base-branch>" \
-  --timeout-ms 90000 \
+  --timeout-ms 900000 \
   --json 2> .git/mccp/tmp/codex-invoke.stderr)
 CODEX_EXIT=$?
 CODEX_BLOCKING=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.blocking?"1":"0")}catch{console.log("1")}' "$CODEX_STDOUT")
@@ -234,13 +234,72 @@ If 2.5.3 hit the Codex auto-fallback, still persist the body — the `> Codex un
 
 ### 2.5.5 — Security-sensitive branch (HIGH)
 
-If the diff touches any of: auth/authz, session/token, crypto/hash/sign/key management, secret/credential handling, input validation, SQL/cmd injection paths, SSRF, path traversal, privilege escalation — additionally invoke:
+If the diff touches any of: auth/authz, session/token, crypto/hash/sign/key management, secret/credential handling, input validation, SQL/cmd injection paths, SSRF, path traversal, privilege escalation — additionally invoke the **Task tool** with the canonical contract:
 
-```
-Skill(security-reviewer, "review this PR diff against base <base-branch>: <list affected security areas>")
-```
+- `subagent_type: "security-reviewer"`
+- prompt: `"review this PR diff against base <base-branch>: <list affected security areas>"`
 
 Pass the Codex result from 2.5.4 as context input (so security-reviewer doesn't duplicate). Integrate findings into the same `## Codex Adversarial Review` section under a `### Security Reviewer` subheading.
+
+**Terminal-command fail-mode (hard-block by default):** If the Task tool returns "agent not found", harness rejection, schema mismatch, or any non-success result, `/mccp:pr` is a **terminal mutating command** — refuse to proceed by default. Output `[MCCP-GATE-STOP] security-reviewer unavailable; PR creation refused.` and end the response. Receipt MUST NOT be written.
+
+**Audited escape hatch (`MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER`):**
+
+The hard-block above can be opted out via `MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER="<specific reason string>"`. Single-token reasons (e.g. `=1`, `=yes`) trigger a schema warning and the command MUST prompt the user for a specific reason. When set with a specific reason:
+
+- Record `> security-reviewer unavailable, force-override (audited): <reason text>` under `### Security Reviewer` in the same `## Codex Adversarial Review` section.
+- **Export the override state for downstream steps** (Codex Round 1 F3 — without this export, Phase 2.5.5b can't re-persist the body and Phase 2.5.7 can't stamp the receipt; the override silently degrades to an approving receipt + PR body without the audit section):
+
+  ```bash
+  export SECURITY_FORCE_OVERRIDE_REASON="<reason text from env var>"
+  ```
+
+- Receipt-write (Phase 2.5.7) MUST pass `--security-force-override` + `--security-force-override-reason "<reason text>"`. The receipt records `meta.security_force_override: true` + `meta.security_force_override_reason: <reason>`. Validator treats force-override receipts as **non-approving** (warnings[], not blocking[]) — PR creation proceeds.
+- `meta.security_skipped=true` and `meta.security_force_override=true` simultaneously on the same receipt is a **schema invariant violation** (Task 11 4-axis state matrix; rejected at write time).
+- Phase 4 PR body MUST auto-inject the `## Security Reviewer Override` audit section (see Phase 4 below) — this PR body section is the **canonical audit source** because `.claude/receipts/` is git-ignored. Reviewer MUST confirm the override reason is acceptable before merge.
+
+The env var is intended for **one-shot use** (e.g. codex registry stale + manual security review confirmed out-of-band). Do not export it persistently.
+
+### 2.5.5b — Re-persist PR body with security-reviewer additions
+
+Phase 2.5.4 wrote the body-file **before** Phase 2.5.5 ran, so any
+`### Security Reviewer` subheading (real findings, auto-fallback note, or
+audited override line) and any `## Security Reviewer Override` section are
+not yet in the body-file on disk. Re-persist now so Phase 4's `--body-file`
+read sees the security additions (Codex Round 1 F3):
+
+```bash
+HEAD_SHA=$(git rev-parse HEAD)
+TMP_CONTENT=$(mktemp 2>/dev/null || echo "$TMPDIR/mccp-pr-body-$$.md")
+{
+  echo "## Design Review"
+  echo "<re-inject 2.5.1 content, or '> impeccable unavailable, skipped (auto-fallback)'>"
+  echo ""
+  echo "## Codex Adversarial Review"
+  echo "<re-inject 2.5.4 codex content + 2.5.5 '### Security Reviewer' subsection if present>"
+  if [ -n "$SECURITY_FORCE_OVERRIDE_REASON" ]; then
+    echo ""
+    echo "## Security Reviewer Override"
+    echo ""
+    echo "- **Triggered by**: \`MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER\`"
+    echo "- **Reason**: $SECURITY_FORCE_OVERRIDE_REASON"
+    echo "- **Receipt path**: .claude/receipts/mccp-pr-codex/${DECISION_SLUG}.json (working-tree-only, ephemeral)"
+    echo "- **Timestamp**: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "- **Audit canonical**: This PR body section. Receipt is local audit aid."
+    echo "- **Reviewer action**: Confirm override reason is acceptable before merge."
+  fi
+} > "$TMP_CONTENT"
+
+node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js pr-body \
+  --action write \
+  --decision ${DECISION_SLUG} \
+  --head ${HEAD_SHA} \
+  --content-file "$TMP_CONTENT"
+rm -f "$TMP_CONTENT"
+```
+
+If Phase 2.5.5 took the hard-block path (no findings, no override), this
+step is a no-op overwrite of the same body — safe and idempotent.
 
 ### 2.5.6 — Auto-CRITICAL check
 
@@ -264,11 +323,27 @@ DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decisio
   --command mccp:pr \
   --args "$ARGUMENTS")
 
-node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
-  --gate mccp-pr-codex \
-  --decision ${DECISION_SLUG} \
-  --plan <plan path if discovered in Phase 2, else PR title> \
-  --quiet
+# If Phase 2.5.5 entered the audited escape branch,
+# SECURITY_FORCE_OVERRIDE_REASON was exported. Forward it to receipt write so
+# meta.security_force_override / meta.security_force_override_reason are
+# stamped. Without this conditional, the override silently produces an
+# approving receipt and downstream validators miss the audit trail
+# (Codex Round 1 F3).
+if [ -n "$SECURITY_FORCE_OVERRIDE_REASON" ]; then
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
+    --gate mccp-pr-codex \
+    --decision ${DECISION_SLUG} \
+    --plan <plan path if discovered in Phase 2, else PR title> \
+    --security-force-override \
+    --security-force-override-reason "$SECURITY_FORCE_OVERRIDE_REASON" \
+    --quiet
+else
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
+    --gate mccp-pr-codex \
+    --decision ${DECISION_SLUG} \
+    --plan <plan path if discovered in Phase 2, else PR title> \
+    --quiet
+fi
 ```
 
 Bash hook block handling: same as Plan-Codex Phase 7.6 — output `[MCCP-GATE-STOP]` with captured hook stderr and end the response. Do NOT enter Phase 3.
@@ -343,6 +418,25 @@ Use this default format:
 
 <linked issues with Closes/Fixes/Relates to #N, or "None">
 ```
+
+### Security Reviewer Override (conditional, audit canonical)
+
+If Phase 2.5.5 entered the `MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER` escape branch (security-reviewer Task tool failed AND env var set with a specific reason), the PR body is the **canonical audit source** for the override (because `.claude/receipts/` is git-ignored per CLAUDE.md §3.1). The body assembly step below MUST inject the following section immediately after `## Codex Adversarial Review` (or, if no Codex section is present, immediately after the title-derived sections):
+
+```markdown
+## Security Reviewer Override
+
+- **Triggered by**: `MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER`
+- **Reason**: <reason text from env var>
+- **Receipt path**: `.claude/receipts/mccp-pr-codex/<decision>.json` (working-tree-only, ephemeral)
+- **Timestamp**: <ISO 8601 UTC>
+- **Audit canonical**: This PR body section. Receipt is local audit aid.
+- **Reviewer action**: Confirm override reason is acceptable before merge.
+```
+
+If a project `.github/pull_request_template.md` is present, inject above the template content; the template author's framing remains intact below.
+
+The `meta.security_force_override_reason` value passed via `--security-force-override-reason` MUST be identical to the `Reason` field inserted into the PR body. Validators cross-check the two at `validate-cmd` time.
 
 ### Create the PR
 

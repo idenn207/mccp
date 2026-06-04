@@ -126,7 +126,7 @@ Skill interface `codex:adversarial-review` does not exist and the slash command 
 mkdir -p .git/mccp/tmp
 CODEX_STDOUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js" adversarial-review \
   --focus "challenge the following implement-time decisions: <bullet list from 2.5.2>" \
-  --timeout-ms 90000 \
+  --timeout-ms 900000 \
   --json 2> .git/mccp/tmp/codex-invoke.stderr)
 CODEX_EXIT=$?
 CODEX_BLOCKING=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.blocking?"1":"0")}catch{console.log("1")}' "$CODEX_STDOUT")
@@ -155,7 +155,34 @@ Divergent re-rerun: same as Plan-Codex Phase 7.4 — up to 3 rounds. Cap and ann
 
 Scan Open Questions for §0 auto-CRITICAL catalog. If any present, output the same `[MCCP-GATE-STOP]` block as Plan-Codex Phase 7.5 (substituting "Implement" for "Plan") and end the response. Do NOT enter Phase 3.
 
-For Security-sensitive areas (auth, crypto, secrets, input validation, SQL/cmd injection, SSRF, path traversal, privilege escalation): additionally invoke `Skill(security-reviewer, "review proposed implementation: <list affected areas>")` after 2.5.4. Integrate its findings into the same `## Codex Implementation Review` section. CRITICAL/HIGH security findings → MCCP-GATE-STOP.
+For security-sensitive areas (auth, crypto, secrets, input validation, SQL/cmd
+injection, SSRF, path traversal, privilege escalation): after 2.5.4, invoke the
+**Task tool** with the canonical contract:
+
+- `subagent_type: "security-reviewer"`
+- prompt: `"review proposed implementation: <list affected areas>"`
+
+If the Task tool returns "agent not found", harness rejection, schema mismatch,
+or any non-success result:
+
+- Record `> security-reviewer unavailable, skipped (auto-fallback): <one-line reason>`
+  in `## Codex Implementation Review` under `### Security Reviewer` subheading.
+- **Export the fallback state for Phase 2.5.6** (this is mandatory — not
+  exporting causes the receipt-write step to silently produce an approving
+  receipt and `/mccp:pr` validator then sees no `security_skipped=true`,
+  collapsing the fail-closed invariant. Codex Round 1 F2.):
+
+  ```bash
+  export SECURITY_SKIPPED_REASON="<one-line reason text from the fallback>"
+  ```
+
+- `receipt validate-cmd` treats `security_skipped` as **blocking** for implement
+  and pr gates (parallel to `codex_skipped`, enforced by the receipt CLI
+  `security_skipped` enforcement landed in v0.2.4 Task 8).
+
+Integrate findings into the same `## Codex Implementation Review` section under
+a `### Security Reviewer` subheading. CRITICAL/HIGH security findings →
+MCCP-GATE-STOP.
 
 ### 2.5.6 — Verify section, write mccp-implement-codex receipt
 
@@ -171,12 +198,26 @@ DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decisio
   --command mccp:prp-implement \
   --args "$ARGUMENTS")
 
-# Step C: auto-write the mccp-implement-codex receipt
-node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
-  --gate mccp-implement-codex \
-  --decision ${DECISION_SLUG} \
-  --plan <plan path> \
-  --quiet
+# Step C: auto-write the mccp-implement-codex receipt.
+# If Phase 2.5.5 hit the security-reviewer auto-fallback, SECURITY_SKIPPED_REASON
+# was exported with the fallback reason. The receipt-write MUST forward it as
+# --security-skipped + --security-skip-reason; without that flag the receipt
+# looks approving and /mccp:pr validator collapses (Codex Round 1 F2).
+if [ -n "$SECURITY_SKIPPED_REASON" ]; then
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
+    --gate mccp-implement-codex \
+    --decision ${DECISION_SLUG} \
+    --plan <plan path> \
+    --security-skipped \
+    --security-skip-reason "$SECURITY_SKIPPED_REASON" \
+    --quiet
+else
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
+    --gate mccp-implement-codex \
+    --decision ${DECISION_SLUG} \
+    --plan <plan path> \
+    --quiet
+fi
 ```
 
 Bash hook block handling: same as mccp Plan-Codex Phase 7.6 — output `[MCCP-GATE-STOP]` with captured hook stderr and end the response. Do NOT enter Phase 3.

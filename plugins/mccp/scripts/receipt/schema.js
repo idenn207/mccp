@@ -133,6 +133,40 @@ function validate(receipt) {
       req(typeof m.skip_reason === 'string', 'meta.skip_reason must be a string or null');
     }
     req(typeof m.codex_skipped === 'boolean', 'meta.codex_skipped must be a boolean');
+
+    // v0.2.4 Codex Round 1 F1 — advisory axis is now writeable.
+    // Previously validate-cmd treated meta.advisory=true as non-approving but
+    // write.js had no way to set it. That left an MCCP_ALLOW_CODEX_UNAVAILABLE
+    // advisory path silently producing approving receipts unless the command
+    // also passed --codex-skipped. The axis is now first-class.
+    req(typeof m.advisory === 'boolean', 'meta.advisory must be a boolean');
+
+    // v0.2.4 Task 8 — security_skipped tracks security-reviewer auto-fallback.
+    req(typeof m.security_skipped === 'boolean', 'meta.security_skipped must be a boolean');
+    if (m.security_skip_reason !== null && m.security_skip_reason !== undefined) {
+      req(typeof m.security_skip_reason === 'string',
+        'meta.security_skip_reason must be a string or null');
+    }
+
+    // v0.2.4 Task 10 — security_force_override tracks audited escape hatch
+    // (terminal /mccp:pr with MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER set).
+    req(typeof m.security_force_override === 'boolean',
+      'meta.security_force_override must be a boolean');
+    if (m.security_force_override_reason !== null && m.security_force_override_reason !== undefined) {
+      req(typeof m.security_force_override_reason === 'string',
+        'meta.security_force_override_reason must be a string or null');
+    }
+
+    // v0.2.4 Task 11 — 4-axis state matrix invariant.
+    // security_skipped=true AND security_force_override=true is a contradiction
+    // (the override was supposed to be a deliberate audited bypass; skipped
+    // means the gate silently fell through). Allowing both would fail-open
+    // by writing a receipt the validator could not classify.
+    if (m.security_skipped === true && m.security_force_override === true) {
+      err('meta.security_skipped + meta.security_force_override cannot both be true ' +
+        '(4-axis state matrix invariant: pick one — skipped = fall-through, ' +
+        'force_override = deliberate audited bypass)');
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -169,6 +203,11 @@ function makeSkeleton(overrides) {
       skipped: false,
       skip_reason: null,
       codex_skipped: false,
+      advisory: false,
+      security_skipped: false,
+      security_skip_reason: null,
+      security_force_override: false,
+      security_force_override_reason: null,
     },
   }, o);
 }

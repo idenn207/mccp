@@ -15,6 +15,7 @@ const {
   firstNonFlag,
   normalizeCommand,
   isStandalone,
+  isLocalReviewMode,
 } = require('../decision');
 
 function makeTmpGitRepo(branch) {
@@ -197,4 +198,57 @@ test('isStandalone detects the flag', function () {
   assert.strictEqual(isStandalone(null), false);
   // Substring should not match
   assert.strictEqual(isStandalone('--standalone-mode'), false);
+});
+
+test('isLocalReviewMode treats blank/flag-only args as Local Review Mode', function () {
+  // Local Mode: blank, null, whitespace, or only flags without positional
+  assert.strictEqual(isLocalReviewMode(''), true);
+  assert.strictEqual(isLocalReviewMode(null), true);
+  assert.strictEqual(isLocalReviewMode(undefined), true);
+  assert.strictEqual(isLocalReviewMode('   '), true);
+  assert.strictEqual(isLocalReviewMode('--debug'), true);
+
+  // PR Mode: PR number
+  assert.strictEqual(isLocalReviewMode('42'), false);
+  assert.strictEqual(isLocalReviewMode('  42  '), false);
+
+  // PR Mode: PR URL
+  assert.strictEqual(isLocalReviewMode('https://github.com/owner/repo/pull/42'), false);
+  assert.strictEqual(isLocalReviewMode('github.com/owner/repo/pull/42'), false);
+
+  // PR Mode: explicit --pr flag
+  assert.strictEqual(isLocalReviewMode('--pr 42'), false);
+  assert.strictEqual(isLocalReviewMode('--pr=42'), false);
+
+  // --standalone alone (no positional) is still Local — the spec says
+  // --standalone modifies PR Mode; without any positional it has nothing
+  // to modify. The hook's --standalone branch handles this case before
+  // isLocalReviewMode is consulted, but the helper itself shouldn't lie.
+  assert.strictEqual(isLocalReviewMode('--standalone'), true);
+});
+
+test('isLocalReviewMode treats branch names as PR Review Mode (F4 fix — Codex finding)', function () {
+  // Per commands/code-review.md §Phase 1 FETCH: branch names are valid PR
+  // refs via `gh pr list --head <branch>`. Previously the helper narrowed
+  // PR Mode to strictly PR-number / PR-URL, which mis-classified branch
+  // arguments as Local Mode and bypassed the receipt chain. Codex F4 caught
+  // this regression in dual-reviewer Round 1.
+  assert.strictEqual(isLocalReviewMode('feat/security-fix'), false);
+  assert.strictEqual(isLocalReviewMode('fix/bug-123'), false);
+  assert.strictEqual(isLocalReviewMode('main'), false);
+  assert.strictEqual(isLocalReviewMode('release/v1.2.3'), false);
+  // Branch names with leading/trailing whitespace
+  assert.strictEqual(isLocalReviewMode('  feat/security-fix  '), false);
+  // Note: `firstNonFlag` conservatively treats any `--flag value` pair as
+  // flag-with-value (it can't know if `--flag` is boolean or value-bearing
+  // without a flag schema). So `--anything <branch>` swallows the branch.
+  // mccp commands today only use `--standalone` (boolean, but hooked before
+  // isLocalReviewMode) and `--pr <value>` (handled by the --pr regex above),
+  // so this isn't a real-world concern. Documented here so a future
+  // maintainer doesn't get surprised.
+
+  // Edge: a typo / arbitrary string still goes to PR Mode and is rejected
+  // later by `gh pr list --head`. This is intentional — local-vs-PR is a
+  // shape decision (any positional → PR), not content classification.
+  assert.strictEqual(isLocalReviewMode('xyz-not-a-real-branch'), false);
 });

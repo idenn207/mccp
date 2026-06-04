@@ -165,13 +165,14 @@ If `impeccable` unavailable, record `> impeccable unavailable, skipped (auto-fal
 
 If the diff touches §0 security-sensitive areas (auth/authz, session/token, crypto/hash/sign/key, secret/credential, input validation, SQL/cmd injection, SSRF, path traversal, privilege escalation), check the PR body for `### Security Reviewer` subheading under `## Codex Adversarial Review` (injected by `/mccp:pr` Phase 2.5.5). Reuse those findings.
 
-If not present, invoke:
+If not present, invoke the **Task tool** with the canonical contract:
 
-```
-Skill(security-reviewer, "review PR #<NUMBER> against base <base>: <list affected security areas>")
-```
+- `subagent_type: "security-reviewer"`
+- prompt: `"review PR #<NUMBER> against base <base>: <list affected security areas>"`
 
 Pass the PR-Codex receipt findings from 2.5.1 as context. Integrate findings into Phase 6 REPORT.
+
+**Read-only command fail-mode (informational fallback):** If the Task tool returns "agent not found", harness rejection, schema mismatch, or any non-success result, `/mccp:code-review` is **read-only** — proceed without hard-block. Record `> security-reviewer unavailable, skipped (auto-fallback): <one-line reason>` under `### Security Reviewer` in Phase 6 REPORT, and pass `--security-skipped` + `--security-skip-reason "<reason>"` to the receipt-write step. For code-review gate the receipt CLI treats `meta.security_skipped` as informational (warnings[], not blocking[]) — implement/pr gates are stricter (blocking).
 
 ### 2.5.4 — Auto-CRITICAL check (preceding gates)
 

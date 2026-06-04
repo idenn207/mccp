@@ -228,7 +228,7 @@ Run the wrapper. **Do NOT** ask the user "shall I invoke Codex?".
 mkdir -p .git/mccp/tmp
 CODEX_STDOUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js" adversarial-review \
   --focus "challenge the following plan decisions: <list 1-3 key decisions from the plan>" \
-  --timeout-ms 90000 \
+  --timeout-ms 900000 \
   --json 2> .git/mccp/tmp/codex-invoke.stderr)
 CODEX_EXIT=$?
 

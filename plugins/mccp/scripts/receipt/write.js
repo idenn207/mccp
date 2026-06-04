@@ -106,6 +106,11 @@ function buildReceipt(args) {
       skipped: skipped,
       skip_reason: skipReason,
       codex_skipped: args['codex-skipped'] === true,
+      advisory: args['advisory'] === true,
+      security_skipped: args['security-skipped'] === true,
+      security_skip_reason: args['security-skip-reason'] || null,
+      security_force_override: args['security-force-override'] === true,
+      security_force_override_reason: args['security-force-override-reason'] || null,
     },
   });
 

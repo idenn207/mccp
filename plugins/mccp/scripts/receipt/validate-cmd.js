@@ -7,8 +7,13 @@ const { validate: validateSchema } = require('./schema');
 const { readReceipt } = require('./store');
 const { getCommandSpec, normalizeCommand } = require('./aliases');
 
+// v0.2.4 Task 8 — gate IDs where security-reviewer skip is BLOCKING. Other
+// gates (notably code-reviewer) treat security_skipped as informational because
+// they are read-only and cannot themselves introduce new security risk.
+const STRICT_SECURITY_GATES = ['mccp-implement-codex', 'mccp-pr-codex'];
+
 // Validate the receipt situation for a given /mccp:* command invocation.
-// Returns: { ok, command, decisionId, missing, stale, blocking, open_critical, reason? }
+// Returns: { ok, command, decisionId, missing, stale, blocking, warnings, open_critical, reason? }
 function validateCommand(command, opts) {
   opts = opts || {};
   const cwd = opts.cwd || process.cwd();
@@ -19,6 +24,7 @@ function validateCommand(command, opts) {
     missing: [],
     stale: [],
     blocking: [],
+    warnings: [],
     open_critical: [],
   };
 
@@ -144,6 +150,46 @@ function validateCommand(command, opts) {
         gate_id: gateId,
         decision_id: result.decisionId,
         reason: 'preceding gate ran in advisory mode (meta.advisory=true — non-approving)',
+      });
+    }
+
+    // v0.2.4 Task 8 — security_skipped enforcement (R2 finding #1).
+    // Mirrors codex_skipped policy but with gate-specific strictness: strict
+    // for implement/pr (write actions on security-sensitive areas), informational
+    // for code-review and other read-only gates.
+    if (receipt.meta && receipt.meta.security_skipped === true && !receipt.meta.skipped) {
+      const reason = 'preceding gate has meta.security_skipped=true ' +
+        '(security-reviewer auto-fallback — non-approving)' +
+        (receipt.meta.security_skip_reason ? '; skip_reason: ' + receipt.meta.security_skip_reason : '');
+      if (STRICT_SECURITY_GATES.indexOf(gateId) !== -1) {
+        result.blocking.push({
+          gate_id: gateId,
+          decision_id: result.decisionId,
+          reason: reason,
+          skip_reason: receipt.meta.security_skip_reason || null,
+        });
+      } else {
+        result.warnings.push({
+          gate_id: gateId,
+          decision_id: result.decisionId,
+          reason: reason + ' (informational for non-strict gate)',
+          skip_reason: receipt.meta.security_skip_reason || null,
+        });
+      }
+    }
+
+    // v0.2.4 Task 10 — security_force_override warning (R2 finding #3).
+    // Audited escape hatch via MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER. The
+    // receipt is non-approving (warning, not blocking) — PR creation proceeds
+    // but the audit trail surfaces to the validator so any downstream gate or
+    // reviewer can see the override was exercised.
+    if (receipt.meta && receipt.meta.security_force_override === true) {
+      result.warnings.push({
+        gate_id: gateId,
+        decision_id: result.decisionId,
+        reason: 'preceding gate exercised MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER ' +
+          '(audited escape — PR body is canonical audit source)',
+        force_override_reason: receipt.meta.security_force_override_reason || null,
       });
     }
   }

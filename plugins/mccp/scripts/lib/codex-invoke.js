@@ -25,7 +25,14 @@ const PLUGIN_KEY = 'codex@openai-codex';
 const COMPANION_REL = path.join('scripts', 'codex-companion.mjs');
 const PLUGIN_JSON_REL = path.join('.claude-plugin', 'plugin.json');
 const COMPATIBLE_VERSION_PATTERNS = [/^1\.0\.\d+$/];
-const DEFAULT_TIMEOUT_MS = 90_000;
+// 900_000 (15min): matches codex's own stop-review-gate-hook.mjs reference
+// pattern (STOP_REVIEW_TIMEOUT_MS = 15 * 60 * 1000). 90s was too short — every
+// call hit `classification=timeout`. 300s was empirically observed to fit
+// typical 3min round-trips but leaves no safety margin for heavier prompts.
+// 900s aligns with codex team's own reference wait window for spawnSync
+// foreground invocations of codex companion subcommands. v0.2.4 cycle followup:
+// streaming/polling wrapper to remove the hard timeout dependence entirely.
+const DEFAULT_TIMEOUT_MS = 900_000;
 const MAX_BUFFER = 64 * 1024 * 1024;
 const BLOCKING_EXIT = 12;
 
@@ -138,6 +145,7 @@ function invokeAdversarialReview(focus, opts) {
   const args = [verified.companionPath, 'adversarial-review', '--wait'];
   if (opts.base) args.push('--base', String(opts.base));
   if (opts.scope) args.push('--scope', String(opts.scope));
+  if (opts.json) args.push('--json');
   if (focus && String(focus).length) args.push(String(focus));
 
   let result;
@@ -213,7 +221,7 @@ function runCli(argv) {
       if (Number.isFinite(n) && n > 0) opts.timeoutMs = n;
       continue;
     }
-    if (a === '--json') continue;
+    if (a === '--json') { opts.json = true; continue; }
   }
   let result;
   try {

@@ -1,36 +1,44 @@
 ---
 state_version: 1
-task_fingerprint: s10a-done
+task_fingerprint: roadmap-active
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-06-03T18:51:31.328Z
+updated_at: 2026-06-04T08:02:00.749Z
 last_event: stop_loop_pass
 last_event_at: 2026-06-03T18:51:31.328Z
 unsafe_checkpoint: false
 confirm_required: false
+session_end_imminent: false
+chain_aborted: false
+dep_check_at: 2026-06-04T07:16:18.134Z
+dep_check_missing: impeccable
 ---
 ## Goal
-S10a STATE.md continuity layer — implemented + Codex stop-time finding closed
+mccp roadmap (v0.2.5+) — single source of truth in .claude/plans/mccp-roadmap.plan.md
 
 ## Plan
-- .claude/PRPs/plans/s10a-state-md-continuity.plan.md
+- .claude/plans/mccp-roadmap.plan.md
 
 ## Done
-- Tasks 1-8 all green (state-writer 8/8, state-injector 11/11, T-Session-Bootstrap 5/5)
-- Codex catch #1: rotate moved out of inject()
-- Codex catch #2: 3-layer commit-guard (pushed+survived+writeOK)
+- Phase 1-4: roadmap.plan.md 작성 (5 milestones, F1-F5 absorption)
+- Phase 5: PLAN-CODEX gate 통과 (R1 + R2 converged, R3 quota-deferred)
+- Receipt: .claude/receipts/mccp-plan-codex/default.json round 1
+- Milestone 0 Tasks A.1-A.2: archive dirs + git mv (4 plan + 1 prp plan + 1 note)
+- Milestone 0 Task A.3 Step 1-2: MEMORY.md backup + roadmap pointer prepend + Step 4 validation 4/4 PASS
 
 ## In Progress
-commit + PR (deferred to next session due to 00 ceiling)
+Milestone 0 Step 3 (MEMORY.md demotion via separate migration script) — deferred
 
 ## Next Step
-git add + commit S10a + receipt-system soft-mode (v0.2.2) follow-up
+/mccp:prp-implement .claude/plans/mccp-roadmap.plan.md (or commit Milestone 0 first via /mccp:prp-commit + /mccp:pr)
 
 ## Last Decision
-Receipt SOFT recommended by Codex+Claude self-debate; S10a took precedence
+F1-F5 R1 + R2-F1 absorption applied. R3 quota-deferred — 7:53 PM 이후 사용자 trigger 가능
 
 ## Open Questions
-- MEDIUM: shouldInjectContext=skip env var discovery for follow-up test
-- MEDIUM: receipt-gate soft-mode patch path (v0.2.2 or part of S10a commit)
+- MEDIUM (R3 deferred) — Codex quota 리셋 후 R3 verification trigger
+- MEDIUM (wrapper bug) — codex-invoke.js spawnSync stdout-empty issue (v0.2.6 housekeeping)
+- MEDIUM (security backport) — v0.2.4 security_force_override REJECT hardening backport
+- LOW (Milestone 0 split) — memory-archive-2026-06-04.js script 작성
 
 ## Last Updated
-2026-06-03T18:51:31.328Z
+2026-06-04T08:02:00.749Z

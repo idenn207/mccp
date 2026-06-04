@@ -11,6 +11,7 @@ const {
   deriveDecisionId,
   explicitDecision,
   slugFromPlanArg,
+  slugFromPlanPath,
   slugFromBranch,
   firstNonFlag,
   normalizeCommand,
@@ -80,6 +81,25 @@ test('slugFromPlanArg returns null for malformed args', function () {
   assert.strictEqual(slugFromPlanArg('.plan.md'), null);
 });
 
+test('slugFromPlanPath takes a direct path (no firstNonFlag tokenizer)', function () {
+  assert.strictEqual(slugFromPlanPath('.claude/plans/mccp-roadmap.plan.md'), 'mccp-roadmap');
+  assert.strictEqual(slugFromPlanPath('.claude\\plans\\mccp-roadmap.plan.md'), 'mccp-roadmap');
+  assert.strictEqual(slugFromPlanPath('C:/abs/path/auth-fix.prd.md'), 'auth-fix');
+  assert.strictEqual(slugFromPlanPath('plain.md'), 'plain');
+  // Divergence from slugFromPlanArg: the caller asserts the input IS a path,
+  // so the whole string becomes the basename source — multi-token strings
+  // that slugFromPlanArg would tokenize are treated as invalid here.
+  assert.strictEqual(slugFromPlanPath('--decision foo.plan.md'), null);
+});
+
+test('slugFromPlanPath returns null for malformed input', function () {
+  assert.strictEqual(slugFromPlanPath(''), null);
+  assert.strictEqual(slugFromPlanPath(null), null);
+  assert.strictEqual(slugFromPlanPath(undefined), null);
+  assert.strictEqual(slugFromPlanPath(42), null);
+  assert.strictEqual(slugFromPlanPath('.plan.md'), null);
+});
+
 test('slugFromBranch reads current git branch (master/main)', function () {
   const dir = makeTmpGitRepo();
   try {
@@ -134,6 +154,51 @@ test('deriveDecisionId: plan-path commands prefer plan basename', function () {
     assert.strictEqual(
       deriveDecisionId('mccp:plan-prd', '.claude/prds/auth.prd.md', { cwd: dir }),
       'auth'
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('deriveDecisionId: opts.planPath wins over commandArgs for plan-path commands', function () {
+  const dir = makeTmpGitRepo('feat/branch-fallback');
+  try {
+    // commandArgs points at a different path; opts.planPath should win.
+    assert.strictEqual(
+      deriveDecisionId('mccp:prp-implement', '.claude/plans/old-name.plan.md', {
+        cwd: dir,
+        planPath: '.claude/plans/mccp-roadmap.plan.md',
+      }),
+      'mccp-roadmap'
+    );
+    // explicit --decision in commandArgs still wins over opts.planPath
+    assert.strictEqual(
+      deriveDecisionId('mccp:plan', '--decision auth-fix', {
+        cwd: dir,
+        planPath: '.claude/plans/mccp-roadmap.plan.md',
+      }),
+      'auth-fix'
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('deriveDecisionId: opts.planPath falls through to commandArgs/branch when invalid', function () {
+  const dir = makeTmpGitRepo('feat/fallback-test');
+  try {
+    // planPath malformed → fall through to commandArgs slug
+    assert.strictEqual(
+      deriveDecisionId('mccp:plan', '.claude/plans/from-args.plan.md', {
+        cwd: dir,
+        planPath: '.plan.md',
+      }),
+      'from-args'
+    );
+    // planPath null + no commandArgs path → branch fallback
+    assert.strictEqual(
+      deriveDecisionId('mccp:plan', '', { cwd: dir, planPath: null }),
+      'fallback-test'
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

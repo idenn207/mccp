@@ -61,13 +61,21 @@ function firstNonFlag(args) {
   return null;
 }
 
-function slugFromPlanArg(args) {
-  const first = firstNonFlag(args);
-  if (!first) return null;
-  const base = first.split(/[\\/]/).pop() || '';
+// Direct path→slug — avoids the firstNonFlag tokenizer when the caller has
+// the plan path in hand. CLI uses this via `--plan <path>` to skip the
+// fragile --args "<raw shell-quoted string>" round-trip.
+function slugFromPlanPath(planPath) {
+  if (!planPath || typeof planPath !== 'string') return null;
+  const base = planPath.split(/[\\/]/).pop() || '';
   let slug = base.replace(/\.(plan|prd)\.md$/i, '').replace(/\.md$/i, '');
   slug = slug.toLowerCase();
   return SLUG_RE.test(slug) ? slug : null;
+}
+
+function slugFromPlanArg(args) {
+  const first = firstNonFlag(args);
+  if (!first) return null;
+  return slugFromPlanPath(first);
 }
 
 function slugFromBranch(cwd) {
@@ -89,6 +97,7 @@ function slugFromBranch(cwd) {
 
 function deriveDecisionId(commandName, commandArgs, opts) {
   const cwd = (opts && opts.cwd) || process.cwd();
+  const planPath = opts && opts.planPath;
 
   const explicit = explicitDecision(commandArgs);
   if (explicit) return explicit;
@@ -97,8 +106,12 @@ function deriveDecisionId(commandName, commandArgs, opts) {
   if (!cmd) return 'default';
 
   if (PLAN_PATH_COMMANDS.has(cmd)) {
-    const slug = slugFromPlanArg(commandArgs);
-    if (slug) return slug;
+    if (planPath) {
+      const slug = slugFromPlanPath(planPath);
+      if (slug) return slug;
+    }
+    const argSlug = slugFromPlanArg(commandArgs);
+    if (argSlug) return argSlug;
     const branchSlug = slugFromBranch(cwd);
     if (branchSlug) return branchSlug;
     return 'default';
@@ -138,6 +151,7 @@ module.exports = {
   deriveDecisionId: deriveDecisionId,
   explicitDecision: explicitDecision,
   slugFromPlanArg: slugFromPlanArg,
+  slugFromPlanPath: slugFromPlanPath,
   slugFromBranch: slugFromBranch,
   firstNonFlag: firstNonFlag,
   normalizeCommand: normalizeCommand,

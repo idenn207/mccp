@@ -22,7 +22,7 @@ function showHelp() {
     '  validate         --command <slug> [--decision <slug>] [--plan <path>]',
     '  preflight        --command <slug> [--decision <slug>] [--plan <path>]',
     '  status           [--gate <id>] [--json]',
-    '  derive-decision  --command <name> [--args "<raw args>"] [--cwd <path>]',
+    '  derive-decision  --command <name> [--args "<raw args>"] [--plan <path>] [--cwd <path>]',
     '  dedupe           --plan <path> --base <ref> --decision <slug> [--cwd <path>]',
     '  pr-body          --decision <slug> --head <sha> --action write|path|delete|sweep [--content <text>] [--content-file <path>] [--cwd <path>]',
     '',
@@ -313,8 +313,9 @@ function cmdDeriveDecision(args) {
     return 1;
   }
   const commandArgs = (args.args === true || args.args === undefined) ? '' : String(args.args);
+  const planPath = (args.plan === true || args.plan === undefined) ? null : String(args.plan);
   try {
-    const slug = deriveDecisionId(commandName, commandArgs, { cwd: args.cwd });
+    const slug = deriveDecisionId(commandName, commandArgs, { cwd: args.cwd, planPath: planPath });
     process.stdout.write(slug + '\n');
     return 0;
   } catch (err) {

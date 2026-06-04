@@ -12,7 +12,9 @@
 
 ## Summary
 
-mccp v0.2.4 (security-reviewer Skill→Task canonical contract 치환) main merge 완료. 다음 cycle은 **impeccable 디자인 검증 자동화**를 v0.2.5의 단일 focus로 좁히고, 그 뒤 housekeeping(v0.2.6) → S10b auto-handoff(v0.3.0) → S11 단일 entry(v0.3.1) → S12 escalate(v0.3.2)로 순차 진행. 각 마일스톤은 `plugin.json` version bump + main merge + 단일 PR을 단위로 한다.
+mccp v0.2.4 (security-reviewer Skill→Task canonical contract 치환) main merge 완료. 다음 cycle은 **impeccable 디자인 검증 자동화**를 v0.2.5의 단일 focus로 좁히고, 그 뒤 housekeeping(v0.2.6) → **silent-hook UX(v0.2.7)** → S10b auto-handoff(v0.3.0) → S11 단일 entry(v0.3.1) → S12 escalate(v0.3.2)로 순차 진행. 각 마일스톤은 `plugin.json` version bump + main merge + 단일 PR을 단위로 한다.
+
+v0.2.7은 2026-06-05 사용자 incident(`MCCP_RECEIPT_DEBUG=1` 로그 침묵)에서 도출된 ALLOW-path observability cycle. Claude(저) + Claude subagent + Codex GPT-5.4 3-source brainstorm → santa-loop 3-round adversarial review(R1 v1 → R2 v2 → R3 v3-minimal) converged to *observability + recovery hint system* — **no trust claim, no machine-enforced attestation**. R3 critical findings(C1-C8)이 MUST constraint로 고정됨.
 
 ---
 
@@ -109,6 +111,21 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract 치환) main merg
 | `plugins/mccp/scripts/receipt/tests/derive-decision.test.js` | UPDATE | v0.2.6 | plan-path 기반 slug fixture 추가 |
 | `.gitattributes` | CREATE | v0.2.6 | CRLF noise cleanup (`* text=auto eol=lf` + `*.ps1 eol=crlf` 등) |
 | `README.md` | UPDATE | v0.2.6 | impeccable wiring 사용자 안내 + ECC 잔재 hook cleanup checklist |
+| `.gitignore` | UPDATE | v0.2.7 | `.claude/state/hook-trace/` ignore — FIRST commit of milestone (R3 Codex C2) |
+| `plugins/mccp/scripts/lib/hook-trace.js` | CREATE | v0.2.7 | shard ledger writer + allowlist enforcer + corruption contract (C4, C6) |
+| `plugins/mccp/scripts/lib/tests/hook-trace.test.js` | CREATE | v0.2.7 | shard write + allowlist + corruption + active-session lease + LRU evict matrix |
+| `plugins/mccp/scripts/lib/tests/hook-trace-integration.test.js` | CREATE | v0.2.7 | `systemMessage` user-visibility integration test (C5) — gate for Task 2.5.4 |
+| `plugins/mccp/scripts/hooks/post-tool-use-failure.js` | CREATE | v0.2.7 | Layer 2b — event-native PostToolUseFailure surface (no L1 dep) |
+| `plugins/mccp/scripts/hooks/session-end-trace.js` | CREATE | v0.2.7 | Layer 5 — SessionEnd marker + compactor (active-session lease, C1, C3) |
+| `plugins/mccp/scripts/hooks/receipt-prompt.js` | UPDATE | v0.2.7 | G1 patch: ALLOW path `systemMessage` emit when `MCCP_RECEIPT_DEBUG=1` (Layer 2a); v0.2.5 block-payload inline 무조건 보존 |
+| `plugins/mccp/scripts/hooks/receipt-skill.js` | UPDATE | v0.2.7 | G1 patch: module load + decision eval try/catch + shard write + `systemMessage` emit + return allow (C6 — live hook state = event payload only) |
+| `plugins/mccp/scripts/hooks/session-start.js` | UPDATE | v0.2.7 | L2c external `claude --version` probe + `.claude/state/hook-caps.json` (provenance: binary_path + stderr, C8) + prior-session crash alerts (active-session lease guard, C3) |
+| `plugins/mccp/commands/trace.md` | CREATE | v0.2.7 | `/mccp:trace` slash command (Layer 4) — reads shards + consolidated.jsonl |
+| `plugins/mccp/commands/*.md` (all `/mccp:*`) | UPDATE | v0.2.7 | Phase 0 preamble 1줄: "If I disappear silently, run `/mccp:trace` or check `.claude/state/hook-trace/<session_id>/`" |
+| `docs/gate-design.md` | UPDATE | v0.2.7 | v0.2.7 surface architecture 섹션 + B1-B5 blind spots + `MCCP_RECEIPT_DEBUG` precedence table (C7) |
+| `docs/ENVIRONMENT.md` | UPDATE | v0.2.7 | `MCCP_RECEIPT_DEBUG_LEGACY_INLINE` entry |
+| `CLAUDE.md` | UPDATE | v0.2.7 | §4 cheat sheet에 신규 env vars + `/mccp:trace` 추가 |
+| `plugins/mccp/.claude-plugin/plugin.json` | UPDATE | v0.2.7 | 0.2.6 → 0.2.7 |
 | `plugins/mccp/scripts/hooks/auto-handoff.js` | CREATE | v0.3.0 | $100 hard ceiling 자동 세션 spawn (S10b) |
 | `plugins/mccp/scripts/hooks/breakpoint-detector.js` | CREATE | v0.3.0 | task fingerprint + cost threshold 결합 |
 | `plugins/mccp/scripts/hooks/tests/auto-handoff.test.js` | CREATE | v0.3.0 | $50/$80/$100 threshold matrix |
@@ -430,6 +447,200 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract 치환) main merg
 - [ ] derive-decision plan-path 통일 (1.fixture 추가)
 - [ ] .gitattributes commit
 - [ ] plugin.json 0.2.6 + PR merge
+
+---
+
+## Milestone 2.5 — v0.2.7: Silent Hook UX (Observability Surface)
+
+**Goal**: ALLOW-path silent failure 제거. UserPromptExpansion hook이 통과시키고 다운스트림이 침묵하는 시나리오를 hook surface로 가시화.
+
+**Plugin version**: 0.2.6 → **0.2.7**
+
+**Origin**: 2026-06-05 사용자 incident — `MCCP_RECEIPT_DEBUG=1`이 켜져 있어도 `/mccp:pr` 실패 시 로그 미출력. 본 세션 brainstorm + santa-loop 3-round adversarial review converged to v3-minimal design. 자세한 R1/R2/R3 verdict + critical issues는 본 세션 transcript.
+
+**Positioning**: observability + recovery hint system. **NO trust claim. NO machine-enforced attestation.** Claude Code hook API documented surface 안에서만 작동.
+
+### Verified Hook API (per [Claude Code hooks docs](https://code.claude.com/docs/en/hooks))
+
+- `systemMessage` — universal top-level hook output field (user-visible)
+- `PostToolUseFailure` — hook event with native `tool_use_id` + `tool_name` + `error` payload
+- `permissionDecision: "ask"` — PreToolUse.hookSpecificOutput value
+- `SessionEnd` — lifecycle event (**NOT "Pre-Stop" — Pre-Stop 존재하지 않음**, R3 Codex catch)
+- SessionStart input has `model` field but NOT Claude Code version → external probe 필요
+
+### Accepted Blind Spots (out of scope, documented in `docs/gate-design.md`)
+
+| ID | Scenario | Mitigation |
+|---|---|---|
+| B1 | `StopFailure` 이벤트 + 사용자 미재개 | manual ledger inspection 필요 |
+| B2 | Power loss before shard write | data loss accepted |
+| B3 | In-session Claude Code version upgrade | restart required for new probe |
+| B4 | Same-session concurrent ledger global ordering | per-shard scope only |
+| B5 | L0 subagent contract attestation | docs-only, no enforcement (별도 W2 워크스트림) |
+
+### MUST Constraints (R3 critical issues — non-negotiable)
+
+| # | Constraint | Source |
+|---|---|---|
+| **C1** | end-marker writing은 **`SessionEnd` hook**에 anchor. "Pre-Stop"은 존재하지 않음 | R3 Codex docs catch |
+| **C2** | `.gitignore`에 `.claude/state/hook-trace/` 추가 — milestone FIRST commit | R3 Codex: 실수 커밋 위험 |
+| **C3** | SessionStart LRU eviction은 **active-session lease** 확인 후만. live session dir 절대 삭제 금지 | R3 Codex: concurrent session race |
+| **C4** | Corruption contract: temp file + atomic rename, malformed shard 격리, surviving shards에서 consolidated 재구축, `hook-caps.json` corrupt 시 자동 reprobe | R3 Codex: self-healing 미정의 |
+| **C5** | `systemMessage` 필드 user-visibility를 **integration test로 사전 검증** (현재 spike 미커버) | R3 Reviewer A |
+| **C6** | L2a/G1 patch의 "live hook state" = **event payload only** (filesystem/module state 아님) — spec + 주석 모두 명시 | R3 Reviewer A |
+| **C7** | `MCCP_RECEIPT_DEBUG` precedence table에 *unset default* 명시 (`"interactive" > "1" > "0"/unset`) | R3 Reviewer A |
+| **C8** | `claude --version` external probe — binary path + stderr 기록, semver-only 의존 금지, attempted-feature-use + fallback 패턴 | R3 Codex |
+
+### Layered Design v3-minimal (R3-converged)
+
+```
+P0 (BLOCKING):
+  L1  — Per-invocation shard ledger (.claude/state/hook-trace/<session_id>/<tool_use_id>-<phase>.jsonl)
+  L2b — PostToolUseFailure surface (event-native, no L1 dep)
+  G1 patch — receipt-skill.js / receipt-prompt.js try/catch wrap
+
+P1:
+  L2a — MCCP_RECEIPT_DEBUG=1 + ALLOW path → systemMessage emit (v0.2.5 inline 보존)
+  L2c — External version probe + cross-session inject (claude --version, hook-caps.json)
+  L5  — SessionEnd marker + compactor (active-session lease)
+  G1 invariant — Loud Fail-Open 정책 + event-shape-specific output
+
+P2:
+  L2d — hookSpecificOutput.additionalContext breadcrumb (model context only)
+
+P3 (opt-in):
+  L3a — MCCP_RECEIPT_DEBUG="interactive" + permissionDecision:"ask"
+  L4  — /mccp:trace slash command + Phase 0 preamble in all /mccp:* markdown
+
+Deferred (W2 separate workstream):
+  L0  — subagent contract attestation (docs only, no machine enforcement)
+```
+
+### Tasks
+
+#### Task 2.5.0 (BLOCKING — must precede all others): `.gitignore` update
+
+- **Action**: `.gitignore`에 단일 라인 추가: `.claude/state/hook-trace/`
+- **Why**: 미적용 시 v0.2.7 설치 즉시 untracked 파일이 git status에 노출 → 실수 커밋 + repo bloat (R3 Codex C2)
+- **Validate**: `echo '' > .claude/state/hook-trace/test/dummy.jsonl && git status` → no untracked report
+- **Commit**: 본 milestone의 FIRST commit이어야 함
+
+#### Task 2.5.1: Layer 1 (P0) — Per-invocation shard ledger
+
+- **Action**: `plugins/mccp/scripts/lib/hook-trace.js` 생성
+- **Schema** (write-time enforced): `{ts, session_id, tool_use_id, command_id, command_name (sha256 if non-mccp:), gate_decision, layer, exception_class, exit_code}`
+- **FORBIDDEN at write**: `command_args` raw, `tool_input` raw, env vars, user content
+- **Per-shard cap**: 64KB OR 100 entries (whichever first)
+- **Global cap**: 100MB total via SessionStart LRU evict — **active-session lease 검증 필수** (C3)
+- **Disk-full**: skip + systemMessage + never block (G1)
+- **Read-only fs**: detect at SessionStart probe, layer disabled with single notice
+- **Corruption contract** (C4): temp file + atomic rename per shard write, malformed shard 자동 격리
+- **Validate**: `hook-trace.test.js` — shard write, allowlist, corruption, lease, LRU evict 8+ cases
+
+#### Task 2.5.2: Layer 2b (P0) — PostToolUseFailure surface
+
+- **Action**: `plugins/mccp/scripts/hooks/post-tool-use-failure.js` 생성
+- **Source data**: event payload native `tool_use_id` + `tool_name` + `error` (NO L1 lookup)
+- **Output**: systemMessage + `hookSpecificOutput.additionalContext` 동시 emit (recovery hint + log path)
+- **L1 unavailable**: surface 계속 동작 (event payload only)
+- **Mirror**: 기존 hook 패턴 — `bash-hook-dispatcher.js`의 dispatcher style
+- **Validate**: integration test — fake PostToolUseFailure event 발사 후 systemMessage 출력 확인
+
+#### Task 2.5.3: hooks G1 patch (P0)
+
+- **Action**: `receipt-skill.js` / `receipt-prompt.js`의 module load + decision evaluation을 try/catch로 감싸기
+- **Catch block**: L1 shard write 시도 (fail-silent OK) + systemMessage emit + return allow
+- **C6 명시**: 주석에 "live hook state = event payload only" 강조
+- **G1 contract**: 모든 internal exception이 동일 경로
+- **Mirror**: 기존 `debug()` 패턴 + v0.2.5 block-payload inline 처리
+- **Validate**: `module load error → systemMessage 출력 + allow` integration test
+
+#### Task 2.5.4: Layer 2a (P1) — ALLOW-path systemMessage
+
+- **Action**: `receipt-prompt.js`에서 `MCCP_RECEIPT_DEBUG=1` + ALLOW path 시 systemMessage 발행
+- **Coexistence**: v0.2.5 block-payload inline 무조건 보존
+- **Opt-out only**: `MCCP_RECEIPT_DEBUG_LEGACY_INLINE=0` (advanced users)
+- **GATED by C5**: `hook-trace-integration.test.js`가 systemMessage user-visibility 사전 검증 통과해야 본 Task 진행
+- **Validate**: integration test 통과 + manual smoke (사용자 환경에서 ALLOW path debug 메시지 노출 확인)
+
+#### Task 2.5.5: Layer 2c (P1) — External version probe + cross-session inject
+
+- **Action**: `session-start.js`에 `claude --version` spawn 로직 + `.claude/state/hook-caps.json` cache write
+- **Cache schema**: `{version, probed_at, binary_path, stderr_capture, supported_features}` (provenance per C8)
+- **Probe fail OR v < 2.1.141**: minimum-spec mode (systemMessage only, no `terminalSequence`, no `permissionDecision: "ask"`)
+- **Cross-session inject**: prior-session shard dirs lacking `.end` marker → 최대 3개 system-reminder inject
+- **C3 guard**: 다른 active session의 dir은 inject 대상에서 제외 (lease 확인)
+- **Mirror**: 기존 `session-start.js` `<system-reminder>` injection pattern
+- **Validate**: probe success/fail + minimum-spec fallback + cross-session alert matrix
+
+#### Task 2.5.6: Layer 5 (P1) — SessionEnd marker + compactor
+
+- **Action**: `plugins/mccp/scripts/hooks/session-end-trace.js` 생성
+- **Hook event**: **`SessionEnd`** (NOT Pre-Stop — C1 enforced)
+- **End marker**: `.claude/state/hook-trace/<session_id>/.end` write
+- **Compactor**: per-shard files → `consolidated.jsonl` (atomic rename, active-session lease 존중)
+- **Compactor failure**: SessionEnd 진행 차단 안 함
+- **Mirror**: `state-writer.js`의 atomic lock + CRLF normalization 패턴
+- **Validate**: SessionEnd 후 .end marker 존재 + consolidated.jsonl 생성 + 동시 세션 dir 미터치 확인
+
+#### Task 2.5.7: G1 invariant 명문화 + grep guard
+
+- **Action**: `docs/gate-design.md`에 G1 정책 섹션 추가
+- **Event-shape-specific output**: UserPromptExpansion(block), PreToolUse(decision:allow/deny/ask), PostToolUseFailure(systemMessage+additionalContext), Stop(advisory), SessionEnd(advisory) 각각의 fail-open contract 명시
+- **Test invariant**: 모든 hook 코드 경로에 G1 적용 여부 grep guard (`scripts/lib/tests/g1-guard.test.js`)
+- **Validate**: synthetic offender + safe-form 양방향 regex pattern (v0.2.4 security-reviewer-guard.test.js mirror)
+
+#### Task 2.5.8: `/mccp:trace` slash command (P3) + Phase 0 preamble
+
+- **Action**: `plugins/mccp/commands/trace.md` 생성 — shards + consolidated.jsonl read
+- **All `/mccp:*` markdown**: Phase 0에 preamble 1줄 추가: `> If I disappear silently, run \`/mccp:trace\` or check \`.claude/state/hook-trace/<session_id>/\``
+- **Mirror**: `code-review.md` 등의 Phase 0 패턴
+- **Validate**: `/mccp:trace`가 current + prior session entries 모두 표시
+
+#### Task 2.5.9: docs + plugin.json bump + PR
+
+- **Action**:
+  - `docs/gate-design.md`: v0.2.7 surface architecture, B1-B5 blind spots, `MCCP_RECEIPT_DEBUG` precedence table (C7)
+  - `docs/ENVIRONMENT.md`: `MCCP_RECEIPT_DEBUG_LEGACY_INLINE` entry
+  - `CLAUDE.md` §4 cheat sheet: 신규 env vars + `/mccp:trace`
+  - `plugins/mccp/.claude-plugin/plugin.json`: 0.2.6 → 0.2.7
+- **PR**: `/mccp:pr` (v0.2.7은 own gates를 통과해야 함 — dogfood)
+
+### Milestone 2.5 Acceptance
+
+- [ ] `.gitignore`에 `.claude/state/hook-trace/` 추가 (FIRST commit, C2)
+- [ ] L1 shard ledger 동작 + allowlist enforced + corruption contract test pass (Task 2.5.1, C4, C6)
+- [ ] PostToolUseFailure surface integration test pass (Task 2.5.2)
+- [ ] receipt-skill.js / receipt-prompt.js G1 patch 적용 + module load error → systemMessage 확인 (Task 2.5.3, C6)
+- [ ] `systemMessage` user-visibility integration test pass (Task 2.5.4, C5 — gate)
+- [ ] `claude --version` external probe + hook-caps.json provenance 기록 (Task 2.5.5, C8)
+- [ ] SessionEnd compactor 동작 + Pre-Stop 사용 0건 검증 (Task 2.5.6, C1)
+- [ ] active-session lease guard로 concurrent session safe (Task 2.5.6, C3)
+- [ ] G1 grep guard test pass + 모든 hook 경로에 G1 적용 (Task 2.5.7)
+- [ ] `/mccp:trace` 호출 시 prior-session shards + consolidated 표시 (Task 2.5.8)
+- [ ] 모든 `/mccp:*` markdown에 Phase 0 preamble 추가 (Task 2.5.8)
+- [ ] docs + CLAUDE.md + plugin.json 0.2.7 + PR merge (Task 2.5.9)
+
+### Origin Trace (Audit)
+
+- **Source incident**: 2026-06-05 사용자 보고 — `MCCP_RECEIPT_DEBUG=1`이 켜져 있어도 `/mccp:pr` 실패 시 로그 미출력
+- **Brainstorm sources (3)**: Claude(저) + Claude subagent(=두 번째 claude perspective) + Codex GPT-5.4 via `codex exec`
+- **Adversarial review**: `mccp:santa-loop` 3-round R1/R2/R3
+  - **R1**: v1 design, 9/10 criteria FAIL on both reviewers (broad design holes)
+  - **R2**: v2 design, 9-10/10 criteria FAIL (deeper architectural limits surfaced)
+  - **R3**: v3-minimal design, 3-4/10 criteria FAIL (specific spec gaps — present milestone constraints)
+- **Critical Codex findings (Reviewer B, docs-grounded)**:
+  - C1: "Pre-Stop" hook does not exist; SessionEnd is correct anchor
+  - C2: `.claude/state/hook-trace/` not in `.gitignore` — migration risk
+  - C3: SessionStart LRU eviction can delete live concurrent session dirs
+  - C4: Corruption contract underspecified
+  - C8: `claude --version` probe provenance + attempted-feature-use fallback
+- **Critical Claude findings (Reviewer A, codebase-grounded)**:
+  - C5: `systemMessage` field not yet tested in spike — integration test required
+  - C6: "live hook state" 출처 모호 — event payload only로 명시 필요
+  - C7: env var precedence table에 unset default 누락
+- **Deferred to W2 (separate workstream, not v0.2.7)**:
+  - L0 subagent contract attestation — hook API에 cryptographic transport 없어 self-reported stamp는 forgeable. trust 주장 불가. 본 세션 codex:codex-rescue forwarder violation incident가 이 한계를 정확히 예시.
 
 ---
 

@@ -69,6 +69,12 @@ function block(commandName, decisionId, result) {
   lines.push('Inspect:     node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js status');
   lines.push('Write missing receipt: node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write --gate <id> --decision ' + decisionId + ' --plan <path>');
 
+  if (process.env.MCCP_RECEIPT_DEBUG === '1') {
+    lines.push('');
+    lines.push('[DEBUG] mode=' + (process.env.MCCP_RECEIPT_GATE_MODE || 'hard') + ' decision="' + decisionId + '"');
+    lines.push('[DEBUG] hook stderr is not surfaced in UserPromptExpansion block payload; debug inlined here.');
+  }
+
   const payload = {
     decision: 'block',
     reason: lines.join('\n'),

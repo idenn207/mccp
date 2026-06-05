@@ -644,6 +644,183 @@ Deferred (W2 separate workstream):
 
 ---
 
+## Milestone 2.6 — v0.2.8: PR Workflow Hardening (Codex fix-loop + Markdown lint noise)
+
+**Goal**: `/mccp:pr` + `/mccp:prp-pr`에서 Codex review가 사용자 의도(PR 생성)를 fix-cycle로 변질시키는 문제, 그리고 IDE markdownlint warning이 Claude tool-result로 surface돼 반복 처리되는 노이즈를 제거.
+
+**Plugin version**: 0.2.7 → **0.2.8**
+
+**Origin**: 2026-06-05 사용자 보고 — 본 plan amend cycle. 두 개의 workflow UX defect 보고:
+1. `/mccp:pr` 호출 → Codex review 발화 → findings 반환 → Claude가 plan 없이 즉시 Edit/Write 진입 (CLAUDE.md §3.1 plan-less mutations 위반).
+2. `.md` 파일 작성/수정 직후 IDE markdownlint warning이 Claude context에 반복 surface. 사용자는 이미 VSCode `format on save` + `davidanson.vscode-markdownlint` extension으로 lint resolve 중이라 redundant.
+
+**Positioning**: workflow UX defect 보완. **value prop(dual-reviewer)을 PR step에서도 유지하는 게 1차 목표**, "Codex 제거"는 fallback. 진짜 통증은 review 자체가 아니라 review 직후의 mutation impulse이므로, 본 milestone은 두 경로를 분리.
+
+### Tasks
+
+#### Task 2.6.1: `/mccp:pr` + `/mccp:prp-pr` review-only invariant (no auto-mutation after Codex review)
+
+**증상**: PR 생성 의도로 `/mccp:pr` 호출 → Codex adversarial review가 findings 반환 → Claude가 사용자 confirm 없이 즉시 Edit/Write로 수정 진입 → 본래 PR 생성 단계가 implicit fix-cycle로 변질. plan-less mutations + 단일 명령의 책임 범위 위반.
+
+**근본 원인 가설** (코드 확인 필요 — Phase 0):
+- [commands/pr.md](../../plugins/mccp/commands/pr.md) 본문이 Codex review 결과를 "actionable feedback"으로 해석하는 instruction 포함 가능성.
+- review surface(PR body inject)와 fix-trigger(별도 cycle) 경로가 본문에서 분리되어 있지 않음 — Claude가 자체 판단으로 fix path 선택.
+
+**Decision options (사용자 confirmation 대기)**:
+
+| 옵션 | 동작 | 장점 | 단점 |
+|---|---|---|---|
+| **A** | `/mccp:pr` + `/mccp:prp-pr`에서 Codex review **호출 자체 제거** | 단순. findings 자체가 생성되지 않으므로 fix-impulse 원천 차단 | dual-reviewer 가치 prop 약화. plan/implement에서 Codex skip된 경우(force_override 등) 마지막 안전망 사라짐 |
+| **B** | Codex review 유지, findings은 **PR body `## Codex Review` section에만 inject**. 본문에 invariant "Findings → PR body only. NO mutations." 명시 | 보호 유지 + 노이즈 제거 | command body + invariant test + receipt schema 모두 갱신. Claude self-discipline에 의존(mechanical enforcement 부재 — Q1) |
+| **C** | env `MCCP_PR_SKIP_CODEX_REVIEW=1` opt-in (default off) | 사용자 통제. 기본 동작 변경 없음 | 매 호출마다 env 설정 부담. 본질적 fix-loop 문제는 미해결 |
+| **D** | cross-gate dedupe: 같은 decision-slug의 plan-codex + implement-codex 모두 verdict=approve이면 PR step Codex auto-skip | 자동. dual-reviewer는 이미 두 단계에서 검증됨 | dedupe 조건 미충족(plan-codex skipped/divergent)에서 fix-loop 잔존. slug drift에 취약 (v0.2.6 Task 2.1 `derive-decision` 통합 의존) |
+
+**권장 결합**: **B + D + C(escape hatch)** — review-only invariant로 fix-loop 차단(B), cross-gate dedupe로 중복 review 회피(D), env opt-in으로 최후 escape(C). A는 dual-reviewer prop 손실이라 비권장.
+
+**Action** (B+D+C 가정 — 사용자 confirmation 후 확정):
+
+1. [commands/pr.md](../../plugins/mccp/commands/pr.md) + [commands/prp-pr.md](../../plugins/mccp/commands/prp-pr.md) 본문 amend:
+   - Phase N (Codex review): findings은 **PR body `## Codex Review` section에만 inject**.
+   - 명시적 invariant block: `Findings → PR body inject only. NO Edit/Write calls in this command. Fix-cycle은 사용자가 별도로 /mccp:plan 또는 /mccp:prp-implement 호출 시에만 진입.`
+2. Cross-gate dedupe 활성화:
+   - plan-codex receipt + implement-codex receipt가 같은 decision-slug + 둘 다 verdict=approve이면 PR step Codex 재호출 skip.
+   - Receipt meta 추가: `codex_dedupe_at_pr=true`, `codex_dedupe_source=["mccp-plan-codex/<slug>", "mccp-implement-codex/<slug>"]`.
+   - dedupe 조건 미충족 시 fallback은 Codex 정상 호출 (B의 review-only invariant 적용).
+3. `MCCP_PR_SKIP_CODEX_REVIEW="<reason>"` audited escape (default off):
+   - reason 비어있거나 1-token이면 schema REJECT (v0.2.6 `MCCP_FORCE_PR_WITHOUT_IMPECCABLE` mirror).
+   - Reason 명시 시: Codex review 호출 skip + receipt meta `codex_skipped_at_pr=true` + `codex_skip_reason=<reason>` + PR body footer `## Codex Review Skipped` section auto-inject (canonical audit source).
+4. Receipt schema에 `meta.codex_review_actionable_findings` (boolean) — findings이 있어도 mutation 안 했다는 audit trail 보존.
+
+**Mirror**:
+- [code-review.md:151-162](../../plugins/mccp/commands/code-review.md#L151-L162) cross-gate dedupe 패턴.
+- [pr.md:120](../../plugins/mccp/commands/pr.md#L120) `> impeccable unavailable, skipped` audit note inject 패턴.
+- v0.2.6 `MCCP_FORCE_PR_WITHOUT_IMPECCABLE` reason validator (strict REJECT, `force-override-reason.js` helper 재사용).
+- v0.2.4 `MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER` audited escape.
+
+**Validate**:
+- `pr-codex-no-automutation.test.js`: Codex review가 findings 반환 후 command body가 Edit/Write 호출 안 함 (harness simulation 또는 command body grep guard).
+- `pr-codex-dedupe.test.js`: plan-codex + implement-codex 모두 approve + same decision-slug 시 PR step Codex 재호출 skip + receipt meta 정확.
+- `pr-codex-skip-env.test.js`: `MCCP_PR_SKIP_CODEX_REVIEW="<reason>"` 정상/비정상 reason 분기 검증 (force-override-reason.js helper 재사용).
+- Grep guard: `grep -nE "Edit\\(|Write\\(" plugins/mccp/commands/{pr,prp-pr}.md` — review section 이후 mutation 호출 패턴 0건.
+- Receipt fixture: `codex_dedupe_at_pr=true` + `codex_skipped_at_pr` + `codex_review_actionable_findings` 세 axis 매트릭스 test.
+
+**Risks**:
+- B의 invariant는 Claude self-discipline에 의존 — mechanical enforcement 없음. v0.2.7 Silent Hook UX의 PostToolUseFailure surface와 결합해 PR phase에서 Edit/Write 발화 시 audit log 남기는 보조 hook 검토 (Q1).
+- D의 dedupe는 decision-slug 일치를 가정. v0.2.6 Task 2.1 `derive-decision` 통합 머지 전에는 slug drift 위험 — 본 task의 D-axis는 v0.2.6 머지 후에만 활성화.
+- CLAUDE.md §1.2 dual-reviewer 본문 갱신 필요 — "PR step은 cross-gate dedupe + review-only invariant로 보호 유지" 명시.
+
+**Open Questions**:
+- **HIGH (Q1)**: review-only invariant를 mechanical enforce할 방법? command body는 declarative — Claude의 self-discipline에 의존. 추가 PostToolUse hook(PR phase 진입 후 Edit/Write 호출 시 audit + warn)으로 보강 검토. v0.2.7 hook-trace 인프라 재사용 가능.
+- **MEDIUM (Q2)**: A/B/C/D 중 어떤 조합? 본 plan 본문은 B+D+C(escape hatch) 권장이지만 최종 결정은 사용자.
+- **MEDIUM (Q3)**: dedupe 조건에 `mccp-code-review` receipt도 포함할지? code-review가 mutation suggestion 줄 수 있으므로 별도 axis.
+- **LOW (Q4)**: receipt schema field `codex_review_actionable_findings`를 plan/implement step에도 backport할지? 본 cycle scope는 PR step only.
+
+#### Task 2.6.2: IDE markdownlint warning 노이즈 제거 (VSCode extension delegation)
+
+**증상**: `.md` 파일 Write/Edit 후 IDE diagnostics가 Claude tool-result로 surface → Claude가 매번 lint warning을 actionable feedback으로 해석 → 매 turn fix 시도 → 사용자 VSCode `format on save` + extension(davidanson.vscode-markdownlint)과 중복.
+
+**근본 원인 가설** (Phase 0 — 코드 grep 확인 결과):
+- mccp/scripts/hooks/ 디렉토리에 markdown lint hook 직접 존재 **안 함** (grep 결과 0건 — `markdownlint|markdown-lint|md-lint`).
+- 따라서 노이즈 출처는 (a) VSCode IDE diagnostics가 tool-result에 포함되는 Claude Code IDE integration, 또는 (b) 사용자 user-level hook(plugin 외부). 어느 쪽이든 mccp가 직접 통제 불가.
+- 해결책: lint resolve를 IDE extension에 위임해 warning이 생성되기 전에 fix되도록 trigger.
+
+**Decision options (사용자 confirmation 대기)**:
+
+| 옵션 | 동작 | 장점 | 단점 |
+|---|---|---|---|
+| **α** | `post-edit-format.js`에 `.md` 분기 추가 — `code --reuse-window --command "markdownlint.fixAll" <file>` 호출 | 사용자 기존 VSCode extension 재사용. 추가 dep 없음 | VSCode CLI(`code`) PATH 의존. WSL/headless 환경 호환성 불확실. `--command markdownlint.fixAll` 정확한 syntax 검증 필요 |
+| **β** | mccp가 자체 markdownlint CLI 호출 — `npx markdownlint --fix <file>` | VSCode 의존성 없음. CI/headless 호환 | npm 의존성 추가. `format on save`와 rule set 불일치 가능 |
+| **γ** | IDE diagnostics surface 자체를 suppress — env `MCCP_SUPPRESS_MD_DIAGNOSTICS_FEEDBACK=1` 또는 hook이 tool-result 후처리로 markdown diagnostic 필터링 | mccp 내부에서 노이즈 제거. 사용자 환경 무관 | 진짜 의미 있는 lint error도 sileence될 위험. 후처리 fragility |
+
+**권장 결합**: **α (primary) + β (fallback)** — α를 우선 시도하되 VSCode CLI 미가용 시 β로 graceful degradation. γ는 마지막 escape.
+
+**Action** (α+β 가정 — 사용자 confirmation 후 확정):
+
+1. [post-edit-format.js](../../plugins/mccp/scripts/hooks/post-edit-format.js)에 `.md` 분기 추가:
+   ```js
+   if (filePath && /\.md$/.test(filePath)) {
+     // α path
+     const codeBin = findCodeCli();  // PATH lookup
+     if (codeBin) {
+       try {
+         execFileSync(codeBin, ['--reuse-window', '--command', 'markdownlint.fixAll', filePath], { stdio: 'ignore', timeout: 5000 });
+         return rawInput;
+       } catch { /* fall through to β */ }
+     }
+     // β path
+     const mdLintBin = resolveBin(projectRoot, 'markdownlint');
+     if (mdLintBin) {
+       try { execFileSync(mdLintBin, ['--fix', filePath], { stdio: 'ignore', timeout: 5000 }); } catch {}
+       return rawInput;
+     }
+     // silent noop + telemetry
+     stateWriter.recordTelemetry({ markdownlint_skipped: true, reason: 'no-cli' });
+     return rawInput;
+   }
+   ```
+2. `findCodeCli()` helper: `code` PATH lookup + Windows의 `code.cmd` shim 처리 + WSL `code-insiders` fallback.
+3. 본 task는 markdown lint hook을 **새로 만들지 않음** — 기존 IDE extension trust. mccp 책임은 *호출 trigger* 만.
+4. (선택) Q4가 RESOLVED되면 γ 추가: `MCCP_SUPPRESS_MD_DIAGNOSTICS_FEEDBACK=1` env로 IDE diagnostics 후처리 필터링. v0.2.7 hook-trace 인프라 재사용.
+
+**Mirror**:
+- [post-edit-format.js](../../plugins/mccp/scripts/hooks/post-edit-format.js) JS/TS formatter dispatch pattern.
+- [resolve-formatter.js](../../plugins/mccp/scripts/lib/resolve-formatter.js) PATH lookup 패턴.
+- v0.2.3 [dep-check.js:53-59](../../plugins/mccp/scripts/lib/dep-check.js#L53-L59) CLI PATH probe 패턴.
+
+**Validate**:
+- `post-edit-format-md.test.js`: `.md` Write 후 `code --command markdownlint.fixAll` 호출 시도 — spawn mock으로 검증.
+- VSCode CLI 미가용 환경에서 β fallback 진입 + markdownlint CLI 호출 검증.
+- 양쪽 미가용 시 silent noop + STATE.md `markdownlint_skipped` telemetry 기록 검증.
+- 사용자 환경 dogfood (Win11 + VSCode + davidanson.vscode-markdownlint installed): `.md` 파일 Write 5회 → IDE diagnostics surface 0건 확인.
+
+**Risks**:
+- VSCode CLI command 호출이 사용자 IDE 인스턴스의 active state에 의존 — VSCode 미실행 시 `--reuse-window` 동작 불확실. timeout 5s로 graceful exit.
+- 사용자 `.markdownlint.json` rule set과 mccp가 호출하는 extension/CLI의 default rule set 충돌 가능 — α path는 사용자 config 자동 적용, β path는 cwd `.markdownlint.json` lookup 명시 필요.
+- 본 task는 IDE diagnostic 후처리(γ)를 default 미포함 — 일부 환경에서 warning 잔존 가능. γ는 사용자 보고 후 amend.
+
+**Open Questions**:
+- **HIGH (Q5)**: VSCode CLI `code --command markdownlint.fixAll` 실제 syntax 검증 필요 — davidanson.vscode-markdownlint extension의 commandId 정확성. extension repo docs 또는 사용자 환경 manual test.
+- **MEDIUM (Q6)**: α/β/γ 선택 — 본 plan 본문은 α+β 권장. γ는 v0.2.7 hook-trace 머지 후 amend로 추가 검토.
+- **MEDIUM (Q7)**: WSL/remote SSH 환경 호환성 — `code` CLI가 host VSCode를 invoke하는지 검증 필요.
+- **LOW (Q8)**: 본 노이즈가 진짜 IDE diagnostics surface인지 아니면 user-level hook 잔재인지 사용자 환경에서 한 번 grep 확인 권장 (`Get-ChildItem $env:USERPROFILE\.claude\hooks\` markdown 관련 entry).
+
+#### Task 2.6.3: CLAUDE.md §1.2 + §4 갱신
+
+**Action**:
+- §1.2 dual-reviewer 본문에 PR step 정책 명시: "PR step은 cross-gate dedupe + review-only invariant로 보호 유지. Codex 직접 호출은 dedupe 조건 미충족 시에만 발화."
+- §4 cheat sheet에 `MCCP_PR_SKIP_CODEX_REVIEW`, `MCCP_SUPPRESS_MD_DIAGNOSTICS_FEEDBACK` (γ 채택 시) 추가.
+
+#### Task 2.6.4: plugin.json bump + PR
+
+- **Action**: 0.2.7 → 0.2.8.
+- **PR**: `/mccp:pr` (v0.2.8 own gates dogfood — Task 2.6.1 변경사항이 본 PR 생성 시점에 active. 즉 본 PR이 review-only invariant + dedupe 정상 동작 자체검증).
+
+### Milestone 2.6 Acceptance
+
+- [ ] Task 2.6.1 Decision (A/B/C/D 또는 조합) 사용자 confirmation
+- [ ] Task 2.6.1: `/mccp:pr` + `/mccp:prp-pr` review-only invariant 본문 명시
+- [ ] cross-gate dedupe 동작: plan-codex + implement-codex 둘 다 approve + same slug 시 PR step Codex skip + receipt meta 정확
+- [ ] `MCCP_PR_SKIP_CODEX_REVIEW="<reason>"` audited escape live + reason validator strict (v0.2.6 helper 재사용)
+- [ ] Receipt schema `codex_dedupe_at_pr` + `codex_skipped_at_pr` + `codex_review_actionable_findings` 3-axis fixture test 통과
+- [ ] Task 2.6.2 Decision (α/β/γ 조합) + Q5 (VSCode commandId) 사용자 confirmation
+- [ ] Task 2.6.2: `post-edit-format.js` `.md` 분기 추가 + VSCode CLI invoke + β fallback + telemetry
+- [ ] Task 2.6.2: 사용자 환경 dogfood 5회 — IDE diagnostics surface 0건 확인
+- [ ] CLAUDE.md §1.2 + §4 갱신
+- [ ] plugin.json 0.2.8 + PR merge (본 PR이 Task 2.6.1 invariant 자체 dogfood)
+
+### Origin Trace (Audit)
+
+- **Source report**: 2026-06-05 사용자 메시지 (본 plan amend cycle). 자세한 인용은 본 세션 transcript.
+- **Pre-implementation diagnostic** (본 plan 작성 시 수행):
+  - mccp/scripts/hooks/ grep `markdownlint|markdown-lint|md-lint` → 0건 → markdown lint hook은 mccp가 직접 갖고 있지 않음. 노이즈 출처 추정: IDE integration 또는 user-level hook.
+  - `.claude/PRPs/reports/q1-f4-fix-task-prompt-inject-report.md:77` history reference — markdownlint MD060 warning이 과거 cycle에서도 관찰됨 (사용자가 plan 본문 형식 무시 결정).
+- **Codex Adversarial Review**: 본 Milestone 2.6 추가분은 **R1 pending** — 사용자 confirmation 후 `/mccp:plan` 또는 `/mccp:santa-loop` 진입 권장.
+- **Decision dependencies**:
+  - Task 2.6.1 D-axis(dedupe)는 v0.2.6 Task 2.1 `derive-decision` 통합 머지 후에만 활성화.
+  - Task 2.6.2 γ-axis(diagnostics suppress)는 v0.2.7 Silent Hook UX hook-trace 머지 후 amend 검토.
+
+---
+
 ## Milestone 3 — v0.3.0: S10b Auto-Handoff ($100 hard ceiling)
 
 **Goal**: cost hard ceiling 자동 enforcement. v0.2 architecture §4 design 그대로 구현.
@@ -770,6 +947,8 @@ node -e "console.log(require('./plugins/mccp/.claude-plugin/plugin.json').versio
 - [ ] Milestone 0: 모든 archive 완료 + `MEMORY.md` 단일 entry
 - [ ] Milestone 1 (v0.2.5): impeccable wiring shipped — 7개 명령 + receipt + tests
 - [ ] Milestone 2 (v0.2.6): housekeeping shipped
+- [ ] Milestone 2.5 (v0.2.7): silent-hook UX observability surface shipped
+- [ ] Milestone 2.6 (v0.2.8): PR workflow hardening — Codex fix-loop 차단 + markdown lint 노이즈 delegation
 - [ ] Milestone 3 (v0.3.0): auto-handoff shipped
 - [ ] Milestone 4 (v0.3.1): `/mccp:work` shipped
 - [ ] Milestone 5 (v0.3.2): escalate shipped

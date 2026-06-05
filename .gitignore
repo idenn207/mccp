@@ -34,6 +34,8 @@ build/
 .claude/state/dogfood-*/
 # v0.2.7 hook-trace shard ledgers (per-invocation observability — local only).
 .claude/state/hook-trace/
+# v0.2.7 hook capability probe cache (per-machine binary path + mtime — local only).
+.claude/state/hook-caps.json
 
 # Local env
 .env

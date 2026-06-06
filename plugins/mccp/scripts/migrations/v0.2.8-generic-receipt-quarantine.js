@@ -204,19 +204,40 @@ function isPidAlive(pid) {
   }
 }
 
-// A1 — releaseLock verifies the in-file token matches the holder's token
-// before unlink. Mismatch (post-race reclaimed-then-stolen scenario):
-// no-op + stderr warn. NEVER throw — releaseLock lives in `finally` and a
-// throw here would mask the original migrate() failure.
+// A1 / R6-R2 F2 — releaseLock verifies the in-file token matches the
+// holder's token before unlink. NEVER unlink on parse failure / zero-byte
+// body: acquireLock has a known zero-byte window between openSync('wx')
+// and writeSync, so a prior holder calling releaseLock during that window
+// must not delete the new holder's lock path. Unparsable bodies are left
+// to the lease-based reclaim path. NEVER throw — releaseLock lives in
+// `finally` and a throw here would mask the original migrate() failure.
 function releaseLock(repoRoot, token) {
   const p = lockPath(repoRoot);
+  let raw;
+  try {
+    raw = fs.readFileSync(p, 'utf8');
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return; // already released
+    process.stderr.write('[mccp] releaseLock could not read lock ' +
+      '— leaving in place (' + (err && err.message) + ')\n');
+    return;
+  }
+  if (raw.length === 0) {
+    // R6-R2 F2 — zero-byte window of a new holder's acquireLock. NEVER
+    // unlink: the new holder will write its body momentarily; if it
+    // fails to, the lease-based reclaim handles it.
+    process.stderr.write('[mccp] releaseLock observed zero-byte lock ' +
+      '(new holder acquireLock window) — not unlinking\n');
+    return;
+  }
   let body;
   try {
-    const raw = fs.readFileSync(p, 'utf8');
     body = JSON.parse(raw);
-  } catch {
-    // Lock file gone or unparsable — nothing to unlink, nothing to warn about.
-    try { fs.unlinkSync(p); } catch { /* already gone */ }
+  } catch (err) {
+    // R6-R2 F2 — unparsable body is NOT proof of ownership. Leave for
+    // the lease-based reclaim path; don't unlink someone else's lock.
+    process.stderr.write('[mccp] releaseLock could not parse lock body ' +
+      '— leaving for lease reclaim (' + (err && err.message) + ')\n');
     return;
   }
   if (token === undefined || token === null) {
@@ -396,9 +417,27 @@ function migrate(repoRoot, opts) {
     if (opts.beforeRenameHook) opts.beforeRenameHook(active);
     refreshLockHeartbeat(repoRoot);
 
+    // R6-R2 F1 — verify ownership AFTER scan, BEFORE any rename. Without
+    // this, a stolen-lock holder could mutate up to HEARTBEAT_BATCH_SIZE-1
+    // receipts before the first heartbeat verify fires.
+    if (!verifyOwnership(repoRoot, token)) {
+      if (opts.systemMessage) opts.systemMessage(
+        'v0.2.8 generic-receipt quarantine aborted before rename — lock ownership ' +
+        'lost during scan; retry shortly');
+      return { status: 'in-progress-aborted', exitCode: EX_TEMPFAIL, reason: 'ownership-lost-pre-rename' };
+    }
+
     let heartbeatCounter = 0;
     let ownershipLost = false;
     for (const receipt of active) {
+      // R6-R2 F1 — verify on EVERY iteration. The per-iteration cost is a
+      // single fs.readFileSync of a small JSON file; in exchange any
+      // stolen-lock window is bounded to a single rename's duration
+      // instead of HEARTBEAT_BATCH_SIZE * rename time.
+      if (!verifyOwnership(repoRoot, token)) {
+        ownershipLost = true;
+        break;
+      }
       try {
         const result = renameWithCollisionSafety(receipt, repoRoot);
         if (result.renamed) renamed.push(result.renamed);
@@ -409,14 +448,6 @@ function migrate(repoRoot, opts) {
       }
       heartbeatCounter++;
       if (heartbeatCounter >= HEARTBEAT_BATCH_SIZE) {
-        // R6-F2 — verify our token is still in the lock body before
-        // continuing. If another holder reclaimed (host-aware policy would
-        // have refused, but defensive in case of force-unlink), abort
-        // gracefully with tempfail instead of mutating concurrently.
-        if (!verifyOwnership(repoRoot, token)) {
-          ownershipLost = true;
-          break;
-        }
         refreshLockHeartbeat(repoRoot);
         heartbeatCounter = 0;
       }
@@ -468,6 +499,17 @@ function migrate(repoRoot, opts) {
       }]),
     };
     if (errors.length > 0) marker.last_error = errors[errors.length - 1].message;
+
+    // R6-R2 F1 — verify ownership IMMEDIATELY before writing the marker.
+    // The marker is the gate-state authority; writing it under a stolen
+    // lock would falsely advance the gate. If ownership is lost here we
+    // abort with tempfail and leave the prior marker untouched.
+    if (!verifyOwnership(repoRoot, token)) {
+      if (opts.systemMessage) opts.systemMessage(
+        'v0.2.8 generic-receipt quarantine aborted before marker write — ' +
+        'lock ownership lost; retry shortly');
+      return { status: 'in-progress-aborted', exitCode: EX_TEMPFAIL, reason: 'ownership-lost-pre-marker' };
+    }
 
     writeMarkerAtomic(repoRoot, marker);
     return {

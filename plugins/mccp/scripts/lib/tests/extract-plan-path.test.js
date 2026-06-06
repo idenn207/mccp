@@ -83,3 +83,53 @@ test('extractPlanPath: path with spaces in array form preserved', function () {
     'plans with space/foo.md'
   );
 });
+
+// R6-R2 F3 — quote-aware tokenizer cases.
+
+test('extractPlanPath (R6-R2): double-quoted path with spaces', function () {
+  assert.strictEqual(
+    extractPlanPath('--plan ".claude/plans/foo bar.plan.md"'),
+    '.claude/plans/foo bar.plan.md'
+  );
+});
+
+test('extractPlanPath (R6-R2): single-quoted path with spaces', function () {
+  assert.strictEqual(
+    extractPlanPath("--plan '.claude/plans/foo bar.plan.md'"),
+    '.claude/plans/foo bar.plan.md'
+  );
+});
+
+test('extractPlanPath (R6-R2): --plan="quoted path with space"', function () {
+  // --plan="..." form. The tokenizer keeps the value attached to the
+  // --plan= token by treating the equals as token content; quote
+  // semantics apply within the same token.
+  assert.strictEqual(
+    extractPlanPath('--plan=".claude/plans/foo bar.plan.md"'),
+    '.claude/plans/foo bar.plan.md'
+  );
+});
+
+test('extractPlanPath (R6-R2): escaped quote inside double-quoted value', function () {
+  // \" inside "..." preserves the literal quote.
+  assert.strictEqual(
+    extractPlanPath('--plan "plans/has\\"quote.md"'),
+    'plans/has"quote.md'
+  );
+});
+
+test('extractPlanPath (R6-R2): mixed flags + quoted plan', function () {
+  assert.strictEqual(
+    extractPlanPath('--verbose --plan "plans/foo bar.md" --dry-run'),
+    'plans/foo bar.md'
+  );
+});
+
+test('extractPlanPath (R6-R2): unterminated quote treated as literal-to-EOL', function () {
+  // A trailing unmatched quote is forgiving: the rest of the string
+  // becomes the token. This matches user intent better than throwing.
+  assert.strictEqual(
+    extractPlanPath('--plan "plans/unterminated'),
+    'plans/unterminated'
+  );
+});

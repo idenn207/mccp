@@ -154,6 +154,7 @@ my-claude-code-plugin/
 | `stdout-empty` | exit 0이지만 stdout 빈 출력 | block | warn + 통과 |
 | `spawn-enoent` | node 실행 실패 | block | warn + 통과 |
 | `parse-error` | wrapper JSON parse 실패 | block | warn + 통과 |
+| `tempfail` (exit 75) | v0.2.8 generic-receipt quarantine migration in progress (lock-loser bounded poll timeout) | retry-shortly, ALLOW in hooks, exit 75 in cli/preflight/auto-chain | n/a — transient by construction, not advisory |
 
 복구 옵션 (우선순위 순):
 
@@ -261,6 +262,12 @@ v0.2.8부터 validate-cmd가 generic decision_id(`default`/`main`) + `--plan` �
 4. 동시 trigger 시 race (IMPL-R2-F1):
    - validate-cmd + `/mccp:pr` Phase 0가 동시 진입하면 한쪽만 lock 획득, 다른 쪽은 marker complete bounded poll (max 2s).
    - poll timeout 시 caller가 exit 75 (EX_TEMPFAIL) + systemMessage. 잠시 후 재시도.
+
+5. v0.2.8 Task 2.6.5a hardening — **lock body는 ownership token을 포함**합니다 (`crypto.randomUUID()`):
+   - `<repo>/.claude/receipts/.migrations/v0.2.8-generic-quarantine.lock`을 **직접 편집하지 마세요**. token이 빠지면 holder의 `releaseLock` 검증이 실패하고 lock이 mtime 만료(60s) 후에만 reclaim됩니다.
+   - lease-based reclaim: lock이 orphan으로 판정되려면 `(recorded PID is dead)` **OR** `(file mtime > 60s)`. v0.2.8 이전의 "started_at 기반" 판정과 다릅니다 — clock skew / PID reuse에 강인합니다.
+   - in-loop heartbeat: migration이 25개 rename마다 `fs.utimesSync`로 lock mtime을 갱신해 long migration에서 live holder를 보호합니다 (plan §A1의 `setInterval` deviation — sync 함수에서는 timer가 fire하지 않으므로 in-loop counter가 더 정확).
+   - tempfail propagation: validate-cmd가 in-progress-aborted 시 `result.tempfail=true` + `result.exitCode=75` + `blocking[].kind="tempfail"`을 emit합니다. cli/preflight/auto-chain은 exit 75 (sysexits), hook은 ALLOW + retry systemMessage. 공통 dispatch는 [`scripts/receipt/classify.js`](plugins/mccp/scripts/receipt/classify.js).
 
 ### 운영 토글 (환경 변수)
 

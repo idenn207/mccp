@@ -185,6 +185,16 @@ function cmdWrite(args) {
 
 function cmdValidate(args) {
   const { validateCommand } = require('./validate-cmd');
+  // v0.2.8 Task 2.6.5a A3 R2 F2 absorption — shared classifier. tempfail
+  // and block paths used to collapse to exit 2; classify enforces the
+  // precedence contract (tempfail → 75 / block → 2 / ok → 0).
+  let classify;
+  try { classify = require('./classify'); }
+  catch (err) {
+    process.stderr.write('mccp-receipt validate: classify helper load failed (' +
+      err.message + '); falling back to result.ok\n');
+    classify = null;
+  }
   try {
     const result = validateCommand(args.command || (args._ && args._[0]), {
       decisionId: args.decision || 'default',
@@ -192,7 +202,8 @@ function cmdValidate(args) {
       cwd: args.cwd,
     });
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-    return result.ok ? 0 : 2;
+    if (!classify) return result.ok ? 0 : 2;
+    return classify.exitCodeFor(classify.classifyValidationResult(result));
   } catch (err) {
     process.stderr.write('mccp-receipt validate: ' + err.message + '\n');
     return 1;

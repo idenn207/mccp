@@ -88,12 +88,21 @@ function validateCommand(command, opts) {
           systemMessage: opts.systemMessage || function () {},
         });
         if (mres.status === 'in-progress-aborted') {
+          // v0.2.8 Task 2.6.5a A3 (R1 F3 + R2 F2 absorption) — canonical
+          // tempfail signaling. The top-level `tempfail`/`exitCode` fields
+          // are the single source of truth; the `blocking[]` entry is
+          // preserved for backward JSON compatibility and carries
+          // `kind: "tempfail"` so consumers using the classify helper
+          // disambiguate from hard blocks.
           result.ok = false;
+          result.tempfail = true;
+          result.exitCode = migrationModule.EX_TEMPFAIL;
           result.reason = 'v0.2.8 generic-receipt quarantine migration in progress — retry shortly';
           result.blocking.push({
             gate_id: '_meta',
             decision_id: result.decisionId,
             reason: result.reason,
+            kind: 'tempfail',
             tempfail_exit: migrationModule.EX_TEMPFAIL,
           });
           return result;

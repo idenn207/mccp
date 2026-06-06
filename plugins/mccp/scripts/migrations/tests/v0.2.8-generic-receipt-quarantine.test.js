@@ -2,7 +2,8 @@
 
 // v0.2.8 Task 2.6.5 — generic-receipt-quarantine migration tests.
 //
-// Covers the 8-axis acceptance from the plan:
+// Covers the 8-axis acceptance from the plan (a-h3) plus 7 new axes
+// added for Task 2.6.5a (R1+R2 absorption):
 //   (a) fresh: 4 generic receipts → all renamed, marker complete
 //   (b) already-migrated: marker complete → noop
 //   (c) partial run: marker.state=partial → next run resumes
@@ -13,7 +14,16 @@
 //                   member, NOT a hardcoded list
 //   (h1) IMPL-R2-F1 winner completes → loser observes marker complete
 //   (h2) IMPL-R2-F1 winner stuck → loser → in-progress-aborted (EX_TEMPFAIL)
-//   (h3) IMPL-R1-F2 stale-lock recovery: dead pid / aged started_at → orphan
+//   (h3) IMPL-R1-F2 stale-lock recovery: dead pid / aged mtime → orphan
+//   (i)  A1 R1-F1: lock ownership token — release with mismatched token no-ops
+//   (j)  A1 R1-F1: zero-byte lock treated as HELD until mtime > LEASE_TTL
+//   (k)  A1 R1-F1: unparsable lock body treated as HELD until mtime > LEASE_TTL
+//   (l)  A1 R1-F2: live-but-unrelated PID + future started_at + stale mtime
+//                  → reclaimed (mtime trumps PID liveness)
+//   (m)  A1 R1-F2: live PID + fresh mtime → NOT reclaimed (lease respected)
+//   (n)  A1 R2-F1: in-loop heartbeat keeps mtime fresh during long migration
+//   (o)  A1 R2-F1: many-receipt migration completes well under HEARTBEAT
+//                  window (deviation note — defensive runtime guard)
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -190,12 +200,6 @@ test('quarantine (h1) lock loser observes winner-complete marker → already-mig
   const repo = mkTmpRepo();
   writeReceipt(repo, 'mccp-plan-codex', 'default');
 
-  // Simulate winner: holds lock, writes "complete" marker, then releases.
-  // We do this in the same process by acquiring the lock manually, writing
-  // a complete marker (as if winner just finished), and then calling migrate
-  // — except the lock is still held, so migrate enters the loser path.
-  // waitForMarkerComplete should immediately see state="complete" and
-  // return already-migrated.
   mig.writeMarkerAtomic(repo, {
     state: 'complete',
     worktree: repo,
@@ -203,32 +207,28 @@ test('quarantine (h1) lock loser observes winner-complete marker → already-mig
     runs: [{ ran_at: '2026-06-06T00:00:00.000Z', renamed: [], collided_moved: [], errors: [] }],
   });
   const held = mig.acquireLock(repo);
-  assert.ok(held, 'should acquire lock for setup');
+  assert.ok(held && held.token, 'should acquire lock for setup');
 
   // Even though we hold the lock, migrate sees the existing complete marker
   // and short-circuits to already-migrated BEFORE attempting acquireLock.
-  // This validates the early-exit invariant.
   const result = mig.migrate(repo);
   assert.strictEqual(result.status, 'already-migrated');
 
-  mig.releaseLock(repo);
+  mig.releaseLock(repo, held.token);
 });
 
-// (h2) IMPL-R2-F1 winner stuck (marker never reaches complete) → loser
-// times out → returns in-progress-aborted with EX_TEMPFAIL exit code +
-// systemMessage emit. Validates the "don't proceed with stale state" invariant.
+// (h2) IMPL-R2-F1 winner stuck → loser times out → in-progress-aborted.
 test('quarantine (h2) lock loser timeout → in-progress-aborted (EX_TEMPFAIL) + systemMessage emit', function () {
   const repo = mkTmpRepo();
   writeReceipt(repo, 'mccp-plan-codex', 'default');
 
-  // Winner holds lock but never writes a marker (simulates stuck/dead winner
-  // that hasn't completed). Loser should poll, time out, and abort.
   const held = mig.acquireLock(repo);
-  assert.ok(held);
+  assert.ok(held && held.token);
 
-  // Replace started_at to NOW so stale-lock recovery doesn't trigger.
+  // Replace lock body to ensure: fresh mtime (touched by writeFileSync) +
+  // live process.pid so stale-lock recovery doesn't trigger.
   fs.writeFileSync(mig.lockPath(repo), JSON.stringify({
-    pid: process.pid, started_at: new Date().toISOString(), host: 'test',
+    pid: process.pid, started_at: new Date().toISOString(), host: 'test', token: 'sentinel-stuck-winner',
   }));
 
   let messages = [];
@@ -242,28 +242,194 @@ test('quarantine (h2) lock loser timeout → in-progress-aborted (EX_TEMPFAIL) +
   assert.match(messages[0], /migration in progress/);
 
   // Critical: source receipts must NOT be quarantined by the loser.
-  // Loser exiting EX_TEMPFAIL means caller aborts — no validate reject
-  // can run against pre-migration state.
   assert.ok(fs.existsSync(path.join(repo, '.claude/receipts/mccp-plan-codex/default.json')));
 
-  mig.releaseLock(repo);
+  // Direct unlink — the held token no longer matches the rewritten body.
+  try { fs.unlinkSync(mig.lockPath(repo)); } catch { /* ignore */ }
 });
 
-// (h3) IMPL-R1-F2 stale-lock recovery: lock with dead pid + old started_at
-// is reclaimed; subsequent migrate succeeds.
-test('quarantine (h3) stale-lock recovery (dead pid + aged started_at)', function () {
+// (h3) IMPL-R1-F2 stale-lock recovery: dead pid + aged mtime → reclaimed.
+test('quarantine (h3) stale-lock recovery (dead pid + aged mtime)', function () {
   const repo = mkTmpRepo();
   writeReceipt(repo, 'mccp-plan-codex', 'default');
 
-  // Write a stale lock by hand.
   fs.mkdirSync(path.dirname(mig.lockPath(repo)), { recursive: true });
   fs.writeFileSync(mig.lockPath(repo), JSON.stringify({
     pid: 9999999, // very unlikely to be alive
-    started_at: new Date(Date.now() - 5 * mig.STALE_LOCK_MS).toISOString(),
+    started_at: new Date(Date.now() - 5 * mig.LEASE_TTL_MS).toISOString(),
     host: 'test',
+    token: 'sentinel-stale',
   }));
+  // Backdate mtime to make it lease-stale.
+  const old = new Date(Date.now() - 5 * mig.LEASE_TTL_MS);
+  fs.utimesSync(mig.lockPath(repo), old, old);
 
   const result = mig.migrate(repo);
   assert.strictEqual(result.status, 'complete', JSON.stringify(result));
   assert.strictEqual(result.renamed.length, 1);
+});
+
+// === Task 2.6.5a A1 — 7 new axes (R1 F1/F2 + R2 F1 absorption) ===
+
+// (i) ownership token rejection: P1 acquires, P2 rewrites body with a
+// different token; P1's releaseLock(token=T1) must NOT unlink the lock.
+test('quarantine (i) releaseLock with mismatched token is a no-op (ownership steal rejected)', function () {
+  const repo = mkTmpRepo();
+  const held = mig.acquireLock(repo);
+  assert.ok(held && held.token, 'acquired with token');
+
+  // Simulate steal: P2 rewrites the lock body with its own token T2.
+  fs.writeFileSync(mig.lockPath(repo), JSON.stringify({
+    pid: process.pid, started_at: new Date().toISOString(), host: 'test',
+    token: 'steal-T2-different-from-T1',
+  }));
+
+  // P1's release with the original T1 — body.token !== T1 → no-op + warn.
+  mig.releaseLock(repo, held.token);
+  assert.ok(fs.existsSync(mig.lockPath(repo)),
+    'lock file must persist after mismatched release (stolen by another holder)');
+
+  // Cleanup
+  try { fs.unlinkSync(mig.lockPath(repo)); } catch { /* ignore */ }
+});
+
+// (j) zero-byte lock treated as HELD until mtime > LEASE_TTL.
+// This is the openSync('wx')→writeSync contention window axis.
+test('quarantine (j) zero-byte lock held until mtime-stale, then reclaimed', function () {
+  const repo = mkTmpRepo();
+  const lp = mig.lockPath(repo);
+  fs.mkdirSync(path.dirname(lp), { recursive: true });
+
+  // Create a zero-byte lock via openSync('wx') + immediate close (no writeSync).
+  const fd = fs.openSync(lp, 'wx');
+  fs.closeSync(fd);
+  assert.strictEqual(fs.statSync(lp).size, 0);
+
+  // Fresh mtime → must NOT reclaim (treat as held).
+  assert.strictEqual(mig.tryReclaimStaleLock(lp), false,
+    'zero-byte lock with fresh mtime must be treated as held');
+  assert.ok(fs.existsSync(lp), 'lock file must still exist');
+
+  // Backdate mtime past LEASE_TTL → reclaim succeeds.
+  const old = new Date(Date.now() - 2 * mig.LEASE_TTL_MS);
+  fs.utimesSync(lp, old, old);
+  assert.strictEqual(mig.tryReclaimStaleLock(lp), true,
+    'zero-byte lock with stale mtime must be reclaimed');
+  assert.ok(!fs.existsSync(lp), 'lock file must be unlinked after reclaim');
+});
+
+// (k) unparsable lock body treated as HELD until mtime-stale.
+test('quarantine (k) unparsable lock body held until mtime-stale, then reclaimed', function () {
+  const repo = mkTmpRepo();
+  const lp = mig.lockPath(repo);
+  fs.mkdirSync(path.dirname(lp), { recursive: true });
+  fs.writeFileSync(lp, 'corrupt-not-json-{{{', 'utf8');
+
+  // Fresh mtime → held.
+  assert.strictEqual(mig.tryReclaimStaleLock(lp), false,
+    'unparsable lock with fresh mtime must be treated as held');
+  assert.ok(fs.existsSync(lp));
+
+  // Stale mtime → reclaimed.
+  const old = new Date(Date.now() - 2 * mig.LEASE_TTL_MS);
+  fs.utimesSync(lp, old, old);
+  assert.strictEqual(mig.tryReclaimStaleLock(lp), true);
+  assert.ok(!fs.existsSync(lp));
+});
+
+// (l) live-but-unrelated PID + future started_at + stale mtime → reclaimed
+// by mtime. Proves mtime trumps PID liveness AND ignores started_at clock skew.
+test('quarantine (l) live PID + future started_at + stale mtime → reclaimed (mtime primary)', function () {
+  const repo = mkTmpRepo();
+  const lp = mig.lockPath(repo);
+  fs.mkdirSync(path.dirname(lp), { recursive: true });
+  fs.writeFileSync(lp, JSON.stringify({
+    pid: process.pid, // alive
+    started_at: '9999-01-01T00:00:00.000Z', // future — old code would never reclaim
+    host: 'test',
+    token: 'sentinel-future',
+  }));
+
+  // Backdate mtime past LEASE_TTL.
+  const old = new Date(Date.now() - 2 * mig.LEASE_TTL_MS);
+  fs.utimesSync(lp, old, old);
+
+  // New criterion: pidDead || mtime>LEASE_TTL. PID alive but mtime stale → reclaim.
+  assert.strictEqual(mig.tryReclaimStaleLock(lp), true,
+    'stale mtime must trump live PID + future started_at');
+  assert.ok(!fs.existsSync(lp));
+});
+
+// (m) live PID + fresh mtime → NOT reclaimed (lease respected).
+test('quarantine (m) live PID + fresh mtime → not reclaimed', function () {
+  const repo = mkTmpRepo();
+  const lp = mig.lockPath(repo);
+  fs.mkdirSync(path.dirname(lp), { recursive: true });
+  fs.writeFileSync(lp, JSON.stringify({
+    pid: process.pid,
+    started_at: new Date().toISOString(),
+    host: 'test',
+    token: 'sentinel-live-fresh',
+  }));
+
+  assert.strictEqual(mig.tryReclaimStaleLock(lp), false);
+  assert.ok(fs.existsSync(lp));
+  try { fs.unlinkSync(lp); } catch { /* ignore */ }
+});
+
+// (n) in-loop heartbeat keeps mtime fresh during a long-running migration.
+// Simulates many renames; assert refreshLockHeartbeat keeps mtime moving.
+test('quarantine (n) in-loop heartbeat keeps lock mtime fresh during long migration', function () {
+  const repo = mkTmpRepo();
+  // Plant enough receipts to exceed HEARTBEAT_BATCH_SIZE × 2 so we know
+  // the heartbeat fires at least twice.
+  const TARGET = mig.HEARTBEAT_BATCH_SIZE * 2 + 5;
+  // We only have 6 GATE_IDS × 2 generic slugs = 12 plantable slots in the
+  // GATE_IDS × {default,main} matrix. To exceed that, we test the heartbeat
+  // primitive directly rather than driving it through migrate().
+
+  const held = mig.acquireLock(repo);
+  assert.ok(held && held.token);
+  const lp = mig.lockPath(repo);
+
+  const initialMtime = fs.statSync(lp).mtimeMs;
+  // Backdate slightly so the heartbeat refresh is observably different.
+  const past = new Date(initialMtime - 1000);
+  fs.utimesSync(lp, past, past);
+  const backdatedMtime = fs.statSync(lp).mtimeMs;
+  assert.ok(backdatedMtime < initialMtime);
+
+  // Fire the heartbeat primitive — should bring mtime forward.
+  mig.refreshLockHeartbeat(repo);
+  const refreshedMtime = fs.statSync(lp).mtimeMs;
+  assert.ok(refreshedMtime > backdatedMtime,
+    'refreshLockHeartbeat must advance lock mtime');
+
+  mig.releaseLock(repo, held.token);
+  assert.ok(!fs.existsSync(lp), 'releaseLock with matching token unlinks');
+});
+
+// (o) sync-loop starvation guard: ensure migration completes well within
+// LEASE_TTL even with many renames. Deviation note from plan: setInterval
+// not used (sync function), so in-loop heartbeat is the active mechanism.
+// This axis is a defensive runtime measurement — if migration runs faster
+// than LEASE_TTL/2 = 30s, no additional yield is required.
+test('quarantine (o) full-matrix migration completes well under LEASE_TTL/2 (sync-loop guard)', function () {
+  const repo = mkTmpRepo();
+  // Plant the maximum reachable generic-receipt matrix: GATE_IDS × {default, main}.
+  // Excludes only the dirs that already contain non-quarantine receipts.
+  for (const g of GATE_IDS) {
+    for (const slug of ['default', 'main']) {
+      writeReceipt(repo, g, slug);
+    }
+  }
+
+  const t0 = Date.now();
+  const result = mig.migrate(repo);
+  const elapsed = Date.now() - t0;
+
+  assert.strictEqual(result.status, 'complete', JSON.stringify(result));
+  // Sanity bound: LEASE_TTL/2 = 30000ms. Real local runs should be <1s.
+  assert.ok(elapsed < mig.LEASE_TTL_MS / 2,
+    'migration took ' + elapsed + 'ms (expected < ' + (mig.LEASE_TTL_MS / 2) + 'ms)');
 });

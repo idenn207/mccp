@@ -37,10 +37,30 @@ function writeReceipt(repoRoot, receipt) {
   return p;
 }
 
-function listReceipts(repoRoot, gateId) {
+// v0.2.8 Task 2.6.5a A2 — gate-dir symlink rejection. A symlinked or
+// junctioned gate dir at `.claude/receipts/<gate>` could point outside
+// the worktree; scanning it would let the migration discover and rename
+// external files. We use lstatSync to detect the link WITHOUT following
+// it, and skip any non-directory or symlinked entry. On Windows, junctions
+// also report isSymbolicLink()=true in Node 10+.
+function isSafeGateDir(gateDirPath) {
+  let lst;
+  try { lst = fs.lstatSync(gateDirPath); } catch (_e) { return false; }
+  if (lst.isSymbolicLink()) return false;
+  if (!lst.isDirectory()) return false;
+  return true;
+}
+
+function listReceipts(repoRoot, gateId, opts) {
+  opts = opts || {};
   if (gateId) {
     const dir = gateDir(repoRoot, gateId);
     if (!fs.existsSync(dir)) return [];
+    if (!isSafeGateDir(dir)) {
+      if (opts.systemMessage) opts.systemMessage(
+        '[mccp-receipt-store] skipping gate dir "' + gateId + '" — symlinked or non-directory');
+      return [];
+    }
     return fs.readdirSync(dir)
       .filter(function (f) { return f.endsWith('.json'); })
       .map(function (f) {
@@ -56,9 +76,11 @@ function listReceipts(repoRoot, gateId) {
   const out = [];
   for (const g of fs.readdirSync(base)) {
     const gDir = path.join(base, g);
-    let isDir = false;
-    try { isDir = fs.statSync(gDir).isDirectory(); } catch (_e) { /* skip */ }
-    if (!isDir) continue;
+    if (!isSafeGateDir(gDir)) {
+      if (opts.systemMessage) opts.systemMessage(
+        '[mccp-receipt-store] skipping gate dir "' + g + '" — symlinked or non-directory');
+      continue;
+    }
     for (const f of fs.readdirSync(gDir)) {
       if (f.endsWith('.json')) {
         out.push({ gate_id: g, decision_id: f.replace(/\.json$/, ''), path: path.join(gDir, f) });
@@ -74,9 +96,11 @@ function listReceipts(repoRoot, gateId) {
 // like mccp-pr-codex (used by /mccp:code-review PR mode) and any future
 // gate addition. By filtering through schema.GATE_IDS we automatically
 // cover the same universe the validator can read.
-function listGenericReceipts(repoRoot) {
+//
+// v0.2.8 Task 2.6.5a A2: symlink rejection inherited from listReceipts.
+function listGenericReceipts(repoRoot, opts) {
   const { GATE_IDS } = require('./schema');
-  return listReceipts(repoRoot).filter(function (r) {
+  return listReceipts(repoRoot, undefined, opts).filter(function (r) {
     if (r.decision_id !== 'default' && r.decision_id !== 'main') return false;
     if (GATE_IDS.indexOf(r.gate_id) === -1) return false;
     return true;
@@ -91,4 +115,5 @@ module.exports = {
   writeReceipt: writeReceipt,
   listReceipts: listReceipts,
   listGenericReceipts: listGenericReceipts,
+  isSafeGateDir: isSafeGateDir,
 };

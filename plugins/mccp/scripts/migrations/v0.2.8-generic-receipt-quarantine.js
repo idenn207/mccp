@@ -21,10 +21,20 @@
 //   IMPL-R1-F1  receipt-store driven scan over GATE_IDS × {default, main}
 //               (no hardcoded path list — future gates auto-covered)
 //   IMPL-R1-F2  marker.lock with `fs.openSync('wx')` create-new exclusive,
-//               try/finally release, stale-lock recovery
+//               try/finally release, lease-based stale-lock recovery
 //   IMPL-R2-F1  lock-loser bounded poll on marker (max 2s @ 100ms);
 //               on timeout/partial/failed → systemMessage + EX_TEMPFAIL.
 //               Lock loser never proceeds against pre-migration state.
+//   TASK_2_6_5a_A1  ownership token in lock body + lease-based reclaim
+//                   (mtime > LEASE_TTL_MS OR pidDead; not started_at) +
+//                   in-loop heartbeat keeps live holder safe past lease.
+//                   (Deviation from plan's setInterval — Node timers do not
+//                   fire during sync migrate() execution; in-loop
+//                   fs.utimesSync every HEARTBEAT_BATCH_SIZE renames is
+//                   functionally equivalent without async cascade.)
+//   TASK_2_6_5a_A2  path-containment guard — realpath canary + symlink
+//                   rejection prevents the migration from following a
+//                   symlinked/junctioned gate dir outside the worktree.
 //
 // Usage (programmatic):
 //   const { migrate } = require('./v0.2.8-generic-receipt-quarantine');
@@ -37,6 +47,7 @@
 
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -50,9 +61,18 @@ const LOCK_REL = path.join('.claude', 'receipts', '.migrations', 'v0.2.8-generic
 // IMPL-R2-F1 lock loser bounded poll constants.
 const POLL_INTERVAL_MS = 100;
 const POLL_MAX_MS = 2000;
-// Stale lock thresholds. 60s is migration worst case (8 collision renames
-// + marker write) with a generous safety margin.
-const STALE_LOCK_MS = 60_000;
+
+// TASK_2_6_5a A1: lease-based reclaim (R1 F2). mtime is the primary signal;
+// PID liveness is a secondary "obviously dead early reclaim" optimization.
+// Renamed from STALE_LOCK_MS to LEASE_TTL_MS to reflect the semantic shift.
+const LEASE_TTL_MS = 60_000;
+// Backward-compat export for callers that read STALE_LOCK_MS (e.g. test (h3)).
+const STALE_LOCK_MS = LEASE_TTL_MS;
+
+// Heartbeat fires every HEARTBEAT_BATCH_SIZE rename ops (in-loop). With
+// LEASE_TTL_MS=60s and typical rename <1ms, batch=25 keeps mtime fresh
+// well under the lease window even on slow filesystems.
+const HEARTBEAT_BATCH_SIZE = 25;
 
 // EX_TEMPFAIL — sysexits(3) convention. Caller (validate-cmd / /mccp:pr
 // Phase 0) maps this to an abort with retry hint, not a hard fail.
@@ -79,22 +99,27 @@ function writeMarkerAtomic(repoRoot, marker) {
   fs.renameSync(tmp, p);
 }
 
-// IMPL-R1-F2 lock acquire — create-new exclusive. Returns null on
-// contention (caller becomes lock loser). Returns null on stale lock if
-// the holder couldn't be cleaned up (rare error path).
+// A1 — acquireLock returns { lockPath, token } on success, null on
+// contention. wx-only exclusive create (no tmp+rename); body includes a
+// crypto.randomUUID() token so releaseLock can verify ownership before
+// unlink. Between openSync('wx') and writeSync the file is zero-byte; a
+// contender sees EEXIST + (per tryReclaimStaleLock) treats the empty body
+// as HELD until mtime exceeds LEASE_TTL — closing the contention window.
 function acquireLock(repoRoot) {
   const p = lockPath(repoRoot);
   fs.mkdirSync(path.dirname(p), { recursive: true });
+  const token = crypto.randomUUID();
   const lockBody = JSON.stringify({
     pid: process.pid,
     started_at: new Date().toISOString(),
     host: os.hostname(),
+    token: token,
   });
   try {
     const fd = fs.openSync(p, 'wx');
     fs.writeSync(fd, lockBody);
     fs.closeSync(fd);
-    return p;
+    return { lockPath: p, token: token };
   } catch (err) {
     if (err.code !== 'EEXIST') throw err;
     if (tryReclaimStaleLock(p)) {
@@ -102,27 +127,42 @@ function acquireLock(repoRoot) {
         const fd = fs.openSync(p, 'wx');
         fs.writeSync(fd, lockBody);
         fs.closeSync(fd);
-        return p;
+        return { lockPath: p, token: token };
       } catch { return null; }
     }
     return null;
   }
 }
 
-// IMPL-R1-F2 stale-lock recovery. Holder is considered orphan when its
-// pid is no longer alive OR its `started_at` is older than STALE_LOCK_MS.
-// On orphan detection we unlink the lock so the caller's next acquire
-// attempt has a clean slot.
+// A1 — lease-based reclaim. Orphan criterion is `pidDead OR mtime > LEASE_TTL`.
+// mtime is the primary signal because it is OS-attested, monotonic, and survives
+// PID reuse / clock skew on `started_at`. PID liveness is a secondary signal
+// that lets us reclaim early when the holder is obviously dead. Zero-byte and
+// unparsable bodies are treated as HELD until mtime expires — closing the
+// openSync/writeSync contention window.
 function tryReclaimStaleLock(lockFilePath) {
-  let body;
-  try { body = JSON.parse(fs.readFileSync(lockFilePath, 'utf8')); } catch { body = null; }
+  let stat;
+  try { stat = fs.statSync(lockFilePath); } catch { return false; }
+  const mtimeMs = stat.mtimeMs || (stat.mtime && stat.mtime.getTime()) || 0;
+  const ageMs = Date.now() - mtimeMs;
+  const mtimeStale = Number.isFinite(ageMs) && ageMs > LEASE_TTL_MS;
+
+  let body = null;
+  try {
+    const raw = fs.readFileSync(lockFilePath, 'utf8');
+    if (raw.length > 0) body = JSON.parse(raw);
+  } catch { body = null; }
+
+  // Zero-byte or unparsable body: held until mtime lease expires. NEVER
+  // reclaim purely on age of `started_at` parsing (it has no `started_at`).
   if (!body || typeof body !== 'object') {
+    if (!mtimeStale) return false;
     try { fs.unlinkSync(lockFilePath); return true; } catch { return false; }
   }
-  const ageMs = Date.now() - Date.parse(body.started_at || '');
-  const ageStale = Number.isFinite(ageMs) && ageMs > STALE_LOCK_MS;
+
+  // Parsed body: reclaim when EITHER pidDead OR mtime lease expired.
   const pidDead = !isPidAlive(body.pid);
-  if (ageStale || pidDead) {
+  if (pidDead || mtimeStale) {
     try { fs.unlinkSync(lockFilePath); return true; } catch { return false; }
   }
   return false;
@@ -136,8 +176,35 @@ function isPidAlive(pid) {
   }
 }
 
-function releaseLock(repoRoot) {
-  try { fs.unlinkSync(lockPath(repoRoot)); } catch { /* already gone */ }
+// A1 — releaseLock verifies the in-file token matches the holder's token
+// before unlink. Mismatch (post-race reclaimed-then-stolen scenario):
+// no-op + stderr warn. NEVER throw — releaseLock lives in `finally` and a
+// throw here would mask the original migrate() failure.
+function releaseLock(repoRoot, token) {
+  const p = lockPath(repoRoot);
+  let body;
+  try {
+    const raw = fs.readFileSync(p, 'utf8');
+    body = JSON.parse(raw);
+  } catch {
+    // Lock file gone or unparsable — nothing to unlink, nothing to warn about.
+    try { fs.unlinkSync(p); } catch { /* already gone */ }
+    return;
+  }
+  if (token === undefined || token === null) {
+    // Legacy caller without token; preserve old behavior (unlink) but warn.
+    process.stderr.write('[mccp] releaseLock called without token — legacy path; ' +
+      'unlink without ownership verification\n');
+    try { fs.unlinkSync(p); } catch { /* already gone */ }
+    return;
+  }
+  if (body && body.token === token) {
+    try { fs.unlinkSync(p); } catch { /* already gone */ }
+    return;
+  }
+  // Ownership mismatch — lock was reclaimed by another holder. Do NOT unlink.
+  process.stderr.write('[mccp] releaseLock ownership mismatch (lock reclaimed); ' +
+    'leaving in place for current holder\n');
 }
 
 // IMPL-R2-F1 lock-loser bounded poll. Caller polls the marker for
@@ -168,12 +235,71 @@ function isoStamp() {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
+// A2 — path-containment guard. Asserts:
+//   (1) the receipt path realpath's under the EXPECTED gate dir (which is
+//       derived from repoRoot + .claude/receipts + receipt.gate_id), AND
+//   (2) the expected gate dir realpath's under the repo's .claude/receipts.
+// The `+ path.sep` suffix prevents the `<dir>` vs `<dir>-evil` false-positive
+// prefix match. Throws a typed PATH_ESCAPES_GATE error on mismatch so the
+// migration's per-receipt try/catch records it in `errors[]` rather than
+// crashing the whole run.
+function assertContained(receiptPath, expectedGateDir, repoRoot) {
+  let resolvedReceipt, resolvedGate, resolvedReceiptsRoot;
+  try { resolvedReceipt = fs.realpathSync(receiptPath); }
+  catch (err) {
+    const e = new Error('cannot realpath receipt: ' + err.message);
+    e.code = 'PATH_ESCAPES_GATE';
+    throw e;
+  }
+  try { resolvedGate = fs.realpathSync(expectedGateDir); }
+  catch (err) {
+    const e = new Error('cannot realpath expected gate dir: ' + err.message);
+    e.code = 'PATH_ESCAPES_GATE';
+    throw e;
+  }
+  const prefix = resolvedGate.endsWith(path.sep) ? resolvedGate : resolvedGate + path.sep;
+  if (!resolvedReceipt.startsWith(prefix)) {
+    const e = new Error('path escapes gate dir (receipt=' + resolvedReceipt +
+      ', gate=' + resolvedGate + ')');
+    e.code = 'PATH_ESCAPES_GATE';
+    throw e;
+  }
+  if (repoRoot) {
+    const expectedReceiptsRoot = path.join(repoRoot, '.claude', 'receipts');
+    try { resolvedReceiptsRoot = fs.realpathSync(expectedReceiptsRoot); }
+    catch (err) {
+      const e = new Error('cannot realpath receipts root: ' + err.message);
+      e.code = 'PATH_ESCAPES_GATE';
+      throw e;
+    }
+    const rootPrefix = resolvedReceiptsRoot.endsWith(path.sep)
+      ? resolvedReceiptsRoot : resolvedReceiptsRoot + path.sep;
+    if (!resolvedGate.startsWith(rootPrefix)) {
+      const e = new Error('gate dir escapes receipts root (gate=' + resolvedGate +
+        ', root=' + resolvedReceiptsRoot + ')');
+      e.code = 'PATH_ESCAPES_GATE';
+      throw e;
+    }
+  }
+}
+
 // R2-F3 collision-safe rename. Target may exist if the user ran a prior
 // manual quarantine, or if v0.2.8 was applied, reverted, and re-applied.
 // We never preserve the active source — collision case moves it to a
 // timestamped legacy name so two distinct receipts cannot share a path.
-function renameWithCollisionSafety(receipt) {
-  const dir = path.dirname(receipt.path);
+//
+// A2 — assertContained guards the source path against out-of-tree receipts
+// (symlinked / synthesized) and computes the target under the EXPECTED gate
+// dir derived from repoRoot+gate_id rather than path.dirname(receipt.path).
+// That way a synthetic `receipt.path = "/external/foo.json"` cannot bypass
+// the check via its own dirname.
+function renameWithCollisionSafety(receipt, repoRoot) {
+  const expectedDir = repoRoot
+    ? path.join(repoRoot, '.claude', 'receipts', receipt.gate_id)
+    : path.dirname(receipt.path);
+  assertContained(receipt.path, expectedDir, repoRoot);
+
+  const dir = expectedDir;
   const targetBase = receipt.decision_id + '.legacy.json';
   const targetPath = path.join(dir, targetBase);
   if (!fs.existsSync(targetPath)) {
@@ -183,6 +309,24 @@ function renameWithCollisionSafety(receipt) {
   const collisionTarget = path.join(dir, receipt.decision_id + '.legacy-' + isoStamp() + '.json');
   fs.renameSync(receipt.path, collisionTarget);
   return { collided_moved: { from: receipt.path, to: collisionTarget } };
+}
+
+// A1 — in-loop heartbeat. Refresh lock mtime every HEARTBEAT_BATCH_SIZE
+// rename ops so the lease stays valid during long migrations. Deviation
+// from plan's setInterval: Node timers do not fire during synchronous
+// JS execution, so setInterval would never refresh mtime inside a sync
+// migrate(). In-loop refresh is functionally equivalent — mtime is what
+// tryReclaimStaleLock checks — without forcing migrate() to become async
+// (which would cascade to 5 consumer paths).
+function refreshLockHeartbeat(repoRoot) {
+  const p = lockPath(repoRoot);
+  try {
+    const now = new Date();
+    fs.utimesSync(p, now, now);
+  } catch {
+    // Lock vanished (likely reclaimed by another holder). releaseLock will
+    // see the ownership mismatch and no-op. Migration continues.
+  }
 }
 
 function migrate(repoRoot, opts) {
@@ -208,6 +352,7 @@ function migrate(repoRoot, opts) {
     return { status: 'in-progress-aborted', exitCode: EX_TEMPFAIL, waited: waited };
   }
 
+  const token = acquired.token;
   try {
     const renamed = [];
     const collidedMoved = [];
@@ -217,14 +362,20 @@ function migrate(repoRoot, opts) {
     let active = scanActiveGeneric(repoRoot);
     if (opts.beforeRenameHook) opts.beforeRenameHook(active);
 
+    let heartbeatCounter = 0;
     for (const receipt of active) {
       try {
-        const result = renameWithCollisionSafety(receipt);
+        const result = renameWithCollisionSafety(receipt, repoRoot);
         if (result.renamed) renamed.push(result.renamed);
         if (result.collided_moved) collidedMoved.push(result.collided_moved);
       } catch (err) {
         errors.push({ path: receipt.path, code: err.code || null, message: err.message });
         pending.push({ gate_id: receipt.gate_id, decision_id: receipt.decision_id });
+      }
+      heartbeatCounter++;
+      if (heartbeatCounter >= HEARTBEAT_BATCH_SIZE) {
+        refreshLockHeartbeat(repoRoot);
+        heartbeatCounter = 0;
       }
     }
 
@@ -262,7 +413,7 @@ function migrate(repoRoot, opts) {
       pending: pending,
     };
   } finally {
-    releaseLock(repoRoot);
+    releaseLock(repoRoot, token);
   }
 }
 
@@ -316,15 +467,19 @@ module.exports = {
   acquireLock: acquireLock,
   releaseLock: releaseLock,
   tryReclaimStaleLock: tryReclaimStaleLock,
+  refreshLockHeartbeat: refreshLockHeartbeat,
   waitForMarkerComplete: waitForMarkerComplete,
   readMarker: readMarker,
   writeMarkerAtomic: writeMarkerAtomic,
   scanActiveGeneric: scanActiveGeneric,
   renameWithCollisionSafety: renameWithCollisionSafety,
+  assertContained: assertContained,
   markerPath: markerPath,
   lockPath: lockPath,
   EX_TEMPFAIL: EX_TEMPFAIL,
   POLL_INTERVAL_MS: POLL_INTERVAL_MS,
   POLL_MAX_MS: POLL_MAX_MS,
   STALE_LOCK_MS: STALE_LOCK_MS,
+  LEASE_TTL_MS: LEASE_TTL_MS,
+  HEARTBEAT_BATCH_SIZE: HEARTBEAT_BATCH_SIZE,
 };

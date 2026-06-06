@@ -178,6 +178,29 @@ async function main() {
     return 0;
   }
 
+  // v0.2.8 Task 2.6.5a A3 R2 F2 absorption — shared classifier. tempfail =
+  // transient migration-in-progress; emit retry hint via systemMessage on
+  // stdout and ALLOW (return 0). Skill PreToolUse hook does not block on
+  // transient state.
+  let classify;
+  try { classify = require(path.join(RECEIPT_DIR, 'classify')); }
+  catch (_) { classify = null; }
+  const kind = classify ? classify.classifyValidationResult(result) : (result.ok ? 'ok' : 'block');
+  if (kind === 'tempfail') {
+    debug('TEMPFAIL Skill ' + skillName + ' — ALLOW + retry systemMessage');
+    try {
+      process.stdout.write(JSON.stringify({
+        systemMessage: '[MCCP-RECEIPT-GATE] TEMPFAIL Skill ' + skillName +
+          ' — migration in progress; retry shortly. (' + (result.reason || '') + ')',
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext: 'mccp tempfail: transient, retryable. No block emitted.',
+        },
+      }));
+    } catch (_) { /* best-effort */ }
+    return 0;
+  }
+
   // v0.2.2 Task 4 — soft mode tolerates missing receipts only.
   if (receiptMode === 'soft' &&
       (result.stale || []).length === 0 &&

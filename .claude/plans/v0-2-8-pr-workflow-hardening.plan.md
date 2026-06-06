@@ -195,9 +195,9 @@
 
 **채택 결합**: **(i) + (iii) + (iv)** — (iv)가 mechanical guarantee, (iii)은 fallback 문서. (ii)는 derive-decision API 변경 risk가 커 별도 cycle (v0.3.x?) deferral.
 
-**(iv) auto-quarantine 상세 (R2-F3 absorption: resumable + collision-safe + marker semantics 재설계)**:
+**(iv) auto-quarantine 상세 (R2-F3 + IMPL-R1-F1/F2 absorption: resumable + collision-safe + receipt-store driven + concurrency-locked)**:
 - 위치: `plugins/mccp/scripts/migrations/v0.2.8-generic-receipt-quarantine.js`.
-- 검출 대상: `.claude/receipts/mccp-plan-codex/{default,main}.json` + `.claude/receipts/mccp-implement-codex/{default,main}.json` (4 namespace × 2 slug = 최대 8 파일).
+- **검출 대상 (IMPL-R1-F1 absorption, BLOCKING)**: receipt-store/alias-matrix driven scan — `.claude/receipts/<gate_id>/<decision>.json` 전체 universe에서 `gate_id ∈ GATE_IDS` AND `decision_id ∈ {default, main}` 필터. hardcoded 4-path 폐기. 이렇게 하면 (a) `mccp-pr-codex/{default,main}.json` (`/mccp:code-review` PR mode 잔재) 자동 cover, (b) 미래 신규 gate namespace 추가 시 별도 migration 수정 없이 cover, (c) marker/migration metadata directory(`.migrations/`)만 explicit exclude. helper: receipt/store.js 또는 신규 `listGenericReceipts(repoRoot)` 함수.
 - **Collision-safe rename (R2-F3 commitment)**: 각 source 파일을 `<slug>.legacy.json`으로 rename 시도.
   - target 부재 → 정상 rename.
   - **target 존재 시 (collision)**: source를 collision-safe legacy 이름으로 이동 — `<slug>.legacy-<ISO_TS>.json` (e.g., `default.legacy-2026-06-06T08-30-12Z.json`). active source는 **절대 보존되지 않음** — R2-F3가 지적한 "active source 영구 보존" trap 차단.
@@ -208,16 +208,20 @@
   - 사용자 manual 개입 후 다시 trigger 시 marker가 partial이라도 retry 진입.
   - Marker 스키마: `.claude/receipts/.migrations/v0.2.8-generic-quarantine.json` — `{ "state": "complete"|"partial"|"failed", "runs": [{ "ran_at": "<ISO>", "renamed": [...], "collided_moved": [{ "from": "...", "to": "...legacy-<ts>.json" }], "errors": [...] }], "pending": [...], "worktree": "<absolute path>" }`.
 - **Resumability invariant (R2-F3 commitment)**: 같은 worktree에서 script 재실행 시 marker state별 분기 — `complete` → noop, `partial`/`failed` → pending 항목만 재시도, 부재 → 전체 scan.
+- **Concurrency lock (IMPL-R1-F2 + IMPL-R2-F1 absorption, BLOCKING)**: dual auto-trigger로 인한 scan+rename+marker race 해소. (1) `.claude/receipts/.migrations/v0.2.8-generic-quarantine.lock` exclusive lock — `fs.openSync(lockPath, 'wx')` (O_EXCL|O_CREAT|O_WRONLY) create-new semantics. lock 내용: `{ "pid": <int>, "started_at": "<ISO>", "host": "<hostname>" }`. (2) **Lock loser behavior (IMPL-R2-F1 absorption, BLOCKING)**: lock 획득 실패 시 (다른 process 이미 진행중) → noop pass-through 대신 **marker complete bounded poll** — `.claude/receipts/.migrations/v0.2.8-generic-quarantine.json` 100ms 간격 최대 20회 (총 2초) 검사하여 `state="complete"` 도달 대기. (a) 2초 내 complete → 정상 진행 (post-migration state 보장). (b) 2초 timeout / `state="partial|failed"` → visible systemMessage "v0.2.8 generic-receipt quarantine migration in progress, command aborted — retry" + caller (validate-cmd/`/mccp:pr` Phase 0)가 exit 75 (EX_TEMPFAIL) 또는 systemMessage-only abort. 이렇게 하면 loser가 winner의 mid-migration state(stale receipt 부분 잔존)를 false-green으로 읽는 timing window 차단. (3) **stale-lock recovery**: lock 발견 시 `started_at` parse → 60초 초과 OR `pid` not alive (`process.kill(pid, 0)` try/catch) → orphan으로 판단 → lock unlink 후 본인이 재시도. 60초는 마이그레이션 worst case (8 collision rename + marker write) × 안전계수. (4) lock release: `try/finally`로 정상/비정상 종료 모두 unlink 보장.
 - Trigger:
   - validate-cmd entry point 최상단에서 marker 검사 → `complete` 아니면 migration 실행 → 끝난 후 reject 로직 진입.
   - `/mccp:pr` Phase 0 (preflight)에서 동일 트리거.
-- Test 케이스 (BLOCKING — 6-axis, R2-F3 expanded):
+  - 동시 trigger 시 IMPL-R1-F2 lock으로 직렬화 — 첫 process(winner)만 mutate, loser는 IMPL-R2-F1 absorption 따라 marker complete bounded poll (max 2s @ 100ms). complete 도달 시 정상 진행, timeout 시 systemMessage emit + exit 75 (EX_TEMPFAIL). loser가 stale state로 reject 로직 진입 차단 invariant.
+- Test 케이스 (BLOCKING — 8-axis, R2-F3 + IMPL-R1-F1/F2 expanded):
   - **(a) fresh worktree** (4 generic receipts 존재, marker 부재) → 모두 rename, marker `state="complete"`, exit 0.
   - **(b) already-migrated** (marker `state="complete"`) → noop, log only.
   - **(c) partial run** — script 실행 중 file 2개 처리 후 process kill로 시뮬레이션 → 다음 run에서 pending 2개 재시도 + marker → `complete`.
   - **(d) collision** — source `default.json` + target `default.legacy.json` 둘 다 존재 → source를 `default.legacy-<ts>.json`으로 이동 (active source 보존 금지 — R2-F3 invariant). marker `collided_moved` entry.
   - **(e) collision + interrupt** — 2개 collision 중 1개 처리 후 kill → 재실행 시 남은 1개 처리 + marker `state="complete"`.
   - **(f) error path** — file system permission error로 rename 실패 → marker `state="failed"` + `errors` + `pending` 기록. validate-cmd가 systemMessage로 사용자 안내.
+  - **(g) IMPL-R1-F1 scope expansion** — `mccp-pr-codex/{default,main}.json` fixture 추가. receipt-store driven scan이 발견 + quarantine. `code-reviewer/{default,main}.json` 등 신규 future-gate fixture도 자동 cover. hardcoded path scan 회귀 test (assert NOT in source code).
+  - **(h) IMPL-R1-F2 + IMPL-R2-F1 concurrent migration** — 두 child process가 동시에 migrate() 호출 → 한 process만 lock 획득 + rename 진행, 다른 process는 **bounded poll on marker** (max 2s @ 100ms). (h1) winner mid-migration 중 loser polling → winner complete → loser proceed with post-migration state assertion (stale receipt 0건 관측). (h2) loser timeout (winner stuck > 2s) → exit 75 (EX_TEMPFAIL) + systemMessage emit 검증 — loser가 stale state로 reject 로직 진입 안 함 invariant 확인. (h3) stale-lock recovery (60초 초과 mock + pid alive=false → orphan 인식 후 진행).
 
 **Validate**:
 - `validate-cmd-generic-reject.test.js`: `--decision default --plan <unrelated path>` → exit ≠ 0 + diagnostic message
@@ -265,8 +269,9 @@
 | **`plugins/mccp/scripts/hooks/tests/pr-phase-guard.test.js`** | **CREATE** | **F1 absorption — phase marker lifecycle + Edit/Write block + hook-trace shard 기록 검증** |
 | **`plugins/mccp/scripts/state/hook-trace.js`** | **UPDATE** | **F1 absorption — ledger schema에 `phase`, `tool`, `file_path` 필드 추가 (successful PostToolUse 기록)** |
 | **`.claude/PRPs/reports/q5-vscode-markdownlint-probe-2026-06-XX.md`** | **CREATE (pre-implement)** | **F2 absorption — Q5 empirical probe 결과. implement 진입 전 작성, commandId 확정** |
-| **`plugins/mccp/scripts/migrations/v0.2.8-generic-receipt-quarantine.js`** | **CREATE** | **F3 absorption — one-shot idempotent auto-quarantine. validate-cmd + /mccp:pr 부팅 시 자동 트리거 (per-worktree marker)** |
-| **`plugins/mccp/scripts/migrations/tests/v0.2.8-generic-receipt-quarantine.test.js`** | **CREATE** | **F3 absorption — fresh/already-migrated/partial/`.legacy.json` 충돌 4-axis 검증** |
+| **`plugins/mccp/scripts/migrations/v0.2.8-generic-receipt-quarantine.js`** | **CREATE** | **F3 + IMPL-R1-F1/F2 absorption — one-shot idempotent auto-quarantine. validate-cmd + /mccp:pr 부팅 시 자동 트리거 (per-worktree marker + concurrency lock). receipt-store driven scan (모든 gate × {default,main}).** |
+| **`plugins/mccp/scripts/migrations/tests/v0.2.8-generic-receipt-quarantine.test.js`** | **CREATE** | **F3 + IMPL-R1 absorption — 8-axis 검증 (fresh/already-migrated/partial/collision/collision+interrupt/error path + IMPL-R1-F1 scope expansion + IMPL-R1-F2 concurrent migration)** |
+| **`plugins/mccp/scripts/receipt/store.js`** | **UPDATE** | **IMPL-R1-F1 absorption — `listGenericReceipts(repoRoot)` 신규 helper. 모든 gate × {default,main}.json 발견.** |
 | **`plugins/mccp/scripts/receipt/validate-cmd.js`** | **UPDATE (보강)** | **F3 absorption 추가 — boot 시점에 quarantine migration auto-trigger (marker 부재 시)** |
 | **`plugins/mccp/scripts/receipt/validate-cmd.js`** | **UPDATE** | **Task 2.6.5 (R1 F1 absorption) — generic decision_id (`default`/`main`) plan_hash mismatch reject** |
 | **`plugins/mccp/scripts/receipt/tests/validate-cmd-generic-reject.test.js`** | **CREATE** | **Task 2.6.5 — `--decision {default,main} --plan <unrelated>` exit ≠ 0 (mismatch fail)** |
@@ -321,6 +326,12 @@
 - [ ] **R4-F3 absorption (Codex R4, BLOCKING)**: α success 조건을 strict count-based로 — `lintClean (postCount===0)` 또는 `lintStrictlyReduced (preCount > 0 && postCount < preCount)` 또는 `noLintBin`. `fileChanged`는 success signal 아님 (telemetry only). markdownlint `--json` parse 기반 count 추출. `lint-not-reduced` reason classification 추가.
 - [x] **R5 verification (executed 2026-06-06)**: Codex R5 호출 (threadId 019e9c7b) → verdict=needs-attention with 1 HIGH finding ("R4 absorptions are still plan text"). Meta-procedural finding — R4 absorption DESIGN은 묵시적 sound로 인정, ship 전 code 작성+검증 필수라는 ship-readiness check. R5 absorption section에서 흡수 처리.
 - [ ] **R6 verification (BLOCKING — ship invariant, executed against implementation diff)**: R4-F1/F2/F3 코드 path가 working tree에 land한 뒤 Codex R6 재호출 — verdict=approve 도달 시 ship 가능. PR step 이전 호출 mandatory (cross-gate dedupe 가능 path).
+- [ ] **IMPL-R1-F1 absorption (Implement-Codex R1, BLOCKING)**: quarantine scope를 receipt-store driven scan으로 전환 — `listGenericReceipts(repoRoot)` helper 신규, GATE_IDS × `{default,main}` 전체 universe. hardcoded 4-path 폐기. fixture에 `mccp-pr-codex/{default,main}.json` + future-gate fixture 추가하여 회귀 차단.
+- [ ] **IMPL-R1-F2 absorption (Implement-Codex R1, BLOCKING)**: marker.lock + create-new semantics (`fs.openSync wx`) + stale-lock recovery (60s + pid liveness) + concurrent migration test. R4 backlog item 5 (concurrency race) RESOLVED — 더 이상 deferred backlog 아님.
+- [x] **Implement-Codex R2 (executed 2026-06-06)**: verdict=needs-attention, IMPL-R2-F1 MED (0.82) "lock loser can proceed against stale generic receipts". Absorption: bounded poll on marker (max 2s) + EX_TEMPFAIL on timeout. test case (h) 보강 (h1/h2/h3).
+- [ ] **IMPL-R2-F1 absorption (Implement-Codex R2, BLOCKING)**: lock 획득 실패 시 noop 대신 marker complete bounded poll (max 2s @ 100ms). timeout 시 systemMessage + exit 75 (EX_TEMPFAIL). lock loser가 stale state로 reject 로직 진입 차단.
+- [x] **Implement-Codex R3 + R4 (executed 2026-06-06)**: 각 verdict=needs-attention with 1 MED finding. R3 = Trigger section noop wording 잔존. R4 = IMPL-R1-F2 absorption historical noop wording 잔존. 둘 다 plan wording 일관성 patch로 흡수.
+- [x] **Implement-Codex R5 verification (APPROVE, 2026-06-06)**: verdict=approve, findings=[]. "Ship-readiness gate can move to Phase 3 EXECUTE." Task 2.6.5 implement-time decisions mechanically closed.
 
 **임의로 acceptance 일부를 skip하여 v0.2.8 ship 못함**: Task 2.6.5 4개 항목 (validate-cmd 수정 + 3 test + CLAUDE.md runbook)는 R1 F1 false-green path 해소의 mechanical guarantee. 본 acceptance items가 통과되지 않으면 v0.2.8 PR도 본 같은 false-green path에 노출됨 (self-dogfood failure).
 
@@ -459,5 +470,56 @@ R5 verdict `needs-attention`, summary "No-ship: R4 absorption is documented, but
 - **MEDIUM (Q1 hook-trace schema impact)**: hook-trace ledger schema 확장이 v0.2.7 silent-hook UX milestone에서 정의한 fail-open 침묵 invariant와 conflict 가능 — fail-open path 변경 없이 추가 fields만 옵셔널 기록 (backward-compat 유지).
 - **MEDIUM (Q3 dedupe scope)**: dedupe에 `mccp-code-review` receipt 포함 여부는 v0.2.8 ship 후 amend 검토 — 본 R1 absorption은 plan/implement receipt 2개로 제한.
 - **MEDIUM (auto-quarantine first-run UX)**: validate-cmd boot 시 silent migration 수행 — 사용자에게 systemMessage로 "migrated N receipts to .legacy.json" 알림 필요 (silent-hook UX continuity).
+
+## Codex Implementation Review
+
+- **호출 (Task 2.6.5 narrow focus)**: `node codex-invoke.js adversarial-review --json` with implement-time decisions focus — migration script entry shape / marker IO atomicity / auto-trigger placement / stale receipt scope / test harness.
+- **라운드 수**: R1 → R2 → R3 → R4 → R5 (APPROVE). 5 라운드 substantive convergence — R1 (2 finding) + R2/R3/R4 (각 1 finding) → R5 verdict=approve, findings=[]. 누계 5 finding 모두 ACCEPT + plan body mechanical 흡수.
+- **합치 결론**:
+  - R1: "the hardcoded quarantine scope and accepted dual-trigger race leave the generic-receipt hardening weaker than the validator surface it is meant to protect."
+  - R2: "No-ship for Task 2.6.5 entry: the concurrency absorption still permits a second trigger to run validator logic against pre-migration state."
+  - R3: "No-ship for R3 closure: the plan still contains the stale noop-pass-through loser behavior that IMPL-R2-F1 was supposed to eliminate."
+  - R4: "No-ship: loser semantics are still not mechanically closed because the plan keeps a contradictory noop loser path in the implementation-review absorption record."
+  - R5: "Ship-readiness gate can move to Phase 3 EXECUTE: within the provided Task 2.6.5 plan diff, the prior noop lock-loser contradiction is mechanically closed and the binding lock behavior is consistently bounded marker polling with EX_TEMPFAIL on timeout." ✓ APPROVE
+
+### IMPL-R1 Absorptions (1 HIGH + 1 MED, 모두 ACCEPT)
+
+- **IMPL-R1-F1 HIGH (0.86) — Hardcoded quarantine scope misses branch-derived receipt namespaces**:
+  - Body: 검출 대상이 plan-codex + implement-codex 4-path로 hardcoded. validate-cmd는 gate-agnostic이라 `mccp-pr-codex/{default,main}.json` (`/mccp:code-review` PR mode 잔재)이 false-green 채널로 잔존. 미래 신규 gate 추가 시도 자동 cover 안 됨.
+  - **흡수 (BLOCKING)**: 검출 로직을 receipt-store driven scan으로 전환 — `listGenericReceipts(repoRoot)` helper 신규 (receipt/store.js), GATE_IDS × `{default,main}` 전체 universe. marker/migration metadata directory만 explicit exclude. fixture에 `mccp-pr-codex/{default,main}.json` + 1개 future-gate placeholder 추가하여 회귀 차단. Files to Change에 store.js UPDATE + 8-axis test 케이스 (g) IMPL-R1-F1 scope expansion 추가.
+
+- **IMPL-R1-F2 MED (0.78) — Dual auto-trigger needs a real migration lock**:
+  - Body: validate-cmd + /mccp:pr Phase 0 둘 다 migration 트리거. temp-then-rename은 marker write atomic이지만 scan+rename+marker 전체 sequence는 unserialized. 두 process가 동시 진입 시 last-writer-wins marker state가 실제 rename outcome과 contradiction 가능.
+  - **흡수 (BLOCKING) — IMPL-R2-F1으로 SUPERSEDED**: 최초 R1 absorption은 marker.lock 추가 + 획득 실패 시 noop pass-through로 설계됐으나, IMPL-R2-F1이 loser가 winner mid-migration 중 stale receipt 관찰 가능성을 지적하여 **noop path는 명시적으로 폐기됨**. 현재 binding 사양(Concurrency lock section + Trigger section 참조): marker.lock 유지 + create-new semantics + 획득 실패 시 **bounded poll on marker (max 2s @ 100ms)** + complete 도달 시 정상 진행, timeout 시 systemMessage + exit 75 (EX_TEMPFAIL). stale-lock recovery + try/finally release는 그대로. R4 backlog item 5 (concurrency race) RESOLVED. **historical R1 noop wording is non-implementable** — Phase 3는 반드시 IMPL-R2-F1 contract을 따른다.
+
+### IMPL-R2 Absorptions (1 MED, ACCEPT)
+
+- **IMPL-R2-F1 MED (0.82) — Lock loser can proceed against stale generic receipts**:
+  - Body: IMPL-R1-F2 흡수에서 lock acquisition 실패 시 noop pass-through로 했지만 validate-cmd가 그 후 reject 로직을 진행하면, winner가 mid-migration인 동안 loser는 stale `default/main` receipt를 읽음. dual-trigger race가 quarantine 의도를 우회.
+  - **흡수 (BLOCKING)**: lock loser behavior 재설계 — noop 대신 marker file을 bounded poll (max 2s @ 100ms). marker `state="complete"` 도달 시 정상 진행, 2s timeout 시 systemMessage "migration in progress" + exit 75 (EX_TEMPFAIL). lock loser가 stale state로 reject 로직 진입하는 timing window 차단. test case (h)를 (h1) winner complete → loser proceed, (h2) winner stuck > 2s → loser EX_TEMPFAIL + diagnostic, (h3) stale-lock recovery 3-axis로 보강.
+
+### IMPL-R3 + IMPL-R4 Absorptions (1 MED each, 모두 ACCEPT)
+
+- **IMPL-R3-F1 MED (0.9) — Contradictory loser semantics still permit stale-state pass-through**:
+  - Body: Concurrency lock section을 bounded-poll로 갱신했지만 Trigger section은 여전히 "noop pass-through" 표현 유지. Phase 3 구현자가 Trigger section을 따르면 stale state로 reject 로직 진입 가능.
+  - **흡수 (BLOCKING)**: Trigger section의 noop 표현을 IMPL-R2-F1 bounded-poll/EX_TEMPFAIL contract으로 동일하게 갱신. plan 내부 wording 일관성 확보.
+
+- **IMPL-R4-F1 MED (0.9) — Historical absorption section still preserves noop loser behavior**:
+  - Body: IMPL-R1-F2 absorption section(historical record)이 "noop pass-through (대기 안 함)" 표현 유지. Codex는 plan이 implementation SSoT이므로 historical context도 misleading 위험이라고 지적.
+  - **흡수 (BLOCKING)**: IMPL-R1-F2 absorption section의 "흡수" 본문에 **SUPERSEDED by IMPL-R2-F1** 명시 + historical noop wording은 "non-implementable"로 라벨링 + binding contract은 Concurrency lock + Trigger section 참조. Phase 3는 IMPL-R2-F1 contract만 implement.
+
+### Codex session 참조
+
+- IMPL-R1: threadId `019e9c86-662c-7632-91f5-84e30297b1fd` — raw: `.git/mccp/tmp/codex-impl-r1-task265.stderr`
+- IMPL-R2: threadId `019e9c8d-49d1-7861-b52f-f31a1eea82da` — raw: `.git/mccp/tmp/codex-impl-r2-task265.stderr`
+- IMPL-R3: threadId `019e9c8f-ead5-7ab0-a8f1-a636061af31b` — raw: `.git/mccp/tmp/codex-impl-r3-task265.stderr`
+- IMPL-R4: threadId `019e9c90-f94c-7473-9e8e-8e8faa7af73c` — raw: `.git/mccp/tmp/codex-impl-r4-task265.stderr`
+- IMPL-R5: threadId `019e9c92-31cc-73b0-b010-a035a37ab200` — raw: `.git/mccp/tmp/codex-impl-r5-task265.stderr` ✓ APPROVE
+
+### Design Review
+
+> impeccable unavailable, skipped (auto-fallback): skill-missing
+
+(impeccable Skill 미가용 — design_signal=false도 일치 — Task 2.6.5는 validate-cmd + migration script + tests, UI surface 없음. impeccable_skipped=true는 mccp-implement-codex strict 정책에 따라 downstream `/mccp:pr` 차단 신호로 작동, Phase 3 진입은 차단 안 함.)
 
 

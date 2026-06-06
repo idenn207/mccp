@@ -55,6 +55,12 @@ function debug(msg) {
   }
 }
 
+// v0.2.8 Task 2.6.5b R6-F3 — shared --plan extractor lib so both hooks
+// (this UserPromptExpansion + receipt-skill PreToolUse) parse the same
+// way. Without this, branch-based commands on `main`/`default` with an
+// explicit --plan hit the v0.2.8 generic-slug reject path.
+const { extractPlanPath } = require(path.join(LIB_DIR, 'extract-plan-path'));
+
 function allow() { return 0; }
 
 // v0.2.7 L2a — ALLOW-path systemMessage emit when MCCP_RECEIPT_DEBUG=1.
@@ -227,11 +233,19 @@ async function main() {
   const decisionId = decisionMod
     ? decisionMod.deriveDecisionId(commandName, event.command_args, { cwd: event.cwd || process.cwd() })
     : 'default';
+  // v0.2.8 Task 2.6.5b R6-F3 — extract --plan from raw command args before
+  // calling validateCommand. Without this, branch-based commands on
+  // `main`/`default` get the generic-slug reject path even when the user
+  // explicitly supplied --plan, blocking legitimate invocations. validate-cmd
+  // already uses planPath to re-hash the plan file and disables the generic
+  // reject when planPath is set (see scripts/receipt/validate-cmd.js).
+  const planPath = extractPlanPath(event.command_args);
   let result;
   try {
     result = validateCommand(commandName, {
       decisionId: decisionId,
       cwd: event.cwd || process.cwd(),
+      planPath: planPath,
     });
   } catch (err) {
     debug('validate error: ' + err.message);

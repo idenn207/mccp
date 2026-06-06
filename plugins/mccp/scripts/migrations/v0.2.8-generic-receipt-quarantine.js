@@ -53,7 +53,7 @@ const os = require('os');
 const path = require('path');
 
 const PLUGIN_ROOT = path.resolve(__dirname, '..', '..');
-const { listGenericReceipts } = require(path.join(PLUGIN_ROOT, 'scripts', 'receipt', 'store'));
+const { listGenericReceipts, listUnsafeGateDirs } = require(path.join(PLUGIN_ROOT, 'scripts', 'receipt', 'store'));
 
 const MARKER_REL = path.join('.claude', 'receipts', '.migrations', 'v0.2.8-generic-quarantine.json');
 const LOCK_REL = path.join('.claude', 'receipts', '.migrations', 'v0.2.8-generic-quarantine.lock');
@@ -134,12 +134,18 @@ function acquireLock(repoRoot) {
   }
 }
 
-// A1 — lease-based reclaim. Orphan criterion is `pidDead OR mtime > LEASE_TTL`.
-// mtime is the primary signal because it is OS-attested, monotonic, and survives
-// PID reuse / clock skew on `started_at`. PID liveness is a secondary signal
-// that lets us reclaim early when the holder is obviously dead. Zero-byte and
-// unparsable bodies are treated as HELD until mtime expires — closing the
-// openSync/writeSync contention window.
+// A1 / R6-F2 — lease-based, host-aware reclaim. Orphan criterion depends on
+// whether the holder is same-host (PID introspection is authoritative) or
+// cross-host (mtime is the only trustworthy signal — `process.kill(pid, 0)`
+// on a foreign PID namespace is meaningless and may collide with an
+// unrelated local PID).
+//
+//   same-host + PID alive      → NEVER reclaim (Codex R6 F2: a slow but
+//                                 live holder must not be stolen from even
+//                                 when its mtime exceeds LEASE_TTL).
+//   same-host + PID dead       → reclaim (obvious orphan).
+//   cross-host (or no host)    → mtime-only; reclaim iff mtime > LEASE_TTL.
+//   zero-byte / unparsable     → mtime-only (no host to compare).
 function tryReclaimStaleLock(lockFilePath) {
   let stat;
   try { stat = fs.statSync(lockFilePath); } catch { return false; }
@@ -160,12 +166,34 @@ function tryReclaimStaleLock(lockFilePath) {
     try { fs.unlinkSync(lockFilePath); return true; } catch { return false; }
   }
 
-  // Parsed body: reclaim when EITHER pidDead OR mtime lease expired.
-  const pidDead = !isPidAlive(body.pid);
-  if (pidDead || mtimeStale) {
+  const sameHost = !!(body.host && body.host === os.hostname());
+  if (sameHost) {
+    // PID introspection is authoritative. Live PID + stale mtime means
+    // the holder is busy in a sync section longer than LEASE_TTL — do not
+    // steal. The in-loop heartbeat keeps mtime fresh in practice; if it
+    // ever lapses, the holder gets to finish.
+    if (isPidAlive(body.pid)) return false;
+    try { fs.unlinkSync(lockFilePath); return true; } catch { return false; }
+  }
+
+  // Cross-host or no `host` recorded: rely on mtime alone.
+  if (mtimeStale) {
     try { fs.unlinkSync(lockFilePath); return true; } catch { return false; }
   }
   return false;
+}
+
+// R6-F2 — verifyOwnership. Holder calls this at heartbeat checkpoints to
+// detect a successful reclaim by another process (would only happen if the
+// host-aware policy above misfired or a peer process forcibly unlinked).
+// On mismatch the holder MUST abort to avoid concurrent mutation.
+function verifyOwnership(repoRoot, token) {
+  const p = lockPath(repoRoot);
+  try {
+    const raw = fs.readFileSync(p, 'utf8');
+    const body = JSON.parse(raw);
+    return !!(body && body.token === token);
+  } catch { return false; }
 }
 
 function isPidAlive(pid) {
@@ -359,10 +387,17 @@ function migrate(repoRoot, opts) {
     const errors = [];
     const pending = [];
 
+    // R6-F2 — heartbeat before the first long unit of work. scanActiveGeneric
+    // can take seconds on a corrupted/large state, and the in-loop heartbeat
+    // only fires after HEARTBEAT_BATCH_SIZE renames. Pre-scan refresh keeps
+    // mtime well under LEASE_TTL during the initial scan window.
+    refreshLockHeartbeat(repoRoot);
     let active = scanActiveGeneric(repoRoot);
     if (opts.beforeRenameHook) opts.beforeRenameHook(active);
+    refreshLockHeartbeat(repoRoot);
 
     let heartbeatCounter = 0;
+    let ownershipLost = false;
     for (const receipt of active) {
       try {
         const result = renameWithCollisionSafety(receipt, repoRoot);
@@ -374,9 +409,39 @@ function migrate(repoRoot, opts) {
       }
       heartbeatCounter++;
       if (heartbeatCounter >= HEARTBEAT_BATCH_SIZE) {
+        // R6-F2 — verify our token is still in the lock body before
+        // continuing. If another holder reclaimed (host-aware policy would
+        // have refused, but defensive in case of force-unlink), abort
+        // gracefully with tempfail instead of mutating concurrently.
+        if (!verifyOwnership(repoRoot, token)) {
+          ownershipLost = true;
+          break;
+        }
         refreshLockHeartbeat(repoRoot);
         heartbeatCounter = 0;
       }
+    }
+
+    if (ownershipLost) {
+      if (opts.systemMessage) opts.systemMessage(
+        'v0.2.8 generic-receipt quarantine aborted mid-run — lock ownership ' +
+        'lost to another holder; retry shortly');
+      return { status: 'in-progress-aborted', exitCode: EX_TEMPFAIL, reason: 'ownership-lost' };
+    }
+
+    // R6-F1 — refuse to mark `complete` while any gate dir is symlinked /
+    // non-directory. listGenericReceipts already skips those (good), but
+    // without this guard the migration would mark complete with the
+    // external receipts silently stranded behind the link. Recording them
+    // as errors forces `failed` state and a visible last_error.
+    const unsafeDirs = listUnsafeGateDirs(repoRoot);
+    for (const u of unsafeDirs) {
+      errors.push({
+        path: u.path,
+        code: 'UNSAFE_GATE_DIR',
+        message: 'gate dir is ' + u.kind + ' — resolve manually before re-running',
+      });
+      pending.push({ gate_id: u.gate_id, decision_id: 'UNSAFE_GATE_DIR' });
     }
 
     const remaining = scanActiveGeneric(repoRoot);
@@ -386,7 +451,7 @@ function migrate(repoRoot, opts) {
       }
     }
 
-    const state = remaining.length === 0
+    const state = (remaining.length === 0 && unsafeDirs.length === 0)
       ? 'complete'
       : (errors.length > 0 ? 'failed' : 'partial');
 
@@ -468,6 +533,7 @@ module.exports = {
   releaseLock: releaseLock,
   tryReclaimStaleLock: tryReclaimStaleLock,
   refreshLockHeartbeat: refreshLockHeartbeat,
+  verifyOwnership: verifyOwnership,
   waitForMarkerComplete: waitForMarkerComplete,
   readMarker: readMarker,
   writeMarkerAtomic: writeMarkerAtomic,

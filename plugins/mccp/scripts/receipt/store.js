@@ -16,6 +16,17 @@ function receiptPath(repoRoot, gateId, decisionId) {
 }
 
 function readReceipt(repoRoot, gateId, decisionId) {
+  // v0.2.8 Task 2.6.5b R6-F1 absorption — readReceipt must mirror the
+  // isSafeGateDir guard that listReceipts uses. Without this, validate-cmd
+  // can still consume an external receipt through a symlinked/junctioned
+  // gate dir even though listReceipts already refused to scan it.
+  const gd = gateDir(repoRoot, gateId);
+  if (fs.existsSync(gd) && !isSafeGateDir(gd)) {
+    const e = new Error('gate dir is not a regular directory (symlink/junction/file): ' + gd);
+    e.code = 'UNSAFE_GATE_DIR';
+    e.path = gd;
+    throw e;
+  }
   const p = receiptPath(repoRoot, gateId, decisionId);
   if (!fs.existsSync(p)) return null;
   try {
@@ -107,6 +118,32 @@ function listGenericReceipts(repoRoot, opts) {
   });
 }
 
+// v0.2.8 Task 2.6.5b R6-F1 — enumerate unsafe gate dirs (symlinks /
+// junctions / non-directories) WITHOUT scanning them. The quarantine
+// migration consumes this to refuse a `complete` marker while any
+// unsafe gate dir still exists: otherwise listGenericReceipts skips
+// them silently, scanActiveGeneric returns 0, and the migration would
+// falsely claim "done" while external receipts stay behind the link.
+function listUnsafeGateDirs(repoRoot) {
+  const base = receiptsDir(repoRoot);
+  if (!fs.existsSync(base)) return [];
+  const out = [];
+  let entries;
+  try { entries = fs.readdirSync(base); } catch { return []; }
+  for (const g of entries) {
+    if (g.startsWith('.')) continue; // skip .migrations marker dir
+    const gDir = path.join(base, g);
+    let lst;
+    try { lst = fs.lstatSync(gDir); } catch { continue; }
+    if (lst.isSymbolicLink()) {
+      out.push({ gate_id: g, path: gDir, kind: 'symlink' });
+    } else if (!lst.isDirectory()) {
+      out.push({ gate_id: g, path: gDir, kind: 'non-directory' });
+    }
+  }
+  return out;
+}
+
 module.exports = {
   receiptsDir: receiptsDir,
   gateDir: gateDir,
@@ -115,5 +152,6 @@ module.exports = {
   writeReceipt: writeReceipt,
   listReceipts: listReceipts,
   listGenericReceipts: listGenericReceipts,
+  listUnsafeGateDirs: listUnsafeGateDirs,
   isSafeGateDir: isSafeGateDir,
 };

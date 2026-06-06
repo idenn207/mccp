@@ -92,6 +92,11 @@ function debug(msg) {
   }
 }
 
+// v0.2.8 Task 2.6.5b R6-F3 — shared --plan extractor lib (dual-ingress
+// parity with receipt-prompt). Skill `arguments` can arrive as a string
+// or pre-tokenized array; the lib normalizes both.
+const { extractPlanPath } = require(path.join(LIB_DIR, 'extract-plan-path'));
+
 async function main() {
   let event = null;
   try {
@@ -158,11 +163,16 @@ async function main() {
   const decisionId = decisionMod
     ? decisionMod.deriveDecisionId(skillName, ti.arguments, { cwd: event.cwd || process.cwd() })
     : 'default';
+  // v0.2.8 Task 2.6.5b R6-F3 — propagate explicit --plan past the
+  // generic-slug reject path so Skill-tool invocations on `main`/`default`
+  // with --plan validate plan-aware instead of bare-slug bare-rejecting.
+  const planPath = extractPlanPath(ti.arguments);
   let result;
   try {
     result = validateCommand(skillName, {
       decisionId: decisionId,
       cwd: event.cwd || process.cwd(),
+      planPath: planPath,
     });
   } catch (err) {
     debug('validate error: ' + err.message);

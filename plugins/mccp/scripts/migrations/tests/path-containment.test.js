@@ -71,11 +71,23 @@ test('path-containment (α) symlinked/junctioned gate dir rejected by listGeneri
   assert.strictEqual(fromExternal.length, 0,
     'listGenericReceipts must skip symlinked gate dir; got ' + JSON.stringify(generics));
 
-  // And the migration itself must not touch the external file.
+  // v0.2.8 Task 2.6.5b R6-F1 contract: the migration MUST refuse to mark
+  // `complete` while any gate dir is symlinked/non-directory. Previously
+  // it marked `complete` because the silent-skip in listGenericReceipts
+  // made `remaining.length === 0` look like success — stranding the
+  // external receipts behind the link. New behavior: record UNSAFE_GATE_DIR
+  // in errors[] and surface `failed` so the user resolves the link.
   const beforeContent = fs.readFileSync(path.join(externalGateDir, 'default.json'), 'utf8');
   const result = mig.migrate(repo);
-  assert.strictEqual(result.status, 'complete', 'migration completes — no external dir to process');
+  assert.strictEqual(result.status, 'failed',
+    'migration must refuse complete while unsafe gate dir present; got ' + JSON.stringify(result));
   assert.strictEqual(result.renamed.length, 0, 'no external receipts renamed');
+  assert.ok(result.errors.some(e => e.code === 'UNSAFE_GATE_DIR'),
+    'errors[] must contain UNSAFE_GATE_DIR entry; got ' + JSON.stringify(result.errors));
+  assert.ok(result.pending.some(p => p.decision_id === 'UNSAFE_GATE_DIR'),
+    'pending[] must record the unsafe gate dir for next-run resume hint');
+
+  // The external file must remain untouched no matter what status we got.
   const afterContent = fs.readFileSync(path.join(externalGateDir, 'default.json'), 'utf8');
   assert.strictEqual(beforeContent, afterContent, 'external file content unchanged');
 

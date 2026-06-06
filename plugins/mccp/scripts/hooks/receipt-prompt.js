@@ -55,6 +55,12 @@ function debug(msg) {
   }
 }
 
+// v0.2.8 Task 2.6.5b R6-F3 — shared --plan extractor lib so both hooks
+// (this UserPromptExpansion + receipt-skill PreToolUse) parse the same
+// way. Without this, branch-based commands on `main`/`default` with an
+// explicit --plan hit the v0.2.8 generic-slug reject path.
+const { extractPlanPath } = require(path.join(LIB_DIR, 'extract-plan-path'));
+
 function allow() { return 0; }
 
 // v0.2.7 L2a — ALLOW-path systemMessage emit when MCCP_RECEIPT_DEBUG=1.
@@ -224,14 +230,25 @@ async function main() {
     }
   }
 
+  // v0.2.8 Task 2.6.5b R6-R3 F2 — extract planPath BEFORE deriveDecisionId
+  // so plan-path commands derive the decisionId from the plan basename
+  // (not the branch-fallback main/default). Without this swap a quoted
+  // `--plan "path with space.md"` would still validate plan-aware but
+  // against the wrong slug — the receipt lookup misses and falls through
+  // to a stale receipt at the branch slug.
+  const planPath = extractPlanPath(event.command_args);
   const decisionId = decisionMod
-    ? decisionMod.deriveDecisionId(commandName, event.command_args, { cwd: event.cwd || process.cwd() })
+    ? decisionMod.deriveDecisionId(commandName, event.command_args, {
+        cwd: event.cwd || process.cwd(),
+        planPath: planPath,
+      })
     : 'default';
   let result;
   try {
     result = validateCommand(commandName, {
       decisionId: decisionId,
       cwd: event.cwd || process.cwd(),
+      planPath: planPath,
     });
   } catch (err) {
     debug('validate error: ' + err.message);
@@ -245,6 +262,29 @@ async function main() {
   if (result.ok) {
     debug('OK ' + commandName + ' (decision="' + decisionId + '")');
     return allowWithMessage(commandName, decisionId);
+  }
+
+  // v0.2.8 Task 2.6.5a A3 R2 F2 absorption — shared classifier. A transient
+  // migration-in-progress (tempfail) must NOT block the user's prompt; we
+  // emit a retry hint via systemMessage and ALLOW. Hook stays out of the
+  // way of the user's natural retry.
+  let classify;
+  try { classify = require(path.join(RECEIPT_DIR, 'classify')); }
+  catch (_) { classify = null; }
+  const kind = classify ? classify.classifyValidationResult(result) : (result.ok ? 'ok' : 'block');
+  if (kind === 'tempfail') {
+    debug('TEMPFAIL ' + commandName + ' — emitting retry hint + ALLOW');
+    try {
+      process.stdout.write(JSON.stringify({
+        systemMessage: '[MCCP-RECEIPT-GATE] TEMPFAIL ' + commandName +
+          ' — migration in progress; retry shortly. (' + (result.reason || '') + ')',
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptExpansion',
+          additionalContext: 'mccp tempfail: transient, retryable. No block emitted.',
+        },
+      }));
+    } catch (_) { /* best-effort */ }
+    return 0;
   }
 
   // v0.2.2 Task 4 — soft mode: ONLY missing receipts pass; stale/blocking/critical

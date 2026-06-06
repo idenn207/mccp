@@ -32,6 +32,11 @@ const path = require('path');
 const cost = require('./cost-state');
 
 const ABORT_EXIT = 13;
+// v0.2.8 Task 2.6.5a A3 R2 F2 + R3 absorption — tempfail exit mirrors
+// cli/preflight (sysexits 75 — temp failure, retryable). Distinct from
+// ABORT_EXIT (13 — deliberate abort) so orchestrators that consume exit
+// status can distinguish "retry shortly" from "stop".
+const TEMPFAIL_EXIT = 75;
 const COST_STALE_MS = 3600 * 1000; // R3#3 fix — older than 1h ⇒ stale
 
 const ADVISORY_REJECTED_STEPS = new Set(['pr']);
@@ -123,12 +128,27 @@ function shouldAbort(opts) {
   }
 
   // 2-5. Receipt validation: delegate to validate-cmd if the step requires one
+  // v0.2.8 Task 2.6.5a A3 R2 F2 absorption — classify the validate result.
+  // tempfail (migration in progress) is reported as a distinct trigger
+  // (`receipt-tempfail`) with `retryable: true` so the orchestrator can
+  // emit a retryable exit code (75) rather than the generic abort exit (13).
   if (opts.validateCommand) {
     try {
       const { validateCommand } = require(path.join(opts.pluginRoot || resolvePluginRoot(),
         'scripts', 'receipt', 'validate-cmd'));
       const v = validateCommand(opts.validateCommand, { cwd: repoRoot, decisionId: opts.decisionId });
-      if (!v.ok) {
+      let classify;
+      try { classify = require(path.join(opts.pluginRoot || resolvePluginRoot(),
+        'scripts', 'receipt', 'classify')); }
+      catch (_) { classify = null; }
+      const kind = classify ? classify.classifyValidationResult(v) : (v.ok ? 'ok' : 'block');
+      if (kind === 'tempfail') {
+        reasons.push({
+          trigger: 'receipt-tempfail',
+          retryable: true,
+          detail: v.reason || 'migration in progress; retry shortly',
+        });
+      } else if (!v.ok) {
         if ((v.missing || []).length) reasons.push({ trigger: 'receipt-missing', detail: JSON.stringify(v.missing) });
         if ((v.stale || []).length) reasons.push({ trigger: 'receipt-stale', detail: JSON.stringify(v.stale) });
         if ((v.blocking || []).length) reasons.push({ trigger: 'receipt-blocking', detail: JSON.stringify(v.blocking) });
@@ -211,7 +231,19 @@ function runCli(argv) {
       skipCostCheck: rest['skip-cost'] === true,
     };
     const r = shouldAbort(opts);
-    emit({ next_step: rest['next-step'] || null, should_abort: r.shouldAbort, reasons: r.reasons });
+    // v0.2.8 Task 2.6.5a A3 R3 absorption — tempfail wins the exit code
+    // selection. Orchestration scripts checking exit status get a
+    // canonical retryable signal (75) instead of the generic abort (13).
+    const isTempfail = r.reasons.some(x => x.trigger === 'receipt-tempfail');
+    emit({
+      next_step: rest['next-step'] || null,
+      should_abort: r.shouldAbort,
+      reasons: r.reasons,
+      // Machine-readable retry signal for callers parsing stdout JSON.
+      reason: isTempfail ? 'receipt-tempfail' : null,
+      retryable: isTempfail,
+    });
+    if (isTempfail) return TEMPFAIL_EXIT;
     return r.shouldAbort ? ABORT_EXIT : 0;
   }
 
@@ -275,6 +307,7 @@ module.exports = {
   checkCostTelemetry: checkCostTelemetry,
   readStateMd: readStateMd,
   ABORT_EXIT: ABORT_EXIT,
+  TEMPFAIL_EXIT: TEMPFAIL_EXIT,
   COST_STALE_MS: COST_STALE_MS,
   ADVISORY_REJECTED_STEPS: ADVISORY_REJECTED_STEPS,
 };

@@ -68,6 +68,21 @@ function listReceipts(repoRoot, gateId) {
   return out;
 }
 
+// v0.2.8 Task 2.6.5 IMPL-R1-F1 absorption: receipt-store driven scan over
+// the canonical GATE_IDS × {default, main} universe. The migration script
+// must NOT hardcode path lists — that would miss branch-derived namespaces
+// like mccp-pr-codex (used by /mccp:code-review PR mode) and any future
+// gate addition. By filtering through schema.GATE_IDS we automatically
+// cover the same universe the validator can read.
+function listGenericReceipts(repoRoot) {
+  const { GATE_IDS } = require('./schema');
+  return listReceipts(repoRoot).filter(function (r) {
+    if (r.decision_id !== 'default' && r.decision_id !== 'main') return false;
+    if (GATE_IDS.indexOf(r.gate_id) === -1) return false;
+    return true;
+  });
+}
+
 module.exports = {
   receiptsDir: receiptsDir,
   gateDir: gateDir,
@@ -75,4 +90,5 @@ module.exports = {
   readReceipt: readReceipt,
   writeReceipt: writeReceipt,
   listReceipts: listReceipts,
+  listGenericReceipts: listGenericReceipts,
 };

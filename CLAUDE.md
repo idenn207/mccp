@@ -209,10 +209,58 @@ node plugins/mccp/scripts/migrations/v0.2.4-security-fields.js .claude/receipts/
 node plugins/mccp/scripts/migrations/v0.2.6-impeccable-fields.js .claude/receipts/*/*.json
 # 순서대로 (낮은 버전 먼저). --dry-run 옵션으로 미리 확인.
 
+# v0.2.8 generic-receipt quarantine (idempotent, auto-trigger on validate-cmd boot)
+# 자동 실행 — 수동 호출은 보통 불필요. 진단 / dry-run 시:
+node plugins/mccp/scripts/migrations/v0.2.8-generic-receipt-quarantine.js --dry-run
+# 결과: { activeGenericReceipts: [...] } 출력. 비어있으면 quarantine 불필요.
+# 실제 실행 (auto-trigger 안 도는 환경에서):
+node plugins/mccp/scripts/migrations/v0.2.8-generic-receipt-quarantine.js
+# 결과: marker `.claude/receipts/.migrations/v0.2.8-generic-quarantine.json` 작성.
+# state=complete이면 안전, partial/failed면 pending 확인 후 재실행.
+
 # Codex
 /codex:setup                        # CLI 인증 & gate 토글
 /codex:rescue <문제>                # 막혔을 때 Codex에게 위임
 ```
+
+### Generic-receipt quarantine runbook (v0.2.8 Task 2.6.5)
+
+v0.2.8부터 validate-cmd가 generic decision_id(`default`/`main`) + `--plan` 미지정 조합을 **블록**합니다. 이전 v0.1-era receipt가 working tree에 남아있으면 자동 quarantine이 처리하지만, 자동 trigger가 실패하는 경우(예: validate-cmd가 module load 실패 시 fail-open warning만 남김) 다음 절차로 수동 복구합니다:
+
+1. 진단 — 현재 active generic receipt 목록:
+
+   ```bash
+   node plugins/mccp/scripts/migrations/v0.2.8-generic-receipt-quarantine.js --dry-run
+   ```
+
+2. 자동 quarantine 실행:
+
+   ```bash
+   node plugins/mccp/scripts/migrations/v0.2.8-generic-receipt-quarantine.js
+   ```
+
+   - 결과: `state="complete"` + active 0 → 끝.
+   - `state="partial"` → marker의 `pending`을 확인 후 재실행 (resumable).
+   - `state="failed"` → marker `last_error`을 확인. fs permission 문제면 권한 조정 후 재실행.
+
+3. 진단 수동 (auto-trigger 자체가 안 도는 환경):
+
+   ```bash
+   # Codex R1-F3 absorption: 모든 GATE_IDS × {default, main} 검출
+   for slug in default main; do
+     for gate in mccp-plan-codex mccp-implement-codex mccp-pr-codex; do
+       src=".claude/receipts/$gate/$slug.json"
+       [ -f "$src" ] && mv "$src" ".claude/receipts/$gate/$slug.legacy.json"
+     done
+   done
+   ```
+
+   - `mccp-implement-codex/{default,main}.json`은 이미 prior session에서 `.legacy.json`으로 격리된 상태일 수 있음 (R2-F1 absorption note 참조).
+   - 충돌(`<slug>.legacy.json` 이미 존재) 시 source를 `<slug>.legacy-<timestamp>.json`으로 이동 (active source 보존 금지 — R2-F3 invariant).
+
+4. 동시 trigger 시 race (IMPL-R2-F1):
+   - validate-cmd + `/mccp:pr` Phase 0가 동시 진입하면 한쪽만 lock 획득, 다른 쪽은 marker complete bounded poll (max 2s).
+   - poll timeout 시 caller가 exit 75 (EX_TEMPFAIL) + systemMessage. 잠시 후 재시도.
 
 ### 운영 토글 (환경 변수)
 

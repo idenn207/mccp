@@ -18,6 +18,14 @@ const STRICT_SECURITY_GATES = ['mccp-implement-codex', 'mccp-pr-codex'];
 // semantic (implement / pr), not the namespace.
 const STRICT_IMPECCABLE_GATES = ['mccp-implement-codex', 'mccp-pr-codex'];
 
+// v0.2.8 Task 2.6.5 — Generic decision_id slugs come from the branch
+// fallback in derive-decision (e.g. /mccp:pr on `main` derives
+// decision_id="main"). Before v0.2.8, an unrelated stale receipt at
+// mccp-plan-codex/main.json would re-validate any plan. The quarantine
+// migration moves those to .legacy.json; this list lets us block bare
+// (no --plan) generic-slug invocations as well.
+const GENERIC_DECISION_IDS = ['default', 'main'];
+
 // Validate the receipt situation for a given /mccp:* command invocation.
 // Returns: { ok, command, decisionId, missing, stale, blocking, warnings, open_critical, reason? }
 function validateCommand(command, opts) {
@@ -54,7 +62,82 @@ function validateCommand(command, opts) {
     return result;
   }
 
+  // v0.2.8 Task 2.6.5 — boot-time auto-trigger for the generic-receipt
+  // quarantine migration (Codex R1-F3 + IMPL-R1-F1/F2 + IMPL-R2-F1
+  // absorption). Idempotent: subsequent invocations see the completion
+  // marker and noop. Lock-loser path hands back an in-progress signal so
+  // the caller aborts instead of reading pre-migration state. Trigger
+  // failures degrade to a visible warning rather than a brick — silent
+  // fail-open is the wrong default but loud-fail-open is the right one
+  // here so a buggy migration cannot disable the validator entirely.
+  if (!opts.skipMigration) {
+    let migrationModule;
+    try {
+      migrationModule = require('../migrations/v0.2.8-generic-receipt-quarantine');
+    } catch (err) {
+      migrationModule = null;
+      result.warnings.push({
+        gate_id: '_meta',
+        decision_id: result.decisionId,
+        reason: 'v0.2.8 quarantine migration module load failed: ' + err.message,
+      });
+    }
+    if (migrationModule) {
+      try {
+        const mres = migrationModule.migrate(repoRoot, {
+          systemMessage: opts.systemMessage || function () {},
+        });
+        if (mres.status === 'in-progress-aborted') {
+          result.ok = false;
+          result.reason = 'v0.2.8 generic-receipt quarantine migration in progress — retry shortly';
+          result.blocking.push({
+            gate_id: '_meta',
+            decision_id: result.decisionId,
+            reason: result.reason,
+            tempfail_exit: migrationModule.EX_TEMPFAIL,
+          });
+          return result;
+        }
+        if (mres.status === 'failed') {
+          result.warnings.push({
+            gate_id: '_meta',
+            decision_id: result.decisionId,
+            reason: 'v0.2.8 quarantine migration reported failures; see ' +
+              '.claude/receipts/.migrations/v0.2.8-generic-quarantine.json',
+          });
+        }
+      } catch (err) {
+        result.warnings.push({
+          gate_id: '_meta',
+          decision_id: result.decisionId,
+          reason: 'v0.2.8 quarantine migration trigger threw: ' + err.message,
+        });
+      }
+    }
+  }
+
   const requires = spec.requires_preceding || [];
+
+  // v0.2.8 Task 2.6.5 R1-F1 + R3 absorption — bare generic-slug rejection.
+  // When a downstream command (one with required preceding gates) lands on
+  // a generic decision_id WITHOUT an explicit --plan, the only thing a
+  // matching receipt could prove is "some receipt at this slug exists",
+  // which used to be a false-green path. Block early with a runbook
+  // pointer so callers know to use a feature branch or pass --plan.
+  if (requires.length > 0
+      && GENERIC_DECISION_IDS.indexOf(result.decisionId) !== -1
+      && !opts.planPath) {
+    result.ok = false;
+    result.blocking.push({
+      gate_id: '_meta',
+      decision_id: result.decisionId,
+      reason: 'generic decision_id "' + result.decisionId +
+        '" requires an explicit --plan or a feature branch; bare branch ' +
+        'fallback is closed by v0.2.8. See CLAUDE.md §4 quarantine runbook.',
+    });
+    return result;
+  }
+
   for (let i = 0; i < requires.length; i++) {
     const gateId = requires[i];
     let receipt;

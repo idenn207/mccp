@@ -500,6 +500,13 @@ function migrate(repoRoot, opts) {
     };
     if (errors.length > 0) marker.last_error = errors[errors.length - 1].message;
 
+    // R6-R3 F1 — refresh lock mtime IMMEDIATELY before the final verify.
+    // Without this, a long listUnsafeGateDirs + second scanActiveGeneric
+    // can let mtime go stale; a cross-host contender (mtime-only reclaim
+    // policy) could reclaim AFTER verify and BEFORE writeMarkerAtomic.
+    // Refresh-then-verify-then-write keeps the steal window microseconds
+    // wide.
+    refreshLockHeartbeat(repoRoot);
     // R6-R2 F1 — verify ownership IMMEDIATELY before writing the marker.
     // The marker is the gate-state authority; writing it under a stolen
     // lock would falsely advance the gate. If ownership is lost here we

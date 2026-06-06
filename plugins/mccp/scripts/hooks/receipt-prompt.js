@@ -230,16 +230,19 @@ async function main() {
     }
   }
 
-  const decisionId = decisionMod
-    ? decisionMod.deriveDecisionId(commandName, event.command_args, { cwd: event.cwd || process.cwd() })
-    : 'default';
-  // v0.2.8 Task 2.6.5b R6-F3 — extract --plan from raw command args before
-  // calling validateCommand. Without this, branch-based commands on
-  // `main`/`default` get the generic-slug reject path even when the user
-  // explicitly supplied --plan, blocking legitimate invocations. validate-cmd
-  // already uses planPath to re-hash the plan file and disables the generic
-  // reject when planPath is set (see scripts/receipt/validate-cmd.js).
+  // v0.2.8 Task 2.6.5b R6-R3 F2 — extract planPath BEFORE deriveDecisionId
+  // so plan-path commands derive the decisionId from the plan basename
+  // (not the branch-fallback main/default). Without this swap a quoted
+  // `--plan "path with space.md"` would still validate plan-aware but
+  // against the wrong slug — the receipt lookup misses and falls through
+  // to a stale receipt at the branch slug.
   const planPath = extractPlanPath(event.command_args);
+  const decisionId = decisionMod
+    ? decisionMod.deriveDecisionId(commandName, event.command_args, {
+        cwd: event.cwd || process.cwd(),
+        planPath: planPath,
+      })
+    : 'default';
   let result;
   try {
     result = validateCommand(commandName, {

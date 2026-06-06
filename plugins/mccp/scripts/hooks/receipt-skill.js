@@ -160,13 +160,16 @@ async function main() {
     }
   }
 
-  const decisionId = decisionMod
-    ? decisionMod.deriveDecisionId(skillName, ti.arguments, { cwd: event.cwd || process.cwd() })
-    : 'default';
-  // v0.2.8 Task 2.6.5b R6-F3 — propagate explicit --plan past the
-  // generic-slug reject path so Skill-tool invocations on `main`/`default`
-  // with --plan validate plan-aware instead of bare-slug bare-rejecting.
+  // v0.2.8 Task 2.6.5b R6-R3 F2 — extract planPath BEFORE deriveDecisionId
+  // so plan-path commands derive their decisionId from the plan basename
+  // instead of the branch fallback. Mirrors the receipt-prompt swap.
   const planPath = extractPlanPath(ti.arguments);
+  const decisionId = decisionMod
+    ? decisionMod.deriveDecisionId(skillName, ti.arguments, {
+        cwd: event.cwd || process.cwd(),
+        planPath: planPath,
+      })
+    : 'default';
   let result;
   try {
     result = validateCommand(skillName, {

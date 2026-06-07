@@ -8,28 +8,40 @@
 //   - Declarative invariant in pr.md cannot stop a single AI lapse.
 //   - This hook reads pr-phase-lock state. While subphase=codex-review:
 //     * PreToolUse on write-capable tools (Edit/Write/MultiEdit/NotebookEdit)
-//       blanket-denies (R2-F1 default-deny).
-//     * PreToolUse on Bash applies the read-only allowlist (R3-F1 sub-allow)
-//       — explicit mutation patterns DENY, ambiguous DENY (default-deny),
-//       explicit read-only commands ALLOW.
-//     * PostToolUse on any tool records the call into the hook-trace shard
-//       with optional phase/tool/file_path fields, so the lock-exit
-//       finalizer has an audit ledger to cross-check.
+//       blanket-denies.
+//     * PreToolUse on Bash applies a TOKENIZER-FIRST classify pipeline.
+//     * PostToolUse on any tool records the call into the hook-trace shard.
 //   - Outside Codex-review subphase the hook is a no-op (allow + no record).
-//   - Fail-open on any internal exception (v0.2.7 invariant): the worst
-//     case is enforcement degrades to declarative — not "tool brick-walls
-//     while real work needs to happen".
+//   - Fail-open on any internal exception (v0.2.7 invariant).
+//
+// v0.2.8 Task 2.6.1-followup F10 + F7 + F11 (R2-F1 + R3-F1 + R3-F2):
+//   F10 — `BASH_ALLOW_PATTERNS` reduced to ONE helper-path-anchored regex
+//         matching `${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/
+//         [a-z][a-z0-9-]*.js` plus a minimal read-only catalog (≤5 patterns).
+//         Helper-path match is the *post-tokenizer trust gate* — necessary
+//         but not sufficient (content-hash check is the actual trust gate).
+//   F10 — content-hash verification: each allowed helper-path is verified
+//         against `lock.helper_manifest[realpath(helper)]`. Mismatch → DENY.
+//   F7  — tokenizer runs FIRST against ALL Bash including would-be helper
+//         allowlist matches: chain-split + mutating-construct detect + comment
+//         strip + indirect-invoke / subshell reject. `node helper; git commit`
+//         fails at chain-split before allowlist is consulted.
+//   F11 — additional BLOCK rules: `pr-phase-lock.js enter` via Bash during
+//         Codex-review subphase (R3-F2 stdout-pipe IPC contract);
+//         read of .claude/state/pr-phase.lock by any tool (defense-in-depth
+//         even after token storage is hashed); `MCCP_LOCK_TEST_ARGV_TOKEN=1`
+//         substring (production-accident leak guard).
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..', '..');
 const LIB_DIR = path.join(PLUGIN_ROOT, 'scripts', 'lib');
 
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
-// Explicit mutation patterns — any match → DENY.
-// Layered as substring/regex checks against the raw command string.
+// Explicit mutation patterns — any match → DENY (applied per tokenized segment).
 const BASH_BLOCK_PATTERNS = [
   /\bgit\s+commit\b/,
   /\bgit\s+push\b/,
@@ -37,8 +49,8 @@ const BASH_BLOCK_PATTERNS = [
   /\bgit\s+rebase\b/,
   /\bgit\s+stash\b/,
   /\bgit\s+merge\b/,
-  /\bgit\s+checkout\s+[^-]/,             // checkout <path> mutates working tree
-  /\bgit\s+branch\s+-[dD]\b/,            // delete branch
+  /\bgit\s+checkout\s+[^-]/,
+  /\bgit\s+branch\s+-[dD]\b/,
   /\bgit\s+tag\s+-[dDfFa]/,
   /\bgh\s+pr\s+create\b/,
   /\bgh\s+pr\s+merge\b/,
@@ -55,33 +67,220 @@ const BASH_BLOCK_PATTERNS = [
   /(^|[\s;&|])rm\s+/,
   /(^|[\s;&|])mv\s+/,
   /(^|[\s;&|])cp\s+/,
-  /(^|[\s;&|])mkdir\b/,
+  /(^|[\s;&|])mkdir\b(?!\s+-p\s+\.git\/mccp\/tmp\s*$)/,
   /(^|[\s;&|])touch\s+/,
   /(^|[\s;&|])chmod\b/,
   /(^|[\s;&|])chown\b/,
   /\bsed\s+-i\b/,
-  /\s>\s*[^&]/,                          // file redirect (rough)
-  /\s>>\s*[^&]/,
   /\bcurl\b[^|;&]*\s-X\s+(POST|PUT|PATCH|DELETE)\b/i,
   /\bcurl\b[^|;&]*--data\b/i,
+  // F11 R3-F2 — block direct Bash invocation of pr-phase-lock enter during
+  // Codex-review subphase. codex-runner.js spawns it via child_process so
+  // the hook never sees it; only Bash-shell paths get blocked.
+  /\bpr-phase-lock\.js\b\s+enter\b/,
+  // F11 defense-in-depth — block reads of the lock file body
+  /(\bcat\b|\bhead\b|\btail\b|\bless\b|\bmore\b|\bsed\b|\bawk\b|\bgrep\b|\bnode\b)\s+[^|;&]*\bpr-phase\.lock\b/,
+  // F11 R2-F1 — block any Bash containing the test-mode env-var literal,
+  // to prevent accidental production leak.
+  /\bMCCP_LOCK_TEST_ARGV_TOKEN\s*=\s*1\b/,
 ];
 
-// Explicit read-only allowlist. A command is allowed if its FIRST token chain
-// matches one of these. Pipes/redirects after the head are still subject to
-// the block list above.
-const BASH_ALLOW_PATTERNS = [
+// F7 mutating-construct patterns applied AFTER tokenizer per segment.
+const MUTATING_CONSTRUCT_PATTERNS = [
+  /\S>\S/,                              // no-space redirect (e.g. echo x>file)
+  /\s\d+>\S/,                           // fd redirect (e.g. cmd 2>file)
+  /\s\d+>>/,                            // fd append (e.g. cmd 2>>file)
+  /\|\s*(tee|sponge)\b/,                // pipe to mutating sink
+  /\bawk\b[^|;&]*\bsystem\s*\(/,        // awk -> system()
+  /\bfind\b[^|;&]*\b-(exec|delete)\b/,  // find with -exec or -delete
+];
+
+// F7 indirect-invoke + subshell — DENY at substring level (any segment).
+const INDIRECT_INVOKE_PATTERNS = [
+  /\beval\b/,
+  /\bbash\s+-c\b/,
+  /\bsh\s+-c\b/,
+  /\bzsh\s+-c\b/,
+  /(^|\s)source\s+/,
+  /\$\(/,
+  /`/,
+];
+
+// F10 — helper-path allowlist pattern. Anchored to the realpath under the
+// installed plugin cache (or dev tree). Underscore-prefixed helpers (e.g.
+// `_args.js`) are NOT matched — they're internal-only.
+function helperPathPattern() {
+  const helpersDir = path.join(LIB_DIR, 'pr-phase-helpers').replace(/\\/g, '/');
+  // Allow quoted or unquoted path; match `node <helpers-dir>/<name>.js [args...]`
+  const escaped = helpersDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    '^\\s*node\\s+["\']?' + escaped + '/[a-z][a-z0-9-]*\\.js["\']?(\\s|$)'
+  );
+}
+
+// Minimal read-only allowlist catalog (post-F10 reduction — ≤5 entries).
+const READ_ONLY_CATALOG = [
   /^\s*git\s+(status|log|diff|rev-parse|show|ls-files|cat-file|describe|remote|config\s+--get|branch(?!\s+-[dD])|tag(?!\s+-[dDa])|blame|fetch\s+--dry-run|whatchanged)\b/,
   /^\s*gh\s+(pr|issue|repo)\s+(list|view|status|checks|diff|comments)\b/,
-  /^\s*gh\s+api\b/,                       // default method is GET; -X POST/etc caught by block list
+  /^\s*gh\s+api\b/,
   /^\s*gh\s+auth\s+status\b/,
-  /^\s*(cat|head|tail|grep|find|ls|pwd|which|wc|echo|stat|file|less|more|diff|sort|uniq|cut|awk)\b/,
-  /^\s*node\s+[^&|;]*\bpr-phase-lock\.js["']?\s+(read|detect-stale)\b/,
-  /^\s*node\s+[^&|;]*receipt[\/\\]cli\.js["']?\s+(validate|status|derive-decision|preflight|pr-body\s+--action\s+path)\b/,
-  /^\s*node\s+[^&|;]*\bimpeccable-detect\.js\b/,
-  /^\s*node\s+[^&|;]*\bdep-check\.js\b/,
-  /^\s*node\s+[^&|;]*\bcodex-invoke\.js\b/,  // Codex review itself must be allowed in Codex-review subphase
-  /^\s*mkdir\s+-p\s+\.git\/mccp\/tmp\s*$/,    // pr.md uses this for codex stderr capture
+  /^\s*mkdir\s+-p\s+\.git\/mccp\/tmp\s*$/,
 ];
+
+// ─── Tokenizer ─────────────────────────────────────────────────────────────
+
+// stripComment — remove `# ...` to EOL while respecting `'…'` `"…"` quoting.
+function stripComment(s) {
+  let out = '';
+  let q = null;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) {
+      if (c === '\\' && i + 1 < s.length) { out += c + s[i + 1]; i += 1; continue; }
+      if (c === q) q = null;
+      out += c;
+    } else {
+      if (c === '\'' || c === '"') { q = c; out += c; }
+      else if (c === '#') break;
+      else out += c;
+    }
+  }
+  return out;
+}
+
+// splitSegments — split on `;` `&&` `||` at depth 0 (respecting quotes + parens).
+function splitSegments(s) {
+  const segs = [];
+  let buf = '';
+  let q = null;
+  let paren = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    const n = s[i + 1];
+    if (q) {
+      if (c === '\\' && n) { buf += c + n; i += 1; continue; }
+      if (c === q) q = null;
+      buf += c;
+      continue;
+    }
+    if (c === '\'' || c === '"') { q = c; buf += c; continue; }
+    if (c === '(') { paren += 1; buf += c; continue; }
+    if (c === ')') { paren = Math.max(0, paren - 1); buf += c; continue; }
+    if (paren > 0) { buf += c; continue; }
+    if (c === ';') {
+      pushSeg(segs, buf); buf = ''; continue;
+    }
+    if ((c === '&' && n === '&') || (c === '|' && n === '|')) {
+      pushSeg(segs, buf); buf = ''; i += 1; continue;
+    }
+    buf += c;
+  }
+  pushSeg(segs, buf);
+  return segs;
+}
+
+function pushSeg(segs, s) {
+  const t = s.trim();
+  if (t.length > 0) segs.push(t);
+}
+
+// Decompose: strip comment first, then split segments. Each segment is the
+// unit for allow/block decisions.
+function tokenize(cmd) {
+  if (typeof cmd !== 'string') return { ok: false, segments: [], reason: 'non-string' };
+  const stripped = stripComment(cmd);
+  return { ok: true, segments: splitSegments(stripped) };
+}
+
+// ─── Classify ──────────────────────────────────────────────────────────────
+
+// classifyBashCommand — F7 tokenizer-first, then F10 helper-path + content-hash.
+// `opts.helperManifest` (optional) is the lock body's helper_manifest map.
+// `opts.helperPathPattern` (optional override for tests).
+function classifyBashCommand(cmd, opts) {
+  opts = opts || {};
+  if (typeof cmd !== 'string') return { decision: 'deny', reason: 'non-string command' };
+  const trimmed = cmd.trim();
+  if (!trimmed) return { decision: 'deny', reason: 'empty command' };
+
+  const tok = tokenize(trimmed);
+  if (!tok.ok) return { decision: 'deny', reason: 'tokenizer: ' + tok.reason };
+  if (tok.segments.length === 0) return { decision: 'deny', reason: 'no-segments-after-strip' };
+
+  const hPattern = opts.helperPathPattern || helperPathPattern();
+
+  for (let s = 0; s < tok.segments.length; s++) {
+    const seg = tok.segments[s];
+
+    // F7 indirect-invoke + subshell — DENY immediately
+    for (let i = 0; i < INDIRECT_INVOKE_PATTERNS.length; i++) {
+      if (INDIRECT_INVOKE_PATTERNS[i].test(seg)) {
+        return { decision: 'deny', reason: 'indirect-invoke or subshell: ' + INDIRECT_INVOKE_PATTERNS[i].source + ' (segment: ' + seg + ')' };
+      }
+    }
+
+    // Block patterns per segment
+    for (let i = 0; i < BASH_BLOCK_PATTERNS.length; i++) {
+      if (BASH_BLOCK_PATTERNS[i].test(seg)) {
+        return { decision: 'deny', reason: 'segment-block: ' + BASH_BLOCK_PATTERNS[i].source + ' (segment: ' + seg + ')' };
+      }
+    }
+
+    // F7 mutating constructs per segment
+    for (let i = 0; i < MUTATING_CONSTRUCT_PATTERNS.length; i++) {
+      if (MUTATING_CONSTRUCT_PATTERNS[i].test(seg)) {
+        return { decision: 'deny', reason: 'mutating-construct: ' + MUTATING_CONSTRUCT_PATTERNS[i].source + ' (segment: ' + seg + ')' };
+      }
+    }
+
+    // Allow paths: helper-path OR minimal read-only catalog
+    const helperMatch = seg.match(hPattern);
+    if (helperMatch) {
+      const verifyResult = verifyHelperContent(seg, opts.helperManifest);
+      if (!verifyResult.ok) {
+        return { decision: 'deny', reason: 'helper-content: ' + verifyResult.reason + ' (segment: ' + seg + ')' };
+      }
+      continue; // segment allowed
+    }
+    let catalogMatch = false;
+    for (let i = 0; i < READ_ONLY_CATALOG.length; i++) {
+      if (READ_ONLY_CATALOG[i].test(seg)) { catalogMatch = true; break; }
+    }
+    if (catalogMatch) continue;
+
+    return {
+      decision: 'deny',
+      reason: 'no allowlist match (default-deny in Codex-review subphase) — segment: ' + seg,
+    };
+  }
+  return { decision: 'allow', reason: 'all segments matched allowlist (helper-path content-verified)' };
+}
+
+// Extract the helper path from a `node /abs/path/to/helper.js ...` segment
+// and verify its content sha256 matches the manifest stored at lock-enter time.
+function verifyHelperContent(segment, helperManifest) {
+  // Pull the helper path (after `node` + optional quote)
+  const m = segment.match(/^\s*node\s+["']?([^"'\s]+\.js)["']?/);
+  if (!m) return { ok: false, reason: 'helper-path-not-extracted' };
+  let realPath;
+  try { realPath = fs.realpathSync(m[1]); }
+  catch (err) { return { ok: false, reason: 'helper-realpath-failed: ' + err.message }; }
+  if (!helperManifest || typeof helperManifest !== 'object') {
+    return { ok: false, reason: 'lock-has-no-helper-manifest' };
+  }
+  const expected = helperManifest[realPath];
+  if (!expected) return { ok: false, reason: 'helper-not-in-manifest: ' + realPath };
+  let actualBuf;
+  try { actualBuf = fs.readFileSync(realPath); }
+  catch (err) { return { ok: false, reason: 'helper-read-failed: ' + err.message }; }
+  const actual = 'sha256:' + crypto.createHash('sha256').update(actualBuf).digest('hex');
+  if (actual !== expected) {
+    return { ok: false, reason: 'helper-content-changed-during-lock' };
+  }
+  return { ok: true };
+}
+
+// ─── Hook plumbing ─────────────────────────────────────────────────────────
 
 function readStdin() {
   return new Promise(function (resolve) {
@@ -129,24 +328,6 @@ function lockActive(lockMod, cwd) {
   }
 }
 
-function classifyBashCommand(cmd) {
-  if (typeof cmd !== 'string') return { decision: 'deny', reason: 'non-string command' };
-  const trimmed = cmd.trim();
-  if (!trimmed) return { decision: 'deny', reason: 'empty command' };
-
-  for (let i = 0; i < BASH_BLOCK_PATTERNS.length; i++) {
-    if (BASH_BLOCK_PATTERNS[i].test(trimmed)) {
-      return { decision: 'deny', reason: 'explicit mutation pattern: ' + BASH_BLOCK_PATTERNS[i].source };
-    }
-  }
-  for (let i = 0; i < BASH_ALLOW_PATTERNS.length; i++) {
-    if (BASH_ALLOW_PATTERNS[i].test(trimmed)) {
-      return { decision: 'allow', reason: 'read-only allowlist match' };
-    }
-  }
-  return { decision: 'deny', reason: 'no allowlist match (default-deny in Codex-review subphase)' };
-}
-
 function denyBlock(reason, lockMeta) {
   const lines = [
     '[mccp:pr-phase-guard] BLOCK — review-only invariant active.',
@@ -158,7 +339,7 @@ function denyBlock(reason, lockMeta) {
     '  findings flow into the PR body only — fix-cycle requires a separate',
     '  /mccp:plan or /mccp:prp-implement invocation after /mccp:pr exits.',
     '',
-    '  To release the lock manually (e.g. after a crash): node ${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js detect-stale',
+    '  To release the lock manually: node ${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js detect-stale',
   ];
   process.stderr.write(lines.join('\n') + '\n');
   process.exit(2);
@@ -217,7 +398,9 @@ async function main() {
       return 2;
     }
     if (toolName === 'Bash') {
-      const cls = classifyBashCommand(toolInput.command);
+      const cls = classifyBashCommand(toolInput.command, {
+        helperManifest: active.lock.helper_manifest,
+      });
       if (cls.decision === 'deny') {
         denyBlock('Bash ' + cls.reason, active.lock);
         return 2;
@@ -246,8 +429,15 @@ if (require.main === module) {
 module.exports = {
   WRITE_TOOLS,
   BASH_BLOCK_PATTERNS,
-  BASH_ALLOW_PATTERNS,
+  MUTATING_CONSTRUCT_PATTERNS,
+  INDIRECT_INVOKE_PATTERNS,
+  READ_ONLY_CATALOG,
   classifyBashCommand,
+  tokenize,
+  stripComment,
+  splitSegments,
+  helperPathPattern,
+  verifyHelperContent,
   lockActive,
   extractFilePath,
 };

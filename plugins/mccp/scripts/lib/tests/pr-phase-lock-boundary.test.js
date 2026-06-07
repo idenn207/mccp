@@ -39,6 +39,13 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
+// v0.2.8 Task 2.6.1-followup F11 R3-F2 — existing boundary tests use the
+// legacy --ownership-token argv form (in-process cmdExit/cmdHeartbeat calls,
+// stdin not piped). Enable the test-only argv path so the production-contract
+// gate doesn't reject them. Real-world callers MUST use stdin-pipe (F11
+// dedicated test file covers that path).
+process.env.MCCP_LOCK_TEST_ARGV_TOKEN = '1';
+
 const lock = require('../pr-phase-lock');
 
 function mkTmpRepo() {

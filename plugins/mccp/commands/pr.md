@@ -82,6 +82,25 @@ When `CODEX_SKIP_AT_PR_REASON` is set, Phase 2.5.3 SKIPS the Codex invocation en
 
 `MCCP_PR_SKIP_CODEX_REVIEW` is intended for **one-shot** use (e.g. shared runtime pipe stuck + manual cross-model review confirmed out-of-band). Do not export it persistently.
 
+### Phase 0.3 — Codex-skip mutual-exclusion preflight (v0.2.8 Task 2.6.1-followup F9)
+
+`MCCP_PR_SKIP_CODEX_REVIEW="<reason>"` and `CODEX_DEDUPE_AT_PR=1` express **conflicting intent** for the same outcome (suppressing the Phase 2.5.3 Codex invocation). The receipt CLI enforces the same XOR at schema time, but a fail-fast preflight here surfaces the conflict before any phase work runs and prevents an ambiguous receipt from ever being written.
+
+```bash
+if [ -n "${MCCP_PR_SKIP_CODEX_REVIEW:-}" ] && [ "${CODEX_DEDUPE_AT_PR:-0}" = "1" ]; then
+  echo "[MCCP-GATE-STOP] env mutual-exclusion violation:" 1>&2
+  echo "  MCCP_PR_SKIP_CODEX_REVIEW=<set>  (audited Codex-skip escape)" 1>&2
+  echo "  CODEX_DEDUPE_AT_PR=1             (cross-gate dedupe signal)" 1>&2
+  echo "Both can't be set together — they map to mutually-exclusive receipt meta fields" 1>&2
+  echo "(codex_skipped_at_pr ⊕ codex_dedupe_at_pr). Pick one path and re-run:" 1>&2
+  echo "  - For a one-shot manual Codex skip: keep MCCP_PR_SKIP_CODEX_REVIEW, unset CODEX_DEDUPE_AT_PR" 1>&2
+  echo "  - For cross-gate dedupe (auto): unset MCCP_PR_SKIP_CODEX_REVIEW, let Phase 2.5.2 export CODEX_DEDUPE_AT_PR" 1>&2
+  exit 1
+fi
+```
+
+`CODEX_DEDUPE_AT_PR` is normally exported by Phase 2.5.2 cross-gate dedupe — it is **not** a user-facing knob. If you find yourself setting it from a shell or `.claude/settings.json`, you are almost certainly working around a stale receipt and the right fix is `/mccp:receipt-validate` / `/mccp:receipt-write` rather than the escape. This preflight is defense-in-depth — the receipt CLI's `codex_skipped_at_pr ⊕ codex_dedupe_at_pr` schema invariant remains the authoritative gate.
+
 ---
 
 ## Phase 1 — VALIDATE

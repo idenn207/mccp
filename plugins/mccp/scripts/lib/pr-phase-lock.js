@@ -56,11 +56,27 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const { assertContained } = require('./path-containment');
 
 const LOCK_DIRNAME = path.join('.claude', 'state');
 const LOCK_FILENAME = 'pr-phase.lock';
 const STALE_MS_DEFAULT = 60 * 1000;
 const SUBPHASE_DEFAULT = 'codex-review';
+
+// v0.2.8 Task 2.6.1-followup F11 R3-F2 — production token contract is
+// stdin-pipe; the legacy --ownership-token argv form is gated behind a
+// test-only env var so a stray production call cannot pass a token in argv.
+const TEST_ARGV_TOKEN_ENV = 'MCCP_LOCK_TEST_ARGV_TOKEN';
+
+// v0.2.8 Task 2.6.1-followup F10 R2-F1 — helper_manifest is computed at
+// cmdEnter time so the guard hook can compare each helper's content hash
+// at invocation time. Resolved dynamically so tests can override
+// CLAUDE_PLUGIN_ROOT between calls without re-requiring the module.
+function helpersDirCurrent() {
+  const root = process.env.CLAUDE_PLUGIN_ROOT
+    || path.resolve(__dirname, '..', '..');
+  return path.join(root, 'scripts', 'lib', 'pr-phase-helpers');
+}
 
 function repoRoot(cwd) {
   cwd = cwd || process.cwd();
@@ -118,6 +134,96 @@ function fileHashSafe(absPath) {
     if (err.code === 'ENOENT' || err.code === 'EISDIR') return null;
     throw err;
   }
+}
+
+// v0.2.8 Task 2.6.1-followup F11 — sha256 hex of the raw ownership_token.
+// Exported so tests + helpers can compute the expected hash without
+// re-implementing the hash; pr-phase-guard reuses the same algorithm via
+// require(). Returns lowercase 64-char hex (no 'sha256:' prefix — keep
+// lockBody.ownership_token_hash field shape simple).
+function hashToken(raw) {
+  return crypto.createHash('sha256').update(String(raw), 'utf8').digest('hex');
+}
+
+// v0.2.8 Task 2.6.1-followup F11 R3-F2 — read raw token from FD 0 to EOF
+// (synchronous). Production callers pipe the token in via spawnSync's input
+// option. Returns the trimmed token string or null if stdin is empty/EOF-
+// closed without data (ignore path).
+function readTokenFromStdinSync() {
+  try {
+    const buf = fs.readFileSync(0);
+    const s = buf.toString('utf8').replace(/\r\n/g, '\n').replace(/\n$/, '').trim();
+    return s.length > 0 ? s : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// v0.2.8 Task 2.6.1-followup F10 R2-F1 — content-hash manifest of every
+// pr-phase-helpers/*.js shipped with this plugin instance. Stored in the
+// lock body so pr-phase-guard can compare at invocation time and DENY when
+// a helper was edited mid-lock (the "modify cache helper mid-lock" attack).
+// Missing helpers dir (e.g. older plugin install) returns empty manifest;
+// guard treats absence-of-entry as path-not-helper → tokenizer / default
+// deny path.
+function buildHelperManifest(overrideDir) {
+  const helpersDir = overrideDir || helpersDirCurrent();
+  const manifest = {};
+  let entries;
+  try { entries = fs.readdirSync(helpersDir); }
+  catch (_) { return manifest; }
+  for (let i = 0; i < entries.length; i++) {
+    const name = entries[i];
+    if (!name.endsWith('.js')) continue;
+    const abs = path.join(helpersDir, name);
+    try {
+      const real = fs.realpathSync(abs);
+      const buf = fs.readFileSync(real);
+      manifest[real] = 'sha256:' + crypto.createHash('sha256').update(buf).digest('hex');
+    } catch (_) { /* skip unreadable */ }
+  }
+  return manifest;
+}
+
+// v0.2.8 Task 2.6.1-followup F11 R3-F2 production contract — resolve the
+// presented ownership_token from caller args. Returns:
+//   { token: <string> }            — token resolved
+//   { rejected: 'argv-production' } — argv form used in production (exit 17)
+//   { error: 'no-token-supplied' } — no token at all
+//   { error: 'stdin-empty' }       — --ownership-token-stdin given but stdin empty
+function resolveOwnershipToken(args) {
+  if (args['ownership-token-stdin']) {
+    const t = readTokenFromStdinSync();
+    if (!t) return { error: 'stdin-empty' };
+    return { token: t };
+  }
+  if (args['ownership-token'] && args['ownership-token'] !== true) {
+    if (process.env[TEST_ARGV_TOKEN_ENV] === '1') {
+      return { token: String(args['ownership-token']) };
+    }
+    return { rejected: 'argv-production' };
+  }
+  return { error: 'no-token-supplied' };
+}
+
+// v0.2.8 Task 2.6.1-followup F11 — compare presented token (raw) to the
+// stored hash. Handles the upgrade window where the lock body might still
+// have the legacy raw ownership_token (v0.2.7) instead of hash: hash the
+// legacy value on the fly so a same-host code-path-aware caller can still
+// release its own lock during the upgrade. Returns true on match.
+function verifyTokenAgainstLock(presentedToken, lockBody) {
+  if (typeof presentedToken !== 'string' || presentedToken.length === 0) return false;
+  if (!lockBody || typeof lockBody !== 'object') return false;
+  const presentedHash = hashToken(presentedToken);
+  if (typeof lockBody.ownership_token_hash === 'string'
+      && lockBody.ownership_token_hash.length > 0) {
+    return lockBody.ownership_token_hash === presentedHash;
+  }
+  if (typeof lockBody.ownership_token === 'string'
+      && lockBody.ownership_token.length > 0) {
+    return hashToken(lockBody.ownership_token) === presentedHash;
+  }
+  return false;
 }
 
 function captureBaseline(root) {
@@ -293,29 +399,63 @@ function computeMutations(root, baseline) {
 }
 
 // F4 — cmdEnter uses fs.openSync(p, 'wx') exclusive create (R4-F2 absorbed).
-// On EEXIST, try host-aware reclaim ONCE then retry the wx open. Adds
-// ownership_token + host to the body. Returns the token in stdout JSON so
-// callers (pr.md Bash flow) can capture it for subsequent heartbeat/exit.
+// On EEXIST, try host-aware reclaim ONCE then retry the wx open.
+//
+// v0.2.8 Task 2.6.1-followup F11 R3-F2 absorption — lockBody now stores
+// `ownership_token_hash` (sha256 hex) instead of the raw token. The raw
+// token is returned in stdout JSON for the SOLE production caller
+// (codex-runner.js) to capture via anonymous-pipe IPC — argv/env/FS never
+// see it. R2-F2 startup pre-check: legacy v0.2.7 locks (raw `ownership_token`
+// + no `_hash`) trigger host-aware reclaim BEFORE the wx open so an upgrade
+// from 0.2.7 to 0.2.8 mid-cycle doesn't permanently brick the lock.
+//
+// v0.2.8 Task 2.6.1-followup F10 R2-F1 absorption — lockBody also captures
+// `helper_manifest` (sha256 of each pr-phase-helpers/*.js) so the guard hook
+// can detect a mid-lock helper edit (cache poisoning) and DENY.
 function cmdEnter(args) {
   const root = repoRoot(args.cwd);
+  const p = lockPath(root);
+
+  // R2-F2 startup pre-check: an existing legacy v0.2.7 lock body
+  // (raw ownership_token, no ownership_token_hash) is reclaimable via the
+  // host-aware policy. Live same-host PID is still protected (NEVER
+  // reclaim) so this is safe during the v0.2.7 → v0.2.8 upgrade overlap.
+  const existingPre = readLock(root);
+  if (existingPre && !existingPre._parse_error && !existingPre._zero_byte
+      && existingPre.ownership_token && !existingPre.ownership_token_hash) {
+    tryReclaimStaleLock(p);
+  }
+
   const baseline = captureBaseline(root);
   const ownershipToken = crypto.randomUUID();
+  const ownershipTokenHash = hashToken(ownershipToken);
+  const helperManifest = buildHelperManifest();
   const lockBody = {
     run_id: args['run-id'],
     started_at: new Date().toISOString(),
     pid: parseInt(args.pid, 10) || process.pid,
     host: os.hostname(),
-    ownership_token: ownershipToken,
+    ownership_token_hash: ownershipTokenHash,
+    helper_manifest: helperManifest,
     branch: args.branch || null,
     subphase: args.subphase || SUBPHASE_DEFAULT,
     baseline: baseline,
   };
   const body = JSON.stringify(lockBody, null, 2);
-  const p = lockPath(root);
   fs.mkdirSync(path.dirname(p), { recursive: true });
+  // F8 (v0.2.8 Task 2.6.1-followup) — symlink containment: lockDir
+  // (.claude/state) must realpath under <root>/.claude. Catches the
+  // `ln -s /tmp/external .claude/state/pr-phase.lock` escape before any
+  // write happens. lockPath itself may not exist on fresh enter — check
+  // the parent dir realpath instead, which is created by mkdirSync above.
+  assertContained(path.dirname(p), path.join(root, '.claude'), null);
 
   function tryOpen() {
-    const fd = fs.openSync(p, 'wx');
+    // F5 (v0.2.8 Task 2.6.1-followup) — restrict lock file mode to owner
+    // only (0o600). Default mode (0o666 minus umask) would leave the lock
+    // body world/group-readable on shared-tenant systems, exposing the
+    // ownership_token (F11 now hashes it, so this is defense-in-depth).
+    const fd = fs.openSync(p, 'wx', 0o600);
     try { fs.writeSync(fd, body); } finally { fs.closeSync(fd); }
   }
 
@@ -353,14 +493,19 @@ function cmdEnter(args) {
     lock_path: p,
     run_id: lockBody.run_id,
     ownership_token: ownershipToken,
+    ownership_token_hash: ownershipTokenHash,
     host: lockBody.host,
     head_sha: baseline.head_sha,
     dirty_paths: Object.keys(baseline.dirty_content_hashes).length,
+    helper_manifest: helperManifest,
   }, null, 2) + '\n');
   return 0;
 }
 
-// R2-F1 + R3-F1 + R3-F2 — cmdExit REQUIRES --run-id AND --ownership-token.
+// R2-F1 + R3-F1 + R3-F2 — cmdExit REQUIRES --run-id AND a token. Production
+// callers MUST pass `--ownership-token-stdin` and pipe the raw token via
+// FD 0 (R3-F2 stdin-pipe IPC contract). The legacy `--ownership-token <raw>`
+// argv path is REJECTED in production (exit 17) unless MCCP_LOCK_TEST_ARGV_TOKEN=1.
 // Missing or wrong token = exit 16 + stderr warn, NO unlinkSync.
 // Token verification happens BEFORE the mutation finalizer runs to avoid
 // computing baseline diffs we can't act on (cleaner stderr path).
@@ -384,10 +529,18 @@ function cmdExit(args) {
     return 16;
   }
 
-  if (!args['ownership-token']) {
+  const tokResult = resolveOwnershipToken(args);
+  if (tokResult.rejected === 'argv-production') {
     process.stderr.write(
-      '[pr-phase-lock] cmdExit requires --ownership-token (R3-F1: no legacy ' +
-      'token-less path). Lock left in place.\n');
+      '[pr-phase-lock] cmdExit refuses raw --ownership-token argv ' +
+      '(F11 R3-F2 production contract: stdin-pipe only). Set ' +
+      TEST_ARGV_TOKEN_ENV + '=1 for test-only override.\n');
+    return 17;
+  }
+  if (!tokResult.token) {
+    process.stderr.write(
+      '[pr-phase-lock] cmdExit requires --ownership-token-stdin with the ' +
+      'raw token piped on FD 0 (F11 R3-F2). Lock left in place.\n');
     return 16;
   }
   if (args['run-id'] && lock.run_id !== args['run-id']) {
@@ -396,7 +549,7 @@ function cmdExit(args) {
       ' arg=' + args['run-id'] + '); refuse exit\n');
     return 14;
   }
-  if (lock.ownership_token !== args['ownership-token']) {
+  if (!verifyTokenAgainstLock(tokResult.token, lock)) {
     process.stderr.write(
       '[pr-phase-lock] ownership-token mismatch; refuse exit — lock left ' +
       'in place for detect-stale\n');
@@ -494,11 +647,12 @@ function cmdDetectStale(args) {
   return 0;
 }
 
-// R2-F1 + R3-F1 — cmdHeartbeat REQUIRES --run-id AND --ownership-token.
+// R2-F1 + R3-F1 + R3-F2 — cmdHeartbeat REQUIRES --run-id AND a token via
+// the stdin-pipe production contract (or the test-gated argv form).
 // Missing or wrong token = exit 15 + stderr warn, NO utimesSync.
 // Touches lock mtime to keep host-aware reclaim from treating a slow-but-
-// alive holder as cross-host stale (caller responsibility — pr.md Bash
-// background loop around the codex-invoke spawnSync window).
+// alive holder as cross-host stale (caller responsibility — codex-runner.js
+// background heartbeat loop around the codex-invoke spawnSync window).
 function cmdHeartbeat(args) {
   const root = repoRoot(args.cwd);
   const lock = readLock(root);
@@ -511,10 +665,18 @@ function cmdHeartbeat(args) {
       '[pr-phase-lock] heartbeat cannot read lock body; skip\n');
     return 15;
   }
-  if (!args['ownership-token']) {
+  const tokResult = resolveOwnershipToken(args);
+  if (tokResult.rejected === 'argv-production') {
     process.stderr.write(
-      '[pr-phase-lock] cmdHeartbeat requires --ownership-token (R3-F1: no ' +
-      'legacy token-less path). No mtime update.\n');
+      '[pr-phase-lock] cmdHeartbeat refuses raw --ownership-token argv ' +
+      '(F11 R3-F2 production contract: stdin-pipe only). Set ' +
+      TEST_ARGV_TOKEN_ENV + '=1 for test-only override.\n');
+    return 17;
+  }
+  if (!tokResult.token) {
+    process.stderr.write(
+      '[pr-phase-lock] cmdHeartbeat requires --ownership-token-stdin ' +
+      '(F11 R3-F2 production contract). No mtime update.\n');
     return 15;
   }
   if (!args['run-id'] || lock.run_id !== args['run-id']) {
@@ -523,7 +685,7 @@ function cmdHeartbeat(args) {
       ' arg=' + (args['run-id'] || 'MISSING') + '); refuse heartbeat\n');
     return 15;
   }
-  if (lock.ownership_token !== args['ownership-token']) {
+  if (!verifyTokenAgainstLock(tokResult.token, lock)) {
     process.stderr.write(
       '[pr-phase-lock] heartbeat ownership-token mismatch; refuse — no ' +
       'utimesSync\n');
@@ -591,10 +753,13 @@ function showHelp() {
   process.stdout.write(
     'pr-phase-lock subcommands:\n' +
     '  enter --run-id <uuid> [--pid <int>] [--subphase codex-review] [--branch <name>] [--cwd <path>]\n' +
-    '  exit  --run-id <uuid> --ownership-token <uuid> [--cwd <path>]\n' +
-    '  heartbeat --run-id <uuid> --ownership-token <uuid> [--cwd <path>]\n' +
+    '  exit  --run-id <uuid> --ownership-token-stdin [--cwd <path>]   (raw token via FD 0; F11 R3-F2)\n' +
+    '  heartbeat --run-id <uuid> --ownership-token-stdin [--cwd <path>]\n' +
     '  detect-stale [--max-age-ms <ms>] [--cwd <path>]\n' +
-    '  read [--cwd <path>]\n');
+    '  read [--cwd <path>]\n' +
+    '\n' +
+    'Test-only: --ownership-token <raw> (argv form) accepted iff ' +
+    TEST_ARGV_TOKEN_ENV + '=1\n');
 }
 
 function main(argv) {
@@ -622,6 +787,8 @@ module.exports = {
   LOCK_FILENAME,
   STALE_MS_DEFAULT,
   SUBPHASE_DEFAULT,
+  TEST_ARGV_TOKEN_ENV,
+  helpersDirCurrent,
   cmdEnter,
   cmdExit,
   cmdHeartbeat,
@@ -636,4 +803,9 @@ module.exports = {
   parsePorcelainZ,
   fileHashSafe,
   isPidAlive,
+  hashToken,
+  readTokenFromStdinSync,
+  buildHelperManifest,
+  resolveOwnershipToken,
+  verifyTokenAgainstLock,
 };

@@ -227,107 +227,62 @@ Residual areas reviewed:
 
 Use `convergence.plan_codex_receipt.round` and `convergence.implement_codex_receipt.round` from the JSON for N1 / N2. If either receipt is missing or `converged !== true`, the CLI sets `skip_safe = false` automatically with a `reason` like `"plan-codex receipt missing or not converged"`. Treat that as the normal non-deduped path.
 
-### 2.5.3 — Invoke Codex with --base (v0.2.2 fail-closed Bash wrapper)
+### 2.5.3 — Invoke Codex with --base (v0.2.8 Task 2.6.1-followup F10 helper)
 
 **v0.2.8 Task 2.6.1 review-only invariant — declarative + runtime guard.**
 
 > Findings → PR body inject only. **NO Edit/Write/MultiEdit calls in this command body.** Fix-cycle is forbidden inside `/mccp:pr` — users invoke a separate `/mccp:plan` or `/mccp:prp-implement` after `/mccp:pr` exits. The runtime `pr-phase-guard.js` hook + `pr-phase-lock.js` CLI mechanically enforce this so a single AI lapse cannot mutate code mid-review. See [scripts/hooks/pr-phase-guard.js](../scripts/hooks/pr-phase-guard.js).
 
-**v0.2.8 skip / dedupe short-circuit (Task 2.6.1)**:
+**v0.2.8 Task 2.6.1-followup F10 + F11 R3-F2 — single helper owns the full Codex-review subphase**:
+
+`codex-runner.js` orchestrates the entire Codex-review subphase end-to-end:
+
+- Acquires the `pr-phase` lock via `pr-phase-lock.js enter` using anonymous-pipe IPC (raw `ownership_token` captured in-process, never written to argv/env/FS — F11 R3-F2 contract).
+- Forks a background heartbeat process and pipes the raw token via stdin (token never appears in heartbeat argv or env).
+- Runs `codex-invoke.js adversarial-review` (long-running spawnSync, up to 900s).
+- On Codex success → `pr-phase-lock.js exit` via stdin-pipe token (mutations detector finalizes).
+- On Codex blocking/failure → releases lock first, then fail-stops cleanly.
+- Emits a single JSON envelope: `{ ok, codex_outcome, codex_rounds, codex_summary, codex_actionable_findings, lock_exit_ok, mutations, run_id, helper_manifest, codex_skip_reason }`.
+
+The helper handles all three branches (`invoked` / `skipped` / `deduped`) internally — pr.md does NOT need separate Bash branching. Pass `--skip-reason "$CODEX_SKIP_AT_PR_REASON"` for the Phase 0.2 skip path, `--dedupe` for the 2.5.2 cross-gate dedupe path, or neither for the normal invoke path.
 
 ```bash
-if [ "${CODEX_SKIP_AT_PR_REASON:-}" != "" ]; then
-  # Phase 0.2 set this. Skip Codex entirely, write a skipped marker for 2.5.4
-  # to inject into the PR body.
-  CODEX_OUTCOME="skipped"
-  CODEX_ROUNDS=0
-  CODEX_SUMMARY="MCCP_PR_SKIP_CODEX_REVIEW audited escape (reason recorded in receipt)."
+mkdir -p .git/mccp/tmp
+BODY_FILE_PATH=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" pr-body \
+  --action path \
+  --decision "$DECISION_SLUG" \
+  --head "$(git rev-parse HEAD)")
+
+# Build helper flags. Skip/dedupe are mutually exclusive — Phase 0.3 preflight
+# (F9 — separate step) catches a conflicting combination. Empty/unset env vars
+# omit the flag so codex-runner takes the "invoked" branch.
+RUNNER_FLAGS=(--base "<base-branch>" --decision "$DECISION_SLUG" --body-file "$BODY_FILE_PATH")
+if [ -n "${CODEX_SKIP_AT_PR_REASON:-}" ]; then
+  RUNNER_FLAGS+=(--skip-reason "$CODEX_SKIP_AT_PR_REASON")
 elif [ "${CODEX_DEDUPE_AT_PR:-0}" = "1" ]; then
-  # Phase 2.5.2 set this when skip_safe=true. Cross-gate dedupe path — Codex
-  # already converged in plan + implement stages.
-  CODEX_OUTCOME="deduped"
-  CODEX_ROUNDS=0
-  CODEX_SUMMARY="Decision $DECISION_SLUG already converged in mccp-plan-codex + mccp-implement-codex; cross-gate dedupe applied at PR step."
-else
-  CODEX_OUTCOME="invoked"
+  RUNNER_FLAGS+=(--dedupe)
 fi
-```
 
-If `CODEX_OUTCOME != "invoked"`, skip the Codex invocation block below and jump to 2.5.4 with the skipped/deduped summary. The lock guard (below) is **still required** even on skip paths — it protects the review-only invariant across Phase 2.5.3-2.5.5b.
-
-**v0.2.8 R4-F2 runtime guard — enter Codex-review subphase lock + heartbeat loop (Task 2.6.1-FIX R2-F1 + R3-F1)**:
-
-`cmdEnter` returns `ownership_token` in stdout JSON. Capture it; `cmdHeartbeat`/`cmdExit` REQUIRE both `--run-id` AND `--ownership-token` — missing/wrong refuses (no legacy token-less path). A Bash background heartbeat loop keeps the lock mtime fresh during the long `codex-invoke` `spawnSync` window so the host-aware reclaim policy does not treat a slow-but-alive holder as stale. EXIT trap kills the heartbeat process so it cannot outlive `/mccp:pr`.
-
-```bash
-RUN_ID=$(node -e 'console.log(require("crypto").randomUUID())')
-export RUN_ID
-BRANCH_NAME=$(git branch --show-current)
-LOCK_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" enter \
-  --run-id "$RUN_ID" \
-  --pid $$ \
-  --subphase codex-review \
-  --branch "$BRANCH_NAME")
-LOCK_ENTER_EXIT=$?
-if [ "$LOCK_ENTER_EXIT" != "0" ]; then
-  echo "[MCCP-GATE-STOP] pr-phase-lock enter failed (exit=$LOCK_ENTER_EXIT). Possible stale lock — run:" 1>&2
-  echo "  node \${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js detect-stale" 1>&2
+CODEX_RESULT_FILE=".git/mccp/tmp/codex-result.json"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/codex-runner.js" "${RUNNER_FLAGS[@]}" > "$CODEX_RESULT_FILE"
+CODEX_RUNNER_EXIT=$?
+if [ "$CODEX_RUNNER_EXIT" != "0" ]; then
+  echo "[MCCP-GATE-STOP] codex-runner failed (exit=$CODEX_RUNNER_EXIT)." 1>&2
+  echo "Inspect: cat $CODEX_RESULT_FILE  AND  cat .git/mccp/tmp/codex-invoke.stderr" 1>&2
   exit 1
 fi
-OWNERSHIP_TOKEN=$(echo "$LOCK_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.ownership_token||"")}catch{process.stdout.write("")}')
-if [ -z "$OWNERSHIP_TOKEN" ]; then
-  echo "[MCCP-GATE-STOP] pr-phase-lock enter did not return ownership_token (R2-F1 contract violation)." 1>&2
-  echo "Lock state may be corrupt — run: node \${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js detect-stale" 1>&2
-  exit 1
-fi
-export OWNERSHIP_TOKEN
 
-# v0.2.8 Task 2.6.1-FIX R1-F2 absorption — background heartbeat loop keeps
-# lock mtime fresh during the codex-invoke spawnSync window (which blocks
-# for up to 900s, defeating any in-process heartbeat in the wrapper). The
-# loop exits when the lock file disappears (normal exit path) or when the
-# EXIT trap fires (any /mccp:pr exit, including fail-stop paths).
-(
-  while [ -f .claude/state/pr-phase.lock ]; do
-    node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" heartbeat \
-      --run-id "$RUN_ID" \
-      --ownership-token "$OWNERSHIP_TOKEN" >/dev/null 2>&1 || break
-    sleep 10
-  done
-) &
-HEARTBEAT_PID=$!
-trap 'kill "$HEARTBEAT_PID" 2>/dev/null; wait "$HEARTBEAT_PID" 2>/dev/null' EXIT
+# Parse the result JSON into the variables downstream sub-steps expect. This
+# is the ONLY shell consumption of token-adjacent state — the raw token never
+# crossed any helper's argv or env (R3-F2 contract verified by helper unit tests).
+CODEX_OUTCOME=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.codex_outcome||"invoked")}catch{process.stdout.write("invoked")}' < "$CODEX_RESULT_FILE")
+CODEX_ROUNDS=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(String(j.codex_rounds||0))}catch{process.stdout.write("0")}' < "$CODEX_RESULT_FILE")
+CODEX_SUMMARY=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.codex_summary||"")}catch{process.stdout.write("")}' < "$CODEX_RESULT_FILE")
+CODEX_ACTIONABLE_FINDINGS=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.codex_actionable_findings?"1":"0")}catch{process.stdout.write("0")}' < "$CODEX_RESULT_FILE")
+LOCK_EXIT_OK=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.lock_exit_ok?"1":"0")}catch{process.stdout.write("0")}' < "$CODEX_RESULT_FILE")
 ```
 
-Build the focus text from: PR title (Phase 2), top 1-3 risky areas (migrations, auth, external calls, performance hotspots), and the residual diff areas from 2.5.2. Run the fail-closed wrapper from [scripts/lib/codex-invoke.js](../scripts/lib/codex-invoke.js):
-
-```bash
-if [ "$CODEX_OUTCOME" = "invoked" ]; then
-  mkdir -p .git/mccp/tmp
-  CODEX_STDOUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js" adversarial-review \
-    --focus "challenge this PR diff against base <base-branch>: <focus text>" \
-    --base "<base-branch>" \
-    --timeout-ms 900000 \
-    --json 2> .git/mccp/tmp/codex-invoke.stderr)
-  CODEX_EXIT=$?
-  CODEX_BLOCKING=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.blocking?"1":"0")}catch{console.log("1")}' "$CODEX_STDOUT")
-  CODEX_CLASS=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.classification||"unknown")}catch{console.log("parse-error")}' "$CODEX_STDOUT")
-
-  # Phase 0 already rejected advisory mode for /mccp:pr (terminal command). Any non-ok
-  # classification here is a hard failure — no advisory bypass possible at this stage.
-  if [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || [ "$CODEX_CLASS" != "ok" ]; then
-    # Release lock before fail-stop so the next invocation isn't blocked.
-    node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" exit --run-id "$RUN_ID" --ownership-token "$OWNERSHIP_TOKEN" 2>/dev/null || true
-    echo "[MCCP-GATE-STOP] Codex review failed (class=$CODEX_CLASS exit=$CODEX_EXIT)." 1>&2
-    echo "Inspect: cat .git/mccp/tmp/codex-invoke.stderr" 1>&2
-    exit 1
-  fi
-  # Track whether the Codex response carried findings — Phase 2.5.7 forwards
-  # this as --codex-actionable-findings so the receipt records that findings
-  # existed without mutation (review-only invariant audit trail).
-  CODEX_ACTIONABLE_FINDINGS=$(node -e 'try{const j=JSON.parse(process.argv[1]);const f=Array.isArray(j.findings)?j.findings:[];console.log(f.length>0?"1":"0")}catch{console.log("0")}' "$CODEX_STDOUT")
-fi
-```
+If `LOCK_EXIT_OK != 1`, Phase 2.5.6b's finalizer will fail-stop with the violation details from `mutations[]`. The lock file has already been released by `codex-runner.js`.
 
 ### 2.5.4 — Inject review section + auto-rerun on Divergent, persist body draft
 
@@ -458,68 +413,57 @@ Scan the combined Codex + security-reviewer Open Questions for §0 auto-CRITICAL
    ```
 3. End the response. Release the lock first: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" exit --run-id "$RUN_ID" --ownership-token "$OWNERSHIP_TOKEN" 2>/dev/null || true`.
 
-### 2.5.6b — Exit Codex-review subphase lock (v0.2.8 Task 2.6.1, R4-F2 finalizer)
+### 2.5.6b — Finalize Codex-review subphase lock check (v0.2.8 Task 2.6.1-followup F10)
 
-After all PR body construction is final (2.5.4 + 2.5.5 + 2.5.5b) and before the receipt is written, exit the lock so the finalizer compares the current working tree against the baseline captured at 2.5.3 enter. If the finalizer reports any `mutations[]`, the review-only invariant was violated — fail-stop and do NOT write an approving receipt.
+`codex-runner.js` already called `pr-phase-lock.js exit` internally and captured the mutations finalizer. The lock file is gone. Re-read `CODEX_RESULT_FILE` for the `mutations[]` array and bail if any review-only invariant breach was detected.
 
 ```bash
-LOCK_EXIT_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" exit --run-id "$RUN_ID" --ownership-token "$OWNERSHIP_TOKEN")
-LOCK_EXIT_CODE=$?
-LOCK_OK=$(echo "$LOCK_EXIT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.ok?"1":"0")}catch{process.stdout.write("0")}')
-BASELINE_MISSING=$(echo "$LOCK_EXIT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.baseline_missing?"1":"0")}catch{process.stdout.write("1")}')
+MUTATIONS=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(JSON.stringify(j.mutations||[]))}catch{process.stdout.write("[]")}' < "$CODEX_RESULT_FILE")
+BASELINE_MISSING=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.baseline_missing?"1":"0")}catch{process.stdout.write("1")}' < "$CODEX_RESULT_FILE")
 
-if [ "$LOCK_OK" != "1" ]; then
+if [ "$LOCK_EXIT_OK" != "1" ]; then
   echo "[MCCP-GATE-STOP] PR-phase guard finalizer detected violations (review-only invariant breach)." 1>&2
-  echo "$LOCK_EXIT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));console.error("  baseline_missing:",j.baseline_missing);console.error("  mutations:",JSON.stringify(j.mutations,null,2))}catch{}' 1>&2
+  echo "  baseline_missing: $BASELINE_MISSING" 1>&2
+  echo "  mutations: $MUTATIONS" 1>&2
   echo "" 1>&2
   echo "Per Task 2.6.1: PR body finds → audit trail only. Fix-cycle must be a separate /mccp:plan or /mccp:prp-implement invocation after /mccp:pr exits." 1>&2
   exit 1
 fi
 ```
 
-If `LOCK_OK=1`, proceed to 2.5.7. If `baseline_missing=true`, the receipt verdict is forced to non-approving (audited via `--codex-actionable-findings`). The lock file is unlinked by `exit` so the next `/mccp:pr` invocation starts fresh.
+If `LOCK_EXIT_OK=1`, proceed to 2.5.7. If `baseline_missing=true`, the receipt verdict is forced to non-approving via `--codex-actionable-findings`. The lock file was unlinked by `codex-runner.js` so the next `/mccp:pr` invocation starts fresh.
 
-### 2.5.7 — Write mccp-pr-codex receipt
+### 2.5.7 — Write mccp-pr-codex receipt via finalize-receipt helper (F10)
+
+`finalize-receipt.js` reads the `codex-result.json` produced by `codex-runner.js`, derives the conditional WRITE_FLAGS internally (codex-skipped / codex-dedupe / codex-actionable-findings), and invokes `receipt/cli.js write` in one call. No Bash array construction.
 
 ```bash
-# Derive decision-slug deterministically (must match what /mccp:plan and /mccp:prp-implement wrote)
-DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+# Decision slug derives deterministically (same as 2.5.2 and 2.5.8 read-back).
+DECISION_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decision \
   --command mccp:pr \
   --args "$ARGUMENTS")
 
-# If Phase 2.5.5 entered the audited escape branch,
-# SECURITY_FORCE_OVERRIDE_REASON was exported. Forward it to receipt write so
-# meta.security_force_override / meta.security_force_override_reason are
-# stamped. Without this conditional, the override silently produces an
-# approving receipt and downstream validators miss the audit trail
-# (Codex Round 1 F3).
-#
-# v0.2.8 Task 2.6.1 — additional flags for PR-Codex review axis:
-#   --codex-dedupe-at-pr          when 2.5.2 produced skip_safe=true
-#   --codex-skipped-at-pr +       when Phase 0.2 set CODEX_SKIP_AT_PR_REASON
-#     --codex-skip-reason <text>  via MCCP_PR_SKIP_CODEX_REVIEW
-#   --codex-actionable-findings   when Codex returned findings but the lock
-#                                 exit finalizer confirmed no mutation
-# Build the flag vector first to keep the write call readable.
-
-WRITE_FLAGS=(--gate mccp-pr-codex --decision "$DECISION_SLUG" --plan "<plan path or PR title>" --quiet)
-
+# Build the finalize-receipt flag list. Helper handles codex-result-driven
+# conditional flags internally (skipped/dedupe/actionable) — caller only
+# forwards the env-driven overrides.
+FINALIZE_FLAGS=(--gate mccp-pr-codex
+  --decision "$DECISION_SLUG"
+  --plan "<plan path or PR title>"
+  --codex-result "$CODEX_RESULT_FILE"
+  --quiet)
 if [ -n "$SECURITY_FORCE_OVERRIDE_REASON" ]; then
-  WRITE_FLAGS+=(--security-force-override --security-force-override-reason "$SECURITY_FORCE_OVERRIDE_REASON")
+  FINALIZE_FLAGS+=(--security-force-override-reason "$SECURITY_FORCE_OVERRIDE_REASON")
+fi
+if [ -n "$IMPECCABLE_SKIPPED_REASON" ]; then
+  FINALIZE_FLAGS+=(--impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON")
 fi
 
-# Mutually exclusive: dedupe vs skipped (schema invariant).
-if [ "${CODEX_SKIP_AT_PR_REASON:-}" != "" ]; then
-  WRITE_FLAGS+=(--codex-skipped-at-pr --codex-skip-reason "$CODEX_SKIP_AT_PR_REASON")
-elif [ "${CODEX_DEDUPE_AT_PR:-0}" = "1" ]; then
-  WRITE_FLAGS+=(--codex-dedupe-at-pr)
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/finalize-receipt.js" "${FINALIZE_FLAGS[@]}"
+FINALIZE_EXIT=$?
+if [ "$FINALIZE_EXIT" != "0" ]; then
+  echo "[MCCP-GATE-STOP] finalize-receipt failed (exit=$FINALIZE_EXIT)." 1>&2
+  exit 1
 fi
-
-if [ "${CODEX_ACTIONABLE_FINDINGS:-0}" = "1" ]; then
-  WRITE_FLAGS+=(--codex-actionable-findings)
-fi
-
-node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" write "${WRITE_FLAGS[@]}"
 ```
 
 Bash hook block handling: same as Plan-Codex Phase 7.6 — output `[MCCP-GATE-STOP]` with captured hook stderr and end the response. Do NOT enter Phase 3.

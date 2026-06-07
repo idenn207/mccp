@@ -118,6 +118,17 @@
         ],
         "description": "Fact-forcing gate: block first Edit/Write/MultiEdit per file and demand investigation (importers, data schemas, user instruction) before allowing",
         "id": "pre:edit-write:gateguard-fact-force"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pr-phase-guard.js\""
+          }
+        ],
+        "description": "mccp v0.2.8 Task 2.6.1 — review-only invariant enforcement during /mccp:pr Codex-review subphase (PreToolUse default-deny on write tools + Bash sub-allow). No-op outside the subphase.",
+        "id": "mccp:pr-phase-guard:pre"
       }
     ],
     "PreCompact": [
@@ -131,17 +142,6 @@
         ],
         "description": "Save state before context compaction",
         "id": "pre:compact"
-      },
-      {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pr-phase-guard.js\""
-          }
-        ],
-        "description": "mccp v0.2.8 Task 2.6.1 — review-only invariant enforcement during /mccp:pr Codex-review subphase (PreToolUse default-deny on write tools + Bash sub-allow). No-op outside the subphase.",
-        "id": "mccp:pr-phase-guard:pre"
       }
     ],
     "SessionStart": [

@@ -255,23 +255,48 @@ fi
 
 If `CODEX_OUTCOME != "invoked"`, skip the Codex invocation block below and jump to 2.5.4 with the skipped/deduped summary. The lock guard (below) is **still required** even on skip paths — it protects the review-only invariant across Phase 2.5.3-2.5.5b.
 
-**v0.2.8 R4-F2 runtime guard — enter Codex-review subphase lock**:
+**v0.2.8 R4-F2 runtime guard — enter Codex-review subphase lock + heartbeat loop (Task 2.6.1-FIX R2-F1 + R3-F1)**:
+
+`cmdEnter` returns `ownership_token` in stdout JSON. Capture it; `cmdHeartbeat`/`cmdExit` REQUIRE both `--run-id` AND `--ownership-token` — missing/wrong refuses (no legacy token-less path). A Bash background heartbeat loop keeps the lock mtime fresh during the long `codex-invoke` `spawnSync` window so the host-aware reclaim policy does not treat a slow-but-alive holder as stale. EXIT trap kills the heartbeat process so it cannot outlive `/mccp:pr`.
 
 ```bash
 RUN_ID=$(node -e 'console.log(require("crypto").randomUUID())')
 export RUN_ID
 BRANCH_NAME=$(git branch --show-current)
-node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" enter \
+LOCK_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" enter \
   --run-id "$RUN_ID" \
   --pid $$ \
   --subphase codex-review \
-  --branch "$BRANCH_NAME"
+  --branch "$BRANCH_NAME")
 LOCK_ENTER_EXIT=$?
 if [ "$LOCK_ENTER_EXIT" != "0" ]; then
   echo "[MCCP-GATE-STOP] pr-phase-lock enter failed (exit=$LOCK_ENTER_EXIT). Possible stale lock — run:" 1>&2
   echo "  node \${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js detect-stale" 1>&2
   exit 1
 fi
+OWNERSHIP_TOKEN=$(echo "$LOCK_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.ownership_token||"")}catch{process.stdout.write("")}')
+if [ -z "$OWNERSHIP_TOKEN" ]; then
+  echo "[MCCP-GATE-STOP] pr-phase-lock enter did not return ownership_token (R2-F1 contract violation)." 1>&2
+  echo "Lock state may be corrupt — run: node \${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js detect-stale" 1>&2
+  exit 1
+fi
+export OWNERSHIP_TOKEN
+
+# v0.2.8 Task 2.6.1-FIX R1-F2 absorption — background heartbeat loop keeps
+# lock mtime fresh during the codex-invoke spawnSync window (which blocks
+# for up to 900s, defeating any in-process heartbeat in the wrapper). The
+# loop exits when the lock file disappears (normal exit path) or when the
+# EXIT trap fires (any /mccp:pr exit, including fail-stop paths).
+(
+  while [ -f .claude/state/pr-phase.lock ]; do
+    node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" heartbeat \
+      --run-id "$RUN_ID" \
+      --ownership-token "$OWNERSHIP_TOKEN" >/dev/null 2>&1 || break
+    sleep 10
+  done
+) &
+HEARTBEAT_PID=$!
+trap 'kill "$HEARTBEAT_PID" 2>/dev/null; wait "$HEARTBEAT_PID" 2>/dev/null' EXIT
 ```
 
 Build the focus text from: PR title (Phase 2), top 1-3 risky areas (migrations, auth, external calls, performance hotspots), and the residual diff areas from 2.5.2. Run the fail-closed wrapper from [scripts/lib/codex-invoke.js](../scripts/lib/codex-invoke.js):
@@ -292,7 +317,7 @@ if [ "$CODEX_OUTCOME" = "invoked" ]; then
   # classification here is a hard failure — no advisory bypass possible at this stage.
   if [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || [ "$CODEX_CLASS" != "ok" ]; then
     # Release lock before fail-stop so the next invocation isn't blocked.
-    node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" exit --run-id "$RUN_ID" 2>/dev/null || true
+    node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" exit --run-id "$RUN_ID" --ownership-token "$OWNERSHIP_TOKEN" 2>/dev/null || true
     echo "[MCCP-GATE-STOP] Codex review failed (class=$CODEX_CLASS exit=$CODEX_EXIT)." 1>&2
     echo "Inspect: cat .git/mccp/tmp/codex-invoke.stderr" 1>&2
     exit 1
@@ -431,14 +456,14 @@ Scan the combined Codex + security-reviewer Open Questions for §0 auto-CRITICAL
    Branch: <current branch>
    사용자 결정 필요. 진행 의사 또는 수정 지시를 주세요.
    ```
-3. End the response. Release the lock first: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" exit --run-id "$RUN_ID" 2>/dev/null || true`.
+3. End the response. Release the lock first: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" exit --run-id "$RUN_ID" --ownership-token "$OWNERSHIP_TOKEN" 2>/dev/null || true`.
 
 ### 2.5.6b — Exit Codex-review subphase lock (v0.2.8 Task 2.6.1, R4-F2 finalizer)
 
 After all PR body construction is final (2.5.4 + 2.5.5 + 2.5.5b) and before the receipt is written, exit the lock so the finalizer compares the current working tree against the baseline captured at 2.5.3 enter. If the finalizer reports any `mutations[]`, the review-only invariant was violated — fail-stop and do NOT write an approving receipt.
 
 ```bash
-LOCK_EXIT_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" exit --run-id "$RUN_ID")
+LOCK_EXIT_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" exit --run-id "$RUN_ID" --ownership-token "$OWNERSHIP_TOKEN")
 LOCK_EXIT_CODE=$?
 LOCK_OK=$(echo "$LOCK_EXIT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.ok?"1":"0")}catch{process.stdout.write("0")}')
 BASELINE_MISSING=$(echo "$LOCK_EXIT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.baseline_missing?"1":"0")}catch{process.stdout.write("1")}')

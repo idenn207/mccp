@@ -210,3 +210,46 @@ test('lockActive returns null on parse error in lock file', () => {
   const r = guard.lockActive(fakeLock, '/repo');
   assert.strictEqual(r, null);
 });
+
+// ──────────────────────────────────────────────────────────────────
+// Axis 5: hooks.json registration invariant
+//
+// Codex Round-1 F1 (CRITICAL, confidence 0.97) absorbed: the pre-guard
+// block was registered under PreCompact instead of PreToolUse. PreCompact
+// fires for context compaction, not before tool execution, so the lock
+// could be active but writes would not be blocked. The Round-1 fix moves
+// the block; this regression test parses hooks.json and asserts the
+// registration invariant so the same mistake cannot reland silently.
+// ──────────────────────────────────────────────────────────────────
+
+const fs = require('node:fs');
+const path = require('node:path');
+
+function loadHooksJson() {
+  const p = path.join(__dirname, '..', '..', '..', 'hooks', 'hooks.json');
+  return JSON.parse(fs.readFileSync(p, 'utf8'));
+}
+
+test('hooks.json: mccp:pr-phase-guard:pre is registered under PreToolUse', () => {
+  const j = loadHooksJson();
+  const pre = (j.hooks && j.hooks.PreToolUse) || [];
+  const found = pre.find(function (h) { return h && h.id === 'mccp:pr-phase-guard:pre'; });
+  assert.ok(found, 'mccp:pr-phase-guard:pre must be present in hooks.PreToolUse');
+  assert.strictEqual(found.matcher, 'Edit|Write|MultiEdit|NotebookEdit|Bash');
+  assert.ok(Array.isArray(found.hooks) && found.hooks.length > 0, 'hooks array must be non-empty');
+  assert.ok(/pr-phase-guard\.js/.test(found.hooks[0].command), 'command must invoke pr-phase-guard.js');
+});
+
+test('hooks.json: mccp:pr-phase-guard:pre is NOT registered under PreCompact', () => {
+  const j = loadHooksJson();
+  const pc = (j.hooks && j.hooks.PreCompact) || [];
+  const found = pc.find(function (h) { return h && h.id === 'mccp:pr-phase-guard:pre'; });
+  assert.strictEqual(found, undefined, 'mccp:pr-phase-guard:pre must NOT appear under hooks.PreCompact');
+});
+
+test('hooks.json: mccp:pr-phase-guard:post stays under PostToolUse (audit ledger)', () => {
+  const j = loadHooksJson();
+  const post = (j.hooks && j.hooks.PostToolUse) || [];
+  const found = post.find(function (h) { return h && h.id === 'mccp:pr-phase-guard:post'; });
+  assert.ok(found, 'mccp:pr-phase-guard:post must be present in hooks.PostToolUse for audit ledger');
+});

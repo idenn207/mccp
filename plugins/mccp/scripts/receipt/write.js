@@ -115,6 +115,11 @@ function buildReceipt(args) {
       impeccable_skip_reason: args['impeccable-skip-reason'] || null,
       impeccable_force_override: args['impeccable-force-override'] === true,
       impeccable_force_override_reason: args['impeccable-force-override-reason'] || null,
+      // v0.2.8 Task 2.6.1 — PR-Codex audit axis.
+      codex_dedupe_at_pr: args['codex-dedupe-at-pr'] === true,
+      codex_skipped_at_pr: args['codex-skipped-at-pr'] === true,
+      codex_skip_reason: args['codex-skip-reason'] || null,
+      codex_review_actionable_findings: args['codex-actionable-findings'] === true,
     },
   });
 

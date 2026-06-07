@@ -131,6 +131,17 @@
         ],
         "description": "Save state before context compaction",
         "id": "pre:compact"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pr-phase-guard.js\""
+          }
+        ],
+        "description": "mccp v0.2.8 Task 2.6.1 — review-only invariant enforcement during /mccp:pr Codex-review subphase (PreToolUse default-deny on write tools + Bash sub-allow). No-op outside the subphase.",
+        "id": "mccp:pr-phase-guard:pre"
       }
     ],
     "SessionStart": [
@@ -267,6 +278,17 @@
         ],
         "description": "Inject agent warnings on context exhaustion, high cost, scope creep, or tool loops",
         "id": "post:ecc-context-monitor"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pr-phase-guard.js\""
+          }
+        ],
+        "description": "mccp v0.2.8 Task 2.6.1 — PostToolUse audit ledger for /mccp:pr Codex-review subphase (records phase/tool/file_path into hook-trace shard for finalizer cross-check)",
+        "id": "mccp:pr-phase-guard:post"
       }
     ],
     "PostToolUseFailure": [

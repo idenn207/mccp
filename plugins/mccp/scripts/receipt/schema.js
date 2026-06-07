@@ -207,6 +207,49 @@ function validate(receipt) {
           'no placeholder/URL-only/banlist token');
       }
     }
+
+    // v0.2.8 Task 2.6.1 — PR-Codex review-only audit axis (4 fields).
+    //
+    // Backwards-compatible: receipts written by v0.2.7 and earlier did not
+    // carry these fields. Treat absent (undefined) as the default false
+    // for boolean fields and null for the reason string. New write paths
+    // (write.js + makeSkeleton) always populate them, so the strict invariants
+    // below only fire when at least one field is explicitly present.
+    //
+    // Matrix invariant: codex_dedupe_at_pr + codex_skipped_at_pr cannot both
+    // be true — mutually exclusive skip paths. Reason validator (strict)
+    // applies only when codex_skipped_at_pr=true.
+    if (m.codex_dedupe_at_pr !== undefined) {
+      req(typeof m.codex_dedupe_at_pr === 'boolean',
+        'meta.codex_dedupe_at_pr must be a boolean if present');
+    }
+    if (m.codex_skipped_at_pr !== undefined) {
+      req(typeof m.codex_skipped_at_pr === 'boolean',
+        'meta.codex_skipped_at_pr must be a boolean if present');
+    }
+    if (m.codex_skip_reason !== null && m.codex_skip_reason !== undefined) {
+      req(typeof m.codex_skip_reason === 'string',
+        'meta.codex_skip_reason must be a string or null');
+    }
+    if (m.codex_review_actionable_findings !== undefined) {
+      req(typeof m.codex_review_actionable_findings === 'boolean',
+        'meta.codex_review_actionable_findings must be a boolean if present');
+    }
+
+    if (m.codex_dedupe_at_pr === true && m.codex_skipped_at_pr === true) {
+      err('meta.codex_dedupe_at_pr + meta.codex_skipped_at_pr cannot both be true ' +
+        '(Task 2.6.1 matrix invariant: pick one — dedupe = cross-gate convergence, ' +
+        'skipped = MCCP_PR_SKIP_CODEX_REVIEW audited escape)');
+    }
+
+    if (m.codex_skipped_at_pr === true) {
+      const v = validateReason(m.codex_skip_reason, { strict: true });
+      if (!v.ok) {
+        err('meta.codex_skip_reason rejected (' + v.reason + '): ' +
+          'MCCP_PR_SKIP_CODEX_REVIEW requires substantive reason ≥30 chars + ' +
+          '≥3 words, no placeholder/URL-only/banlist token');
+      }
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -252,6 +295,11 @@ function makeSkeleton(overrides) {
       impeccable_skip_reason: null,
       impeccable_force_override: false,
       impeccable_force_override_reason: null,
+      // v0.2.8 Task 2.6.1 — PR-Codex review-only audit axis.
+      codex_dedupe_at_pr: false,
+      codex_skipped_at_pr: false,
+      codex_skip_reason: null,
+      codex_review_actionable_findings: false,
     },
   }, o);
 }

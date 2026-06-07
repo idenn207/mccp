@@ -48,9 +48,17 @@ bodies implement it inline. The 7 steps every gate must run in a single response
 
 ### Divergent auto-rerun
 
-If Codex returns new objections, update the artifact body to address them and re-invoke
-the Skill. Repeat up to **3 rounds total**. Cap at 3 even if still divergent — annotate
-the open question as `DIVERGENT_UNRESOLVED` and proceed.
+Default round cap is 1 (controlled by `MCCP_GATE_ROUND_CAP`, allowed `1`/`2`/`3`).
+After R1, Claude produces a YAGNI triage table classifying each finding as
+`ACCEPT_NOW` / `DEFER_TO_BACKLOG` / `REJECT_YAGNI`. R2 runs ONLY if ≥1 finding is
+classified `ACCEPT_NOW` with severity `CRITICAL` or `HIGH` AND the absorption was
+unable to fully address it (Claude self-attests in the plan body). R3 runs only
+if R2 returns a NEW `CRITICAL`/`HIGH` unresolved. Beyond `MCCP_GATE_ROUND_CAP`,
+annotate the open question as `DIVERGENT_UNRESOLVED` and proceed.
+
+All `DEFER_TO_BACKLOG` items are appended to `.claude/plans/codex-findings-backlog.md`
+with a one-line entry: `YYYY-MM-DD | severity | source plan | one-line finding`.
+`REJECT_YAGNI` items require a "Why YAGNI" sentence in the triage table.
 
 ### Codex auto-fallback
 

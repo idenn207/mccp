@@ -120,6 +120,13 @@ function buildReceipt(args) {
       codex_skipped_at_pr: args['codex-skipped-at-pr'] === true,
       codex_skip_reason: args['codex-skip-reason'] || null,
       codex_review_actionable_findings: args['codex-actionable-findings'] === true,
+      // v0.2.9 Task 5 — YAGNI triage DEFER_TO_BACKLOG counter. Additive, no schema bump.
+      deferred_findings_count: (function () {
+        const v = args['deferred-findings'];
+        if (v === undefined || v === true || v === null) return 0;
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) && n >= 0 ? n : 0;
+      })(),
     },
   });
 

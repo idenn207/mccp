@@ -35,6 +35,7 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 |---|---|---|---|---|
 | **Milestone 0** | (메타) | Roadmap consolidation + archive (본 plan + sub-plan split) | (본 plan 자체) | 🚧 진행 중 (2026-06-06 thin-index transform) |
 | **Milestone 2.6** | v0.2.8 | PR Workflow Hardening (Codex fix-loop 차단 + markdown lint 노이즈) | [v0-2-8](v0-2-8-pr-workflow-hardening.plan.md) | ✅ shipped (PRs #6/#7/#8 + finalize cycle 2026-06-07/08) |
+| **Milestone 2.7** | v0.2.9 | Gate Round Budget + YAGNI Triage (default cap=1 + DEFER_TO_BACKLOG file) | [v0-2-9](v0-2-9-gate-round-yagni.plan.md) | ⏳ pending |
 | **Milestone 3** | v0.3.0 | S10b Auto-Handoff ($100 hard ceiling) | [v0-3-0](v0-3-0-auto-handoff.plan.md) | ⏳ pending |
 | **Milestone 4** | v0.3.1 | S11 `/mccp:work` single entry orchestration | [v0-3-1](v0-3-1-mccp-work.plan.md) | ⏳ pending |
 | **Milestone 5** | v0.3.2 | S12 dual-reviewer escalate (자동 안내, invoke X) | [v0-3-2](v0-3-2-escalate.plan.md) | ⏳ pending |
@@ -89,6 +90,7 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 | Atomic state write | [state-writer.js](../../plugins/mccp/scripts/state/state-writer.js) | lock + CRLF normalize + schema version guard |
 | Hook fail-open + observability | v0.2.7 G1 invariant + L1 shard ledger + L2 systemMessage | event-shape-specific output |
 | CLI PATH probe | [dep-check.js:53-59](../../plugins/mccp/scripts/lib/dep-check.js#L53-L59) | Windows shim + WSL fallback |
+| YAGNI triage + backlog file (v0.2.9+) | [docs/gate-design.md](../../docs/gate-design.md) §Divergent + [codex-findings-backlog.md](codex-findings-backlog.md) | R1 결과 ACCEPT_NOW/DEFER_TO_BACKLOG/REJECT_YAGNI 3분류, `MCCP_GATE_ROUND_CAP=1\|2\|3` default 1 |
 
 ---
 

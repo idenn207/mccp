@@ -250,6 +250,11 @@ function validate(receipt) {
           '≥3 words, no placeholder/URL-only/banlist token');
       }
     }
+
+    if (m.deferred_findings_count !== undefined && m.deferred_findings_count !== null) {
+      req(Number.isInteger(m.deferred_findings_count) && m.deferred_findings_count >= 0,
+        'meta.deferred_findings_count must be a non-negative integer if present');
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -300,6 +305,8 @@ function makeSkeleton(overrides) {
       codex_skipped_at_pr: false,
       codex_skip_reason: null,
       codex_review_actionable_findings: false,
+      // v0.2.9 Task 5 — YAGNI triage DEFER_TO_BACKLOG counter (additive, no schema bump).
+      deferred_findings_count: 0,
     },
   }, o);
 }

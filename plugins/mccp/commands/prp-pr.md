@@ -25,6 +25,18 @@ Receipt `gate_id` is still `mccp-pr-codex` regardless of which alias the user ty
 
 Inherited verbatim from `/mccp:pr` Phase 2.5.1. The pre-flight helper invocation `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect --mode pr --base "origin/<base>" --json` runs identically, and `MCCP_FORCE_PR_WITHOUT_IMPECCABLE` audited escape applies identically. The receipt records `meta.impeccable_skipped` / `meta.impeccable_force_override` on the same `mccp-pr-codex` receipt regardless of which alias the user typed. `Skill(impeccable, "critique ...")` invocations are also identical. When Skill unavailable, the fallback note `> impeccable unavailable, skipped (auto-fallback): skill-missing` is injected into the PR body's `## Design Review` section identically.
 
+### Review-only invariant + PR-phase guard (v0.2.8 Task 2.6.1)
+
+The full Task 2.6.1 surface inherits verbatim:
+
+- **Phase 0.2** — `MCCP_PR_SKIP_CODEX_REVIEW="<reason>"` audited escape preflight runs identically (reason validator strict, exit 1 on rejection).
+- **Phase 2.5.2** — cross-gate dedupe `CODEX_DEDUPE_AT_PR=1` export on `skip_safe=true` is identical; receipt records `meta.codex_dedupe_at_pr=true`.
+- **Phase 2.5.3** — `pr-phase-lock.js enter` runs at the same point. The `pr-phase-guard.js` PreToolUse + PostToolUse hooks read the lock file (single source of truth) and apply default-deny on write tools + Bash sub-allowlist regardless of which alias triggered them.
+- **Phase 2.5.6b** — `pr-phase-lock.js exit` finalizer runs identically. Any mutation evidence (porcelain delta or `dirty_content_hashes` re-check) blocks receipt write.
+- **Phase 2.5.7** — receipt write forwards `--codex-dedupe-at-pr` / `--codex-skipped-at-pr` / `--codex-skip-reason` / `--codex-actionable-findings` identically.
+
+The runtime guard does **not** distinguish between the two aliases — it inspects the lock file directly. The receipt `gate_id` remains `mccp-pr-codex`.
+
 For the full procedure, see [`pr.md`](./pr.md). Do not duplicate the body here — drift between the two files would silently weaken the gate.
 
 ## Why this command exists

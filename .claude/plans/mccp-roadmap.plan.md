@@ -257,3 +257,15 @@ Verdict **NEEDS-ATTENTION** → gate proceeds with implement-time absorption. F-
 
 raw outputs preserved at `.git/mccp/tmp/codex-r{1,2,3}-thinindex.json`.
 
+## Codex Adversarial Review (Re-issue R4 — post-thin-index drift, 2026-06-07)
+
+- **호출**: `node "C:/Users/skypark207/.claude/plugins/cache/mccp/mccp/0.2.7/scripts/lib/codex-invoke.js" adversarial-review --focus "post-thin-index drift re-verification" --timeout-ms 120000 --json` (mccp wrapper 직접 사용 — prior R1/R2/R3는 companion 직접 호출이었으나 본 라운드에서 wrapper가 정상 응답함을 확인. v0.2.6 wrapper bug debt의 부분적 자연 회복 가능성.)
+- **이유**: plan_hash drift(`50a8f866…` → `58cf9131…`) + base_commit advance(`48964a5` → `8cc9ac5`)로 인한 receipt re-stamp 요구. plan body의 substantive 변경은 `4ab8988`(thin-index transform commit 자체)뿐이며 prior R1/R2/R3가 이미 흡수.
+- **라운드 수**: R4 (verification-only, 1 라운드)
+- **합치 결론**: `verdict=approve`, 0 findings, 0 next_steps. Codex가 working-tree diff(STATE.md timestamp refresh + dep_check_at)를 review하고 ship 승인. committed thin-index transform은 prior 라운드에서 substantively 처리되었으므로 별도 검증 surface 없음. classification `ok`, blocking=false.
+- **수용한 제안**: 없음 (findings=[])
+- **거부한 제안**: 없음 (findings=[])
+- **Open Questions**: 없음. prior 섹션의 MEDIUM 항목(R3 unverified, wrapper bug carry-over)은 본 라운드에서도 status quo 유지 — 별도 escalation 불필요.
+- **Codex session 참조**: threadId `019e9efb-b398-7623-b693-9a6f25a00692` (durationMs 29351s).
+- **Receipt re-stamp 목표**: 본 라운드의 핵심 가치는 advance된 plan_hash + base_commit으로 `mccp-plan-codex/mccp-roadmap.json`을 re-issue하여 chain hygiene 회복 (Phase 5.6/5.7 후속).
+

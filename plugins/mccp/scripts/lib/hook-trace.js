@@ -36,6 +36,12 @@ const GLOBAL_MAX_BYTES = 100 * 1024 * 1024;
 const LEASE_STALE_MS = 24 * 60 * 60 * 1000;
 
 // Allowlist — only these fields permitted in entries (C6).
+//
+// v0.2.8 Task 2.6.1 R1-F1 absorption: `phase`, `tool`, `file_path` optional —
+// pr-phase-guard.js records successful PostToolUse mutations during the
+// Codex-review subphase so the finalizer can audit them. Fields default to
+// null when absent, preserving v0.2.7 fail-open invariant for callers that
+// never set them.
 const SHARD_ENTRY_FIELDS = new Set([
   'ts',
   'session_id',
@@ -46,6 +52,9 @@ const SHARD_ENTRY_FIELDS = new Set([
   'layer',
   'exception_class',
   'exit_code',
+  'phase',
+  'tool',
+  'file_path',
 ]);
 
 const COMMAND_NAME_PASSTHROUGH_PREFIX = 'mccp:';
@@ -154,6 +163,10 @@ function normalizeEntry(raw) {
     layer: raw.layer,
     exception_class: raw.exception_class || null,
     exit_code: raw.exit_code === undefined ? null : raw.exit_code,
+    // v0.2.8 Task 2.6.1 R1-F1 — optional pr-phase audit fields.
+    phase: raw.phase || null,
+    tool: raw.tool || null,
+    file_path: raw.file_path || null,
   };
   validateEntry(entry);
   return entry;

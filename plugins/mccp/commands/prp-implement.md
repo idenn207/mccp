@@ -106,7 +106,7 @@ This runs **after** Phase 2 (PREPARE — git state, branch) and **before** Phase
 
 ### 2.5.1 — Cross-gate dedupe check
 
-Read the plan file. If it contains `## Codex Adversarial Review` with a `합치 결론` line that mentions the same architectural decisions you're about to implement (file structure, abstraction boundaries, external deps, concurrency model), AND no new decision was introduced since the plan was approved, write a single line into the plan body:
+Read the plan file. If it contains `## Codex Adversarial Review` with a `합치 결론` line that mentions the same architectural decisions you're about to implement (file structure, abstraction boundaries, external deps, concurrency model), AND no new decision was introduced since the plan was approved, AND `git diff --name-only origin/<base>..HEAD` ⊆ the plan's `Files to Change` list (no implement-time file expansion), write a single line into the plan body:
 
 ```markdown
 ## Codex Implementation Review
@@ -147,11 +147,39 @@ if [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || [ "$CODEX_CLASS" !
 fi
 ```
 
-### 2.5.4 — Inject review section + auto-rerun on Divergent
+### 2.5.4 — Inject review section + severity-gated re-rerun (default cap=1)
 
-Edit the plan (or `.claude/notes/<topic>.md` if plan is in `completed/`): append/replace `## Codex Implementation Review` with the same schema as Plan-Codex (round, 합치 결론, 수용/거부, Open Questions, session ref).
+Edit the plan (or `.claude/notes/<topic>.md` if plan is in `completed/`): append/replace `## Codex Implementation Review` with the YAGNI-triage schema (mirror of plan.md Phase 5.3):
 
-Divergent re-rerun: same as Plan-Codex Phase 7.4 — up to 3 rounds. Cap and annotate as `DIVERGENT_UNRESOLVED` if not converged.
+```markdown
+## Codex Implementation Review
+
+- 호출: `node ${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, v0.2.2)
+- 라운드 수: <N>
+- 합치 결론: <one-line summary>
+- YAGNI Triage:
+  | Finding | Severity | Verdict | Why |
+  |---|---|---|---|
+  | F1 | CRITICAL | ACCEPT_NOW | <one-line> |
+  | F2 | HIGH | DEFER_TO_BACKLOG | <one-line> |
+  | F3 | LOW | REJECT_YAGNI | <one-line, "not needed because…"> |
+- Deferred to backlog: <count> → `.claude/plans/codex-findings-backlog.md`
+- Open Questions: <item — severity CRITICAL/HIGH/MEDIUM/LOW>
+- Codex session 참조: <task-id from Skill result>
+```
+
+After R1's YAGNI triage table is written, escalate ONLY if BOTH:
+  (a) ≥1 finding is `verdict=ACCEPT_NOW` AND `severity ∈ {CRITICAL, HIGH}`
+  (b) The R1 absorption could not fully resolve it (Claude self-attests in plan body)
+If escalate triggers, run R2 with focus restricted to the unresolved item(s).
+Repeat up to `MCCP_GATE_ROUND_CAP` (default `1`, allowed `1`/`2`/`3`). Beyond the cap,
+annotate as `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
+
+If no `ACCEPT_NOW` HIGH/CRITICAL remains, stop at R1.
+
+All `DEFER_TO_BACKLOG` items: append a line to `.claude/plans/codex-findings-backlog.md`
+before Phase 2.5.5. Format:
+- `YYYY-MM-DD | <severity> | <source plan path> | <one-line finding>`
 
 ### 2.5.5 — Auto-CRITICAL check
 

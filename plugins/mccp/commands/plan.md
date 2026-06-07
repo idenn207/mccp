@@ -286,15 +286,31 @@ Edit the plan: replace the placeholder section with:
 - 호출: `node ${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, v0.2.2)
 - 라운드 수: <N>
 - 합치 결론: <one-line summary>
-- 수용한 제안: <bullet list>
-- 거부한 제안 + 근거: <bullet list>
+- YAGNI Triage:
+  | Finding | Severity | Verdict | Why |
+  |---|---|---|---|
+  | F1 | CRITICAL | ACCEPT_NOW | <one-line> |
+  | F2 | HIGH | DEFER_TO_BACKLOG | <one-line> |
+  | F3 | LOW | REJECT_YAGNI | <one-line, "not needed because…"> |
+- Deferred to backlog: <count> → `.claude/plans/codex-findings-backlog.md`
 - Open Questions: <item — severity CRITICAL/HIGH/MEDIUM/LOW>
 - Codex session 참조: <task-id from Skill result>
 ```
 
-### 5.4 — Divergent auto-rerun (max 3 rounds)
+### 5.4 — Severity-gated re-rerun (default cap=1)
 
-If Codex returned new objections in 5.2: update the plan body to address them, then re-invoke the same Bash wrapper from 5.2 with an updated focus reflecting commitments. Repeat up to **3 rounds total**. Cap at 3 even if still divergent — annotate as `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
+After R1's YAGNI triage table (5.3) is written, escalate ONLY if BOTH:
+  (a) ≥1 finding is `verdict=ACCEPT_NOW` AND `severity ∈ {CRITICAL, HIGH}`
+  (b) The R1 absorption could not fully resolve it (Claude self-attests in plan body)
+If escalate triggers, run R2 with focus restricted to the unresolved item(s).
+Repeat up to `MCCP_GATE_ROUND_CAP` (default `1`, allowed `1`/`2`/`3`). Beyond the cap,
+annotate as `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
+
+If no `ACCEPT_NOW` HIGH/CRITICAL remains, stop at R1.
+
+All `DEFER_TO_BACKLOG` items: append a line to `.claude/plans/codex-findings-backlog.md`
+before Phase 5.5. Format:
+- `YYYY-MM-DD | <severity> | <source plan path> | <one-line finding>`
 
 ### 5.5 — Auto-CRITICAL check
 

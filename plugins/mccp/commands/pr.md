@@ -283,6 +283,8 @@ elif [ "${CODEX_DEDUPE_AT_PR:-0}" = "1" ]; then
 fi
 
 CODEX_RESULT_FILE=".git/mccp/tmp/codex-result.json"
+# v0.2.9 — codex-runner.js inherits env into the codex-invoke child process. No code change in the helper needed.
+export MCCP_GATE_ROUND_CAP="${MCCP_GATE_ROUND_CAP:-1}"
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/codex-runner.js" "${RUNNER_FLAGS[@]}" > "$CODEX_RESULT_FILE"
 CODEX_RUNNER_EXIT=$?
 if [ "$CODEX_RUNNER_EXIT" != "0" ]; then
@@ -313,13 +315,29 @@ Construct the `## Codex Adversarial Review` PR body section with the same schema
 - 호출: `node ${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js adversarial-review --base <base-branch>` (v0.2.2 fail-closed Bash wrapper)
 - 라운드 수: <N>
 - 합치 결론: <one-line summary>
-- 수용한 제안: <bullet list>
-- 거부한 제안 + 근거: <bullet list>
+- YAGNI Triage:
+  | Finding | Severity | Verdict | Why |
+  |---|---|---|---|
+  | F1 | CRITICAL | ACCEPT_NOW | <one-line> |
+  | F2 | HIGH | DEFER_TO_BACKLOG | <one-line> |
+  | F3 | LOW | REJECT_YAGNI | <one-line, "not needed because…"> |
+- Deferred to backlog: <count> → `.claude/plans/codex-findings-backlog.md`
 - Open Questions: <item — severity CRITICAL/HIGH/MEDIUM/LOW>
 - Codex session 참조: <task-id from Skill result>
 ```
 
-Divergent re-rerun: same as Plan-Codex Phase 7.4 — up to **3 rounds total**. Cap at 3 even if still divergent — annotate `Open Questions: DIVERGENT_UNRESOLVED`.
+Severity-gated re-rerun (default cap=1): after R1's YAGNI triage table is written, escalate ONLY if BOTH:
+  (a) ≥1 finding is `verdict=ACCEPT_NOW` AND `severity ∈ {CRITICAL, HIGH}`
+  (b) The R1 absorption could not fully resolve it (Claude self-attests in PR body)
+If escalate triggers, run R2 with focus restricted to the unresolved item(s).
+Repeat up to `MCCP_GATE_ROUND_CAP` (default `1`, allowed `1`/`2`/`3`). Beyond the cap,
+annotate `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
+
+If no `ACCEPT_NOW` HIGH/CRITICAL remains, stop at R1.
+
+All `DEFER_TO_BACKLOG` items: append a line to `.claude/plans/codex-findings-backlog.md`
+before Phase 2.5.5. Format:
+- `YYYY-MM-DD | <severity> | <source plan path> | <one-line finding>`
 
 **Persist the draft body to disk** so it survives between phases without shell quoting. After the section text is final for this round, write it (combined with any `## Design Review` from 2.5.1 and the dedupe note from 2.5.2) to a body-file under `.git/mccp/tmp/`:
 

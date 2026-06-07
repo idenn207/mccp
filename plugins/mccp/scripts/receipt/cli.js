@@ -18,7 +18,7 @@ function showHelp() {
     '  git-refs [<base-ref>]         Print {baseSha, headSha, baseRef} as JSON',
     '',
     'Receipt core subcommands:',
-    '  write            --gate <id> --decision <slug> --plan <path> [--design-doc <p>] [--findings-file <p>] [--resolution-file <p>] [--auto-round] [--codex-skipped] [--advisory] [--security-skipped] [--security-skip-reason <text>] [--security-force-override] [--security-force-override-reason <text>] [--impeccable-skipped] [--impeccable-skip-reason <text>] [--impeccable-force-override] [--impeccable-force-override-reason <text>] [--quiet]',
+    '  write            --gate <id> --decision <slug> --plan <path> [--design-doc <p>] [--findings-file <p>] [--resolution-file <p>] [--auto-round] [--codex-skipped] [--advisory] [--security-skipped] [--security-skip-reason <text>] [--security-force-override] [--security-force-override-reason <text>] [--impeccable-skipped] [--impeccable-skip-reason <text>] [--impeccable-force-override] [--impeccable-force-override-reason <text>] [--deferred-findings <N>] [--quiet]',
     '  validate         --command <slug> [--decision <slug>] [--plan <path>]',
     '  preflight        --command <slug> [--decision <slug>] [--plan <path>]',
     '  status           [--gate <id>] [--json]',

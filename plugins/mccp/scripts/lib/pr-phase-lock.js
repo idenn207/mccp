@@ -56,6 +56,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const { assertContained } = require('./path-containment');
 
 const LOCK_DIRNAME = path.join('.claude', 'state');
 const LOCK_FILENAME = 'pr-phase.lock';
@@ -313,9 +314,19 @@ function cmdEnter(args) {
   const body = JSON.stringify(lockBody, null, 2);
   const p = lockPath(root);
   fs.mkdirSync(path.dirname(p), { recursive: true });
+  // F8 (v0.2.8 Task 2.6.1-followup) — symlink containment: lockDir
+  // (.claude/state) must realpath under <root>/.claude. Catches the
+  // `ln -s /tmp/external .claude/state/pr-phase.lock` escape before any
+  // write happens. lockPath itself may not exist on fresh enter — check
+  // the parent dir realpath instead, which is created by mkdirSync above.
+  assertContained(path.dirname(p), path.join(root, '.claude'), null);
 
   function tryOpen() {
-    const fd = fs.openSync(p, 'wx');
+    // F5 (v0.2.8 Task 2.6.1-followup) — restrict lock file mode to owner
+    // only (0o600). Default mode (0o666 minus umask) would leave the lock
+    // body world/group-readable on shared-tenant systems, exposing the
+    // ownership_token (until F11 hashes it).
+    const fd = fs.openSync(p, 'wx', 0o600);
     try { fs.writeSync(fd, body); } finally { fs.closeSync(fd); }
   }
 

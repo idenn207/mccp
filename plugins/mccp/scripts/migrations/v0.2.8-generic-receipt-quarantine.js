@@ -116,7 +116,10 @@ function acquireLock(repoRoot) {
     token: token,
   });
   try {
-    const fd = fs.openSync(p, 'wx');
+    // F5 (v0.2.8 Task 2.6.1-followup) — owner-only mode keeps the lock
+    // body (incl. ownership token) hidden from other users on shared-tenant
+    // systems. Cross-file consistency with pr-phase-lock.js tryOpen.
+    const fd = fs.openSync(p, 'wx', 0o600);
     fs.writeSync(fd, lockBody);
     fs.closeSync(fd);
     return { lockPath: p, token: token };
@@ -124,7 +127,7 @@ function acquireLock(repoRoot) {
     if (err.code !== 'EEXIST') throw err;
     if (tryReclaimStaleLock(p)) {
       try {
-        const fd = fs.openSync(p, 'wx');
+        const fd = fs.openSync(p, 'wx', 0o600);
         fs.writeSync(fd, lockBody);
         fs.closeSync(fd);
         return { lockPath: p, token: token };
@@ -284,53 +287,12 @@ function isoStamp() {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
-// A2 — path-containment guard. Asserts:
-//   (1) the receipt path realpath's under the EXPECTED gate dir (which is
-//       derived from repoRoot + .claude/receipts + receipt.gate_id), AND
-//   (2) the expected gate dir realpath's under the repo's .claude/receipts.
-// The `+ path.sep` suffix prevents the `<dir>` vs `<dir>-evil` false-positive
-// prefix match. Throws a typed PATH_ESCAPES_GATE error on mismatch so the
-// migration's per-receipt try/catch records it in `errors[]` rather than
-// crashing the whole run.
-function assertContained(receiptPath, expectedGateDir, repoRoot) {
-  let resolvedReceipt, resolvedGate, resolvedReceiptsRoot;
-  try { resolvedReceipt = fs.realpathSync(receiptPath); }
-  catch (err) {
-    const e = new Error('cannot realpath receipt: ' + err.message);
-    e.code = 'PATH_ESCAPES_GATE';
-    throw e;
-  }
-  try { resolvedGate = fs.realpathSync(expectedGateDir); }
-  catch (err) {
-    const e = new Error('cannot realpath expected gate dir: ' + err.message);
-    e.code = 'PATH_ESCAPES_GATE';
-    throw e;
-  }
-  const prefix = resolvedGate.endsWith(path.sep) ? resolvedGate : resolvedGate + path.sep;
-  if (!resolvedReceipt.startsWith(prefix)) {
-    const e = new Error('path escapes gate dir (receipt=' + resolvedReceipt +
-      ', gate=' + resolvedGate + ')');
-    e.code = 'PATH_ESCAPES_GATE';
-    throw e;
-  }
-  if (repoRoot) {
-    const expectedReceiptsRoot = path.join(repoRoot, '.claude', 'receipts');
-    try { resolvedReceiptsRoot = fs.realpathSync(expectedReceiptsRoot); }
-    catch (err) {
-      const e = new Error('cannot realpath receipts root: ' + err.message);
-      e.code = 'PATH_ESCAPES_GATE';
-      throw e;
-    }
-    const rootPrefix = resolvedReceiptsRoot.endsWith(path.sep)
-      ? resolvedReceiptsRoot : resolvedReceiptsRoot + path.sep;
-    if (!resolvedGate.startsWith(rootPrefix)) {
-      const e = new Error('gate dir escapes receipts root (gate=' + resolvedGate +
-        ', root=' + resolvedReceiptsRoot + ')');
-      e.code = 'PATH_ESCAPES_GATE';
-      throw e;
-    }
-  }
-}
+// A2 — path-containment guard. v0.2.8 Task 2.6.1-followup F8: source moved to
+// ../lib/path-containment.js so pr-phase-lock.js and future callers can reuse
+// the symbol without vendoring the migration. Imported and re-exported here
+// for back-compat with existing direct callers (renameWithCollisionSafety
+// below + path-containment.test.js).
+const { assertContained } = require('../lib/path-containment');
 
 // R2-F3 collision-safe rename. Target may exist if the user ran a prior
 // manual quarantine, or if v0.2.8 was applied, reverted, and re-applied.

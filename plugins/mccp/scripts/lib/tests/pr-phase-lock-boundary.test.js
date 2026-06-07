@@ -478,3 +478,57 @@ test('(F2-index) git-add stage without commit triggers index-changed mutation', 
   assert.ok(parsed.mutations.some(function (m) { return m.reason === 'index-changed'; }),
     'expected index-changed mutation: ' + JSON.stringify(parsed.mutations));
 });
+
+// v0.2.8 Task 2.6.1-followup F5 — lock file written with owner-only mode.
+// Windows mode bits are not POSIX-style; NTFS doesn't model group/other —
+// skip on win32 (lock file is still owner-default-secure via Windows ACL).
+test('(F5) cmdEnter writes pr-phase.lock with owner-only mode (POSIX 0o600)', () => {
+  if (process.platform === 'win32') return;
+  const repo = mkTmpRepo();
+  const entered = enterAndCapture(repo);
+  assert.strictEqual(entered.exitCode, 0, 'enter must succeed');
+  const lockFilePath = path.join(repo, '.claude', 'state', 'pr-phase.lock');
+  const st = fs.statSync(lockFilePath);
+  assert.strictEqual(st.mode & 0o077, 0,
+    'pr-phase.lock should be 0o600 (owner-only) — got mode=0o' +
+    (st.mode & 0o777).toString(8));
+});
+
+// v0.2.8 Task 2.6.1-followup F8 — symlink containment on lockDir.
+// If .claude/state is symlinked outside the repo (worktree compromise or
+// CI misconfiguration), cmdEnter must REFUSE before writing the lock body.
+// assertContained throws PATH_ESCAPES_GATE; cmdEnter doesn't catch — so the
+// throw propagates and the test asserts via assert.throws.
+test('(F8) cmdEnter refuses when .claude/state is symlink out-of-tree (PATH_ESCAPES_GATE)', () => {
+  if (process.platform === 'win32') return; // Windows symlink needs admin/dev mode
+  const repo = mkTmpRepo();
+  fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
+  const external = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-prphase-external-'));
+  try {
+    fs.symlinkSync(external, path.join(repo, '.claude', 'state'));
+  } catch (err) {
+    if (err.code === 'EPERM' || err.code === 'EACCES') return; // CI without symlink perm
+    throw err;
+  }
+  assert.throws(function () {
+    lock.cmdEnter({
+      cwd: repo, 'run-id': crypto.randomUUID(), pid: String(process.pid),
+    });
+  }, function (err) {
+    return err && err.code === 'PATH_ESCAPES_GATE'
+      && /path escapes gate dir/.test(err.message);
+  }, 'expected PATH_ESCAPES_GATE; lock body must not be written');
+  // Defense-in-depth: confirm no lock file was created inside the external dir
+  assert.strictEqual(fs.existsSync(path.join(external, 'pr-phase.lock')), false,
+    'lock file must NOT be created in the external symlink target');
+});
+
+// v0.2.8 Task 2.6.1-followup F8 — non-symlink path (normal worktree) still works.
+// Regression guard: assertContained must NOT false-positive on a happy-path
+// .claude/state directory created by mkdirSync inside the repo.
+test('(F8-happy) cmdEnter succeeds when .claude/state is a real directory inside repo', () => {
+  const repo = mkTmpRepo();
+  const entered = enterAndCapture(repo);
+  assert.strictEqual(entered.exitCode, 0, 'happy-path enter must still succeed');
+  assert.ok(entered.ownershipToken, 'enter must return ownership_token');
+});

@@ -1,7 +1,7 @@
 # Roadmap: mccp v0.2.5+ (Milestone Index)
 
 **Source PRD**: 통합 — 사용자 메시지(2026-06-04, `/mccp:plan` 호출) + 기존 산출물 합본
-**Current plugin version**: 0.2.7 ([plugin.json](../../plugins/mccp/.claude-plugin/plugin.json))
+**Current plugin version**: 0.2.8 ([plugin.json](../../plugins/mccp/.claude-plugin/plugin.json))
 **Branch convention**: 마일스톤마다 별도 feature branch. main 직접 push 금지.
 **Index version**: 2 (2026-06-06 thin-index transform — 91KB → ~14KB. milestone body는 sub-plan으로 위임.)
 
@@ -26,14 +26,15 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 | v0.1 | 2026-06-02 | ECC fork + Phase 게이트 + receipt 인프라 + 49 agents + 47 skills | (archive) |
 | v0.2.1-v0.2.4 | 2026-06-04 | Q5 patch / Codex fail-closed wrapper / `/mccp:setup` / security-reviewer Skill→Task | (archive) |
 | **v0.2.5/0.2.6** | 2026-06-04~05 | Impeccable design-review wiring (M1) + Housekeeping + INC-001 R1/R4 (M2) | [v0-2-5](v0-2-5-impeccable-wiring.plan.md) + [v0-2-6](v0-2-6-housekeeping.plan.md) |
-| **v0.2.7** | 🚧 code-complete | Silent Hook UX observability surface (M2.5) — PR creation pending | [v0-2-7](v0-2-7-silent-hook-ux.plan.md) |
+| **v0.2.7** | 2026-06-07 | Silent Hook UX observability surface (M2.5) — landed via Codex R1/R2 fix commits (PR-Codex, e84df19→48964a5 on main) | [v0-2-7](v0-2-7-silent-hook-ux.plan.md) |
+| **v0.2.8** | 2026-06-07/08 | PR Workflow Hardening + markdownlint delegation + F9/F6 finalize (M2.6 — PRs #6/#7/#8 + finalize) | [v0-2-8](v0-2-8-pr-workflow-hardening.plan.md) |
 
 ### Active / Pending Milestones
 
 | # | Version | Scope | Sub-plan | Status |
 |---|---|---|---|---|
 | **Milestone 0** | (메타) | Roadmap consolidation + archive (본 plan + sub-plan split) | (본 plan 자체) | 🚧 진행 중 (2026-06-06 thin-index transform) |
-| **Milestone 2.6** | v0.2.8 | PR Workflow Hardening (Codex fix-loop 차단 + markdown lint 노이즈) | [v0-2-8](v0-2-8-pr-workflow-hardening.plan.md) | ⏳ A/B/C/D + α/β/γ 결정 대기 |
+| **Milestone 2.6** | v0.2.8 | PR Workflow Hardening (Codex fix-loop 차단 + markdown lint 노이즈) | [v0-2-8](v0-2-8-pr-workflow-hardening.plan.md) | ✅ shipped (PRs #6/#7/#8 + finalize cycle 2026-06-07/08) |
 | **Milestone 3** | v0.3.0 | S10b Auto-Handoff ($100 hard ceiling) | [v0-3-0](v0-3-0-auto-handoff.plan.md) | ⏳ pending |
 | **Milestone 4** | v0.3.1 | S11 `/mccp:work` single entry orchestration | [v0-3-1](v0-3-1-mccp-work.plan.md) | ⏳ pending |
 | **Milestone 5** | v0.3.2 | S12 dual-reviewer escalate (자동 안내, invoke X) | [v0-3-2](v0-3-2-escalate.plan.md) | ⏳ pending |
@@ -133,8 +134,8 @@ node -e "console.log(require('./plugins/mccp/.claude-plugin/plugin.json').versio
 - [x] Milestone 0: archive 완료 + thin-index transform + per-milestone sub-plan split
 - [x] Milestone 1 (v0.2.5): impeccable wiring shipped — [v0-2-5 sub-plan](v0-2-5-impeccable-wiring.plan.md)
 - [x] Milestone 2 (v0.2.6): housekeeping + INC-001 R1/R4 shipped — [v0-2-6 sub-plan](v0-2-6-housekeeping.plan.md)
-- [⚠] Milestone 2.5 (v0.2.7): silent-hook UX code-complete, PR pending — [v0-2-7 sub-plan](v0-2-7-silent-hook-ux.plan.md)
-- [ ] Milestone 2.6 (v0.2.8): PR workflow hardening — [v0-2-8 sub-plan](v0-2-8-pr-workflow-hardening.plan.md)
+- [x] Milestone 2.5 (v0.2.7): silent-hook UX shipped via Codex R1/R2 fix commits on main (e84df19→48964a5, 2026-06-07) — [v0-2-7 sub-plan](v0-2-7-silent-hook-ux.plan.md)
+- [x] Milestone 2.6 (v0.2.8): PR workflow hardening shipped via PRs #6/#7/#8 + finalize cycle (Task 2.6.2 markdownlint + 2.6.3 docs + F9 mutex preflight + F6 lock-pattern doc), 2026-06-07/08 — [v0-2-8 sub-plan](v0-2-8-pr-workflow-hardening.plan.md)
 - [ ] Milestone 3 (v0.3.0): auto-handoff — [v0-3-0 sub-plan](v0-3-0-auto-handoff.plan.md)
 - [ ] Milestone 4 (v0.3.1): `/mccp:work` — [v0-3-1 sub-plan](v0-3-1-mccp-work.plan.md)
 - [ ] Milestone 5 (v0.3.2): escalate — [v0-3-2 sub-plan](v0-3-2-escalate.plan.md)

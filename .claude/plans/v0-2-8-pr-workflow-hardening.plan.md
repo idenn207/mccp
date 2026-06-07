@@ -333,6 +333,16 @@
 - [x] **Implement-Codex R3 + R4 (executed 2026-06-06)**: 각 verdict=needs-attention with 1 MED finding. R3 = Trigger section noop wording 잔존. R4 = IMPL-R1-F2 absorption historical noop wording 잔존. 둘 다 plan wording 일관성 patch로 흡수.
 - [x] **Implement-Codex R5 verification (APPROVE, 2026-06-06)**: verdict=approve, findings=[]. "Ship-readiness gate can move to Phase 3 EXECUTE." Task 2.6.5 implement-time decisions mechanically closed.
 
+## Codex Implementation Review (v0.2.8 finalize cycle — 2026-06-07)
+
+decision-set already converged in mccp-plan-codex review (R1-R6) AND mccp-implement-codex review (IMPL-R1-R5, all APPROVE). Remaining work (Task 2.6.2 markdownlint α+β implementation, Task 2.6.3 CLAUDE.md docs, Task 2.6.4 plugin.json bump, F9 mutex preflight, F6 CLAUDE.md §3.5) is mechanical/documentation only — no new implement-time architectural decisions detected. Cross-gate dedupe applied per `/mccp:prp-implement` Phase 2.5.1.
+
+### Design Review
+
+> impeccable unavailable, skipped (auto-fallback): skill-missing
+
+(impeccable Skill 미등록 — implement-codex strict gate에서 `impeccable_skipped=true` 기록. downstream `/mccp:pr`은 `MCCP_FORCE_PR_WITHOUT_IMPECCABLE="<reason>"` audited escape 필요. v0.2.8 finalize cycle은 markdown lint hook + doc 위주로 UI/디자인 surface 없음 — design_signal=false 일관.)
+
 **임의로 acceptance 일부를 skip하여 v0.2.8 ship 못함**: Task 2.6.5 4개 항목 (validate-cmd 수정 + 3 test + CLAUDE.md runbook)는 R1 F1 false-green path 해소의 mechanical guarantee. 본 acceptance items가 통과되지 않으면 v0.2.8 PR도 본 같은 false-green path에 노출됨 (self-dogfood failure).
 
 ## Dependencies

@@ -48,6 +48,7 @@ mccp의 차별점은 **Claude(Opus) ↔ Codex(GPT-5.4 계열) cross-model advers
   - `hard` (default — chain-of-custody 유지) — 누락/skipped/advisory receipt는 게이트 미통과
   - `soft` (opt-in only) — 누락 receipt만 통과, stale/blocking/critical은 여전히 차단
   - `off` — receipt 게이트 비활성 (loud stderr warning, 디버깅 전용)
+- **v0.2.8 PR step 보호 (Task 2.6.1 B+D+C)**: `/mccp:pr` + `/mccp:prp-pr`는 cross-gate dedupe + review-only invariant 양축으로 dual-review 가치를 보존합니다. 같은 decision-slug에 대해 plan-codex + implement-codex 양쪽 모두 `verdict=approve`이면 PR step의 Codex 재호출은 skip되고 receipt에 `codex_dedupe_at_pr=true`가 기록됩니다. dedupe 조건 미충족 시에만 Codex가 실제로 발화하지만, 발화한 경우에도 findings는 PR body의 `## Codex Review` 섹션에만 inject되며 본문 command가 Edit/Write를 호출하지 않는 review-only invariant가 runtime PR-phase guard hook (`pr-phase-guard.js`)로 mechanical하게 보호됩니다. Codex 호출 자체를 명시적으로 우회해야 하는 경우 `MCCP_PR_SKIP_CODEX_REVIEW="<reason>"` audited escape (§4 운영 토글 참조).
 - Codex 미설치 사용자는 `/codex:setup`로 인증 권장.
 
 ### 1.3 자동화 파이프라인 (v0.1 receipt chain)
@@ -179,6 +180,44 @@ my-claude-code-plugin/
 - PR 본문: `/mccp:prp-pr`이 템플릿을 자동 생성 — 직접 작성하기보다 명령을 통하세요.
 - main 직접 push 금지. 항상 feature branch 경유.
 
+### 3.6 Atomic state locks (`pr-phase.lock` + `v0.2.8-generic-receipt-quarantine.lock`)
+
+v0.2.8 Task 2.6.1-followup F10+F11+F7 (PR #8)부터 mccp는 두 가지 atomic state lock을 동일한 canonical pattern으로 운용합니다. 둘 다 단일 writer + multi-reader, lease-based reclaim, in-loop heartbeat를 공유합니다.
+
+| Lock file | 사용처 | 생명주기 |
+|---|---|---|
+| `<repo>/.claude/state/pr-phase.lock` | `/mccp:pr` Phase 3.5 Codex-review subphase 진입/이탈. PreToolUse가 write-tool block 결정에 사용. | enter (Phase 3.5 직전) → exit (PR 본문 inject 직후, gh pr create 직전). crash 시 다음 invocation의 `detect-stale`이 finalizer 우선 실행 후 clear. |
+| `<repo>/.claude/receipts/.migrations/v0.2.8-generic-quarantine.lock` | validate-cmd / `/mccp:pr` Phase 0 부팅 시 동시 trigger 직렬화. winner만 rename 수행, loser는 marker complete bounded poll. | acquire (`fs.openSync wx`) → release (try/finally). |
+
+#### Canonical schema (양쪽 공통)
+
+```json
+{
+  "ownership_token_hash": "<sha256 of writer-side random token>",
+  "pid": 12345,
+  "host": "<hostname>",
+  "started_at": "<ISO>",
+  "mtime": "<lease anchor>"
+}
+```
+
+- **`ownership_token_hash` (v0.2.8 F11 redesign)**: writer가 `crypto.randomUUID()`로 생성한 token의 sha256만 lock body에 기록. raw token은 writer 메모리에만 존재. release 시 writer가 stdin pipe로 raw token을 helper에 sealed channel로 전달 → helper가 hash 재계산 후 match → unlink. 외부 reader가 lock 파일을 읽어도 token을 위조할 수 없음 (F11 IPC contract). 이전 `ownership_token` (raw token 기록) 방식은 v0.2.7 schema로 deprecated.
+- **Stdout-pipe IPC contract**: writer ↔ helper 간 모든 mutating call (enter/exit/release)은 stdin pipe로 token 전달. command-line argument로 token 전달 금지 — process listing 노출.
+- **Lease + heartbeat**: orphan 판정은 `(recorded PID is dead via process.kill(pid, 0))` OR `(file mtime > 60s)`. 둘 중 하나라도 만족 시 reclaim. v0.2.7 이전의 `started_at` 기반 판정은 clock skew / PID reuse에 약함 — 폐기.
+- **In-loop heartbeat**: 장기 작업(quarantine migration 8+ rename)이 lock 점유 중에는 25 step마다 `fs.utimesSync`로 mtime을 갱신해 live holder 보호. sync 함수에서는 `setInterval`이 fire 안 되므로 in-loop counter가 정답.
+
+#### Legacy v0.2.7 upgrade scenario (host-aware tri-state)
+
+v0.2.7 lock holder가 살아있는 동안 v0.2.8 binary가 부팅하면, v0.2.8은 v0.2.7 schema lock(=`ownership_token` raw value, no hash)을 발견합니다. F11 R2-F2 absorption per:
+
+- `cmdEnter` startup pre-check + `tryReclaimStaleLock`의 legacy-schema discriminator가 (lock에 `ownership_token_hash` 부재) detect.
+- Same-host + pid alive → **NEVER reclaim**. v0.2.7 holder가 정상 종료할 때까지 대기 또는 caller exit 75 (EX_TEMPFAIL).
+- Different-host OR pid dead → 즉시 reclaim. 양쪽 schema 모두 정상 처리.
+
+이 tri-state가 없으면 v0.2.8가 v0.2.7 live holder를 강제 reclaim → race 발생. PR #8의 R2-F2 commit이 핵심.
+
+운영 detail (수동 quarantine 절차 + tempfail propagation 등)은 §4 cheat sheet의 "Generic-receipt quarantine runbook" 참조. lock 파일은 직접 편집 금지 — schema mismatch / token mismatch 시 release가 실패해 mtime 만료(60s)까지 차단됩니다.
+
 ---
 
 ## 4. 자주 쓰는 명령 (Cheat Sheet)
@@ -263,10 +302,11 @@ v0.2.8부터 validate-cmd가 generic decision_id(`default`/`main`) + `--plan` �
    - validate-cmd + `/mccp:pr` Phase 0가 동시 진입하면 한쪽만 lock 획득, 다른 쪽은 marker complete bounded poll (max 2s).
    - poll timeout 시 caller가 exit 75 (EX_TEMPFAIL) + systemMessage. 잠시 후 재시도.
 
-5. v0.2.8 Task 2.6.5a hardening — **lock body는 ownership token을 포함**합니다 (`crypto.randomUUID()`):
-   - `<repo>/.claude/receipts/.migrations/v0.2.8-generic-quarantine.lock`을 **직접 편집하지 마세요**. token이 빠지면 holder의 `releaseLock` 검증이 실패하고 lock이 mtime 만료(60s) 후에만 reclaim됩니다.
-   - lease-based reclaim: lock이 orphan으로 판정되려면 `(recorded PID is dead)` **OR** `(file mtime > 60s)`. v0.2.8 이전의 "started_at 기반" 판정과 다릅니다 — clock skew / PID reuse에 강인합니다.
-   - in-loop heartbeat: migration이 25개 rename마다 `fs.utimesSync`로 lock mtime을 갱신해 long migration에서 live holder를 보호합니다 (plan §A1의 `setInterval` deviation — sync 함수에서는 timer가 fire하지 않으므로 in-loop counter가 더 정확).
+5. v0.2.8 Task 2.6.5a + Task 2.6.1-followup F11 hardening — **lock body는 `ownership_token_hash`를 포함**합니다 (sha256 of `crypto.randomUUID()`). canonical schema + stdout-pipe IPC + lease/heartbeat 상세는 §3.6 참조:
+   - `<repo>/.claude/receipts/.migrations/v0.2.8-generic-quarantine.lock`을 **직접 편집하지 마세요**. `ownership_token_hash`가 빠지면 holder의 `releaseLock`이 stdin-pipe로 받은 raw token의 hash를 재계산하는 검증이 실패하고 lock이 mtime 만료(60s) 후에만 reclaim됩니다 (F11 sealed channel).
+   - lease-based reclaim: orphan 판정은 `(recorded PID is dead)` **OR** `(file mtime > 60s)`. clock skew / PID reuse에 강인합니다.
+   - in-loop heartbeat: migration이 25개 rename마다 `fs.utimesSync`로 lock mtime을 갱신 (sync 함수에서는 `setInterval`이 fire 안 되므로 in-loop counter가 정답).
+   - legacy v0.2.7 upgrade: v0.2.7 holder가 live인 동안 v0.2.8이 부팅하면 host-aware tri-state (same-host+pid-alive=NEVER reclaim) policy로 race 차단 — §3.6 참조.
    - tempfail propagation: validate-cmd가 in-progress-aborted 시 `result.tempfail=true` + `result.exitCode=75` + `blocking[].kind="tempfail"`을 emit합니다. cli/preflight/auto-chain은 exit 75 (sysexits), hook은 ALLOW + retry systemMessage. 공통 dispatch는 [`scripts/receipt/classify.js`](plugins/mccp/scripts/receipt/classify.js).
 
 ### 운영 토글 (환경 변수)
@@ -286,6 +326,8 @@ MCCP_ALLOW_CODEX_UNAVAILABLE=1           # advisory mode (non-approving receipt)
 MCCP_CODEX_DISABLED=1                    # Codex 호출 영구 skip (codex-bridge: verdict='skipped', reason='codex_disabled'). /mccp:setup Phase 4가 자동 write.
 MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER="<reason>" # v0.2.4 audited escape. terminal /mccp:pr이 security-reviewer agent unavailable + 이 env var의 specific reason 설정 시 advisory mode 진입. receipt에 meta.security_force_override=true + reason 기록, PR body에 ## Security Reviewer Override section auto-inject (canonical audit source). 1-token reason(=1, =yes)은 schema warning 발동. 1회용 권장.
 MCCP_FORCE_PR_WITHOUT_IMPECCABLE="<reason>"        # v0.2.6 audited escape (Codex R1 F4 strict). terminal /mccp:pr에서 impeccable Skill 미가용 + 이 env var의 specific reason 설정 시 force-override 진입. v0.2.4 security와 달리 reason validator가 SCHEMA REJECT — empty/whitespace/1-token banlist(yes/ok/true)/URL-only/<30자/<3단어/placeholder는 receipt write 시점에 차단. receipt에 meta.impeccable_force_override=true + reason 기록, PR body에 ## Impeccable Override section auto-inject (canonical audit source). 1회용 권장.
+MCCP_PR_SKIP_CODEX_REVIEW="<reason>"               # v0.2.8 audited escape (Task 2.6.1 C). terminal /mccp:pr에서 Codex review 호출 자체를 skip — cross-gate dedupe 조건은 충족 못 했지만 PR 본문에 review를 inject할 필요가 없는 경우 (예: receipt chain 외부에서 이미 다른 검증을 거친 cherry-pick PR). reason validator는 MCCP_FORCE_PR_WITHOUT_IMPECCABLE과 동일 SCHEMA REJECT 규칙 (empty/1-token/URL-only/<30자/<3단어 → write 시점 차단 + receipt schema invalid). receipt에 meta.codex_skipped_at_pr=true + codex_skip_reason 기록, PR body footer에 ## Codex Review Skipped section auto-inject. F9 mutex preflight: 본 env var는 CODEX_DEDUPE_AT_PR=1과 mutually exclusive — Phase 0.3에서 둘 다 설정 시 STOP exit 1. 1회용 권장.
+CODEX_DEDUPE_AT_PR=1                               # v0.2.8 internal signal. cross-gate dedupe가 활성화돼 PR step의 Codex 호출이 skip됐음을 receipt가 명시. 사용자가 직접 설정할 일은 없음 — dedupe 로직이 자동 export. F9 mutex preflight: MCCP_PR_SKIP_CODEX_REVIEW와 mutually exclusive.
 
 # Silent-hook UX (v0.2.7 — Observability Surface)
 MCCP_RECEIPT_DEBUG_LEGACY_INLINE=0                 # v0.2.7 advanced opt-out. MCCP_RECEIPT_DEBUG=1일 때 L2a ALLOW-path systemMessage emit을 끄고 기존 block-payload inline 모드만 유지. Default(unset 또는 =1)는 L2a active. 자세한 precedence는 docs/ENVIRONMENT.md §1.

@@ -1,7 +1,7 @@
 # Roadmap: mccp v0.2.5+ (Milestone Index)
 
 **Source PRD**: 통합 — 사용자 메시지(2026-06-04, `/mccp:plan` 호출) + 기존 산출물 합본
-**Current plugin version**: 0.2.8 ([plugin.json](../../plugins/mccp/.claude-plugin/plugin.json))
+**Current plugin version**: 0.3.0 ([plugin.json](../../plugins/mccp/.claude-plugin/plugin.json))
 **Branch convention**: 마일스톤마다 별도 feature branch. main 직접 push 금지.
 **Index version**: 2 (2026-06-06 thin-index transform — 91KB → ~14KB. milestone body는 sub-plan으로 위임.)
 
@@ -17,7 +17,7 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 
 ---
 
-## Status Snapshot (2026-06-06 기준)
+## Status Snapshot (2026-06-08 기준)
 
 ### Ship History
 
@@ -28,6 +28,8 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 | **v0.2.5/0.2.6** | 2026-06-04~05 | Impeccable design-review wiring (M1) + Housekeeping + INC-001 R1/R4 (M2) | [v0-2-5](v0-2-5-impeccable-wiring.plan.md) + [v0-2-6](v0-2-6-housekeeping.plan.md) |
 | **v0.2.7** | 2026-06-07 | Silent Hook UX observability surface (M2.5) — landed via Codex R1/R2 fix commits (PR-Codex, e84df19→48964a5 on main) | [v0-2-7](v0-2-7-silent-hook-ux.plan.md) |
 | **v0.2.8** | 2026-06-07/08 | PR Workflow Hardening + markdownlint delegation + F9/F6 finalize (M2.6 — PRs #6/#7/#8 + finalize) | [v0-2-8](v0-2-8-pr-workflow-hardening.plan.md) |
+| **v0.2.9** | 2026-06-08 | Gate Round Budget + YAGNI Triage (R1 default cap=1 + DEFER_TO_BACKLOG sink, M2.7 — PR #10) | [v0-2-9](v0-2-9-gate-round-yagni.plan.md) |
+| **v0.3.0** | 2026-06-08 | S10b Auto-Handoff cost-tier breakpoint + session spawn (M3 — PR #11) | [v0-3-0](../PRPs/plans/completed/v0-3-0-auto-handoff.plan.md) |
 
 ### Active / Pending Milestones
 
@@ -35,9 +37,9 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 |---|---|---|---|---|
 | **Milestone 0** | (메타) | Roadmap consolidation + archive (본 plan + sub-plan split) | (본 plan 자체) | 🚧 진행 중 (2026-06-06 thin-index transform) |
 | **Milestone 2.6** | v0.2.8 | PR Workflow Hardening (Codex fix-loop 차단 + markdown lint 노이즈) | [v0-2-8](v0-2-8-pr-workflow-hardening.plan.md) | ✅ shipped (PRs #6/#7/#8 + finalize cycle 2026-06-07/08) |
-| **Milestone 2.7** | v0.2.9 | Gate Round Budget + YAGNI Triage (default cap=1 + DEFER_TO_BACKLOG file) | [v0-2-9](v0-2-9-gate-round-yagni.plan.md) | ⏳ pending |
-| **Milestone 3** | v0.3.0 | S10b Auto-Handoff ($100 hard ceiling) | [v0-3-0](v0-3-0-auto-handoff.plan.md) | ⏳ pending |
-| **Milestone 4** | v0.3.1 | S11 `/mccp:work` single entry orchestration | [v0-3-1](v0-3-1-mccp-work.plan.md) | ⏳ pending |
+| **Milestone 2.7** | v0.2.9 | Gate Round Budget + YAGNI Triage (default cap=1 + DEFER_TO_BACKLOG file) | [v0-2-9](v0-2-9-gate-round-yagni.plan.md) | ✅ shipped (PR #10, commit 759db7c, 2026-06-08) |
+| **Milestone 3** | v0.3.0 | S10b Auto-Handoff ($100 hard ceiling) | [v0-3-0](../PRPs/plans/completed/v0-3-0-auto-handoff.plan.md) | ✅ shipped (PR #11, commit b83596b, 2026-06-08) |
+| **Milestone 4** | v0.3.1 | S11 `/mccp:work` single entry orchestration | [v0-3-1](v0-3-1-mccp-work.plan.md) | ⏳ pending (next active) |
 | **Milestone 5** | v0.3.2 | S12 dual-reviewer escalate (자동 안내, invoke X) | [v0-3-2](v0-3-2-escalate.plan.md) | ⏳ pending |
 
 ### Out of scope — do not reference
@@ -138,7 +140,8 @@ node -e "console.log(require('./plugins/mccp/.claude-plugin/plugin.json').versio
 - [x] Milestone 2 (v0.2.6): housekeeping + INC-001 R1/R4 shipped — [v0-2-6 sub-plan](v0-2-6-housekeeping.plan.md)
 - [x] Milestone 2.5 (v0.2.7): silent-hook UX shipped via Codex R1/R2 fix commits on main (e84df19→48964a5, 2026-06-07) — [v0-2-7 sub-plan](v0-2-7-silent-hook-ux.plan.md)
 - [x] Milestone 2.6 (v0.2.8): PR workflow hardening shipped via PRs #6/#7/#8 + finalize cycle (Task 2.6.2 markdownlint + 2.6.3 docs + F9 mutex preflight + F6 lock-pattern doc), 2026-06-07/08 — [v0-2-8 sub-plan](v0-2-8-pr-workflow-hardening.plan.md)
-- [ ] Milestone 3 (v0.3.0): auto-handoff — [v0-3-0 sub-plan](v0-3-0-auto-handoff.plan.md)
+- [x] Milestone 2.7 (v0.2.9): gate round YAGNI triage shipped via PR #10 (commit 759db7c, 2026-06-08) — [v0-2-9 sub-plan](v0-2-9-gate-round-yagni.plan.md)
+- [x] Milestone 3 (v0.3.0): S10b auto-handoff shipped via PR #11 (commit b83596b, 2026-06-08) — [v0-3-0 sub-plan](../PRPs/plans/completed/v0-3-0-auto-handoff.plan.md)
 - [ ] Milestone 4 (v0.3.1): `/mccp:work` — [v0-3-1 sub-plan](v0-3-1-mccp-work.plan.md)
 - [ ] Milestone 5 (v0.3.2): escalate — [v0-3-2 sub-plan](v0-3-2-escalate.plan.md)
 - [ ] 매 마일스톤마다 `plugin.json` bump + main merge + PR 본문에 `## Codex Adversarial Review` (+`## Design Review` if applicable)

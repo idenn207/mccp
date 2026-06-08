@@ -10,6 +10,7 @@ const { execFileSync } = require('child_process');
 const hook = require('../stop-review-loop');
 const lc = require('../../state/loop-counter');
 const ft = require('../../state/fix-task');
+const sw = require('../../state/state-writer');
 
 function mkGitRepo({ withDiff = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-stop-loop-'));
@@ -95,7 +96,7 @@ test('path 2: enforce + no diff → passes through, no fix-task', () => {
   assert.ok(!fs.existsSync(ft.fixTaskPath(repo)));
 });
 
-test('path 3: enforce + quality pass (codex opt-out) → passes, counter reset', () => {
+test('path 3: enforce + quality pass (codex opt-out) → passes, counter reset, STATE.md emits stop_loop_pass (v0.3.0 S10b)', () => {
   const repo = mkGitRepo({ withDiff: true });
   const fp = lc.fingerprintFromPrompt('task C');
   lc.bump(repo, fp, 'old');
@@ -112,6 +113,10 @@ test('path 3: enforce + quality pass (codex opt-out) → passes, counter reset',
   });
   assert.strictEqual(out, raw);
   assert.strictEqual(lc.get(repo, fp).count, 0, 'counter should be reset on pass');
+  // v0.3.0 S10b: PASS path emits safe-event signal so auto-handoff's AND-gate sees it.
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.last_event, 'stop_loop_pass');
+  assert.ok(state.frontmatter.last_event_at);
 });
 
 test('path 4: enforce + quality fail → block + fix-task + counter=1', () => {

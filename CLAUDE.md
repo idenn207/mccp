@@ -81,7 +81,7 @@ brainstorming 분석 결과 v0.1의 receipt chain은 *"adversarial review가 일
 | -------------------------- | --------------------------------------------------------------------------------------------- | ------------ |
 | **Stop-loop**              | Claude stop 직전 자동 `lint → typecheck → test → e2e` + (opt-in) Codex diff review. fail 시 `fix-task.md` 생성 + 최대 2회 bounded retry | S8 ship      |
 | **STATE.md continuity**    | `PreCompact`에서 write, `SessionStart`에서 inject — 세션 간 컨텍스트 자동 복원                | S10a ship    |
-| **Auto-handoff**           | 누적 비용 $50 notice / $80 soft / $100 hard ceiling 임계로 자동 세션 전환                     | S10b 미구현  |
+| **Auto-handoff**           | 누적 비용 $50 notice / $80 soft / $100 hard ceiling 임계로 자동 세션 전환                     | S10b ship (v0.3.0) |
 | **`/mccp:work`**           | 단일 entry로 PRD → plan → implement → PR 전 chain 자동 orchestration                          | S11 미구현   |
 | **dual-reviewer escalate** | CRITICAL/divergent 시 `fix-task.md`에 `Next: /santa-loop ...` 안내 추가 (자동 호출은 안 함)   | S12 미구현   |
 
@@ -339,8 +339,9 @@ MCCP_RECEIPT_DEBUG_LEGACY_INLINE=0                 # v0.2.7 advanced opt-out. MC
 MCCP_AUTO_CHAIN_DISABLE=1                # kill switch ─ live
 MCCP_AUTO_CHAIN_SKIP_PR=1                # commit-only chain (직접 push cycles 용) ─ live
 
-# Auto-handoff
-# MCCP_AUTO_HANDOFF=off|notify|spawn     # ⚠ S10b 미구현. 환경변수만 예약된 상태.
+# Auto-handoff (v0.3.0 S10b — live)
+MCCP_AUTO_HANDOFF=off|notify|spawn       # default: notify. spawn 모드 + claude binary 미감지 시 notify로 graceful degrade.
+MCCP_HANDOFF_THRESHOLDS_USD="50,80,100"  # default. comma-separated notice,warning,critical USD thresholds. parse 실패 또는 invariant 위반 시 default + stderr warn.
 ```
 
 ---

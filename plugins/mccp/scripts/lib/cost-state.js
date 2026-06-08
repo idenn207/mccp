@@ -24,16 +24,21 @@ const {
   getCostStatePath,
   getCostStateLockPath,
 } = require('./cost-state-path');
+const { getHandoffCostThresholds } = require('./cost-thresholds');
 
 const LOCK_RETRY_MAX = 5;
 const LOCK_RETRY_MS = 20;
 const STALE_LOCK_MS = 5_000;
 
+// v0.3.0 — 50/80/100 literals migrated to cost-thresholds.js (architecture
+// §4 "Cost-threshold source of truth"). tierFor reads thresholds per call
+// so MCCP_HANDOFF_THRESHOLDS_USD env override is honored without reload.
 function tierFor(costUsd) {
   if (!Number.isFinite(costUsd)) return 'green';
-  if (costUsd >= 100) return 'critical';
-  if (costUsd >= 80) return 'warning';
-  if (costUsd >= 50) return 'notice';
+  const t = getHandoffCostThresholds();
+  if (costUsd >= t.critical) return 'critical';
+  if (costUsd >= t.warning) return 'warning';
+  if (costUsd >= t.notice) return 'notice';
   return 'green';
 }
 

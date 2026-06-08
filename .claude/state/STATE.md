@@ -1,10 +1,10 @@
 ---
 state_version: 1
-task_fingerprint: v0-2-8-task-2-6-1-followup
+task_fingerprint: v0-3-3-intent-dogfood
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-06-08T09:47:39.292Z
+updated_at: 2026-06-08T16:44:24.076Z
 last_event: stop_loop_pass
-last_event_at: 2026-06-08T09:47:39.292Z
+last_event_at: 2026-06-08T16:44:24.076Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: false
@@ -13,43 +13,44 @@ dep_check_at: 2026-06-07T15:54:42.147Z
 dep_check_missing: impeccable
 ---
 ## Goal
-mccp v0.2.8 Task 2.6.1-followup atomic unit (F10+F11+F7) — security architecture redesign. Node helper wrappers + content-hash manifest + ownership_token_hash + stdin-pipe IPC + Bash tokenizer-first guard. F5+F8 (prior, f0a24ee) + F10+F11+F7 (this session) cover all CRITICAL/HIGH plan findings. F9/F6 (LOW/MEDIUM doc/preflight) deferred to fast-follow.
+mccp v0.3.3 — Intent-driven E2E dogfood (Milestone 6). v0.3.0/0.3.1/0.3.2 자동화 backbone(auto-handoff + /mccp:work + escalate)을 fresh session에서 single-entry로 PR까지 end-to-end dogfood + 발견된 drift 흡수. Subject: PR #11 L2 fix (stop-review-loop.test.js MCCP_CODEX_DISABLED env leak).
 
 ## Plan
-- .claude/plans/mccp-roadmap.plan.md (thin-index, M0 closed via 64a6836)
-- .claude/plans/v0-2-8-pr-workflow-hardening.plan.md (parent — Task 2.6.1 base shipped via PR #7)
-- .claude/plans/v0-2-8-task-2-6-1-fix.plan.md (PRIOR CYCLE — F1/F2/F3/F4 absorbed, shipped via PR #7)
-- .claude/plans/v0-2-8-task-2-6-1-followup.plan.md (CURRENT — F5+F8 partial shipped f0a24ee; F10/F11/F7/F9/F6 pending)
-- .claude/plans/v0-3-0-auto-handoff.plan.md / v0-3-1-mccp-work.plan.md / v0-3-2-escalate.plan.md (pending)
+- .claude/plans/mccp-roadmap.plan.md (thin-index, Milestone 6 entry 추가)
+- .claude/plans/v0-3-3-intent-dogfood.plan.md (CURRENT — 본 milestone sub-plan, 4 task)
+- .claude/PRPs/reports/v0-3-3-intent-dogfood-report.md (PENDING — Task 3에서 작성)
+- .claude/plans/codex-findings-backlog.md (header only, append-on-defer)
 
 ## Done
 - M0 A.1-A.4 + 2026-06-06 thin-index transform (roadmap 91KB → 15.3KB, 7 sub-plans CREATE)
-- M1 (v0.2.5/0.2.6): impeccable wiring + housekeeping + INC-001 (commits 6da66bc, 7300d47, ab02a8a, d6bf878, e75afca)
-- M2.5 (v0.2.7): silent-hook UX code-complete + R1/R2 fixes (commits e84df19, 9ea48b1, 00235a8, c5f57f6, 48964a5, 8319ee2)
-- v0.2.8 Task 2.6.5: generic-receipt quarantine + R6 hardening shipped (PR #6, commit 8cc9ac5)
-- v0.2.8 Task 2.6.1 base: review-only invariant + runtime guard (PR #7, commit e3b8c7b)
-- v0.2.8 Task 2.6.1-followup F5+F8 (prior session, branch feat/v0-2-8-task-2-6-1-followup-f5-f8, commit f0a24ee): lock-file mode 0o600 + symlink containment + path-containment.js library extraction + R1+R2+R3 plan absorption folded into plan body
-- v0.2.8 Task 2.6.1-followup F10+F11+F7 (this session): security architecture redesign — 6 new helpers (stdout-pipe-ipc + dedupe-check + body-builder + finalize-receipt + codex-runner + _args), pr-phase-lock.js F11 contract (ownership_token_hash + stdin-pipe + helper_manifest + R2-F2 legacy reclaim), pr-phase-guard.js F7 tokenizer-first + F10 helper-path + content-hash + F11 lock-block, pr.md 2.5.3/2.5.6b/2.5.7 helper-based refactor. 53 new tests, 730/730 PASS (67 pre-existing env-latch failures unchanged).
+- M1 (v0.2.5/0.2.6): impeccable wiring + housekeeping + INC-001
+- M2.5 (v0.2.7): silent-hook UX code-complete + R1/R2 fixes
+- v0.2.8 Task 2.6.5 + 2.6.1 base + 2.6.1-followup (F5/F8/F10/F11/F7) + finalize (PRs #6/#7/#8/#9)
+- v0.2.9 (PR #10, commit 759db7c): gate round YAGNI — R1 default + DEFER_TO_BACKLOG sink
+- v0.3.0 (PR #11, commit b83596b): S10b auto-handoff — cost-tier breakpoint + session spawn
+- v0.3.1 (PR #12, commit 575becf): S11 /mccp:work single-entry orchestrator
+- v0.3.2 (PR #13, commit 472b005): S12 cross-gate dual-reviewer escalate detection
+- v0.3.3 plan writing (this session 2026-06-09): sub-plan + roadmap M6 entry + STATE.md fingerprint flip
 
 ## In Progress
-v0.2.8 Task 2.6.1-followup F10+F11+F7 commit pending on feat/v0-2-8-task-2-6-1-followup-f5-f8 (branch will retain name despite expanded scope; PR title clarifies). Not yet pushed, not yet PR-ed.
+v0.3.3 plan finalized — sub-plan written, roadmap M5 marked shipped + M6 entry added, STATE.md fingerprint flipped. Dogfood (Task 2) not yet executed — awaiting fresh-session invocation per plan.
 
 ## Next Step
-Run /mccp:pr to create the followup PR (self-dogfood: the new pr-phase-guard runs against /mccp:pr's own Bash). F9 (Phase 0.3 mutual-exclusion preflight) + F6 (CLAUDE.md §3.5 doc update) fast-follow in next session OR same PR via small amend if quick.
+Start fresh Claude Code session and invoke exactly: /mccp:work "fix stop-review-loop.test.js MCCP_CODEX_DISABLED env leak" — observe chain end-to-end, record findings in .claude/PRPs/reports/v0-3-3-intent-dogfood-report.md per v0-3-3-intent-dogfood.plan.md Task 2/3. Do NOT apply Task 1 fix first — let chain self-apply.
 
 ## Last Decision
-User chose Option 1 (Recommended): F10+F11+F7 atomic unit this session, commit + push + PR. F9/F6 to follow. Rationale: F10/F11/F7 share the same files (pr-phase-guard.js classifyBash, pr-phase-lock.js cmdEnter/cmdExit/cmdHeartbeat, pr.md Phase 2.5) so they must land together; F9 (preflight) + F6 (doc) are independent and can split.
+User chose option #4 (intent-driven e2e dogfood) as the orchestrating milestone for v0.3.3. Rationale: all M0-M5 shipped + backlog empty + STATE/roadmap drift visible. The 5 options (#1 fix / #2 new feature / #3 docs / #4 e2e / #5 discuss) are facets of a single "validate v0.3.x by using it" milestone — dogfood is the orchestrating activity, drift sync is its byproduct, fix scope is its subject. PR #11 L2 chosen as subject: small (1 test file), real bug, exercises hook chain, no UI surface, deterministic. v0.3.3 chosen over v0.4.0 — patch-level (validation + sync, no new feature). Codex permanent-bypass advisory: Phase 5 gate recorded-only, no actual invocation.
 
 ## Open Questions
-- HIGH — F10 Bash allowlist redesign + Node helpers must land before v0.2.8 publish (publish blocker, self-application meta-defect)
-- HIGH — F11 ownership_token_hash + stdout-pipe IPC schema change is breaking to in-flight v0.2.7 locks (host-aware tri-state legacy policy preserves live-PID invariant per plan R2-F2 absorption)
-- HIGH — F7 Bash tokenizer (chain-split + mutating-construct detect) must run FIRST against ALL Bash including helper-path matches per plan R2-F1 + R3-F1 absorption
-- MEDIUM — v0.2.8 scope locked to Task 2.6.1 + 2.6.1-followup; 2.6.2 markdownlint α+β / 2.6.3 CLAUDE.md doc updates / 2.6.4 plugin.json bump+PR all deferred
-- MEDIUM — M2.5 (v0.2.7) PR creation still pending — roadmap acceptance lists as [⚠] code-complete
-- MEDIUM — wrapper bug debt: codex-invoke.js spawnSync stdout-empty (R4 noted partial natural recovery)
-- MEDIUM — v0.2.4 security_force_override REJECT hardening backport (carry from v0.2.7)
-- MEDIUM — MCCP_SKIP_RECEIPT=1 session-env latch (observed again this session; settings.json env block lifecycle still uninvestigated)
+- HIGH — v0.3.3 Task 2 dogfood가 trivial path로 분기될 위험 (.test.js extension은 whitelist 외이므로 보수적 default = full chain 예상, 검증 필요)
+- HIGH — MCCP_CODEX_DISABLED 환경에서 Codex 게이트가 short-circuit으로 false-green 만들 위험 — Task 3 report "## Codex-disabled handling assessment" 섹션에서 명시 검증
+- MEDIUM — Dogfood self-referential 한계: e2e plan을 dogfood 없이 plan함. Task 3 report에 plan retro 섹션 포함 (mitigated by design)
+- MEDIUM — CLAUDE.md §1.4 표가 S11/S12를 "미구현"으로 stale 표기 — Task 4 drift 흡수에서 ship 상태로 갱신 필요
+- MEDIUM — STATE.md → CLAUDE.md docs drift가 v0.2.8 시점부터 누적된 패턴 — 본 milestone이 lesson-learned로 "매 milestone ship 직후 docs sync" rule을 roadmap Risks 표에 추가 검토
+- LOW — wrapper bug debt: codex-invoke.js spawnSync stdout-empty (v0.2.6 housekeeping carry, partial natural recovery R4 noted)
+- LOW — v0.2.4 security_force_override REJECT hardening backport (carry from v0.2.7)
 - LOW — MEMORY.md Step 3 demotion script --apply trigger (user deferred)
+- LOW — MCCP_SKIP_RECEIPT=1 session-env latch (settings.json env block lifecycle uninvestigated)
 
 ## Last Updated
-2026-06-08T09:47:39.292Z
+2026-06-08T16:44:24.076Z

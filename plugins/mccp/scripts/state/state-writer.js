@@ -30,6 +30,9 @@ const VALID_EVENTS = new Set([
   'pr_created',
   'fix_task_applied',
   'precompact',
+  // v0.3.0 S10b — emitted by session-spawner when handoff actually fires.
+  // Reading session can use this to skip re-running cost detection.
+  'handoff_spawn',
 ]);
 
 const SECTIONS = ['Goal', 'Plan', 'Done', 'In Progress', 'Next Step', 'Last Decision', 'Open Questions', 'Last Updated'];

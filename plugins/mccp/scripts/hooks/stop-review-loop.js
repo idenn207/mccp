@@ -37,6 +37,7 @@ const dedupeKey = require(path.join(PLUGIN_ROOT, 'scripts', 'state', 'dedupe-key
 const codexBridge = require(path.join(PLUGIN_ROOT, 'scripts', 'lib', 'codex-bridge'));
 const qualityRunner = require(path.join(PLUGIN_ROOT, 'scripts', 'quality', 'runner'));
 const qualityDetect = require(path.join(PLUGIN_ROOT, 'scripts', 'quality', 'detect'));
+const stateWriter = require(path.join(PLUGIN_ROOT, 'scripts', 'state', 'state-writer'));
 
 const MAX_STDIN_BYTES = 1024 * 1024;
 const CODEX_INPUT_REL = path.join('.claude', 'state', 'codex-stop-loop-input.txt');
@@ -127,6 +128,17 @@ function blockJson(reason) {
   });
 }
 
+// v0.3.0 S10b — emit safe-event signal so auto-handoff's AND-gate sees a
+// fresh stop_loop_pass marker. Never propagate failure — STATE.md write
+// errors must not block the Stop hook.
+function signalStopLoopPass(repoRoot, stderr) {
+  try {
+    stateWriter.update(repoRoot, { event: 'stop_loop_pass' });
+  } catch (err) {
+    debug(stderr, 'state-writer signal failed (non-fatal): ' + err.message);
+  }
+}
+
 function summarizeFailures(stages) {
   const fails = stages.filter(s => s.status !== 'pass' && s.status !== 'skipped');
   return fails.map(s => ({
@@ -199,6 +211,7 @@ function run(rawInput, opts) {
         debug(stderr, 'MCCP_STOP_LOOP_CODEX=1 but no codex result file at ' +
           CODEX_INPUT_REL + '; skipping');
         loopCounter.reset(repoRoot, fingerprint);
+        signalStopLoopPass(repoRoot, stderr);
         return rawInput;
       }
       const verdict = codexBridge.parseCodexResult(codexText, options.focus || 'stop-loop diff review');
@@ -206,6 +219,7 @@ function run(rawInput, opts) {
       if (verdict.verdict === 'unavailable') {
         debug(stderr, 'codex unavailable; allow (auto-fallback)');
         loopCounter.reset(repoRoot, fingerprint);
+        signalStopLoopPass(repoRoot, stderr);
         return rawInput;
       }
       if (verdict.verdict === 'critical' || verdict.escalate) {
@@ -230,6 +244,7 @@ function run(rawInput, opts) {
     }
     loopCounter.reset(repoRoot, fingerprint);
     debug(stderr, 'counter reset (all checks passed)');
+    signalStopLoopPass(repoRoot, stderr);
     return rawInput;
   }
 

@@ -53,21 +53,28 @@ mccp의 차별점은 **Claude(Opus) ↔ Codex(GPT-5.4 계열) cross-model advers
 
 ### 1.3 자동화 파이프라인 (v0.1 receipt chain)
 
-PRD부터 PR까지 전 라이프사이클을 단일 namespace(`/mccp:*`)로 자동화합니다:
+PRD부터 PR까지 전 라이프사이클을 단일 namespace(`/mccp:*`)로 자동화합니다. v0.3.1+ 부터는 **`/mccp:work <feature>` 단일 entry**로 전체 chain을 자동 orchestration할 수 있습니다 — trivial 변경은 plan/implement를 건너뛰고 commit + pr로 직행, 새 기능은 full chain.
 
 ```
-/mccp:plan-prd      → 문제 정의 PRD
+/mccp:work <feature>   ← 단일 entry (v0.3.1+, trivial 자동 분기)
         ↓
-/mccp:plan          → 구현 plan + Codex adversarial review (R1/R2 수렴)
-        ↓
-/mccp:prp-implement → plan 실행 + Implement-Codex review + cross-gate dedupe
-        ↓
-/mccp:code-review   → 변경 코드 multi-perspective review        (alias: /mccp:review-pr — PR Review Mode)
-        ↓
-/mccp:prp-commit    → 자연어 파일 타겟팅 커밋
-        ↓
-/mccp:pr            → 디자인/보안/Codex review 통합 후 GitHub PR 생성   (alias: /mccp:prp-pr — verbatim)
+        ├─ trivial path: /mccp:prp-commit → /mccp:pr
+        │
+        └─ full chain:
+            /mccp:plan-prd      → 문제 정의 PRD
+                    ↓
+            /mccp:plan          → 구현 plan + Codex adversarial review (R1/R2 수렴)
+                    ↓
+            /mccp:prp-implement → plan 실행 + Implement-Codex review + cross-gate dedupe
+                    ↓
+            /mccp:code-review   → 변경 코드 multi-perspective review   (alias: /mccp:review-pr — PR Review Mode)
+                    ↓
+            /mccp:prp-commit    → 자연어 파일 타겟팅 커밋
+                    ↓
+            /mccp:pr            → 디자인/보안/Codex review 통합 후 GitHub PR 생성   (alias: /mccp:prp-pr — verbatim)
 ```
+
+각 chain step은 개별 호출도 가능 (subcommand 그대로). `/mccp:work`는 위 sequence를 자동으로 묶을 뿐 — trivial vs full 분류는 [work-orchestrator.js](plugins/mccp/scripts/lib/work-orchestrator.js)의 5중 AND 휴리스틱 (file count ≤ 2, LOC ≤ 20, ext ⊂ {md,txt,json,yaml,yml}, no new files, no source-code signature) + 보수적 default = full. `--full` / `--trivial` override 지원.
 
 각 단계는 **receipt** (`.claude/receipts/*.json`)를 발행하고, 다음 단계는 이전 receipt chain을 검증한 뒤에만 시작합니다 (mechanical enforcement). receipt 운용 모드는 §1.2의 `MCCP_RECEIPT_GATE_MODE` 참조.
 
@@ -230,6 +237,7 @@ v0.2.7 lock holder가 살아있는 동안 v0.2.8 binary가 부팅하면, v0.2.8�
 /mccp:setup --dry-run               # 설치 없이 검출만
 
 # 게이트 파이프라인
+/mccp:work <feature>                # 단일 entry (v0.3.1+) — trivial 자동 분기, 아래 chain을 자동 orchestration
 /mccp:plan-prd <feature>            # PRD 작성
 /mccp:plan <feature-or-prd-path>    # 구현 plan + Codex R1/R2 수렴
 /mccp:prp-implement <plan-path>     # plan 실행 + validation loop

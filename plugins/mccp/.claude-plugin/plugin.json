@@ -2,7 +2,7 @@
   "name": "mccp",
   "displayName": "My Claude Code Plugin",
   "description": "ECC-style gate enforcement (Phase 7 plan / Phase 2.5 implement / PR review), Codex adversarial review orchestration, and receipt-based mechanical enforcement. Self-contained Apache-2.0 fork.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": {
     "name": "skypark207"
   },

@@ -192,3 +192,28 @@ test('depCheck round-trip: empty missing list clears dep_check_missing', () => {
   assert.ok(!/^dep_check_missing:/m.test(raw), 'dep_check_missing should be omitted when null');
   assert.match(raw, /^dep_check_at: 2026-06-04T05:30:00\.000Z$/m);
 });
+
+test('v0.3.2 escalate_pending round-trip: set, read, clear', () => {
+  const repo = mkRepo();
+  // Default state: no escalate_pending key in rendered output (conditional emit).
+  sw.update(repo, { event: 'precompact', taskFingerprint: 'fp1' });
+  let raw = readRaw(repo);
+  assert.ok(!/^escalate_pending:/m.test(raw), 'escalate_pending omitted by default');
+
+  // Set: emits both fields.
+  sw.update(repo, { event: 'receipt_write', escalate_pending: true, escalate_pending_decision_id: 'v0-3-2-escalate' });
+  raw = readRaw(repo);
+  assert.match(raw, /^escalate_pending: true$/m);
+  assert.match(raw, /^escalate_pending_decision_id: v0-3-2-escalate$/m);
+
+  // Read back via parser preserves both fields.
+  const reread = sw.readState(repo);
+  assert.strictEqual(reread.frontmatter.escalate_pending, true);
+  assert.strictEqual(reread.frontmatter.escalate_pending_decision_id, 'v0-3-2-escalate');
+
+  // Clear: setting false (and explicit null id) drops the emit.
+  sw.update(repo, { event: 'receipt_write', escalate_pending: false, escalate_pending_decision_id: null });
+  raw = readRaw(repo);
+  assert.ok(!/^escalate_pending:/m.test(raw), 'escalate_pending should be omitted when cleared');
+  assert.ok(!/^escalate_pending_decision_id:/m.test(raw), 'decision_id should be omitted when cleared');
+});

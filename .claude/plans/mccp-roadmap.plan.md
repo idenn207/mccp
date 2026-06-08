@@ -30,6 +30,8 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 | **v0.2.8** | 2026-06-07/08 | PR Workflow Hardening + markdownlint delegation + F9/F6 finalize (M2.6 — PRs #6/#7/#8 + finalize) | [v0-2-8](v0-2-8-pr-workflow-hardening.plan.md) |
 | **v0.2.9** | 2026-06-08 | Gate Round Budget + YAGNI Triage (R1 default cap=1 + DEFER_TO_BACKLOG sink, M2.7 — PR #10) | [v0-2-9](v0-2-9-gate-round-yagni.plan.md) |
 | **v0.3.0** | 2026-06-08 | S10b Auto-Handoff cost-tier breakpoint + session spawn (M3 — PR #11) | [v0-3-0](../PRPs/plans/completed/v0-3-0-auto-handoff.plan.md) |
+| **v0.3.1** | 2026-06-08 | S11 `/mccp:work` single-entry orchestrator (M4 — PR #12) | [v0-3-1](v0-3-1-mccp-work.plan.md) |
+| **v0.3.2** | 2026-06-08 | S12 cross-gate dual-reviewer escalate detection (M5 — in this PR) | [v0-3-2](../PRPs/plans/completed/v0-3-2-escalate.plan.md) |
 
 ### Active / Pending Milestones
 
@@ -39,8 +41,8 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 | **Milestone 2.6** | v0.2.8 | PR Workflow Hardening (Codex fix-loop 차단 + markdown lint 노이즈) | [v0-2-8](v0-2-8-pr-workflow-hardening.plan.md) | ✅ shipped (PRs #6/#7/#8 + finalize cycle 2026-06-07/08) |
 | **Milestone 2.7** | v0.2.9 | Gate Round Budget + YAGNI Triage (default cap=1 + DEFER_TO_BACKLOG file) | [v0-2-9](v0-2-9-gate-round-yagni.plan.md) | ✅ shipped (PR #10, commit 759db7c, 2026-06-08) |
 | **Milestone 3** | v0.3.0 | S10b Auto-Handoff ($100 hard ceiling) | [v0-3-0](../PRPs/plans/completed/v0-3-0-auto-handoff.plan.md) | ✅ shipped (PR #11, commit b83596b, 2026-06-08) |
-| **Milestone 4** | v0.3.1 | S11 `/mccp:work` single entry orchestration | [v0-3-1](v0-3-1-mccp-work.plan.md) | ⏳ pending (next active) |
-| **Milestone 5** | v0.3.2 | S12 dual-reviewer escalate (자동 안내, invoke X) | [v0-3-2](v0-3-2-escalate.plan.md) | ⏳ pending |
+| **Milestone 4** | v0.3.1 | S11 `/mccp:work` single entry orchestration | [v0-3-1](v0-3-1-mccp-work.plan.md) | ✅ shipped (PR #12, commit 575becf, 2026-06-08) |
+| **Milestone 5** | v0.3.2 | S12 dual-reviewer escalate (자동 안내, invoke X) | [v0-3-2](../PRPs/plans/completed/v0-3-2-escalate.plan.md) | 🚧 in-progress (this PR) |
 
 ### Out of scope — do not reference
 
@@ -61,7 +63,7 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 - ✅ A.2: 기존 plan/note `git mv` archive (4 plan + 1 PRP plan + 1 note)
 - ✅ A.3 Step 1-2: MEMORY.md backup + roadmap pointer prepend + Step 4 validation 4/4 PASS
 - ✅ A.4: STATE.md fingerprint `roadmap-active` 갱신 (2026-06-04 — 이후 2026-06-06 thin-index transform에서 `roadmap-index`로 진화. 현재 canonical 값은 Acceptance 항목 참조)
-- ✅ 2026-06-06 thin-index transform: roadmap 91KB → ~14KB, milestone body를 7개 sub-plan으로 분리 ([v0-2-5](v0-2-5-impeccable-wiring.plan.md), [v0-2-6](v0-2-6-housekeeping.plan.md), [v0-2-7](v0-2-7-silent-hook-ux.plan.md), [v0-2-8](v0-2-8-pr-workflow-hardening.plan.md), [v0-3-0](v0-3-0-auto-handoff.plan.md), [v0-3-1](v0-3-1-mccp-work.plan.md), [v0-3-2](v0-3-2-escalate.plan.md))
+- ✅ 2026-06-06 thin-index transform: roadmap 91KB → ~14KB, milestone body를 7개 sub-plan으로 분리 ([v0-2-5](v0-2-5-impeccable-wiring.plan.md), [v0-2-6](v0-2-6-housekeeping.plan.md), [v0-2-7](v0-2-7-silent-hook-ux.plan.md), [v0-2-8](v0-2-8-pr-workflow-hardening.plan.md), [v0-3-0](../PRPs/plans/completed/v0-3-0-auto-handoff.plan.md), [v0-3-1](v0-3-1-mccp-work.plan.md), [v0-3-2](../PRPs/plans/completed/v0-3-2-escalate.plan.md))
 
 ### Deferred
 
@@ -143,7 +145,7 @@ node -e "console.log(require('./plugins/mccp/.claude-plugin/plugin.json').versio
 - [x] Milestone 2.7 (v0.2.9): gate round YAGNI triage shipped via PR #10 (commit 759db7c, 2026-06-08) — [v0-2-9 sub-plan](v0-2-9-gate-round-yagni.plan.md)
 - [x] Milestone 3 (v0.3.0): S10b auto-handoff shipped via PR #11 (commit b83596b, 2026-06-08) — [v0-3-0 sub-plan](../PRPs/plans/completed/v0-3-0-auto-handoff.plan.md)
 - [ ] Milestone 4 (v0.3.1): `/mccp:work` — [v0-3-1 sub-plan](v0-3-1-mccp-work.plan.md)
-- [ ] Milestone 5 (v0.3.2): escalate — [v0-3-2 sub-plan](v0-3-2-escalate.plan.md)
+- [ ] Milestone 5 (v0.3.2): escalate — [v0-3-2 sub-plan](../PRPs/plans/completed/v0-3-2-escalate.plan.md)
 - [ ] 매 마일스톤마다 `plugin.json` bump + main merge + PR 본문에 `## Codex Adversarial Review` (+`## Design Review` if applicable)
 - [ ] 매 마일스톤 shipping 후 본 roadmap의 Status Snapshot 갱신 (sub-plan의 status field가 source of truth)
 

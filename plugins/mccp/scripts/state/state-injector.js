@@ -138,6 +138,22 @@ function formatStateBlock(body) {
     body + '\n</system-reminder>\n';
 }
 
+// v0.3.2 / S12 — append `## Escalation Pending` section to STATE body when
+// the flag is set. Single source of truth: state-writer renders the frontmatter
+// flag; this injector materializes it as a user-visible reminder.
+function appendEscalateSection(body, frontmatter) {
+  if (!frontmatter || frontmatter.escalate_pending !== true) return body;
+  const dec = frontmatter.escalate_pending_decision_id || '(unknown)';
+  const section = [
+    '',
+    '## Escalation Pending',
+    '- decision: ' + dec,
+    '- Next: /mccp:santa-loop (가용)',
+    '- 해제: santa-loop 통과 후 receipt가 ACCEPT 상태로 갱신되면 자동 clear',
+  ].join('\n');
+  return body + '\n' + section;
+}
+
 // Tail sentinel: paired with the head marker so the SessionStart guard can
 // verify the ENTIRE block survived limitSessionStartContext truncation, not
 // just the first few chars (Codex stop-time finding: head-only check accepts
@@ -159,7 +175,8 @@ function inject(repoRoot) {
   try {
     const state = readState(repoRoot);
     if (state.kind === 'ok') {
-      parts.push(formatStateBlock(state.body));
+      const body = appendEscalateSection(state.body, state.frontmatter);
+      parts.push(formatStateBlock(body));
       applied.state = true;
     } else if (state.kind === 'missing') {
       applied.stateSkip = 'missing';

@@ -14,6 +14,9 @@ const {
 const { validate, makeSkeleton, GATE_IDS } = require('./schema');
 const { phaseFromGate } = require('./aliases');
 const { writeReceipt, readReceipt } = require('./store');
+const escalateDetector = require('../lib/escalate-detector');
+const fixTask = require('../state/fix-task');
+const stateWriter = require('../state/state-writer');
 
 function asArray(v) {
   if (v === undefined || v === null) return [];
@@ -144,10 +147,90 @@ function buildReceipt(args) {
   return { repoRoot: repoRoot, receipt: receipt };
 }
 
+// v0.3.2 / S12 — derive a short escalation summary from the detector result.
+function deriveEscalateSummary(det) {
+  if (det.trigger === 'auto_critical_catalog' && det.criticalCategory) {
+    return 'CRITICAL: ' + det.criticalCategory + ' (auto-catalog match)';
+  }
+  if (det.trigger === 'finding_critical') {
+    const first = det.evidence.findingsCritical[0];
+    const area = first && first.area ? ' (' + first.area + ')' : '';
+    return 'CRITICAL finding' + area;
+  }
+  if (det.trigger === 'divergent_unresolved') {
+    return 'divergent unresolved (rounds >= 3)';
+  }
+  return 'escalation triggered';
+}
+
+// v0.3.2 / S12 — derive task_fingerprint from STATE.md if available; fallback
+// to '<receipt-escalate>' so the fix-task is still identifiable.
+function deriveFingerprint(repoRoot, fallback) {
+  try {
+    const st = stateWriter.readState(repoRoot);
+    const fp = st && st.frontmatter && st.frontmatter.task_fingerprint;
+    if (fp && fp !== 'unknown') return fp;
+  } catch (_) { /* ignore */ }
+  return fallback || '<receipt-escalate>';
+}
+
+// v0.3.2 / S12 — cross-gate escalate trigger. Fires after writeReceipt.
+// Fail-open invariant: any exception inside this function is caught + logged
+// (loud stderr) but never propagates to write(). The receipt MUST be written
+// regardless of detector outcome.
+function triggerEscalateIfNeeded(repoRoot, receipt, receiptPath) {
+  const det = escalateDetector.detectFromReceipt(receipt);
+  if (det.escalate) {
+    fixTask.writeOrAppend(repoRoot, {
+      verdict: det.verdict,
+      escalate: true,
+      taskFingerprint: deriveFingerprint(repoRoot, receipt.decision_id),
+      decisionId: receipt.decision_id,
+      codexSummary: deriveEscalateSummary(det),
+      originalPrompt: '<gate-receipt:' + receipt.gate_id + '/' + receipt.decision_id + '>',
+      originatingReceipts: [receiptPath],
+    });
+    stateWriter.update(repoRoot, {
+      escalate_pending: true,
+      escalate_pending_decision_id: receipt.decision_id,
+    });
+    process.stderr.write('[mccp:escalate] ' + det.trigger + ' detected in ' +
+      receipt.gate_id + '/' + receipt.decision_id +
+      ' — see .claude/state/fix-task.md\n');
+    return;
+  }
+  // Reverse path: clear escalate_pending if the prior alarm referenced this
+  // same decision_id (santa-loop convergence + clean receipt → clear).
+  const existing = stateWriter.readState(repoRoot);
+  if (existing.frontmatter.escalate_pending === true &&
+      existing.frontmatter.escalate_pending_decision_id === receipt.decision_id) {
+    stateWriter.update(repoRoot, {
+      escalate_pending: false,
+      escalate_pending_decision_id: null,
+    });
+    process.stderr.write('[mccp:escalate] cleared for ' +
+      receipt.gate_id + '/' + receipt.decision_id +
+      ' (subsequent clean receipt)\n');
+  }
+}
+
 function write(args) {
   const built = buildReceipt(args);
   const p = writeReceipt(built.repoRoot, built.receipt);
+  try {
+    triggerEscalateIfNeeded(built.repoRoot, built.receipt, p);
+  } catch (err) {
+    process.stderr.write('[mccp:escalate] detector failed: ' +
+      (err && err.message ? err.message : err) + ' (allow)\n');
+  }
   return { path: p, receipt: built.receipt };
 }
 
-module.exports = { write: write, buildReceipt: buildReceipt };
+module.exports = {
+  write: write,
+  buildReceipt: buildReceipt,
+  // Exported for tests + downstream callers that want the detector path
+  // without going through writeReceipt (e.g., dry-run preview).
+  triggerEscalateIfNeeded: triggerEscalateIfNeeded,
+  deriveEscalateSummary: deriveEscalateSummary,
+};

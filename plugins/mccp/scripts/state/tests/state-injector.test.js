@@ -172,3 +172,31 @@ test('fix-task block carries both HEAD and TAIL sentinel markers (partial-delive
   assert.ok(midSlice.includes(inj.FIX_TASK_HEAD_MARKER), 'prefix slice keeps HEAD');
   assert.ok(!midSlice.includes(inj.FIX_TASK_TAIL_MARKER), 'prefix slice drops TAIL');
 });
+
+// v0.3.2 / S12 — escalate_pending injects the ## Escalation Pending section.
+test('v0.3.2 escalate_pending=true injects ## Escalation Pending section in STATE block', () => {
+  const repo = mkRepo();
+  writeValidState(repo, {
+    escalate_pending: true,
+    escalate_pending_decision_id: 'v0-3-2-escalate',
+  });
+  const result = inj.inject(repo);
+  assert.strictEqual(result.applied.state, true);
+  assert.match(result.stdout, /## Escalation Pending/);
+  assert.match(result.stdout, /- decision: v0-3-2-escalate/);
+  assert.match(result.stdout, /- Next: \/mccp:santa-loop/);
+  // Section must live inside the STATE block, not inside fix-task.
+  const escalateIdx = result.stdout.indexOf('## Escalation Pending');
+  const stateBlockEnd = result.stdout.indexOf('</system-reminder>');
+  assert.ok(escalateIdx > 0 && escalateIdx < stateBlockEnd,
+    'Escalation Pending must appear inside the STATE system-reminder block');
+});
+
+test('v0.3.2 escalate_pending=false (default) does NOT inject Escalation Pending section', () => {
+  const repo = mkRepo();
+  writeValidState(repo);
+  const result = inj.inject(repo);
+  assert.strictEqual(result.applied.state, true);
+  assert.ok(!result.stdout.includes('## Escalation Pending'),
+    'Escalation Pending section must be absent by default');
+});

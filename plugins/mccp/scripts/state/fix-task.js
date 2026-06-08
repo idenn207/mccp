@@ -219,6 +219,115 @@ function write(repoRoot, input) {
   return { path: target, body: body, bodyHash: bodyHash(body) };
 }
 
+// Minimal frontmatter parser scoped to fix-task.md. Returns {fm, body} or null.
+// Handles key:value scalars and key:\n  - item sequences (originating_receipts).
+function parseFixTaskMd(raw) {
+  if (!raw) return null;
+  const match = String(raw).match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n([\s\S]*)$/);
+  if (!match) return null;
+  const fmText = match[1];
+  const bodyText = match[2];
+  const fm = {};
+  const lines = fmText.split(/\r?\n/);
+  let i = 0;
+  while (i < lines.length) {
+    const m = lines[i].match(/^([a-z_][a-z0-9_]*)\s*:\s*(.*)$/i);
+    if (!m) { i++; continue; }
+    const key = m[1];
+    const value = m[2].trim();
+    if (value === '' || value === '[]') {
+      // Possible sequence on subsequent indented lines.
+      const items = [];
+      let j = i + 1;
+      while (j < lines.length) {
+        const im = lines[j].match(/^\s+-\s+(.+)$/);
+        if (!im) break;
+        items.push(im[1].trim());
+        j++;
+      }
+      fm[key] = items;  // [] when value was literal [] with no items
+      i = j;
+      continue;
+    }
+    if (value === 'true') fm[key] = true;
+    else if (value === 'false') fm[key] = false;
+    else if (/^-?\d+$/.test(value)) fm[key] = parseInt(value, 10);
+    else fm[key] = value;
+    i++;
+  }
+  return { fm: fm, body: bodyText };
+}
+
+// v0.3.2 — write fix-task.md if missing, otherwise idempotently append the
+// receipt path to originating_receipts and ensure the escalation section is
+// present. Preserves created_at / expires_at / counter from the existing
+// file so a long-running escalation isn't TTL-reset by every appended receipt.
+//
+// Returns:
+//   { path, body, bodyHash, skipped: true }  if all input receipts already present
+//   { path, body, bodyHash, appended: true } if at least one new receipt added
+//   { path, body, bodyHash, created: true }  if fallback to write() for missing file
+function writeOrAppend(repoRoot, input) {
+  const target = fixTaskPath(repoRoot);
+  const payload = input || {};
+
+  if (!fs.existsSync(target)) {
+    const result = write(repoRoot, payload);
+    return Object.assign({}, result, { created: true });
+  }
+
+  const existing = fs.readFileSync(target, 'utf8');
+  const parsed = parseFixTaskMd(existing);
+  if (!parsed) {
+    // Corrupt frontmatter — fall back to overwrite (no recovery possible).
+    process.stderr.write('[mccp:fix-task] WARNING: corrupt frontmatter at ' +
+      target + '; overwriting via write()\n');
+    const result = write(repoRoot, payload);
+    return Object.assign({}, result, { created: true });
+  }
+
+  const existingReceipts = Array.isArray(parsed.fm.originating_receipts)
+    ? parsed.fm.originating_receipts.slice()
+    : [];
+  const newReceipts = Array.isArray(payload.originatingReceipts)
+    ? payload.originatingReceipts.filter(r => typeof r === 'string' && r.length > 0)
+    : [];
+  const toAdd = newReceipts.filter(r => existingReceipts.indexOf(r) === -1);
+
+  if (toAdd.length === 0) {
+    return { path: target, body: existing, bodyHash: bodyHash(existing), skipped: true };
+  }
+
+  const merged = existingReceipts.concat(toAdd);
+
+  // Rebuild via buildBody with merged receipts + preserved counter.
+  const rebuildInput = Object.assign({}, payload, {
+    originatingReceipts: merged,
+    counter: parsed.fm.counter || payload.counter || 1,
+  });
+  let body = buildBody(rebuildInput);
+
+  // Preserve original created_at + expires_at (the escalation arrived earlier;
+  // TTL was set then). buildBody re-emits both fields with `now`, so we patch.
+  if (parsed.fm.created_at) {
+    body = body.replace(/^created_at: .*$/m, 'created_at: ' + parsed.fm.created_at);
+  }
+  if (parsed.fm.expires_at) {
+    body = body.replace(/^expires_at: .*$/m, 'expires_at: ' + parsed.fm.expires_at);
+  }
+
+  ensureDir(target);
+  const tmp = target + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
+  fs.writeFileSync(tmp, body, 'utf8');
+  try {
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch (_) { /* ignore */ }
+    throw err;
+  }
+  return { path: target, body: body, bodyHash: bodyHash(body), appended: true };
+}
+
 function read(repoRoot) {
   const target = fixTaskPath(repoRoot);
   if (!fs.existsSync(target)) return null;
@@ -259,6 +368,8 @@ module.exports = {
   buildBody: buildBody,
   bodyHash: bodyHash,
   write: write,
+  writeOrAppend: writeOrAppend,
+  parseFixTaskMd: parseFixTaskMd,
   read: read,
   clear: clear,
   markApplied: markApplied,

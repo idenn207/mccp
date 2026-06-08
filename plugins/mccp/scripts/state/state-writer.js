@@ -111,6 +111,11 @@ function emptyState() {
       // v0.2.3 — dep-check dedupe state (24h re-warn threshold)
       dep_check_at: null,
       dep_check_missing: null,
+      // v0.3.2 — dual-reviewer escalate flag (set by receipt-write when an
+      // escalate trigger fires; cleared on next clean receipt for the same
+      // decision_id). Conditional emit — only rendered when escalate_pending=true.
+      escalate_pending: false,
+      escalate_pending_decision_id: null,
     },
     body: {
       goal: '',
@@ -256,6 +261,13 @@ function renderFrontmatter(fm) {
   // v0.2.3 — dep-check dedupe state (only rendered when set)
   if (fm.dep_check_at) out.push('dep_check_at: ' + fm.dep_check_at);
   if (fm.dep_check_missing) out.push('dep_check_missing: ' + fm.dep_check_missing);
+  // v0.3.2 — escalate_pending (only rendered when active, mirroring dep_check pattern)
+  if (fm.escalate_pending === true) {
+    out.push('escalate_pending: true');
+    if (fm.escalate_pending_decision_id) {
+      out.push('escalate_pending_decision_id: ' + fm.escalate_pending_decision_id);
+    }
+  }
   out.push('---');
   return out.join('\n');
 }
@@ -329,6 +341,18 @@ function mergeState(existing, patch) {
   }
   if (patch.chain_progress !== undefined || patch.chainProgress !== undefined) {
     merged.frontmatter.chain_progress = patch.chain_progress || patch.chainProgress || null;
+  }
+
+  // v0.3.2 — dual-reviewer escalation flag.
+  // Decision_id intentionally accepts null/'' to support the reverse-clear
+  // path (receipt-write clears the flag when det.escalate=false matches the
+  // recorded decision_id).
+  if (patch.escalate_pending !== undefined) {
+    merged.frontmatter.escalate_pending = !!patch.escalate_pending;
+  }
+  if (patch.escalate_pending_decision_id !== undefined) {
+    const v = patch.escalate_pending_decision_id;
+    merged.frontmatter.escalate_pending_decision_id = (v === null || v === '') ? null : String(v);
   }
 
   if (!merged.frontmatter.created_at) merged.frontmatter.created_at = now;

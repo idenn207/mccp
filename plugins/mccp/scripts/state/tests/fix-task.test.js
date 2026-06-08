@@ -78,6 +78,73 @@ test('expires_at frontmatter is set 7 days into the future', () => {
   assert.ok(Math.abs(days - 7) < 0.01, 'expected ~7 days, got ' + days);
 });
 
+// v0.3.2 — writeOrAppend mode (cross-gate escalate path)
+test('writeOrAppend: missing file falls back to write()', () => {
+  const repo = mkRepo();
+  const result = ft.writeOrAppend(repo, {
+    verdict: 'codex_critical',
+    escalate: true,
+    codexSummary: 'CRITICAL: finding_critical',
+    originatingReceipts: ['.claude/receipts/mccp-plan-codex/foo.json'],
+  });
+  assert.strictEqual(result.created, true);
+  assert.ok(fs.existsSync(result.path));
+  assert.match(result.body, /## Dual Reviewer Escalation Required/);
+  assert.match(result.body, /^originating_receipts:\n {2}- \.claude\/receipts\/mccp-plan-codex\/foo\.json/m);
+});
+
+test('writeOrAppend: new receipt appends + preserves created_at + expires_at', async () => {
+  const repo = mkRepo();
+  const first = ft.writeOrAppend(repo, {
+    verdict: 'codex_critical',
+    escalate: true,
+    codexSummary: 'CRITICAL: first',
+    originatingReceipts: ['.claude/receipts/mccp-plan-codex/foo.json'],
+  });
+  const firstCreated = first.body.match(/^created_at: (.+)$/m)[1];
+  const firstExpires = first.body.match(/^expires_at: (.+)$/m)[1];
+
+  // Wait a few ms so we'd notice if buildBody silently re-emitted now().
+  await new Promise(r => setTimeout(r, 15));
+
+  const second = ft.writeOrAppend(repo, {
+    verdict: 'codex_critical',
+    escalate: true,
+    codexSummary: 'CRITICAL: second',
+    originatingReceipts: ['.claude/receipts/mccp-implement-codex/foo.json'],
+  });
+  assert.strictEqual(second.appended, true);
+  const secondCreated = second.body.match(/^created_at: (.+)$/m)[1];
+  const secondExpires = second.body.match(/^expires_at: (.+)$/m)[1];
+  assert.strictEqual(secondCreated, firstCreated, 'created_at must be preserved');
+  assert.strictEqual(secondExpires, firstExpires, 'expires_at must be preserved');
+  // Both receipts present in frontmatter
+  assert.match(second.body, /mccp-plan-codex\/foo\.json/);
+  assert.match(second.body, /mccp-implement-codex\/foo\.json/);
+  // Escalation section still present (idempotent)
+  assert.match(second.body, /## Dual Reviewer Escalation Required/);
+});
+
+test('writeOrAppend: duplicate receipt is a no-op', () => {
+  const repo = mkRepo();
+  ft.writeOrAppend(repo, {
+    verdict: 'codex_critical',
+    escalate: true,
+    codexSummary: 'CRITICAL: dup test',
+    originatingReceipts: ['.claude/receipts/mccp-plan-codex/dup.json'],
+  });
+  const before = fs.readFileSync(ft.fixTaskPath(repo), 'utf8');
+  const result = ft.writeOrAppend(repo, {
+    verdict: 'codex_critical',
+    escalate: true,
+    codexSummary: 'CRITICAL: dup test',
+    originatingReceipts: ['.claude/receipts/mccp-plan-codex/dup.json'],
+  });
+  assert.strictEqual(result.skipped, true);
+  const after = fs.readFileSync(ft.fixTaskPath(repo), 'utf8');
+  assert.strictEqual(after, before, 'file must be byte-identical after duplicate writeOrAppend');
+});
+
 test('counter is capped to 2', () => {
   const repo = mkRepo();
   const result = ft.write(repo, { verdict: 'quality_fail', counter: 9, failures: [] });

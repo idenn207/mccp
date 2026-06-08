@@ -155,3 +155,109 @@ test('buildReceipt: subject_hash matches recomputation', function () {
     process.chdir(cwd);
   }
 });
+
+// v0.3.2 / S12 — escalate-detector integration (Task 5.2)
+
+const stateWriter = require('../../state/state-writer');
+const fixTaskMod = require('../../state/fix-task');
+
+function writeCriticalFindings(repo) {
+  return writeFileSync(repo, '.claude/findings.json', JSON.stringify([
+    { severity: 'CRITICAL', area: 'auth', description: 'token leaked in headers' },
+  ]));
+}
+
+test('escalate integration: CRITICAL finding fires fix-task + STATE flag', function () {
+  const repo = mkTmpRepo();
+  const plan = writeFileSync(repo, '.claude/plans/escalate-x.plan.md', '# escalate-x\n');
+  const findings = writeCriticalFindings(repo);
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    write({
+      gate: 'mccp-plan-codex',
+      decision: 'escalate-x',
+      plan: path.relative(repo, plan),
+      'findings-file': path.relative(repo, findings),
+    });
+    // fix-task.md exists with escalation section
+    const ftPath = fixTaskMod.fixTaskPath(repo);
+    assert.ok(fs.existsSync(ftPath), 'fix-task.md should be created');
+    const ftBody = fs.readFileSync(ftPath, 'utf8');
+    assert.match(ftBody, /## Dual Reviewer Escalation Required/);
+    assert.match(ftBody, /verdict: codex_critical/);
+    assert.match(ftBody, /escalate: true/);
+    // STATE.md escalate_pending=true with matching decision_id
+    const st = stateWriter.readState(repo);
+    assert.strictEqual(st.frontmatter.escalate_pending, true);
+    assert.strictEqual(st.frontmatter.escalate_pending_decision_id, 'escalate-x');
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('escalate integration: same receipt twice is idempotent', function () {
+  const repo = mkTmpRepo();
+  const plan = writeFileSync(repo, '.claude/plans/dup-x.plan.md', '# dup-x\n');
+  const findings = writeCriticalFindings(repo);
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    write({
+      gate: 'mccp-plan-codex',
+      decision: 'dup-x',
+      plan: path.relative(repo, plan),
+      'findings-file': path.relative(repo, findings),
+    });
+    const ftPath = fixTaskMod.fixTaskPath(repo);
+    const first = fs.readFileSync(ftPath, 'utf8');
+    // Second write of equivalent receipt — buildReceipt yields the same
+    // receiptPath, so writeOrAppend's de-dup logic should produce a byte-
+    // identical fix-task.md after the second call.
+    write({
+      gate: 'mccp-plan-codex',
+      decision: 'dup-x',
+      plan: path.relative(repo, plan),
+      'findings-file': path.relative(repo, findings),
+    });
+    const second = fs.readFileSync(ftPath, 'utf8');
+    assert.strictEqual(second, first, 'fix-task.md must be unchanged after duplicate escalate write');
+    // originating_receipts contains exactly one entry
+    const matches = first.match(/^  - .+\.json$/gm) || [];
+    assert.strictEqual(matches.length, 1, 'expected exactly 1 originating receipt, got ' + matches.length);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('escalate integration: clean receipt clears escalate_pending for matching decision_id', function () {
+  const repo = mkTmpRepo();
+  const plan = writeFileSync(repo, '.claude/plans/clear-x.plan.md', '# clear-x\n');
+  const findings = writeCriticalFindings(repo);
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    // First: trigger escalation
+    write({
+      gate: 'mccp-plan-codex',
+      decision: 'clear-x',
+      plan: path.relative(repo, plan),
+      'findings-file': path.relative(repo, findings),
+    });
+    const before = stateWriter.readState(repo);
+    assert.strictEqual(before.frontmatter.escalate_pending, true);
+
+    // Second: write a clean receipt (no findings) for the same decision_id
+    write({
+      gate: 'mccp-implement-codex',
+      decision: 'clear-x',
+      plan: path.relative(repo, plan),
+    });
+    const after = stateWriter.readState(repo);
+    assert.strictEqual(after.frontmatter.escalate_pending, false,
+      'escalate_pending should be cleared by subsequent clean receipt');
+    assert.strictEqual(after.frontmatter.escalate_pending_decision_id, null);
+  } finally {
+    process.chdir(cwd);
+  }
+});

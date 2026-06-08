@@ -20,6 +20,28 @@ Run two independent reviewers (Claude Opus + an external model) against the curr
 
 ## Workflow
 
+### Step 0: Verify Escalation Context (optional, v0.3.2)
+
+If invoked via mccp cross-gate escalation hand-off (receipt-write detected a
+CRITICAL finding, auto-CRITICAL catalog match, or `divergent_unresolved`),
+`.claude/state/STATE.md` has `escalate_pending: true` plus the recorded
+`escalate_pending_decision_id`. Verify alignment before launching the rubric so
+the loop targets the same scope the receipt flagged:
+
+```bash
+ESCALATE=$(grep '^escalate_pending:' .claude/state/STATE.md | awk '{print $2}' 2>/dev/null || true)
+EXPECTED_DEC=$(grep '^escalate_pending_decision_id:' .claude/state/STATE.md | awk '{print $2}' 2>/dev/null || true)
+```
+
+- `ESCALATE != "true"`: regular `/mccp:santa-loop` call — proceed to Step 1.
+- `ESCALATE == "true"` AND `EXPECTED_DEC` matches the current review scope:
+  recorded escalation — proceed to Step 1 with the rubric focused on the
+  catalog category surfaced in `.claude/state/fix-task.md`.
+- `ESCALATE == "true"` AND `EXPECTED_DEC` does NOT match: log a warning
+  (`fingerprint drift — STATE points at <EXPECTED_DEC>, but reviewing <current>`)
+  and proceed anyway. The flag will be cleared on the next clean receipt for
+  the matching decision_id.
+
 ### Step 1: Identify What to Review
 
 Determine the scope from `$ARGUMENTS` or fall back to uncommitted changes:

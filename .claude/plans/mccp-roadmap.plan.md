@@ -31,7 +31,7 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 | **v0.2.9** | 2026-06-08 | Gate Round Budget + YAGNI Triage (R1 default cap=1 + DEFER_TO_BACKLOG sink, M2.7 — PR #10) | [v0-2-9](v0-2-9-gate-round-yagni.plan.md) |
 | **v0.3.0** | 2026-06-08 | S10b Auto-Handoff cost-tier breakpoint + session spawn (M3 — PR #11) | [v0-3-0](../PRPs/plans/completed/v0-3-0-auto-handoff.plan.md) |
 | **v0.3.1** | 2026-06-08 | S11 `/mccp:work` single-entry orchestrator (M4 — PR #12) | [v0-3-1](v0-3-1-mccp-work.plan.md) |
-| **v0.3.2** | 2026-06-08 | S12 cross-gate dual-reviewer escalate detection (M5 — in this PR) | [v0-3-2](../PRPs/plans/completed/v0-3-2-escalate.plan.md) |
+| **v0.3.2** | 2026-06-08 | S12 cross-gate dual-reviewer escalate detection (M5 — PR #13) | [v0-3-2](../PRPs/plans/completed/v0-3-2-escalate.plan.md) |
 
 ### Active / Pending Milestones
 
@@ -42,7 +42,8 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 | **Milestone 2.7** | v0.2.9 | Gate Round Budget + YAGNI Triage (default cap=1 + DEFER_TO_BACKLOG file) | [v0-2-9](v0-2-9-gate-round-yagni.plan.md) | ✅ shipped (PR #10, commit 759db7c, 2026-06-08) |
 | **Milestone 3** | v0.3.0 | S10b Auto-Handoff ($100 hard ceiling) | [v0-3-0](../PRPs/plans/completed/v0-3-0-auto-handoff.plan.md) | ✅ shipped (PR #11, commit b83596b, 2026-06-08) |
 | **Milestone 4** | v0.3.1 | S11 `/mccp:work` single entry orchestration | [v0-3-1](v0-3-1-mccp-work.plan.md) | ✅ shipped (PR #12, commit 575becf, 2026-06-08) |
-| **Milestone 5** | v0.3.2 | S12 dual-reviewer escalate (자동 안내, invoke X) | [v0-3-2](../PRPs/plans/completed/v0-3-2-escalate.plan.md) | 🚧 in-progress (this PR) |
+| **Milestone 5** | v0.3.2 | S12 dual-reviewer escalate (자동 안내, invoke X) | [v0-3-2](../PRPs/plans/completed/v0-3-2-escalate.plan.md) | ✅ shipped (PR #13, commit 472b005, 2026-06-08) |
+| **Milestone 6** | v0.3.3 | Intent-driven E2E dogfood — `/mccp:work` 단일 entry full-chain validation + PR #11 L2 fix + docs drift sync | [v0-3-3](v0-3-3-intent-dogfood.plan.md) | 🚧 in-progress (2026-06-09) |
 
 ### Out of scope — do not reference
 
@@ -144,8 +145,9 @@ node -e "console.log(require('./plugins/mccp/.claude-plugin/plugin.json').versio
 - [x] Milestone 2.6 (v0.2.8): PR workflow hardening shipped via PRs #6/#7/#8 + finalize cycle (Task 2.6.2 markdownlint + 2.6.3 docs + F9 mutex preflight + F6 lock-pattern doc), 2026-06-07/08 — [v0-2-8 sub-plan](v0-2-8-pr-workflow-hardening.plan.md)
 - [x] Milestone 2.7 (v0.2.9): gate round YAGNI triage shipped via PR #10 (commit 759db7c, 2026-06-08) — [v0-2-9 sub-plan](v0-2-9-gate-round-yagni.plan.md)
 - [x] Milestone 3 (v0.3.0): S10b auto-handoff shipped via PR #11 (commit b83596b, 2026-06-08) — [v0-3-0 sub-plan](../PRPs/plans/completed/v0-3-0-auto-handoff.plan.md)
-- [ ] Milestone 4 (v0.3.1): `/mccp:work` — [v0-3-1 sub-plan](v0-3-1-mccp-work.plan.md)
-- [ ] Milestone 5 (v0.3.2): escalate — [v0-3-2 sub-plan](../PRPs/plans/completed/v0-3-2-escalate.plan.md)
+- [x] Milestone 4 (v0.3.1): `/mccp:work` shipped via PR #12 (commit 575becf, 2026-06-08) — [v0-3-1 sub-plan](v0-3-1-mccp-work.plan.md)
+- [x] Milestone 5 (v0.3.2): S12 escalate shipped via PR #13 (commit 472b005, 2026-06-08) — [v0-3-2 sub-plan](../PRPs/plans/completed/v0-3-2-escalate.plan.md)
+- [ ] Milestone 6 (v0.3.3): intent-driven E2E dogfood + docs sync + PR #11 L2 fix — [v0-3-3 sub-plan](v0-3-3-intent-dogfood.plan.md)
 - [ ] 매 마일스톤마다 `plugin.json` bump + main merge + PR 본문에 `## Codex Adversarial Review` (+`## Design Review` if applicable)
 - [ ] 매 마일스톤 shipping 후 본 roadmap의 Status Snapshot 갱신 (sub-plan의 status field가 source of truth)
 

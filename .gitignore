@@ -36,6 +36,8 @@ build/
 .claude/state/hook-trace/
 # v0.2.7 hook capability probe cache (per-machine binary path + mtime — local only).
 .claude/state/hook-caps.json
+# v0.3.0 auto-handoff append-only log (per-session cost-tier events — local only).
+.claude/state/auto-handoff-log.jsonl
 
 # Local env
 .env

@@ -178,24 +178,31 @@ test('path 6: enforce + counter at MAX → human takeover, allow', () => {
 });
 
 test('path 7: enforce + STOP_LOOP_CODEX=1 + critical → block + escalate', () => {
-  const repo = mkGitRepo({ withDiff: true });
-  const capture = captureStderr();
-  const raw = JSON.stringify({ cwd: repo, transcript_path: writeTranscript(repo, 'task G') });
-  const out = hook.run(raw, {
-    env: { MCCP_STOP_LOOP: 'enforce', MCCP_STOP_LOOP_CODEX: '1' },
-    stderr: capture.stderr,
-    repoRoot: repo,
-    detection: passDetection(),
-    runQuality: passRunner,
-    gitDiffEmpty: () => false,
-    codexResultText: 'Round 1: secret key committed — secret leaked',
-  });
-  const decoded = JSON.parse(out);
-  assert.strictEqual(decoded.decision, 'block');
-  assert.match(decoded.reason, /Codex CRITICAL/);
-  const body = ft.read(repo);
-  assert.ok(body);
-  assert.match(body, /## Dual Reviewer Escalation Required/);
+  const prev = process.env.MCCP_CODEX_DISABLED;
+  delete process.env.MCCP_CODEX_DISABLED;
+  try {
+    const repo = mkGitRepo({ withDiff: true });
+    const capture = captureStderr();
+    const raw = JSON.stringify({ cwd: repo, transcript_path: writeTranscript(repo, 'task G') });
+    const out = hook.run(raw, {
+      env: { MCCP_STOP_LOOP: 'enforce', MCCP_STOP_LOOP_CODEX: '1' },
+      stderr: capture.stderr,
+      repoRoot: repo,
+      detection: passDetection(),
+      runQuality: passRunner,
+      gitDiffEmpty: () => false,
+      codexResultText: 'Round 1: secret key committed — secret leaked',
+    });
+    const decoded = JSON.parse(out);
+    assert.strictEqual(decoded.decision, 'block');
+    assert.match(decoded.reason, /Codex CRITICAL/);
+    const body = ft.read(repo);
+    assert.ok(body);
+    assert.match(body, /## Dual Reviewer Escalation Required/);
+  } finally {
+    if (prev === undefined) delete process.env.MCCP_CODEX_DISABLED;
+    else process.env.MCCP_CODEX_DISABLED = prev;
+  }
 });
 
 test('observe mode never blocks even when quality fails', () => {

@@ -163,6 +163,10 @@ function buildReceipt(args) {
         if (typeof v === 'string' && v.length > 0) return v;
         return null;
       })(),
+      // v0.4.0 axis H — advisory stamp set by /mccp:prp-implement Phase 3
+      // when plan-conflict-detector escalated. Does NOT block downstream
+      // validators; the blocking surface is STATE.md.chain_aborted.
+      plan_conflict_escalated: args['plan-conflict-escalated'] === true,
     },
   });
 

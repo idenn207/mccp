@@ -332,13 +332,79 @@ For each task in **Step-by-Step Tasks**:
 
 ### Handling Deviations
 
-If implementation must deviate from the plan:
+During task execution AND after each validation level, run **plan-conflict detection** to decide whether a divergence between plan and actual results is a minor deviation (absorbed silently) or a true plan ↔ implementation gap (escalated). This guard is mandatory — silently absorbing a true gap is the exact failure axis H exists to prevent.
+
+```bash
+CONFLICT_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-conflict-detector.js" detect \
+  --plan "$ARGUMENTS" \
+  --failure-output "$LAST_VALIDATION_OUTPUT" \
+  --files-changed "$(git diff --name-only origin/main..HEAD)" \
+  --json)
+CONFLICT=$(echo "$CONFLICT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.conflict?"1":"0")}catch{process.stdout.write("0")}')
+CONFLICT_REASON=$(echo "$CONFLICT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"")}catch{process.stdout.write("")}')
+CONFLICT_SIGNAL=$(echo "$CONFLICT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.signal||"")}catch{process.stdout.write("")}')
+```
+
+**CONFLICT=0 (minor deviation)**: Original pre-axis-H behavior preserved.
+
 - Note **WHAT** changed
 - Note **WHY** it changed
 - Continue with the corrected approach
-- These deviations will be captured in the report
+- These deviations will be captured in the Phase 5 report
 
-**CHECKPOINT**: All tasks executed. Deviations logged.
+**CONFLICT=1 (plan-implement gap detected)**: Three-step escalation, then exit 1. Do NOT proceed to Phase 4 / Phase 5.
+
+1. Write `fix-task.md` with verdict='plan_conflict':
+
+   ```bash
+   node -e "
+   const fixTask = require('${CLAUDE_PLUGIN_ROOT}/scripts/state/fix-task');
+   fixTask.write(process.cwd(), {
+     verdict: 'plan_conflict',
+     counter: 1,
+     escalate: true,
+     decisionId: '${DECISION_SLUG}',
+     failures: [{stage: 'plan-conflict-detector', exitCode: 1, excerpt: '${CONFLICT_SIGNAL}: ${CONFLICT_REASON}'}],
+     originatingReceipts: ['mccp-implement-codex/${DECISION_SLUG}.json']
+   });"
+   ```
+
+2. Set `STATE.md.chain_aborted=true` + emit `plan_conflict_escalated` event:
+
+   ```bash
+   node -e "
+   const sw = require('${CLAUDE_PLUGIN_ROOT}/scripts/state/state-writer');
+   sw.update(process.cwd(), {
+     event: 'plan_conflict_escalated',
+     chainAborted: true,
+     openQuestions: ['plan-implement conflict — see .claude/state/fix-task.md']
+   });"
+   ```
+
+3. Stamp `meta.plan_conflict_escalated=true` on the implement receipt (advisory audit; does not block — `STATE.md.chain_aborted` is the binding surface that `auto-chain.js shouldAbort()` honors):
+
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
+     --gate mccp-implement-codex \
+     --decision ${DECISION_SLUG} \
+     --plan "$ARGUMENTS" \
+     --plan-conflict-escalated \
+     --quiet
+   ```
+
+Then print escalation block + exit 1:
+
+```
+[MCCP-PLAN-CONFLICT-STOP] Implementation diverged from plan.
+Signal: <CONFLICT_SIGNAL>
+Reason: <CONFLICT_REASON>
+Next action queued in .claude/state/fix-task.md.
+Run /mccp:plan <plan-path> to revise the plan, OR add a deviation rationale to the plan body, then re-enter /mccp:prp-implement.
+```
+
+Phase 7 AUTO-CHAIN automatically detects `STATE.md.chain_aborted=true` via [auto-chain.js shouldAbort](../scripts/lib/auto-chain.js) (one of 8 existing triggers) — commit/PR auto-progression stops without additional wiring.
+
+**CHECKPOINT**: All tasks executed. Plan-conflict detection green. Deviations logged.
 
 ---
 

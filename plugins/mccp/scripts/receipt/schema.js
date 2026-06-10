@@ -317,6 +317,19 @@ function validate(receipt) {
         SHA256_RE.test(m.dropped_findings_digest),
         'meta.dropped_findings_digest must match ' + SHA256_RE + ' or be null');
     }
+
+    // v0.4.0 axis H — plan_conflict_escalated.
+    //
+    // Stamped on implement (or pr) receipts when /mccp:prp-implement Phase 3
+    // detected a plan ↔ implementation gap via plan-conflict-detector and
+    // wrote fix-task.md + STATE.md.chain_aborted=true. Advisory-only — does
+    // NOT block downstream validators (parallel to deferred_findings_count).
+    // The blocking surface is STATE.md.chain_aborted, which auto-chain.js
+    // already honors via shouldAbort().
+    if (m.plan_conflict_escalated !== undefined) {
+      req(typeof m.plan_conflict_escalated === 'boolean',
+        'meta.plan_conflict_escalated must be a boolean if present');
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -377,6 +390,8 @@ function makeSkeleton(overrides) {
       design_findings_dropped: 0,
       a11y_routed_to_impeccable: false,
       dropped_findings_digest: null,
+      // v0.4.0 axis H — plan_conflict_escalated. Advisory-only audit stamp.
+      plan_conflict_escalated: false,
     },
   }, o);
 }

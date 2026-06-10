@@ -12,6 +12,8 @@
 //
 // Slug rule: kebab-case starting with [a-z0-9], total length <= 80, only [a-z0-9-].
 
+const fs = require('fs');
+const path = require('path');
 const { execFileSync } = require('child_process');
 
 const PLAN_PATH_COMMANDS = new Set([
@@ -88,8 +90,50 @@ function slugFromBranch(cwd) {
     });
     const branch = (out || '').trim();
     if (!branch) return null;
-    const slug = branch.replace(BRANCH_PREFIX_RE, '').toLowerCase();
+    // v0.3.6 Task 5 (축 3) — normalize dots and underscores to hyphens BEFORE
+    // SLUG_RE. Version-tagged branches like 'v0.3.6-foo' and snake-style names
+    // like 'feat/bar_baz' would otherwise hit SLUG_RE rejection because dots
+    // and underscores aren't in [a-z0-9-]. Normalization is idempotent on
+    // already-valid slugs (alphanumeric + hyphens stay unchanged).
+    const slug = branch
+      .replace(BRANCH_PREFIX_RE, '')
+      .toLowerCase()
+      .replace(/[._]+/g, '-');
     return SLUG_RE.test(slug) ? slug : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+// v0.3.6 Task 5 fallback (축 3) — when BRANCH_BASED_COMMANDS (mccp:pr,
+// mccp:prp-pr, mccp:code-review, mccp:review-pr) can't derive a slug from
+// branch / planPath / commandArgs, peek at the most recent implement-codex
+// receipt. This is how cross-gate dedupe (v0.2.8) finds the matching slug
+// when the user invokes /mccp:pr from a branch that pre-dates the v0.3.6
+// normalize fix or from a worktree without git context.
+function lastImplementReceiptSlug(cwd) {
+  try {
+    const dir = path.join(cwd || process.cwd(), '.claude', 'receipts', 'mccp-implement-codex');
+    if (!fs.existsSync(dir)) return null;
+    const files = fs.readdirSync(dir).filter(function (f) { return f.endsWith('.json'); });
+    if (files.length === 0) return null;
+    let latestPath = null;
+    let latestMtime = 0;
+    for (let i = 0; i < files.length; i++) {
+      const fp = path.join(dir, files[i]);
+      try {
+        const stat = fs.statSync(fp);
+        if (stat.mtimeMs > latestMtime) {
+          latestMtime = stat.mtimeMs;
+          latestPath = fp;
+        }
+      } catch (_e) { /* ignore unreadable entries */ }
+    }
+    if (!latestPath) return null;
+    const receipt = JSON.parse(fs.readFileSync(latestPath, 'utf8'));
+    const slug = receipt && receipt.decision_id;
+    if (typeof slug === 'string' && SLUG_RE.test(slug)) return slug;
+    return null;
   } catch (_err) {
     return null;
   }
@@ -120,6 +164,27 @@ function deriveDecisionId(commandName, commandArgs, opts) {
   if (BRANCH_BASED_COMMANDS.has(cmd)) {
     const branchSlug = slugFromBranch(cwd);
     if (branchSlug) return branchSlug;
+    // v0.3.6 Task 5 (축 3) — branch slug invalid (or empty), try fallback chain
+    // before giving up to 'default'. Fixes the HIGH-severity bug where
+    // /mccp:work + multi-task sprint flows on version-tagged or dot-bearing
+    // branches landed on the generic 'default' slug and broke cross-gate dedupe.
+    if (planPath) {
+      const slug = slugFromPlanPath(planPath);
+      if (slug) {
+        process.stderr.write('[mccp:decision] branch slug invalid; fell back to planPath → ' + slug + '\n');
+        return slug;
+      }
+    }
+    const argSlug = slugFromPlanArg(commandArgs);
+    if (argSlug) {
+      process.stderr.write('[mccp:decision] branch slug invalid; fell back to planArg → ' + argSlug + '\n');
+      return argSlug;
+    }
+    const receiptSlug = lastImplementReceiptSlug(cwd);
+    if (receiptSlug) {
+      process.stderr.write('[mccp:decision] branch slug invalid; fell back to implement-receipt → ' + receiptSlug + '\n');
+      return receiptSlug;
+    }
     return 'default';
   }
 
@@ -153,6 +218,7 @@ module.exports = {
   slugFromPlanArg: slugFromPlanArg,
   slugFromPlanPath: slugFromPlanPath,
   slugFromBranch: slugFromBranch,
+  lastImplementReceiptSlug: lastImplementReceiptSlug,
   firstNonFlag: firstNonFlag,
   normalizeCommand: normalizeCommand,
   isStandalone: isStandalone,

@@ -21,7 +21,12 @@ argument-hint: "[base-branch] (default: main)"
 `/mccp:pr` is a terminal mutating command that creates a PR. Per the plan v0.2.2 R3#2 carry-over decision (and Codex R2#2), **terminal commands MUST refuse `MCCP_ALLOW_CODEX_UNAVAILABLE=1` advisory mode**. The rejection runs **before any `gh` invocation, before Phase 1 discovery, and writes no receipt**.
 
 ```bash
-if [ "${MCCP_ALLOW_CODEX_UNAVAILABLE:-0}" = "1" ]; then
+# v0.3.5 — MCCP_CODEX_DISABLED=1 is an exception. "disabled" means intentional
+# operator policy (env-level), not involuntary unavailability. Disabled is a
+# first-class skip path — the wrapper short-circuits with classification='disabled'
+# and the receipt records meta.codex_disabled=true. Advisory mode rejection
+# below does NOT apply in this case.
+if [ "${MCCP_ALLOW_CODEX_UNAVAILABLE:-0}" = "1" ] && [ "${MCCP_CODEX_DISABLED:-0}" != "1" ]; then
   echo "[MCCP-GATE-STOP] /mccp:pr refuses advisory mode (MCCP_ALLOW_CODEX_UNAVAILABLE=1)." 1>&2
   echo "Reason: terminal mutating command requires a converged Codex PR-Codex receipt." 1>&2
   echo "Fix Codex availability (run /codex:setup or check the codex plugin install) and re-run." 1>&2
@@ -82,11 +87,17 @@ When `CODEX_SKIP_AT_PR_REASON` is set, Phase 2.5.3 SKIPS the Codex invocation en
 
 `MCCP_PR_SKIP_CODEX_REVIEW` is intended for **one-shot** use (e.g. shared runtime pipe stuck + manual cross-model review confirmed out-of-band). Do not export it persistently.
 
-### Phase 0.3 — Codex-skip mutual-exclusion preflight (v0.2.8 Task 2.6.1-followup F9)
+### Phase 0.3 — Codex-skip mutual-exclusion preflight (v0.2.8 F9 + v0.3.5 3-way)
 
-`MCCP_PR_SKIP_CODEX_REVIEW="<reason>"` and `CODEX_DEDUPE_AT_PR=1` express **conflicting intent** for the same outcome (suppressing the Phase 2.5.3 Codex invocation). The receipt CLI enforces the same XOR at schema time, but a fail-fast preflight here surfaces the conflict before any phase work runs and prevents an ambiguous receipt from ever being written.
+`MCCP_PR_SKIP_CODEX_REVIEW="<reason>"`, `CODEX_DEDUPE_AT_PR=1`, and `MCCP_CODEX_DISABLED=1` all express intent to suppress the Phase 2.5.3 Codex invocation, but with different semantics:
+- `MCCP_PR_SKIP_CODEX_REVIEW` — user-issued one-shot audited escape (substantive reason ≥30 chars)
+- `CODEX_DEDUPE_AT_PR` — cross-gate dedupe auto-derived (plan/implement converged)
+- `MCCP_CODEX_DISABLED` — env-level operator policy (canonical reason='codex_disabled')
+
+The receipt CLI enforces 3-way mutex at schema time (`codex_dedupe_at_pr ∩ codex_skipped_at_pr ∩ codex_disabled_at_pr = ∅`). This preflight surfaces the conflict before any phase work runs and prevents an ambiguous receipt from ever being written. v0.3.5: `MCCP_CODEX_DISABLED=1` policy wins over `MCCP_PR_SKIP_CODEX_REVIEW` — the audited escape is redundant when env policy is active, so we silently drop it with a stderr warning rather than fail-stop.
 
 ```bash
+# Mutex 1: PR_SKIP vs DEDUPE (v0.2.8 F9 — both user-issued/auto, unrelated to env)
 if [ -n "${MCCP_PR_SKIP_CODEX_REVIEW:-}" ] && [ "${CODEX_DEDUPE_AT_PR:-0}" = "1" ]; then
   echo "[MCCP-GATE-STOP] env mutual-exclusion violation:" 1>&2
   echo "  MCCP_PR_SKIP_CODEX_REVIEW=<set>  (audited Codex-skip escape)" 1>&2
@@ -97,9 +108,26 @@ if [ -n "${MCCP_PR_SKIP_CODEX_REVIEW:-}" ] && [ "${CODEX_DEDUPE_AT_PR:-0}" = "1"
   echo "  - For cross-gate dedupe (auto): unset MCCP_PR_SKIP_CODEX_REVIEW, let Phase 2.5.2 export CODEX_DEDUPE_AT_PR" 1>&2
   exit 1
 fi
+
+# Mutex 2: env policy DISABLED wins over user-issued PR_SKIP (v0.3.5)
+if [ "${MCCP_CODEX_DISABLED:-0}" = "1" ] && [ -n "${MCCP_PR_SKIP_CODEX_REVIEW:-}" ]; then
+  echo "[mccp] MCCP_CODEX_DISABLED=1 active — MCCP_PR_SKIP_CODEX_REVIEW is redundant and will be dropped (env policy wins)." 1>&2
+  unset MCCP_PR_SKIP_CODEX_REVIEW
+  unset CODEX_SKIP_AT_PR_REASON
+fi
+
+# Mutex 3: env policy DISABLED + DEDUPE — disabled is canonical, dedupe is meaningless when env policy active
+if [ "${MCCP_CODEX_DISABLED:-0}" = "1" ] && [ "${CODEX_DEDUPE_AT_PR:-0}" = "1" ]; then
+  echo "[MCCP-GATE-STOP] env mutual-exclusion violation:" 1>&2
+  echo "  MCCP_CODEX_DISABLED=1   (env-level operator policy)" 1>&2
+  echo "  CODEX_DEDUPE_AT_PR=1    (cross-gate dedupe signal)" 1>&2
+  echo "Disabled mode short-circuits the wrapper before any review can converge — dedupe signal is unreachable." 1>&2
+  echo "Likely cause: stale dedupe export from a prior chain. Unset CODEX_DEDUPE_AT_PR and re-run." 1>&2
+  exit 1
+fi
 ```
 
-`CODEX_DEDUPE_AT_PR` is normally exported by Phase 2.5.2 cross-gate dedupe — it is **not** a user-facing knob. If you find yourself setting it from a shell or `.claude/settings.json`, you are almost certainly working around a stale receipt and the right fix is `/mccp:receipt-validate` / `/mccp:receipt-write` rather than the escape. This preflight is defense-in-depth — the receipt CLI's `codex_skipped_at_pr ⊕ codex_dedupe_at_pr` schema invariant remains the authoritative gate.
+`CODEX_DEDUPE_AT_PR` is normally exported by Phase 2.5.2 cross-gate dedupe — it is **not** a user-facing knob. If you find yourself setting it from a shell or `.claude/settings.json`, you are almost certainly working around a stale receipt and the right fix is `/mccp:receipt-validate` / `/mccp:receipt-write` rather than the escape. This preflight is defense-in-depth — the receipt CLI's 3-way `codex_skipped_at_pr ⊕ codex_dedupe_at_pr ⊕ codex_disabled_at_pr` schema invariant remains the authoritative gate.
 
 ---
 

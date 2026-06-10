@@ -113,10 +113,18 @@ function runMain(args) {
   const rawToken = enterRes.rawToken;
   const helperManifest = enterRes.stdoutJSON.helper_manifest || {};
 
-  // 2. Determine codex outcome (skip / dedupe / invoke).
+  // 2. Determine codex outcome (disabled / skip / dedupe / invoke).
+  // v0.3.5 — env-derived MCCP_CODEX_DISABLED takes precedence over explicit
+  // --skip-reason. Rationale: env policy is canonical operator intent; an
+  // accidentally-supplied --skip-reason in disabled mode would still get
+  // recorded as audited escape (substantive reason ≥30 chars validator),
+  // which is wrong — the canonical signal here is "policy says don't call".
   let codexOutcome = 'invoked';
   let codexSkipReason = null;
-  if (args['skip-reason'] && args['skip-reason'] !== true) {
+  if (process.env.MCCP_CODEX_DISABLED === '1') {
+    codexOutcome = 'disabled';
+    codexSkipReason = 'codex_disabled';
+  } else if (args['skip-reason'] && args['skip-reason'] !== true) {
     codexOutcome = 'skipped';
     codexSkipReason = String(args['skip-reason']);
   } else if (args.dedupe) {
@@ -124,6 +132,7 @@ function runMain(args) {
   }
 
   // 3. Fork background heartbeat (token via stdin, run_id via argv — not secret).
+  // disabled / skipped / deduped all bypass heartbeat — no Codex spawn to keep alive.
   let heartbeatChild = null;
   if (codexOutcome === 'invoked') {
     heartbeatChild = spawn(NODE, [__filename,
@@ -144,7 +153,9 @@ function runMain(args) {
   let codexRounds = 0;
   let codexSummary = '';
   let codexActionableFindings = false;
-  if (codexOutcome === 'skipped') {
+  if (codexOutcome === 'disabled') {
+    codexSummary = 'Codex skipped per MCCP_CODEX_DISABLED=1 (env-level policy).';
+  } else if (codexOutcome === 'skipped') {
     codexSummary = 'MCCP_PR_SKIP_CODEX_REVIEW audited escape (reason recorded in receipt).';
   } else if (codexOutcome === 'deduped') {
     codexSummary = 'Decision ' + args.decision + ' already converged in mccp-plan-codex + mccp-implement-codex; cross-gate dedupe applied at PR step.';

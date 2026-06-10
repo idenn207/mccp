@@ -11,9 +11,15 @@
 //   - CLI mode: stdout JSON; exit 12 if blocking, exit 0 otherwise
 //   - Single CodexInvokeError class with `reason` enum (no subclass hierarchy)
 //
-// Classification enum: ok | registry-missing | registry-malformed | plugin-not-installed
-//   | install-path-stale | companion-not-found | companion-version-mismatch
-//   | not-authenticated | timeout | exit-nonzero | stdout-empty | spawn-enoent
+// Classification enum: ok | disabled | registry-missing | registry-malformed
+//   | plugin-not-installed | install-path-stale | companion-not-found
+//   | companion-version-mismatch | not-authenticated | timeout | exit-nonzero
+//   | stdout-empty | spawn-enoent
+//
+// v0.3.5 — MCCP_CODEX_DISABLED=1 short-circuits to classification='disabled'
+//   BEFORE registry resolution. This is a first-class success path (blocking=false,
+//   advisory=false) distinct from involuntary unavailability — caller maps it to
+//   verdict='skipped' + reason='codex_disabled' (bridge already honors).
 
 const fs = require('fs');
 const os = require('os');
@@ -125,6 +131,24 @@ function invokeAdversarialReview(focus, opts) {
   const env = opts.env || process.env;
   const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_TIMEOUT_MS;
   const t0 = Date.now();
+
+  // v0.3.5 — MCCP_CODEX_DISABLED=1 first-class skip path. Returns immediately
+  // before resolveCodexInstallPath/spawn so the wrapper costs nothing when the
+  // operator has permanently disabled Codex. blocking=false unconditionally
+  // (independent of MCCP_ALLOW_CODEX_UNAVAILABLE) — disabled is intentional,
+  // not a failure mode. Caller (codex-runner / receipt write) maps to
+  // verdict='skipped' + reason='codex_disabled' for receipt audit.
+  if ((env.MCCP_CODEX_DISABLED || '') === '1') {
+    return {
+      ok: true,
+      stdout: '',
+      stderr: '',
+      durationMs: Date.now() - t0,
+      classification: 'disabled',
+      blocking: false,
+      advisory: false,
+    };
+  }
 
   let installPath;
   try {

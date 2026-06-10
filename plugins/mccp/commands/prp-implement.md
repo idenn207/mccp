@@ -134,7 +134,7 @@ CODEX_EXIT=$?
 CODEX_BLOCKING=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.blocking?"1":"0")}catch{console.log("1")}' "$CODEX_STDOUT")
 CODEX_CLASS=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.classification||"unknown")}catch{console.log("parse-error")}' "$CODEX_STDOUT")
 
-if [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || [ "$CODEX_CLASS" != "ok" ]; then
+if [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || { [ "$CODEX_CLASS" != "ok" ] && [ "$CODEX_CLASS" != "disabled" ]; }; then
   if [ "${MCCP_ALLOW_CODEX_UNAVAILABLE:-0}" = "1" ]; then
     echo "[mccp] Codex unavailable in advisory mode (class=$CODEX_CLASS exit=$CODEX_EXIT)"
     # Write '> Codex unavailable, skipped (auto-fallback): <class>' into the review section and jump to 2.5.6.
@@ -144,6 +144,11 @@ if [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || [ "$CODEX_CLASS" !
     echo "Set MCCP_ALLOW_CODEX_UNAVAILABLE=1 to proceed in advisory mode (non-approving receipt)."
     exit 1
   fi
+elif [ "$CODEX_CLASS" = "disabled" ]; then
+  # v0.3.5 — MCCP_CODEX_DISABLED=1 first-class skip. No advisory env required.
+  # Receipt write at 2.5.6 auto-stamps meta.codex_disabled=true via env detection.
+  echo "[mccp] Codex skipped per MCCP_CODEX_DISABLED=1 (env-level policy, first-class)"
+  # Write '> Codex skipped per MCCP_CODEX_DISABLED=1' into the review section and jump to 2.5.6.
 fi
 ```
 

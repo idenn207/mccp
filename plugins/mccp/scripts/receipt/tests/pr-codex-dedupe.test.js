@@ -20,6 +20,10 @@ function setupRepo() {
 }
 
 function tryWrite(repo, planRel, flags) {
+  // v0.3.5 — env snapshot/restore so MCCP_CODEX_DISABLED=1 ambient does not
+  // auto-stamp codex_skip_reason. Mirrors codex-bridge.test.js:143-152.
+  const prevEnv = process.env.MCCP_CODEX_DISABLED;
+  delete process.env.MCCP_CODEX_DISABLED;
   const cwd = process.cwd();
   process.chdir(repo);
   try {
@@ -30,6 +34,8 @@ function tryWrite(repo, planRel, flags) {
     }, flags));
   } finally {
     process.chdir(cwd);
+    if (prevEnv === undefined) delete process.env.MCCP_CODEX_DISABLED;
+    else process.env.MCCP_CODEX_DISABLED = prevEnv;
   }
 }
 
@@ -62,7 +68,7 @@ test('dedupe REJECTS dedupe + skipped simultaneously (matrix invariant)', () => 
       'codex-skipped-at-pr': true,
       'codex-skip-reason': reason,
     });
-  }, /codex_dedupe_at_pr \+ meta\.codex_skipped_at_pr cannot both be true/);
+  }, /codex_dedupe_at_pr \+ codex_skipped_at_pr \+ codex_disabled_at_pr.*mutually exclusive/);
 });
 
 test('dedupe defaults preserve backwards-compatibility (both false)', () => {
@@ -72,4 +78,70 @@ test('dedupe defaults preserve backwards-compatibility (both false)', () => {
   assert.strictEqual(r.receipt.meta.codex_skipped_at_pr, false);
   assert.strictEqual(r.receipt.meta.codex_skip_reason, null);
   assert.strictEqual(r.receipt.meta.codex_review_actionable_findings, false);
+});
+
+// v0.3.5 — env-level disabled honor (Plan §Task 5).
+
+test('disabled honor: --codex-disabled-at-pr stamps canonical reason="codex_disabled"', () => {
+  const { repo, planRel } = setupRepo();
+  const r = tryWrite(repo, planRel, {
+    'codex-disabled': true,
+    'codex-disabled-at-pr': true,
+  });
+  assert.strictEqual(r.receipt.meta.codex_disabled, true);
+  assert.strictEqual(r.receipt.meta.codex_disabled_at_pr, true);
+  assert.strictEqual(r.receipt.meta.codex_skip_reason, 'codex_disabled');
+});
+
+test('disabled honor: ambient MCCP_CODEX_DISABLED=1 auto-stamps codex_disabled=true + canonical reason', () => {
+  // Set the env explicitly for this test (env snapshot restores around tryWrite,
+  // so we wrap with our own snapshot pair here).
+  const prevEnv = process.env.MCCP_CODEX_DISABLED;
+  process.env.MCCP_CODEX_DISABLED = '1';
+  try {
+    const { repo, planRel } = setupRepo();
+    const cwd = process.cwd();
+    process.chdir(repo);
+    let r;
+    try {
+      r = write({
+        gate: 'mccp-plan-codex',
+        decision: 'feature-y',
+        plan: planRel,
+      });
+    } finally {
+      process.chdir(cwd);
+    }
+    assert.strictEqual(r.receipt.meta.codex_disabled, true);
+    assert.strictEqual(r.receipt.meta.codex_skip_reason, 'codex_disabled');
+    // codex_disabled_at_pr is NOT auto-set — only the explicit flag controls
+    // the PR-step audit axis (caller decides).
+    assert.strictEqual(r.receipt.meta.codex_disabled_at_pr, false);
+  } finally {
+    if (prevEnv === undefined) delete process.env.MCCP_CODEX_DISABLED;
+    else process.env.MCCP_CODEX_DISABLED = prevEnv;
+  }
+});
+
+test('disabled honor: 3-way mutex REJECTS dedupe + disabled simultaneously', () => {
+  const { repo, planRel } = setupRepo();
+  assert.throws(function () {
+    tryWrite(repo, planRel, {
+      'codex-dedupe-at-pr': true,
+      'codex-disabled': true,
+      'codex-disabled-at-pr': true,
+    });
+  }, /mutually exclusive/);
+});
+
+test('disabled honor: 3-way mutex REJECTS skipped + disabled simultaneously', () => {
+  const { repo, planRel } = setupRepo();
+  assert.throws(function () {
+    tryWrite(repo, planRel, {
+      'codex-skipped-at-pr': true,
+      'codex-skip-reason': 'manual escape — should never coexist with env policy at PR step',
+      'codex-disabled': true,
+      'codex-disabled-at-pr': true,
+    });
+  }, /mutually exclusive/);
 });

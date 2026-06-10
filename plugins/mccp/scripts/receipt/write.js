@@ -121,8 +121,23 @@ function buildReceipt(args) {
       // v0.2.8 Task 2.6.1 — PR-Codex audit axis.
       codex_dedupe_at_pr: args['codex-dedupe-at-pr'] === true,
       codex_skipped_at_pr: args['codex-skipped-at-pr'] === true,
-      codex_skip_reason: args['codex-skip-reason'] || null,
+      codex_skip_reason: (function () {
+        // v0.3.5 — env-derived disabled overrides any user-supplied reason
+        // because env policy is canonical. Explicit --codex-disabled or
+        // MCCP_CODEX_DISABLED=1 → reason='codex_disabled'.
+        if (args['codex-disabled'] === true || process.env.MCCP_CODEX_DISABLED === '1') {
+          return 'codex_disabled';
+        }
+        return args['codex-skip-reason'] || null;
+      })(),
       codex_review_actionable_findings: args['codex-actionable-findings'] === true,
+      // v0.3.5 Task 5 — env-level disabled honor + auto-stamp.
+      // Env detection: process.env.MCCP_CODEX_DISABLED === '1' implicitly
+      // stamps both codex_disabled=true. The --codex-disabled-at-pr flag is
+      // explicit per-call opt-in (terminal /mccp:pr Phase 3.5 sets it after
+      // codex-runner returns codex_outcome='disabled').
+      codex_disabled: args['codex-disabled'] === true || process.env.MCCP_CODEX_DISABLED === '1',
+      codex_disabled_at_pr: args['codex-disabled-at-pr'] === true,
       // v0.2.9 Task 5 — YAGNI triage DEFER_TO_BACKLOG counter. Additive, no schema bump.
       deferred_findings_count: (function () {
         const v = args['deferred-findings'];

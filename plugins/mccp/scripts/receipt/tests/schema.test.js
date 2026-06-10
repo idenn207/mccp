@@ -180,3 +180,64 @@ test('makeSkeleton: overrides applied', function () {
   assert.strictEqual(s.gate_id, 'mccp-plan-codex');
   assert.strictEqual(s.decision_id, 'x');
 });
+
+// v0.3.5 — env-level codex_disabled / codex_disabled_at_pr (Plan §Task 4).
+
+test('schema: meta.codex_disabled must be boolean if present', function () {
+  const v = valid(); v.meta.codex_disabled = false;
+  assert.strictEqual(validate(v).ok, true);
+  v.meta.codex_disabled = true; v.meta.codex_disabled_at_pr = true;
+  v.meta.codex_skip_reason = 'codex_disabled';
+  assert.strictEqual(validate(v).ok, true);
+  v.meta.codex_disabled = 'yes';
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /codex_disabled must be a boolean/);
+});
+
+test('schema: 3-way mutex — dedupe + skipped + disabled cannot coexist', function () {
+  const v = valid();
+  v.meta.codex_dedupe_at_pr = true;
+  v.meta.codex_disabled_at_pr = true;
+  v.meta.codex_skip_reason = 'codex_disabled';
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /mutually exclusive/);
+});
+
+test('schema: 3-way mutex — skipped + disabled cannot coexist either', function () {
+  const v = valid();
+  v.meta.codex_skipped_at_pr = true;
+  v.meta.codex_disabled_at_pr = true;
+  v.meta.codex_skip_reason = 'codex_disabled';
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /mutually exclusive/);
+});
+
+test('schema: disabled_at_pr=true requires canonical codex_skip_reason="codex_disabled"', function () {
+  const v = valid();
+  v.meta.codex_disabled = true;
+  v.meta.codex_disabled_at_pr = true;
+  v.meta.codex_skip_reason = 'some custom reason that is long enough but not canonical';
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /canonical reason|requires meta\.codex_skip_reason/);
+});
+
+test('schema: disabled_at_pr=true with canonical reason passes substantive-reason bypass', function () {
+  // The substantive-reason validator (≥30 chars + ≥3 words) is bypassed for
+  // env policy — 'codex_disabled' literal is far shorter than the audited
+  // escape threshold and that is intentional.
+  const v = valid();
+  v.meta.codex_disabled = true;
+  v.meta.codex_disabled_at_pr = true;
+  v.meta.codex_skip_reason = 'codex_disabled';
+  assert.strictEqual(validate(v).ok, true);
+});
+
+test('makeSkeleton: new disabled fields default to false', function () {
+  const s = makeSkeleton();
+  assert.strictEqual(s.meta.codex_disabled, false);
+  assert.strictEqual(s.meta.codex_disabled_at_pr, false);
+});

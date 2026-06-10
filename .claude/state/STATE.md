@@ -1,24 +1,25 @@
 ---
 state_version: 1
-task_fingerprint: v0-3-4-test-env-hygiene
+task_fingerprint: v0-3-5-codex-disabled-honor
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-06-10T07:04:31.903Z
+updated_at: 2026-06-10T08:32:06.427Z
 last_event: stop_loop_pass
-last_event_at: 2026-06-10T07:04:31.903Z
+last_event_at: 2026-06-10T08:17:46.801Z
 unsafe_checkpoint: false
 confirm_required: false
-session_end_imminent: false
-chain_aborted: false
+session_end_imminent: true
+chain_aborted: true
 dep_check_at: 2026-06-07T15:54:42.147Z
 dep_check_missing: impeccable
 ---
 ## Goal
-mccp v0.3.4 shipped — M7 test env hygiene + v0.3.3 housekeeping bundle (PR #15, commit 730396a, merged 2026-06-10). 17 codex-bridge.test.js leak sites resolved with canonical env snapshot/restore. Currently idle between milestones.
+mccp v0.3.5 — wrapper-level MCCP_CODEX_DISABLED honor (M8). codex-invoke.js short-circuit + 'disabled' classification + caller fanout(codex-runner / commands / pr.md Phase 0/0.3 3-way mutex) + receipt schema 'meta.codex_disabled' / 'codex_disabled_at_pr' fields + auto-stamp(write.js env detection). 영구 bypass 사용자(skypark207)에게 우회 env(MCCP_ALLOW_CODEX_UNAVAILABLE / MCCP_PR_SKIP_CODEX_REVIEW) 0회 chain.
 
 ## Plan
-- No active sub-plan — roadmap M7 closed, awaiting M8 selection
+- .claude/plans/v0-3-5-codex-disabled-honor.plan.md (CURRENT, 8 task)
+- .claude/prds/v0-3-5-codex-disabled-honor.prd.md (source PRD)
 - .claude/plans/codex-findings-backlog.md (append-on-defer ledger, untouched)
-- .claude/plans/mccp-roadmap.plan.md (thin-index, M7 marked shipped at PR #15)
+- .claude/plans/mccp-roadmap.plan.md (thin-index)
 
 ## Done
 - M0 A.1-A.4 + 2026-06-06 thin-index transform (roadmap 91KB → 15.3KB, 7 sub-plans CREATE)
@@ -30,19 +31,18 @@ mccp v0.3.4 shipped — M7 test env hygiene + v0.3.3 housekeeping bundle (PR #15
 - v0.3.1 (PR #12, commit 575becf): S11 /mccp:work single-entry orchestrator
 - v0.3.2 (PR #13, commit 472b005): S12 cross-gate dual-reviewer escalate detection
 - v0.3.3 (PR #14, commit cdd77fc): M6 stop-review-loop path 7 env-leak guard (dogfood subject)
-- v0.3.4 (PR #15, commit 730396a): M7 test env hygiene — 17 codex-bridge.test.js leak sites + v0.3.3 housekeeping bundle (plugin.json 0.3.4, CLAUDE.md §1.4 S11/S12 ship, roadmap M6 shipped + M7 entry, STATE.md fingerprint flip)
+- v0.3.4 (PR #15, commit 730396a): M7 test env hygiene — 17 codex-bridge.test.js leak sites + v0.3.3 housekeeping bundle
 
 ## In Progress
-Idle — v0.3.4 shipped, no active sub-plan. v0.3.5 candidate selection pending.
+v0.3.5 — Tasks 1-8 implementation 완료 (wrapper short-circuit + tests, codex-runner disabled outcome, schema 3-way mutex, write.js auto-stamp, plan/prp-implement/pr command bodies, plugin.json 0.3.5, CLAUDE.md §1.4 M8 ship row + §3.3 disabled classification row + §4 운영 토글 갱신, STATE.md fingerprint flip). Phase 4 validation + Phase 5 report 진행 예정.
 
 ## Next Step
-Select v0.3.5 milestone from open questions. HIGH carry: F1 codex-invoke.js MCCP_CODEX_DISABLED honor (v0.3.4 PRD §Out-of-scope deferred — codex-bridge contract surface).
+Phase 4 full validation (5 levels) → Phase 5 implementation report → /mccp:prp-commit (3-commit bundle: wrapper+caller+schema / commands / housekeeping) → /mccp:pr.
 
 ## Last Decision
-v0.3.4 shipped via /mccp:work resume-from-halt pattern. Prior session hit S10b cost-hard-ceiling at Phase 7 pre-commit (fix-task.md circuit breaker fired); new session cleared fix-task.md and manually executed /mccp:prp-commit×2 + /mccp:pr to bypass chain-level halt while preserving per-step gate integrity. Codex permanent-bypass (MCCP_CODEX_DISABLED=1) + receipt-gate-off honored via MCCP_PR_SKIP_CODEX_REVIEW audited escape; chain-of-custody broken as designed feature in this configuration.
+v0.3.5 self-referential 부트스트랩 paradox: 영구 bypass 환경에서 MCCP_CODEX_DISABLED honor를 design — Codex gate는 advisory mode로 통과(plan-codex + implement-codex receipt 둘 다 verdict=advisory, blocking=false). 본 milestone ship 이후 차기 v0.3.6 cycle부터 우회 env zero가 정상 — 본 plan Acceptance criteria 중 하나로 명시. Self-dogfood는 Phase 4 validation에서 측정.
 
 ## Open Questions
-- HIGH — F1 codex-invoke.js MCCP_CODEX_DISABLED honor: wrapper bypass with verdict=skipped reason=codex_disabled (v0.3.4 PRD §Out-of-scope deferred to v0.3.5)
 - HIGH — derive-decision returns generic default for /mccp:pr mode even with plan-path arg; explicit --decision override required to match plan/implement slugs (v0.2.8 quarantine pressure)
 - MEDIUM — STATE.md → CLAUDE.md docs drift lesson-learned: roadmap Risks 표에 milestone ship 직후 docs sync rule 추가 검토 (deferred from v0.3.4)
 - MEDIUM — fix-task.md option 2 description in /mccp:work spec ambiguous — auto-chain disable was claimed to skip Phase 7 only but actually halts entire chain (clarification candidate)
@@ -50,6 +50,7 @@ v0.3.4 shipped via /mccp:work resume-from-halt pattern. Prior session hit S10b c
 - LOW — v0.2.4 security_force_override REJECT hardening backport (carry from v0.2.7)
 - LOW — MEMORY.md Step 3 demotion script --apply trigger (user deferred)
 - LOW — MCCP_SKIP_RECEIPT=1 session-env latch (settings.json env block lifecycle uninvestigated)
+- LOW — v0.3.5 ship 이후 feedback-codex-runner-disabled-blind memory rule revision 검토 (auto-apply MCCP_PR_SKIP_CODEX_REVIEW이 redundant — pr.md Phase 0.3 stderr warn 흡수)
 
 ## Last Updated
-2026-06-10T07:04:31.903Z
+2026-06-10T08:32:06.427Z

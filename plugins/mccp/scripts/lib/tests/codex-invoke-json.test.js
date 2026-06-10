@@ -126,10 +126,10 @@ test('runCli accepts --json without parser crash (line 223 contract)', () => {
   //   - classification is a non-empty string from the documented enum
   const { runCli } = codexInvoke;
   const validClassifications = new Set([
-    'ok', 'registry-missing', 'registry-malformed', 'plugin-not-installed',
-    'install-path-stale', 'companion-not-found', 'companion-version-mismatch',
-    'not-authenticated', 'timeout', 'exit-nonzero', 'stdout-empty',
-    'spawn-enoent', 'parse-error',
+    'ok', 'disabled', 'registry-missing', 'registry-malformed',
+    'plugin-not-installed', 'install-path-stale', 'companion-not-found',
+    'companion-version-mismatch', 'not-authenticated', 'timeout',
+    'exit-nonzero', 'stdout-empty', 'spawn-enoent', 'parse-error',
   ]);
   const captured = { out: '' };
   const origOut = process.stdout.write.bind(process.stdout);

@@ -17,6 +17,17 @@ const RUNNER = path.resolve(__dirname, '..', '..', 'pr-phase-helpers', 'codex-ru
 const LOCK_CLI = path.resolve(__dirname, '..', '..', 'pr-phase-lock.js');
 const NODE = process.execPath;
 
+// v0.3.5 — strip ambient MCCP_CODEX_DISABLED so legacy dedupe/skipped/invoke
+// tests behave hermetically regardless of the harness's permanent-bypass setting
+// (skypark207's .claude/settings.local.json sets it for daily work). Tests that
+// SPECIFICALLY want the disabled path opt-in by passing their own env. v0.3.4
+// canonical pattern mirror (codex-bridge.test.js:143-152).
+function envWithoutDisabled() {
+  const e = { ...process.env };
+  delete e.MCCP_CODEX_DISABLED;
+  return e;
+}
+
 function mkTmpRepo() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-runner-'));
   execFileSync('git', ['init', '--initial-branch=master', '--quiet'], { cwd: dir, stdio: 'ignore' });
@@ -75,7 +86,7 @@ test('codex-runner dedupe path: short-circuits Codex, lock enter+exit clean', ()
     '--codex-invoke', stub,
     '--lock-cli', LOCK_CLI,
     '--cwd', repo,
-  ], { encoding: 'utf8' });
+  ], { encoding: 'utf8', env: envWithoutDisabled() });
   assert.strictEqual(r.status, 0, 'dedupe + clean exit returns 0: ' + r.stderr);
   const out = JSON.parse(r.stdout);
   assert.strictEqual(out.codex_outcome, 'deduped');
@@ -98,11 +109,71 @@ test('codex-runner skip path: --skip-reason sets outcome=skipped, no codex call'
     '--codex-invoke', stub,
     '--lock-cli', LOCK_CLI,
     '--cwd', repo,
-  ], { encoding: 'utf8' });
+  ], { encoding: 'utf8', env: envWithoutDisabled() });
   assert.strictEqual(r.status, 0, r.stderr);
   const out = JSON.parse(r.stdout);
   assert.strictEqual(out.codex_outcome, 'skipped');
   assert.match(out.codex_skip_reason, /codex registry stale/);
+});
+
+// v0.3.5 — MCCP_CODEX_DISABLED env-level disabled outcome (Plan §Task 3).
+// Canonical env snapshot/restore inline so the test is hermetic regardless of
+// the harness's ambient MCCP_CODEX_DISABLED setting (mirror of
+// codex-bridge.test.js:143-152).
+test('codex-runner disabled path: MCCP_CODEX_DISABLED=1 sets outcome=disabled, no codex call', () => {
+  const prev = process.env.MCCP_CODEX_DISABLED;
+  process.env.MCCP_CODEX_DISABLED = '1';
+  try {
+    const repo = mkTmpRepo();
+    const stub = writeStub(repo, 'fake-codex.js', STUB_CODEX_OK);
+    const bodyFile = path.join(repo, '.git', 'mccp', 'tmp', 'body.md');
+    fs.mkdirSync(path.dirname(bodyFile), { recursive: true });
+    const r = spawnSync(NODE, [RUNNER,
+      '--base', 'master',
+      '--decision', 'demo',
+      '--body-file', bodyFile,
+      // Note: NO --skip-reason — env policy should take effect by itself.
+      '--codex-invoke', stub,
+      '--lock-cli', LOCK_CLI,
+      '--cwd', repo,
+    ], { encoding: 'utf8', env: { ...process.env, MCCP_CODEX_DISABLED: '1' } });
+    assert.strictEqual(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.strictEqual(out.codex_outcome, 'disabled');
+    assert.strictEqual(out.codex_skip_reason, 'codex_disabled');
+    assert.strictEqual(out.codex_rounds, 0);
+    assert.match(out.codex_summary, /env-level policy/);
+  } finally {
+    if (prev === undefined) delete process.env.MCCP_CODEX_DISABLED;
+    else process.env.MCCP_CODEX_DISABLED = prev;
+  }
+});
+
+test('codex-runner disabled precedence: env=1 beats explicit --skip-reason (env is canonical)', () => {
+  const prev = process.env.MCCP_CODEX_DISABLED;
+  process.env.MCCP_CODEX_DISABLED = '1';
+  try {
+    const repo = mkTmpRepo();
+    const stub = writeStub(repo, 'fake-codex.js', STUB_CODEX_OK);
+    const bodyFile = path.join(repo, '.git', 'mccp', 'tmp', 'body.md');
+    fs.mkdirSync(path.dirname(bodyFile), { recursive: true });
+    const r = spawnSync(NODE, [RUNNER,
+      '--base', 'master',
+      '--decision', 'demo',
+      '--body-file', bodyFile,
+      '--skip-reason', 'manual escape — should be overridden by env policy',
+      '--codex-invoke', stub,
+      '--lock-cli', LOCK_CLI,
+      '--cwd', repo,
+    ], { encoding: 'utf8', env: { ...process.env, MCCP_CODEX_DISABLED: '1' } });
+    assert.strictEqual(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.strictEqual(out.codex_outcome, 'disabled');
+    assert.strictEqual(out.codex_skip_reason, 'codex_disabled');
+  } finally {
+    if (prev === undefined) delete process.env.MCCP_CODEX_DISABLED;
+    else process.env.MCCP_CODEX_DISABLED = prev;
+  }
 });
 
 test('codex-runner invoke path: stub codex-ok → lock_exit_ok=true, no mutations', () => {
@@ -118,7 +189,7 @@ test('codex-runner invoke path: stub codex-ok → lock_exit_ok=true, no mutation
     '--lock-cli', LOCK_CLI,
     '--heartbeat-ms', '60000',  // suppress real heartbeats during fast test
     '--cwd', repo,
-  ], { encoding: 'utf8', timeout: 30000 });
+  ], { encoding: 'utf8', timeout: 30000, env: envWithoutDisabled() });
   assert.strictEqual(r.status, 0, 'invoke + clean exit returns 0: ' + r.stderr);
   const out = JSON.parse(r.stdout);
   assert.strictEqual(out.codex_outcome, 'invoked');
@@ -142,7 +213,7 @@ test('codex-runner invoke path: stub findings → codex_actionable_findings=true
     '--lock-cli', LOCK_CLI,
     '--heartbeat-ms', '60000',
     '--cwd', repo,
-  ], { encoding: 'utf8', timeout: 30000 });
+  ], { encoding: 'utf8', timeout: 30000, env: envWithoutDisabled() });
   assert.strictEqual(r.status, 0);
   const out = JSON.parse(r.stdout);
   assert.strictEqual(out.codex_actionable_findings, true);
@@ -161,7 +232,7 @@ test('codex-runner invoke path: stub blocking → fail-stop with cleanup', () =>
     '--lock-cli', LOCK_CLI,
     '--heartbeat-ms', '60000',
     '--cwd', repo,
-  ], { encoding: 'utf8', timeout: 30000 });
+  ], { encoding: 'utf8', timeout: 30000, env: envWithoutDisabled() });
   assert.notStrictEqual(r.status, 0, 'blocking response → non-zero exit');
   assert.match(r.stderr, /codex review failed/);
   // Lock must be released even on fail-stop
@@ -186,7 +257,7 @@ test('codex-runner emits helper_manifest in output (F10 R2-F1 propagation)', () 
     '--dedupe',
     '--lock-cli', LOCK_CLI,
     '--cwd', repo,
-  ], { encoding: 'utf8' });
+  ], { encoding: 'utf8', env: envWithoutDisabled() });
   assert.strictEqual(r.status, 0);
   const out = JSON.parse(r.stdout);
   assert.strictEqual(typeof out.helper_manifest, 'object');

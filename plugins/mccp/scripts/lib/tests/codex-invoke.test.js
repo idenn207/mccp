@@ -246,3 +246,50 @@ test('runCli: bad subcommand → exit 2 with usage on stderr', { skip: false }, 
     process.stderr.write = origErr;
   }
 });
+
+// v0.3.5 — MCCP_CODEX_DISABLED honor (Plan §Task 2).
+// Canonical env snapshot/restore pattern mirrors codex-bridge.test.js:143-152.
+
+test('disabled honor: MCCP_CODEX_DISABLED=1 short-circuits before registry resolve', () => {
+  // Use a deliberately bogus registry path — if short-circuit fires, this never
+  // gets read, so the call succeeds. If short-circuit is missing, registry-missing
+  // would surface instead.
+  const r = invokeAdversarialReview('any', {
+    env: { MCCP_CODEX_DISABLED: '1' },
+    registryPath: '/nonexistent/path/never/read.json',
+  });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.classification, 'disabled');
+  assert.strictEqual(r.blocking, false);
+  assert.strictEqual(r.advisory, false);
+  assert.strictEqual(r.stdout, '');
+  assert.ok(typeof r.durationMs === 'number' && r.durationMs >= 0);
+});
+
+test('disabled honor: env unset → 11-enum matrix intact (regression on registry-missing)', () => {
+  const r = invokeAdversarialReview('any', {
+    env: {}, // MCCP_CODEX_DISABLED absent
+    registryPath: '/nonexistent/path/never/read.json',
+  });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.classification, 'registry-missing');
+  assert.strictEqual(r.blocking, true);
+});
+
+test('disabled honor: env value != "1" does NOT short-circuit', () => {
+  const r = invokeAdversarialReview('any', {
+    env: { MCCP_CODEX_DISABLED: '0' },
+    registryPath: '/nonexistent/path/never/read.json',
+  });
+  assert.strictEqual(r.classification, 'registry-missing');
+});
+
+test('disabled honor: advisoryAllowed env is ignored when disabled (always blocking=false)', () => {
+  const r = invokeAdversarialReview('any', {
+    env: { MCCP_CODEX_DISABLED: '1', MCCP_ALLOW_CODEX_UNAVAILABLE: '0' },
+    registryPath: '/nonexistent/path/never/read.json',
+  });
+  assert.strictEqual(r.classification, 'disabled');
+  assert.strictEqual(r.blocking, false);
+  assert.strictEqual(r.advisory, false);
+});

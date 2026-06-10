@@ -20,6 +20,13 @@ function setupRepo() {
 }
 
 function tryWriteSkipped(repo, planRel, reason) {
+  // v0.3.5 — env snapshot/restore so MCCP_CODEX_DISABLED=1 ambient (skypark207
+  // permanent bypass) does not collide with the substantive-reason validator
+  // under test. write.js auto-stamps reason='codex_disabled' when env=1, which
+  // would mask the user-supplied reason argument. canonical pattern mirrors
+  // codex-bridge.test.js:143-152.
+  const prevEnv = process.env.MCCP_CODEX_DISABLED;
+  delete process.env.MCCP_CODEX_DISABLED;
   const cwd = process.cwd();
   process.chdir(repo);
   try {
@@ -32,6 +39,8 @@ function tryWriteSkipped(repo, planRel, reason) {
     });
   } finally {
     process.chdir(cwd);
+    if (prevEnv === undefined) delete process.env.MCCP_CODEX_DISABLED;
+    else process.env.MCCP_CODEX_DISABLED = prevEnv;
   }
 }
 

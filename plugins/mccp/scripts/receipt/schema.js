@@ -236,10 +236,28 @@ function validate(receipt) {
         'meta.codex_review_actionable_findings must be a boolean if present');
     }
 
-    if (m.codex_dedupe_at_pr === true && m.codex_skipped_at_pr === true) {
-      err('meta.codex_dedupe_at_pr + meta.codex_skipped_at_pr cannot both be true ' +
-        '(Task 2.6.1 matrix invariant: pick one — dedupe = cross-gate convergence, ' +
-        'skipped = MCCP_PR_SKIP_CODEX_REVIEW audited escape)');
+    // v0.3.5 — env-level disabled honor (codex_disabled / codex_disabled_at_pr).
+    // Mirrors codex_skipped_at_pr but represents env policy (MCCP_CODEX_DISABLED=1),
+    // not user-issued audited escape. Reason validator is bypassed when
+    // codex_disabled_at_pr=true — canonical reason is the literal 'codex_disabled'.
+    if (m.codex_disabled !== undefined) {
+      req(typeof m.codex_disabled === 'boolean',
+        'meta.codex_disabled must be a boolean if present');
+    }
+    if (m.codex_disabled_at_pr !== undefined) {
+      req(typeof m.codex_disabled_at_pr === 'boolean',
+        'meta.codex_disabled_at_pr must be a boolean if present');
+    }
+
+    // 3-way mutex (v0.3.5): dedupe ∩ skipped ∩ disabled = ∅. Exactly one PR-step
+    // codex-skip path may be active per receipt.
+    const skipFlags = [m.codex_dedupe_at_pr, m.codex_skipped_at_pr, m.codex_disabled_at_pr]
+      .filter(v => v === true);
+    if (skipFlags.length > 1) {
+      err('meta.codex_dedupe_at_pr + codex_skipped_at_pr + codex_disabled_at_pr ' +
+        'are mutually exclusive (v0.3.5 3-way invariant: pick one — ' +
+        'dedupe = cross-gate convergence, skipped = MCCP_PR_SKIP_CODEX_REVIEW ' +
+        'audited escape, disabled = MCCP_CODEX_DISABLED env policy)');
     }
 
     if (m.codex_skipped_at_pr === true) {
@@ -248,6 +266,18 @@ function validate(receipt) {
         err('meta.codex_skip_reason rejected (' + v.reason + '): ' +
           'MCCP_PR_SKIP_CODEX_REVIEW requires substantive reason ≥30 chars + ' +
           '≥3 words, no placeholder/URL-only/banlist token');
+      }
+    }
+
+    // v0.3.5 — when codex_disabled_at_pr is set, the reason MUST be the canonical
+    // 'codex_disabled' literal. Substantive-reason validator bypass is allowed
+    // ONLY for this exact value — any other string indicates a mis-stamp.
+    if (m.codex_disabled_at_pr === true) {
+      if (m.codex_skip_reason !== 'codex_disabled') {
+        err('meta.codex_disabled_at_pr=true requires meta.codex_skip_reason="codex_disabled" ' +
+          '(env policy uses canonical reason; substantive-reason validator bypass ' +
+          'only applies to this exact literal — got ' +
+          JSON.stringify(m.codex_skip_reason) + ')');
       }
     }
 
@@ -305,6 +335,9 @@ function makeSkeleton(overrides) {
       codex_skipped_at_pr: false,
       codex_skip_reason: null,
       codex_review_actionable_findings: false,
+      // v0.3.5 Task 4 — env-level MCCP_CODEX_DISABLED honor (parallel to codex_skipped).
+      codex_disabled: false,
+      codex_disabled_at_pr: false,
       // v0.2.9 Task 5 — YAGNI triage DEFER_TO_BACKLOG counter (additive, no schema bump).
       deferred_findings_count: 0,
     },

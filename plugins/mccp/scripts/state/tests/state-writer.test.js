@@ -193,6 +193,142 @@ test('depCheck round-trip: empty missing list clears dep_check_missing', () => {
   assert.match(raw, /^dep_check_at: 2026-06-04T05:30:00\.000Z$/m);
 });
 
+// v0.3.6 Task 4 (축 2) — STATE.md content-hash skip on update().
+//
+// Strategy: force a known past mtime with fs.utimesSync after the first write.
+// If skip-on-equal works, the second call leaves mtime untouched. If anything
+// were rewritten, mtime would jump to "now" (later than the forced past).
+
+function setPastMtime(filePath, secondsAgo) {
+  const t = (Date.now() / 1000) - secondsAgo;
+  fs.utimesSync(filePath, t, t);
+  return fs.statSync(filePath).mtimeMs;
+}
+
+test('v0.3.6 Task 4: contentSnapshot excludes the 3 timestamp fields', () => {
+  const s = sw.emptyState();
+  s.frontmatter.created_at = '2026-01-01T00:00:00Z';
+  s.frontmatter.updated_at = '2026-01-01T00:00:00Z';
+  s.frontmatter.last_event_at = '2026-01-01T00:00:00Z';
+  const snap = sw.contentSnapshot(s);
+  assert.strictEqual(snap.fm.created_at, undefined);
+  assert.strictEqual(snap.fm.updated_at, undefined);
+  assert.strictEqual(snap.fm.last_event_at, undefined);
+  // last_event (the semantic name) IS preserved
+  assert.strictEqual(snap.fm.last_event, 'precompact');
+});
+
+test('v0.3.6 Task 4: HASH_EXCLUDE_FRONTMATTER_KEYS exposes the 3 timestamp keys', () => {
+  assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS instanceof Set);
+  assert.strictEqual(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.size, 3);
+  assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('updated_at'));
+  assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('last_event_at'));
+  assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('created_at'));
+});
+
+test('v0.3.6 Task 4: contentHash is deterministic and identical for snapshot-equal states', () => {
+  const a = sw.emptyState();
+  a.frontmatter.task_fingerprint = 'fp-equal';
+  a.body.goal = 'identical goal';
+  const b = sw.emptyState();
+  b.frontmatter.task_fingerprint = 'fp-equal';
+  b.frontmatter.updated_at = '2099-12-31T23:59:59Z'; // differs but excluded
+  b.frontmatter.created_at = '1970-01-01T00:00:00Z'; // differs but excluded
+  b.frontmatter.last_event_at = '2050-06-15T12:00:00Z'; // differs but excluded
+  b.body.goal = 'identical goal';
+  assert.strictEqual(sw.contentHash(a), sw.contentHash(b));
+});
+
+test('v0.3.6 Task 4: contentHash differs when last_event (semantic value) changes', () => {
+  const a = sw.emptyState();
+  a.frontmatter.last_event = 'precompact';
+  const b = sw.emptyState();
+  b.frontmatter.last_event = 'receipt_write';
+  assert.notStrictEqual(sw.contentHash(a), sw.contentHash(b));
+});
+
+test('v0.3.6 Task 4: contentHash differs when body changes', () => {
+  const a = sw.emptyState();
+  a.body.goal = 'A';
+  const b = sw.emptyState();
+  b.body.goal = 'B';
+  assert.notStrictEqual(sw.contentHash(a), sw.contentHash(b));
+});
+
+test('v0.3.6 Task 4: second update with identical content does NOT touch mtime', () => {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact', taskFingerprint: 'fp-noise', goal: 'stable goal' });
+  const target = sw.statePath(repo);
+  // Set a known past mtime so any write would jump it forward.
+  const pastMtime = setPastMtime(target, 60);
+  // Same patch again — no semantic change.
+  sw.update(repo, { event: 'precompact', taskFingerprint: 'fp-noise', goal: 'stable goal' });
+  const after = fs.statSync(target).mtimeMs;
+  assert.strictEqual(after, pastMtime,
+    'second update with semantic-equal patch must skip write (mtime unchanged)');
+});
+
+test('v0.3.6 Task 4: update with different last_event DOES write', () => {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact', taskFingerprint: 'fp-evt', goal: 'g' });
+  const target = sw.statePath(repo);
+  const pastMtime = setPastMtime(target, 60);
+  sw.update(repo, { event: 'receipt_write' });
+  const after = fs.statSync(target).mtimeMs;
+  assert.ok(after > pastMtime,
+    'last_event change must write (mtime should advance from past): past=' +
+    pastMtime + ' after=' + after);
+});
+
+test('v0.3.6 Task 4: update with body change DOES write', () => {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact', taskFingerprint: 'fp-body', goal: 'first' });
+  const target = sw.statePath(repo);
+  const pastMtime = setPastMtime(target, 60);
+  sw.update(repo, { event: 'precompact', goal: 'second' });
+  const after = fs.statSync(target).mtimeMs;
+  assert.ok(after > pastMtime, 'body change must write');
+});
+
+test('v0.3.6 Task 4: update with depCheck patch DOES write (dep_check_at is semantic)', () => {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact', taskFingerprint: 'fp-dep', goal: 'g' });
+  const target = sw.statePath(repo);
+  const pastMtime = setPastMtime(target, 60);
+  sw.update(repo, { event: 'precompact', depCheck: { checkedAt: '2026-06-09T12:00:00Z', missing: ['codex'] } });
+  const after = fs.statSync(target).mtimeMs;
+  assert.ok(after > pastMtime, 'dep_check_* update is semantically meaningful — must write');
+});
+
+test('v0.3.6 Task 4: update with escalate_pending=true DOES write', () => {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact', taskFingerprint: 'fp-esc', goal: 'g' });
+  const target = sw.statePath(repo);
+  const pastMtime = setPastMtime(target, 60);
+  sw.update(repo, { event: 'receipt_write', escalate_pending: true, escalate_pending_decision_id: 'slug-x' });
+  const after = fs.statSync(target).mtimeMs;
+  assert.ok(after > pastMtime, 'escalate_pending change must write');
+});
+
+test('v0.3.6 Task 4: first update when STATE.md absent always writes (creates file)', () => {
+  const repo = mkRepo();
+  const target = sw.statePath(repo);
+  assert.strictEqual(fs.existsSync(target), false, 'precondition: file does not exist');
+  sw.update(repo, { event: 'precompact', taskFingerprint: 'fp-first' });
+  assert.strictEqual(fs.existsSync(target), true, 'file must be created on first update');
+});
+
+test('v0.3.6 Task 4: skipped update still returns valid state (callers can read body/frontmatter)', () => {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact', taskFingerprint: 'fp-ret', goal: 'returned goal' });
+  // Set past mtime, call again with same patch.
+  setPastMtime(sw.statePath(repo), 60);
+  const result = sw.update(repo, { event: 'precompact', taskFingerprint: 'fp-ret', goal: 'returned goal' });
+  // Plan body: function returns existing on skip.
+  assert.strictEqual(result.body.goal, 'returned goal');
+  assert.strictEqual(result.frontmatter.task_fingerprint, 'fp-ret');
+});
+
 test('v0.3.2 escalate_pending round-trip: set, read, clear', () => {
   const repo = mkRepo();
   // Default state: no escalate_pending key in rendered output (conditional emit).

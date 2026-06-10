@@ -113,7 +113,7 @@ MVP가 ship되면 사용자 개입의 두 큰 발생원(plan-implement gap + mul
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | **H — plan-implement verify** | implement 중 plan 충돌이 사용자 escalation 없이 silent하게 plan 변경되지 않음. escalation surface는 plan 단계에서 결정 (fix-task.md / askUserQuestion / STATE.md chain_aborted 중). | pending | — |
+| 1 | **H — plan-implement verify** | implement 중 plan 충돌이 사용자 escalation 없이 silent하게 plan 변경되지 않음. escalation surface는 plan 단계에서 결정 (fix-task.md / askUserQuestion / STATE.md chain_aborted 중). | in-progress | [v0-4-0-axis-h-plan-implement-verify.plan.md](../plans/v0-4-0-axis-h-plan-implement-verify.plan.md) |
 | 2 | **I — next-session 1-liner** | 모든 mccp:* 종료 시 다음 세션 첫 메시지 1줄 자동 제공. 생성 책임 위치(command body / Stop hook / wrapper)는 plan 단계 결정. | pending | — |
 | 3 | **B — Windows headless spawn** | Stop hook fire 시 child Claude 자동 spawn 기술적 가능성 확정. OAuth + `--bare` 제거 + stream-json output. **prototype gate: ONE worktree 1회 spawn 측정 후 5-worktree로 scale** (audit Q3). | pending | — |
 | 4 | **C — on-demand orchestrator** | `auto-handoff.js` extend로 Stop hook이 spawn trigger 작동. 2-layer 재귀 가드 (entry MCCP_ORCHESTRATED_CHILD check + spawner env injection). cost-state 격리 `MCCP_COST_STATE_DIR=<per-child>` 동시 적용. (audit Q2 + Q6) | pending | — |

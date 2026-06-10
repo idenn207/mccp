@@ -33,6 +33,10 @@ const VALID_EVENTS = new Set([
   // v0.3.0 S10b — emitted by session-spawner when handoff actually fires.
   // Reading session can use this to skip re-running cost detection.
   'handoff_spawn',
+  // v0.4.0 axis H — emitted by /mccp:prp-implement Phase 3 when
+  // plan-conflict-detector signals a plan ↔ implementation gap. Paired
+  // with chain_aborted=true so auto-chain stops at commit/PR step.
+  'plan_conflict_escalated',
 ]);
 
 const SECTIONS = ['Goal', 'Plan', 'Done', 'In Progress', 'Next Step', 'Last Decision', 'Open Questions', 'Last Updated'];

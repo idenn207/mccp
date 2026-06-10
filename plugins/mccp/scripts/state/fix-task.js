@@ -61,6 +61,7 @@ function oneLineExcerpt(text) {
 function deriveTitle(failures, verdict) {
   if (verdict === 'codex_critical') return 'Codex CRITICAL — stop and address';
   if (verdict === 'codex_divergent') return 'Codex divergent — review concerns';
+  if (verdict === 'plan_conflict') return 'plan-implement conflict — review and revise plan';
   if (Array.isArray(failures) && failures.length) {
     const first = failures[0];
     return 'quality fail: ' + first.stage + ' (exit ' + (first.exitCode !== undefined ? first.exitCode : '?') + ')';
@@ -79,6 +80,11 @@ function deriveWhy(verdict) {
     case 'codex_critical':
       return 'Codex review hit an Auto-CRITICAL category. ' +
         'Stop and address before proceeding. Do not bypass.';
+    case 'plan_conflict':
+      return 'Implement phase detected a conflict between the plan and actual ' +
+        'test/validation results. The deviation cannot be silently absorbed — ' +
+        'review the plan, decide whether to revise it or accept the implementation ' +
+        'drift, then re-enter /mccp:prp-implement.';
     default:
       return 'Stop-loop fix required.';
   }
@@ -188,6 +194,13 @@ function deriveNextActions(verdict, failures) {
     return [
       'Re-read the Codex review and address each unresolved concern.',
       'Update the implementation, then end the response so the Stop-loop re-runs.',
+    ];
+  }
+  if (verdict === 'plan_conflict') {
+    return [
+      'Read .claude/state/fix-task.md and the source plan to understand the conflict.',
+      'Run /mccp:plan <plan-path> if the plan needs revision, OR write a deviation rationale into the plan body if the implementation is correct.',
+      'Re-enter /mccp:prp-implement <plan-path> after deciding.',
     ];
   }
   if (Array.isArray(failures) && failures.length) {

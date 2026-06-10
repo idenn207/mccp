@@ -12,6 +12,7 @@ audit_status: completed
 audit_file: c:/_project/my/my-claude-code-plugin-v0.4.0/.claude/audit/v0.4.0-audit-results.md
 audit_date: 2026-06-10
 santa_loop_round1: completed-naughty-then-patched
+santa_loop_round2: completed-divergent-then-patched (A=FAIL/B=PASS, 4 findings absorbed)
 ---
 
 # v0.4.0 Orchestrator + Workflow-Verify Milestone
@@ -79,7 +80,7 @@ axis A는 *prototype-first* — audit Q1이 "Anthropic-official prompt count 부
 
 - **H plan-implement 검증 layer**: `/mccp:prp-implement` 가 실제 테스트 중 plan과 충돌 발견 시 silent하게 진행하지 않고 사용자에게 1-liner로 escalate. 사용자가 새 세션에서 plan revision 요청 가능.
 - **I next-session 1-liner**: 모든 `/mccp:*` 명령이 session-end 직전 다음 세션 진입 prompt 1줄을 stdout + STATE.md에 명시. mccp:work 중단/cost ceiling/검토 요청 모두 포함.
-- **B Windows headless spawn**: `claude.exe --print --output-format stream-json --session-id` 가 OAuth 환경에서 `--bare` 제거 조건으로 **1회 측정 확정** (8.9s/spawn baseline, single observation 2026-06-10). Multi-run stability + 5-worktree scale은 prototype gate B/C 로 carry — "확정"이 아니라 "1 datapoint observed".
+- **B Windows headless spawn**: `claude.exe --print --output-format stream-json --session-id` 가 OAuth 환경에서 `--bare` 제거 조건으로 **1회 측정 (single datapoint)** 작동 관찰 (8.9s/spawn baseline, 2026-06-10). Multi-run stability + 5-worktree scale 은 prototype gate B/C 로 carry. **이 항목은 "확정"이 아닌 "1 datapoint observed"** — axis H 정신 적용 (single observation을 확정으로 포장하지 않음).
 - **C on-demand orchestrator**: Stop hook fire 시 child Claude spawn. **신규 hook 작성 금지 — 기존 [auto-handoff.js:71-138](plugins/mccp/scripts/hooks/auto-handoff.js#L71-L138)를 extend** (audit Q6: 80% already done). `MCCP_ORCHESTRATED_CHILD=1` 재귀 가드 + `MCCP_COST_STATE_DIR=<per-child>` cost-state 격리, **2-layer 모두 필수** (audit Q6).
 
 MVP가 ship되면 사용자 개입의 두 큰 발생원(plan-implement gap + multi-session halt)이 모두 mitigation됨.
@@ -157,13 +158,15 @@ audit-pending이 모두 closed됨. plan-단계 결정 사항만 남음:
 본 PRD는 다음 6개 가정 위에 작성됨. 각 가정은 axis 진입 시 plan 단계에서 명시적으로 verify해야 하며, 실패 시 해당 axis scope 조정 필수:
 
 1. **Anthropic `/status` quota signal parsability** (axis A) — `/status` slash command이 출력하는 quota remaining text를 automation layer가 parse 가능하다는 가정. audit Q1이 "interactive only"라 언급 → axis A plan에서 (a) automation에서 `/status` invoke 가능 여부 확인, (b) 불가능 시 ledger-only fallback으로 scope 축소. 본 PRD scope에서는 ledger가 primary, `/status`는 nice-to-have.
-2. **Windows PowerShell stdin redirection at spawn** (axis B) — `claude --print` 가 `$null |` 또는 `< NUL` stdin redirect 필요 (audit line 39). `session-spawner.js:platformSpawn` PowerShell branch가 `stdio: 'ignore'`로 spawn하므로 stdin은 already null이지만 child Claude가 interactive prompt 시도하면 hang. axis B prototype 시 hang detection (timeout 30s) 포함.
+2. **Windows PowerShell stdin redirection at spawn** (axis B) — `claude --print` 가 `$null |` 또는 `< NUL` stdin redirect 필요 (출처: PRD Evidence §4 "Pro/Windows/OAuth spawn 실측" 표 — audit가 아닌 본 PRD의 사용자 실측). `session-spawner.js:platformSpawn` PowerShell branch가 `stdio: 'ignore'`로 spawn하므로 stdin은 already null이지만 child Claude가 interactive prompt 시도하면 hang. axis B prototype 시 hang detection (timeout 30s) 포함.
 3. **OAuth credential inheritance parent→child** (axis B/C) — child Claude process가 parent의 OAuth token을 inherit하는지 (`~/.claude/.credentials.json` file-based) 또는 별도 auth 필요한지 미검증. file-based credential 가정 — `--help` 문서 인용 "OAuth never read" 인데 정작 parent가 동작 중이므로 file-based read가 어딘가 일어남. axis B prototype에서 child가 first response 가능한지 확인 (auth 실패 시 prompt가 stderr로 새어나옴).
 4. **`mccp.work-queue.v1` first-version migration cost** (axis D) — 본 schema는 신규이므로 backward migration 없음 = cost zero. 단 axis D ship 후 schema 변경 시 migration script 의무 (mccp 기존 receipt schema 관행 따라). plan 단계에서 schema field 신중 결정 — 이후 변경은 cost 발생.
 5. **ECC cascade-remove safety criterion** (axis F) — audit Q4 grep이 5개 파일 모두 (a) intra-cluster import만 있거나 (b) zero external imports임을 evidenced. 본 PRD는 이 grep 결과의 정확성을 가정. axis F implement 직전 grep 재수행으로 확인 (다른 axis가 그 사이 reference를 새로 추가했을 가능성 차단).
 6. **`git worktree move` vs `git worktree remove + add` semantic** (axis F) — `move`는 working tree files를 그대로 옮김 (uncommitted 보존), `remove + add`는 fresh checkout (uncommitted 손실). sibling worktree가 uncommitted 있으면 `move`만 안전. axis F plan 단계에서 sibling 상태 점검 후 선택 — PRD는 둘 다 옵션으로 명시.
+7. **`mccp.work-queue.v1` schema namespace uniqueness** (axis D) — mccp에 schema registry(e.g., 중앙 schema name 목록)가 존재하는지 확인되지 않음. 단순 "name 직접 명시" 패턴이라 collision 검출은 grep + naming convention 의존. axis D plan 단계에서 (a) `grep -r "mccp.*\.v1"` 으로 기존 사용 name 모두 enumerate, (b) `mccp.work-queue.v1` 충돌 여부 검증, (c) 충돌 시 다른 이름 (e.g., `mccp.work-queue.v1.0`). 본 PRD는 `mccp.work-queue.v1` 이 unique함을 가정 — plan 단계 verify 필수.
+8. **Stop hook fire frequency = message delivery frequency** (axis A) — `message-count-per-5h` metric의 정의가 Stop hook fire를 message proxy로 사용. Stop hook이 (a) 1 message당 1회 (정상), (b) 0회 (message 도중 hook 미발화), (c) 다회 (response 분할 또는 retry) 어느 경우인지 미검증. axis A prototype 시 ledger와 실제 conversation 길이를 한 세션에서 비교해 ratio 검증 — 1:1 가정이 무너지면 metric 보정(e.g., conversation length 기반 normalization) 필요.
 
-이 6개 가정 중 axis A의 #1, axis B의 #2/#3, axis F의 #5/#6 은 prototype gate 결과에 따라 scope 변경 가능. axis D의 #4 는 plan 단계 결정 (변경 영향 작음). 모두 plan 단계에서 verify는 의무.
+이 8개 가정 중 axis A의 #1/#8, axis B의 #2/#3, axis F의 #5/#6 은 prototype gate 결과에 따라 scope 변경 가능. axis D의 #4/#7 은 plan 단계 결정. 모두 plan 단계에서 verify는 의무.
 
 ---
 
@@ -198,4 +201,4 @@ audit-pending이 모두 closed됨. plan-단계 결정 사항만 남음:
 
 *Status: APPROVED-with-prototype-gates — audit-completed + santa-loop round 1 findings absorbed. 3 prototype gates carry to plan/implement (axis A threshold calibration, axis B/C scale-up, axis G race measurement). 6 Implementation Dependencies named for plan-stage validation.*
 *Implementation planning ready via /mccp:plan — first milestone M1 = axis H (plan-implement verify).*
-*Co-created with user on 2026-06-11 (KST), audit-revised on 2026-06-11 (KST) from 2026-06-10 audit results, santa-loop round 1 patched on 2026-06-11 (KST) for Risks completeness + axis A pre-dogfood pass criterion + Implementation Dependencies subsection + meta-recursion softening (axis B "1회 측정 확정" + axis D canonical-session 가설 명시).*
+*Co-created with user on 2026-06-11 (KST), audit-revised on 2026-06-11 (KST) from 2026-06-10 audit results, santa-loop round 1 patched on 2026-06-11 (KST) for Risks completeness + axis A pre-dogfood pass criterion + Implementation Dependencies subsection + meta-recursion softening (axis B "1회 측정 확정" + axis D canonical-session 가설 명시), santa-loop round 2 patched on 2026-06-11 (KST) for citation precision (Implementation Dependencies §2 audit-reference fix) + 2 추가 silent assumptions (schema namespace uniqueness §7, Stop-hook ↔ message ratio §8) + axis B "확정" 단어 완전 제거 ("1 datapoint observed").*

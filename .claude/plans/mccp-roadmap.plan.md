@@ -32,6 +32,7 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 | **v0.3.0** | 2026-06-08 | S10b Auto-Handoff cost-tier breakpoint + session spawn (M3 — PR #11) | [v0-3-0](../PRPs/plans/completed/v0-3-0-auto-handoff.plan.md) |
 | **v0.3.1** | 2026-06-08 | S11 `/mccp:work` single-entry orchestrator (M4 — PR #12) | [v0-3-1](v0-3-1-mccp-work.plan.md) |
 | **v0.3.2** | 2026-06-08 | S12 cross-gate dual-reviewer escalate detection (M5 — PR #13) | [v0-3-2](../PRPs/plans/completed/v0-3-2-escalate.plan.md) |
+| **v0.3.4** | 2026-06-10 | M7 test env hygiene (17 leak sites in codex-bridge.test.js) + v0.3.3 housekeeping bundle | [v0-3-4](v0-3-4-test-env-hygiene.plan.md) |
 
 ### Active / Pending Milestones
 
@@ -43,7 +44,8 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 | **Milestone 3** | v0.3.0 | S10b Auto-Handoff ($100 hard ceiling) | [v0-3-0](../PRPs/plans/completed/v0-3-0-auto-handoff.plan.md) | ✅ shipped (PR #11, commit b83596b, 2026-06-08) |
 | **Milestone 4** | v0.3.1 | S11 `/mccp:work` single entry orchestration | [v0-3-1](v0-3-1-mccp-work.plan.md) | ✅ shipped (PR #12, commit 575becf, 2026-06-08) |
 | **Milestone 5** | v0.3.2 | S12 dual-reviewer escalate (자동 안내, invoke X) | [v0-3-2](../PRPs/plans/completed/v0-3-2-escalate.plan.md) | ✅ shipped (PR #13, commit 472b005, 2026-06-08) |
-| **Milestone 6** | v0.3.3 | Intent-driven E2E dogfood — `/mccp:work` 단일 entry full-chain validation + PR #11 L2 fix + docs drift sync | [v0-3-3](v0-3-3-intent-dogfood.plan.md) | 🚧 in-progress (2026-06-09) |
+| **Milestone 6** | v0.3.3 | Intent-driven E2E dogfood — `/mccp:work` 단일 entry full-chain validation + PR #11 L2 fix + docs drift sync | [v0-3-3](v0-3-3-intent-dogfood.plan.md) | ✅ shipped (PR #14, commit cdd77fc, 2026-06-09) |
+| **Milestone 7** | v0.3.4 | Test env hygiene audit (17 leak sites in codex-bridge.test.js) + v0.3.3 housekeeping bundle (plugin.json 0.3.4, CLAUDE.md §1.4 S11/S12 drift, STATE.md fingerprint) | [v0-3-4](v0-3-4-test-env-hygiene.plan.md) | 🚧 in-progress (2026-06-10) |
 
 ### Out of scope — do not reference
 
@@ -147,7 +149,8 @@ node -e "console.log(require('./plugins/mccp/.claude-plugin/plugin.json').versio
 - [x] Milestone 3 (v0.3.0): S10b auto-handoff shipped via PR #11 (commit b83596b, 2026-06-08) — [v0-3-0 sub-plan](../PRPs/plans/completed/v0-3-0-auto-handoff.plan.md)
 - [x] Milestone 4 (v0.3.1): `/mccp:work` shipped via PR #12 (commit 575becf, 2026-06-08) — [v0-3-1 sub-plan](v0-3-1-mccp-work.plan.md)
 - [x] Milestone 5 (v0.3.2): S12 escalate shipped via PR #13 (commit 472b005, 2026-06-08) — [v0-3-2 sub-plan](../PRPs/plans/completed/v0-3-2-escalate.plan.md)
-- [ ] Milestone 6 (v0.3.3): intent-driven E2E dogfood + docs sync + PR #11 L2 fix — [v0-3-3 sub-plan](v0-3-3-intent-dogfood.plan.md)
+- [x] Milestone 6 (v0.3.3): intent-driven E2E dogfood + docs sync + PR #11 L2 fix shipped via PR #14 (commit cdd77fc, 2026-06-09) — [v0-3-3 sub-plan](v0-3-3-intent-dogfood.plan.md)
+- [ ] Milestone 7 (v0.3.4): test env hygiene audit (17 leak sites) + v0.3.3 housekeeping bundle — [v0-3-4 sub-plan](v0-3-4-test-env-hygiene.plan.md)
 - [ ] 매 마일스톤마다 `plugin.json` bump + main merge + PR 본문에 `## Codex Adversarial Review` (+`## Design Review` if applicable)
 - [ ] 매 마일스톤 shipping 후 본 roadmap의 Status Snapshot 갱신 (sub-plan의 status field가 source of truth)
 

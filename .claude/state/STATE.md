@@ -1,10 +1,10 @@
 ---
 state_version: 1
-task_fingerprint: v0-3-3-intent-dogfood
+task_fingerprint: v0-3-4-test-env-hygiene
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-06-08T16:44:24.076Z
+updated_at: 2026-06-09T18:13:24.853Z
 last_event: stop_loop_pass
-last_event_at: 2026-06-08T16:44:24.076Z
+last_event_at: 2026-06-09T18:13:24.853Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: false
@@ -53,4 +53,4 @@ User chose option #4 (intent-driven e2e dogfood) as the orchestrating milestone 
 - LOW — MCCP_SKIP_RECEIPT=1 session-env latch (settings.json env block lifecycle uninvestigated)
 
 ## Last Updated
-2026-06-08T16:44:24.076Z
+2026-06-09T18:13:24.853Z

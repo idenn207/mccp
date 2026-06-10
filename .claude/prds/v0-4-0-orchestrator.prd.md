@@ -13,6 +13,7 @@ audit_file: c:/_project/my/my-claude-code-plugin-v0.4.0/.claude/audit/v0.4.0-aud
 audit_date: 2026-06-10
 santa_loop_round1: completed-naughty-then-patched
 santa_loop_round2: completed-divergent-then-patched (A=FAIL/B=PASS, 4 findings absorbed)
+santa_loop_round3: completed-convergent-on-self-introduced-count-error (A=FAIL/B=FAIL, both flagged same 6→8 mismatch from round 2 patch — fixed)
 ---
 
 # v0.4.0 Orchestrator + Workflow-Verify Milestone
@@ -155,7 +156,7 @@ audit-pending이 모두 closed됨. plan-단계 결정 사항만 남음:
 
 ## Implementation Dependencies — Assumptions to Validate in Plan/Implement
 
-본 PRD는 다음 6개 가정 위에 작성됨. 각 가정은 axis 진입 시 plan 단계에서 명시적으로 verify해야 하며, 실패 시 해당 axis scope 조정 필수:
+본 PRD는 다음 8개 가정 위에 작성됨 (#1-#6 = 본 PRD 초기 작성 시점, #7-#8 = santa-loop round 2 추가). 각 가정은 axis 진입 시 plan 단계에서 명시적으로 verify해야 하며, 실패 시 해당 axis scope 조정 필수:
 
 1. **Anthropic `/status` quota signal parsability** (axis A) — `/status` slash command이 출력하는 quota remaining text를 automation layer가 parse 가능하다는 가정. audit Q1이 "interactive only"라 언급 → axis A plan에서 (a) automation에서 `/status` invoke 가능 여부 확인, (b) 불가능 시 ledger-only fallback으로 scope 축소. 본 PRD scope에서는 ledger가 primary, `/status`는 nice-to-have.
 2. **Windows PowerShell stdin redirection at spawn** (axis B) — `claude --print` 가 `$null |` 또는 `< NUL` stdin redirect 필요 (출처: PRD Evidence §4 "Pro/Windows/OAuth spawn 실측" 표 — audit가 아닌 본 PRD의 사용자 실측). `session-spawner.js:platformSpawn` PowerShell branch가 `stdio: 'ignore'`로 spawn하므로 stdin은 already null이지만 child Claude가 interactive prompt 시도하면 hang. axis B prototype 시 hang detection (timeout 30s) 포함.
@@ -199,6 +200,6 @@ audit-pending이 모두 closed됨. plan-단계 결정 사항만 남음:
 
 ---
 
-*Status: APPROVED-with-prototype-gates — audit-completed + santa-loop round 1 findings absorbed. 3 prototype gates carry to plan/implement (axis A threshold calibration, axis B/C scale-up, axis G race measurement). 6 Implementation Dependencies named for plan-stage validation.*
+*Status: APPROVED-with-prototype-gates — audit-completed + santa-loop round 1+2 findings absorbed + round 3 count consistency fix. 3 prototype gates carry to plan/implement (axis A threshold calibration, axis B/C scale-up, axis G race measurement). 8 Implementation Dependencies named for plan-stage validation (#1-#6 initial + #7-#8 round 2 additions).*
 *Implementation planning ready via /mccp:plan — first milestone M1 = axis H (plan-implement verify).*
 *Co-created with user on 2026-06-11 (KST), audit-revised on 2026-06-11 (KST) from 2026-06-10 audit results, santa-loop round 1 patched on 2026-06-11 (KST) for Risks completeness + axis A pre-dogfood pass criterion + Implementation Dependencies subsection + meta-recursion softening (axis B "1회 측정 확정" + axis D canonical-session 가설 명시), santa-loop round 2 patched on 2026-06-11 (KST) for citation precision (Implementation Dependencies §2 audit-reference fix) + 2 추가 silent assumptions (schema namespace uniqueness §7, Stop-hook ↔ message ratio §8) + axis B "확정" 단어 완전 제거 ("1 datapoint observed").*

@@ -241,3 +241,106 @@ test('makeSkeleton: new disabled fields default to false', function () {
   assert.strictEqual(s.meta.codex_disabled, false);
   assert.strictEqual(s.meta.codex_disabled_at_pr, false);
 });
+
+// v0.3.6 Task 3 — Codex/impeccable scope audit axis tests.
+
+test('schema v0.3.6: codex_design_scope_excluded accepts boolean', function () {
+  const v = valid();
+  v.meta.codex_design_scope_excluded = true;
+  assert.strictEqual(validate(v).ok, true);
+  v.meta.codex_design_scope_excluded = false;
+  assert.strictEqual(validate(v).ok, true);
+});
+
+test('schema v0.3.6: codex_design_scope_excluded rejects non-boolean', function () {
+  const v = valid();
+  v.meta.codex_design_scope_excluded = 'true';
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /codex_design_scope_excluded.*boolean/);
+});
+
+test('schema v0.3.6: codex_design_scope_excluded absent is allowed (backward compat)', function () {
+  const v = valid();
+  // valid() does not set this field — backward compat verification
+  assert.strictEqual(v.meta.codex_design_scope_excluded, undefined);
+  assert.strictEqual(validate(v).ok, true);
+});
+
+test('schema v0.3.6: design_findings_dropped accepts non-negative integer', function () {
+  const v = valid();
+  v.meta.design_findings_dropped = 0;
+  assert.strictEqual(validate(v).ok, true);
+  v.meta.design_findings_dropped = 7;
+  assert.strictEqual(validate(v).ok, true);
+});
+
+test('schema v0.3.6: design_findings_dropped rejects negative or non-integer', function () {
+  const v = valid();
+  v.meta.design_findings_dropped = -1;
+  assert.strictEqual(validate(v).ok, false);
+  const v2 = valid();
+  v2.meta.design_findings_dropped = 1.5;
+  assert.strictEqual(validate(v2).ok, false);
+  const v3 = valid();
+  v3.meta.design_findings_dropped = 'three';
+  assert.strictEqual(validate(v3).ok, false);
+});
+
+test('schema v0.3.6: a11y_routed_to_impeccable accepts boolean', function () {
+  const v = valid();
+  v.meta.a11y_routed_to_impeccable = true;
+  assert.strictEqual(validate(v).ok, true);
+  v.meta.a11y_routed_to_impeccable = false;
+  assert.strictEqual(validate(v).ok, true);
+});
+
+test('schema v0.3.6: a11y_routed_to_impeccable rejects non-boolean', function () {
+  const v = valid();
+  v.meta.a11y_routed_to_impeccable = 1;
+  assert.strictEqual(validate(v).ok, false);
+});
+
+test('schema v0.3.6: dropped_findings_digest accepts sha256: prefixed hex', function () {
+  const v = valid();
+  v.meta.dropped_findings_digest = 'sha256:' + 'a'.repeat(64);
+  assert.strictEqual(validate(v).ok, true);
+});
+
+test('schema v0.3.6: dropped_findings_digest accepts null (no findings dropped)', function () {
+  const v = valid();
+  v.meta.dropped_findings_digest = null;
+  assert.strictEqual(validate(v).ok, true);
+});
+
+test('schema v0.3.6: dropped_findings_digest rejects raw hex without sha256: prefix', function () {
+  const v = valid();
+  v.meta.dropped_findings_digest = 'a'.repeat(64); // no prefix
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /dropped_findings_digest/);
+});
+
+test('schema v0.3.6: dropped_findings_digest rejects too-short hash', function () {
+  const v = valid();
+  v.meta.dropped_findings_digest = 'sha256:abc';
+  assert.strictEqual(validate(v).ok, false);
+});
+
+test('schema v0.3.6: combined active state (design dropped + a11y routed + digest) all valid together', function () {
+  const v = valid();
+  v.meta.codex_design_scope_excluded = true;
+  v.meta.design_findings_dropped = 3;
+  v.meta.a11y_routed_to_impeccable = true;
+  v.meta.dropped_findings_digest = 'sha256:' + 'd'.repeat(64);
+  assert.strictEqual(validate(v).ok, true,
+    'design + a11y + digest fields are independent — no mutex');
+});
+
+test('makeSkeleton v0.3.6: new scope audit fields default to safe values', function () {
+  const s = makeSkeleton();
+  assert.strictEqual(s.meta.codex_design_scope_excluded, false);
+  assert.strictEqual(s.meta.design_findings_dropped, 0);
+  assert.strictEqual(s.meta.a11y_routed_to_impeccable, false);
+  assert.strictEqual(s.meta.dropped_findings_digest, null);
+});

@@ -252,10 +252,20 @@ Run the wrapper. **Do NOT** ask the user "shall I invoke Codex?".
 
 ```bash
 mkdir -p .git/mccp/tmp
+# v0.3.6 Task 8 (축 1 wire-up) — emit --impeccable-available when impeccable
+# is detected AND the design-scope honor toggle isn't disabled. The wrapper
+# then prepends DESIGN_SCOPE_PREAMBLE to focus, narrowing Codex's scope to
+# security/correctness/performance. The kill switch MCCP_CODEX_DESIGN_SCOPE_HONOR=0
+# restores the v0.3.5 behaviour (no preamble, no output filter).
+IMPECCABLE_FLAG=$(node -e "
+const honored = process.env.MCCP_CODEX_DESIGN_SCOPE_HONOR !== '0';
+const detect = require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect');
+process.stdout.write(honored && detect.probeSkillAvailable({}) ? '--impeccable-available' : '');
+" 2> /dev/null || echo "")
 CODEX_STDOUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js" adversarial-review \
   --focus "challenge the following plan decisions: <list 1-3 key decisions from the plan>" \
   --timeout-ms 900000 \
-  --json 2> .git/mccp/tmp/codex-invoke.stderr)
+  --json $IMPECCABLE_FLAG 2> .git/mccp/tmp/codex-invoke.stderr)
 CODEX_EXIT=$?
 
 CODEX_BLOCKING=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.blocking?"1":"0")}catch{console.log("1")}' "$CODEX_STDOUT")

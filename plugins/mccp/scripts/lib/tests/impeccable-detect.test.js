@@ -179,7 +179,10 @@ test('probeSkillAvailable: empty manifest → false', () => {
   withTempDir((dir) => {
     const file = writePluginsManifest(dir, false);
     withEnv({ MCCP_IMPECCABLE_SKILL: undefined }, () => {
-      assert.strictEqual(detector.probeSkillAvailable({ installedPluginsPath: file }), false);
+      assert.strictEqual(detector.probeSkillAvailable({
+        installedPluginsPath: file,
+        userSkillDir: path.join(dir, 'nonexistent-impeccable'),
+      }), false);
     });
   });
 });
@@ -199,4 +202,70 @@ test('isDesignPlanPath: matches .claude/design/*.design.plan.md', () => {
   assert.strictEqual(detector.isDesignPlanPath('.claude/design/feature.design.plan.md'), true);
   assert.strictEqual(detector.isDesignPlanPath('.claude\\design\\feature.design.plan.md'), true);
   assert.strictEqual(detector.isDesignPlanPath('.claude/plans/feature.plan.md'), false);
+});
+
+// === v0.3.6 Task 0 — user-level skill directory probe ===
+
+test('probeSkillAvailable: user-level skill directory triggers true (no manifest entry)', () => {
+  withTempDir((dir) => {
+    const userSkillDir = path.join(dir, 'impeccable');
+    fs.mkdirSync(userSkillDir);
+    withEnv({ MCCP_IMPECCABLE_SKILL: undefined }, () => {
+      const result = detector.probeSkillAvailable({
+        installedPluginsPath: writePluginsManifest(dir, false),
+        userSkillDir: userSkillDir,
+      });
+      assert.strictEqual(result, true);
+    });
+  });
+});
+
+test('probeSkillAvailable: missing user-level skill directory + no manifest entry returns false', () => {
+  withTempDir((dir) => {
+    withEnv({ MCCP_IMPECCABLE_SKILL: undefined }, () => {
+      const result = detector.probeSkillAvailable({
+        installedPluginsPath: writePluginsManifest(dir, false),
+        userSkillDir: path.join(dir, 'nonexistent-impeccable'),
+      });
+      assert.strictEqual(result, false);
+    });
+  });
+});
+
+test('probeSkillAvailable: plugin manifest still wins when user-level skill directory absent', () => {
+  withTempDir((dir) => {
+    withEnv({ MCCP_IMPECCABLE_SKILL: undefined }, () => {
+      const result = detector.probeSkillAvailable({
+        installedPluginsPath: writePluginsManifest(dir, true),
+        userSkillDir: path.join(dir, 'nonexistent-impeccable'),
+      });
+      assert.strictEqual(result, true);
+    });
+  });
+});
+
+test('probeSkillAvailable: env override "missing" beats user-level skill directory presence', () => {
+  withTempDir((dir) => {
+    const userSkillDir = path.join(dir, 'impeccable');
+    fs.mkdirSync(userSkillDir);
+    withEnv({ MCCP_IMPECCABLE_SKILL: 'missing' }, () => {
+      const result = detector.probeSkillAvailable({
+        installedPluginsPath: writePluginsManifest(dir, false),
+        userSkillDir: userSkillDir,
+      });
+      assert.strictEqual(result, false);
+    });
+  });
+});
+
+test('probeSkillAvailable: env override "available" beats both manifest and directory absence', () => {
+  withTempDir((dir) => {
+    withEnv({ MCCP_IMPECCABLE_SKILL: 'available' }, () => {
+      const result = detector.probeSkillAvailable({
+        installedPluginsPath: writePluginsManifest(dir, false),
+        userSkillDir: path.join(dir, 'nonexistent-impeccable'),
+      });
+      assert.strictEqual(result, true);
+    });
+  });
 });

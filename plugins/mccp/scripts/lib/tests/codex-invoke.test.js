@@ -293,3 +293,135 @@ test('disabled honor: advisoryAllowed env is ignored when disabled (always block
   assert.strictEqual(r.blocking, false);
   assert.strictEqual(r.advisory, false);
 });
+
+// v0.3.6 — Task 1 (축 1a): design-scope exclusion preamble.
+// composeFocus is a pure helper; parseCliArgs is its CLI counterpart; integration
+// uses a fake companion that echoes argv so we can inspect what was passed.
+
+const { composeFocus, parseCliArgs, DESIGN_SCOPE_PREAMBLE } = codexInvoke;
+
+test('design-scope preamble: composeFocus impeccableAvailable=true prepends preamble + a11y instruction + categories', () => {
+  const original = 'plan focus body';
+  const result = composeFocus(original, { impeccableAvailable: true });
+  assert.ok(result.startsWith('[design-domain exclusion preamble]'),
+    'expected preamble at start, got: ' + result.slice(0, 80));
+  assert.ok(result.endsWith(original), 'original focus must remain at end');
+  assert.match(result, /accessibility findings.*impeccable a11y-architect/);
+  for (const kw of ['visual design', 'color', 'typography', 'micro-interaction',
+                    'animation', 'spacing', 'brand']) {
+    assert.ok(result.toLowerCase().includes(kw.toLowerCase()),
+      'preamble missing category: ' + kw);
+  }
+});
+
+test('design-scope preamble: composeFocus impeccableAvailable=false → identity', () => {
+  const original = 'plan focus body';
+  assert.strictEqual(composeFocus(original, { impeccableAvailable: false }), original);
+});
+
+test('design-scope preamble: composeFocus no opts → identity', () => {
+  const original = 'plan focus body';
+  assert.strictEqual(composeFocus(original), original);
+  assert.strictEqual(composeFocus(original, {}), original);
+});
+
+test('design-scope preamble: composeFocus strict === true gate (truthy strings do NOT trigger)', () => {
+  const original = 'plan focus body';
+  assert.strictEqual(composeFocus(original, { impeccableAvailable: 1 }), original);
+  assert.strictEqual(composeFocus(original, { impeccableAvailable: '1' }), original);
+  assert.strictEqual(composeFocus(original, { impeccableAvailable: 'true' }), original);
+  assert.strictEqual(composeFocus(original, { impeccableAvailable: {} }), original);
+});
+
+test('design-scope preamble: composeFocus null/undefined/empty focus + impeccable=true → preamble alone, no leak', () => {
+  for (const focus of [null, undefined, '']) {
+    const result = composeFocus(focus, { impeccableAvailable: true });
+    assert.ok(result.startsWith('[design-domain exclusion preamble]'),
+      'expected preamble for focus=' + JSON.stringify(focus));
+    assert.ok(!/\bnull\b/.test(result), 'no "null" leak for focus=' + JSON.stringify(focus));
+    assert.ok(!/\bundefined\b/.test(result), 'no "undefined" leak for focus=' + JSON.stringify(focus));
+  }
+});
+
+test('design-scope preamble: DESIGN_SCOPE_PREAMBLE is exported as a non-empty string with both delimiter tags', () => {
+  assert.strictEqual(typeof DESIGN_SCOPE_PREAMBLE, 'string');
+  assert.ok(DESIGN_SCOPE_PREAMBLE.length > 0);
+  assert.ok(DESIGN_SCOPE_PREAMBLE.includes('[design-domain exclusion preamble]'));
+  assert.ok(DESIGN_SCOPE_PREAMBLE.includes('[/design-domain exclusion preamble]'));
+});
+
+test('design-scope preamble: parseCliArgs --impeccable-available sets opts.impeccableAvailable=true', () => {
+  const { focus, opts } = parseCliArgs(['adversarial-review', '--focus', 'x', '--impeccable-available']);
+  assert.strictEqual(focus, 'x');
+  assert.strictEqual(opts.impeccableAvailable, true);
+});
+
+test('design-scope preamble: parseCliArgs without --impeccable-available leaves opts.impeccableAvailable undefined', () => {
+  const { opts } = parseCliArgs(['adversarial-review', '--focus', 'x']);
+  assert.strictEqual(opts.impeccableAvailable, undefined);
+});
+
+test('design-scope preamble: parseCliArgs preserves existing flags alongside --impeccable-available', () => {
+  const { focus, opts } = parseCliArgs([
+    'adversarial-review', '--focus', 'body', '--base', 'main', '--scope', 'src/',
+    '--timeout-ms', '120000', '--json', '--impeccable-available',
+  ]);
+  assert.strictEqual(focus, 'body');
+  assert.strictEqual(opts.base, 'main');
+  assert.strictEqual(opts.scope, 'src/');
+  assert.strictEqual(opts.timeoutMs, 120000);
+  assert.strictEqual(opts.json, true);
+  assert.strictEqual(opts.impeccableAvailable, true);
+});
+
+test('design-scope preamble: invokeAdversarialReview integration — companion receives composed focus when impeccable=true', () => {
+  const tmp = makeTmpDir('preamble-int-on');
+  const installPath = path.join(tmp, 'plugin-install');
+  fs.mkdirSync(path.join(installPath, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(installPath, '.claude-plugin'), { recursive: true });
+  fs.writeFileSync(path.join(installPath, '.claude-plugin', 'plugin.json'),
+    JSON.stringify({ version: '1.0.4' }), 'utf8');
+  // Fake companion echoes its argv so we can inspect the focus position.
+  fs.writeFileSync(path.join(installPath, 'scripts', 'codex-companion.mjs'),
+    'process.stdout.write(JSON.stringify(process.argv.slice(2))); process.exit(0);', 'utf8');
+  const file = writeRegistry(tmp, {
+    'codex@openai-codex': [{ installPath: installPath, version: '1.0.4' }],
+  });
+  const r = invokeAdversarialReview('payload', {
+    registryPath: file,
+    env: {},
+    timeoutMs: 5_000,
+    impeccableAvailable: true,
+  });
+  assert.strictEqual(r.ok, true);
+  const argv = JSON.parse(r.stdout);
+  const focusArg = argv[argv.length - 1];
+  assert.ok(focusArg.startsWith('[design-domain exclusion preamble]'),
+    'expected companion to receive preamble in focus, got: ' + focusArg.slice(0, 100));
+  assert.ok(focusArg.endsWith('payload'), 'expected payload at tail, got tail: ' + focusArg.slice(-30));
+});
+
+test('design-scope preamble: invokeAdversarialReview integration — companion receives raw focus when impeccable=false', () => {
+  const tmp = makeTmpDir('preamble-int-off');
+  const installPath = path.join(tmp, 'plugin-install');
+  fs.mkdirSync(path.join(installPath, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(installPath, '.claude-plugin'), { recursive: true });
+  fs.writeFileSync(path.join(installPath, '.claude-plugin', 'plugin.json'),
+    JSON.stringify({ version: '1.0.4' }), 'utf8');
+  fs.writeFileSync(path.join(installPath, 'scripts', 'codex-companion.mjs'),
+    'process.stdout.write(JSON.stringify(process.argv.slice(2))); process.exit(0);', 'utf8');
+  const file = writeRegistry(tmp, {
+    'codex@openai-codex': [{ installPath: installPath, version: '1.0.4' }],
+  });
+  const r = invokeAdversarialReview('payload', {
+    registryPath: file,
+    env: {},
+    timeoutMs: 5_000,
+    impeccableAvailable: false,
+  });
+  assert.strictEqual(r.ok, true);
+  const argv = JSON.parse(r.stdout);
+  const focusArg = argv[argv.length - 1];
+  assert.strictEqual(focusArg, 'payload', 'expected raw focus pass-through');
+  assert.ok(!focusArg.includes('[design-domain exclusion preamble]'));
+});

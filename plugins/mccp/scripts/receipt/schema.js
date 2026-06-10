@@ -285,6 +285,38 @@ function validate(receipt) {
       req(Number.isInteger(m.deferred_findings_count) && m.deferred_findings_count >= 0,
         'meta.deferred_findings_count must be a non-negative integer if present');
     }
+
+    // v0.3.6 Task 3 — Codex/impeccable scope audit axis (4 fields, all optional).
+    //
+    // codex_design_scope_excluded:  was the design-scope exclusion preamble
+    //   prepended to the Codex focus? (mirrors invokeAdversarialReview's
+    //   opts.impeccableAvailable === true branch).
+    // design_findings_dropped:      count of findings dropped by output filter
+    //   matching DESIGN_KEYWORDS (visual/color/typography/etc).
+    // a11y_routed_to_impeccable:    was at least one a11y finding stashed for
+    //   impeccable a11y-architect routing? (caller stamps when > 0).
+    // dropped_findings_digest:      sha256 of joined dropped finding texts —
+    //   reproducible audit trail. Null when nothing dropped.
+    //
+    // No design×a11y mutex needed: a single receipt can carry both kinds of
+    // dropped findings (mixed-domain Codex review is common).
+    if (m.codex_design_scope_excluded !== undefined) {
+      req(typeof m.codex_design_scope_excluded === 'boolean',
+        'meta.codex_design_scope_excluded must be a boolean if present');
+    }
+    if (m.design_findings_dropped !== undefined && m.design_findings_dropped !== null) {
+      req(Number.isInteger(m.design_findings_dropped) && m.design_findings_dropped >= 0,
+        'meta.design_findings_dropped must be a non-negative integer if present');
+    }
+    if (m.a11y_routed_to_impeccable !== undefined) {
+      req(typeof m.a11y_routed_to_impeccable === 'boolean',
+        'meta.a11y_routed_to_impeccable must be a boolean if present');
+    }
+    if (m.dropped_findings_digest !== null && m.dropped_findings_digest !== undefined) {
+      req(typeof m.dropped_findings_digest === 'string' &&
+        SHA256_RE.test(m.dropped_findings_digest),
+        'meta.dropped_findings_digest must match ' + SHA256_RE + ' or be null');
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -340,6 +372,11 @@ function makeSkeleton(overrides) {
       codex_disabled_at_pr: false,
       // v0.2.9 Task 5 — YAGNI triage DEFER_TO_BACKLOG counter (additive, no schema bump).
       deferred_findings_count: 0,
+      // v0.3.6 Task 3 — Codex/impeccable scope audit axis (additive, optional).
+      codex_design_scope_excluded: false,
+      design_findings_dropped: 0,
+      a11y_routed_to_impeccable: false,
+      dropped_findings_digest: null,
     },
   }, o);
 }

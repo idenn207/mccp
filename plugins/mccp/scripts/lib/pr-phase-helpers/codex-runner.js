@@ -36,6 +36,9 @@ const { spawn, spawnSync } = require('child_process');
 
 const { parseArgs, locateLockCli, emit, fail } = require('./_args');
 const { spawnAndCaptureToken, spawnAndPipeToken } = require('./stdout-pipe-ipc');
+// v0.3.6 Task 8 (축 1 wire-up): scope split detection + output filter.
+const impeccableDetect = require('../impeccable-detect');
+const { filterDesignFindings, computeDroppedDigest } = require('../codex-result-filter');
 
 const NODE = process.execPath;
 
@@ -149,10 +152,21 @@ function runMain(args) {
     heartbeatChild.stdin.end();
   }
 
+  // v0.3.6 Task 8 — detect impeccable availability ONCE per run. The probe is
+  // cheap (env override + plugin manifest fs read + user-level dir stat) so
+  // calling it here keeps the wrapper invocation, output filter, and audit
+  // emit all keyed off the same truth. MCCP_CODEX_DESIGN_SCOPE_HONOR=0 kill
+  // switch overrides detection to false (debug-only opt-out).
+  const honorScope = process.env.MCCP_CODEX_DESIGN_SCOPE_HONOR !== '0';
+  const impeccableAvailable = honorScope && impeccableDetect.probeSkillAvailable({});
+
   // 4. Invoke Codex (or short-circuit).
   let codexRounds = 0;
   let codexSummary = '';
   let codexActionableFindings = false;
+  let designFindingsDropped = 0;
+  let a11yRoutedToImpeccable = false;
+  let droppedFindingsDigest = null;
   if (codexOutcome === 'disabled') {
     codexSummary = 'Codex skipped per MCCP_CODEX_DISABLED=1 (env-level policy).';
   } else if (codexOutcome === 'skipped') {
@@ -161,12 +175,14 @@ function runMain(args) {
     codexSummary = 'Decision ' + args.decision + ' already converged in mccp-plan-codex + mccp-implement-codex; cross-gate dedupe applied at PR step.';
   } else {
     const focus = args.focus || ('challenge this PR diff against base ' + args.base);
-    const codexRes = spawnSync(NODE, [codexInvoke, 'adversarial-review',
+    const invokeArgs = [codexInvoke, 'adversarial-review',
       '--focus', focus,
       '--base', args.base,
       '--timeout-ms', String(codexTimeout),
       '--json',
-    ], {
+    ];
+    if (impeccableAvailable) invokeArgs.push('--impeccable-available');
+    const codexRes = spawnSync(NODE, invokeArgs, {
       cwd: cwd,
       env: process.env,
       encoding: 'utf8',
@@ -184,8 +200,15 @@ function runMain(args) {
       return fail('codex review failed (class=' + codexClass +
         ' exit=' + codexRes.status + ')', 12);
     }
-    const findings = Array.isArray(codexJson.findings) ? codexJson.findings : [];
+    // v0.3.6 Task 8 — apply output-level filter when impeccable is honoring.
+    // When impeccable is missing or kill-switch active, filter is identity
+    // (filteredFindings = original findings, dropped = []).
+    const filtered = filterDesignFindings(codexJson, { impeccableAvailable: impeccableAvailable });
+    const findings = filtered.filteredFindings;
     codexActionableFindings = findings.length > 0;
+    designFindingsDropped = filtered.droppedFindings.length - filtered.a11yRoutedCount;
+    a11yRoutedToImpeccable = filtered.a11yRoutedCount > 0;
+    droppedFindingsDigest = computeDroppedDigest(filtered.droppedFindings);
     codexRounds = codexJson.rounds || 1;
     codexSummary = codexJson.summary || codexJson.conclusion || '';
   }
@@ -215,6 +238,14 @@ function runMain(args) {
     mutations: mutations,
     run_id: runId,
     helper_manifest: helperManifest,
+    // v0.3.6 Task 8 — scope audit fields. Caller (commands/pr.md Phase 3.5)
+    // forwards these to mccp-receipt write so receipt.meta carries the audit
+    // trail. design_findings_dropped excludes a11y items (a11y has its own
+    // counter so caller can route to impeccable a11y-architect).
+    codex_design_scope_excluded: !!impeccableAvailable,
+    design_findings_dropped: designFindingsDropped,
+    a11y_routed_to_impeccable: a11yRoutedToImpeccable,
+    dropped_findings_digest: droppedFindingsDigest,
   }, lockExitOk ? 0 : 1);
 }
 

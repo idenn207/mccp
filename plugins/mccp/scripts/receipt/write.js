@@ -145,6 +145,24 @@ function buildReceipt(args) {
         const n = parseInt(v, 10);
         return Number.isFinite(n) && n >= 0 ? n : 0;
       })(),
+      // v0.3.6 Task 8 — Codex/impeccable scope audit axis (additive, optional).
+      // Stamped by callers that go through codex-runner.js (PR step) or by
+      // commands/plan.md + commands/prp-implement.md when those phases adopt
+      // the same wire-up. Defaults are safe — receipts written without these
+      // flags pass schema validation unchanged.
+      codex_design_scope_excluded: args['codex-design-scope-excluded'] === true,
+      design_findings_dropped: (function () {
+        const v = args['design-findings-dropped'];
+        if (v === undefined || v === true || v === null) return 0;
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) && n >= 0 ? n : 0;
+      })(),
+      a11y_routed_to_impeccable: args['a11y-routed-to-impeccable'] === true,
+      dropped_findings_digest: (function () {
+        const v = args['dropped-findings-digest'];
+        if (typeof v === 'string' && v.length > 0) return v;
+        return null;
+      })(),
     },
   });
 

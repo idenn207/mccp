@@ -433,10 +433,50 @@ function withStateLock(repoRoot, fn) {
   }
 }
 
+// v0.3.6 Task 4 (축 2) — STATE.md noise elimination.
+//
+// Every PreCompact / SessionStart hook calls update() which auto-bumps
+// updated_at and (if event is set) last_event_at. Before this fix, even a
+// no-op precompact rewrote the file purely for timestamp churn → `git status`
+// dirty every session, working tree noise that masked real changes.
+//
+// Fix: hash the *semantic* content (frontmatter minus the 3 self-bumping
+// timestamps + the full body). When existing and merged hashes match AND
+// the file already exists on disk, skip writeStateAtomic and return existing
+// (mtime untouched). last_event change still bumps the hash because
+// last_event itself (not last_event_at) is the semantic value — so explicit
+// event transitions still write.
+const HASH_EXCLUDE_FRONTMATTER_KEYS = new Set(['updated_at', 'last_event_at', 'created_at']);
+
+function contentSnapshot(state) {
+  const fm = {};
+  const fmKeys = Object.keys(state.frontmatter).sort();
+  for (const k of fmKeys) {
+    if (!HASH_EXCLUDE_FRONTMATTER_KEYS.has(k)) fm[k] = state.frontmatter[k];
+  }
+  const body = {};
+  const bodyKeys = Object.keys(state.body).sort();
+  for (const k of bodyKeys) body[k] = state.body[k];
+  return { fm: fm, body: body };
+}
+
+function contentHash(state) {
+  return crypto.createHash('sha256')
+    .update(JSON.stringify(contentSnapshot(state)), 'utf8')
+    .digest('hex');
+}
+
 function update(repoRoot, patch) {
   return withStateLock(repoRoot, function () {
     const existing = readState(repoRoot);
+    const target = statePath(repoRoot);
+    const fileExisted = fs.existsSync(target);
     const merged = mergeState(existing, patch || {});
+    if (fileExisted && contentHash(existing) === contentHash(merged)) {
+      // Content is semantically identical — only timestamps would change.
+      // Skip disk write so STATE.md stays out of `git status`.
+      return existing;
+    }
     writeStateAtomic(repoRoot, merged);
     return merged;
   });
@@ -480,4 +520,7 @@ module.exports = {
   withStateLock: withStateLock,
   update: update,
   recordChainProgress: recordChainProgress,
+  contentSnapshot: contentSnapshot,
+  contentHash: contentHash,
+  HASH_EXCLUDE_FRONTMATTER_KEYS: HASH_EXCLUDE_FRONTMATTER_KEYS,
 };

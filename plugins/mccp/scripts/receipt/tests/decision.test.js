@@ -317,3 +317,194 @@ test('isLocalReviewMode treats branch names as PR Review Mode (F4 fix — Codex 
   // shape decision (any positional → PR), not content classification.
   assert.strictEqual(isLocalReviewMode('xyz-not-a-real-branch'), false);
 });
+
+// v0.3.6 Task 5 (축 3) — branch normalize + plan-path / receipt fallback.
+
+const { lastImplementReceiptSlug } = require('../decision');
+
+function captureStderr(fn) {
+  const original = process.stderr.write.bind(process.stderr);
+  const captured = [];
+  process.stderr.write = function (chunk) { captured.push(String(chunk)); return true; };
+  try { fn(); }
+  finally { process.stderr.write = original; }
+  return captured.join('');
+}
+
+// (A1) slugFromBranch normalize — dot-bearing version tag
+test('v0.3.6 Task 5: slugFromBranch normalizes dot-bearing branch v0.3.6-foo → v0-3-6-foo', function () {
+  const repo = makeTmpGitRepo('v0.3.6-foo');
+  assert.strictEqual(slugFromBranch(repo), 'v0-3-6-foo');
+});
+
+// (A2) slugFromBranch normalize — underscore-bearing branch
+test('v0.3.6 Task 5: slugFromBranch normalizes underscore branch feat/bar_baz → bar-baz', function () {
+  const repo = makeTmpGitRepo('feat/bar_baz');
+  // feat/ prefix stripped, then underscores → hyphens
+  assert.strictEqual(slugFromBranch(repo), 'bar-baz');
+});
+
+// (A3) slugFromBranch normalize — combo dots + underscores
+test('v0.3.6 Task 5: slugFromBranch handles mixed dots and underscores', function () {
+  const repo = makeTmpGitRepo('chore/v1.2_alpha');
+  assert.strictEqual(slugFromBranch(repo), 'v1-2-alpha');
+});
+
+// (A4) slugFromBranch idempotent on already-valid slug
+test('v0.3.6 Task 5: slugFromBranch is idempotent on already-valid slug (no double-hyphenate)', function () {
+  const repo = makeTmpGitRepo('clean-slug-already');
+  assert.strictEqual(slugFromBranch(repo), 'clean-slug-already');
+});
+
+// (B1) /mccp:pr mode + dot branch + planPath → planPath wins via fallback
+test('v0.3.6 Task 5: /mccp:pr branch-derived works after dot normalize (no fallback needed)', function () {
+  const repo = makeTmpGitRepo('v0.3.6-codex-scope');
+  // With normalize the branch slug is valid → no fallback warn
+  const captured = captureStderr(function () {
+    const slug = deriveDecisionId('mccp:pr', '', { cwd: repo });
+    assert.strictEqual(slug, 'v0-3-6-codex-scope');
+  });
+  assert.strictEqual(captured.indexOf('fell back to'), -1, 'no fallback warn expected');
+});
+
+// (B2) /mccp:pr mode + invalid branch + planPath via opts → fallback chain triggers
+test('v0.3.6 Task 5: /mccp:pr mode + invalid branch + opts.planPath → planPath fallback fires + warn', function () {
+  // Create a branch that DOESN'T normalize to a valid slug: starts with non-alphanumeric.
+  const repo = makeTmpGitRepo('release/v1.2.3');
+  const captured = captureStderr(function () {
+    const slug = deriveDecisionId('mccp:pr', '', {
+      cwd: repo,
+      planPath: '.claude/plans/feature-x.plan.md',
+    });
+    assert.strictEqual(slug, 'feature-x');
+  });
+  assert.match(captured, /branch slug invalid; fell back to planPath/);
+});
+
+// (B3) /mccp:pr mode + invalid branch + commandArgs has plan path
+test('v0.3.6 Task 5: /mccp:pr mode + invalid branch + commandArgs path → planArg fallback fires + warn', function () {
+  const repo = makeTmpGitRepo('release/v1.2.3');
+  const captured = captureStderr(function () {
+    const slug = deriveDecisionId('mccp:pr', '.claude/plans/foo-bar.plan.md', { cwd: repo });
+    assert.strictEqual(slug, 'foo-bar');
+  });
+  assert.match(captured, /fell back to planArg/);
+});
+
+// (B4) /mccp:pr mode + invalid branch + no plan args + implement receipt available
+test('v0.3.6 Task 5: /mccp:pr mode + invalid branch + implement-receipt → receipt fallback fires + warn', function () {
+  const repo = makeTmpGitRepo('release/v1.2.3');
+  // Drop a fake implement receipt
+  const dir = path.join(repo, '.claude', 'receipts', 'mccp-implement-codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'recovered-slug.json'),
+    JSON.stringify({ decision_id: 'recovered-slug', schema_version: 'v1' }));
+  const captured = captureStderr(function () {
+    const slug = deriveDecisionId('mccp:pr', '', { cwd: repo });
+    assert.strictEqual(slug, 'recovered-slug');
+  });
+  assert.match(captured, /fell back to implement-receipt/);
+});
+
+// (B5) /mccp:pr mode + all fallbacks fail → default
+test('v0.3.6 Task 5: /mccp:pr mode + all fallbacks fail → default (no warn for default-only path)', function () {
+  const repo = makeTmpGitRepo('release/v1.2.3');
+  const captured = captureStderr(function () {
+    const slug = deriveDecisionId('mccp:pr', '', { cwd: repo });
+    assert.strictEqual(slug, 'default');
+  });
+  // No success warn — we silently fell through to 'default'.
+  assert.strictEqual(captured.indexOf('fell back to'), -1);
+});
+
+// (B6) Fallback priority: opts.planPath beats commandArgs planArg
+test('v0.3.6 Task 5: fallback priority — opts.planPath wins over commandArgs', function () {
+  const repo = makeTmpGitRepo('release/v1.2.3');
+  const slug = deriveDecisionId('mccp:pr', '.claude/plans/from-args.plan.md', {
+    cwd: repo,
+    planPath: '.claude/plans/from-opts.plan.md',
+  });
+  assert.strictEqual(slug, 'from-opts');
+});
+
+// (B7) Fallback priority: planArg beats implement-receipt
+test('v0.3.6 Task 5: fallback priority — planArg wins over implement-receipt', function () {
+  const repo = makeTmpGitRepo('release/v1.2.3');
+  const dir = path.join(repo, '.claude', 'receipts', 'mccp-implement-codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'from-receipt.json'),
+    JSON.stringify({ decision_id: 'from-receipt', schema_version: 'v1' }));
+  const slug = deriveDecisionId('mccp:pr', '.claude/plans/from-args.plan.md', { cwd: repo });
+  assert.strictEqual(slug, 'from-args');
+});
+
+// (C1) lastImplementReceiptSlug — happy path
+test('v0.3.6 Task 5: lastImplementReceiptSlug returns latest receipt slug', function () {
+  const repo = makeTmpGitRepo('main');
+  const dir = path.join(repo, '.claude', 'receipts', 'mccp-implement-codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'a-slug.json'),
+    JSON.stringify({ decision_id: 'a-slug', schema_version: 'v1' }));
+  const slug = lastImplementReceiptSlug(repo);
+  assert.strictEqual(slug, 'a-slug');
+});
+
+// (C2) lastImplementReceiptSlug — picks most recent by mtime
+test('v0.3.6 Task 5: lastImplementReceiptSlug picks most recent by mtime when multiple receipts exist', function () {
+  const repo = makeTmpGitRepo('main');
+  const dir = path.join(repo, '.claude', 'receipts', 'mccp-implement-codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'older.json'),
+    JSON.stringify({ decision_id: 'older', schema_version: 'v1' }));
+  const olderPath = path.join(dir, 'older.json');
+  // Force older to be 1h in the past
+  const past = (Date.now() / 1000) - 3600;
+  fs.utimesSync(olderPath, past, past);
+  fs.writeFileSync(path.join(dir, 'newer.json'),
+    JSON.stringify({ decision_id: 'newer', schema_version: 'v1' }));
+  const slug = lastImplementReceiptSlug(repo);
+  assert.strictEqual(slug, 'newer');
+});
+
+// (C3) lastImplementReceiptSlug — empty dir → null
+test('v0.3.6 Task 5: lastImplementReceiptSlug returns null when receipt dir empty or absent', function () {
+  const repo = makeTmpGitRepo('main');
+  assert.strictEqual(lastImplementReceiptSlug(repo), null, 'dir absent → null');
+  fs.mkdirSync(path.join(repo, '.claude', 'receipts', 'mccp-implement-codex'), { recursive: true });
+  assert.strictEqual(lastImplementReceiptSlug(repo), null, 'dir empty → null');
+});
+
+// (C4) lastImplementReceiptSlug — malformed receipt JSON → null (graceful)
+test('v0.3.6 Task 5: lastImplementReceiptSlug returns null on malformed receipt', function () {
+  const repo = makeTmpGitRepo('main');
+  const dir = path.join(repo, '.claude', 'receipts', 'mccp-implement-codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'bad.json'), '{not valid json');
+  assert.strictEqual(lastImplementReceiptSlug(repo), null);
+});
+
+// (C5) lastImplementReceiptSlug — receipt missing decision_id → null
+test('v0.3.6 Task 5: lastImplementReceiptSlug returns null when receipt has no decision_id', function () {
+  const repo = makeTmpGitRepo('main');
+  const dir = path.join(repo, '.claude', 'receipts', 'mccp-implement-codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'no-id.json'), JSON.stringify({ schema_version: 'v1' }));
+  assert.strictEqual(lastImplementReceiptSlug(repo), null);
+});
+
+// (C6) lastImplementReceiptSlug — invalid decision_id slug → null
+test('v0.3.6 Task 5: lastImplementReceiptSlug returns null when decision_id fails SLUG_RE', function () {
+  const repo = makeTmpGitRepo('main');
+  const dir = path.join(repo, '.claude', 'receipts', 'mccp-implement-codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'bad-slug.json'),
+    JSON.stringify({ decision_id: 'INVALID UPPER spaces', schema_version: 'v1' }));
+  assert.strictEqual(lastImplementReceiptSlug(repo), null);
+});
+
+// (D) Regression — explicit --decision still beats all fallbacks
+test('v0.3.6 Task 5: explicit --decision still beats branch normalize + fallback chain', function () {
+  const repo = makeTmpGitRepo('v0.3.6-codex-scope');
+  const slug = deriveDecisionId('mccp:pr', '--decision explicit-override', { cwd: repo });
+  assert.strictEqual(slug, 'explicit-override');
+});

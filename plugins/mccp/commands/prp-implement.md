@@ -126,10 +126,18 @@ Skill interface `codex:adversarial-review` does not exist and the slash command 
 
 ```bash
 mkdir -p .git/mccp/tmp
+# v0.3.6 Task 8 (축 1 wire-up) — emit --impeccable-available when impeccable
+# detected AND MCCP_CODEX_DESIGN_SCOPE_HONOR != 0. Wrapper then prepends
+# DESIGN_SCOPE_PREAMBLE so Codex stays scoped to security/correctness/perf.
+IMPECCABLE_FLAG=$(node -e "
+const honored = process.env.MCCP_CODEX_DESIGN_SCOPE_HONOR !== '0';
+const detect = require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect');
+process.stdout.write(honored && detect.probeSkillAvailable({}) ? '--impeccable-available' : '');
+" 2> /dev/null || echo "")
 CODEX_STDOUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js" adversarial-review \
   --focus "challenge the following implement-time decisions: <bullet list from 2.5.2>" \
   --timeout-ms 900000 \
-  --json 2> .git/mccp/tmp/codex-invoke.stderr)
+  --json $IMPECCABLE_FLAG 2> .git/mccp/tmp/codex-invoke.stderr)
 CODEX_EXIT=$?
 CODEX_BLOCKING=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.blocking?"1":"0")}catch{console.log("1")}' "$CODEX_STDOUT")
 CODEX_CLASS=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.classification||"unknown")}catch{console.log("parse-error")}' "$CODEX_STDOUT")

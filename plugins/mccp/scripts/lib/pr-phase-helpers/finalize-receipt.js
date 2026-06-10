@@ -54,6 +54,25 @@ function deriveCodexFlags(codexResult) {
   if (codexResult.codex_actionable_findings === true) {
     flags.push('--codex-actionable-findings');
   }
+  // v0.3.6 Task 8 — Codex/impeccable scope audit fields. codex-runner.js
+  // computes these and emits them in its JSON output; we forward them to the
+  // receipt-write CLI so the audit trail lands in receipt.meta.
+  if (codexResult.codex_design_scope_excluded === true) {
+    flags.push('--codex-design-scope-excluded');
+  }
+  if (Number.isInteger(codexResult.design_findings_dropped) &&
+      codexResult.design_findings_dropped > 0) {
+    flags.push('--design-findings-dropped');
+    flags.push(String(codexResult.design_findings_dropped));
+  }
+  if (codexResult.a11y_routed_to_impeccable === true) {
+    flags.push('--a11y-routed-to-impeccable');
+  }
+  if (typeof codexResult.dropped_findings_digest === 'string' &&
+      codexResult.dropped_findings_digest.length > 0) {
+    flags.push('--dropped-findings-digest');
+    flags.push(codexResult.dropped_findings_digest);
+  }
   return flags;
 }
 

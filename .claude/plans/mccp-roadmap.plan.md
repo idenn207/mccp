@@ -33,6 +33,8 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 | **v0.3.1** | 2026-06-08 | S11 `/mccp:work` single-entry orchestrator (M4 — PR #12) | [v0-3-1](v0-3-1-mccp-work.plan.md) |
 | **v0.3.2** | 2026-06-08 | S12 cross-gate dual-reviewer escalate detection (M5 — PR #13) | [v0-3-2](../PRPs/plans/completed/v0-3-2-escalate.plan.md) |
 | **v0.3.4** | 2026-06-10 | M7 test env hygiene (17 leak sites in codex-bridge.test.js) + v0.3.3 housekeeping bundle | [v0-3-4](v0-3-4-test-env-hygiene.plan.md) |
+| **v0.3.5** | 2026-06-10 | M8 codex-invoke MCCP_CODEX_DISABLED first-class honor (wrapper short-circuit + caller fanout + 3-way mutex) | (commit 816e8b6 / PR #16) |
+| **v0.3.6** | 2026-06-10 | Codex/impeccable scope split (축 1) + STATE.md content-hash skip (축 2) + derive-decision branch normalize + fallback chain (축 3) | [v0-3-6](v0-3-6-codex-scope-state-noise.plan.md) |
 
 ### Active / Pending Milestones
 

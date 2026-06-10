@@ -43,21 +43,32 @@ function isDesignPlanPath(filePath) {
   return /\.claude[\\/]design[\\/].+\.design\.plan\.md$/i.test(filePath);
 }
 
-// PRIMARY: probe skill registry. We use installed_plugins.json because
-// impeccable ships as a plugin-scoped skill. If a future user-level skill
-// directory becomes the canonical install target, extend probeKeys here.
+// Probe skill availability via two channels (env override > plugin manifest >
+// user-level skill directory). v0.3.6 Task 0 extended the probe with the
+// user-level skill directory branch — previously the function only checked
+// installed_plugins.json, which false-negated impeccable installs at
+// `~/.claude/skills/impeccable` (skill-scope, not plugin-scope).
 function probeSkillAvailable(options) {
   const opts = options || {};
   if (process.env.MCCP_IMPECCABLE_SKILL === 'available') return true;
   if (process.env.MCCP_IMPECCABLE_SKILL === 'missing') return false;
   const manifest = depCheck.readInstalledPlugins(opts.installedPluginsPath);
-  if (!manifest.plugins) return false;
-  const probeKeys = [IMPECCABLE_PLUGIN_KEY, 'impeccable'];
-  for (let i = 0; i < probeKeys.length; i++) {
-    const key = probeKeys[i];
-    const entries = manifest.plugins[key];
-    if (Array.isArray(entries) && entries.length > 0) return true;
+  if (manifest.plugins) {
+    const probeKeys = [IMPECCABLE_PLUGIN_KEY, 'impeccable'];
+    for (let i = 0; i < probeKeys.length; i++) {
+      const key = probeKeys[i];
+      const entries = manifest.plugins[key];
+      if (Array.isArray(entries) && entries.length > 0) return true;
+    }
   }
+  const userSkillDir = (opts.userSkillDir != null)
+    ? opts.userSkillDir
+    : path.join(os.homedir(), '.claude', 'skills', 'impeccable');
+  try {
+    if (fs.existsSync(userSkillDir) && fs.statSync(userSkillDir).isDirectory()) {
+      return true;
+    }
+  } catch (_err) { /* ignore — fall through to false */ }
   return false;
 }
 

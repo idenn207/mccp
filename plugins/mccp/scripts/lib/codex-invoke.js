@@ -20,6 +20,12 @@
 //   BEFORE registry resolution. This is a first-class success path (blocking=false,
 //   advisory=false) distinct from involuntary unavailability — caller maps it to
 //   verdict='skipped' + reason='codex_disabled' (bridge already honors).
+//
+// v0.3.6 — Task 1 (축 1a): when caller passes opts.impeccableAvailable === true,
+//   focus is prefixed with DESIGN_SCOPE_PREAMBLE so Codex avoids design-domain
+//   findings (visual/typography/color/animation/spacing/brand) and a11y items
+//   (routed to impeccable a11y-architect). Strict === true gate so truthy strings
+//   like '1'/'true' from misconfigured CLI flags do NOT trigger silently.
 
 const fs = require('fs');
 const os = require('os');
@@ -31,6 +37,13 @@ const PLUGIN_KEY = 'codex@openai-codex';
 const COMPANION_REL = path.join('scripts', 'codex-companion.mjs');
 const PLUGIN_JSON_REL = path.join('.claude-plugin', 'plugin.json');
 const COMPATIBLE_VERSION_PATTERNS = [/^1\.0\.\d+$/];
+const DESIGN_SCOPE_PREAMBLE =
+  '[design-domain exclusion preamble]\n' +
+  '다음 finding 카테고리는 emit하지 마세요: visual design, color, typography, ' +
+  'micro-interaction, animation, spacing aesthetic, brand consistency.\n' +
+  'accessibility findings은 impeccable a11y-architect에 routing되므로 본 review ' +
+  '결과에 포함하지 마세요.\n' +
+  '[/design-domain exclusion preamble]\n\n';
 // 900_000 (15min): matches codex's own stop-review-gate-hook.mjs reference
 // pattern (STOP_REVIEW_TIMEOUT_MS = 15 * 60 * 1000). 90s was too short — every
 // call hit `classification=timeout`. 300s was empirically observed to fit
@@ -126,6 +139,13 @@ function makeFail(env, t0, classification, stderr) {
   };
 }
 
+function composeFocus(focus, opts) {
+  opts = opts || {};
+  const base = (focus == null) ? '' : String(focus);
+  if (opts.impeccableAvailable !== true) return base;
+  return DESIGN_SCOPE_PREAMBLE + base;
+}
+
 function invokeAdversarialReview(focus, opts) {
   opts = opts || {};
   const env = opts.env || process.env;
@@ -170,7 +190,8 @@ function invokeAdversarialReview(focus, opts) {
   if (opts.base) args.push('--base', String(opts.base));
   if (opts.scope) args.push('--scope', String(opts.scope));
   if (opts.json) args.push('--json');
-  if (focus && String(focus).length) args.push(String(focus));
+  const composedFocus = composeFocus(focus, opts);
+  if (composedFocus.length) args.push(composedFocus);
 
   let result;
   try {
@@ -225,14 +246,7 @@ function invokeAdversarialReview(focus, opts) {
   };
 }
 
-function runCli(argv) {
-  if (!argv || argv[0] !== 'adversarial-review') {
-    process.stderr.write(
-      'usage: codex-invoke adversarial-review --focus "<text>" ' +
-      '[--base <ref>] [--scope <s>] [--timeout-ms N] [--json]\n');
-    process.stderr.write('Always emits JSON to stdout. Exit 12 = blocking, 0 = ok/advisory.\n');
-    return 2;
-  }
+function parseCliArgs(argv) {
   const opts = {};
   let focus = '';
   for (let i = 1; i < argv.length; i++) {
@@ -246,7 +260,22 @@ function runCli(argv) {
       continue;
     }
     if (a === '--json') { opts.json = true; continue; }
+    if (a === '--impeccable-available') { opts.impeccableAvailable = true; continue; }
   }
+  return { focus: focus, opts: opts };
+}
+
+function runCli(argv) {
+  if (!argv || argv[0] !== 'adversarial-review') {
+    process.stderr.write(
+      'usage: codex-invoke adversarial-review --focus "<text>" ' +
+      '[--impeccable-available] [--base <ref>] [--scope <s>] [--timeout-ms N] [--json]\n');
+    process.stderr.write('Always emits JSON to stdout. Exit 12 = blocking, 0 = ok/advisory.\n');
+    return 2;
+  }
+  const parsed = parseCliArgs(argv);
+  const focus = parsed.focus;
+  const opts = parsed.opts;
   let result;
   try {
     result = invokeAdversarialReview(focus, opts);
@@ -275,9 +304,12 @@ module.exports = {
   resolveCodexInstallPath: resolveCodexInstallPath,
   verifyCompanionInterface: verifyCompanionInterface,
   invokeAdversarialReview: invokeAdversarialReview,
+  composeFocus: composeFocus,
+  parseCliArgs: parseCliArgs,
   runCli: runCli,
   CodexInvokeError: CodexInvokeError,
   COMPATIBLE_VERSION_PATTERNS: COMPATIBLE_VERSION_PATTERNS,
+  DESIGN_SCOPE_PREAMBLE: DESIGN_SCOPE_PREAMBLE,
   PLUGIN_KEY: PLUGIN_KEY,
   REGISTRY_PATH_DEFAULT: REGISTRY_PATH_DEFAULT,
   BLOCKING_EXIT: BLOCKING_EXIT,

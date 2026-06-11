@@ -1,7 +1,7 @@
 # Roadmap: mccp v0.2.5+ (Milestone Index)
 
 **Source PRD**: 통합 — 사용자 메시지(2026-06-04, `/mccp:plan` 호출) + 기존 산출물 합본
-**Current plugin version**: 0.3.0 ([plugin.json](../../plugins/mccp/.claude-plugin/plugin.json))
+**Current plugin version**: 0.4.0 ([plugin.json](../../plugins/mccp/.claude-plugin/plugin.json))
 **Branch convention**: 마일스톤마다 별도 feature branch. main 직접 push 금지.
 **Index version**: 2 (2026-06-06 thin-index transform — 91KB → ~14KB. milestone body는 sub-plan으로 위임.)
 
@@ -35,6 +35,7 @@ mccp v0.2.4 (security-reviewer Skill→Task canonical contract) main merge 이�
 | **v0.3.4** | 2026-06-10 | M7 test env hygiene (17 leak sites in codex-bridge.test.js) + v0.3.3 housekeeping bundle | [v0-3-4](v0-3-4-test-env-hygiene.plan.md) |
 | **v0.3.5** | 2026-06-10 | M8 codex-invoke MCCP_CODEX_DISABLED first-class honor (wrapper short-circuit + caller fanout + 3-way mutex) | (commit 816e8b6 / PR #16) |
 | **v0.3.6** | 2026-06-10 | Codex/impeccable scope split (축 1) + STATE.md content-hash skip (축 2) + derive-decision branch normalize + fallback chain (축 3) | [v0-3-6](v0-3-6-codex-scope-state-noise.plan.md) |
+| **v0.4.0** | 2026-06-11 | Axis H plan-implement verify layer — plan-conflict-detector (signature-drift / file-expansion / fake-pass) + fix-task `plan_conflict` verdict + STATE.md `plan_conflict_escalated` event + advisory receipt meta. v0.4.0 MVP은 axis H+I+B+C (orchestrator PRD) 중 H ship (PR #18, commit 3924e95) | [v0-4-0-h](v0-4-0-axis-h-plan-implement-verify.plan.md) |
 
 ### Active / Pending Milestones
 

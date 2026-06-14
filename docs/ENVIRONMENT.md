@@ -1,6 +1,6 @@
 # 환경변수 카탈로그 (Environment Variables)
 
-`my-claude-code-plugin` (mccp)의 게이트·hook·자동화 layer가 인식하는 환경변수 레퍼런스. 상태(✅ live / 🚧 예정 / ♻ ECC fork 이관)와 default, 의미, 설정 위치를 정리합니다.
+`my-claude-code-plugin` (mccp)의 게이트·hook·자동화 layer가 인식하는 환경변수 레퍼런스. 상태(✅ live / 📖 LLM-observed / 🚧 예정 / ♻ ECC fork 이관)와 default, 의미, 설정 위치를 정리합니다. `📖 LLM-observed`는 문서·prompt에 등장하지만 hook/script가 mechanical하게 honor하지 않는 변수 — LLM이 자기 환경에서 읽어 동작을 조정합니다 (사용자가 mechanical 강제를 기대하면 fail-open).
 
 ## 스코프
 
@@ -81,6 +81,7 @@ mccp 게이트의 표준 설정 위치는 **`settings.json`의 `env` 키**입니
 | `MCCP_RECEIPT_GATE_MODE` | `hard` \| `soft` \| `off` | `hard` | ✅ live | receipt 게이트 운용 모드. `hard`=chain-of-custody 강제(누락 receipt 차단), `soft`=누락 시 `decision="skipped-soft"` placeholder를 자동 write(다운스트림 validator는 non-approving 처리), `off`=게이트 자체 비활성(개인 디버깅 전용, stderr 큰 경고). 알 수 없는 값은 hard로 fallback + stderr warning. [receipt-mode.js](../plugins/mccp/scripts/lib/receipt-mode.js). |
 | `MCCP_ALLOW_CODEX_UNAVAILABLE` | `1` | unset | ✅ live | Codex 호출이 unavailable/blocking으로 떨어졌을 때 wrapper exit 0로 진행하되 receipt body에 `advisory=true`로 stamp (converged receipt 미발급). 미설정이면 unavailable = hard fail. [codex-invoke.js:104,222](../plugins/mccp/scripts/lib/codex-invoke.js), [auto-chain.js:161](../plugins/mccp/scripts/lib/auto-chain.js). |
 | `MCCP_AUTO_CHAIN_DISABLE` | `1` | unset | ✅ live | `prp-implement → prp-commit → prp-pr` 자동 chain을 비활성화하는 operator kill switch. `auto-chain.js`의 `shouldAbort()`가 첫 번째로 검사. |
+| `MCCP_AUTO_CHAIN_SKIP_PR` | `1` | unset | 📖 LLM-observed | **mechanical 미구현** — `auto-chain.js`/`prp-implement` hook이 이 변수를 honor하지 않습니다. `prp-implement.md` Phase 7 직전에 LLM이 본인 환경에서 읽어 `/mccp:pr` invocation을 skip할지 판단하는 prompt-level toggle. 사용자가 mechanical 강제를 기대하면 fail-open (chain은 그대로 PR로 진행됨). W-VERDICT C2 axis M (F-W10-1) 강등 결과 — mechanical 구현은 axis M follow-up patch. |
 | `MCCP_COST_HARD_CEILING_HIT` | `1` | unset | 🚧 signal | `ecc-context-monitor`가 $100 critical에 도달했을 때 emit하는 신호(spawn된 hook 환경에는 직접 주입 불가하므로 STATE.md `chain_aborted=true`와 함께 기록 — `auto-chain.js`가 양쪽 검사). 사용자가 직접 set할 변수 아님. |
 
 ---

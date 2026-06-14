@@ -349,7 +349,7 @@ MCCP_RECEIPT_DEBUG_LEGACY_INLINE=0                 # v0.2.7 advanced opt-out. MC
 
 # Auto-chain (v0.2.2)
 MCCP_AUTO_CHAIN_DISABLE=1                # kill switch ─ live
-MCCP_AUTO_CHAIN_SKIP_PR=1                # commit-only chain (직접 push cycles 용) ─ live
+MCCP_AUTO_CHAIN_SKIP_PR=1                # commit-only chain (직접 push cycles 용) ─ LLM-observed (mechanical 미구현; auto-chain.js는 honor하지 않음, W-VERDICT C2 axis M)
 
 # Auto-handoff (v0.3.0 S10b — live)
 MCCP_AUTO_HANDOFF=off|notify|spawn       # default: notify. spawn 모드 + claude binary 미감지 시 notify로 graceful degrade.

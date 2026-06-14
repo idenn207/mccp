@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: v1-0-0-preflight-recovery-surface
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-06-14T10:36:00.748Z
+updated_at: 2026-06-14T14:11:11.376Z
 last_event: stop_loop_pass
 last_event_at: 2026-06-14T10:36:00.748Z
 unsafe_checkpoint: false
@@ -10,7 +10,7 @@ confirm_required: false
 session_end_imminent: false
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/20
-dep_check_at: 2026-06-07T15:54:42.147Z
+dep_check_at: 2026-06-14T14:11:11.373Z
 dep_check_missing: impeccable
 ---
 ## Goal
@@ -39,4 +39,4 @@ PR #20 draft 전환 완료 — W-VERDICT 대기. W6 worktree(.worktrees/v1.0.0-v
 
 
 ## Last Updated
-2026-06-14T10:36:00.748Z
+2026-06-14T14:11:11.376Z

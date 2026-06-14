@@ -1,6 +1,6 @@
 ---
 state_version: 1
-task_fingerprint: v1-0-0-preflight-recovery-surface
+task_fingerprint: v1-0-0-release-notes
 created_at: 2026-06-03T18:51:31.328Z
 updated_at: 2026-06-14T15:57:59.126Z
 last_event: stop_loop_pass
@@ -13,26 +13,27 @@ last_pr_url: https://github.com/idenn207/mccp/pull/20
 dep_check_at: 2026-06-14T15:57:59.122Z
 ---
 ## Goal
-v1.0.0 patch — preflight.js writeBlockReason() recovery surface (W11 audit 11j+11k absorption)
+v1.0.0 release notes — CHANGELOG.md 신규 v1.0.0 entry 작성 + STATE.md frontmatter roll. W-VERDICT verdict §7 cherry-pick roadmap 인용, C1(PR #20) + C2(PR #21) pre-tag 충족, HIGH 8→7, Known Issues 명시. tag/push는 본 PR merge 후 수동 (`git tag v1.0.0 && git push origin v1.0.0`).
 
 ## Plan
-- .claude/plans/v1-0-0-preflight-recovery-surface.plan.md
+- .claude/audit/v1.0.0-release-verification-verdict.md (W-VERDICT §7 Cherry-pick Roadmap)
+- .claude/plans/v1-0-0-release-verification.plan.md (acceptance checklist §8)
 
 ## Done
-- Phase 5 plan-codex gate
-- Phase 2.5 implement-codex gate
-- Phase 3 EXECUTE: writeBlockReason patch + 2 tests
-- Phase 4 VALIDATE: 8/8 preflight + 320/320 module + 11j/11k replay
-- PR #20 created and converted to draft (awaiting W-VERDICT integration)
+- PR #20 merged (C1 — preflight.js writeBlockReason() recovery surface, W11 11j+11k MEDIUM → LOW)
+- PR #21 merged (C2 — MCCP_AUTO_CHAIN_SKIP_PR doc demote, W10 F-W10-1 HIGH → resolved, HIGH 8→7)
+- W-VERDICT synthesis complete (11 worktree audit aggregation, CONDITIONAL ship recommendation)
+- CHANGELOG.md created at repo root with v1.0.0 entry (Keep-a-Changelog format, plugin semver decoupling note, Known Issues, ship history table)
+- STATE.md frontmatter rolled to v1-0-0-release-notes fingerprint
 
 ## In Progress
 
 
 ## Next Step
-PR #20 draft 전환 완료 — W-VERDICT 대기. W6 worktree(.worktrees/v1.0.0-verify-state-continuity) 다음 진입 세션에서 audit/v1.0.0-state-continuity.md §(6) addendum에 fix candidate row 추가: "11j+11k UX defect → fix candidate PR #20 (draft, branch v1.0.0-preflight-recovery-surface), preflight.js writeBlockReason() recovery hint, await W-VERDICT integration". W11 worktree(.worktrees/v1.0.0-verify-fallback-ux)는 동일 branch checkout 또는 cherry-pick 06d85f0으로 11j/11k row 재측정 가능.
+`/mccp:work --trivial` trivial chain — /mccp:prp-commit → /mccp:pr. Codex bypass auto-applied per [[feedback-codex-runner-disabled-blind]] memory rule. After PR merges to main: manual `git checkout main && git pull && git tag v1.0.0 && git push origin v1.0.0`. v1.0.x cycle entry points (axis K = pr-phase.lock pid_alive, axis L = writeBlockReason INVALID/CRITICAL symmetry, axis N = docs/v0.2-* rename) are captured in CHANGELOG Known Issues + W-VERDICT §6.
 
 ## Last Decision
-2026-06-14 user 확인: PR을 main에 직접 머지하면 release-verification.plan acceptance "main 코드 변경 누수 0" 위반. draft 전환 + branch origin 유지 결정 → W6/W11 worktree가 checkout/cherry-pick으로 fix 검증, W-VERDICT 세션에서 cherry-pick 결정.
+2026-06-15 user: v1.0.0 release notes를 trivial chain으로 처리. CHANGELOG.md 신규 + STATE.md frontmatter 갱신 단일 commit로 묶고, tag/push는 본 PR main merge 후 수동. plugin.json은 0.4.0 유지 — project ship tag와 plugin semver 의도적 분리 (CHANGELOG §"Note on versioning" 명시).
 
 ## Open Questions
 

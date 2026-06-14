@@ -35,7 +35,14 @@ function writeBlockReason(stderr, result) {
   for (const c of result.open_critical) {
     stderr.write('  CRITICAL ' + c.gate_id + ': ' + c.item + '\n');
   }
-  stderr.write('\n' + GATE_TAG + ' To bypass once: MCCP_SKIP_RECEIPT=1\n');
+  stderr.write('\n');
+  if (result.missing.length > 0) {
+    stderr.write(GATE_TAG + ' To recover MISSING: /mccp:receipt-write --gate <gate_id> --decision ' + result.decisionId + ' --plan <plan path>\n');
+  }
+  if (result.stale.length > 0) {
+    stderr.write(GATE_TAG + ' To regenerate STALE: re-run the producing gate (e.g. /mccp:plan for mccp-plan-codex, /mccp:prp-implement for mccp-implement-codex)\n');
+  }
+  stderr.write(GATE_TAG + ' To bypass once: MCCP_SKIP_RECEIPT=1\n');
   stderr.write(GATE_TAG + ' To inspect:     node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js status --gate <name>\n');
 }
 

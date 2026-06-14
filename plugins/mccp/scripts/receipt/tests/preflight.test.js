@@ -91,3 +91,35 @@ test('preflight: bypass output JSON has bypassed=true', function () {
     process.chdir(cwd);
   }
 });
+
+test('preflight: missing → emits /mccp:receipt-write recovery hint', function () {
+  const { repo } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  const io = captureIO();
+  try {
+    const code = preflight({ command: '/mccp:prp-implement', decision: 'x' }, io);
+    assert.strictEqual(code, 2);
+    assert.match(io.errput(), /To recover MISSING.*\/mccp:receipt-write.*--gate.*--decision x.*--plan/);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('preflight: stale → emits regenerate recovery hint', function () {
+  const fs = require('fs');
+  const { repo, plan, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  const io = captureIO();
+  try {
+    write({ gate: 'mccp-plan-codex', decision: 'x', plan: planRel });
+    fs.appendFileSync(plan, '\n\nmutate after receipt write\n');
+    const code = preflight({ command: '/mccp:prp-implement', decision: 'x', plan: planRel }, io);
+    assert.strictEqual(code, 2);
+    assert.match(io.errput(), /STALE/);
+    assert.match(io.errput(), /To regenerate STALE.*re-run the producing gate/);
+  } finally {
+    process.chdir(cwd);
+  }
+});

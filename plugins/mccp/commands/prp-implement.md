@@ -648,8 +648,8 @@ CHAIN_EXIT=$?
 If 0 → invoke `/mccp:pr`. If 13 → end response quietly.
 
 This Phase 7 is enabled by default. Opt-out via env:
-- `MCCP_AUTO_CHAIN_DISABLE=1` — kill switch (operator)
-- `MCCP_AUTO_CHAIN_SKIP_PR=1` — commit only, no PR (for direct-push cycles)
+- `MCCP_AUTO_CHAIN_DISABLE=1` — kill switch (operator). **Mechanical** — `auto-chain.js` `shouldAbort()` honors this first.
+- `MCCP_AUTO_CHAIN_SKIP_PR=1` — commit only, no PR (for direct-push cycles). **LLM-observed only** — no hook/script enforces this. The LLM running this prompt reads the env before Phase 7 and decides whether to skip the `/mccp:pr` invocation. If you expect mechanical enforcement it will fail-open (chain continues to PR). W-VERDICT C2 axis M (F-W10-1).
 
 ---
 

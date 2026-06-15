@@ -330,6 +330,17 @@ function validate(receipt) {
       req(typeof m.plan_conflict_escalated === 'boolean',
         'meta.plan_conflict_escalated must be a boolean if present');
     }
+
+    // v1.0.1 axis K — pr_phase_lock_stale_reclaimed_at_hook.
+    //
+    // Stamped on a PR receipt when the pr-phase-guard hook reclaimed an
+    // orphan pr-phase.lock (same-host + dead PID) on a prior invocation,
+    // converting silent recovery into an audit trail. Additive, optional —
+    // existing receipts without this field pass schema validation unchanged.
+    if (m.pr_phase_lock_stale_reclaimed_at_hook !== undefined) {
+      req(typeof m.pr_phase_lock_stale_reclaimed_at_hook === 'boolean',
+        'meta.pr_phase_lock_stale_reclaimed_at_hook must be a boolean if present');
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -392,6 +403,9 @@ function makeSkeleton(overrides) {
       dropped_findings_digest: null,
       // v0.4.0 axis H — plan_conflict_escalated. Advisory-only audit stamp.
       plan_conflict_escalated: false,
+      // v1.0.1 axis K — orphan-lock reclaim audit. Stamped by finalize-receipt
+      // when the guard hook left a stale-reclaim marker.
+      pr_phase_lock_stale_reclaimed_at_hook: false,
     },
   }, o);
 }

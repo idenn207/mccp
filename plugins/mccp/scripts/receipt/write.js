@@ -167,6 +167,11 @@ function buildReceipt(args) {
       // when plan-conflict-detector escalated. Does NOT block downstream
       // validators; the blocking surface is STATE.md.chain_aborted.
       plan_conflict_escalated: args['plan-conflict-escalated'] === true,
+      // v1.0.1 axis K — guard hook orphan-lock reclaim audit. Stamped by
+      // finalize-receipt when it found a stale-reclaim marker dropped by
+      // pr-phase-guard's lockActive(). Additive boolean, default false.
+      pr_phase_lock_stale_reclaimed_at_hook:
+        args['pr-phase-lock-stale-reclaimed-at-hook'] === true,
     },
   });
 

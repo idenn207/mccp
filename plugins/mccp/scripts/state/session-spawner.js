@@ -54,6 +54,7 @@ const FALLBACK = Object.freeze({
   CLAUDE_BINARY_MISSING: 'claude-binary-not-found',
   TMUX_MISSING: 'tmux-not-available',
   SPAWN_FAILED: 'spawn-failed',
+  SPAWN_EXPERIMENTAL_FLAG_MISSING: 'spawn-experimental-flag-missing',
 });
 
 function modeFromEnv(env) {
@@ -237,7 +238,11 @@ function spawn(opts) {
     let fallbackReason = null;
 
     if (requestedMode === 'spawn') {
-      if (!claudeCheck()) {
+      if (env.MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN !== '1') {
+        effectiveMode = 'notify';
+        fallbackReason = FALLBACK.SPAWN_EXPERIMENTAL_FLAG_MISSING;
+        loudStderr('spawn mode is experimental in v1.1.0+ — set MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN=1 to opt in. Degrading spawn → notify.');
+      } else if (!claudeCheck()) {
         effectiveMode = 'notify';
         fallbackReason = FALLBACK.CLAUDE_BINARY_MISSING;
         loudStderr('claude binary not on PATH — degrading spawn → notify.');

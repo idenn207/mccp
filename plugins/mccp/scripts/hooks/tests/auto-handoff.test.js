@@ -172,6 +172,53 @@ test('stdin parse error → fail-open, return ok:false', () => {
   assert.strictEqual(r.telemetry.reason, 'stdin-parse-error');
 });
 
+test('spawn requested without MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN flag → notify fallback + ledger marks experimental_spawn_requested', () => {
+  // v1.1.0 Task 1 regression: spawn mode is quarantined behind the
+  // experimental flag. Caller may still ask for spawn (env or explicit mode),
+  // but the real spawner degrades to notify when the flag is missing.
+  // No fake `spawn:` override here — exercise the real spawner.
+  const root = mkRoot();
+  const r = hook.run(JSON.stringify({ cwd: root }), {
+    root: root,
+    detect: fakeDetect({ tier: 'critical', reason: 'hard-ceiling-force', shouldHandoff: true, costUsd: 120 }),
+    mode: 'spawn',
+    env: { MCCP_AUTO_HANDOFF: 'spawn' }, // intentionally no EXPERIMENTAL_SPAWN flag
+    claudeAvailable: function () { return true; }, // would succeed if quarantine missing
+    spawnImpl: function () { throw new Error('platformSpawn must not run when flag missing'); },
+    platform: 'linux',
+    hasTmux: function () { return false; },
+  });
+  assert.strictEqual(r.telemetry.ok, true, 'hook itself succeeds (fail-open)');
+  assert.strictEqual(r.telemetry.mode, 'notify', 'spawn degraded to notify');
+  assert.strictEqual(r.telemetry.fallback_reason, 'spawn-experimental-flag-missing');
+  assert.strictEqual(r.telemetry.experimental_spawn_requested, true);
+  const ledger = readLedger(root);
+  assert.strictEqual(ledger.length, 1);
+  assert.strictEqual(ledger[0].experimental_spawn_requested, true);
+  assert.strictEqual(ledger[0].fallback_reason, 'spawn-experimental-flag-missing');
+});
+
+test('spawn requested WITH experimental flag + claude missing → falls back to claude-binary-not-found', () => {
+  // Confirms the experimental flag check sits BEFORE the claude PATH check —
+  // when the flag IS set, the original claude-binary-not-found fallback is
+  // still reachable. Guards against the flag check accidentally short-circuiting
+  // every spawn path.
+  const root = mkRoot();
+  const r = hook.run(JSON.stringify({ cwd: root }), {
+    root: root,
+    detect: fakeDetect({ tier: 'critical', reason: 'hard-ceiling-force', shouldHandoff: true, costUsd: 120 }),
+    mode: 'spawn',
+    env: { MCCP_AUTO_HANDOFF: 'spawn', MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN: '1' },
+    claudeAvailable: function () { return false; },
+    spawnImpl: function () { throw new Error('platformSpawn must not run when claude missing'); },
+    platform: 'linux',
+    hasTmux: function () { return false; },
+  });
+  assert.strictEqual(r.telemetry.mode, 'notify');
+  assert.strictEqual(r.telemetry.fallback_reason, 'claude-binary-not-found');
+  assert.strictEqual(r.telemetry.experimental_spawn_requested, true);
+});
+
 test('not-a-repo cwd → skip silently', () => {
   // Pretend repoRootFor returns null by passing options.root=null and a
   // synthetic cwd. We must NOT pass root explicitly so repoRootFor runs.

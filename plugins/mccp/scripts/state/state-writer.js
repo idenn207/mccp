@@ -37,6 +37,15 @@ const VALID_EVENTS = new Set([
   // plan-conflict-detector signals a plan ↔ implementation gap. Paired
   // with chain_aborted=true so auto-chain stops at commit/PR step.
   'plan_conflict_escalated',
+  // v1.1.0 Stage 1 Task 1.5 (F2 absorption) — /mccp:resume 2-phase atomic
+  // dispatch markers. resume_dispatching is set by phase 1 just before the
+  // dispatched command runs (handoff_spawn signal preserved). resume_dispatched
+  // is set by phase 2 only when the dispatched command produced a success
+  // receipt (and optionally clears handoff_spawn via clearHandoff=true).
+  // Without these entries the unknown-event downgrade silently rewrites
+  // last_event → precompact, losing the in-flight marker.
+  'resume_dispatching',
+  'resume_dispatched',
 ]);
 
 const SECTIONS = ['Goal', 'Plan', 'Done', 'In Progress', 'Next Step', 'Last Decision', 'Open Questions', 'Last Updated'];
@@ -120,6 +129,17 @@ function emptyState() {
       // decision_id). Conditional emit — only rendered when escalate_pending=true.
       escalate_pending: false,
       escalate_pending_decision_id: null,
+      // v1.1.0 Stage 1 Task 1.5 — /mccp:resume 2-phase atomic dispatch tracking.
+      // dispatch_id: uuid set by resume phase 1, cleared (well: superseded) by
+      //              phase 2 success path or carried forward on retry.
+      // dispatch_id_completed: uuid set by resume phase 2 success — sentinel
+      //              that the in-flight cycle finished cleanly.
+      // dispatch_attempt_count: integer, incremented per phase 1 entry. Phase
+      //              1 short-circuits to in-flight at count < 3, resume_giveup
+      //              at count >= 3 (manual recovery required).
+      dispatch_id: null,
+      dispatch_id_completed: null,
+      dispatch_attempt_count: 0,
     },
     body: {
       goal: '',
@@ -272,6 +292,13 @@ function renderFrontmatter(fm) {
       out.push('escalate_pending_decision_id: ' + fm.escalate_pending_decision_id);
     }
   }
+  // v1.1.0 Stage 1 Task 1.5 — resume dispatch tracking (only rendered when set,
+  // mirroring dep_check / escalate_pending convention).
+  if (fm.dispatch_id) out.push('dispatch_id: ' + fm.dispatch_id);
+  if (fm.dispatch_id_completed) out.push('dispatch_id_completed: ' + fm.dispatch_id_completed);
+  if (fm.dispatch_attempt_count && fm.dispatch_attempt_count > 0) {
+    out.push('dispatch_attempt_count: ' + fm.dispatch_attempt_count);
+  }
   out.push('---');
   return out.join('\n');
 }
@@ -357,6 +384,32 @@ function mergeState(existing, patch) {
   if (patch.escalate_pending_decision_id !== undefined) {
     const v = patch.escalate_pending_decision_id;
     merged.frontmatter.escalate_pending_decision_id = (v === null || v === '') ? null : String(v);
+  }
+
+  // v1.1.0 Stage 1 Task 1.5 — /mccp:resume dispatch tracking.
+  // dispatch_id: uuid carried across phase 1 (resume_dispatching) → phase 2.
+  // dispatch_id_completed: uuid set ONLY by phase 2 success path.
+  // dispatch_attempt_count: incremented by phase 1, capped at 3 (giveup).
+  // clearHandoff: control signal — when true, clears the handoff_spawn fields
+  //               so the next session-start does not re-trigger. Defaults to
+  //               false: phase 1 NEVER clears, only phase 2 success can.
+  if (patch.dispatch_id !== undefined) {
+    merged.frontmatter.dispatch_id = patch.dispatch_id || null;
+  }
+  if (patch.dispatch_id_completed !== undefined) {
+    merged.frontmatter.dispatch_id_completed = patch.dispatch_id_completed || null;
+  }
+  if (patch.dispatch_attempt_count !== undefined) {
+    const n = Number(patch.dispatch_attempt_count);
+    merged.frontmatter.dispatch_attempt_count = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+  }
+  if (patch.clearHandoff === true) {
+    // F1 absorption — handoff_spawn signal preservation is the default. Only
+    // an explicit clearHandoff=true call (= phase 2 after success receipt
+    // readback) erases the next-session resume signal. session_end_imminent
+    // and next_chunk are the surfaces state-injector reads; reset both.
+    merged.frontmatter.next_chunk = null;
+    merged.frontmatter.session_end_imminent = false;
   }
 
   if (!merged.frontmatter.created_at) merged.frontmatter.created_at = now;

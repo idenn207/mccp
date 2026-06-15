@@ -18,7 +18,15 @@
 // returns ok:false reason:'lock-held' and ledger records both attempts.
 //
 // Ledger: <repo>/.claude/state/auto-handoff-log.jsonl
-//   schema: { ts, tier, mode, reason, fallback_reason?, cost_usd?, lock_path? }
+//   schema: { ts, tier, mode, reason, fallback_reason?, cost_usd?, lock_path?,
+//             experimental_spawn_requested? }
+//
+// v1.1.0 deprecation marker: `spawn` mode is now experimental. Caller asks for
+// it via MCCP_AUTO_HANDOFF=spawn, but the spawner refuses unless
+// MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN=1 is also set. The
+// `experimental_spawn_requested` ledger field captures the intent regardless of
+// whether the spawn actually fired — useful for observing how many users still
+// reach for the deprecated mode after the v1.1.0 quarantine landed.
 
 const fs = require('fs');
 const path = require('path');
@@ -130,6 +138,7 @@ function run(rawInput, opts) {
     fallback_reason: result.fallbackReason || null,
     lock_path: result.lockPath || null,
     unsafe_checkpoint: !!result.unsafeCheckpoint,
+    experimental_spawn_requested: requestedMode === 'spawn',
   });
   appendLedger(root, ledgerEntry);
 

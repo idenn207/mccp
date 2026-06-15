@@ -353,3 +353,129 @@ test('v0.3.2 escalate_pending round-trip: set, read, clear', () => {
   assert.ok(!/^escalate_pending:/m.test(raw), 'escalate_pending should be omitted when cleared');
   assert.ok(!/^escalate_pending_decision_id:/m.test(raw), 'decision_id should be omitted when cleared');
 });
+
+// v1.1.0 Stage 1 Task 1.5 (F2 absorption) — resume dispatch schema expansion.
+
+test('v1.1.0 Task 1.5: resume_dispatching + resume_dispatched are first-class events (not downgraded)', () => {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'resume_dispatching' });
+  let raw = readRaw(repo);
+  assert.match(raw, /^last_event: resume_dispatching$/m, 'resume_dispatching must persist verbatim (NOT downgrade to precompact)');
+
+  sw.update(repo, { event: 'resume_dispatched' });
+  raw = readRaw(repo);
+  assert.match(raw, /^last_event: resume_dispatched$/m, 'resume_dispatched must persist verbatim');
+
+  assert.ok(sw.VALID_EVENTS.has('resume_dispatching'), 'VALID_EVENTS exports resume_dispatching');
+  assert.ok(sw.VALID_EVENTS.has('resume_dispatched'), 'VALID_EVENTS exports resume_dispatched');
+});
+
+test('v1.1.0 Task 1.5: unknown-event downgrade still fires for non-resume events', () => {
+  const repo = mkRepo();
+  // Confirm the downgrade path is still active — only resume events get the exemption.
+  sw.update(repo, { event: 'totally_made_up' });
+  const raw = readRaw(repo);
+  assert.match(raw, /^last_event: precompact$/m, 'unknown event still downgrades to precompact');
+});
+
+test('v1.1.0 Task 1.5: dispatch_id + dispatch_id_completed + dispatch_attempt_count round-trip', () => {
+  const repo = mkRepo();
+  const dispatchId = 'd7f9c4a1-1234-4567-8901-abcdef012345';
+  const completedId = 'cc4dca42-1111-2222-3333-444455556666';
+
+  // Phase 1 patch — dispatch_id + attempt count.
+  sw.update(repo, {
+    event: 'resume_dispatching',
+    dispatch_id: dispatchId,
+    dispatch_attempt_count: 1,
+  });
+  let raw = readRaw(repo);
+  assert.match(raw, new RegExp('^dispatch_id: ' + dispatchId + '$', 'm'));
+  assert.match(raw, /^dispatch_attempt_count: 1$/m);
+  assert.ok(!/^dispatch_id_completed:/m.test(raw), 'completed id not yet emitted');
+
+  // Phase 2 patch — completed id.
+  sw.update(repo, {
+    event: 'resume_dispatched',
+    dispatch_id_completed: completedId,
+  });
+  raw = readRaw(repo);
+  assert.match(raw, new RegExp('^dispatch_id_completed: ' + completedId + '$', 'm'));
+
+  // Parse back.
+  const re = sw.readState(repo);
+  assert.strictEqual(re.frontmatter.dispatch_id, dispatchId);
+  assert.strictEqual(re.frontmatter.dispatch_id_completed, completedId);
+  assert.strictEqual(re.frontmatter.dispatch_attempt_count, 1);
+});
+
+test('v1.1.0 Task 1.5: dispatch_attempt_count omitted when zero (default), emitted when > 0', () => {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact' });
+  let raw = readRaw(repo);
+  assert.ok(!/^dispatch_attempt_count:/m.test(raw), 'count=0 must not render');
+
+  sw.update(repo, { event: 'resume_dispatching', dispatch_attempt_count: 2 });
+  raw = readRaw(repo);
+  assert.match(raw, /^dispatch_attempt_count: 2$/m);
+});
+
+test('v1.1.0 Task 1.5: clearHandoff=true clears next_chunk + session_end_imminent (F1 absorption)', () => {
+  const repo = mkRepo();
+  // Stage handoff_spawn signal.
+  sw.update(repo, {
+    event: 'handoff_spawn',
+    nextChunk: 'Resume from soft-ceiling handoff. Continue task X.',
+    sessionEndImminent: true,
+  });
+  let state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.session_end_imminent, true);
+  assert.match(state.frontmatter.next_chunk, /Resume from soft-ceiling/);
+
+  // Phase 2 success path — explicit clearHandoff.
+  sw.update(repo, {
+    event: 'resume_dispatched',
+    dispatch_id_completed: 'aabbccdd-eeff-1122-3344-556677889900',
+    clearHandoff: true,
+  });
+  state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.session_end_imminent, false,
+    'session_end_imminent must be cleared by clearHandoff=true');
+  assert.strictEqual(state.frontmatter.next_chunk, null,
+    'next_chunk must be cleared by clearHandoff=true');
+});
+
+test('v1.1.0 Task 1.5: clearHandoff omitted (default) preserves handoff_spawn signal', () => {
+  const repo = mkRepo();
+  sw.update(repo, {
+    event: 'handoff_spawn',
+    nextChunk: 'Resume from hard-ceiling handoff.',
+    sessionEndImminent: true,
+  });
+  // Phase 1 marker — should NOT touch handoff fields.
+  sw.update(repo, {
+    event: 'resume_dispatching',
+    dispatch_id: '11111111-2222-3333-4444-555555555555',
+    dispatch_attempt_count: 1,
+  });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.session_end_imminent, true,
+    'phase 1 must preserve session_end_imminent (no clearHandoff)');
+  assert.match(state.frontmatter.next_chunk, /hard-ceiling/,
+    'phase 1 must preserve next_chunk (no clearHandoff)');
+});
+
+test('v1.1.0 Task 1.5: clearHandoff=false (explicit) also preserves handoff_spawn signal', () => {
+  const repo = mkRepo();
+  sw.update(repo, {
+    event: 'handoff_spawn',
+    nextChunk: 'pending',
+    sessionEndImminent: true,
+  });
+  // Phase 1 might write clearHandoff: false explicitly — guard against that path
+  // accidentally clearing.
+  sw.update(repo, { event: 'resume_dispatching', clearHandoff: false });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.session_end_imminent, true);
+  assert.strictEqual(state.frontmatter.next_chunk, 'pending');
+});

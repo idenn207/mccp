@@ -460,3 +460,158 @@ test('hooks.json: mccp:pr-phase-guard:post stays under PostToolUse (audit ledger
   const found = post.find(function (h) { return h && h.id === 'mccp:pr-phase-guard:post'; });
   assert.ok(found, 'mccp:pr-phase-guard:post must be present in hooks.PostToolUse for audit ledger');
 });
+
+// ─── Axis 11: v1.0.1 PID liveness + orphan-lock reclaim ─────────────────
+//
+// lockActive() must reclaim same-host orphan locks (dead PID) so a crashed
+// PR helper doesn't permanently self-trap Linux/macOS users. Live PIDs and
+// cross-host locks remain protected (existing block path).
+
+function makeReclaimFixture() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-axk-'));
+  const stateDir = path.join(tmpDir, '.claude', 'state');
+  fs.mkdirSync(stateDir, { recursive: true });
+  const lockFile = path.join(stateDir, 'pr-phase.lock');
+  function makeLockMod(lockBody) {
+    return {
+      SUBPHASE_DEFAULT: 'codex-review',
+      repoRoot: function () { return tmpDir; },
+      readLock: function () { return lockBody; },
+      lockPath: function () { return lockFile; },
+      isPidAlive: function (pid) {
+        // Surrogate: positive pid = alive, otherwise dead. axis 11.1 uses
+        // process.pid (alive), axis 11.2/11.4 use 0/-1/999999 (dead).
+        if (typeof pid !== 'number' || pid <= 0) return false;
+        if (pid === process.pid) return true;
+        // 999999 is treated as dead by the surrogate; the real isPidAlive
+        // would also return false for an unallocated PID on most systems.
+        return false;
+      },
+      tryReclaimStaleLock: function () {
+        try { fs.unlinkSync(lockFile); return true; }
+        catch (_) { return false; }
+      },
+    };
+  }
+  return { tmpDir, stateDir, lockFile, makeLockMod };
+}
+
+test('axis 11.1: alive same-host PID → lockActive returns metadata (regression of axis 9)', () => {
+  const fx = makeReclaimFixture();
+  fs.writeFileSync(fx.lockFile, '{"placeholder":true}');
+  const lockBody = { run_id: 'r1', subphase: 'codex-review', pid: process.pid, host: os.hostname() };
+  const r = guard.lockActive(fx.makeLockMod(lockBody), fx.tmpDir);
+  assert.ok(r, 'live same-host PID must NOT be reclaimed');
+  assert.strictEqual(r.lock.run_id, 'r1');
+  assert.ok(fs.existsSync(fx.lockFile), 'lock file must remain on disk');
+});
+
+test('axis 11.2: dead same-host PID → reclaim + marker write + return null', () => {
+  const fx = makeReclaimFixture();
+  fs.writeFileSync(fx.lockFile, '{"placeholder":true}');
+  const lockBody = { run_id: 'r2', subphase: 'codex-review', pid: 999999, host: os.hostname() };
+  const r = guard.lockActive(fx.makeLockMod(lockBody), fx.tmpDir);
+  assert.strictEqual(r, null, 'dead same-host PID must trigger reclaim');
+  assert.strictEqual(fs.existsSync(fx.lockFile), false, 'lock file must be unlinked');
+  const markerPath = path.join(fx.tmpDir, guard.STALE_RECLAIM_MARKER_REL);
+  assert.ok(fs.existsSync(markerPath), 'stale-reclaim marker must be written');
+});
+
+test('axis 11.3: cross-host lock → existing block path (return metadata, no reclaim)', () => {
+  const fx = makeReclaimFixture();
+  fs.writeFileSync(fx.lockFile, '{"placeholder":true}');
+  const lockBody = { run_id: 'r3', subphase: 'codex-review', pid: 1, host: 'other-host-xyz' };
+  const r = guard.lockActive(fx.makeLockMod(lockBody), fx.tmpDir);
+  assert.ok(r, 'cross-host lock must fall through to existing block path');
+  assert.strictEqual(r.lock.host, 'other-host-xyz');
+  assert.ok(fs.existsSync(fx.lockFile), 'cross-host lock must NOT be reclaimed');
+});
+
+test('axis 11.4: missing/zero/negative pid → treated as dead, same-host reclaimed', () => {
+  const fx = makeReclaimFixture();
+  fs.writeFileSync(fx.lockFile, '{"placeholder":true}');
+  const lockBody = { run_id: 'r4', subphase: 'codex-review', pid: 0, host: os.hostname() };
+  const r = guard.lockActive(fx.makeLockMod(lockBody), fx.tmpDir);
+  assert.strictEqual(r, null, 'pid=0 must be treated as dead → reclaim');
+  assert.strictEqual(fs.existsSync(fx.lockFile), false);
+});
+
+test('axis 11.5: hooks.json matcher does NOT include PowerShell (Windows escape path preserved)', () => {
+  const j = loadHooksJson();
+  const pre = (j.hooks && j.hooks.PreToolUse) || [];
+  const guardHook = pre.find(function (h) { return h && h.id === 'mccp:pr-phase-guard:pre'; });
+  assert.ok(guardHook, 'guard hook must be present');
+  assert.ok(!/PowerShell/i.test(guardHook.matcher),
+    'matcher must not contain PowerShell — Windows users keep an out-of-band escape ' +
+    'when guard fails-open on Bash. axis K is Linux/macOS-scoped.');
+});
+
+// ─── Axis 12: stale-reclaim marker contract ─────────────────────────────
+
+test('axis 12.1: marker shape — reclaimed_at + former_run_id + former_pid + former_host + reason', () => {
+  const fx = makeReclaimFixture();
+  fs.writeFileSync(fx.lockFile, '{"placeholder":true}');
+  const lockBody = {
+    run_id: 'r12-1',
+    subphase: 'codex-review',
+    pid: 12345,
+    host: os.hostname(),
+  };
+  // Use a lockMod where the surrogate isPidAlive treats 12345 as dead.
+  const mod = fx.makeLockMod(lockBody);
+  guard.lockActive(mod, fx.tmpDir);
+  const markerPath = path.join(fx.tmpDir, guard.STALE_RECLAIM_MARKER_REL);
+  const body = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
+  assert.match(body.reclaimed_at, /^\d{4}-\d{2}-\d{2}T/, 'reclaimed_at must be ISO');
+  assert.strictEqual(body.former_run_id, 'r12-1');
+  assert.strictEqual(body.former_pid, 12345);
+  assert.strictEqual(body.former_host, os.hostname());
+  assert.strictEqual(body.reason, 'same-host-dead-pid');
+});
+
+test('axis 12.2: marker idempotency — second reclaim overwrites the first (latest wins)', () => {
+  const fx = makeReclaimFixture();
+  fs.writeFileSync(fx.lockFile, '{"placeholder":true}');
+  guard.lockActive(fx.makeLockMod({
+    run_id: 'r12-2-first', subphase: 'codex-review', pid: 1, host: os.hostname(),
+  }), fx.tmpDir);
+  // Re-create the orphan lock and reclaim again.
+  fs.writeFileSync(fx.lockFile, '{"placeholder":true}');
+  guard.lockActive(fx.makeLockMod({
+    run_id: 'r12-2-second', subphase: 'codex-review', pid: 2, host: os.hostname(),
+  }), fx.tmpDir);
+  const markerPath = path.join(fx.tmpDir, guard.STALE_RECLAIM_MARKER_REL);
+  const body = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
+  assert.strictEqual(body.former_run_id, 'r12-2-second', 'latest reclaim wins');
+  assert.strictEqual(body.former_pid, 2);
+});
+
+test('axis 12.3: finalize-receipt consumes marker + forwards flag (round-trip)', () => {
+  const finalize = require('../../lib/pr-phase-helpers/finalize-receipt');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-axk-fin-'));
+  fs.mkdirSync(path.join(tmpDir, '.claude', 'state'), { recursive: true });
+  const markerPath = path.join(tmpDir, finalize.STALE_RECLAIM_MARKER_REL);
+  fs.writeFileSync(markerPath, JSON.stringify({
+    reclaimed_at: new Date().toISOString(),
+    former_run_id: 'rid-fin',
+    former_pid: 4242,
+    former_host: os.hostname(),
+    reason: 'same-host-dead-pid',
+  }));
+  const consumed = finalize.consumeStaleReclaimMarker(tmpDir);
+  assert.strictEqual(consumed, true, 'marker must be reported consumed');
+  assert.strictEqual(fs.existsSync(markerPath), false, 'marker must be unlinked');
+  // Second call returns false (already consumed)
+  assert.strictEqual(finalize.consumeStaleReclaimMarker(tmpDir), false);
+});
+
+test('axis 12.4: finalize-receipt unlinks corrupt marker but still reports consumed (loud audit)', () => {
+  const finalize = require('../../lib/pr-phase-helpers/finalize-receipt');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-axk-fcor-'));
+  fs.mkdirSync(path.join(tmpDir, '.claude', 'state'), { recursive: true });
+  const markerPath = path.join(tmpDir, finalize.STALE_RECLAIM_MARKER_REL);
+  fs.writeFileSync(markerPath, '{this is not json');
+  const consumed = finalize.consumeStaleReclaimMarker(tmpDir);
+  assert.strictEqual(consumed, true, 'corrupt marker still counts as audit fact');
+  assert.strictEqual(fs.existsSync(markerPath), false, 'corrupt marker must still be unlinked');
+});

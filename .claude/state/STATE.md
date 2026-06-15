@@ -2,15 +2,15 @@
 state_version: 1
 task_fingerprint: v1-0-0-shipped
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-06-14T20:28:17.289Z
-last_event: handoff_spawn
-last_event_at: 2026-06-14T20:28:17.289Z
+updated_at: 2026-06-15T10:02:41.744Z
+last_event: stop_loop_pass
+last_event_at: 2026-06-14T20:35:26.301Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: false
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/22
-dep_check_at: 2026-06-14T15:57:59.122Z
+dep_check_at: 2026-06-15T10:02:41.741Z
 ---
 ## Goal
 v1.0.0 SHIPPED — W-VERDICT-gated first release closed (CONDITIONAL acceptance: C1+C2 pre-tag 충족, HIGH 8→7, annotated tag v1.0.0=472da61 main + origin 양쪽 존재). post-ship housekeeping commit으로 STATE.md를 사후 상태로 roll + remote feature branch cleanup 반영. auto-handoff hook이 $71.27에서 발화했으나 작업 in-flight라 unsafe_checkpoint clear하고 계속 진행.
@@ -42,4 +42,4 @@ v0.4.0 orchestrator cycle entry — [[project_v0_4_0_orchestrator]] memory의 wo
 
 
 ## Last Updated
-2026-06-14T20:28:17.289Z
+2026-06-15T10:02:41.744Z

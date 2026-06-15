@@ -33,6 +33,7 @@
 //         substring (production-accident leak guard).
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -40,6 +41,12 @@ const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '.
 const LIB_DIR = path.join(PLUGIN_ROOT, 'scripts', 'lib');
 
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
+// v1.0.1 axis K — state marker file written when guard hook reclaims an orphan
+// pr-phase.lock (same-host + dead PID). finalize-receipt reads + unlinks it to
+// stamp `meta.pr_phase_lock_stale_reclaimed_at_hook=true` on the next PR
+// receipt, converting silent recovery into a loud audit trail.
+const STALE_RECLAIM_MARKER_REL = path.join('.claude', 'state', 'pr-phase-lock-stale-reclaimed.json');
 
 // Explicit mutation patterns — any match → DENY (applied per tokenized segment).
 const BASH_BLOCK_PATTERNS = [
@@ -314,6 +321,44 @@ function detectRepoRoot(event) {
   return process.cwd();
 }
 
+// v1.0.1 axis K — assertContained mirror of pr-phase-lock.js Task 2: refuse to
+// write the marker outside <root>/.claude even if path joining is somehow
+// corrupted (symlink/race). Loaded lazily so the guard doesn't crash if the
+// helper module is missing from older plugin installs.
+function loadPathContainment() {
+  try { return require(path.join(LIB_DIR, 'path-containment')); }
+  catch (err) { debug('path-containment unavailable: ' + err.message); return null; }
+}
+
+// v1.0.1 axis K — atomic marker write (write to tmp + rename) so a concurrent
+// finalize-receipt cannot read a partially written body. Returns true on
+// success, false on any failure (loud fail-open: stderr always emits below).
+function writeStaleReclaimMarker(root, formerLock, reason) {
+  const markerPath = path.join(root, STALE_RECLAIM_MARKER_REL);
+  const markerDir = path.dirname(markerPath);
+  try {
+    fs.mkdirSync(markerDir, { recursive: true });
+    const containment = loadPathContainment();
+    if (containment && typeof containment.assertContained === 'function') {
+      containment.assertContained(markerDir, path.join(root, '.claude'), null);
+    }
+    const body = JSON.stringify({
+      reclaimed_at: new Date().toISOString(),
+      former_run_id: (formerLock && formerLock.run_id) || null,
+      former_pid: (formerLock && typeof formerLock.pid === 'number') ? formerLock.pid : null,
+      former_host: (formerLock && formerLock.host) || null,
+      reason: reason || 'same-host-dead-pid',
+    }, null, 2) + '\n';
+    const tmpPath = markerPath + '.tmp.' + process.pid + '.' + Date.now();
+    fs.writeFileSync(tmpPath, body, { mode: 0o600 });
+    fs.renameSync(tmpPath, markerPath);
+    return true;
+  } catch (err) {
+    debug('writeStaleReclaimMarker failed: ' + err.message);
+    return false;
+  }
+}
+
 function lockActive(lockMod, cwd) {
   if (!lockMod) return null;
   try {
@@ -321,6 +366,35 @@ function lockActive(lockMod, cwd) {
     const lock = lockMod.readLock(root);
     if (!lock || lock._parse_error) return null;
     if (lock.subphase !== lockMod.SUBPHASE_DEFAULT) return null;
+
+    // v1.0.1 axis K — same-host + dead-PID orphan recovery. Without this
+    // branch, a crashed PR helper leaves the lock body intact and every
+    // subsequent /mccp:pr is blocked because lockActive() returns the orphan
+    // lock metadata → guard hook denies all write tools. detect-stale via
+    // Bash is itself blocked by the guard (tokenizer + allowlist), so the
+    // user has no in-band escape. Reclaim path uses the lock module's own
+    // host-aware tri-state policy (same-host+pid-alive=NEVER reclaim), so
+    // alive PIDs are never disturbed.
+    const sameHost = !!(lock.host && typeof lockMod.isPidAlive === 'function'
+      && lock.host === os.hostname());
+    if (sameHost && !lockMod.isPidAlive(lock.pid)) {
+      const lockFilePath = lockMod.lockPath(root);
+      const reclaimed = lockMod.tryReclaimStaleLock(lockFilePath);
+      if (reclaimed) {
+        writeStaleReclaimMarker(root, lock, 'same-host-dead-pid');
+        process.stderr.write(
+          '[mccp:pr-phase-guard] stale lock reclaimed ' +
+          '(former_run_id=' + (lock.run_id || 'unknown') +
+          ', former_pid=' + (lock.pid || 'unknown') +
+          ', reason=same-host-dead-pid)\n'
+        );
+        return null;
+      }
+      // Reclaim failed (race window: holder revived, or unlink raced with
+      // another reclaim). Fall through to existing block path — next call
+      // will re-evaluate.
+    }
+
     return { root: root, lock: lock };
   } catch (err) {
     debug('lockActive error: ' + err.message);
@@ -432,6 +506,7 @@ module.exports = {
   MUTATING_CONSTRUCT_PATTERNS,
   INDIRECT_INVOKE_PATTERNS,
   READ_ONLY_CATALOG,
+  STALE_RECLAIM_MARKER_REL,
   classifyBashCommand,
   tokenize,
   stripComment,
@@ -439,5 +514,6 @@ module.exports = {
   helperPathPattern,
   verifyHelperContent,
   lockActive,
+  writeStaleReclaimMarker,
   extractFilePath,
 };

@@ -75,7 +75,7 @@ function spawnNode(rootDir, relPath, raw, args) {
     env: {
       ...process.env,
       CLAUDE_PLUGIN_ROOT: rootDir,
-      ECC_PLUGIN_ROOT: rootDir,
+      MCCP_PLUGIN_ROOT: rootDir,
     },
     cwd: process.cwd(),
     timeout: 30000,
@@ -99,7 +99,7 @@ function spawnShell(rootDir, relPath, raw, args) {
     env: {
       ...process.env,
       CLAUDE_PLUGIN_ROOT: rootDir,
-      ECC_PLUGIN_ROOT: rootDir,
+      MCCP_PLUGIN_ROOT: rootDir,
     },
     cwd: process.cwd(),
     timeout: 30000,
@@ -110,7 +110,7 @@ function spawnShell(rootDir, relPath, raw, args) {
 function main() {
   const [, , mode, relPath, ...args] = process.argv;
   const raw = readStdinRaw();
-  const rootDir = process.env.CLAUDE_PLUGIN_ROOT || process.env.ECC_PLUGIN_ROOT;
+  const rootDir = process.env.CLAUDE_PLUGIN_ROOT || process.env.MCCP_PLUGIN_ROOT;
 
   if (!mode || !relPath || !rootDir) {
     process.stdout.write(raw);

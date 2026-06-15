@@ -146,7 +146,7 @@ process.stdin.on('end', () => {
 
     const sessionId =
       sanitizeSessionId(input.session_id) ||
-      sanitizeSessionId(process.env.ECC_SESSION_ID) ||
+      sanitizeSessionId(process.env.MCCP_SESSION_ID) ||
       sanitizeSessionId(process.env.CLAUDE_SESSION_ID) ||
       'default';
 

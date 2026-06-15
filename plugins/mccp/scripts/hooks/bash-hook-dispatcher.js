@@ -8,13 +8,11 @@ const {
 } = require('./pretooluse-visible-output');
 
 const { run: runBlockNoVerify } = require('./block-no-verify');
-const { run: runAutoTmuxDev } = require('./auto-tmux-dev');
 const { run: runTmuxReminder } = require('./pre-bash-tmux-reminder');
 const { run: runGitPushReminder } = require('./pre-bash-git-push-reminder');
 const { run: runCommitQuality } = require('./pre-bash-commit-quality');
 const { run: runGateGuard } = require('./gateguard-fact-force');
 const { run: runCommandLog } = require('./post-bash-command-log');
-const { run: runPrCreated } = require('./post-bash-pr-created');
 const { run: runBuildComplete } = require('./post-bash-build-complete');
 
 const MAX_STDIN = 1024 * 1024;
@@ -24,10 +22,6 @@ const PRE_BASH_HOOKS = [
     id: 'pre:bash:block-no-verify',
     profiles: 'minimal,standard,strict',
     run: rawInput => runBlockNoVerify(rawInput),
-  },
-  {
-    id: 'pre:bash:auto-tmux-dev',
-    run: rawInput => runAutoTmuxDev(rawInput),
   },
   {
     id: 'pre:bash:tmux-reminder',
@@ -59,11 +53,6 @@ const POST_BASH_HOOKS = [
   {
     id: 'post:bash:command-log-cost',
     run: rawInput => runCommandLog(rawInput, 'cost'),
-  },
-  {
-    id: 'post:bash:pr-created',
-    profiles: 'standard,strict',
-    run: rawInput => runPrCreated(rawInput),
   },
   {
     id: 'post:bash:build-complete',

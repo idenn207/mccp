@@ -84,19 +84,19 @@ function dedupeRecentSessions(searchDirs) {
 }
 
 function getSessionRetentionDays() {
-  const raw = process.env.ECC_SESSION_RETENTION_DAYS;
+  const raw = process.env.MCCP_SESSION_RETENTION_DAYS;
   if (!raw) return DEFAULT_SESSION_RETENTION_DAYS;
   const parsed = Number.parseInt(raw, 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_SESSION_RETENTION_DAYS;
 }
 
 function isSessionStartContextDisabled() {
-  const raw = String(process.env.ECC_SESSION_START_CONTEXT || '').trim().toLowerCase();
+  const raw = String(process.env.MCCP_SESSION_START_CONTEXT || '').trim().toLowerCase();
   return ['0', 'false', 'off', 'none', 'disabled'].includes(raw);
 }
 
 function getSessionStartMaxContextChars() {
-  const raw = process.env.ECC_SESSION_START_MAX_CHARS;
+  const raw = process.env.MCCP_SESSION_START_MAX_CHARS;
   if (!raw) return DEFAULT_SESSION_START_CONTEXT_MAX_CHARS;
 
   const parsed = Number.parseInt(raw, 10);
@@ -137,7 +137,7 @@ function limitSessionStartContext(additionalContext, maxChars = getSessionStartM
     return context;
   }
 
-  const marker = '\n\n[SessionStart truncated context. Set ECC_SESSION_START_MAX_CHARS to raise the cap or ECC_SESSION_START_CONTEXT=off to disable injected context.]';
+  const marker = '\n\n[SessionStart truncated context. Set MCCP_SESSION_START_MAX_CHARS to raise the cap or MCCP_SESSION_START_CONTEXT=off to disable injected context.]';
   const prefixLength = Math.max(0, maxChars - marker.length);
   log(`[SessionStart] Truncated additional context from ${context.length} to ${maxChars} chars`);
 
@@ -543,9 +543,9 @@ async function main() {
   }
 
   if (explicitContextDisabled) {
-    log('[SessionStart] Additional context injection disabled by ECC_SESSION_START_CONTEXT');
+    log('[SessionStart] Additional context injection disabled by MCCP_SESSION_START_CONTEXT');
   } else if (maxContextChars === 0) {
-    log('[SessionStart] Additional context injection disabled by ECC_SESSION_START_MAX_CHARS=0');
+    log('[SessionStart] Additional context injection disabled by MCCP_SESSION_START_MAX_CHARS=0');
   }
 
   if (shouldInjectContext) {

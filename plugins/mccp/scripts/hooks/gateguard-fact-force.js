@@ -45,7 +45,7 @@ const MAX_SESSION_KEYS = 50;
 const ROUTINE_BASH_SESSION_KEY = '__bash_session__';
 const EDIT_WRITE_HOOK_ID = 'pre:edit-write:gateguard-fact-force';
 const BASH_HOOK_ID = 'pre:bash:gateguard-fact-force';
-const ECC_DISABLE_VALUES = new Set(['0', 'false', 'off', 'disabled', 'disable']);
+const MCCP_DISABLE_VALUES = new Set(['0', 'false', 'off', 'disabled', 'disable']);
 
 // SQL-keyword + dd patterns stay as a single regex — they are stable
 // phrases without shell-flag ordering concerns. Quoted strings are
@@ -435,7 +435,7 @@ function isGateGuardDisabled() {
     return true;
   }
 
-  return ECC_DISABLE_VALUES.has(normalizeEnvValue(process.env.ECC_GATEGUARD));
+  return MCCP_DISABLE_VALUES.has(normalizeEnvValue(process.env.MCCP_GATEGUARD));
 }
 
 function sanitizeSessionKey(value) {
@@ -457,7 +457,7 @@ function hashSessionKey(prefix, value) {
 }
 
 function resolveSessionKey(data) {
-  const directCandidates = [data && data.session_id, data && data.sessionId, data && data.session && data.session.id, process.env.CLAUDE_SESSION_ID, process.env.ECC_SESSION_ID];
+  const directCandidates = [data && data.session_id, data && data.sessionId, data && data.session && data.session.id, process.env.CLAUDE_SESSION_ID, process.env.MCCP_SESSION_ID];
 
   for (const candidate of directCandidates) {
     const sanitized = sanitizeSessionKey(candidate);
@@ -645,6 +645,13 @@ function isClaudeSettingsPath(filePath) {
   return /(^|\/)\.claude\/settings(?:\.[^/]+)?\.json$/.test(normalized);
 }
 
+// axis-P E.1: scope first-touch enforcement to repo-critical glob roots.
+// Generic paths (docs, plans, ad-hoc scripts) skip the gate.
+function isCriticalPath(filePath) {
+  const normalized = normalizeForMatch(filePath);
+  return /(^|\/)(scripts\/lib|commands|hooks)\//.test(normalized);
+}
+
 function isReadOnlyGitIntrospection(command) {
   const trimmed = String(command || '').trim();
   if (!trimmed || /[\r\n;&|><`$()]/.test(trimmed)) {
@@ -760,7 +767,7 @@ function withRecoveryHint(message, hookIds = [EDIT_WRITE_HOOK_ID]) {
   return [
     message,
     '',
-    `Recovery: if GateGuard is blocking setup or repair work, run this session with \`ECC_GATEGUARD=off\` or add ${disableTargets} to \`ECC_DISABLED_HOOKS\`.`
+    `Recovery: if GateGuard is blocking setup or repair work, run this session with \`MCCP_GATEGUARD=off\` or add ${disableTargets} to \`MCCP_DISABLED_HOOKS\`.`
   ].join('\n');
 }
 
@@ -829,7 +836,7 @@ function run(rawInput) {
 
   if (toolName === 'Edit' || toolName === 'Write') {
     const filePath = toolInput.file_path || '';
-    if (!filePath || isClaudeSettingsPath(filePath)) {
+    if (!filePath || isClaudeSettingsPath(filePath) || !isCriticalPath(filePath)) {
       return rawInput; // allow
     }
 
@@ -855,7 +862,7 @@ function run(rawInput) {
     const edits = toolInput.edits || [];
     for (const edit of edits) {
       const filePath = edit.file_path || '';
-      if (filePath && !isClaudeSettingsPath(filePath) && !isChecked(filePath)) {
+      if (filePath && !isClaudeSettingsPath(filePath) && isCriticalPath(filePath) && !isChecked(filePath)) {
         if (!markChecked(filePath)) {
           return allowWithStateWarning();
         }

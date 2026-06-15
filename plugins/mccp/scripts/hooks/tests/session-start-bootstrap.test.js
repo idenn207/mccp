@@ -109,7 +109,7 @@ test('session-start does NOT rotate fix-task when truncation cuts mid-body (Code
     counter: 1,
     failures: [{ stage: 'test', exitCode: 1, excerpt: bigExcerpt }],
   });
-  const r = runSessionStart(repo, { ECC_SESSION_START_MAX_CHARS: '300' });
+  const r = runSessionStart(repo, { MCCP_SESSION_START_MAX_CHARS: '300' });
   assert.strictEqual(r.status, 0, 'session-start must still exit 0; stderr=' + r.stderr);
   // Head appears in stdout (it's near the top of the slice).
   assert.match(r.stdout, /\[mccp:fix-task — pending correction/);

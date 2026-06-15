@@ -119,49 +119,48 @@ ECC에서 가져와 plugin 안에서 그대로 active하게 사용 중인 변수
 
 | 변수 | 값 | Default | 설명 |
 | --- | --- | --- | --- |
-| `ECC_HOOK_PROFILE` | `minimal` \| `standard` \| `strict` | `standard` | 일괄 hook 활성도 프로파일. `minimal`은 observe·governance 류 무거운 hook을 skip. continuous-learning observer의 child agent도 `minimal`로 호출. |
-| `ECC_DISABLED_HOOKS` | comma-separated hook IDs | unset | 명시적으로 비활성화할 hook ID 리스트. 예: `governance-capture,mcp-health`. |
-| `ECC_SKIP_OBSERVE` | `1` | unset | continuous-learning observer hook을 단발 skip. observer가 자기 자신을 재귀 호출할 때 사용. |
-| `ECC_GATEGUARD` | `off` | (on) | GateGuard fact-force hook을 일시 비활성. setup/repair 중 GateGuard가 막을 때 임시 우회. |
-| `GATEGUARD_DISABLED` | `1`/truthy | unset | `ECC_GATEGUARD=off`와 별개의 GateGuard 비활성 토글. 두 변수 중 하나라도 set이면 GateGuard 우회. [gateguard-fact-force.js:434](../plugins/mccp/scripts/hooks/gateguard-fact-force.js). |
+| `MCCP_HOOK_PROFILE` | `minimal` \| `standard` \| `strict` | `standard` | 일괄 hook 활성도 프로파일. `minimal`은 observe·governance 류 무거운 hook을 skip. continuous-learning observer의 child agent도 `minimal`로 호출. |
+| `MCCP_DISABLED_HOOKS` | comma-separated hook IDs | unset | 명시적으로 비활성화할 hook ID 리스트. 예: `governance-capture,mcp-health`. |
+| `MCCP_SKIP_OBSERVE` | `1` | unset | continuous-learning observer hook을 단발 skip. observer가 자기 자신을 재귀 호출할 때 사용. |
+| `MCCP_GATEGUARD` | `off` | (on) | GateGuard fact-force hook을 일시 비활성. setup/repair 중 GateGuard가 막을 때 임시 우회. |
+| `GATEGUARD_DISABLED` | `1`/truthy | unset | `MCCP_GATEGUARD=off`와 별개의 GateGuard 비활성 토글. 두 변수 중 하나라도 set이면 GateGuard 우회. [gateguard-fact-force.js:434](../plugins/mccp/scripts/hooks/gateguard-fact-force.js). |
 | `GATEGUARD_STATE_DIR` | absolute path | `~/.claude/.../gateguard/` | GateGuard의 fact-force state 저장 디렉토리. unset이면 `HOME`/`USERPROFILE` 기준으로 결정. |
-| `ECC_HOOK_ID` | string | unset | runner가 자식 hook 프로세스에 주입하는 현재 hook ID. observe-runner는 첫 인자 또는 이 변수에서 prefix를 읽어 routing. |
-| `ECC_PLUGIN_ROOT` | absolute path | `CLAUDE_PLUGIN_ROOT` fallback | hook script가 plugin 루트를 resolve할 때 사용. `plugin-hook-bootstrap.js`가 자식에게 inject. |
-| `ECC_HOOK_INPUT_TRUNCATED` | `1`/`true`/`yes` | unset | upstream에서 stdin이 잘렸음을 child hook에 알리는 플래그. 신뢰성 있는 truncation 표시. |
-| `ECC_HOOK_INPUT_MAX_BYTES` | bytes | (hook 별 기본값) | hook stdin 최대 크기 override. |
-| `ECC_OBSERVE_RUNNER_TIMEOUT_MS` | ms | (built-in default) | observe-runner의 child hook 강제 타임아웃. |
+| `MCCP_HOOK_ID` | string | unset | runner가 자식 hook 프로세스에 주입하는 현재 hook ID. observe-runner는 첫 인자 또는 이 변수에서 prefix를 읽어 routing. |
+| `MCCP_PLUGIN_ROOT` | absolute path | `CLAUDE_PLUGIN_ROOT` fallback | hook script가 plugin 루트를 resolve할 때 사용. `plugin-hook-bootstrap.js`가 자식에게 inject. |
+| `MCCP_HOOK_INPUT_TRUNCATED` | `1`/`true`/`yes` | unset | upstream에서 stdin이 잘렸음을 child hook에 알리는 플래그. 신뢰성 있는 truncation 표시. |
+| `MCCP_HOOK_INPUT_MAX_BYTES` | bytes | (hook 별 기본값) | hook stdin 최대 크기 override. |
+| `MCCP_OBSERVE_RUNNER_TIMEOUT_MS` | ms | (built-in default) | observe-runner의 child hook 강제 타임아웃. |
 
 ### 6.2 Session / SessionStart
 
 | 변수 | 값 | Default | 설명 |
 | --- | --- | --- | --- |
-| `ECC_SESSION_ID` | string | unset | `CLAUDE_SESSION_ID`보다 우선시되는 명시적 session ID override. cost tracker / governance / metrics bridge에서 correlation 키로 사용. |
-| `ECC_SESSION_RETENTION_DAYS` | int | (built-in) | 오래된 session 기록의 보존일수. `session-start.js`가 cleanup 시 read. |
-| `ECC_SESSION_START_CONTEXT` | `off` \| `on` 등 | (on) | SessionStart에서 과거 컨텍스트(MEMORY.md 인덱스 등) inject 여부. `off`로 끌 수 있음. |
-| `ECC_SESSION_START_MAX_CHARS` | int | (built-in cap) | SessionStart에 inject되는 컨텍스트 문자 수 상한. 넘으면 truncation marker가 붙음. |
-| `ECC_SESSION_RECORDING_DIR` | absolute path | (built-in default) | canonical-session 어댑터의 세션 기록 디렉토리. [canonical-session.js:264](../plugins/mccp/scripts/lib/session-adapters/canonical-session.js). |
+| `MCCP_SESSION_ID` | string | unset | `CLAUDE_SESSION_ID`보다 우선시되는 명시적 session ID override. cost tracker / governance / metrics bridge에서 correlation 키로 사용. |
+| `MCCP_SESSION_RETENTION_DAYS` | int | (built-in) | 오래된 session 기록의 보존일수. `session-start.js`가 cleanup 시 read. |
+| `MCCP_SESSION_START_CONTEXT` | `off` \| `on` 등 | (on) | SessionStart에서 과거 컨텍스트(MEMORY.md 인덱스 등) inject 여부. `off`로 끌 수 있음. |
+| `MCCP_SESSION_START_MAX_CHARS` | int | (built-in cap) | SessionStart에 inject되는 컨텍스트 문자 수 상한. 넘으면 truncation marker가 붙음. |
+| `MCCP_SESSION_RECORDING_DIR` | absolute path | (built-in default) | canonical-session 어댑터의 세션 기록 디렉토리. [canonical-session.js:264](../plugins/mccp/scripts/lib/session-adapters/canonical-session.js). |
 
 ### 6.3 Quality gate / Governance / Cost monitor
 
 | 변수 | 값 | Default | 설명 |
 | --- | --- | --- | --- |
-| `ECC_QUALITY_GATE_FIX` | `true` | `false` | `quality-gate.js` hook이 자동 fix(`--fix` 플래그 등) 모드로 동작. |
-| `ECC_QUALITY_GATE_STRICT` | `true` | `false` | quality-gate가 strict 모드로 동작 (경고도 실패로). |
-| `ECC_GOVERNANCE_CAPTURE` | `1` | unset | governance capture hook(`governance-capture.js`)을 활성화. 시크릿/정책 위반/승인 요청 같은 governance event를 캡쳐. |
-| `ECC_CONTEXT_MONITOR_COST_WARNINGS` | truthy/falsy | `true` | `ecc-context-monitor`의 cost warning 출력 활성화. 비활성화하면 $50/$80/$100 알림 자체가 안 뜸. [ecc-context-monitor.js:44](../plugins/mccp/scripts/hooks/ecc-context-monitor.js). |
-| `ECC_CONTEXT_MONITOR_COST_MODE` | `notify` \| `notification` \| `info` \| `informational` \| (그 외) | (directive) | cost 메시지의 톤 제어. `notify` 류면 imperative tail("halt/wind down" 같은) 제거 → 비용만 보고. 다른 값/unset이면 default directive 동작. |
-| `ECC_ENABLE_INSAITS` | truthy | unset | Insaits security wrapper hook 활성화. [insaits-security-wrapper.js:33](../plugins/mccp/scripts/hooks/insaits-security-wrapper.js). |
-| `ECC_DISABLED_MCPS` | comma-separated MCP names | unset | mccp installer가 install 단계에서 skip할 MCP 리스트. [install/apply.js:120](../plugins/mccp/scripts/lib/install/apply.js). |
+| `MCCP_QUALITY_GATE_FIX` | `true` | `false` | `quality-gate.js` hook이 자동 fix(`--fix` 플래그 등) 모드로 동작. |
+| `MCCP_QUALITY_GATE_STRICT` | `true` | `false` | quality-gate가 strict 모드로 동작 (경고도 실패로). |
+| `MCCP_GOVERNANCE_CAPTURE` | `1` | unset | governance capture hook(`governance-capture.js`)을 활성화. 시크릿/정책 위반/승인 요청 같은 governance event를 캡쳐. |
+| `MCCP_CONTEXT_MONITOR_COST_WARNINGS` | truthy/falsy | `true` | `ecc-context-monitor`의 cost warning 출력 활성화. 비활성화하면 $50/$80/$100 알림 자체가 안 뜸. [ecc-context-monitor.js:44](../plugins/mccp/scripts/hooks/ecc-context-monitor.js). |
+| `MCCP_CONTEXT_MONITOR_COST_MODE` | `notify` \| `notification` \| `info` \| `informational` \| (그 외) | (directive) | cost 메시지의 톤 제어. `notify` 류면 imperative tail("halt/wind down" 같은) 제거 → 비용만 보고. 다른 값/unset이면 default directive 동작. |
+| `ECC_DISABLED_MCPS` | comma-separated MCP names | unset | **out-of-scope of axis-P** (install tree). mccp installer가 install 단계에서 skip할 MCP 리스트. [install/apply.js:120](../plugins/mccp/scripts/lib/install/apply.js). `MCCP_*` rename은 별도 install cleanup axis. |
 
 ### 6.4 MCP / 외부 도구 경로
 
 | 변수 | 값 | Default | 설명 |
 | --- | --- | --- | --- |
-| `ECC_MCP_HEALTH_STATE_PATH` | absolute path | (`~/.claude/...` 안 기본 위치) | `mcp-health-check.js`가 health state를 저장/조회할 경로 override. |
-| `ECC_MCP_CONFIG_PATH` | absolute path | (Claude 표준 위치) | MCP config 위치 override. health check가 사용. |
-| `ECC_MCP_RECONNECT_COMMAND` | shell command | (built-in default) | mcp-health-check이 unhealthy MCP를 만났을 때 재연결을 위해 실행할 명령. [mcp-health-check.js:518](../plugins/mccp/scripts/hooks/mcp-health-check.js). |
-| `ECC_MCP_HEALTH_FAIL_OPEN` | truthy | unset | health check 실패 시 fail-open(통과) 모드. unset이면 fail-closed. [mcp-health-check.js:558](../plugins/mccp/scripts/hooks/mcp-health-check.js). |
-| `ECC_GH_SHIM` | absolute path | unset | GitHub CLI shim 경로. `github-discussions.js`가 `gh` 호출 대신 사용. CI/sandbox에서 유용. |
+| `MCCP_MCP_HEALTH_STATE_PATH` | absolute path | (`~/.claude/...` 안 기본 위치) | `mcp-health-check.js`가 health state를 저장/조회할 경로 override. |
+| `MCCP_MCP_CONFIG_PATH` | absolute path | (Claude 표준 위치) | MCP config 위치 override. health check가 사용. |
+| `MCCP_MCP_RECONNECT_COMMAND` | shell command | (built-in default) | mcp-health-check이 unhealthy MCP를 만났을 때 재연결을 위해 실행할 명령. [mcp-health-check.js:518](../plugins/mccp/scripts/hooks/mcp-health-check.js). |
+| `MCCP_MCP_HEALTH_FAIL_OPEN` | truthy | unset | health check 실패 시 fail-open(통과) 모드. unset이면 fail-closed. [mcp-health-check.js:558](../plugins/mccp/scripts/hooks/mcp-health-check.js). |
+| `MCCP_GH_SHIM` | absolute path | unset | GitHub CLI shim 경로. `github-discussions.js`가 `gh` 호출 대신 사용. CI/sandbox에서 유용. |
 | `GITHUB_TOKEN` | token | unset | GitHub API 인증. `github-discussions.js:44`가 직접 read하므로 등재. 표준 GitHub 환경변수 prefix 그대로. |
 
 ### 6.5 mccp installer (`CLAUDE_*` prefix이지만 mccp가 정의)
@@ -224,7 +223,7 @@ ECC에서 가져와 plugin 안에서 그대로 active하게 사용 중인 변수
 ```json
 {
   "env": {
-    "ECC_HOOK_PROFILE": "minimal"
+    "MCCP_HOOK_PROFILE": "minimal"
   }
 }
 ```

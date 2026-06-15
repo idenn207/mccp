@@ -133,7 +133,7 @@ function renameWithRetry(tmp, target) {
  * @returns {string|null} Sanitized session ID or null
  */
 function resolveSessionId() {
-  const raw = process.env.ECC_SESSION_ID || process.env.CLAUDE_SESSION_ID || '';
+  const raw = process.env.MCCP_SESSION_ID || process.env.CLAUDE_SESSION_ID || '';
   return sanitizeSessionId(raw);
 }
 

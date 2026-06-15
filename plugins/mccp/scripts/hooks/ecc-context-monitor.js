@@ -41,16 +41,16 @@ function isEnabledEnv(value, defaultValue = true) {
 }
 
 function costWarningsEnabled(env = process.env) {
-  return isEnabledEnv(env.ECC_CONTEXT_MONITOR_COST_WARNINGS, true);
+  return isEnabledEnv(env.MCCP_CONTEXT_MONITOR_COST_WARNINGS, true);
 }
 
 // Notify-only mode strips the imperative tail from cost messages so the
 // dollar amount is reported without telling the model to halt or change
-// course. Toggle via `ECC_CONTEXT_MONITOR_COST_MODE`:
+// course. Toggle via `MCCP_CONTEXT_MONITOR_COST_MODE`:
 //   unset / anything else → default directive behavior
 //   notify | notification | info | informational → notify-only
 function costNotifyOnly(env = process.env) {
-  const value = String(env.ECC_CONTEXT_MONITOR_COST_MODE || '').trim().toLowerCase();
+  const value = String(env.MCCP_CONTEXT_MONITOR_COST_MODE || '').trim().toLowerCase();
   return value === 'notify' || value === 'notification' || value === 'info' || value === 'informational';
 }
 
@@ -224,7 +224,7 @@ function run(rawInput) {
   try {
     const input = rawInput.trim() ? JSON.parse(rawInput) : {};
 
-    const sessionId = sanitizeSessionId(input.session_id) || sanitizeSessionId(process.env.ECC_SESSION_ID) || sanitizeSessionId(process.env.CLAUDE_SESSION_ID);
+    const sessionId = sanitizeSessionId(input.session_id) || sanitizeSessionId(process.env.MCCP_SESSION_ID) || sanitizeSessionId(process.env.CLAUDE_SESSION_ID);
 
     if (!sessionId) return rawInput;
 

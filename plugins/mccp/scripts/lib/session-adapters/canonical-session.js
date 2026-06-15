@@ -261,8 +261,8 @@ function resolveRecordingDir(options = {}) {
     return path.resolve(options.recordingDir);
   }
 
-  if (typeof process.env.ECC_SESSION_RECORDING_DIR === 'string' && process.env.ECC_SESSION_RECORDING_DIR.length > 0) {
-    return path.resolve(process.env.ECC_SESSION_RECORDING_DIR);
+  if (typeof process.env.MCCP_SESSION_RECORDING_DIR === 'string' && process.env.MCCP_SESSION_RECORDING_DIR.length > 0) {
+    return path.resolve(process.env.MCCP_SESSION_RECORDING_DIR);
   }
 
   return DEFAULT_RECORDING_DIR;

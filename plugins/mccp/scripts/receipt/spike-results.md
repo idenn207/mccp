@@ -108,7 +108,7 @@ Claude 응답 종료
 |---|---|---|
 | `UserPromptExpansion` 30s timeout 안에 preflight 끝나지 않음 | LOW | preflight는 파일 read + hash 검증만. 보통 <100ms. 다만 receipt 100건 이상 누적 시 인덱스 캐싱 필요 |
 | `command_name` 매처 regex 문법 미문서화 — `^ecc:`가 작동하는지 불확실 | MEDIUM | 설치 시점에 sanity check: `/ecc:status` 같은 가벼운 명령으로 매처 발화 확인 |
-| Stop hook transcript 포맷이 Claude Code 버전마다 다름 | MEDIUM | hook script가 포맷 자동 감지 + 디버그 모드(`ECC_RECEIPT_DEBUG=1`)로 raw dump. transcript 의존은 "write only" 경로에만 남음 |
+| Stop hook transcript 포맷이 Claude Code 버전마다 다름 | MEDIUM | hook script가 포맷 자동 감지 + 디버그 모드(`MCCP_RECEIPT_DEBUG=1`)로 raw dump. transcript 의존은 "write only" 경로에만 남음 |
 | `decision:"block"` JSON 응답 형식이 stdin/stdout 어느 쪽인지 명확치 않음 | LOW | 공식 문서를 한 번 더 확인하거나 작동하지 않을 시 exit 2로 fallback |
 
 ## 결정 필요사항 (재정리)

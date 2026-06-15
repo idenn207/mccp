@@ -508,3 +508,76 @@ test('v0.3.6 Task 5: explicit --decision still beats branch normalize + fallback
   const slug = deriveDecisionId('mccp:pr', '--decision explicit-override', { cwd: repo });
   assert.strictEqual(slug, 'explicit-override');
 });
+
+// ─── v1.0.1 axis K2: receipt-aware branch-slug augmentation ─────────────
+//
+// When a BRANCH_BASED_COMMAND derives a valid branch slug, the v0.3.6
+// fallback chain doesn't fire. But the branch slug may still be a
+// contraction of the longer plan-basename slug that /mccp:plan wrote
+// receipts under. axis K2 closes that hole by peeking at plan-codex
+// receipts when branchSlug derive is valid.
+
+const { findReceiptSlugByBranchPrefix } = require('../decision');
+
+function writePlanReceipt(repo, slug) {
+  const dir = path.join(repo, '.claude', 'receipts', 'mccp-plan-codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, slug + '.json'),
+    JSON.stringify({ decision_id: slug, schema_version: 'v1' }));
+}
+
+test('v1.0.1 axis K2: findReceiptSlugByBranchPrefix returns longer slug on single prefix match', function () {
+  const repo = makeTmpGitRepo('main');
+  writePlanReceipt(repo, 'v1-0-1-axis-k-pr-phase-guard-pid-alive');
+  assert.strictEqual(
+    findReceiptSlugByBranchPrefix('v1-0-1-axis-k', repo),
+    'v1-0-1-axis-k-pr-phase-guard-pid-alive');
+});
+
+test('v1.0.1 axis K2: findReceiptSlugByBranchPrefix returns null on exact branch-slug receipt', function () {
+  const repo = makeTmpGitRepo('main');
+  writePlanReceipt(repo, 'v1-0-1-axis-k');
+  // Also writing a longer prefix-match — exact match still wins → null
+  writePlanReceipt(repo, 'v1-0-1-axis-k-extra-suffix');
+  assert.strictEqual(findReceiptSlugByBranchPrefix('v1-0-1-axis-k', repo), null);
+});
+
+test('v1.0.1 axis K2: findReceiptSlugByBranchPrefix returns null when multiple prefix matches (ambiguous)', function () {
+  const repo = makeTmpGitRepo('main');
+  writePlanReceipt(repo, 'v1-0-1-axis-k-first-feature');
+  writePlanReceipt(repo, 'v1-0-1-axis-k-second-feature');
+  assert.strictEqual(findReceiptSlugByBranchPrefix('v1-0-1-axis-k', repo), null);
+});
+
+test('v1.0.1 axis K2: findReceiptSlugByBranchPrefix returns null when no plan-receipts match or dir absent', function () {
+  const repo = makeTmpGitRepo('main');
+  assert.strictEqual(findReceiptSlugByBranchPrefix('v1-0-1-axis-k', repo), null);
+  writePlanReceipt(repo, 'completely-different-feature');
+  assert.strictEqual(findReceiptSlugByBranchPrefix('v1-0-1-axis-k', repo), null);
+});
+
+test('v1.0.1 axis K2: findReceiptSlugByBranchPrefix ignores .legacy and .bak sidecars', function () {
+  const repo = makeTmpGitRepo('main');
+  const dir = path.join(repo, '.claude', 'receipts', 'mccp-plan-codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'v1-0-1-axis-k-old.legacy.json'),
+    JSON.stringify({ decision_id: 'v1-0-1-axis-k-old', schema_version: 'v1' }));
+  fs.writeFileSync(path.join(dir, 'v1-0-1-axis-k-backup.bak.json'),
+    JSON.stringify({ decision_id: 'v1-0-1-axis-k-backup', schema_version: 'v1' }));
+  assert.strictEqual(findReceiptSlugByBranchPrefix('v1-0-1-axis-k', repo), null);
+});
+
+test('v1.0.1 axis K2: deriveDecisionId augments branch slug from plan-receipt prefix for /mccp:pr', function () {
+  const repo = makeTmpGitRepo('v1.0.1-axis-k');
+  writePlanReceipt(repo, 'v1-0-1-axis-k-pr-phase-guard-pid-alive');
+  const slug = deriveDecisionId('mccp:pr', '', { cwd: repo });
+  assert.strictEqual(slug, 'v1-0-1-axis-k-pr-phase-guard-pid-alive');
+});
+
+test('v1.0.1 axis K2: PLAN_PATH_COMMANDS are NOT receipt-augmented (only BRANCH_BASED)', function () {
+  const repo = makeTmpGitRepo('v1.0.1-axis-k');
+  writePlanReceipt(repo, 'v1-0-1-axis-k-pr-phase-guard-pid-alive');
+  // /mccp:plan with no plan path → falls to branchSlug, NOT augmented
+  const slug = deriveDecisionId('mccp:plan', '', { cwd: repo });
+  assert.strictEqual(slug, 'v1-0-1-axis-k');
+});

@@ -41,6 +41,8 @@
 
 **MVP** — `pr-phase-guard.js` PreToolUse hook이 lock body 읽고 PID liveness check (`process.kill(pid, 0)` 또는 동등 cross-platform 방식) 수행. dead PID 감지 시 reclaim path 1개 작동 (자동 release OR detect-stale allowlist 명시 추가 — `/mccp:plan` R1에서 두 옵션 trade-off 비교 후 결정). alive PID는 기존 block semantics 그대로 유지 (회귀 0). Linux/macOS 환경에서 4d fixture 재현 + recovery path 측정.
 
+**Scope extension — axis K2 (2026-06-15 dogfood-driven, user 옵션 3 합의)** — axis K1 commit 후 v1.0.1-axis-k branch에서 `/mccp:pr` 호출 시 hook이 "MISSING mccp-plan-codex / mccp-implement-codex receipt"로 false-negative 차단. 디스크 receipt slug(`v1-0-1-axis-k-pr-phase-guard-pid-alive`)와 branch-derived slug(`v1-0-1-axis-k`) mismatch 발견. `scripts/receipt/decision.js`의 `deriveDecisionId`에 receipt-aware augmentation 추가 (BRANCH_BASED_COMMAND가 valid branch slug derive 후 plan-codex 디렉토리에서 unique prefix-longer match 1개 발견 시 augment). regression-safe (ambiguous/zero match → branchSlug 그대로). 동반: `.claude/settings.local.json`에 `MCCP_CODEX_DISABLED=1` + `MCCP_RECEIPT_GATE_MODE=off` 영구 반영 ([[feedback-codex-permanent-bypass]] commitment 이행).
+
 **Out of scope**
 
 - axis L (`writeBlockReason()` INVALID/CRITICAL symmetry) — 별도 v1.0.x patch, axis K와 독립

@@ -105,6 +105,48 @@ function slugFromBranch(cwd) {
   }
 }
 
+// v1.0.1 axis K2 — receipt-aware branch-slug augmentation. When a
+// BRANCH_BASED_COMMAND derives a *valid* branch slug, the v0.3.6 fallback
+// chain doesn't fire — but the branch slug may still be a contracted
+// version of the plan-basename slug that PLAN_PATH_COMMANDS wrote receipts
+// under. Example: branch `v1.0.1-axis-k` (slug `v1-0-1-axis-k`) vs receipt
+// at `mccp-plan-codex/v1-0-1-axis-k-pr-phase-guard-pid-alive.json`. Both
+// are "valid" — but the PR-step receipt-gate looks at the shorter branch
+// slug and sees MISSING. This helper peeks at plan-codex receipts and
+// returns the unique longer slug when branchSlug is its exact prefix,
+// matching what `/mccp:plan` would have written. Multi-match or no-match
+// returns null (regression-safe: caller uses branchSlug unchanged).
+function findReceiptSlugByBranchPrefix(branchSlug, cwd) {
+  if (!branchSlug || typeof branchSlug !== 'string') return null;
+  try {
+    const dir = path.join(cwd || process.cwd(), '.claude', 'receipts', 'mccp-plan-codex');
+    if (!fs.existsSync(dir)) return null;
+    const files = fs.readdirSync(dir).filter(function (f) { return f.endsWith('.json'); });
+    const exactName = branchSlug + '.json';
+    const matches = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      // Skip legacy / backup receipts (e.g. `default.legacy.json`,
+      // `main.v0.2.3-schema.bak.json`) so historical sidecars don't poison
+      // the prefix search.
+      if (f.includes('.legacy') || f.includes('.bak')) continue;
+      // Exact branch-slug match → /mccp:plan wrote a receipt under the
+      // branch slug itself; no augmentation needed.
+      if (f === exactName) return null;
+      const slug = f.replace(/\.json$/, '');
+      if (slug.length > branchSlug.length + 1 &&
+        slug.charCodeAt(branchSlug.length) === 0x2d /* '-' */ &&
+        slug.startsWith(branchSlug) && SLUG_RE.test(slug)) {
+        matches.push(slug);
+      }
+    }
+    if (matches.length === 1) return matches[0];
+    return null;
+  } catch (_err) {
+    return null;
+  }
+}
+
 // v0.3.6 Task 5 fallback (축 3) — when BRANCH_BASED_COMMANDS (mccp:pr,
 // mccp:prp-pr, mccp:code-review, mccp:review-pr) can't derive a slug from
 // branch / planPath / commandArgs, peek at the most recent implement-codex
@@ -163,7 +205,22 @@ function deriveDecisionId(commandName, commandArgs, opts) {
 
   if (BRANCH_BASED_COMMANDS.has(cmd)) {
     const branchSlug = slugFromBranch(cwd);
-    if (branchSlug) return branchSlug;
+    if (branchSlug) {
+      // v1.0.1 axis K2 — receipt-aware augmentation. If the branch slug is a
+      // strict prefix of exactly one existing plan-codex receipt slug, prefer
+      // the longer slug. Matches /mccp:plan's plan-basename derivation, so
+      // /mccp:pr finds the receipt that /mccp:plan + /mccp:prp-implement
+      // already wrote. Ambiguous (2+) or zero matches → branchSlug unchanged
+      // (regression-safe).
+      const augmented = findReceiptSlugByBranchPrefix(branchSlug, cwd);
+      if (augmented) {
+        process.stderr.write(
+          '[mccp:decision] branch slug augmented from plan-receipt prefix: ' +
+          branchSlug + ' → ' + augmented + '\n');
+        return augmented;
+      }
+      return branchSlug;
+    }
     // v0.3.6 Task 5 (축 3) — branch slug invalid (or empty), try fallback chain
     // before giving up to 'default'. Fixes the HIGH-severity bug where
     // /mccp:work + multi-task sprint flows on version-tagged or dot-bearing
@@ -218,6 +275,7 @@ module.exports = {
   slugFromPlanArg: slugFromPlanArg,
   slugFromPlanPath: slugFromPlanPath,
   slugFromBranch: slugFromBranch,
+  findReceiptSlugByBranchPrefix: findReceiptSlugByBranchPrefix,
   lastImplementReceiptSlug: lastImplementReceiptSlug,
   firstNonFlag: firstNonFlag,
   normalizeCommand: normalizeCommand,

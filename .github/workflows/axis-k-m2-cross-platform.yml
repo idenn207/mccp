@@ -1,0 +1,74 @@
+name: axis-k-m2 cross-platform verification
+
+# v1.0.1 axis K M2 — verifies pr-phase-guard orphan-lock reclaim (same-host +
+# dead PID) on Linux + macOS via deterministic fixture. Single PR-public
+# audit record for cross-platform credibility (PRD §Success Metrics row 1,
+# W-VERDICT §2 BLOCKING tally close source).
+#
+# Triggers:
+#   - PR to main when axis K1+K2 source or fixtures change
+#   - workflow_dispatch for manual M2 verification re-runs
+#
+# Matrix: ubuntu-latest + macos-latest. Windows is NOT in matrix — Windows
+# regression is statically asserted by axis-k-m2-windows-regression.mjs
+# (no PowerShell matcher in hooks.json), exercised on both Linux + macOS
+# runners as a parse-and-grep check that is OS-independent.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugins/mccp/scripts/hooks/pr-phase-guard.js'
+      - 'plugins/mccp/scripts/lib/pr-phase-lock.js'
+      - 'plugins/mccp/scripts/lib/path-containment.js'
+      - 'plugins/mccp/scripts/lib/pr-phase-helpers/finalize-receipt.js'
+      - 'plugins/mccp/scripts/hooks/tests/fixtures/axis-k-m2-*.mjs'
+      - 'plugins/mccp/hooks/hooks.json'
+      - '.github/workflows/axis-k-m2-cross-platform.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: ${{ matrix.os }} — orphan-lock reclaim + windows-regression static
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run reproduction fixture (capture stdout to artifact)
+        shell: bash
+        run: |
+          set -o pipefail
+          node plugins/mccp/scripts/hooks/tests/fixtures/axis-k-m2-reproduce.mjs \
+            | tee axis-k-m2-reproduce-${{ matrix.os }}.json
+
+      - name: Run Windows-regression static fixture (hooks.json invariant)
+        shell: bash
+        run: |
+          set -o pipefail
+          node plugins/mccp/scripts/hooks/tests/fixtures/axis-k-m2-windows-regression.mjs \
+            | tee axis-k-m2-windows-regression-${{ matrix.os }}.json
+
+      - name: Run pr-phase-guard unit tests (axis 11/12 regression)
+        run: node --test plugins/mccp/scripts/hooks/tests/pr-phase-guard.test.js
+
+      - name: Run pr-phase-lock F11 schema tests (lockBody invariant)
+        run: node --test plugins/mccp/scripts/lib/tests/pr-phase-lock-f11.test.js
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: axis-k-m2-${{ matrix.os }}
+          path: |
+            axis-k-m2-reproduce-${{ matrix.os }}.json
+            axis-k-m2-windows-regression-${{ matrix.os }}.json
+          if-no-files-found: warn
+          retention-days: 30

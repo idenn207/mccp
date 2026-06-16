@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: v1-2-0-m1-shipped
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-06-16T12:00:00.000Z
+updated_at: 2026-06-16T22:22:22.206Z
 last_event: stop_loop_pass
 last_event_at: 2026-06-15T10:20:01.965Z
 unsafe_checkpoint: false
@@ -10,7 +10,7 @@ confirm_required: false
 session_end_imminent: false
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/27
-dep_check_at: 2026-06-16T09:36:22.142Z
+dep_check_at: 2026-06-16T22:16:36.526Z
 ---
 ## Goal
 v1.2.0 Stage 2 M1 (foundation IPC) — Full M1 ship: envelope schema + IPC core + receipt schema 확장 + additive migration + state-writer events + heartbeat reclaim + docs trio + backlog roll. Pilot vertical (M2) + 6-case lifecycle full hardening (M3) deferred to backlog continuation. PR 진입점.
@@ -32,19 +32,20 @@ v1.2.0 Stage 2 M1 (foundation IPC) — Full M1 ship: envelope schema + IPC core 
 - PR #27 merged (v1.1.0-s1 — auto-handoff quarantine + /mccp:resume + Task 0 spike)
 - v1.2.0-m1 Session 1 (commits 8b85062/682a8a5/975ea40) — Task 0 worktree + Task 1 envelope schema foundation + Implement-Codex R1 F1+F2+F3 absorption
 - v1.2.0-m1 Session 2 (commit ed48d16) — Task 2-5 IPC core (envelope I/O + worktree-sync + watcher + controller) + 77 new tests
-- v1.2.0-m1 Session 3 (pre-commit) — Task 6 (receipt schema 4 fields + writer/CLI/validator F2+F3) + Task 7 (additive migration) + Task 8 (state-writer 3 events + 2 patch fields) + Task 9 (docs trio + CLAUDE.md + CHANGELOG) + Task 10 (backlog transitions) + Task 11 (fixture full-cycle smoke F1) + Task 12 (heartbeat + reclaimStale F4). Full M1 scope shipped. 새 tests Session 3: 10 schema + 6 write-controller + 5 validate-envelope + 6 migration + 10 state-writer + 4 smoke + 8 heartbeat = 49.
+- v1.2.0-m1 Session 3 (commit fd7af46) — full M1 ship: Task 6-12 + 10 (receipt schema + migration + state-writer events + docs trio + heartbeat reclaim + backlog transitions). 49 new tests
+- v1.2.0-m1 plan archived → .claude/PRPs/plans/completed/
 
 ## In Progress
-v1.2.0-m1 Session 3 ready to commit (Task 6-12 + 10 deliverables, 49 new tests, ~total Session 3 LOC ~3000). Suggested commit: feat(v1.2.0-m1): Session 3 — receipt schema + migration + state-writer events + docs + heartbeat reclaim.
+
 
 ## Next Step
-Session 3 commit → Phase 4 ship-gate validation (full test suite + migration dry-run + CLAUDE.md/CHANGELOG grep) → Phase 5/6 implementation report → PR (via /mccp:pr or manual gh). Plan archive (`.claude/plans/completed/`) deferred until PR merge.
+Run /mccp:pr to open v1.2.0-m1 PR. Phase 4 ship-gate validation (full test suite + migration dry-run) is performed by the pr gate; archive housekeeping already applied.
 
 ## Last Decision
-2026-06-16 v1.2.0-m1 Session 3 ship 결정: Session 2 commit ed48d16 baseline 위 Task 6-12 + 10 mechanical 실행. Phase 2.5.1 cross-gate dedupe 다시 적용 — plan body Codex Adversarial Review F1+F2+F3+F4 + Implement-Codex Session 1 R1 F1+F2+F3 absorption이 Session 3 architectural decisions를 pre-commit. Files to Change subset 3-AND 모두 만족, Codex 재호출 없음. Implement-Codex receipt 재발행 (ok=true after plan body dedupe section append). Session 1+2 plan-codex receipt도 plan_hash drift로 re-stamp. Task 6 backward-compat 가장 민감 — controller_context_marker_present=false/undefined → existing v0.2.x receipt 무영향 검증 통과. Task 12 heartbeat은 pr-phase-lock.js 패턴 mirror, host-aware tri-state policy 6-case 회귀.
+2026-06-17 v1.2.0-m1 Phase 5/6 housekeeping: Session 3 commit fd7af46 verified as full M1 ship (Task 6-12 + 10, 49 new tests, 3000+ LOC). Plan archived to .claude/PRPs/plans/completed/. Prior decision (defer archive until PR merge) explicitly overridden by user via /mccp:prp-implement Phase 5/6 housekeeping option. Next: /mccp:pr.
 
 ## Open Questions
 - mccp 슬래시 명령 axis: prp-implement.md 2.5.7 validate-cmd 호출이 --decision/--plan 누락 → default slug + v0.2.8 quarantine fail. 본 세션에서는 manual --decision/--plan 전달로 우회. mechanical 1-line patch (W-VERDICT M axis 후보).
 
 ## Last Updated
-2026-06-16T12:00:00.000Z
+2026-06-16T22:22:22.206Z

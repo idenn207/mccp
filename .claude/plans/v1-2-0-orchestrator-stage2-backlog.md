@@ -29,14 +29,14 @@
 
 ## 2. Open architectural questions
 
-### 2.1 Worker IPC schema (Q3=B 확정, schema 미정)
+### 2.1 Worker IPC schema (Q3=B 확정, schema 미정) — **해결: v1.2.0-m1 ship**
 
-User alignment Q3=B = "receipt schema를 확장해 worker 출력을 carry". 결정됨. 그러나 schema 자체는 미정:
+User alignment Q3=B = "receipt schema를 확장해 worker 출력을 carry". 결정됨. M1 ship에서 다음 결정 확정:
 
-- **Envelope 위치**: `.claude/state/dispatches/<dispatch-id>.envelope.json` 또는 `.claude/receipts/.dispatches/<dispatch-id>.json` ? 전자가 STATE.md 옆에 묶여 lifecycle 명확. 후자는 receipt chain과 통합 가능.
-- **Worker → controller atomic write protocol**: worker가 worktree 내부에서 write → exit. controller가 ExitWorktree(action='keep') + envelope copy → ExitWorktree(action='remove')? worktree-clean-exit이 envelope를 unlink하지 않게 하려면 keep 후 sync 필요.
-- **Envelope 필수 필드 후보**: `dispatch_id`, `worker_subagent_type`, `worker_started_at`, `worker_ended_at`, `worker_exit_status` (ok/failure/timeout/crashed), `receipts_added` (worker가 새로 write한 receipt slug 리스트), `findings` (Codex review가 발생했으면 structured findings array), `next_action` (controller가 이어서 dispatch할 step suggestion).
-- **Receipt attribution surface**: 기존 mccp-*-codex receipt schema에 `dispatched_by_controller_session_id`, `worker_dispatch_id`, `ipc_envelope_path` 3개 field 추가? 또는 별도 `mccp-dispatch-controller/<dispatch-id>.json` gate type 신설?
+- **Envelope 위치**: `<parent_cwd>/.claude/state/dispatches/<uuid>.envelope.json` — STATE.md 옆 (lifecycle clarity 우선, receipt chain 통합보다). 정식 문서: [`docs/v1.2.0-orchestrator/envelope-schema.md`](../../docs/v1.2.0-orchestrator/envelope-schema.md).
+- **Worker → controller atomic write protocol**: `lib/worktree-sync.js`의 `syncEnvelopeOut(worktree, parentCwd, dispatchId)` — atomic rename + EXDEV cross-device fallback. `cleanupWorktree(action='keep'|'remove')` 별도 함수로 worktree 정리 분리.
+- **Envelope 필수 필드 (확정)**: `schema_version`, `dispatch_id` (UUID), `worker_subagent_type`, `worker_started_at`, `worker_ended_at` (nullable when pending), `worker_exit_status` ∈ `pending` (nonterminal) ∪ `ok` / `failure` / `timeout` / `crashed` (terminal), `receipts_added`, `findings`, `next_action`, `controller_session_id`, `parent_cwd`. Codex Implement-Codex F2 absorption: `pending` nonterminal state 추가.
+- **Receipt attribution surface (확정)**: 기존 receipt schema에 `meta.*` 4 field 추가 (`controller_context_marker_present`, `dispatched_by_controller_session_id`, `worker_dispatch_id`, `ipc_envelope_path`) — marker-gated all-or-nothing invariant. 별도 gate type 신설하지 않음 (기존 mccp-*-codex receipt가 attribution 보유).
 
 ### 2.2 Pilot workflow (Q4=i 확정, scope 미정)
 
@@ -48,27 +48,22 @@ User alignment Q4=i = "multi-axis review를 첫 vertical로 dogfood". 첫 pilot 
 
 권장: Option A부터 시작 — PR review fanout. 측정: review 시간 + finding 양 + dual-review와의 overlap.
 
-### 2.3 Worker lifecycle — 6 case catalogue
+### 2.3 Worker lifecycle — 6 case catalogue — **부분 해결: case 1-4 v1.2.0-m1, case 5 partial M1 + full M3, case 6 deferred M3**
 
-Stage 2 controller가 다뤄야 하는 worker exit 시나리오. 각 case마다 controller 동작 + STATE.md / envelope 반영:
-
-| # | Case | Controller 감지 방법 | Envelope state | controller follow-up |
+| # | Case | Controller 감지 방법 | Envelope state | M1 ship 상태 |
 |---|---|---|---|---|
-| 1 | **Graceful exit** — worker가 정상 종료, envelope `worker_exit_status='ok'` write | Agent tool return + envelope read | `ok` | findings merge, 다음 step 진행 |
-| 2 | **Explicit failure** — worker 코드 path가 failure 감지, envelope `worker_exit_status='failure'` write | Agent return + envelope read | `failure` | failure rationale stash, retry policy 적용 |
-| 3 | **Timeout** — worker가 controller가 정한 deadline 안에 envelope를 write 안 함 | Agent tool timeout exception | (missing) | 1회 retry (different worktree?) → 누적 N회 실패 시 escalate |
-| 4 | **Crash** — worker subagent 자체가 throw / process crash | Agent return error | (missing OR partial) | partial envelope 있으면 inspect, 없으면 case 3과 동일 |
-| 5 | **Orphan on controller crash** — controller가 죽었는데 worker는 살아있음 | (감지 어려움) | (alive but no consumer) | STATE.md `chain_aborted=true` + 다음 controller startup이 orphan envelope 정리 |
-| 6 | **Garbage cleanup** — N 시간 이상 된 stale envelope / 빈 worktree | startup time GC | (any) | TTL 정의 (1h? 24h?) + `mtime > TTL` + worker pid 살아있는지 confirm |
+| 1 | **Graceful exit** — `ok` | watcher emit + envelope read | `ok` | ✓ 완료 |
+| 2 | **Explicit failure** — `failure` | watcher emit + envelope read | `failure` | ✓ 완료 |
+| 3 | **Timeout** — envelope 미작성 | watcher deadlineMs hit → `{type:'timeout'}` emit | (missing) | ✓ 완료 (watcher) |
+| 4 | **Crash** — partial envelope | watcher emit + `mergeEnvelopes` guards malformed | (partial) | ✓ 완료 (smoke fixture D) |
+| 5 | **Orphan on controller crash** | heartbeat mtime + `reclaimStale` host-aware tri-state | (alive but no consumer) | ⚠ partial (M1 ttlMs=5min default), 완전 hardening M3 |
+| 6 | **Garbage cleanup** — N hour stale envelope | (M3) | (any) | — deferred M3 (24h TTL 미정, M2 dogfood로 우선순위 결정) |
 
-Case 5는 가장 까다로움 — controller process death detection이 worker side로는 어렵다. STATE.md `chain_aborted=true` AND `last_event_at > N min ago` AND `dispatch_attempt_count > 0` 조합으로 추정 가능?
+Case 5: M1은 heartbeat-based `reclaimStale`이 minimum coverage. controller가 죽으면 다음 command(`validate-cmd.js` boot)에서 reclaim. Full hardening (heartbeat in-loop refresh의 caller 책임 boundary + retry policy)은 M3.
 
-### 2.4 Controller polling vs event-driven
+### 2.4 Controller polling vs event-driven — **해결: v1.2.0-m1 ship**
 
-- **Polling**: controller가 N초마다 `.claude/state/dispatches/*.envelope.json` mtime 확인. 단순함. busy-loop 비용.
-- **Event-driven**: `Monitor` tool로 `tail -f` 또는 `inotifywait` 패턴으로 envelope write 즉시 알림. Monitor stdout이 envelope path를 emit → controller가 read. 더 효율적이지만 cross-platform (Windows inotify 없음) issue.
-
-권장: **Hybrid** — Monitor 가 inotify-가능 platform에서 동작, 안 되면 polling fallback. Hybrid layer는 `lib/dispatch-watcher.js` 신규 모듈로 캡슐화.
+권장대로 **Hybrid** 채택. `lib/dispatch-watcher.js`가 `fs.watch` (Monitor) + `setInterval` polling을 동시에 사용. Polling은 binding(cross-platform always-on safety net), `fs.watch`는 opportunistic latency reducer. `MCCP_ORCHESTRATOR_POLL_MS` env (default 500ms) override. Windows native inotify analog (`ReadDirectoryChangesW`)은 M2 watcher hardening에서 검토 — polling fallback이 correctness 보장하므로 현재 차단 없음.
 
 ---
 
@@ -76,11 +71,12 @@ Case 5는 가장 까다로움 — controller process death detection이 worker s
 
 Stage 2 진입점은 spike 결과 (Q2=YES, controller가 upstream Agent로 build 가능) 와 IPC schema 결정이 driver. 두 후보:
 
-### 옵션 A — `/mccp:plan-prd v1.2.0-orchestrator-controller`
+### 옵션 A — `/mccp:plan-prd v1.2.0-orchestrator-controller` — **[shipped 2026-06-16 via M1 PR (pending)]**
 
 - **When**: IPC schema가 결정 가능하고 controller dispatcher 자체 구현이 의미 있다고 판단되면.
 - **Scope**: controller dispatcher 모듈 (`lib/dispatch-controller.js`), envelope schema, dispatch-watcher hybrid, pilot workflow = PR review fanout.
 - **Risk**: Controller가 `Agent` tool wrapper와 너무 비슷해져서 ROI 약화 가능.
+- **M1 ship 상태 (2026-06-16)**: foundation IPC만 ship. M1 scope = envelope schema + 4-module lib + receipt 확장 + migration + state-writer + docs + heartbeat reclaim. **Pilot vertical (M2) + 6-case lifecycle 완전 hardening (M3) deferred** — M2 dogfood 측정 후 우선순위 정함.
 
 ### 옵션 B — `/mccp:plan-prd v1.2.0-batch-adapter`
 

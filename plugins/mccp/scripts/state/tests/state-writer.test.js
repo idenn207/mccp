@@ -218,12 +218,13 @@ test('v0.3.6 Task 4: contentSnapshot excludes the 3 timestamp fields', () => {
   assert.strictEqual(snap.fm.last_event, 'precompact');
 });
 
-test('v0.3.6 Task 4: HASH_EXCLUDE_FRONTMATTER_KEYS exposes the 3 timestamp keys', () => {
+test('v0.3.6 Task 4: HASH_EXCLUDE_FRONTMATTER_KEYS exposes the timestamp self-bump keys', () => {
   assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS instanceof Set);
-  assert.strictEqual(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.size, 3);
+  assert.strictEqual(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.size, 4);
   assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('updated_at'));
   assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('last_event_at'));
   assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('created_at'));
+  assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('dep_check_at'));
 });
 
 test('v0.3.6 Task 4: contentHash is deterministic and identical for snapshot-equal states', () => {
@@ -290,14 +291,38 @@ test('v0.3.6 Task 4: update with body change DOES write', () => {
   assert.ok(after > pastMtime, 'body change must write');
 });
 
-test('v0.3.6 Task 4: update with depCheck patch DOES write (dep_check_at is semantic)', () => {
+test('v0.3.6 Task 4: depCheck patch with new missing set DOES write (dep_check_missing is semantic)', () => {
   const repo = mkRepo();
   sw.update(repo, { event: 'precompact', taskFingerprint: 'fp-dep', goal: 'g' });
   const target = sw.statePath(repo);
   const pastMtime = setPastMtime(target, 60);
   sw.update(repo, { event: 'precompact', depCheck: { checkedAt: '2026-06-09T12:00:00Z', missing: ['codex'] } });
   const after = fs.statSync(target).mtimeMs;
-  assert.ok(after > pastMtime, 'dep_check_* update is semantically meaningful — must write');
+  assert.ok(after > pastMtime, 'dep_check_missing change is semantically meaningful — must write');
+});
+
+// Regression: session-start.js calls update({depCheck:{checkedAt:now, missing:[...same...]}})
+// on every session boot. Before dep_check_at was added to the hash-exclude
+// set, that timestamp self-bump dirtied STATE.md in `git status` every
+// session even though the only semantic content (missing set) was unchanged.
+test('v0.3.6 Task 4: depCheck patch with same missing set is a no-op (dep_check_at self-bump only)', () => {
+  const repo = mkRepo();
+  sw.update(repo, {
+    event: 'precompact',
+    taskFingerprint: 'fp-noise',
+    goal: 'stable',
+    depCheck: { checkedAt: '2026-06-09T12:00:00Z', missing: ['codex'] },
+  });
+  const target = sw.statePath(repo);
+  const pastMtime = setPastMtime(target, 60);
+  sw.update(repo, {
+    event: 'precompact',
+    depCheck: { checkedAt: '2026-06-10T12:00:00Z', missing: ['codex'] },
+  });
+  const after = fs.statSync(target).mtimeMs;
+  assert.strictEqual(after, pastMtime,
+    'dep_check_at-only timestamp drift must skip write (mtime unchanged): past=' +
+    pastMtime + ' after=' + after);
 });
 
 test('v0.3.6 Task 4: update with escalate_pending=true DOES write', () => {
@@ -478,4 +503,101 @@ test('v1.1.0 Task 1.5: clearHandoff=false (explicit) also preserves handoff_spaw
   const state = sw.readState(repo);
   assert.strictEqual(state.frontmatter.session_end_imminent, true);
   assert.strictEqual(state.frontmatter.next_chunk, 'pending');
+});
+
+// v1.2.0-m1 Task 8 — orchestrator controller event + patch field tests.
+
+test('v1.2.0 Task 8: dispatch_started event survives unknown-downgrade', function () {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'dispatch_started', taskFingerprint: 'fp1' });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.last_event, 'dispatch_started');
+});
+
+test('v1.2.0 Task 8: dispatch_envelope_received event survives unknown-downgrade', function () {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'dispatch_envelope_received', taskFingerprint: 'fp1' });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.last_event, 'dispatch_envelope_received');
+});
+
+test('v1.2.0 Task 8: dispatch_chain_aborted event survives + pairs with chain_aborted=true', function () {
+  const repo = mkRepo();
+  sw.update(repo, {
+    event: 'dispatch_chain_aborted',
+    taskFingerprint: 'fp1',
+    chain_aborted: true,
+  });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.last_event, 'dispatch_chain_aborted');
+  assert.strictEqual(state.frontmatter.chain_aborted, true);
+});
+
+test('v1.2.0 Task 8: unknown dispatch_* event still downgrades to precompact', function () {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'dispatch_made_up', taskFingerprint: 'fp1' });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.last_event, 'precompact');
+});
+
+test('v1.2.0 Task 8: controller_session_id round-trips through render/parse', function () {
+  const repo = mkRepo();
+  const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  sw.update(repo, {
+    event: 'dispatch_started',
+    taskFingerprint: 'fp1',
+    controller_session_id: uuid,
+    active_dispatch_count: 3,
+  });
+  const raw = readRaw(repo);
+  assert.match(raw, new RegExp('^controller_session_id: ' + uuid + '$', 'm'));
+  assert.match(raw, /^active_dispatch_count: 3$/m);
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.controller_session_id, uuid);
+  assert.strictEqual(state.frontmatter.active_dispatch_count, 3);
+});
+
+test('v1.2.0 Task 8: active_dispatch_count=0 is NOT rendered (conditional emit)', function () {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact', taskFingerprint: 'fp1' });
+  const raw = readRaw(repo);
+  assert.doesNotMatch(raw, /^active_dispatch_count:/m);
+});
+
+test('v1.2.0 Task 8: controller_session_id=null is NOT rendered (conditional emit)', function () {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact', taskFingerprint: 'fp1' });
+  const raw = readRaw(repo);
+  assert.doesNotMatch(raw, /^controller_session_id:/m);
+});
+
+test('v1.2.0 Task 8: camelCase + snake_case aliases both accepted for controller patches', function () {
+  const repo = mkRepo();
+  const uuid = '11111111-2222-3333-4444-555555555555';
+  sw.update(repo, {
+    event: 'dispatch_started',
+    taskFingerprint: 'fp1',
+    controllerSessionId: uuid,
+    activeDispatchCount: 2,
+  });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.controller_session_id, uuid);
+  assert.strictEqual(state.frontmatter.active_dispatch_count, 2);
+});
+
+test('v1.2.0 Task 8: active_dispatch_count rejects negative — clamps to 0', function () {
+  const repo = mkRepo();
+  sw.update(repo, {
+    event: 'precompact',
+    taskFingerprint: 'fp1',
+    active_dispatch_count: -5,
+  });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.active_dispatch_count, 0);
+});
+
+test('v1.2.0 Task 8: VALID_EVENTS export includes 3 new events', function () {
+  assert.ok(sw.VALID_EVENTS.has('dispatch_started'));
+  assert.ok(sw.VALID_EVENTS.has('dispatch_envelope_received'));
+  assert.ok(sw.VALID_EVENTS.has('dispatch_chain_aborted'));
 });

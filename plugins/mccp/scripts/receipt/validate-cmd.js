@@ -125,6 +125,44 @@ function validateCommand(command, opts) {
     }
   }
 
+  // v1.2.0-m1 Task 12 (Codex F4 absorption) — boot-time stale heartbeat
+  // reclaim. Fires before the per-gate scan so any envelopes whose controller
+  // died are flipped to worker_exit_status='crashed' first; downstream
+  // envelope-mismatch checks then see the canonical crashed envelope rather
+  // than a confusing pending-forever placeholder.
+  //
+  // Fail-open: any error here is logged + skipped. The reclaim is opportunistic
+  // cleanup, not a correctness boundary.
+  if (!opts.skipReclaim) {
+    let controllerModule;
+    try {
+      controllerModule = require('../lib/dispatch-controller');
+    } catch (_) { controllerModule = null; }
+    if (controllerModule) {
+      const dispatchDir = path.join(repoRoot, '.claude', 'state', 'dispatches');
+      try {
+        const reclaim = controllerModule.reclaimStale({ envelopeDir: dispatchDir });
+        if (reclaim.reclaimed.length > 0) {
+          result.warnings.push({
+            gate_id: '_meta',
+            decision_id: result.decisionId,
+            reason: 'dispatch-controller reclaimed ' + reclaim.reclaimed.length +
+              ' stale heartbeat(s); see envelope status=crashed',
+            reclaimed: reclaim.reclaimed.map(function (r) {
+              return { envelopePath: r.envelopePath, reason: r.reason };
+            }),
+          });
+        }
+      } catch (err) {
+        result.warnings.push({
+          gate_id: '_meta',
+          decision_id: result.decisionId,
+          reason: 'reclaimStale threw (skipped): ' + err.message,
+        });
+      }
+    }
+  }
+
   const requires = spec.requires_preceding || [];
 
   // v0.2.8 Task 2.6.5 R1-F1 + R3 absorption — bare generic-slug rejection.
@@ -329,6 +367,64 @@ function validateCommand(command, opts) {
           '(audited escape — PR body is canonical audit source)',
         impeccable_force_override_reason: receipt.meta.impeccable_force_override_reason || null,
       });
+    }
+
+    // v1.2.0-m1 Task 6 (Codex F3 absorption) — envelope integrity check.
+    // When the receipt carries meta.ipc_envelope_path (controller-spawned
+    // worker context), the validator loads the envelope and confirms:
+    //   1. envelope.dispatch_id === receipt.meta.worker_dispatch_id
+    //   2. envelope.receipts_added contains '<gate_id>/<decision_id>'
+    // Mismatch/missing surfaces as blocking[].kind="envelope-mismatch" so
+    // downstream callers can distinguish IPC drift from ordinary stale state.
+    if (receipt.meta && receipt.meta.ipc_envelope_path) {
+      const envRelPath = receipt.meta.ipc_envelope_path;
+      const envAbs = path.resolve(repoRoot, envRelPath);
+      let envelopeModule;
+      try {
+        envelopeModule = require('../lib/dispatch-envelope');
+      } catch (err) {
+        result.blocking.push({
+          gate_id: gateId,
+          decision_id: result.decisionId,
+          reason: 'cannot load dispatch-envelope module: ' + err.message,
+          kind: 'envelope-mismatch',
+        });
+        continue;
+      }
+      const envResult = envelopeModule.read(envAbs);
+      if (!envResult.ok) {
+        result.blocking.push({
+          gate_id: gateId,
+          decision_id: result.decisionId,
+          reason: 'envelope load failed at ' + envRelPath + ': ' + envResult.error,
+          kind: 'envelope-mismatch',
+        });
+        continue;
+      }
+      const env = envResult.envelope;
+      if (env.dispatch_id !== receipt.meta.worker_dispatch_id) {
+        result.blocking.push({
+          gate_id: gateId,
+          decision_id: result.decisionId,
+          reason: 'envelope dispatch_id "' + env.dispatch_id +
+            '" does not match receipt.meta.worker_dispatch_id "' +
+            receipt.meta.worker_dispatch_id + '"',
+          kind: 'envelope-mismatch',
+        });
+        continue;
+      }
+      const ownSlug = gateId + '/' + result.decisionId;
+      if (!Array.isArray(env.receipts_added)
+          || env.receipts_added.indexOf(ownSlug) === -1) {
+        result.blocking.push({
+          gate_id: gateId,
+          decision_id: result.decisionId,
+          reason: 'envelope.receipts_added missing self slug "' + ownSlug +
+            '" (envelope.receipts_added=' + JSON.stringify(env.receipts_added) + ')',
+          kind: 'envelope-mismatch',
+        });
+        continue;
+      }
     }
   }
 

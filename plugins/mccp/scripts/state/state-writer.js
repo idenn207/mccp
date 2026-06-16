@@ -46,6 +46,15 @@ const VALID_EVENTS = new Set([
   // last_event → precompact, losing the in-flight marker.
   'resume_dispatching',
   'resume_dispatched',
+  // v1.2.0-m1 Task 8 — orchestrator controller lifecycle markers. Emitted
+  // by dispatch-controller.prepareDispatch (dispatch_started), by the
+  // hybrid watcher when a worker envelope is received (dispatch_envelope_received),
+  // and by reclaimStale or controller crash recovery
+  // (dispatch_chain_aborted, paired with chain_aborted=true). All three
+  // must be in VALID_EVENTS to survive the unknown-event downgrade branch.
+  'dispatch_started',
+  'dispatch_envelope_received',
+  'dispatch_chain_aborted',
 ]);
 
 const SECTIONS = ['Goal', 'Plan', 'Done', 'In Progress', 'Next Step', 'Last Decision', 'Open Questions', 'Last Updated'];
@@ -140,6 +149,15 @@ function emptyState() {
       dispatch_id: null,
       dispatch_id_completed: null,
       dispatch_attempt_count: 0,
+      // v1.2.0-m1 Task 8 — orchestrator controller session tracking.
+      // controller_session_id: UUID set by prepareDispatch, cleared on
+      //   chain abort or successful merge of all envelopes. Conditional render
+      //   (only emit when set) keeps STATE.md quiet for non-controller sessions.
+      // active_dispatch_count: integer count of in-flight dispatches under
+      //   this controller. Watcher decrements as envelopes arrive; reclaimStale
+      //   forces to 0 on chain abort.
+      controller_session_id: null,
+      active_dispatch_count: 0,
     },
     body: {
       goal: '',
@@ -299,6 +317,13 @@ function renderFrontmatter(fm) {
   if (fm.dispatch_attempt_count && fm.dispatch_attempt_count > 0) {
     out.push('dispatch_attempt_count: ' + fm.dispatch_attempt_count);
   }
+  // v1.2.0-m1 Task 8 — orchestrator controller fields (conditional emit).
+  if (fm.controller_session_id) {
+    out.push('controller_session_id: ' + fm.controller_session_id);
+  }
+  if (fm.active_dispatch_count && fm.active_dispatch_count > 0) {
+    out.push('active_dispatch_count: ' + fm.active_dispatch_count);
+  }
   out.push('---');
   return out.join('\n');
 }
@@ -412,6 +437,25 @@ function mergeState(existing, patch) {
     merged.frontmatter.session_end_imminent = false;
   }
 
+  // v1.2.0-m1 Task 8 — orchestrator controller patch fields.
+  // controller_session_id: UUID set by prepareDispatch, null on chain
+  //   abort or successful merge. Accept any non-empty string but no
+  //   format validation here (caller supplies UUID; loose here is safe
+  //   because schema render only emits when non-null).
+  // active_dispatch_count: integer ≥ 0. Watcher emits decrements as
+  //   envelopes arrive; reclaimStale forces to 0 on chain abort.
+  if (patch.controller_session_id !== undefined || patch.controllerSessionId !== undefined) {
+    const v = patch.controller_session_id !== undefined
+      ? patch.controller_session_id : patch.controllerSessionId;
+    merged.frontmatter.controller_session_id = (v === null || v === '') ? null : String(v);
+  }
+  if (patch.active_dispatch_count !== undefined || patch.activeDispatchCount !== undefined) {
+    const raw = patch.active_dispatch_count !== undefined
+      ? patch.active_dispatch_count : patch.activeDispatchCount;
+    const n = Number(raw);
+    merged.frontmatter.active_dispatch_count = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+  }
+
   if (!merged.frontmatter.created_at) merged.frontmatter.created_at = now;
   merged.frontmatter.updated_at = now;
 
@@ -503,7 +547,11 @@ function withStateLock(repoRoot, fn) {
 // (mtime untouched). last_event change still bumps the hash because
 // last_event itself (not last_event_at) is the semantic value — so explicit
 // event transitions still write.
-const HASH_EXCLUDE_FRONTMATTER_KEYS = new Set(['updated_at', 'last_event_at', 'created_at']);
+// dep_check_at is added because session-start.js calls update({depCheck})
+// on every session boot. The semantic payload lives in dep_check_missing
+// (which packages are missing) — dep_check_at is just timestamp self-bump.
+// Including it in the hash dirtied STATE.md in `git status` every session.
+const HASH_EXCLUDE_FRONTMATTER_KEYS = new Set(['updated_at', 'last_event_at', 'created_at', 'dep_check_at']);
 
 function contentSnapshot(state) {
   const fm = {};

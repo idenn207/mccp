@@ -581,3 +581,56 @@ test('v1.0.1 axis K2: PLAN_PATH_COMMANDS are NOT receipt-augmented (only BRANCH_
   const slug = deriveDecisionId('mccp:plan', '', { cwd: repo });
   assert.strictEqual(slug, 'v1-0-1-axis-k');
 });
+
+// ─── v1.2.0-m1 axis M: K2 boundary — no exact receipt + augment fail → fallback ─
+//
+// Reproduces the failure mode the user hit during v1.2.0-m1 PR creation:
+// branch v1.2.0-orchestrator-m1 is valid (slugFromBranch passes), no
+// plan-codex receipt exists at that exact slug, AND K2 augment misses
+// because the actual receipt slug (v1-2-0-orchestrator-controller-m1)
+// inserts an intermediate token rather than extending — branchSlug is
+// NOT a strict prefix. Without axis M, deriveDecisionId returned the
+// mismatched branchSlug and the receipt-gate hook blocked /mccp:pr
+// with "no receipt written".
+
+test('v1.2.0-m1 axis M: /mccp:pr branchSlug valid + no exact receipt + K2 miss → implement-receipt fallback', function () {
+  const repo = makeTmpGitRepo('v1.2.0-orchestrator-m1');
+  // Implement receipt under the actual plan slug — intermediate "controller"
+  // token means branchSlug is NOT a strict prefix → K2 augment misses.
+  const dir = path.join(repo, '.claude', 'receipts', 'mccp-implement-codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'v1-2-0-orchestrator-controller-m1.json'),
+    JSON.stringify({ decision_id: 'v1-2-0-orchestrator-controller-m1', schema_version: 'v1' }));
+  const captured = captureStderr(function () {
+    const slug = deriveDecisionId('mccp:pr', '', { cwd: repo });
+    assert.strictEqual(slug, 'v1-2-0-orchestrator-controller-m1');
+  });
+  assert.match(captured, /K2 augment missed/);
+  assert.match(captured, /fell back to implement-receipt/);
+});
+
+test('v1.2.0-m1 axis M: /mccp:pr branchSlug valid + no implement-receipt → branchSlug preserved (regression-safe)', function () {
+  const repo = makeTmpGitRepo('v1.2.0-orchestrator-m1');
+  // No implement receipt at all — axis M fallback must not trigger.
+  const captured = captureStderr(function () {
+    const slug = deriveDecisionId('mccp:pr', '', { cwd: repo });
+    assert.strictEqual(slug, 'v1-2-0-orchestrator-m1');
+  });
+  assert.strictEqual(captured.indexOf('fell back to implement-receipt'), -1);
+});
+
+test('v1.2.0-m1 axis M: /mccp:pr branchSlug valid + exact plan receipt → branchSlug preserved (no fallback)', function () {
+  const repo = makeTmpGitRepo('v1.2.0-orchestrator-m1');
+  // Exact match: plan-codex receipt at branchSlug. axis M MUST NOT trigger.
+  writePlanReceipt(repo, 'v1-2-0-orchestrator-m1');
+  // Even if a different implement receipt exists, exact branchSlug match wins.
+  const dir = path.join(repo, '.claude', 'receipts', 'mccp-implement-codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'something-else.json'),
+    JSON.stringify({ decision_id: 'something-else', schema_version: 'v1' }));
+  const captured = captureStderr(function () {
+    const slug = deriveDecisionId('mccp:pr', '', { cwd: repo });
+    assert.strictEqual(slug, 'v1-2-0-orchestrator-m1');
+  });
+  assert.strictEqual(captured.indexOf('fell back to'), -1);
+});

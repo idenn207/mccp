@@ -153,6 +153,21 @@ function findReceiptSlugByBranchPrefix(branchSlug, cwd) {
 // receipt. This is how cross-gate dedupe (v0.2.8) finds the matching slug
 // when the user invokes /mccp:pr from a branch that pre-dates the v0.3.6
 // normalize fix or from a worktree without git context.
+// v1.2.0-m1 axis M — true if .claude/receipts/mccp-{plan,implement}-codex/<slug>.json
+// exists for the given slug. Used by the K2 augment fallback to decide whether
+// the branchSlug should be returned as-is or fall through to lastImplementReceiptSlug.
+function receiptExistsForSlug(slug, cwd) {
+  if (!slug || typeof slug !== 'string') return false;
+  const root = path.join(cwd || process.cwd(), '.claude', 'receipts');
+  const gates = ['mccp-plan-codex', 'mccp-implement-codex'];
+  for (let i = 0; i < gates.length; i++) {
+    try {
+      if (fs.existsSync(path.join(root, gates[i], slug + '.json'))) return true;
+    } catch (_e) { /* ignore */ }
+  }
+  return false;
+}
+
 function lastImplementReceiptSlug(cwd) {
   try {
     const dir = path.join(cwd || process.cwd(), '.claude', 'receipts', 'mccp-implement-codex');
@@ -219,6 +234,22 @@ function deriveDecisionId(commandName, commandArgs, opts) {
           branchSlug + ' → ' + augmented + '\n');
         return augmented;
       }
+      // v1.2.0-m1 axis M — boundary case: branchSlug is valid but has no exact
+      // receipt and no strict-prefix augment. Don't return a mismatched slug.
+      // Fall through to lastImplementReceiptSlug so /mccp:pr resolves to the
+      // receipt that /mccp:plan + /mccp:prp-implement actually wrote. Covers
+      // the failure mode where the branch (e.g. v1-2-0-orchestrator-m1) is
+      // NOT a prefix of the plan slug (e.g. v1-2-0-orchestrator-controller-m1)
+      // — token rearrangement, not strict extension, which K2 misses.
+      if (!receiptExistsForSlug(branchSlug, cwd)) {
+        const receiptSlug = lastImplementReceiptSlug(cwd);
+        if (receiptSlug && receiptSlug !== branchSlug) {
+          process.stderr.write(
+            '[mccp:decision] branch slug has no exact receipt and K2 augment missed; ' +
+            'fell back to implement-receipt → ' + receiptSlug + '\n');
+          return receiptSlug;
+        }
+      }
       return branchSlug;
     }
     // v0.3.6 Task 5 (축 3) — branch slug invalid (or empty), try fallback chain
@@ -276,6 +307,7 @@ module.exports = {
   slugFromPlanPath: slugFromPlanPath,
   slugFromBranch: slugFromBranch,
   findReceiptSlugByBranchPrefix: findReceiptSlugByBranchPrefix,
+  receiptExistsForSlug: receiptExistsForSlug,
   lastImplementReceiptSlug: lastImplementReceiptSlug,
   firstNonFlag: firstNonFlag,
   normalizeCommand: normalizeCommand,

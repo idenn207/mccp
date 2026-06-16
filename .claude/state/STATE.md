@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: v1-1-0-s1-shipped
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-06-16T02:31:30.511Z
+updated_at: 2026-06-16T04:18:58.267Z
 last_event: stop_loop_pass
 last_event_at: 2026-06-15T10:20:01.965Z
 unsafe_checkpoint: false
@@ -10,7 +10,7 @@ confirm_required: false
 session_end_imminent: false
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/27
-dep_check_at: 2026-06-16T02:31:30.511Z
+dep_check_at: 2026-06-16T04:18:58.265Z
 ---
 ## Goal
 v1.1.0 Stage 1 ("honest handoff") SHIPPED — v0.3.0 S10b auto-handoff hook의 always-spawn 환상을 quarantine + opt-in으로 honest 전환. `/mccp:resume` slash command 신설 (2-phase atomic dispatch — `resume_dispatching` marker → success-only `resume_dispatched`). STATE.md schema 확장 (resume_* events + dispatch_id/dispatch_attempt_count/dispatch_command). PR #27 squash=75761bf merge + in-session standalone review follow-up (H1+M1+M2 → 564b944 squashed). [[mccp-v1.0.1-cycle]] axis K/P와 병렬 ship — multi-worktree × single-axis 정당성 사례 1건 추가. Stage 2는 `.claude/plans/v1-2-0-orchestrator-stage2-backlog.md`로 위임.
@@ -43,4 +43,4 @@ v1.0.1 patch cycle 잔여 axis 우선순위 — axis L (writeBlockReason INVALID
 
 
 ## Last Updated
-2026-06-16T02:31:30.511Z
+2026-06-16T04:18:58.267Z

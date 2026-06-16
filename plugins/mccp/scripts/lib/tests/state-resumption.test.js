@@ -201,6 +201,42 @@ test('Malformed: dispatch_attempt_count non-numeric → treated as 0', () => {
   assert.strictEqual(r.attemptCount, 0);
 });
 
+// PR #27 review M2: Number.isFinite + >= 0 guard against hand-edited STATE.md.
+// Without the guard, `Number(x) || 0` lets Infinity and negative values through
+// and `>= GIVEUP_AFTER` evaluates to false on NaN/non-finite, locking the
+// session in `in-flight` forever.
+test('M2 guard: dispatch_attempt_count=Infinity → treated as 0 (not giveup)', () => {
+  const state = mkState({
+    last_event: 'resume_dispatching',
+    dispatch_attempt_count: Infinity,
+  });
+  const r = sr.dispatch(state);
+  assert.strictEqual(r.command, 'in-flight',
+    'Infinity must normalize to 0 — anything else lets a hand-edit DoS the resume entry');
+  assert.strictEqual(r.attemptCount, 0);
+});
+
+test('M2 guard: dispatch_attempt_count=-1 → treated as 0', () => {
+  const state = mkState({
+    last_event: 'resume_dispatching',
+    dispatch_attempt_count: -1,
+  });
+  const r = sr.dispatch(state);
+  assert.strictEqual(r.command, 'in-flight');
+  assert.strictEqual(r.attemptCount, 0);
+});
+
+test('M2 guard: dispatch_attempt_count=2.7 → floored to 2 (still in-flight)', () => {
+  const state = mkState({
+    last_event: 'resume_dispatching',
+    dispatch_attempt_count: 2.7,
+  });
+  const r = sr.dispatch(state);
+  assert.strictEqual(r.command, 'in-flight',
+    'fractional counts must floor — never round up past the giveup cap');
+  assert.strictEqual(r.attemptCount, 2);
+});
+
 // ─── Idempotency property ───
 
 test('Idempotency: dispatch() is referentially transparent given same state + opts', () => {

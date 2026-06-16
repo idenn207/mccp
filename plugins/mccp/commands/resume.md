@@ -189,8 +189,14 @@ esac
 # does not exist or is stale — validate exits non-zero, we DO NOT advance to
 # resume_dispatched, the dispatch_attempt_count stays bumped, and next
 # /mccp:resume re-enters via the in-flight or giveup row.
+#
+# Capture validate stderr to a temp file so the failure path can surface the
+# actual reason (schema mismatch, missing chain receipt, etc.). Loud fail-open
+# principle: silently discarding `2>&1 > /dev/null` makes manual recovery
+# guesswork — the user would have to re-run validate by hand to learn why.
+VALIDATE_STDERR=$(mktemp -t mccp-resume-validate.XXXXXX 2>/dev/null || echo "${TMPDIR:-/tmp}/mccp-resume-validate.$$")
 if [ -n "$VALIDATE_COMMAND" ]; then
-  node "$PLUGIN_ROOT/scripts/receipt/cli.js" validate --command "$VALIDATE_COMMAND" > /dev/null 2>&1
+  node "$PLUGIN_ROOT/scripts/receipt/cli.js" validate --command "$VALIDATE_COMMAND" > /dev/null 2> "$VALIDATE_STDERR"
   VALIDATE_EXIT=$?
 else
   VALIDATE_EXIT=1   # unknown dispatched command — fail closed
@@ -208,11 +214,17 @@ if [ "$VALIDATE_EXIT" = "0" ]; then
   });
   " "$PLUGIN_ROOT" "$ROOT" "$DISPATCH_ID" "$SHOULD_CLEAR"
   echo "[mccp:resume] Phase 2 success — dispatch_id=$DISPATCH_ID marked complete (handoff_signal_cleared=$SHOULD_CLEAR)"
+  rm -f "$VALIDATE_STDERR"
 else
   # Failure / timeout / exception. STATE.md stays at resume_dispatching + bumped attempt.
   echo "[mccp:resume] Dispatched command did not produce a success receipt (validate exit=$VALIDATE_EXIT)."
+  if [ -s "$VALIDATE_STDERR" ]; then
+    echo "[mccp:resume] validate stderr:"
+    sed 's/^/  /' "$VALIDATE_STDERR"
+  fi
   echo "[mccp:resume] STATE.md retained: event=resume_dispatching, dispatch_attempt_count=$ATTEMPT."
   echo "[mccp:resume] Next /mccp:resume invocation will re-enter via in-flight (attempt < 3) or resume_giveup (≥ 3)."
+  rm -f "$VALIDATE_STDERR"
   exit 0
 fi
 ```

@@ -62,7 +62,16 @@ function dispatch(state, opts) {
 
   const fm = state.frontmatter;
   const lastEvent = fm.last_event;
-  const currentAttemptCount = Number(fm.dispatch_attempt_count) || 0;
+  // Defense-in-depth: state-writer normalizes dispatch_attempt_count on write,
+  // but STATE.md may be hand-edited as the documented manual-recovery path
+  // (resume_giveup row + CLAUDE.md "user resets dispatch_attempt_count to 0").
+  // `Number(x) || 0` would let `Infinity` and negative numbers through, and
+  // any non-finite value lets `>= GIVEUP_AFTER` evaluate to false and lock the
+  // session in `in-flight` forever. Number.isFinite + >= 0 guards both ends.
+  const rawAttemptCount = Number(fm.dispatch_attempt_count);
+  const currentAttemptCount = Number.isFinite(rawAttemptCount) && rawAttemptCount >= 0
+    ? Math.floor(rawAttemptCount)
+    : 0;
   const existingDispatchId = fm.dispatch_id || null;
 
   // Rows 4 + 5 — already-dispatching state. Re-entry guard.

@@ -344,3 +344,100 @@ test('makeSkeleton v0.3.6: new scope audit fields default to safe values', funct
   assert.strictEqual(s.meta.a11y_routed_to_impeccable, false);
   assert.strictEqual(s.meta.dropped_findings_digest, null);
 });
+
+// v1.2.0-m1 Task 6 — controller-worker attribution axis tests.
+
+const UUID_FX = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const UUID_FX_2 = '11111111-2222-3333-4444-555555555555';
+const ENV_PATH_FX = '.claude/state/dispatches/' + UUID_FX + '.envelope.json';
+
+test('schema v1.2.0-m1: backward compat — receipt with marker=false + 0 attribution fields passes', function () {
+  const v = valid();
+  v.meta.controller_context_marker_present = false;
+  v.meta.dispatched_by_controller_session_id = null;
+  v.meta.worker_dispatch_id = null;
+  v.meta.ipc_envelope_path = null;
+  assert.strictEqual(validate(v).ok, true);
+});
+
+test('schema v1.2.0-m1: backward compat — existing v0.2.x receipt (no marker field) passes', function () {
+  const v = valid();
+  // No marker field set — undefined. Matches existing v0.2.x receipts.
+  assert.strictEqual(v.meta.controller_context_marker_present, undefined);
+  assert.strictEqual(validate(v).ok, true);
+});
+
+test('schema v1.2.0-m1: marker=true requires all 3 attribution fields', function () {
+  const v = valid();
+  v.meta.controller_context_marker_present = true;
+  v.meta.dispatched_by_controller_session_id = UUID_FX;
+  v.meta.worker_dispatch_id = UUID_FX_2;
+  v.meta.ipc_envelope_path = ENV_PATH_FX;
+  assert.strictEqual(validate(v).ok, true);
+});
+
+test('schema v1.2.0-m1: marker=true + 2 of 3 fields rejects (F2 absorption)', function () {
+  const v = valid();
+  v.meta.controller_context_marker_present = true;
+  v.meta.dispatched_by_controller_session_id = UUID_FX;
+  v.meta.worker_dispatch_id = UUID_FX_2;
+  // ipc_envelope_path missing
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /controller_context_marker_present=true requires all 3/);
+});
+
+test('schema v1.2.0-m1: marker=true + 0 fields rejects', function () {
+  const v = valid();
+  v.meta.controller_context_marker_present = true;
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /requires all 3 attribution/);
+});
+
+test('schema v1.2.0-m1: marker=false + 1 attribution field rejects (all-or-nothing)', function () {
+  const v = valid();
+  v.meta.controller_context_marker_present = false;
+  v.meta.worker_dispatch_id = UUID_FX;
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /all-or-nothing invariant/);
+});
+
+test('schema v1.2.0-m1: dispatched_by_controller_session_id must match UUID format', function () {
+  const v = valid();
+  v.meta.controller_context_marker_present = true;
+  v.meta.dispatched_by_controller_session_id = 'not-a-uuid';
+  v.meta.worker_dispatch_id = UUID_FX_2;
+  v.meta.ipc_envelope_path = ENV_PATH_FX;
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /dispatched_by_controller_session_id must be UUID/);
+});
+
+test('schema v1.2.0-m1: ipc_envelope_path must match canonical envelope location', function () {
+  const v = valid();
+  v.meta.controller_context_marker_present = true;
+  v.meta.dispatched_by_controller_session_id = UUID_FX;
+  v.meta.worker_dispatch_id = UUID_FX_2;
+  v.meta.ipc_envelope_path = '/tmp/random.json'; // not in canonical .claude/state/dispatches/
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /ipc_envelope_path must match/);
+});
+
+test('schema v1.2.0-m1: marker field must be boolean if present', function () {
+  const v = valid();
+  v.meta.controller_context_marker_present = 'true'; // string, not boolean
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /controller_context_marker_present must be a boolean/);
+});
+
+test('makeSkeleton v1.2.0-m1: attribution axis defaults to absent state', function () {
+  const s = makeSkeleton();
+  assert.strictEqual(s.meta.controller_context_marker_present, false);
+  assert.strictEqual(s.meta.dispatched_by_controller_session_id, null);
+  assert.strictEqual(s.meta.worker_dispatch_id, null);
+  assert.strictEqual(s.meta.ipc_envelope_path, null);
+});

@@ -24,6 +24,13 @@ const GIT_SHA_RE = /^[0-9a-f]{7,40}$/;
 const DECISION_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 const ISO8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
 
+// v1.2.0-m1 Task 6 — Controller-spawned worker receipt attribution axis.
+// UUIDs identify the controller session + the worker's dispatch within it.
+// Envelope path is repo-relative + pinned to the canonical dispatch location
+// (.claude/state/dispatches/<uuid>.envelope.json) — Task 1 Action #3.
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ENVELOPE_PATH_RE = /^\.claude\/state\/dispatches\/[0-9a-f-]{36}\.envelope\.json$/;
+
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -341,6 +348,64 @@ function validate(receipt) {
       req(typeof m.pr_phase_lock_stale_reclaimed_at_hook === 'boolean',
         'meta.pr_phase_lock_stale_reclaimed_at_hook must be a boolean if present');
     }
+
+    // v1.2.0-m1 Task 6 (Codex F2 absorption) — controller-worker attribution
+    // axis. 4 fields, marker-gated all-or-nothing invariant:
+    //   controller_context_marker_present=true  → all 3 attribution fields require
+    //   controller_context_marker_present=false → all 3 must be absent/null
+    // Partial state (some fields set, others missing) → reject regardless of marker.
+    //
+    // Existing v0.2.x receipts have marker=undefined + 3 fields=undefined,
+    // which counts as "marker false + 0 fields = OK" (backward compat).
+    if (m.controller_context_marker_present !== undefined
+        && m.controller_context_marker_present !== null) {
+      req(typeof m.controller_context_marker_present === 'boolean',
+        'meta.controller_context_marker_present must be a boolean if present');
+    }
+
+    function attrPresent(v) {
+      return v !== undefined && v !== null && v !== '';
+    }
+    const attrFlags = [
+      m.dispatched_by_controller_session_id,
+      m.worker_dispatch_id,
+      m.ipc_envelope_path,
+    ];
+    const attrPresentCount = attrFlags.filter(attrPresent).length;
+    const markerTrue = m.controller_context_marker_present === true;
+
+    // Per-field format validation only fires when the field is present at all.
+    if (attrPresent(m.dispatched_by_controller_session_id)) {
+      req(typeof m.dispatched_by_controller_session_id === 'string'
+          && UUID_V4_RE.test(m.dispatched_by_controller_session_id),
+        'meta.dispatched_by_controller_session_id must be UUID matching ' + UUID_V4_RE);
+    }
+    if (attrPresent(m.worker_dispatch_id)) {
+      req(typeof m.worker_dispatch_id === 'string'
+          && UUID_V4_RE.test(m.worker_dispatch_id),
+        'meta.worker_dispatch_id must be UUID matching ' + UUID_V4_RE);
+    }
+    if (attrPresent(m.ipc_envelope_path)) {
+      req(typeof m.ipc_envelope_path === 'string'
+          && ENVELOPE_PATH_RE.test(m.ipc_envelope_path),
+        'meta.ipc_envelope_path must match ' + ENVELOPE_PATH_RE +
+        ' (canonical dispatch location)');
+    }
+
+    // All-or-nothing invariant: 3 fields move together, gated by marker.
+    if (markerTrue && attrPresentCount !== 3) {
+      err('meta.controller_context_marker_present=true requires all 3 attribution ' +
+        'fields (dispatched_by_controller_session_id + worker_dispatch_id + ' +
+        'ipc_envelope_path) — got ' + attrPresentCount + ' of 3 ' +
+        '(F2 absorption: marker without attribution = silent total loss)');
+    }
+    if (!markerTrue && attrPresentCount > 0) {
+      err('meta.controller_context_marker_present=' +
+        JSON.stringify(m.controller_context_marker_present) +
+        ' but ' + attrPresentCount + ' of 3 attribution fields are set — ' +
+        'all-or-nothing invariant: set marker=true together with all 3, ' +
+        'or leave all 4 unset');
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -406,6 +471,14 @@ function makeSkeleton(overrides) {
       // v1.0.1 axis K — orphan-lock reclaim audit. Stamped by finalize-receipt
       // when the guard hook left a stale-reclaim marker.
       pr_phase_lock_stale_reclaimed_at_hook: false,
+      // v1.2.0-m1 Task 6 — controller-worker attribution. marker=false +
+      // 3 attribution fields=null is the canonical absent state. write.js
+      // flips marker=true + populates all 3 when MCCP_DISPATCH_CONTEXT=1 OR
+      // the supplied --ipc-envelope-path exists on disk.
+      controller_context_marker_present: false,
+      dispatched_by_controller_session_id: null,
+      worker_dispatch_id: null,
+      ipc_envelope_path: null,
     },
   }, o);
 }
@@ -418,6 +491,8 @@ module.exports = {
   SHA256_RE: SHA256_RE,
   GIT_SHA_RE: GIT_SHA_RE,
   DECISION_ID_RE: DECISION_ID_RE,
+  UUID_V4_RE: UUID_V4_RE,
+  ENVELOPE_PATH_RE: ENVELOPE_PATH_RE,
   validate: validate,
   makeSkeleton: makeSkeleton,
 };

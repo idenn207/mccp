@@ -479,3 +479,100 @@ test('v1.1.0 Task 1.5: clearHandoff=false (explicit) also preserves handoff_spaw
   assert.strictEqual(state.frontmatter.session_end_imminent, true);
   assert.strictEqual(state.frontmatter.next_chunk, 'pending');
 });
+
+// v1.2.0-m1 Task 8 — orchestrator controller event + patch field tests.
+
+test('v1.2.0 Task 8: dispatch_started event survives unknown-downgrade', function () {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'dispatch_started', taskFingerprint: 'fp1' });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.last_event, 'dispatch_started');
+});
+
+test('v1.2.0 Task 8: dispatch_envelope_received event survives unknown-downgrade', function () {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'dispatch_envelope_received', taskFingerprint: 'fp1' });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.last_event, 'dispatch_envelope_received');
+});
+
+test('v1.2.0 Task 8: dispatch_chain_aborted event survives + pairs with chain_aborted=true', function () {
+  const repo = mkRepo();
+  sw.update(repo, {
+    event: 'dispatch_chain_aborted',
+    taskFingerprint: 'fp1',
+    chain_aborted: true,
+  });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.last_event, 'dispatch_chain_aborted');
+  assert.strictEqual(state.frontmatter.chain_aborted, true);
+});
+
+test('v1.2.0 Task 8: unknown dispatch_* event still downgrades to precompact', function () {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'dispatch_made_up', taskFingerprint: 'fp1' });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.last_event, 'precompact');
+});
+
+test('v1.2.0 Task 8: controller_session_id round-trips through render/parse', function () {
+  const repo = mkRepo();
+  const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  sw.update(repo, {
+    event: 'dispatch_started',
+    taskFingerprint: 'fp1',
+    controller_session_id: uuid,
+    active_dispatch_count: 3,
+  });
+  const raw = readRaw(repo);
+  assert.match(raw, new RegExp('^controller_session_id: ' + uuid + '$', 'm'));
+  assert.match(raw, /^active_dispatch_count: 3$/m);
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.controller_session_id, uuid);
+  assert.strictEqual(state.frontmatter.active_dispatch_count, 3);
+});
+
+test('v1.2.0 Task 8: active_dispatch_count=0 is NOT rendered (conditional emit)', function () {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact', taskFingerprint: 'fp1' });
+  const raw = readRaw(repo);
+  assert.doesNotMatch(raw, /^active_dispatch_count:/m);
+});
+
+test('v1.2.0 Task 8: controller_session_id=null is NOT rendered (conditional emit)', function () {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact', taskFingerprint: 'fp1' });
+  const raw = readRaw(repo);
+  assert.doesNotMatch(raw, /^controller_session_id:/m);
+});
+
+test('v1.2.0 Task 8: camelCase + snake_case aliases both accepted for controller patches', function () {
+  const repo = mkRepo();
+  const uuid = '11111111-2222-3333-4444-555555555555';
+  sw.update(repo, {
+    event: 'dispatch_started',
+    taskFingerprint: 'fp1',
+    controllerSessionId: uuid,
+    activeDispatchCount: 2,
+  });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.controller_session_id, uuid);
+  assert.strictEqual(state.frontmatter.active_dispatch_count, 2);
+});
+
+test('v1.2.0 Task 8: active_dispatch_count rejects negative — clamps to 0', function () {
+  const repo = mkRepo();
+  sw.update(repo, {
+    event: 'precompact',
+    taskFingerprint: 'fp1',
+    active_dispatch_count: -5,
+  });
+  const state = sw.readState(repo);
+  assert.strictEqual(state.frontmatter.active_dispatch_count, 0);
+});
+
+test('v1.2.0 Task 8: VALID_EVENTS export includes 3 new events', function () {
+  assert.ok(sw.VALID_EVENTS.has('dispatch_started'));
+  assert.ok(sw.VALID_EVENTS.has('dispatch_envelope_received'));
+  assert.ok(sw.VALID_EVENTS.has('dispatch_chain_aborted'));
+});

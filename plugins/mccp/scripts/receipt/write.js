@@ -38,6 +38,54 @@ function relativeToRepo(filePath, repoRoot) {
   return rel.split(path.sep).join('/');
 }
 
+// v1.2.0-m1 Task 6 — controller-worker attribution detection. Marker is
+// detected from MCCP_DISPATCH_CONTEXT=1 OR the supplied --ipc-envelope-path
+// existing on disk. When marker is true, all 3 attribution flags must be
+// passed together (F2 absorption: silent total attribution loss).
+function detectDispatchContext(args, cwd) {
+  const sessionId = args['dispatched-by-controller-session'];
+  const dispatchId = args['worker-dispatch-id'];
+  const envelopePathArg = args['ipc-envelope-path'];
+
+  const sessionIdStr = (typeof sessionId === 'string' && sessionId.length > 0) ? sessionId : null;
+  const dispatchIdStr = (typeof dispatchId === 'string' && dispatchId.length > 0) ? dispatchId : null;
+  const envelopePathStr = (typeof envelopePathArg === 'string' && envelopePathArg.length > 0)
+    ? envelopePathArg : null;
+
+  const markerByEnv = process.env.MCCP_DISPATCH_CONTEXT === '1';
+  let markerByFile = false;
+  if (envelopePathStr) {
+    const envAbs = path.resolve(cwd, envelopePathStr);
+    try { markerByFile = fs.existsSync(envAbs); } catch (_) { markerByFile = false; }
+  }
+  const anyFlagPresent = sessionIdStr !== null || dispatchIdStr !== null || envelopePathStr !== null;
+  const markerDetected = markerByEnv || markerByFile || anyFlagPresent;
+
+  if (markerDetected) {
+    const missing = [];
+    if (!sessionIdStr) missing.push('--dispatched-by-controller-session');
+    if (!dispatchIdStr) missing.push('--worker-dispatch-id');
+    if (!envelopePathStr) missing.push('--ipc-envelope-path');
+    if (missing.length > 0) {
+      const err = new Error('controller dispatch context detected (' +
+        (markerByEnv ? 'MCCP_DISPATCH_CONTEXT=1' :
+          markerByFile ? 'envelope file exists at ' + envelopePathStr :
+          '--ipc-envelope-path/--worker-dispatch-id/--dispatched-by-controller-session supplied') +
+        ') but attribution flags missing: ' + missing.join(', ') +
+        ' — fail-closed to prevent silent attribution loss (F2 absorption)');
+      err.code = 'DISPATCH_MARKER_MISSING_FIELDS';
+      throw err;
+    }
+    return {
+      marker: true,
+      session_id: sessionIdStr,
+      dispatch_id: dispatchIdStr,
+      envelope_path: envelopePathStr,
+    };
+  }
+  return { marker: false, session_id: null, dispatch_id: null, envelope_path: null };
+}
+
 function buildReceipt(args) {
   const gateId = args.gate || args['gate-id'];
   const decisionId = args.decision || args['decision-id'];
@@ -52,6 +100,7 @@ function buildReceipt(args) {
 
   const cwd = args.cwd || process.cwd();
   const repoRoot = gitRepoRoot(cwd);
+  const dispatchCtx = detectDispatchContext(args, cwd);
   const phase = phaseFromGate(gateId);
   const planAbs = path.resolve(cwd, planPath);
   const planHash = planAwareMarkdownHash(planAbs);
@@ -172,6 +221,13 @@ function buildReceipt(args) {
       // pr-phase-guard's lockActive(). Additive boolean, default false.
       pr_phase_lock_stale_reclaimed_at_hook:
         args['pr-phase-lock-stale-reclaimed-at-hook'] === true,
+      // v1.2.0-m1 Task 6 — controller-worker attribution axis. detectDispatchContext
+      // enforces the all-or-nothing invariant and throws DISPATCH_MARKER_MISSING_FIELDS
+      // (exit 12 in cli) if the marker is detected but flags are missing.
+      controller_context_marker_present: dispatchCtx.marker,
+      dispatched_by_controller_session_id: dispatchCtx.session_id,
+      worker_dispatch_id: dispatchCtx.dispatch_id,
+      ipc_envelope_path: dispatchCtx.envelope_path,
     },
   });
 

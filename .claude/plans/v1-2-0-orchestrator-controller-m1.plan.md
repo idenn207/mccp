@@ -325,3 +325,18 @@ grep -q "v1.2.0-m1" CHANGELOG.md
 - Open Questions: 없음 — Codex dedupe된 architectural decisions만 구현. Task 6 (receipt schema 확장 + writer/CLI/validator) + Task 7-12 (migration/state-writer/docs/heartbeat/backlog roll)는 next session에서 자체 Phase 2.5 게이트 통과 후 진입.
 - Codex session 참조: 해당 없음 (dedupe — no spawn)
 
+### Session 3 (Task 6~12 + Task 10 — cross-gate dedupe)
+
+- 호출: dedupe (no new Codex spawn)
+- 라운드 수: 0 — Phase 2.5.1 cross-gate dedupe 적용. Plan-Codex (F1+F2+F3+F4) + Implement-Codex Session 1 (F1+F2+F3) 양 합치 결론이 plan body에 이미 mechanical absorbed. Session 3 implement-time decisions (receipt schema 4 fields + invariant, marker detection 경로, validate-cmd envelope load 순서, migration marker schema, state-writer event/patch field names, heartbeat lease policy, fixture smoke 4-row scenarios)는 모두 plan body Files to Change rows 46-59 + Tasks 6-12 Action 명세에 pre-committed — 신규 architectural decision 없음.
+- 본 세션 implement scope: **Task 6-12 + Task 10 (receipt schema/wiring + migration + state-writer events + docs + fixture smoke + heartbeat reclaim + backlog roll)**. files-to-change subset이 plan whitelist(`schema.js` UPDATE / `schema.test.js` UPDATE / `write.js` UPDATE / `cli.js` UPDATE / `validate-cmd.js` UPDATE / `validate-cmd-envelope.test.js` CREATE / `write-controller-context.test.js` CREATE / `v1.2.0-dispatch-fields.js` CREATE / `v1.2.0-dispatch-fields.test.js` CREATE / `state-writer.js` UPDATE / `state-writer.test.js` UPDATE / `dispatch-controller.js` UPDATE / `dispatch-controller.test.js` UPDATE / `dispatch-fullcycle-smoke.test.js` CREATE / `architecture.md` CREATE / `operator-runbook.md` CREATE / `CLAUDE.md` UPDATE / `CHANGELOG.md` UPDATE / `v1-2-0-orchestrator-stage2-backlog.md` UPDATE) 내 — implement-time file expansion 없음.
+- Dedupe rationale (3-AND):
+  1. plan body `## Codex Adversarial Review` 합치 결론 + Implement-Codex Session 1 합치 결론 모두 존재 ✓
+  2. plan 승인 후 신규 architectural decision 도입 없음 — Session 2 ship 시점에 plan은 Task 6-12 명세를 이미 가지고 있었고 Session 3 진입은 그 명세를 mechanical하게 실행할 뿐 ✓
+  3. Session 3 예상 diff 19 files 모두 plan Files to Change rows 46-59 + Patterns to Mirror rows 35-37 / 53-55 / 57-58 / 59 ⊆ Files to Change ✓
+- Security-reviewer subskill: skip (Session 1 plan body line 312 justification 인계 — IPC envelope file I/O는 cwd 경계 내 atomic rename, Task 6의 `meta.ipc_envelope_path` 추가도 repo-relative path regex validation으로 surface 동일).
+- impeccable design gate: skip silently (Skill 가용 + design_signal=false — Task 6-12 모두 backend, Task 9 docs만 추가).
+- Deferred to backlog: 0
+- Open Questions: 없음 — Codex dedupe된 architectural decisions만 구현. PR 진입은 Phase 7 auto-chain (또는 manual `/mccp:pr`).
+- Codex session 참조: 해당 없음 (dedupe — no spawn)
+

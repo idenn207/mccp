@@ -96,6 +96,7 @@ brainstorming 분석 결과 v0.1의 receipt chain은 *"adversarial review가 일
 | **dual-reviewer escalate** | CRITICAL/divergent 시 `fix-task.md`에 `Next: /santa-loop ...` 안내 추가 (자동 호출은 안 함)   | S12 ship (v0.3.2) |
 | **Codex disabled honor**   | wrapper(codex-invoke.js)가 `MCCP_CODEX_DISABLED=1` 감지 시 spawn 직전 short-circuit + classification='disabled' 즉시 반환. caller(codex-runner / receipt)는 `codex_outcome='disabled'` + `meta.codex_disabled=true` + canonical reason='codex_disabled' 일관 기록. 영구 bypass 사용자에게 우회 env(`MCCP_ALLOW_CODEX_UNAVAILABLE` / `MCCP_PR_SKIP_CODEX_REVIEW`) 0회 chain | M8 ship (v0.3.5) |
 | **Codex/impeccable scope split** | impeccable 가용(`impeccable-detect`의 user-level skill probe 포함) 시 (1) codex-invoke.js가 focus 앞에 `DESIGN_SCOPE_PREAMBLE` prepend → Codex가 visual/color/typography/spacing/animation/micro-interaction/brand finding 미배출 + a11y는 impeccable a11y-architect에 routing 명시, (2) codex-result-filter.js가 Codex 응답에서 design/a11y keyword 매칭 finding을 drop + a11yRoutedCount stash, (3) receipt meta 4 fields(`codex_design_scope_excluded`, `design_findings_dropped`, `a11y_routed_to_impeccable`, `dropped_findings_digest`) audit. impeccable 미가용 시 no-op. `MCCP_CODEX_DESIGN_SCOPE_HONOR=0`로 kill switch (debug용). | v0.3.6 ship (축 1 + STATE.md content-hash skip(축 2) + derive-decision normalize(축 3) bundle) |
+| **dispatch-controller (Stage 2 M1)** | Foundation IPC for multi-worker fanout. Envelope schema (`<parent_cwd>/.claude/state/dispatches/<uuid>.envelope.json`, pending nonterminal + ok/failure/timeout/crashed terminal), hybrid Monitor+polling watcher, atomic worktree→parent sync, pure-lib controller (`prepareDispatch` + `mergeEnvelopes`, no Agent calls). Receipt schema 4 new optional `meta.*` fields with marker-gated all-or-nothing invariant (F2 absorption) + `meta.ipc_envelope_path` triggers validator envelope integrity check (F3 absorption). Heartbeat + `reclaimStale` host-aware tri-state policy mirrors `pr-phase-lock.js` (F4 absorption). M2 pilot fanout + M3 stale-envelope GC deferred. Caller(slash-command body)가 Agent 호출 + controller는 그 결과만 merge — controller-self Agent invocation은 lib에서 불가. dual-review 보존: cross-gate dedupe가 controller-worker 양쪽 모두에서 작동, worker 받은 attribution 3개 필드로 receipt가 controller session에 anchor됨. | v1.2.0-m1 ship |
 
 자동 게이트는 환경 변수로 토글합니다 — §4 cheat sheet의 "운영 토글" 블록 참조.
 
@@ -359,6 +360,10 @@ MCCP_AUTO_CHAIN_SKIP_PR=1                # commit-only chain (직접 push cycles
 MCCP_AUTO_HANDOFF=off|notify             # default: notify. cost-tier 검출 + STATE.md write + stderr 배너. 실제 세션 spawn은 아래 experimental flag에 종속됨. (spawn은 v1.1.0+ deprecated alias — flag 없으면 notify로 강등됨, ledger에 experimental_spawn_requested=true 기록.)
 MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN=1   # v1.1.0+ opt-in. PATH에 claude binary 필요. 미설정 + MCCP_AUTO_HANDOFF=spawn 요청 시 notify로 강등 + fallback_reason='spawn-experimental-flag-missing'. IDE-launched sessions에서 spawn은 거의 항상 실패하므로 default 미설정 권장.
 MCCP_HANDOFF_THRESHOLDS_USD="50,80,100"  # default. comma-separated notice,warning,critical USD thresholds. parse 실패 또는 invariant 위반 시 default + stderr warn.
+
+# v1.2.0-m1 Orchestrator (dispatch-controller)
+MCCP_ORCHESTRATOR_POLL_MS=500            # default. dispatch-watcher polling 간격. 낮추면 envelope detection 빠름, CPU 증가. ─ live (M1)
+MCCP_DISPATCH_CONTEXT=0|1                # default: 0. =1 시 mccp-receipt write가 controller-context marker 자동 stamp + 3 attribution flags(--dispatched-by-controller-session/--worker-dispatch-id/--ipc-envelope-path) 모두 require. 누락 시 fail-closed exit 12 (F2 absorption). controller가 worker prompt 만들 때 자동 set. ─ live (M1)
 ```
 
 ---

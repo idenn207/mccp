@@ -298,3 +298,175 @@ test('mergeEnvelopes: dispatch_id attribution stamped on every finding', () => {
   assert.strictEqual(fromA.length, 2);
   assert.strictEqual(fromB.length, 1);
 });
+
+// ── v1.2.0-m1 Task 12 — heartbeat + reclaimStale (Codex F4 absorption) ────
+
+function setupHeartbeatScenario(over) {
+  over = over || {};
+  const sb = makeSandbox();
+  const envelopeDir = path.join(sb, '.claude', 'state', 'dispatches');
+  fs.mkdirSync(envelopeDir, { recursive: true });
+  const dispatchId = over.dispatchId || STATIC_DISPATCH_ID_A;
+  const envelopePath = path.join(envelopeDir, dispatchId + '.envelope.json');
+  const placeholder = {
+    schema_version: 'v1',
+    dispatch_id: dispatchId,
+    worker_subagent_type: 'mccp:fake',
+    worker_started_at: STATIC_STARTED_AT,
+    worker_ended_at: null,
+    worker_exit_status: 'pending',
+    receipts_added: [],
+    findings: [],
+    next_action: null,
+    controller_session_id: CONTROLLER_SESSION_ID,
+    parent_cwd: sb,
+  };
+  envelope.write(envelopePath, placeholder);
+  const heartbeat = controller.writeHeartbeat(envelopePath, {
+    ownershipToken: 'fixed-token-' + dispatchId,
+    pid: over.pid !== undefined ? over.pid : process.pid,
+    host: over.host || os.hostname(),
+    nowIso: function () { return over.startedAt || STATIC_STARTED_AT; },
+  });
+  if (over.backdateMs !== undefined) {
+    const newMtime = new Date(Date.now() - over.backdateMs);
+    fs.utimesSync(heartbeat.heartbeatPath, newMtime, newMtime);
+  }
+  return { sandbox: sb, envelopeDir: envelopeDir, envelopePath: envelopePath,
+    heartbeatPath: heartbeat.heartbeatPath, dispatchId: dispatchId };
+}
+
+test('heartbeat reclaim 1/4: live controller (same host, pid alive) → NEVER reclaim', () => {
+  const sc = setupHeartbeatScenario();
+  try {
+    const result = controller.reclaimStale({
+      envelopeDir: sc.envelopeDir,
+      ttlMs: 1000,
+    }, {
+      pidIsAlive: function () { return true; },
+    });
+    assert.strictEqual(result.reclaimed.length, 0);
+    assert.strictEqual(result.skipped.length, 1);
+    assert.strictEqual(result.skipped[0].reason, 'pid-alive');
+    const env = envelope.read(sc.envelopePath);
+    assert.strictEqual(env.envelope.worker_exit_status, 'pending');
+    assert.ok(fs.existsSync(sc.heartbeatPath));
+  } finally { rimraf(sc.sandbox); }
+});
+
+test('heartbeat reclaim 2/4: dead pid (same host) → reclaim, envelope=crashed', () => {
+  const sc = setupHeartbeatScenario();
+  try {
+    const result = controller.reclaimStale({
+      envelopeDir: sc.envelopeDir,
+      ttlMs: 1000,
+    }, {
+      pidIsAlive: function () { return false; },
+    });
+    assert.strictEqual(result.reclaimed.length, 1);
+    assert.strictEqual(result.reclaimed[0].reason, 'pid-dead');
+    assert.strictEqual(result.reclaimed[0].envelopeRewritten, true);
+    const env = envelope.read(sc.envelopePath);
+    assert.strictEqual(env.envelope.worker_exit_status, 'crashed');
+    assert.match(env.envelope.worker_ended_at, /^\d{4}-\d{2}-\d{2}T/);
+    assert.ok(!fs.existsSync(sc.heartbeatPath));
+  } finally { rimraf(sc.sandbox); }
+});
+
+test('heartbeat reclaim 3/4: cross-host + mtime > ttl → reclaim (mtime-only)', () => {
+  const sc = setupHeartbeatScenario({ host: 'foreign-host-xyz', backdateMs: 10000 });
+  try {
+    const result = controller.reclaimStale({
+      envelopeDir: sc.envelopeDir,
+      ttlMs: 1000,
+    }, {
+      pidIsAlive: function () { throw new Error('pidIsAlive must not be called for cross-host'); },
+    });
+    assert.strictEqual(result.reclaimed.length, 1);
+    assert.strictEqual(result.reclaimed[0].reason, 'cross-host-mtime-expired');
+    const env = envelope.read(sc.envelopePath);
+    assert.strictEqual(env.envelope.worker_exit_status, 'crashed');
+  } finally { rimraf(sc.sandbox); }
+});
+
+test('heartbeat reclaim 4/4: cross-host + fresh mtime → conservative skip (no reclaim)', () => {
+  const sc = setupHeartbeatScenario({ host: 'foreign-host-xyz' });
+  try {
+    const result = controller.reclaimStale({
+      envelopeDir: sc.envelopeDir,
+      ttlMs: 60000,
+    }, {
+      pidIsAlive: function () { throw new Error('pidIsAlive must not be called for cross-host'); },
+    });
+    assert.strictEqual(result.reclaimed.length, 0);
+    assert.strictEqual(result.skipped.length, 1);
+    assert.strictEqual(result.skipped[0].reason, 'cross-host-fresh');
+    const env = envelope.read(sc.envelopePath);
+    assert.strictEqual(env.envelope.worker_exit_status, 'pending');
+  } finally { rimraf(sc.sandbox); }
+});
+
+test('heartbeat reclaim extra: unparseable body falls back to mtime-only', () => {
+  const sc = setupHeartbeatScenario();
+  fs.writeFileSync(sc.heartbeatPath, '{not parseable', 'utf8');
+  const newMtime = new Date(Date.now() - 10000);
+  fs.utimesSync(sc.heartbeatPath, newMtime, newMtime);
+  try {
+    const result = controller.reclaimStale({
+      envelopeDir: sc.envelopeDir,
+      ttlMs: 1000,
+    });
+    assert.strictEqual(result.reclaimed.length, 1);
+    assert.strictEqual(result.reclaimed[0].reason, 'unparseable-mtime-expired');
+  } finally { rimraf(sc.sandbox); }
+});
+
+test('heartbeat reclaim extra: same-host + mtime > 3×ttl → far-expired safety net', () => {
+  const sc = setupHeartbeatScenario({ backdateMs: 5000 });
+  try {
+    const result = controller.reclaimStale({
+      envelopeDir: sc.envelopeDir,
+      ttlMs: 1000,
+    }, {
+      pidIsAlive: function () { return true; },
+    });
+    assert.strictEqual(result.reclaimed.length, 1);
+    assert.strictEqual(result.reclaimed[0].reason, 'same-host-mtime-far-expired');
+  } finally { rimraf(sc.sandbox); }
+});
+
+test('heartbeat: prepareDispatch writes heartbeats per dispatch + returns ownership token', () => {
+  const sb = makeSandbox();
+  try {
+    const prep = controller.prepareDispatch({
+      workers: [makeWorker(), makeWorker({ subagentType: 'mccp:planner' })],
+      controllerSessionId: CONTROLLER_SESSION_ID,
+      parentCwd: sb,
+    });
+    assert.ok(typeof prep.ownershipToken === 'string' && prep.ownershipToken.length > 0);
+    assert.strictEqual(prep.dispatches.length, 2);
+    prep.dispatches.forEach(function (d) {
+      assert.ok(d.heartbeatPath);
+      assert.ok(fs.existsSync(d.heartbeatPath));
+      const body = JSON.parse(fs.readFileSync(d.heartbeatPath, 'utf8'));
+      assert.match(body.ownership_token_hash, /^sha256:[0-9a-f]{64}$/);
+      assert.strictEqual(body.controller_pid, process.pid);
+    });
+  } finally { rimraf(sb); }
+});
+
+test('refreshHeartbeat: bumps mtime; missing file → ok=false', () => {
+  const sc = setupHeartbeatScenario();
+  try {
+    const past = new Date(Date.now() - 60000);
+    fs.utimesSync(sc.heartbeatPath, past, past);
+    const refresh = controller.refreshHeartbeat(sc.envelopePath);
+    assert.strictEqual(refresh.ok, true);
+    const afterStat = fs.statSync(sc.heartbeatPath);
+    assert.ok(afterStat.mtimeMs > past.getTime());
+    fs.unlinkSync(sc.heartbeatPath);
+    const refresh2 = controller.refreshHeartbeat(sc.envelopePath);
+    assert.strictEqual(refresh2.ok, false);
+    assert.strictEqual(refresh2.reason, 'heartbeat-missing');
+  } finally { rimraf(sc.sandbox); }
+});

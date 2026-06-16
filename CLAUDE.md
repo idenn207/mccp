@@ -57,6 +57,7 @@ PRD부터 PR까지 전 라이프사이클을 단일 namespace(`/mccp:*`)로 자�
 
 ```
 /mccp:work <feature>   ← 단일 entry (v0.3.1+, trivial 자동 분기)
+/mccp:resume           ← alternate entry (v1.1.0+, STATE.md handoff_spawn 신호 시 권장)
         ↓
         ├─ trivial path: /mccp:prp-commit → /mccp:pr
         │
@@ -76,6 +77,8 @@ PRD부터 PR까지 전 라이프사이클을 단일 namespace(`/mccp:*`)로 자�
 
 각 chain step은 개별 호출도 가능 (subcommand 그대로). `/mccp:work`는 위 sequence를 자동으로 묶을 뿐 — trivial vs full 분류는 [work-orchestrator.js](plugins/mccp/scripts/lib/work-orchestrator.js)의 5중 AND 휴리스틱 (file count ≤ 2, LOC ≤ 20, ext ⊂ {md,txt,json,yaml,yml}, no new files, no source-code signature) + 보수적 default = full. `--full` / `--trivial` override 지원.
 
+`/mccp:resume`는 v1.1.0 Stage 1에서 도입된 honest handoff resume entry입니다. `MCCP_AUTO_HANDOFF=notify` (default)가 STATE.md에 남긴 `handoff_spawn` 신호를 읽고 적절한 다음 명령(`/mccp:work --resume task=…` 또는 `/mccp:prp-implement --apply-fix-task`)으로 dispatch합니다. 2-phase atomic dispatch (`resume_dispatching` marker → success-only `resume_dispatched`)로 mid-dispatch crash를 견딥니다. STATE.md에 handoff 신호가 없으면 noop으로 종료.
+
 각 단계는 **receipt** (`.claude/receipts/*.json`)를 발행하고, 다음 단계는 이전 receipt chain을 검증한 뒤에만 시작합니다 (mechanical enforcement). receipt 운용 모드는 §1.2의 `MCCP_RECEIPT_GATE_MODE` 참조.
 
 v0.2.9부터 각 게이트는 R1 default + YAGNI triage로 R2/R3 escalate 결정. `DEFER_TO_BACKLOG` 항목은 [.claude/plans/codex-findings-backlog.md](.claude/plans/codex-findings-backlog.md) 단일 파일에 누적. cap override: `MCCP_GATE_ROUND_CAP=1|2|3` (default 1, §4 운영 토글 참조).
@@ -88,7 +91,7 @@ brainstorming 분석 결과 v0.1의 receipt chain은 *"adversarial review가 일
 | -------------------------- | --------------------------------------------------------------------------------------------- | ------------ |
 | **Stop-loop**              | Claude stop 직전 자동 `lint → typecheck → test → e2e` + (opt-in) Codex diff review. fail 시 `fix-task.md` 생성 + 최대 2회 bounded retry | S8 ship      |
 | **STATE.md continuity**    | `PreCompact`에서 write, `SessionStart`에서 inject — 세션 간 컨텍스트 자동 복원                | S10a ship    |
-| **Auto-handoff**           | 누적 비용 $50 notice / $80 soft / $100 hard ceiling 임계로 자동 세션 전환                     | S10b ship (v0.3.0) |
+| **Auto-handoff**           | 누적 비용 $50 notice / $80 soft / $100 hard ceiling 임계 자동 검출 → STATE.md `handoff_spawn` 신호 write + stderr 배너. 실제 세션 전환은 `spawn` 모드만 시도하며 v1.1.0+부터 experimental opt-in (`MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN=1`)이 없으면 `notify`로 강등. 다음 세션에서 `/mccp:resume`로 resume 권장. | S10b ship (v0.3.0), v1.1.0 honest |
 | **`/mccp:work`**           | 단일 entry로 PRD → plan → implement → PR 전 chain 자동 orchestration                          | S11 ship (v0.3.1) |
 | **dual-reviewer escalate** | CRITICAL/divergent 시 `fix-task.md`에 `Next: /santa-loop ...` 안내 추가 (자동 호출은 안 함)   | S12 ship (v0.3.2) |
 | **Codex disabled honor**   | wrapper(codex-invoke.js)가 `MCCP_CODEX_DISABLED=1` 감지 시 spawn 직전 short-circuit + classification='disabled' 즉시 반환. caller(codex-runner / receipt)는 `codex_outcome='disabled'` + `meta.codex_disabled=true` + canonical reason='codex_disabled' 일관 기록. 영구 bypass 사용자에게 우회 env(`MCCP_ALLOW_CODEX_UNAVAILABLE` / `MCCP_PR_SKIP_CODEX_REVIEW`) 0회 chain | M8 ship (v0.3.5) |
@@ -241,6 +244,7 @@ v0.2.7 lock holder가 살아있는 동안 v0.2.8 binary가 부팅하면, v0.2.8�
 
 # 게이트 파이프라인
 /mccp:work <feature>                # 단일 entry (v0.3.1+) — trivial 자동 분기, 아래 chain을 자동 orchestration
+/mccp:resume                        # honest handoff resume entry (v1.1.0+) — STATE.md handoff_spawn 신호 시 권장 진입점
 /mccp:plan-prd <feature>            # PRD 작성
 /mccp:plan <feature-or-prd-path>    # 구현 plan + Codex R1/R2 수렴
 /mccp:prp-implement <plan-path>     # plan 실행 + validation loop
@@ -351,8 +355,9 @@ MCCP_RECEIPT_DEBUG_LEGACY_INLINE=0                 # v0.2.7 advanced opt-out. MC
 MCCP_AUTO_CHAIN_DISABLE=1                # kill switch ─ live
 MCCP_AUTO_CHAIN_SKIP_PR=1                # commit-only chain (직접 push cycles 용) ─ LLM-observed (mechanical 미구현; auto-chain.js는 honor하지 않음, W-VERDICT C2 axis M)
 
-# Auto-handoff (v0.3.0 S10b — live)
-MCCP_AUTO_HANDOFF=off|notify|spawn       # default: notify. spawn 모드 + claude binary 미감지 시 notify로 graceful degrade.
+# Auto-handoff (v0.3.0 S10b — live, v1.1.0 honest quarantine)
+MCCP_AUTO_HANDOFF=off|notify             # default: notify. cost-tier 검출 + STATE.md write + stderr 배너. 실제 세션 spawn은 아래 experimental flag에 종속됨. (spawn은 v1.1.0+ deprecated alias — flag 없으면 notify로 강등됨, ledger에 experimental_spawn_requested=true 기록.)
+MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN=1   # v1.1.0+ opt-in. PATH에 claude binary 필요. 미설정 + MCCP_AUTO_HANDOFF=spawn 요청 시 notify로 강등 + fallback_reason='spawn-experimental-flag-missing'. IDE-launched sessions에서 spawn은 거의 항상 실패하므로 default 미설정 권장.
 MCCP_HANDOFF_THRESHOLDS_USD="50,80,100"  # default. comma-separated notice,warning,critical USD thresholds. parse 실패 또는 invariant 위반 시 default + stderr warn.
 ```
 

@@ -219,7 +219,12 @@ async function main() {
   }
 
   const decisionMod = loadDecisionModule();
-  if (decisionMod && commandName.toLowerCase() === 'mccp:code-review') {
+  // v1.1.0-s1 — /mccp:review-pr is documented as an alias of /mccp:code-review,
+  // so it must honor the same --standalone / Local Review Mode bypass. Without
+  // this the alias path falls through to deriveDecisionId + branch-fallback and
+  // blocks on a phantom mccp-pr-codex receipt the user never owed.
+  const REVIEW_BYPASS_COMMANDS = new Set(['mccp:code-review', 'mccp:review-pr']);
+  if (decisionMod && REVIEW_BYPASS_COMMANDS.has(commandName.toLowerCase())) {
     if (decisionMod.isStandalone(event.command_args)) {
       debug('--standalone bypass for ' + commandName);
       return allow();

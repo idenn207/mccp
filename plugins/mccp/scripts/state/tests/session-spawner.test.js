@@ -58,6 +58,14 @@ test('mode=notify → no spawn, STATE.md written with handoff_spawn', () => {
   assert.strictEqual(state.frontmatter.unsafe_checkpoint, false);
 });
 
+// v1.1.0 Stage 1 — spawn-mode tests must opt in to the experimental flag,
+// otherwise session-spawner.js short-circuits to SPAWN_EXPERIMENTAL_FLAG_MISSING
+// before reaching the inner branches these tests exercise (claude binary check,
+// platform spawn). Without this each case below would fail with
+// fallbackReason='spawn-experimental-flag-missing' instead of the intended
+// CLAUDE_BINARY_MISSING / TMUX_MISSING / platform-spawn outcomes.
+const SPAWN_OPT_IN = Object.freeze({ MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN: '1' });
+
 test('mode=spawn + claude missing → degrade to notify, fallbackReason recorded', () => {
   const root = mkRoot();
   const rec = mkSpawnRecorder();
@@ -65,6 +73,7 @@ test('mode=spawn + claude missing → degrade to notify, fallbackReason recorded
     root: root, tier: 'critical', currentTask: 'taskC', mode: 'spawn',
     spawnImpl: rec.impl,
     claudeAvailable: () => false,
+    env: SPAWN_OPT_IN,
   });
   assert.strictEqual(r.ok, true);
   assert.strictEqual(r.mode, 'notify');
@@ -80,6 +89,7 @@ test('mode=spawn + win32 platform → powershell.exe spawn', () => {
     spawnImpl: rec.impl,
     claudeAvailable: () => true,
     platform: 'win32',
+    env: SPAWN_OPT_IN,
   });
   assert.strictEqual(r.ok, true);
   assert.strictEqual(r.mode, 'spawn');
@@ -97,6 +107,7 @@ test('mode=spawn + linux + tmux available → tmux new-window', () => {
     claudeAvailable: () => true,
     platform: 'linux',
     hasTmux: () => true,
+    env: SPAWN_OPT_IN,
   });
   assert.strictEqual(r.ok, true);
   assert.strictEqual(r.mode, 'spawn');
@@ -116,6 +127,7 @@ test('mode=spawn + linux + no tmux → degrade to notify', () => {
     claudeAvailable: () => true,
     platform: 'linux',
     hasTmux: () => false,
+    env: SPAWN_OPT_IN,
   });
   assert.strictEqual(r.mode, 'notify');
   assert.strictEqual(r.fallbackReason, spawner.FALLBACK.TMUX_MISSING);

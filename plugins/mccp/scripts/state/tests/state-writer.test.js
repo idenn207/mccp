@@ -218,12 +218,13 @@ test('v0.3.6 Task 4: contentSnapshot excludes the 3 timestamp fields', () => {
   assert.strictEqual(snap.fm.last_event, 'precompact');
 });
 
-test('v0.3.6 Task 4: HASH_EXCLUDE_FRONTMATTER_KEYS exposes the 3 timestamp keys', () => {
+test('v0.3.6 Task 4: HASH_EXCLUDE_FRONTMATTER_KEYS exposes the timestamp self-bump keys', () => {
   assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS instanceof Set);
-  assert.strictEqual(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.size, 3);
+  assert.strictEqual(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.size, 4);
   assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('updated_at'));
   assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('last_event_at'));
   assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('created_at'));
+  assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('dep_check_at'));
 });
 
 test('v0.3.6 Task 4: contentHash is deterministic and identical for snapshot-equal states', () => {
@@ -290,14 +291,38 @@ test('v0.3.6 Task 4: update with body change DOES write', () => {
   assert.ok(after > pastMtime, 'body change must write');
 });
 
-test('v0.3.6 Task 4: update with depCheck patch DOES write (dep_check_at is semantic)', () => {
+test('v0.3.6 Task 4: depCheck patch with new missing set DOES write (dep_check_missing is semantic)', () => {
   const repo = mkRepo();
   sw.update(repo, { event: 'precompact', taskFingerprint: 'fp-dep', goal: 'g' });
   const target = sw.statePath(repo);
   const pastMtime = setPastMtime(target, 60);
   sw.update(repo, { event: 'precompact', depCheck: { checkedAt: '2026-06-09T12:00:00Z', missing: ['codex'] } });
   const after = fs.statSync(target).mtimeMs;
-  assert.ok(after > pastMtime, 'dep_check_* update is semantically meaningful — must write');
+  assert.ok(after > pastMtime, 'dep_check_missing change is semantically meaningful — must write');
+});
+
+// Regression: session-start.js calls update({depCheck:{checkedAt:now, missing:[...same...]}})
+// on every session boot. Before dep_check_at was added to the hash-exclude
+// set, that timestamp self-bump dirtied STATE.md in `git status` every
+// session even though the only semantic content (missing set) was unchanged.
+test('v0.3.6 Task 4: depCheck patch with same missing set is a no-op (dep_check_at self-bump only)', () => {
+  const repo = mkRepo();
+  sw.update(repo, {
+    event: 'precompact',
+    taskFingerprint: 'fp-noise',
+    goal: 'stable',
+    depCheck: { checkedAt: '2026-06-09T12:00:00Z', missing: ['codex'] },
+  });
+  const target = sw.statePath(repo);
+  const pastMtime = setPastMtime(target, 60);
+  sw.update(repo, {
+    event: 'precompact',
+    depCheck: { checkedAt: '2026-06-10T12:00:00Z', missing: ['codex'] },
+  });
+  const after = fs.statSync(target).mtimeMs;
+  assert.strictEqual(after, pastMtime,
+    'dep_check_at-only timestamp drift must skip write (mtime unchanged): past=' +
+    pastMtime + ' after=' + after);
 });
 
 test('v0.3.6 Task 4: update with escalate_pending=true DOES write', () => {

@@ -547,7 +547,11 @@ function withStateLock(repoRoot, fn) {
 // (mtime untouched). last_event change still bumps the hash because
 // last_event itself (not last_event_at) is the semantic value — so explicit
 // event transitions still write.
-const HASH_EXCLUDE_FRONTMATTER_KEYS = new Set(['updated_at', 'last_event_at', 'created_at']);
+// dep_check_at is added because session-start.js calls update({depCheck})
+// on every session boot. The semantic payload lives in dep_check_missing
+// (which packages are missing) — dep_check_at is just timestamp self-bump.
+// Including it in the hash dirtied STATE.md in `git status` every session.
+const HASH_EXCLUDE_FRONTMATTER_KEYS = new Set(['updated_at', 'last_event_at', 'created_at', 'dep_check_at']);
 
 function contentSnapshot(state) {
   const fm = {};

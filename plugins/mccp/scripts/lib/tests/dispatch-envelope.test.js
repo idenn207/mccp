@@ -2,8 +2,19 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const envelope = require('../dispatch-envelope');
+
+function makeSandbox() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-envelope-test-'));
+}
+
+function rimraf(target) {
+  try { fs.rmSync(target, { recursive: true, force: true }); } catch (_) {}
+}
 
 function validPlaceholder(overrides) {
   return Object.assign({
@@ -220,4 +231,161 @@ test('JSON_SCHEMA required[] matches validate() coverage', () => {
     assert.ok(required.indexOf(field) !== -1,
       'JSON_SCHEMA.required missing field: ' + field);
   });
+});
+
+// ── Task 2 I/O helpers (read/write/markStatus) ────────────────────────────
+
+test('read returns ENOENT loudly when envelope missing', () => {
+  const sb = makeSandbox();
+  try {
+    const result = envelope.read(path.join(sb, 'missing.envelope.json'));
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.error.indexOf('envelope not found') !== -1, result.error);
+  } finally { rimraf(sb); }
+});
+
+test('read returns parse error on malformed JSON', () => {
+  const sb = makeSandbox();
+  try {
+    const p = path.join(sb, 'bad.envelope.json');
+    fs.writeFileSync(p, '{ not valid json', 'utf8');
+    const result = envelope.read(p);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.error.indexOf('envelope parse failed') !== -1, result.error);
+  } finally { rimraf(sb); }
+});
+
+test('read returns schema error when envelope invalid', () => {
+  const sb = makeSandbox();
+  try {
+    const p = path.join(sb, 'invalid.envelope.json');
+    fs.writeFileSync(p, JSON.stringify({ schema_version: 'v2' }), 'utf8');
+    const result = envelope.read(p);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.error.indexOf('envelope invalid') !== -1, result.error);
+  } finally { rimraf(sb); }
+});
+
+test('write + read round-trip preserves valid envelope', () => {
+  const sb = makeSandbox();
+  try {
+    const p = path.join(sb, 'rt.envelope.json');
+    const original = validPlaceholder();
+    const wResult = envelope.write(p, original);
+    assert.strictEqual(wResult.ok, true, wResult.error);
+    assert.strictEqual(fs.existsSync(p), true);
+    assert.strictEqual(fs.existsSync(p + '.tmp'), false,
+      'tmp file must not survive successful rename');
+    const rResult = envelope.read(p);
+    assert.strictEqual(rResult.ok, true, rResult.error);
+    assert.deepStrictEqual(rResult.envelope, original);
+  } finally { rimraf(sb); }
+});
+
+test('write auto-creates parent directory', () => {
+  const sb = makeSandbox();
+  try {
+    const p = path.join(sb, 'nested', 'deeper', 'auto.envelope.json');
+    const wResult = envelope.write(p, validPlaceholder());
+    assert.strictEqual(wResult.ok, true, wResult.error);
+    assert.strictEqual(fs.existsSync(p), true);
+  } finally { rimraf(sb); }
+});
+
+test('write rejects invalid envelope before touching disk', () => {
+  const sb = makeSandbox();
+  try {
+    const p = path.join(sb, 'reject.envelope.json');
+    const wResult = envelope.write(p, { schema_version: 'v2' });
+    assert.strictEqual(wResult.ok, false);
+    assert.ok(wResult.error.indexOf('envelope invalid') !== -1, wResult.error);
+    assert.strictEqual(fs.existsSync(p), false,
+      'file must not be created when validation fails');
+    assert.strictEqual(fs.existsSync(p + '.tmp'), false);
+  } finally { rimraf(sb); }
+});
+
+test('markStatus transitions pending → ok and sets worker_ended_at', () => {
+  const sb = makeSandbox();
+  try {
+    const p = path.join(sb, 'transition.envelope.json');
+    envelope.write(p, validPlaceholder());
+    const result = envelope.markStatus(p, 'ok', {
+      receiptsAdded: ['mccp-code-reviewer/abc.json'],
+    });
+    assert.strictEqual(result.ok, true, result.error);
+    const after = envelope.read(p);
+    assert.strictEqual(after.ok, true);
+    assert.strictEqual(after.envelope.worker_exit_status, 'ok');
+    assert.ok(envelope.ISO8601_RE.test(after.envelope.worker_ended_at),
+      'worker_ended_at must be ISO8601 after terminal mark');
+    assert.deepStrictEqual(after.envelope.receipts_added,
+      ['mccp-code-reviewer/abc.json']);
+  } finally { rimraf(sb); }
+});
+
+test('markStatus honors explicit opts.endedAt', () => {
+  const sb = makeSandbox();
+  try {
+    const p = path.join(sb, 'explicit-ended.envelope.json');
+    envelope.write(p, validPlaceholder());
+    const explicit = '2026-06-17T01:23:45.678Z';
+    const result = envelope.markStatus(p, 'failure', { endedAt: explicit });
+    assert.strictEqual(result.ok, true, result.error);
+    const after = envelope.read(p);
+    assert.strictEqual(after.envelope.worker_ended_at, explicit);
+    assert.strictEqual(after.envelope.worker_exit_status, 'failure');
+  } finally { rimraf(sb); }
+});
+
+test('markStatus pending with explicit endedAt is ignored (kept null)', () => {
+  const sb = makeSandbox();
+  try {
+    const p = path.join(sb, 'pending-keep-null.envelope.json');
+    envelope.write(p, validTerminal('ok'));
+    const result = envelope.markStatus(p, 'pending', {
+      endedAt: '2026-06-17T01:23:45Z',
+    });
+    assert.strictEqual(result.ok, true, result.error);
+    const after = envelope.read(p);
+    assert.strictEqual(after.envelope.worker_ended_at, null);
+    assert.strictEqual(after.envelope.worker_exit_status, 'pending');
+  } finally { rimraf(sb); }
+});
+
+test('markStatus rejects unknown status loudly', () => {
+  const sb = makeSandbox();
+  try {
+    const p = path.join(sb, 'bad-status.envelope.json');
+    envelope.write(p, validPlaceholder());
+    const result = envelope.markStatus(p, 'zombie');
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.error.indexOf('status must be one of') !== -1, result.error);
+  } finally { rimraf(sb); }
+});
+
+test('markStatus fails when envelope is missing', () => {
+  const sb = makeSandbox();
+  try {
+    const result = envelope.markStatus(path.join(sb, 'absent.envelope.json'), 'ok');
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.error.indexOf('pre-read failed') !== -1, result.error);
+  } finally { rimraf(sb); }
+});
+
+test('markStatus applies findings + nextAction overrides', () => {
+  const sb = makeSandbox();
+  try {
+    const p = path.join(sb, 'overrides.envelope.json');
+    envelope.write(p, validPlaceholder());
+    const findings = [{ severity: 'HIGH', message: 'race observed' }];
+    const result = envelope.markStatus(p, 'crashed', {
+      findings: findings,
+      nextAction: 'reclaim envelope manually',
+    });
+    assert.strictEqual(result.ok, true, result.error);
+    const after = envelope.read(p);
+    assert.deepStrictEqual(after.envelope.findings, findings);
+    assert.strictEqual(after.envelope.next_action, 'reclaim envelope manually');
+  } finally { rimraf(sb); }
 });

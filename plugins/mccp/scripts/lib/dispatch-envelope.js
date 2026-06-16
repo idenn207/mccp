@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 const SCHEMA_VERSION = 'v1';
 
 const WORKER_EXIT_STATUSES = ['pending', 'ok', 'failure', 'timeout', 'crashed'];
@@ -143,6 +146,115 @@ function validate(envelope) {
   return errors.length === 0 ? { ok: true, errors: [] } : { ok: false, errors: errors };
 }
 
+// Atomic read/write helpers. Worker-side contract: each dispatch envelope has
+// a single writer (the worker assigned the dispatch_id) and N readers (the
+// controller-side watcher + validate-cmd). state-writer.js uses an advisory
+// lock because PreCompact + Stop-loop can race the same STATE.md — here there
+// is no analogous race, so no lock file. tmp + renameSync is sufficient: a
+// crash mid-write leaves <path>.tmp orphaned but the target is either the
+// previous valid envelope or absent.
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function ensureDir(target) {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+}
+
+function read(envelopePath) {
+  if (typeof envelopePath !== 'string' || envelopePath.length === 0) {
+    return { ok: false, error: 'envelopePath must be a non-empty string' };
+  }
+  let raw;
+  try {
+    raw = fs.readFileSync(envelopePath, 'utf8');
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      return { ok: false, error: 'envelope not found: ' + envelopePath };
+    }
+    return { ok: false, error: 'envelope read failed: ' + err.message };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return { ok: false, error: 'envelope parse failed: ' + err.message };
+  }
+  const result = validate(parsed);
+  if (!result.ok) {
+    return { ok: false, error: 'envelope invalid: ' + result.errors.join('; ') };
+  }
+  return { ok: true, envelope: parsed };
+}
+
+function write(envelopePath, envelope) {
+  if (typeof envelopePath !== 'string' || envelopePath.length === 0) {
+    return { ok: false, error: 'envelopePath must be a non-empty string' };
+  }
+  const result = validate(envelope);
+  if (!result.ok) {
+    return { ok: false, error: 'envelope invalid: ' + result.errors.join('; ') };
+  }
+  const tmpPath = envelopePath + '.tmp';
+  try {
+    ensureDir(envelopePath);
+  } catch (err) {
+    return { ok: false, error: 'mkdir failed: ' + err.message };
+  }
+  const body = JSON.stringify(envelope, null, 2) + '\n';
+  try {
+    fs.writeFileSync(tmpPath, body, 'utf8');
+  } catch (err) {
+    return { ok: false, error: 'tmp write failed: ' + err.message };
+  }
+  try {
+    fs.renameSync(tmpPath, envelopePath);
+  } catch (err) {
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+    return { ok: false, error: 'rename failed: ' + err.message };
+  }
+  return { ok: true };
+}
+
+// markStatus is the worker-side declaration helper. The worker reads the
+// placeholder envelope (controller wrote it with status=pending), mutates the
+// status + optional terminal fields, and atomic-rewrites. opts:
+//   endedAt           — ISO8601 timestamp; defaults to nowIso() for terminal
+//                       statuses; ignored (must be null) for 'pending'.
+//   receiptsAdded     — array of slugs to set (replaces existing).
+//   findings          — array of objects to set (replaces existing).
+//   nextAction        — string or null.
+function markStatus(envelopePath, status, opts) {
+  opts = opts || {};
+  if (WORKER_EXIT_STATUSES.indexOf(status) === -1) {
+    return {
+      ok: false,
+      error: 'status must be one of: ' + WORKER_EXIT_STATUSES.join(', '),
+    };
+  }
+  const readResult = read(envelopePath);
+  if (!readResult.ok) {
+    return { ok: false, error: 'pre-read failed: ' + readResult.error };
+  }
+  const updated = Object.assign({}, readResult.envelope, { worker_exit_status: status });
+  if (status === 'pending') {
+    updated.worker_ended_at = null;
+  } else {
+    updated.worker_ended_at = opts.endedAt || nowIso();
+  }
+  if (Object.prototype.hasOwnProperty.call(opts, 'receiptsAdded')) {
+    updated.receipts_added = opts.receiptsAdded;
+  }
+  if (Object.prototype.hasOwnProperty.call(opts, 'findings')) {
+    updated.findings = opts.findings;
+  }
+  if (Object.prototype.hasOwnProperty.call(opts, 'nextAction')) {
+    updated.next_action = opts.nextAction;
+  }
+  return write(envelopePath, updated);
+}
+
 module.exports = {
   SCHEMA_VERSION: SCHEMA_VERSION,
   WORKER_EXIT_STATUSES: WORKER_EXIT_STATUSES,
@@ -151,4 +263,7 @@ module.exports = {
   ISO8601_RE: ISO8601_RE,
   JSON_SCHEMA: JSON_SCHEMA,
   validate: validate,
+  read: read,
+  write: write,
+  markStatus: markStatus,
 };

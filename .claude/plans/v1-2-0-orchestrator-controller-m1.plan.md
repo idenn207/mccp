@@ -312,3 +312,16 @@ grep -q "v1.2.0-m1" CHANGELOG.md
 - Open Questions: 없음 — 3 HIGH 모두 ACCEPT_NOW + plan absorbed. CRITICAL 없음 (auto-CRITICAL catalog 매칭 0건). Security-reviewer skip (auth/crypto/secrets/input-validation 도메인 아님 — IPC envelope file I/O는 cwd 경계 내 atomic rename). impeccable design gate skip silently (skill_available=true + design_signal=false — UI 변경 없음).
 - Codex session 참조: threadId `019eced3-cce9-7be3-81a1-c8a5c30a27fe` (durationMs=506834, classification=ok, blocking=false, advisory=false)
 
+### Session 2 (Task 2~5 — cross-gate dedupe)
+
+- 호출: dedupe (no new Codex spawn)
+- 라운드 수: 0 — Phase 2.5.1 cross-gate dedupe 적용. Plan-Codex `## Codex Adversarial Review` 합치 결론(F1+F2+F3+F4 ACCEPT_NOW absorbed) + Implement-Codex Session 1 R1 합치 결론(F1+F2+F3 ACCEPT_NOW absorbed) 양쪽 모두 plan body에 mechanical absorbed. Session 2 implement-time decisions(file 내부 helper 구조, error-handling shape, naming)는 모두 plan body Patterns to Mirror / Files to Change / Tasks 명세에 pre-committed — 신규 architectural decision 없음.
+- 본 세션 implement scope: **Task 2~5 (IPC core)**. files-to-change subset이 plan whitelist(`dispatch-envelope.js` UPDATE / `worktree-sync.js` CREATE / `dispatch-watcher.js` CREATE / `dispatch-controller.js` CREATE + 4 tests) 내 — implement-time file expansion 없음.
+- Dedupe rationale (3-AND):
+  1. plan body `## Codex Adversarial Review` 합치 결론 존재 ✓
+  2. plan 승인 후 신규 architectural decision 도입 없음 (seed commit 8b85062 이래 plan body 무변경) ✓
+  3. Session 2 예상 diff `plugins/mccp/scripts/lib/{worktree-sync,dispatch-watcher,dispatch-controller}.js` + 3 신규 test + `dispatch-envelope.js` augment ⊆ Files to Change ✓
+- Deferred to backlog: 0
+- Open Questions: 없음 — Codex dedupe된 architectural decisions만 구현. Task 6 (receipt schema 확장 + writer/CLI/validator) + Task 7-12 (migration/state-writer/docs/heartbeat/backlog roll)는 next session에서 자체 Phase 2.5 게이트 통과 후 진입.
+- Codex session 참조: 해당 없음 (dedupe — no spawn)
+

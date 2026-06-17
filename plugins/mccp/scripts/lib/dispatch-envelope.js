@@ -13,6 +13,25 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const ISO8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
 
+// v1.3.0-m0 Task 4a (Codex Plan-Codex R1 F3 absorption) — strict top-level
+// key allowlist. Mirrors JSON_SCHEMA.additionalProperties:false so the hand
+// validate() and the exported JSON Schema do not disagree. Adding a new key
+// requires updating BOTH this set AND JSON_SCHEMA.properties AND landing
+// docs/v1.x.y-orchestrator/envelope-schema-v2.md (schema bump path).
+const KNOWN_KEYS = Object.freeze(new Set([
+  'schema_version',
+  'dispatch_id',
+  'worker_subagent_type',
+  'worker_started_at',
+  'worker_ended_at',
+  'worker_exit_status',
+  'receipts_added',
+  'findings',
+  'next_action',
+  'controller_session_id',
+  'parent_cwd',
+]));
+
 const JSON_SCHEMA = Object.freeze({
   $schema: 'http://json-schema.org/draft-07/schema#',
   $id: 'https://my-claude-code-plugin/schemas/v1.2.0-dispatch-envelope.json',
@@ -143,6 +162,16 @@ function validate(envelope) {
   req(typeof envelope.parent_cwd === 'string' && envelope.parent_cwd.length > 0,
     'parent_cwd must be a non-empty string');
 
+  // v1.3.0-m0 Task 4a — unknown-key rejection. Matches JSON_SCHEMA.additionalProperties:false.
+  // Prevents silent envelope drift in any code path using validate() rather
+  // than the exported JSON Schema. New keys require a v2 envelope schema file.
+  for (const k of Object.keys(envelope)) {
+    if (!KNOWN_KEYS.has(k)) {
+      err('unknown top-level key "' + k + '" (envelope schema is strict; ' +
+        'extensions require a new envelope-schema-v2.md + schema_version bump)');
+    }
+  }
+
   return errors.length === 0 ? { ok: true, errors: [] } : { ok: false, errors: errors };
 }
 
@@ -261,6 +290,7 @@ module.exports = {
   TERMINAL_STATUSES: TERMINAL_STATUSES,
   UUID_RE: UUID_RE,
   ISO8601_RE: ISO8601_RE,
+  KNOWN_KEYS: KNOWN_KEYS,
   JSON_SCHEMA: JSON_SCHEMA,
   validate: validate,
   read: read,

@@ -52,3 +52,8 @@ ECC/
 # Git worktrees — multi-session dogfood / verification trees (working-tree only).
 # Each worktree has its own branch + .claude/ ledger. Never committed from main.
 .worktrees/
+
+# v1.3.0 Observability Surface II — derive cache (M1+, never committed).
+# Cache layer is per-session/per-machine; sources of truth remain receipts,
+# envelopes, and STATE.md. Pattern mirrors .claude/state/*.lock above.
+.claude/cache/

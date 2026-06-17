@@ -97,6 +97,7 @@ brainstorming 분석 결과 v0.1의 receipt chain은 *"adversarial review가 일
 | **Codex disabled honor**   | wrapper(codex-invoke.js)가 `MCCP_CODEX_DISABLED=1` 감지 시 spawn 직전 short-circuit + classification='disabled' 즉시 반환. caller(codex-runner / receipt)는 `codex_outcome='disabled'` + `meta.codex_disabled=true` + canonical reason='codex_disabled' 일관 기록. 영구 bypass 사용자에게 우회 env(`MCCP_ALLOW_CODEX_UNAVAILABLE` / `MCCP_PR_SKIP_CODEX_REVIEW`) 0회 chain | M8 ship (v0.3.5) |
 | **Codex/impeccable scope split** | impeccable 가용(`impeccable-detect`의 user-level skill probe 포함) 시 (1) codex-invoke.js가 focus 앞에 `DESIGN_SCOPE_PREAMBLE` prepend → Codex가 visual/color/typography/spacing/animation/micro-interaction/brand finding 미배출 + a11y는 impeccable a11y-architect에 routing 명시, (2) codex-result-filter.js가 Codex 응답에서 design/a11y keyword 매칭 finding을 drop + a11yRoutedCount stash, (3) receipt meta 4 fields(`codex_design_scope_excluded`, `design_findings_dropped`, `a11y_routed_to_impeccable`, `dropped_findings_digest`) audit. impeccable 미가용 시 no-op. `MCCP_CODEX_DESIGN_SCOPE_HONOR=0`로 kill switch (debug용). | v0.3.6 ship (축 1 + STATE.md content-hash skip(축 2) + derive-decision normalize(축 3) bundle) |
 | **dispatch-controller (Stage 2 M1)** | Foundation IPC for multi-worker fanout. Envelope schema (`<parent_cwd>/.claude/state/dispatches/<uuid>.envelope.json`, pending nonterminal + ok/failure/timeout/crashed terminal), hybrid Monitor+polling watcher, atomic worktree→parent sync, pure-lib controller (`prepareDispatch` + `mergeEnvelopes`, no Agent calls). Receipt schema 4 new optional `meta.*` fields with marker-gated all-or-nothing invariant (F2 absorption) + `meta.ipc_envelope_path` triggers validator envelope integrity check (F3 absorption). Heartbeat + `reclaimStale` host-aware tri-state policy mirrors `pr-phase-lock.js` (F4 absorption). M2 pilot fanout + M3 stale-envelope GC deferred. Caller(slash-command body)가 Agent 호출 + controller는 그 결과만 merge — controller-self Agent invocation은 lib에서 불가. dual-review 보존: cross-gate dedupe가 controller-worker 양쪽 모두에서 작동, worker 받은 attribution 3개 필드로 receipt가 controller session에 anchor됨. | v1.2.0-m1 ship |
+| **v1.3.0 schema baseline** | [docs/v1.3.0-observability/schema-surface.md](docs/v1.3.0-observability/schema-surface.md) 본문화 — receipt + envelope + STATE.md frontmatter의 read-side schema surface freeze. v1.3.0 dashboard derive engine (M1+) 가정 표준. envelope `validate()`가 strict additionalProperties:false로 통합 (Codex Plan-Codex R1 F3 absorption) + PRD body amend로 stale `handoff_dispatching/handoff_dispatched` 식별자 제거 (F1 absorption) + reconciliation doc 추가 ([state-md-naming-reconciliation.md](docs/v1.3.0-observability/state-md-naming-reconciliation.md)). receipt schema는 변경 없음. | v1.3.0-m0 ship |
 
 자동 게이트는 환경 변수로 토글합니다 — §4 cheat sheet의 "운영 토글" 블록 참조.
 
@@ -288,6 +289,40 @@ PR 작성 직전(또는 작성과 함께):
 
 ---
 
+### 3.8 Worktree 경로 컨벤션 (`.worktrees/<branch-suffix>/`)
+
+새 worktree를 만들 때는 **항상 repo 루트의 `.worktrees/` 하위**에 두세요. sibling 디렉토리(`../my-claude-code-plugin-<branch>/`)에 만드는 패턴은 금지입니다.
+
+#### 규칙
+
+```bash
+# OK — repo 내부 .worktrees/ 하위 (gitignore 적용 + 자동 cleanup 가능)
+git worktree add .worktrees/v1.3.0-observability-m0 v1-3-0-observability-m0-schema-baseline
+
+# 금지 — sibling 디렉토리 (gitignore 보호 밖, parent repo로 끌려들어올 위험)
+git worktree add ../my-claude-code-plugin-v1.3.0-m0 v1-3-0-observability-m0-schema-baseline
+```
+
+worktree 디렉토리 이름은 branch 이름과 1:1 매칭되도록 짧은 식별자를 쓰세요(예: branch `v1-2-0-orchestrator-m1` → `.worktrees/v1.2.0-orchestrator-m1/`). branch suffix를 그대로 옮기면 정렬·검색이 깔끔해집니다.
+
+#### 왜 강제하는가
+
+- `.gitignore` §52-54에 `.worktrees/`가 이미 등록되어 있어, 이 경로 안에서는 working-tree 산출물(`.claude/state/STATE.md`, `.claude/receipts/`)이 실수로 parent repo에 staged 되지 않습니다. sibling 디렉토리는 이 보호를 못 받습니다.
+- `/mccp:pr`, `pr-phase-lock.js`, dispatch-controller(v1.2.0-m1) 같은 자동화는 `<parent_cwd>/.claude/state/`를 기준점으로 envelope/lock을 씁니다. worktree가 sibling이면 *worktree 자체*가 parent로 인식돼 envelope 라우팅이 어긋날 수 있습니다.
+- multi-session dogfood(2개 이상 worktree 병렬)에서 `.worktrees/` prefix가 있으면 `ls .worktrees/`로 활성 branch 일람이 한눈에 보입니다.
+
+#### 정리 (cleanup)
+
+```bash
+# 작업이 끝났거나 branch가 merged된 worktree 제거
+git worktree remove .worktrees/<name>
+git worktree prune          # stale entry 정리
+```
+
+PR merge 후 worktree를 잊고 남겨두면 stale `.claude/state/` 안에 오래된 STATE.md가 다른 세션 SessionStart에서 injection될 위험이 있으니, **PR squash 직후 같은 cycle 안에서 cleanup**까지가 한 단위입니다.
+
+---
+
 ## 4. 자주 쓰는 명령 (Cheat Sheet)
 
 ```bash
@@ -426,5 +461,6 @@ MCCP_DISPATCH_CONTEXT=0|1                # default: 0. =1 시 mccp-receipt write
 2. `docs/v0.2-architecture.md` — 전체 설계
 3. README.md — 사용자 관점 요약
 4. 사용자 auto-memory (user-level, 프로젝트 워크트리 밖) — 세션 시작 시 `MEMORY.md` 인덱스가 자동 주입됩니다. 직접 경로 참조 대신 인덱스에 노출된 항목명으로 조회하세요.
+5. `docs/v1.3.0-observability/schema-surface.md` — receipt + envelope + STATE.md frontmatter의 read-side schema surface 표준. derive 가정에 의문 생기면 여기부터. PRD ↔ code 식별자 매핑은 `docs/v1.3.0-observability/state-md-naming-reconciliation.md`.
 
 새 패턴/관행이 정해지면 memory에 저장하기 전에 이 CLAUDE.md에 반영할지 먼저 검토하세요. 프로젝트 단위 룰은 여기가 더 안정적입니다.

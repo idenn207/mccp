@@ -81,7 +81,7 @@ We'll know we're right when **subjective comprehension confidence on session ent
 - commit / branch view — PR에서 확인(사용자 명시).
 - multi-session orchestrator Stage 2 M2(pilot fanout) / M3(6-case lifecycle) *implementation* — v1.3은 envelope schema *reader only*.
 - worker prompt/output 전문 표시 — dashboard는 envelope의 status/timestamp/error 요약만. raw payload 열람은 envelope.json 직접 접근.
-- Receipt schema bump v1 → v1.1 (derive only, extension field `meta.briefing_summary`는 unknown-field-permissive validator 가정 + Milestone 0이 사전 검증).
+- Receipt schema bump v1 → v1.1 (derive only). `meta.briefing_summary` 같은 신규 필드는 M2 진입 전 schema.js에 명시적으로 추가하는 것이 prerequisite (Errata + docs/v1.3.0-observability/schema-surface.md §6.1 참조). M0는 이 prerequisite를 본문화만 하고 실제 schema 변경은 M2에서.
 - 사용자에게 .md 수정 요구하는 어떤 기능 — forever out(hard invariant).
 - Stable cross-doc reference ID 시스템(Q1/Q2 namespace 근본 해결) — 별도 v1.x.
 - On-demand "ask the dashboard" LLM(사용자 질문 → LLM이 .claude/ 검색해 답) — v1.4 후보.
@@ -95,7 +95,7 @@ We'll know we're right when **subjective comprehension confidence on session ent
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 0 | **Schema baseline alignment** | receipt validator의 unknown-field 정책을 v1.2.0-m1 4개 `meta.*` 필드 + STATE.md handoff_* frontmatter + envelope.json schema에 대해 사전 검증. derive engine이 *어떤 필드 set을 안정적으로 가정하는지* 본문화. v1.0.1 ECC→MCCP env namespace 변경 영향 정리. | in-progress | [v1-3-0-observability-m0-schema-baseline.plan.md](../plans/v1-3-0-observability-m0-schema-baseline.plan.md) |
+| 0 | **Schema baseline alignment** | receipt validator의 unknown-field 정책을 v1.2.0-m1 4개 `meta.*` 필드 + STATE.md 2-phase dispatch frontmatter + envelope.json schema에 대해 사전 검증. derive engine이 *어떤 필드 set을 안정적으로 가정하는지* 본문화. v1.0.1 ECC→MCCP env namespace 변경 영향 정리. | complete | [v1-3-0-observability-m0-schema-baseline.plan.md](../PRPs/plans/completed/v1-3-0-observability-m0-schema-baseline.plan.md) · [report](../PRPs/reports/v1-3-0-observability-m0-schema-baseline-report.md) |
 | 1 | Derive engine | `.claude/` 스캔이 plan / receipt / STATE / backlog / fix-task / PR / **dispatch envelope** 7 소스를 단일 정규화 model로 통합. mccp 외 임의 repo에서도 graceful fallback (envelope 미존재 OK). | in-progress | [v1-3-0-observability-m1-derive-engine.plan.md](../plans/v1-3-0-observability-m1-derive-engine.plan.md) |
 | 2 | LLM briefing stamp + cost telemetry | `receipt-write` hook에서 1회 LLM 호출 → `meta.briefing_summary` 자동 stamp. **호출 telemetry(token count + invocation count)** 같이 stamp. cost-tier $50 notice 도달 시 briefing 자동 disable + raw-only fallback. | pending | — |
 | 3 | STATUS.md + HTML renderer | derive model → `.claude/cache/STATUS.md` + `.claude/cache/status.html` 2 포맷. **6섹션**(worker fanout 추가) + cross-link badge + "Last refreshed" 상단 표시. envelope 미존재 시 fanout 섹션 graceful hide. | pending | — |
@@ -112,7 +112,7 @@ We'll know we're right when **subjective comprehension confidence on session ent
 - [ ] mccp-installed 다른 프로젝트의 `.claude/` 구조가 표준과 다르면 fallback 동작 정의(Milestone 6에서 결정).
 - [ ] dashboard 자체의 audit 누가 하나? — briefing 신뢰성 검증 메커니즘(self-audit 가능 여부).
 - [ ] envelope schema가 Stage 2 M2/M3 진행 중 **further evolve**할 가능성 — 어떤 schema version까지 derive가 안정적인지 본문화 정책(Milestone 0 task).
-- [ ] STATE.md `handoff_dispatching` ↔ `handoff_dispatched` 2-phase atomic marker의 tri-state(미설정/dispatching/dispatched) 해석 표시 톤 — '진행 중'을 어떻게 시각화할지.
+- [ ] STATE.md 2-phase resume dispatch tracking (frontmatter `dispatch_id` / `dispatch_id_completed` / `dispatch_attempt_count` + VALID_EVENTS markers `resume_dispatching` / `resume_dispatched`) 의 tri-state(미설정/in-flight/completed) 해석 표시 톤 — '진행 중'을 어떻게 시각화할지. controller layer (`controller_session_id` / `active_dispatch_count`, v1.2.0-m1)도 같은 surface에 합쳐 표시. 자세한 매핑: docs/v1.3.0-observability/state-md-naming-reconciliation.md.
 
 ## Risks
 
@@ -126,7 +126,7 @@ We'll know we're right when **subjective comprehension confidence on session ent
 | 비용 — receipt-write당 LLM 호출이 cost-tier handoff($50/$80/$100)와 충돌 | Low | Medium | briefing 호출 회수 telemetry(Milestone 2) + cost projection, $50 notice 도달 시 briefing 자동 disable + raw-only 모드 fallback |
 | Generic scope의 추상화 비용 — mccp-repo dogfood 외 검증 부족 → 다른 repo에서 깨짐 | Medium | Medium | Milestone 6 명시. 최소 mccp 외 1개 repo에서 smoke 검증 후에야 milestone complete 판정. |
 | **envelope schema drift** — Stage 2 M2/M3 진행 중 envelope.json 필드 추가/변경 → derive가 깨짐 | High | Medium | envelope에 `schema_version` 필드를 *읽기 시점*에 stamp 가정 + derive unknown-field permissive + 미지원 version 검출 시 fanout 섹션에 amber 경고 표시. Milestone 0이 *현 시점* envelope schema를 본문화. |
-| **STATE.md handoff signal 오해석** — 2-phase atomic dispatch(`handoff_dispatching` → `handoff_dispatched`) 중간 crash 상태를 'dispatched'로 잘못 표시 | Medium | High | 두 마커 모두 조회 + tri-state 해석(미설정 / dispatching=진행중 / dispatched=완료). mid-dispatch crash 시 'unknown — manual check' 라벨. v1.1.0 `/mccp:resume` 로직과 동일 invariant. |
+| **STATE.md dispatch signal 오해석** — resume 2-phase atomic tracking(`dispatch_id` set + `dispatch_id_completed` null = phase-2 pending; v1.1.0 layer) 또는 controller 2-phase tracking(`controller_session_id` + `active_dispatch_count>0` = in-flight; v1.2.0-m1 layer) 중간 crash 상태를 'completed'로 잘못 표시 | Medium | High | 두 layer 모두 조회 + tri-state 해석(미설정 / in-flight / completed). mid-dispatch crash 시 'unknown — manual check' 라벨. v1.1.0 `/mccp:resume` 로직과 동일 invariant. 매핑: docs/v1.3.0-observability/state-md-naming-reconciliation.md. |
 | **Codex/impeccable scope split 영향**(v0.3.6) — scope-excluded finding drop이 dashboard timeline에서 '조용함' 오해 일으킴 | Low | Low | `dropped_findings_digest`(receipt meta)도 timeline에 명시. drop reason(design vs a11y)를 1줄 footnote로 표시. |
 | **quarantine receipt drift**(v0.2.8 generic-receipt + v1.1.0 handoff quarantine) — quarantine marker 누적 시 derive가 stale entry를 live로 읽음 | Medium | High | quarantine marker(`.claude/receipts/.migrations/*.json`) honor + age guard(`mtime > 90일`인 receipt는 archive zone 표시). Milestone 0이 quarantine 인식 본문화. |
 
@@ -139,7 +139,7 @@ We'll know we're right when **subjective comprehension confidence on session ent
 | ECC_* → MCCP_* env namespace | v1.0.1 axis P (#25) | hook trace 표면 + receipt meta env 명칭 정렬. derive 가정 명시(Milestone 0). |
 | pr-phase-guard PID liveness | v1.0.1 axis K1 (#24) | derive-decision augmentation은 dashboard가 verdict 1줄을 만들 때 직접 활용 가능. |
 | Cross-platform 픽스처 + W11 rubric | v1.0.1 axis K2 (#26) | dashboard 자체가 Windows/macOS/Linux 모두에서 동작해야 함. line-ending(CRLF) + path separator 처리 invariant. |
-| auto-handoff quarantine + STATE.md `handoff_spawn` 신호 | v1.1.0-s1 (#27) | derive가 STATE.md frontmatter의 `handoff_dispatching` / `handoff_dispatched` 2-phase marker를 honor. tri-state 표시. |
+| auto-handoff quarantine + STATE.md `handoff_spawn` 신호 | v1.1.0-s1 (#27) | derive가 STATE.md frontmatter의 resume 2-phase tracking(`dispatch_id` / `dispatch_id_completed` / `dispatch_attempt_count` + VALID_EVENTS `resume_dispatching` / `resume_dispatched`)을 honor. tri-state 표시. |
 | `/mccp:resume` 진입점 | v1.1.0-s1 (#27) | dashboard "next-step" 섹션이 resume target task를 자동 인식 가능. |
 | dispatch-controller foundation IPC | v1.2.0-m1 (#29) | `dispatches/*.envelope.json` 새 derive source. terminal/nonterminal status 5종 + heartbeat 인식. |
 | receipt 4 new `meta.*` 필드 | v1.2.0-m1 (#29) | `meta.ipc_envelope_path`, `meta.dispatched_by_controller_session`, `meta.worker_dispatch_id`, `meta.codex_dedupe_at_pr`. Milestone 0이 unknown-field permissive validator 동작 사전 검증. |
@@ -234,3 +234,11 @@ We'll know we're right when **subjective comprehension confidence on session ent
 
 *Status: DRAFT — requirements only. Implementation planning pending via `/mccp:plan`.*
 *Refreshed from [v1-1-0-observability-surface-ii.prd.md](v1-1-0-observability-surface-ii.prd.md) on 2026-06-17. Original co-created on 2026-06-13.*
+
+---
+
+## Errata (v1.3.0-m0 schema baseline)
+
+- 2026-06-17: STATE.md handoff field references corrected throughout body. Original PRD body referenced two non-existent frontmatter identifiers as the assumed 2-phase atomic dispatch markers; the actual schema uses a resume-layer triple (`dispatch_id` / `dispatch_id_completed` / `dispatch_attempt_count`, v1.1.0) plus a controller-layer pair (`controller_session_id` / `active_dispatch_count`, v1.2.0-m1) plus two VALID_EVENTS markers. The literal stale-name mapping lives in [docs/v1.3.0-observability/state-md-naming-reconciliation.md](../../docs/v1.3.0-observability/state-md-naming-reconciliation.md) §1; this errata is descriptive on purpose so the PRD body is free of the stale identifiers (audit-clean grep). Amendments applied in Open Questions, Risks, and Compatibility & Migration Notes sections.
+- 2026-06-17: "Receipt schema 변경 없이 7 소스 통합 시도" Risks row implicit assumption about an unknown-field-permissive validator was clarified — the validator silently ignores unknown `meta` keys as a backward-compat read property, NOT as a forward-compat writer contract. M2 (briefing stamp) MUST add explicit `meta.briefing_summary` + `meta.briefing_token_count` + `meta.briefing_invocation_count` schema declarations BEFORE write paths stamp them. See [docs/v1.3.0-observability/schema-surface.md](../../docs/v1.3.0-observability/schema-surface.md) §6.1.
+- 2026-06-17: envelope schema is **strict** (`additionalProperties: false`), not permissive. v1.3.0-m0 Task 4 closes the hand `validate()` ↔ exported `JSON_SCHEMA` gap so both validators reject unknown top-level keys. Schema bumps require a new `envelope-schema-v2.md` file.

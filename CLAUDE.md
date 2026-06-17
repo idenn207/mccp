@@ -236,6 +236,58 @@ v0.2.7 lock holder가 살아있는 동안 v0.2.8 binary가 부팅하면, v0.2.8�
 
 ---
 
+### 3.7 Plugin version bump (`plugin.json`) — 빈번한 누락 axis
+
+`plugins/mccp/.claude-plugin/plugin.json`의 `version` 필드는 **수동 bump**입니다. code 변경이나 commit chain만으로 자동 증가하지 않으므로, milestone PR을 작성할 때 의무 체크리스트의 일부로 처리해야 합니다.
+
+#### 왜 중요한가
+
+`claude plugin update`는 `~/.claude/plugins/cache/mccp/mccp/<version>/` 경로를 version 필드로 결정합니다. version이 그대로면:
+
+- 새 cache 디렉토리가 만들어지지 않고 기존 디렉토리에 overwrite (best-case) 또는 update가 no-op (worst-case)
+- 사용자 환경의 hook 호출 path(`${CLAUDE_PLUGIN_ROOT}/scripts/...`)가 worktree의 변경을 보지 못함
+- 결과적으로 PR이 merge돼도 hook이 old behavior로 작동 → cache 직접 copy 같은 bootstrap workaround가 매 cycle 반복됨
+
+cache 디렉토리 ls 결과로 누락 cycle을 진단 가능: 예를 들어 `0.2.8/ 0.3.0/ 0.3.1/ 0.3.2/ 0.3.4/ 0.3.6/ 0.4.0/ 1.1.0/`처럼 띄엄띄엄이면 그 사이 cycle들이 version bump을 빠뜨렸다는 의미.
+
+#### 언제 어떻게 bump
+
+| 변경 종류 | bump 위치 | 예시 |
+|---|---|---|
+| Patch — bug fix, axis close | patch 자리 | `1.1.0 → 1.1.1` |
+| Minor — milestone ship (M1/M2 등), feature 추가 | minor 자리 | `1.1.0 → 1.2.0` |
+| Major — breaking schema/API/hook contract | major 자리 | `1.x → 2.0` |
+
+milestone 단위 sub-ship(`-m1`, `-m2` 등) 표기는 branch 이름엔 쓰지만 `plugin.json` version에는 `1.2.0`처럼 깔끔하게 적습니다(`-m1` suffix는 plugin manifest 스펙상 비표준).
+
+#### Milestone PR 의무 체크리스트
+
+PR 작성 직전(또는 작성과 함께):
+
+1. `plugins/mccp/.claude-plugin/plugin.json` — `version` 필드 bump
+2. `CHANGELOG.md` — 새 row 추가 (이미 cycle에 묶여있을 때 많음)
+3. branch 이름과 version의 일관성 검토 (예: branch `v1.2.0-orchestrator-m1` → version `1.2.0`)
+4. PR title/body에 version 명시 (audit trail — reviewer가 cache directory 명을 예측 가능)
+
+#### Hot-fix 절차 (PR merge 후 누락이 검출된 경우)
+
+이미 PR이 merge됐고 사용자가 `claude plugin update`로 version stuck을 발견했다면:
+
+1. 새 branch `chore/v<X.Y.Z>-bump`에서 `plugin.json` version bump을 단일 commit으로 작성
+2. 커밋 메시지: `chore(release): bump plugin.json to vX.Y.Z`
+3. follow-up PR (단일 파일 변경이라 cross-gate dedupe + Codex 빠르게 통과)
+4. merge 후 `claude plugin update` 재실행 → `~/.claude/plugins/cache/mccp/mccp/<X.Y.Z>/` 새 디렉토리 생성 확인
+
+#### 자동화 후보 (v1.2.x cycle 부채)
+
+- pre-PR hook: `plugins/mccp/scripts/lib/*.js` 또는 `commands/*.md` 변경 검출 시 `plugin.json` version bump 요구 (semantic version 자동 추론은 hard — major bump 판단은 사람 몫)
+- `/mccp:pr` Phase 1 VALIDATE에 version freshness check 추가 — 마지막 `plugin.json` 변경 commit이 `origin/<base>` 이후가 아니면 stderr warning
+- `/mccp:plan` Phase에서 milestone-ship plan일 때 `Files to Change`에 `plugin.json`이 자동 포함되도록 요구
+
+이 자동화 항목 자체가 v1.2.x patch cycle의 axis 후보입니다.
+
+---
+
 ## 4. 자주 쓰는 명령 (Cheat Sheet)
 
 ```bash

@@ -11,7 +11,7 @@
     "MCCP_RECEIPT_DEBUG": "1"
   },
   "model": "opus",
-  "outputStyle": "Explanatory",
+  "outputStyle": "default",
   "effortLevel": "xhigh",
   "autoUpdatesChannel": "latest"
 }

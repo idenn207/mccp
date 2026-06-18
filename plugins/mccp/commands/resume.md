@@ -196,7 +196,18 @@ esac
 # guesswork — the user would have to re-run validate by hand to learn why.
 VALIDATE_STDERR=$(mktemp -t mccp-resume-validate.XXXXXX 2>/dev/null || echo "${TMPDIR:-/tmp}/mccp-resume-validate.$$")
 if [ -n "$VALIDATE_COMMAND" ]; then
-  node "$PLUGIN_ROOT/scripts/receipt/cli.js" validate --command "$VALIDATE_COMMAND" > /dev/null 2> "$VALIDATE_STDERR"
+  # v1.3.1: forward --decision/--plan explicitly so the validator scopes to the
+  # dispatched command's slug instead of falling back to decisionId='default'
+  # (Codex R1 F1). DECISION_SLUG is derived from the dispatched command + args
+  # the same way the dispatched command body itself derives it.
+  DECISION_SLUG=$(node "$PLUGIN_ROOT/scripts/receipt/cli.js" derive-decision \
+    --command "$VALIDATE_COMMAND" \
+    --args "$ARGS" 2> /dev/null)
+  node "$PLUGIN_ROOT/scripts/receipt/cli.js" validate \
+    --command "$VALIDATE_COMMAND" \
+    --decision "$DECISION_SLUG" \
+    --plan "$ARGS" \
+    > /dev/null 2> "$VALIDATE_STDERR"
   VALIDATE_EXIT=$?
 else
   VALIDATE_EXIT=1   # unknown dispatched command — fail closed

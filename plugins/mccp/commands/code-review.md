@@ -125,7 +125,15 @@ DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decisio
   --command mccp:code-review \
   --args "$ARGUMENTS")
 
-node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate --command mccp:code-review
+
+# v1.3.1: forward --decision/--plan explicitly so the validator scopes to the
+# correct receipt instead of falling back to decisionId='default' (Codex R1 F1).
+# DECISION_SLUG was derived just above; <plan path> is the plan that the
+# preceding mccp:pr gate stamped on the mccp-pr-codex receipt.
+node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate \
+  --command mccp:code-review \
+  --decision ${DECISION_SLUG} \
+  --plan <plan path>
 ```
 
 If exit 0: PR-Codex receipt exists for this decision. Read it via:

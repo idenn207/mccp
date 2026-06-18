@@ -19,6 +19,74 @@ Execute a plan file step-by-step with continuous validation. Every change is ver
 
 ## Phase 0 — DETECT
 
+### 0.0 — RECOVER FROM HOOK CONTEXT (v1.3.1, conditional)
+
+The receipt-prompt hook may inject an `mccp_receipt_gate` context block when this command is invoked with a missing-only upstream receipt (v1.3.1 informational path). When that block is present, auto-recover deterministically before the rest of Phase 0 runs. When absent, skip this sub-step entirely.
+
+**Trigger detection.** The hook payload appears as a `<system-reminder>` containing serialized JSON of the form `{"mccp_receipt_gate": {...}}` per `plugins/mccp/scripts/hooks/lib/receipt-context-schema.js`. If you do not see that key in your initial context, skip to 0.1.
+
+**Recovery contract.** When the block is present, execute these checks in order. Any failure stops the response with the indicated message — do NOT silently continue.
+
+1. **Defensive must_not_proceed check.** Read `mccp_receipt_gate.must_not_proceed`. If `true`, the hook would have hard-blocked; the fact that we got here means a contract violation. Output:
+
+   ```
+   [MCCP-INFORMATIONAL-STOP] must_not_proceed=true in injected context — hook/command contract mismatch. Run /mccp:trace and report.
+   ```
+
+   End the response.
+
+2. **Invariant check on validateResult.** Confirm `missing.length > 0 && stale.length === 0 && blocking.length === 0 && open_critical.length === 0`. If any other partition is non-empty:
+
+   ```
+   [MCCP-INFORMATIONAL-STOP] validateResult partition mismatch — informational branch should not have ALLOWed.
+   missing=<N> stale=<N> blocking=<N> open_critical=<N>
+   ```
+
+   End the response.
+
+3. **Plan body completeness.** Read the plan at `mccp_receipt_gate.planPath` (or `command_args` if null). Verify it contains `## Codex Adversarial Review` and that the section does not list any Open Questions tagged auto-CRITICAL (§0 catalog: security boundary, atomic state, schema breakage). If either fails:
+
+   ```
+   [MCCP-INFORMATIONAL-STOP] cannot auto-recover: plan missing Codex Adversarial Review section or has auto-CRITICAL open question.
+   Action: run /mccp:plan <plan path> to refresh the gate manually.
+   ```
+
+   End the response.
+
+4. **Write the missing receipt.** For each `missing[i]`:
+
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
+     --gate <missing[i].gate_id> \
+     --decision <mccp_receipt_gate.decisionId> \
+     --plan <mccp_receipt_gate.planPath> \
+     --quiet
+   ```
+
+5. **Re-validate.** Re-run the same validator the hook ran:
+
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate \
+     --command mccp:prp-implement \
+     --decision <mccp_receipt_gate.decisionId> \
+     --plan <mccp_receipt_gate.planPath>
+   ```
+
+   If exit ≠ 0:
+
+   ```
+   [MCCP-INFORMATIONAL-STOP] post-write revalidation failed (exit=<N>). Inspect via /mccp:trace.
+   <stderr from validate>
+   ```
+
+   End the response.
+
+6. **Proceed.** Print one info line, then continue with the rest of Phase 0:
+
+   ```
+   > Recovered missing receipt(s) for decision="<decisionId>" via informational hook context. Continuing.
+   ```
+
 ### Package Manager Detection
 
 | File Exists | Package Manager | Runner |
@@ -292,7 +360,12 @@ Bash hook block handling: same as mccp Plan-Codex Phase 7.6 — output `[MCCP-GA
 
 ```bash
 # Verify the receipt is valid (no specific downstream command yet; just sanity check)
-node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate --command mccp:prp-implement
+# v1.3.1: forward --decision/--plan explicitly so the validator scopes to the
+# correct receipt instead of falling back to decisionId='default' (Codex R1 F1).
+node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate \
+  --command mccp:prp-implement \
+  --decision ${DECISION_SLUG} \
+  --plan <plan path>
 ```
 
 If exit 0: proceed to Phase 3 (EXECUTE). Print one info line first:

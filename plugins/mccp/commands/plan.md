@@ -13,15 +13,84 @@ Run inline by default. Do not call the Task tool or any subagent by default. Thi
 
 ## Phase Map
 
-The command runs five sequential phases. **Phase 5 (the gate) is mandatory and automatic** — see the Autonomy Contract there.
+The command runs six sequential phases. **Phase 5 (the gate) is mandatory and automatic** — see the Autonomy Contract there. Phase 0 is **conditional** — it only runs when the receipt-prompt hook injected an informational context block (v1.3.1).
 
 | # | Phase | Purpose |
 |---|---|---|
+| 0 | RECOVER FROM HOOK CONTEXT | (v1.3.1, conditional) Auto-write missing upstream receipts when hook signaled missing-only integrity result |
 | 1 | ANALYZE | Restate requirements, identify risks, estimate complexity |
 | 2 | GROUND | Search the codebase for patterns the implementation must mirror |
 | 3 | DECOMPOSE | Break the work into ordered, actionable tasks |
 | 4 | WRITE | Produce the plan artifact (inline or `.claude/plans/{name}.plan.md`) and WAIT for user confirmation |
 | 5 | PLAN-CODEX GATE | Auto-invoke Codex adversarial review, inject result, write receipt, hand off to `/mccp:prp-implement` |
+
+## Phase 0 — RECOVER FROM HOOK CONTEXT (v1.3.1, conditional)
+
+The receipt-prompt hook may inject an `mccp_receipt_gate` context block when this command is invoked with a missing-only upstream receipt (v1.3.1 informational path). When that block is present, auto-recover deterministically before Phase 1 ANALYZE runs. When absent, skip this phase entirely.
+
+**Trigger detection.** The hook payload appears as a `<system-reminder>` containing serialized JSON of the form `{"mccp_receipt_gate": {...}}` per `plugins/mccp/scripts/hooks/lib/receipt-context-schema.js`. If you do not see that key in your initial context, proceed straight to Phase 1.
+
+**Recovery contract.** When the block is present, execute these checks in order. Any failure stops the response with the indicated message — do NOT silently continue.
+
+1. **Defensive must_not_proceed check.** Read `mccp_receipt_gate.must_not_proceed`. If `true`, the hook would have hard-blocked; the fact that we got here means a contract violation. Output:
+
+   ```
+   [MCCP-INFORMATIONAL-STOP] must_not_proceed=true in injected context — hook/command contract mismatch. Run /mccp:trace and report.
+   ```
+
+   End the response.
+
+2. **Invariant check on validateResult.** Confirm `missing.length > 0 && stale.length === 0 && blocking.length === 0 && open_critical.length === 0`. If any other partition is non-empty:
+
+   ```
+   [MCCP-INFORMATIONAL-STOP] validateResult partition mismatch — informational branch should not have ALLOWed.
+   missing=<N> stale=<N> blocking=<N> open_critical=<N>
+   ```
+
+   End the response.
+
+3. **Plan body completeness.** Read the plan at `mccp_receipt_gate.planPath` (or `command_args` if null). For `/mccp:plan` the missing receipt is typically `mccp-plan-codex` itself, which means the plan WRITE phase has run but Phase 5 PLAN-CODEX GATE crashed before the receipt was committed. Verify the plan contains `## Codex Adversarial Review` and the section lists no auto-CRITICAL Open Questions. If either fails:
+
+   ```
+   [MCCP-INFORMATIONAL-STOP] cannot auto-recover: plan missing Codex Adversarial Review section or has auto-CRITICAL open question.
+   Action: re-enter /mccp:plan to refresh the gate manually.
+   ```
+
+   End the response.
+
+4. **Write the missing receipt.** For each `missing[i]`:
+
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
+     --gate <missing[i].gate_id> \
+     --decision <mccp_receipt_gate.decisionId> \
+     --plan <mccp_receipt_gate.planPath> \
+     --quiet
+   ```
+
+5. **Re-validate.** Re-run the same validator the hook ran:
+
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate \
+     --command mccp:plan \
+     --decision <mccp_receipt_gate.decisionId> \
+     --plan <mccp_receipt_gate.planPath>
+   ```
+
+   If exit ≠ 0:
+
+   ```
+   [MCCP-INFORMATIONAL-STOP] post-write revalidation failed (exit=<N>). Inspect via /mccp:trace.
+   <stderr from validate>
+   ```
+
+   End the response.
+
+6. **Proceed.** Print one info line, then continue with Phase 1 ANALYZE:
+
+   ```
+   > Recovered missing receipt(s) for decision="<decisionId>" via informational hook context. Continuing.
+   ```
 
 ## What This Command Does
 
@@ -377,7 +446,12 @@ and end the response. Do NOT print the Phase 5.7 handoff.
 
 ```bash
 # Verify the receipt is valid and unblocks /mccp:prp-implement
-node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate --command mccp:prp-implement
+# v1.3.1: forward --decision/--plan explicitly so the validator scopes to the
+# correct receipt instead of falling back to decisionId='default' (Codex R1 F1).
+node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate \
+  --command mccp:prp-implement \
+  --decision ${DECISION_SLUG} \
+  --plan <plan path>
 ```
 
 If exit code is 0:

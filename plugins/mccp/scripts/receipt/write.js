@@ -17,6 +17,7 @@ const { writeReceipt, readReceipt } = require('./store');
 const escalateDetector = require('../lib/escalate-detector');
 const fixTask = require('../state/fix-task');
 const stateWriter = require('../state/state-writer');
+const briefing = require('../lib/briefing');
 
 function asArray(v) {
   if (v === undefined || v === null) return [];
@@ -319,6 +320,16 @@ function write(args) {
     triggerEscalateIfNeeded(built.repoRoot, built.receipt, p);
   } catch (err) {
     process.stderr.write('[mccp:escalate] detector failed: ' +
+      (err && err.message ? err.message : err) + ' (allow)\n');
+  }
+  // v1.3.0-m2 — briefing stamp. Fires AFTER escalate so the receipt's audit
+  // trail captures escalation events first. triggerBriefing has its own
+  // fail-open invariant; this outer try is the belt-and-suspenders safety
+  // net so even a module-load failure cannot poison receipt write.
+  try {
+    briefing.triggerBriefing(built.repoRoot, built.receipt, p);
+  } catch (err) {
+    process.stderr.write('[mccp:briefing] outer catch: ' +
       (err && err.message ? err.message : err) + ' (allow)\n');
   }
   return { path: p, receipt: built.receipt };

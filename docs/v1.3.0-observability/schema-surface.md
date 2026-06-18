@@ -81,6 +81,10 @@ Every `meta.*` field `schema.js` explicitly validates, grouped by introducing ve
 | `dropped_findings_digest` | `sha256:<64hex>` \| `null` | v0.3.6 | Audit digest of joined dropped finding texts. |
 | `plan_conflict_escalated` | boolean | v0.4.0 axis H | Implementation phase signaled a plan ↔ code gap (advisory; the binding surface is `STATE.md.chain_aborted`). |
 | `pr_phase_lock_stale_reclaimed_at_hook` | boolean | v1.0.1 axis K | pr-phase-guard hook reclaimed an orphan pr-phase.lock on a prior invocation (audit trail for silent recovery). |
+| `briefing_summary` | string \| `null` | v1.3.0-m2 | 1-line PM verdict ≤1024 chars. `null` when cost-guard skipped or LLM classification != `ok`. Empty string is explicitly rejected. |
+| `briefing_token_count` | non-negative integer \| `null` | v1.3.0-m2 | Tokens consumed by the briefing call. Real value when codex-companion emits `tokenUsage`; otherwise `(focus.length + stdout.length)/4` estimate. |
+| `briefing_token_estimated` | boolean | v1.3.0-m2 | When `true`, `briefing_token_count` was derived from the (input+output) char-length estimate. Codex R1 F2 absorption — distinguishes estimate-from-stdout from real-from-tokenUsage. |
+| `briefing_invocation_count` | non-negative integer \| `null` | v1.3.0-m2 | Count of LLM call attempts per receipt (0 when cost-guard skipped, 1 when invoked — successful or failed). v1.3 has no retry, so the value is always 0 or 1. |
 
 **3-way codex skip mutex** (v0.3.5): `codex_dedupe_at_pr`, `codex_skipped_at_pr`, `codex_disabled_at_pr` are mutually exclusive. Exactly one PR-step codex-skip path may be active per receipt.
 
@@ -96,6 +100,14 @@ Controller-worker attribution axis. Four fields move together under a single mar
 | `ipc_envelope_path` | `^\.claude/state/dispatches/<uuid>\.envelope\.json$` | Canonical repo-relative dispatch location. |
 
 **Invariant**: `marker_present=true` ⇒ all 3 attribution fields MUST be present + format-valid. `marker_present=false` ⇒ all 3 MUST be absent/null. Partial state (some set, some not) rejects regardless of marker. Existing v0.2.x receipts have marker=`undefined` + fields=`undefined` (counts as "marker false + 0 fields"; backward-compat read tolerance).
+
+### 2.5 Briefing fields and `receipt_hash` (v1.3.0-m2)
+
+`meta.briefing_summary` / `meta.briefing_token_count` / `meta.briefing_token_estimated` / `meta.briefing_invocation_count` are stamped AFTER the canonical receipt has been written to disk and are intentionally EXCLUDED from `receipt_hash` + `subject_hash`. The hash chain captures gate-pass state; briefing is metadata-on-top.
+
+`receipt/hash.js#receiptHash` strips these 4 keys from the canonicalization input alongside `receipt_hash` itself (deep-clone via `JSON.parse(JSON.stringify(...))` so the caller's receipt object is not mutated). Backward-compat invariant: v0.2.x-era receipts lack these keys, so the strip is a no-op and `receiptHash` returns the bit-identical pre-v1.3.0-m2 value.
+
+Tamper-detection consumers MUST recompute the hash via `receiptHash(receipt)` (which honors the carve-out) — never canonicalize the receipt independently and compare. v1.3.0-m2 added a dedicated regression test ([`receipt/tests/hash-briefing-exclusion.test.js`](../../plugins/mccp/scripts/receipt/tests/hash-briefing-exclusion.test.js)) covering all 5 invariants (stamp invariance, value-divergence invariance, backward-compat bit-identity, control non-briefing mutation surfaces, caller object non-mutation).
 
 ## 3. Envelope schema (v1)
 
@@ -195,6 +207,8 @@ M2 plan ("derive engine + briefing stamp") MUST include as its **Task 1**:
 > Add `meta.briefing_summary` (string \| null), `meta.briefing_token_count` (non-negative integer \| null), `meta.briefing_invocation_count` (non-negative integer \| null) to `plugins/mccp/scripts/receipt/schema.js` (`validate()` + `makeSkeleton()`), with present-only strictness.
 
 Without that prerequisite, the M2 write path that stamps `meta.briefing_summary` would silently rely on the v0.2.x-era "ignore unknown meta keys" path — exactly the writer contract this baseline rejects (Task 3 absorption note in the M0 plan).
+
+**STATUS: implemented in v1.3.0-m2** — schema bump (Task 1) + hash carve-out (Task 1b, Codex R1 F1) shipped as part of `plugins/mccp/scripts/lib/briefing/` (cost-guard + invoke + index facade). Schema accepted 4 fields (the M0 prerequisite list above + the Codex R1 F2 absorption `meta.briefing_token_estimated:boolean`). See §2.3 + §2.5 for the live spec.
 
 ### 6.2 Out-of-scope (will NOT be in v1.3 derive)
 

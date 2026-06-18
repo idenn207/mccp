@@ -196,8 +196,24 @@ function subjectHash(receipt) {
 }
 
 function receiptHash(receipt) {
-  const clone = Object.assign({}, receipt);
+  // Deep-clone via JSON because the canonical hash MUST be insensitive to
+  // mutations of nested objects we strip below (meta.briefing_*). A shallow
+  // clone (Object.assign) leaks the meta reference, so deleting meta.briefing_*
+  // would corrupt the live receipt the caller is still using.
+  const clone = JSON.parse(JSON.stringify(receipt));
   delete clone.receipt_hash;
+  // v1.3.0-m2 Codex R1 F1 absorption — briefing_* fields are stamped AFTER
+  // the canonical receipt has been finalized + written + hashed. Excluding
+  // them from the hashed body lets briefing land without invalidating the
+  // tamper-detect digest. Backward-compat: receipts written before v1.3.0-m2
+  // lack these keys, so `delete` is a no-op and the hash is bit-identical
+  // to its pre-v1.3.0-m2 value.
+  if (clone.meta && typeof clone.meta === 'object') {
+    delete clone.meta.briefing_summary;
+    delete clone.meta.briefing_token_count;
+    delete clone.meta.briefing_token_estimated;
+    delete clone.meta.briefing_invocation_count;
+  }
   return sha256(canonicalize(clone));
 }
 

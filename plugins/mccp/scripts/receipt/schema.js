@@ -406,6 +406,43 @@ function validate(receipt) {
         'all-or-nothing invariant: set marker=true together with all 3, ' +
         'or leave all 4 unset');
     }
+
+    // v1.3.0-m2 — LLM briefing stamp + token telemetry. Present-only.
+    //
+    // briefing_summary:           1-line PM-readable verdict ≤1024 chars (caps
+    //                             ~256 tokens at 4 chars/token), or null when
+    //                             cost-guard skipped or LLM classification != 'ok'.
+    //                             Empty string is rejected — null is the canonical
+    //                             "no briefing" state.
+    // briefing_token_count:       Non-negative integer count of input+output
+    //                             tokens consumed by the briefing call, or null
+    //                             when no call happened.
+    // briefing_token_estimated:   When true, briefing_token_count was derived
+    //                             from (focus.length + stdout.length)/4 because
+    //                             codex-companion did not emit real tokenUsage.
+    //                             When false (default), the count is real usage.
+    //                             Codex R1 F2 absorption.
+    // briefing_invocation_count:  Count of LLM call attempts per receipt. 0 when
+    //                             cost-guard skipped, 1 when invoked (with or
+    //                             without success). v1.3 has no retry — value is
+    //                             always 0 or 1.
+    if (m.briefing_summary !== null && m.briefing_summary !== undefined) {
+      req(typeof m.briefing_summary === 'string' && m.briefing_summary.length > 0
+          && m.briefing_summary.length <= 1024,
+        'meta.briefing_summary must be a non-empty string ≤1024 chars or null');
+    }
+    if (m.briefing_token_count !== null && m.briefing_token_count !== undefined) {
+      req(Number.isInteger(m.briefing_token_count) && m.briefing_token_count >= 0,
+        'meta.briefing_token_count must be a non-negative integer or null');
+    }
+    if (m.briefing_token_estimated !== undefined) {
+      req(typeof m.briefing_token_estimated === 'boolean',
+        'meta.briefing_token_estimated must be a boolean if present');
+    }
+    if (m.briefing_invocation_count !== null && m.briefing_invocation_count !== undefined) {
+      req(Number.isInteger(m.briefing_invocation_count) && m.briefing_invocation_count >= 0,
+        'meta.briefing_invocation_count must be a non-negative integer or null');
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -479,6 +516,17 @@ function makeSkeleton(overrides) {
       dispatched_by_controller_session_id: null,
       worker_dispatch_id: null,
       ipc_envelope_path: null,
+      // v1.3.0-m2 — LLM briefing stamp + token telemetry. Present-only.
+      // Stamped by lib/briefing/index.js AFTER receipt write. null/0 here is
+      // the canonical "no briefing happened yet" state; cost-guard skip flips
+      // invocation_count to 0 + summary stays null; ok path stamps real values.
+      // briefing_token_estimated=true means the count was derived from
+      // (focus.length + stdout.length)/4 (codex-companion currently emits no
+      // real tokenUsage as of v1.3.0). Codex R1 F2.
+      briefing_summary: null,
+      briefing_token_count: null,
+      briefing_token_estimated: false,
+      briefing_invocation_count: null,
     },
   }, o);
 }

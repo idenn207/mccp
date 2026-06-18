@@ -69,6 +69,12 @@ function extract(repoRoot, entry) {
     dispatched_by_controller_session_id: pick(meta, 'dispatched_by_controller_session_id'),
     worker_dispatch_id: pick(meta, 'worker_dispatch_id'),
     ipc_envelope_path: pick(meta, 'ipc_envelope_path'),
+    // v1.3.0-m2 — LLM briefing stamp + token telemetry surface. M3 audit-
+    // timeline renderer consumes these read-only. v0.2.x-era receipts lack
+    // the keys → pick() returns undefined, preserving M1's absence semantics.
+    briefing_summary: pick(meta, 'briefing_summary'),
+    briefing_token_count: pick(meta, 'briefing_token_count'),
+    briefing_invocation_count: pick(meta, 'briefing_invocation_count'),
     created_at: meta.created_at,
     command: meta.command,
     base_sha: receipt.base_sha,

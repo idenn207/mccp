@@ -186,40 +186,55 @@ This sub-step writes design direction into the PRD itself — downstream `/mccp:
 
 ### 4.0b — external research inject (v1.4.0 axis A, M1-experimental)
 
-If Phase 2.5 stashed a `RESEARCH_DECISION`, inject the `## References` section into the PRD body. Idempotent — if a `## References` section already exists, replace it.
+If Phase 2.5 stashed a `RESEARCH_DECISION`, inject the `## References` section into the PRD body. Idempotent — if a `## References` section already exists, replace it in place (mirrors plan.md Phase 4.5 provenance replace pattern).
 
 ```bash
 case "$RESEARCH_DECISION" in
-  paste)
-    # Append/replace ## References with the paste content + ISO timestamp marker.
-    # Marker line lets a future re-run detect prior-injected content for replace-in-place.
-    cat <<EOF >> "$PRD_PATH"
-
-## References
-
-<!-- Auto-injected from /deep-research at $(date -u +%Y-%m-%dT%H:%M:%SZ) -->
-
-$RESEARCH_CONTENT
-EOF
-    ;;
-  failed)
-    # Audit-trail body — sufficient context that re-readers can tell research was
-    # attempted but failed, with sufficient reason text + timestamp. Avoids the
-    # zero-information placeholder anti-pattern.
-    cat <<EOF >> "$PRD_PATH"
-
-## References
-
-<!-- /deep-research attempted at $(date -u +%Y-%m-%dT%H:%M:%SZ) -->
-
-> deep-research attempted but failed: $RESEARCH_REASON
-EOF
+  paste|failed)
+    node -e '
+      const fs = require("fs");
+      const prdPath = process.argv[1];
+      const decision = process.argv[2];
+      const payload = process.argv[3];
+      const iso = new Date().toISOString();
+      let section;
+      if (decision === "paste") {
+        section = [
+          "## References",
+          "",
+          "<!-- Auto-injected from /deep-research at " + iso + " -->",
+          "",
+          payload,
+          "",
+        ].join("\n");
+      } else {
+        section = [
+          "## References",
+          "",
+          "<!-- /deep-research attempted at " + iso + " -->",
+          "",
+          "> deep-research attempted but failed: " + payload,
+          "",
+        ].join("\n");
+      }
+      let prd = fs.readFileSync(prdPath, "utf8");
+      const pat = /(?:^|\n)## References[\s\S]*?(?=\n## |\n?$)/;
+      if (pat.test(prd)) {
+        prd = prd.replace(pat, "\n" + section);
+      } else {
+        if (!prd.endsWith("\n")) prd += "\n";
+        prd += "\n" + section;
+      }
+      fs.writeFileSync(prdPath, prd, "utf8");
+    ' "$PRD_PATH" "$RESEARCH_DECISION" "${RESEARCH_CONTENT:-$RESEARCH_REASON}"
     ;;
   skip)
     # No section written. Reason carried only in report (§Report to user).
     ;;
 esac
 ```
+
+The node invocation passes the user-pasted body via `process.argv` (no shell expansion of any kind) — safe regardless of `$(...)`, backticks, or quoting characters in the deep-research output. The regex match-and-replace is identical to plan.md Phase 4.5's provenance pattern, so re-running `/mccp:plan-prd` on the same PRD replaces the prior `## References` block in place rather than duplicating it.
 
 When the report block prints, include one line summarizing the external-research outcome:
 

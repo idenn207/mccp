@@ -280,8 +280,11 @@ After planning:
 After the plan artifact has been written in Phase 4 and **before entering Phase 5 PLAN-CODEX GATE**, scan the source PRD for a `## References` section. If present, compute a sha256 digest of the References content and append it to the plan body as `## External Research Provenance`. This section is captured by `plan-codex` receipt's `plan_hash` — any subsequent PRD `## References` mutation will mismatch on the next `/mccp:plan` validate.
 
 ```bash
-# Only when the plan input is a PRD path
-PRD_PATH="$1"  # the original /mccp:plan input
+# Only when the plan input is a PRD path. PRD_PATH below uses the same
+# placeholder convention as the rest of this command body — the LLM
+# substitutes the original /mccp:plan argument verbatim (or leaves it
+# empty for free-form plan inputs).
+PRD_PATH="<original /mccp:plan input>"
 case "$PRD_PATH" in
   *.prd.md) ;;
   *) PRD_PATH="" ;;  # skip — non-PRD input

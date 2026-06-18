@@ -61,6 +61,16 @@ function debug(msg) {
 // explicit --plan hit the v0.2.8 generic-slug reject path.
 const { extractPlanPath } = require(path.join(LIB_DIR, 'extract-plan-path'));
 
+// v1.3.1 — informational-hook schema lib. Shared between hook ALLOW emit,
+// receipt-context-schema unit tests, and validate-callsite-lint static check.
+// Module-scope require so a failed load in main() can't itself throw — same
+// pattern as hook-trace above. Falls back to null → hook reverts to the v1.3.0
+// hard-block default if the lib is missing.
+const receiptContext = (function () {
+  try { return require(path.join(__dirname, 'lib', 'receipt-context-schema')); }
+  catch (_) { return null; }
+})();
+
 function allow() { return 0; }
 
 // v0.2.7 L2a — ALLOW-path systemMessage emit when MCCP_RECEIPT_DEBUG=1.
@@ -286,6 +296,53 @@ async function main() {
         hookSpecificOutput: {
           hookEventName: 'UserPromptExpansion',
           additionalContext: 'mccp tempfail: transient, retryable. No block emitted.',
+        },
+      }));
+    } catch (_) { /* best-effort */ }
+    return 0;
+  }
+
+  // v1.3.1 — Informational hook for the recoverable subset.
+  //
+  // The architectural invariant from prior milestones is "every gate receipt
+  // is mechanically proved before its consumer runs". The user-experience
+  // cost was a 4-step hand-recovery whenever a previous session crashed
+  // mid-/mccp:plan and left the receipt unwritten. v1.3.1 narrows the
+  // mechanical invariant to its real load-bearing surface — stale, blocking,
+  // and open_critical results — and reclassifies the missing-only case for
+  // /mccp:plan, /mccp:prp-implement, /mccp:resume as informational context
+  // that Phase 0 of those commands can auto-recover from deterministically.
+  //
+  // Terminal/mutating commands (/mccp:pr, /mccp:code-review) are NOT in the
+  // recoverable allow-list — they stay hard-block (R2-F2 absorption: code-
+  // review POSTs an external GitHub review). The hard-block path below is
+  // untouched for them and for any stale/blocking/critical result.
+  if (kind === 'block' &&
+      receiptContext &&
+      receiptContext.isRecoverable(commandName) &&
+      (result.missing || []).length > 0 &&
+      (result.stale || []).length === 0 &&
+      (result.blocking || []).length === 0 &&
+      (result.open_critical || []).length === 0) {
+    debug('INFORMATIONAL ' + commandName + ' (decision="' + decisionId +
+          '") — missing-only, recoverable, emitting context + ALLOW');
+    try {
+      const ctx = receiptContext.buildAdditionalContext(
+        commandName,
+        decisionId,
+        planPath,
+        event.cwd || process.cwd(),
+        result,
+        kind
+      );
+      const firstMissing = (result.missing[0] && result.missing[0].gate_id) || 'receipt';
+      process.stdout.write(JSON.stringify({
+        systemMessage: '[mccp] receipt-gate informational: ' + commandName +
+          ' missing ' + firstMissing + ' (decision="' + decisionId +
+          '"). Phase 0 of the command will auto-recover.',
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptExpansion',
+          additionalContext: JSON.stringify(ctx),
         },
       }));
     } catch (_) { /* best-effort */ }

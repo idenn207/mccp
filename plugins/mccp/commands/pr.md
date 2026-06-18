@@ -536,7 +536,14 @@ Bash hook block handling: same as Plan-Codex Phase 7.6 — output `[MCCP-GATE-ST
 ### 2.5.8 — Read-back validate, then continue to Phase 3
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate --command mccp:code-review
+# v1.3.1: forward --decision/--plan explicitly so the validator scopes to the
+# correct receipt instead of falling back to decisionId='default' (Codex R1 F1).
+# This is the downstream chain check for /mccp:code-review (PR Review Mode);
+# DECISION_SLUG was derived in 2.5.7 (mccp:pr decisionId reused for the chain).
+node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate \
+  --command mccp:code-review \
+  --decision ${DECISION_SLUG} \
+  --plan <plan path>
 ```
 
 If exit 0: proceed to Phase 3 (PUSH). The body-file persisted in 2.5.4 (under `.git/mccp/tmp/`) is the authoritative source for the `## Design Review` and `## Codex Adversarial Review` sections — Phase 4 will read it back instead of re-deriving from memory.

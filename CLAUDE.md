@@ -10,13 +10,35 @@
 **모든 사용자 응답은 한국어로 작성합니다.**
 
 - 사용자에게 보내는 모든 텍스트 메시지 — 진행 상황, 결과 요약, 질문, 오류 설명 — 는 한국어로.
+- **PR 본문(GitHub PR description)도 한국어가 기본입니다.** Summary / Changes / Testing / Related Issues 같은 섹션 헤더는 영어 그대로 유지(템플릿 호환 + grep-친화성)하고, 본문 서술은 한국어로 작성합니다. 게이트가 자동 inject하는 섹션(`## Codex Adversarial Review`, `## Design Review`, `## Security Reviewer Override` 등)은 원본 영어 템플릿 그대로 둡니다.
 - 다음은 영어를 그대로 유지합니다:
   - 코드, 식별자, 파일 경로, 명령어, 로그
-  - 커밋 메시지·PR 본문 (기존 repo 컨벤션 유지 — 한국어/영어 혼용 가능)
+  - 커밋 메시지 (recent commits이 imperative 영어 패턴 — `feat(v1.3.0-mN): ...`)
+  - PR 본문 내의 file path, commit hash, gate name, receipt path, env var, code snippet
   - 외부 도구 출력(git, npm, codex 등)을 인용할 때
-  - 기술 용어(plugin, hook, receipt, gate 등)는 번역하지 말고 그대로
+  - 기술 용어(plugin, hook, receipt, gate, fail-open, dual-review 등)는 번역하지 말고 그대로
 
 사용자가 영어로 질문해도 응답은 한국어가 기본입니다. 사용자가 명시적으로 "영어로 답해줘"라고 요청한 경우에만 영어로 전환합니다.
+
+PR 본문 한국어 작성 예시(M2 PR #34 회고용):
+
+```markdown
+## Summary
+
+v1.3.0-m2는 LLM briefing stamp surface를 출시합니다 — receipt-write 경로가
+capped LLM 호출 직후 `meta.briefing_summary` + `briefing_token_count` 등 4개 필드를
+stamp합니다. Fail-open invariant + cost-tier × env policy × PR-phase re-entrancy
+guard가 위에 얹혀 briefing 실패가 receipt write를 절대 오염시키지 않습니다.
+
+## Changes
+
+### Added
+- `plugins/mccp/scripts/lib/briefing/{cost-guard,invoke,index}.js` — 3축 skip
+  decision tree(env policy → PR-phase lock → cost tier) 와 Codex R1 F3 재진입
+  guard(`BRIEFING_IN_PROGRESS` process-local flag)를 포함한 briefing facade.
+```
+
+식별자(`meta.briefing_summary`, file path, env var)는 코드 톤으로 그대로, 문장 서술은 한국어. 게이트 자동 inject 섹션은 손대지 않음.
 
 ---
 

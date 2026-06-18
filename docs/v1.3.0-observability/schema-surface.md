@@ -217,3 +217,7 @@ Without that prerequisite, the M2 write path that stamps `meta.briefing_summary`
 - User-level memory (`~/.claude/projects/<slug>/memory/`) — owned by the harness's auto-memory subsystem, not v1.3 derive.
 
 What is NOT in this milestone (v1.3.0-m0): the derive engine itself, the dashboard UI, the cache layer, any new schema field. M0 freezes what M1+ may safely read; M1 builds the derive engine on top of this baseline.
+
+## §7 — Dashboard rendering surface (v1.3.0-m3)
+
+**STATUS: implemented in v1.3.0-m3.** STATUS.md/status.html surface freeze: see [dashboard-surface.md](./dashboard-surface.md) for the canonical 6-section structure + verdict priority chain + status triple + graceful-hide rules + fail-open invariant + HTML injection boundary. M3 is read-only consumer of M0 schema + M1 derive model + M2 briefing fields; no schema additions.

@@ -332,6 +332,18 @@ function write(args) {
     process.stderr.write('[mccp:briefing] outer catch: ' +
       (err && err.message ? err.message : err) + ' (allow)\n');
   }
+  // v1.3.0-m4 — STATUS.md/status.html re-render trigger. Lazy-require so a
+  // staged install missing lib/renderer/ does not break receipt write.
+  // triggerRender is itself loud fail-open; the outer try here only catches
+  // module-load failures.
+  try {
+    require('../lib/renderer/trigger').triggerRender('receipt-write', {
+      repoRoot: built.repoRoot,
+    });
+  } catch (err) {
+    process.stderr.write('[mccp:receipt-write] post-write trigger threw (allow): ' +
+      (err && err.message ? err.message : err) + '\n');
+  }
   return { path: p, receipt: built.receipt };
 }
 

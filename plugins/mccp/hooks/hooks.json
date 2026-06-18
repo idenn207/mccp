@@ -119,6 +119,17 @@
         ],
         "description": "Load previous context and detect package manager on new session",
         "id": "session:start"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/render-trigger-session-start.js\""
+          }
+        ],
+        "description": "Trigger STATUS.md/status.html re-render on session boot (M4 ship)",
+        "id": "mccp:render-trigger:session-start"
       }
     ],
     "PostToolUse": [

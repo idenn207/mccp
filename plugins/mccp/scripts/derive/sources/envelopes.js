@@ -5,6 +5,7 @@ const path = require('path');
 
 const envelope = require('../../lib/dispatch-envelope');
 const dispatchController = require('../../lib/dispatch-controller');
+const { maskSecrets } = require('../mask');
 
 const TERMINAL_STATUSES = ['ok', 'failure', 'timeout', 'crashed'];
 const ENVELOPE_SUFFIX = '.envelope.json';
@@ -59,6 +60,34 @@ function scanEnvelopes(repoRoot, opts) {
     }
     const env = result.envelope;
     const hb = heartbeatStaleness(full, ttlMs);
+    // v1.3.0-m4 Task 5 (Codex Plan-Codex R1 F3 absorption) — scan envelope
+    // payload strings (next_action, findings[*], receipts_added[*]) for
+    // secret patterns at source-scan time. The raw payload strings are
+    // INTENTIONALLY NOT stored in the model — only the hit metadata
+    // (kind/count/field) flows through to mask_hits. This preserves the M1
+    // surface frozen invariant via additive field (`masked_payload_signal`)
+    // while letting the verdict step 1.5 banner attribute by dispatch_id.
+    const payloadHits = [];
+    function scanField(value, fieldName) {
+      if (value === null || value === undefined) return;
+      const text = typeof value === 'string' ? value : JSON.stringify(value);
+      const r = maskSecrets(text, {
+        fieldName: fieldName,
+        sourceKind: 'envelope',
+      });
+      for (const h of r.hits) payloadHits.push(h);
+    }
+    scanField(env.next_action, 'next_action');
+    const findingsArr = Array.isArray(env.findings) ? env.findings : [];
+    for (let fi = 0; fi < findingsArr.length; fi++) {
+      scanField(findingsArr[fi], 'findings[' + fi + ']');
+    }
+    const recAdded = Array.isArray(env.receipts_added) ? env.receipts_added : [];
+    for (let ri = 0; ri < recAdded.length; ri++) {
+      scanField(recAdded[ri], 'receipts_added[' + ri + ']');
+    }
+    const maskHitCount = payloadHits.reduce(function (acc, h) { return acc + h.count; }, 0);
+    const maskKinds = Array.from(new Set(payloadHits.map(function (h) { return h.kind; })));
     items.push({
       ok: true,
       dispatch_id: env.dispatch_id,
@@ -75,6 +104,11 @@ function scanEnvelopes(repoRoot, opts) {
       stale: hb.stale,
       is_terminal: TERMINAL_STATUSES.indexOf(env.worker_exit_status) !== -1,
       path: path.relative(repoRoot, full),
+      masked_payload_signal: {
+        mask_hit_count: maskHitCount,
+        mask_kinds: maskKinds,
+        hits: payloadHits,
+      },
     });
   }
   return {

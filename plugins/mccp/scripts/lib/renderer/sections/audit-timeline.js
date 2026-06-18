@@ -65,6 +65,38 @@ function renderAuditTimeline(model, formatUtils, now) {
     htmlLines.push('<li class="muted"><em>+' + olderCount + ' older</em></li>');
   }
 
+  // v1.3.0-m4 Task 7 — mask hit statistics footnote (impeccable F4 absorption).
+  // Aggregate mask_hits per kind in the model so Bearer/password= are visible
+  // even though they do not trip the verdict step 1.5 red banner. Severe
+  // kinds still surface here (in addition to the verdict line) for cross-
+  // reference.
+  const hits = Array.isArray(m.mask_hits) ? m.mask_hits : [];
+  if (hits.length > 0) {
+    const perKind = new Map();
+    for (const h of hits) {
+      if (!h || !h.kind) continue;
+      perKind.set(h.kind, (perKind.get(h.kind) || 0) + (h.count || 1));
+    }
+    if (perKind.size > 0) {
+      const parts = Array.from(perKind.entries())
+        .map(function (e) { return e[0] + ' ' + e[1] + '건'; });
+      const summary = '이번 주 mask: ' + parts.join(' · ');
+      mdLines.push('- _' + summary + '_');
+      htmlLines.push('<li class="muted"><em>' + escapeHtml(summary) + '</em></li>');
+    }
+  }
+
+  // v1.3.0-m4 Task 7 — was_stale footnote (impeccable F2 absorption).
+  // Telegraphic Korean copy mirroring PRD §Design Direction.
+  const lrm = m.last_render_meta;
+  if (lrm && typeof lrm === 'object' && lrm.was_stale === true) {
+    const prev = Number.isFinite(lrm.prev_age_seconds) ? lrm.prev_age_seconds : null;
+    const ageText = prev !== null ? prev + '초' : '60초+';
+    const footnote = '이전 캐시 ' + ageText + ' stale · 자동 갱신 안 됨';
+    mdLines.push('- _' + footnote + '_');
+    htmlLines.push('<li class="muted"><em>' + escapeHtml(footnote) + '</em></li>');
+  }
+
   return {
     md: mdLines.join('\n'),
     html: '<ul class="audit-timeline">' + htmlLines.join('') + '</ul>',

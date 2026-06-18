@@ -23,6 +23,24 @@ function computeVerdict(model, planBody) {
     return { tone: 'red', icon: '🚫', text: 'schema contract missing — derive degraded' };
   }
 
+  // v1.3.0-m4 Task 7 — secret-suspect banner (step 1.5). Fires only for
+  // severe kinds (sk-key, aws-key, private-key-block). Bearer/password=
+  // mask silently. impeccable F1+F3 absorption — telegraphic Korean copy,
+  // no em dash, receipt/envelope source id surfaced for triage.
+  const hits = Array.isArray(m.mask_hits) ? m.mask_hits : [];
+  const severeHits = hits.filter(function (h) {
+    return h && h.severe === true;
+  });
+  if (severeHits.length > 0) {
+    const severeCount = severeHits.reduce(function (acc, h) { return acc + (h.count || 1); }, 0);
+    const firstId = (severeHits[0] && severeHits[0].source_id) || null;
+    const idSuffix = firstId ? ' · ' + String(firstId).slice(0, 16) + ' 확인' : '';
+    return {
+      tone: 'red', icon: '⚠',
+      text: '시크릿 ' + severeCount + '건 감지 · 즉시 키 회전' + idSuffix,
+    };
+  }
+
   const crit = warnings.find(w => w && w.severity === 'critical');
   if (crit) {
     return { tone: 'red', icon: '🚫', text: (crit.source || 'warning') + ': ' + (crit.message || 'critical') };

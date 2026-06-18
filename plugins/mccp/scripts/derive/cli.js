@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { MODEL_VERSION } = require('./model');
 const { derive } = require('./index');
+const { renderStatus } = require('../lib/renderer');
 
 function showHelp() {
   process.stdout.write([
@@ -15,6 +18,12 @@ function showHelp() {
     '       --json     Emit JSON to stdout (default if no other format flag).',
     '       --summary  Emit a one-line-per-source text summary (debug only).',
     '       --raw      Emit unmasked model (absolute paths preserved). Stderr WARNING.',
+    '       --strict   Exit 1 if M0 capability check reports contract_present=false.',
+    '  render [--md] [--html] [--out <dir>] [--raw] [--strict]',
+    '       --md       Emit STATUS.md only (default emits both).',
+    '       --html     Emit status.html only.',
+    '       --out <dir>  Output directory (default .claude/cache/).',
+    '       --raw      Pass through to derive() — model.masked=false. HTML output gets a red ribbon. Stderr WARNING.',
     '       --strict   Exit 1 if M0 capability check reports contract_present=false.',
     '  version          Print derive model version and exit 0.',
     '  --help, -h       Show this help.',
@@ -96,6 +105,50 @@ function cmdRun(rest) {
   return 0;
 }
 
+function writeAtomic(target, content) {
+  const tmp = target + '.tmp';
+  fs.writeFileSync(tmp, content, 'utf8');
+  fs.renameSync(tmp, target);
+}
+
+function cmdRender(rest) {
+  const cwd = process.cwd();
+  const wantRaw = !!rest.raw;
+  if (wantRaw) {
+    process.stderr.write('[mccp:derive:render] --raw emits unmasked HTML; do NOT share\n');
+  }
+  let model;
+  try {
+    model = derive(cwd, { raw: wantRaw, strict: !!rest.strict });
+  } catch (err) {
+    process.stderr.write('[mccp:derive:render] ERROR derive failed: ' + err.message + '\n');
+    return 1;
+  }
+  let rendered;
+  try {
+    rendered = renderStatus(model);
+  } catch (err) {
+    process.stderr.write('[mccp:derive:render] ERROR render failed: ' + err.message + '\n');
+    return 1;
+  }
+  const outDir = path.resolve(cwd, rest.out || path.join('.claude', 'cache'));
+  try { fs.mkdirSync(outDir, { recursive: true }); }
+  catch (err) {
+    process.stderr.write('[mccp:derive:render] ERROR mkdir ' + outDir + ': ' + err.message + '\n');
+    return 1;
+  }
+  const wantMd = !!rest.md;
+  const wantHtml = !!rest.html;
+  const emitMd = wantMd || (!wantMd && !wantHtml);
+  const emitHtml = wantHtml || (!wantMd && !wantHtml);
+  if (emitMd) writeAtomic(path.join(outDir, 'STATUS.md'), rendered.md);
+  if (emitHtml) writeAtomic(path.join(outDir, 'status.html'), rendered.html);
+  if (rest.strict && model.m0_capability && model.m0_capability.contract_present === false) {
+    return 1;
+  }
+  return 0;
+}
+
 function main(argv) {
   const args = argv.slice(2);
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
@@ -110,6 +163,8 @@ function main(argv) {
       return 0;
     case 'run':
       return cmdRun(rest);
+    case 'render':
+      return cmdRender(rest);
     default:
       process.stderr.write('mccp-derive: unknown subcommand "' + sub + '"\n');
       showHelp();

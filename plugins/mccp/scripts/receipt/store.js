@@ -20,23 +20,76 @@ function readReceipt(repoRoot, gateId, decisionId) {
   // isSafeGateDir guard that listReceipts uses. Without this, validate-cmd
   // can still consume an external receipt through a symlinked/junctioned
   // gate dir even though listReceipts already refused to scan it.
+  //
+  // v1.3.0-m6 security-reviewer absorption:
+  //   - Error messages no longer include the full filesystem path. Path
+  //     stays on err.path; downstream derive/sources/receipts.js#extract only
+  //     surfaces err.message into the model. Prevents directory enumeration
+  //     via leaked error strings (Information Disclosure absorption).
+  //   - The receipt-file read path closes its TOCTOU window: lstat-based
+  //     isPlainFile pre-check + open() with O_NOFOLLOW (POSIX) + fstat
+  //     re-validation against the opened fd. An attacker who swaps a plain
+  //     file for a symlink between the lstat and open is rejected by
+  //     O_NOFOLLOW; one who swaps it between open and read still reads from
+  //     the already-opened fd. Windows lacks O_NOFOLLOW but the static
+  //     isPlainFile + isSafeGateDir checks remain the primary defense there.
   const gd = gateDir(repoRoot, gateId);
   if (fs.existsSync(gd) && !isSafeGateDir(gd)) {
-    const e = new Error('gate dir is not a regular directory (symlink/junction/file): ' + gd);
+    const e = new Error('gate dir is not a regular directory (symlink/junction/file)');
     e.code = 'UNSAFE_GATE_DIR';
     e.path = gd;
     throw e;
   }
   const p = receiptPath(repoRoot, gateId, decisionId);
   if (!fs.existsSync(p)) return null;
-  try {
-    const raw = fs.readFileSync(p, 'utf8');
-    return JSON.parse(raw);
-  } catch (err) {
-    const e = new Error('cannot parse receipt at ' + p + ': ' + err.message);
-    e.code = 'RECEIPT_PARSE_ERROR';
+  if (!isPlainFile(p)) {
+    const e = new Error('receipt file is not a regular file (symlink/special)');
+    e.code = 'UNSAFE_RECEIPT_FILE';
     e.path = p;
     throw e;
+  }
+  const NOFOLLOW = typeof fs.constants.O_NOFOLLOW === 'number'
+    ? fs.constants.O_NOFOLLOW : 0;
+  const openFlags = fs.constants.O_RDONLY | NOFOLLOW;
+  let fd;
+  try {
+    fd = fs.openSync(p, openFlags);
+  } catch (err) {
+    if (err && (err.code === 'ELOOP' || err.code === 'EMLINK')) {
+      const e = new Error('receipt file is not a regular file (symlink/special)');
+      e.code = 'UNSAFE_RECEIPT_FILE';
+      e.path = p;
+      throw e;
+    }
+    throw err;
+  }
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile()) {
+      const e = new Error('receipt file is not a regular file (symlink/special)');
+      e.code = 'UNSAFE_RECEIPT_FILE';
+      e.path = p;
+      throw e;
+    }
+    let raw;
+    try {
+      raw = fs.readFileSync(fd, 'utf8');
+    } catch (err) {
+      const e = new Error('cannot read receipt');
+      e.code = 'RECEIPT_READ_ERROR';
+      e.path = p;
+      throw e;
+    }
+    try {
+      return JSON.parse(raw);
+    } catch (err) {
+      const e = new Error('cannot parse receipt');
+      e.code = 'RECEIPT_PARSE_ERROR';
+      e.path = p;
+      throw e;
+    }
+  } finally {
+    try { fs.closeSync(fd); } catch (_) { /* ignore */ }
   }
 }
 
@@ -60,6 +113,13 @@ function isSafeGateDir(gateDirPath) {
   if (lst.isSymbolicLink()) return false;
   if (!lst.isDirectory()) return false;
   return true;
+}
+
+function isPlainFile(filePath) {
+  let lst;
+  try { lst = fs.lstatSync(filePath); } catch (_e) { return false; }
+  if (lst.isSymbolicLink()) return false;
+  return lst.isFile();
 }
 
 function listReceipts(repoRoot, gateId, opts) {

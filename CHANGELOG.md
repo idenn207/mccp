@@ -2,68 +2,49 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.5.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.6.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
-## [1.5.0] — Unreleased
+## [1.6.0] — 2026-06-19
 
-v1.5.0-m1 — Multi-Session Continuity Primitive. First milestone of the v1.4.x multi-session cycle (PRD: `.claude/prds/v1-4-0-multi-session-first-class.prd.md`). Minor bump — introduces new schema surface (session-ledger v1) without breaking existing STATE.md / envelope / receipt schemas.
-
-### Added
-
-- **`plugins/mccp/scripts/state/session-ledger.js`** — new module. Per-session JSON ledger files atomic write/read + schema validate + advisory lock + scope-aware resolver (global / repo / hybrid). Default `~/.local/share/ecc-homunculus/projects/<projectId>/.session-ledgers/<session_id>.json`; repo opt-in via `MCCP_SESSION_LEDGER_SCOPE=repo`. Public API: `resolveLedgerScope`, `createLedger`, `finalizeLedger`, `readLedger`, `listLedgers({activeOnly:true, activeTtlMs=86_400_000})`. Codex Implement R1 absorbed: F1 (namespace `.session-ledgers/` separate from observer-sessions lease dir), F4 partial (24h TTL cutoff blocks crash-orphan permanent-active surface).
-- **`docs/v1.4.0-multi-session/session-ledger-schema.md`** — canonical schema spec + scope policy + cross-schema isolation table + deferred-to-M2 list.
-- **`docs/v1.4.0-multi-session/state-md-narrowing.md`** — role-narrowing explainer documenting why STATE.md frontmatter is NOT mutated by M1 (F2 absorption). Companion to v1.3.0 reconciliation explainer.
-- **Test surfaces**: `plugins/mccp/scripts/state/tests/session-ledger.test.js` (16 tests) + `plugins/mccp/scripts/derive/tests/state-source.test.js` (9 tests) — schema name contract (F3, `created_at` canonical, NOT `started_at`), TTL cutoff (F4 partial), scope resolution, hybrid dedupe, namespace isolation (F1).
-
-### Changed
-
-- **`plugins/mccp/scripts/hooks/session-start.js`** — after observer-lease registration, calls `sessionLedger.createLedger({sessionId, cwd, gitBranch})` (loud fail-open per CLAUDE.md §3.4). Discovery surface; does NOT touch STATE.md frontmatter (F2 absorption).
-- **`plugins/mccp/scripts/hooks/session-end.js`** — before `process.exit(0)`, calls `sessionLedger.finalizeLedger({sessionId, endedAt})` to set `ended_at`. Loud fail-open. Idempotent when ledger absent.
-- **`plugins/mccp/scripts/derive/sources/state.js`** — adds `item.active_session_ledgers` via scope-aware `listLedgers({activeOnly:true})` (Codex Implement R1 F3 absorption — never hardcodes a repo path). Default global path consumed transparently. Per-source fail-open with `degraded` flag.
-- **`docs/v1.3.0-observability/schema-surface.md`** — new §9 (session-ledger surface) explicitly documenting that STATE.md §4 is unchanged + cross-link to the canonical schema doc + the role-narrowing explainer. (§8 is v1.3.0-m5's daily-snapshot surface which landed concurrently in main; this PR's session-ledger surface occupies §9.)
-- **`.gitignore`** — adds `.claude/state/session-ledgers/` so the repo opt-in scope cannot accidentally leak ledgers in commits.
-- **plugin.json version bump** `1.4.1 → 1.5.0` — minor bump per CLAUDE.md §3.7 (new schema surface).
-
-## [Unreleased] — axis B (M2 ultracode)
-
-axis B of the v1.4.0 automation-modernization cycle — cooperative integration of Anthropic native `/effort ultracode` mode delegation into `/mccp:prp-implement` Phase 3.5 without re-implementing the native feature, with a 4th layer (isolation lock) on top of the M1 three-layer template for cases where the dispatched native command runs out-of-band relative to mccp's audit reach. plugin.json bump decided at PR ship time per CLAUDE.md §3.7 milestone-PR checklist.
+v1.3.0 observability surface II — Milestone 6 ship (cycle close). Generic interface validation — derive + snapshot + renderer가 mccp 외 repo에서 graceful한지 4 fixture로 검증하고, "어떤 source가 optional이며 어떤 fallback이 보장되는가" contract을 본문화. M5 PR #41(`d12e82d`) 직후 cycle close. plugin.json `1.5.0 → 1.6.0` minor bump per CLAUDE.md §3.7 milestone-PR checklist. 새 기능 / 새 schema field 없음.
 
 ### Added
 
-- **`plugins/mccp/scripts/lib/ultracode-detect.js`** — mode-aware detection probe. Tristate availability (`available | missing | unknown`, default `unknown` to prevent phantom guidance) with env override `MCCP_ULTRACODE_FEATURE`. Marker detection via exact regex `^\s*-\s+\*\*Effort\*\*:\s*([a-z][a-z0-9-]*)\s*$` (case-sensitive, asterisks-strict — false-positive 0) with `KNOWN_TIERS = { ultracode }` whitelist (F5 absorption — unknown tier explicit reject + stderr warn, not silent skip). Captures task heading above marker; returns `signal_tasks: [{index, name, line}]` for per-task dispatch. Path-traversal guard mirrors `impeccable-detect.js` + `deep-research-detect.js`.
-- **`plugins/mccp/scripts/lib/tests/ultracode-detect.test.js`** — 22 tests covering env override × default branches, false-positive fixture (M1 plan with no marker), single/multiple markers across tasks, regex boundary (lowercase field name, missing asterisks, trailing whitespace), orphan marker without task heading, path traversal (relative + absolute), mode-mismatch, env vs filesystem precedence, plan-missing, F5 unknown-tier warn (CLI stderr).
-- **`plugins/mccp/scripts/lib/ultracode-phase-lock.js`** — isolation lock lifecycle CLI mirroring `pr-phase-lock.js` v0.2.8 hardening (token authority split: sha256 hash in lock body, raw token via durable channel; host-aware tri-state reclaim: same-host+pid-alive=NEVER reclaim, same-host+pid-dead=reclaim, cross-host=mtime-only, 0-byte/unparseable=mtime-only; F8 symlink containment; lock file mode 0o600). M2-specific differences: F3 sidecar token file at `<gitdir>/mccp/tmp/ultracode-token-<run-id>.dat` instead of stdin-pipe IPC (turn-boundary-durable across `/effort ultracode` mode switch — shell-var stash would die at turn boundary). Lock body adds `owner_session_id` (F1 Scenario A discriminator) + `task_index` (trace/debug). Subcommands: `enter` (also writes sidecar) / `exit` (reads sidecar, unlinks both) / `heartbeat` / `detect-stale` (with sidecar sweep) / `read`.
-- **`plugins/mccp/scripts/lib/tests/ultracode-phase-lock.test.js`** — 17 tests: enter→exit round-trip, concurrent enter exit 11, wrong sidecar token exit 16, heartbeat mtime advance + token mismatch, detect-stale same-host live PID never-reclaim, same-host dead PID reclaim + sidecar sweep, cross-host within/exceeded lease, 0-byte fallback, JSON parse error fallback, missing required field fallback, `--task-index` captured in body + read, enter without `--run-id` exit 2.
-- **`plugins/mccp/scripts/hooks/ultracode-phase-guard.js`** — PreToolUse hook enforcing mccp-write isolation while `ultracode-phase.lock` is active. F2 absorption: lock parse error / 0-byte / missing required field → **DENY (fail-CLOSED)**, not fail-open — corrupt lock cannot prove no-active-delegation. F1 absorption: when `event.session_id` ≠ `lock.owner_session_id` → ALLOW (workflow-agent caller, Scenario A); when either field absent → blanket-enforce with loud stderr warn (Scenario B fallback). Deny matrix: Edit/Write/MultiEdit/NotebookEdit, Bash mutating git/receipt/state-writer/fix-task/shell-redirect/rm/mv/cp/chmod/chown/sed-i/npm-install, Skill `mccp:*`. Allow matrix: git read commands, gh read commands, `ultracode-phase-lock.js (exit|heartbeat|read|detect-stale)`, `ultracode-detect.js detect`, ls/pwd/echo/cat (except `.claude/state/`). Lightweight tokenizer mirrors `pr-phase-guard.js` for chained command safety.
-- **`plugins/mccp/scripts/hooks/tests/ultracode-phase-guard.test.js`** — 34 tests covering Bash allow/deny matrix unit, Skill mccp:* deny + non-mccp allow, F1 Scenario A discriminator unit + Scenario B fallback unit, end-to-end PreToolUse via spawnSync (no-lock + Edit allow, lock+Edit deny, lock+Read allow, lock+Bash git diff allow, lock+Bash git commit deny, lock+lock-exit allow, lock+Skill mccp:plan deny, lock+Skill impeccable allow, F2 fail-CLOSED on parse-error / zero-byte / missing-field, F1 Scenario A session_id mismatch → allow workflow caller, PostToolUse event no-op).
-- **`plugins/mccp/hooks/hooks.json` `PreToolUse` entry `mccp:ultracode-phase-guard:pre`** — registered with matcher `Edit|Write|MultiEdit|NotebookEdit|Bash|Skill`. Runs in parallel with `mccp:pr-phase-guard:pre` (Claude Code hook engine calls all hooks; first DENY wins).
-- **`plugins/mccp/commands/prp-implement.md` Sub-Phase 3.5 ULTRACODE_DELEGATE** — DETECT (per-task probe) → 분기 매트릭스 (silent skip on unknown/missing/no-signal — phantom 안내 금지) → IDEMPOTENCY CHECK (sidecar journal lookup by `(plan_hash, task_index)` — F4 absorption skips already-delegated tasks on rerun) → LOCK ENTER (with retry once via detect-stale if exit 11) → GUIDE PROMPT → WAIT for `ultracode-done:` / `ultracode-failed:` / `ultracode-skipped:` grammar → IMMEDIATE STAMP (sidecar journal `<plan-path>.delegations.jsonl` per-task NDJSON append — F4 durable record) → LOCK EXIT → SKIP IMPLEMENTATION (Phase 3 body skipped) → PROVENANCE STAMP (`## Ultracode Delegation Provenance` consolidated plan body section after per-task loop completes — idempotent rewrite) → Phase 5 REPORT inject (`## Ultracode Delegations` section) → Phase 6 OUTPUT line.
-- **`docs/automation-modernization/integration-template.md` extension** — status mark `M1-experimental` → `M1+M2-validated`, §3 Three-layer breakdown adds axis B column + new 4th layer (Isolation lock, M2-only), §5 custody anchor matrix axis B column filled in (option (b) adopted by independent evaluation — same conclusion as axis A, isolation lock layer added orthogonally), §6 Anti-patterns adds two new rows (single-prompt isolation without mechanical lock; lock file namespace collision), §8 M2 reference (shipped) + §9 M3 placeholder split, §10 audit checklist adds three new items (isolation lock mechanism / allow-deny matrix / lock crash recovery / caller-identity discriminator).
-- **`.claude/prds/v1-4-0-automation-modernization.prd.md` row 1** flipped from `in-progress` → `complete` (M1 housekeeping fix — STATE.md drift pattern mirror); **row 2** flipped from `pending` → `in-progress` with plan path linked.
+- **`plugins/mccp/scripts/derive/tests/generic-interface.test.js`** — 4 fixture × derive smoke. Fixture A (empty repo, 2-branch strict vs default), B (mccp-owned STATE.md only), B-foreign (외부 STATE.md frontmatter graceful reset), C (non-mccp gate_id `foo-gate`/`bar-gate` receipts with mccp-extension fields absent), D (degraded foreign repo: malformed JSON + unsupported STATE frontmatter + envelope `additionalProperties:false` 위반 + POSIX symlink with meta-derived sentinel strings). Codex Plan-Codex R1 F3+F4 absorption.
+- **`plugins/mccp/scripts/lib/snapshot/tests/snapshot-generic.test.js`** — Fixture B/C/idempotence/retention 4 case. 외부 cwd에서 snapshot writer가 throw 없이 동작 + `briefing_*` null projection + 30-day eviction + same-UTC-day idempotent.
+- **`plugins/mccp/scripts/lib/renderer/tests/renderer-generic.test.js`** — Fixture A/B/C/D 4 case × `renderStatus` → 6-section invariant + verdict 결정 + audit-timeline `gate_id` raw label fallback.
+- **`docs/v1.3.0-observability/generic-interface.md`** — generic interface contract spec. §1 Optional sources, §2 mccp-extension fields (5 카테고리 13 field, 외부 repo에서 null projection), §3 Non-mccp gate names, §4 What is NOT generic (path shape / STATE schema ownership / degraded-surface-is-graceful / parseability minimum). Codex R1 F3 absorption — degraded surface가 contract의 일부.
+- **`.claude/plans/notes/v1-3-0-m6-audit.md`** — 5 axis × {fixture / contract / patch} deterministic audit matrix. axis 1 security sub-axis 1건 patch (receipt file-level symlink guard) + 나머지 4 axes는 fixture/contract column으로 결정.
+- **5번째 case in `plugins/mccp/scripts/receipt/tests/store-readreceipt-symlink.test.js`** — safe gate dir + symlinked `<decision>.json` → `UNSAFE_RECEIPT_FILE` throw 검증. POSIX 전용 (Windows admin 권한 필요로 skip).
 
 ### Changed
 
-- **Anti-pattern §6** extended in `docs/automation-modernization/integration-template.md` — single prompt-text instruction is insufficient isolation when the native command dispatches out-of-band writes; lock file must use feature-distinct prefix to avoid namespace collision.
+- **`plugins/mccp/scripts/receipt/store.js`** — `readReceipt` 가 file-level `isPlainFile` guard 통과 후에만 `fs.readFileSync`. envelopes.js:14-19 패턴 미러. 코드 리뷰에서 발견된 axis 1 security sub-axis 패치 — gate-dir level guard (v0.2.8 Task 2.6.5a/b)는 이미 있었지만 file level은 없었고, generic-interface §4.3의 "no external dereference" 보장이 receipts 측에서 미강제였음. Fixture D의 sentinel JSON을 `meta.created_at` + `meta.command` + `decision_id`까지 포함하도록 강화하여 진짜 invariant assertion으로 전환. **security-reviewer absorption (HIGH × 2)**: (1) `Error.message`에서 filesystem path 제거 — derive model 직렬화 시 directory enumeration leak 방지. path은 `err.path` field에 보존. (2) `existsSync → lstat → readFileSync` 3-syscall TOCTOU race를 `existsSync → lstat → open(O_NOFOLLOW) → fstat → read from fd → close` atomic 패턴으로 close. POSIX는 `O_NOFOLLOW`로 mid-syscall symlink swap reject + Windows는 정적 `isPlainFile` + `isSafeGateDir` 가 primary defense.
+- **`docs/v1.3.0-observability/generic-interface.md`** §4.3 — symlink dereference 보장 cite를 envelopes (`isPlainFile`) + receipts (`isPlainFile`+`isSafeGateDir` 2축) 양축으로 정밀화. 원본은 envelopes의 guard만 인용하여 generalization gap 존재.
+- **`docs/v1.3.0-observability/schema-surface.md`** — §9 cross-link to `generic-interface.md` 추가. read-side schema surface는 변경 없음.
+- **PRD M6 row** `pending → in-progress` (PR merge 시 `complete`로 자동 전환, M5 PR #41 패턴 동일).
+- **plugin.json version bump** `1.5.0 → 1.6.0` — minor jump per CLAUDE.md §3.7.
 
-### Out of scope (explicit deferrals)
+## [1.5.0] — 2026-06-19
 
-- Anthropic `/effort ultracode` invocation by mccp itself — CLAUDE.md §1.4 Principle preserved (no shell-spawn, no in-prompt re-implementation). Delegation is always a user turn handoff.
-- New receipt fields for ultracode delegation (option c in custody matrix). Deferred — option (b) plan-body provenance hash + existing `implement-codex` plan_hash mechanic provides sufficient audit anchor.
-- Batch mode (multiple marker tasks delegated in a single ultracode session). M2 baseline is per-task isolation; plan authors can batch by placing the marker on only one task. v1.4.x patch backlog candidate.
-- Future Effort tiers (e.g. `ultraplan`). M2 KNOWN_TIERS is `{ ultracode }` only; future tier addition is a separate axis plan.
-- Cross-axis receipt schema invariants. Still NOT locked until M3 (`/goal`) ships and validates the option (b) anchor across all three layers. M3 may pick a different option.
+v1.3.0 observability surface II — Milestone 5 ship (PR #41, squash `d12e82d`). Daily snapshot + 30-day audit timeline + Codex R1 absorption. M4가 plugin.json bump을 누락한 결과 (1.4.1 그대로 유지) 본 entry가 ship trail 백필로 추가됨 (v1.6.0 PR가 동시 백필 처리).
 
-### Codex Adversarial Review (R1 absorbed)
+### Added
 
-- **F1 (CRITICAL — Global hook cannot both block mccp writes and allow ultracode writes)** absorbed via Task 1 plan-finalize gate (WebFetch spec re-confirm with `<!-- ultracode native spec confirmed at <ISO>: hook_active_in_ultracode=..., caller_session_id_exposed=..., marker_collision=..., summary=... -->` marker) + Scenario A default (lock body `owner_session_id` field + hook predicate `event.session_id ≠ lock.owner_session_id → ALLOW`) + Scenario B fallback (blanket-enforce + stderr warn).
-- **F2 (HIGH — malformed lock fails open and disables primary defense)** absorbed via fail-CLOSED inversion in `ultracode-phase-guard.js` `lockState()` — lock parse error / 0-byte / missing required field → DENY. Lock absent (file does not exist) still ALLOW (no isolation active). detect-stale CLI is the explicit recovery path; 60s mtime lease provides backstop.
-- **F3 (HIGH — ownership token lifecycle is not durable across turn boundary)** absorbed via sidecar token file `<gitdir>/mccp/tmp/ultracode-token-<run-id>.dat` (mode 0o600) — shell-var stash polished out. exit/heartbeat read raw token from sidecar based on `--run-id`; no token in argv/stdin/env. Sidecar cleanup integrated into detect-stale reclaim path.
-- **F4 (HIGH — per-task provenance is kept only in memory until end of loop)** absorbed via sidecar journal `<plan-path>.delegations.jsonl` (append-only NDJSON) — per-task immediate stamp + idempotency key `(plan_hash, task_index, run_id)`. Next `/mccp:prp-implement` rerun on same plan body (unchanged `plan_hash`) skips already-delegated tasks. Plan body change invalidates prior entries (intentional — re-delegation on plan revision).
-- **F5 (MEDIUM — marker and native-mode assumptions silently fall through before spec confirmation)** absorbed via Effort field strict whitelist (`KNOWN_TIERS = { ultracode }` in `ultracode-detect.js`) — unknown tier → `reason=unknown-effort-tier` + stderr warn (not silent skip). Combined with F1's Task 1 plan-finalize gate.
+- **`plugins/mccp/scripts/lib/snapshot/index.js`** — daily snapshot writer. `.claude/cache/snapshots/YYYY-MM-DD.json` (`snapshot-v1` schema) + 30-day retention with Codex R1 F3 skew guards (future-dated files NOT evicted + cutoff > last-render aborts retention). always-mask invariant — `model.masked=false` 인 경우에도 snapshot payload는 masked. `gate_id + decision_id + receipt_hash` 3축 dedup identity (F2 absorption) — re-issued receipt(briefing restamp / dedupe attribution) 는 distinct event로 분리.
+- **`receipt_hash` surface in `plugins/mccp/scripts/derive/sources/receipts.js`** — M5 dedup identity의 read-side anchor. v0.2.x-era receipt는 `null` projection.
+- **30-day audit timeline read path** in `plugins/mccp/scripts/lib/renderer/sections/audit-timeline.js` — snapshot history를 timeline section에 surface. snapshot 미존재 시 `최근 7일 활동 없음` graceful fallback.
+- **`docs/v1.3.0-observability/snapshot-schema.md`** — canonical `snapshot-v1` JSON shape + filename-anchored retention + write-eligibility vs retention split (F4 absorption).
 
-## [1.4.0] — Unreleased
+### Changed
 
-Minor bump on top of v1.3.1. Cycle close for the v1.3.0 observability surface II line — v1.3.0-m3 (STATUS.md + HTML renderer) ships as the final milestone, and the version jump signals the open follow-up axes (H1/M1/M2/M3/L1-4 from the M1 audit trail) consolidate into the v1.4.x patch cycle that follows.
+- **plugin.json version bump** `1.4.1 → 1.5.0` — minor jump per CLAUDE.md §3.7. M4 PR #39 (refresh trigger + privacy guard)가 plugin.json bump을 누락한 결과, M5 bump이 M4 + M5 두 milestone을 동시 surface.
+- **`docs/v1.3.0-observability/schema-surface.md`** §8 추가 — snapshot schema cross-link.
+- **PRD M5 row** `in-progress → complete`.
+
+## [1.4.0] — 2026-06-18
+
+Minor bump on top of v1.3.1. Cycle close for the v1.3.0 observability surface II line — v1.3.0-m3 (STATUS.md + HTML renderer) ships as the final milestone, and the version jump signals the open follow-up axes (H1/M1/M2/M3/L1-4 from the M1 audit trail) consolidate into the v1.4.x patch cycle that follows. ship: PR #37, squash `9c7336b`.
 
 ### Added
 
@@ -77,7 +58,7 @@ Minor bump on top of v1.3.1. Cycle close for the v1.3.0 observability surface II
 - **plugin.json version bump** `1.3.1 → 1.4.0` — minor jump per the Last Decision recorded in the v1.3.0 cycle memory. The v1.3.x hotfix patch line closes with PR #36, and the v1.4.x cycle absorbs the follow-up axes (H1 `origin_url` mask + M1 `scanPlans.invalid_count` + M2 backlog↔plan basename match + M3 `derive/index.js` catch-block degraded flag + L1-L4 audit items). CLAUDE.md §3.7 milestone PR mandatory checklist enforced.
 - **CLAUDE.md** auto-gate table updated with the M3 row + §5 entry 7 added for `plugins/mccp/scripts/lib/renderer/index.js`.
 
-## [1.4.1] — Unreleased
+## [1.4.1] — 2026-06-19
 
 axis A of the v1.4.0 automation-modernization cycle — cooperative integration of Anthropic native `/deep-research` into `/mccp:plan-prd` Phase 2.5 without re-implementing the native feature, with mechanical chain-of-custody anchor riding on the existing `plan_hash`. plugin.json bump `1.4.0 → 1.4.1` per CLAUDE.md §3.7 milestone-PR checklist (rebased onto v1.4.0 baseline from M3 PR #37).
 
@@ -92,7 +73,7 @@ axis A of the v1.4.0 automation-modernization cycle — cooperative integration 
 
 ### Changed
 
-- **plugin.json version bump** `1.4.0 → 1.4.1` — patch bump on top of the v1.4.0 baseline shipped by M3 PR #37. axis A is the first patch of the v1.4.x cycle.
+- **plugin.json version bump** `1.4.0 → 1.4.1` — patch bump on top of the v1.4.0 baseline shipped by M3 PR #37. axis A is the first patch of the v1.4.x cycle. ship: PR #38, squash `e7fc8de`, 2026-06-19.
 
 ### Code-review absorbed (pre-PR self-review)
 

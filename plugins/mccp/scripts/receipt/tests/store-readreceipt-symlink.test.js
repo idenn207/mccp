@@ -131,3 +131,44 @@ test('readReceipt (4) non-existent gate dir → null', function () {
   const got = readReceipt(repo, 'mccp-plan-codex', 'missing');
   assert.strictEqual(got, null);
 });
+
+// (5) v1.3.0-m6 — file-level symlink guard. A safe gate dir can still host a
+// symlinked `<decision>.json` file pointing outside the worktree. Without the
+// new isPlainFile check inside readReceipt, fs.readFileSync would follow the
+// link and surface external content. UNSAFE_RECEIPT_FILE must throw before
+// the read happens.
+test('readReceipt (5) safe gate dir + symlinked receipt file → UNSAFE_RECEIPT_FILE thrown', function (t) {
+  if (process.platform === 'win32') {
+    t.skip('file-level symlink test requires elevated perms on Windows');
+    return;
+  }
+  const repo = mkTmpRepo();
+  const externalRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-ext-file-'));
+  const externalFile = path.join(externalRoot, 'external-receipt.json');
+  fs.writeFileSync(externalFile, JSON.stringify({
+    schema_version: 'v1',
+    gate_id: 'EXTERNAL-LEAK',
+    decision_id: 'EXTERNAL-LEAK',
+    meta: { created_at: 'EXTERNAL-LEAK' },
+  }));
+
+  const gateDir = path.join(repo, '.claude', 'receipts', 'mccp-plan-codex');
+  fs.mkdirSync(gateDir, { recursive: true });
+  const linkPath = path.join(gateDir, 'default.json');
+  try {
+    fs.symlinkSync(externalFile, linkPath, 'file');
+  } catch (_) {
+    t.skip('symlink creation requires elevated perms on this platform');
+    return;
+  }
+
+  assert.throws(
+    function () { readReceipt(repo, 'mccp-plan-codex', 'default'); },
+    function (err) {
+      return err && err.code === 'UNSAFE_RECEIPT_FILE';
+    },
+    'readReceipt must throw UNSAFE_RECEIPT_FILE when the file is a symlink'
+  );
+
+  try { fs.rmSync(externalRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+});

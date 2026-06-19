@@ -2,7 +2,27 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.4.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.5.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.5.0] — Unreleased
+
+v1.5.0-m1 — Multi-Session Continuity Primitive. First milestone of the v1.4.x multi-session cycle (PRD: `.claude/prds/v1-4-0-multi-session-first-class.prd.md`). Minor bump — introduces new schema surface (session-ledger v1) without breaking existing STATE.md / envelope / receipt schemas.
+
+### Added
+
+- **`plugins/mccp/scripts/state/session-ledger.js`** — new module. Per-session JSON ledger files atomic write/read + schema validate + advisory lock + scope-aware resolver (global / repo / hybrid). Default `~/.local/share/ecc-homunculus/projects/<projectId>/.session-ledgers/<session_id>.json`; repo opt-in via `MCCP_SESSION_LEDGER_SCOPE=repo`. Public API: `resolveLedgerScope`, `createLedger`, `finalizeLedger`, `readLedger`, `listLedgers({activeOnly:true, activeTtlMs=86_400_000})`. Codex Implement R1 absorbed: F1 (namespace `.session-ledgers/` separate from observer-sessions lease dir), F4 partial (24h TTL cutoff blocks crash-orphan permanent-active surface).
+- **`docs/v1.4.0-multi-session/session-ledger-schema.md`** — canonical schema spec + scope policy + cross-schema isolation table + deferred-to-M2 list.
+- **`docs/v1.4.0-multi-session/state-md-narrowing.md`** — role-narrowing explainer documenting why STATE.md frontmatter is NOT mutated by M1 (F2 absorption). Companion to v1.3.0 reconciliation explainer.
+- **Test surfaces**: `plugins/mccp/scripts/state/tests/session-ledger.test.js` (16 tests) + `plugins/mccp/scripts/derive/tests/state-source.test.js` (9 tests) — schema name contract (F3, `created_at` canonical, NOT `started_at`), TTL cutoff (F4 partial), scope resolution, hybrid dedupe, namespace isolation (F1).
+
+### Changed
+
+- **`plugins/mccp/scripts/hooks/session-start.js`** — after observer-lease registration, calls `sessionLedger.createLedger({sessionId, cwd, gitBranch})` (loud fail-open per CLAUDE.md §3.4). Discovery surface; does NOT touch STATE.md frontmatter (F2 absorption).
+- **`plugins/mccp/scripts/hooks/session-end.js`** — before `process.exit(0)`, calls `sessionLedger.finalizeLedger({sessionId, endedAt})` to set `ended_at`. Loud fail-open. Idempotent when ledger absent.
+- **`plugins/mccp/scripts/derive/sources/state.js`** — adds `item.active_session_ledgers` via scope-aware `listLedgers({activeOnly:true})` (Codex Implement R1 F3 absorption — never hardcodes a repo path). Default global path consumed transparently. Per-source fail-open with `degraded` flag.
+- **`docs/v1.3.0-observability/schema-surface.md`** — new §9 (session-ledger surface) explicitly documenting that STATE.md §4 is unchanged + cross-link to the canonical schema doc + the role-narrowing explainer. (§8 is v1.3.0-m5's daily-snapshot surface which landed concurrently in main; this PR's session-ledger surface occupies §9.)
+- **`.gitignore`** — adds `.claude/state/session-ledgers/` so the repo opt-in scope cannot accidentally leak ledgers in commits.
+- **plugin.json version bump** `1.4.1 → 1.5.0` — minor bump per CLAUDE.md §3.7 (new schema surface).
 
 ## [1.4.0] — Unreleased
 

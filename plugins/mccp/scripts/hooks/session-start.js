@@ -21,6 +21,8 @@ const {
   log
 } = require('../lib/utils');
 const { resolveProjectContext, writeSessionLease, resolveSessionId, getHomunculusDir } = require('../lib/observer-sessions');
+const sessionLedger = require('../state/session-ledger');
+const { spawnSync } = require('child_process');
 const { getPackageManager, getSelectionPrompt } = require('../lib/package-manager');
 const { listAliases } = require('../lib/session-aliases');
 const { detectProjectType } = require('../lib/project-detect');
@@ -538,6 +540,39 @@ async function main() {
       projectRoot: observerContext.projectRoot
     });
     log(`[SessionStart] Registered observer lease for ${observerSessionId}`);
+
+    // v1.5.0-m1 — session-ledger primitive (multi-session continuity).
+    // Discovery surface is the ledger directory itself; STATE.md frontmatter
+    // is intentionally NOT mutated (Codex Implement R1 F2 absorption — the
+    // hash-skip path in state-writer would prevent anchor persistence).
+    // Loud fail-open per CLAUDE.md §3.4 — never throws.
+    try {
+      let gitBranch = null;
+      if (observerContext.projectRoot) {
+        const probe = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+          cwd: observerContext.projectRoot,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore']
+        });
+        if (probe.status === 0) {
+          const out = (probe.stdout || '').trim();
+          if (out && out !== 'HEAD') gitBranch = out;
+        }
+      }
+      const result = sessionLedger.createLedger({
+        sessionId: observerSessionId,
+        cwd: process.cwd(),
+        gitBranch: gitBranch,
+        projectContext: observerContext
+      });
+      if (result.ok) {
+        log(`[SessionStart] Wrote session ledger ${observerSessionId} (scope=${result.scope}, paths=${result.paths.length})`);
+      } else {
+        process.stderr.write(`[mccp:session-ledger] WARNING: createLedger failed: ${result.error} (allow)\n`);
+      }
+    } catch (err) {
+      process.stderr.write(`[mccp:session-ledger] WARNING: SessionStart ledger threw: ${err && err.message ? err.message : err} (allow)\n`);
+    }
   } else {
     log('[SessionStart] No CLAUDE_SESSION_ID available; skipping observer lease registration');
   }

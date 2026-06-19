@@ -174,7 +174,22 @@ function applyPathMask(model, repoRoot) {
       maskItem(it, root, ['path', 'heartbeat_path', 'parent_cwd']);
     }
   }
-  if (s.state && s.state.item) maskItem(s.state.item, root, ['path']);
+  if (s.state && s.state.item) {
+    maskItem(s.state.item, root, ['path']);
+    // v1.5.0-m1 — session-ledger surface privacy. cwd is path-normalized;
+    // host is redacted to a placeholder because hostnames can identify the
+    // operator's machine. git_branch / project_id / session_id stay raw
+    // (branches are public-ish, project_id is a 12-char sha, session_id is
+    // a transient UUID).
+    if (Array.isArray(s.state.item.active_session_ledgers)) {
+      for (const led of s.state.item.active_session_ledgers) {
+        maskItem(led, root, ['cwd']);
+        if (led && typeof led.host === 'string' && led.host.length > 0) {
+          led.host = '<host>';
+        }
+      }
+    }
+  }
   if (s.fix_task && s.fix_task.item) maskItem(s.fix_task.item, root, ['path']);
 
   if (Array.isArray(model.correlations)) {

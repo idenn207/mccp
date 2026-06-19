@@ -57,3 +57,8 @@ ECC/
 # Cache layer is per-session/per-machine; sources of truth remain receipts,
 # envelopes, and STATE.md. Pattern mirrors .claude/state/*.lock above.
 .claude/cache/
+
+# impeccable Skill plan-stage critique artifacts (user-local tool 산출,
+# finding은 plan/code/PR body absorption note로 audit trail 처리).
+# Pattern mirrors ECC/ above — 사용자 개별 설치 tool의 작업 부산물.
+.impeccable/

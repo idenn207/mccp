@@ -355,20 +355,33 @@ Create review artifact at `.claude/reviews/pr-<NUMBER>-review.md` unless the rep
 
 ### Phase 7 — PUBLISH
 
-Post the review to GitHub:
+Post the review to GitHub. The body MUST embed the **full review report** (Phase 6 artifact) so the reviewer can read findings without checking out the head branch — the `.claude/reviews/` file is preserved in working tree but not pushed (see Phase 7.6 for archive policy). For self-reviewed PRs GitHub rejects `--approve` / `--request-changes` with `Can not approve your own pull request`; fall back to `--comment` and preserve the decision verbatim inside the body header.
 
 ```bash
-# If APPROVE
-gh pr review <NUMBER> --approve --body "<summary of review>"
+REVIEW_PATH=".claude/reviews/pr-<NUMBER>-review.md"
+test -f "$REVIEW_PATH" || { echo "[MCCP-GATE-STOP] Phase 6 review not found at $REVIEW_PATH"; exit 1; }
 
-# If REQUEST CHANGES
-gh pr review <NUMBER> --request-changes --body "<summary with required fixes>"
+# Decision-aware verb
+case "$DECISION" in
+  APPROVE)         REVIEW_VERB="--approve" ;;
+  REQUEST_CHANGES) REVIEW_VERB="--request-changes" ;;
+  *)               REVIEW_VERB="--comment" ;;
+esac
 
-# If COMMENT only (draft PR or informational)
-gh pr review <NUMBER> --comment --body "<summary>"
+# Self-review detection — GitHub rejects approve/request-changes from PR author
+PR_AUTHOR=$(gh pr view <NUMBER> --json author --jq .author.login)
+ME=$(gh api user --jq .login 2>/dev/null || echo "")
+if [ -n "$ME" ] && [ "$PR_AUTHOR" = "$ME" ] && [ "$REVIEW_VERB" != "--comment" ]; then
+  echo "[mccp:code-review] self-review detected ($ME == $PR_AUTHOR) — falling back to --comment (decision $DECISION preserved in body header)"
+  REVIEW_VERB="--comment"
+fi
+
+gh pr review <NUMBER> $REVIEW_VERB --body "$(cat "$REVIEW_PATH")"
 ```
 
-For inline comments on specific lines, use the GitHub review comments API:
+Embedding the full body closes the prior gap where Phase 7 wrote only a short summary + a `.claude/reviews/pr-<N>-review.md` path reference, leaving the artifact unreachable for any reviewer who had not checked out the head branch.
+
+For inline comments on specific lines (optional, separate from the embedded body):
 ```bash
 gh api "repos/{owner}/{repo}/pulls/<NUMBER>/comments" \
   -f body="<comment>" \
@@ -376,14 +389,6 @@ gh api "repos/{owner}/{repo}/pulls/<NUMBER>/comments" \
   -F line=<line-number> \
   -f side="RIGHT" \
   -f commit_id="$(gh pr view <NUMBER> --json headRefOid --jq .headRefOid)"
-```
-
-Alternatively, post a single review with multiple inline comments at once:
-```bash
-gh api "repos/{owner}/{repo}/pulls/<NUMBER>/reviews" \
-  -f event="COMMENT" \
-  -f body="<overall summary>" \
-  --input comments.json  # [{"path": "file", "line": N, "body": "comment"}, ...]
 ```
 
 ### Phase 7.5 — Write code-reviewer receipt (자동, chain-aware PR Review Mode 전용)
@@ -415,20 +420,56 @@ Bash hook block handling: same as Plan-Codex Phase 7.6 — output `[MCCP-GATE-ST
 
 If the review decision was `BLOCK` (CRITICAL findings) or `REQUEST CHANGES` (HIGH findings), still write the receipt — its `resolution.open_questions` will block downstream `/mccp:*` commands at preflight until the issues are addressed and a new round is recorded.
 
+### Phase 7.6 — ARCHIVE (자동, chain-aware PR Review Mode 전용)
+
+Review artifact `.claude/reviews/pr-<NUMBER>-review.md` lifecycle is decided by PR state:
+
+| PR state | Action |
+|---|---|
+| `MERGED` / `CLOSED` | move to `.claude/reviews/archive/` (mirrors prior `pr-10-review.md` archive precedent — single source of truth, working tree tidy) |
+| `OPEN` / `DRAFT` | keep in working tree, stderr instruct reviewer to mv on housekeeping cycle (PR diff cleanliness — see CLAUDE.md §3.5) |
+
+**Skip entirely** in Standalone PR Review Mode (`--standalone`) and Local Review Mode — those produce no artifact under chain management.
+
+```bash
+PR_STATE=$(gh pr view <NUMBER> --json state --jq .state 2>/dev/null || echo "UNKNOWN")
+REVIEW_PATH=".claude/reviews/pr-<NUMBER>-review.md"
+
+case "$PR_STATE" in
+  MERGED|CLOSED)
+    mkdir -p .claude/reviews/archive
+    if [ -f "$REVIEW_PATH" ]; then
+      mv "$REVIEW_PATH" .claude/reviews/archive/
+      echo "[mccp:code-review] review archived → .claude/reviews/archive/pr-<NUMBER>-review.md (PR state=$PR_STATE)"
+    fi
+    ARCHIVE_PATH=".claude/reviews/archive/pr-<NUMBER>-review.md"
+    ;;
+  OPEN|DRAFT|*)
+    echo "[mccp:code-review] PR state=$PR_STATE — review preserved at $REVIEW_PATH"
+    echo "[mccp:code-review]   After PR merges, run: mv $REVIEW_PATH .claude/reviews/archive/"
+    echo "[mccp:code-review]   Or fold the mv into a follow-up chore commit (prior pr-34 pattern: commit 10805d8)."
+    ARCHIVE_PATH="$REVIEW_PATH"
+    ;;
+esac
+```
+
+The PR comment posted in Phase 7 already embeds the full review body, so the archive move never severs reviewer access to findings — the working-tree (or archive) `.md` is now a reviewer-local copy + audit anchor for `/mccp:receipt-status`, while GitHub holds the authoritative public surface.
+
 ### Phase 8 — OUTPUT
 
-Report to user:
+Report to user (path resolves from Phase 7.6 archive decision):
 
 ```
 PR #<NUMBER>: <TITLE>
-Decision: <APPROVE|REQUEST_CHANGES|BLOCK>
+Decision: <APPROVE|REQUEST_CHANGES|BLOCK>   (self-review fallback noted if applicable)
 
 Issues: <critical_count> critical, <high_count> high, <medium_count> medium, <low_count> low
 Validation: <pass_count>/<total_count> checks passed
 
 Artifacts:
-  Review: .claude/reviews/pr-<NUMBER>-review.md
-  GitHub: <PR URL>
+  Review:  ${ARCHIVE_PATH}                              (auto-moved if PR merged/closed)
+  Receipt: .claude/receipts/code-reviewer/${DECISION_SLUG}.json
+  GitHub:  <PR URL>                                     (full review body embedded)
 
 Next steps:
   - <contextual suggestions based on decision>

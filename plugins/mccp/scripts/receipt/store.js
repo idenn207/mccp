@@ -29,6 +29,16 @@ function readReceipt(repoRoot, gateId, decisionId) {
   }
   const p = receiptPath(repoRoot, gateId, decisionId);
   if (!fs.existsSync(p)) return null;
+  // v1.3.0-m6 — file-level symlink guard mirrors envelopes.js#isPlainFile so a
+  // safe gate dir cannot host a symlinked `<decision>.json` pointing outside the
+  // worktree. Without this, generic-interface §4.3's "no external dereference"
+  // claim is unenforced.
+  if (!isPlainFile(p)) {
+    const e = new Error('receipt file is not a regular file (symlink/special): ' + p);
+    e.code = 'UNSAFE_RECEIPT_FILE';
+    e.path = p;
+    throw e;
+  }
   try {
     const raw = fs.readFileSync(p, 'utf8');
     return JSON.parse(raw);
@@ -60,6 +70,13 @@ function isSafeGateDir(gateDirPath) {
   if (lst.isSymbolicLink()) return false;
   if (!lst.isDirectory()) return false;
   return true;
+}
+
+function isPlainFile(filePath) {
+  let lst;
+  try { lst = fs.lstatSync(filePath); } catch (_e) { return false; }
+  if (lst.isSymbolicLink()) return false;
+  return lst.isFile();
 }
 
 function listReceipts(repoRoot, gateId, opts) {

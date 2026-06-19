@@ -225,3 +225,7 @@ What is NOT in this milestone (v1.3.0-m0): the derive engine itself, the dashboa
 ## §8 — Daily snapshot + 30-day audit window (v1.3.0-m5)
 
 **STATUS: implemented in v1.3.0-m5.** Snapshot schema freeze + retention contract + audit-timeline 30-day read path: see [snapshot-schema.md](./snapshot-schema.md) for the canonical `snapshot-v1` JSON shape, filename-anchored retention with Codex R1 F3 skew guards, write-eligibility vs retention split (F4 absorption), always-mask invariant, and `gate_id | decision_id | receipt_hash` de-dup identity (F2 absorption). M5 adds a single optional `meta`-side surface to the receipt projection (`receipts[*].receipt_hash` via `derive/sources/receipts.js`); no envelope or STATE.md schema changes. The snapshot writer piggybacks on M4's `triggerRender` — never standalone.
+
+## §9 — Generic interface contract (v1.3.0-m6)
+
+**STATUS: implemented in v1.3.0-m6.** Reference impl보장 — mccp가 외부 repo에 installed될 때 derive + snapshot + renderer 모두 graceful한지를 4 fixture로 검증하고 contract을 본문화. 외부 repo의 optional sources (§1) + mccp-extension fields null projection (§2) + non-mccp gate names (§3) + NOT generic contract (§4 — path shape / STATE schema ownership / degraded-surface-is-graceful) 가 단일 문서로 묶임. 새 schema field 추가나 surface 변경 없음. 자세한 spec: [generic-interface.md](./generic-interface.md). Audit evidence matrix: [`.claude/plans/notes/v1-3-0-m6-audit.md`](../../.claude/plans/notes/v1-3-0-m6-audit.md).

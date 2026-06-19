@@ -403,6 +403,236 @@ For each task in **Step-by-Step Tasks**:
 
 4. **Track progress** — Log: `[done] Task N: [task name] — complete`
 
+### Sub-Phase 3.5 — ULTRACODE_DELEGATE (mccp v1.4.0 axis B / M2 — opt-in per task)
+
+**Purpose**: When the plan body marks a task with `- **Effort**: ultracode`, prp-implement does NOT execute that task's per-task loop directly. Instead it acquires an isolation lock, guides the user to switch into Anthropic's native `/effort ultracode` mode (workflow runtime), waits for a structured response, records the delegation result, and proceeds to the next task. The lock + PreToolUse guard hook (`ultracode-phase-guard.js`) mechanically block mccp from writing files, receipts, STATE.md, or invoking mccp:* skills while the lock is active — the cooperative prompt is the secondary, not primary, defense.
+
+**Invariant (M2 PRD Principle)**: mccp NEVER calls `/effort ultracode` directly. Delegation is always a user turn handoff.
+
+#### 3.5.0 — DETECT (per-task probe)
+
+Before each task in the per-task loop, probe the plan body for a marker on the current task:
+
+```bash
+DETECT_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ultracode-detect.js" detect \
+  --mode implement \
+  --plan "$ARGUMENTS" \
+  --json)
+SIGNAL=$(echo "$DETECT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.ultracode_signal?"1":"0")}catch{process.stdout.write("0")}')
+AVAIL=$(echo "$DETECT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.availability||"unknown")}catch{process.stdout.write("unknown")}')
+UNKNOWN_TIERS=$(echo "$DETECT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write((j.unknown_tiers||[]).map(u=>u.tier+"@"+u.line).join(","))}catch{process.stdout.write("")}')
+```
+
+Check whether the current task index (N) is in `signal_tasks`. Use jq-style extraction:
+
+```bash
+TASK_IN_SIGNAL=$(echo "$DETECT_JSON" | node -e '
+  const j=JSON.parse(require("fs").readFileSync(0,"utf8"));
+  const N=parseInt(process.argv[1],10);
+  const hit=(j.signal_tasks||[]).find(t=>t.index===N);
+  process.stdout.write(hit?"1":"0");
+' "$CURRENT_TASK_INDEX")
+```
+
+Surface unknown tier warnings to the user (F5 absorption — no silent fall-through):
+
+```bash
+if [ -n "$UNKNOWN_TIERS" ]; then
+  echo "[ultracode-detect] WARN — plan body contains unknown Effort tier(s): $UNKNOWN_TIERS. Known tiers: ultracode. Skipping these markers." 1>&2
+fi
+```
+
+#### 3.5.1 — 분기 매트릭스 (mirror of integration template §4)
+
+| availability | current task in signal_tasks | Action |
+|---|---|---|
+| `available` | included | proceed to 3.5.2 LOCK ENTER |
+| `unknown` or `missing` | * | silent skip — run original Phase 3 per-task loop (phantom 안내 금지) |
+| `available` | NOT included | silent skip — run original Phase 3 per-task loop |
+
+Default (`unknown`) is the phantom-안내-금지 invariant — without a positive availability signal (env override or filesystem probe), do NOT emit the GUIDE PROMPT.
+
+#### 3.5.2 — IDEMPOTENCY CHECK (F4 absorption — sidecar journal lookup)
+
+Before LOCK ENTER, check the sidecar journal for a prior delegation entry matching the current `(plan_hash, task_index)` pair:
+
+```bash
+JOURNAL="${ARGUMENTS}.delegations.jsonl"
+PLAN_HASH=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" hash-markdown "$ARGUMENTS")
+PRIOR=""
+if [ -f "$JOURNAL" ]; then
+  PRIOR=$(node -e '
+    const fs=require("fs");
+    const N=parseInt(process.argv[1],10);
+    const ph=process.argv[2];
+    const lines=fs.readFileSync(process.argv[3],"utf8").split(/\r?\n/).filter(Boolean);
+    let latest=null;
+    for (const line of lines) {
+      try {
+        const o=JSON.parse(line);
+        if (o.task_index===N && o.plan_hash===ph) latest=o;
+      } catch(_) {}
+    }
+    process.stdout.write(latest ? JSON.stringify(latest) : "");
+  ' "$CURRENT_TASK_INDEX" "$PLAN_HASH" "$JOURNAL")
+fi
+
+if [ -n "$PRIOR" ]; then
+  VERDICT=$(echo "$PRIOR" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).verdict)')
+  STAMPED=$(echo "$PRIOR" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).stamped_at)')
+  echo "[ultracode-delegated-previously] Task $CURRENT_TASK_INDEX: verdict=$VERDICT (stamped at $STAMPED, plan_hash unchanged) — skip sub-phase 3.5, proceed to next task."
+  # M1 absorption: mark this task as "delegated from journal" so Forwarded
+  # effects (3.5.10) and PROVENANCE STAMP (3.5.9) surface it without a fresh
+  # GUIDE PROMPT round. No in-memory queue push is needed because both
+  # downstream steps re-read the sidecar journal (filtered by current
+  # plan_hash) as their canonical input source.
+  ULTRACODE_PRIOR_HIT=1
+  # Skip sub-phases 3.5.3 through 3.5.8 (LOCK ENTER / GUIDE / WAIT / STAMP /
+  # LOCK EXIT / SKIP IMPLEMENTATION) and proceed to the next per-task loop
+  # iteration. Do NOT execute the task's Phase 3 body — it was already
+  # delegated in the prior run.
+  continue
+fi
+```
+
+If a prior entry exists with matching `plan_hash`, skip sub-phase 3.5 entirely for this task (idempotent re-run). The `continue` above is the canonical exit — both `## Ultracode Delegations` report inject (3.5.10) and `## Ultracode Delegation Provenance` plan-body stamp (3.5.9) read the sidecar journal at consolidation time, so this task's prior entry is automatically surfaced without re-asking the user. If plan body has been edited since the prior delegation, `plan_hash` changes and the prior entry no longer matches — new delegation is required (intentional invalidation).
+
+#### 3.5.3 — LOCK ENTER
+
+```bash
+RUN_ID=$(node -e 'console.log(crypto.randomUUID())')
+SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
+ENTER_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ultracode-phase-lock.js" enter \
+  --run-id "$RUN_ID" \
+  --pid $$ \
+  --task-index "$CURRENT_TASK_INDEX" \
+  --owner-session-id "$SESSION_ID")
+ENTER_EXIT=$?
+```
+
+Failure handling:
+
+- **Exit 11 (lock held)**: invoke detect-stale once for orphan reclaim, then retry enter:
+
+  ```bash
+  if [ "$ENTER_EXIT" = "11" ]; then
+    node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ultracode-phase-lock.js" detect-stale > /dev/null
+    ENTER_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ultracode-phase-lock.js" enter \
+      --run-id "$RUN_ID" --pid $$ --task-index "$CURRENT_TASK_INDEX" --owner-session-id "$SESSION_ID")
+    ENTER_EXIT=$?
+  fi
+  ```
+
+- **Still failing**: output `[MCCP-GATE-STOP] ultracode lock 진입 실패 (이미 점유 중)` and end the response. Do NOT proceed.
+
+The sidecar token file is written automatically by `enter` to `<gitdir>/mccp/tmp/ultracode-token-<run-id>.dat` (F3 absorption — durable across turn boundary; no shell-var stash needed).
+
+#### 3.5.4 — GUIDE PROMPT
+
+Emit the following message to the user (Korean primary, terminology preserved):
+
+```
+Task <N> '<task-name>' 본문에 ultracode 위임 marker가 있습니다.
+
+다음 turn에서 '/effort ultracode' 모드로 진입한 뒤 이 task를 처리해 주세요.
+완료 후 mccp 세션으로 돌아와 다음 response grammar 중 하나로 답해 주세요:
+
+  ultracode-done: <≥3 단어 one-line summary of changes>
+  ultracode-failed: <one-line reason — attempted but did not complete>
+  ultracode-skipped: <one-line reason — intentionally not delegated>
+
+── 격리 invariant (mechanical + cooperative) ──
+- lock 활성 동안 mccp는 file change / receipt write / mccp:* 명령을 거부합니다 (PreToolUse hook).
+- ultracode 모드 안에서 mccp:* 명령을 호출하지 마세요 — audit chain이 깨집니다.
+- lock crash 잔존 시 60s 후 자동 reclaim (host-aware policy).
+
+다른 token / 짧은 summary로 응답하면 prompt가 재출력됩니다.
+```
+
+#### 3.5.5 — WAIT for response
+
+Validate user response against the grammar:
+
+- `^ultracode-done:\s+(\S+\s+\S+\s+\S+.*)$` (summary ≥ 3 words required)
+- `^ultracode-failed:\s+(.+)$`
+- `^ultracode-skipped:\s+(.+)$`
+
+If the response does not match, re-emit the GUIDE PROMPT and wait again. Do NOT auto-answer. These tokens are explicitly disjoint from Phase 0 `skip` / `you decide` and the M1 plan-prd Phase 2.5 `paste:` / `skip-research:` / `failed-research:` grammars.
+
+Parse out verdict (`done | failed | skipped`) and summary.
+
+#### 3.5.6 — IMMEDIATE STAMP (sidecar journal + plan body incremental — F4 absorption)
+
+Before LOCK EXIT, append the delegation entry to the sidecar journal `<plan-path>.delegations.jsonl`:
+
+```bash
+# M2 absorption: character-aware truncate (UTF-8 safe — Korean summaries that
+# would land on a byte boundary mid-codepoint must NOT be byte-truncated.
+# `head -c 280` is byte-truncate and produces mojibake on CJK input.)
+SUMMARY_TRUNC=$(printf '%s' "$USER_SUMMARY" | node -e 'process.stdout.write(require("fs").readFileSync(0,"utf8").slice(0,280))')
+SUMMARY_SHA=$(printf '%s' "$VERDICT:$USER_SUMMARY" | node -e 'const c=require("crypto");process.stdout.write(c.createHash("sha256").update(require("fs").readFileSync(0)).digest("hex"))')
+STAMPED_AT=$(node -e 'console.log(new Date().toISOString())')
+
+JOURNAL_ENTRY=$(node -e '
+  process.stdout.write(JSON.stringify({
+    run_id: process.argv[1],
+    plan_hash: process.argv[2],
+    task_index: parseInt(process.argv[3], 10),
+    task_name: process.argv[4],
+    verdict: process.argv[5],
+    summary_sha256: process.argv[6],
+    summary: process.argv[7],
+    stamped_at: process.argv[8],
+  }));
+' "$RUN_ID" "$PLAN_HASH" "$CURRENT_TASK_INDEX" "$CURRENT_TASK_NAME" "$VERDICT" "$SUMMARY_SHA" "$SUMMARY_TRUNC" "$STAMPED_AT")
+
+echo "$JOURNAL_ENTRY" >> "${ARGUMENTS}.delegations.jsonl"
+```
+
+This is the **idempotency ledger** — durable record persists even if the next mccp turn crashes before the consolidation stamp.
+
+#### 3.5.7 — LOCK EXIT
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ultracode-phase-lock.js" exit --run-id "$RUN_ID"
+```
+
+The exit subcommand reads the raw token from the sidecar file (F3 — no shell-var stash) and unlinks both lock and sidecar on success. If exit returns non-zero, output stderr trace and continue (the lock will be reclaimed by detect-stale within 60s; no user blocking).
+
+#### 3.5.8 — SKIP IMPLEMENTATION + log
+
+Skip the current task's Phase 3 per-task loop body (Read MIRROR → Implement → Validate). Log:
+
+```
+[ultracode-delegated] Task <N>: verdict=<verdict> | summary_sha=<short-hex> | stamped at <ISO>
+```
+
+Continue to the next task.
+
+#### 3.5.9 — PROVENANCE STAMP (after per-task loop completes)
+
+After the entire per-task loop finishes, consolidate the sidecar journal entries (filtered by current `plan_hash`) into a single `## Ultracode Delegation Provenance` section appended to the plan body (idempotent — replace the whole section if it already exists):
+
+```markdown
+## Ultracode Delegation Provenance
+
+<!-- Auto-injected by /mccp:prp-implement Phase 3.5 at <ISO> -->
+
+- Task <N> '<name>': verdict=<done|failed|skipped> | sha256(verdict:summary) = <hex> | stamped at <ISO>
+- Task <M> '<name>': verdict=... | sha256 = ... | stamped at <ISO>
+```
+
+This is the audit anchor — implement-codex receipt's `plan_hash` will pick up the new section on the next `validate-cmd` call. Tampering with the consolidated section (without a fresh `/mccp:prp-implement` run) breaks the receipt chain.
+
+#### 3.5.10 — Forwarded effects (Phase 5 + Phase 6)
+
+- **Phase 5 REPORT**: inject a `## Ultracode Delegations` section into the implementation report. For each delegation: task index + name + verdict + summary text + stamped_at.
+- **Phase 6 OUTPUT**: append one line:
+
+  ```
+  Ultracode Delegations: <total> (done=<N> failed=<M> skipped=<K>)
+  ```
+
 ### Handling Deviations
 
 During task execution AND after each validation level, run **plan-conflict detection** to decide whether a divergence between plan and actual results is a minor deviation (absorbed silently) or a true plan ↔ implementation gap (escalated). This guard is mandatory — silently absorbing a true gap is the exact failure axis H exists to prevent.

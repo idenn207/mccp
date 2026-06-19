@@ -62,3 +62,9 @@ ECC/
 # finding은 plan/code/PR body absorption note로 audit trail 처리).
 # Pattern mirrors ECC/ above — 사용자 개별 설치 tool의 작업 부산물.
 .impeccable/
+
+# v1.4.0 axis B (M2) — ultracode delegation sidecar journal.
+# Per-task delegation ledger (NDJSON, append-only) accompanying each plan file
+# during /mccp:prp-implement Phase 3.5. Working-tree only audit (F4 absorption).
+# Plan body remains committable; delegation history is local per-machine.
+*.delegations.jsonl

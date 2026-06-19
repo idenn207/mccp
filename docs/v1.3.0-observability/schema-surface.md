@@ -221,3 +221,7 @@ What is NOT in this milestone (v1.3.0-m0): the derive engine itself, the dashboa
 ## §7 — Dashboard rendering surface (v1.3.0-m3)
 
 **STATUS: implemented in v1.3.0-m3.** STATUS.md/status.html surface freeze: see [dashboard-surface.md](./dashboard-surface.md) for the canonical 6-section structure + verdict priority chain + status triple + graceful-hide rules + fail-open invariant + HTML injection boundary. M3 is read-only consumer of M0 schema + M1 derive model + M2 briefing fields; no schema additions.
+
+## §8 — Daily snapshot + 30-day audit window (v1.3.0-m5)
+
+**STATUS: implemented in v1.3.0-m5.** Snapshot schema freeze + retention contract + audit-timeline 30-day read path: see [snapshot-schema.md](./snapshot-schema.md) for the canonical `snapshot-v1` JSON shape, filename-anchored retention with Codex R1 F3 skew guards, write-eligibility vs retention split (F4 absorption), always-mask invariant, and `gate_id | decision_id | receipt_hash` de-dup identity (F2 absorption). M5 adds a single optional `meta`-side surface to the receipt projection (`receipts[*].receipt_hash` via `derive/sources/receipts.js`); no envelope or STATE.md schema changes. The snapshot writer piggybacks on M4's `triggerRender` — never standalone.

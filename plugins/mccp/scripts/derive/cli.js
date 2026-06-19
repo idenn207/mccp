@@ -126,7 +126,12 @@ function cmdRender(rest) {
   }
   let rendered;
   try {
-    rendered = renderStatus(model);
+    // v1.3.0-m5 — pass the resolved snapshotsDir explicitly. derive() masked
+    // model.repo_root to '<repo>', so the renderer's auto-resolution would
+    // fall back to null; the CLI knows the real cwd and can supply the path.
+    rendered = renderStatus(model, {
+      snapshotsDir: path.join(cwd, '.claude', 'cache', 'snapshots'),
+    });
   } catch (err) {
     process.stderr.write('[mccp:derive:render] ERROR render failed: ' + err.message + '\n');
     return 1;
@@ -143,6 +148,17 @@ function cmdRender(rest) {
   const emitHtml = wantHtml || (!wantMd && !wantHtml);
   if (emitMd) writeAtomic(path.join(outDir, 'STATUS.md'), rendered.md);
   if (emitHtml) writeAtomic(path.join(outDir, 'status.html'), rendered.html);
+  // v1.3.0-m5 — piggyback the daily snapshot writer on the CLI render path.
+  // Lazy require + try/catch so a missing snapshot module never breaks render.
+  try {
+    require('../lib/snapshot').writeSnapshotIfNeeded(model, {
+      trigger: 'cli-render',
+      repoRoot: cwd,
+    });
+  } catch (err) {
+    process.stderr.write('[mccp:derive:render] snapshot failed (allow): '
+      + (err && err.message) + '\n');
+  }
   if (rest.strict && model.m0_capability && model.m0_capability.contract_present === false) {
     return 1;
   }

@@ -1,5 +1,12 @@
 'use strict';
 
+// MODEL_VERSION stays 'v1' across all M1–M5 additive surface changes:
+//   M2: briefing_summary / briefing_token_count / briefing_invocation_count
+//   M3: (no change — render-only consumer)
+//   M4: mask_hits / last_render_meta (top-level optional)
+//   M5: receipts.items[].receipt_hash (optional)
+// Consumers MUST tolerate missing optional fields (null fallback). A bump
+// would force receipt-side migration which the additive surface avoids.
 const MODEL_VERSION = 'v1';
 
 function emptyModel(repoRoot) {

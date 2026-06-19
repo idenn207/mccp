@@ -252,6 +252,11 @@ function triggerRender(reason, opts) {
     }
 
     let result = false;
+    // v1.3.0-m5 Codex F2 absorption — hoist `model` outside the render try
+    // block so the snapshot writer below can see it after render+writes succeed.
+    // The naive inner-scoped `const model` collapses to ReferenceError in the
+    // lazy-require try/catch and silently skips daily snapshots.
+    let model = null;
     try {
       if (debounceFresh(pendingPath, debounceMs)) {
         // Debounce — release lock + return false. Dirty marker stays for
@@ -278,8 +283,8 @@ function triggerRender(reason, opts) {
         }
         const deriveImpl = opts.deriveImpl || require('../../derive').derive;
         const renderImpl = opts.renderImpl || require('./index').renderStatus;
-        const model = deriveImpl(repoRoot);
-        rendered = renderImpl(model);
+        model = deriveImpl(repoRoot);
+        rendered = renderImpl(model, { snapshotsDir: path.join(cacheDir, 'snapshots') });
       } catch (err) {
         stderr('[mccp:renderer-trigger] reason=' + reason
           + ' FAILED render: ' + (err && err.message) + ' (allow)');
@@ -302,6 +307,25 @@ function triggerRender(reason, opts) {
         render_at: new Date().toISOString(),
         dirty_drain_count: dirtyLines.length,
       });
+
+      // v1.3.0-m5 — daily snapshot writer piggybacks on the trigger.
+      // - Lazy require so test contexts without lib/snapshot/ still load.
+      // - try/catch is belt-and-suspenders; writeSnapshotIfNeeded itself
+      //   honors the loud fail-open contract and never throws.
+      // - `model` truthy guard: if the render try block failed before
+      //   assigning `model`, the snapshot also skips (no archive without
+      //   a successful render).
+      if (model) {
+        try {
+          require('../snapshot').writeSnapshotIfNeeded(model, {
+            trigger: reason,
+            repoRoot: repoRoot,
+          });
+        } catch (err) {
+          stderr('[mccp:renderer-trigger] snapshot failed (allow): '
+            + (err && err.message));
+        }
+      }
 
       // Debounce marker must be written AFTER a successful render so the next
       // legitimate trigger isn't skipped before any cache file exists.

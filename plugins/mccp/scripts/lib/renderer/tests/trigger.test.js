@@ -237,3 +237,44 @@ test('trigger.test isPidAlive: current process is alive, fake high pid is not', 
   assert.equal(isPidAlive(process.pid), true);
   assert.equal(isPidAlive(999999), false);
 });
+
+// v1.3.0-m5 path j — successful trigger writes today's snapshot when the
+// derive model carries at least one receipt or envelope (M5 integration).
+test('trigger.test path j: successful render with non-empty receipts writes today snapshot (M5)', () => {
+  const root = tmpRepo();
+  try {
+    const richModel = stubModel();
+    richModel.sources.receipts = {
+      ok: true,
+      count: 1,
+      items: [{
+        ok: true,
+        gate: 'mccp-implement-codex',
+        decision_id: 'v1-3-0-m5-trigger-fixture',
+        created_at: new Date().toISOString(),
+        converged: true,
+        receipt_hash: 'sha256:deadbeef',
+        briefing_summary: null,
+        briefing_token_count: null,
+        briefing_invocation_count: 0,
+        codex_skipped_at_pr: false, codex_skip_reason: null,
+        codex_dedupe_at_pr: false, ipc_envelope_path: null,
+        dispatched_by_controller_session_id: null, worker_dispatch_id: null,
+      }],
+      invalid_count: 0, degraded: false, error: null,
+    };
+    const ok = triggerRender('test-snapshot', {
+      cwd: root, repoRoot: root,
+      deriveImpl: () => richModel,
+      renderImpl: () => stubRender(),
+    });
+    assert.equal(ok, true);
+    const todayYmd = new Date().toISOString().slice(0, 10);
+    const snapPath = path.join(root, '.claude', 'cache', 'snapshots', todayYmd + '.json');
+    assert.ok(fs.existsSync(snapPath), 'today snapshot file exists: ' + snapPath);
+    const payload = JSON.parse(fs.readFileSync(snapPath, 'utf8'));
+    assert.equal(payload.schema_version, 'snapshot-v1');
+    assert.equal(payload.receipts.length, 1);
+    assert.equal(payload.receipts[0].receipt_hash, 'sha256:deadbeef');
+  } finally { cleanup(root); }
+});

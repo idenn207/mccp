@@ -112,7 +112,10 @@ test('audit-timeline — empty window yields placeholder', () => {
   assert.match(md, /최근 7일 활동 없음/);
 });
 
-test('audit-timeline — caps at 30 rows + older marker', () => {
+test('audit-timeline — live cap MAX_ROWS_LIVE=20 (v1.3.0-m5) + older marker', () => {
+  // v1.3.0-m5 impeccable P2 absorption — live cap reduced to 20 so archived
+  // snapshot rows cannot push live evidence off the section. With 35 live
+  // items and no snapshots dir, 35 - 20 = 15 older.
   const now = Date.UTC(2026, 5, 18);
   const items = [];
   for (let i = 0; i < 35; i++) {
@@ -122,7 +125,7 @@ test('audit-timeline — caps at 30 rows + older marker', () => {
     });
   }
   const { md } = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
-  assert.match(md, /\+5 older/);
+  assert.match(md, /\+15 older/);
 });
 
 test('open-questions — merge state + plan, dedupe', () => {

@@ -84,9 +84,24 @@ function renderStatus(model, opts) {
       }
     })();
 
+    // v1.3.0-m5 — audit-timeline reads from .claude/cache/snapshots/ when
+    // the snapshotsDir opt is provided (or resolves automatically from
+    // model.repo_root in raw mode). Tests pass `opts.snapshotsDir=null` to
+    // suppress the snapshot read path entirely.
+    const snapshotsDir = (function () {
+      if (opts.snapshotsDir === null) return null;
+      if (typeof opts.snapshotsDir === 'string') return opts.snapshotsDir;
+      const root = (typeof m.repo_root === 'string'
+        && m.repo_root !== '<repo>'
+        && require('path').isAbsolute(m.repo_root)) ? m.repo_root : null;
+      if (!root) return null;
+      return require('path').join(root, '.claude', 'cache', 'snapshots');
+    })();
+
     const grid = safeSection('status-grid', () => renderStatusGrid(m, formatUtils, planBody));
     const fanout = safeSection('worker-fanout', () => renderWorkerFanout(m, formatUtils));
-    const timeline = safeSection('audit-timeline', () => renderAuditTimeline(m, formatUtils));
+    const timeline = safeSection('audit-timeline',
+      () => renderAuditTimeline(m, formatUtils, undefined, { snapshotsDir: snapshotsDir }));
     const questions = safeSection('open-questions', () => renderOpenQuestions(m, formatUtils, planBody));
     const risks = safeSection('risks', () => renderRisks(m, formatUtils, planBody));
 

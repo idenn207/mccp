@@ -80,6 +80,12 @@ function extract(repoRoot, entry) {
     base_sha: receipt.base_sha,
     head_sha: receipt.head_sha,
     plan_hash: receipt.plan_hash,
+    // v1.3.0-m5 — receipt_hash surfaces the JCS canonical digest receipt-write
+    // stamps on every receipt. M5 snapshot de-dup identity uses
+    // `gate_id + decision_id + receipt_hash` so a re-issued receipt (briefing
+    // restamp, dedupe attribution) is treated as a distinct event rather than
+    // collapsed against the prior write.
+    receipt_hash: receipt.receipt_hash || null,
     path: path.relative(repoRoot, entry.path),
   };
 }

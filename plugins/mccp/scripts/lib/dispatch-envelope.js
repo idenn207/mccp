@@ -243,6 +243,15 @@ function write(envelopePath, envelope) {
     try { fs.unlinkSync(tmpPath); } catch (_) {}
     return { ok: false, error: 'rename failed: ' + err.message };
   }
+  // v1.3.0-m4 — render trigger after successful envelope write. Lazy-require
+  // + try/catch so a staged install without lib/renderer/ does not break
+  // envelope writes. triggerRender is itself loud fail-open.
+  try {
+    require('./renderer/trigger').triggerRender('envelope-write');
+  } catch (err) {
+    process.stderr.write('[mccp:dispatch-envelope] post-write trigger threw (allow): '
+      + (err && err.message ? err.message : err) + '\n');
+  }
   return { ok: true };
 }
 

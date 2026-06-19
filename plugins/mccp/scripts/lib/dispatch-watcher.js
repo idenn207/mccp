@@ -114,6 +114,16 @@ function watch(args, opts) {
         dispatchId: dispatchId,
         mode: mode,
       });
+      // v1.3.0-m4 — envelope-move render trigger. Watcher is long-lived so
+      // the 5s content debounce in trigger.js collapses bursty terminal-status
+      // transitions. Lazy-require + try/catch keeps a staged install from
+      // breaking the watcher loop.
+      try {
+        require('./renderer/trigger').triggerRender('envelope-move');
+      } catch (err) {
+        process.stderr.write('[mccp:dispatch-watcher] envelope-move trigger threw (allow): '
+          + (err && err.message ? err.message : err) + '\n');
+      }
     }
   }
 

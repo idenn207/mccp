@@ -111,3 +111,76 @@ M3 exposes `renderStatus(model, opts)` and the CLI `render` subcommand. M4 will 
 `escapeHtml(s)` and `escapeAttr(s)` (in `format-utils.js`) escape `& < > " ' `` ` plus URL-escape parens + whitespace. Every section HTML output MUST run dynamic text through these. Threat model is *self-injection from local `.claude/` artifacts* — a corrupted briefing_summary, envelope path, open-question text, or risk mitigation rendering as live HTML in the local browser. The 4 injection payloads are covered by `tests/escaping.test.js`.
 
 The boundary is invariant: a new section renderer that concatenates dynamic text into HTML without going through `escapeHtml` is a regression that `tests/escaping.test.js` does not catch directly — code review must verify the call path.
+
+## §10 Refresh + privacy guard (M4 ship)
+
+M4 adds the *triggers* and *guards* atop M3's render facade. STATUS.md/status.html stay aligned with repo state within ~5s of any significant change, and secret-pattern detection in envelope payloads + receipt briefing surfaces enforces a fail-closed privacy guard.
+
+### §10.1 Trigger paths
+
+| Path | Caller | Reason tag |
+|---|---|---|
+| SessionStart hook | `plugins/mccp/scripts/hooks/render-trigger-session-start.js` (registered in `hooks.json`) | `session-start` |
+| Receipt write epilogue | `plugins/mccp/scripts/receipt/write.js` (after M2 briefing stamp) | `receipt-write` |
+| Envelope write | `plugins/mccp/scripts/lib/dispatch-envelope.js` (after atomic rename) | `envelope-write` |
+| Envelope move | `plugins/mccp/scripts/lib/dispatch-watcher.js` (after `onEvent('envelope')` fires) | `envelope-move` |
+
+All four call `require('plugins/mccp/scripts/lib/renderer/trigger').triggerRender(reason)` via lazy-require + outer try/catch. The trigger module is itself loud fail-open; the outer try is belt-and-suspenders for module-load failures (staged install missing `lib/renderer/`).
+
+### §10.2 Debounce + lock contract (Codex Plan-Codex R1 F1+F4)
+
+- **Content debounce** (5s default, `MCCP_RENDER_TRIGGER_DEBOUNCE_MS`): debounce marker `.claude/cache/.trigger-pending` carries the last successful render reason + timestamp. A trigger arriving within the window after a *successful* render returns false. The marker is written AFTER render completes — a crashed render does not consume a debounce slot.
+- **Render lock** (90s lease default, `MCCP_RENDER_LOCK_LEASE_MS`): atomic `fs.openSync('.render.lock', 'wx')` with body `{ pid, host, started_at }`. Host-aware tri-state reclaim per [CLAUDE.md §3.6](../../CLAUDE.md):
+  - same-host + PID alive → NEVER reclaim
+  - same-host + PID dead → reclaim
+  - cross-host → mtime > lease ? reclaim : refuse
+- **Dirty marker** (`.trigger-dirty`): when the lock is held by a live holder, the incoming trigger appends `<reason>\t<ISO>\n` to `.trigger-dirty` and returns false. The lock holder drains + truncates the dirty file when it starts its render so concurrent burst reasons are recorded but never re-fire.
+- **Unique tmp names**: `STATUS.md.<pid>-<random>.tmp` (similarly for `status.html`). M3's fixed `.tmp` suffix would clobber under a split-brain reclaim window; M4 uses pid+random suffix so cross-writer collision is impossible.
+
+### §10.3 Loud fail-open invariant
+
+`triggerRender(reason, opts)` NEVER throws. On any internal failure it writes one of these tagged lines to stderr and returns `false`:
+
+| Stderr tag | Trigger |
+|---|---|
+| `[mccp:renderer-trigger] reason=<r> SKIP render in-flight (<why>)` | lock held + still valid OR EEXIST after reclaim |
+| `[mccp:renderer-trigger] reason=<r> FAILED render: <msg> (allow)` | derive() or renderStatus() throws |
+| `[mccp:renderer-trigger] reason=<r> FAILED write cache: <msg> (allow)` | atomic write fails |
+| `[mccp:renderer-trigger] reason=<r> FAILED mkdir cache: <msg> (allow)` | `.claude/cache` mkdir fails |
+| `[mccp:renderer] cache_stale: previous render was N seconds old` | `was_stale=true` detected (informational, not a failure) |
+
+The same loud-fail-open principle from [[feedback-loud-fail-open]] applies: every exception path emits a tagged stderr line + ALLOWs the caller to continue. Receipt write, envelope write, and SessionStart never see a render failure poisoning their own concern.
+
+### §10.4 Secret-suspect catalogue + verdict step 1.5
+
+`plugins/mccp/scripts/derive/mask.js` ships 5 regex patterns:
+
+| Kind | Pattern (length-bounded) | Severity | Verdict banner? |
+|---|---|---|---|
+| `sk-key` | `sk-[A-Za-z0-9_-]{20,}` | severe | yes |
+| `aws-key` | `AKIA[0-9A-Z]{16}` | severe | yes |
+| `private-key-block` | `-----BEGIN ... PRIVATE KEY----- ... END` | severe | yes |
+| `bearer` | `Bearer\s+[A-Za-z0-9._~+/=-]{20,}` | quiet | no (mask only) |
+| `password-eq` | `password\s*=\s*['"]?[^\s'"]{8,}['"]?` | quiet | no (mask only) |
+
+Detection fires at:
+- **derive/sources/envelopes.js** — scans `next_action`, each `findings[*]`, each `receipts_added[*]` at envelope-read time. Emits `masked_payload_signal: { mask_hit_count, mask_kinds, hits }` as an *additive* field (M1 surface frozen invariant preserved — Codex R1 F3 absorption). Raw payload strings are NOT stored in the model; only hit metadata propagates.
+- **derive/mask.js#applySecretMask** — scans `sources.receipts.items[*].briefing_summary` in place, replacing secrets with `[REDACTED:<kind>]` and aggregating hits onto `model.mask_hits`.
+- **derive/index.js** — `applySecretMask` runs UNCONDITIONALLY, including in `--raw` mode. Only `applyPathMask` is gated by `--raw` (Codex R1 F2 absorption: secrets MUST be redacted in all output paths including raw).
+
+The renderer surfaces hits in two places:
+- **Verdict step 1.5** (new) — fires red banner `⚠ 시크릿 N건 감지 · 즉시 키 회전 · <source_id> 확인` if any `severe === true` hit is present. Step 1 (M0 contract missing) still wins; step 1.5 sits between step 1 and step 2 (critical warnings). impeccable F1 absorption: no em dash + de-duplicated `"의심"` wording.
+- **Audit timeline footnote** — aggregates `mask_hits` per kind into a muted footnote: `이번 주 mask: sk-key 2건 · bearer 1건`. impeccable F4 absorption: Bearer/password= masks silently in the verdict but still surface in the timeline for postmortem cross-reference.
+
+### §10.5 Stale cache footnote
+
+When `triggerRender` runs and finds the previous `STATUS.md` mtime > 60s, it stamps `was_stale: true` + `prev_age_seconds` into `.claude/cache/.last-render.json`. The next `derive()` call surfaces this as `model.last_render_meta`, and the audit-timeline section appends a single muted footnote: `이전 캐시 N초 stale · 자동 갱신 안 됨` (impeccable F2 absorption — telegraphic verb+object, no polite ending). Pure consumer surface — does not trigger an extra render.
+
+### §10.6 Env toggles
+
+| Var | Default | Effect |
+|---|---|---|
+| `MCCP_RENDER_TRIGGER_DEBOUNCE_MS` | `5000` | Content debounce window length in ms. |
+| `MCCP_RENDER_LOCK_LEASE_MS` | `90000` | Render lock lease before stale-reclaim is considered. |
+
+Out-of-scope for M4 (deferred to M5): daily snapshot archive at `.claude/cache/snapshots/YYYY-MM-DD.json`, daily wakeup hook, audit timeline 30-day archive expansion.

@@ -6,7 +6,7 @@ const path = require('path');
 const { emptyModel } = require('./model');
 const { probeM0SchemaContract } = require('./capability');
 const { correlate } = require('./correlate');
-const { maskModel } = require('./mask');
+const { applySecretMask, applyPathMask } = require('./mask');
 
 const { scanPlans } = require('./sources/plans');
 const { scanReceipts } = require('./sources/receipts');
@@ -58,8 +58,13 @@ function derive(repoRoot, opts) {
   if (!claudePresent) {
     if (opts.strict) pushWarning(model, 'low', 'derive', 'no .claude/ directory at ' + root);
     model.derived_at = new Date().toISOString();
-    if (opts.raw === true) return model;
-    return maskModel(model, root);
+    applySecretMask(model);
+    if (opts.raw === true) {
+      model.masked = false;
+      return model;
+    }
+    applyPathMask(model, root);
+    return model;
   }
 
   for (const [name, scan] of Object.entries(SOURCE_SCANNERS)) {
@@ -87,13 +92,37 @@ function derive(repoRoot, opts) {
     pushWarning(model, 'medium', 'correlate', 'correlate threw: ' + err.message);
   }
 
+  // v1.3.0-m4 — M4 last-render meta surface. Read .claude/cache/.last-render.json
+  // (graceful — missing file is normal on first ever render). Audit-timeline
+  // section consumes was_stale; verdict step 1.5 consumes mask_hits.
+  try {
+    const lastRenderPath = path.join(root, '.claude', 'cache', '.last-render.json');
+    if (fs.existsSync(lastRenderPath)) {
+      const raw = fs.readFileSync(lastRenderPath, 'utf8');
+      model.last_render_meta = JSON.parse(raw);
+    } else {
+      model.last_render_meta = null;
+    }
+  } catch (err) {
+    process.stderr.write('[mccp:derive] last-render meta parse failed: '
+      + (err && err.message) + ' (allow)\n');
+    model.last_render_meta = null;
+  }
+
   model.derived_at = new Date().toISOString();
+
+  // v1.3.0-m4 — secret masking is mandatory in all output paths, including
+  // --raw. The --raw flag only bypasses path normalization. (Codex Plan-Codex
+  // R1 F2 absorption: secrets in envelope payload / briefing_summary must
+  // never reach raw output.)
+  applySecretMask(model);
 
   if (opts.raw === true) {
     model.masked = false;
     return model;
   }
-  return maskModel(model, root);
+  applyPathMask(model, root);
+  return model;
 }
 
 module.exports = {

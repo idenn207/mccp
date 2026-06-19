@@ -29,6 +29,13 @@
 | Strengthen Fixture D sentinel JSON: add `meta.created_at` + `meta.command` + `decision_id` sentinels | [`derive/tests/generic-interface.test.js`](../../plugins/mccp/scripts/derive/tests/generic-interface.test.js) | Without `meta` sentinels the original test passed by accident — `receipts.js#extract` reads `meta.created_at`/`meta.command` directly. New sentinels turn the test into a real invariant. New assertion: symlink receipt must surface as `ok:false` item with error referencing the guard, not a silent skip. |
 | Update §4.3 cite to reference both envelopes (existing) and receipts (new) symlink guards | [`docs/v1.3.0-observability/generic-interface.md`](../../docs/v1.3.0-observability/generic-interface.md) | Original cite only mentioned `envelopes.js:14-19`, generalizing one source's guard to the contract. Cite now lists both guards by source. |
 
+### Patch — security-reviewer absorption (HIGH × 2)
+
+| Patch | File | Why |
+|---|---|---|
+| Sanitize error messages in `readReceipt` — remove path from `Error.message`, keep on `err.path` | [`receipt/store.js#readReceipt`](../../plugins/mccp/scripts/receipt/store.js) | security-reviewer Finding 1 (Information Disclosure). `derive/sources/receipts.js#extract` only surfaces `err.message` into the derive model; if the model is serialized to monitoring/CI logs, the full filesystem path leaks. Sanitized messages remove path while preserving `err.path` + `err.code` for local debugging. UNSAFE_GATE_DIR + UNSAFE_RECEIPT_FILE + RECEIPT_PARSE_ERROR + RECEIPT_READ_ERROR all sanitized. |
+| Close TOCTOU window — replace `existsSync → lstat → readFileSync` with `existsSync → lstat → open(O_NOFOLLOW) → fstat → read from fd → close` | [`receipt/store.js#readReceipt`](../../plugins/mccp/scripts/receipt/store.js) | security-reviewer Finding 2 (TOCTOU). 3-syscall sequence had a race: attacker could swap a plain file for a symlink between lstat and readFileSync. Atomic open + fstat re-validation closes the window. `O_NOFOLLOW` (POSIX) rejects open() if the path is now a symlink. Windows lacks `O_NOFOLLOW` so the lstat pre-check + isSafeGateDir remain primary defense there. |
+
 ### Remaining 4 axes — fallback already implemented (no patch)
 
 - `audit-timeline.js:124` `r.gate_id \|\| r.gate \|\| '(unknown-gate)'` (이미 raw label)

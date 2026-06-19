@@ -25,6 +25,8 @@ const {
   stripAnsi,
   log
 } = require('../lib/utils');
+const { resolveProjectContext, resolveSessionId } = require('../lib/observer-sessions');
+const sessionLedger = require('../state/session-ledger');
 
 const SUMMARY_START_MARKER = '<!-- ECC:SUMMARY:START -->';
 const SUMMARY_END_MARKER = '<!-- ECC:SUMMARY:END -->';
@@ -285,6 +287,23 @@ async function main() {
 
     writeFile(sessionFile, template);
     log(`[SessionEnd] Created session file: ${sessionFile}`);
+  }
+
+  // v1.5.0-m1 — finalize session ledger (set ended_at). Loud fail-open per
+  // CLAUDE.md §3.4 — hook never throws. Idempotent when ledger absent.
+  try {
+    const sid = resolveSessionId();
+    if (sid) {
+      const ctx = resolveProjectContext();
+      const fin = sessionLedger.finalizeLedger({ sessionId: sid, projectContext: ctx });
+      if (fin.ok && fin.paths.length > 0) {
+        log(`[SessionEnd] Finalized session ledger ${sid} (paths=${fin.paths.length})`);
+      } else if (!fin.ok) {
+        process.stderr.write(`[mccp:session-ledger] WARNING: finalizeLedger reported errors: ${JSON.stringify(fin.errors || [])} (allow)\n`);
+      }
+    }
+  } catch (err) {
+    process.stderr.write(`[mccp:session-ledger] WARNING: SessionEnd finalize threw: ${err && err.message ? err.message : err} (allow)\n`);
   }
 
   process.exit(0);

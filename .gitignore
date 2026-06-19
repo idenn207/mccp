@@ -63,6 +63,12 @@ ECC/
 # Pattern mirrors ECC/ above — 사용자 개별 설치 tool의 작업 부산물.
 .impeccable/
 
+# v1.5.0-m1 — session-ledger repo opt-in scope. Default is global
+# (~/.local/share/ecc-homunculus/projects/<projectId>/.session-ledgers/),
+# but MCCP_SESSION_LEDGER_SCOPE=repo or hybrid writes here too. Per-session
+# JSON files are never appropriate to commit.
+.claude/state/session-ledgers/
+
 # v1.4.0 axis B (M2) — ultracode delegation sidecar journal.
 # Per-task delegation ledger (NDJSON, append-only) accompanying each plan file
 # during /mccp:prp-implement Phase 3.5. Working-tree only audit (F4 absorption).

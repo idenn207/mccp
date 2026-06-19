@@ -273,6 +273,68 @@ After planning:
 
 ---
 
+## Phase 4.5 — External Research Provenance stamping (v1.4.0 axis A, M1-experimental)
+
+> Runs **only when the plan input is a `.prd.md` path**. Free-form / non-PRD plan inputs skip silently. Provides the mechanical chain-of-custody anchor for `/deep-research` integration shipped in `plan-prd.md` Phase 4.0b — see `docs/automation-modernization/integration-template.md` §5 option (b).
+
+After the plan artifact has been written in Phase 4 and **before entering Phase 5 PLAN-CODEX GATE**, scan the source PRD for a `## References` section. If present, compute a sha256 digest of the References content and append it to the plan body as `## External Research Provenance`. This section is captured by `plan-codex` receipt's `plan_hash` — any subsequent PRD `## References` mutation will mismatch on the next `/mccp:plan` validate.
+
+```bash
+# Only when the plan input is a PRD path. PRD_PATH below uses the same
+# placeholder convention as the rest of this command body — the LLM
+# substitutes the original /mccp:plan argument verbatim (or leaves it
+# empty for free-form plan inputs).
+PRD_PATH="<original /mccp:plan input>"
+case "$PRD_PATH" in
+  *.prd.md) ;;
+  *) PRD_PATH="" ;;  # skip — non-PRD input
+esac
+
+if [ -n "$PRD_PATH" ] && [ -f "$PRD_PATH" ]; then
+  node -e '
+    const fs = require("fs");
+    const crypto = require("crypto");
+    const prdPath = process.argv[1];
+    const planPath = process.argv[2];
+    const body = fs.readFileSync(prdPath, "utf8");
+    // Extract ## References content until next ## heading or EOF.
+    // [\t ]+ avoids \n in \s+ swallowing the next blank line, mirroring
+    // deep-research-detect.js evidence-gap regex (hasEvidenceGap channel b).
+    const m = body.match(/(?:^|\n)##[ \t]+References[ \t]*\r?\n([\s\S]*?)(?:\n##\s+|$)/i);
+    if (!m) process.exit(0);  // silent skip — no ## References section
+    const content = m[1].trim();
+    if (!content) process.exit(0);  // empty References — nothing to anchor
+    const digest = crypto.createHash("sha256").update(content, "utf8").digest("hex");
+    const iso = new Date().toISOString();
+    const stampedSection = [
+      "## External Research Provenance",
+      "",
+      "- Source PRD: " + prdPath,
+      "- References section sha256: " + digest,
+      "- Stamped at: " + iso,
+      "- Anchor: plan body content is hash-anchored by the plan-codex receipt'\''s plan_hash. Any post-stamp PRD mutation in ## References will mismatch on the next /mccp:plan validate.",
+      "",
+    ].join("\n");
+    let plan = fs.readFileSync(planPath, "utf8");
+    // Idempotent — replace prior ## External Research Provenance section if present.
+    const sectionPattern = /(?:^|\n)## External Research Provenance[\s\S]*?(?=\n## |\n?$)/;
+    if (sectionPattern.test(plan)) {
+      plan = plan.replace(sectionPattern, "\n" + stampedSection);
+    } else {
+      if (!plan.endsWith("\n")) plan += "\n";
+      plan += "\n" + stampedSection;
+    }
+    fs.writeFileSync(planPath, plan, "utf8");
+  ' "$PRD_PATH" "<plan-path>"
+fi
+```
+
+This step is **idempotent** — re-running `/mccp:plan` after a PRD `## References` update will replace the prior provenance section in place with the new sha256. The `plan-codex` receipt write (5.6) uses the same `plan_hash` mechanism with no schema change.
+
+When the PRD has no `## References` section, this step is a silent no-op. No section is appended; receipt schema is untouched.
+
+---
+
 ## Phase 5 — PLAN-CODEX GATE (자동, /mccp:plan 진입 시 MANDATORY)
 
 This phase applies when the command is invoked as `/mccp:plan`. It implements the **Autonomy Contract** for the plan gate inline below. The original gate design rationale is preserved at `${CLAUDE_PLUGIN_ROOT}/docs/gate-design.md` for reference only — enforcement lives in this command body plus the receipt CLI and the two receipt hooks. **Do not skip and do not ask the user between sub-steps**. Run all sub-steps in one response.

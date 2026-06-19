@@ -49,6 +49,7 @@ If you find yourself writing implementation detail, stop and cut it. It belongs 
 | 0 | CO-CREATION CONTRACT | Enforce user-in-the-loop rules (above) |
 | 1 | FRAME | Restate the idea + ask who/what/why questions |
 | 2 | GROUND | Ask for evidence — the most load-bearing input |
+| 2.5 | EXTERNAL_RESEARCH | (v1.4.0 axis A, M1-experimental) Detect evidence gaps + cooperatively guide `/deep-research` |
 | 3 | DECIDE | Hypothesis, MVP, out-of-scope, open questions |
 | 4 | GENERATE & HAND OFF | Write the PRD, report, hand off to `/mccp:plan` |
 
@@ -82,6 +83,63 @@ Ask for evidence. This is the shortest phase and the most load-bearing:
 If the user has none, record the PRD's Evidence section as `Assumption — needs validation via {user research | analytics | prototype}`. This keeps the PRD honest.
 
 **WAIT for the user.**
+
+## Phase 2.5 — EXTERNAL_RESEARCH (v1.4.0 axis A, M1-experimental)
+
+> Cooperative guide for Anthropic native `/deep-research`. Triggered only when (a) the PRD body has an evidence gap AND (b) research-trigger keywords are present AND (c) `/deep-research` availability is env-confirmed. Otherwise: silent skip — phantom 안내 금지.
+
+After the user's Phase 2 evidence response, capture the in-memory PRD body draft (the bullets/markers you've collected so far for the `## Evidence` and `## Problem` sections) into a tempfile, then pipe it to `deep-research-detect.js`. If the PRD has not yet been written to disk, `--stdin` is the first-class entry; `--plan` is the disk-backed fallback.
+
+```bash
+# In-memory PRD body draft → tempfile → stdin pipe
+BODY_TMP=$(mktemp)
+cat > "$BODY_TMP" <<'BODYEOF'
+<assembled PRD body draft — Problem + Evidence sections at minimum>
+BODYEOF
+DETECT=$(cat "$BODY_TMP" | node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/deep-research-detect.js" detect \
+  --mode prd --stdin --json)
+rm -f "$BODY_TMP"
+
+AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.availability||"unknown")}catch{process.stdout.write("unknown")}')
+RSIG=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.research_signal?"1":"0")}catch{process.stdout.write("0")}')
+```
+
+### Branch matrix (2-axis)
+
+| `AVAIL` | `RSIG` | Action |
+|---|---|---|
+| `available` | `1` | Emit guide prompt (below). WAIT for user response. |
+| `available` | `0` | Silent skip — keyword absent or evidence is rich. No section written. |
+| `missing` | * | Silent skip — `/deep-research` confirmed unavailable. |
+| `unknown` | * | Silent skip — default state; phantom 안내 금지. |
+
+### Guide prompt (`available` + `1` only)
+
+Emit verbatim:
+
+```
+외부 조사가 도움될 수 있어 보입니다. 다음 turn에서 '/deep-research <조사 질문>'을 실행해 주세요. 결과가 준비되면 다음 응답 grammar 중 하나로 답해 주세요 — 다른 토큰은 무시되고 prompt가 다시 출력됩니다.
+
+  paste:<조사 결과 본문 전체>            — PRD `## References` 섹션에 inject
+  skip-research:<사유>                   — 섹션 미생성 + 보고에 skip 신호
+  failed-research:<사유>                 — `## References`에 attempted-but-failed audit 본문 + 보고에 신호
+
+(Phase 0의 'skip' / 'you decide' 토큰과 다릅니다. 본 grammar는 Phase 2.5 전용입니다.)
+```
+
+**WAIT for the user.** If the response token does not start with `paste:`, `skip-research:`, or `failed-research:`, re-emit the prompt — do not auto-answer.
+
+### Response handling (relayed to Phase 4 GENERATE)
+
+Stash the response shape + payload for Phase 4 inject:
+
+- `paste:<content>` → set `RESEARCH_DECISION=paste` + `RESEARCH_CONTENT="<content>"`.
+- `skip-research:<reason>` → set `RESEARCH_DECISION=skip` + `RESEARCH_REASON="<reason>"`.
+- `failed-research:<reason>` → set `RESEARCH_DECISION=failed` + `RESEARCH_REASON="<reason>"`.
+
+Phase 4 GENERATE will inject `## References` according to the decision (see §4.0b below).
+
+---
 
 ## Phase 3 — DECIDE
 
@@ -125,6 +183,66 @@ Decision tree:
 | 1 | 1 | Invoke `Skill(impeccable, "shape <PRD title>")`. Append result under `## Design Direction` in the PRD body. If Skill returns `unknown_skill` / `not found`, fall back to skipped path. |
 
 This sub-step writes design direction into the PRD itself — downstream `/mccp:plan` will inherit it via `## Files to Change` and explicit `## Design Direction` section detection (see plan.md Phase 5.0).
+
+### 4.0b — external research inject (v1.4.0 axis A, M1-experimental)
+
+If Phase 2.5 stashed a `RESEARCH_DECISION`, inject the `## References` section into the PRD body. Idempotent — if a `## References` section already exists, replace it in place (mirrors plan.md Phase 4.5 provenance replace pattern).
+
+```bash
+case "$RESEARCH_DECISION" in
+  paste|failed)
+    node -e '
+      const fs = require("fs");
+      const prdPath = process.argv[1];
+      const decision = process.argv[2];
+      const payload = process.argv[3];
+      const iso = new Date().toISOString();
+      let section;
+      if (decision === "paste") {
+        section = [
+          "## References",
+          "",
+          "<!-- Auto-injected from /deep-research at " + iso + " -->",
+          "",
+          payload,
+          "",
+        ].join("\n");
+      } else {
+        section = [
+          "## References",
+          "",
+          "<!-- /deep-research attempted at " + iso + " -->",
+          "",
+          "> deep-research attempted but failed: " + payload,
+          "",
+        ].join("\n");
+      }
+      let prd = fs.readFileSync(prdPath, "utf8");
+      const pat = /(?:^|\n)## References[\s\S]*?(?=\n## |\n?$)/;
+      if (pat.test(prd)) {
+        prd = prd.replace(pat, "\n" + section);
+      } else {
+        if (!prd.endsWith("\n")) prd += "\n";
+        prd += "\n" + section;
+      }
+      fs.writeFileSync(prdPath, prd, "utf8");
+    ' "$PRD_PATH" "$RESEARCH_DECISION" "${RESEARCH_CONTENT:-$RESEARCH_REASON}"
+    ;;
+  skip)
+    # No section written. Reason carried only in report (§Report to user).
+    ;;
+esac
+```
+
+The node invocation passes the user-pasted body via `process.argv` (no shell expansion of any kind) — safe regardless of `$(...)`, backticks, or quoting characters in the deep-research output. The regex match-and-replace is identical to plan.md Phase 4.5's provenance pattern, so re-running `/mccp:plan-prd` on the same PRD replaces the prior `## References` block in place rather than duplicating it.
+
+When the report block prints, include one line summarizing the external-research outcome:
+
+- `paste` → `External research: pasted into ## References (<N> chars)`
+- `skip` → `External research: skipped — <reason>`
+- `failed` → `External research: attempted but failed — <reason>`
+
+Downstream `/mccp:plan` will detect the `## References` section, sha256-digest its content, and stamp the result into the plan body as `## External Research Provenance` (see plan.md Phase 4 provenance step) — that is the mechanical chain-of-custody anchor for the external research, riding on the existing `plan_hash` mechanism.
 
 **Output path**: `.claude/prds/{kebab-case-name}.prd.md`
 

@@ -68,3 +68,9 @@ ECC/
 # but MCCP_SESSION_LEDGER_SCOPE=repo or hybrid writes here too. Per-session
 # JSON files are never appropriate to commit.
 .claude/state/session-ledgers/
+
+# v1.4.0 axis B (M2) — ultracode delegation sidecar journal.
+# Per-task delegation ledger (NDJSON, append-only) accompanying each plan file
+# during /mccp:prp-implement Phase 3.5. Working-tree only audit (F4 absorption).
+# Plan body remains committable; delegation history is local per-machine.
+*.delegations.jsonl

@@ -47,8 +47,8 @@ We'll know we're right when **3개 axis(A/B/C)가 receipt chain custody를 유�
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | axis A — deep-research → plan-prd | `mccp:plan-prd`가 PRD 작성 중 외부 조사 필요 여부를 묻고 `/deep-research` 실행을 안내, 결과 보고서를 PRD 본문 `## References` 섹션에 audit-trail | in-progress | [.claude/PRPs/plans/completed/v1-4-0-m1-deep-research.plan.md](../PRPs/plans/completed/v1-4-0-m1-deep-research.plan.md) |
-| 2 | axis B — ultracode → prp-implement | plan task에 marker가 있는 task만 `ultracode:` 키워드로 위임. workflow agent가 mccp 상태에 침투하지 않는 isolation 보장 | pending | — |
+| 1 | axis A — deep-research → plan-prd | `mccp:plan-prd`가 PRD 작성 중 외부 조사 필요 여부를 묻고 `/deep-research` 실행을 안내, 결과 보고서를 PRD 본문 `## References` 섹션에 audit-trail | complete | [.claude/PRPs/plans/completed/v1-4-0-m1-deep-research.plan.md](../PRPs/plans/completed/v1-4-0-m1-deep-research.plan.md) |
+| 2 | axis B — ultracode → prp-implement | plan task에 marker가 있는 task만 `ultracode:` 키워드로 위임. workflow agent가 mccp 상태에 침투하지 않는 isolation 보장 (mechanical lock + cooperative prompt 2-layer) | in-progress | [.claude/plans/v1-4-0-m2-ultracode.plan.md](../plans/v1-4-0-m2-ultracode.plan.md) |
 | 3 | axis C — /goal → mccp:milestone-close | 신규 `/mccp:milestone-close` 명령이 `/goal`을 wrapping해서 milestone 종료 acceptance loop 실행. mccp Stop hook 격리 보장 | pending | — |
 | 4 | integration template doc | `docs/automation-modernization/integration-template.md` — 향후 native 기능 흡수 시 재사용 가능한 호출 layer 패턴 명세 | pending | — |
 

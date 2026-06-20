@@ -195,3 +195,65 @@ test('scanState: STATE.md frontmatter is NOT modified to include anchor fields (
     helpers.cleanup(repo);
   }
 });
+
+// v1.4.0-m3 — self resolution chain (Codex Implement R1 F3 absorption)
+// Contract: self_session_id + self_resolution always emit (no null fallback).
+
+test('resolveSelfSessionId: env set + valid → resolved', function () {
+  const r = stateSource.resolveSelfSessionId([], { envSessionId: SESSION_A, cwd: '/x' });
+  assert.strictEqual(r.id, SESSION_A);
+  assert.strictEqual(r.resolution, 'resolved');
+});
+
+test('resolveSelfSessionId: env unset + cwd-matching ledger → resolved-by-cwd', function () {
+  const ledger = { session_id: SESSION_B, cwd: '/tmp/repo' };
+  const r = stateSource.resolveSelfSessionId([ledger], { envSessionId: undefined, cwd: '/tmp/repo' });
+  assert.strictEqual(r.id, SESSION_B);
+  assert.strictEqual(r.resolution, 'resolved-by-cwd');
+});
+
+test('resolveSelfSessionId: env unset + no cwd match → env-missing + null', function () {
+  const ledger = { session_id: SESSION_B, cwd: '/other/path' };
+  const r = stateSource.resolveSelfSessionId([ledger], { envSessionId: undefined, cwd: '/tmp/repo' });
+  assert.strictEqual(r.id, null);
+  assert.strictEqual(r.resolution, 'env-missing');
+});
+
+test('resolveSelfSessionId: env set + sanitize fails + no cwd match → unresolved + null', function () {
+  // sanitizeSessionId returns null only when meaningful chars (after strip
+  // whitespace+punctuation) are empty. Pure punctuation triggers the
+  // unresolved branch — see lib/utils.js sanitizeSessionId.
+  const r = stateSource.resolveSelfSessionId([], { envSessionId: '!@.,', cwd: '/x' });
+  assert.strictEqual(r.id, null);
+  assert.strictEqual(r.resolution, 'unresolved');
+});
+
+test('resolveSelfSessionId: ledger 0건 + env resolved → self_session_id sanitized + resolved', function () {
+  const r = stateSource.resolveSelfSessionId([], { envSessionId: SESSION_C, cwd: '/x' });
+  assert.strictEqual(r.id, SESSION_C);
+  assert.strictEqual(r.resolution, 'resolved');
+});
+
+test('collectActiveSessionLedgers: surfaces self_session_id + self_resolution (env path)', function () {
+  const repo = mkRepoSandbox();
+  try {
+    const r = stateSource.collectActiveSessionLedgers(repo, { envSessionId: SESSION_A, cwd: repo });
+    assert.deepStrictEqual(r.ledgers, []);
+    assert.strictEqual(r.self_session_id, SESSION_A);
+    assert.strictEqual(r.self_resolution, 'resolved');
+  } finally {
+    helpers.cleanup(repo);
+  }
+});
+
+test('scanState: STATE.md absent + env set → item.self_session_id + self_resolution emitted', function () {
+  const repo = mkRepoSandbox();
+  try {
+    const result = stateSource.scanState(repo, { envSessionId: SESSION_A, cwd: repo });
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.item.self_session_id, SESSION_A);
+    assert.strictEqual(result.item.self_resolution, 'resolved');
+  } finally {
+    helpers.cleanup(repo);
+  }
+});

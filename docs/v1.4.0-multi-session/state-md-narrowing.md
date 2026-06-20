@@ -63,6 +63,12 @@ sessions. STATE.md keeps its current job: this worktree's narrative
 `derive/sources/state.js#scanState` returns `item.active_session_ledgers`
 as a separate array — not as an anchor field on STATE.md.
 
+v1.4.0-m3 adds two derive-surface fields (`self_session_id` +
+`self_resolution` 4 enum) so STATUS.md `## Active Sessions` can mark the
+current worktree with a `**this worktree**` row marker. STATE.md frontmatter
+remains untouched — self identity is resolved at derive time from
+`CLAUDE_SESSION_ID` env (with a deterministic `cwd`-match fallback).
+
 ## 4. PRD ↔ code reconciliation
 
 The PRD

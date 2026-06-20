@@ -5,9 +5,11 @@
 // (return null) when no active ledgers — keeps the dashboard quiet for the
 // single-worktree case, which is the common path.
 //
-// The renderer does not know which ledger is "self" (the worktree generating
-// the STATUS.md vs the sibling reading it later), so every active ledger is
-// surfaced. PM consumers infer self via the sticky verdict block elsewhere.
+// v1.4.0-m3 — self/other 시각 구분. derive `state.item.self_session_id` (Codex
+// Implement R1 F3 absorption contracted surface) 가 set이면 매칭 row를
+// **this worktree** 마커로 시각 구분. set이 아니거나 매칭 0건이면 M2 ship
+// 행동 그대로(graceful degrade) — null fallback. PM consumer는 단일 row scan
+// 만으로 self를 즉시 인식해 reconciliation friction을 줄인다.
 
 function tail(s, n) {
   if (typeof s !== 'string') return '';
@@ -38,6 +40,10 @@ function renderActiveSessions(model, formatUtils, options) {
 
   if (ledgers.length === 0) return null;
 
+  const selfId = stateItem && typeof stateItem.self_session_id === 'string'
+    ? stateItem.self_session_id
+    : null;
+
   const now = (options && Number.isFinite(options.now)) ? options.now : Date.now();
 
   const mdRows = ['| 세션 | 브랜치 | 위치 | 호스트 | 시작 |', '|---|---|---|---|---|'];
@@ -50,13 +56,21 @@ function renderActiveSessions(model, formatUtils, options) {
     const cwd = led.cwd || '—';
     const host = led.host || '—';
     const age = formatAge(led.created_at, now);
+    const isSelf = selfId && led.session_id === selfId;
 
+    const mdFirstCol = isSelf
+      ? '**this worktree** `' + shortId + '`'
+      : '`' + shortId + '`';
     mdRows.push(
-      '| `' + shortId + '` | ' + branch + ' | ' + cwd + ' | ' + host + ' | ' + age + ' |'
+      '| ' + mdFirstCol + ' | ' + branch + ' | ' + cwd + ' | ' + host + ' | ' + age + ' |'
     );
+    const htmlFirstCell = isSelf
+      ? '<td><strong>this worktree</strong> <code>' + escapeHtml(shortId) + '</code></td>'
+      : '<td><code>' + escapeHtml(shortId) + '</code></td>';
+    const trOpen = isSelf ? '<tr class="self">' : '<tr>';
     htmlRows.push(
-      '<tr>'
-      + '<td><code>' + escapeHtml(shortId) + '</code></td>'
+      trOpen
+      + htmlFirstCell
       + '<td>' + escapeHtml(branch) + '</td>'
       + '<td>' + escapeHtml(cwd) + '</td>'
       + '<td>' + escapeHtml(host) + '</td>'

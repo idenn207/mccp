@@ -41,9 +41,9 @@ We'll know we're right when **M1+M2 metric 충족**.
 |---|---|---|
 | **M1 — continuity** | 한 worktree의 PR merge가 다른 worktree의 작업 컨텍스트를 0건 손실 | dogfood: 2개 이상 worktree 병렬 cycle 1회 후 PR#38↔#39 패턴 재발 여부 정성 평가 (Primary 운영자의 incident log) |
 | **M2 — discovery** | 새 worktree에서 Claude 세션 시작 후 첫 5턴 동안 Claude의 "어느 작업을 진행할까요" 류 manual reconciliation 질문 0회 | session transcript 정성 grep + Primary 운영자의 정성 평가 |
-| **M3 (defer to post-MVP)** | 한 cycle 내 2~5 worktree 병렬 작업의 reconciliation friction 0회 | γ(full) milestone — 본 PRD scope 외, v1.5.0 후보 |
+| **M3** | 한 cycle 내 2~5 worktree 병렬 작업의 reconciliation friction 0회 | γ(full) milestone — **2026-06-20 promoted to active cycle**(M1+M2 ship 직후 사용자 결정). measurement + polish + dogfood 단위. |
 
-> M3는 hypothesis의 stretch target — MVP β는 M1+M2까지.
+> M3는 hypothesis의 stretch target — MVP β는 M1+M2까지. **2026-06-20 update**: M1(#43) + M2(#46) ship 직후 사용자가 별도 PRD를 만들지 않고 본 PRD의 마지막 milestone(M3)을 정식 cycle로 승격. polish(self/other 구분 + stale backlog 정리) + measurement primitive + 2-worktree dogfood로 한 PR 단위 ship 예정.
 
 ## Scope
 
@@ -56,7 +56,7 @@ M1+M2 metric 검증 가능한 최소 단위. 구현 메커니즘은 `/mccp:plan`
 - **Inter-process IPC** (Claude 세션끼리 직접 메시지) — v1.2.0 dispatch-controller는 single-session 내부 fanout이라 의미가 다름. 본 PRD는 file-system + git + hook 기반 indirect coordination만 다룸.
 - **자동 conflict resolution** (두 worktree가 같은 receipt slug에 동시 쓰면 자동 merge) — 충돌 *detection*은 MVP 범위, *resolution*은 사용자 수동 결정으로 남김.
 - **PR번호 ↔ 버전명 매핑 자동화** (PR#38 명칭 혼선의 근원) — 별도 이슈. 본 PRD evidence이지만 해결책은 아님.
-- **γ(full) status board** — 활성 세션이 어느 worktree에서 어떤 작업을 하고 있는지 실시간 dashboard. M3 metric이고 다음 milestone (v1.5.0 또는 본 PRD의 후속).
+- **γ(full) 실시간 status board (deferred to post-M3 follow-up)** — STATUS.md "Active Sessions" 섹션(v1.4.0-m2 ship)이 정적 표면이고 M3는 self/other 구분 polish + measurement까지만. 실시간 push surface(websocket/polling daemon, dashboard live update)는 본 PRD 후속 또는 별도 v1.5.x cycle.
 - **단일 세션 운영자를 위한 backward-compat layer** — Primary 외 사용자 케이스를 일반화하지 않음. 추후 일반화 시 별도 PRD.
 
 ## Delivery Milestones
@@ -68,7 +68,7 @@ M1+M2 metric 검증 가능한 최소 단위. 구현 메커니즘은 `/mccp:plan`
 |---|---|---|---|---|
 | 1 | M1 — continuity primitive | 한 worktree의 PR merge가 다른 worktree의 작업 컨텍스트를 손실시키지 않는다 (storage + write semantics 신설 또는 STATE.md 대체) | complete | `.claude/plans/v1-4-0-multi-session-m1-continuity-primitive.plan.md` (PR #43, squash c071a54) |
 | 2 | M2 — cross-session discovery | 새 worktree의 SessionStart hook이 다른 활성 세션을 자동으로 표면화한다 (registry + injection 경로) | in-progress | `.claude/plans/v1-4-0-multi-session-m2-discovery.plan.md` |
-| 3 | M3 — friction 0 (deferred) | 2~5 worktree 병렬 cycle을 reconciliation 질문 없이 완주 | pending (post-MVP) | — |
+| 3 | M3 — friction 0 | 2~5 worktree 병렬 cycle을 reconciliation 질문 없이 완주 | in-progress | `.claude/plans/v1-4-0-multi-session-m3-friction-zero.plan.md` |
 
 ## Open Questions
 

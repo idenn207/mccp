@@ -105,6 +105,25 @@ function sourcePrdPath(p) {
   return null;
 }
 
+function extractCyclePrefix(slug) {
+  if (!slug || typeof slug !== 'string') return null;
+  const m = slug.match(/^(v\d+-\d+-\d+)/);
+  return m ? m[1] : null;
+}
+
+function computePlanStaleness(plan, model) {
+  if (!plan || !plan.path) return 'unknown';
+  const basename = path.basename(plan.path).replace(/\.plan\.md$/, '').replace(/\.md$/, '');
+  const planCycle = extractCyclePrefix(basename);
+  const fp = (model && model.sources && model.sources.state
+            && model.sources.state.item && model.sources.state.item.frontmatter
+            && model.sources.state.item.frontmatter.task_fingerprint) || null;
+  if (!fp) return 'unknown';
+  const fpCycle = extractCyclePrefix(fp);
+  if (!planCycle || !fpCycle) return 'unknown';
+  return planCycle === fpCycle ? 'fresh' : 'stale';
+}
+
 function parsePlanBody(model, opts) {
   opts = opts || {};
   const cwd = opts.cwd || process.cwd();
@@ -114,6 +133,7 @@ function parsePlanBody(model, opts) {
   const plans = plansSrc.items || [];
 
   const planStatuses = new Map();
+  const planStaleness = new Map();
   const openQuestions = [];
   const risks = [];
   const warnings = [];
@@ -174,7 +194,14 @@ function parsePlanBody(model, opts) {
     }
   }
 
-  return { planStatuses, openQuestions, risks, warnings, degraded };
+  for (const p of plans) {
+    if (!p || !p.path) continue;
+    const basename = path.basename(p.path);
+    if (planStatuses.get(basename) !== 'in-progress') continue;
+    planStaleness.set(basename, computePlanStaleness(p, model));
+  }
+
+  return { planStatuses, planStaleness, openQuestions, risks, warnings, degraded };
 }
 
 module.exports = {
@@ -182,4 +209,6 @@ module.exports = {
   parseDeliveryMilestones,
   parseOpenQuestions,
   parseRisks,
+  extractCyclePrefix,
+  computePlanStaleness,
 };

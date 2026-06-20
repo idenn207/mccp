@@ -41,7 +41,11 @@ test('integration — synthesized model with all section types', () => {
         item: {
           resume_state: 'idle',
           body: { open_questions: ['will dashboard work?'] },
-          frontmatter: { controller_session_id: null, active_dispatch_count: 0 },
+          frontmatter: {
+            controller_session_id: null,
+            active_dispatch_count: 0,
+            task_fingerprint: 'v1-4-2-dashboard-overhaul',
+          },
         },
       },
       backlog: { count: 1, items: [{ severity: 'HIGH', text: 'finding A' }] },
@@ -81,12 +85,12 @@ test('integration — synthesized model with all section types', () => {
     },
   });
 
-  assert.match(r.md, /# mccp Status/);
+  assert.match(r.md, /# mccp 상태/);
   assert.match(r.md, /## Verdict/);
-  assert.match(r.md, /## Status/);
-  assert.match(r.md, /## Workers/);
-  assert.match(r.md, /## Timeline/);
-  assert.match(r.md, /## Risks/);
+  assert.match(r.md, /## 현황/);
+  assert.match(r.md, /## 워커/);
+  assert.match(r.md, /## 타임라인/);
+  assert.match(r.md, /## 위험/);
   assert.match(r.md, /1 worker\(s\) alive/);
   assert.match(r.md, /plan looks fine/);
 

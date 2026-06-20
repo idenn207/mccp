@@ -100,16 +100,35 @@ function computeVerdict(model, planBody) {
     const status = basename ? planStatuses.get(basename) : undefined;
     return status === 'in-progress';
   });
+  const staleness = pb.planStaleness instanceof Map ? pb.planStaleness : new Map();
+  const freshInProgress = inProgressPlans.filter(p => {
+    const basename = p.path ? path.basename(p.path) : null;
+    const st = basename ? staleness.get(basename) : undefined;
+    return st !== 'stale';
+  });
+  const allInProgressStale = inProgressPlans.length > 0 && freshInProgress.length === 0;
 
   if (backlogCount > 0) {
-    const nextSlug = inProgressPlans[0] ? planSlug(inProgressPlans[0]) : '(none)';
+    if (allInProgressStale) {
+      return {
+        tone: 'amber', icon: '⚠',
+        text: backlogCount + ' findings deferred · 다음 미정 (in-progress plan stale)',
+      };
+    }
+    const nextSlug = freshInProgress[0] ? planSlug(freshInProgress[0]) : '(none)';
     return { tone: 'neutral', icon: '·', text: backlogCount + ' findings deferred · next: ' + nextSlug };
   }
 
   if (inProgressPlans.length > 0) {
+    if (allInProgressStale) {
+      return {
+        tone: 'amber', icon: '⚠',
+        text: inProgressPlans.length + ' plans active · 다음 미정 (stale)',
+      };
+    }
     return {
       tone: 'neutral', icon: '◐',
-      text: inProgressPlans.length + ' plans active · next: ' + planSlug(inProgressPlans[0]),
+      text: freshInProgress.length + ' plans active · next: ' + planSlug(freshInProgress[0]),
     };
   }
 

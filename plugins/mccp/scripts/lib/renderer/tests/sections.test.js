@@ -9,7 +9,7 @@ const { renderAuditTimeline } = require('../sections/audit-timeline');
 const { renderOpenQuestions } = require('../sections/open-questions');
 const { renderRisks } = require('../sections/risks');
 
-test('status-grid — 4 cells + grid CSS literal', () => {
+test('status-grid — 4 cells + structured data + Korean labels', () => {
   const model = {
     sources: {
       plans: { items: [
@@ -29,12 +29,53 @@ test('status-grid — 4 cells + grid CSS literal', () => {
       ['c.plan.md', 'in-progress'],
     ]),
   };
-  const { md, html } = renderStatusGrid(model, formatUtils, planBody);
-  assert.match(md, /3/);
-  assert.match(md, /2/);
-  assert.match(md, /1/);
-  assert.match(md, /a/);
-  assert.match(html, /grid-template-columns:repeat\(auto-fit,minmax\(180px,1fr\)\)/);
+  const { md, html, cells } = renderStatusGrid(model, formatUtils, planBody);
+  assert.equal(cells.length, 4);
+  assert.equal(cells[0].key, 'in-progress');
+  assert.equal(cells[0].label, '진행 중');
+  assert.equal(cells[1].label, '차단');
+  assert.equal(cells[2].label, '다음');
+  assert.equal(cells[3].label, '미해결 위험');
+  assert.match(md, /진행 중 3/);
+  assert.match(md, /차단 2/);
+  assert.match(md, /미해결 위험 1/);
+  assert.match(html, /<div class="status-grid">/);
+});
+
+test('status-grid — nextStep formatted via formatPlanLabel + code wrap (fresh)', () => {
+  const model = {
+    sources: {
+      plans: { items: [{ path: 'v1-4-2-dashboard-overhaul-m1.plan.md' }] },
+      receipts: { items: [] },
+      backlog: { items: [] },
+    },
+  };
+  const planBody = {
+    planStatuses: new Map([['v1-4-2-dashboard-overhaul-m1.plan.md', 'in-progress']]),
+    planStaleness: new Map([['v1-4-2-dashboard-overhaul-m1.plan.md', 'fresh']]),
+  };
+  const { cells, html } = renderStatusGrid(model, formatUtils, planBody);
+  assert.equal(cells[2].value, 'v1.4.2 · dashboard overhaul m1');
+  assert.equal(cells[2].stale, false);
+  assert.match(html, /<code>v1\.4\.2 · dashboard overhaul m1<\/code>/);
+});
+
+test('status-grid — nextStep stale → 미정 (stale) + span.stale-label (F2 absorption)', () => {
+  const model = {
+    sources: {
+      plans: { items: [{ path: 'v1-4-2-dashboard-overhaul-m1.plan.md' }] },
+      receipts: { items: [] },
+      backlog: { items: [] },
+    },
+  };
+  const planBody = {
+    planStatuses: new Map([['v1-4-2-dashboard-overhaul-m1.plan.md', 'in-progress']]),
+    planStaleness: new Map([['v1-4-2-dashboard-overhaul-m1.plan.md', 'stale']]),
+  };
+  const { cells, html } = renderStatusGrid(model, formatUtils, planBody);
+  assert.equal(cells[2].value, '미정 (stale)');
+  assert.equal(cells[2].stale, true);
+  assert.match(html, /<span class="stale-label">미정 \(stale\)<\/span>/);
 });
 
 test('worker-fanout — null when envelopes.count===0 and no controller', () => {

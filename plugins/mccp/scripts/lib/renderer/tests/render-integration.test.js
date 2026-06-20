@@ -52,6 +52,7 @@ function mkFsFixture() {
   fs.writeFileSync(path.join(claude, 'state', 'STATE.md'),
     '---\nschema_version: 1\nupdated_at: ' + new Date(now).toISOString() + '\n'
     + 'controller_session_id: ctrl-abc\nactive_dispatch_count: 1\n'
+    + 'task_fingerprint: v1-4-2-dashboard-overhaul\n'
     + '---\n\n## Goal\n\nx\n\n## Open Questions\n\n- ux question\n');
 
   return root;
@@ -75,6 +76,10 @@ test('render-integration — real derive() against fs fixture reflects actual su
 
     assert.match(r.html, /<!doctype html>/);
     assert.match(r.html, /<\/html>\s*$/);
+
+    // v1.4.2-m1: header hoist — status strip lives in <header>, not main.
+    assert.match(r.html, /<header[^>]*>[\s\S]*?<div class="status-strip"/);
+    assert.doesNotMatch(r.html, /<section id="status"/);
 
     const openSec = (r.html.match(/<section/g) || []).length;
     const closeSec = (r.html.match(/<\/section>/g) || []).length;

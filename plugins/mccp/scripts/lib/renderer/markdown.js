@@ -11,12 +11,12 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   const isStale = Number.isFinite(derivedMs) && (now - derivedMs) > 60_000;
 
   const out = [];
-  out.push('# mccp Status · ' + verdict.icon + ' ' + verdict.text);
+  out.push('# mccp 상태 · ' + verdict.icon + ' ' + verdict.text);
   out.push('');
-  out.push('_Last refreshed: ' + derivedAt + ' · ' + relative + '_');
+  out.push('_마지막 갱신: ' + derivedAt + ' · ' + relative + '_');
   out.push('');
   if (m.masked === false) {
-    out.push('> ⚠ **raw mode — 절대 외부 공유 금지** (경로 unmasked)');
+    out.push('> ⚠ **raw 모드 — 절대 외부 공유 금지** (경로 unmasked)');
     out.push('');
   }
   if (isStale) {
@@ -24,12 +24,12 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
     out.push('');
   }
 
-  const anchors = ['[verdict](#verdict)', '[status](#status)'];
-  if (fanout) anchors.push('[workers](#workers)');
-  if (activeSessions) anchors.push('[sessions](#sessions)');
-  anchors.push('[timeline](#timeline)');
-  if (questions) anchors.push('[questions](#questions)');
-  anchors.push('[risks](#risks)');
+  const anchors = ['[verdict](#verdict)', '[현황](#현황)'];
+  if (fanout) anchors.push('[워커](#워커)');
+  if (activeSessions) anchors.push('[최근-활동](#최근-활동)');
+  anchors.push('[타임라인](#타임라인)');
+  if (questions) anchors.push('[미해결-질문](#미해결-질문)');
+  anchors.push('[위험](#위험)');
   out.push(anchors.join(' · '));
   out.push('');
   out.push('---');
@@ -42,14 +42,14 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('---');
   out.push('');
 
-  out.push('## Status');
+  out.push('## 현황');
   out.push('');
   if (grid) { out.push(grid.md); out.push(''); }
   out.push('---');
   out.push('');
 
   if (fanout) {
-    out.push('## Workers');
+    out.push('## 워커');
     out.push('');
     out.push(fanout.md);
     out.push('');
@@ -58,7 +58,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   }
 
   if (activeSessions) {
-    out.push('## Active Sessions');
+    out.push('## 최근 활동');
     out.push('');
     out.push(activeSessions.md);
     out.push('');
@@ -66,14 +66,14 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
     out.push('');
   }
 
-  out.push('## Timeline');
+  out.push('## 타임라인');
   out.push('');
   if (timeline) { out.push(timeline.md); out.push(''); }
   out.push('---');
   out.push('');
 
   if (questions) {
-    out.push('## Open Questions');
+    out.push('## 미해결 질문');
     out.push('');
     out.push(questions.md);
     out.push('');
@@ -81,13 +81,13 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
     out.push('');
   }
 
-  out.push('## Risks');
+  out.push('## 위험');
   out.push('');
   if (risks) { out.push(risks.md); out.push(''); }
   out.push('---');
   out.push('');
 
-  out.push('_Derived from .claude/ via plugins/mccp/scripts/derive · v1.3.0-m3 renderer_');
+  out.push('_derived from .claude/ · v1.9.0_');
   out.push('');
 
   return out.join('\n');

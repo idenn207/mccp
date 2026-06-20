@@ -2,12 +2,28 @@
 
 const path = require('path');
 
+function formatPlanLabel(basename) {
+  if (!basename || typeof basename !== 'string') return '(unknown)';
+  const slug = basename.replace(/\.plan\.md$/, '').replace(/\.md$/, '');
+  const m = slug.match(/^(v\d+)-(\d+)-(\d+)-(.+)$/);
+  let label;
+  if (m) {
+    const cycle = m[1] + '.' + m[2] + '.' + m[3];
+    const rest = m[4].replace(/-/g, ' ');
+    label = cycle + ' · ' + rest;
+  } else {
+    label = slug;
+  }
+  return label.length > 30 ? label.slice(0, 29) + '…' : label;
+}
+
 function renderStatusGrid(model, formatUtils, planBody) {
   const { escapeHtml } = formatUtils;
   const m = model || {};
   const sources = m.sources || {};
   const pb = planBody || {};
   const planStatuses = pb.planStatuses instanceof Map ? pb.planStatuses : new Map();
+  const staleness = pb.planStaleness instanceof Map ? pb.planStaleness : new Map();
 
   const plansItems = (sources.plans && sources.plans.items) || [];
   const inProgressCount = plansItems.filter(p => {
@@ -25,7 +41,8 @@ function renderStatusGrid(model, formatUtils, planBody) {
   }
   const blockedCount = blockedReceipts.filter(r => !decisionsWithLaterConverged.has(r.decision_id)).length;
 
-  let nextStep = 'idle';
+  let nextStep = '대기';
+  let nextStale = false;
   const stateItem = sources.state && sources.state.item;
   if (stateItem && stateItem.resume_state === 'in-flight') {
     nextStep = '/mccp:resume';
@@ -35,7 +52,14 @@ function renderStatusGrid(model, formatUtils, planBody) {
       return planStatuses.get(path.basename(p.path)) === 'in-progress';
     });
     if (firstInProgress) {
-      nextStep = path.basename(firstInProgress.path).replace(/\.plan\.md$/, '').replace(/\.md$/, '');
+      const basename = path.basename(firstInProgress.path);
+      const st = staleness.get(basename);
+      if (st === 'stale') {
+        nextStep = '미정 (stale)';
+        nextStale = true;
+      } else {
+        nextStep = formatPlanLabel(basename);
+      }
     }
   }
 
@@ -47,27 +71,35 @@ function renderStatusGrid(model, formatUtils, planBody) {
   }).length;
 
   const cells = [
-    { korean: '진행 중', icon: '◐', value: String(inProgressCount) },
-    { korean: '차단', icon: '🚫', value: String(blockedCount) },
-    { korean: '다음', icon: '→', value: nextStep },
-    { korean: 'risks open', icon: '⚠', value: String(risksOpen) },
+    { key: 'in-progress', label: '진행 중', icon: '◐', value: String(inProgressCount), kind: 'count' },
+    { key: 'blocked', label: '차단', icon: '🚫', value: String(blockedCount), kind: 'count', accent: 'blocked' },
+    { key: 'next', label: '다음', icon: '→', value: nextStep, kind: 'next', stale: nextStale },
+    { key: 'risks', label: '미해결 위험', icon: '⚠', value: String(risksOpen), kind: 'count' },
   ];
 
-  const md = [
-    '| ' + cells.map(c => c.icon + ' ' + c.korean).join(' | ') + ' |',
-    '| ' + cells.map(() => '---').join(' | ') + ' |',
-    '| ' + cells.map(c => c.value).join(' | ') + ' |',
-  ].join('\n');
+  const md = cells.map(c => {
+    if (c.kind === 'next') {
+      return c.icon + ' ' + c.label + ' ' + c.value;
+    }
+    return c.icon + ' ' + c.label + ' ' + c.value;
+  }).join(' · ');
 
-  const htmlCells = cells.map(c =>
-    '<div class="grid-cell"><div class="grid-label">'
-    + escapeHtml(c.icon) + ' ' + escapeHtml(c.korean)
-    + '</div><div class="grid-value">' + escapeHtml(c.value) + '</div></div>'
-  ).join('');
-  const html = '<div class="status-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.5rem">'
-    + htmlCells + '</div>';
+  const htmlCells = cells.map(c => {
+    let valueHtml;
+    if (c.kind === 'next') {
+      valueHtml = c.stale
+        ? '<span class="stale-label">' + escapeHtml(c.value) + '</span>'
+        : '<code>' + escapeHtml(c.value) + '</code>';
+    } else {
+      valueHtml = '<div class="grid-value">' + escapeHtml(c.value) + '</div>';
+    }
+    return '<div class="grid-cell"><div class="grid-label">'
+      + escapeHtml(c.icon) + ' ' + escapeHtml(c.label)
+      + '</div>' + valueHtml + '</div>';
+  }).join('');
+  const html = '<div class="status-grid">' + htmlCells + '</div>';
 
-  return { md, html };
+  return { md, html, cells };
 }
 
-module.exports = { renderStatusGrid };
+module.exports = { renderStatusGrid, formatPlanLabel };

@@ -71,6 +71,15 @@ const MODES = ['prd', 'plan', 'implement', 'pr', 'review'];
 //   .claude/cache/STATUS.md|status.html — the cache targets themselves; direct
 //                  edits there must trigger critique (overshoot-safe because
 //                  cache is gitignored — these are touched intentionally only).
+//
+// v1.3.0-m2 Task 6 (F1 absorption) — design-gate control-plane additions:
+//   impeccable-detect.js     — the detector itself; changes must self-apply.
+//   design-critique-decide.js — critique oracle; changes must self-apply.
+//   skills/frontend-design-direction/ — output-constraint anchors; changes
+//                  must run the critique loop against the new constraints.
+// Scope is deliberately narrow — commands/*.md is NOT included because
+// that would over-trigger on routine command-body refactors. The 3 paths
+// added here are the design-gate control plane proper.
 const DESIGN_SURFACE_PATHS = [
   'plugins/mccp/scripts/lib/renderer/',
   'plugins/mccp/scripts/lib/briefing/',
@@ -79,6 +88,10 @@ const DESIGN_SURFACE_PATHS = [
   'plugins/mccp/scripts/receipt/write.js',
   '.claude/cache/STATUS.md',
   '.claude/cache/status.html',
+  // v1.3.0-m2 Task 6 F1 absorption (narrow design-gate control plane).
+  'plugins/mccp/scripts/lib/impeccable-detect.js',
+  'plugins/mccp/scripts/lib/design-critique-decide.js',
+  'plugins/mccp/skills/frontend-design-direction/',
 ];
 
 function normalizeSlashes(filePath) {

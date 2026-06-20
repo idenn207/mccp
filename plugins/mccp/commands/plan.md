@@ -341,7 +341,7 @@ This phase applies when the command is invoked as `/mccp:plan`. It implements th
 
 After the plan artifact is written in Phase 4:
 
-### 5.0 — impeccable design gate (자동, /mccp:plan 진입 시 MANDATORY, v0.2.6 Milestone 1)
+### 5.0 — impeccable design gate (자동, /mccp:plan 진입 시 MANDATORY, v0.2.6 Milestone 1 · v1.3.0-m2 3-axis trigger)
 
 Pre-flight detection — pre-commits to mode and feeds skill_available / design_signal:
 
@@ -358,15 +358,123 @@ DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").r
 # string so the `--impeccable-silent-skip*` flags only fire on actual hits.
 SILENT_SKIP=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.silent_skip?"1":"0")}catch{process.stdout.write("0")}')
 SILENT_SKIP_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.silent_skip_reason||"")}catch{process.stdout.write("")}')
+
+# v1.3.0-m2 Task 6 (F1 absorption) — 3-axis trigger evaluation. Even when the
+# detector returns SIGNAL=0, two side channels can force the critique loop on:
+#
+#   axis a: detector positive (existing — SIGNAL=1)
+#   axis b: narrow whitelist hit (impeccable-detect.js DESIGN_SURFACE_PATHS
+#           includes design-gate control-plane files: impeccable-detect.js
+#           itself, design-critique-decide.js, frontend-design-direction/).
+#           This axis is already covered by SIGNAL=1 — listing here for clarity.
+#   axis c: audited intent override — MCCP_DESIGN_INTENT_REASON with a
+#           substantive reason (strict mirror of impeccable_force_override
+#           rules: ≥30 chars, ≥3 words, no placeholder/URL-only/banlist token)
+#           forces the trigger when the author knows the change touches design
+#           routing but the detector can't see it.
+#
+# DESIGN_INTENT_ACTIVE=1 means the user opted into the SKILL first-step + critique
+# loop regardless of SIGNAL. The reason text is forwarded to receipt-write so
+# the audit trail records WHO asked for the override and WHY.
+DESIGN_INTENT_ACTIVE=0
+DESIGN_INTENT_REASON_FORWARD=""
+if [ -n "${MCCP_DESIGN_INTENT_REASON:-}" ]; then
+  REASON_OK=$(node -e "
+    const { validateReason } = require('${CLAUDE_PLUGIN_ROOT}/scripts/receipt/lib/force-override-reason');
+    const r = validateReason(process.env.MCCP_DESIGN_INTENT_REASON, { strict: true });
+    process.stdout.write(r.ok ? '1' : '0:' + r.reason);
+  " 2>/dev/null)
+  if [ "$REASON_OK" = "1" ]; then
+    DESIGN_INTENT_ACTIVE=1
+    DESIGN_INTENT_REASON_FORWARD="$MCCP_DESIGN_INTENT_REASON"
+    echo "[mccp:design-critique] MCCP_DESIGN_INTENT_REASON active — forcing SKILL first-step + critique loop (audited override)" 1>&2
+  else
+    echo "[mccp:design-critique] MCCP_DESIGN_INTENT_REASON rejected (${REASON_OK#0:}); falling back to detector decision" 1>&2
+  fi
+fi
+
+# SKILL first-step Read enforcement (Task 6) — when any trigger fires, the
+# critique loop body MUST Read the SKILL.md anchors before invoking impeccable.
+# This guarantees the 4 Output Constraints are in context for the critique.
+if [ "$SKILL_AVAIL" = "1" ] && { [ "$SIGNAL" = "1" ] || [ "$DESIGN_INTENT_ACTIVE" = "1" ]; }; then
+  echo "[mccp:design-critique] SKILL first-step Read required: plugins/mccp/skills/frontend-design-direction/SKILL.md" 1>&2
+  # The LLM body of this command Read()s SKILL.md before entering the critique
+  # loop. Phase 4 WRITE output is expected to cite the "## Output Constraints"
+  # section when introducing design surface.
+fi
 ```
 
 Decision tree (v1.3.0 M1 — silent-skip is no longer silent):
 
-| SKILL_AVAIL | SIGNAL | Action |
-|---|---|---|
-| 0 | * | Append `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` to the plan body under a `## Design Critique` heading. Export `IMPECCABLE_SKIPPED_REASON="$DETECT_REASON"`. plan-codex is a lenient gate — `meta.impeccable_skipped=true` surfaces as warning, not blocking. |
-| 1 | 0 | Detector found no design surface in this plan. Emit a loud stderr warn (`[mccp:impeccable] silent-skip reason=$SILENT_SKIP_REASON · plan declares no design surface (whitelist hit 0)`) and forward `--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON"` to 5.6 — UNLESS `IMPECCABLE_FORCE_OVERRIDE_REASON` is set (schema mutex; silent_skip forward suppressed). M1 records silent_skip as informational warning at every gate; M2 will promote to blocking on strict gates once SKILL first-step + critique loop are wired. |
-| 1 | 1 | Invoke `Skill(impeccable, "critique <plan slug>")`. Append result to the plan body under `## Design Critique`. If Skill returns `unknown_skill` / `not found`, fall back to skipped path. |
+| SKILL_AVAIL | SIGNAL | DESIGN_INTENT_ACTIVE | Action |
+|---|---|---|---|
+| 0 | * | * | Append `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` to the plan body under a `## Design Critique` heading. Export `IMPECCABLE_SKIPPED_REASON="$DETECT_REASON"`. plan-codex is a lenient gate — `meta.impeccable_skipped=true` surfaces as warning, not blocking. |
+| 1 | 0 | 0 | Detector found no design surface in this plan. Emit a loud stderr warn (`[mccp:impeccable] silent-skip reason=$SILENT_SKIP_REASON · plan declares no design surface (whitelist hit 0)`) and forward `--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON"` to 5.6 — UNLESS `IMPECCABLE_FORCE_OVERRIDE_REASON` is set (schema mutex; silent_skip forward suppressed). M1 records silent_skip as informational warning at every gate; M2 will promote to blocking on strict gates once SKILL first-step + critique loop are wired. |
+| 1 | 1 | * | Run the **critique retry loop** (v1.3.0-m2 Task 7, described below). Append result to plan body under `## Design Critique`. Forward `--design-critique-rounds <N> --design-critique-verdict <enum>` to 5.6. |
+| 1 | 0 | 1 | Audited override active (`MCCP_DESIGN_INTENT_REASON` substantive). Run the same critique retry loop as SIGNAL=1. Additionally forward `--design-intent-reason "$DESIGN_INTENT_REASON_FORWARD"` to 5.6. |
+
+#### Critique retry loop (v1.3.0-m2 Task 7 — plan.md reference impl)
+
+```bash
+# cap is in [0, 3]; default 2. cap=0 → critique runs once and the verdict
+# locks to DIVERGENT_UNRESOLVED if anything HIGH/CRITICAL/UNKNOWN remains
+# (kill-switch — observable, not silent).
+CAP=$(node -e "console.log(require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/design-critique-decide').parseRetryCap(process.env))")
+ROUND=0
+VERDICT=""
+# Test-only fail injection (Task 10 dogfood gate). When set, the loop body
+# treats the critique result as a HIGH finding without invoking impeccable.
+# Production critique invocations ignore this env.
+FORCE_FAIL="${MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL:-0}"
+
+while [ "$ROUND" -le "$CAP" ]; do
+  # 1. Invoke Skill(impeccable, "critique <plan slug>") OR mock when
+  #    FORCE_FAIL=1 (returns [{severity:'HIGH', title:'forced-fail mock'}]).
+  # 2. Parse critique findings as a JSON array under the body's actionable
+  #    instructions. Critique invariant: each finding MUST name the plan
+  #    section to Edit; loop terminates DIVERGENT if any finding is
+  #    actionable-instruction-missing.
+  # 3. Compute VERDICT via the pure oracle:
+  VERDICT=$(node -e "
+    const { decideCritique } = require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/design-critique-decide');
+    const findings = JSON.parse(process.argv[1] || '[]');
+    const verdict = decideCritique({ findings, round: Number(process.argv[2]), cap: Number(process.argv[3]) });
+    process.stdout.write(verdict);
+  " "$CRITIQUE_FINDINGS_JSON" "$ROUND" "$CAP")
+
+  case "$VERDICT" in
+    CONVERGED)
+      echo "[mccp:design-critique] round=$ROUND/$CAP verdict=CONVERGED" 1>&2
+      break
+      ;;
+    ESCALATE_NEXT_ROUND)
+      echo "[mccp:design-critique] round=$ROUND/$CAP verdict=ESCALATE — editing plan body per critique" 1>&2
+      # Edit ONLY the plan sections named by critique findings — DO NOT
+      # regenerate the whole plan body (Phase 4 cyclic re-entry guard).
+      # After edits, ROUND++ and re-critique.
+      ROUND=$((ROUND + 1))
+      ;;
+    DIVERGENT_UNRESOLVED)
+      echo "[mccp:design-critique] round=$ROUND/$CAP verdict=DIVERGENT_UNRESOLVED — annotating plan body and breaking loop" 1>&2
+      # Append a DIVERGENT_UNRESOLVED note to ## Design Critique listing the
+      # surviving HIGH/CRITICAL findings + the cap. The receipt verdict
+      # surfaces this to /mccp:pr's chain-check (Task 5/8).
+      break
+      ;;
+  esac
+done
+
+# Map oracle enum → receipt verdict enum (lowercase) for 5.6 receipt-write
+case "$VERDICT" in
+  CONVERGED)             RECEIPT_VERDICT="converged" ;;
+  DIVERGENT_UNRESOLVED)  RECEIPT_VERDICT="divergent" ;;
+  *)                     RECEIPT_VERDICT="skipped" ;;
+esac
+DESIGN_CRITIQUE_ROUNDS=$((ROUND + 1))  # ROUND is 0-indexed; receipt counts invocations
+```
+
+If `Skill(impeccable, ...)` returns `unknown_skill` / `not found` at any
+iteration, fall back to the SKILL_AVAIL=0 row above (treat as skipped).
 
 Loud stderr warn pattern for the SKILL_AVAIL=1 SIGNAL=0 row (Task 3):
 
@@ -519,6 +627,16 @@ if [ -n "$IMPECCABLE_SKIPPED_REASON" ]; then
   WRITE_FLAGS+=(--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON")
 elif [ "$SILENT_SKIP" = "1" ] && [ -z "${IMPECCABLE_FORCE_OVERRIDE_REASON:-}" ]; then
   WRITE_FLAGS+=(--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON")
+fi
+# v1.3.0-m2 — design-critique retry-loop audit forward. Only emitted when the
+# retry loop actually ran (SIGNAL=1 OR DESIGN_INTENT_ACTIVE=1). The audited
+# override reason is separate so receipt-write can apply the strict validator.
+if [ -n "${RECEIPT_VERDICT:-}" ] && [ "${RECEIPT_VERDICT:-skipped}" != "skipped" ]; then
+  WRITE_FLAGS+=(--design-critique-rounds "$DESIGN_CRITIQUE_ROUNDS"
+                --design-critique-verdict "$RECEIPT_VERDICT")
+fi
+if [ -n "${DESIGN_INTENT_REASON_FORWARD:-}" ]; then
+  WRITE_FLAGS+=(--design-intent-reason "$DESIGN_INTENT_REASON_FORWARD")
 fi
 WRITE_FLAGS+=(--quiet)
 node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" "${WRITE_FLAGS[@]}"

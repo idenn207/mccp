@@ -152,6 +152,58 @@ If all checks pass, proceed.
 
 ---
 
+## Phase 1.6 — DESIGN-CRITIQUE CHAIN-CHECK PREFLIGHT (v1.3.0-m2 Task 8 · F3 absorption)
+
+PR scope **does NOT** run the design-critique retry loop. The plan + implement
+gates own convergence; PR step is enforcement-only. This preflight invokes the
+canonical chain-check via validate-cmd before any Codex / impeccable Skill
+call, so a divergent prior receipt blocks the PR before any side effect.
+
+```bash
+DECISION_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decision \
+  --command mccp:pr \
+  --args "$ARGUMENTS")
+PRECHECK_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" validate \
+  --command mccp:pr \
+  --decision "$DECISION_SLUG" 2>&1)
+PRECHECK_EXIT=$?
+# Look for design_critique_chain_divergent blocking entries specifically — other
+# blocking reasons (missing receipt, schema invalid) are handled by Phase 2.5
+# downstream.
+CHAIN_BLOCKED=$(echo "$PRECHECK_JSON" | node -e '
+  try {
+    const j = JSON.parse(require("fs").readFileSync(0, "utf8"));
+    const hit = (j.blocking || []).find(b => b.kind === "design_critique_chain_divergent");
+    process.stdout.write(hit ? JSON.stringify(hit) : "");
+  } catch { process.stdout.write(""); }
+')
+
+if [ -n "$CHAIN_BLOCKED" ]; then
+  echo "[MCCP-GATE-STOP] design-critique chain divergent — PR blocked." 1>&2
+  echo "$CHAIN_BLOCKED" 1>&2
+  echo "" 1>&2
+  echo "Recovery: resolve the divergent finding in plan/implement (re-run the" 1>&2
+  echo "critique loop with a fix), OR set MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN" 1>&2
+  echo "with a substantive reason (≥30 chars, ≥3 words, no placeholder)." 1>&2
+  exit 1
+fi
+```
+
+Notes:
+
+- `MCCP_DESIGN_CRITIQUE_MAX_RETRY` env is **ignored** in PR scope — there is
+  no retry loop to cap. The env is honored only by `/mccp:plan` and
+  `/mccp:prp-implement`.
+- The audited escape `MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN` is honored by
+  validate-cmd (strict reason validator). When active, the chain-check
+  downgrades to advisory warning + receipt-write at 2.5.7 stamps
+  `meta.pr_design_chain_skip_reason`.
+- Existing 2.5.1 single-shot impeccable critique/audit calls (design-review
+  surface for PR body inject) are unchanged. The PR-scope ban is on the
+  **retry loop**, not on single-shot Skill invocations.
+
+---
+
 ## Phase 2 — DISCOVER
 
 ### PR Template
@@ -548,6 +600,21 @@ fi
 # impeccable_force_override warning).
 if [ "$SILENT_SKIP" = "1" ] && [ -z "${IMPECCABLE_FORCE_OVERRIDE_REASON:-}" ]; then
   FINALIZE_FLAGS+=(--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON")
+fi
+# v1.3.0-m2 Task 8 (F3 absorption) — pr-design-chain-skip-reason audited escape
+# forward. Only set when Phase 1.6 chain-check entered advisory mode with a
+# substantive MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN reason. Receipt stamps the
+# audit; Phase 4 PR body inject adds a `## Design Critique Chain Skipped`
+# footer (canonical audit source — receipts dir is git-ignored).
+if [ -n "${MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN:-}" ]; then
+  REASON_OK=$(node -e "
+    const { validateReason } = require('${CLAUDE_PLUGIN_ROOT}/scripts/receipt/lib/force-override-reason');
+    const r = validateReason(process.env.MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN, { strict: true });
+    process.stdout.write(r.ok ? '1' : '0');
+  " 2>/dev/null)
+  if [ "$REASON_OK" = "1" ]; then
+    FINALIZE_FLAGS+=(--pr-design-chain-skip-reason "$MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN")
+  fi
 fi
 
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/finalize-receipt.js" "${FINALIZE_FLAGS[@]}"

@@ -6,6 +6,15 @@ const { planAwareMarkdownHash, gitRepoRoot, subjectHash } = require('./hash');
 const { validate: validateSchema } = require('./schema');
 const { readReceipt } = require('./store');
 const { getCommandSpec, normalizeCommand } = require('./aliases');
+const { validateReason } = require('./lib/force-override-reason');
+
+// v1.3.0-m2 Task 5 (F3 absorption) — terminal PR commands trigger the
+// design-critique chain-check. Codex review is invoked at plan + implement,
+// so the PR step is enforcement-only (BLOCK when any prior receipt carries
+// design_critique_verdict='divergent'). MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN
+// is the only audited escape — reason validator (strict mirror of M1
+// impeccable_force_override rules) gates the advisory mode entry.
+const PR_TERMINAL_COMMANDS = new Set(['mccp:pr', 'mccp:prp-pr']);
 
 // v0.2.4 Task 8 — gate IDs where security-reviewer skip is BLOCKING. Other
 // gates (notably code-reviewer) treat security_skipped as informational because
@@ -164,6 +173,29 @@ function validateCommand(command, opts) {
   }
 
   const requires = spec.requires_preceding || [];
+
+  // v1.3.0-m2 Task 5 (F3 absorption) — chain-check audited escape preflight.
+  // Only meaningful when the current command is a terminal PR step. When the
+  // env var is set with a substantive reason, the chain-check downgrades
+  // blocking → warning for that one invocation. Bad reason = audited escape
+  // refused + visible warning + chain-check stays strict.
+  const isPrTerminal = PR_TERMINAL_COMMANDS.has(normalizeCommand(command));
+  const chainSkipReasonRaw = process.env.MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN;
+  let chainSkipActive = false;
+  if (isPrTerminal && typeof chainSkipReasonRaw === 'string' && chainSkipReasonRaw.length > 0) {
+    const rv = validateReason(chainSkipReasonRaw, { strict: true });
+    if (rv.ok) {
+      chainSkipActive = true;
+    } else {
+      result.warnings.push({
+        gate_id: '_meta',
+        decision_id: result.decisionId,
+        reason: 'MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN reason rejected (' + rv.reason +
+          '): chain-check stays strict; provide substantive reason ≥30 chars + ≥3 words ' +
+          'or remove the env var',
+      });
+    }
+  }
 
   // v0.2.8 Task 2.6.5 R1-F1 + R3 absorption — bare generic-slug rejection.
   // When a downstream command (one with required preceding gates) lands on
@@ -396,6 +428,52 @@ function validateCommand(command, opts) {
         reason: reason,
         impeccable_silent_skip_reason: receipt.meta.impeccable_silent_skip_reason || null,
       });
+    }
+
+    // v1.3.0-m2 Task 5 — design-critique verdict surfacing + chain-check.
+    //
+    // Lenient path (plan/implement gates):
+    //   design_critique_verdict='divergent' → warnings push. The retry loop in
+    //   plan.md / prp-implement.md is responsible for resolving divergence
+    //   inside its own scope; surfacing as warning keeps the gate observable
+    //   without blocking the chain in case the divergence is intentional.
+    //
+    // Strict chain-check (terminal PR commands):
+    //   When the current command is /mccp:pr or /mccp:prp-pr, divergent verdict
+    //   in ANY prior receipt (plan + implement) escalates to blocking. Audited
+    //   escape MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN downgrades back to warning
+    //   for that one invocation when the reason validator passes (strict rules).
+    if (receipt.meta && receipt.meta.design_critique_verdict === 'divergent'
+        && !receipt.meta.skipped) {
+      const verdictMsg = 'preceding gate has meta.design_critique_verdict="divergent" ' +
+        '(impeccable critique retry loop did not converge within ' +
+        'MCCP_DESIGN_CRITIQUE_MAX_RETRY cap; rounds=' +
+        (receipt.meta.design_critique_rounds == null ? 'n/a'
+          : receipt.meta.design_critique_rounds) + ')';
+      if (isPrTerminal && !chainSkipActive) {
+        result.blocking.push({
+          gate_id: gateId,
+          decision_id: result.decisionId,
+          reason: verdictMsg + ' — chain-check BLOCKED on PR step. ' +
+            'Resolve in plan/implement, or set MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN ' +
+            'with a substantive reason for audited advisory mode.',
+          kind: 'design_critique_chain_divergent',
+          prior_gate: gateId,
+          prior_verdict: 'divergent',
+          design_critique_rounds: receipt.meta.design_critique_rounds || null,
+        });
+      } else {
+        result.warnings.push({
+          gate_id: gateId,
+          decision_id: result.decisionId,
+          reason: verdictMsg + (isPrTerminal && chainSkipActive
+            ? ' (advisory — MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN active with audited reason)'
+            : ' (lenient surface — retry loop owns convergence in this gate scope)'),
+          kind: 'design_critique_divergent',
+          prior_verdict: 'divergent',
+          design_critique_rounds: receipt.meta.design_critique_rounds || null,
+        });
+      }
     }
 
     // v1.2.0-m1 Task 6 (Codex F3 absorption) — envelope integrity check.

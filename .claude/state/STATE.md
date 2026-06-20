@@ -2,13 +2,13 @@
 state_version: 1
 task_fingerprint: v1-3-0-cycle-close-ready
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-06-19T07:07:19.932Z
+updated_at: 2026-06-20T09:55:32.502Z
 last_event: stop_loop_pass
 last_event_at: 2026-06-19T07:07:19.932Z
 unsafe_checkpoint: false
 confirm_required: false
-session_end_imminent: false
-chain_aborted: false
+session_end_imminent: true
+chain_aborted: true
 last_pr_url: https://github.com/idenn207/mccp/pull/41
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
@@ -61,4 +61,4 @@ v1.3.0-m6 cycle close PR 직전 — code-review absorption 완료, /mccp:pr 호�
 - CHANGELOG [1.4.0]/[1.4.1] inverted descending semver order — main의 기존 misorder가 본 PR로 노출. Keep-a-Changelog 표준 위반이지만 본 PR scope 외 (별도 chore PR 후보).
 
 ## Last Updated
-2026-06-19T07:07:19.932Z
+2026-06-20T09:55:32.502Z

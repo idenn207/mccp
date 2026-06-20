@@ -479,6 +479,61 @@ function validate(receipt) {
       req(Number.isInteger(m.briefing_invocation_count) && m.briefing_invocation_count >= 0,
         'meta.briefing_invocation_count must be a non-negative integer or null');
     }
+
+    // v1.3.0-m2 — design-critique retry-loop audit axis. 4 fields, all optional
+    // (present-only — v1.3.0-m1 receipts pass unchanged).
+    //
+    // design_critique_rounds:      count of critique invocations performed within
+    //                              the loop (1..cap+1). null when sub-step skipped
+    //                              (detector returned no-signal AND no override).
+    // design_critique_verdict:     'converged' | 'divergent' | 'skipped' | null.
+    //                              'converged' = decideCritique returned CONVERGED.
+    //                              'divergent' = DIVERGENT_UNRESOLVED at cap.
+    //                              'skipped' = sub-step skip silently (no SIGNAL).
+    // design_intent_reason:        when MCCP_DESIGN_INTENT_REASON audited override
+    //                              forced the SKILL first-step trigger (axis c in
+    //                              the 3-axis trigger), the reason is stamped here.
+    //                              Reason validator is strict (mirror of impeccable
+    //                              force_override rules).
+    // pr_design_chain_skip_reason: when MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN audited
+    //                              escape opt'd a pr-codex receipt out of the
+    //                              chain-check enforcement, the reason is stamped
+    //                              here. Strict reason validator.
+    const VERDICT_VALUES = ['converged', 'divergent', 'skipped'];
+    if (m.design_critique_rounds !== null && m.design_critique_rounds !== undefined) {
+      req(Number.isInteger(m.design_critique_rounds) && m.design_critique_rounds >= 0,
+        'meta.design_critique_rounds must be a non-negative integer or null');
+    }
+    if (m.design_critique_verdict !== null && m.design_critique_verdict !== undefined) {
+      req(typeof m.design_critique_verdict === 'string' &&
+        VERDICT_VALUES.indexOf(m.design_critique_verdict) !== -1,
+        'meta.design_critique_verdict must be one of: ' +
+        VERDICT_VALUES.join(', ') + ' (or null)');
+    }
+    if (m.design_intent_reason !== null && m.design_intent_reason !== undefined) {
+      req(typeof m.design_intent_reason === 'string',
+        'meta.design_intent_reason must be a string or null');
+      if (typeof m.design_intent_reason === 'string') {
+        const v = validateReason(m.design_intent_reason, { strict: true });
+        if (!v.ok) {
+          err('meta.design_intent_reason rejected (' + v.reason + '): ' +
+            'MCCP_DESIGN_INTENT_REASON requires substantive reason ≥30 chars + ' +
+            '≥3 words, no placeholder/URL-only/banlist token');
+        }
+      }
+    }
+    if (m.pr_design_chain_skip_reason !== null && m.pr_design_chain_skip_reason !== undefined) {
+      req(typeof m.pr_design_chain_skip_reason === 'string',
+        'meta.pr_design_chain_skip_reason must be a string or null');
+      if (typeof m.pr_design_chain_skip_reason === 'string') {
+        const v = validateReason(m.pr_design_chain_skip_reason, { strict: true });
+        if (!v.ok) {
+          err('meta.pr_design_chain_skip_reason rejected (' + v.reason + '): ' +
+            'MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN requires substantive reason ' +
+            '≥30 chars + ≥3 words, no placeholder/URL-only/banlist token');
+        }
+      }
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -568,6 +623,14 @@ function makeSkeleton(overrides) {
       briefing_token_count: null,
       briefing_token_estimated: false,
       briefing_invocation_count: null,
+      // v1.3.0-m2 — design-critique retry-loop audit axis. null on the green
+      // path (sub-step skipped or not exercised). loop wire stamps real values
+      // via cli.js --design-critique-rounds / --design-critique-verdict /
+      // --design-intent-reason / --pr-design-chain-skip-reason flags.
+      design_critique_rounds: null,
+      design_critique_verdict: null,
+      design_intent_reason: null,
+      pr_design_chain_skip_reason: null,
     },
   }, o);
 }

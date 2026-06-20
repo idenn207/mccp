@@ -189,6 +189,17 @@ function run(args) {
     writeFlags.push('--pr-phase-lock-stale-reclaimed-at-hook');
   }
 
+  // v1.3.0-m2 Task 8 (F3 absorption) — pr-design-chain-skip-reason forward.
+  // Receipt schema runs the strict reason validator on this field; the caller
+  // (pr.md 2.5.7) already gates the flag on MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN
+  // env + reason-validator pre-check, so by the time the flag reaches this
+  // helper it has already been admitted to the audited-escape path.
+  if (args['pr-design-chain-skip-reason']
+      && args['pr-design-chain-skip-reason'] !== true) {
+    writeFlags.push('--pr-design-chain-skip-reason');
+    writeFlags.push(String(args['pr-design-chain-skip-reason']));
+  }
+
   const cli = locateReceiptCli();
   const result = callReceiptCli(cli, writeFlags, { cwd: args.cwd, timeoutMs: 60000 });
   if (result.error) {

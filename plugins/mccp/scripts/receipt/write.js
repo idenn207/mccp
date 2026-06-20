@@ -237,6 +237,32 @@ function buildReceipt(args) {
       dispatched_by_controller_session_id: dispatchCtx.session_id,
       worker_dispatch_id: dispatchCtx.dispatch_id,
       ipc_envelope_path: dispatchCtx.envelope_path,
+      // v1.3.0-m2 — design-critique retry-loop audit axis. 4 fields, all optional.
+      // Stamped by plan.md Phase 5.0 retry loop + prp-implement.md / plan-prd.md
+      // mirrors (rounds + verdict + intent_reason) and by pr.md Phase 1.6 audited
+      // escape (pr_design_chain_skip_reason). schema.js enforces strict reason
+      // validator on the two reason fields when present.
+      design_critique_rounds: (function () {
+        const v = args['design-critique-rounds'];
+        if (v === undefined || v === true || v === null) return null;
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) && n >= 0 ? n : null;
+      })(),
+      design_critique_verdict: (function () {
+        const v = args['design-critique-verdict'];
+        if (typeof v === 'string' && v.length > 0) return v;
+        return null;
+      })(),
+      design_intent_reason: (function () {
+        const v = args['design-intent-reason'];
+        if (typeof v === 'string' && v.length > 0) return v;
+        return null;
+      })(),
+      pr_design_chain_skip_reason: (function () {
+        const v = args['pr-design-chain-skip-reason'];
+        if (typeof v === 'string' && v.length > 0) return v;
+        return null;
+      })(),
     },
   });
 

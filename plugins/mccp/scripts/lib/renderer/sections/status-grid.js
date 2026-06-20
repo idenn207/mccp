@@ -1,5 +1,9 @@
 'use strict';
 
+// v1.3.0-m3-redux — status row is now ONE inline sentence, not a 4-card grid.
+// Anti-ref 1 (SaaS hero-metric) + absolute-ban (identical card grids) compliance.
+// Returns { md, html } where html is a <p class="status-line"> single line.
+
 const path = require('path');
 
 function renderStatusGrid(model, formatUtils, planBody) {
@@ -46,32 +50,31 @@ function renderStatusGrid(model, formatUtils, planBody) {
     return s === 'HIGH' || s === 'CRITICAL';
   }).length;
 
-  const inProgressTone = inProgressCount > 0 ? 'accent' : 'idle';
-  const blockedTone = blockedCount > 0 ? 'critical' : 'ok';
-  const nextTone = nextStep === 'idle' ? 'idle' : 'accent';
-  const risksTone = risksOpen >= 3 ? 'critical' : (risksOpen > 0 ? 'high' : 'ok');
-
-  const cells = [
-    { korean: '진행 중', icon: '◐', value: String(inProgressCount), tone: inProgressTone, valueKind: 'num' },
-    { korean: '차단', icon: '🚫', value: String(blockedCount), tone: blockedTone, valueKind: 'num' },
-    { korean: '다음', icon: '→', value: nextStep, tone: nextTone, valueKind: 'text' },
-    { korean: 'risks open', icon: '⚠', value: String(risksOpen), tone: risksTone, valueKind: 'num' },
-  ];
-
+  // Markdown stays as a small table for STATUS.md text-fallback readers.
   const md = [
-    '| ' + cells.map(c => c.icon + ' ' + c.korean).join(' | ') + ' |',
-    '| ' + cells.map(() => '---').join(' | ') + ' |',
-    '| ' + cells.map(c => c.value).join(' | ') + ' |',
+    '| 진행 중 | 차단 | 다음 | risks open |',
+    '|---|---|---|---|',
+    '| ' + inProgressCount + ' | ' + blockedCount + ' | ' + nextStep + ' | ' + risksOpen + ' |',
   ].join('\n');
 
-  const htmlCells = cells.map(c => {
-    const valueClass = c.valueKind === 'text' ? 'grid-value text' : 'grid-value';
-    return '<div class="grid-cell" data-tone="' + escapeHtml(c.tone) + '">'
-      + '<div class="grid-label"><span class="icon">' + escapeHtml(c.icon) + '</span> '
-      + escapeHtml(c.korean) + '</div>'
-      + '<div class="' + valueClass + '">' + escapeHtml(c.value) + '</div></div>';
-  }).join('');
-  const html = '<div class="status-grid">' + htmlCells + '</div>';
+  // HTML is a single inline sentence. Severity is expressed by word color
+  // class (x-red / x-ok) on the count value, never as a background or pill.
+  const blockedHtml = blockedCount > 0
+    ? '<span class="x-red"><b>' + blockedCount + '</b></span>'
+    : '<b>0</b>';
+  const risksHtml = risksOpen >= 3
+    ? '<span class="x-red"><b>' + risksOpen + '</b></span>'
+    : (risksOpen > 0 ? '<b>' + risksOpen + '</b>' : '<b>0</b>');
+  const nextHtml = nextStep === 'idle'
+    ? '<span class="muted">없음</span>'
+    : '<code>' + escapeHtml(nextStep) + '</code>';
+
+  const html = '<p class="status-line">'
+    + '진행 중 <b>' + inProgressCount + '</b>, '
+    + '차단 ' + blockedHtml + ', '
+    + '다음 ' + nextHtml + ', '
+    + 'risks open ' + risksHtml
+    + '</p>';
 
   return { md, html };
 }

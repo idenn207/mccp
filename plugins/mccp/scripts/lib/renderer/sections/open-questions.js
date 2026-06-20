@@ -1,5 +1,9 @@
 'use strict';
 
+// v1.3.0-m3-redux — plain <ul>, no card wrapper, no UPPERCASE pills.
+// Severity surfaces as a tiny lowercase tag (`<span class="tag t-medium">medium</span>`).
+// Only `critical` ever takes signal-red color.
+
 const MAX_ITEMS = 15;
 
 const SEV_RE = /^\s*\*\*\s*(CRITICAL|HIGH|MEDIUM|LOW)\b[^*]*\*\*\s*:?\s*/i;
@@ -11,8 +15,8 @@ function extractSeverity(text) {
 }
 
 function renderInlineBold(s, escapeHtml) {
-  // Lightweight: convert `**x**` to <strong>x</strong>; everything else escapes.
-  // Splits on bold runs first so escapeHtml never sees raw HTML.
+  // Convert `**x**` to <strong>x</strong>; escape the rest. Bold runs first
+  // so escapeHtml never sees raw HTML.
   const out = [];
   let i = 0;
   const re = /\*\*([^*]+)\*\*/g;
@@ -27,7 +31,7 @@ function renderInlineBold(s, escapeHtml) {
 }
 
 function renderOpenQuestions(model, formatUtils, planBody) {
-  const { escapeHtml } = formatUtils;
+  const { escapeHtml, normalizeProse } = formatUtils;
   const m = model || {};
   const sources = m.sources || {};
   const stateItem = sources.state && sources.state.item;
@@ -56,19 +60,17 @@ function renderOpenQuestions(model, formatUtils, planBody) {
   const mdLines = shown.map(q => '- [ ] ' + q.text);
   const htmlItems = shown.map(q => {
     const { sev, rest } = extractSeverity(q.text);
-    const sevAttr = sev ? ' data-sev="' + sev.toLowerCase() + '"' : '';
-    const sevPill = sev
-      ? '<span class="sev-pill s-' + sev.toLowerCase() + '">' + escapeHtml(sev) + '</span> '
+    const sevTag = sev
+      ? '<span class="tag t-' + sev.toLowerCase() + '">' + sev.toLowerCase() + '</span>'
       : '';
-    const bodyHtml = renderInlineBold(rest, escapeHtml);
-    return '<li' + sevAttr + '><input type="checkbox" disabled aria-label="open question"><div class="oq-body">'
-      + sevPill + bodyHtml + '</div></li>';
+    const bodyHtml = renderInlineBold(normalizeProse(rest), escapeHtml);
+    return '<li>' + sevTag + bodyHtml + '</li>';
   }).join('');
   let md = mdLines.join('\n');
   let html = '<ul class="open-questions" role="list">' + htmlItems + '</ul>';
   if (moreCount > 0) {
     md += '\n- _+' + moreCount + ' more_';
-    html = html.replace('</ul>', '<li class="muted"><div class="oq-body"><em>+' + moreCount + ' more</em></div></li></ul>');
+    html = html.replace('</ul>', '<li class="muted"><em>+' + moreCount + ' more</em></li></ul>');
   }
   return { md, html };
 }

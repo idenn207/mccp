@@ -17,6 +17,9 @@
 //   --codex-result <json-file>      optional — drives codex-skipped/dedupe/actionable
 //   --security-force-override-reason <text>
 //   --impeccable-skip-reason <text>
+//   --impeccable-silent-skip        v1.3.0 M1 — forwarded when detector reported
+//                                   SKILL_AVAIL=1 + SIGNAL=0 (silent fall-through).
+//   --impeccable-silent-skip-reason <text>
 //   --quiet                         forwarded to receipt CLI
 //   [--cwd <path>]
 // Stdout (JSON): { ok, gate_id, decision, receipt_path, write_flags_used }
@@ -153,6 +156,28 @@ function run(args) {
     writeFlags.push('--impeccable-skipped');
     writeFlags.push('--impeccable-skip-reason');
     writeFlags.push(String(args['impeccable-skip-reason']));
+  }
+
+  // v1.3.0 M1 — silent-skip surface. Forwarded when impeccable-detect returned
+  // SKILL_AVAIL=1 + SIGNAL=0 (skill available but no design surface in this
+  // PR/diff). validate-cmd surfaces this as informational warning at every
+  // gate in M1; strict-gate blocking is deferred to M2 after SKILL first-step
+  // + critique loop close the false-negative window. Runtime-mutually-
+  // exclusive with impeccable_skipped (single detector invocation never emits
+  // both). Defense-in-depth mutex guard: schema rejects silent_skip +
+  // force_override coexisting, so suppress the forward when the caller is
+  // also asking for force_override. Command bodies already gate the forward
+  // on $IMPECCABLE_FORCE_OVERRIDE_REASON; this helper guard catches any
+  // future caller that forgets.
+  if (args['impeccable-silent-skip'] === true
+      && args['impeccable-force-override'] !== true
+      && !args['impeccable-force-override-reason']) {
+    writeFlags.push('--impeccable-silent-skip');
+    if (args['impeccable-silent-skip-reason']
+        && args['impeccable-silent-skip-reason'] !== true) {
+      writeFlags.push('--impeccable-silent-skip-reason');
+      writeFlags.push(String(args['impeccable-silent-skip-reason']));
+    }
   }
 
   // v1.0.1 axis K — stale-reclaim marker consume + flag forward. Resolves cwd

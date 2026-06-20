@@ -219,17 +219,34 @@ DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
 SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
 SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
 DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
+# v1.3.0 M1 — silent-skip surface. detect() now emits silent_skip (SKILL_AVAIL=1
+# + SIGNAL=0) so the silent fall-through is observable. mccp-pr-codex is a
+# strict gate — receipt with silent_skip=true is non-approving at validation
+# time.
+SILENT_SKIP=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.silent_skip?"1":"0")}catch{process.stdout.write("0")}')
+SILENT_SKIP_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.silent_skip_reason||"")}catch{process.stdout.write("")}')
 ```
 
-Decision tree:
+Decision tree (v1.3.0 M1 — silent-skip is no longer silent):
 
 | SKILL_AVAIL | SIGNAL | Action |
 |---|---|---|
 | 0 | * | Record `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` in the in-memory `## Design Review` section. **Export** `IMPECCABLE_SKIPPED_REASON="$DETECT_REASON"` so 2.5.7 forwards it. Then check `MCCP_FORCE_PR_WITHOUT_IMPECCABLE` (see 2.5.5c). |
-| 1 | 0 | Sub-step skip silently — no design surface on this PR. No `## Design Review` section injected. |
+| 1 | 0 | Detector found no design surface on this PR. Emit a loud stderr warn (`[mccp:impeccable] silent-skip reason=$SILENT_SKIP_REASON · PR declares no design surface (whitelist hit 0)`) and forward `--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON"` to 2.5.7 — UNLESS `IMPECCABLE_FORCE_OVERRIDE_REASON` is set, in which case the silent_skip forward is suppressed (schema mutex). M1 records silent_skip as informational warning at every gate; M2 will promote to blocking once SKILL first-step + critique loop are wired (Codex F2 deferred). |
 | 1 | 1 | Invoke `Skill(impeccable, "critique <PR title or branch name>")` and `Skill(impeccable, "audit <PR title or branch name>")`. Capture highlights — Phase 4 injects them into PR body as `## Design Review`. If Skill returns `unknown_skill` / `not found`, fall back to the skipped path (set `IMPECCABLE_SKIPPED_REASON="skill-missing"`). |
 
-The receipt-write step (2.5.7) MUST forward `--impeccable-skipped` + `--impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when SKILL_AVAIL=0 or Skill fell back. validate-cmd treats this as **blocking on strict gates (mccp-implement-codex, mccp-pr-codex)** without the audited force-override path (2.5.5c).
+Loud stderr warn for the SKILL_AVAIL=1 SIGNAL=0 row (M1 Task 3):
+
+```bash
+if [ "$SKILL_AVAIL" = "1" ] && [ "$SIGNAL" = "0" ]; then
+  echo "[mccp:impeccable] silent-skip reason=$SILENT_SKIP_REASON · PR declares no design surface (whitelist hit 0)" 1>&2
+fi
+```
+
+The receipt-write step (2.5.7) forwards:
+- `--impeccable-skipped` + `--impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when SKILL_AVAIL=0 or Skill fell back.
+- `--impeccable-silent-skip` + `--impeccable-silent-skip-reason "$SILENT_SKIP_REASON"` when SILENT_SKIP=1 AND `IMPECCABLE_FORCE_OVERRIDE_REASON` is empty.
+- validate-cmd treats `impeccable_skipped` as **blocking on strict gates** (audited escape via Phase 0.1 honored). `impeccable_silent_skip` is **informational warning at every gate** in M1; M2 will promote to blocking after the SKILL first-step + critique loop are wired.
 
 ### 2.5.2 — Cross-gate dedupe check (deterministic)
 
@@ -521,6 +538,16 @@ if [ -n "$SECURITY_FORCE_OVERRIDE_REASON" ]; then
 fi
 if [ -n "$IMPECCABLE_SKIPPED_REASON" ]; then
   FINALIZE_FLAGS+=(--impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON")
+fi
+# v1.3.0 M1 — silent-skip surface. impeccable_silent_skip + impeccable_skipped
+# are runtime-mutually-exclusive (skill_available true vs false); detector emits
+# one OR the other, not both. Schema also rejects silent_skip + force_override
+# coexisting on the same receipt — so when IMPECCABLE_FORCE_OVERRIDE_REASON is
+# set we suppress the silent_skip forward and let the audited escape path
+# produce a force_override-only receipt (the validator surfaces that via the
+# impeccable_force_override warning).
+if [ "$SILENT_SKIP" = "1" ] && [ -z "${IMPECCABLE_FORCE_OVERRIDE_REASON:-}" ]; then
+  FINALIZE_FLAGS+=(--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON")
 fi
 
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/finalize-receipt.js" "${FINALIZE_FLAGS[@]}"

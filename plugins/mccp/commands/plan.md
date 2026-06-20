@@ -353,17 +353,33 @@ DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
 SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
 SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
 DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
+# v1.3.0 M1 — silent-skip surface. detect() now emits silent_skip (SKILL_AVAIL=1
+# + SIGNAL=0) so the silent fall-through path is observable. Default empty
+# string so the `--impeccable-silent-skip*` flags only fire on actual hits.
+SILENT_SKIP=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.silent_skip?"1":"0")}catch{process.stdout.write("0")}')
+SILENT_SKIP_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.silent_skip_reason||"")}catch{process.stdout.write("")}')
 ```
 
-Decision tree:
+Decision tree (v1.3.0 M1 — silent-skip is no longer silent):
 
 | SKILL_AVAIL | SIGNAL | Action |
 |---|---|---|
 | 0 | * | Append `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` to the plan body under a `## Design Critique` heading. Export `IMPECCABLE_SKIPPED_REASON="$DETECT_REASON"`. plan-codex is a lenient gate — `meta.impeccable_skipped=true` surfaces as warning, not blocking. |
-| 1 | 0 | Sub-step skip silently — plan declares no design surface. |
+| 1 | 0 | Detector found no design surface in this plan. Emit a loud stderr warn (`[mccp:impeccable] silent-skip reason=$SILENT_SKIP_REASON · plan declares no design surface (whitelist hit 0)`) and forward `--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON"` to 5.6 — UNLESS `IMPECCABLE_FORCE_OVERRIDE_REASON` is set (schema mutex; silent_skip forward suppressed). M1 records silent_skip as informational warning at every gate; M2 will promote to blocking on strict gates once SKILL first-step + critique loop are wired. |
 | 1 | 1 | Invoke `Skill(impeccable, "critique <plan slug>")`. Append result to the plan body under `## Design Critique`. If Skill returns `unknown_skill` / `not found`, fall back to skipped path. |
 
-Receipt-write at 5.6 MUST forward `--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when skipped or fell back.
+Loud stderr warn pattern for the SKILL_AVAIL=1 SIGNAL=0 row (Task 3):
+
+```bash
+if [ "$SKILL_AVAIL" = "1" ] && [ "$SIGNAL" = "0" ]; then
+  echo "[mccp:impeccable] silent-skip reason=$SILENT_SKIP_REASON · plan declares no design surface (whitelist hit 0)" 1>&2
+fi
+```
+
+Receipt-write at 5.6 forwards:
+- `--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when SKILL_AVAIL=0 OR Skill fell back.
+- `--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON"` when SILENT_SKIP=1 AND `IMPECCABLE_FORCE_OVERRIDE_REASON` is empty.
+- The two are mutually exclusive at the runtime semantic (skill_available=true vs false). Schema also rejects silent_skip + force_override coexisting — when the audited escape env is set we suppress silent_skip forward so the force_override path produces a clean receipt.
 
 ### 5.1 — Append placeholder section to the plan
 
@@ -486,12 +502,26 @@ DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decisio
   --command mccp:plan \
   --args "$ARGUMENTS")
 
-# Step C: auto-write the mccp-plan-codex receipt
-node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
-  --gate mccp-plan-codex \
-  --decision ${DECISION_SLUG} \
-  --plan <plan path> \
-  --quiet
+# Step C: auto-write the mccp-plan-codex receipt.
+# v1.3.0 M1 — forward silent-skip flags when Phase 5.0 detected SKILL_AVAIL=1
+# + SIGNAL=0. plan-codex validator emits silent_skip as informational warning;
+# M2 will promote strict gates to blocking after SKILL first-step is wired.
+# Schema mutex: silent_skip + force_override cannot coexist, so we suppress
+# silent_skip forward when IMPECCABLE_FORCE_OVERRIDE_REASON is set. Bash array
+# form avoids eval and keeps quoting around reasons safe.
+WRITE_FLAGS=(
+  write
+  --gate mccp-plan-codex
+  --decision "$DECISION_SLUG"
+  --plan "<plan path>"
+)
+if [ -n "$IMPECCABLE_SKIPPED_REASON" ]; then
+  WRITE_FLAGS+=(--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON")
+elif [ "$SILENT_SKIP" = "1" ] && [ -z "${IMPECCABLE_FORCE_OVERRIDE_REASON:-}" ]; then
+  WRITE_FLAGS+=(--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON")
+fi
+WRITE_FLAGS+=(--quiet)
+node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" "${WRITE_FLAGS[@]}"
 ```
 
 If the Bash call is blocked by a PreToolUse hook (output contains `[hook]` rejection / `permission denied` / non-zero exit), output:

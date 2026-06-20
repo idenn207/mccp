@@ -168,6 +168,14 @@ function buildReceipt(args) {
       impeccable_skip_reason: args['impeccable-skip-reason'] || null,
       impeccable_force_override: args['impeccable-force-override'] === true,
       impeccable_force_override_reason: args['impeccable-force-override-reason'] || null,
+      // v1.3.0 design-gate enforcement M1 Task 1 — silent-skip surface.
+      // Stamped by 4 command bodies (plan / prp-implement / pr / plan-prd) when
+      // impeccable-detect returns SKILL_AVAIL=1 + SIGNAL=0 + design-surface
+      // touched. Strict-gate validator (M1 Task 5) treats silent_skip=true as
+      // blocking on mccp-implement-codex / mccp-pr-codex, unless the receipt
+      // also carries impeccable_force_override=true (audited escape).
+      impeccable_silent_skip: args['impeccable-silent-skip'] === true,
+      impeccable_silent_skip_reason: args['impeccable-silent-skip-reason'] || null,
       // v0.2.8 Task 2.6.1 — PR-Codex audit axis.
       codex_dedupe_at_pr: args['codex-dedupe-at-pr'] === true,
       codex_skipped_at_pr: args['codex-skipped-at-pr'] === true,

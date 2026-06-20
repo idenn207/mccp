@@ -306,17 +306,31 @@ DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
 SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
 SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
 DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
+# v1.3.0 M1 — silent-skip surface. detect() now emits silent_skip
+# (SKILL_AVAIL=1 + SIGNAL=0) so the silent fall-through path is observable.
+SILENT_SKIP=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.silent_skip?"1":"0")}catch{process.stdout.write("0")}')
+SILENT_SKIP_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.silent_skip_reason||"")}catch{process.stdout.write("")}')
 ```
 
-Decision tree (mirror of pr.md 2.5.1):
+Decision tree (mirror of pr.md 2.5.1, v1.3.0 M1 — silent-skip is no longer silent):
 
 | SKILL_AVAIL | SIGNAL | Action |
 |---|---|---|
 | 0 | * | Record `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` under `### Design Review` in `## Codex Implementation Review`. Export `IMPECCABLE_SKIPPED_REASON="$DETECT_REASON"`. mccp-implement-codex is a **strict gate** — receipt with `impeccable_skipped=true` BLOCKS downstream `/mccp:pr`. |
-| 1 | 0 | Sub-step skip silently — no design surface in this implementation. |
+| 1 | 0 | Detector found no design surface in this diff/artifact. Emit a loud stderr warn (`[mccp:impeccable] silent-skip reason=$SILENT_SKIP_REASON · implementation declares no design surface (whitelist hit 0)`) and forward `--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON"` to 2.5.6 — UNLESS `IMPECCABLE_FORCE_OVERRIDE_REASON` is set (schema mutex; silent_skip forward suppressed). M1 records silent_skip as informational warning at every gate; M2 will promote to blocking on strict gates once SKILL first-step + critique loop are wired. |
 | 1 | 1 | Invoke `Skill(impeccable, "audit <implementation summary>")`. Append result under `### Design Review` in `## Codex Implementation Review`. If Skill returns `unknown_skill` / `not found`, fall back to skipped path (set `IMPECCABLE_SKIPPED_REASON="skill-missing"`). |
 
-Receipt-write (2.5.6) MUST forward `--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when SKILL_AVAIL=0 or Skill fell back.
+Loud stderr warn for the SKILL_AVAIL=1 SIGNAL=0 row (M1 Task 3):
+
+```bash
+if [ "$SKILL_AVAIL" = "1" ] && [ "$SIGNAL" = "0" ]; then
+  echo "[mccp:impeccable] silent-skip reason=$SILENT_SKIP_REASON · implementation declares no design surface (whitelist hit 0)" 1>&2
+fi
+```
+
+Receipt-write (2.5.6) forwards:
+- `--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when SKILL_AVAIL=0 or Skill fell back.
+- `--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON"` when SILENT_SKIP=1 AND `IMPECCABLE_FORCE_OVERRIDE_REASON` is empty.
 
 ### 2.5.6 — Verify section, write mccp-implement-codex receipt
 
@@ -337,21 +351,29 @@ DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decisio
 # was exported with the fallback reason. The receipt-write MUST forward it as
 # --security-skipped + --security-skip-reason; without that flag the receipt
 # looks approving and /mccp:pr validator collapses (Codex Round 1 F2).
+# v1.3.0 M1 — forward silent-skip flags + impeccable-skipped flags. Schema
+# enforces mutex (silent_skip + force_override cannot coexist), so we suppress
+# silent_skip forward when IMPECCABLE_FORCE_OVERRIDE_REASON is set and let the
+# audited escape produce a force_override-only receipt. impeccable_skipped and
+# impeccable_silent_skip are runtime-mutually-exclusive (skill_available true
+# vs false) — detector emits one OR the other, never both. Bash array form
+# avoids eval and preserves quoting around reasons that may contain spaces.
+WRITE_FLAGS=(
+  write
+  --gate mccp-implement-codex
+  --decision "$DECISION_SLUG"
+  --plan "<plan path>"
+)
 if [ -n "$SECURITY_SKIPPED_REASON" ]; then
-  node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
-    --gate mccp-implement-codex \
-    --decision ${DECISION_SLUG} \
-    --plan <plan path> \
-    --security-skipped \
-    --security-skip-reason "$SECURITY_SKIPPED_REASON" \
-    --quiet
-else
-  node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
-    --gate mccp-implement-codex \
-    --decision ${DECISION_SLUG} \
-    --plan <plan path> \
-    --quiet
+  WRITE_FLAGS+=(--security-skipped --security-skip-reason "$SECURITY_SKIPPED_REASON")
 fi
+if [ -n "$IMPECCABLE_SKIPPED_REASON" ]; then
+  WRITE_FLAGS+=(--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON")
+elif [ "$SILENT_SKIP" = "1" ] && [ -z "${IMPECCABLE_FORCE_OVERRIDE_REASON:-}" ]; then
+  WRITE_FLAGS+=(--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON")
+fi
+WRITE_FLAGS+=(--quiet)
+node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" "${WRITE_FLAGS[@]}"
 ```
 
 Bash hook block handling: same as mccp Plan-Codex Phase 7.6 — output `[MCCP-GATE-STOP]` with captured hook stderr and end the response. Do NOT enter Phase 3.

@@ -172,15 +172,29 @@ DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
 SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
 SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
 DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
+# v1.3.0 M1 — silent-skip surface. plan-prd writes no receipt, but the loud
+# stderr warn makes the SKILL_AVAIL=1 + SIGNAL=0 path observable in PRD-stage
+# logs. Downstream /mccp:plan will re-run detection on the PRD-derived plan
+# and its receipt forwards the silent-skip flags.
+SILENT_SKIP=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.silent_skip?"1":"0")}catch{process.stdout.write("0")}')
+SILENT_SKIP_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.silent_skip_reason||"")}catch{process.stdout.write("")}')
 ```
 
-Decision tree:
+Decision tree (v1.3.0 M1 — silent-skip is no longer silent):
 
 | SKILL_AVAIL | SIGNAL | Action |
 |---|---|---|
 | 0 | * | Append `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` under a `## Design Direction` section in the PRD. No receipt is written at PRD stage (plan-prd has no codex gate). |
-| 1 | 0 | Sub-step skip silently — PRD declares no design surface. |
+| 1 | 0 | Emit a loud stderr warn (`[mccp:impeccable] silent-skip reason=$SILENT_SKIP_REASON · PRD declares no design surface (whitelist hit 0)`). plan-prd writes no receipt so no flag is forwarded here; downstream /mccp:plan re-detects on the derived plan and forwards silent-skip flags into its mccp-plan-codex receipt. M1 surfaces silent_skip as informational warning at every gate; M2 will promote to blocking on strict gates after SKILL first-step + critique loop are wired. |
 | 1 | 1 | Invoke `Skill(impeccable, "shape <PRD title>")`. Append result under `## Design Direction` in the PRD body. If Skill returns `unknown_skill` / `not found`, fall back to skipped path. |
+
+Loud stderr warn for the SKILL_AVAIL=1 SIGNAL=0 row (M1 Task 3):
+
+```bash
+if [ "$SKILL_AVAIL" = "1" ] && [ "$SIGNAL" = "0" ]; then
+  echo "[mccp:impeccable] silent-skip reason=$SILENT_SKIP_REASON · PRD declares no design surface (whitelist hit 0)" 1>&2
+fi
+```
 
 This sub-step writes design direction into the PRD itself — downstream `/mccp:plan` will inherit it via `## Files to Change` and explicit `## Design Direction` section detection (see plan.md Phase 5.0).
 

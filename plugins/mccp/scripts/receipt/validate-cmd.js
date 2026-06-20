@@ -369,6 +369,35 @@ function validateCommand(command, opts) {
       });
     }
 
+    // v1.3.0 design-gate enforcement M1 — impeccable_silent_skip surface.
+    //
+    // M1 is observational only: the wedge records that the detector returned
+    // skill_available=true + design_signal=false so M2 (SKILL first-step +
+    // critique loop) has a receipt artifact to act on. We deliberately do NOT
+    // block on silent_skip at M1 — silentSkip fires on every plan whose diff
+    // carries no design signal, including pure-backend changes, so blocking
+    // here would freeze every non-UI cycle. Codex R1 F2 absorption (strict-gate
+    // blocking on silent_skip) is deferred to M2 once the detector gains a
+    // "design-suspect" discriminator OR the SKILL first-step path eliminates
+    // the false-negative window. Until then both strict and lenient gates
+    // emit warnings only.
+    if (receipt.meta && receipt.meta.impeccable_silent_skip === true
+        && !receipt.meta.skipped) {
+      const reason = 'preceding gate has meta.impeccable_silent_skip=true ' +
+        '(impeccable Skill available but detector returned design_signal=false — ' +
+        'observational at M1; M2 will promote to blocking once SKILL first-step + ' +
+        'critique loop are wired)' +
+        (receipt.meta.impeccable_silent_skip_reason
+          ? '; silent_skip_reason: ' + receipt.meta.impeccable_silent_skip_reason
+          : '');
+      result.warnings.push({
+        gate_id: gateId,
+        decision_id: result.decisionId,
+        reason: reason,
+        impeccable_silent_skip_reason: receipt.meta.impeccable_silent_skip_reason || null,
+      });
+    }
+
     // v1.2.0-m1 Task 6 (Codex F3 absorption) — envelope integrity check.
     // When the receipt carries meta.ipc_envelope_path (controller-spawned
     // worker context), the validator loads the envelope and confirms:

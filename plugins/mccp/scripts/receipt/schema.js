@@ -201,6 +201,42 @@ function validate(receipt) {
         'force_override = deliberate audited bypass)');
     }
 
+    // v1.3.0 design-gate enforcement M1 Task 1 — silent-skip surface.
+    //
+    // impeccable_silent_skip:        Detector returned SKILL_AVAIL=1 + SIGNAL=0
+    //   (Skill available, but no design surface in this change). Previously the
+    //   silent-skip path produced no receipt trace, making the failure
+    //   unobservable. Receipt now records the fact + reason so M2 has an audit
+    //   artifact to act on. M1 validator treats silent_skip as informational
+    //   warning at every gate (strict + lenient) — blocking is deferred to M2
+    //   once the detector gains a design-suspect discriminator or SKILL
+    //   first-step eliminates the false-negative window.
+    // impeccable_silent_skip_reason: Reason enum from impeccable-detect.js
+    //   (typically 'no-signal'; null when not stamped).
+    //
+    // Mutex invariant (impeccable_silent_skip + impeccable_force_override
+    // cannot coexist) is enforced below. Command bodies suppress silent_skip
+    // forward when IMPECCABLE_FORCE_OVERRIDE_REASON is set, so the audited
+    // escape path produces a force_override-only receipt (which the validator
+    // surfaces as warning via the impeccable_force_override path).
+    //
+    // Present-only: legacy v1.2.x receipts pass validation unchanged.
+    if (m.impeccable_silent_skip !== undefined) {
+      req(typeof m.impeccable_silent_skip === 'boolean',
+        'meta.impeccable_silent_skip must be a boolean if present');
+    }
+    if (m.impeccable_silent_skip_reason !== null
+        && m.impeccable_silent_skip_reason !== undefined) {
+      req(typeof m.impeccable_silent_skip_reason === 'string',
+        'meta.impeccable_silent_skip_reason must be a string or null');
+    }
+
+    if (m.impeccable_silent_skip === true && m.impeccable_force_override === true) {
+      err('meta.impeccable_silent_skip + meta.impeccable_force_override cannot both be true ' +
+        '(state matrix invariant: pick one — silent_skip = detector signal absent, ' +
+        'force_override = deliberate audited bypass)');
+    }
+
     // F4 hardening + F-Sec-1 absorption: strict namespace reason validator.
     // When impeccable_force_override=true, reason must be substantive
     // (≥30 chars, ≥3 words, no placeholder/URL-only/1-token). Helper holds
@@ -488,6 +524,11 @@ function makeSkeleton(overrides) {
       impeccable_skip_reason: null,
       impeccable_force_override: false,
       impeccable_force_override_reason: null,
+      // v1.3.0 design-gate enforcement M1 — silent-skip surface. Default false
+      // for green path; flipped by `--impeccable-silent-skip` CLI flag when
+      // detector returns SKILL_AVAIL=1 + SIGNAL=0.
+      impeccable_silent_skip: false,
+      impeccable_silent_skip_reason: null,
       // v0.2.8 Task 2.6.1 — PR-Codex review-only audit axis.
       codex_dedupe_at_pr: false,
       codex_skipped_at_pr: false,

@@ -229,3 +229,23 @@ What is NOT in this milestone (v1.3.0-m0): the derive engine itself, the dashboa
 ## §9 — Generic interface contract (v1.3.0-m6)
 
 **STATUS: implemented in v1.3.0-m6.** Reference impl보장 — mccp가 외부 repo에 installed될 때 derive + snapshot + renderer 모두 graceful한지를 4 fixture로 검증하고 contract을 본문화. 외부 repo의 optional sources (§1) + mccp-extension fields null projection (§2) + non-mccp gate names (§3) + NOT generic contract (§4 — path shape / STATE schema ownership / degraded-surface-is-graceful) 가 단일 문서로 묶임. 새 schema field 추가나 surface 변경 없음. 자세한 spec: [generic-interface.md](./generic-interface.md). Audit evidence matrix: [`.claude/plans/notes/v1-3-0-m6-audit.md`](../../.claude/plans/notes/v1-3-0-m6-audit.md).
+
+## §10 — Self session identity surface (v1.4.0-m3)
+
+**STATUS: implemented in v1.4.0-m3.** `derive/sources/state.js#scanState` adds 2 contracted, additive-only fields to `item.*` (mirror of [`active-sessions.js`](../../plugins/mccp/scripts/lib/renderer/sections/active-sessions.js) consumer). Codex Implement R1 F3 absorption — both fields are **always emitted** (never `undefined`); the renderer treats `self_session_id === null` as graceful-degrade (no marker).
+
+| Field | Type | Resolution | Notes |
+|---|---|---|---|
+| `self_session_id` | string \| `null` | env → cwd → null | sanitized via `observer-sessions.resolveSessionId`. |
+| `self_resolution` | enum 4값 | always set | `resolved` / `resolved-by-cwd` / `env-missing` / `unresolved`. |
+
+Resolution chain (deterministic, in order):
+
+1. `process.env.CLAUDE_SESSION_ID` sanitize success → `resolved`
+2. ledger with `path.resolve(cwd) === path.resolve(process.cwd())` → `resolved-by-cwd`
+3. env present but sanitize failed (after cwd fallback) → `unresolved`
+4. env unset (after cwd fallback) → `env-missing`
+
+The `self_resolution` enum lets consumers (and dogfood verification) tell apart "self identity unknown for known reason" vs "stale/old surface" — silent null fallback is forbidden by contract.
+
+No envelope, STATE.md, or receipt schema additions in v1.4.0-m3. Append-only friction telemetry sidecar (`<repo>/.claude/state/m3-friction-events.jsonl`) is a producer-side measurement artifact, not part of the read-side derive surface — see [m3-friction-metric.md](../v1.4.0-multi-session/m3-friction-metric.md).

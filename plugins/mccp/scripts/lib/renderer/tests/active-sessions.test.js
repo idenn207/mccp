@@ -87,6 +87,105 @@ test('active-sessions — multiple ledgers preserve order and escape angle brack
   assert.match(out.md, /1h/);
 });
 
+// v1.4.0-m3 — self/other 시각 구분 (Task 2)
+
+test('active-sessions — self_session_id null + 2 ledgers → both rows plain (M2 regression)', () => {
+  const model = {
+    sources: {
+      state: {
+        item: {
+          self_session_id: null,
+          self_resolution: 'env-missing',
+          active_session_ledgers: [
+            {
+              session_id: 'session1-aaaa-bbbb-cccc-iddddselfA1',
+              git_branch: 'main',
+              cwd: '<repo>',
+              host: '<host>',
+              created_at: new Date(Date.now() - 1000).toISOString(),
+            },
+            {
+              session_id: 'session1-aaaa-bbbb-cccc-iddddselfA2',
+              git_branch: 'feat/x',
+              cwd: '<repo>/x',
+              host: '<host>',
+              created_at: new Date(Date.now() - 1000).toISOString(),
+            },
+          ],
+        },
+      },
+    },
+  };
+  const out = renderActiveSessions(model, formatUtils);
+  assert.ok(out);
+  assert.equal(out.md.includes('**this worktree**'), false, 'no self marker in md');
+  assert.equal(out.html.includes('<strong>this worktree</strong>'), false, 'no self marker in html');
+  assert.equal(out.html.includes('tr class="self"'), false, 'no self tr class');
+});
+
+test('active-sessions — self_session_id matches one ledger → only that row marked', () => {
+  const selfId = 'session2-aaaa-bbbb-cccc-id-self-row-id';
+  const model = {
+    sources: {
+      state: {
+        item: {
+          self_session_id: selfId,
+          self_resolution: 'resolved',
+          active_session_ledgers: [
+            {
+              session_id: 'session2-aaaa-bbbb-cccc-id-other-row',
+              git_branch: 'main',
+              cwd: '<repo>',
+              host: '<host>',
+              created_at: new Date(Date.now() - 1000).toISOString(),
+            },
+            {
+              session_id: selfId,
+              git_branch: 'feat/m3',
+              cwd: '<repo>/m3',
+              host: '<host>',
+              created_at: new Date(Date.now() - 1000).toISOString(),
+            },
+          ],
+        },
+      },
+    },
+  };
+  const out = renderActiveSessions(model, formatUtils);
+  assert.ok(out);
+  const selfMarkerCount = (out.md.match(/\*\*this worktree\*\*/g) || []).length;
+  assert.equal(selfMarkerCount, 1, 'exactly one self marker in md');
+  const htmlSelfCount = (out.html.match(/<strong>this worktree<\/strong>/g) || []).length;
+  assert.equal(htmlSelfCount, 1, 'exactly one self marker in html');
+  assert.match(out.html, /<tr class="self">/);
+});
+
+test('active-sessions — self_session_id set but no matching ledger (stale env) → all rows plain', () => {
+  const model = {
+    sources: {
+      state: {
+        item: {
+          self_session_id: 'session3-stale-no-match-id-foooooooo',
+          self_resolution: 'resolved',
+          active_session_ledgers: [
+            {
+              session_id: 'session3-aaaa-bbbb-cccc-id-elsewhere',
+              git_branch: 'main',
+              cwd: '<repo>',
+              host: '<host>',
+              created_at: new Date(Date.now() - 1000).toISOString(),
+            },
+          ],
+        },
+      },
+    },
+  };
+  const out = renderActiveSessions(model, formatUtils);
+  assert.ok(out);
+  assert.equal(out.md.includes('**this worktree**'), false, 'silent degrade — no self marker');
+  assert.equal(out.html.includes('<strong>this worktree</strong>'), false);
+});
+
 test('formatAge — boundary buckets', () => {
   const now = Date.parse('2026-06-19T12:00:00.000Z');
   assert.equal(formatAge(new Date(now - 30 * 1000).toISOString(), now), '~now');

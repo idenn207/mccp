@@ -22,6 +22,7 @@ const {
 } = require('../lib/utils');
 const { resolveProjectContext, writeSessionLease, resolveSessionId, getHomunculusDir } = require('../lib/observer-sessions');
 const sessionLedger = require('../state/session-ledger');
+const frictionTelemetry = require('../lib/friction-telemetry');
 const { spawnSync } = require('child_process');
 const { getPackageManager, getSelectionPrompt } = require('../lib/package-manager');
 const { listAliases } = require('../lib/session-aliases');
@@ -701,10 +702,35 @@ async function main() {
     }
 
     // v1.4.0-m2 — discovery surface for sibling sessions in this project.
+    // v1.4.0-m3 — when banner actually injected (other sessions present),
+    // record a friction-telemetry event so cycle-end aggregation can compare
+    // banner inject frequency to reconciliation-question frequency. Producer
+    // side of the M3 metric. Loud fail-open (telemetry NEVER throws).
     if (observerSessionId) {
       const otherSessionsSummary = summarizeOtherActiveLedgers(observerContext, observerSessionId);
       if (otherSessionsSummary) {
         additionalContextParts.push(otherSessionsSummary);
+        try {
+          let projectBranch = null;
+          if (observerContext.projectRoot) {
+            const probe = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+              cwd: observerContext.projectRoot,
+              encoding: 'utf8',
+              stdio: ['ignore', 'pipe', 'ignore'],
+            });
+            if (probe.status === 0) {
+              const out = (probe.stdout || '').trim();
+              if (out && out !== 'HEAD') projectBranch = out;
+            }
+          }
+          frictionTelemetry.recordBannerInjected({
+            sessionId: observerSessionId,
+            projectBranch,
+            cwd: observerContext.projectRoot || process.cwd(),
+          });
+        } catch (err) {
+          process.stderr.write(`[mccp:session-start] WARNING: friction-telemetry wiring threw: ${err && err.message ? err.message : err} (allow)\n`);
+        }
       }
     }
 

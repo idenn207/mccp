@@ -9,7 +9,7 @@ const { renderAuditTimeline } = require('../sections/audit-timeline');
 const { renderOpenQuestions } = require('../sections/open-questions');
 const { renderRisks } = require('../sections/risks');
 
-test('status-grid — 4 cells + grid CSS literal', () => {
+test('status-grid — inline sentence with counts (v1.3.0-m3-redux)', () => {
   const model = {
     sources: {
       plans: { items: [
@@ -34,12 +34,16 @@ test('status-grid — 4 cells + grid CSS literal', () => {
   assert.match(md, /2/);
   assert.match(md, /1/);
   assert.match(md, /a/);
-  // v1.3.0 Linear-style redesign: grid layout moved from inline style to CSS
-  // class (`.status-grid` in html.js). HTML carries the wrapper class + per-cell
-  // `data-tone` for severity-driven coloring.
-  assert.match(html, /class="status-grid"/);
-  assert.match(html, /data-tone="critical"/);
-  assert.match(html, /data-tone="accent"/);
+  // PRD-compliant redesign: status is now ONE inline sentence, not a 4-card
+  // grid. NO .status-grid wrapper, NO data-tone severity bg, NO .grid-cell.
+  assert.doesNotMatch(html, /class="status-grid"/);
+  assert.doesNotMatch(html, /data-tone="/);
+  assert.doesNotMatch(html, /class="grid-cell/);
+  assert.match(html, /class="status-line"/);
+  assert.match(html, /진행 중 <b>3<\/b>/);
+  assert.match(html, /차단/);
+  // critical blocked count → signal-red word class
+  assert.match(html, /class="x-red"/);
 });
 
 test('worker-fanout — null when envelopes.count===0 and no controller', () => {

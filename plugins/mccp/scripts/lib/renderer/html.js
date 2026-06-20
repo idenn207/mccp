@@ -300,4 +300,4 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   return parts.join('\n');
 }
 
-module.exports = { renderHtml };
+module.exports = { renderHtml, TOKENS, LAYOUT };

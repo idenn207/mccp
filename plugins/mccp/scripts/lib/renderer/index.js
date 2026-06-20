@@ -124,11 +124,56 @@ function renderStatus(model, opts) {
       '<!doctype html><html><body><aside>html composer failed</aside></body></html>',
     );
 
+    // v1.3.0-m3 DESIGN.md H1-H14 mechanical lint. Pure function of the
+    // CSS literal + composed HTML/MD. Fail-open per Codex F2 absorption:
+    // a broken lint subsystem surfaces via `design_lint_degraded` instead
+    // of silently passing as a clean render.
+    const lintResult = (function () {
+      try {
+        const { runOutputConstraints } = require('./output-constraints');
+        const { TOKENS, LAYOUT } = require('./html');
+        if (opts._injectLintThrow) throw new Error('injected lint throw');
+        return runOutputConstraints({ css: TOKENS + LAYOUT, html, md });
+      } catch (err) {
+        process.stderr.write('[mccp:renderer] design-lint FAILED '
+          + ((err && err.message) || err) + ' (allow)\n');
+        return {
+          violations: [],
+          details: [],
+          degraded: true,
+          degraded_reason: (err && err.message) || String(err),
+        };
+      }
+    })();
+
+    const warnings = (m.warnings || []).concat(planBody.warnings || []);
+    // Codex F3 absorption: route lint results into the same warnings array
+    // verdict.js consumes, so violations are observable in the verdict
+    // chain rather than dead data on the return shape.
+    if (lintResult.violations.length > 0) {
+      warnings.push({
+        severity: 'medium',
+        source: 'renderer.design-lint',
+        message: lintResult.violations.length + ' design-lint violations: '
+          + lintResult.violations.join(','),
+      });
+    }
+    if (lintResult.degraded) {
+      warnings.push({
+        severity: 'medium',
+        source: 'renderer.design-lint',
+        message: 'design-lint subsystem degraded: '
+          + (lintResult.degraded_reason || 'unknown'),
+      });
+    }
+
     return {
       md, html, derivedAt,
       masked: !!m.masked,
-      warnings: (m.warnings || []).concat(planBody.warnings || []),
+      warnings,
       verdict,
+      design_constraint_violations: lintResult.violations,
+      design_lint_degraded: !!lintResult.degraded,
     };
   } catch (err) {
     process.stderr.write('[mccp:renderer] outer FAILED ' + (err && err.message) + ' (allow)\n');

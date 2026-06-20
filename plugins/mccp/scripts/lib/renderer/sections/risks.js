@@ -2,8 +2,24 @@
 
 const MAX_ROWS = 8;
 
-const RANK = { HIGH: 3, MEDIUM: 2, LOW: 1, '': 0 };
+const RANK = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, '': 0 };
 function rank(s) { return RANK[(s || '').toUpperCase()] || 0; }
+
+const SEV_CLASS = { CRITICAL: 'critical', HIGH: 'high', MEDIUM: 'medium', LOW: 'low' };
+function sevClass(s) {
+  const k = (s || '').toUpperCase().match(/^(CRITICAL|HIGH|MEDIUM|LOW)/);
+  return k ? SEV_CLASS[k[1]] : 'idle';
+}
+function rowTone(impact, likelihood) {
+  const a = rank(impact);
+  const b = rank(likelihood);
+  const m = Math.max(a, b);
+  if (m >= 4) return 'critical';
+  if (m >= 3) return 'high';
+  if (m >= 2) return 'medium';
+  if (m >= 1) return 'low';
+  return 'idle';
+}
 
 function renderRisks(model, formatUtils, planBody) {
   const { escapeHtml } = formatUtils;
@@ -34,12 +50,19 @@ function renderRisks(model, formatUtils, planBody) {
     const imp = (r.impact || '');
     const mit = (r.mitigation || '').replace(/\|/g, '\\|');
     mdRows.push('| ' + risk + ' | ' + lik + ' (' + (lik[0] || '-') + ') | ' + imp + ' (' + (imp[0] || '-') + ') | ' + mit + ' |');
+    const tone = rowTone(imp, lik);
+    const likPill = lik
+      ? '<span class="sev-pill s-' + sevClass(lik) + '">' + escapeHtml(lik) + '</span>'
+      : '<span class="muted">—</span>';
+    const impPill = imp
+      ? '<span class="sev-pill s-' + sevClass(imp) + '">' + escapeHtml(imp) + '</span>'
+      : '<span class="muted">—</span>';
     htmlRows.push(
-      '<tr>'
-      + '<td>' + escapeHtml(r.risk || '') + '</td>'
-      + '<td>' + escapeHtml(lik) + '</td>'
-      + '<td>' + escapeHtml(imp) + '</td>'
-      + '<td>' + escapeHtml(mit) + '</td>'
+      '<tr data-tone="' + tone + '">'
+      + '<td class="risk-name">' + escapeHtml(r.risk || '') + '</td>'
+      + '<td>' + likPill + '</td>'
+      + '<td>' + impPill + '</td>'
+      + '<td class="risk-mit">' + escapeHtml(mit) + '</td>'
       + '</tr>'
     );
   }

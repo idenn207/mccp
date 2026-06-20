@@ -46,11 +46,16 @@ function renderStatusGrid(model, formatUtils, planBody) {
     return s === 'HIGH' || s === 'CRITICAL';
   }).length;
 
+  const inProgressTone = inProgressCount > 0 ? 'accent' : 'idle';
+  const blockedTone = blockedCount > 0 ? 'critical' : 'ok';
+  const nextTone = nextStep === 'idle' ? 'idle' : 'accent';
+  const risksTone = risksOpen >= 3 ? 'critical' : (risksOpen > 0 ? 'high' : 'ok');
+
   const cells = [
-    { korean: '진행 중', icon: '◐', value: String(inProgressCount) },
-    { korean: '차단', icon: '🚫', value: String(blockedCount) },
-    { korean: '다음', icon: '→', value: nextStep },
-    { korean: 'risks open', icon: '⚠', value: String(risksOpen) },
+    { korean: '진행 중', icon: '◐', value: String(inProgressCount), tone: inProgressTone, valueKind: 'num' },
+    { korean: '차단', icon: '🚫', value: String(blockedCount), tone: blockedTone, valueKind: 'num' },
+    { korean: '다음', icon: '→', value: nextStep, tone: nextTone, valueKind: 'text' },
+    { korean: 'risks open', icon: '⚠', value: String(risksOpen), tone: risksTone, valueKind: 'num' },
   ];
 
   const md = [
@@ -59,13 +64,14 @@ function renderStatusGrid(model, formatUtils, planBody) {
     '| ' + cells.map(c => c.value).join(' | ') + ' |',
   ].join('\n');
 
-  const htmlCells = cells.map(c =>
-    '<div class="grid-cell"><div class="grid-label">'
-    + escapeHtml(c.icon) + ' ' + escapeHtml(c.korean)
-    + '</div><div class="grid-value">' + escapeHtml(c.value) + '</div></div>'
-  ).join('');
-  const html = '<div class="status-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.5rem">'
-    + htmlCells + '</div>';
+  const htmlCells = cells.map(c => {
+    const valueClass = c.valueKind === 'text' ? 'grid-value text' : 'grid-value';
+    return '<div class="grid-cell" data-tone="' + escapeHtml(c.tone) + '">'
+      + '<div class="grid-label"><span class="icon">' + escapeHtml(c.icon) + '</span> '
+      + escapeHtml(c.korean) + '</div>'
+      + '<div class="' + valueClass + '">' + escapeHtml(c.value) + '</div></div>';
+  }).join('');
+  const html = '<div class="status-grid">' + htmlCells + '</div>';
 
   return { md, html };
 }

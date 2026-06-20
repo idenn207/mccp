@@ -2,6 +2,30 @@
 
 const MAX_ITEMS = 15;
 
+const SEV_RE = /^\s*\*\*\s*(CRITICAL|HIGH|MEDIUM|LOW)\b[^*]*\*\*\s*:?\s*/i;
+
+function extractSeverity(text) {
+  const m = String(text || '').match(SEV_RE);
+  if (!m) return { sev: null, rest: String(text || '') };
+  return { sev: m[1].toUpperCase(), rest: String(text).slice(m[0].length) };
+}
+
+function renderInlineBold(s, escapeHtml) {
+  // Lightweight: convert `**x**` to <strong>x</strong>; everything else escapes.
+  // Splits on bold runs first so escapeHtml never sees raw HTML.
+  const out = [];
+  let i = 0;
+  const re = /\*\*([^*]+)\*\*/g;
+  let match;
+  while ((match = re.exec(s)) !== null) {
+    if (match.index > i) out.push(escapeHtml(s.slice(i, match.index)));
+    out.push('<strong>' + escapeHtml(match[1]) + '</strong>');
+    i = match.index + match[0].length;
+  }
+  if (i < s.length) out.push(escapeHtml(s.slice(i)));
+  return out.join('');
+}
+
 function renderOpenQuestions(model, formatUtils, planBody) {
   const { escapeHtml } = formatUtils;
   const m = model || {};
@@ -30,12 +54,21 @@ function renderOpenQuestions(model, formatUtils, planBody) {
   const moreCount = Math.max(0, merged.length - MAX_ITEMS);
 
   const mdLines = shown.map(q => '- [ ] ' + q.text);
-  const htmlItems = shown.map(q => '<li><input type="checkbox" disabled> ' + escapeHtml(q.text) + '</li>').join('');
+  const htmlItems = shown.map(q => {
+    const { sev, rest } = extractSeverity(q.text);
+    const sevAttr = sev ? ' data-sev="' + sev.toLowerCase() + '"' : '';
+    const sevPill = sev
+      ? '<span class="sev-pill s-' + sev.toLowerCase() + '">' + escapeHtml(sev) + '</span> '
+      : '';
+    const bodyHtml = renderInlineBold(rest, escapeHtml);
+    return '<li' + sevAttr + '><input type="checkbox" disabled aria-label="open question"><div class="oq-body">'
+      + sevPill + bodyHtml + '</div></li>';
+  }).join('');
   let md = mdLines.join('\n');
   let html = '<ul class="open-questions" role="list">' + htmlItems + '</ul>';
   if (moreCount > 0) {
     md += '\n- _+' + moreCount + ' more_';
-    html = html.replace('</ul>', '<li class="muted"><em>+' + moreCount + ' more</em></li></ul>');
+    html = html.replace('</ul>', '<li class="muted"><div class="oq-body"><em>+' + moreCount + ' more</em></div></li></ul>');
   }
   return { md, html };
 }

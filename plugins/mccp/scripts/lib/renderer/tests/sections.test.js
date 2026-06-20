@@ -34,7 +34,12 @@ test('status-grid — 4 cells + grid CSS literal', () => {
   assert.match(md, /2/);
   assert.match(md, /1/);
   assert.match(md, /a/);
-  assert.match(html, /grid-template-columns:repeat\(auto-fit,minmax\(180px,1fr\)\)/);
+  // v1.3.0 Linear-style redesign: grid layout moved from inline style to CSS
+  // class (`.status-grid` in html.js). HTML carries the wrapper class + per-cell
+  // `data-tone` for severity-driven coloring.
+  assert.match(html, /class="status-grid"/);
+  assert.match(html, /data-tone="critical"/);
+  assert.match(html, /data-tone="accent"/);
 });
 
 test('worker-fanout — null when envelopes.count===0 and no controller', () => {

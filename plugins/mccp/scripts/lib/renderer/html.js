@@ -91,7 +91,7 @@ const STALE_SCRIPT = `(function(){var d=Number(document.body.dataset.derivedMs)|
 function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   const { escapeHtml, formatRelativeTime } = formatUtils;
   const m = model || {};
-  const [grid, fanout, timeline, questions, risks] = sections;
+  const [grid, fanout, activeSessions, timeline, questions, risks] = sections;
   const derivedMs = new Date(derivedAt).getTime();
   const relative = formatRelativeTime(derivedAt, Date.now());
 
@@ -122,6 +122,10 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
 
   if (fanout) {
     parts.push('<section id="workers"><h2>Workers</h2>' + fanout.html + '</section>');
+  }
+
+  if (activeSessions) {
+    parts.push('<section id="sessions"><h2>Active Sessions</h2>' + activeSessions.html + '</section>');
   }
 
   parts.push('<section id="timeline"><h2>Timeline</h2>' + (timeline ? timeline.html : '') + '</section>');

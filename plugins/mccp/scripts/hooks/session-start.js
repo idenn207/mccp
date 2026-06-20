@@ -35,6 +35,14 @@ const MAX_INJECTED_LEARNED_SKILLS = 6;
 const MAX_LEARNED_SKILL_SUMMARY_CHARS = 220;
 const DEFAULT_SESSION_START_CONTEXT_MAX_CHARS = 8000;
 const DEFAULT_SESSION_RETENTION_DAYS = 30;
+// v1.4.0-m2 multi-session discovery: cap how much of the 8000-char SessionStart
+// budget the "Other active sessions" block can consume (Codex Implement R1 F3
+// absorption — protects against an exploding ledger directory blowing past the
+// global hard cap).
+const MAX_OTHER_LEDGER_ENTRIES = 8;
+const OTHER_LEDGER_BUDGET_CHARS = 1024;
+const OTHER_LEDGER_BRANCH_CAP = 40;
+const OTHER_LEDGER_SESSION_ID_PREFIX = 8;
 const SESSION_START_MODE_INVALID = 'invalid';
 const SESSION_START_MODE_SKIP = 'skip';
 
@@ -399,6 +407,93 @@ function summarizeActiveInstincts(observerContext) {
   return `Active instincts:\n${lines.join('\n')}`;
 }
 
+function formatLedgerAge(createdAtIso, now = Date.now()) {
+  const t = Date.parse(createdAtIso);
+  if (!Number.isFinite(t)) return '?';
+  const seconds = Math.max(0, Math.round((now - t) / 1000));
+  if (seconds < 60) return '~now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
+function truncateWithEllipsis(value, max) {
+  const s = String(value || '');
+  if (s.length <= max) return s;
+  return s.slice(0, Math.max(0, max - 1)) + '…';
+}
+
+// v1.4.0-m2 — surface other active mccp sessions in this project so the
+// new session knows what's already in flight (PRD M2: zero "what are we
+// working on?" reconciliation turns). Loud fail-open per CLAUDE.md §3.4.
+// Codex Implement R1 F3 absorption: every field is capped + the whole block
+// has a 1024-char hard budget so a runaway ledger directory cannot consume
+// the 8000-char SessionStart context window.
+function summarizeOtherActiveLedgers(observerContext, observerSessionId, now = Date.now()) {
+  try {
+    const list = sessionLedger.listLedgers({
+      activeOnly: true,
+      projectContext: observerContext,
+    });
+    if (!list || !list.ok) return '';
+    const others = list.ledgers
+      .filter(l => l && l.session_id && l.session_id !== observerSessionId)
+      .map(l => ({
+        ledger: l,
+        ageMs: (function () {
+          const t = Date.parse(l.last_seen_at || l.created_at);
+          return Number.isFinite(t) ? (now - t) : Number.POSITIVE_INFINITY;
+        })(),
+      }))
+      .sort((a, b) => a.ageMs - b.ageMs)
+      .slice(0, MAX_OTHER_LEDGER_ENTRIES);
+
+    if (others.length === 0) return '';
+
+    const header = 'Other active mccp sessions in this project:';
+    const lines = [header];
+    let consumed = header.length;
+    let dropped = 0;
+
+    for (const { ledger } of others) {
+      const branch = truncateWithEllipsis(ledger.git_branch || '(no branch)', OTHER_LEDGER_BRANCH_CAP);
+      // Sibling worktree cwd is typically outside the *current* worktree root
+      // (e.g. ..\v1.4.0-other), which made the previous maskPath() fallback
+      // emit the full absolute path including username. The discovery banner
+      // only needs to identify which sibling is alive — basename is enough
+      // and is leak-free regardless of how worktrees are arranged on disk.
+      const cwdLabel = ledger.cwd ? path.basename(ledger.cwd) : '(unknown cwd)';
+      const shortId = String(ledger.session_id).slice(0, OTHER_LEDGER_SESSION_ID_PREFIX);
+      const age = formatLedgerAge(ledger.created_at, now);
+      const line = `- [${branch}] ${cwdLabel} · ${shortId} · ${age}`;
+      // +1 for the newline that join('\n') will insert.
+      if (consumed + 1 + line.length > OTHER_LEDGER_BUDGET_CHARS) {
+        dropped += 1;
+        continue;
+      }
+      lines.push(line);
+      consumed += 1 + line.length;
+    }
+
+    if (dropped > 0) {
+      const marker = `- … +${dropped} more truncated by per-block budget`;
+      if (consumed + 1 + marker.length <= OTHER_LEDGER_BUDGET_CHARS) {
+        lines.push(marker);
+      }
+    }
+
+    if (lines.length === 1) return '';
+    log(`[SessionStart] Surfacing ${lines.length - 1} other active session(s) (dropped=${dropped})`);
+    return lines.join('\n');
+  } catch (err) {
+    process.stderr.write(`[mccp:session-ledger] WARNING: summarizeOtherActiveLedgers threw: ${err && err.message ? err.message : err} (allow)\n`);
+    return '';
+  }
+}
+
 function stripMarkdownInline(value) {
   return String(value || '')
     .replace(/`([^`]+)`/g, '$1')
@@ -570,6 +665,22 @@ async function main() {
       } else {
         process.stderr.write(`[mccp:session-ledger] WARNING: createLedger failed: ${result.error} (allow)\n`);
       }
+      // v1.4.0-m2 — re-anchor last_seen_at on every SessionStart so listLedgers
+      // active filter (host-aware tri-state) sees a fresh heartbeat. createLedger
+      // already stamps last_seen_at=created_at; this is a no-op on the very first
+      // run but matters for resume / clear / compact restarts where the ledger
+      // already exists.
+      try {
+        const hb = sessionLedger.updateLedgerHeartbeat({
+          sessionId: observerSessionId,
+          projectContext: observerContext,
+        });
+        if (!hb.ok && !hb.noop) {
+          process.stderr.write(`[mccp:session-ledger] WARNING: heartbeat update returned !ok: ${JSON.stringify(hb.errors || [])} (allow)\n`);
+        }
+      } catch (err) {
+        process.stderr.write(`[mccp:session-ledger] WARNING: SessionStart heartbeat threw: ${err && err.message ? err.message : err} (allow)\n`);
+      }
     } catch (err) {
       process.stderr.write(`[mccp:session-ledger] WARNING: SessionStart ledger threw: ${err && err.message ? err.message : err} (allow)\n`);
     }
@@ -587,6 +698,14 @@ async function main() {
     const instinctSummary = summarizeActiveInstincts(observerContext);
     if (instinctSummary) {
       additionalContextParts.push(instinctSummary);
+    }
+
+    // v1.4.0-m2 — discovery surface for sibling sessions in this project.
+    if (observerSessionId) {
+      const otherSessionsSummary = summarizeOtherActiveLedgers(observerContext, observerSessionId);
+      if (otherSessionsSummary) {
+        additionalContextParts.push(otherSessionsSummary);
+      }
     }
 
     if (sessionStartMode && sessionStartMode !== 'startup') {
@@ -844,7 +963,14 @@ function writeSessionStartPayload(additionalContext) {
   });
 }
 
-main().catch(err => {
-  console.error('[SessionStart] Error:', err.message);
-  process.exitCode = 0; // Don't block on errors
-});
+if (require.main === module) {
+  main().catch(err => {
+    console.error('[SessionStart] Error:', err.message);
+    process.exitCode = 0; // Don't block on errors
+  });
+}
+
+module.exports = {
+  summarizeOtherActiveLedgers,
+  formatLedgerAge,
+};

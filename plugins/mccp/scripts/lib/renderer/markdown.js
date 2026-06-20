@@ -3,7 +3,7 @@
 function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   const { formatRelativeTime } = formatUtils;
   const m = model || {};
-  const [grid, fanout, timeline, questions, risks] = sections;
+  const [grid, fanout, activeSessions, timeline, questions, risks] = sections;
 
   const now = Date.now();
   const derivedMs = new Date(derivedAt).getTime();
@@ -26,6 +26,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
 
   const anchors = ['[verdict](#verdict)', '[status](#status)'];
   if (fanout) anchors.push('[workers](#workers)');
+  if (activeSessions) anchors.push('[sessions](#sessions)');
   anchors.push('[timeline](#timeline)');
   if (questions) anchors.push('[questions](#questions)');
   anchors.push('[risks](#risks)');
@@ -51,6 +52,15 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
     out.push('## Workers');
     out.push('');
     out.push(fanout.md);
+    out.push('');
+    out.push('---');
+    out.push('');
+  }
+
+  if (activeSessions) {
+    out.push('## Active Sessions');
+    out.push('');
+    out.push(activeSessions.md);
     out.push('');
     out.push('---');
     out.push('');

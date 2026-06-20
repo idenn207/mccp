@@ -6,7 +6,8 @@ const path = require('path');
 
 const observerSessions = require('../lib/observer-sessions');
 
-const SCHEMA_VERSION = 'v1';
+const SCHEMA_VERSION = 'v2';
+const SCHEMA_VERSIONS_SUPPORTED = Object.freeze(['v1', 'v2']);
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
@@ -15,19 +16,23 @@ const LOCK_MAX_RETRIES = 50;
 const LOCK_RETRY_MS = 20;
 const LOCK_STALE_MS = 30000;
 
-// Canonical Node sync-sleep (no busy-spin). SharedArrayBuffer lives in
-// module scope so we allocate once. Atomics.wait blocks the thread for up
-// to `ms` milliseconds with zero CPU.
 const SLEEP_BUF = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms) {
   Atomics.wait(SLEEP_BUF, 0, 0, ms);
 }
 
-const DEFAULT_ACTIVE_TTL_MS = 24 * 60 * 60 * 1000;
+// v1.4.0-m2 — heartbeat-driven active filter (Codex Implement R1 F2 absorption).
+// 24h legacy fallback removed (false-immortal source). v1 ledgers are read-lifted
+// to v2 with last_seen_at = created_at; if their created_at is older than the
+// heartbeat TTL they are correctly classified inactive without the 24h cap.
+const DEFAULT_HEARTBEAT_TTL_MS = 5 * 60 * 1000;
+// Legacy export kept so unrelated callers compile. Treated as a heartbeat-TTL
+// override when caller passes activeTtlMs explicitly (no special handling).
+const DEFAULT_ACTIVE_TTL_MS = DEFAULT_HEARTBEAT_TTL_MS;
 
 const VALID_SCOPES = Object.freeze(['global', 'repo', 'hybrid']);
 
-const KNOWN_KEYS = Object.freeze(new Set([
+const KNOWN_KEYS_V1 = Object.freeze(new Set([
   'schema_version',
   'session_id',
   'created_at',
@@ -38,6 +43,11 @@ const KNOWN_KEYS = Object.freeze(new Set([
   'host',
   'project_id',
   'claude_version',
+]));
+
+const KNOWN_KEYS_V2 = Object.freeze(new Set([
+  ...KNOWN_KEYS_V1,
+  'last_seen_at',
 ]));
 
 const LEDGER_SUBDIR = '.session-ledgers';
@@ -58,8 +68,12 @@ function validate(ledger) {
   req(isPlainObject(ledger), 'ledger must be an object');
   if (errors.length) return { ok: false, errors: errors };
 
-  req(ledger.schema_version === SCHEMA_VERSION,
-    'schema_version must be "' + SCHEMA_VERSION + '"');
+  const version = ledger.schema_version;
+  req(version === 'v1' || version === 'v2',
+    'schema_version must be "v1" or "v2"');
+  if (errors.length) return { ok: false, errors: errors };
+
+  const knownKeys = version === 'v2' ? KNOWN_KEYS_V2 : KNOWN_KEYS_V1;
 
   req(typeof ledger.session_id === 'string' && UUID_RE.test(ledger.session_id),
     'session_id must be UUID matching ' + UUID_RE);
@@ -94,13 +108,57 @@ function validate(ledger) {
       'claude_version must be a non-empty string or null');
   }
 
+  if (version === 'v2') {
+    req(typeof ledger.last_seen_at === 'string' && ISO8601_RE.test(ledger.last_seen_at),
+      'last_seen_at must be ISO8601 string for v2 ledger');
+  } else {
+    if (Object.prototype.hasOwnProperty.call(ledger, 'last_seen_at')) {
+      err('last_seen_at is v2-only; remove it for v1 ledger');
+    }
+  }
+
   for (const k of Object.keys(ledger)) {
-    if (!KNOWN_KEYS.has(k)) {
-      err('unknown top-level key "' + k + '" (ledger schema is strict)');
+    if (!knownKeys.has(k)) {
+      err('unknown top-level key "' + k + '" (ledger schema is strict for ' + version + ')');
     }
   }
 
   return errors.length === 0 ? { ok: true, errors: [] } : { ok: false, errors: errors };
+}
+
+// Lift a v1 ledger into v2 in-memory (read-only).
+// Returns a NEW object — does not mutate the input.
+// last_seen_at anchors at created_at (best available signal for legacy ledgers).
+function liftV1(ledger) {
+  if (!isPlainObject(ledger)) return ledger;
+  if (ledger.schema_version !== 'v1') return ledger;
+  return {
+    schema_version: 'v2',
+    session_id: ledger.session_id,
+    created_at: ledger.created_at,
+    last_seen_at: ledger.created_at,
+    ended_at: ledger.ended_at,
+    cwd: ledger.cwd,
+    git_branch: ledger.git_branch,
+    pid: ledger.pid,
+    host: ledger.host,
+    project_id: ledger.project_id,
+    claude_version: ledger.claude_version,
+  };
+}
+
+// pidIsLive — POSIX-style presence probe; Windows-compatible.
+// EPERM on Windows usually means "process exists but we can't signal it";
+// classify as alive to avoid false reclaim of cross-user sessions.
+function pidIsLive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    if (err && err.code === 'EPERM') return true;
+    return false;
+  }
 }
 
 function resolveLedgerScope(opts) {
@@ -227,10 +285,12 @@ function createLedger(args) {
   const projectContext = args.projectContext
     || observerSessions.resolveProjectContext(args.cwd || process.cwd());
 
+  const createdAt = args.createdAt || nowIso();
   const ledger = {
     schema_version: SCHEMA_VERSION,
     session_id: sessionId,
-    created_at: args.createdAt || nowIso(),
+    created_at: createdAt,
+    last_seen_at: createdAt,
     ended_at: null,
     cwd: args.cwd || process.cwd(),
     git_branch: args.gitBranch || null,
@@ -276,13 +336,90 @@ function createLedger(args) {
   };
 }
 
+// updateLedgerHeartbeat — v1.4.0-m2 surface (Codex Implement R1 F1 absorption).
+// Honors hybrid all-or-nothing invariant: when scope=hybrid and ≥1 existing
+// path fails to update, returns ok=false so callers can audit partial state.
+// Missing-ledger no-op returns ok=true with noop=true (idempotent across
+// repeated SessionStart triggers when the ledger has been finalized).
+function updateLedgerHeartbeat(args) {
+  args = args || {};
+  const sessionId = String(args.sessionId || '').trim();
+  if (!sessionId) {
+    return { ok: false, error: 'sessionId is required', paths: [], errors: [] };
+  }
+
+  const scopeInfo = resolveLedgerScope({
+    env: args.scopeOverride ? { MCCP_SESSION_LEDGER_SCOPE: args.scopeOverride } : undefined,
+    projectContext: args.projectContext,
+    cwd: args.cwd,
+  });
+
+  const updated = [];
+  const errors = [];
+  const seen = [];
+  const timestamp = args.timestamp || nowIso();
+
+  for (const dir of scopeInfo.paths) {
+    const target = ledgerFilePath(dir, sessionId);
+    if (!fs.existsSync(target)) {
+      seen.push({ path: target, exists: false });
+      continue;
+    }
+    try {
+      withLedgerLock(target, function () {
+        const raw = fs.readFileSync(target, 'utf8');
+        let ledger = JSON.parse(raw);
+        if (ledger.schema_version === 'v1') {
+          ledger = liftV1(ledger);
+        }
+        ledger.last_seen_at = timestamp;
+        const v = validate(ledger);
+        if (!v.ok) {
+          throw new Error('post-heartbeat ledger invalid: ' + v.errors.join('; '));
+        }
+        writeLedgerAtomic(target, ledger);
+      });
+      updated.push(target);
+      seen.push({ path: target, exists: true, ok: true });
+    } catch (err) {
+      const msg = err && err.message ? err.message : String(err);
+      errors.push({ path: target, error: msg });
+      seen.push({ path: target, exists: true, ok: false, error: msg });
+      process.stderr.write('[mccp:session-ledger] WARNING: heartbeat update failed at '
+        + target + ': ' + msg + ' (continuing)\n');
+    }
+  }
+
+  const noneExisted = seen.every(function (s) { return !s.exists; });
+  if (noneExisted) {
+    process.stderr.write('[mccp:session-ledger] WARNING: heartbeat target not found for '
+      + sessionId + ' (no-op)\n');
+    return { ok: true, paths: updated, errors: errors, noop: true };
+  }
+
+  const isHybrid = scopeInfo.scope === 'hybrid' && scopeInfo.paths.length >= 2;
+  if (isHybrid) {
+    const existingCount = seen.filter(function (s) { return s.exists; }).length;
+    const failedCount = seen.filter(function (s) { return s.exists && !s.ok; }).length;
+    if (existingCount >= 1 && failedCount > 0) {
+      return { ok: false, paths: updated, errors: errors };
+    }
+  }
+
+  if (updated.length === 0) {
+    return { ok: false, paths: updated, errors: errors };
+  }
+
+  return { ok: true, paths: updated, errors: errors };
+}
+
 function finalizeLedger(args) {
   args = args || {};
   const sessionId = String(args.sessionId || '').trim();
   if (!sessionId) {
     return { ok: false, error: 'sessionId is required' };
   }
-  const endedAt = args.endedAt || nowIso();
+  const endedAtIn = args.endedAt || nowIso();
 
   const scopeInfo = resolveLedgerScope({
     env: args.scopeOverride ? { MCCP_SESSION_LEDGER_SCOPE: args.scopeOverride } : undefined,
@@ -298,7 +435,19 @@ function finalizeLedger(args) {
     try {
       withLedgerLock(target, function () {
         const raw = fs.readFileSync(target, 'utf8');
-        const ledger = JSON.parse(raw);
+        let ledger = JSON.parse(raw);
+        if (ledger.schema_version === 'v1') {
+          ledger = liftV1(ledger);
+        }
+        // ended_at > last_seen_at invariant (Task 5 acceptance).
+        let endedAt = endedAtIn;
+        if (ledger.last_seen_at) {
+          const lsMs = Date.parse(ledger.last_seen_at);
+          const enMs = Date.parse(endedAt);
+          if (Number.isFinite(lsMs) && Number.isFinite(enMs) && enMs <= lsMs) {
+            endedAt = new Date(lsMs + 1).toISOString();
+          }
+        }
         ledger.ended_at = endedAt;
         const v = validate(ledger);
         if (!v.ok) {
@@ -316,7 +465,9 @@ function finalizeLedger(args) {
   }
 
   return {
-    ok: updated.length > 0 || scopeInfo.paths.every(d => !fs.existsSync(ledgerFilePath(d, sessionId))),
+    ok: updated.length > 0 || scopeInfo.paths.every(function (d) {
+      return !fs.existsSync(ledgerFilePath(d, sessionId));
+    }),
     paths: updated,
     errors: errors,
   };
@@ -338,7 +489,10 @@ function readLedger(args) {
     if (!fs.existsSync(target)) continue;
     try {
       const raw = fs.readFileSync(target, 'utf8');
-      const ledger = JSON.parse(raw);
+      let ledger = JSON.parse(raw);
+      if (ledger.schema_version === 'v1') {
+        ledger = liftV1(ledger);
+      }
       const v = validate(ledger);
       if (!v.ok) {
         return { ok: false, error: 'ledger invalid: ' + v.errors.join('; '), path: target };
@@ -351,12 +505,22 @@ function readLedger(args) {
   return { ok: false, error: 'ledger not found for session: ' + sessionId };
 }
 
+// listLedgers — v1.4.0-m2 host-aware tri-state reclaim.
+// (1) Hybrid dedupe (F1 absorption): newest last_seen_at wins. Older path
+//     entries are tracked in errors and the result is marked degraded.
+// (2) Active filter (F2 absorption): same-host requires (pidLive AND
+//     fresh heartbeat). Stale heartbeat with live PID is treated as PID-reuse
+//     suspicion and classified inactive. Cross-host trusts heartbeat alone.
 function listLedgers(args) {
   args = args || {};
   const activeOnly = !!args.activeOnly;
-  const activeTtlMs = typeof args.activeTtlMs === 'number'
-    ? args.activeTtlMs
-    : DEFAULT_ACTIVE_TTL_MS;
+  const heartbeatTtlMs = typeof args.heartbeatTtlMs === 'number'
+    ? args.heartbeatTtlMs
+    : (typeof args.activeTtlMs === 'number' ? args.activeTtlMs : DEFAULT_HEARTBEAT_TTL_MS);
+  const pidProbe = typeof args.pidIsLive === 'function' ? args.pidIsLive : pidIsLive;
+  const selfHost = typeof args.selfHost === 'string' && args.selfHost.length > 0
+    ? args.selfHost
+    : os.hostname();
 
   const scopeInfo = resolveLedgerScope({
     env: args.scopeOverride ? { MCCP_SESSION_LEDGER_SCOPE: args.scopeOverride } : undefined,
@@ -364,7 +528,7 @@ function listLedgers(args) {
     cwd: args.cwd,
   });
 
-  const seen = new Map();
+  const candidates = new Map();
   let degraded = false;
   const errors = [];
   const now = Date.now();
@@ -382,22 +546,38 @@ function listLedgers(args) {
     for (const name of entries) {
       if (!name.endsWith('.json')) continue;
       const target = path.join(dir, name);
-      if (seen.has(name)) continue;
       try {
         const raw = fs.readFileSync(target, 'utf8');
-        const ledger = JSON.parse(raw);
+        let ledger = JSON.parse(raw);
+        if (ledger.schema_version === 'v1') {
+          ledger = liftV1(ledger);
+        }
         const v = validate(ledger);
         if (!v.ok) {
           degraded = true;
           errors.push({ path: target, error: 'invalid: ' + v.errors.join('; ') });
           continue;
         }
-        if (activeOnly) {
-          if (ledger.ended_at !== null) continue;
-          const created = Date.parse(ledger.created_at);
-          if (!Number.isFinite(created) || (now - created) > activeTtlMs) continue;
+        const lastSeenMs = Date.parse(ledger.last_seen_at);
+        const existing = candidates.get(name);
+        if (existing) {
+          if (Number.isFinite(lastSeenMs) && lastSeenMs > existing.lastSeenMs) {
+            candidates.set(name, { ledger: ledger, path: target, lastSeenMs: lastSeenMs });
+            degraded = true;
+            errors.push({
+              path: target,
+              error: 'hybrid dedupe: replaced older entry at ' + existing.path,
+            });
+          } else if (Number.isFinite(lastSeenMs) && lastSeenMs < existing.lastSeenMs) {
+            degraded = true;
+            errors.push({
+              path: target,
+              error: 'hybrid dedupe: kept newer entry at ' + existing.path,
+            });
+          }
+        } else {
+          candidates.set(name, { ledger: ledger, path: target, lastSeenMs: lastSeenMs });
         }
-        seen.set(name, { ledger: ledger, path: target });
       } catch (err) {
         degraded = true;
         errors.push({ path: target, error: err.message || String(err) });
@@ -405,25 +585,51 @@ function listLedgers(args) {
     }
   }
 
+  const result = [];
+  const resultPaths = [];
+  for (const entry of candidates.values()) {
+    if (activeOnly) {
+      const ledger = entry.ledger;
+      if (ledger.ended_at !== null) continue;
+      if (!Number.isFinite(entry.lastSeenMs)) continue;
+      const fresh = (now - entry.lastSeenMs) <= heartbeatTtlMs;
+      if (ledger.host === selfHost) {
+        if (!fresh) continue;
+        if (!pidProbe(ledger.pid)) continue;
+      } else {
+        if (!fresh) continue;
+      }
+    }
+    result.push(entry.ledger);
+    resultPaths.push(entry.path);
+  }
+
   return {
     ok: true,
     degraded: degraded,
     errors: errors,
-    ledgers: Array.from(seen.values()).map(function (e) { return e.ledger; }),
-    paths: Array.from(seen.values()).map(function (e) { return e.path; }),
+    ledgers: result,
+    paths: resultPaths,
     scope: scopeInfo.scope,
   };
 }
 
 module.exports = {
   SCHEMA_VERSION: SCHEMA_VERSION,
-  KNOWN_KEYS: KNOWN_KEYS,
+  SCHEMA_VERSIONS_SUPPORTED: SCHEMA_VERSIONS_SUPPORTED,
+  KNOWN_KEYS_V1: KNOWN_KEYS_V1,
+  KNOWN_KEYS_V2: KNOWN_KEYS_V2,
+  KNOWN_KEYS: KNOWN_KEYS_V2,
   LEDGER_SUBDIR: LEDGER_SUBDIR,
   DEFAULT_ACTIVE_TTL_MS: DEFAULT_ACTIVE_TTL_MS,
+  DEFAULT_HEARTBEAT_TTL_MS: DEFAULT_HEARTBEAT_TTL_MS,
   VALID_SCOPES: VALID_SCOPES,
   validate: validate,
+  liftV1: liftV1,
+  pidIsLive: pidIsLive,
   resolveLedgerScope: resolveLedgerScope,
   createLedger: createLedger,
+  updateLedgerHeartbeat: updateLedgerHeartbeat,
   finalizeLedger: finalizeLedger,
   readLedger: readLedger,
   listLedgers: listLedgers,

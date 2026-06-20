@@ -104,6 +104,17 @@
         ],
         "description": "mccp v1.4.0 axis B (M2) — ultracode delegation isolation enforcement. While ultracode-phase.lock active, default-deny on mccp write tools + Bash mutating commands + mccp:* Skill invocations. F2 fail-CLOSED on malformed lock. F1 Scenario A: ALLOW when event.session_id ≠ lock.owner_session_id (workflow-agent caller).",
         "id": "mccp:ultracode-phase-guard:pre"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/goal-phase-guard.js\""
+          }
+        ],
+        "description": "mccp v1.x.x axis C (M3) — /goal milestone-close isolation enforcement. While goal-phase.lock active, default-deny on mccp write tools + Bash mutating commands + mccp:* Skill invocations (incl. milestone-close). F2 fail-CLOSED on malformed lock. F3 STRICT non-owner: read-only ALLOW for non-owner session, but Edit/Write/MultiEdit/Skill mccp:* DENY regardless of session_id (closure-doc anchor invariant). Paired with stop-review-loop.js short-circuit (lock-aware fresh-only suppress).",
+        "id": "mccp:goal-phase-guard:pre"
       }
     ],
     "PreCompact": [

@@ -312,3 +312,119 @@ test('concurrent failing Stop hooks keep fix-task.counter and loop-counter in lo
   const finalBody = ft.read(repo);
   assert.match(finalBody, /^counter: 2$/m);
 });
+
+// ─── M3 axis C — goal-phase lock-aware short-circuit (Task 9) ───
+// Validates Task 8 freshness-validated short-circuit (Codex impl-R1 F2 absorption).
+// 4 scenarios per absorption: fresh=suppress, stale=fall-through,
+// foreign-dead=fall-through, parse-error=fall-through (loud fail-open).
+
+function writeGoalLock(repo, body, mtimePastMs) {
+  const dir = path.join(repo, '.claude', 'state');
+  fs.mkdirSync(dir, { recursive: true });
+  const lockPath = path.join(dir, 'goal-phase.lock');
+  fs.writeFileSync(lockPath, body, 'utf8');
+  if (typeof mtimePastMs === 'number') {
+    const past = new Date(Date.now() - mtimePastMs);
+    fs.utimesSync(lockPath, past, past);
+  }
+  return lockPath;
+}
+
+test('M3-S1: goal-phase lock active (fresh, same-host live pid) → suppress + pass-through, no quality runner', () => {
+  const repo = mkGitRepo({ withDiff: true });
+  const capture = captureStderr();
+  writeGoalLock(repo, JSON.stringify({
+    run_id: 'gp-1',
+    ownership_token_hash: 'h'.repeat(64),
+    host: os.hostname(),
+    pid: process.pid,
+    milestone_id: 'm3-test',
+  }));
+  const raw = JSON.stringify({ cwd: repo, transcript_path: writeTranscript(repo, 'goal task A') });
+  let qualityCalled = false;
+  const out = hook.run(raw, {
+    env: { MCCP_STOP_LOOP: 'enforce' },
+    stderr: capture.stderr,
+    cwd: repo,
+    repoRoot: repo,
+    detection: passDetection(),
+    runQuality: () => { qualityCalled = true; return passRunner(); },
+    gitDiffEmpty: () => false,
+  });
+  assert.strictEqual(out, raw, 'should pass-through rawInput on suppress');
+  assert.match(capture.text(), /suppressed: goal-phase lock active/);
+  assert.strictEqual(qualityCalled, false, 'quality runner must not fire under goal-phase lock');
+  assert.ok(!fs.existsSync(ft.fixTaskPath(repo)), 'fix-task must not be written');
+});
+
+test('M3-S2: goal-phase lock stale (cross-host + age > lease) → fall-through to quality runner', () => {
+  const repo = mkGitRepo({ withDiff: true });
+  const capture = captureStderr();
+  writeGoalLock(repo, JSON.stringify({
+    run_id: 'gp-2',
+    ownership_token_hash: 'h'.repeat(64),
+    host: 'someother-host',
+    pid: 999999,
+    milestone_id: 'm3-test',
+  }), 180000); // 180s past — > 90s lease
+  const raw = JSON.stringify({ cwd: repo, transcript_path: writeTranscript(repo, 'goal task B') });
+  let qualityCalled = false;
+  const out = hook.run(raw, {
+    env: { MCCP_STOP_LOOP: 'observe' },
+    stderr: capture.stderr,
+    cwd: repo,
+    repoRoot: repo,
+    detection: passDetection(),
+    runQuality: () => { qualityCalled = true; return passRunner(); },
+    gitDiffEmpty: () => false,
+  });
+  assert.strictEqual(out, raw);
+  assert.match(capture.text(), /goal-lock found but stale or foreign-dead/);
+  assert.strictEqual(qualityCalled, true, 'quality runner MUST fire when goal-lock is stale');
+});
+
+test('M3-S3: goal-phase lock same-host + dead-pid (foreign-dead) → fall-through to quality runner', () => {
+  const repo = mkGitRepo({ withDiff: true });
+  const capture = captureStderr();
+  writeGoalLock(repo, JSON.stringify({
+    run_id: 'gp-3',
+    ownership_token_hash: 'h'.repeat(64),
+    host: os.hostname(),
+    pid: 999999, // definitely-dead
+    milestone_id: 'm3-test',
+  }));
+  const raw = JSON.stringify({ cwd: repo, transcript_path: writeTranscript(repo, 'goal task C') });
+  let qualityCalled = false;
+  const out = hook.run(raw, {
+    env: { MCCP_STOP_LOOP: 'observe' },
+    stderr: capture.stderr,
+    cwd: repo,
+    repoRoot: repo,
+    detection: passDetection(),
+    runQuality: () => { qualityCalled = true; return passRunner(); },
+    gitDiffEmpty: () => false,
+  });
+  assert.strictEqual(out, raw);
+  assert.match(capture.text(), /goal-lock found but stale or foreign-dead/);
+  assert.strictEqual(qualityCalled, true);
+});
+
+test('M3-S4: goal-phase lock parse error → loud fail-open (fall-through, stderr "check failed")', () => {
+  const repo = mkGitRepo({ withDiff: true });
+  const capture = captureStderr();
+  writeGoalLock(repo, '{not-json');
+  const raw = JSON.stringify({ cwd: repo, transcript_path: writeTranscript(repo, 'goal task D') });
+  let qualityCalled = false;
+  const out = hook.run(raw, {
+    env: { MCCP_STOP_LOOP: 'observe' },
+    stderr: capture.stderr,
+    cwd: repo,
+    repoRoot: repo,
+    detection: passDetection(),
+    runQuality: () => { qualityCalled = true; return passRunner(); },
+    gitDiffEmpty: () => false,
+  });
+  assert.strictEqual(out, raw);
+  assert.match(capture.text(), /goal-lock check failed/);
+  assert.strictEqual(qualityCalled, true, 'parse error must not block normal Stop-loop path');
+});

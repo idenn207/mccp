@@ -26,6 +26,7 @@
 //       verdict='converged'                                → allow
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
@@ -173,6 +174,43 @@ function run(rawInput, opts) {
   if (!repoRoot) {
     debug(stderr, 'not a git repo (cwd=' + cwd + '); allow');
     return rawInput;
+  }
+
+  // M3 axis C — goal-phase lock-aware short-circuit (Codex impl-R1 F2 absorption:
+  // freshness validation, presence-only check defeats stale/forged locks).
+  // /goal IS a session-scoped prompt-based Stop hook per Anthropic docs
+  // (https://code.claude.com/docs/en/goal) — evaluator runs IN the same
+  // session, so our Stop hook fires every turn of the goal loop. Lock-aware
+  // suppression prevents quality runner/loop-counter/fix-task pollution.
+  // Tri-state freshness: same-host+pid-alive OR cross-host+age<lease — mirror
+  // of §3.6 host-aware reclaim policy. Loud fail-open on parse error.
+  try {
+    const goalLockPath = path.join(repoRoot, '.claude', 'state', 'goal-phase.lock');
+    if (fs.existsSync(goalLockPath)) {
+      const lockRaw = fs.readFileSync(goalLockPath, 'utf8');
+      const lock = JSON.parse(lockRaw);
+      if (lock && lock.ownership_token_hash && lock.host && lock.pid) {
+        const lockStat = fs.statSync(goalLockPath);
+        const ageMs = Date.now() - lockStat.mtimeMs;
+        const leaseMs = 90000;
+        const sameHost = lock.host === os.hostname();
+        let pidAlive = false;
+        if (sameHost) {
+          try { process.kill(lock.pid, 0); pidAlive = true; } catch (_e) { /* pid dead */ }
+        }
+        const fresh = (sameHost && pidAlive) || (!sameHost && ageMs < leaseMs);
+        if (fresh) {
+          debug(stderr, 'suppressed: goal-phase lock active (run=' +
+            (lock.run_id || 'unknown') + ' milestone=' +
+            (lock.milestone_id || 'unknown') + ' ageMs=' + ageMs + ')');
+          return rawInput;
+        }
+        debug(stderr, 'goal-lock found but stale or foreign-dead — falling through (sameHost=' +
+          sameHost + ' pidAlive=' + pidAlive + ' ageMs=' + ageMs + ')');
+      }
+    }
+  } catch (e) {
+    debug(stderr, 'goal-lock check failed: ' + (e && e.message || e));
   }
 
   // Empty diff fast-exit.

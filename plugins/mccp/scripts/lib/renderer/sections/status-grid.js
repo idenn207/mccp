@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const { extractIntentFromPath } = require('../parsers/intent-extractor');
 
 function formatPlanLabel(basename) {
   if (!basename || typeof basename !== 'string') return '(unknown)';
@@ -17,8 +18,9 @@ function formatPlanLabel(basename) {
   return label.length > 30 ? label.slice(0, 29) + '…' : label;
 }
 
-function renderStatusGrid(model, formatUtils, planBody) {
-  const { escapeHtml } = formatUtils;
+function renderStatusGrid(model, formatUtils, planBody, opts) {
+  opts = opts || {};
+  const { escapeHtml, escapeAttr } = formatUtils;
   const m = model || {};
   const sources = m.sources || {};
   const pb = planBody || {};
@@ -43,6 +45,7 @@ function renderStatusGrid(model, formatUtils, planBody) {
 
   let nextStep = '대기';
   let nextStale = false;
+  let nextIntent = null;
   const stateItem = sources.state && sources.state.item;
   if (stateItem && stateItem.resume_state === 'in-flight') {
     nextStep = '/mccp:resume';
@@ -59,6 +62,16 @@ function renderStatusGrid(model, formatUtils, planBody) {
         nextStale = true;
       } else {
         nextStep = formatPlanLabel(basename);
+        // M2 — intent tooltip. fail-open.
+        try {
+          const cwd = opts.cwd
+            || (m.repo_root && typeof m.repo_root === 'string' && m.repo_root !== '<repo>'
+              ? m.repo_root : process.cwd());
+          const planAbs = path.isAbsolute(firstInProgress.path)
+            ? firstInProgress.path
+            : path.resolve(cwd, firstInProgress.path);
+          nextIntent = extractIntentFromPath(planAbs, opts);
+        } catch (_) { nextIntent = null; }
       }
     }
   }
@@ -73,7 +86,7 @@ function renderStatusGrid(model, formatUtils, planBody) {
   const cells = [
     { key: 'in-progress', label: '진행 중', icon: '◐', value: String(inProgressCount), kind: 'count' },
     { key: 'blocked', label: '차단', icon: '🚫', value: String(blockedCount), kind: 'count', accent: 'blocked' },
-    { key: 'next', label: '다음', icon: '→', value: nextStep, kind: 'next', stale: nextStale },
+    { key: 'next', label: '다음', icon: '→', value: nextStep, kind: 'next', stale: nextStale, intent: nextIntent },
     { key: 'risks', label: '미해결 위험', icon: '⚠', value: String(risksOpen), kind: 'count' },
   ];
 
@@ -87,9 +100,14 @@ function renderStatusGrid(model, formatUtils, planBody) {
   const htmlCells = cells.map(c => {
     let valueHtml;
     if (c.kind === 'next') {
-      valueHtml = c.stale
-        ? '<span class="stale-label">' + escapeHtml(c.value) + '</span>'
-        : '<code>' + escapeHtml(c.value) + '</code>';
+      if (c.stale) {
+        valueHtml = '<span class="stale-label">' + escapeHtml(c.value) + '</span>';
+      } else {
+        const titleAttr = c.intent
+          ? ' title="' + escapeAttr(c.intent) + '"'
+          : '';
+        valueHtml = '<code' + titleAttr + '>' + escapeHtml(c.value) + '</code>';
+      }
     } else {
       valueHtml = '<div class="grid-value">' + escapeHtml(c.value) + '</div>';
     }

@@ -169,7 +169,7 @@ test('audit-timeline — live cap MAX_ROWS_LIVE=20 (v1.3.0-m5) + older marker', 
   assert.match(md, /\+15 older/);
 });
 
-test('open-questions — merge state + plan, dedupe', () => {
+test('open-questions — merge state + plan, dedupe (4-part component)', () => {
   const model = {
     sources: {
       state: { item: { body: { open_questions: ['q1', 'q2'] } } },
@@ -177,20 +177,26 @@ test('open-questions — merge state + plan, dedupe', () => {
   };
   const planBody = { openQuestions: [{ source: 'p.plan.md', text: 'q2' }, { source: 'p.plan.md', text: 'q3' }] };
   const { md } = renderOpenQuestions(model, formatUtils, planBody);
-  const lines = md.split('\n').filter(Boolean);
-  assert.equal(lines.length, 3);
+  // 3 distinct items (q1 state, q2 dedup state-first, q3 plan)
+  assert.ok(md.includes('— q1'));
+  assert.ok(md.includes('— q2'));
+  assert.ok(md.includes('— q3'));
+  // 4-part each → "다음 액션:" line per item
+  const actionCount = (md.match(/다음 액션:/g) || []).length;
+  assert.equal(actionCount, 3);
 });
 
 test('open-questions — null when empty', () => {
   assert.equal(renderOpenQuestions({ sources: {} }, formatUtils, {}), null);
 });
 
-test('open-questions — cap at 15 + +N more marker', () => {
+test('open-questions — 3 expanded + 더보기 collapse (MAX_EXPANDED=3)', () => {
   const stateOQ = [];
-  for (let i = 0; i < 20; i++) stateOQ.push('q' + i);
+  for (let i = 0; i < 8; i++) stateOQ.push('q' + i);
   const model = { sources: { state: { item: { body: { open_questions: stateOQ } } } } };
   const { md } = renderOpenQuestions(model, formatUtils, {});
-  assert.match(md, /\+5 more/);
+  // 8 items, 3 expanded → 5 collapsed
+  assert.match(md, /\+5 더보기/);
 });
 
 test('risks — 4 rows sorted by impact desc', () => {
@@ -211,16 +217,17 @@ test('risks — 4 rows sorted by impact desc', () => {
   assert.ok(idxMed < idxLow, 'medium before low');
 });
 
-test('risks — placeholder when none', () => {
+test('risks — placeholder when none (한글)', () => {
   const { md } = renderRisks({ sources: {} }, formatUtils, { risks: [] });
-  assert.match(md, /no risks surface/);
+  assert.match(md, /미해결 위험 없음/);
 });
 
-test('risks — cap at 8 + +N less critical marker', () => {
+test('risks — 3 expanded + 더보기 collapse (MAX_EXPANDED=3)', () => {
   const risks = [];
   for (let i = 0; i < 12; i++) {
     risks.push({ risk: 'r' + i, likelihood: 'Low', impact: 'Low', mitigation: 'm', source: 'p' });
   }
   const { md } = renderRisks({ sources: {} }, formatUtils, { risks });
-  assert.match(md, /\+4 less critical/);
+  // 12 items, 3 expanded → 9 collapsed
+  assert.match(md, /\+9 더보기/);
 });

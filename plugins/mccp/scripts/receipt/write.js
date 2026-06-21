@@ -168,6 +168,14 @@ function buildReceipt(args) {
       impeccable_skip_reason: args['impeccable-skip-reason'] || null,
       impeccable_force_override: args['impeccable-force-override'] === true,
       impeccable_force_override_reason: args['impeccable-force-override-reason'] || null,
+      // v1.3.0 design-gate enforcement M1 Task 1 — silent-skip surface.
+      // Stamped by 4 command bodies (plan / prp-implement / pr / plan-prd) when
+      // impeccable-detect returns SKILL_AVAIL=1 + SIGNAL=0 + design-surface
+      // touched. Strict-gate validator (M1 Task 5) treats silent_skip=true as
+      // blocking on mccp-implement-codex / mccp-pr-codex, unless the receipt
+      // also carries impeccable_force_override=true (audited escape).
+      impeccable_silent_skip: args['impeccable-silent-skip'] === true,
+      impeccable_silent_skip_reason: args['impeccable-silent-skip-reason'] || null,
       // v0.2.8 Task 2.6.1 — PR-Codex audit axis.
       codex_dedupe_at_pr: args['codex-dedupe-at-pr'] === true,
       codex_skipped_at_pr: args['codex-skipped-at-pr'] === true,
@@ -229,6 +237,32 @@ function buildReceipt(args) {
       dispatched_by_controller_session_id: dispatchCtx.session_id,
       worker_dispatch_id: dispatchCtx.dispatch_id,
       ipc_envelope_path: dispatchCtx.envelope_path,
+      // v1.3.0-m2 — design-critique retry-loop audit axis. 4 fields, all optional.
+      // Stamped by plan.md Phase 5.0 retry loop + prp-implement.md / plan-prd.md
+      // mirrors (rounds + verdict + intent_reason) and by pr.md Phase 1.6 audited
+      // escape (pr_design_chain_skip_reason). schema.js enforces strict reason
+      // validator on the two reason fields when present.
+      design_critique_rounds: (function () {
+        const v = args['design-critique-rounds'];
+        if (v === undefined || v === true || v === null) return null;
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) && n >= 0 ? n : null;
+      })(),
+      design_critique_verdict: (function () {
+        const v = args['design-critique-verdict'];
+        if (typeof v === 'string' && v.length > 0) return v;
+        return null;
+      })(),
+      design_intent_reason: (function () {
+        const v = args['design-intent-reason'];
+        if (typeof v === 'string' && v.length > 0) return v;
+        return null;
+      })(),
+      pr_design_chain_skip_reason: (function () {
+        const v = args['pr-design-chain-skip-reason'];
+        if (typeof v === 'string' && v.length > 0) return v;
+        return null;
+      })(),
     },
   });
 

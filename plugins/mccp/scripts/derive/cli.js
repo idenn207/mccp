@@ -148,6 +148,16 @@ function cmdRender(rest) {
   const emitHtml = wantHtml || (!wantMd && !wantHtml);
   if (emitMd) writeAtomic(path.join(outDir, 'STATUS.md'), rendered.md);
   if (emitHtml) writeAtomic(path.join(outDir, 'status.html'), rendered.html);
+  // v1.3.0-m3 advisory — DESIGN.md H1-H14 lint violations. fail-open: exit
+  // code unchanged. blocking promotion deferred per OQ #4 (see plan).
+  if (rendered.design_constraint_violations && rendered.design_constraint_violations.length > 0) {
+    process.stderr.write('[mccp:renderer] design-lint '
+      + rendered.design_constraint_violations.length + ' violation(s): '
+      + rendered.design_constraint_violations.join(',') + ' (advisory)\n');
+  }
+  if (rendered.design_lint_degraded) {
+    process.stderr.write('[mccp:renderer] design-lint subsystem degraded (advisory)\n');
+  }
   // v1.3.0-m5 — piggyback the daily snapshot writer on the CLI render path.
   // Lazy require + try/catch so a missing snapshot module never breaks render.
   try {

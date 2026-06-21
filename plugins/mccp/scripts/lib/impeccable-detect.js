@@ -3,16 +3,38 @@
 // impeccable-detect — mode-aware gate input for impeccable design-review wiring.
 //
 // Returns JSON: {
-//   skill_available: bool,   // PRIMARY axis — drives gate branch decision
-//   cli_available:   bool,   // telemetry — STATE.md dep_check_missing only
-//   design_signal:   bool,   // any signal_files found?
-//   signal_files:    [str],  // discovered design surface
-//   mode:            str,    // prd | plan | implement | pr | review
-//   reason:          str,    // classification: ok | skill-missing | no-signal | mode-mismatch | path-traversal
+//   skill_available:     bool,   // PRIMARY axis — drives gate branch decision
+//   cli_available:       bool,   // telemetry — STATE.md dep_check_missing only
+//   design_signal:       bool,   // any signal_files found?
+//   signal_files:        [str],  // discovered design surface
+//   mode:                str,    // prd | plan | implement | pr | review
+//   reason:              str,    // classification: ok | skill-missing | no-signal | mode-mismatch | path-traversal
+//   silent_skip:         bool,   // skill_available=true + design_signal=false (silent fall-through)
+//   silent_skip_reason:  str|null // 'no-signal' when silent_skip=true, null otherwise
 // }
 //
 // Classification enum mirrors codex-invoke.js — gate body branches on the
 // reason field, not heuristics over the bool fields.
+//
+// v1.3.0 M1 — silent-skip surface + DESIGN_SURFACE_PATHS whitelist.
+//   Previously the SKILL_AVAIL=1 + SIGNAL=0 path was unobservable: no receipt
+//   trace, no caller branch could distinguish it from a green "no design
+//   surface" path. v1.3.0 dashboard surface (M3 renderer) silently fell into
+//   this path because UI_EXTENSIONS only matches .tsx/.jsx/.css/.html files,
+//   not the .js generators that PRODUCE those artifacts. The whitelist names
+//   the cache-producing pipeline files (renderer/, briefing/, derive/, hooks/
+//   render-trigger, receipt/write.js, .claude/cache/STATUS.md|status.html)
+//   so that touching them ALSO trips design_signal=true. Applied to BOTH
+//   findDesignSignalInDiff (diff-mode detection) AND findDesignSignalInArtifact
+//   (plan-mode detection) — Codex R1 F1 absorption: a one-sided fix would let
+//   plan-mode silent-skip continue.
+//
+//   M1 enforcement is OBSERVATIONAL ONLY. silent_skip=true fires on every
+//   no-signal plan including pure-backend changes (the detector cannot tell
+//   "no design surface intended" from "design surface missed"). Strict-gate
+//   blocking on silent_skip is deferred to M2, after the SKILL first-step +
+//   critique loop close the false-negative window. Codex R1 F2 absorption
+//   (strict-gate blocking) is intentionally partially deferred.
 //
 // Security:
 //   - F-Sec-2 (security-reviewer NEEDS-ATTENTION): --plan path must resolve
@@ -33,6 +55,49 @@ const IMPECCABLE_PLUGIN_KEY = 'impeccable@anthropics';
 const UI_EXTENSIONS = ['.tsx', '.jsx', '.vue', '.svelte', '.astro', '.css', '.scss', '.html'];
 const MODES = ['prd', 'plan', 'implement', 'pr', 'review'];
 
+// v1.3.0 M1 Task 4 (Codex R1 F3 absorption) — design surface whitelist.
+// Files that PRODUCE or LIVE AT cache surfaces, not just files with UI
+// extensions. Match is prefix-based (for directories) or exact (for files).
+// Path separator normalized to forward slash before matching, so the same
+// table works on Windows + POSIX.
+//
+// Coverage rationale:
+//   renderer/    — primary STATUS.md + status.html producer (M3).
+//   briefing/    — feeds receipt meta.briefing_summary (M2), which renderer
+//                  surfaces back to dashboard.
+//   derive/      — single normalization model fed to renderer (M1).
+//   render-trigger-session-start.js — kicks the producer.
+//   receipt/write.js — emits briefing fields consumed by renderer.
+//   .claude/cache/STATUS.md|status.html — the cache targets themselves; direct
+//                  edits there must trigger critique (overshoot-safe because
+//                  cache is gitignored — these are touched intentionally only).
+//
+// v1.3.0-m2 Task 6 (F1 absorption) — design-gate control-plane additions:
+//   impeccable-detect.js     — the detector itself; changes must self-apply.
+//   design-critique-decide.js — critique oracle; changes must self-apply.
+//   skills/frontend-design-direction/ — output-constraint anchors; changes
+//                  must run the critique loop against the new constraints.
+// Scope is deliberately narrow — commands/*.md is NOT included because
+// that would over-trigger on routine command-body refactors. The 3 paths
+// added here are the design-gate control plane proper.
+const DESIGN_SURFACE_PATHS = [
+  'plugins/mccp/scripts/lib/renderer/',
+  'plugins/mccp/scripts/lib/briefing/',
+  'plugins/mccp/scripts/derive/',
+  'plugins/mccp/scripts/hooks/render-trigger-session-start.js',
+  'plugins/mccp/scripts/receipt/write.js',
+  '.claude/cache/STATUS.md',
+  '.claude/cache/status.html',
+  // v1.3.0-m2 Task 6 F1 absorption (narrow design-gate control plane).
+  'plugins/mccp/scripts/lib/impeccable-detect.js',
+  'plugins/mccp/scripts/lib/design-critique-decide.js',
+  'plugins/mccp/skills/frontend-design-direction/',
+];
+
+function normalizeSlashes(filePath) {
+  return String(filePath).replace(/\\+/g, '/');
+}
+
 function hasUiExtension(filePath) {
   const lower = filePath.toLowerCase();
   if (lower.endsWith('.module.css')) return true;
@@ -41,6 +106,23 @@ function hasUiExtension(filePath) {
 
 function isDesignPlanPath(filePath) {
   return /\.claude[\\/]design[\\/].+\.design\.plan\.md$/i.test(filePath);
+}
+
+function hasDesignSurfacePath(filePath) {
+  if (!filePath) return false;
+  const norm = normalizeSlashes(filePath);
+  for (let i = 0; i < DESIGN_SURFACE_PATHS.length; i++) {
+    const prefix = DESIGN_SURFACE_PATHS[i];
+    // Trailing slash → directory prefix match; otherwise exact-or-prefix
+    // (we never expect the cache files to be directories, so prefix-match
+    // on a file path collapses to exact match).
+    if (prefix.endsWith('/')) {
+      if (norm.indexOf(prefix) !== -1) return true;
+    } else {
+      if (norm === prefix || norm.endsWith('/' + prefix)) return true;
+    }
+  }
+  return false;
 }
 
 // Probe skill availability via two channels (env override > plugin manifest >
@@ -104,15 +186,19 @@ function gitWorktreeNames(cwd) {
 
 function findDesignSignalInDiff(files) {
   return files.filter(function (f) {
-    return hasUiExtension(f) || isDesignPlanPath(f);
+    return hasUiExtension(f) || isDesignPlanPath(f) || hasDesignSurfacePath(f);
   });
 }
 
 function findDesignSignalInArtifact(planPath) {
   // Scan plan/PRD artifact body for explicit design surface declarations.
-  // Two channels:
+  // Three channels:
   //   (a) ## Files to Change table rows with UI extension in the path cell.
-  //   (b) Keyword markers — explicit author intent.
+  //   (b) ## Files to Change table rows whose backtick path hits the
+  //       DESIGN_SURFACE_PATHS whitelist (M1 Task 4, Codex R1 F1 absorption —
+  //       plan-mode detection must mirror diff-mode coverage, otherwise the
+  //       wedge can't see its own surface).
+  //   (c) Keyword markers — explicit author intent.
   let content;
   try {
     content = fs.readFileSync(planPath, 'utf8');
@@ -125,6 +211,12 @@ function findDesignSignalInArtifact(planPath) {
   fileTableMatches.forEach(function (m) {
     const inner = m.slice(1, -1);
     if (hasUiExtension(inner)) found.add(inner);
+  });
+
+  const allBacktickPaths = content.match(/`[^`\n]+`/g) || [];
+  allBacktickPaths.forEach(function (m) {
+    const inner = m.slice(1, -1).trim();
+    if (hasDesignSurfacePath(inner)) found.add(inner);
   });
 
   const designPlanRefs = content.match(/\.claude[\\/]design[\\/][^\s)`]+\.design\.plan\.md/gi) || [];
@@ -173,6 +265,8 @@ function detect(options) {
       signal_files: [],
       mode: null,
       reason: 'mode-mismatch',
+      silent_skip: false,
+      silent_skip_reason: null,
     };
   }
 
@@ -186,6 +280,8 @@ function detect(options) {
         signal_files: [],
         mode: mode,
         reason: safety.reason,
+        silent_skip: false,
+        silent_skip_reason: null,
       };
     }
   }
@@ -210,6 +306,17 @@ function detect(options) {
   else if (!designSignal) reason = 'no-signal';
   else reason = 'ok';
 
+  // v1.3.0 M1 Task 2 — silent-skip surface.
+  // Skill is available but the detector reports no design signal: this is the
+  // exact fall-through that v1.3.0 M0~M5 cycles flew under for 7 milestones.
+  // Receipt now records the fact so M2 has an audit artifact to act on.
+  // Beware: this flips true on every no-signal plan including pure-backend
+  // changes — M1 validator surfaces silent_skip as informational warning at
+  // every gate, NOT blocking. Strict-gate blocking is deferred to M2 once
+  // SKILL first-step + critique loop close the false-negative window.
+  const silentSkip = skillAvailable && !designSignal;
+  const silentSkipReason = silentSkip ? 'no-signal' : null;
+
   return {
     skill_available: skillAvailable,
     cli_available: cliAvailable,
@@ -217,6 +324,8 @@ function detect(options) {
     signal_files: signalFiles,
     mode: mode,
     reason: reason,
+    silent_skip: silentSkip,
+    silent_skip_reason: silentSkipReason,
   };
 }
 
@@ -238,10 +347,13 @@ module.exports = {
   probeSkillAvailable: probeSkillAvailable,
   hasUiExtension: hasUiExtension,
   isDesignPlanPath: isDesignPlanPath,
+  hasDesignSurfacePath: hasDesignSurfacePath,
+  normalizeSlashes: normalizeSlashes,
   validatePlanPathSafety: validatePlanPathSafety,
   findDesignSignalInArtifact: findDesignSignalInArtifact,
   findDesignSignalInDiff: findDesignSignalInDiff,
   UI_EXTENSIONS: UI_EXTENSIONS,
+  DESIGN_SURFACE_PATHS: DESIGN_SURFACE_PATHS,
   MODES: MODES,
   IMPECCABLE_PLUGIN_KEY: IMPECCABLE_PLUGIN_KEY,
 };

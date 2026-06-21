@@ -77,6 +77,27 @@ needs repeated daily use.
 - Do not describe the UI's features inside the UI when the controls can speak
   for themselves.
 
+## Output Constraints
+
+These four rules are mechanically enforced anchors for the design critique retry
+loop (mccp v1.3.0-m2). Output that violates any of them fails critique and is
+re-edited up to `MCCP_DESIGN_CRITIQUE_MAX_RETRY` rounds (default 2). M3 lint
+(`output-constraints.js`) checks the same anchors statically.
+
+- **정보 위계 3단계** — primary action → status → detail. Heading depth must not
+  exceed 3 in any primary surface. Deeper nesting collapses or moves to a
+  secondary surface.
+- **강조색 화면당 1개** — Accent color or highlight token use count must be ≤ 1
+  per viewport. Multiple accent hues compete and dissolve hierarchy.
+- **raw markdown marker 금지** — Unrendered `**bold**`, `_italic_`, MD0xx
+  warnings, stray inline code, and raw HTML entities must not appear in the
+  rendered surface. If markdown leaks through, the rendering pipeline is broken
+  and surface ships fail.
+- **한 화면 항목 수 상한** — `list-of-N` sections (Open Questions, action items,
+  risk tables) show the top 3 expanded; remaining items collapse under
+  `<details><summary>+N more</summary></details>`. "Quiet by default, loud on
+  demand" per PRODUCT.md.
+
 ## Review Checklist
 
 - The first viewport immediately communicates the product, workflow, or object.

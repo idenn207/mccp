@@ -624,3 +624,121 @@ test('finalize when ended_at would equal last_seen_at: ended_at bumped +1ms', fu
   const read = sl.readLedger({ sessionId: SESSION_A, projectContext: ctx });
   assert.ok(read.ledger.ended_at > hbAt, 'ended_at bumped past last_seen_at');
 });
+
+// ---------------------------------------------------------------------------
+// v1.4.x patch — git_branch ref-format invariant
+//   Codex R1 F1+F2 + R2 F1+F3 absorption.
+// ---------------------------------------------------------------------------
+
+function validV2(overrides) {
+  overrides = overrides || {};
+  const base = {
+    schema_version: 'v2',
+    session_id: SESSION_A,
+    created_at: '2026-06-21T00:00:00.000Z',
+    last_seen_at: '2026-06-21T00:00:00.000Z',
+    ended_at: null,
+    cwd: '/tmp/repo',
+    git_branch: 'feat/test',
+    pid: 1234,
+    host: 'h',
+    project_id: 'abc123',
+    claude_version: null,
+  };
+  for (const k in overrides) base[k] = overrides[k];
+  return base;
+}
+
+// Write-side strict negative — 5 cases
+[
+  { name: 'leading dot', branch: '.hidden' },
+  { name: 'double dot', branch: 'feat/foo..bar' },
+  { name: 'whitespace', branch: 'feat my-branch' },
+  { name: 'control char', branch: 'feat' + String.fromCharCode(7) + 'bar' },
+  { name: 'at-brace', branch: 'feat@{0}' },
+].forEach(function (tc) {
+  test('validate: rejects branch with ' + tc.name, function () {
+    const v = sl.validate(validV2({ git_branch: tc.branch }));
+    assert.strictEqual(v.ok, false, 'expected reject for ' + tc.name);
+    assert.ok(v.errors.some(function (e) { return /git_branch fails git ref-format/.test(e); }),
+      'error must mention ref-format rule: ' + JSON.stringify(v.errors));
+  });
+});
+
+// Write-side strict positive — existing branch names still pass
+test('validate: existing positive branches still pass new rule', function () {
+  ['feat/test', 'legacy', 'global-stale', 'repo-fresh', 'v1-3-0-observability-m1'].forEach(function (b) {
+    const v = sl.validate(validV2({ git_branch: b }));
+    assert.strictEqual(v.ok, true, b + ' should pass: ' + JSON.stringify(v.errors));
+  });
+});
+
+// Helper total-function guarantee — 3 cases (NPE/throw guard)
+test('isValidGitBranch: total function (null → true, non-string → false, never throws)', function () {
+  assert.strictEqual(sl.isValidGitBranch(null), true);
+  assert.strictEqual(sl.isValidGitBranch(123), false);
+  assert.strictEqual(sl.isValidGitBranch({}), false);
+  assert.strictEqual(sl.isValidGitBranch(undefined), false);
+  assert.strictEqual(sl.isValidGitBranch([]), false);
+  // validate with non-string git_branch must NOT throw — accumulator contract.
+  const v = sl.validate(validV2({ git_branch: 123 }));
+  assert.strictEqual(v.ok, false);
+  assert.ok(Array.isArray(v.errors) && v.errors.length > 0);
+});
+
+// Read-side lift — R2 F1 invariant: read → lift → validate
+test('readLedger: lifts wonky branch to null in-memory + leaves disk file unchanged', function () {
+  const sandbox = mkSandbox();
+  const ctx = fakeProjectContext(sandbox);
+  // Hand-craft a v2 ledger on disk with a wonky branch — bypassing validate.
+  const dir = path.join(ctx.projectDir, '.session-ledgers');
+  fs.mkdirSync(dir, { recursive: true });
+  const wonky = validV2({ session_id: SESSION_A, git_branch: 'feat/foo..bar' });
+  const target = path.join(dir, SESSION_A + '.json');
+  fs.writeFileSync(target, JSON.stringify(wonky, null, 2) + '\n', 'utf8');
+
+  const read = sl.readLedger({ sessionId: SESSION_A, projectContext: ctx });
+  assert.strictEqual(read.ok, true, 'lift should rescue: ' + JSON.stringify(read));
+  assert.strictEqual(read.ledger.git_branch, null, 'in-memory branch lifted to null');
+
+  // Disk file untouched.
+  const onDisk = JSON.parse(fs.readFileSync(target, 'utf8'));
+  assert.strictEqual(onDisk.git_branch, 'feat/foo..bar', 'disk file preserved');
+});
+
+test('listLedgers: includes wonky-branch ledger (lift → validate → kept, not silently dropped)', function () {
+  const sandbox = mkSandbox();
+  const ctx = fakeProjectContext(sandbox);
+  const dir = path.join(ctx.projectDir, '.session-ledgers');
+  fs.mkdirSync(dir, { recursive: true });
+  const wonky = validV2({ session_id: SESSION_A, git_branch: '.hidden' });
+  fs.writeFileSync(path.join(dir, SESSION_A + '.json'), JSON.stringify(wonky) + '\n', 'utf8');
+
+  const r = sl.listLedgers({ projectContext: ctx });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.ledgers.length, 1, 'wonky ledger must NOT be dropped');
+  assert.strictEqual(r.ledgers[0].git_branch, null, 'branch lifted to null in-memory');
+  // Not added to errors as invalid — lift made it valid.
+  const invalidErrors = (r.errors || []).filter(function (e) { return /invalid/.test(e.error || ''); });
+  assert.strictEqual(invalidErrors.length, 0, 'no invalid-error for lifted ledger');
+});
+
+// WARN cardinality — R2 F3: per-process per-path 1 emit
+test('liftLegacyBranch: stderr WARN emitted at most once per sourcePath', function () {
+  // Capture stderr.
+  const writes = [];
+  const orig = process.stderr.write;
+  process.stderr.write = function (chunk) { writes.push(String(chunk)); return true; };
+  try {
+    const sourcePath = '/sandbox/test/cardinality-' + Date.now() + '.json';
+    const l1 = validV2({ git_branch: 'feat/foo..bar' });
+    const l2 = validV2({ git_branch: 'feat/foo..bar' });
+    sl.liftLegacyBranch(l1, sourcePath);
+    sl.liftLegacyBranch(l2, sourcePath);
+    sl.liftLegacyBranch(l2, sourcePath);
+  } finally {
+    process.stderr.write = orig;
+  }
+  const warnLines = writes.filter(function (s) { return /lifting invalid git_branch/.test(s); });
+  assert.strictEqual(warnLines.length, 1, 'expected exactly 1 WARN, got ' + warnLines.length);
+});

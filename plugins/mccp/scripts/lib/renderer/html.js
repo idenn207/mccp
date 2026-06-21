@@ -56,6 +56,7 @@ code, .mono { font-family: ui-monospace, 'SF Mono', Consolas, 'Liberation Mono',
   z-index: 11; outline: 2px solid var(--bg); outline-offset: 2px;
   text-decoration: none; border-radius: 3px;
 }
+main { max-width: 720px; }
 main:focus { outline: none; }
 header {
   position: sticky;
@@ -255,4 +256,6 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   return parts.join('\n');
 }
 
-module.exports = { renderHtml };
+const TOKENS = OKLCH_LIGHT + OKLCH_DARK;
+
+module.exports = { renderHtml, TOKENS, LAYOUT };

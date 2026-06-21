@@ -2,9 +2,9 @@
 
 const { buildActionPrompt, maxRank } = require('../parsers/action-prompt');
 const { renderJargonHtml, renderJargonMarkdown } = require('../parsers/jargon-dictionary');
+const { severityMeta, severityTagHtml } = require('../parsers/severity-meta');
 
 const MAX_EXPANDED = 3;
-const SEVERITY_ICON = { CRITICAL: '🔴', HIGH: '🟠', MEDIUM: '🟡', LOW: '⚪', '': '⚪' };
 const RANK_MAP = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, '': 0 };
 
 function sevOf(r) {
@@ -30,7 +30,7 @@ function renderRisks(model, formatUtils, planBody) {
 
   function renderItem(r) {
     const sev = sevOf(r) || 'MEDIUM';
-    const icon = SEVERITY_ICON[sev] || '⚪';
+    const icon = severityMeta(sev).icon;
     const ap = buildActionPrompt(r, 'risk');
     const text = r.risk || '';
     const textHtml = '<span class="item-text">'
@@ -44,13 +44,12 @@ function renderRisks(model, formatUtils, planBody) {
     const cueHtml = r.relatedOpenQuestion
       ? '<aside class="related-oq">동일 OQ 참조: ' + escapeHtml(r.relatedOpenQuestion) + '…</aside>'
       : '';
-    const sevTag = '<span class="severity-tag s-' + escapeHtml(sev.toLowerCase()) + '">'
-      + icon + ' ' + escapeHtml(sev) + '</span>';
+    const sevTag = severityTagHtml(sev, escapeHtml);
     // F1 absorption — data-copy는 escapeHtml만
     const apHtml = '<div class="action-prompt">'
       + '<code>' + escapeHtml(ap.fullText) + '</code>'
       + '<button class="copy-btn" data-copy="' + escapeHtml(ap.fullText)
-      + '" type="button">복사</button>'
+      + '" type="button" aria-label="다음 액션 복사">복사</button>'
       + '</div>';
     const html = '<li class="risk-item">' + sevTag + ' ' + textHtml + mitHtml + cueHtml + apHtml + '</li>';
     // Markdown

@@ -3,12 +3,12 @@
 const path = require('path');
 const { buildActionPrompt } = require('../parsers/action-prompt');
 const { renderJargonHtml, renderJargonMarkdown } = require('../parsers/jargon-dictionary');
+const { severityMeta, severityTagHtml } = require('../parsers/severity-meta');
 
 const MAX_EXPANDED = 3;
-const SEVERITY_ICON = { CRITICAL: '🔴', HIGH: '🟠', MEDIUM: '🟡', LOW: '⚪', UNKNOWN: '⚪' };
 
 function severityIcon(sev) {
-  return SEVERITY_ICON[String(sev || 'UNKNOWN').toUpperCase()] || '⚪';
+  return severityMeta(sev).icon;
 }
 
 function metaCue(q) {
@@ -64,8 +64,7 @@ function renderOpenQuestions(model, formatUtils, planBody) {
     const sev = q.severity || 'MEDIUM';
     const ap = buildActionPrompt(q, 'openQuestion');
     const cue = metaCue(q);
-    const sevTag = '<span class="severity-tag s-' + escapeHtml(sev.toLowerCase()) + '">'
-      + severityIcon(sev) + ' ' + escapeHtml(sev) + '</span>';
+    const sevTag = severityTagHtml(sev, escapeHtml);
     const textHtml = '<span class="item-text">'
       + renderJargonHtml(q.text, { seen: jargonSeenHtml }, escapeHtml, escapeAttr)
       + '</span>';
@@ -76,7 +75,7 @@ function renderOpenQuestions(model, formatUtils, planBody) {
     const apHtml = '<div class="action-prompt">'
       + '<code>' + escapeHtml(ap.fullText) + '</code>'
       + '<button class="copy-btn" data-copy="' + escapeHtml(ap.fullText)
-      + '" type="button">복사</button>'
+      + '" type="button" aria-label="다음 액션 복사">복사</button>'
       + '</div>';
     const html = '<li class="oq-item">' + sevTag + ' ' + textHtml + cueHtml + apHtml + '</li>';
     // Markdown — jargon seen 별도 (HTML/MD 분리)

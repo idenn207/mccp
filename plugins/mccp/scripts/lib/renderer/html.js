@@ -43,6 +43,20 @@ body {
   line-height: 1.5;
 }
 code, .mono { font-family: ui-monospace, 'SF Mono', Consolas, 'Liberation Mono', monospace; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+  white-space: nowrap; border: 0; padding: 0; margin: -1px;
+}
+.skip-link:focus-visible {
+  position: fixed; top: 0.25rem; left: 0.25rem;
+  clip: auto; clip-path: none; width: auto; height: auto;
+  margin: 0; padding: 0.4rem 0.75rem;
+  background: var(--accent); color: var(--bg);
+  z-index: 11; outline: 2px solid var(--bg); outline-offset: 2px;
+  text-decoration: none; border-radius: 3px;
+}
+main:focus { outline: none; }
 header {
   position: sticky;
   top: 0;
@@ -78,7 +92,7 @@ header .status-strip .cell b { font-weight: 600; }
 header .status-strip .cell:first-of-type { color: var(--accent); }
 header .status-strip .cell.s-blocked { color: var(--status-blocked); }
 header .status-strip .cell.s-stale { color: var(--status-stale); }
-header .status-strip .cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+header .status-strip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 header .meta { color: var(--muted); font-size: 0.85rem; margin-left: auto; }
 header .meta .stale-suffix { display: none; }
 body[data-stale="1"] header .meta .stale-suffix { display: inline; margin-left: 0.25rem; }
@@ -108,9 +122,9 @@ aside[role="alert"].s-secret {
 }
 .severity-tag { display: inline-block; padding: 0 0.35em; border-radius: 3px;
   font-size: 0.8rem; font-weight: 500; }
-.severity-tag.s-critical, .severity-tag.s-high { color: var(--status-blocked); }
-.severity-tag.s-medium { color: var(--status-stale); }
-.severity-tag.s-low { color: var(--muted); }
+.severity-tag.s-critical, .severity-tag.s-high { color: var(--status-blocked); font-weight: 600; }
+.severity-tag.s-medium { color: var(--status-stale); font-weight: 600; }
+.severity-tag.s-low { color: var(--muted); font-weight: 600; }
 .oq-item, .risk-item { margin: 0.5rem 0; padding: 0.5rem 0;
   border-bottom: 1px dashed var(--border); list-style: none; }
 .oq-item:last-child, .risk-item:last-child { border-bottom: none; }
@@ -139,6 +153,7 @@ aside[role="alert"].s-secret {
 details { margin-top: 0.5rem; }
 /* F1 absorption — details summary + abbr underline contrast WCAG AA */
 details summary { cursor: pointer; color: var(--ink); font-size: 0.85rem; }
+details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 details[open] summary { margin-bottom: 0.5rem; }
 abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px; cursor: help; }
 @media (prefers-reduced-motion: reduce) {
@@ -164,7 +179,7 @@ function renderStripCell(cell, escapeHtml) {
   }
   const dataAttr = cell.stale ? ' data-stale="1"' : '';
   return '<span class="' + cls + '"' + dataAttr + '>'
-    + '<span class="icon">' + escapeHtml(cell.icon) + '</span> '
+    + '<span class="icon" aria-hidden="true">' + escapeHtml(cell.icon) + '</span> '
     + escapeHtml(cell.label) + ' ' + valueHtml
     + '</span>';
 }
@@ -181,6 +196,9 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
 
   const gridCells = (grid && Array.isArray(grid.cells)) ? grid.cells : [];
   const stripHtml = gridCells.map(c => renderStripCell(c, escapeHtml)).join('');
+  const stripAriaLabel = gridCells.length > 0
+    ? '현황 4축: ' + gridCells.map(c => String(c.label || '') + ' ' + String(c.value || '')).join(' · ')
+    : '현황 4축';
 
   const parts = [];
   parts.push('<!doctype html>');
@@ -192,13 +210,14 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   parts.push('<style>' + OKLCH_LIGHT + OKLCH_DARK + LAYOUT + '</style>');
   parts.push('</head>');
   parts.push('<body data-stale="0" data-derived-ms="' + (Number.isFinite(derivedMs) ? derivedMs : 0) + '">');
+  parts.push('<a class="skip-link sr-only" href="#main">본문 바로가기</a>');
   parts.push('<header>'
     + '<span class="brand">mccp 상태</span>'
-    + '<div class="status-strip" role="group" aria-label="현황 4축">' + stripHtml + '</div>'
+    + '<div class="status-strip" role="group" tabindex="0" aria-label="' + escapeHtml(stripAriaLabel) + '">' + stripHtml + '</div>'
     + '<span class="meta">마지막 갱신 ' + escapeHtml(relative)
     + '<span class="stale-suffix">· stale</span></span>'
     + '</header>');
-  parts.push('<main>');
+  parts.push('<main id="main" tabindex="-1">');
   if (m.masked === false) {
     parts.push('<aside role="alert" class="s-secret">⚠ raw — 절대 외부 공유 금지</aside>');
   }
@@ -227,7 +246,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   parts.push('<section id="risks"><h2>위험</h2>' + (risks ? risks.html : '') + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer class="muted mono">v1.4.2 · <code>.claude/</code> 통합 derive</footer>');
+  parts.push('<footer role="contentinfo" class="muted mono">v1.4.2 · <code lang="en">.claude/</code> 통합 derive</footer>');
   parts.push('<script>' + STALE_SCRIPT + '</script>');
   parts.push('<script>' + COPY_SCRIPT + '</script>');
   parts.push('</body>');

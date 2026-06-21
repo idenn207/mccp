@@ -102,9 +102,12 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
     const planChip = e.planBasename
       ? '<code>' + escapeHtml(e.planBasename) + '</code>'
       : '';
+    const timeHtml = e.completedAt
+      ? '<time datetime="' + escapeHtml(e.completedAt) + '">' + escapeHtml(rel) + '</time>'
+      : escapeHtml(rel);
     const html = '<li class="milestone-item">'
       + '<span class="ms-name">' + escapeHtml(e.name) + '</span>'
-      + ' <span class="muted">· ' + escapeHtml(rel) + '</span>'
+      + ' <span class="muted">· ' + timeHtml + '</span>'
       + (planChip ? ' ' + planChip : '')
       + '</li>';
     const md = '- ' + e.name + ' · ' + rel

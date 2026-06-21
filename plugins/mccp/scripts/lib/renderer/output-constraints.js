@@ -9,6 +9,24 @@
 // warn, other rules continue. Caller integrates via renderer/index.js
 // and pushes model.warnings on violation count > 0 or degraded === true.
 
+// v1.4.2 carve-out — 4-part OQ/Risks 컴포넌트 + a11y skip-link/copy-btn은
+// H3 (border-radius)와 H4 (border-left) baseline에서 의도적으로 제외.
+// design-gate의 card-less/stripe-less 원칙은 일반 layout chrome에 한정 적용
+// 되고, 명시적 interactive affordance(severity pill, action prompt code chip,
+// skip-link, copy-btn focus-visible, OQ/Risks meta-cue stripe, blockquote
+// quote-stripe)는 4-part 컴포넌트의 핵심 design intent로 carve-out.
+const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret)|\[role="alert"\]/;
+const H4_CARVEOUT = /\.(meta-cue)|\bblockquote\b/;
+
+function findSelectorContext(css, hitIndex) {
+  const slice = css.slice(0, hitIndex);
+  const openBraceIdx = slice.lastIndexOf('{');
+  if (openBraceIdx === -1) return '';
+  const before = slice.slice(0, openBraceIdx);
+  const closeBraceIdx = before.lastIndexOf('}');
+  return before.slice(closeBraceIdx + 1).trim();
+}
+
 const RULES = [
   // H1 light mode default. First :root --bg token lightness must be >= 0.97.
   {
@@ -34,27 +52,48 @@ const RULES = [
       return null;
     },
   },
-  // H3 no cards. border-radius >= 1px on section/li/td chrome.
-  // Simplification: total count across CSS source. baseline = 0.
+  // H3 no cards. border-radius >= 1px on layout chrome.
+  // v1.4.2 carve-out: severity-tag pill + action-prompt code chip + skip-link
+  // + copy-btn(focus-visible)는 4-part 컴포넌트 + a11y의 핵심 affordance.
   {
     id: 'H3',
     severity: 'absolute-ban',
     check: ({ css }) => {
-      const matches = css.match(/border-radius:\s*[1-9]/g);
-      if (matches) return { evidence: matches.length + ' border-radius hit(s)' };
+      const regex = /border-radius:\s*[1-9]/g;
+      let m;
+      let uncarvedHits = 0;
+      while ((m = regex.exec(css)) !== null) {
+        const selector = findSelectorContext(css, m.index);
+        if (H3_CARVEOUT.test(selector)) continue;
+        uncarvedHits++;
+      }
+      if (uncarvedHits > 0) return { evidence: uncarvedHits + ' uncarved border-radius hit(s)' };
       return null;
     },
   },
   // H4 no side-stripe. border-left thicker than 1px, or box-shadow inset
   // offset >= 2px on the left edge.
+  // v1.4.2 carve-out: meta-cue blockquote + 일반 blockquote는 4-part 컴포넌트의
+  // "왜:" rationale stripe로 design intent.
   {
     id: 'H4',
     severity: 'absolute-ban',
     check: ({ css }) => {
-      const a = css.match(/border-left:\s*[2-9]\d*px/g);
-      const b = css.match(/inset\s+[2-9]\d*px\s+0\s+0/g);
-      const hits = (a ? a.length : 0) + (b ? b.length : 0);
-      if (hits > 0) return { evidence: hits + ' side-stripe hit(s)' };
+      const regexA = /border-left:\s*[2-9]\d*px/g;
+      const regexB = /inset\s+[2-9]\d*px\s+0\s+0/g;
+      let m;
+      let uncarvedHits = 0;
+      while ((m = regexA.exec(css)) !== null) {
+        const selector = findSelectorContext(css, m.index);
+        if (H4_CARVEOUT.test(selector)) continue;
+        uncarvedHits++;
+      }
+      while ((m = regexB.exec(css)) !== null) {
+        const selector = findSelectorContext(css, m.index);
+        if (H4_CARVEOUT.test(selector)) continue;
+        uncarvedHits++;
+      }
+      if (uncarvedHits > 0) return { evidence: uncarvedHits + ' uncarved side-stripe hit(s)' };
       return null;
     },
   },

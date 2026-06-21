@@ -56,18 +56,61 @@ function parseDeliveryMilestones(prdBody) {
 }
 
 function parseOpenQuestions(planBody) {
-  const section = findSection(planBody, '## Open Questions');
-  if (!section) return [];
-  const lines = section.split(/\r?\n/);
-  const questions = [];
-  for (const line of lines) {
+  if (!planBody) return [];
+  const lines = planBody.split(/\r?\n/);
+  const out = [];
+  const headingStack = [];
+  let inOQ = false;
+  let oqHeadingLine = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const h2 = /^##\s+(.+?)\s*$/.exec(line);
+    const h3 = /^###\s+(.+?)\s*$/.exec(line);
+    if (h2) {
+      headingStack.length = 0;
+      headingStack.push('## ' + h2[1].trim());
+      inOQ = /open\s+questions/i.test(h2[1]);
+      if (inOQ) oqHeadingLine = i + 1;
+      continue;
+    }
+    if (h3) {
+      while (headingStack.length > 1) headingStack.pop();
+      headingStack.push('### ' + h3[1].trim());
+      continue;
+    }
+    if (!inOQ) continue;
     const m = line.match(/^\s*-\s+(?:\[[ xX]?\]\s+)?(.+?)\s*$/);
     if (m) {
       const text = m[1].trim();
-      if (text) questions.push(text);
+      if (text) {
+        out.push({
+          text,
+          lineNumber: i + 1,
+          headingPath: headingStack.slice(),
+          oqHeadingLineNumber: oqHeadingLine,
+        });
+      }
     }
   }
-  return questions;
+  return out;
+}
+
+function parseDeliveryMilestonesComplete(prdBody) {
+  const out = [];
+  const section = findSection(prdBody, '## Delivery Milestones');
+  if (!section) return out;
+  const rows = parseTableRows(section);
+  for (const cells of rows) {
+    if (cells.length < 5) continue;
+    const status = cells[3].toLowerCase();
+    if (status !== 'complete') continue;
+    const name = (cells[1] || '').trim();
+    const planCell = cells[4] || '';
+    const linkMatch = planCell.match(/\(([^)]+)\)/);
+    const basename = linkMatch ? linkMatch[1].split(/[\\/]/).pop() : null;
+    if (name) out.push({ name, planBasename: basename });
+  }
+  return out;
 }
 
 function parseRisks(planBody) {
@@ -179,8 +222,14 @@ function parsePlanBody(model, opts) {
       continue;
     }
     const oq = parseOpenQuestions(planBody);
-    for (const text of oq) {
-      openQuestions.push({ source: p.path, text });
+    for (const entry of oq) {
+      openQuestions.push({
+        source: p.path,
+        text: entry.text,
+        lineNumber: entry.lineNumber,
+        headingPath: entry.headingPath,
+        oqHeadingLineNumber: entry.oqHeadingLineNumber,
+      });
     }
     const { rows: riskRows, malformedCount } = parseRisks(planBody);
     for (const row of riskRows) {
@@ -207,6 +256,7 @@ function parsePlanBody(model, opts) {
 module.exports = {
   parsePlanBody,
   parseDeliveryMilestones,
+  parseDeliveryMilestonesComplete,
   parseOpenQuestions,
   parseRisks,
   extractCyclePrefix,

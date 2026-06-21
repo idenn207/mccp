@@ -106,11 +106,48 @@ aside[role="alert"].s-secret {
   border-radius: 4px;
   margin-bottom: 1rem;
 }
+.severity-tag { display: inline-block; padding: 0 0.35em; border-radius: 3px;
+  font-size: 0.8rem; font-weight: 500; }
+.severity-tag.s-critical, .severity-tag.s-high { color: var(--status-blocked); }
+.severity-tag.s-medium { color: var(--status-stale); }
+.severity-tag.s-low { color: var(--muted); }
+.oq-item, .risk-item { margin: 0.5rem 0; padding: 0.5rem 0;
+  border-bottom: 1px dashed var(--border); list-style: none; }
+.oq-item:last-child, .risk-item:last-child { border-bottom: none; }
+.item-text { color: var(--ink); }
+.meta-cue { font-size: 0.85rem; margin: 0.25rem 0 0.25rem 1rem; color: var(--muted);
+  border-left: 2px solid var(--border); padding-left: 0.5rem; }
+/* F2 absorption — 200+ char prompt wrap 안전, button overflow 방지 */
+.action-prompt { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+  margin-top: 0.3rem; }
+.action-prompt code { background: var(--surface); padding: 0.25rem 0.4rem; border-radius: 3px;
+  flex: 1; min-width: 0; max-width: 100%; overflow-x: auto; }
+.copy-btn { font-size: 0.8rem; padding: 0.2rem 0.6rem; border: 1px solid var(--border);
+  flex-shrink: 0; background: var(--surface); color: var(--ink); cursor: pointer;
+  border-radius: 3px; }
+.copy-btn:hover { background: var(--bg); }
+.copy-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.copy-btn[data-copied="1"] { color: var(--status-worker-alive);
+  border-color: var(--status-worker-alive); }
+.copy-btn[data-copied="1"]::after { content: ' ✓복사됨'; }
+.related-oq { font-size: 0.85rem; color: var(--muted); margin: 0.25rem 0 0.25rem 1rem; }
+.risk-mitigation { font-size: 0.85rem; margin: 0.25rem 0 0.25rem 1rem; }
+.milestone-history { list-style: none; padding-left: 0; }
+.milestone-item { padding: 0.25rem 0; border-bottom: 1px dashed var(--border); }
+.milestone-item:last-child { border-bottom: none; }
+.ms-name { color: var(--ink); }
+details { margin-top: 0.5rem; }
+/* F1 absorption — details summary + abbr underline contrast WCAG AA */
+details summary { cursor: pointer; color: var(--ink); font-size: 0.85rem; }
+details[open] summary { margin-bottom: 0.5rem; }
+abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px; cursor: help; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }`;
 
 const STALE_SCRIPT = `(function(){var d=Number(document.body.dataset.derivedMs)||0;function c(){if(document.hidden)return;var a=Date.now()-d;document.body.dataset.stale=a>60000?'1':'0';}c();document.addEventListener('visibilitychange',c);setInterval(c,5000);})();`;
+
+const COPY_SCRIPT = `(function(){document.addEventListener('click',function(e){var t=e.target&&e.target.closest&&e.target.closest('[data-copy]');if(!t)return;var s=t.getAttribute('data-copy')||'';if(navigator&&navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(s).then(function(){t.setAttribute('data-copied','1');setTimeout(function(){t.removeAttribute('data-copied')},1500)}).catch(function(){})}});})();`;
 
 function renderStripCell(cell, escapeHtml) {
   const classes = ['cell'];
@@ -135,7 +172,7 @@ function renderStripCell(cell, escapeHtml) {
 function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   const { escapeHtml, formatRelativeTime } = formatUtils;
   const m = model || {};
-  const [grid, fanout, activeSessions, timeline, questions, risks] = sections;
+  const [grid, fanout, activeSessions, timeline, questions, risks, milestoneHistory] = sections;
   const derivedMs = new Date(derivedAt).getTime();
   const relative = formatRelativeTime(derivedAt, Date.now());
 
@@ -179,6 +216,10 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
 
   parts.push('<section id="timeline"><h2>타임라인</h2>' + (timeline ? timeline.html : '') + '</section>');
 
+  if (milestoneHistory) {
+    parts.push('<section id="milestone-history"><h2>이정표 기록</h2>' + milestoneHistory.html + '</section>');
+  }
+
   if (questions) {
     parts.push('<section id="questions"><h2>미해결 질문</h2>' + questions.html + '</section>');
   }
@@ -188,6 +229,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   parts.push('</main>');
   parts.push('<footer class="muted mono">v1.4.2 · <code>.claude/</code> 통합 derive</footer>');
   parts.push('<script>' + STALE_SCRIPT + '</script>');
+  parts.push('<script>' + COPY_SCRIPT + '</script>');
   parts.push('</body>');
   parts.push('</html>');
 

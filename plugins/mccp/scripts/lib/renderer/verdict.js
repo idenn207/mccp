@@ -1,6 +1,18 @@
 'use strict';
 
 const path = require('path');
+const { extractIntentFromPath } = require('./parsers/intent-extractor');
+
+function computeIntentForNextPlan(plan, opts) {
+  if (!plan || !plan.path) return null;
+  try {
+    const cwd = (opts && opts.cwd) || process.cwd();
+    const planAbs = path.isAbsolute(plan.path) ? plan.path : path.resolve(cwd, plan.path);
+    return extractIntentFromPath(planAbs, opts);
+  } catch (_) {
+    return null;
+  }
+}
 
 function planSlug(plan) {
   if (!plan) return '(unknown)';
@@ -12,7 +24,7 @@ function planSlug(plan) {
   return '(unknown)';
 }
 
-function computeVerdict(model, planBody) {
+function computeVerdict(model, planBody, opts) {
   const m = model || {};
   const sources = m.sources || {};
   const warnings = Array.isArray(m.warnings) ? m.warnings : [];
@@ -115,8 +127,14 @@ function computeVerdict(model, planBody) {
         text: backlogCount + ' findings deferred · 다음 미정 (in-progress plan stale)',
       };
     }
-    const nextSlug = freshInProgress[0] ? planSlug(freshInProgress[0]) : '(none)';
-    return { tone: 'neutral', icon: '·', text: backlogCount + ' findings deferred · next: ' + nextSlug };
+    const nextPlan = freshInProgress[0] || null;
+    const nextSlug = nextPlan ? planSlug(nextPlan) : '(none)';
+    const intent = nextPlan ? computeIntentForNextPlan(nextPlan, opts) : null;
+    const suffix = intent ? ' — ' + intent : '';
+    return {
+      tone: 'neutral', icon: '·',
+      text: backlogCount + ' findings deferred · next: ' + nextSlug + suffix,
+    };
   }
 
   if (inProgressPlans.length > 0) {
@@ -126,13 +144,17 @@ function computeVerdict(model, planBody) {
         text: inProgressPlans.length + ' plans active · 다음 미정 (stale)',
       };
     }
+    const nextPlan = freshInProgress[0];
+    const nextSlug = planSlug(nextPlan);
+    const intent = computeIntentForNextPlan(nextPlan, opts);
+    const suffix = intent ? ' — ' + intent : '';
     return {
       tone: 'neutral', icon: '◐',
-      text: freshInProgress.length + ' plans active · next: ' + planSlug(freshInProgress[0]),
+      text: freshInProgress.length + ' plans active · next: ' + nextSlug + suffix,
     };
   }
 
   return { tone: 'muted', icon: '·', text: 'no in-flight signal · select next milestone from PRDs' };
 }
 
-module.exports = { computeVerdict, planSlug };
+module.exports = { computeVerdict, planSlug, computeIntentForNextPlan };

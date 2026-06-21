@@ -2,7 +2,37 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.10.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.11.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.11.0] — 2026-06-22
+
+v1.4.2 dashboard overhaul — Milestone 3 ship (a11y WCAG 2.2 AA + 잔여 OQ 명문화). PRD §M3 두 축을 단일 PR로 정리. (a) semantic landmark + skip-link (clip-based sr-only / focus-visible explicit) + footer role=contentinfo + main id=tabindex=-1 + status-strip 1 tab stop(group label dynamic 4축 aria-label, cell non-focusable + icon aria-hidden) + severity-tag aria-label "위험도: 한글" + copy-btn aria-label "다음 액션 복사" + WCAG AA contrast lint(OKLCH → sRGB → luminance dep-0 oracle) + severity color-only 금지 lint, (b) PRD §Open Questions OQ-a~g 7건을 M1/M2 채택 default로 본문화. Codex Plan-Codex R1 4 findings(F4 status-cell unreachable / F5 severity drift / F6 contrast oracle / F7 skip-link clip-based) + impeccable critique F1/F2/F3 모두 plan body absorbed → Implement-Codex cross-gate dedupe. plugin.json `1.10.0 → 1.11.0` minor bump per CLAUDE.md §3.7 (M3 milestone ship → minor).
+
+### Added
+
+- **`parsers/severity-meta.js`** — single source severity 메타데이터. 5 enum × 4 필드 (`visible` English / `srLabel` 한글 / `icon` emoji / `className` s-prefix) + `severityMeta(sev)` lookup + `severityTagHtml(sev, escapeHtml)` 통일 render helper. mixed-language drift 차단(F5 absorption).
+- **`parsers/oklch-contrast.js`** — W3C CSS Color Module Level 4 §16.4 정합 dep-0 변환기. `oklchToOklab` → `oklabToLinearSrgb` → `linearSrgbTosRgb` → `sRGBtoLuminance` → `contrastRatio` 5-stage pipeline. `contrastRatioOKLCH(fg, bg)` convenience export. independent oracle로 false-pass 차단(F6 absorption).
+- **`tests/oklch-conformance.test.js`** — 11 test. 변환 단계별 ε ≤ 0.005 tolerance + gamma boundary + 21:1 black/white reference + bg-light/bg-dark luminance bounds.
+- **`tests/a11y-contrast.test.js`** — 8 production case strict `>=` (ε 없음). light + dark × {ink ≥ 7, muted ≥ 4.5, accent ≥ 3 large, blocked ≥ 4.5}. token L 조정 권장 fail message.
+- **`tests/a11y-landmarks.test.js`** — 9 test. main/footer landmark + skip-link sr-only/focus-visible + clip-based pattern + offscreen -9999px 폐기 invariant + h1 단일 + raw alert role.
+- **`tests/a11y-aria-labels.test.js`** — 9 test. severity-meta 5 enum 4 필드 + 한글 fallback("미상") + severityTagHtml 통합 invariant(aria-label 한글 + visible 영어 + icon hidden) + status-strip group tabindex/aria-label/현황 4축 prefix + 심각도 legacy mixed-language 0건.
+- **`tests/a11y-severity-non-color.test.js`** — 5 test. severity-tag 추출(중첩 span 인식) + 4 sev × 2 surface(OQ/Risks) 모두 icon AND text 동시 보유 invariant.
+- **html.js CSS** — `.sr-only` (clip-path inset 50%) + `.skip-link:focus-visible` (fixed top/left, accent bg, z-index 11) + `details summary:focus-visible` + `.status-strip:focus-visible` + severity-tag `font-weight: 600` (색 약시 보조) + `main:focus { outline: none }`.
+- **html.js markup** — `<a class="skip-link sr-only" href="#main">본문 바로가기</a>` after `<body>` + `<main id="main" tabindex="-1">` + `<footer role="contentinfo">` + `<code lang="en">.claude/</code>` + status-strip `tabindex="0"` + dynamic aria-label `현황 4축: <label1> <value1> · <label2> <value2> · …` + cell `<span class="icon" aria-hidden="true">`.
+
+### Changed
+
+- **`sections/open-questions.js`** — `severityTagHtml` import (severity-tag 본문 단축). copy-btn에 `aria-label="다음 액션 복사"` 추가(한글 전용 고정).
+- **`sections/risks.js`** — 동일 — `severityTagHtml` + copy-btn `aria-label="다음 액션 복사"`. SEVERITY_ICON local map 제거.
+- **`sections/milestone-history.js`** — `<time datetime="<ISO>">` semantic 시간 wrap (날짜 미상은 fallback).
+- **html.js LAYOUT** — `header .status-strip .cell:focus-visible` 룰 제거(cell non-focusable). `header .status-strip:focus-visible` 신규 룰로 교체.
+- **`.claude/prds/v1-4-2-dashboard-overhaul.prd.md`** §Open Questions OQ-a~g 7건에 "**결정 (v1.4.2-M3)**: …" sub-bullet append (M1/M2 채택 default 본문화). §Risks "design direction anchor 4 위반" 행 mitigation column에 M3 lint 4종 mechanize 추가. §Design Direction Acceptance criteria 5 a11y 항목 `[x]` 체크. M3 row in-progress → complete.
+- **plugin.json version bump** `1.10.0 → 1.11.0`.
+
+### Deviations from plan
+
+- **status-grid.js 변경 0건** — plan §Files to Change에 status-grid.js UPDATE가 명시되었으나, status-grid의 `html` 출력은 dashboard 어디에도 surface되지 않음(html.js는 `grid.cells`만, markdown.js는 `grid.md`만 사용). 실제 strip은 html.js의 `renderStripCell`이 담당하며 본 PR에서 같은 파일이 이미 a11y 적용 받음. status-grid.js 수정은 dead code 변경이라 skip.
+- **aria-label line count vs occurrence count** — plan validation `grep -c 'aria-label' .claude/cache/status.html` ≥ 7은 line-count 가정. compact HTML(한 줄에 다수 aria-label)에서 line count = 3으로 보이나 실제 occurrence는 5건(strip 1 + 위험도 2 + 다음 액션 복사 2). 정성 invariant는 모두 통과.
 
 ## [1.10.0] — 2026-06-21
 

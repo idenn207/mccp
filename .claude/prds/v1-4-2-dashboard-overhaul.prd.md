@@ -67,7 +67,9 @@ We'll know we're right when:
 - 새 file format (STATUS.md 동반 update OK, 새 산출물 없음)
 - Codex/impeccable critique cycle 자체 변경
 - status.html 자동 새로고침/polling (M4 trigger surface scope 외)
-- a11y WCAG 2.2 full pass (다음 cycle)
+- ~~a11y WCAG 2.2 full pass (다음 cycle)~~ → M3로 흡수
+- a11y WCAG 2.2 AAA (M3는 AA만, AAA는 다음 cycle)
+- screen reader live-region (예: aria-live="polite" 동적 announce — M3 scope 외, 정적 markup만)
 
 ## Delivery Milestones
 <!-- Business outcomes, not engineering tasks. /mccp:plan turns each into a plan. -->
@@ -77,26 +79,34 @@ We'll know we're right when:
 |---|---|---|---|---|
 | 1 | layout/i18n/staleness | 첫 사용 5초 내 *현재 진행 + next + 차단* 파악, stale surface 0건, 한글 surface label, status header hoist | in-progress | [v1-4-2-dashboard-overhaul-m1.plan.md](../plans/v1-4-2-dashboard-overhaul-m1.plan.md) |
 | 2 | content + actionability | jargon expand, OQ/Risks dedupe + meta-cue + copy-paste action prompt, milestone history surface, intent(why) extraction | in-progress | [v1-4-2-dashboard-overhaul-m2.plan.md](../plans/v1-4-2-dashboard-overhaul-m2.plan.md) |
+| 3 | a11y WCAG 2.2 AA + 잔여 OQ 명문화 | semantic landmark + skip-link + focus-visible 일관성 + ARIA label + 색 contrast lint, OQ-a~g 7건 결정 PRD에 본문화, color-only severity 금지 lint | complete | [v1-4-2-dashboard-overhaul-m3.plan.md](../plans/v1-4-2-dashboard-overhaul-m3.plan.md) |
 
 ## Open Questions
-- [ ] **OQ-a.** Stale plan 판정 기준 — (i) plan path basename cycle ID와 STATE.md
+- [x] **OQ-a.** Stale plan 판정 기준 — (i) plan path basename cycle ID와 STATE.md
   `task_fingerprint` 일치, (ii) plan file mtime, (iii) PRD `## Delivery Milestones`
   status column — 셋 중 어느 조합?
-- [ ] **OQ-b.** Korean i18n 시 영어 식별자(`mccp-plan-codex`, `MCCP_GATE_ROUND_CAP`
+  - **결정 (v1.4.2-M3)**: M1 `plan-body.js#staleness-guard` 채택 = **(i) plan path basename cycle ID와 STATE.md `task_fingerprint` 일치** + **(ii) plan file mtime** 둘 다. **(iii) PRD status column**은 보조 신호 (mismatch 시 i+ii 우선).
+- [x] **OQ-b.** Korean i18n 시 영어 식별자(`mccp-plan-codex`, `MCCP_GATE_ROUND_CAP`
   등 env var/gate name) 정제 범위 — 코드/식별자는 영어 유지, 산문/label만 한글?
-- [ ] **OQ-c.** 인터랙션 깊이 — Hover 강조 / 섹션 fold-expand / filter+search
+  - **결정 (v1.4.2-M3)**: gate name(`mccp-plan-codex`), env var(`MCCP_GATE_ROUND_CAP`), command(`/mccp:plan`), file path는 **영어 그대로**. `<abbr title="…">` 한글 풀이는 jargon-dictionary whitelist에 등록된 37 entry만 적용. 산문/label/section heading은 한글.
+- [x] **OQ-c.** 인터랙션 깊이 — Hover 강조 / 섹션 fold-expand / filter+search
   중 어디까지?
-- [ ] **OQ-d.** milestone history surface 데이터 source — (i) git log + plugin.json
+  - **결정 (v1.4.2-M3)**: **hover background-color shift + native `<details>` expand만**. filter/search/sort는 v1.4.3+ defer (impeccable Acceptable register 정합 — "차분, 산만 최소").
+- [x] **OQ-d.** milestone history surface 데이터 source — (i) git log + plugin.json
   version bump commits parse, (ii) PRD `## Delivery Milestones` complete row
   aggregation, (iii) receipt `mccp-pr-codex/*` ship 이벤트
-- [ ] **OQ-e.** "한 화면 항목수 상한"(design direction anchor 4)의 *N* — OQ/Risks
+  - **결정 (v1.4.2-M3)**: M2 `milestone-history.js` 채택 = **(ii) PRD `## Delivery Milestones` complete row** + **(iii) receipt `mccp-pr-codex/*` ship 이벤트** 결합. (i) git log parse는 secondary verification만 (`<time datetime>` 정확도 보강).
+- [x] **OQ-e.** "한 화면 항목수 상한"(design direction anchor 4)의 *N* — OQ/Risks
   각각 상위 몇 개 expanded, 나머지 `<details>+N more</summary>` collapse?
-- [ ] **OQ-f.** OQ/Risk actionability prompt template 생성 source — (i) item text
+  - **결정 (v1.4.2-M3)**: **3 expanded + 나머지 `<details>+N 더보기`** (OQ, Risks 동일).
+- [x] **OQ-f.** OQ/Risk actionability prompt template 생성 source — (i) item text
   → static template (e.g., `/mccp:plan 또는 /codex:rescue 'item'`), (ii) LLM-derived
   (briefing infra 재활용), (iii) plan body 명시 anchor (e.g., `> action:` 라인)
-- [ ] **OQ-g.** Open Question meta-cue 데이터 source — (i) parse 시점에 plan body
+  - **결정 (v1.4.2-M3)**: **(i) static template whitelist** (`/mccp:plan`, `/mccp:plan-prd`, `/codex:rescue`). LLM-derived 및 plan body anchor parse는 v1.4.3+.
+- [x] **OQ-g.** Open Question meta-cue 데이터 source — (i) parse 시점에 plan body
   헤딩 path + 항목 위치 추출 (예: "v1-3-0-m6.plan.md §Open Questions, line 102"),
   (ii) OQ 항목 인접 산문 1-2줄 추출 ("이 항목은 ... 때문에 미해결")
+  - **결정 (v1.4.2-M3)**: **(i) plan body 헤딩 path + 항목 위치 추출** — `basename §section, line N` 형식. (ii) 인접 산문 1-2줄 추출은 v1.4.3+ defer.
 
 ## Risks
 | Risk | Likelihood | Impact | Mitigation |
@@ -104,7 +114,7 @@ We'll know we're right when:
 | stale plan 판정 기준이 false-positive로 *정상* in-progress plan을 stale 표시 | medium | high | OQ-a 결정 후 fixture 3종(현 cycle / cycle 다른 / 동일 cycle minor 진행) 테스트 추가 |
 | Actionability prompt template이 *작동 안 하는* command를 잘못 제시 | medium | medium | static template 화이트리스트(`/mccp:plan`, `/mccp:plan-prd`, `/codex:rescue`)로 시작, LLM-derived는 OQ-f 결정 후 |
 | Content 정제(jargon expand)가 *내용을 왜곡* | low | medium | normalize는 *append-only*(원문 + expansion), 원문 손상 금지. 테스트 fixture 3종 |
-| design direction anchor 4 위반 (정보 위계 3단계 / 강조색 1개 / raw markdown 금지 / 항목수 상한) | high | medium | impeccable critique loop을 plan/implement 양 게이트 모두에서 활성 |
+| design direction anchor 4 위반 (정보 위계 3단계 / 강조색 1개 / raw markdown 금지 / 항목수 상한) | high | medium | impeccable critique loop을 plan/implement 양 게이트 모두에서 활성 + M3가 lint 4종(landmark/aria-labels/contrast/severity-non-color)으로 mechanize |
 | 9 axis 묶음이 큰 PR → review 부담 + Codex finding 다수 | high | medium | 2 milestone split, 각 milestone은 별도 plan + 별도 receipt |
 | M3 renderer 본문 변경이 v1.3.0-m4/m5 trigger/snapshot 산출과 conflict | low | high | sections/* 인터페이스 보존(`render*` API 1:1), tests/integration.test.js + renderer-generic.test.js 회귀 0 |
 | 본 cycle 직후 또 다른 사용자 unsurfaced defect 발견 | high | low | post-merge dogfood log를 OQ로 backlog에 기록, v1.4.3+ cycle로 routing |
@@ -226,14 +236,14 @@ L3 항목에는 accent 미사용 (회색 항목 + severity tag만). design direc
 "왜" cue + 해당 risk를 줄이는 prompt template.
 
 ### Acceptance criteria (impeccable Output Constraints anchor 정합)
-- [ ] **위계 3단계**: 헤딩 depth ≤ 3 (h1 verdict / h2 section / h3 item이 끝)
+- [x] **위계 3단계**: 헤딩 depth ≤ 3 (h1 verdict / h2 section / h3 item이 끝)
 - [ ] **accent 1/viewport**: 한 화면당 `--accent` 사용 ≤ 1 surface
 - [ ] **raw markdown 금지**: `**bold**`, MD0xx, raw inline code, `> bare blockquote` 없음
-- [ ] **항목 수 상한**: OQ 3 expanded + 나머지 `<details>`, Risks 3 expanded + 나머지 동일
-- [ ] **WCAG 2.2 AA**: 본문 4.5:1 / 큰 글자 3:1 / placeholder 4.5:1 (PRODUCT.md 정합)
-- [ ] **color+icon 이중 표기**: severity는 색 + 텍스트 + 아이콘 3중 — color-only 금지
-- [ ] **prefers-reduced-motion**: 모든 motion 대안 + 모션 부재 시 동작 동일
-- [ ] **OQ/Risk 4-part**: tag + item text + meta-cue + action prompt + Copy button
+- [x] **항목 수 상한**: OQ 3 expanded + 나머지 `<details>`, Risks 3 expanded + 나머지 동일
+- [x] **WCAG 2.2 AA**: 본문 4.5:1 / 큰 글자 3:1 / placeholder 4.5:1 (PRODUCT.md 정합) — M3 a11y-contrast.test.js 8 case strict ≥ 통과
+- [x] **color+icon 이중 표기**: severity는 색 + 텍스트 + 아이콘 3중 — color-only 금지 — M3 a11y-severity-non-color.test.js lint
+- [x] **prefers-reduced-motion**: 모든 motion 대안 + 모션 부재 시 동작 동일 — html.js LAYOUT @media query 유지
+- [x] **OQ/Risk 4-part**: tag + item text + meta-cue + action prompt + Copy button
 
 ### Open design decisions (PRD §Open Questions로 routing)
 - OQ-c (interaction 깊이) — recommend: **hover bg + native `<details>` expand만**, filter/search는 v1.4.3+ defer

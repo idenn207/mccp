@@ -1,14 +1,18 @@
 'use strict';
 
-// v1.3.0-m3-redux verdict — tone enum now 5-way (red/amber/green/blue/neutral)
-// matching the 4-signal token palette in html.js (signal/warn/ok/accent).
-//
-// Backwards-compat: `text` field preserved verbatim (downstream md composer +
-// existing tests read it). New `prose` field carries PM-voice sentence; html.js
-// renders prose-if-present, else text. Future derive-side LLM briefing can
-// populate prose with richer phrasing while text stays mechanical.
-
 const path = require('path');
+const { extractIntentFromPath } = require('./parsers/intent-extractor');
+
+function computeIntentForNextPlan(plan, opts) {
+  if (!plan || !plan.path) return null;
+  try {
+    const cwd = (opts && opts.cwd) || process.cwd();
+    const planAbs = path.isAbsolute(plan.path) ? plan.path : path.resolve(cwd, plan.path);
+    return extractIntentFromPath(planAbs, opts);
+  } catch (_) {
+    return null;
+  }
+}
 
 function planSlug(plan) {
   if (!plan) return '(unknown)';
@@ -20,14 +24,7 @@ function planSlug(plan) {
   return '(unknown)';
 }
 
-// Build verdict object with both `text` (legacy) and `prose` (PM-voice). For
-// now they are equal; prose only diverges when a future derive briefing
-// supplies a more human sentence. tone is mapped to the new 5-way enum.
-function v(tone, icon, text, prose) {
-  return { tone, icon, text, prose: prose || text };
-}
-
-function computeVerdict(model, planBody) {
+function computeVerdict(model, planBody, opts) {
   const m = model || {};
   const sources = m.sources || {};
   const warnings = Array.isArray(m.warnings) ? m.warnings : [];
@@ -35,21 +32,30 @@ function computeVerdict(model, planBody) {
   const planStatuses = pb.planStatuses instanceof Map ? pb.planStatuses : new Map();
 
   if (m.m0_capability && m.m0_capability.contract_present === false) {
-    return v('red', '🚫', 'schema contract missing, derive degraded');
+    return { tone: 'red', icon: '🚫', text: 'schema contract missing — derive degraded' };
   }
 
+  // v1.3.0-m4 Task 7 — secret-suspect banner (step 1.5). Fires only for
+  // severe kinds (sk-key, aws-key, private-key-block). Bearer/password=
+  // mask silently. impeccable F1+F3 absorption — telegraphic Korean copy,
+  // no em dash, receipt/envelope source id surfaced for triage.
   const hits = Array.isArray(m.mask_hits) ? m.mask_hits : [];
-  const severeHits = hits.filter(h => h && h.severe === true);
+  const severeHits = hits.filter(function (h) {
+    return h && h.severe === true;
+  });
   if (severeHits.length > 0) {
-    const severeCount = severeHits.reduce((acc, h) => acc + (h.count || 1), 0);
+    const severeCount = severeHits.reduce(function (acc, h) { return acc + (h.count || 1); }, 0);
     const firstId = (severeHits[0] && severeHits[0].source_id) || null;
-    const idSuffix = firstId ? ', ' + String(firstId).slice(0, 16) + ' 확인' : '';
-    return v('red', '⚠', '시크릿 ' + severeCount + '건 감지, 즉시 키 회전' + idSuffix);
+    const idSuffix = firstId ? ' · ' + String(firstId).slice(0, 16) + ' 확인' : '';
+    return {
+      tone: 'red', icon: '⚠',
+      text: '시크릿 ' + severeCount + '건 감지 · 즉시 키 회전' + idSuffix,
+    };
   }
 
   const crit = warnings.find(w => w && w.severity === 'critical');
   if (crit) {
-    return v('red', '🚫', (crit.source || 'warning') + ': ' + (crit.message || 'critical'));
+    return { tone: 'red', icon: '🚫', text: (crit.source || 'warning') + ': ' + (crit.message || 'critical') };
   }
 
   const degradedSources = Object.entries(sources)
@@ -61,41 +67,41 @@ function computeVerdict(model, planBody) {
     const text = rest > 0
       ? first + ' + ' + rest + ' more 소스 손상'
       : first + ' 소스 손상';
-    return v('amber', '⏱', text);
+    return { tone: 'amber', icon: '⏱', text };
   }
 
   const stateItem = sources.state && sources.state.item;
   if (stateItem) {
     if (stateItem.resume_state === 'giveup') {
       const attempts = (stateItem.frontmatter && stateItem.frontmatter.dispatch_attempt_count) || 0;
-      return v('red', '🚫', 'resume dispatch gave up after ' + attempts + ' attempts');
+      return { tone: 'red', icon: '🚫', text: 'resume dispatch gave up after ' + attempts + ' attempts' };
     }
     if (stateItem.resume_state === 'in-flight') {
       const attempts = (stateItem.frontmatter && stateItem.frontmatter.dispatch_attempt_count) || 1;
-      return v('amber', '⏱', 'resume dispatch in-flight (attempt ' + attempts + ')');
+      return { tone: 'amber', icon: '⏱', text: 'resume dispatch in-flight (attempt ' + attempts + ')' };
     }
   }
 
   const fixTask = sources.fix_task && sources.fix_task.item;
   if (fixTask && stateItem && stateItem.escalate_pending) {
-    return v('amber', '⚠', 'fix-task pending escalate');
+    return { tone: 'amber', icon: '⚠', text: 'fix-task pending escalate' };
   }
 
   const envItems = (sources.envelopes && sources.envelopes.items) || [];
   const staleWorkers = envItems.filter(e => e && e.ok && e.stale).length;
   if (staleWorkers > 0) {
-    return v('amber', '⏱', staleWorkers + ' worker(s) heartbeat stale');
+    return { tone: 'amber', icon: '⏱', text: staleWorkers + ' worker(s) heartbeat stale' };
   }
 
   if (stateItem && stateItem.controller_active && envItems.length === 0) {
     const adc = (stateItem.frontmatter && stateItem.frontmatter.active_dispatch_count) || 0;
-    return v('amber', '⏱', 'controller active, envelopes missing (' + adc + ' dispatches)');
+    return { tone: 'amber', icon: '⏱', text: 'controller active, envelopes missing (' + adc + ' dispatches)' };
   }
 
   const aliveWorkers = envItems.filter(e => e && e.ok && !e.is_terminal && !e.stale).length;
   const terminalWorkers = envItems.filter(e => e && e.ok && e.is_terminal).length;
   if (aliveWorkers > 0) {
-    return v('green', '●', aliveWorkers + ' worker(s) alive · ' + terminalWorkers + ' terminal');
+    return { tone: 'green', icon: '●', text: aliveWorkers + ' worker(s) alive · ' + terminalWorkers + ' terminal' };
   }
 
   const backlogCount = (sources.backlog && sources.backlog.count) || 0;
@@ -106,19 +112,49 @@ function computeVerdict(model, planBody) {
     const status = basename ? planStatuses.get(basename) : undefined;
     return status === 'in-progress';
   });
+  const staleness = pb.planStaleness instanceof Map ? pb.planStaleness : new Map();
+  const freshInProgress = inProgressPlans.filter(p => {
+    const basename = p.path ? path.basename(p.path) : null;
+    const st = basename ? staleness.get(basename) : undefined;
+    return st !== 'stale';
+  });
+  const allInProgressStale = inProgressPlans.length > 0 && freshInProgress.length === 0;
 
   if (backlogCount > 0) {
-    const nextSlug = inProgressPlans[0] ? planSlug(inProgressPlans[0]) : '(none)';
-    const text = backlogCount + ' findings deferred · next: ' + nextSlug;
-    return v('neutral', '·', text);
+    if (allInProgressStale) {
+      return {
+        tone: 'amber', icon: '⚠',
+        text: backlogCount + ' findings deferred · 다음 미정 (in-progress plan stale)',
+      };
+    }
+    const nextPlan = freshInProgress[0] || null;
+    const nextSlug = nextPlan ? planSlug(nextPlan) : '(none)';
+    const intent = nextPlan ? computeIntentForNextPlan(nextPlan, opts) : null;
+    const suffix = intent ? ' — ' + intent : '';
+    return {
+      tone: 'neutral', icon: '·',
+      text: backlogCount + ' findings deferred · next: ' + nextSlug + suffix,
+    };
   }
 
   if (inProgressPlans.length > 0) {
-    const text = inProgressPlans.length + ' plans active · next: ' + planSlug(inProgressPlans[0]);
-    return v('neutral', '◐', text);
+    if (allInProgressStale) {
+      return {
+        tone: 'amber', icon: '⚠',
+        text: inProgressPlans.length + ' plans active · 다음 미정 (stale)',
+      };
+    }
+    const nextPlan = freshInProgress[0];
+    const nextSlug = planSlug(nextPlan);
+    const intent = computeIntentForNextPlan(nextPlan, opts);
+    const suffix = intent ? ' — ' + intent : '';
+    return {
+      tone: 'neutral', icon: '◐',
+      text: freshInProgress.length + ' plans active · next: ' + nextSlug + suffix,
+    };
   }
 
-  return v('muted', '·', 'no in-flight signal · select next milestone from PRDs');
+  return { tone: 'muted', icon: '·', text: 'no in-flight signal · select next milestone from PRDs' };
 }
 
-module.exports = { computeVerdict, planSlug };
+module.exports = { computeVerdict, planSlug, computeIntentForNextPlan };

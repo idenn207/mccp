@@ -1,76 +1,105 @@
 'use strict';
 
-// v1.3.0-m3-redux — plain <ul>, no card wrapper, no UPPERCASE pills.
-// Severity surfaces as a tiny lowercase tag (`<span class="tag t-medium">medium</span>`).
-// Only `critical` ever takes signal-red color.
+const path = require('path');
+const { buildActionPrompt } = require('../parsers/action-prompt');
+const { renderJargonHtml, renderJargonMarkdown } = require('../parsers/jargon-dictionary');
+const { severityMeta, severityTagHtml } = require('../parsers/severity-meta');
 
-const MAX_ITEMS = 15;
+const MAX_EXPANDED = 3;
 
-const SEV_RE = /^\s*\*\*\s*(CRITICAL|HIGH|MEDIUM|LOW)\b[^*]*\*\*\s*:?\s*/i;
-
-function extractSeverity(text) {
-  const m = String(text || '').match(SEV_RE);
-  if (!m) return { sev: null, rest: String(text || '') };
-  return { sev: m[1].toUpperCase(), rest: String(text).slice(m[0].length) };
+function severityIcon(sev) {
+  return severityMeta(sev).icon;
 }
 
-function renderInlineBold(s, escapeHtml) {
-  // Convert `**x**` to <strong>x</strong>; escape the rest. Bold runs first
-  // so escapeHtml never sees raw HTML.
-  const out = [];
-  let i = 0;
-  const re = /\*\*([^*]+)\*\*/g;
-  let match;
-  while ((match = re.exec(s)) !== null) {
-    if (match.index > i) out.push(escapeHtml(s.slice(i, match.index)));
-    out.push('<strong>' + escapeHtml(match[1]) + '</strong>');
-    i = match.index + match[0].length;
-  }
-  if (i < s.length) out.push(escapeHtml(s.slice(i)));
-  return out.join('');
+function metaCue(q) {
+  if (!q || (!q.source && !q.lineNumber)) return null;
+  const base = q.source ? path.basename(q.source) : null;
+  const head = (q.headingPath && q.headingPath[0]) || '## Open Questions';
+  const heading = head.replace(/^##\s+/, '');
+  const lineN = q.lineNumber ? ', line ' + q.lineNumber : '';
+  if (base) return base + ' §' + heading + lineN;
+  return '§' + heading + lineN;
+}
+
+function inferSeverity(text) {
+  const m = /\b(critical|high|medium|low)\b/i.exec(String(text || ''));
+  if (m) return m[1].toUpperCase();
+  return 'MEDIUM';
 }
 
 function renderOpenQuestions(model, formatUtils, planBody) {
-  const { escapeHtml, normalizeProse } = formatUtils;
+  const { escapeHtml, escapeAttr } = formatUtils;
   const m = model || {};
   const sources = m.sources || {};
   const stateItem = sources.state && sources.state.item;
   const stateBody = (stateItem && stateItem.body) || {};
-  const stateOQ = Array.isArray(stateBody.open_questions) ? stateBody.open_questions : [];
-
+  const stateOQRaw = Array.isArray(stateBody.open_questions) ? stateBody.open_questions : [];
   const pb = planBody || {};
   const planOQ = Array.isArray(pb.openQuestions) ? pb.openQuestions : [];
 
   const seen = new Set();
   const merged = [];
-  for (const text of stateOQ) {
+  for (const text of stateOQRaw) {
     const s = String(text || '').trim();
-    if (s && !seen.has(s)) { seen.add(s); merged.push({ source: 'state', text: s }); }
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    merged.push({ text: s, source: 'STATE.md', severity: 'MEDIUM' });
   }
-  for (const entry of planOQ) {
-    const s = String((entry && entry.text) || '').trim();
-    if (s && !seen.has(s)) { seen.add(s); merged.push({ source: entry.source || 'plan', text: s }); }
+  for (const q of planOQ) {
+    const s = String((q && q.text) || '').trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    merged.push(Object.assign({}, q, {
+      text: s,
+      severity: q && q.severity ? String(q.severity).toUpperCase() : inferSeverity(s),
+    }));
   }
 
   if (merged.length === 0) return null;
+  const expanded = merged.slice(0, MAX_EXPANDED);
+  const collapsed = merged.slice(MAX_EXPANDED);
+  const jargonSeenHtml = new Set();
 
-  const shown = merged.slice(0, MAX_ITEMS);
-  const moreCount = Math.max(0, merged.length - MAX_ITEMS);
-
-  const mdLines = shown.map(q => '- [ ] ' + q.text);
-  const htmlItems = shown.map(q => {
-    const { sev, rest } = extractSeverity(q.text);
-    const sevTag = sev
-      ? '<span class="tag t-' + sev.toLowerCase() + '">' + sev.toLowerCase() + '</span>'
+  function renderItem(q) {
+    const sev = q.severity || 'MEDIUM';
+    const ap = buildActionPrompt(q, 'openQuestion');
+    const cue = metaCue(q);
+    const sevTag = severityTagHtml(sev, escapeHtml);
+    const textHtml = '<span class="item-text">'
+      + renderJargonHtml(q.text, { seen: jargonSeenHtml }, escapeHtml, escapeAttr)
+      + '</span>';
+    const cueHtml = cue
+      ? '<blockquote class="meta-cue">왜: ' + escapeHtml(cue) + '</blockquote>'
       : '';
-    const bodyHtml = renderInlineBold(normalizeProse(rest), escapeHtml);
-    return '<li>' + sevTag + bodyHtml + '</li>';
-  }).join('');
-  let md = mdLines.join('\n');
-  let html = '<ul class="open-questions" role="list">' + htmlItems + '</ul>';
-  if (moreCount > 0) {
-    md += '\n- _+' + moreCount + ' more_';
-    html = html.replace('</ul>', '<li class="muted"><em>+' + moreCount + ' more</em></li></ul>');
+    // F1 absorption — data-copy는 escapeHtml만 (escapeAttr URL-encode 회피)
+    const apHtml = '<div class="action-prompt">'
+      + '<code>' + escapeHtml(ap.fullText) + '</code>'
+      + '<button class="copy-btn" data-copy="' + escapeHtml(ap.fullText)
+      + '" type="button" aria-label="다음 액션 복사">복사</button>'
+      + '</div>';
+    const html = '<li class="oq-item">' + sevTag + ' ' + textHtml + cueHtml + apHtml + '</li>';
+    // Markdown — jargon seen 별도 (HTML/MD 분리)
+    const mdSeen = new Set();
+    const textMd = renderJargonMarkdown(q.text, { seen: mdSeen });
+    const md = '- ' + severityIcon(sev) + ' **' + sev + '** — ' + textMd
+      + (cue ? '\n  - 왜: ' + cue : '')
+      + '\n  - 다음 액션: `' + ap.fullText + '`';
+    return { html, md };
+  }
+
+  const expandedR = expanded.map(renderItem);
+  const collapsedR = collapsed.map(renderItem);
+
+  let html = '<ul class="open-questions" role="list">' + expandedR.map(r => r.html).join('') + '</ul>';
+  if (collapsed.length > 0) {
+    html += '<details class="oq-more"><summary>+' + collapsed.length + ' 더보기</summary>'
+      + '<ul role="list">' + collapsedR.map(r => r.html).join('') + '</ul></details>';
+  }
+  let md = expandedR.map(r => r.md).join('\n');
+  if (collapsed.length > 0) {
+    md += '\n\n<details>\n<summary>+' + collapsed.length + ' 더보기</summary>\n\n'
+      + collapsedR.map(r => r.md).join('\n')
+      + '\n\n</details>';
   }
   return { md, html };
 }

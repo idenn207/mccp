@@ -67,12 +67,18 @@ test('parseDeliveryMilestones — empty Map when table missing', () => {
   assert.equal(m.size, 0);
 });
 
-test('parseOpenQuestions — checkbox + bare bullets', () => {
+test('parseOpenQuestions — checkbox + bare bullets, metadata 객체', () => {
   const qs = parseOpenQuestions(PLAN_BODY_FULL);
   assert.equal(qs.length, 3);
-  assert.equal(qs[0], 'q1: foo?');
-  assert.equal(qs[1], 'q2: bar resolved');
-  assert.equal(qs[2], 'q3: bare bullet without checkbox');
+  assert.equal(qs[0].text, 'q1: foo?');
+  assert.equal(qs[1].text, 'q2: bar resolved');
+  assert.equal(qs[2].text, 'q3: bare bullet without checkbox');
+  // M2 metadata sibling fields
+  for (const q of qs) {
+    assert.ok(q.lineNumber > 0);
+    assert.ok(Array.isArray(q.headingPath));
+    assert.ok(q.headingPath[0].includes('Open Questions'));
+  }
 });
 
 test('parseRisks — 4-col table', () => {

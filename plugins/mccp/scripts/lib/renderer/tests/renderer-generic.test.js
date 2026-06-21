@@ -33,14 +33,15 @@ function baseModel(overrides) {
 }
 
 function assertSixSectionInvariant(r) {
-  // Renderer markdown invariant: Verdict + Status + Timeline + Risks always
-  // appear; Workers/Open Questions appear only when applicable. We assert
+  // Renderer markdown invariant: Verdict + 현황 + 타임라인 + 위험 always
+  // appear; 워커/미해결 질문 appear only when applicable. We assert
   // the always-present four plus the single # title.
-  assert.match(r.md, /^# mccp Status/m, 'title line present');
+  // v1.4.2-m1: title + section headings i18n to Korean.
+  assert.match(r.md, /^# mccp 상태/m, 'title line present');
   assert.match(r.md, /## Verdict/, 'Verdict section');
-  assert.match(r.md, /## Status/, 'Status section');
-  assert.match(r.md, /## Timeline/, 'Timeline section');
-  assert.match(r.md, /## Risks/, 'Risks section');
+  assert.match(r.md, /## 현황/, '현황 section');
+  assert.match(r.md, /## 타임라인/, '타임라인 section');
+  assert.match(r.md, /## 위험/, '위험 section');
   assert.equal(typeof r.verdict, 'object', 'verdict object returned');
   assert.equal(typeof r.verdict.text, 'string', 'verdict text string');
 }
@@ -52,8 +53,8 @@ test('renderer-generic A: empty model renders graceful verdict + all 4 always-on
   assertSixSectionInvariant(r);
   assert.equal(r.verdict.tone, 'muted', 'no in-flight signal → muted');
   assert.match(r.verdict.text, /no in-flight signal/);
-  // Workers section hides when envelope count=0 and no controller
-  assert.doesNotMatch(r.md, /## Workers/);
+  // 워커 section hides when envelope count=0 and no controller
+  assert.doesNotMatch(r.md, /## 워커/);
 });
 
 test('renderer-generic B: state-only model surfaces idle verdict + state-driven status grid', () => {
@@ -76,7 +77,7 @@ test('renderer-generic B: state-only model surfaces idle verdict + state-driven 
   const r = renderStatus(m, { snapshotsDir: null });
 
   assertSixSectionInvariant(r);
-  assert.doesNotMatch(r.md, /## Workers/, 'no workers section without controller');
+  assert.doesNotMatch(r.md, /## 워커/, 'no 워커 section without controller');
   // No receipts → timeline shows "최근 7일 활동 없음"
   assert.match(r.md, /최근 7일 활동 없음/);
 });

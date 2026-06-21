@@ -9,7 +9,7 @@ const { renderAuditTimeline } = require('../sections/audit-timeline');
 const { renderOpenQuestions } = require('../sections/open-questions');
 const { renderRisks } = require('../sections/risks');
 
-test('status-grid — inline sentence with counts (v1.3.0-m3-redux)', () => {
+test('status-grid — 4 cells + structured data + Korean labels', () => {
   const model = {
     sources: {
       plans: { items: [
@@ -29,21 +29,53 @@ test('status-grid — inline sentence with counts (v1.3.0-m3-redux)', () => {
       ['c.plan.md', 'in-progress'],
     ]),
   };
-  const { md, html } = renderStatusGrid(model, formatUtils, planBody);
-  assert.match(md, /3/);
-  assert.match(md, /2/);
-  assert.match(md, /1/);
-  assert.match(md, /a/);
-  // PRD-compliant redesign: status is now ONE inline sentence, not a 4-card
-  // grid. NO .status-grid wrapper, NO data-tone severity bg, NO .grid-cell.
-  assert.doesNotMatch(html, /class="status-grid"/);
-  assert.doesNotMatch(html, /data-tone="/);
-  assert.doesNotMatch(html, /class="grid-cell/);
-  assert.match(html, /class="status-line"/);
-  assert.match(html, /진행 중 <b>3<\/b>/);
-  assert.match(html, /차단/);
-  // critical blocked count → signal-red word class
-  assert.match(html, /class="x-red"/);
+  const { md, html, cells } = renderStatusGrid(model, formatUtils, planBody);
+  assert.equal(cells.length, 4);
+  assert.equal(cells[0].key, 'in-progress');
+  assert.equal(cells[0].label, '진행 중');
+  assert.equal(cells[1].label, '차단');
+  assert.equal(cells[2].label, '다음');
+  assert.equal(cells[3].label, '미해결 위험');
+  assert.match(md, /진행 중 3/);
+  assert.match(md, /차단 2/);
+  assert.match(md, /미해결 위험 1/);
+  assert.match(html, /<div class="status-grid">/);
+});
+
+test('status-grid — nextStep formatted via formatPlanLabel + code wrap (fresh)', () => {
+  const model = {
+    sources: {
+      plans: { items: [{ path: 'v1-4-2-dashboard-overhaul-m1.plan.md' }] },
+      receipts: { items: [] },
+      backlog: { items: [] },
+    },
+  };
+  const planBody = {
+    planStatuses: new Map([['v1-4-2-dashboard-overhaul-m1.plan.md', 'in-progress']]),
+    planStaleness: new Map([['v1-4-2-dashboard-overhaul-m1.plan.md', 'fresh']]),
+  };
+  const { cells, html } = renderStatusGrid(model, formatUtils, planBody);
+  assert.equal(cells[2].value, 'v1.4.2 · dashboard overhaul m1');
+  assert.equal(cells[2].stale, false);
+  assert.match(html, /<code>v1\.4\.2 · dashboard overhaul m1<\/code>/);
+});
+
+test('status-grid — nextStep stale → 미정 (stale) + span.stale-label (F2 absorption)', () => {
+  const model = {
+    sources: {
+      plans: { items: [{ path: 'v1-4-2-dashboard-overhaul-m1.plan.md' }] },
+      receipts: { items: [] },
+      backlog: { items: [] },
+    },
+  };
+  const planBody = {
+    planStatuses: new Map([['v1-4-2-dashboard-overhaul-m1.plan.md', 'in-progress']]),
+    planStaleness: new Map([['v1-4-2-dashboard-overhaul-m1.plan.md', 'stale']]),
+  };
+  const { cells, html } = renderStatusGrid(model, formatUtils, planBody);
+  assert.equal(cells[2].value, '미정 (stale)');
+  assert.equal(cells[2].stale, true);
+  assert.match(html, /<span class="stale-label">미정 \(stale\)<\/span>/);
 });
 
 test('worker-fanout — null when envelopes.count===0 and no controller', () => {
@@ -137,7 +169,7 @@ test('audit-timeline — live cap MAX_ROWS_LIVE=20 (v1.3.0-m5) + older marker', 
   assert.match(md, /\+15 older/);
 });
 
-test('open-questions — merge state + plan, dedupe', () => {
+test('open-questions — merge state + plan, dedupe (4-part component)', () => {
   const model = {
     sources: {
       state: { item: { body: { open_questions: ['q1', 'q2'] } } },
@@ -145,20 +177,26 @@ test('open-questions — merge state + plan, dedupe', () => {
   };
   const planBody = { openQuestions: [{ source: 'p.plan.md', text: 'q2' }, { source: 'p.plan.md', text: 'q3' }] };
   const { md } = renderOpenQuestions(model, formatUtils, planBody);
-  const lines = md.split('\n').filter(Boolean);
-  assert.equal(lines.length, 3);
+  // 3 distinct items (q1 state, q2 dedup state-first, q3 plan)
+  assert.ok(md.includes('— q1'));
+  assert.ok(md.includes('— q2'));
+  assert.ok(md.includes('— q3'));
+  // 4-part each → "다음 액션:" line per item
+  const actionCount = (md.match(/다음 액션:/g) || []).length;
+  assert.equal(actionCount, 3);
 });
 
 test('open-questions — null when empty', () => {
   assert.equal(renderOpenQuestions({ sources: {} }, formatUtils, {}), null);
 });
 
-test('open-questions — cap at 15 + +N more marker', () => {
+test('open-questions — 3 expanded + 더보기 collapse (MAX_EXPANDED=3)', () => {
   const stateOQ = [];
-  for (let i = 0; i < 20; i++) stateOQ.push('q' + i);
+  for (let i = 0; i < 8; i++) stateOQ.push('q' + i);
   const model = { sources: { state: { item: { body: { open_questions: stateOQ } } } } };
   const { md } = renderOpenQuestions(model, formatUtils, {});
-  assert.match(md, /\+5 more/);
+  // 8 items, 3 expanded → 5 collapsed
+  assert.match(md, /\+5 더보기/);
 });
 
 test('risks — 4 rows sorted by impact desc', () => {
@@ -179,16 +217,17 @@ test('risks — 4 rows sorted by impact desc', () => {
   assert.ok(idxMed < idxLow, 'medium before low');
 });
 
-test('risks — placeholder when none', () => {
+test('risks — placeholder when none (한글)', () => {
   const { md } = renderRisks({ sources: {} }, formatUtils, { risks: [] });
-  assert.match(md, /no risks surface/);
+  assert.match(md, /미해결 위험 없음/);
 });
 
-test('risks — cap at 8 + +N less critical marker', () => {
+test('risks — 3 expanded + 더보기 collapse (MAX_EXPANDED=3)', () => {
   const risks = [];
   for (let i = 0; i < 12; i++) {
     risks.push({ risk: 'r' + i, likelihood: 'Low', impact: 'Low', mitigation: 'm', source: 'p' });
   }
   const { md } = renderRisks({ sources: {} }, formatUtils, { risks });
-  assert.match(md, /\+4 less critical/);
+  // 12 items, 3 expanded → 9 collapsed
+  assert.match(md, /\+9 더보기/);
 });

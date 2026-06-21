@@ -9,6 +9,8 @@ const { renderActiveSessions } = require('./sections/active-sessions');
 const { renderAuditTimeline } = require('./sections/audit-timeline');
 const { renderOpenQuestions } = require('./sections/open-questions');
 const { renderRisks } = require('./sections/risks');
+const { renderMilestoneHistory } = require('./sections/milestone-history');
+const { dedupOQAndRisks } = require('./parsers/cross-section-dedupe');
 const { renderMarkdown } = require('./markdown');
 const { renderHtml } = require('./html');
 
@@ -77,8 +79,19 @@ function renderStatus(model, opts) {
       }
     })();
 
+    // M2 — cross-section dedupe (Risks 자체 보존, cue만 첨부). fail-open.
+    try {
+      if (planBody && Array.isArray(planBody.openQuestions) && Array.isArray(planBody.risks)) {
+        const { openQuestions, risks } = dedupOQAndRisks(planBody.openQuestions, planBody.risks);
+        planBody.openQuestions = openQuestions;
+        planBody.risks = risks;
+      }
+    } catch (err) {
+      process.stderr.write('[mccp:renderer] cross-section-dedupe FAILED ' + err.message + ' (allow)\n');
+    }
+
     const verdict = (function () {
-      try { return computeVerdict(m, planBody); }
+      try { return computeVerdict(m, planBody, opts); }
       catch (err) {
         process.stderr.write('[mccp:renderer] verdict FAILED ' + err.message + ' (allow)\n');
         return { tone: 'red', icon: '🚫', text: 'verdict computation failed' };
@@ -99,15 +112,17 @@ function renderStatus(model, opts) {
       return require('path').join(root, '.claude', 'cache', 'snapshots');
     })();
 
-    const grid = safeSection('status-grid', () => renderStatusGrid(m, formatUtils, planBody));
+    const grid = safeSection('status-grid', () => renderStatusGrid(m, formatUtils, planBody, opts));
     const fanout = safeSection('worker-fanout', () => renderWorkerFanout(m, formatUtils));
     const activeSessions = safeSection('active-sessions', () => renderActiveSessions(m, formatUtils));
     const timeline = safeSection('audit-timeline',
       () => renderAuditTimeline(m, formatUtils, undefined, { snapshotsDir: snapshotsDir }));
     const questions = safeSection('open-questions', () => renderOpenQuestions(m, formatUtils, planBody));
     const risks = safeSection('risks', () => renderRisks(m, formatUtils, planBody));
+    const milestoneHistory = safeSection('milestone-history',
+      () => renderMilestoneHistory(m, formatUtils, planBody, opts));
 
-    const sections = [grid, fanout, activeSessions, timeline, questions, risks];
+    const sections = [grid, fanout, activeSessions, timeline, questions, risks, milestoneHistory];
     const derivedAt = m.derived_at || new Date().toISOString();
 
     const md = safeCompose(

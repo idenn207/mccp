@@ -1,17 +1,31 @@
 'use strict';
 
-// v1.3.0-m3-redux — status row is now ONE inline sentence, not a 4-card grid.
-// Anti-ref 1 (SaaS hero-metric) + absolute-ban (identical card grids) compliance.
-// Returns { md, html } where html is a <p class="status-line"> single line.
-
 const path = require('path');
+const { extractIntentFromPath } = require('../parsers/intent-extractor');
 
-function renderStatusGrid(model, formatUtils, planBody) {
-  const { escapeHtml } = formatUtils;
+function formatPlanLabel(basename) {
+  if (!basename || typeof basename !== 'string') return '(unknown)';
+  const slug = basename.replace(/\.plan\.md$/, '').replace(/\.md$/, '');
+  const m = slug.match(/^(v\d+)-(\d+)-(\d+)-(.+)$/);
+  let label;
+  if (m) {
+    const cycle = m[1] + '.' + m[2] + '.' + m[3];
+    const rest = m[4].replace(/-/g, ' ');
+    label = cycle + ' · ' + rest;
+  } else {
+    label = slug;
+  }
+  return label.length > 30 ? label.slice(0, 29) + '…' : label;
+}
+
+function renderStatusGrid(model, formatUtils, planBody, opts) {
+  opts = opts || {};
+  const { escapeHtml, escapeAttr } = formatUtils;
   const m = model || {};
   const sources = m.sources || {};
   const pb = planBody || {};
   const planStatuses = pb.planStatuses instanceof Map ? pb.planStatuses : new Map();
+  const staleness = pb.planStaleness instanceof Map ? pb.planStaleness : new Map();
 
   const plansItems = (sources.plans && sources.plans.items) || [];
   const inProgressCount = plansItems.filter(p => {
@@ -29,7 +43,9 @@ function renderStatusGrid(model, formatUtils, planBody) {
   }
   const blockedCount = blockedReceipts.filter(r => !decisionsWithLaterConverged.has(r.decision_id)).length;
 
-  let nextStep = 'idle';
+  let nextStep = '대기';
+  let nextStale = false;
+  let nextIntent = null;
   const stateItem = sources.state && sources.state.item;
   if (stateItem && stateItem.resume_state === 'in-flight') {
     nextStep = '/mccp:resume';
@@ -39,7 +55,24 @@ function renderStatusGrid(model, formatUtils, planBody) {
       return planStatuses.get(path.basename(p.path)) === 'in-progress';
     });
     if (firstInProgress) {
-      nextStep = path.basename(firstInProgress.path).replace(/\.plan\.md$/, '').replace(/\.md$/, '');
+      const basename = path.basename(firstInProgress.path);
+      const st = staleness.get(basename);
+      if (st === 'stale') {
+        nextStep = '미정 (stale)';
+        nextStale = true;
+      } else {
+        nextStep = formatPlanLabel(basename);
+        // M2 — intent tooltip. fail-open.
+        try {
+          const cwd = opts.cwd
+            || (m.repo_root && typeof m.repo_root === 'string' && m.repo_root !== '<repo>'
+              ? m.repo_root : process.cwd());
+          const planAbs = path.isAbsolute(firstInProgress.path)
+            ? firstInProgress.path
+            : path.resolve(cwd, firstInProgress.path);
+          nextIntent = extractIntentFromPath(planAbs, opts);
+        } catch (_) { nextIntent = null; }
+      }
     }
   }
 
@@ -50,33 +83,41 @@ function renderStatusGrid(model, formatUtils, planBody) {
     return s === 'HIGH' || s === 'CRITICAL';
   }).length;
 
-  // Markdown stays as a small table for STATUS.md text-fallback readers.
-  const md = [
-    '| 진행 중 | 차단 | 다음 | risks open |',
-    '|---|---|---|---|',
-    '| ' + inProgressCount + ' | ' + blockedCount + ' | ' + nextStep + ' | ' + risksOpen + ' |',
-  ].join('\n');
+  const cells = [
+    { key: 'in-progress', label: '진행 중', icon: '◐', value: String(inProgressCount), kind: 'count' },
+    { key: 'blocked', label: '차단', icon: '🚫', value: String(blockedCount), kind: 'count', accent: 'blocked' },
+    { key: 'next', label: '다음', icon: '→', value: nextStep, kind: 'next', stale: nextStale, intent: nextIntent },
+    { key: 'risks', label: '미해결 위험', icon: '⚠', value: String(risksOpen), kind: 'count' },
+  ];
 
-  // HTML is a single inline sentence. Severity is expressed by word color
-  // class (x-red / x-ok) on the count value, never as a background or pill.
-  const blockedHtml = blockedCount > 0
-    ? '<span class="x-red"><b>' + blockedCount + '</b></span>'
-    : '<b>0</b>';
-  const risksHtml = risksOpen >= 3
-    ? '<span class="x-red"><b>' + risksOpen + '</b></span>'
-    : (risksOpen > 0 ? '<b>' + risksOpen + '</b>' : '<b>0</b>');
-  const nextHtml = nextStep === 'idle'
-    ? '<span class="muted">없음</span>'
-    : '<code>' + escapeHtml(nextStep) + '</code>';
+  const md = cells.map(c => {
+    if (c.kind === 'next') {
+      return c.icon + ' ' + c.label + ' ' + c.value;
+    }
+    return c.icon + ' ' + c.label + ' ' + c.value;
+  }).join(' · ');
 
-  const html = '<p class="status-line">'
-    + '진행 중 <b>' + inProgressCount + '</b>, '
-    + '차단 ' + blockedHtml + ', '
-    + '다음 ' + nextHtml + ', '
-    + 'risks open ' + risksHtml
-    + '</p>';
+  const htmlCells = cells.map(c => {
+    let valueHtml;
+    if (c.kind === 'next') {
+      if (c.stale) {
+        valueHtml = '<span class="stale-label">' + escapeHtml(c.value) + '</span>';
+      } else {
+        const titleAttr = c.intent
+          ? ' title="' + escapeAttr(c.intent) + '"'
+          : '';
+        valueHtml = '<code' + titleAttr + '>' + escapeHtml(c.value) + '</code>';
+      }
+    } else {
+      valueHtml = '<div class="grid-value">' + escapeHtml(c.value) + '</div>';
+    }
+    return '<div class="grid-cell"><div class="grid-label">'
+      + escapeHtml(c.icon) + ' ' + escapeHtml(c.label)
+      + '</div>' + valueHtml + '</div>';
+  }).join('');
+  const html = '<div class="status-grid">' + htmlCells + '</div>';
 
-  return { md, html };
+  return { md, html, cells };
 }
 
-module.exports = { renderStatusGrid };
+module.exports = { renderStatusGrid, formatPlanLabel };

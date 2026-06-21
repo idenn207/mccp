@@ -26,7 +26,7 @@ test('markdown composer thrown via opts inject → safeFallback md side, valid h
 
 test('html composer thrown via opts inject → md still valid', () => {
   const r = renderStatus({ sources: {} }, { _injectComposerThrow: 'html' });
-  assert.match(r.md, /# mccp Status/);
+  assert.match(r.md, /# mccp 상태/);
   assert.match(r.html, /html composer failed/);
 });
 

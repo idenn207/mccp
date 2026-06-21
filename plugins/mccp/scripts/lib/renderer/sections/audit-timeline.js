@@ -62,7 +62,7 @@ function readSnapshotRows(snapshotsDir, now) {
 function renderAuditTimeline(model, formatUtils, now, opts) {
   if (typeof now !== 'number') now = Date.now();
   opts = opts || {};
-  const { escapeHtml, formatRelativeTime } = formatUtils;
+  const { escapeHtml, formatRelativeTime, normalizeProse } = formatUtils;
   const m = model || {};
   const items = ((m.sources && m.sources.receipts && m.sources.receipts.items) || []).slice();
 
@@ -130,13 +130,14 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
     // `from-snapshot` class so the existing `muted` token desaturates them
     // one step below live rows. No icon collision with M4's ⏱ stale marker
     // (footnote at section level carries the meaning instead).
-    const liClass = isArchived ? ' class="audit-row from-snapshot muted"' : ' class="audit-row"';
+    const liClass = isArchived ? ' class="audit-row from-snapshot"' : ' class="audit-row"';
+    const convClass = r.converged === true ? 'conv' : 'conv pending';
     let htmlEntry = '<li' + liClass + '><span class="rel">' + escapeHtml(rel) + '</span>'
-      + ' · <code>' + escapeHtml(gate) + '</code>/<code>' + escapeHtml(decision) + '</code>'
-      + ' · <span class="verdict">' + escapeHtml(verdictMark) + '</span>';
+      + ', <code>' + escapeHtml(gate) + '</code>/<code>' + escapeHtml(decision) + '</code>'
+      + ', <span class="' + convClass + '">' + escapeHtml(verdictMark) + '</span>';
 
     if (typeof r.briefing_summary === 'string' && r.briefing_summary.length > 0) {
-      const summary = r.briefing_summary;
+      const summary = normalizeProse(r.briefing_summary);
       const tokens = r.briefing_token_count != null ? String(r.briefing_token_count) : null;
       mdLines.push('  > ' + summary + (tokens ? ' · `' + tokens + ' tok`' : ''));
       htmlEntry += '<blockquote class="briefing">' + escapeHtml(summary)
@@ -220,7 +221,7 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
 
   return {
     md: mdLines.join('\n'),
-    html: '<ul class="audit-timeline">' + htmlLines.join('') + '</ul>',
+    html: '<ul class="timeline">' + htmlLines.join('') + '</ul>',
   };
 }
 

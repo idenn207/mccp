@@ -1,5 +1,9 @@
 'use strict';
 
+// v1.3.0-m3-redux — status row is now ONE inline sentence, not a 4-card grid.
+// Anti-ref 1 (SaaS hero-metric) + absolute-ban (identical card grids) compliance.
+// Returns { md, html } where html is a <p class="status-line"> single line.
+
 const path = require('path');
 
 function renderStatusGrid(model, formatUtils, planBody) {
@@ -46,26 +50,31 @@ function renderStatusGrid(model, formatUtils, planBody) {
     return s === 'HIGH' || s === 'CRITICAL';
   }).length;
 
-  const cells = [
-    { korean: '진행 중', icon: '◐', value: String(inProgressCount) },
-    { korean: '차단', icon: '🚫', value: String(blockedCount) },
-    { korean: '다음', icon: '→', value: nextStep },
-    { korean: 'risks open', icon: '⚠', value: String(risksOpen) },
-  ];
-
+  // Markdown stays as a small table for STATUS.md text-fallback readers.
   const md = [
-    '| ' + cells.map(c => c.icon + ' ' + c.korean).join(' | ') + ' |',
-    '| ' + cells.map(() => '---').join(' | ') + ' |',
-    '| ' + cells.map(c => c.value).join(' | ') + ' |',
+    '| 진행 중 | 차단 | 다음 | risks open |',
+    '|---|---|---|---|',
+    '| ' + inProgressCount + ' | ' + blockedCount + ' | ' + nextStep + ' | ' + risksOpen + ' |',
   ].join('\n');
 
-  const htmlCells = cells.map(c =>
-    '<div class="grid-cell"><div class="grid-label">'
-    + escapeHtml(c.icon) + ' ' + escapeHtml(c.korean)
-    + '</div><div class="grid-value">' + escapeHtml(c.value) + '</div></div>'
-  ).join('');
-  const html = '<div class="status-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.5rem">'
-    + htmlCells + '</div>';
+  // HTML is a single inline sentence. Severity is expressed by word color
+  // class (x-red / x-ok) on the count value, never as a background or pill.
+  const blockedHtml = blockedCount > 0
+    ? '<span class="x-red"><b>' + blockedCount + '</b></span>'
+    : '<b>0</b>';
+  const risksHtml = risksOpen >= 3
+    ? '<span class="x-red"><b>' + risksOpen + '</b></span>'
+    : (risksOpen > 0 ? '<b>' + risksOpen + '</b>' : '<b>0</b>');
+  const nextHtml = nextStep === 'idle'
+    ? '<span class="muted">없음</span>'
+    : '<code>' + escapeHtml(nextStep) + '</code>';
+
+  const html = '<p class="status-line">'
+    + '진행 중 <b>' + inProgressCount + '</b>, '
+    + '차단 ' + blockedHtml + ', '
+    + '다음 ' + nextHtml + ', '
+    + 'risks open ' + risksHtml
+    + '</p>';
 
   return { md, html };
 }

@@ -1,12 +1,25 @@
 'use strict';
 
+// v1.3.0-m3-redux — plain table, no card wrapper, no severity pills.
+// Severity surfaces as a small lowercase tag (`<span class="tag t-critical">critical</span>`).
+// Only `critical` ever takes signal-red color; `high/medium/low` stay ink/muted.
+
 const MAX_ROWS = 8;
 
-const RANK = { HIGH: 3, MEDIUM: 2, LOW: 1, '': 0 };
+const RANK = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, '': 0 };
 function rank(s) { return RANK[(s || '').toUpperCase()] || 0; }
 
+function tagClass(s) {
+  const k = (s || '').toUpperCase().match(/^(CRITICAL|HIGH|MEDIUM|LOW)/);
+  return k ? 't-' + k[1].toLowerCase() : '';
+}
+function tagWord(s) {
+  const k = (s || '').toUpperCase().match(/^(CRITICAL|HIGH|MEDIUM|LOW)/);
+  return k ? k[1].toLowerCase() : '';
+}
+
 function renderRisks(model, formatUtils, planBody) {
-  const { escapeHtml } = formatUtils;
+  const { escapeHtml, normalizeProse } = formatUtils;
   const pb = planBody || {};
   const allRisks = Array.isArray(pb.risks) ? pb.risks.slice() : [];
 
@@ -33,13 +46,20 @@ function renderRisks(model, formatUtils, planBody) {
     const lik = (r.likelihood || '');
     const imp = (r.impact || '');
     const mit = (r.mitigation || '').replace(/\|/g, '\\|');
-    mdRows.push('| ' + risk + ' | ' + lik + ' (' + (lik[0] || '-') + ') | ' + imp + ' (' + (imp[0] || '-') + ') | ' + mit + ' |');
+    mdRows.push('| ' + risk + ' | ' + lik + ' | ' + imp + ' | ' + mit + ' |');
+
+    const likTag = lik
+      ? '<span class="tag ' + tagClass(lik) + '">' + tagWord(lik) + '</span>'
+      : '<span class="muted">,</span>';
+    const impTag = imp
+      ? '<span class="tag ' + tagClass(imp) + '">' + tagWord(imp) + '</span>'
+      : '<span class="muted">,</span>';
     htmlRows.push(
       '<tr>'
-      + '<td>' + escapeHtml(r.risk || '') + '</td>'
-      + '<td>' + escapeHtml(lik) + '</td>'
-      + '<td>' + escapeHtml(imp) + '</td>'
-      + '<td>' + escapeHtml(mit) + '</td>'
+      + '<td class="risk-name">' + escapeHtml(normalizeProse(r.risk || '')) + '</td>'
+      + '<td>' + likTag + '</td>'
+      + '<td>' + impTag + '</td>'
+      + '<td class="risk-mit">' + escapeHtml(normalizeProse(mit)) + '</td>'
       + '</tr>'
     );
   }

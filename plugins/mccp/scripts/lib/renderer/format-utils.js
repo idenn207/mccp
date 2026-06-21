@@ -79,6 +79,18 @@ function mask(value, model) {
   return '⚠ raw ' + str;
 }
 
+// v1.3.0-m3-redux H10 — render-time prose normalizer.
+// Substitutes U+2014 em dash and the ASCII " -- " variant with a comma. Single
+// hyphens surrounded by spaces (" - ") are preserved (legitimate parenthetical).
+// SSoT invariant: source files (PRD, STATE.md, receipt JSON) are never edited;
+// normalization happens at render time only. PRD §Copy line 209 mandates this.
+function normalizeProse(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/—/g, ',')
+    .replace(/ -- /g, ', ');
+}
+
 function escapeHtml(s) {
   if (s == null) return '';
   return String(s)
@@ -105,4 +117,5 @@ module.exports = {
   mask,
   escapeHtml,
   escapeAttr,
+  normalizeProse,
 };

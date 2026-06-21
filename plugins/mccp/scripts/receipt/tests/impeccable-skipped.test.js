@@ -173,3 +173,88 @@ test('clean implement receipt (no impeccable_skipped) → no warnings or blockin
     process.chdir(cwd);
   }
 });
+
+// === v1.3.0 design-gate M1 — impeccable_silent_skip is INFORMATIONAL ===
+// detect() flips silent_skip=true on every no-signal plan, including pure-backend
+// changes. If M1 enforced strict-gate blocking on silent_skip, every non-UI
+// cycle (v1.0.1/v1.1.0/v1.2.0…) would be blocked at /mccp:pr. M1 contract is
+// observational: warnings only, at every gate. M2 will promote to blocking
+// once SKILL first-step + critique loop close the false-negative window.
+
+test('M1 contract: silent_skip on implement-codex → warning at /mccp:pr, NOT blocking', () => {
+  const { repo, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    write({ gate: 'mccp-plan-codex', decision: 'feature-x', plan: planRel });
+    write({
+      gate: 'mccp-implement-codex',
+      decision: 'feature-x',
+      plan: planRel,
+      'impeccable-silent-skip': true,
+      'impeccable-silent-skip-reason': 'no-signal',
+    });
+    const r = validateCommand('/mccp:pr', { cwd: repo, decisionId: 'feature-x' });
+    assert.strictEqual(r.ok, true,
+      'silent_skip must NOT block at M1 (backend-only false-positive guard). ' +
+      JSON.stringify(r));
+    assert.strictEqual(r.blocking.length, 0);
+    const w = r.warnings.find((x) => x.gate_id === 'mccp-implement-codex'
+      && /impeccable_silent_skip/.test(x.reason));
+    assert.ok(w, 'silent_skip surfaces as warning');
+    assert.strictEqual(w.impeccable_silent_skip_reason, 'no-signal');
+    assert.match(w.reason, /observational at M1/);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('M1 contract: silent_skip on plan-codex → warning at /mccp:prp-implement, NOT blocking', () => {
+  const { repo, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    write({
+      gate: 'mccp-plan-codex',
+      decision: 'feature-x',
+      plan: planRel,
+      'impeccable-silent-skip': true,
+      'impeccable-silent-skip-reason': 'no-signal',
+    });
+    const r = validateCommand('/mccp:prp-implement', { cwd: repo, decisionId: 'feature-x' });
+    assert.strictEqual(r.ok, true, JSON.stringify(r));
+    assert.strictEqual(r.blocking.length, 0);
+    assert.ok(r.warnings.some((w) => /impeccable_silent_skip/.test(w.reason)),
+      'plan-codex silent_skip surfaces as warning');
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('Audited escape recovery: force_override-only receipt writes cleanly (no silent_skip stamp)', () => {
+  const { repo, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    write({ gate: 'mccp-plan-codex', decision: 'feature-x', plan: planRel });
+    // Command body suppresses silent_skip forward when force_override is set,
+    // so the receipt carries only force_override. Schema accepts it (no mutex
+    // violation); validator emits force_override audit warning.
+    const r = write({
+      gate: 'mccp-implement-codex',
+      decision: 'feature-x',
+      plan: planRel,
+      'impeccable-force-override': true,
+      'impeccable-force-override-reason':
+        'cycle is backend-only and impeccable Skill cannot reach the diff scope',
+    });
+    assert.strictEqual(r.receipt.meta.impeccable_force_override, true);
+    assert.strictEqual(r.receipt.meta.impeccable_silent_skip, false,
+      'silent_skip MUST NOT coexist with force_override on the same receipt');
+    const v = validateCommand('/mccp:pr', { cwd: repo, decisionId: 'feature-x' });
+    assert.strictEqual(v.ok, true, JSON.stringify(v));
+    assert.strictEqual(v.blocking.length, 0);
+  } finally {
+    process.chdir(cwd);
+  }
+});

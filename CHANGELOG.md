@@ -97,6 +97,77 @@ v1.4.0 PRD `automation-modernization` Milestone 3 ship — Anthropic native `/go
 - **S5 MEDIUM (best-effort)**: closure-doc write applies `derive/mask.js#applySecretMask` to `Goal Loop Result` section before write (5-regex catalogue reuse: sk-key, aws-key, private-key-block + bearer, password-eq). README spec forbids raw paste.
 - **S6 MEDIUM (doc)**: H2 sidecar mkdir-before-lock invariant — `mkdirSync(path.dirname(sp))` MUST be invoked BEFORE `openSync(p, 'wx')` so mkdir failure (EACCES/ENOSPC/race) doesn't orphan a lock without provable ownership channel. Test covers EACCES mock → exit 19 + lock not created.
 
+## [1.9.0] — 2026-06-22
+
+v1.3.0 design-gate M3 follow-up — H15(heading depth ≤ 3) + H16(unrendered markdown literal) mechanical lint rules. Parent M3 plan(`v1-3-0-design-gate-m3-output-constraints.plan.md`)의 partial Axis C deferral 약속을 닫는다. RULES length 14 → 16. PR #45 stacked ship 모드 (M3 lint + M3 follow-up 단일 PR로 묶음). plugin.json `1.7.0 → 1.9.0` (Codex Implement-Codex R1 F1 absorption — main이 v1.4.x cycle로 1.8.1까지 진행, race 회피로 1.8.0 skip 1.9.0 직행).
+
+### Added
+
+- **DESIGN.md H15 spec** — Heading depth ≤ 3. h1(verdict) + h2(section) + h3(sub-section) 허용, h4+ 금지. PRD §Design Direction line 149 "(a) 정보 위계 3단계" mirror. Lint: HTML body `<h([4-9])` 카운트 == 0 AND markdown은 backtick + tilde 양쪽 fenced-code-block strip 후 CommonMark ATX `^ {0,3}#{4,6}\s` 카운트 == 0.
+- **DESIGN.md H16 spec** — NO unrendered markdown literal in HTML body. 6 패턴 catalog: bold-asterisk, bold-underscore (dunder strip), inline-backtick raw, entity-encoded backtick/asterisk/underscore (leading-zero + uppercase + named entity variant 모두), md-link, MD0xx lint code. carve-out: `<code>`/`<pre>`/HTML attribute + Python dunder 15종 whitelist(`__init__`/`__name__`/`__main__`/`__file__`/`__doc__`/`__str__`/`__repr__`/`__call__`/`__enter__`/`__exit__`/`__all__`/`__slots__`/`__dict__`/`__iter__`/`__len__`).
+- **`plugins/mccp/scripts/lib/renderer/output-constraints.js` H15 + H16 rules** — RULES array에 push. severity `invariant` / `absolute-ban`. Codex Implement-Codex R1 4 finding absorption: F1 version skip-to-1.9.0, F2 tilde fence strip, F3 dunder 10→15 expansion, F4 entity variants permissive.
+- **`output-constraints.test.js` 22 test 추가** — H15 6건(pass+html-fail+md-fail+indented-fail+backtick-fenced-pass+tilde-fenced-pass) + H16 16건(pass+5 fail pattern+carve-out+raw backtick+entity decimal+hex+leading-zero+upper-hex+named+entity-asterisk pair+3 dunder pass+expanded dunder pass+non-dunder fail+pre carve-out). 총 68/68 pass. (plan target 47, R1 absorption으로 expansion)
+- **`design-invariants.test.js` drift fixture** — H15+H16 violation 강제 검출 sanity. 16-rule end-to-end는 `design_constraint_violations === []` assertion으로 자동 회귀 0.
+
+### Changed
+
+- **`output-constraints.js` 헤더 주석** — "H1-H14" → "H1-H16", "all 14 rules" → "all 16 rules".
+- **`DESIGN.md` line 54-55** — "H1–H14 are the mechanical lint target" → "H1–H16 ... all 16 grep-based checks".
+- **plugin.json version bump** `1.7.0 → 1.9.0` — minor jump skipping 1.8.x to avoid race with main(1.8.1, v1.4.x cycle parallel merge). PR #45 squash + rebase 시 conflict resolve 단순화.
+
+### Codex Implement-Codex R1 absorption
+
+4 finding (HIGH×1 + MEDIUM×3) 모두 R1 ACCEPT_NOW + plan body + implementation 양쪽 fully resolved (R2 미escalate, `MCCP_GATE_ROUND_CAP=1`):
+
+- **F1 (HIGH)** Planned version bump 1.8.0 already behind main 1.8.1 → non-monotonic release risk. Task 8 override: 1.9.0 직접 bump.
+- **F2 (MEDIUM)** H15 fence strip은 triple-backtick만 → tilde + 긴 backtick fence false-positive. Task 3 override: 두 fence 종류 모두 strip + tilde fence pass test 추가.
+- **F3 (MEDIUM)** H16 dunder whitelist 10종 너무 좁음 — repo skill docs에 `__all__`/`__slots__`/`__dict__` 다수 존재. Task 4 override: 15종으로 확장 + expanded dunder pass test 추가.
+- **F4 (MEDIUM)** H16 entity coverage 좁음 — `&#96;`/`&#x60;` exact만, `&#096;`/`&#X60;`/`&grave;` + entity-encoded `*`/`_` bypass. Task 4 override: 3 entity variant 모두 cover (leading-zero + upper-hex + named entity) + paired entity-asterisk/underscore + 4 test 추가.
+
+### Acceptance summary
+
+- ✓ RULES.length 16 + H15/H16 ID 정합
+- ✓ output-constraints.test.js 68/68 pass
+- ✓ design-invariants.test.js 5/5 pass (포함 drift fixture)
+- ✓ DESIGN.md spec rows 추가 + "H1–H16" 갱신
+- △ Task 7 m3-redux dry-run: H10 14건 + H16 16건 advisory by-design. H16 entity-backtick 15건은 `format-utils.js#escapeHtml`(M3 plan Codex R1 F4 XSS 방어)이 backtick → `&#96;` escape하는 의도된 동작 + markdown inline code(`` ` ``)가 `<code>` wrap 없이 escape만 됨. H10이 user content em-dash로 advisory by-design인 것과 동형. **Follow-up axis**: markdown inline code → `<code>` wrap (별도 plan).
+
+## [1.6.2] — 2026-06-20
+
+v1.3.0 design-gate enforcement M2 ship — SKILL first-step + critique retry loop. M1이 silent-skip을 *관측*만 했던 axis를 M2가 *positive enforcement*로 닫음: design surface plan/implement/PRD는 (1) `frontend-design-direction` SKILL의 새 `## Output Constraints` 섹션을 Phase 진입 즉시 Read, (2) impeccable critique을 bounded retry loop(`MCCP_DESIGN_CRITIQUE_MAX_RETRY` default 2)으로 돌리고, (3) PR step은 critique invoke 자체 제거 + chain-check만 (prior receipt verdict='divergent' 발견 시 BLOCK). 4 Codex Plan-Codex R1 HIGH finding 모두 plan body에 fully absorbed (F1 3-axis trigger / F2 oracle UNKNOWN=fail / F3 PR-scope chain-check / F4 pre-ship dogfood gate). plugin.json `1.6.1 → 1.6.2` patch bump per CLAUDE.md §3.7.
+
+### Added
+
+- **`plugins/mccp/scripts/lib/design-critique-decide.js`** — Pure-function oracle. `SEVERITY_ALIASES` + `normalizeSeverity` (lowercase / `P0` / `P1` / `blocker` / missing → fail-closed UNKNOWN) + `parseRetryCap` (env-driven, range 0-3, default 2) + `decideCritique({findings,round,cap}) → 'CONVERGED'|'ESCALATE_NEXT_ROUND'|'DIVERGENT_UNRESOLVED'`. dep-free. Codex R1 F2 absorption — `findings=null` → DIVERGENT (caller 책임).
+- **`plugins/mccp/scripts/lib/tests/design-critique-decide.test.js`** — 9 fixture (기본 6 + F2 absorption 3: lowercase normalize / missing+null+P1 alias / parse-fail fail-closed).
+- **`plugins/mccp/scripts/receipt/tests/validate-cmd-design-critique.test.js`** — 5 fixture A-E covering chain-check + audited escape + legacy compat (회귀 0).
+- **`plugins/mccp/scripts/lib/tests/design-critique-loop-e2e.test.js`** — 6 fixture pre-ship dogfood (M2 acceptance gate). `MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL=0|1` 양 시나리오 + receipt rounds/verdict stamp + chain-check BLOCKs PR + fixture file presence (F4 absorption).
+- **`.claude/cache/test-fixture-status.html`** — 합성 design-surface fixture (1줄). 좁은 whitelist (axis b)가 positive로 인식하는 synthetic artifact.
+- **`plugins/mccp/skills/frontend-design-direction/SKILL.md` `## Output Constraints` 섹션** — 4 rule (정보 위계 3단계 / 강조색 화면당 1개 / raw markdown marker 금지 / 한 화면 항목 수 상한). critique loop fail/M3 lint mechanical 검증의 anchor.
+- **Receipt schema 4 신규 meta field** (additive — schema_version 유지): `design_critique_rounds: int|null` + `design_critique_verdict: 'converged'|'divergent'|'skipped'|null` + `design_intent_reason: string|null` + `pr_design_chain_skip_reason: string|null`. 두 reason field는 strict reason validator (M1 `IMPECCABLE_FORCE_OVERRIDE_REASON` 룰 mirror).
+- **Receipt CLI 4 신규 플래그**: `--design-critique-rounds <N>` / `--design-critique-verdict <enum>` / `--design-intent-reason <text>` / `--pr-design-chain-skip-reason <text>`.
+- **CLAUDE.md §3.9** — "디자인 surface 변경 시 SKILL first-step + critique retry loop" 신설. 3-axis trigger + 4 출력 제약 + bounded retry + PR scope chain-check + 자기-적용 dogfood 명시. §4 cheat sheet에 4 env 토글 추가.
+
+### Changed
+
+- **`plugins/mccp/scripts/lib/impeccable-detect.js`** — `DESIGN_SURFACE_PATHS`에 design-gate control-plane 3 path 추가 (좁은 확장, F1 absorption): `impeccable-detect.js` / `design-critique-decide.js` / `skills/frontend-design-direction/`. `commands/*.md` 전체는 overshoot 회피로 제외. detector 자기-적용 의무 + 본 plan 자기-재현 차단.
+- **`plugins/mccp/scripts/receipt/validate-cmd.js`** — (a) lenient surface: plan/implement gate에서 `design_critique_verdict='divergent'`이면 `warnings[].push(kind='design_critique_divergent')`. (b) chain-check (F3 absorption): terminal `mccp:pr` / `mccp:prp-pr` validate 시 prior receipt verdict 검증, divergent 발견 시 `blocking[].push(kind='design_critique_chain_divergent')`. `MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN` audited escape (strict reason validator) 활성 시 advisory mode (warning으로 강등).
+- **`plugins/mccp/commands/plan.md`** — Phase 5.0 입구에 3-axis trigger preflight (`SKILL_AVAIL` × `SIGNAL` × `DESIGN_INTENT_ACTIVE`) + SKILL Read 강제 stderr signal. Phase 5.0 SIGNAL=1 분기를 retry loop으로 확장 (`decideCritique` + Edit 명시 섹션만 + cap 도달 시 DIVERGENT). 5.6 receipt-write에 4 신규 flag forward.
+- **`plugins/mccp/commands/prp-implement.md`** — Phase 2.5.5b에 plan.md와 동일한 3-axis trigger + retry loop mirror. Edit target은 plan body 대신 산출 code/diff. cap 도달 시 fix-task.md append + receipt verdict stamp (downstream PR chain-check BLOCK).
+- **`plugins/mccp/commands/plan-prd.md`** — Phase 4.0에 동일 3-axis trigger + critique loop wire (PRD body 재생성). plan-prd는 receipt 미작성이므로 verdict는 observational, 다운스트림 `/mccp:plan`이 derived plan에서 verdict 전파.
+- **`plugins/mccp/commands/pr.md`** — Phase 1.6 신설: design-critique chain-check preflight 명시. PR scope는 critique retry loop **비활성** (`MCCP_DESIGN_CRITIQUE_MAX_RETRY` 무시) + chain-check이 prior receipt verdict 검증. divergent 발견 시 STOP exit 1 (gh 호출 전, receipt 미작성). audited escape `MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN` 활성 시 advisory mode. 2.5.7 receipt-write에 `--pr-design-chain-skip-reason` forward.
+- **`plugins/mccp/scripts/lib/pr-phase-helpers/finalize-receipt.js`** — `--pr-design-chain-skip-reason` flag forward.
+- **plugin.json version bump** `1.6.1 → 1.6.2` — patch jump per CLAUDE.md §3.7 (M2 단독 ship, M3 별도 cycle).
+
+### Codex Plan-Codex R1 absorption
+
+4 HIGH finding 모두 plan body에 fully resolved (R2 미escalate, `MCCP_GATE_ROUND_CAP=1`):
+
+- **F1** (SKILL first-step still depends on detector false-negative) → 3-axis trigger (detector / 좁은 whitelist / audited override) + impeccable-detect.js DESIGN_SURFACE_PATHS 3 path 확장.
+- **F2** (decideCritique uppercase exact match silently CONVERGED) → SEVERITY_ALIASES + normalizeSeverity + UNKNOWN=fail-closed + 9 fixture 회귀.
+- **F3** (PR-scope verdict=divergent warning-only) → PR scope critique invoke 제거 + chain-check 강제 + `MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN` audited escape.
+- **F4** (Task 10 retroactive-confirm gap) → pre-ship gate로 승격, 합성 fixture + `MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL=0|1` e2e test.
+
 ## [1.6.0] — 2026-06-19
 
 v1.3.0 observability surface II — Milestone 6 ship (cycle close). Generic interface validation — derive + snapshot + renderer가 mccp 외 repo에서 graceful한지 4 fixture로 검증하고, "어떤 source가 optional이며 어떤 fallback이 보장되는가" contract을 본문화. M5 PR #41(`d12e82d`) 직후 cycle close. plugin.json `1.5.0 → 1.6.0` minor bump per CLAUDE.md §3.7 milestone-PR checklist. 새 기능 / 새 schema field 없음.

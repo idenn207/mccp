@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 const { derive } = require('../index');
-const { maskModel, applyPathMask } = require('../mask');
+const { maskModel, applyPathMask, maskPath } = require('../mask');
 const { tmpRepo, cleanup, gitInit, writeJson } = require('./helpers');
 
 function writeAReceipt(root) {
@@ -126,6 +126,45 @@ test('mask: applyPathMask tolerates empty/non-string ledger fields', () => {
     assert.strictEqual(arr[2], null, 'null entry untouched');
   } finally {
     cleanup(root);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// v1.4.x patch — receipts.items[].cwd outside-root mask coverage
+//   Codex R1 F3 + R2 F2 absorption.
+// ---------------------------------------------------------------------------
+
+[
+  { name: 'inside-root POSIX',                 root: '/proj/x',     input: '/proj/x/sub',          expect: 'sub' },
+  { name: 'sibling worktree POSIX',            root: '/proj/x',     input: '/proj/y/other',        expect: '<outside-repo:other>' },
+  { name: 'Windows drive (same host)',         root: 'C:\\proj\\x', input: 'D:\\other\\file',      expect: '<outside-repo:file>' },
+  { name: 'UNC path',                          root: 'C:\\proj\\x', input: '\\\\server\\share\\x', expect: '<outside-repo:x>' },
+  { name: 'POSIX host receives Windows input', root: '/proj/x',     input: 'D:\\other\\file',      expect: '<outside-repo:file>' },
+  { name: 'degenerate drive root',             root: '/proj/x',     input: 'D:\\',                 expect: '<outside-repo:_>' },
+  { name: 'input equals repo root',            root: '/proj/x',     input: '/proj/x',              expect: '.' },
+].forEach((tc) => {
+  test('maskPath cwd: ' + tc.name, () => {
+    assert.strictEqual(maskPath(tc.input, tc.root), tc.expect);
+  });
+});
+
+test('maskPath: receipts.items[].cwd outside-root never leaks raw separators (R2 F2)', () => {
+  const repoRoot = '/proj/x';
+  const inputs = [
+    '/other/proj/file.json',
+    'D:\\foo\\bar',
+    '\\\\server\\share\\path\\file',
+    '..\\sibling\\thing',
+  ];
+  for (const input of inputs) {
+    const masked = maskPath(input, repoRoot);
+    if (masked.startsWith('<outside-repo:')) {
+      const body = masked.slice('<outside-repo:'.length, -1);
+      assert.ok(!body.includes('\\') && !body.includes('/'),
+        'placeholder body must not contain raw separators: ' + JSON.stringify(masked));
+      assert.ok(!/^[A-Za-z]:/.test(body),
+        'placeholder body must not retain drive prefix: ' + JSON.stringify(masked));
+    }
   }
 });
 

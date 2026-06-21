@@ -4,16 +4,67 @@ const path = require('path');
 
 const REPO_PLACEHOLDER = '<repo>';
 
+// v1.4.x patch — Windows-drive (e.g. "D:\x") and UNC ("\\server\share")
+// detection that works on a POSIX host (where path.isAbsolute would return
+// false for these forms and let raw paths leak through). Codex R2 F2.
+const WIN_DRIVE_RE = /^[A-Za-z]:[\\\/]?/;
+const UNC_RE = /^[\\\/]{2}[^\\\/]/;
+
 function toPosix(p) {
   return String(p).replace(/\\/g, '/');
+}
+
+// v1.4.x patch — platform-independent trailing-segment extractor for
+// outside-repo placeholder bodies. Always normalizes both slash kinds, picks
+// the last non-empty segment, and rejects empty/'.'/'..'/drive-prefixed/
+// separator-containing residues by collapsing them to '_'. Codex R2 F2.
+function safeTrailingSegment(input) {
+  if (typeof input !== 'string' || input.length === 0) return '_';
+  const parts = input.split(/[\\\/]/);
+  let last = '';
+  for (let i = parts.length - 1; i >= 0; i--) {
+    if (parts[i] && parts[i].length > 0) { last = parts[i]; break; }
+  }
+  if (!last) return '_';
+  if (last === '.' || last === '..') return '_';
+  if (WIN_DRIVE_RE.test(last)) return '_';
+  if (last.includes('/') || last.includes('\\')) return '_';
+  return last;
+}
+
+function isOutsideRoot(input, repoRoot) {
+  if (WIN_DRIVE_RE.test(input)) {
+    // Drive-prefixed inputs are always outside a non-drive repo OR a different
+    // drive. Conservative leak guard: treat as outside whenever the repoRoot
+    // does not share the same drive prefix.
+    const rootDrive = WIN_DRIVE_RE.test(repoRoot) ? repoRoot.slice(0, 2).toLowerCase() : '';
+    const inputDrive = input.slice(0, 2).toLowerCase();
+    if (rootDrive !== inputDrive) return true;
+  }
+  if (UNC_RE.test(input)) return true;
+  if (path.isAbsolute(input)) {
+    const rel = path.relative(repoRoot, input);
+    if (rel.startsWith('..')) return true;
+    if (path.isAbsolute(rel)) return true;
+  }
+  return false;
 }
 
 function maskPath(absOrRel, repoRoot) {
   if (typeof absOrRel !== 'string' || absOrRel.length === 0) return absOrRel;
   if (absOrRel === REPO_PLACEHOLDER) return absOrRel;
+  // v1.4.x patch — outside-root absolute / drive / UNC paths get placeholder
+  // form so receipts.items[].cwd from sibling worktrees, parent dirs, restored
+  // receipts from other repos, or cross-platform paths never leak raw
+  // segments. Codex R1 F3 + R2 F2 absorption.
+  if (isOutsideRoot(absOrRel, repoRoot)) {
+    return '<outside-repo:' + safeTrailingSegment(absOrRel) + '>';
+  }
   if (path.isAbsolute(absOrRel)) {
     const rel = path.relative(repoRoot, absOrRel);
-    if (!rel || rel.startsWith('..')) return absOrRel;
+    // v1.4.x patch — empty rel means input equals repoRoot. Return POSIX
+    // current-dir marker rather than leaking the absolute repoRoot string.
+    if (!rel) return '.';
     return toPosix(rel);
   }
   return toPosix(absOrRel);
@@ -167,6 +218,10 @@ function applyPathMask(model, repoRoot) {
     for (const it of s.plans.items) maskItem(it, root, ['path']);
   }
   if (s.receipts && Array.isArray(s.receipts.items)) {
+    // v1.4.x patch — cwd is now live-emitted by receipts source. maskPath
+    // guarantees inside-root → relative, outside-root (sibling worktree /
+    // parent / UNC / cross-drive) → '<outside-repo:basename>'. Codex R1 F3 +
+    // R2 F2 absorption.
     for (const it of s.receipts.items) maskItem(it, root, ['path', 'cwd']);
   }
   if (s.envelopes && Array.isArray(s.envelopes.items)) {

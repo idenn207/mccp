@@ -77,6 +77,9 @@ function extract(repoRoot, entry) {
     briefing_invocation_count: pick(meta, 'briefing_invocation_count'),
     created_at: meta.created_at,
     command: meta.command,
+    // v1.4.x patch — meta.cwd surface paired with derive/mask.js receipts cwd
+    // key. v0.2.x-era receipts lack the key → pick() returns undefined.
+    cwd: pick(meta, 'cwd'),
     base_sha: receipt.base_sha,
     head_sha: receipt.head_sha,
     plan_hash: receipt.plan_hash,

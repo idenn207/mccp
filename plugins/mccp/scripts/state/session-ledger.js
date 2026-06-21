@@ -60,6 +60,45 @@ function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
+// v1.4.x patch — git ref-format helper. Total function: null → true,
+// non-string → false; never throws. Mirrors git's strict ref name rules.
+function isValidGitBranch(name) {
+  if (name === null) return true;
+  if (typeof name !== 'string') return false;
+  if (name.length === 0 || name.length > 255) return false;
+  if (name.startsWith('.')) return false;
+  if (name.includes('..')) return false;
+  if (/\s/.test(name)) return false;
+  if (/[\x00-\x1f\x7f]/.test(name)) return false;
+  if (name.includes('@{')) return false;
+  if (name.includes('//')) return false;
+  if (name.endsWith('/')) return false;
+  if (name.endsWith('.lock')) return false;
+  if (/[~^:?*\[]/.test(name)) return false;
+  return true;
+}
+
+// v1.4.x patch — module-level WARN memo: per-process per-sourcePath 1 emit
+// (Codex R2 F3 absorption: listLedgers polling must not flood stderr).
+const WARNED_LEGACY_BRANCH_PATHS = new Set();
+
+// v1.4.x patch — read-side branch lift (Codex R1 F1 + R2 F1 absorption).
+// Mutates ledger in-place IN-MEMORY only — caller decides whether to persist.
+// Returns the same ledger reference for chaining.
+function liftLegacyBranch(ledger, sourcePath) {
+  if (!isPlainObject(ledger)) return ledger;
+  if (ledger.git_branch === null) return ledger;
+  if (isValidGitBranch(ledger.git_branch)) return ledger;
+  const original = ledger.git_branch;
+  ledger.git_branch = null;
+  if (sourcePath && !WARNED_LEGACY_BRANCH_PATHS.has(sourcePath)) {
+    WARNED_LEGACY_BRANCH_PATHS.add(sourcePath);
+    process.stderr.write('[mccp:session-ledger] WARNING: lifting invalid git_branch '
+      + JSON.stringify(original) + ' to null at ' + sourcePath + '\n');
+  }
+  return ledger;
+}
+
 function validate(ledger) {
   const errors = [];
   function err(msg) { errors.push(msg); }
@@ -92,6 +131,8 @@ function validate(ledger) {
   if (ledger.git_branch !== null) {
     req(typeof ledger.git_branch === 'string' && ledger.git_branch.length > 0,
       'git_branch must be a non-empty string or null');
+    req(isValidGitBranch(ledger.git_branch),
+      'git_branch fails git ref-format rules: ' + ledger.git_branch);
   }
 
   req(Number.isInteger(ledger.pid) && ledger.pid > 0,
@@ -372,6 +413,7 @@ function updateLedgerHeartbeat(args) {
         if (ledger.schema_version === 'v1') {
           ledger = liftV1(ledger);
         }
+        liftLegacyBranch(ledger, target);
         ledger.last_seen_at = timestamp;
         const v = validate(ledger);
         if (!v.ok) {
@@ -439,6 +481,7 @@ function finalizeLedger(args) {
         if (ledger.schema_version === 'v1') {
           ledger = liftV1(ledger);
         }
+        liftLegacyBranch(ledger, target);
         // ended_at > last_seen_at invariant (Task 5 acceptance).
         let endedAt = endedAtIn;
         if (ledger.last_seen_at) {
@@ -493,6 +536,7 @@ function readLedger(args) {
       if (ledger.schema_version === 'v1') {
         ledger = liftV1(ledger);
       }
+      liftLegacyBranch(ledger, target);
       const v = validate(ledger);
       if (!v.ok) {
         return { ok: false, error: 'ledger invalid: ' + v.errors.join('; '), path: target };
@@ -552,6 +596,7 @@ function listLedgers(args) {
         if (ledger.schema_version === 'v1') {
           ledger = liftV1(ledger);
         }
+        liftLegacyBranch(ledger, target);
         const v = validate(ledger);
         if (!v.ok) {
           degraded = true;
@@ -626,6 +671,8 @@ module.exports = {
   VALID_SCOPES: VALID_SCOPES,
   validate: validate,
   liftV1: liftV1,
+  isValidGitBranch: isValidGitBranch,
+  liftLegacyBranch: liftLegacyBranch,
   pidIsLive: pidIsLive,
   resolveLedgerScope: resolveLedgerScope,
   createLedger: createLedger,

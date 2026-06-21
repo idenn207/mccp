@@ -2,7 +2,27 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.8.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.8.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.8.1] — 2026-06-21
+
+v1.4.x patch — privacy + invariant polish on top of M3 ship. PRD §85(cross-repo contamination risk) + §87(invariant 강화) + §69(M1 session-ledger primitive) + §43(M2 metric — branch name이 STATE.md/logging inject 경로) audit가 검출한 axis 2개를 single PR로 처리. plugin.json `1.8.0 → 1.8.1` patch bump per CLAUDE.md §3.7. No schema/api break.
+
+### Added
+
+- **`session-ledger.js#isValidGitBranch(name)`** — git ref-format rule helper. Total function (`null → true`, non-string → false, never throws). 10 reject rules: length 1-255, leading-dot, double-dot, whitespace, control-char (0x00-0x1F + 0x7F), `@{`, consecutive `/`, trailing `/`, `.lock` suffix, `~^:?*[`.
+- **`session-ledger.js#liftLegacyBranch(ledger, sourcePath)`** — read-side branch lift (Codex R1 F1 + R2 F1 absorption). In-memory only — wonky `git_branch` → `null` 강등 + module-level `WARNED_LEGACY_BRANCH_PATHS` Set memo로 per-process per-sourcePath 1회 stderr WARN cap (R2 F3 absorption). 호출 site 4개: `readLedger`, `listLedgers`, `updateLedgerHeartbeat`, `finalizeLedger` 모두 `read → lift → validate` 순서 invariant.
+- **`derive/sources/receipts.js` `cwd` field emit** — receipts source가 `meta.cwd`를 surface (v0.2.x-era receipts 없는 키는 `pick()` undefined 처리, additive-only). derive/mask.js receipts cwd mask key와 짝이 활성화됨.
+- **`derive/mask.js#safeTrailingSegment(input)` + `isOutsideRoot(input, repoRoot)`** — platform-independent helper 2개 (Codex R2 F2 absorption). 양쪽 slash kind 양쪽 normalize → 마지막 non-empty segment → drive-prefix / empty / `.` / `..` / separator-containing → `_` 대체. POSIX host에서 Windows-drive/UNC 입력도 leak-free.
+- **`maskPath()` outside-root placeholder** — `<outside-repo:basename>` 변환. Sibling worktree / parent dir / cross-drive / UNC / restored receipts from other repos 모두 raw segment leak 0.
+- **세션-ledger 11개 + mask 7개 새 test** — 5 write-side negative + 1 write-side positive + 1 helper-total + 2 read-side lift + 1 WARN cardinality + 6 maskPath case + 1 outside-root no-separator-leak invariant.
+
+### Changed
+
+- **`session-ledger.js#validate()`** — `git_branch !== null` 블록 안에 `isValidGitBranch` strict rule 추가. createLedger 경로(write-side)만 strict reject. v2 schema version은 유지 (backward-compat — 기존 valid v2 ledger 모두 통과).
+- **`session-ledger.js` read paths** — `readLedger`/`listLedgers`/`updateLedgerHeartbeat`/`finalizeLedger` 4개 모두 JSON parse → liftV1 → **liftLegacyBranch** → validate 순서. invalid v2 ledger silent drop 방지 (Codex R2 F1 absorption — discovery surface 보존).
+- **`derive/mask.js#maskPath()`** — 기존 `path.relative(root, p)`이 `..` 시작 시 absolute leak하던 결함 차단. `isOutsideRoot()` 3축 detection (Windows-drive cross-drive / UNC / POSIX `path.isAbsolute` + relative `..`) → `<outside-repo:safeTrailingSegment>` placeholder.
+- **plugin.json version bump** `1.8.0 → 1.8.1`.
 
 ## [1.8.0] — 2026-06-20
 

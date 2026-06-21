@@ -1,10 +1,10 @@
 'use strict';
 
-// v1.3.0-m3 DESIGN.md H1-H14 mechanical lint contract.
+// v1.3.0-m3 DESIGN.md H1-H16 mechanical lint contract.
 // See docs/v1.3.0-observability/DESIGN.md for the rule spec.
 //
 // Pure function, no I/O, no global state. Returns multi-violation
-// collection (all 14 rules evaluated even after first hit). Fail-open
+// collection (all 16 rules evaluated even after first hit). Fail-open
 // per-rule: if a rule's check throws, that rule is skipped + stderr
 // warn, other rules continue. Caller integrates via renderer/index.js
 // and pushes model.warnings on violation count > 0 or degraded === true.
@@ -210,6 +210,91 @@ const RULES = [
       if (/^v?\d+[-.]\d+/.test(stripped)) {
         return { evidence: 'h1.verdict text "' + stripped.slice(0, 40) + '" is slug-only' };
       }
+      return null;
+    },
+  },
+  // H15 heading depth <= 3. h1 + h2 + h3 만 허용. h4+ 등장 시 PM voice 60s scan 불가.
+  // HTML body + markdown source 양쪽 검사. attribute 안의 `<h4>` 같은 escape는
+  // 이미 &lt; 로 변환돼 다른 토큰 — strip 불필요.
+  // Codex F2 (plan-time) + F2 (implement-time) absorption:
+  // markdown은 fenced code block(backtick `{3,}` AND tilde `~{3,}`) strip 후
+  // CommonMark ATX (`^ {0,3}#{4,6}\s`) 매칭 — indented heading 잡고
+  // fenced 예시 false-positive 회피. 두 fence 종류 모두 cover.
+  {
+    id: 'H15',
+    severity: 'invariant',
+    check: ({ html, md }) => {
+      let count = 0;
+      const hits = [];
+      if (html) {
+        const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+        const bodyContent = bodyMatch ? bodyMatch[1] : html;
+        const m = bodyContent.match(/<h[4-9]\b/gi);
+        if (m) { count += m.length; hits.push('html(' + m.length + ')'); }
+      }
+      if (md) {
+        // Strip fenced code blocks. CommonMark allows fence length >= 3 of
+        // either backtick or tilde. Closing fence must be same char, length >=.
+        // Conservative regex: paired triple-or-more of same fence char.
+        let stripped = md
+          .replace(/^([ ]{0,3})(`{3,})[^\n]*\n[\s\S]*?\n[ ]{0,3}\2[ \t]*$/gm, '')
+          .replace(/^([ ]{0,3})(~{3,})[^\n]*\n[\s\S]*?\n[ ]{0,3}\2[ \t]*$/gm, '');
+        const m = stripped.match(/^ {0,3}#{4,6}\s/gm);
+        if (m) { count += m.length; hits.push('md(' + m.length + ')'); }
+      }
+      if (count > 0) return { evidence: count + ' h4+/heading(s): ' + hits.join('+') };
+      return null;
+    },
+  },
+  // H16 unrendered markdown literal in HTML body.
+  // Catalog: paired ** / paired __ / inline backtick (raw + entity variants) /
+  //          md link / MD lint code / entity-encoded asterisk/underscore (paired).
+  // Carve-out (same as H10): strip <code>/<pre>/HTML attributes before count.
+  // Codex F3 (implement-time) absorption: Python dunder 15종 whitelist
+  // (init/name/main/file/doc/str/repr/call/enter/exit/all/slots/dict/iter/len).
+  // 본 repo skill docs에 __all__/__slots__/__dict__ 다수 존재 — 좁은 10종
+  // whitelist는 production false-positive 양산.
+  // Codex F4 (implement-time) absorption: entity-encoded backtick은 leading-zero
+  // (&#096;), uppercase hex (&#X60;), named entity (&grave;) variant 모두 cover.
+  // entity-encoded asterisk/underscore는 paired matching (2회 이상 등장 시 fire) —
+  // bold marker bypass 차단. md link literal과 MD0xx lint code는 unchanged.
+  // markdown source는 IS markdown — 본 rule는 HTML body only.
+  {
+    id: 'H16',
+    severity: 'absolute-ban',
+    check: ({ html }) => {
+      if (!html) return null;
+      const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      const bodyContent = bodyMatch ? bodyMatch[1] : html;
+      const PYTHON_DUNDERS = /\b__(?:init|name|main|file|doc|str|repr|call|enter|exit|all|slots|dict|iter|len)__\b/g;
+      const stripped = bodyContent
+        .replace(/<code[\s\S]*?<\/code>/g, '')
+        .replace(/<pre[\s\S]*?<\/pre>/g, '')
+        .replace(/(?:title|alt|aria-label)="[^"]*"/g, '')
+        .replace(PYTHON_DUNDERS, '');
+      // entity-encoded backtick variants (decimal w/ leading zeros, hex upper/lower, named)
+      const ENT_BACKTICK = '(?:&#0*96;|&#[xX]0*60;|&grave;)';
+      const ENT_ASTERISK = '(?:&#0*42;|&#[xX]0*2[aA];|&ast;)';
+      const ENT_UNDERSCORE = '(?:&#0*95;|&#[xX]0*5[fF];|&(?:lowbar|UnderBar);)';
+      const patterns = [
+        { name: 'bold-asterisk', re: /\*\*[^*\n]+\*\*/g },
+        { name: 'bold-underscore', re: /\b__[^_\n]+__\b/g },
+        { name: 'inline-backtick', re: /`[^`\n]+`/g },
+        { name: 'entity-backtick', re: new RegExp(ENT_BACKTICK + '[^&\\n]+' + ENT_BACKTICK, 'g') },
+        // paired entity-asterisk (bypasses raw ** rule via entity encoding)
+        { name: 'entity-asterisk-pair', re: new RegExp(ENT_ASTERISK + ENT_ASTERISK + '[^\\n]+?' + ENT_ASTERISK + ENT_ASTERISK, 'g') },
+        // paired entity-underscore (bypasses raw __ rule via entity encoding)
+        { name: 'entity-underscore-pair', re: new RegExp(ENT_UNDERSCORE + ENT_UNDERSCORE + '[^\\n]+?' + ENT_UNDERSCORE + ENT_UNDERSCORE, 'g') },
+        { name: 'md-link', re: /\[[^\]]+\]\([^)]+\)/g },
+        { name: 'md-lint-code', re: /\bMD0?\d{2,4}\b/g },
+      ];
+      const hits = [];
+      let total = 0;
+      for (const p of patterns) {
+        const m = stripped.match(p.re);
+        if (m) { total += m.length; hits.push(p.name + '(' + m.length + ')'); }
+      }
+      if (total > 0) return { evidence: total + ' unrendered marker(s): ' + hits.join('+') };
       return null;
     },
   },

@@ -23,10 +23,10 @@ test('schema — runOutputConstraints returns {violations[], details[]}', () => 
   assert.ok(Array.isArray(out.details));
 });
 
-test('schema — RULES exports 14 rules H1..H14', () => {
-  assert.equal(RULES.length, 14);
+test('schema — RULES exports 16 rules H1..H16', () => {
+  assert.equal(RULES.length, 16);
   const ids = RULES.map((r) => r.id);
-  for (let i = 1; i <= 14; i += 1) {
+  for (let i = 1; i <= 16; i += 1) {
     assert.ok(ids.includes('H' + i), 'missing H' + i);
   }
 });
@@ -405,4 +405,213 @@ test('H14 — fail when verdict text is raw slug only', () => {
     md: '',
   });
   assert.ok(out.violations.includes('H14'));
+});
+
+// ----------------------------------------------------------------------
+// H15 — heading depth (m3 follow-up: PRD §Design Direction line 149 (a))
+// ----------------------------------------------------------------------
+
+test('H15 — pass on m3-redux baseline (h1+h2+h3 only)', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS,
+    html: '<body><h1>x</h1><h2>y</h2><h3>z</h3></body>',
+    md: '# x\n## y\n### z\n',
+  });
+  assert.ok(!out.violations.includes('H15'));
+});
+
+test('H15 — fail when <h4> appears in HTML body', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS,
+    html: '<body><h1>x</h1><h4>y</h4></body>',
+    md: '',
+  });
+  assert.ok(out.violations.includes('H15'));
+});
+
+test('H15 — fail when ^#### appears in markdown', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS,
+    html: '',
+    md: '# x\n## y\n#### z\n',
+  });
+  assert.ok(out.violations.includes('H15'));
+});
+
+// Codex F2 (plan) absorption: indented ATX heading (CommonMark allows 0-3 leading spaces)
+test('H15 — fail when indented #### appears in markdown (CommonMark ATX)', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '', md: '# x\n   #### indented drift\n',
+  });
+  assert.ok(out.violations.includes('H15'));
+});
+
+// Codex F2 (plan) absorption: triple-backtick fenced code containing #### must NOT trigger
+test('H15 — pass when #### appears inside backtick fenced code block', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '',
+    md: '# x\n```md\n#### example only\n```\n',
+  });
+  assert.ok(!out.violations.includes('H15'));
+});
+
+// Codex F2 (implement) absorption: tilde fenced code containing #### must NOT trigger
+test('H15 — pass when #### appears inside tilde fenced code block', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '',
+    md: '# x\n~~~md\n#### example only\n~~~\n',
+  });
+  assert.ok(!out.violations.includes('H15'));
+});
+
+// ----------------------------------------------------------------------
+// H16 — unrendered markdown literal (m3 follow-up: PRD §Design Direction line 149 (c))
+// ----------------------------------------------------------------------
+
+test('H16 — pass on m3-redux baseline (no unrendered markers)', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS,
+    html: '<body><strong>x</strong> <code>**literal**</code></body>',
+    md: '',
+  });
+  assert.ok(!out.violations.includes('H16'));
+});
+
+test('H16 — fail when **bold** literal in body', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>see **important** note</body>', md: '',
+  });
+  assert.ok(out.violations.includes('H16'));
+});
+
+test('H16 — fail when __bold__ literal in body', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>see __important__ note</body>', md: '',
+  });
+  assert.ok(out.violations.includes('H16'));
+});
+
+test('H16 — fail when markdown link literal in body', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>read [docs](https://example.com)</body>', md: '',
+  });
+  assert.ok(out.violations.includes('H16'));
+});
+
+test('H16 — fail when MD0xx markdownlint code in body', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>fix MD025 in heading</body>', md: '',
+  });
+  assert.ok(out.violations.includes('H16'));
+});
+
+test('H16 — carve-out: literal inside <code> does not trigger', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS,
+    html: '<body>example: <code>**bold**</code> here</body>',
+    md: '',
+  });
+  assert.ok(!out.violations.includes('H16'));
+});
+
+// Codex F1 (plan) absorption: raw inline backtick pairs must fire H16
+test('H16 — fail when raw inline backtick `foo` literal in body', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>see `foo` inline</body>', md: '',
+  });
+  assert.ok(out.violations.includes('H16'));
+});
+
+// Codex F1 (plan) absorption: entity-encoded backticks must fire H16
+test('H16 — fail when entity-encoded &#96;foo&#96; literal in body', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>see &#96;foo&#96; inline</body>', md: '',
+  });
+  assert.ok(out.violations.includes('H16'));
+});
+
+test('H16 — fail when hex entity &#x60;foo&#x60; literal in body', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>see &#x60;foo&#x60; inline</body>', md: '',
+  });
+  assert.ok(out.violations.includes('H16'));
+});
+
+// Codex F4 (implement) absorption: leading-zero entity variants
+test('H16 — fail when leading-zero entity &#096;foo&#096; literal in body', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>see &#096;foo&#096; inline</body>', md: '',
+  });
+  assert.ok(out.violations.includes('H16'));
+});
+
+// Codex F4 (implement) absorption: uppercase hex entity variants
+test('H16 — fail when uppercase hex entity &#X60;foo&#X60; literal in body', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>see &#X60;foo&#X60; inline</body>', md: '',
+  });
+  assert.ok(out.violations.includes('H16'));
+});
+
+// Codex F4 (implement) absorption: named entity backtick
+test('H16 — fail when named entity &grave;foo&grave; literal in body', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>see &grave;foo&grave; inline</body>', md: '',
+  });
+  assert.ok(out.violations.includes('H16'));
+});
+
+// Codex F4 (implement) absorption: entity-encoded asterisk pair (bypass of raw **)
+test('H16 — fail when entity-asterisk pair &ast;&ast;bold&ast;&ast; literal in body', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>see &ast;&ast;bold&ast;&ast; here</body>', md: '',
+  });
+  assert.ok(out.violations.includes('H16'));
+});
+
+// Codex F3 (plan + implement) absorption: Python dunder identifiers strict pass
+test('H16 — Python dunder __init__ does NOT trigger (strict assertion)', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>Python __init__ constructor</body>', md: '',
+  });
+  assert.ok(!out.violations.includes('H16'));
+});
+
+test('H16 — Python dunder __name__ / __main__ do NOT trigger', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>__name__ == __main__</body>', md: '',
+  });
+  assert.ok(!out.violations.includes('H16'));
+});
+
+// Codex F3 (implement) absorption: expanded dunders (__all__, __slots__, __dict__) present in repo skill docs
+test('H16 — Python dunder __all__ / __slots__ / __dict__ do NOT trigger (expanded whitelist)', () => {
+  const out1 = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>module exports __all__</body>', md: '',
+  });
+  assert.ok(!out1.violations.includes('H16'));
+  const out2 = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>class uses __slots__</body>', md: '',
+  });
+  assert.ok(!out2.violations.includes('H16'));
+  const out3 = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>instance.__dict__ holds attrs</body>', md: '',
+  });
+  assert.ok(!out3.violations.includes('H16'));
+});
+
+test('H16 — non-dunder __custom__ still triggers (whitelist is narrow)', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS, html: '<body>see __custom__ marker in body</body>', md: '',
+  });
+  assert.ok(out.violations.includes('H16'));
+});
+
+test('H16 — false-positive guard: <pre> 안의 marker는 trigger 안 됨', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS,
+    html: '<body><pre>some **bold** and [link](url)</pre></body>',
+    md: '',
+  });
+  assert.ok(!out.violations.includes('H16'));
 });

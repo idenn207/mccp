@@ -50,9 +50,11 @@
 | H12 | Status row is verb-led prose, not pills. Severity is expressed by *icon + word*, not by background color or uppercase letter-spaced badge. | grep `.sev-pill` class definition: file must not contain it | `.sev-pill` defined and used in risks + open-questions |
 | H13 | font-family: system stack + 1 mono. No custom font CDN. No `Inter` / `Pretendard Variable` / `JetBrains Mono` names. | grep `font-family.*Inter|Pretendard|JetBrains` = fail | full stack `Inter, Pretendard Variable, ..., JetBrains Mono` |
 | H14 | Verdict is PM-voice prose, not raw slug. Slugs appear in `<code>` inline within prose, never as the whole 1-line verdict. | derive engine emits `model.verdict.prose` separate from `model.verdict.next_slug` | verdict text was raw slug |
+| H15 | Heading depth ≤ 3. h1(verdict) + h2(section) + h3(sub-section) 만 허용. h4+ 금지 — PRD §Design Direction line 149 "(a) 정보 위계 3단계". | HTML body `<h([4-9])` 카운트 == 0 AND STATUS.md *fenced code block strip* (backtick `` `{3,} `` AND tilde `~{3,}` 양쪽) 후 CommonMark ATX `^ {0,3}#{4,6}\s` 카운트 == 0 | (m3-redux baseline은 h1+h2만 emit — 본 rule은 future drift 차단) |
+| H16 | NO unrendered markdown literal in HTML body. `**bold**` / `__bold__` paired markers, inline backtick `` `code` `` pairs (raw + entity-encoded backtick/asterisk/underscore: `&#96;`/`&#x60;`/`&grave;` + `&#42;`/`&#x2A;`/`&ast;` + `&#95;`/`&#x5F;`/`&lowbar;` 등 leading-zero/uppercase/named entity variant 모두), markdown link `[text](url)` 패턴, markdownlint code `MD0\d\d` 식별자가 rendered text로 노출되면 안 됨. H10(em-dash punctuation)과 직교 — H10은 prose, H16은 unrendered markup. | HTML body에서 `<code>` / `<pre>` / HTML attribute strip + Python dunder 15종 whitelist(`__init__`/`__name__`/`__main__`/`__file__`/`__doc__`/`__str__`/`__repr__`/`__call__`/`__enter__`/`__exit__`/`__all__`/`__slots__`/`__dict__`/`__iter__`/`__len__`) 제거 후 6 패턴 카운트 == 0: (i) `\*\*[^*\n]+\*\*`, (ii) `\b__[^_\n]+__\b`(dunder strip 후), (iii) `` `[^`\n]+` ``(raw backtick) + 3 entity-encoded variant(backtick/asterisk/underscore — asterisk/underscore는 paired matching), (iv) `\[[^\]]+\]\([^)]+\)`, (v) `\bMD0?\d{2,4}\b` | (m3-redux baseline은 `**`/`__`/`` ` ``/`[](`/MD0xx 가 HTML body에 미노출 — lint-only) |
 
-H1–H14 are the **mechanical lint target** for the v1.3.0-design-gate axis (PR
-ec4e7a0). Future renderer changes must pass all 14 grep-based checks.
+H1–H16 are the **mechanical lint target** for the v1.3.0-design-gate axis (PR
+ec4e7a0). Future renderer changes must pass all 16 grep-based checks.
 
 ## Token system (true to PRD §Color strategy line 152-169)
 

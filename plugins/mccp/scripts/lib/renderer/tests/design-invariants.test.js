@@ -1,8 +1,8 @@
 'use strict';
 
-// v1.3.0-m3 end-to-end DESIGN.md H1-H14 sanity.
+// v1.3.0-m3 end-to-end DESIGN.md H1-H16 sanity.
 // Goal: assert that the renderer's actual output (HTML + CSS literal +
-// markdown composer) satisfies all 14 lint rules. Plus Codex F2/F3
+// markdown composer) satisfies all 16 lint rules. Plus Codex F2/F3
 // absorption dry-runs.
 
 const test = require('node:test');
@@ -29,7 +29,7 @@ function minimalModel() {
   };
 }
 
-test('design-invariants — current renderer output passes all 14 H rules', () => {
+test('design-invariants — current renderer output passes all 16 H rules', () => {
   const r = renderStatus(minimalModel(), { snapshotsDir: null });
   if (r.design_constraint_violations.length > 0) {
     // Print detail to stderr so the failure is debuggable in CI.
@@ -37,6 +37,23 @@ test('design-invariants — current renderer output passes all 14 H rules', () =
       + JSON.stringify(r.design_constraint_violations) + '\n');
   }
   assert.deepEqual(r.design_constraint_violations, []);
+});
+
+// v1.3.0-m3 follow-up: H15+H16 drift fixture sanity. Directly invokes the
+// lint module to bypass renderer's clean output — verifies that the new rules
+// actually fire on injected drift, not just that the renderer happens to pass.
+test('design-invariants — drift fixture: H15 + H16 violations surface', () => {
+  const { runOutputConstraints } = require('../output-constraints');
+  const out = runOutputConstraints({
+    css: '',
+    html: '<body><h4>drift</h4> **bold** literal</body>',
+    md: '#### drift heading\n',
+  });
+  assert.ok(out.violations.includes('H15'), 'H15 must fire on <h4> + #### drift');
+  assert.ok(out.violations.includes('H16'), 'H16 must fire on **bold** literal');
+  const detailIds = out.details.map((d) => d.rule);
+  assert.ok(detailIds.includes('H15'));
+  assert.ok(detailIds.includes('H16'));
 });
 
 test('design-invariants — lint subsystem is not degraded on healthy render (F2 absorption)', () => {

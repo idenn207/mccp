@@ -2,14 +2,14 @@
 state_version: 1
 task_fingerprint: v1-3-0-cycle-close-ready
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-06-20T09:55:32.502Z
+updated_at: 2026-06-21T02:34:20.866Z
 last_event: stop_loop_pass
-last_event_at: 2026-06-19T07:07:19.932Z
+last_event_at: 2026-06-21T02:34:20.866Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
-chain_aborted: true
-last_pr_url: https://github.com/idenn207/mccp/pull/41
+chain_aborted: false
+last_pr_url: https://github.com/idenn207/mccp/pull/45
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
@@ -42,23 +42,23 @@ v1.3.0 observability surface II — cycle CLOSE. M0~M5 모두 main merged (#31/#
 - PR #40 merged (chore(v1.3.0): post-ship STATE.md roll + body-roll backlog axis, aaca878)
 - PR #41 merged (v1.3.0-m5 — daily snapshot + 30-day audit timeline + Codex R1 absorption, d12e82d)
 - v1.3.0-m6 worktree ship 직전 — /mccp:code-review absorption: receipt store file-level symlink guard 추가 (`receipts/store.js#readReceipt` isPlainFile, store-readreceipt-symlink test #5 추가) + Fixture D sentinel JSON 강화 + generic-interface.md §4.3 cite 정밀화 + audit matrix patch column 1건으로 갱신 + CHANGELOG [1.4.0]/[1.4.1] dates 백필 + [1.5.0] entry 백필 + [1.6.0] entry 갱신
+- PR #45 push complete (2026-06-21, commit 2de91d5) — v1.3.0 design-gate M1+M2+M3 + M3-redux + PRD roll bundle. M3 output-constraints mechanical lint shipped (44+4 tests, plugin.json 1.6.2→1.7.0, cross-gate dedupe applied)
 
 ## In Progress
-v1.3.0-m6 cycle close PR 직전 — code-review absorption 완료, /mccp:pr 호출 대기. 병행: v1.4.0 multi-session cycle PRD co-created, /mccp:plan 진입 대기.
+PR #45 OPEN, review/merge 대기. main에 squash merged 후 worktree (.worktrees/v1.3.0-prd-status-roll/) cleanup.
 
 ## Next Step
-1. v1.3.0-m6 PR 생성 (`/mccp:pr`) — cycle close note 본문 포함, worktree cleanup 안내 (`.worktrees/v1.3.0-observability-m6`).
-2. PR merge 후 `claude plugin update`로 `~/.claude/plugins/cache/mccp/mccp/1.6.0/` 정식 생성.
-3. v1.4.0 multi-session cycle 진입 — `/mccp:plan .claude/prds/v1-4-0-multi-session-first-class.prd.md`.
+1. PR #45 review/merge → 2. claude plugin update로 cache 1.7.0 hot-fix → 3. H15+H16 follow-up plan 작성 (heading depth + unrendered md literal) → 4. cost ceiling reset.
 
 ## Last Decision
-2026-06-19 v1.3.0 cycle CLOSE 진입 — M6 generic-interface validation worktree에서 /mccp:code-review absorption 일괄 처리. 1 HIGH (receipt file-level symlink guard 누락 → store.js isPlainFile 추가 + Fixture D meta sentinels 강화 + §4.3 cite 정밀화) + 1 MEDIUM (CHANGELOG [1.4.0]/[1.4.1] Unreleased + [1.5.0] missing entry → 일괄 백필) + 1 LOW (STATE.md body stale → 본 update가 cycle close 반영) 처리. 회귀 0 (derive 40/40 + snapshot 16/16 + renderer 89/89 + receipt store 34/34, file-level symlink test 1건 Windows skip 의도). v1.3.0 line 종료, v1.4.x line이 cycle close 후속 axis 흡수.
+2026-06-21 v1.3.0 design-gate M3 output-constraints mechanical lint ship. DESIGN.md H1-H14 14-rule lint contract을 fail-open per-rule + Codex F2 separate degraded surface + F3 model.warnings push로 구현. Plan-Codex R1 (3 finding all ACCEPT_NOW R1 absorbed) → Implement-Codex cross-gate dedupe (no new architectural decisions). M3 partial Axis C completion 명시, H15+H16 follow-up plan 분리 결정. CLI advisory가 user content em-dash (H10) surface — 1차 acceptance는 fixture-based, real-world advisory는 by design.
 
 ## Open Questions
-- STATE.md body 자동 roll 부재 — backlog 유지. v1.3.0-m4 PR #39 (plugin.json bump 누락) + v1.3.0-m5 PR #41 (M4 bump을 M5가 백필) 패턴이 동일 axis 재현. pr.md Phase 1 VALIDATE에 plugin.json freshness check 추가 axis 우선순위 상승.
-- pr.md worktree `.git/` hardcode 결함 — v1.0.1/v1.3.0-m0/m1/m4/m5/m6 cycle 모두 재현 의심. mechanical 1-line fix axis 우선순위 상승.
-- mccp 슬래시 명령 axis: prp-implement.md / pr.md 2.5.7-2.5.8 validate-cmd 호출이 --decision/--plan 누락 → default slug + v0.2.8 quarantine fail. v1.3.0 cycle close에서도 직접 echo 패턴으로 작업 — 다음 v1.4.x cycle에 mechanical patch.
-- CHANGELOG [1.4.0]/[1.4.1] inverted descending semver order — main의 기존 misorder가 본 PR로 노출. Keep-a-Changelog 표준 위반이지만 본 PR scope 외 (별도 chore PR 후보).
+- STATE.md body 자동 roll 부재 — 본 update로 body 갱신했지만 mechanical wiring 부재. pr.md Phase 1 VALIDATE에 plugin.json + STATE.md freshness check 추가 axis 우선순위 최상위.
+- pr.md worktree .git/ hardcode 결함 + heredoc body single-quote 깨짐 — v1.3.0 M3 cycle에서도 hit. 한 줄 수정 axis 누적 7+ cycle.
+- validate-cmd default-slug fallback이 --decision/--plan 누락 시 v0.2.8 quarantine block — CLAUDE.md §4에 이미 적혔지만 cycle마다 재현. prp-implement.md 2.5.7 Step C/D에 --decision/--plan 자동 propagate axis.
+- H15 (heading depth) + H16 (unrendered md literal) follow-up plan 작성 보류 — M3 acceptance #13 요구. spec creation 필요해서 별도 cycle.
+- cost hard ceiling $210 over 00 cap — 다음 세션 부팅 전 cost reset 권장. auto-chain abort 신호 정상 작동 확인.
 
 ## Last Updated
-2026-06-20T09:55:32.502Z
+2026-06-21T02:34:20.866Z

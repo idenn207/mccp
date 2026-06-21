@@ -76,7 +76,7 @@ We'll know we're right when:
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | layout/i18n/staleness | 첫 사용 5초 내 *현재 진행 + next + 차단* 파악, stale surface 0건, 한글 surface label, status header hoist | in-progress | [v1-4-2-dashboard-overhaul-m1.plan.md](../plans/v1-4-2-dashboard-overhaul-m1.plan.md) |
-| 2 | content + actionability | jargon expand, OQ/Risks dedupe + meta-cue + copy-paste action prompt, milestone history surface, intent(why) extraction | pending | — |
+| 2 | content + actionability | jargon expand, OQ/Risks dedupe + meta-cue + copy-paste action prompt, milestone history surface, intent(why) extraction | in-progress | [v1-4-2-dashboard-overhaul-m2.plan.md](../plans/v1-4-2-dashboard-overhaul-m2.plan.md) |
 
 ## Open Questions
 - [ ] **OQ-a.** Stale plan 판정 기준 — (i) plan path basename cycle ID와 STATE.md

@@ -5,6 +5,7 @@ const { computeVerdict } = require('./verdict');
 const { parsePlanBody } = require('./parsers/plan-body');
 const { renderStatusGrid } = require('./sections/status-grid');
 const { renderWorkerFanout } = require('./sections/worker-fanout');
+const { renderActiveSessions } = require('./sections/active-sessions');
 const { renderAuditTimeline } = require('./sections/audit-timeline');
 const { renderOpenQuestions } = require('./sections/open-questions');
 const { renderRisks } = require('./sections/risks');
@@ -100,12 +101,13 @@ function renderStatus(model, opts) {
 
     const grid = safeSection('status-grid', () => renderStatusGrid(m, formatUtils, planBody));
     const fanout = safeSection('worker-fanout', () => renderWorkerFanout(m, formatUtils));
+    const activeSessions = safeSection('active-sessions', () => renderActiveSessions(m, formatUtils));
     const timeline = safeSection('audit-timeline',
       () => renderAuditTimeline(m, formatUtils, undefined, { snapshotsDir: snapshotsDir }));
     const questions = safeSection('open-questions', () => renderOpenQuestions(m, formatUtils, planBody));
     const risks = safeSection('risks', () => renderRisks(m, formatUtils, planBody));
 
-    const sections = [grid, fanout, timeline, questions, risks];
+    const sections = [grid, fanout, activeSessions, timeline, questions, risks];
     const derivedAt = m.derived_at || new Date().toISOString();
 
     const md = safeCompose(

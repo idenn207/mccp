@@ -289,12 +289,24 @@ async function main() {
     log(`[SessionEnd] Created session file: ${sessionFile}`);
   }
 
-  // v1.5.0-m1 — finalize session ledger (set ended_at). Loud fail-open per
-  // CLAUDE.md §3.4 — hook never throws. Idempotent when ledger absent.
+  // v1.5.0-m1 / v1.4.0-m2 — heartbeat-then-finalize the session ledger so the
+  // ledger records a clean ordering: created_at < last_seen_at < ended_at.
+  // The heartbeat call lets a downstream reader distinguish a clean exit
+  // (ended_at > last_seen_at by a wide margin) from a crash that finalizes
+  // hours later (ended_at ≫ last_seen_at). Loud fail-open per CLAUDE.md §3.4
+  // — hook never throws. Idempotent when ledger absent.
   try {
     const sid = resolveSessionId();
     if (sid) {
       const ctx = resolveProjectContext();
+      try {
+        const hb = sessionLedger.updateLedgerHeartbeat({ sessionId: sid, projectContext: ctx });
+        if (!hb.ok && !hb.noop) {
+          process.stderr.write(`[mccp:session-ledger] WARNING: SessionEnd heartbeat returned !ok: ${JSON.stringify(hb.errors || [])} (allow)\n`);
+        }
+      } catch (hbErr) {
+        process.stderr.write(`[mccp:session-ledger] WARNING: SessionEnd heartbeat threw: ${hbErr && hbErr.message ? hbErr.message : hbErr} (allow)\n`);
+      }
       const fin = sessionLedger.finalizeLedger({ sessionId: sid, projectContext: ctx });
       if (fin.ok && fin.paths.length > 0) {
         log(`[SessionEnd] Finalized session ledger ${sid} (paths=${fin.paths.length})`);

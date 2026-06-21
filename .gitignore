@@ -53,6 +53,10 @@ ECC/
 # Each worktree has its own branch + .claude/ ledger. Never committed from main.
 .worktrees/
 
+# v1.4.0-m3 friction telemetry sidecar — worktree-local M3 metric producer
+# (banner-injected event count). Cycle-end aggregation only; never committed.
+.claude/state/m3-friction-events.jsonl
+
 # v1.3.0 Observability Surface II — derive cache (M1+, never committed).
 # Cache layer is per-session/per-machine; sources of truth remain receipts,
 # envelopes, and STATE.md. Pattern mirrors .claude/state/*.lock above.

@@ -48,14 +48,14 @@ We'll know we're right when **3개 axis(A/B/C)가 receipt chain custody를 유�
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | axis A — deep-research → plan-prd | `mccp:plan-prd`가 PRD 작성 중 외부 조사 필요 여부를 묻고 `/deep-research` 실행을 안내, 결과 보고서를 PRD 본문 `## References` 섹션에 audit-trail | complete | [.claude/PRPs/plans/completed/v1-4-0-m1-deep-research.plan.md](../PRPs/plans/completed/v1-4-0-m1-deep-research.plan.md) |
-| 2 | axis B — ultracode → prp-implement | plan task에 marker가 있는 task만 `ultracode:` 키워드로 위임. workflow agent가 mccp 상태에 침투하지 않는 isolation 보장 (mechanical lock + cooperative prompt 2-layer) | in-progress | [.claude/plans/v1-4-0-m2-ultracode.plan.md](../plans/v1-4-0-m2-ultracode.plan.md) |
-| 3 | axis C — /goal → mccp:milestone-close | 신규 `/mccp:milestone-close` 명령이 `/goal`을 wrapping해서 milestone 종료 acceptance loop 실행. mccp Stop hook 격리 보장 | pending | — |
-| 4 | integration template doc | `docs/automation-modernization/integration-template.md` — 향후 native 기능 흡수 시 재사용 가능한 호출 layer 패턴 명세 | pending | — |
+| 2 | axis B — ultracode → prp-implement | plan task에 marker가 있는 task만 `ultracode:` 키워드로 위임. workflow agent가 mccp 상태에 침투하지 않는 isolation 보장 (mechanical lock + cooperative prompt 2-layer) | complete | [.claude/plans/v1-4-0-m2-ultracode.plan.md](../plans/v1-4-0-m2-ultracode.plan.md) |
+| 3 | axis C — /goal → mccp:milestone-close | 신규 `/mccp:milestone-close` 명령이 `/goal`을 wrapping해서 milestone 종료 acceptance loop 실행. mccp Stop hook 격리 보장 (PreToolUse guard + Stop-hook short-circuit 2-axis) | complete | [.claude/plans/v1-4-0-m3-goal-milestone-close.plan.md](../plans/v1-4-0-m3-goal-milestone-close.plan.md) |
+| 4 | integration template doc | `docs/automation-modernization/integration-template.md` — 향후 native 기능 흡수 시 재사용 가능한 호출 layer 패턴 명세 | dropped | M1+M2+M3 누적 패턴으로 충족 — 별도 milestone 불필요 (2026-06-19 결정, M3 cycle close 시 stamp) |
 
 ## Open Questions
-- [ ] M3(`/goal`)의 mccp Stop hook 격리는 env 토글로 할 것인가, 아니면 `/goal` 활성 중 Stop hook을 mechanical 우회할 것인가? 두 설계의 race 시나리오 명세 필요.
-- [ ] M2(`ultracode`)의 workflow agent isolation은 (a) 프롬프트 injection으로 "mccp:* 호출 금지" 명시인가, (b) pr-phase-guard 확장으로 mechanical block인가? 둘 다 leakage 가능.
-- [ ] integration template doc은 M4 별도 milestone으로 할 것인가, 아니면 M1/M2/M3 각 milestone의 부산물로 점진 누적할 것인가? cycle close 직전 결정.
+- [x] M3(`/goal`)의 mccp Stop hook 격리는 env 토글로 할 것인가, 아니면 `/goal` 활성 중 Stop hook을 mechanical 우회할 것인가? 두 설계의 race 시나리오 명세 필요. **결정 (2026-06-19, M3 plan)**: mechanical hybrid 2-axis 채택 — (i) `goal-phase-lock.js` + `goal-phase-guard.js` PreToolUse guard + (ii) `stop-review-loop.js` lock-aware fresh-only short-circuit. env toggle은 채택 안 함 (loud fail-open 원칙에 위반 — env override는 silent로 격리를 무력화할 위험).
+- [x] M2(`ultracode`)의 workflow agent isolation은 (a) 프롬프트 injection으로 "mccp:* 호출 금지" 명시인가, (b) pr-phase-guard 확장으로 mechanical block인가? 둘 다 leakage 가능. **결정 (M2 ship 시점)**: hybrid 2-layer — primary mechanical(`ultracode-phase-lock.js` + `ultracode-phase-guard.js`) + secondary cooperative(prompt 안내). M3가 동일 패턴 + Stop-hook layer로 확장.
+- [x] integration template doc은 M4 별도 milestone으로 할 것인가, 아니면 M1/M2/M3 각 milestone의 부산물로 점진 누적할 것인가? cycle close 직전 결정. **결정 (2026-06-19, M3 plan Task 12)**: 누적 패턴 채택 — M4 별도 milestone redundant. `docs/automation-modernization/integration-template.md`가 §3/§5/§6/§7-9/§10을 모두 담고 있어 별도 milestone에서 추가할 새로운 content 없음. M4 row → status `dropped`.
 
 ## Risks
 | Risk | Likelihood | Impact | Mitigation |
@@ -71,3 +71,4 @@ We'll know we're right when **3개 axis(A/B/C)가 receipt chain custody를 유�
 ---
 *Evidence section composed under user delegation (`claude 판단에 맡김`) — 3개 신호 모두 채택.*
 *Audit pass 2026-06-18: frontmatter 제거 (기존 PRD convention 정합), INVARIANT를 Principles 섹션으로 분리, M1/M2 outcome implementation detail 제거 (sandbox·frontmatter→outcome 언어), Open Questions 4→3 (use-ultracode marker syntax는 plan 단계 결정), version race risk 추가.*
+*Cycle CLOSE 2026-06-20: M1 (axis A — deep-research, PR #38, e7fc8de) + M2 (axis B — ultracode, PR #42, c9fe377) + M3 (axis C — /goal milestone-close, PR #47, aba4920) 모두 main merged. M4 (integration template doc) drop 확정 — M1+M2+M3 누적 패턴이 `docs/automation-modernization/integration-template.md` §3/§5/§6/§7-9/§10에 모두 흡수되어 별도 milestone redundant. v1.4.0 automation-modernization vector 가설 1차 검증 완료 — receipt chain custody 유지된 채 3개 axis가 모두 작동. 후속 axis(D = workflow runtime full integration)는 v1.5.0+ defer.*

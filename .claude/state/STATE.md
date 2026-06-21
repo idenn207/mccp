@@ -3,8 +3,8 @@ state_version: 1
 task_fingerprint: v1-4-2-dashboard-overhaul
 created_at: 2026-06-03T18:51:31.328Z
 updated_at: 2026-06-22T00:00:00.000Z
-last_event: m3_pr_body_updated
-last_event_at: 2026-06-22T01:00:00.000Z
+last_event: m3_carveout_resolved
+last_event_at: 2026-06-22T02:00:00.000Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: false
@@ -58,12 +58,13 @@ cycle context:
 - plugin.json: 1.11.0 (M1=1.9.0 / M2=1.10.0 / M3=1.11.0)
 
 ## Next Step
-1. **(우선) design-gate H3/H4 lint vs v1.4.2 4-part 컴포넌트 design intent 충돌 결정** — PR #50 body Follow-up §HIGH 참조. 옵션 3안 중 선택 후 fix commit. 본 결정 없이 PR squash merge 가능하나 main 의 design-gate baseline 위반이 영구 surface됨.
-2. (H3/H4 결정 후) squash merge → `claude plugin update` → cache `~/.claude/plugins/cache/mccp/mccp/1.11.0/` 신규 디렉토리 생성 확인.
-3. 다음 cycle 진입점 선택 — v1.4.x M2(SessionStart discovery) / automation axis C / pr.md hardcode 1-line fix.
+1. PR #50 squash merge — 모든 test PASS (281/281), mergeable=CLEAN, body title 모두 M3 반영.
+2. squash merge 직후 `claude plugin update` → cache `~/.claude/plugins/cache/mccp/mccp/1.11.0/` 신규 디렉토리 생성 확인.
+3. worktree cleanup: `git worktree remove .worktrees/v1.4.2-dashboard-overhaul/` + `git worktree prune`.
+4. 다음 cycle 진입점 선택 — v1.4.x M2(SessionStart discovery) / automation axis C / pr.md hardcode 1-line fix / impeccable Acceptable 26/40 잔여 F-items.
 
 ## Last Decision
-2026-06-22 v1.4.2 dashboard overhaul cycle M3 (a11y + oklch) 4-commit split push + main(v1.3.0 closed + v1.4.x cwd fix) merge resolution + PR #50 title/body M3 expansion 완료. 10 file conflict 해결(plugin.json 1.11.0 ours / STATE.md 번들 narrative / CHANGELOG union / renderer 6 files ours 일괄 + html.js TOKENS export + main max-width). design-gate H1/H2 lint 호환을 위한 2 mechanical fix는 design intent 보존하면서 통과. H3/H4 lint(card-less + stripe-less)는 v1.4.2 4-part 컴포넌트와 진짜 design intent 충돌 — 3 test failure로 surface, PR review에서 사용자 결정 axis. M3 PR-Codex round는 미실행(plan-codex-only state, /mccp:code-review 50 권장).
+2026-06-22 v1.4.2 dashboard overhaul cycle M3 ship + main merge resolution + design-gate H3/H4 carve-out 완료. 사용자 결정 "v1.4.2 design 우선 — H3/H4 carve-out (권장)" 채택. `output-constraints.js`에 selector-aware `findSelectorContext()` helper + `H3_CARVEOUT`/`H4_CARVEOUT` regex 도입 — interactive affordance(severity-tag pill, action-prompt code chip, skip-link, copy-btn) + emergency alert chrome(`[role="alert"].s-secret`) + 4-part rationale stripe(blockquote, meta-cue)는 carve-out, 일반 layout chrome은 여전히 absolute-ban. DESIGN.md H3/H4 row amend + CHANGELOG [1.11.0] Deviations entry append. 281/281 test PASS (이전 278/281). M3 PR-Codex round는 미실행(plan-codex-only state, /mccp:code-review 50 권장).
 
 ## Open Questions
 - STATE.md body 자동 roll 부재 — 본 update로 body 갱신했지만 mechanical wiring 부재. pr.md Phase 1 VALIDATE에 plugin.json + STATE.md freshness check 추가 axis 우선순위 최상위. (반복 hit cycle 5+)
@@ -72,4 +73,4 @@ cycle context:
 - PR #50 conflict 해결 후 PR-Codex re-run 필요? — 기존 PR body에 Codex/security section이 이미 있고 M3는 별도 review 안 거침. M3 단독 review를 위해 별도 mccp:code-review 호출 권장.
 
 ## Last Updated
-2026-06-22T01:00:00.000Z
+2026-06-22T02:00:00.000Z

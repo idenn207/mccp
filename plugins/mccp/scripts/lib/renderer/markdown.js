@@ -29,7 +29,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   if (fanout) anchors.push('[워커](#워커)');
   if (activeSessions) anchors.push('[최근-활동](#최근-활동)');
   anchors.push('[타임라인](#타임라인)');
-  if (milestoneHistory) anchors.push('[이정표-기록](#이정표-기록)');
+  if (milestoneHistory) anchors.push('[마일스톤-기록](#마일스톤-기록)');
   if (questions) anchors.push('[미해결-질문](#미해결-질문)');
   anchors.push('[위험](#위험)');
   out.push(anchors.join(' · '));
@@ -84,7 +84,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('');
 
   if (milestoneHistory) {
-    out.push('## 이정표 기록');
+    out.push('## 마일스톤 기록');
     out.push('');
     out.push(milestoneHistory.md);
     out.push('');

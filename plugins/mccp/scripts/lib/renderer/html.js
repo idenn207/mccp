@@ -312,7 +312,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   parts.push('<section id="timeline"><h2>타임라인</h2>' + (timeline ? timeline.html : '') + '</section>');
 
   if (milestoneHistory) {
-    parts.push('<section id="milestone-history"><h2>이정표 기록</h2>' + milestoneHistory.html + '</section>');
+    parts.push('<section id="milestone-history"><h2>마일스톤 기록</h2>' + milestoneHistory.html + '</section>');
   }
 
   if (questions) {

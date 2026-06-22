@@ -32,14 +32,19 @@
 //   --prd <path>         → explicit PRD path (auto-pick)
 //   row.status='in-progress' + plan cell !== '—' + plan file exists → goal_signal=true
 //
-// Default availability is intentionally `unknown` — `/goal` is built-in (v2.1.139+)
-// with no plugin manifest entry. `~/.claude/commands/goal.md` filesystem probe is
-// best-effort. `unknown` triggers silent skip. Env override
-// MCCP_GOAL_FEATURE={available|missing|unknown} takes precedence.
+// `/goal` is a built-in (v2.1.139+) prompt-based Stop hook wrapper — unrelated
+// to the dynamic workflows feature. Availability is derived from hooks settings
+// signals (settings-signal.hooksGoalEnabled), NOT a filesystem probe of
+// user-level command paths (which can never observe a built-in command). goal is
+// default-on with no positive opt-in key, so the absence of any hook-disable
+// signal across all levels (managed included) is the active signal; managed
+// policy present-but-unreadable downgrades to `unknown`. `unknown`/`missing`
+// trigger silent skip. Env override MCCP_GOAL_FEATURE={available|missing|unknown}
+// takes precedence.
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+const settingsSignal = require('./settings-signal');
 
 const MODES = ['milestone-close'];
 const PRD_TABLE_HEADER_RE = /^\|\s*#\s*\|\s*Milestone\s*\|\s*Outcome\s*\|\s*Status\s*\|\s*Plan\s*\|/;
@@ -53,16 +58,23 @@ function probeAvailability(options) {
   if (env === 'missing') return 'missing';
   if (env === 'unknown') return 'unknown';
 
-  const userCommandPath = (opts.userCommandPath != null)
-    ? opts.userCommandPath
-    : path.join(os.homedir(), '.claude', 'commands', 'goal.md');
+  // goal is gated on hooks (disableAllHooks / allowManagedHooksOnly), not the
+  // workflows feature. Delegate to the settings-signal helper; on any
+  // unexpected failure fall open to 'unknown' (silent skip).
   try {
-    if (fs.existsSync(userCommandPath) && fs.statSync(userCommandPath).isFile()) {
-      return 'available';
-    }
-  } catch (_err) { /* ignore */ }
-
-  return 'unknown';
+    return settingsSignal.hooksGoalEnabled({
+      projectRoot: opts.projectRoot,
+      userPath: opts.userPath,
+      projectPath: opts.projectPath,
+      managedPath: opts.managedPath,
+    });
+  } catch (err) {
+    process.stderr.write(
+      '[mccp:goal-detect] hooks signal probe failed (' +
+      err.message + ') — defaulting to unknown\n'
+    );
+    return 'unknown';
+  }
 }
 
 function validatePathSafety(target, repoRoot) {
@@ -208,7 +220,10 @@ function detect(options) {
   const repoRoot = opts.repoRoot || process.cwd();
 
   const availability = probeAvailability({
-    userCommandPath: opts.userCommandPath,
+    projectRoot: opts.projectRoot != null ? opts.projectRoot : repoRoot,
+    userPath: opts.userPath,
+    projectPath: opts.projectPath,
+    managedPath: opts.managedPath,
   });
 
   if (!mode) {

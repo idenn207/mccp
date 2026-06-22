@@ -56,14 +56,54 @@ test('S1c: env override "unknown" → availability=unknown', () => {
   });
 });
 
-test('S1d: no env + missing user paths → default=unknown (phantom-안내-금지 invariant)', () => {
+// Build an isolated three-level settings path set inside a temp dir.
+function isolatedSettings(dir, contents) {
+  const c = contents || {};
+  const out = {
+    managedPath: path.join(dir, 'managed-settings.json'),
+    userPath: path.join(dir, 'user-settings.json'),
+    projectPath: path.join(dir, 'project-settings.json'),
+  };
+  for (const lvl of ['managed', 'user', 'project']) {
+    if (c[lvl] !== undefined) {
+      fs.writeFileSync(out[lvl + 'Path'], JSON.stringify(c[lvl]), 'utf8');
+    }
+  }
+  return out;
+}
+
+test('S1d: no env + no workflow signal → default=unknown (phantom-안내-금지 invariant)', () => {
   withTempDir((dir) => {
-    withEnv({ MCCP_ULTRACODE_FEATURE: undefined }, () => {
-      const result = detector.probeAvailability({
-        userCommandPath: path.join(dir, 'nonexistent-effort.md'),
-        userSkillDir: path.join(dir, 'nonexistent-ultracode'),
-      });
-      assert.strictEqual(result, 'unknown');
+    const paths = isolatedSettings(dir, {});
+    withEnv({ MCCP_ULTRACODE_FEATURE: undefined, CLAUDE_CODE_DISABLE_WORKFLOWS: undefined }, () => {
+      assert.strictEqual(detector.probeAvailability(paths), 'unknown');
+    });
+  });
+});
+
+test('S1e: no env + disableWorkflows:true → missing (shared workflows signal)', () => {
+  withTempDir((dir) => {
+    const paths = isolatedSettings(dir, { user: { disableWorkflows: true } });
+    withEnv({ MCCP_ULTRACODE_FEATURE: undefined, CLAUDE_CODE_DISABLE_WORKFLOWS: undefined }, () => {
+      assert.strictEqual(detector.probeAvailability(paths), 'missing');
+    });
+  });
+});
+
+test('S1f: no env + enableWorkflows:true → available (shared workflows signal)', () => {
+  withTempDir((dir) => {
+    const paths = isolatedSettings(dir, { user: { enableWorkflows: true } });
+    withEnv({ MCCP_ULTRACODE_FEATURE: undefined, CLAUDE_CODE_DISABLE_WORKFLOWS: undefined }, () => {
+      assert.strictEqual(detector.probeAvailability(paths), 'available');
+    });
+  });
+});
+
+test('S1g: no env + env CLAUDE_CODE_DISABLE_WORKFLOWS=1 → missing', () => {
+  withTempDir((dir) => {
+    const paths = isolatedSettings(dir, { user: { enableWorkflows: true } });
+    withEnv({ MCCP_ULTRACODE_FEATURE: undefined, CLAUDE_CODE_DISABLE_WORKFLOWS: '1' }, () => {
+      assert.strictEqual(detector.probeAvailability(paths), 'missing');
     });
   });
 });
@@ -209,18 +249,13 @@ test('S8c: missing mode → mode-mismatch', () => {
   assert.strictEqual(result.reason, 'mode-mismatch');
 });
 
-// === Scenario 9: env + CLI both specified → env wins ===
+// === Scenario 9: env override beats settings signal ===
 
-test('S9: env override "missing" beats filesystem probe presence', () => {
+test('S9: env override "missing" beats enableWorkflows settings signal', () => {
   withTempDir((dir) => {
-    const userCmdPath = path.join(dir, 'effort.md');
-    fs.writeFileSync(userCmdPath, '# effort', 'utf8');
-    withEnv({ MCCP_ULTRACODE_FEATURE: 'missing' }, () => {
-      const result = detector.probeAvailability({
-        userCommandPath: userCmdPath,
-        userSkillDir: path.join(dir, 'nonexistent'),
-      });
-      assert.strictEqual(result, 'missing');
+    const paths = isolatedSettings(dir, { user: { enableWorkflows: true } });
+    withEnv({ MCCP_ULTRACODE_FEATURE: 'missing', CLAUDE_CODE_DISABLE_WORKFLOWS: undefined }, () => {
+      assert.strictEqual(detector.probeAvailability(paths), 'missing');
     });
   });
 });

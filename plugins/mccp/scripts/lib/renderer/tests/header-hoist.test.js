@@ -44,19 +44,20 @@ function renderWithStubs(model) {
   });
 }
 
-test('html header contains brand + status-strip + meta', () => {
+test('html header has brand + meta; status-strip lives in the left sidebar (Vercel app-shell)', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
   assert.match(r.html, /<header[^>]*>[\s\S]*?<span class="brand">/);
-  assert.match(r.html, /<div class="status-strip" role="group"/);
   assert.match(r.html, /<span class="meta">/);
+  assert.match(r.html, /<aside class="sidebar"[\s\S]*?<div class="status-strip" role="group"/);
+  assert.doesNotMatch(r.html, /<header[^>]*>[\s\S]*?<div class="status-strip"[\s\S]*?<\/header>/);
 });
 
-test('html status-strip contains exactly 4 cells', () => {
+test('html status-strip contains exactly 4 status rows', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  const stripMatch = r.html.match(/<div class="status-strip"[^>]*>([\s\S]*?)<\/div>/);
+  const stripMatch = r.html.match(/<div class="status-strip"[^>]*>([\s\S]*?)<\/aside>/);
   assert.ok(stripMatch, 'status-strip block exists');
-  const cellMatches = stripMatch[1].match(/<span class="cell[^"]*"/g) || [];
-  assert.equal(cellMatches.length, 4, 'four cells in status strip');
+  const cellMatches = stripMatch[1].match(/<a class="cell[^"]*"/g) || [];
+  assert.equal(cellMatches.length, 4, 'four status rows in strip');
 });
 
 test('html main has NO section#status (4축 hoisted to header)', () => {
@@ -70,26 +71,26 @@ test('html main retains section#verdict with h1.verdict', () => {
   assert.match(r.html, /<h1 class="verdict s-[a-z]+">/);
 });
 
-test('html sticky CSS present (header position: sticky)', () => {
+test('html app-shell — sidebar is sticky, header is NOT (status in left sidebar)', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  assert.match(r.html, /header\s*{[^}]*position:\s*sticky/);
-  assert.match(r.html, /header\s*{[^}]*top:\s*0/);
+  assert.match(r.html, /\.sidebar\s*{[^}]*position:\s*sticky/);
+  assert.doesNotMatch(r.html, /header\s*{[^}]*position:\s*sticky/);
 });
 
-test('html accent invariant — only first-of-type cell gets var(--accent) by default', () => {
+test('html accent invariant — first-of-type status chip icon gets var(--accent)', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  assert.match(r.html, /\.status-strip \.cell:first-of-type\s*{\s*color:\s*var\(--accent\)/);
+  assert.match(r.html, /\.status-strip \.cell:first-of-type \.icon\s*{\s*color:\s*var\(--accent\)/);
 });
 
-test('html stale fixture — next cell gets data-stale="1"', () => {
+test('html stale fixture — next chip gets data-stale="1"', () => {
   const model = makeModel(Date.now(), 'v0-3-5-codex-disabled-honor');
   const r = renderWithStubs(model);
-  assert.match(r.html, /<span class="cell s-stale" data-stale="1">/);
+  assert.match(r.html, /<a class="cell s-stale"[^>]*data-stale="1"/);
 });
 
-test('html non-stale fixture — no data-stale attr on any cell', () => {
+test('html non-stale fixture — no data-stale attr on any chip', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  assert.doesNotMatch(r.html, /<span class="cell[^"]*" data-stale="1">/);
+  assert.doesNotMatch(r.html, /<a class="cell[^"]*"[^>]*data-stale="1"/);
 });
 
 test('html stale fixture — next value wrapped in span.stale-label not code (F2 absorption)', () => {

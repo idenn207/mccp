@@ -22,7 +22,10 @@
 // v1.16.0 (M3 재설계) — 다크 콘솔 + Vercel 카드 베이스. card / nav-rail 은
 // 목적 있는 비중첩 카드 / 길찾기 레일의 design intent affordance 로 H3 carve-out.
 // 카드 중첩 금지는 신규 H17 이 DOM-aware 로 강제.
-const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret|pipe-node|tl-node|card|nav-rail)|\[role="alert"\]/;
+// v1.16.0 redesign-2 — status-strip 의 .cell 칩은 우측 rail 의 상태 jump
+// affordance(icon+색상 칩, 클릭 시 섹션 이동). pipe-node/tl-node 와 동격의
+// 명시적 컴포넌트 affordance 로 H3 carve-out.
+const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret|pipe-node|tl-node|card|nav-rail|status-strip)|\[role="alert"\]/;
 const H4_CARVEOUT = /\.(meta-cue)|\bblockquote\b/;
 
 function findSelectorContext(css, hitIndex) {

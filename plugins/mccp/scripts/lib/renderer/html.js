@@ -47,8 +47,11 @@ const OKLCH_DARK = `
   --status-secret: oklch(0.70 0.22 25);
   --status-worker-alive: oklch(0.72 0.16 145);
   --status-worker-stale: oklch(0.80 0.15 80);
-  --nav-width: 12rem;
-  --content-max: 760px;
+  --sidebar-width: 13.5rem;
+  --content-max: 820px;
+  --card-radius: 12px;
+  --card-shadow: 0 1px 2px oklch(0 0 0 / 0.28), 0 1px 1px oklch(0 0 0 / 0.18);
+  --card-shadow-hover: 0 4px 12px oklch(0 0 0 / 0.32), 0 2px 4px oklch(0 0 0 / 0.20);
 }`;
 
 const OKLCH_LIGHT = `
@@ -68,6 +71,8 @@ const OKLCH_LIGHT = `
     --status-secret: oklch(0.50 0.22 25);
     --status-worker-alive: oklch(0.55 0.15 145);
     --status-worker-stale: oklch(0.62 0.15 80);
+    --card-shadow: 0 1px 2px oklch(0.55 0.01 250 / 0.10), 0 1px 1px oklch(0.55 0.01 250 / 0.06);
+    --card-shadow-hover: 0 4px 12px oklch(0.55 0.01 250 / 0.14), 0 2px 4px oklch(0.55 0.01 250 / 0.10);
   }
 }`;
 
@@ -81,6 +86,10 @@ body {
   padding: 0;
   line-height: 1.55;
   font-size: 15px;
+  /* Vercel 앱 셸: 좌측 사이드바(좌단 full-bleed) + 메인 컬럼. body 가 그리드. */
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  align-items: start;
 }
 code, .mono { font-family: ui-monospace, 'SF Mono', Consolas, 'Liberation Mono', monospace; font-size: 0.92em; color: var(--ink-2); }
 .sr-only {
@@ -96,15 +105,29 @@ code, .mono { font-family: ui-monospace, 'SF Mono', Consolas, 'Liberation Mono',
   z-index: 60; outline: 2px solid var(--bg); outline-offset: 2px;
   text-decoration: none; border-radius: 3px;
 }
-/* ── Header (sticky, solid background, no blur) ────────────────────── */
-header {
+/* ── 좌측 사이드바 — 뷰포트 좌단 full-bleed + full-height sticky. header 와
+   독립(header scroll 과 무관) — 위: 목차, 아래(고정): 현황 4축. ──────────── */
+.sidebar {
   position: sticky;
   top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.25rem 0.85rem 1.25rem;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
   background: var(--surface);
+  font-size: 0.875rem;
+}
+/* ── 메인 컬럼 — header(상단) + 콘텐츠 + footer. 스크롤 영역. ──────────────── */
+.main-col { min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
+/* Header (메인 컬럼 내부, static — 스크롤되어 사라져도 사이드바/status 영향 없음). */
+header {
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
-  padding: 0.6rem 1.25rem;
+  padding: 0.85rem 1.75rem;
   transition: border-color 240ms ease-out;
-  z-index: 40;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -112,51 +135,84 @@ header {
 }
 body[data-stale="1"] header { border-bottom-color: var(--status-stale); }
 header .brand { font-weight: 600; font-size: 1rem; letter-spacing: -0.01em; }
-header .status-strip { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; align-items: center; }
-header .status-strip .cell { display: inline-flex; align-items: baseline; gap: 0.3rem; }
-header .status-strip .cell .icon { font-size: 0.95rem; }
-header .status-strip .cell b { font-weight: 600; }
-header .status-strip .cell:first-of-type { color: var(--accent); }
-header .status-strip .cell.s-blocked { color: var(--status-blocked); }
-header .status-strip .cell.s-stale { color: var(--status-stale); }
-header .status-strip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 header .meta { color: var(--muted); font-size: 0.8125rem; margin-left: auto; }
 header .meta .stale-suffix { display: none; }
 body[data-stale="1"] header .meta .stale-suffix { display: inline; margin-left: 0.25rem; color: var(--status-stale); }
-/* ── 2D shell: nav rail + content ──────────────────────────────────── */
-.shell {
-  display: grid;
-  grid-template-columns: var(--nav-width) minmax(0, 1fr);
-  gap: 1.25rem;
-  max-width: calc(var(--nav-width) + var(--content-max) + 3.75rem);
+.content {
+  min-width: 0;
+  width: 100%;
+  max-width: var(--content-max);
   margin: 0 auto;
-  padding: 1.25rem;
-  align-items: start;
-}
-/* nav rail — working anchor links (M3 정적, active-추적 동작은 M4). inert 아님. */
-.nav-rail {
-  position: sticky;
-  top: 4rem;
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 1.25rem;
+  padding: 1.5rem 1.75rem 4rem;
+}
+main:focus { outline: none; }
+/* 앵커 점프 시 콘텐츠가 viewport 최상단에 딱 붙지 않도록 여백 확보. */
+section[id], .verdict-banner { scroll-margin-top: 1.5rem; }
+/* 목차(nav) — plain 텍스트, 현재 섹션 active. 장식 아이콘 없음. */
+.nav-rail { display: flex; flex-direction: column; gap: 0.05rem; }
+.nav-rail .rail-title {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0 0.55rem 0.4rem;
 }
 .nav-rail a {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  padding: 0.3rem 0.5rem;
+  display: block;
+  padding: 0.32rem 0.55rem;
   color: var(--muted);
   text-decoration: none;
-  border-radius: 5px;
-  font-size: 0.875rem;
+  border-radius: 6px;
+  line-height: 1.4;
 }
 .nav-rail a:hover { color: var(--ink); background: var(--surface); }
 .nav-rail a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.nav-rail a .nav-dot { font-size: 0.7rem; color: var(--muted); }
-.nav-rail a[data-attention="1"] .nav-dot { color: var(--status-blocked); }
-.content { min-width: 0; display: flex; flex-direction: column; gap: 1rem; }
-main:focus { outline: none; }
+.nav-rail a[aria-current="true"], .nav-rail a.active { color: var(--accent); font-weight: 600; background: var(--surface); }
+.nav-rail a[data-attention="1"]::after { content: " •"; color: var(--status-blocked); }
+/* 현황(status 4축) — 사이드바 하단 고정(margin-top:auto). 카드화 안 함:
+   per-row 테두리/배경 없는 하나의 통합 묶음. SVG 아이콘(크기 일관). 행 클릭 시 jump. */
+.status-strip {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.status-strip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.status-strip .cell {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.32rem 0.55rem;
+  border-radius: 6px;
+  color: var(--ink-2);
+  text-decoration: none;
+}
+.status-strip a.cell:hover { background: var(--surface); color: var(--ink); }
+.status-strip a.cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.status-strip .cell .icon { display: inline-flex; flex-shrink: 0; color: var(--muted); }
+.status-strip .cell .icon svg { width: 16px; height: 16px; display: block; }
+.status-strip .cell .cell-label { color: var(--ink-2); }
+.status-strip .cell .cell-val {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 0;
+  max-width: 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-strip .cell .cell-val code { color: inherit; font-size: 0.85em; }
+.status-strip .cell:first-of-type .icon { color: var(--accent); }
+.status-strip .cell.s-blocked .icon,
+.status-strip .cell.s-blocked .cell-val { color: var(--status-blocked); }
+.status-strip .cell.s-stale .icon,
+.status-strip .cell.s-stale .cell-val { color: var(--status-stale); }
 /* ── Verdict banner (primary) ──────────────────────────────────────── */
 .verdict-banner { padding: 0.5rem 0 0.25rem; }
 h1.verdict { font-size: 1.375rem; font-weight: 600; margin: 0; line-height: 1.4; text-wrap: balance; }
@@ -164,17 +220,23 @@ h1.verdict { font-size: 1.375rem; font-weight: 600; margin: 0; line-height: 1.4;
 .card {
   background: var(--card);
   border: 1px solid var(--card-border);
-  border-radius: 8px;
-  padding: 1rem 1.1rem;
+  border-radius: var(--card-radius);
+  padding: 1.25rem 1.4rem 1.4rem;
+  box-shadow: var(--card-shadow);
+  transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
 }
+.card:hover { border-color: var(--border); box-shadow: var(--card-shadow-hover); }
 .card > h2 {
-  font-size: 1rem;
+  font-size: 0.9375rem;
   font-weight: 600;
-  margin: 0 0 0.6rem 0;
+  margin: 0 0 1rem 0;
+  padding-bottom: 0.7rem;
   color: var(--ink);
   letter-spacing: -0.01em;
+  border-bottom: 1px solid var(--border);
 }
 .card.attention { border-color: var(--status-blocked); }
+.card.attention:hover { border-color: var(--status-blocked); }
 h2 { font-size: 1rem; }
 .muted { color: var(--muted); }
 .stale-label { color: var(--status-stale); font-weight: 500; }
@@ -274,23 +336,35 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .tl-note { list-style: none; color: var(--muted); padding-left: 2rem; }
 .tl-step.tl-row-hot { background: var(--surface); }
 .tl-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-footer { max-width: calc(var(--nav-width) + var(--content-max) + 3.75rem);
-  margin: 0 auto; padding: 0.5rem 1.25rem 1.5rem; }
-/* ── 반응형 구조적 collapse (product.md: 구조 변경, fluid 타이포 아님) ──── */
+footer { width: 100%; max-width: var(--content-max); margin: 0 auto;
+  padding: 0.5rem 1.75rem 1.5rem; }
+/* ── 반응형 구조적 collapse (product.md: 구조 변경, fluid 타이포 아님).
+   body 그리드가 단일 컬럼으로 collapse, 사이드바는 상단 가로 바로 reflow. ──── */
 @media (max-width: 720px) {
-  .shell { grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: 1rem; }
-  .nav-rail {
+  body { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
     position: static;
+    height: auto;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+    overflow: visible;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-rail {
     flex-direction: row;
     flex-wrap: nowrap;
     overflow-x: auto;
     gap: 0.25rem;
     padding-bottom: 0.25rem;
-    border-bottom: 1px solid var(--border);
   }
+  .nav-rail .rail-title { display: none; }
   .nav-rail a { white-space: nowrap; flex-shrink: 0; }
+  .status-strip { margin-top: 0; border-top: none; padding-top: 0; }
   header { padding: 0.5rem 1rem; }
-  .card { padding: 0.85rem 0.9rem; }
+  .content { padding: 1.25rem 1rem 3rem; }
+  .card { padding: 0.95rem 1rem 1.05rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -300,7 +374,35 @@ const STALE_SCRIPT = `(function(){var d=Number(document.body.dataset.derivedMs)|
 
 const COPY_SCRIPT = `(function(){document.addEventListener('click',function(e){var t=e.target&&e.target.closest&&e.target.closest('[data-copy]');if(!t)return;var s=t.getAttribute('data-copy')||'';if(navigator&&navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(s).then(function(){t.setAttribute('data-copied','1');setTimeout(function(){t.removeAttribute('data-copied')},1500)}).catch(function(){})}});})();`;
 
-function renderStripCell(cell, escapeHtml) {
+// status 아이콘 — 이모지 대신 inline SVG(Lucide 결). 16px 단일 사이즈로 정렬·크기
+// 일관성 확보(이모지 폰트별 크기 편차 제거). currentColor 로 상태색 상속.
+const SVG_PATHS = {
+  progress: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/>',
+  ban: '<circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/>',
+  'arrow-right': '<line x1="4" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>',
+  alert: '<path d="M10.3 4.3 2.6 18a1.6 1.6 0 0 0 1.4 2.4h16a1.6 1.6 0 0 0 1.4-2.4L13.7 4.3a1.6 1.6 0 0 0-2.8 0z"/><line x1="12" y1="10" x2="12" y2="14"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/>',
+  dot: '<circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/>',
+};
+
+function svgIcon(name) {
+  const body = SVG_PATHS[name] || SVG_PATHS.dot;
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
+    + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+}
+
+function cellSvgName(cell) {
+  switch (cell.key) {
+    case 'in-progress': return 'progress';
+    case 'blocked': return 'ban';
+    case 'next': return cell.stale ? 'clock' : 'arrow-right';
+    case 'risks': return 'alert';
+    default: return 'dot';
+  }
+}
+
+// status 행 — 사이드바 하단 통합 묶음. SVG 아이콘 + 라벨 + 값. 클릭 시 섹션 jump.
+function renderStripCell(cell, escapeHtml, escapeAttr, jumpTarget) {
   const classes = ['cell'];
   if (cell.accent === 'blocked') classes.push('s-blocked');
   if (cell.stale) classes.push('s-stale');
@@ -311,17 +413,24 @@ function renderStripCell(cell, escapeHtml) {
       ? '<span class="stale-label">' + escapeHtml(cell.value) + '</span>'
       : '<code>' + escapeHtml(cell.value) + '</code>';
   } else {
-    valueHtml = '<b>' + escapeHtml(cell.value) + '</b>';
+    valueHtml = escapeHtml(cell.value);
   }
+  const fullLabel = String(cell.label || '') + ' ' + String(cell.value || '');
   const dataAttr = cell.stale ? ' data-stale="1"' : '';
-  return '<span class="' + cls + '"' + dataAttr + '>'
-    + '<span class="icon" aria-hidden="true">' + escapeHtml(cell.icon) + '</span> '
-    + escapeHtml(cell.label) + ' ' + valueHtml
-    + '</span>';
+  // href 는 URL fragment → escapeAttr. aria-label/title 은 사람이 읽는 텍스트 → escapeHtml.
+  const href = jumpTarget ? ' href="' + escapeAttr(jumpTarget) + '"' : '';
+  const labelAttr = escapeHtml(fullLabel);
+  return '<a class="' + cls + '"' + href + dataAttr
+    + ' title="' + labelAttr + '" aria-label="' + labelAttr + '">'
+    + '<span class="icon" aria-hidden="true">' + svgIcon(cellSvgName(cell)) + '</span>'
+    + '<span class="cell-label">' + escapeHtml(cell.label) + '</span>'
+    + '<span class="cell-val">' + valueHtml + '</span>'
+    + '</a>';
 }
 
 function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   const { escapeHtml, formatRelativeTime } = formatUtils;
+  const escapeAttr = formatUtils.escapeAttr || escapeHtml;
   const m = model || {};
   const [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory] = sections;
   const derivedMs = new Date(derivedAt).getTime();
@@ -332,7 +441,6 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   const verdictAttention = verdict.tone === 'red' || verdict.tone === 'blocked';
 
   const gridCells = (grid && Array.isArray(grid.cells)) ? grid.cells : [];
-  const stripHtml = gridCells.map(c => renderStripCell(c, escapeHtml)).join('');
   const stripAriaLabel = gridCells.length > 0
     ? '현황 4축: ' + gridCells.map(c => String(c.label || '') + ' ' + String(c.value || '')).join(' · ')
     : '현황 4축';
@@ -349,13 +457,24 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     { id: 'risks', title: '위험', section: risks, present: true },
   ].filter(spec => spec.present);
 
-  // nav rail entries: verdict + 각 present 카드. working plain anchor (M3) —
-  // active-추적 동작은 M4. inert affordance 0 (Codex R1 F3 absorption).
+  // status 칩 jump 타깃: 존재하는 섹션으로만 연결, 없으면 verdict 로 fallback.
+  const availableIds = new Set(['verdict'].concat(cardSpecs.map(spec => spec.id)));
+  const jumpMap = { 'in-progress': 'pipeline', 'blocked': 'pipeline', 'next': 'verdict', 'risks': 'risks' };
+  const jumpFor = (key) => {
+    const t = jumpMap[key];
+    return '#' + (t && availableIds.has(t) ? t : 'verdict');
+  };
+  const stripHtml = gridCells
+    .map(c => renderStripCell(c, escapeHtml, escapeAttr, jumpFor(c.key)))
+    .join('');
+
+  // on-this-page TOC: verdict + 각 present 카드. plain 텍스트(● 제거),
+  // active-추적(scroll spy)은 M4. inert affordance 0 (Codex R1 F3 absorption).
   const navItems = [{ id: 'verdict', title: '판정', attention: verdictAttention }]
-    .concat(cardSpecs.map(spec => ({ id: spec.id, title: spec.title, attention: spec.id === 'questions' || spec.id === 'risks' ? false : false })));
+    .concat(cardSpecs.map(spec => ({ id: spec.id, title: spec.title, attention: false })));
   const navHtml = navItems.map(n =>
     '<a href="#' + n.id + '"' + (n.attention ? ' data-attention="1"' : '') + '>'
-    + '<span class="nav-dot" aria-hidden="true">●</span>' + escapeHtml(n.title) + '</a>'
+    + escapeHtml(n.title) + '</a>'
   ).join('');
 
   const parts = [];
@@ -369,17 +488,22 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   parts.push('</head>');
   parts.push('<body data-stale="0" data-derived-ms="' + (Number.isFinite(derivedMs) ? derivedMs : 0) + '">');
   parts.push('<a class="skip-link sr-only" href="#main">본문 바로가기</a>');
+  // 좌측 사이드바 — body 그리드 첫 컬럼(좌단 full-bleed). 목차 위 + 현황 하단.
+  // header 와 독립이라 header 스크롤이 사이드바/status 를 자르지 않음.
+  parts.push('<aside class="sidebar" aria-label="목차 및 현황">'
+    + '<nav class="nav-rail" aria-label="목차">'
+    + '<span class="rail-title">목차</span>' + navHtml
+    + '</nav>'
+    + '<div class="status-strip" role="group" tabindex="0" aria-label="' + escapeHtml(stripAriaLabel) + '">' + stripHtml + '</div>'
+    + '</aside>');
+
+  // 메인 컬럼 — header(상단) + 콘텐츠 + footer. body 그리드 둘째 컬럼.
+  parts.push('<div class="main-col">');
   parts.push('<header>'
     + '<span class="brand">mccp 상태</span>'
-    + '<div class="status-strip" role="group" tabindex="0" aria-label="' + escapeHtml(stripAriaLabel) + '">' + stripHtml + '</div>'
     + '<span class="meta">마지막 갱신 ' + escapeHtml(relative)
     + '<span class="stale-suffix">· stale</span></span>'
     + '</header>');
-
-  parts.push('<div class="shell">');
-
-  // nav rail (작동 anchor — 길찾기 토대)
-  parts.push('<nav class="nav-rail" aria-label="섹션 이동">' + navHtml + '</nav>');
 
   parts.push('<main id="main" class="content" tabindex="-1">');
   if (m.masked === false) {
@@ -401,8 +525,8 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   }
 
   parts.push('</main>');
-  parts.push('</div>');
   parts.push('<footer role="contentinfo" class="muted mono">v1.16.0 · <code lang="en">.claude/</code> 통합 derive</footer>');
+  parts.push('</div>');
   parts.push('<script>' + STALE_SCRIPT + '</script>');
   parts.push('<script>' + COPY_SCRIPT + '</script>');
   // v1.13.0 — vendored-inline jQuery + pipeline enhancement. Only when the

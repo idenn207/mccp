@@ -35,11 +35,11 @@ test('responsive — narrow-viewport breakpoint exists', () => {
   assert.match(CSS, /@media\s*\(max-width:\s*720px\)/, 'max-width breakpoint declared');
 });
 
-test('responsive — shell collapses to single column at breakpoint', () => {
+test('responsive — body grid collapses to single column at breakpoint', () => {
   const block = CSS.match(/@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\n\}/);
   assert.ok(block, 'breakpoint block found');
-  assert.match(block[0], /\.shell\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
-    'shell becomes single column');
+  assert.match(block[0], /body\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    'body grid becomes single column');
 });
 
 test('responsive — nav rail reflows horizontal + scrollable at breakpoint', () => {
@@ -50,8 +50,8 @@ test('responsive — nav rail reflows horizontal + scrollable at breakpoint', ()
 
 test('responsive — content min-width:0 prevents grid blowout', () => {
   assert.match(CSS, /\.content\s*\{[^}]*min-width:\s*0/, 'content min-width 0');
-  assert.match(CSS, /grid-template-columns:\s*var\(--nav-width\)\s*minmax\(0,\s*1fr\)/,
-    'desktop shell uses minmax(0,1fr) so content cannot overflow');
+  assert.match(CSS, /grid-template-columns:\s*var\(--sidebar-width\)\s*minmax\(0,\s*1fr\)/,
+    'desktop shell: sidebar fixed width + content minmax(0,1fr) so content cannot overflow');
 });
 
 test('responsive — wide tables get an overflow-x scroll affordance', () => {

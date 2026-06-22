@@ -77,8 +77,8 @@ test('render-integration — real derive() against fs fixture reflects actual su
     assert.match(r.html, /<!doctype html>/);
     assert.match(r.html, /<\/html>\s*$/);
 
-    // v1.4.2-m1: header hoist — status strip lives in <header>, not main.
-    assert.match(r.html, /<header[^>]*>[\s\S]*?<div class="status-strip"/);
+    // v1.16.0 redesign-2: status strip lives in the left sidebar, not header or main.
+    assert.match(r.html, /<aside class="sidebar"[\s\S]*?<div class="status-strip"/);
     assert.doesNotMatch(r.html, /<section id="status"/);
 
     const openSec = (r.html.match(/<section/g) || []).length;

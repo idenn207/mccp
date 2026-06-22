@@ -2,13 +2,13 @@
 state_version: 1
 task_fingerprint: v1-4-2-dashboard-overhaul
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-06-22T13:32:29.732Z
+updated_at: 2026-06-22T17:31:15.613Z
 last_event: stop_loop_pass
 last_event_at: 2026-06-22T13:09:05.897Z
 unsafe_checkpoint: false
 confirm_required: false
-session_end_imminent: false
-chain_aborted: false
+session_end_imminent: true
+chain_aborted: true
 last_pr_url: https://github.com/idenn207/mccp/pull/50
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
@@ -73,4 +73,4 @@ cycle context:
 - PR #50 conflict 해결 후 PR-Codex re-run 필요? — 기존 PR body에 Codex/security section이 이미 있고 M3는 별도 review 안 거침. M3 단독 review를 위해 별도 mccp:code-review 호출 권장.
 
 ## Last Updated
-2026-06-22T13:32:29.732Z
+2026-06-22T17:31:15.613Z

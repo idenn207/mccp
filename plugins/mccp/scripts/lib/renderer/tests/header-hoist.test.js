@@ -66,7 +66,7 @@ test('html main has NO section#status (4축 hoisted to header)', () => {
 
 test('html main retains section#verdict with h1.verdict', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  assert.match(r.html, /<section id="verdict">/);
+  assert.match(r.html, /<section id="verdict"[^>]*>/);
   assert.match(r.html, /<h1 class="verdict s-[a-z]+">/);
 });
 

@@ -146,7 +146,7 @@ test('html.js wires milestone-history section + copy button JS', () => {
   ];
   const verdict = { tone: 'neutral', icon: '·', text: 'test' };
   const html = renderHtml(model, sections, verdict, new Date().toISOString(), formatUtils);
-  assert.ok(html.includes('<section id="milestone-history">'));
+  assert.ok(/<section id="milestone-history"[^>]*>/.test(html));
   assert.ok(html.includes('마일스톤 기록'));
   // copy button JS event delegation script
   assert.ok(html.includes('data-copy'));

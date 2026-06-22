@@ -1,9 +1,25 @@
-# v1.3.0 STATUS Dashboard — DESIGN.md (m3-redux)
+# v1.3.0 STATUS Dashboard — DESIGN.md
 
 > Source-of-truth for status.html + STATUS.md renderer visual layer.
+
+> **v1.16.0 재설계 (dashboard-pipeline-chart M3, 2026-06-23) — 아래 m3-redux 방향을 SUPERSEDE.**
+> 사용자가 "현재 디자인은 디자인 스킬 없이 만들어져 reference 아님 — 새로 설계"로
+> 미학 방향 신규 탐색 + H-invariant 자유 수정에 confirm(impeccable shape, 3 user round).
+> 새 방향: **다크 파이프라인 콘솔** — 좌측 섹션 nav 레일(작동 anchor) + 우측 목적 있는
+> 비중첩 카드 2D(Vercel 대시보드 베이스, card-in-card 금지). 다크 default + light opt-in.
+> PRODUCT.md Brand Personality(Calm·Decisive·Compact) + Anti-references(hero-metric/
+> AI-cream/Bloomberg 형광)는 product-level 진실이라 유지. M4(우측 Drawer 상세 + nav
+> active-추적 + Tailwind `설명|터미널` prompt)가 이 콘솔 셸 위에 후속.
+>
+> 개정 invariant: **H1 다크 default + light opt-in**, **H2 `--content-max` ≤820 콘텐츠 폭**(2D),
+> **H3 목적 있는 카드 허용**(carve-out), **신규 H17 카드 중첩 금지**(DOM-aware). H4/H6/H7
+> (side-stripe·hero-metric·glassmorphism 금지) 유지. 아래 §Token system / §Layout / §Header의
+> m3-redux 라이트 단일컬럼 서술은 historical — 코드(html.js)·lint(output-constraints.js)가
+> canonical. 토큰/레이아웃 실제 값은 `plugins/mccp/scripts/lib/renderer/html.js` 참조.
+
+> 아래는 m3-redux(b204510 이후) 원본 — historical 보존:
 > Derived from PRD `v1-3-0-observability-surface-ii.prd.md` §Design Direction
-> (line 148-231) + PRODUCT.md Brand Personality / Anti-references. This document
-> is what M3 should have produced before code was written.
+> (line 148-231) + PRODUCT.md Brand Personality / Anti-references.
 
 ## Provenance
 
@@ -53,8 +69,11 @@
 | H15 | Heading depth ≤ 3. h1(verdict) + h2(section) + h3(sub-section) 만 허용. h4+ 금지 — PRD §Design Direction line 149 "(a) 정보 위계 3단계". | HTML body `<h([4-9])` 카운트 == 0 AND STATUS.md *fenced code block strip* (backtick `` `{3,} `` AND tilde `~{3,}` 양쪽) 후 CommonMark ATX `^ {0,3}#{4,6}\s` 카운트 == 0 | (m3-redux baseline은 h1+h2만 emit — 본 rule은 future drift 차단) |
 | H16 | NO unrendered markdown literal in HTML body. `**bold**` / `__bold__` paired markers, inline backtick `` `code` `` pairs (raw + entity-encoded backtick/asterisk/underscore: `&#96;`/`&#x60;`/`&grave;` + `&#42;`/`&#x2A;`/`&ast;` + `&#95;`/`&#x5F;`/`&lowbar;` 등 leading-zero/uppercase/named entity variant 모두), markdown link `[text](url)` 패턴, markdownlint code `MD0\d\d` 식별자가 rendered text로 노출되면 안 됨. H10(em-dash punctuation)과 직교 — H10은 prose, H16은 unrendered markup. | HTML body에서 `<code>` / `<pre>` / HTML attribute strip + Python dunder 15종 whitelist(`__init__`/`__name__`/`__main__`/`__file__`/`__doc__`/`__str__`/`__repr__`/`__call__`/`__enter__`/`__exit__`/`__all__`/`__slots__`/`__dict__`/`__iter__`/`__len__`) 제거 후 6 패턴 카운트 == 0: (i) `\*\*[^*\n]+\*\*`, (ii) `\b__[^_\n]+__\b`(dunder strip 후), (iii) `` `[^`\n]+` ``(raw backtick) + 3 entity-encoded variant(backtick/asterisk/underscore — asterisk/underscore는 paired matching), (iv) `\[[^\]]+\]\([^)]+\)`, (v) `\bMD0?\d{2,4}\b` | (m3-redux baseline은 `**`/`__`/`` ` ``/`[](`/MD0xx 가 HTML body에 미노출 — lint-only) |
 
-H1–H16 are the **mechanical lint target** for the v1.3.0-design-gate axis (PR
-ec4e7a0). Future renderer changes must pass all 16 grep-based checks.
+| H17 | (v1.16.0 신규) 카드 중첩 금지. Vercel 베이스의 핵심 규율: "card 안에 card" 0. `<section class="card">`만이 아니라 임의 block 태그(section/div/article/main/aside)의 `card` class token nesting. carve-out 없음. | HTML body stack-scan: card-class element가 다른 card-class element 내부에 open되면 fail | (M3 재설계 baseline은 flat sibling 카드만 emit) |
+
+H1–H17 are the **mechanical lint target** for the design-gate axis. H1/H2/H3는
+v1.16.0(M3 재설계)에서 개정됨(상단 supersede 노트 참조), H17은 신규. Future
+renderer changes must pass all 17 grep/scan-based checks (`output-constraints.js`).
 
 ### v1.14.0 활동 step-chart (audit-timeline) design intent
 

@@ -3,7 +3,7 @@
 function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   const { formatRelativeTime } = formatUtils;
   const m = model || {};
-  const [grid, fanout, activeSessions, timeline, questions, risks, milestoneHistory] = sections;
+  const [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory] = sections;
 
   const now = Date.now();
   const derivedMs = new Date(derivedAt).getTime();
@@ -25,10 +25,11 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   }
 
   const anchors = ['[verdict](#verdict)', '[현황](#현황)'];
+  if (pipeline) anchors.push('[게이트-파이프라인](#게이트-파이프라인)');
   if (fanout) anchors.push('[워커](#워커)');
   if (activeSessions) anchors.push('[최근-활동](#최근-활동)');
   anchors.push('[타임라인](#타임라인)');
-  if (milestoneHistory) anchors.push('[이정표-기록](#이정표-기록)');
+  if (milestoneHistory) anchors.push('[마일스톤-기록](#마일스톤-기록)');
   if (questions) anchors.push('[미해결-질문](#미해결-질문)');
   anchors.push('[위험](#위험)');
   out.push(anchors.join(' · '));
@@ -48,6 +49,15 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   if (grid) { out.push(grid.md); out.push(''); }
   out.push('---');
   out.push('');
+
+  if (pipeline) {
+    out.push('## 게이트 파이프라인');
+    out.push('');
+    out.push(pipeline.md);
+    out.push('');
+    out.push('---');
+    out.push('');
+  }
 
   if (fanout) {
     out.push('## 워커');
@@ -74,7 +84,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('');
 
   if (milestoneHistory) {
-    out.push('## 이정표 기록');
+    out.push('## 마일스톤 기록');
     out.push('');
     out.push(milestoneHistory.md);
     out.push('');

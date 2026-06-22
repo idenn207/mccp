@@ -5,6 +5,44 @@ const path = require('path');
 
 const VALID_STATUSES = new Set(['pending', 'in-progress', 'complete']);
 
+// 추출 경로의 markdown-link/inline-code/quote 래퍼 제거. 평문 Source PRD가
+// 백틱·따옴표·대괄호로 감싸진 경우 해석 전에 벗긴다 (Codex F1 absorption).
+function stripPathWrappers(s) {
+  return String(s == null ? '' : s).trim().replace(/^[`'"<[]+|[`'">\]]+$/g, '').trim();
+}
+
+// source_prd ref를 plan-dir-relative(링크 형태) 또는 repo-root-relative(평문)
+// 둘 다 시도해 실제로 읽히는 경로를 채택한다. 렌더러는 ref를 plan 디렉토리 기준
+// 으로 resolve하므로 평문 `.claude/prds/...` 는 `.claude/plans/.claude/prds/...`
+// 로 이중화돼 fail-open skip 됐다 — dual-candidate로 해소 (Codex F1 absorption).
+function resolvePrdRef(ref, planAbs, cwd, fsRead) {
+  const cleaned = stripPathWrappers(ref);
+  if (!cleaned) return null;
+  const candidates = path.isAbsolute(cleaned)
+    ? [cleaned]
+    : [path.resolve(path.dirname(planAbs), cleaned), path.resolve(cwd, cleaned)];
+  for (const c of candidates) {
+    try { return { path: c, body: fsRead(c) }; } catch (_) { /* try next candidate */ }
+  }
+  return null;
+}
+
+// Delivery Milestones 표의 Plan 셀에서 `.plan.md` 경로를 추출한다. `(report: …)`
+// 같은 괄호 annotation을 잡지 않도록 markdown-link target → bare `.plan.md`
+// 토큰 순으로 우선하고, 미발견 시 legacy 첫-괄호 폴백 (Codex F2 absorption).
+function extractPlanPath(planCell) {
+  const cell = String(planCell == null ? '' : planCell);
+  const links = cell.match(/\[[^\]]*\]\(([^)]+)\)/g) || [];
+  for (const lk of links) {
+    const m = lk.match(/\]\(([^)]+)\)/);
+    if (m && /\.plan\.md$/i.test(m[1].trim())) return stripPathWrappers(m[1]);
+  }
+  const bare = cell.match(/(?:^|[\s(`'"[])([^\s()`'"[\]]+\.plan\.md)\b/i);
+  if (bare) return stripPathWrappers(bare[1]);
+  const paren = cell.match(/\(([^)]+)\)/);
+  return paren ? stripPathWrappers(paren[1]) : null;
+}
+
 function findSection(body, heading) {
   const startMatch = new RegExp('^' + heading + '\\s*$', 'm').exec(body);
   if (!startMatch) return null;
@@ -106,9 +144,9 @@ function parseDeliveryMilestonesComplete(prdBody) {
     if (status !== 'complete') continue;
     const name = (cells[1] || '').trim();
     const planCell = cells[4] || '';
-    const linkMatch = planCell.match(/\(([^)]+)\)/);
-    const basename = linkMatch ? linkMatch[1].split(/[\\/]/).pop() : null;
-    if (name) out.push({ name, planBasename: basename });
+    const planPath = extractPlanPath(planCell);
+    const basename = planPath ? planPath.split(/[\\/]/).pop() : null;
+    if (name) out.push({ name, planBasename: basename, planPath });
   }
   return out;
 }
@@ -182,25 +220,22 @@ function parsePlanBody(model, opts) {
   const warnings = [];
   let degraded = false;
 
-  const prdSources = new Map();
+  const prdBodies = new Map();
   for (const p of plans) {
     if (!p || !p.path) continue;
     const planAbs = path.isAbsolute(p.path) ? p.path : path.resolve(cwd, p.path);
     const prdRel = sourcePrdPath(p);
-    if (prdRel) {
-      const prdAbs = path.isAbsolute(prdRel) ? prdRel : path.resolve(path.dirname(planAbs), prdRel);
-      if (!prdSources.has(prdAbs)) prdSources.set(prdAbs, true);
-    }
-  }
-
-  for (const prdAbs of prdSources.keys()) {
-    let prdBody;
-    try { prdBody = fsRead(prdAbs); }
-    catch (err) {
+    if (!prdRel) continue;
+    const resolved = resolvePrdRef(prdRel, planAbs, cwd, fsRead);
+    if (!resolved) {
       degraded = true;
-      warnings.push({ source: prdAbs, message: 'PRD read failed: ' + err.message });
+      warnings.push({ source: prdRel, message: 'PRD read failed (all candidates unreadable)' });
       continue;
     }
+    if (!prdBodies.has(resolved.path)) prdBodies.set(resolved.path, resolved.body);
+  }
+
+  for (const [prdAbs, prdBody] of prdBodies) {
     const statusMap = parseDeliveryMilestones(prdBody);
     if (statusMap.size === 0) {
       degraded = true;
@@ -261,4 +296,7 @@ module.exports = {
   parseRisks,
   extractCyclePrefix,
   computePlanStaleness,
+  resolvePrdRef,
+  extractPlanPath,
+  stripPathWrappers,
 };

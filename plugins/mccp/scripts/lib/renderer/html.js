@@ -1,5 +1,31 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
+// v1.13.0 — vendored-inline jQuery (slim, no ajax/effects). Read once at module
+// load + embedded inline (NEVER an external <script src> — Codex F2 trust
+// boundary: status.html can carry raw unmasked data, so no third-party origin).
+// fail-open: if the vendor file is missing, the pipeline baseline still renders
+// (progressive enhancement — JS layer is additive, never required).
+const JQUERY_SLIM = (function () {
+  try {
+    return fs.readFileSync(path.join(__dirname, 'vendor', 'jquery-3.7.1.slim.min.js'), 'utf8');
+  } catch (_) {
+    return '';
+  }
+})();
+
+// Pipeline enhancement (jQuery): node tooltips + focusable rows. Additive only —
+// baseline is fully visible/legible without this. No visibility-gating animation
+// (a hidden-tab transition must never leave a node blank).
+const PIPELINE_SCRIPT = "jQuery(function($){"
+  + "$('.pipe-node').each(function(){var n=$(this),s=n.find('.pipe-stage').text(),t=n.find('.sr-only').text();if(s&&t)n.attr('title',s+': '+t);});"
+  + "$('.pipe-row').attr('tabindex','0').on('mouseenter focus',function(){$(this).addClass('pipe-row-hot');}).on('mouseleave blur',function(){$(this).removeClass('pipe-row-hot');});"
+  // v1.14.0 — 활동 step-chart row enhancement (additive; baseline 은 JS 없이 동작).
+  + "$('.tl-step').attr('tabindex','0').on('mouseenter focus',function(){$(this).addClass('tl-row-hot');}).on('mouseleave blur',function(){$(this).removeClass('tl-row-hot');});"
+  + "});";
+
 const OKLCH_LIGHT = `
 :root {
   --bg: oklch(0.99 0 0);
@@ -157,6 +183,51 @@ details summary { cursor: pointer; color: var(--ink); font-size: 0.85rem; }
 details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 details[open] summary { margin-bottom: 0.5rem; }
 abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px; cursor: help; }
+/* v1.13.0 게이트 파이프라인 스테퍼. pipe-node 는 pill(border-radius) — H3
+   carve-out 대상(상태 노드 affordance). 연결선 .pipe-edge 는 수평 라인
+   (height+background, border-left 미사용 — H4 무관). */
+.pipeline { list-style: none; padding-left: 0; margin: 0; }
+.pipe-row { display: flex; flex-wrap: wrap; align-items: center;
+  gap: 0.4rem 0.75rem; padding: 0.4rem 0; border-bottom: 1px dashed var(--border); }
+.pipe-row:last-child { border-bottom: none; }
+.pipe-decision { color: var(--muted); font-size: 0.85rem; min-width: 8rem; }
+.pipe-track { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
+.pipe-node { display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.1rem 0.55rem; border-radius: 999px; background: var(--surface);
+  font-size: 0.85rem; }
+.pipe-node .pipe-icon { font-size: 0.9rem; }
+.pipe-node .pipe-stage { color: var(--ink); }
+.pipe-edge { width: 1.25rem; height: 2px; background: var(--border);
+  flex-shrink: 0; }
+.pipe-row[data-kind="attention"] .pipe-decision { color: var(--status-blocked); font-weight: 600; }
+.pipe-row.pipe-row-hot { background: var(--surface); }
+.pipe-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pipe-more { list-style: none; }
+.pipe-more summary { color: var(--muted); font-size: 0.85rem; }
+/* v1.14.0 활동 step-chart rail. tl-node 는 상태 마커 pill(border-radius) — H3
+   carve-out 대상. 세로 connector .tl-rail::before 는 background 라인
+   (border-left 미사용 — H4 무관). emphasis 반전(critique F1): converged 는
+   quiet(tl-done = muted), pending 만 loud(s-stale) — accent 미사용으로 viewport
+   당 accent <= 1 보존. */
+.tl-rail { list-style: none; padding-left: 0; margin: 0; position: relative; }
+.tl-rail::before { content: ''; position: absolute; left: 0.7rem; top: 0.6rem; bottom: 0.6rem;
+  width: 2px; background: var(--border); }
+.tl-step { position: relative; display: flex; align-items: flex-start; gap: 0.6rem;
+  padding: 0.3rem 0; }
+.tl-node { position: relative; z-index: 1; display: inline-flex; align-items: center;
+  justify-content: center; width: 1.4rem; height: 1.4rem; flex-shrink: 0;
+  border-radius: 999px; background: var(--surface); }
+.tl-node .tl-icon { font-size: 0.85rem; line-height: 1; }
+.tl-done { color: var(--muted); }
+.tl-step.from-snapshot { color: var(--muted); }
+.tl-step.from-snapshot .tl-node { opacity: 0.7; }
+.tl-body { flex: 1; min-width: 0; }
+.tl-body .rel { color: var(--muted); }
+.tl-body .conv { color: var(--muted); }
+.tl-body .conv.pending { color: var(--status-stale); font-weight: 600; }
+.tl-note { list-style: none; color: var(--muted); padding-left: 2rem; }
+.tl-step.tl-row-hot { background: var(--surface); }
+.tl-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }`;
@@ -188,7 +259,7 @@ function renderStripCell(cell, escapeHtml) {
 function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   const { escapeHtml, formatRelativeTime } = formatUtils;
   const m = model || {};
-  const [grid, fanout, activeSessions, timeline, questions, risks, milestoneHistory] = sections;
+  const [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory] = sections;
   const derivedMs = new Date(derivedAt).getTime();
   const relative = formatRelativeTime(derivedAt, Date.now());
 
@@ -226,6 +297,10 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   parts.push('<section id="verdict"><h1 class="verdict s-' + escapeHtml(verdict.tone) + '">'
     + safeVerdictIcon + ' ' + safeVerdictText + '</h1></section>');
 
+  if (pipeline) {
+    parts.push('<section id="pipeline"><h2>게이트 파이프라인</h2>' + pipeline.html + '</section>');
+  }
+
   if (fanout) {
     parts.push('<section id="workers"><h2>워커</h2>' + fanout.html + '</section>');
   }
@@ -237,7 +312,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   parts.push('<section id="timeline"><h2>타임라인</h2>' + (timeline ? timeline.html : '') + '</section>');
 
   if (milestoneHistory) {
-    parts.push('<section id="milestone-history"><h2>이정표 기록</h2>' + milestoneHistory.html + '</section>');
+    parts.push('<section id="milestone-history"><h2>마일스톤 기록</h2>' + milestoneHistory.html + '</section>');
   }
 
   if (questions) {
@@ -250,6 +325,13 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   parts.push('<footer role="contentinfo" class="muted mono">v1.4.2 · <code lang="en">.claude/</code> 통합 derive</footer>');
   parts.push('<script>' + STALE_SCRIPT + '</script>');
   parts.push('<script>' + COPY_SCRIPT + '</script>');
+  // v1.13.0 — vendored-inline jQuery + pipeline enhancement. Only when the
+  // pipeline section is present and the vendor bundle loaded. Inline only —
+  // no external origin (Codex F2). Additive: baseline renders without it.
+  if (pipeline && JQUERY_SLIM) {
+    parts.push('<script>' + JQUERY_SLIM + '</script>');
+    parts.push('<script>' + PIPELINE_SCRIPT + '</script>');
+  }
   parts.push('</body>');
   parts.push('</html>');
 

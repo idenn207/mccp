@@ -6,6 +6,15 @@ const path = require('path');
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_ROWS = 30;
+
+// v1.14.0 활동 step-chart. 2-상태 노드 map. emphasis 반전(critique F1):
+// converged 는 흔한 상태이므로 quiet(tl-done = ink/muted, accent 미사용),
+// pending(진행)만 loud(s-stale) — 20행 timeline 에서 "개입 필요"만 색이 튀게.
+// 색 단독 금지 — 노드는 색 + 아이콘 + sr-only label 병행(a11y).
+const NODE_TL = {
+  converged: { icon: '✓', cls: 'tl-done', label: '수렴' },
+  pending: { icon: '◐', cls: 's-stale', label: '진행' },
+};
 // v1.3.0-m5 impeccable P2 absorption — live row priority cap so archived
 // snapshot rows can never push live evidence off the section. Sum stays at
 // MAX_ROWS=30 absolute cap.
@@ -130,9 +139,18 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
     // `from-snapshot` class so the existing `muted` token desaturates them
     // one step below live rows. No icon collision with M4's ⏱ stale marker
     // (footnote at section level carries the meaning instead).
-    const liClass = isArchived ? ' class="audit-row from-snapshot"' : ' class="audit-row"';
+    // v1.14.0 step-chart row: rail 노드 마커 + tl-body(div — flow content인
+    // briefing blockquote 를 phrasing span 으로 감싸면 non-conforming, Codex F2)。
+    // 데이터 로직·md 출력은 불변 — HTML 마크업만 재구성.
+    const nodeMeta = NODE_TL[r.converged === true ? 'converged' : 'pending'];
+    const liClass = isArchived ? ' class="tl-step audit-row from-snapshot"' : ' class="tl-step audit-row"';
     const convClass = r.converged === true ? 'conv' : 'conv pending';
-    let htmlEntry = '<li' + liClass + '><span class="rel">' + escapeHtml(rel) + '</span>'
+    let htmlEntry = '<li' + liClass + '>'
+      + '<span class="tl-node ' + nodeMeta.cls + '">'
+      + '<span class="tl-icon" aria-hidden="true">' + escapeHtml(nodeMeta.icon) + '</span>'
+      + '<span class="sr-only">' + escapeHtml(nodeMeta.label) + '</span>'
+      + '</span>'
+      + '<div class="tl-body"><span class="rel">' + escapeHtml(rel) + '</span>'
       + ', <code>' + escapeHtml(gate) + '</code>/<code>' + escapeHtml(decision) + '</code>'
       + ', <span class="' + convClass + '">' + escapeHtml(verdictMark) + '</span>';
 
@@ -147,7 +165,7 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
       mdLines.push('  · _(briefing 건너뜀)_');
       htmlEntry += '<span class="muted">· (briefing 건너뜀)</span>';
     }
-    htmlEntry += '</li>';
+    htmlEntry += '</div></li>';
     htmlLines.push(htmlEntry);
   }
 
@@ -160,14 +178,14 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
   if (archivedShown.length > 0) {
     const footnote = '⌛ 보관 스냅샷에서 복원 · ' + archivedShown.length + '건';
     mdLines.push('- _' + footnote + '_');
-    htmlLines.push('<li class="muted from-snapshot-footnote"><em>'
+    htmlLines.push('<li class="tl-note muted from-snapshot-footnote"><em>'
       + escapeHtml(footnote) + '</em></li>');
   }
 
   const totalOlder = liveOlder + archivedOlder;
   if (totalOlder > 0) {
     mdLines.push('- _+' + totalOlder + ' older_');
-    htmlLines.push('<li class="muted"><em>+' + totalOlder + ' older</em></li>');
+    htmlLines.push('<li class="tl-note muted"><em>+' + totalOlder + ' older</em></li>');
   }
 
   // v1.3.0-m5 Codex F1 absorption — missing-day marker. When snapshot mode
@@ -182,7 +200,7 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
     if (missingDays >= 5) {
       const gapNote = '보관 누락 ' + missingDays + '일';
       mdLines.push('- _' + gapNote + '_');
-      htmlLines.push('<li class="muted snapshot-gap"><em>'
+      htmlLines.push('<li class="tl-note muted snapshot-gap"><em>'
         + escapeHtml(gapNote) + '</em></li>');
     }
   }
@@ -204,7 +222,7 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
         .map(function (e) { return e[0] + ' ' + e[1] + '건'; });
       const summary = '이번 주 mask: ' + parts.join(' · ');
       mdLines.push('- _' + summary + '_');
-      htmlLines.push('<li class="muted"><em>' + escapeHtml(summary) + '</em></li>');
+      htmlLines.push('<li class="tl-note muted"><em>' + escapeHtml(summary) + '</em></li>');
     }
   }
 
@@ -216,12 +234,14 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
     const ageText = prev !== null ? prev + '초' : '60초+';
     const footnote = '이전 캐시 ' + ageText + ' stale · 자동 갱신 안 됨';
     mdLines.push('- _' + footnote + '_');
-    htmlLines.push('<li class="muted"><em>' + escapeHtml(footnote) + '</em></li>');
+    htmlLines.push('<li class="tl-note muted"><em>' + escapeHtml(footnote) + '</em></li>');
   }
 
   return {
     md: mdLines.join('\n'),
-    html: '<ul class="timeline">' + htmlLines.join('') + '</ul>',
+    // v1.14.0 — 시간순 step-chart rail. <ol>(시간 순서 의미) + tl-rail(세로
+    // connector ::before). 노드는 .tl-step, footnote 는 .tl-note(노드 없음).
+    html: '<ol class="timeline tl-rail">' + htmlLines.join('') + '</ol>',
   };
 }
 

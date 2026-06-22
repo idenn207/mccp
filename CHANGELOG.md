@@ -4,6 +4,44 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.11.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.15.0] — 2026-06-23
+
+dashboard 마일스톤 기록 정확성 + 용어 통일 (M2 잔여) — "마일스톤 기록" 섹션의 두 결함을 닫는다. **용어**: 섹션 제목·앵커를 "이정표"→"마일스톤"으로 통일(markdown.js 앵커+heading, html.js h2 — id `milestone-history`는 영어라 불변). **정확성**: 완료 마일스톤 10건이 전부 "날짜 미상"으로 표시되던 근본 원인 4개를 수정 — (A) `derive/sources/plans.js`의 Source PRD 추출이 마크다운-링크만 매칭해 평문/백틱 경로 PRD discovery 누락(`SOURCE_PRD_PLAIN_RE` + `extractSourcePrd`), (B) `parseDeliveryMilestonesComplete`가 Plan 셀 첫 괄호 `(report: …)`를 잡아 plan 대신 report basename 추출(`extractPlanPath` — `.plan.md` 우선), (C) receipt가 working-tree 전용(gitignored)이라 과거 사이클 ship receipt 부재 → `pickShipReceipt` null → completedAt=null(git commit 시점 fallback `resolveGitCommitTime`). 결과: 마일스톤 섹션 날짜 미상 10→0, dashboard 자기 M1 표시 복원. Codex Plan-Codex R1 2 HIGH absorbed: F1(평문 source_prd가 렌더러 plan-dir 기준 resolve로 이중 경로 → `resolvePrdRef` dual-path 해석 + wrapper strip), F2(git fallback basename 재구성이 `.claude/PRPs/plans/completed/` archived plan 미발견 → directory-preserving planPath + completed/ archive basename 최종 후보). Implement-Codex cross-gate dedupe. 모두 read-side 렌더링·상관 로직 — receipt/derive 스키마 불변. renderer 312 + derive 68 = 380 test PASS. plugin.json `1.14.0 → 1.15.0` minor bump per CLAUDE.md §3.7. PRD M3~M6(레이아웃·길찾기·필터·스타일)는 impeccable shape→craft→audit 워크플로로 진행 예정(PRD Design Direction 명문화).
+
+## [1.14.0] — 2026-06-22
+
+dashboard 활동 로그 step-chart (M2) — 진행 현황 대시보드(`status.html`)의 audit-timeline 섹션을 평범한 `<ul>` 텍스트 로그에서 **시간순 세로 step-chart rail**로 변환. 각 receipt가 세로 connector 위 상태 노드 마커(✓ 수렴 / ◐ 진행)로 표시돼 활동 흐름을 형태·색으로 즉시 스캔할 수 있다(GitHub Actions job-run timeline 미학). **데이터 로직(snapshot read, MAX_ROWS caps, 정렬, footnote, briefing, md 출력)은 일절 변경 없이 시각 레이어만 재구성** — 회귀 위험 최소화. 세로 connector는 `.tl-rail::before` background 라인(`border-left` 미사용 → H4 회피), 노드 마커 `.tl-node`만 원형 pill(H3 carve-out 추가). design critique 1 finding absorbed: emphasis 반전 — 20행 timeline에서 converged(흔한 상태)는 quiet(`.tl-done` muted), pending(예외/개입 후보)만 loud(`.s-stale`), accent는 노드에 미사용 → viewport당 accent ≤ 1 보존(M1 pipeline의 converged=accent와 의도적 divergence, cardinality 차이). Codex Plan-Codex R1 1 HIGH + 1 MEDIUM absorbed: F1(STATE.md `chain_aborted`/`session_end_imminent` true 잔재가 in-progress chain short-circuit → state-writer reconcile), F2(`<span class="tl-body">`가 flow content `<blockquote>` wrap = non-conforming HTML → `<div>` 전환 + containment 구조 검증 test). Implement-Codex cross-gate dedupe. plugin.json `1.13.0 → 1.14.0` minor bump per CLAUDE.md §3.7. (M3 GitHub Actions 전체 비주얼 리프레시는 후속 cycle.)
+
+### Added
+
+- **`scripts/lib/renderer/tests/timeline-chart.test.js`** — 8 test (rail wrapper / converged-quiet·pending-loud 노드 매핑 / briefing blockquote containment(Codex F2) / md 동치 / escape / footnote tl-note 비-step).
+
+### Changed
+
+- **`scripts/lib/renderer/sections/audit-timeline.js`** — `renderRow` HTML을 step-chart 구조(`<li class="tl-step">` + `.tl-node` 마커 + `<div class="tl-body">`)로 재구성, wrapper `<ol class="timeline tl-rail">`, footnote li → `.tl-note`. 2-상태 노드 map(NODE_TL). 데이터 로직·md 출력 불변.
+- **`scripts/lib/renderer/html.js`** — `.tl-rail`/`.tl-step`/`.tl-node`/`.tl-body`/`.tl-note` CSS(세로 connector `::before` background 라인, 노드 pill, emphasis 반전 색). `PIPELINE_SCRIPT`에 `.tl-step` hover/focus enhancement 추가(vendored jQuery 재사용, 외부 src 0).
+- **`scripts/lib/renderer/output-constraints.js`** — `H3_CARVEOUT`에 `tl-node` 추가(노드 마커 한정 carve-out). H4는 background 라인이라 carve-out 불필요.
+- **`docs/v1.3.0-observability/DESIGN.md`** — H3 carve-out 행에 `tl-node` + v1.14.0 활동 step-chart design intent 절(세로 rail / emphasis 반전 / 항목 수 상한 근거).
+- **`scripts/lib/renderer/tests/{output-constraints,render-integration,audit-timeline-snapshot}.test.js`** — tl-node carve-out narrow 검증 + timeline rail 합성 HTML 포함 + footnote class 회귀 갱신.
+
+## [1.13.0] — 2026-06-22
+
+dashboard 게이트 파이프라인 chart (M1) — 진행 현황 대시보드(`status.html`)에 receipt를 `decision_id`별로 묶어 게이트 진행(plan-codex → implement-codex → pr-codex)을 보여주는 가로 파이프라인 스테퍼 신규 섹션 추가. 기존엔 게이트 스테이지 수렴 상태가 audit-timeline 텍스트 로그에만 흩어져 있어 "이 decision이 지금 어느 단계인가"를 한눈에 못 봤다. 신규 `pipeline.js`가 verdict 다음에 decision별 노드 흐름(✓ 수렴 / ◐ 진행 / ○ 대기)을 렌더한다. 미학 리드는 GitHub Actions 절제(중립 base + 상태색, 신규 강조색 0, 기존 OKLCH 토큰 재사용). baseline은 inline SVG/CSS(JS 없이도 상태 표시) — 외부 script URL 0(self-contained 유지). Codex Plan-Codex R1 2 HIGH + 1 MEDIUM absorbed: F1(canonical 정규화 — `gate_id`∥`gate`, `mccp-*` 만 매핑, `(decision,gate)`별 최신 receipt로 retry false→true 수렴 반영), F2(CDN third-party JS trust-boundary 침범 → vendored-inline 전환으로 raw 데이터 exfiltration 차단), F3(status-aware collapse — 미수렴 decision은 절대 collapse 안 함, `attention→active→complete` 정렬, top-3 + 상태별 카운트). design critique 2 rounds converged. Implement-Codex cross-gate dedupe. plugin.json `1.12.0 → 1.13.0` minor bump per CLAUDE.md §3.7. (M2 활동 로그 step chart / M3 GitHub Actions 전체 리프레시는 후속 cycle.)
+
+### Added
+
+- **`scripts/lib/renderer/sections/pipeline.js`** — 게이트 스테이지 파이프라인 섹션. canonical gate 정규화 + `(decision,gate)`별 최신 선택 + status-aware collapse + 색+아이콘+sr-only 병행(a11y) + 전체 escape. baseline 마크업(JS 무관).
+- **`scripts/lib/renderer/tests/pipeline.test.js`** — 10 test (정규화/retry 수렴/collapse/escape/a11y 등).
+
+### Changed
+
+- **`scripts/lib/renderer/html.js`** — `<section id="pipeline">` 조립 + `.pipe-*` CSS(pipe-node pill / pipe-edge 수평 라인, border-left 미사용).
+- **`scripts/lib/renderer/index.js`** — `renderPipeline` safeSection wire (grid 다음).
+- **`scripts/lib/renderer/markdown.js`** — `## 게이트 파이프라인` 섹션 + anchor (텍스트 표현).
+- **`scripts/lib/renderer/output-constraints.js`** — H3 carve-out에 `pipe-node` 추가.
+- **`scripts/lib/renderer/tests/four-part-rendering.test.js`** — sections positional fixture 8요소로 갱신.
+- **`PRODUCT.md`** / **`DESIGN.md`** — `/impeccable init` 셋업(PRODUCT.md 원칙 6 + 루트 DESIGN.md 신규).
+- **`commands/pr.md`** — worktree-safe tmp dir 수정. `/mccp:pr` Phase 2.5.3가 `codex-result.json`/stderr를 literal `.git/mccp/tmp`에 쓰던 탓에 worktree에서 `.git`이 gitdir 포인터 *파일*일 때 `mkdir: Not a directory`로 깨지던 결함 차단 — `MCCP_TMP="$(git rev-parse --git-dir)/mccp/tmp"`로 진짜 gitdir resolve (누적 8+ cycle 반복 결함). 설명 prose의 `.git/mccp/tmp/` 참조도 `<gitdir>/mccp/tmp/`로 정정.
 ## [1.12.1] — 2026-06-22
 
 detector probeAvailability 재설계 — 세 built-in 기능 detector(`deep-research-detect.js`/`ultracode-detect.js`/`goal-detect.js`)의 `probeAvailability()`가 `~/.claude/commands/*.md`·`~/.claude/skills/*/` filesystem을 probe하던 구조적 오류를 제거했다. built-in slash command는 user-level command/skill 파일을 남기지 않으므로 이 probe는 기능 활성 여부를 영원히 관측할 수 없었다. 공식 문서로 확정한 실제 활성화 신호로 교체: deep-research/ultracode는 동적 워크플로우 신호(`disableWorkflows`/`enableWorkflows`/env `CLAUDE_CODE_DISABLE_WORKFLOWS`)를 공유하고, goal은 별개 축인 hooks 신호(`disableAllHooks`/`allowManagedHooksOnly`)로 판정한다. 신규 공용 헬퍼 `settings-signal.js`가 managed+user+project 3-level 머지(우선순위 project > user > managed)를 수행한다. Codex Plan-Codex R1 absorbed: F1 HIGH(enterprise managed 정책 fail-open → managed 경로 OS별 읽기 추가 + managed present-but-unreadable 시 `unknown` 강등), F3 MEDIUM(goal/workflows 비대칭 근거 → 각 기능의 공식 활성화 모델 차이 본문화), F2 MEDIUM(런타임 게이트 버전/trust 체크 → backlog DEFER). Implement-Codex cross-gate dedupe. plugin.json `1.12.0 → 1.12.1` patch bump per CLAUDE.md §3.7.

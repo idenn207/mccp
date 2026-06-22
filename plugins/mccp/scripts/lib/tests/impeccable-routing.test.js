@@ -18,9 +18,10 @@ function byCommand(result) {
   return map;
 }
 
-// Implement gate catalogue grew in M2 (discovery+refine+simplify+evaluate).
-const IMPLEMENT_COUNT = 14;
-const PR_COUNT = 5;
+// Implement gate catalogue grew in M2 (discovery+refine+simplify+evaluate),
+// then M3 added the System stage (document+extract): 14 → 16.
+const IMPLEMENT_COUNT = 16;
+const PR_COUNT = 7;
 
 test('parseRoutingMode: unset → auto', function () {
   assert.strictEqual(parseRoutingMode({}), 'auto');
@@ -113,6 +114,27 @@ test('(h) F4: auto/implement/renderingSurface=false → refine/discovery/simplif
 test('unknown gate → skipped', function () {
   const r = routeCommands({ gate: 'nonsense', mode: 'auto', designSignal: true });
   assert.strictEqual(r.skipped, true);
+});
+
+test('(M3) System commands document/extract: recommend in every gate × every mode', function () {
+  ['implement', 'pr', 'plan', 'prd'].forEach(function (gate) {
+    ['auto', 'hybrid', 'recommend'].forEach(function (mode) {
+      const r = routeCommands({ gate: gate, mode: mode, designSignal: true, renderingSurface: true });
+      const m = byCommand(r);
+      assert.ok(m.document, gate + '/' + mode + ' must include document');
+      assert.ok(m.extract, gate + '/' + mode + ' must include extract');
+      assert.strictEqual(m.document.callForm, 'recommend', gate + '/' + mode + ' document must be recommend');
+      assert.strictEqual(m.extract.callForm, 'recommend', gate + '/' + mode + ' extract must be recommend');
+      assert.strictEqual(m.document.stage, 'system');
+      assert.strictEqual(m.extract.stage, 'system');
+    });
+  });
+});
+
+test('(M3) SYSTEM_COMMANDS export is the frozen document/extract set', function () {
+  const r = require('../impeccable-routing');
+  assert.deepStrictEqual(r.SYSTEM_COMMANDS.slice().sort(), ['document', 'extract']);
+  assert.ok(Object.isFrozen(r.SYSTEM_COMMANDS));
 });
 
 test('plan gate is guide-only (recommend) even in auto', function () {

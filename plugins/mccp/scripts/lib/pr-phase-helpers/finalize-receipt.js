@@ -116,6 +116,12 @@ function deriveCodexFlags(codexResult) {
   if (codexResult.a11y_routed_to_impeccable === true) {
     flags.push('--a11y-routed-to-impeccable');
   }
+  // v1.13.0 M3 — pr.md sets a11y_auto_invoked=true in codex-result.json after
+  // it actually spawns mccp:a11y-architect. Forward it so the receipt records
+  // the auto-invoke (Codex R1 F3) and write_flags_used exposes it for audit.
+  if (codexResult.a11y_auto_invoked === true) {
+    flags.push('--a11y-auto-invoked');
+  }
   if (typeof codexResult.dropped_findings_digest === 'string' &&
       codexResult.dropped_findings_digest.length > 0) {
     flags.push('--dropped-findings-digest');

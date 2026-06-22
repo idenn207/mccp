@@ -4,6 +4,25 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.11.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.16.0] — 2026-06-23
+
+stage-aware impeccable command routing (M3) — 두 축으로 PRD를 닫음. **Axis A (System 명령 wiring)**: impeccable System 군의 `document`(DESIGN.md 생성)·`extract`(재사용 토큰/컴포넌트 추출)를 routing 카탈로그에 `system` stage + recommend-only base로 추가 — 모든 게이트·모드에서 recommend(heavyweight 생성 명령은 deliberate operator step). `craft`/`live`/`init`/`detect`/`hooks`는 out-of-scope 유지. **Axis B (a11y-architect auto-invoke)**: PR 게이트의 a11y 처리를 "count만 세고 버리는" routing-only에서 실제 `mccp:a11y-architect` Task() auto-invoke로 전환. 트리거는 PR diff의 rendered design surface 존재(`rendering_surface`)이며 Codex finding 유무가 아님 — a11y-architect가 diff를 직접 WCAG 2.2 관점에서 review하고 결과는 PR body `## Accessibility Review` 섹션에 inject. review-only 불변식은 **a11y 전용 pr-phase lock window** + mutations finalizer로 mechanical 보증(편집 시 hard-stop). kill switch `MCCP_A11Y_AUTO_INVOKE=0`. Codex Plan-Codex R1 3 findings absorbed: F1(a11y 트리거가 design-scope preamble로 starve → finding 기반에서 `rendering_surface` 기반으로 전환), F2(codex-runner가 이미 lock exit하므로 전용 a11y-review lock window 신규 획득), F3(`finalize-receipt.js#deriveCodexFlags`에 `--a11y-auto-invoked` forward + `write_flags_used` 노출). plugin.json `1.13.0 → 1.16.0` — main(1.15.0, PR #53)과 forward-only reconcile per CLAUDE.md §3.7.
+
+### Added
+
+- **`scripts/lib/impeccable-routing.js`** — `SYSTEM_COMMANDS = Object.freeze(['document', 'extract'])` + `STAGE_ROUTING.implement`·`.pr`·`PLAN_GUIDE`에 system stage recommend-only entry + export.
+- **receipt schema** `meta.a11y_auto_invoked`(present-only boolean) — a11y-architect가 PR 게이트에서 실제 auto-invoke됐는지 audit.
+- **테스트** — impeccable-routing(System 명령 게이트×모드 recommend + SYSTEM_COMMANDS frozen), codex-result-filter(a11yFindings 배열 동치/identity/empty/EMPTY_RESULT), impeccable-routing-fields(a11y_auto_invoked round-trip/present-only/non-boolean reject/legacy), finalize-receipt(--a11y-auto-invoked forward).
+
+### Changed
+
+- **`scripts/lib/codex-result-filter.js`** — `filterDesignFindings` 반환에 `a11yFindings` 배열(보조 입력) 추가, `a11yRoutedCount === a11yFindings.length` 동치 보증. 4개 반환 경로 + `EMPTY_RESULT` 동기화.
+- **`scripts/lib/pr-phase-helpers/codex-runner.js`** — emit에 `a11y_findings`(보조 입력) + `rendering_surface`(PR diff UI ext 존재, 모든 codexOutcome에서 계산) surface. `computeRenderingSurface(base, cwd)` 헬퍼(UI/cache regex).
+- **`scripts/lib/pr-phase-helpers/finalize-receipt.js`** — `deriveCodexFlags`가 `a11y_auto_invoked===true` 시 `--a11y-auto-invoked` forward.
+- **`scripts/receipt/schema.js` · `write.js`** — `a11y_auto_invoked` present-only validator + skeleton default(false) + `--a11y-auto-invoked` arg 배선.
+- **`commands/pr.md`** — Phase 2.5.6c(a11y-architect review-only auto-invoke, 전용 lock window, mutations hard-stop) + Phase 4 `## Accessibility Review` inject.
+- **`commands/prp-implement.md`** — routing 표에 System stage(document/extract recommend) note + a11y는 PR 게이트 전용 명시.
+
 ## [1.13.0] — 2026-06-23
 
 stage-aware impeccable command routing (M1) — 디자인 게이트가 impeccable의 `critique` 단일 호출에 갇혀 있던 것을, 디자인 라이프사이클 단계(discovery→refine→evaluate→harden→polish)에 impeccable 명령을 매핑하는 순수 routing oracle로 확장. 핵심 6개 명령(shape/layout/typeset/audit/harden/polish + 기존 critique) + 모드 토글(auto/hybrid/recommend, default auto) + receipt audit 2필드. 게이트 배치: plan/plan-prd는 `## Design Routing Guide` recommend-only 기록, prp-implement은 실제 stage-aware 라우팅(shape background-best-effort + layout/typeset refine + audit evaluate), pr은 polish/audit/harden recommend-only(review-only invariant). `craft`(기능 chain)·`live`(실시간 브라우저)는 비대화형 게이트와 부적합으로 제외. Codex Plan-Codex R1 4 findings absorbed: F1(`designIntentActive` 입력으로 audited MCCP_DESIGN_INTENT_REASON escape hatch 보존), F2(critique은 routing 일반 명령으로 흡수하지 않고 기존 `decideCritique` retry loop + `design_critique_verdict` divergent blocking 유지), F3(`impeccable_commands_routed`를 structured `{command, call_form, status}` outcome 배열로 — 실패/unknown-skill을 정직히 기록, loud fail-open), F4(`renderingSurface` selector로 control-plane-only signal의 refine/discovery fan-out 차단; auto 기본값은 사용자 product 결정으로 유지, cost-tier auto-downgrade+SLO는 M2 defer). plugin.json `1.12.0 → 1.13.0` minor bump per CLAUDE.md §3.7.

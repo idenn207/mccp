@@ -40,6 +40,11 @@ const ROUTING_MODES = Object.freeze(['auto', 'hybrid', 'recommend']);
 const EVALUATE_COMMANDS = Object.freeze(['critique', 'audit']);
 // Mood/direction commands: recommend-only base, audited-intent-upgradable only.
 const MOOD_COMMANDS = Object.freeze(['bolder', 'quieter', 'overdrive', 'delight']);
+// System commands (v1.13.0 M3): document (generate DESIGN.md) + extract (pull
+// reusable tokens/components). Heavyweight generative actions, so recommend-only
+// base in every gate — mirrors the harden/optimize/onboard treatment. craft/live/
+// init/detect/hooks stay out of scope (PRD M3 carve-out).
+const SYSTEM_COMMANDS = Object.freeze(['document', 'extract']);
 // Diff-signal kinds a content command can require.
 const SIGNAL_KINDS = Object.freeze(['motion', 'color', 'typography', 'responsive']);
 
@@ -71,6 +76,8 @@ const PLAN_GUIDE = Object.freeze([
   entry('optimize', 'harden', 'recommend', null),
   entry('onboard', 'harden', 'recommend', null),
   entry('polish', 'polish', 'recommend', null),
+  entry('document', 'system', 'recommend', null),
+  entry('extract', 'system', 'recommend', null),
 ]);
 
 const STAGE_ROUTING = Object.freeze({
@@ -89,6 +96,8 @@ const STAGE_ROUTING = Object.freeze({
     entry('clarify', 'simplify', 'recommend', null),
     entry('critique', 'evaluate', 'invoke', null),
     entry('audit', 'evaluate', 'invoke', null),
+    entry('document', 'system', 'recommend', null),
+    entry('extract', 'system', 'recommend', null),
   ]),
   pr: Object.freeze([
     entry('polish', 'polish', 'recommend', null),
@@ -96,6 +105,8 @@ const STAGE_ROUTING = Object.freeze({
     entry('harden', 'harden', 'recommend', null),
     entry('optimize', 'harden', 'recommend', null),
     entry('onboard', 'harden', 'recommend', null),
+    entry('document', 'system', 'recommend', null),
+    entry('extract', 'system', 'recommend', null),
   ]),
   // plan + prd share the guide table — neither has a rendered surface yet, so
   // every entry is recommend-only.
@@ -236,6 +247,7 @@ module.exports = {
   ROUTING_MODES,
   EVALUATE_COMMANDS,
   MOOD_COMMANDS,
+  SYSTEM_COMMANDS,
   SIGNAL_KINDS,
   STAGE_ROUTING,
   parseRoutingMode,

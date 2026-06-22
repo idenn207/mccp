@@ -36,6 +36,16 @@ test('deriveCodexFlags: null / load_error → empty flag set', () => {
   assert.deepStrictEqual(deriveCodexFlags({ _load_error: 'x' }), []);
 });
 
+test('M3 deriveCodexFlags: a11y_auto_invoked=true → --a11y-auto-invoked forwarded', () => {
+  const flags = deriveCodexFlags({ codex_outcome: 'invoked', a11y_auto_invoked: true });
+  assert.ok(flags.includes('--a11y-auto-invoked'), JSON.stringify(flags));
+});
+
+test('M3 deriveCodexFlags: a11y_auto_invoked absent/false → flag omitted', () => {
+  assert.ok(!deriveCodexFlags({ codex_outcome: 'invoked' }).includes('--a11y-auto-invoked'));
+  assert.ok(!deriveCodexFlags({ codex_outcome: 'invoked', a11y_auto_invoked: false }).includes('--a11y-auto-invoked'));
+});
+
 test('CLI: missing --decision fails', () => {
   const r = spawnSync(NODE, [helperPath, '--plan', 'p'], { encoding: 'utf8' });
   assert.strictEqual(r.status, 1);

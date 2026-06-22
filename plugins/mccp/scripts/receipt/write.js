@@ -216,6 +216,8 @@ function buildReceipt(args) {
         return Number.isFinite(n) && n >= 0 ? n : 0;
       })(),
       a11y_routed_to_impeccable: args['a11y-routed-to-impeccable'] === true,
+      // v1.13.0 M3 — a11y-architect auto-invoked at PR gate.
+      a11y_auto_invoked: args['a11y-auto-invoked'] === true,
       dropped_findings_digest: (function () {
         const v = args['dropped-findings-digest'];
         if (typeof v === 'string' && v.length > 0) return v;

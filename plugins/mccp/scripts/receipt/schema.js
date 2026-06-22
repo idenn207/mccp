@@ -355,6 +355,13 @@ function validate(receipt) {
       req(typeof m.a11y_routed_to_impeccable === 'boolean',
         'meta.a11y_routed_to_impeccable must be a boolean if present');
     }
+    // v1.13.0 M3 — was mccp:a11y-architect actually auto-invoked at the PR gate
+    // (vs the routing-only count). Present-only: legacy receipts validate
+    // unchanged.
+    if (m.a11y_auto_invoked !== undefined) {
+      req(typeof m.a11y_auto_invoked === 'boolean',
+        'meta.a11y_auto_invoked must be a boolean if present');
+    }
     if (m.dropped_findings_digest !== null && m.dropped_findings_digest !== undefined) {
       req(typeof m.dropped_findings_digest === 'string' &&
         SHA256_RE.test(m.dropped_findings_digest),
@@ -641,6 +648,8 @@ function makeSkeleton(overrides) {
       design_findings_dropped: 0,
       a11y_routed_to_impeccable: false,
       dropped_findings_digest: null,
+      // v1.13.0 M3 — a11y-architect actually auto-invoked at PR gate.
+      a11y_auto_invoked: false,
       // v0.4.0 axis H — plan_conflict_escalated. Advisory-only audit stamp.
       plan_conflict_escalated: false,
       // v1.0.1 axis K — orphan-lock reclaim audit. Stamped by finalize-receipt

@@ -406,6 +406,8 @@ For each command in `ROUTE_JSON.commands` **except `critique`**, process by `cal
 | `background` | best-effort background Agent for `<command>`; if background unavailable in this gate, fall back to foreground `Skill(impeccable, "<command> <slug>")` and set call_form=`foreground-fallback` + loud stderr | `invoked` | `failed` |
 | `recommend` | emit stderr `[mccp:impeccable-routing] recommend: /impeccable <command> <slug>` (no invoke) | `recommended` | n/a |
 
+> **System stage (v1.13.0 M3)**: `document` (generate DESIGN.md) and `extract` (pull reusable tokens/components) route with stage `system` and a `recommend`-only base in every gate — heavyweight generative actions that should be a deliberate operator step, not an auto-invoke. They surface here exactly like the harden-group recommend rows. a11y-architect auto-invoke is **not** part of implement-gate routing; it is PR-gate-only (review-only invariant) — see `pr.md` Phase 2.5.6c.
+
 Accumulate every processed entry into a JSON array and write it to a tempfile for the receipt forward (loud fail-open — record `failed`/`unknown-skill` honestly, do NOT silently drop):
 
 ```bash

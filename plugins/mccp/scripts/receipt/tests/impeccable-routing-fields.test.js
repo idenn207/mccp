@@ -52,6 +52,48 @@ test('routing fields: absent → null defaults, validates (present-only legacy)'
   });
 });
 
+test('M3 a11y_auto_invoked: --a11y-auto-invoked → true, round-trips and validates', function () {
+  withRepo(function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-pr-codex',
+      decision: 'routing-x',
+      plan: planRel,
+      'a11y-auto-invoked': true,
+    });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, true, JSON.stringify(v.errors));
+    assert.strictEqual(r.receipt.meta.a11y_auto_invoked, true);
+  });
+});
+
+test('M3 a11y_auto_invoked: absent → default false, validates (present-only)', function () {
+  withRepo(function (repo, planRel) {
+    const r = write({ gate: 'mccp-pr-codex', decision: 'routing-x', plan: planRel });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, true, JSON.stringify(v.errors));
+    assert.strictEqual(r.receipt.meta.a11y_auto_invoked, false);
+  });
+});
+
+test('M3 a11y_auto_invoked: legacy receipt without the field still validates', function () {
+  withRepo(function (repo, planRel) {
+    const r = write({ gate: 'mccp-pr-codex', decision: 'routing-x', plan: planRel });
+    delete r.receipt.meta.a11y_auto_invoked;
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, true, JSON.stringify(v.errors));
+  });
+});
+
+test('M3 a11y_auto_invoked: non-boolean rejected by schema', function () {
+  withRepo(function (repo, planRel) {
+    const r = write({ gate: 'mccp-pr-codex', decision: 'routing-x', plan: planRel });
+    r.receipt.meta.a11y_auto_invoked = 'yes';
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.some((e) => /a11y_auto_invoked/.test(e)), JSON.stringify(v.errors));
+  });
+});
+
 test('routing fields: invalid mode value rejected by schema', function () {
   withRepo(function (repo, planRel) {
     assert.throws(function () {

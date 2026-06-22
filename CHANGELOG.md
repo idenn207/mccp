@@ -4,6 +4,17 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.11.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.12.0] — 2026-06-22
+
+dashboard serve + refresh commands — `.claude/cache/status.html` 대시보드를 localhost로 띄우는 `/mccp:dashboard`와 캐시를 다시 굽는 `/mccp:dashboard-refresh` 추가. 기존엔 `derive/cli.js render` 수동 실행 + 파일 직접 열기 + 자주 stale한 캐시라는 3단 마찰이 있었다. `/mccp:dashboard`는 띄우기 직전 자동 render → dep-free Node `http` 서버를 `127.0.0.1`에 bind → 브라우저 자동 오픈 → `.claude/cache/` watch로 status 변경 시 SSE live-reload. 캐시 `status.html`은 byte-pristine 유지(reload `<script>`는 서빙 시점 on-the-fly 주입). Codex Plan-Codex R1 2 findings absorbed: F1(PID 파일을 repo/cache scope — `{pid,host,port,started_at,repoRoot,statusPath}` 기록 + same-host·live-PID·repoRoot·statusPath 4중 일치 시만 재사용 → worktree 간 stale PID로 다른 checkout 서버 URL 반환 차단), F2(포트 +1 silent fall-forward 제거 → 우리 서버면 identity probe로 재사용, foreign이면 loud 충돌 + `--port` 요구 → bookmark 안정성 보존). Implement-Codex cross-gate dedupe. plugin.json `1.11.0 → 1.12.0` minor bump per CLAUDE.md §3.7.
+
+### Added
+
+- **`scripts/lib/dashboard-server.js`** — dep-free localhost 대시보드 서버. 고정 라우트(`/` reload 주입 + `/__mccp_reload` SSE + `/__mccp_identity` JSON, 그 외 404 — `req.url`→파일 매핑 없어 path-traversal surface 0). `startServer`/`createServer`/`injectReloadScript`/`isReusablePid` 등 export. fs.watch + watchFile 폴백 live-reload, 브라우저 오픈/watch는 loud fail-open.
+- **`commands/dashboard.md`** — `/mccp:dashboard` (render → background 서버 → URL/PID/stop 보고).
+- **`commands/dashboard-refresh.md`** — `/mccp:dashboard-refresh` (`derive/cli.js render` wrap, 서버 무관).
+- **`scripts/lib/tests/dashboard-server.test.js`** — 13 test (reload 주입, 라우트, identity JSON, SSE, 404, missing-status 안내, PID roundtrip + repo scope, isReusablePid 3중 AND, 127.0.0.1 bind, our-server 재사용).
+
 ## [1.11.0] — 2026-06-22
 
 v1.4.2 dashboard overhaul — Milestone 3 ship (a11y WCAG 2.2 AA + 잔여 OQ 명문화). PRD §M3 두 축을 단일 PR로 정리. (a) semantic landmark + skip-link (clip-based sr-only / focus-visible explicit) + footer role=contentinfo + main id=tabindex=-1 + status-strip 1 tab stop(group label dynamic 4축 aria-label, cell non-focusable + icon aria-hidden) + severity-tag aria-label "위험도: 한글" + copy-btn aria-label "다음 액션 복사" + WCAG AA contrast lint(OKLCH → sRGB → luminance dep-0 oracle) + severity color-only 금지 lint, (b) PRD §Open Questions OQ-a~g 7건을 M1/M2 채택 default로 본문화. Codex Plan-Codex R1 4 findings(F4 status-cell unreachable / F5 severity drift / F6 contrast oracle / F7 skip-link clip-based) + impeccable critique F1/F2/F3 모두 plan body absorbed → Implement-Codex cross-gate dedupe. plugin.json `1.10.0 → 1.11.0` minor bump per CLAUDE.md §3.7 (M3 milestone ship → minor).

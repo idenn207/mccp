@@ -139,8 +139,9 @@ test('F1 absorption — data-copy attr preserves spaces/quotes/parens (no URL en
 
 test('html.js wires milestone-history section + copy button JS', () => {
   const model = { sources: {}, warnings: [] };
+  // v1.13.0 — sections 배열에 pipeline 삽입(index 1). milestoneHistory 는 index 7.
   const sections = [
-    null, null, null, null, null, null,
+    null, null, null, null, null, null, null,
     { md: 'ms md', html: '<ul><li>M1</li></ul>' },
   ];
   const verdict = { tone: 'neutral', icon: '·', text: 'test' };

@@ -93,6 +93,32 @@ test('render-integration — real derive() against fs fixture reflects actual su
   } finally { rmFixture(root); }
 });
 
+test('render-integration — pipeline section + self-contained (no external script URL, Codex F2)', () => {
+  const root = mkFsFixture();
+  try {
+    const model = derive(root);
+    const r = renderStatus(model, { cwd: root });
+    // pipeline section renders the converged plan-codex decision from the fixture
+    assert.match(r.html, /<section id="pipeline">/);
+    assert.match(r.html, /class="pipeline"/);
+    // Codex F2 — raw or masked, the page must carry NO external script origin.
+    const externalScripts = r.html.match(/<script[^>]+src\s*=\s*["']https?:\/\//gi) || [];
+    assert.equal(externalScripts.length, 0, 'no external <script src> (self-contained trust boundary)');
+    // vendored jQuery is inlined, not linked
+    assert.match(r.html, /jQuery v3\.7\.1/);
+  } finally { rmFixture(root); }
+});
+
+test('render-integration — raw (unmasked) render also has no external script URL (Codex F2)', () => {
+  const root = mkFsFixture();
+  try {
+    const model = derive(root, { raw: true });
+    const r = renderStatus(model, { cwd: root });
+    const externalScripts = r.html.match(/<script[^>]+src\s*=\s*["']https?:\/\//gi) || [];
+    assert.equal(externalScripts.length, 0, 'raw render must not leak data to external scripts');
+  } finally { rmFixture(root); }
+});
+
 test('render-integration — controller_active + envelopes empty triggers F3 amber', () => {
   const root = mkFsFixture();
   try {

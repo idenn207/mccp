@@ -4,6 +4,53 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.11.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.16.0] — 2026-06-23
+
+stage-aware impeccable command routing (M3) — 두 축으로 PRD를 닫음. **Axis A (System 명령 wiring)**: impeccable System 군의 `document`(DESIGN.md 생성)·`extract`(재사용 토큰/컴포넌트 추출)를 routing 카탈로그에 `system` stage + recommend-only base로 추가 — 모든 게이트·모드에서 recommend(heavyweight 생성 명령은 deliberate operator step). `craft`/`live`/`init`/`detect`/`hooks`는 out-of-scope 유지. **Axis B (a11y-architect auto-invoke)**: PR 게이트의 a11y 처리를 "count만 세고 버리는" routing-only에서 실제 `mccp:a11y-architect` Task() auto-invoke로 전환. 트리거는 PR diff의 rendered design surface 존재(`rendering_surface`)이며 Codex finding 유무가 아님 — a11y-architect가 diff를 직접 WCAG 2.2 관점에서 review하고 결과는 PR body `## Accessibility Review` 섹션에 inject. review-only 불변식은 **a11y 전용 pr-phase lock window** + mutations finalizer로 mechanical 보증(편집 시 hard-stop). kill switch `MCCP_A11Y_AUTO_INVOKE=0`. Codex Plan-Codex R1 3 findings absorbed: F1(a11y 트리거가 design-scope preamble로 starve → finding 기반에서 `rendering_surface` 기반으로 전환), F2(codex-runner가 이미 lock exit하므로 전용 a11y-review lock window 신규 획득), F3(`finalize-receipt.js#deriveCodexFlags`에 `--a11y-auto-invoked` forward + `write_flags_used` 노출). plugin.json `1.13.0 → 1.16.0` — main(1.15.0, PR #53)과 forward-only reconcile per CLAUDE.md §3.7.
+
+### Added
+
+- **`scripts/lib/impeccable-routing.js`** — `SYSTEM_COMMANDS = Object.freeze(['document', 'extract'])` + `STAGE_ROUTING.implement`·`.pr`·`PLAN_GUIDE`에 system stage recommend-only entry + export.
+- **receipt schema** `meta.a11y_auto_invoked`(present-only boolean) — a11y-architect가 PR 게이트에서 실제 auto-invoke됐는지 audit.
+- **테스트** — impeccable-routing(System 명령 게이트×모드 recommend + SYSTEM_COMMANDS frozen), codex-result-filter(a11yFindings 배열 동치/identity/empty/EMPTY_RESULT), impeccable-routing-fields(a11y_auto_invoked round-trip/present-only/non-boolean reject/legacy), finalize-receipt(--a11y-auto-invoked forward).
+
+### Changed
+
+- **`scripts/lib/codex-result-filter.js`** — `filterDesignFindings` 반환에 `a11yFindings` 배열(보조 입력) 추가, `a11yRoutedCount === a11yFindings.length` 동치 보증. 4개 반환 경로 + `EMPTY_RESULT` 동기화.
+- **`scripts/lib/pr-phase-helpers/codex-runner.js`** — emit에 `a11y_findings`(보조 입력) + `rendering_surface`(PR diff UI ext 존재, 모든 codexOutcome에서 계산) surface. `computeRenderingSurface(base, cwd)` 헬퍼(UI/cache regex).
+- **`scripts/lib/pr-phase-helpers/finalize-receipt.js`** — `deriveCodexFlags`가 `a11y_auto_invoked===true` 시 `--a11y-auto-invoked` forward.
+- **`scripts/receipt/schema.js` · `write.js`** — `a11y_auto_invoked` present-only validator + skeleton default(false) + `--a11y-auto-invoked` arg 배선.
+- **`commands/pr.md`** — Phase 2.5.6c(a11y-architect review-only auto-invoke, 전용 lock window, mutations hard-stop) + Phase 4 `## Accessibility Review` inject.
+- **`commands/prp-implement.md`** — routing 표에 System stage(document/extract recommend) note + a11y는 PR 게이트 전용 명시.
+
+### M1 + M2 (bundled in PR #55 — originally tagged 1.13.0 on-branch; reconciled to 1.16.0 at merge since main independently shipped 1.13.0/1.14.0/1.15.0)
+
+stage-aware impeccable command routing (M1) — 디자인 게이트가 impeccable의 `critique` 단일 호출에 갇혀 있던 것을, 디자인 라이프사이클 단계(discovery→refine→evaluate→harden→polish)에 impeccable 명령을 매핑하는 순수 routing oracle로 확장. 핵심 6개 명령(shape/layout/typeset/audit/harden/polish + 기존 critique) + 모드 토글(auto/hybrid/recommend, default auto) + receipt audit 2필드. 게이트 배치: plan/plan-prd는 `## Design Routing Guide` recommend-only 기록, prp-implement은 실제 stage-aware 라우팅(shape background-best-effort + layout/typeset refine + audit evaluate), pr은 polish/audit/harden recommend-only(review-only invariant). `craft`(기능 chain)·`live`(실시간 브라우저)는 비대화형 게이트와 부적합으로 제외. Codex Plan-Codex R1 4 findings absorbed: F1(`designIntentActive` 입력으로 audited MCCP_DESIGN_INTENT_REASON escape hatch 보존), F2(critique은 routing 일반 명령으로 흡수하지 않고 기존 `decideCritique` retry loop + `design_critique_verdict` divergent blocking 유지), F3(`impeccable_commands_routed`를 structured `{command, call_form, status}` outcome 배열로 — 실패/unknown-skill을 정직히 기록, loud fail-open), F4(`renderingSurface` selector로 control-plane-only signal의 refine/discovery fan-out 차단; auto 기본값은 사용자 product 결정으로 유지, cost-tier auto-downgrade+SLO는 M2 defer). plugin.json `1.12.0 → 1.13.0` minor bump per CLAUDE.md §3.7.
+
+### Added
+
+- **`scripts/lib/impeccable-routing.js`** — stage-aware routing oracle. 순수·무의존. `STAGE_ROUTING` gate→command 테이블 + `parseRoutingMode(env)` + `routeCommands({gate, mode, designSignal, designIntentActive, renderingSurface})`. 모드 변환은 downgrade-only(recommend base는 invoke로 승격 안 됨 → pr gate review-only 보존). F1/F4 absorption 입력 포함.
+- **`scripts/lib/tests/impeccable-routing.test.js`** — 12 test (모드 변환, 게이트별 매핑, F1 designIntentActive trigger, F4 renderingSurface degrade, pr review-only, plan guide-only).
+- **`scripts/receipt/tests/impeccable-routing-fields.test.js`** — 5 test (mode+structured 배열 라운드트립, present-only legacy, invalid mode/enum/malformed reject).
+
+### Changed
+
+- **`scripts/receipt/schema.js`** — `impeccable_routing_mode`(enum auto|hybrid|recommend|null) + `impeccable_commands_routed`(structured `{command, call_form, status}` 배열|null) present-only 검증 + 기본값 2필드. legacy receipt 무변경 통과.
+- **`scripts/receipt/write.js`** — `--impeccable-routing-mode` + `--impeccable-commands-routed-file`(JSON 배열 채널, mirror findings-file) arg→meta 매핑.
+- **`scripts/receipt/cli.js`** — write usage 줄에 신규 2 플래그 표기.
+- **`commands/prp-implement.md`** — design gate에 stage-aware routing 단계(critique loop 앞단, critique 제외) + receipt forward.
+- **`commands/plan.md` · `commands/plan-prd.md`** — `## Design Routing Guide` recommend-only 기록(plan은 `--impeccable-routing-mode` forward).
+- **`commands/pr.md`** — Phase 1.6에 polish/audit/harden recommend-only stderr 줄(invoke 없음).
+
+### M2 — Extended Refine/Simplify 카탈로그 + content 선별 휴리스틱
+
+M1의 routing oracle에 Extended 카탈로그 10개(animate/colorize/bolder/quieter/overdrive/delight refine · adapt/distill/clarify simplify · optimize/onboard harden)를 추가하고, auto 모드 fan-out 비용을 **content 기반 positive-presence 선별**로 제어. content-detectable 명령(animate←motion, colorize←color, typeset←typography, adapt←responsive)은 `extractDiffSignals`가 diff에서 해당 signal을 positive로 잡았을 때만 auto invoke; 못 잡으면 recommend 강등. mood/direction 명령(bolder/quieter/overdrive/delight)은 diff 감지 불가 → recommend-only base, 4중 AND audited intent(`MCCP_IMPECCABLE_INTENT_COMMANDS`)에서만 invoke 승격. Codex 2-round(Plan F1/F2/F3 + Implement [0]/[1]) absorbed: Plan-F1(signal 추출이 untracked 새 UI 파일 포함 + zero-signal fail-open omission, all-false forward 금지), Plan-F2(정규식이 Tailwind utility/CSS-in-JS camelCase 커버), Plan-F3(mood intent 승격 경로), Implement-[0](detector/renderingSurface/extractDiffSignals 일관 tracked+untracked 파일셋 + greenfield trigger gap 문서화), Implement-[1](routeCommands 반환 schema 안정화 — 내부 `signal` 메타데이터 strip). Receipt schema 무변경(`command` open string). plugin.json bump은 PR merge 시 main(1.15.0)과 forward-only reconcile.
+
+- **`scripts/lib/impeccable-routing.js`** — `STAGE_ROUTING` 확장(implement 14 / pr 5 / plan·prd guide 18) + `MOOD_COMMANDS`/`SIGNAL_KINDS` + `extractDiffSignals(text)`(pure regex classifier) + `selectByDiffSignals(commands, diffSignals)`(positive-presence narrow) + `parseIntentCommands(env)` + `routeCommands`에 `diffSignals`/`intentCommands` 입력 + 반환 schema 안정화.
+- **`scripts/lib/tests/impeccable-routing.test.js`** — 13 신규 case(content 선별, mood recommend-only + 4중 AND 승격/비-승격, simplify 단계, backward-compat fail-open, extractDiffSignals CSS/Tailwind/CSS-in-JS fixtures, schema 안정성). 총 25 test PASS.
+- **`commands/prp-implement.md`** — routing 블록을 tracked+untracked rendered-surface 단일 셋 기반으로 재작성(RENDERING_SURFACE + extractDiffSignals 일관 도출 + zero-signal fail-open omission) + intentCommands forward + greenfield trigger gap 문서화.
+- **`commands/plan.md`** — `## Design Routing Guide` 예시 표에 simplify 단계 + 확장 refine/harden 행 추가(실제 rows는 routeCommands 동적 생성).
+
 ## [1.15.0] — 2026-06-23
 
 dashboard 마일스톤 기록 정확성 + 용어 통일 (M2 잔여) — "마일스톤 기록" 섹션의 두 결함을 닫는다. **용어**: 섹션 제목·앵커를 "이정표"→"마일스톤"으로 통일(markdown.js 앵커+heading, html.js h2 — id `milestone-history`는 영어라 불변). **정확성**: 완료 마일스톤 10건이 전부 "날짜 미상"으로 표시되던 근본 원인 4개를 수정 — (A) `derive/sources/plans.js`의 Source PRD 추출이 마크다운-링크만 매칭해 평문/백틱 경로 PRD discovery 누락(`SOURCE_PRD_PLAIN_RE` + `extractSourcePrd`), (B) `parseDeliveryMilestonesComplete`가 Plan 셀 첫 괄호 `(report: …)`를 잡아 plan 대신 report basename 추출(`extractPlanPath` — `.plan.md` 우선), (C) receipt가 working-tree 전용(gitignored)이라 과거 사이클 ship receipt 부재 → `pickShipReceipt` null → completedAt=null(git commit 시점 fallback `resolveGitCommitTime`). 결과: 마일스톤 섹션 날짜 미상 10→0, dashboard 자기 M1 표시 복원. Codex Plan-Codex R1 2 HIGH absorbed: F1(평문 source_prd가 렌더러 plan-dir 기준 resolve로 이중 경로 → `resolvePrdRef` dual-path 해석 + wrapper strip), F2(git fallback basename 재구성이 `.claude/PRPs/plans/completed/` archived plan 미발견 → directory-preserving planPath + completed/ archive basename 최종 후보). Implement-Codex cross-gate dedupe. 모두 read-side 렌더링·상관 로직 — receipt/derive 스키마 불변. renderer 312 + derive 68 = 380 test PASS. plugin.json `1.14.0 → 1.15.0` minor bump per CLAUDE.md §3.7. PRD M3~M6(레이아웃·길찾기·필터·스타일)는 impeccable shape→craft→audit 워크플로로 진행 예정(PRD Design Direction 명문화).

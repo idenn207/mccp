@@ -47,6 +47,12 @@ const EMPTY_RESULT = Object.freeze({
   filteredFindings: Object.freeze([]),
   droppedFindings: Object.freeze([]),
   a11yRoutedCount: 0,
+  // v1.13.0 M3 — a11y findings exposed as a supplementary input so a caller
+  // (pr.md) can hand them to mccp:a11y-architect. a11yRoutedCount stays the
+  // length of this array. Primary a11y-auto-invoke trigger is the diff's
+  // rendering surface, NOT this array (Codex R1 F1: the design-scope preamble
+  // usually suppresses a11y findings before they reach the filter).
+  a11yFindings: Object.freeze([]),
 });
 
 function matchesAny(text, patterns) {
@@ -84,22 +90,23 @@ function filterDesignFindings(codexResult, opts) {
       filteredFindings: findings.slice(),
       droppedFindings: [],
       a11yRoutedCount: 0,
+      a11yFindings: [],
     };
   }
 
   if (findings.length === 0) {
-    return { filteredFindings: [], droppedFindings: [], a11yRoutedCount: 0 };
+    return { filteredFindings: [], droppedFindings: [], a11yRoutedCount: 0, a11yFindings: [] };
   }
 
   const filteredFindings = [];
   const droppedFindings = [];
-  let a11yRoutedCount = 0;
+  const a11yFindings = [];
 
   for (let i = 0; i < findings.length; i++) {
     const f = findings[i];
     if (isA11yFinding(f)) {
       droppedFindings.push(f);
-      a11yRoutedCount++;
+      a11yFindings.push(f);
       continue;
     }
     if (isDesignFinding(f)) {
@@ -112,7 +119,10 @@ function filterDesignFindings(codexResult, opts) {
   return {
     filteredFindings: filteredFindings,
     droppedFindings: droppedFindings,
-    a11yRoutedCount: a11yRoutedCount,
+    // a11yRoutedCount stays the canonical count; a11yFindings is the same set
+    // as an array so the count and the payload can never drift.
+    a11yRoutedCount: a11yFindings.length,
+    a11yFindings: a11yFindings,
   };
 }
 

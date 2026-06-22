@@ -29,14 +29,16 @@
 //   tier ∉ KNOWN_TIERS → unknown_tiers push + reason='unknown-effort-tier' + stderr warn.
 //
 // Default availability is intentionally `unknown` — Anthropic native /effort
-// is shipped as a built-in slash command with no plugin manifest entry, so
-// absence in user-level paths does not prove missing. `unknown` triggers
+// ultracode is gated on the dynamic workflows feature (shared signal with
+// deep-research). Availability is derived from settings signals
+// (settings-signal.workflowsEnabled), NOT a filesystem probe of user-level
+// paths (which can never observe a built-in command). `unknown` triggers
 // silent skip (no phantom prompt). Env override
 // MCCP_ULTRACODE_FEATURE={available|missing|unknown} takes precedence.
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+const settingsSignal = require('./settings-signal');
 
 const MODES = ['implement'];
 const KNOWN_TIERS = ['ultracode'];
@@ -50,25 +52,22 @@ function probeAvailability(options) {
   if (env === 'missing') return 'missing';
   if (env === 'unknown') return 'unknown';
 
-  const userCommandPath = (opts.userCommandPath != null)
-    ? opts.userCommandPath
-    : path.join(os.homedir(), '.claude', 'commands', 'effort.md');
+  // ultracode shares the workflows signal with deep-research. Delegate to the
+  // settings-signal helper; on any unexpected failure fall open to 'unknown'.
   try {
-    if (fs.existsSync(userCommandPath) && fs.statSync(userCommandPath).isFile()) {
-      return 'available';
-    }
-  } catch (_err) { /* ignore */ }
-
-  const userSkillDir = (opts.userSkillDir != null)
-    ? opts.userSkillDir
-    : path.join(os.homedir(), '.claude', 'skills', 'ultracode');
-  try {
-    if (fs.existsSync(userSkillDir) && fs.statSync(userSkillDir).isDirectory()) {
-      return 'available';
-    }
-  } catch (_err) { /* ignore */ }
-
-  return 'unknown';
+    return settingsSignal.workflowsEnabled({
+      projectRoot: opts.projectRoot,
+      userPath: opts.userPath,
+      projectPath: opts.projectPath,
+      managedPath: opts.managedPath,
+    });
+  } catch (err) {
+    process.stderr.write(
+      '[mccp:ultracode-detect] workflows signal probe failed (' +
+      err.message + ') — defaulting to unknown\n'
+    );
+    return 'unknown';
+  }
 }
 
 function validatePlanPathSafety(planPath, repoRoot) {
@@ -130,8 +129,10 @@ function detect(options) {
   let body = (opts.body != null) ? opts.body : null;
 
   const availability = probeAvailability({
-    userCommandPath: opts.userCommandPath,
-    userSkillDir: opts.userSkillDir,
+    projectRoot: opts.projectRoot != null ? opts.projectRoot : repoRoot,
+    userPath: opts.userPath,
+    projectPath: opts.projectPath,
+    managedPath: opts.managedPath,
   });
 
   if (!mode) {

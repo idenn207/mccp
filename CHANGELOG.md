@@ -4,6 +4,21 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.11.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.12.1] — 2026-06-22
+
+detector probeAvailability 재설계 — 세 built-in 기능 detector(`deep-research-detect.js`/`ultracode-detect.js`/`goal-detect.js`)의 `probeAvailability()`가 `~/.claude/commands/*.md`·`~/.claude/skills/*/` filesystem을 probe하던 구조적 오류를 제거했다. built-in slash command는 user-level command/skill 파일을 남기지 않으므로 이 probe는 기능 활성 여부를 영원히 관측할 수 없었다. 공식 문서로 확정한 실제 활성화 신호로 교체: deep-research/ultracode는 동적 워크플로우 신호(`disableWorkflows`/`enableWorkflows`/env `CLAUDE_CODE_DISABLE_WORKFLOWS`)를 공유하고, goal은 별개 축인 hooks 신호(`disableAllHooks`/`allowManagedHooksOnly`)로 판정한다. 신규 공용 헬퍼 `settings-signal.js`가 managed+user+project 3-level 머지(우선순위 project > user > managed)를 수행한다. Codex Plan-Codex R1 absorbed: F1 HIGH(enterprise managed 정책 fail-open → managed 경로 OS별 읽기 추가 + managed present-but-unreadable 시 `unknown` 강등), F3 MEDIUM(goal/workflows 비대칭 근거 → 각 기능의 공식 활성화 모델 차이 본문화), F2 MEDIUM(런타임 게이트 버전/trust 체크 → backlog DEFER). Implement-Codex cross-gate dedupe. plugin.json `1.12.0 → 1.12.1` patch bump per CLAUDE.md §3.7.
+
+### Added
+
+- **`scripts/lib/settings-signal.js`** — 3-level settings 머지 공용 헬퍼. `readMergedSettings`(managed+user+project, fail-loud parse via settings-writer) + `workflowsEnabled(opts)` tristate + `hooksGoalEnabled(opts)` tristate(F1+F3 absorption — managed 포함, 미확인 시 unknown) + `MANAGED_SETTINGS_PATHS` OS 상수.
+- **`scripts/lib/tests/settings-signal.test.js`** — 17 test (머지 우선순위 4 + workflows tristate 6 + hooks tristate 6 + OS path 1).
+
+### Changed
+
+- **`scripts/lib/deep-research-detect.js`** / **`ultracode-detect.js`** — `probeAvailability`가 filesystem probe 대신 `settings-signal.workflowsEnabled()` 위임. env override(`MCCP_DEEP_RESEARCH_SKILL`/`MCCP_ULTRACODE_FEATURE`) 최우선 유지. 옵션 시그니처 `{projectRoot,userPath,projectPath,managedPath}` 주입 가능.
+- **`scripts/lib/goal-detect.js`** — `probeAvailability`가 `settings-signal.hooksGoalEnabled()` 위임. goal은 default-on이라 hook-disable 신호 부재 = 활성. env override(`MCCP_GOAL_FEATURE`) 최우선 유지.
+- **3 detect 테스트 파일** — filesystem probe 케이스(S1d/S8c/S8d/S9 등)를 settings 신호 케이스로 교체.
+
 ## [1.12.0] — 2026-06-22
 
 dashboard serve + refresh commands — `.claude/cache/status.html` 대시보드를 localhost로 띄우는 `/mccp:dashboard`와 캐시를 다시 굽는 `/mccp:dashboard-refresh` 추가. 기존엔 `derive/cli.js render` 수동 실행 + 파일 직접 열기 + 자주 stale한 캐시라는 3단 마찰이 있었다. `/mccp:dashboard`는 띄우기 직전 자동 render → dep-free Node `http` 서버를 `127.0.0.1`에 bind → 브라우저 자동 오픈 → `.claude/cache/` watch로 status 변경 시 SSE live-reload. 캐시 `status.html`은 byte-pristine 유지(reload `<script>`는 서빙 시점 on-the-fly 주입). Codex Plan-Codex R1 2 findings absorbed: F1(PID 파일을 repo/cache scope — `{pid,host,port,started_at,repoRoot,statusPath}` 기록 + same-host·live-PID·repoRoot·statusPath 4중 일치 시만 재사용 → worktree 간 stale PID로 다른 checkout 서버 URL 반환 차단), F2(포트 +1 silent fall-forward 제거 → 우리 서버면 identity probe로 재사용, foreign이면 loud 충돌 + `--port` 요구 → bookmark 안정성 보존). Implement-Codex cross-gate dedupe. plugin.json `1.11.0 → 1.12.0` minor bump per CLAUDE.md §3.7.

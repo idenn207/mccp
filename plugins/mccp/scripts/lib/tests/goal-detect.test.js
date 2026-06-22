@@ -67,13 +67,55 @@ test('S1c: env "unknown" → availability=unknown', () => {
   });
 });
 
-test('S1d: no env + nonexistent user path → default=unknown (phantom-안내-금지)', () => {
+// Build an isolated three-level settings path set inside a temp dir.
+function isolatedSettings(dir, contents) {
+  const c = contents || {};
+  const out = {
+    managedPath: path.join(dir, 'managed-settings.json'),
+    userPath: path.join(dir, 'user-settings.json'),
+    projectPath: path.join(dir, 'project-settings.json'),
+  };
+  for (const lvl of ['managed', 'user', 'project']) {
+    if (c[lvl] !== undefined) {
+      const data = typeof c[lvl] === 'string' ? c[lvl] : JSON.stringify(c[lvl]);
+      fs.writeFileSync(out[lvl + 'Path'], data, 'utf8');
+    }
+  }
+  return out;
+}
+
+test('S1d: no env + no hook-disable signal → default=available (goal default-on)', () => {
   withTempDir((dir) => {
+    const paths = isolatedSettings(dir, {});
     withEnv({ MCCP_GOAL_FEATURE: undefined }, () => {
-      const result = detector.probeAvailability({
-        userCommandPath: path.join(dir, 'nonexistent-goal.md'),
-      });
-      assert.strictEqual(result, 'unknown');
+      assert.strictEqual(detector.probeAvailability(paths), 'available');
+    });
+  });
+});
+
+test('S1e: no env + disableAllHooks:true → missing (hooks signal)', () => {
+  withTempDir((dir) => {
+    const paths = isolatedSettings(dir, { user: { disableAllHooks: true } });
+    withEnv({ MCCP_GOAL_FEATURE: undefined }, () => {
+      assert.strictEqual(detector.probeAvailability(paths), 'missing');
+    });
+  });
+});
+
+test('S1f: no env + allowManagedHooksOnly:true at managed → missing (hooks signal)', () => {
+  withTempDir((dir) => {
+    const paths = isolatedSettings(dir, { managed: { allowManagedHooksOnly: true } });
+    withEnv({ MCCP_GOAL_FEATURE: undefined }, () => {
+      assert.strictEqual(detector.probeAvailability(paths), 'missing');
+    });
+  });
+});
+
+test('S1g: no env + managed present-but-unreadable → unknown (policy unconfirmed downgrade)', () => {
+  withTempDir((dir) => {
+    const paths = isolatedSettings(dir, { managed: '{ broken json' });
+    withEnv({ MCCP_GOAL_FEATURE: undefined }, () => {
+      assert.strictEqual(detector.probeAvailability(paths), 'unknown');
     });
   });
 });

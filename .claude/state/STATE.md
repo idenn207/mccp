@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: v1-4-2-dashboard-overhaul
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-06-22T19:06:23.960Z
+updated_at: 2026-06-22T19:31:11.335Z
 last_event: stop_loop_pass
-last_event_at: 2026-06-22T15:11:39.623Z
+last_event_at: 2026-06-22T19:31:11.335Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: false
@@ -13,7 +13,7 @@ last_pr_url: https://github.com/idenn207/mccp/pull/50
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
-v1.13.0 impeccable-command-routing — M1+M2 SHIPPED to branch (PR #55 OPEN, CONFLICTING). NEXT: M3 (System 명령 document/extract wiring + a11y-architect routing-only → 실제 auto-invoke 전환) in fresh session, THEN resolve PR #55 conflicts + merge per user directive.
+v1.13.0 impeccable-command-routing — M1+M2+M3 all SHIPPED to branch + pushed to PR #55 (3 commits). NEXT (user directive): resolve PR #55 conflicts vs main 1.15.0 + merge.
 
 ## Plan
 - v1.3.0 cycle: 모든 milestone shipped. plan/report artifact는 `.claude/PRPs/plans/completed/` + `.claude/PRPs/reports/` 보관.
@@ -58,13 +58,10 @@ cycle context:
 - plugin.json: 1.11.0 (M1=1.9.0 / M2=1.10.0 / M3=1.11.0)
 
 ## Next Step
-1. PR #50 squash merge — 모든 test PASS (281/281), mergeable=CLEAN, body title 모두 M3 반영.
-2. squash merge 직후 `claude plugin update` → cache `~/.claude/plugins/cache/mccp/mccp/1.11.0/` 신규 디렉토리 생성 확인.
-3. worktree cleanup: `git worktree remove .worktrees/v1.4.2-dashboard-overhaul/` + `git worktree prune`.
-4. 다음 cycle 진입점 선택 — v1.4.x M2(SessionStart discovery) / automation axis C / pr.md hardcode 1-line fix / impeccable Acceptable 26/40 잔여 F-items.
+PR #55 conflict resolution (main 1.15.0 merge into branch — CHANGELOG/plugin.json/CLAUDE.md/schema.js/command files 예상 충돌, plugin.json은 1.16.0 ours forward-only) → merge.
 
 ## Last Decision
-2026-06-22 v1.4.2 dashboard overhaul cycle M3 ship + main merge resolution + design-gate H3/H4 carve-out 완료. 사용자 결정 "v1.4.2 design 우선 — H3/H4 carve-out (권장)" 채택. `output-constraints.js`에 selector-aware `findSelectorContext()` helper + `H3_CARVEOUT`/`H4_CARVEOUT` regex 도입 — interactive affordance(severity-tag pill, action-prompt code chip, skip-link, copy-btn) + emergency alert chrome(`[role="alert"].s-secret`) + 4-part rationale stripe(blockquote, meta-cue)는 carve-out, 일반 layout chrome은 여전히 absolute-ban. DESIGN.md H3/H4 row amend + CHANGELOG [1.11.0] Deviations entry append. 281/281 test PASS (이전 278/281). M3 PR-Codex round는 미실행(plan-codex-only state, /mccp:code-review 50 권장).
+2026-06-23 M3 (System document/extract recommend-only wiring + a11y-architect PR-gate review-only auto-invoke) 구현·게이트·push 완료. Codex Plan-Codex R1 3 finding(F1 preamble starvation→rendering_surface trigger, F2 전용 a11y lock window, F3 finalize-receipt forward) R1 흡수. plugin.json 1.16.0(main 1.15.0 forward-only). commit f042e80.
 
 ## Open Questions
 - M3: System group document/extract를 STAGE_ROUTING에 추가 + a11y-architect를 routing-only에서 실제 Task() auto-invoke로 전환 (codex-result-filter.js a11yRoutedCount 경로)
@@ -72,4 +69,4 @@ cycle context:
 - M3 plan-codex/implement-codex slug는 plan-PATH 기준으로 derive (feedback-mccp-plan-receipt-slug — M2에서 PRD-args 기준이 깨져 재작성한 이력)
 
 ## Last Updated
-2026-06-22T19:06:23.960Z
+2026-06-22T19:31:11.335Z

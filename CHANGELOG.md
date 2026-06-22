@@ -4,6 +4,25 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.11.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.13.0] — 2026-06-23
+
+stage-aware impeccable command routing (M1) — 디자인 게이트가 impeccable의 `critique` 단일 호출에 갇혀 있던 것을, 디자인 라이프사이클 단계(discovery→refine→evaluate→harden→polish)에 impeccable 명령을 매핑하는 순수 routing oracle로 확장. 핵심 6개 명령(shape/layout/typeset/audit/harden/polish + 기존 critique) + 모드 토글(auto/hybrid/recommend, default auto) + receipt audit 2필드. 게이트 배치: plan/plan-prd는 `## Design Routing Guide` recommend-only 기록, prp-implement은 실제 stage-aware 라우팅(shape background-best-effort + layout/typeset refine + audit evaluate), pr은 polish/audit/harden recommend-only(review-only invariant). `craft`(기능 chain)·`live`(실시간 브라우저)는 비대화형 게이트와 부적합으로 제외. Codex Plan-Codex R1 4 findings absorbed: F1(`designIntentActive` 입력으로 audited MCCP_DESIGN_INTENT_REASON escape hatch 보존), F2(critique은 routing 일반 명령으로 흡수하지 않고 기존 `decideCritique` retry loop + `design_critique_verdict` divergent blocking 유지), F3(`impeccable_commands_routed`를 structured `{command, call_form, status}` outcome 배열로 — 실패/unknown-skill을 정직히 기록, loud fail-open), F4(`renderingSurface` selector로 control-plane-only signal의 refine/discovery fan-out 차단; auto 기본값은 사용자 product 결정으로 유지, cost-tier auto-downgrade+SLO는 M2 defer). plugin.json `1.12.0 → 1.13.0` minor bump per CLAUDE.md §3.7.
+
+### Added
+
+- **`scripts/lib/impeccable-routing.js`** — stage-aware routing oracle. 순수·무의존. `STAGE_ROUTING` gate→command 테이블 + `parseRoutingMode(env)` + `routeCommands({gate, mode, designSignal, designIntentActive, renderingSurface})`. 모드 변환은 downgrade-only(recommend base는 invoke로 승격 안 됨 → pr gate review-only 보존). F1/F4 absorption 입력 포함.
+- **`scripts/lib/tests/impeccable-routing.test.js`** — 12 test (모드 변환, 게이트별 매핑, F1 designIntentActive trigger, F4 renderingSurface degrade, pr review-only, plan guide-only).
+- **`scripts/receipt/tests/impeccable-routing-fields.test.js`** — 5 test (mode+structured 배열 라운드트립, present-only legacy, invalid mode/enum/malformed reject).
+
+### Changed
+
+- **`scripts/receipt/schema.js`** — `impeccable_routing_mode`(enum auto|hybrid|recommend|null) + `impeccable_commands_routed`(structured `{command, call_form, status}` 배열|null) present-only 검증 + 기본값 2필드. legacy receipt 무변경 통과.
+- **`scripts/receipt/write.js`** — `--impeccable-routing-mode` + `--impeccable-commands-routed-file`(JSON 배열 채널, mirror findings-file) arg→meta 매핑.
+- **`scripts/receipt/cli.js`** — write usage 줄에 신규 2 플래그 표기.
+- **`commands/prp-implement.md`** — design gate에 stage-aware routing 단계(critique loop 앞단, critique 제외) + receipt forward.
+- **`commands/plan.md` · `commands/plan-prd.md`** — `## Design Routing Guide` recommend-only 기록(plan은 `--impeccable-routing-mode` forward).
+- **`commands/pr.md`** — Phase 1.6에 polish/audit/harden recommend-only stderr 줄(invoke 없음).
+
 ## [1.12.0] — 2026-06-22
 
 dashboard serve + refresh commands — `.claude/cache/status.html` 대시보드를 localhost로 띄우는 `/mccp:dashboard`와 캐시를 다시 굽는 `/mccp:dashboard-refresh` 추가. 기존엔 `derive/cli.js render` 수동 실행 + 파일 직접 열기 + 자주 stale한 캐시라는 3단 마찰이 있었다. `/mccp:dashboard`는 띄우기 직전 자동 render → dep-free Node `http` 서버를 `127.0.0.1`에 bind → 브라우저 자동 오픈 → `.claude/cache/` watch로 status 변경 시 SSE live-reload. 캐시 `status.html`은 byte-pristine 유지(reload `<script>`는 서빙 시점 on-the-fly 주입). Codex Plan-Codex R1 2 findings absorbed: F1(PID 파일을 repo/cache scope — `{pid,host,port,started_at,repoRoot,statusPath}` 기록 + same-host·live-PID·repoRoot·statusPath 4중 일치 시만 재사용 → worktree 간 stale PID로 다른 checkout 서버 URL 반환 차단), F2(포트 +1 silent fall-forward 제거 → 우리 서버면 identity probe로 재사용, foreign이면 loud 충돌 + `--port` 요구 → bookmark 안정성 보존). Implement-Codex cross-gate dedupe. plugin.json `1.11.0 → 1.12.0` minor bump per CLAUDE.md §3.7.

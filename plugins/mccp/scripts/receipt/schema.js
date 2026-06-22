@@ -534,6 +534,48 @@ function validate(receipt) {
         }
       }
     }
+
+    // v1.13.0 — stage-aware impeccable command routing audit axis (present-only).
+    //
+    // impeccable_routing_mode:    'auto' | 'hybrid' | 'recommend' | null —
+    //   effective routing mode resolved by impeccable-routing.parseRoutingMode.
+    // impeccable_commands_routed: array of per-command OUTCOME objects (Codex
+    //   Plan-Codex R1 F3 — outcome, not intent) or null. Each entry:
+    //     { command, call_form: invoke|background|foreground-fallback|recommend,
+    //       status: invoked|recommended|failed|unknown-skill|skipped }
+    //   Failed/unknown-skill outcomes are recorded honestly (loud fail-open); M1
+    //   does not promote them to blocking — that waits for M2 outcome data.
+    //   Present-only: legacy receipts without these fields validate unchanged.
+    const ROUTING_MODE_VALUES = ['auto', 'hybrid', 'recommend'];
+    const ROUTING_CALL_FORM_VALUES = ['invoke', 'background', 'foreground-fallback', 'recommend'];
+    const ROUTING_STATUS_VALUES = ['invoked', 'recommended', 'failed', 'unknown-skill', 'skipped'];
+    if (m.impeccable_routing_mode !== null && m.impeccable_routing_mode !== undefined) {
+      req(typeof m.impeccable_routing_mode === 'string' &&
+        ROUTING_MODE_VALUES.indexOf(m.impeccable_routing_mode) !== -1,
+        'meta.impeccable_routing_mode must be one of: ' +
+        ROUTING_MODE_VALUES.join(', ') + ' (or null)');
+    }
+    if (m.impeccable_commands_routed !== null && m.impeccable_commands_routed !== undefined) {
+      if (!Array.isArray(m.impeccable_commands_routed)) {
+        err('meta.impeccable_commands_routed must be an array or null');
+      } else {
+        m.impeccable_commands_routed.forEach(function (entry, i) {
+          const at = 'meta.impeccable_commands_routed[' + i + ']';
+          if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            err(at + ' must be an object');
+            return;
+          }
+          req(typeof entry.command === 'string' && entry.command.length > 0,
+            at + '.command must be a non-empty string');
+          req(typeof entry.call_form === 'string' &&
+            ROUTING_CALL_FORM_VALUES.indexOf(entry.call_form) !== -1,
+            at + '.call_form must be one of: ' + ROUTING_CALL_FORM_VALUES.join(', '));
+          req(typeof entry.status === 'string' &&
+            ROUTING_STATUS_VALUES.indexOf(entry.status) !== -1,
+            at + '.status must be one of: ' + ROUTING_STATUS_VALUES.join(', '));
+        });
+      }
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -631,6 +673,11 @@ function makeSkeleton(overrides) {
       design_critique_verdict: null,
       design_intent_reason: null,
       pr_design_chain_skip_reason: null,
+      // v1.13.0 — stage-aware impeccable command routing audit (present-only).
+      // null = routing sub-step not exercised. Stamped via cli.js
+      // --impeccable-routing-mode + --impeccable-commands-routed-file flags.
+      impeccable_routing_mode: null,
+      impeccable_commands_routed: null,
     },
   }, o);
 }

@@ -411,6 +411,49 @@ retry loop 결과는 `mccp-plan-codex` / `mccp-implement-codex` receipt에 4 신
 
 ---
 
+### 3.10 Stage-aware impeccable command routing (v1.13.0 M1)
+
+v1.3.0-m2의 design-critique는 impeccable `critique` 하나만 호출했습니다. v1.13.0-m1은 디자인 라이프사이클 단계에 impeccable 명령군을 매핑하는 **stage-aware routing oracle**(`scripts/lib/impeccable-routing.js`)을 도입합니다. critique은 여전히 §3.9 retry loop 전용(divergent blocking 보존) — routing은 그 **둘레의 나머지 단계**를 채웁니다.
+
+#### Stage → command (MVP 6 + critique)
+
+| 단계 | 명령 | implement 게이트 호출 형태(auto) |
+|---|---|---|
+| discovery | `shape` | background (best-effort, 불가 시 foreground-fallback) |
+| refine | `layout` · `typeset` | invoke |
+| evaluate | `critique`(§3.9 loop) · `audit` | invoke |
+| harden | `harden` | pr 단계 recommend |
+| polish | `polish` | pr 단계 recommend |
+
+`craft`(명령 chain)·`live`(localhost:4321 실시간)는 비대화형 게이트와 부적합으로 **제외**.
+
+#### 모드 (`MCCP_IMPECCABLE_ROUTING_MODE`)
+
+| 모드 | 동작 |
+|---|---|
+| `auto` (default) | callForm 그대로 — evaluate/refine/discovery 실제 호출 |
+| `hybrid` | evaluate(critique/audit)만 invoke, 나머지 recommend로 강등 |
+| `recommend` | 전부 recommend (호출 없음) |
+
+운영 중 비용/latency 문제 식별 시 `hybrid`/`recommend`로 강등 가능(사용자 결정 — auto가 기본).
+
+#### 게이트별 배치
+
+- **plan / plan-prd**: 렌더 UI 없음 → `## Design Routing Guide` recommend-only 기록(invoke 안 함).
+- **prp-implement**: 실제 stage-aware 라우팅. `renderingSurface` selector(diff에 UI ext/STATUS·status.html 출력 없으면 control-plane-only로 판단 → refine/discovery를 recommend로 강등; evaluate는 유지 — Codex F4).
+- **pr**: polish/audit/harden recommend-only stderr(review-only invariant — Edit/Write invoke 없음).
+
+#### Receipt audit (present-only)
+
+- `meta.impeccable_routing_mode`: `auto|hybrid|recommend|null`
+- `meta.impeccable_commands_routed`: structured 배열 `[{command, call_form, status}]` — per-command **outcome**(invoked/recommended/failed/unknown-skill/skipped). 실패도 정직히 기록(loud fail-open); M1은 blocking 승격 안 함(M2 결정).
+
+#### Codex Plan-Codex R1 absorptions
+
+F1(`designIntentActive`로 audited override escape hatch 보존) · F2(critique은 routing 흡수 대상 아님, 기존 loop 유지) · F3(structured outcome 배열) · F4(`renderingSurface` selector + auto 기본 유지, cost-tier/SLO는 M2 defer).
+
+---
+
 ## 4. 자주 쓰는 명령 (Cheat Sheet)
 
 ```bash
@@ -529,6 +572,9 @@ MCCP_DESIGN_CRITIQUE_MAX_RETRY=0|1|2|3    # v1.3.0-m2 default: 2. plan.md/prp-im
 MCCP_DESIGN_INTENT_REASON="<reason>"      # v1.3.0-m2 audited intent override (axis c). detector positive(axis a) + 좁은 whitelist(axis b)가 모두 miss하지만 작성자가 "본 변경은 design routing"이라고 명시할 때만. strict reason validator (M1 IMPECCABLE_FORCE_OVERRIDE_REASON 룰 mirror — empty/1-token/URL-only/<30자/<3단어 reject). 활성 시 SKILL Read first-step + critique loop 강제 + receipt에 meta.design_intent_reason stamp.
 MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN="<reason>" # v1.3.0-m2 audited escape (PR scope chain-check). /mccp:pr Phase 1.6 preflight가 prior receipt verdict='divergent' 발견 시 BLOCK하지만, 이 env + substantive reason 설정 시 advisory mode 진입. strict reason validator (위와 동일). 활성 시 receipt meta.pr_design_chain_skip_reason stamp + PR body footer에 ## Design Critique Chain Skipped section auto-inject (canonical audit source). cherry-pick PR + prior receipt unavailable 같은 좁은 use case 전용.
 MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL=0|1  # v1.3.0-m2 test env (M2 acceptance gate dogfood용). =1이면 critique invoke 결과를 [{severity:'HIGH'}] 강제 주입 → oracle ESCALATE → cap 도달 시 DIVERGENT. production code path는 env 무관 — critique invoke 결과만 mock. e2e test에서 retry loop 회귀 보장. MCCP_RECEIPT_DEBUG=1 + 본 env 활성 시 stderr loud warn 강제.
+
+# v1.13.0 Stage-aware impeccable command routing (see §3.10)
+MCCP_IMPECCABLE_ROUTING_MODE=auto|hybrid|recommend  # v1.13.0 default: auto. 디자인 게이트가 stage-appropriate impeccable 명령(shape/layout/typeset/audit/harden/polish)을 어떻게 다룰지 결정. auto=실제 호출 / hybrid=evaluate(critique/audit)만 invoke·나머지 recommend / recommend=전부 권장만. 미지정·오타 시 auto. critique은 모드 무관하게 §3.9 retry loop가 소유(divergent blocking 보존). pr 게이트는 모드 무관 recommend-only(review-only invariant). prp-implement은 renderingSurface=0(control-plane-only diff)일 때 auto에서도 refine/discovery를 recommend로 강등(Codex F4). receipt에 meta.impeccable_routing_mode + meta.impeccable_commands_routed(structured outcome) stamp.
 
 # Silent-hook UX (v0.2.7 — Observability Surface)
 MCCP_RECEIPT_DEBUG_LEGACY_INLINE=0                 # v0.2.7 advanced opt-out. MCCP_RECEIPT_DEBUG=1일 때 L2a ALLOW-path systemMessage emit을 끄고 기존 block-payload inline 모드만 유지. Default(unset 또는 =1)는 L2a active. 자세한 precedence는 docs/ENVIRONMENT.md §1.

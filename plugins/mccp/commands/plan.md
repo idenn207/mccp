@@ -484,10 +484,43 @@ if [ "$SKILL_AVAIL" = "1" ] && [ "$SIGNAL" = "0" ]; then
 fi
 ```
 
+#### Stage-aware routing GUIDE (v1.13.0 — recommend-only at plan stage)
+
+When the trigger fires (SKILL_AVAIL=1 & (SIGNAL=1 OR DESIGN_INTENT_ACTIVE=1)), the plan stage has no rendered UI yet, so it **does NOT invoke** any impeccable command — it records a routing GUIDE for the implementer. Append a `## Design Routing Guide` section to the plan body listing the stage→command sequence the implementer should follow:
+
+```bash
+MODE=$(node -e "console.log(require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-routing').parseRoutingMode(process.env))")
+node -e "
+  const r=require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-routing');
+  const out=r.routeCommands({gate:'plan', mode:process.argv[1], designSignal:true});
+  const rows=out.commands.map(c=>'| '+c.stage+' | \`/impeccable '+c.command+'\` |').join('\n');
+  process.stdout.write(rows);
+" "$MODE"
+```
+
+The guide section format (every row recommend — plan stage never invokes):
+
+```markdown
+## Design Routing Guide
+
+routing mode: <MODE> (effective at implement stage). At implement the design gate routes these stage-appropriate impeccable commands; here they are a checklist only.
+
+| Stage | Command |
+|---|---|
+| discovery | `/impeccable shape` |
+| refine | `/impeccable layout` · `/impeccable typeset` |
+| evaluate | `/impeccable critique` · `/impeccable audit` |
+| harden | `/impeccable harden` |
+| polish | `/impeccable polish` |
+```
+
+Receipt-write at 5.6 forwards `--impeccable-routing-mode "$MODE"` only (the guide is not an actual invocation, so no `--impeccable-commands-routed-file`).
+
 Receipt-write at 5.6 forwards:
 - `--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when SKILL_AVAIL=0 OR Skill fell back.
 - `--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON"` when SILENT_SKIP=1 AND `IMPECCABLE_FORCE_OVERRIDE_REASON` is empty.
 - The two are mutually exclusive at the runtime semantic (skill_available=true vs false). Schema also rejects silent_skip + force_override coexisting — when the audited escape env is set we suppress silent_skip forward so the force_override path produces a clean receipt.
+- `--impeccable-routing-mode "$MODE"` when the routing GUIDE ran (SIGNAL=1 OR DESIGN_INTENT_ACTIVE=1).
 
 ### 5.1 — Append placeholder section to the plan
 
@@ -637,6 +670,11 @@ if [ -n "${RECEIPT_VERDICT:-}" ] && [ "${RECEIPT_VERDICT:-skipped}" != "skipped"
 fi
 if [ -n "${DESIGN_INTENT_REASON_FORWARD:-}" ]; then
   WRITE_FLAGS+=(--design-intent-reason "$DESIGN_INTENT_REASON_FORWARD")
+fi
+# v1.13.0 — routing GUIDE recorded the effective mode (plan stage is recommend-
+# only, so no commands-routed-file is forwarded here).
+if [ -n "${MODE:-}" ]; then
+  WRITE_FLAGS+=(--impeccable-routing-mode "$MODE")
 fi
 WRITE_FLAGS+=(--quiet)
 node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" "${WRITE_FLAGS[@]}"

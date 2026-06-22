@@ -347,6 +347,53 @@ Decision tree (mirror of plan.md 5.0, v1.3.0-m2 3-axis):
 | 1 | 1 | * | Run the **critique retry loop** (same as plan.md Task 7 reference impl — see below) but Edit target is the produced code/diff, NOT the plan body. Forward `--design-critique-rounds <N> --design-critique-verdict <enum>` to 2.5.6. |
 | 1 | 0 | 1 | Audited override active. Run the critique retry loop as above. Additionally forward `--design-intent-reason "$DESIGN_INTENT_REASON_FORWARD"` to 2.5.6. |
 
+#### Stage-aware command routing (v1.13.0 — runs BEFORE the critique loop when triggered)
+
+When the trigger fires (SKILL_AVAIL=1 & (SIGNAL=1 OR DESIGN_INTENT_ACTIVE=1)), route stage-appropriate impeccable commands via the routing oracle. **`critique` is NOT routed here** — it stays owned by the critique retry loop below so `decideCritique`/`design_critique_verdict` blocking is preserved (Codex Plan-Codex R1 F2).
+
+```bash
+MODE=$(node -e "console.log(require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-routing').parseRoutingMode(process.env))")
+# renderingSurface: 1 when the diff touches an actual rendered surface (UI ext
+# or STATUS.md/status.html output), 0 for control-plane-only whitelist hits
+# (e.g. receipt/write.js). Codex Plan-Codex R1 F4 selector input.
+DIFF_FILES=$(git diff --name-only HEAD 2>/dev/null)
+RENDERING_SURFACE=$(printf '%s\n' "$DIFF_FILES" | node -e '
+  const fs=require("fs");
+  const lines=fs.readFileSync(0,"utf8").split(/\r?\n/).filter(Boolean);
+  const ui=/\.(tsx|jsx|vue|svelte|astro|css|scss|html)$/i;
+  const cache=/\.claude\/cache\/(STATUS\.md|status\.html)$/;
+  process.stdout.write(lines.some(f=>ui.test(f)||cache.test(f))?"1":"0");
+')
+ROUTE_JSON=$(node -e "
+  const r=require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-routing');
+  const out=r.routeCommands({gate:'implement', mode:process.argv[1], designSignal:process.argv[2]==='1', designIntentActive:process.argv[3]==='1', renderingSurface:process.argv[4]==='1'});
+  process.stdout.write(JSON.stringify(out));
+" "$MODE" "$SIGNAL" "$DESIGN_INTENT_ACTIVE" "$RENDERING_SURFACE")
+echo "[mccp:impeccable-routing] mode=$MODE renderingSurface=$RENDERING_SURFACE → $(echo "$ROUTE_JSON" | node -e 'const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.commands.map(c=>c.command+":"+c.callForm).join(" "))')" 1>&2
+```
+
+For each command in `ROUTE_JSON.commands` **except `critique`**, process by `callForm` and record a structured outcome `{command, call_form, status}`:
+
+| callForm | Action | status on success | status on failure |
+|---|---|---|---|
+| `invoke` | `Skill(impeccable, "<command> <slug>")` against the produced code/diff | `invoked` | `failed` (or `unknown-skill` if Skill not found) |
+| `background` | best-effort background Agent for `<command>`; if background unavailable in this gate, fall back to foreground `Skill(impeccable, "<command> <slug>")` and set call_form=`foreground-fallback` + loud stderr | `invoked` | `failed` |
+| `recommend` | emit stderr `[mccp:impeccable-routing] recommend: /impeccable <command> <slug>` (no invoke) | `recommended` | n/a |
+
+Accumulate every processed entry into a JSON array and write it to a tempfile for the receipt forward (loud fail-open — record `failed`/`unknown-skill` honestly, do NOT silently drop):
+
+```bash
+GITDIR=$(git rev-parse --git-dir)
+mkdir -p "$GITDIR/mccp/tmp"
+ROUTED_JSON_FILE="$GITDIR/mccp/tmp/impeccable-routed-$$.json"
+# The LLM writes the accumulated [{command, call_form, status}, ...] array here.
+# Example shape (NOT a literal — fill with real per-command outcomes):
+#   [{"command":"shape","call_form":"background","status":"invoked"},
+#    {"command":"layout","call_form":"invoke","status":"invoked"}]
+```
+
+2.5.6 forwards `--impeccable-routing-mode "$MODE" --impeccable-commands-routed-file "$ROUTED_JSON_FILE"` alongside the existing design-critique flags. If the routing oracle returned `skipped:true` (no trigger), set `MODE`/routed-file empty and forward neither.
+
 #### Critique retry loop (mirror of plan.md Task 7, implement-scope)
 
 The loop body is the same `decideCritique` oracle + cap parser. The semantic
@@ -434,6 +481,12 @@ if [ -n "${RECEIPT_VERDICT:-}" ] && [ "${RECEIPT_VERDICT:-skipped}" != "skipped"
 fi
 if [ -n "${DESIGN_INTENT_REASON_FORWARD:-}" ]; then
   WRITE_FLAGS+=(--design-intent-reason "$DESIGN_INTENT_REASON_FORWARD")
+fi
+# v1.13.0 — stage-aware impeccable command routing forward. Only when the
+# routing step actually ran (non-empty MODE + routed-file present on disk).
+if [ -n "${MODE:-}" ] && [ -n "${ROUTED_JSON_FILE:-}" ] && [ -f "${ROUTED_JSON_FILE:-/nonexistent}" ]; then
+  WRITE_FLAGS+=(--impeccable-routing-mode "$MODE"
+                --impeccable-commands-routed-file "$ROUTED_JSON_FILE")
 fi
 WRITE_FLAGS+=(--quiet)
 node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" "${WRITE_FLAGS[@]}"

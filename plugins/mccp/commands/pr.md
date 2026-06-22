@@ -202,6 +202,28 @@ Notes:
   surface for PR body inject) are unchanged. The PR-scope ban is on the
   **retry loop**, not on single-shot Skill invocations.
 
+### Stage-aware routing RECOMMEND (v1.13.0 — review-only, never invoke)
+
+The PR step is the design lifecycle's final stage. The routing oracle returns
+the `pr` gate table as **recommend-only in every mode** (the oracle's `pr`
+table degrades to `recommend` even under `auto` — review-only invariant, §1.2
+PR-phase guard). pr.md therefore NEVER Edit/Write-invokes an impeccable command;
+it only surfaces a recommend line so the operator can run the final passes
+manually before/after merge:
+
+```bash
+MODE=$(node -e "console.log(require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-routing').parseRoutingMode(process.env))")
+node -e "
+  const r=require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-routing');
+  const out=r.routeCommands({gate:'pr', mode:process.argv[1], designSignal:true});
+  out.commands.forEach(c=>process.stderr.write('[mccp:impeccable-routing] recommend (final pass): /impeccable '+c.command+'\n'));
+" "$MODE"
+```
+
+This is informational stderr only — it does not gate, does not write a receipt
+field, and does not invoke. polish/audit/harden are surfaced as the canonical
+"between good and great" final passes.
+
 ---
 
 ## Phase 2 — DISCOVER

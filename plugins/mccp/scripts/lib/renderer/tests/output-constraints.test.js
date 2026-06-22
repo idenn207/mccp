@@ -112,6 +112,21 @@ test('H3 — fail on border-radius injection', () => {
   assert.ok(out.violations.includes('H3'));
 });
 
+test('H3 — tl-node pill carved out (v1.14.0), general chrome still caught', () => {
+  // .tl-node (timeline step marker) is an explicit affordance — carve-out.
+  const carved = runOutputConstraints({
+    css: withBaseline('.tl-node { border-radius: 999px; }'),
+    html: '', md: '',
+  });
+  assert.ok(!carved.violations.includes('H3'), 'tl-node border-radius is carved out');
+  // carve-out must stay narrow — a generic card alongside it still fails.
+  const general = runOutputConstraints({
+    css: withBaseline('.tl-node { border-radius: 999px; } .card { border-radius: 8px; }'),
+    html: '', md: '',
+  });
+  assert.ok(general.violations.includes('H3'), 'general chrome border-radius still caught');
+});
+
 // ----------------------------------------------------------------------
 // H4 — no side-stripe
 // ----------------------------------------------------------------------

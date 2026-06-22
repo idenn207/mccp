@@ -38,7 +38,7 @@
 |---|-----------|-------------|----------------------------------|
 | H1 | Light mode default. Body bg `oklch(0.99 0 0)` true off-white. Dark via `@media (prefers-color-scheme: dark)` only. | `:root --bg` first value lightness >= 0.97 | dark navy `oklch(0.18 0.012 250)` was default |
 | H2 | max-width 720px on main column. | `main { max-width: <= 720px }` | 880px |
-| H3 | NO cards on layout chrome. Sections separated by spacing + 1px border-bottom only. **v1.4.2 carve-out**: `.severity-tag` pill + `.action-prompt code` chip + `.skip-link` + `.copy-btn` + `[role="alert"].s-secret` emergency banner는 interactive affordance / 4-part 컴포넌트 / a11y / alert chrome으로 design intent. **v1.13.0 carve-out**: `.pipe-node`는 게이트 파이프라인 스테퍼의 상태 노드(pill) — GitHub Actions 결의 스테이지 affordance로 design intent(일반 layout 카드화와 구분). 연결선 `.pipe-edge`는 수평 라인(height+background)으로 H4 회피. | selector-aware: `border-radius:\s*[1-9]` hit 중 carve-out selector 매칭 제외 후 count > 0 = fail | grid-cell + li.open-questions + .risks were all card-shaped (b204510) |
+| H3 | NO cards on layout chrome. Sections separated by spacing + 1px border-bottom only. **v1.4.2 carve-out**: `.severity-tag` pill + `.action-prompt code` chip + `.skip-link` + `.copy-btn` + `[role="alert"].s-secret` emergency banner는 interactive affordance / 4-part 컴포넌트 / a11y / alert chrome으로 design intent. **v1.13.0 carve-out**: `.pipe-node`는 게이트 파이프라인 스테퍼의 상태 노드(pill) — GitHub Actions 결의 스테이지 affordance로 design intent(일반 layout 카드화와 구분). 연결선 `.pipe-edge`는 수평 라인(height+background)으로 H4 회피. **v1.14.0 carve-out**: `.tl-node`는 활동 step-chart rail 의 상태 노드 마커(pill) — 동일 affordance. 세로 connector `.tl-rail::before`는 background 라인(`width+background`, `border-left` 미사용)으로 H4 무관 → H4 carve-out 불필요. | selector-aware: `border-radius:\s*[1-9]` hit 중 carve-out selector 매칭 제외 후 count > 0 = fail | grid-cell + li.open-questions + .risks were all card-shaped (b204510) |
 | H4 | NO side-stripe borders on layout chrome. Any `border-left` / `border-right` > 1px is banned. Any `box-shadow: inset Npx 0 0` simulating one is banned. **v1.4.2 carve-out**: `blockquote` + `.meta-cue` "왜:" rationale stripe는 4-part 컴포넌트의 핵심 design intent. | selector-aware: `border-left:\s*[2-9]\d*px` + `inset\s+[2-9]\d*px\s+0\s+0` hit 중 carve-out selector 매칭 제외 후 count > 0 = fail | grid-cell + verdict + risks tr all had 3px left accent (b204510) |
 | H5 | NO identical card grids. Status 4-axis is **one inline sentence**, not a grid. | grep `repeat(auto-fit,\s*minmax(` in renderer CSS = fail | `.status-grid: repeat(auto-fit, minmax(180px, 1fr))` |
 | H6 | NO hero-metric template. No `font-size >= 1.5rem` on count values. | grep numerical token sizes >= 1.5rem on `.grid-value` / similar | 1.65rem giant numbers |
@@ -55,6 +55,29 @@
 
 H1–H16 are the **mechanical lint target** for the v1.3.0-design-gate axis (PR
 ec4e7a0). Future renderer changes must pass all 16 grep-based checks.
+
+### v1.14.0 활동 step-chart (audit-timeline) design intent
+
+dashboard-pipeline-chart PRD M2 — audit-timeline 을 시간순 세로 step-chart rail 로
+렌더. GitHub Actions job-run timeline 미학(세로 connector 위 상태 노드).
+
+- **세로 rail, 가로 아님**: live 20행 + 보관 10행 = 30+ 노드 → 가로 step 은 밀도
+  불가. 세로 rail 이 흐름(contiguity)을 유지하며 밀도를 감당.
+- **connector = background 라인**: `.tl-rail::before { width:2px; background }` —
+  `border-left` 미사용(H4 side-stripe ban 회피). 노드 마커 `.tl-node` 만
+  `border-radius`(H3 carve-out).
+- **emphasis 반전**: pipeline(M1)은 노드 3개 소수 행이라 converged=accent. timeline
+  은 20행 log → 같은 매핑이면 accent 벽. cardinality + "개입 필요 scan" 목적 차이로
+  **converged 는 quiet(`.tl-done` = muted), pending 만 loud(`.s-stale`)**. accent 는
+  timeline 노드에 미사용 → viewport 당 accent ≤ 1(PRD §Design Direction "강조색
+  화면당 1개") 보존.
+- **항목 수 상한**: timeline 은 list-of-N 결정 surface 가 아닌 flow log → collapse-to-3
+  미적용(흐름 파괴). "quiet by default" 는 기존 `MAX_ROWS_LIVE=20` cap + `+N older`
+  footnote + archived desaturate 가 충족.
+- **데이터 로직 불변**: snapshot read / caps / 정렬 / footnote / briefing / md 출력은
+  M1(M5) 그대로 — 시각 레이어(`renderRow` HTML + wrapper + footnote class)만 변환.
+- **a11y**: 노드는 색 + 아이콘(✓/◐) + `.sr-only` label 병행(색 단독 금지). briefing
+  은 `.tl-body`(div — flow content `<blockquote>` 를 phrasing span 으로 감싸지 않음).
 
 ## Token system (true to PRD §Color strategy line 152-169)
 

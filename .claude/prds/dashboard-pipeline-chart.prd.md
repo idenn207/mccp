@@ -40,7 +40,7 @@ We'll know we're right when **단계 진행/수렴/차단과 활동 흐름을 �
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | 게이트 스테이지 파이프라인 chart | receipt를 decision별로 묶은 가로 파이프라인 스테퍼 신규 섹션 — plan/implement/pr가 연결된 노드로, 색/형태로 수렴·진행·대기·차단 구분 | complete | .claude/plans/dashboard-pipeline-chart.plan.md (report: .claude/PRPs/reports/dashboard-pipeline-chart-report.md) |
-| 2 | 활동 로그 step chart | audit-timeline이 시간순 step chart로 렌더 — receipt 활동이 형태/색 기반 노드 흐름으로 표시 | pending | — |
+| 2 | 활동 로그 step chart | audit-timeline이 시간순 step chart로 렌더 — receipt 활동이 형태/색 기반 노드 흐름으로 표시 | in-progress | .claude/plans/dashboard-pipeline-chart-m2.plan.md |
 | 3 | GitHub Actions 미학 전체 리프레시 | 상단 배너 + chart + 마일스톤 기록 + 테마 토큰이 절제된 중립톤 + 상태색 단일 세트로 통일 | pending | — |
 
 ## Design Direction

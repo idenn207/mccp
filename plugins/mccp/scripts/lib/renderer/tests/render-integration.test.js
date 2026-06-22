@@ -101,6 +101,9 @@ test('render-integration — pipeline section + self-contained (no external scri
     // pipeline section renders the converged plan-codex decision from the fixture
     assert.match(r.html, /<section id="pipeline">/);
     assert.match(r.html, /class="pipeline"/);
+    // v1.14.0 M2 — timeline renders as a step-chart rail (not a plain <ul>).
+    assert.match(r.html, /<section id="timeline">/);
+    assert.match(r.html, /class="timeline tl-rail"/);
     // Codex F2 — raw or masked, the page must carry NO external script origin.
     const externalScripts = r.html.match(/<script[^>]+src\s*=\s*["']https?:\/\//gi) || [];
     assert.equal(externalScripts.length, 0, 'no external <script src> (self-contained trust boundary)');

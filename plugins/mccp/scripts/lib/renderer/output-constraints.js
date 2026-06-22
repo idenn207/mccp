@@ -17,7 +17,9 @@
 // quote-stripe)는 4-part 컴포넌트의 핵심 design intent로 carve-out.
 // v1.13.0 carve-out — pipe-node 는 게이트 파이프라인 스테퍼의 상태 노드
 // affordance(pill). 일반 layout chrome 의 카드화와 구분되는 명시적 컴포넌트.
-const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret|pipe-node)|\[role="alert"\]/;
+// v1.14.0 carve-out — tl-node 는 활동 step-chart rail 의 상태 노드 마커(pill).
+// 세로 connector 는 background 라인(.tl-rail::before)이라 H4 무관 — carve-out 불필요.
+const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret|pipe-node|tl-node)|\[role="alert"\]/;
 const H4_CARVEOUT = /\.(meta-cue)|\bblockquote\b/;
 
 function findSelectorContext(css, hitIndex) {

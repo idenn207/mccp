@@ -22,6 +22,8 @@ const JQUERY_SLIM = (function () {
 const PIPELINE_SCRIPT = "jQuery(function($){"
   + "$('.pipe-node').each(function(){var n=$(this),s=n.find('.pipe-stage').text(),t=n.find('.sr-only').text();if(s&&t)n.attr('title',s+': '+t);});"
   + "$('.pipe-row').attr('tabindex','0').on('mouseenter focus',function(){$(this).addClass('pipe-row-hot');}).on('mouseleave blur',function(){$(this).removeClass('pipe-row-hot');});"
+  // v1.14.0 — 활동 step-chart row enhancement (additive; baseline 은 JS 없이 동작).
+  + "$('.tl-step').attr('tabindex','0').on('mouseenter focus',function(){$(this).addClass('tl-row-hot');}).on('mouseleave blur',function(){$(this).removeClass('tl-row-hot');});"
   + "});";
 
 const OKLCH_LIGHT = `
@@ -202,6 +204,30 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .pipe-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pipe-more { list-style: none; }
 .pipe-more summary { color: var(--muted); font-size: 0.85rem; }
+/* v1.14.0 활동 step-chart rail. tl-node 는 상태 마커 pill(border-radius) — H3
+   carve-out 대상. 세로 connector .tl-rail::before 는 background 라인
+   (border-left 미사용 — H4 무관). emphasis 반전(critique F1): converged 는
+   quiet(tl-done = muted), pending 만 loud(s-stale) — accent 미사용으로 viewport
+   당 accent <= 1 보존. */
+.tl-rail { list-style: none; padding-left: 0; margin: 0; position: relative; }
+.tl-rail::before { content: ''; position: absolute; left: 0.7rem; top: 0.6rem; bottom: 0.6rem;
+  width: 2px; background: var(--border); }
+.tl-step { position: relative; display: flex; align-items: flex-start; gap: 0.6rem;
+  padding: 0.3rem 0; }
+.tl-node { position: relative; z-index: 1; display: inline-flex; align-items: center;
+  justify-content: center; width: 1.4rem; height: 1.4rem; flex-shrink: 0;
+  border-radius: 999px; background: var(--surface); }
+.tl-node .tl-icon { font-size: 0.85rem; line-height: 1; }
+.tl-done { color: var(--muted); }
+.tl-step.from-snapshot { color: var(--muted); }
+.tl-step.from-snapshot .tl-node { opacity: 0.7; }
+.tl-body { flex: 1; min-width: 0; }
+.tl-body .rel { color: var(--muted); }
+.tl-body .conv { color: var(--muted); }
+.tl-body .conv.pending { color: var(--status-stale); font-weight: 600; }
+.tl-note { list-style: none; color: var(--muted); padding-left: 2rem; }
+.tl-step.tl-row-hot { background: var(--surface); }
+.tl-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }`;

@@ -4,6 +4,22 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.11.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.14.0] — 2026-06-22
+
+dashboard 활동 로그 step-chart (M2) — 진행 현황 대시보드(`status.html`)의 audit-timeline 섹션을 평범한 `<ul>` 텍스트 로그에서 **시간순 세로 step-chart rail**로 변환. 각 receipt가 세로 connector 위 상태 노드 마커(✓ 수렴 / ◐ 진행)로 표시돼 활동 흐름을 형태·색으로 즉시 스캔할 수 있다(GitHub Actions job-run timeline 미학). **데이터 로직(snapshot read, MAX_ROWS caps, 정렬, footnote, briefing, md 출력)은 일절 변경 없이 시각 레이어만 재구성** — 회귀 위험 최소화. 세로 connector는 `.tl-rail::before` background 라인(`border-left` 미사용 → H4 회피), 노드 마커 `.tl-node`만 원형 pill(H3 carve-out 추가). design critique 1 finding absorbed: emphasis 반전 — 20행 timeline에서 converged(흔한 상태)는 quiet(`.tl-done` muted), pending(예외/개입 후보)만 loud(`.s-stale`), accent는 노드에 미사용 → viewport당 accent ≤ 1 보존(M1 pipeline의 converged=accent와 의도적 divergence, cardinality 차이). Codex Plan-Codex R1 1 HIGH + 1 MEDIUM absorbed: F1(STATE.md `chain_aborted`/`session_end_imminent` true 잔재가 in-progress chain short-circuit → state-writer reconcile), F2(`<span class="tl-body">`가 flow content `<blockquote>` wrap = non-conforming HTML → `<div>` 전환 + containment 구조 검증 test). Implement-Codex cross-gate dedupe. plugin.json `1.13.0 → 1.14.0` minor bump per CLAUDE.md §3.7. (M3 GitHub Actions 전체 비주얼 리프레시는 후속 cycle.)
+
+### Added
+
+- **`scripts/lib/renderer/tests/timeline-chart.test.js`** — 8 test (rail wrapper / converged-quiet·pending-loud 노드 매핑 / briefing blockquote containment(Codex F2) / md 동치 / escape / footnote tl-note 비-step).
+
+### Changed
+
+- **`scripts/lib/renderer/sections/audit-timeline.js`** — `renderRow` HTML을 step-chart 구조(`<li class="tl-step">` + `.tl-node` 마커 + `<div class="tl-body">`)로 재구성, wrapper `<ol class="timeline tl-rail">`, footnote li → `.tl-note`. 2-상태 노드 map(NODE_TL). 데이터 로직·md 출력 불변.
+- **`scripts/lib/renderer/html.js`** — `.tl-rail`/`.tl-step`/`.tl-node`/`.tl-body`/`.tl-note` CSS(세로 connector `::before` background 라인, 노드 pill, emphasis 반전 색). `PIPELINE_SCRIPT`에 `.tl-step` hover/focus enhancement 추가(vendored jQuery 재사용, 외부 src 0).
+- **`scripts/lib/renderer/output-constraints.js`** — `H3_CARVEOUT`에 `tl-node` 추가(노드 마커 한정 carve-out). H4는 background 라인이라 carve-out 불필요.
+- **`docs/v1.3.0-observability/DESIGN.md`** — H3 carve-out 행에 `tl-node` + v1.14.0 활동 step-chart design intent 절(세로 rail / emphasis 반전 / 항목 수 상한 근거).
+- **`scripts/lib/renderer/tests/{output-constraints,render-integration,audit-timeline-snapshot}.test.js`** — tl-node carve-out narrow 검증 + timeline rail 합성 HTML 포함 + footnote class 회귀 갱신.
+
 ## [1.13.0] — 2026-06-22
 
 dashboard 게이트 파이프라인 chart (M1) — 진행 현황 대시보드(`status.html`)에 receipt를 `decision_id`별로 묶어 게이트 진행(plan-codex → implement-codex → pr-codex)을 보여주는 가로 파이프라인 스테퍼 신규 섹션 추가. 기존엔 게이트 스테이지 수렴 상태가 audit-timeline 텍스트 로그에만 흩어져 있어 "이 decision이 지금 어느 단계인가"를 한눈에 못 봤다. 신규 `pipeline.js`가 verdict 다음에 decision별 노드 흐름(✓ 수렴 / ◐ 진행 / ○ 대기)을 렌더한다. 미학 리드는 GitHub Actions 절제(중립 base + 상태색, 신규 강조색 0, 기존 OKLCH 토큰 재사용). baseline은 inline SVG/CSS(JS 없이도 상태 표시) — 외부 script URL 0(self-contained 유지). Codex Plan-Codex R1 2 HIGH + 1 MEDIUM absorbed: F1(canonical 정규화 — `gate_id`∥`gate`, `mccp-*` 만 매핑, `(decision,gate)`별 최신 receipt로 retry false→true 수렴 반영), F2(CDN third-party JS trust-boundary 침범 → vendored-inline 전환으로 raw 데이터 exfiltration 차단), F3(status-aware collapse — 미수렴 decision은 절대 collapse 안 함, `attention→active→complete` 정렬, top-3 + 상태별 카운트). design critique 2 rounds converged. Implement-Codex cross-gate dedupe. plugin.json `1.12.0 → 1.13.0` minor bump per CLAUDE.md §3.7. (M2 활동 로그 step chart / M3 GitHub Actions 전체 리프레시는 후속 cycle.)

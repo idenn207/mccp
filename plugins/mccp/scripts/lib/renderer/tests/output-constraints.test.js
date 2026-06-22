@@ -112,6 +112,21 @@ test('H3 — fail on border-radius injection', () => {
   assert.ok(out.violations.includes('H3'));
 });
 
+test('H3 — tl-node pill carved out (v1.14.0), general chrome still caught', () => {
+  // .tl-node (timeline step marker) is an explicit affordance — carve-out.
+  const carved = runOutputConstraints({
+    css: withBaseline('.tl-node { border-radius: 999px; }'),
+    html: '', md: '',
+  });
+  assert.ok(!carved.violations.includes('H3'), 'tl-node border-radius is carved out');
+  // carve-out must stay narrow — a generic card alongside it still fails.
+  const general = runOutputConstraints({
+    css: withBaseline('.tl-node { border-radius: 999px; } .card { border-radius: 8px; }'),
+    html: '', md: '',
+  });
+  assert.ok(general.violations.includes('H3'), 'general chrome border-radius still caught');
+});
+
 // ----------------------------------------------------------------------
 // H4 — no side-stripe
 // ----------------------------------------------------------------------
@@ -614,4 +629,37 @@ test('H16 — false-positive guard: <pre> 안의 marker는 trigger 안 됨', () 
     md: '',
   });
   assert.ok(!out.violations.includes('H16'));
+});
+
+// ----------------------------------------------------------------------
+// v1.13.0 — pipeline carve-out + <script> strip
+// ----------------------------------------------------------------------
+
+test('H3 — pipe-node pill carve-out passes (v1.13.0)', () => {
+  const out = runOutputConstraints({
+    css: withBaseline('.pipe-node { border-radius: 999px; background: var(--surface); }'),
+    html: '', md: '',
+  });
+  assert.ok(!out.violations.includes('H3'), 'pipe-node border-radius is carved out');
+});
+
+test('H3 — general layout chrome border-radius still caught (carve-out is narrow)', () => {
+  const out = runOutputConstraints({
+    css: withBaseline('.some-card { border-radius: 8px; }'),
+    html: '', md: '',
+  });
+  assert.ok(out.violations.includes('H3'), 'non-carved border-radius still fails');
+});
+
+test('H10/H16 — inline <script> content is stripped (vendored jQuery, v1.13.0)', () => {
+  // Minified JS legitimately contains em-dash-like and **/[x](y) byte sequences;
+  // it is not rendered prose, so it must not trip H10/H16.
+  const script = '<script>var a="x — y";function f(){return "**b** [c](d)"}</script>';
+  const out = runOutputConstraints({
+    css: BASELINE_CSS,
+    html: '<body><h2>게이트 파이프라인</h2>' + script + '</body>',
+    md: '',
+  });
+  assert.ok(!out.violations.includes('H10'), 'script em-dash not counted');
+  assert.ok(!out.violations.includes('H16'), 'script markdown markers not counted');
 });

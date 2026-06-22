@@ -60,6 +60,8 @@ v1.1 Observability Surface II는 이 파이프라인의 derive-only **PM 콘솔*
 
 5. **Hard invariant — never user .md direct edit.** 사용자가 에디터로 `.md`를 직접 타이핑/수정하는 요구는 mccp 어떤 surface에서도 발생하지 않는다. AI가 chat Q&A로 답변을 받아 자동 작성하는 패턴(`/mccp:plan-prd`, `/impeccable init`)은 invariant 위반이 *아니다* — 사용자의 손이 파일을 만지지 않으므로. *Why*: primary user가 .md 직접 편집 비용(commit 마다 lint, 위치 찾기, 형식 유지)을 명시적으로 거부. v1.1 Observability Surface II PRD success metric 중 하나가 이 invariant 위반 0.
 
+6. **Desktop tool layout — sidebar + tabbar 권장.** (2026-06-22 추가) 데스크톱 전용 도구로서, 단일 컬럼을 넘어 사이드바 + 탭바 레이아웃을 권장 방향으로 둔다. 모바일 디자인 패턴(모바일 우선, 햄버거 등)은 도입하지 않는다(모바일 미지원). 아이콘은 필수 지점만 — 사이드바/로고/버튼/라벨 등 affordance에 한정, 장식 아이콘 금지. 타이포그래피는 충분한 margin/padding으로 위계·가독성 확보(여백 없는 빽빽한 텍스트 금지). *Why*: primary user가 명시한 레이아웃·아이콘·여백 선호. personality "모니터링·명확·읽힘"과 정합.
+
 ## Accessibility & Inclusion
 
 - **WCAG 2.2 AA 준수.** 본문 4.5:1 명도 대비, 큰 글자(≥18px or bold ≥14px) 3:1. placeholder text도 4.5:1.

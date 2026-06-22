@@ -5,10 +5,30 @@ const path = require('path');
 
 const PLAN_GLOB_SUFFIX = '.plan.md';
 
-const SOURCE_PRD_RE = /\*\*Source PRD\*\*:\s*\[([^\]]+)\]\(([^)]+)\)/;
+const SOURCE_PRD_LINK_RE = /\*\*Source PRD\*\*:\s*\[([^\]]+)\]\(([^)]+)\)/;
+// 평문 형태 `**Source PRD**: .claude/prds/x.prd.md` (마크다운 링크 없이). 링크
+// 매칭 실패 시에만 사용 — 평문 path/백틱 path 모두 discovery 되도록 (Codex F1).
+const SOURCE_PRD_PLAIN_RE = /\*\*Source PRD\*\*:[ \t]*(.+?\.prd\.md)[ \t\x60'"\]>)]*$/m;
 const MILESTONE_RE = /\*\*Selected Milestone\*\*:\s*(.+)$/m;
 const COMPLEXITY_RE = /\*\*Complexity\*\*:\s*([A-Za-z][\w-]*)/;
 const ACCEPTANCE_RE = /^##\s+Acceptance\s*$/m;
+
+function stripWrap(s) {
+  return String(s == null ? '' : s).trim().replace(/^[`'"<[]+|[`'">\]]+$/g, '').trim();
+}
+
+// Source PRD를 링크 형태 우선, 없으면 평문 형태로 추출. 평문일 땐 label=path.
+// 둘 다 미발견 시 null. (Codex F1 — 평문/백틱 path discovery 복원)
+function extractSourcePrd(raw) {
+  const link = raw.match(SOURCE_PRD_LINK_RE);
+  if (link) return { label: link[1].trim(), path: stripWrap(link[2]) };
+  const plain = raw.match(SOURCE_PRD_PLAIN_RE);
+  if (plain) {
+    const p = stripWrap(plain[1]);
+    return p ? { label: p, path: p } : null;
+  }
+  return null;
+}
 
 function isPlainDir(dir) {
   let lst;
@@ -54,7 +74,7 @@ function extractFields(filePath, repoRoot, maxBytes) {
       error: err.message };
   }
   const slug = path.basename(filePath, PLAN_GLOB_SUFFIX);
-  const sourceMatch = raw.match(SOURCE_PRD_RE);
+  const sourcePrd = extractSourcePrd(raw);
   const milestoneMatch = raw.match(MILESTONE_RE);
   const complexityMatch = raw.match(COMPLEXITY_RE);
 
@@ -75,9 +95,7 @@ function extractFields(filePath, repoRoot, maxBytes) {
   return {
     slug,
     path: path.relative(repoRoot, filePath),
-    source_prd: sourceMatch
-      ? { label: sourceMatch[1], path: sourceMatch[2] }
-      : null,
+    source_prd: sourcePrd,
     milestone: milestoneMatch ? milestoneMatch[1].trim() : null,
     complexity: complexityMatch ? complexityMatch[1] : null,
     acceptance,

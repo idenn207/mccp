@@ -26,14 +26,15 @@
 //       English keywords use word boundary; Korean uses literal substring.
 //
 // Default availability is intentionally `unknown` — Anthropic native /deep-research
-// is shipped as a built-in slash command with no plugin manifest entry, so
-// absence in user-level command/skill paths does not prove missing. `unknown`
-// triggers silent skip (no phantom prompt). Env override
-// MCCP_DEEP_RESEARCH_SKILL={available|missing|unknown} takes precedence.
+// is shipped as a built-in slash command gated on the dynamic workflows feature.
+// Availability is derived from settings signals (settings-signal.workflowsEnabled),
+// NOT from a filesystem probe of user-level command/skill paths (which can never
+// observe a built-in command). `unknown` triggers silent skip (no phantom prompt).
+// Env override MCCP_DEEP_RESEARCH_SKILL={available|missing|unknown} takes precedence.
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+const settingsSignal = require('./settings-signal');
 
 const MODES = ['prd'];
 const ENGLISH_KEYWORDS = ['spec', 'standard', 'research'];
@@ -46,25 +47,23 @@ function probeAvailability(options) {
   if (env === 'missing') return 'missing';
   if (env === 'unknown') return 'unknown';
 
-  const userCommandPath = (opts.userCommandPath != null)
-    ? opts.userCommandPath
-    : path.join(os.homedir(), '.claude', 'commands', 'deep-research.md');
+  // deep-research is gated on the dynamic workflows feature (shared with
+  // ultracode). Delegate to the settings-signal helper; on any unexpected
+  // failure fall open to 'unknown' (silent skip, never a phantom prompt).
   try {
-    if (fs.existsSync(userCommandPath) && fs.statSync(userCommandPath).isFile()) {
-      return 'available';
-    }
-  } catch (_err) { /* ignore */ }
-
-  const userSkillDir = (opts.userSkillDir != null)
-    ? opts.userSkillDir
-    : path.join(os.homedir(), '.claude', 'skills', 'deep-research');
-  try {
-    if (fs.existsSync(userSkillDir) && fs.statSync(userSkillDir).isDirectory()) {
-      return 'available';
-    }
-  } catch (_err) { /* ignore */ }
-
-  return 'unknown';
+    return settingsSignal.workflowsEnabled({
+      projectRoot: opts.projectRoot,
+      userPath: opts.userPath,
+      projectPath: opts.projectPath,
+      managedPath: opts.managedPath,
+    });
+  } catch (err) {
+    process.stderr.write(
+      '[mccp:deep-research-detect] workflows signal probe failed (' +
+      err.message + ') — defaulting to unknown\n'
+    );
+    return 'unknown';
+  }
 }
 
 function validatePlanPathSafety(planPath, repoRoot) {
@@ -124,8 +123,10 @@ function detect(options) {
   let body = (opts.body != null) ? opts.body : null;
 
   const availability = probeAvailability({
-    userCommandPath: opts.userCommandPath,
-    userSkillDir: opts.userSkillDir,
+    projectRoot: opts.projectRoot != null ? opts.projectRoot : repoRoot,
+    userPath: opts.userPath,
+    projectPath: opts.projectPath,
+    managedPath: opts.managedPath,
   });
 
   if (!mode) {

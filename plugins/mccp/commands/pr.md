@@ -363,7 +363,12 @@ Use `convergence.plan_codex_receipt.round` and `convergence.implement_codex_rece
 The helper handles all three branches (`invoked` / `skipped` / `deduped`) internally — pr.md does NOT need separate Bash branching. Pass `--skip-reason "$CODEX_SKIP_AT_PR_REASON"` for the Phase 0.2 skip path, `--dedupe` for the 2.5.2 cross-gate dedupe path, or neither for the normal invoke path.
 
 ```bash
-mkdir -p .git/mccp/tmp
+# Worktree-safe tmp dir. In a git worktree, `.git` is a FILE (gitdir pointer),
+# not a directory, so a literal `.git/mccp/tmp` fails with "Not a directory".
+# Resolve the real gitdir via `git rev-parse --git-dir` (returns the worktree's
+# actual gitdir, e.g. `<repo>/.git/worktrees/<name>`).
+MCCP_TMP="$(git rev-parse --git-dir)/mccp/tmp"
+mkdir -p "$MCCP_TMP"
 BODY_FILE_PATH=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" pr-body \
   --action path \
   --decision "$DECISION_SLUG" \
@@ -379,14 +384,14 @@ elif [ "${CODEX_DEDUPE_AT_PR:-0}" = "1" ]; then
   RUNNER_FLAGS+=(--dedupe)
 fi
 
-CODEX_RESULT_FILE=".git/mccp/tmp/codex-result.json"
+CODEX_RESULT_FILE="$MCCP_TMP/codex-result.json"
 # v0.2.9 — codex-runner.js inherits env into the codex-invoke child process. No code change in the helper needed.
 export MCCP_GATE_ROUND_CAP="${MCCP_GATE_ROUND_CAP:-1}"
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/codex-runner.js" "${RUNNER_FLAGS[@]}" > "$CODEX_RESULT_FILE"
 CODEX_RUNNER_EXIT=$?
 if [ "$CODEX_RUNNER_EXIT" != "0" ]; then
   echo "[MCCP-GATE-STOP] codex-runner failed (exit=$CODEX_RUNNER_EXIT)." 1>&2
-  echo "Inspect: cat $CODEX_RESULT_FILE  AND  cat .git/mccp/tmp/codex-invoke.stderr" 1>&2
+  echo "Inspect: cat $CODEX_RESULT_FILE  AND  cat $MCCP_TMP/codex-invoke.stderr" 1>&2
   exit 1
 fi
 
@@ -436,7 +441,7 @@ All `DEFER_TO_BACKLOG` items: append a line to `.claude/plans/codex-findings-bac
 before Phase 2.5.5. Format:
 - `YYYY-MM-DD | <severity> | <source plan path> | <one-line finding>`
 
-**Persist the draft body to disk** so it survives between phases without shell quoting. After the section text is final for this round, write it (combined with any `## Design Review` from 2.5.1 and the dedupe note from 2.5.2) to a body-file under `.git/mccp/tmp/`:
+**Persist the draft body to disk** so it survives between phases without shell quoting. After the section text is final for this round, write it (combined with any `## Design Review` from 2.5.1 and the dedupe note from 2.5.2) to a body-file under the worktree-safe tmp dir (`$MCCP_TMP`, i.e. `<gitdir>/mccp/tmp/` — the `pr-body` CLI resolves the real gitdir):
 
 ```bash
 HEAD_SHA=$(git rev-parse HEAD)
@@ -460,7 +465,7 @@ rm -f "$TMP_CONTENT"
 echo "PR body draft persisted at: $BODY_FILE"
 ```
 
-The body-file path is `.git/mccp/tmp/pr-body-<slug>-<short-sha>.md`. Phase 4 reads it, prepends the title-derived summary, and passes the final file to `gh pr create --body-file`. Phase 4's cleanup step deletes it after a successful PR create.
+The body-file path is `<gitdir>/mccp/tmp/pr-body-<slug>-<short-sha>.md` (gitdir resolved by the `pr-body` CLI — worktree-safe). Phase 4 reads it, prepends the title-derived summary, and passes the final file to `gh pr create --body-file`. Phase 4's cleanup step deletes it after a successful PR create.
 
 If 2.5.3 hit the Codex auto-fallback, still persist the body — the `> Codex unavailable, skipped (auto-fallback)` line and any `## Design Review` content must reach Phase 4.
 
@@ -640,7 +645,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate \
   --plan <plan path>
 ```
 
-If exit 0: proceed to Phase 3 (PUSH). The body-file persisted in 2.5.4 (under `.git/mccp/tmp/`) is the authoritative source for the `## Design Review` and `## Codex Adversarial Review` sections — Phase 4 will read it back instead of re-deriving from memory.
+If exit 0: proceed to Phase 3 (PUSH). The body-file persisted in 2.5.4 (under `<gitdir>/mccp/tmp/`) is the authoritative source for the `## Design Review` and `## Codex Adversarial Review` sections — Phase 4 will read it back instead of re-deriving from memory.
 
 If non-zero: do NOT push. Output validate stderr and end the response. Leave the body-file in place so the next attempt can re-read it.
 
@@ -726,7 +731,7 @@ The `meta.security_force_override_reason` value passed via `--security-force-ove
 
 ### Create the PR
 
-The Phase 2.5 body-file under `.git/mccp/tmp/pr-body-${DECISION_SLUG}-${HEAD_SHA:0:12}.md` is authoritative for the `## Design Review` and `## Codex Adversarial Review` sections. Prepend the title-derived Summary / Changes / Files / Testing sections to that file (or to the template-filled body) and pass the final body via `--body-file`, not `--body`. This avoids shell-quoting truncation of multi-line review content.
+The Phase 2.5 body-file under `<gitdir>/mccp/tmp/pr-body-${DECISION_SLUG}-${HEAD_SHA:0:12}.md` (gitdir resolved by the `pr-body` CLI — worktree-safe) is authoritative for the `## Design Review` and `## Codex Adversarial Review` sections. Prepend the title-derived Summary / Changes / Files / Testing sections to that file (or to the template-filled body) and pass the final body via `--body-file`, not `--body`. This avoids shell-quoting truncation of multi-line review content.
 
 ```bash
 HEAD_SHA=$(git rev-parse HEAD)

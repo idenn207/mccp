@@ -32,25 +32,25 @@ function minimalModel() {
 }
 
 test('responsive — narrow-viewport breakpoint exists', () => {
-  assert.match(CSS, /@media\s*\(max-width:\s*720px\)/, 'max-width breakpoint declared');
+  assert.match(CSS, /@media\s*\(max-width:\s*880px\)/, 'max-width breakpoint declared');
 });
 
 test('responsive — body grid collapses to single column at breakpoint', () => {
-  const block = CSS.match(/@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\n\}/);
+  const block = CSS.match(/@media\s*\(max-width:\s*880px\)\s*\{[\s\S]*?\n\}/);
   assert.ok(block, 'breakpoint block found');
   assert.match(block[0], /body\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
     'body grid becomes single column');
 });
 
 test('responsive — nav rail reflows horizontal + scrollable at breakpoint', () => {
-  const block = CSS.match(/@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\n\}/);
+  const block = CSS.match(/@media\s*\(max-width:\s*880px\)\s*\{[\s\S]*?\n\}/);
   assert.match(block[0], /\.nav-rail\s*\{[^}]*flex-direction:\s*row/, 'nav rail horizontal');
   assert.match(block[0], /\.nav-rail\s*\{[^}]*overflow-x:\s*auto/, 'nav rail scrollable');
 });
 
 test('responsive — content min-width:0 prevents grid blowout', () => {
   assert.match(CSS, /\.content\s*\{[^}]*min-width:\s*0/, 'content min-width 0');
-  assert.match(CSS, /grid-template-columns:\s*var\(--sidebar-width\)\s*minmax\(0,\s*1fr\)/,
+  assert.match(CSS, /grid-template-columns:\s*var\(--sidebar-w\)\s*minmax\(0,\s*1fr\)/,
     'desktop shell: sidebar fixed width + content minmax(0,1fr) so content cannot overflow');
 });
 

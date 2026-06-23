@@ -95,8 +95,8 @@ test('copy-btn aria-label is Korean fixed string ("다음 액션 복사")', () =
 test('sidebar nav-rail exposes aria-label + page route links (redesign-3)', () => {
   const { html } = renderStatus(fixtureModel());
   assert.ok(/<nav class="nav-rail" aria-label="페이지">/.test(html), 'nav aria-label');
-  assert.ok(/data-route-link="overview"/.test(html), 'overview route link');
-  assert.ok(/data-route-link="activity"/.test(html), 'activity route link');
+  assert.ok(/data-route="overview"/.test(html), 'overview route link');
+  assert.ok(/data-route="activity"/.test(html), 'activity route link');
 });
 
 test('overview hero surfaces verdict h1 + inline 4축 meta', () => {

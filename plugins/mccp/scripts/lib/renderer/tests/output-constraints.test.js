@@ -87,9 +87,9 @@ test('H2 — pass on m3-redux baseline (main max-width 720px)', () => {
   assert.ok(!out.violations.includes('H2'));
 });
 
-test('H2 — fail when main max-width > 960 (redesign-3 ceiling)', () => {
+test('H2 — fail when main max-width > 1080 (M1 console ceiling)', () => {
   const out = runOutputConstraints({
-    css: ':root { --bg: oklch(0.99 0 0); } main { max-width: 1024px; }',
+    css: ':root { --bg: oklch(0.99 0 0); } main { max-width: 1200px; }',
     html: '', md: '',
   });
   assert.ok(out.violations.includes('H2'));
@@ -242,25 +242,24 @@ test('H8 — fail on radial-gradient anywhere', () => {
 // H9 — uppercase <= 1
 // ----------------------------------------------------------------------
 
-test('H9 — pass on m3-redux baseline (0 uppercase declarations)', () => {
+test('H9 — pass on renderer baseline (rail-label = 1 uppercase, within cap)', () => {
+  // v1.17.0 M1 — LAYOUT 의 .rail-label 이 유일한 uppercase(1 ≤ 1 cap). 추가
+  // uppercase(action-prompt lead/drawer-kind)는 M2 fidelity 에서 cap 상향 동반.
   const out = runOutputConstraints({ css: BASELINE_CSS, html: '', md: '' });
   assert.ok(!out.violations.includes('H9'));
 });
 
-test('H9 — pass at exactly 1 uppercase declaration', () => {
+test('H9 — pass at exactly 1 uppercase declaration (rule isolation)', () => {
   const out = runOutputConstraints({
-    css: withBaseline('.tag { text-transform: uppercase; }'),
+    css: '.tag { text-transform: uppercase; }',
     html: '', md: '',
   });
   assert.ok(!out.violations.includes('H9'));
 });
 
-test('H9 — fail at 2 uppercase declarations', () => {
+test('H9 — fail at 2 uppercase declarations (rule isolation)', () => {
   const out = runOutputConstraints({
-    css: withBaseline(`
-      .a { text-transform: uppercase; }
-      .b { text-transform: uppercase; }
-    `),
+    css: '.a { text-transform: uppercase; } .b { text-transform: uppercase; }',
     html: '', md: '',
   });
   assert.ok(out.violations.includes('H9'));
@@ -368,33 +367,64 @@ test('H12 — fail on .sev-pill class declaration', () => {
 // H13 — no custom font
 // ----------------------------------------------------------------------
 
-test('H13 — pass on m3-redux baseline (system font stack)', () => {
+// v1.17.0 (M1, Codex Plan-Codex R1 F3) — H13 재정의: font-family banlist →
+// 외부 fetch invariant. self-contained 렌더 산출물(inline asset + 로컬 폰트
+// 참조)은 green, 외부 fetch surface(@import/url(http)/<link|script|img src=http>)
+// 는 fail. Pretendard 로컬 family-name 참조는 fetch 아니라 PASS(핵심 reframe).
+test('H13 — pass on renderer baseline (self-contained, no external fetch)', () => {
   const out = runOutputConstraints({ css: BASELINE_CSS, html: '', md: '' });
   assert.ok(!out.violations.includes('H13'));
 });
 
-test('H13 — fail on Inter font-family', () => {
+test('H13 — pass on Pretendard local family-name (NOT a fetch)', () => {
   const out = runOutputConstraints({
-    css: withBaseline('body { font-family: Inter, sans-serif; }'),
+    css: withBaseline("body { font-family: 'Pretendard Variable', Pretendard, sans-serif; }"),
+    html: '', md: '',
+  });
+  assert.ok(!out.violations.includes('H13'));
+});
+
+test('H13 — fail on @import', () => {
+  const out = runOutputConstraints({
+    css: withBaseline("@import url('https://cdn.example.com/font.css');"),
     html: '', md: '',
   });
   assert.ok(out.violations.includes('H13'));
 });
 
-test('H13 — fail on Pretendard font-family', () => {
+test('H13 — fail on external <link rel=stylesheet href=https>', () => {
   const out = runOutputConstraints({
-    css: withBaseline('body { font-family: "Pretendard", sans-serif; }'),
+    css: BASELINE_CSS,
+    html: '<html><head><link rel="stylesheet" href="https://cdn.example.com/x.css"></head><body></body></html>',
+    md: '',
+  });
+  assert.ok(out.violations.includes('H13'));
+});
+
+test('H13 — fail on css url(https://) external resource', () => {
+  const out = runOutputConstraints({
+    css: withBaseline(".x { background: url(https://example.com/bg.png); }"),
     html: '', md: '',
   });
   assert.ok(out.violations.includes('H13'));
 });
 
-test('H13 — fail on JetBrains Mono in code', () => {
+test('H13 — fail on protocol-relative external src', () => {
   const out = runOutputConstraints({
-    css: withBaseline('code { font-family: "JetBrains Mono", monospace; }'),
-    html: '', md: '',
+    css: BASELINE_CSS,
+    html: '<html><body><img src="//cdn.example.com/a.png"></body></html>',
+    md: '',
   });
   assert.ok(out.violations.includes('H13'));
+});
+
+test('H13 — local fragment <use href="#id"> is NOT external fetch', () => {
+  const out = runOutputConstraints({
+    css: BASELINE_CSS,
+    html: '<html><body><svg><use href="#ic-terminal"/></svg><a href="#main">x</a></body></html>',
+    md: '',
+  });
+  assert.ok(!out.violations.includes('H13'));
 });
 
 // ----------------------------------------------------------------------

@@ -29,7 +29,14 @@
 // 비중첩 패널(card-in-card 금지는 H17 이 DOM-aware 로 강제), nav-rail a / route 는
 // 라우팅 affordance. 모두 일반 layout chrome 의 무분별한 카드화와 구분되는 명시
 // 컴포넌트라 H3 carve-out. status-strip(폐기)도 무해하게 잔존.
-const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret|pipe-node|tl-node|card|panel|hero-panel|nav-rail|status-strip|route)|\[role="alert"\]/;
+// v1.17.0 (dashboard-console-redesign M1, Codex Plan-Codex R1 F1 흡수) — selector-
+// aware carve-out 유지(magnitude 천장 도입 안 함). 승인된 dashboard-sample.html 이
+// frozen canonical 이라 carve 집합은 bounded(무한 증식 아님). 추가된 명시 affordance:
+// 사이드바 스위처/검색/pin-alert/topbar 셸 칩 + 샘플 섹션 컴포넌트(node-mark/ms-check/
+// sev/inline-prompt/audit-node/dot). 일반 layout chrome(section/div/topbar/sidebar/
+// content)는 carve 밖이라 radius 추가 시 H3 FIRE — design-invariants drift fixture 가
+// 이 가드를 증명한다.
+const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret|pipe-node|tl-node|card|panel|hero-panel|nav-rail|nav-link|status-strip|route|switcher|sw-mark|sw-badge|search|kbd|pin-alert|pa-btn|c-mark|tb-icon-btn|node-mark|node-dot|ms-check|sev|inline-prompt|freshness|audit-node|dot)|\[role="alert"\]/;
 const H4_CARVEOUT = /\.(meta-cue)|\bblockquote\b/;
 
 function findSelectorContext(css, hitIndex) {
@@ -60,9 +67,9 @@ const RULES = [
       return null;
     },
   },
-  // H2 (v1.17.0 개정) 읽기 콘텐츠 폭 상한. Vercel 멀티페이지 콘솔이라 2-col 패널
-  // 그리드를 담는 --content-max 토큰(<= 960px)으로 콘텐츠 가독 폭을 cap. nav 레일
-  // 폭은 별도. (이전: <= 820, redesign-2)
+  // H2 (v1.17.0 개정) 읽기 콘텐츠 폭 상한. 승인된 sample 콘솔이 2-col 패널 그리드를
+  // 담는 --content-max(<= 1080px)로 콘텐츠 가독 폭을 cap. nav 레일 폭(--sidebar-w)은
+  // 별도. (이전: <= 960, redesign-3)
   {
     id: 'H2',
     severity: 'invariant',
@@ -70,13 +77,13 @@ const RULES = [
       const m = css.match(/--content-max:\s*(\d+)px/);
       if (m) {
         const px = parseInt(m[1], 10);
-        if (px > 960) return { evidence: '--content-max ' + px + 'px (> 960)' };
+        if (px > 1080) return { evidence: '--content-max ' + px + 'px (> 1080)' };
         return null;
       }
       const mm = css.match(/\bmain\b[^{]*\{[^}]*max-width:\s*(\d+)px/);
       if (!mm) return { evidence: 'no --content-max or main max-width found' };
       const px = parseInt(mm[1], 10);
-      if (px > 960) return { evidence: 'main max-width ' + px + 'px (> 960)' };
+      if (px > 1080) return { evidence: 'main max-width ' + px + 'px (> 1080)' };
       return null;
     },
   },
@@ -246,19 +253,27 @@ const RULES = [
       return null;
     },
   },
-  // H13 no custom font names. System font stack only.
-  // Catches Inter/Pretendard/JetBrains reintroduction inside font-family.
+  // H13 (v1.17.0 재정의, Codex Plan-Codex R1 F3 흡수) no external network fetch.
+  // 이전: font-family banlist(Inter/Pretendard/JetBrains) — 외부 폰트 로드를 막으려던
+  // 의도였으나 "Pretendard 로컬 family-name 참조"(fetch 아님)까지 금지하는 과잉이었다.
+  // 승인된 sample 은 Pretendard 를 로컬 family-name 으로만 참조(외부 fetch 0) →
+  // banlist 대신 **렌더 산출물 전체(css+html)의 외부 fetch surface**를 mechanical 검출.
+  // status.html 은 self-contained(inline jQuery/sprite/style, 로컬 폰트 참조)라 green.
+  // 검출 대상: @import / url(http|https|//) / <link|script|img|iframe|source|use|
+  // audio|video|track|embed src|href=(http|https|//). 로컬 fragment(#id)·상대경로는 무관.
+  // grep validation 은 smoke-check 로 강등 — invariant 본체는 이 룰.
   {
     id: 'H13',
     severity: 'absolute-ban',
-    check: ({ css }) => {
-      const fontFamilyDecls = css.match(/font-family:\s*[^;]+;/g) || [];
+    check: ({ css, html }) => {
+      const surface = (css || '') + '\n' + (html || '');
       const hits = [];
-      for (const decl of fontFamilyDecls) {
-        const m = decl.match(/Inter|Pretendard|JetBrains/);
-        if (m) hits.push(m[0]);
+      if (/@import\b/.test(surface)) hits.push('@import');
+      if (/url\(\s*['"]?(?:https?:)?\/\//i.test(surface)) hits.push('css url(external)');
+      if (/<(?:link|script|img|iframe|source|use|audio|video|track|embed)\b[^>]*\b(?:src|href|xlink:href)\s*=\s*['"]?(?:https?:)?\/\//i.test(surface)) {
+        hits.push('html external src/href');
       }
-      if (hits.length > 0) return { evidence: hits.join(', ') };
+      if (hits.length > 0) return { evidence: 'external fetch surface: ' + hits.join(', ') };
       return null;
     },
   },

@@ -25,9 +25,9 @@ test('html lang="ko" + main id + tabindex=-1', () => {
   assert.ok(/<main id="main"[^>]*tabindex="-1">/.test(html), 'main landmark');
 });
 
-test('skip-link present with sr-only + href #main', () => {
+test('skip-link present (fixed off-screen until focus) + href #main', () => {
   const { html } = renderStatus(fixtureModel());
-  assert.ok(/class="skip-link sr-only" href="#main"/.test(html), 'skip-link');
+  assert.ok(/class="skip-link" href="#main"/.test(html), 'skip-link');
   assert.ok(html.includes('본문 바로가기'), 'skip-link text');
 });
 

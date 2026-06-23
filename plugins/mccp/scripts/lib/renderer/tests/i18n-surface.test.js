@@ -74,14 +74,15 @@ test('html — English section h2 labels absent (anti-pattern check)', () => {
   assert.doesNotMatch(r.html, />Status<\/h2>/);
 });
 
-test('html — sidebar brand "mccp 상태" present (redesign-3 app-shell)', () => {
+test('html — sidebar switcher + "mccp" badge present (M1 console app-shell)', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
-  assert.match(r.html, /<div class="brand">mccp 상태<\/div>/);
+  assert.match(r.html, /<div class="switcher">[\s\S]*?<span class="sw-name">/);
+  assert.match(r.html, /<span class="sw-badge">mccp<\/span>/);
 });
 
-test('html — meta "마지막 갱신" present', () => {
+test('html — topbar freshness "갱신" present', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
-  assert.match(r.html, /마지막 갱신/);
+  assert.match(r.html, /<span class="freshness">[\s\S]*?갱신/);
 });
 
 test('html — footer "v1.4.2 · …통합 derive" present', () => {

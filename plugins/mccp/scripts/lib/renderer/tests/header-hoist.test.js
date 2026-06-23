@@ -44,11 +44,11 @@ function renderWithStubs(model) {
   });
 }
 
-test('html header has meta only; brand + nav in left sidebar; status-strip retired (redesign-3)', () => {
+test('topbar has breadcrumb + freshness; switcher + nav in left sidebar; status-strip retired (M1 console)', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  assert.match(r.html, /<header[^>]*>[\s\S]*?<span class="meta">/);
+  assert.match(r.html, /<header class="topbar">[\s\S]*?<span class="freshness">/);
   assert.doesNotMatch(r.html, /<header[^>]*>[\s\S]*?<div class="brand">/);
-  assert.match(r.html, /<aside class="sidebar"[\s\S]*?<div class="brand">mccp 상태<\/div>[\s\S]*?<nav class="nav-rail"/);
+  assert.match(r.html, /<aside class="sidebar"[\s\S]*?<div class="switcher">[\s\S]*?<span class="sw-name">[\s\S]*?<nav class="nav-rail"/);
   assert.doesNotMatch(r.html, /class="status-strip"/);
 });
 
@@ -72,17 +72,17 @@ test('overview route holds h1.verdict inside the hero panel', () => {
   assert.match(r.html, /<div class="hero-panel[^"]*"><h1 class="verdict s-[a-z]+">/);
 });
 
-test('html app-shell — sidebar is sticky, header is NOT (status in left sidebar)', () => {
+test('html app-shell — sidebar AND topbar are sticky (M1 console)', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
   assert.match(r.html, /\.sidebar\s*{[^}]*position:\s*sticky/);
-  assert.doesNotMatch(r.html, /header\s*{[^}]*position:\s*sticky/);
+  assert.match(r.html, /header\.topbar\s*{[^}]*position:\s*sticky/);
 });
 
 test('sidebar nav-rail wires 3 page route links', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  assert.match(r.html, /data-route-link="overview"/);
-  assert.match(r.html, /data-route-link="pipeline"/);
-  assert.match(r.html, /data-route-link="activity"/);
+  assert.match(r.html, /data-route="overview"/);
+  assert.match(r.html, /data-route="pipeline"/);
+  assert.match(r.html, /data-route="activity"/);
 });
 
 test('stale fixture — next renders stale-label inside hero-next', () => {

@@ -216,6 +216,8 @@ function buildReceipt(args) {
         return Number.isFinite(n) && n >= 0 ? n : 0;
       })(),
       a11y_routed_to_impeccable: args['a11y-routed-to-impeccable'] === true,
+      // v1.13.0 M3 — a11y-architect auto-invoked at PR gate.
+      a11y_auto_invoked: args['a11y-auto-invoked'] === true,
       dropped_findings_digest: (function () {
         const v = args['dropped-findings-digest'];
         if (typeof v === 'string' && v.length > 0) return v;
@@ -262,6 +264,21 @@ function buildReceipt(args) {
         const v = args['pr-design-chain-skip-reason'];
         if (typeof v === 'string' && v.length > 0) return v;
         return null;
+      })(),
+      // v1.13.0 — stage-aware impeccable command routing audit. routing-mode is
+      // a plain string flag; commands-routed carries structured per-command
+      // outcome objects so it rides the JSON file channel (mirror findings-file)
+      // rather than a comma-separated string (Codex Plan-Codex R1 F3).
+      impeccable_routing_mode: (function () {
+        const v = args['impeccable-routing-mode'];
+        if (typeof v === 'string' && v.length > 0) return v;
+        return null;
+      })(),
+      impeccable_commands_routed: (function () {
+        const p = args['impeccable-commands-routed-file'];
+        if (typeof p !== 'string' || p.length === 0) return null;
+        const arr = readJsonIfPresent(p, null);
+        return Array.isArray(arr) ? arr : null;
       })(),
     },
   });

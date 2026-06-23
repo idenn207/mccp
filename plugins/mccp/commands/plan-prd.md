@@ -222,6 +222,21 @@ fi
 
 This sub-step writes design direction into the PRD itself — downstream `/mccp:plan` will inherit it via `## Files to Change` and explicit `## Design Direction` section detection (see plan.md Phase 5.0).
 
+#### Stage-aware routing GUIDE (v1.13.0 — recommend-only, no receipt at PRD stage)
+
+When the trigger fires (SKILL_AVAIL=1 & (SIGNAL=1 OR DESIGN_INTENT_ACTIVE=1)), append a `## Design Routing Guide` table to the PRD body (mirror of plan.md). PRD stage **invokes nothing** and writes no receipt — the guide is a forward-looking checklist the downstream `/mccp:plan` + `/mccp:prp-implement` gates act on:
+
+```bash
+MODE=$(node -e "console.log(require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-routing').parseRoutingMode(process.env))")
+node -e "
+  const r=require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-routing');
+  const out=r.routeCommands({gate:'prd', mode:process.argv[1], designSignal:true});
+  process.stdout.write(out.commands.map(c=>'| '+c.stage+' | \`/impeccable '+c.command+'\` |').join('\n'));
+" "$MODE"
+```
+
+The table format matches plan.md's `## Design Routing Guide` (discovery→refine→evaluate→harden→polish, every row recommend). No receipt is written; downstream `/mccp:plan` re-derives the guide and stamps `--impeccable-routing-mode` on its mccp-plan-codex receipt.
+
 ### 4.0b — external research inject (v1.4.0 axis A, M1-experimental)
 
 If Phase 2.5 stashed a `RESEARCH_DECISION`, inject the `## References` section into the PRD body. Idempotent — if a `## References` section already exists, replace it in place (mirrors plan.md Phase 4.5 provenance replace pattern).

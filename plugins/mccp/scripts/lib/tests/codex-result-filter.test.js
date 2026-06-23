@@ -276,3 +276,37 @@ test('DESIGN_KEYWORDS and A11Y_KEYWORDS are frozen arrays', () => {
   assert.strictEqual(Object.isFrozen(DESIGN_KEYWORDS), true);
   assert.strictEqual(Object.isFrozen(A11Y_KEYWORDS), true);
 });
+
+// ---- v1.13.0 M3: a11yFindings array (supplementary input for a11y-architect) --
+
+test('M3 a11yFindings: array equals a11yRoutedCount, excludes design + passthrough', () => {
+  const input = { findings: [
+    f('a11y', 'aria-label missing on icon button'),
+    f('accessibility', 'keyboard navigation broken'),
+    f('color', 'low contrast on muted text'),
+    f('logic', 'off-by-one in loop'),
+  ] };
+  const r = filterDesignFindings(input, { impeccableAvailable: true });
+  assert.strictEqual(r.a11yFindings.length, 2, 'two a11y findings captured');
+  assert.strictEqual(r.a11yFindings.length, r.a11yRoutedCount, 'array length == count (never drift)');
+  // design finding dropped but NOT in a11yFindings
+  assert.ok(r.a11yFindings.every((x) => x.category !== 'color'), 'design finding not in a11yFindings');
+  // non-design/non-a11y passes through
+  assert.strictEqual(r.filteredFindings.length, 1);
+  assert.strictEqual(r.filteredFindings[0].category, 'logic');
+});
+
+test('M3 a11yFindings: impeccable unavailable → empty array (identity path)', () => {
+  const r = filterDesignFindings({ findings: [f('a11y', 'x')] }, { impeccableAvailable: false });
+  assert.deepStrictEqual(r.a11yFindings, []);
+  assert.strictEqual(r.a11yRoutedCount, 0);
+});
+
+test('M3 a11yFindings: empty findings → empty array', () => {
+  const r = filterDesignFindings({ findings: [] }, { impeccableAvailable: true });
+  assert.deepStrictEqual(r.a11yFindings, []);
+});
+
+test('M3 a11yFindings: EMPTY_RESULT carries a11yFindings key', () => {
+  assert.deepStrictEqual(filter.EMPTY_RESULT.a11yFindings, []);
+});

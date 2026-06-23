@@ -202,6 +202,28 @@ Notes:
   surface for PR body inject) are unchanged. The PR-scope ban is on the
   **retry loop**, not on single-shot Skill invocations.
 
+### Stage-aware routing RECOMMEND (v1.13.0 — review-only, never invoke)
+
+The PR step is the design lifecycle's final stage. The routing oracle returns
+the `pr` gate table as **recommend-only in every mode** (the oracle's `pr`
+table degrades to `recommend` even under `auto` — review-only invariant, §1.2
+PR-phase guard). pr.md therefore NEVER Edit/Write-invokes an impeccable command;
+it only surfaces a recommend line so the operator can run the final passes
+manually before/after merge:
+
+```bash
+MODE=$(node -e "console.log(require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-routing').parseRoutingMode(process.env))")
+node -e "
+  const r=require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-routing');
+  const out=r.routeCommands({gate:'pr', mode:process.argv[1], designSignal:true});
+  out.commands.forEach(c=>process.stderr.write('[mccp:impeccable-routing] recommend (final pass): /impeccable '+c.command+'\n'));
+" "$MODE"
+```
+
+This is informational stderr only — it does not gate, does not write a receipt
+field, and does not invoke. polish/audit/harden are surfaced as the canonical
+"between good and great" final passes.
+
 ---
 
 ## Phase 2 — DISCOVER
@@ -570,7 +592,60 @@ if [ "$LOCK_EXIT_OK" != "1" ]; then
 fi
 ```
 
-If `LOCK_EXIT_OK=1`, proceed to 2.5.7. If `baseline_missing=true`, the receipt verdict is forced to non-approving via `--codex-actionable-findings`. The lock file was unlinked by `codex-runner.js` so the next `/mccp:pr` invocation starts fresh.
+If `LOCK_EXIT_OK=1`, proceed to 2.5.6c. If `baseline_missing=true`, the receipt verdict is forced to non-approving via `--codex-actionable-findings`. The lock file was unlinked by `codex-runner.js` so the next `/mccp:pr` invocation starts fresh.
+
+### 2.5.6c — a11y-architect auto-invoke (v1.13.0 M3, review-only, dedicated lock window)
+
+The Codex-review lock is already released (2.5.6b). When the PR diff touches a rendered design surface, auto-invoke `mccp:a11y-architect` to review it for WCAG 2.2 — but inside a **fresh pr-phase lock window** so the mutations finalizer mechanically proves the agent did not edit (Codex R1 F2). The trigger is `rendering_surface`, NOT the presence of Codex a11y findings (Codex R1 F1 — the design-scope preamble usually strips a11y from Codex output before the filter sees it). `a11y_findings` from `codex-result.json` is supplementary input.
+
+```bash
+A11Y_AUTO=$([ "${MCCP_A11Y_AUTO_INVOKE:-1}" != "0" ] && echo 1 || echo 0)
+RENDERING_SURFACE=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.rendering_surface?"1":"0")}catch{process.stdout.write("0")}' < "$CODEX_RESULT_FILE")
+A11Y_INVOKED=0
+
+if [ "$A11Y_AUTO" = "1" ] && [ "$RENDERING_SURFACE" = "1" ]; then
+  A11Y_FINDINGS_JSON=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(JSON.stringify(j.a11y_findings||[]))}catch{process.stdout.write("[]")}' < "$CODEX_RESULT_FILE")
+  A11Y_RUN_ID=$(node -e 'console.log(crypto.randomUUID())')
+  # Enter a dedicated a11y-review lock. stdout returns the raw ownership token
+  # (F11 sealed-channel); exit reads it back via stdin-pipe. baseline captured
+  # at enter is the diff window the mutations finalizer compares against.
+  A11Y_ENTER=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" enter \
+    --run-id "$A11Y_RUN_ID" --pid $$ --subphase a11y-review --cwd "$(pwd)" 2>/dev/null)
+  A11Y_TOKEN=$(echo "$A11Y_ENTER" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).ownership_token||"")}catch{process.stdout.write("")}')
+fi
+```
+
+When the lock entered successfully, invoke the agent **within the lock window** (review-only — it MUST NOT edit; the finalizer is the mechanical backstop):
+
+- `Task(subagent_type: "mccp:a11y-architect")`
+- prompt: review the PR diff (changed files: `git diff <base>...HEAD --name-only`) for WCAG 2.2 compliance. Use `$A11Y_FINDINGS_JSON` as supplementary signal. **Report findings + remediation suggestions ONLY — do NOT edit any file** (a dedicated pr-phase lock is active; any write is a review-only invariant breach and will hard-stop the PR).
+
+Capture the agent's report text into `A11Y_REVIEW_OUTPUT` for the Phase 4 PR body inject. Then exit the lock and enforce the finalizer:
+
+```bash
+if [ -n "$A11Y_TOKEN" ]; then
+  A11Y_EXIT=$(printf '%s' "$A11Y_TOKEN" | node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-lock.js" exit \
+    --run-id "$A11Y_RUN_ID" --ownership-token-stdin --cwd "$(pwd)" 2>/dev/null)
+  A11Y_MUTATIONS=$(echo "$A11Y_EXIT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(JSON.stringify(j.mutations||[]))}catch{process.stdout.write("[]")}')
+  if [ "$A11Y_MUTATIONS" != "[]" ]; then
+    echo "[MCCP-GATE-STOP] a11y-architect violated review-only invariant (edited files during a11y-review lock)." 1>&2
+    echo "  mutations: $A11Y_MUTATIONS" 1>&2
+    exit 1
+  fi
+  A11Y_INVOKED=1
+  # Stamp the result into codex-result.json so finalize-receipt (2.5.7) forwards
+  # --a11y-auto-invoked via deriveCodexFlags (Codex R1 F3).
+  node -e '
+    const fs=require("fs");
+    const p=process.argv[1];
+    const j=JSON.parse(fs.readFileSync(p,"utf8"));
+    j.a11y_auto_invoked=true;
+    fs.writeFileSync(p, JSON.stringify(j));
+  ' "$CODEX_RESULT_FILE"
+fi
+```
+
+If `A11Y_AUTO=0` or `RENDERING_SURFACE=0`, skip the Task entirely and leave `codex-result.json` untouched (no `## Accessibility Review` section in Phase 4). Kill switch: `MCCP_A11Y_AUTO_INVOKE=0`.
 
 ### 2.5.7 — Write mccp-pr-codex receipt via finalize-receipt helper (F10)
 
@@ -728,6 +803,20 @@ If Phase 2.5.5 entered the `MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER` escape bran
 If a project `.github/pull_request_template.md` is present, inject above the template content; the template author's framing remains intact below.
 
 The `meta.security_force_override_reason` value passed via `--security-force-override-reason` MUST be identical to the `Reason` field inserted into the PR body. Validators cross-check the two at `validate-cmd` time.
+
+### Accessibility Review (conditional, v1.13.0 M3)
+
+If Phase 2.5.6c invoked `mccp:a11y-architect` (`A11Y_INVOKED=1`), inject the captured `A11Y_REVIEW_OUTPUT` as a `## Accessibility Review` section, mirroring how `## Codex Review` surfaces review findings. This is review-only output (the agent ran inside the a11y-review lock and the mutations finalizer confirmed no edits):
+
+```markdown
+## Accessibility Review
+
+<!-- Auto-invoked mccp:a11y-architect (WCAG 2.2) — review-only, no edits applied. -->
+
+<A11Y_REVIEW_OUTPUT — findings + remediation suggestions>
+```
+
+When `A11Y_INVOKED=0` (no rendered surface in the diff, or `MCCP_A11Y_AUTO_INVOKE=0`), omit this section entirely. The remediation suggestions are advisory — the reviewer applies them in a separate `/mccp:prp-implement` cycle, never inside `/mccp:pr` (review-only invariant).
 
 ### Create the PR
 

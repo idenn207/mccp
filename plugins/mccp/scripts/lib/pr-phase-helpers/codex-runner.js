@@ -48,6 +48,27 @@ function locateCodexInvoke() {
   return path.join(root, 'scripts', 'lib', 'codex-invoke.js');
 }
 
+// v1.13.0 M3 — does the PR diff touch a rendered design surface? This is the
+// PRIMARY a11y-auto-invoke trigger (Codex R1 F1): the design-scope preamble
+// usually strips a11y findings from Codex output, so a finding-based trigger
+// starves. The surface check is independent of Codex findings. UI ext regex
+// mirrors prp-implement.md's routing block + the STATUS/status.html cache pair.
+const UI_SURFACE_RE = /\.(tsx|jsx|vue|svelte|astro|css|scss|html)$/i;
+const CACHE_SURFACE_RE = /\.claude[\\/]cache[\\/](STATUS\.md|status\.html)$/;
+function computeRenderingSurface(base, cwd) {
+  try {
+    const r = spawnSync('git', ['diff', '--name-only', base + '...HEAD'], {
+      cwd: cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (r.status !== 0 || !r.stdout) return false;
+    return r.stdout.split(/\r?\n/).filter(Boolean).some(function (f) {
+      return UI_SURFACE_RE.test(f) || CACHE_SURFACE_RE.test(f);
+    });
+  } catch (_) {
+    return false;
+  }
+}
+
 function readTokenFromStdinSync() {
   try {
     const buf = fs.readFileSync(0);
@@ -167,6 +188,12 @@ function runMain(args) {
   let designFindingsDropped = 0;
   let a11yRoutedToImpeccable = false;
   let droppedFindingsDigest = null;
+  // v1.13.0 M3 — a11y findings (supplementary input for pr.md → a11y-architect)
+  // and the rendering-surface trigger (primary a11y-auto-invoke signal). The
+  // surface check runs regardless of codexOutcome so disabled/skipped/deduped
+  // PRs still trigger a11y review when a design surface changed.
+  let a11yFindings = [];
+  const renderingSurface = computeRenderingSurface(args.base, cwd);
   if (codexOutcome === 'disabled') {
     codexSummary = 'Codex skipped per MCCP_CODEX_DISABLED=1 (env-level policy).';
   } else if (codexOutcome === 'skipped') {
@@ -208,6 +235,7 @@ function runMain(args) {
     codexActionableFindings = findings.length > 0;
     designFindingsDropped = filtered.droppedFindings.length - filtered.a11yRoutedCount;
     a11yRoutedToImpeccable = filtered.a11yRoutedCount > 0;
+    a11yFindings = filtered.a11yFindings || [];
     droppedFindingsDigest = computeDroppedDigest(filtered.droppedFindings);
     codexRounds = codexJson.rounds || 1;
     codexSummary = codexJson.summary || codexJson.conclusion || '';
@@ -246,6 +274,10 @@ function runMain(args) {
     design_findings_dropped: designFindingsDropped,
     a11y_routed_to_impeccable: a11yRoutedToImpeccable,
     dropped_findings_digest: droppedFindingsDigest,
+    // v1.13.0 M3 — a11y-auto-invoke inputs for pr.md. rendering_surface is the
+    // primary trigger (Codex R1 F1); a11y_findings is supplementary payload.
+    a11y_findings: a11yFindings,
+    rendering_surface: renderingSurface,
   }, lockExitOk ? 0 : 1);
 }
 

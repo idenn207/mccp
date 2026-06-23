@@ -347,6 +347,81 @@ Decision tree (mirror of plan.md 5.0, v1.3.0-m2 3-axis):
 | 1 | 1 | * | Run the **critique retry loop** (same as plan.md Task 7 reference impl — see below) but Edit target is the produced code/diff, NOT the plan body. Forward `--design-critique-rounds <N> --design-critique-verdict <enum>` to 2.5.6. |
 | 1 | 0 | 1 | Audited override active. Run the critique retry loop as above. Additionally forward `--design-intent-reason "$DESIGN_INTENT_REASON_FORWARD"` to 2.5.6. |
 
+#### Stage-aware command routing (v1.13.0 — runs BEFORE the critique loop when triggered)
+
+When the trigger fires (SKILL_AVAIL=1 & (SIGNAL=1 OR DESIGN_INTENT_ACTIVE=1)), route stage-appropriate impeccable commands via the routing oracle. **`critique` is NOT routed here** — it stays owned by the critique retry loop below so `decideCritique`/`design_critique_verdict` blocking is preserved (Codex Plan-Codex R1 F2).
+
+```bash
+MODE=$(node -e "console.log(require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-routing').parseRoutingMode(process.env))")
+# v1.13.0 M2 (Implement-Codex [0] absorption) — derive renderingSurface AND the
+# content signals from ONE rendered-surface file set = tracked diff (git diff
+# HEAD) ∪ untracked (git ls-files --others --exclude-standard). `git diff HEAD`
+# alone misses untracked greenfield .tsx/.css, which would falsely degrade
+# routing. The single node invocation also enforces the F1/F2 fail-open
+# omission contract: forward diffSignals ONLY when ≥1 signal fired; a rendered
+# surface with zero matched signals omits diffSignals so the oracle keeps M1
+# fail-open (content commands at base) instead of degrading on absence.
+ROUTE_JSON=$(node -e '
+  const { execSync } = require("child_process");
+  const fs = require("fs");
+  const r = require(process.argv[1] + "/scripts/lib/impeccable-routing");
+  const mode = process.argv[2];
+  const designSignal = process.argv[3] === "1";
+  const designIntentActive = process.argv[4] === "1";
+  const ui = /\.(tsx|jsx|vue|svelte|astro|css|scss|html)$/i;
+  const cache = /\.claude\/cache\/(STATUS\.md|status\.html)$/;
+  const isSurface = (f) => ui.test(f) || cache.test(f);
+  const sh = (c) => { try { return execSync(c, {encoding:"utf8", stdio:["ignore","pipe","ignore"]}); } catch (_) { return ""; } };
+  const tracked = sh("git diff --name-only HEAD").split(/\r?\n/).filter(Boolean);
+  const untracked = sh("git ls-files --others --exclude-standard").split(/\r?\n/).filter(Boolean);
+  const surfaceFiles = Array.from(new Set(tracked.concat(untracked))).filter(isSurface);
+  const renderingSurface = surfaceFiles.length > 0;
+  let text = sh("git diff HEAD");
+  const MAX = 64 * 1024;
+  untracked.filter(isSurface).forEach((f) => { try { text += "\n" + fs.readFileSync(f, "utf8").slice(0, MAX); } catch (_) {} });
+  const opts = { gate:"implement", mode, designSignal, designIntentActive, renderingSurface };
+  if (renderingSurface) {
+    const sig = r.extractDiffSignals(text);
+    if (Object.keys(sig).some((k) => sig[k])) opts.diffSignals = sig;  // else omit → fail-open
+  }
+  if (designIntentActive) {
+    const ic = r.parseIntentCommands(process.env);
+    if (ic.length) opts.intentCommands = ic;
+  }
+  const out = r.routeCommands(opts);
+  out._renderingSurface = renderingSurface;
+  process.stdout.write(JSON.stringify(out));
+' "${CLAUDE_PLUGIN_ROOT}" "$MODE" "$SIGNAL" "$DESIGN_INTENT_ACTIVE")
+RENDERING_SURFACE=$(echo "$ROUTE_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8"))._renderingSurface?"1":"0")}catch{process.stdout.write("0")}')
+echo "[mccp:impeccable-routing] mode=$MODE renderingSurface=$RENDERING_SURFACE → $(echo "$ROUTE_JSON" | node -e 'const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write((j.commands||[]).map(c=>c.command+":"+c.callForm).join(" "))')" 1>&2
+```
+
+> **Untracked greenfield trigger gap (Implement-Codex [0], documented limitation)**: the `impeccable-detect.js` `design_signal` axis (the trigger that sets `SIGNAL`) still reads the tracked diff, so a brand-new untracked rendered surface may produce `SIGNAL=0` and skip routing entirely. The audited `MCCP_DESIGN_INTENT_REASON` override (axis c → `DESIGN_INTENT_ACTIVE=1`) is the escape: it fires the trigger regardless of detector blindness, and the block above then sees the untracked surface for `renderingSurface` + signal extraction. Extending the detector itself to scan untracked files is a separate axis (detector scope, not M2 routing scope).
+
+For each command in `ROUTE_JSON.commands` **except `critique`**, process by `callForm` and record a structured outcome `{command, call_form, status}`:
+
+| callForm | Action | status on success | status on failure |
+|---|---|---|---|
+| `invoke` | `Skill(impeccable, "<command> <slug>")` against the produced code/diff | `invoked` | `failed` (or `unknown-skill` if Skill not found) |
+| `background` | best-effort background Agent for `<command>`; if background unavailable in this gate, fall back to foreground `Skill(impeccable, "<command> <slug>")` and set call_form=`foreground-fallback` + loud stderr | `invoked` | `failed` |
+| `recommend` | emit stderr `[mccp:impeccable-routing] recommend: /impeccable <command> <slug>` (no invoke) | `recommended` | n/a |
+
+> **System stage (v1.13.0 M3)**: `document` (generate DESIGN.md) and `extract` (pull reusable tokens/components) route with stage `system` and a `recommend`-only base in every gate — heavyweight generative actions that should be a deliberate operator step, not an auto-invoke. They surface here exactly like the harden-group recommend rows. a11y-architect auto-invoke is **not** part of implement-gate routing; it is PR-gate-only (review-only invariant) — see `pr.md` Phase 2.5.6c.
+
+Accumulate every processed entry into a JSON array and write it to a tempfile for the receipt forward (loud fail-open — record `failed`/`unknown-skill` honestly, do NOT silently drop):
+
+```bash
+GITDIR=$(git rev-parse --git-dir)
+mkdir -p "$GITDIR/mccp/tmp"
+ROUTED_JSON_FILE="$GITDIR/mccp/tmp/impeccable-routed-$$.json"
+# The LLM writes the accumulated [{command, call_form, status}, ...] array here.
+# Example shape (NOT a literal — fill with real per-command outcomes):
+#   [{"command":"shape","call_form":"background","status":"invoked"},
+#    {"command":"layout","call_form":"invoke","status":"invoked"}]
+```
+
+2.5.6 forwards `--impeccable-routing-mode "$MODE" --impeccable-commands-routed-file "$ROUTED_JSON_FILE"` alongside the existing design-critique flags. If the routing oracle returned `skipped:true` (no trigger), set `MODE`/routed-file empty and forward neither.
+
 #### Critique retry loop (mirror of plan.md Task 7, implement-scope)
 
 The loop body is the same `decideCritique` oracle + cap parser. The semantic
@@ -434,6 +509,12 @@ if [ -n "${RECEIPT_VERDICT:-}" ] && [ "${RECEIPT_VERDICT:-skipped}" != "skipped"
 fi
 if [ -n "${DESIGN_INTENT_REASON_FORWARD:-}" ]; then
   WRITE_FLAGS+=(--design-intent-reason "$DESIGN_INTENT_REASON_FORWARD")
+fi
+# v1.13.0 — stage-aware impeccable command routing forward. Only when the
+# routing step actually ran (non-empty MODE + routed-file present on disk).
+if [ -n "${MODE:-}" ] && [ -n "${ROUTED_JSON_FILE:-}" ] && [ -f "${ROUTED_JSON_FILE:-/nonexistent}" ]; then
+  WRITE_FLAGS+=(--impeccable-routing-mode "$MODE"
+                --impeccable-commands-routed-file "$ROUTED_JSON_FILE")
 fi
 WRITE_FLAGS+=(--quiet)
 node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" "${WRITE_FLAGS[@]}"

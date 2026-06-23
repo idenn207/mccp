@@ -146,7 +146,8 @@ test('html.js wires milestone-history section + copy button JS', () => {
   ];
   const verdict = { tone: 'neutral', icon: '·', text: 'test' };
   const html = renderHtml(model, sections, verdict, new Date().toISOString(), formatUtils);
-  assert.ok(/<section id="milestone-history"[^>]*>/.test(html));
+  // redesign-3: milestone-history renders as a panel inside the activity route.
+  assert.ok(/<section class="panel[^"]*"><h3>마일스톤 기록<\/h3>/.test(html));
   assert.ok(html.includes('마일스톤 기록'));
   // copy button JS event delegation script
   assert.ok(html.includes('data-copy'));

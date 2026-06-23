@@ -11,8 +11,10 @@
 > AI-cream/Bloomberg 형광)는 product-level 진실이라 유지. M4(우측 Drawer 상세 + nav
 > active-추적 + Tailwind `설명|터미널` prompt)가 이 콘솔 셸 위에 후속.
 >
-> 개정 invariant: **H1 다크 default + light opt-in**, **H2 `--content-max` ≤820 콘텐츠 폭**(2D),
-> **H3 목적 있는 카드 허용**(carve-out), **신규 H17 카드 중첩 금지**(DOM-aware). H4/H6/H7
+> v1.17.0 redesign-3 개정 invariant: **H1 다크 default + light opt-in**, **H2 `--content-max`
+> ≤960 콘텐츠 폭**(멀티페이지 콘솔, 이전 ≤820), **H3 목적 있는 패널(`.panel`/`.hero-panel`)
+> 허용**(carve-out, status-strip 폐기·`route`/`nav-rail` affordance 추가), **H17 카드 중첩
+> 금지**(DOM-aware). status 4축은 상단 chrome 아닌 개요 hero 인라인 메타. H4/H6/H7
 > (side-stripe·hero-metric·glassmorphism 금지) 유지. 아래 §Token system / §Layout / §Header의
 > m3-redux 라이트 단일컬럼 서술은 historical — 코드(html.js)·lint(output-constraints.js)가
 > canonical. 토큰/레이아웃 실제 값은 `plugins/mccp/scripts/lib/renderer/html.js` 참조.
@@ -53,7 +55,7 @@
 | # | Invariant | Lint signal | Where this was broken in b204510 |
 |---|-----------|-------------|----------------------------------|
 | H1 | Light mode default. Body bg `oklch(0.99 0 0)` true off-white. Dark via `@media (prefers-color-scheme: dark)` only. | `:root --bg` first value lightness >= 0.97 | dark navy `oklch(0.18 0.012 250)` was default |
-| H2 | max-width 720px on main column. | `main { max-width: <= 720px }` | 880px |
+| H2 | content width cap. `--content-max` 토큰(또는 main max-width) ≤ 960px (v1.17.0: 멀티페이지 패널 그리드 수용, 이전 ≤820). | `--content-max <= 960px` | 880px |
 | H3 | NO cards on layout chrome. Sections separated by spacing + 1px border-bottom only. **v1.4.2 carve-out**: `.severity-tag` pill + `.action-prompt code` chip + `.skip-link` + `.copy-btn` + `[role="alert"].s-secret` emergency banner는 interactive affordance / 4-part 컴포넌트 / a11y / alert chrome으로 design intent. **v1.13.0 carve-out**: `.pipe-node`는 게이트 파이프라인 스테퍼의 상태 노드(pill) — GitHub Actions 결의 스테이지 affordance로 design intent(일반 layout 카드화와 구분). 연결선 `.pipe-edge`는 수평 라인(height+background)으로 H4 회피. **v1.14.0 carve-out**: `.tl-node`는 활동 step-chart rail 의 상태 노드 마커(pill) — 동일 affordance. 세로 connector `.tl-rail::before`는 background 라인(`width+background`, `border-left` 미사용)으로 H4 무관 → H4 carve-out 불필요. | selector-aware: `border-radius:\s*[1-9]` hit 중 carve-out selector 매칭 제외 후 count > 0 = fail | grid-cell + li.open-questions + .risks were all card-shaped (b204510) |
 | H4 | NO side-stripe borders on layout chrome. Any `border-left` / `border-right` > 1px is banned. Any `box-shadow: inset Npx 0 0` simulating one is banned. **v1.4.2 carve-out**: `blockquote` + `.meta-cue` "왜:" rationale stripe는 4-part 컴포넌트의 핵심 design intent. | selector-aware: `border-left:\s*[2-9]\d*px` + `inset\s+[2-9]\d*px\s+0\s+0` hit 중 carve-out selector 매칭 제외 후 count > 0 = fail | grid-cell + verdict + risks tr all had 3px left accent (b204510) |
 | H5 | NO identical card grids. Status 4-axis is **one inline sentence**, not a grid. | grep `repeat(auto-fit,\s*minmax(` in renderer CSS = fail | `.status-grid: repeat(auto-fit, minmax(180px, 1fr))` |

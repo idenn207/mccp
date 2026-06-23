@@ -55,10 +55,8 @@ We'll know we're right when **단계 진행/수렴/차단과 활동 흐름을 �
 | --- | --- | --- | --- | --- |
 | 1 | 게이트 스테이지 파이프라인 chart | receipt를 decision별로 묶은 가로 파이프라인 스테퍼 신규 섹션 — plan/implement/pr가 연결된 노드로, 색/형태로 수렴·진행·대기·차단 구분 | complete | .claude/plans/dashboard-pipeline-chart.plan.md (report: .claude/PRPs/reports/dashboard-pipeline-chart-report.md) |
 | 2 | 활동 로그 step chart + 마일스톤 기록 정확성·용어 통일 | audit-timeline이 시간순 step chart로 렌더 + "이정표"→"마일스톤" 용어 전면 통일(섹션 제목·앵커·prose) + "날짜 미상" ship-receipt 매칭 버그 수정(완료 시점 표시율 100%) | complete | .claude/plans/dashboard-pipeline-chart-m2-milestone-accuracy.plan.md (report: .claude/PRPs/reports/dashboard-pipeline-chart-m2-milestone-accuracy-report.md, activity step-chart: .claude/plans/dashboard-pipeline-chart-m2.plan.md commit 6cf75b6) |
-| 3 | 레이아웃 구조 · 정보 계층 · 반응형 | 그리드 시스템으로 섹션을 재배치하고 primary→status→detail 정보 위계를 명확화 + 좁은 viewport에서 깨지지 않는 반응형 레이아웃 (다크 파이프라인 콘솔 + Vercel 카드 베이스 재설계) | in-progress | .claude/plans/dashboard-pipeline-chart-m3-layout.plan.md |
-| 4 | 길찾기 · 점진적 공개 | 섹션 간 빠른 이동(앵커 내비 + 현재 위치 표시)으로 GNB/LNB/햄버거 의도 흡수 + 아코디언·툴팁·드롭다운·모달로 보조 정보를 on-demand로 펼침 | pending | — |
-| 5 | 필터링 · 탐색 | 필터·태그로 게이트/활동을 좁혀 보기 + 다량 항목의 더보기/단계 노출(페이지네이션 의도 흡수) | pending | — |
-| 6 | 스타일 가이드 · 디자인 토큰 통일 | GitHub Actions 절제 미학을 단일 토큰 세트로 수렴, 컴포넌트(CTA·Tag 등) 스타일 일관성 확보, 토큰/패턴을 대시보드 내 스타일가이드로 문서화 | pending | — |
+
+> **M3~M6 재범위화 (2026-06-23):** 레이아웃·길찾기·필터·스타일 마일스톤은 점진적 디자인 작업이었으나, impeccable craft로 승인된 기준 샘플 `.claude/cache/dashboard-sample.html`이 확정되면서 "샘플 = 명세" 기반 재설계 + derive 데이터 추출로 재범위화되었다. 후속 작업은 신 PRD [`dashboard-console-redesign.prd.md`](dashboard-console-redesign.prd.md)로 이관. 본 PRD는 M1·M2 ship으로 종료(CLOSED).
 
 ## Design Direction
 
@@ -99,5 +97,5 @@ We'll know we're right when **단계 진행/수렴/차단과 활동 흐름을 �
 
 ---
 
-_Status: DRAFT — requirements only. Implementation planning pending via /mccp:plan._
+_Status: CLOSED (2026-06-23) — M1·M2 shipped (PR #53). M3~M6 superseded by `dashboard-console-redesign.prd.md` ("샘플=명세" 재설계 + derive 추출)._
 _Co-created with user on 2026-06-22._

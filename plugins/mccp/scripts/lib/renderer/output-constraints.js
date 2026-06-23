@@ -25,7 +25,11 @@
 // v1.16.0 redesign-2 — status-strip 의 .cell 칩은 우측 rail 의 상태 jump
 // affordance(icon+색상 칩, 클릭 시 섹션 이동). pipe-node/tl-node 와 동격의
 // 명시적 컴포넌트 affordance 로 H3 carve-out.
-const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret|pipe-node|tl-node|card|nav-rail|status-strip)|\[role="alert"\]/;
+// v1.17.0 redesign-3 (Vercel 멀티페이지 콘솔) — hero-panel / panel 은 목적 있는
+// 비중첩 패널(card-in-card 금지는 H17 이 DOM-aware 로 강제), nav-rail a / route 는
+// 라우팅 affordance. 모두 일반 layout chrome 의 무분별한 카드화와 구분되는 명시
+// 컴포넌트라 H3 carve-out. status-strip(폐기)도 무해하게 잔존.
+const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret|pipe-node|tl-node|card|panel|hero-panel|nav-rail|status-strip|route)|\[role="alert"\]/;
 const H4_CARVEOUT = /\.(meta-cue)|\bblockquote\b/;
 
 function findSelectorContext(css, hitIndex) {
@@ -56,9 +60,9 @@ const RULES = [
       return null;
     },
   },
-  // H2 (v1.16.0 개정) 읽기 콘텐츠 폭 상한. 2D 콘솔이라 main 단일컬럼 max-width
-  // 대신 --content-max 토큰(<= 820px)으로 콘텐츠 가독 폭을 cap. nav 레일 폭은
-  // 별도. (이전: main max-width <= 720)
+  // H2 (v1.17.0 개정) 읽기 콘텐츠 폭 상한. Vercel 멀티페이지 콘솔이라 2-col 패널
+  // 그리드를 담는 --content-max 토큰(<= 960px)으로 콘텐츠 가독 폭을 cap. nav 레일
+  // 폭은 별도. (이전: <= 820, redesign-2)
   {
     id: 'H2',
     severity: 'invariant',
@@ -66,13 +70,13 @@ const RULES = [
       const m = css.match(/--content-max:\s*(\d+)px/);
       if (m) {
         const px = parseInt(m[1], 10);
-        if (px > 820) return { evidence: '--content-max ' + px + 'px (> 820)' };
+        if (px > 960) return { evidence: '--content-max ' + px + 'px (> 960)' };
         return null;
       }
       const mm = css.match(/\bmain\b[^{]*\{[^}]*max-width:\s*(\d+)px/);
       if (!mm) return { evidence: 'no --content-max or main max-width found' };
       const px = parseInt(mm[1], 10);
-      if (px > 820) return { evidence: 'main max-width ' + px + 'px (> 820)' };
+      if (px > 960) return { evidence: 'main max-width ' + px + 'px (> 960)' };
       return null;
     },
   },

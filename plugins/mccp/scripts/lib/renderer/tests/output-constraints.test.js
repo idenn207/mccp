@@ -87,9 +87,9 @@ test('H2 — pass on m3-redux baseline (main max-width 720px)', () => {
   assert.ok(!out.violations.includes('H2'));
 });
 
-test('H2 — fail when main max-width > 720', () => {
+test('H2 — fail when main max-width > 960 (redesign-3 ceiling)', () => {
   const out = runOutputConstraints({
-    css: ':root { --bg: oklch(0.99 0 0); } main { max-width: 960px; }',
+    css: ':root { --bg: oklch(0.99 0 0); } main { max-width: 1024px; }',
     html: '', md: '',
   });
   assert.ok(out.violations.includes('H2'));

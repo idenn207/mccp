@@ -77,8 +77,9 @@ test('render-integration — real derive() against fs fixture reflects actual su
     assert.match(r.html, /<!doctype html>/);
     assert.match(r.html, /<\/html>\s*$/);
 
-    // v1.16.0 redesign-2: status strip lives in the left sidebar, not header or main.
-    assert.match(r.html, /<aside class="sidebar"[\s\S]*?<div class="status-strip"/);
+    // v1.17.0 redesign-3: sidebar holds brand + page nav-rail (status retired to hero meta).
+    assert.match(r.html, /<aside class="sidebar"[\s\S]*?<nav class="nav-rail"/);
+    assert.doesNotMatch(r.html, /class="status-strip"/);
     assert.doesNotMatch(r.html, /<section id="status"/);
 
     const openSec = (r.html.match(/<section/g) || []).length;
@@ -98,11 +99,11 @@ test('render-integration — pipeline section + self-contained (no external scri
   try {
     const model = derive(root);
     const r = renderStatus(model, { cwd: root });
-    // pipeline section renders the converged plan-codex decision from the fixture
-    assert.match(r.html, /<section id="pipeline"[^>]*>/);
+    // redesign-3: pipeline lives in its own route; the .pipeline stepper renders inside.
+    assert.match(r.html, /<section class="route" id="route-pipeline"/);
     assert.match(r.html, /class="pipeline"/);
-    // v1.14.0 M2 — timeline renders as a step-chart rail (not a plain <ul>).
-    assert.match(r.html, /<section id="timeline"[^>]*>/);
+    // v1.14.0 M2 — timeline renders as a step-chart rail (now a panel in the activity route).
+    assert.match(r.html, /<section class="route" id="route-activity"/);
     assert.match(r.html, /class="timeline tl-rail"/);
     // Codex F2 — raw or masked, the page must carry NO external script origin.
     const externalScripts = r.html.match(/<script[^>]+src\s*=\s*["']https?:\/\//gi) || [];

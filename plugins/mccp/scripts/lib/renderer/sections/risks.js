@@ -2,6 +2,7 @@
 
 const { buildActionPrompt, maxRank } = require('../parsers/action-prompt');
 const { severityMeta, sevBadgeHtml } = require('../parsers/severity-meta');
+const { detailId, addDetail, buildRiskDetail } = require('../parsers/drawer-detail');
 
 const MAX_EXPANDED = 3;
 const RANK_MAP = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, '': 0 };
@@ -26,6 +27,10 @@ function renderRisks(model, formatUtils, planBody) {
   const expanded = allRisks.slice(0, MAX_EXPANDED);
   const collapsed = allRisks.slice(MAX_EXPANDED);
 
+  // v1.18.1 M3 — 드로어 detail 누적(안정 키 = plan ordinal, 정렬과 무관한 parse-time
+  // 순서). 충돌 hard-fail은 drawer-detail. 빌드 실패는 항목만 skip(fail-open).
+  const detailMap = new Map();
+
   function renderItem(r) {
     const sev = sevOf(r) || 'MEDIUM';
     const icon = severityMeta(sev).icon;
@@ -35,13 +40,22 @@ function renderRisks(model, formatUtils, planBody) {
     const mitHtml = r.mitigation
       ? '<div class="meta-cue mit">완화: <b>' + renderProseHtml(r.mitigation, formatUtils) + '</b></div>'
       : '';
+    // v1.18.1 M3 — relatedOpenQuestion 도 renderProseHtml(inline-markdown) 로 —
+    // escapeHtml 만이면 OQ 스니펫의 **bold**/`code` 가 literal 누출(H16, Constraint 3).
     const cueHtml = r.relatedOpenQuestion
-      ? '<div class="meta-cue">동일 질문 참조: ' + escapeHtml(r.relatedOpenQuestion) + '…</div>'
+      ? '<div class="meta-cue">동일 질문 참조: ' + renderProseHtml(r.relatedOpenQuestion, formatUtils) + '…</div>'
       : '';
-    const html = '<li class="li-item">' + sevTag
-      + '<div class="li-main">' + qHtml + mitHtml + cueHtml + '</div></li>';
     // Markdown — 구분자는 ·(H10 em-dash 금지).
     const ap = buildActionPrompt(r, 'risk');
+    // 드로어 detail — REQUIRED(위험 전문/severity/impact/likelihood/완화/결정).
+    const rawId = detailId('risk', { source: r.source, ordinal: r.ordinal });
+    const detail = buildRiskDetail(
+      Object.assign({}, r, { severity: sev, actionPrompt: ap.fullText }),
+      formatUtils,
+    );
+    const { id } = addDetail(detailMap, rawId, detail);
+    const html = '<li class="li-item" data-detail-id="' + escapeHtml(id) + '">' + sevTag
+      + '<div class="li-main">' + qHtml + mitHtml + cueHtml + '</div></li>';
     const textMd = renderProseMd(text);
     const mitMd = r.mitigation ? '\n  - 완화: ' + renderProseMd(r.mitigation) : '';
     const cueMd = r.relatedOpenQuestion ? '\n  - 동일 질문 참조: ' + r.relatedOpenQuestion + '…' : '';
@@ -72,7 +86,7 @@ function renderRisks(model, formatUtils, planBody) {
   const foot = '<a class="foot-link" href="#route-activity">활동 기록에서 전체 보기'
     + '<svg class="i i-sm" aria-hidden="true"><use href="#ic-arrow"/></svg></a>';
 
-  return { md, html, foot };
+  return { md, html, foot, details: detailMap };
 }
 
 module.exports = { renderRisks };

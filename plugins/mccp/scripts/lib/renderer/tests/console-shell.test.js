@@ -96,8 +96,11 @@ test('console-shell — topbar has breadcrumb + center page titles + freshness',
   assert.match(html, /<span class="freshness">[\s\S]*?갱신/);
 });
 
-test('console-shell — topbar emits NO backdrop-filter (H7 glassmorphism guard kept)', () => {
-  assert.doesNotMatch(BASELINE_CSS, /backdrop-filter|backdrop-blur/);
+test('console-shell — backdrop-filter only on dialog ::backdrop scrim (H7 carve-out, chrome clean)', () => {
+  // v1.18.1 M3 — 드로어 ::backdrop scrim 의 blur 는 H7 carve-out(의도된 overlay).
+  // ::backdrop rule block 을 strip 하면 일반 chrome(topbar 등)엔 backdrop-filter 0.
+  const scrubbed = BASELINE_CSS.replace(/[^{}]*::backdrop[^{}]*\{[^}]*\}/g, '');
+  assert.doesNotMatch(scrubbed, /backdrop-filter|backdrop-blur/);
 });
 
 // ── Lucide 스프라이트 (inline, 외부 fetch 0) ────────────────────────────

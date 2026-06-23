@@ -43,6 +43,24 @@ test('OQ — sample anatomy (stack-list/li-item/sev/li-q/meta-cue/inline-prompt)
   assertProseClean(html, 'OQ');
 });
 
+test('M3 — 각 섹션 항목이 kind-prefix 안정 키 data-detail-id 부여 + details Map 반환', () => {
+  const oq = renderOpenQuestions({ sources: {} }, formatUtils,
+    { openQuestions: [{ text: 'q', source: 'p.plan.md', lineNumber: 9, headingPath: ['## Open Questions'], severity: 'HIGH' }] });
+  assert.match(oq.html, /data-detail-id="oq:p\.plan\.md#L9"/);
+  assert.ok(oq.details instanceof Map && oq.details.size === 1);
+
+  const rk = renderRisks({ sources: {} }, formatUtils,
+    { risks: [{ risk: 'r', impact: 'High', likelihood: 'Low', mitigation: 'm', source: 'p.plan.md', ordinal: 0 }] });
+  assert.match(rk.html, /data-detail-id="risk:p\.plan\.md#r0"/);
+  assert.ok(rk.details instanceof Map && rk.details.size === 1);
+
+  const tl = renderAuditTimeline(
+    { sources: { receipts: { items: [{ gate_id: 'mccp-plan-codex', decision_id: 'd', converged: true, receipt_hash: 'sha256:abc123', created_at: new Date().toISOString() }] } } },
+    formatUtils, Date.now(), { snapshotsDir: null });
+  assert.match(tl.html, /data-detail-id="receipt:/);
+  assert.ok(tl.details instanceof Map && tl.details.size === 1);
+});
+
 test('Risks — sample anatomy (li-item/sev/li-q/meta-cue mit) + prose clean', () => {
   const planBody = { risks: [{ risk: PROSE, impact: 'High', likelihood: 'Medium', mitigation: 'fix — with `code` and **bold**' }] };
   const { html } = renderRisks({ sources: {} }, formatUtils, planBody);

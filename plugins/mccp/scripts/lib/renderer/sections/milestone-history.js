@@ -2,7 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { parseDeliveryMilestonesComplete, resolvePrdRef } = require('../parsers/plan-body');
+const { parseDeliveryMilestonesComplete, resolvePrdRef, extractPlanSummary } = require('../parsers/plan-body');
+const { detailId, addDetail, buildMilestoneDetail } = require('../parsers/drawer-detail');
 
 const MAX_EXPANDED = 5;
 
@@ -117,10 +118,31 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
       if (!completedAt && row.planPath) {
         completedAt = resolveGitCommitTime(row.planPath, prdDir, cwd, gitCommitTime);
       }
+      // v1.18.1 M3 — 마일스톤 드로어 요약(OPTIONAL): plan `## Summary` read-side.
+      // 부재/unreadable 시 null → 드로어 graceful degrade. fail-open(throw 안 함).
+      let planSummary = null;
+      if (row.planPath) {
+        const cands = path.isAbsolute(row.planPath)
+          ? [row.planPath]
+          : [path.resolve(cwd, row.planPath), path.resolve(prdDir, row.planPath)];
+        const base = row.planBasename;
+        if (base) {
+          cands.push(path.resolve(cwd, '.claude/PRPs/plans/completed', base));
+          cands.push(path.resolve(cwd, '.claude/plans', base));
+        }
+        for (const abs of cands) {
+          try {
+            planSummary = extractPlanSummary(fsRead(abs));
+            if (planSummary) break;
+          } catch (_) { /* fail-open — 다음 후보 */ }
+        }
+      }
       all.push({
         name: row.name,
         planBasename: row.planBasename,
+        planPath: row.planPath || null,
         completedAt,
+        planSummary,
       });
     }
   }
@@ -145,8 +167,11 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
   const expanded = merged.slice(0, MAX_EXPANDED);
   const collapsed = merged.slice(MAX_EXPANDED);
   const now = Date.now();
+  // v1.18.1 M3 — 드로어 detail 누적(안정 키 = ms:planPath, basename 아닌 path 로
+  // 동일-basename 다른 PRD 분리). 요약은 OPTIONAL(plan ## Summary read-side).
+  const detailMap = new Map();
 
-  function renderItem(e) {
+  function renderItem(e, ordinal) {
     const rel = e.completedAt && typeof formatRelativeTime === 'function'
       ? formatRelativeTime(e.completedAt, now)
       : (e.completedAt || '날짜 미상');
@@ -156,7 +181,15 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
     const whenHtml = e.completedAt
       ? '<span class="ms-when"><time datetime="' + escapeHtml(e.completedAt) + '">' + escapeHtml(rel) + '</time></span>'
       : '<span class="ms-when">' + escapeHtml(rel) + '</span>';
-    const html = '<li class="milestone-item">'
+    // 드로어 detail — REQUIRED(이름/plan/ship). 요약은 OPTIONAL(degrade).
+    const rawId = detailId('ms', { planPath: e.planPath, name: e.name, ordinal });
+    const detail = buildMilestoneDetail(
+      { name: e.name, planBasename: e.planBasename, relative: rel },
+      e.planSummary,
+      formatUtils,
+    );
+    const { id } = addDetail(detailMap, rawId, detail);
+    const html = '<li class="milestone-item" data-detail-id="' + escapeHtml(id) + '">'
       + '<span class="ms-check"><svg class="i" aria-hidden="true"><use href="#ic-check"/></svg>'
       + '<span class="sr-only">완료</span></span>'
       + '<span class="ms-text">' + renderProseHtml(e.name, formatUtils) + fileHtml + '</span>'
@@ -167,8 +200,8 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
     return { html, md };
   }
 
-  const expR = expanded.map(renderItem);
-  const colR = collapsed.map(renderItem);
+  const expR = expanded.map((e, i) => renderItem(e, i));
+  const colR = collapsed.map((e, i) => renderItem(e, MAX_EXPANDED + i));
 
   let html = '<ul class="milestone-history" role="list">' + expR.map(r => r.html).join('') + '</ul>';
   if (collapsed.length > 0) {
@@ -183,7 +216,7 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
       + colR.map(r => r.md).join('\n')
       + '\n\n</details>';
   }
-  return { md, html };
+  return { md, html, details: detailMap };
 }
 
 module.exports = { renderMilestoneHistory, pickShipReceipt, resolveGitCommitTime };

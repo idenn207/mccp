@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { nodeStatus } = require('../parsers/decision-state');
+const { detailId, addDetail, buildReceiptDetail } = require('../parsers/drawer-detail');
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -127,8 +128,10 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
 
   const mdLines = [];
   const htmlLines = [];
+  // v1.18.1 M3 — 드로어 detail 누적(receipt 안정 키 = rowKey gate|decision|hash).
+  const detailMap = new Map();
 
-  function renderRow(r, isArchived, isLast) {
+  function renderRow(r, isArchived, isLast, ordinal) {
     const rel = formatRelativeTime(r.created_at, now);
     const gate = r.gate_id || r.gate || '(unknown-gate)';
     const decision = String(r.decision_id || '');
@@ -164,9 +167,32 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
       briefMeta = '<span class="brief">briefing 건너뜀</span>';
     }
 
+    // 드로어 detail — REQUIRED(gate/decision/판정/round/시각/hash). briefing은 OPTIONAL.
+    const hashShort = (typeof r.receipt_hash === 'string')
+      ? tail(r.receipt_hash.replace(/^sha256:/, ''), 8) : null;
+    const briefingText = (typeof r.briefing_summary === 'string' && r.briefing_summary.length > 0)
+      ? (tokK(r.briefing_token_count) ? tokK(r.briefing_token_count) + ' tok' : '기록')
+      : (r.briefing_invocation_count === 0 ? '건너뜀' : null);
+    const detail = buildReceiptDetail({
+      gate,
+      decision: decShort,
+      convLabel: convText,
+      verdictText: convText,
+      isBad,
+      tone: isBad ? 'high' : (r.converged === true ? 'low' : 'med'),
+      round,
+      briefingText,
+      relative: rel,
+      hashShort,
+      briefingSummary: (typeof r.briefing_summary === 'string' && r.briefing_summary.length > 0)
+        ? r.briefing_summary : null,
+    }, formatUtils);
+    const rawId = detailId('receipt', { rowKey: rowKey(r), ordinal });
+    const { id } = addDetail(detailMap, rawId, detail);
+
     const railLine = isLast ? '' : '<span class="audit-line" aria-hidden="true"></span>';
     const rowClass = isArchived ? 'audit-row from-snapshot' : 'audit-row';
-    const htmlEntry = '<li class="' + rowClass + '">'
+    const htmlEntry = '<li class="' + rowClass + '" data-detail-id="' + escapeHtml(id) + '">'
       + '<div class="audit-rail"><span class="audit-node ' + (isBad ? 'is-bad' : 'is-ok') + '" aria-hidden="true"></span>'
       + railLine + '</div>'
       + '<div class="audit-body">'
@@ -182,7 +208,7 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
 
   const auditRows = liveShown.map(r => ({ r, archived: false }))
     .concat(archivedShown.map(r => ({ r, archived: true })));
-  auditRows.forEach((e, i) => renderRow(e.r, e.archived, i === auditRows.length - 1));
+  auditRows.forEach((e, i) => renderRow(e.r, e.archived, i === auditRows.length - 1, i));
 
   // v1.3.0-m5 impeccable P3 absorption — single section-level footnote for
   // archived rows (NOT per-row). Surfaces only when at least one archived
@@ -254,6 +280,7 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
     // v1.18.0 M2 — 시간순 audit timeline. <ol>(시간 순서 의미). 각 행은
     // audit-row(rail 노드 + audit-line connector), footnote 는 audit-note(노드 없음).
     html: '<ol class="timeline">' + htmlLines.join('') + '</ol>',
+    details: detailMap,
   };
 }
 

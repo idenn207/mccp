@@ -23,10 +23,10 @@ test('schema — runOutputConstraints returns {violations[], details[]}', () => 
   assert.ok(Array.isArray(out.details));
 });
 
-test('schema — RULES exports 17 rules H1..H17', () => {
-  assert.equal(RULES.length, 17);
+test('schema — RULES exports 18 rules H1..H18', () => {
+  assert.equal(RULES.length, 18);
   const ids = RULES.map((r) => r.id);
-  for (let i = 1; i <= 17; i += 1) {
+  for (let i = 1; i <= 18; i += 1) {
     assert.ok(ids.includes('H' + i), 'missing H' + i);
   }
 });

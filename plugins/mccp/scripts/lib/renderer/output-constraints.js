@@ -36,7 +36,10 @@
 // sev/inline-prompt/audit-node/dot). 일반 layout chrome(section/div/topbar/sidebar/
 // content)는 carve 밖이라 radius 추가 시 H3 FIRE — design-invariants drift fixture 가
 // 이 가드를 증명한다.
-const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret|pipe-node|tl-node|card|panel|hero-panel|nav-rail|nav-link|status-strip|route|switcher|sw-mark|sw-badge|search|kbd|pin-alert|pa-btn|c-mark|tb-icon-btn|node-mark|node-dot|ms-check|sev|inline-prompt|freshness|audit-node|dot)|\[role="alert"\]/;
+// v1.18.1 M3 — 드로어(우측 overlay 패널)와 그 내부 컴포넌트(d-rows 카드형 row,
+// drawer-close 버튼, clickable trigger affordance)는 명시적 design intent →
+// H3 carve-out. drawer 는 prefix 매치로 drawer-head/-close/-body 모두 커버.
+const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret|pipe-node|tl-node|card|panel|hero-panel|nav-rail|nav-link|status-strip|route|switcher|sw-mark|sw-badge|search|kbd|pin-alert|pa-btn|c-mark|tb-icon-btn|node-mark|node-dot|ms-check|sev|inline-prompt|freshness|audit-node|dot|drawer|d-rows|d-tags|d-action|clickable)|\[role="alert"\]/;
 const H4_CARVEOUT = /\.(meta-cue)|\bblockquote\b/;
 
 function findSelectorContext(css, hitIndex) {
@@ -162,11 +165,14 @@ const RULES = [
     },
   },
   // H7 no glassmorphism. backdrop-filter / backdrop-blur declarations.
+  // v1.18.1 M3 carve-out: native <dialog> ::backdrop scrim 의 blur 는 의도된
+  // overlay 효과(glass 카드 chrome 아님) — ::backdrop rule block 을 strip 후 스캔.
   {
     id: 'H7',
     severity: 'absolute-ban',
     check: ({ css }) => {
-      const matches = css.match(/backdrop-filter|backdrop-blur/g);
+      const scrubbed = css.replace(/[^{}]*::backdrop[^{}]*\{[^}]*\}/g, '');
+      const matches = scrubbed.match(/backdrop-filter|backdrop-blur/g);
       if (matches) return { evidence: matches.length + ' glassmorphism hit(s)' };
       return null;
     },
@@ -413,6 +419,41 @@ const RULES = [
         }
       }
       if (nested > 0) return { evidence: nested + ' nested card(s)' };
+      return null;
+    },
+  },
+  // H18 (v1.18.1 M3) 우측 상세 드로어 positive 계약. <dialog> 존재 시:
+  //  (i)  aria-label / aria-labelledby 보유(스크린리더 식별).
+  //  (ii) trigger 수 == 유일 data-detail-id 수 == drawer-data JSON 키 수
+  //       (Codex R1 F2 — 중복 id·고아 키·누락 매핑 전부 fire. "키 존재"만 검사 안 함).
+  //  (iii) 인덱스 매핑 잔재(items[i]) 부재.
+  {
+    id: 'H18',
+    severity: 'invariant',
+    check: ({ html }) => {
+      if (!html || !/<dialog\b/i.test(html)) return null;
+      const dialogTag = (html.match(/<dialog\b[^>]*>/i) || [''])[0];
+      if (!/aria-label(ledby)?\s*=/.test(dialogTag)) {
+        return { evidence: 'dialog missing aria-label' };
+      }
+      const idAttrs = html.match(/data-detail-id="([^"]*)"/g) || [];
+      const ids = idAttrs.map((s) => (s.match(/"([^"]*)"/) || [, ''])[1]);
+      const uniq = new Set(ids);
+      const jsonMatch = html.match(/<script[^>]*id="drawer-data"[^>]*>([\s\S]*?)<\/script>/i);
+      let keyCount = 0;
+      if (jsonMatch) {
+        try { keyCount = Object.keys(JSON.parse(jsonMatch[1])).length; }
+        catch (e) { return { evidence: 'drawer-data JSON parse failed' }; }
+      }
+      if (ids.length !== uniq.size) {
+        return { evidence: 'duplicate data-detail-id (' + ids.length + ' triggers, ' + uniq.size + ' unique)' };
+      }
+      if (uniq.size !== keyCount) {
+        return { evidence: 'trigger/JSON-key mismatch (' + uniq.size + ' ids, ' + keyCount + ' keys)' };
+      }
+      if (/\bitems\s*\[\s*i\s*\]/.test(html)) {
+        return { evidence: 'index-mapping residue (items[i])' };
+      }
       return null;
     },
   },

@@ -203,6 +203,14 @@ components:
 - **Anatomy:** `.panel-head`(아이콘 + 제목 + 옵션 count) / `.panel-body`. 패널 안에 또 다른 패널을 넣지 않는다(H17 DOM-aware, 카드 중첩 금지). hero 패널은 `h1.verdict` + `.hero-next`(복사 가능 next-action) + `.hero-meta`(인라인 4축).
 - **Internal Padding:** 패널 body `1rem`, hero `1.3rem 1.4rem 1.2rem`.
 
+### Detail Drawer (v1.18.1 M3)
+- **What:** 미해결 질문·위험·타임라인(receipt)·마일스톤 항목을 클릭/Enter/Space로 열면 우측에서 슬라이드-인하는 native `<dialog class="drawer">` overlay. 항목별 상세(제목·sev 태그·rows·sections·다음 액션)를 표시한다. "요약 우선, 깊이는 on-demand"(PRODUCT.md Compact 원칙)의 surface.
+- **Anatomy:** `.drawer-head`(kind 라벨 + 닫기 버튼) / `.drawer-body`(`.d-title` → `.d-tags` → `.d-rows` → `.d-sec` → `.d-action`). `width: min(440px, 92vw)`, 우측 hairline + 좌향 그림자.
+- **Data:** 항목↔상세는 **안정 키**(`data-detail-id` = `oq:<planPath>#L<line>` / `risk:<planPath>#r<ordinal>` / `receipt:<rowKey>` / `ms:<planPath>`)로 매핑한다 — 인덱스 매핑 금지. 상세는 `<script type="application/json" id="drawer-data">`에 유니코드-escape JSON으로 임베드. 모든 값은 derive source 유래(더미 0). 부재 필드는 placeholder 없이 graceful degrade.
+- **주입 경계(보안):** prose(title·section 본문)만 서버 `renderProseHtml` 안전 HTML → 클라이언트 `innerHTML`. 그 외(tags/rows/action)는 raw 텍스트 → `textContent`. raw derive 값이 `innerHTML`로 가는 경로 0. serializer는 `<`/`>`/`&`/LS/PS를 `\uXXXX`로 escape해 `</script>` break-out을 차단.
+- **a11y/motion:** trigger는 `role=button` + `tabindex=0` + `aria-haspopup=dialog`, `<dialog>`는 `aria-label`. `showModal()` 자동 focus + Esc/backdrop 닫힘 + 닫은 뒤 trigger로 focus 복귀. `@starting-style` slide-in은 `prefers-reduced-motion`에서 즉시 전환. no-JS 시 항목은 일반 표시(클릭 무동작) — progressive enhancement.
+- **invariant carve-out:** 드로어 `::backdrop`의 `backdrop-filter: blur(1px)`는 의도된 overlay scrim → **H7(glassmorphism) carve-out**(`::backdrop` rule block strip 후 스캔). `.drawer-close`(7px)·`.d-rows`(8px)·`.clickable`(radius-sm)는 명시 affordance → **H3 carve-out**. 신규 **H18**이 (i) `<dialog>` aria-label, (ii) trigger 수 == 유일 `data-detail-id` 수 == JSON 키 수(중복 키 hard-fail), (iii) 인덱스 매핑 잔재 부재를 mechanical 강제.
+
 ### Navigation
 - **Sidebar** (`.sidebar`, 244px sticky full-height): 프로젝트 스위처 + 검색 affordance(현재 `aria-hidden` 시각 placeholder — 필터 활성은 후속 마일스톤) + page nav 레일 + 차단 pin-alert. sidebar-black 배경 + 우측 hairline.
 - **Nav Link** (`.nav-link`): 기본 muted 텍스트 + faint 아이콘, padding `0.44rem 0.6rem`. hover 시 panel-raised 배경 + ink. **active**(현재 route)는 panel-raised 배경 + ink 텍스트 + 굵기 550 + 아이콘 ink화 — 색 단독이 아니라 배경·굵기·아이콘 복합 신호.
@@ -237,4 +245,4 @@ Lucide symbol 스프라이트를 inline SVG(viewBox 0 0 24 24)로 1회 emit하�
 - **Don't** 모션을 장식으로 쓴다. transition은 상태 전이(topbar stale, hover)에만, prefers-reduced-motion에서 전부 off돼도 동작은 동일해야 한다.
 
 ---
-*Generated 2026-06-23 via `/impeccable document` (코드 scan: `html.js` OKLCH_DARK/LIGHT + LAYOUT + 컴포넌트 함수, v1.17.0 redesign-3 멀티페이지 콘솔). 기계 lint 계약 H1-H17은 `docs/v1.3.0-observability/DESIGN.md` 참조.*
+*Generated 2026-06-23 via `/impeccable document` (코드 scan: `html.js` OKLCH_DARK/LIGHT + LAYOUT + 컴포넌트 함수, v1.17.0 redesign-3 멀티페이지 콘솔). v1.18.1 M3 Detail Drawer + H18 추가. 기계 lint 계약 H1-H18은 `docs/v1.3.0-observability/DESIGN.md` 참조.*

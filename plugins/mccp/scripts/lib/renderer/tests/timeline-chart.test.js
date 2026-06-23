@@ -1,9 +1,10 @@
 'use strict';
 
-// v1.14.0 활동 step-chart (audit-timeline) — 시각 레이어 변환 테스트.
+// v1.18.0 M2 활동 타임라인 (audit-timeline) — 샘플 audit-row 마크업 변환 테스트.
 // 데이터 로직(snapshot/cap/footnote/briefing/md)은 sections.test.js +
-// audit-timeline-snapshot.test.js 가 회귀 가드. 본 파일은 step-chart 마크업
-// (rail/노드 마커/tl-body/tl-note) + emphasis 반전 + a11y + Codex F2 containment.
+// audit-timeline-snapshot.test.js 가 회귀 가드. 본 파일은 audit-row 마크업
+// (rail 노드 + audit-line connector + audit-head/audit-meta) + is-ok/is-bad +
+// a11y + self-injection containment.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -21,53 +22,55 @@ function recent(extra) {
   }, extra || {});
 }
 
-test('timeline — empty window yields placeholder (no rail)', () => {
+test('timeline — empty window yields placeholder (no timeline list)', () => {
   const { md, html } = renderAuditTimeline(
     model([recent({ created_at: new Date(NOW - 30 * 86400_000).toISOString() })]),
     formatUtils, NOW, { snapshotsDir: null });
   assert.match(md, /최근 7일 활동 없음/);
-  assert.doesNotMatch(html, /tl-rail/);
+  assert.doesNotMatch(html, /class="timeline"/);
 });
 
-test('timeline — wrapper is <ol class="timeline tl-rail"> with tl-step rows', () => {
+test('timeline — wrapper is <ol class="timeline"> with audit-row rows', () => {
   const { html } = renderAuditTimeline(model([recent()]), formatUtils, NOW, { snapshotsDir: null });
-  assert.match(html, /<ol class="timeline tl-rail">/);
+  assert.match(html, /<ol class="timeline">/);
   assert.match(html, /<\/ol>/);
-  assert.match(html, /<li class="tl-step audit-row">/);
+  assert.match(html, /<li class="audit-row">/);
 });
 
-test('timeline — converged node is quiet (tl-done + ✓ + sr-only 수렴), no accent', () => {
-  const { html } = renderAuditTimeline(model([recent({ converged: true })]), formatUtils, NOW, { snapshotsDir: null });
-  assert.match(html, /tl-node tl-done/);
-  assert.match(html, /tl-icon" aria-hidden="true">✓/);
-  assert.match(html, /class="sr-only">수렴/);
-  // emphasis 반전 — converged 노드는 accent(s-terminal-ok) 미사용.
-  assert.doesNotMatch(html, /tl-node s-terminal-ok/);
+test('timeline — converged row: audit-node is-ok + conv 수렴, never is-bad', () => {
+  const { html } = renderAuditTimeline(model([recent({ converged: true, round: 1 })]), formatUtils, NOW, { snapshotsDir: null });
+  assert.match(html, /audit-node is-ok/);
+  assert.match(html, /class="conv"><svg class="i i-sm" aria-hidden="true"><use href="#ic-check"\/><\/svg>수렴 R1/);
+  assert.doesNotMatch(html, /is-bad/);
 });
 
-test('timeline — pending node is loud (s-stale + ◐ + sr-only 진행)', () => {
-  const { html } = renderAuditTimeline(model([recent({ converged: false })]), formatUtils, NOW, { snapshotsDir: null });
-  assert.match(html, /tl-node s-stale/);
-  assert.match(html, /tl-icon" aria-hidden="true">◐/);
-  assert.match(html, /class="sr-only">진행/);
+test('timeline — first-round pending row: conv pending + 진행 (active, is-ok node)', () => {
+  const { html } = renderAuditTimeline(model([recent({ converged: false, round: 1 })]), formatUtils, NOW, { snapshotsDir: null });
+  assert.match(html, /audit-node is-ok/);
+  assert.match(html, /class="conv pending">/);
+  assert.match(html, /진행 R1/);
 });
 
-test('timeline — briefing blockquote sits inside tl-body div, not a phrasing span (Codex F2)', () => {
+test('timeline — divergent row (round>=2 false): audit-node is-bad + conv is-bad divergent', () => {
+  const { html } = renderAuditTimeline(model([recent({ converged: false, round: 2 })]), formatUtils, NOW, { snapshotsDir: null });
+  assert.match(html, /audit-node is-bad/);
+  assert.match(html, /class="conv is-bad">/);
+  assert.match(html, /divergent/);
+});
+
+test('timeline — briefing surfaces as .brief span in audit-meta, no blockquote (M2)', () => {
   const { html } = renderAuditTimeline(
     model([recent({ briefing_summary: 'plan looks fine', briefing_token_count: 142 })]),
     formatUtils, NOW, { snapshotsDir: null });
-  // blockquote present and contained in the tl-step row's tl-body.
-  assert.match(html, /<div class="tl-body">[\s\S]*?<blockquote class="briefing">/);
-  // never wrap body in a phrasing <span class="tl-body"> (non-conforming).
-  assert.doesNotMatch(html, /<span class="tl-body"/);
+  assert.match(html, /class="audit-meta">[\s\S]*?<span class="brief"/);
+  assert.match(html, /briefing 142 tok/);
+  assert.doesNotMatch(html, /blockquote/);
 });
 
-test('timeline — md output unchanged (info equivalence, D5)', () => {
+test('timeline — md output stable (info equivalence)', () => {
   const { md } = renderAuditTimeline(model([recent({ converged: true })]), formatUtils, NOW, { snapshotsDir: null });
-  // same shape as pre-M2: `- {rel} · `gate`/`decision` · ✓ 수렴`
   assert.match(md, /· `mccp-plan-codex`\/`aaaaaaaaaaaa` · ✓ 수렴/);
-  // md carries no HTML rail markup.
-  assert.doesNotMatch(md, /tl-rail|tl-node|tl-step/);
+  assert.doesNotMatch(md, /audit-row|audit-node|audit-meta/);
 });
 
 test('timeline — gate value is escaped (self-injection defense)', () => {
@@ -78,15 +81,14 @@ test('timeline — gate value is escaped (self-injection defense)', () => {
   assert.match(html, /&lt;img/);
 });
 
-test('timeline — footnote (+N older) is tl-note, not a tl-step node row', () => {
+test('timeline — footnote (+N older) is audit-note, not an audit-row node row', () => {
   // 25 live rows → MAX_ROWS_LIVE=20 shown + 5 older footnote.
   const items = [];
   for (let i = 0; i < 25; i++) {
     items.push(recent({ decision_id: 'd' + i, created_at: new Date(NOW - i * 60_000).toISOString() }));
   }
   const { html } = renderAuditTimeline(model(items), formatUtils, NOW, { snapshotsDir: null });
-  assert.match(html, /<li class="tl-note muted"><em>\+5 older<\/em><\/li>/);
-  // footnote must NOT carry a node marker (no fake rail step).
+  assert.match(html, /<li class="audit-note muted"><em>\+5 older<\/em><\/li>/);
   const noteSlice = html.slice(html.indexOf('+5 older') - 60, html.indexOf('+5 older'));
-  assert.doesNotMatch(noteSlice, /tl-node/);
+  assert.doesNotMatch(noteSlice, /audit-node/);
 });

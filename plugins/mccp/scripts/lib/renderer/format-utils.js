@@ -110,6 +110,74 @@ function escapeAttr(s) {
     .replace(/\s/g, '%20');
 }
 
+// v1.18.0 M2 — inline-markdown prose renderer. Single entry point that resolves
+// both H10 (em-dash) and H16 (unrendered markdown marker) for derive-sourced
+// prose. The HTML path normalizes em-dash → comma, renders code/bold/link as
+// real HTML (so the markers never survive as literals), neutralizes MD0xx
+// markdownlint codes as <code> (H16 strips <code> spans before counting), and
+// escapes the gaps. The catalog is 1:1 with output-constraints.js H16:
+// inline-backtick / entity-backtick / bold-asterisk / bold-underscore /
+// md-link / md-lint-code. Links collapse to their text only (no anchor) for
+// safety. Python dunders (__init__ 등) are left literal — H16 whitelists them.
+// SSoT invariant: source files (PRD/STATE/receipt) are never edited; this runs
+// at render time only, mirroring normalizeProse (line 87).
+const PROSE_DUNDER = new Set([
+  'init', 'name', 'main', 'file', 'doc', 'str', 'repr', 'call',
+  'enter', 'exit', 'all', 'slots', 'dict', 'iter', 'len',
+]);
+const PROSE_MDLINT = /\bMD0?\d{2,4}\b/g;
+// Leftmost-first: GFM double-backtick code span (may contain single backticks),
+// single-backtick code, bold (** or __), markdown link. Double-backtick must
+// precede single so ``a `b` c`` is one span, not mis-paired.
+const PROSE_TOKEN = /(``[^\n]+?``)|(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\[[^\]]+\]\([^)]+\))/;
+
+// Tokenize already-normalized text. Bold inner content is processed
+// recursively so nested code spans (e.g. **a `x` b**) become <code> (which H16
+// strips) instead of surviving as escaped &#96; entities inside <strong>.
+function renderInline(s, esc) {
+  const plain = (t) => esc(t).replace(PROSE_MDLINT, '<code>$&</code>');
+  let out = '';
+  let rest = s;
+  let m;
+  while ((m = PROSE_TOKEN.exec(rest)) !== null) {
+    out += plain(rest.slice(0, m.index));
+    const tok = m[0];
+    if (m[1]) {
+      // Double-backtick GFM span — inner may hold single backticks; esc()
+      // turns them into &#96; which H16 strips along with the <code> wrapper.
+      out += '<code>' + esc(tok.slice(2, -2).trim()) + '</code>';
+    } else if (m[2]) {
+      out += '<code>' + esc(tok.slice(1, -1)) + '</code>';
+    } else if (m[3]) {
+      out += '<strong>' + renderInline(tok.slice(2, -2), esc) + '</strong>';
+    } else if (m[4]) {
+      const inner = tok.slice(2, -2);
+      // Leave Python dunders literal (H16 whitelists them) — converting
+      // __init__ → <strong>init</strong> would distort technical prose.
+      if (PROSE_DUNDER.has(inner)) out += plain(tok);
+      else out += '<strong>' + renderInline(inner, esc) + '</strong>';
+    } else if (m[5]) {
+      const lt = tok.match(/^\[([^\]]+)\]/);
+      out += plain(lt ? lt[1] : tok);
+    }
+    rest = rest.slice(m.index + tok.length);
+  }
+  out += plain(rest);
+  return out;
+}
+
+function renderProseHtml(text, formatUtils) {
+  const esc = (formatUtils && formatUtils.escapeHtml) || escapeHtml;
+  return renderInline(normalizeProse(text), esc);
+}
+
+// Markdown path — normalizeProse only. Markdown keeps its own backtick/bold/
+// link markers (they are legitimate there; H16 is HTML-only). H10 still scans
+// md, so em-dash normalization is the one transform that applies.
+function renderProseMd(text) {
+  return normalizeProse(text);
+}
+
 module.exports = {
   STATUS_BADGES,
   formatRelativeTime,
@@ -118,4 +186,6 @@ module.exports = {
   escapeHtml,
   escapeAttr,
   normalizeProse,
+  renderProseHtml,
+  renderProseMd,
 };

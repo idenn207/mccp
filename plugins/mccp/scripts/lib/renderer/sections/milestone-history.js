@@ -86,7 +86,7 @@ function pickShipReceipt(receipts, planBasename) {
 
 function renderMilestoneHistory(model, formatUtils, planBody, opts) {
   opts = opts || {};
-  const { escapeHtml, formatRelativeTime } = formatUtils;
+  const { escapeHtml, formatRelativeTime, renderProseHtml } = formatUtils;
   const m = model || {};
   const cwd = opts.cwd
     || (m.repo_root && typeof m.repo_root === 'string' && m.repo_root !== '<repo>'
@@ -150,18 +150,19 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
     const rel = e.completedAt && typeof formatRelativeTime === 'function'
       ? formatRelativeTime(e.completedAt, now)
       : (e.completedAt || '날짜 미상');
-    const planChip = e.planBasename
-      ? '<code>' + escapeHtml(e.planBasename) + '</code>'
+    const fileHtml = e.planBasename
+      ? '<span class="ms-file">' + escapeHtml(e.planBasename) + '</span>'
       : '';
-    const timeHtml = e.completedAt
-      ? '<time datetime="' + escapeHtml(e.completedAt) + '">' + escapeHtml(rel) + '</time>'
-      : escapeHtml(rel);
+    const whenHtml = e.completedAt
+      ? '<span class="ms-when"><time datetime="' + escapeHtml(e.completedAt) + '">' + escapeHtml(rel) + '</time></span>'
+      : '<span class="ms-when">' + escapeHtml(rel) + '</span>';
     const html = '<li class="milestone-item">'
-      + '<span class="ms-name">' + escapeHtml(e.name) + '</span>'
-      + ' <span class="muted">· ' + timeHtml + '</span>'
-      + (planChip ? ' ' + planChip : '')
+      + '<span class="ms-check"><svg class="i" aria-hidden="true"><use href="#ic-check"/></svg>'
+      + '<span class="sr-only">완료</span></span>'
+      + '<span class="ms-text">' + renderProseHtml(e.name, formatUtils) + fileHtml + '</span>'
+      + whenHtml
       + '</li>';
-    const md = '- ' + e.name + ' · ' + rel
+    const md = '- ' + (formatUtils.renderProseMd ? formatUtils.renderProseMd(e.name) : e.name) + ' · ' + rel
       + (e.planBasename ? ' (' + e.planBasename + ')' : '');
     return { html, md };
   }
@@ -171,8 +172,10 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
 
   let html = '<ul class="milestone-history" role="list">' + expR.map(r => r.html).join('') + '</ul>';
   if (collapsed.length > 0) {
-    html += '<details class="ms-more"><summary>+' + collapsed.length + ' 더보기</summary>'
-      + '<ul role="list">' + colR.map(r => r.html).join('') + '</ul></details>';
+    html += '<details class="more"><summary>'
+      + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
+      + collapsed.length + ' 더보기</summary>'
+      + '<ul class="milestone-history" role="list">' + colR.map(r => r.html).join('') + '</ul></details>';
   }
   let md = expR.map(r => r.md).join('\n');
   if (collapsed.length > 0) {

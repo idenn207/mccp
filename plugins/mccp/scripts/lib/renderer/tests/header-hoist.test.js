@@ -52,13 +52,16 @@ test('topbar has breadcrumb + freshness; switcher + nav in left sidebar; status-
   assert.doesNotMatch(r.html, /class="status-strip"/);
 });
 
-test('overview hero surfaces inline 4축 meta (진행/차단/위험)', () => {
+test('overview hero surfaces axis-legend 4축 (진행/차단/다음/위험)', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  const heroMatch = r.html.match(/<p class="hero-meta">([\s\S]*?)<\/p>/);
-  assert.ok(heroMatch, 'hero-meta block exists');
-  assert.match(heroMatch[1], /진행 중/);
-  assert.match(heroMatch[1], /차단/);
-  assert.match(heroMatch[1], /미해결 위험/);
+  const legendMatch = r.html.match(/<div class="axis-legend">([\s\S]*?)<\/div>\s*<\/section>/);
+  assert.ok(legendMatch, 'axis-legend block exists');
+  assert.match(legendMatch[1], /진행 중/);
+  assert.match(legendMatch[1], /차단/);
+  assert.match(legendMatch[1], /다음/);
+  assert.match(legendMatch[1], /위험/);
+  // 4 axis chips
+  assert.equal((legendMatch[1].match(/class="axis"/g) || []).length, 4);
 });
 
 test('html main has NO section#status (4축 hoisted to header)', () => {
@@ -66,10 +69,11 @@ test('html main has NO section#status (4축 hoisted to header)', () => {
   assert.doesNotMatch(r.html, /<section id="status"/);
 });
 
-test('overview route holds h1.verdict inside the hero panel', () => {
+test('overview route holds hero-status + h1.verdict inside the hero panel', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
   assert.match(r.html, /<section class="route" id="route-overview"/);
-  assert.match(r.html, /<div class="hero-panel[^"]*"><h1 class="verdict s-[a-z]+">/);
+  assert.match(r.html, /<section class="hero-panel[^"]*" aria-label="판정"><span class="hero-status">/);
+  assert.match(r.html, /<h1 class="verdict s-[a-z]+">/);
 });
 
 test('html app-shell — sidebar AND topbar are sticky (M1 console)', () => {
@@ -85,10 +89,10 @@ test('sidebar nav-rail wires 3 page route links', () => {
   assert.match(r.html, /data-route="activity"/);
 });
 
-test('stale fixture — next renders stale-label inside hero-next', () => {
+test('stale fixture — next renders stale-label inside action-prompt', () => {
   const model = makeModel(Date.now(), 'v0-3-5-codex-disabled-honor');
   const r = renderWithStubs(model);
-  assert.match(r.html, /<div class="hero-next">[\s\S]*?<span class="stale-label">/);
+  assert.match(r.html, /<div class="action-prompt"><span class="lead">다음<\/span><span class="stale-label">/);
 });
 
 test('html non-stale fixture — no data-stale attr on any chip', () => {

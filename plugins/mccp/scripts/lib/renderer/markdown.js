@@ -1,7 +1,9 @@
 'use strict';
 
 function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
-  const { formatRelativeTime } = formatUtils;
+  const { formatRelativeTime, normalizeProse } = formatUtils;
+  const norm = typeof normalizeProse === 'function' ? normalizeProse : (s) => s;
+  const verdictText = norm(verdict.text);
   const m = model || {};
   const [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory] = sections;
 
@@ -11,7 +13,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   const isStale = Number.isFinite(derivedMs) && (now - derivedMs) > 60_000;
 
   const out = [];
-  out.push('# mccp 상태 · ' + verdict.icon + ' ' + verdict.text);
+  out.push('# mccp 상태 · ' + verdict.icon + ' ' + verdictText);
   out.push('');
   out.push('_마지막 갱신: ' + derivedAt + ' · ' + relative + '_');
   out.push('');
@@ -39,7 +41,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
 
   out.push('## Verdict');
   out.push('');
-  out.push('> ' + verdict.icon + ' ' + verdict.text);
+  out.push('> ' + verdict.icon + ' ' + verdictText);
   out.push('');
   out.push('---');
   out.push('');
@@ -107,7 +109,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('---');
   out.push('');
 
-  out.push('_derived from .claude/ · v1.9.0_');
+  out.push('_derived from .claude/ · v1.18.0_');
   out.push('');
 
   return out.join('\n');

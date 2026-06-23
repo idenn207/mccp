@@ -18,13 +18,13 @@ test('OQ 4-part HTML — severity tag + item text + meta-cue + action prompt + c
     }],
   };
   const { html } = renderOpenQuestions({ sources: {} }, formatUtils, planBody);
-  assert.ok(html.includes('class="severity-tag'), 'severity tag present');
-  assert.ok(html.includes('class="item-text"'), 'item text present');
+  assert.ok(html.includes('class="sev s-'), 'sev badge present');
+  assert.ok(html.includes('class="li-q"'), 'question text present');
   assert.ok(html.includes('class="meta-cue"'), 'meta-cue present');
-  assert.ok(html.includes('class="action-prompt"'), 'action prompt present');
+  assert.ok(html.includes('class="inline-prompt"'), 'inline prompt present');
   assert.ok(html.includes('class="copy-btn"'), 'copy button present');
   assert.ok(html.includes('data-copy="'), 'data-copy attr present');
-  assert.ok(html.includes('§Open Questions, line 102'), 'meta-cue anchor');
+  assert.ok(html.includes('Open Questions') && html.includes('line 102'), 'meta-cue anchor');
 });
 
 test('Risk 4-part HTML — sev tag + mitigation + dedupe cue + action prompt + copy button', () => {
@@ -38,11 +38,10 @@ test('Risk 4-part HTML — sev tag + mitigation + dedupe cue + action prompt + c
     }],
   };
   const { html } = renderRisks({ sources: {} }, formatUtils, planBody);
-  assert.ok(html.includes('class="severity-tag'));
-  assert.ok(html.includes('class="risk-mitigation'));
-  assert.ok(html.includes('class="related-oq"'));
-  assert.ok(html.includes('동일 OQ 참조: OQ-a 결정'));
-  assert.ok(html.includes('class="copy-btn"'));
+  assert.ok(html.includes('class="sev s-'));
+  assert.ok(html.includes('class="meta-cue mit"'), 'mitigation cue present');
+  assert.ok(html.includes('완화:'), 'mitigation label');
+  assert.ok(html.includes('동일 질문 참조: OQ-a 결정'));
 });
 
 test('3 expanded + details collapse — OQ', () => {
@@ -50,7 +49,7 @@ test('3 expanded + details collapse — OQ', () => {
   for (let i = 0; i < 7; i++) stateOQ.push('q' + i);
   const model = { sources: { state: { item: { body: { open_questions: stateOQ } } } } };
   const { html } = renderOpenQuestions(model, formatUtils, {});
-  assert.ok(html.includes('<details class="oq-more">'));
+  assert.ok(html.includes('<details class="more">'));
   assert.ok(html.includes('+4 더보기'));
 });
 
@@ -60,7 +59,7 @@ test('3 expanded + details collapse — Risks', () => {
     risks.push({ risk: 'r' + i, impact: 'Low', likelihood: 'Low' });
   }
   const { html } = renderRisks({ sources: {} }, formatUtils, { risks });
-  assert.ok(html.includes('<details class="risks-more">'));
+  assert.ok(html.includes('<details class="more">'));
   assert.ok(html.includes('+4 더보기'));
 });
 
@@ -76,7 +75,7 @@ test('markdown 4-part sub-list — severity + meta-cue + action prompt', () => {
   const { md } = renderOpenQuestions({ sources: {} }, formatUtils, planBody);
   assert.ok(md.startsWith('- '));
   assert.ok(md.includes('**MEDIUM**'));
-  assert.ok(md.includes('- 왜:'));
+  assert.ok(md.includes('- 출처:'));
   assert.ok(md.includes('- 다음 액션: `/mccp:plan'));
 });
 

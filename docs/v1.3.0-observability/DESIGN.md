@@ -364,3 +364,27 @@ tb-title + nav active 셀렉터 체인에 `attention` 추가, `console-shell.tes
 
 scope: M1 = 셸 + 토큰 + invariant 개정 + vendored 폰트 + 위험·질문 route 분리.
 섹션 내부 마크업 + 실데이터 추출 = M2, 우측 드로어 = M3, STATUS.md 동등본 = M4.
+
+### M2 — 섹션 fidelity + prose 파이프라인 (v1.18.0)
+
+M1 셸 위에서 각 섹션 내부 마크업을 승인 sample 의 class anatomy 로 충실 이식하고
+(stack-list/li-item/sev/pipe-stages/audit-row/milestone-item), 모든 더미 자리를 derive
+실데이터로 채웠다. **샘플 섹션 마크업이 계약** — `section-fidelity.test.js` 가 각 섹션의
+sample anatomy emit + deprecated 구조 class 속성 0 을 mechanical 가드한다.
+
+핵심은 H10/H16 의 **데이터-driven 해소**(룰 본체 불변, 산출물만 clean):
+
+- `format-utils.renderProseHtml/renderProseMd` 공용 헬퍼가 전 섹션 prose 에 적용.
+  html 은 normalizeProse(em-dash→comma) 후 inline-markdown(code/bold/link, GFM 이중
+  백틱 포함)을 실제 HTML 로 렌더 + MD0xx 를 `<code>` 로 중성화 + 나머지 escape. md 는
+  normalizeProse 만(markdown 마커는 정당 — H16 은 html-only).
+- bold 내부 중첩 코드는 재귀 렌더로 `<code>` 화 → H16 strip.
+- `action-prompt.cleanArg` 가 복사 명령 인자의 마커/em-dash/MD0xx 를 plain 으로 강등 —
+  data-copy 속성(H16 carve-out 밖)이 마커를 품지 않게.
+- 섹션 md/html 템플릿의 하드코드 ` — ` separator 도 `·`/`,` 로 정리(emitted fragment
+  전체 clean).
+
+is-block/is-bad/active 는 공유 `parsers/decision-state.deriveDecisionState` 가 (decision,
+gate)별 latest(created_at/round)를 시간순으로 골라 판정한다 — `converged===false` 단순
+판정 폐기. divergent(round≥2 미수렴)=blocked, 첫 라운드 미수렴=active(in-progress).
+pipeline·timeline·status-grid 가 이 단일 SSoT 를 소비(스키마 확장 0).

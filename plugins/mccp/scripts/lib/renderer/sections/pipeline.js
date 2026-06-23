@@ -1,159 +1,128 @@
 'use strict';
 
-// v1.13.0 게이트 스테이지 파이프라인 섹션.
-// receipt를 decision_id별로 묶어 plan-codex → implement-codex → pr-codex
-// 진행을 가로 스테퍼로 렌더한다. Codex Plan-R1 absorption:
-//   F1 — canonical 정규화: gate = r.gate_id || r.gate, canonical mccp-* 만
-//        스테이지로 매핑, (decision_id, gate)별 최신 receipt(created_at→round)만
-//        노드 상태로 사용(stale failed가 later converged 가리지 않게).
-//   F3 — status-aware collapse: 미수렴(◐) decision 은 절대 collapse 안 함,
-//        정렬 attention → active → recent complete, top-3 + collapsed 상태 카운트.
-// 색 단독 금지 — 모든 노드는 색 + 아이콘 + sr-only 텍스트 병행(a11y).
-// baseline 은 순수 마크업(JS 없이도 상태 표시). 연결선은 .pipe-edge(수평 라인,
-// border-left 미사용 — H4 회피).
+// v1.18.0 M2 게이트 파이프라인 — 샘플 fidelity. decision_id 별 plan→impl→pr
+// 진행을 가로 스테퍼(ol.pipe-stages)로 렌더한다. 노드 상태(done/active/blocked/
+// missing)와 decision-level 상태(done/active/blocked)는 공유 helper
+// deriveDecisionState(Codex F1) 가 시간순으로 판정한다 — converged===false 단순
+// 판정 폐기. is-block 은 escalated 미수렴(divergent), is-active 는 첫 라운드
+// in-progress. 색 단독 금지 — 노드는 색 + 아이콘/점 + sr-only label 병행(a11y).
 
-const STAGES = [
-  { gate: 'mccp-plan-codex', short: 'plan' },
-  { gate: 'mccp-implement-codex', short: 'impl' },
-  { gate: 'mccp-pr-codex', short: 'pr' },
-];
-
-const NODE = {
-  converged: { icon: '✓', cls: 's-terminal-ok', label: '수렴' },
-  pending: { icon: '◐', cls: 's-stale', label: '진행' },
-  missing: { icon: '○', cls: 'muted', label: '대기' },
-};
+const { deriveDecisionState, STAGES } = require('../parsers/decision-state');
 
 const TOP_EXPANDED = 3;
 
-function gateOf(r) {
-  // F1 — derive sources/receipts.js emits `gate`; older shapes may carry
-  // `gate_id`. Read both so canonical ids resolve either way.
-  return (r && (r.gate_id || r.gate)) || '';
-}
+// 노드 상태 → 마커(svg id 또는 dot) + sr-only label.
+const NODE_MARK = {
+  done: { svg: 'ic-check', label: '수렴', cls: 'is-done' },
+  active: { dot: true, label: '진행 중', cls: 'is-active' },
+  blocked: { svg: 'ic-alert', label: '차단', cls: 'is-block' },
+  missing: { dot: true, label: '대기', cls: '' },
+};
+const NODE_MD = { done: '✓', active: '◐', blocked: '⚠', missing: '○' };
 
-function timeOf(r) {
-  const t = r && r.created_at ? new Date(r.created_at).getTime() : NaN;
-  return Number.isFinite(t) ? t : 0;
-}
-
-// Latest receipt for one (decision, gate): created_at desc, round desc tiebreak.
-function latest(receipts) {
-  let best = null;
-  for (const r of receipts) {
-    if (!best) { best = r; continue; }
-    const dt = timeOf(r) - timeOf(best);
-    if (dt > 0 || (dt === 0 && (r.round || 0) > (best.round || 0))) best = r;
+// decision state + active stage → pipe-status(텍스트 + 색 클래스 + 마커).
+function statusOf(d) {
+  if (d.state === 'done') {
+    return { cls: 's-ok', text: 'complete', svg: 'ic-check' };
   }
-  return best;
-}
-
-function nodeStatus(receipt) {
-  if (!receipt) return 'missing';
-  return receipt.converged === true ? 'converged' : 'pending';
-}
-
-// Build one decision's stage nodes + a decision-level class for sort/collapse.
-function buildDecision(decisionId, receipts) {
-  const byGate = new Map();
-  for (const r of receipts) {
-    const g = gateOf(r);
-    if (!byGate.has(g)) byGate.set(g, []);
-    byGate.get(g).push(r);
+  if (d.state === 'blocked') {
+    return { cls: 's-block', text: '차단', svg: 'ic-alert' };
   }
-  const nodes = STAGES.map(stage => {
-    const picked = latest(byGate.get(stage.gate) || []);
-    return { short: stage.short, status: nodeStatus(picked) };
-  });
-  const hasPending = nodes.some(n => n.status === 'pending');
-  const prNode = nodes[STAGES.length - 1];
-  const allSettled = nodes.every(n => n.status !== 'pending');
-  let kind;
-  if (hasPending) kind = 'attention';            // 미수렴 — 절대 collapse 안 함
-  else if (prNode.status === 'converged') kind = 'complete';
-  else kind = 'active';                            // 일부 수렴 + 다음 단계 대기
-  const lastTime = receipts.reduce((mx, r) => Math.max(mx, timeOf(r)), 0);
-  return { decisionId, nodes, kind, lastTime };
+  const stageText = { plan: '계획 중', impl: '구현 중', pr: 'PR 검토 중' };
+  return { cls: 's-active', text: stageText[d.activeStage] || '진행 중', dot: true };
 }
 
-const KIND_RANK = { attention: 0, active: 1, complete: 2 };
+const STATE_RANK = { blocked: 0, active: 1, done: 2 };
 
 function renderPipeline(model, formatUtils, planBody, opts) {
   const { escapeHtml, escapeAttr } = formatUtils;
   const m = model || {};
-  const items = ((m.sources && m.sources.receipts && m.sources.receipts.items) || [])
-    .filter(r => r && r.ok !== false && r.decision_id && STAGES.some(s => s.gate === gateOf(r)));
+  const receipts = (m.sources && m.sources.receipts && m.sources.receipts.items) || [];
+  const stateMap = deriveDecisionState(receipts);
 
-  if (items.length === 0) {
+  if (stateMap.size === 0) {
     return {
       md: '_(게이트 활동 없음)_',
       html: '<p class="muted"><em>게이트 활동 없음</em></p>',
     };
   }
 
-  const byDecision = new Map();
-  for (const r of items) {
-    if (!byDecision.has(r.decision_id)) byDecision.set(r.decision_id, []);
-    byDecision.get(r.decision_id).push(r);
-  }
-
-  const decisions = Array.from(byDecision.entries())
-    .map(([id, rs]) => buildDecision(id, rs))
+  const decisions = Array.from(stateMap.values())
     .sort((a, b) => {
-      const rk = KIND_RANK[a.kind] - KIND_RANK[b.kind];
+      const rk = STATE_RANK[a.state] - STATE_RANK[b.state];
       return rk !== 0 ? rk : b.lastTime - a.lastTime;
     });
 
-  // F3 — never collapse attention/active; expand at least TOP_EXPANDED rows.
-  const neverCollapse = decisions.filter(d => d.kind !== 'complete').length;
+  const doneCount = decisions.filter(d => d.state === 'done').length;
+  const activeCount = decisions.filter(d => d.state === 'active').length;
+  const blockedCount = decisions.filter(d => d.state === 'blocked').length;
+
+  // blocked/active 는 절대 collapse 안 함 — 최소 TOP_EXPANDED 행 expand.
+  const neverCollapse = decisions.filter(d => d.state !== 'done').length;
   const expandedCount = Math.max(TOP_EXPANDED, neverCollapse);
   const expanded = decisions.slice(0, expandedCount);
   const collapsed = decisions.slice(expandedCount);
 
-  function rowMd(d) {
-    const stages = d.nodes.map(n => n.short + ' ' + NODE[n.status].icon).join(' → ');
-    return '- `' + d.decisionId + '` · ' + stages;
-  }
-  function rowHtml(d) {
-    const inner = [];
-    d.nodes.forEach((n, i) => {
-      const meta = NODE[n.status];
-      inner.push('<span class="pipe-node ' + meta.cls + '">'
-        + '<span class="pipe-icon" aria-hidden="true">' + escapeHtml(meta.icon) + '</span>'
-        + '<span class="pipe-stage">' + escapeHtml(n.short) + '</span>'
-        + '<span class="sr-only">' + escapeHtml(meta.label) + '</span>'
-        + '</span>');
-      if (i < d.nodes.length - 1) inner.push('<span class="pipe-edge" aria-hidden="true"></span>');
-    });
-    return '<li class="pipe-row" data-kind="' + escapeAttr(d.kind) + '">'
-      + '<code class="pipe-decision">' + escapeHtml(d.decisionId) + '</code>'
-      + '<span class="pipe-track">' + inner.join('') + '</span>'
+  function nodeHtml(node) {
+    const mark = NODE_MARK[node.status] || NODE_MARK.missing;
+    const inner = mark.svg
+      ? '<svg class="i" aria-hidden="true"><use href="#' + mark.svg + '"/></svg>'
+      : '<span class="node-dot" aria-hidden="true"></span>';
+    return '<li class="pipe-node ' + mark.cls + '">'
+      + '<span class="node-mark">' + inner + '</span>'
+      + '<span class="node-label">' + escapeHtml(node.short) + '</span>'
+      + '<span class="sr-only">' + escapeHtml(node.short + ' ' + mark.label) + '</span>'
       + '</li>';
   }
 
-  const mdLines = expanded.map(rowMd);
+  function rowHtml(d) {
+    const stages = [];
+    d.nodes.forEach((n, i) => {
+      stages.push(nodeHtml(n));
+      if (i < d.nodes.length - 1) stages.push('<span class="node-link" aria-hidden="true"></span>');
+    });
+    const st = statusOf(d);
+    const marker = st.svg
+      ? '<svg class="i i-sm" aria-hidden="true"><use href="#' + st.svg + '"/></svg>'
+      : '<span class="dot dot-accent" aria-hidden="true"></span>';
+    return '<div class="pipe-row" data-state="' + escapeAttr(d.state) + '">'
+      + '<span class="pipe-id">' + escapeHtml(d.decisionId) + '</span>'
+      + '<ol class="pipe-stages">' + stages.join('') + '</ol>'
+      + '<span class="pipe-status ' + st.cls + '">' + marker + escapeHtml(st.text) + '</span>'
+      + '</div>';
+  }
+
+  function rowMd(d) {
+    const stages = d.nodes.map(n => n.short + ' ' + NODE_MD[n.status]).join(' → ');
+    return '- `' + d.decisionId + '` · ' + stages;
+  }
+
   const htmlRows = expanded.map(rowHtml);
+  const mdLines = expanded.map(rowMd);
 
   if (collapsed.length > 0) {
-    const counts = collapsed.reduce((acc, d) => { acc[d.kind] = (acc[d.kind] || 0) + 1; return acc; }, {});
-    const parts = Object.keys(counts).map(k => counts[k] + ' ' + k);
-    const summary = '+' + collapsed.length + ' more · ' + parts.join(' · ');
+    const summary = '+' + collapsed.length + ' 더보기';
+    htmlRows.push('<details class="more"><summary>'
+      + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>'
+      + escapeHtml(summary) + '</summary><div class="pipeline">'
+      + collapsed.map(rowHtml).join('') + '</div></details>');
     mdLines.push('- _' + summary + '_');
-    htmlRows.push('<li class="pipe-more"><details><summary>' + escapeHtml(summary) + '</summary><ul class="pipeline">'
-      + collapsed.map(rowHtml).join('') + '</ul></details></li>');
   }
+
+  const foot = '<span class="foot-stat">complete ' + doneCount
+    + '<i>진행 ' + activeCount + '</i><i>차단 ' + blockedCount + '</i></span>'
+    + '<a class="foot-link" href="#route-overview">개요로'
+    + '<svg class="i i-sm" aria-hidden="true"><use href="#ic-arrow"/></svg></a>';
 
   return {
     md: mdLines.join('\n'),
-    html: '<ul class="pipeline">' + htmlRows.join('') + '</ul>',
+    html: '<div class="pipeline">' + htmlRows.join('') + '</div>',
+    count: '결정 ' + decisions.length + ', complete ' + doneCount,
+    foot,
   };
 }
 
 module.exports = {
   renderPipeline,
-  // Test-exposed internals.
-  _buildDecision: buildDecision,
-  _latest: latest,
-  _gateOf: gateOf,
   STAGES,
 };

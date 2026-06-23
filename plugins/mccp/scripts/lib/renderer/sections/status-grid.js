@@ -2,6 +2,7 @@
 
 const path = require('path');
 const { extractIntentFromPath } = require('../parsers/intent-extractor');
+const { deriveDecisionState } = require('../parsers/decision-state');
 
 function formatPlanLabel(basename) {
   if (!basename || typeof basename !== 'string') return '(unknown)';
@@ -33,15 +34,17 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
     return planStatuses.get(path.basename(p.path)) === 'in-progress';
   }).length;
 
+  // v1.18.0 M2 (H1 fix) — blocked 카운트는 공유 SSoT deriveDecisionState 로 일원화.
+  // 폐기된 `converged===false` per-receipt 휴리스틱은 첫 라운드 in-progress 를
+  // divergent 차단과 혼동해 hero/pin-alert("차단 N건")가 pipeline("차단 0")과 모순됐다.
+  // decision-level state==='blocked'(round≥2 미수렴 + 시간순 supersede 가드)만 집계 →
+  // pipeline·timeline 과 동일 판정 보장. (decision-state.js §8-16)
   const receiptItems = (sources.receipts && sources.receipts.items) || [];
-  const blockedReceipts = receiptItems.filter(r => r && r.converged === false);
-  const decisionsWithLaterConverged = new Set();
-  for (const r of receiptItems) {
-    if (r && r.converged === true && r.decision_id) {
-      decisionsWithLaterConverged.add(r.decision_id);
-    }
+  const stateMap = deriveDecisionState(receiptItems);
+  let blockedCount = 0;
+  for (const d of stateMap.values()) {
+    if (d.state === 'blocked') blockedCount += 1;
   }
-  const blockedCount = blockedReceipts.filter(r => !decisionsWithLaterConverged.has(r.decision_id)).length;
 
   let nextStep = '대기';
   let nextStale = false;

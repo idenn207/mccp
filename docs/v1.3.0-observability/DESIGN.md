@@ -321,3 +321,46 @@ Target: 89 → ~92 tests, 0 regressions in derive/snapshot/trigger/receipt.
 ---
 
 *Co-shaped 2026-06-20 via `Skill(frontend-design-direction)` first-step + `Skill(impeccable, critique)` (Nielsen 15/40 Poor, 8 absolute-ban hits). Replaces b204510 visual layer. Locked to PRD §Design Direction line 148-231 verbatim.*
+
+---
+
+## v1.17.0 — dashboard-console-redesign M1 (승인 sample 이식 + H-invariant 개정)
+
+승인된 `.claude/cache/dashboard-sample.html`(2026-06-23 사용자 confirm)을 단일 시각
+canonical 로 삼아 앱 셸 + 토큰을 `html.js` 에 이식. 미감 방향 재탐색 종료 — sample 이
+계약이다. sample 과 충돌하는 lint 계약 4건을 개정(나머지 H1/H5/H6/H8/H10~H12/H14~H17 불변):
+
+- **H2 `≤ 960 → ≤ 1080`** — sample 콘솔이 2-col 패널 그리드를 담는 `--content-max:1080px`.
+  nav 레일 폭(`--sidebar-w`)은 별도라 무관.
+- **H3 selector-aware carve-out 유지(magnitude 천장 폐기) + sample frozen 집합 확장**
+  (Codex Plan-Codex R1 F1) — sample 이 frozen canonical 이라 carve 집합은 bounded.
+  추가 affordance: switcher/sw-mark/sw-badge/search/kbd/pin-alert/pa-btn/c-mark/
+  tb-icon-btn/node-mark/ms-check/sev/inline-prompt/freshness/audit-node/dot.
+  일반 layout chrome(section/div/topbar/sidebar/content)은 carve 밖 — radius 추가 시
+  H3 FIRE. `console-shell.test.js` drift fixture 가 이 가드를 증명.
+- **H7 룰 불변, sample 측 수정** — sample topbar `backdrop-filter` 제거 → 불투명 bg.
+  glassmorphism absolute-ban 가드 보존(외형 ~95% 동일).
+- **H13 font-family banlist → 외부 fetch invariant 재정의** (Codex Plan-Codex R1 F3) —
+  이전엔 "Pretendard 로컬 family-name 참조"(fetch 아님)까지 막는 과잉. 이제 렌더 산출물
+  전체(css+html)의 외부 fetch surface(`@import`/`url(http|//)`/`<link|script|img|use src|href=http|//>`)
+  를 mechanical 검출. self-contained 산출물(inline jQuery/sprite/style + 로컬 폰트)은 green.
+
+### 폰트 정책 (PRD OQ #1 — 사용자 결정: vendored)
+
+Pretendard self-contained = **vendored woff2 base64 `@font-face`**(`FONT_FACE` 상수,
+`vendor/PretendardVariable.woff2` 2.0MB OFL-1.1 → `data:font/woff2;base64` inline,
+외부 fetch 0). `data:` URI 는 네트워크 surface 가 아니라 H13 외부-fetch invariant 통과.
+woff2 누락 시 fail-open(빈 문자열) → body font-family 의 system 스택으로 graceful degrade.
+tradeoff: 매 렌더 산출물에 ~2.7MB base64 가 inline 돼 `status.html` ~3.15MB(로컬 캐시
+파일이라 수용). 사용자가 시각 100% 일치를 위해 로컬 family-name 참조 대신 vendored 선택.
+
+### IA — 위험·질문 전용 route (사용자 결정, sample 3-route 에서 의도적 이탈)
+
+승인 sample 의 nav 는 3-route(개요/파이프라인/활동·기록)였으나, 위험 + 미해결 질문은
+attention surface(진입점 우선순위가 다름)라 활동·기록에서 분리해 **4번째 전용 route**
+(`route-attention`, nav 라벨 "위험 · 질문", `ic-alert`)로 격상. `:target` 라우팅 +
+tb-title + nav active 셀렉터 체인에 `attention` 추가, `console-shell.test.js` 가 가드.
+항목별 상세 드로어(native dialog + JS)는 M3 — 본 route 가 그 진입점이 된다.
+
+scope: M1 = 셸 + 토큰 + invariant 개정 + vendored 폰트 + 위험·질문 route 분리.
+섹션 내부 마크업 + 실데이터 추출 = M2, 우측 드로어 = M3, STATUS.md 동등본 = M4.

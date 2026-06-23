@@ -16,6 +16,22 @@ const JQUERY_SLIM = (function () {
   }
 })();
 
+// v1.17.0 (dashboard-console-redesign OQ#1 — 사용자 승인) vendored Pretendard
+// Variable, base64-inline @font-face. 외부 fetch 0(self-contained 불변 + H13
+// 외부-fetch invariant 정합 — data: URI 는 네트워크 surface 아님). woff2 누락 시
+// fail-open(빈 문자열) → body font-family 의 system 스택으로 graceful degrade.
+// OFL-1.1, orioncactus/pretendard (license: vendor 동봉 woff2 metadata).
+const FONT_FACE = (function () {
+  try {
+    const b64 = fs.readFileSync(path.join(__dirname, 'vendor', 'PretendardVariable.woff2')).toString('base64');
+    return "@font-face{font-family:'Pretendard Variable';font-weight:45 920;"
+      + "font-style:normal;font-display:swap;"
+      + "src:url(data:font/woff2;base64," + b64 + ") format('woff2-variations');}";
+  } catch (_) {
+    return '';
+  }
+})();
+
 // Pipeline enhancement (jQuery): node tooltips + focusable rows. Additive only —
 // baseline is fully visible/legible without this. No visibility-gating animation
 // (a hidden-tab transition must never leave a node blank).
@@ -26,32 +42,48 @@ const PIPELINE_SCRIPT = "jQuery(function($){"
   + "$('.tl-step').attr('tabindex','0').on('mouseenter focus',function(){$(this).addClass('tl-row-hot');}).on('mouseleave blur',function(){$(this).removeClass('tl-row-hot');});"
   + "});";
 
-// v1.17.0 (dashboard-pipeline-chart M3 redesign-3) — Vercel 대시보드 결의
-// 멀티페이지 콘솔. 좌측 사이드바 = TOC 앵커가 아니라 page 라우팅(개요 /
-// 파이프라인 / 활동·기록 3 route). 라우팅은 순수 CSS(:target + :has)라 JS 0 —
-// no-JS 시 개요 노출(progressive enhancement). status 4축은 chrome 가 아니라
-// 개요 hero 패널 인라인 메타로만 존재(상단 고정 스트립 + 사이드바 rail 폐기 —
-// "정보의 압축·노출 제한도 디자인"). 컴포넌트 클래스(.pipe-*/.tl-*/.oq-item/
-// .risk-item/.severity-tag/.s-*/.milestone-*)는 섹션 모듈 contract 라 보존.
+// v1.17.0 (dashboard-console-redesign M1) — 승인된 dashboard-sample.html 콘솔 셸
+// 이식. Vercel 콘솔 결: 순수 중립 near-black(chroma 0, status 색만 채도),
+// hairline border 중심, Pretendard self-contained(vendored woff2 base64 inline
+// @font-face — 외부 fetch 0, woff2 파일 누락 시 system 스택 graceful degrade),
+// Lucide symbol 스프라이트.
+// 좌측 사이드바 = 프로젝트 스위처 + 검색 affordance + 아이콘 page nav + 차단
+// pin-alert. 상단바 = 브레드크럼 + 중앙 page-title + freshness. CSS :target
+// 멀티-route(JS 0, no-JS 시 개요). 섹션은 panel head/body/foot anatomy 안에
+// 기존 derive 데이터로 정적 rehouse(샘플 섹션 마크업 + 실데이터 추출은 M2,
+// 우측 드로어는 M3). 컴포넌트 클래스(.pipe-*/.tl-*/.oq-item/.risk-item/
+// .severity-tag/.s-*/.milestone-*)는 섹션 모듈 contract 라 보존.
 const OKLCH_DARK = `
 :root {
-  --bg: oklch(0.145 0.008 250);
-  --surface: oklch(0.185 0.010 250);
-  --panel: oklch(0.195 0.010 250);
-  --panel-border: oklch(0.30 0.013 250);
-  --border: oklch(0.27 0.012 250);
-  --ink: oklch(0.95 0.005 250);
-  --ink-2: oklch(0.82 0.008 250);
-  --muted: oklch(0.66 0.012 250);
-  --accent: oklch(0.72 0.16 230);
-  --status-blocked: oklch(0.70 0.20 25);
-  --status-stale: oklch(0.80 0.15 80);
-  --status-secret: oklch(0.70 0.22 25);
-  --status-worker-alive: oklch(0.72 0.16 145);
-  --status-worker-stale: oklch(0.80 0.15 80);
-  --sidebar-width: 13.5rem;
-  --content-max: 880px;
-  --panel-radius: 10px;
+  --bg: oklch(0.152 0 0);
+  --sidebar: oklch(0.165 0 0);
+  --surface: oklch(0.185 0 0);
+  --panel: oklch(0.188 0 0);
+  --panel-2: oklch(0.215 0 0);
+  --panel-hover: oklch(0.235 0 0);
+  --panel-border: oklch(0.272 0 0);
+  --border: oklch(0.272 0 0);
+  --border-2: oklch(0.335 0 0);
+  --ink: oklch(0.975 0 0);
+  --ink-2: oklch(0.78 0 0);
+  --muted: oklch(0.615 0 0);
+  --faint: oklch(0.48 0 0);
+  --accent: oklch(0.66 0.16 252);
+  --accent-dim: oklch(0.66 0.16 252 / 0.14);
+  --status-blocked: oklch(0.67 0.19 25);
+  --status-blocked-dim: oklch(0.67 0.19 25 / 0.14);
+  --status-stale: oklch(0.81 0.13 80);
+  --status-secret: oklch(0.67 0.22 25);
+  --status-worker-alive: oklch(0.74 0.16 152);
+  --status-worker-stale: oklch(0.81 0.13 80);
+  --ok: oklch(0.74 0.16 152);
+  --ok-dim: oklch(0.74 0.16 152 / 0.13);
+  --warn: oklch(0.81 0.13 80);
+  --sidebar-w: 244px;
+  --content-max: 1080px;
+  --radius: 9px;
+  --radius-sm: 6px;
+  --topbar-h: 52px;
   --panel-shadow: 0 1px 2px oklch(0 0 0 / 0.28), 0 1px 1px oklch(0 0 0 / 0.16);
 }`;
 
@@ -59,175 +91,203 @@ const OKLCH_LIGHT = `
 @media (prefers-color-scheme: light) {
   :root {
     --bg: oklch(0.99 0 0);
-    --surface: oklch(0.975 0.003 250);
+    --sidebar: oklch(0.982 0 0);
+    --surface: oklch(0.972 0 0);
     --panel: oklch(1 0 0);
-    --panel-border: oklch(0.90 0.006 250);
-    --border: oklch(0.92 0.005 250);
-    --ink: oklch(0.20 0.005 250);
-    --ink-2: oklch(0.32 0.006 250);
-    --muted: oklch(0.45 0.008 250);
-    --accent: oklch(0.55 0.18 230);
-    --status-blocked: oklch(0.55 0.18 25);
-    --status-stale: oklch(0.62 0.15 80);
+    --panel-2: oklch(0.972 0 0);
+    --panel-hover: oklch(0.955 0 0);
+    --panel-border: oklch(0.912 0 0);
+    --border: oklch(0.912 0 0);
+    --border-2: oklch(0.85 0 0);
+    --ink: oklch(0.20 0 0);
+    --ink-2: oklch(0.36 0 0);
+    --muted: oklch(0.49 0 0);
+    --faint: oklch(0.62 0 0);
+    --accent: oklch(0.55 0.18 252);
+    --accent-dim: oklch(0.55 0.18 252 / 0.09);
+    --status-blocked: oklch(0.54 0.20 25);
+    --status-blocked-dim: oklch(0.54 0.20 25 / 0.08);
+    --status-stale: oklch(0.60 0.12 70);
     --status-secret: oklch(0.50 0.22 25);
-    --status-worker-alive: oklch(0.55 0.15 145);
-    --status-worker-stale: oklch(0.62 0.15 80);
+    --status-worker-alive: oklch(0.54 0.14 152);
+    --status-worker-stale: oklch(0.60 0.12 70);
+    --ok: oklch(0.54 0.14 152);
+    --ok-dim: oklch(0.54 0.14 152 / 0.10);
+    --warn: oklch(0.60 0.12 70);
     --panel-shadow: 0 1px 2px oklch(0.55 0.01 250 / 0.08), 0 1px 1px oklch(0.55 0.01 250 / 0.05);
   }
 }`;
 
 const LAYOUT = `
 * { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
 body {
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI Variable', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  margin: 0;
+  /* Pretendard self-contained: vendored woff2 base64 @font-face(FONT_FACE 상수,
+     외부 fetch 0). woff2 누락 시 system 스택으로 graceful degrade. (H13 = 외부
+     fetch invariant — data: URI 는 네트워크 surface 아님) */
+  font-family: 'Pretendard Variable', Pretendard, ui-sans-serif, system-ui, -apple-system, 'Segoe UI Variable', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
   color: var(--ink);
   background: var(--bg);
-  margin: 0;
-  padding: 0;
-  line-height: 1.55;
-  font-size: 15px;
-  /* Vercel 앱 셸: 좌측 사이드바(full-bleed) + 메인 컬럼. body 가 그리드. */
   display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   align-items: start;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
-code, .mono { font-family: ui-monospace, 'SF Mono', Consolas, 'Liberation Mono', monospace; font-size: 0.92em; color: var(--ink-2); }
+a { color: inherit; }
+code, .mono { font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, 'Liberation Mono', monospace; font-size: 0.86em; color: var(--ink-2); }
 .sr-only {
   position: absolute; width: 1px; height: 1px;
   overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
   white-space: nowrap; border: 0; padding: 0; margin: -1px;
 }
-.skip-link:focus-visible {
-  position: fixed; top: 0.25rem; left: 0.25rem;
-  clip: auto; clip-path: none; width: auto; height: auto;
-  margin: 0; padding: 0.4rem 0.75rem;
-  background: var(--accent); color: var(--bg);
-  z-index: 60; outline: 2px solid var(--bg); outline-offset: 2px;
-  text-decoration: none; border-radius: 3px;
-}
-/* ── 좌측 사이드바 — full-height sticky 라우팅 레일. brand + nav + foot. ──── */
+.skip-link { position: fixed; top: -100px; left: 0.5rem; z-index: 80;
+  background: var(--accent); color: oklch(0.99 0 0);
+  padding: 0.45rem 0.8rem; border-radius: 6px; text-decoration: none; }
+.skip-link:focus-visible { top: 0.5rem; outline: 2px solid var(--bg); outline-offset: 2px; }
+/* icons — symbol(viewBox 0 0 24 24) 가 16px 박스로 정확히 스케일 */
+.i { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75;
+  stroke-linecap: round; stroke-linejoin: round; flex: none; display: inline-block; vertical-align: -0.16em; }
+.i-sm { width: 13px; height: 13px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--muted); }
+.dot-ok { background: var(--ok); }
+.dot-bad { background: var(--status-blocked); }
+.dot-warn { background: var(--warn); }
+.dot-accent { background: var(--accent); }
+.dot-mute { background: var(--faint); }
+/* ───────────────────────── 좌측 사이드바 ───────────────────────── */
 .sidebar {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
-  padding: 1.1rem 0.7rem;
-  overflow-y: auto;
+  position: sticky; top: 0; height: 100vh;
+  display: flex; flex-direction: column;
+  background: var(--sidebar);
   border-right: 1px solid var(--border);
-  background: var(--surface);
-  font-size: 0.875rem;
+  padding: 0.65rem 0.55rem;
+  overflow-y: auto;
 }
-.sidebar .brand {
-  font-weight: 600;
-  font-size: 0.95rem;
-  letter-spacing: -0.01em;
-  color: var(--ink);
-  padding: 0.15rem 0.55rem 0.35rem;
-}
-.sidebar-foot { margin-top: auto; padding: 0.55rem; color: var(--muted); font-size: 0.75rem; }
-/* nav 레일 — plain 텍스트 + active(색+굵기+배경+▸ 마커, 색 단독 아님). */
+.switcher { display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0.5rem; border-radius: var(--radius-sm); color: var(--ink); }
+.switcher:hover { background: var(--panel-2); }
+.sw-mark { width: 22px; height: 22px; border-radius: 6px; flex: none;
+  display: grid; place-items: center;
+  background: var(--accent-dim); color: var(--accent); border: 1px solid oklch(0.66 0.16 252 / 0.35); }
+.sw-name { font-weight: 600; font-size: 0.875rem; letter-spacing: -0.012em; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-badge { font-size: 0.66rem; font-weight: 500; color: var(--muted);
+  border: 1px solid var(--border-2); padding: 0.04rem 0.34rem; border-radius: 5px; flex: none; }
+.sw-chev { margin-left: auto; color: var(--faint); flex: none; }
+.search { display: flex; align-items: center; gap: 0.5rem;
+  margin: 0.5rem 0.05rem 0.7rem;
+  padding: 0.42rem 0.55rem; border-radius: var(--radius-sm);
+  background: var(--panel); border: 1px solid var(--border);
+  color: var(--muted); font-size: 0.82rem; }
+.search .i { color: var(--faint); }
+.search .kbd { margin-left: auto; font-family: ui-monospace, monospace; font-size: 0.7rem; color: var(--faint);
+  border: 1px solid var(--border-2); border-radius: 4px; padding: 0.04rem 0.32rem; }
+.rail-label { margin: 0.3rem 0.6rem 0.32rem; font-size: 0.69rem; font-weight: 600;
+  letter-spacing: 0.05em; text-transform: uppercase; color: var(--faint); }
 .nav-rail { display: flex; flex-direction: column; gap: 0.1rem; }
-.nav-rail a {
-  display: block;
-  position: relative;
-  padding: 0.4rem 0.55rem 0.4rem 1.1rem;
-  color: var(--muted);
-  text-decoration: none;
-  border-radius: 6px;
-  line-height: 1.4;
-}
-.nav-rail a:hover { color: var(--ink); background: var(--bg); }
-.nav-rail a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-/* ── 메인 컬럼 — header(freshness) + 콘텐츠 + footer. ──────────────────── */
+.nav-rail a.nav-link { display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.44rem 0.6rem; border-radius: var(--radius-sm);
+  color: var(--muted); text-decoration: none; font-size: 0.875rem; font-weight: 450; line-height: 1.3;
+  transition: background 120ms ease-out, color 120ms ease-out; }
+.nav-rail a.nav-link .i { color: var(--faint); transition: color 120ms ease-out; }
+.nav-rail a.nav-link:hover { background: var(--panel-2); color: var(--ink); }
+.nav-rail a.nav-link:hover .i { color: var(--muted); }
+.nav-rail a.nav-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.nav-count { margin-left: auto; font-size: 0.72rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+.rail-spacer { flex: 1 1 auto; min-height: 1rem; }
+.pin-alert { margin: 0 0.05rem 0.2rem; padding: 0.7rem 0.75rem;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.pin-alert .pa-top { display: flex; align-items: center; gap: 0.4rem;
+  font-size: 0.78rem; font-weight: 600; color: var(--ink); }
+.pin-alert .pa-top .i { color: var(--status-blocked); }
+.pin-alert .pa-body { margin: 0.32rem 0 0.6rem; font-size: 0.755rem; color: var(--muted); line-height: 1.5; }
+.pin-alert .pa-body b { color: var(--ink-2); font-weight: 600; }
+.pin-alert .pa-btn { display: block; text-align: center; text-decoration: none;
+  font-size: 0.77rem; font-weight: 500; color: var(--ink-2);
+  padding: 0.4rem 0.5rem; border-radius: 6px;
+  background: var(--panel-2); border: 1px solid var(--border-2); }
+.pin-alert .pa-btn:hover { background: var(--panel-hover); color: var(--ink); }
+/* ───────────────────────── 메인 컬럼 ───────────────────────── */
 .main-col { min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
-header {
+header.topbar {
+  position: sticky; top: 0; z-index: 30;
+  height: var(--topbar-h); flex: none;
+  display: flex; align-items: center; gap: 1rem; padding: 0 1.25rem;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
-  padding: 0.7rem 1.75rem;
-  transition: border-color 240ms ease-out;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem 1rem;
+  transition: border-color 200ms ease-out;
 }
-body[data-stale="1"] header { border-bottom-color: var(--status-stale); }
-header .meta { color: var(--muted); font-size: 0.8125rem; margin-left: auto; }
-header .meta .stale-suffix { display: none; }
-body[data-stale="1"] header .meta .stale-suffix { display: inline; margin-left: 0.25rem; color: var(--status-stale); }
-.content {
-  min-width: 0;
-  width: 100%;
-  max-width: var(--content-max);
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
-  padding: 1.5rem 1.75rem 4rem;
-}
+body[data-stale="1"] header.topbar { border-bottom-color: var(--status-stale); }
+.crumb { display: flex; align-items: center; gap: 0.5rem; font-size: 0.86rem; color: var(--muted); }
+.crumb .c-mark { width: 18px; height: 18px; border-radius: 5px; flex: none;
+  display: grid; place-items: center;
+  background: var(--accent-dim); color: var(--accent); border: 1px solid oklch(0.66 0.16 252 / 0.35); }
+.crumb b { color: var(--ink); font-weight: 600; letter-spacing: -0.012em; }
+.crumb .sep { color: var(--border-2); }
+.tb-title-wrap { position: absolute; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; }
+.tb-title { display: none; font-size: 0.9rem; font-weight: 600; color: var(--ink); letter-spacing: -0.012em; }
+.tb-right { margin-left: auto; display: flex; align-items: center; gap: 0.75rem; }
+.freshness { display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; color: var(--muted); }
+.freshness .dot { width: 7px; height: 7px; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-dim); }
+body[data-stale="1"] .freshness .dot { background: var(--status-stale); }
+.freshness .stale-suffix { display: none; }
+body[data-stale="1"] .freshness .stale-suffix { display: inline; margin-left: 0.25rem; color: var(--status-stale); }
+.content { width: 100%; max-width: var(--content-max); margin: 0 auto;
+  padding: 1.6rem 1.5rem 4rem; flex: 1 1 auto; min-width: 0; }
 main:focus { outline: none; }
-/* ── CSS 라우팅 — :target 으로 단일 route 표시, no-JS 시 개요 default. ──── */
-.route { display: none; scroll-margin-top: 1rem; flex-direction: column; gap: 1.1rem; }
+/* ── CSS 라우팅 — :target 으로 단일 route, no-JS 시 개요 default. ── */
+.route { display: none; scroll-margin-top: calc(var(--topbar-h) + 12px);
+  flex-direction: column; gap: 1.1rem; }
 .route:target { display: flex; }
 body:not(:has(.route:target)) #route-overview { display: flex; }
-/* nav active — 기본(개요) + 각 route 명시 타깃. 색+굵기+배경+▸ 마커. */
-body:not(:has(.route:target)) .nav-rail a[data-route-link="overview"],
-body:has(#route-overview:target) .nav-rail a[data-route-link="overview"],
-body:has(#route-pipeline:target) .nav-rail a[data-route-link="pipeline"],
-body:has(#route-activity:target) .nav-rail a[data-route-link="activity"] {
-  color: var(--accent);
-  font-weight: 600;
-  background: var(--bg);
+body:not(:has(.route:target)) .nav-link[data-route="overview"],
+body:has(#route-overview:target) .nav-link[data-route="overview"],
+body:has(#route-pipeline:target) .nav-link[data-route="pipeline"],
+body:has(#route-attention:target) .nav-link[data-route="attention"],
+body:has(#route-activity:target) .nav-link[data-route="activity"] {
+  background: var(--panel-2); color: var(--ink); font-weight: 550;
 }
-body:not(:has(.route:target)) .nav-rail a[data-route-link="overview"]::before,
-body:has(#route-overview:target) .nav-rail a[data-route-link="overview"]::before,
-body:has(#route-pipeline:target) .nav-rail a[data-route-link="pipeline"]::before,
-body:has(#route-activity:target) .nav-rail a[data-route-link="activity"]::before {
-  content: "›";
-  position: absolute;
-  left: 0.45rem;
-  color: var(--accent);
-  font-weight: 700;
-}
+body:not(:has(.route:target)) .nav-link[data-route="overview"] .i,
+body:has(#route-overview:target) .nav-link[data-route="overview"] .i,
+body:has(#route-pipeline:target) .nav-link[data-route="pipeline"] .i,
+body:has(#route-attention:target) .nav-link[data-route="attention"] .i,
+body:has(#route-activity:target) .nav-link[data-route="activity"] .i { color: var(--ink); }
+body:not(:has(.route:target)) .tb-title[data-t="overview"],
+body:has(#route-overview:target) .tb-title[data-t="overview"],
+body:has(#route-pipeline:target) .tb-title[data-t="pipeline"],
+body:has(#route-attention:target) .tb-title[data-t="attention"],
+body:has(#route-activity:target) .tb-title[data-t="activity"] { display: block; }
 .page-title { font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
-/* ── 개요 hero 패널 (primary — verdict + next-action + 인라인 4축 메타) ──── */
-.hero-panel {
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--panel-radius);
-  padding: 1.4rem 1.5rem 1.5rem;
-  box-shadow: var(--panel-shadow);
-}
+/* ── 개요 hero 패널 (primary — verdict + next-action + 인라인 4축 메타) ── */
+.hero-panel { background: var(--panel); border: 1px solid var(--panel-border);
+  border-radius: var(--radius); padding: 1.3rem 1.4rem 1.2rem; box-shadow: var(--panel-shadow); }
 .hero-panel.attention { border-color: var(--status-blocked); }
-h1.verdict { font-size: 1.45rem; font-weight: 600; margin: 0; line-height: 1.4; text-wrap: balance; }
+h1.verdict { font-size: 1.3125rem; font-weight: 600; margin: 0; line-height: 1.42;
+  letter-spacing: -0.02em; text-wrap: balance; }
 .hero-next { margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .hero-next .hero-next-label { color: var(--muted); font-size: 0.9rem; }
-.hero-meta { margin: 0.85rem 0 0; color: var(--muted); font-size: 0.875rem; }
+.hero-meta { margin: 0.85rem 0 0; color: var(--muted); font-size: 0.82rem; }
 .hero-meta .m-blocked { color: var(--status-blocked); font-weight: 600; }
 .hero-meta .stale-suffix { display: none; }
 body[data-stale="1"] .hero-meta .stale-suffix { display: inline; color: var(--status-stale); }
-/* ── 패널 (목적 있는 비중첩 패널 — 활동·기록 page 의 2-col 그리드 요소) ──── */
-.panel {
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--panel-radius);
-  padding: 1.05rem 1.25rem 1.25rem;
-  box-shadow: var(--panel-shadow);
-  min-width: 0;
-}
+/* ── 패널 (목적 있는 비중첩 패널 — head/body/foot anatomy) ── */
+.grid, .panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.1rem; align-items: start; }
+.span-2 { grid-column: 1 / -1; }
+.panel { background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius);
+  display: flex; flex-direction: column; min-width: 0; box-shadow: var(--panel-shadow); }
 .panel.attention { border-color: var(--status-blocked); }
-.panel > h2, .panel > h3 {
-  font-size: 0.9rem;
-  font-weight: 600;
-  margin: 0 0 0.85rem;
-  padding-bottom: 0.6rem;
-  color: var(--ink);
-  letter-spacing: -0.01em;
-  border-bottom: 1px solid var(--border);
-}
-/* 2-col 패널 그리드 (auto-fit 아님 — H5 무관, 명시 2 컬럼). 좁으면 1-col. */
-.panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.1rem; align-items: start; }
-.panel-grid .panel.span-2 { grid-column: 1 / -1; }
+.panel-head { display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.72rem 1rem; border-bottom: 1px solid var(--border); }
+.panel-head .i { color: var(--muted); }
+.panel-title { margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--ink); letter-spacing: -0.008em; }
+.panel-count { margin-left: auto; font-size: 0.74rem; font-weight: 450; color: var(--faint);
+  font-variant-numeric: tabular-nums; }
+.panel-body { padding: 1rem; min-width: 0; }
 .panel-empty { color: var(--muted); font-size: 0.875rem; padding: 0.5rem 0; }
 h2 { font-size: 1rem; }
 .muted { color: var(--muted); }
@@ -245,11 +305,8 @@ ul { padding-left: 1.25rem; }
 .s-secret { color: var(--status-secret); }
 .s-in-progress, .s-terminal-ok { color: var(--accent); }
 aside[role="alert"].s-secret {
-  background: var(--status-secret);
-  color: var(--bg);
-  padding: 0.5rem;
-  border-radius: 4px;
-  margin-bottom: 1rem;
+  background: var(--status-secret); color: var(--bg);
+  padding: 0.5rem; border-radius: 4px; margin-bottom: 1rem;
 }
 .severity-tag { display: inline-block; padding: 0 0.35em; border-radius: 3px;
   font-size: 0.8rem; font-weight: 500; }
@@ -262,18 +319,14 @@ aside[role="alert"].s-secret {
 .item-text { color: var(--ink); }
 .meta-cue { font-size: 0.85rem; margin: 0.25rem 0 0.25rem 1rem; color: var(--muted);
   border-left: 2px solid var(--border); padding-left: 0.5rem; }
-/* F2 absorption — 200+ char prompt wrap 안전, button overflow 방지 */
-.action-prompt { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
-  margin-top: 0.3rem; }
+.action-prompt { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.3rem; }
 .action-prompt code { background: var(--surface); padding: 0.25rem 0.4rem; border-radius: 3px;
   flex: 1; min-width: 0; max-width: 100%; overflow-x: auto; }
-.copy-btn { font-size: 0.8rem; padding: 0.2rem 0.6rem; border: 1px solid var(--border);
-  flex-shrink: 0; background: var(--surface); color: var(--ink); cursor: pointer;
-  border-radius: 3px; }
-.copy-btn:hover { background: var(--bg); }
+.copy-btn { font-size: 0.8rem; padding: 0.2rem 0.6rem; border: 1px solid var(--border-2);
+  flex-shrink: 0; background: var(--panel); color: var(--ink); cursor: pointer; border-radius: 6px; }
+.copy-btn:hover { background: var(--panel-hover); }
 .copy-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.copy-btn[data-copied="1"] { color: var(--status-worker-alive);
-  border-color: var(--status-worker-alive); }
+.copy-btn[data-copied="1"] { color: var(--status-worker-alive); border-color: var(--status-worker-alive); }
 .copy-btn[data-copied="1"]::after { content: ' ✓복사됨'; }
 .related-oq { font-size: 0.85rem; color: var(--muted); margin: 0.25rem 0 0.25rem 1rem; }
 .risk-mitigation { font-size: 0.85rem; margin: 0.25rem 0 0.25rem 1rem; }
@@ -282,13 +335,11 @@ aside[role="alert"].s-secret {
 .milestone-item:last-child { border-bottom: none; }
 .ms-name { color: var(--ink); }
 details { margin-top: 0.5rem; }
-/* F1 absorption — details summary + abbr underline contrast WCAG AA */
 details summary { cursor: pointer; color: var(--ink); font-size: 0.85rem; }
 details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 details[open] summary { margin-bottom: 0.5rem; }
 abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px; cursor: help; }
-/* v1.13.0 게이트 파이프라인 스테퍼. pipe-node 는 pill(border-radius) — H3
-   carve-out 대상(상태 노드 affordance). 연결선 .pipe-edge 는 수평 라인. */
+/* 게이트 파이프라인 스테퍼. pipe-node 는 상태 노드 affordance(carve-out). */
 .pipeline { list-style: none; padding-left: 0; margin: 0; }
 .pipe-row { display: flex; flex-wrap: wrap; align-items: center;
   gap: 0.4rem 0.75rem; padding: 0.4rem 0; border-bottom: 1px dashed var(--border); }
@@ -296,24 +347,20 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .pipe-decision { color: var(--muted); font-size: 0.85rem; min-width: 8rem; }
 .pipe-track { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
 .pipe-node { display: inline-flex; align-items: center; gap: 0.3rem;
-  padding: 0.1rem 0.55rem; border-radius: 999px; background: var(--surface);
-  font-size: 0.85rem; }
+  padding: 0.1rem 0.55rem; border-radius: 999px; background: var(--surface); font-size: 0.85rem; }
 .pipe-node .pipe-icon { font-size: 0.9rem; }
 .pipe-node .pipe-stage { color: var(--ink); }
-.pipe-edge { width: 1.25rem; height: 2px; background: var(--border);
-  flex-shrink: 0; }
+.pipe-edge { width: 1.25rem; height: 2px; background: var(--border); flex-shrink: 0; }
 .pipe-row[data-kind="attention"] .pipe-decision { color: var(--status-blocked); font-weight: 600; }
 .pipe-row.pipe-row-hot { background: var(--surface); }
 .pipe-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pipe-more { list-style: none; }
 .pipe-more summary { color: var(--muted); font-size: 0.85rem; }
-/* v1.14.0 활동 step-chart rail. tl-node pill — H3 carve-out. converged 는
-   quiet(tl-done = muted), pending 만 loud(s-stale) — accent 미사용. */
+/* 활동 step-chart rail. tl-node pill — carve-out. */
 .tl-rail { list-style: none; padding-left: 0; margin: 0; position: relative; }
 .tl-rail::before { content: ''; position: absolute; left: 0.7rem; top: 0.6rem; bottom: 0.6rem;
   width: 2px; background: var(--border); }
-.tl-step { position: relative; display: flex; align-items: flex-start; gap: 0.6rem;
-  padding: 0.3rem 0; }
+.tl-step { position: relative; display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.3rem 0; }
 .tl-node { position: relative; z-index: 1; display: inline-flex; align-items: center;
   justify-content: center; width: 1.4rem; height: 1.4rem; flex-shrink: 0;
   border-radius: 999px; background: var(--surface); }
@@ -328,36 +375,44 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .tl-note { list-style: none; color: var(--muted); padding-left: 2rem; }
 .tl-step.tl-row-hot { background: var(--surface); }
 .tl-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-footer { width: 100%; max-width: var(--content-max); margin: 0 auto;
-  padding: 0.5rem 1.75rem 1.5rem; }
-/* ── 반응형 구조 collapse: 사이드바를 상단 가로 바로, 패널 그리드 1-col. ──── */
-@media (max-width: 720px) {
+.page-foot { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;
+  max-width: var(--content-max); width: 100%; margin: 0 auto;
+  padding: 1.1rem 1.5rem 2rem; color: var(--faint); font-size: 0.74rem; }
+/* ── 반응형 collapse: 사이드바를 상단 가로 바로, 패널 그리드 1-col. ── */
+@media (max-width: 880px) {
   body { grid-template-columns: minmax(0, 1fr); }
-  .sidebar {
-    position: static;
-    height: auto;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding: 0.85rem 1rem;
-    overflow: visible;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-  .sidebar-foot { display: none; }
-  .nav-rail {
-    flex-direction: row;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    gap: 0.25rem;
-  }
-  .nav-rail a { white-space: nowrap; flex-shrink: 0; }
-  .panel-grid { grid-template-columns: minmax(0, 1fr); }
-  header { padding: 0.5rem 1rem; }
-  .content { padding: 1.25rem 1rem 3rem; }
+  .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap;
+    align-items: center; gap: 0.4rem; overflow: visible;
+    border-right: none; border-bottom: 1px solid var(--border); }
+  .search, .rail-label, .rail-spacer, .pin-alert { display: none; }
+  .nav-rail { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; margin-left: auto; gap: 0.25rem; }
+  .nav-rail a.nav-link { white-space: nowrap; flex-shrink: 0; }
+  .grid, .panel-grid { grid-template-columns: minmax(0, 1fr); }
+  .tb-title-wrap { display: none; }
+  .content { padding: 1.1rem 1rem 3rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }`;
+
+// Lucide symbol 스프라이트 — symbol(viewBox 0 0 24 24) 라 .i 박스에 정확 스케일.
+// inline 문자열 리터럴(외부 fetch 0). <body> 직후 1회 emit(aria-hidden).
+const ICON_SPRITE = '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>'
+  + '<symbol id="ic-terminal" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 9 3 3-3 3"/><path d="M13 15h3"/></symbol>'
+  + '<symbol id="ic-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></symbol>'
+  + '<symbol id="ic-branch" viewBox="0 0 24 24"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>'
+  + '<symbol id="ic-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>'
+  + '<symbol id="ic-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>'
+  + '<symbol id="ic-flag" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></symbol>'
+  + '<symbol id="ic-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>'
+  + '<symbol id="ic-alert" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>'
+  + '<symbol id="ic-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>'
+  + '<symbol id="ic-arrow" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></symbol>'
+  + '<symbol id="ic-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>'
+  + '<symbol id="ic-chev-d" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></symbol>'
+  + '<symbol id="ic-refresh" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></symbol>'
+  + '<symbol id="ic-worker" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></symbol>'
+  + '</defs></svg>';
 
 const STALE_SCRIPT = `(function(){var d=Number(document.body.dataset.derivedMs)||0;function c(){if(document.hidden)return;var a=Date.now()-d;document.body.dataset.stale=a>60000?'1':'0';}c();document.addEventListener('visibilitychange',c);setInterval(c,5000);})();`;
 
@@ -366,6 +421,18 @@ const COPY_SCRIPT = `(function(){document.addEventListener('click',function(e){v
 // 슬래시 커맨드처럼 보이는 next-action 만 복사 버튼 부여. 일반 plan 라벨은 텍스트.
 function looksLikeCommand(v) {
   return typeof v === 'string' && /^\/?mccp:|^\//.test(v.trim());
+}
+
+// 패널 제목 → Lucide symbol id 매핑. 미매핑은 dashboard 기본.
+function panelIcon(title) {
+  if (/질문/.test(title)) return 'ic-help';
+  if (/위험/.test(title)) return 'ic-alert';
+  if (/타임라인/.test(title)) return 'ic-clock';
+  if (/마일스톤/.test(title)) return 'ic-flag';
+  if (/파이프라인|게이트|결정/.test(title)) return 'ic-branch';
+  if (/워커/.test(title)) return 'ic-worker';
+  if (/활동/.test(title)) return 'ic-activity';
+  return 'ic-dashboard';
 }
 
 // 개요 hero 패널 — verdict + next-action(복사) + 인라인 4축 메타.
@@ -411,14 +478,22 @@ function renderHeroPanel(verdict, gridCells, relative, escapeHtml, escapeAttr) {
     + '</div>';
 }
 
-// 패널 — 제목 헤더(h3) + 섹션 inner HTML. 비중첩(H17). empty-state graceful.
+// 패널 — head(아이콘 + 제목 + 옵션 count) / body(섹션 inner HTML) anatomy.
+// 비중첩(H17). empty-state graceful. 섹션 내부 마크업은 M2 에서 샘플 fidelity 로.
 function renderPanel(title, section, escapeHtml, opts) {
   opts = opts || {};
   const cls = 'panel' + (opts.span2 ? ' span-2' : '') + (opts.attention ? ' attention' : '');
   const inner = (section && section.html)
     ? section.html
     : '<p class="panel-empty">데이터 없음</p>';
-  return '<section class="' + cls + '"><h3>' + escapeHtml(title) + '</h3>' + inner + '</section>';
+  const countHtml = opts.count
+    ? '<span class="panel-count">' + escapeHtml(opts.count) + '</span>'
+    : '';
+  return '<section class="' + cls + '" aria-label="' + escapeHtml(title) + '">'
+    + '<div class="panel-head"><svg class="i" aria-hidden="true"><use href="#' + panelIcon(title) + '"/></svg>'
+    + '<h3 class="panel-title">' + escapeHtml(title) + '</h3>' + countHtml + '</div>'
+    + '<div class="panel-body">' + inner + '</div>'
+    + '</section>';
 }
 
 function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
@@ -432,14 +507,39 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   const verdictAttention = verdict.tone === 'red' || verdict.tone === 'blocked';
   const gridCells = (grid && Array.isArray(grid.cells)) ? grid.cells : [];
 
-  // 활동·기록 page 패널 목록 — present 한 섹션만. timeline/risks 항상 present.
+  // 프로젝트명 — repo_root basename, 없으면 generic. 사이드바 스위처 + 브레드크럼.
+  const projectName = (function () {
+    const root = m.repo_root;
+    if (typeof root === 'string' && root && root !== '<repo>') {
+      const base = root.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+      if (base) return base;
+    }
+    return 'mccp';
+  })();
+
+  // 차단 alert — 기존 grid blocked 신호로 조건부(0 건이면 미표시). M1 은 신규
+  // 추출 없이 기존 derive 신호만 wiring(상세 추출은 M2/M3).
+  const blockedCell = gridCells.find(c => c.accent === 'blocked');
+  const blockedCount = blockedCell ? String(blockedCell.value) : '0';
+  const hasBlocked = blockedCount !== '0' && blockedCount !== '';
+
+  // 활동·기록 page 패널 목록 — present 한 섹션만. timeline 항상 present.
   const activityPanels = [
     { title: '워커', section: fanout, present: !!fanout, span2: false },
     { title: '최근 활동', section: activeSessions, present: !!activeSessions, span2: false },
     { title: '타임라인', section: timeline, present: true, span2: true },
-    { title: '마일스톤 기록', section: milestoneHistory, present: !!milestoneHistory, span2: false },
-    { title: '미해결 질문', section: questions, present: !!questions, span2: false },
+    // 마일스톤 기록: 위험·질문 분리 후 활동 route 에서 짝 없는 단독 패널 →
+    // half-orphan(오른쪽 빈칸) 방지로 full-width. 마일스톤 표도 full 이 적합.
+    { title: '마일스톤 기록', section: milestoneHistory, present: !!milestoneHistory, span2: true },
+  ].filter(p => p.present);
+
+  // 위험·질문 page 패널 목록 (dashboard-console-redesign 사용자 결정 — attention
+  // surface 를 활동·기록에서 분리한 전용 route, 샘플 3-route IA 에서 의도적 이탈.
+  // 항목별 상세 드로어는 M3). risks 항상 present. 둘 다 long-form 콘텐츠 →
+  // full-width 스택(half-orphan 방지).
+  const attentionPanels = [
     { title: '위험', section: risks, present: true, span2: true, attention: verdictAttention },
+    { title: '미해결 질문', section: questions, present: !!questions, span2: true },
   ].filter(p => p.present);
 
   const parts = [];
@@ -449,27 +549,54 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   parts.push('<meta charset="utf-8">');
   parts.push('<meta name="viewport" content="width=device-width, initial-scale=1">');
   parts.push('<title>mccp 상태 · ' + escapeHtml(verdict.text) + '</title>');
-  parts.push('<style>' + OKLCH_DARK + OKLCH_LIGHT + LAYOUT + '</style>');
+  parts.push('<style>' + FONT_FACE + OKLCH_DARK + OKLCH_LIGHT + LAYOUT + '</style>');
   parts.push('</head>');
   parts.push('<body data-stale="0" data-derived-ms="' + (Number.isFinite(derivedMs) ? derivedMs : 0) + '">');
-  parts.push('<a class="skip-link sr-only" href="#main">본문 바로가기</a>');
+  parts.push('<a class="skip-link" href="#main">본문 바로가기</a>');
+  parts.push(ICON_SPRITE);
 
-  // 좌측 사이드바 — brand + page 라우팅 nav + foot. status 칩 없음(폐기).
-  parts.push('<aside class="sidebar" aria-label="대시보드 탐색">'
-    + '<div class="brand">mccp 상태</div>'
-    + '<nav class="nav-rail" aria-label="페이지">'
-    + '<a href="#route-overview" data-route-link="overview">개요</a>'
-    + '<a href="#route-pipeline" data-route-link="pipeline">파이프라인</a>'
-    + '<a href="#route-activity" data-route-link="activity">활동 · 기록</a>'
-    + '</nav>'
-    + '<div class="sidebar-foot mono">v1.17.0</div>'
-    + '</aside>');
+  // 좌측 사이드바 — 스위처 + 검색 + page nav 레일 + 차단 pin-alert.
+  parts.push('<aside class="sidebar" aria-label="대시보드 탐색">');
+  parts.push('<div class="switcher">'
+    + '<span class="sw-mark"><svg class="i i-sm" aria-hidden="true"><use href="#ic-terminal"/></svg></span>'
+    + '<span class="sw-name">' + escapeHtml(projectName) + '</span>'
+    + '<span class="sw-badge">mccp</span>'
+    + '<svg class="i i-sm sw-chev" aria-hidden="true"><use href="#ic-chev-d"/></svg>'
+    + '</div>');
+  parts.push('<div class="search" aria-hidden="true">'
+    + '<svg class="i i-sm"><use href="#ic-search"/></svg>'
+    + '<span>찾기…</span><span class="kbd">F</span>'
+    + '</div>');
+  parts.push('<p class="rail-label">페이지</p>');
+  parts.push('<nav class="nav-rail" aria-label="페이지">'
+    + '<a class="nav-link" data-route="overview" href="#route-overview"><svg class="i" aria-hidden="true"><use href="#ic-dashboard"/></svg>개요</a>'
+    + '<a class="nav-link" data-route="pipeline" href="#route-pipeline"><svg class="i" aria-hidden="true"><use href="#ic-branch"/></svg>게이트 파이프라인</a>'
+    + '<a class="nav-link" data-route="attention" href="#route-attention"><svg class="i" aria-hidden="true"><use href="#ic-alert"/></svg>위험 · 질문</a>'
+    + '<a class="nav-link" data-route="activity" href="#route-activity"><svg class="i" aria-hidden="true"><use href="#ic-activity"/></svg>활동 · 기록</a>'
+    + '</nav>');
+  parts.push('<div class="rail-spacer"></div>');
+  if (hasBlocked) {
+    parts.push('<div class="pin-alert">'
+      + '<div class="pa-top"><svg class="i i-sm" aria-hidden="true"><use href="#ic-alert"/></svg>차단 ' + escapeHtml(blockedCount) + '건</div>'
+      + '<p class="pa-body">진행이 막힌 게이트가 있습니다. 파이프라인에서 확인하세요.</p>'
+      + '<a class="pa-btn" href="#route-pipeline">파이프라인에서 보기</a>'
+      + '</div>');
+  }
+  parts.push('</aside>');
 
-  // 메인 컬럼 — header(freshness only) + 콘텐츠(3 route) + footer.
+  // 메인 컬럼 — topbar(브레드크럼 + 중앙 타이틀 + freshness) + 콘텐츠 + footer.
   parts.push('<div class="main-col">');
-  parts.push('<header>'
-    + '<span class="meta">마지막 갱신 ' + escapeHtml(relative)
-    + '<span class="stale-suffix">· stale</span></span>'
+  parts.push('<header class="topbar">'
+    + '<div class="crumb"><span class="c-mark"><svg class="i i-sm" aria-hidden="true"><use href="#ic-terminal"/></svg></span>'
+    + '<b>' + escapeHtml(projectName) + '</b><span class="sep">/</span><span>상태</span></div>'
+    + '<div class="tb-title-wrap" aria-hidden="true">'
+    + '<span class="tb-title" data-t="overview">개요</span>'
+    + '<span class="tb-title" data-t="pipeline">게이트 파이프라인</span>'
+    + '<span class="tb-title" data-t="attention">위험 · 질문</span>'
+    + '<span class="tb-title" data-t="activity">활동 · 기록</span>'
+    + '</div>'
+    + '<div class="tb-right"><span class="freshness"><span class="dot" aria-hidden="true"></span>'
+    + escapeHtml(relative) + ' 갱신<span class="stale-suffix">· stale</span></span></div>'
     + '</header>');
 
   parts.push('<main id="main" class="content" tabindex="-1">');
@@ -483,12 +610,22 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   // route 2 — 파이프라인: 게이트 스테퍼 패널.
-  parts.push('<section class="route" id="route-pipeline" aria-label="파이프라인">'
+  parts.push('<section class="route" id="route-pipeline" aria-label="게이트 파이프라인">'
     + '<h2 class="page-title">게이트 파이프라인</h2>'
     + renderPanel('decision 별 게이트', pipeline, escapeHtml, { span2: true, attention: verdictAttention })
     + '</section>');
 
-  // route 3 — 활동·기록: 워커/활동/타임라인/마일스톤/질문/위험 패널 그리드.
+  // route 3 — 위험·질문: attention surface 전용 route(사용자 결정 — 활동·기록에서
+  // 분리). 항목별 상세 드로어는 M3.
+  const attentionHtml = attentionPanels
+    .map(p => renderPanel(p.title, p.section, escapeHtml, { span2: p.span2, attention: p.attention }))
+    .join('');
+  parts.push('<section class="route" id="route-attention" aria-label="위험 및 미해결 질문">'
+    + '<h2 class="page-title">위험 · 질문</h2>'
+    + '<div class="panel-grid">' + attentionHtml + '</div>'
+    + '</section>');
+
+  // route 4 — 활동·기록: 워커/활동/타임라인/마일스톤 패널 그리드.
   const activityHtml = activityPanels
     .map(p => renderPanel(p.title, p.section, escapeHtml, { span2: p.span2, attention: p.attention }))
     .join('');
@@ -498,13 +635,12 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="muted mono">v1.17.0 · <code lang="en">.claude/</code> 통합 derive</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.17.0 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
   parts.push('<script>' + STALE_SCRIPT + '</script>');
   parts.push('<script>' + COPY_SCRIPT + '</script>');
-  // v1.13.0 — vendored-inline jQuery + pipeline enhancement. Only when the
-  // pipeline section is present and the vendor bundle loaded. Inline only —
-  // no external origin (Codex F2). Additive: baseline renders without it.
+  // vendored-inline jQuery + pipeline enhancement. Only when pipeline present and
+  // the vendor bundle loaded. Inline only — no external origin. Additive.
   if (pipeline && JQUERY_SLIM) {
     parts.push('<script>' + JQUERY_SLIM + '</script>');
     parts.push('<script>' + PIPELINE_SCRIPT + '</script>');

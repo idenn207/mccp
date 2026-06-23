@@ -2,7 +2,11 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.11.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.17.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.17.0] — 2026-06-23
+
+dashboard 콘솔 셸 + self-contained 타이포 (M3 후속) — [1.16.0]의 다크 콘솔 위에 **좌측 사이드바 앱 셸**을 얹어 멀티페이지 콘솔을 완성한다. **사이드바**(244px sticky): 프로젝트 스위처 + 검색 affordance(현재 `aria-hidden` 시각 placeholder) + 아이콘 page nav(`.nav-link` active = 배경·굵기·아이콘 복합 신호) + 차단 `.pin-alert`. **topbar**(52px sticky): 브레드크럼 + 중앙 page-title(`:has()` 토글) + freshness dot, stale 시 하단 hairline 앰버 전환. nav 레일·상단 status-strip은 폐기하고 status 4축은 개요 hero 인라인 메타로만 유지. **타이포**: vendored `PretendardVariable.woff2`(2.0MB, OFL-1.1)를 base64-inline `@font-face`로 self-contained 임베드 — 외부 fetch 0(`data:` URI는 네트워크 surface 아님 → H13 외부-fetch invariant 통과), woff2 누락 시 system 스택 graceful degrade. **DESIGN.md**: `/impeccable document`로 frontmatter(토큰) + 디자인 시스템 서술 포맷 재작성, `html.js` OKLCH_DARK/LIGHT 토큰과 1:1 정합. **H13 재정의**(docs/v1.3.0-observability/DESIGN.md): font-family banlist → 외부-fetch invariant(로컬 family-name 참조 + vendored data: URI 임베드 허용). lint carve-out(H3 셸 클래스 superset)·H2 content-max(≤1080px) 셸 디자인 정합. 데이터 소스·derive·receipt 스키마 불변(read-side 시각 레이어만). plugin.json `1.16.0 → 1.17.0` minor bump.
 
 ## [1.16.0] — 2026-06-23
 

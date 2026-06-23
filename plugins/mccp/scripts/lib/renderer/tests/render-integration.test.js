@@ -102,9 +102,9 @@ test('render-integration — pipeline section + self-contained (no external scri
     // redesign-3: pipeline lives in its own route; the .pipeline stepper renders inside.
     assert.match(r.html, /<section class="route" id="route-pipeline"/);
     assert.match(r.html, /class="pipeline"/);
-    // v1.14.0 M2 — timeline renders as a step-chart rail (now a panel in the activity route).
+    // v1.18.0 M2 — timeline renders as audit-row rail (panel in the activity route).
     assert.match(r.html, /<section class="route" id="route-activity"/);
-    assert.match(r.html, /class="timeline tl-rail"/);
+    assert.match(r.html, /<ol class="timeline">/);
     // Codex F2 — raw or masked, the page must carry NO external script origin.
     const externalScripts = r.html.match(/<script[^>]+src\s*=\s*["']https?:\/\//gi) || [];
     assert.equal(externalScripts.length, 0, 'no external <script src> (self-contained trust boundary)');

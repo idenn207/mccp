@@ -64,16 +64,16 @@ test('OQ severity-tag uses Korean aria-label + visible English', () => {
   assert.ok(html.includes('HIGH'), 'OQ visible English');
 });
 
-test('Risk severity-tag uses Korean aria-label + visible English', () => {
+test('Risk sev badge uses Korean aria-label + visible abbreviated text (M2)', () => {
   const planBody = {
     risks: [{ risk: 'r', impact: 'Critical', likelihood: 'High' }],
   };
   const { html } = renderRisks({ sources: {} }, formatUtils, planBody);
   assert.ok(html.includes('aria-label="위험도: 최고"'), 'Risk CRITICAL aria-label Korean');
-  assert.ok(html.includes('CRITICAL'), 'Risk visible English');
+  assert.ok(html.includes('>CRIT<'), 'Risk visible sev text');
 });
 
-test('copy-btn aria-label is Korean fixed string ("다음 액션 복사")', () => {
+test('OQ inline-prompt copy-btn aria-label is Korean fixed string ("다음 액션 복사")', () => {
   const planBody = {
     openQuestions: [{
       text: 'item with very long text spelled out for emulation',
@@ -84,12 +84,8 @@ test('copy-btn aria-label is Korean fixed string ("다음 액션 복사")', () =
   };
   const { html } = renderOpenQuestions({ sources: {} }, formatUtils, planBody);
   assert.ok(html.includes('aria-label="다음 액션 복사"'), 'OQ copy-btn aria-label');
-  const riskHtml = renderRisks(
-    { sources: {} },
-    formatUtils,
-    { risks: [{ risk: 'r', impact: 'Low', likelihood: 'Low' }] },
-  ).html;
-  assert.ok(riskHtml.includes('aria-label="다음 액션 복사"'), 'Risk copy-btn aria-label');
+  // M2 — risks no longer carry an inline copy button (sample fidelity: risks
+  // surface mitigation cue, not an action prompt).
 });
 
 test('sidebar nav-rail exposes aria-label + page route links (redesign-3)', () => {
@@ -99,10 +95,11 @@ test('sidebar nav-rail exposes aria-label + page route links (redesign-3)', () =
   assert.ok(/data-route="activity"/.test(html), 'activity route link');
 });
 
-test('overview hero surfaces verdict h1 + inline 4축 meta', () => {
+test('overview hero surfaces verdict h1 + axis-legend 4축', () => {
   const { html } = renderStatus(fixtureModel());
   assert.ok(/<h1 class="verdict s-[a-z]+">/.test(html), 'verdict h1');
-  assert.ok(/<p class="hero-meta">/.test(html), 'inline 4축 meta paragraph');
+  assert.ok(/<div class="axis-legend">/.test(html), 'axis-legend block');
+  assert.ok(/class="hero-status"/.test(html), 'hero-status tone label');
 });
 
 test('no legacy "심각도:" prefix anywhere (M3 retired mixed-language)', () => {

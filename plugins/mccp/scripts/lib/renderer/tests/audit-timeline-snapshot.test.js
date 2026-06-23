@@ -84,7 +84,7 @@ test('audit-timeline-snapshot path b: live in 7-30d < 5 → snapshot rows merge 
     assert.match(md, /archived-14d/, 'archive entry merged into md');
     assert.match(md, /보관 스냅샷에서 복원/, 'archive footnote present');
     assert.match(html, /from-snapshot/, 'HTML class applied');
-    assert.match(html, /class="tl-note muted from-snapshot-footnote"/);
+    assert.match(html, /class="audit-note muted from-snapshot-footnote"/);
   } finally { cleanup(snapsDir); }
 });
 

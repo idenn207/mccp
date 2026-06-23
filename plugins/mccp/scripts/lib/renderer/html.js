@@ -36,10 +36,10 @@ const FONT_FACE = (function () {
 // baseline is fully visible/legible without this. No visibility-gating animation
 // (a hidden-tab transition must never leave a node blank).
 const PIPELINE_SCRIPT = "jQuery(function($){"
-  + "$('.pipe-node').each(function(){var n=$(this),s=n.find('.pipe-stage').text(),t=n.find('.sr-only').text();if(s&&t)n.attr('title',s+': '+t);});"
-  + "$('.pipe-row').attr('tabindex','0').on('mouseenter focus',function(){$(this).addClass('pipe-row-hot');}).on('mouseleave blur',function(){$(this).removeClass('pipe-row-hot');});"
-  // v1.14.0 — 활동 step-chart row enhancement (additive; baseline 은 JS 없이 동작).
-  + "$('.tl-step').attr('tabindex','0').on('mouseenter focus',function(){$(this).addClass('tl-row-hot');}).on('mouseleave blur',function(){$(this).removeClass('tl-row-hot');});"
+  // v1.18.0 M2 — 노드 title 툴팁(stage + 상태) + 행 focusability(additive;
+  // baseline 은 JS 없이 동작). 마커는 .node-label, 상태는 .sr-only.
+  + "$('.pipe-node').each(function(){var n=$(this),s=n.find('.node-label').text(),t=n.find('.sr-only').text();if(s&&t)n.attr('title',t);});"
+  + "$('.pipe-row,.audit-row').attr('tabindex','0');"
   + "});";
 
 // v1.17.0 (dashboard-console-redesign M1) — 승인된 dashboard-sample.html 콘솔 셸
@@ -49,10 +49,10 @@ const PIPELINE_SCRIPT = "jQuery(function($){"
 // Lucide symbol 스프라이트.
 // 좌측 사이드바 = 프로젝트 스위처 + 검색 affordance + 아이콘 page nav + 차단
 // pin-alert. 상단바 = 브레드크럼 + 중앙 page-title + freshness. CSS :target
-// 멀티-route(JS 0, no-JS 시 개요). 섹션은 panel head/body/foot anatomy 안에
-// 기존 derive 데이터로 정적 rehouse(샘플 섹션 마크업 + 실데이터 추출은 M2,
-// 우측 드로어는 M3). 컴포넌트 클래스(.pipe-*/.tl-*/.oq-item/.risk-item/
-// .severity-tag/.s-*/.milestone-*)는 섹션 모듈 contract 라 보존.
+// 멀티-route(JS 0, no-JS 시 개요). v1.18.0 M2 — 섹션 내부 마크업을 샘플 class
+// anatomy(stack-list/li-item/sev/pipe-stages/audit-row/milestone-item)로 충실
+// 이식 + 모든 더미 자리를 derive 실데이터로 채움 + prose 파이프라인(H10/H16
+// 데이터-driven 해소). 우측 드로어는 M3. 샘플 섹션 마크업이 계약.
 const OKLCH_DARK = `
 :root {
   --bg: oklch(0.152 0 0);
@@ -79,6 +79,10 @@ const OKLCH_DARK = `
   --ok: oklch(0.74 0.16 152);
   --ok-dim: oklch(0.74 0.16 152 / 0.13);
   --warn: oklch(0.81 0.13 80);
+  --warn-dim: oklch(0.81 0.13 80 / 0.13);
+  --bad: oklch(0.67 0.19 25);
+  --bad-dim: oklch(0.67 0.19 25 / 0.14);
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, 'Liberation Mono', monospace;
   --sidebar-w: 244px;
   --content-max: 1080px;
   --radius: 9px;
@@ -114,6 +118,9 @@ const OKLCH_LIGHT = `
     --ok: oklch(0.54 0.14 152);
     --ok-dim: oklch(0.54 0.14 152 / 0.10);
     --warn: oklch(0.60 0.12 70);
+    --warn-dim: oklch(0.60 0.12 70 / 0.11);
+    --bad: oklch(0.54 0.20 25);
+    --bad-dim: oklch(0.54 0.20 25 / 0.08);
     --panel-shadow: 0 1px 2px oklch(0.55 0.01 250 / 0.08), 0 1px 1px oklch(0.55 0.01 250 / 0.05);
   }
 }`;
@@ -263,18 +270,37 @@ body:has(#route-pipeline:target) .tb-title[data-t="pipeline"],
 body:has(#route-attention:target) .tb-title[data-t="attention"],
 body:has(#route-activity:target) .tb-title[data-t="activity"] { display: block; }
 .page-title { font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
-/* ── 개요 hero 패널 (primary — verdict + next-action + 인라인 4축 메타) ── */
+/* ── 개요 hero (M2 샘플 fidelity — hero-status + verdict + action-prompt + axis-legend) ── */
 .hero-panel { background: var(--panel); border: 1px solid var(--panel-border);
   border-radius: var(--radius); padding: 1.3rem 1.4rem 1.2rem; box-shadow: var(--panel-shadow); }
-.hero-panel.attention { border-color: var(--status-blocked); }
-h1.verdict { font-size: 1.3125rem; font-weight: 600; margin: 0; line-height: 1.42;
-  letter-spacing: -0.02em; text-wrap: balance; }
-.hero-next { margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
-.hero-next .hero-next-label { color: var(--muted); font-size: 0.9rem; }
-.hero-meta { margin: 0.85rem 0 0; color: var(--muted); font-size: 0.82rem; }
-.hero-meta .m-blocked { color: var(--status-blocked); font-weight: 600; }
-.hero-meta .stale-suffix { display: none; }
-body[data-stale="1"] .hero-meta .stale-suffix { display: inline; color: var(--status-stale); }
+.hero-panel.attention { border-color: var(--bad); }
+.hero-status { display: inline-flex; align-items: center; gap: 0.45rem;
+  font-size: 0.78rem; font-weight: 550; color: var(--ok); }
+h1.verdict { margin: 0.6rem 0 0; font-size: 1.3125rem; font-weight: 600; line-height: 1.42;
+  letter-spacing: -0.02em; color: var(--ink); text-wrap: balance; max-width: 48ch; }
+.verdict code { font-size: 0.84em; color: var(--ink); background: var(--panel-2);
+  border: 1px solid var(--border); padding: 0.05em 0.34em; }
+.action-prompt { display: inline-flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;
+  margin-top: 1rem; padding: 0.4rem 0.4rem 0.4rem 0.75rem;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; max-width: 100%; }
+.action-prompt .lead { font-size: 0.69rem; font-weight: 600; letter-spacing: 0.04em;
+  color: var(--faint); }
+.action-prompt code { font-family: var(--mono); font-size: 0.8rem; color: var(--ink-2); word-break: break-all; }
+.action-prompt .stale-label { color: var(--status-stale); font-weight: 500; }
+.copy-btn { display: inline-flex; align-items: center; gap: 0.3rem; flex: none;
+  font-size: 0.74rem; font-weight: 500; color: var(--ink-2); cursor: pointer;
+  padding: 0.3rem 0.55rem; border-radius: 6px;
+  background: var(--panel); border: 1px solid var(--border-2);
+  transition: background 120ms ease-out, color 120ms ease-out; }
+.copy-btn:hover { background: var(--panel-hover); color: var(--ink); }
+.copy-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.copy-btn[data-copied="1"] { color: var(--ok); border-color: oklch(0.74 0.16 152 / 0.4); }
+.copy-btn[data-copied="1"]::after { content: ' 복사됨'; }
+.axis-legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.6rem;
+  margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.axis { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--muted); }
+.axis b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.axis b.bad { color: var(--bad); } .axis b.warn { color: var(--warn); }
 /* ── 패널 (목적 있는 비중첩 패널 — head/body/foot anatomy) ── */
 .grid, .panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.1rem; align-items: start; }
 .span-2 { grid-column: 1 / -1; }
@@ -313,68 +339,107 @@ aside[role="alert"].s-secret {
 .severity-tag.s-critical, .severity-tag.s-high { color: var(--status-blocked); font-weight: 600; }
 .severity-tag.s-medium { color: var(--status-stale); font-weight: 600; }
 .severity-tag.s-low { color: var(--muted); font-weight: 600; }
-.oq-item, .risk-item { margin: 0.5rem 0; padding: 0.5rem 0;
-  border-bottom: 1px dashed var(--border); list-style: none; }
-.oq-item:last-child, .risk-item:last-child { border-bottom: none; }
-.item-text { color: var(--ink); }
-.meta-cue { font-size: 0.85rem; margin: 0.25rem 0 0.25rem 1rem; color: var(--muted);
-  border-left: 2px solid var(--border); padding-left: 0.5rem; }
-.action-prompt { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.3rem; }
-.action-prompt code { background: var(--surface); padding: 0.25rem 0.4rem; border-radius: 3px;
-  flex: 1; min-width: 0; max-width: 100%; overflow-x: auto; }
-.copy-btn { font-size: 0.8rem; padding: 0.2rem 0.6rem; border: 1px solid var(--border-2);
-  flex-shrink: 0; background: var(--panel); color: var(--ink); cursor: pointer; border-radius: 6px; }
-.copy-btn:hover { background: var(--panel-hover); }
-.copy-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.copy-btn[data-copied="1"] { color: var(--status-worker-alive); border-color: var(--status-worker-alive); }
-.copy-btn[data-copied="1"]::after { content: ' ✓복사됨'; }
-.related-oq { font-size: 0.85rem; color: var(--muted); margin: 0.25rem 0 0.25rem 1rem; }
-.risk-mitigation { font-size: 0.85rem; margin: 0.25rem 0 0.25rem 1rem; }
-.milestone-history { list-style: none; padding-left: 0; }
-.milestone-item { padding: 0.25rem 0; border-bottom: 1px dashed var(--border); }
-.milestone-item:last-child { border-bottom: none; }
-.ms-name { color: var(--ink); }
-details { margin-top: 0.5rem; }
-details summary { cursor: pointer; color: var(--ink); font-size: 0.85rem; }
-details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-details[open] summary { margin-bottom: 0.5rem; }
+/* ── 미해결 질문 / 위험 (stack-list > li-item, M2 샘플 fidelity) ── */
+.stack-list { display: flex; flex-direction: column; gap: 0.9rem; margin: 0; padding: 0; list-style: none; }
+.li-item { display: flex; gap: 0.65rem; }
+.li-main { min-width: 0; flex: 1 1 auto; }
+.li-q { font-size: 0.875rem; font-weight: 450; color: var(--ink-2); line-height: 1.5; }
+.li-q code { font-family: var(--mono); font-size: 0.9em; color: var(--ink); }
+.li-q strong { font-weight: 650; color: var(--ink); }
+.meta-cue { margin-top: 0.32rem; font-size: 0.745rem; color: var(--faint); }
+.meta-cue.mit { color: var(--muted); }
+.meta-cue b { color: var(--ink-2); font-weight: 600; }
+.meta-cue .mono { font-family: var(--mono); font-size: 0.92em; color: var(--muted); }
+.meta-cue .cue-sec { margin-left: 0.6rem; color: var(--faint); }
+/* severity — 절제. HIGH/MED 만 옅은 색, LOW 는 무채색 텍스트. text-transform 없음(H9). */
+.sev { flex: none; height: fit-content; font-size: 0.63rem; font-weight: 700; letter-spacing: 0.03em;
+  padding: 0.16rem 0.4rem; border-radius: 5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sev.s-high { color: var(--bad); background: var(--bad-dim); }
+.sev.s-med  { color: var(--warn); background: var(--warn-dim); }
+.sev.s-low  { color: var(--muted); background: transparent; border: 1px solid var(--border-2); }
+.inline-prompt { display: inline-flex; align-items: center; gap: 0.4rem; margin-top: 0.55rem;
+  padding: 0.24rem 0.3rem 0.24rem 0.55rem;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; }
+.inline-prompt code { font-family: var(--mono); font-size: 0.76rem; color: var(--ink-2); }
+.inline-prompt .copy-btn { padding: 0.18rem 0.4rem; font-size: 0.7rem; }
+details.more { margin-top: 0.9rem; }
+details.more > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center;
+  gap: 0.35rem; font-size: 0.78rem; color: var(--muted); user-select: none; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary:hover { color: var(--ink); }
+details.more > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+details.more .chev { transition: transform 140ms ease-out; }
+details.more[open] .chev { transform: rotate(90deg); }
+details.more[open] > summary { margin-bottom: 0.9rem; }
 abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px; cursor: help; }
-/* 게이트 파이프라인 스테퍼. pipe-node 는 상태 노드 affordance(carve-out). */
-.pipeline { list-style: none; padding-left: 0; margin: 0; }
-.pipe-row { display: flex; flex-wrap: wrap; align-items: center;
-  gap: 0.4rem 0.75rem; padding: 0.4rem 0; border-bottom: 1px dashed var(--border); }
-.pipe-row:last-child { border-bottom: none; }
-.pipe-decision { color: var(--muted); font-size: 0.85rem; min-width: 8rem; }
-.pipe-track { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
-.pipe-node { display: inline-flex; align-items: center; gap: 0.3rem;
-  padding: 0.1rem 0.55rem; border-radius: 999px; background: var(--surface); font-size: 0.85rem; }
-.pipe-node .pipe-icon { font-size: 0.9rem; }
-.pipe-node .pipe-stage { color: var(--ink); }
-.pipe-edge { width: 1.25rem; height: 2px; background: var(--border); flex-shrink: 0; }
-.pipe-row[data-kind="attention"] .pipe-decision { color: var(--status-blocked); font-weight: 600; }
-.pipe-row.pipe-row-hot { background: var(--surface); }
-.pipe-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.pipe-more { list-style: none; }
-.pipe-more summary { color: var(--muted); font-size: 0.85rem; }
-/* 활동 step-chart rail. tl-node pill — carve-out. */
-.tl-rail { list-style: none; padding-left: 0; margin: 0; position: relative; }
-.tl-rail::before { content: ''; position: absolute; left: 0.7rem; top: 0.6rem; bottom: 0.6rem;
-  width: 2px; background: var(--border); }
-.tl-step { position: relative; display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.3rem 0; }
-.tl-node { position: relative; z-index: 1; display: inline-flex; align-items: center;
-  justify-content: center; width: 1.4rem; height: 1.4rem; flex-shrink: 0;
-  border-radius: 999px; background: var(--surface); }
-.tl-node .tl-icon { font-size: 0.85rem; line-height: 1; }
-.tl-done { color: var(--muted); }
-.tl-step.from-snapshot { color: var(--muted); }
-.tl-step.from-snapshot .tl-node { opacity: 0.7; }
-.tl-body { flex: 1; min-width: 0; }
-.tl-body .rel { color: var(--muted); }
-.tl-body .conv { color: var(--muted); }
-.tl-body .conv.pending { color: var(--status-stale); font-weight: 600; }
-.tl-note { list-style: none; color: var(--muted); padding-left: 2rem; }
-.tl-step.tl-row-hot { background: var(--surface); }
-.tl-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* ── 게이트 파이프라인 (pipe-row grid + pipe-stages, carve-out 노드 마커) ── */
+.pipeline { display: flex; flex-direction: column; }
+.pipe-row { display: grid; grid-template-columns: minmax(9rem, 14rem) 1fr auto;
+  align-items: center; gap: 1rem; padding: 0.82rem 0.3rem; }
+.pipe-row + .pipe-row { border-top: 1px solid var(--border); }
+.pipe-id { font-family: var(--mono); font-size: 0.8rem; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pipe-stages { display: flex; align-items: center; margin: 0; padding: 0; list-style: none; }
+.pipe-node { display: inline-flex; align-items: center; gap: 0.35rem; flex: none; }
+.node-mark { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  border: 1.5px solid var(--border-2); background: var(--panel-2); color: var(--faint); }
+.node-mark .i { width: 12px; height: 12px; stroke-width: 2.4; }
+.node-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--faint); }
+.node-label { font-size: 0.72rem; color: var(--faint); font-family: var(--mono); }
+.node-link { width: 1.6rem; height: 1.5px; background: var(--border-2); margin: 0 0.1rem; flex: none; }
+.pipe-node.is-done .node-mark { color: var(--ok); border-color: oklch(0.74 0.16 152 / 0.5); background: var(--ok-dim); }
+.pipe-node.is-done .node-label { color: var(--muted); }
+.pipe-node.is-active .node-mark { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+.pipe-node.is-active .node-mark .node-dot { background: var(--accent); }
+.pipe-node.is-active .node-label { color: var(--ink-2); }
+.pipe-node.is-block .node-mark { color: var(--bad); border-color: var(--bad); background: var(--bad-dim); }
+.pipe-node.is-block .node-label { color: var(--bad); }
+.pipe-node.is-done + .node-link { background: oklch(0.74 0.16 152 / 0.4); }
+.pipe-status { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.76rem; font-weight: 500;
+  color: var(--muted); white-space: nowrap; }
+.pipe-status.s-ok { color: var(--ok); } .pipe-status.s-active { color: var(--accent); }
+.pipe-status.s-block { color: var(--bad); }
+/* ── 타임라인 (audit-row grid + rail 노드/connector) ── */
+.timeline { margin: 0; padding: 0; list-style: none; }
+.audit-row { display: grid; grid-template-columns: 16px 1fr; gap: 0.7rem; }
+.audit-rail { display: flex; flex-direction: column; align-items: center; padding-top: 0.4rem; }
+.audit-node { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted);
+  box-shadow: 0 0 0 3px var(--panel); z-index: 1; }
+.audit-node.is-ok { background: var(--ok); } .audit-node.is-bad { background: var(--bad); }
+.audit-line { flex: 1 1 auto; width: 1.5px; background: var(--border); margin: 0.2rem 0; min-height: 1.1rem; }
+.audit-body { padding-bottom: 1rem; min-width: 0; }
+.audit-row:last-child .audit-body { padding-bottom: 0; }
+.audit-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.1rem 0.5rem; }
+.audit-gate { font-family: var(--mono); font-size: 0.79rem; color: var(--ink); }
+.audit-dec { font-family: var(--mono); font-size: 0.76rem; color: var(--muted); }
+.audit-when { margin-left: auto; font-size: 0.73rem; color: var(--faint); white-space: nowrap; }
+.audit-meta { margin-top: 0.22rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.9rem;
+  font-size: 0.75rem; color: var(--muted); }
+.audit-meta .conv { display: inline-flex; align-items: center; gap: 0.28rem; color: var(--ok); }
+.audit-meta .conv.is-bad { color: var(--bad); }
+.audit-meta .conv.pending { color: var(--warn); }
+.audit-meta .brief { color: var(--faint); }
+.audit-row.from-snapshot .audit-body { color: var(--faint); }
+.audit-row.from-snapshot .audit-node { opacity: 0.7; }
+.audit-note { list-style: none; color: var(--faint); font-size: 0.74rem; padding: 0.2rem 0 0.2rem 0.7rem; }
+/* ── 마일스톤 기록 (milestone-item, ms-check/ms-text/ms-file/ms-when) ── */
+.milestone-history { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.milestone-item { display: flex; align-items: center; gap: 0.65rem; padding: 0.52rem 0.1rem; }
+.milestone-item + .milestone-item { border-top: 1px solid var(--border); }
+.ms-check { width: 18px; height: 18px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  color: var(--ok); background: var(--ok-dim); }
+.ms-check .i { width: 11px; height: 11px; stroke-width: 2.6; }
+.ms-text { font-size: 0.84rem; color: var(--ink-2); min-width: 0; display: flex; flex-direction: column; }
+.ms-file { font-family: var(--mono); font-size: 0.71rem; color: var(--faint); margin-top: 0.06rem; }
+.ms-when { margin-left: auto; font-size: 0.73rem; color: var(--faint); white-space: nowrap; }
+/* ── 패널 foot (foot-link cross-link / foot-stat 집계) ── */
+.panel-foot { display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.62rem 1rem; border-top: 1px solid var(--border); font-size: 0.76rem; color: var(--muted); }
+.foot-link { margin-left: auto; display: inline-flex; align-items: center; gap: 0.28rem;
+  color: var(--muted); text-decoration: none; }
+.foot-link:hover { color: var(--ink); }
+.foot-stat { font-family: var(--mono); font-size: 0.72rem; color: var(--faint); }
+.foot-stat i { font-style: normal; margin-left: 1.1rem; }
 .page-foot { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;
   max-width: var(--content-max); width: 100%; margin: 0 auto;
   padding: 1.1rem 1.5rem 2rem; color: var(--faint); font-size: 0.74rem; }
@@ -388,6 +453,7 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
   .nav-rail { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; margin-left: auto; gap: 0.25rem; }
   .nav-rail a.nav-link { white-space: nowrap; flex-shrink: 0; }
   .grid, .panel-grid { grid-template-columns: minmax(0, 1fr); }
+  .pipe-row { grid-template-columns: 1fr; gap: 0.5rem; }
   .tb-title-wrap { display: none; }
   .content { padding: 1.1rem 1rem 3rem; }
 }
@@ -412,6 +478,7 @@ const ICON_SPRITE = '<svg width="0" height="0" style="position:absolute" aria-hi
   + '<symbol id="ic-chev-d" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></symbol>'
   + '<symbol id="ic-refresh" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></symbol>'
   + '<symbol id="ic-worker" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></symbol>'
+  + '<symbol id="ic-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>'
   + '</defs></svg>';
 
 const STALE_SCRIPT = `(function(){var d=Number(document.body.dataset.derivedMs)||0;function c(){if(document.hidden)return;var a=Date.now()-d;document.body.dataset.stale=a>60000?'1':'0';}c();document.addEventListener('visibilitychange',c);setInterval(c,5000);})();`;
@@ -435,47 +502,69 @@ function panelIcon(title) {
   return 'ic-dashboard';
 }
 
-// 개요 hero 패널 — verdict + next-action(복사) + 인라인 4축 메타.
-function renderHeroPanel(verdict, gridCells, relative, escapeHtml, escapeAttr) {
-  const attention = verdict.tone === 'red' || verdict.tone === 'blocked';
-  const safeIcon = escapeHtml(verdict.icon);
-  const safeText = escapeHtml(verdict.text);
+// 개요 hero 패널 (M2 샘플 fidelity) — hero-status(tone dot+라벨) + verdict(h1) +
+// action-prompt(다음 명령 복사) + axis-legend(진행/차단/다음/위험 4축 dot).
+const HERO_STATUS = {
+  green: { dot: 'dot-ok', label: '릴리스 준비됨' },
+  red: { dot: 'dot-bad', label: '주의 필요' },
+  amber: { dot: 'dot-warn', label: '진행 중' },
+  neutral: { dot: 'dot-mute', label: '대기' },
+  muted: { dot: 'dot-mute', label: '대기' },
+};
 
-  const nextCell = gridCells.find(c => c.key === 'next');
-  let nextHtml = '';
-  if (nextCell && nextCell.value && nextCell.value !== '대기') {
+function axisNextShort(value) {
+  const v = String(value || '');
+  return v.length > 28 ? v.slice(0, 27) + '…' : v;
+}
+
+function renderHeroPanel(verdict, gridCells, relative, escapeHtml, escapeAttr, normalizeProse) {
+  const norm = typeof normalizeProse === 'function' ? normalizeProse : (s) => s;
+  const attention = verdict.tone === 'red';
+  const status = HERO_STATUS[verdict.tone] || HERO_STATUS.neutral;
+  const safeText = escapeHtml(norm(verdict.text));
+
+  const cell = (key) => gridCells.find(c => c.key === key) || {};
+  const nextCell = cell('next');
+
+  // action-prompt — next 가 명령이면 code + copy, plan 라벨이면 라벨만, '대기' 면 생략.
+  let promptHtml = '';
+  const nextVal = nextCell.value;
+  if (nextVal && nextVal !== '대기') {
     if (nextCell.stale) {
-      nextHtml = '<div class="hero-next"><span class="hero-next-label">다음</span> '
-        + '<span class="stale-label">' + escapeHtml(nextCell.value) + '</span></div>';
-    } else if (looksLikeCommand(nextCell.value)) {
-      nextHtml = '<div class="hero-next action-prompt"><span class="hero-next-label">다음</span> '
-        + '<code>' + escapeHtml(nextCell.value) + '</code>'
-        + '<button class="copy-btn" type="button" data-copy="' + escapeAttr(nextCell.value) + '">복사</button>'
+      promptHtml = '<div class="action-prompt"><span class="lead">다음</span>'
+        + '<span class="stale-label">' + escapeHtml(nextVal) + '</span></div>';
+    } else if (looksLikeCommand(nextVal)) {
+      promptHtml = '<div class="action-prompt"><span class="lead">다음</span>'
+        + '<code>' + escapeHtml(nextVal) + '</code>'
+        + '<button class="copy-btn" type="button" data-copy="' + escapeHtml(nextVal) + '">'
+        + '<svg class="i i-sm" aria-hidden="true"><use href="#ic-copy"/></svg>복사</button>'
         + '</div>';
     } else {
       const titleAttr = nextCell.intent ? ' title="' + escapeAttr(nextCell.intent) + '"' : '';
-      nextHtml = '<div class="hero-next"><span class="hero-next-label">다음</span> '
-        + '<code' + titleAttr + '>' + escapeHtml(nextCell.value) + '</code></div>';
+      promptHtml = '<div class="action-prompt"><span class="lead">다음</span>'
+        + '<code' + titleAttr + '>' + escapeHtml(nextVal) + '</code></div>';
     }
   }
 
-  // 인라인 4축 메타 — next 제외(위 hero-next 로), 진행/차단/위험 + 갱신 시각.
-  const metaParts = [];
-  for (const c of gridCells) {
-    if (c.key === 'next') continue;
-    const txt = escapeHtml(c.label) + ' ' + escapeHtml(c.value);
-    const loud = c.accent === 'blocked' && String(c.value) !== '0';
-    metaParts.push(loud ? '<span class="m-blocked">' + txt + '</span>' : '<span>' + txt + '</span>');
-  }
-  metaParts.push('<span>갱신 ' + escapeHtml(relative)
-    + '<span class="stale-suffix"> · stale</span></span>');
-  const metaHtml = '<p class="hero-meta">' + metaParts.join(' · ') + '</p>';
-
-  return '<div class="hero-panel' + (attention ? ' attention' : '') + '">'
-    + '<h1 class="verdict s-' + escapeHtml(verdict.tone) + '">' + safeIcon + ' ' + safeText + '</h1>'
-    + nextHtml
-    + metaHtml
+  // axis-legend — 진행 중 / 차단 / 다음 / 위험. dot 색 + <b> 값(차단·위험 강조색).
+  const inProg = String(cell('in-progress').value || '0');
+  const blocked = String(cell('blocked').value || '0');
+  const risks = String(cell('risks').value || '0');
+  const nextShort = nextVal && nextVal !== '대기' ? axisNextShort(nextVal) : '대기';
+  const axisLegend = '<div class="axis-legend">'
+    + '<span class="axis"><span class="dot dot-accent" aria-hidden="true"></span>진행 중 <b>' + escapeHtml(inProg) + '</b></span>'
+    + '<span class="axis"><span class="dot dot-bad" aria-hidden="true"></span>차단 <b' + (blocked !== '0' ? ' class="bad"' : '') + '>' + escapeHtml(blocked) + '</b></span>'
+    + '<span class="axis"><span class="dot dot-mute" aria-hidden="true"></span>다음 <b>' + escapeHtml(nextShort) + '</b></span>'
+    + '<span class="axis"><span class="dot dot-warn" aria-hidden="true"></span>위험 <b' + (risks !== '0' ? ' class="warn"' : '') + '>' + escapeHtml(risks) + '</b></span>'
     + '</div>';
+
+  return '<section class="hero-panel' + (attention ? ' attention' : '') + '" aria-label="판정">'
+    + '<span class="hero-status"><span class="dot ' + status.dot + '" aria-hidden="true"></span>'
+    + escapeHtml(status.label) + '</span>'
+    + '<h1 class="verdict s-' + escapeHtml(verdict.tone) + '">' + safeText + '</h1>'
+    + promptHtml
+    + axisLegend
+    + '</section>';
 }
 
 // 패널 — head(아이콘 + 제목 + 옵션 count) / body(섹션 inner HTML) anatomy.
@@ -486,13 +575,21 @@ function renderPanel(title, section, escapeHtml, opts) {
   const inner = (section && section.html)
     ? section.html
     : '<p class="panel-empty">데이터 없음</p>';
-  const countHtml = opts.count
-    ? '<span class="panel-count">' + escapeHtml(opts.count) + '</span>'
+  // count/foot — opts override, 없으면 section 이 자체 제공한 값(파이프라인 foot-stat
+  // · 위험 foot-link 등)을 소비. foot 은 raw html(섹션 모듈 책임).
+  const count = opts.count || (section && section.count);
+  const foot = opts.foot || (section && section.foot);
+  const countHtml = count
+    ? '<span class="panel-count">' + escapeHtml(count) + '</span>'
+    : '';
+  const footHtml = foot
+    ? '<div class="panel-foot">' + foot + '</div>'
     : '';
   return '<section class="' + cls + '" aria-label="' + escapeHtml(title) + '">'
     + '<div class="panel-head"><svg class="i" aria-hidden="true"><use href="#' + panelIcon(title) + '"/></svg>'
     + '<h3 class="panel-title">' + escapeHtml(title) + '</h3>' + countHtml + '</div>'
     + '<div class="panel-body">' + inner + '</div>'
+    + footHtml
     + '</section>';
 }
 
@@ -548,7 +645,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   parts.push('<head>');
   parts.push('<meta charset="utf-8">');
   parts.push('<meta name="viewport" content="width=device-width, initial-scale=1">');
-  parts.push('<title>mccp 상태 · ' + escapeHtml(verdict.text) + '</title>');
+  parts.push('<title>mccp 상태 · ' + escapeHtml(formatUtils.normalizeProse(verdict.text)) + '</title>');
   parts.push('<style>' + FONT_FACE + OKLCH_DARK + OKLCH_LIGHT + LAYOUT + '</style>');
   parts.push('</head>');
   parts.push('<body data-stale="0" data-derived-ms="' + (Number.isFinite(derivedMs) ? derivedMs : 0) + '">');
@@ -606,7 +703,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
 
   // route 1 — 개요: hero 패널(verdict + next + 인라인 4축). 60초 스캔.
   parts.push('<section class="route" id="route-overview" aria-label="개요">'
-    + renderHeroPanel(verdict, gridCells, relative, escapeHtml, escapeAttr)
+    + renderHeroPanel(verdict, gridCells, relative, escapeHtml, escapeAttr, formatUtils.normalizeProse)
     + '</section>');
 
   // route 2 — 파이프라인: 게이트 스테퍼 패널.
@@ -635,7 +732,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.17.0 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.0 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
   parts.push('<script>' + STALE_SCRIPT + '</script>');
   parts.push('<script>' + COPY_SCRIPT + '</script>');

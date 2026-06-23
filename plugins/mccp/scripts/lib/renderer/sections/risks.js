@@ -1,8 +1,7 @@
 'use strict';
 
 const { buildActionPrompt, maxRank } = require('../parsers/action-prompt');
-const { renderJargonHtml, renderJargonMarkdown } = require('../parsers/jargon-dictionary');
-const { severityMeta, severityTagHtml } = require('../parsers/severity-meta');
+const { severityMeta, sevBadgeHtml } = require('../parsers/severity-meta');
 
 const MAX_EXPANDED = 3;
 const RANK_MAP = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, '': 0 };
@@ -12,7 +11,7 @@ function sevOf(r) {
 }
 
 function renderRisks(model, formatUtils, planBody) {
-  const { escapeHtml, escapeAttr } = formatUtils;
+  const { escapeHtml, renderProseHtml, renderProseMd } = formatUtils;
   const pb = planBody || {};
   const allRisks = Array.isArray(pb.risks) ? pb.risks.slice() : [];
 
@@ -26,40 +25,27 @@ function renderRisks(model, formatUtils, planBody) {
   allRisks.sort((a, b) => (RANK_MAP[sevOf(b)] || 0) - (RANK_MAP[sevOf(a)] || 0));
   const expanded = allRisks.slice(0, MAX_EXPANDED);
   const collapsed = allRisks.slice(MAX_EXPANDED);
-  const jargonSeenHtml = new Set();
 
   function renderItem(r) {
     const sev = sevOf(r) || 'MEDIUM';
     const icon = severityMeta(sev).icon;
-    const ap = buildActionPrompt(r, 'risk');
     const text = r.risk || '';
-    const textHtml = '<span class="item-text">'
-      + renderJargonHtml(text, { seen: jargonSeenHtml }, escapeHtml, escapeAttr)
-      + '</span>';
+    const sevTag = sevBadgeHtml(sev);
+    const qHtml = '<div class="li-q">' + renderProseHtml(text, formatUtils) + '</div>';
     const mitHtml = r.mitigation
-      ? '<div class="risk-mitigation muted">mitigation: '
-        + renderJargonHtml(r.mitigation, { seen: jargonSeenHtml }, escapeHtml, escapeAttr)
-        + '</div>'
+      ? '<div class="meta-cue mit">완화: <b>' + renderProseHtml(r.mitigation, formatUtils) + '</b></div>'
       : '';
     const cueHtml = r.relatedOpenQuestion
-      ? '<aside class="related-oq">동일 OQ 참조: ' + escapeHtml(r.relatedOpenQuestion) + '…</aside>'
+      ? '<div class="meta-cue">동일 질문 참조: ' + escapeHtml(r.relatedOpenQuestion) + '…</div>'
       : '';
-    const sevTag = severityTagHtml(sev, escapeHtml);
-    // F1 absorption — data-copy는 escapeHtml만
-    const apHtml = '<div class="action-prompt">'
-      + '<code>' + escapeHtml(ap.fullText) + '</code>'
-      + '<button class="copy-btn" data-copy="' + escapeHtml(ap.fullText)
-      + '" type="button" aria-label="다음 액션 복사">복사</button>'
-      + '</div>';
-    const html = '<li class="risk-item">' + sevTag + ' ' + textHtml + mitHtml + cueHtml + apHtml + '</li>';
-    // Markdown
-    const mdSeen = new Set();
-    const textMd = renderJargonMarkdown(text, { seen: mdSeen });
-    const mitMd = r.mitigation
-      ? '\n  - mitigation: ' + renderJargonMarkdown(r.mitigation, { seen: mdSeen })
-      : '';
-    const cueMd = r.relatedOpenQuestion ? '\n  - 동일 OQ 참조: ' + r.relatedOpenQuestion + '…' : '';
-    const md = '- ' + icon + ' **' + sev + '** — ' + textMd
+    const html = '<li class="li-item">' + sevTag
+      + '<div class="li-main">' + qHtml + mitHtml + cueHtml + '</div></li>';
+    // Markdown — 구분자는 ·(H10 em-dash 금지).
+    const ap = buildActionPrompt(r, 'risk');
+    const textMd = renderProseMd(text);
+    const mitMd = r.mitigation ? '\n  - 완화: ' + renderProseMd(r.mitigation) : '';
+    const cueMd = r.relatedOpenQuestion ? '\n  - 동일 질문 참조: ' + r.relatedOpenQuestion + '…' : '';
+    const md = '- ' + icon + ' **' + sev + '** · ' + textMd
       + mitMd + cueMd
       + '\n  - 다음 액션: `' + ap.fullText + '`';
     return { html, md };
@@ -68,10 +54,12 @@ function renderRisks(model, formatUtils, planBody) {
   const expandedR = expanded.map(renderItem);
   const collapsedR = collapsed.map(renderItem);
 
-  let html = '<ul class="risks-list" role="list">' + expandedR.map(r => r.html).join('') + '</ul>';
+  let html = '<ul class="stack-list" role="list">' + expandedR.map(r => r.html).join('') + '</ul>';
   if (collapsed.length > 0) {
-    html += '<details class="risks-more"><summary>+' + collapsed.length + ' 더보기</summary>'
-      + '<ul role="list">' + collapsedR.map(r => r.html).join('') + '</ul></details>';
+    html += '<details class="more"><summary>'
+      + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
+      + collapsed.length + ' 더보기</summary>'
+      + '<ul class="stack-list" role="list">' + collapsedR.map(r => r.html).join('') + '</ul></details>';
   }
   let md = expandedR.map(r => r.md).join('\n');
   if (collapsed.length > 0) {
@@ -80,7 +68,11 @@ function renderRisks(model, formatUtils, planBody) {
       + '\n\n</details>';
   }
 
-  return { md, html };
+  // panel-foot foot-link — 활동 기록 전체 보기로 cross-link (html.js renderPanel opts).
+  const foot = '<a class="foot-link" href="#route-activity">활동 기록에서 전체 보기'
+    + '<svg class="i i-sm" aria-hidden="true"><use href="#ic-arrow"/></svg></a>';
+
+  return { md, html, foot };
 }
 
 module.exports = { renderRisks };

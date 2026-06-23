@@ -21,4 +21,22 @@ function severityTagHtml(sev, escapeHtml) {
     + '</span>';
 }
 
-module.exports = { SEVERITY_META, severityMeta, severityTagHtml };
+// v1.18.0 M2 — sample `.sev` badge. 3 color tiers (s-high/s-med/s-low), literal
+// abbreviated text (HIGH/MED/LOW). Severity is conveyed by TEXT (non-color a11y)
+// + aria-label; no emoji, no chrome pill (H12 .sev-pill 금지). CRITICAL folds
+// into the high tier; UNKNOWN into low.
+const SEV_BADGE = {
+  CRITICAL: { cls: 's-high', text: 'CRIT', srLabel: '최고' },
+  HIGH: { cls: 's-high', text: 'HIGH', srLabel: '높음' },
+  MEDIUM: { cls: 's-med', text: 'MED', srLabel: '중간' },
+  LOW: { cls: 's-low', text: 'LOW', srLabel: '낮음' },
+  UNKNOWN: { cls: 's-low', text: 'LOW', srLabel: '미상' },
+};
+
+function sevBadgeHtml(sev) {
+  const meta = SEV_BADGE[String(sev || 'UNKNOWN').toUpperCase()] || SEV_BADGE.UNKNOWN;
+  return '<span class="sev ' + meta.cls + '" aria-label="위험도: ' + meta.srLabel + '">'
+    + meta.text + '</span>';
+}
+
+module.exports = { SEVERITY_META, severityMeta, severityTagHtml, SEV_BADGE, sevBadgeHtml };

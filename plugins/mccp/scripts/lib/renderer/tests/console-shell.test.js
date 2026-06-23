@@ -135,9 +135,10 @@ test('console-shell — panels use head/body anatomy with single canonical title
   }
 });
 
-test('console-shell — overview hero panel holds verdict (M1 verdict-first)', () => {
+test('console-shell — overview hero panel holds verdict (M2 hero-status + verdict)', () => {
   const html = render({}, [gridSection([])], { tone: 'red', icon: '🚫', text: '차단' });
-  assert.match(html, /<section class="route" id="route-overview"[^>]*><div class="hero-panel[^"]*"><h1 class="verdict s-red">/);
+  assert.match(html, /<section class="route" id="route-overview"[^>]*><section class="hero-panel[^"]*" aria-label="판정"><span class="hero-status">/);
+  assert.match(html, /<h1 class="verdict s-red">/);
 });
 
 // ── H-invariant 개정 drift 가드 (Codex Plan-Codex R1 F1+F3) ─────────────

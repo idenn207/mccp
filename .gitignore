@@ -65,7 +65,9 @@ ECC/
 # impeccable Skill plan-stage critique artifacts (user-local tool 산출,
 # finding은 plan/code/PR body absorption note로 audit trail 처리).
 # Pattern mirrors ECC/ above — 사용자 개별 설치 tool의 작업 부산물.
-.impeccable/
+# 단, design.json은 팀 공유 design-direction 설정(공동 파일)이라 tracked.
+.impeccable/*
+!.impeccable/design.json
 
 # v1.5.0-m1 — session-ledger repo opt-in scope. Default is global
 # (~/.local/share/ecc-homunculus/projects/<projectId>/.session-ledgers/),

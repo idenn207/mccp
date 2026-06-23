@@ -2,19 +2,20 @@
 
 const fs = require('fs');
 const path = require('path');
+const { nodeStatus } = require('../parsers/decision-state');
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_ROWS = 30;
 
-// v1.14.0 활동 step-chart. 2-상태 노드 map. emphasis 반전(critique F1):
-// converged 는 흔한 상태이므로 quiet(tl-done = ink/muted, accent 미사용),
-// pending(진행)만 loud(s-stale) — 20행 timeline 에서 "개입 필요"만 색이 튀게.
-// 색 단독 금지 — 노드는 색 + 아이콘 + sr-only label 병행(a11y).
-const NODE_TL = {
-  converged: { icon: '✓', cls: 'tl-done', label: '수렴' },
-  pending: { icon: '◐', cls: 's-stale', label: '진행' },
-};
+// v1.18.0 M2 — 타임라인 노드(audit-node)는 receipt 의 시간순 상태로 is-ok/is-bad.
+// is-bad = nodeStatus 가 blocked(escalated 미수렴/divergent) — 단순 converged=false
+// 아님(공유 SSoT, Codex F1). conv 라벨: 수렴 R{n} / divergent / 진행 R{n}.
+function tokK(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return null;
+  return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : String(v);
+}
 // v1.3.0-m5 impeccable P2 absorption — live row priority cap so archived
 // snapshot rows can never push live evidence off the section. Sum stays at
 // MAX_ROWS=30 absolute cap.
@@ -127,50 +128,61 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
   const mdLines = [];
   const htmlLines = [];
 
-  function renderRow(r, isArchived) {
+  function renderRow(r, isArchived, isLast) {
     const rel = formatRelativeTime(r.created_at, now);
     const gate = r.gate_id || r.gate || '(unknown-gate)';
-    const decision = tail(String(r.decision_id || ''), 12);
-    const verdictMark = r.converged === true ? '✓ 수렴' : '◐ 진행';
-    const mdRow = '- ' + rel + ' · `' + gate + '`/`' + decision + '` · ' + verdictMark;
-    mdLines.push(mdRow);
+    const decision = String(r.decision_id || '');
+    const decShort = tail(decision, 24);
+    const status = nodeStatus(r); // done | active | blocked | missing
+    const round = Number.isFinite(r.round) ? r.round : null;
 
-    // v1.3.0-m5 impeccable P1+P4 absorption — archived rows render with
-    // `from-snapshot` class so the existing `muted` token desaturates them
-    // one step below live rows. No icon collision with M4's ⏱ stale marker
-    // (footnote at section level carries the meaning instead).
-    // v1.14.0 step-chart row: rail 노드 마커 + tl-body(div — flow content인
-    // briefing blockquote 를 phrasing span 으로 감싸면 non-conforming, Codex F2)。
-    // 데이터 로직·md 출력은 불변 — HTML 마크업만 재구성.
-    const nodeMeta = NODE_TL[r.converged === true ? 'converged' : 'pending'];
-    const liClass = isArchived ? ' class="tl-step audit-row from-snapshot"' : ' class="tl-step audit-row"';
-    const convClass = r.converged === true ? 'conv' : 'conv pending';
-    let htmlEntry = '<li' + liClass + '>'
-      + '<span class="tl-node ' + nodeMeta.cls + '">'
-      + '<span class="tl-icon" aria-hidden="true">' + escapeHtml(nodeMeta.icon) + '</span>'
-      + '<span class="sr-only">' + escapeHtml(nodeMeta.label) + '</span>'
-      + '</span>'
-      + '<div class="tl-body"><span class="rel">' + escapeHtml(rel) + '</span>'
-      + ', <code>' + escapeHtml(gate) + '</code>/<code>' + escapeHtml(decision) + '</code>'
-      + ', <span class="' + convClass + '">' + escapeHtml(verdictMark) + '</span>';
+    // conv 라벨 + 노드 상태.
+    let convText;
+    let convExtra = '';
+    let isBad = false;
+    let convSvg = 'ic-check';
+    if (status === 'blocked') {
+      convText = 'divergent'; isBad = true; convExtra = ' is-bad'; convSvg = 'ic-alert';
+    } else if (r.converged === true) {
+      convText = '수렴' + (round != null ? ' R' + round : '');
+    } else {
+      convText = '진행' + (round != null ? ' R' + round : ''); convExtra = ' pending'; convSvg = 'ic-clock';
+    }
+    const mdMark = isBad ? '⚠ divergent' : (r.converged === true ? '✓ ' + convText : '◐ ' + convText);
+    mdLines.push('- ' + rel + ' · `' + gate + '`/`' + decShort + '` · ' + mdMark);
 
+    // briefing meta — 토큰/건너뜀. summary 는 md 에 prose(em-dash 정규화)로 보존.
+    let briefMeta = '';
     if (typeof r.briefing_summary === 'string' && r.briefing_summary.length > 0) {
       const summary = normalizeProse(r.briefing_summary);
-      const tokens = r.briefing_token_count != null ? String(r.briefing_token_count) : null;
-      mdLines.push('  > ' + summary + (tokens ? ' · `' + tokens + ' tok`' : ''));
-      htmlEntry += '<blockquote class="briefing">' + escapeHtml(summary)
-        + (tokens ? ' <code class="muted">· ' + escapeHtml(tokens) + ' tok</code>' : '')
-        + '</blockquote>';
+      const tok = tokK(r.briefing_token_count);
+      mdLines.push('  > ' + summary + (tok ? ' · `' + tok + ' tok`' : ''));
+      briefMeta = '<span class="brief"' + (summary ? ' title="' + escapeHtml(summary).replace(/"/g, '&quot;') + '"' : '') + '>'
+        + 'briefing ' + (tok ? escapeHtml(tok) + ' tok' : '기록') + '</span>';
     } else if (r.briefing_invocation_count === 0) {
       mdLines.push('  · _(briefing 건너뜀)_');
-      htmlEntry += '<span class="muted">· (briefing 건너뜀)</span>';
+      briefMeta = '<span class="brief">briefing 건너뜀</span>';
     }
-    htmlEntry += '</div></li>';
+
+    const railLine = isLast ? '' : '<span class="audit-line" aria-hidden="true"></span>';
+    const rowClass = isArchived ? 'audit-row from-snapshot' : 'audit-row';
+    const htmlEntry = '<li class="' + rowClass + '">'
+      + '<div class="audit-rail"><span class="audit-node ' + (isBad ? 'is-bad' : 'is-ok') + '" aria-hidden="true"></span>'
+      + railLine + '</div>'
+      + '<div class="audit-body">'
+      + '<div class="audit-head"><span class="audit-gate">' + escapeHtml(gate) + '</span>'
+      + '<span class="audit-dec">/' + escapeHtml(decShort) + '</span>'
+      + '<span class="audit-when">' + escapeHtml(rel) + '</span></div>'
+      + '<div class="audit-meta"><span class="conv' + convExtra + '">'
+      + '<svg class="i i-sm" aria-hidden="true"><use href="#' + convSvg + '"/></svg>' + escapeHtml(convText)
+      + '<span class="sr-only">' + (isBad ? ' 미수렴' : '') + '</span></span>'
+      + briefMeta + '</div></div></li>';
     htmlLines.push(htmlEntry);
   }
 
-  for (const r of liveShown) renderRow(r, false);
-  for (const r of archivedShown) renderRow(r, true);
+  const auditRows = liveShown.map(r => ({ r, archived: false }))
+    .concat(archivedShown.map(r => ({ r, archived: true })));
+  auditRows.forEach((e, i) => renderRow(e.r, e.archived, i === auditRows.length - 1));
 
   // v1.3.0-m5 impeccable P3 absorption — single section-level footnote for
   // archived rows (NOT per-row). Surfaces only when at least one archived
@@ -178,14 +190,14 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
   if (archivedShown.length > 0) {
     const footnote = '⌛ 보관 스냅샷에서 복원 · ' + archivedShown.length + '건';
     mdLines.push('- _' + footnote + '_');
-    htmlLines.push('<li class="tl-note muted from-snapshot-footnote"><em>'
+    htmlLines.push('<li class="audit-note muted from-snapshot-footnote"><em>'
       + escapeHtml(footnote) + '</em></li>');
   }
 
   const totalOlder = liveOlder + archivedOlder;
   if (totalOlder > 0) {
     mdLines.push('- _+' + totalOlder + ' older_');
-    htmlLines.push('<li class="tl-note muted"><em>+' + totalOlder + ' older</em></li>');
+    htmlLines.push('<li class="audit-note muted"><em>+' + totalOlder + ' older</em></li>');
   }
 
   // v1.3.0-m5 Codex F1 absorption — missing-day marker. When snapshot mode
@@ -200,7 +212,7 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
     if (missingDays >= 5) {
       const gapNote = '보관 누락 ' + missingDays + '일';
       mdLines.push('- _' + gapNote + '_');
-      htmlLines.push('<li class="tl-note muted snapshot-gap"><em>'
+      htmlLines.push('<li class="audit-note muted snapshot-gap"><em>'
         + escapeHtml(gapNote) + '</em></li>');
     }
   }
@@ -222,7 +234,7 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
         .map(function (e) { return e[0] + ' ' + e[1] + '건'; });
       const summary = '이번 주 mask: ' + parts.join(' · ');
       mdLines.push('- _' + summary + '_');
-      htmlLines.push('<li class="tl-note muted"><em>' + escapeHtml(summary) + '</em></li>');
+      htmlLines.push('<li class="audit-note muted"><em>' + escapeHtml(summary) + '</em></li>');
     }
   }
 
@@ -234,14 +246,14 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
     const ageText = prev !== null ? prev + '초' : '60초+';
     const footnote = '이전 캐시 ' + ageText + ' stale · 자동 갱신 안 됨';
     mdLines.push('- _' + footnote + '_');
-    htmlLines.push('<li class="tl-note muted"><em>' + escapeHtml(footnote) + '</em></li>');
+    htmlLines.push('<li class="audit-note muted"><em>' + escapeHtml(footnote) + '</em></li>');
   }
 
   return {
     md: mdLines.join('\n'),
-    // v1.14.0 — 시간순 step-chart rail. <ol>(시간 순서 의미) + tl-rail(세로
-    // connector ::before). 노드는 .tl-step, footnote 는 .tl-note(노드 없음).
-    html: '<ol class="timeline tl-rail">' + htmlLines.join('') + '</ol>',
+    // v1.18.0 M2 — 시간순 audit timeline. <ol>(시간 순서 의미). 각 행은
+    // audit-row(rail 노드 + audit-line connector), footnote 는 audit-note(노드 없음).
+    html: '<ol class="timeline">' + htmlLines.join('') + '</ol>',
   };
 }
 

@@ -2,8 +2,7 @@
 
 const path = require('path');
 const { buildActionPrompt } = require('../parsers/action-prompt');
-const { renderJargonHtml, renderJargonMarkdown } = require('../parsers/jargon-dictionary');
-const { severityMeta, severityTagHtml } = require('../parsers/severity-meta');
+const { severityMeta, sevBadgeHtml } = require('../parsers/severity-meta');
 
 const MAX_EXPANDED = 3;
 
@@ -11,14 +10,15 @@ function severityIcon(sev) {
   return severityMeta(sev).icon;
 }
 
-function metaCue(q) {
+// 출처 단서 — 파일 basename + 섹션(headingPath 첫 항목) 분리. li-item 의 meta-cue 에
+// mono 파일 + cue-sec 섹션으로 렌더. (line 번호는 섹션 뒤 보조.)
+function metaCueParts(q) {
   if (!q || (!q.source && !q.lineNumber)) return null;
-  const base = q.source ? path.basename(q.source) : null;
+  const file = q.source ? path.basename(q.source) : null;
   const head = (q.headingPath && q.headingPath[0]) || '## Open Questions';
-  const heading = head.replace(/^##\s+/, '');
-  const lineN = q.lineNumber ? ', line ' + q.lineNumber : '';
-  if (base) return base + ' §' + heading + lineN;
-  return '§' + heading + lineN;
+  const section = head.replace(/^#+\s+/, '');
+  const line = q.lineNumber ? 'line ' + q.lineNumber : '';
+  return { file, section, line };
 }
 
 function inferSeverity(text) {
@@ -28,7 +28,7 @@ function inferSeverity(text) {
 }
 
 function renderOpenQuestions(model, formatUtils, planBody) {
-  const { escapeHtml, escapeAttr } = formatUtils;
+  const { escapeHtml, renderProseHtml, renderProseMd } = formatUtils;
   const m = model || {};
   const sources = m.sources || {};
   const stateItem = sources.state && sources.state.item;
@@ -58,31 +58,36 @@ function renderOpenQuestions(model, formatUtils, planBody) {
   if (merged.length === 0) return null;
   const expanded = merged.slice(0, MAX_EXPANDED);
   const collapsed = merged.slice(MAX_EXPANDED);
-  const jargonSeenHtml = new Set();
 
   function renderItem(q) {
     const sev = q.severity || 'MEDIUM';
     const ap = buildActionPrompt(q, 'openQuestion');
-    const cue = metaCue(q);
-    const sevTag = severityTagHtml(sev, escapeHtml);
-    const textHtml = '<span class="item-text">'
-      + renderJargonHtml(q.text, { seen: jargonSeenHtml }, escapeHtml, escapeAttr)
-      + '</span>';
-    const cueHtml = cue
-      ? '<blockquote class="meta-cue">왜: ' + escapeHtml(cue) + '</blockquote>'
-      : '';
-    // F1 absorption — data-copy는 escapeHtml만 (escapeAttr URL-encode 회피)
-    const apHtml = '<div class="action-prompt">'
+    const cue = metaCueParts(q);
+    const sevTag = sevBadgeHtml(sev);
+    const qHtml = '<div class="li-q">' + renderProseHtml(q.text, formatUtils) + '</div>';
+    let cueHtml = '';
+    if (cue) {
+      const inner = [];
+      if (cue.file) inner.push('출처 <span class="mono">' + escapeHtml(cue.file) + '</span>');
+      if (cue.section) inner.push('<span class="cue-sec">' + escapeHtml(cue.section) + '</span>');
+      if (cue.line) inner.push('<span class="cue-sec">' + escapeHtml(cue.line) + '</span>');
+      cueHtml = '<div class="meta-cue">' + inner.join(' ') + '</div>';
+    }
+    // data-copy 는 escapeHtml 만 (escapeAttr URL-encode 회피).
+    const promptHtml = '<div class="inline-prompt">'
       + '<code>' + escapeHtml(ap.fullText) + '</code>'
-      + '<button class="copy-btn" data-copy="' + escapeHtml(ap.fullText)
-      + '" type="button" aria-label="다음 액션 복사">복사</button>'
+      + '<button class="copy-btn" type="button" data-copy="' + escapeHtml(ap.fullText)
+      + '" aria-label="다음 액션 복사"><svg class="i i-sm" aria-hidden="true"><use href="#ic-copy"/></svg></button>'
       + '</div>';
-    const html = '<li class="oq-item">' + sevTag + ' ' + textHtml + cueHtml + apHtml + '</li>';
-    // Markdown — jargon seen 별도 (HTML/MD 분리)
-    const mdSeen = new Set();
-    const textMd = renderJargonMarkdown(q.text, { seen: mdSeen });
-    const md = '- ' + severityIcon(sev) + ' **' + sev + '** — ' + textMd
-      + (cue ? '\n  - 왜: ' + cue : '')
+    const html = '<li class="li-item">' + sevTag
+      + '<div class="li-main">' + qHtml + cueHtml + promptHtml + '</div></li>';
+    // Markdown — 섹션 IA 는 M4, 여기선 동기 갱신. 구분자는 ·(em-dash 금지, H10).
+    const textMd = renderProseMd(q.text);
+    const cueMd = cue
+      ? '\n  - 출처: ' + [cue.file, cue.section, cue.line].filter(Boolean).join(' · ')
+      : '';
+    const md = '- ' + severityIcon(sev) + ' **' + sev + '** · ' + textMd
+      + cueMd
       + '\n  - 다음 액션: `' + ap.fullText + '`';
     return { html, md };
   }
@@ -90,10 +95,12 @@ function renderOpenQuestions(model, formatUtils, planBody) {
   const expandedR = expanded.map(renderItem);
   const collapsedR = collapsed.map(renderItem);
 
-  let html = '<ul class="open-questions" role="list">' + expandedR.map(r => r.html).join('') + '</ul>';
+  let html = '<ul class="stack-list" role="list">' + expandedR.map(r => r.html).join('') + '</ul>';
   if (collapsed.length > 0) {
-    html += '<details class="oq-more"><summary>+' + collapsed.length + ' 더보기</summary>'
-      + '<ul role="list">' + collapsedR.map(r => r.html).join('') + '</ul></details>';
+    html += '<details class="more"><summary>'
+      + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
+      + collapsed.length + ' 더보기</summary>'
+      + '<ul class="stack-list" role="list">' + collapsedR.map(r => r.html).join('') + '</ul></details>';
   }
   let md = expandedR.map(r => r.md).join('\n');
   if (collapsed.length > 0) {

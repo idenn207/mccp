@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-23",
+  "title": "Design System: mccp Status Console",
+  "extensions": {
+    "colorMeta": {
+      "console-black": { "role": "neutral", "displayName": "Console Black", "canonical": "oklch(0.152 0 0)", "tonalRamp": ["oklch(0.15 0 0)", "oklch(0.22 0 0)", "oklch(0.30 0 0)", "oklch(0.42 0 0)", "oklch(0.55 0 0)", "oklch(0.68 0 0)", "oklch(0.82 0 0)", "oklch(0.95 0 0)"] },
+      "sidebar-black": { "role": "neutral", "displayName": "Sidebar Black", "canonical": "oklch(0.165 0 0)", "tonalRamp": ["oklch(0.16 0 0)", "oklch(0.23 0 0)", "oklch(0.31 0 0)", "oklch(0.43 0 0)", "oklch(0.55 0 0)", "oklch(0.68 0 0)", "oklch(0.82 0 0)", "oklch(0.95 0 0)"] },
+      "surface-chip": { "role": "neutral", "displayName": "Surface Chip", "canonical": "oklch(0.185 0 0)", "tonalRamp": ["oklch(0.18 0 0)", "oklch(0.25 0 0)", "oklch(0.33 0 0)", "oklch(0.44 0 0)", "oklch(0.56 0 0)", "oklch(0.69 0 0)", "oklch(0.82 0 0)", "oklch(0.95 0 0)"] },
+      "panel-graphite": { "role": "neutral", "displayName": "Panel Graphite", "canonical": "oklch(0.188 0 0)", "tonalRamp": ["oklch(0.19 0 0)", "oklch(0.26 0 0)", "oklch(0.34 0 0)", "oklch(0.45 0 0)", "oklch(0.57 0 0)", "oklch(0.69 0 0)", "oklch(0.82 0 0)", "oklch(0.95 0 0)"] },
+      "hairline": { "role": "neutral", "displayName": "Hairline", "canonical": "oklch(0.272 0 0)", "tonalRamp": ["oklch(0.20 0 0)", "oklch(0.27 0 0)", "oklch(0.34 0 0)", "oklch(0.45 0 0)", "oklch(0.57 0 0)", "oklch(0.69 0 0)", "oklch(0.82 0 0)", "oklch(0.95 0 0)"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "oklch(0.975 0 0)", "tonalRamp": ["oklch(0.20 0 0)", "oklch(0.36 0 0)", "oklch(0.48 0 0)", "oklch(0.62 0 0)", "oklch(0.78 0 0)", "oklch(0.88 0 0)", "oklch(0.94 0 0)", "oklch(0.98 0 0)"] },
+      "muted": { "role": "neutral", "displayName": "Muted", "canonical": "oklch(0.615 0 0)", "tonalRamp": ["oklch(0.30 0 0)", "oklch(0.40 0 0)", "oklch(0.48 0 0)", "oklch(0.55 0 0)", "oklch(0.62 0 0)", "oklch(0.72 0 0)", "oklch(0.84 0 0)", "oklch(0.95 0 0)"] },
+      "signal-blue": { "role": "primary", "displayName": "Signal Blue", "canonical": "oklch(0.66 0.16 252)", "tonalRamp": ["oklch(0.20 0.08 252)", "oklch(0.30 0.11 252)", "oklch(0.40 0.14 252)", "oklch(0.50 0.16 252)", "oklch(0.60 0.16 252)", "oklch(0.66 0.16 252)", "oklch(0.78 0.12 252)", "oklch(0.90 0.06 252)"] },
+      "alert-red": { "role": "secondary", "displayName": "Alert Red", "canonical": "oklch(0.67 0.19 25)", "tonalRamp": ["oklch(0.22 0.09 25)", "oklch(0.32 0.13 25)", "oklch(0.42 0.16 25)", "oklch(0.52 0.18 25)", "oklch(0.60 0.19 25)", "oklch(0.67 0.19 25)", "oklch(0.79 0.13 25)", "oklch(0.90 0.06 25)"] },
+      "amber-stale": { "role": "secondary", "displayName": "Amber Stale", "canonical": "oklch(0.81 0.13 80)", "tonalRamp": ["oklch(0.32 0.06 80)", "oklch(0.43 0.08 80)", "oklch(0.54 0.10 80)", "oklch(0.64 0.12 80)", "oklch(0.73 0.13 80)", "oklch(0.81 0.13 80)", "oklch(0.89 0.10 80)", "oklch(0.95 0.05 80)"] },
+      "worker-green": { "role": "secondary", "displayName": "Worker Green", "canonical": "oklch(0.74 0.16 152)", "tonalRamp": ["oklch(0.26 0.07 152)", "oklch(0.36 0.10 152)", "oklch(0.46 0.13 152)", "oklch(0.56 0.15 152)", "oklch(0.66 0.16 152)", "oklch(0.74 0.16 152)", "oklch(0.84 0.12 152)", "oklch(0.92 0.06 152)"] },
+      "secret-red": { "role": "secondary", "displayName": "Secret Red", "canonical": "oklch(0.67 0.22 25)", "tonalRamp": ["oklch(0.22 0.10 25)", "oklch(0.32 0.15 25)", "oklch(0.42 0.19 25)", "oklch(0.52 0.21 25)", "oklch(0.60 0.22 25)", "oklch(0.67 0.22 25)", "oklch(0.79 0.15 25)", "oklch(0.90 0.07 25)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display / Verdict", "purpose": "개요 hero의 1줄 판정. 시스템에서 가장 큰 글자, 화면당 하나." },
+      "title": { "displayName": "Page Title", "purpose": "각 route 상단 제목 (게이트 파이프라인 / 활동·기록)." },
+      "panel-title": { "displayName": "Panel Title", "purpose": "패널 head 제목. 작지만 굵어 head/body anatomy를 가른다." },
+      "body": { "displayName": "Body", "purpose": "모든 본문·메타. 산문 65–75ch." },
+      "label": { "displayName": "Rail Label", "purpose": "사이드바 섹션 라벨. 유일한 UPPERCASE 변환." },
+      "mono": { "displayName": "Mono", "purpose": "code chip, 식별자, freshness 등 기계 토큰." }
+    },
+    "shadows": [
+      { "name": "panel-whisper", "value": "0 1px 2px oklch(0 0 0 / 0.28), 0 1px 1px oklch(0 0 0 / 0.16)", "purpose": "패널을 페이지에서 살짝 떼어내는 유일한 그림자. 깊이는 hairline + 명도 단차가 만들고 그림자는 보조." },
+      { "name": "panel-whisper-light", "value": "0 1px 2px oklch(0.55 0.01 250 / 0.08), 0 1px 1px oklch(0.55 0.01 250 / 0.05)", "purpose": "light 테마 미러. 더 옅은 중립 그림자." }
+    ],
+    "motion": [
+      { "name": "state-transition", "value": "120ms ease-out", "purpose": "nav-link hover 색/배경 전이." },
+      { "name": "stale-transition", "value": "200ms ease-out", "purpose": "topbar 하단 테두리가 stale 시 amber로 전이." },
+      { "name": "reduced-motion", "value": "animation:none; transition:none", "purpose": "prefers-reduced-motion에서 전부 off. 모션 부재해도 동작 동일." }
+    ],
+    "breakpoints": [
+      { "name": "console-collapse", "value": "880px" }
+    ],
+    "layout": [
+      { "name": "sidebar-w", "value": "244px", "purpose": "좌측 사이드바 폭 (sticky full-height)." },
+      { "name": "content-max", "value": "1080px", "purpose": "메인 콘텐츠 최대 폭." },
+      { "name": "topbar-h", "value": "52px", "purpose": "sticky topbar 높이." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Verdict Hero Panel",
+      "kind": "card",
+      "refersTo": "hero-panel",
+      "description": "개요 page의 1줄 판정 + 인라인 4축 메타. 60초 스캔의 진입점.",
+      "html": "<div class=\"ds-hero\"><h1 class=\"ds-verdict\">◐ plan 2건 진행 · 1건 차단 대기 중</h1><div class=\"ds-hero-next\"><span class=\"ds-next-label\">다음</span><code class=\"ds-code\">/mccp:pr</code><button class=\"ds-copy\" type=\"button\">복사</button></div><p class=\"ds-hero-meta\"><span>진행 2</span> · <span class=\"ds-blocked\">차단 1</span> · <span>위험 0</span> · <span>갱신 12초 전</span></p></div>",
+      "css": ".ds-hero { background: oklch(0.188 0 0); border: 1px solid oklch(0.272 0 0); border-radius: 9px; padding: 1.3rem 1.4rem 1.2rem; box-shadow: 0 1px 2px oklch(0 0 0 / 0.28), 0 1px 1px oklch(0 0 0 / 0.16); color: oklch(0.975 0 0); font-family: 'Pretendard Variable', Pretendard, ui-sans-serif, system-ui, sans-serif; } .ds-verdict { font-size: 1.3125rem; font-weight: 600; line-height: 1.42; letter-spacing: -0.02em; margin: 0; text-wrap: balance; } .ds-hero-next { margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; } .ds-next-label { color: oklch(0.615 0 0); font-size: 0.9rem; } .ds-code { font-family: ui-monospace, 'SF Mono', Consolas, monospace; font-size: 0.86em; color: oklch(0.78 0 0); background: oklch(0.185 0 0); padding: 0.25rem 0.4rem; border-radius: 3px; } .ds-copy { font-size: 0.8rem; padding: 0.2rem 0.6rem; border: 1px solid oklch(0.335 0 0); background: oklch(0.188 0 0); color: oklch(0.975 0 0); cursor: pointer; border-radius: 6px; } .ds-copy:hover { background: oklch(0.235 0 0); } .ds-copy:focus-visible { outline: 2px solid oklch(0.66 0.16 252); outline-offset: 2px; } .ds-hero-meta { margin: 0.85rem 0 0; color: oklch(0.615 0 0); font-size: 0.82rem; } .ds-blocked { color: oklch(0.67 0.19 25); font-weight: 600; }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "head(아이콘+제목+count) / body anatomy의 비중첩 패널. 활동·기록 그리드 요소.",
+      "html": "<section class=\"ds-panel\"><div class=\"ds-panel-head\"><svg class=\"ds-i\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/></svg><h3 class=\"ds-panel-title\">타임라인</h3><span class=\"ds-panel-count\">8</span></div><div class=\"ds-panel-body\">최근 receipt 활동 로그가 시간순으로 들어갑니다.</div></section>",
+      "css": ".ds-panel { background: oklch(0.188 0 0); border: 1px solid oklch(0.272 0 0); border-radius: 9px; box-shadow: 0 1px 2px oklch(0 0 0 / 0.28), 0 1px 1px oklch(0 0 0 / 0.16); display: flex; flex-direction: column; color: oklch(0.975 0 0); font-family: 'Pretendard Variable', Pretendard, ui-sans-serif, system-ui, sans-serif; } .ds-panel-head { display: flex; align-items: center; gap: 0.5rem; padding: 0.72rem 1rem; border-bottom: 1px solid oklch(0.272 0 0); } .ds-panel-head .ds-i { width: 16px; height: 16px; stroke: oklch(0.615 0 0); fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; } .ds-panel-title { margin: 0; font-size: 0.85rem; font-weight: 600; letter-spacing: -0.008em; } .ds-panel-count { margin-left: auto; font-size: 0.74rem; color: oklch(0.48 0 0); font-variant-numeric: tabular-nums; } .ds-panel-body { padding: 1rem; font-size: 14px; line-height: 1.55; color: oklch(0.78 0 0); }"
+    },
+    {
+      "name": "Nav Link",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "사이드바 page 링크. active는 색이 아니라 배경+굵기+아이콘 복합 신호.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-link ds-nav-active\" href=\"#\"><svg class=\"ds-i\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"9\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"5\" rx=\"1\"/><rect x=\"14\" y=\"12\" width=\"7\" height=\"9\" rx=\"1\"/><rect x=\"3\" y=\"16\" width=\"7\" height=\"5\" rx=\"1\"/></svg>개요</a><a class=\"ds-nav-link\" href=\"#\"><svg class=\"ds-i\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><line x1=\"6\" y1=\"3\" x2=\"6\" y2=\"15\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><path d=\"M18 9a9 9 0 0 1-9 9\"/></svg>게이트 파이프라인</a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 0.1rem; background: oklch(0.165 0 0); padding: 0.55rem; border-radius: 9px; } .ds-nav-link { display: flex; align-items: center; gap: 0.6rem; padding: 0.44rem 0.6rem; border-radius: 6px; color: oklch(0.615 0 0); text-decoration: none; font-size: 0.875rem; font-weight: 450; font-family: 'Pretendard Variable', Pretendard, ui-sans-serif, system-ui, sans-serif; transition: background 120ms ease-out, color 120ms ease-out; } .ds-nav-link .ds-i { width: 16px; height: 16px; stroke: oklch(0.48 0 0); fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; transition: stroke 120ms ease-out; } .ds-nav-link:hover { background: oklch(0.215 0 0); color: oklch(0.975 0 0); } .ds-nav-link:hover .ds-i { stroke: oklch(0.615 0 0); } .ds-nav-link:focus-visible { outline: 2px solid oklch(0.66 0.16 252); outline-offset: 1px; } .ds-nav-active { background: oklch(0.215 0 0); color: oklch(0.975 0 0); font-weight: 550; } .ds-nav-active .ds-i { stroke: oklch(0.975 0 0); }"
+    },
+    {
+      "name": "Copy Button",
+      "kind": "button",
+      "refersTo": "button-copy",
+      "description": "슬래시 커맨드처럼 보이는 next-action에만 붙는 복사 버튼. 복사 후 green ✓ 피드백.",
+      "html": "<button class=\"ds-copy-btn\" type=\"button\">복사</button> <button class=\"ds-copy-btn ds-copied\" type=\"button\">복사</button>",
+      "css": ".ds-copy-btn { font-size: 0.8rem; padding: 0.2rem 0.6rem; border: 1px solid oklch(0.335 0 0); background: oklch(0.188 0 0); color: oklch(0.975 0 0); cursor: pointer; border-radius: 6px; font-family: 'Pretendard Variable', Pretendard, ui-sans-serif, system-ui, sans-serif; } .ds-copy-btn:hover { background: oklch(0.235 0 0); } .ds-copy-btn:focus-visible { outline: 2px solid oklch(0.66 0.16 252); outline-offset: 2px; } .ds-copied { color: oklch(0.74 0.16 152); border-color: oklch(0.74 0.16 152); } .ds-copied::after { content: ' ✓복사됨'; }"
+    },
+    {
+      "name": "Pipe Node",
+      "kind": "chip",
+      "refersTo": "pipe-node",
+      "description": "게이트 스테퍼의 상태 노드 pill. ✓/◐/○/✗ 아이콘 + 색 + 텍스트 이중 표기.",
+      "html": "<div class=\"ds-pipe-track\"><span class=\"ds-pipe-node\"><span class=\"ds-ic ds-ok\">✓</span> plan</span><span class=\"ds-pipe-edge\"></span><span class=\"ds-pipe-node\"><span class=\"ds-ic ds-accent\">◐</span> implement</span><span class=\"ds-pipe-edge\"></span><span class=\"ds-pipe-node\"><span class=\"ds-ic ds-mute\">○</span> review</span></div>",
+      "css": ".ds-pipe-track { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; font-family: 'Pretendard Variable', Pretendard, ui-sans-serif, system-ui, sans-serif; } .ds-pipe-node { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.1rem 0.55rem; border-radius: 999px; background: oklch(0.185 0 0); font-size: 0.85rem; color: oklch(0.975 0 0); } .ds-pipe-edge { width: 1.25rem; height: 2px; background: oklch(0.272 0 0); flex-shrink: 0; } .ds-ic { font-size: 0.9rem; } .ds-ok { color: oklch(0.74 0.16 152); } .ds-accent { color: oklch(0.66 0.16 252); } .ds-mute { color: oklch(0.48 0 0); }"
+    },
+    {
+      "name": "Severity Tag",
+      "kind": "chip",
+      "refersTo": "severity-tag",
+      "description": "배경 없는 색-only 위험 태그. critical/high=red, medium=amber, low=muted. 모두 굵기 600.",
+      "html": "<span class=\"ds-sev ds-sev-high\">HIGH</span> <span class=\"ds-sev ds-sev-medium\">MEDIUM</span> <span class=\"ds-sev ds-sev-low\">LOW</span>",
+      "css": ".ds-sev { display: inline-block; padding: 0 0.35em; border-radius: 3px; font-size: 0.8rem; font-weight: 600; font-family: 'Pretendard Variable', Pretendard, ui-sans-serif, system-ui, sans-serif; } .ds-sev-high { color: oklch(0.67 0.19 25); } .ds-sev-medium { color: oklch(0.81 0.13 80); } .ds-sev-low { color: oklch(0.615 0 0); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Briefing Desk",
+    "overview": "이 인터페이스는 PM이 매일 아침 책상에서 받아보는 한 장짜리 브리핑이다. 화면을 여는 사람은 코드를 읽지 않는다. AI 에이전트가 밤사이 굴린 PRD → plan → implement → review → PR 파이프라인의 현재 위치, 막힘, 다음 행동, 위험을 60초 안에 파악하고, 승인 한 번을 내리고 자리를 뜬다. 목소리는 임원 브리핑과 회계 감사 보고서 사이의 텔레그래픽 한 줄이다. 평소 톤은 조용하고, 빨강(차단)·앰버(stale/secret)는 예외 신호로만 등장한다. 거부하는 것: SaaS hero-metric 대시보드, AI-cream warm minimal 랜딩, Bloomberg 터미널. 허용하는 것: Linear / Vercel 대시보드의 평정심 텍스트 톤.",
+    "keyCharacteristics": [
+      "Calm — 화면당 강조색 1개. hero number / gradient / animated badge 부재.",
+      "Decisive — 모든 verdict는 1줄. slug·hash·raw JSON은 detail 진입 후에만.",
+      "Compact — 멀티페이지 콘솔. 개요 1화면에 핵심, 디테일은 page 전환으로.",
+      "Derive, don't author — 모든 화면은 .claude/ source에서 derive. stale이면 정직하게 노출.",
+      "Desktop-only — 단일 데스크톱 가정. ≤880px collapse하되 모바일 패턴 미도입."
+    ],
+    "rules": [
+      { "name": "The One Voice Rule", "body": "signal-blue는 한 viewport에 단 한 곳에만 산다(강조/active/primary). 그 희소성이 핵심이다. 둘 이상 등장하면 하나는 틀렸다.", "section": "colors" },
+      { "name": "The Exception-Only Rule", "body": "빨강과 앰버는 예외 신호다. 차단·stale·secret이 아닐 때 이 두 색은 화면에 0번 등장한다. alert fatigue 없는 콘솔이 목표다.", "section": "colors" },
+      { "name": "The Fixed-Scale Rule", "body": "rem 고정 스케일만 쓴다. clamp() 유동 타이포는 금지. 데스크톱 단일 DPI 가정이고 사이드바 안에서 줄어드는 유동 h1은 더 나빠진다.", "section": "typography" },
+      { "name": "The No-Metric-Type Rule", "body": "1.6rem 이상의 hero-metric 타이포는 금지(H6). verdict h1(1.3125rem)만 carve-out. 거대 숫자는 SaaS 대시보드의 언어다.", "section": "typography" },
+      { "name": "The Hairline-First Rule", "body": "깊이는 그림자가 아니라 hairline + 명도 단차로 만든다. 큰 blur·짙은 drop-shadow·glow는 금지. 그림자가 눈에 띄면 이미 과하다.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do 강조색(signal-blue)을 한 viewport에 정확히 1번만 쓴다(The One Voice Rule). active/primary/focus 중 하나에만.",
+      "Do 빨강·앰버를 차단·stale·secret 예외에만 등장시킨다. 정상 상태 화면에는 0번(The Exception-Only Rule).",
+      "Do 깊이를 hairline(1px) + 명도 단차(page < panel)로 만든다. 그림자는 Panel Whisper 하나로 충분하다.",
+      "Do rem 고정 스케일을 쓴다. 모든 상태색을 색 + 아이콘 + 텍스트로 이중 표기한다(WCAG 2.2 AA, 본문 4.5:1).",
+      "Do 첫 화면(개요)을 1줄 verdict + 인라인 4축 메타로 끝낸다. slug·hash·raw JSON은 detail 진입 후에만.",
+      "Do verdict를 단정적으로 쓴다. 혹시/아마도 금지 — AI가 판단을 회피하면 raw finding을 그대로 노출."
+    ],
+    "donts": [
+      "Don't SaaS hero-metric 대시보드처럼 보이게 한다 — 거대 숫자, gradient 카드, sparkline 더미 금지(H6).",
+      "Don't AI-cream warm minimal 외관을 쓴다 — cream/sand 배경, serif heading, 작은 caps eyebrow(01 · ABOUT) 금지.",
+      "Don't Bloomberg 터미널을 흉내낸다 — 형광 컬러, tick 깜빡임, 밀도 극대화 금지.",
+      "Don't border-left/right를 1px 초과 컬러 stripe로 쓴다(H4). 강조는 full 테두리(.attention)나 텍스트 색으로.",
+      "Don't auto-fit 카드 그리드(H5), 그라디언트 배경(H8), 글래스모피즘(H7)을 쓴다.",
+      "Don't 패널 안에 패널을 중첩한다(H17 카드중첩 금지, DOM-aware).",
+      "Don't clamp() 유동 타이포, 1.6rem+ hero-metric(H6), em-dash(H10), heading depth > 3(H15), 외부 폰트/스크립트 fetch(H13)를 쓴다.",
+      "Don't 모션을 장식으로 쓴다. transition은 상태 전이에만, prefers-reduced-motion에서 전부 off돼도 동작은 동일해야 한다."
+    ]
+  }
+}

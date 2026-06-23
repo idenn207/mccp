@@ -15,9 +15,11 @@ test('status-grid — 4 cells + structured data + Korean labels', () => {
       plans: { items: [
         { path: 'a.plan.md' }, { path: 'b.plan.md' }, { path: 'c.plan.md' },
       ] },
+      // blocked = deriveDecisionState SSoT (H1) — escalated(round>=2) 미수렴만
+      // 차단. canonical gate + round 필수(gate 없는 receipt 는 stage 매핑 불가로 제외).
       receipts: { items: [
-        { decision_id: 'd1', converged: false },
-        { decision_id: 'd2', converged: false },
+        { ok: true, decision_id: 'd1', gate: 'mccp-plan-codex', converged: false, round: 2, created_at: '2026-06-23T01:00:00Z' },
+        { ok: true, decision_id: 'd2', gate: 'mccp-implement-codex', converged: false, round: 2, created_at: '2026-06-23T01:00:00Z' },
       ] },
       backlog: { items: [{ severity: 'HIGH' }, { severity: 'LOW' }] },
     },
@@ -136,7 +138,8 @@ test('audit-timeline — 3 receipts in window, 1 with briefing', () => {
   const { md, html } = renderAuditTimeline(model, formatUtils, now);
   assert.match(md, /plan looks fine/);
   assert.match(md, /briefing 건너뜀/);
-  assert.match(html, /blockquote/);
+  assert.match(html, /class="audit-row"/);
+  assert.match(html, /class="brief"/);
 });
 
 test('audit-timeline — empty window yields placeholder', () => {
@@ -177,11 +180,11 @@ test('open-questions — merge state + plan, dedupe (4-part component)', () => {
   };
   const planBody = { openQuestions: [{ source: 'p.plan.md', text: 'q2' }, { source: 'p.plan.md', text: 'q3' }] };
   const { md } = renderOpenQuestions(model, formatUtils, planBody);
-  // 3 distinct items (q1 state, q2 dedup state-first, q3 plan)
-  assert.ok(md.includes('— q1'));
-  assert.ok(md.includes('— q2'));
-  assert.ok(md.includes('— q3'));
-  // 4-part each → "다음 액션:" line per item
+  // 3 distinct items (q1 state, q2 dedup state-first, q3 plan). 구분자는 ·(H10).
+  assert.ok(md.includes('· q1'));
+  assert.ok(md.includes('· q2'));
+  assert.ok(md.includes('· q3'));
+  // each item → "다음 액션:" line
   const actionCount = (md.match(/다음 액션:/g) || []).length;
   assert.equal(actionCount, 3);
 });

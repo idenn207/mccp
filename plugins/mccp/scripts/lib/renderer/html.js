@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { serializeDetails } = require('./parsers/drawer-detail');
 
 // v1.13.0 — vendored-inline jQuery (slim, no ajax/effects). Read once at module
 // load + embedded inline (NEVER an external <script src> — Codex F2 trust
@@ -443,6 +444,48 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .page-foot { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;
   max-width: var(--content-max); width: 100%; margin: 0 auto;
   padding: 1.1rem 1.5rem 2rem; color: var(--faint); font-size: 0.74rem; }
+/* ── clickable 항목(드로어 trigger) — 색 단독 의미 금지(hover/focus 만 affordance) ── */
+.li-item.clickable, .milestone-item.clickable, .audit-row.clickable { cursor: pointer; border-radius: var(--radius-sm); }
+.li-item.clickable:hover, .milestone-item.clickable:hover, .audit-row.clickable:hover { background: var(--panel-2); }
+.clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* ── 상세 드로어 (우측 overlay-top, native dialog — 샘플 fidelity) ── */
+.drawer {
+  position: fixed; inset: 0 0 0 auto; margin: 0; z-index: 50;
+  width: min(440px, 92vw); max-width: 92vw; height: 100dvh; max-height: 100dvh;
+  padding: 0; border: none; border-left: 1px solid var(--border);
+  background: var(--panel); color: var(--ink);
+  box-shadow: -20px 0 50px oklch(0 0 0 / 0.45);
+  transform: translateX(100%);
+  transition: transform 280ms cubic-bezier(.22,.61,.36,1), overlay 280ms allow-discrete, display 280ms allow-discrete;
+}
+.drawer[open] { transform: translateX(0); }
+@starting-style { .drawer[open] { transform: translateX(100%); } }
+.drawer::backdrop {
+  background: oklch(0 0 0 / 0);
+  transition: background 280ms ease-out, overlay 280ms allow-discrete, display 280ms allow-discrete;
+}
+.drawer[open]::backdrop { background: oklch(0.10 0 0 / 0.55); backdrop-filter: blur(1px); }
+@starting-style { .drawer[open]::backdrop { background: oklch(0 0 0 / 0); } }
+.drawer-head { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; padding: 0.85rem 1.1rem; border-bottom: 1px solid var(--border); background: var(--panel); }
+.drawer-kind { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); }
+.drawer-close { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 7px;
+  color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); cursor: pointer; }
+.drawer-close:hover { color: var(--ink); background: var(--panel-hover); }
+.drawer-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.drawer-body { padding: 1.1rem 1.2rem 2.5rem; overflow-y: auto; max-height: calc(100dvh - 53px); }
+.d-title { margin: 0 0 0.8rem; font-size: 1.05rem; font-weight: 600; line-height: 1.45; letter-spacing: -0.012em;
+  color: var(--ink); text-wrap: balance; }
+.d-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 1.1rem; }
+.d-rows { margin: 0 0 1.3rem; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.d-rows > div { display: flex; gap: 1rem; padding: 0.5rem 0.75rem; font-size: 0.8rem; }
+.d-rows > div + div { border-top: 1px solid var(--border); }
+.d-rows dt { margin: 0; flex: none; width: 5rem; color: var(--muted); }
+.d-rows dd { margin: 0; min-width: 0; color: var(--ink-2); word-break: break-word; }
+.d-sec { margin: 0 0 1.15rem; }
+.d-sec h3 { margin: 0 0 0.35rem; font-size: 0.8rem; font-weight: 600; color: var(--ink); }
+.d-sec p { margin: 0; font-size: 0.855rem; line-height: 1.65; color: var(--ink-2); }
+.d-action { margin-top: 1.3rem; }
 /* ── 반응형 collapse: 사이드바를 상단 가로 바로, 패널 그리드 1-col. ── */
 @media (max-width: 880px) {
   body { grid-template-columns: minmax(0, 1fr); }
@@ -479,11 +522,37 @@ const ICON_SPRITE = '<svg width="0" height="0" style="position:absolute" aria-hi
   + '<symbol id="ic-refresh" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></symbol>'
   + '<symbol id="ic-worker" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></symbol>'
   + '<symbol id="ic-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>'
+  + '<symbol id="ic-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>'
   + '</defs></svg>';
 
 const STALE_SCRIPT = `(function(){var d=Number(document.body.dataset.derivedMs)||0;function c(){if(document.hidden)return;var a=Date.now()-d;document.body.dataset.stale=a>60000?'1':'0';}c();document.addEventListener('visibilitychange',c);setInterval(c,5000);})();`;
 
 const COPY_SCRIPT = `(function(){document.addEventListener('click',function(e){var t=e.target&&e.target.closest&&e.target.closest('[data-copy]');if(!t)return;var s=t.getAttribute('data-copy')||'';if(navigator&&navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(s).then(function(){t.setAttribute('data-copied','1');setTimeout(function(){t.removeAttribute('data-copied')},1500)}).catch(function(){})}});})();`;
+
+// v1.19.0 M3 — 우측 상세 드로어(native dialog). progressive enhancement: no-JS
+// 시 항목은 일반 표시(클릭 무동작), 섹션 baseline 무손상. 주입 경계(Codex R1 F3):
+// title/sections[].1 은 서버 렌더 안전 HTML → innerHTML, 그 외(tags/rows/action)는
+// RAW → textContent. drawer-data JSON 은 \uXXXX escape 라 JSON.parse 가 복원.
+// focus 관리: showModal() 자동 focus + 'close' 시 trigger 복귀, Esc/backdrop close.
+const DRAWER_SCRIPT = "(function(){"
+  + "var dataEl=document.getElementById('drawer-data'),drawer=document.getElementById('drawer');"
+  + "if(!dataEl||!drawer)return;var DETAILS={};try{DETAILS=JSON.parse(dataEl.textContent||'{}')}catch(e){return}"
+  + "var dKind=document.getElementById('d-kind'),dBody=document.getElementById('d-body'),lastTrigger=null;"
+  + "var KIND={oq:'미해결 질문',risk:'위험',receipt:'Receipt',ms:'마일스톤'};"
+  + "function el(t,c){var e=document.createElement(t);if(c)e.className=c;return e}"
+  + "function render(d){dBody.innerHTML='';"
+  + "var h=el('h2','d-title');h.innerHTML=d.title||'';dBody.appendChild(h);"
+  + "if(d.tags&&d.tags.length){var tw=el('div','d-tags');d.tags.forEach(function(t){var s=el('span','sev s-'+(t.tone||'low'));s.textContent=t.label||'';tw.appendChild(s)});dBody.appendChild(tw)}"
+  + "if(d.rows&&d.rows.length){var dl=el('dl','d-rows');d.rows.forEach(function(r){var row=el('div'),dt=el('dt'),dd=el('dd');dt.textContent=r[0]||'';if(r[2])dd.className='mono';dd.textContent=r[1]||'';row.appendChild(dt);row.appendChild(dd);dl.appendChild(row)});dBody.appendChild(dl)}"
+  + "if(d.sections&&d.sections.length){d.sections.forEach(function(s){var sec=el('section','d-sec'),h3=el('h3'),p=el('p');h3.textContent=s[0]||'';p.innerHTML=s[1]||'';sec.appendChild(h3);sec.appendChild(p);dBody.appendChild(sec)})}"
+  + "if(d.action){var wrap=el('div','d-action'),ap=el('div','action-prompt'),lead=el('span','lead'),code=el('code'),btn=el('button','copy-btn');lead.textContent='다음';code.textContent=d.action;btn.type='button';btn.setAttribute('data-copy',d.action);btn.innerHTML='<svg class=\"i i-sm\" aria-hidden=\"true\"><use href=\"#ic-copy\"/></svg>복사';ap.appendChild(lead);ap.appendChild(code);ap.appendChild(btn);wrap.appendChild(ap);dBody.appendChild(wrap)}}"
+  + "function open(id,trigger){var d=DETAILS[id];if(!d)return;lastTrigger=trigger;dKind.textContent=KIND[String(id).split(':')[0]]||'상세';render(d);dBody.scrollTop=0;if(drawer.showModal){drawer.showModal()}else{drawer.setAttribute('open','')}}"
+  + "function close(){if(drawer.close){drawer.close()}else{drawer.removeAttribute('open')}}"
+  + "var cb=drawer.querySelector('.drawer-close');if(cb)cb.addEventListener('click',close);"
+  + "drawer.addEventListener('click',function(e){if(e.target===drawer)close()});"
+  + "drawer.addEventListener('close',function(){if(lastTrigger&&lastTrigger.focus)lastTrigger.focus();lastTrigger=null});"
+  + "Array.prototype.forEach.call(document.querySelectorAll('[data-detail-id]'),function(n){var id=n.getAttribute('data-detail-id');if(!DETAILS[id])return;n.classList.add('clickable');n.setAttribute('role','button');n.setAttribute('tabindex','0');n.setAttribute('aria-haspopup','dialog');n.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('.copy-btn'))return;open(id,n)});n.addEventListener('keydown',function(e){if((e.key==='Enter'||e.key===' ')&&!(e.target.closest&&e.target.closest('.copy-btn'))){e.preventDefault();open(id,n)}})});"
+  + "})();";
 
 // 슬래시 커맨드처럼 보이는 next-action 만 복사 버튼 부여. 일반 plan 라벨은 텍스트.
 function looksLikeCommand(v) {
@@ -732,10 +801,35 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.0 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.19.0 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
+
+  // v1.19.0 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.
+  // kind prefix(oq/risk/receipt/ms)가 cross-section 충돌을 구조적으로 차단 →
+  // 단순 병합으로 충분(within-section 충돌은 addDetail 이 이미 hard-fail).
+  const drawerMap = new Map();
+  for (const sec of [questions, risks, timeline, milestoneHistory]) {
+    if (sec && sec.details && typeof sec.details.forEach === 'function') {
+      sec.details.forEach((v, k) => { drawerMap.set(k, v); });
+    }
+  }
+  if (drawerMap.size > 0) {
+    parts.push('<dialog class="drawer" id="drawer" aria-label="상세">'
+      + '<div class="drawer-head"><span class="drawer-kind" id="d-kind">상세</span>'
+      + '<button class="drawer-close" type="button" aria-label="닫기">'
+      + '<svg class="i" aria-hidden="true"><use href="#ic-x"/></svg></button></div>'
+      + '<div class="drawer-body" id="d-body"></div></dialog>');
+    // drawer-data: \uXXXX escape JSON(JSON.parse 가 복원). <script type=application/json>
+    // 본문은 브라우저가 raw text 로 두므로 entity 디코딩 없음 — JSON escape 가 맞다.
+    parts.push('<script type="application/json" id="drawer-data">'
+      + serializeDetails(drawerMap) + '</script>');
+  }
+
   parts.push('<script>' + STALE_SCRIPT + '</script>');
   parts.push('<script>' + COPY_SCRIPT + '</script>');
+  if (drawerMap.size > 0) {
+    parts.push('<script>' + DRAWER_SCRIPT + '</script>');
+  }
   // vendored-inline jQuery + pipeline enhancement. Only when pipeline present and
   // the vendor bundle loaded. Inline only — no external origin. Additive.
   if (pipeline && JQUERY_SLIM) {

@@ -3,6 +3,7 @@
 const path = require('path');
 const { buildActionPrompt } = require('../parsers/action-prompt');
 const { severityMeta, sevBadgeHtml } = require('../parsers/severity-meta');
+const { detailId, addDetail, buildOQDetail } = require('../parsers/drawer-detail');
 
 const MAX_EXPANDED = 3;
 
@@ -59,7 +60,11 @@ function renderOpenQuestions(model, formatUtils, planBody) {
   const expanded = merged.slice(0, MAX_EXPANDED);
   const collapsed = merged.slice(MAX_EXPANDED);
 
-  function renderItem(q) {
+  // v1.19.0 M3 — 드로어 detail 누적. 항목 li 에 data-detail-id 부여, drawer-detail
+  // SSoT 로 상세 빌드. 안정 키(lineNumber/ordinal)·충돌 hard-fail은 drawer-detail.
+  const detailMap = new Map();
+
+  function renderItem(q, mergedIndex) {
     const sev = q.severity || 'MEDIUM';
     const ap = buildActionPrompt(q, 'openQuestion');
     const cue = metaCueParts(q);
@@ -79,7 +84,18 @@ function renderOpenQuestions(model, formatUtils, planBody) {
       + '<button class="copy-btn" type="button" data-copy="' + escapeHtml(ap.fullText)
       + '" aria-label="다음 액션 복사"><svg class="i i-sm" aria-hidden="true"><use href="#ic-copy"/></svg></button>'
       + '</div>';
-    const html = '<li class="li-item">' + sevTag
+    // 드로어 detail — 안정 키 + REQUIRED 필드(질문/출처/섹션/severity/action).
+    const rawId = detailId('oq', {
+      source: q.source,
+      lineNumber: q.lineNumber,
+      ordinal: typeof q.ordinal === 'number' ? q.ordinal : mergedIndex,
+    });
+    const detail = buildOQDetail(
+      Object.assign({}, q, { severity: sev, actionPrompt: ap.fullText }),
+      formatUtils,
+    );
+    const { id } = addDetail(detailMap, rawId, detail);
+    const html = '<li class="li-item" data-detail-id="' + escapeHtml(id) + '">' + sevTag
       + '<div class="li-main">' + qHtml + cueHtml + promptHtml + '</div></li>';
     // Markdown — 섹션 IA 는 M4, 여기선 동기 갱신. 구분자는 ·(em-dash 금지, H10).
     const textMd = renderProseMd(q.text);
@@ -92,8 +108,8 @@ function renderOpenQuestions(model, formatUtils, planBody) {
     return { html, md };
   }
 
-  const expandedR = expanded.map(renderItem);
-  const collapsedR = collapsed.map(renderItem);
+  const expandedR = expanded.map((q, i) => renderItem(q, i));
+  const collapsedR = collapsed.map((q, i) => renderItem(q, MAX_EXPANDED + i));
 
   let html = '<ul class="stack-list" role="list">' + expandedR.map(r => r.html).join('') + '</ul>';
   if (collapsed.length > 0) {
@@ -108,7 +124,7 @@ function renderOpenQuestions(model, formatUtils, planBody) {
       + collapsedR.map(r => r.md).join('\n')
       + '\n\n</details>';
   }
-  return { md, html };
+  return { md, html, details: detailMap };
 }
 
 module.exports = { renderOpenQuestions };

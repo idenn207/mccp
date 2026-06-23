@@ -60,7 +60,7 @@ function renderOpenQuestions(model, formatUtils, planBody) {
   const expanded = merged.slice(0, MAX_EXPANDED);
   const collapsed = merged.slice(MAX_EXPANDED);
 
-  // v1.19.0 M3 — 드로어 detail 누적. 항목 li 에 data-detail-id 부여, drawer-detail
+  // v1.18.1 M3 — 드로어 detail 누적. 항목 li 에 data-detail-id 부여, drawer-detail
   // SSoT 로 상세 빌드. 안정 키(lineNumber/ordinal)·충돌 hard-fail은 drawer-detail.
   const detailMap = new Map();
 

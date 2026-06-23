@@ -20,7 +20,7 @@
 | 1 | drawer-detail.js — 안정 키 + 4종 빌더 + serializer | 완료 | textContent/innerHTML 경계, 유니코드 escape(LS/PS는 JS line-terminator라 ` ` escape 사용) |
 | 2 | 섹션 모듈 4종 — data-detail-id + details Map | 완료 | OQ/위험/타임라인/마일스톤 |
 | 3 | plan-body.js — risk ordinal + extractPlanSummary | 완료 | OQ ordinal fallback + 마일스톤 요약 read-side |
-| 4 | html.js — 드로어 CSS/마크업/JS/JSON 집계/ic-x | 완료 | footer v1.18.0→v1.19.0 |
+| 4 | html.js — 드로어 CSS/마크업/JS/JSON 집계/ic-x | 완료 | footer v1.18.0→v1.18.1 |
 | 5 | output-constraints.js — H7/H3 carve-out + H18 | 완료 | RULES 17→18 |
 | 6 | drawer.test.js + 테스트 갱신 + plugin.json + DESIGN.md | 완료 | 13 신규 + 4 기존 갱신 |
 
@@ -41,11 +41,11 @@
 | `parsers/drawer-detail.js` | CREATE | 안정 키 + 4 빌더 + addDetail 충돌 hard-fail + serializeDetails |
 | `sections/{open-questions,risks,audit-timeline,milestone-history}.js` | UPDATE | data-detail-id + details Map + detail 빌드 |
 | `parsers/plan-body.js` | UPDATE | risk/OQ ordinal + extractPlanSummary |
-| `html.js` | UPDATE | 드로어 CSS + dialog 마크업 + DRAWER_SCRIPT + JSON 집계 + ic-x + v1.19.0 |
+| `html.js` | UPDATE | 드로어 CSS + dialog 마크업 + DRAWER_SCRIPT + JSON 집계 + ic-x + v1.18.1 |
 | `output-constraints.js` | UPDATE | H7 ::backdrop carve-out + H3 drawer carve-out + H18 신설 |
 | `tests/drawer.test.js` | CREATE | 13 acceptance test |
 | `tests/{console-shell,output-constraints,section-fidelity,timeline-chart}.test.js` | UPDATE | markup/rule-count 동기 |
-| `plugin.json` | UPDATE | 1.18.0 → 1.19.0 |
+| `plugin.json` | UPDATE | 1.18.0 → 1.18.1 |
 | `DESIGN.md` | UPDATE | Detail Drawer 컴포넌트 + H3/H7/H18 근거 |
 | `.claude/prds/dashboard-console-redesign.prd.md` | UPDATE | M2 complete 정정 + M3 in-progress |
 

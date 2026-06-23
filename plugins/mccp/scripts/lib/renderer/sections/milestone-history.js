@@ -118,7 +118,7 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
       if (!completedAt && row.planPath) {
         completedAt = resolveGitCommitTime(row.planPath, prdDir, cwd, gitCommitTime);
       }
-      // v1.19.0 M3 — 마일스톤 드로어 요약(OPTIONAL): plan `## Summary` read-side.
+      // v1.18.1 M3 — 마일스톤 드로어 요약(OPTIONAL): plan `## Summary` read-side.
       // 부재/unreadable 시 null → 드로어 graceful degrade. fail-open(throw 안 함).
       let planSummary = null;
       if (row.planPath) {
@@ -167,7 +167,7 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
   const expanded = merged.slice(0, MAX_EXPANDED);
   const collapsed = merged.slice(MAX_EXPANDED);
   const now = Date.now();
-  // v1.19.0 M3 — 드로어 detail 누적(안정 키 = ms:planPath, basename 아닌 path 로
+  // v1.18.1 M3 — 드로어 detail 누적(안정 키 = ms:planPath, basename 아닌 path 로
   // 동일-basename 다른 PRD 분리). 요약은 OPTIONAL(plan ## Summary read-side).
   const detailMap = new Map();
 

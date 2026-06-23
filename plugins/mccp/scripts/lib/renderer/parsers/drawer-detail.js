@@ -1,6 +1,6 @@
 'use strict';
 
-// v1.19.0 M3 — 우측 상세 드로어 detail SSoT.
+// v1.18.1 M3 — 우측 상세 드로어 detail SSoT.
 // 항목(OQ/위험/receipt/마일스톤) → 드로어 상세 객체 빌더 + 충돌 안전 안정 키 +
 // `<script type="application/json">` break-out 안전 serialize.
 //

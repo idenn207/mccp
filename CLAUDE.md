@@ -280,13 +280,17 @@ cache 디렉토리 ls 결과로 누락 cycle을 진단 가능: 예를 들어 `0.
 
 #### 언제 어떻게 bump
 
-| 변경 종류 | bump 위치 | 예시 |
-|---|---|---|
-| Patch — bug fix, axis close | patch 자리 | `1.1.0 → 1.1.1` |
-| Minor — milestone ship (M1/M2 등), feature 추가 | minor 자리 | `1.1.0 → 1.2.0` |
-| Major — breaking schema/API/hook contract | major 자리 | `1.x → 2.0` |
+bump 단위의 기준은 **"무엇이 완성됐는가"의 scope**입니다. PRD 전체(모든 milestone)가 적용·종료되면 minor, 그 안의 단일 plan/milestone(M1/M2/M3 개별) 수준이면 patch입니다. 개별 milestone은 새 기능 출시가 아니라 PRD라는 큰 기능의 *부분 개선*이므로 patch axis로 봅니다.
 
-milestone 단위 sub-ship(`-m1`, `-m2` 등) 표기는 branch 이름엔 쓰지만 `plugin.json` version에는 `1.2.0`처럼 깔끔하게 적습니다(`-m1` suffix는 plugin manifest 스펙상 비표준).
+| 변경 종류 | scope | bump 위치 | 예시 |
+|---|---|---|---|
+| Patch — 단일 plan/milestone ship (M1/M2/M3 개별), bug fix, axis close, 개선 | 단일 plan | patch 자리 | `1.18.0 → 1.18.1` |
+| Minor — PRD 전체 완료(모든 milestone 적용), 독립 신규 기능 | PRD 전체 | minor 자리 | `1.1.0 → 1.2.0` |
+| Major — breaking schema/API/hook contract | 호환성 파괴 | major 자리 | `1.x → 2.0` |
+
+판단 휴리스틱: "이 변경이 PRD의 마지막 milestone인가?" → YES면 minor 후보(나머지 milestone이 이미 ship됐는지 확인), NO면 patch. "새로운 기능 추가인가, 기존 표면의 개선인가?" → 개선이면 patch. 애매하면 patch가 보수적 default(minor는 PRD 종료 같은 명시적 신호가 있을 때만).
+
+milestone 단위 sub-ship(`-m1`, `-m2` 등) 표기는 branch 이름엔 쓰지만 `plugin.json` version에는 `1.18.1`처럼 깔끔하게 적습니다(`-m1` suffix는 plugin manifest 스펙상 비표준). 같은 PRD의 여러 milestone을 연속 ship하면 patch 자리가 누적 증가합니다(M1 `1.18.0` 가정 시 M2 `1.18.1`, M3 `1.18.2` … PRD 종료 시 다음 minor로 정리). user-visible footer(`html.js` page-foot + `markdown.js` derived 줄)도 같은 version으로 동기화하세요 — plugin.json만 bump하고 footer를 빠뜨리면 surface 간 version drift가 생깁니다.
 
 #### Milestone PR 의무 체크리스트
 

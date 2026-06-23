@@ -1,6 +1,6 @@
 'use strict';
 
-// v1.19.0 M3 — 우측 상세 드로어 acceptance gate.
+// v1.18.1 M3 — 우측 상세 드로어 acceptance gate.
 // (1) drawer-detail 빌더 REQUIRED 필드 always-present + OPTIONAL degrade (Codex F1)
 // (2) 안정 키 + 충돌 hard-fail (Codex F2)
 // (3) serializer 유니코드 escape + 주입 경계 (Codex F3)

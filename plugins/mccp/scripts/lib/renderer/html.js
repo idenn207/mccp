@@ -529,7 +529,7 @@ const STALE_SCRIPT = `(function(){var d=Number(document.body.dataset.derivedMs)|
 
 const COPY_SCRIPT = `(function(){document.addEventListener('click',function(e){var t=e.target&&e.target.closest&&e.target.closest('[data-copy]');if(!t)return;var s=t.getAttribute('data-copy')||'';if(navigator&&navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(s).then(function(){t.setAttribute('data-copied','1');setTimeout(function(){t.removeAttribute('data-copied')},1500)}).catch(function(){})}});})();`;
 
-// v1.19.0 M3 — 우측 상세 드로어(native dialog). progressive enhancement: no-JS
+// v1.18.1 M3 — 우측 상세 드로어(native dialog). progressive enhancement: no-JS
 // 시 항목은 일반 표시(클릭 무동작), 섹션 baseline 무손상. 주입 경계(Codex R1 F3):
 // title/sections[].1 은 서버 렌더 안전 HTML → innerHTML, 그 외(tags/rows/action)는
 // RAW → textContent. drawer-data JSON 은 \uXXXX escape 라 JSON.parse 가 복원.
@@ -801,10 +801,10 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.19.0 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.1 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
-  // v1.19.0 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.
+  // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.
   // kind prefix(oq/risk/receipt/ms)가 cross-section 충돌을 구조적으로 차단 →
   // 단순 병합으로 충분(within-section 충돌은 addDetail 이 이미 hard-fail).
   const drawerMap = new Map();

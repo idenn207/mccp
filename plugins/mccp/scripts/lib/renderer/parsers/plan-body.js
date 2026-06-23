@@ -205,7 +205,7 @@ function computePlanStaleness(plan, model) {
   return planCycle === fpCycle ? 'fresh' : 'stale';
 }
 
-// v1.19.0 M3 — 마일스톤 드로어 요약(OPTIONAL). plan `## Summary` 섹션 첫 단락을
+// v1.18.1 M3 — 마일스톤 드로어 요약(OPTIONAL). plan `## Summary` 섹션 첫 단락을
 // read-side 추출(receipt 스키마 무확장 — chain-of-custody 무손상). 부재 시 null →
 // 드로어 graceful degrade. 다음 `##` heading 또는 빈 줄 2개에서 단락 종료.
 function extractPlanSummary(planBody) {
@@ -280,14 +280,14 @@ function parsePlanBody(model, opts) {
         source: p.path,
         text: entry.text,
         lineNumber: entry.lineNumber,
-        // v1.19.0 M3 — drawer 안정 키 fallback(lineNumber 부재 시). plan 내 등장 순.
+        // v1.18.1 M3 — drawer 안정 키 fallback(lineNumber 부재 시). plan 내 등장 순.
         ordinal: idx,
         headingPath: entry.headingPath,
         oqHeadingLineNumber: entry.oqHeadingLineNumber,
       });
     });
     const { rows: riskRows, malformedCount } = parseRisks(planBody);
-    // v1.19.0 M3 — risk 안정 키는 plan Risks 표 등장 순서(ordinal). 중복 위험
+    // v1.18.1 M3 — risk 안정 키는 plan Risks 표 등장 순서(ordinal). 중복 위험
     // 텍스트에도 유일·안정(text-hash 폐기, Codex R1 F2). render-time 정렬과 무관한
     // parse-time 원본 순서를 박는다.
     riskRows.forEach((row, idx) => {

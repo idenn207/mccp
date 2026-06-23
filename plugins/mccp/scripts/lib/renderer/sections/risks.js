@@ -27,7 +27,7 @@ function renderRisks(model, formatUtils, planBody) {
   const expanded = allRisks.slice(0, MAX_EXPANDED);
   const collapsed = allRisks.slice(MAX_EXPANDED);
 
-  // v1.19.0 M3 — 드로어 detail 누적(안정 키 = plan ordinal, 정렬과 무관한 parse-time
+  // v1.18.1 M3 — 드로어 detail 누적(안정 키 = plan ordinal, 정렬과 무관한 parse-time
   // 순서). 충돌 hard-fail은 drawer-detail. 빌드 실패는 항목만 skip(fail-open).
   const detailMap = new Map();
 
@@ -40,7 +40,7 @@ function renderRisks(model, formatUtils, planBody) {
     const mitHtml = r.mitigation
       ? '<div class="meta-cue mit">완화: <b>' + renderProseHtml(r.mitigation, formatUtils) + '</b></div>'
       : '';
-    // v1.19.0 M3 — relatedOpenQuestion 도 renderProseHtml(inline-markdown) 로 —
+    // v1.18.1 M3 — relatedOpenQuestion 도 renderProseHtml(inline-markdown) 로 —
     // escapeHtml 만이면 OQ 스니펫의 **bold**/`code` 가 literal 누출(H16, Constraint 3).
     const cueHtml = r.relatedOpenQuestion
       ? '<div class="meta-cue">동일 질문 참조: ' + renderProseHtml(r.relatedOpenQuestion, formatUtils) + '…</div>'

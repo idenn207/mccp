@@ -203,7 +203,7 @@ components:
 - **Anatomy:** `.panel-head`(아이콘 + 제목 + 옵션 count) / `.panel-body`. 패널 안에 또 다른 패널을 넣지 않는다(H17 DOM-aware, 카드 중첩 금지). hero 패널은 `h1.verdict` + `.hero-next`(복사 가능 next-action) + `.hero-meta`(인라인 4축).
 - **Internal Padding:** 패널 body `1rem`, hero `1.3rem 1.4rem 1.2rem`.
 
-### Detail Drawer (v1.19.0 M3)
+### Detail Drawer (v1.18.1 M3)
 - **What:** 미해결 질문·위험·타임라인(receipt)·마일스톤 항목을 클릭/Enter/Space로 열면 우측에서 슬라이드-인하는 native `<dialog class="drawer">` overlay. 항목별 상세(제목·sev 태그·rows·sections·다음 액션)를 표시한다. "요약 우선, 깊이는 on-demand"(PRODUCT.md Compact 원칙)의 surface.
 - **Anatomy:** `.drawer-head`(kind 라벨 + 닫기 버튼) / `.drawer-body`(`.d-title` → `.d-tags` → `.d-rows` → `.d-sec` → `.d-action`). `width: min(440px, 92vw)`, 우측 hairline + 좌향 그림자.
 - **Data:** 항목↔상세는 **안정 키**(`data-detail-id` = `oq:<planPath>#L<line>` / `risk:<planPath>#r<ordinal>` / `receipt:<rowKey>` / `ms:<planPath>`)로 매핑한다 — 인덱스 매핑 금지. 상세는 `<script type="application/json" id="drawer-data">`에 유니코드-escape JSON으로 임베드. 모든 값은 derive source 유래(더미 0). 부재 필드는 placeholder 없이 graceful degrade.
@@ -245,4 +245,4 @@ Lucide symbol 스프라이트를 inline SVG(viewBox 0 0 24 24)로 1회 emit하�
 - **Don't** 모션을 장식으로 쓴다. transition은 상태 전이(topbar stale, hover)에만, prefers-reduced-motion에서 전부 off돼도 동작은 동일해야 한다.
 
 ---
-*Generated 2026-06-23 via `/impeccable document` (코드 scan: `html.js` OKLCH_DARK/LIGHT + LAYOUT + 컴포넌트 함수, v1.17.0 redesign-3 멀티페이지 콘솔). v1.19.0 M3 Detail Drawer + H18 추가. 기계 lint 계약 H1-H18은 `docs/v1.3.0-observability/DESIGN.md` 참조.*
+*Generated 2026-06-23 via `/impeccable document` (코드 scan: `html.js` OKLCH_DARK/LIGHT + LAYOUT + 컴포넌트 함수, v1.17.0 redesign-3 멀티페이지 콘솔). v1.18.1 M3 Detail Drawer + H18 추가. 기계 lint 계약 H1-H18은 `docs/v1.3.0-observability/DESIGN.md` 참조.*

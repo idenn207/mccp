@@ -128,7 +128,7 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
 
   const mdLines = [];
   const htmlLines = [];
-  // v1.19.0 M3 — 드로어 detail 누적(receipt 안정 키 = rowKey gate|decision|hash).
+  // v1.18.1 M3 — 드로어 detail 누적(receipt 안정 키 = rowKey gate|decision|hash).
   const detailMap = new Map();
 
   function renderRow(r, isArchived, isLast, ordinal) {

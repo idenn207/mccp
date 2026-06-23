@@ -36,7 +36,7 @@
 // sev/inline-prompt/audit-node/dot). 일반 layout chrome(section/div/topbar/sidebar/
 // content)는 carve 밖이라 radius 추가 시 H3 FIRE — design-invariants drift fixture 가
 // 이 가드를 증명한다.
-// v1.19.0 M3 — 드로어(우측 overlay 패널)와 그 내부 컴포넌트(d-rows 카드형 row,
+// v1.18.1 M3 — 드로어(우측 overlay 패널)와 그 내부 컴포넌트(d-rows 카드형 row,
 // drawer-close 버튼, clickable trigger affordance)는 명시적 design intent →
 // H3 carve-out. drawer 는 prefix 매치로 drawer-head/-close/-body 모두 커버.
 const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret|pipe-node|tl-node|card|panel|hero-panel|nav-rail|nav-link|status-strip|route|switcher|sw-mark|sw-badge|search|kbd|pin-alert|pa-btn|c-mark|tb-icon-btn|node-mark|node-dot|ms-check|sev|inline-prompt|freshness|audit-node|dot|drawer|d-rows|d-tags|d-action|clickable)|\[role="alert"\]/;
@@ -165,7 +165,7 @@ const RULES = [
     },
   },
   // H7 no glassmorphism. backdrop-filter / backdrop-blur declarations.
-  // v1.19.0 M3 carve-out: native <dialog> ::backdrop scrim 의 blur 는 의도된
+  // v1.18.1 M3 carve-out: native <dialog> ::backdrop scrim 의 blur 는 의도된
   // overlay 효과(glass 카드 chrome 아님) — ::backdrop rule block 을 strip 후 스캔.
   {
     id: 'H7',
@@ -422,7 +422,7 @@ const RULES = [
       return null;
     },
   },
-  // H18 (v1.19.0 M3) 우측 상세 드로어 positive 계약. <dialog> 존재 시:
+  // H18 (v1.18.1 M3) 우측 상세 드로어 positive 계약. <dialog> 존재 시:
   //  (i)  aria-label / aria-labelledby 보유(스크린리더 식별).
   //  (ii) trigger 수 == 유일 data-detail-id 수 == drawer-data JSON 키 수
   //       (Codex R1 F2 — 중복 id·고아 키·누락 매핑 전부 fire. "키 존재"만 검사 안 함).

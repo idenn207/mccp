@@ -97,7 +97,7 @@ test('console-shell — topbar has breadcrumb + center page titles + freshness',
 });
 
 test('console-shell — backdrop-filter only on dialog ::backdrop scrim (H7 carve-out, chrome clean)', () => {
-  // v1.19.0 M3 — 드로어 ::backdrop scrim 의 blur 는 H7 carve-out(의도된 overlay).
+  // v1.18.1 M3 — 드로어 ::backdrop scrim 의 blur 는 H7 carve-out(의도된 overlay).
   // ::backdrop rule block 을 strip 하면 일반 chrome(topbar 등)엔 backdrop-filter 0.
   const scrubbed = BASELINE_CSS.replace(/[^{}]*::backdrop[^{}]*\{[^}]*\}/g, '');
   assert.doesNotMatch(scrubbed, /backdrop-filter|backdrop-blur/);

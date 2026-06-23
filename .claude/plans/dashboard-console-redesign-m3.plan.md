@@ -68,7 +68,7 @@ M2가 깐 섹션 fidelity(stack-list·audit-row·milestone-item) 위에서, 승�
 | `plugins/mccp/scripts/lib/renderer/tests/drawer.test.js` | CREATE | 드로어 markup·안정키 매핑·graceful degrade·a11y·JSON escape·reduced-motion·H-invariant green |
 | `plugins/mccp/scripts/lib/renderer/tests/section-fidelity.test.js` | UPDATE | 섹션 항목 `data-detail-id` 존재 assert(있을 때) — 기존 fidelity assert와 동기 |
 | `DESIGN.md` (+ `docs/v1.3.0-observability/DESIGN.md`) | UPDATE | H7/H3 carve-out + H18 신설 근거 명문화(드로어 비중첩 overlay = 의도된 design intent) |
-| `plugins/mccp/.claude-plugin/plugin.json` | UPDATE | `1.18.0 → 1.19.0` minor bump (§3.7 milestone ship) |
+| `plugins/mccp/.claude-plugin/plugin.json` | UPDATE | `1.18.0 → 1.18.1` minor bump (§3.7 milestone ship) |
 | `CHANGELOG.md` | UPDATE | M3 row 추가(존재 시) |
 
 ## Tasks
@@ -115,7 +115,7 @@ M2가 깐 섹션 fidelity(stack-list·audit-row·milestone-item) 위에서, 승�
 - **Validate**: `renderStatus(...).design_constraint_violations == []` + H18 위반 fixture(고아 키)에서 fire 확인.
 
 ### Task 6: 테스트 + 버전 + 문서
-- **Action**: `tests/drawer.test.js` 신설(markup·안정키 round-trip·graceful degrade[필드 부재 fixture]·a11y[role/tabindex/aria-haspopup/dialog aria-label]·JSON escape[`</script>`·따옴표·`<` payload]·reduced-motion·details 빌드 fail-open). `section-fidelity.test.js`에 `data-detail-id` assert 동기. plugin.json `1.19.0`. DESIGN.md/CHANGELOG row. STATUS.md 섹션 md는 무변경(M4).
+- **Action**: `tests/drawer.test.js` 신설(markup·안정키 round-trip·graceful degrade[필드 부재 fixture]·a11y[role/tabindex/aria-haspopup/dialog aria-label]·JSON escape[`</script>`·따옴표·`<` payload]·reduced-motion·details 빌드 fail-open). `section-fidelity.test.js`에 `data-detail-id` assert 동기. plugin.json `1.18.1`. DESIGN.md/CHANGELOG row. STATUS.md 섹션 md는 무변경(M4).
 - **Mirror**: `tests/escaping.test.js`(XSS payload), `tests/a11y-aria-labels.test.js`, `tests/design-invariants.test.js`.
 - **Validate**: 전체 스위트 green(아래 Validation).
 
@@ -175,7 +175,7 @@ grep -nE '임의 예시|dummy|placeholder|TODO' .claude/cache/status.html || ech
 - [ ] **단일 주입 경계 + serializer escape**(Codex F3) — `</script>`/`<img onerror>` payload fixture에서 emitted script unescaped `<` 0, raw 값 innerHTML 경로 0
 - [ ] a11y: trigger role=button/tabindex/aria-haspopup, `<dialog>` aria-label, Esc/backdrop 닫힘, focus 복귀, reduced-motion 즉시
 - [ ] receipt/derive 스키마 무변경(chain-of-custody 무손상) — 마일스톤 요약은 plan `## Summary` read-side
-- [ ] plugin.json `1.19.0` + DESIGN.md H7/H3/H18 근거 기록
+- [ ] plugin.json `1.18.1` + DESIGN.md H7/H3/H18 근거 기록
 - [ ] 사용자 육안 대조 — `status.html` ↔ `dashboard-sample.html` 드로어 일치 확인
 - [ ] Patterns mirrored, not reinvented
 

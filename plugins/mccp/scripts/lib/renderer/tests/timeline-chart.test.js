@@ -34,7 +34,7 @@ test('timeline — wrapper is <ol class="timeline"> with audit-row rows', () => 
   const { html } = renderAuditTimeline(model([recent()]), formatUtils, NOW, { snapshotsDir: null });
   assert.match(html, /<ol class="timeline">/);
   assert.match(html, /<\/ol>/);
-  // v1.19.0 M3 — audit-row 에 data-detail-id 속성 추가(드로어 trigger).
+  // v1.18.1 M3 — audit-row 에 data-detail-id 속성 추가(드로어 trigger).
   assert.match(html, /<li class="audit-row"[^>]*>/);
 });
 

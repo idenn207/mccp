@@ -92,16 +92,17 @@ test('copy-btn aria-label is Korean fixed string ("다음 액션 복사")', () =
   assert.ok(riskHtml.includes('aria-label="다음 액션 복사"'), 'Risk copy-btn aria-label');
 });
 
-test('status-strip group has tabindex=0 + dynamic aria-label with 현황 4축 prefix', () => {
+test('sidebar nav-rail exposes aria-label + page route links (redesign-3)', () => {
   const { html } = renderStatus(fixtureModel());
-  assert.ok(/class="status-strip" role="group" tabindex="0"/.test(html), 'group + tabindex');
-  assert.ok(/aria-label="현황 4축/.test(html), 'aria-label prefix');
+  assert.ok(/<nav class="nav-rail" aria-label="페이지">/.test(html), 'nav aria-label');
+  assert.ok(/data-route-link="overview"/.test(html), 'overview route link');
+  assert.ok(/data-route-link="activity"/.test(html), 'activity route link');
 });
 
-test('status-strip cell icon has aria-hidden="true"', () => {
+test('overview hero surfaces verdict h1 + inline 4축 meta', () => {
   const { html } = renderStatus(fixtureModel());
-  const count = (html.match(/<span class="icon" aria-hidden="true">/g) || []).length;
-  assert.ok(count >= 4, 'at least 4 cell icons hidden, found ' + count);
+  assert.ok(/<h1 class="verdict s-[a-z]+">/.test(html), 'verdict h1');
+  assert.ok(/<p class="hero-meta">/.test(html), 'inline 4축 meta paragraph');
 });
 
 test('no legacy "심각도:" prefix anywhere (M3 retired mixed-language)', () => {

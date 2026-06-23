@@ -26,49 +26,72 @@ const PIPELINE_SCRIPT = "jQuery(function($){"
   + "$('.tl-step').attr('tabindex','0').on('mouseenter focus',function(){$(this).addClass('tl-row-hot');}).on('mouseleave blur',function(){$(this).removeClass('tl-row-hot');});"
   + "});";
 
-const OKLCH_LIGHT = `
+// v1.17.0 (dashboard-pipeline-chart M3 redesign-3) — Vercel 대시보드 결의
+// 멀티페이지 콘솔. 좌측 사이드바 = TOC 앵커가 아니라 page 라우팅(개요 /
+// 파이프라인 / 활동·기록 3 route). 라우팅은 순수 CSS(:target + :has)라 JS 0 —
+// no-JS 시 개요 노출(progressive enhancement). status 4축은 chrome 가 아니라
+// 개요 hero 패널 인라인 메타로만 존재(상단 고정 스트립 + 사이드바 rail 폐기 —
+// "정보의 압축·노출 제한도 디자인"). 컴포넌트 클래스(.pipe-*/.tl-*/.oq-item/
+// .risk-item/.severity-tag/.s-*/.milestone-*)는 섹션 모듈 contract 라 보존.
+const OKLCH_DARK = `
 :root {
-  --bg: oklch(0.99 0 0);
-  --surface: oklch(0.97 0.003 250);
-  --border: oklch(0.92 0.005 250);
-  --ink: oklch(0.20 0.005 250);
-  --muted: oklch(0.45 0.008 250);
-  --accent: oklch(0.55 0.18 230);
-  --status-blocked: oklch(0.55 0.18 25);
-  --status-stale: oklch(0.75 0.15 80);
-  --status-secret: oklch(0.50 0.22 25);
-  --status-worker-alive: oklch(0.65 0.15 145);
-  --status-worker-stale: oklch(0.75 0.15 80);
+  --bg: oklch(0.145 0.008 250);
+  --surface: oklch(0.185 0.010 250);
+  --panel: oklch(0.195 0.010 250);
+  --panel-border: oklch(0.30 0.013 250);
+  --border: oklch(0.27 0.012 250);
+  --ink: oklch(0.95 0.005 250);
+  --ink-2: oklch(0.82 0.008 250);
+  --muted: oklch(0.66 0.012 250);
+  --accent: oklch(0.72 0.16 230);
+  --status-blocked: oklch(0.70 0.20 25);
+  --status-stale: oklch(0.80 0.15 80);
+  --status-secret: oklch(0.70 0.22 25);
+  --status-worker-alive: oklch(0.72 0.16 145);
+  --status-worker-stale: oklch(0.80 0.15 80);
+  --sidebar-width: 13.5rem;
+  --content-max: 880px;
+  --panel-radius: 10px;
+  --panel-shadow: 0 1px 2px oklch(0 0 0 / 0.28), 0 1px 1px oklch(0 0 0 / 0.16);
 }`;
 
-const OKLCH_DARK = `
-@media (prefers-color-scheme: dark) {
+const OKLCH_LIGHT = `
+@media (prefers-color-scheme: light) {
   :root {
-    --bg: oklch(0.18 0 0);
-    --surface: oklch(0.22 0.005 250);
-    --border: oklch(0.30 0.008 250);
-    --ink: oklch(0.92 0.005 250);
-    --muted: oklch(0.65 0.008 250);
-    --accent: oklch(0.70 0.15 230);
-    --status-blocked: oklch(0.65 0.20 25);
-    --status-stale: oklch(0.75 0.15 80);
-    --status-secret: oklch(0.65 0.22 25);
-    --status-worker-alive: oklch(0.70 0.18 145);
-    --status-worker-stale: oklch(0.75 0.15 80);
+    --bg: oklch(0.99 0 0);
+    --surface: oklch(0.975 0.003 250);
+    --panel: oklch(1 0 0);
+    --panel-border: oklch(0.90 0.006 250);
+    --border: oklch(0.92 0.005 250);
+    --ink: oklch(0.20 0.005 250);
+    --ink-2: oklch(0.32 0.006 250);
+    --muted: oklch(0.45 0.008 250);
+    --accent: oklch(0.55 0.18 230);
+    --status-blocked: oklch(0.55 0.18 25);
+    --status-stale: oklch(0.62 0.15 80);
+    --status-secret: oklch(0.50 0.22 25);
+    --status-worker-alive: oklch(0.55 0.15 145);
+    --status-worker-stale: oklch(0.62 0.15 80);
+    --panel-shadow: 0 1px 2px oklch(0.55 0.01 250 / 0.08), 0 1px 1px oklch(0.55 0.01 250 / 0.05);
   }
 }`;
 
 const LAYOUT = `
+* { box-sizing: border-box; }
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI Variable', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
   color: var(--ink);
   background: var(--bg);
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 1rem;
-  line-height: 1.5;
+  margin: 0;
+  padding: 0;
+  line-height: 1.55;
+  font-size: 15px;
+  /* Vercel 앱 셸: 좌측 사이드바(full-bleed) + 메인 컬럼. body 가 그리드. */
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  align-items: start;
 }
-code, .mono { font-family: ui-monospace, 'SF Mono', Consolas, 'Liberation Mono', monospace; }
+code, .mono { font-family: ui-monospace, 'SF Mono', Consolas, 'Liberation Mono', monospace; font-size: 0.92em; color: var(--ink-2); }
 .sr-only {
   position: absolute; width: 1px; height: 1px;
   overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
@@ -79,59 +102,140 @@ code, .mono { font-family: ui-monospace, 'SF Mono', Consolas, 'Liberation Mono',
   clip: auto; clip-path: none; width: auto; height: auto;
   margin: 0; padding: 0.4rem 0.75rem;
   background: var(--accent); color: var(--bg);
-  z-index: 11; outline: 2px solid var(--bg); outline-offset: 2px;
+  z-index: 60; outline: 2px solid var(--bg); outline-offset: 2px;
   text-decoration: none; border-radius: 3px;
 }
-main { max-width: 720px; }
-main:focus { outline: none; }
-header {
+/* ── 좌측 사이드바 — full-height sticky 라우팅 레일. brand + nav + foot. ──── */
+.sidebar {
   position: sticky;
   top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 1.1rem 0.7rem;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
   background: var(--surface);
+  font-size: 0.875rem;
+}
+.sidebar .brand {
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  padding: 0.15rem 0.55rem 0.35rem;
+}
+.sidebar-foot { margin-top: auto; padding: 0.55rem; color: var(--muted); font-size: 0.75rem; }
+/* nav 레일 — plain 텍스트 + active(색+굵기+배경+▸ 마커, 색 단독 아님). */
+.nav-rail { display: flex; flex-direction: column; gap: 0.1rem; }
+.nav-rail a {
+  display: block;
+  position: relative;
+  padding: 0.4rem 0.55rem 0.4rem 1.1rem;
+  color: var(--muted);
+  text-decoration: none;
+  border-radius: 6px;
+  line-height: 1.4;
+}
+.nav-rail a:hover { color: var(--ink); background: var(--bg); }
+.nav-rail a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* ── 메인 컬럼 — header(freshness) + 콘텐츠 + footer. ──────────────────── */
+.main-col { min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
+header {
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
-  padding: 0.5rem 0;
-  transition: background 240ms ease-out;
-  z-index: 10;
+  padding: 0.7rem 1.75rem;
+  transition: border-color 240ms ease-out;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem 1rem;
 }
-body[data-stale="1"] header {
-  background: var(--status-stale);
-  transition: background 240ms ease-out;
-}
-header .brand { font-weight: 600; font-size: 1rem; }
-header .status-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 0.75rem;
-  align-items: center;
-}
-header .status-strip .cell {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.25rem;
-  min-width: 120px;
-}
-header .status-strip .cell .icon { font-size: 0.95rem; }
-header .status-strip .cell b { font-weight: 600; }
-header .status-strip .cell:first-of-type { color: var(--accent); }
-header .status-strip .cell.s-blocked { color: var(--status-blocked); }
-header .status-strip .cell.s-stale { color: var(--status-stale); }
-header .status-strip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-header .meta { color: var(--muted); font-size: 0.85rem; margin-left: auto; }
+body[data-stale="1"] header { border-bottom-color: var(--status-stale); }
+header .meta { color: var(--muted); font-size: 0.8125rem; margin-left: auto; }
 header .meta .stale-suffix { display: none; }
-body[data-stale="1"] header .meta .stale-suffix { display: inline; margin-left: 0.25rem; }
-section { padding: 1rem 0; border-bottom: 1px solid var(--border); }
-section:last-child { border-bottom: none; }
-h1 { font-size: 1.5rem; margin: 0.5rem 0; }
-h1.verdict { font-size: 1.5rem; margin: 0.5rem 0; }
-h2 { font-size: 1.125rem; margin: 0 0 0.5rem 0; color: var(--ink); }
+body[data-stale="1"] header .meta .stale-suffix { display: inline; margin-left: 0.25rem; color: var(--status-stale); }
+.content {
+  min-width: 0;
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 1.5rem 1.75rem 4rem;
+}
+main:focus { outline: none; }
+/* ── CSS 라우팅 — :target 으로 단일 route 표시, no-JS 시 개요 default. ──── */
+.route { display: none; scroll-margin-top: 1rem; flex-direction: column; gap: 1.1rem; }
+.route:target { display: flex; }
+body:not(:has(.route:target)) #route-overview { display: flex; }
+/* nav active — 기본(개요) + 각 route 명시 타깃. 색+굵기+배경+▸ 마커. */
+body:not(:has(.route:target)) .nav-rail a[data-route-link="overview"],
+body:has(#route-overview:target) .nav-rail a[data-route-link="overview"],
+body:has(#route-pipeline:target) .nav-rail a[data-route-link="pipeline"],
+body:has(#route-activity:target) .nav-rail a[data-route-link="activity"] {
+  color: var(--accent);
+  font-weight: 600;
+  background: var(--bg);
+}
+body:not(:has(.route:target)) .nav-rail a[data-route-link="overview"]::before,
+body:has(#route-overview:target) .nav-rail a[data-route-link="overview"]::before,
+body:has(#route-pipeline:target) .nav-rail a[data-route-link="pipeline"]::before,
+body:has(#route-activity:target) .nav-rail a[data-route-link="activity"]::before {
+  content: "›";
+  position: absolute;
+  left: 0.45rem;
+  color: var(--accent);
+  font-weight: 700;
+}
+.page-title { font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
+/* ── 개요 hero 패널 (primary — verdict + next-action + 인라인 4축 메타) ──── */
+.hero-panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+  padding: 1.4rem 1.5rem 1.5rem;
+  box-shadow: var(--panel-shadow);
+}
+.hero-panel.attention { border-color: var(--status-blocked); }
+h1.verdict { font-size: 1.45rem; font-weight: 600; margin: 0; line-height: 1.4; text-wrap: balance; }
+.hero-next { margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.hero-next .hero-next-label { color: var(--muted); font-size: 0.9rem; }
+.hero-meta { margin: 0.85rem 0 0; color: var(--muted); font-size: 0.875rem; }
+.hero-meta .m-blocked { color: var(--status-blocked); font-weight: 600; }
+.hero-meta .stale-suffix { display: none; }
+body[data-stale="1"] .hero-meta .stale-suffix { display: inline; color: var(--status-stale); }
+/* ── 패널 (목적 있는 비중첩 패널 — 활동·기록 page 의 2-col 그리드 요소) ──── */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+  padding: 1.05rem 1.25rem 1.25rem;
+  box-shadow: var(--panel-shadow);
+  min-width: 0;
+}
+.panel.attention { border-color: var(--status-blocked); }
+.panel > h2, .panel > h3 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 0.85rem;
+  padding-bottom: 0.6rem;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  border-bottom: 1px solid var(--border);
+}
+/* 2-col 패널 그리드 (auto-fit 아님 — H5 무관, 명시 2 컬럼). 좁으면 1-col. */
+.panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.1rem; align-items: start; }
+.panel-grid .panel.span-2 { grid-column: 1 / -1; }
+.panel-empty { color: var(--muted); font-size: 0.875rem; padding: 0.5rem 0; }
+h2 { font-size: 1rem; }
 .muted { color: var(--muted); }
 .stale-label { color: var(--status-stale); font-weight: 500; }
 table { border-collapse: collapse; width: 100%; }
 th, td { padding: 0.25rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border); }
+th { font-weight: 600; color: var(--muted); font-size: 0.8125rem; }
+.table-scroll { overflow-x: auto; }
 blockquote { margin: 0.25rem 0 0.5rem 1rem; padding-left: 0.5rem; border-left: 2px solid var(--border); color: var(--muted); }
 ul { padding-left: 1.25rem; }
 .s-blocked { color: var(--status-blocked); }
@@ -184,8 +288,7 @@ details summary:focus-visible { outline: 2px solid var(--accent); outline-offset
 details[open] summary { margin-bottom: 0.5rem; }
 abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px; cursor: help; }
 /* v1.13.0 게이트 파이프라인 스테퍼. pipe-node 는 pill(border-radius) — H3
-   carve-out 대상(상태 노드 affordance). 연결선 .pipe-edge 는 수평 라인
-   (height+background, border-left 미사용 — H4 무관). */
+   carve-out 대상(상태 노드 affordance). 연결선 .pipe-edge 는 수평 라인. */
 .pipeline { list-style: none; padding-left: 0; margin: 0; }
 .pipe-row { display: flex; flex-wrap: wrap; align-items: center;
   gap: 0.4rem 0.75rem; padding: 0.4rem 0; border-bottom: 1px dashed var(--border); }
@@ -204,11 +307,8 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .pipe-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pipe-more { list-style: none; }
 .pipe-more summary { color: var(--muted); font-size: 0.85rem; }
-/* v1.14.0 활동 step-chart rail. tl-node 는 상태 마커 pill(border-radius) — H3
-   carve-out 대상. 세로 connector .tl-rail::before 는 background 라인
-   (border-left 미사용 — H4 무관). emphasis 반전(critique F1): converged 는
-   quiet(tl-done = muted), pending 만 loud(s-stale) — accent 미사용으로 viewport
-   당 accent <= 1 보존. */
+/* v1.14.0 활동 step-chart rail. tl-node pill — H3 carve-out. converged 는
+   quiet(tl-done = muted), pending 만 loud(s-stale) — accent 미사용. */
 .tl-rail { list-style: none; padding-left: 0; margin: 0; position: relative; }
 .tl-rail::before { content: ''; position: absolute; left: 0.7rem; top: 0.6rem; bottom: 0.6rem;
   width: 2px; background: var(--border); }
@@ -228,6 +328,33 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .tl-note { list-style: none; color: var(--muted); padding-left: 2rem; }
 .tl-step.tl-row-hot { background: var(--surface); }
 .tl-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+footer { width: 100%; max-width: var(--content-max); margin: 0 auto;
+  padding: 0.5rem 1.75rem 1.5rem; }
+/* ── 반응형 구조 collapse: 사이드바를 상단 가로 바로, 패널 그리드 1-col. ──── */
+@media (max-width: 720px) {
+  body { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    overflow: visible;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-foot { display: none; }
+  .nav-rail {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 0.25rem;
+  }
+  .nav-rail a { white-space: nowrap; flex-shrink: 0; }
+  .panel-grid { grid-template-columns: minmax(0, 1fr); }
+  header { padding: 0.5rem 1rem; }
+  .content { padding: 1.25rem 1rem 3rem; }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }`;
@@ -236,41 +363,84 @@ const STALE_SCRIPT = `(function(){var d=Number(document.body.dataset.derivedMs)|
 
 const COPY_SCRIPT = `(function(){document.addEventListener('click',function(e){var t=e.target&&e.target.closest&&e.target.closest('[data-copy]');if(!t)return;var s=t.getAttribute('data-copy')||'';if(navigator&&navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(s).then(function(){t.setAttribute('data-copied','1');setTimeout(function(){t.removeAttribute('data-copied')},1500)}).catch(function(){})}});})();`;
 
-function renderStripCell(cell, escapeHtml) {
-  const classes = ['cell'];
-  if (cell.accent === 'blocked') classes.push('s-blocked');
-  if (cell.stale) classes.push('s-stale');
-  const cls = classes.join(' ');
-  let valueHtml;
-  if (cell.kind === 'next') {
-    valueHtml = cell.stale
-      ? '<span class="stale-label">' + escapeHtml(cell.value) + '</span>'
-      : '<code>' + escapeHtml(cell.value) + '</code>';
-  } else {
-    valueHtml = '<b>' + escapeHtml(cell.value) + '</b>';
+// 슬래시 커맨드처럼 보이는 next-action 만 복사 버튼 부여. 일반 plan 라벨은 텍스트.
+function looksLikeCommand(v) {
+  return typeof v === 'string' && /^\/?mccp:|^\//.test(v.trim());
+}
+
+// 개요 hero 패널 — verdict + next-action(복사) + 인라인 4축 메타.
+function renderHeroPanel(verdict, gridCells, relative, escapeHtml, escapeAttr) {
+  const attention = verdict.tone === 'red' || verdict.tone === 'blocked';
+  const safeIcon = escapeHtml(verdict.icon);
+  const safeText = escapeHtml(verdict.text);
+
+  const nextCell = gridCells.find(c => c.key === 'next');
+  let nextHtml = '';
+  if (nextCell && nextCell.value && nextCell.value !== '대기') {
+    if (nextCell.stale) {
+      nextHtml = '<div class="hero-next"><span class="hero-next-label">다음</span> '
+        + '<span class="stale-label">' + escapeHtml(nextCell.value) + '</span></div>';
+    } else if (looksLikeCommand(nextCell.value)) {
+      nextHtml = '<div class="hero-next action-prompt"><span class="hero-next-label">다음</span> '
+        + '<code>' + escapeHtml(nextCell.value) + '</code>'
+        + '<button class="copy-btn" type="button" data-copy="' + escapeAttr(nextCell.value) + '">복사</button>'
+        + '</div>';
+    } else {
+      const titleAttr = nextCell.intent ? ' title="' + escapeAttr(nextCell.intent) + '"' : '';
+      nextHtml = '<div class="hero-next"><span class="hero-next-label">다음</span> '
+        + '<code' + titleAttr + '>' + escapeHtml(nextCell.value) + '</code></div>';
+    }
   }
-  const dataAttr = cell.stale ? ' data-stale="1"' : '';
-  return '<span class="' + cls + '"' + dataAttr + '>'
-    + '<span class="icon" aria-hidden="true">' + escapeHtml(cell.icon) + '</span> '
-    + escapeHtml(cell.label) + ' ' + valueHtml
-    + '</span>';
+
+  // 인라인 4축 메타 — next 제외(위 hero-next 로), 진행/차단/위험 + 갱신 시각.
+  const metaParts = [];
+  for (const c of gridCells) {
+    if (c.key === 'next') continue;
+    const txt = escapeHtml(c.label) + ' ' + escapeHtml(c.value);
+    const loud = c.accent === 'blocked' && String(c.value) !== '0';
+    metaParts.push(loud ? '<span class="m-blocked">' + txt + '</span>' : '<span>' + txt + '</span>');
+  }
+  metaParts.push('<span>갱신 ' + escapeHtml(relative)
+    + '<span class="stale-suffix"> · stale</span></span>');
+  const metaHtml = '<p class="hero-meta">' + metaParts.join(' · ') + '</p>';
+
+  return '<div class="hero-panel' + (attention ? ' attention' : '') + '">'
+    + '<h1 class="verdict s-' + escapeHtml(verdict.tone) + '">' + safeIcon + ' ' + safeText + '</h1>'
+    + nextHtml
+    + metaHtml
+    + '</div>';
+}
+
+// 패널 — 제목 헤더(h3) + 섹션 inner HTML. 비중첩(H17). empty-state graceful.
+function renderPanel(title, section, escapeHtml, opts) {
+  opts = opts || {};
+  const cls = 'panel' + (opts.span2 ? ' span-2' : '') + (opts.attention ? ' attention' : '');
+  const inner = (section && section.html)
+    ? section.html
+    : '<p class="panel-empty">데이터 없음</p>';
+  return '<section class="' + cls + '"><h3>' + escapeHtml(title) + '</h3>' + inner + '</section>';
 }
 
 function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   const { escapeHtml, formatRelativeTime } = formatUtils;
+  const escapeAttr = formatUtils.escapeAttr || escapeHtml;
   const m = model || {};
   const [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory] = sections;
   const derivedMs = new Date(derivedAt).getTime();
   const relative = formatRelativeTime(derivedAt, Date.now());
 
-  const safeVerdictText = escapeHtml(verdict.text);
-  const safeVerdictIcon = escapeHtml(verdict.icon);
-
+  const verdictAttention = verdict.tone === 'red' || verdict.tone === 'blocked';
   const gridCells = (grid && Array.isArray(grid.cells)) ? grid.cells : [];
-  const stripHtml = gridCells.map(c => renderStripCell(c, escapeHtml)).join('');
-  const stripAriaLabel = gridCells.length > 0
-    ? '현황 4축: ' + gridCells.map(c => String(c.label || '') + ' ' + String(c.value || '')).join(' · ')
-    : '현황 4축';
+
+  // 활동·기록 page 패널 목록 — present 한 섹션만. timeline/risks 항상 present.
+  const activityPanels = [
+    { title: '워커', section: fanout, present: !!fanout, span2: false },
+    { title: '최근 활동', section: activeSessions, present: !!activeSessions, span2: false },
+    { title: '타임라인', section: timeline, present: true, span2: true },
+    { title: '마일스톤 기록', section: milestoneHistory, present: !!milestoneHistory, span2: false },
+    { title: '미해결 질문', section: questions, present: !!questions, span2: false },
+    { title: '위험', section: risks, present: true, span2: true, attention: verdictAttention },
+  ].filter(p => p.present);
 
   const parts = [];
   parts.push('<!doctype html>');
@@ -278,51 +448,58 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   parts.push('<head>');
   parts.push('<meta charset="utf-8">');
   parts.push('<meta name="viewport" content="width=device-width, initial-scale=1">');
-  parts.push('<title>mccp 상태 · ' + safeVerdictText + '</title>');
-  parts.push('<style>' + OKLCH_LIGHT + OKLCH_DARK + LAYOUT + '</style>');
+  parts.push('<title>mccp 상태 · ' + escapeHtml(verdict.text) + '</title>');
+  parts.push('<style>' + OKLCH_DARK + OKLCH_LIGHT + LAYOUT + '</style>');
   parts.push('</head>');
   parts.push('<body data-stale="0" data-derived-ms="' + (Number.isFinite(derivedMs) ? derivedMs : 0) + '">');
   parts.push('<a class="skip-link sr-only" href="#main">본문 바로가기</a>');
+
+  // 좌측 사이드바 — brand + page 라우팅 nav + foot. status 칩 없음(폐기).
+  parts.push('<aside class="sidebar" aria-label="대시보드 탐색">'
+    + '<div class="brand">mccp 상태</div>'
+    + '<nav class="nav-rail" aria-label="페이지">'
+    + '<a href="#route-overview" data-route-link="overview">개요</a>'
+    + '<a href="#route-pipeline" data-route-link="pipeline">파이프라인</a>'
+    + '<a href="#route-activity" data-route-link="activity">활동 · 기록</a>'
+    + '</nav>'
+    + '<div class="sidebar-foot mono">v1.17.0</div>'
+    + '</aside>');
+
+  // 메인 컬럼 — header(freshness only) + 콘텐츠(3 route) + footer.
+  parts.push('<div class="main-col">');
   parts.push('<header>'
-    + '<span class="brand">mccp 상태</span>'
-    + '<div class="status-strip" role="group" tabindex="0" aria-label="' + escapeHtml(stripAriaLabel) + '">' + stripHtml + '</div>'
     + '<span class="meta">마지막 갱신 ' + escapeHtml(relative)
     + '<span class="stale-suffix">· stale</span></span>'
     + '</header>');
-  parts.push('<main id="main" tabindex="-1">');
+
+  parts.push('<main id="main" class="content" tabindex="-1">');
   if (m.masked === false) {
     parts.push('<aside role="alert" class="s-secret">⚠ raw — 절대 외부 공유 금지</aside>');
   }
 
-  parts.push('<section id="verdict"><h1 class="verdict s-' + escapeHtml(verdict.tone) + '">'
-    + safeVerdictIcon + ' ' + safeVerdictText + '</h1></section>');
+  // route 1 — 개요: hero 패널(verdict + next + 인라인 4축). 60초 스캔.
+  parts.push('<section class="route" id="route-overview" aria-label="개요">'
+    + renderHeroPanel(verdict, gridCells, relative, escapeHtml, escapeAttr)
+    + '</section>');
 
-  if (pipeline) {
-    parts.push('<section id="pipeline"><h2>게이트 파이프라인</h2>' + pipeline.html + '</section>');
-  }
+  // route 2 — 파이프라인: 게이트 스테퍼 패널.
+  parts.push('<section class="route" id="route-pipeline" aria-label="파이프라인">'
+    + '<h2 class="page-title">게이트 파이프라인</h2>'
+    + renderPanel('decision 별 게이트', pipeline, escapeHtml, { span2: true, attention: verdictAttention })
+    + '</section>');
 
-  if (fanout) {
-    parts.push('<section id="workers"><h2>워커</h2>' + fanout.html + '</section>');
-  }
-
-  if (activeSessions) {
-    parts.push('<section id="sessions"><h2>최근 활동</h2>' + activeSessions.html + '</section>');
-  }
-
-  parts.push('<section id="timeline"><h2>타임라인</h2>' + (timeline ? timeline.html : '') + '</section>');
-
-  if (milestoneHistory) {
-    parts.push('<section id="milestone-history"><h2>마일스톤 기록</h2>' + milestoneHistory.html + '</section>');
-  }
-
-  if (questions) {
-    parts.push('<section id="questions"><h2>미해결 질문</h2>' + questions.html + '</section>');
-  }
-
-  parts.push('<section id="risks"><h2>위험</h2>' + (risks ? risks.html : '') + '</section>');
+  // route 3 — 활동·기록: 워커/활동/타임라인/마일스톤/질문/위험 패널 그리드.
+  const activityHtml = activityPanels
+    .map(p => renderPanel(p.title, p.section, escapeHtml, { span2: p.span2, attention: p.attention }))
+    .join('');
+  parts.push('<section class="route" id="route-activity" aria-label="활동 및 기록">'
+    + '<h2 class="page-title">활동 · 기록</h2>'
+    + '<div class="panel-grid">' + activityHtml + '</div>'
+    + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="muted mono">v1.4.2 · <code lang="en">.claude/</code> 통합 derive</footer>');
+  parts.push('<footer role="contentinfo" class="muted mono">v1.17.0 · <code lang="en">.claude/</code> 통합 derive</footer>');
+  parts.push('</div>');
   parts.push('<script>' + STALE_SCRIPT + '</script>');
   parts.push('<script>' + COPY_SCRIPT + '</script>');
   // v1.13.0 — vendored-inline jQuery + pipeline enhancement. Only when the
@@ -338,6 +515,6 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   return parts.join('\n');
 }
 
-const TOKENS = OKLCH_LIGHT + OKLCH_DARK;
+const TOKENS = OKLCH_DARK + OKLCH_LIGHT;
 
 module.exports = { renderHtml, TOKENS, LAYOUT };

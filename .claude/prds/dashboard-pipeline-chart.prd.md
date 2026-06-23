@@ -55,16 +55,15 @@ We'll know we're right when **단계 진행/수렴/차단과 활동 흐름을 �
 | --- | --- | --- | --- | --- |
 | 1 | 게이트 스테이지 파이프라인 chart | receipt를 decision별로 묶은 가로 파이프라인 스테퍼 신규 섹션 — plan/implement/pr가 연결된 노드로, 색/형태로 수렴·진행·대기·차단 구분 | complete | .claude/plans/dashboard-pipeline-chart.plan.md (report: .claude/PRPs/reports/dashboard-pipeline-chart-report.md) |
 | 2 | 활동 로그 step chart + 마일스톤 기록 정확성·용어 통일 | audit-timeline이 시간순 step chart로 렌더 + "이정표"→"마일스톤" 용어 전면 통일(섹션 제목·앵커·prose) + "날짜 미상" ship-receipt 매칭 버그 수정(완료 시점 표시율 100%) | complete | .claude/plans/dashboard-pipeline-chart-m2-milestone-accuracy.plan.md (report: .claude/PRPs/reports/dashboard-pipeline-chart-m2-milestone-accuracy-report.md, activity step-chart: .claude/plans/dashboard-pipeline-chart-m2.plan.md commit 6cf75b6) |
-| 3 | 레이아웃 구조 · 정보 계층 · 반응형 | 그리드 시스템으로 섹션을 재배치하고 primary→status→detail 정보 위계를 명확화 + 좁은 viewport에서 깨지지 않는 반응형 레이아웃 | pending | — |
-| 4 | 길찾기 · 점진적 공개 | 섹션 간 빠른 이동(앵커 내비 + 현재 위치 표시)으로 GNB/LNB/햄버거 의도 흡수 + 아코디언·툴팁·드롭다운·모달로 보조 정보를 on-demand로 펼침 | pending | — |
-| 5 | 필터링 · 탐색 | 필터·태그로 게이트/활동을 좁혀 보기 + 다량 항목의 더보기/단계 노출(페이지네이션 의도 흡수) | pending | — |
-| 6 | 스타일 가이드 · 디자인 토큰 통일 | GitHub Actions 절제 미학을 단일 토큰 세트로 수렴, 컴포넌트(CTA·Tag 등) 스타일 일관성 확보, 토큰/패턴을 대시보드 내 스타일가이드로 문서화 | pending | — |
+
+> **M3~M6 재범위화 (2026-06-23):** 레이아웃·길찾기·필터·스타일 마일스톤은 점진적 디자인 작업이었으나, impeccable craft로 승인된 기준 샘플 `.claude/cache/dashboard-sample.html`이 확정되면서 "샘플 = 명세" 기반 재설계 + derive 데이터 추출로 재범위화되었다. 후속 작업은 신 PRD [`dashboard-console-redesign.prd.md`](dashboard-console-redesign.prd.md)로 이관. 본 PRD는 M1·M2 ship으로 종료(CLOSED).
 
 ## Design Direction
 
 - **차트 형태**: 가로 파이프라인 스테퍼 — 단계를 가로로 연결된 노드로 표시하고, 노드 사이 연결선이 진행 흐름을 나타낸다. 노드 색/아이콘으로 수렴(✓)·진행(◐)·대기(○)·차단(✗)을 구분. (레퍼런스 ① GitHub Actions, ② Vercel Deployments)
-- **미학 리드**: GitHub Actions — 중립 회색조 base 위에 상태색만 절제해서 사용. 정보 밀도 높고 차분함. 네온/장식 최소화. (status page의 앰버 경고 배너 강조와 Signal의 네온 그린은 보조 참고로만, 리드는 GitHub Actions 절제.)
-- **타이포그래피/팔레트**: 기존 다크 테마 + 모노스페이스 유지. 색은 상태 의미 전달 용도로만 — 강조색은 viewport당 최소.
+- **미학 리드 (v1.16.0 M3 재설계로 갱신)**: **다크 파이프라인 콘솔** — Vercel 대시보드 베이스(깔끔한 목적 있는 카드, **card-in-card 금지**) + 좌측 섹션 nav 레일. 차분한 dev 다크(Linear/Vercel 톤, 형광/Bloomberg 아님), low-chroma neutral 위에 상태색만 절제. 사용자가 "기존 GitHub Actions 절제 방향은 디자인 스킬 없이 만든 약한 구현이라 reference 아님 — 새로 설계"로 미학 방향 신규 탐색에 confirm(impeccable shape, 2026-06-23). GitHub Actions/Vercel Deployments는 여전히 토폴로지 레퍼런스. PRODUCT.md anti-refs(hero-metric/AI-cream/Bloomberg 형광)는 유지.
+- **타이포그래피/팔레트**: 다크 default(light는 `prefers-color-scheme: light` opt-in) + 단일 sans + 1 모노스페이스(식별자). 색은 상태 의미 전달 용도로만 — 강조색(accent)은 viewport당 ≤1(next-action/현재선택만). 토큰/레이아웃 canonical은 `plugins/mccp/scripts/lib/renderer/html.js` + DESIGN.md.
+- **M3 인터랙션 비전(셸은 M3, 동작은 M4)**: 우측 **Drawer 상세**(Notion/Linear 패턴 — 모달 아닌 drawer로 detail 강조) + nav **active-섹션 추적** + Tailwind docs의 `설명 | 터미널` 복사형 prompt. M3는 이들이 얹힐 정적 콘솔 셸(다크 토큰 + 2D nav레일 + 카드 + 반응형)까지, 가시 컨트롤 + 동작은 M4.
 - **컴포넌트 → outcome 매핑(단일 화면 status 대시보드 기준)**: 사용자가 나열한 컴포넌트는 글자 그대로의 멀티페이지 위젯이 아니라 단일 화면에 맞는 outcome으로 채택한다.
   - **길찾기(M4)**: GNB·LNB·햄버거 메뉴·브레드크럼 → 섹션 앵커 내비 + 현재 위치(active 섹션) 표시. 좁은 화면에서는 접히는 섹션 인덱스.
   - **점진적 공개(M4)**: 아코디언·모달·툴팁·드롭다운 → 1차 정보는 즉시, 상세/메타는 펼침·호버·오버레이로만.
@@ -98,5 +97,5 @@ We'll know we're right when **단계 진행/수렴/차단과 활동 흐름을 �
 
 ---
 
-_Status: DRAFT — requirements only. Implementation planning pending via /mccp:plan._
+_Status: CLOSED (2026-06-23) — M1·M2 shipped (PR #53). M3~M6 superseded by `dashboard-console-redesign.prd.md` ("샘플=명세" 재설계 + derive 추출)._
 _Co-created with user on 2026-06-22._

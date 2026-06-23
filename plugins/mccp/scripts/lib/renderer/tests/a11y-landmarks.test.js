@@ -22,7 +22,7 @@ function fixtureModel() {
 test('html lang="ko" + main id + tabindex=-1', () => {
   const { html } = renderStatus(fixtureModel());
   assert.ok(/<html lang="ko">/.test(html), 'html lang ko');
-  assert.ok(/<main id="main" tabindex="-1">/.test(html), 'main landmark');
+  assert.ok(/<main id="main"[^>]*tabindex="-1">/.test(html), 'main landmark');
 });
 
 test('skip-link present with sr-only + href #main', () => {

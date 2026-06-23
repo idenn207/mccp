@@ -57,12 +57,12 @@ function renderWithStubs(model) {
   });
 }
 
-test('html — Korean section h2 labels present', () => {
+test('html — Korean section h3 panel labels present (redesign-3 panels)', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
-  assert.match(r.html, />타임라인<\/h2>/);
-  assert.match(r.html, />위험<\/h2>/);
-  assert.match(r.html, />워커<\/h2>/);
-  assert.match(r.html, />미해결 질문<\/h2>/);
+  assert.match(r.html, />타임라인<\/h3>/);
+  assert.match(r.html, />위험<\/h3>/);
+  assert.match(r.html, />워커<\/h3>/);
+  assert.match(r.html, />미해결 질문<\/h3>/);
 });
 
 test('html — English section h2 labels absent (anti-pattern check)', () => {
@@ -74,9 +74,9 @@ test('html — English section h2 labels absent (anti-pattern check)', () => {
   assert.doesNotMatch(r.html, />Status<\/h2>/);
 });
 
-test('html — header brand "mccp 상태" present', () => {
+test('html — sidebar brand "mccp 상태" present (redesign-3 app-shell)', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
-  assert.match(r.html, /<span class="brand">mccp 상태<\/span>/);
+  assert.match(r.html, /<div class="brand">mccp 상태<\/div>/);
 });
 
 test('html — meta "마지막 갱신" present', () => {

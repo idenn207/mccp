@@ -44,19 +44,21 @@ function renderWithStubs(model) {
   });
 }
 
-test('html header contains brand + status-strip + meta', () => {
+test('html header has meta only; brand + nav in left sidebar; status-strip retired (redesign-3)', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  assert.match(r.html, /<header[^>]*>[\s\S]*?<span class="brand">/);
-  assert.match(r.html, /<div class="status-strip" role="group"/);
-  assert.match(r.html, /<span class="meta">/);
+  assert.match(r.html, /<header[^>]*>[\s\S]*?<span class="meta">/);
+  assert.doesNotMatch(r.html, /<header[^>]*>[\s\S]*?<div class="brand">/);
+  assert.match(r.html, /<aside class="sidebar"[\s\S]*?<div class="brand">mccp 상태<\/div>[\s\S]*?<nav class="nav-rail"/);
+  assert.doesNotMatch(r.html, /class="status-strip"/);
 });
 
-test('html status-strip contains exactly 4 cells', () => {
+test('overview hero surfaces inline 4축 meta (진행/차단/위험)', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  const stripMatch = r.html.match(/<div class="status-strip"[^>]*>([\s\S]*?)<\/div>/);
-  assert.ok(stripMatch, 'status-strip block exists');
-  const cellMatches = stripMatch[1].match(/<span class="cell[^"]*"/g) || [];
-  assert.equal(cellMatches.length, 4, 'four cells in status strip');
+  const heroMatch = r.html.match(/<p class="hero-meta">([\s\S]*?)<\/p>/);
+  assert.ok(heroMatch, 'hero-meta block exists');
+  assert.match(heroMatch[1], /진행 중/);
+  assert.match(heroMatch[1], /차단/);
+  assert.match(heroMatch[1], /미해결 위험/);
 });
 
 test('html main has NO section#status (4축 hoisted to header)', () => {
@@ -64,32 +66,34 @@ test('html main has NO section#status (4축 hoisted to header)', () => {
   assert.doesNotMatch(r.html, /<section id="status"/);
 });
 
-test('html main retains section#verdict with h1.verdict', () => {
+test('overview route holds h1.verdict inside the hero panel', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  assert.match(r.html, /<section id="verdict">/);
-  assert.match(r.html, /<h1 class="verdict s-[a-z]+">/);
+  assert.match(r.html, /<section class="route" id="route-overview"/);
+  assert.match(r.html, /<div class="hero-panel[^"]*"><h1 class="verdict s-[a-z]+">/);
 });
 
-test('html sticky CSS present (header position: sticky)', () => {
+test('html app-shell — sidebar is sticky, header is NOT (status in left sidebar)', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  assert.match(r.html, /header\s*{[^}]*position:\s*sticky/);
-  assert.match(r.html, /header\s*{[^}]*top:\s*0/);
+  assert.match(r.html, /\.sidebar\s*{[^}]*position:\s*sticky/);
+  assert.doesNotMatch(r.html, /header\s*{[^}]*position:\s*sticky/);
 });
 
-test('html accent invariant — only first-of-type cell gets var(--accent) by default', () => {
+test('sidebar nav-rail wires 3 page route links', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  assert.match(r.html, /\.status-strip \.cell:first-of-type\s*{\s*color:\s*var\(--accent\)/);
+  assert.match(r.html, /data-route-link="overview"/);
+  assert.match(r.html, /data-route-link="pipeline"/);
+  assert.match(r.html, /data-route-link="activity"/);
 });
 
-test('html stale fixture — next cell gets data-stale="1"', () => {
+test('stale fixture — next renders stale-label inside hero-next', () => {
   const model = makeModel(Date.now(), 'v0-3-5-codex-disabled-honor');
   const r = renderWithStubs(model);
-  assert.match(r.html, /<span class="cell s-stale" data-stale="1">/);
+  assert.match(r.html, /<div class="hero-next">[\s\S]*?<span class="stale-label">/);
 });
 
-test('html non-stale fixture — no data-stale attr on any cell', () => {
+test('html non-stale fixture — no data-stale attr on any chip', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  assert.doesNotMatch(r.html, /<span class="cell[^"]*" data-stale="1">/);
+  assert.doesNotMatch(r.html, /<a class="cell[^"]*"[^>]*data-stale="1"/);
 });
 
 test('html stale fixture — next value wrapped in span.stale-label not code (F2 absorption)', () => {

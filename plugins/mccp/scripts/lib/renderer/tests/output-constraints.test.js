@@ -23,10 +23,10 @@ test('schema — runOutputConstraints returns {violations[], details[]}', () => 
   assert.ok(Array.isArray(out.details));
 });
 
-test('schema — RULES exports 16 rules H1..H16', () => {
-  assert.equal(RULES.length, 16);
+test('schema — RULES exports 17 rules H1..H17', () => {
+  assert.equal(RULES.length, 17);
   const ids = RULES.map((r) => r.id);
-  for (let i = 1; i <= 16; i += 1) {
+  for (let i = 1; i <= 17; i += 1) {
     assert.ok(ids.includes('H' + i), 'missing H' + i);
   }
 });
@@ -87,9 +87,9 @@ test('H2 — pass on m3-redux baseline (main max-width 720px)', () => {
   assert.ok(!out.violations.includes('H2'));
 });
 
-test('H2 — fail when main max-width > 720', () => {
+test('H2 — fail when main max-width > 960 (redesign-3 ceiling)', () => {
   const out = runOutputConstraints({
-    css: ':root { --bg: oklch(0.99 0 0); } main { max-width: 960px; }',
+    css: ':root { --bg: oklch(0.99 0 0); } main { max-width: 1024px; }',
     html: '', md: '',
   });
   assert.ok(out.violations.includes('H2'));
@@ -105,8 +105,10 @@ test('H3 — pass on m3-redux baseline (no border-radius >= 1)', () => {
 });
 
 test('H3 — fail on border-radius injection', () => {
+  // v1.16.0: .card is now a carved-out design affordance. Use a non-carved
+  // selector to prove H3 still catches stray rounded chrome.
   const out = runOutputConstraints({
-    css: withBaseline('.card { border-radius: 8px; padding: 12px; }'),
+    css: withBaseline('.generic-box { border-radius: 8px; padding: 12px; }'),
     html: '', md: '',
   });
   assert.ok(out.violations.includes('H3'));
@@ -119,9 +121,9 @@ test('H3 — tl-node pill carved out (v1.14.0), general chrome still caught', ()
     html: '', md: '',
   });
   assert.ok(!carved.violations.includes('H3'), 'tl-node border-radius is carved out');
-  // carve-out must stay narrow — a generic card alongside it still fails.
+  // carve-out must stay narrow — a generic (non-card, non-affordance) box still fails.
   const general = runOutputConstraints({
-    css: withBaseline('.tl-node { border-radius: 999px; } .card { border-radius: 8px; }'),
+    css: withBaseline('.tl-node { border-radius: 999px; } .generic-box { border-radius: 8px; }'),
     html: '', md: '',
   });
   assert.ok(general.violations.includes('H3'), 'general chrome border-radius still caught');
@@ -662,4 +664,52 @@ test('H10/H16 — inline <script> content is stripped (vendored jQuery, v1.13.0)
   });
   assert.ok(!out.violations.includes('H10'), 'script em-dash not counted');
   assert.ok(!out.violations.includes('H16'), 'script markdown markers not counted');
+});
+
+// ----------------------------------------------------------------------
+// H17 — no nested cards (v1.16.0, Codex R1 F2 absorption — DOM-aware)
+// ----------------------------------------------------------------------
+
+test('H17 — pass on flat sibling cards', () => {
+  const html = '<body>'
+    + '<section id="a" class="card"><h2>A</h2><p>x</p></section>'
+    + '<section id="b" class="card"><h2>B</h2><p>y</p></section>'
+    + '</body>';
+  const out = runOutputConstraints({ css: BASELINE_CSS, html, md: '' });
+  assert.ok(!out.violations.includes('H17'), 'flat sibling cards are allowed');
+});
+
+test('H17 — fail on card nested inside card', () => {
+  const html = '<body><section class="card"><div class="card">nested</div></section></body>';
+  const out = runOutputConstraints({ css: '', html, md: '' });
+  assert.ok(out.violations.includes('H17'), 'card-in-card must fail');
+});
+
+test('H17 — catches non-section card wrappers (div/article)', () => {
+  const html = '<body><article class="panel card"><aside class="card">x</aside></article></body>';
+  const out = runOutputConstraints({ css: '', html, md: '' });
+  assert.ok(out.violations.includes('H17'), 'div/article/aside card nesting caught');
+});
+
+test('H17 — non-card nesting inside a card is fine', () => {
+  const html = '<body><section class="card"><ul><li>x</li></ul><table><tr><td>y</td></tr></table></section></body>';
+  const out = runOutputConstraints({ css: BASELINE_CSS, html, md: '' });
+  assert.ok(!out.violations.includes('H17'), 'plain content inside a card is allowed');
+});
+
+test('H17 — actual renderer output has no nested cards', () => {
+  const { renderStatus } = require('../index');
+  const model = {
+    derived_at: new Date().toISOString(), masked: true,
+    m0_capability: { contract_present: true }, warnings: [],
+    sources: {
+      plans: { count: 0, items: [] }, receipts: { count: 0, items: [] },
+      state: { item: { resume_state: 'idle', body: {}, frontmatter: {} } },
+      backlog: { count: 0, items: [] }, fix_task: { item: null }, pr: { item: null },
+      envelopes: { count: 0, items: [] },
+    },
+    correlations: [],
+  };
+  const r = renderStatus(model, { snapshotsDir: null });
+  assert.ok(!r.design_constraint_violations.includes('H17'));
 });

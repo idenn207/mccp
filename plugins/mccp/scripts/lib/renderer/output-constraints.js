@@ -19,7 +19,17 @@
 // affordance(pill). 일반 layout chrome 의 카드화와 구분되는 명시적 컴포넌트.
 // v1.14.0 carve-out — tl-node 는 활동 step-chart rail 의 상태 노드 마커(pill).
 // 세로 connector 는 background 라인(.tl-rail::before)이라 H4 무관 — carve-out 불필요.
-const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret|pipe-node|tl-node)|\[role="alert"\]/;
+// v1.16.0 (M3 재설계) — 다크 콘솔 + Vercel 카드 베이스. card / nav-rail 은
+// 목적 있는 비중첩 카드 / 길찾기 레일의 design intent affordance 로 H3 carve-out.
+// 카드 중첩 금지는 신규 H17 이 DOM-aware 로 강제.
+// v1.16.0 redesign-2 — status-strip 의 .cell 칩은 우측 rail 의 상태 jump
+// affordance(icon+색상 칩, 클릭 시 섹션 이동). pipe-node/tl-node 와 동격의
+// 명시적 컴포넌트 affordance 로 H3 carve-out.
+// v1.17.0 redesign-3 (Vercel 멀티페이지 콘솔) — hero-panel / panel 은 목적 있는
+// 비중첩 패널(card-in-card 금지는 H17 이 DOM-aware 로 강제), nav-rail a / route 는
+// 라우팅 affordance. 모두 일반 layout chrome 의 무분별한 카드화와 구분되는 명시
+// 컴포넌트라 H3 carve-out. status-strip(폐기)도 무해하게 잔존.
+const H3_CARVEOUT = /\.(severity-tag|action-prompt|skip-link|copy-btn|s-secret|pipe-node|tl-node|card|panel|hero-panel|nav-rail|status-strip|route)|\[role="alert"\]/;
 const H4_CARVEOUT = /\.(meta-cue)|\bblockquote\b/;
 
 function findSelectorContext(css, hitIndex) {
@@ -32,27 +42,41 @@ function findSelectorContext(css, hitIndex) {
 }
 
 const RULES = [
-  // H1 light mode default. First :root --bg token lightness must be >= 0.97.
+  // H1 (v1.16.0 개정) 다크 mode default + light opt-in. 기본 :root --bg 는
+  // 어두워야(< 0.5) 하고, `@media (prefers-color-scheme: light)` 안에서 밝은
+  // --bg(>= 0.97)로 override 되어야 한다. (이전: light default >= 0.97)
   {
     id: 'H1',
     severity: 'invariant',
     check: ({ css }) => {
-      const m = css.match(/--bg:\s*oklch\(\s*0\.(\d+)/);
-      if (!m) return { evidence: 'no :root --bg token found' };
-      const val = parseFloat('0.' + m[1]);
-      if (val < 0.97) return { evidence: '--bg lightness ' + val + ' (< 0.97)' };
+      const dm = css.match(/--bg:\s*oklch\(\s*0?\.(\d+)/);
+      if (!dm) return { evidence: 'no :root --bg token found' };
+      const dark = parseFloat('0.' + dm[1]);
+      if (dark >= 0.5) return { evidence: 'default --bg lightness ' + dark + ' not dark (>= 0.5)' };
+      const lightBlock = css.match(/@media\s*\(prefers-color-scheme:\s*light\)\s*\{[\s\S]*?--bg:\s*oklch\(\s*([\d.]+)/);
+      if (!lightBlock) return { evidence: 'no prefers-color-scheme: light --bg override' };
+      const light = parseFloat(lightBlock[1]);
+      if (light < 0.97) return { evidence: 'light --bg lightness ' + light + ' (< 0.97)' };
       return null;
     },
   },
-  // H2 main column max-width <= 720px.
+  // H2 (v1.17.0 개정) 읽기 콘텐츠 폭 상한. Vercel 멀티페이지 콘솔이라 2-col 패널
+  // 그리드를 담는 --content-max 토큰(<= 960px)으로 콘텐츠 가독 폭을 cap. nav 레일
+  // 폭은 별도. (이전: <= 820, redesign-2)
   {
     id: 'H2',
     severity: 'invariant',
     check: ({ css }) => {
-      const m = css.match(/\bmain\b[^{]*\{[^}]*max-width:\s*(\d+)px/);
-      if (!m) return { evidence: 'no main max-width found' };
-      const px = parseInt(m[1], 10);
-      if (px > 720) return { evidence: 'main max-width ' + px + 'px (> 720)' };
+      const m = css.match(/--content-max:\s*(\d+)px/);
+      if (m) {
+        const px = parseInt(m[1], 10);
+        if (px > 960) return { evidence: '--content-max ' + px + 'px (> 960)' };
+        return null;
+      }
+      const mm = css.match(/\bmain\b[^{]*\{[^}]*max-width:\s*(\d+)px/);
+      if (!mm) return { evidence: 'no --content-max or main max-width found' };
+      const px = parseInt(mm[1], 10);
+      if (px > 960) return { evidence: 'main max-width ' + px + 'px (> 960)' };
       return null;
     },
   },
@@ -340,6 +364,40 @@ const RULES = [
         if (m) { total += m.length; hits.push(p.name + '(' + m.length + ')'); }
       }
       if (total > 0) return { evidence: total + ' unrendered marker(s): ' + hits.join('+') };
+      return null;
+    },
+  },
+  // H17 (v1.16.0 신규, Codex R1 F2 absorption) 카드 중첩 금지 — DOM-aware.
+  // Vercel 베이스의 핵심 규율: "card 안에 card" 0. `<section class="card">`
+  // 만이 아니라 임의 block 태그(section/div/article/main/aside)의 `card`
+  // class token nesting 을 stack scan 으로 검출. carve-out 없음(card 중첩은
+  // 절대 금지). markdown 무관 — HTML body only.
+  {
+    id: 'H17',
+    severity: 'absolute-ban',
+    check: ({ html }) => {
+      if (!html) return null;
+      const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      const body = bodyMatch ? bodyMatch[1] : html;
+      const tagRe = /<(\/?)(section|div|article|main|aside)\b([^>]*)>/gi;
+      const stack = [];
+      let nested = 0;
+      let mm;
+      while ((mm = tagRe.exec(body)) !== null) {
+        const isClose = mm[1] === '/';
+        const tag = mm[2].toLowerCase();
+        if (isClose) {
+          // pop to matching tag (tolerant of unbalanced inner markup)
+          for (let i = stack.length - 1; i >= 0; i--) {
+            if (stack[i].tag === tag) { stack.splice(i); break; }
+          }
+        } else {
+          const isCard = /class="[^"]*\bcard\b[^"]*"/.test(mm[3]);
+          if (isCard && stack.some((e) => e.isCard)) nested++;
+          stack.push({ tag, isCard });
+        }
+      }
+      if (nested > 0) return { evidence: nested + ' nested card(s)' };
       return null;
     },
   },

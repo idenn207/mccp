@@ -1,72 +1,50 @@
 ---
 state_version: 1
-task_fingerprint: v1-4-2-dashboard-overhaul
+task_fingerprint: dashboard-pipeline-chart
 created_at: 2026-06-03T18:51:31.328Z
 updated_at: 2026-06-22T19:31:11.335Z
 last_event: stop_loop_pass
 last_event_at: 2026-06-22T19:31:11.335Z
 unsafe_checkpoint: false
 confirm_required: false
-session_end_imminent: false
-chain_aborted: false
-last_pr_url: https://github.com/idenn207/mccp/pull/50
+session_end_imminent: true
+chain_aborted: true
+last_pr_url: https://github.com/idenn207/mccp/pull/53
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
-v1.13.0 impeccable-command-routing — M1+M2+M3 all SHIPPED to branch + pushed to PR #55 (3 commits). NEXT (user directive): resolve PR #55 conflicts vs main 1.15.0 + merge.
+dashboard-pipeline-chart cycle (status.html 시각 리프레시 PRD, 6 마일스톤). M1(게이트 파이프라인 chart)+M2(활동 step-chart + 마일스톤 기록 정확성) shipped (PR #53 merged, squash 2f5f808). **현재 M3(레이아웃·정보 계층·반응형) 진행 중** — 다크 파이프라인 콘솔 재설계. PRD: `.claude/prds/dashboard-pipeline-chart.prd.md`. worktree: `.worktrees/dashboard-timeline-chart/` (branch dashboard-timeline-chart).
 
 ## Plan
-- v1.3.0 cycle: 모든 milestone shipped. plan/report artifact는 `.claude/PRPs/plans/completed/` + `.claude/PRPs/reports/` 보관.
-- v1.4.2 dashboard overhaul cycle: M1(layout/i18n/staleness) + M2(content/actionability/4-part OQ-Risks) + M3(a11y/oklch) 3-milestone bundle. PR #50 단일 ship.
-- Next axes (v1.4.x patch cycle 후보): [[mccp-v1-4-0-multi-session-cycle]] M2 (SessionStart discovery), [[mccp-v1-4-0-automation-modernization-cycle]] axis C, pr.md `.git/` hardcode + heredoc body parse fix (반복 누적 7+ cycle).
+- M3 plan: `.claude/plans/dashboard-pipeline-chart-m3-layout.plan.md` (report: `.claude/PRPs/reports/dashboard-pipeline-chart-m3-layout-report.md`). plan-codex + implement-codex receipt clean (decision `dashboard-pipeline-chart-m3-layout`, design-critique converged).
+- 사용자 결정(2026-06-23): 기존 디자인은 reference 아님 → 미학 방향 신규 탐색 + H-invariant 자유 수정. 방향 = **다크 파이프라인 콘솔, Vercel 대시보드 베이스(80~90% 수용), 카드 중첩 금지**. M4(우측 Drawer 상세 + nav active 추적 + Tailwind 터미널 prompt)는 콘솔 셸 위 후속.
 
 ## Done
-- PR #20/#21/#22 merged (v1.0.0 C1+C2 + release notes, squash 472da61)
-- v1.0.0 annotated tag pushed (local + origin, W-VERDICT-gated CONDITIONAL ship)
-- PR #23 merged (chore(v1.0.0): post-ship STATE.md roll + remote branch cleanup)
-- PR #24 merged (v1.0.1 axis K M1 — pr-phase-guard PID liveness + derive-decision)
-- PR #25 merged (v1.0.1 axis P — hook tidy + ECC_* → MCCP_* env namespace)
-- PR #26 merged (v1.0.1 axis K M2 — cross-platform fixtures + GHA matrix + W11 rubric, W-VERDICT §2 BLOCKING 1→0)
-- PR #27 merged (v1.1.0-s1 — auto-handoff quarantine + /mccp:resume + Task 0 spike)
-- PR #29 merged (v1.2.0-m1 — orchestrator Stage 2 foundation IPC)
-- PR #30 merged (chore(release): bump plugin.json to v1.2.0 + document version-bump axis)
-- PR #31 merged 2026-06-17, squash 3dcc0df (v1.3.0-m0 — schema baseline alignment)
-- PR #32 merged (chore(v1.3.0-m0): post-ship STATE.md roll, f18d52b)
-- PR #33 merged (v1.3.0-m1 — derive engine, 2eb0367)
-- PR #34 merged (v1.3.0-m2 — briefing stamp, aaeced9)
-- PR #35 merged (chore: require Korean for PR bodies + archive pr-34 review, 10805d8)
-- PR #36 merged (v1.3.1 — informational receipt-prompt hook + Phase 0 auto-recovery, 3263526)
-- PR #37 merged (v1.3.0-m3 — STATUS.md + HTML renderer + plugin.json 1.2.0→1.4.0 jump, 9c7336b)
-- PR #38 merged (v1.4.1 — axis A /deep-research cooperative guide integration, e7fc8de)
-- PR #39 merged (v1.3.0-m4 — refresh trigger + privacy guard, 779ee1a; plugin.json bump 누락 — M5 PR #41이 동시 백필)
-- PR #40 merged (chore(v1.3.0): post-ship STATE.md roll + body-roll backlog axis, aaca878)
-- PR #41 merged (v1.3.0-m5 — daily snapshot + 30-day audit timeline + Codex R1 absorption, d12e82d)
-- PR #42 merged (v1.4.0-m2 axis B — ultracode delegation + mechanical isolation lock 4th layer, c9fe377)
-- PR #43 merged (v1.4.0-m1 multi-session — session-ledger primitive + scope-aware resolver, c071a54)
-- PR #45 merged 2026-06-21T18:19:45Z, squash 31bfcb9 — v1.3.0 design-gate M1+M2+M3 + M3-redux + PRD roll bundle 단일 PR. plugin.json 1.6.2→1.7.0→1.9.0 (1.8.x skip — main v1.4.x cycle race 회피, Codex Implement-Codex R1 F1 absorption). H15(heading depth ≤ 3) + H16(unrendered md literal) lint 16-rule mechanical contract 완성 (commit 1d8765f, R1 4 finding all absorbed). v1.3.0 cycle 모든 11 milestone CLOSE.
-- PR #49 merged (v1.4.0-m3 — friction-zero self markers + telemetry sidecar, ba9b531)
-- PR #51 merged (v1.4.x — cwd outside-root mask + branch validation invariant, 7ded320)
+- M1+M2 shipped — PR #53 merged (squash 2f5f808), origin/main 반영. branch origin/main으로 reset 후 M3 진입.
+- M3 redesign-1 commit `9f67ed9` (feat v1.16.0, WIP) — 다크 default 토큰 + 2D 레이아웃 + 비중첩 카드 + 반응형 + H1/H2/H3 개정 + 신규 H17(카드중첩 금지 DOM-aware). Codex Plan-Codex R1 3건 흡수(2-bucket 테스트 가드 / H17 DOM-aware / inert affordance 0). renderer 323(+11) + derive 68 PASS, 0 회귀. plugin.json 1.15.0→1.16.0.
 
 ## In Progress
-v1.4.2 dashboard overhaul cycle — M1+M2+M3 3-milestone bundle PR #50. M3(a11y landmarks + aria-labels + oklch contrast + non-color severity) 4 commit push 완료 2026-06-22. main(v1.3.0 design-gate + v1.4.x cwd fix) merge로 conflict 해결 진행 중 (10 file, plugin.json 1.11.0 ours).
-
-cycle context:
-- worktree: `.worktrees/v1.4.2-dashboard-overhaul/` (branch v1-4-2-dashboard-overhaul)
-- PRD: `.claude/prds/v1-4-2-dashboard-overhaul.prd.md` (Design Direction 포함, 3 milestone split — M1/M2/M3)
-- plans: `.claude/plans/v1-4-2-dashboard-overhaul-{m1,m2,m3}.plan.md`
-- reports: `.claude/PRPs/reports/v1-4-2-dashboard-overhaul-{m1,m2,m3}-report.md`
-- plugin.json: 1.11.0 (M1=1.9.0 / M2=1.10.0 / M3=1.11.0)
+M3 **redesign-2 PENDING** — redesign-1 commit 후 사용자 시각 피드백으로 재작업 필요. redesign-1은 "Vercel 색감만 빌린 새 디자인"으로 평가됨. 확립된 패턴(Tailwind docs + Vercel)을 제대로 따를 것 — 관성적 incremental 금지, 정형 패턴 채택.
 
 ## Next Step
-PR #55 conflict resolution (main 1.15.0 merge into branch — CHANGELOG/plugin.json/CLAUDE.md/schema.js/command files 예상 충돌, plugin.json은 1.16.0 ours forward-only) → merge.
+다음 세션 `/mccp:resume`(또는 worktree에서 직접 이어가기). redesign-2 적용 대상 (사용자 피드백, 근거 포함):
+1. **섹션 nav를 우측 "on this page" TOC로** — Tailwind docs 패턴(좌측 main nav / 우측 현재페이지 목차). 현재 좌측 얇은 텍스트 컬럼 + ● dot은 폐기. ● 제거, plain 텍스트 + active 하이라이트.
+2. **status 4축을 상단 header → 우측 rail로** — icon+색상 칩(명칭 없음, 색/아이콘만으로 구분), 클릭 시 해당 섹션 jump(필터는 M5). 근거: status는 "무엇을 봐야 하나" 진입점 → 네비 surface와 묶는 게 UX. 상단 아이콘 뭉텅이 폐기, 각 상태 시각 분리.
+3. **header non-sticky 최소화** — status가 rail로 빠지면 sticky 상시 표시 이유 없음. brand+갱신시각만.
+4. **`scroll-margin-top`** — 앵커 클릭 시 스크롤 위치가 sticky 요소에 가리는 문제 해소.
+5. **Vercel 카드 질감** — radius~10 + 여백 + 카드 헤더 + page<card elevation. "색감만 빌린" 느낌 제거.
+6. **모든 아이콘 align center** — status 칩/verdict/nav 이모지 수직정렬(`align-items:baseline`→`center`).
+- 영향: header-hoist.test.js + render-integration.test.js의 "status-strip in header" assertion(bucket B) 갱신 필요(디자인 변경).
+- 비주얼 검증: 이 환경은 브라우저 스크린샷 불가 → 사용자가 `.claude/cache/status.html` 확인. 가능하면 impeccable live/polish + 실제 Vercel/Tailwind docs 스크린샷 대조.
+- 마무리: redesign-2 후 commit → `/mccp:prp-commit` → `/mccp:pr` (PR 전 사용자 시각 확인 필수). PRD M3 row complete + worktree cleanup.
 
 ## Last Decision
-2026-06-23 M3 (System document/extract recommend-only wiring + a11y-architect PR-gate review-only auto-invoke) 구현·게이트·push 완료. Codex Plan-Codex R1 3 finding(F1 preamble starvation→rendering_surface trigger, F2 전용 a11y lock window, F3 finalize-receipt forward) R1 흡수. plugin.json 1.16.0(main 1.15.0 forward-only). commit f042e80.
+2026-06-23 비용 critical($155)로 M3 redesign-1(test-green)을 commit `9f67ed9`로 보존하고 redesign-2(Vercel 정합 재작업)는 다음 세션으로 분리(사용자 "2번 — /mccp:resume" 선택). redesign-1은 단일컬럼→다크 콘솔 전환은 됐으나 좌측 nav·상단 status·카드 질감이 Vercel 패턴 미달. 핵심 교훈(사용자): 정보 압축·표현·사용성도 디자인 영역, 관성적 수정 말고 성공한 디자인(Vercel/Tailwind docs)을 reference로 정형 패턴을 따를 것.
 
 ## Open Questions
-- M3: System group document/extract를 STAGE_ROUTING에 추가 + a11y-architect를 routing-only에서 실제 Task() auto-invoke로 전환 (codex-result-filter.js a11yRoutedCount 경로)
-- PR #55 merge: main이 1.15.0이므로 plugin.json forward-only reconcile(≥1.16.0) + CHANGELOG/pr.md conflict 해소 후 merge
-- M3 plan-codex/implement-codex slug는 plan-PATH 기준으로 derive (feedback-mccp-plan-receipt-slug — M2에서 PRD-args 기준이 깨져 재작성한 이력)
+- redesign-2 우측 rail 폭/접힘(반응형) + status 칩 클릭 타깃(어느 섹션으로 jump) 구체화 — plan 단계.
+- 브라우저 시각 검증 부재 — CSS 변경을 사용자 육안에만 의존. 스크린샷 도구/Vercel 실물 대조 방법 모색.
+- pr.md worktree `.git/` hardcode + heredoc parse — 이번 세션도 hit(분류 tmp dir + 커밋 메시지 `@'...'@` PowerShell 문법 오용). 한 줄 수정 axis 누적 8+ cycle.
 
 ## Last Updated
-2026-06-22T19:31:11.335Z
+2026-06-22T18:06:10.227Z

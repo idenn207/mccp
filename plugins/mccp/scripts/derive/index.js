@@ -94,6 +94,25 @@ function derive(repoRoot, opts) {
     pushWarning(model, 'medium', 'correlate', 'correlate threw: ' + err.message);
   }
 
+  // Dashboard Truthfulness M2 (Codex R1 F2) — stamp host-project version signal
+  // at derive time so the renderer consumes a reproducible snapshot (never reads
+  // host files at render time). Independent try/catch from the source loop —
+  // failure degrades the field, never aborts derive.
+  try {
+    const { resolveHostVersion } = require('./host-version');
+    model.host_version = resolveHostVersion(root, {
+      plans: (model.sources.plans && model.sources.plans.items) || [],
+      allowGit: false, // derive stays spawn-free (perf budget); git-tag rung is opt-in.
+    });
+  } catch (err) {
+    model.host_version = {
+      version: null, source: 'unknown', latest_plan: null,
+      degraded: true, error: (err && err.message) || String(err),
+    };
+    pushWarning(model, 'low', 'host_version',
+      'host_version resolve threw: ' + ((err && err.message) || String(err)));
+  }
+
   // v1.3.0-m4 — M4 last-render meta surface. Read .claude/cache/.last-render.json
   // (graceful — missing file is normal on first ever render). Audit-timeline
   // section consumes was_stale; verdict step 1.5 consumes mask_hits.

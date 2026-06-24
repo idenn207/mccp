@@ -87,7 +87,7 @@ test('integration — synthesized model with all section types', () => {
 
   assert.match(r.md, /# mccp 상태/);
   assert.match(r.md, /## Verdict/);
-  assert.match(r.md, /## 현황/);
+  assert.match(r.md, /## 대시보드/);
   assert.match(r.md, /## 워커/);
   assert.match(r.md, /## 타임라인/);
   assert.match(r.md, /## 위험/);

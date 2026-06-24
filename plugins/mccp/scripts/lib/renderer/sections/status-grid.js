@@ -3,6 +3,35 @@
 const path = require('path');
 const { extractIntentFromPath } = require('../parsers/intent-extractor');
 const { deriveDecisionState } = require('../parsers/decision-state');
+const { resolveNextAction } = require('../parsers/next-action');
+
+// Dashboard Truthfulness M2 — named-widget item cap. Top-N expanded + overflow
+// count (collapsed in the hero/STATUS.md). Mirrors milestone-history MAX_EXPANDED
+// + Output Constraint "한 화면 항목 상한".
+const TOP_N = 3;
+
+// host_version.source → 한국어 라벨. provenance 를 항상 노출(F3) — meta 가
+// CHANGELOG 와 불일치해도 어느 신호가 채택됐는지 사용자가 검증 가능.
+function sourceLabel(source) {
+  switch (source) {
+    case 'changelog': return 'CHANGELOG';
+    case 'git-tag': return 'git 태그';
+    case 'plan-cycle': return '최신 plan cycle';
+    case 'unknown': return '미상';
+    default:
+      if (typeof source === 'string' && source.indexOf('meta:') === 0) return source.slice(5);
+      return source || '미상';
+  }
+}
+
+function projectNameOf(m) {
+  const root = m && m.repo_root;
+  if (typeof root === 'string' && root && root !== '<repo>') {
+    const base = root.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+    if (base) return base;
+  }
+  return 'mccp';
+}
 
 function formatPlanLabel(basename) {
   if (!basename || typeof basename !== 'string') return '(unknown)';
@@ -19,6 +48,33 @@ function formatPlanLabel(basename) {
   return label.length > 30 ? label.slice(0, 29) + '…' : label;
 }
 
+// named-widget plain-text 동등본 — top-N 인라인 + 나머지 <details> 접힘(md).
+// 항목 텍스트는 renderProseMd(em-dash → comma) 경유로 H10 안전. headCount 는
+// 카운트 셀 값(미해결 위험처럼 finding 텍스트가 빈 행은 items 에서 빠지지만 count
+// 는 유지)을 우선 사용.
+function widgetMd(label, items, formatUtils, headCount) {
+  const list = Array.isArray(items) ? items : [];
+  const count = typeof headCount === 'number' ? headCount : list.length;
+  const head = label + ' (' + count + ')';
+  if (list.length === 0) return head + ': 없음';
+  const renderMd = (formatUtils && formatUtils.renderProseMd) || ((s) => String(s == null ? '' : s));
+  const shown = list.slice(0, TOP_N).map(renderMd).join(' · ');
+  let s = head + ': ' + shown;
+  const overflow = list.length - TOP_N;
+  if (overflow > 0) {
+    const rest = list.slice(TOP_N).map((t) => '- ' + renderMd(t)).join('\n');
+    s += '\n\n<details>\n<summary>+' + overflow + ' 더보기</summary>\n\n' + rest + '\n\n</details>';
+  }
+  return s;
+}
+
+function nextActionMd(na) {
+  if (!na || na.source === 'idle') return '다음: 대기';
+  if (na.executable && na.copyText) return '다음: `' + na.copyText + '`';
+  if (na.stale) return '다음: ' + (na.prose || '미정 (stale)');
+  return '다음: ' + (na.prose || '대기');
+}
+
 function renderStatusGrid(model, formatUtils, planBody, opts) {
   opts = opts || {};
   const { escapeHtml, escapeAttr } = formatUtils;
@@ -29,10 +85,11 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   const staleness = pb.planStaleness instanceof Map ? pb.planStaleness : new Map();
 
   const plansItems = (sources.plans && sources.plans.items) || [];
-  const inProgressCount = plansItems.filter(p => {
-    if (!p || !p.path) return false;
-    return planStatuses.get(path.basename(p.path)) === 'in-progress';
-  }).length;
+  // M2 — named items (카운트가 아닌 '무엇'). 진행중 = in-progress plan 라벨.
+  const inProgressItems = plansItems
+    .filter(p => p && p.path && planStatuses.get(path.basename(p.path)) === 'in-progress')
+    .map(p => formatPlanLabel(path.basename(p.path)));
+  const inProgressCount = inProgressItems.length;
 
   // v1.18.0 M2 (H1 fix) — blocked 카운트는 공유 SSoT deriveDecisionState 로 일원화.
   // 폐기된 `converged===false` per-receipt 휴리스틱은 첫 라운드 in-progress 를
@@ -41,10 +98,12 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   // pipeline·timeline 과 동일 판정 보장. (decision-state.js §8-16)
   const receiptItems = (sources.receipts && sources.receipts.items) || [];
   const stateMap = deriveDecisionState(receiptItems);
-  let blockedCount = 0;
-  for (const d of stateMap.values()) {
-    if (d.state === 'blocked') blockedCount += 1;
+  // M2 — 차단 = blocked decision_id 들이 곧 '무엇'(decision-state SSoT).
+  const blockedItems = [];
+  for (const [id, d] of stateMap.entries()) {
+    if (d.state === 'blocked') blockedItems.push(id);
   }
+  const blockedCount = blockedItems.length;
 
   let nextStep = '대기';
   let nextStale = false;
@@ -80,25 +139,47 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   }
 
   const backlogItems = (sources.backlog && sources.backlog.items) || [];
-  const risksOpen = backlogItems.filter(b => {
+  // count cell 값은 카운트 소스(HIGH/CRITICAL 행 수) 유지 — finding 텍스트가 빈 행도
+  // 집계(기존 의미 불변). named items 는 그 중 finding 텍스트 있는 것만(top-N 표시).
+  const highCritical = backlogItems.filter(b => {
     if (!b) return false;
     const s = (b.severity || '').toUpperCase();
     return s === 'HIGH' || s === 'CRITICAL';
-  }).length;
+  });
+  const risksOpen = highCritical.length;
+  const riskItems = highCritical.map(b => (b.finding || '').trim()).filter(Boolean);
 
   const cells = [
-    { key: 'in-progress', label: '진행 중', icon: '◐', value: String(inProgressCount), kind: 'count' },
-    { key: 'blocked', label: '차단', icon: '🚫', value: String(blockedCount), kind: 'count', accent: 'blocked' },
+    { key: 'in-progress', label: '진행 중', icon: '◐', value: String(inProgressCount), kind: 'count', items: inProgressItems },
+    { key: 'blocked', label: '차단', icon: '🚫', value: String(blockedCount), kind: 'count', accent: 'blocked', items: blockedItems },
     { key: 'next', label: '다음', icon: '→', value: nextStep, kind: 'next', stale: nextStale, intent: nextIntent },
-    { key: 'risks', label: '미해결 위험', icon: '⚠', value: String(risksOpen), kind: 'count' },
+    { key: 'risks', label: '미해결 위험', icon: '⚠', value: String(risksOpen), kind: 'count', items: riskItems },
   ];
 
-  const md = cells.map(c => {
-    if (c.kind === 'next') {
-      return c.icon + ' ' + c.label + ' ' + c.value;
-    }
-    return c.icon + ' ' + c.label + ' ' + c.value;
-  }).join(' · ');
+  // M2 — host-version snapshot 소비(파일 읽기 없음, F2) + STATE.md next-action 추출(F1).
+  const version = (m.host_version && typeof m.host_version === 'object')
+    ? m.host_version
+    : { version: null, source: 'unknown', latest_plan: null, degraded: false, error: null };
+  let nextAction;
+  try {
+    nextAction = resolveNextAction(stateItem, {
+      plans: plansItems, planStatuses, planStaleness: staleness,
+    });
+  } catch (_) {
+    nextAction = { command: null, args: '', prose: '대기', copyText: null, source: 'idle', executable: false, stale: false };
+  }
+
+  const summaryLine = cells.map(c => c.icon + ' ' + c.label + ' ' + c.value).join(' · ');
+  const projectName = projectNameOf(m);
+  const versionMd = version.version
+    ? '버전: ' + projectName + ' · v' + version.version + ' · ' + sourceLabel(version.source)
+    : '버전: ' + projectName + ' · 미상';
+  const widgetsMd = [
+    widgetMd('진행 중', inProgressItems, formatUtils),
+    widgetMd('차단', blockedItems, formatUtils),
+    widgetMd('미해결 위험', riskItems, formatUtils, risksOpen),
+  ].join('\n');
+  const md = [summaryLine, '', versionMd, '', widgetsMd, '', nextActionMd(nextAction)].join('\n');
 
   const htmlCells = cells.map(c => {
     let valueHtml;
@@ -120,7 +201,8 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   }).join('');
   const html = '<div class="status-grid">' + htmlCells + '</div>';
 
-  return { md, html, cells };
+  // md/html/cells 키 불변(기존 소비자 호환) + version/nextAction 추가(F1/F2 소비처).
+  return { md, html, cells, version, nextAction };
 }
 
 module.exports = { renderStatusGrid, formatPlanLabel };

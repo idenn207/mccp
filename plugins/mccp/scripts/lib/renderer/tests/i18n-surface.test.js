@@ -92,9 +92,10 @@ test('html — footer "v1.4.2 · …통합 derive" present', () => {
   assert.match(r.html, /통합 derive/);
 });
 
-test('markdown — ## 현황 anchor preserved (F3 absorption)', () => {
+test('markdown — ## 대시보드 anchor preserved (M2 rename, F3 absorption)', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
-  assert.match(r.md, /^## 현황$/m);
+  assert.match(r.md, /^## 대시보드$/m);
+  assert.doesNotMatch(r.md, /^## 현황$/m, '구 명칭 잔존 0');
 });
 
 test('markdown — Korean h2 labels present', () => {
@@ -119,7 +120,7 @@ test('markdown — title "mccp 상태"', () => {
   assert.match(r.md, /^# mccp 상태/m);
 });
 
-test('markdown — footer with v1.18.3 version', () => {
+test('markdown — footer with v1.18.4 version', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
-  assert.match(r.md, /v1\.18\.3/);
+  assert.match(r.md, /v1\.18\.4/);
 });

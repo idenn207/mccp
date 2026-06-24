@@ -33,13 +33,14 @@ function baseModel(overrides) {
 }
 
 function assertSixSectionInvariant(r) {
-  // Renderer markdown invariant: Verdict + 현황 + 타임라인 + 위험 always
+  // Renderer markdown invariant: Verdict + 대시보드 + 타임라인 + 위험 always
   // appear; 워커/미해결 질문 appear only when applicable. We assert
   // the always-present four plus the single # title.
   // v1.4.2-m1: title + section headings i18n to Korean.
+  // dashboard-truthfulness M2: 현황 → 대시보드 재명명.
   assert.match(r.md, /^# mccp 상태/m, 'title line present');
   assert.match(r.md, /## Verdict/, 'Verdict section');
-  assert.match(r.md, /## 현황/, '현황 section');
+  assert.match(r.md, /## 대시보드/, '대시보드 section');
   assert.match(r.md, /## 타임라인/, '타임라인 section');
   assert.match(r.md, /## 위험/, '위험 section');
   assert.equal(typeof r.verdict, 'object', 'verdict object returned');

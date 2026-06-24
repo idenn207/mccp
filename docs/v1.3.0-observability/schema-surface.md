@@ -286,3 +286,29 @@ Idempotency: an existing `<id>.json` is a no-op (same receipt re-shipped). The r
 ### 11.3 Known limitation — entry-commit wiring (M1 scope boundary)
 
 The epilogue *writes* the entry into the worktree's `.claude/state/completion-ledger/`, but the write fires from the `/mccp:pr` pr-codex receipt path, which runs AFTER `/mccp:prp-commit`. The freshly-written entry therefore lands **uncommitted** in the working tree (`gitRepoRoot` resolves to the worktree root via `git rev-parse --show-toplevel`, not the parent repo). No command/hook stages or commits the register, so under the §3.8 norm (single-milestone worktree, cleanup immediately after merge) the entry is destroyed by `git worktree remove` before it can become durable — the very post-merge scenario the register targets. The `milestone-history` headline regression test passes by injecting a ledger item directly into the derive model (it validates the read-side fallback ladder given a surviving entry), not by exercising end-to-end durability. **Closing this gap** (staging + committing the entry into the same PR flow, or moving the write to a committed gate) is a follow-up axis, not part of M1's data-layer primitive.
+
+## 12 — Host-version signal (dashboard-truthfulness M2)
+
+`model.host_version` is an **additive top-level field** stamped at derive time so the host-project version's provenance is baked into the snapshot and reproducible (Codex R1 F2 — the renderer consumes the snapshot only; it never reads host files at render time). `MODEL_VERSION` stays `v1` (additive optional; consumers tolerate absence with a null fallback).
+
+Shape:
+
+```jsonc
+"host_version": {
+  "version": "1.18.4",        // string|null — bare SemVer (no leading 'v'); null = honest unknown
+  "source": "changelog",      // 'meta:<file>' | 'changelog' | 'git-tag' | 'plan-cycle' | 'unknown'
+  "latest_plan": "v1-18-4-foo-m2.plan.md",  // string|null — newest plan basename (context)
+  "degraded": false,          // boolean — true if a rung threw (loud fail-open)
+  "error": null               // string|null — first failure message when degraded
+}
+```
+
+**Fallback ladder** (`derive/host-version.js#resolveHostVersion`, first hit wins, authoritative meta first — Codex R1 F3):
+
+1. host meta — `<root>/package.json` (`version`) → `pyproject.toml` / `Cargo.toml` (`version`) → `source='meta:<file>'`. The plugin manifest (`plugins/mccp/.claude-plugin/plugin.json`) is **never read** (PRD: plugin self-version stays invisible).
+2. `CHANGELOG.md` top SemVer heading (`^##\s*\[?v?(\d+\.\d+\.\d+...)`) → `source='changelog'` (corroborated fallback; `## [Unreleased]` is naturally skipped).
+3. `git describe --tags --abbrev=0` → `source='git-tag'`. **Spawn-gated**: `derive()` passes `allowGit:false` so this rung is skipped on the derive hot path (derive stays spawn-free under its perf budget). The rung is preserved for direct/injected callers (`allowGit` default true).
+4. latest plan cycle prefix (`v\d+-\d+-\d+` → `vX.Y.Z`) → `source='plan-cycle'` (framed as '최신 plan cycle', not a version claim).
+5. all miss → `{ version: null, source: 'unknown' }` (honest '미상').
+
+`source` is always surfaced so a meta ↔ CHANGELOG disagreement is verifiable (meta wins; the label exposes which signal was used). validateShape present-only enforces the object shape ([`derive/tests/schema-drift.test.js`](../../plugins/mccp/scripts/derive/tests/schema-drift.test.js)). Consumed by `renderer/sections/status-grid.js` (version line) — see [dashboard-surface.md §2](./dashboard-surface.md).

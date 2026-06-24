@@ -362,7 +362,7 @@ aside[role="alert"].s-secret {
 .severity-tag.s-low { color: var(--muted); font-weight: 600; }
 /* ── 미해결 질문 / 위험 (stack-list > li-item, M2 샘플 fidelity) ── */
 .stack-list { display: flex; flex-direction: column; gap: 0.9rem; margin: 0; padding: 0; list-style: none; }
-.li-item { display: flex; gap: 0.65rem; }
+.li-item { display: flex; gap: 0.65rem; align-items: flex-start; }
 .li-main { min-width: 0; flex: 1 1 auto; }
 .li-q { font-size: 0.875rem; font-weight: 450; color: var(--ink-2); line-height: 1.5; }
 .li-q code { font-family: var(--mono); font-size: 0.9em; color: var(--ink); }
@@ -393,9 +393,11 @@ aside[role="alert"].s-secret {
 .sev.s-high { color: var(--bad); background: var(--bad-dim); }
 .sev.s-med  { color: var(--warn); background: var(--warn-dim); }
 .sev.s-low  { color: var(--muted); background: transparent; border: 1px solid var(--border-2); }
-/* v1.18.7 M4 — 메인 복사 affordance(verbose .inline-prompt 대체). 우측 정렬·여백
-   quiet. icon-only(aria-label), 강조색 0(neutral .copy-btn 토큰 재사용, Constraint 2). */
-.li-action { display: flex; justify-content: flex-end; margin-top: 0.5rem; }
+/* v1.18.7 M4 — 메인 복사 affordance(verbose .inline-prompt 대체). li-item 직속 우측
+   child → 제목 줄 우상단 정렬(li-item align-items:flex-start, flex:none). 본문에서
+   떨어진 '한 블럭 밑' 제거 + 소속 명확. icon-only(aria-label), 강조색 0(neutral
+   .copy-btn 토큰 재사용, Constraint 2). */
+.li-action { flex: none; }
 .li-action .copy-btn { padding: 0.18rem 0.4rem; font-size: 0.7rem; }
 details.more { margin-top: 0.9rem; }
 details.more > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center;

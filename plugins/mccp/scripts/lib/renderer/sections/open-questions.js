@@ -92,6 +92,7 @@ function renderOpenQuestions(model, formatUtils, planBody) {
     // v1.18.7 M4 — 메인은 복사 버튼만(verbose <code>{전체 명령} 제거). 전체 명령
     // 텍스트는 드로어 detail.action + md renderDetailMd 의 '다음 액션' 행에 보존.
     // li-action = 복사 affordance 전용 경량 wrapper(verbose inline-prompt 대체).
+    // li-item 직속 우측 child(li-main 밖) → 제목 줄 우상단 정렬(소속 명확).
     // data-copy 는 escapeHtml 만 (escapeAttr URL-encode 회피).
     const promptHtml = '<div class="li-action">'
       + '<button class="copy-btn" type="button" data-copy="' + escapeHtml(ap.fullText)
@@ -109,7 +110,7 @@ function renderOpenQuestions(model, formatUtils, planBody) {
     );
     const { id } = addDetail(detailMap, rawId, detail);
     const html = '<li class="li-item" data-detail-id="' + escapeHtml(id) + '">' + sevTag
-      + '<div class="li-main">' + qHtml + cueHtml + promptHtml + '</div></li>';
+      + '<div class="li-main">' + qHtml + cueHtml + '</div>' + promptHtml + '</li>';
     // v1.18.2 M4 — STATUS.md 동등본. 항목 헤더(텍스트) + drawer-detail SSoT 인라인.
     // 출처/섹션/line/관련 결정/다음 액션은 모두 renderDetailMd 단일 경로(섹션 자체
     // 재구성 0). 헤더 텍스트는 detail.titleText(raw 평문, H10 normalize). 구분자 ·(H10).

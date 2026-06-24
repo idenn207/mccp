@@ -65,14 +65,15 @@ function renderRisks(model, formatUtils, planBody) {
     );
     const { id } = addDetail(detailMap, rawId, detail);
     // v1.18.7 M4 — 메인 복사 버튼(OQ 와 대칭). ap 는 이미 drawer action 용으로 빌드됨.
-    // li-action = 복사 affordance 전용(OQ 와 동일 markup·aria-label). md 무변경(drawer
-    // SSoT '다음 액션' 행이 이미 md 노출). data-copy 는 escapeHtml 만(escapeAttr 회피).
+    // li-action = 복사 affordance 전용(OQ 와 동일 markup·aria-label). li-item 직속 우측
+    // child(li-main 밖) → 제목 줄 우상단 정렬(소속 명확). md 무변경(drawer SSoT '다음
+    // 액션' 행이 이미 md 노출). data-copy 는 escapeHtml 만(escapeAttr 회피).
     const promptHtml = '<div class="li-action">'
       + '<button class="copy-btn" type="button" data-copy="' + escapeHtml(ap.fullText)
       + '" aria-label="다음 액션 복사"><svg class="i i-sm" aria-hidden="true"><use href="#ic-copy"/></svg></button>'
       + '</div>';
     const html = '<li class="li-item" data-detail-id="' + escapeHtml(id) + '">' + sevTag
-      + '<div class="li-main">' + qHtml + mitHtml + cueHtml + promptHtml + '</div></li>';
+      + '<div class="li-main">' + qHtml + mitHtml + cueHtml + '</div>' + promptHtml + '</li>';
     // v1.18.2 M4 — STATUS.md 동등본. 항목 헤더(위험 전문) + drawer-detail SSoT 인라인.
     // 영향/가능성/관련 결정/완화책/동일 질문 참조/다음 액션은 모두 renderDetailMd 단일
     // 경로(섹션 자체 재구성 0). 이전 md 가 누락하던 영향·가능성·관련 결정이 plain-text

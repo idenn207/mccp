@@ -89,9 +89,11 @@ function renderOpenQuestions(model, formatUtils, planBody) {
       if (cue.line) inner.push('<span class="cue-sec">' + escapeHtml(cue.line) + '</span>');
       cueHtml = '<div class="meta-cue">' + inner.join(' ') + '</div>';
     }
+    // v1.18.7 M4 — 메인은 복사 버튼만(verbose <code>{전체 명령} 제거). 전체 명령
+    // 텍스트는 드로어 detail.action + md renderDetailMd 의 '다음 액션' 행에 보존.
+    // li-action = 복사 affordance 전용 경량 wrapper(verbose inline-prompt 대체).
     // data-copy 는 escapeHtml 만 (escapeAttr URL-encode 회피).
-    const promptHtml = '<div class="inline-prompt">'
-      + '<code>' + escapeHtml(ap.fullText) + '</code>'
+    const promptHtml = '<div class="li-action">'
       + '<button class="copy-btn" type="button" data-copy="' + escapeHtml(ap.fullText)
       + '" aria-label="다음 액션 복사"><svg class="i i-sm" aria-hidden="true"><use href="#ic-copy"/></svg></button>'
       + '</div>';

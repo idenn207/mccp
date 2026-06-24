@@ -794,3 +794,38 @@ test('M3 — lifecycle 마커(◌/⊘)는 비-색 텍스트, 신규 강조색/�
   assert.match(out.html, /◌/);
   assert.match(out.html, /⊘/);
 });
+
+// v1.18.7 M4 (Task 6f) — 타임라인 더보기 + 위험/질문 복사 affordance(li-action)·
+// 각주(audit-notes) surface 가 design-lint clean(신규 H 위반 0, marker-free 입력).
+// 복사 버튼은 neutral .copy-btn 토큰 재사용(강조색 ≤1, Constraint 2), 더보기는 항목
+// 상한(Constraint 4) 충족, data-copy 는 marker-free.
+test('M4 — 타임라인 더보기 + 복사 affordance surface design-lint clean (신규 위반 0)', () => {
+  const formatUtils = require('../format-utils');
+  const { renderAuditTimeline } = require('../sections/audit-timeline');
+  const { renderRisks } = require('../sections/risks');
+  const { renderOpenQuestions } = require('../sections/open-questions');
+  const now = Date.UTC(2026, 5, 18);
+  const items = [];
+  for (let i = 0; i < 25; i++) { // 20 shown(8 expanded + 12 collapsed) + 5 older 각주
+    items.push({
+      gate_id: 'mccp-pr-codex', decision_id: 'clean-decision-' + i, converged: true, round: 1,
+      receipt_hash: 'sha256:h' + i, created_at: new Date(now - (i + 1) * 60_000).toISOString(),
+    });
+  }
+  const tl = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
+  const risk = renderRisks({ sources: {} }, formatUtils, {
+    risks: [{ risk: 'clean risk text', impact: 'High', likelihood: 'Medium', mitigation: 'clean mitigation' }],
+  });
+  const oq = renderOpenQuestions({ sources: {} }, formatUtils, {
+    openQuestions: [{ source: 'p.plan.md', text: 'clean question text', lineNumber: 5, headingPath: ['## Open Questions'] }],
+  });
+  const html = '<!doctype html><html><body>' + tl.html + risk.html + oq.html + '</body></html>';
+  const md = [tl.md, risk.md, oq.md].join('\n\n');
+  const r = runOutputConstraints({ css: BASELINE_CSS, html, md });
+  // marker-free 입력 → 어떤 H 규칙도 fire 안 함(li-action/audit-notes/details 무해).
+  assert.deepEqual(r.violations, [], 'M4 surface 위반 0: ' + JSON.stringify(r.violations));
+  // 더보기(Constraint 4) + 복사 affordance(li-action) + 각주 컨테이너 present.
+  assert.match(html, /<details class="more">/);
+  assert.match(html, /class="li-action"/);
+  assert.match(html, /<ul class="audit-notes">/);
+});

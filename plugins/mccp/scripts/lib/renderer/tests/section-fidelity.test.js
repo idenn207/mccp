@@ -34,10 +34,11 @@ function assertProseClean(html, label) {
 
 const PROSE = 'em — dash, `code span`, **bold**, MD013 lint, ``a `b` c`` nested, [link](http://x)';
 
-test('OQ — sample anatomy (stack-list/li-item/sev/li-q/meta-cue/inline-prompt)', () => {
+test('OQ — sample anatomy (stack-list/li-item/sev/li-q/meta-cue/li-action)', () => {
   const planBody = { openQuestions: [{ text: PROSE, source: 'p.plan.md', lineNumber: 9, headingPath: ['## Open Questions'], severity: 'HIGH' }] };
   const { html } = renderOpenQuestions({ sources: {} }, formatUtils, planBody);
-  for (const cls of ['stack-list', 'li-item', 'sev s-high', 'li-main', 'li-q', 'meta-cue', 'inline-prompt']) {
+  // v1.18.7 M4 — verbose inline-prompt → li-action(복사 affordance 전용).
+  for (const cls of ['stack-list', 'li-item', 'sev s-high', 'li-main', 'li-q', 'meta-cue', 'li-action']) {
     assert.ok(html.includes('class="' + cls.split(' ')[0]) || html.includes(cls), 'OQ missing ' + cls);
   }
   assertProseClean(html, 'OQ');

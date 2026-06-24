@@ -17,14 +17,21 @@ test('OQ 4-part HTML — severity tag + item text + meta-cue + action prompt + c
       headingPath: ['## Open Questions'],
     }],
   };
-  const { html } = renderOpenQuestions({ sources: {} }, formatUtils, planBody);
+  const { html, md } = renderOpenQuestions({ sources: {} }, formatUtils, planBody);
   assert.ok(html.includes('class="sev s-'), 'sev badge present');
   assert.ok(html.includes('class="li-q"'), 'question text present');
   assert.ok(html.includes('class="meta-cue"'), 'meta-cue present');
-  assert.ok(html.includes('class="inline-prompt"'), 'inline prompt present');
+  // v1.18.7 M4 — 메인 = 복사 버튼만(li-action). verbose inline-prompt(<code>{전체 명령}) 제거.
+  assert.ok(html.includes('class="li-action"'), 'li-action copy affordance present');
   assert.ok(html.includes('class="copy-btn"'), 'copy button present');
   assert.ok(html.includes('data-copy="'), 'data-copy attr present');
+  assert.ok(!html.includes('class="inline-prompt"'), 'verbose inline-prompt removed');
   assert.ok(html.includes('Open Questions') && html.includes('line 102'), 'meta-cue anchor');
+  // headline(Task 6b) — 전체 명령은 메인 <code> 미노출, STATUS.md md(드로어 SSoT)에 보존.
+  const cm = html.match(/data-copy="([^"]+)"/);
+  assert.ok(cm, 'data-copy present');
+  assert.ok(!html.includes('<code>' + cm[1] + '</code>'), '전체 명령 <code> 메인 미노출');
+  assert.ok(md.includes('다음 액션') || md.includes(cm[1]), '전체 명령 md 보존');
 });
 
 test('Risk 4-part HTML — sev tag + mitigation + dedupe cue + action prompt + copy button', () => {
@@ -42,6 +49,10 @@ test('Risk 4-part HTML — sev tag + mitigation + dedupe cue + action prompt + c
   assert.ok(html.includes('class="meta-cue mit"'), 'mitigation cue present');
   assert.ok(html.includes('완화:'), 'mitigation label');
   assert.ok(html.includes('동일 질문 참조: OQ-a 결정'));
+  // v1.18.7 M4 (Task 6c) — 위험 메인 복사 버튼(OQ 와 대칭). li-action + copy-btn + data-copy.
+  assert.ok(html.includes('class="li-action"'), 'risk li-action copy affordance present');
+  assert.ok(html.includes('class="copy-btn"'), 'risk copy button present');
+  assert.ok(html.includes('data-copy="'), 'risk data-copy attr present');
 });
 
 test('3 expanded + details collapse — OQ', () => {

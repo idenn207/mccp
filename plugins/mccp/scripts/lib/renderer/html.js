@@ -393,11 +393,10 @@ aside[role="alert"].s-secret {
 .sev.s-high { color: var(--bad); background: var(--bad-dim); }
 .sev.s-med  { color: var(--warn); background: var(--warn-dim); }
 .sev.s-low  { color: var(--muted); background: transparent; border: 1px solid var(--border-2); }
-.inline-prompt { display: inline-flex; align-items: center; gap: 0.4rem; margin-top: 0.55rem;
-  padding: 0.24rem 0.3rem 0.24rem 0.55rem;
-  background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; }
-.inline-prompt code { font-family: var(--mono); font-size: 0.76rem; color: var(--ink-2); }
-.inline-prompt .copy-btn { padding: 0.18rem 0.4rem; font-size: 0.7rem; }
+/* v1.18.7 M4 — 메인 복사 affordance(verbose .inline-prompt 대체). 우측 정렬·여백
+   quiet. icon-only(aria-label), 강조색 0(neutral .copy-btn 토큰 재사용, Constraint 2). */
+.li-action { display: flex; justify-content: flex-end; margin-top: 0.5rem; }
+.li-action .copy-btn { padding: 0.18rem 0.4rem; font-size: 0.7rem; }
 details.more { margin-top: 0.9rem; }
 details.more > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center;
   gap: 0.35rem; font-size: 0.78rem; color: var(--muted); user-select: none; }
@@ -446,8 +445,11 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .audit-body { padding-bottom: 1rem; min-width: 0; }
 .audit-row:last-child .audit-body { padding-bottom: 0; }
 .audit-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.1rem 0.5rem; }
-.audit-gate { font-family: var(--mono); font-size: 0.79rem; color: var(--ink); }
-.audit-dec { font-family: var(--mono); font-size: 0.76rem; color: var(--muted); }
+.audit-gate { font-family: var(--mono); font-size: 0.79rem; color: var(--ink); flex: none; }
+/* v1.18.7 M4 (진실성) — 전체 decision_id 를 CSS ellipsis 로 prefix 유지 truncate
+   (.pipe-id 동형). 단어 중간 깨짐 0, 전체는 title 툴팁 + 드로어 detail 에서 확인. */
+.audit-dec { font-family: var(--mono); font-size: 0.76rem; color: var(--muted);
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .audit-when { margin-left: auto; font-size: 0.73rem; color: var(--faint); white-space: nowrap; }
 .audit-meta { margin-top: 0.22rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.9rem;
   font-size: 0.75rem; color: var(--muted); }
@@ -458,6 +460,9 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .audit-row.from-snapshot .audit-body { color: var(--faint); }
 .audit-row.from-snapshot .audit-node { opacity: 0.7; }
 .audit-note { list-style: none; color: var(--faint); font-size: 0.74rem; padding: 0.2rem 0 0.2rem 0.7rem; }
+/* v1.18.7 M4 — 타임라인 각주 컨테이너(두 <ol> 밖 valid list, Codex R1 F1). .audit-note
+   muted 행 톤 재사용(노드 없음). */
+.audit-notes { margin: 0; padding: 0; list-style: none; }
 /* ── 마일스톤 기록 (milestone-item, ms-check/ms-text/ms-file/ms-when) ── */
 .milestone-history { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
 .milestone-item { display: flex; align-items: center; gap: 0.65rem; padding: 0.52rem 0.1rem; }
@@ -926,7 +931,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.6 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.7 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.

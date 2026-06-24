@@ -162,6 +162,25 @@ test('timeline 섹션 md — receipt hash 인라인(헤더 중복 행은 omit)',
   assert.ok(!md.includes('  - 결정:'), '결정 omit(헤더 중복)');
 });
 
+// v1.18.7 M4 (Task 6e) — 타임라인 더보기 html↔md 동등(접힘 행이 양쪽 모두에 surface).
+test('timeline 더보기 — html <details> ↔ md <details> 정보 동등(접힘 행 양쪽 보존)', () => {
+  const now = Date.UTC(2026, 5, 18);
+  const items = [];
+  for (let i = 0; i < 12; i++) { // 8 expanded + 4 collapsed
+    items.push({
+      gate_id: 'mccp-pr-codex', decision_id: 'tl-' + i, converged: true, round: 1,
+      receipt_hash: 'sha256:h' + i, created_at: new Date(now - (i + 1) * 60_000).toISOString(),
+    });
+  }
+  const { html, md } = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
+  // 양쪽 더보기 affordance.
+  assert.ok(html.includes('<details class="more">') && html.includes('+4 더보기'), 'html 더보기');
+  assert.ok(md.includes('<details>') && md.includes('+4 더보기'), 'md 더보기');
+  // 접힘 행(11번째, decision_id='tl-11')이 html·md 양쪽에 surface → 정보 손실 0.
+  assert.ok(html.includes('tl-11'), '접힘 행 html 보존');
+  assert.ok(md.includes('tl-11'), '접힘 행 md 보존');
+});
+
 test('milestone 섹션 md — 요약(plan Summary) plain-text 신규 노출', () => {
   const fakePrd = [
     '## Delivery Milestones', '',

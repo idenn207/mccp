@@ -73,7 +73,7 @@ test('Risk sev badge uses Korean aria-label + visible abbreviated text (M2)', ()
   assert.ok(html.includes('>CRIT<'), 'Risk visible sev text');
 });
 
-test('OQ inline-prompt copy-btn aria-label is Korean fixed string ("다음 액션 복사")', () => {
+test('OQ li-action copy-btn aria-label is Korean fixed string ("다음 액션 복사")', () => {
   const planBody = {
     openQuestions: [{
       text: 'item with very long text spelled out for emulation',
@@ -84,8 +84,17 @@ test('OQ inline-prompt copy-btn aria-label is Korean fixed string ("다음 액�
   };
   const { html } = renderOpenQuestions({ sources: {} }, formatUtils, planBody);
   assert.ok(html.includes('aria-label="다음 액션 복사"'), 'OQ copy-btn aria-label');
-  // M2 — risks no longer carry an inline copy button (sample fidelity: risks
-  // surface mitigation cue, not an action prompt).
+});
+
+// v1.18.7 M4 — 위험 메인도 복사 버튼을 가진다(OQ 와 대칭, 동일 고정 aria-label).
+// 이전 M2 주석("risks no longer carry an inline copy button")을 반전.
+test('Risk li-action copy-btn aria-label is Korean fixed string ("다음 액션 복사")', () => {
+  const planBody = {
+    risks: [{ risk: 'data corruption', impact: 'High', likelihood: 'Medium', mitigation: 'fsync' }],
+  };
+  const { html } = renderRisks({ sources: {} }, formatUtils, planBody);
+  assert.ok(html.includes('class="li-action"'), 'risk li-action present');
+  assert.ok(html.includes('aria-label="다음 액션 복사"'), 'risk copy-btn aria-label');
 });
 
 test('sidebar nav-rail exposes aria-label + page route links (redesign-3)', () => {

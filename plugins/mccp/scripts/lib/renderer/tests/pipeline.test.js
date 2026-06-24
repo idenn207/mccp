@@ -120,6 +120,37 @@ test('pipeline — non-canonical gates ignored', () => {
   assert.match(md, /게이트 활동 없음/);
 });
 
+// v1.18.7 M4 (진실성) — active stage 가 receipt 없는 frontier(missing)면 "대기",
+// in-progress receipt(active)면 "중". PR 미생성인데 "PR 검토 중" 거짓 표기 제거.
+test('pipeline — plan✓+impl✓+pr 없음 → "PR 대기" (PR 미생성, "PR 검토 중" 거짓 아님)', () => {
+  const m = model([
+    { ok: true, decision_id: 'd1', gate: 'mccp-plan-codex', converged: true, created_at: '2026-06-22T01:00:00Z' },
+    { ok: true, decision_id: 'd1', gate: 'mccp-implement-codex', converged: true, created_at: '2026-06-22T02:00:00Z' },
+  ]);
+  const { html } = renderPipeline(m, formatUtils, {});
+  assert.match(html, /pipe-status s-active/);
+  assert.match(html, /PR 대기/, 'pr 미생성 → PR 대기');
+  assert.doesNotMatch(html, /PR 검토 중/, 'PR 없는데 검토 중 거짓 표기 금지');
+});
+
+test('pipeline — impl in-progress(first-round receipt) → "구현 중" (실제 진행)', () => {
+  const m = model([
+    { ok: true, decision_id: 'd1', gate: 'mccp-plan-codex', converged: true, created_at: '2026-06-22T01:00:00Z' },
+    { ok: true, decision_id: 'd1', gate: 'mccp-implement-codex', converged: false, round: 1, created_at: '2026-06-22T02:00:00Z' },
+  ]);
+  const { html } = renderPipeline(m, formatUtils, {});
+  assert.match(html, /구현 중/, 'in-progress impl receipt → 구현 중');
+  assert.doesNotMatch(html, /구현 대기/);
+});
+
+test('pipeline — plan✓ only → "구현 대기" (impl 미시작)', () => {
+  const m = model([
+    { ok: true, decision_id: 'd1', gate: 'mccp-plan-codex', converged: true, created_at: '2026-06-22T01:00:00Z' },
+  ]);
+  const { html } = renderPipeline(m, formatUtils, {});
+  assert.match(html, /구현 대기/, 'impl receipt 없음 → 구현 대기');
+});
+
 test('decision-state — gateOf reads gate_id then gate', () => {
   assert.equal(gateOf({ gate_id: 'mccp-plan-codex' }), 'mccp-plan-codex');
   assert.equal(gateOf({ gate: 'mccp-pr-codex' }), 'mccp-pr-codex');

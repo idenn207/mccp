@@ -2,7 +2,30 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.7`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.18.7] — 2026-06-25
+
+dashboard-truthfulness M4 — 메인 표현 정리(타임라인 더보기 · 위험/질문 복사 대칭). 데이터는 M1~M3에서 이미 truthful — M4는 메인 흐름의 *표현* 비대칭/잡음 셋을 닫는다. (1) **타임라인 더보기** — `audit-timeline.js`가 상위 20행만 렌더하고 나머지는 `+N older` muted 각주로만 노출(접근 불가)이던 것을, risks/OQ의 `top-N + <details class="more">+N 더보기` 패턴을 타임라인에 적용 — 상위 `TIMELINE_EXPANDED`(8) expanded `<ol>` + 나머지(cap 내)를 접힘으로 *접근 가능*하게. Codex R1 F1 흡수: `isLast`는 전체 capped 시퀀스 기준 단일 계산(글로벌 마지막 행만 connector 생략, 마지막 expanded 행은 collapsed 남으면 connector 유지) + 각주(archived/older/mask/gap/was_stale)를 두 `<ol>` 밖 별도 `<ul class="audit-notes">` valid-list 컨테이너로 이동. detailMap은 접힘 무관 모든 렌더 행 적재(H18 trigger==detail). (2) **OQ 메인 = 복사 버튼만** — `open-questions.js`의 verbose `inline-prompt`(`<code>{전체 명령}` + 버튼)를 경량 `li-action`(복사 버튼만)으로 교체. 전체 명령 텍스트는 드로어 `detail.action` + STATUS.md `renderDetailMd`에 불변 보존. (3) **위험 메인 복사 버튼 추가** — `risks.js`가 이미 빌드한 `ap`(drawer action용)를 메인 `li-action` 복사 버튼으로도 노출 → 위험/질문 메인 affordance 대칭(severity → 본문 → meta-cue → 복사 버튼). 복사 버튼 클릭이 드로어를 열지 않는 것은 기존 `.copy-btn` 제외 가드(`html.js` DRAWER_SCRIPT)가 이미 커버 — 신규 코드 0, 테스트로 고정. 신규 시각 시스템·신규 색 토큰 0(콘솔 셸 계약 PR #57~#63 불변), 복사 인프라(`data-copy`/`#ic-copy`/`COPY_SCRIPT`/드로어 가드) 전부 재사용. impeccable critique CONVERGED(4 Output Constraints 충족 — 복사 버튼 neutral `.copy-btn` 토큰 재사용·강조색 0, 더보기가 Constraint 4 직접 충족). plugin.json `1.18.6 → 1.18.7` patch bump(Codex R1 F2 — PRD 미완 상태 minor 시기상조; PRD 완전 종료 시 minor 정리는 별도 hot-fix) + 양 footer. PRD M3 row stale-status 정리(in-progress → complete, #63 ship 반영). 565 test PASS(renderer 460 + derive 87 + stale-audit 18), 0 회귀. H16 advisory는 truncated `relatedOpenQuestion` cue의 기존 cross-section 부채(base 동일, M4 신규 마커 0). **시각-검토 후속 진실성 2건**(사용자 피드백 2026-06-25): (a) 게이트 파이프라인이 PR 미생성(pr 노드 receipt 없음)인데도 "PR 검토 중"을 표기하던 거짓 신호를, active stage 의 node status 가 `missing`(미시작)이면 "PR 대기"/"구현 대기", `active`(in-progress receipt)면 "PR 검토 중"/"구현 중"으로 구분(`pipeline.js#statusOf`). (b) 타임라인 decision_id 가 `tail(…,24)`로 공유 prefix 를 잘라 "lness-m4-…"처럼 단어 중간이 깨지던 것을 full id + `title` 툴팁 + CSS ellipsis(prefix 유지, `.pipe-id` 동형)로 정정(`audit-timeline.js` + `.audit-dec`).
+
+### Changed
+
+- **`scripts/lib/renderer/sections/audit-timeline.js`** — `TIMELINE_EXPANDED=8` 더보기 분할(상위 N expanded `<ol>` + 나머지 `<details class="more">+N 더보기` 접힘). 각주를 `<ul class="audit-notes">` 별도 컨테이너로 이동(Codex R1 F1). `renderRow`가 target 배열(expanded|collapsed)로 push, isLast/ordinal 글로벌 시퀀스 기준. `TIMELINE_EXPANDED` export. (시각-검토) decision_id full 표시 + `title`(tail 중간잘림 제거).
+- **`scripts/lib/renderer/sections/pipeline.js`** — (시각-검토) `statusOf` 가 active stage node status 로 대기(missing)/진행(active) 구분 — "PR 검토 중" 거짓 신호 제거.
+- **`scripts/lib/renderer/sections/open-questions.js`** — 메인 `inline-prompt`(`<code>` + 버튼) → `li-action`(복사 버튼만). 전체 명령은 드로어/STATUS.md에 불변 보존.
+- **`scripts/lib/renderer/sections/risks.js`** — 메인 `li-action` 복사 버튼 추가(OQ와 동일 markup·aria-label, `ap.fullText` 재사용).
+- **`scripts/lib/renderer/html.js`** — `.inline-prompt` CSS → `.li-action`(우측 정렬·neutral, `.copy-btn` 토큰 재사용). `.audit-notes` 컨테이너 CSS(muted 톤). footer v1.18.7.
+- **`scripts/lib/renderer/markdown.js`** — footer v1.18.7.
+- **`docs/v1.3.0-observability/dashboard-surface.md`** — 타임라인 더보기 + 위험/질문 복사 대칭 surface 문서화.
+- **`.claude/prds/dashboard-truthfulness.prd.md`** — M3 row in-progress → complete(stale-status 정리, Codex R1 F2).
+
+### Tests
+
+- `audit-timeline-snapshot.test.js` — 더보기(top-N + `<details>`) + boundary connector(글로벌 마지막만 connector 생략) + 각주 순서(collapsed 뒤 `<ul class="audit-notes">`) + cap 초과 `+N older` 공존 + detailMap 전 행 적재.
+- `four-part-rendering.test.js` / `a11y-aria-labels.test.js` / `section-fidelity.test.js` — OQ 메인=복사 버튼만(`<code>` 미노출) + 위험 메인 복사 버튼(대칭, 고정 aria-label) + anatomy `inline-prompt → li-action`.
+- `drawer.test.js` — 복사 버튼 클릭 ≠ 드로어 open 가드(markup-level, 신규 코드 0).
+- `markdown-equivalence.test.js` — 타임라인 더보기 html↔md 정보 동등(접힘 행 양쪽 보존).
+- `output-constraints.test.js` — M4 surface(더보기·li-action·audit-notes) design-lint clean(신규 위반 0).
 
 ## [1.18.6] — 2026-06-25
 

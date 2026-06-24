@@ -21,6 +21,11 @@ const NODE_MARK = {
 const NODE_MD = { done: '✓', active: '◐', blocked: '⚠', missing: '○' };
 
 // decision state + active stage → pipe-status(텍스트 + 색 클래스 + 마커).
+// v1.18.7 M4 (진실성) — active stage 가 receipt 가 있어 *진행 중*(node status
+// 'active')인지, receipt 가 없어 *아직 안 시작*(node status 'missing')인지 구분.
+// 후자에서 "PR 검토 중"은 PR 이 없는데 검토 중이라 거짓 → "PR 대기"로 정직 표기.
+const STAGE_IN_PROGRESS = { plan: '계획 중', impl: '구현 중', pr: 'PR 검토 중' };
+const STAGE_PENDING = { plan: '계획 대기', impl: '구현 대기', pr: 'PR 대기' };
 function statusOf(d) {
   if (d.state === 'done') {
     return { cls: 's-ok', text: 'complete', svg: 'ic-check' };
@@ -28,8 +33,10 @@ function statusOf(d) {
   if (d.state === 'blocked') {
     return { cls: 's-block', text: '차단', svg: 'ic-alert' };
   }
-  const stageText = { plan: '계획 중', impl: '구현 중', pr: 'PR 검토 중' };
-  return { cls: 's-active', text: stageText[d.activeStage] || '진행 중', dot: true };
+  const activeNode = (d.nodes || []).find((n) => n.short === d.activeStage);
+  const started = activeNode && activeNode.status === 'active'; // in-progress receipt 존재
+  const map = started ? STAGE_IN_PROGRESS : STAGE_PENDING;
+  return { cls: 's-active', text: map[d.activeStage] || (started ? '진행 중' : '대기'), dot: true };
 }
 
 const STATE_RANK = { blocked: 0, active: 1, done: 2 };

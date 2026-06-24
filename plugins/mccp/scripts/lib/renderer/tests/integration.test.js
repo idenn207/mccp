@@ -93,6 +93,10 @@ test('integration — synthesized model with all section types', () => {
   assert.match(r.md, /## 위험/);
   assert.match(r.md, /1 worker\(s\) alive/);
   assert.match(r.md, /plan looks fine/);
+  // v1.18.2 M4 — STATUS.md 동등본: 섹션 md 가 drawer-detail 중첩 행을 인라인으로 담음.
+  assert.match(r.md, /\n {2}- 영향: High/, 'risk 영향 detail 행 인라인');
+  assert.match(r.md, /\n {2}- 완화책: mm/, 'risk 완화책 detail 행 인라인');
+  assert.match(r.md, /\n {2}- 출처: `a\.plan\.md`/, 'OQ 출처 detail 행 인라인');
 
   assert.match(r.html, /<!doctype html>/);
   assert.match(r.html, /<\/html>$/);

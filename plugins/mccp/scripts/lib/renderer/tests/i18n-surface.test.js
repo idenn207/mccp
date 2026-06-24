@@ -119,7 +119,7 @@ test('markdown — title "mccp 상태"', () => {
   assert.match(r.md, /^# mccp 상태/m);
 });
 
-test('markdown — footer with v1.18.1 version', () => {
+test('markdown — footer with v1.18.2 version', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
-  assert.match(r.md, /v1\.18\.1/);
+  assert.match(r.md, /v1\.18\.2/);
 });

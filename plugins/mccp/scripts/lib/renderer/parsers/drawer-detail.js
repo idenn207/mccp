@@ -79,8 +79,15 @@ function addDetail(map, rawId, detail) {
 }
 
 // ── 4종 detail 빌더 ─────────────────────────────────────────────────────────
-// 반환 shape: { title(HTML), tags:[{label,tone}], rows:[[dt,dd,mono?]],
-//              sections:[[h3, proseHtml]], action? } — 부재 필드는 생략(degrade).
+// 반환 shape: { title(HTML), titleText(raw 평문), tags:[{label,tone}],
+//              rows:[[dt,dd,mono?]], sections:[[h3, proseHtml, proseText]],
+//              action? } — 부재 필드는 생략(degrade).
+//
+// v1.18.2 M4 (Codex F1 흡수) — 모든 markdown-렌더 prose 필드는 raw 평문도 함께
+// stamp. `title`(renderProseHtml, HTML 드로어 innerHTML sink)와 짝으로 `titleText`
+// (normalizeProse 원본 평문, STATUS.md md 경로), sections 는 `[h3, proseHtml,
+// proseText]` triple. md 경로(renderDetailMd)는 proseHtml 을 절대 strip 하지 않고
+// proseText 를 직접 소비 → mitigation/briefing/요약 손상·유실 0, strip 정규식 0.
 
 function buildOQDetail(q, formatUtils) {
   const { renderProseHtml, normalizeProse } = formatUtils;
@@ -90,10 +97,15 @@ function buildOQDetail(q, formatUtils) {
   if (file) rows.push(['출처', normalizeProse(file), true]);
   const head = (q.headingPath && q.headingPath[0]) || '## Open Questions';
   rows.push(['섹션', normalizeProse(head.replace(/^#+\s+/, ''))]);
+  // v1.18.2 M4 (Codex F2 흡수) — lineNumber 는 기존 섹션 md(meta-cue)의 section-only
+  // 행이었다. detail SSoT 에 line 행으로 흡수해, md 일원화 시 plain-text 소비자에서
+  // 사라지지 않게 한다. drawer 에도 함께 노출(정보 동등).
+  if (q.lineNumber != null) rows.push(['line', 'line ' + q.lineNumber]);
   const dec = decisionFromSource(q.source);
   if (dec) rows.push(['관련 결정', dec, true]);
   const detail = {
     title: renderProseHtml(q.text, formatUtils),
+    titleText: normalizeProse(q.text),
     tags: [{ label: sev, tone: sevTone(sev) }],
     rows,
   };
@@ -109,14 +121,21 @@ function buildRiskDetail(r, formatUtils) {
   if (dec) rows.push(['관련 결정', dec, true]);
   if (r.impact) rows.push(['영향', normalizeProse(r.impact)]);
   if (r.likelihood) rows.push(['가능성', normalizeProse(r.likelihood)]);
+  // v1.18.2 M4 (Codex F2 흡수) — relatedOpenQuestion 은 risks.js 섹션 md 의 section-
+  // only 행(`buildRiskDetail` detail 에 부재했다). detail SSoT 에 raw 보존 행으로
+  // 추가 → md 일원화 시 동일-질문 참조가 유실되지 않고 drawer 에도 동일 노출.
+  if (r.relatedOpenQuestion) {
+    rows.push(['동일 질문 참조', normalizeProse(r.relatedOpenQuestion)]);
+  }
   const detail = {
     title: renderProseHtml(r.risk, formatUtils),
+    titleText: normalizeProse(r.risk),
     tags: [{ label: sev, tone: sevTone(sev) }],
     rows,
   };
   // 완화책 = REQUIRED(plan Risks 표 Mitigation 컬럼 schema 보장). 부재 시 생략.
   if (r.mitigation) {
-    detail.sections = [['완화책', renderProseHtml(r.mitigation, formatUtils)]];
+    detail.sections = [['완화책', renderProseHtml(r.mitigation, formatUtils), normalizeProse(r.mitigation)]];
   }
   if (r.actionPrompt) detail.action = normalizeProse(r.actionPrompt);
   return detail;
@@ -138,11 +157,12 @@ function buildReceiptDetail(rc, formatUtils) {
     // title 은 식별자 조합(markdown 없음). drawer JS 가 innerHTML 로 주입하므로
     // escapeHtml 로 안전 HTML 화(gate 명에 메타문자 부재해도 defense-in-depth).
     title: esc(normalizeProse(gate)) + ' 게이트 ' + esc(normalizeProse(conv)),
+    titleText: normalizeProse(gate) + ' 게이트 ' + normalizeProse(conv),
     tags: [{ label: conv, tone: rc.tone || (rc.isBad ? 'high' : 'low') }],
     rows,
   };
   if (rc.briefingSummary) {
-    detail.sections = [['요약', renderProseHtml(rc.briefingSummary, formatUtils)]];
+    detail.sections = [['요약', renderProseHtml(rc.briefingSummary, formatUtils), normalizeProse(rc.briefingSummary)]];
   }
   return detail;
 }
@@ -155,14 +175,65 @@ function buildMilestoneDetail(e, planSummary, formatUtils) {
   if (e.prNumber) rows.push(['PR', normalizeProse(String(e.prNumber))]);
   const detail = {
     title: renderProseHtml(e.name, formatUtils),
+    titleText: normalizeProse(e.name),
     tags: [{ label: '완료', tone: 'low' }],
     rows,
   };
   // 요약 = plan `## Summary` read-side(OPTIONAL — plan unreadable 시 생략).
   if (planSummary) {
-    detail.sections = [['요약', renderProseHtml(planSummary, formatUtils)]];
+    detail.sections = [['요약', renderProseHtml(planSummary, formatUtils), normalizeProse(planSummary)]];
   }
   return detail;
+}
+
+// ── detail → plain-text markdown (SSoT 단일 경로, v1.18.2 M4) ──────────────────
+// detail 객체(드로어 SSoT)를 2-space 중첩 markdown bullet 블록으로 렌더. 섹션 md 가
+// 항목 헤더 바로 아래에 이 결과를 붙여 HTML 드로어와 정보 동등한 STATUS.md 를 만든다.
+//   - rows[[dt,dd,mono?]] → `  - {dt}: {dd}` (mono 면 backtick code span)
+//   - sections[[h3, proseHtml, proseText]] → `  - {h3}: {proseMd}` — proseText(raw)
+//     만 사용, proseHtml strip 정규식 0 (Codex F1). proseText 부재 섹션은 prose 생략.
+//   - action → `  - 다음 액션: \`{action}\``
+// opts.omit: Set<string> — 항목 헤더가 이미 동일 값으로 표기한 dt/h3 라벨(시각/결정
+//   /판정 등)을 생략(field-key + value 동등 — 헤더 변수와 같은 소스라 by construction
+//   값 일치, Codex F2). opts.omitSections: true 면 sections 전체 생략(예: timeline 의
+//   요약은 `> blockquote` 로 이미 노출). opts.indent: 기본 2-space.
+function renderDetailMd(detail, formatUtils, opts) {
+  if (!detail || typeof detail !== 'object') return '';
+  const o = opts || {};
+  const indent = typeof o.indent === 'string' ? o.indent : '  ';
+  const omit = o.omit instanceof Set ? o.omit : new Set(Array.isArray(o.omit) ? o.omit : []);
+  const renderProseMd = (formatUtils && formatUtils.renderProseMd) || ((s) => String(s == null ? '' : s));
+  const lines = [];
+
+  const rows = Array.isArray(detail.rows) ? detail.rows : [];
+  for (const row of rows) {
+    if (!Array.isArray(row) || row.length < 2) continue;
+    const dt = String(row[0]);
+    if (omit.has(dt)) continue;
+    const mono = row[2] === true;
+    const ddRaw = String(row[1] == null ? '' : row[1]);
+    const dd = mono ? '`' + ddRaw + '`' : renderProseMd(ddRaw);
+    lines.push(indent + '- ' + dt + ': ' + dd);
+  }
+
+  if (o.omitSections !== true) {
+    const sections = Array.isArray(detail.sections) ? detail.sections : [];
+    for (const sec of sections) {
+      if (!Array.isArray(sec) || sec.length < 2) continue;
+      const h3 = String(sec[0]);
+      if (omit.has(h3)) continue;
+      // proseText(index 2)만 — proseHtml(index 1) 은 md 에서 절대 안 씀(strip 0).
+      if (sec.length >= 3 && sec[2] != null) {
+        lines.push(indent + '- ' + h3 + ': ' + renderProseMd(String(sec[2])));
+      }
+    }
+  }
+
+  if (detail.action && !omit.has('다음 액션')) {
+    lines.push(indent + '- 다음 액션: `' + detail.action + '`');
+  }
+
+  return lines.join('\n');
 }
 
 // ── serialize ───────────────────────────────────────────────────────────────
@@ -171,9 +242,28 @@ function buildMilestoneDetail(e, planSummary, formatUtils) {
 // script-tag 안전을 위해 JSON 이 escape 하지 않는 <>& 와 LS/PS 만 valid \uXXXX 로
 // 치환(JSON.parse 가 < 를 복원하므로 proseHtml 의 <code>/<strong> 태그도 정상 복원).
 // content 무관 `</script>` break-out 0 (Codex R1 F3).
+// v1.18.2 M4 — drawer-data(HTML <script>) 는 title/proseHtml 만 소비한다(드로어 JS 가
+// sections[i][1] 을 innerHTML, rows 를 textContent 로 주입). md-only raw 필드
+// (`titleText`, sections triple 의 `proseText` index 2)는 STATUS.md md 경로 전용이라
+// 직렬화에서 제외 — JSON 군살 제거 + raw markdown 마커(backtick 등)가 HTML 표면(JSON
+// 블록)으로 새지 않게 한다. md 경로는 in-memory detail(proseText 보유)을 직접 쓴다.
+function stripMdOnly(detail) {
+  if (!detail || typeof detail !== 'object') return detail;
+  const out = {};
+  for (const key of Object.keys(detail)) {
+    if (key === 'titleText') continue;
+    if (key === 'sections' && Array.isArray(detail.sections)) {
+      out.sections = detail.sections.map((s) => (Array.isArray(s) ? s.slice(0, 2) : s));
+      continue;
+    }
+    out[key] = detail[key];
+  }
+  return out;
+}
+
 function serializeDetails(map) {
   const obj = {};
-  for (const [k, v] of map) obj[k] = v;
+  for (const [k, v] of map) obj[k] = stripMdOnly(v);
   return JSON.stringify(obj)
     .replace(/</g, '\\u003c')
     .replace(/>/g, '\\u003e')
@@ -191,5 +281,6 @@ module.exports = {
   buildRiskDetail,
   buildReceiptDetail,
   buildMilestoneDetail,
+  renderDetailMd,
   serializeDetails,
 };

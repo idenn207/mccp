@@ -79,6 +79,21 @@ test('markdown 4-part sub-list — severity + meta-cue + action prompt', () => {
   assert.ok(md.includes('- 다음 액션: `/mccp:plan'));
 });
 
+test('markdown — risk detail 인라인(영향/가능성/완화책/관련 질문) — M4 동등본', () => {
+  const planBody = {
+    risks: [{
+      risk: 'data corruption', impact: 'High', likelihood: 'Medium', mitigation: 'fsync',
+      relatedOpenQuestion: 'OQ-a 결정', source: 'p.plan.md',
+    }],
+  };
+  const { md } = renderRisks({ sources: {} }, formatUtils, planBody);
+  assert.ok(md.includes('· data corruption'), '위험 전문 헤더');
+  assert.ok(md.includes('\n  - 영향: High'), 'M4: 영향 행 plain-text 노출');
+  assert.ok(md.includes('\n  - 가능성: Medium'), 'M4: 가능성 행 plain-text 노출');
+  assert.ok(md.includes('\n  - 완화책: fsync'), '완화책 detail 행');
+  assert.ok(md.includes('\n  - 동일 질문 참조: OQ-a 결정'), 'section-only relatedOpenQuestion 생존');
+});
+
 test('milestone-history — PRD complete row + receipt cross-ref', () => {
   const fakePrd = [
     '# PRD',

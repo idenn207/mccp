@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { nodeStatus } = require('../parsers/decision-state');
-const { detailId, addDetail, buildReceiptDetail } = require('../parsers/drawer-detail');
+const { detailId, addDetail, buildReceiptDetail, renderDetailMd } = require('../parsers/drawer-detail');
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -189,6 +189,15 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
     }, formatUtils);
     const rawId = detailId('receipt', { rowKey: rowKey(r), ordinal });
     const { id } = addDetail(detailMap, rawId, detail);
+
+    // v1.18.2 M4 — STATUS.md 동등본. 헤더 줄(시각·gate/결정·판정+round)과 briefing
+    // blockquote 가 이미 표기한 행은 omit(field-key + value 동등, Codex F2) + 요약은
+    // blockquote 로 노출되므로 omitSections. md-누락 행(receipt hash)만 인라인 append.
+    const detailMd = renderDetailMd(detail, formatUtils, {
+      omit: new Set(['시각', '결정', '판정', 'round', 'briefing']),
+      omitSections: true,
+    });
+    if (detailMd) mdLines.push(detailMd);
 
     const railLine = isLast ? '' : '<span class="audit-line" aria-hidden="true"></span>';
     const rowClass = isArchived ? 'audit-row from-snapshot' : 'audit-row';

@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { parseDeliveryMilestonesComplete, resolvePrdRef, extractPlanSummary } = require('../parsers/plan-body');
-const { detailId, addDetail, buildMilestoneDetail } = require('../parsers/drawer-detail');
+const { detailId, addDetail, buildMilestoneDetail, renderDetailMd } = require('../parsers/drawer-detail');
 
 const MAX_EXPANDED = 5;
 
@@ -195,8 +195,16 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
       + '<span class="ms-text">' + renderProseHtml(e.name, formatUtils) + fileHtml + '</span>'
       + whenHtml
       + '</li>';
-    const md = '- ' + (formatUtils.renderProseMd ? formatUtils.renderProseMd(e.name) : e.name) + ' · ' + rel
-      + (e.planBasename ? ' (' + e.planBasename + ')' : '');
+    // v1.18.2 M4 — STATUS.md 동등본. 헤더(이름·ship·plan)는 그대로 두고, drawer-detail
+    // SSoT 의 md-누락 행(요약 = plan ## Summary)을 인라인 append. plan/ship 은 헤더가
+    // 이미 동일 값으로 표기 → omit(field-key + value 동등, Codex F2). 요약은 plain-text
+    // 소비자에게 새로 노출(drawer 와 정보 동등).
+    const titleText = detail.titleText
+      || (formatUtils.renderProseMd ? formatUtils.renderProseMd(e.name) : e.name);
+    const detailMd = renderDetailMd(detail, formatUtils, { omit: new Set(['plan', 'ship']) });
+    const md = '- ' + titleText + ' · ' + rel
+      + (e.planBasename ? ' (' + e.planBasename + ')' : '')
+      + (detailMd ? '\n' + detailMd : '');
     return { html, md };
   }
 

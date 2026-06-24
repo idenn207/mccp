@@ -2,7 +2,7 @@
 
 const { buildActionPrompt, maxRank } = require('../parsers/action-prompt');
 const { severityMeta, sevBadgeHtml } = require('../parsers/severity-meta');
-const { detailId, addDetail, buildRiskDetail } = require('../parsers/drawer-detail');
+const { detailId, addDetail, buildRiskDetail, renderDetailMd } = require('../parsers/drawer-detail');
 
 const MAX_EXPANDED = 3;
 const RANK_MAP = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, '': 0 };
@@ -56,12 +56,14 @@ function renderRisks(model, formatUtils, planBody) {
     const { id } = addDetail(detailMap, rawId, detail);
     const html = '<li class="li-item" data-detail-id="' + escapeHtml(id) + '">' + sevTag
       + '<div class="li-main">' + qHtml + mitHtml + cueHtml + '</div></li>';
-    const textMd = renderProseMd(text);
-    const mitMd = r.mitigation ? '\n  - 완화: ' + renderProseMd(r.mitigation) : '';
-    const cueMd = r.relatedOpenQuestion ? '\n  - 동일 질문 참조: ' + r.relatedOpenQuestion + '…' : '';
-    const md = '- ' + icon + ' **' + sev + '** · ' + textMd
-      + mitMd + cueMd
-      + '\n  - 다음 액션: `' + ap.fullText + '`';
+    // v1.18.2 M4 — STATUS.md 동등본. 항목 헤더(위험 전문) + drawer-detail SSoT 인라인.
+    // 영향/가능성/관련 결정/완화책/동일 질문 참조/다음 액션은 모두 renderDetailMd 단일
+    // 경로(섹션 자체 재구성 0). 이전 md 가 누락하던 영향·가능성·관련 결정이 plain-text
+    // 로 새로 노출. relatedOpenQuestion 은 buildRiskDetail SSoT 행으로 보존(Codex F2).
+    const titleText = detail.titleText || renderProseMd(text);
+    const detailMd = renderDetailMd(detail, formatUtils);
+    const md = '- ' + icon + ' **' + sev + '** · ' + titleText
+      + (detailMd ? '\n' + detailMd : '');
     return { html, md };
   }
 

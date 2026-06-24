@@ -61,7 +61,7 @@
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | guard hook PID liveness check + reclaim path | dead PID 감지 → reclaim path 1개 (자동 또는 안내) 작동, alive PID 회귀 0 | in-progress | `.claude/plans/v1-0-1-axis-k-pr-phase-guard-pid-alive.plan.md` |
+| 1 | guard hook PID liveness check + reclaim path | dead PID 감지 → reclaim path 1개 (자동 또는 안내) 작동, alive PID 회귀 0 | complete | `.claude/plans/v1-0-1-axis-k-pr-phase-guard-pid-alive.plan.md` |<!--mccp:resolved reason="v1-0-1-axis-k-pr-phase-guard-pid-alive plan 이 completed/ 아카이브 + PR ship 완료" at="2026-06-24T16:29:04.758Z"-->
 | 2 | Linux/macOS reproduction + W11 rubric 재측정 | W4 4d row가 Type E/NS=5 → ≤C/≤2 회복, Windows PowerShell 회귀 0, F11 schema 무손상 | in-progress | `.claude/plans/v1-0-1-axis-k-m2-cross-platform-verification.plan.md` |
 
 ## Open Questions

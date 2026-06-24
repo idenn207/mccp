@@ -3,6 +3,8 @@
 const { buildActionPrompt, maxRank } = require('../parsers/action-prompt');
 const { severityMeta, sevBadgeHtml } = require('../parsers/severity-meta');
 const { detailId, addDetail, buildRiskDetail, renderDetailMd } = require('../parsers/drawer-detail');
+const { stripMarker } = require('../parsers/resolution-marker');
+const { buildTabs } = require('../parsers/tabs');
 
 const MAX_EXPANDED = 3;
 const RANK_MAP = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, '': 0 };
@@ -16,25 +18,31 @@ function renderRisks(model, formatUtils, planBody) {
   const pb = planBody || {};
   const allRisks = Array.isArray(pb.risks) ? pb.risks.slice() : [];
 
-  if (allRisks.length === 0) {
+  // M3 — 해결 마커 단 위험은 active 에서 분리. resolved 신호는 마커뿐(Codex F1).
+  const bySev = (a, b) => (RANK_MAP[sevOf(b)] || 0) - (RANK_MAP[sevOf(a)] || 0);
+  const active = allRisks.filter((r) => !r.resolved).sort(bySev);
+  const resolved = allRisks.filter((r) => r.resolved).sort(bySev);
+
+  if (active.length === 0 && resolved.length === 0) {
     return {
-      md: '_미해결 위험 없음_',
-      html: '<p class="muted"><em>미해결 위험 없음</em></p>',
+      md: '_발견된 위험이 없습니다._',
+      html: '<p class="muted"><em>발견된 위험이 없습니다.</em></p>',
     };
   }
 
-  allRisks.sort((a, b) => (RANK_MAP[sevOf(b)] || 0) - (RANK_MAP[sevOf(a)] || 0));
-  const expanded = allRisks.slice(0, MAX_EXPANDED);
-  const collapsed = allRisks.slice(MAX_EXPANDED);
+  const expanded = active.slice(0, MAX_EXPANDED);
+  const collapsed = active.slice(MAX_EXPANDED);
 
   // v1.18.1 M3 — 드로어 detail 누적(안정 키 = plan ordinal, 정렬과 무관한 parse-time
   // 순서). 충돌 hard-fail은 drawer-detail. 빌드 실패는 항목만 skip(fail-open).
+  // active + resolved 항목 모두 renderItem 경유 → detail 키 == trigger 수(H18).
   const detailMap = new Map();
 
   function renderItem(r) {
     const sev = sevOf(r) || 'MEDIUM';
     const icon = severityMeta(sev).icon;
-    const text = r.risk || '';
+    // M3 (Constraint 3) — 마커는 parser 가 이미 제거했으나 누출 방어로 stripMarker.
+    const text = stripMarker(r.risk || '');
     const sevTag = sevBadgeHtml(sev);
     const qHtml = '<div class="li-q">' + renderProseHtml(text, formatUtils) + '</div>';
     const mitHtml = r.mitigation
@@ -45,12 +53,14 @@ function renderRisks(model, formatUtils, planBody) {
     const cueHtml = r.relatedOpenQuestion
       ? '<div class="meta-cue">동일 질문 참조: ' + renderProseHtml(r.relatedOpenQuestion, formatUtils) + '…</div>'
       : '';
-    // Markdown — 구분자는 ·(H10 em-dash 금지).
-    const ap = buildActionPrompt(r, 'risk');
+    // Markdown — 구분자는 ·(H10 em-dash 금지). action prompt 도 marker-free risk 로
+    // 빌드(raw r 사용 시 action 텍스트에 마커 누출 → detailMd 경유 md 오염).
+    const rClean = Object.assign({}, r, { risk: text });
+    const ap = buildActionPrompt(rClean, 'risk');
     // 드로어 detail — REQUIRED(위험 전문/severity/impact/likelihood/완화/결정).
     const rawId = detailId('risk', { source: r.source, ordinal: r.ordinal });
     const detail = buildRiskDetail(
-      Object.assign({}, r, { severity: sev, actionPrompt: ap.fullText }),
+      Object.assign({}, rClean, { severity: sev, actionPrompt: ap.fullText }),
       formatUtils,
     );
     const { id } = addDetail(detailMap, rawId, detail);
@@ -69,18 +79,57 @@ function renderRisks(model, formatUtils, planBody) {
 
   const expandedR = expanded.map(renderItem);
   const collapsedR = collapsed.map(renderItem);
+  const resolvedR = resolved.map(renderItem);
 
-  let html = '<ul class="stack-list" role="list">' + expandedR.map(r => r.html).join('') + '</ul>';
-  if (collapsed.length > 0) {
-    html += '<details class="more"><summary>'
-      + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
-      + collapsed.length + ' 더보기</summary>'
-      + '<ul class="stack-list" role="list">' + collapsedR.map(r => r.html).join('') + '</ul></details>';
+  // 미해결(active) 패널 inner — top-3 + 더보기(Constraint 4 불변). active 0 이면
+  // 정중한 empty-state(Task 11).
+  let activeInner;
+  if (active.length === 0) {
+    activeInner = '<p class="muted"><em>발견된 위험이 없습니다.</em></p>';
+  } else {
+    activeInner = '<ul class="stack-list" role="list">' + expandedR.map(r => r.html).join('') + '</ul>';
+    if (collapsed.length > 0) {
+      activeInner += '<details class="more"><summary>'
+        + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
+        + collapsed.length + ' 더보기</summary>'
+        + '<ul class="stack-list" role="list">' + collapsedR.map(r => r.html).join('') + '</ul></details>';
+    }
   }
-  let md = expandedR.map(r => r.md).join('\n');
-  if (collapsed.length > 0) {
-    md += '\n\n<details>\n<summary>+' + collapsed.length + ' 더보기</summary>\n\n'
-      + collapsedR.map(r => r.md).join('\n')
+
+  // M3-b — 완화/해결 이력을 탭 뒤로(메인 흐름에서 큰 숫자 제거 → "250개 위험" 착시
+  // 해소). 완화됨이 있을 때만 탭(미해결 default-checked · 완화됨 N); 없으면 미해결
+  // 패널 직접 노출. resolved 큰 숫자는 탭 label 에만(Constraint 2 neutral 뱃지).
+  // 드로어 detail 은 active/resolved 모두 detailMap 적재(H18 trigger==detail).
+  let html;
+  if (resolved.length > 0) {
+    const resolvedInner = '<ul class="stack-list" role="list">' + resolvedR.map(r => r.html).join('') + '</ul>';
+    html = buildTabs({
+      name: 'tab-risks',
+      tabs: [
+        { id: 'active', label: '미해결', count: active.length, panelHtml: activeInner, checked: true },
+        { id: 'resolved', label: '완화됨', count: resolved.length, panelHtml: resolvedInner },
+      ],
+    }, formatUtils);
+  } else {
+    html = activeInner;
+  }
+
+  // MD — STATUS.md plain-text 동등. 미해결 본문 + 완화됨 N건 접힘(탭은 plain-text
+  // 부적합 → details 매핑, drawer-detail SSoT 불변).
+  let md;
+  if (active.length === 0) {
+    md = '_발견된 위험이 없습니다._';
+  } else {
+    md = expandedR.map(r => r.md).join('\n');
+    if (collapsed.length > 0) {
+      md += '\n\n<details>\n<summary>+' + collapsed.length + ' 더보기</summary>\n\n'
+        + collapsedR.map(r => r.md).join('\n')
+        + '\n\n</details>';
+    }
+  }
+  if (resolved.length > 0) {
+    md += '\n\n<details>\n<summary>완화됨 ' + resolved.length + '건</summary>\n\n'
+      + resolvedR.map(r => r.md).join('\n')
       + '\n\n</details>';
   }
 
@@ -88,7 +137,7 @@ function renderRisks(model, formatUtils, planBody) {
   const foot = '<a class="foot-link" href="#route-activity">활동 기록에서 전체 보기'
     + '<svg class="i i-sm" aria-hidden="true"><use href="#ic-arrow"/></svg></a>';
 
-  return { md, html, foot, details: detailMap };
+  return { md, html, foot, details: detailMap, activeCount: active.length };
 }
 
 module.exports = { renderRisks };

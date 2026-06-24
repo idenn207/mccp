@@ -359,18 +359,18 @@ git status --short  # → clean throughout (audit 통합 commit 직전까지)
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| 11 worktree × 새 세션 = 사용자 명령 입력 횟수 증가 → modify 4번 정신(사용자 개입 최소화) 위반 | High | 각 worktree 진입 1-liner를 launchpad 노트에 모음. 사용자가 copy-paste 1회씩 → 11회 명령. 그 외 모든 디버깅은 Claude가 worktree 안에서 자동 |
-| Codex 살아있다는 사용자 statement가 부정확 — 실제는 disabled | Med | W2/W8이 첫 codex 호출 결과로 자동 검증. disabled면 그 자체가 결함 row + advisory mode 자동 전환 |
-| W2 not-authenticated inject가 시스템 codex auth 영구 손상 | Med | inject 직전 `~/.codex/auth.json` 백업 → case 종료 직후 복원. 사용자에게 backup/restore 1회씩 confirm |
-| W5 spawn 모드 + ENOENT degrade는 현 환경에서 confirmed → 정상 시나리오 측정 불가 | Confirmed | spawn 모드 = "ENOENT graceful degrade 동작" 측정으로 reframe. spawn 정상 동작 검증은 v0.4.0 axis B/C ship 후로 carry |
-| Pro `usage_limit_exceeded` 5h rate-limit hit | High (모두 dogfood) | 병렬 worktree는 W1/W3/W4/W7/W9 (codex 의존 적음). 순차 worktree (W2/W5/W6/W8/W10/W11) 사이 30분 휴식. W8 (rate-limit risk 최고) 마지막 진행 |
-| audit 파일이 worktree-local이므로 main에 통합 누락 위험 | Low | W-VERDICT가 cherry-pick + main commit을 명시. main으로 복귀 시 git status 확인 |
-| 본 plan command Phase 5 게이트가 codex 실 호출 — codex가 disabled면 plan 작성 자체가 disabled marker | Med | disabled marker도 정상 outcome. 사용자가 confirm 후 Phase 5 진입 — 그때 실제 상태 확인 |
-| W6 Session A → B 전환에서 사용자가 wrong worktree 진입 | Low | launchpad 노트에 cd path 명시 |
-| W8의 intentional CRITICAL inject가 실제 PR로 누수 (의도 안 한 push) | Med | W8은 PR step을 dry-run으로 abort (W1과 동일 패턴) — 실 GitHub call 0회. force-push 0회 |
-| **W11 dependency 조작이 시스템 wide 영향** (codex CLI rename, impeccable PATH 조작) | **High** | 각 row 종료 후 즉시 복원 + W11 종료 시 `/mccp:setup`으로 정상화 검증. dependency 조작 직전 사용자 통합 confirm 1회. row 사이 system health check |
-| **W11 11b "codex app vs CLI" 시뮬이 실제 codex app 동작에 영향** | Med | 11b는 mock companion으로 시뮬 (실 codex app 건드리지 않음) — companion script만 일시 wrap. 종료 후 unwrap |
-| **W11 UX rubric의 주관성** — Type A-E 분류가 평가자에 따라 달라질 수 있음 | Med | 각 row에 결정 type 근거(quoted prompt + 측정 시각)를 기록. W-VERDICT에서 사용자가 재검토 가능 |
+| 11 worktree × 새 세션 = 사용자 명령 입력 횟수 증가 → modify 4번 정신(사용자 개입 최소화) 위반 | High | 각 worktree 진입 1-liner를 launchpad 노트에 모음. 사용자가 copy-paste 1회씩 → 11회 명령. 그 외 모든 디버깅은 Claude가 worktree 안에서 자동 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| Codex 살아있다는 사용자 statement가 부정확 — 실제는 disabled | Med | W2/W8이 첫 codex 호출 결과로 자동 검증. disabled면 그 자체가 결함 row + advisory mode 자동 전환 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| W2 not-authenticated inject가 시스템 codex auth 영구 손상 | Med | inject 직전 `~/.codex/auth.json` 백업 → case 종료 직후 복원. 사용자에게 backup/restore 1회씩 confirm |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| W5 spawn 모드 + ENOENT degrade는 현 환경에서 confirmed → 정상 시나리오 측정 불가 | Confirmed | spawn 모드 = "ENOENT graceful degrade 동작" 측정으로 reframe. spawn 정상 동작 검증은 v0.4.0 axis B/C ship 후로 carry |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| Pro `usage_limit_exceeded` 5h rate-limit hit | High (모두 dogfood) | 병렬 worktree는 W1/W3/W4/W7/W9 (codex 의존 적음). 순차 worktree (W2/W5/W6/W8/W10/W11) 사이 30분 휴식. W8 (rate-limit risk 최고) 마지막 진행 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| audit 파일이 worktree-local이므로 main에 통합 누락 위험 | Low | W-VERDICT가 cherry-pick + main commit을 명시. main으로 복귀 시 git status 확인 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 본 plan command Phase 5 게이트가 codex 실 호출 — codex가 disabled면 plan 작성 자체가 disabled marker | Med | disabled marker도 정상 outcome. 사용자가 confirm 후 Phase 5 진입 — 그때 실제 상태 확인 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| W6 Session A → B 전환에서 사용자가 wrong worktree 진입 | Low | launchpad 노트에 cd path 명시 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| W8의 intentional CRITICAL inject가 실제 PR로 누수 (의도 안 한 push) | Med | W8은 PR step을 dry-run으로 abort (W1과 동일 패턴) — 실 GitHub call 0회. force-push 0회 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| **W11 dependency 조작이 시스템 wide 영향** (codex CLI rename, impeccable PATH 조작) | **High** | 각 row 종료 후 즉시 복원 + W11 종료 시 `/mccp:setup`으로 정상화 검증. dependency 조작 직전 사용자 통합 confirm 1회. row 사이 system health check |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| **W11 11b "codex app vs CLI" 시뮬이 실제 codex app 동작에 영향** | Med | 11b는 mock companion으로 시뮬 (실 codex app 건드리지 않음) — companion script만 일시 wrap. 종료 후 unwrap |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| **W11 UX rubric의 주관성** — Type A-E 분류가 평가자에 따라 달라질 수 있음 | Med | 각 row에 결정 type 근거(quoted prompt + 측정 시각)를 기록. W-VERDICT에서 사용자가 재검토 가능 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 

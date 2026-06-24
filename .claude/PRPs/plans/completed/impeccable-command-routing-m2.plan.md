@@ -99,11 +99,11 @@ node --test plugins/mccp/scripts/lib/tests/*.test.js 2>&1 | tail -15
 ## Risks
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| 선별이 잘못 강등해 관련 명령을 놓침 | Medium | diffSignals 미제공 시 강등 0(backward-compat) + 강등은 outcome에 정직 기록(loud fail-open). 정규식 false-negative는 recommend로 안전 강등(invoke 누락이지 잘못된 invoke 아님) |
-| 신규 명령이 unknown-skill(미설치 카탈로그) | Medium | M1 unknown-skill 폴백 경로 그대로 — status='unknown-skill' 정직 기록, 게이트 blocking 승격 안 함 |
-| mood 명령을 recommend-only로 고정해 auto 가치 약화 | Low | direction 명령은 본질적으로 사용자 의도 — diff 감지 불가. M3에서 explicit intent env 검토(Open Question) |
-| diffSignals 정규식이 무관 매치(false-positive)로 과호출 | Low | 과호출은 비용↑이나 정확성 손상 없음. auto 기본 + renderingSurface=false면 어차피 강등 |
-| 신규 schema 필드 필요 오해 | Low | schema `command` open string 확인됨(:568) — 변경 불필요 |
+| 선별이 잘못 강등해 관련 명령을 놓침 | Medium | diffSignals 미제공 시 강등 0(backward-compat) + 강등은 outcome에 정직 기록(loud fail-open). 정규식 false-negative는 recommend로 안전 강등(invoke 누락이지 잘못된 invoke 아님) |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| 신규 명령이 unknown-skill(미설치 카탈로그) | Medium | M1 unknown-skill 폴백 경로 그대로 — status='unknown-skill' 정직 기록, 게이트 blocking 승격 안 함 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| mood 명령을 recommend-only로 고정해 auto 가치 약화 | Low | direction 명령은 본질적으로 사용자 의도 — diff 감지 불가. M3에서 explicit intent env 검토(Open Question) |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| diffSignals 정규식이 무관 매치(false-positive)로 과호출 | Low | 과호출은 비용↑이나 정확성 손상 없음. auto 기본 + renderingSurface=false면 어차피 강등 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| 신규 schema 필드 필요 오해 | Low | schema `command` open string 확인됨(:568) — 변경 불필요 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
 
 ## Acceptance
 - [ ] oracle 카탈로그 확장 + `selectByDiffSignals` + diffSignals 입력 (Task 1)

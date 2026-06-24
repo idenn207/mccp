@@ -67,8 +67,8 @@ M1+M2 metric 검증 가능한 최소 단위. 구현 메커니즘은 `/mccp:plan`
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | M1 — continuity primitive | 한 worktree의 PR merge가 다른 worktree의 작업 컨텍스트를 손실시키지 않는다 (storage + write semantics 신설 또는 STATE.md 대체) | complete | `.claude/plans/v1-4-0-multi-session-m1-continuity-primitive.plan.md` (PR #43, squash c071a54) |
-| 2 | M2 — cross-session discovery | 새 worktree의 SessionStart hook이 다른 활성 세션을 자동으로 표면화한다 (registry + injection 경로) | in-progress | `.claude/plans/v1-4-0-multi-session-m2-discovery.plan.md` |
-| 3 | M3 — friction 0 | 2~5 worktree 병렬 cycle을 reconciliation 질문 없이 완주 | in-progress | `.claude/plans/v1-4-0-multi-session-m3-friction-zero.plan.md` |
+| 2 | M2 — cross-session discovery | 새 worktree의 SessionStart hook이 다른 활성 세션을 자동으로 표면화한다 (registry + injection 경로) | complete | `.claude/plans/v1-4-0-multi-session-m2-discovery.plan.md` |<!--mccp:resolved reason="v1-4-0-multi-session-m2-discovery plan 이 completed/ 아카이브 = ship 완료" at="2026-06-24T16:29:04.758Z"-->
+| 3 | M3 — friction 0 | 2~5 worktree 병렬 cycle을 reconciliation 질문 없이 완주 | complete | `.claude/plans/v1-4-0-multi-session-m3-friction-zero.plan.md` |<!--mccp:resolved reason="v1-4-0-multi-session-m3-friction-zero plan 이 completed/ 아카이브 = ship 완료" at="2026-06-24T16:29:04.758Z"-->
 
 ## Open Questions
 

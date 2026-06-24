@@ -52,7 +52,7 @@ We'll know we're right when **design-signal이 있는 게이트 통과 시 stage
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | Core routing engine + 6 commands | design-signal 게이트가 단계별로 shape/layout/typeset/critique/audit/harden/polish를 라우팅하고 모드 토글이 동작 | in-progress | `.claude/plans/impeccable-command-routing.plan.md` |
+| 1 | Core routing engine + 6 commands | design-signal 게이트가 단계별로 shape/layout/typeset/critique/audit/harden/polish를 라우팅하고 모드 토글이 동작 | complete | `.claude/plans/impeccable-command-routing.plan.md` |<!--mccp:resolved reason="impeccable-command-routing m2/m3 plan 이 completed/ 아카이브 + CHANGELOG v1.13.0/v1.16.0 ship 확인" at="2026-06-24T16:29:04.758Z"-->
 | 2 | Extended Refine/Simplify 카탈로그 | animate/colorize/bolder/quieter/distill/clarify/adapt/optimize/onboard/overdrive 라우팅 추가 | complete | `.claude/PRPs/plans/completed/impeccable-command-routing-m2.plan.md` |
 | 3 | System 명령 + a11y auto-invoke | document/extract wiring + a11y-architect routing-only → 실제 호출 전환 | complete | `.claude/PRPs/plans/completed/impeccable-command-routing-m3.plan.md` |
 

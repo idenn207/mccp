@@ -137,23 +137,23 @@ grep -n "v1.18.3" plugins/mccp/scripts/lib/renderer/html.js plugins/mccp/scripts
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| ledger restamp가 receipt chain-of-custody(receipt_hash) 훼손 | 중 | Task 5 carve-out + deep-clone(briefing 선례 계승) + stamp 전후 receipt_hash 불변 테스트가 가드 |
-| durable fallback 오매칭(엉뚱한 plan에 완료 시점 부여) | 중 | `(plan_basename | decision_id)` 명시 매칭만 + cycle-slug 매칭은 live receipt와 동일 규칙 재사용. 오매칭 시 '날짜 미상'으로 degrade(거짓 표기보다 안전) |
-| 재현 불가 commit_sha(dirty 시점 append) | 중 | **F1 흡수** — clean-tree gate. dirty(allowlist 밖) 시 append skip → HEAD가 reviewed state를 재현. |
-| cross-worktree 단일 파일 merge 충돌 | 중 | **F2 흡수** — one-file-per-entry. distinct 파일명 → tail 충돌 0. 2-worktree union 테스트가 보증. |
-| schema-drift / model validateShape 테스트 대량 회귀 | 중 | additive optional source(MODEL_VERSION 'v1' 불변) + countSources 배열 1줄 추가 + drift 테스트 동반 갱신 |
-| 동일 milestone 재-ship 시 중복 누적 | 저 | `<id>=<decision>__<receipt_hash>` 파일명 idempotency no-op + reader가 decision_id별 최신 dedup |
-| epilogue가 receipt write를 poison | 저 | facade loud fail-open(throw 안 함) + write.js outer try `(allow)` belt-and-suspenders(briefing 미러) |
+| ledger restamp가 receipt chain-of-custody(receipt_hash) 훼손 | 중 | Task 5 carve-out + deep-clone(briefing 선례 계승) + stamp 전후 receipt_hash 불변 테스트가 가드 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| durable fallback 오매칭(엉뚱한 plan에 완료 시점 부여) | 중 | `(plan_basename | decision_id)` 명시 매칭만 + cycle-slug 매칭은 live receipt와 동일 규칙 재사용. 오매칭 시 '날짜 미상'으로 degrade(거짓 표기보다 안전) |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 재현 불가 commit_sha(dirty 시점 append) | 중 | **F1 흡수** — clean-tree gate. dirty(allowlist 밖) 시 append skip → HEAD가 reviewed state를 재현. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| cross-worktree 단일 파일 merge 충돌 | 중 | **F2 흡수** — one-file-per-entry. distinct 파일명 → tail 충돌 0. 2-worktree union 테스트가 보증. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| schema-drift / model validateShape 테스트 대량 회귀 | 중 | additive optional source(MODEL_VERSION 'v1' 불변) + countSources 배열 1줄 추가 + drift 테스트 동반 갱신 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 동일 milestone 재-ship 시 중복 누적 | 저 | `<id>=<decision>__<receipt_hash>` 파일명 idempotency no-op + reader가 decision_id별 최신 dedup |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| epilogue가 receipt write를 poison | 저 | facade loud fail-open(throw 안 함) + write.js outer try `(allow)` belt-and-suspenders(briefing 미러) |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Open Questions
 
 > Codex R1 검토 완료(아래 ## Codex Adversarial Review). §1·§2는 R1에서 해소됨.
 
-- **§1 (해소·F1) dirty-tree append 시점**: Codex F1 흡수 — **clean-tree gate**로 확정. dirty(allowlist 밖) 또는 detached/unborn 시 skip + diagnostic stamp. `/mccp:pr`이 `/mccp:prp-commit` 이후 도는 흐름상 source는 clean이라 정상 append. PRD OQ("dirty 시 skip")와 정합.
-- **§2 (해소·F2) 레지스터 shape**: Codex F2 흡수 — 단일 JSON 배열 → **one-file-per-entry 디렉토리**(`.claude/state/completion-ledger/<id>.json`). distinct 파일명으로 cross-worktree merge 충돌 0. session-ledger 패턴 완전 미러.
-- **§3 risks_closed/oq_closed 의미론**: M1은 ship 시점 plan 본문의 Risks+OQ를 **스냅샷**(채택). M3 은퇴 매칭(스냅샷 ⊆ 현재 본문)이 이를 소비. M1↔M3 계약 정합성은 M3 plan에서 재확인.
-- **§4 version 스냅샷 소스**: M1은 완료-시점 best-effort(plugin.json→git describe→null). M2의 live host-version ladder(별도 OQ)와 분리. null 다수 허용.
-- **§5 receipt↔ledger drift(PRD OQ #6)**: `⚠ Ledger mismatch` 배너는 표현 레이어 → M1 out-of-scope, M2/M3로 defer.
+- **§1 (해소·F1) dirty-tree append 시점**: Codex F1 흡수 — **clean-tree gate**로 확정. dirty(allowlist 밖) 또는 detached/unborn 시 skip + diagnostic stamp. `/mccp:pr`이 `/mccp:prp-commit` 이후 도는 흐름상 source는 clean이라 정상 append. PRD OQ("dirty 시 skip")와 정합. <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+- **§2 (해소·F2) 레지스터 shape**: Codex F2 흡수 — 단일 JSON 배열 → **one-file-per-entry 디렉토리**(`.claude/state/completion-ledger/<id>.json`). distinct 파일명으로 cross-worktree merge 충돌 0. session-ledger 패턴 완전 미러. <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+- **§3 risks_closed/oq_closed 의미론**: M1은 ship 시점 plan 본문의 Risks+OQ를 **스냅샷**(채택). M3 은퇴 매칭(스냅샷 ⊆ 현재 본문)이 이를 소비. M1↔M3 계약 정합성은 M3 plan에서 재확인. <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+- **§4 version 스냅샷 소스**: M1은 완료-시점 best-effort(plugin.json→git describe→null). M2의 live host-version ladder(별도 OQ)와 분리. null 다수 허용. <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+- **§5 receipt↔ledger drift(PRD OQ #6)**: `⚠ Ledger mismatch` 배너는 표현 레이어 → M1 out-of-scope, M2/M3로 defer. <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 - [ ] 모든 task 완료

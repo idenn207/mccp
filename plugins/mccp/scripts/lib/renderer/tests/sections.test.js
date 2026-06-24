@@ -222,7 +222,7 @@ test('risks — 4 rows sorted by impact desc', () => {
 
 test('risks — placeholder when none (한글)', () => {
   const { md } = renderRisks({ sources: {} }, formatUtils, { risks: [] });
-  assert.match(md, /미해결 위험 없음/);
+  assert.match(md, /발견된 위험이 없습니다\./);
 });
 
 test('risks — 3 expanded + 더보기 collapse (MAX_EXPANDED=3)', () => {
@@ -233,4 +233,72 @@ test('risks — 3 expanded + 더보기 collapse (MAX_EXPANDED=3)', () => {
   const { md } = renderRisks({ sources: {} }, formatUtils, { risks });
   // 12 items, 3 expanded → 9 collapsed
   assert.match(md, /\+9 더보기/);
+});
+
+test('risks — resolved 항목 메인 미노출 + 완화됨 탭 (M3-b headline)', () => {
+  const planBody = {
+    risks: [
+      { risk: 'active-risk', likelihood: 'High', impact: 'High', mitigation: 'm', source: 'p', ordinal: 0, resolved: false },
+      { risk: 'done-risk', likelihood: 'Low', impact: 'Low', mitigation: 'm', source: 'p', ordinal: 1, resolved: true },
+    ],
+  };
+  const { md, html } = renderRisks({ sources: {} }, formatUtils, planBody);
+  // M3-b — 탭(미해결 default · 완화됨 N). 큰 숫자는 탭 label 뱃지에만(메인 흐름 비노출).
+  assert.match(html, /class="tabs"/);
+  assert.match(html, /미해결 <span class="tab-count">1<\/span>/);
+  assert.match(html, /완화됨 <span class="tab-count">1<\/span>/);
+  // active 는 미해결 패널(앞), resolved 는 완화됨 패널(뒤).
+  const resolvedPanelIdx = html.indexOf('tab-risks-resolved-panel');
+  assert.ok(resolvedPanelIdx > 0, '완화됨 패널 존재');
+  assert.ok(html.indexOf('active-risk') < resolvedPanelIdx, 'active 위험은 미해결 패널');
+  assert.ok(html.indexOf('done-risk') > resolvedPanelIdx, 'resolved 위험은 완화됨 패널');
+  // md plain-text 동등 — 미해결 본문 + 완화됨 N건 접힘.
+  assert.match(md, /완화됨 1건/);
+  const mainMd = md.slice(0, md.indexOf('완화됨'));
+  assert.ok(mainMd.includes('active-risk'), 'active 위험은 md 본문');
+  assert.ok(!mainMd.includes('done-risk'), 'resolved 위험은 md 본문 미노출');
+});
+
+test('risks — 전부 resolved 면 empty-state + 완화됨 탭', () => {
+  const planBody = {
+    risks: [{ risk: 'done', likelihood: 'Low', impact: 'Low', mitigation: 'm', source: 'p', ordinal: 0, resolved: true }],
+  };
+  const { md, html } = renderRisks({ sources: {} }, formatUtils, planBody);
+  assert.match(md, /발견된 위험이 없습니다\./);
+  assert.match(md, /완화됨 1건/);
+  // active 0 + resolved>0 → 탭 + 미해결 패널 empty-state.
+  assert.match(html, /class="tabs"/);
+  assert.match(html, /발견된 위험이 없습니다\./);
+});
+
+test('risks — 마커 rendered surface 누출 0 (Constraint 3)', () => {
+  const planBody = {
+    risks: [{ risk: 'leak-risk <!--mccp:resolved reason="x"-->', likelihood: 'Low', impact: 'Low', mitigation: 'm', source: 'p', ordinal: 0, resolved: true }],
+  };
+  const { md, html } = renderRisks({ sources: {} }, formatUtils, planBody);
+  assert.equal(/mccp:resolved/.test(html), false, 'html 마커 누출 0');
+  assert.equal(/mccp:resolved/.test(md), false, 'md 마커 누출 0');
+});
+
+test('open-questions — resolved plan-OQ 분할, STATE.md OQ 항상 active (M3)', () => {
+  const model = { sources: { state: { item: { body: { open_questions: ['state-q'] } } } } };
+  const planBody = {
+    openQuestions: [
+      { source: 'p.plan.md', text: 'plan-active-q', lineNumber: 10, resolved: false },
+      { source: 'p.plan.md', text: 'plan-done-q', lineNumber: 11, resolved: true },
+    ],
+  };
+  const { md, html } = renderOpenQuestions(model, formatUtils, planBody);
+  // M3-b — 탭(미해결 default · 해결됨 N). active = state-q + plan-active-q(2), resolved = 1.
+  assert.match(html, /class="tabs"/);
+  assert.match(html, /해결됨 <span class="tab-count">1<\/span>/);
+  const resolvedPanelIdx = html.indexOf('tab-questions-resolved-panel');
+  assert.ok(resolvedPanelIdx > 0, '해결됨 패널 존재');
+  const activePanel = html.slice(0, resolvedPanelIdx);
+  assert.ok(activePanel.includes('state-q'), 'STATE.md OQ 는 항상 active');
+  assert.ok(activePanel.includes('plan-active-q'), 'active plan-OQ 는 미해결 패널');
+  assert.ok(!activePanel.includes('plan-done-q'), 'resolved plan-OQ 는 미해결 패널 미노출');
+  // md plain-text 동등.
+  assert.match(md, /해결됨 1건/);
+  assert.ok(html.indexOf('plan-done-q') > resolvedPanelIdx, 'resolved OQ 는 해결됨 패널');
 });

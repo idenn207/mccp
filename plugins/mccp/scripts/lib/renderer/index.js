@@ -12,6 +12,7 @@ const { renderOpenQuestions } = require('./sections/open-questions');
 const { renderRisks } = require('./sections/risks');
 const { renderMilestoneHistory } = require('./sections/milestone-history');
 const { dedupOQAndRisks } = require('./parsers/cross-section-dedupe');
+const { annotateResolution } = require('./parsers/resolution-classify');
 const { renderMarkdown } = require('./markdown');
 const { renderHtml } = require('./html');
 
@@ -89,6 +90,13 @@ function renderStatus(model, opts) {
       }
     } catch (err) {
       process.stderr.write('[mccp:renderer] cross-section-dedupe FAILED ' + err.message + ' (allow)\n');
+    }
+
+    // M3 — 해결 마커 전파(결정적). dedupe 가 risk 객체를 Object.assign 으로 보존하므로
+    // resolved flag 가 살아남는다. annotateResolution 은 boolean 정규화 seam. fail-open.
+    try { annotateResolution(planBody); }
+    catch (err) {
+      process.stderr.write('[mccp:renderer] annotate-resolution FAILED ' + err.message + ' (allow)\n');
     }
 
     const verdict = (function () {

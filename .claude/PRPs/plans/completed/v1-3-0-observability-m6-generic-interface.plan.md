@@ -161,12 +161,12 @@ grep -E '^\| 1\.6\.0' CHANGELOG.md
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| Task 0 audit가 비어있어 보이지만 사실 미세 hardcoded 가정 누락 — 외부 repo dogfood에서만 발견 | Medium | Task 1~3 smoke fixture 3종 + 사용자가 v1.4.x 첫 외부 repo install 때 빠른 회귀 확인 |
-| Renderer audit-timeline이 mccp 외 gate_id를 raw label로 표시하면 UX 정보량 낮음 (verdict 1줄 영향) | Low | display label fallback은 graceful이 핵심이지 예쁨이 아님. impeccable Acceptable 톤 유지 (telegraphic) |
-| Fixture C (non-mccp gate names) test가 mccp internal validator schema invariant와 충돌 | Low | receipt validator는 read-side에서 unknown gate_id 허용 (v1.2.0-m1 'unknown-field permissive' 가정). 충돌 시 receipt schema doc에 명시적으로 추가 |
-| plugin.json bump을 잊어 cache directory가 1.5.0 stuck (CLAUDE.md §3.7 빈번한 누락 axis) | Medium | Task 6에 명시 + PR title에 v1.6.0 박음 + PR 제출 전 `git diff plugins/mccp/.claude-plugin/plugin.json` 확인 |
-| v1.3.0 cycle close 후 v1.4.x cycle 진입 시 STATE.md drift (이 cycle도 chore roll PR 필요해질 가능성) | Medium | M6 PR merge 직후 STATE.md roll commit을 같은 cycle에 포함하거나 별도 chore PR 즉시 작성 (CLAUDE.md §3.7 hot-fix 절차) |
-| scope creep — audit 중 발견된 fallback 누락이 단순 patch 이상의 design 변경 요구 | Low | Task 4 default는 mechanical patch만. design 변경 필요 시 별도 backlog axis로 defer (codex-findings-backlog.md 1줄) |
+| Task 0 audit가 비어있어 보이지만 사실 미세 hardcoded 가정 누락 — 외부 repo dogfood에서만 발견 | Medium | Task 1~3 smoke fixture 3종 + 사용자가 v1.4.x 첫 외부 repo install 때 빠른 회귀 확인 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| Renderer audit-timeline이 mccp 외 gate_id를 raw label로 표시하면 UX 정보량 낮음 (verdict 1줄 영향) | Low | display label fallback은 graceful이 핵심이지 예쁨이 아님. impeccable Acceptable 톤 유지 (telegraphic) |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| Fixture C (non-mccp gate names) test가 mccp internal validator schema invariant와 충돌 | Low | receipt validator는 read-side에서 unknown gate_id 허용 (v1.2.0-m1 'unknown-field permissive' 가정). 충돌 시 receipt schema doc에 명시적으로 추가 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| plugin.json bump을 잊어 cache directory가 1.5.0 stuck (CLAUDE.md §3.7 빈번한 누락 axis) | Medium | Task 6에 명시 + PR title에 v1.6.0 박음 + PR 제출 전 `git diff plugins/mccp/.claude-plugin/plugin.json` 확인 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| v1.3.0 cycle close 후 v1.4.x cycle 진입 시 STATE.md drift (이 cycle도 chore roll PR 필요해질 가능성) | Medium | M6 PR merge 직후 STATE.md roll commit을 같은 cycle에 포함하거나 별도 chore PR 즉시 작성 (CLAUDE.md §3.7 hot-fix 절차) |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| scope creep — audit 중 발견된 fallback 누락이 단순 patch 이상의 design 변경 요구 | Low | Task 4 default는 mechanical patch만. design 변경 필요 시 별도 backlog axis로 defer (codex-findings-backlog.md 1줄) |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
 
 ## Acceptance
 

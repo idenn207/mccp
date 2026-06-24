@@ -210,13 +210,13 @@ node -e "console.log(require('./plugins/mccp/.claude-plugin/plugin.json').versio
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| CRITICAL 오분류 → escalate spam | Medium | Medium | catalog는 codex-bridge와 동일 (conservative 5종). fix-task append idempotent — 같은 receipt 두 번 detect해도 1회 inject |
-| receipt-write 중 detector exception → write block | Low | High | fail-open invariant — try/catch + loud stderr. write는 항상 성공 |
-| fix-task append 도중 race (cli + hook 동시) | Low | Medium | 기존 state-writer `withStateLock` 패턴 재사용. fix-task에도 동일 lock 도입 |
-| `escalate_pending` flag clear 누락 → 영구 alarm | Medium | Low | santa-loop 통과 + 후속 receipt write 시 `det.escalate=false`이면 STATE flag clear (Task 5.2 reverse path) |
-| santa-loop가 codex disabled 환경에서 dead-end | Low | Medium | santa-loop.md:105-107 Claude Agent fallback이 보존됨 — model diversity 손실되나 context isolation 유지 |
-| stop-loop의 inline codex-bridge path와 receipt-based path가 같은 fix-task를 두 번 쓰는 race | Low | Low | append 모드가 originatingReceipts 중복 검사로 idempotent |
-| INC-001 패턴(schema bump migration 누락) 재발 | Low | High | `escalate_pending` frontmatter는 conditional emit + 누락 시 default false — schema bump 없음. 기존 STATE.md 호환 |
+| CRITICAL 오분류 → escalate spam | Medium | Medium | catalog는 codex-bridge와 동일 (conservative 5종). fix-task append idempotent — 같은 receipt 두 번 detect해도 1회 inject |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| receipt-write 중 detector exception → write block | Low | High | fail-open invariant — try/catch + loud stderr. write는 항상 성공 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| fix-task append 도중 race (cli + hook 동시) | Low | Medium | 기존 state-writer `withStateLock` 패턴 재사용. fix-task에도 동일 lock 도입 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| `escalate_pending` flag clear 누락 → 영구 alarm | Medium | Low | santa-loop 통과 + 후속 receipt write 시 `det.escalate=false`이면 STATE flag clear (Task 5.2 reverse path) |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| santa-loop가 codex disabled 환경에서 dead-end | Low | Medium | santa-loop.md:105-107 Claude Agent fallback이 보존됨 — model diversity 손실되나 context isolation 유지 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| stop-loop의 inline codex-bridge path와 receipt-based path가 같은 fix-task를 두 번 쓰는 race | Low | Low | append 모드가 originatingReceipts 중복 검사로 idempotent |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| INC-001 패턴(schema bump migration 누락) 재발 | Low | High | `escalate_pending` frontmatter는 conditional emit + 누락 시 default false — schema bump 없음. 기존 STATE.md 호환 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
 
 ---
 
@@ -265,9 +265,9 @@ node -e "console.log(require('./plugins/mccp/.claude-plugin/plugin.json').versio
 
 ## Open Questions (planning round)
 
-- **MEDIUM** — receipt-write integration이 in-process로 들어가면 escalate-detector 의존성 cycle 가능성 (receipt → escalate-detector → state-writer / fix-task). 모두 sibling module이므로 cycle 없을 것이지만 npm-ls 같은 도구로 import graph 검증 권장.
-- **LOW** — `escalate_pending` flag clear 정책: Task 5.2의 reverse path (`det.escalate=false`이면 clear)가 충분한가? santa-loop 통과 receipt가 `det.escalate=false`일 것이라는 가정. santa-loop이 receipt를 write하는지는 santa-loop.md 본문 확인 필요 (현재 모듈은 push만 함 — 별도 receipt 안 씀). 만약 santa-loop이 receipt를 안 쓰면 사용자가 명시적 clear 명령 필요할 수도. 구현 단계에서 결정.
-- **LOW** — fix-task append 모드의 `expires_at` 갱신 정책: append 시 기존 값 보존 vs 갱신. 보존 추천 (escalate가 묵은 채로 TTL 만료되어야 자동 정리).
+- **MEDIUM** — receipt-write integration이 in-process로 들어가면 escalate-detector 의존성 cycle 가능성 (receipt → escalate-detector → state-writer / fix-task). 모두 sibling module이므로 cycle 없을 것이지만 npm-ls 같은 도구로 import graph 검증 권장. <!--mccp:resolved reason="plan이 completed/ 로 아카이브됨 = ship 시점에 질문이 해소되어 본문 결정에 반영됨" at="2026-06-24T16:29:04.758Z"-->
+- **LOW** — `escalate_pending` flag clear 정책: Task 5.2의 reverse path (`det.escalate=false`이면 clear)가 충분한가? santa-loop 통과 receipt가 `det.escalate=false`일 것이라는 가정. santa-loop이 receipt를 write하는지는 santa-loop.md 본문 확인 필요 (현재 모듈은 push만 함 — 별도 receipt 안 씀). 만약 santa-loop이 receipt를 안 쓰면 사용자가 명시적 clear 명령 필요할 수도. 구현 단계에서 결정. <!--mccp:resolved reason="plan이 completed/ 로 아카이브됨 = ship 시점에 질문이 해소되어 본문 결정에 반영됨" at="2026-06-24T16:29:04.758Z"-->
+- **LOW** — fix-task append 모드의 `expires_at` 갱신 정책: append 시 기존 값 보존 vs 갱신. 보존 추천 (escalate가 묵은 채로 TTL 만료되어야 자동 정리). <!--mccp:resolved reason="plan이 completed/ 로 아카이브됨 = ship 시점에 질문이 해소되어 본문 결정에 반영됨" at="2026-06-24T16:29:04.758Z"-->
 
 ---
 

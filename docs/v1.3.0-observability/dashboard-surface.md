@@ -34,6 +34,40 @@ The first route (`#route-overview`, formerly '개요') is renamed to **'대시�
 - **named widgets** (진행 중 / 차단 / 위험) — surface the item **names** (in-progress plan labels / blocked decision_ids / backlog HIGH·CRITICAL findings), not bare counts. Top-3 expanded + `+N 더보기` `<details>` collapse (Output Constraint "한 화면 항목 상한"). Strong accent ≤1: 차단(>0) loud, 위험(>0) amber, 진행중 neutral. Risk finding text routes through `renderProseHtml`/`renderProseMd` (H10/H16 safe).
 - **next-action** — `renderer/parsers/next-action.js#resolveNextAction` extracts a **full command line** (command + args) from the STATE.md `Next Step` blob (Codex R1 F1). Required-arg commands (`/mccp:prp-implement`, `/mccp:plan`, …) with no args are NOT advertised as copyable (prose-only, `executable=false`); an inference fallback supplies a runnable command from `resume_state` (`/mccp:resume`) or the in-progress plan's resolved path. Copy button is rendered only when `executable=true`.
 
+### §2.2 Resolution markers + stale-audit + milestone lifecycle (dashboard-truthfulness M3)
+
+M3 retires stale risks/open-questions via **evaluation-driven source freshening** — not a render-side heuristic. Inference lives only in the `/mccp:dashboard-audit` agent command; the renderer is a deterministic marker reader (derive/render read-only + LLM-free invariant preserved).
+
+**Resolution marker convention** (`renderer/parsers/resolution-marker.js`):
+
+- A risk/OQ is `resolved` IFF its source line carries a **trailing** HTML comment `<!--mccp:resolved reason="…" at="ISO"-->`. The `resolved` signal is the marker ALONE — a bare `- [x]` checkbox or a milestone `complete` status is NOT a retirement signal (Codex 재설계 F1, "explicit row-level closed marker"). Non-destructive: the source row is preserved (only a comment/checkbox added); deleting the marker reverts.
+- **Trailing-only** detection: the reader honors a marker only at line end. This lets a plan body that *documents* the convention (a backtick-wrapped `<!--mccp:resolved-->` mid-prose) avoid being falsely retired.
+- **Table-safe** (Codex 재설계 F2): `stripLineMarker` removes the trailing marker **before** the markdown table cell split, so a marker after the final `|` never produces a phantom cell. `escapeMarkerReason` strips `|`/`"`/`-->` from the reason before it is written, so marker attributes never break table/comment parsing. `stripMarker` guarantees zero marker leakage into the rendered surface (Output Constraint 3).
+
+**Render split**: `sections/risks.js` + `sections/open-questions.js` partition by `resolved` — active items in the main `stack-list` (top-3 + `+N 더보기`), resolved items in a trailing `<details class="more">` ("해결됨 N건", neutral, default-collapsed). All items still flow through `renderItem` so drawer detail keys == triggers (H18 holds). STATE.md open-questions carry no marker and are always active. `annotateResolution` (`parsers/resolution-classify.js`) normalizes the flag at the dedupe seam (no inference).
+
+**`/mccp:dashboard-audit`** (`commands/dashboard-audit.md` + `scripts/lib/stale-audit/*`):
+
+1. `enumerate.js --json` — deterministic active (unmarked) risk/OQ + in-progress milestone refs with stable `{kind, source, ordinal|lineNumber|name, text}` anchors.
+2. agent evaluates each against current structure → `live | resolved | obsolete` (evidence-cited; unsure → `live` conservative default).
+3. proposal table → **human-gate** (source edit, so explicit approval required; no auto-apply).
+4. `apply.js` marks approved items: per-file lock + content-hash compare-and-swap (re-read just before rename, abort on mismatch) + per-file single-transaction batch + idempotent (`isResolved` skip) + post-edit re-parse intactness verify (rollback on failure) + ref mismatch skip (Codex 재설계 F3 lost-update prevention).
+5. `derive/cli.js render` re-renders.
+
+**Milestone lifecycle**: `VALID_STATUSES` adds `dropped`. `parseDeliveryMilestonesLifecycle` collects pending/dropped rows (link-independent) **before** the milestone-history completion early-return (Codex 재설계 F3 — a lifecycle-only PRD still renders). They surface as a default-off `<details>` toggle ("미진행 마일스톤 N건 · 표시") with non-color dual marker (◌ 예정 / ⊘ 폐기) and no `data-detail-id` (no drawer detail → H18 unaffected). `/mccp:dashboard-audit` flips stale in-progress milestone status (in-progress → complete/dropped) so 진행중 = 실제.
+
+### §2.3 Truthful expression — active/resolved tabs + dedicated routes (dashboard-truthfulness M3-b)
+
+M3-a made the *data* truthful (resolved items collapse behind a trailing `<details>`), but the *expression* still misled: a trailing "해결됨 243건" big number in the main flow read as "250 open risks", and a "해결됨 30건" read as ~40 open questions. M3-b moves that history behind a tab so only the unresolved count is in the main flow.
+
+**Tabs** (`parsers/tabs.js`): a pure CSS-only tab builder (`buildTabs(spec, formatUtils)`), no JS. Each tab is an adjacent `<input.tab-radio> <label.tab> <section.tab-panel>` triple; flex `order` reflows labels to the top row and panels below, and the generic adjacency selector `.tab-radio:checked + .tab + .tab-panel { display: block }` toggles panels (no per-id CSS). `risks.js` + `open-questions.js` drop the trailing `해결됨 N건 <details>` and instead render a tab strip — `미해결`(default-checked) plus `완화됨`(risks) / `해결됨`(open-questions) — whose resolved count appears only in the tab label's neutral `.tab-count` badge (no large number in the main flow). When `resolved.length === 0` there are no tabs; the active list renders directly. Active panel keeps top-3 + `+N 더보기` (Constraint 4). Drawer detail keys still come from every item (active + resolved) so H18 holds. STATUS.md plain-text equivalence maps the tab to a `완화됨/해결됨 N건` `<details>` (drawer-detail SSoT unchanged). The tab chrome adds no new accent token (Constraint 2 — neutral underline + tabular-nums badge); `focus-visible` outlines the label.
+
+**Dedicated routes** (`html.js`): the single `route-attention` (위험·질문) splits into `route-risks` + `route-questions`. The nav-rail `위험·질문` entry becomes two entries — `위험`(`#ic-alert`) and `미해결 질문`(`#ic-help`) — each carrying a neutral active count `.nav-count` badge (omitted at 0). The CSS `:target` routing block, topbar `.tb-title` set, and nav active-state selectors gain matching `route-risks`/`route-questions` rows; the `위험 risks` route is always present, `미해결 질문` renders only when an open-questions section exists. The badge count is the **active** count (`section.activeCount`) — the truthful unresolved number (e.g. 31 risks, 8 questions), not the inflated total.
+
+**Empty states**: `발견된 위험이 없습니다.` / `미해결 질문이 없습니다.` (polite, teaches state).
+
+The renderer stays a pure function of the derive model — tabs/badges are deterministic layout over the same `resolved` flag M3-a produces, no new inference.
+
 ## §3 Verdict priority chain (11 steps, deterministic, LLM-free)
 
 The verdict line is computed from derive signals in this fixed priority order. The first signal that fires writes the verdict; later signals are skipped. Both STATUS.md and status.html call the same `computeVerdict(model, planBody)` function in `plugins/mccp/scripts/lib/renderer/verdict.js`.

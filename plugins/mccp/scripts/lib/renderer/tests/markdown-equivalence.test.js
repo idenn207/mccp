@@ -273,6 +273,48 @@ test('full render — production md 에 placeholder/더미 0건', () => {
   }
 });
 
+// ── (5) M3 해결 접힘 + lifecycle 토글 html↔md 동등 ──────────────────────────
+
+test('M3-b — risks active/완화됨 탭(html) ↔ 완화됨 N건 접힘(md) 정보 동등', () => {
+  const planBody = {
+    risks: [
+      { risk: 'active-r', likelihood: 'High', impact: 'High', mitigation: 'm', source: 'p', ordinal: 0, resolved: false },
+      { risk: 'done-r', likelihood: 'Low', impact: 'Low', mitigation: 'm', source: 'p', ordinal: 1, resolved: true },
+    ],
+  };
+  const { md, html } = renderRisks({ sources: {} }, formatUtils, planBody);
+  // html — 완화됨 탭(label+count). md — plain-text 완화됨 N건 접힘(탭 부적합 → details).
+  assert.match(html, /완화됨 <span class="tab-count">1<\/span>/);
+  assert.match(md, /완화됨 1건/);
+  // 양쪽 모두 active + resolved 항목 텍스트를 담음(정보 동등).
+  assert.ok(html.includes('active-r') && md.includes('active-r'));
+  assert.ok(html.includes('done-r') && md.includes('done-r'));
+});
+
+test('M3 — milestone lifecycle 토글 html↔md 동등', () => {
+  const path = require('node:path');
+  const cwd = path.resolve('/eqrepo');
+  const prdAbs = path.resolve(cwd, '.claude/prds/x.prd.md');
+  const PRD = [
+    '## Delivery Milestones', '',
+    '| # | Milestone | Outcome | Status | Plan |', '| --- | --- | --- | --- | --- |',
+    '| 1 | Done | o | complete | [d.plan.md](../plans/d.plan.md) |',
+    '| 2 | Future | o | pending | — |', '',
+  ].join('\n');
+  const model = {
+    repo_root: cwd,
+    sources: {
+      plans: { items: [{ path: '.claude/plans/d.plan.md', source_prd: '.claude/prds/x.prd.md' }] },
+      receipts: { items: [{ gate_id: 'mccp-pr-codex', decision_id: 'd', created_at: '2026-06-21T12:00:00.000Z' }] },
+    },
+  };
+  const fsRead = (p) => { if (p === prdAbs) return PRD; throw new Error('ENOENT'); };
+  const { md, html } = renderMilestoneHistory(model, formatUtils, {}, { cwd, fsRead, gitCommitTime: () => null });
+  assert.match(html, /미진행 마일스톤 1건 · 표시/);
+  assert.match(md, /미진행 마일스톤 1건 · 표시/);
+  assert.ok(html.includes('Future') && md.includes('Future'));
+});
+
 test('full render — 0건 섹션 graceful degrade (빈 상태 메시지, detail 누출 0)', () => {
   const r = renderStatus({
     m0_capability: { contract_present: true },
@@ -287,6 +329,6 @@ test('full render — 0건 섹션 graceful degrade (빈 상태 메시지, detail
       envelopes: { count: 0, items: [] },
     },
   });
-  assert.ok(r.md.includes('미해결 위험 없음'), '0건 위험 빈 상태 메시지');
+  assert.ok(r.md.includes('발견된 위험이 없습니다.'), '0건 위험 빈 상태 메시지');
   assert.ok(!r.md.includes('  - 완화책:'), '0건일 때 detail 행 누출 0');
 });

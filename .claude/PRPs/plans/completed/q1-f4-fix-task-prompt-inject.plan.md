@@ -72,10 +72,10 @@ node --test plugins/mccp/scripts/hooks/tests/stop-review-loop.test.js
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| 기존 회귀 테스트가 silently green 유지 안 됨 (line 56, 127) | High → 의도된 회귀 | Task 2에서 명시적 갱신. PR review 시 정규식 diff로 확인 |
-| 누군가 transcript에 시크릿 포함 → 140자 잘림이 부분 시크릿 노출 | Low | 140자 자체가 mitigation. 그 이상의 작업은 v0.3 redaction layer로 분리(out of scope) |
-| `/santa-loop` 호출 스크립트/문서가 다른 곳에 남아있어 `/mccp:santa-loop`와 불일치 | Medium | grep으로 잔재 확인, 본 plan 범위 외라면 별도 follow-up 이슈 |
-| single-quote escape 한국어 etc 특수문자에서 깨짐 | Low | `replace(/'/g, "\\'")` 한 단계로 충분. 정규식 단위 케이스 추가 |
+| 기존 회귀 테스트가 silently green 유지 안 됨 (line 56, 127) | High → 의도된 회귀 | Task 2에서 명시적 갱신. PR review 시 정규식 diff로 확인 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| 누군가 transcript에 시크릿 포함 → 140자 잘림이 부분 시크릿 노출 | Low | 140자 자체가 mitigation. 그 이상의 작업은 v0.3 redaction layer로 분리(out of scope) |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| `/santa-loop` 호출 스크립트/문서가 다른 곳에 남아있어 `/mccp:santa-loop`와 불일치 | Medium | grep으로 잔재 확인, 본 plan 범위 외라면 별도 follow-up 이슈 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| single-quote escape 한국어 etc 특수문자에서 깨짐 | Low | `replace(/'/g, "\\'")` 한 단계로 충분. 정규식 단위 케이스 추가 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
 
 ## Acceptance
 

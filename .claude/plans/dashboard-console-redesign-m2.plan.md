@@ -191,12 +191,12 @@ grep -nE "https?://|@import" .claude/cache/status.html && echo "LEAK" || echo "s
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| 섹션 마크업 전면 리맵이 기존 섹션 테스트 대량 회귀 | 고 | 데이터 로직 불변(마크업만 교체) — 회귀를 마크업 assertion으로 국한 + Task별 단위 검증 + grep 가드로 마이그레이션 완결 증명 |
-| prose 파이프라인이 일부 raw marker 미커버 → H16 잔존 | 중 | runOutputConstraints 검증을 Task 1 직후 + Task 9 fidelity test에 고정. inline 렌더는 code/bold/link 3종 catalog(H16 패턴과 1:1). 미커버 발견 시 catalog 확장 |
-| is-block/is-bad 파생이 in-progress를 차단으로 오판 | 중 | status-grid의 검증된 blocked 로직(후속 converged 부재) 그대로 재사용 — 단일 SSoT. fixture로 in-progress(후속 converged 있음) vs blocked 양 케이스 가드 |
-| inline-markdown 렌더가 prose 의미 왜곡(과한 변환) | 저 | 보수적 catalog(code/bold/link만), 나머지는 escapeHtml plaintext. 링크는 텍스트만(anchor 미생성)로 안전 우선 |
-| 브라우저 스크린샷 부재로 시각 회귀 미검출 | 중 | status.html 사용자 육안 대조(필수) + 구조 회귀는 section-fidelity.test.js mechanical 가드 + 가능 시 impeccable audit/polish |
-| 샘플 더미 잔존(v2.4.0 등 하드코드)이 production에 누출 | 저 | 모든 값 derive 유래 — 더미 grep 가드(Validation). 샘플은 reference, 코드에 하드코드 금지 |
+| 섹션 마크업 전면 리맵이 기존 섹션 테스트 대량 회귀 | 고 | 데이터 로직 불변(마크업만 교체) — 회귀를 마크업 assertion으로 국한 + Task별 단위 검증 + grep 가드로 마이그레이션 완결 증명 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| prose 파이프라인이 일부 raw marker 미커버 → H16 잔존 | 중 | runOutputConstraints 검증을 Task 1 직후 + Task 9 fidelity test에 고정. inline 렌더는 code/bold/link 3종 catalog(H16 패턴과 1:1). 미커버 발견 시 catalog 확장 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| is-block/is-bad 파생이 in-progress를 차단으로 오판 | 중 | status-grid의 검증된 blocked 로직(후속 converged 부재) 그대로 재사용 — 단일 SSoT. fixture로 in-progress(후속 converged 있음) vs blocked 양 케이스 가드 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| inline-markdown 렌더가 prose 의미 왜곡(과한 변환) | 저 | 보수적 catalog(code/bold/link만), 나머지는 escapeHtml plaintext. 링크는 텍스트만(anchor 미생성)로 안전 우선 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 브라우저 스크린샷 부재로 시각 회귀 미검출 | 중 | status.html 사용자 육안 대조(필수) + 구조 회귀는 section-fidelity.test.js mechanical 가드 + 가능 시 impeccable audit/polish |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 샘플 더미 잔존(v2.4.0 등 하드코드)이 production에 누출 | 저 | 모든 값 derive 유래 — 더미 grep 가드(Validation). 샘플은 reference, 코드에 하드코드 금지 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 - [ ] hero(hero-status + verdict + action-prompt + axis-legend) + 5섹션(OQ/위험/파이프라인/타임라인/마일스톤)이 샘플 class anatomy로 이식됨

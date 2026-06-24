@@ -155,14 +155,14 @@ echo '{"session_id":"test"}' | node plugins/mccp/scripts/hooks/session-start.js
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| state-writer가 concurrent Stop-loop와 race | MEDIUM | medium (state corruption) | loop-counter.js의 `withCounterLock` 그대로 복제 — 동일 패턴이 이미 production에서 검증됨 |
-| injector exception이 SessionStart을 죽임 | LOW | high (모든 새 세션 차단) | session-start.js에서 try/catch 감싸기. fallback = inject skip + warning |
-| STATE.md 무한 성장 | MEDIUM | low (디스크 점유) | template render가 자동 truncate. Goal ≤ 3줄 등 bound가 enforced |
-| fix-task rotate가 atomic하지 않아 다음 세션에서 중복 적용 | LOW | medium (혼란) | `fs.renameSync`는 POSIX/Win32에서 atomic. inject **직후** rotate(읽기와 rename 사이 race 없음) |
-| 7-day sweep이 wallclock 변경에 취약 | LOW | low | mtime 사용, 시스템 시계 역행은 v0.3에서 다룰 OOS |
-| schema doc과 구현 drift | MEDIUM | high (재구현 사이클) | doc §1을 single source of truth로 선언. drift 시 doc이 권위. PR 시 `grep '^state_version' docs/...`로 sanity check |
-| Codex가 atomicity 결함 발견 (escape-overflow 유사) | MEDIUM | medium | Phase 5 게이트 + Codex round 1+ 강제. v0.2.1처럼 회귀 잠금으로 close |
-| pre-compact.js의 fingerprint 유도 실패 → `'unknown'` 누적 | MEDIUM | low | warning + 정상 동작 보존. v0.3에서 PreCompact event JSON에 prompt 포함되면 개선 |
+| state-writer가 concurrent Stop-loop와 race | MEDIUM | medium (state corruption) | loop-counter.js의 `withCounterLock` 그대로 복제 — 동일 패턴이 이미 production에서 검증됨 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| injector exception이 SessionStart을 죽임 | LOW | high (모든 새 세션 차단) | session-start.js에서 try/catch 감싸기. fallback = inject skip + warning |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| STATE.md 무한 성장 | MEDIUM | low (디스크 점유) | template render가 자동 truncate. Goal ≤ 3줄 등 bound가 enforced |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| fix-task rotate가 atomic하지 않아 다음 세션에서 중복 적용 | LOW | medium (혼란) | `fs.renameSync`는 POSIX/Win32에서 atomic. inject **직후** rotate(읽기와 rename 사이 race 없음) |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| 7-day sweep이 wallclock 변경에 취약 | LOW | low | mtime 사용, 시스템 시계 역행은 v0.3에서 다룰 OOS |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| schema doc과 구현 drift | MEDIUM | high (재구현 사이클) | doc §1을 single source of truth로 선언. drift 시 doc이 권위. PR 시 `grep '^state_version' docs/...`로 sanity check |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| Codex가 atomicity 결함 발견 (escape-overflow 유사) | MEDIUM | medium | Phase 5 게이트 + Codex round 1+ 강제. v0.2.1처럼 회귀 잠금으로 close |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| pre-compact.js의 fingerprint 유도 실패 → `'unknown'` 누적 | MEDIUM | low | warning + 정상 동작 보존. v0.3에서 PreCompact event JSON에 prompt 포함되면 개선 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
 
 ## Out of Scope (v0.2)
 

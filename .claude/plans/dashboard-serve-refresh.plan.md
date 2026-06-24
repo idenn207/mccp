@@ -92,12 +92,12 @@ node -e "process.exit(require('./plugins/mccp/.claude-plugin/plugin.json').versi
 ## Risks
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| 포트 7333이 foreign 프로세스에 점유 | 중 | 조용한 +1 fall-forward 금지 → loud 충돌 안내 + `--port` override (Codex F2) |
-| worktree 간 stale PID로 다른 checkout 서버 URL 반환 | 중 | PID 파일에 repoRoot+statusPath 기록, 3중 AND 일치 시만 재사용 (Codex F1) |
-| Windows `start ""` 브라우저 오픈 차이 | 중 | OS 분기 + spawn 실패해도 URL stdout 출력(수동 오픈 가능) |
-| `fs.watch` OS별 불안정 | 중 | watchFile(폴링) 폴백 + watch 실패 시 정적 서빙만 유지(자동 갱신 best-effort, loud fail-open) |
-| background 서버 좀비 프로세스 | 저 | PID 파일 + 재기동 시 same-host live PID + repo-identity 감지 후 기존 재사용, 정지 안내 |
-| reload 스크립트가 status.html 디자인 오염 | 저 | 서빙 시점 on-the-fly 주입만 — 캐시 파일은 byte-pristine 유지 |
+| 포트 7333이 foreign 프로세스에 점유 | 중 | 조용한 +1 fall-forward 금지 → loud 충돌 안내 + `--port` override (Codex F2) |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| worktree 간 stale PID로 다른 checkout 서버 URL 반환 | 중 | PID 파일에 repoRoot+statusPath 기록, 3중 AND 일치 시만 재사용 (Codex F1) |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| Windows `start ""` 브라우저 오픈 차이 | 중 | OS 분기 + spawn 실패해도 URL stdout 출력(수동 오픈 가능) |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| `fs.watch` OS별 불안정 | 중 | watchFile(폴링) 폴백 + watch 실패 시 정적 서빙만 유지(자동 갱신 best-effort, loud fail-open) |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| background 서버 좀비 프로세스 | 저 | PID 파일 + 재기동 시 same-host live PID + repo-identity 감지 후 기존 재사용, 정지 안내 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| reload 스크립트가 status.html 디자인 오염 | 저 | 서빙 시점 on-the-fly 주입만 — 캐시 파일은 byte-pristine 유지 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Design Critique
 > 본 plan은 서빙·갱신 *경로*만 추가한다. 서버가 주입하는 SSE reload `<script>`는 비가시 plumbing이며, 캐시된 `status.html`은 디스크상 byte-pristine으로 유지된다(서버가 응답 시점에만 주입). 대시보드의 시각/레이아웃/색/타이포그래피 surface는 v1.4.2에서 확정됐고 본 작업은 변경하지 않는다 — 신규 visual surface 0. impeccable `## Output Constraints` 4항(정보 위계/강조색/raw marker/항목 수 상한)은 렌더 산출물에 이미 적용돼 있으며 본 plan이 재생산하지 않는다.

@@ -172,13 +172,13 @@ Select-String -Path .claude/state/STATE.md -Pattern '^task_fingerprint: v0-3-4-t
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| 17 sites mass edit이 다른 test 의도를 깨뜨림 | Medium | site-by-site 적용 + Phase A/B 양방향 validate. wrap은 outer scope만 추가, body는 read-only — semantic intent 보존됨. |
-| Helper extraction 유혹 (DRY 본능) | Medium | PRD MVP 명시 + 본 plan Patterns to Mirror가 inline 일관성을 강조. 17 sites의 4-line wrap은 한눈에 보이는 패턴이므로 helper 분리가 오히려 indirection 비용. |
-| codex-invoke.js의 MCCP_CODEX_DISABLED honor 부재 (HIGH dogfood F1)가 본 milestone 안에서 발화 | Low | F1은 explicit out-of-scope (PRD §Scope). 본 milestone implement Phase는 `MCCP_ALLOW_CODEX_UNAVAILABLE=1` advisory mode + `MCCP_RECEIPT_GATE_MODE=off`로 우회 — 사용자 영구 합의. |
-| PRD §E2 "+ receipt-* tests" 가설 invalidation이 plan 신뢰 약화 | Low | v0.3.3 §F7 multi-stage safety 실증 — PRD inversion이 plan GROUND로 자가 회복하는 chain design이 작동 중. plan body에 명시 기록 (위 Phase 2 GROUND 섹션). |
-| Plan-Codex / Implement-Codex 게이트가 advisory로 떨어져 cross-validation 약화 | Low | 사용자 영구 합의 + plan body의 self-attested findings + Phase 2 GROUND grep evidence + 실 test 실행 결과 multi-source independence가 보완 (v0.3.3 report §Codex-disabled handling assessment). |
-| 2-commit split vs single squash 결정이 `/mccp:prp-commit` 단계에서 번복 | Medium | Open Question §4 결정을 Task 7에서 force — 2-commit. PR body header도 2-axis 분리 강제. |
-| roadmap M6/M7 entry 행 위치 / 포맷 drift | Low | Task 4 validate가 grep으로 정확한 row count 검증. M5 행 포맷이 ground-truth — mechanical mirror. |
+| 17 sites mass edit이 다른 test 의도를 깨뜨림 | Medium | site-by-site 적용 + Phase A/B 양방향 validate. wrap은 outer scope만 추가, body는 read-only — semantic intent 보존됨. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| Helper extraction 유혹 (DRY 본능) | Medium | PRD MVP 명시 + 본 plan Patterns to Mirror가 inline 일관성을 강조. 17 sites의 4-line wrap은 한눈에 보이는 패턴이므로 helper 분리가 오히려 indirection 비용. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| codex-invoke.js의 MCCP_CODEX_DISABLED honor 부재 (HIGH dogfood F1)가 본 milestone 안에서 발화 | Low | F1은 explicit out-of-scope (PRD §Scope). 본 milestone implement Phase는 `MCCP_ALLOW_CODEX_UNAVAILABLE=1` advisory mode + `MCCP_RECEIPT_GATE_MODE=off`로 우회 — 사용자 영구 합의. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| PRD §E2 "+ receipt-* tests" 가설 invalidation이 plan 신뢰 약화 | Low | v0.3.3 §F7 multi-stage safety 실증 — PRD inversion이 plan GROUND로 자가 회복하는 chain design이 작동 중. plan body에 명시 기록 (위 Phase 2 GROUND 섹션). |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| Plan-Codex / Implement-Codex 게이트가 advisory로 떨어져 cross-validation 약화 | Low | 사용자 영구 합의 + plan body의 self-attested findings + Phase 2 GROUND grep evidence + 실 test 실행 결과 multi-source independence가 보완 (v0.3.3 report §Codex-disabled handling assessment). |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 2-commit split vs single squash 결정이 `/mccp:prp-commit` 단계에서 번복 | Medium | Open Question §4 결정을 Task 7에서 force — 2-commit. PR body header도 2-axis 분리 강제. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| roadmap M6/M7 entry 행 위치 / 포맷 drift | Low | Task 4 validate가 grep으로 정확한 row count 검증. M5 행 포맷이 ground-truth — mechanical mirror. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 

@@ -27,6 +27,28 @@ test('schema-drift: ledger is a declared count-source (emptyModel + validateShap
     'validateShape flags missing ledger.count');
 });
 
+// Dashboard Truthfulness M2 — guard the additive `host_version` top-level field.
+// emptyModel must declare it (additive optional, MODEL_VERSION 'v1' unchanged)
+// and validateShape must present-only enforce its object shape so a future
+// refactor cannot silently drop or malform it.
+test('schema-drift: host_version is a declared additive top-level field (emptyModel + validateShape)', () => {
+  const m = emptyModel('/x');
+  assert.ok(m.host_version && typeof m.host_version === 'object', 'emptyModel declares host_version object');
+  assert.strictEqual(m.host_version.version, null);
+  assert.strictEqual(m.host_version.source, 'unknown');
+  assert.strictEqual(validateShape(m).ok, true, 'empty model with host_version is shape-valid');
+
+  // MODEL_VERSION stays 'v1' (additive surface, no consumer migration).
+  assert.strictEqual(m.schema_version, 'v1');
+
+  // Malformed host_version (non-object) must be caught present-only.
+  m.host_version = 'not-an-object';
+  const v = validateShape(m);
+  assert.strictEqual(v.ok, false);
+  assert.ok(v.errors.some(e => e.indexOf('host_version') !== -1),
+    'validateShape flags malformed host_version');
+});
+
 test('schema-drift: envelope with unknown_top_level_key flagged as invalid + degraded=true (Codex F3 absorption)', () => {
   const root = tmpRepo();
   try {

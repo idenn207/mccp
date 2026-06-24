@@ -26,7 +26,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
     out.push('');
   }
 
-  const anchors = ['[verdict](#verdict)', '[현황](#현황)'];
+  const anchors = ['[verdict](#verdict)', '[대시보드](#대시보드)'];
   if (pipeline) anchors.push('[게이트-파이프라인](#게이트-파이프라인)');
   if (fanout) anchors.push('[워커](#워커)');
   if (activeSessions) anchors.push('[최근-활동](#최근-활동)');
@@ -46,7 +46,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('---');
   out.push('');
 
-  out.push('## 현황');
+  out.push('## 대시보드');
   out.push('');
   if (grid) { out.push(grid.md); out.push(''); }
   out.push('---');
@@ -109,7 +109,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('---');
   out.push('');
 
-  out.push('_derived from .claude/ · v1.18.3_');
+  out.push('_derived from .claude/ · v1.18.4_');
   out.push('');
 
   return out.join('\n');

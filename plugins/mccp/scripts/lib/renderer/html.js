@@ -296,12 +296,29 @@ h1.verdict { margin: 0.6rem 0 0; font-size: 1.3125rem; font-weight: 600; line-he
 .copy-btn:hover { background: var(--panel-hover); color: var(--ink); }
 .copy-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .copy-btn[data-copied="1"] { color: var(--ok); border-color: oklch(0.74 0.16 152 / 0.4); }
-.copy-btn[data-copied="1"]::after { content: ' 복사됨'; }
+/* copied: replace the '복사' label with '복사됨' (not append — flex gap spaces it). */
+.copy-btn .cb-label { display: inline; }
+.copy-btn[data-copied="1"] .cb-label { display: none; }
+.copy-btn[data-copied="1"]::after { content: '복사됨'; }
 .axis-legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.6rem;
   margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 .axis { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--muted); }
 .axis b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 .axis b.bad { color: var(--bad); } .axis b.warn { color: var(--warn); }
+/* ── 대시보드 hero: host-version 줄 + named-widget(진행중/차단/위험 항목 이름) ── */
+.hero-version { margin: 0.85rem 0 0; font-size: 0.78rem; color: var(--muted);
+  font-variant-numeric: tabular-nums; }
+.hero-version .hv-source { color: var(--faint); }
+.hero-widgets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem 1.6rem;
+  margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.hero-widget { min-width: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.hw-head { display: flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; color: var(--muted); }
+.hw-count { margin-left: 0.1rem; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.hw-count.bad { color: var(--bad); } .hw-count.warn { color: var(--warn); }
+.hw-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.3rem;
+  font-size: 0.8rem; color: var(--ink-2); }
+.hw-list li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.hw-empty { margin: 0; font-size: 0.8rem; color: var(--faint); }
 /* ── 패널 (목적 있는 비중첩 패널 — head/body/foot anatomy) ── */
 .grid, .panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.1rem; align-items: start; }
 .span-2 { grid-column: 1 / -1; }
@@ -496,6 +513,7 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
   .nav-rail { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; margin-left: auto; gap: 0.25rem; }
   .nav-rail a.nav-link { white-space: nowrap; flex-shrink: 0; }
   .grid, .panel-grid { grid-template-columns: minmax(0, 1fr); }
+  .hero-widgets { grid-template-columns: minmax(0, 1fr); }
   .pipe-row { grid-template-columns: 1fr; gap: 0.5rem; }
   .tb-title-wrap { display: none; }
   .content { padding: 1.1rem 1rem 3rem; }
@@ -545,7 +563,7 @@ const DRAWER_SCRIPT = "(function(){"
   + "if(d.tags&&d.tags.length){var tw=el('div','d-tags');d.tags.forEach(function(t){var s=el('span','sev s-'+(t.tone||'low'));s.textContent=t.label||'';tw.appendChild(s)});dBody.appendChild(tw)}"
   + "if(d.rows&&d.rows.length){var dl=el('dl','d-rows');d.rows.forEach(function(r){var row=el('div'),dt=el('dt'),dd=el('dd');dt.textContent=r[0]||'';if(r[2])dd.className='mono';dd.textContent=r[1]||'';row.appendChild(dt);row.appendChild(dd);dl.appendChild(row)});dBody.appendChild(dl)}"
   + "if(d.sections&&d.sections.length){d.sections.forEach(function(s){var sec=el('section','d-sec'),h3=el('h3'),p=el('p');h3.textContent=s[0]||'';p.innerHTML=s[1]||'';sec.appendChild(h3);sec.appendChild(p);dBody.appendChild(sec)})}"
-  + "if(d.action){var wrap=el('div','d-action'),ap=el('div','action-prompt'),lead=el('span','lead'),code=el('code'),btn=el('button','copy-btn');lead.textContent='다음';code.textContent=d.action;btn.type='button';btn.setAttribute('data-copy',d.action);btn.innerHTML='<svg class=\"i i-sm\" aria-hidden=\"true\"><use href=\"#ic-copy\"/></svg>복사';ap.appendChild(lead);ap.appendChild(code);ap.appendChild(btn);wrap.appendChild(ap);dBody.appendChild(wrap)}}"
+  + "if(d.action){var wrap=el('div','d-action'),ap=el('div','action-prompt'),lead=el('span','lead'),code=el('code'),btn=el('button','copy-btn');lead.textContent='다음';code.textContent=d.action;btn.type='button';btn.setAttribute('data-copy',d.action);btn.innerHTML='<svg class=\"i i-sm\" aria-hidden=\"true\"><use href=\"#ic-copy\"/></svg><span class=\"cb-label\">복사</span>';ap.appendChild(lead);ap.appendChild(code);ap.appendChild(btn);wrap.appendChild(ap);dBody.appendChild(wrap)}}"
   + "function open(id,trigger){var d=DETAILS[id];if(!d)return;lastTrigger=trigger;dKind.textContent=KIND[String(id).split(':')[0]]||'상세';render(d);dBody.scrollTop=0;if(drawer.showModal){drawer.showModal()}else{drawer.setAttribute('open','')}}"
   + "function close(){if(drawer.close){drawer.close()}else{drawer.removeAttribute('open')}}"
   + "var cb=drawer.querySelector('.drawer-close');if(cb)cb.addEventListener('click',close);"
@@ -581,50 +599,121 @@ const HERO_STATUS = {
   muted: { dot: 'dot-mute', label: '대기' },
 };
 
-function axisNextShort(value) {
-  const v = String(value || '');
-  return v.length > 28 ? v.slice(0, 27) + '…' : v;
+// host_version.source → 한국어 라벨(status-grid sourceLabel 미러). provenance 를
+// 항상 노출(F3) — 어느 신호가 채택됐는지 사용자가 검증 가능.
+function heroSourceLabel(source) {
+  switch (source) {
+    case 'changelog': return 'CHANGELOG';
+    case 'git-tag': return 'git 태그';
+    case 'plan-cycle': return '최신 plan cycle';
+    case 'unknown': return '미상';
+    default:
+      if (typeof source === 'string' && source.indexOf('meta:') === 0) return source.slice(5);
+      return source || '미상';
+  }
 }
 
-function renderHeroPanel(verdict, gridCells, relative, escapeHtml, escapeAttr, normalizeProse) {
-  const norm = typeof normalizeProse === 'function' ? normalizeProse : (s) => s;
+// named-widget — label + count + top-3 항목 이름 + 나머지 접힘(카운트 아닌 '무엇').
+// 강조색 viewport당 ≤1: 차단(>0)만 loud bad, 위험(>0) amber, 진행중 neutral.
+// 위험 항목 텍스트(backlog finding)는 renderProseHtml(H10/H16 안전) 경유.
+function heroWidget(key, cellObj, dotClass, escapeHtml, renderProseHtml, formatUtils) {
+  const label = cellObj.label || key;
+  const count = cellObj.value != null ? String(cellObj.value) : '0';
+  const items = Array.isArray(cellObj.items) ? cellObj.items : [];
+  const isRisk = key === 'risks';
+  const li = (t) => '<li>' + (isRisk ? renderProseHtml(t, formatUtils) : escapeHtml(t)) + '</li>';
+
+  let listHtml;
+  if (items.length === 0) {
+    listHtml = '<p class="hw-empty">없음</p>';
+  } else {
+    listHtml = '<ul class="hw-list">' + items.slice(0, 3).map(li).join('') + '</ul>';
+    const overflow = items.length - 3;
+    if (overflow > 0) {
+      listHtml += '<details class="more"><summary>'
+        + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
+        + overflow + ' 더보기</summary>'
+        + '<ul class="hw-list">' + items.slice(3).map(li).join('') + '</ul></details>';
+    }
+  }
+
+  let countClass = 'hw-count';
+  if (key === 'blocked' && count !== '0') countClass += ' bad';
+  else if (key === 'risks' && count !== '0') countClass += ' warn';
+
+  return '<div class="hero-widget">'
+    + '<div class="hw-head"><span class="dot ' + dotClass + '" aria-hidden="true"></span>'
+    + escapeHtml(label) + ' <span class="' + countClass + '">' + escapeHtml(count) + '</span></div>'
+    + listHtml + '</div>';
+}
+
+// 대시보드 hero — hero-status(tone dot) + verdict(h1) + next-action(STATE.md
+// full command line 복사, executable 만) + host-version 줄 + named-widget 3종.
+// grid 는 status-grid 산출 섹션({cells, version, nextAction}). console-shell stub
+// 처럼 version/nextAction 부재 시 graceful degrade(next cell 폴백).
+function renderHeroPanel(verdict, grid, projectName, escapeHtml, escapeAttr, formatUtils) {
+  const norm = (formatUtils && formatUtils.normalizeProse) || ((s) => s);
+  const renderProseHtml = (formatUtils && formatUtils.renderProseHtml) || ((t) => escapeHtml(t));
   const attention = verdict.tone === 'red';
   const status = HERO_STATUS[verdict.tone] || HERO_STATUS.neutral;
   const safeText = escapeHtml(norm(verdict.text));
 
-  const cell = (key) => gridCells.find(c => c.key === key) || {};
-  const nextCell = cell('next');
+  const cells = (grid && Array.isArray(grid.cells)) ? grid.cells : [];
+  const cell = (key) => cells.find(c => c.key === key) || {};
+  const nextAction = grid && grid.nextAction;
+  const version = grid && grid.version;
 
-  // action-prompt — next 가 명령이면 code + copy, plan 라벨이면 라벨만, '대기' 면 생략.
+  // next-action — executable command(복사) | stale-label | prose | 생략(idle/대기).
   let promptHtml = '';
-  const nextVal = nextCell.value;
-  if (nextVal && nextVal !== '대기') {
-    if (nextCell.stale) {
+  if (nextAction) {
+    if (nextAction.executable && nextAction.copyText) {
       promptHtml = '<div class="action-prompt"><span class="lead">다음</span>'
-        + '<span class="stale-label">' + escapeHtml(nextVal) + '</span></div>';
-    } else if (looksLikeCommand(nextVal)) {
-      promptHtml = '<div class="action-prompt"><span class="lead">다음</span>'
-        + '<code>' + escapeHtml(nextVal) + '</code>'
-        + '<button class="copy-btn" type="button" data-copy="' + escapeHtml(nextVal) + '">'
-        + '<svg class="i i-sm" aria-hidden="true"><use href="#ic-copy"/></svg>복사</button>'
+        + '<code>' + escapeHtml(nextAction.copyText) + '</code>'
+        + '<button class="copy-btn" type="button" data-copy="' + escapeHtml(nextAction.copyText) + '">'
+        + '<svg class="i i-sm" aria-hidden="true"><use href="#ic-copy"/></svg><span class="cb-label">복사</span></button>'
         + '</div>';
-    } else {
-      const titleAttr = nextCell.intent ? ' title="' + escapeAttr(nextCell.intent) + '"' : '';
+    } else if (nextAction.stale) {
       promptHtml = '<div class="action-prompt"><span class="lead">다음</span>'
-        + '<code' + titleAttr + '>' + escapeHtml(nextVal) + '</code></div>';
+        + '<span class="stale-label">' + escapeHtml(nextAction.prose || '미정 (stale)') + '</span></div>';
+    } else if (nextAction.source !== 'idle' && nextAction.prose) {
+      promptHtml = '<div class="action-prompt"><span class="lead">다음</span>'
+        + '<span class="next-prose">' + renderProseHtml(nextAction.prose, formatUtils) + '</span></div>';
+    }
+  } else {
+    // backward-compat (nextAction 없는 stub) — 기존 next cell 폴백.
+    const nextCell = cell('next');
+    const nextVal = nextCell.value;
+    if (nextVal && nextVal !== '대기') {
+      if (nextCell.stale) {
+        promptHtml = '<div class="action-prompt"><span class="lead">다음</span>'
+          + '<span class="stale-label">' + escapeHtml(nextVal) + '</span></div>';
+      } else if (looksLikeCommand(nextVal)) {
+        promptHtml = '<div class="action-prompt"><span class="lead">다음</span>'
+          + '<code>' + escapeHtml(nextVal) + '</code>'
+          + '<button class="copy-btn" type="button" data-copy="' + escapeHtml(nextVal) + '">'
+          + '<svg class="i i-sm" aria-hidden="true"><use href="#ic-copy"/></svg><span class="cb-label">복사</span></button></div>';
+      } else {
+        const titleAttr = nextCell.intent ? ' title="' + escapeAttr(nextCell.intent) + '"' : '';
+        promptHtml = '<div class="action-prompt"><span class="lead">다음</span>'
+          + '<code' + titleAttr + '>' + escapeHtml(nextVal) + '</code></div>';
+      }
     }
   }
 
-  // axis-legend — 진행 중 / 차단 / 다음 / 위험. dot 색 + <b> 값(차단·위험 강조색).
-  const inProg = String(cell('in-progress').value || '0');
-  const blocked = String(cell('blocked').value || '0');
-  const risks = String(cell('risks').value || '0');
-  const nextShort = nextVal && nextVal !== '대기' ? axisNextShort(nextVal) : '대기';
-  const axisLegend = '<div class="axis-legend">'
-    + '<span class="axis"><span class="dot dot-accent" aria-hidden="true"></span>진행 중 <b>' + escapeHtml(inProg) + '</b></span>'
-    + '<span class="axis"><span class="dot dot-bad" aria-hidden="true"></span>차단 <b' + (blocked !== '0' ? ' class="bad"' : '') + '>' + escapeHtml(blocked) + '</b></span>'
-    + '<span class="axis"><span class="dot dot-mute" aria-hidden="true"></span>다음 <b>' + escapeHtml(nextShort) + '</b></span>'
-    + '<span class="axis"><span class="dot dot-warn" aria-hidden="true"></span>위험 <b' + (risks !== '0' ? ' class="warn"' : '') + '>' + escapeHtml(risks) + '</b></span>'
+  // host-version 줄 — <project> · vX.Y.Z · <source>. 미상이면 정직 표기(F3).
+  let versionHtml = '';
+  if (version && typeof version === 'object') {
+    const inner = version.version
+      ? escapeHtml('v' + version.version) + ' · <span class="hv-source">' + escapeHtml(heroSourceLabel(version.source)) + '</span>'
+      : '<span class="hv-source">버전 미상</span>';
+    versionHtml = '<p class="hero-version">' + escapeHtml(projectName || 'mccp') + ' · ' + inner + '</p>';
+  }
+
+  // named-widget 3종 — 진행중(neutral) / 차단(loud bad) / 위험(amber).
+  const widgetsHtml = '<div class="hero-widgets">'
+    + heroWidget('in-progress', cell('in-progress'), 'dot-accent', escapeHtml, renderProseHtml, formatUtils)
+    + heroWidget('blocked', cell('blocked'), 'dot-bad', escapeHtml, renderProseHtml, formatUtils)
+    + heroWidget('risks', cell('risks'), 'dot-warn', escapeHtml, renderProseHtml, formatUtils)
     + '</div>';
 
   return '<section class="hero-panel' + (attention ? ' attention' : '') + '" aria-label="판정">'
@@ -632,7 +721,8 @@ function renderHeroPanel(verdict, gridCells, relative, escapeHtml, escapeAttr, n
     + escapeHtml(status.label) + '</span>'
     + '<h1 class="verdict s-' + escapeHtml(verdict.tone) + '">' + safeText + '</h1>'
     + promptHtml
-    + axisLegend
+    + versionHtml
+    + widgetsHtml
     + '</section>';
 }
 
@@ -735,7 +825,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</div>');
   parts.push('<p class="rail-label">페이지</p>');
   parts.push('<nav class="nav-rail" aria-label="페이지">'
-    + '<a class="nav-link" data-route="overview" href="#route-overview"><svg class="i" aria-hidden="true"><use href="#ic-dashboard"/></svg>개요</a>'
+    + '<a class="nav-link" data-route="overview" href="#route-overview"><svg class="i" aria-hidden="true"><use href="#ic-dashboard"/></svg>대시보드</a>'
     + '<a class="nav-link" data-route="pipeline" href="#route-pipeline"><svg class="i" aria-hidden="true"><use href="#ic-branch"/></svg>게이트 파이프라인</a>'
     + '<a class="nav-link" data-route="attention" href="#route-attention"><svg class="i" aria-hidden="true"><use href="#ic-alert"/></svg>위험 · 질문</a>'
     + '<a class="nav-link" data-route="activity" href="#route-activity"><svg class="i" aria-hidden="true"><use href="#ic-activity"/></svg>활동 · 기록</a>'
@@ -756,7 +846,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '<div class="crumb"><span class="c-mark"><svg class="i i-sm" aria-hidden="true"><use href="#ic-terminal"/></svg></span>'
     + '<b>' + escapeHtml(projectName) + '</b><span class="sep">/</span><span>상태</span></div>'
     + '<div class="tb-title-wrap" aria-hidden="true">'
-    + '<span class="tb-title" data-t="overview">개요</span>'
+    + '<span class="tb-title" data-t="overview">대시보드</span>'
     + '<span class="tb-title" data-t="pipeline">게이트 파이프라인</span>'
     + '<span class="tb-title" data-t="attention">위험 · 질문</span>'
     + '<span class="tb-title" data-t="activity">활동 · 기록</span>'
@@ -770,9 +860,10 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     parts.push('<aside role="alert" class="s-secret">⚠ raw — 절대 외부 공유 금지</aside>');
   }
 
-  // route 1 — 개요: hero 패널(verdict + next + 인라인 4축). 60초 스캔.
-  parts.push('<section class="route" id="route-overview" aria-label="개요">'
-    + renderHeroPanel(verdict, gridCells, relative, escapeHtml, escapeAttr, formatUtils.normalizeProse)
+  // route 1 — 대시보드: hero 패널(verdict + next-action + host-version + named-widget).
+  // route id/data-route 식별자는 'overview' 불변(CSS 라우팅) — 표시 텍스트만 '대시보드'.
+  parts.push('<section class="route" id="route-overview" aria-label="대시보드">'
+    + renderHeroPanel(verdict, grid, projectName, escapeHtml, escapeAttr, formatUtils)
     + '</section>');
 
   // route 2 — 파이프라인: 게이트 스테퍼 패널.
@@ -801,7 +892,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.3 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.4 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.

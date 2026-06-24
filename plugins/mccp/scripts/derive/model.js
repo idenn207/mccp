@@ -6,6 +6,7 @@
 //   M4: mask_hits / last_render_meta (top-level optional)
 //   M5: receipts.items[].receipt_hash (optional)
 //   dashboard-truthfulness M1: sources.ledger (additive count-source)
+//   dashboard-truthfulness M2: host_version (additive top-level object)
 // Consumers MUST tolerate missing optional fields (null fallback). A bump
 // would force receipt-side migration which the additive surface avoids.
 const MODEL_VERSION = 'v1';
@@ -30,6 +31,10 @@ function emptyModel(repoRoot) {
       envelopes: { ok: true, count: 0, items: [], invalid_count: 0, degraded: false, error: null },
       ledger:    { ok: true, count: 0, items: [], invalid_count: 0, degraded: false, error: null },
     },
+    // dashboard-truthfulness M2 (Codex R1 F2) — host-project version signal,
+    // stamped at derive time so the renderer never reads host files. additive
+    // optional (MODEL_VERSION 'v1' unchanged).
+    host_version: { version: null, source: 'unknown', latest_plan: null, degraded: false, error: null },
     correlations: [],
     warnings: [],
   };
@@ -79,6 +84,17 @@ function validateShape(model) {
   }
   if (!Array.isArray(model.correlations)) errors.push('correlations not an array');
   if (!Array.isArray(model.warnings)) errors.push('warnings not an array');
+  // dashboard-truthfulness M2 — host_version present-only (additive optional).
+  if ('host_version' in model) {
+    const hv = model.host_version;
+    if (!hv || typeof hv !== 'object') {
+      errors.push('host_version present but not an object');
+    } else {
+      if (!('version' in hv)) errors.push('host_version.version missing');
+      if (typeof hv.source !== 'string') errors.push('host_version.source not a string');
+      if (typeof hv.degraded !== 'boolean') errors.push('host_version.degraded not a boolean');
+    }
+  }
   return { ok: errors.length === 0, errors: errors };
 }
 

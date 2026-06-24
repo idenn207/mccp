@@ -55,8 +55,8 @@ We'll know we're right when **개요 버전이 호스트 프로젝트 최신 신
 
 | # | Milestone | Outcome | Status | Plan |
 | --- | --- | --- | --- | --- |
-| 1 | 완료 이력 영속화 레지스터 (foundation) | gate 수렴 epilogue가 git-tracked ledger에 요약 1건 append(receipt_hash carve-out 계승, detached/uncommitted 시 안전 skip) → merge + worktree 제거 후에도 완료 이력·완료 시점이 살아남고 대시보드가 durable history로 읽음. "날짜 미상" 해소. | in-progress | `.claude/plans/dashboard-truthfulness-m1-completion-ledger.plan.md` |
-| 2 | 개요 → '대시보드' 재구성 + 호스트 버전/위젯/다음 command | 개요를 '대시보드'로 재명명 + 버전을 호스트-프로젝트 최신 신호에서 derive + 진행중/차단/위험/다음을 각 위젯으로 나열(카운트가 아닌 '무엇'인지 항목 명시) + 다음 행동을 STATE.md Next Step 기반 실행가능 `/mccp:*` command + 복사 버튼으로. | pending | — |
+| 1 | 완료 이력 영속화 레지스터 (foundation) | gate 수렴 epilogue가 git-tracked ledger에 요약 1건 append(receipt_hash carve-out 계승, detached/uncommitted 시 안전 skip) → merge + worktree 제거 후에도 완료 이력·완료 시점이 살아남고 대시보드가 durable history로 읽음. "날짜 미상" 해소. | complete | `.claude/plans/dashboard-truthfulness-m1-completion-ledger.plan.md` |
+| 2 | 개요 → '대시보드' 재구성 + 호스트 버전/위젯/다음 command | 개요를 '대시보드'로 재명명 + 버전을 호스트-프로젝트 최신 신호에서 derive + 진행중/차단/위험/다음을 각 위젯으로 나열(카운트가 아닌 '무엇'인지 항목 명시) + 다음 행동을 STATE.md Next Step 기반 실행가능 `/mccp:*` command + 복사 버튼으로. | in-progress | `.claude/plans/dashboard-truthfulness-m2-overview-rebuild.plan.md` |
 | 3 | 위험·질문 은퇴 + 마일스톤 lifecycle | ledger 스냅샷 ⊆ 현재 plan 본문 매칭으로 해결된 risk/OQ 은퇴(메인 숨김, 상세는 드로어/접힘) + PRD Status 열 확장(pending\|in-progress\|complete\|dropped) → pending/dropped 표시 + '미진행 마일스톤 표시' 토글(default off) + 진행중=실제 1건. | pending | — |
 | 4 | 메인 표현 정리 | 타임라인 '더보기'(상위 N expanded + 나머지 접힘) + 미해결질문은 메인에 복사 버튼만(상세는 드로어) + 위험에 복사 버튼 추가. | pending | — |
 

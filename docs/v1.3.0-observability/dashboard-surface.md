@@ -18,13 +18,21 @@ Programmatic entry (for M4 hook wiring): `const { renderStatus } = require('plug
 | # | Section | Markdown anchor | HTML id | Graceful hide |
 |---|---|---|---|---|
 | 1 | Verdict (1-line tone+icon+text) | `#verdict` | `verdict` | never |
-| 2 | Status grid (4-axis: in-progress / blocked / next-step / risks-open) | `#status` | `status` | never |
+| 2 | Dashboard (host-version line + named widgets + next-action) | `#대시보드` | `route-overview` | never |
 | 3 | Worker fanout (envelopes + controller skew) | `#workers` | `workers` | hide if `envelopes.count===0 AND !controller_active` |
 | 4 | Audit timeline (last 7 days × 30 rows + briefing surface) | `#timeline` | `timeline` | never (empty placeholder if no rows) |
 | 5 | Open Questions (state + plan body merge, dedupe) | `#questions` | `questions` | hide if merged list empty |
 | 6 | Risks (top in-progress plan's `## Risks` + PRD fallback) | `#risks` | `risks` | never (`no risks surface available` placeholder if none) |
 
 Markdown uses `##` h2 headings consistently. HTML uses `<section id="...">` for stable cross-doc anchors (impeccable P3 — no emoji prefix in h2 to prevent slugify drift).
+
+### §2.1 Dashboard rebuild (dashboard-truthfulness M2)
+
+The first route (`#route-overview`, formerly '개요') is renamed to **'대시보드'** — the route id / `data-route="overview"` identifiers stay frozen (CSS `:target` routing); only the display text (nav-link / topbar title / `## 현황` → `## 대시보드` heading + anchor) changes. The hero panel is assembled once in `renderer/sections/status-grid.js` (the html/markdown composers only read its produced cells/version/nextAction — STATUS.md plain-text equivalence is structural):
+
+- **host-version line** — `<project> · vX.Y.Z · <source>` consumed from `model.host_version` (derive snapshot, see [schema-surface.md §12](./schema-surface.md)). Honest `미상` when null. The plugin self-version is never shown.
+- **named widgets** (진행 중 / 차단 / 위험) — surface the item **names** (in-progress plan labels / blocked decision_ids / backlog HIGH·CRITICAL findings), not bare counts. Top-3 expanded + `+N 더보기` `<details>` collapse (Output Constraint "한 화면 항목 상한"). Strong accent ≤1: 차단(>0) loud, 위험(>0) amber, 진행중 neutral. Risk finding text routes through `renderProseHtml`/`renderProseMd` (H10/H16 safe).
+- **next-action** — `renderer/parsers/next-action.js#resolveNextAction` extracts a **full command line** (command + args) from the STATE.md `Next Step` blob (Codex R1 F1). Required-arg commands (`/mccp:prp-implement`, `/mccp:plan`, …) with no args are NOT advertised as copyable (prose-only, `executable=false`); an inference fallback supplies a runnable command from `resume_state` (`/mccp:resume`) or the in-progress plan's resolved path. Copy button is rendered only when `executable=true`.
 
 ## §3 Verdict priority chain (11 steps, deterministic, LLM-free)
 

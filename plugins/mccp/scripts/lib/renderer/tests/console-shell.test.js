@@ -90,7 +90,7 @@ test('console-shell — topbar has breadcrumb + center page titles + freshness',
   const html = render({ repo_root: '/x/project-idenn' }, [gridSection([])]);
   assert.match(html, /<header class="topbar">/);
   assert.match(html, /<div class="crumb">[\s\S]*?<b>project-idenn<\/b><span class="sep">\/<\/span><span>상태<\/span>/);
-  assert.match(html, /<span class="tb-title" data-t="overview">개요<\/span>/);
+  assert.match(html, /<span class="tb-title" data-t="overview">대시보드<\/span>/);
   assert.match(html, /<span class="tb-title" data-t="pipeline">/);
   assert.match(html, /<span class="tb-title" data-t="activity">/);
   assert.match(html, /<span class="freshness">[\s\S]*?갱신/);

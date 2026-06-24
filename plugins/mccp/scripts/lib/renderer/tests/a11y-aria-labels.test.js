@@ -95,10 +95,10 @@ test('sidebar nav-rail exposes aria-label + page route links (redesign-3)', () =
   assert.ok(/data-route="activity"/.test(html), 'activity route link');
 });
 
-test('overview hero surfaces verdict h1 + axis-legend 4축', () => {
+test('overview hero surfaces verdict h1 + named widgets (M2)', () => {
   const { html } = renderStatus(fixtureModel());
   assert.ok(/<h1 class="verdict s-[a-z]+">/.test(html), 'verdict h1');
-  assert.ok(/<div class="axis-legend">/.test(html), 'axis-legend block');
+  assert.ok(/<div class="hero-widgets">/.test(html), 'hero-widgets block');
   assert.ok(/class="hero-status"/.test(html), 'hero-status tone label');
 });
 

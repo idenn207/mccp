@@ -52,16 +52,17 @@ test('topbar has breadcrumb + freshness; switcher + nav in left sidebar; status-
   assert.doesNotMatch(r.html, /class="status-strip"/);
 });
 
-test('overview hero surfaces axis-legend 4축 (진행/차단/다음/위험)', () => {
+test('overview hero surfaces named widgets (진행중/차단/위험 항목 이름, M2)', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  const legendMatch = r.html.match(/<div class="axis-legend">([\s\S]*?)<\/div>\s*<\/section>/);
-  assert.ok(legendMatch, 'axis-legend block exists');
-  assert.match(legendMatch[1], /진행 중/);
-  assert.match(legendMatch[1], /차단/);
-  assert.match(legendMatch[1], /다음/);
-  assert.match(legendMatch[1], /위험/);
-  // 4 axis chips
-  assert.equal((legendMatch[1].match(/class="axis"/g) || []).length, 4);
+  const widgetsMatch = r.html.match(/<div class="hero-widgets">([\s\S]*?)<\/section>/);
+  assert.ok(widgetsMatch, 'hero-widgets block exists');
+  assert.match(widgetsMatch[1], /진행 중/);
+  assert.match(widgetsMatch[1], /차단/);
+  assert.match(widgetsMatch[1], /위험/);
+  // headline — 진행중 위젯이 카운트가 아닌 in-progress plan 이름을 노출
+  assert.match(widgetsMatch[1], /v1\.4\.2 · dashboard overhaul m1/);
+  // 3 named widgets
+  assert.equal((widgetsMatch[1].match(/class="hero-widget"/g) || []).length, 3);
 });
 
 test('html main has NO section#status (4축 hoisted to header)', () => {
@@ -106,9 +107,12 @@ test('html stale fixture — next value wrapped in span.stale-label not code (F2
   assert.match(r.html, /<span class="stale-label">미정 \(stale\)<\/span>/);
 });
 
-test('html fresh fixture — next value wrapped in code (default)', () => {
+test('html fresh fixture — hero next-action is executable command (F1 full command line)', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  assert.match(r.html, /<code>v1\.4\.2 · dashboard overhaul m1<\/code>/);
+  // M2 — STATE.md 부재 시 in-progress plan 폴백이 resolved plan path 를 인자로 포함한
+  // 실행 가능 command 를 advertise (bare 명령 금지).
+  assert.match(r.html, /<code>\/mccp:prp-implement v1-4-2-dashboard-overhaul-m1\.plan\.md<\/code>/);
+  assert.match(r.html, /data-copy="\/mccp:prp-implement v1-4-2-dashboard-overhaul-m1\.plan\.md"/);
 });
 
 test('html — body lang="ko"', () => {

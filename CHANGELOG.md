@@ -4,6 +4,24 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.17.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.18.4] — 2026-06-24
+
+dashboard-truthfulness M2 — 개요 → '대시보드' 재구성 + 호스트 버전 / 위젯 / 다음 command. 콘솔 셸의 첫 route(`#route-overview`)를 카운트-only hero에서 **호스트 프로젝트의 현재 상태를 명시하는 '대시보드'**로 재구성한다. (1) 라우트/네비/탭/STATUS.md 섹션을 '개요'→'대시보드'로 재명명(route id·`data-route` 식별자 불변, 표시 텍스트만). (2) 버전을 플러그인 self-version이 아닌 **호스트 프로젝트 신호**(host meta→CHANGELOG→git tag→최신 plan cycle→미상 사다리)에서 derive — provenance를 snapshot 안에 박기 위해 **derive 레이어 additive `model.host_version` 필드**로 stamp하고 렌더러는 snapshot만 소비(Codex R1 F2). derive 는 spawn-free 계약 유지를 위해 git-tag rung을 `allowGit:false`로 skip(rung 자체는 injection으로 보존). (3) 진행중·차단·위험을 카운트가 아닌 **항목 이름**으로 나열(top-3 + `+N 더보기` 접힘). (4) '다음 행동'을 STATE.md `Next Step`에서 추출한 실행가능 `/mccp:*` **full command line**(인자 포함, 필수-인자 검증, 미충족 시 prose-only — Codex R1 F1) + 복사 버튼으로. 렌더 데이터 조립은 `status-grid.js` 한 곳에 집중하고 html/markdown 컴포저는 산출 cell만 읽는다 — STATUS.md plain-text 동등본 불변. Codex Plan-Codex R1 3 findings absorbed: F1(next-action full command line + `REQUIRES_ARG` 검증 + in-progress 폴백 resolved path), F2(host-version derive 레이어 이동 → snapshot provenance 재현 가능, MODEL_VERSION 'v1' 불변), F3(host meta first + CHANGELOG source-라벨 폴백 + plan-cycle framing + `source` 항상 노출). plugin.json `1.18.3 → 1.18.4` patch bump + 양 footer 동기화.
+
+### Added
+
+- **`scripts/derive/host-version.js`** — `resolveHostVersion` 5단 폴백 사다리(host meta → CHANGELOG → git-tag(opt-in) → plan-cycle → 미상), loud fail-open, dep-free. derive 시점 stamp → `model.host_version` snapshot.
+- **`scripts/lib/renderer/parsers/next-action.js`** — `resolveNextAction` STATE.md `Next Step` blob → full command line(인자 포함) + `REQUIRES_ARG` 검증 + resume/in-progress 추론 폴백. 순수 함수(model-only).
+- **테스트** — host-version(폴백 사다리 각 단 + meta↔CHANGELOG disagreement + spawn-free 계약) + next-action(full command/필수-인자/폴백/마커 정리) + dashboard-overview(named-widget 이름 노출·top-N·접힘 + version snapshot + next-action + STATUS.md 동등본) + schema-drift host_version 가드.
+
+### Changed
+
+- **`scripts/derive/{index,model}.js`** — `model.host_version` additive top-level 필드 wire(derive 조립 + emptyModel + validateShape present-only). MODEL_VERSION 'v1' 불변.
+- **`scripts/lib/renderer/sections/status-grid.js`** — dashboard 데이터 조립 일원화: count cell에 named `items` + `version`(host_version snapshot 소비) + `nextAction`(STATE.md) 산출. `md`/`html`/`cells` 키 불변(기존 소비자 호환).
+- **`scripts/lib/renderer/html.js`** — '개요'→'대시보드' 재명명(route 식별자 불변) + `renderHeroPanel`을 host-version 줄 + named-widget(top-3 + 접힘) + STATE.md next-action 복사로 재구성(axis-legend 대체) + hero-widget CSS(신규 색 토큰 0). footer v1.18.4. copy-btn label fix — '복사'를 `.cb-label` span으로 감싸 copied 시 `::after`가 append('복사 복사됨') 아닌 replace('복사됨')하도록 수정(drawer 동적 버튼 포함).
+- **`scripts/lib/renderer/markdown.js`** — `## 현황`→`## 대시보드`(anchor 포함) + grid.md가 version·named-widget·next-action plain-text 동등 노출. footer v1.18.4.
+- **`docs/v1.3.0-observability/{dashboard-surface,schema-surface}.md`** — 대시보드 재구성 surface(§2.1) + `model.host_version` additive 스키마(§12) 문서화.
+
 ## [1.18.3] — 2026-06-24
 
 dashboard-truthfulness M1 — 완료 이력 영속화 레지스터 (**foundation — 데이터 레이어 primitive**). `/mccp:pr` 게이트 수렴(pr-codex receipt write) 직후, **git-tracked로 의도된** one-file-per-entry 디렉토리(`.claude/state/completion-ledger/<id>.json`)에 완료 요약 1건을 append하는 epilogue + derive `ledger` source + `milestone-history.js`의 durable fallback(live receipt → ledger → git time → "날짜 미상")을 깔아둔다. receipt는 gitignore + worktree-local이라 merge + `git worktree remove` 후 사라지지만(post-merge amnesia), 레지스터 디렉토리는 git-tracked라 **commit된 엔트리는 worktree 제거 후에도 살아남고** milestone-history가 이를 durable history로 읽는다. **알려진 한계(M1 범위 밖, 후속 milestone)**: 엔트리 write는 `/mccp:prp-commit` **이후**의 `/mccp:pr` epilogue에서 일어나므로 worktree에 *미커밋* 상태로 남는다 — 엔트리를 같은 PR 흐름 안에서 git에 commit하는 **commit-wiring이 아직 없어**, 단일-milestone-ship 후 즉시 cleanup하는 §3.8 표준 흐름에서는 엔트리가 아직 영속화되지 않는다. 본 M1은 write/read/schema primitive까지를 닫고, end-to-end post-merge 생존(commit-wiring)은 후속 axis로 분리한다. **데이터 레이어 전용** — UI/렌더 마크업 무변경(렌더러는 레지스터를 읽기만). Codex Plan-Codex R1 3 findings absorbed: F1(dirty/detached 시 clean-tree gate로 안전 skip + `meta.ledger_write_skipped` 진단 stamp — 재현 불가 commit_sha 방지), F2(단일 배열 대신 one-file-per-entry → distinct 파일명으로 cross-worktree merge 충돌 0, session-ledger 패턴 완전 미러), F3(레지스터 항목 존재가 authoritative 완료 신호 — receipt meta는 diagnostic-only, 소비자는 meta flag가 아닌 항목을 읽음). `receipt_hash` carve-out 계승(briefing 선례) — ledger stamp가 tamper-detect digest 무력화 안 함. plugin.json `1.18.2 → 1.18.3` patch bump + 양 footer 동기화.

@@ -40,36 +40,41 @@ test('console-shell — sidebar search affordance present (static — 실검색 
   assert.match(html, /<div class="search"[^>]*>[\s\S]*?<span class="kbd">F<\/span>/);
 });
 
-test('console-shell — nav-rail wires 4 routes with Lucide icons', () => {
-  const html = render({}, [gridSection([])]);
+test('console-shell — nav-rail wires routes with Lucide icons (risks/questions split)', () => {
+  // M3-b — 위험·질문 단일 entry → 위험 + 미해결 질문 2 entry. questions(idx 5) present
+  // 시 미해결 질문 nav entry 렌더. sections: [grid,pipeline,fanout,active,timeline,questions,risks,ms]
+  const panel = (html) => ({ md: '', html, cells: [] });
+  const html = render({}, [gridSection([]), null, null, null, panel('<p>tl</p>'), panel('<p>oq</p>'), panel('<p>rk</p>'), null]);
   assert.match(html, /<nav class="nav-rail" aria-label="페이지">/);
-  for (const route of ['overview', 'pipeline', 'attention', 'activity']) {
+  for (const route of ['overview', 'pipeline', 'risks', 'questions', 'activity']) {
     assert.match(html, new RegExp('<a class="nav-link" data-route="' + route + '"'));
   }
   assert.match(html, /<use href="#ic-dashboard"\/>/);
   assert.match(html, /<use href="#ic-branch"\/>/);
 });
 
-// ── 위험·질문 전용 route (dashboard-console-redesign 사용자 결정 — attention
-//    surface 를 활동·기록에서 분리. 샘플 3-route IA 에서 의도적 이탈, M3 드로어 후속) ──
-test('console-shell — 위험·질문 is its own route, not under 활동·기록', () => {
+// ── 위험 / 미해결 질문 전용 route (M3-b — 사용자 결정 2026-06-25 "전용 사이드바".
+//    단일 attention route 를 위험·미해결-질문 2 route 로 분리. 패널 내 active/완화됨 탭) ──
+test('console-shell — 위험 / 미해결 질문 are separate routes (M3-b split)', () => {
   // sections 인덱스: [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory]
   const panel = (html) => ({ md: '', html: html, cells: [] });
   const html = render(
     {},
     [gridSection([]), null, null, null, panel('<p>tl</p>'), panel('<p>oq</p>'), panel('<p>rk</p>'), null]
   );
-  // attention route 가 존재하고 nav/tb-title 가 wired.
-  assert.match(html, /<section class="route" id="route-attention"[^>]*>/);
-  assert.match(html, /<a class="nav-link" data-route="attention" href="#route-attention">/);
-  assert.match(html, /<span class="tb-title" data-t="attention">위험 · 질문<\/span>/);
-  // 위험 + 미해결 질문 panel-title 이 attention route 안에 위치(활동 route 밖).
-  const attentionBlock = html.slice(
-    html.indexOf('id="route-attention"'),
-    html.indexOf('id="route-activity"')
-  );
-  assert.match(attentionBlock, /<h3 class="panel-title">위험<\/h3>/);
-  assert.match(attentionBlock, /<h3 class="panel-title">미해결 질문<\/h3>/);
+  // 위험 route 가 존재하고 nav/tb-title wired.
+  assert.match(html, /<section class="route" id="route-risks"[^>]*>/);
+  assert.match(html, /<a class="nav-link" data-route="risks" href="#route-risks">/);
+  assert.match(html, /<span class="tb-title" data-t="risks">위험<\/span>/);
+  // 미해결 질문 route 가 별도 route 로 존재.
+  assert.match(html, /<section class="route" id="route-questions"[^>]*>/);
+  assert.match(html, /<a class="nav-link" data-route="questions" href="#route-questions">/);
+  assert.match(html, /<span class="tb-title" data-t="questions">미해결 질문<\/span>/);
+  // 위험 panel-title 은 route-risks 안, 미해결 질문 panel-title 은 route-questions 안.
+  const riskBlock = html.slice(html.indexOf('id="route-risks"'), html.indexOf('id="route-questions"'));
+  assert.match(riskBlock, /<h3 class="panel-title">위험<\/h3>/);
+  const qBlock = html.slice(html.indexOf('id="route-questions"'), html.indexOf('id="route-activity"'));
+  assert.match(qBlock, /<h3 class="panel-title">미해결 질문<\/h3>/);
 });
 
 // ── 차단 pin-alert (기존 grid blocked 신호로 조건부) ─────────────────────

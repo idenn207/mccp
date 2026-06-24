@@ -235,13 +235,13 @@ grep '"deferred_findings_count": 3' .claude/receipts/mccp-plan-codex/test-deferr
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| YAGNI triage step 자체가 Claude 토큰 추가 | High (구조상 매 R1 발생) | Low | finding당 1줄. R2 회피 시 절감이 5-10배 더 큼. |
-| DEFER_TO_BACKLOG 파일이 graveyard화 | Medium | Low-Medium | `/mccp:trace` surface는 별도 cycle로 deferred (YAGNI). 파일 존재만으로 plan 비대화 차단 목적 충족. |
-| Codex가 R1에서 ACCEPT_NOW CRITICAL을 영영 안 표시 → R2 절대 안 trigger → adversarial value 손실 | Low | High | (a) `MCCP_GATE_ROUND_CAP=3` override 가능. (b) plan.md 5.5 auto-CRITICAL catalog는 무관하게 작동 (CRITICAL Open Question은 무조건 STOP). |
-| 기존 plan의 "R1+R2 converged" 패턴이 새 schema와 충돌 | Low | Low | inject 텍스트 형식만 영향. 기존 receipt forward-compat. |
-| 사용자가 매번 env var 토글 cognitive overhead | Low | Low | Default 1로 두면 끄는 행위만 필요. 평소 무의식. |
-| Codex 영구 비활성화 상태 (`MCCP_CODEX_DISABLED=1`)이므로 정책 효과 즉시 검증 불가 | High | Low (정책 자체는 mechanical 검증 가능) | grep + unit test로 spec compliance 검증. round 효과는 Codex 재활성화 첫 cycle에서 자연 측정. |
-| `prp-implement.md` 2.5.1 dedupe 강화로 implement-codex가 거의 항상 skip → implement-time decision 누락 review 위험 | Medium | Medium | file-set ⊆ plan이라는 조건 자체가 architectural decision 변경이 없다는 시그널. 진짜 새 결정은 file 추가/architecture 변경으로 자연 surface. |
+| YAGNI triage step 자체가 Claude 토큰 추가 | High (구조상 매 R1 발생) | Low | finding당 1줄. R2 회피 시 절감이 5-10배 더 큼. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| DEFER_TO_BACKLOG 파일이 graveyard화 | Medium | Low-Medium | `/mccp:trace` surface는 별도 cycle로 deferred (YAGNI). 파일 존재만으로 plan 비대화 차단 목적 충족. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| Codex가 R1에서 ACCEPT_NOW CRITICAL을 영영 안 표시 → R2 절대 안 trigger → adversarial value 손실 | Low | High | (a) `MCCP_GATE_ROUND_CAP=3` override 가능. (b) plan.md 5.5 auto-CRITICAL catalog는 무관하게 작동 (CRITICAL Open Question은 무조건 STOP). |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 기존 plan의 "R1+R2 converged" 패턴이 새 schema와 충돌 | Low | Low | inject 텍스트 형식만 영향. 기존 receipt forward-compat. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 사용자가 매번 env var 토글 cognitive overhead | Low | Low | Default 1로 두면 끄는 행위만 필요. 평소 무의식. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| Codex 영구 비활성화 상태 (`MCCP_CODEX_DISABLED=1`)이므로 정책 효과 즉시 검증 불가 | High | Low (정책 자체는 mechanical 검증 가능) | grep + unit test로 spec compliance 검증. round 효과는 Codex 재활성화 첫 cycle에서 자연 측정. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| `prp-implement.md` 2.5.1 dedupe 강화로 implement-codex가 거의 항상 skip → implement-time decision 누락 review 위험 | Medium | Medium | file-set ⊆ plan이라는 조건 자체가 architectural decision 변경이 없다는 시그널. 진짜 새 결정은 file 추가/architecture 변경으로 자연 surface. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ---
 

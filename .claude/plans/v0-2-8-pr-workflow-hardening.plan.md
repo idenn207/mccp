@@ -285,11 +285,11 @@
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| B invariant는 Claude self-discipline 의존, mechanical enforcement 없음 | High | v0.2.7 hook-trace로 audit log 보강 hook 검토 (Q1) |
-| D dedupe는 decision-slug 일치 가정 | Medium | v0.2.6 Task 2.1 통합 머지 후에만 활성화 (의존성 명시) |
-| VSCode CLI `--reuse-window`는 active state 의존, VSCode 미실행 시 동작 불확실 | Medium | timeout 5s graceful exit |
-| 사용자 `.markdownlint.json` vs extension default rule set 충돌 | Low | α는 사용자 config 자동 적용, β는 cwd `.markdownlint.json` lookup 명시 |
-| γ 미포함 — 일부 환경 warning 잔존 | Low | 사용자 보고 후 amend |
+| B invariant는 Claude self-discipline 의존, mechanical enforcement 없음 | High | v0.2.7 hook-trace로 audit log 보강 hook 검토 (Q1) |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| D dedupe는 decision-slug 일치 가정 | Medium | v0.2.6 Task 2.1 통합 머지 후에만 활성화 (의존성 명시) |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| VSCode CLI `--reuse-window`는 active state 의존, VSCode 미실행 시 동작 불확실 | Medium | timeout 5s graceful exit |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 사용자 `.markdownlint.json` vs extension default rule set 충돌 | Low | α는 사용자 config 자동 적용, β는 cwd `.markdownlint.json` lookup 명시 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| γ 미포함 — 일부 환경 warning 잔존 | Low | 사용자 보고 후 amend |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 

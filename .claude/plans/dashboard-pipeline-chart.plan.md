@@ -116,11 +116,11 @@ node -e "process.exit(require('./plugins/mccp/.claude-plugin/plugin.json').versi
 ## Risks
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| carve-out 과확장으로 일반 chrome 위반 누락 | 중 | carve-out을 `pipe-node`/`pipe-edge` 클래스로 한정 + output-constraints.test.js에 "일반 chrome H3/H4 위반 여전히 검출" assert |
-| CDN 라이브러리 미로드 시 인터랙션 깨짐 | 중 | progressive enhancement — 베이스라인 SVG/CSS가 JS 없이 상태 표시. enhancement는 best-effort |
-| 가로 파이프라인이 좁은 viewport에서 깨짐 | 중 | flex-wrap + 노드 최소폭 + 모바일 세로 fallback, render-integration 테스트 |
-| 라이브러리 CSS가 GitHub Actions 절제 미학 오염 | 중 | 프로젝트 토큰으로 override + 신규 강조색 0(기존 토큰 재사용) |
-| 신규 섹션이 기존 렌더 회귀 | 중 | safeSection fail-open + 전체 renderer 스위트 회귀 통과 필수 |
+| carve-out 과확장으로 일반 chrome 위반 누락 | 중 | carve-out을 `pipe-node`/`pipe-edge` 클래스로 한정 + output-constraints.test.js에 "일반 chrome H3/H4 위반 여전히 검출" assert |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| CDN 라이브러리 미로드 시 인터랙션 깨짐 | 중 | progressive enhancement — 베이스라인 SVG/CSS가 JS 없이 상태 표시. enhancement는 best-effort |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 가로 파이프라인이 좁은 viewport에서 깨짐 | 중 | flex-wrap + 노드 최소폭 + 모바일 세로 fallback, render-integration 테스트 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 라이브러리 CSS가 GitHub Actions 절제 미학 오염 | 중 | 프로젝트 토큰으로 override + 신규 강조색 0(기존 토큰 재사용) |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 신규 섹션이 기존 렌더 회귀 | 중 | safeSection fail-open + 전체 renderer 스위트 회귀 통과 필수 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 - [ ] 모든 Task 완료

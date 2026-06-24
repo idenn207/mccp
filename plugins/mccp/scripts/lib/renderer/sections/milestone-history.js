@@ -2,7 +2,12 @@
 
 const fs = require('fs');
 const path = require('path');
-const { parseDeliveryMilestonesComplete, resolvePrdRef, extractPlanSummary } = require('../parsers/plan-body');
+const {
+  parseDeliveryMilestonesComplete,
+  parseDeliveryMilestonesLifecycle,
+  resolvePrdRef,
+  extractPlanSummary,
+} = require('../parsers/plan-body');
 const { detailId, addDetail, buildMilestoneDetail, renderDetailMd } = require('../parsers/drawer-detail');
 
 const MAX_EXPANDED = 5;
@@ -124,6 +129,10 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
   // 각 plan의 source_prd를 dual-path(plan-dir / repo-root)로 해석해 실제로 읽히는
   // PRD를 채택 → 평문-경로 PRD discovery 복원 (Codex F1 absorption).
   const all = [];
+  // M3 — lifecycle(pending/dropped) 행을 완료-기록 early-return *앞*에서 수집(Codex
+  // F3 — lifecycle-only PRD 도 렌더). dedup by status|basename|name.
+  const lifecycle = [];
+  const seenLifecycle = new Set();
   const seenPrd = new Set();
   for (const p of plans) {
     if (!p || !p.path) continue;
@@ -136,6 +145,12 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
     seenPrd.add(resolved.path);
     const prdDir = path.dirname(resolved.path);
     const completeRows = parseDeliveryMilestonesComplete(resolved.body);
+    for (const lr of parseDeliveryMilestonesLifecycle(resolved.body)) {
+      const key = lr.status + '|' + (lr.planBasename || lr.name);
+      if (seenLifecycle.has(key)) continue;
+      seenLifecycle.add(key);
+      lifecycle.push(lr);
+    }
     for (const row of completeRows) {
       const ship = pickShipReceipt(receipts, row.planBasename);
       let completedAt = ship && ship.created_at ? ship.created_at : null;
@@ -196,7 +211,8 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
     return tb - ta;
   });
 
-  if (merged.length === 0) return null;
+  // M3 (Codex F3) — 완료 0 이어도 lifecycle 있으면 렌더(early-return 조건 확장).
+  if (merged.length === 0 && lifecycle.length === 0) return null;
   const expanded = merged.slice(0, MAX_EXPANDED);
   const collapsed = merged.slice(MAX_EXPANDED);
   const now = Date.now();
@@ -244,19 +260,60 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
   const expR = expanded.map((e, i) => renderItem(e, i));
   const colR = collapsed.map((e, i) => renderItem(e, MAX_EXPANDED + i));
 
-  let html = '<ul class="milestone-history" role="list">' + expR.map(r => r.html).join('') + '</ul>';
-  if (collapsed.length > 0) {
+  // M3 — lifecycle(pending/dropped) 행. 비-색 이중표기(◌ 예정 / ⊘ 폐기) + 드로어
+  // detail 없음(data-detail-id 미부여 → H18 trigger 카운트 무영향). 완료 항목과
+  // 구조 동일한 milestone-item li 이되 ms-life-mark 텍스트 마커 사용.
+  function renderLifecycleItem(row) {
+    const isPending = row.status === 'pending';
+    const mark = isPending ? '◌' : '⊘';
+    const label = isPending ? '예정' : '폐기';
+    const fileHtml = row.planBasename
+      ? '<span class="ms-file">' + escapeHtml(row.planBasename) + '</span>'
+      : '';
+    const html = '<li class="milestone-item ms-lifecycle">'
+      + '<span class="ms-life-mark" aria-hidden="true">' + mark + '</span>'
+      + '<span class="sr-only">' + escapeHtml(label) + '</span>'
+      + '<span class="ms-text">' + renderProseHtml(row.name, formatUtils) + fileHtml + '</span>'
+      + '<span class="ms-when">' + escapeHtml(label) + '</span>'
+      + '</li>';
+    const nameMd = formatUtils.renderProseMd ? formatUtils.renderProseMd(row.name) : row.name;
+    const md = '- ' + mark + ' ' + label + ' · ' + nameMd
+      + (row.planBasename ? ' (' + row.planBasename + ')' : '');
+    return { html, md };
+  }
+  const lifeR = lifecycle.map(renderLifecycleItem);
+
+  let html = '';
+  const mdParts = [];
+  if (merged.length > 0) {
+    html += '<ul class="milestone-history" role="list">' + expR.map(r => r.html).join('') + '</ul>';
+    if (collapsed.length > 0) {
+      html += '<details class="more"><summary>'
+        + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
+        + collapsed.length + ' 더보기</summary>'
+        + '<ul class="milestone-history" role="list">' + colR.map(r => r.html).join('') + '</ul></details>';
+    }
+    let cmd = expR.map(r => r.md).join('\n');
+    if (collapsed.length > 0) {
+      cmd += '\n\n<details>\n<summary>+' + collapsed.length + ' 더보기</summary>\n\n'
+        + colR.map(r => r.md).join('\n')
+        + '\n\n</details>';
+    }
+    mdParts.push(cmd);
+  }
+
+  // M3 — '미진행 마일스톤 N건 · 표시' default-off 토글(positional churn 회피).
+  if (lifecycle.length > 0) {
     html += '<details class="more"><summary>'
-      + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
-      + collapsed.length + ' 더보기</summary>'
-      + '<ul class="milestone-history" role="list">' + colR.map(r => r.html).join('') + '</ul></details>';
+      + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>'
+      + '미진행 마일스톤 ' + lifecycle.length + '건 · 표시</summary>'
+      + '<ul class="milestone-history" role="list">' + lifeR.map(r => r.html).join('') + '</ul></details>';
+    mdParts.push('<details>\n<summary>미진행 마일스톤 ' + lifecycle.length + '건 · 표시</summary>\n\n'
+      + lifeR.map(r => r.md).join('\n')
+      + '\n\n</details>');
   }
-  let md = expR.map(r => r.md).join('\n');
-  if (collapsed.length > 0) {
-    md += '\n\n<details>\n<summary>+' + collapsed.length + ' 더보기</summary>\n\n'
-      + colR.map(r => r.md).join('\n')
-      + '\n\n</details>';
-  }
+
+  const md = mdParts.join('\n\n');
   return { md, html, details: detailMap };
 }
 

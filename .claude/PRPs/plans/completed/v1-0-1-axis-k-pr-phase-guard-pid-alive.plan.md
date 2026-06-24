@@ -133,8 +133,8 @@ node plugins/mccp/scripts/receipt/cli.js write \
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| race window: alive PID check 직후 holder die → guard가 NEVER reclaim path 선택, 다음 호출에서 같은 결과 (기존 동작 회귀 0). M2 reproduction이 자연 cover | LOW | Task 1에서 isPidAlive → tryReclaimStaleLock 이중 호출 (lock library가 atomic rename으로 race window 최소화). `pr-phase-lock.js:475` `if (!tryReclaimStaleLock(p)) return 11;` 동일 path |
-| F11 sealed-channel schema 무손상 invariant 위반 | LOW | Task 1+2가 lock body 읽기만 — `ownership_token_hash` 검증 path 무접근. `tryReclaimStaleLock()`이 token-free로 설계됨 (R3-F1). receipt acceptance에 schema diff 0 row 박음 |
+| race window: alive PID check 직후 holder die → guard가 NEVER reclaim path 선택, 다음 호출에서 같은 결과 (기존 동작 회귀 0). M2 reproduction이 자연 cover | LOW | Task 1에서 isPidAlive → tryReclaimStaleLock 이중 호출 (lock library가 atomic rename으로 race window 최소화). `pr-phase-lock.js:475` `if (!tryReclaimStaleLock(p)) return 11;` 동일 path |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| F11 sealed-channel schema 무손상 invariant 위반 | LOW | Task 1+2가 lock body 읽기만 — `ownership_token_hash` 검증 path 무접근. `tryReclaimStaleLock()`이 token-free로 설계됨 (R3-F1). receipt acceptance에 schema diff 0 row 박음 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
 | Windows PowerShell 우회 path 회귀 | LOW | Task 5 axis 11.5 fixture + hooks.json matcher `Edit|Write|MultiEdit|NotebookEdit|Bash` (PowerShell 포함 없음 — 기존 동작) verifty |
 | silent recovery → Loud fail-open principle 위반 | MED | Task 1 stderr 1줄 emit (구조화 prefix `[mccp:pr-phase-guard] stale lock reclaimed (former_run_id=...)`) + Task 3 state marker → Task 4 receipt audit field 양축 enforcement |
 | state marker 누락 / 비동기 race (marker write 후 process kill → next finalize-receipt가 못 읽음) | MED | atomic write (tmp + rename) — Task 2. read 실패 시 silent skip이지만 stderr 1줄 emit (Loud fail-open). marker 누락 시 receipt는 audit field 없이 작성됨 — chain-of-custody는 stderr trace로 secondary trail 유지 |

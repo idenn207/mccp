@@ -2,7 +2,48 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.17.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.18.6] — 2026-06-25
+
+dashboard-truthfulness M3-b — 위험·질문 진실성 *표현*(탭·전용 nav·뱃지). M3-a(해결 마커 + 결정적 render)가 *데이터*를 truthful하게 만들었으나 *표현*이 여전히 오해를 유발했다(사용자 피드백 2026-06-25): 위험 패널의 트레일링 "해결됨 243건" 큰 숫자가 메인 흐름에서 "위험 250개" 착시, OQ 패널의 "해결됨 30건"이 ~40 미해결 착시. M3-b는 그 표현 gap을 닫는다. (1) **active/완화됨 CSS-only 탭** — `parsers/tabs.js` 순수 빌더(hidden radio + flex `order` + 인접 `:checked + label + panel` 형제 선택자, JS 0). 위험/OQ 패널의 트레일링 `해결됨 N건 <details>`를 폐기하고 `미해결`(default-checked) · `완화됨`/`해결됨` 탭으로 분리 — 큰 resolved 숫자는 탭 label의 neutral 뱃지에만 노출(메인 흐름 제거). resolved 0이면 탭 없이 미해결 직접 노출. (2) **전용 route 분리** — 단일 `route-attention`(위험·질문)을 `route-risks` + `route-questions`로 split + 좌측 nav를 `위험`(ic-alert) + `미해결 질문`(ic-help) 2 entry로 + 각 nav-link에 active count 뱃지(neutral, 0이면 미표시). CSS :target routing/topbar-title/active-state 규칙 + tb-title 동반 갱신. (3) **정중한 empty state** — `발견된 위험이 없습니다.` / `미해결 질문이 없습니다.`. (4) **apply.js lock fail-closed**(Codex M3-b F4) — `withFileLock` lock 획득 실패 시 fail-open(경고 후 진행)이던 것을 fail-closed(편집 폐기·aborted 반환)로 — lost-update 1차 방어가 lock 보유, content-hash CAS는 2차. STATUS.md plain-text 동등은 탭 → `완화됨/해결됨 N건` 접힘 매핑(drawer-detail SSoT 불변). impeccable critique CONVERGED(4 Output Constraints 충족, 신규 강조색 0, raw marker 누출 0; 정식 a11y는 PR 단계 a11y-architect). code-review 후속(비블로킹): `enumerate.js` loud-fail-open 완성(stderr만 떴고 구조적 `degraded`/`warnings` 신호는 죽어있던 것 — read/parse 실패가 `warnings[]`에도 누적되도록 `pushWarn` wiring) + CHANGELOG versioning note stale 버전(`1.17.0 → 1.18.6`) 정정. plugin.json `1.18.5 → 1.18.6` patch bump + 양 footer. 557 test PASS(renderer 452 + derive 87 + stale-audit 18), 0 회귀.
+
+### Added
+
+- **`scripts/lib/renderer/parsers/tabs.js`** — CSS-only 탭 빌더(순수 함수, JS 의존 0). `buildTabs(spec, formatUtils)` — radio+label+panel triple, default-checked, neutral count 뱃지, escapeHtml/escapeAttr, fail-open(빈 탭 → `''`). risks/open-questions 단일 SSoT 공유.
+- **테스트** — `tabs.test.js` 신규(triple 구조·default-checked·count 뱃지·escape·fail-open) + `apply.test.js` lock 선점 fail-closed 회귀(write 0 + aborted).
+
+### Changed
+
+- **`scripts/lib/renderer/sections/{risks,open-questions}.js`** — 트레일링 `해결됨 N건 <details>` → active/완화됨(해결됨) 탭(`buildTabs`). resolved 큰 숫자는 탭 label 뱃지에만. empty state 정중화. `activeCount` 반환(nav 뱃지 입력). md는 plain-text `완화됨/해결됨 N건` 접힘 동등.
+- **`scripts/lib/renderer/html.js`** — `route-attention` → `route-risks` + `route-questions` 분리. nav-rail `위험·질문` 단일 → `위험` + `미해결 질문` 2 entry + neutral count 뱃지. `.tabs`/`.tab`/`.tab-panel`/`.tab-radio`/`.tab-count` CSS(강조색 0, flat). CSS :target routing/topbar-title 동반 갱신. footer v1.18.6.
+- **`scripts/lib/renderer/markdown.js`** — footer v1.18.6.
+- **`scripts/lib/stale-audit/apply.js`** — `withFileLock` fail-closed(Codex M3-b F4) + `lockMaxRetries` 테스트 seam.
+- **`scripts/lib/stale-audit/enumerate.js`** — loud-fail-open 완성(code-review M1): `warn()`가 stderr만 쓰고 `warnings[]`/`degraded`는 죽어있던 half-wiring을 `pushWarn(warnings, msg)`로 닫음 — read/parse 실패가 구조적 `degraded=true` 신호로도 surface. `enumeratePlan`/`enumeratePrd`에 `warnings` sink thread. `enumerate.test.js` read-실패 회귀 1건 추가.
+- **`docs/v1.3.0-observability/dashboard-surface.md`** — active/resolved 탭 + 전용 route + 섹션 뱃지 문서화.
+
+## [1.18.5] — 2026-06-25
+
+dashboard-truthfulness M3 — 위험·질문 은퇴 + 마일스톤 lifecycle (평가 기반 소스 최신화). M3의 본질을 *render-side 추정 은퇴*에서 **평가 기반 소스 최신화(해결 마커)**로 재설계한다(사용자 결정 2026-06-24). 세 부분: (1) **비파괴 해결 마커 컨벤션 + 결정적 render** — 위험/OQ 라인 끝(trailing)에 `<!--mccp:resolved reason="…" at="…"-->` 마커를 달면 render가 메인에서 빼고 "해결됨 N건" 접힘으로만 노출(되돌리기 가능). resolved 신호는 **마커뿐** — bare `[x]` 체크박스나 milestone status 추정은 은퇴 안 함(Codex 재설계 F1, "explicit row-level closed marker"). 마커는 **셀 split 이전 라인 단위로 추출·제거**해 표 phantom 셀 0 + reason의 `|`/`"`/`-->` escape(Codex 재설계 F2). 컨벤션을 *문서화*하는 plan 본문(prose 안 backtick 마커 언급)이 거짓 은퇴되지 않도록 reader는 trailing 마커만 인정. (2) **`/mccp:dashboard-audit` 재사용 명령** — agent가 active(미마커) 항목을 현재 구조와 대조해 `live|resolved|obsolete` 평가(증거 인용 필수, 불확실 시 live 보수), 제안 테이블 human-gate 승인 후 결정적 applier가 소스 `.md`에 마커 삽입. applier는 per-file lock + content-hash compare-and-swap(rename 직전 재-read, 불일치 abort) + 파일당 1 트랜잭션 batch + idempotent + 편집 후 재-parse 무손상 검증(Codex 재설계 F3 lost-update 방지). 평가(추론)는 명령에만, render는 결정적 마커 reader — derive/render의 read-only·LLM-free·결정성 불변. (3) **마일스톤 lifecycle** — `VALID_STATUSES`에 `dropped` 추가 + pending/dropped를 마일스톤 패널 default-off `<details>` 토글(비-색 ◌ 예정 / ⊘ 폐기 이중표기)로 노출 + audit가 stale in-progress 마일스톤 status 최신화("진행중=실제"). lifecycle 파싱은 완료-기록 early-return 앞(Codex 재설계 F3 — lifecycle-only PRD도 렌더). plugin.json `1.18.4 → 1.18.5` patch bump + 양 footer 동기화. 548 test PASS(renderer 446 + derive 87 + stale-audit 15), 0 회귀.
+
+### Added
+
+- **`scripts/lib/renderer/parsers/resolution-marker.js`** — 순수 마커 컨벤션. `RESOLVED_TRAILING_RE`(trailing-anchored) + `isResolved`/`extractMeta`/`stripLineMarker`(셀 split 이전 전처리) + `stripMarker`(display) + `escapeMarkerReason`(`|`/`"`/`-->` 제거) + `buildMarker`. fail-open.
+- **`scripts/lib/renderer/parsers/resolution-classify.js`** — `annotateResolution(planBody)` risk/OQ resolved flag 정규화·전파 seam(마커 기준만, 추정 0). index.js dedupe 직후 wiring.
+- **`scripts/lib/stale-audit/{enumerate,apply,index,locate}.js`** — 결정적 stale-audit lib. enumerate(active 항목 + 안정 ref) + apply(비파괴 마커 삽입, F3 lock + hash CAS + batch + 재-parse 검증 + 오매칭 skip) + locate(enumerate↔apply 라인 위치 정합) + facade.
+- **`commands/dashboard-audit.md`** — `/mccp:dashboard-audit` 재사용 명령(enumerate → evaluate(agent, 증거) → propose+human-gate → apply → render).
+- **테스트** — resolution-marker(trailing/메타-케이스/escape) + resolution-classify(전파·fail-open) + milestone-lifecycle(토글·완료0·비-색 마커) + stale-audit enumerate/apply(F3 hash-mismatch abort·batch·idempotency·재-parse·오매칭).
+
+### Changed
+
+- **`scripts/lib/renderer/parsers/plan-body.js`** — `parseTableRows` withMeta(행끝 마커 셀 split 이전 strip) + `parseOpenQuestions`/`parseRisks` resolved flag(마커만) + `VALID_STATUSES`에 `dropped` + `parseDeliveryMilestonesLifecycle` 신설(pending/dropped, 링크 무요구). 기존 반환 키 불변(additive).
+- **`scripts/lib/renderer/index.js`** — dedupe 직후 `annotateResolution` wiring(try/catch fail-open).
+- **`scripts/lib/renderer/sections/{risks,open-questions}.js`** — active(미해결) 메인 + resolved 트레일링 `<details>`("해결됨 N건") 분할. 드로어 detail 유지(H18 trigger==key 카운트 보존). 마커 display 누출 0(stripMarker). STATE.md OQ는 항상 active.
+- **`scripts/lib/renderer/sections/milestone-history.js`** — lifecycle(pending/dropped) 수집을 완료-기록 early-return 앞으로 + default-off 토글 렌더(비-색 ◌/⊘). 완료0·lifecycle-only PRD도 렌더(Codex F3).
+- **`scripts/lib/renderer/html.js`** — `.ms-life-mark`/`.ms-lifecycle` 비-색 텍스트 마커 CSS(신규 색 토큰 0). footer v1.18.5.
+- **`scripts/lib/renderer/markdown.js`** — footer v1.18.5.
+- **`docs/v1.3.0-observability/dashboard-surface.md`** — 해결 마커 컨벤션 + audit 명령 surface + lifecycle 토글 문서화.
+- **`.claude/prds/dashboard-truthfulness.prd.md`** — M2 complete + M3 in-progress + Plan cell + MVP/메트릭 문구를 "평가 기반 소스 최신화(해결 마커)"로 갱신(ledger-스냅샷-은퇴 → 마커-기반-은퇴 재설계 반영).
 
 ## [1.18.4] — 2026-06-24
 

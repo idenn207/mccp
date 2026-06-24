@@ -231,14 +231,14 @@ grep -A0 'severity-tag' .claude/cache/status.html | grep -E '(CRITICAL|HIGH|MEDI
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| OKLCH → sRGB → contrast ratio 변환의 deterministic dep 0 구현이 W3C spec과 미세 편차 — false fail | medium | spec 기준 (W3C CSS Color 4 §16.4 OKLab to OKLCH + matrix multiply) 3 단계만 구현, ε 0.01 tolerance |
-| `<span tabindex="0">` 추가가 mouse 사용자 시각 회귀 (focus outline 의도 외 발현) | low | :focus-visible만 outline (focus는 X) — 기존 패턴 정합 |
-| skip-link `position: absolute; left: -9999px` 사용자 OS reader 일부에서 발화 안 됨 | low | `.sr-only` clip-path 표준 패턴 채택 — visually-hidden + reader 발화 |
-| OQ 결정 본문화가 사용자 의도와 다를 수 있음 (M1/M2 default가 사용자 동의 없이 채택된 것) | medium | 본 plan Task 1 OQ-a~g 7건을 Phase 5 PLAN-CODEX 게이트 + 사용자 review에 회부. 의문 항목은 CRITICAL Open Question으로 분리 |
-| a11y test가 기존 surface 회귀 (M2 4-part rendering test와 marker 충돌) | low | 신규 test 4개는 별도 파일 — 기존 fixture/assert 미수정 |
-| Lighthouse a11y manual 평가가 사용자 부담 | low | M3 acceptance에서 manual visual inspect만 요구 — 자동 score 목표 없음 |
-| dark mode `--muted: 0.65/0.008/250` vs `--bg: 0.18 0 0` 가 4.5:1 미달 가능 | medium | Task 6 lint가 fail 시 OKLCH L 값 조정 (예 0.68로 상향) — 색조 (h, c) 유지 |
-| `aria-label` 한글 + 영어 식별자 혼용 시 reader 발화 오작동 (예: "심각도: CRITICAL" — CRITICAL이 영어 그대로) | low | OQ-b 결정 정합 — 식별자/등급은 영어 유지, prefix만 한글 |
+| OKLCH → sRGB → contrast ratio 변환의 deterministic dep 0 구현이 W3C spec과 미세 편차 — false fail | medium | spec 기준 (W3C CSS Color 4 §16.4 OKLab to OKLCH + matrix multiply) 3 단계만 구현, ε 0.01 tolerance |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| `<span tabindex="0">` 추가가 mouse 사용자 시각 회귀 (focus outline 의도 외 발현) | low | :focus-visible만 outline (focus는 X) — 기존 패턴 정합 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| skip-link `position: absolute; left: -9999px` 사용자 OS reader 일부에서 발화 안 됨 | low | `.sr-only` clip-path 표준 패턴 채택 — visually-hidden + reader 발화 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| OQ 결정 본문화가 사용자 의도와 다를 수 있음 (M1/M2 default가 사용자 동의 없이 채택된 것) | medium | 본 plan Task 1 OQ-a~g 7건을 Phase 5 PLAN-CODEX 게이트 + 사용자 review에 회부. 의문 항목은 CRITICAL Open Question으로 분리 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| a11y test가 기존 surface 회귀 (M2 4-part rendering test와 marker 충돌) | low | 신규 test 4개는 별도 파일 — 기존 fixture/assert 미수정 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| Lighthouse a11y manual 평가가 사용자 부담 | low | M3 acceptance에서 manual visual inspect만 요구 — 자동 score 목표 없음 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| dark mode `--muted: 0.65/0.008/250` vs `--bg: 0.18 0 0` 가 4.5:1 미달 가능 | medium | Task 6 lint가 fail 시 OKLCH L 값 조정 (예 0.68로 상향) — 색조 (h, c) 유지 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| `aria-label` 한글 + 영어 식별자 혼용 시 reader 발화 오작동 (예: "심각도: CRITICAL" — CRITICAL이 영어 그대로) | low | OQ-b 결정 정합 — 식별자/등급은 영어 유지, prefix만 한글 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 

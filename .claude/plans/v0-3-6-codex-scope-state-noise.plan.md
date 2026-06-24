@@ -155,14 +155,14 @@ node plugins/mccp/scripts/receipt/cli.js derive-decision --command mccp:pr
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| Codex가 design exclusion preamble 무시하고 발화 | M | Task 2 output filter가 backstop. receipt audit으로 noncompliance rate 추적. dogfood 후 keyword 리스트 tune. |
-| keyword filter false-positive로 valid finding drop | L | `dropped_findings_digest` (sha256 of joined texts) receipt에 stash → 사용자 audit. keyword를 word-boundary regex로 좁힘. |
-| content-hash가 의도된 frontmatter 갱신을 skip | M | hash 대상 명시 — `updated_at`/`last_event_at`/`created_at`만 제외, 나머지 frontmatter는 hash 포함. tests로 갱신 결정 fault matrix 보장. |
-| derive-decision normalize가 기존 valid slug에 의도치 않은 영향 | L | normalize는 dot/underscore만 → hyphen. 기존 valid slug (alphanumeric+hyphen)는 idempotent. tests로 회귀 보호. |
-| implement-receipt fallback이 stale slug 반환 | M | receipt mtime + decision_id 비교. 1시간 이상 stale이면 fallback skip + stderr warn (별도 spike — Task 5에 포함 가능 여부 plan-codex 게이트에서 확인). |
-| receipt schema migration이 production receipt 손상 | L | `--dry-run` 필수 + marker 파일 + idempotent + 기존 v0.2.x 마이그레이션 패턴 mirror. backup 권장 (PR body에 명시). |
-| 3축 묶음 commit이 review 부담 증가 | M | 축당 sub-commit 분리 (Task 1+2+3+6 → 축 1 commit, Task 4 → 축 2 commit, Task 5 → 축 3 commit, Task 7+8 → cross-cut commit). PR description에 sub-commit 매핑. |
-| v1.0 release 일정 지연 | M | 각 축이 독립 implement 가능 — 부분 ship 가능. 축 2(STATE.md noise)가 가장 cost-clear → v1.0 first 우선순위. |
+| Codex가 design exclusion preamble 무시하고 발화 | M | Task 2 output filter가 backstop. receipt audit으로 noncompliance rate 추적. dogfood 후 keyword 리스트 tune. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| keyword filter false-positive로 valid finding drop | L | `dropped_findings_digest` (sha256 of joined texts) receipt에 stash → 사용자 audit. keyword를 word-boundary regex로 좁힘. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| content-hash가 의도된 frontmatter 갱신을 skip | M | hash 대상 명시 — `updated_at`/`last_event_at`/`created_at`만 제외, 나머지 frontmatter는 hash 포함. tests로 갱신 결정 fault matrix 보장. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| derive-decision normalize가 기존 valid slug에 의도치 않은 영향 | L | normalize는 dot/underscore만 → hyphen. 기존 valid slug (alphanumeric+hyphen)는 idempotent. tests로 회귀 보호. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| implement-receipt fallback이 stale slug 반환 | M | receipt mtime + decision_id 비교. 1시간 이상 stale이면 fallback skip + stderr warn (별도 spike — Task 5에 포함 가능 여부 plan-codex 게이트에서 확인). |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| receipt schema migration이 production receipt 손상 | L | `--dry-run` 필수 + marker 파일 + idempotent + 기존 v0.2.x 마이그레이션 패턴 mirror. backup 권장 (PR body에 명시). |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 3축 묶음 commit이 review 부담 증가 | M | 축당 sub-commit 분리 (Task 1+2+3+6 → 축 1 commit, Task 4 → 축 2 commit, Task 5 → 축 3 commit, Task 7+8 → cross-cut commit). PR description에 sub-commit 매핑. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| v1.0 release 일정 지연 | M | 각 축이 독립 implement 가능 — 부분 ship 가능. 축 2(STATE.md noise)가 가장 cost-clear → v1.0 first 우선순위. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Codex Implementation Review
 

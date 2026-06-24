@@ -743,3 +743,54 @@ test('H17 — actual renderer output has no nested cards', () => {
   const r = renderStatus(model, { snapshotsDir: null });
   assert.ok(!r.design_constraint_violations.includes('H17'));
 });
+
+// ----------------------------------------------------------------------
+// M3 — 해결 접힘 + lifecycle 토글 신규 markup 이 H10/H15/H16 미위반
+// ----------------------------------------------------------------------
+
+test('M3 — 해결됨/미진행 토글 markup 은 em-dash(H10)·h4+(H15)·raw marker(H16) 0', () => {
+  const formatUtils = require('../format-utils');
+  const { renderRisks } = require('../sections/risks');
+  const { renderOpenQuestions } = require('../sections/open-questions');
+  const planBody = {
+    risks: [
+      { risk: 'active-r', likelihood: 'High', impact: 'High', mitigation: 'm', source: 'p', ordinal: 0, resolved: false },
+      { risk: 'done-r <!--mccp:resolved reason="x"-->', likelihood: 'Low', impact: 'Low', mitigation: 'm', source: 'p', ordinal: 1, resolved: true },
+    ],
+    openQuestions: [{ source: 'p.plan.md', text: 'done-q', lineNumber: 5, resolved: true }],
+  };
+  const risks = renderRisks({ sources: {} }, formatUtils, planBody);
+  const oq = renderOpenQuestions({ sources: {} }, formatUtils, planBody);
+  // 신규 markup 을 body 로 감싸 H10/H15/H16(HTML body 룰) 평가.
+  const html = '<!doctype html><html><body>' + risks.html + (oq ? oq.html : '') + '</body></html>';
+  const md = risks.md + '\n' + (oq ? oq.md : '');
+  const r = runOutputConstraints({ css: BASELINE_CSS, html, md });
+  for (const id of ['H10', 'H15', 'H16']) {
+    assert.ok(!r.violations.includes(id), id + ' 위반: ' + JSON.stringify(r.details.find((d) => d.rule === id)));
+  }
+  // 마커 누출 0(stripMarker).
+  assert.equal(/mccp:resolved/.test(html), false, '해결 마커 rendered surface 누출 0');
+});
+
+test('M3 — lifecycle 마커(◌/⊘)는 비-색 텍스트, 신규 강조색/카드 미도입(H3/H17 무영향)', () => {
+  const formatUtils = require('../format-utils');
+  const path = require('node:path');
+  const { renderMilestoneHistory } = require('../sections/milestone-history');
+  const cwd = path.resolve('/ocrepo');
+  const prdAbs = path.resolve(cwd, '.claude/prds/x.prd.md');
+  const PRD = [
+    '## Delivery Milestones', '',
+    '| # | Milestone | Outcome | Status | Plan |', '| --- | --- | --- | --- | --- |',
+    '| 1 | Future | o | pending | — |',
+    '| 2 | Killed | o | dropped | — |', '',
+  ].join('\n');
+  const model = { repo_root: cwd, sources: { plans: { items: [{ path: '.claude/plans/d.plan.md', source_prd: '.claude/prds/x.prd.md' }] }, receipts: { items: [] } } };
+  const out = renderMilestoneHistory(model, formatUtils, {}, { cwd, fsRead: (p) => { if (p === prdAbs) return PRD; throw new Error('x'); }, gitCommitTime: () => null });
+  const html = '<!doctype html><html><body>' + out.html + '</body></html>';
+  const r = runOutputConstraints({ css: BASELINE_CSS, html, md: out.md });
+  for (const id of ['H10', 'H15', 'H16', 'H17']) {
+    assert.ok(!r.violations.includes(id), id + ' 위반');
+  }
+  assert.match(out.html, /◌/);
+  assert.match(out.html, /⊘/);
+});

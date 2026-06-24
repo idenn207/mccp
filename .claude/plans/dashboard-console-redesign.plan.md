@@ -166,12 +166,12 @@ node -e "console.log(require('./plugins/mccp/.claude-plugin/plugin.json').versio
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| 셸 전면 교체가 기존 섹션 테스트 대량 회귀 | 고 | 섹션 **내부 마크업 불변**(panel-body wrap만) — 회귀를 셸 assertion 3종 + 신규 가드로 국한. Task별 단위 검증 |
-| H3 radius 룰 재작성이 anti-slop 가드 약화 | 중 | 클래스 열거 폐기하되 magnitude 천장 유지(과대 bubble ban) + H17 카드중첩 가드 불변. DESIGN.md에 근거 명문화 |
-| Pretendard 미설치 머신 시각 불일치 | 중 | system 스택 graceful fallback(이미 현 스택 보유) + tradeoff 문서화. vendored 업그레이드 reversible |
-| H7 backdrop 제거로 topbar 외형 차이 | 저 | 샘플도 solid bg fallback 보유 — 불투명화 시 ~95% 동일. glassmorphism 가드 보존이 우선 |
-| 브라우저 스크린샷 부재로 시각 회귀 미검출 | 중 | 산출 status.html을 사용자 육안 대조(필수) + 구조 회귀는 console-shell.test.js로 mechanical 가드 + 가능 시 impeccable audit/polish |
-| pin-alert/nav-count를 신규 추출로 오인 | 저 | M1은 **기존** grid blocked-count·pipeline decision-count 신호만 wiring(신규 derive 추출은 M2). 부재 시 조건부 미표시 |
+| 셸 전면 교체가 기존 섹션 테스트 대량 회귀 | 고 | 섹션 **내부 마크업 불변**(panel-body wrap만) — 회귀를 셸 assertion 3종 + 신규 가드로 국한. Task별 단위 검증 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| H3 radius 룰 재작성이 anti-slop 가드 약화 | 중 | 클래스 열거 폐기하되 magnitude 천장 유지(과대 bubble ban) + H17 카드중첩 가드 불변. DESIGN.md에 근거 명문화 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| Pretendard 미설치 머신 시각 불일치 | 중 | system 스택 graceful fallback(이미 현 스택 보유) + tradeoff 문서화. vendored 업그레이드 reversible |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| H7 backdrop 제거로 topbar 외형 차이 | 저 | 샘플도 solid bg fallback 보유 — 불투명화 시 ~95% 동일. glassmorphism 가드 보존이 우선 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 브라우저 스크린샷 부재로 시각 회귀 미검출 | 중 | 산출 status.html을 사용자 육안 대조(필수) + 구조 회귀는 console-shell.test.js로 mechanical 가드 + 가능 시 impeccable audit/polish |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| pin-alert/nav-count를 신규 추출로 오인 | 저 | M1은 **기존** grid blocked-count·pipeline decision-count 신호만 wiring(신규 derive 추출은 M2). 부재 시 조건부 미표시 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 - [ ] 샘플 셸(스위처/검색/nav 레일+아이콘/pin-alert/topbar 브레드크럼/중앙 page-title/Lucide/panel head·body·foot/`:target`/880 반응형)이 `html.js`에 이식됨

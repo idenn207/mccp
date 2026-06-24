@@ -2,8 +2,10 @@
 
 const fs = require('fs');
 const path = require('path');
+const { stripLineMarker, isResolved } = require('./resolution-marker');
 
-const VALID_STATUSES = new Set(['pending', 'in-progress', 'complete']);
+// M3 — 'dropped' 추가(마일스톤 lifecycle). 기존 3 status 불변(additive).
+const VALID_STATUSES = new Set(['pending', 'in-progress', 'complete', 'dropped']);
 
 // 추출 경로의 markdown-link/inline-code/quote 래퍼 제거. 평문 Source PRD가
 // 백틱·따옴표·대괄호로 감싸진 경우 해석 전에 벗긴다 (Codex F1 absorption).
@@ -52,12 +54,20 @@ function findSection(body, heading) {
   return nextHeader ? rest.slice(0, nextHeader.index) : rest;
 }
 
-function parseTableRows(section) {
+// M3 (Codex F2) — opts.withMeta=true 면 각 데이터 행에 stripLineMarker 를 **셀
+// split 이전** 적용해 행끝 해결 마커를 제거(phantom 셀 0)하고 row 객체
+// `{cells, resolved, meta}` 를 반환. 기본(withMeta 미지정)은 cells 배열을 그대로
+// 반환 — 마일스톤 파서 등 기존 caller 의 반환 shape 불변.
+function parseTableRows(section, opts) {
+  opts = opts || {};
+  const withMeta = !!opts.withMeta;
   if (!section) return [];
   const lines = section.split(/\r?\n/);
   const rows = [];
   let inTable = false;
-  for (const line of lines) {
+  for (const rawLine of lines) {
+    const sm = withMeta ? stripLineMarker(rawLine) : null;
+    const line = sm ? sm.line : rawLine;
     const trimmed = line.trim();
     if (/^\|\s*-+/.test(trimmed)) { inTable = true; continue; }
     if (!inTable) continue;
@@ -67,7 +77,8 @@ function parseTableRows(section) {
     }
     const inner = trimmed.replace(/^\|/, '').replace(/\|$/, '');
     const cells = inner.split('|').map(c => c.trim());
-    rows.push(cells);
+    if (withMeta) rows.push({ cells, resolved: sm.resolved, meta: sm.meta });
+    else rows.push(cells);
   }
   return rows;
 }
@@ -117,7 +128,10 @@ function parseOpenQuestions(planBody) {
       continue;
     }
     if (!inOQ) continue;
-    const m = line.match(/^\s*-\s+(?:\[[ xX]?\]\s+)?(.+?)\s*$/);
+    // M3 (Codex F2) — 행끝 해결 마커를 셀/텍스트 파싱 이전 제거. resolved 신호는
+    // raw 라인의 `<!--mccp:resolved-->` 마커뿐(Codex F1 — bare `[x]` 미인정).
+    const { line: cleaned } = stripLineMarker(line);
+    const m = cleaned.match(/^\s*-\s+(?:\[[ xX]?\]\s+)?(.+?)\s*$/);
     if (m) {
       const text = m[1].trim();
       if (text) {
@@ -126,6 +140,7 @@ function parseOpenQuestions(planBody) {
           lineNumber: i + 1,
           headingPath: headingStack.slice(),
           oqHeadingLineNumber: oqHeadingLine,
+          resolved: isResolved(line),
         });
       }
     }
@@ -154,16 +169,21 @@ function parseDeliveryMilestonesComplete(prdBody) {
 function parseRisks(planBody) {
   const section = findSection(planBody, '## Risks');
   if (!section) return { rows: [], malformedCount: 0 };
-  const rows = parseTableRows(section);
+  // M3 (Codex F2) — withMeta: 행끝 마커는 셀 split 이전 stripLineMarker 로 제거되어
+  // risk 텍스트가 마커-free 이고 row 별 resolved flag 가 함께 온다.
+  const rows = parseTableRows(section, { withMeta: true });
   const out = [];
   let malformedCount = 0;
-  for (const cells of rows) {
+  for (const row of rows) {
+    const cells = row.cells;
     if (cells.length === 4) {
       out.push({
         risk: cells[0],
         likelihood: cells[1],
         impact: cells[2],
         mitigation: cells[3],
+        resolved: row.resolved,
+        resolvedMeta: row.meta,
       });
     } else if (cells.length === 3) {
       out.push({
@@ -171,12 +191,38 @@ function parseRisks(planBody) {
         likelihood: cells[1],
         impact: '',
         mitigation: cells[2],
+        resolved: row.resolved,
+        resolvedMeta: row.meta,
       });
     } else {
       malformedCount += 1;
     }
   }
   return { rows: out, malformedCount };
+}
+
+// M3 — 마일스톤 lifecycle 파서. `## Delivery Milestones` 표에서 pending/dropped
+// 행을 link 무요구로 수집(complete 는 milestone-history 의 완료 기록이 담당).
+// 반환 키 {name, outcome, status, planPath, planBasename}. 표 컬럼:
+// [0]=# [1]=Milestone(name) [2]=Outcome [3]=Status [4]=Plan.
+function parseDeliveryMilestonesLifecycle(prdBody) {
+  const out = [];
+  const section = findSection(prdBody, '## Delivery Milestones');
+  if (!section) return out;
+  const rows = parseTableRows(section);
+  for (const cells of rows) {
+    if (cells.length < 5) continue;
+    const status = (cells[3] || '').toLowerCase();
+    if (status !== 'pending' && status !== 'dropped') continue;
+    const name = (cells[1] || '').trim();
+    if (!name) continue;
+    const outcome = (cells[2] || '').trim();
+    const planCell = cells[4] || '';
+    const planPath = extractPlanPath(planCell);
+    const planBasename = planPath ? planPath.split(/[\\/]/).pop() : null;
+    out.push({ name, outcome, status, planPath, planBasename });
+  }
+  return out;
 }
 
 function sourcePrdPath(p) {
@@ -306,6 +352,8 @@ function parsePlanBody(model, opts) {
         ordinal: idx,
         headingPath: entry.headingPath,
         oqHeadingLineNumber: entry.oqHeadingLineNumber,
+        // M3 — 해결 마커 전파(parser 가 raw 라인에서 감지한 flag). 섹션이 소비.
+        resolved: !!entry.resolved,
       });
     });
     const { rows: riskRows, malformedCount } = parseRisks(planBody);
@@ -337,6 +385,7 @@ module.exports = {
   parsePlanBody,
   parseDeliveryMilestones,
   parseDeliveryMilestonesComplete,
+  parseDeliveryMilestonesLifecycle,
   parseOpenQuestions,
   parseRisks,
   extractRisksAndOpenQuestions,

@@ -146,22 +146,22 @@ grep -nE '임의 예시|dummy|placeholder|TODO' .claude/cache/status.html || ech
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| 임베디드 JSON `</script>` break-out / XSS (Codex R1 F3) | 중 | **단일 주입 경계**: JSON prose는 서버 `renderProseHtml` 안전 HTML(유일 innerHTML sink), 그 외 값은 textContent. serializer는 실제 유니코드 escape(`<`→`<` 등 + LS/PS). `tests/drawer.test.js`가 `</script>`·`<img onerror>`·따옴표 payload fixture로 emitted script에 unescaped `<` 0 검증. status.html은 local-trust지만 경계는 불변 |
-| 안정 키 충돌 → 클릭이 엉뚱한 드로어 (Codex R1 F2) | 중 | planRelPath + 항상-present 식별자(OQ lineNumber / 위험 ordinal / receipt rowKey / 마일스톤 path). **충돌은 silent first-wins 아니라 hard fail** — `addDetail` collisions 카운트 + H18 trigger==유일id==JSON키 등식 + 중복 fixture 테스트 |
-| H7/H3 carve-out 과확장이 design-gate 약화 | 중 | carve-out을 `::backdrop` + drawer/.d-* 정확 셀렉터로 한정(와일드카드 금지) + 신규 H18 positive 계약으로 보강 + DESIGN.md 근거 |
-| 드로어 상세 일부 필드 부재(시나리오/잔여/요약) | 중 | graceful degrade — 가용 row/section만, 전무하면 미바인딩. placeholder 금지(PRD 원칙). 테스트로 부재 fixture 커버 |
-| 4 섹션 동시 수정이 기존 테스트 대량 회귀 | 고 | `{html,md}`→`{html,md,details}` 가산 확장(기존 필드 무변경) + 섹션별 단위 테스트 유지 + data-detail-id는 항목에 attr 추가만(구조 무변경) |
-| no-JS / 스크린리더에서 드로어 정보 손실 | 중 | progressive enhancement(JS는 가산) + 섹션 baseline에 핵심 정보 유지 + STATUS.md 동등본(M4). M3은 섹션 md 무손상 보장 |
-| receipt 스키마 확장 유혹 → chain-of-custody 훼손 | 저 | OQ#3 결정 = 무확장. 마일스톤 요약은 plan `## Summary` read-side. 어떤 receipt 필드도 추가하지 않음 |
+| 임베디드 JSON `</script>` break-out / XSS (Codex R1 F3) | 중 | **단일 주입 경계**: JSON prose는 서버 `renderProseHtml` 안전 HTML(유일 innerHTML sink), 그 외 값은 textContent. serializer는 실제 유니코드 escape(`<`→`<` 등 + LS/PS). `tests/drawer.test.js`가 `</script>`·`<img onerror>`·따옴표 payload fixture로 emitted script에 unescaped `<` 0 검증. status.html은 local-trust지만 경계는 불변 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 안정 키 충돌 → 클릭이 엉뚱한 드로어 (Codex R1 F2) | 중 | planRelPath + 항상-present 식별자(OQ lineNumber / 위험 ordinal / receipt rowKey / 마일스톤 path). **충돌은 silent first-wins 아니라 hard fail** — `addDetail` collisions 카운트 + H18 trigger==유일id==JSON키 등식 + 중복 fixture 테스트 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| H7/H3 carve-out 과확장이 design-gate 약화 | 중 | carve-out을 `::backdrop` + drawer/.d-* 정확 셀렉터로 한정(와일드카드 금지) + 신규 H18 positive 계약으로 보강 + DESIGN.md 근거 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 드로어 상세 일부 필드 부재(시나리오/잔여/요약) | 중 | graceful degrade — 가용 row/section만, 전무하면 미바인딩. placeholder 금지(PRD 원칙). 테스트로 부재 fixture 커버 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 4 섹션 동시 수정이 기존 테스트 대량 회귀 | 고 | `{html,md}`→`{html,md,details}` 가산 확장(기존 필드 무변경) + 섹션별 단위 테스트 유지 + data-detail-id는 항목에 attr 추가만(구조 무변경) |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| no-JS / 스크린리더에서 드로어 정보 손실 | 중 | progressive enhancement(JS는 가산) + 섹션 baseline에 핵심 정보 유지 + STATUS.md 동등본(M4). M3은 섹션 md 무손상 보장 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| receipt 스키마 확장 유혹 → chain-of-custody 훼손 | 저 | OQ#3 결정 = 무확장. 마일스톤 요약은 plan `## Summary` read-side. 어떤 receipt 필드도 추가하지 않음 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Open Questions (plan 단계 해소 결정 기록)
 
-- **드로어 상세 추출 경계** → receipt(briefing/hash/round)·OQ(text/source/section)·위험(impact/likelihood/mitigation)은 전부 read-side 가용. 시나리오/잔여/선택지 A/B는 plan 표/본문에 컬럼 부재 → graceful degrade. 마일스톤 요약만 plan `## Summary` read-side 추출. **신규 stamp 0.**
-- **스키마 확장 chain-of-custody 영향** → 해당 없음. receipt 스키마 무변경 결정 → `receipt_hash` carve-out 불필요(briefing 선례 미적용).
-- **항목↔derive 안정 키** → OQ `oq:<planBasename>#<lineNumber>`, 위험 `risk:<planBasename>#<lineToken>`, receipt `receipt:<rowKey>`(gate\|decision\|hash), 마일스톤 `ms:<planBasename>`. 인덱스 금지. 항목 수 가변은 기존 MAX_EXPANDED + `+N 더보기` 그대로(드로어는 expanded/collapsed 양쪽 바인딩).
-- **H1~H17 충돌 인벤토리** → H7(`::backdrop` blur, carve-out), H3(drawer/.d-* radius, carve-out). H4(drawer border-left 1px = 무발화), H6(.d-title 1.05rem = 무발화), H13(인라인 JS = 무발화), H15/H16(`<script>` strip = 무발화). 신규 H18 추가.
-- **STATUS.md 드로어 평면화** → M4 결정(이 plan 범위 밖). M3은 섹션 md 무변경.
-- **Pretendard 전달** → M1에서 vendored woff2 base64 @font-face로 이미 해소(`html.js:24` FONT_FACE). M3 무관.
+- **드로어 상세 추출 경계** → receipt(briefing/hash/round)·OQ(text/source/section)·위험(impact/likelihood/mitigation)은 전부 read-side 가용. 시나리오/잔여/선택지 A/B는 plan 표/본문에 컬럼 부재 → graceful degrade. 마일스톤 요약만 plan `## Summary` read-side 추출. **신규 stamp 0.** <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+- **스키마 확장 chain-of-custody 영향** → 해당 없음. receipt 스키마 무변경 결정 → `receipt_hash` carve-out 불필요(briefing 선례 미적용). <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+- **항목↔derive 안정 키** → OQ `oq:<planBasename>#<lineNumber>`, 위험 `risk:<planBasename>#<lineToken>`, receipt `receipt:<rowKey>`(gate\|decision\|hash), 마일스톤 `ms:<planBasename>`. 인덱스 금지. 항목 수 가변은 기존 MAX_EXPANDED + `+N 더보기` 그대로(드로어는 expanded/collapsed 양쪽 바인딩). <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+- **H1~H17 충돌 인벤토리** → H7(`::backdrop` blur, carve-out), H3(drawer/.d-* radius, carve-out). H4(drawer border-left 1px = 무발화), H6(.d-title 1.05rem = 무발화), H13(인라인 JS = 무발화), H15/H16(`<script>` strip = 무발화). 신규 H18 추가. <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+- **STATUS.md 드로어 평면화** → M4 결정(이 plan 범위 밖). M3은 섹션 md 무변경. <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+- **Pretendard 전달** → M1에서 vendored woff2 base64 @font-face로 이미 해소(`html.js:24` FONT_FACE). M3 무관. <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 

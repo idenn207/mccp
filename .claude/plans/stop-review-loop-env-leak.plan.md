@@ -77,10 +77,10 @@ npm test
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| path 5도 동일 노출, 본 fix가 path 7만 cover → 다른 env 상태에서 false-pass 가능 | Medium | Task 3 validation이 catch. 발견 시 동일 guard 적용을 follow-up으로 분리하거나 즉시 흡수. |
-| try/finally가 outer block을 잘못 닫아 syntax error | Low | Test 실행이 즉시 catch. minimal diff 원칙으로 indentation 보존. |
-| restore 로직이 `null`/empty string 같은 edge value를 잘못 처리 | Low | 캐논 패턴(`codex-bridge.test.js:151-162`)이 이미 `undefined` 분기만 처리하고 production에서 안전 확인됨. 동일 패턴 그대로 mirror. |
-| 본 file의 추가 env mutation 발견 시 scope creep | Medium | PRD Out-of-scope: "다른 env var의 cross-test leak audit" → 별도 task로 분리 의무. |
+| path 5도 동일 노출, 본 fix가 path 7만 cover → 다른 env 상태에서 false-pass 가능 | Medium | Task 3 validation이 catch. 발견 시 동일 guard 적용을 follow-up으로 분리하거나 즉시 흡수. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| try/finally가 outer block을 잘못 닫아 syntax error | Low | Test 실행이 즉시 catch. minimal diff 원칙으로 indentation 보존. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| restore 로직이 `null`/empty string 같은 edge value를 잘못 처리 | Low | 캐논 패턴(`codex-bridge.test.js:151-162`)이 이미 `undefined` 분기만 처리하고 production에서 안전 확인됨. 동일 패턴 그대로 mirror. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 본 file의 추가 env mutation 발견 시 scope creep | Medium | PRD Out-of-scope: "다른 env var의 cross-test leak audit" → 별도 task로 분리 의무. |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 

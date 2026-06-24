@@ -153,15 +153,15 @@ grep -n "v1.18.4" plugins/mccp/scripts/lib/renderer/html.js plugins/mccp/scripts
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| host-version provenance가 snapshot 밖이라 비재현(같은 model이 cwd/git에 따라 다른 버전) | 중 | **F2 흡수** — derive 레이어 `model.host_version`로 이동. 렌더러는 snapshot만 소비 → 재현 가능. derive 변경은 additive top-level 필드(MODEL_VERSION 'v1' 불변). schema-drift 테스트 동반 |
-| next-action이 인자 누락한 비실행 command를 advertise(`/mccp:prp-implement` bare) | 중 | **F1 흡수** — full command line 추출 + `REQUIRES_ARG` 검증 + 미충족 시 prose-only(`executable=false`). in-progress 폴백은 resolved plan path를 인자로 포함. next-action 테스트가 가드 |
-| CHANGELOG-first가 비권위/unreleased 버전 노출 | 중 | **F3 흡수** — host meta first + CHANGELOG는 source-라벨 폴백 + plan-cycle은 '최신 plan cycle' framing + `source` 항상 노출. meta↔CHANGELOG disagreement 테스트 |
-| 강조색 viewport당 ≤1 위반(차단+위험 동시 loud) | 중 | 단일 loud accent = 차단(>0)만 fill. 위험은 amber dot(icon+color 이중표기)이되 loud fill 금지. output-constraints lint + design-invariants 테스트가 가드 |
-| named-widget 이 hero 를 과밀화(60초 스캔 훼손, 항목 상한 위반) | 중 | 위젯당 top-3 + `+N 더보기` 접힘 + prose 1줄 cap. impeccable audit/polish 로 ship 전 검증 |
-| 재명명이 CSS 라우팅(`#route-overview`/`data-route`) 깨뜨림 | 중 | 식별자 불변 — **표시 텍스트만** 변경(개요→대시보드). console-shell 테스트가 route 식별자 회귀 가드 |
-| STATE.md nextStep 폴백 추론이 엉뚱한 command 제시 | 중 | command 직접 추출(state-command) 최우선 + 추론 폴백은 `source` 라벨로 출처 명시 + prose 동반(사용자가 검증 가능) + 빈 시 정직 '대기' |
-| host-version 폴백이 프로젝트마다 부재/상이 | 중 | 5단 사다리 + 마지막 '미상' 정직 표기(거짓 버전 금지). 각 단 독립 try/catch |
-| 기존 hero/grid 테스트 대량 회귀 | 중 | cell md/html/cells 키 불변(additive) + 깨지는 assert 동반 갱신(Task 6) + 전체 스위트 0 회귀 게이트 |
+| host-version provenance가 snapshot 밖이라 비재현(같은 model이 cwd/git에 따라 다른 버전) | 중 | **F2 흡수** — derive 레이어 `model.host_version`로 이동. 렌더러는 snapshot만 소비 → 재현 가능. derive 변경은 additive top-level 필드(MODEL_VERSION 'v1' 불변). schema-drift 테스트 동반 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| next-action이 인자 누락한 비실행 command를 advertise(`/mccp:prp-implement` bare) | 중 | **F1 흡수** — full command line 추출 + `REQUIRES_ARG` 검증 + 미충족 시 prose-only(`executable=false`). in-progress 폴백은 resolved plan path를 인자로 포함. next-action 테스트가 가드 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| CHANGELOG-first가 비권위/unreleased 버전 노출 | 중 | **F3 흡수** — host meta first + CHANGELOG는 source-라벨 폴백 + plan-cycle은 '최신 plan cycle' framing + `source` 항상 노출. meta↔CHANGELOG disagreement 테스트 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 강조색 viewport당 ≤1 위반(차단+위험 동시 loud) | 중 | 단일 loud accent = 차단(>0)만 fill. 위험은 amber dot(icon+color 이중표기)이되 loud fill 금지. output-constraints lint + design-invariants 테스트가 가드 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| named-widget 이 hero 를 과밀화(60초 스캔 훼손, 항목 상한 위반) | 중 | 위젯당 top-3 + `+N 더보기` 접힘 + prose 1줄 cap. impeccable audit/polish 로 ship 전 검증 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 재명명이 CSS 라우팅(`#route-overview`/`data-route`) 깨뜨림 | 중 | 식별자 불변 — **표시 텍스트만** 변경(개요→대시보드). console-shell 테스트가 route 식별자 회귀 가드 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| STATE.md nextStep 폴백 추론이 엉뚱한 command 제시 | 중 | command 직접 추출(state-command) 최우선 + 추론 폴백은 `source` 라벨로 출처 명시 + prose 동반(사용자가 검증 가능) + 빈 시 정직 '대기' |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| host-version 폴백이 프로젝트마다 부재/상이 | 중 | 5단 사다리 + 마지막 '미상' 정직 표기(거짓 버전 금지). 각 단 독립 try/catch |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 기존 hero/grid 테스트 대량 회귀 | 중 | cell md/html/cells 키 불변(additive) + 깨지는 assert 동반 갱신(Task 6) + 전체 스위트 0 회귀 게이트 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 - [ ] 모든 task 완료
@@ -179,11 +179,11 @@ grep -n "v1.18.4" plugins/mccp/scripts/lib/renderer/html.js plugins/mccp/scripts
 
 > Codex R1 검토 완료(아래 ## Codex Adversarial Review). 3 findings 전부 R1 흡수.
 
-- **(해소·F2) host-version 위치**: render-time 읽기 → **derive 레이어 additive `model.host_version` 필드**로 이동. provenance가 snapshot 안에 박혀 재현 가능 — 이 PRD의 truthfulness 불변식에 직접 부합. derive 변경은 additive top-level 필드(MODEL_VERSION 'v1' 불변)로 한정 — "correlation 재설계"가 아님.
-- **(해소·F3) version 소스 우선순위**: **host meta(package.json/pyproject/Cargo) → CHANGELOG → git tag → plan-cycle → 미상**. 권위 meta 우선(F3). mccp repo는 root package.json 부재 → CHANGELOG(`1.18.3`)로 폴백 → 정확. plan-cycle은 '최신 plan cycle' framing(버전 주장 아님). `source` 라벨 항상 노출. 플러그인 plugin.json 제외(PRD 명시).
-- **(결정) 위험 위젯 소스**: 카운트와 동일 backlog HIGH/CRITICAL(일관성). planBody.risks 는 route-attention(위험 페이지)가 이미 소비 — overview 는 backlog active finding 만 명명.
-- **(결정) footer 의미**: footer `v1.18.4` 는 derive-엔진/플러그인 provenance(host-version 위젯과 별개 개념). 두 표면을 분리 라벨링(footer=engine provenance, hero version=host signal). footer를 host-version으로 바꾸는 건 M2 범위 밖(현행 유지).
-- **(M3 위임)** ledger↔receipt drift 배너 + 위험/OQ 은퇴는 M3. M2 는 *현재* 활성 항목 명명까지만.
+- **(해소·F2) host-version 위치**: render-time 읽기 → **derive 레이어 additive `model.host_version` 필드**로 이동. provenance가 snapshot 안에 박혀 재현 가능 — 이 PRD의 truthfulness 불변식에 직접 부합. derive 변경은 additive top-level 필드(MODEL_VERSION 'v1' 불변)로 한정 — "correlation 재설계"가 아님. <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+- **(해소·F3) version 소스 우선순위**: **host meta(package.json/pyproject/Cargo) → CHANGELOG → git tag → plan-cycle → 미상**. 권위 meta 우선(F3). mccp repo는 root package.json 부재 → CHANGELOG(`1.18.3`)로 폴백 → 정확. plan-cycle은 '최신 plan cycle' framing(버전 주장 아님). `source` 라벨 항상 노출. 플러그인 plugin.json 제외(PRD 명시). <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+- **(결정) 위험 위젯 소스**: 카운트와 동일 backlog HIGH/CRITICAL(일관성). planBody.risks 는 route-attention(위험 페이지)가 이미 소비 — overview 는 backlog active finding 만 명명. <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+- **(결정) footer 의미**: footer `v1.18.4` 는 derive-엔진/플러그인 provenance(host-version 위젯과 별개 개념). 두 표면을 분리 라벨링(footer=engine provenance, hero version=host signal). footer를 host-version으로 바꾸는 건 M2 범위 밖(현행 유지). <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+- **(M3 위임)** ledger↔receipt drift 배너 + 위험/OQ 은퇴는 M3. M2 는 *현재* 활성 항목 명명까지만. <!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Design Critique
 

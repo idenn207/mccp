@@ -4,6 +4,8 @@ const path = require('path');
 const { buildActionPrompt } = require('../parsers/action-prompt');
 const { severityMeta, sevBadgeHtml } = require('../parsers/severity-meta');
 const { detailId, addDetail, buildOQDetail, renderDetailMd } = require('../parsers/drawer-detail');
+const { stripMarker } = require('../parsers/resolution-marker');
+const { buildTabs } = require('../parsers/tabs');
 
 const MAX_EXPANDED = 3;
 
@@ -57,8 +59,14 @@ function renderOpenQuestions(model, formatUtils, planBody) {
   }
 
   if (merged.length === 0) return null;
-  const expanded = merged.slice(0, MAX_EXPANDED);
-  const collapsed = merged.slice(MAX_EXPANDED);
+  // M3 — 해결 마커 단 plan-OQ 는 active 에서 분리. STATE.md OQ 는 resolved flag 가
+  // 없어 항상 active. _mergedIndex 를 split 이전 박아 ordinal fallback(STATE.md OQ
+  // 안정 키)이 active/resolved 양쪽에서 전역 유일하게 한다.
+  merged.forEach((q, i) => { q._mergedIndex = i; });
+  const active = merged.filter((q) => !q.resolved);
+  const resolved = merged.filter((q) => q.resolved);
+  const expanded = active.slice(0, MAX_EXPANDED);
+  const collapsed = active.slice(MAX_EXPANDED);
 
   // v1.18.1 M3 — 드로어 detail 누적. 항목 li 에 data-detail-id 부여, drawer-detail
   // SSoT 로 상세 빌드. 안정 키(lineNumber/ordinal)·충돌 hard-fail은 drawer-detail.
@@ -66,10 +74,13 @@ function renderOpenQuestions(model, formatUtils, planBody) {
 
   function renderItem(q, mergedIndex) {
     const sev = q.severity || 'MEDIUM';
-    const ap = buildActionPrompt(q, 'openQuestion');
+    // M3 (Constraint 3) — 마커 누출 방어(parser 가 이미 제거하나 STATE.md OQ 포함 일괄).
+    const text = stripMarker(q.text);
+    const qForDetail = Object.assign({}, q, { text });
+    const ap = buildActionPrompt(qForDetail, 'openQuestion');
     const cue = metaCueParts(q);
     const sevTag = sevBadgeHtml(sev);
-    const qHtml = '<div class="li-q">' + renderProseHtml(q.text, formatUtils) + '</div>';
+    const qHtml = '<div class="li-q">' + renderProseHtml(text, formatUtils) + '</div>';
     let cueHtml = '';
     if (cue) {
       const inner = [];
@@ -91,7 +102,7 @@ function renderOpenQuestions(model, formatUtils, planBody) {
       ordinal: typeof q.ordinal === 'number' ? q.ordinal : mergedIndex,
     });
     const detail = buildOQDetail(
-      Object.assign({}, q, { severity: sev, actionPrompt: ap.fullText }),
+      Object.assign({}, qForDetail, { severity: sev, actionPrompt: ap.fullText }),
       formatUtils,
     );
     const { id } = addDetail(detailMap, rawId, detail);
@@ -100,30 +111,66 @@ function renderOpenQuestions(model, formatUtils, planBody) {
     // v1.18.2 M4 — STATUS.md 동등본. 항목 헤더(텍스트) + drawer-detail SSoT 인라인.
     // 출처/섹션/line/관련 결정/다음 액션은 모두 renderDetailMd 단일 경로(섹션 자체
     // 재구성 0). 헤더 텍스트는 detail.titleText(raw 평문, H10 normalize). 구분자 ·(H10).
-    const titleText = detail.titleText || renderProseMd(q.text);
+    const titleText = detail.titleText || renderProseMd(text);
     const detailMd = renderDetailMd(detail, formatUtils);
     const md = '- ' + severityIcon(sev) + ' **' + sev + '** · ' + titleText
       + (detailMd ? '\n' + detailMd : '');
     return { html, md };
   }
 
-  const expandedR = expanded.map((q, i) => renderItem(q, i));
-  const collapsedR = collapsed.map((q, i) => renderItem(q, MAX_EXPANDED + i));
+  const expandedR = expanded.map((q) => renderItem(q, q._mergedIndex));
+  const collapsedR = collapsed.map((q) => renderItem(q, q._mergedIndex));
+  const resolvedR = resolved.map((q) => renderItem(q, q._mergedIndex));
 
-  let html = '<ul class="stack-list" role="list">' + expandedR.map(r => r.html).join('') + '</ul>';
-  if (collapsed.length > 0) {
-    html += '<details class="more"><summary>'
-      + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
-      + collapsed.length + ' 더보기</summary>'
-      + '<ul class="stack-list" role="list">' + collapsedR.map(r => r.html).join('') + '</ul></details>';
+  // 미해결(active) 패널 inner — top-3 + 더보기(Constraint 4 불변). active 0 이면
+  // 정중한 empty-state(Task 11).
+  let activeInner;
+  if (active.length === 0) {
+    activeInner = '<p class="muted"><em>미해결 질문이 없습니다.</em></p>';
+  } else {
+    activeInner = '<ul class="stack-list" role="list">' + expandedR.map(r => r.html).join('') + '</ul>';
+    if (collapsed.length > 0) {
+      activeInner += '<details class="more"><summary>'
+        + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
+        + collapsed.length + ' 더보기</summary>'
+        + '<ul class="stack-list" role="list">' + collapsedR.map(r => r.html).join('') + '</ul></details>';
+    }
   }
-  let md = expandedR.map(r => r.md).join('\n');
-  if (collapsed.length > 0) {
-    md += '\n\n<details>\n<summary>+' + collapsed.length + ' 더보기</summary>\n\n'
-      + collapsedR.map(r => r.md).join('\n')
+
+  // M3-b — 해결 이력을 탭 뒤로(메인 흐름에서 큰 숫자 제거 → "40개 미해결" 착시 해소).
+  // 해결됨이 있을 때만 탭(미해결 default-checked · 해결됨 N); 없으면 미해결 직접 노출.
+  let html;
+  if (resolved.length > 0) {
+    const resolvedInner = '<ul class="stack-list" role="list">' + resolvedR.map(r => r.html).join('') + '</ul>';
+    html = buildTabs({
+      name: 'tab-questions',
+      tabs: [
+        { id: 'active', label: '미해결', count: active.length, panelHtml: activeInner, checked: true },
+        { id: 'resolved', label: '해결됨', count: resolved.length, panelHtml: resolvedInner },
+      ],
+    }, formatUtils);
+  } else {
+    html = activeInner;
+  }
+
+  // MD — STATUS.md plain-text 동등. 미해결 본문 + 해결됨 N건 접힘(drawer-detail SSoT 불변).
+  let md;
+  if (active.length === 0) {
+    md = '_미해결 질문이 없습니다._';
+  } else {
+    md = expandedR.map(r => r.md).join('\n');
+    if (collapsed.length > 0) {
+      md += '\n\n<details>\n<summary>+' + collapsed.length + ' 더보기</summary>\n\n'
+        + collapsedR.map(r => r.md).join('\n')
+        + '\n\n</details>';
+    }
+  }
+  if (resolved.length > 0) {
+    md += '\n\n<details>\n<summary>해결됨 ' + resolved.length + '건</summary>\n\n'
+      + resolvedR.map(r => r.md).join('\n')
       + '\n\n</details>';
   }
-  return { md, html, details: detailMap };
+  return { md, html, details: detailMap, activeCount: active.length };
 }
 
 module.exports = { renderOpenQuestions };

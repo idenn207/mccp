@@ -256,19 +256,22 @@ body:not(:has(.route:target)) #route-overview { display: flex; }
 body:not(:has(.route:target)) .nav-link[data-route="overview"],
 body:has(#route-overview:target) .nav-link[data-route="overview"],
 body:has(#route-pipeline:target) .nav-link[data-route="pipeline"],
-body:has(#route-attention:target) .nav-link[data-route="attention"],
+body:has(#route-risks:target) .nav-link[data-route="risks"],
+body:has(#route-questions:target) .nav-link[data-route="questions"],
 body:has(#route-activity:target) .nav-link[data-route="activity"] {
   background: var(--panel-2); color: var(--ink); font-weight: 550;
 }
 body:not(:has(.route:target)) .nav-link[data-route="overview"] .i,
 body:has(#route-overview:target) .nav-link[data-route="overview"] .i,
 body:has(#route-pipeline:target) .nav-link[data-route="pipeline"] .i,
-body:has(#route-attention:target) .nav-link[data-route="attention"] .i,
+body:has(#route-risks:target) .nav-link[data-route="risks"] .i,
+body:has(#route-questions:target) .nav-link[data-route="questions"] .i,
 body:has(#route-activity:target) .nav-link[data-route="activity"] .i { color: var(--ink); }
 body:not(:has(.route:target)) .tb-title[data-t="overview"],
 body:has(#route-overview:target) .tb-title[data-t="overview"],
 body:has(#route-pipeline:target) .tb-title[data-t="pipeline"],
-body:has(#route-attention:target) .tb-title[data-t="attention"],
+body:has(#route-risks:target) .tb-title[data-t="risks"],
+body:has(#route-questions:target) .tb-title[data-t="questions"],
 body:has(#route-activity:target) .tb-title[data-t="activity"] { display: block; }
 .page-title { font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
 /* ── 개요 hero (M2 샘플 fidelity — hero-status + verdict + action-prompt + axis-legend) ── */
@@ -369,6 +372,21 @@ aside[role="alert"].s-secret {
 .meta-cue b { color: var(--ink-2); font-weight: 600; }
 .meta-cue .mono { font-family: var(--mono); font-size: 0.92em; color: var(--muted); }
 .meta-cue .cue-sec { margin-left: 0.6rem; color: var(--faint); }
+/* ── M3-b 탭(CSS-only, JS 0) — 미해결 default 노출 · 완화/해결 이력 탭 뒤. hidden
+   radio + flex order + 인접 :checked 형제. 강조색 0(neutral underline + tabular 뱃지). ── */
+.tabs { display: flex; flex-wrap: wrap; gap: 0; }
+.tab-radio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; margin: 0; }
+.tab { order: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.36rem 0.1rem; margin-right: 1.2rem; font-size: 0.82rem; font-weight: 500;
+  color: var(--muted); border-bottom: 2px solid transparent; user-select: none;
+  transition: color 120ms ease-out, border-color 120ms ease-out; }
+.tab:hover { color: var(--ink-2); }
+.tab-count { font-size: 0.72rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+.tab-panel { order: 1; width: 100%; display: none; margin-top: 0.95rem; }
+.tab-radio:checked + .tab { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+.tab-radio:checked + .tab .tab-count { color: var(--muted); }
+.tab-radio:checked + .tab + .tab-panel { display: block; }
+.tab-radio:focus-visible + .tab { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* severity — 절제. HIGH/MED 만 옅은 색, LOW 는 무채색 텍스트. text-transform 없음(H9). */
 .sev { flex: none; height: fit-content; font-size: 0.63rem; font-weight: 700; letter-spacing: 0.03em;
   padding: 0.16rem 0.4rem; border-radius: 5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -450,6 +468,10 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .ms-text { font-size: 0.84rem; color: var(--ink-2); min-width: 0; display: flex; flex-direction: column; }
 .ms-file { font-family: var(--mono); font-size: 0.71rem; color: var(--faint); margin-top: 0.06rem; }
 .ms-when { margin-left: auto; font-size: 0.73rem; color: var(--faint); white-space: nowrap; }
+/* M3 — lifecycle(pending/dropped) 비-색 텍스트 마커. ms-check 자리에 ◌/⊘ 글리프. */
+.ms-life-mark { width: 18px; flex: none; display: grid; place-items: center; color: var(--faint);
+  font-size: 0.9rem; line-height: 1; }
+.milestone-item.ms-lifecycle .ms-text { color: var(--faint); }
 /* ── 패널 foot (foot-link cross-link / foot-stat 집계) ── */
 .panel-foot { display: flex; align-items: center; gap: 0.75rem;
   padding: 0.62rem 1rem; border-top: 1px solid var(--border); font-size: 0.76rem; color: var(--muted); }
@@ -789,14 +811,12 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     { title: '마일스톤 기록', section: milestoneHistory, present: !!milestoneHistory, span2: true },
   ].filter(p => p.present);
 
-  // 위험·질문 page 패널 목록 (dashboard-console-redesign 사용자 결정 — attention
-  // surface 를 활동·기록에서 분리한 전용 route, 샘플 3-route IA 에서 의도적 이탈.
-  // 항목별 상세 드로어는 M3). risks 항상 present. 둘 다 long-form 콘텐츠 →
-  // full-width 스택(half-orphan 방지).
-  const attentionPanels = [
-    { title: '위험', section: risks, present: true, span2: true, attention: verdictAttention },
-    { title: '미해결 질문', section: questions, present: !!questions, span2: true },
-  ].filter(p => p.present);
+  // M3-b — 위험·질문을 전용 route 로 분리(사용자 결정 2026-06-25 "전용 사이드바").
+  // nav-link 에 active count 뱃지(neutral, 0 이면 미표시). 미해결만 카운트 — 완화/해결
+  // 이력은 패널 내 탭 뒤(메인 흐름 비노출). questions 없으면 nav/route 모두 생략.
+  const riskActiveCount = (risks && Number.isFinite(risks.activeCount)) ? risks.activeCount : 0;
+  const qActiveCount = (questions && Number.isFinite(questions.activeCount)) ? questions.activeCount : 0;
+  const navCountHtml = (n) => (n > 0 ? '<span class="nav-count">' + escapeHtml(String(n)) + '</span>' : '');
 
   const parts = [];
   parts.push('<!doctype html>');
@@ -824,10 +844,14 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '<span>찾기…</span><span class="kbd">F</span>'
     + '</div>');
   parts.push('<p class="rail-label">페이지</p>');
+  const questionsNav = questions
+    ? '<a class="nav-link" data-route="questions" href="#route-questions"><svg class="i" aria-hidden="true"><use href="#ic-help"/></svg>미해결 질문' + navCountHtml(qActiveCount) + '</a>'
+    : '';
   parts.push('<nav class="nav-rail" aria-label="페이지">'
     + '<a class="nav-link" data-route="overview" href="#route-overview"><svg class="i" aria-hidden="true"><use href="#ic-dashboard"/></svg>대시보드</a>'
     + '<a class="nav-link" data-route="pipeline" href="#route-pipeline"><svg class="i" aria-hidden="true"><use href="#ic-branch"/></svg>게이트 파이프라인</a>'
-    + '<a class="nav-link" data-route="attention" href="#route-attention"><svg class="i" aria-hidden="true"><use href="#ic-alert"/></svg>위험 · 질문</a>'
+    + '<a class="nav-link" data-route="risks" href="#route-risks"><svg class="i" aria-hidden="true"><use href="#ic-alert"/></svg>위험' + navCountHtml(riskActiveCount) + '</a>'
+    + questionsNav
     + '<a class="nav-link" data-route="activity" href="#route-activity"><svg class="i" aria-hidden="true"><use href="#ic-activity"/></svg>활동 · 기록</a>'
     + '</nav>');
   parts.push('<div class="rail-spacer"></div>');
@@ -848,7 +872,8 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '<div class="tb-title-wrap" aria-hidden="true">'
     + '<span class="tb-title" data-t="overview">대시보드</span>'
     + '<span class="tb-title" data-t="pipeline">게이트 파이프라인</span>'
-    + '<span class="tb-title" data-t="attention">위험 · 질문</span>'
+    + '<span class="tb-title" data-t="risks">위험</span>'
+    + '<span class="tb-title" data-t="questions">미해결 질문</span>'
     + '<span class="tb-title" data-t="activity">활동 · 기록</span>'
     + '</div>'
     + '<div class="tb-right"><span class="freshness"><span class="dot" aria-hidden="true"></span>'
@@ -872,17 +897,26 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + renderPanel('decision 별 게이트', pipeline, escapeHtml, { span2: true, attention: verdictAttention })
     + '</section>');
 
-  // route 3 — 위험·질문: attention surface 전용 route(사용자 결정 — 활동·기록에서
-  // 분리). 항목별 상세 드로어는 M3.
-  const attentionHtml = attentionPanels
-    .map(p => renderPanel(p.title, p.section, escapeHtml, { span2: p.span2, attention: p.attention }))
-    .join('');
-  parts.push('<section class="route" id="route-attention" aria-label="위험 및 미해결 질문">'
-    + '<h2 class="page-title">위험 · 질문</h2>'
-    + '<div class="panel-grid">' + attentionHtml + '</div>'
+  // route 3 — 위험: 전용 route(M3-b — 미해결 질문에서 분리). 패널 내 active/완화됨 탭.
+  parts.push('<section class="route" id="route-risks" aria-label="위험">'
+    + '<h2 class="page-title">위험</h2>'
+    + '<div class="panel-grid">'
+    + renderPanel('위험', risks, escapeHtml, { span2: true, attention: verdictAttention })
+    + '</div>'
     + '</section>');
 
-  // route 4 — 활동·기록: 워커/활동/타임라인/마일스톤 패널 그리드.
+  // route 4 — 미해결 질문: 전용 route(사용자 결정 2026-06-25 "전용 사이드바"). 결정
+  // 로그는 audit 마커로 은퇴 → 미해결 탭엔 진짜 미해결만. questions 없으면 route 생략.
+  if (questions) {
+    parts.push('<section class="route" id="route-questions" aria-label="미해결 질문">'
+      + '<h2 class="page-title">미해결 질문</h2>'
+      + '<div class="panel-grid">'
+      + renderPanel('미해결 질문', questions, escapeHtml, { span2: true })
+      + '</div>'
+      + '</section>');
+  }
+
+  // route 5 — 활동·기록: 워커/활동/타임라인/마일스톤 패널 그리드.
   const activityHtml = activityPanels
     .map(p => renderPanel(p.title, p.section, escapeHtml, { span2: p.span2, attention: p.attention }))
     .join('');
@@ -892,7 +926,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.4 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.6 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.

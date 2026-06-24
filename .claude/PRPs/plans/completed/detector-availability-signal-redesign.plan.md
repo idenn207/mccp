@@ -79,10 +79,10 @@ node --test plugins/mccp/scripts/lib/tests/goal-detect.test.js
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| managed settings 미확인 시 goal 정책 fail-open (Codex F1 HIGH) | High | **M1에서 managed 경로(OS별) 읽기 포함**. disable 신호 발견 → missing; managed 존재+읽기 실패 → unknown(강등) |
-| goal `available` 낙관 판정이 trust 안 된 workspace에서 false-positive (Codex F2/F3) | Medium | managed까지 본 후 판정. 잔여 trust/버전은 안내만 emit + 실행 시 Claude Code가 차단. 로컬 CLI 버전 체크는 backlog |
-| `enableWorkflows`가 비공식 키라 미래 변경 위험 | Low | negation(`disableWorkflows`) 우선 + enable은 보조 신호 |
-| 기존 env override 의존 코드/테스트 깨짐 | Low | env tristate 최우선 유지 (시그니처 호환) |
+| managed settings 미확인 시 goal 정책 fail-open (Codex F1 HIGH) | High | **M1에서 managed 경로(OS별) 읽기 포함**. disable 신호 발견 → missing; managed 존재+읽기 실패 → unknown(강등) |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| goal `available` 낙관 판정이 trust 안 된 workspace에서 false-positive (Codex F2/F3) | Medium | managed까지 본 후 판정. 잔여 trust/버전은 안내만 emit + 실행 시 Claude Code가 차단. 로컬 CLI 버전 체크는 backlog |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| `enableWorkflows`가 비공식 키라 미래 변경 위험 | Low | negation(`disableWorkflows`) 우선 + enable은 보조 신호 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| 기존 env override 의존 코드/테스트 깨짐 | Low | env tristate 최우선 유지 (시그니처 호환) |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
 
 ## Acceptance
 

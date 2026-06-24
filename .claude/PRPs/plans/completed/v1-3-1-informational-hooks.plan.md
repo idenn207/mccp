@@ -112,9 +112,9 @@ Codex-identified "strictly worse" scenario: stale implement receipt before `/mcc
 
 ## Open Questions
 
-- ~~**Should `code-review.md` auto-recover or just diagnose?**~~ **Resolved by R2-F2** — code-review.md POSTs GitHub review = mutating. Removed from recoverable allow-list. Hook block unchanged.
-- **Phase 0 body — markdown body vs separate `phase0-recover.js` lib?** Markdown body is consistent with existing pattern (Codex bridge, validate calls). Separate lib is more testable but adds a file. Default: markdown body to keep patch small; extract later if logic grows.
-- **`MCCP_RECEIPT_GATE_MODE` deprecation banner**: should the hook stderr-warn once per session if the env is set, given new default supersedes it? Default: yes, single warning, harmless.
+- ~~**Should `code-review.md` auto-recover or just diagnose?**~~ **Resolved by R2-F2** — code-review.md POSTs GitHub review = mutating. Removed from recoverable allow-list. Hook block unchanged. <!--mccp:resolved reason="plan이 completed/ 로 아카이브됨 = ship 시점에 질문이 해소되어 본문 결정에 반영됨" at="2026-06-24T16:29:04.758Z"-->
+- **Phase 0 body — markdown body vs separate `phase0-recover.js` lib?** Markdown body is consistent with existing pattern (Codex bridge, validate calls). Separate lib is more testable but adds a file. Default: markdown body to keep patch small; extract later if logic grows. <!--mccp:resolved reason="plan이 completed/ 로 아카이브됨 = ship 시점에 질문이 해소되어 본문 결정에 반영됨" at="2026-06-24T16:29:04.758Z"-->
+- **`MCCP_RECEIPT_GATE_MODE` deprecation banner**: should the hook stderr-warn once per session if the env is set, given new default supersedes it? Default: yes, single warning, harmless. <!--mccp:resolved reason="plan이 completed/ 로 아카이브됨 = ship 시점에 질문이 해소되어 본문 결정에 반영됨" at="2026-06-24T16:29:04.758Z"-->
 
 ## Notes
 

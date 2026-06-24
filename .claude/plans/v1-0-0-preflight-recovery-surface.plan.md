@@ -122,10 +122,10 @@ cd / && rm -rf "$TMPDIR"
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| 기존 preflight test가 stderr exact line count 기반 assertion이면 회귀 | Low | 기존 6 test grep으로 검토 — 모두 `assert.match` regex이라 line count assertion 없음. 회귀 위험 0 |
-| Recovery hint wording이 i18n breaks downstream consumer | Low | hint는 stderr human-readable block — JSON stdout(`result.missing[]/stale[]`)은 그대로. machine consumer는 stdout JSON만 read 권장 |
-| stale 분기에서 gate_id별 mapping이 부정확 | Low | 본 patch는 generic 안내("e.g. /mccp:plan for mccp-plan-codex") — 사용자가 receipt가 emit한 gate_id를 보고 매핑 가능 |
-| MCCP_RECEIPT_DEBUG=1일 때 silent-hook UX(L2a)와 충돌 | Very Low | L2a는 ALLOW path에서만 발화. block path는 stderr 그대로 — 기존 행동 무영향 |
+| 기존 preflight test가 stderr exact line count 기반 assertion이면 회귀 | Low | 기존 6 test grep으로 검토 — 모두 `assert.match` regex이라 line count assertion 없음. 회귀 위험 0 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| Recovery hint wording이 i18n breaks downstream consumer | Low | hint는 stderr human-readable block — JSON stdout(`result.missing[]/stale[]`)은 그대로. machine consumer는 stdout JSON만 read 권장 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| stale 분기에서 gate_id별 mapping이 부정확 | Low | 본 patch는 generic 안내("e.g. /mccp:plan for mccp-plan-codex") — 사용자가 receipt가 emit한 gate_id를 보고 매핑 가능 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| MCCP_RECEIPT_DEBUG=1일 때 silent-hook UX(L2a)와 충돌 | Very Low | L2a는 ALLOW path에서만 발화. block path는 stderr 그대로 — 기존 행동 무영향 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 

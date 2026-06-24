@@ -21,7 +21,7 @@ mccp 진행 현황 대시보드(`.claude/cache/status.html` + `STATUS.md`)는 �
 
 ## Hypothesis
 
-We believe **git-tracked completion ledger로 수렴·완료 이력을 영속화하고, 개요를 호스트-프로젝트 신호 기반 위젯(진행중 '무엇'/차단/위험/다음 command)으로 재구성하며, 위험/질문을 ledger 스냅샷 기준으로 은퇴시키면**
+We believe **git-tracked completion ledger로 수렴·완료 이력을 영속화하고, 개요를 호스트-프로젝트 신호 기반 위젯(진행중 '무엇'/차단/위험/다음 command)으로 재구성하며, 위험/질문을 평가 기반 소스 최신화(해결 마커)로 은퇴시키면**
 will **대시보드가 호스트 프로젝트의 현재 상태를 정확히 말하게** for **mccp 단독 개발자**.
 We'll know we're right when **개요 버전이 호스트 프로젝트 최신 신호와 일치하고, 진행중 위젯이 실제 진행 항목의 이름을 명시하며, 해결된 위험/질문이 메인에서 사라지고, 완료 마일스톤의 완료 시점이 merge + worktree 제거 후에도 항상 정확하며, pending/dropped 마일스톤이 토글로 노출된다**.
 
@@ -31,14 +31,14 @@ We'll know we're right when **개요 버전이 호스트 프로젝트 최신 신
 | --- | --- | --- |
 | 버전 정확성 | 호스트 프로젝트 최신 신호와 일치(플러그인 버전 비표시) | 개요 버전이 derive한 host-project 신호와 일치 — mccp repo에선 v1.18.2 + 최신 plan |
 | 진행중 식별성 | "진행 N"이 항목 이름까지 명시 | 진행중 위젯이 실제 in-progress decision/마일스톤 이름 노출, 카운트=실제(이 작업 1건) |
-| 위험/질문 정리 | 해결 항목 메인 노출 0 | ledger 스냅샷 매칭으로 은퇴된 risk/OQ가 메인에서 사라짐(드로어/접힘으로만) — 230 → 활성만 |
+| 위험/질문 정리 | 해결 항목 메인 노출 0 | 평가 기반 해결 마커(`/mccp:dashboard-audit` human-gate)가 달린 risk/OQ가 메인에서 사라짐(접힘으로만, 되돌리기 가능) — 활성만. resolved 신호는 명시 마커뿐(추정 0) |
 | 완료 이력 영속성 | "날짜 미상" 0건, merge 후에도 유지 | git-tracked ledger 기반 완료 시점 표시율 100%, worktree 제거 후 회귀 테스트 |
 | 마일스톤 lifecycle | pending/dropped 표시 + 토글 | PRD Status 열(pending\|in-progress\|complete\|dropped) 읽어 렌더 + '미진행 표시' 토글(default off) |
 | 다음 행동 실행성 | 복사 가능한 `/mccp:*` command | 다음 행동 위젯이 STATE.md Next Step 기반 + 가능하면 실행 command 형태 + 복사 버튼 |
 
 ## Scope
 
-**MVP** — gate 수렴 시 git-tracked completion ledger(`decision_id, gate, verdict, version, completed_at, commit_sha, plan_file_hash, risks_closed[], oq_closed[]`)에 요약을 append하여 완료 이력을 영속화하고, 대시보드가 이 ledger를 durable history source로 소비한다. 그 위에서 개요를 '대시보드'로 재명명하고 호스트-프로젝트 버전 신호 + 진행중/차단/위험/다음 위젯(각 '무엇'인지 항목 명시)으로 재구성하며, 위험/질문을 ledger 스냅샷 기준으로 은퇴시키고, PRD Delivery-Milestones Status 열을 확장해 pending/dropped를 토글로 노출하며, 메인 표현(타임라인 더보기·질문 복사버튼-only·위험 복사버튼)을 정리한다.
+**MVP** — gate 수렴 시 git-tracked completion ledger(`decision_id, gate, verdict, version, completed_at, commit_sha, plan_file_hash, risks_closed[], oq_closed[]`)에 요약을 append하여 완료 이력을 영속화하고, 대시보드가 이 ledger를 durable history source로 소비한다. 그 위에서 개요를 '대시보드'로 재명명하고 호스트-프로젝트 버전 신호 + 진행중/차단/위험/다음 위젯(각 '무엇'인지 항목 명시)으로 재구성하며, **위험/질문을 평가 기반 소스 최신화(해결 마커)로 은퇴**시키고(M3 재설계 2026-06-24 — render-side 추정이 아니라 `/mccp:dashboard-audit` agent 평가+human-gate가 소스 `.md`에 비파괴 `<!--mccp:resolved …-->` 마커를 달고 render는 결정적 마커 reader로 메인에서 collapse), PRD Delivery-Milestones Status 열을 확장해 pending/dropped를 토글로 노출하며, 메인 표현(타임라인 더보기·질문 복사버튼-only·위험 복사버튼)을 정리한다.
 
 **Out of scope**
 
@@ -56,8 +56,8 @@ We'll know we're right when **개요 버전이 호스트 프로젝트 최신 신
 | # | Milestone | Outcome | Status | Plan |
 | --- | --- | --- | --- | --- |
 | 1 | 완료 이력 영속화 레지스터 (foundation) | gate 수렴 epilogue가 git-tracked ledger에 요약 1건 append(receipt_hash carve-out 계승, detached/uncommitted 시 안전 skip) → merge + worktree 제거 후에도 완료 이력·완료 시점이 살아남고 대시보드가 durable history로 읽음. "날짜 미상" 해소. | complete | `.claude/plans/dashboard-truthfulness-m1-completion-ledger.plan.md` |
-| 2 | 개요 → '대시보드' 재구성 + 호스트 버전/위젯/다음 command | 개요를 '대시보드'로 재명명 + 버전을 호스트-프로젝트 최신 신호에서 derive + 진행중/차단/위험/다음을 각 위젯으로 나열(카운트가 아닌 '무엇'인지 항목 명시) + 다음 행동을 STATE.md Next Step 기반 실행가능 `/mccp:*` command + 복사 버튼으로. | in-progress | `.claude/plans/dashboard-truthfulness-m2-overview-rebuild.plan.md` |
-| 3 | 위험·질문 은퇴 + 마일스톤 lifecycle | ledger 스냅샷 ⊆ 현재 plan 본문 매칭으로 해결된 risk/OQ 은퇴(메인 숨김, 상세는 드로어/접힘) + PRD Status 열 확장(pending\|in-progress\|complete\|dropped) → pending/dropped 표시 + '미진행 마일스톤 표시' 토글(default off) + 진행중=실제 1건. | pending | — |
+| 2 | 개요 → '대시보드' 재구성 + 호스트 버전/위젯/다음 command | 개요를 '대시보드'로 재명명 + 버전을 호스트-프로젝트 최신 신호에서 derive + 진행중/차단/위험/다음을 각 위젯으로 나열(카운트가 아닌 '무엇'인지 항목 명시) + 다음 행동을 STATE.md Next Step 기반 실행가능 `/mccp:*` command + 복사 버튼으로. | complete | `.claude/plans/dashboard-truthfulness-m2-overview-rebuild.plan.md` |
+| 3 | 위험·질문 은퇴 + 마일스톤 lifecycle + **진실성 표현** | **평가 기반 소스 최신화(해결 마커)** — 위험/OQ 라인에 비파괴 해결 마커(`<!--mccp:resolved …-->`)를 달아 render가 메인에서 빼고 "해결됨" 접힘으로만 노출(되돌리기 가능). 마커는 `/mccp:dashboard-audit`(agent 평가+증거 인용→human-gate→결정적 applier)가 단다 — resolved 신호는 명시 마커뿐(추정 0). + PRD Status 열 확장(pending\|in-progress\|complete\|dropped) → pending/dropped '미진행 마일스톤 표시' 토글(default off) + stale in-progress status 최신화로 진행중=실제. **+ M3-b(2026-06-25): 데이터는 truthful하나 *표현*이 오해 유발("해결됨 243건" 큰 숫자가 위험 250개 착시, 결정 로그가 미해결 질문으로 오노출) → 위험/OQ를 GitHub-PR식 active/resolved 탭으로 분리(미해결만 기본, resolved 카운트는 탭 label로만), empty state 문구("발견된 위험이 없습니다"), `## Open Questions`의 `(결정)`/`(해소)`/`(defer)` 결정 로그를 미해결에서 제외, 좌측 nav에 '미해결 질문' 전용 entry + 각 섹션 카운트 뱃지. 디자인은 impeccable shape→layout→critique→audit/polish.** | in-progress | `.claude/plans/dashboard-truthfulness-m3-stale-audit.plan.md` |
 | 4 | 메인 표현 정리 | 타임라인 '더보기'(상위 N expanded + 나머지 접힘) + 미해결질문은 메인에 복사 버튼만(상세는 드로어) + 위험에 복사 버튼 추가. | pending | — |
 
 ## Design Direction
@@ -75,6 +75,7 @@ We'll know we're right when **개요 버전이 호스트 프로젝트 최신 신
 - [ ] 위험/OQ 은퇴 매칭 키 — ledger 스냅샷과 현재 plan 본문을 텍스트로 매칭할지 안정 ID로 할지 + 부분 해결(일부 row만 close) 처리 + plan 본문 revise 후 재매칭 (plan 결정).
 - [ ] 다음 행동 command surface — STATE.md Next Step이 `/mccp:*` command가 아닌 서술형일 때의 폴백(서술 + 추론된 command 후보) (plan 결정).
 - [ ] ledger ↔ 실제 receipt drift 감지 — ledger 항목의 hash가 working-tree receipt과 mismatch 시 `⚠ Ledger mismatch` 배너 노출 범위 (plan 결정).
+- [ ] (M3-b) OQ 진실성 — `## Open Questions` 헤딩 아래 결정 로그(`(결정)`/`(해소)`/`(defer)` 접두)가 "미해결 질문"으로 오노출됨(관측: 8 active OQ 전부 결정 로그, 진짜 미해결 ≈0). 접근 A(audit로 결정-로그 마커링, marker-only 원칙 유지) vs B(접두 render-side 인식, 원칙 일부 완화) — Codex 검토 후 결정. A를 보수적 default 추천.
 
 ## Risks
 
@@ -86,6 +87,8 @@ We'll know we're right when **개요 버전이 호스트 프로젝트 최신 신
 | 호스트 버전 신호가 프로젝트마다 부재/상이 | 중 | 중 | 폴백 사다리(plan 버전→CHANGELOG→git tag→"미상") + 미상 시 정직 표기. |
 | 두 worktree 동시 ledger append merge 충돌 | 저 | 저 | append-only array + commit_sha 포함 → 양쪽 기록 보존, 자동 resolve 불필요. |
 | M2~M4 UI 변경이 기존 렌더러 테스트 대량 회귀 | 중 | 중 | 섹션별 단위 테스트 유지 + 단계별 ship + STATUS.md 동등본 회귀 가드. |
+| (M3-b) resolved 큰 숫자/결정 로그가 위험·미해결 착시 유발(신뢰 저하) | 고 | 고 | active/resolved 탭 분리(미해결만 기본, resolved는 탭 label 카운트) + empty state 문구 + 결정 로그를 미해결에서 제외 + 섹션 뱃지로 active 수 정직 표기. |
+| (M3-b) CSS-only 탭/route 분리 a11y·routing 회귀 | 중 | 중 | radio+label+ARIA + impeccable audit + default-route/topbar-title 동반 갱신 + STATUS.md plain-text fallback 동등. |
 
 ---
 *Status: DRAFT — requirements only. Implementation planning pending via /mccp:plan.*

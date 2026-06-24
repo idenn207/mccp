@@ -109,13 +109,13 @@ node -e "require('./plugins/mccp/.claude-plugin/plugin.json').version==='1.14.0'
 ## Risks
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| **(Codex R1 F1)** a11y 트리거가 starve — Codex가 preamble로 a11y 억제 → finding 0 → auto-invoke 미발화 | High→Low | 트리거를 finding 기반에서 **`rendering_surface`(PR diff design surface) 기반**으로 전환. a11y-architect가 diff를 직접 audit(Codex finding 불요). codex-runner 통합 테스트가 `--impeccable-available` 경로에서 surface 토글 검증. |
-| **(Codex R1 F2)** a11y Task가 lock window 밖에서 실행 → review-only guard 무력 → 편집 미검출 | High→Low | codex-runner가 이미 lock exit하므로 pr.md가 **a11y 전용 pr-phase lock**을 새로 enter → Task → exit + mutations finalizer. write 강제 regression이 hard-stop 검증. |
-| **(Codex R1 F3)** `--a11y-auto-invoked`가 finalize-receipt 경로로 안 흘러 receipt 미stamp | Medium→Low | `finalize-receipt.js#deriveCodexFlags`에 forward 분기 추가(Task 4b) + `write_flags_used` 노출로 stamp 검증 가능. |
-| auto-invoke가 PR latency/비용 증가 | Medium | `MCCP_A11Y_AUTO_INVOKE=0` kill switch(default 1). `rendering_surface=false`면 invoke skip. |
-| document/extract를 invoke로 잘못 라우팅(비대화형 게이트에서 생성 명령 폭주) | Low | recommend-only base + resolveCallForm downgrade-only → 모든 모드에서 recommend. content signal 없음. |
-| codex-runner 결과 schema 변경이 finalize-receipt.js와 불일치 | Low | `a11y_findings`/`rendering_surface`/`a11y_auto_invoked`는 additive — 기존 consumer 무영향. finalize-receipt는 Task 4b로 명시적 forward. |
-| a11y_auto_invoked 필드가 기존 receipt validate 깨뜨림 | Low | present-only(undefined 허용) + skeleton default false. legacy receipt 무영향 테스트. |
+| **(Codex R1 F1)** a11y 트리거가 starve — Codex가 preamble로 a11y 억제 → finding 0 → auto-invoke 미발화 | High→Low | 트리거를 finding 기반에서 **`rendering_surface`(PR diff design surface) 기반**으로 전환. a11y-architect가 diff를 직접 audit(Codex finding 불요). codex-runner 통합 테스트가 `--impeccable-available` 경로에서 surface 토글 검증. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| **(Codex R1 F2)** a11y Task가 lock window 밖에서 실행 → review-only guard 무력 → 편집 미검출 | High→Low | codex-runner가 이미 lock exit하므로 pr.md가 **a11y 전용 pr-phase lock**을 새로 enter → Task → exit + mutations finalizer. write 강제 regression이 hard-stop 검증. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| **(Codex R1 F3)** `--a11y-auto-invoked`가 finalize-receipt 경로로 안 흘러 receipt 미stamp | Medium→Low | `finalize-receipt.js#deriveCodexFlags`에 forward 분기 추가(Task 4b) + `write_flags_used` 노출로 stamp 검증 가능. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| auto-invoke가 PR latency/비용 증가 | Medium | `MCCP_A11Y_AUTO_INVOKE=0` kill switch(default 1). `rendering_surface=false`면 invoke skip. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| document/extract를 invoke로 잘못 라우팅(비대화형 게이트에서 생성 명령 폭주) | Low | recommend-only base + resolveCallForm downgrade-only → 모든 모드에서 recommend. content signal 없음. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| codex-runner 결과 schema 변경이 finalize-receipt.js와 불일치 | Low | `a11y_findings`/`rendering_surface`/`a11y_auto_invoked`는 additive — 기존 consumer 무영향. finalize-receipt는 Task 4b로 명시적 forward. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| a11y_auto_invoked 필드가 기존 receipt validate 깨뜨림 | Low | present-only(undefined 허용) + skeleton default false. legacy receipt 무영향 테스트. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
 
 ## Acceptance
 - [ ] All tasks complete

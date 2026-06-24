@@ -334,14 +334,14 @@ node --test plugins/mccp/scripts
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| R1: claude binary 미감지 환경(현 dev env 포함, system reminder ENOENT 확인) | High | Medium | spawn → notify mode graceful degrade + telemetry ledger의 `fallback_reason` 기록 |
-| R2: 동시 Stop event로 double-spawn race | Medium | High | race-lock 파일 (pr-phase-lock 패턴 reuse — ownership_token_hash + mtime lease 60s) |
-| R3: cost-state.js stale (5s 초과) → 오판 | Medium | Medium | `isStale(5_000)` 강제 호출 → stale 시 conservative no-handoff |
-| R4: STATE.md last_event 갱신과 breakpoint-detector read 사이 race | Low | Medium | state-writer 이미 file lock — patchState atomic. detector는 read-only. |
-| R5: Windows `Start-Process` 의존성 + tmux 미설치 환경 | Medium | Medium | platform branch + 둘 다 미감지 시 notify degrade |
-| R6: hard ceiling spawn 후 사용자가 새 세션을 못 봐서 cost 계속 누적 | Medium | High | desktop-notify (CRITICAL severity) + STATE.md `session_end_imminent=true` + stderr loud message ("HARD CEILING — manual intervention required if no new session appeared") |
-| R7: env override `MCCP_HANDOFF_THRESHOLDS_USD` parse 실패 silent | Low | Low | parse 실패 시 default fallback + stderr warn + `cost-thresholds.js` 자체 validation `notice < warning < critical` |
-| R8: stop-review-loop이 last_event를 emit하지 않는 환경(`MCCP_STOP_LOOP=off`) — auto-handoff가 영구 no-handoff | Low | Low | 의도된 동작. `MCCP_STOP_LOOP=off`는 v0.2 stop-loop를 완전 무력화하므로 v0.3 auto-handoff도 동반 무력화가 합리적 — Acceptance 항목에 명시. |
+| R1: claude binary 미감지 환경(현 dev env 포함, system reminder ENOENT 확인) | High | Medium | spawn → notify mode graceful degrade + telemetry ledger의 `fallback_reason` 기록 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| R2: 동시 Stop event로 double-spawn race | Medium | High | race-lock 파일 (pr-phase-lock 패턴 reuse — ownership_token_hash + mtime lease 60s) |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| R3: cost-state.js stale (5s 초과) → 오판 | Medium | Medium | `isStale(5_000)` 강제 호출 → stale 시 conservative no-handoff |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| R4: STATE.md last_event 갱신과 breakpoint-detector read 사이 race | Low | Medium | state-writer 이미 file lock — patchState atomic. detector는 read-only. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| R5: Windows `Start-Process` 의존성 + tmux 미설치 환경 | Medium | Medium | platform branch + 둘 다 미감지 시 notify degrade |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| R6: hard ceiling spawn 후 사용자가 새 세션을 못 봐서 cost 계속 누적 | Medium | High | desktop-notify (CRITICAL severity) + STATE.md `session_end_imminent=true` + stderr loud message ("HARD CEILING — manual intervention required if no new session appeared") |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| R7: env override `MCCP_HANDOFF_THRESHOLDS_USD` parse 실패 silent | Low | Low | parse 실패 시 default fallback + stderr warn + `cost-thresholds.js` 자체 validation `notice < warning < critical` |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| R8: stop-review-loop이 last_event를 emit하지 않는 환경(`MCCP_STOP_LOOP=off`) — auto-handoff가 영구 no-handoff | Low | Low | 의도된 동작. `MCCP_STOP_LOOP=off`는 v0.2 stop-loop를 완전 무력화하므로 v0.3 auto-handoff도 동반 무력화가 합리적 — Acceptance 항목에 명시. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
 
 ---
 

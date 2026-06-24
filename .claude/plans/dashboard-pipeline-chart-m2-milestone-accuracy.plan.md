@@ -100,11 +100,11 @@ grep -c "게이트 스테이지 파이프라인 chart" .claude/cache/STATUS.md  
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| git fallback이 미커밋 worktree-local plan에서 빈 결과 → 여전히 날짜 미상 | 중 | graceful floor(기존 표시) 유지. dogfood repo의 완료 plan은 모두 커밋됨 → 실질 표시율 100%. 표시 자체가 loud(사용자가 날짜 미상 봄) |
-| `execFileSync` git 호출이 렌더 경로에 child_process 도입(현 dep-free 원칙) | 중 | milestone-history.js는 이미 fs IO 수행(순수 아님). resolver 주입 + fail-open으로 격리. derive 스키마/순수 source는 불변 |
-| source_prd regex 확장이 기존 링크-형태 매칭 회귀 | 저 | 링크 우선 시도 → 평문 폴백 순서. 기존 v1-3-0 plan 매칭 회귀 테스트로 가드 |
-| planBasename 추출 변경이 다른 셀 포맷(순수 링크) 회귀 | 저 | `.plan.md` 우선 + 기존 첫-괄호 폴백 유지. 마크다운 링크/평문/annotation 3 포맷 테스트 |
-| design-lint(H1-H16) 회귀 — 섹션 텍스트 변경 | 저 | 용어만 변경(구조 불변), accent/heading depth 영향 없음. 기존 design-invariants.test.js로 가드 |
+| git fallback이 미커밋 worktree-local plan에서 빈 결과 → 여전히 날짜 미상 | 중 | graceful floor(기존 표시) 유지. dogfood repo의 완료 plan은 모두 커밋됨 → 실질 표시율 100%. 표시 자체가 loud(사용자가 날짜 미상 봄) |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| `execFileSync` git 호출이 렌더 경로에 child_process 도입(현 dep-free 원칙) | 중 | milestone-history.js는 이미 fs IO 수행(순수 아님). resolver 주입 + fail-open으로 격리. derive 스키마/순수 source는 불변 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| source_prd regex 확장이 기존 링크-형태 매칭 회귀 | 저 | 링크 우선 시도 → 평문 폴백 순서. 기존 v1-3-0 plan 매칭 회귀 테스트로 가드 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| planBasename 추출 변경이 다른 셀 포맷(순수 링크) 회귀 | 저 | `.plan.md` 우선 + 기존 첫-괄호 폴백 유지. 마크다운 링크/평문/annotation 3 포맷 테스트 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| design-lint(H1-H16) 회귀 — 섹션 텍스트 변경 | 저 | 용어만 변경(구조 불변), accent/heading depth 영향 없음. 기존 design-invariants.test.js로 가드 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 - [ ] 모든 task 완료

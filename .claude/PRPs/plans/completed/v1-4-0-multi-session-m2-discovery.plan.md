@@ -123,14 +123,14 @@ grep -A 3 "Other active mccp sessions" .claude/state/last-render.json 2>/dev/nul
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| Schema v1→v2 bump이 다른 repo의 기존 v1 ledger를 깨뜨림 | Medium | read-only lift(in-memory) + write-only v2 emit. v1 ledger 파일은 그대로 두고 다음 SessionStart에서 자연스럽게 v2로 re-write됨. 강제 migration 없음. |
-| `process.kill(pid, 0)` Windows 호환성 — POSIX 시그널 모델과 의미 차이 | Medium | Node가 Windows에서도 `process.kill(pid, 0)`을 지원(presence check). 동작 검증은 test에 포함. fallback: throw 시 `last_seen_at` 기반 stale 판정으로 자동 degrade. |
-| SessionStart에서 ledger 디렉토리가 거대해 listLedgers가 느려짐 | Low | 5분 heartbeat TTL + 24h fallback이 이미 cutoff. directory entry 수가 1000+가 되기 전엔 영향 없음. M3가 retention GC. |
-| Hybrid scope에서 SessionStart inject가 같은 ledger를 2번 표시 | Low | `listLedgers`가 이미 sessionId 기준 dedupe(`seen` Map, M1 ship). 새 코드는 이 invariant에 의존만 함. |
-| heartbeat write가 git status를 더럽힘(`<repo>/.claude/state/session-ledgers/`가 staged 됨) | Low | M1에서 이미 `.gitignore`에 `.claude/state/session-ledgers/` 등록(schema doc §4). 회귀 검증 시 `git status` 출력 확인. |
-| SessionStart `additionalContext`가 8000자 한도 초과 | Low | `summarizeOtherActiveLedgers` 최대 8건 × ~80자 = 640자. `limitSessionStartContext`(session-start.js:135)가 hard cap 보장. |
-| Renderer "Active sessions" 섹션이 self를 포함해 confusing | Low | M3 derive surface는 self 식별 불가하므로 모든 항목 render. dashboard UI에서 별도로 self 마킹(이건 후속 axis로 backlog). M2 ship 기준 acceptable. |
-| 2 worktree 동시 SessionStart에서 ledger 파일 race | Low | `withLedgerLock`(M1)이 advisory `wx` + 30s stale-clear로 이미 보호. M2가 추가 race surface 만들지 않음. |
+| Schema v1→v2 bump이 다른 repo의 기존 v1 ledger를 깨뜨림 | Medium | read-only lift(in-memory) + write-only v2 emit. v1 ledger 파일은 그대로 두고 다음 SessionStart에서 자연스럽게 v2로 re-write됨. 강제 migration 없음. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| `process.kill(pid, 0)` Windows 호환성 — POSIX 시그널 모델과 의미 차이 | Medium | Node가 Windows에서도 `process.kill(pid, 0)`을 지원(presence check). 동작 검증은 test에 포함. fallback: throw 시 `last_seen_at` 기반 stale 판정으로 자동 degrade. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| SessionStart에서 ledger 디렉토리가 거대해 listLedgers가 느려짐 | Low | 5분 heartbeat TTL + 24h fallback이 이미 cutoff. directory entry 수가 1000+가 되기 전엔 영향 없음. M3가 retention GC. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| Hybrid scope에서 SessionStart inject가 같은 ledger를 2번 표시 | Low | `listLedgers`가 이미 sessionId 기준 dedupe(`seen` Map, M1 ship). 새 코드는 이 invariant에 의존만 함. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| heartbeat write가 git status를 더럽힘(`<repo>/.claude/state/session-ledgers/`가 staged 됨) | Low | M1에서 이미 `.gitignore`에 `.claude/state/session-ledgers/` 등록(schema doc §4). 회귀 검증 시 `git status` 출력 확인. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| SessionStart `additionalContext`가 8000자 한도 초과 | Low | `summarizeOtherActiveLedgers` 최대 8건 × ~80자 = 640자. `limitSessionStartContext`(session-start.js:135)가 hard cap 보장. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| Renderer "Active sessions" 섹션이 self를 포함해 confusing | Low | M3 derive surface는 self 식별 불가하므로 모든 항목 render. dashboard UI에서 별도로 self 마킹(이건 후속 axis로 backlog). M2 ship 기준 acceptable. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| 2 worktree 동시 SessionStart에서 ledger 파일 race | Low | `withLedgerLock`(M1)이 advisory `wx` + 30s stale-clear로 이미 보호. M2가 추가 race surface 만들지 않음. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
 
 ## Acceptance
 

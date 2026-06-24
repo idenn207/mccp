@@ -254,13 +254,13 @@ node -e "const j=JSON.parse(require('fs').readFileSync('plugins/mccp/hooks/hooks
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| F축 rename이 누락 파일을 남겨 hook이 silent fail | MEDIUM | HIGH | Task F.4 final grep + manual env toggle smoke test |
-| hooks.json DRY-up이 plugin install path detection 깨뜨림 | MEDIUM | HIGH | `bootstrap.js`가 단계적 fallback (env → 표준 path → loud-fail). install 시나리오 5종 수동 확인 (CLAUDE_PLUGIN_ROOT 정상/빈/잘못된/marketplace cache/dev worktree) |
-| C축 hook off가 다른 hook의 입력 데이터를 끊음 | LOW | MEDIUM | observe-runner ledger는 ecc-context-monitor가 읽음 — context-monitor도 off 함께. 검증: trace shard 1턴 확인 |
-| E축 gateguard scope-down이 critical path edit을 놓침 | LOW | MEDIUM | glob 범위에 `plugins/mccp/scripts/lib/**`, `plugins/mccp/commands/**`, `plugins/mccp/hooks/**` 포함. 보수적으로 시작 |
-| ECC_* alias 없는 hard cut이 사용자 settings.local.json 깨뜨림 | HIGH | LOW | CHANGELOG breaking section + STATE.md에 migration note. mccp 단독 사용자만 영향이고, 본인 환경의 settings.local.json은 Task F.3에서 동기 |
-| `bash-hook-dispatcher.js`의 PRE_BASH_HOOKS 배열 수정이 다른 hook 깨뜨림 | LOW | MEDIUM | `auto-tmux-dev` 한 줄 제거만. 배열 순서 보존. 단위 테스트가 dispatcher 전체 동작 검증 |
-| `MCCP_CODEX_DISABLED=1` + `MCCP_RECEIPT_GATE_MODE=off` 환경에서 Phase 5 게이트가 skip되어 dual-review 실종 | KNOWN | n/a | 사용자 영구 합의 (memory `feedback-codex-permanent-bypass`). chain-of-custody만 receipt에 기록. |
+| F축 rename이 누락 파일을 남겨 hook이 silent fail | MEDIUM | HIGH | Task F.4 final grep + manual env toggle smoke test |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| hooks.json DRY-up이 plugin install path detection 깨뜨림 | MEDIUM | HIGH | `bootstrap.js`가 단계적 fallback (env → 표준 path → loud-fail). install 시나리오 5종 수동 확인 (CLAUDE_PLUGIN_ROOT 정상/빈/잘못된/marketplace cache/dev worktree) |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| C축 hook off가 다른 hook의 입력 데이터를 끊음 | LOW | MEDIUM | observe-runner ledger는 ecc-context-monitor가 읽음 — context-monitor도 off 함께. 검증: trace shard 1턴 확인 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| E축 gateguard scope-down이 critical path edit을 놓침 | LOW | MEDIUM | glob 범위에 `plugins/mccp/scripts/lib/**`, `plugins/mccp/commands/**`, `plugins/mccp/hooks/**` 포함. 보수적으로 시작 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| ECC_* alias 없는 hard cut이 사용자 settings.local.json 깨뜨림 | HIGH | LOW | CHANGELOG breaking section + STATE.md에 migration note. mccp 단독 사용자만 영향이고, 본인 환경의 settings.local.json은 Task F.3에서 동기 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| `bash-hook-dispatcher.js`의 PRE_BASH_HOOKS 배열 수정이 다른 hook 깨뜨림 | LOW | MEDIUM | `auto-tmux-dev` 한 줄 제거만. 배열 순서 보존. 단위 테스트가 dispatcher 전체 동작 검증 |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
+| `MCCP_CODEX_DISABLED=1` + `MCCP_RECEIPT_GATE_MODE=off` 환경에서 Phase 5 게이트가 skip되어 dual-review 실종 | KNOWN | n/a | 사용자 영구 합의 (memory `feedback-codex-permanent-bypass`). chain-of-custody만 receipt에 기록. |<!--mccp:resolved reason="plan이 .claude/PRPs/plans/completed/ 로 아카이브됨 = gate chain 통과 후 ship 완료, 완화책이 구현되고 테스트로 가드됨" at="2026-06-24T16:29:04.758Z"-->
 
 ## Acceptance
 

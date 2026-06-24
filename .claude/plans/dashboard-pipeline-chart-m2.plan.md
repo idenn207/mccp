@@ -126,12 +126,12 @@ node -e "process.exit(require('./plugins/mccp/.claude-plugin/plugin.json').versi
 ## Risks
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| renderRow 재구성이 snapshot/footnote/briefing 로직 회귀 | 중 | HTML 문자열·wrapper·footnote 클래스만 변경, 제어 흐름 불변(D3). 전체 스위트 회귀 통과 필수 |
-| 세로 rail `::before`가 H4(border-left)에 걸림 | 중 | background 라인으로 구현(D2), output-constraints.test.js로 H4 위반 0 assert |
-| tl-node carve-out 과확장으로 일반 chrome H3 누락 | 중 | carve-out을 `tl-node` 클래스 한정 + "일반 chrome H3 위반 여전히 검출" assert |
-| footnote li가 rail 위 빈 가짜 step으로 보임 | 중 | footnote는 `tl-note`(노드 미부착) + 들여쓰기 정렬, render-integration 시각 확인 |
-| 30+ 노드 세로 rail 길이 과다 | 저 | 기존 `MAX_ROWS_LIVE=20`+archived 10 cap이 이미 제한, +N older footnote |
-| markdown 정보 손실 | 저 | md 출력 불변(D5), ✓/◐ 형태 병행 유지 |
+| renderRow 재구성이 snapshot/footnote/briefing 로직 회귀 | 중 | HTML 문자열·wrapper·footnote 클래스만 변경, 제어 흐름 불변(D3). 전체 스위트 회귀 통과 필수 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 세로 rail `::before`가 H4(border-left)에 걸림 | 중 | background 라인으로 구현(D2), output-constraints.test.js로 H4 위반 0 assert |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| tl-node carve-out 과확장으로 일반 chrome H3 누락 | 중 | carve-out을 `tl-node` 클래스 한정 + "일반 chrome H3 위반 여전히 검출" assert |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| footnote li가 rail 위 빈 가짜 step으로 보임 | 중 | footnote는 `tl-note`(노드 미부착) + 들여쓰기 정렬, render-integration 시각 확인 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 30+ 노드 세로 rail 길이 과다 | 저 | 기존 `MAX_ROWS_LIVE=20`+archived 10 cap이 이미 제한, +N older footnote |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| markdown 정보 손실 | 저 | md 출력 불변(D5), ✓/◐ 형태 병행 유지 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 - [ ] 모든 Task 완료

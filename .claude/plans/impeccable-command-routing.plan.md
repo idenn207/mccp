@@ -108,11 +108,11 @@ node --test plugins/mccp/scripts/**/tests/*.test.js 2>&1 | tail -20
 ## Risks
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| `background` shape 호출이 비대화형 게이트에서 불안정 | High | oracle은 callForm=background 선언만, 명령 body는 best-effort + foreground/recommend 폴백 + loud stderr. M1은 폴백 경로가 정답 |
-| critique 중복 호출(기존 loop + routing 리스트) | Medium | routing 리스트의 critique이 단일 진실 — 기존 loop를 evaluate 단계로 흡수, 별도 호출 제거 |
-| pr.md에서 invoke 시 PR-phase guard와 충돌 | Medium | pr은 recommend-only 강제(oracle이 pr gate를 전부 recommend로) — invoke 경로 없음 |
-| 신규 schema 필드가 기존 receipt 깨뜨림 | Low | present-only(undefined pass) + legacy 회귀 테스트(Task 4) |
-| routing이 design-gate control-plane 건드려 자기-재현 | Low | impeccable-routing.js는 DESIGN_SURFACE_PATHS 미포함(oracle은 디자인 surface 아님) — detector가 .js를 디자인으로 안 봄 |
+| `background` shape 호출이 비대화형 게이트에서 불안정 | High | oracle은 callForm=background 선언만, 명령 body는 best-effort + foreground/recommend 폴백 + loud stderr. M1은 폴백 경로가 정답 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| critique 중복 호출(기존 loop + routing 리스트) | Medium | routing 리스트의 critique이 단일 진실 — 기존 loop를 evaluate 단계로 흡수, 별도 호출 제거 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| pr.md에서 invoke 시 PR-phase guard와 충돌 | Medium | pr은 recommend-only 강제(oracle이 pr gate를 전부 recommend로) — invoke 경로 없음 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| 신규 schema 필드가 기존 receipt 깨뜨림 | Low | present-only(undefined pass) + legacy 회귀 테스트(Task 4) |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
+| routing이 design-gate control-plane 건드려 자기-재현 | Low | impeccable-routing.js는 DESIGN_SURFACE_PATHS 미포함(oracle은 디자인 surface 아님) — detector가 .js를 디자인으로 안 봄 |<!--mccp:resolved reason="milestone ship 완료 — 프로젝트는 v1.18.4 진행 중이고 본 plan 의 cycle 은 이미 merged(git log/CHANGELOG). 위험 완화책 구현·질문 해소가 게이트 수렴 시점에 반영됨" at="2026-06-24T16:32:41.256Z"-->
 
 ## Acceptance
 - [ ] oracle + 2 테스트 파일 통과 (Task 1,2,4)

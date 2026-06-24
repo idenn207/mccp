@@ -223,6 +223,28 @@ function extractPlanSummary(planBody) {
   return text || null;
 }
 
+// Dashboard Truthfulness M1 Task 3 — ship-time snapshot of a plan's `## Risks`
+// (Risk column) + `## Open Questions` (list-item text). The completion-ledger
+// facade reads the plan body at gate-converge time and stores these as
+// risks_closed[] / oq_closed[]; M3 will diff this snapshot against the live
+// plan body to retire resolved rows. fail-open → { risks: [], openQuestions: [] }.
+function extractRisksAndOpenQuestions(planBody) {
+  const out = { risks: [], openQuestions: [] };
+  if (!planBody || typeof planBody !== 'string') return out;
+  try {
+    const { rows } = parseRisks(planBody);
+    out.risks = rows
+      .map(function (r) { return (r.risk || '').trim(); })
+      .filter(Boolean);
+  } catch (_e) { out.risks = []; }
+  try {
+    out.openQuestions = parseOpenQuestions(planBody)
+      .map(function (o) { return (o.text || '').trim(); })
+      .filter(Boolean);
+  } catch (_e) { out.openQuestions = []; }
+  return out;
+}
+
 function parsePlanBody(model, opts) {
   opts = opts || {};
   const cwd = opts.cwd || process.cwd();
@@ -317,6 +339,7 @@ module.exports = {
   parseDeliveryMilestonesComplete,
   parseOpenQuestions,
   parseRisks,
+  extractRisksAndOpenQuestions,
   extractPlanSummary,
   extractCyclePrefix,
   computePlanStaleness,

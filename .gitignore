@@ -28,6 +28,12 @@ build/
 # STATE.md and fix-task.md remain git-tracked per plan §4.
 .claude/state/loop-counter.json
 .claude/state/*.lock
+# dashboard-truthfulness M1 — completion-ledger entries ARE git-tracked, but the
+# per-entry write lock + atomic tmp are local-only ephemera. The single-level
+# glob above does not reach this subdir, so name them explicitly to keep
+# crash-leaked locks/tmps out of the tracked register directory.
+.claude/state/completion-ledger/*.lock
+.claude/state/completion-ledger/*.tmp
 # Codex stop-loop bridge scratch input — local-only.
 .claude/state/codex-stop-loop-input.txt
 # Dogfood ephemera (fixtures + sandboxes) — never committed.

@@ -133,6 +133,72 @@ test('stale 셀 경로(.claude/plans/) → completed/ archive basename fallback 
   assert.ok(!out.html.includes('날짜 미상'));
 });
 
+// Dashboard Truthfulness M1 headline regression — durable completedAt.
+// Simulates post-merge amnesia: the pr-codex receipt is GONE (worktree removed
+// after merge) and git commit time is unavailable, yet the git-tracked ledger
+// entry still supplies the completion timestamp → no "날짜 미상".
+const SINGLE_PRD_BODY = [
+  '## Delivery Milestones',
+  '',
+  '| # | Milestone | Outcome | Status | Plan |',
+  '| --- | --- | --- | --- | --- |',
+  '| 1 | Alpha | out | complete | .claude/plans/alpha.plan.md |',
+  '',
+].join('\n');
+
+function fsReadSinglePrd(p) {
+  if (p === PRD_ABS) return SINGLE_PRD_BODY;
+  throw new Error('ENOENT ' + p);
+}
+
+function ledgerModel(ledgerItems) {
+  return {
+    repo_root: CWD,
+    sources: {
+      plans: { items: [{ path: '.claude/plans/alpha.plan.md', source_prd: '.claude/prds/test.prd.md' }] },
+      receipts: { items: [] }, // receipt 소멸 (merge + worktree remove)
+      ledger: { items: ledgerItems },
+    },
+  };
+}
+
+test('headline: receipt+git 부재 시 ledger가 completedAt 제공 (merge+worktree 제거 회귀)', () => {
+  const out = renderMilestoneHistory(
+    ledgerModel([
+      { plan_basename: 'alpha.plan.md', decision_id: 'alpha', completed_at: '2026-06-22T07:00:00.000Z' },
+    ]),
+    formatUtils, null,
+    { cwd: CWD, fsRead: fsReadSinglePrd, gitCommitTime: () => null },
+  );
+  assert.ok(out && out.html.includes('datetime="2026-06-22T07:00:00.000Z"'),
+    'ledger entry supplies the completion time');
+  assert.ok(!out.html.includes('날짜 미상'));
+});
+
+test('F3 consumer: ledger 항목 부재면 receipt meta flag와 무관하게 날짜 미상 (항목이 authoritative)', () => {
+  // 빈 ledger items → 소비자는 어떤 receipt meta(ledger_write_skipped)도 읽지 않으므로
+  // 완료 시점을 만들어내지 못하고 정직하게 '날짜 미상'으로 degrade.
+  const out = renderMilestoneHistory(
+    ledgerModel([]),
+    formatUtils, null,
+    { cwd: CWD, fsRead: fsReadSinglePrd, gitCommitTime: () => null },
+  );
+  assert.ok(out.html.includes('날짜 미상'));
+});
+
+test('ledger fallback: live pr-codex receipt가 있으면 ledger보다 우선 (사다리 순서)', () => {
+  const model = ledgerModel([
+    { plan_basename: 'alpha.plan.md', decision_id: 'alpha', completed_at: '2026-06-22T07:00:00.000Z' },
+  ]);
+  model.sources.receipts.items = [
+    { gate_id: 'mccp-pr-codex', decision_id: 'alpha', created_at: '2026-06-23T09:00:00.000Z' },
+  ];
+  const out = renderMilestoneHistory(model, formatUtils, null,
+    { cwd: CWD, fsRead: fsReadSinglePrd, gitCommitTime: () => null });
+  assert.ok(out.html.includes('datetime="2026-06-23T09:00:00.000Z"'), 'live receipt wins over ledger');
+  assert.ok(!out.html.includes('2026-06-22T07:00:00.000Z'));
+});
+
 test('platform-independent: status grid 용어는 마일스톤 (이정표 부재)', () => {
   const out = renderMilestoneHistory(makeModel(), formatUtils, null, {
     cwd: CWD,

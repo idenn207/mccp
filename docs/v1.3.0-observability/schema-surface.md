@@ -85,6 +85,7 @@ Every `meta.*` field `schema.js` explicitly validates, grouped by introducing ve
 | `briefing_token_count` | non-negative integer \| `null` | v1.3.0-m2 | Tokens consumed by the briefing call. Real value when codex-companion emits `tokenUsage`; otherwise `(focus.length + stdout.length)/4` estimate. |
 | `briefing_token_estimated` | boolean | v1.3.0-m2 | When `true`, `briefing_token_count` was derived from the (input+output) char-length estimate. Codex R1 F2 absorption — distinguishes estimate-from-stdout from real-from-tokenUsage. |
 | `briefing_invocation_count` | non-negative integer \| `null` | v1.3.0-m2 | Count of LLM call attempts per receipt (0 when cost-guard skipped, 1 when invoked — successful or failed). v1.3 has no retry, so the value is always 0 or 1. |
+| `ledger_write_skipped` | boolean | dashboard-truthfulness M1 | **Diagnostic-only.** Stamped `true` by the completion-ledger epilogue ONLY when the git-safety gate refused to append (detached/unborn HEAD or dirty working tree). NOT authoritative — the authoritative completion signal is the ledger entry file's existence (see §11). Carved out of `receipt_hash` (§2.5 family). Absent on the success path. |
 
 **3-way codex skip mutex** (v0.3.5): `codex_dedupe_at_pr`, `codex_skipped_at_pr`, `codex_disabled_at_pr` are mutually exclusive. Exactly one PR-step codex-skip path may be active per receipt.
 
@@ -108,6 +109,8 @@ Controller-worker attribution axis. Four fields move together under a single mar
 `receipt/hash.js#receiptHash` strips these 4 keys from the canonicalization input alongside `receipt_hash` itself (deep-clone via `JSON.parse(JSON.stringify(...))` so the caller's receipt object is not mutated). Backward-compat invariant: v0.2.x-era receipts lack these keys, so the strip is a no-op and `receiptHash` returns the bit-identical pre-v1.3.0-m2 value.
 
 Tamper-detection consumers MUST recompute the hash via `receiptHash(receipt)` (which honors the carve-out) — never canonicalize the receipt independently and compare. v1.3.0-m2 added a dedicated regression test ([`receipt/tests/hash-briefing-exclusion.test.js`](../../plugins/mccp/scripts/receipt/tests/hash-briefing-exclusion.test.js)) covering all 5 invariants (stamp invariance, value-divergence invariance, backward-compat bit-identity, control non-briefing mutation surfaces, caller object non-mutation).
+
+dashboard-truthfulness M1 extends the same carve-out family with `meta.ledger_write_skipped` (the single diagnostic flag the completion-ledger epilogue may stamp on the git-unsafe path). `receiptHash` strips it alongside the 4 briefing keys; [`receipt/tests/hash-ledger-exclusion.test.js`](../../plugins/mccp/scripts/receipt/tests/hash-ledger-exclusion.test.js) mirrors the invariant suite for it.
 
 ## 3. Envelope schema (v1)
 
@@ -249,3 +252,37 @@ Resolution chain (deterministic, in order):
 The `self_resolution` enum lets consumers (and dogfood verification) tell apart "self identity unknown for known reason" vs "stale/old surface" — silent null fallback is forbidden by contract.
 
 No envelope, STATE.md, or receipt schema additions in v1.4.0-m3. Append-only friction telemetry sidecar (`<repo>/.claude/state/m3-friction-events.jsonl`) is a producer-side measurement artifact, not part of the read-side derive surface — see [m3-friction-metric.md](../v1.4.0-multi-session/m3-friction-metric.md).
+
+## §11 — Completion ledger source (dashboard-truthfulness M1)
+
+**STATUS: foundation primitive implemented in dashboard-truthfulness M1** (write + read + schema; entry-commit wiring is a follow-up — see §11.3). The register directory is *intended to be* git-tracked so that **committed** entries survive post-merge amnesia (receipts are gitignore + worktree-local per CLAUDE.md §3.8, so they vanish after `git worktree remove`). The `/mccp:pr` gate's receipt-write epilogue appends one summary per converged `mccp-pr-codex` ship, and the dashboard reads committed entries as a durable history source to resolve "날짜 미상" for milestones whose live receipt is gone.
+
+### 11.1 Store — `.claude/state/completion-ledger/<id>.json` (one-file-per-entry)
+
+Directory of one-file-per-entry JSON, NOT a single append-only array. `<id> = <decision_id>__<receipt_hash 12-hex>` (filesystem-safe sanitized). Distinct filenames give cross-worktree append a zero git-merge-conflict surface (F2 — mirrors the per-session-file `state/session-ledger.js` pattern). File shape: `{ schema_version: 'v1', entry: {...} }`.
+
+| Entry field | Type | Notes |
+|---|---|---|
+| `decision_id` | non-empty string | gate decision slug. |
+| `gate` | non-empty string | always `mccp-pr-codex` (M1 gate-gating). |
+| `verdict` | `converged` \| `advisory` \| `skipped` | resolved from receipt `meta.advisory` / `meta.skipped`. |
+| `version` | non-empty string \| `null` | completion-time best-effort: plugin.json → `git describe --tags` → null. M1-scoped, independent of M2 host-version ladder. |
+| `completed_at` | ISO8601 string | receipt `meta.created_at`. |
+| `commit_sha` | 7–40 hex \| `null` | HEAD at clean-tree append time (reproducible reviewed state). |
+| `plan_basename` | non-empty string | basename of the plan path. |
+| `plan_file_hash` | non-empty string \| `null` | receipt `plan_hash`. |
+| `risks_closed` | string[] | ship-time snapshot of plan `## Risks` (Risk column). M3 retirement input. |
+| `oq_closed` | string[] | ship-time snapshot of plan `## Open Questions` list items. |
+| `receipt_hash` | non-empty string | originating receipt's canonical digest. |
+
+Idempotency: an existing `<id>.json` is a no-op (same receipt re-shipped). The reader (`store.readLedger`) globs the directory, strict-validates each file, and dedups by `decision_id` (latest `completed_at` wins). lock + atomic (tmp+rename) + loud fail-open WARNING (never throws).
+
+**Git-safety gate (F1)**: `store.isLedgerAppendSafe(repoRoot)` returns `{ safe, reason, commit_sha? }`. Unsafe when HEAD is unborn/detached OR the working tree is dirty AFTER an allowlist exclusion (`.claude/state/completion-ledger/`, `.claude/state/STATE.md`, `.claude/cache/`, `.claude/receipts/` — mccp's own bookkeeping/ephemera, never reviewed source). On unsafe, the facade skips the write and stamps the diagnostic `meta.ledger_write_skipped=true` (§2.3) instead. In the normal flow `/mccp:pr` runs AFTER `/mccp:prp-commit`, so the source tree is clean and append succeeds.
+
+### 11.2 Derive `ledger` count-source
+
+`derive/sources/ledger.js#scanLedger` projects the store's deduped entries into the standard count-source shape `{ ok, count, items, invalid_count, degraded, error }` (mirror of `backlog`/`receipts`). Registered in `derive/index.js#SOURCE_SCANNERS` + `model.js#emptyModel.sources.ledger` + `validateShape` (`required` + `countSources`). `MODEL_VERSION` stays `v1` (additive). Secret/path masking is the derive mask layer's concern. Consumed by `renderer/sections/milestone-history.js` as the durable completion fallback (live pr-codex receipt → **ledger** → git commit time → "날짜 미상").
+
+### 11.3 Known limitation — entry-commit wiring (M1 scope boundary)
+
+The epilogue *writes* the entry into the worktree's `.claude/state/completion-ledger/`, but the write fires from the `/mccp:pr` pr-codex receipt path, which runs AFTER `/mccp:prp-commit`. The freshly-written entry therefore lands **uncommitted** in the working tree (`gitRepoRoot` resolves to the worktree root via `git rev-parse --show-toplevel`, not the parent repo). No command/hook stages or commits the register, so under the §3.8 norm (single-milestone worktree, cleanup immediately after merge) the entry is destroyed by `git worktree remove` before it can become durable — the very post-merge scenario the register targets. The `milestone-history` headline regression test passes by injecting a ledger item directly into the derive model (it validates the read-side fallback ladder given a surviving entry), not by exercising end-to-end durability. **Closing this gap** (staging + committing the entry into the same PR flow, or moving the write to a committed gate) is a follow-up axis, not part of M1's data-layer primitive.

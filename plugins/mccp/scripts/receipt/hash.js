@@ -213,6 +213,13 @@ function receiptHash(receipt) {
     delete clone.meta.briefing_token_count;
     delete clone.meta.briefing_token_estimated;
     delete clone.meta.briefing_invocation_count;
+    // Dashboard Truthfulness M1 (F3) — completion-ledger writes a single
+    // diagnostic field `ledger_write_skipped` onto the receipt AFTER the
+    // canonical hash is finalized (epilogue restamp on the git-unsafe path).
+    // Excluding it from the hashed body keeps the tamper-detect digest stable;
+    // the authoritative completion signal is the ledger entry's existence, not
+    // this flag. Backward-compat: pre-M1 receipts lack the key → no-op delete.
+    delete clone.meta.ledger_write_skipped;
   }
   return sha256(canonicalize(clone));
 }

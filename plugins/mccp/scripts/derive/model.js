@@ -5,6 +5,7 @@
 //   M3: (no change — render-only consumer)
 //   M4: mask_hits / last_render_meta (top-level optional)
 //   M5: receipts.items[].receipt_hash (optional)
+//   dashboard-truthfulness M1: sources.ledger (additive count-source)
 // Consumers MUST tolerate missing optional fields (null fallback). A bump
 // would force receipt-side migration which the additive surface avoids.
 const MODEL_VERSION = 'v1';
@@ -27,6 +28,7 @@ function emptyModel(repoRoot) {
       fix_task:  { ok: true, item: null,                           degraded: false, error: null },
       pr:        { ok: true, item: null,                           degraded: false, error: null },
       envelopes: { ok: true, count: 0, items: [], invalid_count: 0, degraded: false, error: null },
+      ledger:    { ok: true, count: 0, items: [], invalid_count: 0, degraded: false, error: null },
     },
     correlations: [],
     warnings: [],
@@ -54,11 +56,11 @@ function validateShape(model) {
   if (!model.sources || typeof model.sources !== 'object') {
     errors.push('sources missing');
   } else {
-    const required = ['plans', 'receipts', 'state', 'backlog', 'fix_task', 'pr', 'envelopes'];
+    const required = ['plans', 'receipts', 'state', 'backlog', 'fix_task', 'pr', 'envelopes', 'ledger'];
     for (const k of required) {
       if (!model.sources[k]) errors.push('sources.' + k + ' missing');
     }
-    const countSources = ['plans', 'receipts', 'backlog', 'envelopes'];
+    const countSources = ['plans', 'receipts', 'backlog', 'envelopes', 'ledger'];
     for (const k of countSources) {
       const s = model.sources[k];
       if (!s) continue;

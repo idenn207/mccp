@@ -583,6 +583,17 @@ function validate(receipt) {
         });
       }
     }
+
+    // Dashboard Truthfulness M1 (F3) — completion-ledger diagnostic flag
+    // (present-only — pre-M1 receipts validate unchanged). Stamped by the
+    // ledger epilogue ONLY on the git-unsafe skip path; its presence is
+    // diagnostic, NOT authoritative. The authoritative completion signal is
+    // the ledger entry file's existence (milestone-history/derive read the
+    // entry, never this flag). hash.js carves it out of receipt_hash.
+    if (m.ledger_write_skipped !== undefined) {
+      req(typeof m.ledger_write_skipped === 'boolean',
+        'meta.ledger_write_skipped must be a boolean if present');
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };

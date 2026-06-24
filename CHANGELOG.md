@@ -4,6 +4,25 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.17.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.18.3] — 2026-06-24
+
+dashboard-truthfulness M1 — 완료 이력 영속화 레지스터 (**foundation — 데이터 레이어 primitive**). `/mccp:pr` 게이트 수렴(pr-codex receipt write) 직후, **git-tracked로 의도된** one-file-per-entry 디렉토리(`.claude/state/completion-ledger/<id>.json`)에 완료 요약 1건을 append하는 epilogue + derive `ledger` source + `milestone-history.js`의 durable fallback(live receipt → ledger → git time → "날짜 미상")을 깔아둔다. receipt는 gitignore + worktree-local이라 merge + `git worktree remove` 후 사라지지만(post-merge amnesia), 레지스터 디렉토리는 git-tracked라 **commit된 엔트리는 worktree 제거 후에도 살아남고** milestone-history가 이를 durable history로 읽는다. **알려진 한계(M1 범위 밖, 후속 milestone)**: 엔트리 write는 `/mccp:prp-commit` **이후**의 `/mccp:pr` epilogue에서 일어나므로 worktree에 *미커밋* 상태로 남는다 — 엔트리를 같은 PR 흐름 안에서 git에 commit하는 **commit-wiring이 아직 없어**, 단일-milestone-ship 후 즉시 cleanup하는 §3.8 표준 흐름에서는 엔트리가 아직 영속화되지 않는다. 본 M1은 write/read/schema primitive까지를 닫고, end-to-end post-merge 생존(commit-wiring)은 후속 axis로 분리한다. **데이터 레이어 전용** — UI/렌더 마크업 무변경(렌더러는 레지스터를 읽기만). Codex Plan-Codex R1 3 findings absorbed: F1(dirty/detached 시 clean-tree gate로 안전 skip + `meta.ledger_write_skipped` 진단 stamp — 재현 불가 commit_sha 방지), F2(단일 배열 대신 one-file-per-entry → distinct 파일명으로 cross-worktree merge 충돌 0, session-ledger 패턴 완전 미러), F3(레지스터 항목 존재가 authoritative 완료 신호 — receipt meta는 diagnostic-only, 소비자는 meta flag가 아닌 항목을 읽음). `receipt_hash` carve-out 계승(briefing 선례) — ledger stamp가 tamper-detect digest 무력화 안 함. plugin.json `1.18.2 → 1.18.3` patch bump + 양 footer 동기화.
+
+### Added
+
+- **`scripts/lib/completion-ledger/store.js`** — one-file-per-entry 저장소(lock+atomic+strict validate, F2) + `isLedgerAppendSafe` clean-tree git-safety gate(F1, allowlist: completion-ledger/STATE.md/cache/receipts).
+- **`scripts/lib/completion-ledger/index.js`** — `triggerLedgerAppend` facade(gate-gating + verdict/version 해석 + diagnostic skip stamp, briefing facade 미러, loud fail-open).
+- **`scripts/derive/sources/ledger.js`** — `scanLedger` count-source(read-only surface) + `derive/index.js`·`model.js` 등록(additive, MODEL_VERSION v1 불변).
+- **receipt schema** `meta.ledger_write_skipped`(present-only boolean, F3 diagnostic) + `hash.js` carve-out.
+- **`scripts/lib/renderer/parsers/plan-body.js`** `extractRisksAndOpenQuestions` — ship-time Risks/OQ 스냅샷(M3 은퇴 매칭 입력).
+- **테스트** — completion-ledger store(19)/facade + derive ledger-source + hash-ledger-exclusion carve-out + milestone-history headline 회귀(merge+worktree 제거 시뮬) + plan-body 스냅샷 + schema-drift ledger 가드.
+
+### Changed
+
+- **`scripts/receipt/write.js`** — epilogue에 ledger append 와이어(briefing 다음, render-trigger 이전; lazy-require + outer try `(allow)`).
+- **`scripts/lib/renderer/sections/milestone-history.js`** — `pickLedgerEntry` durable fallback(live receipt → ledger → git time → 날짜 미상).
+- **`docs/v1.3.0-observability/schema-surface.md`** — §11 completion ledger source + `meta.ledger_write_skipped` present-only 행.
+
 ## [1.17.0] — 2026-06-23
 
 dashboard 콘솔 셸 + self-contained 타이포 (M3 후속) — [1.16.0]의 다크 콘솔 위에 **좌측 사이드바 앱 셸**을 얹어 멀티페이지 콘솔을 완성한다. **사이드바**(244px sticky): 프로젝트 스위처 + 검색 affordance(현재 `aria-hidden` 시각 placeholder) + 아이콘 page nav(`.nav-link` active = 배경·굵기·아이콘 복합 신호) + 차단 `.pin-alert`. **topbar**(52px sticky): 브레드크럼 + 중앙 page-title(`:has()` 토글) + freshness dot, stale 시 하단 hairline 앰버 전환. nav 레일·상단 status-strip은 폐기하고 status 4축은 개요 hero 인라인 메타로만 유지. **타이포**: vendored `PretendardVariable.woff2`(2.0MB, OFL-1.1)를 base64-inline `@font-face`로 self-contained 임베드 — 외부 fetch 0(`data:` URI는 네트워크 surface 아님 → H13 외부-fetch invariant 통과), woff2 누락 시 system 스택 graceful degrade. **DESIGN.md**: `/impeccable document`로 frontmatter(토큰) + 디자인 시스템 서술 포맷 재작성, `html.js` OKLCH_DARK/LIGHT 토큰과 1:1 정합. **H13 재정의**(docs/v1.3.0-observability/DESIGN.md): font-family banlist → 외부-fetch invariant(로컬 family-name 참조 + vendored data: URI 임베드 허용). lint carve-out(H3 셸 클래스 superset)·H2 content-max(≤1080px) 셸 디자인 정합. 데이터 소스·derive·receipt 스키마 불변(read-side 시각 레이어만). plugin.json `1.16.0 → 1.17.0` minor bump.

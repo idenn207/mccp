@@ -7,6 +7,7 @@ const {
   parseDeliveryMilestones,
   parseOpenQuestions,
   parseRisks,
+  extractRisksAndOpenQuestions,
 } = require('../parsers/plan-body');
 
 const PRD_OK = `# Test PRD
@@ -65,6 +66,29 @@ test('parseDeliveryMilestones — PRD frontmatter table mapped to plan basenames
 test('parseDeliveryMilestones — empty Map when table missing', () => {
   const m = parseDeliveryMilestones('# PRD\n\nNo milestones table.\n');
   assert.equal(m.size, 0);
+});
+
+test('extractRisksAndOpenQuestions — Risk 열 + OQ 텍스트 배열 스냅샷 (M1 Task 3)', () => {
+  const snap = extractRisksAndOpenQuestions(PLAN_BODY_FULL);
+  assert.deepEqual(snap.risks, ['r1', 'r2']);
+  assert.deepEqual(snap.openQuestions, [
+    'q1: foo?',
+    'q2: bar resolved',
+    'q3: bare bullet without checkbox',
+  ]);
+});
+
+test('extractRisksAndOpenQuestions — fail-open on null/non-string → 빈 배열', () => {
+  assert.deepEqual(extractRisksAndOpenQuestions(null), { risks: [], openQuestions: [] });
+  assert.deepEqual(extractRisksAndOpenQuestions(42), { risks: [], openQuestions: [] });
+  assert.deepEqual(extractRisksAndOpenQuestions(''), { risks: [], openQuestions: [] });
+});
+
+test('extractRisksAndOpenQuestions — 섹션 부재 시 해당 배열만 비고 다른 쪽은 보존', () => {
+  const onlyRisks = '# P\n## Risks\n| Risk | Likelihood | Impact | Mitigation |\n|---|---|---|---|\n| solo | Low | Low | mit |\n';
+  const snap = extractRisksAndOpenQuestions(onlyRisks);
+  assert.deepEqual(snap.risks, ['solo']);
+  assert.deepEqual(snap.openQuestions, []);
 });
 
 test('parseOpenQuestions — checkbox + bare bullets, metadata 객체', () => {

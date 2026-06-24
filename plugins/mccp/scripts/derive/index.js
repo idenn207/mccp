@@ -15,6 +15,7 @@ const { scanBacklog } = require('./sources/backlog');
 const { scanFixTask } = require('./sources/fix-task');
 const { scanPR } = require('./sources/pr');
 const { scanEnvelopes } = require('./sources/envelopes');
+const { scanLedger } = require('./sources/ledger');
 
 const SOURCE_SCANNERS = {
   plans: (root, opts) => scanPlans(root, opts),
@@ -24,6 +25,7 @@ const SOURCE_SCANNERS = {
   fix_task: (root) => scanFixTask(root),
   pr: (root) => scanPR(root),
   envelopes: (root) => scanEnvelopes(root),
+  ledger: (root) => scanLedger(root),
 };
 
 function pushWarning(model, severity, source, message) {

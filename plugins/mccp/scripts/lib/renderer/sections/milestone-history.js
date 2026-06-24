@@ -85,6 +85,29 @@ function pickShipReceipt(receipts, planBasename) {
   return best;
 }
 
+// Dashboard Truthfulness M1 — durable completion fallback. The completion
+// ledger (`.claude/state/completion-ledger/`) is git-tracked, so it survives
+// `git worktree remove` after merge — the exact post-merge amnesia window
+// where the live pr-codex receipt is gone. Match by plan_basename (and
+// decision_id when available); newest completed_at wins. More precise + more
+// durable than the git-commit-time floor, so it sits ABOVE git time and BELOW
+// the live receipt in the ladder.
+function pickLedgerEntry(ledgerItems, planBasename, decisionId) {
+  if (!Array.isArray(ledgerItems) || ledgerItems.length === 0) return null;
+  let best = null;
+  for (const e of ledgerItems) {
+    if (!e) continue;
+    const matchBasename = planBasename && e.plan_basename === planBasename;
+    const matchDecision = decisionId && e.decision_id === decisionId;
+    if (!matchBasename && !matchDecision) continue;
+    if (!e.completed_at) continue;
+    if (!best || new Date(e.completed_at).getTime() > new Date(best.completed_at).getTime()) {
+      best = e;
+    }
+  }
+  return best;
+}
+
 function renderMilestoneHistory(model, formatUtils, planBody, opts) {
   opts = opts || {};
   const { escapeHtml, formatRelativeTime, renderProseHtml } = formatUtils;
@@ -96,6 +119,7 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
   const gitCommitTime = opts.gitCommitTime || defaultGitCommitTime(cwd);
   const plans = (m.sources && m.sources.plans && m.sources.plans.items) || [];
   const receipts = (m.sources && m.sources.receipts && m.sources.receipts.items) || [];
+  const ledgerItems = (m.sources && m.sources.ledger && m.sources.ledger.items) || [];
 
   // 각 plan의 source_prd를 dual-path(plan-dir / repo-root)로 해석해 실제로 읽히는
   // PRD를 채택 → 평문-경로 PRD discovery 복원 (Codex F1 absorption).
@@ -115,6 +139,15 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
     for (const row of completeRows) {
       const ship = pickShipReceipt(receipts, row.planBasename);
       let completedAt = ship && ship.created_at ? ship.created_at : null;
+      // Durable ledger fallback (above git-time) — survives merge + worktree
+      // removal, resolving the "날짜 미상" headline regression. decision_id is
+      // passed null on purpose: delivery-milestone rows carry no decision slug,
+      // so plan_basename is the match key. The decisionId param stays in the
+      // signature for callers that DO have a slug (entry dedup is by decision).
+      if (!completedAt) {
+        const led = pickLedgerEntry(ledgerItems, row.planBasename, null);
+        if (led && led.completed_at) completedAt = led.completed_at;
+      }
       if (!completedAt && row.planPath) {
         completedAt = resolveGitCommitTime(row.planPath, prdDir, cwd, gitCommitTime);
       }
@@ -227,4 +260,4 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
   return { md, html, details: detailMap };
 }
 
-module.exports = { renderMilestoneHistory, pickShipReceipt, resolveGitCommitTime };
+module.exports = { renderMilestoneHistory, pickShipReceipt, pickLedgerEntry, resolveGitCommitTime };

@@ -383,6 +383,19 @@ function write(args) {
     process.stderr.write('[mccp:briefing] outer catch: ' +
       (err && err.message ? err.message : err) + ' (allow)\n');
   }
+  // Dashboard Truthfulness M1 — completion-ledger append. Fires AFTER briefing
+  // so the receipt's audit trail is settled, BEFORE render-trigger so the
+  // freshly-written ledger entry is reflected in the re-rendered STATUS.md.
+  // triggerLedgerAppend has its own fail-open invariant; this outer try is the
+  // belt-and-suspenders net (lazy-require → staged install missing
+  // lib/completion-ledger/ cannot poison receipt write).
+  try {
+    require('../lib/completion-ledger').triggerLedgerAppend(
+      built.repoRoot, built.receipt, p, { planPath: args.plan });
+  } catch (err) {
+    process.stderr.write('[mccp:completion-ledger] outer catch: ' +
+      (err && err.message ? err.message : err) + ' (allow)\n');
+  }
   // v1.3.0-m4 — STATUS.md/status.html re-render trigger. Lazy-require so a
   // staged install missing lib/renderer/ does not break receipt write.
   // triggerRender is itself loud fail-open; the outer try here only catches

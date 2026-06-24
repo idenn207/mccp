@@ -5,7 +5,27 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const { derive } = require('../index');
+const { emptyModel, validateShape } = require('../model');
 const { tmpRepo, cleanup, gitInit } = require('./helpers');
+
+// Dashboard Truthfulness M1 — guard the additive `ledger` count-source against
+// silent drift. emptyModel must declare it and validateShape must enforce the
+// count-source shape (count/items/invalid_count/degraded), or a future refactor
+// could drop it without any test going red.
+test('schema-drift: ledger is a declared count-source (emptyModel + validateShape)', () => {
+  const m = emptyModel('/x');
+  assert.ok(m.sources.ledger, 'emptyModel declares sources.ledger');
+  assert.strictEqual(m.sources.ledger.count, 0);
+  assert.ok(Array.isArray(m.sources.ledger.items));
+  assert.strictEqual(validateShape(m).ok, true, 'empty model with ledger is shape-valid');
+
+  // Dropping the count contract must be caught by validateShape.
+  delete m.sources.ledger.count;
+  const v = validateShape(m);
+  assert.strictEqual(v.ok, false);
+  assert.ok(v.errors.some(e => e.indexOf('sources.ledger.count') !== -1),
+    'validateShape flags missing ledger.count');
+});
 
 test('schema-drift: envelope with unknown_top_level_key flagged as invalid + degraded=true (Codex F3 absorption)', () => {
   const root = tmpRepo();

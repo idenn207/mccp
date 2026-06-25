@@ -55,7 +55,7 @@ We'll know we're right when **(metric M1) `MCCP_CODEX_DISABLED=1` shell에서 `/
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | v0.3.5 ship | `MCCP_CODEX_DISABLED=1` shell에서 `/mccp:work` full chain이 어떤 우회 env 주입 없이도 PR 생성까지 도달하고, 모든 Codex receipt가 `verdict=skipped + reason=codex_disabled`로 일관 기록 | in-progress | [.claude/plans/v0-3-5-codex-disabled-honor.plan.md](../plans/v0-3-5-codex-disabled-honor.plan.md) |
+| 1 | v0.3.5 ship | `MCCP_CODEX_DISABLED=1` shell에서 `/mccp:work` full chain이 어떤 우회 env 주입 없이도 PR 생성까지 도달하고, 모든 Codex receipt가 `verdict=skipped + reason=codex_disabled`로 일관 기록 | complete | [.claude/plans/v0-3-5-codex-disabled-honor.plan.md](../plans/v0-3-5-codex-disabled-honor.plan.md) |
 
 ## Open Questions
 

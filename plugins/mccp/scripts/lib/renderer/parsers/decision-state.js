@@ -125,11 +125,73 @@ function deriveDecisionState(receipts) {
   return out;
 }
 
+// Dashboard Truthfulness M5 (Codex Plan-F1 + Implement-F1) — terminal-gate
+// receipts that signal a milestone is shipped/closed. mccp-pr-codex is the PR
+// gate; code-reviewer is the alternate review terminus.
+const TERMINAL_GATES = new Set(['mccp-pr-codex', 'code-reviewer']);
+// Generic/legacy decision slugs never close a milestone — a v0.1-era `default`/
+// `main` receipt must not be mistaken for a real per-plan convergence.
+const GENERIC_DECISION_IDS = new Set(['default', 'main']);
+const LEGACY_RECEIPT_RE = /\.legacy(?:-[\w.-]+)?\.json$/i;
+
+// A milestone (PRD Delivery-Milestones row) is "closed" (auto-complete) when
+// EITHER:
+//   (a) a terminal-gate receipt converged with an EXACT decision_id match AND a
+//       FRESH plan_hash — receipt.plan_hash === currentPlanHash, i.e. the plan
+//       body has not changed since the gate. The freshness key is plan_hash,
+//       NOT a non-existent is_stale flag (Implement-Codex F1): an edited plan
+//       with the same decision_id keeps its old converged receipt, and without
+//       the hash check that stale receipt would hide genuinely-reopened work.
+//   (b) a completion-ledger entry matches (decision_id or plan_basename) with a
+//       converged verdict. The ledger is git-tracked + durable, so it closes a
+//       milestone even after `git worktree remove` deletes the live receipt
+//       (the post-merge amnesia window).
+// Fail-closed everywhere else: generic/legacy ids and *.legacy receipts never
+// close; a null currentPlanHash disables path (a) but path (b) can still fire.
+// Returns { closed, via } — never throws.
+function isMilestoneClosed(opts) {
+  opts = opts || {};
+  const decisionId = opts.decisionId;
+  const planBasename = opts.planBasename;
+  const currentPlanHash = opts.currentPlanHash || null;
+  const receipts = Array.isArray(opts.receipts) ? opts.receipts : [];
+  const ledgerItems = Array.isArray(opts.ledgerItems) ? opts.ledgerItems : [];
+  const hasRealDecision = !!decisionId && !GENERIC_DECISION_IDS.has(decisionId);
+
+  // (a) terminal receipt — exact decision_id + fresh plan_hash.
+  if (hasRealDecision && currentPlanHash) {
+    for (const r of receipts) {
+      if (!r || r.ok === false) continue;
+      if (!TERMINAL_GATES.has(gateOf(r))) continue;
+      if (r.converged !== true) continue;
+      if (r.decision_id !== decisionId) continue;
+      if (r.path && LEGACY_RECEIPT_RE.test(r.path)) continue;
+      if (!r.plan_hash || r.plan_hash !== currentPlanHash) continue;
+      return { closed: true, via: 'terminal-receipt' };
+    }
+  }
+
+  // (b) completion-ledger — durable close (survives worktree removal).
+  for (const e of ledgerItems) {
+    if (!e) continue;
+    const matchDecision = hasRealDecision && e.decision_id === decisionId;
+    const matchBasename = !!planBasename && e.plan_basename === planBasename;
+    if (!matchDecision && !matchBasename) continue;
+    // Only a converged verdict closes — advisory/skipped gates did not finish.
+    if (e.verdict && e.verdict !== 'converged') continue;
+    return { closed: true, via: 'ledger' };
+  }
+
+  return { closed: false };
+}
+
 module.exports = {
   deriveDecisionState,
   buildDecisionState,
   nodeStatus,
   latest,
   gateOf,
+  isMilestoneClosed,
   STAGES,
+  TERMINAL_GATES,
 };

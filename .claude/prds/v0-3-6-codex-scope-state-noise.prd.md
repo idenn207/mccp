@@ -71,9 +71,9 @@ v1.0 release 직전, mccp의 marketing narrative ("multi-model dual reviewer" + 
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | Codex/impeccable scope split | `/mccp:pr` 시 Codex가 design-domain finding을 emit하지 않고 accessibility는 impeccable로 route. receipt에 audit field. | in-progress | `.claude/plans/v0-3-6-codex-scope-state-noise.plan.md` |
-| 2 | STATE.md content-hash skip | `git status`가 timestamp-only 변경에서 clean 유지. merge conflict 재발 0건. | in-progress | `.claude/plans/v0-3-6-codex-scope-state-noise.plan.md` |
-| 3 | derive-decision slug extraction (정정: branch normalize + plan-path fallback) | `/mccp:work` 자동 chain에서 `/mccp:pr` cross-gate dedupe가 `--decision` override 없이 정상 발동. plan에서 진단 정정 — 실제 원인은 `slugFromBranch` dot/underscore normalize 부재. | in-progress | `.claude/plans/v0-3-6-codex-scope-state-noise.plan.md` |
+| 1 | Codex/impeccable scope split | `/mccp:pr` 시 Codex가 design-domain finding을 emit하지 않고 accessibility는 impeccable로 route. receipt에 audit field. | complete | `.claude/plans/v0-3-6-codex-scope-state-noise.plan.md` |
+| 2 | STATE.md content-hash skip | `git status`가 timestamp-only 변경에서 clean 유지. merge conflict 재발 0건. | complete | `.claude/plans/v0-3-6-codex-scope-state-noise.plan.md` |
+| 3 | derive-decision slug extraction (정정: branch normalize + plan-path fallback) | `/mccp:work` 자동 chain에서 `/mccp:pr` cross-gate dedupe가 `--decision` override 없이 정상 발동. plan에서 진단 정정 — 실제 원인은 `slugFromBranch` dot/underscore normalize 부재. | complete | `.claude/plans/v0-3-6-codex-scope-state-noise.plan.md` |
 | 4 | v1.0 release prep | 3축 ship 후 plugin.json 1.0.0 bump + README v1.0 narrative + CLAUDE.md §1.4 v0.3.6 + v1.0 ship row + 6주 burn-in 시작. | deferred to v0.3.7/v1.0 cycle | — |
 
 ## Open Questions

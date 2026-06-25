@@ -77,8 +77,8 @@ We'll know we're right when:
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | layout/i18n/staleness | 첫 사용 5초 내 *현재 진행 + next + 차단* 파악, stale surface 0건, 한글 surface label, status header hoist | in-progress | [v1-4-2-dashboard-overhaul-m1.plan.md](../plans/v1-4-2-dashboard-overhaul-m1.plan.md) |
-| 2 | content + actionability | jargon expand, OQ/Risks dedupe + meta-cue + copy-paste action prompt, milestone history surface, intent(why) extraction | in-progress | [v1-4-2-dashboard-overhaul-m2.plan.md](../plans/v1-4-2-dashboard-overhaul-m2.plan.md) |
+| 1 | layout/i18n/staleness | 첫 사용 5초 내 *현재 진행 + next + 차단* 파악, stale surface 0건, 한글 surface label, status header hoist | complete | [v1-4-2-dashboard-overhaul-m1.plan.md](../plans/v1-4-2-dashboard-overhaul-m1.plan.md) |
+| 2 | content + actionability | jargon expand, OQ/Risks dedupe + meta-cue + copy-paste action prompt, milestone history surface, intent(why) extraction | complete | [v1-4-2-dashboard-overhaul-m2.plan.md](../plans/v1-4-2-dashboard-overhaul-m2.plan.md) |
 | 3 | a11y WCAG 2.2 AA + 잔여 OQ 명문화 | semantic landmark + skip-link + focus-visible 일관성 + ARIA label + 색 contrast lint, OQ-a~g 7건 결정 PRD에 본문화, color-only severity 금지 lint | complete | [v1-4-2-dashboard-overhaul-m3.plan.md](../plans/v1-4-2-dashboard-overhaul-m3.plan.md) |
 
 ## Open Questions

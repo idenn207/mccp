@@ -86,8 +86,15 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
 
   const plansItems = (sources.plans && sources.plans.items) || [];
   // M2 — named items (카운트가 아닌 '무엇'). 진행중 = in-progress plan 라벨.
-  const inProgressItems = plansItems
-    .filter(p => p && p.path && planStatuses.get(path.basename(p.path)) === 'in-progress')
+  // M5 Task 1 — 신선도 가드: 진행중 카운트는 fresh 만. stale(마지막 활동 > 임계,
+  // plan-body.js 판정)은 카운트에서 제외하고 별도 muted 로 표기 — '진행중=실제'.
+  const inProgressPlans = plansItems
+    .filter(p => p && p.path && planStatuses.get(path.basename(p.path)) === 'in-progress');
+  const inProgressItems = inProgressPlans
+    .filter(p => staleness.get(path.basename(p.path)) !== 'stale')
+    .map(p => formatPlanLabel(path.basename(p.path)));
+  const staleInProgressItems = inProgressPlans
+    .filter(p => staleness.get(path.basename(p.path)) === 'stale')
     .map(p => formatPlanLabel(path.basename(p.path)));
   const inProgressCount = inProgressItems.length;
 
@@ -150,7 +157,7 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   const riskItems = highCritical.map(b => (b.finding || '').trim()).filter(Boolean);
 
   const cells = [
-    { key: 'in-progress', label: '진행 중', icon: '◐', value: String(inProgressCount), kind: 'count', items: inProgressItems },
+    { key: 'in-progress', label: '진행 중', icon: '◐', value: String(inProgressCount), kind: 'count', items: inProgressItems, staleItems: staleInProgressItems },
     { key: 'blocked', label: '차단', icon: '🚫', value: String(blockedCount), kind: 'count', accent: 'blocked', items: blockedItems },
     { key: 'next', label: '다음', icon: '→', value: nextStep, kind: 'next', stale: nextStale, intent: nextIntent },
     { key: 'risks', label: '미해결 위험', icon: '⚠', value: String(risksOpen), kind: 'count', items: riskItems },
@@ -174,8 +181,13 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   const versionMd = version.version
     ? '버전: ' + projectName + ' · v' + version.version + ' · ' + sourceLabel(version.source)
     : '버전: ' + projectName + ' · 미상';
+  // M5 Task 1 — stale in-progress 는 카운트 밖 muted 한 줄(있을 때만).
+  const staleNoteMd = staleInProgressItems.length
+    ? '\n오래된 진행중 (' + staleInProgressItems.length + '): '
+      + staleInProgressItems.slice(0, TOP_N).map(s => (formatUtils.renderProseMd || ((x) => x))(s)).join(' · ')
+    : '';
   const widgetsMd = [
-    widgetMd('진행 중', inProgressItems, formatUtils),
+    widgetMd('진행 중', inProgressItems, formatUtils) + staleNoteMd,
     widgetMd('차단', blockedItems, formatUtils),
     widgetMd('미해결 위험', riskItems, formatUtils, risksOpen),
   ].join('\n');

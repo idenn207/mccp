@@ -62,7 +62,7 @@ test('html — Korean section h3 panel labels present (redesign-3 panels)', () =
   assert.match(r.html, />타임라인<\/h3>/);
   assert.match(r.html, />위험<\/h3>/);
   assert.match(r.html, />워커<\/h3>/);
-  assert.match(r.html, />미해결 질문<\/h3>/);
+  assert.match(r.html, />질문<\/h3>/);
 });
 
 test('html — English section h2 labels absent (anti-pattern check)', () => {
@@ -103,7 +103,7 @@ test('markdown — Korean h2 labels present', () => {
   assert.match(r.md, /^## 타임라인$/m);
   assert.match(r.md, /^## 위험$/m);
   assert.match(r.md, /^## 워커$/m);
-  assert.match(r.md, /^## 미해결 질문$/m);
+  assert.match(r.md, /^## 질문$/m);
 });
 
 test('markdown — English h2 labels absent', () => {
@@ -120,7 +120,7 @@ test('markdown — title "mccp 상태"', () => {
   assert.match(r.md, /^# mccp 상태/m);
 });
 
-test('markdown — footer with v1.18.9 version', () => {
+test('markdown — footer with v1.18.10 version', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
-  assert.match(r.md, /v1\.18\.9/);
+  assert.match(r.md, /v1\.18\.10/);
 });

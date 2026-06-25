@@ -164,7 +164,9 @@ test('dashboard — hero html surfaces named widgets + next-action, NO hero-vers
   assert.match(r.html, /<section class="route" id="route-overview" aria-label="대시보드">/);
   // M5 Task 5 — hero-version 줄 제거.
   assert.doesNotMatch(r.html, /class="hero-version"/);
-  assert.match(r.html, /<div class="hero-widgets">/);
+  // M6 Task 2 — 위젯이 hero-panel 밖 widget-grid 카드 4종으로 분해.
+  assert.match(r.html, /<div class="widget-grid">/);
+  assert.equal((r.html.match(/class="panel widget-card"/g) || []).length, 4);
   assert.match(r.html, /<code>\/mccp:resume<\/code>/);
   assert.match(r.html, /data-copy="\/mccp:resume"/);
 });

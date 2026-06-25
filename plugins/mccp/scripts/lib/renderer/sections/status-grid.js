@@ -43,7 +43,12 @@ function projectNameOf(m) {
   return 'mccp';
 }
 
-function formatPlanLabel(basename) {
+// M6 Task 4 — generalized: optional maxLen + 비-v-prefix humanize(하이픈→공백).
+// v-prefix는 'v1.4.2 · rest'로, 비-v-prefix slug도 readable 라벨로 일반화해
+// Hero h1(verdict.js)이 마일스톤명을 그대로 primary로 쓸 수 있게 한다.
+function formatPlanLabel(basename, opts) {
+  opts = opts || {};
+  const maxLen = typeof opts.maxLen === 'number' ? opts.maxLen : 30;
   if (!basename || typeof basename !== 'string') return '(unknown)';
   const slug = basename.replace(/\.plan\.md$/, '').replace(/\.md$/, '');
   const m = slug.match(/^(v\d+)-(\d+)-(\d+)-(.+)$/);
@@ -53,9 +58,9 @@ function formatPlanLabel(basename) {
     const rest = m[4].replace(/-/g, ' ');
     label = cycle + ' · ' + rest;
   } else {
-    label = slug;
+    label = slug.replace(/-/g, ' ');
   }
-  return label.length > 30 ? label.slice(0, 29) + '…' : label;
+  return label.length > maxLen ? label.slice(0, maxLen - 1) + '…' : label;
 }
 
 // named-widget plain-text 동등본 — top-N 인라인 + 나머지 <details> 접힘(md).
@@ -78,11 +83,16 @@ function widgetMd(label, items, formatUtils, headCount) {
   return s;
 }
 
+// M6 Task 5 — next-action 설명("무엇을 하는지") md 동등. prose 와 중복일 땐 생략.
 function nextActionMd(na) {
   if (!na || na.source === 'idle') return '다음: 대기';
-  if (na.executable && na.copyText) return '다음: `' + na.copyText + '`';
-  if (na.stale) return '다음: ' + (na.prose || '미정 (stale)');
-  return '다음: ' + (na.prose || '대기');
+  let line;
+  if (na.executable && na.copyText) line = '다음: `' + na.copyText + '`';
+  else if (na.stale) line = '다음: ' + (na.prose || '미정 (stale)');
+  else line = '다음: ' + (na.prose || '대기');
+  const desc = na.description;
+  if (desc && desc !== na.prose) line += '\n  · ' + desc;
+  return line;
 }
 
 function renderStatusGrid(model, formatUtils, planBody, opts) {
@@ -192,7 +202,7 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
     { key: 'in-progress', label: '진행 중', icon: '◐', value: String(inProgressCount), kind: 'count', items: inProgressItems, staleItems: staleInProgressItems },
     { key: 'blocked', label: '차단', icon: '🚫', value: String(blockedCount), kind: 'count', accent: 'blocked', items: blockedItems, intent: blockedIntent },
     { key: 'deferred', label: '이월 finding', icon: '↪', value: String(deferredCount), kind: 'count', items: deferredItems },
-    { key: 'risks', label: '미해결 위험', icon: '⚠', value: String(risksOpen), kind: 'count', items: riskItems, routeHref: '#route-risks' },
+    { key: 'risks', label: '위험', icon: '⚠', value: String(risksOpen), kind: 'count', items: riskItems, routeHref: '#route-risks' },
     { key: 'next', label: '다음', icon: '→', value: nextStep, kind: 'next', stale: nextStale, intent: nextIntent },
   ];
 
@@ -203,7 +213,7 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   let nextAction;
   try {
     nextAction = resolveNextAction(stateItem, {
-      plans: plansItems, planStatuses, planStaleness: staleness,
+      plans: plansItems, planStatuses, planStaleness: staleness, planIntent: nextIntent,
     });
   } catch (_) {
     nextAction = { command: null, args: '', prose: '대기', copyText: null, source: 'idle', executable: false, stale: false };
@@ -221,7 +231,7 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
     widgetMd('진행 중', inProgressItems, formatUtils) + staleNoteMd,
     widgetMd('차단', blockedItems, formatUtils),
     widgetMd('이월 finding', deferredItems, formatUtils, deferredCount),
-    widgetMd('미해결 위험', riskItems, formatUtils, risksOpen),
+    widgetMd('위험', riskItems, formatUtils, risksOpen),
   ].join('\n');
   const md = [summaryLine, '', widgetsMd, '', nextActionMd(nextAction)].join('\n');
 

@@ -107,7 +107,7 @@ test('sidebar nav-rail exposes aria-label + page route links (redesign-3)', () =
 test('overview hero surfaces verdict h1 + named widgets (M2)', () => {
   const { html } = renderStatus(fixtureModel());
   assert.ok(/<h1 class="verdict s-[a-z]+">/.test(html), 'verdict h1');
-  assert.ok(/<div class="hero-widgets">/.test(html), 'hero-widgets block');
+  assert.ok(/<div class="widget-grid">/.test(html), 'widget-grid block (M6 Task 2)');
   assert.ok(/class="hero-status"/.test(html), 'hero-status tone label');
 });
 

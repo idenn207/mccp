@@ -2,6 +2,7 @@
 
 const path = require('path');
 const { extractIntentFromPath } = require('./parsers/intent-extractor');
+const { formatPlanLabel } = require('./sections/status-grid');
 
 function computeIntentForNextPlan(plan, opts) {
   if (!plan || !plan.path) return null;
@@ -129,15 +130,19 @@ function computeVerdict(model, planBody, opts) {
     return st !== 'stale';
   });
 
-  // M5 Task 3 — fresh in-progress plan 을 backlog-deferred 보다 우선. Hero h1 은
-  // "현재 작업"을 가리켜야 하며 backlog-deferred 는 '이월 finding' 셀로만 노출(숨김 아닌
-  // 이동). 이전엔 backlog 분기가 앞서 in-progress 가 있어도 "N findings deferred"를
-  // 보였다. 요약체(intent 우선, 길면 cap) — 말줄임은 드로어/route 위임.
+  // M5 Task 3 / M6 Task 4 — fresh in-progress plan 을 backlog-deferred 보다 우선.
+  // Hero h1 은 마일스톤명(formatPlanLabel)을 primary 로 두고(짧아 잘림 0), verbose
+  // Summary 추출은 h1 에서 제거해 2줄 subtext 로 분리한다(잘림 대신 line-clamp).
+  // "현재 작업: " 선행어는 PM voice 유지(H14 slug-only 회피) + 마일스톤명이 주 내용.
   if (freshInProgress.length > 0) {
     const nextPlan = freshInProgress[0];
-    const intent = computeIntentForNextPlan(nextPlan, opts);
-    const focus = intent ? capIntent(intent) : planSlug(nextPlan);
-    return { tone: 'neutral', icon: '◐', text: '현재 작업: ' + focus };
+    const basename = nextPlan.path ? path.basename(nextPlan.path) : null;
+    const label = basename ? formatPlanLabel(basename, { maxLen: 56 }) : planSlug(nextPlan);
+    // subtext 는 긴 cap(중요 내용 잘림 방지) — full-width + multi-line clamp 로 노출.
+    const intent = computeIntentForNextPlan(nextPlan, Object.assign({}, opts, { maxLen: 220 }));
+    const out = { tone: 'neutral', icon: '◐', text: '현재 작업: ' + label };
+    if (intent) out.subtext = intent;
+    return out;
   }
 
   // fresh in-progress 가 없을 때만 backlog/stale 신호를 surface. in-progress 가 전부

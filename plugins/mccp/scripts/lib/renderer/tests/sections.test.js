@@ -47,14 +47,14 @@ test('status-grid — 5 cells + structured data + Korean labels (M5 Task 2)', ()
   assert.equal(cells[2].key, 'deferred');
   assert.equal(cells[2].label, '이월 finding');
   assert.equal(cells[3].key, 'risks');
-  assert.equal(cells[3].label, '미해결 위험');
+  assert.equal(cells[3].label, '위험');
   assert.equal(cells[4].key, 'next');
   assert.equal(cells[4].label, '다음');
   assert.match(md, /진행 중 3/);
   assert.match(md, /차단 2/);
-  // M5 Task 2 — 이월 finding = backlog HIGH/CRIT(1) / 미해결 위험 = plan risks active(2).
+  // M5 Task 2 — 이월 finding = backlog HIGH/CRIT(1) / 위험 = plan risks active(2).
   assert.match(md, /이월 finding 1/);
-  assert.match(md, /미해결 위험 2/);
+  assert.match(md, /위험 2/);
   assert.match(html, /<div class="status-grid">/);
 });
 

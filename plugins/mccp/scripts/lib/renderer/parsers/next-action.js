@@ -54,13 +54,35 @@ function extractCommand(blob) {
   return { command: m[1], args: cleanArg(m[2] || '') };
 }
 
-// resolveNextAction(stateItem, ctx) → { command, args, prose, copyText, source, executable, stale }
-//   ctx = { plans, planStatuses, planStaleness }
+// M6 Task 5 + followup — "무엇을 하는지" 설명. STATE.md 원문 prose echo(truncated 노이즈)
+// 대신 명령→용도 clean 매핑으로 일관된 한 줄을 보인다. in-progress-plan 은 plan intent
+// (구체적)를 우선. Pure(파일 읽기 없음): planIntent 는 caller(status-grid) 주입.
+const CMD_PURPOSE = {
+  '/mccp:resume': 'STATE.md 핸드오프 신호로 이어가기',
+  '/mccp:prp-commit': '자연어 파일 타겟팅 커밋',
+  '/mccp:prp-implement': 'plan 실행 + 검증 루프',
+  '/mccp:plan': '구현 plan + Codex review',
+  '/mccp:plan-prd': '문제 정의 PRD 작성',
+  '/mccp:pr': 'PR 생성 + 게이트 통과',
+  '/mccp:prp-pr': 'PR 생성 + 게이트 통과',
+  '/mccp:work': 'PRD→plan→PR 자동 체인',
+  '/mccp:code-review': '변경 코드 multi-perspective review',
+};
+function describeAction(command, source, ctx) {
+  if (source === 'in-progress-plan' && ctx && ctx.planIntent) return ctx.planIntent;
+  if (command && CMD_PURPOSE[command]) return CMD_PURPOSE[command];
+  if (source === 'in-progress-plan') return '진행 중 plan 구현 계속';
+  return null;
+}
+
+// resolveNextAction(stateItem, ctx) → { command, args, prose, copyText, source, executable, stale, description }
+//   ctx = { plans, planStatuses, planStaleness, planIntent }
 //   - command : '/mccp:…' display token (null when prose-only)
 //   - copyText: executable command line (null when not executable)
 //   - executable: true only when a runnable command line exists (F1)
 //   - source : 'state-command' | 'resume-state' | 'in-progress-plan'
 //            | 'in-progress-plan-stale' | 'prose' | 'idle'
+//   - description: 짧은 "무엇을 하는지"(M6 Task 5, null when none)
 function resolveNextAction(stateItem, ctx) {
   ctx = ctx || {};
   const plans = Array.isArray(ctx.plans) ? ctx.plans : [];
@@ -82,6 +104,7 @@ function resolveNextAction(stateItem, ctx) {
         command: '/' + extracted.command,
         args: extracted.args || '',
         prose, copyText, source: 'state-command', executable: true, stale: false,
+        description: describeAction('/' + extracted.command, 'state-command', ctx),
       };
     }
     // requires-arg but none → fall through to inference (may supply a path).
@@ -92,6 +115,7 @@ function resolveNextAction(stateItem, ctx) {
     return {
       command: '/mccp:resume', args: '', prose, copyText: '/mccp:resume',
       source: 'resume-state', executable: true, stale: false,
+      description: describeAction('/mccp:resume', 'resume-state', ctx),
     };
   }
   const firstInProgress = plans.find((p) => p && p.path
@@ -101,7 +125,7 @@ function resolveNextAction(stateItem, ctx) {
     if (planStaleness.get(base) === 'stale') {
       return {
         command: null, args: '', prose: prose || '미정 (stale)', copyText: null,
-        source: 'in-progress-plan-stale', executable: false, stale: true,
+        source: 'in-progress-plan-stale', executable: false, stale: true, description: null,
       };
     }
     // F1 — bare 명령 금지: in-progress plan 의 resolved 경로를 인자로 포함.
@@ -110,6 +134,7 @@ function resolveNextAction(stateItem, ctx) {
       command: '/mccp:prp-implement', args: planArg, prose,
       copyText: '/mccp:prp-implement ' + planArg,
       source: 'in-progress-plan', executable: true, stale: false,
+      description: describeAction('/mccp:prp-implement', 'in-progress-plan', ctx),
     };
   }
 
@@ -117,12 +142,12 @@ function resolveNextAction(stateItem, ctx) {
   if (prose) {
     return {
       command: null, args: '', prose, copyText: null,
-      source: 'prose', executable: false, stale: false,
+      source: 'prose', executable: false, stale: false, description: null,
     };
   }
   return {
     command: null, args: '', prose: '대기', copyText: null,
-    source: 'idle', executable: false, stale: false,
+    source: 'idle', executable: false, stale: false, description: null,
   };
 }
 

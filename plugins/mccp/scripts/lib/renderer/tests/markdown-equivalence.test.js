@@ -331,7 +331,8 @@ test('M3 — milestone lifecycle 토글 html↔md 동등', () => {
   };
   const fsRead = (p) => { if (p === prdAbs) return PRD; throw new Error('ENOENT'); };
   const { md, html } = renderMilestoneHistory(model, formatUtils, {}, { cwd, fsRead, gitCommitTime: () => null });
-  assert.match(html, /미진행 마일스톤 1건 · 표시/);
+  // M6 Task 3 — html 은 미진행 탭(label+count), md 는 plain-text <details> 토글(정보 동등).
+  assert.match(html, /미진행 <span class="tab-count">1<\/span>/);
   assert.match(md, /미진행 마일스톤 1건 · 표시/);
   assert.ok(html.includes('Future') && md.includes('Future'));
 });

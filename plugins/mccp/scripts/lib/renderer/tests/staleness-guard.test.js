@@ -120,9 +120,9 @@ test('computeVerdict — fresh in-progress → neutral with 현재 작업 (M5 Ta
   };
   const v = computeVerdict(model, pb);
   assert.equal(v.tone, 'neutral');
-  // M5 Task 3 — Hero h1 은 "현재 작업: {intent 또는 slug}" (fresh in-progress 우선).
-  // 비존재 plan 경로라 intent 추출 실패 → slug fallback.
-  assert.match(v.text, /현재 작업: v1-4-2-dashboard-overhaul-m1/);
+  // M5 Task 3 / M6 Task 4 — Hero h1 은 "현재 작업: {마일스톤명 readable 라벨}".
+  // 비존재 plan 경로라 intent 추출 실패 → subtext 없음, h1 은 formatPlanLabel.
+  assert.match(v.text, /현재 작업: v1\.4\.2 · dashboard overhaul m1/);
 });
 
 test('computeVerdict — unknown staleness treated as fresh (conservative, M5 Task 3)', () => {
@@ -134,5 +134,5 @@ test('computeVerdict — unknown staleness treated as fresh (conservative, M5 Ta
   const v = computeVerdict(model, pb);
   assert.equal(v.tone, 'neutral');
   // M5 Task 3 — unknown staleness 는 보수적으로 fresh 처리 → "현재 작업" 분기.
-  assert.match(v.text, /현재 작업: v1-4-2-dashboard-overhaul-m1/);
+  assert.match(v.text, /현재 작업: v1\.4\.2 · dashboard overhaul m1/);
 });

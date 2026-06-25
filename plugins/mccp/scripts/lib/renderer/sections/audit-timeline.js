@@ -220,8 +220,8 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
       + '<div class="audit-rail"><span class="audit-node ' + (isBad ? 'is-bad' : 'is-ok') + '" aria-hidden="true"></span>'
       + railLine + '</div>'
       + '<div class="audit-body">'
-      + '<div class="audit-head"><span class="audit-gate">' + escapeHtml(gate) + '</span>'
-      + '<span class="audit-dec" title="' + escapeAttr(decision) + '">/' + escapeHtml(decShort) + '</span>'
+      + '<div class="audit-head"><span class="audit-dec" title="' + escapeAttr(decision) + '">' + escapeHtml(decShort) + '</span>'
+      + '<span class="audit-gate">' + escapeHtml(gate) + '</span>'
       + '<span class="audit-when">' + escapeHtml(rel) + '</span></div>'
       + '<div class="audit-meta"><span class="conv' + convExtra + '">'
       + '<svg class="i i-sm" aria-hidden="true"><use href="#' + convSvg + '"/></svg>' + escapeHtml(convText)

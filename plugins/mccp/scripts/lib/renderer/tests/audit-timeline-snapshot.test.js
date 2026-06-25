@@ -239,9 +239,9 @@ test('M4 decision 전체 표시: tail 중간잘림 제거, full id + title (진�
     receipt_hash: 'sha256:deadbeef', created_at: new Date(now - 60_000).toISOString(),
   })];
   const { html, md } = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
-  // dec span 이 "/lness…"(tail 중간잘림)로 시작하지 않고 full id 로 시작.
-  assert.ok(!html.includes('>/lness'), 'audit-dec span 이 중간 잘린 tail 로 시작 안 함');
-  assert.ok(html.includes('>/' + longDec + '<'), 'audit-dec 에 full decision_id');
+  // M6 followup — decision 이 main 으로 승격(gate sub). "/" prefix 제거 + tail 중간잘림 아님.
+  assert.ok(!html.includes('>lness'), 'audit-dec span 이 중간 잘린 tail 로 시작 안 함');
+  assert.ok(html.includes('>' + longDec + '<'), 'audit-dec 에 full decision_id');
   assert.ok(html.includes('title="' + longDec + '"'), 'title 툴팁에 full id');
   assert.ok(md.includes(longDec), 'md 에 full id');
 });

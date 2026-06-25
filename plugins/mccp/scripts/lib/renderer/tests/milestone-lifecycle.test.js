@@ -56,29 +56,28 @@ test('lifecycle 토글 — 완료 기록 + pending/dropped 공존', () => {
     cwd: CWD, fsRead: fsReadPrd(PRD_MIXED), gitCommitTime: noGit,
   });
   assert.ok(out, 'section 렌더됨');
-  // 완료 기록 메인 + lifecycle 토글.
+  // M6 Task 3 — 완료 패널 + 미진행 탭(buildTabs). 완료 1 / 미진행 2.
   assert.match(out.html, /Done one/);
-  assert.match(out.html, /미진행 마일스톤 2건 · 표시/);
+  assert.match(out.html, /완료 <span class="tab-count">1<\/span>/);
+  assert.match(out.html, /미진행 <span class="tab-count">2<\/span>/);
   // 비-색 이중표기 마커.
   assert.match(out.html, /◌/);
   assert.match(out.html, /⊘/);
   assert.match(out.html, /예정/);
   assert.match(out.html, /폐기/);
-  // md 동등.
+  // md 는 기존 <details> 토글 plain-text 유지(탭은 HTML CSS 전용).
   assert.match(out.md, /미진행 마일스톤 2건 · 표시/);
   assert.match(out.md, /◌ 예정 · Future one/);
   assert.match(out.md, /⊘ 폐기 · Killed one/);
 });
 
-test('lifecycle 토글 — default-collapsed (open 속성 없음)', () => {
+test('lifecycle 탭 — 미진행 default-미선택 (완료 탭 default, M6 Task 3)', () => {
   const out = renderMilestoneHistory(makeModel(), formatUtils, {}, {
     cwd: CWD, fsRead: fsReadPrd(PRD_MIXED), gitCommitTime: noGit,
   });
-  // 미진행 토글 summary 직전 details 가 open 아님.
-  const idx = out.html.indexOf('미진행 마일스톤');
-  const detailsOpen = out.html.lastIndexOf('<details', idx);
-  const tag = out.html.slice(detailsOpen, idx);
-  assert.equal(/\bopen\b/.test(tag), false, 'lifecycle details default 닫힘');
+  // 완료(merged>0) 가 default-checked, 미진행 탭 radio 는 미선택(기본 접힘 등가).
+  assert.match(out.html, /id="tab-milestones-done"[^>]*checked/);
+  assert.doesNotMatch(out.html, /id="tab-milestones-lifecycle"[^>]*checked/);
 });
 
 test('lifecycle — pending/dropped 는 data-detail-id 없음 (H18 무영향)', () => {
@@ -101,8 +100,10 @@ test('lifecycle — 완료 0 + lifecycle-only 도 렌더 (Codex F3, early-return
     cwd: CWD, fsRead: fsReadPrd(PRD_LIFECYCLE_ONLY), gitCommitTime: noGit,
   });
   assert.ok(out, 'lifecycle-only PRD 도 null 아님');
-  assert.match(out.html, /미진행 마일스톤 2건 · 표시/);
-  // 완료 기록 ul 없음(merged 0).
+  // M6 Task 3 — merged 0 + lifecycle 2 → 완료(0, 미선택)·미진행(2, default-checked) 탭.
+  assert.match(out.html, /미진행 <span class="tab-count">2<\/span>/);
+  assert.match(out.html, /id="tab-milestones-lifecycle"[^>]*checked/);
+  // 완료 기록 ul 없음(merged 0) — 완료 탭은 empty-state.
   assert.equal(/ic-check/.test(out.html), false, '완료 체크 항목 없음');
 });
 

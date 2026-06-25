@@ -52,19 +52,18 @@ test('topbar has breadcrumb + freshness; switcher + nav in left sidebar; status-
   assert.doesNotMatch(r.html, /class="status-strip"/);
 });
 
-test('overview hero surfaces named widgets (진행중/차단/이월/위험 항목 이름, M5 Task 2)', () => {
+test('overview hero surfaces named widget cards (진행중/차단/이월/위험, M6 Task 2)', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
-  const widgetsMatch = r.html.match(/<div class="hero-widgets">([\s\S]*?)<\/section>/);
-  assert.ok(widgetsMatch, 'hero-widgets block exists');
-  assert.match(widgetsMatch[1], /진행 중/);
-  assert.match(widgetsMatch[1], /차단/);
-  // M5 Task 2 — backlog HIGH/CRIT '이월 finding' 셀 분리 명명.
-  assert.match(widgetsMatch[1], /이월 finding/);
-  assert.match(widgetsMatch[1], /위험/);
-  // headline — 진행중 위젯이 카운트가 아닌 in-progress plan 이름을 노출
-  assert.match(widgetsMatch[1], /v1\.4\.2 · dashboard overhaul m1/);
-  // M5 Task 2 — 4 named widgets (진행중/차단/이월 finding/위험)
-  assert.equal((widgetsMatch[1].match(/class="hero-widget"/g) || []).length, 4);
+  // M6 Task 2 — 위젯 4종이 hero-panel 밖 widget-grid 의 개별 .panel 카드로 분해.
+  assert.match(r.html, /<div class="widget-grid">/);
+  assert.equal((r.html.match(/class="panel widget-card"/g) || []).length, 4);
+  // 카드 head panel-title 에 라벨(진행중/차단/이월/위험).
+  assert.match(r.html, /<h3 class="panel-title">진행 중<\/h3>/);
+  assert.match(r.html, /<h3 class="panel-title">차단<\/h3>/);
+  assert.match(r.html, /<h3 class="panel-title">이월 finding<\/h3>/);
+  assert.match(r.html, /<h3 class="panel-title">위험<\/h3>/);
+  // headline — 진행중 카드가 카운트 아닌 in-progress plan 이름을 노출.
+  assert.match(r.html, /v1\.4\.2 · dashboard overhaul m1/);
 });
 
 test('html main has NO section#status (4축 hoisted to header)', () => {

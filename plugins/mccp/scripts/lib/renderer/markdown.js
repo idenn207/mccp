@@ -27,12 +27,12 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   }
 
   const anchors = ['[verdict](#verdict)', '[대시보드](#대시보드)'];
-  if (pipeline) anchors.push('[게이트-파이프라인](#게이트-파이프라인)');
+  if (pipeline) anchors.push('[파이프라인](#파이프라인)');
   if (fanout) anchors.push('[워커](#워커)');
   if (activeSessions) anchors.push('[최근-활동](#최근-활동)');
   anchors.push('[타임라인](#타임라인)');
   if (milestoneHistory) anchors.push('[마일스톤-기록](#마일스톤-기록)');
-  if (questions) anchors.push('[미해결-질문](#미해결-질문)');
+  if (questions) anchors.push('[질문](#질문)');
   anchors.push('[위험](#위험)');
   out.push(anchors.join(' · '));
   out.push('');
@@ -42,6 +42,11 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('## Verdict');
   out.push('');
   out.push('> ' + verdict.icon + ' ' + verdictText);
+  // M6 Task 4 — Hero subtext(요약 prose) plain-text 동등 한 줄 보조.
+  if (verdict.subtext) {
+    out.push('>');
+    out.push('> ' + norm(verdict.subtext));
+  }
   out.push('');
   out.push('---');
   out.push('');
@@ -53,7 +58,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('');
 
   if (pipeline) {
-    out.push('## 게이트 파이프라인');
+    out.push('## 파이프라인');
     out.push('');
     out.push(pipeline.md);
     out.push('');
@@ -95,7 +100,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   }
 
   if (questions) {
-    out.push('## 미해결 질문');
+    out.push('## 질문');
     out.push('');
     out.push(questions.md);
     out.push('');
@@ -109,7 +114,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('---');
   out.push('');
 
-  out.push('_derived from .claude/ · v1.18.9_');
+  out.push('_derived from .claude/ · v1.18.10_');
   out.push('');
 
   return out.join('\n');

@@ -131,7 +131,7 @@ function renderOpenQuestions(model, formatUtils, planBody) {
   // + <details> 유지(plain-text). active 0 이면 정중한 empty-state(Task 11).
   let activeInner;
   if (active.length === 0) {
-    activeInner = '<p class="muted"><em>미해결 질문이 없습니다.</em></p>';
+    activeInner = '<p class="muted"><em>질문이 없습니다.</em></p>';
   } else {
     activeInner = '<ul class="stack-list" role="list">'
       + expandedR.concat(collapsedR).map(r => r.html).join('') + '</ul>';
@@ -156,7 +156,7 @@ function renderOpenQuestions(model, formatUtils, planBody) {
   // MD — STATUS.md plain-text 동등. 미해결 본문 + 해결됨 N건 접힘(drawer-detail SSoT 불변).
   let md;
   if (active.length === 0) {
-    md = '_미해결 질문이 없습니다._';
+    md = '_질문이 없습니다._';
   } else {
     md = expandedR.map(r => r.md).join('\n');
     if (collapsed.length > 0) {

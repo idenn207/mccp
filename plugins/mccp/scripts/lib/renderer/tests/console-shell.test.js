@@ -69,12 +69,12 @@ test('console-shell — 위험 / 미해결 질문 are separate routes (M3-b spli
   // 미해결 질문 route 가 별도 route 로 존재.
   assert.match(html, /<section class="route" id="route-questions"[^>]*>/);
   assert.match(html, /<a class="nav-link" data-route="questions" href="#route-questions">/);
-  assert.match(html, /<span class="tb-title" data-t="questions">미해결 질문<\/span>/);
-  // 위험 panel-title 은 route-risks 안, 미해결 질문 panel-title 은 route-questions 안.
+  assert.match(html, /<span class="tb-title" data-t="questions">질문<\/span>/);
+  // 위험 panel-title 은 route-risks 안, 질문 panel-title 은 route-questions 안.
   const riskBlock = html.slice(html.indexOf('id="route-risks"'), html.indexOf('id="route-questions"'));
   assert.match(riskBlock, /<h3 class="panel-title">위험<\/h3>/);
   const qBlock = html.slice(html.indexOf('id="route-questions"'), html.indexOf('id="route-activity"'));
-  assert.match(qBlock, /<h3 class="panel-title">미해결 질문<\/h3>/);
+  assert.match(qBlock, /<h3 class="panel-title">질문<\/h3>/);
 });
 
 // ── 차단 pin-alert (기존 grid blocked 신호로 조건부) ─────────────────────

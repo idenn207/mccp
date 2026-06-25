@@ -28,6 +28,11 @@ const STAGES = [
   { gate: 'mccp-pr-codex', short: 'pr' },
 ];
 
+// Dashboard Truthfulness M6 Task 6 — terminal gate(=decision 종료 입증). pr-codex
+// receipt 가 converged 면 그 decision 은 닫혔다(완료). 그 외 비-terminal 게이트의
+// converged 는 "게이트 통과" 사실일 뿐 stage 완결(커밋/PR)이 아니다.
+const TERMINAL_GATE_SET = new Set(['mccp-pr-codex']);
+
 function gateOf(r) {
   return (r && (r.gate_id || r.gate)) || '';
 }
@@ -79,6 +84,22 @@ function buildDecisionState(decisionId, receipts) {
       receipt: picked || null,
       time: picked ? timeOf(picked) : 0,
     };
+  });
+
+  // M6 Task 6 — receipt-only supersession. done-green('완료', ✓)는 stage 종료가
+  // *입증된* converged 노드에만 준다: (a) downstream stage 에 receipt 가 존재(=다음
+  // 게이트가 시작됨 → 이 stage 종료 입증)하거나 (b) decision 이 closed(terminal
+  // pr-codex converged). 그 외 최신 converged 비-terminal frontier(downstream receipt
+  // 無 + 미-closed)는 'done' 이 아니라 'converged-frontier' — "게이트 수렴·다음 대기".
+  // 입력은 receipt 존재/converged/gate 뿐 (plan-status·매칭·liveness 미사용, Codex F2).
+  const closed = nodes.some(
+    (n) => TERMINAL_GATE_SET.has(n.gate) && n.receipt && n.receipt.converged === true);
+  nodes.forEach((node, i) => {
+    if (node.status !== 'done') return; // converged 노드만 (nodeStatus done = converged)
+    if (TERMINAL_GATE_SET.has(node.gate)) return; // terminal converged = closed → done 유지
+    const supersededByDownstream = nodes.slice(i + 1).some((n) => n.receipt);
+    if (supersededByDownstream || closed) return; // 종료 입증 → done 유지
+    node.status = 'converged-frontier';
   });
 
   const latestConvergedTime = receipts.reduce(

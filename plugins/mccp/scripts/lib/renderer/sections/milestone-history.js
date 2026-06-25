@@ -9,6 +9,7 @@ const {
   extractPlanSummary,
 } = require('../parsers/plan-body');
 const { detailId, addDetail, buildMilestoneDetail, renderDetailMd } = require('../parsers/drawer-detail');
+const { buildTabs } = require('../parsers/tabs');
 
 const MAX_EXPANDED = 5;
 
@@ -283,12 +284,13 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
   }
   const lifeR = lifecycle.map(renderLifecycleItem);
 
-  let html = '';
   const mdParts = [];
+  // 완료 패널 inner(완료 목록 + MAX_EXPANDED 더보기). HTML 은 탭 panel 로 들어간다.
+  let completePanelHtml = '';
   if (merged.length > 0) {
-    html += '<ul class="milestone-history" role="list">' + expR.map(r => r.html).join('') + '</ul>';
+    completePanelHtml = '<ul class="milestone-history" role="list">' + expR.map(r => r.html).join('') + '</ul>';
     if (collapsed.length > 0) {
-      html += '<details class="more"><summary>'
+      completePanelHtml += '<details class="more"><summary>'
         + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
         + collapsed.length + ' 더보기</summary>'
         + '<ul class="milestone-history" role="list">' + colR.map(r => r.html).join('') + '</ul></details>';
@@ -302,15 +304,36 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
     mdParts.push(cmd);
   }
 
-  // M3 — '미진행 마일스톤 N건 · 표시' default-off 토글(positional churn 회피).
+  // 미진행(lifecycle) 패널 inner. md 는 기존 <details> 토글 유지(탭은 HTML CSS 전용).
+  let lifecyclePanelHtml = '';
   if (lifecycle.length > 0) {
-    html += '<details class="more"><summary>'
-      + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>'
-      + '미진행 마일스톤 ' + lifecycle.length + '건 · 표시</summary>'
-      + '<ul class="milestone-history" role="list">' + lifeR.map(r => r.html).join('') + '</ul></details>';
+    lifecyclePanelHtml = '<ul class="milestone-history" role="list">' + lifeR.map(r => r.html).join('') + '</ul>';
     mdParts.push('<details>\n<summary>미진행 마일스톤 ' + lifecycle.length + '건 · 표시</summary>\n\n'
       + lifeR.map(r => r.md).join('\n')
       + '\n\n</details>');
+  }
+
+  // M6 Task 3 — '미진행 N건 · 표시' <details> 를 risks/questions 와 동일한 buildTabs
+  // (완료 default · 미진행 N) 패턴으로 통일. lifecycle 0 이면 탭 없이 완료 직접 노출
+  // (open-questions resolved 0 분기 미러). md 는 위에서 plain-text <details> 로 동등.
+  let html;
+  if (lifecycle.length > 0) {
+    const completeChecked = merged.length > 0;
+    html = buildTabs({
+      name: 'tab-milestones',
+      tabs: [
+        {
+          id: 'done', label: '완료', count: merged.length, checked: completeChecked,
+          panelHtml: completePanelHtml || '<p class="panel-empty">완료된 마일스톤이 없습니다.</p>',
+        },
+        {
+          id: 'lifecycle', label: '미진행', count: lifecycle.length, checked: !completeChecked,
+          panelHtml: lifecyclePanelHtml,
+        },
+      ],
+    }, formatUtils);
+  } else {
+    html = completePanelHtml;
   }
 
   const md = mdParts.join('\n\n');

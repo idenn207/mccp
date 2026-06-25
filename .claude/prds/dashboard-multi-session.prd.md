@@ -54,7 +54,7 @@ We'll know we're right when **부모 repo에서 대시보드를 열어도 모든
 | # | Milestone | Outcome | Status | Plan |
 | --- | --- | --- | --- | --- |
 | 1 | Worktree 진행 스캐너 | `git worktree list` 열거 → 각 경로 working-tree `.claude/`(STATE.md + receipts) 직접 read → worktree별 진행 모델(branch·현재 마일스톤/게이트·차단·마지막 활동·self) derive. read-only, gitignore-agnostic, fail-open(접근 불가 worktree는 error row 보존 + 신호). | complete | `.claude/plans/dashboard-multi-session.plan.md` |
-| 2 | 멀티세션 대시보드 섹션 | 기존 active-sessions surface 확장 — worktree당 1행(진행 요약 + 차단 강조 + self 마커), 행 클릭 시 드로어로 상세, 단일 worktree면 graceful hide. STATUS.md plain-text 동등본 포함. | pending | — |
+| 2 | 멀티세션 대시보드 섹션 | 신규 전용 섹션 `sections/multi-session.js` — worktree당 1행(진행 요약 + 차단 강조 + self 마커), 행 클릭 시 드로어(`wt:` kind) 상세, healthy 단일 worktree graceful hide(0-item degraded scan·단일 degraded/blocked self는 loud 노출). STATUS.md plain-text 동등본 포함. | complete | `.claude/plans/dashboard-multi-session-m2.plan.md` |
 
 ## Design Direction
 

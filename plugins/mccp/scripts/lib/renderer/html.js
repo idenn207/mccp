@@ -388,6 +388,15 @@ ul { padding-left: 1.25rem; }
 .s-worker-stale { color: var(--status-worker-stale); }
 .s-secret { color: var(--status-secret); }
 .s-in-progress, .s-terminal-ok { color: var(--accent); }
+/* 멀티세션 self 행 — 비-색 텍스트 마커("이 worktree")가 primary; 아래는 보조
+   구조 큐(중립 bg tint 만). side-stripe(box-shadow inset) 는 H4 금지라 미사용.
+   accent/red 는 상태 셀 span 전용 보존(강조색 ≤1/viewport). */
+.multi-session tr.self { background: var(--panel-2); }
+/* 상태·활동 셀은 짧은 고정 텍스트("◐ 진행 중" / "50분 전") — 좁은 컬럼에서 공백
+   기준 줄바꿈을 막아 영역을 확보. 가변 길이(worktree 경로·진행 요약)는 1·3 컬럼이
+   wrap 으로 흡수. */
+.multi-session td:nth-child(4), .multi-session th:nth-child(4),
+.multi-session td:nth-child(5), .multi-session th:nth-child(5) { white-space: nowrap; }
 aside[role="alert"].s-secret {
   background: var(--status-secret); color: var(--bg);
   padding: 0.5rem; border-radius: 4px; margin-bottom: 1rem;
@@ -627,7 +636,7 @@ const DRAWER_SCRIPT = "(function(){"
   + "var dataEl=document.getElementById('drawer-data'),drawer=document.getElementById('drawer');"
   + "if(!dataEl||!drawer)return;var DETAILS={};try{DETAILS=JSON.parse(dataEl.textContent||'{}')}catch(e){return}"
   + "var dKind=document.getElementById('d-kind'),dBody=document.getElementById('d-body'),lastTrigger=null;"
-  + "var KIND={oq:'질문',risk:'위험',receipt:'Receipt',ms:'마일스톤'};"
+  + "var KIND={oq:'질문',risk:'위험',receipt:'Receipt',ms:'마일스톤',wt:'worktree'};"
   + "function el(t,c){var e=document.createElement(t);if(c)e.className=c;return e}"
   + "function render(d){dBody.innerHTML='';"
   + "var h=el('h2','d-title');h.innerHTML=d.title||'';dBody.appendChild(h);"
@@ -655,6 +664,7 @@ function panelIcon(title) {
   if (/타임라인/.test(title)) return 'ic-clock';
   if (/마일스톤/.test(title)) return 'ic-flag';
   if (/파이프라인|게이트|결정/.test(title)) return 'ic-branch';
+  if (/멀티세션|worktree/.test(title)) return 'ic-branch';
   if (/워커/.test(title)) return 'ic-worker';
   if (/활동/.test(title)) return 'ic-activity';
   return 'ic-dashboard';
@@ -865,7 +875,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   const { escapeHtml, formatRelativeTime } = formatUtils;
   const escapeAttr = formatUtils.escapeAttr || escapeHtml;
   const m = model || {};
-  const [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory] = sections;
+  const [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory, multiSession] = sections;
   const derivedMs = new Date(derivedAt).getTime();
   const relative = formatRelativeTime(derivedAt, Date.now());
 
@@ -890,6 +900,9 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
 
   // 활동·기록 page 패널 목록 — present 한 섹션만. timeline 항상 present.
   const activityPanels = [
+    // 멀티세션 진행 — 5컬럼 → full-width headline(워커/최근 활동 앞). 활동 route 의
+    // 진행-축 요약. present=false(graceful hide)면 filter 로 제거.
+    { title: '멀티세션 진행', section: multiSession, present: !!multiSession, span2: true },
     { title: '워커', section: fanout, present: !!fanout, span2: false },
     { title: '최근 활동', section: activeSessions, present: !!activeSessions, span2: false },
     { title: '타임라인', section: timeline, present: true, span2: true },
@@ -1014,14 +1027,14 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.13 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.14 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.
   // kind prefix(oq/risk/receipt/ms)가 cross-section 충돌을 구조적으로 차단 →
   // 단순 병합으로 충분(within-section 충돌은 addDetail 이 이미 hard-fail).
   const drawerMap = new Map();
-  for (const sec of [questions, risks, timeline, milestoneHistory]) {
+  for (const sec of [questions, risks, timeline, milestoneHistory, multiSession]) {
     if (sec && sec.details && typeof sec.details.forEach === 'function') {
       sec.details.forEach((v, k) => { drawerMap.set(k, v); });
     }

@@ -56,6 +56,12 @@ function detailId(kind, parts) {
     case 'ms':
       // planRelPath 가 milestone 당 유일(동일 basename 다른 PRD 도 path 로 분리).
       return 'ms:' + (p.planPath || p.name || ('?' + (p.ordinal || 0)));
+    case 'wt':
+      // worktree path 는 masked(<outside-repo:basename>) — 동일 leaf 두 worktree 가
+      // 같은 식별자로 collapse. items 배열 ordinal(deterministic·main-first·render-
+      // stable)을 1차 키로 두어 충돌 0·path-leak 0 (Codex Impl-F3). path 는 가독성
+      // 보조 suffix(없으면 '?').
+      return 'wt:' + (p.ordinal != null ? p.ordinal : 0) + ':' + (p.path || '?');
     default:
       return String(kind) + ':' + (p.ordinal || 0);
   }
@@ -186,6 +192,62 @@ function buildMilestoneDetail(e, planSummary, formatUtils) {
   return detail;
 }
 
+// dashboard-multi-session M2 — worktree 행 → 드로어 detail. buildMilestoneDetail
+// shape mirror. status kind 라벨/tone 은 섹션(worktreeStatusKind)이 계산해 opts 로
+// 전달(SSoT 중복 회피). 마지막 활동 relative 도 opts.activity 로 받아 테이블 셀 과
+// 동일 문자열 보장(정보 동등 test). per-worktree scrubbed item.error/blocked_reason
+// 을 별행으로 노출(Codex Impl-F2) — generic '오류' 뱃지로 collapse 금지.
+function buildWorktreeDetail(item, formatUtils, opts) {
+  const { normalizeProse, escapeHtml, formatRelativeTime, renderProseHtml } = formatUtils;
+  const esc = escapeHtml || ((s) => String(s == null ? '' : s));
+  const it = item || {};
+  const o = opts || {};
+  // self worktree path 는 cwd-relative '.' → basename 이 '.'. 식별자로 부적합하므로
+  // self 면 '(현재 worktree)', 아니면 branch fallback(둘 다 없으면 '(worktree)').
+  const rawName = basename(it.path);
+  const name = (rawName && rawName !== '.')
+    ? rawName
+    : (it.is_self ? '(현재 worktree)' : (it.branch || '(worktree)'));
+  const rows = [];
+  if (it.path) rows.push(['경로', normalizeProse(String(it.path)), true]);
+  const branch = it.branch || (it.detached ? '(detached)' : '(no branch)');
+  rows.push(['브랜치', normalizeProse(branch)]);
+  if (it.head) rows.push(['HEAD', String(it.head).slice(0, 8), true]);
+  if (it.current_gate) {
+    const conv = it.gate_converged === false ? ' (미수렴)'
+      : it.gate_converged === true ? ' (수렴)' : '';
+    rows.push(['게이트', normalizeProse(String(it.current_gate)) + conv]);
+  }
+  if (it.receipts != null) rows.push(['receipts', String(it.receipts)]);
+  const activity = (o.activity != null)
+    ? o.activity
+    : (it.last_activity && typeof formatRelativeTime === 'function'
+      ? formatRelativeTime(it.last_activity)
+      : (it.last_activity || '활동 없음'));
+  rows.push(['마지막 활동', activity]);
+  if (it.blocked && it.blocked_reason) {
+    rows.push(['차단 사유', normalizeProse(String(it.blocked_reason))]);
+  }
+  // 오류 행 — error 우선, 없으면 degraded blocked_reason(state-unparseable 등).
+  const errText = it.error || ((it.degraded && !it.blocked) ? it.blocked_reason : null);
+  if (errText) rows.push(['오류', normalizeProse(String(errText))]);
+  const detail = {
+    // title 은 식별자(basename, markdown 없음). drawer JS innerHTML sink → escapeHtml
+    // defense-in-depth(basename 에 메타문자 부재해도).
+    title: esc(normalizeProse(name)),
+    titleText: normalizeProse(name),
+    tags: [{ label: o.statusLabel || '대기', tone: o.statusTone || 'low' }],
+    rows,
+  };
+  // 진행 = milestone_hint(STATE.md authored, raw prose) — OPTIONAL degrade.
+  if (it.milestone_hint) {
+    detail.sections = [['진행',
+      renderProseHtml(String(it.milestone_hint), formatUtils),
+      normalizeProse(String(it.milestone_hint))]];
+  }
+  return detail;
+}
+
 // ── detail → plain-text markdown (SSoT 단일 경로, v1.18.2 M4) ──────────────────
 // detail 객체(드로어 SSoT)를 2-space 중첩 markdown bullet 블록으로 렌더. 섹션 md 가
 // 항목 헤더 바로 아래에 이 결과를 붙여 HTML 드로어와 정보 동등한 STATUS.md 를 만든다.
@@ -281,6 +343,7 @@ module.exports = {
   buildRiskDetail,
   buildReceiptDetail,
   buildMilestoneDetail,
+  buildWorktreeDetail,
   renderDetailMd,
   serializeDetails,
 };

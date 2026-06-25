@@ -7,6 +7,7 @@ const { renderStatusGrid } = require('./sections/status-grid');
 const { renderPipeline } = require('./sections/pipeline');
 const { renderWorkerFanout } = require('./sections/worker-fanout');
 const { renderActiveSessions } = require('./sections/active-sessions');
+const { renderMultiSession } = require('./sections/multi-session');
 const { renderAuditTimeline } = require('./sections/audit-timeline');
 const { renderOpenQuestions } = require('./sections/open-questions');
 const { renderRisks } = require('./sections/risks');
@@ -125,6 +126,7 @@ function renderStatus(model, opts) {
     const pipeline = safeSection('pipeline', () => renderPipeline(m, formatUtils, planBody, opts));
     const fanout = safeSection('worker-fanout', () => renderWorkerFanout(m, formatUtils));
     const activeSessions = safeSection('active-sessions', () => renderActiveSessions(m, formatUtils));
+    const multiSession = safeSection('multi-session', () => renderMultiSession(m, formatUtils, opts));
     const timeline = safeSection('audit-timeline',
       () => renderAuditTimeline(m, formatUtils, undefined, { snapshotsDir: snapshotsDir }));
     const questions = safeSection('open-questions', () => renderOpenQuestions(m, formatUtils, planBody));
@@ -132,7 +134,7 @@ function renderStatus(model, opts) {
     const milestoneHistory = safeSection('milestone-history',
       () => renderMilestoneHistory(m, formatUtils, planBody, opts));
 
-    const sections = [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory];
+    const sections = [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory, multiSession];
     const derivedAt = m.derived_at || new Date().toISOString();
 
     const md = safeCompose(

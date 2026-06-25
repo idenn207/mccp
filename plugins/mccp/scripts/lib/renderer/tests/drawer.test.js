@@ -97,6 +97,41 @@ test('drawer — detailId 안정 키(인덱스 아님, planPath/lineNumber/ordin
   assert.equal(dd.detailId('ms', { planPath: '.claude/plans/x.plan.md' }), 'ms:.claude/plans/x.plan.md');
 });
 
+// dashboard-multi-session M2 — wt: kind ordinal-우선 키(Codex Impl-F3). masked path
+// collapse 에도 ordinal 이 충돌 차단. ordinal 누락 시 0 fallback.
+test('drawer — detailId wt: kind ordinal-우선(masked path 충돌 차단, Codex Impl-F3)', () => {
+  assert.equal(dd.detailId('wt', { ordinal: 0, path: '/repo' }), 'wt:0:/repo');
+  assert.equal(dd.detailId('wt', { ordinal: 1, path: '<outside-repo:foo>' }), 'wt:1:<outside-repo:foo>');
+  // 동일 masked path 라도 ordinal 이 다르면 키 distinct
+  assert.notEqual(
+    dd.detailId('wt', { ordinal: 0, path: '<outside-repo:foo>' }),
+    dd.detailId('wt', { ordinal: 1, path: '<outside-repo:foo>' }),
+  );
+  // ordinal 누락 → 0, path 누락 → '?'
+  assert.equal(dd.detailId('wt', { path: '/x' }), 'wt:0:/x');
+  assert.equal(dd.detailId('wt', { ordinal: 2 }), 'wt:2:?');
+});
+
+test('drawer — buildWorktreeDetail REQUIRED(경로/브랜치/HEAD/활동) + 오류 row(Impl-F2) + 진행 section', () => {
+  const d = dd.buildWorktreeDetail({
+    path: '<outside-repo:x>', branch: 'feat-a', head: 'abcdef1234567',
+    current_gate: 'mccp-implement-codex', gate_converged: true, receipts: 4,
+    degraded: true, error: '<outside-repo:x> EACCES STATE.md', milestone_hint: 'M2 작업',
+  }, formatUtils, { statusLabel: '오류', statusTone: 'med', activity: '5분 전' });
+  const dts = d.rows.map((r) => r[0]);
+  ['경로', '브랜치', 'HEAD', '게이트', 'receipts', '마지막 활동', '오류'].forEach(
+    (k) => assert.ok(dts.includes(k), 'missing ' + k));
+  // HEAD short 8
+  assert.ok(d.rows.find((r) => r[0] === 'HEAD')[1] === 'abcdef12');
+  // 오류 row 가 scrubbed error 보존(Codex Impl-F2)
+  assert.ok(d.rows.find((r) => r[0] === '오류')[1].includes('EACCES'));
+  // 진행 = milestone_hint section
+  assert.ok(d.sections && d.sections[0][0] === '진행' && d.sections[0][2].includes('M2'));
+  assert.deepEqual(d.tags, [{ label: '오류', tone: 'med' }]);
+  // title escape 안전(메타문자 무누출)
+  assert.ok(!d.title.includes('<script'));
+});
+
 test('drawer — addDetail 충돌은 silent first-wins 아니라 ordinal suffix + collision=true', () => {
   const m = new Map();
   const a = dd.addDetail(m, 'risk:p#r0', { title: 'A' });
@@ -139,7 +174,8 @@ function sectionWithDetails(kind, n) {
 }
 
 function renderWith(details) {
-  // sections 순서: [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory]
+  // sections 순서: [grid, pipeline, fanout, activeSessions, timeline, questions, risks,
+  // milestoneHistory, multiSession]
   const empty = { html: '', md: '' };
   const grid = { cells: [] };
   const sections = [
@@ -148,6 +184,7 @@ function renderWith(details) {
     details.questions || empty,
     details.risks || empty,
     details.milestoneHistory || empty,
+    details.multiSession || null,
   ];
   const verdict = { tone: 'neutral', icon: '·', text: '대기' };
   return renderHtml({ masked: true }, sections, verdict, new Date('2026-06-24T00:00:00Z').toISOString(), fakeFormat());
@@ -192,6 +229,31 @@ test('drawer — H18 fires on duplicate data-detail-id (Codex F2 — 단순 키�
   const css = require('../html').TOKENS + require('../html').LAYOUT;
   const r = runOutputConstraints({ css, html, md: '' });
   assert.ok(r.violations.includes('H18'), 'duplicate id must fire H18');
+});
+
+// dashboard-multi-session M2 — KIND map 에 wt:'worktree' + 멀티세션 details 가
+// drawerMap 에 합류(드로어 헤더 라벨 회귀 가드).
+test('drawer — DRAWER_SCRIPT KIND map 에 wt:worktree 라벨', () => {
+  const html = renderWith({ questions: sectionWithDetails('oq', 1) });
+  assert.ok(html.includes("wt:'worktree'"), 'KIND map 에 wt:worktree');
+});
+
+test('drawer — 멀티세션 섹션 details 가 drawerMap 에 합류(wt: 키 직렬화)', () => {
+  const map = new Map();
+  map.set('wt:0:/repo', { title: 'repo', rows: [['경로', '/repo', true]] });
+  map.set('wt:1:<outside-repo:o>', { title: 'o', rows: [['경로', '<outside-repo:o>', true]] });
+  const sec = {
+    html: '<table class="multi-session"><tbody>'
+      + '<tr><td data-detail-id="wt:0:/repo">repo</td></tr>'
+      + '<tr><td data-detail-id="wt:1:&lt;outside-repo:o&gt;">o</td></tr></tbody></table>',
+    md: '', details: map,
+  };
+  const html = renderWith({ multiSession: sec });
+  assert.match(html, /<script type="application\/json" id="drawer-data">/);
+  const m = html.match(/id="drawer-data">([\s\S]*?)<\/script>/);
+  const j = JSON.parse(m[1].replace(/\\u003c/g, '<').replace(/\\u003e/g, '>').replace(/\\u0026/g, '&'));
+  assert.ok(j['wt:0:/repo'], 'wt:0 detail 직렬화');
+  assert.ok(j['wt:1:<outside-repo:o>'], 'wt:1 detail 직렬화');
 });
 
 test('drawer — 반응형/reduced-motion CSS 존재(드로어 slide-in 대안)', () => {

@@ -2,7 +2,24 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.12`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.14`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.18.14] — 2026-06-26
+
+dashboard-multi-session M2 — 멀티세션 대시보드 섹션(UI consumer). M1이 ship한 derive `model.sources.worktrees`(live cross-worktree 진행 모델)를 소비하는 신규 전용 렌더 섹션 `sections/multi-session.js`를 추가해, 그동안 데이터 레이어만 있고 소비자가 없던 worktree 진행을 대시보드에 노출한다. worktree당 1행(진행 요약 + 차단 강조 + self 마커) + 행 클릭 시 우측 드로어 상세(`wt:` kind) + STATUS.md plain-text 동등본. 기존 `active-sessions.js`(세션 존재 축, v1.4.0)는 무손상 — 신규 섹션은 진행 축으로 병치한다. **Graceful hide(분리 규칙)**: scan off → null, healthy 단일 worktree → null(공통 경로 조용), 그러나 **0-item degraded scan**(Codex Plan-F1) **또는 단일 degraded/blocked self**(Codex Impl-F1)는 loud 노출 — verdict generic collapse가 actionable 진단을 잃지 않게 섹션이 직접 scrubbed error/차단 사유를 보존(loud-fail-open). **상태 kind**(blocked > degraded > active > idle)는 기존 `.s-*` 색 cascade 재사용(신규 CSS 색 클래스 0) + 색은 상태 셀 span에만 + 색+아이콘+텍스트 3중(WCAG non-color severity). 차단=red(≤1 강조), degraded=amber로 분리. **드로어 detail-id는 ordinal-우선**(`wt:<ordinal>:<path>`, Codex Impl-F3) — masked path(`<outside-repo:basename>`) collapse에도 충돌 0·leak 0. per-worktree scrubbed `item.error`를 진행셀/드로어/STATUS.md에 노출(Codex Impl-F2). Codex Implement-R1 3 finding(Impl-F1/F2/F3 모두 MEDIUM·ACCEPT_NOW·R1 흡수). multi-session 18 신규 + drawer 4 신규 test, renderer 526 + derive 114 PASS, design-lint clean(H4 side-stripe 회피 — self는 비-색 bg tint만), 0 회귀. **Local-review hardening**: 진행 셀 `plainSummary`(truncate가 raw 마커 페어를 분리해 `**`가 HTML 누출되던 H16 위반 차단 — bold/code 서식은 드로어 detail full prose에서 보존) + self worktree `.` dangling dot 제거(cwd-relative path → 마커만 표기) + 상태·활동 컬럼 `nowrap`(좁은 컬럼 공백 줄바꿈 방지·영역 확보). plugin.json `1.18.13 → 1.18.14`(main #66 truthfulness M8이 1.18.13 선점 → §3.7 forward-reconcile) + 양 footer. PRD M2 row → complete.
+
+### Added
+
+- **`scripts/lib/renderer/sections/multi-session.js`** (신규) — `renderMultiSession(model, formatUtils, options)` — worktree당 1행 테이블 + `worktreeStatusKind` oracle(blocked>degraded>active>idle, `.s-*` 재사용) + self 마커 + 4-way graceful hide + per-worktree error surface + STATUS.md md(테이블 + per-worktree 인라인 detail).
+- **`scripts/lib/renderer/tests/multi-session.test.js`** (신규, 15 test) — graceful hide(scan off / healthy single) / 2+ 테이블 / self / 차단 강조 / degraded 행 보존 / 드로어 detail / escape / masked path verbatim / md↔html 동등 / Plan-F1(0-item degraded notice) / Impl-F1(unhealthy single 렌더) / Impl-F2(scrubbed error surface) / Impl-F3(동일 basename ordinal 충돌 0).
+
+### Changed
+
+- **`scripts/lib/renderer/parsers/drawer-detail.js`** — `detailId` `wt` case(ordinal-우선 안정 키, Impl-F3) + `buildWorktreeDetail(item, formatUtils, opts)` 빌더(경로/브랜치/HEAD/게이트/receipts/활동/차단 사유/오류 row + 진행 section, Impl-F2 error 보존).
+- **`scripts/lib/renderer/{index,markdown,html}.js`** — `multiSession` 섹션 3-point 배선(`sections` 배열 9번째 append + 양쪽 destructure + 활동 route 패널 맨 앞 span2 + 앵커 + `DRAWER_SCRIPT` KIND map `wt:'worktree'` + drawerMap 집계 + `panelIcon` `ic-branch` + `.multi-session tr.self` 비-색 bg tint).
+- **`scripts/lib/renderer/tests/drawer.test.js`** — `wt:` ordinal-keyed detailId 가드 + `buildWorktreeDetail` 빌더 + KIND map 라벨 + 멀티세션 drawerMap 합류 회귀(4 신규).
+- **`docs/v1.3.0-observability/dashboard-surface.md`** §2.6 — 멀티세션 섹션 read-side 소비 계약(소스·graceful-hide·상태 kind·드로어 `wt:` kind).
+- **`plugins/mccp/.claude-plugin/plugin.json`** — `1.18.13 → 1.18.14` + `html.js`/`markdown.js` footer `v1.18.14` 동기화 (main #66이 1.18.13 선점 → §3.7 forward-reconcile).
 
 ## [1.18.12] — 2026-06-25
 

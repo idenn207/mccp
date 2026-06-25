@@ -1,0 +1,26 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "dashboard-multi-session",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.18.12",
+    "completed_at": "2026-06-25T20:04:55.318Z",
+    "commit_sha": "2fbcfb9d8e54574119e510d22c67bfedaf759f97",
+    "plan_basename": "dashboard-multi-session.plan.md",
+    "plan_file_hash": "sha256:2de4e17534674ff896794740779520bdfd7109be8bcebe6e9d122b3014c9dda1",
+    "risks_closed": [
+      "derive spawn-free 계약 / perf budget 파괴",
+      "**기능 영구 invisible(default-off + render 미배선, Codex F1)**",
+      "cross-worktree read race(작성 중 STATE/receipt)",
+      "**corrupt STATE가 absent로 위장(Codex F3)**",
+      "self path 매칭 실패(win32 case/UNC/symlink)",
+      "**sibling/parent 절대경로 leak — path 필드 + error/warning 문자열(Codex F2)**",
+      "worktree 다수 → 스캔 latency",
+      "MODEL_VERSION drift / 소비자 깨짐",
+      "PRD① ledger와 중복 표시"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:6ab0ff55333badc3890f5a64cfa4071ff96fe8b1e51186c1863f9fc42253bc9b"
+  }
+}

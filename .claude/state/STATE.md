@@ -1,50 +1,43 @@
 ---
 state_version: 1
-task_fingerprint: dashboard-pipeline-chart
+task_fingerprint: dashboard-multi-session
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-06-22T18:06:10.227Z
+updated_at: 2026-06-25T20:13:46.026Z
 last_event: stop_loop_pass
 last_event_at: 2026-06-22T18:06:10.227Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
-chain_aborted: true
-last_pr_url: https://github.com/idenn207/mccp/pull/53
+chain_aborted: false
+last_pr_url: https://github.com/idenn207/mccp/pull/65
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
-dashboard-pipeline-chart cycle (status.html 시각 리프레시 PRD, 6 마일스톤). M1(게이트 파이프라인 chart)+M2(활동 step-chart + 마일스톤 기록 정확성) shipped (PR #53 merged, squash 2f5f808). **현재 M3(레이아웃·정보 계층·반응형) 진행 중** — 다크 파이프라인 콘솔 재설계. PRD: `.claude/prds/dashboard-pipeline-chart.prd.md`. worktree: `.worktrees/dashboard-timeline-chart/` (branch dashboard-timeline-chart).
+dashboard-multi-session cycle — worktree별 진행 실시간 집계 PRD(형제 PRD ②/3). M1(worktree 진행 스캐너, derive `worktrees` 데이터 레이어) SHIPPED — PR #65 merged, plugin.json 1.18.12. 현재 M2(멀티세션 대시보드 UI 섹션) 차례. PRD: `.claude/prds/dashboard-multi-session.prd.md`. worktree: `.worktrees/dashboard-multi-session/`.
 
 ## Plan
-- M3 plan: `.claude/plans/dashboard-pipeline-chart-m3-layout.plan.md` (report: `.claude/PRPs/reports/dashboard-pipeline-chart-m3-layout-report.md`). plan-codex + implement-codex receipt clean (decision `dashboard-pipeline-chart-m3-layout`, design-critique converged).
-- 사용자 결정(2026-06-23): 기존 디자인은 reference 아님 → 미학 방향 신규 탐색 + H-invariant 자유 수정. 방향 = **다크 파이프라인 콘솔, Vercel 대시보드 베이스(80~90% 수용), 카드 중첩 금지**. M4(우측 Drawer 상세 + nav active 추적 + Tailwind 터미널 prompt)는 콘솔 셸 위 후속.
+- M2(예정) 멀티세션 대시보드 섹션 — 기존 `sections/active-sessions.js`(state.item.active_session_ledgers 읽음)를 worktree 진행-집계로 확장하거나 신규 섹션이 `model.sources.worktrees` 소비. worktree당 1행(진행 요약 + 차단 강조 + self 마커), 행 클릭 시 드로어 상세, 단일 worktree면 graceful hide, STATUS.md plain-text 동등본.
+- M2 ship 전 impeccable audit/polish (PRD 워크플로). 제품 compactness 제약(한 화면 5섹션, 요약 우선·깊이 on-demand) 준수, 차단 worktree 강조색 viewport당 ≤1.
+- M1 render 경로는 이미 `derive(..., {worktreeScan:true})` opt-in 배선 완료 — M2는 그 데이터를 소비만 하면 됨.
 
 ## Done
-- M1+M2 shipped — PR #53 merged (squash 2f5f808), origin/main 반영. branch origin/main으로 reset 후 M3 진입.
-- M3 redesign-1 commit `9f67ed9` (feat v1.16.0, WIP) — 다크 default 토큰 + 2D 레이아웃 + 비중첩 카드 + 반응형 + H1/H2/H3 개정 + 신규 H17(카드중첩 금지 DOM-aware). Codex Plan-Codex R1 3건 흡수(2-bucket 테스트 가드 / H17 DOM-aware / inert affordance 0). renderer 323(+11) + derive 68 PASS, 0 회귀. plugin.json 1.15.0→1.16.0.
+- M1 SHIPPED — PR #65 merged (worktrees derive count-source: scanWorktrees + parseWorktreePorcelain + deriveWorktreeProgress + isSelfWorktree). gitignore-agnostic cross-worktree 스캔, read-only·LLM-free·dep-free·loud fail-open. derive 114 + renderer 503 PASS, 0 회귀. plugin.json 1.18.11→1.18.12.
+- 이번 세션 /mccp:code-review hardening — M2 cap-truncation self-retention swap + M3 scrubAbsPaths privacy regex 6 직접 단위 테스트. PR-Codex round 1 clean(0 actionable, design-scope filter) + security-reviewer CLEAN(injection/ReDoS/path-leak 무결점).
+- Codex plan/implement F1(render 배선)·F2(outside-root path scrub)·F3(corrupt STATE diagnostic read) 3건 흡수.
 
 ## In Progress
-M3 **redesign-2 PENDING** — redesign-1 commit 후 사용자 시각 피드백으로 재작업 필요. redesign-1은 "Vercel 색감만 빌린 새 디자인"으로 평가됨. 확립된 패턴(Tailwind docs + Vercel)을 제대로 따를 것 — 관성적 incremental 금지, 정형 패턴 채택.
+M2 미착수 — M1 머지 직후 상태. 다음 작업으로 M2(멀티세션 UI 섹션) 진입 예정.
 
 ## Next Step
-다음 세션 `/mccp:resume`(또는 worktree에서 직접 이어가기). redesign-2 적용 대상 (사용자 피드백, 근거 포함):
-1. **섹션 nav를 우측 "on this page" TOC로** — Tailwind docs 패턴(좌측 main nav / 우측 현재페이지 목차). 현재 좌측 얇은 텍스트 컬럼 + ● dot은 폐기. ● 제거, plain 텍스트 + active 하이라이트.
-2. **status 4축을 상단 header → 우측 rail로** — icon+색상 칩(명칭 없음, 색/아이콘만으로 구분), 클릭 시 해당 섹션 jump(필터는 M5). 근거: status는 "무엇을 봐야 하나" 진입점 → 네비 surface와 묶는 게 UX. 상단 아이콘 뭉텅이 폐기, 각 상태 시각 분리.
-3. **header non-sticky 최소화** — status가 rail로 빠지면 sticky 상시 표시 이유 없음. brand+갱신시각만.
-4. **`scroll-margin-top`** — 앵커 클릭 시 스크롤 위치가 sticky 요소에 가리는 문제 해소.
-5. **Vercel 카드 질감** — radius~10 + 여백 + 카드 헤더 + page<card elevation. "색감만 빌린" 느낌 제거.
-6. **모든 아이콘 align center** — status 칩/verdict/nav 이모지 수직정렬(`align-items:baseline`→`center`).
-- 영향: header-hoist.test.js + render-integration.test.js의 "status-strip in header" assertion(bucket B) 갱신 필요(디자인 변경).
-- 비주얼 검증: 이 환경은 브라우저 스크린샷 불가 → 사용자가 `.claude/cache/status.html` 확인. 가능하면 impeccable live/polish + 실제 Vercel/Tailwind docs 스크린샷 대조.
-- 마무리: redesign-2 후 commit → `/mccp:prp-commit` → `/mccp:pr` (PR 전 사용자 시각 확인 필수). PRD M3 row complete + worktree cleanup.
+M2 구현 — `model.sources.worktrees`를 소비하는 멀티세션 섹션(active-sessions 확장 또는 신규). PRD M2 row 기반으로 /mccp:plan 진입. 단일 worktree graceful hide + 차단 강조 + self 마커 + STATUS.md 동등본이 acceptance.
 
 ## Last Decision
-2026-06-23 비용 critical($155)로 M3 redesign-1(test-green)을 commit `9f67ed9`로 보존하고 redesign-2(Vercel 정합 재작업)는 다음 세션으로 분리(사용자 "2번 — /mccp:resume" 선택). redesign-1은 단일컬럼→다크 콘솔 전환은 됐으나 좌측 nav·상단 status·카드 질감이 Vercel 패턴 미달. 핵심 교훈(사용자): 정보 압축·표현·사용성도 디자인 영역, 관성적 수정 말고 성공한 디자인(Vercel/Tailwind docs)을 reference로 정형 패턴을 따를 것.
+2026-06-26 PR #65 merge 완료(M1). 리뷰 M1 항목(render 경로가 아직 소비자 없는 worktrees 데이터 생성)은 Codex F1 수렴 존중으로 현 상태 유지 — M2 UI 소비자 ship 시 자연 해소.
 
 ## Open Questions
-- redesign-2 우측 rail 폭/접힘(반응형) + status 칩 클릭 타깃(어느 섹션으로 jump) 구체화 — plan 단계.
-- 브라우저 시각 검증 부재 — CSS 변경을 사용자 육안에만 의존. 스크린샷 도구/Vercel 실물 대조 방법 모색.
-- pr.md worktree `.git/` hardcode + heredoc parse — 이번 세션도 hit(분류 tmp dir + 커밋 메시지 `@'...'@` PowerShell 문법 오용). 한 줄 수정 axis 누적 8+ cycle.
+- completion-ledger 부수 산출물(`.claude/state/completion-ledger/dashboard-multi-session__*.json`, untracked·gitignore 아님) — PR 브랜치 folding 여부 미결. 게이트가 자동 stamp한 state 산출물.
+- M2 멀티세션 섹션의 graceful-hide 정확 조건(count≤1? self-only?) — plan 단계 구체화.
+- worktree 진행 행 클릭 → 드로어 상세 매핑 범위(기존 드로어 재사용 vs 확장).
 
 ## Last Updated
-2026-06-22T18:06:10.227Z
+2026-06-25T20:13:46.026Z

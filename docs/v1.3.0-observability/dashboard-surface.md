@@ -94,6 +94,32 @@ M1~M4 made the data *persist* and *render* truthfully; M5 closes the **derive-mo
 
 **더보기 → route full-render (#6, `sections/{risks,open-questions,audit-timeline}.js` + `html.js` heroWidget)**: the dedicated routes (`#route-risks` / `#route-questions` / `#route-activity`) reused the overview's top-N + `<details class="more">+N 더보기` cap, so overflow items were unreachable even on the "full" page. M5b renders these sections in **full mode** in their routes (all items, no `<details>` cap) — so every overflow item is *reachable* in the target route HTML (Codex F2: the route-risks HTML literally contains all active `li-item`s). The overview hero 위험 widget keeps top-3 + a `전체 보기 (+N)` route link (`.hw-more` → `#route-risks`) as the summary. **md keeps the top-N + `<details>` fold** (no `:target` routes in plain-text — the fold is how md stays reachable). `markdown-equivalence` asserts the collapsed-in-md rows surface in both html (inline, full) and md (fold). The `active-sessions` (최근 활동) 더보기 is out of M5 scope and unchanged.
 
+### §2.6 멀티세션 진행 섹션 (dashboard-multi-session M2)
+
+신규 전용 섹션 `sections/multi-session.js`가 M1의 derive count-source `model.sources.worktrees`를 소비한다. 기존 `active-sessions.js`(세션 존재 축, `state.item.active_session_ledgers`)와 무손상 병치 — 본 섹션은 **진행 축**(worktree별 마일스톤·게이트·차단). 활동 route 패널 맨 앞 full-width(span2) + 사이드바 진입은 기존 '활동 · 기록' route 재사용(전용 route 신설 안 함).
+
+**소비 소스 + 마스킹**: `worktrees.items[]`는 derive `mask.js`가 emit-time에 이미 마스킹한 값(`path` → `maskPath`로 outside-root는 `<outside-repo:basename>`, `error` → `scrubAbsPaths`, `branch`/`head`/`milestone_hint`는 raw). 섹션은 **재마스킹하지 않고** escape만 — masked 값 verbatim 렌더.
+
+**Graceful-hide(분리 규칙)** — 100% 가시성 + loud-fail-open 양립:
+
+| 조건 | 동작 |
+|---|---|
+| `scanned !== true` | `null` (scan off 경로 조용) |
+| `count===0 && degraded && error` | 작은 degraded notice(`⚠ worktree 스캔 실패: <scrubbed error>`) — broken-scan 진단 보존(Codex Plan-F1) |
+| `count===1 && healthy(item)` | `null` (정상 단일 worktree = self, 공통 경로 조용) |
+| `count===1 && !healthy` | 1행 테이블 loud — 단일 degraded/blocked self의 손상이 verdict generic collapse에 묻히지 않게(Codex Impl-F1) |
+| `count>=2` | 멀티세션 테이블 |
+
+`render := (count>=2) OR (count===1 && !healthy(item))`; `healthy := !degraded && !blocked && !error`. `active`/`has_signal`은 행별 표현(idle=muted)에만, hide 게이트엔 미사용.
+
+**상태 kind**(`worktreeStatusKind`, 우선순위 blocked > degraded > active > idle — 차단이 degraded보다 actionable): 기존 `.s-*` 색 cascade 재사용(신규 CSS 색 클래스 0). blocked=`s-blocked`(red, 화면당 ≤1 강조)·🚫·차단됨 / degraded=`s-stale`(amber, red와 분리)·⚠·오류 / active=`s-in-progress`(accent)·◐·진행 중 / idle=`muted`··· 대기. 색은 **상태 셀 span에만**(행 전체 색칠 금지, worker-fanout 계약) + 색+아이콘+텍스트 3중(§4 status triple, WCAG non-color severity). per-worktree scrubbed `item.error`/`blocked_reason`은 진행 셀·드로어 detail·STATUS.md md에 노출 — generic 뱃지로 collapse 금지(Codex Impl-F2).
+
+**self 마커**: `is_self===true` → `<tr class="self">` + "**이 worktree**" 텍스트 마커(비-색, a11y-safe). 시각 보조는 `.multi-session tr.self` 중립 bg tint만(side-stripe는 H4 금지 — 미사용). 정확히 0|1행.
+
+**드로어 detail(`wt:` kind)**: 행 worktree 셀에 `data-detail-id` 부여 → 기존 native dialog 드로어 재사용(신규 드로어 0). `detailId('wt', {ordinal, path})`는 **ordinal-우선 안정 키**(`wt:<ordinal>:<path>`) — masked path가 동일 basename으로 collapse해도 items 배열 ordinal(deterministic·main-first·render-stable)이 충돌 차단·leak 0(Codex Impl-F3). `buildWorktreeDetail`은 `buildMilestoneDetail` shape mirror(경로/브랜치/HEAD8/게이트±수렴/receipts/마지막 활동 + 차단 사유·오류 row + milestone_hint 진행 section). `DRAWER_SCRIPT` KIND map에 `wt:'worktree'` 라벨, `html.js` drawerMap 집계에 합류.
+
+**STATUS.md 동등**: md는 5컬럼 테이블(`| worktree | 브랜치 | 진행 | 상태 | 활동 |`) + 테이블 뒤 per-worktree 인라인 detail(`renderDetailMd`, 브랜치/활동 omit) — 드로어 detail의 모든 row 값이 plain-text에 surface(진행/차단 사유/오류/경로/HEAD/receipts 정보 동등, `markdown-equivalence` 계약).
+
 ## §3 Verdict priority chain (11 steps, deterministic, LLM-free)
 
 The verdict line is computed from derive signals in this fixed priority order. The first signal that fires writes the verdict; later signals are skipped. Both STATUS.md and status.html call the same `computeVerdict(model, planBody)` function in `plugins/mccp/scripts/lib/renderer/verdict.js`.

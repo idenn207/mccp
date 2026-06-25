@@ -5,7 +5,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   const norm = typeof normalizeProse === 'function' ? normalizeProse : (s) => s;
   const verdictText = norm(verdict.text);
   const m = model || {};
-  const [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory] = sections;
+  const [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory, multiSession] = sections;
 
   const now = Date.now();
   const derivedMs = new Date(derivedAt).getTime();
@@ -29,6 +29,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   const anchors = ['[verdict](#verdict)', '[대시보드](#대시보드)'];
   if (pipeline) anchors.push('[파이프라인](#파이프라인)');
   if (fanout) anchors.push('[워커](#워커)');
+  if (multiSession) anchors.push('[멀티세션](#멀티세션-진행)');
   if (activeSessions) anchors.push('[최근-활동](#최근-활동)');
   anchors.push('[타임라인](#타임라인)');
   if (milestoneHistory) anchors.push('[마일스톤-기록](#마일스톤-기록)');
@@ -75,6 +76,15 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
     out.push('');
   }
 
+  if (multiSession) {
+    out.push('## 멀티세션 진행');
+    out.push('');
+    out.push(multiSession.md);
+    out.push('');
+    out.push('---');
+    out.push('');
+  }
+
   if (activeSessions) {
     out.push('## 최근 활동');
     out.push('');
@@ -114,7 +124,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('---');
   out.push('');
 
-  out.push('_derived from .claude/ · v1.18.13_');
+  out.push('_derived from .claude/ · v1.18.14_');
   out.push('');
 
   return out.join('\n');

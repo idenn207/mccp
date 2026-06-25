@@ -138,8 +138,10 @@ function computeVerdict(model, planBody, opts) {
     const nextPlan = freshInProgress[0];
     const basename = nextPlan.path ? path.basename(nextPlan.path) : null;
     const label = basename ? formatPlanLabel(basename, { maxLen: 56 }) : planSlug(nextPlan);
-    // subtext 는 긴 cap(중요 내용 잘림 방지) — full-width + multi-line clamp 로 노출.
-    const intent = computeIntentForNextPlan(nextPlan, Object.assign({}, opts, { maxLen: 220 }));
+    // M7 Task 5 (⑤) — subtext 는 첫 완결 문장(mid-word `…` 없음). 220자 hard-cut
+    // 대신 complete 모드로 "문장 중간 잘림"을 제거한다(사용자 "그만 잘라"). 시각
+    // 안전망은 CSS relaxed line-clamp(html.js .verdict-sub)이 담당.
+    const intent = computeIntentForNextPlan(nextPlan, Object.assign({}, opts, { complete: true }));
     const out = { tone: 'neutral', icon: '◐', text: '현재 작업: ' + label };
     if (intent) out.subtext = intent;
     return out;

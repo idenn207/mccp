@@ -94,7 +94,8 @@ test('sidebar nav-rail wires 3 page route links', () => {
 test('stale fixture — next renders stale-label inside action-prompt', () => {
   const model = makeModel(Date.now(), 'v0-3-5-codex-disabled-honor');
   const r = renderWithStubs(model);
-  assert.match(r.html, /<div class="action-prompt"><span class="lead">다음<\/span><span class="stale-label">/);
+  // M8 — '다음 작업' 라벨은 박스 밖(.na-label), 박스(.action-prompt)는 stale-label 직속.
+  assert.match(r.html, /<div class="na-label">다음 작업<\/div><div class="action-prompt"><span class="stale-label">/);
 });
 
 test('html non-stale fixture — no data-stale attr on any chip', () => {

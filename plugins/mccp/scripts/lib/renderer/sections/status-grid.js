@@ -3,6 +3,7 @@
 const path = require('path');
 const { extractIntentFromPath } = require('../parsers/intent-extractor');
 const { deriveDecisionState } = require('../parsers/decision-state');
+const { planHashesFromModel } = require('../parsers/plan-hashes');
 const { resolveNextAction } = require('../parsers/next-action');
 const { stripMarker } = require('../parsers/resolution-marker');
 const { maxRank } = require('../parsers/action-prompt');
@@ -112,10 +113,10 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
     .filter(p => p && p.path && planStatuses.get(path.basename(p.path)) === 'in-progress');
   const inProgressItems = inProgressPlans
     .filter(p => staleness.get(path.basename(p.path)) !== 'stale')
-    .map(p => formatPlanLabel(path.basename(p.path)));
+    .map(p => formatPlanLabel(path.basename(p.path), { maxLen: 56 }));
   const staleInProgressItems = inProgressPlans
     .filter(p => staleness.get(path.basename(p.path)) === 'stale')
-    .map(p => formatPlanLabel(path.basename(p.path)));
+    .map(p => formatPlanLabel(path.basename(p.path), { maxLen: 56 }));
   const inProgressCount = inProgressItems.length;
 
   // v1.18.0 M2 (H1 fix) — blocked 카운트는 공유 SSoT deriveDecisionState 로 일원화.
@@ -124,7 +125,12 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   // decision-level state==='blocked'(round≥2 미수렴 + 시간순 supersede 가드)만 집계 →
   // pipeline·timeline 과 동일 판정 보장. (decision-state.js §8-16)
   const receiptItems = (sources.receipts && sources.receipts.items) || [];
-  const stateMap = deriveDecisionState(receiptItems);
+  // M7 Task 4 — ledger-aware decision-state (shared with the next-action
+  // frontier derive below). A fresh-matched completion-ledger entry promotes a
+  // converged-frontier decision to done so the frontier reads truthfully (Codex F2).
+  const ledgerItems = (sources.ledger && sources.ledger.items) || [];
+  const planHashes = planHashesFromModel(m, { cwd: opts.cwd });
+  const stateMap = deriveDecisionState(receiptItems, { ledgerItems, planHashes });
   // M2 — 차단 = blocked decision_id 들이 곧 '무엇'(decision-state SSoT).
   const blockedItems = [];
   for (const [id, d] of stateMap.entries()) {
@@ -136,7 +142,11 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   let nextStale = false;
   let nextIntent = null;
   const stateItem = sources.state && sources.state.item;
-  if (stateItem && stateItem.resume_state === 'in-flight') {
+  // M7 Task 4 (Codex F3) — genuine handoff = STATE.md last_event==='handoff_spawn'
+  // (the signal the resume dispatcher honors), NOT the broader resume_state.
+  const hasHandoffSignal = !!(stateItem && stateItem.frontmatter
+    && stateItem.frontmatter.last_event === 'handoff_spawn');
+  if (hasHandoffSignal) {
     nextStep = '/mccp:resume';
   } else {
     const firstInProgress = plansItems.find(p => {
@@ -214,6 +224,10 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   try {
     nextAction = resolveNextAction(stateItem, {
       plans: plansItems, planStatuses, planStaleness: staleness, planIntent: nextIntent,
+      // M7 Task 4 — frontier-primary derive (Codex F1) + genuine-handoff resume
+      // (Codex F3). Reuse the ledger-aware stateMap so the chip and the pipeline
+      // agree on which gate is the frontier.
+      decisionState: stateMap, hasHandoffSignal,
     });
   } catch (_) {
     nextAction = { command: null, args: '', prose: '대기', copyText: null, source: 'idle', executable: false, stale: false };

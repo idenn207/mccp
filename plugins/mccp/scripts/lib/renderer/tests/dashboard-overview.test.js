@@ -118,12 +118,15 @@ test('dashboard — missing host_version degrades to honest null on return shape
   assert.doesNotMatch(md, /버전:/);
 });
 
-// ── (c) next-action from STATE.md nextStep blob ───────────────────────────────
-test('dashboard — next-action extracted from STATE.md nextStep blob (headline /mccp:resume)', () => {
+// ── (c) hollow /mccp:resume in STATE.md blob is NOT echoed (M7 ④) ──────────────
+test('dashboard — hollow /mccp:resume in STATE.md blob is NOT advertised as next-action (M7 ④)', () => {
   const { nextAction, md } = renderStatusGrid(baseModel(), formatUtils, planBodyWith([]));
-  assert.equal(nextAction.command, '/mccp:resume');
-  assert.equal(nextAction.executable, true);
-  assert.match(md, /다음: `\/mccp:resume`/);
+  // M7 ④ truthfulness — /mccp:resume is a hollow recovery meta-command; with no
+  // in-progress frontier and no genuine handoff signal it must NOT be advertised
+  // as an executable next action (the exact hollow-echo this milestone removes).
+  assert.notEqual(nextAction.command, '/mccp:resume');
+  assert.equal(nextAction.executable, false);
+  assert.doesNotMatch(md, /다음: `\/mccp:resume`/);
 });
 
 // ── (d) full render: hero html + STATUS.md plain-text equivalence ─────────────
@@ -167,8 +170,10 @@ test('dashboard — hero html surfaces named widgets + next-action, NO hero-vers
   // M6 Task 2 — 위젯이 hero-panel 밖 widget-grid 카드 4종으로 분해.
   assert.match(r.html, /<div class="widget-grid">/);
   assert.equal((r.html.match(/class="panel widget-card"/g) || []).length, 4);
-  assert.match(r.html, /<code>\/mccp:resume<\/code>/);
-  assert.match(r.html, /data-copy="\/mccp:resume"/);
+  // M7 ④ — in-progress plan present (a.plan.md) + no receipts → frontier derives
+  // /mccp:prp-implement a.plan.md, NOT the hollow /mccp:resume from STATE.md.
+  assert.match(r.html, /<code>\/mccp:prp-implement a\.plan\.md<\/code>/);
+  assert.match(r.html, /data-copy="\/mccp:prp-implement a\.plan\.md"/);
 });
 
 test('dashboard — STATUS.md plain-text equivalent carries widgets · next-action, NO version (M5 Task 5)', () => {
@@ -177,7 +182,8 @@ test('dashboard — STATUS.md plain-text equivalent carries widgets · next-acti
   // M5 Task 5 — 버전 줄 md 표면 제거(footer page-foot version 유지).
   assert.doesNotMatch(r.md, /버전:/);
   assert.match(r.md, /진행 중 \(1\): a/);
-  assert.match(r.md, /다음: `\/mccp:resume`/);
+  // M7 ④ — frontier-derived implement command, not hollow resume.
+  assert.match(r.md, /다음: `\/mccp:prp-implement a\.plan\.md`/);
 });
 
 test('dashboard — render is design-lint clean (H10/H16 — new widget prose safe)', () => {

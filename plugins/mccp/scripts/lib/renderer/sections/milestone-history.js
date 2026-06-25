@@ -147,6 +147,11 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
     const prdDir = path.dirname(resolved.path);
     const completeRows = parseDeliveryMilestonesComplete(resolved.body);
     for (const lr of parseDeliveryMilestonesLifecycle(resolved.body)) {
+      // Dashboard Truthfulness M8 (② lifecycle 스코핑) — 'pending'(예정)은 아직
+      // 시작도 안 한 speculative 마일스톤이라 대시보드 truthfulness를 흐린다.
+      // 명시적 결정인 'dropped'(폐기)만 surface하고 예정은 제외한다(사용자 결정
+      // 2026-06-25: "미진행 중 예정인 것들은 전부 폐기").
+      if (lr.status !== 'dropped') continue;
       const key = lr.status + '|' + (lr.planBasename || lr.name);
       if (seenLifecycle.has(key)) continue;
       seenLifecycle.add(key);

@@ -68,7 +68,11 @@ function nodeStatus(receipt) {
 }
 
 // Build one decision's stage nodes + a decision-level state.
-function buildDecisionState(decisionId, receipts) {
+// opts(optional) = { ledgerItems, currentPlanHash } — when supplied, a durable
+// completion-ledger entry can promote a converged-frontier decision to done
+// (Dashboard Truthfulness M7 Task 1). Omitted → legacy receipt-only behavior.
+function buildDecisionState(decisionId, receipts, opts) {
+  opts = opts || {};
   const byGate = new Map();
   for (const r of receipts) {
     const g = gateOf(r);
@@ -109,19 +113,41 @@ function buildDecisionState(decisionId, receipts) {
   const blockedNode = nodes.find(
     (n) => n.status === 'blocked' && n.time >= latestConvergedTime);
 
-  let state;
-  let activeStage = null;
-  if (blockedNode) {
-    state = 'blocked';
-    activeStage = blockedNode.short;
-  } else {
+  function deriveStateFromNodes() {
+    if (blockedNode) return { state: 'blocked', activeStage: blockedNode.short };
     const frontier = nodes.find((n) => n.status !== 'done');
-    if (!frontier) {
-      state = 'done';
-    } else {
-      state = 'active';
-      activeStage = frontier.short;
-    }
+    if (!frontier) return { state: 'done', activeStage: null };
+    return { state: 'active', activeStage: frontier.short };
+  }
+
+  let { state, activeStage } = deriveStateFromNodes();
+
+  // Dashboard Truthfulness M7 Task 1 (Codex Plan-R1 F2 absorption) — ledger-aware
+  // converged-frontier promotion, freshness-guarded. A durable completion-ledger
+  // entry can prove this decision shipped (e.g. a bundled PR where the live
+  // pr-codex receipt landed under the bundle's primary decision, leaving the
+  // other slugs converged-but-not-closed). When the ledger fresh-matches, promote
+  // the converged-frontier node + a trailing missing terminal pr node to done,
+  // then re-derive state. Over-claim is fenced by ledgerCloseFresh: STRICT
+  // decision_id AND plan_basename match AND plan_file_hash === currentPlanHash.
+  // A null currentPlanHash (plan archived/edited/unreadable) keeps the frontier —
+  // under-claim is the safe default for this pipeline surface. Only blocked-free
+  // active decisions promote; a genuinely blocked (round>=2 divergent) gate is
+  // never silently closed by a stale ledger.
+  if (state === 'active' && ledgerCloseFresh({
+    decisionId,
+    planBasename: decisionId + '.plan.md',
+    currentPlanHash: opts.currentPlanHash || null,
+    receipts,
+    ledgerItems: opts.ledgerItems,
+  })) {
+    nodes.forEach((n) => {
+      if (n.status === 'converged-frontier'
+        || (n.status === 'missing' && TERMINAL_GATE_SET.has(n.gate))) {
+        n.status = 'done';
+      }
+    });
+    ({ state, activeStage } = deriveStateFromNodes());
   }
 
   const lastTime = receipts.reduce((mx, r) => Math.max(mx, timeOf(r)), 0);
@@ -130,7 +156,15 @@ function buildDecisionState(decisionId, receipts) {
 
 // Group a flat receipt list by decision_id → Map<decisionId, decisionState>.
 // Only receipts that map to a canonical gate stage participate.
-function deriveDecisionState(receipts) {
+// opts(optional) = { ledgerItems, planHashes } — ledgerItems is the flat
+// completion-ledger entry list (m.sources.ledger.items); planHashes is a
+// Map<decisionId, currentPlanHash> the caller computes from in-progress plans
+// (Dashboard Truthfulness M7). Both omitted → legacy receipt-only behavior, so
+// existing callers (audit-timeline, etc.) keep working unchanged.
+function deriveDecisionState(receipts, opts) {
+  opts = opts || {};
+  const ledgerItems = Array.isArray(opts.ledgerItems) ? opts.ledgerItems : [];
+  const planHashes = opts.planHashes instanceof Map ? opts.planHashes : new Map();
   const items = (Array.isArray(receipts) ? receipts : [])
     .filter((r) => r && r.ok !== false && r.decision_id
       && STAGES.some((s) => s.gate === gateOf(r)));
@@ -141,7 +175,10 @@ function deriveDecisionState(receipts) {
   }
   const out = new Map();
   for (const [id, rs] of byDecision.entries()) {
-    out.set(id, buildDecisionState(id, rs));
+    out.set(id, buildDecisionState(id, rs, {
+      ledgerItems,
+      currentPlanHash: planHashes.get(id) || null,
+    }));
   }
   return out;
 }
@@ -206,6 +243,37 @@ function isMilestoneClosed(opts) {
   return { closed: false };
 }
 
+// Dashboard Truthfulness M7 Task 1 (Codex Plan-R1 F2 absorption) — STRICT
+// freshness-guarded ledger close, used by buildDecisionState to promote a
+// converged-frontier decision to done ONLY when the ledger PROVABLY refers to
+// the current plan. Stricter than isMilestoneClosed's ledger path (which matches
+// decision_id OR plan_basename and skips the hash) to fence the over-claim cases
+// Codex flagged: a same-slug edited/reopened plan, or a partial bundled ledger.
+// Requirements (all): isMilestoneClosed via==='ledger' (reuses generic/legacy
+// guards) AND a non-null currentPlanHash AND a converged ledger entry matching
+// BOTH decision_id AND plan_basename whose plan_file_hash === currentPlanHash.
+function ledgerCloseFresh(opts) {
+  opts = opts || {};
+  const decisionId = opts.decisionId;
+  const planBasename = opts.planBasename;
+  const currentPlanHash = opts.currentPlanHash || null;
+  const receipts = Array.isArray(opts.receipts) ? opts.receipts : [];
+  const ledgerItems = Array.isArray(opts.ledgerItems) ? opts.ledgerItems : [];
+  if (!currentPlanHash) return false; // cannot verify freshness → under-claim
+  const closed = isMilestoneClosed({
+    decisionId, planBasename, currentPlanHash, receipts, ledgerItems,
+  });
+  if (!closed.closed || closed.via !== 'ledger') return false;
+  for (const e of ledgerItems) {
+    if (!e) continue;
+    if (e.decision_id !== decisionId) continue;            // BOTH must match
+    if (e.plan_basename !== planBasename) continue;         // (stricter than OR)
+    if (e.verdict && e.verdict !== 'converged') continue;
+    if (e.plan_file_hash && e.plan_file_hash === currentPlanHash) return true;
+  }
+  return false;
+}
+
 module.exports = {
   deriveDecisionState,
   buildDecisionState,
@@ -213,6 +281,7 @@ module.exports = {
   latest,
   gateOf,
   isMilestoneClosed,
+  ledgerCloseFresh,
   STAGES,
   TERMINAL_GATES,
 };

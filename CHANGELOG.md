@@ -2,7 +2,27 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.9`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.11`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.18.11] — 2026-06-25
+
+dashboard-truthfulness M7 — 다음-행동 진실성 + 잘림 제거. 대시보드의 핵심 기능(다음 진행사항 추천)이 hollow `/mccp:resume`(handoff 없으면 noop인 복구 메타-명령)를 echo하고 Hero 설명이 문장 중간에서 `…` 잘리던 결함을, 다음-행동을 in-progress 마일스톤의 실제 게이트 frontier에서 derive하고 잘림을 제거해 닫는다. 콘솔 셸 계약(oklch 토큰·드로어·비-색 마커·카드 비중첩) 불변 — 신규 시각 시스템·색 토큰 0. **④ 다음-행동 frontier-primary(Codex R1 F1)**: `next-action.js` `resolveNextAction` 재정렬 — in-progress plan의 decision-state frontier(첫 non-done 노드: impl→`/mccp:prp-implement <planPath>`, pr→`/mccp:pr`)를 STATE.md echo보다 **먼저** 평가. STATE.md substantive 명령은 freshness-gated fallback(plan-path 인자가 현재 in-progress와 일치할 때만) — 다른 cycle을 가리키는 stale 명령이 frontier를 가리지 못한다. `HOLLOW_COMMANDS`(resume/trace/receipt-*) 필터. **genuine handoff only(Codex R1 F3)**: `/mccp:resume`는 STATE.md `last_event==='handoff_spawn'`(resume dispatcher가 honor하는 신호)일 때만 추천 — `resume_state==='in-flight'` 단독은 비추천. **① ledger-aware decision-state(Codex R1 F2)**: `decision-state.js` `buildDecisionState`에 freshness-guarded ledger 승격(`ledgerCloseFresh`) — 완료-ledger가 decision_id+plan_basename+plan_file_hash로 PROVABLY 매칭될 때만 converged-frontier→done 승격(bundled-PR 마일스톤 정직 ✓표기). same-slug 편집·partial ledger over-claim 차단(heavy coverage는 backlog defer). **⑤ 잘림 제거**: `intent-extractor.js` 첫 완결 문장(mid-word `…` 없이 종결부호까지, run-on만 단어 경계 soft-cut) → Hero subtext가 220자 hard-cut 대신 완결 문장. `html.js` `.verdict-sub` line-clamp 4→6(generous safety net) + `.hw-list li` nowrap/ellipsis → 2줄 wrap(긴 마일스톤명 전체 노출). 사용자 "그만 잘라"(완전성 > 시각 밀도, 2026-06-25). Codex Plan-Codex R1(2 HIGH+1 MEDIUM — frontier-primary 재정렬·ledger freshness-guard·handoff predicate 정렬로 흡수) + Implement-Codex cross-gate dedupe. design-critique CONVERGED. renderer 499(decision-state 11 + next-action 재작성 16 신규) + derive 87 PASS, 0 회귀. plugin.json `1.18.10 → 1.18.11` + 양 footer. PRD M6 row → complete, M7 row(in-progress) 추가.
+
+### Changed
+
+- **`scripts/lib/renderer/parsers/next-action.js`** — frontier-primary 재정렬 + `HOLLOW_COMMANDS` 필터 + `frontierCommand`/`stateCommandFresh` + handoff_spawn-only resume. source enum: `resume-state`/`gate-frontier`/`in-progress-plan`/`state-fresh`/`in-progress-plan-stale`/`prose`/`idle`.
+- **`scripts/lib/renderer/parsers/decision-state.js`** — `buildDecisionState`/`deriveDecisionState`에 ledgerItems/planHashes opts + `ledgerCloseFresh`(strict decision+basename+hash) freshness-guarded 승격.
+- **`scripts/lib/renderer/parsers/plan-hashes.js`** (신규) — `planHashesFromModel` Map<decisionId, currentPlanHash> (plan-body.js mirror, fail-open).
+- **`scripts/lib/renderer/parsers/intent-extractor.js`** — `firstSentence`/`shapeIntent` + `complete` 모드(첫 완결 문장, mid-word `…` 없음).
+- **`scripts/lib/renderer/verdict.js`** — Hero subtext intent `{ maxLen: 220 }` → `{ complete: true }`.
+- **`scripts/lib/renderer/sections/{pipeline,status-grid}.js`** — `deriveDecisionState`에 ledger/planHashes 전달 + status-grid에 `decisionState`/`hasHandoffSignal` ctx 주입 + nextStep cell handoff_spawn 정렬.
+- **`scripts/lib/renderer/html.js`** — `.verdict-sub` line-clamp 6 + `.hw-list li` 2줄 wrap + footer v1.18.11.
+- **`scripts/lib/renderer/markdown.js`** — footer v1.18.11.
+- **`.claude/prds/dashboard-truthfulness.prd.md`** — M6 row → complete, M7 row(in-progress) 추가.
+
+## [1.18.10] — 2026-06-25
+
+dashboard-truthfulness M6 — Vercel 카드 재구성 + Hero/파이프라인 진실성(branch 커밋 `97eb796`의 CHANGELOG backfill). 위젯 4종(진행중/차단/이월/위험)을 hero-panel 밖 Vercel식 2컬럼 개별 카드 + 아래-화살표 확장으로 분해(비중첩 H17). Hero h1을 마일스톤명 + 요약 subtext로(verbose Summary 잘림 1차 해소) + next-action "무엇을 하는지" 설명. impl 게이트 수렴≠완료 진실성 — `converged-frontier` 신규 상태(receipt-only supersession): downstream 게이트 receipt 존재 또는 terminal pr-codex converged일 때만 done-green, 그 외 최신 converged 비-terminal frontier는 "게이트 수렴·다음 대기". 라벨 정합(미해결 위험·게이트 파이프라인·미해결 질문·개요로 → 위험·파이프라인·질문·대시보드로) + 마일스톤 lifecycle 토글을 위험·질문과 동일 buildTabs로 통일. 콘솔 셸·route 식별자 불변. plugin.json `1.18.9 → 1.18.10` + 양 footer.
 
 ## [1.18.9] — 2026-06-25
 

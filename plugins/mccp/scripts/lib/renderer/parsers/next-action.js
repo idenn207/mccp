@@ -68,77 +68,183 @@ const CMD_PURPOSE = {
   '/mccp:work': 'PRD→plan→PR 자동 체인',
   '/mccp:code-review': '변경 코드 multi-perspective review',
 };
+// Dashboard Truthfulness M8 — "무엇을 하는지"는 *명령의 용도*(concise)를 우선한다.
+// M6 Task 4가 Hero subtext(plan intent)를 도입한 뒤로 desc 의 planIntent 는
+// subtext 와 똑같은 문장을 capped/truncated 로 한 번 더 보여 잘림 노이즈가 됐다.
+// 알려진 명령은 CMD_PURPOSE(짧고 안 잘림)를 desc 로, planIntent 는 미지의 명령
+// fallback 으로만 둔다(subtext 가 이미 plan intent 를 full 로 노출).
 function describeAction(command, source, ctx) {
-  if (source === 'in-progress-plan' && ctx && ctx.planIntent) return ctx.planIntent;
   if (command && CMD_PURPOSE[command]) return CMD_PURPOSE[command];
-  if (source === 'in-progress-plan') return '진행 중 plan 구현 계속';
+  if ((source === 'in-progress-plan' || source === 'gate-frontier')
+    && ctx && ctx.planIntent) return ctx.planIntent;
+  if (source === 'in-progress-plan' || source === 'gate-frontier') return '진행 중 plan 구현 계속';
   return null;
 }
 
+// Dashboard Truthfulness M7 Task 3 (Codex Plan-R1 F1) — HOLLOW_COMMANDS are
+// recovery/lookup meta-commands. STATE.md may carry one (a stale `Next Step`
+// often holds `/mccp:resume`), but echoing it as the next action is hollow:
+// resume is a noop without a genuine handoff signal, and trace/receipt-* only
+// inspect. They are filtered from the STATE.md echo path; a real handoff is
+// surfaced only via the dedicated handoff_spawn branch (F3).
+const HOLLOW_COMMANDS = new Set([
+  'mccp:resume', 'mccp:trace',
+  'mccp:receipt-status', 'mccp:receipt-validate', 'mccp:receipt-write',
+]);
+
+// 게이트 순서 — converged-frontier(이 게이트 수렴·다음 대기) 노드의 next action 은
+// 그 게이트가 아니라 다음 게이트다(impl 수렴 → 다음=PR, plan 수렴 → 다음=implement).
+const STAGE_ORDER = ['plan', 'impl', 'pr'];
+
+// frontier short → 실행 명령. 'pr'/'impl' 은 단일 명령으로 매핑되지만 'plan' frontier
+// (plan 게이트 진행 중)는 깔끔한 단일 명령이 없어 prose 로 처리(null 반환).
+function frontierCommand(short, planPath) {
+  if (short === 'impl') {
+    return { command: '/mccp:prp-implement', args: planPath, copyText: '/mccp:prp-implement ' + planPath };
+  }
+  if (short === 'pr') {
+    return { command: '/mccp:pr', args: '', copyText: '/mccp:pr' };
+  }
+  return null;
+}
+
+// STATE.md substantive command freshness (Codex Plan-R1 F1). The demonstrated
+// staleness failure is a command whose plan-path arg points at ANOTHER cycle's
+// plan (this very worktree's STATE.md references the pipeline-chart cycle). So a
+// command carrying a `.md` plan-path arg is fresh only when that basename is a
+// CURRENT in-progress plan. Arg-less / non-plan-arg commands (create/action like
+// /mccp:plan-prd, /mccp:work, /mccp:pr) are not bound to a stale plan artifact,
+// and the frontier-primary reorder already protects the live in-progress case,
+// so they pass through here (this step is only reached when no in-progress
+// frontier exists).
+function stateCommandFresh(extracted, plans, planStatuses) {
+  const argFirst = (extracted.args || '').split(/\s+/)[0] || '';
+  if (/\.md$/i.test(argFirst)) {
+    const inProgressBasenames = new Set(
+      plans.filter((p) => p && p.path
+        && planStatuses.get(path.basename(p.path)) === 'in-progress')
+        .map((p) => path.basename(p.path)));
+    return inProgressBasenames.has(path.basename(argFirst));
+  }
+  return true;
+}
+
 // resolveNextAction(stateItem, ctx) → { command, args, prose, copyText, source, executable, stale, description }
-//   ctx = { plans, planStatuses, planStaleness, planIntent }
+//   ctx = { plans, planStatuses, planStaleness, planIntent, decisionState, hasHandoffSignal }
 //   - command : '/mccp:…' display token (null when prose-only)
 //   - copyText: executable command line (null when not executable)
 //   - executable: true only when a runnable command line exists (F1)
-//   - source : 'state-command' | 'resume-state' | 'in-progress-plan'
-//            | 'in-progress-plan-stale' | 'prose' | 'idle'
+//   - source : 'resume-state' | 'gate-frontier' | 'in-progress-plan'
+//            | 'state-fresh' | 'in-progress-plan-stale' | 'prose' | 'idle'
 //   - description: 짧은 "무엇을 하는지"(M6 Task 5, null when none)
+//
+// Priority (M7 Task 3, frontier-primary — Codex F1+F3): genuine handoff →
+// live in-progress plan's gate frontier → freshness-gated STATE.md command →
+// stale-plan note → prose/idle. The frontier outranks any STATE.md echo, so a
+// stale-but-substantive STATE.md command can never mask the current next action.
 function resolveNextAction(stateItem, ctx) {
   ctx = ctx || {};
   const plans = Array.isArray(ctx.plans) ? ctx.plans : [];
   const planStatuses = ctx.planStatuses instanceof Map ? ctx.planStatuses : new Map();
   const planStaleness = ctx.planStaleness instanceof Map ? ctx.planStaleness : new Map();
+  const decisionState = ctx.decisionState instanceof Map ? ctx.decisionState : new Map();
+  const hasHandoffSignal = !!ctx.hasHandoffSignal;
 
   const item = stateItem || {};
   const body = item.body || {};
   const blob = typeof body.nextStep === 'string' ? body.nextStep : '';
   const prose = firstLineProse(blob);
 
-  // 1. Direct full-command extraction from the blob.
-  const extracted = extractCommand(blob);
-  if (extracted) {
-    const needsArg = REQUIRES_ARG.has(extracted.command);
-    if (!needsArg || extracted.args) {
-      const copyText = '/' + extracted.command + (extracted.args ? ' ' + extracted.args : '');
-      return {
-        command: '/' + extracted.command,
-        args: extracted.args || '',
-        prose, copyText, source: 'state-command', executable: true, stale: false,
-        description: describeAction('/' + extracted.command, 'state-command', ctx),
-      };
-    }
-    // requires-arg but none → fall through to inference (may supply a path).
-  }
-
-  // 2. Inference fallback.
-  if (item.resume_state === 'in-flight') {
+  // 1. Genuine handoff only (Codex F3) — STATE.md last_event === 'handoff_spawn',
+  //    the same signal the resume dispatcher honors. resume_state==='in-flight'
+  //    or resume_dispatching alone is NOT an actionable resume.
+  if (hasHandoffSignal) {
     return {
       command: '/mccp:resume', args: '', prose, copyText: '/mccp:resume',
       source: 'resume-state', executable: true, stale: false,
       description: describeAction('/mccp:resume', 'resume-state', ctx),
     };
   }
-  const firstInProgress = plans.find((p) => p && p.path
+
+  // 2. Gate-frontier derive (PRIMARY, Codex F1) — the live in-progress plan's
+  //    decision-state frontier is the truthful next action, evaluated BEFORE any
+  //    STATE.md echo.
+  const inProgress = plans.filter((p) => p && p.path
     && planStatuses.get(path.basename(p.path)) === 'in-progress');
-  if (firstInProgress) {
-    const base = path.basename(firstInProgress.path);
-    if (planStaleness.get(base) === 'stale') {
+  for (const plan of inProgress) {
+    const base = path.basename(plan.path);
+    if (planStaleness.get(base) === 'stale') continue; // stale handled at step 4
+    const decisionId = base.replace(/\.plan\.md$/, '').replace(/\.md$/, '');
+    const d = decisionState.get(decisionId);
+    if (d) {
+      if (d.state === 'done') continue; // ledger-promoted/shipped → not next work
+      if (d.state === 'blocked') {
+        return {
+          command: null, args: '', prose: prose || 'Codex 미수렴 · 개입 필요',
+          copyText: null, source: 'gate-frontier', executable: false, stale: false,
+          description: 'Codex 검토 미수렴 — 사람 개입 필요',
+        };
+      }
+      // converged-frontier(이 게이트 수렴, 다음 게이트 대기) → next action 은 다음
+      // 게이트다. impl 수렴이면 re-implement 가 아니라 PR 이 truthful next.
+      const frontierNode = (d.nodes || []).find((n) => n.short === d.activeStage);
+      let targetShort = d.activeStage;
+      if (frontierNode && frontierNode.status === 'converged-frontier') {
+        const idx = STAGE_ORDER.indexOf(d.activeStage);
+        if (idx >= 0 && idx < STAGE_ORDER.length - 1) targetShort = STAGE_ORDER[idx + 1];
+      }
+      const fc = frontierCommand(targetShort, plan.path);
+      if (fc) {
+        return {
+          command: fc.command, args: fc.args, prose, copyText: fc.copyText,
+          source: 'gate-frontier', executable: true, stale: false,
+          description: describeAction(fc.command, 'gate-frontier', ctx),
+        };
+      }
+      // 'plan' frontier — plan 게이트 진행 중, 단일 실행 명령 없음 → prose.
       return {
-        command: null, args: '', prose: prose || '미정 (stale)', copyText: null,
-        source: 'in-progress-plan-stale', executable: false, stale: true, description: null,
+        command: null, args: '', prose: prose || 'plan 게이트 진행 중',
+        copyText: null, source: 'gate-frontier', executable: false, stale: false,
+        description: ctx.planIntent || 'plan 게이트 수렴 진행 중',
       };
     }
-    // F1 — bare 명령 금지: in-progress plan 의 resolved 경로를 인자로 포함.
-    const planArg = firstInProgress.path;
+    // No decision-state for this plan (no receipts yet) → implement it.
     return {
-      command: '/mccp:prp-implement', args: planArg, prose,
-      copyText: '/mccp:prp-implement ' + planArg,
+      command: '/mccp:prp-implement', args: plan.path, prose,
+      copyText: '/mccp:prp-implement ' + plan.path,
       source: 'in-progress-plan', executable: true, stale: false,
       description: describeAction('/mccp:prp-implement', 'in-progress-plan', ctx),
     };
   }
 
-  // 3. prose-only or idle.
+  // 3. STATE.md substantive command — freshness-gated fallback (Codex F1). Only
+  //    reached when no actionable in-progress frontier exists. Hollow commands
+  //    are dropped; a substantive command must be fresh or it is ignored.
+  const extracted = extractCommand(blob);
+  if (extracted && !HOLLOW_COMMANDS.has(extracted.command)) {
+    const needsArg = REQUIRES_ARG.has(extracted.command);
+    if ((!needsArg || extracted.args)
+      && stateCommandFresh(extracted, plans, planStatuses)) {
+      const copyText = '/' + extracted.command + (extracted.args ? ' ' + extracted.args : '');
+      return {
+        command: '/' + extracted.command, args: extracted.args || '',
+        prose, copyText, source: 'state-fresh', executable: true, stale: false,
+        description: describeAction('/' + extracted.command, 'state-fresh', ctx),
+      };
+    }
+  }
+
+  // 4. Stale in-progress plan (no fresh frontier, no fresh STATE.md command).
+  const staleInProgress = inProgress.find(
+    (p) => planStaleness.get(path.basename(p.path)) === 'stale');
+  if (staleInProgress) {
+    return {
+      command: null, args: '', prose: prose || '미정 (stale)', copyText: null,
+      source: 'in-progress-plan-stale', executable: false, stale: true, description: null,
+    };
+  }
+
+  // 5. prose-only or idle.
   if (prose) {
     return {
       command: null, args: '', prose, copyText: null,
@@ -151,4 +257,4 @@ function resolveNextAction(stateItem, ctx) {
   };
 }
 
-module.exports = { resolveNextAction, REQUIRES_ARG, cleanArg };
+module.exports = { resolveNextAction, REQUIRES_ARG, cleanArg, HOLLOW_COMMANDS };

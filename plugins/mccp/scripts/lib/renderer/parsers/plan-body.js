@@ -184,6 +184,17 @@ function parseOpenQuestions(planBody) {
   return out;
 }
 
+// Dashboard Truthfulness M8 (③ 글자-ID strip) — v0-4-0-orchestrator 식 axis
+// 글자-ID prefix("H — plan-implement verify", "A , metric pivot", "**I — foo")를
+// 제거한다. 단일 대문자 + dash/comma 구분자 + 공백만 매칭하므로 "M3 — foo"(글자+
+// 숫자)·"Done one"(구분자 없음)·"v0.3.4 ship"(소문자/숫자 시작)은 미스킵. bold
+// 래퍼(`**`)는 보존해 이름만 정리한다.
+function stripAxisIdPrefix(name) {
+  return String(name == null ? '' : name)
+    .replace(/^(\*\*|__)?\s*[A-Z]\s*[—–\-,]\s+/, '$1')
+    .trim();
+}
+
 function parseDeliveryMilestonesComplete(prdBody) {
   const out = [];
   const section = findSection(prdBody, '## Delivery Milestones');
@@ -193,7 +204,7 @@ function parseDeliveryMilestonesComplete(prdBody) {
     if (cells.length < 5) continue;
     const status = cells[3].toLowerCase();
     if (status !== 'complete') continue;
-    const name = (cells[1] || '').trim();
+    const name = stripAxisIdPrefix((cells[1] || '').trim());
     const planCell = cells[4] || '';
     const planPath = extractPlanPath(planCell);
     const basename = planPath ? planPath.split(/[\\/]/).pop() : null;
@@ -250,7 +261,7 @@ function parseDeliveryMilestonesLifecycle(prdBody) {
     if (cells.length < 5) continue;
     const status = (cells[3] || '').toLowerCase();
     if (status !== 'pending' && status !== 'dropped') continue;
-    const name = (cells[1] || '').trim();
+    const name = stripAxisIdPrefix((cells[1] || '').trim());
     if (!name) continue;
     const outcome = (cells[2] || '').trim();
     const planCell = cells[4] || '';
@@ -472,4 +483,5 @@ module.exports = {
   resolvePrdRef,
   extractPlanPath,
   stripPathWrappers,
+  stripAxisIdPrefix,
 };

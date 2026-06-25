@@ -320,7 +320,7 @@ test('M3 — milestone lifecycle 토글 html↔md 동등', () => {
     '## Delivery Milestones', '',
     '| # | Milestone | Outcome | Status | Plan |', '| --- | --- | --- | --- | --- |',
     '| 1 | Done | o | complete | [d.plan.md](../plans/d.plan.md) |',
-    '| 2 | Future | o | pending | — |', '',
+    '| 2 | Future | o | dropped | — |', '',
   ].join('\n');
   const model = {
     repo_root: cwd,

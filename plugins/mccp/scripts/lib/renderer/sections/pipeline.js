@@ -8,6 +8,7 @@
 // in-progress. 색 단독 금지 — 노드는 색 + 아이콘/점 + sr-only label 병행(a11y).
 
 const { deriveDecisionState, STAGES } = require('../parsers/decision-state');
+const { planHashesFromModel } = require('../parsers/plan-hashes');
 
 const TOP_EXPANDED = 3;
 
@@ -53,10 +54,16 @@ function statusOf(d) {
 const STATE_RANK = { blocked: 0, active: 1, done: 2 };
 
 function renderPipeline(model, formatUtils, planBody, opts) {
+  opts = opts || {};
   const { escapeHtml, escapeAttr } = formatUtils;
   const m = model || {};
   const receipts = (m.sources && m.sources.receipts && m.sources.receipts.items) || [];
-  const stateMap = deriveDecisionState(receipts);
+  // M7 Task 2 — ledger-aware decision-state: a durable completion-ledger entry
+  // (fresh-matched by plan_file_hash) promotes a converged-frontier decision to
+  // done so the pipeline ✓-marks bundled-PR milestones honestly (Codex F2).
+  const ledgerItems = (m.sources && m.sources.ledger && m.sources.ledger.items) || [];
+  const planHashes = planHashesFromModel(m, { cwd: opts.cwd });
+  const stateMap = deriveDecisionState(receipts, { ledgerItems, planHashes });
 
   if (stateMap.size === 0) {
     return {

@@ -772,7 +772,7 @@ test('M3 — 해결됨/미진행 토글 markup 은 em-dash(H10)·h4+(H15)·raw m
   assert.equal(/mccp:resolved/.test(html), false, '해결 마커 rendered surface 누출 0');
 });
 
-test('M3 — lifecycle 마커(◌/⊘)는 비-색 텍스트, 신규 강조색/카드 미도입(H3/H17 무영향)', () => {
+test('M8 — lifecycle 마커(⊘ 폐기)는 비-색 텍스트, 신규 강조색/카드 미도입(H3/H17 무영향)', () => {
   const formatUtils = require('../format-utils');
   const path = require('node:path');
   const { renderMilestoneHistory } = require('../sections/milestone-history');
@@ -791,8 +791,9 @@ test('M3 — lifecycle 마커(◌/⊘)는 비-색 텍스트, 신규 강조색/�
   for (const id of ['H10', 'H15', 'H16', 'H17']) {
     assert.ok(!r.violations.includes(id), id + ' 위반');
   }
-  assert.match(out.html, /◌/);
+  // M8 — 예정(pending ◌)은 스코핑으로 제외, 폐기(dropped ⊘)만 비-색 텍스트로 노출.
   assert.match(out.html, /⊘/);
+  assert.doesNotMatch(out.html, /◌/);
 });
 
 // v1.18.7 M4 (Task 6f) — 타임라인 더보기 + 위험/질문 복사 affordance(li-action)·

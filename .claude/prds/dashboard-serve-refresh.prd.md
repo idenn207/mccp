@@ -39,7 +39,7 @@ We'll know we're right when **단일 `/mccp:dashboard` 호출로 최신 상태�
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | dashboard serve + refresh commands | `/mccp:dashboard`로 최신 대시보드가 localhost에 뜨고 live-reload, `/mccp:dashboard-refresh`로 캐시 재생성 | in-progress | .claude/plans/dashboard-serve-refresh.plan.md |
+| 1 | dashboard serve + refresh commands | `/mccp:dashboard`로 최신 대시보드가 localhost에 뜨고 live-reload, `/mccp:dashboard-refresh`로 캐시 재생성 | complete | .claude/plans/dashboard-serve-refresh.plan.md |
 
 ## Design Direction
 > impeccable-detect가 `design_signal=true`를 반환했으나, 이는 PRD 본문의 `status.html`/`STATUS.md` 키워드 매칭에 따른 것이다. 본 작업은 *서빙·갱신 경로*만 추가하며 대시보드 렌더 산출물(`status.html`)의 시각/레이아웃/색/타이포그래피는 변경하지 않는다(v1.4.2에서 확정, 본 PRD Out-of-scope 명시). live-reload 스크립트 주입이 served HTML을 건드리는 유일한 접점이며, 이는 시각이 아닌 동작 surface다 — design critique는 downstream `/mccp:plan` 단계에서 receipt-backed로 재검출한다.

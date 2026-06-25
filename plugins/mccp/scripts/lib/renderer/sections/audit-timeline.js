@@ -22,6 +22,9 @@ function tokK(n) {
 // MAX_ROWS=30 absolute cap.
 const MAX_ROWS_LIVE = 20;
 const MAX_ROWS_ARCHIVED = MAX_ROWS - MAX_ROWS_LIVE;
+// v1.18.7 M4 — 타임라인 더보기: 상위 N행은 메인 <ol>, 나머지(cap 내)는 <details>
+// 접힘으로 접근 가능. risks/OQ 의 3보다 큼(활동 피드 특성, impeccable layout 결정).
+const TIMELINE_EXPANDED = 8;
 const SNAPSHOT_FILENAME_RE = /^(\d{4})-(\d{2})-(\d{2})\.json$/;
 
 function tail(s, n) {
@@ -73,7 +76,7 @@ function readSnapshotRows(snapshotsDir, now) {
 function renderAuditTimeline(model, formatUtils, now, opts) {
   if (typeof now !== 'number') now = Date.now();
   opts = opts || {};
-  const { escapeHtml, formatRelativeTime, normalizeProse } = formatUtils;
+  const { escapeHtml, escapeAttr, formatRelativeTime, normalizeProse } = formatUtils;
   const m = model || {};
   const items = ((m.sources && m.sources.receipts && m.sources.receipts.items) || []).slice();
 
@@ -126,16 +129,28 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
   const archivedShown = archivedInWindow.slice(0, MAX_ROWS_ARCHIVED);
   const archivedOlder = Math.max(0, archivedInWindow.length - archivedShown.length);
 
-  const mdLines = [];
-  const htmlLines = [];
+  // v1.18.7 M4 — 더보기 분할: 상위 TIMELINE_EXPANDED 는 expanded, 나머지는 collapsed,
+  // 각주(노드 없음)는 별도 note 배열(두 <ol> 뒤 <ul class="audit-notes">, Codex R1 F1).
+  const expandedHtml = [];
+  const expandedMd = [];
+  const collapsedHtml = [];
+  const collapsedMd = [];
+  const noteHtml = [];
+  const noteMd = [];
   // v1.18.1 M3 — 드로어 detail 누적(receipt 안정 키 = rowKey gate|decision|hash).
   const detailMap = new Map();
 
-  function renderRow(r, isArchived, isLast, ordinal) {
+  // htmlT/mdT 는 expanded|collapsed 타깃 배열 — 더보기 분할이 행을 두 컨테이너로 나눠도
+  // detailMap·isLast·ordinal 은 글로벌 시퀀스 기준(렌더 위치 무관).
+  function renderRow(r, isArchived, isLast, ordinal, htmlT, mdT) {
     const rel = formatRelativeTime(r.created_at, now);
     const gate = r.gate_id || r.gate || '(unknown-gate)';
     const decision = String(r.decision_id || '');
-    const decShort = tail(decision, 24);
+    // v1.18.7 M4 (진실성) — 전체 decision_id 보존. 이전 tail(…,24)는 공유 prefix
+    // (dashboard-truthfulness-)를 잘라 "lness-m4-…"처럼 단어 중간이 깨져 보였다.
+    // html 은 CSS ellipsis(prefix 유지, pipeline .pipe-id 동형) + title 로 전체 노출,
+    // md/드로어는 full id. (hashShort 는 여전히 tail 사용.)
+    const decShort = decision;
     const status = nodeStatus(r); // done | active | blocked | missing
     const round = Number.isFinite(r.round) ? r.round : null;
 
@@ -152,18 +167,18 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
       convText = '진행' + (round != null ? ' R' + round : ''); convExtra = ' pending'; convSvg = 'ic-clock';
     }
     const mdMark = isBad ? '⚠ divergent' : (r.converged === true ? '✓ ' + convText : '◐ ' + convText);
-    mdLines.push('- ' + rel + ' · `' + gate + '`/`' + decShort + '` · ' + mdMark);
+    mdT.push('- ' + rel + ' · `' + gate + '`/`' + decShort + '` · ' + mdMark);
 
     // briefing meta — 토큰/건너뜀. summary 는 md 에 prose(em-dash 정규화)로 보존.
     let briefMeta = '';
     if (typeof r.briefing_summary === 'string' && r.briefing_summary.length > 0) {
       const summary = normalizeProse(r.briefing_summary);
       const tok = tokK(r.briefing_token_count);
-      mdLines.push('  > ' + summary + (tok ? ' · `' + tok + ' tok`' : ''));
+      mdT.push('  > ' + summary + (tok ? ' · `' + tok + ' tok`' : ''));
       briefMeta = '<span class="brief"' + (summary ? ' title="' + escapeHtml(summary).replace(/"/g, '&quot;') + '"' : '') + '>'
         + 'briefing ' + (tok ? escapeHtml(tok) + ' tok' : '기록') + '</span>';
     } else if (r.briefing_invocation_count === 0) {
-      mdLines.push('  · _(briefing 건너뜀)_');
+      mdT.push('  · _(briefing 건너뜀)_');
       briefMeta = '<span class="brief">briefing 건너뜀</span>';
     }
 
@@ -197,7 +212,7 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
       omit: new Set(['시각', '결정', '판정', 'round', 'briefing']),
       omitSections: true,
     });
-    if (detailMd) mdLines.push(detailMd);
+    if (detailMd) mdT.push(detailMd);
 
     const railLine = isLast ? '' : '<span class="audit-line" aria-hidden="true"></span>';
     const rowClass = isArchived ? 'audit-row from-snapshot' : 'audit-row';
@@ -205,34 +220,48 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
       + '<div class="audit-rail"><span class="audit-node ' + (isBad ? 'is-bad' : 'is-ok') + '" aria-hidden="true"></span>'
       + railLine + '</div>'
       + '<div class="audit-body">'
-      + '<div class="audit-head"><span class="audit-gate">' + escapeHtml(gate) + '</span>'
-      + '<span class="audit-dec">/' + escapeHtml(decShort) + '</span>'
+      + '<div class="audit-head"><span class="audit-dec" title="' + escapeAttr(decision) + '">' + escapeHtml(decShort) + '</span>'
+      + '<span class="audit-gate">' + escapeHtml(gate) + '</span>'
       + '<span class="audit-when">' + escapeHtml(rel) + '</span></div>'
       + '<div class="audit-meta"><span class="conv' + convExtra + '">'
       + '<svg class="i i-sm" aria-hidden="true"><use href="#' + convSvg + '"/></svg>' + escapeHtml(convText)
       + '<span class="sr-only">' + (isBad ? ' 미수렴' : '') + '</span></span>'
       + briefMeta + '</div></div></li>';
-    htmlLines.push(htmlEntry);
+    htmlT.push(htmlEntry);
   }
 
   const auditRows = liveShown.map(r => ({ r, archived: false }))
     .concat(archivedShown.map(r => ({ r, archived: true })));
-  auditRows.forEach((e, i) => renderRow(e.r, e.archived, i === auditRows.length - 1, i));
+  // v1.18.7 M4 (Codex R1 F1) — isLast/ordinal 은 *전체 capped 시퀀스* 기준 글로벌
+  // 인덱스. 두 컨테이너로 쪼개도 connector 는 진짜 글로벌 마지막 행 1개만 생략하고,
+  // 마지막 expanded 행은 collapsed 가 남아 있으면 connector 유지(rail 시각 연속성).
+  // detailMap 은 expanded/collapsed 무관 모든 렌더 행에 적재(H18 trigger==detail).
+  const expandedRows = auditRows.slice(0, TIMELINE_EXPANDED);
+  const collapsedRows = auditRows.slice(TIMELINE_EXPANDED);
+  expandedRows.forEach((e, i) => {
+    renderRow(e.r, e.archived, i === auditRows.length - 1, i, expandedHtml, expandedMd);
+  });
+  collapsedRows.forEach((e, i) => {
+    const g = TIMELINE_EXPANDED + i;
+    renderRow(e.r, e.archived, g === auditRows.length - 1, g, collapsedHtml, collapsedMd);
+  });
 
+  // ── 각주(노드 없음) — 두 <ol> 모두 끝난 뒤 별도 <ul class="audit-notes"> 컨테이너로
+  // 모은다(단일 <ol> 안 <li> 면 collapsed 행보다 앞에 와 순서 깨짐 + invalid list, F1). ──
   // v1.3.0-m5 impeccable P3 absorption — single section-level footnote for
   // archived rows (NOT per-row). Surfaces only when at least one archived
   // row was actually rendered.
   if (archivedShown.length > 0) {
     const footnote = '⌛ 보관 스냅샷에서 복원 · ' + archivedShown.length + '건';
-    mdLines.push('- _' + footnote + '_');
-    htmlLines.push('<li class="audit-note muted from-snapshot-footnote"><em>'
+    noteMd.push('- _' + footnote + '_');
+    noteHtml.push('<li class="audit-note muted from-snapshot-footnote"><em>'
       + escapeHtml(footnote) + '</em></li>');
   }
 
   const totalOlder = liveOlder + archivedOlder;
   if (totalOlder > 0) {
-    mdLines.push('- _+' + totalOlder + ' older_');
-    htmlLines.push('<li class="audit-note muted"><em>+' + totalOlder + ' older</em></li>');
+    noteMd.push('- _+' + totalOlder + ' older_');
+    noteHtml.push('<li class="audit-note muted"><em>+' + totalOlder + ' older</em></li>');
   }
 
   // v1.3.0-m5 Codex F1 absorption — missing-day marker. When snapshot mode
@@ -246,8 +275,8 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
     const missingDays = totalWindowDays - coveredDates.size;
     if (missingDays >= 5) {
       const gapNote = '보관 누락 ' + missingDays + '일';
-      mdLines.push('- _' + gapNote + '_');
-      htmlLines.push('<li class="audit-note muted snapshot-gap"><em>'
+      noteMd.push('- _' + gapNote + '_');
+      noteHtml.push('<li class="audit-note muted snapshot-gap"><em>'
         + escapeHtml(gapNote) + '</em></li>');
     }
   }
@@ -268,8 +297,8 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
       const parts = Array.from(perKind.entries())
         .map(function (e) { return e[0] + ' ' + e[1] + '건'; });
       const summary = '이번 주 mask: ' + parts.join(' · ');
-      mdLines.push('- _' + summary + '_');
-      htmlLines.push('<li class="audit-note muted"><em>' + escapeHtml(summary) + '</em></li>');
+      noteMd.push('- _' + summary + '_');
+      noteHtml.push('<li class="audit-note muted"><em>' + escapeHtml(summary) + '</em></li>');
     }
   }
 
@@ -280,15 +309,37 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
     const prev = Number.isFinite(lrm.prev_age_seconds) ? lrm.prev_age_seconds : null;
     const ageText = prev !== null ? prev + '초' : '60초+';
     const footnote = '이전 캐시 ' + ageText + ' stale · 자동 갱신 안 됨';
-    mdLines.push('- _' + footnote + '_');
-    htmlLines.push('<li class="audit-note muted"><em>' + escapeHtml(footnote) + '</em></li>');
+    noteMd.push('- _' + footnote + '_');
+    noteHtml.push('<li class="audit-note muted"><em>' + escapeHtml(footnote) + '</em></li>');
+  }
+
+  // ── 조립: 단일 <ol>(전체 capped 행) → 각주 <ul class="audit-notes"> ──
+  // v1.18.0 M2 — 시간순 audit timeline. <ol>(시간 순서 의미). 각 행은 audit-row(rail
+  // 노드 + audit-line connector), footnote 는 audit-note(노드 없음).
+  // M5 Task 6 — 타임라인은 활동·기록 route(#route-activity)에서만 렌더되며 이 route 가
+  // 곧 '전체 보기' 페이지이므로 캡(MAX_ROWS) 내 모든 행을 단일 <ol>에 노출(full mode,
+  // 더보기 <details> 제거). isLast/connector 는 글로벌 시퀀스 기준이라 단일 <ol> 합치기
+  // 후에도 rail 연속성 유지(마지막 글로벌 행만 connector 생략). md 는 top-N+<details>
+  // 유지(plain-text 도달성). 각주는 <ol> 밖 <ul class="audit-notes">(valid list, F1).
+  let html = '<ol class="timeline">' + expandedHtml.concat(collapsedHtml).join('') + '</ol>';
+  if (noteHtml.length > 0) {
+    html += '<ul class="audit-notes">' + noteHtml.join('') + '</ul>';
+  }
+
+  // md — risks.js 더보기 패턴 미러(top-N 본문 + <details> 접힘). 각주는 접힘 뒤.
+  let md = expandedMd.join('\n');
+  if (collapsedRows.length > 0) {
+    md += '\n\n<details>\n<summary>+' + collapsedRows.length + ' 더보기</summary>\n\n'
+      + collapsedMd.join('\n')
+      + '\n\n</details>';
+  }
+  if (noteMd.length > 0) {
+    md += '\n' + noteMd.join('\n');
   }
 
   return {
-    md: mdLines.join('\n'),
-    // v1.18.0 M2 — 시간순 audit timeline. <ol>(시간 순서 의미). 각 행은
-    // audit-row(rail 노드 + audit-line connector), footnote 는 audit-note(노드 없음).
-    html: '<ol class="timeline">' + htmlLines.join('') + '</ol>',
+    md: md,
+    html: html,
     details: detailMap,
   };
 }
@@ -301,4 +352,5 @@ module.exports = {
   MAX_ROWS_LIVE,
   MAX_ROWS_ARCHIVED,
   MAX_ROWS,
+  TIMELINE_EXPANDED,
 };

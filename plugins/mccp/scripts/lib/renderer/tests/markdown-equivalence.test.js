@@ -162,6 +162,27 @@ test('timeline 섹션 md — receipt hash 인라인(헤더 중복 행은 omit)',
   assert.ok(!md.includes('  - 결정:'), '결정 omit(헤더 중복)');
 });
 
+// M5 Task 6 — 타임라인 full mode: html 은 단일 <ol>(더보기 제거), md 는 <details> 유지.
+// 접힘이던 행이 양쪽 모두에 surface(도달성, Codex F2 — 정보 손실 0).
+test('timeline full mode — html 전체 <ol>(더보기 제거) ↔ md <details> 보존 (M5 Task 6)', () => {
+  const now = Date.UTC(2026, 5, 18);
+  const items = [];
+  for (let i = 0; i < 12; i++) { // 8 expanded + 4 collapsed
+    items.push({
+      gate_id: 'mccp-pr-codex', decision_id: 'tl-' + i, converged: true, round: 1,
+      receipt_hash: 'sha256:h' + i, created_at: new Date(now - (i + 1) * 60_000).toISOString(),
+    });
+  }
+  const { html, md } = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
+  // M5 Task 6 — route(#route-activity) full mode: html 더보기 <details> 제거.
+  assert.ok(!html.includes('<details class="more">'), 'html 더보기 <details> 제거');
+  // md 는 top-N + <details> 유지(plain-text 도달성).
+  assert.ok(md.includes('<details>') && md.includes('+4 더보기'), 'md 더보기 유지');
+  // 접힘이던 행(11번째, decision_id='tl-11')이 html·md 양쪽에 surface → 정보 손실 0.
+  assert.ok(html.includes('tl-11'), '11번째 행 html 보존(도달성, Codex F2)');
+  assert.ok(md.includes('tl-11'), '11번째 행 md 보존');
+});
+
 test('milestone 섹션 md — 요약(plan Summary) plain-text 신규 노출', () => {
   const fakePrd = [
     '## Delivery Milestones', '',
@@ -299,7 +320,7 @@ test('M3 — milestone lifecycle 토글 html↔md 동등', () => {
     '## Delivery Milestones', '',
     '| # | Milestone | Outcome | Status | Plan |', '| --- | --- | --- | --- | --- |',
     '| 1 | Done | o | complete | [d.plan.md](../plans/d.plan.md) |',
-    '| 2 | Future | o | pending | — |', '',
+    '| 2 | Future | o | dropped | — |', '',
   ].join('\n');
   const model = {
     repo_root: cwd,
@@ -310,7 +331,8 @@ test('M3 — milestone lifecycle 토글 html↔md 동등', () => {
   };
   const fsRead = (p) => { if (p === prdAbs) return PRD; throw new Error('ENOENT'); };
   const { md, html } = renderMilestoneHistory(model, formatUtils, {}, { cwd, fsRead, gitCommitTime: () => null });
-  assert.match(html, /미진행 마일스톤 1건 · 표시/);
+  // M6 Task 3 — html 은 미진행 탭(label+count), md 는 plain-text <details> 토글(정보 동등).
+  assert.match(html, /미진행 <span class="tab-count">1<\/span>/);
   assert.match(md, /미진행 마일스톤 1건 · 표시/);
   assert.ok(html.includes('Future') && md.includes('Future'));
 });

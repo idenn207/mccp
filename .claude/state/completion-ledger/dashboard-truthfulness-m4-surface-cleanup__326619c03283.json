@@ -1,0 +1,28 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "dashboard-truthfulness-m4-surface-cleanup",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.18.10",
+    "completed_at": "2026-06-25T04:03:40.988Z",
+    "commit_sha": "97eb7967dcfc47227958fe3885c0b5fa9ba64444",
+    "plan_basename": "dashboard-truthfulness-m4-surface-cleanup.plan.md",
+    "plan_file_hash": "sha256:bbf89fcc593fd83e1b592b27386da7bf0b888bf1d71f276cc07db8f4d09671ec",
+    "risks_closed": [
+      "타임라인 `<ol>` 2분할이 rail connector(`audit-line`)·detailMap·각주 순서 깨뜨림",
+      "OQ `<code>` 제거가 STATUS.md/드로어에서 전체 명령 유실",
+      "복사 버튼 클릭이 드로어 open 유발(이중 동작)",
+      "`inline-prompt`→`li-action` class 교체가 기존 anatomy 테스트 대량 회귀",
+      "복사 버튼 추가가 강조색 경쟁(Constraint 2) / 항목 잡음(Constraint 4)",
+      "plugin.json minor(1.19.0) vs patch(1.18.7) 판단 — Codex R1 F2",
+      "Node 24 `node --test <dir>` MODULE_NOT_FOUND (기존 plan 검증 명령 stale)"
+    ],
+    "oq_closed": [
+      "타임라인 `TIMELINE_EXPANDED` 상위 N 값(8 default 제안) — 활동 피드 특성상 risks/OQ 의 3보다 큼이 자연스러움. impeccable layout 단계 결정.",
+      "OQ/위험 메인 복사 버튼 — icon-only(aria-label) vs `복사` 텍스트 라벨 동반. 메인 잡음 최소화(Constraint 4) 위해 icon-only default 제안(드로어 action 은 `복사` 라벨 유지).",
+      "plugin.json 1.19.0(PRD 종료 minor) vs 1.18.7(patch) — **결정: 1.18.7 patch**(Codex R1 F2 흡수). §3.7 conservative default + PRD 미완 상태 minor 조기발행 회피. PRD 완전 종료 시 minor 정리는 별도 hot-fix 후보."
+    ],
+    "receipt_hash": "sha256:326619c03283931e280fdfb964eb9dfbf6c822101f74729d16ce82849bb3ef50"
+  }
+}

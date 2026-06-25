@@ -3,6 +3,41 @@
 const fs = require('fs');
 const path = require('path');
 const { stripLineMarker, isResolved } = require('./resolution-marker');
+const { isMilestoneClosed } = require('./decision-state');
+// plan_hash freshness 계산용(M5 Codex Implement-F1). plan 경로는 structural hash
+// (status 토큰/체크박스 무관) → receipt.plan_hash 와 동일 정규화.
+const { planAwareMarkdownHash } = require('../../../receipt/hash');
+
+// M5 — in-progress 신선도 가드 임계(일). plan 의 마지막 receipt/ledger 활동이
+// 이 일수를 넘으면 stale 로 강등(진행중 카운트에서 제외). env override.
+function staleDaysThreshold() {
+  const raw = process.env.MCCP_DASHBOARD_STALE_DAYS;
+  const n = raw == null ? NaN : Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 14;
+}
+
+// plan(decision/basename)의 마지막 활동 시각(ms). receipt.created_at + ledger
+// .completed_at 중 최신. 활동 신호가 없으면 null(→ 신선도 판정 보류, fail-open).
+function lastActivityMs(decisionId, planBasename, receipts, ledgerItems) {
+  let t = 0;
+  for (const r of receipts || []) {
+    if (!r || r.ok === false || !r.created_at) continue;
+    if (decisionId && r.decision_id === decisionId) {
+      const ms = Date.parse(r.created_at);
+      if (Number.isFinite(ms)) t = Math.max(t, ms);
+    }
+  }
+  for (const e of ledgerItems || []) {
+    if (!e || !e.completed_at) continue;
+    const match = (decisionId && e.decision_id === decisionId)
+      || (planBasename && e.plan_basename === planBasename);
+    if (match) {
+      const ms = Date.parse(e.completed_at);
+      if (Number.isFinite(ms)) t = Math.max(t, ms);
+    }
+  }
+  return t || null;
+}
 
 // M3 — 'dropped' 추가(마일스톤 lifecycle). 기존 3 status 불변(additive).
 const VALID_STATUSES = new Set(['pending', 'in-progress', 'complete', 'dropped']);
@@ -91,15 +126,16 @@ function parseDeliveryMilestones(prdBody) {
   for (const cells of rows) {
     if (cells.length < 5) continue;
     const status = cells[3].toLowerCase();
-    const planCell = cells[4];
-    const linkMatch = planCell.match(/\(([^)]+)\)/);
-    if (!linkMatch) continue;
-    const linkPath = linkMatch[1].trim();
-    if (!linkPath || linkPath === '—' || linkPath === '-') continue;
-    const basename = linkPath.split(/[\\/]/).pop();
-    if (basename && VALID_STATUSES.has(status)) {
-      result.set(basename, status);
-    }
+    if (!VALID_STATUSES.has(status)) continue;
+    // M5 (Codex root-cause) — Plan 셀이 markdown-link `[..](..)` 든 backtick
+    // bare path(`` `.claude/plans/x.plan.md` ``)든 모두 추출. 기존 parens-only
+    // 정규식은 backtick bare-path PRD(dashboard-truthfulness 등)의 모든 행을
+    // skip해 그 마일스톤이 in-progress 집계에 아예 안 잡혔다. Complete/Lifecycle
+    // 파서가 쓰는 extractPlanPath 재사용으로 세 파서의 Plan-셀 추출을 일관화.
+    const planPath = extractPlanPath(cells[4]);
+    if (!planPath || planPath === '—' || planPath === '-') continue;
+    const basename = planPath.split(/[\\/]/).pop();
+    if (basename) result.set(basename, status);
   }
   return result;
 }
@@ -148,6 +184,17 @@ function parseOpenQuestions(planBody) {
   return out;
 }
 
+// Dashboard Truthfulness M8 (③ 글자-ID strip) — v0-4-0-orchestrator 식 axis
+// 글자-ID prefix("H — plan-implement verify", "A , metric pivot", "**I — foo")를
+// 제거한다. 단일 대문자 + dash/comma 구분자 + 공백만 매칭하므로 "M3 — foo"(글자+
+// 숫자)·"Done one"(구분자 없음)·"v0.3.4 ship"(소문자/숫자 시작)은 미스킵. bold
+// 래퍼(`**`)는 보존해 이름만 정리한다.
+function stripAxisIdPrefix(name) {
+  return String(name == null ? '' : name)
+    .replace(/^(\*\*|__)?\s*[A-Z]\s*[—–\-,]\s+/, '$1')
+    .trim();
+}
+
 function parseDeliveryMilestonesComplete(prdBody) {
   const out = [];
   const section = findSection(prdBody, '## Delivery Milestones');
@@ -157,7 +204,7 @@ function parseDeliveryMilestonesComplete(prdBody) {
     if (cells.length < 5) continue;
     const status = cells[3].toLowerCase();
     if (status !== 'complete') continue;
-    const name = (cells[1] || '').trim();
+    const name = stripAxisIdPrefix((cells[1] || '').trim());
     const planCell = cells[4] || '';
     const planPath = extractPlanPath(planCell);
     const basename = planPath ? planPath.split(/[\\/]/).pop() : null;
@@ -214,7 +261,7 @@ function parseDeliveryMilestonesLifecycle(prdBody) {
     if (cells.length < 5) continue;
     const status = (cells[3] || '').toLowerCase();
     if (status !== 'pending' && status !== 'dropped') continue;
-    const name = (cells[1] || '').trim();
+    const name = stripAxisIdPrefix((cells[1] || '').trim());
     if (!name) continue;
     const outcome = (cells[2] || '').trim();
     const planCell = cells[4] || '';
@@ -332,6 +379,36 @@ function parsePlanBody(model, opts) {
     }
   }
 
+  // M5 Task 1 — 완료 자동감지 override 레이어. PRD 표 status 가 in-progress 여도
+  // terminal receipt(plan_hash-fresh) 또는 completion-ledger 가 닫힌 마일스톤을
+  // complete 로 간주(Codex F1: plan_hash 상관, fail-closed). PRD 데이터가 stale
+  // 이어도 durable 완료 신호가 있으면 진행중에서 제외 — '진행중=실제'의 안전망.
+  const receiptItems = (m.sources && m.sources.receipts && m.sources.receipts.items) || [];
+  const ledgerItems = (m.sources && m.sources.ledger && m.sources.ledger.items) || [];
+  const planAbsByBasename = new Map();
+  for (const p of plans) {
+    if (!p || !p.path) continue;
+    planAbsByBasename.set(path.basename(p.path),
+      path.isAbsolute(p.path) ? p.path : path.resolve(cwd, p.path));
+  }
+  for (const [basename, status] of planStatuses) {
+    if (status !== 'in-progress') continue;
+    const decisionId = basename.replace(/\.plan\.md$/, '').replace(/\.md$/, '');
+    let currentPlanHash = null;
+    const planAbs = planAbsByBasename.get(basename);
+    if (planAbs) {
+      // plan 파일이 현재 worktree 에 있으면 structural hash 로 freshness 비교.
+      // 부재(archived/worktree-removed)면 null → ledger-only close 경로로 위임.
+      try { currentPlanHash = planAwareMarkdownHash(planAbs); } catch (_e) { currentPlanHash = null; }
+    }
+    let closed;
+    try {
+      closed = isMilestoneClosed({ decisionId, planBasename: basename, currentPlanHash,
+        receipts: receiptItems, ledgerItems });
+    } catch (_e) { closed = { closed: false }; }
+    if (closed && closed.closed) planStatuses.set(basename, 'complete');
+  }
+
   for (const p of plans) {
     if (!p || !p.path) continue;
     const planAbs = path.isAbsolute(p.path) ? p.path : path.resolve(cwd, p.path);
@@ -371,11 +448,22 @@ function parsePlanBody(model, opts) {
     }
   }
 
+  // M5 Task 1 — 신선도 가드. 활동(receipt/ledger) 신호가 있고 임계(기본 14일)를
+  // 넘으면 stale 로 강등(진행중 카운트 제외). 활동 신호가 없으면 기존 cycle-based
+  // 판정으로 fallback — receipt-less 신규 작업을 stale 로 숨기지 않음(fail-open).
+  const staleMs = staleDaysThreshold() * 24 * 60 * 60 * 1000;
+  const nowMs = (opts.now != null ? opts.now : Date.now());
   for (const p of plans) {
     if (!p || !p.path) continue;
     const basename = path.basename(p.path);
     if (planStatuses.get(basename) !== 'in-progress') continue;
-    planStaleness.set(basename, computePlanStaleness(p, model));
+    const decisionId = basename.replace(/\.plan\.md$/, '').replace(/\.md$/, '');
+    const last = lastActivityMs(decisionId, basename, receiptItems, ledgerItems);
+    if (last != null && (nowMs - last) > staleMs) {
+      planStaleness.set(basename, 'stale');
+    } else {
+      planStaleness.set(basename, computePlanStaleness(p, model));
+    }
   }
 
   return { planStatuses, planStaleness, openQuestions, risks, warnings, degraded };
@@ -395,4 +483,5 @@ module.exports = {
   resolvePrdRef,
   extractPlanPath,
   stripPathWrappers,
+  stripAxisIdPrefix,
 };

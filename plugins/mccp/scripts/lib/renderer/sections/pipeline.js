@@ -8,37 +8,62 @@
 // in-progress. 색 단독 금지 — 노드는 색 + 아이콘/점 + sr-only label 병행(a11y).
 
 const { deriveDecisionState, STAGES } = require('../parsers/decision-state');
+const { planHashesFromModel } = require('../parsers/plan-hashes');
 
 const TOP_EXPANDED = 3;
 
 // 노드 상태 → 마커(svg id 또는 dot) + sr-only label.
 const NODE_MARK = {
   done: { svg: 'ic-check', label: '수렴', cls: 'is-done' },
+  // M6 Task 6 — converged-frontier: 게이트는 수렴했으나 downstream 미시작(완료 입증
+  // 없음). done-green ✓ 가 아닌 neutral dot(◉) 마커로 시각 분화 — "완료" 오독 차단.
+  'converged-frontier': { dot: true, label: '수렴', cls: 'is-converged' },
   active: { dot: true, label: '진행 중', cls: 'is-active' },
   blocked: { svg: 'ic-alert', label: '차단', cls: 'is-block' },
   missing: { dot: true, label: '대기', cls: '' },
 };
-const NODE_MD = { done: '✓', active: '◐', blocked: '⚠', missing: '○' };
+const NODE_MD = { done: '✓', 'converged-frontier': '◉', active: '◐', blocked: '⚠', missing: '○' };
 
 // decision state + active stage → pipe-status(텍스트 + 색 클래스 + 마커).
+// v1.18.7 M4 (진실성) — active stage 가 receipt 가 있어 *진행 중*(node status
+// 'active')인지, receipt 가 없어 *아직 안 시작*(node status 'missing')인지 구분.
+// 후자에서 "PR 검토 중"은 PR 이 없는데 검토 중이라 거짓 → "PR 대기"로 정직 표기.
+const STAGE_IN_PROGRESS = { plan: '계획 중', impl: '구현 중', pr: 'PR 검토 중' };
+const STAGE_PENDING = { plan: '계획 대기', impl: '구현 대기', pr: 'PR 대기' };
+// M6 Task 6 — frontier 가 converged-frontier 면 단일 라벨로 "그 stage 수렴"만 표기
+// (사용자 요청 — "1개만 표시"). "구현 중"(거짓 진행) 아님 — 게이트는 통과했고 다음
+// 단계만 안 시작됐다는 사실. (참고: m4/m5/m6 은 receipt 동일이라 모두 동일 표기됨 —
+// 완료 입증은 completion-ledger에 있고 pipeline은 receipt-only 설계.)
+const STAGE_CONVERGED = { plan: '계획 수렴', impl: '구현 수렴', pr: 'PR 수렴' };
 function statusOf(d) {
   if (d.state === 'done') {
-    return { cls: 's-ok', text: 'complete', svg: 'ic-check' };
+    return { cls: 's-ok', text: '완료', svg: 'ic-check' };
   }
   if (d.state === 'blocked') {
     return { cls: 's-block', text: '차단', svg: 'ic-alert' };
   }
-  const stageText = { plan: '계획 중', impl: '구현 중', pr: 'PR 검토 중' };
-  return { cls: 's-active', text: stageText[d.activeStage] || '진행 중', dot: true };
+  const activeNode = (d.nodes || []).find((n) => n.short === d.activeStage);
+  if (activeNode && activeNode.status === 'converged-frontier') {
+    return { cls: 's-active', text: STAGE_CONVERGED[d.activeStage] || '게이트 수렴 · 다음 대기', dot: true };
+  }
+  const started = activeNode && activeNode.status === 'active'; // in-progress receipt 존재
+  const map = started ? STAGE_IN_PROGRESS : STAGE_PENDING;
+  return { cls: 's-active', text: map[d.activeStage] || (started ? '진행 중' : '대기'), dot: true };
 }
 
 const STATE_RANK = { blocked: 0, active: 1, done: 2 };
 
 function renderPipeline(model, formatUtils, planBody, opts) {
+  opts = opts || {};
   const { escapeHtml, escapeAttr } = formatUtils;
   const m = model || {};
   const receipts = (m.sources && m.sources.receipts && m.sources.receipts.items) || [];
-  const stateMap = deriveDecisionState(receipts);
+  // M7 Task 2 — ledger-aware decision-state: a durable completion-ledger entry
+  // (fresh-matched by plan_file_hash) promotes a converged-frontier decision to
+  // done so the pipeline ✓-marks bundled-PR milestones honestly (Codex F2).
+  const ledgerItems = (m.sources && m.sources.ledger && m.sources.ledger.items) || [];
+  const planHashes = planHashesFromModel(m, { cwd: opts.cwd });
+  const stateMap = deriveDecisionState(receipts, { ledgerItems, planHashes });
 
   if (stateMap.size === 0) {
     return {
@@ -109,15 +134,15 @@ function renderPipeline(model, formatUtils, planBody, opts) {
     mdLines.push('- _' + summary + '_');
   }
 
-  const foot = '<span class="foot-stat">complete ' + doneCount
+  const foot = '<span class="foot-stat">완료 ' + doneCount
     + '<i>진행 ' + activeCount + '</i><i>차단 ' + blockedCount + '</i></span>'
-    + '<a class="foot-link" href="#route-overview">개요로'
+    + '<a class="foot-link" href="#route-overview">대시보드로'
     + '<svg class="i i-sm" aria-hidden="true"><use href="#ic-arrow"/></svg></a>';
 
   return {
     md: mdLines.join('\n'),
     html: '<div class="pipeline">' + htmlRows.join('') + '</div>',
-    count: '결정 ' + decisions.length + ', complete ' + doneCount,
+    count: '결정 ' + decisions.length + ', 완료 ' + doneCount,
     foot,
   };
 }

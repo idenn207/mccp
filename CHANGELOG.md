@@ -2,7 +2,79 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.11`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.18.11] — 2026-06-25
+
+dashboard-truthfulness M7 — 다음-행동 진실성 + 잘림 제거. 대시보드의 핵심 기능(다음 진행사항 추천)이 hollow `/mccp:resume`(handoff 없으면 noop인 복구 메타-명령)를 echo하고 Hero 설명이 문장 중간에서 `…` 잘리던 결함을, 다음-행동을 in-progress 마일스톤의 실제 게이트 frontier에서 derive하고 잘림을 제거해 닫는다. 콘솔 셸 계약(oklch 토큰·드로어·비-색 마커·카드 비중첩) 불변 — 신규 시각 시스템·색 토큰 0. **④ 다음-행동 frontier-primary(Codex R1 F1)**: `next-action.js` `resolveNextAction` 재정렬 — in-progress plan의 decision-state frontier(첫 non-done 노드: impl→`/mccp:prp-implement <planPath>`, pr→`/mccp:pr`)를 STATE.md echo보다 **먼저** 평가. STATE.md substantive 명령은 freshness-gated fallback(plan-path 인자가 현재 in-progress와 일치할 때만) — 다른 cycle을 가리키는 stale 명령이 frontier를 가리지 못한다. `HOLLOW_COMMANDS`(resume/trace/receipt-*) 필터. **genuine handoff only(Codex R1 F3)**: `/mccp:resume`는 STATE.md `last_event==='handoff_spawn'`(resume dispatcher가 honor하는 신호)일 때만 추천 — `resume_state==='in-flight'` 단독은 비추천. **① ledger-aware decision-state(Codex R1 F2)**: `decision-state.js` `buildDecisionState`에 freshness-guarded ledger 승격(`ledgerCloseFresh`) — 완료-ledger가 decision_id+plan_basename+plan_file_hash로 PROVABLY 매칭될 때만 converged-frontier→done 승격(bundled-PR 마일스톤 정직 ✓표기). same-slug 편집·partial ledger over-claim 차단(heavy coverage는 backlog defer). **⑤ 잘림 제거**: `intent-extractor.js` 첫 완결 문장(mid-word `…` 없이 종결부호까지, run-on만 단어 경계 soft-cut) → Hero subtext가 220자 hard-cut 대신 완결 문장. `html.js` `.verdict-sub` line-clamp 4→6(generous safety net) + `.hw-list li` nowrap/ellipsis → 2줄 wrap(긴 마일스톤명 전체 노출). 사용자 "그만 잘라"(완전성 > 시각 밀도, 2026-06-25). Codex Plan-Codex R1(2 HIGH+1 MEDIUM — frontier-primary 재정렬·ledger freshness-guard·handoff predicate 정렬로 흡수) + Implement-Codex cross-gate dedupe. design-critique CONVERGED. renderer 499(decision-state 11 + next-action 재작성 16 신규) + derive 87 PASS, 0 회귀. plugin.json `1.18.10 → 1.18.11` + 양 footer. PRD M6 row → complete, M7 row(in-progress) 추가.
+
+### Changed
+
+- **`scripts/lib/renderer/parsers/next-action.js`** — frontier-primary 재정렬 + `HOLLOW_COMMANDS` 필터 + `frontierCommand`/`stateCommandFresh` + handoff_spawn-only resume. source enum: `resume-state`/`gate-frontier`/`in-progress-plan`/`state-fresh`/`in-progress-plan-stale`/`prose`/`idle`.
+- **`scripts/lib/renderer/parsers/decision-state.js`** — `buildDecisionState`/`deriveDecisionState`에 ledgerItems/planHashes opts + `ledgerCloseFresh`(strict decision+basename+hash) freshness-guarded 승격.
+- **`scripts/lib/renderer/parsers/plan-hashes.js`** (신규) — `planHashesFromModel` Map<decisionId, currentPlanHash> (plan-body.js mirror, fail-open).
+- **`scripts/lib/renderer/parsers/intent-extractor.js`** — `firstSentence`/`shapeIntent` + `complete` 모드(첫 완결 문장, mid-word `…` 없음).
+- **`scripts/lib/renderer/verdict.js`** — Hero subtext intent `{ maxLen: 220 }` → `{ complete: true }`.
+- **`scripts/lib/renderer/sections/{pipeline,status-grid}.js`** — `deriveDecisionState`에 ledger/planHashes 전달 + status-grid에 `decisionState`/`hasHandoffSignal` ctx 주입 + nextStep cell handoff_spawn 정렬.
+- **`scripts/lib/renderer/html.js`** — `.verdict-sub` line-clamp 6 + `.hw-list li` 2줄 wrap + footer v1.18.11.
+- **`scripts/lib/renderer/markdown.js`** — footer v1.18.11.
+- **`.claude/prds/dashboard-truthfulness.prd.md`** — M6 row → complete, M7 row(in-progress) 추가.
+
+## [1.18.10] — 2026-06-25
+
+dashboard-truthfulness M6 — Vercel 카드 재구성 + Hero/파이프라인 진실성(branch 커밋 `97eb796`의 CHANGELOG backfill). 위젯 4종(진행중/차단/이월/위험)을 hero-panel 밖 Vercel식 2컬럼 개별 카드 + 아래-화살표 확장으로 분해(비중첩 H17). Hero h1을 마일스톤명 + 요약 subtext로(verbose Summary 잘림 1차 해소) + next-action "무엇을 하는지" 설명. impl 게이트 수렴≠완료 진실성 — `converged-frontier` 신규 상태(receipt-only supersession): downstream 게이트 receipt 존재 또는 terminal pr-codex converged일 때만 done-green, 그 외 최신 converged 비-terminal frontier는 "게이트 수렴·다음 대기". 라벨 정합(미해결 위험·게이트 파이프라인·미해결 질문·개요로 → 위험·파이프라인·질문·대시보드로) + 마일스톤 lifecycle 토글을 위험·질문과 동일 buildTabs로 통일. 콘솔 셸·route 식별자 불변. plugin.json `1.18.9 → 1.18.10` + 양 footer.
+
+## [1.18.9] — 2026-06-25
+
+dashboard-truthfulness M5b — 표현/Hero 의미론 정합(데이터 의미론 #1·#3·#4·#5·#6·#7). M5a(#2 진행중 진실성)에 이어 사용자 육안 검토로 드러난 나머지 표현 결함을 닫는다. 콘솔 셸 계약(oklch 토큰·드로어·비-색 마커·카드 비중첩, PR #57~#63) 불변 — 신규 시각 시스템·신규 색 토큰 0. **위험/차단 정합(#3+#7)**: rail '미해결 위험'을 backlog HIGH/CRIT(이전 소스)에서 **위험 섹션과 동일 소스**(plan body risks active=미마커)로 통일 → rail(45)==섹션(45)==nav 뱃지(45) 정합. backlog HIGH/CRIT은 '**이월 finding**'(deferred) 셀로 분리 명명. '차단' 셀에 의미 툴팁("Codex 검토 N건 미수렴 · 사람 개입 필요", 0건은 "검토 충돌 없음" empty-state). 위험 섹션 자체의 historical-risk lifecycle scope는 M6 backlog 이월(Codex F4). **Hero 재설계(#4)**: `verdict.js` 우선순위 재정렬 — fresh in-progress plan을 backlog-deferred보다 앞으로(Hero h1="현재 작업: {intent/slug}", backlog는 '이월 finding' 셀로만 노출=숨김 아닌 이동). 요약체 cap(72 codepoint, 잘림은 드로어/route 위임). **verdict 라벨 분화(#1)**: `HERO_STATUS` neutral(in-progress 진행 톤)='진행 중' / muted(idle)='대기' 분리(이전 둘 다 '대기'). **hero-version 줄 제거(#5)**: hero 표면 version 줄(html `.hero-version` + md `versionMd`) 제거 — footer page-foot가 이미 version 노출(중복 제거). version 객체는 return shape에 유지(F2 reproducible). **더보기→route 전체보기 링크(#6)**: 위험/질문/타임라인 섹션을 전용 route(`#route-risks`/`#route-questions`/`#route-activity`)에서 **full mode**로 렌더(캡 없이 전체 항목, 더보기 `<details>` 제거) → overflow 항목이 target route HTML에 실존(도달성, Codex F2). overview hero 위험 위젯은 top-3 + "전체 보기 (+N)" route 링크. md는 top-N + `<details>` 접힘 유지(plain-text 도달성). Codex Plan-Codex(3 HIGH) + Implement-Codex(2 HIGH) cross-gate dedupe(decision-set이 M5a에서 수렴, M5b 신규 implement-time 결정 0). 585 test PASS(20개 디자인 변경 회귀 갱신), 0 기능 회귀. plugin.json `1.18.8 → 1.18.9` + 양 footer. PRD M5 row → complete(진행중=0 truthful end-state).
+
+### Changed
+
+- **`scripts/lib/renderer/sections/status-grid.js`** — 미해결 위험 = plan body risks active(severity 내림차순 top-N) / 이월 finding 셀(backlog HIGH/CRIT 분리) / 차단 셀 툴팁 / versionMd 제거. 5 cells(진행중/차단/이월/위험/다음).
+- **`scripts/lib/renderer/verdict.js`** — fresh in-progress 우선 재정렬(Hero h1 "현재 작업") + `capIntent`(72 codepoint cap, 한글 안전).
+- **`scripts/lib/renderer/html.js`** — `HERO_STATUS` neutral='진행 중'/muted='대기' 분화 / heroWidget 4종(차단 툴팁+empty-state, 위험 route 링크) / hero-version 줄·CSS 제거 / hero-widgets 2x2 그리드 + `.hw-more`/`.hw-overflow` CSS / footer v1.18.9.
+- **`scripts/lib/renderer/sections/{risks,open-questions,audit-timeline}.js`** — route full mode(html 전체 항목, 더보기 `<details>` 제거; md `<details>` 유지).
+- **`scripts/lib/renderer/markdown.js`** — footer v1.18.9.
+- **`.claude/prds/dashboard-truthfulness.prd.md`** — M5 row in-progress → complete.
+- **`docs/v1.3.0-observability/dashboard-surface.md`** — §2.5 데이터 의미론 정합 문서화.
+
+## [1.18.8] — 2026-06-25
+
+dashboard-truthfulness M5a — 진행중 진실성(데이터 의미론 #2). 대시보드 "진행 중" 카운트가 현실과 어긋나던 결함을 닫는다(M5 전체 7결함 중 #2를 M5a로 분리 ship, 표현/Hero Task 2~7은 M5b 후속 — 비용·세션 범위, 사용자 결정). **근본 원인 2층**: (1) `parseDeliveryMilestones`가 Plan 셀에서 `(...)` 마크다운 링크만 추출 → **backtick bare-path PRD**(dashboard-truthfulness 등)의 모든 마일스톤을 in-progress 집계에서 누락(현재 작업 비표시) — `extractPlanPath` 재사용으로 Complete/Lifecycle 파서와 일관화. (2) 다수 옛 cycle PRD의 stale `in-progress` 마커 노출. **코드 3축**: 완료 자동감지 `isMilestoneClosed`(terminal receipt converged + exact decision_id + **plan_hash freshness** OR completion-ledger converged; generic/legacy/stale/모호 매핑 fail-closed — Codex Implement-F1: receipt에 is_stale 플래그 없음, freshness 신호는 plan_hash) + plan-body.js override 레이어 + 활동기반 신선도 가드(`MCCP_DASHBOARD_STALE_DAYS` 기본 14). **데이터 정리** 8 PRD row(v0.3.5/v0.4.0 axis H/v1.4.2-m1·m2/v0.3.6/v1.0.1-axis-k-m2/serve-refresh/console-redesign-m4 → complete + dashboard-truthfulness M4→complete·M5 추가). git-commit-time이 bulk commit 오염 + STATE.md task_fingerprint(cycle-prefix 없음)로 cycle/activity 가드 모두 무력 → 데이터 정리가 유일 신뢰 메커니즘. **결과 진행 중 = 1건(M5)**. Codex Plan-Codex(3 HIGH: OR 완료감지/route 도달성/PRD double in-progress) + Implement-Codex(2 HIGH: plan_hash 상관/PRD 데이터) 흡수. 신규 `completion-detect.test.js` 15케이스(F1 negative e/f/g/h) + 585 test PASS(renderer 466 + derive/stale-audit 105 + 14 기존), 0 회귀. plugin.json `1.18.7 → 1.18.8` + 양 footer. M5b는 `1.18.9` 예정.
+
+### Changed
+
+- **`scripts/lib/renderer/parsers/plan-body.js`** — `parseDeliveryMilestones` backtick bare-path 추출(extractPlanPath 재사용) + parsePlanBody 완료 override(plan_hash-fresh terminal receipt OR ledger) + 활동기반 신선도 가드(`MCCP_DASHBOARD_STALE_DAYS`).
+- **`scripts/lib/renderer/parsers/decision-state.js`** — `isMilestoneClosed` helper(terminal-gate/exact decision/plan_hash freshness OR ledger, fail-closed). `TERMINAL_GATES` export.
+- **`scripts/lib/renderer/sections/status-grid.js`** — in-progress 카운트 fresh only(stale 제외·muted 별도 표기). footer v1.18.8.
+- **`.claude/prds/*.prd.md`** (8 PRD) — stale in-progress → complete 데이터 정리.
+
+### Added
+
+- **`scripts/lib/renderer/tests/completion-detect.test.js`** — 15 케이스(isMilestoneClosed F1 negative + parseDeliveryMilestones bare-path + parsePlanBody override/staleness).
+
+## [1.18.7] — 2026-06-25
+
+dashboard-truthfulness M4 — 메인 표현 정리(타임라인 더보기 · 위험/질문 복사 대칭). 데이터는 M1~M3에서 이미 truthful — M4는 메인 흐름의 *표현* 비대칭/잡음 셋을 닫는다. (1) **타임라인 더보기** — `audit-timeline.js`가 상위 20행만 렌더하고 나머지는 `+N older` muted 각주로만 노출(접근 불가)이던 것을, risks/OQ의 `top-N + <details class="more">+N 더보기` 패턴을 타임라인에 적용 — 상위 `TIMELINE_EXPANDED`(8) expanded `<ol>` + 나머지(cap 내)를 접힘으로 *접근 가능*하게. Codex R1 F1 흡수: `isLast`는 전체 capped 시퀀스 기준 단일 계산(글로벌 마지막 행만 connector 생략, 마지막 expanded 행은 collapsed 남으면 connector 유지) + 각주(archived/older/mask/gap/was_stale)를 두 `<ol>` 밖 별도 `<ul class="audit-notes">` valid-list 컨테이너로 이동. detailMap은 접힘 무관 모든 렌더 행 적재(H18 trigger==detail). (2) **OQ 메인 = 복사 버튼만** — `open-questions.js`의 verbose `inline-prompt`(`<code>{전체 명령}` + 버튼)를 경량 `li-action`(복사 버튼만)으로 교체. 전체 명령 텍스트는 드로어 `detail.action` + STATUS.md `renderDetailMd`에 불변 보존. (3) **위험 메인 복사 버튼 추가** — `risks.js`가 이미 빌드한 `ap`(drawer action용)를 메인 `li-action` 복사 버튼으로도 노출 → 위험/질문 메인 affordance 대칭(severity → 본문 → meta-cue → 복사 버튼). 복사 버튼 클릭이 드로어를 열지 않는 것은 기존 `.copy-btn` 제외 가드(`html.js` DRAWER_SCRIPT)가 이미 커버 — 신규 코드 0, 테스트로 고정. 신규 시각 시스템·신규 색 토큰 0(콘솔 셸 계약 PR #57~#63 불변), 복사 인프라(`data-copy`/`#ic-copy`/`COPY_SCRIPT`/드로어 가드) 전부 재사용. impeccable critique CONVERGED(4 Output Constraints 충족 — 복사 버튼 neutral `.copy-btn` 토큰 재사용·강조색 0, 더보기가 Constraint 4 직접 충족). plugin.json `1.18.6 → 1.18.7` patch bump(Codex R1 F2 — PRD 미완 상태 minor 시기상조; PRD 완전 종료 시 minor 정리는 별도 hot-fix) + 양 footer. PRD M3 row stale-status 정리(in-progress → complete, #63 ship 반영). 565 test PASS(renderer 460 + derive 87 + stale-audit 18), 0 회귀. H16 advisory는 truncated `relatedOpenQuestion` cue의 기존 cross-section 부채(base 동일, M4 신규 마커 0). **시각-검토 후속 진실성 2건**(사용자 피드백 2026-06-25): (a) 게이트 파이프라인이 PR 미생성(pr 노드 receipt 없음)인데도 "PR 검토 중"을 표기하던 거짓 신호를, active stage 의 node status 가 `missing`(미시작)이면 "PR 대기"/"구현 대기", `active`(in-progress receipt)면 "PR 검토 중"/"구현 중"으로 구분(`pipeline.js#statusOf`). (b) 타임라인 decision_id 가 `tail(…,24)`로 공유 prefix 를 잘라 "lness-m4-…"처럼 단어 중간이 깨지던 것을 full id + `title` 툴팁 + CSS ellipsis(prefix 유지, `.pipe-id` 동형)로 정정(`audit-timeline.js` + `.audit-dec`).
+
+### Changed
+
+- **`scripts/lib/renderer/sections/audit-timeline.js`** — `TIMELINE_EXPANDED=8` 더보기 분할(상위 N expanded `<ol>` + 나머지 `<details class="more">+N 더보기` 접힘). 각주를 `<ul class="audit-notes">` 별도 컨테이너로 이동(Codex R1 F1). `renderRow`가 target 배열(expanded|collapsed)로 push, isLast/ordinal 글로벌 시퀀스 기준. `TIMELINE_EXPANDED` export. (시각-검토) decision_id full 표시 + `title`(tail 중간잘림 제거).
+- **`scripts/lib/renderer/sections/pipeline.js`** — (시각-검토) `statusOf` 가 active stage node status 로 대기(missing)/진행(active) 구분 — "PR 검토 중" 거짓 신호 제거.
+- **`scripts/lib/renderer/sections/open-questions.js`** — 메인 `inline-prompt`(`<code>` + 버튼) → `li-action`(복사 버튼만). 전체 명령은 드로어/STATUS.md에 불변 보존.
+- **`scripts/lib/renderer/sections/risks.js`** — 메인 `li-action` 복사 버튼 추가(OQ와 동일 markup·aria-label, `ap.fullText` 재사용).
+- **`scripts/lib/renderer/html.js`** — `.inline-prompt` CSS → `.li-action`(우측 정렬·neutral, `.copy-btn` 토큰 재사용). `.audit-notes` 컨테이너 CSS(muted 톤). footer v1.18.7.
+- **`scripts/lib/renderer/markdown.js`** — footer v1.18.7.
+- **`docs/v1.3.0-observability/dashboard-surface.md`** — 타임라인 더보기 + 위험/질문 복사 대칭 surface 문서화.
+- **`.claude/prds/dashboard-truthfulness.prd.md`** — M3 row in-progress → complete(stale-status 정리, Codex R1 F2).
+
+### Tests
+
+- `audit-timeline-snapshot.test.js` — 더보기(top-N + `<details>`) + boundary connector(글로벌 마지막만 connector 생략) + 각주 순서(collapsed 뒤 `<ul class="audit-notes">`) + cap 초과 `+N older` 공존 + detailMap 전 행 적재.
+- `four-part-rendering.test.js` / `a11y-aria-labels.test.js` / `section-fidelity.test.js` — OQ 메인=복사 버튼만(`<code>` 미노출) + 위험 메인 복사 버튼(대칭, 고정 aria-label) + anatomy `inline-prompt → li-action`.
+- `drawer.test.js` — 복사 버튼 클릭 ≠ 드로어 open 가드(markup-level, 신규 코드 0).
+- `markdown-equivalence.test.js` — 타임라인 더보기 html↔md 정보 동등(접힘 행 양쪽 보존).
+- `output-constraints.test.js` — M4 surface(더보기·li-action·audit-notes) design-lint clean(신규 위반 0).
 
 ## [1.18.6] — 2026-06-25
 

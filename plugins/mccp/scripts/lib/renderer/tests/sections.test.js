@@ -9,7 +9,7 @@ const { renderAuditTimeline } = require('../sections/audit-timeline');
 const { renderOpenQuestions } = require('../sections/open-questions');
 const { renderRisks } = require('../sections/risks');
 
-test('status-grid — 4 cells + structured data + Korean labels', () => {
+test('status-grid — 5 cells + structured data + Korean labels (M5 Task 2)', () => {
   const model = {
     sources: {
       plans: { items: [
@@ -30,17 +30,31 @@ test('status-grid — 4 cells + structured data + Korean labels', () => {
       ['b.plan.md', 'in-progress'],
       ['c.plan.md', 'in-progress'],
     ]),
+    // M5 Task 2 — 미해결 위험 = plan body risks active(미마커). 2건 active.
+    risks: [
+      { risk: 'r-active-1', impact: 'High', likelihood: 'High', resolved: false, ordinal: 0 },
+      { risk: 'r-active-2', impact: 'Low', likelihood: 'Low', resolved: false, ordinal: 1 },
+      { risk: 'r-done', impact: 'High', likelihood: 'High', resolved: true, ordinal: 2 },
+    ],
   };
   const { md, html, cells } = renderStatusGrid(model, formatUtils, planBody);
-  assert.equal(cells.length, 4);
+  // M5 Task 2 — 5 cells: 진행중/차단/이월 finding/미해결 위험/다음.
+  assert.equal(cells.length, 5);
   assert.equal(cells[0].key, 'in-progress');
   assert.equal(cells[0].label, '진행 중');
+  assert.equal(cells[1].key, 'blocked');
   assert.equal(cells[1].label, '차단');
-  assert.equal(cells[2].label, '다음');
-  assert.equal(cells[3].label, '미해결 위험');
+  assert.equal(cells[2].key, 'deferred');
+  assert.equal(cells[2].label, '이월 finding');
+  assert.equal(cells[3].key, 'risks');
+  assert.equal(cells[3].label, '위험');
+  assert.equal(cells[4].key, 'next');
+  assert.equal(cells[4].label, '다음');
   assert.match(md, /진행 중 3/);
   assert.match(md, /차단 2/);
-  assert.match(md, /미해결 위험 1/);
+  // M5 Task 2 — 이월 finding = backlog HIGH/CRIT(1) / 위험 = plan risks active(2).
+  assert.match(md, /이월 finding 1/);
+  assert.match(md, /위험 2/);
   assert.match(html, /<div class="status-grid">/);
 });
 
@@ -57,8 +71,9 @@ test('status-grid — nextStep formatted via formatPlanLabel + code wrap (fresh)
     planStaleness: new Map([['v1-4-2-dashboard-overhaul-m1.plan.md', 'fresh']]),
   };
   const { cells, html } = renderStatusGrid(model, formatUtils, planBody);
-  assert.equal(cells[2].value, 'v1.4.2 · dashboard overhaul m1');
-  assert.equal(cells[2].stale, false);
+  // M5 Task 2 — '다음' 셀은 cells[4](in-progress/blocked/deferred/risks/next 순).
+  assert.equal(cells[4].value, 'v1.4.2 · dashboard overhaul m1');
+  assert.equal(cells[4].stale, false);
   assert.match(html, /<code>v1\.4\.2 · dashboard overhaul m1<\/code>/);
 });
 
@@ -75,8 +90,9 @@ test('status-grid — nextStep stale → 미정 (stale) + span.stale-label (F2 a
     planStaleness: new Map([['v1-4-2-dashboard-overhaul-m1.plan.md', 'stale']]),
   };
   const { cells, html } = renderStatusGrid(model, formatUtils, planBody);
-  assert.equal(cells[2].value, '미정 (stale)');
-  assert.equal(cells[2].stale, true);
+  // M5 Task 2 — '다음' 셀은 cells[4].
+  assert.equal(cells[4].value, '미정 (stale)');
+  assert.equal(cells[4].stale, true);
   assert.match(html, /<span class="stale-label">미정 \(stale\)<\/span>/);
 });
 

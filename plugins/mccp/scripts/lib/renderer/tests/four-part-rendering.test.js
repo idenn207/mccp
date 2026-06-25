@@ -17,14 +17,21 @@ test('OQ 4-part HTML — severity tag + item text + meta-cue + action prompt + c
       headingPath: ['## Open Questions'],
     }],
   };
-  const { html } = renderOpenQuestions({ sources: {} }, formatUtils, planBody);
+  const { html, md } = renderOpenQuestions({ sources: {} }, formatUtils, planBody);
   assert.ok(html.includes('class="sev s-'), 'sev badge present');
   assert.ok(html.includes('class="li-q"'), 'question text present');
   assert.ok(html.includes('class="meta-cue"'), 'meta-cue present');
-  assert.ok(html.includes('class="inline-prompt"'), 'inline prompt present');
+  // v1.18.7 M4 — 메인 = 복사 버튼만(li-action). verbose inline-prompt(<code>{전체 명령}) 제거.
+  assert.ok(html.includes('class="li-action"'), 'li-action copy affordance present');
   assert.ok(html.includes('class="copy-btn"'), 'copy button present');
   assert.ok(html.includes('data-copy="'), 'data-copy attr present');
+  assert.ok(!html.includes('class="inline-prompt"'), 'verbose inline-prompt removed');
   assert.ok(html.includes('Open Questions') && html.includes('line 102'), 'meta-cue anchor');
+  // headline(Task 6b) — 전체 명령은 메인 <code> 미노출, STATUS.md md(드로어 SSoT)에 보존.
+  const cm = html.match(/data-copy="([^"]+)"/);
+  assert.ok(cm, 'data-copy present');
+  assert.ok(!html.includes('<code>' + cm[1] + '</code>'), '전체 명령 <code> 메인 미노출');
+  assert.ok(md.includes('다음 액션') || md.includes(cm[1]), '전체 명령 md 보존');
 });
 
 test('Risk 4-part HTML — sev tag + mitigation + dedupe cue + action prompt + copy button', () => {
@@ -42,25 +49,33 @@ test('Risk 4-part HTML — sev tag + mitigation + dedupe cue + action prompt + c
   assert.ok(html.includes('class="meta-cue mit"'), 'mitigation cue present');
   assert.ok(html.includes('완화:'), 'mitigation label');
   assert.ok(html.includes('동일 질문 참조: OQ-a 결정'));
+  // v1.18.7 M4 (Task 6c) — 위험 메인 복사 버튼(OQ 와 대칭). li-action + copy-btn + data-copy.
+  assert.ok(html.includes('class="li-action"'), 'risk li-action copy affordance present');
+  assert.ok(html.includes('class="copy-btn"'), 'risk copy button present');
+  assert.ok(html.includes('data-copy="'), 'risk data-copy attr present');
 });
 
-test('3 expanded + details collapse — OQ', () => {
+test('full mode (route) — OQ html shows all active, md keeps details (M5 Task 6)', () => {
   const stateOQ = [];
   for (let i = 0; i < 7; i++) stateOQ.push('q' + i);
   const model = { sources: { state: { item: { body: { open_questions: stateOQ } } } } };
-  const { html } = renderOpenQuestions(model, formatUtils, {});
-  assert.ok(html.includes('<details class="more">'));
-  assert.ok(html.includes('+4 더보기'));
+  const { html, md } = renderOpenQuestions(model, formatUtils, {});
+  // M5 Task 6 — route(#route-questions) full mode: html 은 캡 없이 모든 active 노출(더보기 제거).
+  assert.ok(!html.includes('<details class="more">'), 'html 더보기 <details> 제거');
+  assert.ok(html.includes('q6'), '7번째 항목도 html 에 실존(도달성, Codex F2)');
+  // md 는 top-3 + <details> 유지(plain-text 도달성).
+  assert.ok(md.includes('<details>') && md.includes('+4 더보기'), 'md 더보기 유지');
 });
 
-test('3 expanded + details collapse — Risks', () => {
+test('full mode (route) — Risks html shows all active, md keeps details (M5 Task 6)', () => {
   const risks = [];
   for (let i = 0; i < 7; i++) {
     risks.push({ risk: 'r' + i, impact: 'Low', likelihood: 'Low' });
   }
-  const { html } = renderRisks({ sources: {} }, formatUtils, { risks });
-  assert.ok(html.includes('<details class="more">'));
-  assert.ok(html.includes('+4 더보기'));
+  const { html, md } = renderRisks({ sources: {} }, formatUtils, { risks });
+  assert.ok(!html.includes('<details class="more">'), 'html 더보기 <details> 제거');
+  assert.ok(html.includes('r6'), '7번째 항목도 html 에 실존(도달성, Codex F2)');
+  assert.ok(md.includes('<details>') && md.includes('+4 더보기'), 'md 더보기 유지');
 });
 
 test('markdown 4-part sub-list — severity + meta-cue + action prompt', () => {

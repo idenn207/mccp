@@ -12,7 +12,26 @@ const {
   _rowKey,
   _readSnapshotRows,
   MAX_ROWS_LIVE,
+  TIMELINE_EXPANDED,
 } = require('../sections/audit-timeline');
+
+// v1.18.7 M4 — count helper(겹치지 않는 substring 발생 횟수).
+function count(hay, needle) {
+  let n = 0, i = 0;
+  while ((i = hay.indexOf(needle, i)) !== -1) { n++; i += needle.length; }
+  return n;
+}
+function makeLiveRows(n, now) {
+  const items = [];
+  for (let i = 0; i < n; i++) {
+    items.push(makeReceipt({
+      decision_id: 'live-' + i,
+      receipt_hash: 'sha256:live-' + i,
+      created_at: new Date(now - (i + 1) * 60_000).toISOString(),
+    }));
+  }
+  return items;
+}
 
 function tmpSnapshotsDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-audit-snap-'));
@@ -207,4 +226,74 @@ test('audit-timeline-snapshot: readSnapshotRows ignores non-matching filenames +
 
 test('audit-timeline-snapshot: MAX_ROWS_LIVE export is 20', () => {
   assert.equal(MAX_ROWS_LIVE, 20);
+});
+
+// v1.18.7 M4 (진실성) — decision_id 전체 보존. 이전 tail(…,24)는 공유 prefix 를
+// 잘라 단어 중간이 깨졌다("dashboard-truthfulness-…" → "lness-…"). html 은 full id
+// + title 툴팁(CSS ellipsis 가 prefix 유지 truncate), md 도 full id.
+test('M4 decision 전체 표시: tail 중간잘림 제거, full id + title (진실성)', () => {
+  const now = Date.UTC(2026, 5, 18);
+  const longDec = 'dashboard-truthfulness-m4-surface-cleanup'; // 41자 (> 24)
+  const items = [makeReceipt({
+    decision_id: longDec, gate_id: 'mccp-implement-codex', converged: true, round: 1,
+    receipt_hash: 'sha256:deadbeef', created_at: new Date(now - 60_000).toISOString(),
+  })];
+  const { html, md } = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
+  // M6 followup — decision 이 main 으로 승격(gate sub). "/" prefix 제거 + tail 중간잘림 아님.
+  assert.ok(!html.includes('>lness'), 'audit-dec span 이 중간 잘린 tail 로 시작 안 함');
+  assert.ok(html.includes('>' + longDec + '<'), 'audit-dec 에 full decision_id');
+  assert.ok(html.includes('title="' + longDec + '"'), 'title 툴팁에 full id');
+  assert.ok(md.includes(longDec), 'md 에 full id');
+});
+
+// ── v1.18.7 M4 — 더보기(top-N + <details>) headline 회귀 ──
+
+test('full mode timeline: 단일 <ol> 전체 행(더보기 제거) + md <details> 유지 (M5 Task 6)', () => {
+  assert.equal(TIMELINE_EXPANDED, 8);
+  const now = Date.UTC(2026, 5, 18);
+  const items = makeLiveRows(12, now); // 12 ≤ MAX_ROWS_LIVE
+  const { html, md } = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
+  // 모든 12행 렌더(단일 <ol>).
+  assert.equal(count(html, 'class="audit-row"'), 12, '12 audit-row 전부 렌더');
+  // M5 Task 6 — full mode: 단일 timeline <ol>(더보기 <details><ol> 제거).
+  assert.equal(count(html, '<ol class="timeline">'), 1, '단일 <ol>(full mode)');
+  assert.ok(!html.includes('<details class="more">'), 'html 더보기 <details> 제거');
+  // md 는 top-N + <details> 접힘 유지(plain-text 도달성).
+  assert.match(md, /<details>\n<summary>\+4 더보기<\/summary>/, 'md +4 더보기 접힘');
+});
+
+test('M4 더보기 detailMap: expanded/collapsed 무관 모든 렌더 행에 detail 적재(H18)', () => {
+  const now = Date.UTC(2026, 5, 18);
+  const items = makeLiveRows(12, now);
+  const { details } = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
+  assert.equal(details.size, 12, '12 행 모두 drawer detail(접힘 행 포함)');
+});
+
+test('full mode connector: 글로벌 마지막 행만 connector 생략 (M5 Task 6)', () => {
+  const now = Date.UTC(2026, 5, 18);
+  const items = makeLiveRows(12, now);
+  const { html } = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
+  // connector(audit-line) 는 12행 중 글로벌 마지막 1개만 생략 → 11개. 단일 <ol> 합치기
+  // 후에도 isLast/connector 가 글로벌 시퀀스 기준이라 rail 연속성 유지.
+  assert.equal(count(html, 'class="audit-line"'), 11, '글로벌 마지막만 connector 생략');
+  assert.equal(count(html, 'class="audit-row"'), 12, '단일 <ol> 12행');
+});
+
+test('full mode 각주 순서: +N older 가 단일 <ol> 뒤 <ul class="audit-notes"> (M5 Task 6)', () => {
+  const now = Date.UTC(2026, 5, 18);
+  const items = makeLiveRows(25, now); // 20 shown(8+12) + 5 older
+  const { html, md } = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
+  // M5 Task 6 — html full mode: 더보기 제거. md 가 +12 더보기 접힘 유지.
+  assert.ok(!html.includes('<details class="more">'), 'html 더보기 <details> 제거');
+  assert.match(md, /\+12 더보기/, 'md 12 collapsed → +12 더보기');
+  assert.match(html, /<ul class="audit-notes">/, '각주 별도 <ul> 컨테이너');
+  assert.match(html, /<li class="audit-note muted"><em>\+5 older<\/em><\/li>/, '+5 older 각주');
+  // 순서: </ol> → <ul class="audit-notes"> → +5 older.
+  const idxOlEnd = html.lastIndexOf('</ol>');
+  const idxNotes = html.indexOf('<ul class="audit-notes">');
+  const idxOlder = html.indexOf('+5 older');
+  assert.ok(idxOlEnd !== -1 && idxNotes > idxOlEnd, '각주 <ul> 은 </ol> 뒤');
+  assert.ok(idxOlder > idxNotes, '+5 older 는 audit-notes 안');
+  // md 도 각주가 접힘 <details> 뒤.
+  assert.ok(md.indexOf('+5 older') > md.indexOf('</details>'), 'md 각주 접힘 뒤');
 });

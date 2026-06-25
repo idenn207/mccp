@@ -21,7 +21,7 @@ const PRD_BODY = [
   '| 1 | Alpha | out | complete | .claude/plans/alpha.plan.md (report: .claude/PRPs/reports/alpha-report.md) |',
   '| 2 | Beta | out | complete | [.claude/plans/beta.plan.md](../plans/beta.plan.md) |',
   '| 3 | Gamma | out | complete | .claude/PRPs/plans/completed/gamma.plan.md |',
-  '| 4 | Pending | out | pending | — |',
+  '| 4 | Pending | out | dropped | — |',
   '',
 ].join('\n');
 
@@ -210,14 +210,18 @@ test('platform-independent: status grid 용어는 마일스톤 (이정표 부재
   assert.ok(!out.md.includes('이정표'));
 });
 
-// M3 — lifecycle 토글이 완료 기록과 공존(완료 + pending). PRD_BODY 는 pending 행 1개.
-test('M3 lifecycle — 완료 기록 + pending 토글 공존 렌더', () => {
+// M3/M8 — lifecycle 토글이 완료 기록과 공존(완료 + dropped). PRD_BODY 는 dropped 행 1개
+// (M8: pending 예정은 스코핑으로 제외, dropped 폐기만 노출).
+// M6 Task 3 — '미진행 N건 · 표시' <details> 가 완료/미진행 buildTabs 로 통일됨.
+test('M3 lifecycle — 완료 기록 + 미진행 탭 공존 렌더 (M6 Task 3)', () => {
   const out = renderMilestoneHistory(makeModel(), formatUtils, {}, {
     cwd: CWD, fsRead: fsReadOnlyPrd, gitCommitTime: () => null,
   });
-  // 완료(Alpha) 메인 + 미진행 토글 동시 존재.
+  // 완료(Alpha/Beta/Gamma 3건) 패널 + 미진행(Pending 폐기 1건) 탭 동시 존재.
   assert.match(out.html, /Alpha/);
-  assert.match(out.html, /미진행 마일스톤 1건 · 표시/);
+  assert.match(out.html, /완료 <span class="tab-count">3<\/span>/);
+  assert.match(out.html, /미진행 <span class="tab-count">1<\/span>/);
+  // md 는 기존 <details> plain-text 유지(탭은 HTML CSS 전용).
   assert.match(out.md, /미진행 마일스톤 1건 · 표시/);
-  assert.match(out.html, /◌/); // Pending 행 비-색 마커
+  assert.match(out.html, /⊘/); // Dropped 행 비-색 마커
 });

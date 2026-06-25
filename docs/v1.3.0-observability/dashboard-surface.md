@@ -68,6 +68,32 @@ M3-a made the *data* truthful (resolved items collapse behind a trailing `<detai
 
 The renderer stays a pure function of the derive model — tabs/badges are deterministic layout over the same `resolved` flag M3-a produces, no new inference.
 
+### §2.4 Main-surface cleanup — timeline 더보기 + risk/OQ copy symmetry (dashboard-truthfulness M4)
+
+The data was already truthful (M1~M3); M4 closes three *expression* asymmetries/noise in the main flow. No new visual system, no new color token — the console-shell contract (PR #57~#63: oklch tokens, drawer, non-color markers, card non-nesting) is unchanged, and the copy infrastructure (`data-copy` global handler, `#ic-copy` symbol, `COPY_SCRIPT`, drawer `.copy-btn` exclusion guard) is reused verbatim.
+
+**Timeline 더보기** (`sections/audit-timeline.js`): the timeline rendered the top 20 live rows and exposed the rest only as a `+N older` muted footnote (unreachable). M4 applies the risks/OQ `top-N + <details class="more">+N 더보기` pattern — the top `TIMELINE_EXPANDED` (8) rows render in the main `<ol class="timeline">`, the remainder (within the `MAX_ROWS` cap) collapse into `<details class="more"><summary>+N 더보기</summary><ol class="timeline">…</ol></details>` so they are *reachable*. The `MAX_ROWS` (30) overflow stays a `+N older` footnote (genuinely older, unreachable even when expanded). **Codex R1 F1 absorptions**: (1) `isLast` is computed once over the *full capped sequence* (`i === auditRows.length - 1`), so the `.audit-line` connector is omitted only on the true global-last row — the last *expanded* row keeps its connector when collapsed rows remain, preserving rail continuity into the fold. (2) Footnotes (archived / `+N older` / mask-hits / snapshot-gap / was_stale) move out of the `<ol>` into a separate `<ul class="audit-notes">` container placed *after* both `<ol>`s (valid list structure — `<li class="audit-note">` siblings inside the timeline `<ol>` would otherwise sort before collapsed rows). (3) `detailMap` loads for every rendered row regardless of fold state, so drawer trigger==detail (H18) holds for collapsed rows too. The md equivalent mirrors the risks pattern: top-N body + `<details><summary>+N 더보기</summary>` fold + footnotes after the fold.
+
+**OQ main = copy button only** (`sections/open-questions.js`): the OQ main item exposed a verbose `inline-prompt` (`<code>{full command}</code>` + copy button). The full command text already lives in the drawer detail (`detail.action`) and the STATUS.md plain-text equivalent (`renderDetailMd`'s `다음 액션` row), so the main now carries only a lightweight `li-action` wrapper with the copy button (`data-copy={escapeHtml(ap.fullText)}`, icon-only, fixed aria-label `다음 액션 복사`). Removing the `<code>` reduces raw-marker exposure rather than adding it.
+
+**Risk main copy button** (`sections/risks.js`): the risk main item had no copy button (the drawer action already did). M4 surfaces the already-built `ap` (buildActionPrompt, used for the drawer action) as a main `li-action` copy button with the same markup and fixed aria-label as OQ. Result: risk/OQ main items share one affordance shape — severity badge → body → meta-cue → copy button, with detail delegated to the drawer. md is unchanged (the drawer-detail SSoT `다음 액션` row already surfaces the command in md).
+
+**Copy click ≠ drawer open**: risk/OQ `<li>` items are drawer triggers (`data-detail-id`) that now nest a `.copy-btn`. The existing `DRAWER_SCRIPT` guard (`if (e.target.closest('.copy-btn')) return` on both the click and keydown handlers) already covers this nesting — no new code, fixed by a markup-level regression test. The new `.li-action` reuses the neutral `.copy-btn` tokens (no new accent — Constraint 2); 더보기 directly satisfies the "한 화면 항목 상한" (Constraint 4).
+
+### §2.5 Data-semantics alignment — 위험/차단·Hero·routing (dashboard-truthfulness M5)
+
+M1~M4 made the data *persist* and *render* truthfully; M5 closes the **derive-model semantics** (what each number counts). Split into M5a (#2 in-progress truthfulness, v1.18.8) and M5b (#1·#3·#4·#5·#6·#7 expression, v1.18.9). The console-shell contract (oklch tokens, drawer, non-color markers, card non-nesting — PR #57~#63) is unchanged; no new visual system or color token.
+
+**위험/차단 source unification (#3+#7, `sections/status-grid.js`)**: the rail '미해결 위험' cell counted `codex-findings-backlog` HIGH/CRITICAL while the risks *section* (and nav badge) counted plan-body risks (active = unmarked) — two different numbers for "위험". M5b points the rail cell at the **same source as the section** (`planBody.risks` filtered `!resolved`, severity-descending top-N), so rail == section == nav badge. The old backlog HIGH/CRITICAL source becomes a separately-named '**이월 finding**' (deferred) cell. The '차단' cell carries a meaning tooltip (`title="Codex 검토 N건 미수렴 · 사람 개입 필요"`, empty-state "검토 충돌 없음") since `state==='blocked'` (decision-state SSoT) = a Codex review that ended divergent at round≥2 and needs human intervention — *not* a blocked milestone. **Scope boundary (Codex F4)**: M5 closes rail↔section *display consistency* only; the risks section's own lifecycle scope (historical risks from completed plans counted as live — the reason the count is ~45) is deferred to M6 (`codex-findings-backlog.md` 2026-06-25 MEDIUM).
+
+**Hero priority reorder (#4, `verdict.js`)**: the verdict chain put the backlog-deferred branch *before* the in-progress branch, so a fresh in-progress plan showed "N findings deferred" instead of the current work. M5b reorders — a **fresh in-progress plan wins** (Hero h1 = `현재 작업: {intent 또는 slug}`), and backlog-deferred surfaces only in the '이월 finding' cell (moved, not hidden). The intent suffix is codepoint-capped (`capIntent`, 72, CJK-safe) so a verbose Summary extract truncates rather than overflowing — full text lives in the drawer/route.
+
+**Verdict label split (#1, `html.js` `HERO_STATUS`)**: `neutral` (in-progress in-flight tone) and `muted` (genuine idle) both mapped to '대기'. M5b splits them — `neutral`='진행 중' (`dot-accent`), `muted`='대기' (`dot-mute`) — so an active milestone no longer reads as idle.
+
+**hero-version removal (#5)**: the hero panel carried a `<p class="hero-version">{project} · v{X} · {source}</p>` line (and md `versionMd` mirror). The footer page-foot already exposes the version, so M5b removes the hero-surface duplicate (html line + CSS + md line). The `version` object stays on the `renderStatusGrid` return shape (F2 reproducible, footer/drawer consumers); only the hero/md *surface* is dropped.
+
+**더보기 → route full-render (#6, `sections/{risks,open-questions,audit-timeline}.js` + `html.js` heroWidget)**: the dedicated routes (`#route-risks` / `#route-questions` / `#route-activity`) reused the overview's top-N + `<details class="more">+N 더보기` cap, so overflow items were unreachable even on the "full" page. M5b renders these sections in **full mode** in their routes (all items, no `<details>` cap) — so every overflow item is *reachable* in the target route HTML (Codex F2: the route-risks HTML literally contains all active `li-item`s). The overview hero 위험 widget keeps top-3 + a `전체 보기 (+N)` route link (`.hw-more` → `#route-risks`) as the summary. **md keeps the top-N + `<details>` fold** (no `:target` routes in plain-text — the fold is how md stays reachable). `markdown-equivalence` asserts the collapsed-in-md rows surface in both html (inline, full) and md (fold). The `active-sessions` (최근 활동) 더보기 is out of M5 scope and unchanged.
+
 ## §3 Verdict priority chain (11 steps, deterministic, LLM-free)
 
 The verdict line is computed from derive signals in this fixed priority order. The first signal that fires writes the verdict; later signals are skipped. Both STATUS.md and status.html call the same `computeVerdict(model, planBody)` function in `plugins/mccp/scripts/lib/renderer/verdict.js`.
@@ -83,11 +109,15 @@ The verdict line is computed from derive signals in this fixed priority order. T
 | 7 | envelope entries with `stale === true` count > 0 | amber | `⏱ <N> worker(s) heartbeat stale` |
 | 7.5 | `state.item.controller_active === true && envelopes.length === 0` (R1 F3 absorption) | amber | `⏱ controller active, envelopes missing (<N> dispatches)` |
 | 8 | envelope entries `is_terminal === false && stale === false` count > 0 | green | `● <N> worker(s) alive · <terminal-count> terminal` |
-| 9 | `sources.backlog.count > 0` | neutral | `<count> findings deferred · next: <next-in-progress-plan>` |
-| 10 | plans with `status === 'in-progress'` count > 0 | neutral | `<count> plans active · next: <first in-progress plan slug>` |
+| 9 | **fresh** in-progress plans count > 0 (M5 Task 3 — reordered ahead of backlog) | neutral | `현재 작업: <intent 또는 slug>` (capIntent 72 codepoint) |
+| 9.5 | in-progress all stale + `backlog.count > 0` | amber | `<count> findings deferred · 다음 미정 (in-progress plan stale)` |
+| 9.6 | in-progress all stale (no backlog) | amber | `<count> plans active · 다음 미정 (stale)` |
+| 10 | `backlog.count > 0` (no in-progress) | muted | `<count> findings deferred · 다음 마일스톤 선택` |
 | 11 | fallback | muted | `no in-flight signal · select next milestone from PRDs` (impeccable P2 — not bare `idle`) |
 
 Plan `status` is **not** an M1 derive field — it is computed in M3 via `parsers/plan-body.js`'s `parseDeliveryMilestones()` reading the PRD `## Delivery Milestones` table column 4 (Codex R1 F1 absorption).
+
+**M5 reorder note**: pre-M5 the backlog branch (step 9) preceded the in-progress branch, so a fresh in-progress plan rendered "N findings deferred" instead of the current work. M5b moves the fresh-in-progress branch ahead (step 9) and demotes backlog-only to muted (step 10); backlog findings still surface on the dashboard via the '이월 finding' cell, not the verdict line. The `neutral` tone now maps to '진행 중' (not '대기') in `HERO_STATUS` (§2.5 #1).
 
 ## §4 Status triple invariant (color + icon + text — WCAG AA + color-blindness safe)
 

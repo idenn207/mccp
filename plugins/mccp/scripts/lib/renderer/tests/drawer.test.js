@@ -13,6 +13,8 @@ const formatUtils = require('../format-utils');
 const dd = require('../parsers/drawer-detail');
 const { renderHtml } = require('../html');
 const { runOutputConstraints } = require('../output-constraints');
+const { renderOpenQuestions } = require('../sections/open-questions');
+const { renderRisks } = require('../sections/risks');
 
 // ── (1) 빌더 REQUIRED/OPTIONAL ────────────────────────────────────────────────
 
@@ -203,4 +205,30 @@ test('drawer — details 0건이면 dialog/drawer-data 미emit(빈 repo graceful
   const html = renderWith({});
   assert.ok(!html.includes('<dialog'), 'no dialog when no details');
   assert.ok(!html.includes('drawer-data'), 'no drawer-data when no details');
+});
+
+// ── v1.18.7 M4 Task 4 — 메인 복사 버튼 클릭 ≠ 드로어 open (회귀 가드) ──
+// jsdom-free 환경 → markup-level 가드 단언: (1) 위험/질문 li 가 data-detail-id(드로어
+// trigger)이면서 내부 .copy-btn 을 가진다, (2) DRAWER_SCRIPT 의 click/keydown 핸들러가
+// .copy-btn closest 시 open 을 skip 한다(신규 코드 0, 기존 가드 고정).
+test('drawer — OQ/risk li 가 data-detail-id + 내부 copy-btn 동시 보유(가드 대상 nesting)', () => {
+  const oq = renderOpenQuestions({ sources: {} }, formatUtils, {
+    openQuestions: [{ source: 'p.plan.md', text: 'OQ-a 결정 (HIGH)', lineNumber: 5, headingPath: ['## Open Questions'] }],
+  });
+  const risk = renderRisks({ sources: {} }, formatUtils, {
+    risks: [{ risk: 'data corruption', impact: 'High', likelihood: 'Medium', mitigation: 'fsync' }],
+  });
+  // li-item(data-detail-id) 안에 li-action > copy-btn 이 들어있어야 함(드로어 trigger 내부 복사).
+  assert.match(oq.html, /<li class="li-item" data-detail-id="[^"]+">[\s\S]*?class="copy-btn"[\s\S]*?<\/li>/, 'OQ li nests copy-btn');
+  assert.match(risk.html, /<li class="li-item" data-detail-id="[^"]+">[\s\S]*?class="copy-btn"[\s\S]*?<\/li>/, 'risk li nests copy-btn');
+});
+
+test('drawer — DRAWER_SCRIPT 가 .copy-btn closest 시 open skip(클릭·키보드 양쪽)', () => {
+  const html = renderWith({ questions: sectionWithDetails('oq', 2) });
+  // click 가드 + keydown 가드 모두 .copy-btn closest 검사 후 open skip.
+  assert.ok(html.includes(".closest('.copy-btn')"), '.copy-btn closest 가드 present');
+  // click 핸들러: copy-btn closest 면 return(open 미호출).
+  assert.match(html, /addEventListener\('click',function\(e\)\{if\(e\.target\.closest&&e\.target\.closest\('\.copy-btn'\)\)return;open\(/, 'click 가드 → open skip');
+  // keydown 핸들러: Enter/Space 라도 copy-btn closest 면 open 미호출.
+  assert.match(html, /keydown[\s\S]*?\.copy-btn[\s\S]*?open\(/, 'keydown 가드 → open skip');
 });

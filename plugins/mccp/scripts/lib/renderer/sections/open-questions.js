@@ -89,9 +89,12 @@ function renderOpenQuestions(model, formatUtils, planBody) {
       if (cue.line) inner.push('<span class="cue-sec">' + escapeHtml(cue.line) + '</span>');
       cueHtml = '<div class="meta-cue">' + inner.join(' ') + '</div>';
     }
+    // v1.18.7 M4 — 메인은 복사 버튼만(verbose <code>{전체 명령} 제거). 전체 명령
+    // 텍스트는 드로어 detail.action + md renderDetailMd 의 '다음 액션' 행에 보존.
+    // li-action = 복사 affordance 전용 경량 wrapper(verbose inline-prompt 대체).
+    // li-item 직속 우측 child(li-main 밖) → 제목 줄 우상단 정렬(소속 명확).
     // data-copy 는 escapeHtml 만 (escapeAttr URL-encode 회피).
-    const promptHtml = '<div class="inline-prompt">'
-      + '<code>' + escapeHtml(ap.fullText) + '</code>'
+    const promptHtml = '<div class="li-action">'
       + '<button class="copy-btn" type="button" data-copy="' + escapeHtml(ap.fullText)
       + '" aria-label="다음 액션 복사"><svg class="i i-sm" aria-hidden="true"><use href="#ic-copy"/></svg></button>'
       + '</div>';
@@ -107,7 +110,7 @@ function renderOpenQuestions(model, formatUtils, planBody) {
     );
     const { id } = addDetail(detailMap, rawId, detail);
     const html = '<li class="li-item" data-detail-id="' + escapeHtml(id) + '">' + sevTag
-      + '<div class="li-main">' + qHtml + cueHtml + promptHtml + '</div></li>';
+      + '<div class="li-main">' + qHtml + cueHtml + '</div>' + promptHtml + '</li>';
     // v1.18.2 M4 — STATUS.md 동등본. 항목 헤더(텍스트) + drawer-detail SSoT 인라인.
     // 출처/섹션/line/관련 결정/다음 액션은 모두 renderDetailMd 단일 경로(섹션 자체
     // 재구성 0). 헤더 텍스트는 detail.titleText(raw 평문, H10 normalize). 구분자 ·(H10).
@@ -122,19 +125,16 @@ function renderOpenQuestions(model, formatUtils, planBody) {
   const collapsedR = collapsed.map((q) => renderItem(q, q._mergedIndex));
   const resolvedR = resolved.map((q) => renderItem(q, q._mergedIndex));
 
-  // 미해결(active) 패널 inner — top-3 + 더보기(Constraint 4 불변). active 0 이면
-  // 정중한 empty-state(Task 11).
+  // 미해결(active) 패널 inner — M5 Task 6: 미해결 질문은 전용 route(#route-questions)
+  // 에서만 렌더되며 이 route 가 곧 '전체 보기' 페이지이므로 캡 없이 모든 active 항목을
+  // 노출(full mode). overflow 항목이 이 route HTML 에 실존(도달성, Codex F2). md 는 top-3
+  // + <details> 유지(plain-text). active 0 이면 정중한 empty-state(Task 11).
   let activeInner;
   if (active.length === 0) {
-    activeInner = '<p class="muted"><em>미해결 질문이 없습니다.</em></p>';
+    activeInner = '<p class="muted"><em>질문이 없습니다.</em></p>';
   } else {
-    activeInner = '<ul class="stack-list" role="list">' + expandedR.map(r => r.html).join('') + '</ul>';
-    if (collapsed.length > 0) {
-      activeInner += '<details class="more"><summary>'
-        + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
-        + collapsed.length + ' 더보기</summary>'
-        + '<ul class="stack-list" role="list">' + collapsedR.map(r => r.html).join('') + '</ul></details>';
-    }
+    activeInner = '<ul class="stack-list" role="list">'
+      + expandedR.concat(collapsedR).map(r => r.html).join('') + '</ul>';
   }
 
   // M3-b — 해결 이력을 탭 뒤로(메인 흐름에서 큰 숫자 제거 → "40개 미해결" 착시 해소).
@@ -156,7 +156,7 @@ function renderOpenQuestions(model, formatUtils, planBody) {
   // MD — STATUS.md plain-text 동등. 미해결 본문 + 해결됨 N건 접힘(drawer-detail SSoT 불변).
   let md;
   if (active.length === 0) {
-    md = '_미해결 질문이 없습니다._';
+    md = '_질문이 없습니다._';
   } else {
     md = expandedR.map(r => r.md).join('\n');
     if (collapsed.length > 0) {

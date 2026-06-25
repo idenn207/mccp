@@ -55,7 +55,7 @@ We'll know we're right when **`node derive/cli.js render` 산출 `status.html`�
 | 1 | 콘솔 셸 + 토큰 이식 | 샘플의 앱 셸(좌측 사이드바: 프로젝트 스위처·검색·page nav·차단 alert / 상단바 중앙 페이지 타이틀 / near-monochrome 토큰 / Pretendard self-contained / Lucide symbol 아이콘 / CSS `:target` 라우팅 / 패널 head·body·foot anatomy)을 `html.js`+섹션 모듈에 이식. 기존 derive 데이터로 정적 렌더. 충돌 H-invariant 개정. | complete | `.claude/plans/dashboard-console-redesign.plan.md` |
 | 2 | 섹션 콘텐츠 + derive 실데이터 추출 | hero 판정·4축 legend·미해결질문·위험·게이트 파이프라인 스테퍼·타임라인·마일스톤 기록을 샘플 마크업으로 렌더하고, 각 더미 자리를 derive 엔진이 `.claude/` source에서 추출한 실데이터로 채움. 추출에 필요한 read-side surface(+ 최소 스키마 확장) 추가. | complete | `.claude/plans/dashboard-console-redesign-m2.plan.md` |
 | 3 | 우측 상세 드로어 + 드로어 derive 추출 | 항목(미해결질문/위험/타임라인/마일스톤) 클릭→native `<dialog>` 우측 overlay 드로어로 상세 표시(Esc·backdrop·키보드). OQ 선택지·위험 시나리오/완화/잔여·receipt 판정/briefing/hash·마일스톤 요약을 derive에서 추출(스키마 확장 허용). 상세 부재 시 graceful degrade. | complete | `.claude/plans/dashboard-console-redesign-m3.plan.md` |
-| 4 | STATUS.md plain-text 동등본 재구성 | STATUS.md를 새 정보 구조(판정·4축·OQ·위험·파이프라인·타임라인·마일스톤 + 드로어 상세 인라인)에 맞게 재작성 — HTML 전용 인터랙션(드로어·라우팅) 외 전 정보를 plain-text로 동등 노출(SSH/스크린리더 fallback 불변). | in-progress | `.claude/plans/dashboard-console-redesign-m4.plan.md` |
+| 4 | STATUS.md plain-text 동등본 재구성 | STATUS.md를 새 정보 구조(판정·4축·OQ·위험·파이프라인·타임라인·마일스톤 + 드로어 상세 인라인)에 맞게 재작성 — HTML 전용 인터랙션(드로어·라우팅) 외 전 정보를 plain-text로 동등 노출(SSH/스크린리더 fallback 불변). | complete | `.claude/plans/dashboard-console-redesign-m4.plan.md` |
 
 ## Design Direction
 

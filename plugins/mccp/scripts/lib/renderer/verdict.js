@@ -2,6 +2,7 @@
 
 const path = require('path');
 const { extractIntentFromPath } = require('./parsers/intent-extractor');
+const { formatPlanLabel } = require('./sections/status-grid');
 
 function computeIntentForNextPlan(plan, opts) {
   if (!plan || !plan.path) return null;
@@ -22,6 +23,16 @@ function planSlug(plan) {
     return basename.replace(/\.plan\.md$/, '').replace(/\.md$/, '');
   }
   return '(unknown)';
+}
+
+// M5 Task 3 — Hero h1 요약체 cap. intent 자동추출이 길면 잘림(말줄임은 드로어/route
+// 위임). 문자열 codepoint 기준 cap(한글 깨짐 방지) — character-aware slice.
+const INTENT_CAP = 72;
+function capIntent(s) {
+  const str = String(s == null ? '' : s).trim();
+  const chars = Array.from(str);
+  if (chars.length <= INTENT_CAP) return str;
+  return chars.slice(0, INTENT_CAP - 1).join('') + '…';
 }
 
 function computeVerdict(model, planBody, opts) {
@@ -118,39 +129,44 @@ function computeVerdict(model, planBody, opts) {
     const st = basename ? staleness.get(basename) : undefined;
     return st !== 'stale';
   });
-  const allInProgressStale = inProgressPlans.length > 0 && freshInProgress.length === 0;
 
-  if (backlogCount > 0) {
-    if (allInProgressStale) {
+  // M5 Task 3 / M6 Task 4 — fresh in-progress plan 을 backlog-deferred 보다 우선.
+  // Hero h1 은 마일스톤명(formatPlanLabel)을 primary 로 두고(짧아 잘림 0), verbose
+  // Summary 추출은 h1 에서 제거해 2줄 subtext 로 분리한다(잘림 대신 line-clamp).
+  // "현재 작업: " 선행어는 PM voice 유지(H14 slug-only 회피) + 마일스톤명이 주 내용.
+  if (freshInProgress.length > 0) {
+    const nextPlan = freshInProgress[0];
+    const basename = nextPlan.path ? path.basename(nextPlan.path) : null;
+    const label = basename ? formatPlanLabel(basename, { maxLen: 56 }) : planSlug(nextPlan);
+    // M7 Task 5 (⑤) — subtext 는 첫 완결 문장(mid-word `…` 없음). 220자 hard-cut
+    // 대신 complete 모드로 "문장 중간 잘림"을 제거한다(사용자 "그만 잘라"). 시각
+    // 안전망은 CSS relaxed line-clamp(html.js .verdict-sub)이 담당.
+    const intent = computeIntentForNextPlan(nextPlan, Object.assign({}, opts, { complete: true }));
+    const out = { tone: 'neutral', icon: '◐', text: '현재 작업: ' + label };
+    if (intent) out.subtext = intent;
+    return out;
+  }
+
+  // fresh in-progress 가 없을 때만 backlog/stale 신호를 surface. in-progress 가 전부
+  // stale 이면 진행 신호가 약함(amber 경고 톤).
+  if (inProgressPlans.length > 0) {
+    if (backlogCount > 0) {
       return {
         tone: 'amber', icon: '⚠',
         text: backlogCount + ' findings deferred · 다음 미정 (in-progress plan stale)',
       };
     }
-    const nextPlan = freshInProgress[0] || null;
-    const nextSlug = nextPlan ? planSlug(nextPlan) : '(none)';
-    const intent = nextPlan ? computeIntentForNextPlan(nextPlan, opts) : null;
-    const suffix = intent ? ' — ' + intent : '';
     return {
-      tone: 'neutral', icon: '·',
-      text: backlogCount + ' findings deferred · next: ' + nextSlug + suffix,
+      tone: 'amber', icon: '⚠',
+      text: inProgressPlans.length + ' plans active · 다음 미정 (stale)',
     };
   }
 
-  if (inProgressPlans.length > 0) {
-    if (allInProgressStale) {
-      return {
-        tone: 'amber', icon: '⚠',
-        text: inProgressPlans.length + ' plans active · 다음 미정 (stale)',
-      };
-    }
-    const nextPlan = freshInProgress[0];
-    const nextSlug = planSlug(nextPlan);
-    const intent = computeIntentForNextPlan(nextPlan, opts);
-    const suffix = intent ? ' — ' + intent : '';
+  // 활성 plan 없음 + backlog 만 → 이월 finding 있으나 진행 작업 없음(대기, 다음 선택).
+  if (backlogCount > 0) {
     return {
-      tone: 'neutral', icon: '◐',
-      text: freshInProgress.length + ' plans active · next: ' + nextSlug + suffix,
+      tone: 'muted', icon: '·',
+      text: backlogCount + ' findings deferred · 다음 마일스톤 선택',
     };
   }
 

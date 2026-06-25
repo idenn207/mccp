@@ -14,7 +14,12 @@ function annotateResolution(planBody) {
   try {
     if (Array.isArray(planBody.risks)) {
       for (const r of planBody.risks) {
-        if (r && typeof r === 'object') r.resolved = !!r.resolved;
+        if (r && typeof r === 'object') {
+          r.resolved = !!r.resolved;
+          // M8 — 출처 plan lifecycle flag 방어적 정규화(resolved 미러). dedupe
+          // (dedupOQAndRisks Object.assign)가 보존하나 undefined→false 보장.
+          r.sourceClosed = !!r.sourceClosed;
+        }
       }
     }
     // STATE.md OQ 는 planBody.openQuestions 에 없다(섹션이 model.sources.state 에서

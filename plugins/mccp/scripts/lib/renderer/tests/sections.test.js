@@ -251,7 +251,7 @@ test('risks — 3 expanded + 더보기 collapse (MAX_EXPANDED=3)', () => {
   assert.match(md, /\+9 더보기/);
 });
 
-test('risks — resolved 항목 메인 미노출 + 완화됨 탭 (M3-b headline)', () => {
+test('risks — resolved 항목 메인 미노출 + 해결됨 탭 (M3-b headline)', () => {
   const planBody = {
     risks: [
       { risk: 'active-risk', likelihood: 'High', impact: 'High', mitigation: 'm', source: 'p', ordinal: 0, resolved: false },
@@ -259,29 +259,29 @@ test('risks — resolved 항목 메인 미노출 + 완화됨 탭 (M3-b headline)
     ],
   };
   const { md, html } = renderRisks({ sources: {} }, formatUtils, planBody);
-  // M3-b — 탭(미해결 default · 완화됨 N). 큰 숫자는 탭 label 뱃지에만(메인 흐름 비노출).
+  // M3-b — 탭(미해결 default · 해결됨 N). 큰 숫자는 탭 label 뱃지에만(메인 흐름 비노출).
   assert.match(html, /class="tabs"/);
   assert.match(html, /미해결 <span class="tab-count">1<\/span>/);
-  assert.match(html, /완화됨 <span class="tab-count">1<\/span>/);
-  // active 는 미해결 패널(앞), resolved 는 완화됨 패널(뒤).
+  assert.match(html, /해결됨 <span class="tab-count">1<\/span>/);
+  // active 는 미해결 패널(앞), resolved 는 해결됨 패널(뒤).
   const resolvedPanelIdx = html.indexOf('tab-risks-resolved-panel');
-  assert.ok(resolvedPanelIdx > 0, '완화됨 패널 존재');
+  assert.ok(resolvedPanelIdx > 0, '해결됨 패널 존재');
   assert.ok(html.indexOf('active-risk') < resolvedPanelIdx, 'active 위험은 미해결 패널');
-  assert.ok(html.indexOf('done-risk') > resolvedPanelIdx, 'resolved 위험은 완화됨 패널');
-  // md plain-text 동등 — 미해결 본문 + 완화됨 N건 접힘.
-  assert.match(md, /완화됨 1건/);
-  const mainMd = md.slice(0, md.indexOf('완화됨'));
+  assert.ok(html.indexOf('done-risk') > resolvedPanelIdx, 'resolved 위험은 해결됨 패널');
+  // md plain-text 동등 — 미해결 본문 + 해결됨 N건 접힘.
+  assert.match(md, /해결됨 1건/);
+  const mainMd = md.slice(0, md.indexOf('해결됨'));
   assert.ok(mainMd.includes('active-risk'), 'active 위험은 md 본문');
   assert.ok(!mainMd.includes('done-risk'), 'resolved 위험은 md 본문 미노출');
 });
 
-test('risks — 전부 resolved 면 empty-state + 완화됨 탭', () => {
+test('risks — 전부 resolved 면 empty-state + 해결됨 탭', () => {
   const planBody = {
     risks: [{ risk: 'done', likelihood: 'Low', impact: 'Low', mitigation: 'm', source: 'p', ordinal: 0, resolved: true }],
   };
   const { md, html } = renderRisks({ sources: {} }, formatUtils, planBody);
   assert.match(md, /발견된 위험이 없습니다\./);
-  assert.match(md, /완화됨 1건/);
+  assert.match(md, /해결됨 1건/);
   // active 0 + resolved>0 → 탭 + 미해결 패널 empty-state.
   assert.match(html, /class="tabs"/);
   assert.match(html, /발견된 위험이 없습니다\./);
@@ -294,6 +294,45 @@ test('risks — 마커 rendered surface 누출 0 (Constraint 3)', () => {
   const { md, html } = renderRisks({ sources: {} }, formatUtils, planBody);
   assert.equal(/mccp:resolved/.test(html), false, 'html 마커 누출 0');
   assert.equal(/mccp:resolved/.test(md), false, 'md 마커 누출 0');
+});
+
+test('risks — sourceClosed 미마커 위험 active 제외 + 보관됨 탭 (M8 negative, 3-버킷)', () => {
+  const planBody = {
+    risks: [
+      { risk: 'live-risk', likelihood: 'High', impact: 'High', mitigation: 'm', source: 'p', ordinal: 0, resolved: false, sourceClosed: false },
+      { risk: 'mitigated-risk', likelihood: 'Low', impact: 'Low', mitigation: 'm', source: 'p', ordinal: 1, resolved: true, sourceClosed: false },
+      { risk: 'historical-risk', likelihood: 'High', impact: 'Medium', mitigation: 'm', source: 'shipped.plan.md', ordinal: 0, resolved: false, sourceClosed: true },
+    ],
+  };
+  const { md, html, activeCount } = renderRisks({ sources: {} }, formatUtils, planBody);
+  // negative invariant — 완료 plan 출처 미마커 위험이 active 에서 제외(보관됨으로).
+  assert.equal(activeCount, 1, 'active = 미해결만(live-risk)');
+  // 3-탭(미해결 1 · 해결됨 1 · 보관됨 1) — 큰 숫자는 label 뱃지에만(Constraint 2).
+  assert.match(html, /미해결 <span class="tab-count">1<\/span>/);
+  assert.match(html, /해결됨 <span class="tab-count">1<\/span>/);
+  assert.match(html, /보관됨 <span class="tab-count">1<\/span>/);
+  // 보관됨 패널에 historical-risk 적재, 미해결 패널보다 뒤.
+  const histPanelIdx = html.indexOf('tab-risks-historical-panel');
+  assert.ok(histPanelIdx > 0, '보관됨 패널 존재');
+  assert.ok(html.indexOf('historical-risk') > histPanelIdx, 'historical 위험은 보관됨 패널');
+  // md 본문(미해결)에 historical 미노출 — 접힘 secondary 로만.
+  const mainMd = md.slice(0, md.indexOf('해결됨'));
+  assert.ok(mainMd.includes('live-risk'), 'live 위험은 md 본문');
+  assert.ok(!mainMd.includes('historical-risk'), 'historical 위험은 md 본문 미노출');
+  assert.match(md, /보관됨 1건/);
+});
+
+test('risks — 보관됨 탭은 해결됨 부재에도 additive (M8 historical-only)', () => {
+  const planBody = {
+    risks: [
+      { risk: 'live-only', likelihood: 'High', impact: 'High', mitigation: 'm', source: 'p', ordinal: 0, resolved: false, sourceClosed: false },
+      { risk: 'hist-only', likelihood: 'Low', impact: 'Low', mitigation: 'm', source: 'shipped.plan.md', ordinal: 0, resolved: false, sourceClosed: true },
+    ],
+  };
+  const { html } = renderRisks({ sources: {} }, formatUtils, planBody);
+  assert.match(html, /class="tabs"/);
+  assert.match(html, /보관됨 <span class="tab-count">1<\/span>/);
+  assert.equal(/해결됨 <span class="tab-count">/.test(html), false, '해결됨 탭 부재(resolved 0)');
 });
 
 test('open-questions — resolved plan-OQ 분할, STATE.md OQ 항상 active (M3)', () => {

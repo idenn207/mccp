@@ -2,6 +2,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
   parsePlanBody,
   parseDeliveryMilestones,
@@ -10,6 +13,7 @@ const {
   parseRisks,
   extractRisksAndOpenQuestions,
 } = require('../parsers/plan-body');
+const { planAwareMarkdownHash } = require('../../../receipt/hash');
 
 const PRD_OK = `# Test PRD
 
@@ -67,6 +71,17 @@ test('parseDeliveryMilestones — PRD frontmatter table mapped to plan basenames
 test('parseDeliveryMilestones — empty Map when table missing', () => {
   const m = parseDeliveryMilestones('# PRD\n\nNo milestones table.\n');
   assert.equal(m.size, 0);
+});
+
+test('parseDeliveryMilestones — escaped pipe in cell does not shift columns (M8 follow-up)', () => {
+  // Outcome 셀의 `\|` 가 Status/Plan 컬럼을 밀면 행이 조용히 드롭돼 완료 plan
+  // lifecycle 이 미검출된다(위험 오집계 근본 원인). escaped pipe 정상 처리 회귀.
+  const prd = '## Delivery Milestones\n\n| # | M | O | Status | Plan |\n|---|---|---|---|---|\n'
+    + '| 3 | x | Status 열 확장(pending\\|in-progress\\|complete\\|dropped) 설명 | complete | [m3.plan.md](../plans/m3.plan.md) |\n'
+    + '| 4 | y | plain outcome | in-progress | [m4.plan.md](../plans/m4.plan.md) |\n';
+  const m = parseDeliveryMilestones(prd);
+  assert.equal(m.get('m3.plan.md'), 'complete', 'escaped-pipe 행도 정상 파싱');
+  assert.equal(m.get('m4.plan.md'), 'in-progress');
 });
 
 test('extractRisksAndOpenQuestions — Risk 열 + OQ 텍스트 배열 스냅샷 (M1 Task 3)', () => {
@@ -281,4 +296,127 @@ test('parsePlanBody — openQuestions/risks resolved flag 전파', () => {
   assert.equal(resolvedRisk.resolved, true);
   const liveRisk = result.risks.find(r => r.risk === 'live-risk');
   assert.equal(liveRisk.resolved, false);
+});
+
+// ── M8: parse-time sourceClosed (출처 plan lifecycle) ─────────────────────────
+
+function withTmpPlan(planBasename, planBody, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-m8-'));
+  const plansDir = path.join(dir, '.claude', 'plans');
+  fs.mkdirSync(plansDir, { recursive: true });
+  const planAbs = path.join(plansDir, planBasename);
+  fs.writeFileSync(planAbs, planBody, 'utf8');
+  try { return fn(dir, planAbs); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+const M8_PRD = `# PRD M8
+
+## Delivery Milestones
+
+| # | Milestone | Outcome | Status | Plan |
+|---|---|---|---|---|
+| 1 | Shipped | o | complete | [done.plan.md](../plans/done.plan.md) |
+| 2 | Killed | o | dropped | [killed.plan.md](../plans/killed.plan.md) |
+| 3 | Live | o | in-progress | [live.plan.md](../plans/live.plan.md) |
+
+## Other
+`;
+
+const riskBody = (name) => '# Plan ' + name + '\n\n## Risks\n'
+  + '| Risk | Likelihood | Impact | Mitigation |\n|---|---|---|---|\n'
+  + '| risk-of-' + name + ' | High | Medium | m |\n\n## Other\n';
+
+test('parsePlanBody — sourceClosed 스탬프: complete/dropped=true · in-progress/unknown=false (M8)', () => {
+  const cwd = '/test/cwd';
+  const fsRead = (p) => {
+    if (p.endsWith('prd.md')) return M8_PRD;
+    if (p.endsWith('done.plan.md')) return riskBody('done');
+    if (p.endsWith('killed.plan.md')) return riskBody('killed');
+    if (p.endsWith('live.plan.md')) return riskBody('live');
+    if (p.endsWith('unknown.plan.md')) return riskBody('unknown');
+    throw new Error('ENOENT ' + p);
+  };
+  const model = {
+    sources: {
+      plans: { items: [
+        { path: '.claude/plans/done.plan.md', source_prd: 'prd.md' },
+        { path: '.claude/plans/killed.plan.md', source_prd: 'prd.md' },
+        { path: '.claude/plans/live.plan.md', source_prd: 'prd.md' },
+        // unknown.plan.md 는 PRD 미등재 → planStatuses 부재 → fail-open active.
+        { path: '.claude/plans/unknown.plan.md', source_prd: 'prd.md' },
+      ] },
+      receipts: { items: [] },
+      ledger: { items: [] },
+    },
+  };
+  const result = parsePlanBody(model, { fsRead, cwd });
+  const byRisk = (name) => result.risks.find(r => r.risk === 'risk-of-' + name);
+  assert.equal(byRisk('done').sourceClosed, true, 'complete plan → sourceClosed (path 1)');
+  assert.equal(byRisk('killed').sourceClosed, true, 'dropped plan → sourceClosed (path 1)');
+  assert.equal(byRisk('live').sourceClosed, false, 'in-progress + no close evidence → active');
+  assert.equal(byRisk('unknown').sourceClosed, false, 'unknown lifecycle → active (fail-open)');
+});
+
+test('parsePlanBody — sourceClosed: stale ledger hash → active, fresh → historical (Codex F1)', () => {
+  const planBody = '# Plan reopened\n\n## Risks\n'
+    + '| Risk | Likelihood | Impact | Mitigation |\n|---|---|---|---|\n'
+    + '| live-after-reopen | High | High | m |\n\n## Other\n';
+  withTmpPlan('reopened.plan.md', planBody, (cwd, planAbs) => {
+    const freshHash = planAwareMarkdownHash(planAbs);
+    // reopened.plan.md 는 PRD 미등재 → M5 override(bare isMilestoneClosed) 미적용 →
+    // ledgerCloseFresh(path 3) 의 strict id+basename+hash 가드만 단독 결정한다.
+    const prd = '## Delivery Milestones\n\n| # | M | O | Status | Plan |\n|---|---|---|---|---|\n'
+      + '| 1 | other | x | pending | — |\n';
+    const fsRead = (p) => (p.endsWith('p.prd.md') ? prd : fs.readFileSync(p, 'utf8'));
+    const mk = (ledgerHash) => ({
+      repo_root: cwd,
+      sources: {
+        plans: { items: [{ path: '.claude/plans/reopened.plan.md', source_prd: '.claude/prds/p.prd.md' }] },
+        receipts: { items: [] },
+        ledger: { items: [{ decision_id: 'reopened', plan_basename: 'reopened.plan.md',
+          verdict: 'converged', plan_file_hash: ledgerHash }] },
+        state: { item: { frontmatter: {} } },
+      },
+    });
+    // 구버전 hash → ledgerCloseFresh hash-mismatch 거부 → 위험 active 유지.
+    const stale = parsePlanBody(mk('sha256:STALEOLDHASH'), { cwd, fsRead });
+    assert.equal(stale.risks.find(r => r.risk === 'live-after-reopen').sourceClosed, false,
+      'stale ledger hash must NOT hide a live risk (F1 regression)');
+    // hash 일치 → strict ledger close 발화 → 위험 historical.
+    const fresh = parsePlanBody(mk(freshHash), { cwd, fsRead });
+    assert.equal(fresh.risks.find(r => r.risk === 'live-after-reopen').sourceClosed, true,
+      'fresh ledger hash closes the source plan');
+  });
+});
+
+test('parsePlanBody — sourceClosed: stale terminal-receipt hash keeps in-progress risk active (Codex F1)', () => {
+  const planBody = '# Plan recur\n\n## Risks\n'
+    + '| Risk | Likelihood | Impact | Mitigation |\n|---|---|---|---|\n'
+    + '| live-after-edit | High | High | m |\n\n## Other\n';
+  withTmpPlan('recur.plan.md', planBody, (cwd, planAbs) => {
+    const freshHash = planAwareMarkdownHash(planAbs);
+    const prd = '## Delivery Milestones\n\n| # | M | O | Status | Plan |\n|---|---|---|---|---|\n'
+      + '| 1 | a | x | in-progress | `.claude/plans/recur.plan.md` |\n';
+    const fsRead = (p) => (p.endsWith('p.prd.md') ? prd : fs.readFileSync(p, 'utf8'));
+    const mk = (rcptHash) => ({
+      repo_root: cwd,
+      sources: {
+        plans: { items: [{ path: '.claude/plans/recur.plan.md', source_prd: '.claude/prds/p.prd.md' }] },
+        receipts: { items: [{ ok: true, gate: 'mccp-pr-codex', converged: true, decision_id: 'recur',
+          plan_hash: rcptHash, path: 'mccp-pr-codex/recur.json', created_at: '2026-06-24T00:00:00Z' }] },
+        ledger: { items: [] },
+        state: { item: { frontmatter: {} } },
+      },
+    });
+    // 구버전 hash → M5 override(plan_hash-fresh guard)도 미승격 + sourceClosed false → active.
+    const stale = parsePlanBody(mk('sha256:STALEHASH'), { cwd, fsRead });
+    assert.equal(stale.planStatuses.get('recur.plan.md'), 'in-progress',
+      'stale terminal receipt does not auto-complete');
+    assert.equal(stale.risks.find(r => r.risk === 'live-after-edit').sourceClosed, false,
+      'stale terminal hash keeps the live risk active');
+    // hash 일치 → M5 complete 승격 + sourceClosed true → historical.
+    const fresh = parsePlanBody(mk(freshHash), { cwd, fsRead });
+    assert.equal(fresh.planStatuses.get('recur.plan.md'), 'complete');
+    assert.equal(fresh.risks.find(r => r.risk === 'live-after-edit').sourceClosed, true);
+  });
 });

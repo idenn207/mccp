@@ -19,11 +19,21 @@ function renderRisks(model, formatUtils, planBody) {
   const allRisks = Array.isArray(pb.risks) ? pb.risks.slice() : [];
 
   // M3 — 해결 마커 단 위험은 active 에서 분리. resolved 신호는 마커뿐(Codex F1).
+  // M8 — 직교 두 축(명시 해결 r.resolved · 출처 plan lifecycle r.sourceClosed)으로
+  // 상호배타 3-버킷, **우선순위 resolved → sourceClosed**:
+  //   미해결(active)     = !resolved && !sourceClosed  (진짜 live)
+  //   해결됨(resolved)   = resolved                    (명시 해결 마커, 불변)
+  //   보관됨(historical) = !resolved && sourceClosed   (해결 마커 없으나 출처 plan 종료)
+  // resolved-first 가 명시 마커의 강한 신호를 보존하고 '보관됨'을 정확히 unmarked+shipped
+  // 로 한정한다(sourceClosed-first 면 해결됨이 줄고 보관됨이 부풀어 의미가 흐려짐).
+  // 라벨 의미: 해결됨=누가 처리했다고 기록(적극 신호) · 보관됨=출처 종료로 관심권 밖
+  // (해결 아님). 둘을 합치면 명시 해결 over-claim → truthfulness 위해 분리.
   const bySev = (a, b) => (RANK_MAP[sevOf(b)] || 0) - (RANK_MAP[sevOf(a)] || 0);
-  const active = allRisks.filter((r) => !r.resolved).sort(bySev);
+  const active = allRisks.filter((r) => !r.resolved && !r.sourceClosed).sort(bySev);
   const resolved = allRisks.filter((r) => r.resolved).sort(bySev);
+  const historical = allRisks.filter((r) => !r.resolved && r.sourceClosed).sort(bySev);
 
-  if (active.length === 0 && resolved.length === 0) {
+  if (active.length === 0 && resolved.length === 0 && historical.length === 0) {
     return {
       md: '_발견된 위험이 없습니다._',
       html: '<p class="muted"><em>발견된 위험이 없습니다.</em></p>',
@@ -88,6 +98,8 @@ function renderRisks(model, formatUtils, planBody) {
   const expandedR = expanded.map(renderItem);
   const collapsedR = collapsed.map(renderItem);
   const resolvedR = resolved.map(renderItem);
+  // M8 — 보관됨 항목도 renderItem 경유(drawer detail 적재 → H18 trigger==detail 불변).
+  const historicalR = historical.map(renderItem);
 
   // 미해결(active) 패널 inner — M5 Task 6: 위험은 전용 route(#route-risks)에서만
   // 렌더되며 이 route 가 곧 '전체 보기' 페이지이므로 캡 없이 모든 active 항목을 노출
@@ -102,25 +114,30 @@ function renderRisks(model, formatUtils, planBody) {
       + expandedR.concat(collapsedR).map(r => r.html).join('') + '</ul>';
   }
 
-  // M3-b — 완화/해결 이력을 탭 뒤로(메인 흐름에서 큰 숫자 제거 → "250개 위험" 착시
-  // 해소). 완화됨이 있을 때만 탭(미해결 default-checked · 완화됨 N); 없으면 미해결
-  // 패널 직접 노출. resolved 큰 숫자는 탭 label 에만(Constraint 2 neutral 뱃지).
-  // 드로어 detail 은 active/resolved 모두 detailMap 적재(H18 trigger==detail).
+  // M3-b — 해결/보관 이력을 탭 뒤로(메인 흐름에서 큰 숫자 제거 → "250개 위험" 착시
+  // 해소). 해결됨/보관됨이 있을 때만 탭(미해결 default-checked); 둘 다 없으면 미해결
+  // 패널 직접 노출. resolved/historical 큰 숫자는 탭 label 에만(Constraint 2 neutral 뱃지).
+  // M8 — 보관됨 탭은 additive(historical.length>0 gate). 드로어 detail 은
+  // active/resolved/historical 모두 detailMap 적재(H18 trigger==detail).
   let html;
-  if (resolved.length > 0) {
-    const resolvedInner = '<ul class="stack-list" role="list">' + resolvedR.map(r => r.html).join('') + '</ul>';
-    html = buildTabs({
-      name: 'tab-risks',
-      tabs: [
-        { id: 'active', label: '미해결', count: active.length, panelHtml: activeInner, checked: true },
-        { id: 'resolved', label: '완화됨', count: resolved.length, panelHtml: resolvedInner },
-      ],
-    }, formatUtils);
+  if (resolved.length > 0 || historical.length > 0) {
+    const tabs = [
+      { id: 'active', label: '미해결', count: active.length, panelHtml: activeInner, checked: true },
+    ];
+    if (resolved.length > 0) {
+      const resolvedInner = '<ul class="stack-list" role="list">' + resolvedR.map(r => r.html).join('') + '</ul>';
+      tabs.push({ id: 'resolved', label: '해결됨', count: resolved.length, panelHtml: resolvedInner });
+    }
+    if (historical.length > 0) {
+      const historicalInner = '<ul class="stack-list" role="list">' + historicalR.map(r => r.html).join('') + '</ul>';
+      tabs.push({ id: 'historical', label: '보관됨', count: historical.length, panelHtml: historicalInner });
+    }
+    html = buildTabs({ name: 'tab-risks', tabs }, formatUtils);
   } else {
     html = activeInner;
   }
 
-  // MD — STATUS.md plain-text 동등. 미해결 본문 + 완화됨 N건 접힘(탭은 plain-text
+  // MD — STATUS.md plain-text 동등. 미해결 본문 + 해결됨 N건 접힘(탭은 plain-text
   // 부적합 → details 매핑, drawer-detail SSoT 불변).
   let md;
   if (active.length === 0) {
@@ -134,8 +151,14 @@ function renderRisks(model, formatUtils, planBody) {
     }
   }
   if (resolved.length > 0) {
-    md += '\n\n<details>\n<summary>완화됨 ' + resolved.length + '건</summary>\n\n'
+    md += '\n\n<details>\n<summary>해결됨 ' + resolved.length + '건</summary>\n\n'
       + resolvedR.map(r => r.md).join('\n')
+      + '\n\n</details>';
+  }
+  // M8 — 보관됨(해결 마커 없으나 출처 plan 종료) plain-text 동등본. 접힘(secondary).
+  if (historical.length > 0) {
+    md += '\n\n<details>\n<summary>보관됨 ' + historical.length + '건</summary>\n\n'
+      + historicalR.map(r => r.md).join('\n')
       + '\n\n</details>';
   }
 

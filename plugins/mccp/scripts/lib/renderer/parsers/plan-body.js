@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { stripLineMarker, isResolved } = require('./resolution-marker');
-const { isMilestoneClosed } = require('./decision-state');
+const { isMilestoneClosed, ledgerCloseFresh } = require('./decision-state');
 // plan_hash freshness 계산용(M5 Codex Implement-F1). plan 경로는 structural hash
 // (status 토큰/체크박스 무관) → receipt.plan_hash 와 동일 정규화.
 const { planAwareMarkdownHash } = require('../../../receipt/hash');
@@ -111,7 +111,11 @@ function parseTableRows(section, opts) {
       break;
     }
     const inner = trimmed.replace(/^\|/, '').replace(/\|$/, '');
-    const cells = inner.split('|').map(c => c.trim());
+    // M8 follow-up — UNescaped 파이프만 셀 구분자로 분리. markdown `\|` 는 셀 안의
+    // 리터럴 파이프다. 이전 `split('|')` 는 escaped pipe 까지 쪼개 Outcome 셀의
+    // `a\|b\|c` 가 downstream 컬럼을 전부 밀어 Status/Plan 셀이 엉뚱한 index 로
+    // 가고 행이 조용히 드롭됐다(완료 plan lifecycle 미검출 → 위험 오집계 원인).
+    const cells = inner.split(/(?<!\\)\|/).map(c => c.replace(/\\\|/g, '|').trim());
     if (withMeta) rows.push({ cells, resolved: sm.resolved, meta: sm.meta });
     else rows.push(cells);
   }
@@ -409,6 +413,47 @@ function parsePlanBody(model, opts) {
     if (closed && closed.closed) planStatuses.set(basename, 'complete');
   }
 
+  // M8 — 위험 lifecycle scope. 출처 plan 이 완료/은퇴면 그 plan 의 미마커 위험을
+  // active 에서 분리(이력 버킷). **위험을 숨기는 건 fresh 증거를 요구**(Codex F1):
+  //   (1) planStatuses complete/dropped(PRD lifecycle SSoT + M5 auto-detect 승격),
+  //   (2) terminal-receipt(isMilestoneClosed 내부 plan_hash-fresh guard 신뢰),
+  //   (3) ledgerCloseFresh(STRICT id+basename+hash) — bare ledger path 는 쓰지 않음.
+  // reopened/edited(hash 불일치)·null-hash(archived/unreadable)·unknown → false →
+  // active 유지(under-claim 안전). per-plan 캐시로 plan 당 1회 판정.
+  const sourceClosedCache = new Map();
+  function sourcePlanClosed(planRelPath) {
+    const basename = path.basename(planRelPath);
+    if (sourceClosedCache.has(basename)) return sourceClosedCache.get(basename);
+    let closedFlag = false;
+    const status = planStatuses.get(basename);
+    if (status === 'complete' || status === 'dropped') {
+      closedFlag = true; // (1) 해시 미계산 short-circuit
+    } else {
+      const decisionId = basename.replace(/\.plan\.md$/, '').replace(/\.md$/, '');
+      let currentPlanHash = null;
+      const planAbs = planAbsByBasename.get(basename);
+      if (planAbs) {
+        try { currentPlanHash = planAwareMarkdownHash(planAbs); } catch (_e) { currentPlanHash = null; }
+      }
+      let viaTerminal = false;
+      try {
+        const c = isMilestoneClosed({ decisionId, planBasename: basename, currentPlanHash,
+          receipts: receiptItems, ledgerItems });
+        viaTerminal = !!(c && c.closed && c.via === 'terminal-receipt');
+      } catch (_e) { viaTerminal = false; }
+      if (viaTerminal) {
+        closedFlag = true; // (2) terminal-receipt: plan_hash-fresh 내장
+      } else {
+        try {
+          closedFlag = ledgerCloseFresh({ decisionId, planBasename: basename, currentPlanHash,
+            receipts: receiptItems, ledgerItems });
+        } catch (_e) { closedFlag = false; } // (3) STRICT ledger(id+basename+hash)
+      }
+    }
+    sourceClosedCache.set(basename, closedFlag);
+    return closedFlag;
+  }
+
   for (const p of plans) {
     if (!p || !p.path) continue;
     const planAbs = path.isAbsolute(p.path) ? p.path : path.resolve(cwd, p.path);
@@ -438,7 +483,12 @@ function parsePlanBody(model, opts) {
     // 텍스트에도 유일·안정(text-hash 폐기, Codex R1 F2). render-time 정렬과 무관한
     // parse-time 원본 순서를 박는다.
     riskRows.forEach((row, idx) => {
-      risks.push(Object.assign({}, row, { source: p.path, ordinal: idx }));
+      risks.push(Object.assign({}, row, {
+        source: p.path,
+        ordinal: idx,
+        // M8 — 출처 plan lifecycle. active 필터(risks.js/status-grid.js)가 소비.
+        sourceClosed: sourcePlanClosed(p.path),
+      }));
     });
     if (malformedCount > 0) {
       warnings.push({

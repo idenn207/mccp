@@ -313,18 +313,15 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
     noteHtml.push('<li class="audit-note muted"><em>' + escapeHtml(footnote) + '</em></li>');
   }
 
-  // ── 조립: expanded <ol> → collapsed <details><ol> → 각주 <ul class="audit-notes"> ──
+  // ── 조립: 단일 <ol>(전체 capped 행) → 각주 <ul class="audit-notes"> ──
   // v1.18.0 M2 — 시간순 audit timeline. <ol>(시간 순서 의미). 각 행은 audit-row(rail
   // 노드 + audit-line connector), footnote 는 audit-note(노드 없음).
-  // v1.18.7 M4 — 상위 N expanded + 나머지 <details class="more">+N 더보기 접힘. 각주는
-  // 두 <ol> 밖 <ul class="audit-notes">(valid list 구조, Codex R1 F1).
-  let html = '<ol class="timeline">' + expandedHtml.join('') + '</ol>';
-  if (collapsedRows.length > 0) {
-    html += '<details class="more"><summary>'
-      + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
-      + collapsedRows.length + ' 더보기</summary>'
-      + '<ol class="timeline">' + collapsedHtml.join('') + '</ol></details>';
-  }
+  // M5 Task 6 — 타임라인은 활동·기록 route(#route-activity)에서만 렌더되며 이 route 가
+  // 곧 '전체 보기' 페이지이므로 캡(MAX_ROWS) 내 모든 행을 단일 <ol>에 노출(full mode,
+  // 더보기 <details> 제거). isLast/connector 는 글로벌 시퀀스 기준이라 단일 <ol> 합치기
+  // 후에도 rail 연속성 유지(마지막 글로벌 행만 connector 생략). md 는 top-N+<details>
+  // 유지(plain-text 도달성). 각주는 <ol> 밖 <ul class="audit-notes">(valid list, F1).
+  let html = '<ol class="timeline">' + expandedHtml.concat(collapsedHtml).join('') + '</ol>';
   if (noteHtml.length > 0) {
     html += '<ul class="audit-notes">' + noteHtml.join('') + '</ul>';
   }

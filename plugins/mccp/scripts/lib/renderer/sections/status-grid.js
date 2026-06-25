@@ -4,6 +4,16 @@ const path = require('path');
 const { extractIntentFromPath } = require('../parsers/intent-extractor');
 const { deriveDecisionState } = require('../parsers/decision-state');
 const { resolveNextAction } = require('../parsers/next-action');
+const { stripMarker } = require('../parsers/resolution-marker');
+const { maxRank } = require('../parsers/action-prompt');
+
+// M5 Task 2 — 위험 severity rank(risks.js RANK_MAP 미러). hero 위젯 top-N 을 위험
+// 섹션과 같은 순서(severity 내림차순)로 보여 rail↔섹션 표시 일관.
+const RISK_RANK_MAP = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, '': 0 };
+function riskSevRank(r) {
+  const sev = String(maxRank(r && r.impact, r && r.likelihood) || '').toUpperCase();
+  return RISK_RANK_MAP[sev] || 0;
+}
 
 // Dashboard Truthfulness M2 — named-widget item cap. Top-N expanded + overflow
 // count (collapsed in the hero/STATUS.md). Mirrors milestone-history MAX_EXPANDED
@@ -145,22 +155,45 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
     }
   }
 
+  // M5 Task 2 — '이월 finding' = codex-findings-backlog HIGH/CRITICAL(기존 risksOpen
+  // 소스). 이전엔 이 카운트를 '미해결 위험'으로 라벨링해 위험 섹션(plan body risks)과
+  // 다른 숫자를 보였다(rail 1 vs 섹션 45). backlog 는 deferred finding 이므로 '이월
+  // finding' 으로 분리 명명. count 는 HIGH/CRITICAL 행 수(finding 텍스트 빈 행도 집계).
   const backlogItems = (sources.backlog && sources.backlog.items) || [];
-  // count cell 값은 카운트 소스(HIGH/CRITICAL 행 수) 유지 — finding 텍스트가 빈 행도
-  // 집계(기존 의미 불변). named items 는 그 중 finding 텍스트 있는 것만(top-N 표시).
   const highCritical = backlogItems.filter(b => {
     if (!b) return false;
     const s = (b.severity || '').toUpperCase();
     return s === 'HIGH' || s === 'CRITICAL';
   });
-  const risksOpen = highCritical.length;
-  const riskItems = highCritical.map(b => (b.finding || '').trim()).filter(Boolean);
+  const deferredCount = highCritical.length;
+  const deferredItems = highCritical.map(b => (b.finding || '').trim()).filter(Boolean);
+
+  // M5 Task 2 — '미해결 위험' = 위험 섹션과 동일 소스(plan body risks, active=미마커).
+  // rail 카운트가 risks.js activeCount 와 같은 pb.risks 를 filter 하므로 정합(rail==섹션).
+  // severity 내림차순 top-N 으로 hero 위젯이 섹션 top-3 와 같은 항목을 보인다. (위험
+  // 섹션 자체의 historical-risk lifecycle scope 는 M6 backlog 이월 — Codex F4.)
+  const allRisks = Array.isArray(pb.risks) ? pb.risks : [];
+  const activeRisks = allRisks
+    .filter(r => r && !r.resolved)
+    .slice()
+    .sort((a, b) => riskSevRank(b) - riskSevRank(a));
+  const risksOpen = activeRisks.length;
+  const riskItems = activeRisks
+    .map(r => stripMarker(r.risk || '').trim())
+    .filter(Boolean);
+
+  // M5 Task 2 — 차단 셀 툴팁. decision-state SSoT 판정(round≥2 미수렴)의 의미를 라벨
+  // hover 로 노출. 0건이면 검토 충돌 없음 empty-state 의미.
+  const blockedIntent = blockedCount > 0
+    ? 'Codex 검토 ' + blockedCount + '건 미수렴 · 사람 개입 필요'
+    : '검토 충돌 없음';
 
   const cells = [
     { key: 'in-progress', label: '진행 중', icon: '◐', value: String(inProgressCount), kind: 'count', items: inProgressItems, staleItems: staleInProgressItems },
-    { key: 'blocked', label: '차단', icon: '🚫', value: String(blockedCount), kind: 'count', accent: 'blocked', items: blockedItems },
+    { key: 'blocked', label: '차단', icon: '🚫', value: String(blockedCount), kind: 'count', accent: 'blocked', items: blockedItems, intent: blockedIntent },
+    { key: 'deferred', label: '이월 finding', icon: '↪', value: String(deferredCount), kind: 'count', items: deferredItems },
+    { key: 'risks', label: '미해결 위험', icon: '⚠', value: String(risksOpen), kind: 'count', items: riskItems, routeHref: '#route-risks' },
     { key: 'next', label: '다음', icon: '→', value: nextStep, kind: 'next', stale: nextStale, intent: nextIntent },
-    { key: 'risks', label: '미해결 위험', icon: '⚠', value: String(risksOpen), kind: 'count', items: riskItems },
   ];
 
   // M2 — host-version snapshot 소비(파일 읽기 없음, F2) + STATE.md next-action 추출(F1).
@@ -177,21 +210,20 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   }
 
   const summaryLine = cells.map(c => c.icon + ' ' + c.label + ' ' + c.value).join(' · ');
-  const projectName = projectNameOf(m);
-  const versionMd = version.version
-    ? '버전: ' + projectName + ' · v' + version.version + ' · ' + sourceLabel(version.source)
-    : '버전: ' + projectName + ' · 미상';
   // M5 Task 1 — stale in-progress 는 카운트 밖 muted 한 줄(있을 때만).
   const staleNoteMd = staleInProgressItems.length
     ? '\n오래된 진행중 (' + staleInProgressItems.length + '): '
       + staleInProgressItems.slice(0, TOP_N).map(s => (formatUtils.renderProseMd || ((x) => x))(s)).join(' · ')
     : '';
+  // M5 Task 2 — 위젯 mirror(hero 4종: 진행중/차단/이월/위험). M5 Task 5 — versionMd
+  // 제거(footer page-foot 가 이미 version 노출 → hero 표면 중복 제거).
   const widgetsMd = [
     widgetMd('진행 중', inProgressItems, formatUtils) + staleNoteMd,
     widgetMd('차단', blockedItems, formatUtils),
+    widgetMd('이월 finding', deferredItems, formatUtils, deferredCount),
     widgetMd('미해결 위험', riskItems, formatUtils, risksOpen),
   ].join('\n');
-  const md = [summaryLine, '', versionMd, '', widgetsMd, '', nextActionMd(nextAction)].join('\n');
+  const md = [summaryLine, '', widgetsMd, '', nextActionMd(nextAction)].join('\n');
 
   const htmlCells = cells.map(c => {
     let valueHtml;
@@ -205,7 +237,10 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
         valueHtml = '<code' + titleAttr + '>' + escapeHtml(c.value) + '</code>';
       }
     } else {
-      valueHtml = '<div class="grid-value">' + escapeHtml(c.value) + '</div>';
+      // M5 Task 2 — count 셀 툴팁(차단 의미 노출). intent 없으면 생략. title 은
+      // human-readable 이라 escapeHtml(공백 보존) — escapeAttr 는 공백을 %20 인코딩.
+      const titleAttr = c.intent ? ' title="' + escapeHtml(c.intent) + '"' : '';
+      valueHtml = '<div class="grid-value"' + titleAttr + '>' + escapeHtml(c.value) + '</div>';
     }
     return '<div class="grid-cell"><div class="grid-label">'
       + escapeHtml(c.icon) + ' ' + escapeHtml(c.label)

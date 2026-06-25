@@ -2,7 +2,21 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.7`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.9`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.18.9] — 2026-06-25
+
+dashboard-truthfulness M5b — 표현/Hero 의미론 정합(데이터 의미론 #1·#3·#4·#5·#6·#7). M5a(#2 진행중 진실성)에 이어 사용자 육안 검토로 드러난 나머지 표현 결함을 닫는다. 콘솔 셸 계약(oklch 토큰·드로어·비-색 마커·카드 비중첩, PR #57~#63) 불변 — 신규 시각 시스템·신규 색 토큰 0. **위험/차단 정합(#3+#7)**: rail '미해결 위험'을 backlog HIGH/CRIT(이전 소스)에서 **위험 섹션과 동일 소스**(plan body risks active=미마커)로 통일 → rail(45)==섹션(45)==nav 뱃지(45) 정합. backlog HIGH/CRIT은 '**이월 finding**'(deferred) 셀로 분리 명명. '차단' 셀에 의미 툴팁("Codex 검토 N건 미수렴 · 사람 개입 필요", 0건은 "검토 충돌 없음" empty-state). 위험 섹션 자체의 historical-risk lifecycle scope는 M6 backlog 이월(Codex F4). **Hero 재설계(#4)**: `verdict.js` 우선순위 재정렬 — fresh in-progress plan을 backlog-deferred보다 앞으로(Hero h1="현재 작업: {intent/slug}", backlog는 '이월 finding' 셀로만 노출=숨김 아닌 이동). 요약체 cap(72 codepoint, 잘림은 드로어/route 위임). **verdict 라벨 분화(#1)**: `HERO_STATUS` neutral(in-progress 진행 톤)='진행 중' / muted(idle)='대기' 분리(이전 둘 다 '대기'). **hero-version 줄 제거(#5)**: hero 표면 version 줄(html `.hero-version` + md `versionMd`) 제거 — footer page-foot가 이미 version 노출(중복 제거). version 객체는 return shape에 유지(F2 reproducible). **더보기→route 전체보기 링크(#6)**: 위험/질문/타임라인 섹션을 전용 route(`#route-risks`/`#route-questions`/`#route-activity`)에서 **full mode**로 렌더(캡 없이 전체 항목, 더보기 `<details>` 제거) → overflow 항목이 target route HTML에 실존(도달성, Codex F2). overview hero 위험 위젯은 top-3 + "전체 보기 (+N)" route 링크. md는 top-N + `<details>` 접힘 유지(plain-text 도달성). Codex Plan-Codex(3 HIGH) + Implement-Codex(2 HIGH) cross-gate dedupe(decision-set이 M5a에서 수렴, M5b 신규 implement-time 결정 0). 585 test PASS(20개 디자인 변경 회귀 갱신), 0 기능 회귀. plugin.json `1.18.8 → 1.18.9` + 양 footer. PRD M5 row → complete(진행중=0 truthful end-state).
+
+### Changed
+
+- **`scripts/lib/renderer/sections/status-grid.js`** — 미해결 위험 = plan body risks active(severity 내림차순 top-N) / 이월 finding 셀(backlog HIGH/CRIT 분리) / 차단 셀 툴팁 / versionMd 제거. 5 cells(진행중/차단/이월/위험/다음).
+- **`scripts/lib/renderer/verdict.js`** — fresh in-progress 우선 재정렬(Hero h1 "현재 작업") + `capIntent`(72 codepoint cap, 한글 안전).
+- **`scripts/lib/renderer/html.js`** — `HERO_STATUS` neutral='진행 중'/muted='대기' 분화 / heroWidget 4종(차단 툴팁+empty-state, 위험 route 링크) / hero-version 줄·CSS 제거 / hero-widgets 2x2 그리드 + `.hw-more`/`.hw-overflow` CSS / footer v1.18.9.
+- **`scripts/lib/renderer/sections/{risks,open-questions,audit-timeline}.js`** — route full mode(html 전체 항목, 더보기 `<details>` 제거; md `<details>` 유지).
+- **`scripts/lib/renderer/markdown.js`** — footer v1.18.9.
+- **`.claude/prds/dashboard-truthfulness.prd.md`** — M5 row in-progress → complete.
+- **`docs/v1.3.0-observability/dashboard-surface.md`** — §2.5 데이터 의미론 정합 문서화.
 
 ## [1.18.8] — 2026-06-25
 

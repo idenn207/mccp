@@ -162,8 +162,9 @@ test('timeline 섹션 md — receipt hash 인라인(헤더 중복 행은 omit)',
   assert.ok(!md.includes('  - 결정:'), '결정 omit(헤더 중복)');
 });
 
-// v1.18.7 M4 (Task 6e) — 타임라인 더보기 html↔md 동등(접힘 행이 양쪽 모두에 surface).
-test('timeline 더보기 — html <details> ↔ md <details> 정보 동등(접힘 행 양쪽 보존)', () => {
+// M5 Task 6 — 타임라인 full mode: html 은 단일 <ol>(더보기 제거), md 는 <details> 유지.
+// 접힘이던 행이 양쪽 모두에 surface(도달성, Codex F2 — 정보 손실 0).
+test('timeline full mode — html 전체 <ol>(더보기 제거) ↔ md <details> 보존 (M5 Task 6)', () => {
   const now = Date.UTC(2026, 5, 18);
   const items = [];
   for (let i = 0; i < 12; i++) { // 8 expanded + 4 collapsed
@@ -173,12 +174,13 @@ test('timeline 더보기 — html <details> ↔ md <details> 정보 동등(접�
     });
   }
   const { html, md } = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
-  // 양쪽 더보기 affordance.
-  assert.ok(html.includes('<details class="more">') && html.includes('+4 더보기'), 'html 더보기');
-  assert.ok(md.includes('<details>') && md.includes('+4 더보기'), 'md 더보기');
-  // 접힘 행(11번째, decision_id='tl-11')이 html·md 양쪽에 surface → 정보 손실 0.
-  assert.ok(html.includes('tl-11'), '접힘 행 html 보존');
-  assert.ok(md.includes('tl-11'), '접힘 행 md 보존');
+  // M5 Task 6 — route(#route-activity) full mode: html 더보기 <details> 제거.
+  assert.ok(!html.includes('<details class="more">'), 'html 더보기 <details> 제거');
+  // md 는 top-N + <details> 유지(plain-text 도달성).
+  assert.ok(md.includes('<details>') && md.includes('+4 더보기'), 'md 더보기 유지');
+  // 접힘이던 행(11번째, decision_id='tl-11')이 html·md 양쪽에 surface → 정보 손실 0.
+  assert.ok(html.includes('tl-11'), '11번째 행 html 보존(도달성, Codex F2)');
+  assert.ok(md.includes('tl-11'), '11번째 행 md 보존');
 });
 
 test('milestone 섹션 md — 요약(plan Summary) plain-text 신규 노출', () => {

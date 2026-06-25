@@ -89,19 +89,17 @@ function renderRisks(model, formatUtils, planBody) {
   const collapsedR = collapsed.map(renderItem);
   const resolvedR = resolved.map(renderItem);
 
-  // 미해결(active) 패널 inner — top-3 + 더보기(Constraint 4 불변). active 0 이면
-  // 정중한 empty-state(Task 11).
+  // 미해결(active) 패널 inner — M5 Task 6: 위험은 전용 route(#route-risks)에서만
+  // 렌더되며 이 route 가 곧 '전체 보기' 페이지이므로 캡 없이 모든 active 항목을 노출
+  // (full mode). overview hero 위젯이 top-3 + 전체보기 링크로 요약 → overflow 항목이
+  // 이 route HTML 에 실존(도달성, Codex F2). md 는 top-3 + <details> 유지(plain-text).
+  // active 0 이면 정중한 empty-state(Task 11).
   let activeInner;
   if (active.length === 0) {
     activeInner = '<p class="muted"><em>발견된 위험이 없습니다.</em></p>';
   } else {
-    activeInner = '<ul class="stack-list" role="list">' + expandedR.map(r => r.html).join('') + '</ul>';
-    if (collapsed.length > 0) {
-      activeInner += '<details class="more"><summary>'
-        + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
-        + collapsed.length + ' 더보기</summary>'
-        + '<ul class="stack-list" role="list">' + collapsedR.map(r => r.html).join('') + '</ul></details>';
-    }
+    activeInner = '<ul class="stack-list" role="list">'
+      + expandedR.concat(collapsedR).map(r => r.html).join('') + '</ul>';
   }
 
   // M3-b — 완화/해결 이력을 탭 뒤로(메인 흐름에서 큰 숫자 제거 → "250개 위험" 착시

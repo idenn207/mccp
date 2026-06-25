@@ -60,11 +60,30 @@ test('dashboard — blocked widget surfaces blocked decision_id (headline)', () 
   assert.deepEqual(blocked.items, ['blocked-decision-x']);
 });
 
-test('dashboard — risks widget surfaces backlog HIGH/CRITICAL finding text', () => {
+test('dashboard — 이월 finding 셀이 backlog HIGH/CRITICAL finding text (M5 Task 2)', () => {
   const { cells } = renderStatusGrid(baseModel(), formatUtils, planBodyWith([]));
+  // M5 Task 2 — backlog HIGH/CRIT 은 '이월 finding'(deferred) 셀로 분리 명명.
+  const deferred = cells.find(c => c.key === 'deferred');
+  assert.equal(deferred.value, '2');
+  assert.deepEqual(deferred.items, ['lock race in pr-phase', 'secret leak in envelope']);
+  // '미해결 위험' 셀은 plan body risks active 소스(여기선 risks 부재 → 0).
   const risks = cells.find(c => c.key === 'risks');
-  assert.equal(risks.value, '2');
-  assert.deepEqual(risks.items, ['lock race in pr-phase', 'secret leak in envelope']);
+  assert.equal(risks.value, '0');
+});
+
+test('dashboard — 미해결 위험 셀이 plan body risks active 소스 (rail==섹션, M5 Task 2)', () => {
+  const pb = planBodyWith([]);
+  // M5 Task 2 — risks.js 와 동일 소스(pb.risks active=미마커). severity 내림차순 top-N.
+  pb.risks = [
+    { risk: 'active-high', impact: 'High', likelihood: 'High', resolved: false, ordinal: 0 },
+    { risk: 'active-low', impact: 'Low', likelihood: 'Low', resolved: false, ordinal: 1 },
+    { risk: 'done', impact: 'High', likelihood: 'High', resolved: true, ordinal: 2 },
+  ];
+  const { cells } = renderStatusGrid(baseModel(), formatUtils, pb);
+  const risks = cells.find(c => c.key === 'risks');
+  assert.equal(risks.value, '2', 'active(미마커) 위험만 카운트');
+  assert.deepEqual(risks.items, ['active-high', 'active-low']);
+  assert.equal(risks.routeHref, '#route-risks', '위험 셀은 route 링크 보유');
 });
 
 test('dashboard — widget top-N expanded + overflow collapse (cells + md)', () => {
@@ -82,19 +101,21 @@ test('dashboard — widget top-N expanded + overflow collapse (cells + md)', () 
   assert.match(md, /\+2 더보기/, '5 items → 3 expanded + 2 collapsed (md)');
 });
 
-// ── (b) version line consumes host_version snapshot ───────────────────────────
-test('dashboard — version line consumes model.host_version snapshot (F2, reproducible)', () => {
+// ── (b) version snapshot stays on return shape, NOT in md (M5 Task 5) ──────────
+test('dashboard — version snapshot still on return shape, NOT in md (M5 Task 5)', () => {
   const { version, md } = renderStatusGrid(baseModel(), formatUtils, planBodyWith([]));
+  // M5 Task 5 — version 객체는 return shape 에 유지(F2 reproducible, footer/드로어 소비)
+  // 하나 hero/md 표면에서는 제거(footer page-foot 가 이미 version 노출 → 중복 제거).
   assert.equal(version.version, '1.18.4');
   assert.equal(version.source, 'changelog');
-  assert.match(md, /버전: myproj · v1\.18\.4 · CHANGELOG/);
+  assert.doesNotMatch(md, /버전:/);
 });
 
-test('dashboard — missing host_version degrades to honest 미상 (no false version)', () => {
+test('dashboard — missing host_version degrades to honest null on return shape (M5 Task 5)', () => {
   const model = baseModel({ host_version: undefined });
   const { version, md } = renderStatusGrid(model, formatUtils, planBodyWith([]));
   assert.equal(version.version, null);
-  assert.match(md, /버전: myproj · 미상/);
+  assert.doesNotMatch(md, /버전:/);
 });
 
 // ── (c) next-action from STATE.md nextStep blob ───────────────────────────────
@@ -137,20 +158,22 @@ function renderFull(extraState) {
   });
 }
 
-test('dashboard — hero html surfaces host-version line + named widgets + next-action command', () => {
+test('dashboard — hero html surfaces named widgets + next-action, NO hero-version (M5 Task 5)', () => {
   const r = renderFull();
   // route renamed in nav/tb-title but route id stays #route-overview.
   assert.match(r.html, /<section class="route" id="route-overview" aria-label="대시보드">/);
-  assert.match(r.html, /<p class="hero-version">myproj · v1\.18\.4 · <span class="hv-source">CHANGELOG<\/span><\/p>/);
+  // M5 Task 5 — hero-version 줄 제거.
+  assert.doesNotMatch(r.html, /class="hero-version"/);
   assert.match(r.html, /<div class="hero-widgets">/);
   assert.match(r.html, /<code>\/mccp:resume<\/code>/);
   assert.match(r.html, /data-copy="\/mccp:resume"/);
 });
 
-test('dashboard — STATUS.md plain-text equivalent carries version · widgets · next-action', () => {
+test('dashboard — STATUS.md plain-text equivalent carries widgets · next-action, NO version (M5 Task 5)', () => {
   const r = renderFull();
   assert.match(r.md, /^## 대시보드$/m);
-  assert.match(r.md, /버전: myproj · v1\.18\.4 · CHANGELOG/);
+  // M5 Task 5 — 버전 줄 md 표면 제거(footer page-foot version 유지).
+  assert.doesNotMatch(r.md, /버전:/);
   assert.match(r.md, /진행 중 \(1\): a/);
   assert.match(r.md, /다음: `\/mccp:resume`/);
 });

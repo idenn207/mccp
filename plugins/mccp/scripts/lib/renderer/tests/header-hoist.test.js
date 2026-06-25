@@ -52,17 +52,19 @@ test('topbar has breadcrumb + freshness; switcher + nav in left sidebar; status-
   assert.doesNotMatch(r.html, /class="status-strip"/);
 });
 
-test('overview hero surfaces named widgets (진행중/차단/위험 항목 이름, M2)', () => {
+test('overview hero surfaces named widgets (진행중/차단/이월/위험 항목 이름, M5 Task 2)', () => {
   const r = renderWithStubs(makeModel(Date.now(), 'v1-4-2-dashboard-overhaul'));
   const widgetsMatch = r.html.match(/<div class="hero-widgets">([\s\S]*?)<\/section>/);
   assert.ok(widgetsMatch, 'hero-widgets block exists');
   assert.match(widgetsMatch[1], /진행 중/);
   assert.match(widgetsMatch[1], /차단/);
+  // M5 Task 2 — backlog HIGH/CRIT '이월 finding' 셀 분리 명명.
+  assert.match(widgetsMatch[1], /이월 finding/);
   assert.match(widgetsMatch[1], /위험/);
   // headline — 진행중 위젯이 카운트가 아닌 in-progress plan 이름을 노출
   assert.match(widgetsMatch[1], /v1\.4\.2 · dashboard overhaul m1/);
-  // 3 named widgets
-  assert.equal((widgetsMatch[1].match(/class="hero-widget"/g) || []).length, 3);
+  // M5 Task 2 — 4 named widgets (진행중/차단/이월 finding/위험)
+  assert.equal((widgetsMatch[1].match(/class="hero-widget"/g) || []).length, 4);
 });
 
 test('html main has NO section#status (4축 hoisted to header)', () => {

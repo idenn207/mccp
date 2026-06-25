@@ -308,11 +308,8 @@ h1.verdict { margin: 0.6rem 0 0; font-size: 1.3125rem; font-weight: 600; line-he
 .axis { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--muted); }
 .axis b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 .axis b.bad { color: var(--bad); } .axis b.warn { color: var(--warn); }
-/* ── 대시보드 hero: host-version 줄 + named-widget(진행중/차단/위험 항목 이름) ── */
-.hero-version { margin: 0.85rem 0 0; font-size: 0.78rem; color: var(--muted);
-  font-variant-numeric: tabular-nums; }
-.hero-version .hv-source { color: var(--faint); }
-.hero-widgets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem 1.6rem;
+/* ── 대시보드 hero: named-widget 4종(진행중/차단/이월 finding/위험 항목 이름) ── */
+.hero-widgets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.6rem;
   margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 .hero-widget { min-width: 0; display: flex; flex-direction: column; gap: 0.5rem; }
 .hw-head { display: flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; color: var(--muted); }
@@ -322,6 +319,12 @@ h1.verdict { margin: 0.6rem 0 0; font-size: 1.3125rem; font-weight: 600; line-he
   font-size: 0.8rem; color: var(--ink-2); }
 .hw-list li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .hw-empty { margin: 0; font-size: 0.8rem; color: var(--faint); }
+/* M5 Task 6 — 위젯 overflow: route 전체보기 링크(위험) / muted +N(route 없는 위젯) */
+.hw-more { display: inline-flex; align-items: center; gap: 0.28rem; font-size: 0.78rem;
+  color: var(--muted); text-decoration: none; }
+.hw-more:hover { color: var(--ink); }
+.hw-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hw-overflow { margin: 0; font-size: 0.78rem; color: var(--faint); }
 /* ── 패널 (목적 있는 비중첩 패널 — head/body/foot anatomy) ── */
 .grid, .panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.1rem; align-items: start; }
 .span-2 { grid-column: 1 / -1; }
@@ -620,11 +623,14 @@ function panelIcon(title) {
 
 // 개요 hero 패널 (M2 샘플 fidelity) — hero-status(tone dot+라벨) + verdict(h1) +
 // action-prompt(다음 명령 복사) + axis-legend(진행/차단/다음/위험 4축 dot).
+// M5 Task 4 — neutral(in-progress 진행 톤)과 muted(진짜 idle) 라벨 분화. 이전엔 둘 다
+// '대기'라 진행 중인데도 '대기'로 보였다. neutral=진행 중(◐ in-flight plan), muted=대기
+// (no in-flight signal). amber 도 진행 톤이나 staleness/degraded 경고 맥락이라 '진행 중'.
 const HERO_STATUS = {
   green: { dot: 'dot-ok', label: '릴리스 준비됨' },
   red: { dot: 'dot-bad', label: '주의 필요' },
   amber: { dot: 'dot-warn', label: '진행 중' },
-  neutral: { dot: 'dot-mute', label: '대기' },
+  neutral: { dot: 'dot-accent', label: '진행 중' },
   muted: { dot: 'dot-mute', label: '대기' },
 };
 
@@ -645,24 +651,33 @@ function heroSourceLabel(source) {
 // named-widget — label + count + top-3 항목 이름 + 나머지 접힘(카운트 아닌 '무엇').
 // 강조색 viewport당 ≤1: 차단(>0)만 loud bad, 위험(>0) amber, 진행중 neutral.
 // 위험 항목 텍스트(backlog finding)는 renderProseHtml(H10/H16 안전) 경유.
-function heroWidget(key, cellObj, dotClass, escapeHtml, renderProseHtml, formatUtils) {
+function heroWidget(key, cellObj, dotClass, escapeHtml, escapeAttr, renderProseHtml, formatUtils) {
   const label = cellObj.label || key;
   const count = cellObj.value != null ? String(cellObj.value) : '0';
   const items = Array.isArray(cellObj.items) ? cellObj.items : [];
-  const isRisk = key === 'risks';
-  const li = (t) => '<li>' + (isRisk ? renderProseHtml(t, formatUtils) : escapeHtml(t)) + '</li>';
+  // backlog/plan-risk finding 텍스트는 inline-markdown 안전화(H10/H16).
+  const isProse = key === 'risks' || key === 'deferred';
+  const li = (t) => '<li>' + (isProse ? renderProseHtml(t, formatUtils) : escapeHtml(t)) + '</li>';
 
   let listHtml;
   if (items.length === 0) {
-    listHtml = '<p class="hw-empty">없음</p>';
+    // M5 Task 2 — 차단 0건은 '검토 충돌 없음' empty-state(의미 노출).
+    const emptyText = key === 'blocked' ? '검토 충돌 없음' : '없음';
+    listHtml = '<p class="hw-empty">' + escapeHtml(emptyText) + '</p>';
   } else {
     listHtml = '<ul class="hw-list">' + items.slice(0, 3).map(li).join('') + '</ul>';
     const overflow = items.length - 3;
     if (overflow > 0) {
-      listHtml += '<details class="more"><summary>'
-        + '<svg class="i i-sm chev" aria-hidden="true"><use href="#ic-arrow"/></svg>+'
-        + overflow + ' 더보기</summary>'
-        + '<ul class="hw-list">' + items.slice(3).map(li).join('') + '</ul></details>';
+      // M5 Task 6 — 더보기 <details> 대신 기존 route 전체보기 링크. route 가 해당 섹션
+      // 전체(full)를 렌더하므로 overflow 항목이 target HTML 에 실존(도달성, Codex F2).
+      // route 없는 위젯(진행중/이월)은 muted +N 텍스트(details 미사용).
+      if (cellObj.routeHref) {
+        listHtml += '<a class="hw-more" href="' + escapeAttr(cellObj.routeHref) + '">'
+          + '전체 보기 (+' + overflow + ')'
+          + '<svg class="i i-sm" aria-hidden="true"><use href="#ic-arrow"/></svg></a>';
+      } else {
+        listHtml += '<p class="hw-overflow">+' + overflow + '개</p>';
+      }
     }
   }
 
@@ -670,8 +685,13 @@ function heroWidget(key, cellObj, dotClass, escapeHtml, renderProseHtml, formatU
   if (key === 'blocked' && count !== '0') countClass += ' bad';
   else if (key === 'risks' && count !== '0') countClass += ' warn';
 
+  // M5 Task 2 — 차단 셀 의미 툴팁(decision-state 판정). intent 없으면 생략. title 은
+  // human-readable 이라 escapeHtml(공백 보존·따옴표 entity) — escapeAttr 는 공백을
+  // %20 URL-encode 해 "검토%20충돌" 처럼 깨진다(href 와 달리 title 은 인코딩 부적합).
+  const headTitle = cellObj.intent ? ' title="' + escapeHtml(cellObj.intent) + '"' : '';
+
   return '<div class="hero-widget">'
-    + '<div class="hw-head"><span class="dot ' + dotClass + '" aria-hidden="true"></span>'
+    + '<div class="hw-head"' + headTitle + '><span class="dot ' + dotClass + '" aria-hidden="true"></span>'
     + escapeHtml(label) + ' <span class="' + countClass + '">' + escapeHtml(count) + '</span></div>'
     + listHtml + '</div>';
 }
@@ -690,7 +710,6 @@ function renderHeroPanel(verdict, grid, projectName, escapeHtml, escapeAttr, for
   const cells = (grid && Array.isArray(grid.cells)) ? grid.cells : [];
   const cell = (key) => cells.find(c => c.key === key) || {};
   const nextAction = grid && grid.nextAction;
-  const version = grid && grid.version;
 
   // next-action — executable command(복사) | stale-label | prose | 생략(idle/대기).
   let promptHtml = '';
@@ -729,28 +748,22 @@ function renderHeroPanel(verdict, grid, projectName, escapeHtml, escapeAttr, for
     }
   }
 
-  // host-version 줄 — <project> · vX.Y.Z · <source>. 미상이면 정직 표기(F3).
-  let versionHtml = '';
-  if (version && typeof version === 'object') {
-    const inner = version.version
-      ? escapeHtml('v' + version.version) + ' · <span class="hv-source">' + escapeHtml(heroSourceLabel(version.source)) + '</span>'
-      : '<span class="hv-source">버전 미상</span>';
-    versionHtml = '<p class="hero-version">' + escapeHtml(projectName || 'mccp') + ' · ' + inner + '</p>';
-  }
-
-  // named-widget 3종 — 진행중(neutral) / 차단(loud bad) / 위험(amber).
+  // M5 Task 2 — named-widget 4종: 진행중(neutral) / 차단(loud bad, 툴팁) / 이월
+  // finding(neutral, backlog) / 위험(amber, route 링크, plan-body active 소스).
   const widgetsHtml = '<div class="hero-widgets">'
-    + heroWidget('in-progress', cell('in-progress'), 'dot-accent', escapeHtml, renderProseHtml, formatUtils)
-    + heroWidget('blocked', cell('blocked'), 'dot-bad', escapeHtml, renderProseHtml, formatUtils)
-    + heroWidget('risks', cell('risks'), 'dot-warn', escapeHtml, renderProseHtml, formatUtils)
+    + heroWidget('in-progress', cell('in-progress'), 'dot-accent', escapeHtml, escapeAttr, renderProseHtml, formatUtils)
+    + heroWidget('blocked', cell('blocked'), 'dot-bad', escapeHtml, escapeAttr, renderProseHtml, formatUtils)
+    + heroWidget('deferred', cell('deferred'), 'dot-mute', escapeHtml, escapeAttr, renderProseHtml, formatUtils)
+    + heroWidget('risks', cell('risks'), 'dot-warn', escapeHtml, escapeAttr, renderProseHtml, formatUtils)
     + '</div>';
 
+  // M5 Task 5 — hero-version 줄 제거(footer page-foot 가 version 노출 → hero 표면
+  // 중복 제거). provenance 필요 시 드로어/footer 위임.
   return '<section class="hero-panel' + (attention ? ' attention' : '') + '" aria-label="판정">'
     + '<span class="hero-status"><span class="dot ' + status.dot + '" aria-hidden="true"></span>'
     + escapeHtml(status.label) + '</span>'
     + '<h1 class="verdict s-' + escapeHtml(verdict.tone) + '">' + safeText + '</h1>'
     + promptHtml
-    + versionHtml
     + widgetsHtml
     + '</section>';
 }
@@ -933,7 +946,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.8 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.9 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.

@@ -24,6 +24,16 @@ function planSlug(plan) {
   return '(unknown)';
 }
 
+// M5 Task 3 — Hero h1 요약체 cap. intent 자동추출이 길면 잘림(말줄임은 드로어/route
+// 위임). 문자열 codepoint 기준 cap(한글 깨짐 방지) — character-aware slice.
+const INTENT_CAP = 72;
+function capIntent(s) {
+  const str = String(s == null ? '' : s).trim();
+  const chars = Array.from(str);
+  if (chars.length <= INTENT_CAP) return str;
+  return chars.slice(0, INTENT_CAP - 1).join('') + '…';
+}
+
 function computeVerdict(model, planBody, opts) {
   const m = model || {};
   const sources = m.sources || {};
@@ -118,39 +128,38 @@ function computeVerdict(model, planBody, opts) {
     const st = basename ? staleness.get(basename) : undefined;
     return st !== 'stale';
   });
-  const allInProgressStale = inProgressPlans.length > 0 && freshInProgress.length === 0;
 
-  if (backlogCount > 0) {
-    if (allInProgressStale) {
+  // M5 Task 3 — fresh in-progress plan 을 backlog-deferred 보다 우선. Hero h1 은
+  // "현재 작업"을 가리켜야 하며 backlog-deferred 는 '이월 finding' 셀로만 노출(숨김 아닌
+  // 이동). 이전엔 backlog 분기가 앞서 in-progress 가 있어도 "N findings deferred"를
+  // 보였다. 요약체(intent 우선, 길면 cap) — 말줄임은 드로어/route 위임.
+  if (freshInProgress.length > 0) {
+    const nextPlan = freshInProgress[0];
+    const intent = computeIntentForNextPlan(nextPlan, opts);
+    const focus = intent ? capIntent(intent) : planSlug(nextPlan);
+    return { tone: 'neutral', icon: '◐', text: '현재 작업: ' + focus };
+  }
+
+  // fresh in-progress 가 없을 때만 backlog/stale 신호를 surface. in-progress 가 전부
+  // stale 이면 진행 신호가 약함(amber 경고 톤).
+  if (inProgressPlans.length > 0) {
+    if (backlogCount > 0) {
       return {
         tone: 'amber', icon: '⚠',
         text: backlogCount + ' findings deferred · 다음 미정 (in-progress plan stale)',
       };
     }
-    const nextPlan = freshInProgress[0] || null;
-    const nextSlug = nextPlan ? planSlug(nextPlan) : '(none)';
-    const intent = nextPlan ? computeIntentForNextPlan(nextPlan, opts) : null;
-    const suffix = intent ? ' — ' + intent : '';
     return {
-      tone: 'neutral', icon: '·',
-      text: backlogCount + ' findings deferred · next: ' + nextSlug + suffix,
+      tone: 'amber', icon: '⚠',
+      text: inProgressPlans.length + ' plans active · 다음 미정 (stale)',
     };
   }
 
-  if (inProgressPlans.length > 0) {
-    if (allInProgressStale) {
-      return {
-        tone: 'amber', icon: '⚠',
-        text: inProgressPlans.length + ' plans active · 다음 미정 (stale)',
-      };
-    }
-    const nextPlan = freshInProgress[0];
-    const nextSlug = planSlug(nextPlan);
-    const intent = computeIntentForNextPlan(nextPlan, opts);
-    const suffix = intent ? ' — ' + intent : '';
+  // 활성 plan 없음 + backlog 만 → 이월 finding 있으나 진행 작업 없음(대기, 다음 선택).
+  if (backlogCount > 0) {
     return {
-      tone: 'neutral', icon: '◐',
-      text: freshInProgress.length + ' plans active · next: ' + nextSlug + suffix,
+      tone: 'muted', icon: '·',
+      text: backlogCount + ' findings deferred · 다음 마일스톤 선택',
     };
   }
 

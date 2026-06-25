@@ -822,10 +822,12 @@ test('M4 — 타임라인 더보기 + 복사 affordance surface design-lint clea
   const html = '<!doctype html><html><body>' + tl.html + risk.html + oq.html + '</body></html>';
   const md = [tl.md, risk.md, oq.md].join('\n\n');
   const r = runOutputConstraints({ css: BASELINE_CSS, html, md });
-  // marker-free 입력 → 어떤 H 규칙도 fire 안 함(li-action/audit-notes/details 무해).
+  // marker-free 입력 → 어떤 H 규칙도 fire 안 함(li-action/audit-notes/full <ol> 무해).
   assert.deepEqual(r.violations, [], 'M4 surface 위반 0: ' + JSON.stringify(r.violations));
-  // 더보기(Constraint 4) + 복사 affordance(li-action) + 각주 컨테이너 present.
-  assert.match(html, /<details class="more">/);
+  // M5 Task 6 — html 은 full mode(더보기 <details> 제거), md 가 <details> 접힘 유지.
+  assert.ok(!html.includes('<details class="more">'), 'html 더보기 제거(full mode)');
+  assert.match(md, /<details>/);
+  // 복사 affordance(li-action) + 각주 컨테이너 present.
   assert.match(html, /class="li-action"/);
   assert.match(html, /<ul class="audit-notes">/);
 });

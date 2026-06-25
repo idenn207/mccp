@@ -92,7 +92,7 @@ test('step 8 — alive workers', () => {
   assert.match(v.text, /1 worker\(s\) alive · 1 terminal/);
 });
 
-test('step 9 — backlog with in-progress plan slug', () => {
+test('step 9 — fresh in-progress wins over backlog-deferred (M5 Task 3 reorder)', () => {
   const v = computeVerdict(
     {
       sources: {
@@ -102,10 +102,13 @@ test('step 9 — backlog with in-progress plan slug', () => {
     },
     { planStatuses: new Map([['foo.plan.md', 'in-progress']]) },
   );
-  assert.match(v.text, /5 findings deferred · next: foo/);
+  // M5 Task 3 — backlog 가 있어도 fresh in-progress plan 이 Hero h1 을 차지(현재 작업
+  // 우선). backlog 는 '이월 finding' 셀로만 노출(숨김 아닌 이동).
+  assert.equal(v.tone, 'neutral');
+  assert.match(v.text, /현재 작업: foo/);
 });
 
-test('step 10 — in-progress plans active', () => {
+test('step 10 — fresh in-progress → 현재 작업 (M5 Task 3 reorder)', () => {
   const v = computeVerdict(
     {
       sources: {
@@ -116,7 +119,7 @@ test('step 10 — in-progress plans active', () => {
     { planStatuses: new Map([['a.plan.md', 'in-progress'], ['b.plan.md', 'in-progress']]) },
   );
   assert.equal(v.tone, 'neutral');
-  assert.match(v.text, /2 plans active · next: a/);
+  assert.match(v.text, /현재 작업: a/);
 });
 
 test('step 11 — idle fallback (impeccable P2: not bare "idle")', () => {

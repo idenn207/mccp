@@ -55,23 +55,27 @@ test('Risk 4-part HTML — sev tag + mitigation + dedupe cue + action prompt + c
   assert.ok(html.includes('data-copy="'), 'risk data-copy attr present');
 });
 
-test('3 expanded + details collapse — OQ', () => {
+test('full mode (route) — OQ html shows all active, md keeps details (M5 Task 6)', () => {
   const stateOQ = [];
   for (let i = 0; i < 7; i++) stateOQ.push('q' + i);
   const model = { sources: { state: { item: { body: { open_questions: stateOQ } } } } };
-  const { html } = renderOpenQuestions(model, formatUtils, {});
-  assert.ok(html.includes('<details class="more">'));
-  assert.ok(html.includes('+4 더보기'));
+  const { html, md } = renderOpenQuestions(model, formatUtils, {});
+  // M5 Task 6 — route(#route-questions) full mode: html 은 캡 없이 모든 active 노출(더보기 제거).
+  assert.ok(!html.includes('<details class="more">'), 'html 더보기 <details> 제거');
+  assert.ok(html.includes('q6'), '7번째 항목도 html 에 실존(도달성, Codex F2)');
+  // md 는 top-3 + <details> 유지(plain-text 도달성).
+  assert.ok(md.includes('<details>') && md.includes('+4 더보기'), 'md 더보기 유지');
 });
 
-test('3 expanded + details collapse — Risks', () => {
+test('full mode (route) — Risks html shows all active, md keeps details (M5 Task 6)', () => {
   const risks = [];
   for (let i = 0; i < 7; i++) {
     risks.push({ risk: 'r' + i, impact: 'Low', likelihood: 'Low' });
   }
-  const { html } = renderRisks({ sources: {} }, formatUtils, { risks });
-  assert.ok(html.includes('<details class="more">'));
-  assert.ok(html.includes('+4 더보기'));
+  const { html, md } = renderRisks({ sources: {} }, formatUtils, { risks });
+  assert.ok(!html.includes('<details class="more">'), 'html 더보기 <details> 제거');
+  assert.ok(html.includes('r6'), '7번째 항목도 html 에 실존(도달성, Codex F2)');
+  assert.ok(md.includes('<details>') && md.includes('+4 더보기'), 'md 더보기 유지');
 });
 
 test('markdown 4-part sub-list — severity + meta-cue + action prompt', () => {

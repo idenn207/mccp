@@ -248,16 +248,17 @@ test('M4 decision 전체 표시: tail 중간잘림 제거, full id + title (진�
 
 // ── v1.18.7 M4 — 더보기(top-N + <details>) headline 회귀 ──
 
-test('M4 더보기: 상위 TIMELINE_EXPANDED expanded <ol> + 나머지 <details class="more">+N 더보기', () => {
+test('full mode timeline: 단일 <ol> 전체 행(더보기 제거) + md <details> 유지 (M5 Task 6)', () => {
   assert.equal(TIMELINE_EXPANDED, 8);
   const now = Date.UTC(2026, 5, 18);
-  const items = makeLiveRows(12, now); // 12 ≤ MAX_ROWS_LIVE → 8 expanded + 4 collapsed
+  const items = makeLiveRows(12, now); // 12 ≤ MAX_ROWS_LIVE
   const { html, md } = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
-  // 모든 12행 렌더(접힘 포함).
+  // 모든 12행 렌더(단일 <ol>).
   assert.equal(count(html, 'class="audit-row"'), 12, '12 audit-row 전부 렌더');
-  // 메인 <ol> + collapsed <details><ol> = 두 timeline <ol>.
-  assert.equal(count(html, '<ol class="timeline">'), 2, 'expanded <ol> + collapsed <ol>');
-  assert.match(html, /<details class="more"><summary>.*?\+4 더보기<\/summary>/s, 'html +4 더보기');
+  // M5 Task 6 — full mode: 단일 timeline <ol>(더보기 <details><ol> 제거).
+  assert.equal(count(html, '<ol class="timeline">'), 1, '단일 <ol>(full mode)');
+  assert.ok(!html.includes('<details class="more">'), 'html 더보기 <details> 제거');
+  // md 는 top-N + <details> 접힘 유지(plain-text 도달성).
   assert.match(md, /<details>\n<summary>\+4 더보기<\/summary>/, 'md +4 더보기 접힘');
 });
 
@@ -268,31 +269,31 @@ test('M4 더보기 detailMap: expanded/collapsed 무관 모든 렌더 행에 det
   assert.equal(details.size, 12, '12 행 모두 drawer detail(접힘 행 포함)');
 });
 
-test('M4 boundary connector (Codex R1 F1): 글로벌 마지막 행만 connector 생략, 마지막 expanded 유지', () => {
+test('full mode connector: 글로벌 마지막 행만 connector 생략 (M5 Task 6)', () => {
   const now = Date.UTC(2026, 5, 18);
-  const items = makeLiveRows(12, now); // 8 expanded + 4 collapsed
+  const items = makeLiveRows(12, now);
   const { html } = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
-  // connector(audit-line) 는 12행 중 글로벌 마지막 1개만 생략 → 11개.
+  // connector(audit-line) 는 12행 중 글로벌 마지막 1개만 생략 → 11개. 단일 <ol> 합치기
+  // 후에도 isLast/connector 가 글로벌 시퀀스 기준이라 rail 연속성 유지.
   assert.equal(count(html, 'class="audit-line"'), 11, '글로벌 마지막만 connector 생략');
-  // 마지막 expanded 행은 메인 <ol> 안 → 그 부분의 connector 가 살아있어야 한다.
-  const expandedPart = html.slice(0, html.indexOf('<details'));
-  assert.equal(count(expandedPart, 'class="audit-row"'), 8, '메인 <ol> 8행');
-  assert.equal(count(expandedPart, 'class="audit-line"'), 8, '8 expanded 행 connector 전부 유지(글로벌 마지막 아님)');
+  assert.equal(count(html, 'class="audit-row"'), 12, '단일 <ol> 12행');
 });
 
-test('M4 각주 순서(Codex R1 F1): cap 초과 +N older 가 collapsed <details> 뒤 <ul class="audit-notes">', () => {
+test('full mode 각주 순서: +N older 가 단일 <ol> 뒤 <ul class="audit-notes"> (M5 Task 6)', () => {
   const now = Date.UTC(2026, 5, 18);
   const items = makeLiveRows(25, now); // 20 shown(8+12) + 5 older
   const { html, md } = renderAuditTimeline({ sources: { receipts: { items } } }, formatUtils, now);
-  assert.match(html, /\+12 더보기/, '12 collapsed → +12 더보기');
+  // M5 Task 6 — html full mode: 더보기 제거. md 가 +12 더보기 접힘 유지.
+  assert.ok(!html.includes('<details class="more">'), 'html 더보기 <details> 제거');
+  assert.match(md, /\+12 더보기/, 'md 12 collapsed → +12 더보기');
   assert.match(html, /<ul class="audit-notes">/, '각주 별도 <ul> 컨테이너');
   assert.match(html, /<li class="audit-note muted"><em>\+5 older<\/em><\/li>/, '+5 older 각주');
-  // 순서: </details> → <ul class="audit-notes"> → +5 older (collapsed 행보다 뒤).
-  const idxDetailsEnd = html.indexOf('</details>');
+  // 순서: </ol> → <ul class="audit-notes"> → +5 older.
+  const idxOlEnd = html.lastIndexOf('</ol>');
   const idxNotes = html.indexOf('<ul class="audit-notes">');
   const idxOlder = html.indexOf('+5 older');
-  assert.ok(idxDetailsEnd !== -1 && idxNotes > idxDetailsEnd, '각주 <ul> 은 </details> 뒤');
-  assert.ok(idxOlder > idxNotes, '+5 older 는 audit-notes 안(collapsed 뒤)');
+  assert.ok(idxOlEnd !== -1 && idxNotes > idxOlEnd, '각주 <ul> 은 </ol> 뒤');
+  assert.ok(idxOlder > idxNotes, '+5 older 는 audit-notes 안');
   // md 도 각주가 접힘 <details> 뒤.
   assert.ok(md.indexOf('+5 older') > md.indexOf('</details>'), 'md 각주 접힘 뒤');
 });

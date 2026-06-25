@@ -119,7 +119,11 @@ function cmdRender(rest) {
   }
   let model;
   try {
-    model = derive(cwd, { raw: wantRaw, strict: !!rest.strict });
+    // dashboard-multi-session M1 (Codex F1) — render is the dashboard's default
+    // entry, so opt the worktree scanner IN here. Without this the default-off
+    // scanner would make the multi-session surface permanently invisible. bare
+    // derive() (run / validate / perf-budget) stays default-off → spawn-free.
+    model = derive(cwd, { raw: wantRaw, strict: !!rest.strict, worktreeScan: true });
   } catch (err) {
     process.stderr.write('[mccp:derive:render] ERROR derive failed: ' + err.message + '\n');
     return 1;

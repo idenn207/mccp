@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 const { derive } = require('../index');
-const { maskModel, applyPathMask, maskPath } = require('../mask');
+const { maskModel, applyPathMask, maskPath, scrubAbsPaths } = require('../mask');
 const { tmpRepo, cleanup, gitInit, writeJson } = require('./helpers');
 
 function writeAReceipt(root) {
@@ -181,4 +181,58 @@ test('mask: maskModel is idempotent', () => {
   } finally {
     cleanup(root);
   }
+});
+
+// ── scrubAbsPaths (dashboard-multi-session M1, review M3) ─────────────────────
+// scrubAbsPaths is the privacy-critical scrubber for free-form fs/git error +
+// warning strings (the worktrees scanner's fail-open paths). Its regex carries
+// two subtle invariants the comment claims but the end-to-end applyPathMask
+// tests never isolate: (1) outside-root abs/drive/UNC tokens get placeholdered,
+// (2) URL schemes and bare relative fragments are NOT mistaken for paths.
+// Synthetic platform-native roots — no fs (scrubAbsPaths/maskPath are pure).
+
+test('scrubAbsPaths: outside-root abs path embedded in error → placeholdered, parent not leaked', () => {
+  const root = path.resolve(__dirname, 'fixture-root');
+  const sibling = path.join(path.dirname(root), 'sibling', '.claude', 'state', 'STATE.md');
+  const err = "ENOENT: no such file or directory, open '" + sibling + "'";
+  const scrubbed = scrubAbsPaths(err, root);
+  assert.ok(scrubbed.indexOf(path.dirname(root)) === -1,
+    'parent dir not leaked: ' + scrubbed);
+  assert.ok(scrubbed.indexOf('<outside-repo:') !== -1, 'placeholder present: ' + scrubbed);
+});
+
+test('scrubAbsPaths: inside-root abs path → collapsed to relative, no placeholder', () => {
+  const root = path.resolve(__dirname, 'fixture-root');
+  const inside = path.join(root, '.claude', 'state', 'STATE.md');
+  const scrubbed = scrubAbsPaths('read ' + inside, root);
+  assert.ok(scrubbed.indexOf('<outside-repo:') === -1, 'inside-root not placeholdered');
+  assert.ok(scrubbed.indexOf(root) === -1, 'absolute root prefix stripped: ' + scrubbed);
+  assert.ok(scrubbed.indexOf('.claude/state/STATE.md') !== -1,
+    'collapsed to posix relative: ' + scrubbed);
+});
+
+test('scrubAbsPaths: UNC path → placeholdered, raw share not leaked', () => {
+  const root = path.resolve(__dirname, 'fixture-root');
+  const scrubbed = scrubAbsPaths('open \\\\server\\share\\file.txt now', root);
+  assert.ok(scrubbed.indexOf('\\\\server') === -1, 'raw UNC share not leaked: ' + scrubbed);
+  assert.ok(scrubbed.indexOf('<outside-repo:') !== -1, 'UNC placeholdered: ' + scrubbed);
+});
+
+test('scrubAbsPaths: URL schemes preserved (not mistaken for UNC/path)', () => {
+  const root = path.resolve(__dirname, 'fixture-root');
+  const input = 'see https://example.com/pull/42 and http://host/x for details';
+  assert.strictEqual(scrubAbsPaths(input, root), input, 'URLs untouched');
+});
+
+test('scrubAbsPaths: bare relative fragments preserved', () => {
+  const root = path.resolve(__dirname, 'fixture-root');
+  const input = 'edited derive/x.js and lib/y.js (and/or others)';
+  assert.strictEqual(scrubAbsPaths(input, root), input, 'relative fragments untouched');
+});
+
+test('scrubAbsPaths: non-string / empty → returned as-is', () => {
+  const root = path.resolve(__dirname, 'fixture-root');
+  assert.strictEqual(scrubAbsPaths('', root), '');
+  assert.strictEqual(scrubAbsPaths(null, root), null);
+  assert.strictEqual(scrubAbsPaths(42, root), 42);
 });

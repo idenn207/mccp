@@ -312,3 +312,61 @@ Shape:
 5. all miss → `{ version: null, source: 'unknown' }` (honest '미상').
 
 `source` is always surfaced so a meta ↔ CHANGELOG disagreement is verifiable (meta wins; the label exposes which signal was used). validateShape present-only enforces the object shape ([`derive/tests/schema-drift.test.js`](../../plugins/mccp/scripts/derive/tests/schema-drift.test.js)). Consumed by `renderer/sections/status-grid.js` (version line) — see [dashboard-surface.md §2](./dashboard-surface.md).
+
+## 13 — Worktree progress source (dashboard-multi-session M1)
+
+`model.sources.worktrees` is an **additive count-source** that surfaces *live* cross-worktree progress: `derive/sources/worktrees.js#scanWorktrees` enumerates `git worktree list --porcelain` and reads each worktree's **working-tree** `.claude/` (STATE.md + receipts) directly, so a dashboard opened from the parent repo or any sibling worktree sees every active worktree's progress — including uncommitted state (gitignore-agnostic). Read-only, dep-free, loud fail-open. `MODEL_VERSION` stays `v1` (additive; M2-and-later consumers tolerate absence + missing optional fields).
+
+**Spawn gate (perf budget).** `derive()` is contracted spawn-free, so the git spawn sits behind an opt-in gate mirroring `host-version.js`'s `allowGit`: bare `derive()` (validate / `run` / perf-budget) leaves it OFF (no spawn, `scanned:false`); render callers opt IN (`cli.js render` + `renderer/trigger.js` pass `worktreeScan:true` — Codex F1, so the dashboard's default path fills the surface instead of leaving it permanently invisible). Operator override: `MCCP_MULTI_SESSION_SCAN=1` forces on, `=0` is a kill-switch that overrides even the render opt-in. Cap via `MCCP_WORKTREE_SCAN_CAP` (default 20, `truncated:true` + warning — no silent cap). When the cap truncates, the `is_self` worktree is always retained (swapped into the last kept slot if it sorts past the cap) so the dashboard's anchor row never vanishes; the primary `is_main` row stays at the front for any cap ≥ 2. Recency window via `MCCP_WORKTREE_ACTIVE_DAYS` (default 14).
+
+Source shape (count-source + scanner-specific fields merged at derive time):
+
+```jsonc
+"worktrees": {
+  "ok": true,
+  "count": 3,                 // processed (non-bare) worktree rows
+  "items": [ /* see below */ ],
+  "invalid_count": 1,         // degraded item rows
+  "degraded": false,          // any item degraded OR spawn failed
+  "error": null,              // string|null — spawn failure (path-scrubbed)
+  "scanned": true,            // false on gate-off no-op (no spawn happened)
+  "self_path": "<repo>",      // path of the is_self worktree (masked) | null
+  "truncated": false,         // true when worktree count > cap
+  "warning": "…"              // present only when truncated (surfaced as low warning)
+}
+```
+
+Per-worktree item shape:
+
+```jsonc
+{
+  "path": "<outside-repo:wt-a>",  // masked: inside-root → relative, sibling/parent → placeholder
+  "branch": "feature-a",          // raw (ledger git_branch precedent); null when detached
+  "head": "abc123…",              // raw sha
+  "detached": false, "locked": false, "prunable": false,
+  "is_self": false,               // exactly one true (path === repoRoot); 0 → silent degrade
+  "is_main": false,               // first non-bare worktree (git lists primary first)
+  "state_present": true,          // STATE.md exists (diagnostic — NOT readState-swallowed)
+  "state_parseable": true,        // parseStateMd succeeded (false + present → corrupt, Codex F3)
+  "milestone_hint": "M1 scanner", // STATE.md body goal/inProgress first line (authority: STATE)
+  "state_last_updated": "…",      // STATE.md frontmatter updated_at
+  "current_gate": "mccp-plan-codex",  // latest receipt gate_id (authority: receipt)
+  "gate_converged": true,         // latest receipt resolution.converged | null
+  "receipts": 2,                  // receipt file count
+  "blocked": false,               // non-converged receipt OR fix-task.md OR advisory receipt
+  "blocked_reason": null,         // one-line reason | 'state-unparseable' | 'state-unreadable'
+  "last_activity": "…",           // max(STATE mtime, latest receipt mtime) ISO | null
+  "has_signal": true,             // state_present || receipts > 0
+  "active": true,                 // has_signal && last_activity within ACTIVE_DAYS
+  "degraded": false,
+  "error": null                   // string|null — read failure (path-scrubbed)
+}
+```
+
+**Authority split (PRD OQ#3).** `milestone_hint` comes from STATE.md (git-tracked, trusted); `current_gate`/`blocked` come from the latest receipt (detailed, freshest). Different axes — not a conflict.
+
+**Diagnostic STATE read (Codex F3).** `stateWriter.readState` swallows missing / unreadable / unparseable / version-mismatch all into `emptyState()`, so a corrupt STATE would masquerade as "absent" (loud fail-open violation). The scanner instead does `existsSync` (genuine absence) → raw read + `parseStateMd`; a present-but-unparseable STATE keeps its row (`degraded:true`, `blocked_reason='state-unparseable'`) so receipts and other signals survive.
+
+**Path-leak scrub (Codex F2).** fs/git error and warning strings from cross-worktree reads routinely embed sibling/parent absolute paths that `applyPathMask`'s root-substring replace misses. `derive/mask.js#scrubAbsPaths` runs every path-like token through `maskPath` (inside-root → relative, outside-root → `<outside-repo:basename>`); the scanner calls it at emit time and `applyPathMask` re-applies it (defense in depth) to `items[].error` + source `error`, plus `maskPath` on `items[].path` + `self_path`. `branch`/`head`/`milestone_hint` stay raw.
+
+**Role split vs ledger (PRD OQ#6).** M1 emits *live* active worktrees only; the completion ledger (§11) owns *completed* history. M2 owns the UI juxtaposition/visual distinction. No merge logic in M1.

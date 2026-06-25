@@ -7,6 +7,10 @@ const os = require('node:os');
 const path = require('node:path');
 const { derive } = require('../../../derive');
 const { renderStatus } = require('../index');
+const { parsePlanBody } = require('../parsers/plan-body');
+const { renderStatusGrid } = require('../sections/status-grid');
+const { renderRisks } = require('../sections/risks');
+const formatUtils = require('../format-utils');
 
 function mkFsFixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-render-int-'));
@@ -130,5 +134,60 @@ test('render-integration — controller_active + envelopes empty triggers F3 amb
     const r = renderStatus(model, { cwd: root });
     assert.equal(typeof r.verdict, 'object');
     assert.ok(['amber', 'red', 'green', 'neutral', 'muted'].includes(r.verdict.tone));
+  } finally { rmFixture(root); }
+});
+
+// ── M8: 위험 lifecycle-scope reconcile invariant ──────────────────────────────
+function mkRiskLifecycleFixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-m8-int-'));
+  const claude = path.join(root, '.claude');
+  fs.mkdirSync(path.join(claude, 'plans'), { recursive: true });
+  fs.mkdirSync(path.join(claude, 'prds'), { recursive: true });
+  fs.mkdirSync(path.join(claude, 'state'), { recursive: true });
+
+  // PRD: a.plan.md=complete(→ 출처 위험 historical), b.plan.md=in-progress(→ active).
+  fs.writeFileSync(path.join(claude, 'prds', 'demo.prd.md'),
+    '# Demo PRD\n\n## Delivery Milestones\n\n| # | M | O | Status | Plan |\n|---|---|---|---|---|\n'
+    + '| 0 | A | x | complete | [a.plan.md](../plans/a.plan.md) |\n'
+    + '| 1 | B | y | in-progress | [b.plan.md](../plans/b.plan.md) |\n');
+
+  fs.writeFileSync(path.join(claude, 'plans', 'a.plan.md'),
+    '# A\n\n**Source PRD**: [demo.prd.md](../prds/demo.prd.md)\n\n## Summary\n\nShipped.\n\n'
+    + '## Risks\n\n| Risk | Likelihood | Impact | Mitigation |\n|---|---|---|---|\n'
+    + '| historical-from-complete | High | High | m |\n');
+  fs.writeFileSync(path.join(claude, 'plans', 'b.plan.md'),
+    '# B\n\n**Source PRD**: [demo.prd.md](../prds/demo.prd.md)\n\n## Summary\n\nLive.\n\n'
+    + '## Risks\n\n| Risk | Likelihood | Impact | Mitigation |\n|---|---|---|---|\n'
+    + '| live-from-inprogress | High | High | m |\n');
+  return root;
+}
+
+test('render-integration — rail==section==md 위험 reconcile + verdict 불변 (M8)', () => {
+  const root = mkRiskLifecycleFixture();
+  try {
+    const model = derive(root);
+    const pb = parsePlanBody(model, { cwd: root });
+    // 출처 plan lifecycle 스탬프 확인: complete plan 위험은 historical, in-progress 는 active.
+    const hist = pb.risks.find(r => r.risk === 'historical-from-complete');
+    const live = pb.risks.find(r => r.risk === 'live-from-inprogress');
+    assert.ok(hist && hist.sourceClosed === true, 'complete plan 위험 → sourceClosed');
+    assert.ok(live && live.sourceClosed === false, 'in-progress plan 위험 → active');
+
+    // reconcile invariant — rail 위험 셀 value === renderRisks activeCount.
+    const grid = renderStatusGrid(model, formatUtils, pb);
+    const riskCell = grid.cells.find(c => c.key === 'risks');
+    const risksSection = renderRisks(model, formatUtils, pb);
+    assert.equal(Number(riskCell.value), risksSection.activeCount,
+      'rail 위험 셀 == 섹션 activeCount');
+    assert.equal(risksSection.activeCount, 1, 'active = live-from-inprogress 만(historical 제외)');
+    // rail items 도 동일 SSoT(active 만).
+    assert.deepEqual(riskCell.items, ['live-from-inprogress']);
+
+    // full render — verdict tone 은 historical 위험에 영향받지 않고 정상 enum.
+    const r = renderStatus(model, { cwd: root });
+    assert.ok(['amber', 'red', 'green', 'neutral', 'muted'].includes(r.verdict.tone));
+    // md 위험 위젯도 historical 을 본문 노출하지 않음(접힘 보관됨으로만).
+    assert.equal(/historical-from-complete/.test(risksSection.md.split('보관됨')[0]), false,
+      'historical 위험은 md 본문 미노출');
   } finally { rmFixture(root); }
 });

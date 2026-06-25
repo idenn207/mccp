@@ -190,11 +190,13 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
 
   // M5 Task 2 — '미해결 위험' = 위험 섹션과 동일 소스(plan body risks, active=미마커).
   // rail 카운트가 risks.js activeCount 와 같은 pb.risks 를 filter 하므로 정합(rail==섹션).
-  // severity 내림차순 top-N 으로 hero 위젯이 섹션 top-3 와 같은 항목을 보인다. (위험
-  // 섹션 자체의 historical-risk lifecycle scope 는 M6 backlog 이월 — Codex F4.)
+  // severity 내림차순 top-N 으로 hero 위젯이 섹션 top-3 와 같은 항목을 보인다.
+  // M8 — historical-risk lifecycle scope 종료(이전 M6 backlog 이월, Codex F4). active
+  // 정의가 risks.js 와 동일(!resolved && !sourceClosed)이라 완료/은퇴 plan 출처
+  // 미마커 위험이 rail 셀에서도 제외 → rail==섹션 reconcile 유지.
   const allRisks = Array.isArray(pb.risks) ? pb.risks : [];
   const activeRisks = allRisks
-    .filter(r => r && !r.resolved)
+    .filter(r => r && !r.resolved && !r.sourceClosed)
     .slice()
     .sort((a, b) => riskSevRank(b) - riskSevRank(a));
   const risksOpen = activeRisks.length;

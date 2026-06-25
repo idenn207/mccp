@@ -86,6 +86,21 @@ test('dashboard — 미해결 위험 셀이 plan body risks active 소스 (rail=
   assert.equal(risks.routeHref, '#route-risks', '위험 셀은 route 링크 보유');
 });
 
+test('dashboard — 미해결 위험 셀이 sourceClosed 제외 (rail==섹션, M8)', () => {
+  const pb = planBodyWith([]);
+  // M8 — active 정의가 risks.js 와 동일(!resolved && !sourceClosed). 완료 plan 출처
+  // 미마커 위험(sourceClosed)은 rail 셀에서도 제외 → live-high 만 집계.
+  pb.risks = [
+    { risk: 'live-high', impact: 'High', likelihood: 'High', resolved: false, sourceClosed: false, ordinal: 0 },
+    { risk: 'historical', impact: 'High', likelihood: 'High', resolved: false, sourceClosed: true, ordinal: 1 },
+    { risk: 'mitigated', impact: 'High', likelihood: 'High', resolved: true, sourceClosed: false, ordinal: 2 },
+  ];
+  const { cells } = renderStatusGrid(baseModel(), formatUtils, pb);
+  const risks = cells.find(c => c.key === 'risks');
+  assert.equal(risks.value, '1', 'active(미마커 + 미완료) 위험만 카운트');
+  assert.deepEqual(risks.items, ['live-high']);
+});
+
 test('dashboard — widget top-N expanded + overflow collapse (cells + md)', () => {
   const plans = [];
   const statuses = [];

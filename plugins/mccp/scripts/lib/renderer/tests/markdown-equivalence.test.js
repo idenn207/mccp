@@ -296,7 +296,7 @@ test('full render — production md 에 placeholder/더미 0건', () => {
 
 // ── (5) M3 해결 접힘 + lifecycle 토글 html↔md 동등 ──────────────────────────
 
-test('M3-b — risks active/완화됨 탭(html) ↔ 완화됨 N건 접힘(md) 정보 동등', () => {
+test('M3-b — risks active/해결됨 탭(html) ↔ 해결됨 N건 접힘(md) 정보 동등', () => {
   const planBody = {
     risks: [
       { risk: 'active-r', likelihood: 'High', impact: 'High', mitigation: 'm', source: 'p', ordinal: 0, resolved: false },
@@ -304,9 +304,9 @@ test('M3-b — risks active/완화됨 탭(html) ↔ 완화됨 N건 접힘(md) �
     ],
   };
   const { md, html } = renderRisks({ sources: {} }, formatUtils, planBody);
-  // html — 완화됨 탭(label+count). md — plain-text 완화됨 N건 접힘(탭 부적합 → details).
-  assert.match(html, /완화됨 <span class="tab-count">1<\/span>/);
-  assert.match(md, /완화됨 1건/);
+  // html — 해결됨 탭(label+count). md — plain-text 해결됨 N건 접힘(탭 부적합 → details).
+  assert.match(html, /해결됨 <span class="tab-count">1<\/span>/);
+  assert.match(md, /해결됨 1건/);
   // 양쪽 모두 active + resolved 항목 텍스트를 담음(정보 동등).
   assert.ok(html.includes('active-r') && md.includes('active-r'));
   assert.ok(html.includes('done-r') && md.includes('done-r'));

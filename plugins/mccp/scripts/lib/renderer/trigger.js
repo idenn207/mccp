@@ -283,7 +283,10 @@ function triggerRender(reason, opts) {
         }
         const deriveImpl = opts.deriveImpl || require('../../derive').derive;
         const renderImpl = opts.renderImpl || require('./index').renderStatus;
-        model = deriveImpl(repoRoot);
+        // dashboard-multi-session M1 (Codex F1) — auto-refresh is a render
+        // entry, so opt the worktree scanner IN (mirrors cli.js render). bare
+        // derive() stays default-off for the spawn-free perf-budget path.
+        model = deriveImpl(repoRoot, { worktreeScan: true });
         rendered = renderImpl(model, { snapshotsDir: path.join(cacheDir, 'snapshots') });
       } catch (err) {
         stderr('[mccp:renderer-trigger] reason=' + reason

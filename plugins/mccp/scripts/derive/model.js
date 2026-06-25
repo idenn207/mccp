@@ -7,6 +7,7 @@
 //   M5: receipts.items[].receipt_hash (optional)
 //   dashboard-truthfulness M1: sources.ledger (additive count-source)
 //   dashboard-truthfulness M2: host_version (additive top-level object)
+//   dashboard-multi-session M1: sources.worktrees (additive count-source)
 // Consumers MUST tolerate missing optional fields (null fallback). A bump
 // would force receipt-side migration which the additive surface avoids.
 const MODEL_VERSION = 'v1';
@@ -30,6 +31,10 @@ function emptyModel(repoRoot) {
       pr:        { ok: true, item: null,                           degraded: false, error: null },
       envelopes: { ok: true, count: 0, items: [], invalid_count: 0, degraded: false, error: null },
       ledger:    { ok: true, count: 0, items: [], invalid_count: 0, degraded: false, error: null },
+      // dashboard-multi-session M1 — live cross-worktree progress scanner.
+      // Additive count-source; scanned/self_path/truncated are merged in by the
+      // scanner at derive time (gate-off no-op leaves scanned:false).
+      worktrees: { ok: true, count: 0, items: [], invalid_count: 0, degraded: false, error: null },
     },
     // dashboard-truthfulness M2 (Codex R1 F2) — host-project version signal,
     // stamped at derive time so the renderer never reads host files. additive
@@ -61,11 +66,11 @@ function validateShape(model) {
   if (!model.sources || typeof model.sources !== 'object') {
     errors.push('sources missing');
   } else {
-    const required = ['plans', 'receipts', 'state', 'backlog', 'fix_task', 'pr', 'envelopes', 'ledger'];
+    const required = ['plans', 'receipts', 'state', 'backlog', 'fix_task', 'pr', 'envelopes', 'ledger', 'worktrees'];
     for (const k of required) {
       if (!model.sources[k]) errors.push('sources.' + k + ' missing');
     }
-    const countSources = ['plans', 'receipts', 'backlog', 'envelopes', 'ledger'];
+    const countSources = ['plans', 'receipts', 'backlog', 'envelopes', 'ledger', 'worktrees'];
     for (const k of countSources) {
       const s = model.sources[k];
       if (!s) continue;

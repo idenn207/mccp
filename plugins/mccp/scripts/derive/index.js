@@ -16,6 +16,7 @@ const { scanFixTask } = require('./sources/fix-task');
 const { scanPR } = require('./sources/pr');
 const { scanEnvelopes } = require('./sources/envelopes');
 const { scanLedger } = require('./sources/ledger');
+const { scanWorktrees } = require('./sources/worktrees');
 
 const SOURCE_SCANNERS = {
   plans: (root, opts) => scanPlans(root, opts),
@@ -26,6 +27,10 @@ const SOURCE_SCANNERS = {
   pr: (root) => scanPR(root),
   envelopes: (root) => scanEnvelopes(root),
   ledger: (root) => scanLedger(root),
+  // dashboard-multi-session M1 — opts threaded so the scanner reads
+  // opts.worktreeScan; gate decision lives inside scanWorktrees (default-off
+  // keeps bare derive() spawn-free per perf budget).
+  worktrees: (root, opts) => scanWorktrees(root, opts),
 };
 
 function pushWarning(model, severity, source, message) {

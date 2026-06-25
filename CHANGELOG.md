@@ -2,7 +2,29 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.11`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.12`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.18.12] — 2026-06-25
+
+dashboard-multi-session M1 — Worktree 진행 스캐너(데이터 레이어). 작업이 대부분 git worktree에서 병렬로 일어나는데 대시보드는 자신이 실행된 단일 worktree 시야에 갇혀 다른 worktree의 진행(마일스톤·게이트·차단)을 보지 못하던 사각지대를, `git worktree list --porcelain` 열거 → 각 worktree의 **working-tree** `.claude/`(STATE.md + receipts)를 직접 read하는 신규 derive count-source `worktrees`로 닫는다(gitignore-agnostic — 미커밋 진행까지 실시간). read-only · LLM-free · dep-free · loud fail-open. M2(UI 섹션)는 본 source를 소비할 뿐 M1은 데이터 레이어만. **spawn-free 계약 보존**: derive()는 perf budget상 spawn-free라 git 호출을 host-version `allowGit` 선례를 mirror한 opt-in gate 뒤에 둠 — bare derive(validate/run/perf-budget)는 OFF(scanned:false, spawn 0), render caller(`cli.js render` + `renderer/trigger.js`)만 `worktreeScan:true` opt-in. **Codex F1**(기능 영구 invisible 차단 — render 경로 배선) + **F2**(실패 error 문자열의 sibling/parent outside-root 절대경로 leak 차단 — `mask.scrubAbsPaths`) + **F3**(`readState` emptyState-swallow로 corrupt STATE가 absent 위장 → diagnostic `existsSync`+`parseStateMd`로 missing↔unparseable 구분, degraded 행 보존) 3 finding을 plan에서 흡수(cross-gate dedupe). `MCCP_MULTI_SESSION_SCAN=1|0`(force/kill) · `MCCP_WORKTREE_SCAN_CAP`(default 20, no silent cap) · `MCCP_WORKTREE_ACTIVE_DAYS`(default 14) 토글. MODEL_VERSION 'v1' 불변(additive). **Local-review hardening**: cap truncation이 self worktree(멀티세션 뷰의 anchor 행)를 떨어뜨리지 않도록 self-retention swap 추가 + `scrubAbsPaths` privacy regex의 6 엣지(posix-abs / win-drive / UNC / error-embedded / URL-preserved / relative-fragment-preserved)를 직접 단위 테스트로 격리. worktrees-source 20 신규 + mask scrubAbsPaths 6 신규 + schema-drift worktrees guard 추가, derive 114 + renderer 503 PASS, perf-budget/no-new-deps 무수정 green, 0 회귀. plugin.json `1.18.11 → 1.18.12` + 양 footer. PRD M1 row → complete.
+
+### Added
+
+- **`scripts/derive/sources/worktrees.js`** (신규) — `scanWorktrees`(gate + spawn facade) + `parseWorktreePorcelain`(순수 파서) + `deriveWorktreeProgress`(diagnostic STATE read + receipt 투영) + `isSelfWorktree`/`normalizeWorktreePath`(win32 8.3 short-name 확장 위해 `fs.realpathSync.native` 우선).
+- **`scripts/derive/mask.js`** — `scrubAbsPaths(str, repoRoot)` export 신규(문자열 내 outside-root 절대경로/드라이브/UNC를 `<outside-repo:basename>`로 치환, URL/상대경로 fragment 보존) + `applyPathMask`에 worktrees items[].path/self_path 마스킹 + error/warning scrub.
+- **`scripts/derive/tests/worktrees-source.test.js`** (신규, 20 test) — 파서 fixture / gate off no-op / gate on items / self-match / fail-open degrade / cap·truncated / **cap truncation self-retention(review M2)** / 마스킹 / outside-root leak 부재(F2) / corrupt STATE 행 보존(F3) / render 경로 opt-in vs bare off(F1).
+- **`docs/v1.3.0-observability/schema-surface.md`** §13 — worktrees source의 read-side schema surface(필드·gate·fail-open·authority·scrub) 문서화.
+
+### Changed
+
+- **`scripts/derive/index.js`** — `SOURCE_SCANNERS`에 `worktrees: (root, opts) => scanWorktrees(root, opts)` 등록(opts threaded).
+- **`scripts/derive/model.js`** — `emptyModel().sources.worktrees` count-source 선언 + `validateShape` `required`/`countSources`에 추가 + MODEL_VERSION 주석 additive 줄.
+- **`scripts/derive/cli.js`** (`cmdRender`) + **`scripts/lib/renderer/trigger.js`** — render 진입점이 `derive(..., { worktreeScan: true })` opt-in 전달(Codex F1). `cmdRun`/bare derive는 off 유지.
+- **`scripts/derive/tests/schema-drift.test.js`** — worktrees count-source drift guard 추가(ledger mirror).
+- **`scripts/derive/tests/mask.test.js`** — `scrubAbsPaths` 직접 단위 테스트 6 추가(review M3 — privacy regex 엣지를 applyPathMask end-to-end에서 분리).
+- **`scripts/derive/sources/worktrees.js`** (`scanWorktrees`) — cap truncation 전 self worktree를 retained slice에 보장하는 swap(review M2 — anchor 행 drop 방지, cap≥2에서 is_main 순서 보존).
+- **`scripts/lib/renderer/html.js`** + **`scripts/lib/renderer/markdown.js`** — footer v1.18.12.
+- **`.claude/prds/dashboard-multi-session.prd.md`** — M1 row → complete.
 
 ## [1.18.11] — 2026-06-25
 

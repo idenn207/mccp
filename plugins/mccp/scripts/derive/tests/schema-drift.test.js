@@ -31,6 +31,24 @@ test('schema-drift: ledger is a declared count-source (emptyModel + validateShap
 // emptyModel must declare it (additive optional, MODEL_VERSION 'v1' unchanged)
 // and validateShape must present-only enforce its object shape so a future
 // refactor cannot silently drop or malform it.
+// dashboard-multi-session M1 — guard the additive `worktrees` count-source
+// against silent drift (ledger mirror). emptyModel must declare it and
+// validateShape must enforce the count-source shape, or a future refactor could
+// drop it without any test going red.
+test('schema-drift: worktrees is a declared count-source (emptyModel + validateShape)', () => {
+  const m = emptyModel('/x');
+  assert.ok(m.sources.worktrees, 'emptyModel declares sources.worktrees');
+  assert.strictEqual(m.sources.worktrees.count, 0);
+  assert.ok(Array.isArray(m.sources.worktrees.items));
+  assert.strictEqual(validateShape(m).ok, true, 'empty model with worktrees is shape-valid');
+
+  delete m.sources.worktrees.count;
+  const v = validateShape(m);
+  assert.strictEqual(v.ok, false);
+  assert.ok(v.errors.some(e => e.indexOf('sources.worktrees.count') !== -1),
+    'validateShape flags missing worktrees.count');
+});
+
 test('schema-drift: host_version is a declared additive top-level field (emptyModel + validateShape)', () => {
   const m = emptyModel('/x');
   assert.ok(m.host_version && typeof m.host_version === 'object', 'emptyModel declares host_version object');

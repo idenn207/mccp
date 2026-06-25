@@ -70,6 +70,26 @@ function maskPath(absOrRel, repoRoot) {
   return toPosix(absOrRel);
 }
 
+// dashboard-multi-session M1 (Codex F2) — scrub outside-root absolute / drive /
+// UNC path substrings out of free-form strings. fs/git error and warning
+// messages from cross-worktree reads routinely embed sibling/parent absolute
+// paths (e.g. `ENOENT: ... open 'C:\...\.worktrees\other\.claude\STATE.md'`)
+// that applyPathMask's root-substring replace misses, so masked output would
+// leak raw paths. Each path-like token is run through maskPath, so inside-root
+// paths collapse to relative and outside-root paths become
+// '<outside-repo:basename>'. The worktrees scanner calls this at emit time;
+// applyPathMask re-applies it as defense in depth. The boundary lookbehind keeps
+// relative-path fragments (e.g. "derive/x.js") untouched — only tokens that
+// START a path are matched. Colon is intentionally NOT a boundary char so URL
+// schemes ("http://...") are not mistaken for UNC paths.
+const ABS_PATH_TOKEN_RE = /(?<=^|[\s'"`(\[=,])(?:[A-Za-z]:[\\/]|[\\]{2}|\/)[^\s'"`)\]]*/g;
+
+function scrubAbsPaths(str, repoRoot) {
+  if (typeof str !== 'string' || str.length === 0) return str;
+  const root = repoRoot || process.cwd();
+  return str.replace(ABS_PATH_TOKEN_RE, (tok) => maskPath(tok, root));
+}
+
 function maskItem(item, repoRoot, pathKeys) {
   if (!item || typeof item !== 'object') return item;
   for (const k of pathKeys) {
@@ -247,6 +267,28 @@ function applyPathMask(model, repoRoot) {
   }
   if (s.fix_task && s.fix_task.item) maskItem(s.fix_task.item, root, ['path']);
 
+  // dashboard-multi-session M1 — worktree scanner privacy. items[].path +
+  // self_path go through maskPath (sibling/parent worktrees → outside-repo
+  // placeholder); items[].error + source error go through scrubAbsPaths so
+  // outside-root paths in fail-open error strings don't leak (Codex F2).
+  // branch/head stay raw (ledger git_branch precedent). milestone_hint is
+  // worktree-authored STATE content (the surface's whole point) — left raw like
+  // the state source body.
+  if (s.worktrees) {
+    if (Array.isArray(s.worktrees.items)) {
+      for (const it of s.worktrees.items) {
+        maskItem(it, root, ['path']);
+        if (it && typeof it.error === 'string') it.error = scrubAbsPaths(it.error, root);
+      }
+    }
+    if (typeof s.worktrees.self_path === 'string' && s.worktrees.self_path.length > 0) {
+      s.worktrees.self_path = maskPath(s.worktrees.self_path, root);
+    }
+    if (typeof s.worktrees.error === 'string') {
+      s.worktrees.error = scrubAbsPaths(s.worktrees.error, root);
+    }
+  }
+
   if (Array.isArray(model.correlations)) {
     for (const c of model.correlations) {
       if (c && c.from && c.from.id) c.from.id = maskPath(c.from.id, root);
@@ -284,6 +326,7 @@ function maskModel(model, repoRoot) {
 module.exports = {
   maskModel,
   maskPath,
+  scrubAbsPaths,
   maskSecrets,
   applySecretMask,
   applyPathMask,

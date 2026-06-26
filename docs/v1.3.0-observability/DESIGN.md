@@ -365,6 +365,12 @@ tb-title + nav active 셀렉터 체인에 `attention` 추가, `console-shell.tes
 scope: M1 = 셸 + 토큰 + invariant 개정 + vendored 폰트 + 위험·질문 route 분리.
 섹션 내부 마크업 + 실데이터 추출 = M2, 우측 드로어 = M3, STATUS.md 동등본 = M4.
 
+> 현재 상태(Dashboard Data Exploration M1 기준): 위 4번째 attention route 는 이후
+> 위험(`#route-risks`)·질문(`#route-questions`)으로 다시 분리되어 **현재 5 route**
+> (개요/파이프라인/위험/질문/활동·기록)다. 라우팅은 여전히 CSS-only(`:target`+`:has()`)
+> 이고, 데이터 탐색 레이어(PRD 그룹핑 등)만 progressive-enhancement JS 를 얹는다
+> (canonical 서술은 루트 `DESIGN.md` Routing/Progressive Enhancement 절).
+
 ### M2 — 섹션 fidelity + prose 파이프라인 (v1.18.0)
 
 M1 셸 위에서 각 섹션 내부 마크업을 승인 sample 의 class anatomy 로 충실 이식하고

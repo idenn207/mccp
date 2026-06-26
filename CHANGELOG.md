@@ -2,7 +2,27 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.14`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.15`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.18.15] — 2026-06-26
+
+dashboard-data-exploration M1 — PRD-수준 그룹핑 + Progressive-Enhancement 토대. 대시보드의 고-volume 항목 리스트(위험·미해결 질문)를 소속 PRD별 접힘 그룹(`<details class="prd-group">`)으로 묶어, 여러 PRD가 동시 진행될 때 "어느 PRD의 위험/질문인가"를 한눈에 분리한다. 그룹은 native `<details>`로 렌더되어 **JS 없이도 완전 동작**(graceful degrade 구조적 보장) — 항목마다 `data-prd` 속성 + `<html data-js="on">` 마커를 박아 M2(필터/정렬)·M3(검색)이 소비할 PE 토대를 깐다. PRD provenance 키는 **canonical plan path**(basename 아님 — archive/worktree 동명 plan 충돌 회피, Codex F2), `data-prd`는 **prdPath 파생 prdKey**(라벨 slug 아님 — 동일 H1 라벨 두 PRD 분리, Codex F2). source 미상/STATE.md는 "프로젝트 전역"(`__global__`), 매핑 실패는 "출처 미상"(`__unknown__`) 버킷 — 항목 절대 누락 0(fail-open). 단일 PRD/그룹이면 기존 flat 동작 보존(구분할 PRD 없음 → 그룹 chrome 생략), 2+ 그룹일 때만 그룹 disclosure + md 그룹 헤더 + explore.js 토글 노출. DESIGN.md "JS 0" invariant를 **routing-한정 + 데이터 탐색 PE 허용**으로 개정 + stale "3 route" → 실제 5 route 정정. **신규 H19**(Codex F1 — HIGH): inline `<script>` 본문의 런타임 network primitive(fetch/XHR/WebSocket/EventSource/sendBeacon/remote import/외부 URL 리터럴) 검출 — H13(외부 src)이 못 막는 raw-mode 데이터 유출 경로를 mechanical 차단(`application/json` 데이터 스크립트는 제외). 그룹 chrome은 neutral 토큰만(강조색 예산 0). 그룹핑은 위험의 **미해결·해결됨·보관됨** 세 탭과 질문의 **미해결·해결됨** 두 탭 전부에 동형 적용 — 미해결(primary)은 그룹별 top-3 캡, 해결됨·보관됨(secondary)은 외곽 collapse 뒤 전 항목 평문(삼중 중첩 회피). **단일 그룹 표출 규칙**: 단일 그룹이라도 **실제 PRD 소속이면 헤더 표시**(어느 PRD인지 정보 가치 — 한 PRD에만 미해결 질문이 몰려도 그룹 라벨이 보임), `프로젝트 전역`/`출처 미상` 단독 fallback만 flat(disambiguation 정보 없는 chrome 노이즈 회피). renderer 548 PASS(신규 prd-grouping 14) + design-lint H1-H19 clean, 0 회귀. plugin.json `1.18.14 → 1.18.15` + 양 footer.
+
+### Added
+
+- **`scripts/lib/renderer/parsers/prd-group.js`** (신규) — `groupByPrd(items, planPrd)` 순수 그룹핑 헬퍼(부수효과 0, dep-free) + `canonicalPlanPath`(plan-body 와 공유) + `prdSlug`. 결정적 그룹 순서(prdKey 사전순, `__global__`·`__unknown__` 끝) + fail-open 단일 그룹(null planPrd/빈 입력).
+- **`scripts/lib/renderer/client/explore.js`** (신규) — PE 토대 client 스크립트(DOM-only, network primitive 0 — H19 1차 검증 대상). `<html data-js="on">` 마커(M2/M3 control reveal hook) + 2+ PRD 그룹 클러스터당 "모두 펼치기/접기" 토글. html.js 가 jQuery 패턴 미러로 모듈-로드 read+inline(외부 src 0 — H13).
+- **`scripts/lib/renderer/tests/prd-grouping.test.js`** (신규, 14 test) — groupByPrd 순서/버킷/fail-open + 충돌 케이스(동명 basename·동일 H1 라벨·source_prd 부재·STATE.md OQ) + multi-PRD html `.prd-group`+`data-prd` + STATUS.md 그룹 라벨 평문 동등 + no-JS degrade + H19 drift/carve-out + **미해결·해결됨·보관됨 전 탭 그룹핑**(위험·질문 동형, secondary 평문 도달성) + **단일 실제 PRD 헤더 표시 / 단일 fallback flat** 분기.
+- **output-constraints.js H19** — inline `<script>` 본문 network-primitive 가드(Codex F1). `runOutputConstraints`가 이미 받는 composed html 에 자연 확장, H13(외부 src)과 직교.
+
+### Changed
+
+- **`scripts/lib/renderer/parsers/plan-body.js`** — `parsePlanBody` 반환에 `planPrd: Map(canonicalPlanPath → { prdPath, prdLabel, prdKey })` 추가. `extractPrdLabel`(PRD H1, 표시 전용) + `derivePrdKey`(prdPath 파생 안정 식별자) 헬퍼.
+- **`scripts/lib/renderer/sections/{risks,open-questions}.js`** — 미해결·해결됨·보관됨(위험)·미해결·해결됨(질문) **모든 탭 패널**을 PRD별 `<details class="prd-group">` 그룹으로(각 `.li-item`에 `data-prd` — secondary 탭 항목도 동일 부여). 단일 그룹은 **실제 PRD면 헤더 표시**(`shouldShowGroups` — prdKey가 `__global__`/`__unknown__` sentinel 이 아니면 단일이라도 그룹 chrome), fallback 단독만 flat. 패널 빌더(`panelInnerHtml`/`mdFromRendered`)를 세 버킷이 공유 — 미해결은 그룹별 top-3 캡(primary 압축), 해결됨·보관됨은 캡 없이 전 항목 평문(secondary 외곽 collapse 뒤 삼중 중첩 회피·no-JS 도달성).
+- **`scripts/lib/renderer/html.js`** — `client/explore.js` 모듈-로드 inline + `.prd-group` 존재 시 `<script>` emit. `.prd-group`/`.prd-sum`/`.prd-count`/`.prd-toggle` neutral-token CSS + `[data-js="on"]` reveal hook. footer `v1.18.14 → v1.18.15`.
+- **output-constraints.js H10·H16** — `data-prd` 머신 속성을 attribute strip 에 추가(`__global__`/`__unknown__` sentinel 이 bold-underscore 처럼 보이나 렌더 prose 아님 — 기존 title/alt/aria-label carve-out 동일 원칙).
+- **`markdown.js`** footer `v1.18.14 → v1.18.15`. **`DESIGN.md`/`docs/v1.3.0-observability/DESIGN.md`** — JS-0 invariant routing-한정 개정 + Progressive Enhancement 절 + stale route 수(3→5) 정정.
+- **`plugin.json`** `1.18.14 → 1.18.15` (patch — PRD ③의 단일 M1, §3.7).
 
 ## [1.18.14] — 2026-06-26
 

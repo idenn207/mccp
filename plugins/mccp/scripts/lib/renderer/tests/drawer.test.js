@@ -281,8 +281,10 @@ test('drawer — OQ/risk li 가 data-detail-id + 내부 copy-btn 동시 보유(�
     risks: [{ risk: 'data corruption', impact: 'High', likelihood: 'Medium', mitigation: 'fsync' }],
   });
   // li-item(data-detail-id) 안에 li-action > copy-btn 이 들어있어야 함(드로어 trigger 내부 복사).
-  assert.match(oq.html, /<li class="li-item" data-detail-id="[^"]+">[\s\S]*?class="copy-btn"[\s\S]*?<\/li>/, 'OQ li nests copy-btn');
-  assert.match(risk.html, /<li class="li-item" data-detail-id="[^"]+">[\s\S]*?class="copy-btn"[\s\S]*?<\/li>/, 'risk li nests copy-btn');
+  // Data Exploration M1 — li-item 에 data-prd 속성이 additive 로 붙으므로 attribute 순서
+  // tolerant 매칭(의도='li nests copy-btn' 보존, 정확 속성 시퀀스는 비계약).
+  assert.match(oq.html, /<li class="li-item"[^>]*data-detail-id="[^"]+"[^>]*>[\s\S]*?class="copy-btn"[\s\S]*?<\/li>/, 'OQ li nests copy-btn');
+  assert.match(risk.html, /<li class="li-item"[^>]*data-detail-id="[^"]+"[^>]*>[\s\S]*?class="copy-btn"[\s\S]*?<\/li>/, 'risk li nests copy-btn');
 });
 
 test('drawer — DRAWER_SCRIPT 가 .copy-btn closest 시 open skip(클릭·키보드 양쪽)', () => {

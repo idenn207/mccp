@@ -17,6 +17,18 @@ const JQUERY_SLIM = (function () {
   }
 })();
 
+// Dashboard Data Exploration M1 — PE 토대 client 스크립트(client/explore.js). 모듈-
+// 로드 1회 read + inline emit(JQUERY_SLIM 패턴 미러 — NEVER 외부 <script src>, H13/H19
+// 외부 fetch 0). DOM-only(network primitive 0). fail-open: 파일 누락 시 빈 문자열 →
+// 그룹은 native <details> 로 JS 없이 완전 동작(PE — JS layer 는 부가).
+const EXPLORE_JS = (function () {
+  try {
+    return fs.readFileSync(path.join(__dirname, 'client', 'explore.js'), 'utf8');
+  } catch (_) {
+    return '';
+  }
+})();
+
 // v1.17.0 (dashboard-console-redesign OQ#1 — 사용자 승인) vendored Pretendard
 // Variable, base64-inline @font-face. 외부 fetch 0(self-contained 불변 + H13
 // 외부-fetch invariant 정합 — data: URI 는 네트워크 surface 아님). woff2 누락 시
@@ -406,6 +418,33 @@ aside[role="alert"].s-secret {
 .severity-tag.s-critical, .severity-tag.s-high { color: var(--status-blocked); font-weight: 600; }
 .severity-tag.s-medium { color: var(--status-stale); font-weight: 600; }
 .severity-tag.s-low { color: var(--muted); font-weight: 600; }
+/* ── PRD 그룹(Data Exploration M1) — 위험·질문 active 패널의 PRD별 disclosure.
+   neutral 토큰만(--muted/--faint/--border/--panel-2 — 강조색 예산 0, Constraint 2).
+   native <details>(JS 0 동작) + hairline 구획. H3(radius 0)·H4(border-left 없음, CSS
+   삼각형 대신 유니코드 마커) 안전. .prd-group 은 .panel/.card 아님 → H17 무관. ── */
+.prd-group { border-top: 1px solid var(--border); }
+.prd-group:first-of-type { border-top: 0; }
+.prd-group > summary.prd-sum { list-style: none; cursor: pointer; display: flex;
+  align-items: center; gap: 0.45rem; padding: 0.5rem 0; color: var(--muted);
+  font-size: 0.78rem; font-weight: 550; }
+.prd-group > summary.prd-sum::-webkit-details-marker { display: none; }
+.prd-group > summary.prd-sum::before { content: "\\25B8"; color: var(--faint);
+  font-size: 0.7em; display: inline-block; transition: transform 140ms ease-out; flex: none; }
+.prd-group[open] > summary.prd-sum::before { transform: rotate(90deg); }
+.prd-group > summary.prd-sum:hover { color: var(--ink-2); }
+.prd-group > summary.prd-sum:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.prd-label { min-width: 0; }
+.prd-count { color: var(--faint); font-variant-numeric: tabular-nums; }
+.prd-group .stack-list { margin-top: 0.15rem; padding-bottom: 0.45rem; }
+.prd-toggle { display: inline-flex; align-items: center; margin: 0 0 0.55rem;
+  padding: 0.2rem 0.5rem; background: var(--panel-2); border: 1px solid var(--border);
+  color: var(--muted); font: inherit; font-size: 0.74rem; cursor: pointer; }
+.prd-toggle:hover { color: var(--ink-2); }
+.prd-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* M2/M3 hook — JS-only control(필터/정렬/검색)은 기본 숨김, explore.js 의 data-js="on"
+   시에만 노출. M1 은 토대만(현 consumer 없음 — M2/M3 가 .js-only 부착). */
+.js-only { display: none; }
+[data-js="on"] .js-only { display: revert; }
 /* ── 미해결 질문 / 위험 (stack-list > li-item, M2 샘플 fidelity) ── */
 .stack-list { display: flex; flex-direction: column; gap: 0.9rem; margin: 0; padding: 0; list-style: none; }
 .li-item { display: flex; gap: 0.65rem; align-items: flex-start; }
@@ -1027,7 +1066,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.14 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.15 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.
@@ -1055,6 +1094,14 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   parts.push('<script>' + COPY_SCRIPT + '</script>');
   if (drawerMap.size > 0) {
     parts.push('<script>' + DRAWER_SCRIPT + '</script>');
+  }
+  // Data Exploration M1 — PE 토대 스크립트. PRD 그룹(<details class="prd-group">)이
+  // 실제로 렌더된 경우에만 inline emit(2+ 그룹 → 토글 의미). data-js="on" 마커 +
+  // 그룹 모두 펼치기/접기. 외부 src 0(H13) · network primitive 0(H19).
+  const hasPrdGroups = [risks, questions].some(
+    (s) => s && typeof s.html === 'string' && s.html.includes('class="prd-group"'));
+  if (hasPrdGroups && EXPLORE_JS) {
+    parts.push('<script>' + EXPLORE_JS + '</script>');
   }
   // vendored-inline jQuery + pipeline enhancement. Only when pipeline present and
   // the vendor bundle loaded. Inline only — no external origin. Additive.

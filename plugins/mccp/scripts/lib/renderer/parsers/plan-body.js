@@ -4,6 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const { stripLineMarker, isResolved } = require('./resolution-marker');
 const { isMilestoneClosed, ledgerCloseFresh } = require('./decision-state');
+// Dashboard Data Exploration M1 — PRD 그룹핑 토대. canonicalPlanPath/prdSlug 를
+// prd-group.js 와 공유(섹션이 item.source 를 같은 함수로 정규화해 planPrd 조회).
+const { canonicalPlanPath, prdSlug } = require('./prd-group');
 // plan_hash freshness 계산용(M5 Codex Implement-F1). plan 경로는 structural hash
 // (status 토큰/체크박스 무관) → receipt.plan_hash 와 동일 정규화.
 const { planAwareMarkdownHash } = require('../../../receipt/hash');
@@ -283,6 +286,30 @@ function sourcePrdPath(p) {
   return null;
 }
 
+// Dashboard Data Exploration M1 — PRD H1 제목 = 그룹 **표시 라벨 전용**(라벨로
+// 키잉하지 않음 — 동일 H1 라벨 충돌 회피, Codex F2). H1 부재 시 PRD 파일 stem(kebab)
+// fail-open. `^#\s+`만 매칭하므로 `## H2`는 미스킵.
+function extractPrdLabel(prdBody, prdAbs) {
+  const m = /^#\s+(.+?)\s*$/m.exec(String(prdBody || ''));
+  if (m && m[1].trim()) return m[1].trim();
+  return path.basename(prdAbs || '').replace(/\.prd\.md$/i, '').replace(/\.md$/i, '') || 'PRD';
+}
+
+// PRD 경로 → data-prd 안정 식별자(prdKey). **prdPath 파생**(라벨 slug 아님 — 동일
+// H1 두 PRD 가 다른 group 으로 분리되어야 함, Codex F2). cwd-relative 로 만들어
+// machine-independent(절대경로면 basename fallback). 동명 basename 다른 디렉토리는
+// 서로 다른 relative path → 서로 다른 prdKey(오귀속 0).
+function derivePrdKey(prdAbs, cwd) {
+  let rel = String(prdAbs || '');
+  try {
+    const r = path.relative(cwd || process.cwd(), prdAbs);
+    rel = (r && !r.startsWith('..') && !path.isAbsolute(r)) ? r : path.basename(prdAbs);
+  } catch (_e) {
+    rel = path.basename(rel);
+  }
+  return prdSlug(rel.replace(/\.prd\.md$/i, '').replace(/\.md$/i, ''));
+}
+
 function extractCyclePrefix(slug) {
   if (!slug || typeof slug !== 'string') return null;
   const m = slug.match(/^(v\d+-\d+-\d+)/);
@@ -358,6 +385,12 @@ function parsePlanBody(model, opts) {
   let degraded = false;
 
   const prdBodies = new Map();
+  // Dashboard Data Exploration M1 — planPrd: Map(canonicalPlanPath → { prdPath,
+  // prdLabel, prdKey }). 섹션(risks/open-questions)이 항목 source 를 같은
+  // canonicalPlanPath 로 정규화해 조회 → PRD 그룹 분배. prdMetaByPath 캐시로 PRD당
+  // 1회 라벨/키 파생.
+  const prdMetaByPath = new Map();
+  const planPrd = new Map();
   for (const p of plans) {
     if (!p || !p.path) continue;
     const planAbs = path.isAbsolute(p.path) ? p.path : path.resolve(cwd, p.path);
@@ -370,6 +403,17 @@ function parsePlanBody(model, opts) {
       continue;
     }
     if (!prdBodies.has(resolved.path)) prdBodies.set(resolved.path, resolved.body);
+    if (!prdMetaByPath.has(resolved.path)) {
+      prdMetaByPath.set(resolved.path, {
+        prdLabel: extractPrdLabel(resolved.body, resolved.path),
+        prdKey: derivePrdKey(resolved.path, cwd),
+      });
+    }
+    const meta = prdMetaByPath.get(resolved.path);
+    // 키는 stored p.path 의 canonical form(항목이 source: p.path 를 그대로 들고 옴).
+    planPrd.set(canonicalPlanPath(p.path), {
+      prdPath: resolved.path, prdLabel: meta.prdLabel, prdKey: meta.prdKey,
+    });
   }
 
   for (const [prdAbs, prdBody] of prdBodies) {
@@ -516,7 +560,7 @@ function parsePlanBody(model, opts) {
     }
   }
 
-  return { planStatuses, planStaleness, openQuestions, risks, warnings, degraded };
+  return { planStatuses, planStaleness, openQuestions, risks, warnings, degraded, planPrd };
 }
 
 module.exports = {
@@ -534,4 +578,6 @@ module.exports = {
   extractPlanPath,
   stripPathWrappers,
   stripAxisIdPrefix,
+  extractPrdLabel,
+  derivePrdKey,
 };

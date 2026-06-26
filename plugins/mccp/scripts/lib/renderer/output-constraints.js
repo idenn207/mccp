@@ -1,10 +1,11 @@
 'use strict';
 
-// v1.3.0-m3 DESIGN.md H1-H16 mechanical lint contract.
+// v1.3.0-m3 DESIGN.md H1-H19 mechanical lint contract (H17 card-nesting +
+// H18 drawer + H19 inline-script network-primitive 가 후속 추가).
 // See docs/v1.3.0-observability/DESIGN.md for the rule spec.
 //
 // Pure function, no I/O, no global state. Returns multi-violation
-// collection (all 16 rules evaluated even after first hit). Fail-open
+// collection (all rules evaluated even after first hit). Fail-open
 // per-rule: if a rule's check throws, that rule is skipped + stderr
 // warn, other rules continue. Caller integrates via renderer/index.js
 // and pushes model.warnings on violation count > 0 or degraded === true.
@@ -221,7 +222,7 @@ const RULES = [
           .replace(/<script[\s\S]*?<\/script>/gi, '')
           .replace(/<code[\s\S]*?<\/code>/g, '')
           .replace(/<pre[\s\S]*?<\/pre>/g, '')
-          .replace(/(?:title|alt|aria-label)="[^"]*"/g, '');
+          .replace(/(?:title|alt|aria-label|data-prd)="[^"]*"/g, '');
         const m = stripped.match(/—/g);
         if (m) { count += m.length; hits.push('html(' + m.length + ')'); }
       }
@@ -339,6 +340,9 @@ const RULES = [
   // Catalog: paired ** / paired __ / inline backtick (raw + entity variants) /
   //          md link / MD lint code / entity-encoded asterisk/underscore (paired).
   // Carve-out (same as H10): strip <code>/<pre>/HTML attributes before count.
+  // Data Exploration M1 — data-prd 머신 키 값(`__global__`/`__unknown__` sentinel)이
+  // bold-underscore 처럼 보이나 렌더 prose 가 아니므로 attribute strip 에 포함(가시
+  // 텍스트의 `__bold__`/`**bold**` 검출은 불변).
   // Codex F3 (implement-time) absorption: Python dunder 15종 whitelist
   // (init/name/main/file/doc/str/repr/call/enter/exit/all/slots/dict/iter/len).
   // 본 repo skill docs에 __all__/__slots__/__dict__ 다수 존재 — 좁은 10종
@@ -360,7 +364,7 @@ const RULES = [
         .replace(/<script[\s\S]*?<\/script>/gi, '')
         .replace(/<code[\s\S]*?<\/code>/g, '')
         .replace(/<pre[\s\S]*?<\/pre>/g, '')
-        .replace(/(?:title|alt|aria-label)="[^"]*"/g, '')
+        .replace(/(?:title|alt|aria-label|data-prd)="[^"]*"/g, '')
         .replace(PYTHON_DUNDERS, '');
       // entity-encoded backtick variants (decimal w/ leading zeros, hex upper/lower, named)
       const ENT_BACKTICK = '(?:&#0*96;|&#[xX]0*60;|&grave;)';
@@ -453,6 +457,50 @@ const RULES = [
       }
       if (/\bitems\s*\[\s*i\s*\]/.test(html)) {
         return { evidence: 'index-mapping residue (items[i])' };
+      }
+      return null;
+    },
+  },
+  // H19 (Dashboard Data Exploration M1, Codex F1) inline <script> 본문의 런타임
+  // 네트워크 호출 금지. H13 은 외부 <script src> surface(외부 origin 로드)만 막고
+  // inline 스크립트 *본문*의 런타임 호출(raw-mode status.html 의 unmasked 데이터를
+  // 외부로 보내는 유출 경로)은 못 막는다 — H19 가 그 직교 축을 닫는다.
+  // 실행 가능한 <script>(type 무 또는 JS 류) 본문만 스캔. <script type="application/
+  // json">(drawer-data 등 데이터 — plan 텍스트의 정당한 URL 포함 가능)·src 보유
+  // 스크립트는 제외(데이터/외부 origin 은 본 룰 범위 밖). markdown 무관 — HTML only.
+  {
+    id: 'H19',
+    severity: 'absolute-ban',
+    check: ({ html }) => {
+      if (!html) return null;
+      const JS_TYPES = ['text/javascript', 'application/javascript', 'module',
+        'text/ecmascript', 'application/ecmascript'];
+      const PRIMS = [
+        { name: 'fetch', re: /\bfetch\s*\(/ },
+        { name: 'xhr', re: /\bXMLHttpRequest\b/ },
+        { name: 'websocket', re: /\bWebSocket\b/ },
+        { name: 'eventsource', re: /\bEventSource\b/ },
+        { name: 'beacon', re: /\bsendBeacon\b/ },
+        { name: 'remote-import', re: /\bimport\s*\(\s*['"](?:https?:)?\/\//i },
+        { name: 'url-absolute', re: /\bhttps?:\/\//i },
+        { name: 'url-proto-relative', re: /['"]\/\/[a-z0-9][a-z0-9.-]*\.[a-z]/i },
+      ];
+      const scriptRe = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+      const hits = [];
+      let m;
+      while ((m = scriptRe.exec(html)) !== null) {
+        const attrs = m[1] || '';
+        const body = m[2] || '';
+        if (/\bsrc\s*=/.test(attrs)) continue; // 외부 src 는 H13 영역(inline 은 src 없음)
+        const typeMatch = attrs.match(/\btype\s*=\s*['"]?([^'">\s]+)/i);
+        if (typeMatch && JS_TYPES.indexOf(typeMatch[1].toLowerCase()) === -1) continue;
+        for (const p of PRIMS) {
+          if (p.re.test(body)) hits.push(p.name);
+        }
+      }
+      if (hits.length > 0) {
+        const uniq = Array.from(new Set(hits));
+        return { evidence: hits.length + ' inline-script network primitive(s): ' + uniq.join(', ') };
       }
       return null;
     },

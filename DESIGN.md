@@ -214,7 +214,8 @@ components:
 ### Navigation
 - **Sidebar** (`.sidebar`, 244px sticky full-height): 프로젝트 스위처 + 검색 affordance(현재 `aria-hidden` 시각 placeholder — 필터 활성은 후속 마일스톤) + page nav 레일 + 차단 pin-alert. sidebar-black 배경 + 우측 hairline.
 - **Nav Link** (`.nav-link`): 기본 muted 텍스트 + faint 아이콘, padding `0.44rem 0.6rem`. hover 시 panel-raised 배경 + ink. **active**(현재 route)는 panel-raised 배경 + ink 텍스트 + 굵기 550 + 아이콘 ink화 — 색 단독이 아니라 배경·굵기·아이콘 복합 신호.
-- **Routing:** 3 route(`#route-overview` / `#route-pipeline` / `#route-activity`)를 순수 CSS `:target` + `:has()`로 전환한다. JS 0. no-JS 환경에서 개요가 default 노출(progressive enhancement). `scroll-margin-top`으로 sticky topbar 밑에 앵커가 가리지 않게 보정.
+- **Routing:** 5 route(`#route-overview` / `#route-pipeline` / `#route-risks` / `#route-questions` / `#route-activity`)를 순수 CSS `:target` + `:has()`로 전환한다. **라우팅은 CSS-only**(JS 0) — no-JS 환경에서 개요가 default 노출. `scroll-margin-top`으로 sticky topbar 밑에 앵커가 가리지 않게 보정.
+- **Progressive Enhancement (Data Exploration M1 개정):** routing 은 CSS-only 불변이되, **데이터 탐색(PRD 그룹핑·필터·정렬·검색)은 vendored-inline progressive-enhancement JS**를 허용한다(외부 fetch 0 — H13 보존, inline 본문 network primitive 0 — H19). JS-off 시 전체 항목이 손실 없이 노출된다: 그룹은 native `<details>`(구조적 degrade), 항목엔 `data-prd` 토대 속성, `<html data-js="on">` 마커가 M2/M3 JS-only control 의 reveal hook. 즉 "JS 0"은 *routing 한정*이고 데이터 레이어는 additive JS 다.
 - **Mobile (≤880px):** 사이드바가 상단 가로 바로 collapse, 검색·라벨·pin-alert는 숨김, nav만 가로 스크롤. 햄버거 메뉴는 도입 안 함.
 
 ### Topbar (signature)

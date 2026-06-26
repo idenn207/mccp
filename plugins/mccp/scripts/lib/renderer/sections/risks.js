@@ -1,11 +1,23 @@
 'use strict';
 
+const path = require('path');
 const { buildActionPrompt, maxRank } = require('../parsers/action-prompt');
 const { severityMeta, sevBadgeHtml } = require('../parsers/severity-meta');
 const { detailId, addDetail, buildRiskDetail, renderDetailMd } = require('../parsers/drawer-detail');
 const { stripMarker } = require('../parsers/resolution-marker');
 const { buildTabs } = require('../parsers/tabs');
-const { groupByPrd, GLOBAL_KEY, UNKNOWN_KEY } = require('../parsers/prd-group');
+const { groupByPrd, canonicalPlanPath, GLOBAL_KEY, UNKNOWN_KEY, GLOBAL_LABEL } = require('../parsers/prd-group');
+
+// Data Exploration M2 — plan 필터축 안정 키. risk 는 항상 plan 출처(source=p.path)나
+// 누출 방어로 STATE.md/부재는 PRD축과 같은 __global__ sentinel 로 정렬(plan 필터에서
+// "프로젝트 전역" 한 옵션으로 묶임). planLabel 은 plan basename stem(표시명).
+function planKeyOf(src) {
+  return (!src || src === 'STATE.md') ? GLOBAL_KEY : canonicalPlanPath(src);
+}
+function planLabelOf(src) {
+  if (!src || src === 'STATE.md') return GLOBAL_LABEL;
+  return path.basename(String(src)).replace(/\.plan\.md$/i, '').replace(/\.md$/i, '') || src;
+}
 
 // 그룹 chrome 표출 규칙 — 2+ 그룹은 항상 그룹. 단일 그룹은 **실제 PRD 소속**이면
 // 헤더 표시(어느 PRD인지 정보 가치), 단일 fallback(프로젝트 전역/출처 미상)이면 flat
@@ -30,6 +42,13 @@ function renderRisks(model, formatUtils, planBody) {
   const { escapeHtml, renderProseHtml, renderProseMd } = formatUtils;
   const pb = planBody || {};
   const allRisks = Array.isArray(pb.risks) ? pb.risks.slice() : [];
+
+  // Data Exploration M2 (Codex F1 — HIGH) — data-ord chronology 는 severity 정렬
+  // *이전* 원본 parse 순서여야 한다. allRisks 는 plan-body 가 plan 순회 + plan 내
+  // ordinal 순서로 쌓은 배열이므로(=parse chronology), severity 정렬 전에 배열 인덱스를
+  // _chronoIndex 로 박는다. 이걸 안 하고 render 방출 순으로 data-ord 를 주면 active 가
+  // 이미 bySev 로 정렬돼 있어 "시간순" 이 severity 순서를 인코딩 → 정렬이 무효가 된다.
+  allRisks.forEach((r, i) => { r._chronoIndex = i; });
 
   // M3 — 해결 마커 단 위험은 active 에서 분리. resolved 신호는 마커뿐(Codex F1).
   // M8 — 직교 두 축(명시 해결 r.resolved · 출처 plan lifecycle r.sourceClosed)으로
@@ -100,7 +119,12 @@ function renderRisks(model, formatUtils, planBody) {
       + '" aria-label="다음 액션 복사"><svg class="i i-sm" aria-hidden="true"><use href="#ic-copy"/></svg></button>'
       + '</div>';
     const prdAttr = prdKey ? ' data-prd="' + escapeHtml(prdKey) + '"' : '';
-    const html = '<li class="li-item"' + prdAttr + ' data-detail-id="' + escapeHtml(id) + '">' + sevTag
+    // Data Exploration M2 — 필터/정렬 축. data-plan(plan 필터, 안정 키) ·
+    // data-sev(RANK_MAP 0~4, 정렬 키) · data-ord(원본 parse chronology, Codex F1).
+    const exploreAttr = ' data-plan="' + escapeHtml(planKeyOf(r.source)) + '"'
+      + ' data-sev="' + (RANK_MAP[sev] || 0) + '"'
+      + ' data-ord="' + (Number.isFinite(r._chronoIndex) ? r._chronoIndex : 0) + '"';
+    const html = '<li class="li-item"' + prdAttr + exploreAttr + ' data-detail-id="' + escapeHtml(id) + '">' + sevTag
       + '<div class="li-main">' + qHtml + mitHtml + cueHtml + '</div>' + promptHtml + '</li>';
     // v1.18.2 M4 — STATUS.md 동등본. 항목 헤더(위험 전문) + drawer-detail SSoT 인라인.
     // 영향/가능성/관련 결정/완화책/동일 질문 참조/다음 액션은 모두 renderDetailMd 단일
@@ -118,8 +142,32 @@ function renderRisks(model, formatUtils, planBody) {
   // 단일 탭에서 해결됨·보관됨 탭까지 동형 확장. 그룹 메타와 함께 보관해 html(그룹
   // chrome)·md(그룹 헤더)가 동일 render 를 재사용한다. planPrd 부재/단일그룹은
   // groupByPrd 가 fail-open 단일 버킷을 돌려줘 기존 flat 동작을 보존.
+  // Data Exploration M2 — 필터 옵션 메타(html.js 컨트롤 빌더가 소비). 세 버킷
+  // (active/resolved/historical)을 모두 순회해 어느 탭이든 옵션이 완전하게 한다.
+  // 중복 제거 + 결정적 순서(groupByPrd 가 정렬, active 먼저 처리).
+  const filterOptions = { prds: [], plans: [] };
+  const seenPrd = new Set();
+  const seenPlan = new Set();
+  function collectOptions(groups) {
+    for (const g of groups) {
+      if (!seenPrd.has(g.prdKey)) {
+        seenPrd.add(g.prdKey);
+        filterOptions.prds.push({ key: g.prdKey, label: g.prdLabel });
+      }
+      for (const r of g.items) {
+        const pk = planKeyOf(r.source);
+        if (!seenPlan.has(pk)) {
+          seenPlan.add(pk);
+          filterOptions.plans.push({ key: pk, label: planLabelOf(r.source), prdKey: g.prdKey });
+        }
+      }
+    }
+  }
+
   function renderGroups(items) {
-    return groupByPrd(items, pb.planPrd).map((g) => ({
+    const groups = groupByPrd(items, pb.planPrd);
+    collectOptions(groups);
+    return groups.map((g) => ({
       prdKey: g.prdKey,
       prdLabel: g.prdLabel,
       items: g.items.map((r) => renderItem(r, g.prdKey)),
@@ -221,7 +269,7 @@ function renderRisks(model, formatUtils, planBody) {
   const foot = '<a class="foot-link" href="#route-activity">활동 기록에서 전체 보기'
     + '<svg class="i i-sm" aria-hidden="true"><use href="#ic-arrow"/></svg></a>';
 
-  return { md, html, foot, details: detailMap, activeCount: active.length };
+  return { md, html, foot, details: detailMap, activeCount: active.length, filterOptions };
 }
 
 module.exports = { renderRisks };

@@ -29,6 +29,18 @@ const EXPLORE_JS = (function () {
   }
 })();
 
+// Data Exploration M2 — 필터/정렬 pure 로직(parsers/explore-sort.js, UMD). EXPLORE_JS
+// *앞에* emit 해야 window.__mccpExplore 가 먼저 정의된다(엔진이 소비). 모듈-로드 1회
+// read + inline(외부 src 0, H13 · network primitive 0, H19 — 순수 값 변환). 누락 시
+// 빈 문자열 → 엔진은 window.__mccpExplore 부재로 no-op(baseline 전체 가시 유지).
+const EXPLORE_SORT_JS = (function () {
+  try {
+    return fs.readFileSync(path.join(__dirname, 'parsers', 'explore-sort.js'), 'utf8');
+  } catch (_) {
+    return '';
+  }
+})();
+
 // v1.17.0 (dashboard-console-redesign OQ#1 — 사용자 승인) vendored Pretendard
 // Variable, base64-inline @font-face. 외부 fetch 0(self-contained 불변 + H13
 // 외부-fetch invariant 정합 — data: URI 는 네트워크 surface 아님). woff2 누락 시
@@ -424,6 +436,11 @@ aside[role="alert"].s-secret {
    삼각형 대신 유니코드 마커) 안전. .prd-group 은 .panel/.card 아님 → H17 무관. ── */
 .prd-group { border-top: 1px solid var(--border); }
 .prd-group:first-of-type { border-top: 0; }
+/* 필터(explore.js)로 첫 그룹이 숨겨지면 :first-of-type(DOM 기준)이 숨은 그룹에 남아
+   첫 *가시* 그룹에 stray hairline 이 생긴다. 엔진이 부모별 첫 가시 그룹에 이 클래스를
+   부여해 border 를 제거한다(특정성 0,2,0 > .prd-group 0,1,0). baseline(JS off)은 전
+   그룹 가시라 :first-of-type 가 그대로 정답 — 이 규칙은 무관. */
+.prd-group.ex-first-visible { border-top: 0; }
 .prd-group > summary.prd-sum { list-style: none; cursor: pointer; display: flex;
   align-items: center; gap: 0.45rem; padding: 0.5rem 0; color: var(--muted);
   font-size: 0.78rem; font-weight: 550; }
@@ -445,6 +462,56 @@ aside[role="alert"].s-secret {
    시에만 노출. M1 은 토대만(현 consumer 없음 — M2/M3 가 .js-only 부착). */
 .js-only { display: none; }
 [data-js="on"] .js-only { display: revert; }
+/* ── 필터/정렬 컨트롤(Data Exploration M2) — 위험·질문 패널 head 우측에 통합
+   (panel-header canonical). native <select>/<button>(product 표준 affordance — 커스텀
+   드롭다운 reinvent 금지). neutral 토큰만(강조색 예산 0, focus-visible 만 accent).
+   H3(radius 0)·H4(border-left 없음). 핵심 원칙:
+   (1) PRD·plan select 폭 고정 — 위험·질문 패널이 옵션 내용과 무관하게 동일 형태(consistency).
+   (2) focus outline offset 1px + gap 0.5rem — 인접 컨트롤 침범 방지.
+   (3) **한 줄 고정(nowrap)** — 컨트롤이 둘째 줄로 떨어지는 2-tier 방지(좁으면 바 전체가
+       제목 아래 한 줄로). 필터군 ↔ 정렬 간격 분리(Linear 패턴).
+   (4) 초기화 항상 노출(현대 필터 UI 필수). 결과 수는 별도 텍스트 대신 패널 탭의 .tab-count
+       를 갱신(엔진) — 시각 표면 깨끗. .explore-count 는 .sr-only live-region(스크린리더용). ── */
+/* explore-bar 는 .js-only 도 함께 가진다. [data-js="on"] .js-only { display: revert }(특정성
+   0,2,0)가 .explore-bar(0,1,0)의 display:flex 를 이겨 <div> UA 기본인 block 으로 되돌리면
+   flex 가 깨져 ex-filters(block)가 한 줄 전체를 먹고 정렬/초기화가 둘째 줄로 흐른다(2행 회귀의
+   진짜 원인). 같은 [data-js="on"] 스코프 + 높은 특정성(0,3,0)으로 flex 를 명시 복원한다. */
+[data-js="on"] .explore-bar.js-only { display: flex; }
+.explore-bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 0.5rem; margin: 0; }
+.ex-filters { display: flex; flex-wrap: nowrap; align-items: center; gap: 0.5rem; }
+/* min-width:0 필수 — flex item 기본 min-width:auto 는 width:12rem 을 무시하고 select 를
+   가장 긴 option(긴 PRD/plan 이름)의 min-content 폭으로 부풀린다. 그러면 ex-filters 가
+   비대해져 panel-head 한 줄 배치가 깨지고 정렬/초기화가 둘째 줄로 밀린다(2-tier 회귀). */
+.ex-select { font: inherit; font-size: 0.75rem; color: var(--ink-2);
+  padding: 0.3rem 0.55rem; background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 0; cursor: pointer; min-width: 0; max-width: 13rem; overflow: hidden; text-overflow: ellipsis; }
+/* PRD·plan 은 폭 고정(내용 무관 동일) → 두 패널 형태 일치. 정렬은 짧고 옵션 동일 → 내용맞춤. */
+.ex-filters .ex-select { width: 10rem; }
+.ex-select.ex-sort { width: auto; min-width: 6rem; max-width: none; }
+/* 필터군(PRD·plan) ↔ 정렬은 다른 개념(Linear 패턴) — 1px neutral hairline 으로 시각 구분.
+   colored accent 아닌 --border hairline 이라 H4(side-stripe) 위반 아님. */
+.ex-divider { align-self: stretch; flex: none; width: 1px; margin: 0.15rem 0.3rem;
+  background: var(--border); }
+.ex-select:hover { color: var(--ink); border-color: var(--hairline-strong); }
+.ex-select:focus-visible, .explore-reset:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; }
+.explore-reset { font: inherit; font-size: 0.74rem; padding: 0.3rem 0.5rem; white-space: nowrap;
+  background: transparent; color: var(--muted); border: 1px solid transparent;
+  border-radius: 0; cursor: pointer; }
+.explore-reset:hover { color: var(--ink-2); border-color: var(--border); }
+/* 필터/정렬이 기본값(pristine)일 때 — 누를 게 없으므로 비활성(explore.js apply()가 토글).
+   공간은 유지(레이아웃 안정) + 시각 noise 제거. baseline(JS off)은 explore-bar 자체 숨김. */
+.explore-reset:disabled { color: var(--faint); border-color: transparent; cursor: default; }
+.explore-reset:disabled:hover { color: var(--faint); border-color: transparent; }
+.explore-empty { margin-top: 0.9rem; font-size: 0.82rem; color: var(--muted); }
+/* panel-head 통합 — 제목은 좌측, 컨트롤은 우측 한 줄. 좁은 폭은 head 가 wrap 해 바 전체가
+   제목 아래 한 줄로 떨어진다(컨트롤 내부는 nowrap — 데스크톱 우선, 모바일 미지원). */
+.panel-head-tools { flex-wrap: wrap; row-gap: 0.5rem; column-gap: 0.5rem; }
+.panel-head-tools .panel-count { margin-left: 0; }
+.panel-head-tools .explore-bar { margin-left: auto; }
+/* 필터로 가려진 항목/빈 그룹 — .li-item 의 display:flex 가 [hidden] 기본을 덮으므로
+   명시 규칙 필요(동일 specificity 0,1,1 > 0,1,0). */
+.li-item[hidden], .prd-group[hidden] { display: none; }
 /* ── 미해결 질문 / 위험 (stack-list > li-item, M2 샘플 fidelity) ── */
 .stack-list { display: flex; flex-direction: column; gap: 0.9rem; margin: 0; padding: 0; list-style: none; }
 .li-item { display: flex; gap: 0.65rem; align-items: flex-start; }
@@ -884,8 +951,10 @@ function renderHeroPanel(verdict, grid, projectName, escapeHtml, escapeAttr, for
     + '</section>';
 }
 
-// 패널 — head(아이콘 + 제목 + 옵션 count) / body(섹션 inner HTML) anatomy.
-// 비중첩(H17). empty-state graceful. 섹션 내부 마크업은 M2 에서 샘플 fidelity 로.
+// 패널 — head(아이콘 + 제목 + 옵션 count + opt 필터/정렬 tools) / body(섹션 inner HTML)
+// anatomy. 비중첩(H17). empty-state graceful. 섹션 내부 마크업은 M2 에서 샘플 fidelity 로.
+// Data Exploration M2 — opts.tools(.explore-bar)가 있으면 head 우측에 통합(panel-head-tools).
+// 컨트롤이 자기 리스트 바로 위 head 에 살아 scope=배치 일치 + 사이드바 nav 무게감 0.
 function renderPanel(title, section, escapeHtml, opts) {
   opts = opts || {};
   const cls = 'panel' + (opts.span2 ? ' span-2' : '') + (opts.attention ? ' attention' : '');
@@ -902,12 +971,79 @@ function renderPanel(title, section, escapeHtml, opts) {
   const footHtml = foot
     ? '<div class="panel-foot">' + foot + '</div>'
     : '';
+  const tools = opts.tools || '';
+  const headCls = 'panel-head' + (tools ? ' panel-head-tools' : '');
+  // 필터 결과 수 — 시각 표면은 패널 탭의 .tab-count 를 엔진이 갱신(미해결 18→8). 별도 텍스트
+  // 안 보임. 이 span 은 .sr-only live-region 으로 스크린리더에게만 "N개 표시"를 announce.
+  const exCount = tools
+    ? '<span class="explore-count sr-only" role="status" aria-live="polite"></span>'
+    : '';
   return '<section class="' + cls + '" aria-label="' + escapeHtml(title) + '">'
-    + '<div class="panel-head"><svg class="i" aria-hidden="true"><use href="#' + panelIcon(title) + '"/></svg>'
-    + '<h3 class="panel-title">' + escapeHtml(title) + '</h3>' + countHtml + '</div>'
+    + '<div class="' + headCls + '"><svg class="i" aria-hidden="true"><use href="#' + panelIcon(title) + '"/></svg>'
+    + '<h3 class="panel-title">' + escapeHtml(title) + '</h3>' + exCount + countHtml + tools + '</div>'
     + '<div class="panel-body">' + inner + '</div>'
     + footHtml
     + '</section>';
+}
+
+// 필터/정렬 컨트롤 바(.js-only — JS 없으면 숨김, explore.js 가 data-js="on" 시 노출).
+// Data Exploration M2 — **배치는 panel-header 통합 단일 canonical**(impeccable critique +
+// 사용자 확정 2026-06-26): 각 바가 자기 위험·질문 패널의 head 우측에 통합돼 컨트롤이 제어
+// 대상 리스트 바로 위에 산다(scope=배치 일치). 이전 global 사이드바 배치는 scope↔placement
+// 불일치(5 route 중 2개만 제어 + nav 무게감 + 키보드 탭순서 비용 + 위험·질문 옵션 결합으로
+// cross-route 빈 상태)로 폐기 — dual-path 토글(MCCP_EXPLORE_CONTROL_PLACEMENT)도 제거.
+// 모든 바는 scope='route'(closest('.route') 항목 대상, 패널 head 위치 무관 동일 동작).
+// PRD/plan select 는 옵션 2개 미만이면 생략(단일 축은 필터 무의미). 정렬은 항상 노출.
+// option label 은 normalizeProse 통과 — PRD H1 라벨이 em-dash 를 포함할 수 있고 option
+// 텍스트는 attribute 가 아니라 H10/H16 carve-out 밖이므로 raw 노출 시 em-dash 위반(그룹
+// summary 와 동일 정규화). value 는 머신 키(carve-out 됨)라 정규화 불요.
+function buildExploreBar(opts, formatUtils) {
+  opts = opts || {};
+  const escapeHtml = formatUtils.escapeHtml;
+  const norm = formatUtils.normalizeProse || ((s) => s);
+  const scope = opts.scope === 'global' ? 'global' : 'route';
+  const options = opts.options || {};
+  const prds = Array.isArray(options.prds) ? options.prds : [];
+  const plans = Array.isArray(options.plans) ? options.plans : [];
+  const opt = (value, label, extra) => '<option value="' + escapeHtml(value) + '"'
+    + (extra || '') + '>' + escapeHtml(norm(label)) + '</option>';
+  const prdSel = prds.length >= 2
+    ? '<select class="ex-select" data-axis="prd" aria-label="PRD 필터">'
+      + opt('', '전체 PRD') + prds.map((o) => opt(o.key, o.label)).join('') + '</select>'
+    : '';
+  const planSel = plans.length >= 2
+    ? '<select class="ex-select" data-axis="plan" aria-label="plan 필터">'
+      + opt('', '전체 plan')
+      + plans.map((o) => opt(o.key, o.label, ' data-prd="' + escapeHtml(o.prdKey || '') + '"')).join('')
+      + '</select>'
+    : '';
+  // 필터군(PRD·plan)을 ex-filters 로 묶고 정렬은 그 뒤로 분리 — 필터와 정렬은 다른 개념
+  // (Linear 패턴). 필터 옵션이 없으면(둘 다 <2) ex-filters 생략, 정렬만 노출.
+  const filterGroup = (prdSel || planSel)
+    ? '<div class="ex-filters">' + prdSel + planSel + '</div>'
+    : '';
+  // 필터군이 실재할 때만 정렬 앞 hairline 구분(필터 vs 정렬 다른 개념). 필터 옵션이 없어
+  // 정렬만 노출되면 divider 불필요(구분할 군이 없음). aria-hidden — 순수 시각 구획.
+  const divider = filterGroup ? '<span class="ex-divider" aria-hidden="true"></span>' : '';
+  const sortSel = '<select class="ex-select ex-sort" data-axis="sort" aria-label="정렬">'
+    + opt('severity', '위험도순') + opt('time', '시간순') + '</select>';
+  // 초기화 — 항상 노출(현대 필터 UI 필수 affordance, 사용자 요청). 결과 수는 컨트롤 사이에
+  // 텍스트로 끼우지 않고 패널 탭의 .tab-count 를 엔진이 갱신(미해결 18→8) — 컨트롤 cluster 청정.
+  const reset = '<button type="button" class="explore-reset">초기화</button>';
+  return '<div class="explore-bar js-only" role="group" aria-label="필터 및 정렬"'
+    + ' data-explore-scope="' + escapeHtml(scope) + '">'
+    + filterGroup + divider + sortSel + reset + '</div>';
+}
+
+// 섹션 → 컨트롤 바 html. 의미 있는 경우에만(li-item 2+ OR 필터 옵션 2+) emit, 그 외 ''.
+function exploreBarHtml(section, scope, formatUtils) {
+  if (!section || !section.filterOptions) return '';
+  const opts = section.filterOptions;
+  const liCount = (String(section.html || '').match(/class="li-item"/g) || []).length;
+  const hasFilter = (Array.isArray(opts.prds) && opts.prds.length >= 2)
+    || (Array.isArray(opts.plans) && opts.plans.length >= 2);
+  if (liCount < 2 && !hasFilter) return '';
+  return buildExploreBar({ scope, options: opts }, formatUtils);
 }
 
 function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
@@ -920,6 +1056,12 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
 
   const verdictAttention = verdict.tone === 'red' || verdict.tone === 'blocked';
   const gridCells = (grid && Array.isArray(grid.cells)) ? grid.cells : [];
+
+  // Data Exploration M2 — 필터/정렬 컨트롤은 위험·질문 패널 head 에 통합(panel-header
+  // canonical, 사이드바 global 배치 폐기). 각 패널이 자기 route 옵션만 소비 → 옵션 결합
+  // cross-route 빈 상태 0. exploreBarRendered 가 inline 엔진 emit gate(.prd-group OR
+  // .explore-bar)를 닫는다(F2).
+  let exploreBarRendered = false;
 
   // 프로젝트명 — repo_root basename, 없으면 generic. 사이드바 스위처 + 브레드크럼.
   const projectName = (function () {
@@ -982,6 +1124,9 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '<svg class="i i-sm"><use href="#ic-search"/></svg>'
     + '<span>찾기…</span><span class="kbd">F</span>'
     + '</div>');
+  // Data Exploration M2 — 필터/정렬 바는 사이드바가 아닌 위험·질문 패널 head 에 통합
+  // (panel-header canonical). 사이드바는 순수 wayfinding(스위처 · 검색 · 페이지 nav)만
+  // 유지 — nav 무게감 0 + 키보드 탭순서에 필터 컨트롤 선행 안 함.
   parts.push('<p class="rail-label">페이지</p>');
   const questionsNav = questions
     ? '<a class="nav-link" data-route="questions" href="#route-questions"><svg class="i" aria-hidden="true"><use href="#ic-help"/></svg>질문' + navCountHtml(qActiveCount) + '</a>'
@@ -1038,20 +1183,26 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   // route 3 — 위험: 전용 route(M3-b — 미해결 질문에서 분리). 패널 내 active/완화됨 탭.
+  // Data Exploration M2 — 필터/정렬 바를 위험 패널 head 에 통합(scope='route', 자기 route
+  // 옵션만). exploreBarHtml 은 li-item 2+ OR 필터 옵션 2+ 일 때만 emit.
+  const risksTools = exploreBarHtml(risks, 'route', formatUtils);
+  if (risksTools) exploreBarRendered = true;
   parts.push('<section class="route" id="route-risks" aria-label="위험">'
     + '<h2 class="page-title">위험</h2>'
     + '<div class="panel-grid">'
-    + renderPanel('위험', risks, escapeHtml, { span2: true, attention: verdictAttention })
+    + renderPanel('위험', risks, escapeHtml, { span2: true, attention: verdictAttention, tools: risksTools })
     + '</div>'
     + '</section>');
 
   // route 4 — 미해결 질문: 전용 route(사용자 결정 2026-06-25 "전용 사이드바"). 결정
   // 로그는 audit 마커로 은퇴 → 미해결 탭엔 진짜 미해결만. questions 없으면 route 생략.
   if (questions) {
+    const questionsTools = exploreBarHtml(questions, 'route', formatUtils);
+    if (questionsTools) exploreBarRendered = true;
     parts.push('<section class="route" id="route-questions" aria-label="질문">'
       + '<h2 class="page-title">질문</h2>'
       + '<div class="panel-grid">'
-      + renderPanel('질문', questions, escapeHtml, { span2: true })
+      + renderPanel('질문', questions, escapeHtml, { span2: true, tools: questionsTools })
       + '</div>'
       + '</section>');
   }
@@ -1066,7 +1217,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.15 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.16 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.
@@ -1095,12 +1246,14 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   if (drawerMap.size > 0) {
     parts.push('<script>' + DRAWER_SCRIPT + '</script>');
   }
-  // Data Exploration M1 — PE 토대 스크립트. PRD 그룹(<details class="prd-group">)이
-  // 실제로 렌더된 경우에만 inline emit(2+ 그룹 → 토글 의미). data-js="on" 마커 +
-  // 그룹 모두 펼치기/접기. 외부 src 0(H13) · network primitive 0(H19).
+  // Data Exploration M1/M2 — PE 토대 + 필터/정렬 엔진 스크립트. emit gate 는 PRD 그룹
+  // (<details class="prd-group">) OR 컨트롤 바(.explore-bar) 가 렌더된 경우(F2 — flat
+  // fallback 섹션도 바가 있으면 wiring). EXPLORE_SORT_JS(pure window.__mccpExplore)를
+  // EXPLORE_JS(DOM 엔진) *앞에* emit. 외부 src 0(H13) · network primitive 0(H19).
   const hasPrdGroups = [risks, questions].some(
     (s) => s && typeof s.html === 'string' && s.html.includes('class="prd-group"'));
-  if (hasPrdGroups && EXPLORE_JS) {
+  if ((hasPrdGroups || exploreBarRendered) && EXPLORE_JS) {
+    if (EXPLORE_SORT_JS) parts.push('<script>' + EXPLORE_SORT_JS + '</script>');
     parts.push('<script>' + EXPLORE_JS + '</script>');
   }
   // vendored-inline jQuery + pipeline enhancement. Only when pipeline present and

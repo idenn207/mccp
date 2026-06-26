@@ -1,0 +1,36 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "dashboard-data-exploration",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.18.16",
+    "completed_at": "2026-06-26T09:42:12.783Z",
+    "commit_sha": "cc06f6e6d203034f2a4a48558de881507ae377af",
+    "plan_basename": "dashboard-data-exploration-m2.plan.md",
+    "plan_file_hash": "sha256:2d193a84074548db43d6ba653a7f0a9bc3c0d7e23f8d3ac838764aee60df75bc",
+    "risks_closed": [
+      "**\"시간순\"이 severity 순서를 인코딩(render-time data-ord)**",
+      "**flat fallback 섹션서 컨트롤 미동작(JS 미emit)**",
+      "**both-live 두 컨트롤러가 같은 DOM 제어 → 상태 발산**",
+      "배치 dual-path 부채",
+      "inline 엔진 JS가 후속 편집서 외부 fetch 도입(raw-mode 유출)",
+      "`data-plan` paired underscore가 H16 false-positive",
+      "inline DOM JS 동작은 dep-free라 node 단위테스트 불가",
+      "정렬이 그룹 경계를 넘어 항목 섞음",
+      "필터로 그룹 0개 시 빈 그룹 잔류",
+      "컨트롤 a11y 회귀(키보드/aria)",
+      "\"시간순\"이 실 timestamp 아님(parse 방출 순 근사)",
+      "병렬 cycle version 경쟁(main이 1.18.16 선점)"
+    ],
+    "oq_closed": [
+      "vendored JS 전달: M1이 inline `<script>`(`EXPLORE_JS`)로 확정 → M2도 inline 누적(별도 파일/CDN 0).",
+      "컨트롤 통합 vs 섹션별: 양 배치 프로토타입(Task 3·5)으로 실사용 비교 후 확정.",
+      "필터 축 데이터 소스: PRD·plan은 ①의 위험·질문 항목 보유(③은 ①·② 후 진입 불변). 진행상태/worktree(②)는 M2 제외.",
+      "\"작업범위순\" 정의: 미기획/복잡 → M2 제외(사용자 OK). 후속에서 'PRD 기준 작업 진행도'로 재검토.",
+      "검색 매칭 범위: M3 범위(M2 무관).",
+      "no-JS degrade 검증: `.js-only` 숨김 + script-strip 회귀 테스트(M1 패턴 계승)."
+    ],
+    "receipt_hash": "sha256:39355fa821f6ea03246a8a7a17548dce74776379fb44280a33e7d7069acffea1"
+  }
+}

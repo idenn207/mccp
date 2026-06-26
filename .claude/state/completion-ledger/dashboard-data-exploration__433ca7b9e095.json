@@ -1,0 +1,25 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "dashboard-data-exploration",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.18.15",
+    "completed_at": "2026-06-26T03:06:15.833Z",
+    "commit_sha": "9b6e6a13a95615cf6a503839762bc53724f9164e",
+    "plan_basename": "dashboard-data-exploration.plan.md",
+    "plan_file_hash": "sha256:462b3bba86392aa4b2118a6147f5f0ddfba92689cbe72e871c1e3060f8aac670",
+    "risks_closed": [
+      "새 그룹 마크업이 H15(heading ≤3)/H17(카드중첩) lint 위반",
+      "inline explore.js 후속 편집이 외부 fetch/exfiltration 도입(raw-mode 데이터 유출)",
+      "PRD provenance 충돌(동명 basename·동일 H1 라벨)로 *오귀속*",
+      "PRD provenance 부재(archived plan·STATE.md OQ·source_prd 없는 plan)",
+      "no-JS degrade 미검증",
+      "M1에 M2/M3 control(필터/정렬/검색) 과조기 도입",
+      "버전/footer drift(plugin.json만 bump)",
+      "병렬 cycle version 경쟁(main이 1.18.15 선점)"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:433ca7b9e095c45f9dacbf4dc0b98ea33830f0a4f6813680c0ec8ebb4dec7cfe"
+  }
+}

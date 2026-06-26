@@ -6,7 +6,20 @@ const { severityMeta, sevBadgeHtml } = require('../parsers/severity-meta');
 const { detailId, addDetail, buildOQDetail, renderDetailMd } = require('../parsers/drawer-detail');
 const { stripMarker } = require('../parsers/resolution-marker');
 const { buildTabs } = require('../parsers/tabs');
-const { groupByPrd, GLOBAL_KEY, UNKNOWN_KEY } = require('../parsers/prd-group');
+const { groupByPrd, canonicalPlanPath, GLOBAL_KEY, UNKNOWN_KEY, GLOBAL_LABEL } = require('../parsers/prd-group');
+
+// Data Exploration M2 — 정렬 키 RANK(risks.js RANK_MAP 와 동형, severity → 0~4 수치).
+const RANK_MAP = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, '': 0 };
+
+// Data Exploration M2 — plan 필터축 안정 키. STATE.md OQ(source='STATE.md')는 PRD축과
+// 같은 __global__ sentinel("프로젝트 전역" 한 옵션). plan OQ 는 canonical plan path.
+function planKeyOf(src) {
+  return (!src || src === 'STATE.md') ? GLOBAL_KEY : canonicalPlanPath(src);
+}
+function planLabelOf(src) {
+  if (!src || src === 'STATE.md') return GLOBAL_LABEL;
+  return path.basename(String(src)).replace(/\.plan\.md$/i, '').replace(/\.md$/i, '') || src;
+}
 
 // 그룹 chrome 표출 규칙 — 2+ 그룹은 항상 그룹. 단일 그룹은 **실제 PRD 소속**이면
 // 헤더 표시(어느 PRD인지 정보 가치), 단일 fallback(프로젝트 전역/출처 미상)이면 flat
@@ -124,7 +137,12 @@ function renderOpenQuestions(model, formatUtils, planBody) {
     );
     const { id } = addDetail(detailMap, rawId, detail);
     const prdAttr = prdKey ? ' data-prd="' + escapeHtml(prdKey) + '"' : '';
-    const html = '<li class="li-item"' + prdAttr + ' data-detail-id="' + escapeHtml(id) + '">' + sevTag
+    // Data Exploration M2 — 필터/정렬 축. data-ord 는 split 이전 박은 _mergedIndex
+    // (= parse chronology, severity 와 무관 — Codex F1). data-sev 는 RANK 수치.
+    const exploreAttr = ' data-plan="' + escapeHtml(planKeyOf(q.source)) + '"'
+      + ' data-sev="' + (RANK_MAP[sev] || 0) + '"'
+      + ' data-ord="' + (Number.isFinite(mergedIndex) ? mergedIndex : 0) + '"';
+    const html = '<li class="li-item"' + prdAttr + exploreAttr + ' data-detail-id="' + escapeHtml(id) + '">' + sevTag
       + '<div class="li-main">' + qHtml + cueHtml + '</div>' + promptHtml + '</li>';
     // v1.18.2 M4 — STATUS.md 동등본. 항목 헤더(텍스트) + drawer-detail SSoT 인라인.
     // 출처/섹션/line/관련 결정/다음 액션은 모두 renderDetailMd 단일 경로(섹션 자체
@@ -141,8 +159,31 @@ function renderOpenQuestions(model, formatUtils, planBody) {
   // 해결됨 탭까지 동형 확장. 그룹 메타와 함께 보관해 html(그룹 chrome)·md(그룹 헤더)가
   // 동일 render 를 재사용. planPrd 부재/단일그룹은 groupByPrd 가 fail-open 단일 버킷을
   // 돌려줘 기존 flat 동작을 보존.
+  // Data Exploration M2 — 필터 옵션 메타(html.js 컨트롤 빌더가 소비). active/resolved
+  // 두 버킷을 순회해 옵션 완전. 중복 제거 + 결정적 순서(groupByPrd 정렬, active 먼저).
+  const filterOptions = { prds: [], plans: [] };
+  const seenPrd = new Set();
+  const seenPlan = new Set();
+  function collectOptions(groups) {
+    for (const g of groups) {
+      if (!seenPrd.has(g.prdKey)) {
+        seenPrd.add(g.prdKey);
+        filterOptions.prds.push({ key: g.prdKey, label: g.prdLabel });
+      }
+      for (const q of g.items) {
+        const pk = planKeyOf(q.source);
+        if (!seenPlan.has(pk)) {
+          seenPlan.add(pk);
+          filterOptions.plans.push({ key: pk, label: planLabelOf(q.source), prdKey: g.prdKey });
+        }
+      }
+    }
+  }
+
   function renderGroups(items) {
-    return groupByPrd(items, pb.planPrd).map((g) => ({
+    const groups = groupByPrd(items, pb.planPrd);
+    collectOptions(groups);
+    return groups.map((g) => ({
       prdKey: g.prdKey,
       prdLabel: g.prdLabel,
       items: g.items.map((q) => renderItem(q, q._mergedIndex, g.prdKey)),
@@ -225,7 +266,7 @@ function renderOpenQuestions(model, formatUtils, planBody) {
       + mdFromRendered(renderedResolved, false)
       + '\n\n</details>';
   }
-  return { md, html, details: detailMap, activeCount: active.length };
+  return { md, html, details: detailMap, activeCount: active.length, filterOptions };
 }
 
 module.exports = { renderOpenQuestions };

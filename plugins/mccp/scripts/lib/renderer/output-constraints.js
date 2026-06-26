@@ -222,7 +222,7 @@ const RULES = [
           .replace(/<script[\s\S]*?<\/script>/gi, '')
           .replace(/<code[\s\S]*?<\/code>/g, '')
           .replace(/<pre[\s\S]*?<\/pre>/g, '')
-          .replace(/(?:title|alt|aria-label|data-prd)="[^"]*"/g, '');
+          .replace(/(?:title|alt|aria-label|data-prd|data-plan|value)="[^"]*"/g, '');
         const m = stripped.match(/—/g);
         if (m) { count += m.length; hits.push('html(' + m.length + ')'); }
       }
@@ -364,7 +364,7 @@ const RULES = [
         .replace(/<script[\s\S]*?<\/script>/gi, '')
         .replace(/<code[\s\S]*?<\/code>/g, '')
         .replace(/<pre[\s\S]*?<\/pre>/g, '')
-        .replace(/(?:title|alt|aria-label|data-prd)="[^"]*"/g, '')
+        .replace(/(?:title|alt|aria-label|data-prd|data-plan|value)="[^"]*"/g, '')
         .replace(PYTHON_DUNDERS, '');
       // entity-encoded backtick variants (decimal w/ leading zeros, hex upper/lower, named)
       const ENT_BACKTICK = '(?:&#0*96;|&#[xX]0*60;|&grave;)';

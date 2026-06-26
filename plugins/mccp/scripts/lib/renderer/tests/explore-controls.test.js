@@ -230,3 +230,15 @@ test('(f) F2 — flat 섹션(.prd-group 부재)도 .explore-bar + explore <scrip
   assert.ok(r.html.includes('window.__mccpExplore'), 'F2: explore-sort.js emit');
   assert.deepEqual(r.design_constraint_violations, [], 'flat 산출물 design-lint clean');
 });
+
+// ── (g) 필터 시 첫 가시 그룹 stray hairline 보정 ────────────────────────────
+// .prd-group:first-of-type 는 DOM 기준이라 필터로 첫 그룹이 숨겨지면 둘째(시각상 첫)
+// 그룹에 border-top hairline 이 남는다. 엔진이 부모별 첫 가시 그룹에 ex-first-visible
+// 을 부여해 보정. DOM 실행은 dep-free 라 정적 검증(CSS 규칙 + 엔진 클래스 wiring 존재).
+test('(g) ex-first-visible — 첫 가시 그룹 border 제거 CSS 규칙 + 엔진 클래스 wiring', () => {
+  const r = renderMulti();
+  assert.ok(/\.prd-group\.ex-first-visible\s*\{\s*border-top:\s*0/.test(r.html),
+    'ex-first-visible border-top:0 규칙(특정성 0,2,0 > .prd-group)');
+  assert.ok(r.html.includes("classList.add('ex-first-visible')"), '엔진이 부모별 첫 가시 그룹에 부여');
+  assert.ok(r.html.includes("classList.remove('ex-first-visible')"), '엔진이 매 apply 시 reset');
+});

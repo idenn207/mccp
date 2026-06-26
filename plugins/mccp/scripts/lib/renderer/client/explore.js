@@ -172,15 +172,27 @@
       // 정렬 — 각 .stack-list 내(그룹 경계 보존).
       var lists = root.querySelectorAll('.stack-list');
       for (var L = 0; L < lists.length; L++) sortList(lists[L], mode);
-      // 그룹 카운트 갱신 + 가시 0 그룹 hidden.
+      // 그룹 카운트 갱신 + 가시 0 그룹 hidden + 부모별 첫 가시 그룹 border 제거.
+      // (.prd-group:first-of-type 는 DOM 기준이라 숨긴 첫 그룹이 남아 둘째 가시 그룹에
+      //  stray hairline 이 생긴다 → ex-first-visible 클래스로 보정.)
       var gs = root.querySelectorAll('.prd-group');
+      var seenParents = [];
       for (var G = 0; G < gs.length; G++) {
-        var gl = gs[G].querySelectorAll('.li-item');
-        var vis = 0;
-        for (var k = 0; k < gl.length; k++) { if (!gl[k].hidden) vis++; }
-        var cnt = gs[G].querySelector('.prd-count');
-        if (cnt) cnt.textContent = vis;
-        gs[G].hidden = vis === 0;
+        var grp = gs[G];
+        var gl = grp.querySelectorAll('.li-item');
+        var gvis = 0;
+        for (var k = 0; k < gl.length; k++) { if (!gl[k].hidden) gvis++; }
+        var cnt = grp.querySelector('.prd-count');
+        if (cnt) cnt.textContent = gvis;
+        grp.hidden = gvis === 0;
+        grp.classList.remove('ex-first-visible');
+        if (gvis > 0) {
+          var par = grp.parentNode;
+          if (seenParents.indexOf(par) === -1) {
+            seenParents.push(par);
+            grp.classList.add('ex-first-visible');
+          }
+        }
       }
       // 결과 수 — 시각은 탭 .tab-count 갱신, 스크린리더는 sr-only live-region announce.
       updateTabCounts(root);

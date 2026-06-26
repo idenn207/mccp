@@ -436,6 +436,11 @@ aside[role="alert"].s-secret {
    삼각형 대신 유니코드 마커) 안전. .prd-group 은 .panel/.card 아님 → H17 무관. ── */
 .prd-group { border-top: 1px solid var(--border); }
 .prd-group:first-of-type { border-top: 0; }
+/* 필터(explore.js)로 첫 그룹이 숨겨지면 :first-of-type(DOM 기준)이 숨은 그룹에 남아
+   첫 *가시* 그룹에 stray hairline 이 생긴다. 엔진이 부모별 첫 가시 그룹에 이 클래스를
+   부여해 border 를 제거한다(특정성 0,2,0 > .prd-group 0,1,0). baseline(JS off)은 전
+   그룹 가시라 :first-of-type 가 그대로 정답 — 이 규칙은 무관. */
+.prd-group.ex-first-visible { border-top: 0; }
 .prd-group > summary.prd-sum { list-style: none; cursor: pointer; display: flex;
   align-items: center; gap: 0.45rem; padding: 0.5rem 0; color: var(--muted);
   font-size: 0.78rem; font-weight: 550; }

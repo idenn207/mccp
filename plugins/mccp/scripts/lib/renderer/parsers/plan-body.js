@@ -289,9 +289,23 @@ function sourcePrdPath(p) {
 // Dashboard Data Exploration M1 — PRD H1 제목 = 그룹 **표시 라벨 전용**(라벨로
 // 키잉하지 않음 — 동일 H1 라벨 충돌 회피, Codex F2). H1 부재 시 PRD 파일 stem(kebab)
 // fail-open. `^#\s+`만 매칭하므로 `## H2`는 미스킵.
+// PRD H1 → 그룹 헤더/필터 옵션 표시 라벨. inline code/bold 마커(`code`/**bold**)는
+// strip 한 plain 텍스트 — 라벨은 plain 컨텍스트(prd-group <summary> span · <option>
+// 텍스트)에 들어가는데, escapeHtml 이 backtick 을 &#96; 로 인코딩하면 H16
+// entity-backtick(unrendered marker, 실데이터 plan H1 에 `id` 포함 시)이 발화한다.
+// snake_case 보호 위해 leftover 는 backtick/asterisk 만 제거(unpaired _ 보존).
+function stripInlineMarkers(s) {
+  return String(s)
+    .replace(/``([^\n]+?)``/g, '$1')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replace(/__([^_\n]+)__/g, '$1')
+    .replace(/[*`]/g, '');
+}
+
 function extractPrdLabel(prdBody, prdAbs) {
   const m = /^#\s+(.+?)\s*$/m.exec(String(prdBody || ''));
-  if (m && m[1].trim()) return m[1].trim();
+  if (m && m[1].trim()) return stripInlineMarkers(m[1].trim());
   return path.basename(prdAbs || '').replace(/\.prd\.md$/i, '').replace(/\.md$/i, '') || 'PRD';
 }
 

@@ -35,9 +35,13 @@ test('console-shell — sidebar has switcher (project name + mccp badge + chevro
   assert.match(html, /<span class="sw-badge">mccp<\/span>/);
 });
 
-test('console-shell — sidebar search affordance present (static — 실검색 범위 밖)', () => {
+test('console-shell — sidebar search affordance present (M3 — 실검색 input)', () => {
   const html = render({}, [gridSection([])]);
-  assert.match(html, /<div class="search"[^>]*>[\s\S]*?<span class="kbd">F<\/span>/);
+  // M3 — 형태만 있던 검색을 실제 <form role=search> + <input type=search> 로 wiring.
+  assert.match(html, /<form class="search js-only" role="search"[^>]*>/);
+  assert.match(html, /<input type="search" class="search-input"[^>]*>/);
+  // kbd "F" 단축키 힌트 제거(단축키 없음).
+  assert.ok(!/<span class="kbd">F<\/span>/.test(html), 'kbd "F" 제거');
 });
 
 test('console-shell — nav-rail wires routes with Lucide icons (risks/questions split)', () => {

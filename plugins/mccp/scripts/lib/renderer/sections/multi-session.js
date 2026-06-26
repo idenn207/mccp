@@ -61,12 +61,14 @@ function worktreeStatusKind(item) {
   return 'idle';
 }
 
-// kind → { 기존 .s-* 색 클래스, 아이콘, 한국어, 드로어 tone }. 신규 색 0.
+// kind → { 기존 .s-* 색 클래스, 아이콘, 한국어, 드로어 tone, 진행순 rank }. 신규 색 0.
+// rank 는 M3 진행순 정렬(data-progress-rank)의 유일 키 — worktreeStatusKind 우선순위
+// (blocked>degraded>active>idle)와 1:1 SSoT(색/아이콘/라벨/tone/rank 한곳).
 const KIND_META = {
-  blocked: { cls: 's-blocked', icon: '🚫', label: '차단됨', tone: 'high' },
-  degraded: { cls: 's-stale', icon: '⚠', label: '오류', tone: 'med' },
-  active: { cls: 's-in-progress', icon: '◐', label: '진행 중', tone: 'low' },
-  idle: { cls: 'muted', icon: '·', label: '대기', tone: 'low' },
+  blocked: { cls: 's-blocked', icon: '🚫', label: '차단됨', tone: 'high', rank: 3 },
+  degraded: { cls: 's-stale', icon: '⚠', label: '오류', tone: 'med', rank: 2 },
+  active: { cls: 's-in-progress', icon: '◐', label: '진행 중', tone: 'low', rank: 1 },
+  idle: { cls: 'muted', icon: '·', label: '대기', tone: 'low', rank: 0 },
 };
 
 function kindMeta(kind) { return KIND_META[kind] || KIND_META.idle; }
@@ -77,6 +79,23 @@ function isHealthy(item) {
 
 function branchLabel(it) {
   return it.branch || (it.detached ? '(detached)' : '(no branch)');
+}
+
+// 안정 worktree 키 — M3 worktree 필터의 value ↔ <tr data-worktree> 동일 함수 산출.
+// branch 우선(없으면 path basename), HTML attribute·필터 키 안전 문자로 정규화
+// (`_` 결합 — H16 carve-out 이 data-worktree 를 strip 하므로 paired-underscore
+//  false-positive 차단). 빈/누락은 'worktree'.
+function worktreeKey(it) {
+  const raw = (it && (it.branch || basename(it.path))) || 'worktree';
+  return String(raw).replace(/[^A-Za-z0-9._-]+/g, '_') || 'worktree';
+}
+
+// last_activity(ISO) → epoch ms (정렬 비교용). null/파싱불가 → null(말단 처리).
+function activityValue(it) {
+  const la = it && it.last_activity;
+  if (la == null) return null;
+  const t = (typeof la === 'number') ? la : Date.parse(la);
+  return Number.isNaN(t) ? null : t;
 }
 
 // 진행 셀 (md) — milestone_hint(plain 요약, truncate 48) + 게이트 보조 + (차단/오류
@@ -158,6 +177,21 @@ function renderMultiSession(model, formatUtils, options) {
   const mdDetailBlocks = [];
   const htmlRows = [];
 
+  // M3 진행순 정렬 tie-break — last_activity desc 1회 스캔해 recency index 부여
+  // (0=최신). 활동 시각 없는 행은 dated 다음(말단, 동일 index → DOM 순서 안정 tie-break).
+  const dated = items.filter((it) => activityValue(it) != null);
+  dated.sort((a, b) => activityValue(b) - activityValue(a));
+  const activityRank = new Map();
+  dated.forEach((it, i) => activityRank.set(it, i));
+  const undatedOrd = dated.length;
+
+  // M3 필터 옵션 — present 한 kind/worktree 만, 결정적 순서(statuses: rank desc,
+  // worktrees: 등장순). 중복은 key 로 제거. html.js buildSessionBar 가 소비.
+  const statusOptions = [];
+  const seenStatus = new Set();
+  const worktreeOptions = [];
+  const seenWorktree = new Set();
+
   items.forEach((item, index) => {
     if (!item) return;
     const it = item;
@@ -202,9 +236,29 @@ function renderMultiSession(model, formatUtils, options) {
       mdDetailBlocks.push('- ' + wtCellMd + '\n' + detailMd);
     }
 
+    // ── M3 진행순/필터 축. data-status(kind)·data-worktree(안정 키)·
+    // data-progress-rank(KIND_META.rank SSoT)·data-activity-ord(recency index). ──
+    const wtKey = worktreeKey(it);
+    const progressRank = meta.rank;
+    const activityOrd = activityRank.has(it) ? activityRank.get(it) : undatedOrd;
+    if (!seenStatus.has(kind)) {
+      seenStatus.add(kind);
+      statusOptions.push({ key: kind, label: meta.label, rank: meta.rank });
+    }
+    if (!seenWorktree.has(wtKey)) {
+      seenWorktree.add(wtKey);
+      // 라벨 — self 는 "이 worktree", 아니면 branch/name. 필터 select 가시 텍스트.
+      const wtLabel = isSelf ? '이 worktree' : (it.branch || name || '(worktree)');
+      worktreeOptions.push({ key: wtKey, label: wtLabel });
+    }
+
     // ── html 행 (색은 상태 셀 span 에만; tr 은 self 만). 행 클릭 → 드로어:
     // data-detail-id 는 worktree 셀(<td>)에 부여(milestone-history li 미러). ──
-    const trOpen = isSelf ? '<tr class="self">' : '<tr>';
+    const trData = ' data-status="' + escapeHtml(kind) + '"'
+      + ' data-worktree="' + escapeHtml(wtKey) + '"'
+      + ' data-progress-rank="' + progressRank + '"'
+      + ' data-activity-ord="' + activityOrd + '"';
+    const trOpen = isSelf ? '<tr class="self"' + trData + '>' : '<tr' + trData + '>';
     const selfMarkHtml = '<strong>이 worktree</strong>';
     const wtCellInner = isSelf
       ? (name ? selfMarkHtml + ' ' + escapeHtml(name) : selfMarkHtml)
@@ -231,7 +285,17 @@ function renderMultiSession(model, formatUtils, options) {
     + '<th>worktree</th><th>브랜치</th><th>진행</th><th>상태</th><th>활동</th>'
     + '</tr></thead><tbody>' + htmlRows.join('') + '</tbody></table>';
 
-  const result = { md, html, details: detailMap };
+  // M3 필터 옵션 — statuses 는 rank desc(blocked 먼저), worktrees 는 등장순.
+  // {key,label} 만 노출(rank 는 정렬 후 drop — 컨트롤 빌더는 key/label 만 소비).
+  const filterOptions = {
+    statuses: statusOptions
+      .slice()
+      .sort((a, b) => b.rank - a.rank)
+      .map((s) => ({ key: s.key, label: s.label })),
+    worktrees: worktreeOptions.map((w) => ({ key: w.key, label: w.label })),
+  };
+
+  const result = { md, html, details: detailMap, filterOptions };
 
   // truncated foot — no silent cap. cap/total 은 source warning 문자열에 보존됨.
   if (wt.truncated) {

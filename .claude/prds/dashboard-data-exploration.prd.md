@@ -55,8 +55,8 @@ We'll know we're right when **항목을 소속 PRD별로 묶어 보고, 필터�
 | # | Milestone | Outcome | Status | Plan |
 | --- | --- | --- | --- | --- |
 | 1 | PRD-수준 그룹핑 + PE 토대 | self-contained vendored JS 토대(JS off graceful degrade 불변) 위에서 항목을 소속 PRD별 접힘 그룹으로 묶어 표시. JS-0 invariant를 progressive-enhancement로 개정(H-invariant 충돌 정리). | complete | [`.claude/plans/dashboard-data-exploration.plan.md`](../plans/dashboard-data-exploration.plan.md) |
-| 2 | 필터 + 정렬 (위험·질문) | 위험·질문 항목에 필터(**PRD축·plan축**, 조합 가능) + 정렬(**위험도순·시간순**) 컨트롤. JS off 시 전체 표시. *진행상태/worktree 필터·진행순/작업범위순 정렬은 M3으로 이관(범위 축소 — 2026-06-26 사용자 결정, plan F4 reconcile).* | in-progress | [`.claude/plans/dashboard-data-exploration-m2.plan.md`](../plans/dashboard-data-exploration-m2.plan.md) |
-| 3 | 검색 + 잔여 탐색 축 | 형태만 있던 검색 입력을 실제 클라이언트 필터로 wiring(항목 텍스트 매칭, 단축키 없음) + **M2에서 이관된 잔여 축**: 진행상태/worktree 필터·진행순 정렬(멀티세션 표면 의존). 작업범위순 정렬은 'PRD 기준 작업 진행도'로 재기획 전까지 보류. JS off 시 입력 숨김 + 전체 표시. | pending | — |
+| 2 | 필터 + 정렬 (위험·질문) | 위험·질문 항목에 필터(**PRD축·plan축**, 조합 가능) + 정렬(**위험도순·시간순**) 컨트롤. JS off 시 전체 표시. *진행상태/worktree 필터·진행순/작업범위순 정렬은 M3으로 이관(범위 축소 — 2026-06-26 사용자 결정, plan F4 reconcile).* | complete | [`.claude/plans/dashboard-data-exploration-m2.plan.md`](../plans/dashboard-data-exploration-m2.plan.md) |
+| 3 | 검색 + 잔여 탐색 축 | 형태만 있던 검색 입력을 실제 클라이언트 필터로 wiring(항목 텍스트 매칭, 단축키 없음) + **M2에서 이관된 잔여 축**: 진행상태/worktree 필터·진행순 정렬(멀티세션 표면 의존). 작업범위순 정렬은 'PRD 기준 작업 진행도'로 재기획 전까지 보류. JS off 시 입력 숨김 + 전체 표시. | in-progress | [`.claude/plans/dashboard-data-exploration-m3.plan.md`](../plans/dashboard-data-exploration-m3.plan.md) |
 
 ## Design Direction
 

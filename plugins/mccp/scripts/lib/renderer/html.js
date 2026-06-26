@@ -215,9 +215,20 @@ code, .mono { font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, '
   padding: 0.42rem 0.55rem; border-radius: var(--radius-sm);
   background: var(--panel); border: 1px solid var(--border);
   color: var(--muted); font-size: 0.82rem; }
-.search .i { color: var(--faint); }
-.search .kbd { margin-left: auto; font-family: ui-monospace, monospace; font-size: 0.7rem; color: var(--faint);
-  border: 1px solid var(--border-2); border-radius: 4px; padding: 0.04rem 0.32rem; }
+/* .search 는 M3 부터 .js-only <form> — [data-js=on] .js-only{display:revert} 가
+   form 을 block 으로 되돌려 flex 가 깨지므로(explore-bar 와 동형) 높은 특정성으로 복원. */
+[data-js="on"] .search.js-only { display: flex; }
+.search .i { color: var(--faint); flex: none; }
+/* native <input type=search> — borderless·투명 배경으로 .search 칩 안에 녹임. neutral
+   토큰만(강조색 0). 포커스 링은 .search:focus-within 으로 폼 둘레에(carve-out accent). */
+.search-input { flex: 1 1 auto; min-width: 0; font: inherit; font-size: 0.82rem;
+  color: var(--ink-2); background: transparent; border: 0; padding: 0; margin: 0; }
+.search-input::placeholder { color: var(--faint); }
+.search-input:focus, .search-input:focus-visible { outline: none; }
+.search:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 검색 매칭 슬롯 — .nav-count 토큰 미러(neutral). :empty(미검색/0) 면 미표시. */
+.nav-search-count { font-size: 0.72rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+.nav-search-count:empty { display: none; }
 .rail-label { margin: 0.3rem 0.6rem 0.32rem; font-size: 0.69rem; font-weight: 600;
   letter-spacing: 0.05em; text-transform: uppercase; color: var(--faint); }
 .nav-rail { display: flex; flex-direction: column; gap: 0.1rem; }
@@ -416,6 +427,9 @@ ul { padding-left: 1.25rem; }
    구조 큐(중립 bg tint 만). side-stripe(box-shadow inset) 는 H4 금지라 미사용.
    accent/red 는 상태 셀 span 전용 보존(강조색 ≤1/viewport). */
 .multi-session tr.self { background: var(--panel-2); }
+/* M3 세션 바 필터로 가려진 행 — [hidden] UA 기본을 table-row 컨텍스트에서 명시 보강
+   (.li-item[hidden] 선례 동형). */
+.multi-session tr[hidden] { display: none; }
 /* 상태·활동 셀은 짧은 고정 텍스트("◐ 진행 중" / "50분 전") — 좁은 컬럼에서 공백
    기준 줄바꿈을 막아 영역을 확보. 가변 길이(worktree 경로·진행 요약)는 1·3 컬럼이
    wrap 으로 흡수. */
@@ -997,6 +1011,20 @@ function renderPanel(title, section, escapeHtml, opts) {
 // option label 은 normalizeProse 통과 — PRD H1 라벨이 em-dash 를 포함할 수 있고 option
 // 텍스트는 attribute 가 아니라 H10/H16 carve-out 밖이므로 raw 노출 시 em-dash 위반(그룹
 // summary 와 동일 정규화). value 는 머신 키(carve-out 됨)라 정규화 불요.
+// 필터 option 라벨 — plain 텍스트화. <option> 텍스트는 자식 요소를 못 가지므로
+// renderProseHtml(태그화)이 불가하고, escapeHtml 이 backtick 을 &#96; 로 인코딩하면
+// H16 entity-backtick(unrendered marker)이 발화한다(실데이터 plan H1 에 `code` 포함
+// 시). 그래서 norm 후 inline code/bold 마커를 strip 해 plain 라벨로(multi-session.js
+// plainSummary 동형). snake_case 보호 위해 leftover 는 backtick/asterisk 만 제거.
+function plainLabel(label, norm) {
+  let t = norm ? norm(String(label)) : String(label);
+  return t
+    .replace(/``([^\n]+?)``/g, '$1')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replace(/[`*]/g, '');
+}
+
 function buildExploreBar(opts, formatUtils) {
   opts = opts || {};
   const escapeHtml = formatUtils.escapeHtml;
@@ -1006,7 +1034,7 @@ function buildExploreBar(opts, formatUtils) {
   const prds = Array.isArray(options.prds) ? options.prds : [];
   const plans = Array.isArray(options.plans) ? options.plans : [];
   const opt = (value, label, extra) => '<option value="' + escapeHtml(value) + '"'
-    + (extra || '') + '>' + escapeHtml(norm(label)) + '</option>';
+    + (extra || '') + '>' + escapeHtml(plainLabel(label, norm)) + '</option>';
   const prdSel = prds.length >= 2
     ? '<select class="ex-select" data-axis="prd" aria-label="PRD 필터">'
       + opt('', '전체 PRD') + prds.map((o) => opt(o.key, o.label)).join('') + '</select>'
@@ -1046,6 +1074,54 @@ function exploreBarHtml(section, scope, formatUtils) {
   return buildExploreBar({ scope, options: opts }, formatUtils);
 }
 
+// Data Exploration M3 — 멀티세션 진행 바(잔여 축). buildExploreBar 와 동일 chrome·토큰
+// (native <select>/<button>, neutral, H3/H4) 재사용 — 진행상태/worktree 필터 + 진행순
+// 정렬. data-explore-scope="session" 마커로 M2 리스트 컨트롤러와 소유권 분리(Codex
+// Impl R1 IF2 — wireBar 는 :not([data-explore-scope="session"]) 만 loop). status/
+// worktree select 는 옵션 2개 미만이면 생략(단일 축은 필터 무의미). 진행순 정렬은 항상.
+function buildSessionBar(opts, formatUtils) {
+  opts = opts || {};
+  const escapeHtml = formatUtils.escapeHtml;
+  const norm = formatUtils.normalizeProse || ((s) => s);
+  const options = opts.options || {};
+  const statuses = Array.isArray(options.statuses) ? options.statuses : [];
+  const worktrees = Array.isArray(options.worktrees) ? options.worktrees : [];
+  const opt = (value, label) => '<option value="' + escapeHtml(value) + '">'
+    + escapeHtml(plainLabel(label, norm)) + '</option>';
+  const statusSel = statuses.length >= 2
+    ? '<select class="ex-select" data-axis="status" aria-label="진행상태 필터">'
+      + opt('', '전체 상태') + statuses.map((o) => opt(o.key, o.label)).join('') + '</select>'
+    : '';
+  const wtSel = worktrees.length >= 2
+    ? '<select class="ex-select" data-axis="worktree" aria-label="worktree 필터">'
+      + opt('', '전체 worktree') + worktrees.map((o) => opt(o.key, o.label)).join('') + '</select>'
+    : '';
+  const filterGroup = (statusSel || wtSel)
+    ? '<div class="ex-filters">' + statusSel + wtSel + '</div>'
+    : '';
+  const divider = filterGroup ? '<span class="ex-divider" aria-hidden="true"></span>' : '';
+  // 정렬은 현재 진행순 단일(작업범위순은 PRD 명시 보류). 컨트롤러는 sortSel 부재 시
+  // mode='progress' fallback 이라 단일 옵션이어도 행은 진행순. 작업범위순 추가 시 2옵션.
+  const sortSel = '<select class="ex-select ex-sort" data-axis="sort" aria-label="정렬">'
+    + opt('progress', '진행순') + '</select>';
+  const reset = '<button type="button" class="explore-reset">초기화</button>';
+  return '<div class="explore-bar js-only" role="group" aria-label="멀티세션 필터 및 정렬"'
+    + ' data-explore-scope="session">'
+    + filterGroup + divider + sortSel + reset + '</div>';
+}
+
+// 멀티세션 섹션 → 세션 바 html. 의미 있는 경우에만(status 옵션 2+ OR worktree 옵션 2+)
+// emit, 그 외 ''. 2+ worktree 행이면 worktree 옵션이 2+ 라 자연히 통과(graceful-hide
+// 단일 healthy worktree 는 섹션 자체가 null → filterOptions 부재 → '').
+function sessionBarHtml(section, formatUtils) {
+  if (!section || !section.filterOptions) return '';
+  const opts = section.filterOptions;
+  const hasFilter = (Array.isArray(opts.statuses) && opts.statuses.length >= 2)
+    || (Array.isArray(opts.worktrees) && opts.worktrees.length >= 2);
+  if (!hasFilter) return '';
+  return buildSessionBar({ options: opts }, formatUtils);
+}
+
 function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   const { escapeHtml, formatRelativeTime } = formatUtils;
   const escapeAttr = formatUtils.escapeAttr || escapeHtml;
@@ -1062,6 +1138,8 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   // cross-route 빈 상태 0. exploreBarRendered 가 inline 엔진 emit gate(.prd-group OR
   // .explore-bar)를 닫는다(F2).
   let exploreBarRendered = false;
+  // Data Exploration M3 — 멀티세션 진행 바(잔여 축) 렌더 여부. emit gate 의 한 축.
+  let sessionBarRendered = false;
 
   // 프로젝트명 — repo_root basename, 없으면 generic. 사이드바 스위처 + 브레드크럼.
   const projectName = (function () {
@@ -1120,23 +1198,32 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '<span class="sw-badge">mccp</span>'
     + '<svg class="i i-sm sw-chev" aria-hidden="true"><use href="#ic-chev-d"/></svg>'
     + '</div>');
-  parts.push('<div class="search" aria-hidden="true">'
-    + '<svg class="i i-sm"><use href="#ic-search"/></svg>'
-    + '<span>찾기…</span><span class="kbd">F</span>'
-    + '</div>');
+  // Data Exploration M3 — 형태만 있던 검색을 실제 input 으로 wiring(`.js-only` →
+  // JS off 시 숨김). role="search" landmark + native <input type=search>(단축키 0,
+  // kbd "F" 제거). <form> 은 Enter 시 native submit 하므로 explore.js 가
+  // submit→preventDefault 바인딩(action/method 미지정, Codex F1). 바로 아래 sr-only
+  // 전역 live-region 이 검색 결과 수를 스크린리더에 announce(빈 검색 시 빈 텍스트).
+  parts.push('<form class="search js-only" role="search" aria-label="항목 검색">'
+    + '<svg class="i i-sm" aria-hidden="true"><use href="#ic-search"/></svg>'
+    + '<input type="search" class="search-input" aria-label="항목 검색" placeholder="찾기…" autocomplete="off">'
+    + '</form>'
+    + '<p class="search-status sr-only" role="status" aria-live="polite"></p>');
   // Data Exploration M2 — 필터/정렬 바는 사이드바가 아닌 위험·질문 패널 head 에 통합
   // (panel-header canonical). 사이드바는 순수 wayfinding(스위처 · 검색 · 페이지 nav)만
   // 유지 — nav 무게감 0 + 키보드 탭순서에 필터 컨트롤 선행 안 함.
   parts.push('<p class="rail-label">페이지</p>');
+  // Data Exploration M3 — nav-link 검색 매칭 슬롯(빈, JS 활성 시 컨트롤러가 해당 route
+  // 가시 .li-item 수로 채움; :empty 면 미표시). neutral 토큰(.nav-count 미러).
+  const navS = '<span class="nav-search-count"></span>';
   const questionsNav = questions
-    ? '<a class="nav-link" data-route="questions" href="#route-questions"><svg class="i" aria-hidden="true"><use href="#ic-help"/></svg>질문' + navCountHtml(qActiveCount) + '</a>'
+    ? '<a class="nav-link" data-route="questions" href="#route-questions"><svg class="i" aria-hidden="true"><use href="#ic-help"/></svg>질문' + navS + navCountHtml(qActiveCount) + '</a>'
     : '';
   parts.push('<nav class="nav-rail" aria-label="페이지">'
-    + '<a class="nav-link" data-route="overview" href="#route-overview"><svg class="i" aria-hidden="true"><use href="#ic-dashboard"/></svg>대시보드</a>'
-    + '<a class="nav-link" data-route="pipeline" href="#route-pipeline"><svg class="i" aria-hidden="true"><use href="#ic-branch"/></svg>파이프라인</a>'
-    + '<a class="nav-link" data-route="risks" href="#route-risks"><svg class="i" aria-hidden="true"><use href="#ic-alert"/></svg>위험' + navCountHtml(riskActiveCount) + '</a>'
+    + '<a class="nav-link" data-route="overview" href="#route-overview"><svg class="i" aria-hidden="true"><use href="#ic-dashboard"/></svg>대시보드' + navS + '</a>'
+    + '<a class="nav-link" data-route="pipeline" href="#route-pipeline"><svg class="i" aria-hidden="true"><use href="#ic-branch"/></svg>파이프라인' + navS + '</a>'
+    + '<a class="nav-link" data-route="risks" href="#route-risks"><svg class="i" aria-hidden="true"><use href="#ic-alert"/></svg>위험' + navS + navCountHtml(riskActiveCount) + '</a>'
     + questionsNav
-    + '<a class="nav-link" data-route="activity" href="#route-activity"><svg class="i" aria-hidden="true"><use href="#ic-activity"/></svg>활동 · 기록</a>'
+    + '<a class="nav-link" data-route="activity" href="#route-activity"><svg class="i" aria-hidden="true"><use href="#ic-activity"/></svg>활동 · 기록' + navS + '</a>'
     + '</nav>');
   parts.push('<div class="rail-spacer"></div>');
   if (hasBlocked) {
@@ -1208,8 +1295,16 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   }
 
   // route 5 — 활동·기록: 워커/활동/타임라인/마일스톤 패널 그리드.
+  // Data Exploration M3 — 멀티세션 진행 패널 head 에 잔여-축 바(진행상태/worktree 필터
+  // + 진행순 정렬) 통합. section 동일성으로 그 패널에만 부착(scope=배치 일치).
+  const sessionBarTools = sessionBarHtml(multiSession, formatUtils);
+  if (sessionBarTools) sessionBarRendered = true;
   const activityHtml = activityPanels
-    .map(p => renderPanel(p.title, p.section, escapeHtml, { span2: p.span2, attention: p.attention }))
+    .map(p => renderPanel(p.title, p.section, escapeHtml, {
+      span2: p.span2,
+      attention: p.attention,
+      tools: (p.section === multiSession) ? sessionBarTools : '',
+    }))
     .join('');
   parts.push('<section class="route" id="route-activity" aria-label="활동 및 기록">'
     + '<h2 class="page-title">활동 · 기록</h2>'
@@ -1217,7 +1312,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.16 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.17 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.
@@ -1252,7 +1347,11 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   // EXPLORE_JS(DOM 엔진) *앞에* emit. 외부 src 0(H13) · network primitive 0(H19).
   const hasPrdGroups = [risks, questions].some(
     (s) => s && typeof s.html === 'string' && s.html.includes('class="prd-group"'));
-  if ((hasPrdGroups || exploreBarRendered) && EXPLORE_JS) {
+  // Data Exploration M3 — 검색 타겟(문서에 .li-item 존재) OR 멀티세션 바도 emit gate
+  // 축. 검색/잔여축이 prd-group/explore-bar 부재 route 에서도 wiring 되도록 확장.
+  const hasSearchTargets = [risks, questions, timeline, milestoneHistory].some(
+    (s) => s && typeof s.html === 'string' && s.html.includes('class="li-item"'));
+  if ((hasSearchTargets || hasPrdGroups || exploreBarRendered || sessionBarRendered) && EXPLORE_JS) {
     if (EXPLORE_SORT_JS) parts.push('<script>' + EXPLORE_SORT_JS + '</script>');
     parts.push('<script>' + EXPLORE_JS + '</script>');
   }

@@ -73,7 +73,7 @@ test('(d) is_self → tr.self + "이 worktree" 정확히 1', () => {
     item({ path: '<outside-repo:a>', active: true }),
     item({ path: '<outside-repo:b>', active: true }),
   ] }));
-  assert.equal((r.html.match(/<tr class="self">/g) || []).length, 1);
+  assert.equal((r.html.match(/<tr class="self"[ >]/g) || []).length, 1);
   assert.equal((r.html.match(/<strong>이 worktree<\/strong>/g) || []).length, 1);
   assert.equal((r.md.match(/\*\*이 worktree\*\*/g) || []).length, 2); // md row + inline detail header
 });

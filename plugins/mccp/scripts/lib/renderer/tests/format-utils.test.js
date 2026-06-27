@@ -81,10 +81,15 @@ test('STATUS_BADGES — Object.freeze invariant', () => {
 
 // ── dashboard-interactivity M1 — block-level prose renderer ───────────────────
 
-test('renderProseBlockHtml — paragraph(soft-join) + inline markers via renderInline', () => {
+test('renderProseBlockHtml — paragraph soft break preserved as <br> + inline markers (M1.2)', () => {
   const html = renderProseBlockHtml('첫 줄 **강조** 와 `code`.\n같은 문단 둘째 줄.', fu);
   assert.equal(html,
-    '<p>첫 줄 <strong>강조</strong> 와 <code>code</code>. 같은 문단 둘째 줄.</p>');
+    '<p>첫 줄 <strong>강조</strong> 와 <code>code</code>.<br>같은 문단 둘째 줄.</p>');
+});
+
+test('renderProseBlockHtml — balanced multi-line paragraph keeps <br> per soft break (M1.2)', () => {
+  const html = renderProseBlockHtml('완화 단계 하나\n완화 단계 둘\n완화 단계 셋', fu);
+  assert.equal(html, '<p>완화 단계 하나<br>완화 단계 둘<br>완화 단계 셋</p>');
 });
 
 test('renderProseBlockHtml — blank line separates paragraphs', () => {
@@ -121,10 +126,57 @@ test('renderProseBlockHtml — GFM table needs header+separator gate (Codex F1)'
   assert.ok(html.includes('<td>a <code>c</code></td>'), 'table cell inline-rendered');
 });
 
-test('renderProseBlockHtml — heading flattened to <strong> (H15: no h4+)', () => {
+test('renderProseBlockHtml — heading is styled .d-h paragraph, no inner <strong>, no h4+ (M1.2 F1, H15)', () => {
   const html = renderProseBlockHtml('## 헤딩은 강등\n본문', fu);
-  assert.ok(html.includes('<p class="d-h"><strong>헤딩은 강등</strong></p>'));
+  assert.ok(html.includes('<p class="d-h">헤딩은 강등</p>'), 'styled .d-h paragraph');
+  assert.ok(!html.includes('<strong>헤딩은 강등</strong>'), 'no inner <strong> (CSS owns weight)');
   assert.ok(!/<h[1-6]/.test(html), 'no <hN> emitted');
+});
+
+// M1.2 Task 2 — render-then-validate gate: a soft break that orphans an inline
+// marker falls back to space-join (single renderInline re-pairs across the break),
+// leaving 0 raw/entity markers (Codex F-C1: parity checks miss double-backtick
+// spans + md links). Balanced multi-line keeps <br> (test above).
+
+test('renderProseBlockHtml — bold ** straddling soft break → space-join fallback, no raw ** (F2)', () => {
+  const html = renderProseBlockHtml('앞 **강조가\n다음 줄** 끝', fu);
+  assert.equal(html, '<p>앞 <strong>강조가 다음 줄</strong> 끝</p>');
+  assert.ok(!html.includes('**'), 'no orphan ** leaked');
+  assert.ok(!html.includes('<br>'), 'fallback to space-join (no <br>)');
+});
+
+test('renderProseBlockHtml — double-backtick span straddling soft break → fallback, no entity backtick leak (Codex F-C1)', () => {
+  const html = renderProseBlockHtml('보세요 ``a `b`\nc d`` 끝', fu);
+  assert.ok(html.includes('<code>'), 'double-backtick re-paired to <code> via fallback');
+  const outsideCode = html.replace(/<code[\s\S]*?<\/code>/g, '');
+  assert.ok(!outsideCode.includes('&#96;'), 'no entity backtick leaked outside <code>');
+  assert.ok(!html.includes('<br>'), 'fallback to space-join (no <br>)');
+});
+
+test('renderProseBlockHtml — markdown link straddling soft break → fallback, no raw [..](..) fragment (Codex F-C1)', () => {
+  const html = renderProseBlockHtml('참고 [PR\n#58](http://x) 머지', fu);
+  assert.ok(!/\[[^\]]*\]\([^)]*\)/.test(html), 'no raw md-link fragment leaked');
+  assert.ok(!html.includes('](http'), 'no orphan link tail');
+  assert.ok(!html.includes('<br>'), 'fallback to space-join (no <br>)');
+});
+
+// review LOW#1 — __bold__ detector mirrors renderInline's boundary-less __token__
+// so a straddled underscore-bold (incl. intra-word) is caught, not just \b-anchored.
+test('renderProseBlockHtml — __bold__ straddling soft break → space-join fallback, no raw __ (review LOW#1)', () => {
+  const html = renderProseBlockHtml('앞 __강조가\n다음 줄__ 끝', fu);
+  assert.equal(html, '<p>앞 <strong>강조가 다음 줄</strong> 끝</p>');
+  assert.ok(!/__/.test(html), 'no orphan __ leaked');
+  assert.ok(!html.includes('<br>'), 'fallback to space-join (no <br>)');
+});
+
+// review LOW#2 — a single-backtick code span whose body holds & (esc → &amp;) used
+// to defeat the [^&] entity-backtick scan; the lazy inner now re-pairs it.
+test('renderProseBlockHtml — single-backtick span with & straddling soft break → fallback, no entity backtick leak (review LOW#2)', () => {
+  const html = renderProseBlockHtml('보세요 `a & b\nc` 끝', fu);
+  assert.ok(html.includes('<code>'), 'code span re-paired to <code> via fallback');
+  const outsideCode = html.replace(/<code[\s\S]*?<\/code>/g, '');
+  assert.ok(!outsideCode.includes('&#96;'), 'no entity backtick leaked outside <code>');
+  assert.ok(!html.includes('<br>'), 'fallback to space-join (no <br>)');
 });
 
 test('renderProseBlockHtml — malformed table (no separator) degrades to inline <p>, no raw |-marker leak', () => {

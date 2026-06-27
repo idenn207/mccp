@@ -57,6 +57,27 @@ test('renderDetailMd — code span·링크·엔티티·한국어 raw 보존 (str
   assert.ok(!md.includes('—'), 'em-dash 는 H10 normalize');
 });
 
+// dashboard-interactivity M1 — 멀티라인 proseText 는 block-safe(h3 헤더 + deeper-indent
+// 본문). 단일 라인은 기존 인라인 형식 불변(위 테스트가 보장).
+test('renderDetailMd — 멀티라인 section proseText 는 block-safe(헤더 줄 + deeper-indent 본문)', () => {
+  const detail = {
+    sections: [['완화책', '<HTML>', '완화 단계:\n- canary 회전\n- 롤백 `flag`']],
+  };
+  const md = dd.renderDetailMd(detail, formatUtils);
+  assert.equal(md,
+    '  - 완화책:\n'
+    + '    완화 단계:\n'
+    + '    - canary 회전\n'
+    + '    - 롤백 `flag`');
+  // 정보 동등 — 모든 본문 줄이 md 에 보존(절단 0)
+  assert.ok(md.includes('canary 회전') && md.includes('롤백 `flag`'));
+});
+
+test('renderDetailMd — 단일 라인 section 은 기존 인라인 형식 불변', () => {
+  const detail = { sections: [['요약', '<HTML>', '한 줄 요약']] };
+  assert.equal(dd.renderDetailMd(detail, formatUtils), '  - 요약: 한 줄 요약');
+});
+
 test('renderDetailMd — omit(field-key) + omitSections', () => {
   const detail = {
     rows: [['시각', '12분 전'], ['결정', 'realtime', true], ['receipt', '4e9c1a', true]],
@@ -141,6 +162,28 @@ test('Risk 섹션 md — 영향/가능성/관련 결정/완화책 인라인 (이
   assert.ok(md.includes('  - 관련 결정: `p`'));
   assert.ok(md.includes('  - 완화책: fsync 후 회전'));
   assert.ok(md.includes('  - 동일 질문 참조: OQ-a'), 'section-only relatedOpenQuestion 생존 (F2)');
+});
+
+// dashboard-interactivity M1 — resolved 위험 해결 사유/시각이 html drawer ↔ md 동등.
+test('Risk 섹션 — resolved 위험 해결 사유/시각 html drawer ↔ md 동등 (M1)', () => {
+  const planBody = {
+    risks: [{
+      risk: 'done-risk', impact: 'High', likelihood: 'Low', mitigation: 'm',
+      source: 'p.plan.md', ordinal: 0, resolved: true,
+      resolvedMeta: { reason: '컨트롤러로 흡수됨', at: '2026-06-25' },
+    }],
+  };
+  const { md, details } = renderRisks({ sources: {} }, formatUtils, planBody);
+  // md — 해결 사유/시각 행(renderDetailMd 단일 경로)
+  assert.ok(md.includes('해결 사유: 컨트롤러로 흡수됨'), 'md 해결 사유 행');
+  assert.ok(md.includes('해결 시각: 2026-06-25'), 'md 해결 시각 행');
+  // 드로어 detail(html 측 SSoT) — 같은 값(정보 동등). drawer-data <script> 는 전체
+  // html 렌더에서 이 details Map 을 직렬화하므로 Map row 검증이 등가.
+  const detail = Array.from(details.values())[0];
+  const dts = detail.rows.map((r) => r[0]);
+  assert.ok(dts.includes('해결 사유') && dts.includes('해결 시각'), 'drawer detail 해결 행');
+  assert.equal(detail.rows.find((r) => r[0] === '해결 사유')[1], '컨트롤러로 흡수됨');
+  assert.equal(detail.rows.find((r) => r[0] === '해결 시각')[1], '2026-06-25');
 });
 
 test('timeline 섹션 md — receipt hash 인라인(헤더 중복 행은 omit)', () => {

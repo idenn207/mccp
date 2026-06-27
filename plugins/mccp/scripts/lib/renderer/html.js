@@ -701,7 +701,24 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .d-rows dd { margin: 0; min-width: 0; color: var(--ink-2); word-break: break-word; }
 .d-sec { margin: 0 0 1.15rem; }
 .d-sec h3 { margin: 0 0 0.35rem; font-size: 0.8rem; font-weight: 600; color: var(--ink); }
-.d-sec p { margin: 0; font-size: 0.855rem; line-height: 1.65; color: var(--ink-2); }
+/* dashboard-interactivity M1 — block-level 드로어 prose 컨테이너(.d-prose, 이전엔
+   inline-only <p>). near-monochrome 토큰만 재사용(Critique F2: --ink/--ink-2/--muted/
+   --border/--panel-2) — 신규 강조색·tint 0(viewport당 강조색 ≤1 = severity pill 한정).
+   table/blockquote 는 전역 규칙(table/th,td/blockquote) 재사용 — 간격만 보정.
+   border-radius 미사용(H3 무발화) + blockquote border-left 는 전역 carve-out. */
+.d-prose { font-size: 0.855rem; line-height: 1.65; color: var(--ink-2); }
+.d-prose > :first-child { margin-top: 0; }
+.d-prose > :last-child { margin-bottom: 0; }
+.d-prose p { margin: 0 0 0.6rem; }
+.d-prose p.d-h { margin: 0.7rem 0 0.3rem; color: var(--ink); font-weight: 600; }
+.d-prose ul, .d-prose ol { margin: 0 0 0.6rem; padding-left: 1.25rem; }
+.d-prose li { margin: 0 0 0.2rem; }
+.d-prose li:last-child { margin-bottom: 0; }
+.d-prose pre { margin: 0 0 0.6rem; padding: 0.55rem 0.7rem; background: var(--panel-2);
+  border: 1px solid var(--border); overflow-x: auto; font-size: 0.8rem; line-height: 1.5; }
+.d-prose pre code { color: var(--ink-2); font-size: inherit; }
+.d-prose blockquote { margin: 0 0 0.6rem; }
+.d-prose table { margin: 0 0 0.6rem; font-size: 0.8rem; }
 .d-action { margin-top: 1.3rem; }
 /* ── 반응형 collapse: 사이드바를 상단 가로 바로, 패널 그리드 1-col. ── */
 @media (max-width: 880px) {
@@ -762,7 +779,7 @@ const DRAWER_SCRIPT = "(function(){"
   + "var h=el('h2','d-title');h.innerHTML=d.title||'';dBody.appendChild(h);"
   + "if(d.tags&&d.tags.length){var tw=el('div','d-tags');d.tags.forEach(function(t){var s=el('span','sev s-'+(t.tone||'low'));s.textContent=t.label||'';tw.appendChild(s)});dBody.appendChild(tw)}"
   + "if(d.rows&&d.rows.length){var dl=el('dl','d-rows');d.rows.forEach(function(r){var row=el('div'),dt=el('dt'),dd=el('dd');dt.textContent=r[0]||'';if(r[2])dd.className='mono';dd.textContent=r[1]||'';row.appendChild(dt);row.appendChild(dd);dl.appendChild(row)});dBody.appendChild(dl)}"
-  + "if(d.sections&&d.sections.length){d.sections.forEach(function(s){var sec=el('section','d-sec'),h3=el('h3'),p=el('p');h3.textContent=s[0]||'';p.innerHTML=s[1]||'';sec.appendChild(h3);sec.appendChild(p);dBody.appendChild(sec)})}"
+  + "if(d.sections&&d.sections.length){d.sections.forEach(function(s){var sec=el('section','d-sec'),h3=el('h3'),p=el('div','d-prose');h3.textContent=s[0]||'';p.innerHTML=s[1]||'';sec.appendChild(h3);sec.appendChild(p);dBody.appendChild(sec)})}"
   + "if(d.action){var wrap=el('div','d-action'),lab=el('div','na-label'),ap=el('div','action-prompt'),code=el('code'),btn=el('button','copy-btn');lab.textContent='다음 작업';code.textContent=d.action;btn.type='button';btn.setAttribute('data-copy',d.action);btn.setAttribute('aria-label','다음 액션 복사');btn.innerHTML='<svg class=\"i i-sm\" aria-hidden=\"true\"><use href=\"#ic-copy\"/></svg><span class=\"cb-label\">복사</span>';ap.appendChild(code);ap.appendChild(btn);wrap.appendChild(lab);wrap.appendChild(ap);dBody.appendChild(wrap)}}"
   + "function open(id,trigger){var d=DETAILS[id];if(!d)return;lastTrigger=trigger;dKind.textContent=KIND[String(id).split(':')[0]]||'상세';render(d);dBody.scrollTop=0;if(drawer.showModal){drawer.showModal()}else{drawer.setAttribute('open','')}}"
   + "function close(){if(drawer.close){drawer.close()}else{drawer.removeAttribute('open')}}"
@@ -1312,7 +1329,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.17 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.18 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.

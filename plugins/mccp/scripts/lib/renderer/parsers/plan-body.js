@@ -343,22 +343,43 @@ function computePlanStaleness(plan, model) {
   return planCycle === fpCycle ? 'fresh' : 'stale';
 }
 
-// v1.18.1 M3 — 마일스톤 드로어 요약(OPTIONAL). plan `## Summary` 섹션 첫 단락을
-// read-side 추출(receipt 스키마 무확장 — chain-of-custody 무손상). 부재 시 null →
-// 드로어 graceful degrade. 다음 `##` heading 또는 빈 줄 2개에서 단락 종료.
+// dashboard-interactivity M1 — 마일스톤 드로어 요약(OPTIONAL). plan `## Summary`
+// 섹션 **전문**(다음 `##` 까지)을 개행 보존으로 read-side 추출(receipt 스키마
+// 무확장 — chain-of-custody 무손상). 이전엔 첫 단락만 줄-join 해 "요약 절단"의
+// 원인이었다(PRD). 부재 시 null → 드로어 graceful degrade.
+//
+// Codex F1 (HIGH) — render budget. milestone-history 가 **모든 완료 마일스톤** 의
+// summary 를 단일 inline drawer-data JSON + STATUS.md 로 집계 직렬화하므로, 한 plan
+// 의 거대 summary(붙여넣은 로그/표/fence)가 status.html·STATUS.md 전체를 부풀릴 수
+// 있다. "truncation 0" 을 유한 budget 으로 교체: 정상 summary 는 변화 없이 전문
+// 표시(budget 이 충분히 큼), 병리적 케이스만 경계에서 자르고 trailing affordance 를
+// 붙인다(plan 경로는 이미 드로어 'plan' row 로 노출됨). renderProseBlockHtml 의
+// MAX_BLOCKS 가 DOM 노드 측 defense-in-depth.
+const SUMMARY_BUDGET_CHARS = 2000;
+const SUMMARY_BUDGET_LINES = 40;
+const SUMMARY_OVERFLOW_NOTE = '… (요약이 길어 잘렸습니다. 전문은 plan 원문 참조)';
+
 function extractPlanSummary(planBody) {
   const section = findSection(planBody, '## Summary');
   if (!section) return null;
-  const lines = section.split(/\r?\n/);
-  const para = [];
-  for (const line of lines) {
-    const t = line.trim();
-    if (!t) { if (para.length) break; else continue; }
-    if (/^#{1,6}\s/.test(t)) break;
-    para.push(t);
+  // 제목과 본문 사이 선행 빈 줄만 제거하고 나머지 개행 구조는 보존한다(목록/표/fence
+  // 가 block 렌더러로 살아남도록). 다음 `##` heading 에서 종료(findSection 이 보장).
+  let body = section.replace(/^\s*\n/, '').replace(/\s+$/, '');
+  if (!body) return null;
+  let truncated = false;
+  let lines = body.split('\n');
+  if (lines.length > SUMMARY_BUDGET_LINES) {
+    lines = lines.slice(0, SUMMARY_BUDGET_LINES);
+    truncated = true;
   }
-  const text = para.join(' ').trim();
-  return text || null;
+  body = lines.join('\n');
+  if (body.length > SUMMARY_BUDGET_CHARS) {
+    body = body.slice(0, SUMMARY_BUDGET_CHARS);
+    truncated = true;
+  }
+  body = body.replace(/\s+$/, '');
+  if (truncated) body += '\n\n' + SUMMARY_OVERFLOW_NOTE;
+  return body || null;
 }
 
 // Dashboard Truthfulness M1 Task 3 — ship-time snapshot of a plan's `## Risks`

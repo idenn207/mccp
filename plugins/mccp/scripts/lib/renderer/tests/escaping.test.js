@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { renderStatus } = require('../index');
+const fu = require('../format-utils');
 
 test('escape — briefing_summary script injection neutralized in HTML', () => {
   const now = Date.now();
@@ -64,4 +65,40 @@ test('escape — risk mitigation backtick payload neutralized', () => {
   });
   assert.match(r.html, /injection-payload/);
   assert.ok(!r.html.includes('`injection-payload`'), 'backtick must be escaped');
+});
+
+// ── dashboard-interactivity M1 — block-level prose self-injection guards ───────
+// renderProseBlockHtml lifts the drawer prose from inline-only to block-level; every
+// block path (list / fence / table cell / blockquote) must still terminate in the
+// escape-then-render SSoT so a payload in any block vector cannot break out.
+
+test('escape — block list item with <script> payload neutralized', () => {
+  const html = fu.renderProseBlockHtml('- 정상 항목\n- <script>alert(1)</script>', fu);
+  assert.ok(html.includes('<ul>'), 'rendered as list');
+  assert.ok(!html.includes('<script>alert'), 'no raw script in list item');
+  assert.ok(html.includes('&lt;script&gt;'), 'script escaped');
+});
+
+test('escape — fenced code with onerror payload stays escaped (no inline render)', () => {
+  const html = fu.renderProseBlockHtml('```\n<img onerror="alert(2)">\n```', fu);
+  assert.ok(html.startsWith('<pre><code>'), 'rendered as code block');
+  assert.ok(!html.includes('<img onerror'), 'onerror not raw');
+  assert.ok(html.includes('&lt;img onerror'), 'onerror escaped');
+});
+
+test('escape — table cell backtick + markup payload neutralized', () => {
+  const html = fu.renderProseBlockHtml(
+    '| 키 | 값 |\n|---|---|\n| `tok` | <b onmouseover=x>v</b> |', fu);
+  assert.ok(html.includes('<table>'), 'rendered as table');
+  // backtick cell becomes a real <code> span; raw backtick must not survive
+  assert.ok(!html.includes('`tok`'), 'no raw backtick in cell');
+  assert.ok(html.includes('<code>tok</code>'), 'backtick rendered to code span');
+  assert.ok(!html.includes('<b onmouseover'), 'no raw event-handler markup');
+  assert.ok(html.includes('&lt;b onmouseover'), 'markup escaped');
+});
+
+test('escape — blockquote with markup payload neutralized', () => {
+  const html = fu.renderProseBlockHtml('> <script>x</script> 인용', fu);
+  assert.ok(html.startsWith('<blockquote>'), 'rendered as blockquote');
+  assert.ok(!html.includes('<script>x'), 'no raw script in blockquote');
 });

@@ -178,6 +178,161 @@ function renderProseMd(text) {
   return normalizeProse(text);
 }
 
+// dashboard-interactivity M1 — block-level prose renderer. Mirrors renderProseHtml's
+// escape-then-render SSoT (line 169) but lifts it from inline-only to block-level so
+// the right drawer can show a plan summary / mitigation as the full structured prose
+// (paragraphs, lists, fenced code, blockquotes, GFM tables) instead of a single joined
+// line. INVARIANT (Codex critique F1, Constraint 3): EVERY rendered text path terminates
+// in renderInline (or esc, for code fences) — there is no raw passthrough. Malformed
+// structures (table without a separator row, an unterminated fence) degrade to an
+// inline-rendered <p>, never to a literal `|`/backtick/`**` that would leak to H16.
+// Defense-in-depth (Codex F1, Task 2): MAX_BLOCKS caps emitted nodes so no single
+// section can balloon the DOM. fail-open — any throw returns escapeHtml(text).
+const MAX_BLOCKS = 200;
+
+// A separator row anchors a GFM table: must hold a pipe, at least one dash, and only
+// table-frame characters. A header row alone is NOT a table (Codex F1) — the
+// header+separator pair is the gate, else each line degrades to an inline <p>.
+function isTableSeparatorRow(line) {
+  const t = String(line == null ? '' : line).trim();
+  return t.indexOf('|') !== -1 && t.indexOf('-') !== -1 && /^[|\s:-]+$/.test(t);
+}
+
+function splitTableRow(line) {
+  return String(line == null ? '' : line)
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((c) => c.trim());
+}
+
+function renderProseBlockHtml(text, formatUtils) {
+  const esc = (formatUtils && formatUtils.escapeHtml) || escapeHtml;
+  try {
+    const normalized = normalizeProse(text);
+    if (!normalized.trim()) return '';
+    const lines = normalized.split('\n');
+    const out = [];
+    let i = 0;
+
+    const blockStart = (s) => /^(```)/.test(s) || /^>\s?/.test(s)
+      || /^[-*]\s+/.test(s) || /^\d+[.)]\s+/.test(s) || /^#{1,6}\s/.test(s);
+    const tableStart = (idx) => idx + 1 < lines.length
+      && lines[idx].indexOf('|') !== -1 && isTableSeparatorRow(lines[idx + 1]);
+    const push = (html) => { if (out.length < MAX_BLOCKS) out.push(html); };
+
+    while (i < lines.length && out.length < MAX_BLOCKS) {
+      const trimmed = lines[i].trim();
+      if (!trimmed) { i += 1; continue; }
+
+      // Fenced code — body is esc-only (never inline-rendered: code is literal).
+      // An unterminated fence drops the opening marker and degrades its body to
+      // inline <p> per Codex F1 (no dangling backtick reaches H16).
+      if (/^```/.test(trimmed)) {
+        const body = [];
+        i += 1;
+        let closed = false;
+        while (i < lines.length) {
+          if (/^```\s*$/.test(lines[i].trim())) { closed = true; i += 1; break; }
+          body.push(lines[i]);
+          i += 1;
+        }
+        if (closed) {
+          push('<pre><code>' + esc(body.join('\n')) + '</code></pre>');
+        } else {
+          for (const b of body) {
+            if (b.trim()) push('<p>' + renderInline(b.trim(), esc) + '</p>');
+          }
+        }
+        continue;
+      }
+
+      // Blockquote — consecutive `>` lines, soft-joined, inline-rendered.
+      if (/^>\s?/.test(trimmed)) {
+        const quote = [];
+        while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
+          quote.push(lines[i].trim().replace(/^>\s?/, ''));
+          i += 1;
+        }
+        push('<blockquote>' + renderInline(quote.join(' '), esc) + '</blockquote>');
+        continue;
+      }
+
+      // Unordered list.
+      if (/^[-*]\s+/.test(trimmed)) {
+        const items = [];
+        while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
+          items.push(lines[i].trim().replace(/^[-*]\s+/, ''));
+          i += 1;
+        }
+        push('<ul>' + items.map((it) => '<li>' + renderInline(it, esc) + '</li>').join('') + '</ul>');
+        continue;
+      }
+
+      // Ordered list.
+      if (/^\d+[.)]\s+/.test(trimmed)) {
+        const items = [];
+        while (i < lines.length && /^\d+[.)]\s+/.test(lines[i].trim())) {
+          items.push(lines[i].trim().replace(/^\d+[.)]\s+/, ''));
+          i += 1;
+        }
+        push('<ol>' + items.map((it) => '<li>' + renderInline(it, esc) + '</li>').join('') + '</ol>');
+        continue;
+      }
+
+      // GFM table — header + separator gate (Codex F1). Body rows run until a
+      // non-pipe line. Every cell is inline-rendered.
+      if (tableStart(i)) {
+        const header = splitTableRow(lines[i]);
+        i += 2;
+        const body = [];
+        while (i < lines.length && lines[i].indexOf('|') !== -1 && lines[i].trim()) {
+          body.push(splitTableRow(lines[i]));
+          i += 1;
+        }
+        const thead = '<thead><tr>' + header.map((c) => '<th>' + renderInline(c, esc) + '</th>').join('') + '</tr></thead>';
+        const tbody = '<tbody>' + body.map((r) => '<tr>' + r.map((c) => '<td>' + renderInline(c, esc) + '</td>').join('') + '</tr>').join('') + '</tbody>';
+        push('<table>' + thead + tbody + '</table>');
+        continue;
+      }
+
+      // Heading — H15 forbids <h4>+, so a content heading is flattened to a bold
+      // paragraph (the drawer already owns the <h2>/<h3> hierarchy).
+      const heading = trimmed.match(/^#{1,6}\s+(.*)$/);
+      if (heading) {
+        push('<p class="d-h"><strong>' + renderInline(heading[1].trim(), esc) + '</strong></p>');
+        i += 1;
+        continue;
+      }
+
+      // Paragraph — soft-join consecutive lines until a blank line or a new block
+      // (including a lookahead-detected table). Inline-rendered.
+      const para = [];
+      while (i < lines.length) {
+        const t = lines[i].trim();
+        if (!t || blockStart(t) || tableStart(i)) break;
+        para.push(t);
+        i += 1;
+      }
+      if (para.length) push('<p>' + renderInline(para.join(' '), esc) + '</p>');
+      else i += 1;
+    }
+
+    return out.join('');
+  } catch (_) {
+    return esc(String(text == null ? '' : text));
+  }
+}
+
+// Block-level markdown path — like renderProseMd, normalizeProse only. Markdown
+// already carries its own block markers (lists, fences, tables) legitimately, so
+// the only render-time transform is H10 em-dash. Named for symmetry with
+// renderProseBlockHtml; renderDetailMd consumes it for multi-line section bodies.
+function renderProseBlockMd(text) {
+  return normalizeProse(text);
+}
+
 module.exports = {
   STATUS_BADGES,
   formatRelativeTime,
@@ -188,4 +343,6 @@ module.exports = {
   normalizeProse,
   renderProseHtml,
   renderProseMd,
+  renderProseBlockHtml,
+  renderProseBlockMd,
 };

@@ -52,6 +52,39 @@ test('drawer — buildRiskDetail REQUIRED(impact/likelihood/완화/결정) prese
   assert.ok(d.sections[0][1].includes('canary'));
 });
 
+// dashboard-interactivity M1 — sections proseHtml 은 block-level(목록/표/fence/
+// blockquote). title/rows 는 inline 유지(불변).
+test('drawer — buildRiskDetail 완화책 section 이 block-level 렌더(목록/표 마크업)', () => {
+  const d = dd.buildRiskDetail({
+    risk: '토큰 폭주',
+    impact: '고', likelihood: '중',
+    mitigation: '완화 단계:\n\n- canary 점진 회전\n- 롤백 `feature-flag`\n\n| 단계 | 비율 |\n|---|---|\n| 1 | 5% |',
+    source: '.claude/plans/auth.plan.md', severity: 'HIGH',
+  }, formatUtils);
+  const proseHtml = d.sections[0][1];
+  assert.ok(proseHtml.includes('<ul>') && proseHtml.includes('<li>canary'), '목록 block 렌더');
+  assert.ok(proseHtml.includes('<table>') && proseHtml.includes('<th>단계</th>'), '표 block 렌더');
+  assert.ok(proseHtml.includes('<code>feature-flag</code>'), '인라인 마커 렌더(H16 안전)');
+  // proseText(index 2)는 raw 보존(md 경로)
+  assert.ok(d.sections[0][2].includes('- canary 점진 회전'), 'proseText raw 보존');
+});
+
+// dashboard-interactivity M1 — resolved 위험만 해결 사유/시각 row(OPTIONAL degrade).
+test('drawer — buildRiskDetail resolvedReason/resolvedAt → 해결 사유/시각 row(resolved만)', () => {
+  const resolved = dd.buildRiskDetail({
+    risk: 'x', impact: '고', likelihood: '저', mitigation: 'm', source: 'p.plan.md',
+    resolvedReason: 'M2 에서 컨트롤러로 흡수', resolvedAt: '2026-06-25',
+  }, formatUtils);
+  const dts = resolved.rows.map((r) => r[0]);
+  assert.ok(dts.includes('해결 사유') && dts.includes('해결 시각'));
+  assert.equal(resolved.rows.find((r) => r[0] === '해결 사유')[1], 'M2 에서 컨트롤러로 흡수');
+  assert.equal(resolved.rows.find((r) => r[0] === '해결 시각')[1], '2026-06-25');
+  // resolved 메타 부재 시 행 미생성(active 위험)
+  const active = dd.buildRiskDetail({ risk: 'y', impact: '고', likelihood: '저', mitigation: 'm', source: 'p.plan.md' }, formatUtils);
+  const adts = active.rows.map((r) => r[0]);
+  assert.ok(!adts.includes('해결 사유') && !adts.includes('해결 시각'));
+});
+
 test('drawer — 위험 시나리오/잔여 부재 = OPTIONAL degrade (placeholder 금지)', () => {
   // mitigation 없으면 sections 자체 생략 — 빈 section 만들지 않음.
   const d = dd.buildRiskDetail({ risk: 'x', impact: '고', likelihood: '저', source: 'p.plan.md' }, formatUtils);
@@ -199,6 +232,10 @@ test('drawer — html 에 <dialog aria-label> + ic-x symbol + drawer-data + DRAW
   assert.ok(html.includes('showModal'), 'native dialog showModal in script');
   // 주입 경계: rows/title 은 textContent. innerHTML 은 title/sections 만.
   assert.ok(html.includes('.textContent'), 'DOM-builder textContent path present');
+  // dashboard-interactivity M1 — section prose 컨테이너는 block-safe <div class="d-prose">
+  // (block 요소를 <p> 에 중첩 시 발생하는 브라우저 auto-close 차단).
+  assert.ok(html.includes("el('div','d-prose')"), 'section uses d-prose div container');
+  assert.match(html, /\.d-prose\b/, '.d-prose block CSS present');
 });
 
 test('drawer — H18 등식 통과(trigger==유일id==JSON키) on real-ish render', () => {

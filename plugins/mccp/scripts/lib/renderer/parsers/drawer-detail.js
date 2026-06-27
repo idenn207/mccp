@@ -120,7 +120,9 @@ function buildOQDetail(q, formatUtils) {
 }
 
 function buildRiskDetail(r, formatUtils) {
-  const { renderProseHtml, normalizeProse } = formatUtils;
+  const { renderProseHtml, renderProseBlockHtml, normalizeProse } = formatUtils;
+  // dashboard-interactivity M1 — block 렌더러 부재 시(최소 stub) inline 으로 degrade.
+  const blockHtml = renderProseBlockHtml || renderProseHtml;
   const sev = String(r.severity || 'MEDIUM').toUpperCase();
   const rows = [];
   const dec = decisionFromSource(r.source);
@@ -133,6 +135,10 @@ function buildRiskDetail(r, formatUtils) {
   if (r.relatedOpenQuestion) {
     rows.push(['동일 질문 참조', normalizeProse(r.relatedOpenQuestion)]);
   }
+  // dashboard-interactivity M1 — resolved 위험만 해결 사유/시각 노출(OPTIONAL degrade).
+  // risks.js 가 r.resolvedMeta.reason/.at 를 forward(해결됨/보관됨 버킷에서만 채워짐).
+  if (r.resolvedReason) rows.push(['해결 사유', normalizeProse(String(r.resolvedReason))]);
+  if (r.resolvedAt) rows.push(['해결 시각', normalizeProse(String(r.resolvedAt))]);
   const detail = {
     title: renderProseHtml(r.risk, formatUtils),
     titleText: normalizeProse(r.risk),
@@ -140,15 +146,18 @@ function buildRiskDetail(r, formatUtils) {
     rows,
   };
   // 완화책 = REQUIRED(plan Risks 표 Mitigation 컬럼 schema 보장). 부재 시 생략.
+  // dashboard-interactivity M1 — proseHtml 은 block-level(목록/표/fence/blockquote)로
+  // 렌더(절단 없이 전문). proseText(index 2)는 md 경로용 raw 보존(불변).
   if (r.mitigation) {
-    detail.sections = [['완화책', renderProseHtml(r.mitigation, formatUtils), normalizeProse(r.mitigation)]];
+    detail.sections = [['완화책', blockHtml(r.mitigation, formatUtils), normalizeProse(r.mitigation)]];
   }
   if (r.actionPrompt) detail.action = normalizeProse(r.actionPrompt);
   return detail;
 }
 
 function buildReceiptDetail(rc, formatUtils) {
-  const { renderProseHtml, normalizeProse, escapeHtml } = formatUtils;
+  const { renderProseHtml, renderProseBlockHtml, normalizeProse, escapeHtml } = formatUtils;
+  const blockHtml = renderProseBlockHtml || renderProseHtml;
   const esc = escapeHtml || ((s) => String(s == null ? '' : s));
   const gate = rc.gate || '게이트';
   const conv = rc.convLabel || (rc.isBad ? 'divergent' : '수렴');
@@ -168,13 +177,14 @@ function buildReceiptDetail(rc, formatUtils) {
     rows,
   };
   if (rc.briefingSummary) {
-    detail.sections = [['요약', renderProseHtml(rc.briefingSummary, formatUtils), normalizeProse(rc.briefingSummary)]];
+    detail.sections = [['요약', blockHtml(rc.briefingSummary, formatUtils), normalizeProse(rc.briefingSummary)]];
   }
   return detail;
 }
 
 function buildMilestoneDetail(e, planSummary, formatUtils) {
-  const { renderProseHtml, normalizeProse } = formatUtils;
+  const { renderProseHtml, renderProseBlockHtml, normalizeProse } = formatUtils;
+  const blockHtml = renderProseBlockHtml || renderProseHtml;
   const rows = [];
   if (e.planBasename) rows.push(['plan', normalizeProse(e.planBasename), true]);
   if (e.relative) rows.push(['ship', e.relative]);
@@ -186,8 +196,9 @@ function buildMilestoneDetail(e, planSummary, formatUtils) {
     rows,
   };
   // 요약 = plan `## Summary` read-side(OPTIONAL — plan unreadable 시 생략).
+  // dashboard-interactivity M1 — block-level 렌더(요약 전문, 절단 없음).
   if (planSummary) {
-    detail.sections = [['요약', renderProseHtml(planSummary, formatUtils), normalizeProse(planSummary)]];
+    detail.sections = [['요약', blockHtml(planSummary, formatUtils), normalizeProse(planSummary)]];
   }
   return detail;
 }
@@ -198,7 +209,8 @@ function buildMilestoneDetail(e, planSummary, formatUtils) {
 // 동일 문자열 보장(정보 동등 test). per-worktree scrubbed item.error/blocked_reason
 // 을 별행으로 노출(Codex Impl-F2) — generic '오류' 뱃지로 collapse 금지.
 function buildWorktreeDetail(item, formatUtils, opts) {
-  const { normalizeProse, escapeHtml, formatRelativeTime, renderProseHtml } = formatUtils;
+  const { normalizeProse, escapeHtml, formatRelativeTime, renderProseHtml, renderProseBlockHtml } = formatUtils;
+  const blockHtml = renderProseBlockHtml || renderProseHtml;
   const esc = escapeHtml || ((s) => String(s == null ? '' : s));
   const it = item || {};
   const o = opts || {};
@@ -240,9 +252,10 @@ function buildWorktreeDetail(item, formatUtils, opts) {
     rows,
   };
   // 진행 = milestone_hint(STATE.md authored, raw prose) — OPTIONAL degrade.
+  // dashboard-interactivity M1 — block-level 렌더(진행 노트 전문).
   if (it.milestone_hint) {
     detail.sections = [['진행',
-      renderProseHtml(String(it.milestone_hint), formatUtils),
+      blockHtml(String(it.milestone_hint), formatUtils),
       normalizeProse(String(it.milestone_hint))]];
   }
   return detail;
@@ -265,6 +278,9 @@ function renderDetailMd(detail, formatUtils, opts) {
   const indent = typeof o.indent === 'string' ? o.indent : '  ';
   const omit = o.omit instanceof Set ? o.omit : new Set(Array.isArray(o.omit) ? o.omit : []);
   const renderProseMd = (formatUtils && formatUtils.renderProseMd) || ((s) => String(s == null ? '' : s));
+  // dashboard-interactivity M1 — block-safe md(멀티라인 섹션). renderProseBlockMd 는
+  // renderProseMd 와 동일(normalizeProse)하나 naming 대칭으로 분리. 부재 시 degrade.
+  const renderProseBlockMd = (formatUtils && formatUtils.renderProseBlockMd) || renderProseMd;
   const lines = [];
 
   const rows = Array.isArray(detail.rows) ? detail.rows : [];
@@ -285,8 +301,20 @@ function renderDetailMd(detail, formatUtils, opts) {
       const h3 = String(sec[0]);
       if (omit.has(h3)) continue;
       // proseText(index 2)만 — proseHtml(index 1) 은 md 에서 절대 안 씀(strip 0).
+      // dashboard-interactivity M1 — 멀티라인 proseText 는 block-safe 로: `  - {h3}:`
+      // 헤더 줄 + deeper-indent 본문(목록/표/fence 구조 보존). 단일 라인은 기존
+      // `  - {h3}: {proseMd}` 불변(기존 테스트 보존).
       if (sec.length >= 3 && sec[2] != null) {
-        lines.push(indent + '- ' + h3 + ': ' + renderProseMd(String(sec[2])));
+        const proseMd = renderProseBlockMd(String(sec[2]));
+        if (proseMd.indexOf('\n') !== -1) {
+          lines.push(indent + '- ' + h3 + ':');
+          const deeper = indent + '  ';
+          for (const pl of proseMd.split('\n')) {
+            lines.push(pl.trim() ? deeper + pl : '');
+          }
+        } else {
+          lines.push(indent + '- ' + h3 + ': ' + proseMd);
+        }
       }
     }
   }

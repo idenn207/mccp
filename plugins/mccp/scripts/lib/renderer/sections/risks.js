@@ -105,8 +105,16 @@ function renderRisks(model, formatUtils, planBody) {
     const ap = buildActionPrompt(rClean, 'risk');
     // 드로어 detail — REQUIRED(위험 전문/severity/impact/likelihood/완화/결정).
     const rawId = detailId('risk', { source: r.source, ordinal: r.ordinal });
+    // dashboard-interactivity M1 — resolved 위험은 해결 사유/시각을 forward(드로어
+    // '해결 사유'/'해결 시각' row). resolvedMeta 는 해결됨/보관됨 버킷 항목에서만
+    // 비어있지 않다(parseRisks 가 trailing 마커에서 추출).
     const detail = buildRiskDetail(
-      Object.assign({}, rClean, { severity: sev, actionPrompt: ap.fullText }),
+      Object.assign({}, rClean, {
+        severity: sev,
+        actionPrompt: ap.fullText,
+        resolvedReason: r.resolvedMeta && r.resolvedMeta.reason,
+        resolvedAt: r.resolvedMeta && r.resolvedMeta.at,
+      }),
       formatUtils,
     );
     const { id } = addDetail(detailMap, rawId, detail);

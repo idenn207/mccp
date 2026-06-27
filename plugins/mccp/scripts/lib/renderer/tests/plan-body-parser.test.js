@@ -12,6 +12,7 @@ const {
   parseOpenQuestions,
   parseRisks,
   extractRisksAndOpenQuestions,
+  extractPlanSummary,
 } = require('../parsers/plan-body');
 const { planAwareMarkdownHash } = require('../../../receipt/hash');
 
@@ -419,4 +420,50 @@ test('parsePlanBody — sourceClosed: stale terminal-receipt hash keeps in-progr
     assert.equal(fresh.planStatuses.get('recur.plan.md'), 'complete');
     assert.equal(fresh.risks.find(r => r.risk === 'live-after-edit').sourceClosed, true);
   });
+});
+
+// ── dashboard-interactivity M1 — extractPlanSummary 전문 추출 + render budget ────
+
+test('extractPlanSummary — 멀티문단 전문 추출(첫-단락-only 아님, 개행 보존)', () => {
+  const plan = '# Plan\n\n## Summary\n\n첫 단락 본문.\n\n둘째 단락 본문.\n\n- 목록 항목\n\n## Next\n\n무시\n';
+  const s = extractPlanSummary(plan);
+  assert.ok(s.includes('첫 단락 본문.'), '첫 단락');
+  assert.ok(s.includes('둘째 단락 본문.'), '둘째 단락(이전엔 절단)');
+  assert.ok(s.includes('- 목록 항목'), '목록 구조 보존');
+  assert.ok(s.includes('\n'), '개행 보존(block 렌더용)');
+  assert.ok(!s.includes('무시'), '다음 ## 에서 종료');
+});
+
+test('extractPlanSummary — 단일 라인 요약 unchanged(기존 동작 보존)', () => {
+  const plan = '# Plan\n\n## Summary\n\n레이아웃 재설계 요약 본문\n';
+  assert.equal(extractPlanSummary(plan), '레이아웃 재설계 요약 본문');
+});
+
+test('extractPlanSummary — Summary 섹션 부재 시 null(degrade)', () => {
+  assert.equal(extractPlanSummary('# Plan\n\n## Risks\n\n표\n'), null);
+  assert.equal(extractPlanSummary(''), null);
+  assert.equal(extractPlanSummary(null), null);
+});
+
+test('extractPlanSummary — 거대 Summary(멀티문단+표+fence) render budget 으로 bounded (Codex F1)', () => {
+  // 정상 summary 보다 훨씬 큰 병리적 케이스 — 붙여넣은 로그/표가 status.html/STATUS.md
+  // 전체를 부풀리는 경로(전 마일스톤 집계 직렬화)를 budget 으로 차단.
+  const big = [];
+  for (let i = 0; i < 120; i += 1) big.push('문단 라인 ' + i + ' 본문 내용이 길게 이어진다.');
+  const plan = '# Plan\n\n## Summary\n\n' + big.join('\n') + '\n\n## Next\n';
+  const s = extractPlanSummary(plan);
+  assert.ok(s, '거대 summary 도 추출됨');
+  // budget ceiling(2000자 + overflow note 여유) 이하
+  assert.ok(s.length <= 2100, 'budget ceiling 이하 (len=' + s.length + ')');
+  // overflow affordance 가 trailing 으로 붙음
+  assert.ok(s.includes('전문은 plan 원문 참조'), 'overflow affordance 노출');
+  // budget 줄 수 상한(40줄 + affordance) 이하
+  assert.ok(s.split('\n').length <= 45, '줄 수 상한 이하');
+});
+
+test('extractPlanSummary — 정상 크기 summary 는 budget 미발동(affordance 없음, 전문 표시)', () => {
+  const plan = '# Plan\n\n## Summary\n\n적당한 길이의 요약.\n\n둘째 단락.\n';
+  const s = extractPlanSummary(plan);
+  assert.ok(!s.includes('전문은 plan 원문 참조'), '정상 summary 는 affordance 미발동');
+  assert.ok(s.includes('적당한 길이의 요약.') && s.includes('둘째 단락.'), '전문 표시');
 });

@@ -2,7 +2,22 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.17`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.18.19`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.18.19] — 2026-06-27
+
+dashboard-interactivity M1.2 — 드로어 prose 렌더 시각 다듬기 + 리스트 강조 혼란 제거. M1이 깐 block-level prose 렌더(`renderProseBlockHtml`) 위에서 세 시각 결함을 닫는다: (1) **heading 위계** — `##` 가 `<p class="d-h"><strong>` 평면 강등돼 본문과 위계가 약하던 문제를, 내부 `<strong>` 제거 + styled `.d-h`(weight 650 / `--ink` / margin)로 교체. 차별화 축은 size 가 아니라 weight·color·margin 이며 `font-size: 0.8rem`(≤ `.d-sec h3`)로 묶어 prose 헤딩이 섹션 라벨보다 커지는 위계 역전을 차단(Critique F1). literal h4+ 0(H15 무발화). (2) **문단 soft break** — 단일 줄바꿈이 공백으로 합쳐져 의도된 줄 구조(완화 단계·OQ 하위 라인)가 사라지던 문제를, per-line `renderInline` 후 `<br>` join 으로 보존. md 경로(`renderProseBlockMd`)는 `\n` 유지 → HTML `<br>` ≡ md `\n` 평문 동등. (3) **리스트 강조 중립화** — 드로어 밖 위험/질문 리스트의 `**bold**` 가 흰(`--ink`) vs 회(`--ink-2`) 대비로 '확인/미확인' 상태 토글로 오인되던 문제를, `.li-q strong` 을 본문 동색(`--ink-2`/weight 600)으로 중립화하고 loud 강조 렌더는 드로어(`.d-prose strong` 신규)로 집중. **Codex F-C1(HIGH)**: soft break 가 inline 마커를 orphan 하면 literal/entity 마커가 잔존(H16 누출)하는데, 단순 parity 검사는 double-backtick code span·markdown link straddle 을 miss → **render-then-validate gate** 로 교체. 후보 `<br>` 출력을 H16 카탈로그 5종(bold `**`/`__`, single backtick, entity backtick, md-link)으로 스캔해 잔존 0 이면 채택, 아니면 known-good space-join baseline 으로 fallback — PROSE_TOKEN 문법 전체 커버로 raw 마커 누출 구조적 0. 전부 read-only 렌더/CSS 변경(신규 저장소·서버 mutation·마커 cap 확장 0). renderer 전체 스위트 green + design-lint H1-H19 clean, 0 회귀. plugin.json `1.18.18 → 1.18.19` + 양 footer.
+
+### Changed
+
+- **`scripts/lib/renderer/format-utils.js`** — `renderProseBlockHtml` heading 분기에서 내부 `<strong>` 제거(`.d-h` 가 CSS 로 weight 보유, 이중 인코딩 해소) + 문단 분기를 per-line `renderInline` + `<br>` join 으로 교체. 신규 module-private `hasResidualMarker`(H16 카탈로그 5종 + `<code>`/`<pre>`·Python dunder carve-out)로 render-then-validate gate 구현 — 마커 straddle 시 space-join fallback(Codex F-C1).
+- **`scripts/lib/renderer/html.js`** — `.d-prose p.d-h` styled heading 위계(font-size 0.8rem ≤ `.d-sec h3`, weight 650, `--ink`, margin) + `.d-prose strong` loud(`--ink`) 신규 + `.li-q strong` 중립화(`--ink`→`--ink-2`, weight 650→600). footer `v1.18.18 → v1.18.19`.
+- **`scripts/lib/renderer/tests/format-utils.test.js`** — heading 단언을 styled `.d-h`(no `<strong>`)로 갱신 + soft-join 을 `<br>` 기대로 갱신 + 신규 4종(balanced multi-line `<br>` 채택 / bold·double-backtick·md-link straddle fallback) 단언.
+- **`markdown.js`** footer `v1.18.18 → v1.18.19`. **`plugin.json`** `1.18.18 → 1.18.19` (patch — 단일 milestone, §3.7).
+
+## [1.18.18] — 2026-06-27
+
+dashboard-interactivity M1 — 드로어 prose inline → block-level 렌더(`renderProseBlockHtml`) + plan summary 전문. 우측 상세 드로어가 plan summary·완화책을 단일 join 줄이 아니라 구조적 prose(문단·리스트·fenced code·blockquote·GFM table)로 표시. `extractPlanSummary` 전문 + render budget(`MAX_BLOCKS` cap — 단일 섹션의 DOM 폭주 방지, Codex F1 흡수) + resolved 위험 해결 사유/시각 row. escape-then-render SSoT 보존(모든 텍스트 경로가 `renderInline`/`esc` 로 종단 — raw passthrough 0, malformed 구조는 inline `<p>` 로 fail-open degrade). plugin.json `1.18.17 → 1.18.18` + 양 footer. (CHANGELOG row 는 본 M1.2 cycle 에서 소급 기록 — M1 commit 누락 gap 닫음.)
 
 ## [1.18.17] — 2026-06-26
 

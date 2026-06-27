@@ -532,7 +532,10 @@ aside[role="alert"].s-secret {
 .li-main { min-width: 0; flex: 1 1 auto; }
 .li-q { font-size: 0.875rem; font-weight: 450; color: var(--ink-2); line-height: 1.5; }
 .li-q code { font-family: var(--mono); font-size: 0.9em; color: var(--ink); }
-.li-q strong { font-weight: 650; color: var(--ink); }
+/* M1.2 Task 3 — 리스트 bold 중립화. 흰(--ink) vs 회(--ink-2) 대비가 '확인/미확인'
+   상태 토글로 오인되던 문제 제거: 본문과 동색(--ink-2) + 미세 weight 만. loud 강조는
+   드로어(.d-prose strong)로 집중. */
+.li-q strong { font-weight: 600; color: var(--ink-2); }
 .meta-cue { margin-top: 0.32rem; font-size: 0.745rem; color: var(--faint); }
 .meta-cue.mit { color: var(--muted); }
 .meta-cue b { color: var(--ink-2); font-weight: 600; }
@@ -710,7 +713,16 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .d-prose > :first-child { margin-top: 0; }
 .d-prose > :last-child { margin-bottom: 0; }
 .d-prose p { margin: 0 0 0.6rem; }
-.d-prose p.d-h { margin: 0.7rem 0 0.3rem; color: var(--ink); font-weight: 600; }
+/* dashboard-interactivity M1.2 (Critique F1) — prose heading(##) 시각 위계. 차별화
+   축은 size 가 아니라 weight + color + margin: font-size 는 .d-sec h3(0.8rem) 를
+   초과하지 않아(.d-h <= .d-sec h3) prose 헤딩이 자기 섹션 라벨보다 커지는 위계
+   역전을 차단. 본문(--ink-2/0.855rem) 대비는 --ink + weight 650 + margin 으로. */
+.d-prose p.d-h { margin: 0.9rem 0 0.25rem; font-size: 0.8rem; font-weight: 650;
+  color: var(--ink); letter-spacing: 0.01em; }
+/* M1.2 Task 3 — drawer 본문 bold 는 loud(--ink). 리스트(.li-q strong) 가 quiet 로
+   중립화된 만큼 강조 렌더는 loud-on-demand 표면인 드로어로 집중. --ink 는 primary
+   text 토큰(accent 아님)이라 viewport 강조색 <=1(severity pill) 불변 유지. */
+.d-prose strong { font-weight: 650; color: var(--ink); }
 .d-prose ul, .d-prose ol { margin: 0 0 0.6rem; padding-left: 1.25rem; }
 .d-prose li { margin: 0 0 0.2rem; }
 .d-prose li:last-child { margin-bottom: 0; }
@@ -1329,7 +1341,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.18 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.19 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.

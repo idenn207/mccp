@@ -130,6 +130,10 @@ const PROSE_MDLINT = /\bMD0?\d{2,4}\b/g;
 // single-backtick code, bold (** or __), markdown link. Double-backtick must
 // precede single so ``a `b` c`` is one span, not mis-paired.
 const PROSE_TOKEN = /(``[^\n]+?``)|(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\[[^\]]+\]\([^)]+\))/;
+// Derived once from PROSE_DUNDER so hasResidualMarker's carve-out can never drift
+// from renderInline's whitelist. No \b — mirrors renderInline's boundary-less
+// __token__ match above, so an intra-word dunder strips identically.
+const PROSE_DUNDER_RE = new RegExp('__(?:' + Array.from(PROSE_DUNDER).join('|') + ')__', 'g');
 
 // Tokenize already-normalized text. Bold inner content is processed
 // recursively so nested code spans (e.g. **a `x` b**) become <code> (which H16
@@ -205,6 +209,36 @@ function splitTableRow(line) {
     .replace(/\|$/, '')
     .split('|')
     .map((c) => c.trim());
+}
+
+// dashboard-interactivity M1.2 (Codex F-C1) — render-then-validate gate for the
+// paragraph soft-break <br> path. A soft break can orphan an inline marker (bold
+// ** / __, single or double backtick, md link) so a literal/entity marker
+// survives renderInline. This scans an ALREADY-RENDERED candidate fragment
+// against the H16 catalog (1:1 with output-constraints.js): if any marker leaked,
+// the caller falls back to the known-good space-join. Carve-outs mirror H16 —
+// strip rendered <code>/<pre> spans and Python dunders so legitimate output never
+// forces a false fallback. esc() turns every backtick into &#96;, so single- and
+// double-backtick straddles both surface as the entity-backtick pattern; ** / __
+// / md-link stay literal (esc leaves them) and surface raw. Validating output
+// (not a parity heuristic) covers all PROSE_TOKEN kinds, including double-backtick
+// spans and md links a balance check would miss.
+function hasResidualMarker(htmlFragment) {
+  const ENT_BACKTICK = '(?:&#0*96;|&#[xX]0*60;|&grave;)';
+  const stripped = String(htmlFragment == null ? '' : htmlFragment)
+    .replace(/<code[\s\S]*?<\/code>/g, '')
+    .replace(/<pre[\s\S]*?<\/pre>/g, '')
+    .replace(PROSE_DUNDER_RE, '');
+  // __ and entity-backtick mirror renderInline exactly so the gate is never less
+  // sensitive than the path that produced the leak: __ stays boundary-less
+  // (renderInline's __token__ has no \b, so an intra-word straddle is caught),
+  // and the entity-backtick span uses a lazy any-char inner so an &-bearing code
+  // body (esc → &amp;) between two straddled backticks no longer defeats the scan.
+  return /\*\*[^*\n]+\*\*/.test(stripped)
+    || /__[^_\n]+__/.test(stripped)
+    || /`[^`\n]+`/.test(stripped)
+    || new RegExp(ENT_BACKTICK + '[^\\n]+?' + ENT_BACKTICK).test(stripped)
+    || /\[[^\]]+\]\([^)]+\)/.test(stripped);
 }
 
 function renderProseBlockHtml(text, formatUtils) {
@@ -297,17 +331,26 @@ function renderProseBlockHtml(text, formatUtils) {
         continue;
       }
 
-      // Heading — H15 forbids <h4>+, so a content heading is flattened to a bold
-      // paragraph (the drawer already owns the <h2>/<h3> hierarchy).
+      // Heading — H15 forbids <h4>+, so a content heading renders as a styled
+      // paragraph. .d-h carries weight + color + margin in CSS (NOT an inner
+      // <strong> — that double-encoded the weight, M1.2 F1). The drawer owns the
+      // <h2>/<h3> hierarchy; .d-h stays <= .d-sec h3 so a prose ## never inverts
+      // the section-label hierarchy.
       const heading = trimmed.match(/^#{1,6}\s+(.*)$/);
       if (heading) {
-        push('<p class="d-h"><strong>' + renderInline(heading[1].trim(), esc) + '</strong></p>');
+        push('<p class="d-h">' + renderInline(heading[1].trim(), esc) + '</p>');
         i += 1;
         continue;
       }
 
-      // Paragraph — soft-join consecutive lines until a blank line or a new block
-      // (including a lookahead-detected table). Inline-rendered.
+      // Paragraph — collect consecutive lines until a blank line or a new block
+      // (including a lookahead-detected table). The drawer is a loud-on-demand
+      // full-prose surface, so an intended soft break (mitigation steps, OQ
+      // sub-lines) is preserved as <br> instead of collapsed to a space. The
+      // candidate is per-line renderInline joined by <br>; render-then-validate
+      // (Codex F-C1) falls back to the known-good space-join if a marker
+      // straddled the break, so raw/entity marker leakage stays structurally 0.
+      // The md path (renderProseBlockMd) keeps the \n, so HTML <br> == md \n.
       const para = [];
       while (i < lines.length) {
         const t = lines[i].trim();
@@ -315,8 +358,15 @@ function renderProseBlockHtml(text, formatUtils) {
         para.push(t);
         i += 1;
       }
-      if (para.length) push('<p>' + renderInline(para.join(' '), esc) + '</p>');
-      else i += 1;
+      if (para.length) {
+        const candidate = para.map((p) => renderInline(p, esc)).join('<br>');
+        const safe = hasResidualMarker(candidate)
+          ? renderInline(para.join(' '), esc)
+          : candidate;
+        push('<p>' + safe + '</p>');
+      } else {
+        i += 1;
+      }
     }
 
     return out.join('');

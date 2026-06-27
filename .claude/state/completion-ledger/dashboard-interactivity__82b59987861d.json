@@ -1,0 +1,22 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "dashboard-interactivity",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.18.18",
+    "completed_at": "2026-06-27T05:49:31.300Z",
+    "commit_sha": "967e26b7f00750979d18bc1770328a583bc4f2a5",
+    "plan_basename": "dashboard-interactivity.plan.md",
+    "plan_file_hash": "sha256:077603018f301888bb148c9efcc3f5807ebedf797de6ad793bf9c95b9828f251",
+    "risks_closed": [
+      "block-level markdown 렌더가 innerHTML 주입 경계 약화(XSS-유사)",
+      "block CSS가 H3(border-radius)/H4(border-left) design-lint 발화",
+      "`<p>`→`<div>` 컨테이너 변경이 기존 drawer 마크업 테스트 회귀",
+      "**(Codex F1, HIGH)** `extractPlanSummary` 절단 제거가 전 마일스톤 집계 직렬화로 status.html/STATUS.md unbounded balloon",
+      "멀티라인 proseText의 md 들여쓰기 오류로 plain-text 구조 파손"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:82b59987861de340e4b54f0ec04dec9cee3a02a0c59c3389bd41bfeddfe14bb8"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "dashboard-interactivity",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.18.19",
+    "completed_at": "2026-06-27T07:54:42.282Z",
+    "commit_sha": "d143b95606541a9b42c0a47e5cbbc274b75900d9",
+    "plan_basename": "dashboard-interactivity-m1-2.plan.md",
+    "plan_file_hash": "sha256:e02d0e6a926eb0df5057fee4a5c6bbdf4b2958a9bbc7a2db2f61c2d55bff1528",
+    "risks_closed": [
+      "soft break `<br>` join이 inline 마커(bold/single+double backtick/md-link)를 orphan → literal/entity 마커 잔존(Constraint 3/H16)",
+      "`.d-prose strong` loud 추가가 near-monochrome·강조색 ≤1 불변 약화",
+      "heading `<strong>` 제거가 기존 드로어/section-fidelity 테스트 회귀",
+      "STATUS.md plain-text 동등본 손실(`<br>` vs `\\n`)",
+      "`.li-q strong` 중립화가 다른 리스트 표면(widget-card 등)에 미적용"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:07062e9ba1fe438dbf39f2efe4e25ba2209f038861f6d8109710147415c95b14"
+  }
+}

@@ -290,3 +290,169 @@ test('(r) 상태(4)·활동(5) 컬럼 nowrap CSS 존재', () => {
   assert.match(LAYOUT,
     /\.multi-session td:nth-child\(5\),\s*\.multi-session th:nth-child\(5\)\s*\{\s*white-space:\s*nowrap/);
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// Dashboard Interactivity M2 — 개요 in-progress overview projection (Task 1).
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── (ov1) idle(active:false) 행은 overview 후보 제외 ──────────────────────────
+test('(ov1) 2 active + 1 idle(active:false) → overview.items 에 idle 제외', () => {
+  const r = render(wtModel({ count: 3, items: [
+    item({ path: '/repo', is_self: true, active: true, milestone_hint: 'A' }),
+    item({ path: '<outside-repo:b>', active: true, milestone_hint: 'B' }),
+    item({ path: '<outside-repo:c>', active: false, milestone_hint: 'C' }),
+  ] }));
+  assert.ok(r.overview, 'overview 부착');
+  assert.equal(r.overview.items.length, 2, 'active 2 만(idle 제외)');
+  assert.equal(r.overview.total, 2);
+  assert.ok(!r.overview.items.some((i) => i.milestoneHint === 'C'), 'idle hint C 부재');
+});
+
+// ── (ov2) blocked > active rank 정렬 ─────────────────────────────────────────
+test('(ov2) blocked+active 와 active → blocked 먼저(rank desc)', () => {
+  const r = render(wtModel({ count: 2, items: [
+    item({ path: '/repo', is_self: true, active: true, milestone_hint: 'plain-active' }),
+    item({ path: '<outside-repo:b>', active: true, blocked: true,
+      blocked_reason: 'gate not converged', milestone_hint: 'blocked-one' }),
+  ] }));
+  assert.equal(r.overview.items.length, 2);
+  assert.equal(r.overview.items[0].kind, 'blocked', 'blocked 가 rank 로 먼저');
+  assert.equal(r.overview.items[1].kind, 'active');
+});
+
+// ── (ov3) 동률 rank → activity 최신 먼저(activityOrd asc) ─────────────────────
+test('(ov3) 동률 rank(active 2) → last_activity 최신 먼저', () => {
+  const r = render(wtModel({ count: 2, items: [
+    item({ path: '<outside-repo:old>', active: true, milestone_hint: 'older',
+      last_activity: new Date(NOW - 100000).toISOString() }),
+    item({ path: '<outside-repo:new>', active: true, milestone_hint: 'newer',
+      last_activity: new Date(NOW - 1000).toISOString() }),
+  ] }));
+  assert.equal(r.overview.items.length, 2);
+  assert.equal(r.overview.items[0].milestoneHint, 'newer', '최신 활동 먼저');
+  assert.equal(r.overview.items[1].milestoneHint, 'older');
+});
+
+// ── (ov4) OVERVIEW_CAP=3 slice + total 보존(silent cap 금지) ──────────────────
+test('(ov4) 5 active in-progress → items 3 + total 5(상한 + 보존)', () => {
+  const items = [];
+  for (let i = 0; i < 5; i++) {
+    items.push(item({ path: '<outside-repo:w' + i + '>', active: true,
+      milestone_hint: 'M' + i }));
+  }
+  const r = render(wtModel({ count: 5, items }));
+  assert.equal(r.overview.items.length, 3, 'OVERVIEW_CAP=3');
+  assert.equal(r.overview.total, 5, 'total 보존');
+  assert.equal(r.overview.shown, 3);
+});
+
+// ── (ov5) self 항목 isSelf 마커 ──────────────────────────────────────────────
+test('(ov5) self worktree → overview 항목 isSelf=true', () => {
+  const r = render(wtModel({ count: 2, items: [
+    item({ path: '/repo', is_self: true, active: true, milestone_hint: 'self-m' }),
+    item({ path: '<outside-repo:o>', active: true, milestone_hint: 'other-m' }),
+  ] }));
+  const self = r.overview.items.find((i) => i.isSelf);
+  assert.ok(self, 'isSelf 항목 존재');
+  assert.equal(self.milestoneHint, 'self-m');
+});
+
+// ── (ov6) overview detailId = 전용 ms:ov 키(표 wt: 와 분리 — 마일스톤 드로어 nav 지원) ──
+// dashboard-interactivity M2: 개요 항목은 표 행(wt:)과 별도 ms:ov detail 을 가진다.
+// 같은 worktree 라도 개요 드로어는 위험/질문 nav 버튼을 얹으므로 키를 분리(H18 중복 0).
+test('(ov6) overview item.detailId 는 전용 ms:ov 키 + details 에 존재(H18 균형)', () => {
+  const r = render(wtModel({ count: 2, items: [
+    item({ path: '/repo', is_self: true, active: true, milestone_hint: 'A' }),
+    item({ path: '<outside-repo:b>', active: true, milestone_hint: 'B' }),
+  ] }));
+  for (const ovItem of r.overview.items) {
+    assert.ok(/^ms:ov/.test(ovItem.detailId),
+      'overview detailId 는 ms:ov 네임스페이스(표 wt: 와 분리): ' + ovItem.detailId);
+    assert.ok(r.details.has(ovItem.detailId),
+      'detailId ' + ovItem.detailId + ' 가 detailMap 키에 존재');
+  }
+  // 표 행(wt:) 2 + 개요(ms:ov) 2 = 4. 표는 wt: trigger, 개요는 ms:ov trigger → H18 균형.
+  assert.equal(r.details.size, 4, 'wt 2 + ms:ov 2');
+  assert.ok(r.html.includes('data-detail-id="wt:'), '표 행 wt: trigger 존재(개요 ms: 는 html.js 가 부여)');
+});
+
+// ── (ov8) milestone_hint 의 PRD 경로 → 검증된 prdKey 로 위험/질문 nav 버튼 ────────
+test('(ov8) PRD 경로 추출 → nav 버튼(위험+질문), PRD 미해소 → nav 생략', () => {
+  const planPath = '.claude/plans/foo-m1.plan.md';
+  const prdKey = 'claude-prds-foo';
+  const planBody = {
+    planPrd: new Map([[planPath, { prdPath: '.claude/prds/foo.prd.md', prdLabel: 'Foo', prdKey }]]),
+    risks: [{ source: planPath, title: 'r1' }],
+    openQuestions: [{ source: planPath, text: 'q1' }],
+  };
+  const r = renderMultiSession(wtModel({ count: 2, items: [
+    item({ path: '/repo', is_self: true, active: true,
+      milestone_hint: 'foo 작업 진행. PRD: .claude/prds/foo.prd.md 참조.' }),
+    item({ path: '<outside-repo:b>', active: true, milestone_hint: 'PRD 경로 없는 진행 노트' }),
+  ] }), formatUtils, { now: NOW }, planBody);
+  const selfOv = r.overview.items.find((i) => i.isSelf);
+  const det = r.details.get(selfOv.detailId);
+  assert.ok(det && Array.isArray(det.nav) && det.nav.length === 2, 'nav 2 버튼(위험+질문)');
+  assert.equal(det.nav[0].route, 'risks');
+  assert.equal(det.nav[0].prd, prdKey);
+  assert.equal(det.nav[1].route, 'questions');
+  assert.equal(det.nav[1].prd, prdKey);
+  const otherOv = r.overview.items.find((i) => !i.isSelf);
+  const det2 = r.details.get(otherOv.detailId);
+  assert.ok(det2 && !det2.nav, 'PRD 미해소 worktree → nav 생략(죽은 버튼 0)');
+});
+
+// ── (ov7, F1) stale 제외: active:false + milestone_hint → 후보 아님 ───────────
+test('(ov7, F1) active:false + milestone_hint → overview 후보 제외(freshness gate)', () => {
+  const r = render(wtModel({ count: 2, items: [
+    item({ path: '/repo', is_self: true, active: true, milestone_hint: 'fresh' }),
+    item({ path: '<outside-repo:stale>', active: false, milestone_hint: 'stale-but-hinted' }),
+  ] }));
+  assert.equal(r.overview.items.length, 1, 'stale(active:false) 제외');
+  assert.equal(r.overview.items[0].milestoneHint, 'fresh');
+});
+
+// ── (ov8, F1) just-shipped 제외: active + pr-codex 수렴 → 후보 아님 ───────────
+test('(ov8, F1) active + current_gate=mccp-pr-codex + gate_converged:true → 제외(closure)', () => {
+  const r = render(wtModel({ count: 2, items: [
+    item({ path: '/repo', is_self: true, active: true, milestone_hint: 'in-progress' }),
+    item({ path: '<outside-repo:shipped>', active: true,
+      current_gate: 'mccp-pr-codex', gate_converged: true }),
+  ] }));
+  assert.equal(r.overview.items.length, 1, 'just-shipped(완료) 제외');
+  assert.equal(r.overview.items[0].milestoneHint, 'in-progress');
+});
+
+// ── (ov9, F1) milestone 신호 없음: active + hint·gate 모두 null → 후보 아님 ───
+test('(ov9, F1) active + milestone_hint·current_gate 모두 null → 후보 제외', () => {
+  const r = render(wtModel({ count: 2, items: [
+    item({ path: '/repo', is_self: true, active: true, milestone_hint: 'has-signal' }),
+    item({ path: '<outside-repo:bare>', active: true,
+      milestone_hint: null, current_gate: null }),
+  ] }));
+  assert.equal(r.overview.items.length, 1, 'milestone 신호 없는 행 제외');
+  assert.equal(r.overview.items[0].milestoneHint, 'has-signal');
+  // current_gate 만 있어도 후보(gate 신호) — 대비 검증
+  const r2 = render(wtModel({ count: 2, items: [
+    item({ path: '/repo', is_self: true, active: true, milestone_hint: null,
+      current_gate: 'mccp-implement-codex', gate_converged: false }),
+    item({ path: '<outside-repo:bare>', active: true, milestone_hint: null, current_gate: null }),
+  ] }));
+  assert.equal(r2.overview.items.length, 1, 'current_gate 신호 행은 후보');
+  assert.equal(r2.overview.items[0].gate, 'implement-codex ⚠');
+});
+
+// ── (ov10, F2) healthy-single + active + milestone → overview 노출, 표 hidden ─
+test('(ov10, F2) healthy-single + active + milestone_hint → overview 1 항목 & 표 html 미생성', () => {
+  const r = render(wtModel({ count: 1, items: [
+    item({ path: '/repo', is_self: true, active: true, milestone_hint: 'solo-milestone' }),
+  ] }));
+  assert.ok(r, 'healthy-single 이어도 overview 있으면 non-null');
+  assert.ok(r.overview, 'overview 부착');
+  assert.equal(r.overview.items.length, 1);
+  assert.ok(!r.html, '표 html 미생성(표 패널 hidden — F2)');
+  assert.ok(!r.md, '표 md 미생성');
+  assert.ok(r.details instanceof Map && r.details.size === 1, '드로어 detail 은 보존(개요 trigger)');
+  // 대비: milestone 없는 healthy-single 은 기존대로 완전 null
+  assert.equal(render(wtModel({ count: 1, items: [item({ is_self: true, active: true })] })), null);
+});

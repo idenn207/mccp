@@ -56,7 +56,7 @@ We'll know we're right when **드로어가 위험 완화 *방법*을 truncation 
 |---|---|---|---|---|
 | 1 | 드로어 요약→상세화 | 위험·질문·receipt·마일스톤 클릭 시 요약이 아닌 완화방법·맥락 전문을 truncation 없이 markdown(목록/강조/code/표)으로 본다. STATUS.md plain-text 동등본 동기. | complete | `.claude/plans/dashboard-interactivity.plan.md` |
 | 1.2 | prose 렌더 시각 다듬기 + 리스트 강조 혼란 제거 | (a) 드로어 요약/상세가 단순 bold를 넘어 **의미 있는 줄바꿈과 heading 시각 위계**로 보기 좋게 렌더된다 — 문단 내 줄바꿈 보존(현재 공백 합침), heading은 bold 강등이 아니라 styled `.d-h`(크기/간격/색으로 위계, H15 literal h4+ 회피하되 시각은 heading답게). near-monochrome·강조색 viewport당 ≤1 불변. (b) 위험/질문 **리스트(드로어 밖)** 항목의 inline 강조(`**bold**`→흰색 `<strong>` vs 회색 `--ink-2`)가 **'확인/미확인' 같은 상태 토글로 오인**되지 않도록 정리 — 리스트 레벨 emphasis를 중립화하거나 흰색/회색 대비를 상태-신호로 안 읽히게. | complete | `.claude/plans/dashboard-interactivity-m1-2.plan.md` |
-| 2 | 개요 진행중 마일스톤 + worktree | 개요(기본 라우트)에서 worktree별 진행중 마일스톤을 한눈에 본다(진행중 판정 소스·정렬·상한 plan 결정). | pending | — |
+| 2 | 개요 진행중 마일스톤 + worktree | 개요(기본 라우트)에서 worktree별 진행중 마일스톤을 한눈에 본다(진행중 판정 소스·정렬·상한 plan 결정). | complete | `.claude/plans/dashboard-interactivity-m2.plan.md` |
 | 3 | impeccable 검증 워크플로 강화 | code-review·pr가 critique에 더해 audit까지 돌고, prp-implement가 `/impeccable layout` 선행 + `/impeccable clarify`·`/impeccable distill` 마무리를 따른다. | pending | — |
 | 4 | 대시보드 액션 버튼 (후속) | 대시보드에서 위험 '제외(obsolete)'를 same-origin POST→소스 `.md` 마커로 비파괴 기록하고 렌더가 collapse한다. claude 미실행. | pending | — |
 
@@ -80,7 +80,7 @@ We'll know we're right when **드로어가 위험 완화 *방법*을 truncation 
 - [ ] M1-2 heading 시각 위계 — H15(literal h4+ 금지)를 지키면서 heading을 어떻게 시각적으로 구분하나. styled `.d-h`(font-size/weight/margin-top) carve-out인가, 아니면 `<strong>` 유지하고 간격만 주나. 드로어 정보 위계 3단계(title→status→detail)와 충돌 없이.
 - [ ] M1-2 문단 내 줄바꿈 정책 — 소스의 단일 줄바꿈(soft line break)을 `<br>`로 보존할지, 현행대로 공백 합침 유지할지. plan `## Summary`는 보통 흐르는 문단이라 공백 합침이 자연스럽지만, 의도된 줄 구조(주소/목록-유사 라인)는 보존이 나음. md plain-text 동등본(`renderProseBlockMd`)과의 정합.
 - [ ] M1-2 리스트 강조 중립화 방식 — 위험/질문 리스트 title의 inline `**bold**`를 (i) `<strong>` 색을 본문과 동일 톤으로 낮춰 흰/회 대비 제거, (ii) 리스트 레벨에서 bold 마커를 평문화(드로어에서만 강조 렌더), (iii) 흰색을 '강조'가 아닌 다른 의미로 재배정 중 무엇. 드로어(loud-on-demand)와 리스트(quiet) 표면의 강조 정책 분리.
-- [ ] M2 "진행중" 마일스톤 판정 소스 — STATE.md `milestone_hint` vs PRD body `status: in-progress` row vs 활성 worktree 게이트. 진행중 항목 정렬(worktree별/시간순)·상한.
+- [x] (해소, M2) "진행중" 마일스톤 판정 소스 = derive `worktrees` source(worktree-scoped). eligibility 3중 gate = `active`(14일 freshness) AND (`milestone_hint` OR `current_gate`) AND NOT just-shipped(`mccp-pr-codex` 수렴). 정렬 = `KIND_META.rank` desc → `last_activity` recency. 상한 = `OVERVIEW_CAP=3` + 초과 시 `#route-activity` foot 링크. repo-wide PRD body `status: in-progress` row는 미채택(in-progress 위젯이 이미 커버, worktree 축 아님).
 - [ ] M3 audit가 critique retry loop(§3.9 divergent blocking)과 공존 방식 — audit는 advisory인가 게이트 blocking인가. layout 선행 + clarify·distill 마무리가 prp-implement의 기존 stage-aware routing(§3.10)과 어떻게 합쳐지나(중복 호출 회피).
 
 ## Risks

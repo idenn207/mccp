@@ -23,11 +23,24 @@ const {
   buildWorktreeDetail,
   renderDetailMd,
 } = require('../parsers/drawer-detail');
+const { prdSlug, groupByPrd } = require('../parsers/prd-group');
 
 function basename(p) {
   if (!p || typeof p !== 'string') return p || '?';
   const b = p.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
   return b || p;
+}
+
+// dashboard-interactivity M2 — 개요 마일스톤 드로어의 위험/질문 필터 키 해소.
+// worktree progress 에 PRD/plan 참조 키가 없으므로(milestone_hint = STATE.md goal
+// 자유 텍스트), goal 전문에서 `.claude/prds/<name>.prd.md` 경로를 추출해 prdKey 를
+// 파생한다. derivePrdKey(plan-body.js)와 동일 규칙: prdSlug(relPath - .prd.md) →
+// 위험/질문 li-item 의 data-prd 와 정확히 동일 키(오귀속 0). 경로 부재 시 null.
+function prdKeyFromHint(hint) {
+  if (!hint) return null;
+  const m = /\.claude\/prds\/[A-Za-z0-9._-]+\.prd\.md/i.exec(String(hint));
+  if (!m) return null;
+  return prdSlug(m[0].replace(/\.prd\.md$/i, '').replace(/\.md$/i, ''));
 }
 
 function truncate(s, n) {
@@ -72,6 +85,10 @@ const KIND_META = {
 };
 
 function kindMeta(kind) { return KIND_META[kind] || KIND_META.idle; }
+
+// 개요(route-overview) "진행 중 마일스톤" 패널 worktree 표시 상한 — Output Constraint 4
+// "top 3 expanded" anchor. 초과분은 활동·기록 route 멀티세션 표로 loud-on-demand.
+const OVERVIEW_CAP = 3;
 
 function isHealthy(item) {
   return !!item && !item.degraded && !item.blocked && !item.error;
@@ -143,7 +160,7 @@ function progressHtmlCell(it, formatUtils) {
   return parts.length ? parts.join(' · ') : '—';
 }
 
-function renderMultiSession(model, formatUtils, options) {
+function renderMultiSession(model, formatUtils, options, planBody) {
   const { escapeHtml, formatRelativeTime, normalizeProse } = formatUtils;
   const m = model || {};
   const sources = m.sources || {};
@@ -168,14 +185,18 @@ function renderMultiSession(model, formatUtils, options) {
     return null;
   }
 
-  // 단일 worktree: healthy 면 조용(공통 경로), unhealthy 면 1행 테이블 loud (Impl-F1).
-  if (count === 1 && isHealthy(items[0])) return null;
-
+  // 단일 healthy worktree 의 graceful-hide 판정(Impl-F1)은 per-item detail+projection
+  // 1-pass 계산 뒤로 이동(F2) — healthy-single 도 eligible 진행중 마일스톤이 있으면
+  // 개요 패널용 overview projection 은 방출해야 하므로(표 패널만 hidden), early-return
+  // 을 표 조립 직전으로 미룬다.
   const now = (options && Number.isFinite(options.now)) ? options.now : Date.now();
   const detailMap = new Map();
   const mdRows = ['| worktree | 브랜치 | 진행 | 상태 | 활동 |', '|---|---|---|---|---|'];
   const mdDetailBlocks = [];
   const htmlRows = [];
+  // 개요 in-progress 후보 누적(F1 eligibility 통과 행만). 표 loop 와 동일 pass 에서
+  // 파생 — 재스캔/재계산 0.
+  const overviewCandidates = [];
 
   // M3 진행순 정렬 tie-break — last_activity desc 1회 스캔해 recency index 부여
   // (0=최신). 활동 시각 없는 행은 dated 다음(말단, 동일 index → DOM 순서 안정 tie-break).
@@ -273,7 +294,86 @@ function renderMultiSession(model, formatUtils, options) {
       + '<td>' + escapeHtml(activity) + '</td>'
       + '</tr>'
     );
+
+    // ── 개요 in-progress 후보 (F1 lifecycle-fresh 3중 gate) ──
+    //   (i)   it.active === true            — worktrees source freshness(14일) gate.
+    //         stale STATE.md/오래된 goal 을 "진행중"에서 제외.
+    //   (ii)  milestone_hint OR current_gate — 마일스톤 신호 부재 행(순수 idle/error)
+    //         은 진행중 패널 비대상.
+    //   (iii) NOT (current_gate==='mccp-pr-codex' && gate_converged===true) — 직전
+    //         ship 게이트 수렴 = 마일스톤 *완료*(진행중 아님). just-shipped 제외.
+    const justShipped = it.current_gate === 'mccp-pr-codex' && it.gate_converged === true;
+    if (it.active === true && (it.milestone_hint || it.current_gate) && !justShipped) {
+      const gateLabel = it.current_gate
+        ? String(it.current_gate).replace(/^mccp-/, '') + (it.gate_converged === false ? ' ⚠' : '')
+        : '';
+      overviewCandidates.push({
+        label: it.branch || name || '(worktree)',
+        isSelf,
+        kind,
+        icon: meta.icon,
+        statusLabel: meta.label,
+        milestoneHint: it.milestone_hint
+          ? truncate(plainSummary(it.milestone_hint, normalizeProse), 72)
+          : '',
+        gate: gateLabel,
+        activity,
+        rank: meta.rank,
+        activityOrd,
+        detailId: id,
+        // dashboard-interactivity M2 — ms: 드로어 빌드용(아래 shown 루프에서 소비).
+        rawItem: it,
+        wtIndex: index,
+        statusTone: meta.tone,
+        prdKey: prdKeyFromHint(it.milestone_hint),
+      });
+    }
   });
+
+  // 개요 projection — 후보를 rank desc(blocked>degraded>active; 포함 행 모두 active
+  // 이므로 fresh 간 actionability 우선순위) → activityOrd asc(최신 먼저) 정렬,
+  // OVERVIEW_CAP slice. total/shown 보존(silent cap 금지). 후보 0 → undefined.
+  let overview;
+  let msDetailMap = null;
+  if (overviewCandidates.length) {
+    const sorted = overviewCandidates
+      .slice()
+      .sort((a, b) => (b.rank - a.rank) || (a.activityOrd - b.activityOrd));
+    const shown = sorted.slice(0, OVERVIEW_CAP);
+    overview = { items: shown, total: sorted.length, shown: shown.length };
+
+    // dashboard-interactivity M2 — 개요 마일스톤 드로어(ms:ov 네임스페이스). 표 행
+    // (wt:)과 별도 키라 H18 중복-id 회피. nav(위험/질문 필터 이동)는 해당 prdKey 가
+    // 실제 위험/질문에 존재할 때만 부여(groupByPrd 검증 — 죽은/오귀속 버튼 0).
+    const planPrd = (planBody && planBody.planPrd instanceof Map) ? planBody.planPrd : null;
+    const risksKeys = new Set(groupByPrd((planBody && planBody.risks) || [], planPrd).map((g) => g.prdKey));
+    const qKeys = new Set(groupByPrd((planBody && planBody.openQuestions) || [], planPrd).map((g) => g.prdKey));
+    msDetailMap = new Map();
+    shown.forEach((cand) => {
+      const msDetail = buildWorktreeDetail(cand.rawItem, formatUtils, {
+        statusLabel: cand.statusLabel,
+        statusTone: cand.statusTone,
+        activity: cand.activity,
+      });
+      // 드로어 제목 = 클릭한 행 라벨(식별 일치). 평문 → escapeHtml(innerHTML sink).
+      msDetail.title = escapeHtml(cand.isSelf ? '이 worktree' : cand.label);
+      const nav = [];
+      if (cand.prdKey) {
+        if (risksKeys.has(cand.prdKey)) nav.push({ label: '위험 보기', route: 'risks', prd: cand.prdKey });
+        if (qKeys.has(cand.prdKey)) nav.push({ label: '질문 보기', route: 'questions', prd: cand.prdKey });
+      }
+      if (nav.length) msDetail.nav = nav;
+      const { id: msId } = addDetail(msDetailMap, 'ms:ov' + cand.wtIndex, msDetail);
+      cand.detailId = msId; // overview trigger 를 ms: 키로 교체(H18 trigger==key 보존)
+    });
+  }
+
+  // 단일 healthy worktree(Impl-F1): 표 md/html 미생성(표 패널 hidden). eligible overview
+  // 있으면 {overview, details}(개요 패널만 독립 노출 — F2), 없으면 null(완전 부재).
+  // 표가 없으므로 wt: detail 은 trigger 가 없어 details 는 ms:ov 키만(H18 고아 0).
+  if (count === 1 && isHealthy(items[0])) {
+    return overview ? { overview, details: msDetailMap } : null;
+  }
 
   if (htmlRows.length === 0) return null;
 
@@ -295,7 +395,14 @@ function renderMultiSession(model, formatUtils, options) {
     worktrees: worktreeOptions.map((w) => ({ key: w.key, label: w.label })),
   };
 
+  // 표(wt:) + 개요(ms:ov) detail 병합 — 서로 다른 네임스페이스라 충돌 0.
+  // 표 행이 wt: trigger, 개요 항목이 ms:ov trigger → trigger 합 == 키 합(H18).
+  if (msDetailMap) { for (const [k, v] of msDetailMap) detailMap.set(k, v); }
+
   const result = { md, html, details: detailMap, filterOptions };
+  // 개요 패널은 표(이 result.html)와 독립 소비 — count>=2/unhealthy 케이스도 eligible
+  // overview 가 있으면 부착(표/filterOptions/foot 불변, 순수 additive).
+  if (overview) result.overview = overview;
 
   // truncated foot — no silent cap. cap/total 은 source warning 문자열에 보존됨.
   if (wt.truncated) {

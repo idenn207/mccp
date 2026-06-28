@@ -126,7 +126,7 @@ function renderStatus(model, opts) {
     const pipeline = safeSection('pipeline', () => renderPipeline(m, formatUtils, planBody, opts));
     const fanout = safeSection('worker-fanout', () => renderWorkerFanout(m, formatUtils));
     const activeSessions = safeSection('active-sessions', () => renderActiveSessions(m, formatUtils));
-    const multiSession = safeSection('multi-session', () => renderMultiSession(m, formatUtils, opts));
+    const multiSession = safeSection('multi-session', () => renderMultiSession(m, formatUtils, opts, planBody));
     const timeline = safeSection('audit-timeline',
       () => renderAuditTimeline(m, formatUtils, undefined, { snapshotsDir: snapshotsDir }));
     const questions = safeSection('open-questions', () => renderOpenQuestions(m, formatUtils, planBody));

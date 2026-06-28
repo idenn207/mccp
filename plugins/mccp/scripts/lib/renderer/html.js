@@ -665,9 +665,30 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
   max-width: var(--content-max); width: 100%; margin: 0 auto;
   padding: 1.1rem 1.5rem 2rem; color: var(--faint); font-size: 0.74rem; }
 /* ── clickable 항목(드로어 trigger) — 색 단독 의미 금지(hover/focus 만 affordance) ── */
-.li-item.clickable, .milestone-item.clickable, .audit-row.clickable { cursor: pointer; border-radius: var(--radius-sm); }
-.li-item.clickable:hover, .milestone-item.clickable:hover, .audit-row.clickable:hover { background: var(--panel-2); }
+.li-item.clickable, .milestone-item.clickable, .audit-row.clickable, .am-item.clickable { cursor: pointer; border-radius: var(--radius-sm); }
+.li-item.clickable:hover, .milestone-item.clickable:hover, .audit-row.clickable:hover, .am-item.clickable:hover { background: var(--panel-2); }
 .clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* ── 개요 "진행 중 마일스톤" 패널 — worktree 진행 컴팩트 리스트. 사용자 요청(2026-06-28)
+   으로 (1) 중복이던 이모지 아이콘 제거(dot 이 색 채널, statusLabel 텍스트가 비색 채널 —
+   a11y 유지), (2) 상태 라벨에 색 부여(진행 중=accent, 차단=bad, 오류=warn, 대기=muted —
+   배경 chrome 없이 텍스트 색만, H12 준수), (3) 시간(am-aux)을 행 우측으로 정렬,
+   (4) 행 사이 hairline + ul 들여쓰기 제거로 worktree/시간 컬럼 스캔. ── */
+.active-milestones { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.am-item { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.6rem 0.4rem; font-size: 0.875rem; }
+.am-item + .am-item { border-top: 1px solid var(--border); }
+.am-top { display: flex; align-items: center; gap: 0.6rem; }
+.am-status { flex: none; min-width: 4.5rem; display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 0.8rem; font-weight: 500; color: var(--muted); }
+.am-status.is-blocked { color: var(--bad); }
+.am-status.is-degraded { color: var(--warn); }
+.am-status.is-active { color: var(--accent); }
+.am-status.is-idle { color: var(--muted); }
+.am-wt { min-width: 0; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.am-aux { flex: none; margin-left: auto; padding-left: 0.6rem; color: var(--faint); font-size: 0.78rem;
+  font-family: var(--mono); white-space: nowrap; }
+/* 마일스톤 title — 2줄 clamp(전문은 드로어). 윗줄 메타와 위계: title 은 본문 톤. */
+.am-title { color: var(--ink-2); font-size: 0.855rem; line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 /* ── 상세 드로어 (우측 overlay-top, native dialog — 샘플 fidelity) ── */
 .drawer {
   position: fixed; inset: 0 0 0 auto; margin: 0; z-index: 50;
@@ -732,6 +753,15 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .d-prose blockquote { margin: 0 0 0.6rem; }
 .d-prose table { margin: 0 0 0.6rem; font-size: 0.8rem; }
 .d-action { margin-top: 1.3rem; }
+/* dashboard-interactivity M2 — 드로어 마일스톤 네비게이션(위험/질문 필터 이동).
+   near-monochrome 칩(중립 토큰만 — 강조색은 hover/focus 에만). 색 단독 의미 0. */
+.d-nav { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.3rem; }
+.d-nav-btn { flex: 1 1 7rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  padding: 0.55rem 0.8rem; font-size: 0.82rem; font-weight: 500; color: var(--ink-2); text-decoration: none;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer;
+  transition: background 120ms ease-out, color 120ms ease-out, border-color 120ms ease-out; }
+.d-nav-btn:hover { background: var(--panel-hover); color: var(--ink); border-color: var(--muted); }
+.d-nav-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* ── 반응형 collapse: 사이드바를 상단 가로 바로, 패널 그리드 1-col. ── */
 @media (max-width: 880px) {
   body { grid-template-columns: minmax(0, 1fr); }
@@ -792,9 +822,11 @@ const DRAWER_SCRIPT = "(function(){"
   + "if(d.tags&&d.tags.length){var tw=el('div','d-tags');d.tags.forEach(function(t){var s=el('span','sev s-'+(t.tone||'low'));s.textContent=t.label||'';tw.appendChild(s)});dBody.appendChild(tw)}"
   + "if(d.rows&&d.rows.length){var dl=el('dl','d-rows');d.rows.forEach(function(r){var row=el('div'),dt=el('dt'),dd=el('dd');dt.textContent=r[0]||'';if(r[2])dd.className='mono';dd.textContent=r[1]||'';row.appendChild(dt);row.appendChild(dd);dl.appendChild(row)});dBody.appendChild(dl)}"
   + "if(d.sections&&d.sections.length){d.sections.forEach(function(s){var sec=el('section','d-sec'),h3=el('h3'),p=el('div','d-prose');h3.textContent=s[0]||'';p.innerHTML=s[1]||'';sec.appendChild(h3);sec.appendChild(p);dBody.appendChild(sec)})}"
-  + "if(d.action){var wrap=el('div','d-action'),lab=el('div','na-label'),ap=el('div','action-prompt'),code=el('code'),btn=el('button','copy-btn');lab.textContent='다음 작업';code.textContent=d.action;btn.type='button';btn.setAttribute('data-copy',d.action);btn.setAttribute('aria-label','다음 액션 복사');btn.innerHTML='<svg class=\"i i-sm\" aria-hidden=\"true\"><use href=\"#ic-copy\"/></svg><span class=\"cb-label\">복사</span>';ap.appendChild(code);ap.appendChild(btn);wrap.appendChild(lab);wrap.appendChild(ap);dBody.appendChild(wrap)}}"
+  + "if(d.action){var wrap=el('div','d-action'),lab=el('div','na-label'),ap=el('div','action-prompt'),code=el('code'),btn=el('button','copy-btn');lab.textContent='다음 작업';code.textContent=d.action;btn.type='button';btn.setAttribute('data-copy',d.action);btn.setAttribute('aria-label','다음 액션 복사');btn.innerHTML='<svg class=\"i i-sm\" aria-hidden=\"true\"><use href=\"#ic-copy\"/></svg><span class=\"cb-label\">복사</span>';ap.appendChild(code);ap.appendChild(btn);wrap.appendChild(lab);wrap.appendChild(ap);dBody.appendChild(wrap)}"
+  + "if(d.nav&&d.nav.length){var nv=el('div','d-nav');d.nav.forEach(function(n){var b=el('a','d-nav-btn');b.href='#route-'+n.route;b.setAttribute('data-route',n.route);if(n.prd)b.setAttribute('data-prd',n.prd);b.textContent=n.label||'';b.addEventListener('click',function(e){e.preventDefault();navFilter(n.route,n.prd)});nv.appendChild(b)});dBody.appendChild(nv)}}"
   + "function open(id,trigger){var d=DETAILS[id];if(!d)return;lastTrigger=trigger;dKind.textContent=KIND[String(id).split(':')[0]]||'상세';render(d);dBody.scrollTop=0;if(drawer.showModal){drawer.showModal()}else{drawer.setAttribute('open','')}}"
   + "function close(){if(drawer.close){drawer.close()}else{drawer.removeAttribute('open')}}"
+  + "function navFilter(route,prd){lastTrigger=null;close();var root=document.getElementById('route-'+route);if(root&&prd){var sel=root.querySelector('.explore-bar [data-axis=\"prd\"]');if(sel){var ok=false,i;for(i=0;i<sel.options.length;i++){if(sel.options[i].value===prd){ok=true;break}}if(ok){sel.value=prd;sel.dispatchEvent(new Event('change',{bubbles:true}))}}}location.hash='route-'+route;}"
   + "var cb=drawer.querySelector('.drawer-close');if(cb)cb.addEventListener('click',close);"
   + "drawer.addEventListener('click',function(e){if(e.target===drawer)close()});"
   + "drawer.addEventListener('close',function(){if(lastTrigger&&lastTrigger.focus)lastTrigger.focus();lastTrigger=null});"
@@ -912,6 +944,59 @@ function renderWidgetCards(grid, escapeHtml, escapeAttr, formatUtils) {
     + renderWidgetCard('deferred', cell('deferred'), 'dot-mute', escapeHtml, escapeAttr, renderProseHtml, formatUtils)
     + renderWidgetCard('risks', cell('risks'), 'dot-warn', escapeHtml, escapeAttr, renderProseHtml, formatUtils)
     + '</div>';
+}
+
+// Dashboard Interactivity M2 — 개요(route-overview) "진행 중 마일스톤" 패널.
+// multiSession.overview projection(in-progress worktree 요약) 소비 — worktree 별
+// 마일스톤(라벨 + milestone_hint + status). status 는 icon+label+소형 dot(widget-card
+// dot discipline 재사용, colored-text/행 색칠 0 → 강조색 ≤1, hero verdict 가 유일 loud).
+// overview 부재/0-item → '' (graceful hide, 빈 chrome 0). data-detail-id 는 표가 없을
+// 때(healthy-single = 그 worktree 드로어 유일 trigger)만 부여 — 표 present(2+/unhealthy)
+// 시엔 H18 중복-id invariant 회피로 display-only(드로어는 활동·기록 route 표가 trigger,
+// foot 링크가 경로). 신규 detail 0(drawerMap 은 multiSession.details 그대로 소비).
+const AM_DOT = { blocked: 'dot-bad', degraded: 'dot-warn', active: 'dot-accent', idle: 'dot-mute' };
+const AM_CLS = { blocked: 'is-blocked', degraded: 'is-degraded', active: 'is-active', idle: 'is-idle' };
+
+function renderActiveMilestones(multiSession, formatUtils) {
+  const escapeHtml = formatUtils.escapeHtml;
+  const ov = multiSession && multiSession.overview;
+  if (!ov || !Array.isArray(ov.items) || ov.items.length === 0) return '';
+  // 각 항목 = 2줄 블록(영역 정의). 윗줄: 상태 배지 · worktree(굵게) · 시간(우측).
+  // 아랫줄: 마일스톤 title(.am-title, 최대 2줄 clamp — 전문은 드로어). detailId 는
+  // 항상 부여(ms:ov 네임스페이스 → 표 wt: 와 충돌 0, H18 균형은 multi-session 이 보증).
+  const rows = ov.items.map((it) => {
+    const dot = AM_DOT[it.kind] || 'dot-mute';
+    const statusCls = AM_CLS[it.kind] || 'is-idle';
+    const wt = it.isSelf ? '<strong>이 worktree</strong>' : escapeHtml(it.label);
+    const aux = [];
+    if (it.gate) aux.push(it.gate);
+    if (it.activity) aux.push(it.activity);
+    const auxHtml = aux.length
+      ? '<span class="am-aux">' + escapeHtml(aux.join(' · ')) + '</span>'
+      : '';
+    const titleHtml = it.milestoneHint
+      ? '<div class="am-title">' + escapeHtml(it.milestoneHint) + '</div>'
+      : '';
+    const detailAttr = it.detailId
+      ? ' data-detail-id="' + escapeHtml(it.detailId) + '"'
+      : '';
+    return '<li class="am-item"' + detailAttr + '>'
+      + '<div class="am-top">'
+      + '<span class="am-status ' + statusCls + '"><span class="dot ' + dot + '" aria-hidden="true"></span>'
+      + escapeHtml(it.statusLabel) + '</span>'
+      + '<span class="am-wt">' + wt + '</span>'
+      + auxHtml
+      + '</div>'
+      + titleHtml
+      + '</li>';
+  }).join('');
+  const ul = '<ul class="active-milestones" role="list">' + rows + '</ul>';
+  const opts = { count: String(ov.total) };
+  if (ov.total > ov.shown) {
+    opts.foot = '<a href="#route-activity">활동 · 기록에서 +'
+      + escapeHtml(String(ov.total - ov.shown)) + '개 더 보기</a>';
+  }
+  return renderPanel('진행 중 마일스톤', { html: ul }, escapeHtml, opts);
 }
 
 // 대시보드 hero — hero-status(tone dot) + verdict(h1) + next-action(STATE.md
@@ -1190,7 +1275,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   const activityPanels = [
     // 멀티세션 진행 — 5컬럼 → full-width headline(워커/최근 활동 앞). 활동 route 의
     // 진행-축 요약. present=false(graceful hide)면 filter 로 제거.
-    { title: '멀티세션 진행', section: multiSession, present: !!multiSession, span2: true },
+    { title: '멀티세션 진행', section: multiSession, present: !!(multiSession && multiSession.html), span2: true },
     { title: '워커', section: fanout, present: !!fanout, span2: false },
     { title: '최근 활동', section: activeSessions, present: !!activeSessions, span2: false },
     { title: '타임라인', section: timeline, present: true, span2: true },
@@ -1289,6 +1374,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   // route id/data-route 식별자는 'overview' 불변(CSS 라우팅) — 표시 텍스트만 '대시보드'.
   parts.push('<section class="route" id="route-overview" aria-label="대시보드">'
     + renderHeroPanel(verdict, grid, projectName, escapeHtml, escapeAttr, formatUtils)
+    + renderActiveMilestones(multiSession, formatUtils)
     + renderWidgetCards(grid, escapeHtml, escapeAttr, formatUtils)
     + '</section>');
 
@@ -1341,7 +1427,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.19 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.20 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.

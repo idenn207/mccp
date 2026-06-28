@@ -29,7 +29,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   const anchors = ['[verdict](#verdict)', '[대시보드](#대시보드)'];
   if (pipeline) anchors.push('[파이프라인](#파이프라인)');
   if (fanout) anchors.push('[워커](#워커)');
-  if (multiSession) anchors.push('[멀티세션](#멀티세션-진행)');
+  if (multiSession && multiSession.md) anchors.push('[멀티세션](#멀티세션-진행)');
   if (activeSessions) anchors.push('[최근-활동](#최근-활동)');
   anchors.push('[타임라인](#타임라인)');
   if (milestoneHistory) anchors.push('[마일스톤-기록](#마일스톤-기록)');
@@ -55,6 +55,33 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('## 대시보드');
   out.push('');
   if (grid) { out.push(grid.md); out.push(''); }
+  // Dashboard Interactivity M2 — worktree 별 진행중 마일스톤(개요 패널 plain-text 동등).
+  // html renderActiveMilestones 와 동일 projection(multiSession.overview) 소비 → 정보
+  // 동등. html 은 색 dot + statusLabel 2채널이나 plain-text 는 색 채널이 없으므로 icon +
+  // statusLabel 텍스트를 함께 실어 상태를 비색 채널로 보존(◐ 단독은 plain-text 전달력 약함).
+  // 라벨은 plain ASCII(em-dash 없음 H10) · milestoneHint 는 이미 plainSummary
+  // (마커 strip H16). overflow 시 활동·기록 참조 한 줄.
+  if (multiSession && multiSession.overview
+      && Array.isArray(multiSession.overview.items)
+      && multiSession.overview.items.length) {
+    const ov = multiSession.overview;
+    out.push('진행 중 마일스톤 (worktree별):');
+    out.push('');
+    for (const it of ov.items) {
+      const labelText = it.isSelf ? '이 worktree' : it.label;
+      const parts = [it.icon + ' ' + it.statusLabel, labelText];
+      if (it.milestoneHint) parts.push(it.milestoneHint);
+      const aux = [];
+      if (it.gate) aux.push(it.gate);
+      if (it.activity) aux.push(it.activity);
+      if (aux.length) parts.push(aux.join(' · '));
+      out.push('- ' + parts.join(' · '));
+    }
+    if (ov.total > ov.shown) {
+      out.push('- … 외 +' + (ov.total - ov.shown) + ' (활동 · 기록 참조)');
+    }
+    out.push('');
+  }
   out.push('---');
   out.push('');
 
@@ -76,7 +103,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
     out.push('');
   }
 
-  if (multiSession) {
+  if (multiSession && multiSession.md) {
     out.push('## 멀티세션 진행');
     out.push('');
     out.push(multiSession.md);
@@ -124,7 +151,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('---');
   out.push('');
 
-  out.push('_derived from .claude/ · v1.18.19_');
+  out.push('_derived from .claude/ · v1.18.20_');
   out.push('');
 
   return out.join('\n');

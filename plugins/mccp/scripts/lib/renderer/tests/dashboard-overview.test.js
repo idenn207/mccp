@@ -206,3 +206,100 @@ test('dashboard — render is design-lint clean (H10/H16 — new widget prose sa
   assert.deepEqual(r.design_constraint_violations, [],
     'design-lint clean: ' + JSON.stringify(r.design_constraint_violations));
 });
+
+// ── Dashboard Interactivity M2 — 개요 "진행 중 마일스톤" 패널 (Task 2/3) ────────
+function wt(over) {
+  return Object.assign({
+    path: '/repo', branch: 'main', is_self: false, active: false,
+    milestone_hint: null, current_gate: null, gate_converged: null,
+    last_activity: null, blocked: false, degraded: false, error: null,
+  }, over || {});
+}
+
+function renderFullWT(worktrees) {
+  const now = Date.now();
+  const model = {
+    derived_at: new Date(now).toISOString(),
+    masked: true,
+    repo_root: '/x/myproj',
+    m0_capability: { contract_present: true },
+    warnings: [],
+    host_version: { version: '1.18.4', source: 'changelog', latest_plan: 'a.plan.md', degraded: false, error: null },
+    sources: {
+      plans: { items: [{ path: 'a.plan.md', source_prd: 'prd.md' }] },
+      receipts: { items: [] },
+      state: { item: { resume_state: 'idle', body: { nextStep: '다음 `/mccp:resume` 로 이어가기' } } },
+      backlog: { count: 0, items: [] },
+      fix_task: { item: null },
+      pr: { item: null },
+      envelopes: { count: 0, items: [] },
+      worktrees: { scanned: true, items: worktrees },
+    },
+    correlations: [],
+  };
+  return renderStatus(model, {
+    cwd: '/test',
+    snapshotsDir: null,
+    fsRead: (p) => {
+      if (p.endsWith('prd.md')) return '## Delivery Milestones\n\n| # | M | O | Status | Plan |\n|---|---|---|---|---|\n| 0 | a | x | in-progress | [a.plan.md](a.plan.md) |\n';
+      if (p.endsWith('a.plan.md')) return '# plan\n';
+      throw new Error('ENOENT ' + p);
+    },
+  });
+}
+
+test('M2 — route-overview surfaces 진행 중 마일스톤 panel for active worktrees (+표 활동 route)', () => {
+  const r = renderFullWT([
+    wt({ path: '/repo', is_self: true, active: true, milestone_hint: 'M2 개요 패널' }),
+    wt({ path: '<outside-repo:b>', branch: 'feat-b', active: true, milestone_hint: '검색 wiring' }),
+  ]);
+  // 실제 패널 h3(CSS 주석의 동명 문자열과 구분).
+  assert.match(r.html, /<h3 class="panel-title">진행 중 마일스톤<\/h3>/);
+  assert.match(r.html, /<strong>이 worktree<\/strong>/);
+  assert.match(r.html, /M2 개요 패널/);
+  // 2+ → 활동 route 멀티세션 표 패널도 present
+  assert.match(r.html, /<table class="multi-session">/);
+  assert.deepEqual(r.design_constraint_violations, [],
+    'design-lint clean: ' + JSON.stringify(r.design_constraint_violations));
+});
+
+test('M2 — overview panel overflow foot link → #route-activity when > OVERVIEW_CAP', () => {
+  const items = [];
+  for (let i = 0; i < 4; i++) {
+    items.push(wt({ path: '<outside-repo:w' + i + '>', branch: 'b' + i, active: true, milestone_hint: 'M' + i }));
+  }
+  const r = renderFullWT(items);
+  assert.match(r.html, /활동 · 기록에서 \+1개 더 보기/);
+  assert.match(r.html, /href="#route-activity"/);
+  assert.deepEqual(r.design_constraint_violations, []);
+});
+
+test('M2 (F2) — healthy single worktree milestone in overview, 멀티세션 표 패널 hidden', () => {
+  const r = renderFullWT([
+    wt({ path: '/repo', is_self: true, active: true, milestone_hint: '단일 worktree 진행' }),
+  ]);
+  assert.match(r.html, /<h3 class="panel-title">진행 중 마일스톤<\/h3>/);
+  assert.match(r.html, /단일 worktree 진행/);
+  // healthy-single → multiSession.html 부재 → 활동 route 표 패널 미렌더
+  assert.doesNotMatch(r.html, /<table class="multi-session">/);
+  assert.deepEqual(r.design_constraint_violations, [],
+    'design-lint clean: ' + JSON.stringify(r.design_constraint_violations));
+});
+
+test('M2 — worktrees 부재 → 진행 중 마일스톤 panel 부재(graceful hide)', () => {
+  const r = renderFull();
+  // 패널 h3 부재(CSS 주석의 동명 문자열은 항상 있으므로 패널 자체로 검증).
+  assert.doesNotMatch(r.html, /<h3 class="panel-title">진행 중 마일스톤<\/h3>/);
+});
+
+test('M2 — STATUS.md 대시보드 carries worktree 진행 라인 동등', () => {
+  const r = renderFullWT([
+    wt({ path: '/repo', is_self: true, active: true, milestone_hint: 'md 동등 hint' }),
+    wt({ path: '<outside-repo:b>', branch: 'feat-b', active: true, milestone_hint: '두번째' }),
+  ]);
+  assert.match(r.md, /진행 중 마일스톤 \(worktree별\)/);
+  assert.match(r.md, /이 worktree/);
+  assert.match(r.md, /md 동등 hint/);
+  // plain-text 는 색 채널이 없으므로 statusLabel 텍스트가 상태를 실어야 정보 동등(L1).
+  assert.match(r.md, /◐ 진행 중 · 이 worktree/);
+});

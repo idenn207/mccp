@@ -1,0 +1,30 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "dashboard-interactivity",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.18.20",
+    "completed_at": "2026-06-28T01:08:35.184Z",
+    "commit_sha": "4ec5641579c4a0ea76ab46a8198951e571726b3a",
+    "plan_basename": "dashboard-interactivity-m2.plan.md",
+    "plan_file_hash": "sha256:4d9ec4696df7bd8395d83e842a747fc6d5f093fdeb8e2dbb68971062cecadca5",
+    "risks_closed": [
+      "개요에 worktree 진행 추가가 hero 외 두 번째 loud accent 생성(강조색 ≤1 위반)",
+      "projection 추가가 기존 multi-session 표/filterOptions/graceful-hide 회귀",
+      "**(Codex F1, HIGH)** \"진행중\" 오판정(stale STATE.md / 완료 마일스톤을 진행중 표시)",
+      "개요 md 추가가 STATUS.md plain-text 소비자 정보 손실/중복 혼란",
+      "**(Codex F2, MEDIUM)** 단일 healthy worktree active 마일스톤이 개요에서 누락",
+      "단일 worktree(scan off/eligible 0)에서 패널이 빈 chrome 노출"
+    ],
+    "oq_closed": [
+      "**\"진행중\" 판정 소스** = derive `worktrees` source(worktree-scoped). worktree가 in-progress ⟺ **(i) `item.active === true`**(worktrees source의 14일-내-활동 freshness gate, worktrees.js:253-256) **AND (ii)** 마일스톤 신호 존재(`milestone_hint` OR `current_gate`) **AND (iii) NOT just-shipped**(`current_gate === 'mccp-pr-codex' && item.gate_converged === true` = 직전 ship 게이트 수렴 = 마일스톤 *완료*, 진행중 아님). 마일스톤 라벨 = `milestone_hint`(STATE.md `goal`/`inProgress`/`plan[0]` firstLine, worktrees.js:187-190), 보조 = `current_gate`. **repo-wide PRD body `status: in-progress` row는 채택 안 함** — in-progress 위젯이 이미 커버 + worktree 축 아님.",
+      "**Codex F1 (HIGH, ACCEPT_NOW) 흡수 — lifecycle-fresh gate**: 원안의 `worktreeStatusKind !== 'idle'` 단독은 stale STATE.md / 이미 ship된 마일스톤을 \"진행중\"으로 표시할 수 있었다(PRD Risk \"거짓 진행중\" 재현). 조건 (i) `active` gate가 **stale worktree**(활동 없는 오래된 goal)를 제외하고, 조건 (iii) just-shipped 제외가 **완료된 마일스톤**(pr-codex 수렴)을 제외한다 — worktrees source가 이미 제공하는 freshness + closure 신호로 PRD의 \"milestone-history 완료 cross-check\" 의도를 만족. milestone_hint 자유텍스트 ↔ plan basename 완전 매칭은 worktrees source가 plan 경로를 노출 안 해 fuzzy → per-worktree latest-receipt closure(pr-codex 수렴)를 tractable closure 신호로 채택(전체 문자열 cross-check는 fuzzy, defer).",
+      "**degraded/error 분리**: degraded/error 행은 milestone 신호(조건 ii)가 없으면 이미 제외(순수 error 행은 milestone 패널 비대상 — 멀티세션 표가 별도 surface). degraded **AND active AND milestone_hint** 인 행만 \"stuck-in-progress\"로 포함(error는 드로어가 surface). degraded-only가 진짜 active를 outrank하던 경로는 (i) active gate가 stale degraded를 제외하므로 차단.",
+      "**정렬** = `KIND_META.rank` 내림차순(blocked 3 > degraded 2 > active 1; idle 0은 (i) active gate + 필터로 제외) → 동률은 `last_activity` recency desc(multi-session.js의 `activityRank` 재사용). **포함된 모든 행이 active(fresh)이므로** blocked>degraded>active outrank는 fresh 행들 간 정당한 actionability 우선순위(stale 비교 아님 — Codex F1 우려 해소). self는 마커(\"이 worktree\")로 식별, 별도 pin 안 함(순서는 status/recency 결정 — 결정성 우선).",
+      "**상한** = `OVERVIEW_CAP = 3` worktree 표시(Output Constraint 4 \"top 3 expanded\" anchor 정합 — Critique F3 흡수). 초과 시 foot affordance \"활동 · 기록에서 +N개 더 보기\"(`#route-activity` 링크, pin-alert affordance 미러). canonical 전체 목록은 활동 route 멀티세션 표 = loud-on-demand(개요에 `<details>` 중복 회피). silent cap 금지 — total/shown을 projection에 보존하고 foot에 명시.",
+      "**개요 패널 visibility = 멀티세션 *표* visibility와 분리**(Codex F2, MEDIUM, ACCEPT_NOW 흡수). 원안은 overview를 `multiSession` present에 gating했으나 `renderMultiSession`은 `count===1 && healthy`에서 null 반환 → **단일 worktree(가장 흔한 케이스)의 active 마일스톤이 개요에 안 뜨는** 결함. 해소: `renderMultiSession`이 scanned 시 **모든** item에 대해 projection(+detail)을 *표 early-return 앞에서* 1회 계산하고, healthy-single이어도 eligible overview item이 있으면 `{ overview, details }`(표 md/html 없음)를 반환. 표 자체는 기존대로 healthy-single에서 hidden(md/html 미생성). html.js/markdown.js는 멀티세션 *표 패널*을 `multiSession.html`/`multiSession.md` 존재로 gating(`!!multiSession` 아님), 개요는 `multiSession.overview`를 독립 소비. scan off / eligible 0 → `null`(완전 부재)."
+    ],
+    "receipt_hash": "sha256:281726ea45695d070de16512fc0390f4a426ce883449f6cbe94447e9ffa7d108"
+  }
+}

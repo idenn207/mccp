@@ -1,0 +1,27 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "dashboard-interactivity",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.18.21",
+    "completed_at": "2026-06-29T08:59:38.479Z",
+    "commit_sha": "0e3d55fae9244c6232f02fc88c15ce24fcec6368",
+    "plan_basename": "dashboard-interactivity-m3.plan.md",
+    "plan_file_hash": "sha256:ed4ab4ae21d4722317c09432a5c2b62ee8f503a37e2f17beb85a28fcdc29e46e",
+    "risks_closed": [
+      "**(Codex F1, HIGH)** clarify·distill이 pre-implementation pass에서 invoke돼 produced code 미존재 시 no-op(마무리 미수행)",
+      "pr.md 전제 stale(audit 이미 존재) → \"M3가 pr.md를 안 건드림\" 오해",
+      "Phase 3.6 finish가 implement 게이트당 Skill 호출 2회 추가(비용)",
+      "Phase 3.6 cleanup 적용이 Phase 4 VALIDATE 회귀 유발",
+      "audit를 blocking으로 오해해 dual-review/review-only 불변 약화",
+      "footer version drift(plugin.json만 bump)"
+    ],
+    "oq_closed": [
+      "**audit = advisory (게이트 blocking 아님)** — 세 명령 모두에서. **critique retry loop(§3.9)이 divergent gate-blocking을 단독 소유**한다. audit는 evaluate-stage Skill 호출이지만 findings를 surface만 하고(code-review→Phase 6 REPORT, pr→PR body `## Design Review`, prp-implement→기존 2.5.5b `impeccable_commands_routed` present-only) **게이트를 막지 않는다**. 근거: (i) pr/code-review는 review-only 불변(Edit/Write 없음) — audit는 본질적으로 advisory. (ii) prp-implement audit는 PRD 미언급 + 이미 routing `invoke` present-only(M1 결정 = blocking 미승격). dual-review 불변 + review-only 불변 + critique 단독 blocking 모두 보존.",
+      "**layout 선행 + clarify·distill 마무리는 *타이밍 분리*로 합친다 — routing oracle 단일 메커니즘이 아니라 pre/post 단계 분리(Codex F1 흡수).** layout은 **pre-implementation 2.5.5b routing pass(invoke)** — 구현 전 디자인 방향 선도(선행). clarify·distill은 **post-EXECUTE finish 단계(신규)** — 구현 후 produced diff 정리(마무리). **중복 호출 0**: clarify/distill은 2.5.5b pre-impl pass에서 invoke되지 않고(recommend/deferred — routing oracle 불변) finish 단계에서만 1회 invoke된다. 같은 cycle 내 이중 invoke 구조적 부재(2.5.5b는 deferred-recommend, finish만 invoke). PRD가 가정한 \"기존 stage-aware routing에 합침\"은 routing이 pre-implementation 게이트라는 사실 때문에 *부분만* 성립 — layout은 routing이 담당, clarify·distill은 routing이 담당 불가(타이밍)하므로 별도 finish 단계가 정답.",
+      "**pr.md 전제 stale 정직 기록** — pr.md는 PRD가 가정한 \"audit 추가\"를 이미 충족(2.5.1 line 310, `29ded48` 2026-06-03). M3의 pr.md 작업은 net-new가 아니라 **검증 + advisory framing 정합**(audit가 advisory임을 본문 명시 + code-review.md와 동형). reviewer가 \"pr.md 변경이 왜 minimal인가\"를 즉시 이해하게 함."
+    ],
+    "receipt_hash": "sha256:3d61ca4abc573fa21ec65862bfee0ed713a1bd9ac7a49f09c3b1d668bc5d572d"
+  }
+}

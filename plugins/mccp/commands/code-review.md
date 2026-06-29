@@ -172,16 +172,16 @@ SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFile
 DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
 ```
 
-**Reuse-first**: If design signal present, check the PR body for an existing `## Design Review` section (injected by `/mccp:pr` Phase 2.5.1). Reuse those findings — do NOT re-invoke `Skill(impeccable, ...)`. Cross-gate dedupe — same PR shouldn't pay impeccable cost twice.
+**Reuse-first**: If design signal present, check the PR body for an existing `## Design Review` section (injected by `/mccp:pr` Phase 2.5.1, which invokes both `critique` and `audit`). Reuse those findings — do NOT re-invoke `Skill(impeccable, ...)`. Cross-gate dedupe — same PR shouldn't pay impeccable cost twice. **`audit` is advisory** — like `critique` here it surfaces into the REPORT but never blocks; the code-reviewer gate is lenient (warning, not blocking) and only the `critique` retry loop (§3.9) owns divergent gate-blocking.
 
 Decision tree (reuse-first):
 
 | SKILL_AVAIL | SIGNAL | PR body has `## Design Review` | Action |
 |---|---|---|---|
 | * | 0 | * | Sub-step skip silently |
-| * | 1 | yes | Reuse existing `## Design Review` findings into Phase 6 REPORT |
+| * | 1 | yes | Reuse existing `## Design Review` findings (both `critique` + `audit`) into Phase 6 REPORT |
 | 0 | 1 | no | Record `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` in Phase 6 REPORT. Export `IMPECCABLE_SKIPPED_REASON="$DETECT_REASON"`. code-reviewer gate is **lenient** — surfaces as warning, not blocking |
-| 1 | 1 | no | Invoke `Skill(impeccable, "critique PR #<NUMBER>")`. If Skill returns `unknown_skill` / `not found`, fall back to skipped path |
+| 1 | 1 | no | Invoke `Skill(impeccable, "critique PR #<NUMBER>")` and `Skill(impeccable, "audit PR #<NUMBER>")` (mirror of `/mccp:pr` 2.5.1). Capture both — Phase 6 REPORT surfaces them; `audit` is advisory (gate lenient, never blocks). If Skill returns `unknown_skill` / `not found`, fall back to skipped path |
 
 Receipt-write at 7.5 MUST forward `--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when skipped or fell back.
 

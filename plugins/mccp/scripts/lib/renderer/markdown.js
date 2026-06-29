@@ -151,7 +151,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('---');
   out.push('');
 
-  out.push('_derived from .claude/ · v1.18.20_');
+  out.push('_derived from .claude/ · v1.18.21_');
   out.push('');
 
   return out.join('\n');

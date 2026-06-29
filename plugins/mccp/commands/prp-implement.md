@@ -351,6 +351,13 @@ Decision tree (mirror of plan.md 5.0, v1.3.0-m2 3-axis):
 
 When the trigger fires (SKILL_AVAIL=1 & (SIGNAL=1 OR DESIGN_INTENT_ACTIVE=1)), route stage-appropriate impeccable commands via the routing oracle. **`critique` is NOT routed here** — it stays owned by the critique retry loop below so `decideCritique`/`design_critique_verdict` blocking is preserved (Codex Plan-Codex R1 F2).
 
+**Pre/post timing framing (v1.18.21 M3)** — this routing pass runs **before** Phase 3 EXECUTE (first code change), so it can only act on the design direction, not on produced code:
+
+- **`layout` leads (선행)** — routed `invoke` at the head of the refine stage. Because this gate precedes Phase 3 EXECUTE, `layout` shapes the design direction *before* implementation begins. This is its correct timing.
+- **`clarify` / `distill` / `polish` are NOT invoked in this pass** — produced code does not exist yet (Phase 3 has not run), so invoking them here would be a no-op against an empty diff. `clarify`/`distill` stay `recommend`/deferred in the routing oracle; `polish` is not routed in implement at all. All three are invoked exactly once in the new **Phase 3.6 — DESIGN FINISH (simplify + polish)** (post-EXECUTE, against the produced diff), where `polish` is the final implementation verification. This split keeps duplicate calls at zero: this pass defers, Phase 3.6 invokes — never both.
+- **`audit` is advisory** — an evaluate-stage Skill whose findings are recorded present-only via `impeccable_commands_routed` (no gate block).
+- **`critique` alone blocks** — the retry loop (§3.9) owns divergent gate-blocking, reaffirmed above.
+
 ```bash
 MODE=$(node -e "console.log(require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-routing').parseRoutingMode(process.env))")
 # v1.13.0 M2 (Implement-Codex [0] absorption) — derive renderingSurface AND the
@@ -874,6 +881,65 @@ Run /mccp:plan <plan-path> to revise the plan, OR add a deviation rationale to t
 Phase 7 AUTO-CHAIN automatically detects `STATE.md.chain_aborted=true` via [auto-chain.js shouldAbort](../scripts/lib/auto-chain.js) (one of 8 existing triggers) — commit/PR auto-progression stops without additional wiring.
 
 **CHECKPOINT**: All tasks executed. Plan-conflict detection green. Deviations logged.
+
+---
+
+## Phase 3.6 — DESIGN FINISH: SIMPLIFY + POLISH (v1.18.21, post-EXECUTE, advisory)
+
+This is the **post-implementation** complement to the pre-implementation `layout` lead in 2.5.5b. `clarify`, `distill` (simplify) and `polish` (final verification) act on *produced* code, so they run here — after Phase 3 EXECUTE has actually written the diff — not in the pre-EXECUTE routing pass. `polish` is the **final design pass over the implementation**: it had no real home before (it is absent from the implement routing table and only recommend-only in the review-only `pr` gate, where it can never be applied), so the produced diff never got a finishing pass. This step closes that gap. **Duplicate-call invariant**: `clarify` / `distill` / `polish` are invoked **only** in this finish step; 2.5.5b leaves `clarify`/`distill` deferred-recommend and never routes `polish` at all (never invoked there). The two steps never invoke the same command in one cycle.
+
+### 3.6.1 — Gate
+
+Run this step ONLY when ALL hold:
+
+1. The 2.5.5b design trigger fired this cycle — `SKILL_AVAIL=1` AND (`SIGNAL=1` OR `DESIGN_INTENT_ACTIVE=1`). Reuse the trigger state computed in 2.5.5b; do NOT add a new detector.
+2. The **post-EXECUTE** diff has a rendering surface. Recalculate (the diff changed since 2.5.5b) over the tracked diff (`git diff HEAD`) ∪ untracked (`git ls-files --others --exclude-standard`), surface = UI ext (`.tsx/.jsx/.vue/.svelte/.astro/.css/.scss/.html`) or `.claude/cache/{STATUS.md,status.html}`:
+
+   ```bash
+   FINISH_SURFACE=$(node -e '
+     const { execSync } = require("child_process");
+     const ui = /\.(tsx|jsx|vue|svelte|astro|css|scss|html)$/i;
+     const cache = /\.claude\/cache\/(STATUS\.md|status\.html)$/;
+     const isSurface = (f) => ui.test(f) || cache.test(f);
+     const sh = (c) => { try { return execSync(c, {encoding:"utf8", stdio:["ignore","pipe","ignore"]}); } catch (_) { return ""; } };
+     const tracked = sh("git diff --name-only HEAD").split(/\r?\n/).filter(Boolean);
+     const untracked = sh("git ls-files --others --exclude-standard").split(/\r?\n/).filter(Boolean);
+     const files = Array.from(new Set(tracked.concat(untracked))).filter(isSurface);
+     process.stdout.write(files.length > 0 ? "1" : "0");
+   ')
+   ```
+
+3. `MCCP_IMPECCABLE_ROUTING_MODE` is not `recommend` (recommend mode = advisory-only, no invoke).
+
+If any condition fails (trigger not fired / `FINISH_SURFACE=0` / routing mode `recommend`), skip this phase with a single stderr line and proceed to Phase 4:
+
+```bash
+echo "[mccp:design-finish] skip (trigger or surface or mode gate not met) — no clarify/distill/polish invoke" 1>&2
+```
+
+### 3.6.2 — Invoke clarify + distill + polish (advisory, against produced diff)
+
+For the produced diff, invoke each once (mirror of 2.5.5b's produced-code Skill pattern). Order is simplify-then-verify — `polish` runs **last** as the final design pass over the finished implementation:
+
+- `Skill(impeccable, "clarify <slug>")`
+- `Skill(impeccable, "distill <slug>")`
+- `Skill(impeccable, "polish <slug>")` — final implementation verification
+
+`<slug>` is the same decision-slug used for the receipt (`$DECISION_SLUG`). If a Skill returns `unknown_skill` / `not found`, emit a loud stderr skip line and continue (fail-open — this phase never blocks):
+
+```bash
+echo "[mccp:design-finish] Skill unavailable (clarify|distill|polish) — skipped (fail-open advisory)" 1>&2
+```
+
+### 3.6.3 — Apply advisory findings (bounded)
+
+Findings are **advisory**, not gate-blocking (parallel to `audit` and to the Phase 6 routing recommend rows). prp-implement is an editable gate (not review-only), so you MAY apply cleanup — but bounded:
+
+- Apply only **trivial / safe** cleanups in this same cycle, then re-run Phase 4 VALIDATE so the change is regression-guarded.
+- Defer any larger restructuring to a separate `/mccp:prp-implement` cycle (do not expand scope here).
+- Surface every finding (applied or deferred) into the Phase 5 REPORT under a `### Design Finish (simplify + polish)` subheading.
+
+**CHECKPOINT**: Design-finish ran (or skipped at the gate). clarify/distill/polish findings recorded for the REPORT. Phase 4 VALIDATE re-passed if any cleanup applied.
 
 ---
 

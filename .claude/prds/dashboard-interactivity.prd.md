@@ -57,7 +57,7 @@ We'll know we're right when **드로어가 위험 완화 *방법*을 truncation 
 | 1 | 드로어 요약→상세화 | 위험·질문·receipt·마일스톤 클릭 시 요약이 아닌 완화방법·맥락 전문을 truncation 없이 markdown(목록/강조/code/표)으로 본다. STATUS.md plain-text 동등본 동기. | complete | `.claude/plans/dashboard-interactivity.plan.md` |
 | 1.2 | prose 렌더 시각 다듬기 + 리스트 강조 혼란 제거 | (a) 드로어 요약/상세가 단순 bold를 넘어 **의미 있는 줄바꿈과 heading 시각 위계**로 보기 좋게 렌더된다 — 문단 내 줄바꿈 보존(현재 공백 합침), heading은 bold 강등이 아니라 styled `.d-h`(크기/간격/색으로 위계, H15 literal h4+ 회피하되 시각은 heading답게). near-monochrome·강조색 viewport당 ≤1 불변. (b) 위험/질문 **리스트(드로어 밖)** 항목의 inline 강조(`**bold**`→흰색 `<strong>` vs 회색 `--ink-2`)가 **'확인/미확인' 같은 상태 토글로 오인**되지 않도록 정리 — 리스트 레벨 emphasis를 중립화하거나 흰색/회색 대비를 상태-신호로 안 읽히게. | complete | `.claude/plans/dashboard-interactivity-m1-2.plan.md` |
 | 2 | 개요 진행중 마일스톤 + worktree | 개요(기본 라우트)에서 worktree별 진행중 마일스톤을 한눈에 본다(진행중 판정 소스·정렬·상한 plan 결정). | complete | `.claude/plans/dashboard-interactivity-m2.plan.md` |
-| 3 | impeccable 검증 워크플로 강화 | code-review·pr가 critique에 더해 audit까지 돌고, prp-implement가 `/impeccable layout` 선행 + `/impeccable clarify`·`/impeccable distill` 마무리를 따른다. | pending | — |
+| 3 | impeccable 검증 워크플로 강화 | code-review·pr가 critique에 더해 audit까지 돌고, prp-implement가 `/impeccable layout` 선행 + `/impeccable clarify`·`/impeccable distill`·`/impeccable polish` 마무리를 따른다. | complete | `.claude/plans/dashboard-interactivity-m3.plan.md` |
 | 4 | 대시보드 액션 버튼 (후속) | 대시보드에서 위험 '제외(obsolete)'를 same-origin POST→소스 `.md` 마커로 비파괴 기록하고 렌더가 collapse한다. claude 미실행. | pending | — |
 
 ## Design Direction

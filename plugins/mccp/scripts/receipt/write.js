@@ -280,6 +280,17 @@ function buildReceipt(args) {
         const arr = readJsonIfPresent(p, null);
         return Array.isArray(arr) ? arr : null;
       })(),
+      // v1.18.21 design-grounding — gate-time captured boolean + (optionally,
+      // at write-time) verdict. The verdict is normally null at the initial
+      // 2.5.6 write (post-EXECUTE only) and set later via restampGroundingVerdict,
+      // but we honor an explicit --design-grounding-verdict here too for tests
+      // and one-shot writes.
+      design_grounding_captured: args['design-grounding-captured'] === true,
+      design_grounding_verdict: (function () {
+        const v = args['design-grounding-verdict'];
+        if (typeof v === 'string' && v.length > 0) return v;
+        return null;
+      })(),
     },
   });
 
@@ -411,6 +422,72 @@ function write(args) {
   return { path: p, receipt: built.receipt };
 }
 
+// v1.18.21 design-grounding (Codex Implement-R1 F3) — field-preserving restamp.
+//
+// The post-EXECUTE grounding verdict is known only AFTER the per-task loop, but
+// the implement-codex receipt was already written at Phase 2.5.6. A plain
+// re-write via buildReceipt() rebuilds a FRESH skeleton from flags and would
+// DROP every field not re-passed (design_critique_*, routing, attribution,
+// future additive meta). So instead we read the existing receipt, mutate ONLY
+// meta.design_grounding_verdict, recompute both digests (the verdict is NOT
+// carved out of receipt_hash → it stays tamper-protected), validate, and write
+// back. Everything else is preserved by construction.
+const VALID_GROUNDING_VERDICTS =
+  ['grounded', 'anchor_clean', 'inconclusive', 'violations', 'skipped'];
+
+function restampGroundingVerdict(args) {
+  const gateId = args.gate || args['gate-id'];
+  const decisionId = args.decision || args['decision-id'];
+  const verdict = args['design-grounding-verdict'] || args.verdict;
+
+  if (!gateId) throw new Error('--gate is required');
+  if (!decisionId) throw new Error('--decision is required');
+  if (GATE_IDS.indexOf(gateId) === -1) {
+    throw new Error('invalid --gate "' + gateId + '"; must be one of: ' + GATE_IDS.join(', '));
+  }
+  if (VALID_GROUNDING_VERDICTS.indexOf(verdict) === -1) {
+    throw new Error('--design-grounding-verdict must be one of: ' +
+      VALID_GROUNDING_VERDICTS.join(', '));
+  }
+
+  const cwd = args.cwd || process.cwd();
+  const repoRoot = gitRepoRoot(cwd);
+  const existing = readReceipt(repoRoot, gateId, decisionId);
+  if (!existing) {
+    const e = new Error('cannot restamp grounding verdict: no existing receipt for ' +
+      gateId + '/' + decisionId);
+    e.code = 'RECEIPT_NOT_FOUND';
+    throw e;
+  }
+
+  existing.meta = existing.meta || {};
+  // Mutate ONLY the grounding verdict. Backfill captured=false on a legacy
+  // receipt so the present-only validator stays happy; never overwrite a
+  // gate-time captured=true.
+  if (existing.meta.design_grounding_captured === undefined) {
+    existing.meta.design_grounding_captured = false;
+  }
+  existing.meta.design_grounding_verdict = verdict;
+
+  // subject_hash excludes meta (hash.js SUBJECT_FIELDS), so it is unchanged —
+  // recompute defensively. receipt_hash DOES include the verdict (not carved
+  // out), so recomputing seals the new value.
+  existing.subject_hash = subjectHash(existing);
+  existing.receipt_hash = receiptHash(existing);
+
+  const result = validate(existing);
+  if (!result.ok) {
+    const err = new Error('restamp grounding verdict validation failed:\n  - ' +
+      result.errors.join('\n  - '));
+    err.code = 'SCHEMA_INVALID';
+    err.errors = result.errors;
+    throw err;
+  }
+
+  const p = writeReceipt(repoRoot, existing);
+  return { path: p, receipt: existing };
+}
+
 module.exports = {
   write: write,
   buildReceipt: buildReceipt,
@@ -418,4 +495,5 @@ module.exports = {
   // without going through writeReceipt (e.g., dry-run preview).
   triggerEscalateIfNeeded: triggerEscalateIfNeeded,
   deriveEscalateSummary: deriveEscalateSummary,
+  restampGroundingVerdict: restampGroundingVerdict,
 };

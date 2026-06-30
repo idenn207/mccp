@@ -584,6 +584,35 @@ function validate(receipt) {
       }
     }
 
+    // v1.18.21 design-grounding — mechanical post-EXECUTE grounding lint axis
+    // (present-only — pre-1.18.21 receipts validate unchanged).
+    //
+    // design_grounding_captured: gate-time boolean. Stamped at /mccp:prp-implement
+    //   Phase 2.5.6 when the design trigger fired and captureDirection wrote the
+    //   pre-EXECUTE direction artifact. Proves capture was ATTEMPTED — not that
+    //   grounding passed (Codex Implement-R1 F3).
+    // design_grounding_verdict: post-EXECUTE enum or null. Stamped by the
+    //   field-preserving restamp (cli.js restamp-grounding) at Phase 3.6 close.
+    //   'grounded' = rendered delta clean + declared signals satisfied.
+    //   'anchor_clean' = clean anchors, no signals to confirm / no rendered diff.
+    //   'inconclusive' = capture read failed (F4) OR a required signal absent.
+    //   'violations' = H15 anchor violated in produced delta.
+    //   'skipped' = MCCP_DESIGN_GROUNDING=off. null = sub-step not exercised.
+    //   NOT carved out of receipt_hash — the restamp recomputes both digests so
+    //   the verdict is tamper-protected.
+    if (m.design_grounding_captured !== undefined) {
+      req(typeof m.design_grounding_captured === 'boolean',
+        'meta.design_grounding_captured must be a boolean if present');
+    }
+    const GROUNDING_VERDICT_VALUES =
+      ['grounded', 'anchor_clean', 'inconclusive', 'violations', 'skipped'];
+    if (m.design_grounding_verdict !== null && m.design_grounding_verdict !== undefined) {
+      req(typeof m.design_grounding_verdict === 'string' &&
+        GROUNDING_VERDICT_VALUES.indexOf(m.design_grounding_verdict) !== -1,
+        'meta.design_grounding_verdict must be one of: ' +
+        GROUNDING_VERDICT_VALUES.join(', ') + ' (or null)');
+    }
+
     // Dashboard Truthfulness M1 (F3) — completion-ledger diagnostic flag
     // (present-only — pre-M1 receipts validate unchanged). Stamped by the
     // ledger epilogue ONLY on the git-unsafe skip path; its presence is
@@ -698,6 +727,12 @@ function makeSkeleton(overrides) {
       // --impeccable-routing-mode + --impeccable-commands-routed-file flags.
       impeccable_routing_mode: null,
       impeccable_commands_routed: null,
+      // v1.18.21 design-grounding — mechanical post-EXECUTE grounding lint axis.
+      // captured (gate-time boolean) is stamped at write-time when the design
+      // trigger fired; verdict (post-EXECUTE enum) is added by the field-
+      // preserving restamp at Phase 3.6 close. Default false/null = green path.
+      design_grounding_captured: false,
+      design_grounding_verdict: null,
     },
   }, o);
 }

@@ -84,6 +84,16 @@ loop (mccp v1.3.0-m2). Output that violates any of them fails critique and is
 re-edited up to `MCCP_DESIGN_CRITIQUE_MAX_RETRY` rounds (default 2). M3 lint
 (`output-constraints.js`) checks the same anchors statically.
 
+**Produced-diff grounding lint (v1.18.22).** Because critique runs *before*
+EXECUTE and never sees the produced diff, `/mccp:prp-implement` Phase 3.7 also
+applies the **H15** anchor (heading depth ≤ 3) statically to the rendered-surface
+added lines of the produced diff (`<h4-9>` in HTML/JSX + CommonMark `#{4,6}`). When
+a `DESIGN_SURFACE_PATHS` change touches a rendered surface, this is a hard,
+LLM-free gate (enforce mode blocks on violation). H17 (nested-card) is NOT in the
+produced-diff subset — it is DOM-aware and stays owned by the renderer's full-HTML
+lint over the rendered `status.html`. Control-plane-only changes (no rendered
+surface) are a no-op.
+
 - **정보 위계 3단계** — primary action → status → detail. Heading depth must not
   exceed 3 in any primary surface. Deeper nesting collapses or moves to a
   secondary surface.

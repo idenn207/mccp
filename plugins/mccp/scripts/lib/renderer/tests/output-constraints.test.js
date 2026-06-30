@@ -832,3 +832,32 @@ test('M4 — 타임라인 더보기 + 복사 affordance surface design-lint clea
   assert.match(html, /class="li-action"/);
   assert.match(html, /<ul class="audit-notes">/);
 });
+
+// ── design-grounding subset export (v1.18.21) ───────────────────────────────
+// runRules extraction + GROUNDING subset must be behavior-preserving for the
+// full RULES set and expose the H15-only grounding subset (Codex Implement-R1
+// F1: H17 dropped from the line-local-safe blocking subset).
+const oc = require('../output-constraints');
+
+test('runRules: runOutputConstraints ≡ runRules(input, RULES)', function () {
+  const inputs = [
+    { css: '', html: '<body><h4>deep</h4></body>', md: '' },
+    { css: 'a{border-radius:8px}', html: '', md: '#### h4\n' },
+    { css: '', html: '', md: '' },
+  ];
+  for (const inp of inputs) {
+    assert.deepEqual(oc.runOutputConstraints(inp), oc.runRules(inp, oc.RULES));
+  }
+});
+
+test('GROUNDING_RULE_IDS: H15 only (H17 excluded — not line-local-safe)', function () {
+  assert.deepEqual(oc.GROUNDING_RULE_IDS, ['H15']);
+  assert.deepEqual(oc.GROUNDING_RULES.map(function (r) { return r.id; }), ['H15']);
+});
+
+test('GROUNDING_RULES: H15 fires on added <h4>, clean on h1-h3', function () {
+  const bad = oc.runRules({ css: '', html: '<h4>x</h4>', md: '' }, oc.GROUNDING_RULES);
+  assert.deepEqual(bad.violations, ['H15']);
+  const good = oc.runRules({ css: '', html: '<h1>a</h1><h2>b</h2><h3>c</h3>', md: '' }, oc.GROUNDING_RULES);
+  assert.deepEqual(good.violations, []);
+});

@@ -5,6 +5,16 @@ const path = require('path');
 
 const PLAN_GLOB_SUFFIX = '.plan.md';
 
+// 대시보드가 *표시*하는 plan 집합의 SSoT (repoRoot 상대, 둘 다 비재귀): 현재 작업
+// plan(.claude/plans) + 레거시 top-level(.claude/PRPs/plans). completed/ 아카이브는
+// 비표시라 여기 미포함. stale-audit/enumerate.js 가 이 목록을 import 해 re-enumerate
+// 집합을 enumerate ⊇ derive 로 맞춘다(item-id 계약 — 표시돼 resolveId 가 붙은 항목은
+// 서버가 항상 재현 가능해야 한다). 두 surface 의 dir-scan drift 를 막는 단일 출처.
+const PLAN_DIRS = [
+  path.join('.claude', 'plans'),
+  path.join('.claude', 'PRPs', 'plans'),
+];
+
 const SOURCE_PRD_LINK_RE = /\*\*Source PRD\*\*:\s*\[([^\]]+)\]\(([^)]+)\)/;
 // 평문 형태 `**Source PRD**: .claude/prds/x.prd.md` (마크다운 링크 없이). 링크
 // 매칭 실패 시에만 사용 — 평문 path/백틱 path 모두 discovery 되도록 (Codex F1).
@@ -105,13 +115,13 @@ function extractFields(filePath, repoRoot, maxBytes) {
 function scanPlans(repoRoot, opts) {
   opts = opts || {};
   const maxBytes = typeof opts.maxPlanScanBytes === 'number' ? opts.maxPlanScanBytes : 256 * 1024;
-  const primary = path.join(repoRoot, '.claude', 'plans');
-  const legacy = path.join(repoRoot, '.claude', 'PRPs', 'plans');
-  const files = listPlansInDir(primary).concat(listPlansInDir(legacy));
+  const files = PLAN_DIRS.reduce(
+    (acc, rel) => acc.concat(listPlansInDir(path.join(repoRoot, rel))), []);
   const items = files.map(f => extractFields(f, repoRoot, maxBytes));
   return { ok: true, count: items.length, items, invalid_count: 0, degraded: false, error: null };
 }
 
 module.exports = {
   scanPlans,
+  PLAN_DIRS,
 };

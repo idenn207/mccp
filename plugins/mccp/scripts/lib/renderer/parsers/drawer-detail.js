@@ -15,6 +15,16 @@
 // silent first-wins 아니라 `addDetail` 이 ordinal suffix + collision 카운트로 hard
 // surface → H18/test 가 collisions>0 을 FAIL.
 
+const { computeItemId } = require('../../stale-audit/item-id');
+
+// M4 — write-mode 드로어 "제외" 버튼용 opaque resolve id. risk/oq 의 plan-출처
+// 미해결(active) 항목에만 부여. STATE.md OQ·resolved 항목은 제외 — 서버
+// re-enumerate 가 재현 못 하는 id 는 어차피 reject 되지만 버튼 자체를 안 단다.
+// fail-open: id 계산 실패는 버튼 미부여(렌더 무손상).
+function resolveIdFor(ref) {
+  try { return computeItemId(ref); } catch (_) { return null; }
+}
+
 // severity → 드로어 sev 태그 tone (CSS .sev.s-high/.s-med/.s-low).
 function sevTone(sev) {
   const s = String(sev || '').toUpperCase();
@@ -116,6 +126,11 @@ function buildOQDetail(q, formatUtils) {
     rows,
   };
   if (q.actionPrompt) detail.action = normalizeProse(q.actionPrompt);
+  // M4 — opaque resolve id (write-mode 버튼). plan-출처 active OQ 만(STATE.md·resolved 제외).
+  if (q.source && q.source !== 'STATE.md' && q.lineNumber != null && !q.resolved) {
+    const rid = resolveIdFor({ kind: 'oq', source: q.source, lineNumber: q.lineNumber, text: q.text });
+    if (rid) detail.resolveId = rid;
+  }
   return detail;
 }
 
@@ -152,6 +167,12 @@ function buildRiskDetail(r, formatUtils) {
     detail.sections = [['완화책', blockHtml(r.mitigation, formatUtils), normalizeProse(r.mitigation)]];
   }
   if (r.actionPrompt) detail.action = normalizeProse(r.actionPrompt);
+  // M4 — opaque resolve id (write-mode 버튼). plan-출처 미해결 risk 만(resolved 제외).
+  // anchor=ordinal(renderer 와 enumerate 가 공유하는 parse-order 위치).
+  if (r.source && r.ordinal != null && !r.resolved) {
+    const rid = resolveIdFor({ kind: 'risk', source: r.source, ordinal: r.ordinal, text: r.risk });
+    if (rid) detail.resolveId = rid;
+  }
   return detail;
 }
 

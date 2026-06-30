@@ -78,6 +78,23 @@ test('enumerate — in-progress 마일스톤 후보 수집(link 무요구)', () 
   assert.equal(ms[0].status, 'in-progress');
 });
 
+test('enumerate — top-level 레거시 plan(.claude/PRPs/plans) 스캔 (LOW#1: enumerate ⊇ derive)', () => {
+  // derive sources/plans.js 가 .claude/PRPs/plans top-level 을 *표시*하므로 서버
+  // re-enumerate 도 같은 집합을 봐야 한다(item-id 계약). 과거엔 enumerate 가
+  // completed/ 만 봐서 top-level 레거시 plan 의 "제외" 버튼이 항상 409 였다.
+  const root = mkRepo();
+  fs.mkdirSync(path.join(root, '.claude', 'PRPs', 'plans'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.claude/PRPs/plans/legacy.plan.md'), PLAN);
+  const out = enumerate({ repoRoot: root });
+  const risks = out.items.filter(
+    (i) => i.kind === 'risk' && i.source === '.claude/PRPs/plans/legacy.plan.md');
+  assert.equal(risks.length, 1, 'top-level 레거시 plan 의 active risk 가 surface');
+  assert.equal(risks[0].text, 'live-risk');
+  const oqs = out.items.filter(
+    (i) => i.kind === 'oq' && i.source === '.claude/PRPs/plans/legacy.plan.md');
+  assert.equal(oqs.length, 1, 'top-level 레거시 plan 의 active OQ 가 surface');
+});
+
 test('enumerate — --limit cap + truncated 신호', () => {
   const root = mkRepo();
   fs.writeFileSync(path.join(root, '.claude/plans/a.plan.md'), PLAN);

@@ -164,10 +164,10 @@ node plugins/mccp/scripts/derive/cli.js render && echo "→ .claude/cache/status
 
 ## Open Questions
 
-- **(Codex F2, DEFER_TO_BACKLOG, MEDIUM)** active 23 중 ~16이 unknown-lifecycle(PRD/ledger mismatch)이라 confirmed-open과 섞임. 본 milestone은 confirmed-complete 36 제외(core bug)에 집중하고, unknown을 "진짜 live"로 over-claim하지 않도록 copy/주석만 정정. `activeKnown`/`lifecycleUnknown` rail breakdown(degraded provenance 분리)은 status-grid rail 디자인 변경이라 **별도 truthfulness 축으로 backlog**. `.claude/plans/codex-findings-backlog.md`에 기록.
+- [x] **(Codex F2, DEFER_TO_BACKLOG, MEDIUM)** active 23 중 ~16이 unknown-lifecycle(PRD/ledger mismatch)이라 confirmed-open과 섞임. 본 milestone은 confirmed-complete 36 제외(core bug)에 집중하고, unknown을 "진짜 live"로 over-claim하지 않도록 copy/주석만 정정. `activeKnown`/`lifecycleUnknown` rail breakdown(degraded provenance 분리)은 status-grid rail 디자인 변경이라 **별도 truthfulness 축으로 backlog**. `.claude/plans/codex-findings-backlog.md`에 기록. <!--mccp:resolved reason="M8 결정 = defer to backlog(별도 truthfulness 축). activeKnown/lifecycleUnknown rail breakdown은 codex-findings-backlog.md:16 (2026-06-25 MEDIUM)에 기록됨 — defer 결정 actioned. M8 본체는 confirmed-complete 36 제외 core bug에 집중" at="2026-06-30T08:33:21Z"-->
 - `stale-audit/enumerate.js:61`(`if (r.resolved) return;`)도 lifecycle-aware로 만들어 audit agent가 완료 plan 위험을 스킵하게 할지 — 일관성 이득 vs 범위 확대. 본 plan은 dashboard render 표면에 국한, enumerate는 backlog 후보. (severity LOW)
-- `이력` 버킷을 별도 탭으로 노출 vs 렌더에서 완전 제외 — truthfulness 테마상 접힘 탭(present-but-collapsed)을 채택했으나, 사용자가 "완전 제외"를 원하면 탭 생략 + 카운트만 footnote로 강등 가능. (severity LOW)
-- M8 행 #8을 truthfulness PRD에 추가하는 게 맞는지(M7 still in-progress) vs 독립 추적 — dogfood 일관성 위해 추가 권장. (severity LOW)
+- [x] `이력` 버킷을 별도 탭으로 노출 vs 렌더에서 완전 제외 — truthfulness 테마상 접힘 탭(present-but-collapsed)을 채택했으나, 사용자가 "완전 제외"를 원하면 탭 생략 + 카운트만 footnote로 강등 가능. (severity LOW) <!--mccp:resolved reason="M8 결정 = 접힘 탭(present-but-collapsed) 채택 + ship. sections/risks.js:54-66 보관됨 버킷(!resolved && sourceClosed) buildTabs 렌더. 완전 제외는 미채택 — truthfulness 테마상 present-but-collapsed 우선" at="2026-06-30T08:33:21Z"-->
+- [x] M8 행 #8을 truthfulness PRD에 추가하는 게 맞는지(M7 still in-progress) vs 독립 추적 — dogfood 일관성 위해 추가 권장. (severity LOW) <!--mccp:resolved reason="M8 결정 = PRD 추가(dogfood 일관성). dashboard-truthfulness.prd.md:64 Delivery Milestones row #8 추가 완료, status=complete" at="2026-06-30T08:33:21Z"-->
 
 ## Acceptance
 

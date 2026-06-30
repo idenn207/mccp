@@ -151,7 +151,7 @@ grep -n "v1.18.7" plugins/mccp/scripts/lib/renderer/html.js plugins/mccp/scripts
 
 - [x] 타임라인 `TIMELINE_EXPANDED` 상위 N 값(8 default 제안) — 활동 피드 특성상 risks/OQ 의 3보다 큼이 자연스러움. impeccable layout 단계 결정. <!--mccp:resolved reason="RESOLVED: 값 8로 결정, v1.18.7 M4 audit-timeline.js TIMELINE_EXPANDED=8 구현 + snapshot 테스트(8 고정). impeccable layout 단계 결정 반영." at="2026-06-30T07:31:16.863Z"-->
 - [x] OQ/위험 메인 복사 버튼 — icon-only(aria-label) vs `복사` 텍스트 라벨 동반. 메인 잡음 최소화(Constraint 4) 위해 icon-only default 제안(드로어 action 은 `복사` 라벨 유지). <!--mccp:resolved reason="RESOLVED: 메인 복사 버튼 icon-only(aria-label) ship, 드로어 action은 복사 텍스트 라벨 유지. v1.18.7 M4 risks.js/open-questions.js li-action 구현." at="2026-06-30T07:31:16.863Z"-->
-- [x] plugin.json 1.19.0(PRD 종료 minor) vs 1.18.7(patch) — **결정: 1.18.7 patch**(Codex R1 F2 흡수). §3.7 conservative default + PRD 미완 상태 minor 조기발행 회피. PRD 완전 종료 시 minor 정리는 별도 hot-fix 후보.
+- [x] plugin.json 1.19.0(PRD 종료 minor) vs 1.18.7(patch) — **결정: 1.18.7 patch**(Codex R1 F2 흡수). §3.7 conservative default + PRD 미완 상태 minor 조기발행 회피. PRD 완전 종료 시 minor 정리는 별도 hot-fix 후보. <!--mccp:resolved reason="RESOLVED: M4를 1.18.7 patch로 ship 결정·적용 (Codex R1 F2, §3.7 conservative default). 이후 PRD 진행으로 plugin.json은 현재 1.19.0까지 누적." at="2026-06-30T07:34:15.526Z"-->
 
 ## Design Critique
 

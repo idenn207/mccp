@@ -469,6 +469,61 @@ Receipt-write (2.5.6) forwards:
 - `--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when SKILL_AVAIL=0 or Skill fell back.
 - `--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON"` when SILENT_SKIP=1 AND `IMPECCABLE_FORCE_OVERRIDE_REASON` is empty.
 
+### 2.5.5c — Capture design direction for post-EXECUTE grounding (v1.18.22)
+
+When the design trigger fired (`SKILL_AVAIL=1 && { SIGNAL=1 || DESIGN_INTENT_ACTIVE=1 }`),
+capture the impeccable direction + a **pre-EXECUTE rendered-surface snapshot** so the
+new **Phase 3.7 — DESIGN GROUNDING VERIFY** can lint the produced diff against the
+source-diff-safe H15 anchor. The critique loop (above) runs *before* EXECUTE and never
+sees the produced diff — this artifact is what closes that gap mechanically. **No new
+LLM call** — `captureDirection` is an artifact write only. When the trigger did NOT
+fire, skip this sub-step (leave `DESIGN_GROUNDING_CAPTURED=0`).
+
+```bash
+DESIGN_GROUNDING_CAPTURED=0
+if [ "$SKILL_AVAIL" = "1" ] && { [ "$SIGNAL" = "1" ] || [ "$DESIGN_INTENT_ACTIVE" = "1" ]; }; then
+  GROUNDING_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+    --command mccp:prp-implement --args "$ARGUMENTS")
+  # F1 — worktree-safe artifact path. In a git worktree `.git` is a FILE
+  # (gitdir pointer), so a `.git/...` hardcode breaks. Resolve the per-worktree
+  # gitdir via `git rev-parse --git-path` (NEVER hardcode `.git/`).
+  GROUNDING_DIR=$(git rev-parse --git-path mccp/tmp)
+  mkdir -p "$GROUNDING_DIR"
+  GROUNDING_ARTIFACT="$GROUNDING_DIR/design-direction--$GROUNDING_SLUG.json"
+  # F2 — baseline rev + pre-EXECUTE diff snapshot (tracked dirty since baseline
+  # + untracked rendered-surface as synthetic added-file diff, §3.10 M2 mirror).
+  # Phase 3.7 subtracts this so only the EXECUTE delta is linted, even though
+  # Phase 2 admits an already-dirty worktree.
+  BASELINE_REV=$(git rev-parse HEAD)
+  PRE_DIFF_FILE="$GROUNDING_DIR/pre-diff--$GROUNDING_SLUG.txt"
+  git diff "$BASELINE_REV" > "$PRE_DIFF_FILE" 2>/dev/null || true
+  for f in $(git ls-files --others --exclude-standard 2>/dev/null); do
+    git diff --no-index /dev/null "$f" >> "$PRE_DIFF_FILE" 2>/dev/null || true
+  done
+  node -e '
+    const dg = require(process.argv[1] + "/scripts/lib/design-grounding");
+    const fs = require("fs");
+    dg.captureDirection({
+      path: process.argv[2],
+      slug: process.argv[3],
+      baselineRev: process.argv[4],
+      direction: { summary: process.argv[5] },
+      critiqueVerdict: process.argv[6] || null,
+      // requiredSignals: machine-checkable dimensions the captured direction
+      // explicitly demands (subset of motion/color/typography/responsive).
+      // Empty unless the routing/critique step declared one — leave the
+      // enforce-mode inconclusive-on-absence path off for control-plane changes.
+      requiredSignals: (process.argv[7] || "").split(",").filter(Boolean),
+      preExecuteDiffText: fs.readFileSync(process.argv[8], "utf8"),
+    });
+  ' "${CLAUDE_PLUGIN_ROOT}" "$GROUNDING_ARTIFACT" "$GROUNDING_SLUG" "$BASELINE_REV" \
+    "impeccable direction captured pre-EXECUTE (routed=${MODE:-none} critique=${RECEIPT_VERDICT:-none})" \
+    "${RECEIPT_VERDICT:-}" "" "$PRE_DIFF_FILE"
+  DESIGN_GROUNDING_CAPTURED=1
+  echo "[mccp:design-grounding] direction captured → $GROUNDING_ARTIFACT (baseline $BASELINE_REV)" 1>&2
+fi
+```
+
 ### 2.5.6 — Verify section, write mccp-implement-codex receipt
 
 ```bash
@@ -523,6 +578,15 @@ if [ -n "${MODE:-}" ] && [ -n "${ROUTED_JSON_FILE:-}" ] && [ -f "${ROUTED_JSON_F
   WRITE_FLAGS+=(--impeccable-routing-mode "$MODE"
                 --impeccable-commands-routed-file "$ROUTED_JSON_FILE")
 fi
+# v1.18.22 — design-grounding capture forward (gate-time boolean). Keyed off the
+# capture artifact's presence on disk (mirrors the routing-forward presence check
+# above), NOT the DESIGN_GROUNDING_CAPTURED shell flag — the flag does not survive
+# across separate Bash invocations, and the artifact's existence IS the ground
+# truth for "capture happened". The post-EXECUTE verdict is NOT written here — it
+# is restamped at Phase 3.7 close via `cli.js restamp-grounding` (F3).
+if [ -f "${GROUNDING_ARTIFACT:-/nonexistent}" ]; then
+  WRITE_FLAGS+=(--design-grounding-captured)
+fi
 WRITE_FLAGS+=(--quiet)
 node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" "${WRITE_FLAGS[@]}"
 ```
@@ -558,6 +622,42 @@ Same forbidden phrase catalog as Plan-Codex Phase 7. No "shall I invoke Codex?" 
 ## Phase 3 — EXECUTE
 
 Process each task from the plan sequentially.
+
+### Design Grounding Constraints (v1.18.22 — read once before the per-task loop)
+
+If Phase 2.5.5c captured a design-direction artifact (detected by its presence on disk),
+read it now and hold its 4 Output Constraints as **explicit implementation context**
+for every task that touches a rendered surface. This is the "consume" leg of the
+capture → consume → verify contract: the captured impeccable direction must actually
+shape the produced code, not just sit in an artifact.
+
+```bash
+# Self-derive capture state from the artifact's presence — DESIGN_GROUNDING_CAPTURED
+# does not survive across separate Bash invocations, and the slug is re-derived from
+# the stable $ARGUMENTS command input (never a carried shell var) so this block is
+# fully shell-state independent.
+GROUNDING_DIR=$(git rev-parse --git-path mccp/tmp)
+GROUNDING_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:prp-implement --args "$ARGUMENTS")
+GROUNDING_ARTIFACT="$GROUNDING_DIR/design-direction--$GROUNDING_SLUG.json"
+if [ -f "$GROUNDING_ARTIFACT" ]; then
+  node -e '
+    const dg = require(process.argv[1] + "/scripts/lib/design-grounding");
+    const d = dg.readDirection(process.argv[2]);
+    if (!d) { process.stderr.write("[mccp:design-grounding] no readable direction artifact (continue)\n"); process.exit(0); }
+    process.stdout.write("── Design Grounding Constraints (from captured impeccable direction) ──\n");
+    (d.output_constraints || []).forEach(function (c, i) { process.stdout.write("  " + (i + 1) + ". " + c + "\n"); });
+    if ((d.required_signals || []).length) process.stdout.write("  required signals: " + d.required_signals.join(", ") + "\n");
+    process.stdout.write("  direction: " + ((d.direction && d.direction.summary) || "(none)") + "\n");
+  ' "${CLAUDE_PLUGIN_ROOT}" "$GROUNDING_ARTIFACT"
+fi
+```
+
+Treat each rule as a hard constraint while implementing rendered-surface code:
+heading depth ≤ 3 (H15 is the mechanically-verified anchor in Phase 3.7), accent
+token ≤ 1 per viewport, no raw markdown markers in rendered output, list-of-N top-3
+expanded + rest collapsed. A control-plane-only change (no `.tsx/.css/.html` or
+`.claude/cache/*.md` output) has no rendered surface and these are advisory.
 
 ### Per-Task Loop
 
@@ -943,6 +1043,155 @@ Findings are **advisory**, not gate-blocking (parallel to `audit` and to the Pha
 
 ---
 
+## Phase 3.7 — DESIGN GROUNDING VERIFY (v1.18.22, post-EXECUTE mechanical gate)
+
+This phase closes the gap the impeccable critique loop (Phase 2.5.5b) structurally
+cannot: critique runs *before* EXECUTE and never sees the produced diff. It runs
+**after Phase 3.6 DESIGN FINISH**, so it lints the *final* produced diff (including
+any polish edits) against the source-diff-safe **H15** anchor (heading depth ≤ 3)
+plus optional required-signal
+consistency. **No new LLM call** — `lintProducedDiff` + `decideGrounding` are pure
+functions. This is a **separate locus** from the critique divergent-block (§3.9):
+that one is LLM-judged on plan/direction; this one is a mechanical check on the diff.
+layout/audit/clarify/distill/polish stay advisory (zero promotion). Review-only
+gates (pr/code-review) are untouched (implement-only).
+
+**Run only when the Phase 2.5.5c capture artifact exists on disk** — detected by
+presence, NOT the `DESIGN_GROUNDING_CAPTURED` shell flag (a non-persisting flag would
+silently no-op this mechanical gate across a separate Bash invocation). When no
+artifact exists, Phase 3.7 is a complete no-op — skip to Phase 4.
+
+```bash
+GROUNDING_DIR=$(git rev-parse --git-path mccp/tmp)   # F1 worktree-safe gitdir
+# Self-derive capture state from artifact presence (shell-state independent). The
+# slug is re-derived from the stable $ARGUMENTS input, never a carried shell var —
+# so the mechanical gate cannot be silently skipped by a lost DESIGN_GROUNDING_CAPTURED.
+GROUNDING_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:prp-implement --args "$ARGUMENTS")
+GROUNDING_ARTIFACT="$GROUNDING_DIR/design-direction--$GROUNDING_SLUG.json"
+if [ -f "$GROUNDING_ARTIFACT" ]; then
+  GROUNDING_RESULT="$GROUNDING_DIR/design-grounding-result--$GROUNDING_SLUG.json"
+  MODE_G=$(node -e "console.log(require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/design-grounding').parseGroundingMode(process.env))")
+
+  # F2 — produced-diff source = baseline rev (recorded at capture) + tracked
+  # diff since baseline + untracked rendered-surface (synthetic added-file). The
+  # lib subtracts the captured pre-EXECUTE buckets so only the EXECUTE delta is
+  # linted, even on an already-dirty worktree.
+  BASELINE_REV=$(node -e "const d=require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/design-grounding').readDirection(process.argv[1]); process.stdout.write((d&&d.baseline_rev)||'')" "$GROUNDING_ARTIFACT")
+  CUR_DIFF_FILE="$GROUNDING_DIR/cur-diff--$GROUNDING_SLUG.txt"
+  if [ -n "$BASELINE_REV" ]; then
+    git diff "$BASELINE_REV" > "$CUR_DIFF_FILE" 2>/dev/null || true
+  else
+    git diff HEAD > "$CUR_DIFF_FILE" 2>/dev/null || true
+  fi
+  for f in $(git ls-files --others --exclude-standard 2>/dev/null); do
+    git diff --no-index /dev/null "$f" >> "$CUR_DIFF_FILE" 2>/dev/null || true
+  done
+
+  # Lint + decide. readFailed = capture was expected (artifact path set) but the
+  # direction is unreadable → enforce returns inconclusive-block (F4), never a
+  # silent no-op.
+  GROUNDING_JSON=$(node -e '
+    const dg = require(process.argv[1] + "/scripts/lib/design-grounding");
+    const fs = require("fs");
+    const direction = dg.readDirection(process.argv[2]);
+    const mode = process.argv[3];
+    const readFailed = direction === null;  // artifact expected (captured=1) but unreadable
+    let out;
+    if (readFailed) {
+      const dec = dg.decideGrounding({ mode: mode, readFailed: true });
+      out = { verdict: dec.verdict, block: dec.block, mode: mode, read_failed: true, advisories: ["captured direction artifact unreadable"] };
+    } else {
+      const lint = dg.lintProducedDiff({ currentDiffText: fs.readFileSync(process.argv[4], "utf8"), direction: direction, mode: mode });
+      const dec = dg.decideGrounding({
+        mode: mode,
+        blockingViolations: lint.blockingViolations,
+        missingRequiredSignals: lint.missingRequiredSignals,
+        requiredSignalsDeclared: lint.requiredSignals.length > 0,
+        hasRenderedDiff: lint.hasRenderedDiff,
+        readFailed: false,
+      });
+      out = {
+        verdict: dec.verdict, block: dec.block, mode: mode, read_failed: false,
+        baseline_rev: (direction && direction.baseline_rev) || null,
+        has_rendered_diff: lint.hasRenderedDiff,
+        blocking_violations: lint.blockingViolations,
+        missing_required_signals: lint.missingRequiredSignals,
+        advisories: lint.advisories,
+      };
+    }
+    fs.writeFileSync(process.argv[5], JSON.stringify(out, null, 2));
+    process.stdout.write(JSON.stringify({ verdict: out.verdict, block: out.block }));
+  ' "${CLAUDE_PLUGIN_ROOT}" "$GROUNDING_ARTIFACT" "$MODE_G" "$CUR_DIFF_FILE" "$GROUNDING_RESULT")
+  GROUNDING_VERDICT=$(echo "$GROUNDING_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).verdict)}catch{process.stdout.write("inconclusive")}')
+  GROUNDING_BLOCK=$(echo "$GROUNDING_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).block?"1":"0")}catch{process.stdout.write("1")}')
+  echo "[mccp:design-grounding] verdict=$GROUNDING_VERDICT block=$GROUNDING_BLOCK mode=$MODE_G → $GROUNDING_RESULT" 1>&2
+fi
+```
+
+### Verdict handling
+
+| verdict | mode=enforce | mode=warn / off |
+|---|---|---|
+| `grounded` / `anchor_clean` / `skipped` | pass | pass |
+| `violations` (H15 in produced delta) | **block** → fix-task + bounded retry | record advisory, pass |
+| `inconclusive` (read-failed or required signal absent) | **block** → fix-task + bounded retry | record advisory, pass |
+
+**On block (`GROUNDING_BLOCK=1`)** — bounded retry, then hard-stop. Mirror the
+stop-loop / critique fix-task pattern:
+
+1. Append the offending evidence (the `blocking_violations[].rule` + `.evidence`
+   from `$GROUNDING_RESULT`, or the missing-signal / read-failure note) to
+   `.claude/state/fix-task.md`.
+2. Re-edit ONLY the rendered-surface added lines that triggered the H15 hit
+   (collapse `<h4+>`/`####` headings to depth ≤ 3 or move to a secondary surface),
+   then re-run the lint block above. Repeat up to `MCCP_DESIGN_CRITIQUE_MAX_RETRY`
+   rounds (the shared design retry cap; default 2).
+3. Cap reached and still blocking → print the stop block and **exit 1** (do NOT
+   enter Phase 4):
+
+   ```
+   [MCCP-DESIGN-GROUNDING-STOP] produced diff violates design grounding anchors (verdict=<verdict>).
+   Evidence: <rule>:<evidence> | <missing-signal> | <read-failure>
+   Next: fix the rendered-surface lines listed in .claude/state/fix-task.md, then re-enter /mccp:prp-implement,
+   OR set MCCP_DESIGN_GROUNDING=warn for an advisory (non-blocking) pass with the verdict recorded honestly.
+   ```
+
+**On pass (or warn/off advisory)** — restamp the implement-codex receipt with the
+post-EXECUTE verdict. This is the **field-preserving** restamp (Codex Implement-R1
+F3): it mutates ONLY `meta.design_grounding_verdict`, preserving the
+`design_critique_*`/routing/attribution fields written at 2.5.6, and recomputes the
+digests. `$GROUNDING_RESULT` (mode/verdict/baseline/advisories) is the canonical
+post-EXECUTE evidence consumed by Phase 5 REPORT.
+
+```bash
+# Self-sufficient restamp — reads the persisted Phase 3.7 result JSON instead of
+# carried shell vars (GROUNDING_VERDICT/GROUNDING_BLOCK do not survive a separate
+# Bash invocation). Slug re-derived from $ARGUMENTS; restamp only on a non-blocking
+# verdict (a blocking verdict hard-stops above and leaves the receipt verdict null
+# until a clean re-run).
+GROUNDING_DIR=$(git rev-parse --git-path mccp/tmp)
+GROUNDING_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:prp-implement --args "$ARGUMENTS")
+GROUNDING_RESULT="$GROUNDING_DIR/design-grounding-result--$GROUNDING_SLUG.json"
+if [ -f "$GROUNDING_RESULT" ]; then
+  G_VERDICT=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).verdict||"")}catch{process.stdout.write("")}' "$GROUNDING_RESULT")
+  G_BLOCK=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).block?"1":"0")}catch{process.stdout.write("1")}' "$GROUNDING_RESULT")
+  if [ -n "$G_VERDICT" ] && [ "$G_BLOCK" != "1" ]; then
+    node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" restamp-grounding \
+      --gate mccp-implement-codex \
+      --decision "$GROUNDING_SLUG" \
+      --design-grounding-verdict "$G_VERDICT" \
+      --quiet
+    echo "[mccp:design-grounding] receipt restamped design_grounding_verdict=$G_VERDICT" 1>&2
+  fi
+fi
+```
+
+**CHECKPOINT**: Design grounding verified (or no-op when no capture). Receipt restamped with verdict.
+
+---
+
 ## Phase 4 — VALIDATE
 
 Run all validation levels from the plan. Fix issues at each level before proceeding.
@@ -1060,6 +1309,21 @@ Write report to `.claude/PRPs/reports/{plan-name}-report.md`:
 | Build | [done] Pass | |
 | Integration | [done] Pass | or N/A |
 | Edge Cases | [done] Pass | |
+
+### Design Grounding (v1.18.22, when captured)
+
+If Phase 3.7 ran (the `design-grounding-result--<slug>.json` file exists on disk),
+surface its verdict from
+`$(git rev-parse --git-path mccp/tmp)/design-grounding-result--<slug>.json`:
+
+| Field | Value |
+|---|---|
+| Verdict | `grounded` / `anchor_clean` / `inconclusive` / `violations` / `skipped` |
+| Mode | `enforce` / `warn` / `off` |
+| Rendered delta | yes / no (control-plane-only → anchor_clean no-op) |
+| Advisories | from `result.json.advisories` |
+
+When no capture happened, record "Design Grounding: N/A (no design trigger)".
 
 ## Files Changed
 

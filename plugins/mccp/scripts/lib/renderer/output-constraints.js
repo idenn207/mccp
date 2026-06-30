@@ -507,7 +507,13 @@ const RULES = [
   },
 ];
 
-function runOutputConstraints(input) {
+// runRules(input, rules) — behavior-preserving extraction of the rule loop.
+// Each rule is evaluated even after the first hit (multi-violation collection)
+// with per-rule loud-fail-open: a throwing rule is skipped + stderr-warned,
+// other rules continue. Pure function, no I/O beyond the fail-open warn.
+// runOutputConstraints (full DESIGN.md lint) and the design-grounding produced-
+// diff lint (GROUNDING_RULES subset) share this single loop.
+function runRules(input, rules) {
   const ctx = {
     css: (input && input.css) || '',
     html: (input && input.html) || '',
@@ -515,7 +521,7 @@ function runOutputConstraints(input) {
   };
   const violations = [];
   const details = [];
-  for (const rule of RULES) {
+  for (const rule of rules) {
     try {
       const result = rule.check(ctx);
       if (result) {
@@ -534,4 +540,31 @@ function runOutputConstraints(input) {
   return { violations, details };
 }
 
-module.exports = { runOutputConstraints, RULES };
+function runOutputConstraints(input) {
+  return runRules(input, RULES);
+}
+
+// GROUNDING_RULE_IDS — the source-diff-safe anchor subset applied by the
+// design-grounding produced-diff lint (lib/design-grounding.js). Codex
+// Implement-R1 F1 absorption: ONLY H15 (heading depth) is line-local-safe —
+// it matches `<h4-9>` tags (HTML + JSX) and CommonMark `#{4,6}` ATX headings
+// on added lines without needing surrounding context. H17 (nested-card) was
+// in the plan's draft subset but is DOM-aware: it needs the complete open-tag
+// stack (a card added inside a pre-existing parent card has the parent in diff
+// CONTEXT, not in the added lines) and its `class=` matcher misses JSX
+// `className=`. So H17 cannot be enforced from added-line buckets — it stays
+// owned by the renderer's full-HTML lint path (runOutputConstraints over the
+// rendered status.html), where the full DOM is available. Full-file/JSX-aware
+// H17 grounding is deferred to backlog.
+const GROUNDING_RULE_IDS = ['H15'];
+const GROUNDING_RULES = RULES.filter(function (r) {
+  return GROUNDING_RULE_IDS.indexOf(r.id) !== -1;
+});
+
+module.exports = {
+  runOutputConstraints,
+  runRules,
+  RULES,
+  GROUNDING_RULE_IDS,
+  GROUNDING_RULES,
+};

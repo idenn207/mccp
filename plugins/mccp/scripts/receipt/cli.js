@@ -18,7 +18,8 @@ function showHelp() {
     '  git-refs [<base-ref>]         Print {baseSha, headSha, baseRef} as JSON',
     '',
     'Receipt core subcommands:',
-    '  write            --gate <id> --decision <slug> --plan <path> [--design-doc <p>] [--findings-file <p>] [--resolution-file <p>] [--auto-round] [--codex-skipped] [--codex-disabled] [--codex-disabled-at-pr] [--advisory] [--security-skipped] [--security-skip-reason <text>] [--security-force-override] [--security-force-override-reason <text>] [--impeccable-skipped] [--impeccable-skip-reason <text>] [--impeccable-silent-skip] [--impeccable-silent-skip-reason <text>] [--impeccable-force-override] [--impeccable-force-override-reason <text>] [--deferred-findings <N>] [--codex-design-scope-excluded] [--design-findings-dropped <N>] [--a11y-routed-to-impeccable] [--dropped-findings-digest sha256:<hex>] [--plan-conflict-escalated] [--pr-phase-lock-stale-reclaimed-at-hook] [--dispatched-by-controller-session <uuid>] [--worker-dispatch-id <uuid>] [--ipc-envelope-path <path>] [--design-critique-rounds <N>] [--design-critique-verdict converged|divergent|skipped] [--design-intent-reason <text>] [--pr-design-chain-skip-reason <text>] [--impeccable-routing-mode auto|hybrid|recommend] [--impeccable-commands-routed-file <path>] [--quiet]',
+    '  write            --gate <id> --decision <slug> --plan <path> [--design-doc <p>] [--findings-file <p>] [--resolution-file <p>] [--auto-round] [--codex-skipped] [--codex-disabled] [--codex-disabled-at-pr] [--advisory] [--security-skipped] [--security-skip-reason <text>] [--security-force-override] [--security-force-override-reason <text>] [--impeccable-skipped] [--impeccable-skip-reason <text>] [--impeccable-silent-skip] [--impeccable-silent-skip-reason <text>] [--impeccable-force-override] [--impeccable-force-override-reason <text>] [--deferred-findings <N>] [--codex-design-scope-excluded] [--design-findings-dropped <N>] [--a11y-routed-to-impeccable] [--dropped-findings-digest sha256:<hex>] [--plan-conflict-escalated] [--pr-phase-lock-stale-reclaimed-at-hook] [--dispatched-by-controller-session <uuid>] [--worker-dispatch-id <uuid>] [--ipc-envelope-path <path>] [--design-critique-rounds <N>] [--design-critique-verdict converged|divergent|skipped] [--design-intent-reason <text>] [--pr-design-chain-skip-reason <text>] [--impeccable-routing-mode auto|hybrid|recommend] [--impeccable-commands-routed-file <path>] [--design-grounding-captured] [--design-grounding-verdict grounded|anchor_clean|inconclusive|violations|skipped] [--quiet]',
+    '  restamp-grounding --gate <id> --decision <slug> --design-grounding-verdict <enum> [--cwd <path>] [--quiet]',
     '  validate         --command <slug> [--decision <slug>] [--plan <path>]',
     '  preflight        --command <slug> [--decision <slug>] [--plan <path>]',
     '  status           [--gate <id>] [--json]',
@@ -184,6 +185,32 @@ function cmdWrite(args) {
     // attribution flags = fail-closed exit 12 (F2 absorption). cli surfaces
     // the distinct exit so callers (and auto-chain) can branch on it.
     if (err.code === 'DISPATCH_MARKER_MISSING_FIELDS') return 12;
+    return 1;
+  }
+}
+
+// v1.18.21 design-grounding (Codex Implement-R1 F3) — field-preserving restamp
+// of the post-EXECUTE grounding verdict onto an existing receipt.
+function cmdRestampGrounding(args) {
+  const { restampGroundingVerdict } = require('./write');
+  try {
+    const result = restampGroundingVerdict(args);
+    if (args.quiet) {
+      process.stdout.write(result.path + '\n');
+    } else {
+      process.stdout.write(JSON.stringify({
+        path: result.path,
+        gate_id: result.receipt.gate_id,
+        decision_id: result.receipt.decision_id,
+        design_grounding_verdict: result.receipt.meta.design_grounding_verdict,
+        subject_hash: result.receipt.subject_hash,
+        receipt_hash: result.receipt.receipt_hash,
+      }, null, 2) + '\n');
+    }
+    return 0;
+  } catch (err) {
+    process.stderr.write('mccp-receipt restamp-grounding: ' + err.message + '\n');
+    if (err.code === 'SCHEMA_INVALID') return 2;
     return 1;
   }
 }
@@ -367,6 +394,8 @@ async function main(argv) {
       return cmdGitRefs(rest);
     case 'write':
       return cmdWrite(rest);
+    case 'restamp-grounding':
+      return cmdRestampGrounding(rest);
     case 'validate':
       return cmdValidate(rest);
     case 'preflight':

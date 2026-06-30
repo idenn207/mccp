@@ -2,7 +2,17 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.19.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.19.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.19.1] — 2026-06-30
+
+dashboard-readability M1 — codex adversarial review timeout 근거 확정 + 문서 정정. codex-invoke 기본 timeout 이 "2분"이라는 의심을 코드 대조로 종결: 실제 `DEFAULT_TIMEOUT_MS = 900_000`(15분, `codex-invoke.js:54` + 근거 주석 47–53)이고 프로덕션 기본/call-site 어디에도 120s/2분 값은 없다(유일한 `120000` 매칭은 `codex-invoke.test.js:367` parseCliArgs flag-보존 픽스처 — 기본값 아님). 따라서 **codex timeout 동작 코드 변경 0**. 실제와 어긋난 표면은 `CLAUDE.md` §3.3 fail-closed classification 표의 `timeout` 행("90s 초과")뿐 → 코드(900s/15분)와 일치하도록 한 줄 정정. render-lock "90s"(`CLAUDE.md` 126/654)·lock-reclaim "90s" mtime 은 codex-timeout 과 무관하므로 보존. §3.7 milestone PR 관행에 따라 `plugin.json` `1.19.0 → 1.19.1` patch bump + 양 footer + 스냅샷 테스트 동기(version drift 0). 게이트: Implement-Codex cross-gate dedupe(plan-codex 수렴, doc-only 변경) · design silent-skip(rendered UI surface 부재).
+
+### Changed
+
+- **`CLAUDE.md` §3.3** — fail-closed classification 표 `timeout` 행 원인 셀 `90s 초과` → `900s(15분) 초과`. 코드 상수 `DEFAULT_TIMEOUT_MS = 900_000` 과 일치. 다른 셀/행 불변.
+- **`plugins/mccp/.claude-plugin/plugin.json`** — `version` `1.19.0` → `1.19.1` (§3.7 milestone PR patch bump).
+- **footer 동기** — `renderer/html.js`(page-foot) + `renderer/markdown.js`(derived 줄) `v1.19.0` → `v1.19.1`. `renderer/tests/i18n-surface.test.js` footer 스냅샷 테스트 동반 갱신.
 
 ## [1.19.0] — 2026-06-30
 

@@ -194,7 +194,7 @@ my-claude-code-plugin/
 | `companion-not-found` | `codex-companion.mjs` 미존재 | block | warn + 통과 |
 | `companion-version-mismatch` | plugin.json version이 compatible list(1.0.x)와 다름 | block | warn + 통과 |
 | `not-authenticated` | `not authenticated`/`setup_required` stderr 패턴 | block | warn + 통과 |
-| `timeout` | 90s 초과 | block | warn + 통과 |
+| `timeout` | 900s(15분) 초과 | block | warn + 통과 |
 | `exit-nonzero` | companion이 exit 0 외 종료 | block | warn + 통과 |
 | `stdout-empty` | exit 0이지만 stdout 빈 출력 | block | warn + 통과 |
 | `spawn-enoent` | node 실행 실패 | block | warn + 통과 |

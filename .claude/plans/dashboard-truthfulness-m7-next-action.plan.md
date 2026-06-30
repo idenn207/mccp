@@ -147,9 +147,10 @@ grep -rn "1\.18\.10" plugins/mccp/scripts/lib/renderer/ plugins/mccp/.claude-plu
 
 ## Open Questions
 
-- [ ] (① 경계, non-blocking) bundled-PR ledger coverage — PR #64는 m4 slug 1개 ledger만 보유. 파이프라인은 m4만 완료 표기(m5/m6 수렴 유지). *표시* 정합만 M7, ledger *생성* 완전성은 M1 commit-wiring 부채. under-claim 허용.
-- [ ] (④ 경계) STATE.md content-staleness — STATE.md가 다른 cycle을 가리킬 때(현재 worktree처럼) substantive 명령도 stale 가능. M7은 hollow 필터 + frontier-derive로 robust화하되, STATE.md freshness 자체(task_fingerprint↔실제 branch/plan 대조 경고)는 별도 axis 후보.
-- [ ] (④ 경계) PR-already-open 인지 — pr-frontier에서 `/mccp:pr` 추천 시 이미 열린 PR(STATE.md last_pr_url) 감지는 범위 밖(gh 의존). 향후 refinement.
+- [x] (① 경계, non-blocking) bundled-PR ledger coverage — PR #64는 m4 slug 1개 ledger만 보유. 파이프라인은 m4만 완료 표기(m5/m6 수렴 유지). *표시* 정합만 M7, ledger *생성* 완전성은 M1 commit-wiring 부채. under-claim 허용. <!--mccp:resolved reason="M7 SHIPPED PR #64 (v1.18.11) — *표시* 정합 완료(frontier-primary 재정렬 + ledger freshness-guard). under-claim stance 코드 구현됨: ledger 부재/guard 미통과 시 frontier 유지(decision-state.js Task 1, 본 plan line 66 명시 stance). bundled-PR ledger *생성* 완전성(번들 PR이 decision_id 1건만 entry 생성 — M1 triggerLedgerAppend Task 4 설계)은 M1 commit-wiring 경계 부채로, OQ 본문이 명시한 'under-claim 허용'이 settled decision이라 non-blocking·별도 작업 불요." at="2026-06-30T10:21:40Z"-->
+
+- [x] (④ 경계) STATE.md content-staleness — STATE.md가 다른 cycle을 가리킬 때(현재 worktree처럼) substantive 명령도 stale 가능. M7은 hollow 필터 + frontier-derive로 robust화하되, STATE.md freshness 자체(task_fingerprint↔실제 branch/plan 대조 경고)는 별도 axis 후보. <!--mccp:resolved reason="M7-scope SHIPPED PR #64 (v1.18.11) — next-action이 hollow command freshness-gated 필터 + frontier-primary 재정렬로 stale STATE.md에 robust(M1 PRD OQ line 80 출시 확인). 잔여 'STATE.md freshness 자체 경고'는 OQ 명시대로 별도 axis: v1.4.2 dashboard-overhaul M1 staleness-guard(plan-body.js, plan basename cycle ID↔task_fingerprint 일치→stale plan 표시)로 substantially 흡수 + backlog 2026-06-19 STATE.md staleness axis와 동일 family로 tracked. 경계 settled, non-blocking." at="2026-06-30T10:26:47Z"-->
+- [x] (④ 경계) PR-already-open 인지 — pr-frontier에서 `/mccp:pr` 추천 시 이미 열린 PR(STATE.md last_pr_url) 감지는 범위 밖(gh 의존). 향후 refinement. <!--mccp:resolved reason="M7-scope SHIPPED PR #64 (v1.18.11) — pr-frontier가 /mccp:pr 추천(next-action.js Task 3 step 2). PR-already-open 감지는 OQ 본문 명시대로 gh 의존 → M7 의도적 범위 밖(경계 결정 settled, local-only derive 불변). 향후 refinement은 backlog 2026-06-19 STATE.md staleness axis(last_pr_url vs gh pr list 비교)와 동일 family로 tracked. non-blocking." at="2026-06-30T10:26:47Z"-->
 
 ## Design Critique
 

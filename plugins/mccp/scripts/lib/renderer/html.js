@@ -762,6 +762,17 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
   transition: background 120ms ease-out, color 120ms ease-out, border-color 120ms ease-out; }
 .d-nav-btn:hover { background: var(--panel-hover); color: var(--ink); border-color: var(--muted); }
 .d-nav-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* dashboard-interactivity M4 — write-mode "제외(obsolete)" 버튼. 중립 톤(P2: red/
+   accent 채움 회피 — 파괴적 색조 trap 방지). 기본 cache 에선 hidden(inert);
+   write-mode resolve-action.js 가 data-mccp-write 로 노출. 강조색은 :focus-visible 만. */
+.d-resolve-wrap { margin-top: 1.3rem; }
+.d-resolve { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0.85rem;
+  font-size: 0.82rem; font-weight: 500; color: var(--muted); cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  transition: background 120ms ease-out, color 120ms ease-out, border-color 120ms ease-out; }
+.d-resolve:hover { background: var(--panel-hover); color: var(--ink); border-color: var(--muted); }
+.d-resolve:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.d-resolve[disabled] { opacity: 0.55; cursor: default; }
 /* ── 반응형 collapse: 사이드바를 상단 가로 바로, 패널 그리드 1-col. ── */
 @media (max-width: 880px) {
   body { grid-template-columns: minmax(0, 1fr); }
@@ -823,7 +834,8 @@ const DRAWER_SCRIPT = "(function(){"
   + "if(d.rows&&d.rows.length){var dl=el('dl','d-rows');d.rows.forEach(function(r){var row=el('div'),dt=el('dt'),dd=el('dd');dt.textContent=r[0]||'';if(r[2])dd.className='mono';dd.textContent=r[1]||'';row.appendChild(dt);row.appendChild(dd);dl.appendChild(row)});dBody.appendChild(dl)}"
   + "if(d.sections&&d.sections.length){d.sections.forEach(function(s){var sec=el('section','d-sec'),h3=el('h3'),p=el('div','d-prose');h3.textContent=s[0]||'';p.innerHTML=s[1]||'';sec.appendChild(h3);sec.appendChild(p);dBody.appendChild(sec)})}"
   + "if(d.action){var wrap=el('div','d-action'),lab=el('div','na-label'),ap=el('div','action-prompt'),code=el('code'),btn=el('button','copy-btn');lab.textContent='다음 작업';code.textContent=d.action;btn.type='button';btn.setAttribute('data-copy',d.action);btn.setAttribute('aria-label','다음 액션 복사');btn.innerHTML='<svg class=\"i i-sm\" aria-hidden=\"true\"><use href=\"#ic-copy\"/></svg><span class=\"cb-label\">복사</span>';ap.appendChild(code);ap.appendChild(btn);wrap.appendChild(lab);wrap.appendChild(ap);dBody.appendChild(wrap)}"
-  + "if(d.nav&&d.nav.length){var nv=el('div','d-nav');d.nav.forEach(function(n){var b=el('a','d-nav-btn');b.href='#route-'+n.route;b.setAttribute('data-route',n.route);if(n.prd)b.setAttribute('data-prd',n.prd);b.textContent=n.label||'';b.addEventListener('click',function(e){e.preventDefault();navFilter(n.route,n.prd)});nv.appendChild(b)});dBody.appendChild(nv)}}"
+  + "if(d.nav&&d.nav.length){var nv=el('div','d-nav');d.nav.forEach(function(n){var b=el('a','d-nav-btn');b.href='#route-'+n.route;b.setAttribute('data-route',n.route);if(n.prd)b.setAttribute('data-prd',n.prd);b.textContent=n.label||'';b.addEventListener('click',function(e){e.preventDefault();navFilter(n.route,n.prd)});nv.appendChild(b)});dBody.appendChild(nv)}"
+  + "if(d.resolveId){var rw=el('div','d-resolve-wrap'),rb=el('button','d-resolve');rb.type='button';rb.setAttribute('data-resolve-id',d.resolveId);rb.setAttribute('aria-label','이 항목 제외 처리');rb.textContent='제외';rb.hidden=!document.body.hasAttribute('data-mccp-write');rw.appendChild(rb);dBody.appendChild(rw)}}"
   + "function open(id,trigger){var d=DETAILS[id];if(!d)return;lastTrigger=trigger;dKind.textContent=KIND[String(id).split(':')[0]]||'상세';render(d);dBody.scrollTop=0;if(drawer.showModal){drawer.showModal()}else{drawer.setAttribute('open','')}}"
   + "function close(){if(drawer.close){drawer.close()}else{drawer.removeAttribute('open')}}"
   + "function navFilter(route,prd){lastTrigger=null;close();var root=document.getElementById('route-'+route);if(root&&prd){var sel=root.querySelector('.explore-bar [data-axis=\"prd\"]');if(sel){var ok=false,i;for(i=0;i<sel.options.length;i++){if(sel.options[i].value===prd){ok=true;break}}if(ok){sel.value=prd;sel.dispatchEvent(new Event('change',{bubbles:true}))}}}location.hash='route-'+route;}"
@@ -1427,7 +1439,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.18.22 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.19.0 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.

@@ -21,11 +21,14 @@ const {
   parseDeliveryMilestonesLifecycle,
 } = require('../renderer/parsers/plan-body');
 const { findRisksTableLine, findMilestoneRow } = require('./locate');
-
-const PLAN_DIRS = [
-  path.join('.claude', 'plans'),
-  path.join('.claude', 'PRPs', 'plans', 'completed'),
-];
+// derive 가 *표시*하는 plan 집합(SSoT)을 그대로 가져와 completed/ 아카이브로 확장.
+// item-id 계약: 서버 re-enumerate 는 렌더러가 resolveId 를 부여한 *모든* plan 항목을
+// 재현해야 한다(enumerate ⊇ derive). 디렉토리를 여기서 재선언하면 조용히 drift 한다
+// (LOW#1 — top-level 레거시 plan 의 "제외" 버튼이 derive 엔 뜨지만 서버는 못 찾아 항상
+// 409). completed/ 는 derive 미표시(버튼 미부여)지만 dashboard-audit 의 기존 커버리지
+// 보존을 위해 superset 으로 유지.
+const { PLAN_DIRS: DISPLAY_PLAN_DIRS } = require('../../derive/sources/plans');
+const PLAN_DIRS = DISPLAY_PLAN_DIRS.concat([path.join('.claude', 'PRPs', 'plans', 'completed')]);
 const PRD_DIR = path.join('.claude', 'prds');
 
 function warn(msg) {

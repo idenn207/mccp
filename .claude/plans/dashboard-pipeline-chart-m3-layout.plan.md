@@ -127,7 +127,7 @@ node --test plugins/mccp/scripts/lib/renderer/tests/a11y-contrast.test.js
 | 카드 도입이 anti-ref(hero-metric/identical grid)로 표류 | 중 | 가변 목적 카드 + 거대숫자 금지 + 카드중첩 금지(H17) mechanical lint |
 | 2D 레이아웃이 console-noise(Bloomberg)로 표류 | 중 | low-chroma 다크 + accent ≤1 + Calm 톤; impeccable critique/audit 게이트 |
 | 다크-default 반전이 light a11y 회귀 | 중 | a11y-contrast.test.js 양 theme 검증 |
-| 재설계가 ~319 test 대량 깨뜨림 | 높음 | invariant assertion을 새 방향에 맞춰 일괄 갱신, derive/snapshot/trigger 테스트는 불변 가드 |
+| 재설계가 ~319 test 대량 깨뜨림 | 높음 | invariant assertion을 새 방향에 맞춰 일괄 갱신, derive/snapshot/trigger 테스트는 불변 가드 |<!--mccp:resolved reason="이미 재설계가 진행되었으며 테스트가 해결됨" at="2026-06-30T00:53:26.145Z"-->
 | M3 스코프가 M4(drawer/nav동작)로 번짐 | 중 | M3=정적 셸까지, drawer/active/터미널-prompt 동작은 M4로 명시 분리 |
 | 좁은 viewport에서 nav 레일+카드 깨짐 | 중 | 구조적 collapse breakpoint + responsive-layout.test.js |
 

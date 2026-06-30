@@ -78,7 +78,7 @@ We'll know we're right when **개요 버전이 호스트 프로젝트 최신 신
 - [ ] 호스트-프로젝트 버전 신호의 canonical 소스 — 최신 plan 버전 / CHANGELOG / git tag / 프로젝트 meta 중 무엇을 우선할지. 프로젝트마다 다를 수 있으므로 폴백 사다리 정의 (plan 결정).
 - [ ] 위험/OQ 은퇴 매칭 키 — ledger 스냅샷과 현재 plan 본문을 텍스트로 매칭할지 안정 ID로 할지 + 부분 해결(일부 row만 close) 처리 + plan 본문 revise 후 재매칭 (plan 결정).
 - [ ] 다음 행동 command surface — STATE.md Next Step이 `/mccp:*` command가 아닌 서술형일 때의 폴백(서술 + 추론된 command 후보) (plan 결정).
-- [ ] ledger ↔ 실제 receipt drift 감지 — ledger 항목의 hash가 working-tree receipt과 mismatch 시 `⚠ Ledger mismatch` 배너 노출 범위 (plan 결정).
+- [x] ledger ↔ 실제 receipt drift 감지 — ledger 항목의 hash가 working-tree receipt과 mismatch 시 `⚠ Ledger mismatch` 배너 노출 범위 (plan 결정). <!--mccp:resolved reason="OBSOLETE: 마커가 은퇴 SSoT라 ledger drift 무관, M8 ledgerCloseFresh(id+basename+hash) fail-safe로 hash mismatch 시 위험 active 유지. correctness gap 없어 전역 배너 불필요." at="2026-06-30T06:40:33.628Z"-->
 - [ ] (M3-b) OQ 진실성 — `## Open Questions` 헤딩 아래 결정 로그(`(결정)`/`(해소)`/`(defer)` 접두)가 "미해결 질문"으로 오노출됨(관측: 8 active OQ 전부 결정 로그, 진짜 미해결 ≈0). 접근 A(audit로 결정-로그 마커링, marker-only 원칙 유지) vs B(접두 render-side 인식, 원칙 일부 완화) — Codex 검토 후 결정. A를 보수적 default 추천.
 
 ## Risks

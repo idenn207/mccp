@@ -31,6 +31,61 @@ test('formatRelativeTime — invalid + future', () => {
   assert.equal(formatRelativeTime(new Date(now + 60_000), now), '미래');
 });
 
+// ── Dashboard Readability M2 — formatRelativeTime opt-in absoluteAfterDays (Codex F2) ──
+// 양변(now/then) 모두 로컬 Date 로 포맷하므로(단일 데스크탑 사용자 로컬, PRODUCT.md 환경
+// 가정) expected 도 동일 로컬 Date 메서드로 파생해 timezone-robust. 검증 핵심은 (1) >임계
+// 시 '일 전' 이 아닌 절대일자 branch 진입, (2) 연도 비교 분기, (3) 경계(60/61일), (4) opts
+// 미전달 byte-identical.
+const _DAY = 86400_000;
+
+test('formatRelativeTime — absoluteAfterDays opt-in: >60일 같은 연도 → M월 D일', () => {
+  const now = new Date(2026, 5, 30, 12, 0, 0).getTime(); // 2026-06-30 local
+  const then = now - 90 * _DAY;                          // ~2026-04 같은 연도
+  const d = new Date(then);
+  assert.equal(d.getFullYear(), 2026, '90일 전은 같은 연도');
+  const out = formatRelativeTime(then, now, { absoluteAfterDays: 60 });
+  assert.equal(out, (d.getMonth() + 1) + '월 ' + d.getDate() + '일');
+  assert.ok(!/일 전$/.test(out), '절대일자라 상대 표기 미포함');
+});
+
+test('formatRelativeTime — absoluteAfterDays opt-in: 다른 연도 → YYYY년 M월 D일', () => {
+  const now = new Date(2026, 5, 30, 12, 0, 0).getTime();
+  const then = now - 400 * _DAY;                         // ~2025-05 다른 연도
+  const d = new Date(then);
+  assert.ok(d.getFullYear() < 2026, '400일 전은 다른 연도');
+  const out = formatRelativeTime(then, now, { absoluteAfterDays: 60 });
+  assert.equal(out, d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일');
+});
+
+test('formatRelativeTime — absoluteAfterDays 경계(60일=상대, 61일=절대)', () => {
+  const now = new Date(2026, 5, 30, 12, 0, 0).getTime();
+  // days=Math.floor(60) → 60 > 60 거짓 → 상대 표기 유지.
+  assert.equal(formatRelativeTime(now - 60 * _DAY, now, { absoluteAfterDays: 60 }), '60일 전');
+  // days=61 > 60 → 절대일자.
+  const then = now - 61 * _DAY;
+  const d = new Date(then);
+  assert.equal(formatRelativeTime(then, now, { absoluteAfterDays: 60 }),
+    (d.getMonth() + 1) + '월 ' + d.getDate() + '일');
+});
+
+test('formatRelativeTime — absoluteAfterDays 연도 경계(전년 → YYYY년 표기)', () => {
+  const now = new Date(2026, 0, 5, 12, 0, 0).getTime(); // 2026-01-05 local
+  const then = now - 70 * _DAY;                         // 전년(2025) 말
+  const d = new Date(then);
+  assert.equal(d.getFullYear(), 2025, '70일 전은 전년');
+  assert.equal(formatRelativeTime(then, now, { absoluteAfterDays: 60 }),
+    d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일');
+});
+
+test('formatRelativeTime — opts 미전달/비-number 시 N일 전 byte-identical(blast radius 0, Codex F2)', () => {
+  const now = new Date(2026, 5, 30, 12, 0, 0).getTime();
+  assert.equal(formatRelativeTime(now - 90 * _DAY, now), '90일 전');
+  assert.equal(formatRelativeTime(now - 400 * _DAY, now), '400일 전');
+  assert.equal(formatRelativeTime(now - 90 * _DAY, now, {}), '90일 전', 'absoluteAfterDays 부재 → 무시');
+  assert.equal(formatRelativeTime(now - 90 * _DAY, now, { absoluteAfterDays: 'x' }), '90일 전',
+    'absoluteAfterDays non-number → 무시(opt-in only)');
+});
+
 test('formatStatusBadge — all 9 kinds resolve', () => {
   const kinds = [
     'blocked', 'stale', 'secret-warn',

@@ -33,13 +33,39 @@ function prdSlug(label) {
     .replace(/^-+|-+$/g, '') || 'prd';
 }
 
+// 단일 item → { prdKey, prdLabel }. groupByPrd 의 per-item 분기 로직을 추출한
+// 단일-item export(Dashboard Readability M2, Codex F1 권장 — "keep for filter option
+// collection"). flat 렌더가 각 항목 data-prd 부여 + filterOptions 수집에 재사용하고,
+// groupByPrd 가 내부에서 동일 헬퍼를 호출해 버킷 분배(DRY, 동작 불변).
+//   - source === 'STATE.md' 또는 부재 → __global__ "프로젝트 전역"
+//   - planPrd 가 Map 아님(미빌드) → __global__ (groupByPrd fail-open 미러)
+//   - source 가 plan path 이나 planPrd 미등록 → __unknown__ "출처 미상"
+//   - 그 외 → 매핑된 PRD 그룹(prdKey = prdPath 파생 안정 식별자, 라벨 slug 아님)
+function prdMetaFor(item, planPrd) {
+  const src = item && item.source;
+  if (!src || src === 'STATE.md') {
+    return { prdKey: GLOBAL_KEY, prdLabel: GLOBAL_LABEL };
+  }
+  if (!(planPrd instanceof Map)) {
+    return { prdKey: GLOBAL_KEY, prdLabel: GLOBAL_LABEL };
+  }
+  const entry = planPrd.get(canonicalPlanPath(src));
+  if (entry && entry.prdKey) {
+    return { prdKey: entry.prdKey, prdLabel: entry.prdLabel || entry.prdKey };
+  }
+  return { prdKey: UNKNOWN_KEY, prdLabel: UNKNOWN_LABEL };
+}
+
+// 단일 item → prdKey(필터/정렬 축 data-prd 부여 전용). prdMetaFor 의 key 만.
+function prdKeyFor(item, planPrd) {
+  return prdMetaFor(item, planPrd).prdKey;
+}
+
 // items: risk/OQ 객체 배열(각 .source 보유). planPrd: Map(canonicalPlanPath →
 // { prdPath, prdLabel, prdKey }). 반환: 결정적 순서의 [{ prdKey, prdLabel, items }].
-//   - source === 'STATE.md' 또는 부재 → __global__ "프로젝트 전역"
-//   - source 가 plan path 이나 planPrd 미등록(source_prd 없음·PRD unreadable) → __unknown__ "출처 미상"
-//   - 그 외 → 매핑된 PRD 그룹(prdKey = prdPath 파생 안정 식별자, 라벨 slug 아님)
-// fail-open: planPrd 가 Map 아님(null/undefined)·빈 입력은 단일 fallback 그룹
-// (항목 누락 0 — 조용한 오귀속보다 단일 그룹이 truthfulness 측면에서 안전).
+// 분류 규칙은 prdMetaFor 와 동일(per-item 로직 단일 출처). fail-open: planPrd 가
+// Map 아님(null/undefined)·빈 입력은 단일 fallback 그룹(항목 누락 0 — 조용한 오귀속
+// 보다 단일 그룹이 truthfulness 측면에서 안전).
 function groupByPrd(items, planPrd) {
   const list = Array.isArray(items) ? items : [];
   if (!(planPrd instanceof Map)) {
@@ -55,23 +81,8 @@ function groupByPrd(items, planPrd) {
   }
 
   for (const item of list) {
-    const src = item && item.source;
-    let key;
-    let label;
-    if (!src || src === 'STATE.md') {
-      key = GLOBAL_KEY;
-      label = GLOBAL_LABEL;
-    } else {
-      const entry = planPrd.get(canonicalPlanPath(src));
-      if (entry && entry.prdKey) {
-        key = entry.prdKey;
-        label = entry.prdLabel || entry.prdKey;
-      } else {
-        key = UNKNOWN_KEY;
-        label = UNKNOWN_LABEL;
-      }
-    }
-    bucketFor(key, label).items.push(item);
+    const { prdKey, prdLabel } = prdMetaFor(item, planPrd);
+    bucketFor(prdKey, prdLabel).items.push(item);
   }
 
   // 결정적 순서 — 실 PRD 그룹은 prdKey 사전순, __global__·__unknown__ 은 끝(각각 2·3 rank).
@@ -88,6 +99,8 @@ function groupByPrd(items, planPrd) {
 
 module.exports = {
   groupByPrd,
+  prdKeyFor,
+  prdMetaFor,
   canonicalPlanPath,
   prdSlug,
   GLOBAL_KEY,

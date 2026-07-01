@@ -3,12 +3,14 @@
  * 순수 DOM 조작만 — 외부 네트워크 호출 리터럴 0(H19 의 1차 검증 대상; 본 주석은
  * 차단 토큰 자체를 나열하지 않는다 — inline 시 상태 페이지에 누출되지 않도록).
  *
- * 역할(부가 only — baseline 은 JS 없이 native <details> + 전체 항목 가시로 완전 동작):
+ * 역할(부가 only — baseline 은 JS 없이 전체 항목 가시로 완전 동작):
  *   (1) <html data-js="on"> 마커 — JS-only control(필터/정렬/검색) reveal hook.
- *   (2) PRD 그룹 "모두 펼치기/접기" 토글 — 2+ 그룹 클러스터마다 native <details> 위 부가.
- *   (3) M2 필터/정렬 엔진 — .explore-bar 컨트롤이 scope 내 .li-item 가시성·순서 갱신.
- *   (4) M3 검색 엔진 — 사이드바 입력이 전 페이지 .li-item 을 헤더 텍스트로 좁힘(cross-route).
- *   (5) M3 멀티세션 진행 바 — <tr> 진행상태/worktree 필터 + 진행순 정렬.
+ *   (2) M2 필터/정렬 엔진 — .explore-bar 컨트롤이 scope 내 .li-item 가시성·순서 갱신.
+ *   (3) M3 검색 엔진 — 사이드바 입력이 전 페이지 .li-item 을 헤더 텍스트로 좁힘(cross-route).
+ *   (4) M3 멀티세션 진행 바 — <tr> 진행상태/worktree 필터 + 진행순 정렬.
+ *
+ * Dashboard Readability M2 — PRD 그룹 평탄화로 그룹 일괄 expand/collapse 컨트롤 +
+ * 그룹 disclosure 의존 group machine(refreshGroups) 제거. 정렬은 단일 .stack-list 전체 적용.
  *       pure 로직(compareItems/matchFilter/textMatch)은 window.__mccpExplore
  *       (explore-sort.js)에 위임(node 테스트 공유).
  *
@@ -22,49 +24,7 @@
   var d = document;
   if (!d || !d.documentElement) return;
 
-  // ── (2) PRD 그룹 모두 펼치기/접기 토글 (pure DOM — EX/data-js 불요) ─────────────
-  var groups = d.querySelectorAll('.prd-group');
-  if (groups.length) {
-    // prd-group 형제들을 직속 부모별로 묶는다(route 별 클러스터). 2+ 그룹인 부모에만
-    // 토글을 주입(단일 그룹은 토글 불필요).
-    var parents = [];
-    for (var i = 0; i < groups.length; i++) {
-      var p = groups[i].parentNode;
-      if (p && parents.indexOf(p) === -1) parents.push(p);
-    }
-
-    parents.forEach(function (parent) {
-      var local = [];
-      for (var j = 0; j < parent.children.length; j++) {
-        var c = parent.children[j];
-        if (c.classList && c.classList.contains('prd-group')) local.push(c);
-      }
-      if (local.length < 2) return;
-
-      var btn = d.createElement('button');
-      btn.type = 'button';
-      btn.className = 'prd-toggle';
-
-      function sync() {
-        var anyClosed = local.some(function (g) { return !g.open; });
-        btn.textContent = anyClosed ? '모두 펼치기' : '모두 접기';
-        btn.setAttribute('aria-expanded', anyClosed ? 'false' : 'true');
-      }
-
-      btn.addEventListener('click', function () {
-        var anyClosed = local.some(function (g) { return !g.open; });
-        local.forEach(function (g) { g.open = anyClosed; });
-        sync();
-      });
-      // 개별 그룹을 사용자가 토글하면 버튼 라벨 동기화.
-      local.forEach(function (g) { g.addEventListener('toggle', sync); });
-
-      sync();
-      parent.insertBefore(btn, local[0]);
-    });
-  }
-
-  // ── (3) pure 로직 게이트 ─────────────────────────────────────────────────────
+  // ── (2) pure 로직 게이트 ─────────────────────────────────────────────────────
   // pure 로직(compareItems/matchFilter/textMatch)은 explore-sort.js 가
   // window.__mccpExplore 로 노출. 부재(스크립트 누락)면 엔진 no-op → baseline 전체
   // 가시 유지(PE 불변).
@@ -110,29 +70,6 @@
     return null;
   }
 
-  // 그룹 카운트 갱신 + 가시 0 그룹 hidden + 부모별 첫 가시 그룹 border 제거.
-  // (.prd-group:first-of-type 는 DOM 기준이라 숨긴 첫 그룹이 남아 둘째 가시 그룹에
-  //  stray hairline 이 생긴다 → ex-first-visible 클래스로 보정.)
-  function refreshGroups(root) {
-    var gs = root.querySelectorAll('.prd-group');
-    var seenParents = [];
-    for (var G = 0; G < gs.length; G++) {
-      var grp = gs[G];
-      var gvis = visibleLiCount(grp);
-      var cnt = grp.querySelector('.prd-count');
-      if (cnt) cnt.textContent = gvis;
-      grp.hidden = gvis === 0;
-      grp.classList.remove('ex-first-visible');
-      if (gvis > 0) {
-        var par = grp.parentNode;
-        if (seenParents.indexOf(par) === -1) {
-          seenParents.push(par);
-          grp.classList.add('ex-first-visible');
-        }
-      }
-    }
-  }
-
   // 결과 수 시각 표면 — 별도 텍스트가 아니라 패널 탭(미해결/완화/해결)의 .tab-count 를
   // 각 탭패널의 가시 .li-item 수로 갱신(미해결 18→8). panel id 'X-panel' ↔ 라벨 .tab[for="X"].
   function refreshTabCounts(root) {
@@ -163,11 +100,11 @@
     }
   }
 
-  // route 의 가시-상태 의존 UI(그룹/탭/빈상태/sr-only count) 갱신. 필터·정렬은 안 건드림
-  // (검색이 _hs 만 바꾼 뒤 호출하거나, apply()가 필터/정렬 후 호출). countEl 은 선택적.
+  // route 의 가시-상태 의존 UI(탭 카운트/빈상태/sr-only count) 갱신. 필터·정렬은 안
+  // 건드림(검색이 _hs 만 바꾼 뒤 호출하거나, apply()가 필터/정렬 후 호출). countEl 은
+  // 선택적. Dashboard Readability M2 — 평탄화로 PRD 그룹 chrome 제거 → refreshGroups 폐기.
   function refreshRouteUI(root, countEl) {
     if (!root) return;
-    refreshGroups(root);
     refreshTabCounts(root);
     var scope = activePanelEl(root) || root;
     var total = scope.querySelectorAll('.li-item').length;
@@ -180,7 +117,7 @@
   // 각 refresher 를 불러 탭/그룹/빈상태/count 를 합성 가시성에 맞춘다.
   var barRefreshers = [];
 
-  // ── (4) M3 검색 컨트롤러 — .search-input 존재 시 bars 와 독립 실행(IF2/F2). ──
+  // ── (3) M3 검색 컨트롤러 — .search-input 존재 시 bars 와 독립 실행(IF2/F2). ──
   function wireSearch(input) {
     // Codex F1 — native <form> 은 Enter 시 submit(페이지 reload/navigate)으로 route·
     // 필터·검색 상태를 잃는다. action/method 미지정 + submit→preventDefault 로 차단.
@@ -255,7 +192,7 @@
   var searchInput = d.querySelector('.search-input');
   if (searchInput) wireSearch(searchInput);
 
-  // ── (5) M2 필터/정렬 엔진 (route 리스트 바) — 세션 scope 바 제외(Codex Impl R1 IF2). ──
+  // ── (4) M2 필터/정렬 엔진 (route 리스트 바) — 세션 scope 바 제외(Codex Impl R1 IF2). ──
   function wireBar(bar) {
     // F3 — 한 바는 자기 route 에만 한정(closest('.route')). 바가 위험·질문 패널 head
     // 에 통합돼 있어 자기 route 의 .li-item 만 제어 → 한 .li-item 집합당 컨트롤러 1개.
@@ -308,7 +245,7 @@
         lis[i]._hf = !EX.matchFilter(descOf(lis[i]), filters);
         recompute(lis[i]);
       }
-      // 정렬 — 각 .stack-list 내(그룹 경계 보존).
+      // 정렬 — 단일 .stack-list 전체(Dashboard Readability M2 평탄화로 그룹 경계 제거).
       var lists = root.querySelectorAll('.stack-list');
       for (var L = 0; L < lists.length; L++) sortList(lists[L], mode);
       // 결과 수·빈 상태는 **활성 탭** 기준(탭 없으면 route 전역). 탭 전환은 CSS-only 라
@@ -349,7 +286,7 @@
   var bars = d.querySelectorAll('.explore-bar:not([data-explore-scope="session"])');
   for (var b = 0; b < bars.length; b++) wireBar(bars[b]);
 
-  // ── (6) M3 멀티세션 진행 바 컨트롤러 — 세션 scope 바만 소유(IF2). ───────────────
+  // ── (5) M3 멀티세션 진행 바 컨트롤러 — 세션 scope 바만 소유(IF2). ───────────────
   function sessDescOf(tr) {
     return {
       status: tr.getAttribute('data-status') || '',

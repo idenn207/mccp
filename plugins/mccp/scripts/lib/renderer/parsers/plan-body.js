@@ -595,7 +595,21 @@ function parsePlanBody(model, opts) {
     }
   }
 
-  return { planStatuses, planStaleness, openQuestions, risks, warnings, degraded, planPrd };
+  // Dashboard Readability M2 — planActivity: Map(canonicalPlanPath → lastActivityMs)
+  // for **전 plan**. 현재 lastActivityMs 는 staleness loop(in-progress 한정, 위)에서만
+  // 쓰고 버려진다 — 위험/질문 섹션의 출처 시각 cue 가 전 plan 의 최근 활동 시각을
+  // 소비하므로 별도 Map 으로 surface. planPrd 빌드 loop 와 동형. ms null(활동 신호
+  // 없음 — receipt/ledger 부재)이면 키 부재(fail-open — 시각 생략, 정직 표기).
+  const planActivity = new Map();
+  for (const p of plans) {
+    if (!p || !p.path) continue;
+    const basename = path.basename(p.path);
+    const decisionId = basename.replace(/\.plan\.md$/, '').replace(/\.md$/, '');
+    const ms = lastActivityMs(decisionId, basename, receiptItems, ledgerItems);
+    if (ms != null) planActivity.set(canonicalPlanPath(p.path), ms);
+  }
+
+  return { planStatuses, planStaleness, openQuestions, risks, warnings, degraded, planPrd, planActivity };
 }
 
 module.exports = {

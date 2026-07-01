@@ -42,7 +42,7 @@ We'll know we're right when **(a) 위험 패널에서 정렬이 그룹 경계 �
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | Codex timeout 근거 확인 + 문서 정정 | codex review timeout이 이미 15분임을 근거와 함께 확정하고, stale 문서(CLAUDE.md §3.3 "90s")를 실제 값과 일치시킨다. 코드 timeout 동작 변경 없음. | complete | .claude/plans/dashboard-readability.plan.md |
-| 2 | 위험/질문 리스트 평탄화 + 출처 + 시각 | 위험·질문 패널을 PRD 그룹화 없이 전체 평탄 리스트로 표시하고(필터는 유지), "모두 펼치기/접기" 토글을 제거하며, 각 항목 상단에 출처 문서를 작은 회색 글씨로 표시하고, 출처 plan의 최근 활동 시각을 사람이 읽기 쉬운 형식으로 표시한다. | pending | — |
+| 2 | 위험/질문 리스트 평탄화 + 출처 + 시각 | 위험·질문 패널을 PRD 그룹화 없이 전체 평탄 리스트로 표시하고(필터는 유지), "모두 펼치기/접기" 토글을 제거하며, 각 항목 상단에 출처 문서를 작은 회색 글씨로 표시하고, 출처 plan의 최근 활동 시각을 사람이 읽기 쉬운 형식으로 표시한다. | in-progress | .claude/plans/dashboard-readability-m2.plan.md |
 | 3 | 판정 어휘 사용자 친화화 | 대시보드 전 섹션의 dual-review 판정 라벨을 '수렴→통과', '진행→진행 중', 'divergent/미수렴→보류'로 일관 치환한다. | pending | — |
 
 ## Open Questions

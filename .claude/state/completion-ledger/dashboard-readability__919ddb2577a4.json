@@ -1,0 +1,21 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "dashboard-readability",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.19.1",
+    "completed_at": "2026-06-30T10:47:56.768Z",
+    "commit_sha": "98536b060064bc5fbead60bf46a4539a3abdb413",
+    "plan_basename": "dashboard-readability.plan.md",
+    "plan_file_hash": "sha256:b3ebcbae220b3a7ff20210828db976addca039bc380b06d013a27557538919b7",
+    "risks_closed": [
+      "무관한 \"90s\"(render-lock 126/654행, lock-reclaim)를 실수로 함께 변경",
+      "footer version bump으로 `html.js` 변경 → implement 단계 design detector가 UI-ext diff로 `design_signal` 발화 가능",
+      "footer 스냅샷 테스트가 `v1.19.0`에 고정",
+      "M1이 작아 단독 PR이 과해 보임"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:919ddb2577a45c763751656963b80e835ceefb9c4580664ce49d30a36c6400c4"
+  }
+}

@@ -113,7 +113,7 @@ test('빌더 — titleText(raw 평문) + sections triple proseText 보존', () =
   assert.equal(risk.sections[0][2], '`fsync` 후 회전', 'proseText raw 보존');
   assert.ok(risk.rows.some((r) => r[0] === '동일 질문 참조'), 'relatedOpenQuestion SSoT 행 (F2)');
 
-  const rc = dd.buildReceiptDetail({ gate: 'mccp-pr-codex', convLabel: '수렴 R1', briefingSummary: 'PR `게이트` 수렴' }, formatUtils);
+  const rc = dd.buildReceiptDetail({ gate: 'mccp-pr-codex', convLabel: '통과 R1', briefingSummary: 'PR `게이트` 수렴' }, formatUtils);
   assert.ok(rc.titleText.includes('mccp-pr-codex'));
   assert.equal(rc.sections[0][2], 'PR `게이트` 수렴', 'briefing proseText raw');
 

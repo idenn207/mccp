@@ -16,6 +16,7 @@
 // surface → H18/test 가 collisions>0 을 FAIL.
 
 const { computeItemId } = require('../../stale-audit/item-id');
+const { VERDICT } = require('./verdict-label');
 
 // M4 — write-mode 드로어 "제외" 버튼용 opaque resolve id. risk/oq 의 plan-출처
 // 미해결(active) 항목에만 부여. STATE.md OQ·resolved 항목은 제외 — 서버
@@ -181,7 +182,7 @@ function buildReceiptDetail(rc, formatUtils) {
   const blockHtml = renderProseBlockHtml || renderProseHtml;
   const esc = escapeHtml || ((s) => String(s == null ? '' : s));
   const gate = rc.gate || '게이트';
-  const conv = rc.convLabel || (rc.isBad ? 'divergent' : '수렴');
+  const conv = rc.convLabel || (rc.isBad ? VERDICT.HOLD : VERDICT.PASS);
   const rows = [];
   if (rc.decision) rows.push(['결정', normalizeProse(rc.decision), true]);
   rows.push(['판정', rc.verdictText || conv]);
@@ -247,8 +248,8 @@ function buildWorktreeDetail(item, formatUtils, opts) {
   rows.push(['브랜치', normalizeProse(branch)]);
   if (it.head) rows.push(['HEAD', String(it.head).slice(0, 8), true]);
   if (it.current_gate) {
-    const conv = it.gate_converged === false ? ' (미수렴)'
-      : it.gate_converged === true ? ' (수렴)' : '';
+    const conv = it.gate_converged === false ? ' (' + VERDICT.HOLD + ')'
+      : it.gate_converged === true ? ' (' + VERDICT.PASS + ')' : '';
     rows.push(['게이트', normalizeProse(String(it.current_gate)) + conv]);
   }
   if (it.receipts != null) rows.push(['receipts', String(it.receipts)]);

@@ -96,7 +96,7 @@ test('pipeline — node carries color + icon + sr-only text (a11y, color not alo
   const { html } = renderPipeline(m, formatUtils, {});
   assert.match(html, /pipe-node is-done/);
   assert.match(html, /class="node-mark"><svg class="i" aria-hidden="true"><use href="#ic-check"/);
-  assert.match(html, /class="sr-only">plan 수렴/);
+  assert.match(html, /class="sr-only">plan 통과/);
 });
 
 test('pipeline — connector is .node-link span (no border-left side-stripe, F2/H4)', () => {
@@ -127,15 +127,15 @@ test('pipeline — non-canonical gates ignored', () => {
 
 // v1.18.7 M4 (진실성) — active stage 가 receipt 없는 frontier(missing)면 "대기",
 // in-progress receipt(active)면 "중". PR 미생성인데 "PR 검토 중" 거짓 표기 제거.
-test('pipeline — plan✓+impl✓+pr 없음 → "구현 수렴"(단일 라벨, "PR 검토 중" 거짓 아님)', () => {
+test('pipeline — plan✓+impl✓+pr 없음 → "구현 통과"(단일 라벨, "PR 검토 중" 거짓 아님)', () => {
   const m = model([
     { ok: true, decision_id: 'd1', gate: 'mccp-plan-codex', converged: true, created_at: '2026-06-22T01:00:00Z' },
     { ok: true, decision_id: 'd1', gate: 'mccp-implement-codex', converged: true, created_at: '2026-06-22T02:00:00Z' },
   ]);
   const { html } = renderPipeline(m, formatUtils, {});
-  // M6 followup — converged-frontier 는 단일 라벨 "구현 수렴"(사용자 요청 "1개만 표시").
+  // M6 followup — converged-frontier 는 단일 라벨 "구현 통과"(사용자 요청 "1개만 표시").
   assert.match(html, /pipe-status s-active/);
-  assert.match(html, /구현 수렴/, 'impl 게이트 수렴 단일 라벨');
+  assert.match(html, /구현 통과/, 'impl 게이트 통과 단일 라벨');
   assert.doesNotMatch(html, /PR 검토 중/, 'PR 없는데 검토 중 거짓 표기 금지');
 });
 
@@ -149,19 +149,19 @@ test('pipeline — impl in-progress(first-round receipt) → "구현 중" (실�
   assert.doesNotMatch(html, /구현 대기/);
 });
 
-test('pipeline — plan✓ only → "계획 수렴" (plan converged-frontier 단일 라벨)', () => {
+test('pipeline — plan✓ only → "계획 통과" (plan converged-frontier 단일 라벨)', () => {
   const m = model([
     { ok: true, decision_id: 'd1', gate: 'mccp-plan-codex', converged: true, created_at: '2026-06-22T01:00:00Z' },
   ]);
   const { html } = renderPipeline(m, formatUtils, {});
-  // M6 followup — plan converged-frontier(downstream 無) 단일 라벨 "계획 수렴".
-  assert.match(html, /계획 수렴/, 'plan 게이트 수렴 단일 라벨');
+  // M6 followup — plan converged-frontier(downstream 無) 단일 라벨 "계획 통과".
+  assert.match(html, /계획 통과/, 'plan 게이트 통과 단일 라벨');
 });
 
-// M6 Task 6 (진실성) — impl 게이트 수렴 + pr 미생성 + decision active 면 impl 노드는
-// done-green(✓ '완료') 가 아니라 converged-frontier(◉ '수렴') 로 시각 분화한다.
-// "게이트 수렴" ≠ "stage 완료" — 마일스톤 완료로 오독되던 결함 차단.
-test('pipeline — impl converged + pr 無 → impl=converged-frontier(◉ 수렴, NOT done-green)', () => {
+// M6 Task 6 (진실성) — impl 게이트 통과 + pr 미생성 + decision active 면 impl 노드는
+// done-green(✓ '완료') 가 아니라 converged-frontier(◉ '통과') 로 시각 분화한다.
+// "게이트 통과" ≠ "stage 완료" — 마일스톤 완료로 오독되던 결함 차단.
+test('pipeline — impl converged + pr 無 → impl=converged-frontier(◉ 통과, NOT done-green)', () => {
   const m = model([
     { ok: true, decision_id: 'd1', gate: 'mccp-plan-codex', converged: true, created_at: '2026-06-22T01:00:00Z' },
     { ok: true, decision_id: 'd1', gate: 'mccp-implement-codex', converged: true, created_at: '2026-06-22T02:00:00Z' },
@@ -170,9 +170,9 @@ test('pipeline — impl converged + pr 無 → impl=converged-frontier(◉ 수�
   // plan 은 done-green(✓), impl 은 converged-frontier(neutral dot, ✓ 아님).
   assert.match(html, /pipe-node is-converged/, 'impl converged-frontier marker');
   assert.equal((html.match(/pipe-node is-done/g) || []).length, 1, 'plan 만 done-green');
-  // 상태 텍스트는 단일 라벨 "구현 수렴"(사실) — "구현 중"(거짓 진행) 아님.
-  assert.match(html, /구현 수렴/);
-  assert.doesNotMatch(html, /구현 중/, '게이트 수렴을 거짓 진행("구현 중")으로 표기 금지');
+  // 상태 텍스트는 단일 라벨 "구현 통과"(사실) — "구현 중"(거짓 진행) 아님.
+  assert.match(html, /구현 통과/);
+  assert.doesNotMatch(html, /구현 중/, '게이트 통과을 거짓 진행("구현 중")으로 표기 금지');
   // md 글리프: impl 은 ◉(converged-frontier), plan 은 ✓(done).
   assert.match(md, /impl ◉/);
   assert.match(md, /plan ✓/);

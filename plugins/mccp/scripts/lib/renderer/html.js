@@ -575,7 +575,7 @@ abbr { text-decoration: underline dotted var(--ink); text-underline-offset: 2px;
 .pipe-node.is-active .node-label { color: var(--ink-2); }
 .pipe-node.is-block .node-mark { color: var(--bad); border-color: var(--bad); background: var(--bad-dim); }
 .pipe-node.is-block .node-label { color: var(--bad); }
-/* M6 Task 6 — converged-frontier: 게이트 수렴했으나 다음 미시작. done-green(✓) 과
+/* M6 Task 6 — converged-frontier: 게이트 통과했으나 다음 미시작. done-green(✓) 과
    분화되는 neutral 마커(채워진 dot). "완료" 오독 차단 — 색 아닌 글리프로도 구분. */
 .pipe-node.is-converged .node-mark { color: var(--ink-2); border-color: var(--border-2); background: var(--panel-2); }
 .pipe-node.is-converged .node-mark .node-dot { background: var(--ink-2); width: 8px; height: 8px; }
@@ -1414,7 +1414,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.19.2 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.20.0 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.

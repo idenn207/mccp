@@ -7,6 +7,7 @@ const { planHashesFromModel } = require('../parsers/plan-hashes');
 const { resolveNextAction } = require('../parsers/next-action');
 const { stripMarker } = require('../parsers/resolution-marker');
 const { maxRank } = require('../parsers/action-prompt');
+const { VERDICT } = require('../parsers/verdict-label');
 
 // M5 Task 2 — 위험 severity rank(risks.js RANK_MAP 미러). hero 위젯 top-N 을 위험
 // 섹션과 같은 순서(severity 내림차순)로 보여 rail↔섹션 표시 일관.
@@ -207,7 +208,7 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   // M5 Task 2 — 차단 셀 툴팁. decision-state SSoT 판정(round≥2 미수렴)의 의미를 라벨
   // hover 로 노출. 0건이면 검토 충돌 없음 empty-state 의미.
   const blockedIntent = blockedCount > 0
-    ? 'Codex 검토 ' + blockedCount + '건 미수렴 · 사람 개입 필요'
+    ? 'Codex 검토 ' + blockedCount + '건 ' + VERDICT.HOLD + ' · 사람 개입 필요'
     : '검토 충돌 없음';
 
   const cells = [

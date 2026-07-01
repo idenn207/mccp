@@ -9,16 +9,17 @@
 
 const { deriveDecisionState, STAGES } = require('../parsers/decision-state');
 const { planHashesFromModel } = require('../parsers/plan-hashes');
+const { VERDICT } = require('../parsers/verdict-label');
 
 const TOP_EXPANDED = 3;
 
 // 노드 상태 → 마커(svg id 또는 dot) + sr-only label.
 const NODE_MARK = {
-  done: { svg: 'ic-check', label: '수렴', cls: 'is-done' },
-  // M6 Task 6 — converged-frontier: 게이트는 수렴했으나 downstream 미시작(완료 입증
+  done: { svg: 'ic-check', label: VERDICT.PASS, cls: 'is-done' },
+  // M6 Task 6 — converged-frontier: 게이트는 통과했으나 downstream 미시작(완료 입증
   // 없음). done-green ✓ 가 아닌 neutral dot(◉) 마커로 시각 분화 — "완료" 오독 차단.
-  'converged-frontier': { dot: true, label: '수렴', cls: 'is-converged' },
-  active: { dot: true, label: '진행 중', cls: 'is-active' },
+  'converged-frontier': { dot: true, label: VERDICT.PASS, cls: 'is-converged' },
+  active: { dot: true, label: VERDICT.IN_PROGRESS, cls: 'is-active' },
   blocked: { svg: 'ic-alert', label: '차단', cls: 'is-block' },
   missing: { dot: true, label: '대기', cls: '' },
 };
@@ -34,7 +35,7 @@ const STAGE_PENDING = { plan: '계획 대기', impl: '구현 대기', pr: 'PR �
 // (사용자 요청 — "1개만 표시"). "구현 중"(거짓 진행) 아님 — 게이트는 통과했고 다음
 // 단계만 안 시작됐다는 사실. (참고: m4/m5/m6 은 receipt 동일이라 모두 동일 표기됨 —
 // 완료 입증은 completion-ledger에 있고 pipeline은 receipt-only 설계.)
-const STAGE_CONVERGED = { plan: '계획 수렴', impl: '구현 수렴', pr: 'PR 수렴' };
+const STAGE_CONVERGED = { plan: '계획 ' + VERDICT.PASS, impl: '구현 ' + VERDICT.PASS, pr: 'PR ' + VERDICT.PASS };
 function statusOf(d) {
   if (d.state === 'done') {
     return { cls: 's-ok', text: '완료', svg: 'ic-check' };
@@ -44,7 +45,7 @@ function statusOf(d) {
   }
   const activeNode = (d.nodes || []).find((n) => n.short === d.activeStage);
   if (activeNode && activeNode.status === 'converged-frontier') {
-    return { cls: 's-active', text: STAGE_CONVERGED[d.activeStage] || '게이트 수렴 · 다음 대기', dot: true };
+    return { cls: 's-active', text: STAGE_CONVERGED[d.activeStage] || '게이트 ' + VERDICT.PASS + ' · 다음 대기', dot: true };
   }
   const started = activeNode && activeNode.status === 'active'; // in-progress receipt 존재
   const map = started ? STAGE_IN_PROGRESS : STAGE_PENDING;

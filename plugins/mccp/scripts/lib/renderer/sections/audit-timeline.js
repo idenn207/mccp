@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { nodeStatus } = require('../parsers/decision-state');
 const { detailId, addDetail, buildReceiptDetail, renderDetailMd } = require('../parsers/drawer-detail');
+const { VERDICT } = require('../parsers/verdict-label');
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -11,7 +12,7 @@ const MAX_ROWS = 30;
 
 // v1.18.0 M2 — 타임라인 노드(audit-node)는 receipt 의 시간순 상태로 is-ok/is-bad.
 // is-bad = nodeStatus 가 blocked(escalated 미수렴/divergent) — 단순 converged=false
-// 아님(공유 SSoT, Codex F1). conv 라벨: 수렴 R{n} / divergent / 진행 R{n}.
+// 아님(공유 SSoT, Codex F1). conv 라벨: 통과 R{n} / 보류 / 진행 중 R{n}.
 function tokK(n) {
   const v = Number(n);
   if (!Number.isFinite(v) || v <= 0) return null;
@@ -160,13 +161,13 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
     let isBad = false;
     let convSvg = 'ic-check';
     if (status === 'blocked') {
-      convText = 'divergent'; isBad = true; convExtra = ' is-bad'; convSvg = 'ic-alert';
+      convText = VERDICT.HOLD; isBad = true; convExtra = ' is-bad'; convSvg = 'ic-alert';
     } else if (r.converged === true) {
-      convText = '수렴' + (round != null ? ' R' + round : '');
+      convText = VERDICT.PASS + (round != null ? ' R' + round : '');
     } else {
-      convText = '진행' + (round != null ? ' R' + round : ''); convExtra = ' pending'; convSvg = 'ic-clock';
+      convText = VERDICT.IN_PROGRESS + (round != null ? ' R' + round : ''); convExtra = ' pending'; convSvg = 'ic-clock';
     }
-    const mdMark = isBad ? '⚠ divergent' : (r.converged === true ? '✓ ' + convText : '◐ ' + convText);
+    const mdMark = isBad ? '⚠ ' + VERDICT.HOLD : (r.converged === true ? '✓ ' + convText : '◐ ' + convText);
     mdT.push('- ' + rel + ' · `' + gate + '`/`' + decShort + '` · ' + mdMark);
 
     // briefing meta — 토큰/건너뜀. summary 는 md 에 prose(em-dash 정규화)로 보존.
@@ -225,7 +226,7 @@ function renderAuditTimeline(model, formatUtils, now, opts) {
       + '<span class="audit-when">' + escapeHtml(rel) + '</span></div>'
       + '<div class="audit-meta"><span class="conv' + convExtra + '">'
       + '<svg class="i i-sm" aria-hidden="true"><use href="#' + convSvg + '"/></svg>' + escapeHtml(convText)
-      + '<span class="sr-only">' + (isBad ? ' 미수렴' : '') + '</span></span>'
+      + '<span class="sr-only">' + (isBad ? ' ' + VERDICT.HOLD : '') + '</span></span>'
       + briefMeta + '</div></div></li>';
     htmlT.push(htmlEntry);
   }

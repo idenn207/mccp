@@ -38,25 +38,25 @@ test('timeline — wrapper is <ol class="timeline"> with audit-row rows', () => 
   assert.match(html, /<li class="audit-row"[^>]*>/);
 });
 
-test('timeline — converged row: audit-node is-ok + conv 수렴, never is-bad', () => {
+test('timeline — converged row: audit-node is-ok + conv 통과, never is-bad', () => {
   const { html } = renderAuditTimeline(model([recent({ converged: true, round: 1 })]), formatUtils, NOW, { snapshotsDir: null });
   assert.match(html, /audit-node is-ok/);
-  assert.match(html, /class="conv"><svg class="i i-sm" aria-hidden="true"><use href="#ic-check"\/><\/svg>수렴 R1/);
+  assert.match(html, /class="conv"><svg class="i i-sm" aria-hidden="true"><use href="#ic-check"\/><\/svg>통과 R1/);
   assert.doesNotMatch(html, /is-bad/);
 });
 
-test('timeline — first-round pending row: conv pending + 진행 (active, is-ok node)', () => {
+test('timeline — first-round pending row: conv pending + 진행 중 (active, is-ok node)', () => {
   const { html } = renderAuditTimeline(model([recent({ converged: false, round: 1 })]), formatUtils, NOW, { snapshotsDir: null });
   assert.match(html, /audit-node is-ok/);
   assert.match(html, /class="conv pending">/);
-  assert.match(html, /진행 R1/);
+  assert.match(html, /진행 중 R1/);
 });
 
-test('timeline — divergent row (round>=2 false): audit-node is-bad + conv is-bad divergent', () => {
+test('timeline — divergent row (round>=2 false): audit-node is-bad + conv is-bad 보류', () => {
   const { html } = renderAuditTimeline(model([recent({ converged: false, round: 2 })]), formatUtils, NOW, { snapshotsDir: null });
   assert.match(html, /audit-node is-bad/);
   assert.match(html, /class="conv is-bad">/);
-  assert.match(html, /divergent/);
+  assert.match(html, /보류/);
 });
 
 test('timeline — briefing surfaces as .brief span in audit-meta, no blockquote (M2)', () => {
@@ -70,7 +70,7 @@ test('timeline — briefing surfaces as .brief span in audit-meta, no blockquote
 
 test('timeline — md output stable (info equivalence)', () => {
   const { md } = renderAuditTimeline(model([recent({ converged: true })]), formatUtils, NOW, { snapshotsDir: null });
-  assert.match(md, /· `mccp-plan-codex`\/`aaaaaaaaaaaa` · ✓ 수렴/);
+  assert.match(md, /· `mccp-plan-codex`\/`aaaaaaaaaaaa` · ✓ 통과/);
   assert.doesNotMatch(md, /audit-row|audit-node|audit-meta/);
 });
 

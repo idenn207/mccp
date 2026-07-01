@@ -1,0 +1,23 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "dashboard-readability",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.19.2",
+    "completed_at": "2026-07-01T04:05:41.299Z",
+    "commit_sha": "a5359ebc0a4018fd68e8cf12836d242270984c30",
+    "plan_basename": "dashboard-readability-m2.plan.md",
+    "plan_file_hash": "sha256:2c228aa6c492673844b4495c40d96c748c7977713afa7eb3faec172c6e5f69f2",
+    "risks_closed": [
+      "`formatRelativeTime` >60일 bin 확장이 다른 시각 표면(audit-timeline·milestone-history·multi-session·drawer)의 오래된 ts 스냅샷을 변동",
+      "평탄화로 정렬이 단일 `stack-list` 전체 적용되며 `sortList`(그룹별 loop)가 빈 그룹 가정",
+      "no-JS 베이스라인 회귀",
+      "STATE.md OQ 에 plan 시각 없어 일부 항목만 시각 표시(불균질)",
+      "dead CSS/gate 제거가 다른 route 참조를 끊음",
+      "평탄 active 리스트가 길어져 그룹이 주던 시각적 청킹 상실(Design Critique F-DC2, LOW)"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:308731c9a361444b1abe845ba6228b06d6e6e2ef2472df883cbfde101a6d2c12"
+  }
+}

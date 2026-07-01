@@ -444,34 +444,9 @@ aside[role="alert"].s-secret {
 .severity-tag.s-critical, .severity-tag.s-high { color: var(--status-blocked); font-weight: 600; }
 .severity-tag.s-medium { color: var(--status-stale); font-weight: 600; }
 .severity-tag.s-low { color: var(--muted); font-weight: 600; }
-/* ── PRD 그룹(Data Exploration M1) — 위험·질문 active 패널의 PRD별 disclosure.
-   neutral 토큰만(--muted/--faint/--border/--panel-2 — 강조색 예산 0, Constraint 2).
-   native <details>(JS 0 동작) + hairline 구획. H3(radius 0)·H4(border-left 없음, CSS
-   삼각형 대신 유니코드 마커) 안전. .prd-group 은 .panel/.card 아님 → H17 무관. ── */
-.prd-group { border-top: 1px solid var(--border); }
-.prd-group:first-of-type { border-top: 0; }
-/* 필터(explore.js)로 첫 그룹이 숨겨지면 :first-of-type(DOM 기준)이 숨은 그룹에 남아
-   첫 *가시* 그룹에 stray hairline 이 생긴다. 엔진이 부모별 첫 가시 그룹에 이 클래스를
-   부여해 border 를 제거한다(특정성 0,2,0 > .prd-group 0,1,0). baseline(JS off)은 전
-   그룹 가시라 :first-of-type 가 그대로 정답 — 이 규칙은 무관. */
-.prd-group.ex-first-visible { border-top: 0; }
-.prd-group > summary.prd-sum { list-style: none; cursor: pointer; display: flex;
-  align-items: center; gap: 0.45rem; padding: 0.5rem 0; color: var(--muted);
-  font-size: 0.78rem; font-weight: 550; }
-.prd-group > summary.prd-sum::-webkit-details-marker { display: none; }
-.prd-group > summary.prd-sum::before { content: "\\25B8"; color: var(--faint);
-  font-size: 0.7em; display: inline-block; transition: transform 140ms ease-out; flex: none; }
-.prd-group[open] > summary.prd-sum::before { transform: rotate(90deg); }
-.prd-group > summary.prd-sum:hover { color: var(--ink-2); }
-.prd-group > summary.prd-sum:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.prd-label { min-width: 0; }
-.prd-count { color: var(--faint); font-variant-numeric: tabular-nums; }
-.prd-group .stack-list { margin-top: 0.15rem; padding-bottom: 0.45rem; }
-.prd-toggle { display: inline-flex; align-items: center; margin: 0 0 0.55rem;
-  padding: 0.2rem 0.5rem; background: var(--panel-2); border: 1px solid var(--border);
-  color: var(--muted); font: inherit; font-size: 0.74rem; cursor: pointer; }
-.prd-toggle:hover { color: var(--ink-2); }
-.prd-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Dashboard Readability M2 — PRD 그룹 평탄화로 그룹 disclosure/일괄 토글 CSS 규칙
+   일체 제거(위험·질문이 단일 .stack-list 평탄 렌더 → 그룹 chrome 미방출). 출처/시각
+   meta-cue 는 기존 .meta-cue/.cue-sec/.mono 토큰 재사용(신규 규칙 0). */
 /* M2/M3 hook — JS-only control(필터/정렬/검색)은 기본 숨김, explore.js 의 data-js="on"
    시에만 노출. M1 은 토대만(현 consumer 없음 — M2/M3 가 .js-only 부착). */
 .js-only { display: none; }
@@ -523,9 +498,9 @@ aside[role="alert"].s-secret {
 .panel-head-tools { flex-wrap: wrap; row-gap: 0.5rem; column-gap: 0.5rem; }
 .panel-head-tools .panel-count { margin-left: 0; }
 .panel-head-tools .explore-bar { margin-left: auto; }
-/* 필터로 가려진 항목/빈 그룹 — .li-item 의 display:flex 가 [hidden] 기본을 덮으므로
+/* 필터로 가려진 항목 — .li-item 의 display:flex 가 [hidden] 기본을 덮으므로
    명시 규칙 필요(동일 specificity 0,1,1 > 0,1,0). */
-.li-item[hidden], .prd-group[hidden] { display: none; }
+.li-item[hidden] { display: none; }
 /* ── 미해결 질문 / 위험 (stack-list > li-item, M2 샘플 fidelity) ── */
 .stack-list { display: flex; flex-direction: column; gap: 0.9rem; margin: 0; padding: 0; list-style: none; }
 .li-item { display: flex; gap: 0.65rem; align-items: flex-start; }
@@ -1261,8 +1236,8 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
 
   // Data Exploration M2 — 필터/정렬 컨트롤은 위험·질문 패널 head 에 통합(panel-header
   // canonical, 사이드바 global 배치 폐기). 각 패널이 자기 route 옵션만 소비 → 옵션 결합
-  // cross-route 빈 상태 0. exploreBarRendered 가 inline 엔진 emit gate(.prd-group OR
-  // .explore-bar)를 닫는다(F2).
+  // cross-route 빈 상태 0. Dashboard Readability M2 — 그룹 chrome 평탄화 후 exploreBarRendered
+  // 가 inline 엔진 emit gate(.li-item 검색 타겟 OR .explore-bar OR 세션 바)의 한 축이다.
   let exploreBarRendered = false;
   // Data Exploration M3 — 멀티세션 진행 바(잔여 축) 렌더 여부. emit gate 의 한 축.
   let sessionBarRendered = false;
@@ -1439,7 +1414,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.19.1 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.19.2 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.
@@ -1468,17 +1443,14 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   if (drawerMap.size > 0) {
     parts.push('<script>' + DRAWER_SCRIPT + '</script>');
   }
-  // Data Exploration M1/M2 — PE 토대 + 필터/정렬 엔진 스크립트. emit gate 는 PRD 그룹
-  // (<details class="prd-group">) OR 컨트롤 바(.explore-bar) 가 렌더된 경우(F2 — flat
-  // fallback 섹션도 바가 있으면 wiring). EXPLORE_SORT_JS(pure window.__mccpExplore)를
-  // EXPLORE_JS(DOM 엔진) *앞에* emit. 외부 src 0(H13) · network primitive 0(H19).
-  const hasPrdGroups = [risks, questions].some(
-    (s) => s && typeof s.html === 'string' && s.html.includes('class="prd-group"'));
-  // Data Exploration M3 — 검색 타겟(문서에 .li-item 존재) OR 멀티세션 바도 emit gate
-  // 축. 검색/잔여축이 prd-group/explore-bar 부재 route 에서도 wiring 되도록 확장.
+  // Data Exploration M1/M2/M3 — PE 토대 + 필터/정렬/검색 엔진 스크립트. emit gate 는
+  // 검색 타겟(문서에 .li-item 존재) OR 컨트롤 바(.explore-bar) OR 멀티세션 바가 렌더된
+  // 경우. Dashboard Readability M2 — PRD 그룹 평탄화로 dead hasPrdGroups gate(now-always-
+  // false) 제거; .li-item/explore-bar/session-bar 축이 wiring 유지. EXPLORE_SORT_JS(pure
+  // window.__mccpExplore)를 EXPLORE_JS(DOM 엔진) *앞에* emit. 외부 src 0(H13)·network 0(H19).
   const hasSearchTargets = [risks, questions, timeline, milestoneHistory].some(
     (s) => s && typeof s.html === 'string' && s.html.includes('class="li-item"'));
-  if ((hasSearchTargets || hasPrdGroups || exploreBarRendered || sessionBarRendered) && EXPLORE_JS) {
+  if ((hasSearchTargets || exploreBarRendered || sessionBarRendered) && EXPLORE_JS) {
     if (EXPLORE_SORT_JS) parts.push('<script>' + EXPLORE_SORT_JS + '</script>');
     parts.push('<script>' + EXPLORE_JS + '</script>');
   }

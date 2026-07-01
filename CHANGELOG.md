@@ -2,7 +2,27 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.19.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.19.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.19.2] — 2026-06-30
+
+dashboard-readability M2 — 위험·질문 리스트 평탄화 + 출처/시각 메타. 위험·질문 패널을 PRD 그룹 chrome(`<details class="prd-group">`) 없이 **전체 평탄 `<ul class="stack-list">`** 로 렌더해, 사용자가 켠 정렬(위험도순·시간순)이 그룹 경계에 가리지 않게 한다. 그룹용 "모두 펼치기/접기" 토글을 제거하고, 각 항목 **상단**에 출처 plan 문서명(작은 회색 `.meta-cue`/`.mono`) + 출처 plan 의 최근 활동 시각(사람이 읽기 쉬운 형식, >60일은 절대일자)을 표시한다. 필터(PRD/plan)·정렬·탭(미해결/해결됨/보관됨) 축은 전부 보존 — `data-prd`/`data-plan`/`data-sev`/`data-ord` 속성 유지, `groupByPrd` 는 filterOptions 수집 전용으로만 잔존. **Codex R1 2 finding 흡수**: F1(HIGH) — flat 렌더를 `groupByPrd` 버킷 순서에서 flatten 하면 earlier-PRD low-sev 가 later-PRD CRITICAL 앞에 와 전역 severity 순서가 깨짐 → 이미 `bySev` 정렬된 `active`/`resolved`/`historical` 배열에서 *직접* 방출 + `prdKeyFor` per-item lookup. F2(MED) — 공유 `formatRelativeTime` 절대일자화가 무관 시각 표면을 변동 → opt-in `{absoluteAfterDays}` 파라미터로 default byte-identical(기존 caller blast radius 0) + threaded `now` 결정성. 게이트: Implement-Codex cross-gate dedupe(plan-codex 수렴) · design silent-skip(produced diff 가 렌더러 `.js` 소스 = control-plane, 렌더 출력은 gitignore). plugin.json `1.19.1 → 1.19.2` patch bump + 양 footer + 스냅샷 테스트 동기(version drift 0).
+
+### Added
+
+- **`scripts/lib/renderer/parsers/prd-group.js`** — `prdKeyFor(item, planPrd)` + `prdMetaFor(item, planPrd)` 단일-item export(`groupByPrd` 의 per-item 분기 로직 추출, DRY). flat 렌더가 각 항목 `data-prd` 부여 + filterOptions 수집에 재사용(Codex F1).
+- **`scripts/lib/renderer/parsers/plan-body.js`** — `planActivity` Map(canonicalPlanPath → lastActivityMs, **전 plan**) 빌드 + `parsePlanBody` return 추가(현 `lastActivityMs` 는 in-progress staleness 에만 쓰고 버려짐). `planPrd` loop 동형.
+- **`scripts/lib/renderer/tests/risks-source-time.test.js`** — 위험 항목 출처 라벨 + 시각 + flat 구조(no `prd-group`) + **cross-PRD 정렬 보존**(Codex F1, html·md 양쪽) 단언.
+
+### Changed
+
+- **`scripts/lib/renderer/format-utils.js`** — `formatRelativeTime(isoOrDate, now, opts)` opt-in `opts.absoluteAfterDays` bin(같은 연도 `M월 D일`, 다른 연도 `YYYY년 M월 D일`). opts 미전달 시 `N일 전` 경로 byte-identical(blast radius 0).
+- **`scripts/lib/renderer/sections/risks.js` · `open-questions.js`** — 그룹 chrome 제거 → 항상 flat `<ul>`(html·md). 항목 상단 출처+시각 meta-cue(OQ `metaCueParts` 동형). `opts` 인자 수용(now 결정성). `groupByPrd` 는 filterOptions 전용.
+- **`scripts/lib/renderer/index.js`** — `renderRisks`/`renderOpenQuestions` 호출에 `opts` 전달(now thread).
+- **`scripts/lib/renderer/client/explore.js`** — "모두 펼치기/접기" 토글 블록 + `.prd-group` 의존 dead 머신(`refreshGroups`/`ex-first-visible`/`prd-count` 갱신) 제거. 정렬은 단일 `.stack-list` 전체 적용. 탭 카운트/빈상태/정렬/검색/세션 바 보존.
+- **`scripts/lib/renderer/html.js`** — emit-gate dead `hasPrdGroups`(now-always-false) 제거(`.li-item`/explore-bar/session-bar 축이 gate 유지). `.prd-group`/`.prd-sum`/`.prd-label`/`.prd-count`/`.prd-toggle`/`.ex-first-visible` CSS dead rule 제거. footer `v1.19.1 → v1.19.2`.
+- **`scripts/lib/renderer/markdown.js`** — derived 줄 footer `v1.19.1 → v1.19.2` 동기.
+- **`plugins/mccp/.claude-plugin/plugin.json`** — `version` `1.19.1` → `1.19.2`(§3.7 milestone PR patch bump).
 
 ## [1.19.1] — 2026-06-30
 

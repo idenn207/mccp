@@ -171,6 +171,40 @@ test('parsePlanBody — facade integration with fsRead + object source_prd', () 
   assert.equal(result.warnings.length, 0);
 });
 
+test('parsePlanBody — planActivity Map: 활동 신호 있는 plan 은 ms, 없으면 키 부재(Readability M2 Task 1)', () => {
+  const path = require('path');
+  const cwd = '/test/cwd';
+  const PRD = '# PRD\n\n## Delivery Milestones\n\n| # | M | O | Status | Plan |\n'
+    + '|---|---|---|---|---|\n'
+    + '| 1 | active | x | in-progress | [act](act.plan.md) |\n'
+    + '| 2 | quiet | x | in-progress | [quiet](quiet.plan.md) |\n';
+  const fsRead = (p) => {
+    const s = String(p).replace(/\\/g, '/');
+    if (s.endsWith('prd.md')) return PRD;
+    if (s.endsWith('act.plan.md')) return '# act\n';
+    if (s.endsWith('quiet.plan.md')) return '# quiet\n';
+    throw new Error('ENOENT ' + p);
+  };
+  const model = {
+    sources: {
+      plans: {
+        items: [
+          { path: 'act.plan.md', source_prd: 'prd.md' },
+          { path: 'quiet.plan.md', source_prd: 'prd.md' },
+        ],
+      },
+      // act 은 receipt 활동 신호 보유(decision_id 매칭), quiet 은 신호 없음.
+      receipts: { items: [{ ok: true, decision_id: 'act', created_at: '2026-06-01T00:00:00Z' }] },
+    },
+  };
+  const result = parsePlanBody(model, { fsRead, cwd });
+  assert.ok(result.planActivity instanceof Map, 'planActivity 는 Map');
+  assert.equal(result.planActivity.get('act.plan.md'), Date.parse('2026-06-01T00:00:00Z'),
+    '활동 신호(receipt) 있는 plan → lastActivityMs');
+  assert.equal(result.planActivity.has('quiet.plan.md'), false,
+    '활동 신호 없는 plan → 키 부재(fail-open, 시각 생략)');
+});
+
 test('parsePlanBody — degraded flag when PRD read fails', () => {
   const path = require('path');
   const cwd = '/test/cwd';

@@ -5,8 +5,10 @@
 // (b) 위험·질문 패널 head 에 각 1개(scope=route) + 사이드바 바 부재 + per-route 옵션
 // (c) no-JS degrade(script 제거 후 전체 항목 가시)
 // (d) H16/H19 design-lint clean(sentinel value carve-out + inline script network 0)
-// (e) F1 chronology≠severity(data-ord 순서 ≠ severity 렌더 순서)
+// (e) F1 chronology≠severity(data-ord 순서 ≠ severity 렌더 순서) — Readability M2: 평탄
+//     리스트 전역 severity 정렬 + cross-PRD data-ord chronology 보존
 // (f) F2 flat 섹션(.prd-group 부재)도 explore <script> emit + .explore-bar reveal
+// (g) Readability M2 평탄화 — 그룹 토글/그룹 머신 wiring 제거 회귀
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -175,21 +177,23 @@ test('(d) H19 — explore-sort.js + explore.js inline 본문 network primitive 0
 
 // ── (e) F1 chronology≠severity ─────────────────────────────────────────────
 
-test('(e) F1 — data-ord 가 render(severity) 순서가 아닌 원본 parse chronology 인코딩', () => {
+test('(e) F1 — flat 전역 severity 정렬 + data-ord parse chronology 보존(cross-PRD)', () => {
   const r = renderMulti();
-  // group a(PRD1, 위험 2건)만 추출 — severity desc 는 그룹 *내*에서만 성립(그룹 경계 넘지 않음).
+  // Dashboard Readability M2 — 평탄화로 그룹 경계 제거 → 위험 route 의 active <ul> 가
+  // 2 PRD 위험을 단일 리스트로 전역 severity 정렬(Codex F1: 버킷 순서 flatten 금지).
   const risksRoute = r.html.match(/id="route-risks"[\s\S]*?<\/section>/)[0];
-  const firstGroup = (risksRoute.match(/<details class="prd-group"[\s\S]*?<\/details>/) || [])[0] || '';
-  const lis = firstGroup.match(/<li class="li-item"[^>]*>/g) || [];
-  assert.ok(lis.length >= 2, 'group a 에 위험 2건');
+  const lis = risksRoute.match(/<li class="li-item"[^>]*>/g) || [];
+  assert.ok(lis.length >= 3, 'flat 활성 위험 3건(2 PRD): ' + lis.length);
   const ords = lis.map((li) => Number((li.match(/data-ord="(\d+)"/) || [])[1]));
   const sevs = lis.map((li) => Number((li.match(/data-sev="(\d+)"/) || [])[1]));
-  // 그룹 내 render 는 severity desc(높은위험 sev3 먼저, 낮은위험 sev1 나중).
-  for (let i = 1; i < sevs.length; i++) assert.ok(sevs[i] <= sevs[i - 1], '그룹 내 severity desc');
-  // 높은위험 parse 순(ord1)이 낮은위험(ord0)보다 *나중* 인데 severity 로 먼저 렌더됨 →
-  // data-ord 가 [1,0] 비단조 = render/severity 순서를 인코딩하지 않음(chronology 보존, Codex F1).
-  assert.deepEqual(ords, [1, 0],
-    'data-ord 가 chronology(parse 순) 유지 — render(severity) 순서면 [0,1] 이어야 함: ' + ords.join(','));
+  // 평탄 리스트 전체가 severity desc(그룹 경계 없이 전역 — Codex F1 cross-PRD 핵심).
+  for (let i = 1; i < sevs.length; i++) {
+    assert.ok(sevs[i] <= sevs[i - 1], '전역 severity desc 위반: ' + sevs.join(','));
+  }
+  // parse-first LOW 위험(ord 0)이 severity 로 *마지막* 렌더 → data-ord 가 render(severity)
+  // 순서를 인코딩하지 않음(chronology 보존, Codex F1). render 순서면 마지막이 0 일 수 없다.
+  assert.equal(ords[ords.length - 1], 0,
+    'parse-first LOW 가 severity 로 마지막 렌더(data-ord chronology≠severity): ' + ords.join(','));
 });
 
 // ── (f) F2 flat 섹션 ───────────────────────────────────────────────────────
@@ -231,14 +235,15 @@ test('(f) F2 — flat 섹션(.prd-group 부재)도 .explore-bar + explore <scrip
   assert.deepEqual(r.design_constraint_violations, [], 'flat 산출물 design-lint clean');
 });
 
-// ── (g) 필터 시 첫 가시 그룹 stray hairline 보정 ────────────────────────────
-// .prd-group:first-of-type 는 DOM 기준이라 필터로 첫 그룹이 숨겨지면 둘째(시각상 첫)
-// 그룹에 border-top hairline 이 남는다. 엔진이 부모별 첫 가시 그룹에 ex-first-visible
-// 을 부여해 보정. DOM 실행은 dep-free 라 정적 검증(CSS 규칙 + 엔진 클래스 wiring 존재).
-test('(g) ex-first-visible — 첫 가시 그룹 border 제거 CSS 규칙 + 엔진 클래스 wiring', () => {
+// ── (g) Readability M2 평탄화 — 그룹 토글/그룹 머신 제거 회귀 ──────────────────
+// PRD 그룹 chrome 평탄화로 그룹 disclosure + ex-first-visible 보정 머신 + 일괄 토글이
+// 모두 불필요해졌다. 정적 검증으로 그룹 chrome/엔진 wiring/CSS 규칙 부재를 못박는다.
+test('(g) 평탄화 — 그룹 chrome/그룹 머신 wiring/ex-first-visible CSS 제거 회귀', () => {
   const r = renderMulti();
-  assert.ok(/\.prd-group\.ex-first-visible\s*\{\s*border-top:\s*0/.test(r.html),
-    'ex-first-visible border-top:0 규칙(특정성 0,2,0 > .prd-group)');
-  assert.ok(r.html.includes("classList.add('ex-first-visible')"), '엔진이 부모별 첫 가시 그룹에 부여');
-  assert.ok(r.html.includes("classList.remove('ex-first-visible')"), '엔진이 매 apply 시 reset');
+  assert.ok(!r.html.includes('class="prd-group"'), 'PRD 그룹 chrome 제거(flat <ul>)');
+  assert.ok(!r.html.includes("classList.add('ex-first-visible')"), 'ex-first-visible 엔진 wiring 제거');
+  assert.ok(!/\.prd-group\.ex-first-visible\s*\{/.test(r.html), 'ex-first-visible CSS 규칙 제거');
+  // 정렬/필터 엔진 + 컨트롤 바는 단일 .stack-list 에 그대로 적용(회귀 0).
+  assert.ok(r.html.includes('window.__mccpExplore'), '정렬/필터 엔진 emit 유지');
+  assert.ok(r.html.includes('class="explore-bar js-only"'), '필터/정렬 바 유지');
 });

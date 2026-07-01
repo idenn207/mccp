@@ -6,7 +6,7 @@ const { severityMeta, sevBadgeHtml } = require('../parsers/severity-meta');
 const { detailId, addDetail, buildRiskDetail, renderDetailMd } = require('../parsers/drawer-detail');
 const { stripMarker } = require('../parsers/resolution-marker');
 const { buildTabs } = require('../parsers/tabs');
-const { groupByPrd, canonicalPlanPath, GLOBAL_KEY, UNKNOWN_KEY, GLOBAL_LABEL } = require('../parsers/prd-group');
+const { groupByPrd, prdKeyFor, canonicalPlanPath, GLOBAL_KEY, GLOBAL_LABEL } = require('../parsers/prd-group');
 
 // Data Exploration M2 — plan 필터축 안정 키. risk 는 항상 plan 출처(source=p.path)나
 // 누출 방어로 STATE.md/부재는 PRD축과 같은 __global__ sentinel 로 정렬(plan 필터에서
@@ -19,18 +19,6 @@ function planLabelOf(src) {
   return path.basename(String(src)).replace(/\.plan\.md$/i, '').replace(/\.md$/i, '') || src;
 }
 
-// 그룹 chrome 표출 규칙 — 2+ 그룹은 항상 그룹. 단일 그룹은 **실제 PRD 소속**이면
-// 헤더 표시(어느 PRD인지 정보 가치), 단일 fallback(프로젝트 전역/출처 미상)이면 flat
-// (라벨이 disambiguation 정보 없음 → chrome 노이즈 회피). 위험·질문 동일 규칙.
-function shouldShowGroups(rendered) {
-  if (rendered.length >= 2) return true;
-  if (rendered.length === 1) {
-    const k = rendered[0].prdKey;
-    return k !== GLOBAL_KEY && k !== UNKNOWN_KEY;
-  }
-  return false;
-}
-
 const MAX_EXPANDED = 3;
 const RANK_MAP = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, '': 0 };
 
@@ -38,9 +26,13 @@ function sevOf(r) {
   return String(maxRank(r && r.impact, r && r.likelihood) || '').toUpperCase();
 }
 
-function renderRisks(model, formatUtils, planBody) {
+function renderRisks(model, formatUtils, planBody, opts) {
   const { escapeHtml, renderProseHtml, renderProseMd } = formatUtils;
   const pb = planBody || {};
+  // Dashboard Readability M2 — 출처 시각 cue 결정성. parsePlanBody 와 동일 now 를
+  // thread(opts.now)해 절대일자 양변 Date 가 흔들리지 않게 한다(format-utils 참조).
+  const now = opts && opts.now != null ? opts.now : Date.now();
+  const planActivity = pb.planActivity instanceof Map ? pb.planActivity : new Map();
   const allRisks = Array.isArray(pb.risks) ? pb.risks.slice() : [];
 
   // Data Exploration M2 (Codex F1 — HIGH) — data-ord chronology 는 severity 정렬
@@ -77,8 +69,26 @@ function renderRisks(model, formatUtils, planBody) {
   // active + resolved 항목 모두 renderItem 경유 → detail 키 == trigger 수(H18).
   const detailMap = new Map();
 
-  // prdKey 가 주어지면 li-item 에 data-prd 부여(M2/M3 토대). Data Exploration M1
-  // 후속 — 미해결뿐 아니라 해결됨·보관됨 세 버킷 모두 그룹 렌더 → 각 항목이 prdKey 동반.
+  // Dashboard Readability M2 — 출처 plan 문서명(+ 활동 시각) meta-cue(OQ metaCueParts
+  // 동형 markup). 위계는 타입 스케일로 enforce — .meta-cue 가 .li-q 보다 작고 --faint
+  // 라 detail-tier 후퇴(F-DC1, 신규 강조 스타일 0, 기존 토큰 재사용). risk 는 항상 plan
+  // 출처지만 STATE.md/부재는 누출 방어로 cue 생략. 시각은 planActivity 에 ms 있을 때만
+  // (없으면 출처만 — fail-open, 정직 표기). >60일은 절대일자(format-utils opt-in).
+  function sourceMetaHtml(source) {
+    if (!source || source === 'STATE.md') return '';
+    const file = path.basename(String(source));
+    const inner = ['출처 <span class="mono">' + escapeHtml(file) + '</span>'];
+    const ms = planActivity.get(canonicalPlanPath(source));
+    if (ms != null) {
+      inner.push('<span class="cue-sec">'
+        + escapeHtml(formatUtils.formatRelativeTime(ms, now, { absoluteAfterDays: 60 }))
+        + '</span>');
+    }
+    return '<div class="meta-cue">' + inner.join(' ') + '</div>';
+  }
+
+  // prdKey 가 주어지면 li-item 에 data-prd 부여(필터/정렬 축). Dashboard Readability M2 —
+  // flat 렌더라 그룹 chrome 없이 각 항목이 prdKeyFor 로 data-prd 직접 부여.
   function renderItem(r, prdKey) {
     const sev = sevOf(r) || 'MEDIUM';
     const icon = severityMeta(sev).icon;
@@ -132,8 +142,10 @@ function renderRisks(model, formatUtils, planBody) {
     const exploreAttr = ' data-plan="' + escapeHtml(planKeyOf(r.source)) + '"'
       + ' data-sev="' + (RANK_MAP[sev] || 0) + '"'
       + ' data-ord="' + (Number.isFinite(r._chronoIndex) ? r._chronoIndex : 0) + '"';
+    // 출처/시각 cue 는 li-main **상단**(제목 qHtml 앞 — PRD "항목 상단").
+    const srcCueHtml = sourceMetaHtml(r.source);
     const html = '<li class="li-item"' + prdAttr + exploreAttr + ' data-detail-id="' + escapeHtml(id) + '">' + sevTag
-      + '<div class="li-main">' + qHtml + mitHtml + cueHtml + '</div>' + promptHtml + '</li>';
+      + '<div class="li-main">' + srcCueHtml + qHtml + mitHtml + cueHtml + '</div>' + promptHtml + '</li>';
     // v1.18.2 M4 — STATUS.md 동등본. 항목 헤더(위험 전문) + drawer-detail SSoT 인라인.
     // 영향/가능성/관련 결정/완화책/동일 질문 참조/다음 액션은 모두 renderDetailMd 단일
     // 경로(섹션 자체 재구성 0). 이전 md 가 누락하던 영향·가능성·관련 결정이 plain-text
@@ -145,19 +157,25 @@ function renderRisks(model, formatUtils, planBody) {
     return { html, md };
   }
 
-  // active·resolved·historical 세 버킷을 각각 소속 PRD별로 분배(각 항목 정확히 1회
-  // → detailMap H18 trigger==detail 불변). Data Exploration M1 후속 — 그룹핑을 미해결
-  // 단일 탭에서 해결됨·보관됨 탭까지 동형 확장. 그룹 메타와 함께 보관해 html(그룹
-  // chrome)·md(그룹 헤더)가 동일 render 를 재사용한다. planPrd 부재/단일그룹은
-  // groupByPrd 가 fail-open 단일 버킷을 돌려줘 기존 flat 동작을 보존.
-  // Data Exploration M2 — 필터 옵션 메타(html.js 컨트롤 빌더가 소비). 세 버킷
-  // (active/resolved/historical)을 모두 순회해 어느 탭이든 옵션이 완전하게 한다.
-  // 중복 제거 + 결정적 순서(groupByPrd 가 정렬, active 먼저 처리).
+  // Dashboard Readability M2 — flat 렌더. 그룹 chrome(.prd-group) 제거하고 **이미
+  // bySev 정렬된** active/resolved/historical 배열에서 직접 방출(Codex F1 — HIGH).
+  // groupByPrd 버킷 순서로 flatten 하면 earlier-PRD low-sev 가 later-PRD CRITICAL 앞에
+  // 와 전역 severity 순서가 깨진다(md·no-JS HTML 핵심 위반). 각 항목 data-prd 는
+  // prdKeyFor per-item lookup 으로 부여(버킷팅 일치, 필터/정렬 축 보존). detailMap 은
+  // 각 항목 정확히 1회 renderItem 경유라 H18 trigger==detail 불변.
+  const renderedActive = active.map((r) => renderItem(r, prdKeyFor(r, pb.planPrd)));
+  const renderedResolved = resolved.map((r) => renderItem(r, prdKeyFor(r, pb.planPrd)));
+  const renderedHistorical = historical.map((r) => renderItem(r, prdKeyFor(r, pb.planPrd)));
+
+  // filterOptions 수집 전용으로만 groupByPrd 유지(Codex F1 — "keep for filter option
+  // collection"). 세 버킷(active/resolved/historical)을 순회해 어느 탭이든 PRD/plan
+  // 옵션이 완전. 중복 제거 + 결정적 순서(groupByPrd 가 정렬, active 먼저). 렌더 순서와
+  // 무관 — flat 리스트의 severity/merge 순서는 위 renderedX 가 별도로 소유.
   const filterOptions = { prds: [], plans: [] };
   const seenPrd = new Set();
   const seenPlan = new Set();
-  function collectOptions(groups) {
-    for (const g of groups) {
+  function collectOptions(items) {
+    for (const g of groupByPrd(items, pb.planPrd)) {
       if (!seenPrd.has(g.prdKey)) {
         seenPrd.add(g.prdKey);
         filterOptions.prds.push({ key: g.prdKey, label: g.prdLabel });
@@ -171,40 +189,15 @@ function renderRisks(model, formatUtils, planBody) {
       }
     }
   }
+  collectOptions(active);
+  collectOptions(resolved);
+  collectOptions(historical);
 
-  function renderGroups(items) {
-    const groups = groupByPrd(items, pb.planPrd);
-    collectOptions(groups);
-    return groups.map((g) => ({
-      prdKey: g.prdKey,
-      prdLabel: g.prdLabel,
-      items: g.items.map((r) => renderItem(r, g.prdKey)),
-    }));
-  }
-  const renderedActive = renderGroups(active);
-  const renderedResolved = renderGroups(resolved);
-  const renderedHistorical = renderGroups(historical);
-
-  // 패널 inner 빌더 — M5 Task 6: 위험은 전용 route(#route-risks)에서만 렌더되며 이
-  // route 가 곧 '전체 보기' 페이지이므로 캡 없이 모든 항목을 노출(full mode).
-  // Data Exploration M1 — 2+ PRD 그룹이면 각 그룹을 native <details class="prd-group">
-  // (JS 0 동작, graceful degrade 구조적 보장)로 묶고, 단일 그룹이면 기존 flat <ul>
-  // (구분할 PRD 없음 → 그룹 chrome 생략). data-prd 는 양쪽 모두 li-item 에 부여
-  // (M2/M3 토대). 미해결·해결됨·보관됨 세 탭이 공유한다(M1 후속 — 이전엔 active 한정).
-  function groupDetailsHtml(g) {
-    // prdLabel 은 PRD H1 raw — em-dash 포함 가능(H10). normalizeProse 로 통과.
-    return '<details class="prd-group" open data-prd="' + escapeHtml(g.prdKey) + '">'
-      + '<summary class="prd-sum"><span class="prd-label">'
-      + escapeHtml(formatUtils.normalizeProse(g.prdLabel)) + '</span>'
-      + '<span class="prd-count">' + g.items.length + '</span></summary>'
-      + '<ul class="stack-list" role="list">' + g.items.map((x) => x.html).join('') + '</ul>'
-      + '</details>';
-  }
+  // 패널 inner — 단일 <ul class="stack-list">(그룹 경계 제거 = PRD 핵심: 정렬이 그룹에
+  // 가리지 않음). 위험은 전용 route(#route-risks, 전체 보기)라 캡 없이 전 항목 노출.
   function panelInnerHtml(rendered, emptyHtml) {
     if (rendered.length === 0) return emptyHtml;
-    if (shouldShowGroups(rendered)) return rendered.map(groupDetailsHtml).join('');
-    return '<ul class="stack-list" role="list">'
-      + rendered[0].items.map((x) => x.html).join('') + '</ul>';
+    return '<ul class="stack-list" role="list">' + rendered.map((x) => x.html).join('') + '</ul>';
   }
   const activeInner = panelInnerHtml(renderedActive, '<p class="muted"><em>발견된 위험이 없습니다.</em></p>');
 
@@ -230,46 +223,32 @@ function renderRisks(model, formatUtils, planBody) {
     html = activeInner;
   }
 
-  // MD — STATUS.md plain-text 동등. Data Exploration M1 — 2+ PRD 그룹이면 그룹마다
-  // `**라벨 · N**` 평문 줄(H10 구분자 ·, heading depth 증가 0 → H15 안전). 미해결은
-  // primary 패널이라 그룹별 top-3 + <details>+M 더보기로 압축(cap=true), 해결됨·보관됨은
-  // 이미 외곽 <details> 뒤 secondary 라 추가 캡 없이 전 항목 평문(cap=false — 삼중
-  // 중첩 회피, no-JS 도달성 보존). 단일 그룹이면 헤더 없는 flat(구분할 PRD 없음).
-  function mdGroupBlock(g, cap) {
-    const head = '**' + formatUtils.normalizeProse(g.prdLabel) + ' · ' + g.items.length + '**\n';
-    if (!cap) return head + g.items.map((x) => x.md).join('\n');
-    const exp = g.items.slice(0, MAX_EXPANDED);
-    const col = g.items.slice(MAX_EXPANDED);
-    let s = head + exp.map((x) => x.md).join('\n');
-    if (col.length > 0) {
-      s += '\n\n<details>\n<summary>+' + col.length + ' 더보기</summary>\n\n'
-        + col.map((x) => x.md).join('\n') + '\n\n</details>';
-    }
-    return s;
-  }
-  function mdFromRendered(rendered, cap) {
+  // MD — STATUS.md plain-text 동등. Dashboard Readability M2 — flat(그룹 헤더 제거).
+  // 정렬된 배열(severity/merge 전역 순서) 직접 방출(Codex F1 — prdKey 버킷 순서 아님).
+  // 미해결은 primary 라 top-3 + <details>+M 더보기 압축(cap=true), 해결됨·보관됨은 이미
+  // 외곽 <details> 뒤 secondary 라 추가 캡 없이 전 항목 평문(cap=false — 삼중 중첩 회피,
+  // no-JS 도달성 보존).
+  function mdFlat(rendered, cap) {
     if (rendered.length === 0) return '';
-    if (shouldShowGroups(rendered)) return rendered.map((g) => mdGroupBlock(g, cap)).join('\n\n');
-    const all = rendered[0].items;
-    if (!cap) return all.map((x) => x.md).join('\n');
-    let s = all.slice(0, MAX_EXPANDED).map((x) => x.md).join('\n');
-    const col = all.slice(MAX_EXPANDED);
+    if (!cap) return rendered.map((x) => x.md).join('\n');
+    let s = rendered.slice(0, MAX_EXPANDED).map((x) => x.md).join('\n');
+    const col = rendered.slice(MAX_EXPANDED);
     if (col.length > 0) {
       s += '\n\n<details>\n<summary>+' + col.length + ' 더보기</summary>\n\n'
         + col.map((x) => x.md).join('\n') + '\n\n</details>';
     }
     return s;
   }
-  let md = active.length === 0 ? '_발견된 위험이 없습니다._' : mdFromRendered(renderedActive, true);
+  let md = active.length === 0 ? '_발견된 위험이 없습니다._' : mdFlat(renderedActive, true);
   if (resolved.length > 0) {
     md += '\n\n<details>\n<summary>해결됨 ' + resolved.length + '건</summary>\n\n'
-      + mdFromRendered(renderedResolved, false)
+      + mdFlat(renderedResolved, false)
       + '\n\n</details>';
   }
   // M8 — 보관됨(해결 마커 없으나 출처 plan 종료) plain-text 동등본. 접힘(secondary).
   if (historical.length > 0) {
     md += '\n\n<details>\n<summary>보관됨 ' + historical.length + '건</summary>\n\n'
-      + mdFromRendered(renderedHistorical, false)
+      + mdFlat(renderedHistorical, false)
       + '\n\n</details>';
   }
 

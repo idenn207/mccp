@@ -1,9 +1,11 @@
 'use strict';
 
-// Dashboard Data Exploration M1 — PRD-수준 그룹핑 + PE 토대 회귀.
-// (a) groupByPrd 순서/버킷/fail-open + 충돌 케이스(Codex F2)
-// (b) 위험·질문 섹션 html 에 .prd-group + data-prd(prdKey)
-// (c) STATUS.md md 에 모든 항목이 그룹 라벨 아래 평문(no-JS 동등)
+// Dashboard Data Exploration M1 — PRD-수준 그룹핑 순수 함수 + PE 토대 회귀.
+// Dashboard Readability M2 — 위험·질문 평탄화. groupByPrd 순수 (a) 테스트는 불변
+// (함수 미변경, filterOptions 수집 전용으로 잔존). (b)/(c) 는 flat 구조 단언으로 교체:
+// (a) groupByPrd 순서/버킷/fail-open + 충돌 케이스(Codex F2) — 불변
+// (b) 위험·질문 섹션 html 평탄(no .prd-group chrome) + data-prd(prdKey) 보존
+// (c) STATUS.md md 평탄(그룹 헤더 미방출) + 전체 항목 평문(no-JS 동등)
 // (d) design-invariants H1-H19 clean + H19 drift fixture 발화(Codex F1)
 
 const test = require('node:test');
@@ -135,19 +137,18 @@ function twoPrdRender() {
   return renderStatus(model, { cwd: '/repo', fsRead, snapshotsDir: null });
 }
 
-test('multi-PRD (b) — 위험·질문 html 에 .prd-group + data-prd(prdKey)', () => {
+test('multi-PRD (b) — 위험·질문 html 평탄(no .prd-group) + data-prd(prdKey) 보존', () => {
   const r = twoPrdRender();
   const groupCount = (r.html.match(/class="prd-group"/g) || []).length;
-  assert.ok(groupCount >= 4, 'risks(2) + questions(>=2) 그룹 → >=4 prd-group: ' + groupCount);
-  assert.ok(/<li class="li-item" data-prd="[^"]+"/.test(r.html), 'li-item 에 data-prd 부여');
-  assert.ok(r.html.includes('data-prd="__global__"'), 'STATE.md OQ → __global__ 그룹');
+  assert.equal(groupCount, 0, '평탄화 — prd-group chrome 0: ' + groupCount);
+  assert.ok(/<li class="li-item" data-prd="[^"]+"/.test(r.html), 'li-item 에 data-prd 부여(필터축 보존)');
+  assert.ok(r.html.includes('data-prd="__global__"'), 'STATE.md OQ → __global__ data-prd');
 });
 
-test('multi-PRD (c) — STATUS.md md 에 PRD 라벨 그룹 + 전체 항목 평문(no-JS 동등)', () => {
+test('multi-PRD (c) — STATUS.md md 평탄(그룹 헤더 미방출) + 전체 항목 평문(no-JS 동등)', () => {
   const r = twoPrdRender();
-  assert.ok(r.md.includes('**데이터 탐색 PRD · '), 'PRD1 라벨 그룹 헤더');
-  assert.ok(r.md.includes('**멀티세션 PRD · '), 'PRD2 라벨 그룹 헤더');
-  assert.ok(r.md.includes(GLOBAL_LABEL), 'STATE.md OQ 전역 그룹 라벨');
+  assert.ok(!r.md.includes('**데이터 탐색 PRD · '), '평탄 — PRD1 그룹 헤더 미방출');
+  assert.ok(!r.md.includes('**멀티세션 PRD · '), '평탄 — PRD2 그룹 헤더 미방출');
   for (const t of ['위험 A1', '위험 B1', '질문 A1', '질문 B1', '전역 질문 G']) {
     assert.ok(r.md.includes(t), '항목 평문 누락: ' + t);
   }
@@ -160,20 +161,20 @@ test('multi-PRD (d) — design-lint H1-H19 clean(그룹 마크업 회귀 0)', ()
   assert.equal(r.design_lint_degraded, false);
 });
 
-test('multi-PRD — no-JS degrade: script 제거 후에도 전체 항목 가시(native <details>)', () => {
+test('multi-PRD — no-JS degrade: script 제거 후에도 전체 항목 가시(flat <ul>)', () => {
   const r = twoPrdRender();
   const noScript = r.html.replace(/<script[\s\S]*?<\/script>/gi, '');
   for (const t of ['위험 A1', '위험 B1', '질문 A1', '질문 B1', '전역 질문 G']) {
     assert.ok(noScript.includes(t), 'JS 제거 후 항목 손실: ' + t);
   }
-  // 모든 prd-group 이 open(기본 펼침) — JS 없이도 내용 노출.
-  assert.ok(!/<details class="prd-group"(?![^>]*\bopen\b)/.test(r.html), '모든 prd-group default open');
+  // 평탄 <ul class="stack-list"> 는 disclosure 없이 전 항목 가시(no-JS 베이스라인).
+  assert.ok(!r.html.includes('class="prd-group"'), '평탄 — prd-group chrome 0');
   assert.ok(!r.html.includes('<script src'), '외부 <script src> 0 (H13)');
 });
 
 // ── M1 후속 — 해결됨·보관됨 탭 그룹핑 (위험·질문 동형) ─────────────────────
 
-test('risks 미해결·해결됨·보관됨 탭 PRD 그룹핑 + data-prd(M1 후속)', () => {
+test('risks 미해결·해결됨·보관됨 탭 평탄(no prd-group) + data-prd 보존(Readability M2)', () => {
   const planPrd = twoPrdPlanPrd();
   const risks = [
     { risk: '활성 A', impact: 'High', likelihood: 'High', mitigation: 'm', source: '.claude/plans/p1.plan.md', ordinal: 1 },
@@ -183,28 +184,29 @@ test('risks 미해결·해결됨·보관됨 탭 PRD 그룹핑 + data-prd(M1 후�
     { risk: '보관 B', impact: 'High', likelihood: 'High', mitigation: 'm', source: '.claude/plans/p2.plan.md', ordinal: 5, sourceClosed: true },
   ];
   const { html, md } = renderRisks({ sources: {} }, formatUtils, { risks, planPrd });
-  // active(단일 실제 PRD 알파)=1 + resolved(2 PRD)=2 + historical(2 PRD)=2 → 5 그룹.
-  assert.equal((html.match(/class="prd-group"/g) || []).length, 5,
-    'active 1 + resolved 2 + historical 2 그룹');
-  assert.ok(html.includes('data-prd="b"'), 'p2(베타) 출처 resolved/historical 항목에 data-prd');
+  // Dashboard Readability M2 — 평탄화. 미해결/해결됨/보관됨 세 탭 모두 flat(no prd-group).
+  assert.equal((html.match(/class="prd-group"/g) || []).length, 0, '평탄 — prd-group chrome 0');
+  assert.ok(html.includes('data-prd="a"') && html.includes('data-prd="b"'),
+    '두 PRD 출처 항목 모두 data-prd 보존(필터축)');
   assert.ok(md.includes('해결됨 2건'), '해결됨 외곽 collapse');
   assert.ok(md.includes('보관됨 2건'), '보관됨 외곽 collapse');
-  assert.ok(md.includes('**PRD 알파 · 1**') && md.includes('**PRD 베타 · 1**'), '그룹 헤더 평문');
+  assert.ok(!md.includes('**PRD 알파 · '), '평탄 — 그룹 헤더 미방출');
   for (const t of ['해결 A', '해결 B', '보관 A', '보관 B']) {
     assert.ok(md.includes(t), 'plain-text 누락(no-JS 동등): ' + t);
   }
 });
 
-test('단일 실제 PRD 그룹도 헤더 표시(user 선택 — single-real-PRD)', () => {
+test('단일 실제 PRD 위험도 평탄(no prd-group) + data-prd 보존(Readability M2)', () => {
   const planPrd = twoPrdPlanPrd();
   const risks = [
     { risk: '활성 A', impact: 'High', likelihood: 'High', mitigation: 'm', source: '.claude/plans/p1.plan.md', ordinal: 1 },
     { risk: '활성 A2', impact: 'High', likelihood: 'High', mitigation: 'm', source: '.claude/plans/p1.plan.md', ordinal: 2 },
   ];
   const { html, md } = renderRisks({ sources: {} }, formatUtils, { risks, planPrd });
-  assert.equal((html.match(/class="prd-group"/g) || []).length, 1, '단일 실제 PRD → 헤더 1개');
-  assert.ok(html.includes('data-prd="a"'), '실제 PRD prdKey 노출');
-  assert.ok(md.includes('**PRD 알파 · 2**'), '단일 실제 PRD md 그룹 헤더');
+  assert.equal((html.match(/class="prd-group"/g) || []).length, 0, '평탄 — prd-group 0');
+  assert.ok(html.includes('data-prd="a"'), '실제 PRD prdKey data-prd 노출(필터축)');
+  assert.ok(!md.includes('**PRD 알파 · '), '평탄 — 그룹 헤더 미방출');
+  assert.ok(md.includes('활성 A2'), '항목 평문 present');
 });
 
 test('단일 fallback(전역/미상) 그룹은 flat 유지(chrome 노이즈 회피)', () => {
@@ -219,7 +221,7 @@ test('단일 fallback(전역/미상) 그룹은 flat 유지(chrome 노이즈 회�
   assert.ok(!md.includes('**' + GLOBAL_LABEL + ' ·'), '프로젝트 전역 단독은 md 헤더 없음');
 });
 
-test('questions 미해결·해결됨 탭 PRD 그룹핑 + 단일 실제 PRD 헤더(user 보고 수정)', () => {
+test('questions 미해결·해결됨 탭 평탄(no prd-group) + data-prd 보존(Readability M2)', () => {
   const planPrd = twoPrdPlanPrd();
   const model = { sources: { state: { item: { body: { open_questions: [] } } } } };
   const planBody = {
@@ -232,12 +234,12 @@ test('questions 미해결·해결됨 탭 PRD 그룹핑 + 단일 실제 PRD 헤�
     ],
   };
   const { html, md } = renderOpenQuestions(model, formatUtils, planBody);
-  // 미해결 단일 실제 PRD(알파) → 헤더 1개(user 보고 케이스) + 해결됨 2 PRD → 2개 = 3.
-  assert.equal((html.match(/class="prd-group"/g) || []).length, 3, '미해결 1 + 해결됨 2 그룹');
-  assert.ok(html.includes('data-prd="b"'), 'p2 해결 질문 data-prd="b"');
-  assert.ok(md.includes('**PRD 알파 · 2**'), '미해결 단일 실제 PRD 그룹 헤더(user 보고 케이스)');
+  // Dashboard Readability M2 — 평탄화. 미해결/해결됨 두 탭 모두 flat(no prd-group).
+  assert.equal((html.match(/class="prd-group"/g) || []).length, 0, '평탄 — prd-group 0');
+  assert.ok(html.includes('data-prd="a"') && html.includes('data-prd="b"'),
+    '두 PRD 출처 질문 모두 data-prd 보존(필터축)');
+  assert.ok(!md.includes('**PRD 알파 · ') && !md.includes('**PRD 베타 · '), '평탄 — 그룹 헤더 미방출');
   assert.ok(md.includes('해결됨 2건'), '해결됨 외곽 collapse');
-  assert.ok(md.includes('**PRD 베타 · 1**'), '해결됨 그룹 헤더');
   for (const t of ['해결 Q1', '해결 Q2']) assert.ok(md.includes(t), 'plain-text 누락: ' + t);
 });
 

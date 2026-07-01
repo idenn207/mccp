@@ -39,7 +39,12 @@ const STATUS_BADGES = Object.freeze({
   }),
 });
 
-function formatRelativeTime(isoOrDate, now) {
+// Dashboard Readability M2 (Codex F2) — 3번째 인자 opts 는 **opt-in** 확장. opts 미전달
+// 시 기존 전 caller(footer/audit-timeline/milestone-history/multi-session/worker-fanout/
+// drawer)는 'N일 전' 경로 byte-identical(blast radius 0). opts.absoluteAfterDays(number)
+// 가 주어지고 days > 임계면 상대 표기 대신 절대일자(같은 연도 'M월 D일', 다른 연도
+// 'YYYY년 M월 D일'). ≤임계 경로(초/분/시간/일)·invalid/미래/방금 가드 불변.
+function formatRelativeTime(isoOrDate, now, opts) {
   if (typeof now !== 'number') now = Date.now();
   let ms;
   if (isoOrDate instanceof Date) {
@@ -61,6 +66,16 @@ function formatRelativeTime(isoOrDate, now) {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return hours + '시간 전';
   const days = Math.floor(hours / 24);
+  // 절대일자 bin(opt-in) — now·ms 양변에 같은 로컬 Date 적용(단일 데스크탑 사용자
+  // 로컬, PRODUCT.md 환경 가정)으로 render-date 결정성 보존.
+  if (opts && typeof opts.absoluteAfterDays === 'number' && days > opts.absoluteAfterDays) {
+    const dThen = new Date(ms);
+    const dNow = new Date(now);
+    const mo = dThen.getMonth() + 1;
+    const day = dThen.getDate();
+    if (dThen.getFullYear() === dNow.getFullYear()) return mo + '월 ' + day + '일';
+    return dThen.getFullYear() + '년 ' + mo + '월 ' + day + '일';
+  }
   return days + '일 전';
 }
 

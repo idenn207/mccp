@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const { VERDICT } = require('./verdict-label');
 
 // Dashboard Truthfulness M2 (Codex R1 F1 absorption) — next-action resolver.
 // Pure function (no file reads): consumes the derive model's `state.item` plus a
@@ -180,9 +181,9 @@ function resolveNextAction(stateItem, ctx) {
       if (d.state === 'done') continue; // ledger-promoted/shipped → not next work
       if (d.state === 'blocked') {
         return {
-          command: null, args: '', prose: prose || 'Codex 미수렴 · 개입 필요',
+          command: null, args: '', prose: prose || 'Codex ' + VERDICT.HOLD + ' · 개입 필요',
           copyText: null, source: 'gate-frontier', executable: false, stale: false,
-          description: 'Codex 검토 미수렴 — 사람 개입 필요',
+          description: 'Codex 검토 ' + VERDICT.HOLD + ' — 사람 개입 필요',
         };
       }
       // converged-frontier(이 게이트 수렴, 다음 게이트 대기) → next action 은 다음
@@ -205,7 +206,7 @@ function resolveNextAction(stateItem, ctx) {
       return {
         command: null, args: '', prose: prose || 'plan 게이트 진행 중',
         copyText: null, source: 'gate-frontier', executable: false, stale: false,
-        description: ctx.planIntent || 'plan 게이트 수렴 진행 중',
+        description: ctx.planIntent || 'plan 게이트 진행 중',
       };
     }
     // No decision-state for this plan (no receipts yet) → implement it.

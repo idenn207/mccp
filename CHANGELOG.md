@@ -2,7 +2,28 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.19.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.0] — 2026-07-01
+
+dashboard-readability M3 (PRD 마지막 milestone → minor) — 판정 어휘 사용자 친화화. 대시보드 전 섹션에 흩어진 dual-review 판정 라벨을 사용자 친화 어휘로 일관 치환한다: `수렴→통과`, `진행→진행 중`, `divergent`/`미수렴→보류`. HIGH 리스크(사용자 노출 site 일부 누락)를 막기 위해 세 어휘를 단일 소스 모듈(`parsers/verdict-label.js`, `VERDICT` frozen 맵)로 뽑아 5개 렌더 파일(`sections/pipeline.js` · `sections/audit-timeline.js` · `sections/status-grid.js` · `parsers/drawer-detail.js` · `parsers/next-action.js`)이 이를 소비하게 하고, 렌더 출력(`r.md`/visible `r.html`)의 잔여 `수렴`/`미수렴`/`divergent` 0 을 강제하는 metric 테스트를 추가한다. 아이콘(✓/◐/⚠)·톤(low/med/high)·CSS class·decision-state enum(`converged`/`blocked`)은 불변(코드값 변경 없음, PRD Design Direction — 텍스트 라벨 스왑만). `next-action.js` 는 plan-frontier description 의 모순 어휘(`plan 게이트 수렴 진행 중`)도 `plan 게이트 진행 중`으로 정정. **Codex R1 2 finding 흡수**: F1(HIGH, ACCEPT_NOW) — metric 이 `<script>` 전부 strip 하면 사용자-클릭 드로어 데이터(`<script type="application/json" id="drawer-data">`)의 stale 어휘가 grep 전에 제거돼 false-negative → Task 8 재설계로 흡수(application/json 보존 + `#drawer-data` JSON 파싱해 receipt/worktree verdict 필드 직접 단언 + 드로어 detail fixture). F2(MEDIUM, DEFER_TO_BACKLOG) — renderer-only audit 이 비-대시보드 emitter(`state/fix-task.js:63`·`hooks/stop-review-loop.js:357` 의 `Codex divergent`) 누락 → PRD scope=대시보드(renderer) 명시 한정 + backlog 이월. 게이트: Implement-Codex cross-gate dedupe(plan-codex 수렴, 새 implement-time 결정 0) · design silent-skip(produced diff 가 렌더러 `.js` 소스 = control-plane, 렌더 출력은 gitignore). plugin.json `1.19.2 → 1.20.0` minor bump + 양 footer + 스냅샷/metric 테스트 동기(version drift 0).
+
+### Added
+
+- **`scripts/lib/renderer/parsers/verdict-label.js`** — 판정 어휘 SSoT. `VERDICT = Object.freeze({ PASS:'통과', IN_PROGRESS:'진행 중', HOLD:'보류' })` + 내부 enum(`converged`/`active`/`divergent`/`blocked`)→라벨 매핑 헤더 주석. 5개 렌더 파일이 유일 소비처.
+- **`scripts/lib/renderer/tests/verdict-label.test.js`** — (a) VERDICT 값 단위 + (b) `buildReceiptDetail`/`buildWorktreeDetail` verdict 필드 직접 단언(false-negative 차단) + (c) 통제 model `renderStatus` metric(`r.md` 구 어휘 0 + 신 어휘 present) + (d) F1 — `r.html` style/실행 script strip 후 `#drawer-data` 보존 + JSON 파싱해 receipt/worktree verdict 필드 새 어휘 단언.
+
+### Changed
+
+- **`scripts/lib/renderer/sections/pipeline.js`** — `NODE_MARK.done`/`converged-frontier` label → `VERDICT.PASS`, `.active` → `VERDICT.IN_PROGRESS`, `STAGE_CONVERGED`(계획/구현/PR 통과) + 게이트 통과 fallback 을 `VERDICT` 참조로. foot-stat `진행`(완료/차단 병렬 count 라벨)은 판정 어휘 아님 → 불변.
+- **`scripts/lib/renderer/sections/audit-timeline.js`** — conv 3분기(blocked→`VERDICT.HOLD`, converged→`VERDICT.PASS R{n}`, else→`VERDICT.IN_PROGRESS R{n}`) + `mdMark`(⚠ 보류) + sr-only(보류). `convText`→`buildReceiptDetail` 전달로 드로어 `판정` 행 자동 정합.
+- **`scripts/lib/renderer/parsers/drawer-detail.js`** — `buildReceiptDetail` 기본 conv + `buildWorktreeDetail` 게이트 행 `(미수렴)/(수렴)` → `(보류)/(통과)` 를 `VERDICT` 참조로.
+- **`scripts/lib/renderer/parsers/next-action.js`** — blocked prose/description(`Codex 미수렴` → `Codex 보류`) + plan-frontier description 모순 어휘 제거(`plan 게이트 수렴 진행 중` → `plan 게이트 진행 중`).
+- **`scripts/lib/renderer/sections/status-grid.js`** — 차단 셀 툴팁 `미수렴` → `보류`(`VERDICT.HOLD`).
+- **`scripts/lib/renderer/html.js`** — emit 되는 `<style>` CSS 주석 `게이트 수렴했으나` → `게이트 통과했으나`(full-HTML grep 오염 제거) + footer `v1.19.2 → v1.20.0`.
+- **`scripts/lib/renderer/markdown.js`** — derived 줄 footer `v1.19.2 → v1.20.0` 동기.
+- **`scripts/lib/renderer/tests/{pipeline,timeline-chart,i18n-surface,drawer,markdown-equivalence}.test.js`** — 렌더 라벨 단언 새 어휘로 갱신(`구현/계획 수렴`→`통과`, `수렴 R1`→`통과 R1`, `진행 R1`→`진행 중 R1`, `divergent`→`보류`, footer 버전 4곳). briefing_summary/요약 receipt 데이터 문자열은 유지(라벨 아님).
+- **`plugins/mccp/.claude-plugin/plugin.json`** — `version` `1.19.2` → `1.20.0`(§3.7 PRD 마지막 milestone minor bump).
 
 ## [1.19.2] — 2026-06-30
 

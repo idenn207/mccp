@@ -96,7 +96,7 @@ test('drawer — 위험 시나리오/잔여 부재 = OPTIONAL degrade (placehold
 
 test('drawer — buildReceiptDetail REQUIRED(결정/판정/round/시각/hash), briefing OPTIONAL', () => {
   const d = dd.buildReceiptDetail({
-    gate: 'mccp-pr-codex', decision: 'realtime', convLabel: '수렴 R1', verdictText: '수렴 (round 1)',
+    gate: 'mccp-pr-codex', decision: 'realtime', convLabel: '통과 R1', verdictText: '통과 (round 1)',
     isBad: false, tone: 'low', round: 1, briefingText: '2.1k tok', relative: '12분 전', hashShort: '4e9c1a',
     briefingSummary: 'PR 게이트 수렴',
   }, formatUtils);

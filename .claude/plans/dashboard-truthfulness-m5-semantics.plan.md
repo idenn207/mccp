@@ -27,12 +27,12 @@ M1~M4가 데이터 영속화·표현을 truthful하게 만든 위에서, 사용�
   - 신선도 가드(`MCCP_DASHBOARD_STALE_DAYS` 기본 14, 활동기반) + status-grid in-progress=fresh only.
   - stale cross-cycle PRD 7건 데이터 정리(v0.3.5/v0.4.0/v1.4.2-m1·m2/v0.3.6/v1.0.1-axis-k-m2/serve-refresh/console-redesign-m4 → complete). 결과 진행중=1(M5).
   - 신규 `completion-detect.test.js` 15케이스(Codex F1 negative e/f/g/h 포함), 기존 스위트 0 회귀.
-- **M5b (다음 세션) — 표현/Hero** (Task 2~7). REMAINING:
+- **M5b — 표현/Hero** (Task 2~7). SHIPPED (v1.18.9):
   - Task 2 위험/차단 정합(rail 위험 소스 통일 + 이월 finding 셀 + 차단 툴팁).
   - Task 3 Hero 재설계(verdict 우선순위 + next-action + 요약체).
   - Task 4 verdict 라벨 분화(neutral≠'대기'). Task 5 hero-version 줄 제거.
   - Task 6 더보기→route 링크(F2 full-render 모드 — 시각 검증 유익). Task 7 문서/version/PRD/impeccable audit·polish.
-- M5 PRD row 는 in-progress 유지(M5b 잔여) — 진행중=1 invariant 와 정합. M5b 완료 시 M5 → complete.
+- M5 PRD row 는 M5a 동안 in-progress, M5b ship 으로 `complete` 전이 — 진행중=1 invariant 와 정합.
 
 ## Patterns to Mirror
 
@@ -168,10 +168,14 @@ grep -c "v1.18.8" plugins/mccp/scripts/lib/renderer/html.js plugins/mccp/scripts
 
 ## Open Questions
 
-- [ ] **완료 자동감지의 "완료" 신호** — terminal receipt(pr-codex/code-reviewer converged) 단독 vs M1 completion-ledger 단독 vs 둘 중 하나(OR). 제안: **OR**(둘 중 하나라도 닫힘=완료, 보수적이되 worktree 제거로 receipt 소멸한 케이스를 ledger 가 보완). implement 에서 derive correlation 확인 후 확정.
-- [ ] **신선도 가드 임계** — in-progress stale 판정 일수(제안 14일, `MCCP_DASHBOARD_STALE_DAYS` env 토글). 활동 피드 특성상 plan 마지막 receipt 기준.
-- [ ] **차단 라벨 문구** — '차단' 유지 + 툴팁 vs '검토 차단'/'검토 미수렴'으로 개명. 제안: 라벨 '차단' 유지(짧음) + 툴팁/부제로 의미 보강(기존 nav 폭 영향 최소). 사용자 확인.
-- [ ] **범위 분할** — Large. Task 1-2(데이터 의미론) + Task 3-6(Hero/표현)을 단일 M5 로 ship vs M5a/M5b 분리. 제안: 단일 M5(상호 연관 — Hero 가 진행중/위험 셀 소비). 비용 초과 시 분할.
+- [x] **완료 자동감지의 "완료" 신호** — terminal receipt(pr-codex/code-reviewer converged) 단독 vs M1 completion-ledger 단독 vs 둘 중 하나(OR). 제안: **OR**(둘 중 하나라도 닫힘=완료, 보수적이되 worktree 제거로 receipt 소멸한 케이스를 ledger 가 보완). implement 에서 derive correlation 확인 후 확정. <!--mccp:resolved reason="M5a SHIPPED v1.18.8 — OR 채택. decision-state.js#isMilestoneClosed = (a) terminal-receipt exact decision_id + plan_hash freshness OR (b) ledger durable. decision-state.js:210-244, completion-detect.test.js 15 PASS" at="2026-06-30T08:33:21Z"-->
+  - **확정(M5a SHIPPED)**: **OR** 채택. `decision-state.js#isMilestoneClosed` = (a) terminal-receipt **OR** (b) ledger. 제안의 "보수적"을 강화 — (a)는 naive OR 이 아니라 exact `decision_id` 일치 **AND** `plan_hash` freshness 필수(generic/`*.legacy.json`/stale-hash 거부, Codex F1/Implement-F1). (b) ledger 는 worktree-removed 로 receipt 소멸한 durable 케이스를 단독 close(via=`ledger`). wiring: `plan-body.js:465-493` override 레이어. 회귀: `completion-detect.test.js` positive (i)(j) + negative (e)-(h). 파이프라인 표면은 더 엄격한 `ledgerCloseFresh`(id+basename+hash) 사용. <!--mccp:resolved reason="OQ #1 해결 근거 노트 (M5a 확정)" at="2026-06-30T08:33:21Z"-->
+- [x] **신선도 가드 임계** — in-progress stale 판정 일수(제안 14일, `MCCP_DASHBOARD_STALE_DAYS` env 토글). 활동 피드 특성상 plan 마지막 receipt 기준. <!--mccp:resolved reason="M5a SHIPPED — 14일 기본 + MCCP_DASHBOARD_STALE_DAYS env override. plan-body.js staleDaysThreshold:16-20 · staleness:583-592" at="2026-06-30T08:33:21Z"-->
+  - **확정(M5a SHIPPED)**: 제안대로 채택 — `plan-body.js#staleDaysThreshold` 기본 **14일** + `MCCP_DASHBOARD_STALE_DAYS` env override. `lastActivityMs`(receipt `created_at` + ledger `completed_at` 최신) 초과 시 `planStaleness='stale'` 강등(진행중 카운트 제외). 활동 신호 없으면 cycle-based fallback(receipt-less 신규 작업 미은폐, fail-open). 회귀: `completion-detect.test.js` stale/not-stale 케이스. <!--mccp:resolved reason="OQ #2 해결 근거 노트 (M5a 확정)" at="2026-06-30T08:33:21Z"-->
+- [x] **차단 라벨 문구** — '차단' 유지 + 툴팁 vs '검토 차단'/'검토 미수렴'으로 개명. 제안: 라벨 '차단' 유지(짧음) + 툴팁/부제로 의미 보강(기존 nav 폭 영향 최소). 사용자 확인. <!--mccp:resolved reason="M5b SHIPPED v1.18.9 — 라벨 차단 유지 + 의미 툴팁. status-grid.js:209-216" at="2026-06-30T08:33:21Z"-->
+  - **확정(M5b SHIPPED v1.18.9)**: 제안대로 라벨 **'차단' 유지 + 툴팁 보강**(개명 안 함). `status-grid.js:207-216` — blocked 셀 `intent='Codex 검토 N건 미수렴 · 사람 개입 필요'` `title` 툴팁(0건이면 생략), 소스는 decision-state SSoT(round≥2 미수렴) 그대로. 기존 backlog HIGH/CRIT 은 `label='이월 finding'` 별도 셀로 분리(rail↔섹션 위험 소스 통일과 한 묶음). <!--mccp:resolved reason="OQ #3 해결 근거 노트 (M5b 확정)" at="2026-06-30T08:33:21Z"-->
+- [x] **범위 분할** — Large. Task 1-2(데이터 의미론) + Task 3-6(Hero/표현)을 단일 M5 로 ship vs M5a/M5b 분리. 제안: 단일 M5(상호 연관 — Hero 가 진행중/위험 셀 소비). 비용 초과 시 분할. <!--mccp:resolved reason="M5a v1.18.8 + M5b v1.18.9 2-ship 분할 채택. PRD M5 row complete" at="2026-06-30T08:33:21Z"-->
+  - **확정**: 비용·세션 범위로 **분할 채택** — M5a(#2 진행중 진실성, v1.18.8) + M5b(Task 2~7 표현/Hero, v1.18.9) 2-ship. 둘 다 SHIPPED, PRD Delivery Milestones M5 row `complete`(양 ship 반영). 본 plan 상단 `## Milestone Split` 섹션이 결정 기록. <!--mccp:resolved reason="OQ #4 해결 근거 노트 (M5a/M5b 분할)" at="2026-06-30T08:33:21Z"-->
 
 ## Design Critique
 

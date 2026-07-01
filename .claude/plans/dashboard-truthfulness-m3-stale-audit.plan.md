@@ -213,7 +213,7 @@ grep -n "v1.18.5" plugins/mccp/scripts/lib/renderer/html.js plugins/mccp/scripts
 - **(결정) 빌드 형태**: 재사용 `/mccp:*` 명령(표준 capability) + 이번 cycle dogfood 1회. 일회성 스크립트 아님 — truthfulness 지속. <!--mccp:resolved reason="설계 결정 확정 — 재사용 /mccp:dashboard-audit 표준 명령으로 빌드 (commands/dashboard-audit.md 구현)" at="2026-06-24T18:19:29.030Z"-->
 - **(결정) human-gate**: 소스 편집이라(파괴적 아니어도) 평가 제안→사용자 승인→적용. 자동 적용 안 함. <!--mccp:resolved reason="설계 결정 확정 — 소스 편집 human-gate 채택, 자동 적용 안 함 (dashboard-audit Phase 2 human-gate 구현)" at="2026-06-24T18:19:29.030Z"-->
 - **(결정) lifecycle 배치**: 마일스톤 패널 내 default-off `<details>`(positional churn 회피) + early-return 앞 파싱. <!--mccp:resolved reason="설계 결정 확정 — 마일스톤 lifecycle를 패널 내 default-off 토글로 배치 (milestone-history.js 구현)" at="2026-06-24T18:19:29.030Z"-->
-- **(defer) `⚠ Ledger mismatch` 전역 배너(PRD OQ #6)**: M4/후속. 마커-기반 은퇴엔 ledger drift 무관(마커가 SSoT).
+- **(defer) `⚠ Ledger mismatch` 전역 배너(PRD OQ #6)**: M4/후속. 마커-기반 은퇴엔 ledger drift 무관(마커가 SSoT). <!--mccp:resolved reason="OBSOLETE: 마커가 은퇴 SSoT라 ledger drift 무관, M8 ledgerCloseFresh(id+basename+hash) fail-safe로 hash mismatch 시 위험 active 유지. correctness gap 없어 전역 배너 불필요." at="2026-06-30T06:40:33.628Z"-->
 
 ## Design Critique
 

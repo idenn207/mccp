@@ -19,6 +19,16 @@ const RESOLVED_RE = new RegExp(MARKER_SRC);
 // trailing-anchored — 실제 detection/strip 의 진실원.
 const RESOLVED_TRAILING_RE = new RegExp(MARKER_SRC + '\\s*$');
 
+// deferred 마커 — 항목이 **여전히 open** 임을 문서화하는 주석(결정은 났으나 답은
+// future-work). resolved 신호가 **아니므로** isResolved 는 절대 매칭하지 않는다(항목
+// active 유지 = 정직). 단, rendered surface 에 raw HTML 주석이 escape 되어 누출되지
+// 않도록 display strip(stripMarker/stripLineMarker)은 resolved 와 동일하게 제거한다.
+const DEFERRED_SRC = '<!--\\s*mccp:deferred(?:\\s+reason="([^"]*)")?(?:\\s+at="([^"]*)")?\\s*-->';
+const DEFERRED_TRAILING_RE = new RegExp(DEFERRED_SRC + '\\s*$');
+// display strip 전용 — trailing resolved **또는** deferred 마커를 제거. detection
+// (isResolved)에는 영향 없음(resolved 만 매칭). trailing-only 라 mid-prose 문서화는 보존.
+const ANY_MARKER_TRAILING_RE = new RegExp('(?:' + MARKER_SRC + '|' + DEFERRED_SRC + ')\\s*$');
+
 const REASON_CAP = 200;
 
 // 라인 *끝* 의 `<!--mccp:resolved-->` 마커만 resolved 로 인정(trailing-only).
@@ -26,6 +36,14 @@ const REASON_CAP = 200;
 function isResolved(rawLine) {
   if (rawLine == null) return false;
   try { return new RegExp(RESOLVED_TRAILING_RE).test(String(rawLine)); }
+  catch (_) { return false; }
+}
+
+// 라인 *끝* 의 `<!--mccp:deferred-->` 마커 인정(trailing-only). resolved 와 별개 —
+// 항목은 active 로 남되 display 에서만 strip 된다. detection 용도(예: 리포팅)로만 사용.
+function isDeferred(rawLine) {
+  if (rawLine == null) return false;
+  try { return new RegExp(DEFERRED_TRAILING_RE).test(String(rawLine)); }
   catch (_) { return false; }
 }
 
@@ -54,17 +72,20 @@ function stripLineMarker(rawLine) {
     meta = extractMeta(line);
   } catch (_) { /* fail-open */ }
   let cleaned = line;
-  try { cleaned = line.replace(RESOLVED_TRAILING_RE, '').replace(/[ \t]+$/g, ''); }
+  // resolved | deferred 양쪽 trailing 마커 제거(누출 0). resolved flag/meta 는 위에서
+  // 이미 resolved 한정으로 산출 — deferred 는 active 유지(F1 불변).
+  try { cleaned = line.replace(ANY_MARKER_TRAILING_RE, '').replace(/[ \t]+$/g, ''); }
   catch (_) { cleaned = line; }
   return { line: cleaned, resolved, meta };
 }
 
-// display 용 trailing 마커 제거 + 우측 공백 정리. rendered surface 누출 0
-// (Constraint 3). mid-prose 문서 언급(backtick 예시)은 보존 — display 손실 방지.
+// display 용 trailing 마커(resolved | deferred) 제거 + 우측 공백 정리. rendered
+// surface 누출 0 (Constraint 3). mid-prose 문서 언급(backtick 예시)은 보존 — display
+// 손실 방지. deferred 도 제거하되 isResolved 미인정이라 항목 active 유지.
 function stripMarker(text) {
   if (text == null) return '';
   try {
-    return String(text).replace(RESOLVED_TRAILING_RE, '').replace(/[ \t]+$/g, '').trim();
+    return String(text).replace(ANY_MARKER_TRAILING_RE, '').replace(/[ \t]+$/g, '').trim();
   } catch (_) { return String(text == null ? '' : text).trim(); }
 }
 
@@ -100,8 +121,11 @@ function buildMarker(reason, at) {
 module.exports = {
   RESOLVED_RE,
   RESOLVED_TRAILING_RE,
+  DEFERRED_TRAILING_RE,
+  ANY_MARKER_TRAILING_RE,
   REASON_CAP,
   isResolved,
+  isDeferred,
   extractMeta,
   stripLineMarker,
   stripMarker,

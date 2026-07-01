@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   isResolved,
+  isDeferred,
   extractMeta,
   stripLineMarker,
   stripMarker,
@@ -26,6 +27,32 @@ test('isResolved — fail-open on null/undefined/object', () => {
   assert.equal(isResolved(null), false);
   assert.equal(isResolved(undefined), false);
   assert.equal(isResolved({}), false);
+});
+
+test('isDeferred — trailing deferred 마커 인정, resolved 와 분리', () => {
+  const line = '- "작업범위순" 정의: 보류. <!--mccp:deferred reason="측정 단위 미정 future-work" at="2026-06-30T13:06:10Z"-->';
+  assert.equal(isDeferred(line), true, 'deferred 마커 인정');
+  assert.equal(isResolved(line), false, 'deferred 는 resolved 아님(항목 active 유지, F1)');
+  assert.equal(isDeferred('- 그냥 질문'), false);
+  assert.equal(isDeferred(null), false);
+});
+
+test('stripMarker/stripLineMarker — trailing deferred 마커도 display 에서 제거(누출 0)', () => {
+  // 핵심 회귀 — 이전엔 resolved 만 strip 해 deferred 가 escape 되어 대시보드에 누출됐다.
+  const line = '- "작업범위순" 정의: 보류. <!--mccp:deferred reason="측정 단위 미정" at="2026-06-30T13:06:10Z"-->';
+  assert.equal(stripMarker(line), '- "작업범위순" 정의: 보류.', 'stripMarker 가 deferred 제거');
+  const sm = stripLineMarker(line);
+  assert.equal(sm.line, '- "작업범위순" 정의: 보류.', 'stripLineMarker 가 deferred 제거');
+  assert.equal(sm.resolved, false, 'deferred 는 resolved=false 유지(active)');
+  // 표 셀 안전성 — deferred 마커가 최종 `|` 뒤에 와도 phantom 셀 0.
+  const row = '| 위험 | 중 | 고 | 완화 |<!--mccp:deferred reason="보류"-->';
+  assert.equal(stripLineMarker(row).line, '| 위험 | 중 | 고 | 완화 |');
+});
+
+test('stripMarker — mid-prose deferred 문서 언급은 보존(trailing-only)', () => {
+  const doc = 'deferred 신호는 `<!--mccp:deferred-->` 마커로 표기';
+  assert.equal(stripMarker(doc), doc, 'mid-prose deferred 마커는 display 보존');
+  assert.equal(isDeferred(doc), false, 'mid-prose deferred 마커는 미인정');
 });
 
 test('extractMeta — reason/at 추출', () => {

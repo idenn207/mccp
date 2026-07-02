@@ -2,7 +2,19 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.1] — 2026-07-02
+
+dashboard-audit enumerate scope·정렬 근본 결함 수정 (단일 patch). `stale-audit/enumerate.js` 의 두 결함을 닫는다: (1) 정렬 `kindRank[kind] || 9` 가 milestone rank `0` 을 falsy 단락으로 `9` 로 뒤집어 in-progress 마일스톤(가장 stale 한 은퇴 후보)을 리스트 맨 뒤로 밀던 버그 → nullish `?? 9` 로 rank 0 보존, (2) enumerate scope 가 `derive/sources/plans.js` 미표시 디렉토리(`.claude/PRPs/plans/completed/`)를 superset 으로 포함해 대시보드에 뜨지 않는 무효 항목을 audit 대상 앞쪽에 채우던 scope drift → derive `PLAN_DIRS`(SSoT) 를 그대로 재사용해 `enumerate == derive scope` 로 정합. 두 결함이 겹쳐 audit 이 "대시보드에 실제로 뜨는 항목"을 올바른 우선순위로 노출하지 못했다(증상: 위험 해결 마크가 대시보드에 반영 안 됨 — completed/ 오탐 소스). 게이트: Implement-Codex cross-gate dedupe(plan-codex 수렴, 새 implement-time 결정 0). plugin.json `1.20.0 → 1.20.1` patch bump + 양 footer(html/markdown) + i18n 스냅샷 테스트 동기(version drift 0).
+
+### Fixed
+
+- **`scripts/lib/stale-audit/enumerate.js`** — 정렬 comparator `kindRank` lookup 을 `|| 9` → `?? 9` (양변). milestone(rank 0)이 unknown-kind fallback `9` 로 뒤집히지 않고 맨 앞 유지. enumerate scope 를 `require('../../derive/sources/plans').PLAN_DIRS` 로 단순화 — completed/ 아카이브 concat 제거(derive 미표시 → 마킹 무효). 주석을 "audit 대상 = 대시보드 표시 항목(derive scope SSoT)" 로 정정.
+
+### Added
+
+- **`scripts/lib/stale-audit/tests/enumerate.test.js`** — 회귀 2건: (a) in-progress 마일스톤이 risk/oq 보다 앞(정렬 nullish), (b) `.claude/PRPs/plans/completed/` fixture 가 enumerate 에 안 잡힘(scope 정합).
 
 ## [1.20.0] — 2026-07-01
 

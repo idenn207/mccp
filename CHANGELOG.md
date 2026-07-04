@@ -2,7 +2,24 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.2] — 2026-07-04
+
+work-context-isolation M1 (implement 스텝 격리 위임, 단일 patch). `/mccp:work` Step 3의 인라인 `Skill(mccp:prp-implement)` 호출을 **격리된 단일 worker `Agent` 위임**으로 교체한다 — worker가 파일 탐색·edit·validate 루프·Implement-Codex 게이트·receipt write를 자기 컨텍스트에서 수행하고, 메인(controller) 세션은 envelope 요약(변경 파일·receipt path·verdict)만 회수해 메인 피크 컨텍스트를 얇게 유지한다(implement 스텝의 최대 컨텍스트 누적원 격리). 메커니즘은 신규 발명이 아니라 dispatch-controller substrate(v1.2.0-m1 — `prepareDispatch`/`mergeEnvelopes`/envelope schema/3-flag attribution)를 single-worker로 재사용. Task 0 spike로 self-contained worker prompt를 실증(subagent가 nested `Skill(mccp:prp-implement)`에 의존하지 않고 자기 Bash로 게이트/receipt/envelope 계약을 구동 — 위임 shape `prepare→Agent→merge` 불변). **Codex Plan-R1 3 finding 흡수**: F1(HIGH) worker의 Phase 7 auto-chain이 격리 안에서 commit/PR → 되돌릴 수 없는 external state change → worker prompt commit/PR 금지 guardrail + merge가 `mccp-pr-codex` receipt 유입 시 `invariant-violation` HALT. F2(HIGH) 동기 단일 worker가 15분 초과 시 다른 validate-cmd가 envelope stale-reclaim → 성공 FS + 실패 envelope 짝남 → `skipHeartbeat:true`로 heartbeat 미생성(reclaim 대상 제외, orphan 없음). F3(MEDIUM) 절대 envelope path를 `--ipc-envelope-path`로 forward 시 receipt schema(`ENVELOPE_PATH_RE`) fail-closed → repo-relative `ipcEnvelopePath` 별도 emit + receipt write→validate round-trip 테스트. `MCCP_WORK_ISOLATE_IMPLEMENT=0` kill switch(인라인 fallback) + prepare 실패 시 자동 fallback. standalone `/mccp:prp-implement`엔 미적용(격리 locus는 work.md 오케스트레이터 한정). 게이트: Implement-Codex cross-gate dedupe(plan-codex 수렴, 새 implement-time 결정 0). plugin.json `1.20.1 → 1.20.2` patch bump + 양 footer(html/markdown) + i18n 스냅샷 테스트 동기(version drift 0).
+
+### Added
+
+- **`scripts/lib/dispatch-cli.js`** — dispatch-controller lib의 thin CLI wrapper. `prepare-single`(1-worker `prepareDispatch` + self-contained implement worker prompt, 절대 `envelopePath`(로컬 read) + repo-relative `ipcEnvelopePath`(receipt flag) 별도 emit, `skipHeartbeat:true`) · `merge`(terminal envelope read + `mergeEnvelopes([env])` → `{verdict, receiptsAdded, findings, failedWorkers, invariantViolations}`, F1 `mccp-pr-codex` receipt 유입 감지) · `mark`(worker-side envelope 전이 — `dispatch-envelope.markStatus` thin passthrough).
+- **`scripts/lib/tests/dispatch-cli.test.js`** — 18건: parseFlags 미러, F3 repo-relative ipc path의 `ENVELOPE_PATH_RE` 정합 + 절대경로 거부, prepare-single dry-run/live, F2 no-heartbeat→reclaimStale 무반응, mark/merge verdict enum, F1 invariant-violation, F3 receipt write→validate round-trip(git 샌드박스 + `MCCP_DISPATCH_CONTEXT=1`, repo-relative accept / absolute fail-closed).
+
+### Changed
+
+- **`commands/work.md`** — Step 3 재작성(인라인 Skill → prepare-single→Task→merge 격리 위임) + frontmatter `allowed-tools`에 `Task` 추가 + `MCCP_WORK_ISOLATE_IMPLEMENT` kill switch + `next-step` HALT preflight 보존 + merge `verdict != ok`(특히 `invariant-violation`) HARD halt Forbidden 항목.
+- **`.claude-plugin/plugin.json`** — `1.20.1 → 1.20.2`.
+- **`scripts/lib/renderer/{html,markdown}.js`** + **`tests/i18n-surface.test.js`** — footer version `v1.20.1 → v1.20.2` 동기(surface drift 0).
+- **`.gitignore`** — `.claude/state/dispatches/`(envelope IPC working-tree 상태) 제외 추가.
+- **`CLAUDE.md`** — §1.4 게이트 표 work implement isolation 1행 + §4 `MCCP_WORK_ISOLATE_IMPLEMENT` 토글.
 
 ## [1.20.1] — 2026-07-02
 

@@ -75,6 +75,12 @@ ECC/
 .impeccable/*
 !.impeccable/design.json
 
+# work-context-isolation M1 — dispatch envelope IPC state. Written by
+# /mccp:work Step 3 single-worker delegation (dispatch-cli.js prepare-single).
+# Per-session working-tree-only IPC between controller + worker; never committed
+# (sources of truth remain receipts + STATE.md). Mirrors .claude/state/*.lock.
+.claude/state/dispatches/
+
 # v1.5.0-m1 — session-ledger repo opt-in scope. Default is global
 # (~/.local/share/ecc-homunculus/projects/<projectId>/.session-ledgers/),
 # but MCCP_SESSION_LEDGER_SCOPE=repo or hybrid writes here too. Per-session

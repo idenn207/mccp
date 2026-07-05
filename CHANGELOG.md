@@ -2,7 +2,28 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.3] — 2026-07-05
+
+P1 — Codex dual-review 무결성 복구 (cross-gate dedupe false-skip, 단일 patch). cross-gate dedupe가 PR-step Codex를 skip할지 결정할 때 실제 Codex verdict가 아니라 receipt-write 시 **항상 `true`로 default되는 `resolution.converged`**를 검사하던 결함을 닫는다. plan/implement Codex가 divergent(non-critical) 판정을 내려도 양쪽 receipt에 `converged=true`가 기록되어 PR-Codex가 조용히 skip되고 dual-review invariant가 무력화되던 경로였다. **설계 결정 Option B(fail-closed)**: `converged`를 재사용하지 않고 신규 필드 `resolution.codex_verdict`(enum `converged|divergent|critical|unavailable|skipped`)를 추가한다 — `converged`("작성자가 findings 처리를 확정")와 "Codex가 approve했다"의 의미를 분리(B#11). dedupe skip 조건은 이제 `residual empty` **AND** plan-codex `codex_verdict==='converged'` **AND** implement-codex `codex_verdict==='converged'`; 어느 하나라도 미충족(구 receipt의 필드 부재 포함)이면 fail-closed로 skip 안 함(= PR-Codex 실행). 무테스트였던 `evaluateForDedupe`에 회귀 테스트 6건 신설. **Codex Plan-R1 2 HIGH 흡수**: F1 stale `CODEX_DEDUPE_AT_PR` env 우회(`pr.md` Phase 2.5.2 진입 시 hard-reset + 현재 `skip_safe===true`에서만 재-export) · F2 design-critique `$VERDICT` 변수 재사용 위험(command body가 `$CODEX_VERDICT` **전용 변수**로 도출, 재사용 금지). receipt_hash 봉인: `codex_verdict`는 `resolution`에 들어가 subject_hash(정체성) 불변 + receipt_hash 자동 봉인, 구 receipt는 필드 부재로 bit-identical. plugin.json `1.20.2 → 1.20.3` + 양 footer(html/markdown) + i18n 스냅샷 테스트 동기.
+
+### Added
+
+- **`scripts/receipt/tests/dedupe.test.js`** — `evaluateForDedupe` 회귀 6건(무테스트 critical 경로): `codexConverged` fail-closed(legacy `converged=true`가 verdict 부재 시 converged 아님) · 양쪽 converged + residual 없음 → skip_safe=true · 한쪽 divergent → false · 한쪽 codex_verdict 부재 → false(fail-closed) · plan receipt 부재 → false · residual 존재 → false. `buildReceipt`+`writeReceipt`로 write→read→dedupe 전체 경로 실증.
+- **`scripts/lib/tests/pr-phase-helpers/finalize-receipt.test.js`** — `codex_outcome → codex_verdict` 매핑 테스트(invoked→converged, disabled/skipped/deduped→skipped, unknown→forward 없음).
+
+### Changed
+
+- **`scripts/receipt/schema.js`** — `resolution.codex_verdict` optional enum 추가(present-only, 부재 허용). `CODEX_VERDICT_VALUES` export.
+- **`scripts/receipt/write.js`** — `--codex-verdict` 인자 수용 → resolution에 반영(미전달 시 필드 omit → fail-closed). receipt_hash 봉인 경로 유지.
+- **`scripts/receipt/dedupe.js`** — `evaluateForDedupe` convergence 검사를 `codex_verdict==='converged'` 기반 fail-closed로 변경(`codexConverged` helper 신설). convergence 블록이 raw `codex_verdict`도 노출.
+- **`scripts/lib/pr-phase-helpers/finalize-receipt.js`** — `deriveCodexFlags`가 `codex_outcome`→`--codex-verdict` forward(PR-codex receipt audit 완결성).
+- **`scripts/receipt/cli.js`** — `write` help에 `--codex-verdict` 노출.
+- **`commands/plan.md`** + **`commands/prp-implement.md`** — Codex invoke 뒤 `$CODEX_VERDICT` 전용 변수 도출(codex-bridge.parseVerdict, disabled→skipped/advisory→unavailable) + receipt-write에 `--codex-verdict` forward(design-critique `$RECEIPT_VERDICT`와 분리).
+- **`commands/pr.md`** — Phase 2.5.2 진입 시 stale `CODEX_DEDUPE_AT_PR` hard-reset(unset) + 현재 `skip_safe===true`에서만 재-export(Codex R1 F1). convergence 설명을 codex_verdict 기준으로 갱신.
+- **`.claude-plugin/plugin.json`** — `1.20.2 → 1.20.3`.
+- **`scripts/lib/renderer/{html,markdown}.js`** + **`tests/i18n-surface.test.js`** — footer version `v1.20.2 → v1.20.3` 동기(surface drift 0).
 
 ## [1.20.2] — 2026-07-04
 

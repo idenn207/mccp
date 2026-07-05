@@ -128,6 +128,18 @@ function buildReceipt(args) {
   };
   const resolution = readJsonIfPresent(args['resolution-file'], defaultResolution);
 
+  // v1.20.3 — codex_verdict (Option B). The real Codex adversarial-review
+  // verdict is forwarded here so cross-gate dedupe checks the actual outcome
+  // instead of resolution.converged (which defaults true). Present-only: when
+  // --codex-verdict is absent the field is OMITTED (not set null) so legacy
+  // receipts stay bit-identical and dedupe fail-closes on absence. subject_hash
+  // excludes resolution, so identity is unaffected; receipt_hash includes it, so
+  // the value is sealed for new receipts. Enum validation lives in schema.js.
+  const codexVerdict = args['codex-verdict'];
+  if (typeof codexVerdict === 'string' && codexVerdict.length > 0) {
+    resolution.codex_verdict = codexVerdict;
+  }
+
   const existing = readReceipt(repoRoot, gateId, decisionId);
   let round = args.round !== undefined ? parseInt(args.round, 10) : 1;
   if (args['auto-round'] && existing && Number.isInteger(existing.round)) {

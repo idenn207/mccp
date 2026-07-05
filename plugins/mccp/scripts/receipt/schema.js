@@ -19,6 +19,13 @@ const GATE_IDS = [
 
 const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
 
+// v1.20.3 — cross-gate dedupe integrity. The real Codex adversarial-review
+// verdict, distinct from resolution.converged (which means "writer finalized
+// findings", not "Codex approved" — B#11 semantic split). Enum mirrors
+// codex-bridge.parseVerdict outputs plus 'skipped' for disabled/skip paths.
+// Present-only + fail-closed: absence reads as NOT converged in dedupe.
+const CODEX_VERDICT_VALUES = ['converged', 'divergent', 'critical', 'unavailable', 'skipped'];
+
 const SHA256_RE = /^sha256:[0-9a-f]{64}$/;
 const GIT_SHA_RE = /^[0-9a-f]{7,40}$/;
 const DECISION_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -117,6 +124,16 @@ function validate(receipt) {
             'resolution.open_questions[' + i + '].severity must be one of: ' + SEVERITIES.join(', '));
         }
       });
+    }
+    // v1.20.3 — codex_verdict (Option B). Present-only optional enum; legacy
+    // receipts without it validate unchanged. Mirrors design_critique_verdict's
+    // shape. Cross-gate dedupe (dedupe.js#evaluateForDedupe) treats absence as
+    // fail-closed (cannot skip PR-Codex).
+    if (r.codex_verdict !== null && r.codex_verdict !== undefined) {
+      req(typeof r.codex_verdict === 'string' &&
+        CODEX_VERDICT_VALUES.indexOf(r.codex_verdict) !== -1,
+        'resolution.codex_verdict must be one of: ' +
+        CODEX_VERDICT_VALUES.join(', ') + ' (or absent)');
     }
   }
 
@@ -742,6 +759,7 @@ module.exports = {
   PHASES: PHASES,
   GATE_IDS: GATE_IDS,
   SEVERITIES: SEVERITIES,
+  CODEX_VERDICT_VALUES: CODEX_VERDICT_VALUES,
   SHA256_RE: SHA256_RE,
   GIT_SHA_RE: GIT_SHA_RE,
   DECISION_ID_RE: DECISION_ID_RE,

@@ -95,6 +95,29 @@ test('enumerate — top-level 레거시 plan(.claude/PRPs/plans) 스캔 (LOW#1: 
   assert.equal(oqs.length, 1, 'top-level 레거시 plan 의 active OQ 가 surface');
 });
 
+test('enumerate — 정렬: in-progress 마일스톤이 risk/oq 보다 앞(kindRank nullish)', () => {
+  // 회귀: kindRank[milestone]=0 이 `|| 9` falsy 단락으로 9 가 되면 milestone 이 맨 뒤로
+  // 밀렸다(주석 명시 우선순위와 정반대). `?? 9` 로 rank 0 보존 → milestone 이 맨 앞.
+  const root = mkRepo();
+  fs.writeFileSync(path.join(root, '.claude/plans/a.plan.md'), PLAN); // risk + oq
+  fs.writeFileSync(path.join(root, '.claude/prds/p.prd.md'), PRD); // in-progress milestone
+  const out = enumerate({ repoRoot: root });
+  assert.equal(out.items[0].kind, 'milestone', 'milestone(rank 0)이 맨 앞');
+  const kinds = out.items.map((i) => i.kind);
+  assert.ok(kinds.indexOf('milestone') < kinds.indexOf('risk'), 'milestone 이 risk 앞');
+});
+
+test('enumerate — scope: completed/ 아카이브 제외(derive scope 정합)', () => {
+  // 회귀: enumerate scope 를 derive PLAN_DIRS(SSoT)와 정합. completed/ 는 derive
+  // 미표시(버튼 미부여)라 마킹해도 대시보드엔 무효 → audit 대상에서 제외돼야 한다.
+  const root = mkRepo();
+  fs.mkdirSync(path.join(root, '.claude', 'PRPs', 'plans', 'completed'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.claude/PRPs/plans/completed/old.plan.md'), PLAN);
+  const out = enumerate({ repoRoot: root });
+  const fromCompleted = out.items.filter((i) => String(i.source).includes('completed/'));
+  assert.equal(fromCompleted.length, 0, 'completed/ 항목은 대시보드 미표시 → enumerate 제외');
+});
+
 test('enumerate — --limit cap + truncated 신호', () => {
   const root = mkRepo();
   fs.writeFileSync(path.join(root, '.claude/plans/a.plan.md'), PLAN);

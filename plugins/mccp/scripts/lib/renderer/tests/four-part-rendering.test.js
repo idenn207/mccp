@@ -220,6 +220,9 @@ test('F2 absorption — derive-normalized receipt shape (gate field, not gate_id
 });
 
 test('null when no milestone-history data', () => {
-  const out = renderMilestoneHistory({ sources: {} }, formatUtils, {});
+  // cwd 를 아카이브 PRD 가 없는 디렉토리(__dirname)로 고정(hermetic) —
+  // milestone-history 는 이제 .claude/prds/complete/ 를 직접 스캔하므로
+  // process.cwd() 폴백이 실제 repo 아카이브를 읽지 않도록 차단한다.
+  const out = renderMilestoneHistory({ sources: {} }, formatUtils, {}, { cwd: __dirname });
   assert.equal(out, null);
 });

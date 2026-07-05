@@ -106,6 +106,34 @@ test('receipt·git 모두 null → 날짜 미상 (graceful floor)', () => {
   assert.ok(out.html.includes('날짜 미상'));
 });
 
+test('아카이브된 PRD(.claude/prds/complete/)의 완료 마일스톤이 이력에 포함된다 (완료 이력 유지)', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-ms-arch-'));
+  try {
+    const archDir = path.join(dir, '.claude', 'prds', 'complete');
+    fs.mkdirSync(archDir, { recursive: true });
+    const body = [
+      '## Delivery Milestones', '',
+      '| # | Milestone | Outcome | Status | Plan |',
+      '| --- | --- | --- | --- | --- |',
+      '| 1 | ArchivedMilestone | out | complete | .claude/plans/arch.plan.md |',
+      '',
+    ].join('\n');
+    fs.writeFileSync(path.join(archDir, 'arch.prd.md'), body);
+    // 활성 plan 0개 — 아카이브 스캔만으로 완료 이력이 나와야 한다.
+    const out = renderMilestoneHistory({ sources: {} }, formatUtils, {}, {
+      cwd: dir,
+      gitCommitTime: () => '2026-07-01T00:00:00.000Z',
+    });
+    assert.ok(out, '아카이브 완료 마일스톤이 있으면 null 이 아니어야 한다');
+    assert.ok(out.html.includes('ArchivedMilestone'));
+    assert.ok(out.md.includes('ArchivedMilestone'));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('stale 셀 경로(.claude/plans/) → completed/ archive basename fallback (F2)', () => {
   const STALE_PRD = path.resolve(CWD, '.claude/prds/stale.prd.md');
   const body = [

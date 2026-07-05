@@ -145,6 +145,62 @@ Before writing the plan, search the codebase for conventions the implementation 
 
 If no similar code exists, state that explicitly. Do not invent a pattern.
 
+## Phase 2.5 — MULTI-PERSPECTIVE FAN-OUT (opt-in, PRD mode, v1.20.4 M1)
+
+> Runs **only** in PRD artifact mode with `MCCP_PLAN_FANOUT=on` (explicit opt-in — default off preserves the "inline by default, no subagent by default" contract at the top of this command). It strengthens GROUND by fanning out four **read-only** perspectives (architect / security / test / explorer) through the `Workflow` primitive, then injects a deterministic `## Multi-Perspective Fan-out` section into the plan body. The fan-out workers are dedicated read-only agents (`mccp:fanout-*`, tools: Read/Grep/Glob) — write/edit/bash are absent from their toolset, so they **cannot** modify files or write receipts. The Codex dual-review gate (Phase 5) and the receipt chain are therefore untouched: the fan-out output rides inside `plan_hash` and is reviewed like any other plan content. **Fail-open**: any skip / throw / unavailable Workflow falls back to the inline Pattern Grounding above and NEVER blocks the plan.
+
+### 2.5.1 — Resolve run/skip (mode × PRD-mode × cost-tier oracle)
+
+```bash
+# PRD mode = the /mccp:plan input is a .prd.md path (mirror of Phase 4.5).
+PLAN_INPUT="<original /mccp:plan argument>"
+PRD_MODE=false
+case "$PLAN_INPUT" in *.prd.md) PRD_MODE=true ;; esac
+
+# Plugin root is passed as argv (not embedded in the single-quoted script) —
+# mirror of the prp-implement ROUTE_JSON block convention.
+FANOUT_JSON=$(node -e '
+  const root = process.argv[1];
+  const prdMode = process.argv[2] === "true";
+  const budget = require(root + "/scripts/lib/plan-fanout/budget");
+  const costState = require(root + "/scripts/lib/cost-state");
+  const r = budget.resolveFanout({
+    env: process.env,
+    prdMode: prdMode,
+    costStateRead: costState.readState,
+    tierFor: costState.tierFor,
+  });
+  process.stdout.write(JSON.stringify(r));
+' "${CLAUDE_PLUGIN_ROOT}" "$PRD_MODE")
+FANOUT_RUN=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).run?"1":"0")}catch{process.stdout.write("0")}')
+FANOUT_REASON=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reason||"unknown")}catch{process.stdout.write("parse-error")}')
+FANOUT_MINREM=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).minRemaining||0))}catch{process.stdout.write("0")}')
+
+if [ "$FANOUT_RUN" != "1" ]; then
+  echo "[mccp:plan-fanout] skipped reason=$FANOUT_REASON — using inline Pattern Grounding" 1>&2
+fi
+```
+
+`resolveFanout` skips (first match wins) on: `MCCP_PLAN_FANOUT` != `on` (`env-off`), non-PRD input (`not-prd-mode`), missing/corrupt cost-state (`cost-state-unknown` — the expensive fan-out fails **closed**, never spends blind), or cost-tier ∈ {notice, warning, critical} (`tier-*`). Only `ok-run` proceeds to 2.5.2.
+
+### 2.5.2 — Fan out (run path only)
+
+When `FANOUT_RUN=1`, invoke the `Workflow` tool. This slash-command instruction plus the user's explicit `MCCP_PLAN_FANOUT=on` satisfies the Workflow opt-in contract:
+
+    Workflow({
+      scriptPath: "${CLAUDE_PLUGIN_ROOT}/scripts/workflows/plan-fanout.js",
+      args: { prdPath: "<PRD path>", planPath: "<draft plan path or null>", minRemaining: <FANOUT_MINREM> }
+    })
+
+The script spawns the four read-only `mccp:fanout-*` perspectives in parallel (`effort:'low'`), applies its own budget pre-guard (skips without spawning a single agent when a `+Nk` target cannot cover the fleet), synthesizes deterministically, and returns `{ markdown, coverage, spent, skipped }`.
+
+### 2.5.3 — Inject or fall back (fail-open)
+
+- **Success** (`skipped` falsy AND `coverage > 0`): inject the returned `markdown` verbatim into the plan body during Phase 4 WRITE (it becomes part of `plan_hash` and is reviewed by the Phase 5 Codex gate). Log `[mccp:plan-fanout] coverage=<N>/4 spent=<spent>`.
+- **Skip / empty / throw / Workflow unavailable** (`skipped:true`, `coverage===0`, a tool error, or the primitive not present in this install): DO NOT block. Keep the inline Pattern Grounding above as the grounding source and log the reason. Fan-out is a GROUND *enhancement*, never a gate.
+
+Kill switch + tuning env (documented in CLAUDE.md §4): `MCCP_PLAN_FANOUT` (default off), `MCCP_PLAN_FANOUT_BUDGET` (per-agent token estimate, default 150000), `MCCP_PLAN_FANOUT_AUTODISABLE_TIER` (default `notice,warning,critical`).
+
 ## PRD Artifact Output
 
 When called with a `.prd.md` file, write the plan to `.claude/plans/{kebab-case-name}.plan.md` using this structure:

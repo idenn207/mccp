@@ -1,0 +1,24 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "workflow-orchestration-m1-plan-fanout",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.20.4",
+    "completed_at": "2026-07-05T10:05:34.601Z",
+    "commit_sha": "6bfe08e0e6d898a24dce299348a0f989dcfafbaa",
+    "plan_basename": "workflow-orchestration-m1-plan-fanout.plan.md",
+    "plan_file_hash": "sha256:aa75e386bcf487204523c6ee6c8e57b2af33195f93c6e59d7214380e1f539456",
+    "risks_closed": [
+      "fan-out worker가 read-only를 어기고 편집·명령 실행 (Codex F1)",
+      "비용 폭증 (Codex F2)",
+      "`Workflow` opt-in 계약 — command-body가 invocation opt-in 아님 (Codex F3)",
+      "fan-out이 meta 품질을 실제로 안 높임(가설 반증)",
+      "dual-review 게이트 손상",
+      "Workflow 결정론 깨짐(`Date.now`/`Math.random` throw)",
+      "Workflow 미가용 환경(plugin-only install)"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:115b77e230814e25b51aad8e396bc10952f3355812d0fbf1c3ee2665a2e5031d"
+  }
+}

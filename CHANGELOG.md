@@ -2,7 +2,25 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.4] — 2026-07-05
+
+workflow-orchestration M1 (plan fan-out MVP, 단일 patch). `/mccp:plan`의 GROUND(Pattern Grounding)를 **read-only 다관점 병렬 fan-out**으로 강화한다 — architect/security/test/explorer 4관점을 **전용 read-only agent**(`fanout-*`, tools: Read/Grep/Glob)로 `Workflow` primitive `agent()`에 병렬 spawn → pure 스크립트가 synthesize → plan body에 `## Multi-Perspective Fan-out` 섹션 주입. write/edit/bash **도구 부재**로 파일 변형·receipt write가 구조적으로 불가 → 기존 Codex dual-review·receipt chain은 무손상이며(fan-out 결과는 `plan_hash`에 포함돼 review됨), PRD "receipt attribution" Open Question은 M1에서 발생하지 않아 M2로 자연 이연. **Codex Plan-R1 3 finding 흡수**: F1(HIGH) read-only 미강제(`security-reviewer`/`tdd-guide`가 write-capable) → 전용 read-only agent 도구 부재로 mechanical 강제. F2(HIGH) budget hard ceiling 미강제(`budget`은 read-only라 설정 불가) → 정직 재서술: fleetSize 고정+`effort:'low'` 구조적 상한 + `budget.remaining()` 사전 skip + cost-state 없으면 skip(고비용 fail-closed) + `shouldSkipForBudget` smoke. F3(MEDIUM) command-body가 opt-in 아님 → `MCCP_PLAN_FANOUT` default off 명시 opt-in + CLAUDE.md 별도 문서화. 비용: default-off + cost-tier autoDisable(notice+) + fleetSize 4 고정. Workflow 샌드박스에 `require` 부재 → workflow 스크립트는 oracle의 self-contained 포트(oracle 3종은 tested reference + `budget.resolveFanout`은 caller-side 게이트로 실사용). plugin.json `1.20.2 → 1.20.4` + 양 footer(html/markdown) 동기(surface drift 0). 게이트: Implement-Codex cross-gate dedupe(plan-codex 수렴, 새 implement-time 결정 0).
+
+### Added
+
+- **`scripts/lib/plan-fanout/{perspectives,budget,synthesize}.js`** — pure/dep-free oracle 3종. perspectives(4 read-only agent 카탈로그 + `PERSPECTIVE_SCHEMA` + `buildPerspectivePrompt`), budget(`parseFanoutMode` default-off + `resolveFanout` mode×PRD×cost-tier 결정트리 + `shouldSkipForBudget` 예산 predicate, briefing/cost-guard mirror), synthesize(관점 결과 → severity-ranked `## Multi-Perspective Fan-out` 마크다운, 부분/전부-null fallback sentinel). 각 `tests/*.test.js` 총 31건.
+- **`scripts/workflows/plan-fanout.js`** — Workflow 스크립트(`export const meta` 순수 리터럴 + budget 사전 가드 + `parallel` fan-out + synthesize). 샌드박스 `require` 부재로 oracle의 self-contained 포트(catalog/prompt/schema/synthesize).
+- **`agents/fanout-{architect,security,test,explorer}.md`** — 4 전용 read-only agent(`tools: [Read, Grep, Glob]`, Prompt Defense Baseline mirror). write/edit/bash 부재 = read-only mechanical 강제(Codex F1).
+
+### Changed
+
+- **`commands/plan.md`** — Pattern Grounding 뒤 `## Phase 2.5 — MULTI-PERSPECTIVE FAN-OUT` 추가(resolveFanout run/skip 오라클 → Workflow 호출 지시 → markdown 주입 or 인라인 fallback, fail-open).
+- **`.claude-plugin/plugin.json`** — `1.20.2 → 1.20.4`.
+- **`scripts/lib/renderer/{html,markdown}.js`** — footer version `v1.20.2 → v1.20.4` 동기(§3.7 surface drift 0).
+- **`CLAUDE.md`** — §1.4 표 1행(plan fan-out) + §4 `MCCP_PLAN_FANOUT`/`MCCP_PLAN_FANOUT_BUDGET`/`MCCP_PLAN_FANOUT_AUTODISABLE_TIER` 토글.
+- **`.claude/prds/workflow-orchestration.prd.md`** — Delivery Milestones M1 `pending → in-progress` + Plan cell(`/mccp:plan`이 생성 시 기록).
 
 ## [1.20.3] — 2026-07-05
 

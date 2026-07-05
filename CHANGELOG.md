@@ -2,7 +2,23 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.5] — 2026-07-06
+
+audit-remediation P2 (session-continuity silent-failure, PRD `audit-remediation-followup` milestone 1/5). hook 레이어가 SessionEnd `.end` marker를 조용히 누락하던 root cause를 **fail-loud-open**으로 닫는다. `session-end-trace.js`가 hook-trace 모듈 로드 실패 시 marker 없이 return하던 결함(B#4, 30+ 세션 누락의 근본원인)을 hook-trace 독립 `writeDegradedEndMarker`(fs 직접 write + sessionId path-token self-검증)로 보장하고, `markSessionEndResilient`가 main/runSync 양 경로에서 폴백 + loud stderr로 관측화(B#5). `session-end-marker.js` 중첩 catch도 wholesale 실패 시 degraded marker 시도. `session-end.js`(Stop per-turn)가 idle 대화 세션 lease를 `renewLease`로 heartbeat해 `LEASE_LIVE_MS(10분)` false crash 방지(B#10). `loop-counter.js`/`state-writer.js` `tryAcquire`의 fd 누수를 try/finally로 차단(B#17). CLAUDE.md §3.2 state-lock "atomic"→"advisory" 문서 정정(B#16). **Codex Implement-R1 2 finding 흡수**: F1(HIGH) Stop heartbeat가 `process.cwd()` 대신 event.cwd/session_id 사용(multi-worktree no-op 방지). F2(MEDIUM) degraded marker가 `<sid>.lease`도 release해 evictLRU 24h stuck 방지. plugin.json `1.20.4 → 1.20.5` + 양 footer(html/markdown) 동기. 게이트: Implement-Codex cross-gate dedupe(plan-codex D1-D5 수렴, 새 implement-time 결정 0) — codex_verdict 미stamp라 PR-Codex가 실제 diff 재검토.
+
+### Added
+- `session-end-trace.js` — `writeDegradedEndMarker(repoRoot, sessionId)` (hook-trace 독립 `.end` marker + lease release, fail-open) + `markSessionEndResilient(repoRoot, sessionId, ht)` (ht 폴백 + loud stderr) export.
+
+### Fixed
+- **B#4** SessionEnd marker silent-failure — hook-trace 로드 실패 시 degraded marker 보장 (`.end` 존재로 crash-alert 억제).
+- **B#5** 실패 은폐 — `session-end-trace`/`session-end-marker`가 degraded 경로를 loud stderr로 표면화 (generic `run-with-flags` runner는 fail-open 계약 보존).
+- **B#10** idle 대화 세션 false crash — `session-end.js` Stop per-turn `renewLease` heartbeat (event.cwd/session_id).
+- **B#17** `loop-counter.js`/`state-writer.js` `tryAcquire` fd 누수 — write/close try/finally.
+
+### Changed
+- **B#16** CLAUDE.md §3.2 — STATE.md state-lock "atomic lock" → "advisory lock (fail-soft ~1s, last-writer-wins)" 문서 정정.
 
 ## [1.20.4] — 2026-07-05
 

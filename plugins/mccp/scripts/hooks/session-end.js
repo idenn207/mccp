@@ -184,11 +184,19 @@ async function main() {
   // Parse stdin JSON to get transcript_path; fall back to env var on missing,
   // empty, or non-string values as well as on malformed JSON.
   let transcriptPath = null;
+  let stopCwd = null;
+  let stopSid = null;
   try {
     const input = JSON.parse(stdinData);
     if (input && typeof input.transcript_path === 'string' && input.transcript_path.length > 0) {
       transcriptPath = input.transcript_path;
     }
+    // B#10 / Codex R1 F1 — capture the Stop event's cwd + session_id so the
+    // idle-lease heartbeat below refreshes the SAME lease SessionStart acquired
+    // (event.cwd / event.session_id), not a process.cwd()-derived mismatch that
+    // would make renewLease a no-op in multi-worktree / relaunched-cwd runs.
+    if (input && typeof input.cwd === 'string' && input.cwd) stopCwd = input.cwd;
+    if (input && typeof input.session_id === 'string' && input.session_id) stopSid = input.session_id;
   } catch {
     // Malformed stdin: fall through to the env-var fallback below.
   }
@@ -287,6 +295,24 @@ async function main() {
 
     writeFile(sessionFile, template);
     log(`[SessionEnd] Created session file: ${sessionFile}`);
+  }
+
+  // B#10 — idle-lease heartbeat. renewLease only fires on tool writes
+  // (hook-trace recordWrite), so a tool-less conversation session's lease ages
+  // past LEASE_LIVE_MS (10min) and a later SessionStart false-flags it as
+  // crashed. The Stop hook fires every turn, so renewing here keeps idle
+  // sessions live. Codex R1 F1 — use the Stop event's cwd/session_id (same as
+  // SessionStart acquireLease); renewLease is refresh-only (no lazy create), so
+  // it never fabricates a lease for a session that never started. Loud
+  // fail-open per CLAUDE.md §3.4 — never throws.
+  try {
+    const hookTrace = require('../lib/hook-trace');
+    const leaseRoot = stopCwd || process.cwd();
+    const leaseSid = stopSid || resolveSessionId();
+    if (leaseSid) hookTrace.renewLease(leaseRoot, leaseSid);
+  } catch (leaseErr) {
+    process.stderr.write('[mccp:hook-trace] WARNING: SessionEnd idle-lease renew threw: ' +
+      (leaseErr && leaseErr.message ? leaseErr.message : leaseErr) + ' (allow)\n');
   }
 
   // v1.5.0-m1 / v1.4.0-m2 — heartbeat-then-finalize the session ledger so the

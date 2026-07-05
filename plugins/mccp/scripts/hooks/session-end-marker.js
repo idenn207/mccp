@@ -22,16 +22,40 @@ function run(rawInput) {
   const output = rawInput || '';
 
   // v0.2.7 L5 — hook-trace end marker + consolidate. Best-effort, never blocks
-  // the rest of SessionEnd. Caller emits raw payload as JSON; we parse here
-  // so the observer cleanup path below stays unaffected when parsing fails.
+  // the rest of SessionEnd. fail-loud-open (B#5): a wholesale L5 failure (parse
+  // / module load / runSync throw) still attempts a hook-trace-independent
+  // degraded end marker so the session is not false-flagged as crashed, and the
+  // failure is surfaced LOUDLY instead of being swallowed by the old single
+  // catch that exited success.
+  let event = null;
   try {
-    const event = rawInput ? JSON.parse(rawInput) : null;
-    if (event) {
-      const trace = require('./session-end-trace');
-      trace.runSync(event);
-    }
+    event = rawInput ? JSON.parse(rawInput) : null;
   } catch (err) {
-    process.stderr.write('[SessionEnd] hook-trace L5 skipped: ' + err.message + '\n');
+    process.stderr.write('[SessionEnd] hook-trace L5 payload parse failed: ' + err.message + '\n');
+  }
+  if (event) {
+    let trace = null;
+    try {
+      trace = require('./session-end-trace');
+    } catch (err) {
+      process.stderr.write('[SessionEnd] hook-trace L5 module load failed: ' + err.message + '\n');
+    }
+    if (trace) {
+      try {
+        trace.runSync(event);
+      } catch (err) {
+        // runSync should not throw (markSessionEndResilient swallows internally),
+        // but if it does we still guarantee a degraded marker and surface loudly.
+        process.stderr.write('[SessionEnd] hook-trace L5 runSync failed — writing degraded marker: ' + err.message + '\n');
+        try {
+          const repoRoot = event.cwd || process.cwd();
+          const sid = event.session_id || process.env.CLAUDE_SESSION_ID || null;
+          if (sid) trace.writeDegradedEndMarker(repoRoot, sid);
+        } catch (degErr) {
+          process.stderr.write('[SessionEnd] degraded marker also failed: ' + degErr.message + '\n');
+        }
+      }
+    }
   }
 
   const sessionId = resolveSessionId();

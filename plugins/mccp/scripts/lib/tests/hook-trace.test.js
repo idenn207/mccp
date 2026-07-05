@@ -281,3 +281,16 @@ test('listActiveLeases: session active beyond legacy 5-minute window is still ac
     assert.strictEqual(active.longSess.sessionId, 'longSess');
   });
 });
+
+test('renewLease: root-sensitive — refreshes only the lease under the same root (Codex F1)', () => {
+  withRepoRoot((rootA) => {
+    withRepoRoot((rootB) => {
+      ht.acquireLease(rootA, 'sX');
+      const refreshed = ht.renewLease(rootA, 'sX');
+      assert.ok(refreshed, 'renewLease under the acquire root must refresh the lease');
+      const other = ht.renewLease(rootB, 'sX');
+      assert.strictEqual(other, null,
+        'renewLease under a different root is a no-op — justifies session-end.js using event.cwd (F1)');
+    });
+  });
+});

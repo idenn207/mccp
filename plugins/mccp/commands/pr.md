@@ -332,6 +332,18 @@ DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decisio
   --command mccp:pr \
   --args "$ARGUMENTS")
 
+# v1.20.3 (Task 7, Codex R1 F1) — hard-reset any inherited/stale CODEX_DEDUPE_AT_PR
+# before evaluating dedupe. This flag is NOT a user knob — it is auto-derived
+# fresh below and consumed by 2.5.3's `--dedupe`. If a prior chain (or a shell
+# working around a stale receipt) left it exported, honoring it would skip
+# PR-Codex on this run regardless of the CURRENT convergence state — a dual-review
+# bypass. evaluateForDedupe is now fail-closed on codex_verdict, but the env flag
+# is a SEPARATE bypass surface, so we neutralize it here and let ONLY the fresh
+# skip_safe re-export it. (Phase 0.3's mutex preflight already ran; unsetting here
+# never masks that guard — it fired earlier on the stale value if a conflict
+# existed.)
+unset CODEX_DEDUPE_AT_PR
+
 # <plan-path> is whatever Phase 2 discovered under .claude/plans/. If Phase 2
 # found multiple plans, prefer the one whose basename matches ${DECISION_SLUG}.
 DEDUPE_JSON=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js dedupe \
@@ -346,7 +358,7 @@ Parse the JSON output (`ok`, `skip_safe`, `reason`, `residual`, `convergence`):
 | Case | Action |
 |---|---|
 | `ok === false` (plan parse failed or git failure) | **Fail closed.** Do NOT mark as deduped. Fall through to 2.5.3 with the **full** PR diff as the focus areas. Record `> dedupe inconclusive: <reason>` above the `## Codex Adversarial Review` section. |
-| `ok === true && skip_safe === true` | Export `CODEX_DEDUPE_AT_PR=1` (v0.2.8 Task 2.6.1 — Phase 2.5.7 forwards `--codex-dedupe-at-pr` to receipt). Record the dedupe note (template below) and proceed to 2.5.3 with `CODEX_OUTCOME=deduped` (which short-circuits the Codex call). The lock-enter still happens so the review-only invariant is enforced across body construction. |
+| `ok === true && skip_safe === true` | Export `CODEX_DEDUPE_AT_PR=1` (v0.2.8 Task 2.6.1 — Phase 2.5.7 forwards `--codex-dedupe-at-pr` to receipt). **This is the ONLY place the flag may be set** — the entry `unset` above cleared any stale value, so `--dedupe` at 2.5.3 now reflects strictly the current evaluation. Since `evaluateForDedupe` is fail-closed on `codex_verdict` (v1.20.3), `skip_safe===true` here already means both gates recorded `codex_verdict==='converged'`. Record the dedupe note (template below) and proceed to 2.5.3 with `CODEX_OUTCOME=deduped` (short-circuits the Codex call). The lock-enter still happens so the review-only invariant is enforced across body construction. |
 | `ok === true && skip_safe === false && residual.length > 0` | Feed `residual` as the focus areas to Codex in 2.5.3. Record a partial-dedupe note (template below). Do **not** export `CODEX_DEDUPE_AT_PR` — partial dedupe still runs Codex on residual. |
 
 Dedupe note template (write into the in-memory `## Codex Adversarial Review` section that Phase 4 will inject):
@@ -363,7 +375,7 @@ Residual areas reviewed:
 - <residual file 2>
 ```
 
-Use `convergence.plan_codex_receipt.round` and `convergence.implement_codex_receipt.round` from the JSON for N1 / N2. If either receipt is missing or `converged !== true`, the CLI sets `skip_safe = false` automatically with a `reason` like `"plan-codex receipt missing or not converged"`. Treat that as the normal non-deduped path.
+Use `convergence.plan_codex_receipt.round` and `convergence.implement_codex_receipt.round` from the JSON for N1 / N2. Each `convergence.*_codex_receipt` also carries `codex_verdict` (the real Codex outcome). If either receipt is missing or its `codex_verdict !== 'converged'` (v1.20.3 — including a **missing** verdict on a legacy receipt, which fail-closes), the CLI sets `skip_safe = false` automatically with a `reason` like `"plan-codex codex_verdict !== \"converged\" (or receipt missing) — dual-review required (fail-closed)"`. Treat that as the normal non-deduped path — PR-Codex runs.
 
 ### 2.5.3 — Invoke Codex with --base (v0.2.8 Task 2.6.1-followup F10 helper)
 

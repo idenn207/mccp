@@ -99,6 +99,24 @@ function deriveCodexFlags(codexResult) {
   } else if (codexResult.codex_outcome === 'deduped') {
     flags.push('--codex-dedupe-at-pr');
   }
+  // v1.20.3 — forward the Codex verdict onto the mccp-pr-codex receipt for audit
+  // completeness. codex-runner fail-stops (exit 12) on any non-'ok' / blocking
+  // review, so an 'invoked' outcome reaching finalize means Codex approved →
+  // 'converged'. disabled/skipped/deduped never ran Codex at the PR step →
+  // 'skipped'. Cross-gate dedupe reads plan/implement receipts (not this one),
+  // so this is audit-only, but keeps resolution.codex_verdict consistent across
+  // all three gate receipts. Present-only: absent codex_outcome forwards nothing.
+  const OUTCOME_TO_VERDICT = {
+    invoked: 'converged',
+    disabled: 'skipped',
+    skipped: 'skipped',
+    deduped: 'skipped',
+  };
+  const codexVerdict = OUTCOME_TO_VERDICT[codexResult.codex_outcome];
+  if (codexVerdict) {
+    flags.push('--codex-verdict');
+    flags.push(codexVerdict);
+  }
   if (codexResult.codex_actionable_findings === true) {
     flags.push('--codex-actionable-findings');
   }

@@ -11,10 +11,14 @@ const {
   parsePlanFiles,
   gitDiffNameOnly,
   computeResidual,
+  evaluateForDedupe,
+  codexConverged,
   buildPlannedMatcher,
   globToRegex,
   normalizePath,
 } = require('../dedupe');
+const { buildReceipt } = require('../write');
+const { writeReceipt } = require('../store');
 
 function git(repo, args) {
   return execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -339,4 +343,162 @@ test('computeResidual: requires planPath and baseRef', function () {
   const b = computeResidual({ planPath: 'x.md' });
   assert.strictEqual(b.ok, false);
   assert.ok(/baseRef required/.test(b.reason));
+});
+
+// ---------------------------------------------------------------------------
+// v1.20.3 — evaluateForDedupe convergence regression (P1 codex-dedupe-integrity).
+//
+// The critical bug: dedupe read resolution.converged (always defaults true at
+// write time) instead of the real Codex verdict, so a divergent review still
+// skipped PR-Codex. These tests write real plan-codex + implement-codex receipts
+// via buildReceipt (exercising write.js codex_verdict persistence) and assert
+// evaluateForDedupe fail-closes unless BOTH receipts carry
+// resolution.codex_verdict === 'converged' AND residual is empty.
+// ---------------------------------------------------------------------------
+
+const DEDUPE_PLAN_REL = '.claude/plans/feature-x.plan.md';
+const DEDUPE_DECISION = 'feature-x';
+
+// Write a gate receipt through buildReceipt so the codex_verdict actually flows
+// through write.js's resolution assembly + schema validation, then persist it.
+// verdict === undefined leaves the field absent (legacy / not-forwarded case).
+function writeGateReceipt(repo, gateId, verdict) {
+  const args = {
+    gate: gateId,
+    decision: DEDUPE_DECISION,
+    plan: DEDUPE_PLAN_REL,
+    cwd: repo,
+  };
+  if (verdict !== undefined) args['codex-verdict'] = verdict;
+  const built = buildReceipt(args);
+  return writeReceipt(built.repoRoot, built.receipt);
+}
+
+// Build a tmp repo with the plan committed, then the planned files implemented,
+// so the PR diff stays inside the planned set (residual empty). Returns { base }.
+// When extraFile is given it is committed alongside the planned files, forcing a
+// non-empty residual regardless of convergence.
+function setupDedupeRepo(repo, extraFile) {
+  writePlan(repo, VALID_PLAN_BODY);
+  gitQuiet(repo, ['add', '.']);
+  gitQuiet(repo, ['commit', '-m', 'add plan', '--quiet']);
+  const base = git(repo, ['rev-parse', 'HEAD']);
+  writeFileSync(repo, 'src/foo.ts', 'export const foo = 1;\n');
+  writeFileSync(repo, 'src/bar.ts', 'export const bar = 2;\n');
+  writeFileSync(repo, 'tests/foo.test.ts', 'test;\n');
+  if (extraFile) writeFileSync(repo, extraFile, 'export const extra = 3;\n');
+  gitQuiet(repo, ['add', '.']);
+  gitQuiet(repo, ['commit', '-m', 'implement', '--quiet']);
+  return { base: base };
+}
+
+test('codexConverged: only codex_verdict==="converged" is truthy (fail-closed)', function () {
+  assert.strictEqual(codexConverged(null), false);
+  assert.strictEqual(codexConverged({}), false);
+  assert.strictEqual(codexConverged({ resolution: {} }), false);
+  assert.strictEqual(codexConverged({ resolution: { converged: true } }), false,
+    'legacy converged=true without codex_verdict must NOT count as converged');
+  assert.strictEqual(codexConverged({ resolution: { codex_verdict: 'divergent' } }), false);
+  assert.strictEqual(codexConverged({ resolution: { codex_verdict: 'converged' } }), true);
+});
+
+test('evaluateForDedupe: both gates converged + residual empty → skip_safe true', function () {
+  const repo = mkTmpRepo();
+  try {
+    const { base } = setupDedupeRepo(repo);
+    writeGateReceipt(repo, 'mccp-plan-codex', 'converged');
+    writeGateReceipt(repo, 'mccp-implement-codex', 'converged');
+    const result = evaluateForDedupe({
+      cwd: repo,
+      planPath: DEDUPE_PLAN_REL,
+      baseRef: base,
+      decisionId: DEDUPE_DECISION,
+    });
+    assert.strictEqual(result.skip_safe, true, result.reason);
+    assert.ok(/both gates codex_verdict="converged"/.test(result.reason));
+    assert.strictEqual(result.convergence.plan_codex_receipt.codex_verdict, 'converged');
+    assert.strictEqual(result.convergence.implement_codex_receipt.codex_verdict, 'converged');
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('evaluateForDedupe: one gate divergent → skip_safe false (PR-Codex runs)', function () {
+  const repo = mkTmpRepo();
+  try {
+    const { base } = setupDedupeRepo(repo);
+    writeGateReceipt(repo, 'mccp-plan-codex', 'divergent');
+    writeGateReceipt(repo, 'mccp-implement-codex', 'converged');
+    const result = evaluateForDedupe({
+      cwd: repo,
+      planPath: DEDUPE_PLAN_REL,
+      baseRef: base,
+      decisionId: DEDUPE_DECISION,
+    });
+    assert.strictEqual(result.skip_safe, false);
+    assert.ok(/plan-codex codex_verdict/.test(result.reason), result.reason);
+    assert.strictEqual(result.convergence.plan_codex_receipt.converged, false);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('evaluateForDedupe: implement codex_verdict absent → skip_safe false (fail-closed)', function () {
+  const repo = mkTmpRepo();
+  try {
+    const { base } = setupDedupeRepo(repo);
+    writeGateReceipt(repo, 'mccp-plan-codex', 'converged');
+    writeGateReceipt(repo, 'mccp-implement-codex', undefined); // legacy: no verdict field
+    const result = evaluateForDedupe({
+      cwd: repo,
+      planPath: DEDUPE_PLAN_REL,
+      baseRef: base,
+      decisionId: DEDUPE_DECISION,
+    });
+    assert.strictEqual(result.skip_safe, false);
+    assert.ok(/implement-codex codex_verdict/.test(result.reason), result.reason);
+    assert.strictEqual(result.convergence.implement_codex_receipt.codex_verdict, null);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('evaluateForDedupe: plan receipt missing → skip_safe false', function () {
+  const repo = mkTmpRepo();
+  try {
+    const { base } = setupDedupeRepo(repo);
+    // Only the implement receipt exists — no plan-codex receipt.
+    writeGateReceipt(repo, 'mccp-implement-codex', 'converged');
+    const result = evaluateForDedupe({
+      cwd: repo,
+      planPath: DEDUPE_PLAN_REL,
+      baseRef: base,
+      decisionId: DEDUPE_DECISION,
+    });
+    assert.strictEqual(result.skip_safe, false);
+    assert.ok(/plan-codex codex_verdict/.test(result.reason), result.reason);
+    assert.strictEqual(result.convergence.plan_codex_receipt, null);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('evaluateForDedupe: residual present overrides both-converged → skip_safe false', function () {
+  const repo = mkTmpRepo();
+  try {
+    const { base } = setupDedupeRepo(repo, 'src/extra.ts'); // unplanned file in diff
+    writeGateReceipt(repo, 'mccp-plan-codex', 'converged');
+    writeGateReceipt(repo, 'mccp-implement-codex', 'converged');
+    const result = evaluateForDedupe({
+      cwd: repo,
+      planPath: DEDUPE_PLAN_REL,
+      baseRef: base,
+      decisionId: DEDUPE_DECISION,
+    });
+    assert.strictEqual(result.skip_safe, false);
+    assert.deepStrictEqual(result.residual, ['src/extra.ts']);
+    assert.ok(/residual files present/.test(result.reason), result.reason);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
 });

@@ -18,17 +18,37 @@ test('deriveCodexFlags: outcome=skipped + reason → --codex-skipped-at-pr + --c
   assert.strictEqual(flags[i + 1], 'no codex');
 });
 
-test('deriveCodexFlags: outcome=deduped → --codex-dedupe-at-pr only', () => {
+test('deriveCodexFlags: outcome=deduped → --codex-dedupe-at-pr + --codex-verdict skipped', () => {
+  // v1.20.3 — deduped never ran Codex at the PR step, so the audit verdict is
+  // 'skipped'. The upstream converged signal lives on the plan/implement receipts.
   const flags = deriveCodexFlags({ codex_outcome: 'deduped' });
-  assert.deepStrictEqual(flags, ['--codex-dedupe-at-pr']);
+  assert.deepStrictEqual(flags, ['--codex-dedupe-at-pr', '--codex-verdict', 'skipped']);
 });
 
-test('deriveCodexFlags: actionable findings → --codex-actionable-findings appended', () => {
+test('deriveCodexFlags: actionable findings → --codex-verdict converged + --codex-actionable-findings', () => {
+  // v1.20.3 — reaching finalize with outcome=invoked means codex-runner did not
+  // fail-stop (class ok, non-blocking) → 'converged'. Actionable findings are
+  // advisory (PR body inject) and tracked by their own flag.
   const flags = deriveCodexFlags({
     codex_outcome: 'invoked',
     codex_actionable_findings: true,
   });
-  assert.deepStrictEqual(flags, ['--codex-actionable-findings']);
+  assert.deepStrictEqual(flags, ['--codex-verdict', 'converged', '--codex-actionable-findings']);
+});
+
+test('deriveCodexFlags: codex_outcome → codex_verdict mapping (v1.20.3 Task 4)', () => {
+  const verdictOf = (outcome) => {
+    const flags = deriveCodexFlags({ codex_outcome: outcome });
+    const i = flags.indexOf('--codex-verdict');
+    return i === -1 ? null : flags[i + 1];
+  };
+  assert.strictEqual(verdictOf('invoked'), 'converged');
+  assert.strictEqual(verdictOf('disabled'), 'skipped');
+  assert.strictEqual(verdictOf('skipped'), 'skipped');
+  assert.strictEqual(verdictOf('deduped'), 'skipped');
+  // Unknown / absent outcome forwards no verdict (present-only).
+  assert.strictEqual(verdictOf('mystery'), null);
+  assert.strictEqual(deriveCodexFlags(null).indexOf('--codex-verdict'), -1);
 });
 
 test('deriveCodexFlags: null / load_error → empty flag set', () => {

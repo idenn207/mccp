@@ -226,7 +226,31 @@ elif [ "$CODEX_CLASS" = "disabled" ]; then
   echo "[mccp] Codex skipped per MCCP_CODEX_DISABLED=1 (env-level policy, first-class)"
   # Write '> Codex skipped per MCCP_CODEX_DISABLED=1' into the review section and jump to 2.5.6.
 fi
+
+# v1.20.3 (Task 5) — derive $CODEX_VERDICT, the REAL Implement-Codex verdict, for
+# the 2.5.6 receipt-write. DEDICATED variable: NEVER reuse the design-critique
+# loop's $VERDICT / $RECEIPT_VERDICT. A converged design critique must not
+# over-stamp a divergent Codex review — that reintroduces the P1 cross-gate
+# false-skip bug. Cross-gate dedupe (dedupe.js#evaluateForDedupe) fail-closes on
+# any value other than 'converged'.
+CODEX_VERDICT=""
+if [ "$CODEX_CLASS" = "disabled" ]; then
+  CODEX_VERDICT="skipped"          # MCCP_CODEX_DISABLED=1 env policy — Codex never ran
+elif [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || [ "$CODEX_CLASS" != "ok" ]; then
+  CODEX_VERDICT="unavailable"      # advisory-mode auto-fallback (non-approving)
+else
+  # class=ok — parse the actual Codex response from the wrapper JSON `.stdout`
+  # via codex-bridge.parseVerdict → 'converged' | 'divergent' | 'unavailable'.
+  CODEX_VERDICT=$(node -e '
+    const bridge = require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/lib/codex-bridge");
+    let text = "";
+    try { text = JSON.parse(process.argv[1] || "{}").stdout || ""; } catch (_) {}
+    process.stdout.write(bridge.parseVerdict(text) || "unavailable");
+  ' "$CODEX_STDOUT")
+fi
 ```
+
+After Phase 2.5.4's YAGNI triage loop: if it annotated `Open Questions: DIVERGENT_UNRESOLVED`, set `CODEX_VERDICT="divergent"` (overriding the parsed value) so the receipt records the unresolved divergence. This is the ONLY triage-driven override.
 
 ### 2.5.4 — Inject review section + severity-gated re-rerun (default cap=1)
 
@@ -558,6 +582,13 @@ WRITE_FLAGS=(
 )
 if [ -n "$SECURITY_SKIPPED_REASON" ]; then
   WRITE_FLAGS+=(--security-skipped --security-skip-reason "$SECURITY_SKIPPED_REASON")
+fi
+# v1.20.3 (Task 5) — forward the real Implement-Codex verdict so cross-gate
+# dedupe (at /mccp:pr) checks the actual outcome instead of the always-true
+# resolution.converged. $CODEX_VERDICT is the DEDICATED Phase 2.5.3 variable —
+# NOT the design-critique $RECEIPT_VERDICT below. Omit when empty.
+if [ -n "${CODEX_VERDICT:-}" ]; then
+  WRITE_FLAGS+=(--codex-verdict "$CODEX_VERDICT")
 fi
 if [ -n "$IMPECCABLE_SKIPPED_REASON" ]; then
   WRITE_FLAGS+=(--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON")

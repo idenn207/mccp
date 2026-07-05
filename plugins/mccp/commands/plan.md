@@ -578,7 +578,32 @@ elif [ "$CODEX_CLASS" = "disabled" ]; then
   echo "[mccp] Codex skipped per MCCP_CODEX_DISABLED=1 (env-level policy, first-class)"
   # Replace the placeholder with disabled-skip marker, then jump to 5.5.
 fi
+
+# v1.20.3 (Task 5) — derive $CODEX_VERDICT, the REAL Codex adversarial-review
+# verdict, for the 5.6 receipt-write. This is a DEDICATED variable: NEVER reuse
+# the design-critique loop's $VERDICT / $RECEIPT_VERDICT. A converged design
+# critique must not over-stamp a divergent Codex review — that reintroduces the
+# P1 cross-gate false-skip bug. Cross-gate dedupe (dedupe.js#evaluateForDedupe)
+# fail-closes on any value other than 'converged', so an accurate verdict here
+# is what keeps dual-review honest at the /mccp:pr step.
+CODEX_VERDICT=""
+if [ "$CODEX_CLASS" = "disabled" ]; then
+  CODEX_VERDICT="skipped"          # MCCP_CODEX_DISABLED=1 env policy — Codex never ran
+elif [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || [ "$CODEX_CLASS" != "ok" ]; then
+  CODEX_VERDICT="unavailable"      # advisory-mode auto-fallback (non-approving)
+else
+  # class=ok — parse the actual Codex response text from the wrapper JSON `.stdout`
+  # through codex-bridge.parseVerdict → 'converged' | 'divergent' | 'unavailable'.
+  CODEX_VERDICT=$(node -e '
+    const bridge = require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/lib/codex-bridge");
+    let text = "";
+    try { text = JSON.parse(process.argv[1] || "{}").stdout || ""; } catch (_) {}
+    process.stdout.write(bridge.parseVerdict(text) || "unavailable");
+  ' "$CODEX_STDOUT")
+fi
 ```
+
+After Phase 5.4's YAGNI triage loop finishes: if the loop annotated `Open Questions: DIVERGENT_UNRESOLVED` (cap reached with an unresolved ACCEPT_NOW HIGH/CRITICAL), set `CODEX_VERDICT="divergent"` — overriding the parsed value so the receipt records the unresolved divergence. This is the ONLY place the triage outcome overrides the raw parse.
 
 When `CODEX_CLASS=disabled`: replace the placeholder with `> Codex skipped per MCCP_CODEX_DISABLED=1 (env-level policy)` and jump to 5.5. When in advisory mode (auto-fallback for unavailable): replace with `> Codex unavailable, skipped (auto-fallback): <classification>` and jump to 5.5.
 
@@ -678,6 +703,13 @@ fi
 # only, so no commands-routed-file is forwarded here).
 if [ -n "${MODE:-}" ]; then
   WRITE_FLAGS+=(--impeccable-routing-mode "$MODE")
+fi
+# v1.20.3 (Task 5) — forward the real Codex verdict so cross-gate dedupe (at
+# /mccp:pr) checks the actual outcome instead of the always-true
+# resolution.converged. $CODEX_VERDICT is the DEDICATED Phase 5.2 variable — NOT
+# the design-critique $RECEIPT_VERDICT. Omit when empty (blocked/exited path).
+if [ -n "${CODEX_VERDICT:-}" ]; then
+  WRITE_FLAGS+=(--codex-verdict "$CODEX_VERDICT")
 fi
 WRITE_FLAGS+=(--quiet)
 node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" "${WRITE_FLAGS[@]}"

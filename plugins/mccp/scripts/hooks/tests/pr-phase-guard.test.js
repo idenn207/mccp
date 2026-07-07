@@ -472,22 +472,30 @@ function makeReclaimFixture() {
   const stateDir = path.join(tmpDir, '.claude', 'state');
   fs.mkdirSync(stateDir, { recursive: true });
   const lockFile = path.join(stateDir, 'pr-phase.lock');
-  function makeLockMod(lockBody) {
+  function makeLockMod(lockBody, opts) {
+    opts = opts || {};
+    function surrogateIsPidAlive(pid) {
+      // Surrogate: positive pid = alive, otherwise dead. axis 11.1/11.5 use
+      // process.pid (alive), axis 11.2/11.4 use 0/-1/999999 (dead).
+      if (typeof pid !== 'number' || pid <= 0) return false;
+      if (pid === process.pid) return true;
+      // 999999 is treated as dead by the surrogate; the real isPidAlive
+      // would also return false for an unallocated PID on most systems.
+      return false;
+    }
     return {
       SUBPHASE_DEFAULT: 'codex-review',
       repoRoot: function () { return tmpDir; },
       readLock: function () { return lockBody; },
       lockPath: function () { return lockFile; },
-      isPidAlive: function (pid) {
-        // Surrogate: positive pid = alive, otherwise dead. axis 11.1 uses
-        // process.pid (alive), axis 11.2/11.4 use 0/-1/999999 (dead).
-        if (typeof pid !== 'number' || pid <= 0) return false;
-        if (pid === process.pid) return true;
-        // 999999 is treated as dead by the surrogate; the real isPidAlive
-        // would also return false for an unallocated PID on most systems.
-        return false;
-      },
+      isPidAlive: surrogateIsPidAlive,
       tryReclaimStaleLock: function () {
+        // v1.20.6 B#2 — mirror the real host-aware tiebreaker: reclaim when
+        // the PID is dead OR (PID alive AND mtime stale = PID-reuse imposter);
+        // protect a live PID with fresh mtime. opts.staleMtime models the
+        // mtime axis (this surrogate has no real lock-file mtime to stat).
+        const shouldReclaim = !surrogateIsPidAlive(lockBody.pid) || opts.staleMtime === true;
+        if (!shouldReclaim) return false;
         try { fs.unlinkSync(lockFile); return true; }
         catch (_) { return false; }
       },
@@ -496,14 +504,29 @@ function makeReclaimFixture() {
   return { tmpDir, stateDir, lockFile, makeLockMod };
 }
 
-test('axis 11.1: alive same-host PID → lockActive returns metadata (regression of axis 9)', () => {
+test('axis 11.1: alive same-host PID + fresh mtime → lockActive returns metadata (regression of axis 9)', () => {
   const fx = makeReclaimFixture();
   fs.writeFileSync(fx.lockFile, '{"placeholder":true}');
   const lockBody = { run_id: 'r1', subphase: 'codex-review', pid: process.pid, host: os.hostname() };
+  // Default fixture models a fresh mtime (opts.staleMtime unset) → live holder.
   const r = guard.lockActive(fx.makeLockMod(lockBody), fx.tmpDir);
-  assert.ok(r, 'live same-host PID must NOT be reclaimed');
+  assert.ok(r, 'live same-host PID with fresh mtime must NOT be reclaimed');
   assert.strictEqual(r.lock.run_id, 'r1');
   assert.ok(fs.existsSync(fx.lockFile), 'lock file must remain on disk');
+});
+
+test('axis 11.5: alive same-host PID + STALE mtime → reclaim imposter + marker + return null (B#2)', () => {
+  const fx = makeReclaimFixture();
+  fs.writeFileSync(fx.lockFile, '{"placeholder":true}');
+  const lockBody = { run_id: 'r5', subphase: 'codex-review', pid: process.pid, host: os.hostname() };
+  // Live PID but stale mtime — the pre-P3 guard `!isPidAlive` pre-gate would
+  // have short-circuited and blocked every /mccp:pr; the delegated tiebreaker
+  // now reclaims the PID-reuse imposter.
+  const r = guard.lockActive(fx.makeLockMod(lockBody, { staleMtime: true }), fx.tmpDir);
+  assert.strictEqual(r, null, 'live PID + stale mtime (PID-reuse imposter) must trigger reclaim');
+  assert.strictEqual(fs.existsSync(fx.lockFile), false, 'imposter lock must be unlinked');
+  const markerPath = path.join(fx.tmpDir, guard.STALE_RECLAIM_MARKER_REL);
+  assert.ok(fs.existsSync(markerPath), 'stale-reclaim marker must be written');
 });
 
 test('axis 11.2: dead same-host PID → reclaim + marker write + return null', () => {

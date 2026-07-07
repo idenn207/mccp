@@ -2,7 +2,19 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.6] — 2026-07-07
+
+audit-remediation P3 (atomic-lock PID-reuse race, PRD `audit-remediation-followup` milestone 3/5). holder crash 후 OS가 그 PID를 무관한 프로세스에 재사용하면 `tryReclaimStaleLock`의 same-host 분기가 `isPidAlive`만 검사해 재사용 PID를 live holder로 오판 → mtime과 무관하게 NEVER reclaim → lock이 재사용 프로세스 종료까지 stuck(B#2, HIGH). 동일 버그가 **5개 lock 구현에 복제**되어 있었다. same-host 분기에 mtime-freshness를 tiebreaker로 결합: `alive PID + fresh mtime`만 보호하고 `alive PID + stale mtime`은 재사용 imposter로 간주해 reclaim. live holder는 문서화된 heartbeat(§3.6)가 mtime을 fresh하게 유지하므로 계속 보호된다. 이 변경은 R6-F2가 도입한 "same-host+alive → mtime 무관 보호" 계약을 의도적으로 뒤집으며, CLAUDE.md §3.6이 이미 문서화한 `(PID dead) OR (mtime > TTL)` 정책에 코드를 **재정합**시킨다. **Codex Plan-R1 3 finding 흡수**: F1(HIGH) heartbeat 없는 lock에 blanket 적용 시 느린-정상 holder를 imposter로 오인 reclaim 위험 → "Lock heartbeat 분류" 표 + Task 5 GATING으로 heartbeat-tier별 처리(renderer/trigger는 holder≪lease 입증 + live+fresh→protect 회귀로 criterion ii 적용, 제외 0건). F2(HIGH) caller pre-gate(pr-phase-guard `!isPidAlive` + cmdDetectStale `same-host-live-pid` early-return)가 tiebreaker 우회 → 필수 제거·위임(goal/ultracode cmdDetectStale 동형 전수 조정). F3(MEDIUM) heartbeat 독립성 → Task 5 분류가 per-lock file:line 근거로 gating. plugin.json `1.20.5 → 1.20.6` + 양 footer(html/markdown) + i18n-surface 테스트 동기(surface drift 0). 게이트: Implement-Codex cross-gate dedupe(plan-codex 수렴, 새 implement-time 결정 0) — codex_verdict 미stamp라 PR-Codex가 실제 diff 재검토.
+
+### Fixed
+- **B#2** atomic-lock PID-reuse race — `pr-phase-lock`/`quarantine`/`goal-phase-lock`/`ultracode-phase-lock`/`renderer/trigger` 5개 lock의 same-host reclaim 분기에 `&& !mtimeStale` tiebreaker 결합(`alive PID + stale mtime` = PID-reuse imposter → reclaim, `alive PID + fresh mtime` = live holder → protect).
+- **B#2 caller** `pr-phase-guard.js` `sameHost && !isPidAlive` pre-gate 제거 → `tryReclaimStaleLock` 위임(imposter를 hook 경로에서 reclaim). `pr-phase-lock`/`goal`/`ultracode` `cmdDetectStale`의 `same-host-live-pid` early-return을 alive+mtime 조합(`same-host-live-pid-fresh` protect / `same-host-stale-imposter` reclaim)으로 교체.
+
+### Changed
+- lock 주석 블록 5곳을 새 tiebreaker 정책(§3.6 정합)으로 정정. `dispatch-controller`(3×TTL 완화책 기보유)·`session-ledger`(자체 PID-reuse guard)는 이미 안전해 스코프 제외.
+- 회귀 테스트 5개 lock 파일 + `pr-phase-guard`에 `alive+fresh→protect` / `alive+stale→reclaim(imposter)` / `dead→reclaim` / `cross-host→mtime-only` 계약 커버(R6-F2 test (a) 계약 갱신 포함).
 
 ## [1.20.5] — 2026-07-06
 

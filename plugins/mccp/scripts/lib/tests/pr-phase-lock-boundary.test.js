@@ -190,20 +190,43 @@ test('(d) detect-stale clears orphan lock (same-host + pid-dead)', () => {
   assert.strictEqual(fs.existsSync(lock.lockPath(repo)), false);
 });
 
-// (d2) R1-F3 REWRITE — live process.pid + old mtime → NOT stale
-test('(d2) detect-stale REFUSES to reclaim live-PID even with old mtime (R1-F3)', () => {
+// (d2) v1.20.6 B#2 — live process.pid + STALE mtime → reclaim (PID-reuse
+// imposter). Reverses the R6-F2/R1-F3 "live-PID + old mtime → NOT stale" rule:
+// a live PID whose mtime lapsed past the lease is a reused-PID imposter (the
+// genuine holder keeps mtime fresh via heartbeat), so it must be reclaimed.
+test('(d2) detect-stale reclaims live-PID with STALE mtime (B#2 PID-reuse imposter)', () => {
   const repo = mkTmpRepo();
   enterAndCapture(repo, { pid: process.pid });
   const p = lock.lockPath(repo);
-  // Force mtime backwards so age exceeds max-age-ms; but PID is alive (us)
+  // Force mtime backwards so age exceeds max-age-ms; PID is alive (us) but the
+  // stale mtime marks it a PID-reuse imposter (heartbeat lapsed).
   const past = new Date(Date.now() - 3 * 60 * 1000);
   fs.utimesSync(p, past, past);
   const r = captureStdout(function () {
     return lock.cmdDetectStale({ cwd: repo, 'max-age-ms': '1000' });
   });
   const parsed = JSON.parse(r.stdout);
-  assert.strictEqual(parsed.stale, false, 'live-PID lock must NOT be marked stale even with old mtime');
-  assert.strictEqual(parsed.reason, 'same-host-live-pid');
+  assert.strictEqual(parsed.stale, true, 'live-PID + stale mtime must be reclaimed (B#2 imposter)');
+  assert.strictEqual(parsed.cleared, true);
+  assert.strictEqual(parsed.reason, 'same-host-stale-imposter');
+  assert.strictEqual(parsed.pid_alive, true);
+  assert.strictEqual(fs.existsSync(p), false, 'lock file must be unlinked');
+});
+
+// (d2') v1.20.6 B#2 — live process.pid + FRESH mtime → NOT stale (genuine
+// live holder). The heartbeat keeps mtime fresh; this is the case the
+// tiebreaker must still protect.
+test("(d2') detect-stale REFUSES to reclaim live-PID with FRESH mtime (live holder)", () => {
+  const repo = mkTmpRepo();
+  enterAndCapture(repo, { pid: process.pid });
+  const p = lock.lockPath(repo);
+  // No mtime backdating — the lock is fresh (heartbeat healthy).
+  const r = captureStdout(function () {
+    return lock.cmdDetectStale({ cwd: repo, 'max-age-ms': '60000' });
+  });
+  const parsed = JSON.parse(r.stdout);
+  assert.strictEqual(parsed.stale, false, 'live-PID + fresh mtime must NOT be marked stale');
+  assert.strictEqual(parsed.reason, 'same-host-live-pid-fresh');
   assert.strictEqual(parsed.pid_alive, true);
   assert.strictEqual(fs.existsSync(p), true, 'lock file must remain in place');
 });

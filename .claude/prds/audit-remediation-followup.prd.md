@@ -56,7 +56,7 @@ We'll know we're right when **P2 이후 SessionEnd .end marker가 100% 기록되
 | # | Milestone | Outcome | Version | Status | Plan |
 |---|---|---|---|---|---|
 | P2 | session-continuity silent-failure | hook-trace 로드 실패에도 SessionEnd marker 보장 + 실패 표면화(exit 1) + idle lease renew + fd 누수 방지. false crash alert 제거. | 1.20.5 | in-progress | `.claude/plans/audit-remediation-p2-session-continuity.plan.md` |
-| P3 | atomic-lock PID-reuse race | 재사용 PID를 살아있다 오판하지 않음 → 락 stuck 제거. PR 워크플로 60s+ 정지 방지. | 1.20.6 | pending | — |
+| P3 | atomic-lock PID-reuse race | 재사용 PID를 살아있다 오판하지 않음 → 락 stuck 제거. PR 워크플로 60s+ 정지 방지. | 1.20.6 | in-progress | `.claude/plans/audit-remediation-p3-atomic-lock-pid.plan.md` |
 | P4 | dispatch·work-isolation 강건화 | worker 미런칭 시 HALT 아닌 inline graceful degrade + attribution flag 자동 주입 + full-chain live 검증. | 1.20.7 | pending | — |
 | P5 | receipt_hash tamper-detect 실연결 | validate-cmd가 receipt_hash를 재계산·비교(subject_hash 패턴 미러) → findings/resolution/meta 변조 실제 탐지. | 1.20.8 | pending | — |
 | P6 | 문서 정합화 (CLAUDE.md drift) | classification 표·derive source 개수·enforcement 강도·lock schema 서술 등 감사 지적 문서 항목을 실제 동작에 정합. quarantine §3.6 문서 정정 포함. | 1.20.9 | pending | — |

@@ -277,9 +277,18 @@ function isPidAlive(pid) {
 // false otherwise. Cannot be called during cmdEnter race recovery; callers
 // must `try { fs.openSync('wx') } catch (EEXIST)` and only then invoke this.
 //
-// Policy:
-//   same-host + pid-alive      → false (NEVER reclaim — live holder; heartbeat
-//                                  keeps mtime fresh)
+// Policy (B#2 — PID-reuse tiebreaker; realigns code to CLAUDE.md §3.6
+// `(PID dead) OR (mtime > TTL)` doc policy):
+//   same-host + pid-alive + mtime-fresh → false (NEVER reclaim — live holder;
+//                                  the external background heartbeat keeps mtime
+//                                  fresh past the lease, §3.6)
+//   same-host + pid-alive + mtime-stale → true  (PID-reuse imposter: the real
+//                                  holder crashed and the OS reused its PID for
+//                                  an unrelated process that does NOT heartbeat
+//                                  this lock, so mtime goes stale. isPidAlive
+//                                  proves "this PID exists", not "this holder
+//                                  is alive" — heartbeat-refreshed mtime is the
+//                                  authoritative liveness proxy)
 //   same-host + pid-dead       → true  (orphan reclaim)
 //   cross-host                 → mtime > LEASE_TTL ? true : false
 //   zero-byte / unparseable    → mtime > LEASE_TTL ? true : false
@@ -306,7 +315,10 @@ function tryReclaimStaleLock(lockFilePath, maxAgeMs) {
 
   const sameHost = !!(body.host && body.host === os.hostname());
   if (sameHost) {
-    if (isPidAlive(body.pid)) return false;
+    // B#2 tiebreaker — protect only a live PID whose mtime is also fresh.
+    // A live PID + stale mtime is a PID-reuse imposter (heartbeat lapsed
+    // because the reused process does not hold this lock) → reclaim.
+    if (isPidAlive(body.pid) && !mtimeStale) return false;
     try { fs.unlinkSync(lockFilePath); return true; } catch (_) { return false; }
   }
 
@@ -418,8 +430,11 @@ function cmdEnter(args) {
 
   // R2-F2 startup pre-check: an existing legacy v0.2.7 lock body
   // (raw ownership_token, no ownership_token_hash) is reclaimable via the
-  // host-aware policy. Live same-host PID is still protected (NEVER
-  // reclaim) so this is safe during the v0.2.7 → v0.2.8 upgrade overlap.
+  // host-aware policy. A same-host holder that is BOTH pid-alive and
+  // mtime-fresh is still protected (NEVER reclaim); a live PID with a stale
+  // mtime is a PID-reuse imposter and is reclaimed (B#2). Safe during the
+  // v0.2.7 → v0.2.8 upgrade overlap because a real live v0.2.7 holder keeps
+  // its mtime fresh via the same heartbeat path.
   const existingPre = readLock(root);
   if (existingPre && !existingPre._parse_error && !existingPre._zero_byte
       && existingPre.ownership_token && !existingPre.ownership_token_hash) {
@@ -604,21 +619,29 @@ function cmdDetectStale(args) {
     const ageMs = Date.now() - stat.mtimeMs;
 
     if (sameHost) {
-      if (pidAlive) {
+      // B#2 — a live PID is protected only when its mtime is also fresh.
+      // A live PID + stale mtime is a PID-reuse imposter: the tiebreaker in
+      // tryReclaimStaleLock reclaims it, so this reporting path must NOT
+      // short-circuit to stale:false on pidAlive alone.
+      const mtimeStale = ageMs > maxAge;
+      if (pidAlive && !mtimeStale) {
         process.stdout.write(JSON.stringify({
           ok: true, stale: false,
-          reason: 'same-host-live-pid',
+          reason: 'same-host-live-pid-fresh',
           host: lock.host, run_id: lock.run_id, pid_alive: true, age_ms: ageMs,
         }, null, 2) + '\n');
         return 0;
       }
       const reclaimed = tryReclaimStaleLock(p, maxAge);
+      const reason = pidAlive
+        ? (reclaimed ? 'same-host-stale-imposter' : 'same-host-stale-imposter-reclaim-failed')
+        : (reclaimed ? 'same-host-dead-pid' : 'same-host-dead-pid-but-reclaim-failed');
       process.stdout.write(JSON.stringify({
         ok: true,
         stale: reclaimed,
         cleared: reclaimed,
-        reason: reclaimed ? 'same-host-dead-pid' : 'same-host-dead-pid-but-reclaim-failed',
-        host: lock.host, run_id: lock.run_id, pid_alive: false, age_ms: ageMs,
+        reason: reason,
+        host: lock.host, run_id: lock.run_id, pid_alive: pidAlive, age_ms: ageMs,
       }, null, 2) + '\n');
       return 0;
     }

@@ -196,9 +196,11 @@ test('trigger.test path g: concurrent trigger appends dirty marker (F1 absorptio
   } finally { cleanup(root); }
 });
 
-// Path (h) — stale-mtime but live PID on same host → reclaim REFUSED (F4
-// absorption: host-aware tri-state).
-test('trigger.test path h: live same-host PID NEVER reclaimed even if mtime stale', () => {
+// Path (h) — v1.20.6 B#2: stale-mtime + live PID on same host → reclaim
+// (PID-reuse imposter). This lock has no heartbeat, but a genuine render
+// holds it for only ~200-500ms ≪ the 90s lease, so a stale mtime means the
+// crashed render's PID was reused by an unrelated process → reclaim.
+test('trigger.test path h: live same-host PID + stale mtime → reclaimed (B#2 imposter)', () => {
   const root = tmpRepo();
   const cacheDir = path.join(root, '.claude', 'cache');
   fs.mkdirSync(cacheDir, { recursive: true });
@@ -210,8 +212,26 @@ test('trigger.test path h: live same-host PID NEVER reclaimed even if mtime stal
   const old = new Date(Date.now() - 200000);
   fs.utimesSync(lockPath, old, old);
   const reclaimed = reclaimLock(lockPath, 90000);
-  assert.equal(reclaimed, false, 'live same-host PID must NEVER be reclaimed');
-  assert.ok(fs.existsSync(lockPath), 'lock file preserved');
+  assert.equal(reclaimed, true, 'live same-host PID with stale mtime must be reclaimed (imposter)');
+  assert.ok(!fs.existsSync(lockPath), 'imposter lock file unlinked');
+  cleanup(root);
+});
+
+// Path (h2) — v1.20.6 B#2: fresh-mtime + live PID on same host → reclaim
+// REFUSED (protect the real in-flight render).
+test('trigger.test path h2: live same-host PID + fresh mtime → NEVER reclaimed (live render)', () => {
+  const root = tmpRepo();
+  const cacheDir = path.join(root, '.claude', 'cache');
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const lockPath = path.join(cacheDir, '.render.lock');
+  fs.writeFileSync(lockPath, JSON.stringify({
+    pid: process.pid, host: os.hostname(),
+    started_at: new Date().toISOString(),
+  }), 'utf8');
+  // mtime is fresh (just written) — a genuine in-flight render.
+  const reclaimed = reclaimLock(lockPath, 90000);
+  assert.equal(reclaimed, false, 'live same-host PID with fresh mtime must NOT be reclaimed');
+  assert.ok(fs.existsSync(lockPath), 'live render lock preserved');
   cleanup(root);
 });
 

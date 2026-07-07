@@ -120,7 +120,15 @@ function reclaimLock(lockPath, leaseMs) {
 
   const sameHost = !!(body.host && body.host === os.hostname());
   if (sameHost) {
-    if (isPidAlive(body.pid)) return false;
+    // B#2 tiebreaker — protect a live PID only when its mtime is also fresh.
+    // This lock has NO heartbeat, but the holder only spans one
+    // derive→render→write pass (~200-500ms) which is orders of magnitude
+    // below the lease (MCCP_RENDER_LOCK_LEASE_MS default 90s). A genuine
+    // holder therefore can NEVER go stale, so a stale mtime + live PID means
+    // the crashed render's PID was reused by an unrelated process → reclaim
+    // (PID-reuse imposter). A live PID + fresh mtime is the real in-flight
+    // render and is protected.
+    if (isPidAlive(body.pid) && !mtimeStale) return false;
     try { fs.unlinkSync(lockPath); return true; } catch (_) { return false; }
   }
   if (mtimeStale) {

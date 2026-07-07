@@ -1,0 +1,21 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "p1-codex-dedupe-integrity",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.20.3",
+    "completed_at": "2026-07-05T09:49:31.415Z",
+    "commit_sha": "06d191bb7fc744cf8e3879073da9c75dc968d141",
+    "plan_basename": "p1-codex-dedupe-integrity.plan.md",
+    "plan_file_hash": "sha256:a60a9ea0f82bbb3371c845a74b599165a6bb2ed2044c78a1e61ff6f946a32926",
+    "risks_closed": [
+      "구 receipt(codex_verdict 부재)로 dedupe가 항상 skip 안 함 → PR-Codex가 더 자주 돎",
+      "receipt_hash 봉인 순서 실수로 tamper-detect 깨짐",
+      "command body 수정이 Codex skipped/disabled/advisory 경로와 충돌",
+      "schema 변경이 기존 receipt validate 회귀"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:cf497858347137d5103a7ff2e0e12ed95f24d64604bc445e7e96cc1f17c808e1"
+  }
+}

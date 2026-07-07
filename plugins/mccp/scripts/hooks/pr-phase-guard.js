@@ -375,24 +375,34 @@ function lockActive(lockMod, cwd) {
     // user has no in-band escape. Reclaim path uses the lock module's own
     // host-aware tri-state policy (same-host+pid-alive=NEVER reclaim), so
     // alive PIDs are never disturbed.
+    // v1.20.6 B#2 — delegate the same-host reclaim decision to the lock
+    // module's host-aware tri-state policy. The prior `!isPidAlive` pre-gate
+    // entered the reclaim path ONLY for a dead PID, so a PID-reuse imposter
+    // (live PID + stale mtime) short-circuited it and blocked every subsequent
+    // /mccp:pr until the reused process happened to exit. tryReclaimStaleLock
+    // now reclaims both dead-PID orphans and alive-PID stale-mtime imposters
+    // while still protecting a genuinely live holder (alive PID + fresh mtime,
+    // heartbeat-kept), so the guard must hand alive-or-dead locks to it.
     const sameHost = !!(lock.host && typeof lockMod.isPidAlive === 'function'
       && lock.host === os.hostname());
-    if (sameHost && !lockMod.isPidAlive(lock.pid)) {
+    if (sameHost) {
+      const pidAlive = lockMod.isPidAlive(lock.pid);
       const lockFilePath = lockMod.lockPath(root);
       const reclaimed = lockMod.tryReclaimStaleLock(lockFilePath);
       if (reclaimed) {
-        writeStaleReclaimMarker(root, lock, 'same-host-dead-pid');
+        const reason = pidAlive ? 'same-host-stale-imposter' : 'same-host-dead-pid';
+        writeStaleReclaimMarker(root, lock, reason);
         process.stderr.write(
           '[mccp:pr-phase-guard] stale lock reclaimed ' +
           '(former_run_id=' + (lock.run_id || 'unknown') +
           ', former_pid=' + (lock.pid || 'unknown') +
-          ', reason=same-host-dead-pid)\n'
+          ', reason=' + reason + ')\n'
         );
         return null;
       }
-      // Reclaim failed (race window: holder revived, or unlink raced with
-      // another reclaim). Fall through to existing block path — next call
-      // will re-evaluate.
+      // Reclaim failed (genuine live holder with fresh mtime, or a race:
+      // holder revived / unlink raced with another reclaim). Fall through to
+      // the existing block path — the next call re-evaluates.
     }
 
     return { root: root, lock: lock };

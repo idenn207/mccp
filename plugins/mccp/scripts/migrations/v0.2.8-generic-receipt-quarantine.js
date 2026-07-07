@@ -171,11 +171,14 @@ function tryReclaimStaleLock(lockFilePath) {
 
   const sameHost = !!(body.host && body.host === os.hostname());
   if (sameHost) {
-    // PID introspection is authoritative. Live PID + stale mtime means
-    // the holder is busy in a sync section longer than LEASE_TTL — do not
-    // steal. The in-loop heartbeat keeps mtime fresh in practice; if it
-    // ever lapses, the holder gets to finish.
-    if (isPidAlive(body.pid)) return false;
+    // B#2 tiebreaker — a live PID is the real holder only when its mtime is
+    // also fresh. The in-loop heartbeat (refreshLockHeartbeat every
+    // HEARTBEAT_BATCH_SIZE renames, single rename <1ms) keeps a genuine
+    // holder's mtime fresh past the lease, so a live PID + stale mtime means
+    // the crashed holder's PID was reused by an unrelated process that does
+    // NOT heartbeat this lock → reclaim (PID-reuse imposter). isPidAlive
+    // proves "this PID exists", not "this holder is alive".
+    if (isPidAlive(body.pid) && !mtimeStale) return false;
     try { fs.unlinkSync(lockFilePath); return true; } catch { return false; }
   }
 

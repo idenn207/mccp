@@ -152,9 +152,9 @@ test('S4b: heartbeat with wrong sidecar token → exit 15, mtime unchanged', () 
   });
 });
 
-// === S5: same-host + pid alive → NEVER reclaim ===
+// === S5: same-host + pid alive + mtime fresh → NEVER reclaim (B#2) ===
 
-test('S5: detect-stale same-host + this-pid alive → stale=false', () => {
+test('S5: detect-stale same-host + this-pid alive + fresh mtime → stale=false', () => {
   withTempRepo((cwd) => {
     const runId = crypto.randomUUID();
     spawnLockCli(cwd, ['enter', '--run-id', runId, '--pid', String(process.pid)]);
@@ -162,8 +162,28 @@ test('S5: detect-stale same-host + this-pid alive → stale=false', () => {
     assert.strictEqual(ds.status, 0);
     const result = JSON.parse(ds.stdout);
     assert.strictEqual(result.stale, false);
-    assert.strictEqual(result.reason, 'same-host-live-pid');
+    assert.strictEqual(result.reason, 'same-host-live-pid-fresh');
     spawnLockCli(cwd, ['exit', '--run-id', runId]);
+  });
+});
+
+// === S5b: v1.20.6 B#2 — same-host + pid alive + mtime STALE → reclaim ===
+
+test('S5b: detect-stale same-host + this-pid alive + STALE mtime → reclaim (B#2 imposter)', () => {
+  withTempRepo((cwd) => {
+    const runId = crypto.randomUUID();
+    spawnLockCli(cwd, ['enter', '--run-id', runId, '--pid', String(process.pid)]);
+    const lockPath = path.join(cwd, '.claude', 'state', 'goal-phase.lock');
+    // Backdate mtime past the 90s lease — a genuine holder would have
+    // heartbeated; a stale mtime marks a PID-reuse imposter.
+    const past = new Date(Date.now() - 120 * 1000);
+    fs.utimesSync(lockPath, past, past);
+    const ds = spawnLockCli(cwd, ['detect-stale']);
+    const result = JSON.parse(ds.stdout);
+    assert.strictEqual(result.stale, true);
+    assert.strictEqual(result.cleared, true);
+    assert.strictEqual(result.reason, 'same-host-stale-imposter');
+    assert.strictEqual(lockBodyOf(cwd), null, 'imposter lock must be unlinked');
   });
 });
 
@@ -315,11 +335,11 @@ test('S12: multi-turn heartbeat simulation — lease 90s + heartbeats keep lock 
       assert.ok(Date.now() - mtimeAfter < 5000, 'heartbeat should reset mtime to ~now');
     }
 
-    // After 3 heartbeats, detect-stale should NOT reclaim (same-host live pid).
+    // After 3 heartbeats, detect-stale should NOT reclaim (live pid + fresh mtime).
     const ds = spawnLockCli(cwd, ['detect-stale']);
     const result = JSON.parse(ds.stdout);
     assert.strictEqual(result.stale, false);
-    assert.strictEqual(result.reason, 'same-host-live-pid');
+    assert.strictEqual(result.reason, 'same-host-live-pid-fresh');
     spawnLockCli(cwd, ['exit', '--run-id', runId]);
   });
 });

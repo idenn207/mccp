@@ -156,7 +156,13 @@ function tryReclaimStaleLock(lockFilePath, maxAgeMs) {
 
   const sameHost = !!(body.host && body.host === os.hostname());
   if (sameHost) {
-    if (isPidAlive(body.pid)) return false;
+    // B#2 tiebreaker — protect a live PID only when its mtime is also fresh.
+    // The /goal loop's cmdHeartbeat (~30s cadence, 90s lease) keeps a genuine
+    // holder's mtime fresh, so a live PID + stale mtime is a PID-reuse imposter
+    // (crashed holder's PID reused by an unrelated process that does not
+    // heartbeat this lock) → reclaim. isPidAlive proves the PID exists, not
+    // that this holder is alive.
+    if (isPidAlive(body.pid) && !mtimeStale) return false;
     try { fs.unlinkSync(lockFilePath); return true; } catch (_) { return false; }
   }
 
@@ -409,10 +415,15 @@ function cmdDetectStale(args) {
     const ageMs = Date.now() - stat.mtimeMs;
 
     if (sameHost) {
-      if (pidAlive) {
+      // B#2 — a live PID is protected only when its mtime is also fresh.
+      // A live PID + stale mtime is a PID-reuse imposter; delegate to the
+      // tiebreaker (which reclaims it) and report stale — never short-circuit
+      // to stale:false on pidAlive alone.
+      const mtimeStale = ageMs > maxAge;
+      if (pidAlive && !mtimeStale) {
         process.stdout.write(JSON.stringify({
           ok: true, stale: false,
-          reason: 'same-host-live-pid',
+          reason: 'same-host-live-pid-fresh',
           host: lock.host, run_id: lock.run_id, pid_alive: true, age_ms: ageMs,
         }, null, 2) + '\n');
         return 0;
@@ -423,12 +434,15 @@ function cmdDetectStale(args) {
         try { fs.unlinkSync(sidecarPath(args.cwd, lock.run_id)); sidecarsSwept.push(SIDECAR_PREFIX + lock.run_id + SIDECAR_SUFFIX); } catch (_) {}
         sidecarsSwept = sidecarsSwept.concat(sweepOrphanSidecars(args.cwd));
       }
+      const reason = pidAlive
+        ? (reclaimed ? 'same-host-stale-imposter' : 'same-host-stale-imposter-reclaim-failed')
+        : (reclaimed ? 'same-host-dead-pid' : 'same-host-dead-pid-but-reclaim-failed');
       process.stdout.write(JSON.stringify({
         ok: true,
         stale: reclaimed,
         cleared: reclaimed,
-        reason: reclaimed ? 'same-host-dead-pid' : 'same-host-dead-pid-but-reclaim-failed',
-        host: lock.host, run_id: lock.run_id, pid_alive: false, age_ms: ageMs,
+        reason: reason,
+        host: lock.host, run_id: lock.run_id, pid_alive: pidAlive, age_ms: ageMs,
         sidecars_swept: sidecarsSwept,
       }, null, 2) + '\n');
       return 0;

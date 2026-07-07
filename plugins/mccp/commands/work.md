@@ -121,10 +121,11 @@ Invoke `Skill(mccp:plan, "<PRD path>")`. Capture the produced plan path. After p
 
 v1.20.2 M1부터 implement 스텝은 **격리된 단일 worker 위임**으로 실행된다. worker가 파일 탐색·edit·validate 루프·Implement-Codex 게이트·receipt write를 자기 컨텍스트에서 수행하고, 메인(controller) 세션은 요약(변경 파일·receipt path·verdict)만 회수한다 — implement 스텝의 최대 컨텍스트 누적원을 격리해 메인 피크를 얇게 유지한다. 메커니즘은 신규 발명이 아니라 dispatch-controller substrate(`prepareDispatch`/envelope schema/3-flag attribution)를 single-worker로 재사용한다. v1.20.7 M2a는 위임 채널을 `Task`에서 `Workflow` primitive의 `agent()`로 등가 이전할 수 있게 하되(병렬화 전), 회수 판정을 반환값 ∧ envelope ∧ receipt-store **3자 reconciliation**(`deriveVerdict`)으로 통일한다.
 
-**2축 kill switch (3-state: 인라인 / Task-격리 / Workflow-격리)**:
+**3축 kill switch (인라인 / Task-격리 / Workflow-단일-격리 / Workflow-N-병렬)**:
 
-- `MCCP_WORK_ISOLATE_IMPLEMENT` (default `1`) — 상위 축. `0`이면 Step 3.F 인라인 `Skill(mccp:prp-implement)` fallback(loud stderr). 미지정/오타 시 격리(보수적 default = 격리 on).
-- `MCCP_WORK_IMPLEMENT_WORKFLOW` (default `0`) — 격리 활성 시 하위 축. `=1` AND prepare 성공 AND `Workflow` tool 가용이면 **Step 3.W**(Workflow `agent()` 경로), 그 외(`0`/미설정/오타/tool 미가용)면 **Step 3.I**(기존 Task dispatch). fail-open — Workflow 미가용이 implement를 절대 막지 않는다. **Codex F1**: Task fallback은 Workflow 호출을 **개시하기 전**에만 허용된다(개시 후 회수 실패는 두 번째 경쟁 worker를 막기 위해 fail-closed HALT).
+- `MCCP_WORK_ISOLATE_IMPLEMENT` (default `1`) — 최상위 축. `0`이면 Step 3.F 인라인 `Skill(mccp:prp-implement)` fallback(loud stderr). 미지정/오타 시 격리(보수적 default = 격리 on).
+- `MCCP_WORK_IMPLEMENT_WORKFLOW` (default `0`) — 격리 활성 시 하위 축. `=1` AND prepare 성공 AND `Workflow` tool 가용이면 **Workflow 경로**(Step 3.W 단일 / Step 3.WP 병렬), 그 외(`0`/미설정/오타/tool 미가용)면 **Step 3.I**(기존 Task dispatch). fail-open — Workflow 미가용이 implement를 절대 막지 않는다. **Codex F1**: Task fallback은 Workflow 호출을 **개시하기 전**에만 허용된다(개시 후 회수 실패는 두 번째 경쟁 worker를 막기 위해 fail-closed HALT).
+- `MCCP_WORK_IMPLEMENT_PARALLEL` (default `0`, v1.20.8 M2b) — Workflow 경로의 최하위 축. `=1` AND partition oracle이 N>1개 서로소 partition을 산출 AND `resolveFleet`이 run=true(비용·budget 통과)이면 **Step 3.WP**(N-worker `parallel`), 그 외는 **Step 3.W**(단일 worker). **구조적 gate — merge_strategy**: `MCCP_WORK_MERGE_STRATEGY`(default `disable-parallel`, Task 0 spike 실측값)가 `worktree-merge`가 **아니면** `resolveFleet`이 무조건 N=1로 fail-close한다. 즉 현행 환경(worktree→parent auto-merge 미입증)에서는 `=1` opt-in이어도 단일 worker(M2a) 동작이 유지된다. same-worktree fallback(A2)은 atomic-merge 보호 실장 전까지 금지 — merge_strategy가 `worktree-merge`로 승격될 때만 병렬이 실제 발화한다.
 
 **Pre-flight (기존 `next-step` HALT 보존)** — 격리 여부와 무관하게 먼저 실행:
 
@@ -141,9 +142,68 @@ fi
 
 > **Shell-state 독립 계약**: 아래 Bash 블록들은 **서로 다른 Bash 호출**(각각 fresh shell — env var 비지속)이고, 사이에 LLM dispatch(`Task` 또는 `Workflow`)가 낀다. 따라서 blocks 간 상태를 shell var로 넘기지 **않고** `dispatch-*.json` 아티팩트로 self-derive한다(prp-implement.md self-derive 관행 mirror). 모든 tmp 경로는 **worktree-safe** `git rev-parse --git-path mccp/tmp`(§3.9 — `.git/` hardcode 금지, worktree에서 `.git`은 파일이라 `mkdir -p .git/...`가 깨진다). prepare 아티팩트 존재 = 격리 경로 활성; 부재 = 인라인 fallback.
 
-#### Step 3.prep — prepare (두 격리 경로 공유, `MCCP_WORK_ISOLATE_IMPLEMENT` != 0)
+#### Step 3.prep-parallel — N-worker partition prep (v1.20.8 M2b, opt-in, merge_strategy-gated)
 
-placeholder envelope + self-contained worker prompt 생성 후, Workflow `args` + reconcile 입력(`expectedAnchor`)을 별도 아티팩트로 재-emit한다. `$PLAN_PATH`는 Step 2에서 확정한 plan 경로:
+`MCCP_WORK_IMPLEMENT_PARALLEL=1` opt-in일 때만 실행하며, **구조적으로 `MCCP_WORK_MERGE_STRATEGY=worktree-merge`가 아니면 즉시 no-op**한다(Task 0 spike가 `disable-parallel`을 실측 → default no-op). partition oracle(`partitionFromPlanText`)로 plan을 서로소 file-set으로 쪼개고 `resolveFleet`이 merge_strategy·cost-state·budget을 판정해 N을 확정한다. `run=true` & N>1일 때만 `dispatch-fleet-args.json`을 쓴다 — 이 아티팩트 존재가 Step 3.route의 병렬 경로 선택 신호다. 아티팩트가 없으면(default) Step 3.prep이 단일 worker(M2a)를 준비한다.
+
+```bash
+GITDIR=$(git rev-parse --git-path mccp/tmp)
+mkdir -p "$GITDIR"
+rm -f "$GITDIR/dispatch-fleet-args.json" "$GITDIR/dispatch-partitions.json" \
+      "$GITDIR/dispatch-fleet-prepare.json"   # clear stale
+rm -rf "$GITDIR/dispatch-fleet-results"
+ISOLATE="${MCCP_WORK_ISOLATE_IMPLEMENT:-1}"
+PARALLEL="${MCCP_WORK_IMPLEMENT_PARALLEL:-0}"
+MERGE_STRATEGY="${MCCP_WORK_MERGE_STRATEGY:-disable-parallel}"
+FLEET_N=0
+if [ "$ISOLATE" != "0" ] && [ "$PARALLEL" = "1" ] && [ "$MERGE_STRATEGY" = "worktree-merge" ]; then
+  MAXW="${MCCP_WORK_PARALLEL_MAX:-4}"
+  # (a) derive disjoint partitions from the plan (pure partitionFromPlanText).
+  node -e '
+    const fs=require("fs");
+    const p=require(process.argv[1]+"/scripts/lib/implement-dispatch/partition");
+    const text=fs.readFileSync(process.argv[2],"utf8");
+    process.stdout.write(JSON.stringify(p.partitionFromPlanText(text, parseInt(process.argv[3],10)||4)));
+  ' "$CLAUDE_PLUGIN_ROOT" "$PLAN_PATH" "$MAXW" > "$GITDIR/dispatch-partitions.json" 2>"$GITDIR/dispatch-partitions.stderr" \
+    || { echo "[mccp:work] partition derive 실패 — 단일 경로" 1>&2; rm -f "$GITDIR/dispatch-partitions.json"; }
+  if [ -f "$GITDIR/dispatch-partitions.json" ]; then
+    REQ_N=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).n||1))}catch{process.stdout.write("1")}' "$GITDIR/dispatch-partitions.json")
+    # (b) resolveFleet — merge_strategy + cost-state + budget → run/N/minRemaining.
+    FLEET=$(node -e '
+      const b=require(process.argv[1]+"/scripts/lib/implement-dispatch/budget");
+      const cs=require(process.argv[1]+"/scripts/lib/cost-state");
+      const r=b.resolveFleet({ env:process.env, mergeStrategy:process.argv[2],
+        requestedN:parseInt(process.argv[3],10)||1, costStateRead:cs.readState, tierFor:cs.tierFor });
+      process.stdout.write(JSON.stringify(r));
+    ' "$CLAUDE_PLUGIN_ROOT" "$MERGE_STRATEGY" "$REQ_N")
+    RUN=$(echo "$FLEET" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).run?"1":"0")}catch{process.stdout.write("0")}')
+    FLEET_N=$(echo "$FLEET" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).n||1))}catch{process.stdout.write("1")}')
+    MINREM=$(echo "$FLEET" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).minRemaining||0))}catch{process.stdout.write("0")}')
+    if [ "$RUN" = "1" ] && [ "$FLEET_N" -gt 1 ]; then
+      CONTROLLER_SESSION="${CLAUDE_SESSION_ID:-$(node -e 'console.log(crypto.randomUUID())')}"
+      node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dispatch-cli.js" prepare-fleet \
+        --plan "$PLAN_PATH" --controller-session "$CONTROLLER_SESSION" \
+        --partitions-file "$GITDIR/dispatch-partitions.json" --subagent general-purpose \
+        > "$GITDIR/dispatch-fleet-prepare.json" 2>"$GITDIR/dispatch-fleet-prepare.stderr" \
+        && node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dispatch-cli.js" emit-workflow-args \
+          --prepare-file "$GITDIR/dispatch-fleet-prepare.json" --min-remaining "$MINREM" \
+          > "$GITDIR/dispatch-fleet-args.json" 2>"$GITDIR/dispatch-fleet-args.stderr" \
+        || { echo "[mccp:work] fleet prepare/emit 실패 — 단일 경로 강등" 1>&2; rm -f "$GITDIR/dispatch-fleet-args.json"; FLEET_N=1; }
+    else
+      FLEET_N=1
+    fi
+  fi
+fi
+if [ -f "$GITDIR/dispatch-fleet-args.json" ]; then
+  echo "[mccp:work] parallel fleet 준비 (N=$FLEET_N, merge_strategy=$MERGE_STRATEGY)"
+else
+  echo "[mccp:work] parallel implement 비활성 (opt-in=$PARALLEL merge_strategy=$MERGE_STRATEGY) — 단일 worker 경로" 1>&2
+fi
+```
+
+#### Step 3.prep — prepare (단일 격리 경로, fleet 미준비 시, `MCCP_WORK_ISOLATE_IMPLEMENT` != 0)
+
+fleet 아티팩트(`dispatch-fleet-args.json`)가 **없을 때만** 실행 — 병렬 준비가 성사됐으면 이 단계를 건너뛴다. placeholder envelope + self-contained worker prompt 생성 후, Workflow `args` + reconcile 입력(`expectedAnchor`)을 별도 아티팩트로 재-emit한다. `$PLAN_PATH`는 Step 2에서 확정한 plan 경로:
 
 ```bash
 GITDIR=$(git rev-parse --git-path mccp/tmp)
@@ -152,7 +212,9 @@ rm -f "$GITDIR"/dispatch-prepare.json "$GITDIR"/dispatch-worker-prompt.txt \
       "$GITDIR"/dispatch-workflow-args.json "$GITDIR"/dispatch-workflow-started.json \
       "$GITDIR"/dispatch-workflow-return.json "$GITDIR"/dispatch-reconcile.json   # clear stale
 ISOLATE="${MCCP_WORK_ISOLATE_IMPLEMENT:-1}"
-if [ "$ISOLATE" != "0" ]; then
+if [ -f "$GITDIR/dispatch-fleet-args.json" ]; then
+  echo "[mccp:work] fleet 준비 완료 — 단일 prepare-single 생략 (Step 3.WP 병렬 경로)" 1>&2
+elif [ "$ISOLATE" != "0" ]; then
   CONTROLLER_SESSION="${CLAUDE_SESSION_ID:-$(node -e 'console.log(crypto.randomUUID())')}"
   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dispatch-cli.js" prepare-single \
     --plan "$PLAN_PATH" \
@@ -183,11 +245,12 @@ fi
 
 #### Step 3.route — pre-invocation 경계 결정 (Codex F1)
 
-prepare 아티팩트 + 두 env를 읽어 **worker를 spawn하기 전** 경로를 확정한다. 이 지점이 Task fallback을 허용하는 **유일한 안전 지점**이다(Codex F1 — Workflow 개시 후엔 fallback 금지):
+prepare 아티팩트 + env를 읽어 **worker를 spawn하기 전** 경로를 확정한다. 이 지점이 Task fallback을 허용하는 **유일한 안전 지점**이다(Codex F1 — Workflow 개시 후엔 fallback 금지):
 
-- `$GITDIR/dispatch-prepare.json` **부재** → **Step 3.F 인라인** (`ISOLATE=0` 또는 prepare-single 실패).
-- prepare 존재 + `MCCP_WORK_IMPLEMENT_WORKFLOW=1` + `dispatch-workflow-args.json` 존재 + **`Workflow` tool이 이 세션에서 가용** → **Step 3.W**.
-- prepare 존재 + 그 외(`WF=0`/미설정/오타, args 부재, 또는 Workflow tool 미가용) → **Step 3.I** (Task dispatch).
+- **fleet 아티팩트 `$GITDIR/dispatch-fleet-args.json` 존재 + `Workflow` tool 가용** → **Step 3.WP** (N-worker `parallel`). fleet 준비는 `MCCP_WORK_IMPLEMENT_PARALLEL=1` + `merge_strategy=worktree-merge` + N>1 + run=true에서만 성사되므로(Step 3.prep-parallel), 이 분기는 그 4중 조건이 모두 참일 때만 도달한다. Workflow tool 미가용이면 fleet 아티팩트가 있어도 병렬 불가 → 단일 경로로 강등(fleet 아티팩트 무시, 아래 분기로).
+- fleet 아티팩트 없음 + `$GITDIR/dispatch-prepare.json` **부재** → **Step 3.F 인라인** (`ISOLATE=0` 또는 prepare-single 실패).
+- fleet 아티팩트 없음 + prepare 존재 + `MCCP_WORK_IMPLEMENT_WORKFLOW=1` + `dispatch-workflow-args.json` 존재 + **`Workflow` tool 가용** → **Step 3.W**.
+- fleet 아티팩트 없음 + prepare 존재 + 그 외(`WF=0`/미설정/오타, args 부재, 또는 Workflow tool 미가용) → **Step 3.I** (Task dispatch).
 
 #### Step 3.W — Workflow 격리 경로 (`MCCP_WORK_IMPLEMENT_WORKFLOW=1`)
 
@@ -293,6 +356,82 @@ verdict별 처리:
 - `unanchored` (**Codex F3**) → implement-codex receipt가 controller session에 anchor 안 됨(marker/3-플래그 불일치). HALT.
 - `failed` / `result-unreadable` → worker 실패/사망(in-process이므로 spawn 부활 아님). fix-task.md HALT. 재개는 `/mccp:resume` 또는 `MCCP_WORK_ISOLATE_IMPLEMENT=0` 인라인 fallback.
 
+#### Step 3.WP — Workflow 병렬 경로 (v1.20.8 M2b, `dispatch-fleet-args.json` 존재 시)
+
+M2a Step 3.W의 N-worker 확장. worker 계약은 동일(implement까지만, commit/PR 금지, 3-플래그 attribution, `dispatch-cli.js mark`)하되 각 worker는 **자기 서로소 partition 파일만** 편집한다(prompt PARTITION SCOPE + Step 3.gate-parallel의 실제-diff 강제).
+
+**(1) started 표식** — Workflow 호출 직전 기록. 이후 **Task/단일 fallback 절대 금지**(Codex F1 — N개 경쟁 재spawn 방지):
+
+```bash
+GITDIR=$(git rev-parse --git-path mccp/tmp)
+node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({started:true,parallel:true}))' "$GITDIR/dispatch-workflow-started.json"
+echo "[mccp:work] Workflow 병렬 경로 진입 — started 표식(이후 회수 실패는 fail-closed HALT)" 1>&2
+```
+
+**(2) Workflow 호출** (LLM 액션) — `dispatch-fleet-args.json`(fleet 배열 + minRemaining + reconcileInputs)을 `args`로 전달:
+
+    Workflow({
+      scriptPath: "${CLAUDE_PLUGIN_ROOT}/scripts/workflows/implement-dispatch.js",
+      args: <dispatch-fleet-args.json 내용 그대로 (JSON 값)>
+    })
+
+Workflow는 `parallel(fleet.map(w => agent(w.workerPrompt, {isolation:'worktree', schema})))`로 N worker를 동시 구동(N>1일 때 worktree 격리)하고 `{workers:[{dispatchId, result}], dispatchIds, skipped}`를 반환한다. 각 worker 반환을 `dispatch-fleet-results/<dispatchId>.json`(`{result, dispatchId}`) 형태로 영속화한다:
+
+```bash
+GITDIR=$(git rev-parse --git-path mccp/tmp)
+mkdir -p "$GITDIR/dispatch-fleet-results"
+# LLM이 Workflow 반환의 각 workers[i]를 파일로 기록:
+#   {"result": <workers[i].result>, "dispatchId": <workers[i].dispatchId>}
+#   → "$GITDIR/dispatch-fleet-results/<dispatchId>.json"
+```
+
+**(3) 회수 실패 = fail-closed HALT** (Codex F1) — started 표식이 있는데 Workflow가 throw/결과 상실로 result 파일들을 못 만들면, **재spawn 없이** 종료. `Workflow({scriptPath, args, resumeFromRunId:<run id>})`로 재개 후 Step 3.gate-parallel. `skipped:true`(budget)이면 개시 후이므로 Task 강등 대신 HALT + 재개 안내.
+
+→ result 파일 생성 성공 시 **Step 3.gate-parallel**로.
+
+#### Step 3.gate-parallel — verdict-before-merge 게이트 (Codex F1/F2/F4)
+
+**핵심 안전 계약(Codex F1): 집계 판정을 merge-back 전에, 격리 worktree 결과만으로 실행한다.** 이 시점 parent worktree는 여전히 clean → 어떤 verdict든 **부분 적용 0**.
+
+**(gate FIRST)** N-way reconcile → `mergeVerdicts` (worker 실제-diff subset F2 포함):
+
+```bash
+GITDIR=$(git rev-parse --git-path mccp/tmp)
+if [ -f "$GITDIR/dispatch-workflow-started.json" ] && [ ! -d "$GITDIR/dispatch-fleet-results" ]; then
+  echo "[MCCP-WORKFLOW-HALT] fleet started but no results recovered — fail-closed (Codex F1). No fallback." 1>&2
+  # write fix-task.md; cleanup(resumeFromRunId 재개) 지시
+  exit 13
+fi
+RECON_ARGS=(reconcile --args-file "$GITDIR/dispatch-fleet-args.json" --results-dir "$GITDIR/dispatch-fleet-results")
+# worktree-merge 전략에서 각 worker worktree 경로가 있으면 실제-diff subset(F2)에 공급.
+[ -f "$GITDIR/dispatch-fleet-worktrees.json" ] && RECON_ARGS+=(--worktree-map "$GITDIR/dispatch-fleet-worktrees.json")
+RECON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dispatch-cli.js" "${RECON_ARGS[@]}")
+VERDICT=$(echo "$RECON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).verdict)}catch{process.stdout.write("result-unreadable")}')
+echo "$RECON" > "$GITDIR/dispatch-fleet-reconcile.json"
+echo "[mccp:work] fleet reconcile verdict=$VERDICT"
+if [ "$VERDICT" != "ok" ]; then
+  echo "[mccp:work] HALT: fleet verdict=$VERDICT — parent worktree still clean(부분 적용 0). fix-task.md 작성 후 종료."
+  # write fix-task.md with RECON(verdict + perWorker + invariantViolations + unanchored + partitionEscapes + mismatches)
+  exit 13
+fi
+```
+
+verdict별: `invariant-violation`(worker가 commit/PR receipt 생성, HARD) · `unanchored`(3-플래그 anchor 실패) · `partition-escape`(실제-diff가 partition 이탈) · `reconcile-mismatch` · `failed`/`result-unreadable` — **전부 HARD HALT**(부분 성공도 전체 중단; 서로소여도 부분 적용은 plan 무결성 파괴).
+
+**(merge-back — 집계 ok일 때만)** 각 worker의 서로소 변경을 parent에 apply. worker worktree 경로가 `dispatch-fleet-worktrees.json`에 있으면 apply 직전 actual-diff ⊆ partition∪allowlist 재확인(F2). mid-apply 실패 시 이미 적용분을 **rollback**(worker commit 없음 → `git checkout -- <files>` / `git clean -fd <paths>`) 후 HALT.
+
+> **현행 환경 주의(merge_strategy=disable-parallel)**: worktree→parent 자동 merge가 미입증이라 이 병렬 경로는 Step 3.prep-parallel에서 애초에 활성화되지 않는다(fleet 아티팩트 미생성 → Step 3.route가 단일 경로 선택). 따라서 위 merge-back은 `worktree-merge` 전략이 후속 milestone에서 입증·승격될 때 발화한다. 그전까지 이 게이트 정의는 **활성화 계약**으로 존재하되 런타임 도달 0이다.
+
+**(integrated test — Codex R1 F4)** merge-back 후 Step 4(commit) **전에** 통합 검증 1회 — 서로소 partition이 각자 local review(per-worker Implement-Codex)를 통과해도 통합 시 깨지는 회귀(public API·import graph·shared config·test fixture)를 Step 4 이전에 잡는다:
+
+```bash
+node --test  # 또는 affected 파일 대상. 실패 시 rollback(위 F1 계약) + HALT.
+```
+
+단일 merged-diff **adversarial review**(worker 밖 1회 LLM verify)는 dual-review 재설계라 **M3 이연**(backlog). M2b는 통합 **test** 게이트까지 owns.
+
+**(commit)** 전부 green이면 Step 4로.
+
 #### Step 3.F — 인라인 fallback (`dispatch-prepare.json` 부재 시)
 
 prepare 아티팩트가 **없으면**(= `MCCP_WORK_ISOLATE_IMPLEMENT=0` 명시 opt-out 또는 prepare-single 실패), 기존 동작대로 `Skill(mccp:prp-implement, "<plan path>")`를 인라인 호출한다(implement diff·validate 출력이 메인 컨텍스트에 누적됨 — baseline 경로). Step 3.prep이 이미 loud stderr로 사유를 남겼다.
@@ -344,7 +483,8 @@ The next `/mccp:work` invocation will detect `fix-task.md` presence and refuse t
 - Inter-step yes/no/proceed/confirm 컨펌 요청
 - Skipping `next-step` query before invoking the next slash command
 - Treating `MCCP_AUTO_CHAIN_DISABLE=1` or STATE.md `chain_aborted=true` as "warning only" — both are HARD halts
-- Treating the Step 3.gate implement reconcile `verdict != ok` (`invariant-violation` / `reconcile-mismatch` / `unanchored` / `failed` / `result-unreadable`) as "warning only" — every non-`ok` verdict is a HARD halt (fix-task.md + stop). `invariant-violation` means the isolated worker leaked a commit/PR receipt (irreversible external state); never advance to Step 4/5.
-- Running a Task fallback AFTER a Workflow `started` marker exists (Codex F1) — that would spawn a second competing worker. Once `dispatch-workflow-started.json` is written, a result-recovery failure is a fail-closed HALT, never a Task retry.
+- Treating the Step 3.gate / Step 3.gate-parallel reconcile `verdict != ok` (`invariant-violation` / `reconcile-mismatch` / `unanchored` / `partition-escape` / `failed` / `result-unreadable`) as "warning only" — every non-`ok` verdict is a HARD halt (fix-task.md + stop). `invariant-violation` means an isolated worker leaked a commit/PR receipt (irreversible external state); `partition-escape` means a worker's real diff left its disjoint slice; never advance to Step 4/5.
+- Running a Task/단일 fallback AFTER a Workflow `started` marker exists (Codex F1) — that would spawn a second competing worker (N개 for the parallel path). Once `dispatch-workflow-started.json` is written, a result-recovery failure is a fail-closed HALT, never a Task/단일 retry. Resume via `resumeFromRunId`.
+- (M2b) Merging any worker's changes into the parent worktree BEFORE `mergeVerdicts` returns `ok` (Codex F1) — the aggregate verdict runs on the ISOLATED worktree results while the parent is still clean, so a non-`ok` aggregate leaves ZERO partial application. Never merge-back first and judge after.
 
 The only exception is Phase 0 dirty-tree STOP (precondition violation, not a step transition).

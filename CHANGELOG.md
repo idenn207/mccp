@@ -2,7 +2,22 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.9`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.10`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.10] — 2026-07-08
+
+workflow-orchestration **M2b** (N-worker parallel implement scaffold, 단일 patch). M2a가 놓은 단일 `Workflow agent()` seam을 `parallel(fleet.map(...))`으로 확장하는 **완전한 병렬 스캐폴드**를 세운다 — partition oracle(서로소 file-set 분할·dependency-aware collapse), fleet budget oracle(`resolveFleet` — `resolveFanout` 미러 + merge_strategy 구조 gate), N-way `mergeVerdicts`(per-worker `deriveVerdict` + fail-closed 집계 + `partition-escape` verdict), `dispatch-cli` fleet 서브커맨드(`prepare-fleet` / fleet `emit-workflow-args` / N-way `reconcile`), Workflow `parallel` seam, work.md Step 3 병렬 wiring. **Task 0 spike 실측**: `isolation:'worktree'` 변경은 parent worktree에 자동 전파되지 않고(별도 디렉토리 + 별도 branch + uncommitted) 오케스트레이터에 worktree collect API가 없음 → **merge_strategy=`disable-parallel`** 확정. 병렬 실행은 안전하게 **N=1로 gate off**(default `MCCP_WORK_IMPLEMENT_PARALLEL=0` + `MCCP_WORK_MERGE_STRATEGY=disable-parallel`)되어 M2a 단일-worker 동작이 무변화로 유지된다 — 활성화는 worktree-merge 입증을 전제로 후속 milestone에 이연. **Codex Plan-R1 2H+2M 흡수**: F1(집계가 merge-back 후 실행 → 부분 적용) → verdict-before-merge 순서 불변식(격리 worktree 결과만으로 판정, parent는 clean → 부분 적용 0). F2(prompt-only disjointness) → 실제-diff subset 강제 + 신규 `partition-escape` verdict + dependency-aware collapse. F3(fallback 미배선) → machine-readable `merge_strategy` flag → `resolveFleet` 소비. F4(merged-diff 미검증) → post-merge integrated `node --test` 게이트(단일 merged-diff adversarial review는 M3 이연, backlog). 자체 IPC 부분 폐기(Workflow가 worker liveness 소유 → heartbeat/reclaim/watcher redundant, envelope는 attribution·reconcile 아티팩트로 존속). plugin.json `1.20.9 → 1.20.10`(#94 audit P5가 1.20.9 선점 → M2b가 그 위로 rebase되며 1.20.10으로 상향; #92 P4는 1.20.8) + 양 footer(html/markdown) + i18n-surface 테스트 동기. dual-review 무손상 · 신규 회귀 0(oracle 120 테스트 green).
+
+### Added
+- `plugins/mccp/scripts/lib/implement-dispatch/partition.js` — `partitionPlan` 서로소 partition oracle(union-find + shared-output serialize + maxWorkers cap) + `partitionFromPlanText`(plan markdown → partition 파생).
+- `plugins/mccp/scripts/lib/implement-dispatch/budget.js` — `resolveFleet` fleet 비용/merge_strategy oracle(`resolveFanout` 미러).
+- `plugins/mccp/scripts/lib/implement-dispatch/tests/{partition,budget}.test.js` — 45 신규 oracle 테스트.
+
+### Changed
+- `plugins/mccp/scripts/lib/implement-dispatch/result-schema.js` — `mergeVerdicts` N-way fail-closed 집계 + `partition-escape` verdict + `checkPartitionEscape`(`deriveVerdict` 불변).
+- `plugins/mccp/scripts/lib/dispatch-cli.js` — `prepare-fleet` + fleet-aware `emit-workflow-args` / N-way `reconcile`(실제-diff subset) + partition-scope worker prompt(단일 경로 back-compat).
+- `plugins/mccp/scripts/workflows/implement-dispatch.js` — 단일 `agent()` → `parallel(fleet.map(...))` seam + budget pre-guard + `isolation:'worktree'`(단일 경로 불변).
+- `plugins/mccp/commands/work.md` — Step 3.prep-parallel / 3.WP / 3.gate-parallel + `MCCP_WORK_IMPLEMENT_PARALLEL` 하위 축(merge_strategy gated).
 
 ## [1.20.9] — 2026-07-08
 

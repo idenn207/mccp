@@ -1,0 +1,24 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "workflow-orchestration-m2a-single-worker-workflow",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.20.7",
+    "completed_at": "2026-07-07T10:10:56.923Z",
+    "commit_sha": "333f1566727551c88f9d7aec69f05d836517b3e1",
+    "plan_basename": "workflow-orchestration-m2a-single-worker-workflow.plan.md",
+    "plan_file_hash": "sha256:c41ee667db419ee6da1030dced574995e46d61368a9f2fca3ae72cc42d2e9f7f",
+    "risks_closed": [
+      "Workflow 호출 후 실패 시 fallback이 경쟁 worker 생성 (**Codex F1**)",
+      "반환값-envelope 불일치가 조용히 통과 (**Codex F2**)",
+      "attribution de-anchor로 dual-review 무력화 (**Codex F3**)",
+      "Workflow 미가용 환경(plugin-only install)",
+      "F1 invariant 우회(worker가 commit/PR 실행)",
+      "Workflow 결정성(`Date.now`/`Math.random` throw)",
+      "dual-review 손상"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:561d50650b61d2fa57c5baf33ba3fd3476af144a217792925f493aa98074ef1a"
+  }
+}

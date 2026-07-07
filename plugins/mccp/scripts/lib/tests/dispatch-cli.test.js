@@ -90,6 +90,103 @@ test('buildImplementWorkerBasePrompt: embeds plan + attribution + guardrails', (
   assert.ok(p.includes('dispatch-cli.js mark'), 'envelope mark contract present');
 });
 
+// ── M2a Task 1 — schema return contract coexists with envelope mark ────────
+
+test('buildImplementWorkerBasePrompt: schema field names + envelope mark + 3 flags all coexist', () => {
+  const id = '019ecedf-1234-5678-9abc-def012345678';
+  const ipc = cli.ipcEnvelopeRelPath(id);
+  const p = cli.buildImplementWorkerBasePrompt({
+    planPath: '.claude/plans/x.plan.md',
+    dispatchId: id,
+    ipcEnvelopePath: ipc,
+    controllerSessionId: CONTROLLER_SESSION_ID,
+  });
+  // Structured return contract — every IMPLEMENT_RESULT_SCHEMA field is named.
+  ['status', 'receiptsAdded', 'changedFiles', 'testResult', 'nextAction'].forEach((f) => {
+    assert.ok(p.includes('"' + f + '"'), 'schema field named in return contract: ' + f);
+  });
+  // Coexistence — envelope mark AND the 3 attribution flags survive alongside.
+  assert.ok(p.includes('dispatch-cli.js mark'), 'envelope mark still present (병존)');
+  assert.ok(p.includes('--dispatched-by-controller-session ' + CONTROLLER_SESSION_ID));
+  assert.ok(p.includes('--worker-dispatch-id ' + id));
+  assert.ok(p.includes('--ipc-envelope-path ' + ipc));
+  // Reconciliation intent stated (result MUST agree with envelope).
+  assert.ok(/reconcile|AGREE/i.test(p), 'return-vs-envelope reconciliation intent stated');
+});
+
+// ── M2a Task 1 — emit-workflow-args ────────────────────────────────────────
+
+test('emit-workflow-args: reshapes a prepare-single emit into Workflow args + expectedAnchor', () => {
+  const sb = makeSandbox();
+  try {
+    // Produce a real prepare-single emit, persist it, then reshape it.
+    const { json: prep } = captureEmit(() => cli.cmdPrepareSingle({
+      plan: '.claude/plans/x.plan.md',
+      'controller-session': CONTROLLER_SESSION_ID,
+      'parent-cwd': sb,
+      subagent: 'general-purpose',
+    }));
+    const prepFile = path.join(sb, 'prepare.json');
+    fs.writeFileSync(prepFile, JSON.stringify(prep), 'utf8');
+
+    const { exitCode, json } = captureEmit(() => cli.cmdEmitWorkflowArgs({ 'prepare-file': prepFile }));
+    assert.strictEqual(exitCode, 0);
+    assert.strictEqual(json.workerPrompt, prep.prompt, 'workerPrompt = prepare prompt');
+    assert.strictEqual(json.agentType, 'general-purpose');
+    assert.strictEqual(json.dispatchId, prep.dispatchId);
+    assert.strictEqual(json.ipcEnvelopePath, prep.ipcEnvelopePath);
+    assert.strictEqual(json.envelopePath, prep.envelopePath);
+    assert.strictEqual(json.controllerSessionId, CONTROLLER_SESSION_ID);
+    // expectedAnchor binds the exact controller identity for F3 verification.
+    assert.deepStrictEqual(json.expectedAnchor, {
+      sessionId: CONTROLLER_SESSION_ID,
+      dispatchId: prep.dispatchId,
+      ipcPath: prep.ipcEnvelopePath,
+    });
+  } finally { rimraf(sb); }
+});
+
+test('emit-workflow-args: missing --prepare-file → usage exit 2', () => {
+  const { exitCode } = captureEmit(() => cli.cmdEmitWorkflowArgs({}));
+  assert.strictEqual(exitCode, 2);
+});
+
+test('emit-workflow-args: prepare-file missing required fields → error exit 1', () => {
+  const sb = makeSandbox();
+  try {
+    const bad = path.join(sb, 'bad.json');
+    fs.writeFileSync(bad, JSON.stringify({ dispatchId: 'x' }), 'utf8'); // no ipc/session/prompt
+    const { exitCode } = captureEmit(() => cli.cmdEmitWorkflowArgs({ 'prepare-file': bad }));
+    assert.strictEqual(exitCode, 1);
+  } finally { rimraf(sb); }
+});
+
+test('emit-workflow-args: idempotent — regen from same prepare is byte-identical (work.md Step 3.gate M1)', () => {
+  // work.md Step 3.gate REGENERATES args from prepare.json when the Step 3.prep
+  // emit was lost (rare fs failure) so a healthy Task worker is not misclassified
+  // result-unreadable. The regen MUST equal the first emit or the reconcile
+  // expectedAnchor would drift — the very false HALT this fix removes. This
+  // pins cmdEmitWorkflowArgs as a PURE derivation (no clock/random) of prepare.
+  const sb = makeSandbox();
+  try {
+    const { json: prep } = captureEmit(() => cli.cmdPrepareSingle({
+      plan: '.claude/plans/x.plan.md',
+      'controller-session': CONTROLLER_SESSION_ID,
+      'parent-cwd': sb,
+    }));
+    const prepFile = path.join(sb, 'prepare.json');
+    fs.writeFileSync(prepFile, JSON.stringify(prep), 'utf8');
+    const a = captureEmit(() => cli.cmdEmitWorkflowArgs({ 'prepare-file': prepFile }));
+    const b = captureEmit(() => cli.cmdEmitWorkflowArgs({ 'prepare-file': prepFile }));
+    assert.deepStrictEqual(a.json, b.json, 'regen must equal first emit (no expectedAnchor drift)');
+    assert.deepStrictEqual(b.json.expectedAnchor, {
+      sessionId: CONTROLLER_SESSION_ID,
+      dispatchId: prep.dispatchId,
+      ipcPath: prep.ipcEnvelopePath,
+    });
+  } finally { rimraf(sb); }
+});
+
 // ── prepare-single ────────────────────────────────────────────────────────
 
 test('prepare-single --dry-run: emits absolute envelopePath + repo-relative ipcEnvelopePath, no disk write', () => {
@@ -282,6 +379,138 @@ test('merge: unreadable envelope → verdict envelope-unreadable (loud, not a cr
   assert.strictEqual(exitCode, 0);
   assert.strictEqual(json.verdict, 'envelope-unreadable');
   assert.strictEqual(json.failedWorkers.length, 1);
+});
+
+// ── M2a Task 3 — reconcile (unified F1/F2/F3 gate, Workflow + Task paths) ──
+
+const RECON_DISPATCH_ID = '019ecedf-1234-5678-9abc-def012345678';
+const RECON_IPC = '.claude/state/dispatches/' + RECON_DISPATCH_ID + '.envelope.json';
+
+function writeReceiptFile(sb, slug, metaOver) {
+  const p = path.join(sb, '.claude', 'receipts', slug);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify({
+    meta: Object.assign({
+      controller_context_marker_present: true,
+      dispatched_by_controller_session_id: CONTROLLER_SESSION_ID,
+      worker_dispatch_id: RECON_DISPATCH_ID,
+      ipc_envelope_path: RECON_IPC,
+    }, metaOver || {}),
+  }), 'utf8');
+  return p;
+}
+
+function writeArgsFile(sb, anchorOver) {
+  const p = path.join(sb, 'wf-args.json');
+  fs.writeFileSync(p, JSON.stringify({
+    expectedAnchor: Object.assign({
+      sessionId: CONTROLLER_SESSION_ID,
+      dispatchId: RECON_DISPATCH_ID,
+      ipcPath: RECON_IPC,
+    }, anchorOver || {}),
+  }), 'utf8');
+  return p;
+}
+
+function writeResultFile(sb, resultObj) {
+  const p = path.join(sb, 'wf-return.json');
+  fs.writeFileSync(p, JSON.stringify({ result: resultObj, dispatchId: RECON_DISPATCH_ID }), 'utf8');
+  return p;
+}
+
+test('reconcile (Workflow path): ok result + terminal envelope + anchored receipt → ok', () => {
+  const sb = makeSandbox();
+  try {
+    const env = writeTerminal(sb);
+    writeReceiptFile(sb, 'mccp-implement-codex/x.json');
+    const argsFile = writeArgsFile(sb);
+    const resultFile = writeResultFile(sb, {
+      status: 'ok', receiptsAdded: ['mccp-implement-codex/x.json'],
+      changedFiles: ['a.js'], testResult: '5 pass', nextAction: 'done',
+    });
+    const { json } = captureEmit(() => cli.cmdReconcile({
+      envelope: env, 'args-file': argsFile, 'result-file': resultFile, 'repo-root': sb,
+    }));
+    assert.strictEqual(json.verdict, 'ok');
+    assert.deepStrictEqual(json.receiptsAdded, ['mccp-implement-codex/x.json']);
+  } finally { rimraf(sb); }
+});
+
+test('reconcile (Task path): --from-envelope mirrors envelope → ok', () => {
+  const sb = makeSandbox();
+  try {
+    const env = writeTerminal(sb);
+    writeReceiptFile(sb, 'mccp-implement-codex/x.json');
+    const argsFile = writeArgsFile(sb);
+    const { json } = captureEmit(() => cli.cmdReconcile({
+      envelope: env, 'args-file': argsFile, 'from-envelope': true, 'repo-root': sb,
+    }));
+    assert.strictEqual(json.verdict, 'ok');
+  } finally { rimraf(sb); }
+});
+
+test('reconcile F2: result status disagrees with envelope → reconcile-mismatch', () => {
+  const sb = makeSandbox();
+  try {
+    const env = writeTerminal(sb); // envelope ok
+    writeReceiptFile(sb, 'mccp-implement-codex/x.json');
+    const argsFile = writeArgsFile(sb);
+    const resultFile = writeResultFile(sb, {
+      status: 'failure', receiptsAdded: ['mccp-implement-codex/x.json'],
+      changedFiles: [], testResult: 'x', nextAction: null,
+    });
+    const { json } = captureEmit(() => cli.cmdReconcile({
+      envelope: env, 'args-file': argsFile, 'result-file': resultFile, 'repo-root': sb,
+    }));
+    assert.strictEqual(json.verdict, 'reconcile-mismatch');
+  } finally { rimraf(sb); }
+});
+
+test('reconcile F3: receipt marker=false → unanchored', () => {
+  const sb = makeSandbox();
+  try {
+    const env = writeTerminal(sb);
+    writeReceiptFile(sb, 'mccp-implement-codex/x.json', { controller_context_marker_present: false });
+    const argsFile = writeArgsFile(sb);
+    const { json } = captureEmit(() => cli.cmdReconcile({
+      envelope: env, 'args-file': argsFile, 'from-envelope': true, 'repo-root': sb,
+    }));
+    assert.strictEqual(json.verdict, 'unanchored');
+  } finally { rimraf(sb); }
+});
+
+test('reconcile F1: envelope leaked pr-codex receipt → invariant-violation', () => {
+  const sb = makeSandbox();
+  try {
+    const env = writeTerminal(sb, {
+      receipts_added: ['mccp-implement-codex/x.json', 'mccp-pr-codex/x.json'],
+    });
+    writeReceiptFile(sb, 'mccp-implement-codex/x.json');
+    const argsFile = writeArgsFile(sb);
+    const { json } = captureEmit(() => cli.cmdReconcile({
+      envelope: env, 'args-file': argsFile, 'from-envelope': true, 'repo-root': sb,
+    }));
+    assert.strictEqual(json.verdict, 'invariant-violation');
+  } finally { rimraf(sb); }
+});
+
+test('reconcile: Workflow returned {result:null} (worker death) → result-unreadable', () => {
+  const sb = makeSandbox();
+  try {
+    const env = writeTerminal(sb);
+    const argsFile = writeArgsFile(sb);
+    const p = path.join(sb, 'wf-return.json');
+    fs.writeFileSync(p, JSON.stringify({ result: null, dispatchId: RECON_DISPATCH_ID }), 'utf8');
+    const { json } = captureEmit(() => cli.cmdReconcile({
+      envelope: env, 'args-file': argsFile, 'result-file': p, 'repo-root': sb,
+    }));
+    assert.strictEqual(json.verdict, 'result-unreadable');
+  } finally { rimraf(sb); }
+});
+
+test('reconcile: missing --args-file → usage exit 2', () => {
+  const { exitCode } = captureEmit(() => cli.cmdReconcile({}));
+  assert.strictEqual(exitCode, 2);
 });
 
 // ── runCli dispatch ─────────────────────────────────────────────────────

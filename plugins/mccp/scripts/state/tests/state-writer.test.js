@@ -601,3 +601,20 @@ test('v1.2.0 Task 8: VALID_EVENTS export includes 3 new events', function () {
   assert.ok(sw.VALID_EVENTS.has('dispatch_envelope_received'));
   assert.ok(sw.VALID_EVENTS.has('dispatch_chain_aborted'));
 });
+
+test('withStateLock: tryAcquire closes fd even when writeSync throws (B#17 fd leak)', () => {
+  const repo = mkRepo();
+  const realWrite = fs.writeSync;
+  const realClose = fs.closeSync;
+  let closed = 0;
+  fs.writeSync = () => { throw new Error('disk full'); };
+  fs.closeSync = (fd) => { closed++; return realClose(fd); };
+  try {
+    assert.throws(() => sw.withStateLock(repo, () => 'x'), /disk full/);
+    assert.ok(closed >= 1, 'lock fd must be closed despite writeSync failure');
+  } finally {
+    fs.writeSync = realWrite;
+    fs.closeSync = realClose;
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});

@@ -160,3 +160,20 @@ test('stale lock is detected and overridden', () => {
   const result = lc.bump(repo, fp, 'h');
   assert.strictEqual(result.count, 1);
 });
+
+test('withCounterLock: tryAcquire closes fd even when writeSync throws (B#17 fd leak)', () => {
+  const repo = mkRepo();
+  const realWrite = fs.writeSync;
+  const realClose = fs.closeSync;
+  let closed = 0;
+  fs.writeSync = () => { throw new Error('disk full'); };
+  fs.closeSync = (fd) => { closed++; return realClose(fd); };
+  try {
+    assert.throws(() => lc.withCounterLock(repo, () => 'x'), /disk full/);
+    assert.ok(closed >= 1, 'lock fd must be closed despite writeSync failure');
+  } finally {
+    fs.writeSync = realWrite;
+    fs.closeSync = realClose;
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});

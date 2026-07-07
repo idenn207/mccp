@@ -106,14 +106,20 @@ function lockPath(repoRoot) {
 }
 
 function tryAcquire(lockFile) {
+  let fd;
   try {
-    const fd = fs.openSync(lockFile, 'wx');
-    fs.writeSync(fd, String(process.pid) + '\n' + new Date().toISOString());
-    fs.closeSync(fd);
-    return true;
+    fd = fs.openSync(lockFile, 'wx');
   } catch (err) {
     if (err.code !== 'EEXIST') throw err;
     return false;
+  }
+  // fd is open — guarantee close even if writeSync throws (B#17). The old
+  // open→write→close sequence leaked the fd when writeSync failed and re-threw.
+  try {
+    fs.writeSync(fd, String(process.pid) + '\n' + new Date().toISOString());
+    return true;
+  } finally {
+    try { fs.closeSync(fd); } catch (_) { /* best-effort */ }
   }
 }
 

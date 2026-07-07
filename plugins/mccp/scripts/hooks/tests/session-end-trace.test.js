@@ -62,3 +62,41 @@ test('runSync: no-op when session_id missing', () => {
     assert.strictEqual(fs.existsSync(path.join(root, '.claude', 'state', 'hook-trace')), false);
   });
 });
+
+test('markSessionEndResilient: writes degraded marker when ht is null (B#4)', () => {
+  withRepo((root) => {
+    const ok = trace.markSessionEndResilient(root, 'sessDeg', null);
+    assert.strictEqual(ok, true);
+    assert.strictEqual(ht.hasEndMarker(root, 'sessDeg'), true);
+  });
+});
+
+test('markSessionEndResilient: falls back to degraded when ht.markSessionEnd throws (B#4)', () => {
+  withRepo((root) => {
+    const throwingHt = { markSessionEnd() { throw new Error('boom'); } };
+    const ok = trace.markSessionEndResilient(root, 'sessThrow', throwingHt);
+    assert.strictEqual(ok, true);
+    assert.strictEqual(ht.hasEndMarker(root, 'sessThrow'), true);
+  });
+});
+
+test('writeDegradedEndMarker: releases the session lease so evictLRU can reclaim (Codex F2)', () => {
+  withRepo((root) => {
+    ht.acquireLease(root, 'sessLease');
+    assert.ok(ht.listActiveLeases(root).sessLease, 'lease exists before degraded marker');
+    const ok = trace.writeDegradedEndMarker(root, 'sessLease');
+    assert.strictEqual(ok, true);
+    assert.strictEqual(ht.hasEndMarker(root, 'sessLease'), true);
+    assert.deepStrictEqual(ht.listActiveLeases(root), {}, 'lease removed after degraded marker');
+  });
+});
+
+test('writeDegradedEndMarker: rejects unsafe sessionId (no write, no throw)', () => {
+  withRepo((root) => {
+    assert.strictEqual(trace.writeDegradedEndMarker(root, '..'), false);
+    assert.strictEqual(trace.writeDegradedEndMarker(root, 'a/b'), false);
+    assert.strictEqual(trace.writeDegradedEndMarker(root, ''), false);
+    const traversal = path.join(root, '.claude', 'state', 'hook-trace', '..', '.end');
+    assert.strictEqual(fs.existsSync(traversal), false, 'no traversal artifact created');
+  });
+});

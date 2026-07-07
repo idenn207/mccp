@@ -135,18 +135,15 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
   const lifecycle = [];
   const seenLifecycle = new Set();
   const seenPrd = new Set();
-  for (const p of plans) {
-    if (!p || !p.path) continue;
-    const ref = planRef(p);
-    if (!ref) continue;
-    const planAbs = path.isAbsolute(p.path) ? p.path : path.resolve(cwd, p.path);
-    const resolved = resolvePrdRef(ref, planAbs, cwd, fsRead);
-    if (!resolved) continue;
-    if (seenPrd.has(resolved.path)) continue;
-    seenPrd.add(resolved.path);
-    const prdDir = path.dirname(resolved.path);
-    const completeRows = parseDeliveryMilestonesComplete(resolved.body);
-    for (const lr of parseDeliveryMilestonesLifecycle(resolved.body)) {
+  // 한 PRD body 에서 완료 행 + dropped lifecycle 을 수집한다(active-plan 경로와
+  // 아카이브 스캔 양쪽 공용). seenPrd 로 동일 PRD 중복 처리 방지 — active plan 이
+  // 참조한 PRD 를 아카이브 스캔이 재처리하지 않는다.
+  function processPrd(resolvedPath, body) {
+    if (seenPrd.has(resolvedPath)) return;
+    seenPrd.add(resolvedPath);
+    const prdDir = path.dirname(resolvedPath);
+    const completeRows = parseDeliveryMilestonesComplete(body);
+    for (const lr of parseDeliveryMilestonesLifecycle(body)) {
       // Dashboard Truthfulness M8 (② lifecycle 스코핑) — 'pending'(예정)은 아직
       // 시작도 안 한 speculative 마일스톤이라 대시보드 truthfulness를 흐린다.
       // 명시적 결정인 'dropped'(폐기)만 surface하고 예정은 제외한다(사용자 결정
@@ -199,6 +196,38 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
         planSummary,
       });
     }
+  }
+
+  for (const p of plans) {
+    if (!p || !p.path) continue;
+    const ref = planRef(p);
+    if (!ref) continue;
+    const planAbs = path.isAbsolute(p.path) ? p.path : path.resolve(cwd, p.path);
+    const resolved = resolvePrdRef(ref, planAbs, cwd, fsRead);
+    if (!resolved) continue;
+    processPrd(resolved.path, resolved.body);
+  }
+
+  // 완료 이력 유지 — 아카이브된 PRD(.claude/prds/complete/)를 직접 스캔해 완료
+  // 마일스톤을 이력 타임라인에 포함한다. 활성 표면(진행중/위험/질문/status-grid)은
+  // derive 활성 plan(m.sources.plans.items)만 소비하므로 아카이브 항목이 그쪽으로는
+  // 새지 않는다 — 완료 이력만 복원, 활성 카운트 오염 0. 아카이브 plan 의
+  // git-time/summary 는 위 cands 의 .claude/PRPs/plans/completed/ fallback 으로
+  // 해석된다. 디렉토리 부재/read 실패는 loud fail-open(throw 안 함, 이력만 축소).
+  try {
+    const archPrdDir = path.resolve(cwd, '.claude', 'prds', 'complete');
+    let archEntries;
+    try { archEntries = fs.readdirSync(archPrdDir); } catch (_) { archEntries = []; }
+    for (const f of archEntries) {
+      if (!f.endsWith('.prd.md')) continue;
+      const abs = path.join(archPrdDir, f);
+      let body;
+      try { body = fsRead(abs); } catch (_) { continue; }
+      processPrd(abs, body);
+    }
+  } catch (err) {
+    process.stderr.write('[mccp:milestone-history] archived-prd scan failed: '
+      + (err && err.message) + ' (allow)\n');
   }
 
   // dedup by planBasename (한 plan이 multiple PRD 등장 시 최신)

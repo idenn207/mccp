@@ -11,7 +11,7 @@ const detector = require('../deep-research-detect');
 
 const DETECT_JS = path.resolve(__dirname, '..', 'deep-research-detect.js');
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
-const FALSE_POSITIVE_FIXTURE = path.join(REPO_ROOT, '.claude', 'prds', 'v1-4-0-automation-modernization.prd.md');
+const FALSE_POSITIVE_FIXTURE = path.join(REPO_ROOT, '.claude', 'prds', 'complete', 'v1-4-0-automation-modernization.prd.md');
 
 function withTempDir(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-deep-research-detect-'));

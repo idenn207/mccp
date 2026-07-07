@@ -2,7 +2,22 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.7`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.7] — 2026-07-07
+
+workflow-orchestration **M2a** (single-worker Workflow 이전, 단일 patch). `/mccp:work` Step 3의 implement 격리 위임 채널을 `Task`에서 `Workflow` primitive의 `agent()`로 **등가 이전**할 수 있게 한다(병렬화 전 — M2b가 `parallel`로 확장할 seam). 핵심은 회수 판정을 **반환값 ∧ envelope ∧ receipt-store 3자 reconciliation**(`deriveVerdict`)으로 통일한 것으로, 기존 envelope-only `merge`를 Workflow·Task **양 경로**에서 대체한다. **Codex Plan-R1 3 HIGH 흡수**(plan-codex 수렴 cross-gate dedupe): F1(Workflow 호출 후 fallback이 경쟁 worker 생성) → pre-invocation 경계 + `started` 표식 후 fail-closed HALT(두 번째 worker 미생성). F2(반환값 단독 SSoT가 envelope 불일치 통과) → 3자 reconciliation hard gate(status·receipt slug 집합·envelope pending 불일치 시 non-ok HALT). F3(attribution de-anchor로 dual-review 무력화) → post-hoc anchor 검증 gate(marker + 3-플래그 == `expectedAnchor` 아니면 `unanchored` HALT). default-off `MCCP_WORK_IMPLEMENT_WORKFLOW` kill switch로 3-state(인라인 / Task-격리 / Workflow-격리); Workflow 미가용은 fail-open으로 Task 경로 유지. dual-review 무손상 — Implement-Codex는 worker 컨텍스트 불변, receipt 3-플래그 anchor, PR cross-gate dedupe 무변경. plugin.json `1.20.6 → 1.20.7` + 양 footer(html/markdown) 동기.
+
+### Added
+
+- **`scripts/lib/implement-dispatch/result-schema.js`** — `IMPLEMENT_RESULT_SCHEMA`(agent StructuredOutput) + `deriveVerdict({result, envelope, receiptStore, expectedAnchor})` pure oracle. verdict ∈ `ok|failed|invariant-violation|reconcile-mismatch|unanchored|result-unreadable`, first-match fail-closed(invariant-first — F1 leak은 반환값 단독으로 최우선 감지, un-maskable). `tests/result-schema.test.js` 22건.
+- **`scripts/workflows/implement-dispatch.js`** — 얇은 Workflow 스크립트(`export const meta` 순수 리터럴 + 단일 `agent(workerPrompt, {agentType, schema})` → `{result, dispatchId}`). 샌드박스 `require` 부재로 `IMPLEMENT_RESULT_SCHEMA` self-contained 포트. `parallel`/`isolation` 미사용(M2a 단일).
+
+### Changed
+
+- **`scripts/lib/dispatch-cli.js`** — `buildImplementWorkerBasePrompt`에 structured 반환 계약 추가(envelope mark 병존). 신규 `emit-workflow-args`(prepare 결과 → Workflow `args` + `expectedAnchor` 재-emit) + `reconcile`(통합 F1/F2/F3 게이트, Workflow `--result-file` / Task `--from-envelope` 자동 판별) 서브커맨드. `tests/dispatch-cli.test.js` 회귀 그린 + 신규 케이스(총 29건).
+- **`commands/work.md`** — Step 3를 3-state로 재구성(3.prep 공유 / 3.route pre-invocation 경계 / 3.W Workflow 경로 + started 표식 / 3.I Task 경로 / 3.gate 통합 reconcile). 모든 tmp 경로 worktree-safe `git rev-parse --git-path`(§3.9 — `.git/` hardcode 제거). `allowed-tools`에 `Workflow` 추가.
+- **`.claude-plugin/plugin.json`** — `1.20.6 → 1.20.7`. PRD Delivery Milestones: M1 `in-progress → complete`(PR #87 머지 stale 정정), M2 `pending → in-progress`.
 
 ## [1.20.6] — 2026-07-07
 

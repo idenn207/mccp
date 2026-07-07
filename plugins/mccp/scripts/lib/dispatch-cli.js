@@ -11,6 +11,11 @@
 //                     self-contained implement worker prompt. Emits the
 //                     absolute envelopePath (local read) AND the repo-relative
 //                     ipcEnvelopePath (receipt flag) as SEPARATE fields.
+//   emit-workflow-args — (M2a) re-shape a prepare-single emit into the `args`
+//                     object scripts/workflows/implement-dispatch.js consumes,
+//                     plus the deriveVerdict reconciliation inputs (envelope
+//                     paths + expectedAnchor). Keeps work.md shell-state
+//                     independent (one JSON artifact, no carried shell vars).
 //   merge           — read one terminal envelope + mergeEnvelopes([env]) →
 //                     {verdict, receiptsAdded, findings, failedWorkers,
 //                      invariantViolations}. Detects the F1 invariant
@@ -47,6 +52,7 @@ const fs = require('fs');
 
 const controller = require('./dispatch-controller');
 const envelope = require('./dispatch-envelope');
+const resultSchema = require('./implement-dispatch/result-schema');
 
 const OK_EXIT = 0;
 const USAGE_EXIT = 2;
@@ -141,10 +147,21 @@ function buildImplementWorkerBasePrompt(args) {
     '  status=ok ONLY when every validation level is green; status=failure when',
     '  any level failed. receipts example: mccp-implement-codex/<decision-slug>.json',
     '',
-    '── RETURN CONTRACT ──',
-    'Return ONLY a compact summary (≤ 10 lines): changed files, verdict, test',
-    'result. The envelope carries the full data — do NOT paste diffs or test logs',
-    'into your final message (that would defeat the context-isolation purpose).',
+    '── RETURN CONTRACT (structured return + envelope mirror) ──',
+    'The envelope you marked above is the durable IPC channel. In ADDITION, your',
+    'FINAL output MUST be ONE compact JSON object — the controller reconciles it',
+    'against the envelope, so the two MUST AGREE (a disagreement HALTs the chain):',
+    '  {',
+    '    "status": "<ok|failure|timeout|crashed>",        // SAME value you marked on the envelope',
+    '    "receiptsAdded": ["<receipt slugs you wrote>"],  // SAME slugs you passed to `mark --receipts`',
+    '    "changedFiles": ["<repo-relative paths you edited>"],',
+    '    "testResult": "<one-line validation summary, e.g. \'590 pass\'>",',
+    '    "nextAction": "<one-line handoff note for the controller, or null>"',
+    '  }',
+    'status=ok ONLY when every validation level is green. Do NOT paste diffs or',
+    'full test logs — the envelope carries detail; this object is the',
+    'reconciliation trigger, NOT a place to dump context (that would defeat the',
+    'context-isolation purpose).',
   ].join('\n');
 }
 
@@ -317,13 +334,167 @@ function cmdMark(rest) {
   return OK_EXIT;
 }
 
+// workflow-orchestration M2a Task 1 — re-shape a `prepare-single` emit into the
+// `args` object the scripts/workflows/implement-dispatch.js Workflow consumes,
+// plus the post-hoc reconciliation inputs work.md needs after the Workflow
+// returns. Emitting this as a SEPARATE artifact keeps work.md shell-state
+// independent (§3.9): the Bash block reads one JSON file instead of threading
+// prepare fields through carried shell vars across separate invocations.
+//
+// The emitted expectedAnchor is the F3 anchor-verification input for
+// result-schema.js deriveVerdict — it binds the exact controller identity the
+// worker's receipt must carry (marker + 3 flags), so a de-anchored receipt
+// HALTs instead of silently defeating dual-review.
+function cmdEmitWorkflowArgs(rest) {
+  const prepareFile = rest['prepare-file'];
+  if (!prepareFile || prepareFile === true) {
+    process.stderr.write('emit-workflow-args requires --prepare-file <path>\n');
+    return USAGE_EXIT;
+  }
+  let prep;
+  try {
+    prep = JSON.parse(fs.readFileSync(prepareFile, 'utf8'));
+  } catch (err) {
+    process.stderr.write('emit-workflow-args: prepare-file unreadable/invalid: '
+      + (err && err.message ? err.message : err) + '\n');
+    return ERROR_EXIT;
+  }
+  const required = ['dispatchId', 'ipcEnvelopePath', 'controllerSessionId', 'prompt'];
+  const missing = required.filter(function (k) {
+    return typeof prep[k] !== 'string' || prep[k].length === 0;
+  });
+  if (missing.length > 0) {
+    process.stderr.write('emit-workflow-args: prepare-file missing/blank fields: '
+      + missing.join(', ') + '\n');
+    return ERROR_EXIT;
+  }
+  emit({
+    workerPrompt: prep.prompt,
+    agentType: (typeof prep.subagentType === 'string' && prep.subagentType.length > 0)
+      ? prep.subagentType : 'general-purpose',
+    dispatchId: prep.dispatchId,
+    ipcEnvelopePath: prep.ipcEnvelopePath,          // repo-relative — envelope read + anchor
+    envelopePath: prep.envelopePath || null,        // absolute — local envelope read in work.md
+    controllerSessionId: prep.controllerSessionId,
+    expectedAnchor: {                               // F3 anchor-verification input for deriveVerdict
+      sessionId: prep.controllerSessionId,
+      dispatchId: prep.dispatchId,
+      ipcPath: prep.ipcEnvelopePath,
+    },
+  });
+  return OK_EXIT;
+}
+
+// Read every receipt named in `slugs` off disk, keyed by slug. A slug absent
+// from the store maps to nothing — deriveVerdict then fails an implement-codex
+// slug closed (unanchored: cannot verify) while ignoring non-implement slugs.
+function readReceiptStore(slugs, repoRoot) {
+  const store = {};
+  slugs.forEach(function (slug) {
+    if (typeof slug !== 'string' || slug.length === 0) return;
+    const p = path.join(repoRoot, '.claude', 'receipts', slug);
+    try {
+      store[slug] = JSON.parse(fs.readFileSync(p, 'utf8'));
+    } catch (_) { /* absent/invalid → deriveVerdict flags unanchored for implement slugs */ }
+  });
+  return store;
+}
+
+// workflow-orchestration M2a Task 3 — the UNIFIED reconcile+anchor gate for BOTH
+// isolation paths (Workflow and Task). It reads the envelope + the receipt store,
+// builds the `result` object (from the Workflow return file, OR mirrored from the
+// envelope on the Task path), then runs the pure deriveVerdict oracle. This is
+// the caller-side fs-read leg the oracle contract requires; it supersedes the
+// envelope-only `merge` gate by adding the F1 invariant + F2 3-way reconciliation
+// + F3 anchor verification on both paths.
+//
+//   --envelope <abs>       absolute envelope path (prepare.json envelopePath)
+//   --args-file <path>     dispatch-workflow-args.json (expectedAnchor + paths)
+//   --result-file <path>   Workflow return {result, dispatchId} (Workflow path)
+//   --from-envelope        mirror `result` from the envelope (Task path)
+//   --repo-root <path>     receipts root override (default: findRepoRoot)
+function cmdReconcile(rest) {
+  const argsFile = rest['args-file'];
+  if (!argsFile || argsFile === true) {
+    process.stderr.write('reconcile requires --args-file <path>\n');
+    return USAGE_EXIT;
+  }
+  let wfArgs;
+  try {
+    wfArgs = JSON.parse(fs.readFileSync(argsFile, 'utf8'));
+  } catch (err) {
+    process.stderr.write('reconcile: args-file unreadable/invalid: '
+      + (err && err.message ? err.message : err) + '\n');
+    return ERROR_EXIT;
+  }
+  const expectedAnchor = (wfArgs && typeof wfArgs === 'object') ? wfArgs.expectedAnchor : null;
+  const repoRoot = (typeof rest['repo-root'] === 'string' && rest['repo-root'].length > 0)
+    ? rest['repo-root'] : findRepoRoot(process.cwd());
+
+  // Read the envelope (null when unreadable → deriveVerdict fail-closes).
+  let env = null;
+  const envelopePath = rest['envelope'];
+  if (typeof envelopePath === 'string' && envelopePath.length > 0) {
+    const r = envelope.read(envelopePath);
+    if (r.ok) env = r.envelope;
+  }
+
+  // Build `result`: from the Workflow return file, or mirror the envelope (Task).
+  let result = null;
+  const resultFile = rest['result-file'];
+  const fromEnvelope = rest['from-envelope'] === true;
+  if (typeof resultFile === 'string' && resultFile.length > 0) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
+      // The Workflow returns { result, dispatchId }; unwrap to the schema object.
+      result = (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && ('result' in parsed))
+        ? parsed.result : parsed;
+    } catch (err) {
+      process.stderr.write('reconcile: result-file unreadable/invalid: '
+        + (err && err.message ? err.message : err) + '\n');
+      // leave result null → deriveVerdict → result-unreadable
+    }
+  } else if (fromEnvelope && env) {
+    // Task path has no structured return — mirror the envelope so the F2 reconcile
+    // steps pass trivially while the F1 invariant + F3 anchor checks still apply.
+    result = {
+      status: env.worker_exit_status,
+      receiptsAdded: Array.isArray(env.receipts_added) ? env.receipts_added.slice() : [],
+      changedFiles: [],
+      testResult: '(Task path — detail in envelope)',
+      nextAction: (typeof env.next_action === 'string' && env.next_action.length > 0)
+        ? env.next_action : null,
+    };
+  }
+
+  const slugSet = Object.create(null);
+  if (result && Array.isArray(result.receiptsAdded)) {
+    result.receiptsAdded.forEach(function (s) { if (s) slugSet[s] = 1; });
+  }
+  if (env && Array.isArray(env.receipts_added)) {
+    env.receipts_added.forEach(function (s) { if (s) slugSet[s] = 1; });
+  }
+  const receiptStore = readReceiptStore(Object.keys(slugSet), repoRoot);
+
+  const verdict = resultSchema.deriveVerdict({
+    result: result,
+    envelope: env,
+    receiptStore: receiptStore,
+    expectedAnchor: expectedAnchor,
+  });
+  emit(verdict);
+  return OK_EXIT;
+}
+
 function runCli(argv) {
   if (!argv || argv.length === 0) {
     process.stderr.write(
-      'usage: dispatch-cli <prepare-single|merge|mark> [options]\n' +
-      '  prepare-single  --plan <path> --controller-session <uuid> [--subagent <type>] [--parent-cwd <path>] [--dry-run]\n' +
-      '  merge           --envelope <path>\n' +
-      '  mark            --envelope <path> --status <ok|failure|timeout|crashed> [--receipts <csv>] [--findings-file <path>] [--next-action <text>]\n'
+      'usage: dispatch-cli <prepare-single|emit-workflow-args|reconcile|merge|mark> [options]\n' +
+      '  prepare-single      --plan <path> --controller-session <uuid> [--subagent <type>] [--parent-cwd <path>] [--dry-run]\n' +
+      '  emit-workflow-args  --prepare-file <path>\n' +
+      '  reconcile           --args-file <path> [--envelope <abs>] [--result-file <path>] [--from-envelope] [--repo-root <path>]\n' +
+      '  merge               --envelope <path>\n' +
+      '  mark                --envelope <path> --status <ok|failure|timeout|crashed> [--receipts <csv>] [--findings-file <path>] [--next-action <text>]\n'
     );
     return USAGE_EXIT;
   }
@@ -331,6 +502,8 @@ function runCli(argv) {
   const rest = parseFlags(argv.slice(1));
 
   if (cmd === 'prepare-single') return cmdPrepareSingle(rest);
+  if (cmd === 'emit-workflow-args') return cmdEmitWorkflowArgs(rest);
+  if (cmd === 'reconcile') return cmdReconcile(rest);
   if (cmd === 'merge') return cmdMerge(rest);
   if (cmd === 'mark') return cmdMark(rest);
 
@@ -348,8 +521,11 @@ module.exports = {
   ipcEnvelopeRelPath: ipcEnvelopeRelPath,
   buildImplementWorkerBasePrompt: buildImplementWorkerBasePrompt,
   cmdPrepareSingle: cmdPrepareSingle,
+  cmdEmitWorkflowArgs: cmdEmitWorkflowArgs,
+  cmdReconcile: cmdReconcile,
   cmdMerge: cmdMerge,
   cmdMark: cmdMark,
+  readReceiptStore: readReceiptStore,
   runCli: runCli,
   FORBIDDEN_RECEIPT_RE: FORBIDDEN_RECEIPT_RE,
 };

@@ -1,0 +1,24 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "audit-remediation-p3-atomic-lock-pid",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.20.6",
+    "completed_at": "2026-07-07T08:21:15.066Z",
+    "commit_sha": "f95fba4513c6ef8e7bacc23d1f89383d32609e89",
+    "plan_basename": "audit-remediation-p3-atomic-lock-pid.plan.md",
+    "plan_file_hash": "sha256:577b3f086c71312bb7f50a76bc6d418267f40ea64c2cc4bcaebe35ed1892215d",
+    "risks_closed": [
+      "**heartbeat 없는 lock(renderer/trigger 등)에 tiebreaker 적용 → 느린-정상 holder를 imposter로 오인 reclaim → mid-mutation 훼손 (Codex F1, HIGH)**",
+      "tiebreaker가 heartbeat-backed lock에서도 단일 uninterruptible syscall > TTL 시 조기 reclaim",
+      "caller pre-gate(pr-phase-guard/cmdDetectStale) 미제거 시 imposter가 hook 경로에서 여전히 우회 (Codex F2, HIGH)",
+      "mtimeStale 미계산 site에서 런타임 오류",
+      "기존 lock 테스트가 old 계약을 다른 파일에서도 assert",
+      "stale plugin cache(1.20.0)의 pre-P1 dedupe가 PR-Codex를 잘못 skip",
+      "버전 reconcile 누락 → cache stuck"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:df67693271ea657a34b8bfdc9c39e72f35b01f652244c096d1cd89e049d11ce7"
+  }
+}

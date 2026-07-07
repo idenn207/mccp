@@ -2,7 +2,21 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.7`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.8`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.8] — 2026-07-08
+
+audit-remediation P4 (dispatch·work-isolation 강건화, **재스코프**). 원 P4 plan(1.20.6 base)은 격리 implement 위임의 `pending` collapse를 `cmdMerge`에 F1(pending-split graceful-degrade) + F2(receipt anchoring 검증)로 닫으려 했으나, 병렬 진행된 **#91(v1.20.7 workflow-orchestration M2a)이 같은 서브시스템을 `deriveVerdict`/`cmdReconcile`(3자 reconcile: return ∧ envelope ∧ store)로 재작성하며 원 P4의 핵심을 이미 대체**했다: (1) pending은 `reconcile-mismatch`로 **fail-closed HALT**(의도적 — Step 3.gate double-worker 위험 차단), (2) anchoring은 `deriveVerdict`의 F3 post-hoc store 검증(marker + 3-flag == expectedAnchor → `unanchored` HALT). `cmdMerge`는 work.md가 `cmdReconcile`로 이관하며 dead-path가 됐다. 따라서 P4를 #91 model 위로 재스코프해 **잔여 additive delta만** 착지: (B#6) `prp-implement.md` Phase 2.5.6 receipt-write exit-code 미표면화(exit 12=`DISPATCH_MARKER_MISSING_FIELDS` 은폐)를 loud surface + Phase 3 EXECUTE 진입 전 hard-stop, (B#13) dispatch-worker 3-flag attribution doc를 `deriveVerdict`/Step 3.gate anchor 검증 참조로 갱신. F1 graceful-degrade는 `/mccp:resume` 복구 경로가 이미 커버 + #91의 fail-closed 의도와 정합하지 않아 폐기(F2는 #91 F3와 완전 중복이라 폐기). #91이 `prp-implement.md`를 미변경했으므로 B#6 hunk는 clean 적용. dual-review·receipt chain 무손상. plugin.json `1.20.7 → 1.20.8` + 양 footer(html/markdown) + i18n-surface 테스트 동기(surface drift 0). PRD P4/P5/P6 cascade 1.20.8/1.20.9/1.20.10 정정(#91=1.20.7 점유 반영).
+
+### Added
+- `prp-implement.md` Phase 2.5.6 — `WRITE_EXIT=$?` capture + non-zero면 `[MCCP-GATE-STOP]` surface(exit 12 vs 1 보존) + Phase 3 진입 전 exit (B#6). PreToolUse hook-block과 disjoint(hook 차단 시 node 미실행 → guard 무발화).
+
+### Changed
+- `prp-implement.md` Phase 2.5.6 — dispatch-worker 3-flag attribution doc block 추가/정정(B#13). 미forward는 이제 controller Step 3.gate `deriveVerdict` F3가 `unanchored` verdict로 HALT하는 mechanical backstop이 받침(구 서술의 `cmdMerge` 참조 → `deriveVerdict`/Step 3.gate로 갱신).
+
+### Superseded (by #91, v1.20.7)
+- 원 P4 F1(`cmdMerge` pending-split) — #91 `deriveVerdict` rule (3)이 pending을 fail-closed `reconcile-mismatch`로 처리. graceful-degrade 폐기.
+- 원 P4 F2(`cmdMerge` anchoring 검증) — #91 `deriveVerdict` F3 post-hoc store anchor 검증과 완전 중복. 폐기.
 
 ## [1.20.7] — 2026-07-07
 

@@ -574,6 +574,26 @@ DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decisio
 # impeccable_silent_skip are runtime-mutually-exclusive (skill_available true
 # vs false) — detector emits one OR the other, never both. Bash array form
 # avoids eval and preserves quoting around reasons that may contain spaces.
+#
+# v1.20.8 B#13 — DISPATCH-WORKER ATTRIBUTION (3 flags). When THIS prp-implement
+# runs as a /mccp:work dispatch worker (the worker prompt built by
+# dispatch-cli.js:buildImplementWorkerBasePrompt binds --worker-dispatch-id), it
+# MUST forward all three attribution flags on EVERY receipt write so the receipt
+# anchors to the controller session:
+#   --dispatched-by-controller-session <controller session uuid>
+#   --worker-dispatch-id                <dispatch uuid>
+#   --ipc-envelope-path                 <repo-relative .claude/state/dispatches/<uuid>.envelope.json>
+# The worker prompt states the exact bound values verbatim — copy them as-is.
+# Under MCCP_DISPATCH_CONTEXT=1 the schema enforces them all-or-nothing: a
+# partial/absent set fail-closes the write at exit 12 (surfaced by the B#6 guard
+# below). This is no longer a mere cooperative convention: the controller's
+# Step 3.gate (dispatch-cli.js `reconcile` → result-schema `deriveVerdict`, the
+# v1.20.7 F3 post-hoc anchor check) MECHANICALLY re-verifies each worker implement
+# receipt against the store (controller_context_marker_present + the 3 flags ==
+# expectedAnchor) and HALTs the whole /mccp:work chain with verdict=`unanchored`
+# if a receipt is not store-anchored. Forwarding the flags is thus load-bearing
+# for the chain, not advisory. Standalone /mccp:prp-implement (no controller)
+# sets none of these — omit all three.
 WRITE_FLAGS=(
   write
   --gate mccp-implement-codex
@@ -620,7 +640,28 @@ if [ -f "${GROUNDING_ARTIFACT:-/nonexistent}" ]; then
 fi
 WRITE_FLAGS+=(--quiet)
 node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" "${WRITE_FLAGS[@]}"
+# v1.20.8 B#6 — surface the receipt-write exit code. A silent non-zero (esp.
+# exit 12 = DISPATCH_MARKER_MISSING_FIELDS) previously let Phase 3 EXECUTE begin
+# on top of a NON-WRITTEN receipt. Capture the exit immediately and hard-stop
+# BEFORE Phase 3 on any failure, preserving the exact code (12 vs 1) for triage.
+WRITE_EXIT=$?
+if [ "$WRITE_EXIT" != "0" ]; then
+  echo "[MCCP-GATE-STOP] mccp-implement-codex receipt write failed (exit $WRITE_EXIT)." 1>&2
+  echo "  exit 12 = DISPATCH_MARKER_MISSING_FIELDS — a MCCP_DISPATCH_CONTEXT=1 dispatch" 1>&2
+  echo "  worker did not forward all three attribution flags" 1>&2
+  echo "  (--dispatched-by-controller-session / --worker-dispatch-id / --ipc-envelope-path);" 1>&2
+  echo "  the receipt schema enforces them all-or-nothing. exit 1 = other write/schema error." 1>&2
+  echo "  Do NOT enter Phase 3. Fix the write inputs and re-enter /mccp:prp-implement." 1>&2
+  exit "$WRITE_EXIT"
+fi
 ```
+
+> **PreToolUse hook-block interplay**: this exit-code guard fires only when the
+> `node` receipt-write process actually RAN and returned non-zero. If a PreToolUse
+> hook blocks the Bash tool call outright (the LLM-level block described just
+> below), `node` never executes, so `WRITE_EXIT` is meaningless and the hook-block
+> handling path owns the stop instead. The two mechanisms are disjoint by
+> construction — no double-stop, no missed stop.
 
 Bash hook block handling: same as mccp Plan-Codex Phase 7.6 — output `[MCCP-GATE-STOP]` with captured hook stderr and end the response. Do NOT enter Phase 3.
 

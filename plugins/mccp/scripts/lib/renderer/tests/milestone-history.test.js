@@ -20,7 +20,7 @@ const PRD_BODY = [
   '| --- | --- | --- | --- | --- |',
   '| 1 | Alpha | out | complete | .claude/plans/alpha.plan.md (report: .claude/PRPs/reports/alpha-report.md) |',
   '| 2 | Beta | out | complete | [.claude/plans/beta.plan.md](../plans/beta.plan.md) |',
-  '| 3 | Gamma | out | complete | .claude/PRPs/plans/completed/gamma.plan.md |',
+  '| 3 | Gamma | out | complete | .claude/PRPs/plans/archived/gamma.plan.md |',
   '| 4 | Pending | out | dropped | — |',
   '',
 ].join('\n');
@@ -86,7 +86,7 @@ test('receipt 부재 + git resolver 반환 → git commit 시점 사용 (complet
     fsRead: fsReadOnlyPrd,
     gitCommitTime: gitTimes({
       '.claude/plans/beta.plan.md': '2026-06-20T10:00:00.000Z',
-      '.claude/PRPs/plans/completed/gamma.plan.md': '2026-06-19T09:00:00.000Z',
+      '.claude/PRPs/plans/archived/gamma.plan.md': '2026-06-19T09:00:00.000Z',
     }),
   });
   assert.ok(out.html.includes('datetime="2026-06-20T10:00:00.000Z"')); // Beta(링크) prd-dir 해석
@@ -106,12 +106,12 @@ test('receipt·git 모두 null → 날짜 미상 (graceful floor)', () => {
   assert.ok(out.html.includes('날짜 미상'));
 });
 
-test('아카이브된 PRD(.claude/prds/complete/)의 완료 마일스톤이 이력에 포함된다 (완료 이력 유지)', () => {
+test('아카이브된 PRD(.claude/prds/archived/)의 완료 마일스톤이 이력에 포함된다 (완료 이력 유지)', () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-ms-arch-'));
   try {
-    const archDir = path.join(dir, '.claude', 'prds', 'complete');
+    const archDir = path.join(dir, '.claude', 'prds', 'archived');
     fs.mkdirSync(archDir, { recursive: true });
     const body = [
       '## Delivery Milestones', '',
@@ -155,7 +155,7 @@ test('stale 셀 경로(.claude/plans/) → completed/ archive basename fallback 
     cwd: CWD,
     fsRead: (p) => { if (p === STALE_PRD) return body; throw new Error('ENOENT'); },
     // 셀 경로 .claude/plans/moved.plan.md 는 미존재, completed/ 만 git 시점 있음
-    gitCommitTime: gitTimes({ '.claude/PRPs/plans/completed/moved.plan.md': '2026-06-18T08:00:00.000Z' }),
+    gitCommitTime: gitTimes({ '.claude/PRPs/plans/archived/moved.plan.md': '2026-06-18T08:00:00.000Z' }),
   });
   assert.ok(out.html.includes('datetime="2026-06-18T08:00:00.000Z"'));
   assert.ok(!out.html.includes('날짜 미상'));

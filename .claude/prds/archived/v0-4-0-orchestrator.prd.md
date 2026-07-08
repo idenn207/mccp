@@ -18,6 +18,8 @@ santa_loop_round3: completed-convergent-on-self-introduced-count-error (A=FAIL/B
 
 # v0.4.0 Orchestrator + Workflow-Verify Milestone
 
+> **⊘ SUPERSEDED (아카이브, 2026-07-09)** — 본 PRD의 MVP 척추가 v0.3.x~v1.x dogfood에서 실증적으로 기각/대체됐다. (1) axis **B/C**(spawn 자율 오케스트레이터) → **정직한 `notify` handoff + `/mccp:resume`**(v1.1.0)로 대체 — spawn은 IDE 세션에서 거의 항상 실패해 `MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN` opt-in으로 강등. (2) axis **A**(cost USD → message-count metric pivot) → **미전환**, cost USD tier가 briefing·plan-fanout·milestone-close·merged-verify 등 6개 서브시스템에 유지되어 obsolete. (3) axis **D**(/mccp:resume)·**I**(next-session 신호) → **결과 달성, 다른 구현**(`work-queue.v1` schema 아닌 STATE.md `handoff_spawn` 신호). 완료는 axis **H**(plan-implement verify) 1개뿐. 살아있는 잔여 가치 — **E**(shared decision ledger)·**J**(issue ledger + `/mccp:work` 진입 분기)·**F**(orphan 死코드 7파일 `session-adapters/*`·`tmux-worktree-orchestrator.js`·`harness-adapter-compliance.js`·`orchestration-session.js` 제거) — 는 필요 시 현재 v1.20.x 현실에 grounding한 별도 lean PRD로 재기획한다. 아래 Delivery Milestones 표에서 axis H 외 9축은 `dropped`로 정리했다.
+
 ## Problem
 
 mccp v0.3.x dogfood가 5-worktree 동시 `mccp:work` 환경에서 발견한 두 종류의 사용자 개입 발생원:
@@ -114,15 +116,15 @@ MVP가 ship되면 사용자 개입의 두 큰 발생원(plan-implement gap + mul
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | **H — plan-implement verify** | implement 중 plan 충돌이 사용자 escalation 없이 silent하게 plan 변경되지 않음. escalation surface는 plan 단계에서 결정 (fix-task.md / askUserQuestion / STATE.md chain_aborted 중). | complete | [v0-4-0-axis-h-plan-implement-verify.plan.md](../plans/v0-4-0-axis-h-plan-implement-verify.plan.md) |
-| 2 | **I — next-session 1-liner** | 모든 mccp:* 종료 시 다음 세션 첫 메시지 1줄 자동 제공. 생성 책임 위치(command body / Stop hook / wrapper)는 plan 단계 결정. | pending | — |
-| 3 | **B — Windows headless spawn** | Stop hook fire 시 child Claude 자동 spawn 기술적 가능성 확정. OAuth + `--bare` 제거 + stream-json output. **prototype gate: ONE worktree 1회 spawn 측정 후 5-worktree로 scale** (audit Q3). | pending | — |
-| 4 | **C — on-demand orchestrator** | `auto-handoff.js` extend로 Stop hook이 spawn trigger 작동. 2-layer 재귀 가드 (entry MCCP_ORCHESTRATED_CHILD check + spawner env injection). cost-state 격리 `MCCP_COST_STATE_DIR=<per-child>` 동시 적용. (audit Q2 + Q6) | pending | — |
-| 5 | **A — metric pivot** | cost USD → message-count-per-5h. `MCCP_HANDOFF_MSG_THRESHOLDS_PER_5H="35,40,45"` (default permissive). dogfood calibration 후 threshold 확정. (audit Q1) | pending | — |
-| 6 | **D — /mccp:resume** | 중단된 mccp:* 명령을 receipt 정합성 유지하며 resume. `lib/work-queue-schema.js` 신규 + `mccp.work-queue.v1` schema. canonical-session.js 일부 패턴만 EXTRACT-PATTERN. (audit Q4) | pending | — |
-| 7 | **E — shared decision ledger** | 5-worktree 결정사항 단일 ledger, conflict 감지 가능. | pending | — |
-| 8 | **F — worktree path 자동 고정 + ECC cleanup** | spawn 시 worktree cwd 오인식 0회 + `.worktrees/` 규칙 일관 + sibling worktree migration + ECC 1500 LOC removal (Q4 dead-code list). | pending | — |
-| 9 | **J — issue ledger + entry 분기** | dogfood issue 자동 누적, mccp:work 진입 시 issue-only/feature/hybrid 선택. issue-only면 plan-prd skip. | pending | — |
-| 10 | **G — sub-agent thin contract** | `security-reviewer` + `code-reviewer` 2개 agent의 multi-session race 측정. prototype gate(2 worktree code-review 동시) 후 design 확정/유지 결정. sub-PRD 불필요. (audit Q5) | pending — prototype-gated | — (in-PRD thin contract) |
+| 2 | **I — next-session 1-liner** | 모든 mccp:* 종료 시 다음 세션 첫 메시지 1줄 자동 제공. 생성 책임 위치(command body / Stop hook / wrapper)는 plan 단계 결정. | dropped | — |
+| 3 | **B — Windows headless spawn** | Stop hook fire 시 child Claude 자동 spawn 기술적 가능성 확정. OAuth + `--bare` 제거 + stream-json output. **prototype gate: ONE worktree 1회 spawn 측정 후 5-worktree로 scale** (audit Q3). | dropped | — |
+| 4 | **C — on-demand orchestrator** | `auto-handoff.js` extend로 Stop hook이 spawn trigger 작동. 2-layer 재귀 가드 (entry MCCP_ORCHESTRATED_CHILD check + spawner env injection). cost-state 격리 `MCCP_COST_STATE_DIR=<per-child>` 동시 적용. (audit Q2 + Q6) | dropped | — |
+| 5 | **A — metric pivot** | cost USD → message-count-per-5h. `MCCP_HANDOFF_MSG_THRESHOLDS_PER_5H="35,40,45"` (default permissive). dogfood calibration 후 threshold 확정. (audit Q1) | dropped | — |
+| 6 | **D — /mccp:resume** | 중단된 mccp:* 명령을 receipt 정합성 유지하며 resume. `lib/work-queue-schema.js` 신규 + `mccp.work-queue.v1` schema. canonical-session.js 일부 패턴만 EXTRACT-PATTERN. (audit Q4) | dropped | — |
+| 7 | **E — shared decision ledger** | 5-worktree 결정사항 단일 ledger, conflict 감지 가능. | dropped | — |
+| 8 | **F — worktree path 자동 고정 + ECC cleanup** | spawn 시 worktree cwd 오인식 0회 + `.worktrees/` 규칙 일관 + sibling worktree migration + ECC 1500 LOC removal (Q4 dead-code list). | dropped | — |
+| 9 | **J — issue ledger + entry 분기** | dogfood issue 자동 누적, mccp:work 진입 시 issue-only/feature/hybrid 선택. issue-only면 plan-prd skip. | dropped | — |
+| 10 | **G — sub-agent thin contract** | `security-reviewer` + `code-reviewer` 2개 agent의 multi-session race 측정. prototype gate(2 worktree code-review 동시) 후 design 확정/유지 결정. sub-PRD 불필요. (audit Q5) | dropped | — (in-PRD thin contract) |
 
 ## Open Questions
 

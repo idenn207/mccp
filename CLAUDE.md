@@ -535,6 +535,27 @@ plugin.json `1.13.0 → 1.16.0` — main(1.15.0, PR #53 dashboard chart)과 forw
 
 ---
 
+### 3.11 완료 PRD/plan 아카이브 (`archived/` 관례 + `/mccp:archive-complete`) (v1.20.15)
+
+완료된 PRD(전 milestone complete/dropped)와 그 plan은 `archived/` 하위로 이동해 대시보드 활성 스캔에서 빼낸다. v1.20.14까지는 수동 chore였고, v1.20.15부터 human-gate command `/mccp:archive-complete`로 제품화됐다([scan.js](plugins/mccp/scripts/lib/archive-complete/scan.js) 결정적 판정 + [apply.js](plugins/mccp/scripts/lib/archive-complete/apply.js) 원자 트랜잭션 + [command body](plugins/mccp/commands/archive-complete.md) 6-phase). `/mccp:dashboard-audit`(비파괴 마커로 stale 항목 은퇴)와 capability가 다르다 — 이쪽은 **파일 이동 + status flip**이다.
+
+#### 폴더명 + 목적지 (고정)
+
+- **PRD**: 활성 `.claude/prds/` → `.claude/prds/archived/`
+- **plan**: 활성 `.claude/plans/` 또는 `.claude/PRPs/plans/` → `.claude/PRPs/plans/archived/` (두 활성 소스 모두 archived 목적지는 `PRPs/plans/archived/` 단일)
+- 두 스캔 모두 **비재귀** — `archived/` 하위는 활성 표면에 자동 미표시. 완료 이력은 [milestone-history.js](plugins/mccp/scripts/lib/renderer/sections/milestone-history.js)가 `.claude/prds/archived/`(L218)를 직접 스캔해 타임라인에 유지 + plan git-time/summary는 `.claude/PRPs/plans/archived/` fallback(L51/L181)으로 해석.
+
+#### 정합성 불변식 (코드 근거)
+
+- **C1** — PRD는 활성 plan의 `source_prd`로만 대시보드 discovery ([plans.js](plugins/mccp/scripts/derive/sources/plans.js) `PLAN_DIRS` 비재귀 + milestone-history plan 루프). derive에 전용 PRD source 없음.
+- **C2 (정확성 기준)** — 완료 plan archive는 **PRD 전체 완료 시에만**. 미완료 PRD의 plan을 옮기면 어느 스캔에도 안 잡혀 PRD가 소실된다. `apply.js`가 archivable을 재검증 + PRD와 그 모든 활성 plan을 하나의 원자 단위로만 이동(단독 이동 거부, 실패 시 전량 rollback).
+- **C3** — archivable 판정은 `## Delivery Milestones` 표를 **원시 행 단위로 전부 열거**해 `rawRowCount === complete + dropped` fail-closed 등식으로만(비정규 status 행이 분모서 증발하는 오분류 차단 — Codex F1).
+- **C4** — status 파싱은 `=== 'complete'` 엄격 일치. 비정규 텍스트(예 "complete (verify) · gated")는 complete도 lifecycle도 아님 → non-canonical → 보수적 non-archivable.
+
+파괴적 변경(파일 이동 + status 편집)의 audit anchor는 operation journal(`.claude/state/archive-journal/<id>.json`, git-tracked — scan hash·승인·evidence·목적지·session 기록)이다. 파일 이동 chore이므로 `mccp-*-codex` 게이트 receipt는 발행하지 않는다(human-gate + git history + journal이 review — cross-model review는 YAGNI).
+
+---
+
 ## 4. 자주 쓰는 명령 (Cheat Sheet)
 
 ```bash

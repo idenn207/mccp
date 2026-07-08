@@ -34,7 +34,7 @@ function defaultGitCommitTime(cwd) {
 
 // PRD 셀의 planPath(repo-root-relative 평문 또는 PRD-dir-relative 링크)를
 // repo-root / PRD-dir 두 기준으로 해석해 실제 git 시점이 잡히는 경로를 채택.
-// '.claude/plans/', '.claude/PRPs/plans/completed/', '../plans/' 모두 커버하며
+// '.claude/plans/', '.claude/PRPs/plans/archived/', '../plans/' 모두 커버하며
 // basename 재구성을 쓰지 않는다 (Codex F2 absorption).
 function resolveGitCommitTime(planPath, prdDir, cwd, gitCommitTime) {
   if (!planPath) return null;
@@ -44,11 +44,11 @@ function resolveGitCommitTime(planPath, prdDir, cwd, gitCommitTime) {
     ? [cleaned]
     : [path.resolve(cwd, cleaned), path.resolve(prdDir, cleaned)];
   // PRD 셀이 archive 전 경로(`.claude/plans/...`)로 stale일 수 있다 — archived plan은
-  // `.claude/PRPs/plans/completed/`로 이동된다. directory-preserving 후보가 모두
+  // `.claude/PRPs/plans/archived/`로 이동된다. directory-preserving 후보가 모두
   // 빈 결과면 canonical archive/active 위치를 basename으로 최종 시도 (Codex F2).
   const base = cleaned.split(/[\\/]/).pop();
   if (base && /\.plan\.md$/i.test(base)) {
-    absCandidates.push(path.resolve(cwd, '.claude/PRPs/plans/completed', base));
+    absCandidates.push(path.resolve(cwd, '.claude/PRPs/plans/archived', base));
     absCandidates.push(path.resolve(cwd, '.claude/plans', base));
   }
   for (const abs of absCandidates) {
@@ -178,7 +178,7 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
           : [path.resolve(cwd, row.planPath), path.resolve(prdDir, row.planPath)];
         const base = row.planBasename;
         if (base) {
-          cands.push(path.resolve(cwd, '.claude/PRPs/plans/completed', base));
+          cands.push(path.resolve(cwd, '.claude/PRPs/plans/archived', base));
           cands.push(path.resolve(cwd, '.claude/plans', base));
         }
         for (const abs of cands) {
@@ -208,14 +208,14 @@ function renderMilestoneHistory(model, formatUtils, planBody, opts) {
     processPrd(resolved.path, resolved.body);
   }
 
-  // 완료 이력 유지 — 아카이브된 PRD(.claude/prds/complete/)를 직접 스캔해 완료
+  // 완료 이력 유지 — 아카이브된 PRD(.claude/prds/archived/)를 직접 스캔해 완료
   // 마일스톤을 이력 타임라인에 포함한다. 활성 표면(진행중/위험/질문/status-grid)은
   // derive 활성 plan(m.sources.plans.items)만 소비하므로 아카이브 항목이 그쪽으로는
   // 새지 않는다 — 완료 이력만 복원, 활성 카운트 오염 0. 아카이브 plan 의
-  // git-time/summary 는 위 cands 의 .claude/PRPs/plans/completed/ fallback 으로
+  // git-time/summary 는 위 cands 의 .claude/PRPs/plans/archived/ fallback 으로
   // 해석된다. 디렉토리 부재/read 실패는 loud fail-open(throw 안 함, 이력만 축소).
   try {
-    const archPrdDir = path.resolve(cwd, '.claude', 'prds', 'complete');
+    const archPrdDir = path.resolve(cwd, '.claude', 'prds', 'archived');
     let archEntries;
     try { archEntries = fs.readdirSync(archPrdDir); } catch (_) { archEntries = []; }
     for (const f of archEntries) {

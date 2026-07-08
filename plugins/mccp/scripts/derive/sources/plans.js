@@ -6,7 +6,7 @@ const path = require('path');
 const PLAN_GLOB_SUFFIX = '.plan.md';
 
 // 대시보드가 *표시*하는 plan 집합의 SSoT (repoRoot 상대, 둘 다 비재귀): 현재 작업
-// plan(.claude/plans) + 레거시 top-level(.claude/PRPs/plans). completed/ 아카이브는
+// plan(.claude/plans) + 레거시 top-level(.claude/PRPs/plans). archived/ 아카이브는
 // 비표시라 여기 미포함. stale-audit/enumerate.js 가 이 목록을 import 해 re-enumerate
 // 집합을 enumerate ⊇ derive 로 맞춘다(item-id 계약 — 표시돼 resolveId 가 붙은 항목은
 // 서버가 항상 재현 가능해야 한다). 두 surface 의 dir-scan drift 를 막는 단일 출처.

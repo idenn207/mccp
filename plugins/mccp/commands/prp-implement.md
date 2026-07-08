@@ -193,7 +193,8 @@ Enumerate decisions that the plan did NOT pre-commit to: file layout details, he
 Skill interface `codex:adversarial-review` does not exist and the slash command is `disable-model-invocation:true`. Use the fail-closed Bash wrapper from [scripts/lib/codex-invoke.js](../scripts/lib/codex-invoke.js). Do NOT ask "shall I invoke Codex?".
 
 ```bash
-mkdir -p .git/mccp/tmp
+GITDIR=$(git rev-parse --git-dir)   # worktree-safe (§3.8 — .git는 worktree에서 파일); Phase 2.5.5b와 동형
+mkdir -p "$GITDIR/mccp/tmp"
 # v0.3.6 Task 8 (축 1 wire-up) — emit --impeccable-available when impeccable
 # detected AND MCCP_CODEX_DESIGN_SCOPE_HONOR != 0. Wrapper then prepends
 # DESIGN_SCOPE_PREAMBLE so Codex stays scoped to security/correctness/perf.
@@ -205,7 +206,7 @@ process.stdout.write(honored && detect.probeSkillAvailable({}) ? '--impeccable-a
 CODEX_STDOUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js" adversarial-review \
   --focus "challenge the following implement-time decisions: <bullet list from 2.5.2>" \
   --timeout-ms 900000 \
-  --json $IMPECCABLE_FLAG 2> .git/mccp/tmp/codex-invoke.stderr)
+  --json $IMPECCABLE_FLAG 2> "$GITDIR/mccp/tmp/codex-invoke.stderr")
 CODEX_EXIT=$?
 CODEX_BLOCKING=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.blocking?"1":"0")}catch{console.log("1")}' "$CODEX_STDOUT")
 CODEX_CLASS=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.classification||"unknown")}catch{console.log("parse-error")}' "$CODEX_STDOUT")
@@ -1487,9 +1488,13 @@ After Phase 6 OUTPUT, query [scripts/lib/auto-chain.js](../scripts/lib/auto-chai
 
 ```bash
 # Pre-commit check
+# Fix Invariant (F1) — Phase 2.5와 분리된 fresh shell이므로 자체 재도출 + mkdir.
+# redirect(2>)는 파일은 만들어도 부모 dir은 못 만들어 clean worktree에서 깨진다.
+GITDIR=$(git rev-parse --git-dir)   # worktree-safe (§3.8 — .git는 worktree에서 파일)
+mkdir -p "$GITDIR/mccp/tmp"
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/auto-chain.js" check \
   --next-step commit \
-  --decision "<decision-slug>" 2> .git/mccp/tmp/auto-chain.stderr
+  --decision "<decision-slug>" 2> "$GITDIR/mccp/tmp/auto-chain.stderr"
 CHAIN_EXIT=$?
 ```
 

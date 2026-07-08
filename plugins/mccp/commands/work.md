@@ -39,7 +39,8 @@ End the response. Do NOT proceed.
 ### Classification
 
 ```bash
-mkdir -p .git/mccp/tmp
+GITDIR=$(git rev-parse --git-path mccp/tmp)   # worktree-safe (§3.8 — .git는 worktree에서 파일)
+mkdir -p "$GITDIR"
 
 ARG="$ARGUMENTS"
 FORCE_TRIVIAL=""
@@ -59,7 +60,7 @@ esac
 CLASSIFY=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" classify \
   --feature "$ARG" \
   ${PRD_PATH:+--prd "$PRD_PATH"} \
-  $FORCE_TRIVIAL $FORCE_FULL 2> .git/mccp/tmp/work-classify.stderr)
+  $FORCE_TRIVIAL $FORCE_FULL 2> "$GITDIR/work-classify.stderr")
 TYPE=$(echo "$CLASSIFY" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.type)}catch{process.stdout.write("full")}')
 REASON=$(echo "$CLASSIFY" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason)}catch{process.stdout.write("classify-failed")}')
 

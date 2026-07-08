@@ -598,7 +598,8 @@ Skill interface `codex:adversarial-review` does not exist in the codex plugin's 
 Run the wrapper. **Do NOT** ask the user "shall I invoke Codex?".
 
 ```bash
-mkdir -p .git/mccp/tmp
+MCCP_TMP="$(git rev-parse --git-dir)/mccp/tmp"   # worktree-safe (§3.8 — .git는 worktree에서 파일)
+mkdir -p "$MCCP_TMP"
 # v0.3.6 Task 8 (축 1 wire-up) — emit --impeccable-available when impeccable
 # is detected AND the design-scope honor toggle isn't disabled. The wrapper
 # then prepends DESIGN_SCOPE_PREAMBLE to focus, narrowing Codex's scope to
@@ -612,7 +613,7 @@ process.stdout.write(honored && detect.probeSkillAvailable({}) ? '--impeccable-a
 CODEX_STDOUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js" adversarial-review \
   --focus "challenge the following plan decisions: <list 1-3 key decisions from the plan>" \
   --timeout-ms 900000 \
-  --json $IMPECCABLE_FLAG 2> .git/mccp/tmp/codex-invoke.stderr)
+  --json $IMPECCABLE_FLAG 2> "$MCCP_TMP/codex-invoke.stderr")
 CODEX_EXIT=$?
 
 CODEX_BLOCKING=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.blocking?"1":"0")}catch{console.log("1")}' "$CODEX_STDOUT")

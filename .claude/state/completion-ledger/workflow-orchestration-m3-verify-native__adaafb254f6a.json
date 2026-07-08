@@ -1,0 +1,26 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "workflow-orchestration-m3-verify-native",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.20.12",
+    "completed_at": "2026-07-08T10:03:59.723Z",
+    "commit_sha": "f07e2c3756b3c6354a09aef83f4e1492660a0e74",
+    "plan_basename": "workflow-orchestration-m3-verify-native.plan.md",
+    "plan_file_hash": "sha256:2dae7ab144f4285d3fa20beae71eb6630a9549a3e034ae60d034a1d307366c23",
+    "risks_closed": [
+      "Task 0가 두 merge 메커니즘 모두 미입증 (harness opaque)",
+      "dispatchId↔worktree 상관 신호 불신뢰 (Mechanism 1)",
+      "A2 same-worktree에서 harness가 실제 병렬 안 함(순차)",
+      "A2 F2 약화로 partition-escape 미검출",
+      "aggregate verify가 per-worker와 중복(N=1)",
+      "verify 스테이지가 dual-review를 약화(same-model 오해)",
+      "Codex unavailable로 verify가 상시 HALT(enforce)",
+      "mid-apply 실패로 parent 부분 오염",
+      "M3 비대화(worktree-merge + verify 동시)"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:adaafb254f6a3aac93abe98eca50c818a9d3a9ca6bd6abf2f5b36c97977c8deb"
+  }
+}

@@ -11,6 +11,12 @@ const GATE_IDS = [
   'mccp-plan-codex',
   'implement-impeccable',
   'mccp-implement-codex',
+  // workflow-orchestration M3 — aggregate adversarial-verify gate. produces-only,
+  // written by the /mccp:work Step 3 controller AFTER mccp-implement-codex; carries
+  // the merged-diff cross-model verdict. Non-invasive to command preflight (no
+  // command lists it in requires_preceding) — its runtime enforcement is work.md's
+  // verify-decide HALT, this receipt is the audit anchor (DD5 / Codex R1 F3).
+  'mccp-implement-verify',
   'pr-impeccable',
   'mccp-pr-codex',
   'security-reviewer',
@@ -640,6 +646,23 @@ function validate(receipt) {
       req(typeof m.ledger_write_skipped === 'boolean',
         'meta.ledger_write_skipped must be a boolean if present');
     }
+
+    // workflow-orchestration M3 — aggregate adversarial-verify audit (present-
+    // only; pre-M3 receipts validate unchanged). Stamped on the mccp-implement-
+    // verify gate by the /mccp:work Step 3 controller after the integrated diff is
+    // reviewed once by Codex (cross-model, worker-external). NOT carved out of
+    // receipt_hash — the write recomputes both digests so the verdict is tamper-
+    // protected (P5). merged_verify_verdict shares the codex verdict vocabulary.
+    if (m.merged_verify_verdict !== null && m.merged_verify_verdict !== undefined) {
+      req(typeof m.merged_verify_verdict === 'string' &&
+        CODEX_VERDICT_VALUES.indexOf(m.merged_verify_verdict) !== -1,
+        'meta.merged_verify_verdict must be one of: ' +
+        CODEX_VERDICT_VALUES.join(', ') + ' (or null)');
+    }
+    if (m.merged_verify_rounds !== null && m.merged_verify_rounds !== undefined) {
+      req(Number.isInteger(m.merged_verify_rounds) && m.merged_verify_rounds >= 0,
+        'meta.merged_verify_rounds must be a non-negative integer if present');
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -750,6 +773,11 @@ function makeSkeleton(overrides) {
       // preserving restamp at Phase 3.6 close. Default false/null = green path.
       design_grounding_captured: false,
       design_grounding_verdict: null,
+      // workflow-orchestration M3 — aggregate adversarial-verify audit. null =
+      // gate not exercised. Stamped on mccp-implement-verify receipts via cli.js
+      // --merged-verify-verdict / --merged-verify-rounds.
+      merged_verify_verdict: null,
+      merged_verify_rounds: null,
     },
   }, o);
 }

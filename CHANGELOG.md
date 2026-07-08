@@ -2,7 +2,27 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.11`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.12`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.12] — 2026-07-08
+
+workflow-orchestration **M3** (verify 네이티브화 — worktree-merge substrate + aggregate adversarial-verify, honest-degradation patch). M3은 PRD의 두 축을 닫되 **정직하게 부분 종료**한다: **(A) verify 네이티브화** — 통합 diff를 worker 밖에서 1회 cross-model(Codex) adversarial review하는 `Step 3.verify` 스테이지를 `/mccp:work`에 **필수 pipeline 스테이지**로 장착(PRD Open Question 1(c)의 척추 답). worker 안(per-worker Implement-Codex) + workflow 외곽(/mccp:pr PR-Codex) 사이의 통합 verify 층으로, per-partition 리뷰가 놓치는 cross-cut 회귀(public API·import graph·shared config)를 test보다 깊은 LLM 판정으로 잡는다. **(B) worktree-merge substrate** — worktree→parent collect/apply/patch-scoped rollback lib + dispatch-cli 서브커맨드를 build + unit-test로 완비. **Task 0 spike honest degradation (DD7)**: git 메커니즘(enumerate·diff·apply·reverse-apply·rollback-safety)은 **합성 실측으로 입증**(agent spawn 0)했으나, live harness 상관(Workflow worktree↔dispatchId)은 **cost hard-ceiling($314.50, critical)으로 미실측** → `merge_strategy=disable-parallel` 유지, 병렬은 계속 gated. **핵심(Codex R1 F2/DD6)**: aggregate verify는 **단일·병렬 양 경로** commit 전 발화하므로, 병렬이 gated여도 verify-네이티브화가 **단일 경로에서 실제 runtime 가치**를 갖는다(Axis A ⊥ Axis B). **Codex R1 4H 흡수**: F1(A2 artifact-격리 미비 → Mechanism 1 primary·A2 금지), F2(verify 양-경로 발화), F3(합성 `<slug>-merged` decision → 실제 gate `mccp-implement-verify` produces-only, non-invasive), F4(광범위 checkout/clean rollback → **patch reverse-apply**만, dirty feature branch data-loss 회피). **DD2 cross-model 불변식**: invoker는 여전히 Codex — "adversarial-verify" 패턴은 worker 밖 독립 검증 구조만 차용, same-model skeptic 치환 아님(dual-review 무손상). plugin.json `1.20.11 → 1.20.12`(degraded patch — verify ship + 병렬 gated) + 양 footer(html/markdown) + i18n-surface 테스트 동기. 신규 회귀 0(implement-dispatch oracle 114 + dispatch-cli 47 + receipt merged-verify 11 green).
+
+### Added
+
+- **`scripts/lib/implement-dispatch/verify.js`** — aggregate adversarial-verify 순수 oracle: `buildVerifyFocus`(통합 cross-partition diff → Codex focus 텍스트) + `decideMergedVerify`(codex json → `converged`→pass / `divergent`·`critical`→HALT / `unavailable`×mode / `skipped` block 판정, `codex-bridge.parseVerdict`/`detectCriticalCategory` 재사용) + `parseMergedVerifyMode`(off/warn/enforce, default enforce loud fail-closed).
+- **`scripts/lib/implement-dispatch/worktree-merge.js`** — worktree→parent collect+apply+rollback: `buildWorktreeMap`(dispatchId↔worktree 상관, 누락/중복 fail-closed) · `collectWorkerDiff`(tracked ∪ untracked diff) · `assertPathsClean`(pre-apply clean assert, F4) · `applyDisjointDiffs`(all-or-nothing check→apply + patch 기록) · `rollbackApplied`(patch-scoped `git apply -R`, F4 — 사전 dirty·untracked 보존).
+- **`scripts/lib/implement-dispatch/tests/{verify,worktree-merge}.test.js`** — 32 신규 oracle 테스트(verify 20 + worktree-merge 12, real-git 통합 rollback-safety 포함).
+- **`scripts/receipt/tests/merged-verify-fields.test.js`** — 11 신규(신규 gate round-trip + merged_verify enum/reject + tamper-protection + non-invasive preflight).
+- **`scripts/lib/tests/dispatch-cli.test.js`** — M3 서브커맨드 테스트(collect-worktrees / merge-apply dry-run+apply+rollback / F2 escape / pre-apply-dirty HALT / verify-decide 5-verdict / verify-focus) 추가.
+
+### Changed
+
+- **`scripts/lib/dispatch-cli.js`** — 5 신규 서브커맨드: `collect-worktrees`(worktree map emit, missing/ambiguous fail-closed) · `merge-apply`(F2 subset + pre-apply clean assert + patch 기록) · `rollback-apply`(patch reverse-apply) · `verify-focus` · `verify-decide`.
+- **`scripts/receipt/{schema,write,aliases,cli}.js`** — 신규 produces-only gate `mccp-implement-verify`(phase=implement, non-invasive — 어떤 command chain에도 미진입) + present-only `meta.merged_verify_verdict`(enum)/`meta.merged_verify_rounds`(int) + `--merged-verify-verdict`/`--merged-verify-rounds` 플래그. `receipt_hash`에 포함(tamper-protected). migration 불필요.
+- **`commands/work.md`** — Step 3.verify 공유 스테이지(모든 implement 경로 commit 전 aggregate verify, DD6 단일 경로 발화) + Step 3.gate-parallel의 broad checkout/clean rollback을 patch reverse-apply(F4)로 교체 + collect-worktrees/merge-apply 배선(활성화 계약, 현행 disable-parallel gated). `MCCP_WORK_MERGED_VERIFY` 축 문서화.
+- **`.claude-plugin/plugin.json`** — `1.20.11 → 1.20.12`. 양 footer(html/markdown) `v1.20.12` 동기.
+- **`CLAUDE.md`** — §1.4 표 1행(M3) + §4 토글(`MCCP_WORK_MERGED_VERIFY`).
 
 ## [1.20.11] — 2026-07-08
 

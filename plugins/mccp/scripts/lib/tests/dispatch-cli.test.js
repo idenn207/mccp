@@ -777,3 +777,160 @@ test('reconcile (fleet): Workflow return path via --results-dir → ok', () => {
     assert.strictEqual(v.verdict, 'ok');
   } finally { rimraf(sb); }
 });
+
+// ── M3 — collect-worktrees / merge-apply / rollback-apply / verify-* ──────────
+
+function gitIn(args, cwd, input) {
+  return spawnSync('git', args, { cwd: cwd, encoding: 'utf8', input: input });
+}
+
+function setupWorktreeRepo() {
+  const root = makeSandbox();
+  gitIn(['init', '-q', '-b', 'main', '.'], root);
+  gitIn(['config', 'user.email', 's@e.com'], root);
+  gitIn(['config', 'user.name', 'spike'], root);
+  gitIn(['config', 'commit.gpgsign', 'false'], root);
+  gitIn(['config', 'core.autocrlf', 'false'], root);
+  fs.writeFileSync(path.join(root, 'a.txt'), 'alpha base\n');
+  fs.writeFileSync(path.join(root, 'b.txt'), 'beta base\n');
+  gitIn(['add', '-A'], root);
+  gitIn(['commit', '-qm', 'base'], root);
+  const base = gitIn(['rev-parse', 'HEAD'], root).stdout.trim();
+  gitIn(['worktree', 'add', '-q', '-b', 'wt-1', '.wt/a1', base], root);
+  gitIn(['worktree', 'add', '-q', '-b', 'wt-2', '.wt/a2', base], root);
+  const wt1 = path.join(root, '.wt', 'a1');
+  const wt2 = path.join(root, '.wt', 'a2');
+  fs.writeFileSync(path.join(wt1, 'a.txt'), 'alpha CHANGED\n');
+  gitIn(['add', '-A'], wt1);
+  fs.writeFileSync(path.join(wt2, 'b.txt'), 'beta CHANGED\n');
+  gitIn(['add', '-A'], wt2);
+  fs.mkdirSync(path.join(wt1, '.claude', 'state', 'dispatches'), { recursive: true });
+  fs.writeFileSync(path.join(wt1, '.claude', 'state', 'dispatches', 'id-1.envelope.json'), '{}');
+  fs.mkdirSync(path.join(wt2, '.claude', 'state', 'dispatches'), { recursive: true });
+  fs.writeFileSync(path.join(wt2, '.claude', 'state', 'dispatches', 'id-2.envelope.json'), '{}');
+  return { root: root, wt1: wt1, wt2: wt2 };
+}
+function cleanupWorktreeRepo(root) {
+  gitIn(['worktree', 'remove', '--force', '.wt/a1'], root);
+  gitIn(['worktree', 'remove', '--force', '.wt/a2'], root);
+  rimraf(root);
+}
+
+test('collect-worktrees: correlates dispatchIds → worktree paths, excludes self', (t) => {
+  if (gitIn(['--version']).status !== 0) { t.skip('git n/a'); return; }
+  const { root, wt1, wt2 } = setupWorktreeRepo();
+  try {
+    const cap = captureEmit(() => cli.cmdCollectWorktrees({ 'dispatch-ids': 'id-1,id-2', 'repo-root': root }));
+    assert.strictEqual(cap.exitCode, 0);
+    // `git worktree list` emits its own path form (forward slashes, long-form) which
+    // differs from Node path.join (backslashes, 8.3) on Windows — both realpath to
+    // the same canonical worktree, and `git -C <either>` accepts both downstream.
+    const norm = (p) => fs.realpathSync.native(p).replace(/\\/g, '/').toLowerCase();
+    assert.strictEqual(norm(cap.json.map['id-1']), norm(wt1));
+    assert.strictEqual(norm(cap.json.map['id-2']), norm(wt2));
+    assert.deepStrictEqual(cap.json.missing, []);
+  } finally { cleanupWorktreeRepo(root); }
+});
+
+test('collect-worktrees: a missing dispatchId → ERROR_EXIT (fail-closed, no silent drop)', (t) => {
+  if (gitIn(['--version']).status !== 0) { t.skip('git n/a'); return; }
+  const { root } = setupWorktreeRepo();
+  try {
+    const cap = captureEmit(() => cli.cmdCollectWorktrees({ 'dispatch-ids': 'id-1,id-nope', 'repo-root': root }));
+    assert.strictEqual(cap.exitCode, 1);
+    assert.deepStrictEqual(cap.json.missing, ['id-nope']);
+  } finally { cleanupWorktreeRepo(root); }
+});
+
+test('merge-apply: dry-run → ok applied 0; real apply → parent gets disjoint changes; rollback restores', (t) => {
+  if (gitIn(['--version']).status !== 0) { t.skip('git n/a'); return; }
+  const { root, wt1, wt2 } = setupWorktreeRepo();
+  try {
+    const mapFile = path.join(root, 'wtmap.json');
+    fs.writeFileSync(mapFile, JSON.stringify({ 'id-1': wt1, 'id-2': wt2 }));
+    // dry-run
+    const dry = captureEmit(() => cli.cmdMergeApply({ 'worktree-map': mapFile, 'repo-root': root, 'dry-run': true }));
+    assert.strictEqual(dry.exitCode, 0);
+    assert.strictEqual(dry.json.applied, 0);
+    assert.strictEqual(dry.json.dryRun, true);
+    // real apply, recording patches
+    const patchesOut = path.join(root, 'patches.json');
+    const ap = captureEmit(() => cli.cmdMergeApply({ 'worktree-map': mapFile, 'repo-root': root, 'patches-out': patchesOut }));
+    assert.strictEqual(ap.exitCode, 0);
+    assert.strictEqual(ap.json.applied, 2);
+    assert.strictEqual(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'alpha CHANGED\n');
+    assert.strictEqual(fs.readFileSync(path.join(root, 'b.txt'), 'utf8'), 'beta CHANGED\n');
+    // rollback-apply
+    const rb = captureEmit(() => cli.cmdRollbackApply({ 'patches-file': patchesOut, 'repo-root': root }));
+    assert.strictEqual(rb.exitCode, 0);
+    assert.strictEqual(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'alpha base\n');
+    assert.strictEqual(fs.readFileSync(path.join(root, 'b.txt'), 'utf8'), 'beta base\n');
+  } finally { cleanupWorktreeRepo(root); }
+});
+
+test('merge-apply: F2 partition-escape (actual diff ⊄ partition) → ERROR_EXIT, nothing applied', (t) => {
+  if (gitIn(['--version']).status !== 0) { t.skip('git n/a'); return; }
+  const { root, wt1, wt2 } = setupWorktreeRepo();
+  try {
+    const mapFile = path.join(root, 'wtmap.json');
+    fs.writeFileSync(mapFile, JSON.stringify({ 'id-1': wt1, 'id-2': wt2 }));
+    // partitions claim id-1 owns only z.txt, but it actually changed a.txt → escape
+    const partFile = path.join(root, 'parts.json');
+    fs.writeFileSync(partFile, JSON.stringify({ 'id-1': ['z.txt'], 'id-2': ['b.txt'] }));
+    const cap = captureEmit(() => cli.cmdMergeApply({ 'worktree-map': mapFile, 'partitions-file': partFile, 'repo-root': root }));
+    assert.strictEqual(cap.exitCode, 1);
+    assert.strictEqual(cap.json.reason, 'partition-escape');
+    assert.ok(cap.json.escapes.some((e) => e.file === 'a.txt'));
+    // parent untouched (escape detected BEFORE apply)
+    assert.strictEqual(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'alpha base\n');
+  } finally { cleanupWorktreeRepo(root); }
+});
+
+test('merge-apply: pre-existing dirty target → pre-apply-dirty HALT (F4)', (t) => {
+  if (gitIn(['--version']).status !== 0) { t.skip('git n/a'); return; }
+  const { root, wt1, wt2 } = setupWorktreeRepo();
+  try {
+    const mapFile = path.join(root, 'wtmap.json');
+    fs.writeFileSync(mapFile, JSON.stringify({ 'id-1': wt1, 'id-2': wt2 }));
+    // user already edited a.txt in parent → merge-apply must refuse
+    fs.writeFileSync(path.join(root, 'a.txt'), 'user WIP\n');
+    const cap = captureEmit(() => cli.cmdMergeApply({ 'worktree-map': mapFile, 'repo-root': root }));
+    assert.strictEqual(cap.exitCode, 1);
+    assert.strictEqual(cap.json.reason, 'pre-apply-dirty');
+    assert.ok(cap.json.dirty.indexOf('a.txt') !== -1);
+    assert.strictEqual(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'user WIP\n');
+  } finally { cleanupWorktreeRepo(root); }
+});
+
+test('verify-decide: 5 verdicts via --verdict override', () => {
+  assert.strictEqual(captureEmit(() => cli.cmdVerifyDecide({ verdict: 'converged', mode: 'enforce' })).json.block, false);
+  assert.strictEqual(captureEmit(() => cli.cmdVerifyDecide({ verdict: 'divergent', mode: 'enforce' })).json.block, true);
+  assert.strictEqual(captureEmit(() => cli.cmdVerifyDecide({ verdict: 'critical', mode: 'enforce' })).json.block, true);
+  assert.strictEqual(captureEmit(() => cli.cmdVerifyDecide({ verdict: 'unavailable', mode: 'enforce' })).json.block, true);
+  assert.strictEqual(captureEmit(() => cli.cmdVerifyDecide({ verdict: 'unavailable', mode: 'warn' })).json.block, false);
+  assert.strictEqual(captureEmit(() => cli.cmdVerifyDecide({ verdict: 'skipped', mode: 'enforce' })).json.block, false);
+});
+
+test('verify-decide: reads codex-json file, derives verdict (converged → pass)', () => {
+  const sb = makeSandbox();
+  try {
+    const cj = path.join(sb, 'codex.json');
+    fs.writeFileSync(cj, JSON.stringify({ classification: 'ok', blocking: false, stdout: 'Verdict: converged' }));
+    const cap = captureEmit(() => cli.cmdVerifyDecide({ 'codex-json': cj, mode: 'enforce' }));
+    assert.strictEqual(cap.json.verdict, 'converged');
+    assert.strictEqual(cap.json.block, false);
+  } finally { rimraf(sb); }
+});
+
+test('verify-decide: absent/unreadable codex-json fails CLOSED (enforce → block)', () => {
+  const cap = captureEmit(() => cli.cmdVerifyDecide({ 'codex-json': '/nonexistent/x.json', mode: 'enforce' }));
+  assert.strictEqual(cap.json.verdict, 'unavailable');
+  assert.strictEqual(cap.json.block, true);
+});
+
+test('verify-focus: emits cross-cut focus text', () => {
+  const cap = captureEmit(() => cli.cmdVerifyFocus({ base: 'origin/main', 'changed-files': 'a.js,b.js' }));
+  assert.match(cap.json.focus, /Aggregate merged-diff adversarial verify/);
+  assert.match(cap.json.focus, /import-graph breakage/);
+  assert.match(cap.json.focus, /a\.js/);
+});

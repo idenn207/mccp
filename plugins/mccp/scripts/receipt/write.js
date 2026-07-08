@@ -303,6 +303,20 @@ function buildReceipt(args) {
         if (typeof v === 'string' && v.length > 0) return v;
         return null;
       })(),
+      // workflow-orchestration M3 — aggregate adversarial-verify audit. Stamped on
+      // the mccp-implement-verify gate by the Step 3 controller (verify.js verdict
+      // + round count). Present-only; null when the gate is not exercised.
+      merged_verify_verdict: (function () {
+        const v = args['merged-verify-verdict'];
+        if (typeof v === 'string' && v.length > 0) return v;
+        return null;
+      })(),
+      merged_verify_rounds: (function () {
+        const v = args['merged-verify-rounds'];
+        if (v === undefined || v === true || v === null) return null;
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) && n >= 0 ? n : null;
+      })(),
     },
   });
 

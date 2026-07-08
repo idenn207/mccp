@@ -54,6 +54,9 @@ const { spawnSync } = require('child_process');
 const controller = require('./dispatch-controller');
 const envelope = require('./dispatch-envelope');
 const resultSchema = require('./implement-dispatch/result-schema');
+// workflow-orchestration M3 — worktree collect/apply + aggregate verify oracle.
+const worktreeMerge = require('./implement-dispatch/worktree-merge');
+const verifyOracle = require('./implement-dispatch/verify');
 
 const OK_EXIT = 0;
 const USAGE_EXIT = 2;
@@ -825,17 +828,239 @@ function cmdReconcile(rest) {
   return OK_EXIT;
 }
 
+// ── M3 helpers ────────────────────────────────────────────────────────────────
+
+function readJsonFileOr(p, fallback) {
+  if (typeof p !== 'string' || p.length === 0) return fallback;
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return fallback; }
+}
+
+function normResolve(p) {
+  let r;
+  try { r = path.resolve(p); } catch (_) { return null; }
+  if (/^[A-Za-z]:/.test(r)) r = r[0].toLowerCase() + r.slice(1);
+  return r.replace(/\\/g, '/');
+}
+
+// Minimal `git worktree list --porcelain` parse — path per block (leading
+// `worktree <path>` line), skip bare. Kept local to avoid a lib→derive dep
+// (mirror of derive/sources/worktrees.js parseWorktreePorcelain).
+function parseWorktreeListPorcelain(stdout) {
+  if (typeof stdout !== 'string' || stdout.length === 0) return [];
+  const out = [];
+  stdout.replace(/\r\n/g, '\n').split(/\n[ \t]*\n+/).forEach(function (block) {
+    let p = null; let bare = false;
+    block.split('\n').forEach(function (line) {
+      const l = line.trim();
+      if (l.indexOf('worktree ') === 0) p = l.slice('worktree '.length).trim();
+      else if (l === 'bare') bare = true;
+    });
+    if (p && !bare) out.push({ path: p });
+  });
+  return out;
+}
+
+function normFileArg(f) { return typeof f === 'string' ? f.replace(/\\/g, '/').trim() : ''; }
+
+function csvArg(v) {
+  return (typeof v === 'string' && v.length > 0)
+    ? v.split(',').map(function (s) { return s.trim(); }).filter(Boolean) : [];
+}
+
+// collect-worktrees — enumerate worktrees, correlate to expected dispatchIds via
+// each worktree's envelope, emit {map, missing, ambiguous, unmatchedWorktrees}.
+// --out writes just the {dispatchId: worktreePath} map (the reconcile /
+// merge-apply --worktree-map consumable). Missing/ambiguous → ERROR_EXIT so the
+// caller HALTs a lost/duplicated worker (Codex F1: no silent drop).
+function cmdCollectWorktrees(rest) {
+  const repoRoot = (typeof rest['repo-root'] === 'string' && rest['repo-root'].length > 0)
+    ? rest['repo-root'] : findRepoRoot(process.cwd());
+  let dispatchIds = [];
+  if (typeof rest['dispatch-ids-file'] === 'string' && rest['dispatch-ids-file'].length > 0) {
+    dispatchIds = readJsonFileOr(rest['dispatch-ids-file'], null);
+    if (!Array.isArray(dispatchIds)) {
+      process.stderr.write('collect-worktrees: --dispatch-ids-file must hold a JSON array\n');
+      return ERROR_EXIT;
+    }
+  } else if (typeof rest['dispatch-ids'] === 'string' && rest['dispatch-ids'].length > 0) {
+    const raw = rest['dispatch-ids'].trim();
+    if (raw[0] === '[') {
+      try { dispatchIds = JSON.parse(raw); } catch (_) { dispatchIds = csvArg(raw); }
+    } else {
+      dispatchIds = csvArg(raw);
+    }
+  }
+  if (!Array.isArray(dispatchIds) || dispatchIds.length === 0) {
+    process.stderr.write('collect-worktrees requires --dispatch-ids <csv|json> or --dispatch-ids-file <path>\n');
+    return USAGE_EXIT;
+  }
+
+  const r = spawnSync('git', ['-C', repoRoot, 'worktree', 'list', '--porcelain'], { encoding: 'utf8' });
+  if (r.status !== 0) {
+    process.stderr.write('collect-worktrees: git worktree list failed: ' + (r.stderr || '') + '\n');
+    return ERROR_EXIT;
+  }
+  const selfNorm = normResolve(repoRoot);
+  const worktrees = parseWorktreeListPorcelain(r.stdout || '')
+    .filter(function (w) { return normResolve(w.path) !== selfNorm; });
+
+  const result = worktreeMerge.buildWorktreeMap({ worktrees: worktrees, dispatchIds: dispatchIds });
+  if (typeof rest.out === 'string' && rest.out.length > 0) {
+    try { fs.writeFileSync(rest.out, JSON.stringify(result.map, null, 2)); }
+    catch (err) {
+      process.stderr.write('collect-worktrees: --out write failed: ' + (err && err.message) + '\n');
+      return ERROR_EXIT;
+    }
+  }
+  emit(result);
+  return (result.missing.length > 0 || result.ambiguous.length > 0) ? ERROR_EXIT : OK_EXIT;
+}
+
+// merge-apply — collect each worker's diff, F2 subset re-confirm (actual ⊆
+// partition ∪ allowlist), pre-apply clean assert on the union of target paths,
+// then applyDisjointDiffs. --patches-out records the applied patches (JSON array)
+// so a later verify HALT reverses them via rollback-apply. Verdict-gating is the
+// CALLER's job (work.md runs reconcile/mergeVerdicts BEFORE this — Codex F1).
+function cmdMergeApply(rest) {
+  const repoRoot = (typeof rest['repo-root'] === 'string' && rest['repo-root'].length > 0)
+    ? rest['repo-root'] : findRepoRoot(process.cwd());
+  const dryRun = rest['dry-run'] === true;
+  const worktreeMap = readJsonFileOr(rest['worktree-map'], null);
+  if (!worktreeMap || typeof worktreeMap !== 'object') {
+    process.stderr.write('merge-apply requires --worktree-map <path> (a {dispatchId: worktreePath} JSON)\n');
+    return USAGE_EXIT;
+  }
+  const partitions = readJsonFileOr(rest['partitions-file'], null); // {dispatchId: [files]}
+  const sharedAllowlist = csvArg(rest['shared-allowlist']);
+  const ids = Object.keys(worktreeMap);
+
+  const diffs = [];
+  const escapes = [];
+  const allFiles = [];
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    const c = worktreeMerge.collectWorkerDiff(worktreeMap[id]);
+    if (!c.ok) {
+      emit({ ok: false, reason: 'collect-failed', dispatchId: id, error: c.error });
+      return ERROR_EXIT;
+    }
+    if (partitions && Array.isArray(partitions[id])) {
+      const allowed = Object.create(null);
+      partitions[id].concat(sharedAllowlist).forEach(function (f) {
+        const n = normFileArg(f); if (n) allowed[n] = true;
+      });
+      c.files.forEach(function (f) {
+        const n = normFileArg(f);
+        if (n && !allowed[n]) escapes.push({ dispatchId: id, file: n });
+      });
+    }
+    c.files.forEach(function (f) {
+      const n = normFileArg(f);
+      if (n && allFiles.indexOf(n) === -1) allFiles.push(n);
+    });
+    diffs.push(c.diff);
+  }
+  if (escapes.length > 0) {
+    emit({ ok: false, reason: 'partition-escape', escapes: escapes });
+    return ERROR_EXIT;
+  }
+
+  const clean = worktreeMerge.assertPathsClean({ paths: allFiles, cwd: repoRoot });
+  if (!clean.clean) {
+    emit({ ok: false, reason: 'pre-apply-dirty', dirty: clean.dirty, error: clean.error || null });
+    return ERROR_EXIT;
+  }
+
+  const applied = worktreeMerge.applyDisjointDiffs({ diffs: diffs, cwd: repoRoot, dryRun: dryRun });
+  if (applied.ok && !dryRun && typeof rest['patches-out'] === 'string' && rest['patches-out'].length > 0) {
+    try { fs.writeFileSync(rest['patches-out'], JSON.stringify(applied.appliedPatches)); }
+    catch (err) {
+      emit({ ok: false, reason: 'patches-out-write-failed', error: (err && err.message) || String(err) });
+      return ERROR_EXIT;
+    }
+  }
+  emit({
+    ok: applied.ok, applied: applied.applied, dryRun: !!applied.dryRun,
+    files: allFiles, appliedPatchCount: applied.appliedPatches ? applied.appliedPatches.length : 0,
+    error: applied.error,
+  });
+  return applied.ok ? OK_EXIT : ERROR_EXIT;
+}
+
+// rollback-apply — patch-scoped reverse-apply of the merge-apply --patches-out
+// artifact (verify HALT recovery). NEVER broad checkout/clean (F4).
+function cmdRollbackApply(rest) {
+  const repoRoot = (typeof rest['repo-root'] === 'string' && rest['repo-root'].length > 0)
+    ? rest['repo-root'] : findRepoRoot(process.cwd());
+  const patches = readJsonFileOr(rest['patches-file'], null);
+  if (!Array.isArray(patches)) {
+    process.stderr.write('rollback-apply requires --patches-file <path> (a JSON array of patch strings)\n');
+    return USAGE_EXIT;
+  }
+  const r = worktreeMerge.rollbackApplied({ appliedPatches: patches, cwd: repoRoot });
+  emit(r);
+  return r.ok ? OK_EXIT : ERROR_EXIT;
+}
+
+// verify-focus — assemble the codex-invoke adversarial-review focus for the
+// aggregate verify stage. --partitions-file is a JSON array of {files:[]} (the
+// buildVerifyFocus shape).
+function cmdVerifyFocus(rest) {
+  const base = (typeof rest.base === 'string' && rest.base.length > 0) ? rest.base : 'HEAD';
+  let changedFiles = [];
+  if (typeof rest['changed-files-file'] === 'string' && rest['changed-files-file'].length > 0) {
+    const arr = readJsonFileOr(rest['changed-files-file'], []);
+    changedFiles = Array.isArray(arr) ? arr : [];
+  } else if (typeof rest['changed-files'] === 'string') {
+    changedFiles = csvArg(rest['changed-files']);
+  }
+  const partitions = readJsonFileOr(rest['partitions-file'], []);
+  const workerFindings = readJsonFileOr(rest['findings-file'], []);
+  const focus = verifyOracle.buildVerifyFocus({
+    changedFiles: changedFiles,
+    partitions: Array.isArray(partitions) ? partitions : [],
+    workerFindings: Array.isArray(workerFindings) ? workerFindings : [],
+    base: base,
+  });
+  emit({ focus: focus });
+  return OK_EXIT;
+}
+
+// verify-decide — map the codex-invoke JSON → merged-verify verdict + block.
+// An unreadable/absent codex-json fails CLOSED (deriveVerdictFromCodex → unavailable
+// → enforce blocks). --verdict overrides (pre-parsed by the caller); --mode/--rounds
+// optional.
+function cmdVerifyDecide(rest) {
+  const input = {};
+  if (typeof rest['codex-json'] === 'string' && rest['codex-json'].length > 0) {
+    input.codexJson = readJsonFileOr(rest['codex-json'], null);
+  }
+  if (typeof rest.mode === 'string' && rest.mode.length > 0) input.mode = rest.mode;
+  if (typeof rest.verdict === 'string' && rest.verdict.length > 0) input.verdict = rest.verdict;
+  if (rest.rounds !== undefined && rest.rounds !== true) {
+    const n = parseInt(rest.rounds, 10);
+    if (Number.isFinite(n)) input.rounds = n;
+  }
+  emit(verifyOracle.decideMergedVerify(input));
+  return OK_EXIT;
+}
+
 function runCli(argv) {
   if (!argv || argv.length === 0) {
     process.stderr.write(
-      'usage: dispatch-cli <prepare-single|prepare-fleet|emit-workflow-args|reconcile|merge|mark> [options]\n' +
+      'usage: dispatch-cli <prepare-single|prepare-fleet|emit-workflow-args|reconcile|merge|mark|collect-worktrees|merge-apply|rollback-apply|verify-focus|verify-decide> [options]\n' +
       '  prepare-single      --plan <path> --controller-session <uuid> [--subagent <type>] [--parent-cwd <path>] [--dry-run]\n' +
       '  prepare-fleet       --plan <path> --controller-session <uuid> --partitions-file <json> [--subagent <type>] [--parent-cwd <path>] [--dry-run]\n' +
       '  emit-workflow-args  --prepare-file <path> [--min-remaining <n>]\n' +
       '  reconcile           --args-file <path> [--envelope <abs>] [--result-file <path>] [--from-envelope] [--repo-root <path>]\n' +
       '                      (fleet) --args-file <fleet emit> [--results-dir <dir>] [--from-envelope] [--actual-files-map <json>] [--worktree-map <json>] [--shared-allowlist <csv>] [--repo-root <path>]\n' +
       '  merge               --envelope <path>\n' +
-      '  mark                --envelope <path> --status <ok|failure|timeout|crashed> [--receipts <csv>] [--findings-file <path>] [--next-action <text>]\n'
+      '  mark                --envelope <path> --status <ok|failure|timeout|crashed> [--receipts <csv>] [--findings-file <path>] [--next-action <text>]\n' +
+      '  collect-worktrees   --dispatch-ids <csv|json> | --dispatch-ids-file <path> [--repo-root <path>] [--out <path>]  (M3)\n' +
+      '  merge-apply         --worktree-map <path> [--partitions-file <json>] [--shared-allowlist <csv>] [--repo-root <path>] [--patches-out <path>] [--dry-run]  (M3)\n' +
+      '  rollback-apply      --patches-file <path> [--repo-root <path>]  (M3)\n' +
+      '  verify-focus        --base <ref> [--changed-files <csv> | --changed-files-file <path>] [--partitions-file <json>] [--findings-file <json>]  (M3)\n' +
+      '  verify-decide       --codex-json <path> [--mode off|warn|enforce] [--verdict <enum>] [--rounds <N>]  (M3)\n'
     );
     return USAGE_EXIT;
   }
@@ -848,6 +1073,11 @@ function runCli(argv) {
   if (cmd === 'reconcile') return cmdReconcile(rest);
   if (cmd === 'merge') return cmdMerge(rest);
   if (cmd === 'mark') return cmdMark(rest);
+  if (cmd === 'collect-worktrees') return cmdCollectWorktrees(rest);
+  if (cmd === 'merge-apply') return cmdMergeApply(rest);
+  if (cmd === 'rollback-apply') return cmdRollbackApply(rest);
+  if (cmd === 'verify-focus') return cmdVerifyFocus(rest);
+  if (cmd === 'verify-decide') return cmdVerifyDecide(rest);
 
   process.stderr.write('unknown subcommand: ' + cmd + '\n');
   return USAGE_EXIT;
@@ -869,6 +1099,12 @@ module.exports = {
   cmdReconcileFleet: cmdReconcileFleet,
   cmdMerge: cmdMerge,
   cmdMark: cmdMark,
+  cmdCollectWorktrees: cmdCollectWorktrees,
+  cmdMergeApply: cmdMergeApply,
+  cmdRollbackApply: cmdRollbackApply,
+  cmdVerifyFocus: cmdVerifyFocus,
+  cmdVerifyDecide: cmdVerifyDecide,
+  parseWorktreeListPorcelain: parseWorktreeListPorcelain,
   readReceiptStore: readReceiptStore,
   collectChangedFiles: collectChangedFiles,
   runCli: runCli,

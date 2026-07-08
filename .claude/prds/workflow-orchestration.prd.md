@@ -46,7 +46,7 @@ We'll know we're right when **구현 착수 후 PRD/plan 중간 수정·mileston
 |---|---|---|---|---|
 | 1 | plan fan-out (MVP) | plan이 다관점 병렬 조사로 meta 정보 강화 → 구현 가설 붕괴·milestone 변동 감소. budget 상한 + kill switch, dual-review 무손상 | complete | `.claude/plans/workflow-orchestration-m1-plan-fanout.plan.md` |
 | 2 | implement 병렬화 | dispatch-controller를 Workflow primitive로 리팩터, N-worker 병렬 구현, worktree 격리 표준화. commit/PR 격리 invariant 유지. **M2b Task 0 spike 실측**: `isolation:'worktree'`→parent 자동 merge 미입증 → merge_strategy=disable-parallel로 병렬 스캐폴드는 완성하되 실행은 N=1 gate off(worktree-merge 입증까지 이연) | in-progress | M2a `.claude/plans/workflow-orchestration-m2a-single-worker-workflow.plan.md` · M2b `.claude/plans/workflow-orchestration-m2b-nworker-parallel.plan.md` |
-| 3 | verify 네이티브화 | Codex adversarial review를 workflow 네이티브 adversarial-verify 패턴으로, verify를 pipeline 스테이지로 강제 | pending | — |
+| 3 | verify 네이티브화 (+ worktree-merge 활성화) | **verify 축 SHIPPED (v1.20.12)** — 통합 diff aggregate adversarial-verify를 `/mccp:work` Step 3.verify 필수 pipeline 스테이지로 강제(cross-model Codex 유지, DD2). **DD6: 단일 경로에서도 발화**하므로 병렬 gated여도 runtime 가치 확보. worktree-merge substrate(collect/apply/patch-scoped rollback + 신규 gate `mccp-implement-verify`)는 build+unit-test 완비. **worktree-merge 활성화 축 GATED (honest degradation, DD7)**: Task 0 spike가 git 메커니즘은 합성 실측으로 입증했으나 live harness 상관(Workflow worktree↔dispatchId)은 cost hard-ceiling으로 미실측 → merge_strategy=disable-parallel 유지, 실제 병렬 해금은 M4 이연 | complete (verify) · gated (병렬 활성화) | `.claude/plans/workflow-orchestration-m3-verify-native.plan.md` |
 
 ## Open Questions
 - [ ] **게이트 합성 방식(척추 질문)** — dual-review를 (a) worker-내부 / (b) workflow-외곽 / (c) pipeline-스테이지 중 무엇으로? MVP는 (b) workflow-외곽(기존 게이트 무손상)으로 시작하지만 M2에서 본격 결정. receipt chain 앵커링 재설계 범위를 좌우.

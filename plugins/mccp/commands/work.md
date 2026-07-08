@@ -474,8 +474,10 @@ DECISION_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decis
 MV_MODE=$(node -e "console.log(require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/implement-dispatch/verify').parseMergedVerifyMode(process.env))")
 
 # 통합 diff = HEAD 대비 uncommitted 변경(단일: worker가 parent 직접 편집 / 병렬: merge-apply가 적용 / 인라인: Skill 편집). commit(Step 4) 전이므로 모두 uncommitted.
+# tracked 수정/삭제(git diff HEAD) ∪ untracked 신규(ls-files --others) — 신규 파일만 추가하는 implement가 verify를 skip하지 않도록 union(H1). git apply로 생긴 신규 파일도 unstaged라 병렬 경로 포함 모든 경로에 필요. worktree-merge.js#collectWorkerDiff와 동일 계약.
 git diff --name-only HEAD > "$GITDIR/mv-changed.txt" 2>/dev/null || true
-node -e 'const fs=require("fs");const l=fs.readFileSync(process.argv[1],"utf8").split(/\r?\n/).filter(Boolean);fs.writeFileSync(process.argv[2],JSON.stringify(l))' "$GITDIR/mv-changed.txt" "$GITDIR/mv-changed.json"
+git ls-files --others --exclude-standard >> "$GITDIR/mv-changed.txt" 2>/dev/null || true
+node -e 'const fs=require("fs");const l=[...new Set(fs.readFileSync(process.argv[1],"utf8").split(/\r?\n/).map(s=>s.trim()).filter(Boolean))];fs.writeFileSync(process.argv[2],JSON.stringify(l))' "$GITDIR/mv-changed.txt" "$GITDIR/mv-changed.json"
 CHANGED_N=$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).length))' "$GITDIR/mv-changed.json")
 
 if [ "$MV_MODE" = "off" ] || [ "$CHANGED_N" = "0" ]; then

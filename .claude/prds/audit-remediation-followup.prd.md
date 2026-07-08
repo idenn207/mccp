@@ -55,10 +55,10 @@ We'll know we're right when **P2 이후 SessionEnd .end marker가 100% 기록되
 
 | # | Milestone | Outcome | Version | Status | Plan |
 |---|---|---|---|---|---|
-| P2 | session-continuity silent-failure | hook-trace 로드 실패에도 SessionEnd marker 보장 + 실패 표면화(exit 1) + idle lease renew + fd 누수 방지. false crash alert 제거. | 1.20.5 | in-progress | `.claude/plans/audit-remediation-p2-session-continuity.plan.md` |
-| P3 | atomic-lock PID-reuse race | 재사용 PID를 살아있다 오판하지 않음 → 락 stuck 제거. PR 워크플로 60s+ 정지 방지. | 1.20.6 | in-progress | `.claude/plans/audit-remediation-p3-atomic-lock-pid.plan.md` |
-| P4 | dispatch·work-isolation 강건화 (재스코프) | **원 범위(F1 pending-split graceful-degrade + F2 anchoring 검증)는 #91(v1.20.7 workflow-orchestration M2a)의 `deriveVerdict`/Step 3.gate가 이미 대체** — pending은 fail-closed `reconcile-mismatch` HALT(의도적), anchoring은 F3 post-hoc store 검증. 잔여 delta만 착지: B#6(prp-implement 2.5.6 receipt-write exit-code 표면화 → Phase 3 진입 전 hard-stop) + B#13(dispatch-worker 3-flag attribution doc, `deriveVerdict` 참조로 갱신). | 1.20.8 | in-progress | `.claude/plans/audit-remediation-p4-dispatch-work-isolation.plan.md` |
-| P5 | receipt_hash tamper-detect 실연결 | validate-cmd가 receipt_hash를 재계산·비교(subject_hash 패턴 미러) → findings/resolution/meta 변조 실제 탐지. | 1.20.9 | pending | — |
+| P2 | session-continuity silent-failure | hook-trace 로드 실패에도 SessionEnd marker 보장 + 실패 표면화(exit 1) + idle lease renew + fd 누수 방지. false crash alert 제거. | 1.20.5 | complete | `.claude/plans/audit-remediation-p2-session-continuity.plan.md` |
+| P3 | atomic-lock PID-reuse race | 재사용 PID를 살아있다 오판하지 않음 → 락 stuck 제거. PR 워크플로 60s+ 정지 방지. | 1.20.6 | complete | `.claude/plans/audit-remediation-p3-atomic-lock-pid.plan.md` |
+| P4 | dispatch·work-isolation 강건화 (재스코프) | **원 범위(F1 pending-split graceful-degrade + F2 anchoring 검증)는 #91(v1.20.7 workflow-orchestration M2a)의 `deriveVerdict`/Step 3.gate가 이미 대체** — pending은 fail-closed `reconcile-mismatch` HALT(의도적), anchoring은 F3 post-hoc store 검증. 잔여 delta만 착지: B#6(prp-implement 2.5.6 receipt-write exit-code 표면화 → Phase 3 진입 전 hard-stop) + B#13(dispatch-worker 3-flag attribution doc, `deriveVerdict` 참조로 갱신). | 1.20.8 | complete | `.claude/plans/audit-remediation-p4-dispatch-work-isolation.plan.md` |
+| P5 | receipt_hash tamper-detect 실연결 | validate-cmd가 receipt_hash를 재계산·비교(subject_hash 패턴 미러) → findings/resolution/meta 변조 실제 탐지. | 1.20.9 | complete | `.claude/plans/audit-remediation-p5-receipt-hash-tamper.plan.md` |
 | P6 | 문서 정합화 (CLAUDE.md drift) | classification 표·derive source 개수·enforcement 강도·lock schema 서술 등 감사 지적 문서 항목을 실제 동작에 정합. quarantine §3.6 문서 정정 포함. | 1.20.10 | pending | — |
 
 각 milestone 완료 시 patch bump(§3.7) + renderer footer(html.js/markdown.js) 동기 + 독립 PR. PRD 전체 종료 시 다음 minor로 정리 후보.

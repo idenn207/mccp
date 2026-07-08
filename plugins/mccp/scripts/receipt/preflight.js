@@ -29,7 +29,12 @@ function writeBlockReason(stderr, result) {
   for (const b of result.blocking) {
     // v0.2.8 Task 2.6.5a A3 — tempfail entries surface as TEMPFAIL so the
     // operator-facing line matches the machine-readable exit (75 vs 2).
-    const label = (b && b.kind === 'tempfail') ? 'TEMPFAIL' : 'INVALID ';
+    // P5 (audit-remediation) — receipt-tamper surfaces as TAMPER (not generic
+    // INVALID) so an integrity failure is legible; the dedicated recovery line
+    // below deliberately does NOT say "regenerate" (that overwrites evidence).
+    let label = 'INVALID ';
+    if (b && b.kind === 'tempfail') label = 'TEMPFAIL';
+    else if (b && b.kind === 'receipt-tamper') label = 'TAMPER  ';
     stderr.write('  ' + label + ' ' + b.gate_id + ': ' + b.reason + '\n');
   }
   for (const c of result.open_critical) {
@@ -41,6 +46,13 @@ function writeBlockReason(stderr, result) {
   }
   if (result.stale.length > 0) {
     stderr.write(GATE_TAG + ' To regenerate STALE: re-run the producing gate (e.g. /mccp:plan for mccp-plan-codex, /mccp:prp-implement for mccp-implement-codex)\n');
+  }
+  // P5 (audit-remediation) — receipt-tamper is INTEGRITY, not staleness. Do NOT
+  // route it to the "regenerate" hint above: re-running the gate would overwrite
+  // the tampered receipt and destroy the evidence. Emit an investigation-first
+  // line instead (Codex R1 F1).
+  if (result.blocking.some(function (b) { return b && b.kind === 'receipt-tamper'; })) {
+    stderr.write(GATE_TAG + ' TAMPER: receipt_hash mismatch — receipt body (findings/resolution/meta) altered after signing. Do NOT regenerate (that destroys the evidence). Inspect the receipt against its source and investigate the change before any re-run.\n');
   }
   stderr.write(GATE_TAG + ' To bypass once: MCCP_SKIP_RECEIPT=1\n');
   stderr.write(GATE_TAG + ' To inspect:     node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js status --gate <name>\n');

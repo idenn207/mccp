@@ -1,0 +1,16 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "audit-remediation-p4-dispatch-work-isolation",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.20.8",
+    "completed_at": "2026-07-07T17:45:41.047Z",
+    "commit_sha": "334f645718f4bde1eccf93061d870c92f789ff5e",
+    "plan_basename": "audit-remediation-p4-dispatch-work-isolation.plan.md",
+    "plan_file_hash": "sha256:be19eb10916aa8a854d145cdd845cb121294fce43167033ea96e37bc540027ae",
+    "risks_closed": [],
+    "oq_closed": [],
+    "receipt_hash": "sha256:37cc2ad5a7b588a16b1947965cbe7f5e6bac8bd63ef4175b1436c3f8f2e45300"
+  }
+}

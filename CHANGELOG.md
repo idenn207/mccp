@@ -2,7 +2,20 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.8`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.9`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.9] — 2026-07-08
+
+audit-remediation P5 (receipt_hash tamper-detect 실연결, 단일 patch). `write.js`는 receipt 저장 시 `subject_hash`와 `receipt_hash`를 **둘 다** 봉인하지만 `validate-cmd.js`는 `subject_hash`만 재계산·비교하고 `receipt_hash`는 저장만 될 뿐 검증되지 않았다. `subject_hash`는 `SUBJECT_FIELDS`(task_id/phase/gate_id/plan_hash/…)만 커버하므로 서명 후 `findings`·`resolution`·`meta` 변조(특히 P1이 복구한 dual-review 무결성 필드 `resolution.codex_verdict`)가 탐지되지 않던 gap을 닫는다. `validate-cmd.js`에 `receiptHash()` 재계산·비교를 기존 `subject_hash` 블록 그대로 미러링 — write/validate가 동일 `hash.js#receiptHash()`를 호출하므로 `briefing_*`·`ledger_write_skipped`·self carve-out parity가 구조적으로 보장된다. **Codex R1 F1 흡수**: mismatch를 `stale`이 아닌 `blocking(kind='receipt-tamper')`로 분류 — stale은 `preflight.js`의 "regenerate STALE" 복구 가이드를 받아 변조 receipt를 재생성(덮어쓰기)해 tamper 증거를 소실시키므로, 전용 `TAMPER` 라벨 + 조사 지시(재생성 금지) 복구 라인을 받는다. 게이팅 강도는 stale과 동일(hard+soft 차단, off만 bypass). 신규 `kind:'receipt-tamper'`는 `classify.js`가 tempfail만 특수 처리하므로 일반 blocking(exit 2)으로 취급된다. 현존 `.claude/receipts/` 전수 sweep mismatch=0으로 오탐 부재 경험적 확인. dual-review·receipt chain 무손상. plugin.json `1.20.8 → 1.20.9` + 양 footer(html/markdown) + i18n-surface 테스트 동기(surface drift 0). PRD P2/P3/P4 in-progress drift도 complete로 정합(P5 PR fold).
+
+### Added
+- `validate-cmd.js` — subject_hash 블록 직후 `receiptHash()` 재계산·비교. mismatch 시 `result.blocking.push({kind:'receipt-tamper'})` + `continue`. `receiptHash` import 추가.
+- `validate-cmd.test.js` — tamper 탐지(findings·`resolution.codex_verdict`·`meta.command`) + subject-우선 회귀 + 오탐 방지(briefing/ledger carve-out·grounding restamp) 6 테스트.
+- `preflight.test.js` — tamper-only 시 `TAMPER` 라벨 + 조사 라인 surface + "regenerate STALE" 부재 검증.
+
+### Changed
+- `preflight.js` — blocking 라벨에 `receipt-tamper` → `TAMPER` (tempfail 미러) + 전용 복구 라인(재생성 금지·조사 지시, Codex R1 F1).
+- `validate-cmd.test.js` — 기존 `meta.advisory` 테스트가 subject_hash만 재서명하던 것을 receipt_hash도 재봉인하도록 정정(정당 advisory receipt 시뮬레이션, tamper 오탐 회피).
 
 ## [1.20.8] — 2026-07-08
 

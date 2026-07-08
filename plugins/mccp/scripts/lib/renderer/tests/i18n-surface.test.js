@@ -85,12 +85,12 @@ test('html — topbar freshness "갱신" present', () => {
   assert.match(r.html, /<span class="freshness">[\s\S]*?갱신/);
 });
 
-test('html — footer version v1.20.8 (footer element anchored)', () => {
+test('html — footer version v1.20.9 (footer element anchored)', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
   // Anchor the version inside the <footer> element. Asserting a bare /v1\.x\.y/
   // against r.html silently matched the model's plan-derived milestone label
   // (e.g. "v1.4.2 · …"), so footer drift went untested — anchor on the tag.
-  assert.match(r.html, /<footer[^>]*>v1\.20\.8 ·/);
+  assert.match(r.html, /<footer[^>]*>v1\.20\.9 ·/);
   assert.match(r.html, /통합 derive/);
 });
 
@@ -122,7 +122,7 @@ test('markdown — title "mccp 상태"', () => {
   assert.match(r.md, /^# mccp 상태/m);
 });
 
-test('markdown — footer with v1.20.8 version', () => {
+test('markdown — footer with v1.20.9 version', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
-  assert.match(r.md, /v1\.20\.8/);
+  assert.match(r.md, /v1\.20\.9/);
 });

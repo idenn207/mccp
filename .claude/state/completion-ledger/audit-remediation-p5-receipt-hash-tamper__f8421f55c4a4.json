@@ -1,0 +1,22 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "audit-remediation-p5-receipt-hash-tamper",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.20.9",
+    "completed_at": "2026-07-08T05:18:32.579Z",
+    "commit_sha": "48bc62bf75d906663e2d52b0fd925e7e11829607",
+    "plan_basename": "audit-remediation-p5-receipt-hash-tamper.plan.md",
+    "plan_file_hash": "sha256:945f17d6b2677c356abff50414631a14d6b892b48c180e09509cad9e8fe10167",
+    "risks_closed": [
+      "과거 canonicalize/schema 버전으로 봉인된 현존 receipt가 신규 체크에서 오탐",
+      "정당한 post-seal mutation(briefing/ledger/grounding) 오탐",
+      "blocking(receipt-tamper) 분류가 soft 모드에서도 차단 → 기존 soft-mode 흐름 변화",
+      "새 `kind:'receipt-tamper'`가 classify.js에서 tempfail처럼 exit 75로 오분류",
+      "P2/P3/P4 status fold가 P5 diff 범위를 넓혀 리뷰 노이즈"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:f8421f55c4a46b19b688e837ee7b75c5773baba5c668d1de1fb2857ffca714ed"
+  }
+}

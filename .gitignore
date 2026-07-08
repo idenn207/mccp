@@ -9,6 +9,8 @@ yarn-error.log*
 Thumbs.db
 .DS_Store
 Desktop.ini
+# Git Bash / MSYS crash dumps (Windows dogfood — local-only, never committed).
+*.stackdump
 
 # IDE
 .vscode/

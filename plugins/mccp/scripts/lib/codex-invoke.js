@@ -14,7 +14,7 @@
 // Classification enum: ok | disabled | registry-missing | registry-malformed
 //   | plugin-not-installed | install-path-stale | companion-not-found
 //   | companion-version-mismatch | not-authenticated | timeout | exit-nonzero
-//   | stdout-empty | spawn-enoent
+//   | stdout-empty | spawn-enoent | parse-error
 //
 // v0.3.5 — MCCP_CODEX_DISABLED=1 short-circuits to classification='disabled'
 //   BEFORE registry resolution. This is a first-class success path (blocking=false,

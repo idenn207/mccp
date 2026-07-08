@@ -103,7 +103,7 @@ PRD부터 PR까지 전 라이프사이클을 단일 namespace(`/mccp:*`)로 자�
 
 `/mccp:resume`는 v1.1.0 Stage 1에서 도입된 honest handoff resume entry입니다. `MCCP_AUTO_HANDOFF=notify` (default)가 STATE.md에 남긴 `handoff_spawn` 신호를 읽고 적절한 다음 명령(`/mccp:work --resume task=…` 또는 `/mccp:prp-implement --apply-fix-task`)으로 dispatch합니다. 2-phase atomic dispatch (`resume_dispatching` marker → success-only `resume_dispatched`)로 mid-dispatch crash를 견딥니다. STATE.md에 handoff 신호가 없으면 noop으로 종료.
 
-각 단계는 **receipt** (`.claude/receipts/*.json`)를 발행하고, 다음 단계는 이전 receipt chain을 검증한 뒤에만 시작합니다 (mechanical enforcement). receipt 운용 모드는 §1.2의 `MCCP_RECEIPT_GATE_MODE` 참조.
+각 단계는 **receipt** (`.claude/receipts/*.json`)를 발행하고, 다음 단계는 이전 receipt chain을 검증한 뒤에만 시작합니다 (mechanical enforcement). 단 enforcement 강도는 게이트 종류에 따라 다릅니다 — terminal `/mccp:pr`은 receipt 누락 시 hard-block이지만, 비-terminal 게이트(plan/prp-implement/resume)는 v1.3.1 **informational allow-path**를 따릅니다: **missing-only** upstream receipt(stale/blocking/critical 부재)는 정보성 ALLOW + hook context 주입으로 자동 복구되고, stale/blocking/open-critical이 하나라도 있으면 여전히 차단됩니다. receipt 운용 모드는 §1.2의 `MCCP_RECEIPT_GATE_MODE` 참조.
 
 v0.2.9부터 각 게이트는 R1 default + YAGNI triage로 R2/R3 escalate 결정. `DEFER_TO_BACKLOG` 항목은 [.claude/plans/codex-findings-backlog.md](.claude/plans/codex-findings-backlog.md) 단일 파일에 누적. cap override: `MCCP_GATE_ROUND_CAP=1|2|3` (default 1, §4 운영 토글 참조).
 
@@ -113,7 +113,7 @@ brainstorming 분석 결과 v0.1의 receipt chain은 *"adversarial review가 일
 
 | 모듈                       | 역할                                                                                          | 상태         |
 | -------------------------- | --------------------------------------------------------------------------------------------- | ------------ |
-| **Stop-loop**              | Claude stop 직전 자동 `lint → typecheck → test → e2e` + (opt-in) Codex diff review. fail 시 `fix-task.md` 생성 + 최대 2회 bounded retry | S8 ship      |
+| **Stop-loop**              | Claude stop 직전 자동 `lint → typecheck → test → e2e` + (opt-in) Codex diff review. fail 시 `fix-task.md` 생성 + loop-counter bump; `MAX_COUNT=2` 도달 시 human-takeover + allow (hook 자체가 자동 재시도하는 게 아니라, 실패마다 카운터를 올리고 cap 도달 시 통과시키는 bounded 실패 카운터) | S8 ship      |
 | **STATE.md continuity**    | `PreCompact`에서 write, `SessionStart`에서 inject — 세션 간 컨텍스트 자동 복원                | S10a ship    |
 | **Auto-handoff**           | 누적 비용 $50 notice / $80 soft / $100 hard ceiling 임계 자동 검출 → STATE.md `handoff_spawn` 신호 write + stderr 배너. 실제 세션 전환은 `spawn` 모드만 시도하며 v1.1.0+부터 experimental opt-in (`MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN=1`)이 없으면 `notify`로 강등. 다음 세션에서 `/mccp:resume`로 resume 권장. | S10b ship (v0.3.0), v1.1.0 honest |
 | **`/mccp:work`**           | 단일 entry로 PRD → plan → implement → PR 전 chain 자동 orchestration                          | S11 ship (v0.3.1) |
@@ -122,7 +122,7 @@ brainstorming 분석 결과 v0.1의 receipt chain은 *"adversarial review가 일
 | **Codex/impeccable scope split** | impeccable 가용(`impeccable-detect`의 user-level skill probe 포함) 시 (1) codex-invoke.js가 focus 앞에 `DESIGN_SCOPE_PREAMBLE` prepend → Codex가 visual/color/typography/spacing/animation/micro-interaction/brand finding 미배출 + a11y는 impeccable a11y-architect에 routing 명시, (2) codex-result-filter.js가 Codex 응답에서 design/a11y keyword 매칭 finding을 drop + a11yRoutedCount stash, (3) receipt meta 4 fields(`codex_design_scope_excluded`, `design_findings_dropped`, `a11y_routed_to_impeccable`, `dropped_findings_digest`) audit. impeccable 미가용 시 no-op. `MCCP_CODEX_DESIGN_SCOPE_HONOR=0`로 kill switch (debug용). | v0.3.6 ship (축 1 + STATE.md content-hash skip(축 2) + derive-decision normalize(축 3) bundle) |
 | **dispatch-controller (Stage 2 M1)** | Foundation IPC for multi-worker fanout. Envelope schema (`<parent_cwd>/.claude/state/dispatches/<uuid>.envelope.json`, pending nonterminal + ok/failure/timeout/crashed terminal), hybrid Monitor+polling watcher, atomic worktree→parent sync, pure-lib controller (`prepareDispatch` + `mergeEnvelopes`, no Agent calls). Receipt schema 4 new optional `meta.*` fields with marker-gated all-or-nothing invariant (F2 absorption) + `meta.ipc_envelope_path` triggers validator envelope integrity check (F3 absorption). Heartbeat + `reclaimStale` host-aware tri-state policy mirrors `pr-phase-lock.js` (F4 absorption). M2 pilot fanout + M3 stale-envelope GC deferred. Caller(slash-command body)가 Agent 호출 + controller는 그 결과만 merge — controller-self Agent invocation은 lib에서 불가. dual-review 보존: cross-gate dedupe가 controller-worker 양쪽 모두에서 작동, worker 받은 attribution 3개 필드로 receipt가 controller session에 anchor됨. | v1.2.0-m1 ship |
 | **v1.3.0 schema baseline** | [docs/v1.3.0-observability/schema-surface.md](docs/v1.3.0-observability/schema-surface.md) 본문화 — receipt + envelope + STATE.md frontmatter의 read-side schema surface freeze. v1.3.0 dashboard derive engine (M1+) 가정 표준. envelope `validate()`가 strict additionalProperties:false로 통합 (Codex Plan-Codex R1 F3 absorption) + PRD body amend로 stale `handoff_dispatching/handoff_dispatched` 식별자 제거 (F1 absorption) + reconciliation doc 추가 ([state-md-naming-reconciliation.md](docs/v1.3.0-observability/state-md-naming-reconciliation.md)). receipt schema는 변경 없음. | v1.3.0-m0 ship |
-| **derive engine (v1.3.0-m1)** | `plugins/mccp/scripts/derive/*` — `.claude/` 7 source(plans/receipts/STATE/backlog/fix-task/PR/envelopes)를 단일 normalized model로 통합. read-only, LLM-free, dep-free. 6 correlation kinds(receipt↔envelope 4-axis equality, state↔envelope controller/resume, receipt↔plan one-pass hash index, backlog↔plan, fix-task↔STATE). Mask-by-default + `--raw` opt-in (Codex F2). M0 schema contract runtime probe + `--strict` exit (Codex F4). Loud-fail-open per-source `degraded` flag (Codex F3). M2 briefing stamp + M3 STATUS.md renderer가 input으로 소비. | v1.3.0-m1 ship |
+| **derive engine (v1.3.0-m1)** | `plugins/mccp/scripts/derive/*` — `.claude/` 9 source(plans/receipts/STATE/backlog/fix-task/PR/envelopes/ledger/worktrees)를 단일 normalized model로 통합. read-only, LLM-free, dep-free. 6 correlation kinds(receipt↔envelope 4-axis equality, state↔envelope controller/resume, receipt↔plan one-pass hash index, backlog↔plan, fix-task↔STATE). Mask-by-default + `--raw` opt-in (Codex F2). M0 schema contract runtime probe + `--strict` exit (Codex F4). Loud-fail-open per-source `degraded` flag (Codex F3). M2 briefing stamp + M3 STATUS.md renderer가 input으로 소비. | v1.3.0-m1 ship |
 | **briefing stamp (v1.3.0-m2)** | `plugins/mccp/scripts/lib/briefing/{cost-guard,invoke,index}.js` — receipt write path가 capped LLM 호출로 `meta.briefing_summary` + `briefing_token_count` + `briefing_token_estimated` + `briefing_invocation_count` 4 필드를 stamp. fail-open invariant(briefing 실패는 receipt write를 절대 poison 안 함). Cost-tier ≥ notice ($50) 자동 disable + `MCCP_BRIEFING=off` kill switch + `pr-phase.lock subphase=codex-review` 시 자동 skip(Codex R1 F3 PR_PHASE_LOCKED). `receipt_hash` carve-out으로 stamp가 tamper-detect digest를 무력화하지 않음(Codex R1 F1, deep-clone via JSON parse). Token count는 (focus+stdout) length 기반 estimate, real `tokenUsage` 발견 시 flip하여 `briefing_token_estimated=false`(Codex R1 F2). derive `sources/receipts.js`가 3 필드를 read-only로 surface해 M3 timeline renderer가 소비. | v1.3.0-m2 ship |
 | **STATUS.md + HTML renderer (v1.3.0-m3)** | `plugins/mccp/scripts/lib/renderer/*` — derive model + M2 briefing fields → `.claude/cache/STATUS.md` + `status.html`. 6-section deterministic verdict(11-step priority chain) + briefing surface + worker fanout graceful hide. Codex R1 4 absorptions: F1 M3-local `parsers/plan-body.js`(M1 surface immutable), F2 outer `safeFallback` outer-catch(renderStatus는 throw 안 함), F3 verdict step 7.5 controller_active fallback(envelope 미존재 시 controller 신호 surface), F4 `escapeHtml`/`escapeAttr`(local artifact self-injection 방어 + 4종 payload test). impeccable P1(amber appliesTo:'icon')/P2(raw blockquote + idle text)/P3(degraded source 이름 + anchor 안정성) absorption. Pure function of derive model. No new dep. M4 owns refresh triggers; M5 owns snapshots. CLI: `node plugins/mccp/scripts/derive/cli.js render`. | v1.3.0-m3 ship |
 | **Refresh trigger + privacy guard (v1.3.0-m4)** | `plugins/mccp/scripts/lib/renderer/trigger.js` + `plugins/mccp/scripts/hooks/render-trigger-session-start.js` — 4 trigger paths (SessionStart hook / receipt-write epilogue / envelope write / envelope-move watcher) refresh `.claude/cache/STATUS.md` + `status.html` within ~5s of any state change. 5s content debounce + 90s render lock (host-aware tri-state reclaim per §3.6) + unique pid+random tmp names. Loud fail-open invariant — trigger NEVER throws (Codex R1 F1+F4 absorptions). Privacy guard: `derive/mask.js#maskSecrets` 5 regex catalogue (`sk-key`, `aws-key`, `private-key-block` severe + `bearer`, `password-eq` quiet) scans envelope `next_action`/`findings[*]`/`receipts_added[*]` at source-scan time (envelopes.js emits additive `masked_payload_signal`; raw payload NEVER stored — F3 absorption) and `receipt.meta.briefing_summary` via `applySecretMask`. F2 absorption: `applySecretMask` runs unconditionally including `--raw`; only `applyPathMask` honors `--raw`. Verdict step 1.5 fires red banner for severe hits; audit-timeline footnote surfaces aggregate per-kind statistics + `was_stale` (cache > 60s) stamp via `.last-render.json`. impeccable Acceptable 26/40 F1-F5 absorbed (telegraphic Korean, no em dash, severe-only red, source_id 노출, Bearer/password= 조용한 mask). M5 owns daily snapshots. | v1.3.0-m4 ship |
@@ -184,6 +184,7 @@ my-claude-code-plugin/
 - **git-tracked**: `STATE.md` / `fix-task.md` / `fix-task-applied.md`는 commit 대상입니다. worktree 리셋이나 pair-programming 핸드오프에서도 컨텍스트가 살아남도록 의도된 설계 (자세한 근거: [docs/v0.2-architecture.md](docs/v0.2-architecture.md) §7).
 - `session-start.js` hook이 부팅 시 inject (`<system-reminder>` 블록).
 - `pre-compact.js` hook이 compaction 직전 갱신.
+- `session-end-trace.js` hook이 SessionEnd에 `.claude/state/hook-trace/<sid>/.end` marker를 write(+ per-shard consolidation·lease release). v1.20.5(audit P2)부터 **fail-loud-open** — hook-trace 모듈 로드 실패에도 `writeDegradedEndMarker`가 `fs` 직접 write로 marker를 보장하고 degraded 경로를 loud stderr로 표면화합니다(marker 누락 시 후속 세션 `scanCrashAlerts`가 false crash alert를 발화하는 문제를 닫음). 상세는 [docs/gate-design.md](docs/gate-design.md) L5 참조.
 - 직접 편집하지 말고 `state-writer.js` API를 사용하세요 — frontmatter 스키마, advisory lock (fail-soft: ~1s 후 unlocked 진행 + loud WARNING; O_EXCL 기반이나 진정한 mutual-exclusion 보장은 아님 — 경쟁 시 last-writer-wins), CRLF normalization, schema version guard가 묶여 있습니다.
 
 ### 3.3 Codex 의존 작업의 실패 모드 (v0.2.2 fail-closed matrix)
@@ -195,6 +196,7 @@ my-claude-code-plugin/
 | `ok` | 정상 응답 | 통과 (`blocking=false`) | n/a |
 | `disabled` | `MCCP_CODEX_DISABLED=1` (v0.3.5 first-class skip) | 통과 (`blocking=false`, `advisory=false`) — spawn 직전 short-circuit, durationMs=0. receipt에 `meta.codex_disabled=true` + `meta.codex_skip_reason='codex_disabled'` 자동 stamp. terminal `/mccp:pr` Phase 0 advisory-rejection 룰에서 예외. | n/a — intentional, not failure |
 | `registry-missing` | `~/.claude/plugins/installed_plugins.json` 없음 | block (exit 12) | warn + 통과 (non-approving receipt) |
+| `registry-malformed` | `installed_plugins.json` JSON parse 실패 (malformed) | block | warn + 통과 |
 | `plugin-not-installed` | codex@openai-codex registry entry 없음 | block | warn + 통과 |
 | `install-path-stale` | installPath가 디스크에 없음 | block | warn + 통과 |
 | `companion-not-found` | `codex-companion.mjs` 미존재 | block | warn + 통과 |
@@ -205,7 +207,10 @@ my-claude-code-plugin/
 | `stdout-empty` | exit 0이지만 stdout 빈 출력 | block | warn + 통과 |
 | `spawn-enoent` | node 실행 실패 | block | warn + 통과 |
 | `parse-error` | wrapper JSON parse 실패 | block | warn + 통과 |
-| `tempfail` (exit 75) | v0.2.8 generic-receipt quarantine migration in progress (lock-loser bounded poll timeout) | retry-shortly, ALLOW in hooks, exit 75 in cli/preflight/auto-chain | n/a — transient by construction, not advisory |
+
+위 표는 [`codex-invoke.js`](plugins/mccp/scripts/lib/codex-invoke.js)가 생산하는 **정확히 14종** classification입니다(주석 header enum과 1:1).
+
+> **`tempfail` (exit 75)은 codex-invoke classification이 아닙니다.** codex-invoke 하위 계층이 아니라 [`scripts/receipt/classify.js`](plugins/mccp/scripts/receipt/classify.js) / validate-cmd 계층의 **transient outcome**입니다 — v0.2.8 generic-receipt quarantine migration이 in-progress(lock-loser bounded poll timeout)일 때 emit됩니다. 동작: retry-shortly · hook은 ALLOW · cli/preflight/auto-chain은 exit 75 (sysexits). 자세한 전파는 §4 cheat sheet의 "Generic-receipt quarantine runbook" tempfail propagation 항목 참조.
 
 복구 옵션 (우선순위 순):
 
@@ -232,14 +237,16 @@ my-claude-code-plugin/
 
 ### 3.6 Atomic state locks (`pr-phase.lock` + `v0.2.8-generic-receipt-quarantine.lock`)
 
-v0.2.8 Task 2.6.1-followup F10+F11+F7 (PR #8)부터 mccp는 두 가지 atomic state lock을 동일한 canonical pattern으로 운용합니다. 둘 다 단일 writer + multi-reader, lease-based reclaim, in-loop heartbeat를 공유합니다.
+v0.2.8 Task 2.6.1-followup F10+F11+F7 (PR #8)부터 mccp는 두 가지 state lock을 운용합니다. 둘 다 단일 writer + multi-reader, lease-based reclaim(PID liveness OR mtime>60s), in-loop heartbeat를 **공유**하지만, **ownership-token 모델은 서로 다릅니다** — `pr-phase.lock`은 hash + stdin-pipe sealed channel(canonical), `quarantine.lock`은 raw-token/advisory(lock body 평문 token, 0o600 보호). 아래 락별 구분을 참조하세요("양쪽 공통"으로 뭉뚱그리지 말 것).
 
 | Lock file | 사용처 | 생명주기 |
 |---|---|---|
 | `<repo>/.claude/state/pr-phase.lock` | `/mccp:pr` Phase 3.5 Codex-review subphase 진입/이탈. PreToolUse가 write-tool block 결정에 사용. | enter (Phase 3.5 직전) → exit (PR 본문 inject 직후, gh pr create 직전). crash 시 다음 invocation의 `detect-stale`이 finalizer 우선 실행 후 clear. |
 | `<repo>/.claude/receipts/.migrations/v0.2.8-generic-quarantine.lock` | validate-cmd / `/mccp:pr` Phase 0 부팅 시 동시 trigger 직렬화. winner만 rename 수행, loser는 marker complete bounded poll. | acquire (`fs.openSync wx`) → release (try/finally). |
 
-#### Canonical schema (양쪽 공통)
+#### Ownership-token 모델 (락별 상이 — "양쪽 공통" 아님)
+
+**`pr-phase.lock` — canonical hash + stdin-pipe sealed channel** ([`pr-phase-lock.js`](plugins/mccp/scripts/lib/pr-phase-lock.js))
 
 ```json
 {
@@ -252,7 +259,24 @@ v0.2.8 Task 2.6.1-followup F10+F11+F7 (PR #8)부터 mccp는 두 가지 atomic st
 ```
 
 - **`ownership_token_hash` (v0.2.8 F11 redesign)**: writer가 `crypto.randomUUID()`로 생성한 token의 sha256만 lock body에 기록. raw token은 writer 메모리에만 존재. release 시 writer가 stdin pipe로 raw token을 helper에 sealed channel로 전달 → helper가 hash 재계산 후 match → unlink. 외부 reader가 lock 파일을 읽어도 token을 위조할 수 없음 (F11 IPC contract). 이전 `ownership_token` (raw token 기록) 방식은 v0.2.7 schema로 deprecated.
-- **Stdout-pipe IPC contract**: writer ↔ helper 간 모든 mutating call (enter/exit/release)은 stdin pipe로 token 전달. command-line argument로 token 전달 금지 — process listing 노출.
+- **Stdin-pipe IPC contract**: writer ↔ helper 간 모든 mutating call (enter/exit/release)은 stdin pipe로 token 전달. command-line argument로 token 전달 금지 — process listing 노출.
+
+**`quarantine.lock` — raw-token / advisory** ([`migrations/v0.2.8-generic-receipt-quarantine.js`](plugins/mccp/scripts/migrations/v0.2.8-generic-receipt-quarantine.js))
+
+```json
+{
+  "pid": 12345,
+  "started_at": "<ISO>",
+  "host": "<hostname>",
+  "token": "<raw crypto.randomUUID() — 평문>"
+}
+```
+
+- **raw token in-body**: `acquireLock`이 `crypto.randomUUID()` token을 lock body에 **평문**으로 기록합니다(hash 아님, stdin-pipe 아님). `0o600` owner-only 파일 모드로 shared-tenant에서 타 사용자 read를 차단. `releaseLock`은 `body.token === token` ownership 일치 시에만 unlink(zero-byte / unparsable / mismatch는 unlink 안 하고 lease reclaim에 위임).
+- **잔여 리스크 (문서화된 것 — "무해"로 단정 금지)**: `releaseLock`에 **no-token legacy 경로**가 있습니다 — 호출자가 token 없이(`undefined`/`null`) release하면 ownership 검증 없이 unlink합니다(단 loud stderr warn). 현재 유일 호출자 `migrate()`는 **항상 token을 전달**하므로 실제 트리거 caller는 없지만, legacy / 직접 호출자가 이 경로를 타면 live holder의 락을 삭제할 수 있습니다. code hardening(no-token 경로 제거 / test-gate)은 PRD out-of-scope로 [backlog](.claude/plans/codex-findings-backlog.md)에 이연했고 P6은 문서만 정정합니다.
+
+#### 공통 (양쪽 실제 공유) — lease + heartbeat
+
 - **Lease + heartbeat**: orphan 판정은 `(recorded PID is dead via process.kill(pid, 0))` OR `(file mtime > 60s)`. 둘 중 하나라도 만족 시 reclaim. v0.2.7 이전의 `started_at` 기반 판정은 clock skew / PID reuse에 약함 — 폐기.
 - **In-loop heartbeat**: 장기 작업(quarantine migration 8+ rename)이 lock 점유 중에는 25 step마다 `fs.utimesSync`로 mtime을 갱신해 live holder 보호. sync 함수에서는 `setInterval`이 fire 안 되므로 in-loop counter가 정답.
 
@@ -387,10 +411,12 @@ critique loop이 critique fail로 판정하는 anchor — M3 (output-constraints
 
 | Round | Condition | Action |
 |---|---|---|
-| R0 | critique invoke + decideCritique enum | CONVERGED → 종료 / ESCALATE → R1 / DIVERGENT → 즉시 종료 |
-| R1~Rcap | critique fail 항목의 *명시 섹션*만 Edit | cap (`MCCP_DESIGN_CRITIQUE_MAX_RETRY` default 2, 0~3) 도달 시 DIVERGENT |
+| R0 | critique invoke + decideCritique enum | CONVERGED → 종료 / ESCALATE_NEXT_ROUND → R1 / DIVERGENT_UNRESOLVED → 즉시 종료 |
+| R1~Rcap | critique fail 항목의 *명시 섹션*만 Edit | cap (`MCCP_DESIGN_CRITIQUE_MAX_RETRY` default 2, 0~3) 도달 시 DIVERGENT_UNRESOLVED |
 
-cap=0이면 R0 1회만 + verdict DIVERGENT 즉시 — silent disable 불가 (loud stderr warn).
+cap=0이면 R0 1회만 + verdict DIVERGENT_UNRESOLVED 즉시 — silent disable 불가 (loud stderr warn).
+
+> `decideCritique` oracle의 실제 verdict enum은 정확히 `CONVERGED` / `ESCALATE_NEXT_ROUND` / `DIVERGENT_UNRESOLVED` 3종입니다([`design-critique-decide.js`](plugins/mccp/scripts/lib/design-critique-decide.js)). 본 문서 다른 위치의 `ESCALATE` / `DIVERGENT` 축약 표기는 각각 `..._NEXT_ROUND` / `..._UNRESOLVED`의 준말입니다.
 
 #### Severity → fail (M2 oracle, F2 absorption)
 
@@ -417,7 +443,7 @@ retry loop 결과는 `mccp-plan-codex` / `mccp-implement-codex` receipt에 4 신
 
 #### 자기-적용 (dogfood)
 
-본 M2 plan은 좁은 whitelist (axis b)로 자기-재현을 차단 — `impeccable-detect.js` / `design-critique-decide.js` / `skills/frontend-design-direction/` 변경은 detector positive로 인식됩니다. 합성 fixture(`.claude/cache/test-fixture-status.html` 1줄) + `MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL=0|1` test env가 pre-ship dogfood를 보장 (M2 acceptance gate).
+본 M2 plan은 좁은 whitelist (axis b)로 자기-재현을 차단 — `impeccable-detect.js` / `design-critique-decide.js` / `skills/frontend-design-direction/` 변경은 detector positive로 인식됩니다. pre-ship dogfood는 `MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL=0|1` test env가 보장합니다(critique invoke 결과를 mock해 retry loop 회귀를 강제). `.claude/cache/test-fixture-status.html`은 커밋물이 아니라 필요 시 test-time에만 쓰이는 임시 합성 파일이며 현재 tracked 상태가 아닙니다 — dogfood는 env 경로만으로 성립하므로 fixture 존재에 의존하지 않습니다 (M2 acceptance gate).
 
 #### Produced-diff grounding lint (v1.18.22 — post-EXECUTE mechanical 게이트)
 
@@ -592,8 +618,9 @@ v0.2.8부터 validate-cmd가 generic decision_id(`default`/`main`) + `--plan` �
    - validate-cmd + `/mccp:pr` Phase 0가 동시 진입하면 한쪽만 lock 획득, 다른 쪽은 marker complete bounded poll (max 2s).
    - poll timeout 시 caller가 exit 75 (EX_TEMPFAIL) + systemMessage. 잠시 후 재시도.
 
-5. v0.2.8 Task 2.6.5a + Task 2.6.1-followup F11 hardening — **lock body는 `ownership_token_hash`를 포함**합니다 (sha256 of `crypto.randomUUID()`). canonical schema + stdout-pipe IPC + lease/heartbeat 상세는 §3.6 참조:
-   - `<repo>/.claude/receipts/.migrations/v0.2.8-generic-quarantine.lock`을 **직접 편집하지 마세요**. `ownership_token_hash`가 빠지면 holder의 `releaseLock`이 stdin-pipe로 받은 raw token의 hash를 재계산하는 검증이 실패하고 lock이 mtime 만료(60s) 후에만 reclaim됩니다 (F11 sealed channel).
+5. v0.2.8 Task 2.6.5a hardening — `quarantine.lock` body는 **raw `crypto.randomUUID()` token을 평문**으로 담습니다(hash 아님 · stdin-pipe 아님 — `pr-phase.lock`의 canonical hash 모델과 다름, §3.6 락별 구분 참조). `0o600` owner-only 보호. lease/heartbeat 상세는 §3.6 "공통" 참조:
+   - `<repo>/.claude/receipts/.migrations/v0.2.8-generic-quarantine.lock`을 **직접 편집하지 마세요**. `releaseLock`은 `body.token === token` 일치 시에만 unlink하므로, 파일을 손대 token이 어긋나면 ownership mismatch로 release가 실패하고 lock이 mtime 만료(60s) 후에만 reclaim됩니다.
+   - **no-token legacy 잔여 리스크**: `releaseLock`이 token 없이(`undefined`/`null`) 호출되면 ownership 검증 없이 unlink합니다(loud stderr warn). 현재 유일 호출자 `migrate()`는 항상 token을 전달하므로 트리거되지 않지만, 문서화된 잔여 리스크입니다(code hardening은 backlog로 이연 — §3.6 참조).
    - lease-based reclaim: orphan 판정은 `(recorded PID is dead)` **OR** `(file mtime > 60s)`. clock skew / PID reuse에 강인합니다.
    - in-loop heartbeat: migration이 25개 rename마다 `fs.utimesSync`로 lock mtime을 갱신 (sync 함수에서는 `setInterval`이 fire 안 되므로 in-loop counter가 정답).
    - legacy v0.2.7 upgrade: v0.2.7 holder가 live인 동안 v0.2.8이 부팅하면 host-aware tri-state (same-host+pid-alive=NEVER reclaim) policy로 race 차단 — §3.6 참조.
@@ -685,7 +712,7 @@ MCCP_RENDER_LOCK_LEASE_MS=90000          # default. `.claude/cache/.render.lock`
 3. README.md — 사용자 관점 요약
 4. 사용자 auto-memory (user-level, 프로젝트 워크트리 밖) — 세션 시작 시 `MEMORY.md` 인덱스가 자동 주입됩니다. 직접 경로 참조 대신 인덱스에 노출된 항목명으로 조회하세요.
 5. `docs/v1.3.0-observability/schema-surface.md` — receipt + envelope + STATE.md frontmatter의 read-side schema surface 표준. derive 가정에 의문 생기면 여기부터. PRD ↔ code 식별자 매핑은 `docs/v1.3.0-observability/state-md-naming-reconciliation.md`.
-6. `plugins/mccp/scripts/derive/index.js` — `.claude/` 통합 model derive 진입점 (7 source + 6 correlation kinds). M0 schema-surface.md 가정 동기. `node plugins/mccp/scripts/derive/cli.js run --json` 으로 즉시 호출 가능.
+6. `plugins/mccp/scripts/derive/index.js` — `.claude/` 통합 model derive 진입점 (9 source + 6 correlation kinds). M0 schema-surface.md 가정 동기. `node plugins/mccp/scripts/derive/cli.js run --json` 으로 즉시 호출 가능.
 7. `plugins/mccp/scripts/lib/renderer/index.js` — v1.3.0-m3 STATUS.md + status.html renderer 진입점 (consumes M1 derive + M2 briefing fields, produces PM dashboard surface). `docs/v1.3.0-observability/dashboard-surface.md` 가 canonical spec. `node plugins/mccp/scripts/derive/cli.js render` 으로 즉시 호출 가능 (`.claude/cache/` 에 산출).
 
 새 패턴/관행이 정해지면 memory에 저장하기 전에 이 CLAUDE.md에 반영할지 먼저 검토하세요. 프로젝트 단위 룰은 여기가 더 안정적입니다.

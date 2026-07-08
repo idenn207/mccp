@@ -2,7 +2,21 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.11`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.12`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.12] — 2026-07-08
+
+문서 정합화 (**CLAUDE.md ↔ 코드 drift 종결**, audit-remediation P6). 감사 A(Haiku 광범위)/B(Opus 심화)가 지목한 CLAUDE.md 드리프트 8지점을 실제 동작에 정합화한다 — **behavior 변경 0**. 유일한 코드 touch는 `codex-invoke.js` **주석** classification enum(`parse-error` 누락 보정)이고 나머지는 전부 문서 정정이다. 감사가 1.20.2 기준이라 P2~P5(1.20.5~1.20.11)가 일부 드리프트를 이미 고쳤을 수 있어, 각 지점을 현재 CLAUDE.md에 **재대조(staleness guard)**한 뒤에만 편집했다(B#16 §3.2 advisory-lock은 이미 정확 → verified-noop). cross-gate dedupe로 Implement-Codex 수렴(plan-codex `converged` 승계). 버전은 #92(1.20.8)·#94(1.20.9)·#95(1.20.10)·#93(1.20.11) 순차 점유로 1.20.12 상향.
+
+### Changed
+
+- **`CLAUDE.md`** — 8지점 정정: §3.3을 strict 14값 codex-invoke classification 표(`registry-malformed` 추가 + `tempfail`을 classify.js 계층 별도 note로 이동)로 재구성 · §1.4/§5 derive "7 source" → "9 source"(ledger·worktrees 추가) · §1.3에 v1.3.1 informational allow-path 단서(terminal PR hard-block 유지) · §3.6 락 모델을 `pr-phase.lock`(hash+stdin-pipe) ↔ `quarantine.lock`(raw-token/advisory) 분리 + no-token legacy release **잔여 리스크 정직 서술**("양쪽 공통"·"무해" 단정 제거) · §3.9 design-critique enum full form(`ESCALATE_NEXT_ROUND`/`DIVERGENT_UNRESOLVED`) + 미커밋 fixture 서술 정정 · §3.2 SessionEnd `.end` marker(v1.20.5 fail-loud-open) 문서화 · §1.4 stop-loop을 자동 재시도 아닌 bounded 실패 카운터(`MAX_COUNT=2`)로 정정 · §4 runbook item 5 quarantine=hash 오기재 정정.
+- **`plugins/mccp/scripts/lib/codex-invoke.js`** — 주석 header classification enum에 `parse-error` 추가 → 주석 = §3.3 표 = 실제 생산값 **14종** 동일 집합. 로직 무변경(comment-only).
+- **`.claude-plugin/plugin.json`** — `1.20.11 → 1.20.12`. 양 footer(html/markdown) `v1.20.12` + `i18n-surface.test.js` assertion 동기.
+
+### Deferred
+
+- quarantine `releaseLock` **no-token legacy 경로 hardening**(제거 / test-gate)을 `.claude/plans/codex-findings-backlog.md`에 이연 (PRD out-of-scope — Codex F2; P6은 문서만 정정).
 
 ## [1.20.11] — 2026-07-08
 

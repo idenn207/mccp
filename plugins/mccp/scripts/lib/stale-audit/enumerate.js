@@ -22,11 +22,11 @@ const {
 } = require('../renderer/parsers/plan-body');
 const { findRisksTableLine, findMilestoneRow } = require('./locate');
 // audit 대상 = 대시보드가 *표시*하는 plan 항목(derive scope SSoT). derive 의 PLAN_DIRS
-// 를 그대로 재사용하고 completed/ 아카이브로 확장하지 않는다.
+// 를 그대로 재사용하고 archived/ 아카이브로 확장하지 않는다.
 // item-id 계약: 서버 re-enumerate 는 렌더러가 resolveId 를 부여한 *모든* plan 항목을
 // 재현해야 한다(enumerate ⊇ derive). 디렉토리를 여기서 재선언하면 조용히 drift 한다
 // (LOW#1 — top-level 레거시 plan 의 "제외" 버튼이 derive 엔 뜨지만 서버는 못 찾아 항상
-// 409). completed/ 는 derive 미표시(버튼 미부여)라 마킹해도 대시보드엔 무효 → scope 에서
+// 409). archived/ 는 derive 미표시(버튼 미부여)라 마킹해도 대시보드엔 무효 → scope 에서
 // 제외해 enumerate == derive scope 로 정합한다.
 const { PLAN_DIRS } = require('../../derive/sources/plans');
 const PRD_DIR = path.join('.claude', 'prds');

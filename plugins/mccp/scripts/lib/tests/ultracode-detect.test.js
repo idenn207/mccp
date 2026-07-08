@@ -12,7 +12,7 @@ const detector = require('../ultracode-detect');
 const DETECT_JS = path.resolve(__dirname, '..', 'ultracode-detect.js');
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 // M1 axis A plan is the false-positive fixture — Effort marker absent there.
-const FALSE_POSITIVE_FIXTURE = path.join(REPO_ROOT, '.claude', 'PRPs', 'plans', 'completed', 'v1-4-0-m1-deep-research.plan.md');
+const FALSE_POSITIVE_FIXTURE = path.join(REPO_ROOT, '.claude', 'PRPs', 'plans', 'archived', 'v1-4-0-m1-deep-research.plan.md');
 
 function withTempDir(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-ultracode-detect-'));

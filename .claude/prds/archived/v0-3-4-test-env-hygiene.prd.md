@@ -1,5 +1,7 @@
 # v0.3.4 — Test Env Hygiene Audit + v0.3.3 Housekeeping Bundle
 
+> **✅ COMPLETE (아카이브, 2026-07-09)** — v0.3.4로 ship됨(report: `.claude/PRPs/reports/v0-3-4-test-env-hygiene-report.md`). Delivery Milestones 표 status를 `pending → complete`로 정정. 원 작성 시점의 DRAFT 서명은 authoring provenance 기록으로 보존.
+
 ## Problem
 
 mccp maintainer 겸 daily-driver(skypark207)가 `MCCP_CODEX_DISABLED=1`을 영구 설정한 shell에서 `node --test plugins/mccp/scripts/**/tests/*.test.js`를 실행하면 17건의 cross-test env leak failure가 surface된다. 해법 패턴은 same file([codex-bridge.test.js:151-162](../../plugins/mccp/scripts/lib/tests/codex-bridge.test.js#L151-L162))에 canonical snapshot/restore로 이미 존재하지만 sibling test sites에 미적용 — "pattern existence vs application gap" 클래스 결함. v0.3.3 dogfood가 surface한 finding이라 컨텍스트가 신선한 지금 처리하지 않으면 향후 dogfood/CI green이 17건 false-positive로 오염되어 진짜 신호가 묻힌다. 동시에 v0.3.3 milestone close-out housekeeping 4건도 묶어 한 cycle로 흡수한다.
@@ -49,7 +51,7 @@ We'll know we're right when **`MCCP_CODEX_DISABLED=1; node --test plugins/mccp/s
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | v0.3.4 ship | `MCCP_CODEX_DISABLED=1` shell의 fail count가 env-unset shell과 동일(4 pre-existing only)로 떨어지고 v0.3.3 housekeeping 4축 모두 drift 0 | pending | — |
+| 1 | v0.3.4 ship | `MCCP_CODEX_DISABLED=1` shell의 fail count가 env-unset shell과 동일(4 pre-existing only)로 떨어지고 v0.3.3 housekeeping 4축 모두 drift 0 | complete | `.claude/plans/v0-3-4-test-env-hygiene.plan.md` |
 
 ## Open Questions
 

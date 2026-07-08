@@ -2,7 +2,24 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.13`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.14`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.14] — 2026-07-09
+
+완료 PRD/plan 아카이브 정리 + 아카이브 폴더명 `archived/`로 통일 (housekeeping chore). 활성 `.claude/prds/`·`.claude/plans/`에 완료됐지만 남아 대시보드 활성 스캔에 잡히던 drift를 종결한다. **behavior 변경 0 — 파일 이동 + 폴더 rename + status drift 정정 + 렌더 재검증(derive degraded 0, renderer 회귀 0).**
+
+### Changed
+
+- **아카이브 폴더명 통일 (`complete`/`completed` → `archived`)** — `.claude/prds/complete/` → `.claude/prds/archived/`, `.claude/PRPs/plans/completed/` → `.claude/PRPs/plans/archived/`. `milestone-history.js` 3 경로(archived-PRD 스캔 + plan git-time/summary fallback 2) + 주석 + 테스트 5파일(milestone-history·four-part-rendering·enumerate·deep-research-detect·ultracode-detect) 동기. 레거시 `.claude/plans/archive/`도 통합(내용 상이 중복 1건은 `-legacy` 접미사 보존, 데이터 손실 0).
+- **완료 PRD 5건 아카이브** — `audit-remediation-followup`·`work-context-isolation`·`v0-3-4-test-env-hygiene`·`v1-1-0-observability-surface-ii`·`v0-4-0-orchestrator` → `.claude/prds/archived/`. 완료 plan 12건 → `.claude/PRPs/plans/archived/`.
+- **status drift 정정** — `v0-3-4-test-env-hygiene`(M1 `pending → complete`, 실제 v0.3.4 ship됨) · `workflow-orchestration`(M2 `in-progress → complete` + M4 `pending` 행 추가, **active 유지**).
+- **`v0-4-0-orchestrator` superseded 마커** — MVP 척추(spawn axis B/C + metric axis A)가 v1.1.0 notify+resume / cost USD tier 유지로 실증 기각·대체됨을 상단 명시 + axis H 외 9축 `dropped` 정리.
+- **`.claude-plugin/plugin.json`** — `1.20.13 → 1.20.14`. 양 footer(html/markdown) `v1.20.14` + `i18n-surface.test.js` assertion 동기.
+
+### Notes
+
+- `workflow-orchestration` PRD는 active 유지 — derive에 전용 PRD source가 없어 PRD는 활성 plan의 `source_prd`로만 discovery되므로, 그 M1~M3 완료 plan은 `.claude/plans/`에 보존(archive 시 dangling active PRD가 되어 대시보드에서 소실).
+- 사전 존재 실패 1건(`verdict-label metric F1` — renderer verdict 어휘)은 본 변경과 무관(clean HEAD `34df7b1`에서도 fail) — 별도 이슈.
 
 ## [1.20.13] — 2026-07-08
 

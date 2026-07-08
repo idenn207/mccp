@@ -111,8 +111,8 @@ test('enumerate — scope: completed/ 아카이브 제외(derive scope 정합)',
   // 회귀: enumerate scope 를 derive PLAN_DIRS(SSoT)와 정합. completed/ 는 derive
   // 미표시(버튼 미부여)라 마킹해도 대시보드엔 무효 → audit 대상에서 제외돼야 한다.
   const root = mkRepo();
-  fs.mkdirSync(path.join(root, '.claude', 'PRPs', 'plans', 'completed'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.claude/PRPs/plans/completed/old.plan.md'), PLAN);
+  fs.mkdirSync(path.join(root, '.claude', 'PRPs', 'plans', 'archived'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.claude/PRPs/plans/archived/old.plan.md'), PLAN);
   const out = enumerate({ repoRoot: root });
   const fromCompleted = out.items.filter((i) => String(i.source).includes('completed/'));
   assert.equal(fromCompleted.length, 0, 'completed/ 항목은 대시보드 미표시 → enumerate 제외');

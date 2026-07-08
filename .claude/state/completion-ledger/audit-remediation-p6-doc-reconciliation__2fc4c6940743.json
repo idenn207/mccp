@@ -1,0 +1,26 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "audit-remediation-p6-doc-reconciliation",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.20.12",
+    "completed_at": "2026-07-08T10:12:10.010Z",
+    "commit_sha": "338c456359980e7be05d91ef5726c972ed2b8f6e",
+    "plan_basename": "audit-remediation-p6-doc-reconciliation.plan.md",
+    "plan_file_hash": "sha256:f5538d6106b8c5e483a1c2c461c5eb3d6102b1941a53428018fdaa9d2f17d417",
+    "risks_closed": [
+      "**release-surface 버전 skew(Codex F1)** — 병렬 트랙(workflow-orch)이 버전을 소진해 baseline이 이동(초안 1.20.9 → 검토 중 1.20.11). 하드코딩된 bump이 이미 쓰인 버전을 중복/역행",
+      "감사(1.20.2)가 stale — 지목 드리프트가 이미 P2~P5에서 정정됨 → 존재하지 않는 텍스트 편집 시도",
+      "§3.6 재작성이 새 부정확 도입 — quarantine을 \"무해\"로 단정하나 no-token release 잔여 존재(Codex F2)",
+      "**stacked-PR 함정([[stacked-pr-merge-order]])**",
+      "fixture 결정(문서정정 vs 생성) 미확정 → Task 5 지연",
+      "doc-only인데 codex-invoke.js 주석 touch로 patch bump 필요 판단 누락 → cache stuck(§3.7)"
+    ],
+    "oq_closed": [
+      "**Q1 (Task 5)**: A⑦ fixture — (a) 문서 정정(fixture는 커밋물 아님, env force-fail이 dogfood 보장) **[기본]** vs (b) `.claude/cache/test-fixture-status.html` 1줄 생성해 문서와 일치. 기본=(a): P6는 doc-only 스코프이고 env 경로가 이미 회귀 보장. implement 미세결정.",
+      "**Q2 (Risk, 해소)**: #94 P5·#95 M2b·#93 worktree fix가 이미 머지(HEAD=1.20.11) → P6는 현재 main에서 독립 분기, 버전=1.20.12. stacked-PR 우려 대부분 해소. 남은 결정: workflow-orch M3가 1.20.12를 먼저 점유하면 P6는 next-free로 재reconcile(PR 직전, §3.7)."
+    ],
+    "receipt_hash": "sha256:2fc4c694074358baa4a283b6f3399cf94e99e40e077430fb541cd5859b1a499d"
+  }
+}

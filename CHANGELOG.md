@@ -2,7 +2,23 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.10`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.11`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.11] — 2026-07-08
+
+worktree gitdir tmp resolve (**재발 부채 종결**, 단일 patch). worktree에서 `.git`은 `gitdir:` 포인터 **파일**이라 리터럴 `.git/mccp/tmp`에 `mkdir -p`하면 `ENOTDIR`로 깨진다(§3.8). `pr.md`·`dashboard-audit.md`·`pr-body.js`는 이미 고쳐졌으나 `work.md`·`resume.md`·`plan.md`·`prp-implement.md`에 잔여 리터럴이 남아 CLAUDE.md §3.8 권장 worktree에서 `/mccp:work`·`/mccp:resume`·`/mccp:plan`·`/mccp:prp-implement`가 깨졌다(CHANGELOG:535 기준 "누적 8+ cycle 반복 결함"). 이번에 mechanical 재발 방지 테스트와 함께 종결한다. **Fix Invariant (Codex F1 흡수)**: 모든 fresh Bash 블록은 `$MCCP_TMP`/`$GITDIR`를 블록 시작부에서 재도출하고, tmp로 write/redirect 하기 **전에 같은 블록에서** `mkdir -p`한다 — shell redirect(`2> "$MCCP_TMP/x"`)는 파일은 만들어도 부모 dir은 못 만들어 clean worktree에서 `No such file or directory`로 실패하고, gate skip/dedupe 경로가 앞선 phase의 mkdir을 우회하면 dir 없는 채 진입할 수 있다. cross-gate dedupe로 Implement-Codex 수렴(plan-codex `converged` 승계). 버전은 #92(1.20.8)·#94(1.20.9)·#95(1.20.10) 순차 점유로 1.20.11 상향(origin/main 위로 rebase).
+
+### Changed
+
+- **`commands/work.md`** — Step 0 Classification 블록의 리터럴 `.git/mccp/tmp`(mkdir + `work-classify.stderr` redirect)를 worktree-safe `GITDIR=$(git rev-parse --git-path mccp/tmp)` + in-block `mkdir`으로 이전. Step 3(prep/W/gate)은 v1.20.7에서 이미 `git rev-parse --git-path mccp/tmp`로 마이그레이션됨.
+- **`commands/resume.md`** — Phase 0 DETECT 블록 `mkdir -p .git/mccp/tmp` → `MCCP_TMP="$(git rev-parse --git-dir)/mccp/tmp"` + mkdir (pr.md:404 mirror).
+- **`commands/plan.md`** — Phase 5.2 Codex 블록 mkdir + `codex-invoke.stderr` redirect를 block-head `MCCP_TMP` 재도출로 이전.
+- **`commands/prp-implement.md`** — Phase 2.5.3 Codex 블록 mkdir + `codex-invoke.stderr` redirect를 `GITDIR=$(git rev-parse --git-dir)`(파일 내 Phase 2.5.5b line 445 패턴 mirror)로 이전. **Phase 7 auto-chain 블록**(분리된 fresh shell)은 Fix Invariant대로 자체 `GITDIR` 재도출 + `mkdir -p "$GITDIR/mccp/tmp"`를 `auto-chain.stderr` redirect 직전에 추가.
+- **`.claude-plugin/plugin.json`** — `1.20.10 → 1.20.11`. 양 footer(html/markdown) `v1.20.11` 동기.
+
+### Added
+
+- **`scripts/lib/tests/command-tmp-worktree-safe.test.js`** — 2축 재발 방지. 축 A(static): `commands/*.md` 실행 Bash 라인(mkdir/redirect target)에 리터럴 `.git/mccp/tmp` 부재 assert(화이트리스트: pr.md 설명 주석·산문 `<gitdir>` 표기). 축 B(usability, Codex F1): 실제 임시 worktree를 `git worktree add`로 만들고 gitdir-resolved `mkdir -p "$(git rev-parse --git-dir)/mccp/tmp"` 후 redirect 성공을 실행 대조(`.git`가 file인지 assert로 worktree 확증) — 리터럴 부재만으로 못 잡는 "dir 미생성 redirect" 결함을 실증.
 
 ## [1.20.10] — 2026-07-08
 

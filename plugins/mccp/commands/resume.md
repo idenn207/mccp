@@ -23,7 +23,8 @@ Reads `.claude/state/STATE.md` for a pending `handoff_spawn` signal (written by 
 ## Phase 0 — DETECT
 
 ```bash
-mkdir -p .git/mccp/tmp
+MCCP_TMP="$(git rev-parse --git-dir)/mccp/tmp"   # worktree-safe (§3.8 — .git는 worktree에서 파일)
+mkdir -p "$MCCP_TMP"
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 if [ -z "$ROOT" ]; then

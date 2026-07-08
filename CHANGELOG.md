@@ -2,7 +2,28 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.14`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.15`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.15] — 2026-07-09
+
+**신규 command `/mccp:archive-complete`** — 직전 세션(`v1.20.14`)에서 **수동** 수행한 "완료 PRD/plan을 `archived/`로 이동 + status drift 정정 + 대시보드 재렌더" 흐름을 재사용 가능한 human-gate command로 제품화한다. `/mccp:dashboard-audit`의 레이어 분리(agent 평가 ↔ 결정적 scan/apply)를 미러하되, 비파괴 마커 대신 **파일 이동 + status flip**을 수행한다. 핵심 정확성 기준은 **PRD 전체가 완료(전 milestone complete/dropped)일 때만 그 plan을 archive**하는 dangling-active-PRD 불변식(C2).
+
+### Added
+
+- **`plugins/mccp/scripts/lib/archive-complete/scan.js`** — 결정적 스캐너(read-only, LLM-free). 활성 PRD의 `## Delivery Milestones`를 **원시 행 단위로 전부 열거**해 `rawRowCount === complete + dropped` fail-closed 등식으로 archivable 판정(Codex F1 — 비정규 status 행이 분모서 증발하는 오분류 차단). plan↔PRD 인덱스(`scanPlans` source_prd 매칭) + drift 증거(ledger > receipt > git 우선순위, advisory).
+- **`plugins/mccp/scripts/lib/archive-complete/apply.js`** — 원자 archive 트랜잭션(Codex F2). preflight-all(하나라도 실패면 mutation 0) → operation journal(`.claude/state/archive-journal/<id>.json`, git-tracked audit anchor — Codex F3) → status flip(content-hash CAS) + `git mv` → **적용 중 어떤 실패든 전량 rollback**. PRD + 그 모든 활성 plan을 하나의 원자 단위로만 이동(C2 단독 이동 거부). collision: 내용 동일 skip / 상이 `<name>.legacy.md` 보존(데이터 손실 0).
+- **`plugins/mccp/commands/archive-complete.md`** — 6-phase human-gate command body(SCAN→EVALUATE→PROPOSE+HUMAN-GATE→APPLY→RENDER+VERIFY→OUTPUT). `${CLAUDE_PLUGIN_ROOT}` 경로(버전 하드코딩 없음).
+- **테스트** — `tests/scan.test.js`(11) + `tests/apply.test.js`(10): archivable 판정·C2·비정규 status·drift 증거·git mv 중간 실패 rollback·CAS·idempotent·collision-legacy.
+
+### Changed
+
+- **`CLAUDE.md`** — §3에 `archived/` 아카이브 관례 subsection 신설(C1~C4 불변식 + `milestone-history.js` 하드코딩 스캔 경로 + `/mccp:archive-complete` 포인터).
+- **`.claude-plugin/plugin.json`** — `1.20.14 → 1.20.15`(신규 command = patch). 양 footer(html/markdown) `v1.20.15` + `i18n-surface.test.js` assertion 동기.
+
+### Notes
+
+- Implement-Codex는 cross-gate dedupe로 수렴(plan-codex가 F1/F2/F3 3 findings 전부 R1 흡수 — 신규 implement-time 결정 0). 파일 이동 chore라 `mccp-*-codex` 게이트 receipt는 발행하지 않는다(human-gate + git history + operation journal이 review — D3).
+- `parseTableRows`/`findSection`은 plan-body.js에서 export되지 않아 scan.js에 self-contained 포트(enumerate.js `scanInProgressRows` 로컬-표-스캔 패턴 미러) — plan-body.js를 건드리지 않아 cross-gate dedupe 무손상.
 
 ## [1.20.14] — 2026-07-09
 

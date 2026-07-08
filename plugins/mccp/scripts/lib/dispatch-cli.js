@@ -49,6 +49,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const { spawnSync } = require('child_process');
 
 const controller = require('./dispatch-controller');
 const envelope = require('./dispatch-envelope');
@@ -114,8 +115,18 @@ function buildImplementWorkerBasePrompt(args) {
   const dispatchId = args.dispatchId;
   const ipcEnvelopePath = args.ipcEnvelopePath;
   const controllerSessionId = args.controllerSessionId;
+  // M2b — optional disjoint-partition scope. When present, the worker owns only
+  // its slice of the plan; touching any other file is a partition-escape the
+  // controller detects from the real diff. Absent → byte-identical to the M2a
+  // single-worker prompt (back-compat).
+  const partitionFiles = Array.isArray(args.partitionFiles)
+    ? args.partitionFiles.filter(function (f) { return typeof f === 'string' && f.length > 0; })
+    : [];
+  const partitionTaskIds = Array.isArray(args.partitionTaskIds)
+    ? args.partitionTaskIds.filter(function (t) { return typeof t === 'string' && t.length > 0; })
+    : [];
 
-  return [
+  const lines = [
     'Execute the mccp implementation plan at: ' + planPath,
     '',
     'You are a /mccp:work dispatch worker running the /mccp:prp-implement contract',
@@ -136,8 +147,31 @@ function buildImplementWorkerBasePrompt(args) {
     '    --dispatched-by-controller-session ' + controllerSessionId,
     '    --worker-dispatch-id ' + dispatchId,
     '    --ipc-envelope-path ' + ipcEnvelopePath,
+  ];
+
+  if (partitionFiles.length > 0) {
+    lines.push(
+      '',
+      '── PARTITION SCOPE (M2b disjoint-partition worker) ──',
+      'You own a DISJOINT slice of this plan. Edit ONLY these files:'
+    );
+    partitionFiles.forEach(function (f) { lines.push('  - ' + f); });
+    if (partitionTaskIds.length > 0) {
+      lines.push('Implement ONLY these plan tasks: ' + partitionTaskIds.join(', ') + '.');
+    }
+    lines.push(
+      'Touching ANY file outside this list (except an explicitly allowed shared',
+      'output) is a PARTITION-ESCAPE: the controller detects it from your real',
+      'diff and HALTs the ENTIRE fleet — no partial apply. Stay strictly inside',
+      'your slice; sibling workers own the rest.'
+    );
+  }
+
+  lines.push(
     '',
-    '── TERMINAL ENVELOPE (your data channel back to the controller) ──',
+    '── TERMINAL ENVELOPE (your data channel back to the controller) ──');
+
+  return lines.concat([
     'After VALIDATE finishes (pass OR fail), transition your envelope with:',
     '  node ${CLAUDE_PLUGIN_ROOT}/scripts/lib/dispatch-cli.js mark \\',
     '    --envelope ' + ipcEnvelopePath + ' \\',
@@ -162,7 +196,7 @@ function buildImplementWorkerBasePrompt(args) {
     'full test logs — the envelope carries detail; this object is the',
     'reconciliation trigger, NOT a place to dump context (that would defeat the',
     'context-isolation purpose).',
-  ].join('\n');
+  ]).join('\n');
 }
 
 function cmdPrepareSingle(rest) {
@@ -232,6 +266,121 @@ function cmdPrepareSingle(rest) {
     dryRun: dryRun,
     prompt: d.prompt,
     startedAt: prep.startedAt,
+  });
+  return OK_EXIT;
+}
+
+// workflow-orchestration M2b Task 4 — prepare N disjoint-partition workers in ONE
+// prepareDispatch call. Consumes the partition oracle output (--partitions-file)
+// + a shared plan path, binds each partition to its own dispatch identity (ipc
+// path + attribution), and scopes each worker prompt to its partition's
+// files/tasks. skipHeartbeat stays true: the Workflow runtime owns worker
+// liveness (Design Decision 5), so the async heartbeat/reclaim machinery is
+// redundant on this path. prepareDispatch already accepts a workers array
+// (dispatch-controller.js:123-214) — this is "unlock the N that was always
+// there", not new fanout plumbing.
+function cmdPrepareFleet(rest) {
+  const planPath = rest['plan'];
+  const controllerSessionId = rest['controller-session'];
+  const subagentType = rest['subagent'] || 'general-purpose';
+  const partitionsFile = rest['partitions-file'];
+  const dryRun = rest['dry-run'] === true;
+
+  if (!planPath || planPath === true) {
+    process.stderr.write('prepare-fleet requires --plan\n');
+    return USAGE_EXIT;
+  }
+  if (!controllerSessionId || controllerSessionId === true) {
+    process.stderr.write('prepare-fleet requires --controller-session <uuid>\n');
+    return USAGE_EXIT;
+  }
+  if (!envelope.UUID_RE.test(controllerSessionId)) {
+    process.stderr.write('--controller-session must be a UUID\n');
+    return USAGE_EXIT;
+  }
+  if (!partitionsFile || partitionsFile === true) {
+    process.stderr.write('prepare-fleet requires --partitions-file <json>\n');
+    return USAGE_EXIT;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(partitionsFile, 'utf8'));
+  } catch (err) {
+    process.stderr.write('prepare-fleet: partitions-file unreadable/invalid: '
+      + (err && err.message ? err.message : err) + '\n');
+    return ERROR_EXIT;
+  }
+  const partitions = Array.isArray(parsed && parsed.partitions)
+    ? parsed.partitions
+    : (Array.isArray(parsed) ? parsed : null);
+  if (!partitions || partitions.length === 0) {
+    process.stderr.write('prepare-fleet: partitions-file has no partitions[]\n');
+    return ERROR_EXIT;
+  }
+
+  const parentCwd = rest['parent-cwd'] || findRepoRoot(process.cwd());
+
+  // Pre-generate a dispatch id per partition so each prompt binds its exact
+  // identity before prepareDispatch writes placeholders.
+  const dispatchIds = partitions.map(function () { return controller.newDispatchId(); });
+  let idx = 0;
+  const idGen = function () { return dispatchIds[idx++]; };
+
+  const workers = partitions.map(function (part, i) {
+    const files = Array.isArray(part.files) ? part.files : [];
+    const taskIds = Array.isArray(part.taskIds) ? part.taskIds : [];
+    const ipc = ipcEnvelopeRelPath(dispatchIds[i]);
+    const prompt = buildImplementWorkerBasePrompt({
+      planPath: planPath,
+      dispatchId: dispatchIds[i],
+      ipcEnvelopePath: ipc,
+      controllerSessionId: controllerSessionId,
+      partitionFiles: files,
+      partitionTaskIds: taskIds,
+    });
+    return { subagentType: subagentType, prompt: prompt };
+  });
+
+  const deps = { idGen: idGen };
+  if (dryRun) deps.envelopeWrite = function () { return { ok: true }; };
+
+  let prep;
+  try {
+    prep = controller.prepareDispatch({
+      workers: workers,
+      controllerSessionId: controllerSessionId,
+      parentCwd: parentCwd,
+      skipHeartbeat: true, // Design Decision 5 — Workflow owns liveness.
+    }, deps);
+  } catch (err) {
+    process.stderr.write('prepare-fleet failed: '
+      + (err && err.message ? err.message : err) + '\n');
+    return ERROR_EXIT;
+  }
+
+  const outWorkers = prep.dispatches.map(function (d, i) {
+    const ipc = ipcEnvelopeRelPath(d.dispatchId);
+    return {
+      dispatchId: d.dispatchId,
+      subagentType: d.subagentType,
+      envelopePath: d.envelopePath,       // absolute — reconcile read
+      ipcEnvelopePath: ipc,               // repo-relative — receipt --ipc-envelope-path (F3)
+      partitionFiles: Array.isArray(partitions[i].files) ? partitions[i].files : [],
+      partitionTaskIds: Array.isArray(partitions[i].taskIds) ? partitions[i].taskIds : [],
+      prompt: d.prompt,
+      expectedAnchor: { sessionId: controllerSessionId, dispatchId: d.dispatchId, ipcPath: ipc },
+    };
+  });
+
+  emit({
+    controllerSessionId: prep.controllerSessionId,
+    parentCwd: parentCwd,
+    n: outWorkers.length,
+    heartbeat: false,
+    dryRun: dryRun,
+    startedAt: prep.startedAt,
+    workers: outWorkers,
   });
   return OK_EXIT;
 }
@@ -359,6 +508,59 @@ function cmdEmitWorkflowArgs(rest) {
       + (err && err.message ? err.message : err) + '\n');
     return ERROR_EXIT;
   }
+
+  // M2b — fleet shape. A prepare-fleet emit carries a `workers` array; reshape it
+  // into `args.fleet` (per-worker prompt array the Workflow parallel() consumes)
+  // + `reconcileInputs` (per-worker deriveVerdict/mergeVerdicts inputs work.md
+  // needs after the fleet returns). `minRemaining` (optional, from resolveFleet)
+  // rides along for the Workflow budget pre-guard.
+  if (Array.isArray(prep.workers)) {
+    const minRemaining = (function () {
+      const raw = rest['min-remaining'];
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+    })();
+    const bad = [];
+    const fleet = [];
+    const reconcileInputs = [];
+    prep.workers.forEach(function (w, i) {
+      if (!w || typeof w.prompt !== 'string' || w.prompt.length === 0
+          || typeof w.dispatchId !== 'string' || w.dispatchId.length === 0
+          || typeof w.ipcEnvelopePath !== 'string' || w.ipcEnvelopePath.length === 0) {
+        bad.push(i);
+        return;
+      }
+      fleet.push({
+        workerPrompt: w.prompt,
+        agentType: (typeof w.subagentType === 'string' && w.subagentType.length > 0)
+          ? w.subagentType : 'general-purpose',
+        dispatchId: w.dispatchId,
+        ipcEnvelopePath: w.ipcEnvelopePath,
+      });
+      reconcileInputs.push({
+        dispatchId: w.dispatchId,
+        ipcEnvelopePath: w.ipcEnvelopePath,
+        envelopePath: w.envelopePath || null,
+        partitionFiles: Array.isArray(w.partitionFiles) ? w.partitionFiles : [],
+        expectedAnchor: (w.expectedAnchor && typeof w.expectedAnchor === 'object')
+          ? w.expectedAnchor
+          : { sessionId: prep.controllerSessionId, dispatchId: w.dispatchId, ipcPath: w.ipcEnvelopePath },
+      });
+    });
+    if (bad.length > 0 || fleet.length === 0) {
+      process.stderr.write('emit-workflow-args: fleet workers malformed at index/es: '
+        + bad.join(',') + '\n');
+      return ERROR_EXIT;
+    }
+    emit({
+      fleet: fleet,
+      minRemaining: minRemaining,
+      controllerSessionId: prep.controllerSessionId,
+      reconcileInputs: reconcileInputs,
+    });
+    return OK_EXIT;
+  }
+
   const required = ['dispatchId', 'ipcEnvelopePath', 'controllerSessionId', 'prompt'];
   const missing = required.filter(function (k) {
     return typeof prep[k] !== 'string' || prep[k].length === 0;
@@ -385,6 +587,36 @@ function cmdEmitWorkflowArgs(rest) {
   return OK_EXIT;
 }
 
+// M2b Task 4 (Codex F2) — collect a worker's ACTUAL changed + untracked files
+// from its worktree via `git status --porcelain`, so partition-escape is judged
+// on the real diff, not the prompt guardrail. Returns null when the worktree
+// path is absent/unreadable → mergeVerdicts then skips the escape check for that
+// worker (rather than fabricating a false pass). Rename lines ("old -> new") keep
+// the destination path.
+function collectChangedFiles(worktreePath) {
+  if (typeof worktreePath !== 'string' || worktreePath.length === 0) return null;
+  let out;
+  try {
+    const r = spawnSync('git', ['-C', worktreePath, 'status', '--porcelain'],
+      { encoding: 'utf8' });
+    if (r.status !== 0) return null;
+    out = r.stdout || '';
+  } catch (_) {
+    return null;
+  }
+  const files = [];
+  out.split(/\r?\n/).forEach(function (line) {
+    if (line.length < 4) return;
+    let p = line.slice(3).trim();
+    const arrow = p.indexOf(' -> ');
+    if (arrow !== -1) p = p.slice(arrow + 4).trim();
+    // strip surrounding quotes git adds for paths with spaces/unicode
+    if (p.length >= 2 && p[0] === '"' && p[p.length - 1] === '"') p = p.slice(1, -1);
+    if (p.length > 0 && files.indexOf(p) === -1) files.push(p);
+  });
+  return files;
+}
+
 // Read every receipt named in `slugs` off disk, keyed by slug. A slug absent
 // from the store maps to nothing — deriveVerdict then fails an implement-codex
 // slug closed (unanchored: cannot verify) while ignoring non-implement slugs.
@@ -398,6 +630,103 @@ function readReceiptStore(slugs, repoRoot) {
     } catch (_) { /* absent/invalid → deriveVerdict flags unanchored for implement slugs */ }
   });
   return store;
+}
+
+// M2b Task 4 — N-way reconcile. Assembles the per-worker mergeVerdicts input
+// (return ∧ envelope ∧ store ∧ actual-diff) for every reconcileInput, then runs
+// the fail-closed aggregate. Result source per worker: --results-dir/<id>.json
+// (Workflow return) OR --from-envelope mirror (Task path). Actual files for the
+// partition-escape check come from --actual-files-map (direct inject) or
+// --worktree-map (git collect); absent → escape check skipped for that worker.
+function cmdReconcileFleet(rest, wfArgs) {
+  const repoRoot = (typeof rest['repo-root'] === 'string' && rest['repo-root'].length > 0)
+    ? rest['repo-root'] : findRepoRoot(process.cwd());
+  const resultsDir = (typeof rest['results-dir'] === 'string' && rest['results-dir'].length > 0)
+    ? rest['results-dir'] : null;
+  const fromEnvelope = rest['from-envelope'] === true;
+
+  let actualFilesMap = null;
+  if (typeof rest['actual-files-map'] === 'string' && rest['actual-files-map'].length > 0) {
+    try { actualFilesMap = JSON.parse(fs.readFileSync(rest['actual-files-map'], 'utf8')); }
+    catch (err) {
+      process.stderr.write('reconcile: actual-files-map unreadable/invalid: '
+        + (err && err.message ? err.message : err) + '\n');
+      return ERROR_EXIT;
+    }
+  }
+  let worktreeMap = null;
+  if (typeof rest['worktree-map'] === 'string' && rest['worktree-map'].length > 0) {
+    try { worktreeMap = JSON.parse(fs.readFileSync(rest['worktree-map'], 'utf8')); }
+    catch (err) {
+      process.stderr.write('reconcile: worktree-map unreadable/invalid: '
+        + (err && err.message ? err.message : err) + '\n');
+      return ERROR_EXIT;
+    }
+  }
+  const sharedAllowlist = (typeof rest['shared-allowlist'] === 'string' && rest['shared-allowlist'].length > 0)
+    ? rest['shared-allowlist'].split(',').map(function (s) { return s.trim(); }).filter(Boolean)
+    : [];
+
+  const perWorker = wfArgs.reconcileInputs.map(function (inp) {
+    inp = inp || {};
+    const dispatchId = inp.dispatchId;
+
+    let env = null;
+    if (typeof inp.envelopePath === 'string' && inp.envelopePath.length > 0) {
+      const r = envelope.read(inp.envelopePath);
+      if (r.ok) env = r.envelope;
+    }
+
+    let result = null;
+    if (resultsDir && typeof dispatchId === 'string') {
+      const rp = path.join(resultsDir, dispatchId + '.json');
+      try {
+        const parsed = JSON.parse(fs.readFileSync(rp, 'utf8'));
+        result = (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && ('result' in parsed))
+          ? parsed.result : parsed;
+      } catch (_) { /* missing → deriveVerdict → result-unreadable for this worker */ }
+    } else if (fromEnvelope && env) {
+      result = {
+        status: env.worker_exit_status,
+        receiptsAdded: Array.isArray(env.receipts_added) ? env.receipts_added.slice() : [],
+        changedFiles: [],
+        testResult: '(Task path — detail in envelope)',
+        nextAction: (typeof env.next_action === 'string' && env.next_action.length > 0)
+          ? env.next_action : null,
+      };
+    }
+
+    const slugSet = Object.create(null);
+    if (result && Array.isArray(result.receiptsAdded)) {
+      result.receiptsAdded.forEach(function (s) { if (s) slugSet[s] = 1; });
+    }
+    if (env && Array.isArray(env.receipts_added)) {
+      env.receipts_added.forEach(function (s) { if (s) slugSet[s] = 1; });
+    }
+    const receiptStore = readReceiptStore(Object.keys(slugSet), repoRoot);
+
+    let actualFiles;
+    if (actualFilesMap && Array.isArray(actualFilesMap[dispatchId])) {
+      actualFiles = actualFilesMap[dispatchId];
+    } else if (worktreeMap && typeof worktreeMap[dispatchId] === 'string') {
+      const collected = collectChangedFiles(worktreeMap[dispatchId]);
+      if (collected) actualFiles = collected;
+    }
+
+    const entry = {
+      result: result,
+      envelope: env,
+      receiptStore: receiptStore,
+      expectedAnchor: inp.expectedAnchor || null,
+      partitionFiles: Array.isArray(inp.partitionFiles) ? inp.partitionFiles : [],
+      sharedAllowlist: sharedAllowlist,
+    };
+    if (actualFiles !== undefined) entry.actualFiles = actualFiles;
+    return entry;
+  });
+
+  emit(resultSchema.mergeVerdicts(perWorker));
+  return OK_EXIT;
 }
 
 // workflow-orchestration M2a Task 3 — the UNIFIED reconcile+anchor gate for BOTH
@@ -427,6 +756,16 @@ function cmdReconcile(rest) {
       + (err && err.message ? err.message : err) + '\n');
     return ERROR_EXIT;
   }
+
+  // M2b — N-way reconcile. A fleet args file carries `reconcileInputs`; run
+  // deriveVerdict per worker (return ∧ envelope ∧ store) + the F2 partition-
+  // escape check (real diff ⊆ partition ∪ allowlist), then mergeVerdicts
+  // fail-closed. This runs on the ISOLATED-worktree results BEFORE any merge-back
+  // (Codex F1 — the caller only merges when the aggregate is ok).
+  if (Array.isArray(wfArgs.reconcileInputs)) {
+    return cmdReconcileFleet(rest, wfArgs);
+  }
+
   const expectedAnchor = (wfArgs && typeof wfArgs === 'object') ? wfArgs.expectedAnchor : null;
   const repoRoot = (typeof rest['repo-root'] === 'string' && rest['repo-root'].length > 0)
     ? rest['repo-root'] : findRepoRoot(process.cwd());
@@ -489,10 +828,12 @@ function cmdReconcile(rest) {
 function runCli(argv) {
   if (!argv || argv.length === 0) {
     process.stderr.write(
-      'usage: dispatch-cli <prepare-single|emit-workflow-args|reconcile|merge|mark> [options]\n' +
+      'usage: dispatch-cli <prepare-single|prepare-fleet|emit-workflow-args|reconcile|merge|mark> [options]\n' +
       '  prepare-single      --plan <path> --controller-session <uuid> [--subagent <type>] [--parent-cwd <path>] [--dry-run]\n' +
-      '  emit-workflow-args  --prepare-file <path>\n' +
+      '  prepare-fleet       --plan <path> --controller-session <uuid> --partitions-file <json> [--subagent <type>] [--parent-cwd <path>] [--dry-run]\n' +
+      '  emit-workflow-args  --prepare-file <path> [--min-remaining <n>]\n' +
       '  reconcile           --args-file <path> [--envelope <abs>] [--result-file <path>] [--from-envelope] [--repo-root <path>]\n' +
+      '                      (fleet) --args-file <fleet emit> [--results-dir <dir>] [--from-envelope] [--actual-files-map <json>] [--worktree-map <json>] [--shared-allowlist <csv>] [--repo-root <path>]\n' +
       '  merge               --envelope <path>\n' +
       '  mark                --envelope <path> --status <ok|failure|timeout|crashed> [--receipts <csv>] [--findings-file <path>] [--next-action <text>]\n'
     );
@@ -502,6 +843,7 @@ function runCli(argv) {
   const rest = parseFlags(argv.slice(1));
 
   if (cmd === 'prepare-single') return cmdPrepareSingle(rest);
+  if (cmd === 'prepare-fleet') return cmdPrepareFleet(rest);
   if (cmd === 'emit-workflow-args') return cmdEmitWorkflowArgs(rest);
   if (cmd === 'reconcile') return cmdReconcile(rest);
   if (cmd === 'merge') return cmdMerge(rest);
@@ -521,11 +863,14 @@ module.exports = {
   ipcEnvelopeRelPath: ipcEnvelopeRelPath,
   buildImplementWorkerBasePrompt: buildImplementWorkerBasePrompt,
   cmdPrepareSingle: cmdPrepareSingle,
+  cmdPrepareFleet: cmdPrepareFleet,
   cmdEmitWorkflowArgs: cmdEmitWorkflowArgs,
   cmdReconcile: cmdReconcile,
+  cmdReconcileFleet: cmdReconcileFleet,
   cmdMerge: cmdMerge,
   cmdMark: cmdMark,
   readReceiptStore: readReceiptStore,
+  collectChangedFiles: collectChangedFiles,
   runCli: runCli,
   FORBIDDEN_RECEIPT_RE: FORBIDDEN_RECEIPT_RE,
 };

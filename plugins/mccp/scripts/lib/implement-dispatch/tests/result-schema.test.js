@@ -10,8 +10,11 @@ const {
   FORBIDDEN_RECEIPT_RE,
   IMPLEMENT_RECEIPT_RE,
   RESULT_STATUSES,
+  VERDICT_RANK,
   normSlugSet,
   deriveVerdict,
+  mergeVerdicts,
+  checkPartitionEscape,
 } = require('../result-schema');
 
 const CONTROLLER_SESSION_ID = '019eced3-cce9-7be3-81a1-c8a5c30a27fe';
@@ -299,4 +302,164 @@ test('bare result WITHOUT a leak falls through to envelope reconciliation (not o
   // proving the normalization does not short-circuit to a false ok.
   const v = deriveVerdict({ status: 'ok', receiptsAdded: [IMPL_SLUG] });
   assert.strictEqual(v.verdict, 'reconcile-mismatch');
+});
+
+// ── M2b Task 3 — mergeVerdicts N-way aggregate ────────────────────────────────
+
+// A fully-ok worker whose receipt slug + envelope + store all agree and anchor.
+function okWorker(slug, over) {
+  slug = slug || IMPL_SLUG;
+  return Object.assign({
+    result: okResult({ receiptsAdded: [slug] }),
+    envelope: okEnvelope({ receipts_added: [slug] }),
+    receiptStore: { [slug]: anchoredReceipt() },
+    expectedAnchor: EXPECTED_ANCHOR,
+  }, over || {});
+}
+
+test('mergeVerdicts: VERDICT_RANK orders partition-escape after unanchored', () => {
+  assert.ok(Object.isFrozen(VERDICT_RANK));
+  assert.ok(VERDICT_RANK['invariant-violation'] < VERDICT_RANK['unanchored']);
+  assert.ok(VERDICT_RANK['unanchored'] < VERDICT_RANK['partition-escape']);
+  assert.ok(VERDICT_RANK['partition-escape'] < VERDICT_RANK['reconcile-mismatch']);
+  assert.ok(VERDICT_RANK['reconcile-mismatch'] < VERDICT_RANK['ok']);
+});
+
+test('mergeVerdicts: all ok → ok + receiptsAdded union (deduped, sorted)', () => {
+  const a = okWorker('mccp-implement-codex/a.json');
+  const b = okWorker('mccp-implement-codex/b.json');
+  const m = mergeVerdicts([a, b]);
+  assert.strictEqual(m.verdict, 'ok');
+  assert.deepStrictEqual(m.receiptsAdded,
+    ['mccp-implement-codex/a.json', 'mccp-implement-codex/b.json']);
+  assert.strictEqual(m.failedReason, null);
+  assert.strictEqual(m.perWorker.length, 2);
+});
+
+test('mergeVerdicts: receipts union dedupes identical slugs across workers', () => {
+  const a = okWorker('mccp-implement-codex/same.json');
+  const b = okWorker('mccp-implement-codex/same.json');
+  const m = mergeVerdicts([a, b]);
+  assert.strictEqual(m.verdict, 'ok');
+  assert.deepStrictEqual(m.receiptsAdded, ['mccp-implement-codex/same.json']);
+});
+
+test('mergeVerdicts: one worker leaks a PR-gate receipt → invariant-violation (F1)', () => {
+  const a = okWorker('mccp-implement-codex/a.json');
+  const leaked = ['mccp-implement-codex/b.json', 'mccp-pr-codex/x.json'];
+  const b = {
+    result: okResult({ receiptsAdded: leaked }),
+    envelope: okEnvelope({ receipts_added: leaked }),
+    receiptStore: {},
+    expectedAnchor: EXPECTED_ANCHOR,
+  };
+  const m = mergeVerdicts([a, b]);
+  assert.strictEqual(m.verdict, 'invariant-violation');
+  assert.strictEqual(m.invariantViolations.length, 1);
+  assert.strictEqual(m.invariantViolations[0].worker, 1);
+});
+
+test('mergeVerdicts: one unanchored worker → unanchored', () => {
+  const a = okWorker('mccp-implement-codex/a.json');
+  const b = okWorker('mccp-implement-codex/b.json', {
+    receiptStore: {
+      'mccp-implement-codex/b.json': anchoredReceipt({ meta: { controller_context_marker_present: false } }),
+    },
+  });
+  const m = mergeVerdicts([a, b]);
+  assert.strictEqual(m.verdict, 'unanchored');
+  assert.strictEqual(m.unanchored[0].worker, 1);
+});
+
+test('mergeVerdicts: one reconcile-mismatch (envelope pending) propagates', () => {
+  const a = okWorker('mccp-implement-codex/a.json');
+  const b = okWorker('mccp-implement-codex/b.json', {
+    envelope: okEnvelope({ receipts_added: ['mccp-implement-codex/b.json'], worker_exit_status: 'pending' }),
+  });
+  const m = mergeVerdicts([a, b]);
+  assert.strictEqual(m.verdict, 'reconcile-mismatch');
+});
+
+test('mergeVerdicts: partial success (one ok, one failed) → whole-fleet HALT (failed)', () => {
+  const a = okWorker('mccp-implement-codex/a.json');
+  const b = okWorker('mccp-implement-codex/b.json', {
+    result: okResult({ status: 'failure', receiptsAdded: ['mccp-implement-codex/b.json'] }),
+    envelope: okEnvelope({ receipts_added: ['mccp-implement-codex/b.json'], worker_exit_status: 'failure' }),
+  });
+  const m = mergeVerdicts([a, b]);
+  assert.strictEqual(m.verdict, 'failed');
+  assert.match(m.failedReason, /whole-fleet HALT/);
+});
+
+// ── partition-escape (F2) ─────────────────────────────────────────────────────
+
+test('checkPartitionEscape: actualFiles absent → not checked', () => {
+  const r = checkPartitionEscape({ partitionFiles: ['a.js'] });
+  assert.strictEqual(r.checked, false);
+  assert.deepStrictEqual(r.escapes, []);
+});
+
+test('checkPartitionEscape: file outside partition ∪ allowlist escapes', () => {
+  const r = checkPartitionEscape({
+    actualFiles: ['a.js', 'sneaky/lockfile.lock'],
+    partitionFiles: ['a.js'],
+    sharedAllowlist: [],
+  });
+  assert.strictEqual(r.checked, true);
+  assert.deepStrictEqual(r.escapes, ['sneaky/lockfile.lock']);
+});
+
+test('mergeVerdicts: ok worker whose real diff escapes its partition → partition-escape', () => {
+  const a = okWorker('mccp-implement-codex/a.json', {
+    actualFiles: ['plugins/mccp/scripts/lib/a.js'],
+    partitionFiles: ['plugins/mccp/scripts/lib/a.js'],
+  });
+  const b = okWorker('mccp-implement-codex/b.json', {
+    actualFiles: ['plugins/mccp/scripts/lib/b.js', 'package-lock.json'],
+    partitionFiles: ['plugins/mccp/scripts/lib/b.js'],
+    sharedAllowlist: [],
+  });
+  const m = mergeVerdicts([a, b]);
+  assert.strictEqual(m.verdict, 'partition-escape');
+  assert.strictEqual(m.partitionEscapes.length, 1);
+  assert.strictEqual(m.partitionEscapes[0].worker, 1);
+  assert.strictEqual(m.partitionEscapes[0].file, 'package-lock.json');
+});
+
+test('mergeVerdicts: partition-escape suppressed when file is in sharedAllowlist', () => {
+  const b = okWorker('mccp-implement-codex/b.json', {
+    actualFiles: ['plugins/mccp/scripts/lib/b.js', 'CHANGELOG.md'],
+    partitionFiles: ['plugins/mccp/scripts/lib/b.js'],
+    sharedAllowlist: ['CHANGELOG.md'],
+  });
+  const m = mergeVerdicts([b]);
+  assert.strictEqual(m.verdict, 'ok');
+});
+
+test('mergeVerdicts: invariant-violation outranks a co-occurring partition-escape', () => {
+  const leaked = ['mccp-implement-codex/b.json', 'mccp-pr-codex/x.json'];
+  const b = {
+    result: okResult({ receiptsAdded: leaked }),
+    envelope: okEnvelope({ receipts_added: leaked }),
+    receiptStore: {},
+    expectedAnchor: EXPECTED_ANCHOR,
+    actualFiles: ['escaped/file.js'],
+    partitionFiles: ['b.js'],
+  };
+  const m = mergeVerdicts([b]);
+  assert.strictEqual(m.verdict, 'invariant-violation', 'F1 (rank 0) beats partition-escape (rank 2)');
+});
+
+// ── smoke + degenerate ────────────────────────────────────────────────────────
+
+test('mergeVerdicts smoke: single bare result with a PR-gate leak → invariant-violation', () => {
+  // Plan Validation smoke: mergeVerdicts([{result:{status:'ok',receiptsAdded:['mccp-pr-codex/x.json']}}])
+  const m = mergeVerdicts([{ result: { status: 'ok', receiptsAdded: ['mccp-pr-codex/x.json'] } }]);
+  assert.strictEqual(m.verdict, 'invariant-violation');
+});
+
+test('mergeVerdicts: empty / invalid list → result-unreadable (fail-closed)', () => {
+  assert.strictEqual(mergeVerdicts([]).verdict, 'result-unreadable');
+  assert.strictEqual(mergeVerdicts(null).verdict, 'result-unreadable');
+  assert.strictEqual(mergeVerdicts('nope').verdict, 'result-unreadable');
 });

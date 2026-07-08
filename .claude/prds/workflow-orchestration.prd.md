@@ -45,7 +45,7 @@ We'll know we're right when **구현 착수 후 PRD/plan 중간 수정·mileston
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | plan fan-out (MVP) | plan이 다관점 병렬 조사로 meta 정보 강화 → 구현 가설 붕괴·milestone 변동 감소. budget 상한 + kill switch, dual-review 무손상 | complete | `.claude/plans/workflow-orchestration-m1-plan-fanout.plan.md` |
-| 2 | implement 병렬화 | dispatch-controller를 Workflow primitive로 리팩터, N-worker 병렬 구현, worktree 격리 표준화. commit/PR 격리 invariant 유지 | in-progress | `.claude/plans/workflow-orchestration-m2a-single-worker-workflow.plan.md` |
+| 2 | implement 병렬화 | dispatch-controller를 Workflow primitive로 리팩터, N-worker 병렬 구현, worktree 격리 표준화. commit/PR 격리 invariant 유지. **M2b Task 0 spike 실측**: `isolation:'worktree'`→parent 자동 merge 미입증 → merge_strategy=disable-parallel로 병렬 스캐폴드는 완성하되 실행은 N=1 gate off(worktree-merge 입증까지 이연) | in-progress | M2a `.claude/plans/workflow-orchestration-m2a-single-worker-workflow.plan.md` · M2b `.claude/plans/workflow-orchestration-m2b-nworker-parallel.plan.md` |
 | 3 | verify 네이티브화 | Codex adversarial review를 workflow 네이티브 adversarial-verify 패턴으로, verify를 pipeline 스테이지로 강제 | pending | — |
 
 ## Open Questions

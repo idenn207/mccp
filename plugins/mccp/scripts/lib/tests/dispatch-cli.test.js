@@ -594,3 +594,186 @@ test('F3: receipt write accepts repo-relative ipc path, rejects absolute (round-
       'absolute ipc path must fail-closed (F3 rationale)');
   } finally { rimraf(sb); }
 });
+
+// ── M2b Task 4 — fleet subcommands ────────────────────────────────────────────
+
+function writePartitions(sb, partitions) {
+  const f = path.join(sb, 'partitions.json');
+  fs.writeFileSync(f, JSON.stringify({ partitions: partitions }), 'utf8');
+  return f;
+}
+
+test('prepare-fleet: emits N workers, unique dispatch ids, per-worker anchor + partition scope', () => {
+  const sb = makeSandbox();
+  try {
+    const partsFile = writePartitions(sb, [
+      { files: ['a.js'], taskIds: ['t1'] },
+      { files: ['b.js', 'c.js'], taskIds: ['t2'] },
+    ]);
+    const { exitCode, json } = captureEmit(() => cli.cmdPrepareFleet({
+      plan: '.claude/plans/x.plan.md',
+      'controller-session': CONTROLLER_SESSION_ID,
+      'partitions-file': partsFile,
+      'parent-cwd': sb,
+      'dry-run': true,
+    }));
+    assert.strictEqual(exitCode, 0);
+    assert.strictEqual(json.n, 2);
+    assert.strictEqual(json.workers.length, 2);
+    const ids = json.workers.map(function (w) { return w.dispatchId; });
+    assert.notStrictEqual(ids[0], ids[1], 'each partition gets a unique dispatch id');
+    json.workers.forEach(function (w) {
+      assert.strictEqual(w.expectedAnchor.dispatchId, w.dispatchId);
+      assert.strictEqual(w.expectedAnchor.sessionId, CONTROLLER_SESSION_ID);
+      assert.strictEqual(w.ipcEnvelopePath, '.claude/state/dispatches/' + w.dispatchId + '.envelope.json');
+      assert.ok(schema.ENVELOPE_PATH_RE.test(w.ipcEnvelopePath));
+      assert.ok(w.prompt.indexOf('PARTITION SCOPE') !== -1, 'worker prompt carries partition scope');
+    });
+    assert.ok(json.workers[0].prompt.indexOf('a.js') !== -1);
+    assert.ok(json.workers[1].prompt.indexOf('b.js') !== -1 && json.workers[1].prompt.indexOf('c.js') !== -1);
+    assert.deepStrictEqual(json.workers[1].partitionFiles, ['b.js', 'c.js']);
+  } finally { rimraf(sb); }
+});
+
+test('prepare-fleet: missing --partitions-file → usage exit 2', () => {
+  const { exitCode } = captureEmit(() => cli.cmdPrepareFleet({
+    plan: 'x', 'controller-session': CONTROLLER_SESSION_ID,
+  }));
+  assert.strictEqual(exitCode, 2);
+});
+
+test('emit-workflow-args (fleet): reshapes to fleet[] + reconcileInputs[] + minRemaining', () => {
+  const sb = makeSandbox();
+  try {
+    const partsFile = writePartitions(sb, [
+      { files: ['a.js'], taskIds: ['t1'] },
+      { files: ['b.js'], taskIds: ['t2'] },
+    ]);
+    const prep = captureEmit(() => cli.cmdPrepareFleet({
+      plan: '.claude/plans/x.plan.md',
+      'controller-session': CONTROLLER_SESSION_ID,
+      'partitions-file': partsFile,
+      'parent-cwd': sb,
+      'dry-run': true,
+    })).json;
+    const prepFile = path.join(sb, 'prep.json');
+    fs.writeFileSync(prepFile, JSON.stringify(prep));
+    const wf = captureEmit(() => cli.cmdEmitWorkflowArgs({
+      'prepare-file': prepFile, 'min-remaining': '600000',
+    })).json;
+    assert.strictEqual(wf.fleet.length, 2);
+    assert.strictEqual(wf.minRemaining, 600000);
+    assert.strictEqual(wf.reconcileInputs.length, 2);
+    wf.fleet.forEach(function (f, i) {
+      assert.ok(f.workerPrompt.length > 0);
+      assert.strictEqual(f.dispatchId, prep.workers[i].dispatchId);
+      assert.strictEqual(f.agentType, 'general-purpose');
+    });
+    wf.reconcileInputs.forEach(function (ri, i) {
+      assert.strictEqual(ri.expectedAnchor.dispatchId, prep.workers[i].dispatchId);
+      assert.deepStrictEqual(ri.partitionFiles, prep.workers[i].partitionFiles);
+    });
+  } finally { rimraf(sb); }
+});
+
+// Build a real 2-worker fleet on disk (placeholders written), mark envelopes, and
+// return { sb, prep, argsFile } for reconcile assertions.
+function stageFleet(sb, marks) {
+  fs.mkdirSync(path.join(sb, '.claude', 'state', 'dispatches'), { recursive: true });
+  const partsFile = writePartitions(sb, [
+    { files: ['a.js'], taskIds: ['t1'] },
+    { files: ['b.js'], taskIds: ['t2'] },
+  ]);
+  const prep = captureEmit(() => cli.cmdPrepareFleet({
+    plan: '.claude/plans/x.plan.md',
+    'controller-session': CONTROLLER_SESSION_ID,
+    'partitions-file': partsFile,
+    'parent-cwd': sb,
+  })).json;
+  prep.workers.forEach(function (w, i) {
+    envelope.markStatus(w.envelopePath, marks[i].status, marks[i].opts || {});
+  });
+  const prepFile = path.join(sb, 'prep.json');
+  fs.writeFileSync(prepFile, JSON.stringify(prep));
+  const args = captureEmit(() => cli.cmdEmitWorkflowArgs({ 'prepare-file': prepFile })).json;
+  const argsFile = path.join(sb, 'args.json');
+  fs.writeFileSync(argsFile, JSON.stringify(args));
+  return { prep: prep, argsFile: argsFile };
+}
+
+test('reconcile (fleet): all workers ok (from-envelope, no receipts) → aggregate ok', () => {
+  const sb = makeSandbox();
+  try {
+    const { argsFile } = stageFleet(sb, [{ status: 'ok' }, { status: 'ok' }]);
+    const v = captureEmit(() => cli.cmdReconcile({
+      'args-file': argsFile, 'from-envelope': true, 'repo-root': sb,
+    })).json;
+    assert.strictEqual(v.verdict, 'ok');
+    assert.strictEqual(v.perWorker.length, 2);
+  } finally { rimraf(sb); }
+});
+
+test('reconcile (fleet): one worker leaks a PR-gate receipt → invariant-violation', () => {
+  const sb = makeSandbox();
+  try {
+    const { argsFile } = stageFleet(sb, [
+      { status: 'ok' },
+      { status: 'ok', opts: { receiptsAdded: ['mccp-pr-codex/x.json'] } },
+    ]);
+    const v = captureEmit(() => cli.cmdReconcile({
+      'args-file': argsFile, 'from-envelope': true, 'repo-root': sb,
+    })).json;
+    assert.strictEqual(v.verdict, 'invariant-violation');
+    assert.strictEqual(v.invariantViolations[0].worker, 1);
+  } finally { rimraf(sb); }
+});
+
+test('reconcile (fleet): worker real diff escapes its partition → partition-escape (F2)', () => {
+  const sb = makeSandbox();
+  try {
+    const { prep, argsFile } = stageFleet(sb, [{ status: 'ok' }, { status: 'ok' }]);
+    const afMap = {};
+    afMap[prep.workers[0].dispatchId] = ['a.js'];               // inside partition
+    afMap[prep.workers[1].dispatchId] = ['b.js', 'evil.js'];    // evil.js escapes
+    const afFile = path.join(sb, 'af.json');
+    fs.writeFileSync(afFile, JSON.stringify(afMap));
+    const v = captureEmit(() => cli.cmdReconcile({
+      'args-file': argsFile, 'from-envelope': true,
+      'actual-files-map': afFile, 'repo-root': sb,
+    })).json;
+    assert.strictEqual(v.verdict, 'partition-escape');
+    assert.strictEqual(v.partitionEscapes[0].worker, 1);
+    assert.strictEqual(v.partitionEscapes[0].file, 'evil.js');
+  } finally { rimraf(sb); }
+});
+
+test('reconcile (fleet): one worker failed → whole-fleet HALT (failed)', () => {
+  const sb = makeSandbox();
+  try {
+    const { argsFile } = stageFleet(sb, [{ status: 'ok' }, { status: 'failure' }]);
+    const v = captureEmit(() => cli.cmdReconcile({
+      'args-file': argsFile, 'from-envelope': true, 'repo-root': sb,
+    })).json;
+    assert.strictEqual(v.verdict, 'failed');
+  } finally { rimraf(sb); }
+});
+
+test('reconcile (fleet): Workflow return path via --results-dir → ok', () => {
+  const sb = makeSandbox();
+  try {
+    const { prep, argsFile } = stageFleet(sb, [{ status: 'ok' }, { status: 'ok' }]);
+    // Persist per-worker Workflow returns { result, dispatchId }.
+    const resultsDir = path.join(sb, 'results');
+    fs.mkdirSync(resultsDir, { recursive: true });
+    prep.workers.forEach(function (w) {
+      fs.writeFileSync(path.join(resultsDir, w.dispatchId + '.json'), JSON.stringify({
+        result: { status: 'ok', receiptsAdded: [], changedFiles: [], testResult: '10 pass' },
+        dispatchId: w.dispatchId,
+      }));
+    });
+    const v = captureEmit(() => cli.cmdReconcile({
+      'args-file': argsFile, 'results-dir': resultsDir, 'repo-root': sb,
+    })).json;
+    assert.strictEqual(v.verdict, 'ok');
+  } finally { rimraf(sb); }
+});

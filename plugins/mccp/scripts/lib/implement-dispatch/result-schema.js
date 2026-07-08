@@ -262,12 +262,176 @@ function deriveVerdict(input) {
   return mk('ok', { receiptsAdded: resultReceipts, failedReason: null });
 }
 
+// ── M2b Task 3 — N-way aggregate over per-worker deriveVerdict ─────────────────
+//
+// mergeVerdicts runs the M2a single-worker `deriveVerdict` oracle on EACH worker
+// (its return value ∧ envelope ∧ store), then aggregates fail-closed. Two M2b-
+// specific invariants ride on top:
+//
+//   Codex R1 F1 — verdict BEFORE merge. mergeVerdicts is a PURE judgment over the
+//   ISOLATED-worktree results only; it runs while the parent worktree is still
+//   clean (no worker diff applied). If the aggregate ≠ ok the caller never merges
+//   back → partial application is structurally impossible. This function has no
+//   side effects; the ordering guarantee lives in the caller (work.md Step 3.gate
+//   runs mergeVerdicts BEFORE the merge-back step).
+//
+//   Codex R1 F2 — partition-escape. Prompt-level "edit only these files" cannot
+//   stop a worker from touching a lockfile / snapshot / generated output. So each
+//   worker's ACTUAL changed+untracked files (from its worktree `git status`) are
+//   checked against (its partition ∪ an explicit shared-output allowlist). A file
+//   outside both is a `partition-escape` — disjointness enforced by real diff,
+//   not by the prompt.
+//
+// Aggregate = the MOST-SEVERE per-worker verdict. Partial success (some ok, some
+// not) is a WHOLE-fleet HALT — even disjoint partitions must not partial-apply.
+
+// Severity order (lower rank = more severe). partition-escape ranks right after
+// unanchored (Codex F2: "invariant-violation → unanchored 다음 우선").
+const VERDICT_RANK = Object.freeze({
+  'invariant-violation': 0,
+  'unanchored': 1,
+  'partition-escape': 2,
+  'reconcile-mismatch': 3,
+  'result-unreadable': 4,
+  'failed': 5,
+  'ok': 6,
+});
+
+function normFilePath(p) {
+  return typeof p === 'string' ? p.replace(/\\/g, '/').trim() : '';
+}
+
+// checkPartitionEscape(worker) → { checked, escapes:[] }
+// actualFiles ⊆ (partitionFiles ∪ sharedAllowlist)? A file outside both escapes.
+// actualFiles absent (not an array) → not checked (single-worker path / caller
+// opted out); the deriveVerdict result governs alone.
+function checkPartitionEscape(worker) {
+  if (!Array.isArray(worker.actualFiles)) return { checked: false, escapes: [] };
+  const allowed = Object.create(null);
+  (Array.isArray(worker.partitionFiles) ? worker.partitionFiles : []).forEach(function (f) {
+    const p = normFilePath(f);
+    if (p.length > 0) allowed[p] = true;
+  });
+  (Array.isArray(worker.sharedAllowlist) ? worker.sharedAllowlist : []).forEach(function (f) {
+    const p = normFilePath(f);
+    if (p.length > 0) allowed[p] = true;
+  });
+  const escapes = [];
+  worker.actualFiles.forEach(function (f) {
+    const p = normFilePath(f);
+    if (p.length === 0 || allowed[p]) return;
+    if (escapes.indexOf(p) === -1) escapes.push(p);
+  });
+  return { checked: true, escapes: escapes };
+}
+
+// mergeVerdicts(perWorker[]) → aggregate verdict object.
+//
+// perWorker[i] = {
+//   result, envelope, receiptStore, expectedAnchor,   // deriveVerdict inputs
+//   actualFiles, partitionFiles, sharedAllowlist,      // partition-escape inputs (F2)
+// }
+//
+// → { verdict, receiptsAdded, perWorker:[{index,verdict,receiptsAdded,partitionEscapes}],
+//     invariantViolations, unanchored, mismatches, partitionEscapes, failedReason }
+function mergeVerdicts(perWorker) {
+  if (!Array.isArray(perWorker) || perWorker.length === 0) {
+    return {
+      verdict: 'result-unreadable',
+      receiptsAdded: [],
+      perWorker: [],
+      invariantViolations: [],
+      unanchored: [],
+      mismatches: [],
+      partitionEscapes: [],
+      failedReason: 'no worker results to merge (empty/invalid perWorker list)',
+    };
+  }
+
+  const per = perWorker.map(function (w, i) {
+    w = w || {};
+    const base = deriveVerdict({
+      result: w.result,
+      envelope: w.envelope,
+      receiptStore: w.receiptStore,
+      expectedAnchor: w.expectedAnchor,
+    });
+    const esc = checkPartitionEscape(w);
+    let verdict = base.verdict;
+    // partition-escape overrides a LESS-severe base verdict (reconcile-mismatch,
+    // result-unreadable, failed, ok) but never invariant-violation / unanchored.
+    if (esc.checked && esc.escapes.length > 0
+        && VERDICT_RANK[verdict] > VERDICT_RANK['partition-escape']) {
+      verdict = 'partition-escape';
+    }
+    return {
+      index: i,
+      verdict: verdict,
+      receiptsAdded: base.receiptsAdded,
+      base: base,
+      partitionEscapes: esc.escapes,
+    };
+  });
+
+  let worst = 'ok';
+  per.forEach(function (p) {
+    if (VERDICT_RANK[p.verdict] < VERDICT_RANK[worst]) worst = p.verdict;
+  });
+
+  const allReceipts = [];
+  const invariantViolations = [];
+  const unanchored = [];
+  const mismatches = [];
+  const partitionEscapes = [];
+  per.forEach(function (p) {
+    p.receiptsAdded.forEach(function (s) { allReceipts.push(s); });
+    (p.base.invariantViolations || []).forEach(function (v) {
+      invariantViolations.push(Object.assign({ worker: p.index }, v));
+    });
+    (p.base.unanchored || []).forEach(function (v) {
+      unanchored.push(Object.assign({ worker: p.index }, v));
+    });
+    (p.base.mismatches || []).forEach(function (v) {
+      mismatches.push(Object.assign({ worker: p.index }, v));
+    });
+    (p.partitionEscapes || []).forEach(function (f) {
+      partitionEscapes.push({ worker: p.index, file: f });
+    });
+  });
+
+  const nonOk = per.filter(function (p) { return p.verdict !== 'ok'; }).length;
+  const failedReason = worst === 'ok'
+    ? null
+    : 'aggregate verdict=' + worst + ' from ' + nonOk + '/' + per.length + ' worker(s) — whole-fleet HALT (no partial apply)';
+
+  return {
+    verdict: worst,
+    receiptsAdded: normSlugSet(allReceipts),
+    perWorker: per.map(function (p) {
+      return {
+        index: p.index,
+        verdict: p.verdict,
+        receiptsAdded: p.receiptsAdded,
+        partitionEscapes: p.partitionEscapes,
+      };
+    }),
+    invariantViolations: invariantViolations,
+    unanchored: unanchored,
+    mismatches: mismatches,
+    partitionEscapes: partitionEscapes,
+    failedReason: failedReason,
+  };
+}
+
 module.exports = {
   RESULT_STATUSES: RESULT_STATUSES,
   ENVELOPE_TERMINAL_STATUSES: ENVELOPE_TERMINAL_STATUSES,
   FORBIDDEN_RECEIPT_RE: FORBIDDEN_RECEIPT_RE,
   IMPLEMENT_RECEIPT_RE: IMPLEMENT_RECEIPT_RE,
   IMPLEMENT_RESULT_SCHEMA: IMPLEMENT_RESULT_SCHEMA,
+  VERDICT_RANK: VERDICT_RANK,
   normSlugSet: normSlugSet,
   deriveVerdict: deriveVerdict,
+  mergeVerdicts: mergeVerdicts,
+  checkPartitionEscape: checkPartitionEscape,
 };

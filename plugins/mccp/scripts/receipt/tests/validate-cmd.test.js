@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const { mkTmpRepo, writeFileSync } = require('./helpers');
-const { write } = require('../write');
+const { write, restampGroundingVerdict } = require('../write');
 const { validateCommand } = require('../validate-cmd');
 
 function setupRepo() {
@@ -167,13 +167,141 @@ test('validate-cmd: receipt with meta.advisory=true is non-approving', function 
     // Hand-edit advisory flag (no CLI flag for this yet — set by future wrappers)
     const raw = JSON.parse(fs.readFileSync(r.path, 'utf8'));
     raw.meta.advisory = true;
-    // Re-sign to keep subject_hash consistent
-    const { subjectHash } = require('../hash');
+    // Re-seal BOTH digests so this simulates a legitimately-written advisory
+    // receipt. P5 receipt_hash tamper-detect now recomputes receipt_hash over
+    // meta; re-signing only subject_hash would trip the tamper check (blocking,
+    // continue) before the advisory rule below could run.
+    const { subjectHash, receiptHash } = require('../hash');
     raw.subject_hash = subjectHash(raw);
+    raw.receipt_hash = receiptHash(raw);
     fs.writeFileSync(r.path, JSON.stringify(raw, null, 2));
     const result = validateCommand('/mccp:prp-implement', { cwd: repo, decisionId: 'feature-x' });
     assert.strictEqual(result.ok, false, JSON.stringify(result));
     assert.ok(result.blocking.some(b => /advisory/.test(b.reason)));
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+// P5 (audit-remediation) — receipt_hash tamper-detect. subject_hash only covers
+// SUBJECT_FIELDS; post-seal mutation of findings/resolution/meta must surface as
+// blocking(kind='receipt-tamper'), NOT stale (stale routes to "regenerate",
+// which would overwrite the tampered receipt and destroy the evidence).
+
+test('validate-cmd: tampered findings → blocking (receipt-tamper)', function () {
+  const { repo, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    const r = write({ gate: 'mccp-plan-codex', decision: 'feature-x', plan: planRel });
+    const raw = JSON.parse(fs.readFileSync(r.path, 'utf8'));
+    // Schema-valid finding shape (severity/area/description all required) so the
+    // injection passes the schema gate (L242) and reaches the receipt_hash check.
+    raw.findings.push({ severity: 'CRITICAL', area: 'injected', description: 'injected after signing' });
+    fs.writeFileSync(r.path, JSON.stringify(raw, null, 2));
+    const result = validateCommand('/mccp:prp-implement', { cwd: repo, decisionId: 'feature-x' });
+    assert.strictEqual(result.ok, false, JSON.stringify(result));
+    assert.strictEqual(result.blocking.length, 1, JSON.stringify(result));
+    assert.strictEqual(result.blocking[0].kind, 'receipt-tamper');
+    assert.match(result.blocking[0].reason, /receipt_hash mismatch/);
+    assert.strictEqual(result.stale.length, 0);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('validate-cmd: tampered resolution.codex_verdict → blocking (receipt-tamper)', function () {
+  const { repo, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    // Written with the real dual-review verdict (P1 field) sealed into receipt_hash.
+    const r = write({ gate: 'mccp-plan-codex', decision: 'feature-x', plan: planRel, 'codex-verdict': 'converged' });
+    const raw = JSON.parse(fs.readFileSync(r.path, 'utf8'));
+    assert.strictEqual(raw.resolution.codex_verdict, 'converged');
+    raw.resolution.codex_verdict = 'divergent';  // flip the integrity field after signing
+    fs.writeFileSync(r.path, JSON.stringify(raw, null, 2));
+    const result = validateCommand('/mccp:prp-implement', { cwd: repo, decisionId: 'feature-x' });
+    assert.strictEqual(result.ok, false, JSON.stringify(result));
+    assert.strictEqual(result.blocking.length, 1, JSON.stringify(result));
+    assert.strictEqual(result.blocking[0].kind, 'receipt-tamper');
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('validate-cmd: tampered meta.command → blocking (receipt-tamper)', function () {
+  const { repo, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    const r = write({ gate: 'mccp-plan-codex', decision: 'feature-x', plan: planRel });
+    const raw = JSON.parse(fs.readFileSync(r.path, 'utf8'));
+    raw.meta.command = '/tampered';
+    fs.writeFileSync(r.path, JSON.stringify(raw, null, 2));
+    const result = validateCommand('/mccp:prp-implement', { cwd: repo, decisionId: 'feature-x' });
+    assert.strictEqual(result.ok, false, JSON.stringify(result));
+    assert.strictEqual(result.blocking.length, 1, JSON.stringify(result));
+    assert.strictEqual(result.blocking[0].kind, 'receipt-tamper');
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('validate-cmd: subject-field tamper still wins (subject_hash stale, not receipt-tamper)', function () {
+  const { repo, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    const r = write({ gate: 'mccp-plan-codex', decision: 'feature-x', plan: planRel });
+    const raw = JSON.parse(fs.readFileSync(r.path, 'utf8'));
+    raw.task_id = 'tampered-after-signing';  // a SUBJECT_FIELD → subject_hash catches first
+    fs.writeFileSync(r.path, JSON.stringify(raw, null, 2));
+    const result = validateCommand('/mccp:prp-implement', { cwd: repo, decisionId: 'feature-x' });
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.stale.length, 1, JSON.stringify(result));
+    assert.match(result.stale[0].reason, /subject_hash mismatch/);
+    assert.strictEqual(result.blocking.length, 0);  // receipt-tamper never reached (subject continue)
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('validate-cmd: briefing/ledger carve-out mutation does NOT false-positive as tamper', function () {
+  const { repo, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    const r = write({ gate: 'mccp-plan-codex', decision: 'feature-x', plan: planRel });
+    const raw = JSON.parse(fs.readFileSync(r.path, 'utf8'));
+    // briefing_* + ledger_write_skipped are stamped AFTER the canonical hash and
+    // carved out of receiptHash — post-seal mutation must NOT trip tamper-detect.
+    raw.meta.briefing_summary = 'post-seal briefing text';
+    raw.meta.briefing_token_count = 1234;
+    raw.meta.briefing_token_estimated = true;
+    raw.meta.briefing_invocation_count = 1;
+    raw.meta.ledger_write_skipped = true;
+    fs.writeFileSync(r.path, JSON.stringify(raw, null, 2));
+    const result = validateCommand('/mccp:prp-implement', { cwd: repo, decisionId: 'feature-x' });
+    assert.strictEqual(result.ok, true, JSON.stringify(result));
+    assert.strictEqual(result.blocking.length, 0);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('validate-cmd: grounding restamp (legit re-seal) does NOT false-positive as tamper', function () {
+  const { repo, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    write({ gate: 'mccp-plan-codex', decision: 'feature-x', plan: planRel });
+    // restampGroundingVerdict mutates meta.design_grounding_verdict then re-seals
+    // receipt_hash — a legitimate post-seal write path that must validate clean.
+    restampGroundingVerdict({ gate: 'mccp-plan-codex', decision: 'feature-x', 'design-grounding-verdict': 'grounded' });
+    const result = validateCommand('/mccp:prp-implement', { cwd: repo, decisionId: 'feature-x' });
+    assert.strictEqual(result.ok, true, JSON.stringify(result));
+    assert.strictEqual(result.blocking.length, 0);
   } finally {
     process.chdir(cwd);
   }

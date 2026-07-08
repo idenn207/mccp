@@ -123,3 +123,30 @@ test('preflight: stale → emits regenerate recovery hint', function () {
     process.chdir(cwd);
   }
 });
+
+// P5 (audit-remediation) — receipt-tamper surfaces as TAMPER with an
+// investigation-first recovery line, and MUST NOT emit the "regenerate STALE"
+// hint (Codex R1 F1 — regenerating would overwrite the tampered evidence).
+test('preflight: receipt-tamper → TAMPER label + investigate hint, no "regenerate STALE"', function () {
+  const fs = require('fs');
+  const { repo, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  const io = captureIO();
+  try {
+    const r = write({ gate: 'mccp-plan-codex', decision: 'x', plan: planRel });
+    // Mutate a non-subject, non-carve-out field so subject_hash still matches
+    // and the receipt_hash check is the one that fires (tamper-only, no stale).
+    const raw = JSON.parse(fs.readFileSync(r.path, 'utf8'));
+    raw.meta.command = '/tampered-after-signing';
+    fs.writeFileSync(r.path, JSON.stringify(raw, null, 2));
+    const code = preflight({ command: '/mccp:prp-implement', decision: 'x' }, io);
+    assert.strictEqual(code, 2, io.errput());
+    const err = io.errput();
+    assert.match(err, /TAMPER/);
+    assert.match(err, /Do NOT regenerate/);
+    assert.doesNotMatch(err, /To regenerate STALE/);
+  } finally {
+    process.chdir(cwd);
+  }
+});

@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { planAwareMarkdownHash, gitRepoRoot, subjectHash } = require('./hash');
+const { planAwareMarkdownHash, gitRepoRoot, subjectHash, receiptHash } = require('./hash');
 const { validate: validateSchema } = require('./schema');
 const { readReceipt } = require('./store');
 const { getCommandSpec, normalizeCommand } = require('./aliases');
@@ -255,6 +255,28 @@ function validateCommand(command, opts) {
         gate_id: gateId,
         decision_id: result.decisionId,
         reason: 'subject_hash mismatch (receipt fields altered after signing)',
+      });
+      continue;
+    }
+
+    // P5 (audit-remediation) — receipt_hash tamper-detect. subject_hash only
+    // covers SUBJECT_FIELDS (task_id/phase/gate_id/plan_hash/...); post-seal
+    // mutation of findings/resolution/meta (notably the dual-review integrity
+    // field resolution.codex_verdict recovered in P1) went undetected because
+    // write.js sealed receipt_hash but validate never recomputed it. Mirror the
+    // subject_hash block above with the same hash.js#receiptHash() the writer
+    // uses, so briefing_*/ledger_write_skipped carve-out parity is structural.
+    // Codex R1 F1: classify as blocking (kind='receipt-tamper'), NOT stale —
+    // a stale verdict routes preflight.js to "regenerate STALE" which would
+    // overwrite (destroy) the tamper evidence. blocking gates hard+soft (off
+    // only bypasses); classify.js treats non-tempfail kinds as exit 2.
+    const computedReceipt = receiptHash(receipt);
+    if (computedReceipt !== receipt.receipt_hash) {
+      result.blocking.push({
+        gate_id: gateId,
+        decision_id: result.decisionId,
+        kind: 'receipt-tamper',
+        reason: 'receipt_hash mismatch (findings/resolution/meta altered after signing)',
       });
       continue;
     }

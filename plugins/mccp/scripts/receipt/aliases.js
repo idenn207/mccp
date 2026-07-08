@@ -58,6 +58,12 @@ const PHASE_FROM_GATE = {
   'mccp-plan-codex': 'plan',
   'implement-impeccable': 'implement',
   'mccp-implement-codex': 'implement',
+  // workflow-orchestration M3 — produces-only aggregate verify gate. Same phase
+  // as implement (it runs at the tail of the implement dispatch, pre-commit). Not
+  // in ALIAS_MATRIX: no command lists it in produces/requires, so command
+  // preflight (validate-cmd), cross-gate dedupe, and the PR chain-check are all
+  // non-invasive to it (DD5 / Codex R1 F3).
+  'mccp-implement-verify': 'implement',
   'pr-impeccable': 'pr',
   'mccp-pr-codex': 'pr',
   'security-reviewer': 'review',

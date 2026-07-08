@@ -1,0 +1,25 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "workflow-orchestration-m2b-nworker-parallel",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.20.9",
+    "completed_at": "2026-07-08T05:42:04.900Z",
+    "commit_sha": "ac03a7952690188bbb2f8ef7afe72b729c6407b4",
+    "plan_basename": "workflow-orchestration-m2b-nworker-parallel.plan.md",
+    "plan_file_hash": "sha256:c9af865607f49fe1d334e8e0264dcc1492b67853dd3fa368202da3549e308728",
+    "risks_closed": [
+      "worktree→parent merge 메커니즘 스펙 침묵 (research §8 open)",
+      "partition oracle 과분할로 파일 겹침 놓침 → merge 충돌",
+      "N-worker 비용 N배 폭증 (research §4)",
+      "부분 성공(일부 worker fail) 조용히 통과",
+      "gate 파편화로 dual-review 약화",
+      "Workflow 호출 후 N 경쟁 재spawn (Codex F1 N-확장)",
+      "Workflow 미가용/parallel 미지원 환경",
+      "verify 네이티브화 미완으로 M2 목표 부분"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:ae83ad91564c4399e92b5cbe8a5fb138202cb32594abea21813c4371fc04bf5f"
+  }
+}

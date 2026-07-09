@@ -106,6 +106,82 @@ function ipcEnvelopeRelPath(dispatchId) {
   return path.posix.join('.claude', 'state', 'dispatches', dispatchId + '.envelope.json');
 }
 
+// resolveEnvelopePathForWorktree(envelopePath, opts) → { ok, path, worktreeRoot, error }
+//
+// Codex F2 — resolve a REPO-RELATIVE envelope path against the WORKTREE ROOT
+// (`git rev-parse --show-toplevel`), not the process CWD. Task 0 (run
+// wf_1f689994-fb8) confirmed an isolation:'worktree' worker's CWD can be a subdir
+// of its worktree (one probe even reported show-toplevel from OUTSIDE its
+// worktree). A repo-relative `.claude/state/dispatches/<id>.envelope.json`
+// resolved against a subdir CWD would land in `<subdir>/.claude/state/...`, and
+// collect-worktrees (which scans the worktree ROOT) would falsely report
+// `missing`. An ABSOLUTE path is trusted as-is (the controller's local read
+// path). The resolved path MUST stay under the worktree root — a `..`-escaping
+// arg is rejected. git unavailable / not-a-worktree → CWD fallback (back-compat:
+// single-worker path + git-less tests).
+function resolveEnvelopePathForWorktree(envelopePath, opts) {
+  opts = opts || {};
+  const cwd = opts.cwd || process.cwd();
+  if (typeof envelopePath !== 'string' || envelopePath.length === 0) {
+    return { ok: false, error: 'envelopePath must be a non-empty string' };
+  }
+  if (path.isAbsolute(envelopePath)) {
+    return { ok: true, path: envelopePath, worktreeRoot: null };
+  }
+  let root = cwd;
+  try {
+    const r = spawnSync('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+    if (r.status === 0 && typeof r.stdout === 'string' && r.stdout.trim().length > 0) {
+      root = r.stdout.trim();
+    }
+  } catch (_) { /* keep cwd fallback */ }
+  const rootResolved = path.resolve(root);
+  const resolved = path.resolve(rootResolved, envelopePath);
+  const rel = path.relative(rootResolved, resolved);
+  if (rel === '' || rel === '..' || rel.startsWith('..' + path.sep) || rel.startsWith('../') || path.isAbsolute(rel)) {
+    return { ok: false, error: 'envelope path escapes worktree root: ' + envelopePath + ' (root ' + rootResolved + ')' };
+  }
+  return { ok: true, path: resolved, worktreeRoot: rootResolved };
+}
+
+// seed-envelope — worker-side idempotent envelope seed (M4). Resolves the
+// repo-relative --envelope against the worktree root (F2) then delegates to
+// dispatch-envelope.seedEnvelope. Emits { ok, created, envelope, dispatchId }.
+function cmdSeedEnvelope(rest) {
+  const envelopePathRaw = rest['envelope'];
+  const dispatchId = rest['dispatch-id'];
+  const controllerSession = rest['controller-session'];
+  if (!envelopePathRaw || envelopePathRaw === true) {
+    process.stderr.write('seed-envelope requires --envelope <repo-relative path>\n');
+    return USAGE_EXIT;
+  }
+  if (!dispatchId || dispatchId === true) {
+    process.stderr.write('seed-envelope requires --dispatch-id <uuid>\n');
+    return USAGE_EXIT;
+  }
+  if (!controllerSession || controllerSession === true) {
+    process.stderr.write('seed-envelope requires --controller-session <uuid>\n');
+    return USAGE_EXIT;
+  }
+  const resolved = resolveEnvelopePathForWorktree(envelopePathRaw, {});
+  if (!resolved.ok) {
+    process.stderr.write('seed-envelope failed: ' + resolved.error + '\n');
+    return ERROR_EXIT;
+  }
+  const r = envelope.seedEnvelope(resolved.path, {
+    dispatchId: dispatchId,
+    controllerSessionId: controllerSession,
+    parentCwd: resolved.worktreeRoot || undefined,
+    workerSubagentType: (typeof rest['subagent'] === 'string' && rest['subagent'].length > 0) ? rest['subagent'] : undefined,
+  });
+  if (!r.ok) {
+    process.stderr.write('seed-envelope failed: ' + r.error + '\n');
+    return ERROR_EXIT;
+  }
+  emit({ ok: true, created: r.created, envelope: resolved.path, dispatchId: dispatchId });
+  return OK_EXIT;
+}
+
 // Self-contained implement worker prompt (Task 0 decision). The worker drives
 // the /mccp:prp-implement contract from Phase 2.5 through Phase 4 with its own
 // tools — no nested Skill(mccp:prp-implement) dependency. Attribution flags are
@@ -137,6 +213,32 @@ function buildImplementWorkerBasePrompt(args) {
     '${CLAUDE_PLUGIN_ROOT}/commands/prp-implement.md and follow it from',
     'Phase 2.5 (IMPLEMENT-CODEX GATE) through Phase 4 (VALIDATE) ONLY.',
     '',
+  ];
+
+  // M4 — a partition worker runs with isolation:'worktree' in a FRESH worktree
+  // whose `.claude/state/dispatches/` does not exist (gitignored → not checked
+  // out; Task 0 run wf_1f689994-fb8 PROVED this). Seed the envelope as the
+  // genuine FIRST STEP so the later `mark` succeeds (markStatus requires a
+  // pre-existing envelope) AND the controller's collect-worktrees can correlate
+  // this worktree by its envelope filename. Idempotent — a no-op if the harness
+  // copied the working tree. Placed BEFORE the attribution block so it truly runs
+  // first (single-worker prompt is unchanged: partitionFiles empty → no seed).
+  if (partitionFiles.length > 0) {
+    lines.push(
+      "── FIRST STEP (isolation:'worktree' — seed your envelope) ──",
+      'Before ANYTHING else — before reading the plan, before any edit — seed your',
+      'dispatch envelope in THIS worktree so your terminal `mark` succeeds and the',
+      'controller can correlate your worktree back to your dispatch id:',
+      '  node ${CLAUDE_PLUGIN_ROOT}/scripts/lib/dispatch-cli.js seed-envelope \\',
+      '    --envelope ' + ipcEnvelopePath + ' \\',
+      '    --dispatch-id ' + dispatchId + ' \\',
+      '    --controller-session ' + controllerSessionId,
+      'This is idempotent (a no-op if the envelope already exists). Run it once now.',
+      ''
+    );
+  }
+
+  lines.push(
     '── HARD GUARDRAILS (dispatch isolation) ──',
     '- Do NOT run Phase 7 AUTO-CHAIN. Do NOT invoke /mccp:prp-commit or /mccp:pr.',
     '  commit + PR belong to the controller session — a HARD RULE that holds',
@@ -149,8 +251,8 @@ function buildImplementWorkerBasePrompt(args) {
     '  fail-closed exit 12 without all three):',
     '    --dispatched-by-controller-session ' + controllerSessionId,
     '    --worker-dispatch-id ' + dispatchId,
-    '    --ipc-envelope-path ' + ipcEnvelopePath,
-  ];
+    '    --ipc-envelope-path ' + ipcEnvelopePath
+  );
 
   if (partitionFiles.length > 0) {
     lines.push(
@@ -445,9 +547,9 @@ function cmdMerge(rest) {
 }
 
 function cmdMark(rest) {
-  const envelopePath = rest['envelope'];
+  const envelopePathRaw = rest['envelope'];
   const status = rest['status'];
-  if (!envelopePath || envelopePath === true) {
+  if (!envelopePathRaw || envelopePathRaw === true) {
     process.stderr.write('mark requires --envelope <path>\n');
     return USAGE_EXIT;
   }
@@ -455,6 +557,16 @@ function cmdMark(rest) {
     process.stderr.write('mark requires --status <ok|failure|timeout|crashed>\n');
     return USAGE_EXIT;
   }
+
+  // Codex F2 — resolve a repo-relative envelope against the worktree root so a
+  // partition worker running from a subdir marks the SAME envelope collect-
+  // worktrees scans (an absolute path passes through unchanged).
+  const resolvedMark = resolveEnvelopePathForWorktree(envelopePathRaw, {});
+  if (!resolvedMark.ok) {
+    process.stderr.write('mark failed: ' + resolvedMark.error + '\n');
+    return ERROR_EXIT;
+  }
+  const envelopePath = resolvedMark.path;
 
   const opts = {};
   if (typeof rest['receipts'] === 'string' && rest['receipts'].length > 0) {
@@ -600,7 +712,15 @@ function collectChangedFiles(worktreePath) {
   if (typeof worktreePath !== 'string' || worktreePath.length === 0) return null;
   let out;
   try {
-    const r = spawnSync('git', ['-C', worktreePath, 'status', '--porcelain'],
+    // M4 (live dogfood, run wf_98047bb7-1b1) — `--untracked-files=all` is
+    // REQUIRED. Default `--porcelain` collapses an entirely-untracked directory
+    // to `?? dir/` (the DIR, not its files), so a worker that creates
+    // `dogfood-m4/util-0.js` in a new dir reports `dogfood-m4/` — which is not in
+    // the file-level partition `[dogfood-m4/util-0.js]` and fails the
+    // partition-escape check as a FALSE escape. `-uall` lists individual files so
+    // the subset check compares like-for-like (matches worktree-merge.js
+    // collectWorkerDiff, which uses `ls-files --others` = file granularity).
+    const r = spawnSync('git', ['-C', worktreePath, 'status', '--porcelain', '--untracked-files=all'],
       { encoding: 'utf8' });
     if (r.status !== 0) return null;
     out = r.stdout || '';
@@ -674,8 +794,25 @@ function cmdReconcileFleet(rest, wfArgs) {
     inp = inp || {};
     const dispatchId = inp.dispatchId;
 
+    // Task 2 (Design Decision 3) — prefer the WORKTREE terminal envelope. A
+    // partition worker seeds+marks its envelope IN its worktree (Task 0 proved
+    // the parent placeholder is never copied and stays `pending`). Reading the
+    // parent `inp.envelopePath` would see that stale pending → a FALSE
+    // reconcile-mismatch HALT. When collect-worktrees supplied a worktree map,
+    // read `<worktree>/.claude/state/dispatches/<id>.envelope.json`; a failed
+    // worktree read leaves env=null → deriveVerdict reconcile-mismatch (the
+    // worker was expected to mark there and did not — we do NOT fall back to the
+    // stale parent placeholder, which would mask an un-marked worker). No
+    // worktree map (single-worker / harness-copy) → parent envelopePath fallback.
     let env = null;
-    if (typeof inp.envelopePath === 'string' && inp.envelopePath.length > 0) {
+    const wtRoot = (worktreeMap && typeof dispatchId === 'string'
+        && typeof worktreeMap[dispatchId] === 'string' && worktreeMap[dispatchId].length > 0)
+      ? worktreeMap[dispatchId] : null;
+    if (wtRoot) {
+      const wtEnvPath = path.join(wtRoot, '.claude', 'state', 'dispatches', dispatchId + '.envelope.json');
+      const r = envelope.read(wtEnvPath);
+      if (r.ok) env = r.envelope;
+    } else if (typeof inp.envelopePath === 'string' && inp.envelopePath.length > 0) {
       const r = envelope.read(inp.envelopePath);
       if (r.ok) env = r.envelope;
     }
@@ -975,7 +1112,22 @@ function cmdMergeApply(rest) {
   if (applied.ok && !dryRun && typeof rest['patches-out'] === 'string' && rest['patches-out'].length > 0) {
     try { fs.writeFileSync(rest['patches-out'], JSON.stringify(applied.appliedPatches)); }
     catch (err) {
-      emit({ ok: false, reason: 'patches-out-write-failed', error: (err && err.message) || String(err) });
+      // Codex F1 — the diffs are ALREADY applied to the parent, but the patch
+      // record that rollback-apply needs could not be persisted. Reverse-apply
+      // the applied patches NOW so the "merge-apply failed = parent clean"
+      // contract (work.md:445) actually holds — without this the parent is left
+      // DIRTY with worker changes AND no rollback artifact exists to undo them.
+      // Patch-scoped reverse-apply ONLY (F4 — never a broad checkout/clean that
+      // would destroy the user's pre-existing dirty tracked + untracked files).
+      const rb = worktreeMerge.rollbackApplied({ appliedPatches: applied.appliedPatches, cwd: repoRoot });
+      emit({
+        ok: false,
+        reason: 'patches-out-write-failed',
+        error: (err && err.message) || String(err),
+        rolledBack: rb.ok,
+        reversed: rb.reversed,
+        rollbackFailed: rb.failed,
+      });
       return ERROR_EXIT;
     }
   }
@@ -1048,7 +1200,7 @@ function cmdVerifyDecide(rest) {
 function runCli(argv) {
   if (!argv || argv.length === 0) {
     process.stderr.write(
-      'usage: dispatch-cli <prepare-single|prepare-fleet|emit-workflow-args|reconcile|merge|mark|collect-worktrees|merge-apply|rollback-apply|verify-focus|verify-decide> [options]\n' +
+      'usage: dispatch-cli <prepare-single|prepare-fleet|emit-workflow-args|reconcile|merge|mark|seed-envelope|collect-worktrees|merge-apply|rollback-apply|verify-focus|verify-decide> [options]\n' +
       '  prepare-single      --plan <path> --controller-session <uuid> [--subagent <type>] [--parent-cwd <path>] [--dry-run]\n' +
       '  prepare-fleet       --plan <path> --controller-session <uuid> --partitions-file <json> [--subagent <type>] [--parent-cwd <path>] [--dry-run]\n' +
       '  emit-workflow-args  --prepare-file <path> [--min-remaining <n>]\n' +
@@ -1056,6 +1208,7 @@ function runCli(argv) {
       '                      (fleet) --args-file <fleet emit> [--results-dir <dir>] [--from-envelope] [--actual-files-map <json>] [--worktree-map <json>] [--shared-allowlist <csv>] [--repo-root <path>]\n' +
       '  merge               --envelope <path>\n' +
       '  mark                --envelope <path> --status <ok|failure|timeout|crashed> [--receipts <csv>] [--findings-file <path>] [--next-action <text>]\n' +
+      '  seed-envelope       --envelope <repo-rel> --dispatch-id <uuid> --controller-session <uuid> [--subagent <type>]  (M4)\n' +
       '  collect-worktrees   --dispatch-ids <csv|json> | --dispatch-ids-file <path> [--repo-root <path>] [--out <path>]  (M3)\n' +
       '  merge-apply         --worktree-map <path> [--partitions-file <json>] [--shared-allowlist <csv>] [--repo-root <path>] [--patches-out <path>] [--dry-run]  (M3)\n' +
       '  rollback-apply      --patches-file <path> [--repo-root <path>]  (M3)\n' +
@@ -1073,6 +1226,7 @@ function runCli(argv) {
   if (cmd === 'reconcile') return cmdReconcile(rest);
   if (cmd === 'merge') return cmdMerge(rest);
   if (cmd === 'mark') return cmdMark(rest);
+  if (cmd === 'seed-envelope') return cmdSeedEnvelope(rest);
   if (cmd === 'collect-worktrees') return cmdCollectWorktrees(rest);
   if (cmd === 'merge-apply') return cmdMergeApply(rest);
   if (cmd === 'rollback-apply') return cmdRollbackApply(rest);
@@ -1091,6 +1245,8 @@ module.exports = {
   parseFlags: parseFlags,
   findRepoRoot: findRepoRoot,
   ipcEnvelopeRelPath: ipcEnvelopeRelPath,
+  resolveEnvelopePathForWorktree: resolveEnvelopePathForWorktree,
+  cmdSeedEnvelope: cmdSeedEnvelope,
   buildImplementWorkerBasePrompt: buildImplementWorkerBasePrompt,
   cmdPrepareSingle: cmdPrepareSingle,
   cmdPrepareFleet: cmdPrepareFleet,

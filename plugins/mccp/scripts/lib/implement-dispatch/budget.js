@@ -14,8 +14,11 @@
 //     impossible unless the worktree→parent merge mechanism is PROVEN
 //     (mergeStrategy === 'worktree-merge'). Any other value ('disable-parallel',
 //     'same-worktree', absent) fails CLOSED to N=1 — same-worktree is forbidden
-//     until atomic-merge protection ships, and the M2b spike measured
-//     'disable-parallel', so this gate keeps the default single-worker path.
+//     until atomic-merge protection ships. The M2b spike measured
+//     'disable-parallel'; M4 (Task 0 run wf_1f689994-fb8) PROVED the live
+//     worktree↔dispatchId correlation and flipped the work.md default to
+//     'worktree-merge', so this gate now unlocks parallel under an explicit
+//     opt-in (the ENABLING_MERGE_STRATEGY constant was already 'worktree-merge').
 //   - a SINGLE-PARTITION short-circuit: when the partition oracle already
 //     collapsed to n=1 (requestedN ≤ 1) there is nothing to parallelize.
 //   - an optional in-oracle budget cap (DD6 iv): when the caller supplies

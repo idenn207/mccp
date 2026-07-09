@@ -126,7 +126,7 @@ v1.20.2 M1부터 implement 스텝은 **격리된 단일 worker 위임**으로 �
 
 - `MCCP_WORK_ISOLATE_IMPLEMENT` (default `1`) — 최상위 축. `0`이면 Step 3.F 인라인 `Skill(mccp:prp-implement)` fallback(loud stderr). 미지정/오타 시 격리(보수적 default = 격리 on).
 - `MCCP_WORK_IMPLEMENT_WORKFLOW` (default `0`) — 격리 활성 시 하위 축. `=1` AND prepare 성공 AND `Workflow` tool 가용이면 **Workflow 경로**(Step 3.W 단일 / Step 3.WP 병렬), 그 외(`0`/미설정/오타/tool 미가용)면 **Step 3.I**(기존 Task dispatch). fail-open — Workflow 미가용이 implement를 절대 막지 않는다. **Codex F1**: Task fallback은 Workflow 호출을 **개시하기 전**에만 허용된다(개시 후 회수 실패는 두 번째 경쟁 worker를 막기 위해 fail-closed HALT).
-- `MCCP_WORK_IMPLEMENT_PARALLEL` (default `0`, v1.20.8 M2b) — Workflow 경로의 최하위 축. `=1` AND partition oracle이 N>1개 서로소 partition을 산출 AND `resolveFleet`이 run=true(비용·budget 통과)이면 **Step 3.WP**(N-worker `parallel`), 그 외는 **Step 3.W**(단일 worker). **구조적 gate — merge_strategy**: `MCCP_WORK_MERGE_STRATEGY`(default `disable-parallel`, Task 0 spike 실측값)가 `worktree-merge`가 **아니면** `resolveFleet`이 무조건 N=1로 fail-close한다. 즉 현행 환경(worktree→parent auto-merge 미입증)에서는 `=1` opt-in이어도 단일 worker(M2a) 동작이 유지된다. same-worktree fallback(A2)은 atomic-merge 보호 실장 전까지 금지 — merge_strategy가 `worktree-merge`로 승격될 때만 병렬이 실제 발화한다.
+- `MCCP_WORK_IMPLEMENT_PARALLEL` (default `0`, v1.20.8 M2b) — Workflow 경로의 최하위 축. `=1` AND partition oracle이 N>1개 서로소 partition을 산출 AND `resolveFleet`이 run=true(비용·budget 통과)이면 **Step 3.WP**(N-worker `parallel`), 그 외는 **Step 3.W**(단일 worker). **구조적 gate — merge_strategy**: `MCCP_WORK_MERGE_STRATEGY`(v1.21.0 M4부터 default `worktree-merge` — Task 0 run wf_1f689994-fb8이 live 상관 입증)가 `worktree-merge`가 **아니면** `resolveFleet`이 무조건 N=1로 fail-close한다. M4 default flip 이후에도 병렬 실제 발화는 여전히 `=1` 명시 opt-in + cost-state green(고비용 tier autoDisable) + N>1 partition 4중 AND를 요구한다(default flip은 구조적 gate만 열 뿐 비용/opt-in gate는 무변경). `MCCP_WORK_MERGE_STRATEGY=disable-parallel` 명시 시 M2a 단일 동작으로 back-compat 강등. same-worktree fallback(A2)은 atomic-merge 보호 실장 전까지 여전히 금지.
 - `MCCP_WORK_MERGED_VERIFY` (default `enforce`, v1.20.12 M3) — 위 3축과 **직교(⊥)**. implement가 끝난 뒤(어떤 경로든) **commit 전** 통합 diff를 worker 밖에서 1회 cross-model(Codex) adversarial verify하는 **Step 3.verify** 스테이지를 지배한다. `enforce`=divergent/critical/unavailable HALT · `warn`=advisory pass · `off`=skipped. **단일 경로에서도 발화**하므로(DD6) 병렬이 gated여도 M3 verify-네이티브화가 runtime 가치를 갖는다.
 
 **Pre-flight (기존 `next-step` HALT 보존)** — 격리 여부와 무관하게 먼저 실행:
@@ -156,7 +156,12 @@ rm -f "$GITDIR/dispatch-fleet-args.json" "$GITDIR/dispatch-partitions.json" \
 rm -rf "$GITDIR/dispatch-fleet-results"
 ISOLATE="${MCCP_WORK_ISOLATE_IMPLEMENT:-1}"
 PARALLEL="${MCCP_WORK_IMPLEMENT_PARALLEL:-0}"
-MERGE_STRATEGY="${MCCP_WORK_MERGE_STRATEGY:-disable-parallel}"
+# M4 default flip — Task 0 (run wf_1f689994-fb8) PROVED the live worktree↔dispatchId
+# correlation (worktrees persist + controller-enumerable + worker-seeded envelopes
+# correlate), so worktree-merge is now the default. The structural gate stays: the
+# cost guard 3중(PARALLEL=1 opt-in · cost-state fail-closed · tier autoDisable) is
+# unchanged, so parallel still only fires under an explicit opt-in + green cost.
+MERGE_STRATEGY="${MCCP_WORK_MERGE_STRATEGY:-worktree-merge}"
 FLEET_N=0
 if [ "$ISOLATE" != "0" ] && [ "$PARALLEL" = "1" ] && [ "$MERGE_STRATEGY" = "worktree-merge" ]; then
   MAXW="${MCCP_WORK_PARALLEL_MAX:-4}"
@@ -420,7 +425,10 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dispatch-cli.js" collect-worktrees \
 
 ```bash
 RECON_ARGS=(reconcile --args-file "$GITDIR/dispatch-fleet-args.json" --results-dir "$GITDIR/dispatch-fleet-results")
-# worker worktree 실제-diff subset(F2)에 공급 (collect가 방금 빌드).
+# worktree-map은 (i) worker 실제-diff subset(F2, partition-escape) + (ii) M4 Task 2 —
+# terminal envelope read 위치 둘 다에 공급된다. worker는 자기 worktree에 seed→mark하므로
+# parent placeholder는 pending 잔존 → reconcile는 <worktree>/.claude/state/dispatches/<id>.envelope.json에서
+# terminal envelope를 읽어야 오탐 mismatch를 피한다(map 부재 시 parent envelopePath fallback).
 [ -f "$GITDIR/dispatch-fleet-worktrees.json" ] && RECON_ARGS+=(--worktree-map "$GITDIR/dispatch-fleet-worktrees.json")
 RECON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dispatch-cli.js" "${RECON_ARGS[@]}")
 VERDICT=$(echo "$RECON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).verdict)}catch{process.stdout.write("result-unreadable")}')
@@ -447,7 +455,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dispatch-cli.js" merge-apply \
 
 > **F4 (Codex R1) — 광범위 `git checkout --`/`git clean` 절대 금지**: /mccp:work는 main 밖 dirty feature branch를 허용하므로 광범위 복원은 사용자의 기존 uncommitted 변경·untracked 파일을 파괴(data loss)한다. rollback은 **기록된 patch만** `git apply -R`로 역적용한다(`rollback-apply` — Step 3.verify HALT 경로에서 사용). merge-apply의 pre-apply clean assert가 사용자 사전 dirty를 먼저 감지해 HALT하므로 apply-후-충돌 자체가 드물다.
 
-> **현행 환경 주의(merge_strategy=disable-parallel)**: worktree→parent 자동 merge의 **live harness 상관(worktree↔dispatchId)**이 cost hard-ceiling으로 미입증이라(Task 0 spike 실측 B), 이 병렬 경로는 Step 3.prep-parallel에서 애초에 활성화되지 않는다(fleet 아티팩트 미생성 → Step 3.route가 단일 경로 선택). 위 collect/merge-apply/rollback lib는 **git 메커니즘이 합성 실측으로 입증**(Task 0 실측 A)됐고 unit-test로 검증됐으나, 런타임 도달은 `worktree-merge` 전략이 후속(M4)에서 승격될 때 시작된다. 그전까지 이 게이트는 **활성화 계약**으로 존재하되 도달 0이다.
+> **M4 활성화(merge_strategy default=worktree-merge, v1.21.0)**: worktree→parent 자동 merge의 **live harness 상관(worktree↔dispatchId)**이 Task 0(run wf_1f689994-fb8)에서 empirical하게 입증됐다 — isolation:'worktree' worker의 worktree는 `<repo>/.claude/worktrees/wf_<runId>-<N>`에 생성되고 `parallel()` 반환 후에도 컨트롤러 `git worktree list`에 잔존하며, worker가 first-step으로 in-worktree seed한 envelope를 `collect-worktrees`가 correlate한다(`.claude/state/dispatches/`는 gitignored라 parent placeholder가 fresh worktree에 미복사 → seed-required). 이 병렬 경로는 이제 `MCCP_WORK_IMPLEMENT_PARALLEL=1` opt-in + cost-state green + N>1 partition에서 **실제 도달**한다. collect/merge-apply/rollback lib의 git 메커니즘은 Task 0 실측 A(합성)로, live 상관은 Task 0 실측 B(M4 dogfood)로 양쪽 입증됐다. `MCCP_WORK_MERGE_STRATEGY=disable-parallel` 명시 시 M2a 단일 동작으로 back-compat 강등(same-worktree A2는 여전히 금지).
 
 **(integrated test — Codex R1 F4)** merge-back 후 통합 검증 1회 — 서로소 partition이 각자 local review(per-worker Implement-Codex)를 통과해도 통합 시 깨지는 회귀(public API·import graph·shared config·test fixture)를 잡는다. 실패 시 `rollback-apply --patches-file "$GITDIR/dispatch-fleet-patches.json"` + HALT:
 

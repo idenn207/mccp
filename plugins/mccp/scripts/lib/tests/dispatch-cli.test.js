@@ -934,3 +934,221 @@ test('verify-focus: emits cross-cut focus text', () => {
   assert.match(cap.json.focus, /import-graph breakage/);
   assert.match(cap.json.focus, /a\.js/);
 });
+
+// ── M4 — seed-envelope (Task 1) / worktree-root normalization (F2) ────────────
+
+test('seed-envelope: absent → created (pending); second call → idempotent no-op', () => {
+  const sb = makeSandbox();
+  try {
+    const envPath = path.join(sb, 'e.envelope.json');
+    const a = captureEmit(() => cli.cmdSeedEnvelope({
+      envelope: envPath, 'dispatch-id': RECON_DISPATCH_ID, 'controller-session': CONTROLLER_SESSION_ID,
+    }));
+    assert.strictEqual(a.exitCode, 0);
+    assert.strictEqual(a.json.created, true);
+    const r = envelope.read(envPath);
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(r.envelope.worker_exit_status, 'pending');
+    assert.strictEqual(r.envelope.dispatch_id, RECON_DISPATCH_ID);
+    assert.strictEqual(r.envelope.controller_session_id, CONTROLLER_SESSION_ID);
+    const b = captureEmit(() => cli.cmdSeedEnvelope({
+      envelope: envPath, 'dispatch-id': RECON_DISPATCH_ID, 'controller-session': CONTROLLER_SESSION_ID,
+    }));
+    assert.strictEqual(b.json.created, false, 'existing envelope → no-op');
+  } finally { rimraf(sb); }
+});
+
+test('seed-envelope: never clobbers a marked terminal envelope (idempotent no-op)', () => {
+  const sb = makeSandbox();
+  try {
+    const envPath = path.join(sb, 'e.envelope.json');
+    captureEmit(() => cli.cmdSeedEnvelope({
+      envelope: envPath, 'dispatch-id': RECON_DISPATCH_ID, 'controller-session': CONTROLLER_SESSION_ID,
+    }));
+    envelope.markStatus(envPath, 'ok', { receiptsAdded: ['mccp-implement-codex/x.json'] });
+    const b = captureEmit(() => cli.cmdSeedEnvelope({
+      envelope: envPath, 'dispatch-id': RECON_DISPATCH_ID, 'controller-session': CONTROLLER_SESSION_ID,
+    }));
+    assert.strictEqual(b.json.created, false);
+    const r = envelope.read(envPath);
+    assert.strictEqual(r.envelope.worker_exit_status, 'ok', 're-seed must not reset a terminal envelope to pending');
+    assert.deepStrictEqual(r.envelope.receipts_added, ['mccp-implement-codex/x.json']);
+  } finally { rimraf(sb); }
+});
+
+test('seed-envelope: missing --dispatch-id → usage exit 2', () => {
+  const { exitCode } = captureEmit(() => cli.cmdSeedEnvelope({
+    envelope: 'x.json', 'controller-session': CONTROLLER_SESSION_ID,
+  }));
+  assert.strictEqual(exitCode, 2);
+});
+
+test('seed-envelope: non-UUID dispatch id → error exit 1', () => {
+  const sb = makeSandbox();
+  try {
+    const { exitCode } = captureEmit(() => cli.cmdSeedEnvelope({
+      envelope: path.join(sb, 'e.json'), 'dispatch-id': 'not-a-uuid', 'controller-session': CONTROLLER_SESSION_ID,
+    }));
+    assert.strictEqual(exitCode, 1);
+  } finally { rimraf(sb); }
+});
+
+test('resolveEnvelopePathForWorktree: absolute path passes through unchanged', () => {
+  const abs = path.join(os.tmpdir(), 'abs-' + crypto.randomUUID() + '.envelope.json');
+  const res = cli.resolveEnvelopePathForWorktree(abs, {});
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.path, abs);
+  assert.strictEqual(res.worktreeRoot, null);
+});
+
+test('resolveEnvelopePathForWorktree: .. escape rejected (non-git cwd fallback)', () => {
+  const sb = makeSandbox(); // not a git repo → show-toplevel fails → cwd fallback
+  try {
+    const res = cli.resolveEnvelopePathForWorktree('../../../etc/passwd', { cwd: sb });
+    assert.strictEqual(res.ok, false);
+    assert.match(res.error, /escapes worktree root/);
+  } finally { rimraf(sb); }
+});
+
+test('F2: resolveEnvelopePathForWorktree resolves repo-relative against worktree ROOT from a subdir', (t) => {
+  if (gitIn(['--version']).status !== 0) { t.skip('git n/a'); return; }
+  const { root, wt1 } = setupWorktreeRepo();
+  try {
+    const subdir = path.join(wt1, 'sub', 'deep');
+    fs.mkdirSync(subdir, { recursive: true });
+    const rel = '.claude/state/dispatches/' + RECON_DISPATCH_ID + '.envelope.json';
+    const res = cli.resolveEnvelopePathForWorktree(rel, { cwd: subdir });
+    assert.strictEqual(res.ok, true, res.error);
+    const norm = (p) => p.replace(/\\/g, '/');
+    // resolved MUST be under the worktree root, NOT under the subdir
+    assert.strictEqual(norm(res.path).indexOf('/sub/deep/'), -1, 'must not resolve under the subdir CWD');
+    assert.ok(norm(res.path).endsWith('/.claude/state/dispatches/' + RECON_DISPATCH_ID + '.envelope.json'));
+  } finally { cleanupWorktreeRepo(root); }
+});
+
+test('buildImplementWorkerBasePrompt: partition worker carries seed-envelope FIRST STEP before attribution', () => {
+  const id = '019ecedf-1234-5678-9abc-def012345678';
+  const ipc = cli.ipcEnvelopeRelPath(id);
+  const p = cli.buildImplementWorkerBasePrompt({
+    planPath: '.claude/plans/x.plan.md', dispatchId: id, ipcEnvelopePath: ipc,
+    controllerSessionId: CONTROLLER_SESSION_ID, partitionFiles: ['a.js'], partitionTaskIds: ['t1'],
+  });
+  assert.ok(p.includes('seed-envelope'), 'partition worker prompt carries seed-envelope first-step');
+  assert.ok(p.includes("FIRST STEP (isolation:'worktree'"), 'seed step is framed as FIRST STEP');
+  assert.ok(p.includes('--dispatch-id ' + id));
+  assert.ok(p.includes('--controller-session ' + CONTROLLER_SESSION_ID));
+  // seed must appear BEFORE the attribution flag block so it truly runs first
+  assert.ok(p.indexOf('seed-envelope') < p.indexOf('--dispatched-by-controller-session'),
+    'seed step precedes the attribution flag block');
+});
+
+test('buildImplementWorkerBasePrompt: single-worker (no partition) has NO seed step (back-compat)', () => {
+  const id = '019ecedf-1234-5678-9abc-def012345678';
+  const p = cli.buildImplementWorkerBasePrompt({
+    planPath: '.claude/plans/x.plan.md', dispatchId: id,
+    ipcEnvelopePath: cli.ipcEnvelopeRelPath(id), controllerSessionId: CONTROLLER_SESSION_ID,
+  });
+  assert.strictEqual(p.includes('seed-envelope'), false, 'single-worker prompt must not carry a seed step');
+});
+
+// ── M4 — reconcile terminal envelope worktree-read (Task 2) ───────────────────
+
+function writeWorktreeEnvelope(wtDir, id, over) {
+  const dir = path.join(wtDir, '.claude', 'state', 'dispatches');
+  fs.mkdirSync(dir, { recursive: true });
+  const body = Object.assign({
+    schema_version: 'v1', dispatch_id: id, worker_subagent_type: 'general-purpose',
+    worker_started_at: '2026-07-09T05:00:00.000Z', worker_ended_at: '2026-07-09T05:05:00.000Z',
+    worker_exit_status: 'ok', receipts_added: [], findings: [], next_action: 'done',
+    controller_session_id: CONTROLLER_SESSION_ID, parent_cwd: wtDir,
+  }, over || {});
+  const w = envelope.write(path.join(dir, id + '.envelope.json'), body);
+  assert.strictEqual(w.ok, true, w.error);
+}
+
+test('reconcile (fleet, Task 2): worktree-map reads terminal envelope; stale pending parent → ok (no false mismatch)', () => {
+  const sb = makeSandbox();
+  try {
+    // prepare-fleet writes PENDING parent placeholders — we intentionally NEVER
+    // mark them (a partition worker marks in its worktree, not the parent).
+    fs.mkdirSync(path.join(sb, '.claude', 'state', 'dispatches'), { recursive: true });
+    const partsFile = writePartitions(sb, [
+      { files: ['a.js'], taskIds: ['t1'] },
+      { files: ['b.js'], taskIds: ['t2'] },
+    ]);
+    const prep = captureEmit(() => cli.cmdPrepareFleet({
+      plan: '.claude/plans/x.plan.md', 'controller-session': CONTROLLER_SESSION_ID,
+      'partitions-file': partsFile, 'parent-cwd': sb,
+    })).json;
+    const wtMap = {};
+    prep.workers.forEach(function (w, i) {
+      const wtDir = path.join(sb, 'wt' + i);
+      writeWorktreeEnvelope(wtDir, w.dispatchId); // terminal ok in the worktree
+      wtMap[w.dispatchId] = wtDir;
+    });
+    const prepFile = path.join(sb, 'prep.json'); fs.writeFileSync(prepFile, JSON.stringify(prep));
+    const args = captureEmit(() => cli.cmdEmitWorkflowArgs({ 'prepare-file': prepFile })).json;
+    const argsFile = path.join(sb, 'args.json'); fs.writeFileSync(argsFile, JSON.stringify(args));
+    const wtMapFile = path.join(sb, 'wtmap.json'); fs.writeFileSync(wtMapFile, JSON.stringify(wtMap));
+
+    // WITHOUT worktree-map → reads the stale PENDING parent → reconcile-mismatch
+    // (this is the exact false-HALT Task 2 fixes).
+    const noMap = captureEmit(() => cli.cmdReconcile({
+      'args-file': argsFile, 'from-envelope': true, 'repo-root': sb,
+    })).json;
+    assert.strictEqual(noMap.verdict, 'reconcile-mismatch',
+      'parent placeholder is pending → mismatch when read from parent');
+
+    // WITH worktree-map → reads the worktree TERMINAL envelope → ok.
+    const withMap = captureEmit(() => cli.cmdReconcile({
+      'args-file': argsFile, 'from-envelope': true, 'worktree-map': wtMapFile, 'repo-root': sb,
+    })).json;
+    assert.strictEqual(withMap.verdict, 'ok',
+      'worktree-map reads the terminal worktree envelope → ok');
+  } finally { rimraf(sb); }
+});
+
+// ── M4 — merge-apply patches-out write-failure rollback (Task 3 / Codex F1) ───
+
+test('merge-apply F1: patches-out write failure → applied patches rolled back, parent clean', (t) => {
+  if (gitIn(['--version']).status !== 0) { t.skip('git n/a'); return; }
+  const { root, wt1, wt2 } = setupWorktreeRepo();
+  try {
+    const mapFile = path.join(root, 'wtmap.json');
+    fs.writeFileSync(mapFile, JSON.stringify({ 'id-1': wt1, 'id-2': wt2 }));
+    // patches-out points into a NONEXISTENT directory → writeFileSync throws
+    // ENOENT AFTER applyDisjointDiffs already changed the parent → the F1 path.
+    const badPatchesOut = path.join(root, 'no-such-dir', 'patches.json');
+    const cap = captureEmit(() => cli.cmdMergeApply({
+      'worktree-map': mapFile, 'repo-root': root, 'patches-out': badPatchesOut,
+    }));
+    assert.strictEqual(cap.exitCode, 1);
+    assert.strictEqual(cap.json.reason, 'patches-out-write-failed');
+    assert.strictEqual(cap.json.rolledBack, true,
+      'applied patches must be reverse-applied on patches-out write failure (F1)');
+    // The F1 contract: "merge-apply failed = parent clean" — restored to base.
+    assert.strictEqual(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'alpha base\n');
+    assert.strictEqual(fs.readFileSync(path.join(root, 'b.txt'), 'utf8'), 'beta base\n');
+  } finally { cleanupWorktreeRepo(root); }
+});
+
+// ── M4 — collectChangedFiles untracked-file granularity (live dogfood finding) ─
+
+test('collectChangedFiles: new file in a NEW untracked dir → returns the FILE, not the collapsed dir (-uall)', (t) => {
+  if (gitIn(['--version']).status !== 0) { t.skip('git n/a'); return; }
+  const { root, wt1 } = setupWorktreeRepo();
+  try {
+    // The EXACT live-dogfood shape (run wf_98047bb7-1b1): a worker creates a new
+    // file in a brand-new untracked directory. Default `git status --porcelain`
+    // collapses that to `?? newdir/`; the partition is file-level
+    // (`newdir/util.js`), so the collapsed dir was a FALSE partition-escape.
+    fs.mkdirSync(path.join(wt1, 'newdir'), { recursive: true });
+    fs.writeFileSync(path.join(wt1, 'newdir', 'util.js'), 'module.exports = 1;\n');
+    const files = cli.collectChangedFiles(wt1);
+    assert.ok(Array.isArray(files), 'collectChangedFiles returns an array');
+    assert.ok(files.indexOf('newdir/util.js') !== -1,
+      'must list the individual untracked file (got ' + JSON.stringify(files) + ')');
+    assert.strictEqual(files.indexOf('newdir/'), -1, 'must NOT collapse to the directory (trailing slash)');
+    assert.strictEqual(files.indexOf('newdir'), -1, 'must NOT collapse to the directory');
+  } finally { cleanupWorktreeRepo(root); }
+});

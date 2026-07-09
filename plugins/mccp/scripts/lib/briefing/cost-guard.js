@@ -14,6 +14,8 @@
 const fs = require('fs');
 const path = require('path');
 const costState = require('../cost-state');
+const subscription = require('../subscription');
+const contextState = require('../context-state');
 
 const REASONS = Object.freeze({
   OK_RUN: 'ok-run',
@@ -23,6 +25,9 @@ const REASONS = Object.freeze({
   ENV_OFF: 'env-off',
   ENV_CODEX_DISABLED: 'env-codex-disabled',
   PR_PHASE_LOCKED: 'pr-phase-locked',
+  // cost-model-subscription M1 — positive context-overflow critical under
+  // MCCP_SUBSCRIPTION (replaces order 4 USD tier autoDisable).
+  SUBSCRIPTION_OVERFLOW: 'subscription-overflow',
 });
 
 const AUTODISABLE_TIERS_DEFAULT = Object.freeze(
@@ -75,6 +80,23 @@ function shouldSkipBriefing(opts) {
   }
   if (lockProbe(repoRoot)) {
     return { skip: true, reason: REASONS.PR_PHASE_LOCKED, tier: null };
+  }
+
+  // cost-model-subscription M1 — subscription bypass. Orders 1-3 (env-off /
+  // codex-disabled / pr-phase-locked) are NOT USD gates and stay above. This
+  // replaces order 4 (USD tier autoDisable) with the context overflow axis,
+  // fail-OPEN (Codex F1, user-accepted): absent/green runs, positive critical skips.
+  if (subscription.isSubscriptionMode(env)) {
+    const ctxRead = opts.contextStateRead || contextState.readState;
+    let ctx;
+    try { ctx = ctxRead(); } catch (_e) { ctx = null; }
+    const of = subscription.evaluateOverflow({
+      contextRemainingPct: ctx ? ctx.context_remaining_pct : null,
+      toolCount: ctx ? ctx.tool_count : null,
+      thresholds: subscription.parseOverflowThresholds(env),
+    });
+    if (of.overflow) return { skip: true, reason: REASONS.SUBSCRIPTION_OVERFLOW, tier: of.tier };
+    return { skip: false, reason: REASONS.OK_RUN, tier: of.tier };
   }
 
   const autoDisableTiers = parseTierOverride(env.MCCP_BRIEFING_AUTODISABLE_TIER)

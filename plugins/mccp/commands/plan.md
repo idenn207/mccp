@@ -164,11 +164,17 @@ FANOUT_JSON=$(node -e '
   const prdMode = process.argv[2] === "true";
   const budget = require(root + "/scripts/lib/plan-fanout/budget");
   const costState = require(root + "/scripts/lib/cost-state");
+  const subscription = require(root + "/scripts/lib/subscription");
+  const contextState = require(root + "/scripts/lib/context-state");
   const r = budget.resolveFanout({
     env: process.env,
     prdMode: prdMode,
     costStateRead: costState.readState,
     tierFor: costState.tierFor,
+    // cost-model-subscription M1 — under MCCP_SUBSCRIPTION the fan-out bypasses
+    // the USD cost-state/tier gates and evaluates the context overflow axis.
+    subscriptionMode: subscription.isSubscriptionMode(process.env),
+    contextStateRead: contextState.readState,
   });
   process.stdout.write(JSON.stringify(r));
 ' "${CLAUDE_PLUGIN_ROOT}" "$PRD_MODE")

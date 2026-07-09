@@ -35,6 +35,8 @@
 //   6. budgetTotal set & unaffordable           → BUDGET_INSUFFICIENT     (N=1)
 //   7. otherwise                                → OK_RUN + n + minRemaining
 
+const subscription = require('../subscription');
+
 const REASONS = Object.freeze({
   OK_RUN: 'ok-run',
   ENV_OFF: 'env-off',
@@ -45,6 +47,9 @@ const REASONS = Object.freeze({
   TIER_WARNING: 'tier-warning',
   TIER_CRITICAL: 'tier-critical',
   BUDGET_INSUFFICIENT: 'budget-insufficient',
+  // cost-model-subscription M1 — positive context-overflow critical under
+  // MCCP_SUBSCRIPTION (replaces the USD cost-state + tier gates, orders 4-5).
+  SUBSCRIPTION_OVERFLOW: 'subscription-overflow',
 });
 
 const MAX_WORKERS_DEFAULT = 4;
@@ -135,24 +140,42 @@ function resolveFleet(opts) {
   // 3 — nothing to parallelize (partition oracle already collapsed).
   if (reqN <= 1) return skip(REASONS.SINGLE_PARTITION);
 
-  // 4 — expensive parallel fails CLOSED on unknown cost-state (mirror F2).
-  let cs;
-  try {
-    cs = typeof opts.costStateRead === 'function' ? opts.costStateRead() : null;
-  } catch (_e) {
-    cs = null;
-  }
-  if (!cs) return skip(REASONS.COST_STATE_UNKNOWN);
+  // 4-5 — tier gate. Metered path: USD cost-state (fail-CLOSED on unknown) + tier
+  // autoDisable. Subscription path (cost-model-subscription M1): bypass BOTH and
+  // gate on the context overflow axis, fail-OPEN (Codex F1, user-accepted) —
+  // absent/green runs, only positive critical skips. Orders 1/2/3/6 unchanged.
+  let tier;
+  if (opts.subscriptionMode === true) {
+    const ctxRead = typeof opts.contextStateRead === 'function' ? opts.contextStateRead : function () { return null; };
+    let ctx;
+    try { ctx = ctxRead(); } catch (_e) { ctx = null; }
+    const of = subscription.evaluateOverflow({
+      contextRemainingPct: ctx ? ctx.context_remaining_pct : null,
+      toolCount: ctx ? ctx.tool_count : null,
+      thresholds: subscription.parseOverflowThresholds(env),
+    });
+    if (of.overflow) return skip(REASONS.SUBSCRIPTION_OVERFLOW, { tier: of.tier });
+    tier = of.tier;
+  } else {
+    // 4 — expensive parallel fails CLOSED on unknown cost-state (mirror F2).
+    let cs;
+    try {
+      cs = typeof opts.costStateRead === 'function' ? opts.costStateRead() : null;
+    } catch (_e) {
+      cs = null;
+    }
+    if (!cs) return skip(REASONS.COST_STATE_UNKNOWN);
 
-  // 5 — cost-tier autoDisable.
-  const autoDisableTiers = parseTierOverride(env[ENV_AUTODISABLE]) || AUTODISABLE_TIERS_DEFAULT;
-  const tierForFn = typeof opts.tierFor === 'function' ? opts.tierFor : null;
-  const tier = cs.threshold_tier || (tierForFn ? tierForFn(cs.cost_usd) : 'green');
-  if (autoDisableTiers.has(tier)) {
-    const r = tier === 'notice' ? REASONS.TIER_NOTICE
-      : tier === 'warning' ? REASONS.TIER_WARNING
-        : REASONS.TIER_CRITICAL;
-    return skip(r, { tier: tier });
+    // 5 — cost-tier autoDisable.
+    const autoDisableTiers = parseTierOverride(env[ENV_AUTODISABLE]) || AUTODISABLE_TIERS_DEFAULT;
+    const tierForFn = typeof opts.tierFor === 'function' ? opts.tierFor : null;
+    tier = cs.threshold_tier || (tierForFn ? tierForFn(cs.cost_usd) : 'green');
+    if (autoDisableTiers.has(tier)) {
+      const r = tier === 'notice' ? REASONS.TIER_NOTICE
+        : tier === 'warning' ? REASONS.TIER_WARNING
+          : REASONS.TIER_CRITICAL;
+      return skip(r, { tier: tier });
+    }
   }
 
   // cap N by the structural max, then (optionally) by the affordable budget.

@@ -179,8 +179,11 @@ if [ "$ISOLATE" != "0" ] && [ "$PARALLEL" = "1" ] && [ "$MERGE_STRATEGY" = "work
     FLEET=$(node -e '
       const b=require(process.argv[1]+"/scripts/lib/implement-dispatch/budget");
       const cs=require(process.argv[1]+"/scripts/lib/cost-state");
+      const sub=require(process.argv[1]+"/scripts/lib/subscription");
+      const ctx=require(process.argv[1]+"/scripts/lib/context-state");
       const r=b.resolveFleet({ env:process.env, mergeStrategy:process.argv[2],
-        requestedN:parseInt(process.argv[3],10)||1, costStateRead:cs.readState, tierFor:cs.tierFor });
+        requestedN:parseInt(process.argv[3],10)||1, costStateRead:cs.readState, tierFor:cs.tierFor,
+        subscriptionMode:sub.isSubscriptionMode(process.env), contextStateRead:ctx.readState });
       process.stdout.write(JSON.stringify(r));
     ' "$CLAUDE_PLUGIN_ROOT" "$MERGE_STRATEGY" "$REQ_N")
     RUN=$(echo "$FLEET" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).run?"1":"0")}catch{process.stdout.write("0")}')

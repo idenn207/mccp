@@ -30,6 +30,8 @@
 const fs = require('fs');
 const path = require('path');
 const cost = require('./cost-state');
+const subscription = require('./subscription');
+const contextState = require('./context-state');
 
 const ABORT_EXIT = 13;
 // v0.2.8 Task 2.6.5a A3 R2 F2 + R3 absorption — tempfail exit mirrors
@@ -159,11 +161,30 @@ function shouldAbort(opts) {
     }
   }
 
-  // 7. Cost telemetry
+  // 7. Runaway telemetry. Metered path: cost-current.json (missing/stale/
+  // unreadable/hard_ceiling → abort). Subscription path (cost-model-subscription
+  // M1): context overflow — only a POSITIVE critical overflow aborts; an absent/
+  // green signal does NOT abort (fail-OPEN, Codex F1, user-accepted). The other
+  // triggers (kill-switch, receipt validation, previous-step-failed, STATE.md
+  // chain_aborted) are unchanged, so auto-chain stays conservative on real failures.
   if (!opts.skipCostCheck) {
-    const cs = checkCostTelemetry();
-    if (!cs.ok) {
-      reasons.push({ trigger: 'cost-telemetry', detail: cs.reason + ': ' + cs.detail });
+    if (subscription.isSubscriptionMode(env)) {
+      const ctxRead = typeof opts.contextStateRead === 'function' ? opts.contextStateRead : contextState.readState;
+      let ctx;
+      try { ctx = ctxRead(); } catch (_e) { ctx = null; }
+      const of = subscription.evaluateOverflow({
+        contextRemainingPct: ctx ? ctx.context_remaining_pct : null,
+        toolCount: ctx ? ctx.tool_count : null,
+        thresholds: subscription.parseOverflowThresholds(env),
+      });
+      if (of.overflow) {
+        reasons.push({ trigger: 'context-overflow', detail: of.reason });
+      }
+    } else {
+      const cs = checkCostTelemetry();
+      if (!cs.ok) {
+        reasons.push({ trigger: 'cost-telemetry', detail: cs.reason + ': ' + cs.detail });
+      }
     }
   }
 

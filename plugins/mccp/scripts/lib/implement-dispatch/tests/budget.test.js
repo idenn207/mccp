@@ -208,3 +208,32 @@ test('shouldSkipForBudget: target set + remaining covers fleet → run', functio
 test('shouldSkipForBudget: non-finite remaining treated as 0 → skip when target set', function () {
   assert.equal(shouldSkipForBudget({ budgetTotal: 700000, minRemaining: 600000 }), true);
 });
+
+// --- cost-model-subscription M1 — subscription-path (Task 5) ---
+function ctxReadFleet(v) { return function () { return v; }; }
+const SUB_FLEET = { MCCP_WORK_IMPLEMENT_PARALLEL: '1' };
+
+test('subscription: context critical -> skip SUBSCRIPTION_OVERFLOW', () => {
+  const r = resolveFleet({ env: SUB_FLEET, mergeStrategy: ENABLING_MERGE_STRATEGY, requestedN: 3, subscriptionMode: true, contextStateRead: ctxReadFleet({ context_remaining_pct: 15, tool_count: 9 }) });
+  assert.equal(r.run, false);
+  assert.equal(r.reason, REASONS.SUBSCRIPTION_OVERFLOW);
+});
+
+test('subscription: context green -> run N, bypasses USD cost-state', () => {
+  const r = resolveFleet({ env: SUB_FLEET, mergeStrategy: ENABLING_MERGE_STRATEGY, requestedN: 3, subscriptionMode: true, contextStateRead: ctxReadFleet({ context_remaining_pct: 70, tool_count: 9 }), costStateRead: () => null });
+  assert.equal(r.run, true);
+  assert.equal(r.reason, REASONS.OK_RUN);
+  assert.equal(r.n, 3);
+});
+
+test('subscription: order 2 merge-strategy still gates (disable-parallel -> N=1)', () => {
+  const r = resolveFleet({ env: SUB_FLEET, mergeStrategy: 'disable-parallel', requestedN: 3, subscriptionMode: true, contextStateRead: ctxReadFleet({ context_remaining_pct: 70, tool_count: 9 }) });
+  assert.equal(r.run, false);
+  assert.equal(r.reason, REASONS.MERGE_STRATEGY_DISABLED);
+});
+
+test('subscription: absent context -> fail-open run', () => {
+  const r = resolveFleet({ env: SUB_FLEET, mergeStrategy: ENABLING_MERGE_STRATEGY, requestedN: 2, subscriptionMode: true, contextStateRead: () => null, costStateRead: () => null });
+  assert.equal(r.run, true);
+  assert.equal(r.reason, REASONS.OK_RUN);
+});

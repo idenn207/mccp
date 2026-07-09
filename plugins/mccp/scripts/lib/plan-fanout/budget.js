@@ -20,6 +20,8 @@
 //   4. cost-tier ∈ autoDisableTiers       → TIER_*             (default notice/warning/critical)
 //   5. otherwise                          → OK_RUN + fleetSize + minRemaining
 
+const subscription = require('../subscription');
+
 const REASONS = Object.freeze({
   OK_RUN: 'ok-run',
   ENV_OFF: 'env-off',
@@ -28,6 +30,9 @@ const REASONS = Object.freeze({
   TIER_NOTICE: 'tier-notice',
   TIER_WARNING: 'tier-warning',
   TIER_CRITICAL: 'tier-critical',
+  // cost-model-subscription M1 — positive context-overflow critical under
+  // MCCP_SUBSCRIPTION (replaces the USD cost-state + tier gates).
+  SUBSCRIPTION_OVERFLOW: 'subscription-overflow',
 });
 
 const FLEET_SIZE = 4;
@@ -105,6 +110,25 @@ function resolveFanout(opts) {
 
   if (parseFanoutMode(env) !== 'on') return skip(REASONS.ENV_OFF);
   if (!prdMode) return skip(REASONS.NOT_PRD_MODE);
+
+  // cost-model-subscription M1 — subscription bypass. Skip the USD cost-state
+  // (order 3) + tier (order 4) gates and gate on the context overflow axis.
+  // DELIBERATE fail-OPEN (Codex F1, user-accepted): an absent/green signal RUNS;
+  // only a POSITIVE critical overflow skips. subscriptionMode is passed explicitly
+  // by the command-body caller (isSubscriptionMode(env)); contextStateRead is
+  // injected (default ()=>null) so the oracle stays disk-free + unit-testable.
+  if (opts.subscriptionMode === true) {
+    const ctxRead = typeof opts.contextStateRead === 'function' ? opts.contextStateRead : function () { return null; };
+    let ctx;
+    try { ctx = ctxRead(); } catch (_e) { ctx = null; }
+    const of = subscription.evaluateOverflow({
+      contextRemainingPct: ctx ? ctx.context_remaining_pct : null,
+      toolCount: ctx ? ctx.tool_count : null,
+      thresholds: subscription.parseOverflowThresholds(env),
+    });
+    if (of.overflow) return skip(REASONS.SUBSCRIPTION_OVERFLOW, of.tier);
+    return { run: true, reason: REASONS.OK_RUN, tier: of.tier, fleetSize: FLEET_SIZE, minRemaining: minRemaining };
+  }
 
   // Codex F2 — expensive fan-out fails CLOSED on unknown cost-state.
   let cs;

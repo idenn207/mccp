@@ -34,6 +34,8 @@ const path = require('path');
 const fs = require('fs');
 
 const costState = require('../lib/cost-state');
+const subscription = require('../lib/subscription');
+const contextState = require('../lib/context-state');
 const stateWriter = require('./state-writer');
 const fixTask = require('./fix-task');
 
@@ -65,6 +67,15 @@ function detect(opts) {
   const o = opts || {};
   const nowMs = Number.isFinite(o.now) ? o.now : Date.now();
   const root = o.root;
+  const env = o.env || process.env;
+
+  // cost-model-subscription M1 — subscription derives the tier from the context
+  // overflow axis instead of USD cost-state. Signal absent/stale → conservative
+  // no-handoff (mirror COST_STATE_MISSING/STALE — a missing runaway signal never
+  // FORCES a handoff). auto-handoff.js consumes the result unchanged.
+  if (subscription.isSubscriptionMode(env)) {
+    return detectSubscription(o, nowMs, root, env);
+  }
 
   // cost-state: stale guard FIRST so we never blame a tier on phantom telemetry.
   const cs = (o.costStateOverride !== undefined)
@@ -115,7 +126,14 @@ function detect(opts) {
     });
   }
 
-  // warning ("soft") tier — AND-gate.
+  // warning ("soft") tier — shared AND-gate.
+  return softWarningDecision(o, nowMs, root, meta);
+}
+
+// softWarningDecision — the warning-tier soft AND-gate shared by the metered
+// (detect) and subscription (detectSubscription) paths: handoff iff a safe event
+// fired recently AND no fix-task is pending.
+function softWarningDecision(o, nowMs, root, meta) {
   const state = (o.stateOverride !== undefined)
     ? o.stateOverride
     : (root ? stateWriter.readState(root) : null);
@@ -148,6 +166,46 @@ function detect(opts) {
     shouldHandoff: true,
     reason: REASONS.SOFT_SAFE_NO_FIX_TASK,
   });
+}
+
+// detectSubscription (cost-model-subscription M1) — the MCCP_SUBSCRIPTION variant
+// of detect. Derives the tier from the context overflow axis; a signal that is
+// absent/stale yields a conservative no-handoff (mirror COST_STATE_MISSING/STALE
+// — a missing runaway signal never FORCES a handoff). Reuses the critical +
+// soft-warning machinery. The overflow axis has no 'notice' band (green→warning→
+// critical), so the notice/stderr-only tier does not apply here.
+function detectSubscription(o, nowMs, root, env) {
+  const ctx = (o.contextStateOverride !== undefined)
+    ? o.contextStateOverride
+    : contextState.readState();
+  if (!ctx) {
+    return { tier: 'green', shouldHandoff: false, reason: REASONS.COST_STATE_MISSING };
+  }
+  const stale = (o.staleOverride !== undefined)
+    ? !!o.staleOverride
+    : contextState.isStale(COST_STATE_MAX_AGE_MS);
+  if (stale) {
+    return { tier: 'green', shouldHandoff: false, reason: REASONS.COST_STATE_STALE, stale: true };
+  }
+  const of = subscription.evaluateOverflow({
+    contextRemainingPct: ctx.context_remaining_pct,
+    toolCount: ctx.tool_count,
+    thresholds: subscription.parseOverflowThresholds(env),
+  });
+  const tier = of.tier; // green | warning | critical
+  const meta = { tier: tier };
+  if (tier === 'green') {
+    return Object.assign({}, meta, { shouldHandoff: false, reason: REASONS.BELOW_NOTICE });
+  }
+  if (tier === 'critical') {
+    return Object.assign({}, meta, {
+      shouldHandoff: true,
+      reason: REASONS.HARD_CEILING_FORCE,
+      unsafeCheckpoint: true,
+    });
+  }
+  // warning — shared soft AND-gate.
+  return softWarningDecision(o, nowMs, root, meta);
 }
 
 module.exports = {

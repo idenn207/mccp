@@ -173,3 +173,38 @@ test('isSafeEvent: only whitelisted events qualify', () => {
   assert.strictEqual(det.isSafeEvent('stop_loop_pass', null, now), false);
   assert.strictEqual(det.isSafeEvent('stop_loop_pass', 'not-a-date', now), false);
 });
+
+// --- cost-model-subscription M1 — subscription-path (Task 8) ---
+const SUB_ENV = { MCCP_SUBSCRIPTION: '1' };
+
+test('subscription: context critical -> HARD_CEILING_FORCE handoff', () => {
+  const r = det.detect({ env: SUB_ENV, contextStateOverride: { context_remaining_pct: 20, tool_count: 5 }, staleOverride: false });
+  assert.equal(r.tier, 'critical');
+  assert.equal(r.shouldHandoff, true);
+  assert.equal(r.reason, det.REASONS.HARD_CEILING_FORCE);
+  assert.equal(r.unsafeCheckpoint, true);
+});
+
+test('subscription: context warning + safe event + no fix-task -> handoff', () => {
+  const r = det.detect({ env: SUB_ENV, contextStateOverride: { context_remaining_pct: 30, tool_count: 5 }, staleOverride: false, now: 1000, stateOverride: { frontmatter: { last_event: 'receipt_write', last_event_at: new Date(500).toISOString() } }, fixTaskExistsOverride: false });
+  assert.equal(r.tier, 'warning');
+  assert.equal(r.shouldHandoff, true);
+});
+
+test('subscription: context green -> no handoff', () => {
+  const r = det.detect({ env: SUB_ENV, contextStateOverride: { context_remaining_pct: 70, tool_count: 5 }, staleOverride: false });
+  assert.equal(r.tier, 'green');
+  assert.equal(r.shouldHandoff, false);
+});
+
+test('subscription: context missing -> conservative no-handoff', () => {
+  const r = det.detect({ env: SUB_ENV, contextStateOverride: null });
+  assert.equal(r.shouldHandoff, false);
+  assert.equal(r.reason, det.REASONS.COST_STATE_MISSING);
+});
+
+test('subscription: context stale -> conservative no-handoff', () => {
+  const r = det.detect({ env: SUB_ENV, contextStateOverride: { context_remaining_pct: 20, tool_count: 5 }, staleOverride: true });
+  assert.equal(r.shouldHandoff, false);
+  assert.equal(r.reason, det.REASONS.COST_STATE_STALE);
+});

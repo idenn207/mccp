@@ -128,3 +128,26 @@ test('threshold_tier absent → tierFor injection recomputes; else defaults gree
   assert.equal(rComputed.run, false, 'tierFor recomputes warning → skip');
   assert.equal(rComputed.reason, REASONS.TIER_WARNING);
 });
+
+// --- cost-model-subscription M1 — subscription-path (Task 4) ---
+const ON_FANOUT = { MCCP_PLAN_FANOUT: 'on' };
+function ctxReadFan(v) { return function () { return v; }; }
+
+test('subscription: context critical -> skip SUBSCRIPTION_OVERFLOW', () => {
+  const r = resolveFanout({ env: ON_FANOUT, prdMode: true, subscriptionMode: true, contextStateRead: ctxReadFan({ context_remaining_pct: 20, tool_count: 5 }) });
+  assert.equal(r.run, false);
+  assert.equal(r.reason, REASONS.SUBSCRIPTION_OVERFLOW);
+});
+
+test('subscription: context green -> run (fleetSize 4), bypasses USD cost-state', () => {
+  const r = resolveFanout({ env: ON_FANOUT, prdMode: true, subscriptionMode: true, contextStateRead: ctxReadFan({ context_remaining_pct: 70, tool_count: 5 }), costStateRead: () => null });
+  assert.equal(r.run, true);
+  assert.equal(r.reason, REASONS.OK_RUN);
+  assert.equal(r.fleetSize, FLEET_SIZE);
+});
+
+test('subscription: absent context -> fail-open run (Codex F1)', () => {
+  const r = resolveFanout({ env: ON_FANOUT, prdMode: true, subscriptionMode: true, contextStateRead: () => null, costStateRead: () => null });
+  assert.equal(r.run, true);
+  assert.equal(r.reason, REASONS.OK_RUN);
+});

@@ -182,3 +182,22 @@ test('cost monotonic merge: cross-CWD writers converge on same canonical path', 
     assert.strictEqual(final.cost_usd, 60);
   } finally { h.restore(); }
 });
+
+// --- cost-model-subscription M1 — subscription-path (Task 7) ---
+function ctxReadChain(v) { return function () { return v; }; }
+
+test('subscription: context critical -> context-overflow abort trigger', () => {
+  const r = autoChain.shouldAbort({ env: { MCCP_SUBSCRIPTION: '1' }, repoRoot: os.tmpdir(), contextStateRead: ctxReadChain({ context_remaining_pct: 20, tool_count: 5 }) });
+  assert.ok(r.shouldAbort);
+  assert.ok(r.reasons.some(x => x.trigger === 'context-overflow'));
+});
+
+test('subscription: absent context -> no context-overflow trigger (fail-open)', () => {
+  const r = autoChain.shouldAbort({ env: { MCCP_SUBSCRIPTION: '1' }, repoRoot: os.tmpdir(), contextStateRead: () => null });
+  assert.ok(!r.reasons.some(x => x.trigger === 'context-overflow'));
+});
+
+test('subscription: cost-telemetry NOT consulted (sticky $314.50 ignored)', () => {
+  const r = autoChain.shouldAbort({ env: { MCCP_SUBSCRIPTION: '1' }, repoRoot: os.tmpdir(), contextStateRead: ctxReadChain({ context_remaining_pct: 70, tool_count: 5 }) });
+  assert.ok(!r.reasons.some(x => x.trigger === 'cost-telemetry'));
+});

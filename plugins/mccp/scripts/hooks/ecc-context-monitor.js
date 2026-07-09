@@ -245,6 +245,20 @@ function run(rawInput) {
         last_write_ts: Date.now(),
       });
 
+      // cost-model-subscription M1 (Task 3) — stamp context-current.json from the
+      // bridge every PostToolUse so the subscription overflow axis has a fresh
+      // signal. Own try/catch (best-effort): a context-write failure must NOT
+      // affect the cost write above or hook progress. Written unconditionally (NOT
+      // gated on MCCP_SUBSCRIPTION) so the signal is warm if the user flips the
+      // flag mid-session — a benign side-effect for metered users (Codex F3).
+      try {
+        const contextState = require('../lib/context-state');
+        contextState.writeState({
+          contextRemainingPct: bridge.context_remaining_pct,
+          toolCount: bridge.tool_count,
+        });
+      } catch (_ctxErr) { /* swallow context telemetry write errors */ }
+
       // v0.2.2 Task 7 — also flip STATE.md session_end_imminent ($80) and
       // chain_aborted ($100) so auto-chain.js's second channel agrees.
       if (cost > COST_WARNING_USD) {

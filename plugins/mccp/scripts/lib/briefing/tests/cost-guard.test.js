@@ -116,3 +116,30 @@ test('pr-phase.lock present but subphase != codex-review → OK_RUN (probe retur
   assert.equal(r.skip, false);
   assert.equal(r.reason, REASONS.OK_RUN);
 });
+
+// --- cost-model-subscription M1 — subscription-path (Task 6) ---
+function ctxReadBrief(v) { return function () { return v; }; }
+
+test('subscription: context critical -> skip SUBSCRIPTION_OVERFLOW', function () {
+  const r = shouldSkipBriefing({ env: { MCCP_SUBSCRIPTION: '1' }, lockProbe: noLock, contextStateRead: ctxReadBrief({ context_remaining_pct: 20, tool_count: 5 }) });
+  assert.equal(r.skip, true);
+  assert.equal(r.reason, REASONS.SUBSCRIPTION_OVERFLOW);
+});
+
+test('subscription: context green -> run, bypasses USD tier (critical cost-state)', function () {
+  const r = shouldSkipBriefing({ env: { MCCP_SUBSCRIPTION: '1' }, lockProbe: noLock, contextStateRead: ctxReadBrief({ context_remaining_pct: 70, tool_count: 5 }), costStateRead: () => ({ cost_usd: 999, threshold_tier: 'critical' }) });
+  assert.equal(r.skip, false);
+  assert.equal(r.reason, REASONS.OK_RUN);
+});
+
+test('subscription: orders 1-3 still win (MCCP_BRIEFING=off)', function () {
+  const r = shouldSkipBriefing({ env: { MCCP_SUBSCRIPTION: '1', MCCP_BRIEFING: 'off' }, lockProbe: noLock, contextStateRead: ctxReadBrief({ context_remaining_pct: 70, tool_count: 5 }) });
+  assert.equal(r.skip, true);
+  assert.equal(r.reason, REASONS.ENV_OFF);
+});
+
+test('subscription: absent context -> fail-open run', function () {
+  const r = shouldSkipBriefing({ env: { MCCP_SUBSCRIPTION: '1' }, lockProbe: noLock, contextStateRead: () => null, costStateRead: () => ({ cost_usd: 999, threshold_tier: 'critical' }) });
+  assert.equal(r.skip, false);
+  assert.equal(r.reason, REASONS.OK_RUN);
+});

@@ -623,6 +623,16 @@ async function main() {
   ensureDir(sessionsDir);
   ensureDir(learnedDir);
 
+  // cost-model-subscription M1 — light observability banner when MCCP_SUBSCRIPTION
+  // bypasses the USD cost gates. stderr log only (no injected context, no branch
+  // on shouldInjectContext); metered users see nothing. Never blocks SessionStart.
+  try {
+    const subscription = require('../lib/subscription');
+    if (subscription.isSubscriptionMode(process.env)) {
+      log('[mccp] subscription mode — USD cost gates bypassed (overflow axis: context%/tool)');
+    }
+  } catch (_subErr) { /* observability only */ }
+
   const retentionDays = getSessionRetentionDays();
   const prunedSessions = pruneExpiredSessions(sessionSearchDirs, retentionDays);
   if (prunedSessions > 0) {

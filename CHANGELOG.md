@@ -2,7 +2,31 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.15`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.16`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.20.16] — 2026-07-09
+
+**구독권 비용 모델 opt-in (`MCCP_SUBSCRIPTION`)** — cost-model-subscription PRD M1. 정액 구독권 사용자를 위해 5개 자동화 소비처(resolveFanout · resolveFleet · shouldSkipBriefing · auto-chain · breakpoint-detector)가 USD cost-state/tier 게이트를 우회하도록 하고, 폭주 방지는 metrics bridge의 `context_remaining_pct` + `tool_count`(context overflow) 축으로 대체한다. flag 미설정 시 5개 소비처 **판정 byte-identical** — 종량제 회귀 0.
+
+### Added
+
+- **`plugins/mccp/scripts/lib/subscription.js`** — subscription oracle(pure/dep-free). `isSubscriptionMode`(1|on) + `parseOverflowThresholds`(context 35/25 기본, tool 축 default-off·opt-in) + `evaluateOverflow`(green/warning/critical, 신호 부재 → fail-open green). frozen REASONS.
+- **`plugins/mccp/scripts/lib/context-state.js`** — context-current.json 스냅샷(read/write/isStale). latest-wins(non-monotonic) + `context_ts` stamp + **out-of-order older-샘플 reject**(tool_count 우선 — Codex F2, stale-high write가 최신 critical을 은폐하는 경로 차단).
+- **테스트** — `lib/tests/subscription.test.js` + `lib/tests/context-state.test.js`(oracle/snapshot 단위) + 5개 소비처 subscription-path 테스트(overflow critical skip · fail-open · 구조 게이트 보존). 전체 스위트 green.
+
+### Changed
+
+- **5개 소비처** — `plan-fanout/budget.js`·`implement-dispatch/budget.js`·`briefing/cost-guard.js`·`auto-chain.js`·`state/breakpoint-detector.js`에 `MCCP_SUBSCRIPTION` 분기(USD 축만 overflow로 대체, 구조 게이트·다른 abort trigger 불변). 전면 **fail-open**(신호 부재 → 진행 — Codex F1 사용자 수용).
+- **`hooks/ecc-context-monitor.js`** — L238 cost-write 블록에 격리 try/catch로 context-current.json best-effort stamp(subscription 무관 항상 write — Codex F3 정직화: 판정 byte-identical + 1회 telemetry write, 실패는 hook 진행 무영향).
+- **`commands/plan.md`·`commands/work.md`** — resolveFanout/resolveFleet 호출에 `subscriptionMode` + `contextStateRead` 주입.
+- **`hooks/session-start.js`** — subscription 활성 시 1줄 관측 배너(stderr, 종량제 무발화).
+- **`.claude-plugin/plugin.json`** — `1.20.15 → 1.20.16`(단일 milestone patch, §3.7).
+- **`CLAUDE.md`** — §4에 `MCCP_SUBSCRIPTION` + `MCCP_SUBSCRIPTION_OVERFLOW_*` 토글 문서화.
+
+### Notes
+
+- plan-codex R1: Codex verdict=needs-attention(HIGH 2 + MED 1). F1(fail-open 시 비싼 소비처 runaway guard 부재) 사용자 결정으로 수용(문서화된 위험 — fanout `MCCP_PLAN_FANOUT=on` 별도 opt-in + fleet `worktree-merge` gate로 N=1). F2(out-of-order)·F3(byte-identical) plan 흡수. Implement-Codex는 cross-gate dedupe 수렴.
+- 신호 신뢰도 + calibrated 2차 임계(tool/turn) + session sticky-critical은 M2 harness-cost 축으로 이연(`.claude/plans/codex-findings-backlog.md`).
 
 ## [1.20.15] — 2026-07-09
 

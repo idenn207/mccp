@@ -38,35 +38,16 @@
 'use strict';
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { ensureDir, appendFile, getClaudeDir } = require('../lib/utils');
 const { sanitizeSessionId } = require('../lib/session-bridge');
+// M2 Task 3 — the inline readHarnessCost was extracted verbatim to
+// ../lib/harness-cost (single validator, F4). Behavior is byte-identical:
+// same tmpdir path string, same finite/non-negative + [0, maxAge] age checks,
+// same null-on-miss/stale/corrupt. `os` is no longer needed here.
+const { readHarnessCost } = require('../lib/harness-cost');
 
 const HARNESS_COST_MAX_AGE_SECONDS = 300;
-
-/**
- * Read authoritative harness cost from the per-session cache file.
- * @param {string} sessionId
- * @param {number} maxAgeSeconds
- * @returns {number|null} cost in USD, or null on miss / stale / parse error
- */
-function readHarnessCost(sessionId, maxAgeSeconds) {
-  if (!sessionId) return null;
-  try {
-    const fp = path.join(os.tmpdir(), `harness-cost-${sessionId}.json`);
-    if (!fs.existsSync(fp)) return null;
-    const obj = JSON.parse(fs.readFileSync(fp, 'utf8'));
-    const ts = Number(obj && obj.ts);
-    const cost = Number(obj && obj.cost_usd);
-    if (!Number.isFinite(ts) || !Number.isFinite(cost) || cost < 0) return null;
-    const age = Math.floor(Date.now() / 1000) - ts;
-    if (age < 0 || age > maxAgeSeconds) return null;
-    return cost;
-  } catch {
-    return null;
-  }
-}
 
 // Approximate per-1M-token billing rates (USD).
 // Cache creation: 1.25x input rate. Cache read: 0.1x input rate.

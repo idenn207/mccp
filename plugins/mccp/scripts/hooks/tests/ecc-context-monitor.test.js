@@ -23,10 +23,16 @@ const path = require('path');
 const sessionBridge = require('../../lib/session-bridge');
 const costState = require('../../lib/cost-state');
 const contextState = require('../../lib/context-state');
+// M2 Task 7 — harness-cost (Axis A / F1) + state-writer (Axis B / F2) are
+// lazy-required inside run(), so their spies install after the hook require.
+const harnessCost = require('../../lib/harness-cost');
+const stateWriter = require('../../state/state-writer');
 
 const origReadBridge = sessionBridge.readBridge;
 const origWriteMerged = costState.writeStateMerged;
 const origWriteState = contextState.writeState;
+const origReadHarnessMeta = harnessCost.readHarnessCostMeta;
+const origStateUpdate = stateWriter.update;
 
 // readBridge mock — installed before the hook require so the destructured local
 // binding inside ecc-context-monitor picks it up. Returns a per-test fixture.
@@ -38,23 +44,34 @@ const monitor = require('../ecc-context-monitor');
 let mergedCalls;
 let ctxCalls;
 let ctxThrow;
+let harnessMeta;   // M2 — readHarnessCostMeta return value (null = cache miss)
+let stateUpdates;  // M2 — captured STATE.md patches
+
+// harness-cost readHarnessCostMeta is lazy-required in run(); the closure reads
+// the current harnessMeta (reset to null by installSpies each test).
+harnessCost.readHarnessCostMeta = function () { return harnessMeta; };
 
 function installSpies() {
   mergedCalls = [];
   ctxCalls = [];
   ctxThrow = false;
+  harnessMeta = null;
+  stateUpdates = [];
   costState.writeStateMerged = function (s) { mergedCalls.push(s); };
   contextState.writeState = function (input) {
     ctxCalls.push(input);
     if (ctxThrow) throw new Error('injected context write failure');
     return { ok: true };
   };
+  stateWriter.update = function (_root, patch) { stateUpdates.push(patch); };
 }
 
 test.after(() => {
   sessionBridge.readBridge = origReadBridge;
   costState.writeStateMerged = origWriteMerged;
   contextState.writeState = origWriteState;
+  harnessCost.readHarnessCostMeta = origReadHarnessMeta;
+  stateWriter.update = origStateUpdate;
 });
 
 // Healthy defaults → no warnings → run() returns rawInput (pass-through). Tests
@@ -140,4 +157,111 @@ test('Task 3 (e): no bridge → early return, no cost/context write attempted', 
   assert.equal(out, RAW);
   assert.equal(ctxCalls.length, 0, 'no context write on the no-bridge early-return path');
   assert.equal(mergedCalls.length, 0, 'no cost write on the no-bridge early-return path');
+});
+
+// ── M2 Task 7 — Axis A (harness-preferred cost + F1 freshness guard) + Axis B
+//    (threshold SoT + F2 comparator + STATE.md abort channel) ────────────────
+
+let ctxmSeq = 0;
+// Isolated run: unique session id + warn-state cleanup so the debounce file
+// (the only real FS write left after the spies) never leaks across tests.
+function runIsolated(over) {
+  const sid = 'ctxm-' + process.pid + '-' + (ctxmSeq++);
+  currentBridge = bridgeFixture(over);
+  const out = monitor.run(JSON.stringify({ session_id: sid }));
+  try { fs.unlinkSync(path.join(os.tmpdir(), 'ecc-ctx-warn-' + sid + '.json')); } catch { /* ignore */ }
+  return out;
+}
+function withThresholds(value, fn) {
+  const prev = process.env.MCCP_HANDOFF_THRESHOLDS_USD;
+  if (value === null) delete process.env.MCCP_HANDOFF_THRESHOLDS_USD;
+  else process.env.MCCP_HANDOFF_THRESHOLDS_USD = value;
+  try { fn(); } finally {
+    if (prev === undefined) delete process.env.MCCP_HANDOFF_THRESHOLDS_USD;
+    else process.env.MCCP_HANDOFF_THRESHOLDS_USD = prev;
+  }
+}
+
+test('Axis A (a): fresh harness cache (ts >= cost_sample_ts) drives cost-state + suppresses inflated bridge warning', () => {
+  withThresholds(null, () => {
+    installSpies();
+    harnessMeta = { cost_usd: 45, ts: 2000 };
+    const out = runIsolated({ total_cost_usd: 314, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    assert.equal(mergedCalls[0].cost_usd, 45, 'cost-state uses harness $45, not bridge $314');
+    assert.equal(mergedCalls[0].hard_ceiling_reached, false, 'harness $45 < critical 100');
+    assert.doesNotMatch(out, /COST/, 'no cost warning — bridge $314 alone would be CRITICAL');
+  });
+});
+
+test('Axis A (b): harness cache miss → bridge cost used (regression)', () => {
+  withThresholds(null, () => {
+    installSpies();
+    harnessMeta = null;
+    runIsolated({ total_cost_usd: 7, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    assert.equal(mergedCalls[0].cost_usd, 7);
+  });
+});
+
+test('F1: harness older than the last cost change (ts < cost_sample_ts) → bridge fallback (no under-protection)', () => {
+  withThresholds(null, () => {
+    installSpies();
+    harnessMeta = { cost_usd: 10, ts: 1000 };
+    runIsolated({ total_cost_usd: 90, cost_sample_ts: 2000, context_remaining_pct: 80 });
+    assert.equal(mergedCalls[0].cost_usd, 90, 'stale-vs-cost-change harness does not suppress the newer bridge cost');
+  });
+});
+
+test('Axis B (d): env override 500/800/1000 → $150 hard_ceiling false + tierFor green (fixes 100-hardcode bug)', () => {
+  withThresholds('500,800,1000', () => {
+    installSpies();
+    harnessMeta = null;
+    runIsolated({ total_cost_usd: 150, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    assert.equal(mergedCalls[0].cost_usd, 150);
+    assert.equal(mergedCalls[0].hard_ceiling_reached, false, '$150 < critical 1000 → no hard ceiling');
+    assert.equal(costState.tierFor(150), 'green', 'tier honors override → green');
+  });
+});
+
+test('F2: STATE.md abort channel honors override — no flip at $150 under 500/800/1000', () => {
+  withThresholds('500,800,1000', () => {
+    installSpies();
+    harnessMeta = null;
+    runIsolated({ total_cost_usd: 150, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    assert.equal(stateUpdates.length, 0, '$150 < warning 800 → STATE.md not flipped');
+  });
+});
+
+test('F2: STATE.md abort channel flips under default thresholds at $150 (regression)', () => {
+  withThresholds(null, () => {
+    installSpies();
+    harnessMeta = null;
+    runIsolated({ total_cost_usd: 150, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    assert.ok(stateUpdates.length >= 1, 'STATE.md updated under default thresholds');
+    const patch = stateUpdates[stateUpdates.length - 1];
+    assert.equal(patch.session_end_imminent, true, '$150 >= warning 80');
+    assert.equal(patch.chain_aborted, true, '$150 >= critical 100');
+  });
+});
+
+test('Axis B (f): default thresholds → $85 emits COST WARNING (severity unchanged)', () => {
+  withThresholds(null, () => {
+    installSpies();
+    harnessMeta = null;
+    const out = runIsolated({ total_cost_usd: 85, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    const parsed = JSON.parse(out);
+    assert.match(parsed.hookSpecificOutput.additionalContext, /COST WARNING/);
+  });
+});
+
+test('F2: exact critical boundary — tier, hard_ceiling, and STATE.md all agree at cost == critical', () => {
+  withThresholds('500,800,1000', () => {
+    installSpies();
+    harnessMeta = null;
+    runIsolated({ total_cost_usd: 1000, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    assert.equal(mergedCalls[0].hard_ceiling_reached, true, 'cost == critical (1000) → hard_ceiling true via >=');
+    assert.equal(costState.tierFor(1000), 'critical', 'tier critical at boundary');
+    const patch = stateUpdates[stateUpdates.length - 1];
+    assert.equal(patch.session_end_imminent, true);
+    assert.equal(patch.chain_aborted, true, 'chain_aborted agrees at the exact critical boundary');
+  });
 });

@@ -2,7 +2,25 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.21.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.21.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.21.2] — 2026-07-10
+
+**Harness-cost accuracy (`harness-cost-<sid>.json` writer)** — cost-model-subscription PRD M2. 부풀려진 가상 비용의 정확도 근원을 두 축으로 닫는다. **Axis A** — 번들 statusline 이 매 렌더마다 harness 실비(`cost.total_cost_usd`)를 per-session 캐시로 흘려보내는 **writer 를 배선**(소비 측 cost-tracker · ecc-context-monitor 는 이미 완비, 생산 측 공백을 채움). **Axis B** — `ecc-context-monitor.js` 의 로컬 `50/80/100` 하드코딩을 `cost-thresholds.js#getHandoffCostThresholds()` 로 통일해 `MCCP_HANDOFF_THRESHOLDS_USD` env override 가 tier · `hard_ceiling` · **STATE.md abort 채널**(`session_end_imminent`/`chain_aborted`) 전부에 도달. writer 미설치 커스텀 statusline 은 transcript-sum fallback 유지 — **회귀 0**.
+
+### Added
+
+- **`plugins/mccp/scripts/lib/harness-cost.js`** — dep-free 공용 계약. private `readHarnessCostRecord` 단일 validator(finite · 음수 · `[0,maxAge]` age 경계, stale·future 모두 reject) 위의 얇은 adapter `readHarnessCost`(number) / `readHarnessCostMeta`({cost_usd, ts}) + best-effort atomic `writeHarnessCost`.
+- **`docs/harness-cost-contract.md`** — `harness-cost-<sid>.json` 스키마 + 커스텀 statusline opt-in chaining 스니펫(비강제) + fallback=transcript-sum 명시(OQ3 답변).
+- **테스트** — `lib/tests/harness-cost.test.js`(round-trip · stale/future/corrupt/negative · F4 parity · tmp leak) + `hooks/tests/ecc-statusline.test.js`(writer 호출/무호출/격리 · F3 display) + `hooks/tests/ecc-metrics-bridge.test.js`(cost_sample_ts bump-on-change).
+
+### Changed
+
+- **`ecc-statusline.js`** — `renderStatusline`/`extractHarnessCost` 추출 + harness-cost writer 배선(별도 try/catch, 출력 절대 불차단) + **F3** 표시 소스를 live harness cost 우선(부재 시 bridge fallback).
+- **`ecc-context-monitor.js`** — **Axis A** harness-preferred cost(`resolveSessionCost`) + **F1** freshness guard(harness ts vs `bridge.cost_sample_ts`, epoch초 동일단위 — 폐기된 `last_timestamp` ISO 비교 대체) + **Axis B/F2** 로컬 상수 제거·전 usage 를 `>=` per-call threshold 로 통일(tier · hardCeiling · STATE.md).
+- **`ecc-metrics-bridge.js`** — **F1** cost 값 변경 시에만 numeric `cost_sample_ts`(epoch초) stamp.
+- **`cost-tracker.js`** — inline `readHarnessCost` 를 lib import 로 대체(byte-identical dedupe, `os` require 제거).
+- Implement-Codex R1: HIGH 1(freshness guard) + MEDIUM 3(comparator · statusline 렌더 · 단일 validator) 전건 구현-시점 흡수 → converged.
 
 ## [1.21.1] — 2026-07-10
 

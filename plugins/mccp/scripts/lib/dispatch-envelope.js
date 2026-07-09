@@ -293,6 +293,65 @@ function markStatus(envelopePath, status, opts) {
   return write(envelopePath, updated);
 }
 
+// seedEnvelope(envelopePath, opts) → { ok, created, error }
+//
+// workflow-orchestration M4 — worker-side idempotent envelope seed. Task 0
+// (2026-07-09, Workflow run wf_1f689994-fb8) PROVED that a fresh
+// isolation:'worktree' worker has NO `.claude/state/dispatches/` dir at all: it
+// is gitignored, so the clean `git worktree add` checkout never copies the
+// parent's placeholder envelope. Without a pre-existing envelope the worker's
+// terminal markStatus fails ENOENT (read() pre-read) and buildWorktreeMap cannot
+// correlate the worktree by its envelope filename. The worker therefore seeds its
+// OWN envelope as a FIRST STEP: seedEnvelope atomic-writes a valid PENDING
+// envelope when the file is ABSENT, and is a strict NO-OP when a file already
+// exists (a harness that copied the working tree, or a re-seed) so it never
+// clobbers a marked terminal envelope. Existence — NOT validity — gates the
+// no-op (mirrors the plan's "존재 시 no-op"); a live terminal envelope must never
+// be reset to pending.
+function seedEnvelope(envelopePath, opts) {
+  opts = opts || {};
+  if (typeof envelopePath !== 'string' || envelopePath.length === 0) {
+    return { ok: false, created: false, error: 'envelopePath must be a non-empty string' };
+  }
+  const dispatchId = opts.dispatchId;
+  if (typeof dispatchId !== 'string' || !UUID_RE.test(dispatchId)) {
+    return { ok: false, created: false, error: 'dispatchId must be a UUID matching ' + UUID_RE };
+  }
+  const controllerSessionId = opts.controllerSessionId;
+  if (typeof controllerSessionId !== 'string' || !UUID_RE.test(controllerSessionId)) {
+    return { ok: false, created: false, error: 'controllerSessionId must be a UUID matching ' + UUID_RE };
+  }
+
+  // Idempotent: an existing file (pending OR terminal OR even unparseable) is a
+  // NO-OP — never clobber. Existence, not validity, gates the seed.
+  let exists = false;
+  try { exists = fs.existsSync(envelopePath); } catch (_) { exists = false; }
+  if (exists) {
+    return { ok: true, created: false, error: null };
+  }
+
+  const parentCwd = (typeof opts.parentCwd === 'string' && opts.parentCwd.length > 0)
+    ? opts.parentCwd : process.cwd();
+  const pending = {
+    schema_version: SCHEMA_VERSION,
+    dispatch_id: dispatchId,
+    worker_subagent_type: (typeof opts.workerSubagentType === 'string' && opts.workerSubagentType.length > 0)
+      ? opts.workerSubagentType : 'general-purpose',
+    worker_started_at: (typeof opts.workerStartedAt === 'string' && ISO8601_RE.test(opts.workerStartedAt))
+      ? opts.workerStartedAt : nowIso(),
+    worker_ended_at: null,
+    worker_exit_status: 'pending',
+    receipts_added: [],
+    findings: [],
+    next_action: null,
+    controller_session_id: controllerSessionId,
+    parent_cwd: parentCwd,
+  };
+  const w = write(envelopePath, pending);
+  if (!w.ok) return { ok: false, created: false, error: w.error };
+  return { ok: true, created: true, error: null };
+}
+
 module.exports = {
   SCHEMA_VERSION: SCHEMA_VERSION,
   WORKER_EXIT_STATUSES: WORKER_EXIT_STATUSES,
@@ -305,4 +364,5 @@ module.exports = {
   read: read,
   write: write,
   markStatus: markStatus,
+  seedEnvelope: seedEnvelope,
 };

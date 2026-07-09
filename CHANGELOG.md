@@ -2,7 +2,29 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.20.15`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.21.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.21.0] — 2026-07-09
+
+**workflow-orchestration M4 — 병렬 활성화 (worktree-merge live).** PRD `workflow-orchestration`의 마지막 milestone. M2b/M3가 build+unit-test로 완비하되 cost hard-ceiling으로 미실측이던 **live harness 상관(Workflow worktree↔dispatchId)**을 Task 0 live dogfood로 empirical 입증하고, `merge_strategy` default를 `disable-parallel`→`worktree-merge`로 flip해 N-worker 병렬 implement를 해금한다. PRD 전체 완료 → minor bump. cost guard 3중(PARALLEL=1 opt-in · cost-state fail-closed · tier autoDisable)은 무변경 — default flip은 구조적 merge_strategy gate만 열 뿐 비용/opt-in gate는 유지.
+
+### Added
+
+- **`plugins/mccp/scripts/lib/dispatch-envelope.js` `seedEnvelope(envelopePath, opts)`** — worker-side idempotent envelope seed. Task 0(run wf_1f689994-fb8)가 입증: fresh `isolation:'worktree'` worker는 `.claude/state/dispatches/`가 gitignored라 parent placeholder 미복사 → 부재 시 terminal `mark`가 ENOENT. seed가 부재 시 pending envelope를 atomic 생성(존재 시 no-op — 마킹된 terminal 절대 미clobber)해 collect-worktrees가 worktree를 envelope 파일명으로 correlate하게 한다.
+- **`plugins/mccp/scripts/lib/dispatch-cli.js` `seed-envelope` 서브커맨드 + `resolveEnvelopePathForWorktree`** — worker가 first-step으로 자기 worktree에 seed. Codex F2: repo-relative envelope 경로를 CWD가 아니라 worktree 루트(`git rev-parse --show-toplevel`) 기준 resolve + 하위 assert(subdir CWD·`..` escape 방어). `buildImplementWorkerBasePrompt`가 partition worker에게 seed first-step 주입.
+
+### Changed
+
+- **reconcile terminal envelope worktree-read (Task 2)** — `cmdReconcileFleet`이 `--worktree-map` 제공 시 각 worker terminal envelope를 `<worktree>/.claude/state/dispatches/<id>.envelope.json`에서 읽는다(worker가 in-worktree seed→mark하므로 parent placeholder는 stale pending 잔존 → parent read는 오탐 mismatch). map 부재 시 parent fallback(단일/back-compat).
+- **merge-apply patches-out rollback hole 폐쇄 (Codex F1)** — `cmdMergeApply`가 apply 성공 후 `patches-out` write 실패 시 이미 적용된 patch를 `rollbackApplied`로 즉시 역적용해 parent를 복원("merge-apply 실패=parent clean" 계약 실장; patch-scoped only, F4 — 광범위 checkout/clean 금지).
+- **collectChangedFiles `--untracked-files=all` (live dogfood-surfaced)** — default `--porcelain`가 untracked 신규 디렉토리를 `dir/`로 축약해 file-level partition과 false partition-escape → `-uall`로 개별 파일 열거(worktree-merge collectWorkerDiff와 일치).
+- **`plugins/mccp/commands/work.md`** — Step 3.prep-parallel `MCCP_WORK_MERGE_STRATEGY` default `disable-parallel`→`worktree-merge`. gate-parallel reconcile worktree-envelope read 문서화. 활성화 노트로 갱신.
+- **`plugins/mccp/scripts/lib/implement-dispatch/budget.js`** — Decision-order 주석을 M4 default flip에 동기(상수 `ENABLING_MERGE_STRATEGY='worktree-merge'` 무변경).
+- **`CLAUDE.md` §1.4 + §4 / PRD Delivery Milestones / renderer footer** — v1.21.0 동기. PRD M4 complete + M2/M3 gated 축 종료.
+
+### Tests
+
+- `plugins/mccp/scripts/lib/tests/dispatch-cli.test.js` — seed-envelope(생성/no-op/terminal 미clobber/reject) · F2 worktree-root resolve(subdir·escape·absolute passthrough) · worker prompt seed first-step(partition 有/단일 無) · reconcile worktree-read(pending parent → ok, no false mismatch) · merge-apply F1 patches-out 실패 rollback(parent clean) · collectChangedFiles `-uall`(신규 디렉토리 파일 열거). 전체 회귀 그린.
 
 ## [1.20.15] — 2026-07-09
 

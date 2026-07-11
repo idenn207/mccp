@@ -747,5 +747,6 @@ MCCP_RENDER_LOCK_LEASE_MS=90000          # default. `.claude/cache/.render.lock`
 5. `docs/v1.3.0-observability/schema-surface.md` — receipt + envelope + STATE.md frontmatter의 read-side schema surface 표준. derive 가정에 의문 생기면 여기부터. PRD ↔ code 식별자 매핑은 `docs/v1.3.0-observability/state-md-naming-reconciliation.md`.
 6. `plugins/mccp/scripts/derive/index.js` — `.claude/` 통합 model derive 진입점 (9 source + 6 correlation kinds). M0 schema-surface.md 가정 동기. `node plugins/mccp/scripts/derive/cli.js run --json` 으로 즉시 호출 가능.
 7. `plugins/mccp/scripts/lib/renderer/index.js` — v1.3.0-m3 STATUS.md + status.html renderer 진입점 (consumes M1 derive + M2 briefing fields, produces PM dashboard surface). `docs/v1.3.0-observability/dashboard-surface.md` 가 canonical spec. `node plugins/mccp/scripts/derive/cli.js render` 으로 즉시 호출 가능 (`.claude/cache/` 에 산출).
+8. `docs/harness-cost-contract.md` — v1.21.2(cost-model-subscription M2 Axis A) `harness-cost-<sid>.json` 캐시 계약. `plugins/mccp/scripts/lib/harness-cost.js` 가 SoT(단일 validator + writer). 번들 statusline 이 harness 실비를 stamp → cost-tracker · ecc-context-monitor 가 소비. 커스텀 statusline writer 는 opt-in·비강제(fallback=transcript-sum). Axis B(threshold SoT)는 `MCCP_HANDOFF_THRESHOLDS_USD` 를 hard_ceiling·STATE.md abort 채널까지 도달시켜 env 즉효완화가 절반만 먹던 leak 봉인.
 
 새 패턴/관행이 정해지면 memory에 저장하기 전에 이 CLAUDE.md에 반영할지 먼저 검토하세요. 프로젝트 단위 룰은 여기가 더 안정적입니다.

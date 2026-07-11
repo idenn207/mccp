@@ -236,7 +236,20 @@ function run(rawInput) {
 
     // Update cost from costs.jsonl tail
     const costs = readSessionCost(sessionId);
-    bridge.total_cost_usd = Math.round(costs.totalCost * 1e6) / 1e6;
+    const newCost = Math.round(costs.totalCost * 1e6) / 1e6;
+    const prevCost = Number.isFinite(bridge.total_cost_usd) ? bridge.total_cost_usd : 0;
+    // M2 F1 (Implement-Codex) — stamp a numeric cost-sample timestamp (epoch
+    // SECONDS, same unit as the harness cache ts) only when the cost VALUE
+    // changes, not on every re-read. ecc-context-monitor's freshness guard
+    // compares the harness snapshot ts against this to decide whether to trust
+    // the accurate harness cost. Bumping every PostToolUse (like last_timestamp,
+    // an ISO activity marker) would make the harness always look older and
+    // defeat Axis A. The !Number.isFinite clause seeds the field once on a
+    // legacy/first bridge so downstream comparisons have a concrete value.
+    if (newCost !== prevCost || !Number.isFinite(bridge.cost_sample_ts)) {
+      bridge.cost_sample_ts = Math.floor(Date.now() / 1000);
+    }
+    bridge.total_cost_usd = newCost;
     bridge.total_input_tokens = costs.totalIn;
     bridge.total_output_tokens = costs.totalOut;
 

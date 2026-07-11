@@ -14,17 +14,18 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { sanitizeSessionId, readBridge, renameWithRetry } = require('../lib/session-bridge');
+const { getHandoffCostThresholds } = require('../lib/cost-thresholds');
 
 const CONTEXT_WARNING_PCT = 35;
 const CONTEXT_CRITICAL_PCT = 25;
-// Thresholds raised to match v0.2 plan §"Auto-handoff (cost 기반)" target
-// (50 notice / 80 soft handoff / 100 hard ceiling). The legacy 5/10/50 values
-// were calibrated for ECC's lighter sessions and trigger constant noise on
-// mccp's heavier workflows. S10b will wire actual auto-handoff at these
-// boundaries; for now the constants just suppress premature warnings.
-const COST_NOTICE_USD = 50;
-const COST_WARNING_USD = 80;
-const COST_CRITICAL_USD = 100;
+// M2 Axis B — the 50/80/100 cost thresholds now live solely in
+// cost-thresholds.js (getHandoffCostThresholds), read per-call so
+// MCCP_HANDOFF_THRESHOLDS_USD reaches the cost warnings, the hard-ceiling
+// calculation, AND the STATE.md abort channel. Removing the local constants
+// forces every usage through the single env-honoring source of truth, and the
+// comparator is unified to >= (matching cost-state.tierFor) so tier,
+// hard_ceiling, and STATE.md flips agree at the exact threshold (F2).
+const HARNESS_COST_MAX_AGE_SECONDS = 300;
 const FILES_WARNING_COUNT = 20;
 const LOOP_THRESHOLD = 3;
 const STALE_SECONDS = 60;
@@ -153,11 +154,13 @@ function evaluateConditions(bridge, options = {}) {
     }
   }
 
-  // Cost warnings
+  // Cost warnings — M2 Axis B/F2: per-call thresholds (env-honoring) + >=
+  // comparator so severity boundaries agree with cost-state.tierFor().
   if (options.costWarnings !== false) {
     const cost = bridge.total_cost_usd || 0;
+    const t = getHandoffCostThresholds();
     const notifyOnly = options.costNotifyOnly === true;
-    if (cost > COST_CRITICAL_USD) {
+    if (cost >= t.critical) {
       warnings.push({
         severity: 3,
         type: 'cost',
@@ -165,7 +168,7 @@ function evaluateConditions(bridge, options = {}) {
           ? `COST CRITICAL: Session cost is $${cost.toFixed(2)}.`
           : `COST CRITICAL: Session cost is $${cost.toFixed(2)}. ` + 'Stop and inform the user about high cost before continuing.'
       });
-    } else if (cost > COST_WARNING_USD) {
+    } else if (cost >= t.warning) {
       warnings.push({
         severity: 2,
         type: 'cost',
@@ -173,7 +176,7 @@ function evaluateConditions(bridge, options = {}) {
           ? `COST WARNING: Session cost is $${cost.toFixed(2)}.`
           : `COST WARNING: Session cost is $${cost.toFixed(2)}. ` + 'Review whether the current approach justifies the expense.'
       });
-    } else if (cost > COST_NOTICE_USD) {
+    } else if (cost >= t.notice) {
       warnings.push({
         severity: 1,
         type: 'cost',
@@ -217,6 +220,38 @@ function severityLabel(n) {
 }
 
 /**
+ * Resolve the authoritative session cost for this PostToolUse (M2 Axis A).
+ *
+ * Prefer the harness cache (real per-process billed cost) over the bridge's
+ * costs.jsonl-derived value, which is refreshed only at Stop and can be
+ * stale/inflated mid-burst. Freshness guard (Implement-Codex F1): trust the
+ * harness snapshot only when its cost-sample ts is at least as recent as the
+ * bridge's last cost CHANGE (`cost_sample_ts`, epoch seconds). A bridge with a
+ * newer cost sample may reflect a spike the statusline render missed → fall
+ * back to the bridge value (fail-safe: bias toward gate protection). Both sides
+ * are epoch seconds — no ISO/epoch type mismatch (the discarded `last_timestamp`
+ * guard compared epoch to an ISO string and keyed off tool activity, which made
+ * the harness always look older and defeated Axis A). Cache miss / absent
+ * harness → bridge value (regression-preserving).
+ *
+ * @param {object} bridge
+ * @param {string} sessionId
+ * @returns {number} resolved cost in USD
+ */
+function resolveSessionCost(bridge, sessionId) {
+  const bridgeCost = Number.isFinite(bridge.total_cost_usd) ? bridge.total_cost_usd : 0;
+  let harness = null;
+  try {
+    harness = require('../lib/harness-cost').readHarnessCostMeta(sessionId, HARNESS_COST_MAX_AGE_SECONDS);
+  } catch {
+    harness = null;
+  }
+  if (!harness) return bridgeCost;
+  const bridgeCostTs = Number.isFinite(bridge.cost_sample_ts) ? bridge.cost_sample_ts : 0;
+  return harness.ts >= bridgeCostTs ? harness.cost_usd : bridgeCost;
+}
+
+/**
  * @param {string} rawInput - Raw JSON string from stdin
  * @returns {string} JSON output with additionalContext or pass-through
  */
@@ -231,13 +266,21 @@ function run(rawInput) {
     const bridge = readBridge(sessionId);
     if (!bridge) return rawInput;
 
+    // M2 Axis A — resolve the authoritative cost (harness-preferred, fresh)
+    // once and reuse it for cost-state, the hard-ceiling + STATE.md abort
+    // channels, and the agent-facing cost warnings so every surface converges
+    // on real billed cost.
+    const cost = resolveSessionCost(bridge, sessionId);
+
     // v0.2.2 Task 7 — write canonical cost-current.json on every toolCall
     // so auto-chain.js can read fresh, monotonic telemetry. Writes are
     // monotonic (R2#1): hard_ceiling_reached + cost_usd are sticky.
     // Best-effort: a write failure must NOT block the user's PostToolUse hook.
     try {
-      const cost = bridge.total_cost_usd || 0;
-      const hardCeiling = cost > COST_CRITICAL_USD;
+      // M2 Axis B/F2 — per-call thresholds (env-honoring) + >= comparator so
+      // hard_ceiling and the STATE.md channel agree with cost-state.tierFor().
+      const t = getHandoffCostThresholds();
+      const hardCeiling = cost >= t.critical;
       const costState = require('../lib/cost-state');
       costState.writeStateMerged({
         cost_usd: cost,
@@ -259,9 +302,12 @@ function run(rawInput) {
         });
       } catch (_ctxErr) { /* swallow context telemetry write errors */ }
 
-      // v0.2.2 Task 7 — also flip STATE.md session_end_imminent ($80) and
-      // chain_aborted ($100) so auto-chain.js's second channel agrees.
-      if (cost > COST_WARNING_USD) {
+      // v0.2.2 Task 7 — also flip STATE.md session_end_imminent (warning tier)
+      // and chain_aborted (critical tier) so auto-chain.js's second channel
+      // agrees. M2 Axis B/F2 — >= t.warning routes the MCCP_HANDOFF_THRESHOLDS_USD
+      // override into this abort channel too (previously hard-coded via the
+      // $80 local constant, which env override could not move).
+      if (cost >= t.warning) {
         try {
           const stateWriter = require('../state/state-writer');
           const path = require('path');
@@ -288,8 +334,12 @@ function run(rawInput) {
     const lastTs = bridge.last_timestamp ? Math.floor(new Date(bridge.last_timestamp).getTime() / 1000) : 0;
     const isStale = lastTs > 0 && now - lastTs > STALE_SECONDS;
 
-    // If bridge is stale, null out context data (still check cost/scope/loop)
-    const evalBridge = isStale ? { ...bridge, context_remaining_pct: null } : bridge;
+    // If bridge is stale, null out context data (still check cost/scope/loop).
+    // M2 Axis A — inject the resolved cost so the cost warnings fire on real
+    // billed cost, not the bridge's stale/inflated value.
+    const evalBridge = isStale
+      ? { ...bridge, context_remaining_pct: null, total_cost_usd: cost }
+      : { ...bridge, total_cost_usd: cost };
 
     const warnings = evaluateConditions(evalBridge, {
       costWarnings: costWarningsEnabled(),

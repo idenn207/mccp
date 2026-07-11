@@ -85,6 +85,108 @@ function readCurrentTask(sessionId) {
   }
 }
 
+/**
+ * Extract the authoritative harness cost from the statusLine stdin payload.
+ * Claude Code passes `cost.total_cost_usd` (per-process billed truth). Returns
+ * a finite non-negative number, or null when absent/invalid (older harness or
+ * missing field) so callers fall back to the bridge value.
+ * @param {object} data
+ * @returns {number|null}
+ */
+function extractHarnessCost(data) {
+  const c = data && data.cost && data.cost.total_cost_usd;
+  return (typeof c === 'number' && Number.isFinite(c) && c >= 0) ? c : null;
+}
+
+/**
+ * Render the statusline string from the parsed stdin payload.
+ *
+ * Side effects (both best-effort, each isolated so neither blocks the render):
+ *   1. writes context_remaining_pct back to the bridge for context-monitor;
+ *   2. persists the authoritative harness cost to the per-session cache
+ *      (M2 Axis A) so cost-tracker + context-monitor read real billed cost.
+ *
+ * Cost display (Implement-Codex F3): prefer the live harness cost when present,
+ * else fall back to the bridge's costs.jsonl-derived value (which is refreshed
+ * only at Stop and can be stale/inflated mid-burst).
+ *
+ * @param {object} data - parsed statusLine stdin JSON
+ * @returns {string} the rendered statusline
+ */
+function renderStatusline(data) {
+  const model = data.model?.display_name || 'Claude';
+  const dir = data.workspace?.current_dir || process.cwd();
+  const session = data.session_id || '';
+  const remaining = data.context_window?.remaining_percentage;
+
+  const sessionId = sanitizeSessionId(session);
+  const bridge = sessionId ? readBridge(sessionId) : null;
+
+  // Write context % back to bridge for context-monitor
+  if (sessionId && bridge && remaining !== null && remaining !== undefined) {
+    bridge.context_remaining_pct = remaining;
+    try {
+      writeBridgeAtomic(sessionId, bridge);
+    } catch {
+      /* best effort */
+    }
+  }
+
+  // M2 Task 4 \u2014 persist authoritative harness cost. Own try/catch: a write
+  // failure must NEVER block the render (the return below).
+  const harnessCost = extractHarnessCost(data);
+  if (sessionId && harnessCost !== null) {
+    try {
+      require('../lib/harness-cost').writeHarnessCost(sessionId, harnessCost);
+    } catch {
+      /* best effort \u2014 cost cache write never blocks the statusline */
+    }
+  }
+
+  // Current task
+  const task = sessionId ? readCurrentTask(sessionId) : '';
+
+  // Metrics \u2014 F3: prefer the live harness cost for the $ figure, fall back to
+  // the bridge's Stop-derived value. tool/file/duration remain bridge-sourced.
+  const displayCost = harnessCost !== null
+    ? harnessCost
+    : (bridge && Number.isFinite(bridge.total_cost_usd) ? bridge.total_cost_usd : 0);
+  const parts = [];
+  if (displayCost > 0) {
+    parts.push(`$${displayCost.toFixed(2)}`);
+  }
+  if (bridge) {
+    if (bridge.tool_count > 0) {
+      parts.push(`${bridge.tool_count}t`);
+    }
+    if (bridge.files_modified_count > 0) {
+      parts.push(`${bridge.files_modified_count}f`);
+    }
+    const dur = formatDuration(bridge.first_timestamp);
+    if (dur !== '?') {
+      parts.push(dur);
+    }
+  }
+  const metricsStr = parts.length > 0 ? `\x1b[38;5;117m${parts.join(' ')}\x1b[0m` : '';
+
+  // Context bar
+  const ctx = buildContextBar(remaining);
+
+  // Build output
+  const dirname = path.basename(dir);
+  const segments = [`\x1b[2m${model}\x1b[0m`];
+
+  if (task) {
+    segments.push(`\x1b[1;97m${task}\x1b[0m`);
+  }
+  if (metricsStr) {
+    segments.push(metricsStr);
+  }
+  segments.push(`\x1b[2m${dirname}\x1b[0m`);
+
+  return segments.join(' \x1b[2m\u2502\x1b[0m ') + ctx;
+}
+
 function runStatusline() {
   let input = '';
   const stdinTimeout = setTimeout(() => process.exit(0), 3000);
@@ -98,71 +200,13 @@ function runStatusline() {
     clearTimeout(stdinTimeout);
     try {
       const data = JSON.parse(input);
-      const model = data.model?.display_name || 'Claude';
-      const dir = data.workspace?.current_dir || process.cwd();
-      const session = data.session_id || '';
-      const remaining = data.context_window?.remaining_percentage;
-
-      const sessionId = sanitizeSessionId(session);
-      const bridge = sessionId ? readBridge(sessionId) : null;
-
-      // Write context % back to bridge for context-monitor
-      if (sessionId && bridge && remaining !== null && remaining !== undefined) {
-        bridge.context_remaining_pct = remaining;
-        try {
-          writeBridgeAtomic(sessionId, bridge);
-        } catch {
-          /* best effort */
-        }
-      }
-
-      // Current task
-      const task = sessionId ? readCurrentTask(sessionId) : '';
-
-      // Metrics from bridge
-      let metricsStr = '';
-      if (bridge) {
-        const parts = [];
-        if (bridge.total_cost_usd > 0) {
-          parts.push(`$${bridge.total_cost_usd.toFixed(2)}`);
-        }
-        if (bridge.tool_count > 0) {
-          parts.push(`${bridge.tool_count}t`);
-        }
-        if (bridge.files_modified_count > 0) {
-          parts.push(`${bridge.files_modified_count}f`);
-        }
-        const dur = formatDuration(bridge.first_timestamp);
-        if (dur !== '?') {
-          parts.push(dur);
-        }
-        if (parts.length > 0) {
-          metricsStr = `\x1b[38;5;117m${parts.join(' ')}\x1b[0m`;
-        }
-      }
-
-      // Context bar
-      const ctx = buildContextBar(remaining);
-
-      // Build output
-      const dirname = path.basename(dir);
-      const segments = [`\x1b[2m${model}\x1b[0m`];
-
-      if (task) {
-        segments.push(`\x1b[1;97m${task}\x1b[0m`);
-      }
-      if (metricsStr) {
-        segments.push(metricsStr);
-      }
-      segments.push(`\x1b[2m${dirname}\x1b[0m`);
-
-      process.stdout.write(segments.join(' \x1b[2m\u2502\x1b[0m ') + ctx);
+      process.stdout.write(renderStatusline(data));
     } catch {
       // Silent fail
     }
   });
 }
 
-module.exports = { formatDuration, buildContextBar, readCurrentTask, MAX_STDIN };
+module.exports = { formatDuration, buildContextBar, readCurrentTask, extractHarnessCost, renderStatusline, MAX_STDIN };
 
 if (require.main === module) runStatusline();

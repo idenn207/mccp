@@ -18,6 +18,13 @@ const { getHandoffCostThresholds } = require('../lib/cost-thresholds');
 
 const CONTEXT_WARNING_PCT = 35;
 const CONTEXT_CRITICAL_PCT = 25;
+// cost-model-subscription M3 (Axis 2, IF1) — events that pair with
+// chain_aborted=true AND write their own last_event. These are the ONLY
+// non-cost abort producers (plan-conflict escalation + dispatch abort); the
+// cost producer never sets an event, so a markerless chain_aborted whose
+// last_event is OUTSIDE this set is cost-origin. The legacy sweep must NOT
+// clear plan_conflict_escalated / dispatch aborts (Codex Impl-R1 IF1).
+const NON_COST_ABORT_EVENTS = new Set(['plan_conflict_escalated', 'dispatch_chain_aborted']);
 // M2 Axis B — the 50/80/100 cost thresholds now live solely in
 // cost-thresholds.js (getHandoffCostThresholds), read per-call so
 // MCCP_HANDOFF_THRESHOLDS_USD reaches the cost warnings, the hard-ceiling
@@ -252,6 +259,24 @@ function resolveSessionCost(bridge, sessionId) {
 }
 
 /**
+ * Resolve the repo root by walking up from a cwd until a `.git` entry is found.
+ * Shared by the STATE.md SET and decay-clear/sweep paths (M3 Axis 2 — the
+ * inline walk was duplicated). Returns null when no repo root is found.
+ * @param {string} cwd
+ * @returns {string|null}
+ */
+function resolveRepoRoot(cwd) {
+  let dir = cwd || process.cwd();
+  for (let i = 0; i < 12; i++) {
+    if (fs.existsSync(path.join(dir, '.git'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+  return dir;
+}
+
+/**
  * @param {string} rawInput - Raw JSON string from stdin
  * @returns {string} JSON output with additionalContext or pass-through
  */
@@ -271,6 +296,14 @@ function run(rawInput) {
     // channels, and the agent-facing cost warnings so every surface converges
     // on real billed cost.
     const cost = resolveSessionCost(bridge, sessionId);
+
+    // M3 Axis 2 (IF2) — compute bridge freshness ONCE, before the STATE.md
+    // producer, so a stale bridge context is treated as signal-unknown by the
+    // subscription abort channel (old telemetry must not stamp a persistent
+    // abort). Reused below by the context-warning null-out (same staleness).
+    const nowSec = Math.floor(Date.now() / 1000);
+    const lastTs = bridge.last_timestamp ? Math.floor(new Date(bridge.last_timestamp).getTime() / 1000) : 0;
+    const isStale = lastTs > 0 && nowSec - lastTs > STALE_SECONDS;
 
     // v0.2.2 Task 7 — write canonical cost-current.json on every toolCall
     // so auto-chain.js can read fresh, monotonic telemetry. Writes are
@@ -302,38 +335,97 @@ function run(rawInput) {
         });
       } catch (_ctxErr) { /* swallow context telemetry write errors */ }
 
-      // v0.2.2 Task 7 — also flip STATE.md session_end_imminent (warning tier)
-      // and chain_aborted (critical tier) so auto-chain.js's second channel
-      // agrees. M2 Axis B/F2 — >= t.warning routes the MCCP_HANDOFF_THRESHOLDS_USD
-      // override into this abort channel too (previously hard-coded via the
-      // $80 local constant, which env override could not move).
-      if (cost >= t.warning) {
-        try {
-          const stateWriter = require('../state/state-writer');
-          const path = require('path');
-          // Locate repo root from PostToolUse cwd (input.cwd or process.cwd)
-          const cwd = input.cwd || process.cwd();
-          let repoRoot = cwd;
-          for (let i = 0; i < 12; i++) {
-            if (require('fs').existsSync(require('path').join(repoRoot, '.git'))) break;
-            const parent = path.dirname(repoRoot);
-            if (parent === repoRoot) { repoRoot = null; break; }
-            repoRoot = parent;
+      // v0.2.2 Task 7 + M3 Axis 2 — STATE.md auto-chain channel. This block now
+      // runs on EVERY PostToolUse (not just high cost) so it can RELEASE a
+      // stale/cost-origin chain_aborted once cost has decayed to green — a once-
+      // spiked cost must not lock auto-chain forever (F3). SET is subscription-
+      // aware (F2): metered flips on USD tiers, subscription flips on the context
+      // overflow axis (never on stale USD). Isolated try/catch — a STATE.md
+      // failure must not affect the cost/context writes or hook progress.
+      try {
+        const subscription = require('../lib/subscription');
+        const stateWriter = require('../state/state-writer');
+        const repoRoot = resolveRepoRoot(input.cwd || process.cwd());
+        if (repoRoot && typeof stateWriter.update === 'function') {
+          const decayMs = costState.parseDecayMs(process.env);
+          const subMode = subscription.isSubscriptionMode(process.env);
+
+          // IF2 — a stale bridge sample is signal-unknown for the STATE.md
+          // producer; old context telemetry must not stamp a persistent abort.
+          // metered uses harness-preferred `cost` and is unaffected by staleness.
+          const ctxPct = isStale ? null : bridge.context_remaining_pct;
+          const toolCount = isStale ? null : bridge.tool_count;
+
+          let setSessionEnd = false;
+          let setChainAborted = false;
+          let costNormal = false; // mode-appropriate "cost is not critical now"
+          if (subMode) {
+            const of = subscription.evaluateOverflow({
+              contextRemainingPct: ctxPct,
+              toolCount: toolCount,
+              thresholds: subscription.parseOverflowThresholds(process.env),
+            });
+            setSessionEnd = of.tier === 'warning' || of.tier === 'critical';
+            setChainAborted = of.tier === 'critical';
+            costNormal = of.tier !== 'critical';
+          } else {
+            setSessionEnd = cost >= t.warning;
+            setChainAborted = hardCeiling; // cost >= t.critical
+            costNormal = cost < t.critical;
           }
-          if (repoRoot && typeof stateWriter.update === 'function') {
-            const patch = { session_end_imminent: true };
-            if (hardCeiling) patch.chain_aborted = true;
+
+          if (setChainAborted) {
+            // SET (F2 provenance) — stamp cost ownership + marker WITH the flag so
+            // the decay-clear can later attribute + release it.
+            const patch = { chain_aborted: true, abort_owner: 'cost', cost_abort_at: new Date().toISOString() };
+            if (setSessionEnd) patch.session_end_imminent = true;
             try { stateWriter.update(repoRoot, patch); } catch { /* swallow */ }
+          } else {
+            // Not aborting this call. Set the soft signal if warranted, AND try to
+            // release a stale/cost-origin chain_aborted (decay-clear + legacy
+            // sweep). decayMs===null (kill switch) disables both release paths.
+            const patch = {};
+            if (setSessionEnd) patch.session_end_imminent = true;
+            if (decayMs !== null && costNormal) {
+              try {
+                const st = stateWriter.readState(repoRoot);
+                const fm = (st && st.frontmatter) || {};
+                const noActiveDispatch = !fm.active_dispatch_count && !fm.dispatch_id;
+                if (fm.chain_aborted === true && noActiveDispatch) {
+                  const markerAgeOk = fm.cost_abort_at &&
+                    (Date.now() - Date.parse(fm.cost_abort_at) > decayMs);
+                  if (fm.abort_owner === 'cost' && markerAgeOk) {
+                    // Decay-clear (F3) — 4-way stable AND: cost owns the flag ∧
+                    // marker older than the decay window ∧ cost normal now ∧ no
+                    // active dispatch. Never touches a dispatch/precompact abort.
+                    patch.chain_aborted = false;
+                    patch.abort_owner = null;
+                    patch.cost_abort_at = null;
+                    process.stderr.write('[mccp:cost-decay] stale cost chain_aborted decay-cleared (marker age > ' +
+                      Math.round(decayMs / 3600000) + 'h)\n');
+                  } else if (!fm.abort_owner && !fm.cost_abort_at &&
+                             costState.readState().threshold_tier === 'green' &&
+                             !NON_COST_ABORT_EVENTS.has(fm.last_event)) {
+                    // Legacy sweep (F3 legacy + IF1) — a markerless chain_aborted
+                    // with a non-abort last_event is cost-origin (the cost path
+                    // never writes last_event; the two abort events DO and are
+                    // excluded). Requires decayed cost-state green.
+                    patch.chain_aborted = false;
+                    process.stderr.write('[mccp:cost-decay] legacy stuck chain_aborted swept (markerless cost-origin, last_event=' +
+                      (fm.last_event || 'none') + ')\n');
+                  }
+                }
+              } catch { /* swallow read/derive errors */ }
+            }
+            if (Object.keys(patch).length > 0) {
+              try { stateWriter.update(repoRoot, patch); } catch { /* swallow */ }
+            }
           }
-        } catch { /* state-writer optional */ }
-      }
+        }
+      } catch { /* state-writer / subscription optional */ }
     } catch { /* swallow telemetry write errors */ }
 
-    // Stale check for context warnings
-    const now = Math.floor(Date.now() / 1000);
-    const lastTs = bridge.last_timestamp ? Math.floor(new Date(bridge.last_timestamp).getTime() / 1000) : 0;
-    const isStale = lastTs > 0 && now - lastTs > STALE_SECONDS;
-
+    // Stale check for context warnings — computed once above (nowSec/lastTs/isStale).
     // If bridge is stale, null out context data (still check cost/scope/loop).
     // M2 Axis A — inject the resolved cost so the cost warnings fire on real
     // billed cost, not the bridge's stale/inflated value.

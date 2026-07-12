@@ -33,6 +33,11 @@ const origWriteMerged = costState.writeStateMerged;
 const origWriteState = contextState.writeState;
 const origReadHarnessMeta = harnessCost.readHarnessCostMeta;
 const origStateUpdate = stateWriter.update;
+// M3 Axis 2 — the decay-clear/legacy-sweep else branch READS STATE.md +
+// cost-state; stub both so tests stay hermetic (no dependence on the real repo
+// STATE.md / homedir cost file). Per-test fixtures override the defaults.
+const origStateRead = stateWriter.readState;
+const origCostRead = costState.readState;
 
 // readBridge mock — installed before the hook require so the destructured local
 // binding inside ecc-context-monitor picks it up. Returns a per-test fixture.
@@ -46,6 +51,8 @@ let ctxCalls;
 let ctxThrow;
 let harnessMeta;   // M2 — readHarnessCostMeta return value (null = cache miss)
 let stateUpdates;  // M2 — captured STATE.md patches
+let stateReadFixture; // M3 — stateWriter.readState() return (frontmatter fixture)
+let costReadFixture;  // M3 — costState.readState() return (decayed tier fixture)
 
 // harness-cost readHarnessCostMeta is lazy-required in run(); the closure reads
 // the current harnessMeta (reset to null by installSpies each test).
@@ -57,21 +64,29 @@ function installSpies() {
   ctxThrow = false;
   harnessMeta = null;
   stateUpdates = [];
+  // Hermetic defaults: no residual abort flag, decayed cost green. Clear-branch
+  // tests override stateReadFixture / costReadFixture per case.
+  stateReadFixture = { frontmatter: { chain_aborted: false } };
+  costReadFixture = { cost_usd: 0, threshold_tier: 'green', hard_ceiling_reached: false, last_write_ts: 0 };
   costState.writeStateMerged = function (s) { mergedCalls.push(s); };
+  costState.readState = function () { return costReadFixture; };
   contextState.writeState = function (input) {
     ctxCalls.push(input);
     if (ctxThrow) throw new Error('injected context write failure');
     return { ok: true };
   };
   stateWriter.update = function (_root, patch) { stateUpdates.push(patch); };
+  stateWriter.readState = function () { return stateReadFixture; };
 }
 
 test.after(() => {
   sessionBridge.readBridge = origReadBridge;
   costState.writeStateMerged = origWriteMerged;
+  costState.readState = origCostRead;
   contextState.writeState = origWriteState;
   harnessCost.readHarnessCostMeta = origReadHarnessMeta;
   stateWriter.update = origStateUpdate;
+  stateWriter.readState = origStateRead;
 });
 
 // Healthy defaults → no warnings → run() returns rawInput (pass-through). Tests
@@ -263,5 +278,194 @@ test('F2: exact critical boundary — tier, hard_ceiling, and STATE.md all agree
     const patch = stateUpdates[stateUpdates.length - 1];
     assert.equal(patch.session_end_imminent, true);
     assert.equal(patch.chain_aborted, true, 'chain_aborted agrees at the exact critical boundary');
+  });
+});
+
+// ── M3 Axis 2 — subscription-aware SET + provenance stamp + decay-clear +
+//    legacy sweep (F2 + F3 + Codex Impl-R1 IF1 + IF2) ────────────────────────
+
+function withEnv(overrides, fn) {
+  const prev = {};
+  for (const k of Object.keys(overrides)) {
+    prev[k] = process.env[k];
+    if (overrides[k] === null || overrides[k] === undefined) delete process.env[k];
+    else process.env[k] = String(overrides[k]);
+  }
+  try { fn(); } finally {
+    for (const k of Object.keys(overrides)) {
+      if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k];
+    }
+  }
+}
+
+function hoursAgoIso(h) { return new Date(Date.now() - h * 3600000).toISOString(); }
+function lastAbortPatch() { return stateUpdates.length ? stateUpdates[stateUpdates.length - 1] : null; }
+function anyPatch(pred) { return stateUpdates.some(pred); }
+
+test('M3 (a): metered cost>=critical SET stamps chain_aborted + abort_owner=cost + cost_abort_at', () => {
+  withEnv({ MCCP_SUBSCRIPTION: null, MCCP_HANDOFF_THRESHOLDS_USD: null }, () => {
+    installSpies();
+    harnessMeta = null;
+    runIsolated({ total_cost_usd: 150, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    const patch = lastAbortPatch();
+    assert.equal(patch.chain_aborted, true);
+    assert.equal(patch.abort_owner, 'cost', 'provenance owner stamped');
+    assert.equal(typeof patch.cost_abort_at, 'string', 'cost_abort_at ISO marker stamped');
+    assert.ok(!Number.isNaN(Date.parse(patch.cost_abort_at)), 'cost_abort_at is a parseable timestamp');
+  });
+});
+
+test('M3 (b/F2): subscription high-USD + overflow-green → chain_aborted NOT set; overflow-critical → set', () => {
+  withEnv({ MCCP_SUBSCRIPTION: '1', MCCP_HANDOFF_THRESHOLDS_USD: null }, () => {
+    // high USD but plenty of context remaining → overflow green → no abort (USD ignored)
+    installSpies();
+    harnessMeta = null;
+    runIsolated({ total_cost_usd: 999, cost_sample_ts: 1000, context_remaining_pct: 80, tool_count: 5 });
+    assert.ok(!anyPatch(p => p.chain_aborted === true), 'high USD alone must not flip chain_aborted in subscription mode');
+
+    // context critically low → overflow critical → chain_aborted set + owner=cost
+    installSpies();
+    harnessMeta = null;
+    runIsolated({ total_cost_usd: 999, cost_sample_ts: 1000, context_remaining_pct: 10, tool_count: 5 });
+    const patch = lastAbortPatch();
+    assert.equal(patch.chain_aborted, true, 'overflow-critical flips chain_aborted');
+    assert.equal(patch.abort_owner, 'cost');
+  });
+});
+
+test('M3 (c/F3): decay-clear fires when 4-way stable AND holds', () => {
+  withEnv({ MCCP_SUBSCRIPTION: null, MCCP_HANDOFF_THRESHOLDS_USD: null, MCCP_COST_STATE_DECAY_HOURS: null }, () => {
+    installSpies();
+    harnessMeta = null;
+    stateReadFixture = { frontmatter: {
+      chain_aborted: true, abort_owner: 'cost', cost_abort_at: hoursAgoIso(7),
+      active_dispatch_count: 0, dispatch_id: null, last_event: 'stop_loop_pass',
+    } };
+    runIsolated({ total_cost_usd: 5, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    const patch = lastAbortPatch();
+    assert.ok(patch, 'a clear patch was written');
+    assert.equal(patch.chain_aborted, false);
+    assert.equal(patch.abort_owner, null);
+    assert.equal(patch.cost_abort_at, null);
+  });
+});
+
+test('M3 (d/F3 provenance): abort_owner=dispatch is NEVER decay-cleared', () => {
+  withEnv({ MCCP_SUBSCRIPTION: null, MCCP_HANDOFF_THRESHOLDS_USD: null, MCCP_COST_STATE_DECAY_HOURS: null }, () => {
+    installSpies();
+    harnessMeta = null;
+    stateReadFixture = { frontmatter: {
+      chain_aborted: true, abort_owner: 'dispatch', cost_abort_at: null,
+      active_dispatch_count: 0, dispatch_id: null, last_event: 'dispatch_chain_aborted',
+    } };
+    runIsolated({ total_cost_usd: 5, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    assert.ok(!anyPatch(p => p.chain_aborted === false), 'dispatch abort must be preserved');
+  });
+});
+
+test('M3 (e/F3): active dispatch blocks decay-clear even with a cost marker', () => {
+  withEnv({ MCCP_SUBSCRIPTION: null, MCCP_HANDOFF_THRESHOLDS_USD: null, MCCP_COST_STATE_DECAY_HOURS: null }, () => {
+    installSpies();
+    harnessMeta = null;
+    stateReadFixture = { frontmatter: {
+      chain_aborted: true, abort_owner: 'cost', cost_abort_at: hoursAgoIso(7),
+      active_dispatch_count: 1, dispatch_id: null, last_event: 'dispatch_started',
+    } };
+    runIsolated({ total_cost_usd: 5, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    assert.ok(!anyPatch(p => p.chain_aborted === false), 'active dispatch preserves the flag');
+  });
+});
+
+test('M3 (f/F3 legacy): markerless cost-origin flag is swept; dispatch last_event is not', () => {
+  withEnv({ MCCP_SUBSCRIPTION: null, MCCP_HANDOFF_THRESHOLDS_USD: null, MCCP_COST_STATE_DECAY_HOURS: null }, () => {
+    // markerless + stop_loop_pass + green → swept
+    installSpies();
+    harnessMeta = null;
+    stateReadFixture = { frontmatter: {
+      chain_aborted: true, abort_owner: null, cost_abort_at: null,
+      active_dispatch_count: 0, dispatch_id: null, last_event: 'stop_loop_pass',
+    } };
+    runIsolated({ total_cost_usd: 5, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    const patch = lastAbortPatch();
+    assert.ok(patch && patch.chain_aborted === false, 'legacy cost-origin flag swept');
+
+    // markerless but last_event=dispatch_chain_aborted → NOT swept (denylist)
+    installSpies();
+    harnessMeta = null;
+    stateReadFixture = { frontmatter: {
+      chain_aborted: true, abort_owner: null, cost_abort_at: null,
+      active_dispatch_count: 0, dispatch_id: null, last_event: 'dispatch_chain_aborted',
+    } };
+    runIsolated({ total_cost_usd: 5, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    assert.ok(!anyPatch(p => p.chain_aborted === false), 'dispatch last_event excluded from legacy sweep');
+  });
+});
+
+test('M3 (g): fresh marker (age <= decay) and kill-switch (=0) both preserve the flag', () => {
+  // fresh cost marker → not old enough → preserved
+  withEnv({ MCCP_SUBSCRIPTION: null, MCCP_HANDOFF_THRESHOLDS_USD: null, MCCP_COST_STATE_DECAY_HOURS: null }, () => {
+    installSpies();
+    harnessMeta = null;
+    stateReadFixture = { frontmatter: {
+      chain_aborted: true, abort_owner: 'cost', cost_abort_at: hoursAgoIso(0.02), // ~1min
+      active_dispatch_count: 0, dispatch_id: null, last_event: 'stop_loop_pass',
+    } };
+    runIsolated({ total_cost_usd: 5, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    assert.ok(!anyPatch(p => p.chain_aborted === false), 'fresh cost abort is preserved');
+  });
+  // kill switch =0 → no decay-clear, no sweep
+  withEnv({ MCCP_SUBSCRIPTION: null, MCCP_HANDOFF_THRESHOLDS_USD: null, MCCP_COST_STATE_DECAY_HOURS: '0' }, () => {
+    installSpies();
+    harnessMeta = null;
+    stateReadFixture = { frontmatter: {
+      chain_aborted: true, abort_owner: null, cost_abort_at: null,
+      active_dispatch_count: 0, dispatch_id: null, last_event: 'stop_loop_pass',
+    } };
+    runIsolated({ total_cost_usd: 5, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    assert.ok(!anyPatch(p => p.chain_aborted === false), 'decay disabled → legacy sweep skipped');
+  });
+});
+
+test('M3 (h): decay never writes session_end_imminent=false (precompact lifecycle untouched)', () => {
+  withEnv({ MCCP_SUBSCRIPTION: null, MCCP_HANDOFF_THRESHOLDS_USD: null, MCCP_COST_STATE_DECAY_HOURS: null }, () => {
+    installSpies();
+    harnessMeta = null;
+    stateReadFixture = { frontmatter: {
+      chain_aborted: true, abort_owner: 'cost', cost_abort_at: hoursAgoIso(7),
+      session_end_imminent: true, active_dispatch_count: 0, dispatch_id: null, last_event: 'precompact',
+    } };
+    runIsolated({ total_cost_usd: 5, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    assert.ok(!anyPatch(p => p.session_end_imminent === false), 'decay-clear never touches session_end_imminent');
+    // the chain_aborted clear itself still happened (cost-owned, aged)
+    assert.ok(anyPatch(p => p.chain_aborted === false), 'chain_aborted still decay-cleared');
+  });
+});
+
+test('M3 (i/IF1): legacy sweep NEVER clears plan_conflict_escalated hard stop', () => {
+  withEnv({ MCCP_SUBSCRIPTION: null, MCCP_HANDOFF_THRESHOLDS_USD: null, MCCP_COST_STATE_DECAY_HOURS: null }, () => {
+    installSpies();
+    harnessMeta = null;
+    stateReadFixture = { frontmatter: {
+      chain_aborted: true, abort_owner: null, cost_abort_at: null,
+      active_dispatch_count: 0, dispatch_id: null, last_event: 'plan_conflict_escalated',
+    } };
+    runIsolated({ total_cost_usd: 5, cost_sample_ts: 1000, context_remaining_pct: 80 });
+    assert.ok(!anyPatch(p => p.chain_aborted === false),
+      'plan_conflict_escalated is in NON_COST_ABORT_EVENTS — must survive the sweep');
+  });
+});
+
+test('M3 (j/IF2): subscription + stale bridge + critical-looking context → chain_aborted NOT set', () => {
+  withEnv({ MCCP_SUBSCRIPTION: '1', MCCP_HANDOFF_THRESHOLDS_USD: null }, () => {
+    installSpies();
+    harnessMeta = null;
+    // last_timestamp 5min old (> STALE_SECONDS 60) → bridge context treated as
+    // signal-unknown → evaluateOverflow green → no persistent abort from stale data.
+    runIsolated({
+      total_cost_usd: 5, cost_sample_ts: 1000,
+      context_remaining_pct: 5, tool_count: 5,
+      last_timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+    });
+    assert.ok(!anyPatch(p => p.chain_aborted === true), 'stale critical-looking context must not stamp an abort');
   });
 });

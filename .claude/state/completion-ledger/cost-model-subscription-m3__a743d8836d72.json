@@ -1,0 +1,27 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "cost-model-subscription-m3",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.22.0",
+    "completed_at": "2026-07-12T05:44:20.431Z",
+    "commit_sha": "e5c094067c0091add57a82a1e8726d25a24151cc",
+    "plan_basename": "cost-model-subscription-m3.plan.md",
+    "plan_file_hash": "sha256:94bef62e6706e04027c4b1c0cac619e661a7f5bfc6ef349a7a18a3ec1330bc11",
+    "risks_closed": [
+      "**F1** decay가 reader별 allow/abort 불일치",
+      "**F2** 구독권 producer가 USD로 chain_aborted 재stamp → 영구 잠금",
+      "**F3** decay-clear가 dispatch/precompact abort 오삭제",
+      "**F3 legacy** marker 없는 기존 stuck flag 영영 미clear",
+      "decay 창(6h)이 정당한 장기 세션 중간 gap 오리셋",
+      "STATE.md 신규 필드 frozen schema 위반",
+      "Large scope(15파일)가 한 milestone 과대"
+    ],
+    "oq_closed": [
+      "**decay 창 default N** — 6h 채택(새 세션 경계 근사). PRD OQ4(\"세션 경계 vs 고정 시간\")에 고정 시간(env-tunable)으로 답. 세션-id 변화 기반 리셋으로의 전환은 필요 시 후속 축.",
+      "**legacy sweep 재발 억제** — 1회 clear 후 flag false면 조건 자연 미성립(no-op)이라 무해. `legacy_abort_swept` 명시 마커 도입 여부는 구현 시 판단."
+    ],
+    "receipt_hash": "sha256:a743d8836d72aa9d08c1c8054bdfb5a9efbd85d9f2a60041304237cc3b58059c"
+  }
+}

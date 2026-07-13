@@ -1,0 +1,45 @@
+{
+  "schema_version": "v1",
+  "id": "2026-07-13T05-06-59-900Z__a62e2b2c",
+  "created_at": "2026-07-13T05:06:59.900Z",
+  "session_id": "unknown",
+  "scan_hash": "e01ec3828b4a3abc9d04fa2df0f851ed5aa0da578d320f44930afa6ed3edce82",
+  "status_corrections": [],
+  "archives": [
+    {
+      "prd": ".claude/prds/workflow-orchestration.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/workflow-orchestration.prd.md",
+          "to": ".claude/prds/archived/workflow-orchestration.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/workflow-orchestration-m1-plan-fanout.plan.md",
+          "to": ".claude/PRPs/plans/archived/workflow-orchestration-m1-plan-fanout.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/workflow-orchestration-m2a-single-worker-workflow.plan.md",
+          "to": ".claude/PRPs/plans/archived/workflow-orchestration-m2a-single-worker-workflow.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/workflow-orchestration-m2b-nworker-parallel.plan.md",
+          "to": ".claude/PRPs/plans/archived/workflow-orchestration-m2b-nworker-parallel.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/workflow-orchestration-m3-verify-native.plan.md",
+          "to": ".claude/PRPs/plans/archived/workflow-orchestration-m3-verify-native.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/workflow-orchestration-m4-parallel-activation.plan.md",
+          "to": ".claude/PRPs/plans/archived/workflow-orchestration-m4-parallel-activation.plan.md"
+        }
+      ]
+    }
+  ]
+}

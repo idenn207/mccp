@@ -557,6 +557,16 @@ plugin.json `1.13.0 → 1.16.0` — main(1.15.0, PR #53 dashboard chart)과 forw
 
 파괴적 변경(파일 이동 + status 편집)의 audit anchor는 operation journal(`.claude/state/archive-journal/<id>.json`, git-tracked — scan hash·승인·evidence·목적지·session 기록)이다. 파일 이동 chore이므로 `mccp-*-codex` 게이트 receipt는 발행하지 않는다(human-gate + git history + journal이 review — cross-model review는 YAGNI).
 
+#### Orphan plan(무-active-PRD)은 수동 아카이브
+
+`/mccp:archive-complete`의 discovery는 **C1대로 활성 PRD의 `source_prd`로만** plan을 찾는다. 따라서 source PRD가 아예 없거나(free-form `/mccp:plan` 산출물) 이미 아카이브된/실재하지 않는 PRD를 가리키는 **orphan 완료 plan**은 tool이 구조적으로 못 옮긴다 — 버그가 아니라 의도된 PRD-driven 설계다. orphan은 드물게(shipped free-form plan마다 1개) 생기므로 **수동 `git mv`**로 은퇴시킨다:
+
+```bash
+git mv .claude/plans/<orphan>.plan.md .claude/PRPs/plans/archived/<orphan>.plan.md
+```
+
+완료 판정은 사람이 evidence(completion-ledger / `mccp-pr-codex` receipt / `## Acceptance` 체크율 / git last-commit)를 보고 내린다 — in-progress free-form plan을 실수로 옮기면 어느 대시보드 스캔에도 안 잡혀 소실되므로(C2-analog 데이터 손실) **확실한 것만**. 목적지는 C3와 동일한 `.claude/PRPs/plans/archived/` 단일. (선례: 2026-07-14 `archive-complete-command.plan.md`·`mccp-roadmap.plan.md` 수동 은퇴 + cost-model-subscription PRD 트리오는 archive-complete로 이동.) tool을 orphan human-gate 자동화로 확장하는 것은 빈도가 낮아 **YAGNI로 이연** — 본 수동 런북으로 충분.
+
 ---
 
 ## 4. 자주 쓰는 명령 (Cheat Sheet)

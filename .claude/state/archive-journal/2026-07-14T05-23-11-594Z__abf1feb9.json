@@ -1,0 +1,35 @@
+{
+  "schema_version": "v1",
+  "id": "2026-07-14T05-23-11-594Z__abf1feb9",
+  "created_at": "2026-07-14T05:23:11.594Z",
+  "session_id": "unknown",
+  "scan_hash": null,
+  "status_corrections": [],
+  "archives": [
+    {
+      "prd": ".claude/prds/cost-model-subscription.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/cost-model-subscription.prd.md",
+          "to": ".claude/prds/archived/cost-model-subscription.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/cost-model-subscription-m1.plan.md",
+          "to": ".claude/PRPs/plans/archived/cost-model-subscription-m1.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/cost-model-subscription-m2.plan.md",
+          "to": ".claude/PRPs/plans/archived/cost-model-subscription-m2.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/cost-model-subscription-m3.plan.md",
+          "to": ".claude/PRPs/plans/archived/cost-model-subscription-m3.plan.md"
+        }
+      ]
+    }
+  ]
+}

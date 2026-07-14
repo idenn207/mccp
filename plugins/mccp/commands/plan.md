@@ -145,9 +145,9 @@ Before writing the plan, search the codebase for conventions the implementation 
 
 If no similar code exists, state that explicitly. Do not invent a pattern.
 
-## Phase 2.5 — MULTI-PERSPECTIVE FAN-OUT (opt-in, PRD mode, v1.20.4 M1)
+## Phase 2.5 — MULTI-PERSPECTIVE FAN-OUT (PRD mode, default on, v1.22.1 live-activation)
 
-> Runs **only** in PRD artifact mode with `MCCP_PLAN_FANOUT=on` (explicit opt-in — default off preserves the "inline by default, no subagent by default" contract at the top of this command). It strengthens GROUND by fanning out four **read-only** perspectives (architect / security / test / explorer) through the `Workflow` primitive, then injects a deterministic `## Multi-Perspective Fan-out` section into the plan body. The fan-out workers are dedicated read-only agents (`mccp:fanout-*`, tools: Read/Grep/Glob) — write/edit/bash are absent from their toolset, so they **cannot** modify files or write receipts. The Codex dual-review gate (Phase 5) and the receipt chain are therefore untouched: the fan-out output rides inside `plan_hash` and is reviewed like any other plan content. **Fail-open**: any skip / throw / unavailable Workflow falls back to the inline Pattern Grounding above and NEVER blocks the plan.
+> Runs in PRD artifact mode by **default** (live-activation M1 flipped the firing default ON — opt out with `MCCP_PLAN_FANOUT=off`). It strengthens GROUND by fanning out four **read-only** perspectives (architect / security / test / explorer) through the `Workflow` primitive, then injects a deterministic `## Multi-Perspective Fan-out` section into the plan body. The fan-out workers are dedicated read-only agents (`mccp:fanout-*`, tools: Read/Grep/Glob) — write/edit/bash are absent from their toolset, so they **cannot** modify files or write receipts. The Codex dual-review gate (Phase 5) and the receipt chain are therefore untouched: the fan-out output rides inside `plan_hash` and is reviewed like any other plan content. **Cost fail-open** (live-activation M1): a missing/corrupt cost-state now assumes green and runs (the `MCCP_ORCHESTRATION_COST_FAIL_OPEN=0` kill switch restores the old fail-closed skip). Runaway is bounded by the cost-state-independent session launch cap (`orchestration-runaway.js`) + a critical-only tier gate + the `hard_ceiling` bomb detector. **Fail-open**: any skip / throw / unavailable Workflow still falls back to the inline Pattern Grounding above and NEVER blocks the plan.
 
 ### 2.5.1 — Resolve run/skip (mode × PRD-mode × cost-tier oracle)
 
@@ -166,28 +166,45 @@ FANOUT_JSON=$(node -e '
   const costState = require(root + "/scripts/lib/cost-state");
   const subscription = require(root + "/scripts/lib/subscription");
   const contextState = require(root + "/scripts/lib/context-state");
+  const runaway = require(root + "/scripts/lib/orchestration-runaway");
+  // live-activation M1 — cost fail-open (default true). MCCP_ORCHESTRATION_COST_FAIL_OPEN=0
+  // restores the old fail-closed COST_STATE_UNKNOWN skip.
+  const costFailOpen = String(process.env.MCCP_ORCHESTRATION_COST_FAIL_OPEN || "").trim() !== "0";
+  // cost-state-independent catastrophic-runaway backstop. Read the session
+  // cumulative worker-launch counter; the oracle applies the clamp ONLY on the
+  // fail-open path (telemetry absent → no USD bomb detector).
+  const sessionId = process.env.CLAUDE_SESSION_ID || "unknown";
+  const launched = runaway.readCounter({ sessionId: sessionId }).launched;
   const r = budget.resolveFanout({
     env: process.env,
     prdMode: prdMode,
     costStateRead: costState.readState,
     tierFor: costState.tierFor,
+    costFailOpen: costFailOpen,
+    runawayClamp: function (n) { return runaway.clampForRunaway({ requestedN: n, launchedSoFar: launched, env: process.env }); },
     // cost-model-subscription M1 — under MCCP_SUBSCRIPTION the fan-out bypasses
     // the USD cost-state/tier gates and evaluates the context overflow axis.
     subscriptionMode: subscription.isSubscriptionMode(process.env),
     contextStateRead: contextState.readState,
   });
+  // bump the session launch counter by the effective fleet so repeated /mccp:plan
+  // fan-outs accumulate toward the absolute cap.
+  if (r.run) runaway.bumpCounter({ sessionId: sessionId, delta: r.fleetSize });
   process.stdout.write(JSON.stringify(r));
 ' "${CLAUDE_PLUGIN_ROOT}" "$PRD_MODE")
 FANOUT_RUN=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).run?"1":"0")}catch{process.stdout.write("0")}')
 FANOUT_REASON=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reason||"unknown")}catch{process.stdout.write("parse-error")}')
 FANOUT_MINREM=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).minRemaining||0))}catch{process.stdout.write("0")}')
+FANOUT_DEGRADED=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).degraded?"1":"0")}catch{process.stdout.write("0")}')
 
-if [ "$FANOUT_RUN" != "1" ]; then
-  echo "[mccp:plan-fanout] skipped reason=$FANOUT_REASON — using inline Pattern Grounding" 1>&2
+if [ "$FANOUT_RUN" = "1" ]; then
+  echo "[mccp:plan-fanout] fan-out 발화 (reason=$FANOUT_REASON degraded=$FANOUT_DEGRADED) — default on, MCCP_PLAN_FANOUT=off로 opt-out" 1>&2
+else
+  echo "[mccp:plan-fanout] skipped reason=$FANOUT_REASON — using inline Pattern Grounding (default on; off로 opt-out했다면 정상)" 1>&2
 fi
 ```
 
-`resolveFanout` skips (first match wins) on: `MCCP_PLAN_FANOUT` != `on` (`env-off`), non-PRD input (`not-prd-mode`), missing/corrupt cost-state (`cost-state-unknown` — the expensive fan-out fails **closed**, never spends blind), or cost-tier ∈ {notice, warning, critical} (`tier-*`). Only `ok-run` proceeds to 2.5.2.
+`resolveFanout` skips (first match wins) on: `MCCP_PLAN_FANOUT` == `off`/`0` (`env-off` — now default ON), non-PRD input (`not-prd-mode`), missing cost-state with the kill switch set (`cost-state-unknown`; the default is now `cost-failopen` **run**), `hard_ceiling_reached` (`hard-ceiling` bomb detector), or cost-tier == critical (`tier-critical` — narrowed from notice/warning/critical). Everything else (`ok-run` / `cost-failopen` / `subscription-overflow` green) proceeds to 2.5.2. The runaway clamp may degrade `fleetSize` on the fail-open path (`degraded=1`).
 
 ### 2.5.2 — Fan out (run path only)
 
@@ -205,7 +222,7 @@ The script spawns the four read-only `mccp:fanout-*` perspectives in parallel (`
 - **Success** (`skipped` falsy AND `coverage > 0`): inject the returned `markdown` verbatim into the plan body during Phase 4 WRITE (it becomes part of `plan_hash` and is reviewed by the Phase 5 Codex gate). Log `[mccp:plan-fanout] coverage=<N>/4 spent=<spent>`.
 - **Skip / empty / throw / Workflow unavailable** (`skipped:true`, `coverage===0`, a tool error, or the primitive not present in this install): DO NOT block. Keep the inline Pattern Grounding above as the grounding source and log the reason. Fan-out is a GROUND *enhancement*, never a gate.
 
-Kill switch + tuning env (documented in CLAUDE.md §4): `MCCP_PLAN_FANOUT` (default off), `MCCP_PLAN_FANOUT_BUDGET` (per-agent token estimate, default 150000), `MCCP_PLAN_FANOUT_AUTODISABLE_TIER` (default `notice,warning,critical`).
+Tuning env (documented in CLAUDE.md §4): `MCCP_PLAN_FANOUT` (default **on** — set `off`/`0` to opt out), `MCCP_PLAN_FANOUT_BUDGET` (per-agent token estimate, default 150000), `MCCP_PLAN_FANOUT_AUTODISABLE_TIER` (default `critical` — narrowed from notice/warning/critical), `MCCP_ORCHESTRATION_COST_FAIL_OPEN` (default on; `=0` restores the old fail-closed skip), `MCCP_ORCHESTRATION_MAX_AGENTS` (session launch cap, default 24).
 
 ## PRD Artifact Output
 

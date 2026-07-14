@@ -29,6 +29,10 @@ build/
 # v0.2 Stop-loop bounded counter and advisory locks (session-local).
 # STATE.md and fix-task.md remain git-tracked per plan §4.
 .claude/state/loop-counter.json
+# v1.22.1 live-activation M1 — session-keyed cumulative worker-launch counter
+# (orchestration-runaway.js). Same class as loop-counter.json above; its .lock
+# sibling is caught by the *.lock glob but the .json body needs its own entry.
+.claude/state/orchestration-runaway.json
 .claude/state/*.lock
 # dashboard-truthfulness M1 — completion-ledger entries ARE git-tracked, but the
 # per-entry write lock + atomic tmp are local-only ephemera. The single-level

@@ -1,8 +1,12 @@
 'use strict';
 
-// workflow-orchestration M2b Task 2 validate — fleet mode × merge-strategy ×
-// cost-tier × budget decision tree. Mirror of plan-fanout/tests/budget.test.js
-// with the two M2b-specific gates (merge-strategy, single-partition) added.
+// fleet budget validate — mode × merge-strategy × cost-tier × budget decision
+// tree. live-activation M1: default FIRING flipped ON (opt-out), missing
+// cost-state fails OPEN by default (COST_FAILOPEN) with the =0 kill switch
+// restoring the old fail-closed COST_STATE_UNKNOWN, tier autoDisable narrowed to
+// critical-only, a hard_ceiling bomb-detector skip, and an injected runaway clamp
+// on the fail-open path. The merge-strategy + single-partition + budget-cap gates
+// are UNCHANGED (structural safety preserved).
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -15,7 +19,9 @@ const {
 const ON = { MCCP_WORK_IMPLEMENT_PARALLEL: '1' };
 function green() { return { cost_usd: 5, threshold_tier: 'green' }; }
 function notice() { return { cost_usd: 55, threshold_tier: 'notice' }; }
+function warning() { return { cost_usd: 85, threshold_tier: 'warning' }; }
 function critical() { return { cost_usd: 105, threshold_tier: 'critical' }; }
+function ceiling() { return { cost_usd: 105, threshold_tier: 'green', hard_ceiling_reached: true }; }
 function nullState() { return null; }
 
 function ok(over) {
@@ -24,22 +30,26 @@ function ok(over) {
   }, over || {});
 }
 
-// ── gate 1: parallel opt-in ───────────────────────────────────────────────────
+// ── gate 1: parallel opt-in (default ON — opt-out) ────────────────────────────
 
-test('mode unset (default off) → skip ENV_OFF', function () {
+test('mode unset (default ON) → runs (live-activation flip)', function () {
   const r = resolveFleet({ env: {}, mergeStrategy: ENABLING_MERGE_STRATEGY, requestedN: 3, costStateRead: green });
-  assert.equal(r.run, false);
-  assert.equal(r.reason, REASONS.ENV_OFF);
-  assert.equal(r.n, 1);
+  assert.equal(r.run, true);
+  assert.equal(r.reason, REASONS.OK_RUN);
 });
 
-test('mode accepts "1" and case-insensitive "on"', function () {
+test('mode=off / mode=0 → skip ENV_OFF (explicit opt-out)', function () {
+  assert.equal(resolveFleet(ok({ env: { MCCP_WORK_IMPLEMENT_PARALLEL: 'off' } })).reason, REASONS.ENV_OFF);
+  assert.equal(resolveFleet(ok({ env: { MCCP_WORK_IMPLEMENT_PARALLEL: '0' } })).reason, REASONS.ENV_OFF);
+  assert.equal(resolveFleet(ok({ env: { MCCP_WORK_IMPLEMENT_PARALLEL: '  OFF ' } })).reason, REASONS.ENV_OFF);
+});
+
+test('mode accepts "1" and case-insensitive "on" (still on)', function () {
   assert.equal(resolveFleet(ok({ env: { MCCP_WORK_IMPLEMENT_PARALLEL: '1' } })).run, true);
   assert.equal(resolveFleet(ok({ env: { MCCP_WORK_IMPLEMENT_PARALLEL: ' ON ' } })).run, true);
-  assert.equal(resolveFleet(ok({ env: { MCCP_WORK_IMPLEMENT_PARALLEL: '0' } })).run, false);
 });
 
-// ── gate 2: merge-strategy structural gate (Task 0 / Codex F3) ────────────────
+// ── gate 2: merge-strategy structural gate (Task 0 / Codex F3) — UNCHANGED ─────
 
 test('merge_strategy=disable-parallel → skip MERGE_STRATEGY_DISABLED (Task 0 measured)', function () {
   const r = resolveFleet(ok({ mergeStrategy: 'disable-parallel' }));
@@ -66,7 +76,7 @@ test('merge_strategy=worktree-merge unlocks parallel (only enabling value)', fun
   assert.equal(r.reason, REASONS.OK_RUN);
 });
 
-// ── gate 3: single-partition short-circuit ────────────────────────────────────
+// ── gate 3: single-partition short-circuit — UNCHANGED ────────────────────────
 
 test('requestedN=1 → skip SINGLE_PARTITION (nothing to parallelize)', function () {
   const r = resolveFleet(ok({ requestedN: 1 }));
@@ -79,42 +89,69 @@ test('invalid requestedN falls back to 1 → SINGLE_PARTITION', function () {
   assert.equal(r.reason, REASONS.SINGLE_PARTITION);
 });
 
-// ── gate 4: cost-state fail-closed ────────────────────────────────────────────
+// ── gate 4: cost-state fail-open (default) + kill-switch fail-closed ───────────
 
-test('cost-state null → skip COST_STATE_UNKNOWN (expensive fan-out fails closed)', function () {
+test('cost-state null (default costFailOpen) → RUN COST_FAILOPEN tier green', function () {
   const r = resolveFleet(ok({ costStateRead: nullState }));
-  assert.equal(r.run, false);
-  assert.equal(r.reason, REASONS.COST_STATE_UNKNOWN);
+  assert.equal(r.run, true);
+  assert.equal(r.reason, REASONS.COST_FAILOPEN);
+  assert.equal(r.tier, 'green');
 });
 
-test('costStateRead throws → skip COST_STATE_UNKNOWN (guarded)', function () {
+test('costStateRead throws (default costFailOpen) → RUN COST_FAILOPEN (guarded)', function () {
   const r = resolveFleet(ok({ costStateRead: function () { throw new Error('boom'); } }));
+  assert.equal(r.run, true);
+  assert.equal(r.reason, REASONS.COST_FAILOPEN);
+});
+
+test('kill switch costFailOpen=false + null → skip COST_STATE_UNKNOWN (back-compat)', function () {
+  const r = resolveFleet(ok({ costStateRead: nullState, costFailOpen: false }));
   assert.equal(r.run, false);
   assert.equal(r.reason, REASONS.COST_STATE_UNKNOWN);
 });
 
-// ── gate 5: cost-tier autoDisable ─────────────────────────────────────────────
-
-test('notice tier → skip TIER_NOTICE', function () {
-  const r = resolveFleet(ok({ costStateRead: notice }));
+test('kill switch costFailOpen=false + throw → skip COST_STATE_UNKNOWN (back-compat)', function () {
+  const r = resolveFleet(ok({ costFailOpen: false, costStateRead: function () { throw new Error('boom'); } }));
   assert.equal(r.run, false);
-  assert.equal(r.reason, REASONS.TIER_NOTICE);
+  assert.equal(r.reason, REASONS.COST_STATE_UNKNOWN);
+});
+
+// ── gate 5: hard_ceiling bomb detector ────────────────────────────────────────
+
+test('hard_ceiling_reached → skip HARD_CEILING regardless of tier', function () {
+  const r = resolveFleet(ok({ costStateRead: ceiling }));
+  assert.equal(r.run, false);
+  assert.equal(r.reason, REASONS.HARD_CEILING);
+});
+
+// ── gate 6: cost-tier autoDisable narrowed to critical-only ───────────────────
+
+test('notice tier → RUNS now (critical-only narrow)', function () {
+  const r = resolveFleet(ok({ costStateRead: notice }));
+  assert.equal(r.run, true);
+  assert.equal(r.reason, REASONS.OK_RUN);
   assert.equal(r.tier, 'notice');
 });
 
-test('critical tier → skip TIER_CRITICAL', function () {
+test('warning tier → RUNS now (critical-only narrow)', function () {
+  const r = resolveFleet(ok({ costStateRead: warning }));
+  assert.equal(r.run, true);
+  assert.equal(r.reason, REASONS.OK_RUN);
+});
+
+test('critical tier → skip TIER_CRITICAL (still a bomb)', function () {
   const r = resolveFleet(ok({ costStateRead: critical }));
   assert.equal(r.run, false);
   assert.equal(r.reason, REASONS.TIER_CRITICAL);
 });
 
-test('AUTODISABLE_TIER=critical override → notice now runs', function () {
+test('AUTODISABLE_TIER="notice,critical" override → notice skips again', function () {
   const r = resolveFleet(ok({
-    env: { MCCP_WORK_IMPLEMENT_PARALLEL: '1', MCCP_WORK_PARALLEL_AUTODISABLE_TIER: 'critical' },
+    env: { MCCP_WORK_IMPLEMENT_PARALLEL: '1', MCCP_WORK_PARALLEL_AUTODISABLE_TIER: 'notice,critical' },
     costStateRead: notice,
   }));
-  assert.equal(r.run, true);
-  assert.equal(r.reason, REASONS.OK_RUN);
+  assert.equal(r.run, false);
+  assert.equal(r.reason, REASONS.TIER_NOTICE);
 });
 
 test('threshold_tier absent → tierFor recomputes; else defaults green', function () {
@@ -122,14 +159,14 @@ test('threshold_tier absent → tierFor recomputes; else defaults green', functi
   assert.equal(rDefault.run, true, 'no tierFor + no threshold_tier → green → run');
 
   const rComputed = resolveFleet(ok({
-    costStateRead: function () { return { cost_usd: 90 }; },
-    tierFor: function (usd) { return usd >= 80 ? 'warning' : 'green'; },
+    costStateRead: function () { return { cost_usd: 200 }; },
+    tierFor: function (usd) { return usd >= 100 ? 'critical' : 'green'; },
   }));
   assert.equal(rComputed.run, false);
-  assert.equal(rComputed.reason, REASONS.TIER_WARNING);
+  assert.equal(rComputed.reason, REASONS.TIER_CRITICAL);
 });
 
-// ── run path: N capping ───────────────────────────────────────────────────────
+// ── run path: N capping (per-dispatch structural runaway cap) ─────────────────
 
 test('green + requestedN=3 → RUN n=3, minRemaining = est × n', function () {
   const r = resolveFleet(ok({ requestedN: 3 }));
@@ -139,9 +176,15 @@ test('green + requestedN=3 → RUN n=3, minRemaining = est × n', function () {
   assert.equal(r.perWorkerEstimate, MIN_PER_WORKER_DEFAULT);
 });
 
-test('requestedN above MCCP_WORK_PARALLEL_MAX default → capped to 4', function () {
+test('requestedN above MCCP_WORK_PARALLEL_MAX default → capped to 4 (per-dispatch cap)', function () {
   const r = resolveFleet(ok({ requestedN: 9 }));
   assert.equal(r.n, MAX_WORKERS_DEFAULT);
+});
+
+test('N never exceeds maxWorkers even on the fail-open path', function () {
+  const r = resolveFleet(ok({ requestedN: 99, costStateRead: nullState }));
+  assert.equal(r.reason, REASONS.COST_FAILOPEN);
+  assert.ok(r.n <= MAX_WORKERS_DEFAULT, 'fail-open N still bounded by the per-dispatch cap');
 });
 
 test('MCCP_WORK_PARALLEL_MAX override caps N', function () {
@@ -169,7 +212,40 @@ test('invalid MCCP_WORK_PARALLEL_BUDGET falls back to default (loud fail-open)',
   assert.equal(r.perWorkerEstimate, MIN_PER_WORKER_DEFAULT);
 });
 
-// ── gate 6: in-oracle budget cap (DD6 iv) ─────────────────────────────────────
+// ── runaway clamp (fail-open path only) ───────────────────────────────────────
+
+test('runaway clamp degrades N on the fail-open path', function () {
+  const r = resolveFleet(ok({
+    requestedN: 4, costStateRead: nullState,
+    runawayClamp: function () { return { n: 1, degraded: true, reason: 'runaway-clamp' }; },
+  }));
+  assert.equal(r.run, true);
+  assert.equal(r.reason, REASONS.COST_FAILOPEN);
+  assert.equal(r.n, 1);
+  assert.equal(r.degraded, true);
+  assert.equal(r.runawayReason, 'runaway-clamp');
+});
+
+test('runaway clamp NOT applied on the normal (cost-state present) path', function () {
+  let called = false;
+  const r = resolveFleet(ok({
+    requestedN: 3, costStateRead: green,
+    runawayClamp: function () { called = true; return { n: 1, degraded: true }; },
+  }));
+  assert.equal(called, false, 'clamp only fires on the telemetry-absent fail-open branch');
+  assert.equal(r.n, 3);
+  assert.equal(r.degraded, false);
+});
+
+test('runaway clamp never RAISES N (min with clamp)', function () {
+  const r = resolveFleet(ok({
+    requestedN: 2, costStateRead: nullState,
+    runawayClamp: function () { return { n: 9, degraded: false, reason: 'ok' }; },
+  }));
+  assert.equal(r.n, 2, 'clamp returning a larger n must not increase N');
+});
+
+// ── gate 7: in-oracle budget cap (DD6 iv) — UNCHANGED ─────────────────────────
 
 test('budget cap: remaining cannot afford 2 workers → BUDGET_INSUFFICIENT n=1', function () {
   const r = resolveFleet(ok({ requestedN: 3, budgetTotal: 1000000, budgetRemaining: 100000 }));

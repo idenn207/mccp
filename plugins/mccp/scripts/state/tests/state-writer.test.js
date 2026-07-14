@@ -602,6 +602,65 @@ test('v1.2.0 Task 8: VALID_EVENTS export includes 3 new events', function () {
   assert.ok(sw.VALID_EVENTS.has('dispatch_chain_aborted'));
 });
 
+// ── cost-model-subscription M3 (Axis 2, F3) — abort_owner + cost_abort_at ──
+
+test('M3: abort_owner + cost_abort_at set → round-trip + present-only serialize', () => {
+  const repo = mkRepo();
+  sw.update(repo, {
+    event: 'stop_loop_pass', chain_aborted: true,
+    abort_owner: 'cost', cost_abort_at: '2026-07-12T00:00:00.000Z',
+  });
+  const s = sw.readState(repo);
+  assert.strictEqual(s.frontmatter.abort_owner, 'cost');
+  assert.strictEqual(s.frontmatter.cost_abort_at, '2026-07-12T00:00:00.000Z');
+  assert.strictEqual(s.frontmatter.chain_aborted, true);
+  assert.strictEqual(s.frontmatter.last_event, 'stop_loop_pass', 'cost SET preserves last_event');
+  const raw = readRaw(repo);
+  assert.match(raw, /^abort_owner: cost$/m);
+  assert.match(raw, /^cost_abort_at: 2026-07-12T00:00:00\.000Z$/m);
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('M3: null patch clears markers (present-only omit)', () => {
+  const repo = mkRepo();
+  sw.update(repo, { chain_aborted: true, abort_owner: 'cost', cost_abort_at: '2026-07-12T00:00:00.000Z' });
+  sw.update(repo, { chain_aborted: false, abort_owner: null, cost_abort_at: null });
+  const s = sw.readState(repo);
+  assert.strictEqual(s.frontmatter.abort_owner, null);
+  assert.strictEqual(s.frontmatter.cost_abort_at, null);
+  assert.strictEqual(s.frontmatter.chain_aborted, false);
+  const raw = readRaw(repo);
+  assert.doesNotMatch(raw, /^abort_owner:/m, 'cleared owner is omitted (present-only)');
+  assert.doesNotMatch(raw, /^cost_abort_at:/m, 'cleared marker is omitted (present-only)');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('M3 (F3): dispatch_chain_aborted event stamps abort_owner=dispatch + clears stale cost marker', () => {
+  const repo = mkRepo();
+  // pre-existing cost marker
+  sw.update(repo, { chain_aborted: true, abort_owner: 'cost', cost_abort_at: '2026-07-12T00:00:00.000Z' });
+  // dispatch takes ownership
+  sw.update(repo, { event: 'dispatch_chain_aborted', chainAborted: true });
+  const s = sw.readState(repo);
+  assert.strictEqual(s.frontmatter.abort_owner, 'dispatch', 'dispatch owns the flag');
+  assert.strictEqual(s.frontmatter.cost_abort_at, null, 'stale cost marker cleared');
+  assert.strictEqual(s.frontmatter.chain_aborted, true);
+  assert.strictEqual(s.frontmatter.last_event, 'dispatch_chain_aborted');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('M3: session_end_imminent / chain_aborted round-trip regression (no marker interference)', () => {
+  const repo = mkRepo();
+  sw.update(repo, { event: 'precompact', session_end_imminent: true });
+  let s = sw.readState(repo);
+  assert.strictEqual(s.frontmatter.session_end_imminent, true);
+  assert.strictEqual(s.frontmatter.chain_aborted, false);
+  assert.strictEqual(s.frontmatter.abort_owner, null, 'no marker when only session_end set');
+  const raw = readRaw(repo);
+  assert.doesNotMatch(raw, /^abort_owner:/m);
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
 test('withStateLock: tryAcquire closes fd even when writeSync throws (B#17 fd leak)', () => {
   const repo = mkRepo();
   const realWrite = fs.writeSync;

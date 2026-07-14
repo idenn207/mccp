@@ -158,6 +158,14 @@ function emptyState() {
       //   forces to 0 on chain abort.
       controller_session_id: null,
       active_dispatch_count: 0,
+      // cost-model-subscription M3 (Axis 2, F3) — chain_aborted provenance.
+      // abort_owner: 'cost' | 'dispatch' | null — which channel set chain_aborted.
+      //   A STABLE ownership token (last_event was unstable: overwritten by any
+      //   later event). The cost producer stamps 'cost'; the dispatch_chain_aborted
+      //   event stamps 'dispatch' + clears the stale cost marker. Conditional render.
+      // cost_abort_at: ISO timestamp of the cost SET — the decay-clear age anchor.
+      abort_owner: null,
+      cost_abort_at: null,
     },
     body: {
       goal: '',
@@ -303,6 +311,10 @@ function renderFrontmatter(fm) {
   // v0.2.3 — dep-check dedupe state (only rendered when set)
   if (fm.dep_check_at) out.push('dep_check_at: ' + fm.dep_check_at);
   if (fm.dep_check_missing) out.push('dep_check_missing: ' + fm.dep_check_missing);
+  // cost-model-subscription M3 (Axis 2, F3) — chain_aborted provenance (present-only,
+  // dep_check_at mirror). Emitted only when the flag was set by a channel.
+  if (fm.abort_owner) out.push('abort_owner: ' + fm.abort_owner);
+  if (fm.cost_abort_at) out.push('cost_abort_at: ' + fm.cost_abort_at);
   // v0.3.2 — escalate_pending (only rendered when active, mirroring dep_check pattern)
   if (fm.escalate_pending === true) {
     out.push('escalate_pending: true');
@@ -397,6 +409,28 @@ function mergeState(existing, patch) {
   }
   if (patch.chain_progress !== undefined || patch.chainProgress !== undefined) {
     merged.frontmatter.chain_progress = patch.chain_progress || patch.chainProgress || null;
+  }
+
+  // cost-model-subscription M3 (Axis 2, F3) — chain_aborted provenance markers.
+  // abort_owner: enum 'cost'|'dispatch'|null; cost_abort_at: ISO|null. Both accept
+  // null/'' to clear (present-only render then omits them). The cost producer
+  // stamps abort_owner='cost'+cost_abort_at when it SETS chain_aborted; the decay-
+  // clear path nulls chain_aborted + abort_owner + cost_abort_at together.
+  if (patch.abort_owner !== undefined) {
+    const v = patch.abort_owner;
+    merged.frontmatter.abort_owner = (v === null || v === '') ? null : String(v);
+  }
+  if (patch.cost_abort_at !== undefined) {
+    const v = patch.cost_abort_at;
+    merged.frontmatter.cost_abort_at = (v === null || v === '') ? null : String(v);
+  }
+  // F3 stale-marker: when a dispatch takes chain_aborted ownership it invalidates
+  // any residual cost marker, so the cost decay-clear (which requires
+  // abort_owner==='cost') can never fire against a dispatch abort. Runs AFTER the
+  // explicit merge so the dispatch event is authoritative for ownership.
+  if (patch.event === 'dispatch_chain_aborted') {
+    merged.frontmatter.abort_owner = 'dispatch';
+    merged.frontmatter.cost_abort_at = null;
   }
 
   // v0.3.2 — dual-reviewer escalation flag.

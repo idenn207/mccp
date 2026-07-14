@@ -201,3 +201,111 @@ test('subscription: cost-telemetry NOT consulted (sticky $314.50 ignored)', () =
   const r = autoChain.shouldAbort({ env: { MCCP_SUBSCRIPTION: '1' }, repoRoot: os.tmpdir(), contextStateRead: ctxReadChain({ context_remaining_pct: 70, tool_count: 5 }) });
   assert.ok(!r.reasons.some(x => x.trigger === 'cost-telemetry'));
 });
+
+// ── cost-model-subscription M3 — F1 cross-consumer divergence + F2 integration ──
+
+test('M3 F1: same stale-high file — auto-chain cost-state-stale abort, decayed reader green (documented divergence)', () => {
+  const h = freshHome();
+  const prevDecay = process.env.MCCP_COST_STATE_DECAY_HOURS;
+  delete process.env.MCCP_COST_STATE_DECAY_HOURS; // default 6h
+  try {
+    fs.mkdirSync(costPath.getCostStateDir(), { recursive: true });
+    const target = costPath.getCostStatePath();
+    fs.writeFileSync(target, JSON.stringify({
+      cost_usd: 314.5, threshold_tier: 'critical', hard_ceiling_reached: true, last_write_ts: Date.now(),
+    }));
+    // Backdate 7h → stale for BOTH auto-chain (1h) and decay (6h).
+    const past = Date.now() / 1000 - 7 * 3600;
+    fs.utimesSync(target, past, past);
+
+    // auto-chain reads RAW (readStateOrThrow) + isStale(1h) → fail-safe stale abort.
+    const r = autoChain.shouldAbort({ env: {}, cwd: h.dir });
+    assert.ok(r.reasons.some(x => x.trigger === 'cost-telemetry' && /cost-state-stale/.test(x.detail)),
+      'auto-chain keeps its raw fail-safe stale-abort (intentional divergence)');
+
+    // Gate reader (decayed readState, default 6h) on the SAME file → green.
+    const decayed = cost.readState();
+    assert.equal(decayed.threshold_tier, 'green', 'decayed reader returns green on the same stale file');
+    assert.equal(decayed.cost_usd, 0);
+  } finally {
+    if (prevDecay === undefined) delete process.env.MCCP_COST_STATE_DECAY_HOURS;
+    else process.env.MCCP_COST_STATE_DECAY_HOURS = prevDecay;
+    h.restore();
+  }
+});
+
+test('M3 F1 self-heal: first fresh write drops the stale floor → auto-chain passes', () => {
+  const h = freshHome();
+  const prevDecay = process.env.MCCP_COST_STATE_DECAY_HOURS;
+  delete process.env.MCCP_COST_STATE_DECAY_HOURS;
+  try {
+    fs.mkdirSync(costPath.getCostStateDir(), { recursive: true });
+    const target = costPath.getCostStatePath();
+    fs.writeFileSync(target, JSON.stringify({
+      cost_usd: 314.5, threshold_tier: 'critical', hard_ceiling_reached: true, last_write_ts: Date.now(),
+    }));
+    const past = Date.now() / 1000 - 7 * 3600;
+    fs.utimesSync(target, past, past);
+    // First fresh tool write → write-side decay drops the floor (green, fresh mtime).
+    cost.writeStateMerged({ cost_usd: 3, hard_ceiling_reached: false, last_write_ts: Date.now() });
+    const r = autoChain.shouldAbort({ env: {}, cwd: h.dir });
+    assert.ok(!r.reasons.some(x => x.trigger === 'cost-telemetry'),
+      'after the self-healing fresh write, auto-chain no longer aborts on cost');
+  } finally {
+    if (prevDecay === undefined) delete process.env.MCCP_COST_STATE_DECAY_HOURS;
+    else process.env.MCCP_COST_STATE_DECAY_HOURS = prevDecay;
+    h.restore();
+  }
+});
+
+// F2 integration — run the REAL producer (ecc-context-monitor) in subscription
+// mode with high USD + green context, then feed the produced STATE.md to
+// auto-chain: high USD alone must NOT flip chain_aborted (trigger 8 dormant).
+const sessionBridge = require('../session-bridge');
+const origReadBridge = sessionBridge.readBridge;
+let producerBridge = null;
+sessionBridge.readBridge = function () { return producerBridge; };
+const ecMonitor = require('../../hooks/ecc-context-monitor');
+test.after(() => { sessionBridge.readBridge = origReadBridge; });
+
+test('M3 F2: subscription high-USD produces no STATE.md chain_aborted → auto-chain trigger 8 dormant', () => {
+  const h = freshHome();
+  const prev = { sub: process.env.MCCP_SUBSCRIPTION, th: process.env.MCCP_HANDOFF_THRESHOLDS_USD };
+  process.env.MCCP_SUBSCRIPTION = '1';
+  delete process.env.MCCP_HANDOFF_THRESHOLDS_USD;
+  try {
+    fs.mkdirSync(costPath.getCostStateDir(), { recursive: true });
+    const repoRoot = path.join(h.dir, 'repo');
+    fs.mkdirSync(path.join(repoRoot, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(repoRoot, '.claude', 'state'), { recursive: true });
+
+    // High USD, but plenty of context remaining → overflow green → no abort.
+    producerBridge = {
+      context_remaining_pct: 80, tool_count: 5, total_cost_usd: 999,
+      files_modified_count: 0, recent_tools: [], last_timestamp: new Date().toISOString(),
+    };
+    const sid = 'm3f2-' + process.pid;
+    ecMonitor.run(JSON.stringify({ session_id: sid, cwd: repoRoot }));
+    try { fs.unlinkSync(path.join(os.tmpdir(), 'ecc-ctx-warn-' + sid + '.json')); } catch { /* ignore */ }
+
+    // The produced STATE.md must not carry a chain_aborted flag.
+    const stateMdPath = path.join(repoRoot, '.claude', 'state', 'STATE.md');
+    if (fs.existsSync(stateMdPath)) {
+      const raw = fs.readFileSync(stateMdPath, 'utf8');
+      assert.doesNotMatch(raw, /^chain_aborted: true$/m, 'high USD must not stamp chain_aborted in subscription mode');
+    }
+
+    // auto-chain sees a clean STATE.md → trigger 8 dormant; subscription ignores USD.
+    const r = autoChain.shouldAbort({
+      env: { MCCP_SUBSCRIPTION: '1' }, repoRoot: repoRoot,
+      contextStateRead: ctxReadChain({ context_remaining_pct: 80, tool_count: 5 }),
+    });
+    assert.ok(!r.reasons.some(x => x.trigger === 'state-md-aborted'), 'trigger 8 dormant on high USD');
+    assert.ok(!r.reasons.some(x => x.trigger === 'context-overflow'), 'green context → no overflow abort');
+    assert.ok(!r.reasons.some(x => x.trigger === 'cost-telemetry'), 'subscription ignores USD cost-state');
+  } finally {
+    if (prev.sub === undefined) delete process.env.MCCP_SUBSCRIPTION; else process.env.MCCP_SUBSCRIPTION = prev.sub;
+    if (prev.th === undefined) delete process.env.MCCP_HANDOFF_THRESHOLDS_USD; else process.env.MCCP_HANDOFF_THRESHOLDS_USD = prev.th;
+    h.restore();
+  }
+});

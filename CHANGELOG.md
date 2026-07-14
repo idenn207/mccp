@@ -2,7 +2,27 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.21.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.22.0] — 2026-07-12
+
+**Time-based cost decay (`MCCP_COST_STATE_DECAY_HOURS`)** — cost-model-subscription PRD **M3, 최종 milestone → PRD 전체 종료(minor bump)**. "한 번 튄 가상 비용($314.50 sticky)이 5개 자동화를 영구·전역으로 잠그는" 문제의 잔존 근원을 시간 축으로 닫는다. M2가 "신규 추정을 정확하게" 만들었으니 M3는 "오래된 추정이 스스로 사라지게" 만든다. 종량제·구독권 공통으로, 3일 전 다른 프로젝트의 $314가 오늘 작업을 막지 않는다. decay 비활성(`=0`) 시 M2 동작과 판정 byte-identical(회귀 0).
+
+### Added
+
+- **`cost-state.js` Axis 1** — 명시적 `readStateRaw`(raw)/`readState`(decayed)/`readStateOrThrow`(raw, auto-chain 전용) 3-API 분리(Codex F1) + pure `decayIfStale(state, mtimeMs, nowMs, decayMs)` + `parseDecayMs(env)` env SoT(default 6h · `=0` kill switch · fail-open). mtime > decay 창이면 `readState()`가 green view 반환 → tier 소비처(fleet/fanout/briefing/breakpoint)가 **코드 변경 0**으로 decay 획득. `writeStateMerged`는 명시적 write-side decay로 stale floor를 리셋해 monotonic MAX 계승을 끊는다.
+- **`state-writer.js` Axis 2 substrate** — `abort_owner`(enum `cost|dispatch|null`)+`cost_abort_at` provenance frontmatter(present-only 직렬화, `dep_check_at` mirror). `dispatch_chain_aborted` 이벤트가 `abort_owner='dispatch'` set + stale cost marker clear(F3 안정적 ownership — `last_event` guard 폐기).
+- **`ecc-context-monitor.js` Axis 2** — STATE.md producer가 subscription-aware SET(구독권은 USD가 아니라 `evaluateOverflow` context 축에서만 `chain_aborted` set, F2) + `chain_aborted` set 시 `abort_owner='cost'`+`cost_abort_at` stamp + 신규 **decay-clear**(4중 stable AND) + **legacy sweep**(marker 없는 cost-origin flag). **Codex Impl-R1 흡수** — IF1: legacy sweep가 `NON_COST_ABORT_EVENTS`(`plan_conflict_escalated`/`dispatch_chain_aborted`) denylist로 plan-conflict hard-stop 오clear 방지; IF2: stale bridge context를 signal-unknown으로 처리해 오래된 telemetry의 영구 halt 차단.
+- **테스트** — `lib/tests/cost-state.test.js`(신규 18) + `state/tests/state-writer.test.js`(+4) + `hooks/tests/ecc-context-monitor.test.js`(+10, IF1/IF2 포함) + `lib/tests/auto-chain.test.js`(+3, F1 divergence·self-heal·F2 통합).
+
+### Changed
+
+- **`plugin.json`** `1.21.2 → 1.22.0`(PRD 최종 milestone 완료 = minor, §3.7) + `renderer/html.js`·`markdown.js` footer `v1.22.0` sync.
+- **`CLAUDE.md`** §4 `MCCP_COST_STATE_DECAY_HOURS` 토글 + §1.4 표 M3 row(cost-model-subscription PRD 완결) + §3.2 STATE.md `abort_owner`/`cost_abort_at` present-only 필드.
+
+### Fixed
+
+- **auto-chain fail-safe divergence는 의도적·문서화·테스트됨** — auto-chain은 `readStateOrThrow`(raw)+`isStale(1h)` stale-abort 유지(mid-chain telemetry 1h+ 낡으면 보수적 pause). sticky 버그(fresh 파일의 hard_ceiling)는 write-side decay가 첫 tool write에 floor를 리셋해 해소하고 >6h gap 후 첫 write가 파일을 fresh·low로 만들어 자기치유(decay 창 6h ≫ auto-chain 1h라 활성 세션 무발화).
 
 ## [1.21.2] — 2026-07-10
 

@@ -50,7 +50,7 @@ We'll know we're right when **구독권 모드에서 cost 기반 게이트 차�
 |---|---|---|---|---|
 | 1 | Subscription opt-in gate | `MCCP_SUBSCRIPTION=1` 시 5개 소비처가 USD 게이트를 우회하고 폭주 방지를 context/turn 축으로 대체 — 구독권 사용자의 자동화 잠금 즉시 해제 | complete | `.claude/plans/cost-model-subscription-m1.plan.md` (PR #100, v1.21.1) |
 | 2 | Harness-cost accuracy | cost-tracker가 harness 실비를 신뢰(transcript-sum 강등) + `ecc-context-monitor.js` `COST_CRITICAL_USD=100` 하드코딩을 `cost-thresholds.js`로 통일 — 추정치가 실비에 수렴, 임계 env가 hard_ceiling·STATE.md abort 채널에도 유효 | complete | `.claude/plans/cost-model-subscription-m2.plan.md` · report `.claude/PRPs/reports/cost-model-subscription-m2-report.md` (v1.21.2) |
-| 3 | Time-based decay | cost-state가 mtime > N시간이면 monotonic MAX를 green으로 decay — 한 번 튄 값의 영구·전역 잔존 차단 | pending | — |
+| 3 | Time-based decay | cost-state가 mtime > N시간이면 monotonic MAX를 green으로 decay — 한 번 튄 값의 영구·전역 잔존 차단 | complete | `.claude/plans/cost-model-subscription-m3.plan.md` · report `.claude/PRPs/reports/cost-model-subscription-m3-report.md` (v1.22.0) |
 
 ## Open Questions
 - [ ] 구독권 자동 감지 경로가 존재하나? (harness가 plan type/subscription 신호를 hook stdin이나 env로 노출하는지) — MVP는 env opt-in, 확인되면 후속 축.

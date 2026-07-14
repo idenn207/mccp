@@ -2,7 +2,21 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.22.2] — 2026-07-14
+
+**Workflow-orchestration live-activation — M2 (firing-preview 도구 + 관찰 프로토콜)** — M1이 발화를 구조적으로 반전·배선했으나 실제 LLM-runtime 발화가 **관찰된 적 없던** gap을 닫는 후속 milestone. live `/mccp:work` 완주는 재귀·고비용이라 관찰을 두 축으로 분리: (1) **저비용 firing-preview 도구** — 현재 env·cost-state·runaway 카운터로 "지금 무엇이 발화할지"를 Step 3와 **동일 oracle**을 read-only 재사용해 **LLM 소비 0**으로 판정, (2) **operator-executed live 완주**(prp-implement 밖, 재귀 회피)의 관찰 기록·프로토콜. 핵심 correctness — oracle `run`은 component signal일 뿐 실발화는 `resolveWorkRoute` route + caller-gate 합성 `effective_fire`로 판정해 "oracle run == 발화" false green-light를 구조 차단(ISOLATE=0/partition N=1/runaway degraded → run:true여도 parallel_fires:false).
+
+### Added
+
+- **`orchestration-preview.js`** — 순수 `previewFiring(opts)` + `require.main` CLI(`--plan`/`--prd`/`--json`). Step 3 oracle(`resolveFanout`/`resolveFleet`/`resolveWorkRoute`/`parseMergedVerifyMode`/runaway `readCounter`)을 read-only 조합해 fan-out·병렬·verify·route·runaway 발화 스냅샷 산출. `oracle_run`(원자료)과 `effective_fire`(route 합성)를 분리 출력 + `caller_gates.*_assumed` 투영 라벨. **read-only 불변식** — counter-bump 미import/호출, cost-state·STATE.md 미write.
+- **`lib/tests/orchestration-preview.test.js`** (신규 12) — env matrix(cost-failopen 발화 / off·0 opt-out / `COST_FAIL_OPEN=0` fail-closed 복원 / near-cap degraded clamp) + caller-gate matrix(isolate=0·N=1·opt-out에서 `parallel_fires:false`) + preview 서브객체 == 직접 oracle 호출 byte-정합 + read-only 불변식(temp HOME/state에 runaway·cost-state·STATE.md 3파일 시드 후 CLI 실행 → 전부 mtime/내용 불변 + 모듈 counter-bump 정적 부재).
+- **`docs/workflow-orchestration/live-activation-observations.md`** — per-cycle 관찰 ledger(표) + live-dogfood 프로토콜(scope-최소 target·**2개 named row 필수**: default 발화 ∧ `MCCP_WORK_IMPLEMENT_PARALLEL=off` opt-out·재귀 회피 경계·검증 절차) + 단일 사용자 baseline 신뢰도 caveat.
+
+### Changed
+
+- **`plugin.json`** `1.22.1`→`1.22.2` (단일 milestone patch, §3.7). renderer footer(`html.js`·`markdown.js`) + `i18n-surface.test.js` assert 동기.
 
 ## [1.22.1] — 2026-07-14
 

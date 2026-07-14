@@ -9,16 +9,22 @@
 // modelled on plan-fanout/budget.js resolveFanout (same loud fail-open env parse,
 // same fail-CLOSED on unknown cost-state, same minRemaining = est × N).
 //
+// live-activation M1 — DEFAULT FIRING FLIPPED. parseParallelMode now defaults ON
+// (opt-OUT via 'off'/'0'), and a missing/corrupt cost-state fails OPEN (green
+// assumed + COST_FAILOPEN) when costFailOpen is true (the default). The former
+// fail-CLOSED skip is preserved verbatim under costFailOpen=false (the
+// MCCP_ORCHESTRATION_COST_FAIL_OPEN=0 kill switch). Tier autoDisable narrowed to
+// critical-only + a hard_ceiling_reached bomb-detector skip. The telemetry-absent
+// fail-open path clamps N through the INJECTED opts.runawayClamp
+// (orchestration-runaway.js#clampForRunaway); the merge-strategy, single-partition
+// and budget gates are UNCHANGED (structural safety preserved).
+//
 // DELIBERATE DIFFERENCES from resolveFanout:
 //   - a MERGE-STRATEGY gate (Task 0 / Codex F3): parallel is structurally
 //     impossible unless the worktree→parent merge mechanism is PROVEN
 //     (mergeStrategy === 'worktree-merge'). Any other value ('disable-parallel',
 //     'same-worktree', absent) fails CLOSED to N=1 — same-worktree is forbidden
-//     until atomic-merge protection ships. The M2b spike measured
-//     'disable-parallel'; M4 (Task 0 run wf_1f689994-fb8) PROVED the live
-//     worktree↔dispatchId correlation and flipped the work.md default to
-//     'worktree-merge', so this gate now unlocks parallel under an explicit
-//     opt-in (the ENABLING_MERGE_STRATEGY constant was already 'worktree-merge').
+//     until atomic-merge protection ships.
 //   - a SINGLE-PARTITION short-circuit: when the partition oracle already
 //     collapsed to n=1 (requestedN ≤ 1) there is nothing to parallelize.
 //   - an optional in-oracle budget cap (DD6 iv): when the caller supplies
@@ -27,13 +33,16 @@
 //     pre-guard (shouldSkipForBudget) enforces the same rule at spawn time.
 //
 // Decision order (first match wins):
-//   1. MCCP_WORK_IMPLEMENT_PARALLEL != on/1     → ENV_OFF                 (default off)
+//   1. MCCP_WORK_IMPLEMENT_PARALLEL === off/0   → ENV_OFF                 (default ON — opt-out)
 //   2. mergeStrategy !== 'worktree-merge'       → MERGE_STRATEGY_DISABLED (fail-closed)
 //   3. requestedN ≤ 1                           → SINGLE_PARTITION        (nothing to split)
-//   4. cost-state missing/corrupt (null)        → COST_STATE_UNKNOWN      (fail-closed)
-//   5. cost-tier ∈ autoDisableTiers             → TIER_*                  (notice/warning/critical)
-//   6. budgetTotal set & unaffordable           → BUDGET_INSUFFICIENT     (N=1)
-//   7. otherwise                                → OK_RUN + n + minRemaining
+//   4. cost-state missing/corrupt (null):
+//        costFailOpen  → tier 'green', COST_FAILOPEN (+ runaway clamp)
+//        !costFailOpen → COST_STATE_UNKNOWN         (legacy fail-closed)
+//   5. cost-state hard_ceiling_reached          → HARD_CEILING            (USD bomb detector)
+//   6. cost-tier ∈ autoDisableTiers             → TIER_*                  (default critical-only)
+//   7. budgetTotal set & unaffordable           → BUDGET_INSUFFICIENT     (N=1)
+//   8. otherwise                                → OK_RUN + n + minRemaining
 
 const subscription = require('../subscription');
 
@@ -43,22 +52,31 @@ const REASONS = Object.freeze({
   MERGE_STRATEGY_DISABLED: 'merge-strategy-disabled',
   SINGLE_PARTITION: 'single-partition',
   COST_STATE_UNKNOWN: 'cost-state-unknown',
+  // live-activation M1 — fail-open (cost-state absent → green assumed + run).
+  COST_FAILOPEN: 'cost-failopen',
+  // live-activation M1 — USD bomb detector (hard_ceiling_reached sticky true).
+  HARD_CEILING: 'hard-ceiling',
   TIER_NOTICE: 'tier-notice',
   TIER_WARNING: 'tier-warning',
   TIER_CRITICAL: 'tier-critical',
   BUDGET_INSUFFICIENT: 'budget-insufficient',
   // cost-model-subscription M1 — positive context-overflow critical under
-  // MCCP_SUBSCRIPTION (replaces the USD cost-state + tier gates, orders 4-5).
+  // MCCP_SUBSCRIPTION (replaces the USD cost-state + tier gates, orders 4-6).
   SUBSCRIPTION_OVERFLOW: 'subscription-overflow',
 });
 
+// MAX_WORKERS_DEFAULT (+ MCCP_WORK_PARALLEL_MAX override) is the per-dispatch
+// worker ABSOLUTE ceiling — N is NEVER allowed above it (n = min(reqN, maxWorkers)
+// below). This is the per-burst runaway cap; the session-cumulative runaway cap
+// (across repeated / recursive / retried dispatches) is the independent
+// orchestration-runaway.js counter, injected as opts.runawayClamp.
 const MAX_WORKERS_DEFAULT = 4;
 const MIN_PER_WORKER_DEFAULT = 150000;
 const ENABLING_MERGE_STRATEGY = 'worktree-merge';
 
-const AUTODISABLE_TIERS_DEFAULT = Object.freeze(
-  new Set(['notice', 'warning', 'critical'])
-);
+// live-activation M1 — narrowed to critical-only (operator philosophy: $50/$80
+// are not bombs). MCCP_WORK_PARALLEL_AUTODISABLE_TIER override still honored.
+const AUTODISABLE_TIERS_DEFAULT = Object.freeze(new Set(['critical']));
 
 const ENV_MODE = 'MCCP_WORK_IMPLEMENT_PARALLEL';
 const ENV_MAX = 'MCCP_WORK_PARALLEL_MAX';
@@ -69,11 +87,12 @@ function warn(line) {
   process.stderr.write('[mccp:work-parallel] ' + line + '\n');
 }
 
-// parseParallelMode(env) → 'off' | 'on'. Default OFF (explicit opt-in, mirror of
-// the MCCP_WORK_IMPLEMENT_WORKFLOW 0|1 kill switch). '1' or 'on' (ci) enables.
+// parseParallelMode(env) → 'off' | 'on'. Default ON (live-activation M1 — explicit
+// opt-OUT). A case-insensitive 'off' or '0' turns it off; anything else (incl.
+// unset) is on.
 function parseParallelMode(env) {
   const raw = String((env && env[ENV_MODE]) || '').trim().toLowerCase();
-  return (raw === '1' || raw === 'on') ? 'on' : 'off';
+  return (raw === 'off' || raw === '0') ? 'off' : 'on';
 }
 
 function parsePositiveInt(env, key, def) {
@@ -100,7 +119,7 @@ function parseTierOverride(raw) {
   for (let i = 0; i < tiers.length; i++) {
     if (!allowed.has(tiers[i])) {
       warn(ENV_AUTODISABLE + ' has unknown tier "' + tiers[i] +
-        '"; falling back to default (notice/warning/critical).');
+        '"; falling back to default (critical-only).');
       return null;
     }
   }
@@ -108,13 +127,17 @@ function parseTierOverride(raw) {
 }
 
 // resolveFleet({ env, costStateRead, tierFor, requestedN, mergeStrategy,
-//                budgetTotal, budgetRemaining })
-//   → { n, run, reason, minRemaining, perWorkerEstimate, tier, mergeStrategy }
+//                budgetTotal, budgetRemaining, costFailOpen, runawayClamp })
+//   → { n, run, reason, minRemaining, perWorkerEstimate, tier, mergeStrategy,
+//       degraded, runawayReason }
 //
-// costStateRead() returns a cost-state object ({cost_usd, threshold_tier}) or
-// null (missing/corrupt). tierFor (optional) recomputes a tier from cost_usd
-// when the stored threshold_tier is absent (default fallback 'green').
-// requestedN is the partition oracle's n (the ceiling of useful parallelism).
+// costStateRead() returns a cost-state object ({cost_usd, threshold_tier,
+// hard_ceiling_reached}) or null (missing/corrupt). tierFor (optional) recomputes
+// a tier from cost_usd when the stored threshold_tier is absent (default fallback
+// 'green'). requestedN is the partition oracle's n (the ceiling of useful
+// parallelism). costFailOpen (default true) — when cost-state is null, run
+// instead of skipping. runawayClamp(requestedN) (optional injected) →
+// {n, degraded, reason}; applied ONLY on the fail-open path.
 function resolveFleet(opts) {
   opts = opts || {};
   const env = opts.env || process.env;
@@ -122,16 +145,18 @@ function resolveFleet(opts) {
   const maxWorkers = parseMaxWorkers(env);
   const mergeStrategy = typeof opts.mergeStrategy === 'string' ? opts.mergeStrategy : null;
   const reqN = (Number.isInteger(opts.requestedN) && opts.requestedN >= 1) ? opts.requestedN : 1;
+  const costFailOpen = opts.costFailOpen !== false;
 
   const skip = function (reason, extra) {
     return Object.assign({
       n: 1, run: false, reason: reason, minRemaining: perWorker,
       perWorkerEstimate: perWorker, tier: null, mergeStrategy: mergeStrategy,
+      degraded: false, runawayReason: null,
     }, extra || {});
   };
 
-  // 1 — parallel opt-in.
-  if (parseParallelMode(env) !== 'on') return skip(REASONS.ENV_OFF);
+  // 1 — parallel opt-in (default ON — opt-out via off/0).
+  if (parseParallelMode(env) === 'off') return skip(REASONS.ENV_OFF);
 
   // 2 — merge-strategy structural gate (Task 0 / Codex F3). Only a PROVEN
   // worktree→parent merge unlocks parallel. Anything else fails closed to N=1.
@@ -140,11 +165,12 @@ function resolveFleet(opts) {
   // 3 — nothing to parallelize (partition oracle already collapsed).
   if (reqN <= 1) return skip(REASONS.SINGLE_PARTITION);
 
-  // 4-5 — tier gate. Metered path: USD cost-state (fail-CLOSED on unknown) + tier
-  // autoDisable. Subscription path (cost-model-subscription M1): bypass BOTH and
-  // gate on the context overflow axis, fail-OPEN (Codex F1, user-accepted) —
-  // absent/green runs, only positive critical skips. Orders 1/2/3/6 unchanged.
+  // 4-6 — tier gate. Metered path: USD cost-state (fail-OPEN on unknown by
+  // default) + hard_ceiling bomb detector + tier autoDisable. Subscription path
+  // (cost-model-subscription M1): bypass ALL of it and gate on the context
+  // overflow axis, fail-OPEN (Codex F1). Orders 1/2/3/7 unchanged.
   let tier;
+  let failOpen = false;
   if (opts.subscriptionMode === true) {
     const ctxRead = typeof opts.contextStateRead === 'function' ? opts.contextStateRead : function () { return null; };
     let ctx;
@@ -157,31 +183,40 @@ function resolveFleet(opts) {
     if (of.overflow) return skip(REASONS.SUBSCRIPTION_OVERFLOW, { tier: of.tier });
     tier = of.tier;
   } else {
-    // 4 — expensive parallel fails CLOSED on unknown cost-state (mirror F2).
     let cs;
     try {
       cs = typeof opts.costStateRead === 'function' ? opts.costStateRead() : null;
     } catch (_e) {
       cs = null;
     }
-    if (!cs) return skip(REASONS.COST_STATE_UNKNOWN);
-
-    // 5 — cost-tier autoDisable.
-    const autoDisableTiers = parseTierOverride(env[ENV_AUTODISABLE]) || AUTODISABLE_TIERS_DEFAULT;
-    const tierForFn = typeof opts.tierFor === 'function' ? opts.tierFor : null;
-    tier = cs.threshold_tier || (tierForFn ? tierForFn(cs.cost_usd) : 'green');
-    if (autoDisableTiers.has(tier)) {
-      const r = tier === 'notice' ? REASONS.TIER_NOTICE
-        : tier === 'warning' ? REASONS.TIER_WARNING
-          : REASONS.TIER_CRITICAL;
-      return skip(r, { tier: tier });
+    if (!cs) {
+      // 4 — live-activation M1: missing cost-state fails OPEN by default; the =0
+      // kill switch restores the old COST_STATE_UNKNOWN fail-closed skip.
+      if (!costFailOpen) return skip(REASONS.COST_STATE_UNKNOWN);
+      tier = 'green';
+      failOpen = true;
+    } else {
+      // 5 — USD bomb detector — the sticky hard ceiling skips regardless of tier.
+      if (cs.hard_ceiling_reached === true) {
+        return skip(REASONS.HARD_CEILING, { tier: cs.threshold_tier || 'critical' });
+      }
+      // 6 — cost-tier autoDisable (default critical-only).
+      const autoDisableTiers = parseTierOverride(env[ENV_AUTODISABLE]) || AUTODISABLE_TIERS_DEFAULT;
+      const tierForFn = typeof opts.tierFor === 'function' ? opts.tierFor : null;
+      tier = cs.threshold_tier || (tierForFn ? tierForFn(cs.cost_usd) : 'green');
+      if (autoDisableTiers.has(tier)) {
+        const r = tier === 'notice' ? REASONS.TIER_NOTICE
+          : tier === 'warning' ? REASONS.TIER_WARNING
+            : REASONS.TIER_CRITICAL;
+        return skip(r, { tier: tier });
+      }
     }
   }
 
   // cap N by the structural max, then (optionally) by the affordable budget.
   let n = Math.min(reqN, maxWorkers);
 
-  // 6 — in-oracle budget cap (DD6 iv). Only when the caller has real budget
+  // 7 — in-oracle budget cap (DD6 iv). Only when the caller has real budget
   // numbers; otherwise minRemaining is returned for the Workflow pre-guard.
   if (opts.budgetTotal && Number.isFinite(opts.budgetRemaining)) {
     const affordable = Math.floor(opts.budgetRemaining / perWorker);
@@ -189,14 +224,29 @@ function resolveFleet(opts) {
     n = Math.min(n, affordable);
   }
 
+  // live-activation M1 — catastrophic-runaway backstop. Applied ONLY on the
+  // fail-open path (telemetry absent → no USD bomb detector). Never raises N.
+  let degraded = false;
+  let runawayReason = null;
+  if (failOpen && typeof opts.runawayClamp === 'function') {
+    const c = opts.runawayClamp(n);
+    if (c && Number.isInteger(c.n) && c.n >= 1) {
+      if (c.n < n) n = c.n;
+      degraded = c.degraded === true;
+      runawayReason = c.reason || null;
+    }
+  }
+
   return {
     n: n,
     run: true,
-    reason: REASONS.OK_RUN,
+    reason: failOpen ? REASONS.COST_FAILOPEN : REASONS.OK_RUN,
     minRemaining: perWorker * n,
     perWorkerEstimate: perWorker,
     tier: tier,
     mergeStrategy: mergeStrategy,
+    degraded: degraded,
+    runawayReason: runawayReason,
   };
 }
 

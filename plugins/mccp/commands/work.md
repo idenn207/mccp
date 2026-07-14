@@ -155,15 +155,24 @@ rm -f "$GITDIR/dispatch-fleet-args.json" "$GITDIR/dispatch-partitions.json" \
       "$GITDIR/dispatch-fleet-prepare.json"   # clear stale
 rm -rf "$GITDIR/dispatch-fleet-results"
 ISOLATE="${MCCP_WORK_ISOLATE_IMPLEMENT:-1}"
-PARALLEL="${MCCP_WORK_IMPLEMENT_PARALLEL:-0}"
+# live-activation M1 — DEFAULT FIRING FLIPPED to on (opt-out). Mirror of
+# budget.js#parseParallelMode (default on; 'off'/'0' opts out). The single opt-out
+# axis is THIS env: PARALLEL=off/0 restores the single-worker Task (legacy) path
+# exactly (Codex F1 — MCCP_WORK_IMPLEMENT_WORKFLOW default is NOT flipped, so a
+# parallel opt-out never strands you on an unfamiliar Workflow single leg).
+PARALLEL="${MCCP_WORK_IMPLEMENT_PARALLEL:-1}"
 # M4 default flip — Task 0 (run wf_1f689994-fb8) PROVED the live worktree↔dispatchId
 # correlation (worktrees persist + controller-enumerable + worker-seeded envelopes
-# correlate), so worktree-merge is now the default. The structural gate stays: the
-# cost guard 3중(PARALLEL=1 opt-in · cost-state fail-closed · tier autoDisable) is
-# unchanged, so parallel still only fires under an explicit opt-in + green cost.
+# correlate), so worktree-merge is now the default. The cost guard is now: PARALLEL
+# opt-OUT (default on) · cost-state fail-OPEN by default (MCCP_ORCHESTRATION_COST_FAIL_OPEN=0
+# to restore fail-closed) · critical-only tier autoDisable · hard_ceiling bomb
+# detector · cost-state-independent session runaway cap.
 MERGE_STRATEGY="${MCCP_WORK_MERGE_STRATEGY:-worktree-merge}"
 FLEET_N=0
-if [ "$ISOLATE" != "0" ] && [ "$PARALLEL" = "1" ] && [ "$MERGE_STRATEGY" = "worktree-merge" ]; then
+# live-activation M1 — opt-OUT gate (default on). Normalize then treat only 'off'/'0'
+# as opt-out; resolveFleet#parseParallelMode is the SoT that re-checks.
+PARALLEL_LC=$(printf '%s' "$PARALLEL" | tr '[:upper:]' '[:lower:]' | tr -d ' ')
+if [ "$ISOLATE" != "0" ] && [ "$PARALLEL_LC" != "0" ] && [ "$PARALLEL_LC" != "off" ] && [ "$MERGE_STRATEGY" = "worktree-merge" ]; then
   MAXW="${MCCP_WORK_PARALLEL_MAX:-4}"
   # (a) derive disjoint partitions from the plan (pure partitionFromPlanText).
   node -e '
@@ -181,9 +190,20 @@ if [ "$ISOLATE" != "0" ] && [ "$PARALLEL" = "1" ] && [ "$MERGE_STRATEGY" = "work
       const cs=require(process.argv[1]+"/scripts/lib/cost-state");
       const sub=require(process.argv[1]+"/scripts/lib/subscription");
       const ctx=require(process.argv[1]+"/scripts/lib/context-state");
+      const runaway=require(process.argv[1]+"/scripts/lib/orchestration-runaway");
+      // live-activation M1 — cost fail-open (default true) + cost-state-independent
+      // runaway backstop. =0 restores the old fail-closed COST_STATE_UNKNOWN skip.
+      const costFailOpen=String(process.env.MCCP_ORCHESTRATION_COST_FAIL_OPEN||"").trim()!=="0";
+      const sessionId=process.env.CLAUDE_SESSION_ID||"unknown";
+      const launched=runaway.readCounter({ sessionId:sessionId }).launched;
       const r=b.resolveFleet({ env:process.env, mergeStrategy:process.argv[2],
         requestedN:parseInt(process.argv[3],10)||1, costStateRead:cs.readState, tierFor:cs.tierFor,
+        costFailOpen:costFailOpen,
+        runawayClamp:function(n){ return runaway.clampForRunaway({ requestedN:n, launchedSoFar:launched, env:process.env }); },
         subscriptionMode:sub.isSubscriptionMode(process.env), contextStateRead:ctx.readState });
+      // bump the session launch counter by the effective N so repeated/recursive
+      // /mccp:work dispatches accumulate toward the absolute runaway cap.
+      if(r.run) runaway.bumpCounter({ sessionId:sessionId, delta:r.n });
       process.stdout.write(JSON.stringify(r));
     ' "$CLAUDE_PLUGIN_ROOT" "$MERGE_STRATEGY" "$REQ_N")
     RUN=$(echo "$FLEET" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).run?"1":"0")}catch{process.stdout.write("0")}')
@@ -205,9 +225,9 @@ if [ "$ISOLATE" != "0" ] && [ "$PARALLEL" = "1" ] && [ "$MERGE_STRATEGY" = "work
   fi
 fi
 if [ -f "$GITDIR/dispatch-fleet-args.json" ]; then
-  echo "[mccp:work] parallel fleet 준비 (N=$FLEET_N, merge_strategy=$MERGE_STRATEGY)"
+  echo "[mccp:work] parallel fleet 발화 (N=$FLEET_N, merge_strategy=$MERGE_STRATEGY) — default on, MCCP_WORK_IMPLEMENT_PARALLEL=off로 단일 경로 opt-out"
 else
-  echo "[mccp:work] parallel implement 비활성 (opt-in=$PARALLEL merge_strategy=$MERGE_STRATEGY) — 단일 worker 경로" 1>&2
+  echo "[mccp:work] parallel implement 비활성 (parallel=$PARALLEL merge_strategy=$MERGE_STRATEGY) — 단일 worker 경로 (default on; off로 opt-out했거나 N=1/cost-gate)" 1>&2
 fi
 ```
 
@@ -253,14 +273,40 @@ else
 fi
 ```
 
-#### Step 3.route — pre-invocation 경계 결정 (Codex F1)
+#### Step 3.route — pre-invocation 경계 결정 (Codex F1/F3)
 
-prepare 아티팩트 + env를 읽어 **worker를 spawn하기 전** 경로를 확정한다. 이 지점이 Task fallback을 허용하는 **유일한 안전 지점**이다(Codex F1 — Workflow 개시 후엔 fallback 금지):
+prepare 아티팩트 + env를 읽어 **worker를 spawn하기 전** 경로를 확정한다. 이 지점이 Task fallback을 허용하는 **유일한 안전 지점**이다(Codex F1 — Workflow 개시 후엔 fallback 금지). live-activation M1(Codex F3)부터 route 결정은 인라인 `[ ... ]` 트리가 아니라 **순수 오라클 `resolveWorkRoute`(단일 SoT, `route.test.js`가 env 조합 전수 검증)** 를 호출해 확정한다:
 
-- **fleet 아티팩트 `$GITDIR/dispatch-fleet-args.json` 존재 + `Workflow` tool 가용** → **Step 3.WP** (N-worker `parallel`). fleet 준비는 `MCCP_WORK_IMPLEMENT_PARALLEL=1` + `merge_strategy=worktree-merge` + N>1 + run=true에서만 성사되므로(Step 3.prep-parallel), 이 분기는 그 4중 조건이 모두 참일 때만 도달한다. Workflow tool 미가용이면 fleet 아티팩트가 있어도 병렬 불가 → 단일 경로로 강등(fleet 아티팩트 무시, 아래 분기로).
-- fleet 아티팩트 없음 + `$GITDIR/dispatch-prepare.json` **부재** → **Step 3.F 인라인** (`ISOLATE=0` 또는 prepare-single 실패).
-- fleet 아티팩트 없음 + prepare 존재 + `MCCP_WORK_IMPLEMENT_WORKFLOW=1` + `dispatch-workflow-args.json` 존재 + **`Workflow` tool 가용** → **Step 3.W**.
-- fleet 아티팩트 없음 + prepare 존재 + 그 외(`WF=0`/미설정/오타, args 부재, 또는 Workflow tool 미가용) → **Step 3.I** (Task dispatch).
+```bash
+GITDIR=$(git rev-parse --git-path mccp/tmp)
+ISOLATE="${MCCP_WORK_ISOLATE_IMPLEMENT:-1}"
+# WORKFLOW_AVAILABLE — the LLM sets this to 1 when the `Workflow` tool is present
+# in THIS session, else 0. Bash cannot introspect tool availability; the model
+# supplies this bit (default 1). It is the only non-artifact input the oracle needs.
+WORKFLOW_AVAILABLE="${WORKFLOW_AVAILABLE:-1}"
+ROUTE=$(node -e '
+  const route=require(process.argv[1]+"/scripts/lib/implement-dispatch/route");
+  const fs=require("fs");
+  const has=function(p){ try{ fs.accessSync(p); return true; }catch(_){ return false; } };
+  const gitdir=process.argv[2];
+  process.stdout.write(route.resolveWorkRoute({
+    env:process.env,
+    isolate:process.argv[3]!=="0",
+    hasFleetArgs:has(gitdir+"/dispatch-fleet-args.json"),
+    hasPrepare:has(gitdir+"/dispatch-prepare.json"),
+    hasWorkflowArgs:has(gitdir+"/dispatch-workflow-args.json"),
+    workflowAvailable:process.argv[4]==="1",
+  }));
+' "$CLAUDE_PLUGIN_ROOT" "$GITDIR" "$ISOLATE" "$WORKFLOW_AVAILABLE")
+echo "[mccp:work] Step 3 route=$ROUTE" 1>&2
+```
+
+`$ROUTE` 값별 다음 sub-step으로 진행한다 (오라클 결정 트리는 [route.js](../scripts/lib/implement-dispatch/route.js) 참조):
+
+- `workflow-parallel` → **Step 3.WP** (N-worker `parallel`). fleet 준비는 `MCCP_WORK_IMPLEMENT_PARALLEL` opt-out 미설정 + `merge_strategy=worktree-merge` + N>1 + run=true에서만 성사되므로(Step 3.prep-parallel), 이 route는 그 조건이 모두 참 + Workflow tool 가용일 때만 반환된다.
+- `workflow-single` → **Step 3.W** (`MCCP_WORK_IMPLEMENT_WORKFLOW=1` + args 존재 + Workflow tool 가용).
+- `task` → **Step 3.I** (Task dispatch — 격리 default fallback).
+- `inline` → **Step 3.F 인라인** (`ISOLATE=0` 또는 prepare-single 실패로 아티팩트 부재).
 
 #### Step 3.W — Workflow 격리 경로 (`MCCP_WORK_IMPLEMENT_WORKFLOW=1`)
 

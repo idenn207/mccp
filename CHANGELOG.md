@@ -2,7 +2,24 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.22.1] — 2026-07-14
+
+**Workflow-orchestration live-activation — M1 (발화 조건 반전 + 검증 harness)** — workflow-orchestration PRD가 배선은 완성했으나 실제 LLM-runtime 발화가 관찰된 적 없고 cost-state fail-closed가 dogfood 발화를 구조적으로 막던 gap을 닫는다(후속 live-activation PRD의 첫 milestone). fan-out(`MCCP_PLAN_FANOUT`)·병렬 implement(`MCCP_WORK_IMPLEMENT_PARALLEL`)를 **default 발화**로 반전(단일은 명시적 opt-out)하고, cost-state 부재 시 `COST_STATE_UNKNOWN` fail-closed skip을 **fail-open(green 가정)**으로 뒤집는다. 폭주 방지는 구조적 per-dispatch 상한(fixed fleetSize=4 / `MCCP_WORK_PARALLEL_MAX`) + USD critical/`hard_ceiling` bomb-detector + **cost-state 독립 누적 worker-launch 절대 상한**으로 재정의(notice/warning tier autoDisable 제거 — 운영자 철학상 $50/$80은 폭탄 아님). 실제 LLM 발화 없이 seed→mark→collect→reconcile 배선을 관측하는 저비용 검증 harness(합성 git-worktree e2e) 추가.
+
+### Added
+
+- **`orchestration-runaway.js`** (Codex F2) — cost-state와 **독립적인** catastrophic-runaway 최후 안전판. 순수 `clampForRunaway({requestedN, launchedSoFar, env})`(fail-open 경로 N을 degraded=1로 clamp) + 세션 키 누적 worker-launch 카운터(`readCounter`/`bumpCounter`, `cost-state.js` `wx` O_EXCL lock + atomic tmp+rename mirror) + 절대 env cap `MCCP_ORCHESTRATION_MAX_AGENTS`(default 24, loud fail-open parse). telemetry 부재가 cap을 우회 못 함.
+- **`implement-dispatch/route.js`** (Codex F3) — `/mccp:work` Step 3 route 결정(inline/task/workflow-single/workflow-parallel)을 인라인 markdown 트리에서 순수 함수 `resolveWorkRoute`로 승격. work.md bash가 단일 SoT로 호출 → 발화 route가 mechanical 테스트 대상.
+- **테스트** — `lib/tests/orchestration-runaway.test.js`(신규 12) + `implement-dispatch/tests/route.test.js`(신규 12, env 조합 전수) + `implement-dispatch/tests/dispatch-wiring-harness.test.js`(신규 3 — 합성 git-worktree seed→mark→collect→reconcile e2e + F1 no-leak + merge/rollback patch smoke, LLM 0회).
+
+### Changed
+
+- **`plan-fanout/budget.js`·`implement-dispatch/budget.js`** — `parseFanoutMode`/`parseParallelMode` default off→**on**(opt-out via `off`/`0`). `resolveFanout`/`resolveFleet`에 `costFailOpen`(default true → `cost-state` null이면 green 가정 run + `COST_FAILOPEN` reason; `MCCP_ORCHESTRATION_COST_FAIL_OPEN=0`이면 기존 `COST_STATE_UNKNOWN` fail-closed 정확 복원) + `hard_ceiling_reached` bomb-detector skip + tier autoDisable를 **critical-only**로 narrow + fail-open 경로 전용 injected `runawayClamp`. merge-strategy·single-partition·budget-cap gate 불변.
+- **`commands/work.md`** — Step 3.prep-parallel `PARALLEL` default `:-0`→`:-1`(단일 opt-out 축). Step 3.route를 `resolveWorkRoute` oracle 호출로 승격. `costFailOpen`+runaway counter forward + 발화 로그. **`MCCP_WORK_IMPLEMENT_WORKFLOW` default 미변경**(Codex F1 — opt-out은 `PARALLEL=off/0` 단일 축으로 legacy Task 경로 정확 복원).
+- **`commands/plan.md`** — Phase 2.5 fan-out default on + `costFailOpen`+runaway forward + 발화/opt-out 로그.
+- **`plugin.json`** `1.22.0 → 1.22.1`(단일 milestone = patch, §3.7) + `renderer/html.js`·`markdown.js` footer `v1.22.1` sync.
 
 ## [1.22.0] — 2026-07-12
 

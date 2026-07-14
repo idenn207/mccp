@@ -1,0 +1,24 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "workflow-orchestration-live-activation-m1",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.22.1",
+    "completed_at": "2026-07-14T13:10:15.018Z",
+    "commit_sha": "e7b6e700d2698c6a52e7e6fe46ffb4aa588829f2",
+    "plan_basename": "workflow-orchestration-live-activation-m1.plan.md",
+    "plan_file_hash": "sha256:f144ae60222ffff4679d93ae5a427184a2272bda8d1e2fc8999ac2f395597fa2",
+    "risks_closed": [
+      "default 반전이 기존 fail-closed 안전 계약 파괴 → 예상 밖 회귀",
+      "opt-out(`PARALLEL=off`)이 legacy 경로 미복원 (Codex F1)",
+      "fail-open이 telemetry 부재 시 bomb detector 무력화 (Codex F2)",
+      "USD critical narrow(notice/warning 제거)가 진짜 비용 폭주 방치",
+      "fanout-* agent가 install cache에 안 실려 M2 live에서 미해결",
+      "M1 검증이 실제 발화 leg를 커버 못 해 착시 (Codex F3)",
+      "command-body md 블록은 unit-test 불가 → 로그/default 오타 잠복"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:97f3ccbea52049cac480ba9c89fe4ac70bf2af6bb6060ac89940ba7cdf815766"
+  }
+}

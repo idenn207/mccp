@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: dashboard-data-exploration
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-07-15T05:12:09.752Z
-last_event: precompact
-last_event_at: 2026-07-15T05:11:34.839Z
+updated_at: 2026-07-15T06:02:03.974Z
+last_event: stop_loop_pass
+last_event_at: 2026-07-15T06:02:03.974Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -25,18 +25,18 @@ workflow-orchestration live-activation M3 (v1.22.3) — operational USD firing-b
 - Codex R1 4건 흡수 검증: F1 catastrophic-USD, F2 원자 reserveWorkers([4,4,1,1,1] 회귀), F3 auto-chain 정렬, F4 parseUsdBomb loud warn.
 
 ## In Progress
-M3 구현·검증 완료(브랜치 v1.22.3-live-activation-m3, 미커밋). 남은 것은 commit → /mccp:pr.
+M3 구현+게이트 완료(브랜치 v1.22.3-live-activation-m3, 커밋 7ef5def + ca48678). PR 미생성.
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. PR 머지 후 operator가 별도 세션에서 M2 live row (A)/(B) 완주 — M3이 firing blocker를 제거해 catastrophic($500) 미만이면 진행 가능.
+/mccp:pr 실행 — PR-Codex가 확장된 diff를 재리뷰(이번엔 수정된 codex-runner가 verdict를 실제로 읽음). 그 뒤 operator가 별도 세션에서 M2 live row A/B 완주.
 
 ## Last Decision
-2026-07-15 M3 구현 완료. Task 7 검증 방법 이탈: 플랜 전제였던 ambient sticky $186이 이미 green으로 리셋돼 있어, ambient preview로는 M3 delta를 입증 못 함(green은 M1에서도 발화) → seeded sticky + usd_bomb A/B로 대체(더 강한 증거). 이탈과 ambient 리셋 모두 observations doc에 정직 기록. plan은 아카이브 안 함 — CLAUDE.md §3.11 C2(PRD 전체 완료 시에만; M2 in-progress)가 prp-implement 기본 지시를 override.
+2026-07-15 M3 + follow-up. PR 게이트가 실제 HIGH 결함을 잡음(fan-out이 granted worker 무시 → cap 미바인딩 = M3 주장 거짓). 흡수 중 게이트 자체 blindness 발견(codex-runner가 envelope에서 .summary/.findings를 읽는데 실제론 .stdout에 있음 → actionable 항상 false + finalize-receipt가 invoked를 무조건 converged로 매핑 → needs-attention rubber-stamp). 사용자 승인으로 M3에 포함. test stub이 실제 producer가 아니라 구현 가정을 인코딩해 suite green인 채 production blind였던 것도 교정.
 
 ## Open Questions
-- M2 live row (A) default / (B) opt-out 완주는 operator 수동(prp-implement 밖, 재귀 회피) — M3이 blocker를 제거해 이제 catastrophic 미만이면 완주 가능.
-- plan-conflict-detector 백틱 버그(backlog 2026-07-15 MEDIUM) — detectFromFileExpansion이 유일 call site에서 dead. 별도 cycle.
-- verdict-label.test.js 1건 실패는 pre-existing(origin/main에서도 동일) — 별도 cycle.
+- M2 live row (A)/(B) 완주는 operator 수동 — M3이 blocker 제거해 catastrophic($500) 미만이면 진행 가능.
+- backlog MEDIUM: Implement-Codex F2(scope-excluded finding만으로 non-approve 시 불투명 차단), plan-conflict-detector 백틱 버그(file-expansion guard dead).
+- verdict-label.test.js 1건 실패는 pre-existing(origin/main 동일) — 별도 cycle.
 
 ## Last Updated
-2026-07-15T05:12:09.752Z
+2026-07-15T06:02:03.974Z

@@ -2,39 +2,41 @@
 state_version: 1
 task_fingerprint: dashboard-data-exploration
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-07-01T06:09:56.219Z
-last_event: stop_loop_pass
-last_event_at: 2026-06-22T18:06:10.227Z
+updated_at: 2026-07-15T05:12:09.752Z
+last_event: precompact
+last_event_at: 2026-07-15T05:11:34.839Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
-chain_aborted: true
+chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
-dashboard-data-exploration PRD(형제 ③ — 그룹핑/필터/정렬/검색) 종료. M1·M2·M3 전부 머지, worktree cleanup 완료. 현재: 마감 housekeeping(PRD M3 status complete + STATE 갱신, chore/dashboard-status-sync 브랜치).
+workflow-orchestration live-activation M3 (v1.22.3) — operational USD firing-block 은퇴. 구현+검증 완료, PR 대기.
 
 ## Plan
-- M3(NEXT) 검색 + 잔여 탐색 축 — 형태만 있던 검색 입력을 실제 클라이언트 필터로 wiring(텍스트 매칭, 단축키 없음) + M2 이관 축(진행상태/worktree 필터·진행순 정렬, 멀티세션 표면 의존). 작업범위순은 'PRD 기준 진행도' 재기획까지 보류. JS off 시 입력 숨김 + 전체 표시.
-- ship 전 impeccable audit/polish(a11y·반응형). 컨트롤 중립 토큰, 강조색 viewport당 ≤1.
+- M3 SHIPPED(미머지) — operational USD를 발화 blocker에서 은퇴(hard_ceiling은 usdBomb opt-in에서만, autoDisable default empty). 대체 backstop 3층: catastrophic-USD($500) + 원자 reserveWorkers(전 run 경로) + per-worker budget. auto-chain의 commit→pr USD abort도 동일 원칙 정렬(Codex F3).
+- 다음: /mccp:pr (PR-Codex는 implement receipt에 codex_verdict 부재라 fail-closed로 실 diff 리뷰).
 
 ## Done
-- M3 SHIPPED — PR #71 머지(squash 301e4f7), 1.18.17. 검색 wiring(cross-route .li-item 텍스트 + nav 뱃지 + live-region) + 가시성 reason 모델(_hf/_hs AND) + 멀티세션 잔여축(진행상태/worktree 필터·진행순). Implement-Codex IF1/IF2 흡수, 590 PASS.
-- M2 SHIPPED — PR #70 머지(squash 94f922f), 1.18.16. 위험·질문 필터(PRD축·plan축 AND)+정렬(위험도순·시간순).
-- M1 SHIPPED — PR #69 머지(squash ab43890), 1.18.15. PRD 그룹핑 + PE 토대 + H19.
+- Task 1-9 전부 완료. 오라클 test 회귀 green(fleet 48, fanout 37, runaway 24, auto-chain 21, preview 16) + 변경모듈 importer 243/243.
+- Mechanical firing-open A/B(LLM 0): seeded sticky $186에서 usd_bomb off → ok-run/parallel_fires:true, usd_bomb=1(M1 등가) → hard-ceiling skip.
+- Codex R1 4건 흡수 검증: F1 catastrophic-USD, F2 원자 reserveWorkers([4,4,1,1,1] 회귀), F3 auto-chain 정렬, F4 parseUsdBomb loud warn.
 
 ## In Progress
-data-exploration PRD 마감 housekeeping — PRD M3 status in-progress→complete 정정 + STATE 갱신. 완료 plan은 dashboard cycle 관행상 .claude/plans/ 유지(archive 안 함).
+M3 구현·검증 완료(브랜치 v1.22.3-live-activation-m3, 미커밋). 남은 것은 commit → /mccp:pr.
 
 ## Next Step
-dashboard 추적 표면(위험/질문/진행) 최신화를 PR #78 브랜치에서 계속.
+/mccp:prp-commit → /mccp:pr. PR 머지 후 operator가 별도 세션에서 M2 live row (A)/(B) 완주 — M3이 firing blocker를 제거해 catastrophic($500) 미만이면 진행 가능.
 
 ## Last Decision
-2026-06-30 data-exploration M3 완료 확인 + 마감. PR #71 이미 머지 검증(빈-diff Codex 게이트 미실행 — 정직). 완료 plan은 .claude/plans/ 유지가 dashboard cycle 관행(multi-session/truthfulness/pipeline-chart 동일) — 완료 마커는 PRD status 테이블.
+2026-07-15 M3 구현 완료. Task 7 검증 방법 이탈: 플랜 전제였던 ambient sticky $186이 이미 green으로 리셋돼 있어, ambient preview로는 M3 delta를 입증 못 함(green은 M1에서도 발화) → seeded sticky + usd_bomb A/B로 대체(더 강한 증거). 이탈과 ambient 리셋 모두 observations doc에 정직 기록. plan은 아카이브 안 함 — CLAUDE.md §3.11 C2(PRD 전체 완료 시에만; M2 in-progress)가 prp-implement 기본 지시를 override.
 
 ## Open Questions
-- 작업범위순 정렬 측정 단위(마일스톤/파일/LOC) — PRD 기준 진행도 재기획 시 확정(M3에서 보류).
+- M2 live row (A) default / (B) opt-out 완주는 operator 수동(prp-implement 밖, 재귀 회피) — M3이 blocker를 제거해 이제 catastrophic 미만이면 완주 가능.
+- plan-conflict-detector 백틱 버그(backlog 2026-07-15 MEDIUM) — detectFromFileExpansion이 유일 call site에서 dead. 별도 cycle.
+- verdict-label.test.js 1건 실패는 pre-existing(origin/main에서도 동일) — 별도 cycle.
 
 ## Last Updated
-2026-07-01T06:09:56.219Z
+2026-07-15T05:12:09.752Z

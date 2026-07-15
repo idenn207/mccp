@@ -1,8 +1,16 @@
-# Workflow Orchestration — Live-Activation Observations (M2)
+# Workflow Orchestration — Live-Activation Observations (M2 · M3)
 
-> Companion to `.claude/prds/workflow-orchestration-live-activation.prd.md` (M2 — live 완주 검증).
-> This file is the **honest observation ledger** for the live-activation milestone. It records what
-> actually fired when `/mccp:work` ran end-to-end, plus the protocol that produced those rows.
+> Companion to `.claude/prds/workflow-orchestration-live-activation.prd.md` (M2 — live 완주 검증,
+> M3 — 발견 gap 보완). This file is the **honest observation ledger** for the live-activation
+> milestone. It records what actually fired when `/mccp:work` ran end-to-end, plus the protocol that
+> produced those rows.
+>
+> **M3 (v1.22.3) update** — running M2's preview against the real environment surfaced the reason
+> rows (A)/(B) were still empty: a *present* sticky critical cost-state ($186.92 + `hard_ceiling`)
+> skipped every axis. M1's fail-open only assumed green when cost-state was **absent**, so ordinary
+> operational spend still blocked everything. M3 retires the operational-USD firing block (and the
+> matching `auto-chain` abort), replacing it with a catastrophic-USD ceiling + an atomic agent-count
+> cap. See §4.1 for exactly what that licenses.
 
 M1 wired default firing (fan-out / parallel / route oracles default-ON + cost fail-open + a
 cost-state-independent runaway backstop) but the real LLM-runtime firing was **never observed**.
@@ -50,14 +58,25 @@ Each live `/mccp:work` completion is one row. Fill `route(fired)` from the actua
 
 | cycle | date | target | route(fired) | N | fanout(run/reason) | verify(mode/verdict) | receipt chain | 중간수정 수 | milestone 변경 | 품질 노트 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| _preview-ref_ | 2026-07-14 | this M2 plan (build-time preview, **not** a live 완주) | task (projected) | fleet requestedN=4 | run=false / hard-ceiling | enforce / n/a | n/a (preview only) | n/a | n/a | build-time cost-state is sticky-critical (`hard_ceiling=true`) → every axis ⛔skip. This is the exact condition M2 must work around: a live row needs a green/decayed cost-state (see §4). |
+| _preview-ref_ | 2026-07-14 | this M2 plan (build-time preview, **not** a live 완주) | task (projected) | fleet requestedN=4 | run=false / hard-ceiling | enforce / n/a | n/a (preview only) | n/a | n/a | **superseded by M3** — under M2 the build-time sticky-critical cost-state (`hard_ceiling=true`) made every axis ⛔skip. That block was the M2 live-row blocker and is what M3 retired; see the M3 row below. |
+| _preview-ref (M3)_ | 2026-07-15 | M3 plan, seeded sticky $186.92 (`critical` + `hard_ceiling`) via temp `HOME` — build-time preview, **not** a live 완주 | workflow-parallel (projected) | fleet n=4 | run=true / ok-run | enforce / n/a | n/a (preview only) | n/a | n/a | **firing-open acquired.** Controlled A/B through the real CLI on ONE seeded state: `usd_bomb` off (M3 default) → `fleet.run=true reason=ok-run`, `effective_fire.parallel_fires=true`; `MCCP_ORCHESTRATION_USD_BOMB=1` (M1-equivalent) → `run=false reason=hard-ceiling`, nothing fires. `MCCP_ORCHESTRATION_CATASTROPHIC_USD=100` → `catastrophic-usd` skip, so the replacement bomb still bites. Preview wrote no state (read-only holds). |
 | _(A) default_ | | | | | | | | | | operator-filled — see §3 row A |
 | _(B) opt-out_ | | | | | | | | | | operator-filled — see §3 row B |
 
-> The `preview-ref` row is the firing-preview output at build time, included so the ledger is never
-> empty and the sticky-cost-state condition is on record. It is **not** a live `/mccp:work`
-> completion and does not satisfy M2 acceptance. Rows (A) and (B) are the M2 acceptance evidence and
-> must be produced by the operator per §3.
+> **Honest scope of the M3 preview-ref row.** The ambient cost-state at M3 build time had *already
+> reset to green* (`cost_usd:0`, `tier:green`) — the sticky $186.92 the M3 plan was written against
+> was no longer present. A preview against that ambient state shows `run=true`, but that proves
+> nothing: green fires under M1 too. The row above therefore uses a **seeded** sticky state in a temp
+> `HOME` so the M3 delta is isolated as an A/B against the M1-equivalent (`usd_bomb=1`) on identical
+> input. This is a mechanical demonstration of the oracle change, **not** evidence about any
+> particular live spend, and it is **not** a live `/mccp:work` completion — it does not satisfy M2
+> acceptance. Rows (A) and (B) remain the acceptance evidence and must be produced by the operator
+> per §3.
+>
+> The ambient reset also does **not** retire the problem M3 solves. `MCCP_COST_STATE_DECAY_HOURS`
+> (v1.22.0) is a *time-based* mitigation with a 6h window: the sticky block recurs the moment spend
+> crosses the operational ceiling inside an active session, and M2's live rows are empty precisely
+> because it did. M3 removes the block structurally rather than making the operator wait it out.
 
 ---
 
@@ -115,10 +134,29 @@ contaminates any "middle-fix count went down" claim. Therefore:
   causal claim is inferred rather than measured.
 - Any "reduction" claim is stated **only** with the cited row it rests on — never as a quantitative
   A/B result.
-- If cost-state is sticky-critical at run time (the `preview-ref` condition above), the operator
-  must either wait for the time-decay window (`MCCP_COST_STATE_DECAY_HOURS`, default 6h — v1.22.0)
-  to return a green view, or run with a genuinely green cost-state. Do **not** fabricate a green
-  state to force firing; record the real condition.
+- ~~If cost-state is sticky-critical at run time, the operator must wait for the time-decay window
+  or run with a genuinely green cost-state.~~ **Retired by M3 (v1.22.3)** — see §4.1. Waiting out a
+  6h decay window was the M2 workaround for a block that M3 removes structurally. The
+  "do **not** fabricate a green state" rule still stands: record the real condition, always.
+
+### 4.1 Live-완주 경로 after M3 (Codex F3 — stated precisely, not over-claimed)
+
+M3 retires the **operational** USD block on both surfaces that could stall a run: the firing oracles
+(`resolveFanout` / `resolveFleet`) and `auto-chain`'s commit→pr gate. Aligning both matters — firing
+happens upstream of auto-chain, so unblocking firing alone would just move the stall later.
+
+What this does and does not license:
+
+| condition | firing | auto-chain (commit→pr) | operator action |
+|---|---|---|---|
+| operational spend below `MCCP_ORCHESTRATION_CATASTROPHIC_USD` (default $500), incl. sticky `critical` / `hard_ceiling` at $186 | fires | proceeds | run normally — this is the M3 default |
+| `cost_usd` ≥ catastrophic ceiling | `catastrophic-usd` skip | `cost-catastrophic` abort | **record the real over-catastrophic condition honestly**; use `MCCP_AUTO_CHAIN_DISABLE=1` only if you consciously accept completing at that spend |
+| `MCCP_ORCHESTRATION_USD_BOMB=1` | `hard-ceiling` skip | `cost-hard-ceiling` abort | expected — this is the M1 rollback switch |
+| cost-state missing / unreadable / stale (>1h) | fires (fail-open) | **aborts** (telemetry integrity) | unchanged by M3: an untrustworthy signal is orthogonal to spend, so auto-chain stays conservative |
+
+The accurate claim is therefore: **firing is open, and a live 완주 is possible while spend stays
+under the catastrophic ceiling.** M3 does not claim a live 완주 was observed — that is still rows
+(A)/(B), operator-produced per §3.
 
 ---
 

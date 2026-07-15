@@ -147,7 +147,7 @@ If no similar code exists, state that explicitly. Do not invent a pattern.
 
 ## Phase 2.5 — MULTI-PERSPECTIVE FAN-OUT (PRD mode, default on, v1.22.1 live-activation)
 
-> Runs in PRD artifact mode by **default** (live-activation M1 flipped the firing default ON — opt out with `MCCP_PLAN_FANOUT=off`). It strengthens GROUND by fanning out four **read-only** perspectives (architect / security / test / explorer) through the `Workflow` primitive, then injects a deterministic `## Multi-Perspective Fan-out` section into the plan body. The fan-out workers are dedicated read-only agents (`mccp:fanout-*`, tools: Read/Grep/Glob) — write/edit/bash are absent from their toolset, so they **cannot** modify files or write receipts. The Codex dual-review gate (Phase 5) and the receipt chain are therefore untouched: the fan-out output rides inside `plan_hash` and is reviewed like any other plan content. **Cost fail-open** (live-activation M1): a missing/corrupt cost-state now assumes green and runs (the `MCCP_ORCHESTRATION_COST_FAIL_OPEN=0` kill switch restores the old fail-closed skip). Runaway is bounded by the cost-state-independent session launch cap (`orchestration-runaway.js`) + a critical-only tier gate + the `hard_ceiling` bomb detector. **Fail-open**: any skip / throw / unavailable Workflow still falls back to the inline Pattern Grounding above and NEVER blocks the plan.
+> Runs in PRD artifact mode by **default** (live-activation M1 flipped the firing default ON — opt out with `MCCP_PLAN_FANOUT=off`). It strengthens GROUND by fanning out four **read-only** perspectives (architect / security / test / explorer) through the `Workflow` primitive, then injects a deterministic `## Multi-Perspective Fan-out` section into the plan body. The fan-out workers are dedicated read-only agents (`mccp:fanout-*`, tools: Read/Grep/Glob) — write/edit/bash are absent from their toolset, so they **cannot** modify files or write receipts. The Codex dual-review gate (Phase 5) and the receipt chain are therefore untouched: the fan-out output rides inside `plan_hash` and is reviewed like any other plan content. **Cost fail-open** (live-activation M1): a missing/corrupt cost-state now assumes green and runs (the `MCCP_ORCHESTRATION_COST_FAIL_OPEN=0` kill switch restores the old fail-closed skip). **Operational USD retired** (live-activation M3): a *present* sticky critical / `hard_ceiling` no longer skips either — M1's fail-open only covered an *absent* cost-state, so ordinary operational spend still blocked every fan-out. Runaway is now bounded by the replacement catastrophic-USD ceiling (`MCCP_ORCHESTRATION_CATASTROPHIC_USD`, default $500) + the atomic cost-state-independent session launch cap (`orchestration-runaway.js#reserveWorkers`, applied on every run path) + the per-agent token budget. `MCCP_ORCHESTRATION_USD_BOMB=1` restores the M1 operational-USD block. **Fail-open**: any skip / throw / unavailable Workflow still falls back to the inline Pattern Grounding above and NEVER blocks the plan.
 
 ### 2.5.1 — Resolve run/skip (mode × PRD-mode × cost-tier oracle)
 
@@ -170,26 +170,36 @@ FANOUT_JSON=$(node -e '
   // live-activation M1 — cost fail-open (default true). MCCP_ORCHESTRATION_COST_FAIL_OPEN=0
   // restores the old fail-closed COST_STATE_UNKNOWN skip.
   const costFailOpen = String(process.env.MCCP_ORCHESTRATION_COST_FAIL_OPEN || "").trim() !== "0";
-  // cost-state-independent catastrophic-runaway backstop. Read the session
-  // cumulative worker-launch counter; the oracle applies the clamp ONLY on the
-  // fail-open path (telemetry absent → no USD bomb detector).
+  // live-activation M3 — operational USD ($50/$80/$100 + hard_ceiling) no longer
+  // blocks the fan-out; usdBomb restores that M1 block, catastrophicUsd is the
+  // replacement bomb detector far above it (Codex F1/F4). The cost-state-independent
+  // agent-count cap is now the primary structural backstop and applies to EVERY run
+  // path, not just the telemetry-absent one.
+  const usdBomb = runaway.parseUsdBomb(process.env);
+  const catastrophicUsd = runaway.parseCatastrophicUsd(process.env);
   const sessionId = process.env.CLAUDE_SESSION_ID || "unknown";
-  const launched = runaway.readCounter({ sessionId: sessionId }).launched;
   const r = budget.resolveFanout({
     env: process.env,
     prdMode: prdMode,
     costStateRead: costState.readState,
     tierFor: costState.tierFor,
     costFailOpen: costFailOpen,
-    runawayClamp: function (n) { return runaway.clampForRunaway({ requestedN: n, launchedSoFar: launched, env: process.env }); },
+    usdBomb: usdBomb,
+    catastrophicUsd: catastrophicUsd,
+    // M3 Codex F2 — ATOMIC reserve replaces read-then-bump: it decides the grant
+    // AND counts it inside ONE lock critical section, so concurrent / re-entrant
+    // fan-outs can no longer each read the same pre-bump value and overshoot the
+    // cap. It only runs on a RUN path, and it ALREADY counted the grant — there is
+    // deliberately no bumpCounter afterwards.
+    runawayClamp: function (n) {
+      const res = runaway.reserveWorkers({ sessionId: sessionId, requestedN: n, env: process.env });
+      return { n: res.granted, degraded: res.degraded, reason: res.reason };
+    },
     // cost-model-subscription M1 — under MCCP_SUBSCRIPTION the fan-out bypasses
     // the USD cost-state/tier gates and evaluates the context overflow axis.
     subscriptionMode: subscription.isSubscriptionMode(process.env),
     contextStateRead: contextState.readState,
   });
-  // bump the session launch counter by the effective fleet so repeated /mccp:plan
-  // fan-outs accumulate toward the absolute cap.
-  if (r.run) runaway.bumpCounter({ sessionId: sessionId, delta: r.fleetSize });
   process.stdout.write(JSON.stringify(r));
 ' "${CLAUDE_PLUGIN_ROOT}" "$PRD_MODE")
 FANOUT_RUN=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).run?"1":"0")}catch{process.stdout.write("0")}')
@@ -222,7 +232,7 @@ The script spawns the four read-only `mccp:fanout-*` perspectives in parallel (`
 - **Success** (`skipped` falsy AND `coverage > 0`): inject the returned `markdown` verbatim into the plan body during Phase 4 WRITE (it becomes part of `plan_hash` and is reviewed by the Phase 5 Codex gate). Log `[mccp:plan-fanout] coverage=<N>/4 spent=<spent>`.
 - **Skip / empty / throw / Workflow unavailable** (`skipped:true`, `coverage===0`, a tool error, or the primitive not present in this install): DO NOT block. Keep the inline Pattern Grounding above as the grounding source and log the reason. Fan-out is a GROUND *enhancement*, never a gate.
 
-Tuning env (documented in CLAUDE.md §4): `MCCP_PLAN_FANOUT` (default **on** — set `off`/`0` to opt out), `MCCP_PLAN_FANOUT_BUDGET` (per-agent token estimate, default 150000), `MCCP_PLAN_FANOUT_AUTODISABLE_TIER` (default `critical` — narrowed from notice/warning/critical), `MCCP_ORCHESTRATION_COST_FAIL_OPEN` (default on; `=0` restores the old fail-closed skip), `MCCP_ORCHESTRATION_MAX_AGENTS` (session launch cap, default 24).
+Tuning env (documented in CLAUDE.md §4): `MCCP_PLAN_FANOUT` (default **on** — set `off`/`0` to opt out), `MCCP_PLAN_FANOUT_BUDGET` (per-agent token estimate, default 150000), `MCCP_PLAN_FANOUT_AUTODISABLE_TIER` (v1.22.3 M3 — default **empty**: operational tiers no longer disable the fan-out; set e.g. `critical` to re-block), `MCCP_ORCHESTRATION_COST_FAIL_OPEN` (default on; `=0` restores the old fail-closed skip), `MCCP_ORCHESTRATION_CATASTROPHIC_USD` (v1.22.3 M3 — replacement bomb detector, default `500`; a spend at or above it skips the fan-out), `MCCP_ORCHESTRATION_USD_BOMB` (v1.22.3 M3 — default off; `1|true|yes|on` restores the M1 operational-USD block: `hard_ceiling` skip + critical autoDisable), `MCCP_ORCHESTRATION_MAX_AGENTS` (atomic session launch cap, default 24 — now applied on every run path, not just the telemetry-absent one).
 
 ## PRD Artifact Output
 

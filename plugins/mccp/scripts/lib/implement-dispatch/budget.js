@@ -13,11 +13,26 @@
 // (opt-OUT via 'off'/'0'), and a missing/corrupt cost-state fails OPEN (green
 // assumed + COST_FAILOPEN) when costFailOpen is true (the default). The former
 // fail-CLOSED skip is preserved verbatim under costFailOpen=false (the
-// MCCP_ORCHESTRATION_COST_FAIL_OPEN=0 kill switch). Tier autoDisable narrowed to
-// critical-only + a hard_ceiling_reached bomb-detector skip. The telemetry-absent
-// fail-open path clamps N through the INJECTED opts.runawayClamp
-// (orchestration-runaway.js#clampForRunaway); the merge-strategy, single-partition
-// and budget gates are UNCHANGED (structural safety preserved).
+// MCCP_ORCHESTRATION_COST_FAIL_OPEN=0 kill switch).
+//
+// live-activation M3 — OPERATIONAL USD RETIRED AS A FIRING BLOCKER. M1's fail-open
+// only assumed green when cost-state was ABSENT, so a PRESENT sticky critical
+// (measured: $186.92 + hard_ceiling_reached, mtime fresh enough to dodge the v1.22.0
+// 6h decay) still skipped every fan-out / parallel dispatch — the PRD's root problem
+// survived M1+M2. The operator contract is that operational spend is not a bomb
+// (cost gates exist to bound hallucination, not to save money), so:
+//   - hard_ceiling_reached no longer skips (order 5 is now gated on usdBomb),
+//   - AUTODISABLE_TIERS_DEFAULT drops to EMPTY (was critical-only),
+//   - a catastrophic-USD ceiling (order 7) becomes the REPLACEMENT bomb detector,
+//     set far above operational ($500 default vs the $100 hard ceiling) so $186
+//     fires while a genuine runaway still stops (Codex F1),
+//   - the runaway clamp now applies to EVERY run path, not just the fail-open one:
+//     with USD no longer blocking, the atomic agent-count cap is the primary
+//     structural backstop and the metered path needs it just as much (Codex F2),
+//   - MCCP_ORCHESTRATION_USD_BOMB restores all of the M1 behavior (Codex F4).
+// The merge-strategy, single-partition and budget gates are UNCHANGED (structural
+// safety preserved), and an explicit MCCP_WORK_PARALLEL_AUTODISABLE_TIER override
+// still wins over the default in both directions.
 //
 // DELIBERATE DIFFERENCES from resolveFanout:
 //   - a MERGE-STRATEGY gate (Task 0 / Codex F3): parallel is structurally
@@ -37,12 +52,15 @@
 //   2. mergeStrategy !== 'worktree-merge'       → MERGE_STRATEGY_DISABLED (fail-closed)
 //   3. requestedN ≤ 1                           → SINGLE_PARTITION        (nothing to split)
 //   4. cost-state missing/corrupt (null):
-//        costFailOpen  → tier 'green', COST_FAILOPEN (+ runaway clamp)
+//        costFailOpen  → tier 'green', COST_FAILOPEN
 //        !costFailOpen → COST_STATE_UNKNOWN         (legacy fail-closed)
-//   5. cost-state hard_ceiling_reached          → HARD_CEILING            (USD bomb detector)
-//   6. cost-tier ∈ autoDisableTiers             → TIER_*                  (default critical-only)
-//   7. budgetTotal set & unaffordable           → BUDGET_INSUFFICIENT     (N=1)
-//   8. otherwise                                → OK_RUN + n + minRemaining
+//   5. usdBomb && hard_ceiling_reached          → HARD_CEILING            (M1 bomb — opt-in only)
+//   6. cost-tier ∈ autoDisableTiers             → TIER_*                  (M3 default: EMPTY)
+//   7. cost_usd ≥ catastrophicUsd               → CATASTROPHIC_USD        (M3 replacement bomb)
+//   8. budgetTotal set & unaffordable           → BUDGET_INSUFFICIENT     (N=1)
+//   9. otherwise                                → OK_RUN / COST_FAILOPEN + n + minRemaining
+// The injected runaway clamp then applies to EVERY run path (M3) — it only ever
+// lowers N, so a far-from-cap session is unaffected.
 
 const subscription = require('../subscription');
 
@@ -54,11 +72,15 @@ const REASONS = Object.freeze({
   COST_STATE_UNKNOWN: 'cost-state-unknown',
   // live-activation M1 — fail-open (cost-state absent → green assumed + run).
   COST_FAILOPEN: 'cost-failopen',
-  // live-activation M1 — USD bomb detector (hard_ceiling_reached sticky true).
+  // live-activation M1 — operational USD bomb detector (hard_ceiling_reached
+  // sticky true). M3: reachable ONLY under the usdBomb kill switch.
   HARD_CEILING: 'hard-ceiling',
   TIER_NOTICE: 'tier-notice',
   TIER_WARNING: 'tier-warning',
   TIER_CRITICAL: 'tier-critical',
+  // live-activation M3 — replacement bomb detector (Codex F1). Distinct from the
+  // operational tiers: fires only at a catastrophic ceiling far above $100.
+  CATASTROPHIC_USD: 'catastrophic-usd',
   BUDGET_INSUFFICIENT: 'budget-insufficient',
   // cost-model-subscription M1 — positive context-overflow critical under
   // MCCP_SUBSCRIPTION (replaces the USD cost-state + tier gates, orders 4-6).
@@ -74,9 +96,14 @@ const MAX_WORKERS_DEFAULT = 4;
 const MIN_PER_WORKER_DEFAULT = 150000;
 const ENABLING_MERGE_STRATEGY = 'worktree-merge';
 
-// live-activation M1 — narrowed to critical-only (operator philosophy: $50/$80
-// are not bombs). MCCP_WORK_PARALLEL_AUTODISABLE_TIER override still honored.
-const AUTODISABLE_TIERS_DEFAULT = Object.freeze(new Set(['critical']));
+// live-activation M3 — EMPTY by default (was critical-only in M1). Operational USD
+// spend no longer blocks firing at any tier; the replacement bomb detector is the
+// catastrophic-USD ceiling, and the atomic agent-count cap is the structural
+// backstop. Under the usdBomb kill switch the M1 critical-only set is restored
+// (USD_BOMB_TIERS). An explicit MCCP_WORK_PARALLEL_AUTODISABLE_TIER override wins
+// over either default.
+const AUTODISABLE_TIERS_DEFAULT = Object.freeze(new Set([]));
+const USD_BOMB_TIERS = Object.freeze(new Set(['critical']));
 
 const ENV_MODE = 'MCCP_WORK_IMPLEMENT_PARALLEL';
 const ENV_MAX = 'MCCP_WORK_PARALLEL_MAX';
@@ -119,7 +146,7 @@ function parseTierOverride(raw) {
   for (let i = 0; i < tiers.length; i++) {
     if (!allowed.has(tiers[i])) {
       warn(ENV_AUTODISABLE + ' has unknown tier "' + tiers[i] +
-        '"; falling back to default (critical-only).');
+        '"; falling back to the default tier policy.');
       return null;
     }
   }
@@ -127,7 +154,8 @@ function parseTierOverride(raw) {
 }
 
 // resolveFleet({ env, costStateRead, tierFor, requestedN, mergeStrategy,
-//                budgetTotal, budgetRemaining, costFailOpen, runawayClamp })
+//                budgetTotal, budgetRemaining, costFailOpen, usdBomb,
+//                catastrophicUsd, runawayClamp })
 //   → { n, run, reason, minRemaining, perWorkerEstimate, tier, mergeStrategy,
 //       degraded, runawayReason }
 //
@@ -136,8 +164,12 @@ function parseTierOverride(raw) {
 // a tier from cost_usd when the stored threshold_tier is absent (default fallback
 // 'green'). requestedN is the partition oracle's n (the ceiling of useful
 // parallelism). costFailOpen (default true) — when cost-state is null, run
-// instead of skipping. runawayClamp(requestedN) (optional injected) →
-// {n, degraded, reason}; applied ONLY on the fail-open path.
+// instead of skipping.
+//
+// M3 opts (caller parses the env — the oracle stays pure/injected):
+//   usdBomb         (default false) restore the M1 operational-USD bomb detector.
+//   catastrophicUsd (number) the replacement ceiling; ≤0 / non-finite disables it.
+//   runawayClamp(n) → {n, degraded, reason}; now applied on EVERY run path.
 function resolveFleet(opts) {
   opts = opts || {};
   const env = opts.env || process.env;
@@ -146,6 +178,8 @@ function resolveFleet(opts) {
   const mergeStrategy = typeof opts.mergeStrategy === 'string' ? opts.mergeStrategy : null;
   const reqN = (Number.isInteger(opts.requestedN) && opts.requestedN >= 1) ? opts.requestedN : 1;
   const costFailOpen = opts.costFailOpen !== false;
+  const usdBomb = opts.usdBomb === true;
+  const catastrophicUsd = Number.isFinite(opts.catastrophicUsd) ? opts.catastrophicUsd : 0;
 
   const skip = function (reason, extra) {
     return Object.assign({
@@ -196,12 +230,15 @@ function resolveFleet(opts) {
       tier = 'green';
       failOpen = true;
     } else {
-      // 5 — USD bomb detector — the sticky hard ceiling skips regardless of tier.
-      if (cs.hard_ceiling_reached === true) {
+      // 5 — M1 operational USD bomb detector. M3: opt-in only. By default a sticky
+      // hard ceiling ($100 operational) does NOT block firing.
+      if (usdBomb && cs.hard_ceiling_reached === true) {
         return skip(REASONS.HARD_CEILING, { tier: cs.threshold_tier || 'critical' });
       }
-      // 6 — cost-tier autoDisable (default critical-only).
-      const autoDisableTiers = parseTierOverride(env[ENV_AUTODISABLE]) || AUTODISABLE_TIERS_DEFAULT;
+      // 6 — cost-tier autoDisable. M3 default is EMPTY; usdBomb restores
+      // critical-only. An explicit env override wins over either.
+      const dflt = usdBomb ? USD_BOMB_TIERS : AUTODISABLE_TIERS_DEFAULT;
+      const autoDisableTiers = parseTierOverride(env[ENV_AUTODISABLE]) || dflt;
       const tierForFn = typeof opts.tierFor === 'function' ? opts.tierFor : null;
       tier = cs.threshold_tier || (tierForFn ? tierForFn(cs.cost_usd) : 'green');
       if (autoDisableTiers.has(tier)) {
@@ -210,13 +247,19 @@ function resolveFleet(opts) {
             : REASONS.TIER_CRITICAL;
         return skip(r, { tier: tier });
       }
+      // 7 — M3 replacement bomb detector (Codex F1). Independent of usdBomb: even
+      // with the operational block retired, a catastrophic spend still stops the
+      // fleet. Disable only by setting the ceiling absurdly high.
+      if (catastrophicUsd > 0 && Number.isFinite(cs.cost_usd) && cs.cost_usd >= catastrophicUsd) {
+        return skip(REASONS.CATASTROPHIC_USD, { tier: tier });
+      }
     }
   }
 
   // cap N by the structural max, then (optionally) by the affordable budget.
   let n = Math.min(reqN, maxWorkers);
 
-  // 7 — in-oracle budget cap (DD6 iv). Only when the caller has real budget
+  // 8 — in-oracle budget cap (DD6 iv). Only when the caller has real budget
   // numbers; otherwise minRemaining is returned for the Workflow pre-guard.
   if (opts.budgetTotal && Number.isFinite(opts.budgetRemaining)) {
     const affordable = Math.floor(opts.budgetRemaining / perWorker);
@@ -224,11 +267,14 @@ function resolveFleet(opts) {
     n = Math.min(n, affordable);
   }
 
-  // live-activation M1 — catastrophic-runaway backstop. Applied ONLY on the
-  // fail-open path (telemetry absent → no USD bomb detector). Never raises N.
+  // Catastrophic-runaway backstop. M3 (Codex F2): applied on EVERY run path, not
+  // just the fail-open one — with operational USD retired, the metered path has no
+  // USD block either, so the agent-count cap is its backstop too. The injected
+  // clamp is the ATOMIC reserveWorkers for firing callers (it grants AND counts)
+  // and the pure clampForRunaway for the read-only preview. Never raises N.
   let degraded = false;
   let runawayReason = null;
-  if (failOpen && typeof opts.runawayClamp === 'function') {
+  if (typeof opts.runawayClamp === 'function') {
     const c = opts.runawayClamp(n);
     if (c && Number.isInteger(c.n) && c.n >= 1) {
       if (c.n < n) n = c.n;
@@ -275,6 +321,7 @@ module.exports = {
   MIN_PER_WORKER_DEFAULT: MIN_PER_WORKER_DEFAULT,
   ENABLING_MERGE_STRATEGY: ENABLING_MERGE_STRATEGY,
   AUTODISABLE_TIERS_DEFAULT: AUTODISABLE_TIERS_DEFAULT,
+  USD_BOMB_TIERS: USD_BOMB_TIERS,
   ENV_MODE: ENV_MODE,
   ENV_MAX: ENV_MAX,
   ENV_BUDGET: ENV_BUDGET,

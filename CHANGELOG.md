@@ -2,7 +2,32 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.22.3] — 2026-07-15
+
+**Workflow-orchestration live-activation — M3 (operational USD firing-block 은퇴)** — M2의 firing-preview를 실제 dogfood 환경에 돌린 결과 **핵심 발화 실패 지점**이 표면화됐다: 정규 cost-state가 sticky critical(`$186.92` + `hard_ceiling_reached`)이면 M1이 default를 반전했어도 병렬·fan-out이 **전부 미발화**(`hard-ceiling`)였다. M1의 fail-open은 cost-state **부재**에서만 green을 가정하므로 **존재하는 critical**은 못 뚫었고, 그래서 M2 live 관찰(row A/B)도 비어 있었다. M3은 운영자 철학(비용<품질, cost gate는 환각 최소화 목적이지 절감 아님)을 USD-blocking 표면 전반에 일관 관철하되, Codex R1(No-ship, 2 HIGH + 2 MEDIUM)을 흡수해 "USD를 그냥 은퇴하고 agent-count cap에만 맡긴다"는 순진한 설계를 **다층 대체 backstop**으로 교체했다.
+
+### Changed
+- `implement-dispatch/budget.js` · `plan-fanout/budget.js` — **operational USD를 발화 blocker에서 은퇴**. `hard_ceiling_reached` skip은 `usdBomb` opt-in에서만 발동하고, `AUTODISABLE_TIERS_DEFAULT`가 `{critical}`→**empty**로 바뀐다. 명시적 `MCCP_{WORK_PARALLEL,PLAN_FANOUT}_AUTODISABLE_TIER` override는 두 default보다 항상 우선(불변). merge-strategy·single-partition·budget gate는 **무변경**(구조적 안전 보존).
+- `implement-dispatch/budget.js` · `plan-fanout/budget.js` — **runaway clamp를 전 run 경로에 적용**(Codex F2). 기존엔 fail-open(telemetry 부재) 경로 전용이었으나, operational USD가 더 이상 metered 경로도 막지 않으므로 agent-count cap이 양쪽의 primary backstop이 된다. clamp는 N을 **낮추기만** 하므로 far-from-cap 세션은 무영향.
+- `auto-chain.js` — `checkCostTelemetry`의 hard_ceiling abort를 **catastrophic-USD abort로 정렬**(Codex F3). 발화는 auto-chain gate 이전이라, 오라클만 열고 commit→pr abort를 남기면 stall이 뒤로 밀릴 뿐이다. telemetry-integrity trigger(missing/unreadable/stale)와 `chain_aborted`·kill-switch·receipt·previous-step trigger는 **불변** — 신뢰할 수 없는 신호는 지출액과 직교하므로 보수적으로 유지.
+- `commands/work.md` · `commands/plan.md` — 오라클 호출에 `usdBomb`+`catastrophicUsd` forward. **read-then-bump 폐기** → 원자 `reserveWorkers` 위임(별도 `bumpCounter` 제거 — reserve가 이미 카운트). 발화 로그를 "operational USD 비차단 · catastrophic-USD/원자 runaway-cap backstop"으로 갱신.
+- `orchestration-preview.js` — `usdBomb`+`catastrophicUsd`를 env 파싱해 양 오라클에 forward(실발화와 drift 구조 차단). runaway는 **read-only `clampForRunaway` 유지** — 관측이 세션 headroom을 소비하면 안 되므로 `reserveWorkers`는 정적으로 금지(test가 mechanical 검증). `oracle_run`/`effective_fire` 분리 불변(M2 F1) 유지.
+
+### Added
+- `orchestration-runaway.js#reserveWorkers` — **원자 check-and-bump**(Codex F2). 단일 lock 임계구역에서 `readCounter` → clamp → bump를 수행해 read-then-bump TOCTOU를 봉인한다(재진입/동시 dispatch가 동일 pre-bump 값을 관측해 각자 full fleet을 grant하던 결함). lock 고갈 시 **fail-safe degrade**(`granted=1`, `reason='lock-exhausted'`) — cap이 유일 backstop이므로 fail-open 금지. 순차 reserve 회귀: cap 8 · 요청 4 → `[4,4,1,1,1]`.
+- `orchestration-runaway.js#parseCatastrophicUsd` — `MCCP_ORCHESTRATION_CATASTROPHIC_USD`(default **500**), operational $100과 **분리된 대체 bomb detector**(Codex F1). $186은 통과, 진짜 폭주 비용은 차단. loud fail-open parse.
+- `orchestration-runaway.js#parseUsdBomb` — `MCCP_ORCHESTRATION_USD_BOMB`(default **off**, 표준 `1|true|yes|on`), M1 USD bomb-detector를 전 표면(fleet·fanout·auto-chain)에서 정확 복원하는 back-compat kill switch. **unknown non-empty → off + loud warn**(Codex F4 — rollback path라 오타로 조용히 비활성되면 안 됨).
+- REASONS `CATASTROPHIC_USD`(양 오라클) · `LOCK_EXHAUSTED`(runaway).
+
+### Verified
+- **Mechanical firing-open A/B**(LLM 0): 동일한 seeded sticky 상태($186.92 critical + hard_ceiling)에서 실 CLI로 — `usd_bomb` off(M3 default) → `fleet.run=true reason=ok-run` + `effective_fire.parallel_fires=true`, `usd_bomb=1`(M1 등가) → `run=false reason=hard-ceiling`. `CATASTROPHIC_USD=100` → `catastrophic-usd` skip(대체 bomb 유효). preview는 상태 미기록(read-only 유지).
+- `docs/workflow-orchestration/live-activation-observations.md` — `preview-ref (M3)` row + §4.1 **live-완주 경로** 표. claim을 "firing-open + catastrophic 미만 시 live-완주 가능"으로 정직화(live 완주 관찰은 여전히 operator row A/B). build 시점 ambient cost-state가 이미 green으로 리셋돼 있었다는 사실도 정직 기록 — ambient preview는 M3 delta를 입증하지 못하므로 seeded A/B를 쓴 이유.
+
+### Unchanged
+- dual-review·receipt chain 무손상 — firing 오라클·auto-chain은 gate 값 조정만. read-only fan-out + workflow-외곽 게이트 invariant · commit/PR 격리 · cross-gate dedupe · receipt anchor 무변경.
+- briefing/handoff의 USD 축은 **독립·불변**(`AUTODISABLE_TIERS_DEFAULT`는 각 budget 모듈 로컬 — 소비처 격리).
 
 ## [1.22.2] — 2026-07-14
 

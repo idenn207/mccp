@@ -12,23 +12,29 @@
 // (opt-OUT via 'off'/'0'), and a missing/corrupt cost-state fails OPEN (green
 // assumed + COST_FAILOPEN) when costFailOpen is true (the default). The former
 // fail-CLOSED behavior is preserved verbatim under costFailOpen=false — the
-// MCCP_ORCHESTRATION_COST_FAIL_OPEN=0 kill switch restores the old contract. The
-// catastrophic-runaway backstop for the telemetry-absent fail-open path is the
-// INJECTED opts.runawayClamp (orchestration-runaway.js#clampForRunaway); it is
-// applied ONLY on the fail-open branch (a live cost-state keeps the USD
-// bomb-detector — hard_ceiling / critical tier — so no independent cap is needed
-// there). Keeping the clamp injected (not required) preserves this oracle's
-// pure/dep-free invariant.
+// MCCP_ORCHESTRATION_COST_FAIL_OPEN=0 kill switch restores the old contract.
+//
+// live-activation M3 — OPERATIONAL USD RETIRED AS A FIRING BLOCKER (mirror of
+// implement-dispatch/budget.js; see that header for the full rationale). M1 only
+// assumed green when cost-state was ABSENT, so a PRESENT sticky critical still
+// skipped every fan-out. M3 gates the hard_ceiling skip behind usdBomb, empties
+// AUTODISABLE_TIERS_DEFAULT, adds a catastrophic-USD ceiling as the replacement
+// bomb detector (Codex F1), and applies the runaway clamp on EVERY run path rather
+// than only the fail-open branch (Codex F2 — the agent-count cap is now the
+// primary structural backstop for the metered path too). Keeping the clamp
+// injected (not required) preserves this oracle's pure/dep-free invariant.
 //
 // Decision order (first match wins):
 //   1. mode === 'off'                     → ENV_OFF            (default ON — opt-out)
 //   2. prdMode !== true                   → NOT_PRD_MODE
 //   3. cost-state missing/corrupt (null):
-//        costFailOpen  → OK path, tier 'green', COST_FAILOPEN (+ runaway clamp)
+//        costFailOpen  → OK path, tier 'green', COST_FAILOPEN
 //        !costFailOpen → COST_STATE_UNKNOWN (skip — legacy fail-closed)
-//   4. cost-state hard_ceiling_reached    → HARD_CEILING       (USD bomb detector)
-//   5. cost-tier ∈ autoDisableTiers       → TIER_*             (default critical-only)
-//   6. otherwise                          → OK_RUN + fleetSize + minRemaining
+//   4. usdBomb && hard_ceiling_reached    → HARD_CEILING       (M1 bomb — opt-in only)
+//   5. cost-tier ∈ autoDisableTiers       → TIER_*             (M3 default: EMPTY)
+//   6. cost_usd ≥ catastrophicUsd         → CATASTROPHIC_USD   (M3 replacement bomb)
+//   7. otherwise                          → OK_RUN + fleetSize + minRemaining
+// The injected runaway clamp then applies to EVERY run path (M3).
 
 const subscription = require('../subscription');
 
@@ -39,11 +45,15 @@ const REASONS = Object.freeze({
   COST_STATE_UNKNOWN: 'cost-state-unknown',
   // live-activation M1 — fail-open (cost-state absent → green assumed + run).
   COST_FAILOPEN: 'cost-failopen',
-  // live-activation M1 — USD bomb detector (hard_ceiling_reached sticky true).
+  // live-activation M1 — operational USD bomb detector (hard_ceiling_reached
+  // sticky true). M3: reachable ONLY under the usdBomb kill switch.
   HARD_CEILING: 'hard-ceiling',
   TIER_NOTICE: 'tier-notice',
   TIER_WARNING: 'tier-warning',
   TIER_CRITICAL: 'tier-critical',
+  // live-activation M3 — replacement bomb detector (Codex F1), far above the
+  // operational tiers.
+  CATASTROPHIC_USD: 'catastrophic-usd',
   // cost-model-subscription M1 — positive context-overflow critical under
   // MCCP_SUBSCRIPTION (replaces the USD cost-state + tier gates).
   SUBSCRIPTION_OVERFLOW: 'subscription-overflow',
@@ -52,10 +62,13 @@ const REASONS = Object.freeze({
 const FLEET_SIZE = 4;
 const MIN_PER_AGENT_DEFAULT = 150000;
 
-// live-activation M1 — narrowed to critical-only (operator philosophy: $50/$80
-// notice/warning are NOT bombs). MCCP_PLAN_FANOUT_AUTODISABLE_TIER override still
-// honored. hard_ceiling_reached is a separate always-skip bomb detector.
-const AUTODISABLE_TIERS_DEFAULT = Object.freeze(new Set(['critical']));
+// live-activation M3 — EMPTY by default (was critical-only in M1). Operational USD
+// spend no longer blocks fan-out at any tier; the catastrophic-USD ceiling is the
+// replacement bomb detector and the atomic agent-count cap is the structural
+// backstop. usdBomb restores the M1 critical-only set (USD_BOMB_TIERS); an explicit
+// MCCP_PLAN_FANOUT_AUTODISABLE_TIER override wins over either default.
+const AUTODISABLE_TIERS_DEFAULT = Object.freeze(new Set([]));
+const USD_BOMB_TIERS = Object.freeze(new Set(['critical']));
 
 const ENV_MODE = 'MCCP_PLAN_FANOUT';
 const ENV_MIN_PER_AGENT = 'MCCP_PLAN_FANOUT_BUDGET';
@@ -98,22 +111,27 @@ function parseTierOverride(raw) {
   for (let i = 0; i < tiers.length; i++) {
     if (!allowed.has(tiers[i])) {
       warn(ENV_AUTODISABLE + ' has unknown tier "' + tiers[i] +
-        '"; falling back to default (critical-only).');
+        '"; falling back to the default tier policy.');
       return null;
     }
   }
   return new Set(tiers);
 }
 
-// resolveFanout({env, prdMode, costStateRead, tierFor, costFailOpen, runawayClamp})
+// resolveFanout({env, prdMode, costStateRead, tierFor, costFailOpen, usdBomb,
+//                catastrophicUsd, runawayClamp})
 //   → { run, reason, tier, fleetSize, minRemaining, degraded, runawayReason }
 //
 // costStateRead() returns a cost-state object ({cost_usd, threshold_tier,
 // hard_ceiling_reached}) or null (missing/corrupt). tierFor (optional) recomputes
 // a tier from cost_usd when the stored threshold_tier is absent; default fallback
 // is 'green'. costFailOpen (default true) — when cost-state is null, run instead
-// of skipping (live-activation M1). runawayClamp(requestedN) (optional injected)
-// → {n, degraded, reason}; applied ONLY on the fail-open path.
+// of skipping (live-activation M1).
+//
+// M3 opts (caller parses the env — the oracle stays pure/injected):
+//   usdBomb         (default false) restore the M1 operational-USD bomb detector.
+//   catastrophicUsd (number) the replacement ceiling; ≤0 / non-finite disables it.
+//   runawayClamp(n) → {n, degraded, reason}; now applied on EVERY run path.
 function resolveFanout(opts) {
   opts = opts || {};
   const env = opts.env || process.env;
@@ -122,6 +140,8 @@ function resolveFanout(opts) {
     ? opts.costStateRead
     : function () { return null; };
   const costFailOpen = opts.costFailOpen !== false;
+  const usdBomb = opts.usdBomb === true;
+  const catastrophicUsd = Number.isFinite(opts.catastrophicUsd) ? opts.catastrophicUsd : 0;
   const minPerAgent = parseFanoutMinPerAgent(env);
   const minRemaining = minPerAgent * FLEET_SIZE;
 
@@ -132,13 +152,16 @@ function resolveFanout(opts) {
     };
   };
 
-  // run(tier, reason, failOpen) — the single RUN exit. Applies the injected
-  // runaway clamp on the fail-open branch (telemetry absent), never elsewhere.
-  const run = function (tier, reason, failOpen) {
+  // run(tier, reason) — the single RUN exit. M3 (Codex F2): applies the injected
+  // runaway clamp on EVERY run path, not just the fail-open branch — with the
+  // operational-USD block retired, the metered path has no USD backstop either, so
+  // the atomic agent-count cap must govern both. The clamp only ever lowers the
+  // fleet, so a far-from-cap session is unaffected.
+  const run = function (tier, reason) {
     let fleet = FLEET_SIZE;
     let degraded = false;
     let runawayReason = null;
-    if (failOpen && typeof opts.runawayClamp === 'function') {
+    if (typeof opts.runawayClamp === 'function') {
       const c = opts.runawayClamp(FLEET_SIZE);
       if (c && Number.isInteger(c.n) && c.n >= 1 && c.n < fleet) {
         fleet = c.n;
@@ -174,7 +197,7 @@ function resolveFanout(opts) {
       thresholds: subscription.parseOverflowThresholds(env),
     });
     if (of.overflow) return skip(REASONS.SUBSCRIPTION_OVERFLOW, of.tier);
-    return run(of.tier, REASONS.OK_RUN, false);
+    return run(of.tier, REASONS.OK_RUN);
   }
 
   // live-activation M1 — metered path. Missing cost-state now fails OPEN by
@@ -187,16 +210,20 @@ function resolveFanout(opts) {
     cs = null;
   }
   if (!cs) {
-    if (costFailOpen) return run('green', REASONS.COST_FAILOPEN, true);
+    if (costFailOpen) return run('green', REASONS.COST_FAILOPEN);
     return skip(REASONS.COST_STATE_UNKNOWN);
   }
 
-  // USD bomb detector — the sticky hard ceiling skips regardless of tier.
-  if (cs.hard_ceiling_reached === true) {
+  // M1 operational USD bomb detector. M3: opt-in only — by default a sticky hard
+  // ceiling ($100 operational) does NOT block fan-out.
+  if (usdBomb && cs.hard_ceiling_reached === true) {
     return skip(REASONS.HARD_CEILING, cs.threshold_tier || 'critical');
   }
 
-  const autoDisableTiers = parseTierOverride(env[ENV_AUTODISABLE]) || AUTODISABLE_TIERS_DEFAULT;
+  // cost-tier autoDisable. M3 default is EMPTY; usdBomb restores critical-only.
+  // An explicit env override wins over either.
+  const dflt = usdBomb ? USD_BOMB_TIERS : AUTODISABLE_TIERS_DEFAULT;
+  const autoDisableTiers = parseTierOverride(env[ENV_AUTODISABLE]) || dflt;
   const tierForFn = typeof opts.tierFor === 'function' ? opts.tierFor : null;
   const tier = cs.threshold_tier || (tierForFn ? tierForFn(cs.cost_usd) : 'green');
   if (autoDisableTiers.has(tier)) {
@@ -206,7 +233,13 @@ function resolveFanout(opts) {
     return skip(r, tier);
   }
 
-  return run(tier, REASONS.OK_RUN, false);
+  // M3 replacement bomb detector (Codex F1). Independent of usdBomb: even with the
+  // operational block retired, a catastrophic spend still stops the fan-out.
+  if (catastrophicUsd > 0 && Number.isFinite(cs.cost_usd) && cs.cost_usd >= catastrophicUsd) {
+    return skip(REASONS.CATASTROPHIC_USD, tier);
+  }
+
+  return run(tier, REASONS.OK_RUN);
 }
 
 // shouldSkipForBudget({budgetTotal, remaining, minRemaining}) → boolean
@@ -235,6 +268,7 @@ module.exports = {
   FLEET_SIZE: FLEET_SIZE,
   MIN_PER_AGENT_DEFAULT: MIN_PER_AGENT_DEFAULT,
   AUTODISABLE_TIERS_DEFAULT: AUTODISABLE_TIERS_DEFAULT,
+  USD_BOMB_TIERS: USD_BOMB_TIERS,
   ENV_MODE: ENV_MODE,
   ENV_MIN_PER_AGENT: ENV_MIN_PER_AGENT,
   ENV_AUTODISABLE: ENV_AUTODISABLE,

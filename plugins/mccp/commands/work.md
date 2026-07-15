@@ -126,7 +126,7 @@ v1.20.2 M1부터 implement 스텝은 **격리된 단일 worker 위임**으로 �
 
 - `MCCP_WORK_ISOLATE_IMPLEMENT` (default `1`) — 최상위 축. `0`이면 Step 3.F 인라인 `Skill(mccp:prp-implement)` fallback(loud stderr). 미지정/오타 시 격리(보수적 default = 격리 on).
 - `MCCP_WORK_IMPLEMENT_WORKFLOW` (default `0`) — 격리 활성 시 하위 축. `=1` AND prepare 성공 AND `Workflow` tool 가용이면 **Workflow 경로**(Step 3.W 단일 / Step 3.WP 병렬), 그 외(`0`/미설정/오타/tool 미가용)면 **Step 3.I**(기존 Task dispatch). fail-open — Workflow 미가용이 implement를 절대 막지 않는다. **Codex F1**: Task fallback은 Workflow 호출을 **개시하기 전**에만 허용된다(개시 후 회수 실패는 두 번째 경쟁 worker를 막기 위해 fail-closed HALT).
-- `MCCP_WORK_IMPLEMENT_PARALLEL` (default `0`, v1.20.8 M2b) — Workflow 경로의 최하위 축. `=1` AND partition oracle이 N>1개 서로소 partition을 산출 AND `resolveFleet`이 run=true(비용·budget 통과)이면 **Step 3.WP**(N-worker `parallel`), 그 외는 **Step 3.W**(단일 worker). **구조적 gate — merge_strategy**: `MCCP_WORK_MERGE_STRATEGY`(v1.21.0 M4부터 default `worktree-merge` — Task 0 run wf_1f689994-fb8이 live 상관 입증)가 `worktree-merge`가 **아니면** `resolveFleet`이 무조건 N=1로 fail-close한다. M4 default flip 이후에도 병렬 실제 발화는 여전히 `=1` 명시 opt-in + cost-state green(고비용 tier autoDisable) + N>1 partition 4중 AND를 요구한다(default flip은 구조적 gate만 열 뿐 비용/opt-in gate는 무변경). `MCCP_WORK_MERGE_STRATEGY=disable-parallel` 명시 시 M2a 단일 동작으로 back-compat 강등. same-worktree fallback(A2)은 atomic-merge 보호 실장 전까지 여전히 금지.
+- `MCCP_WORK_IMPLEMENT_PARALLEL` (default **on** since v1.22.1 M1 — `off`/`0`로 opt-out) — Workflow 경로의 최하위 축. opt-out 안 함 AND partition oracle이 N>1개 서로소 partition을 산출 AND `resolveFleet`이 run=true(merge_strategy·budget·catastrophic-USD 통과)이면 **Step 3.WP**(N-worker `parallel`), 그 외는 **Step 3.W**(단일 worker). **v1.22.3 M3 — operational USD는 더 이상 발화를 막지 않는다**: sticky critical/`hard_ceiling`($100)에서도 발화하며, 차단은 catastrophic-USD(`MCCP_ORCHESTRATION_CATASTROPHIC_USD`, default $500) + 원자 runaway-cap(`MCCP_ORCHESTRATION_MAX_AGENTS`, default 24, 전 run 경로) + per-worker budget이 담당한다. `MCCP_ORCHESTRATION_USD_BOMB=1`로 M1 USD 차단 복원. **구조적 gate — merge_strategy**: `MCCP_WORK_MERGE_STRATEGY`(v1.21.0 M4부터 default `worktree-merge` — Task 0 run wf_1f689994-fb8이 live 상관 입증)가 `worktree-merge`가 **아니면** `resolveFleet`이 무조건 N=1로 fail-close한다. M3(v1.22.3) 이후 병렬 실제 발화 조건은 **opt-out 안 함 + merge_strategy=worktree-merge + N>1 partition + catastrophic-USD 미도달**이다 — cost-state green 요구는 **폐기**(operational tier autoDisable default empty). `MCCP_WORK_MERGE_STRATEGY=disable-parallel` 명시 시 M2a 단일 동작으로 back-compat 강등. same-worktree fallback(A2)은 atomic-merge 보호 실장 전까지 여전히 금지.
 - `MCCP_WORK_MERGED_VERIFY` (default `enforce`, v1.20.12 M3) — 위 3축과 **직교(⊥)**. implement가 끝난 뒤(어떤 경로든) **commit 전** 통합 diff를 worker 밖에서 1회 cross-model(Codex) adversarial verify하는 **Step 3.verify** 스테이지를 지배한다. `enforce`=divergent/critical/unavailable HALT · `warn`=advisory pass · `off`=skipped. **단일 경로에서도 발화**하므로(DD6) 병렬이 gated여도 M3 verify-네이티브화가 runtime 가치를 갖는다.
 
 **Pre-flight (기존 `next-step` HALT 보존)** — 격리 여부와 무관하게 먼저 실행:
@@ -163,10 +163,14 @@ ISOLATE="${MCCP_WORK_ISOLATE_IMPLEMENT:-1}"
 PARALLEL="${MCCP_WORK_IMPLEMENT_PARALLEL:-1}"
 # M4 default flip — Task 0 (run wf_1f689994-fb8) PROVED the live worktree↔dispatchId
 # correlation (worktrees persist + controller-enumerable + worker-seeded envelopes
-# correlate), so worktree-merge is now the default. The cost guard is now: PARALLEL
-# opt-OUT (default on) · cost-state fail-OPEN by default (MCCP_ORCHESTRATION_COST_FAIL_OPEN=0
-# to restore fail-closed) · critical-only tier autoDisable · hard_ceiling bomb
-# detector · cost-state-independent session runaway cap.
+# correlate), so worktree-merge is now the default. M3 then retired the OPERATIONAL
+# USD block (a present sticky $186 critical / hard_ceiling was skipping every
+# dispatch, which is exactly the shelf-ware the PRD exists to fix). The cost guard
+# is now: PARALLEL opt-OUT (default on) · cost-state fail-OPEN by default
+# (MCCP_ORCHESTRATION_COST_FAIL_OPEN=0 to restore fail-closed) · NO operational-tier
+# autoDisable (MCCP_ORCHESTRATION_USD_BOMB=1 restores it) · catastrophic-USD ceiling
+# (MCCP_ORCHESTRATION_CATASTROPHIC_USD, default $500) as the replacement bomb
+# detector · the ATOMIC cost-state-independent session runaway cap on EVERY run path.
 MERGE_STRATEGY="${MCCP_WORK_MERGE_STRATEGY:-worktree-merge}"
 FLEET_N=0
 # live-activation M1 — opt-OUT gate (default on). Normalize then treat only 'off'/'0'
@@ -194,16 +198,23 @@ if [ "$ISOLATE" != "0" ] && [ "$PARALLEL_LC" != "0" ] && [ "$PARALLEL_LC" != "of
       // live-activation M1 — cost fail-open (default true) + cost-state-independent
       // runaway backstop. =0 restores the old fail-closed COST_STATE_UNKNOWN skip.
       const costFailOpen=String(process.env.MCCP_ORCHESTRATION_COST_FAIL_OPEN||"").trim()!=="0";
+      // live-activation M3 — operational USD ($50/$80/$100 + hard_ceiling) no longer
+      // blocks firing; usdBomb restores that M1 block, catastrophicUsd is the
+      // replacement bomb detector far above it (Codex F1/F4).
+      const usdBomb=runaway.parseUsdBomb(process.env);
+      const catastrophicUsd=runaway.parseCatastrophicUsd(process.env);
       const sessionId=process.env.CLAUDE_SESSION_ID||"unknown";
-      const launched=runaway.readCounter({ sessionId:sessionId }).launched;
       const r=b.resolveFleet({ env:process.env, mergeStrategy:process.argv[2],
         requestedN:parseInt(process.argv[3],10)||1, costStateRead:cs.readState, tierFor:cs.tierFor,
-        costFailOpen:costFailOpen,
-        runawayClamp:function(n){ return runaway.clampForRunaway({ requestedN:n, launchedSoFar:launched, env:process.env }); },
+        costFailOpen:costFailOpen, usdBomb:usdBomb, catastrophicUsd:catastrophicUsd,
+        // M3 Codex F2 — ATOMIC reserve replaces read-then-bump. It decides the grant
+        // AND counts it inside ONE lock critical section, so concurrent / re-entrant
+        // dispatches can no longer each read the same pre-bump value and overshoot
+        // the cap. It only runs on a RUN path, and it ALREADY counted the grant —
+        // there is deliberately no bumpCounter afterwards.
+        runawayClamp:function(n){ const res=runaway.reserveWorkers({ sessionId:sessionId, requestedN:n, env:process.env });
+          return { n:res.granted, degraded:res.degraded, reason:res.reason }; },
         subscriptionMode:sub.isSubscriptionMode(process.env), contextStateRead:ctx.readState });
-      // bump the session launch counter by the effective N so repeated/recursive
-      // /mccp:work dispatches accumulate toward the absolute runaway cap.
-      if(r.run) runaway.bumpCounter({ sessionId:sessionId, delta:r.n });
       process.stdout.write(JSON.stringify(r));
     ' "$CLAUDE_PLUGIN_ROOT" "$MERGE_STRATEGY" "$REQ_N")
     RUN=$(echo "$FLEET" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).run?"1":"0")}catch{process.stdout.write("0")}')
@@ -224,10 +235,11 @@ if [ "$ISOLATE" != "0" ] && [ "$PARALLEL_LC" != "0" ] && [ "$PARALLEL_LC" != "of
     fi
   fi
 fi
+FLEET_REASON=$(echo "$FLEET" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reason||"unknown")}catch{process.stdout.write("n/a")}' 2>/dev/null || echo "n/a")
 if [ -f "$GITDIR/dispatch-fleet-args.json" ]; then
-  echo "[mccp:work] parallel fleet 발화 (N=$FLEET_N, merge_strategy=$MERGE_STRATEGY) — default on, MCCP_WORK_IMPLEMENT_PARALLEL=off로 단일 경로 opt-out"
+  echo "[mccp:work] parallel fleet 발화 (N=$FLEET_N granted, merge_strategy=$MERGE_STRATEGY, reason=$FLEET_REASON) — operational USD 비차단(M3); backstop = catastrophic-USD(\$${MCCP_ORCHESTRATION_CATASTROPHIC_USD:-500}) + 원자 runaway-cap(${MCCP_ORCHESTRATION_MAX_AGENTS:-24}) + per-worker budget. MCCP_WORK_IMPLEMENT_PARALLEL=off로 단일 경로 opt-out, MCCP_ORCHESTRATION_USD_BOMB=1로 M1 USD 차단 복원"
 else
-  echo "[mccp:work] parallel implement 비활성 (parallel=$PARALLEL merge_strategy=$MERGE_STRATEGY) — 단일 worker 경로 (default on; off로 opt-out했거나 N=1/cost-gate)" 1>&2
+  echo "[mccp:work] parallel implement 비활성 (parallel=$PARALLEL merge_strategy=$MERGE_STRATEGY reason=$FLEET_REASON) — 단일 worker 경로 (default on; off로 opt-out했거나 N=1/merge-strategy/budget/catastrophic-USD/usd_bomb)" 1>&2
 fi
 ```
 

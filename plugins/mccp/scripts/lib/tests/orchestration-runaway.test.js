@@ -13,7 +13,10 @@ const os = require('os');
 const path = require('path');
 
 const runaway = require('../orchestration-runaway');
-const { clampForRunaway, parseMaxAgents, readCounter, bumpCounter, DEFAULT_MAX_AGENTS, REASONS } = runaway;
+const {
+  clampForRunaway, parseMaxAgents, readCounter, bumpCounter, DEFAULT_MAX_AGENTS, REASONS,
+  reserveWorkers, parseUsdBomb, parseCatastrophicUsd, DEFAULT_CATASTROPHIC_USD,
+} = runaway;
 
 function tmpState() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runaway-'));
@@ -131,4 +134,135 @@ test('end-to-end: read → clamp → bump loop cannot exceed cap amplification',
     launchedEach.push(c.n);
   }
   assert.deepEqual(launchedEach, [4, 4, 1, 1, 1]);
+});
+
+// ── M3 Codex F4 — parseUsdBomb (the rollback kill switch) ─────────────────────
+
+test('parseUsdBomb: the standard truthy vocabulary enables it', function () {
+  ['1', 'true', 'yes', 'on', 'TRUE', 'On', ' yes '].forEach(function (v) {
+    assert.equal(parseUsdBomb({ MCCP_ORCHESTRATION_USD_BOMB: v }), true, 'value: ' + JSON.stringify(v));
+  });
+});
+
+test('parseUsdBomb: falsy vocabulary and unset → false', function () {
+  ['0', 'false', 'no', 'off', 'OFF', ''].forEach(function (v) {
+    assert.equal(parseUsdBomb({ MCCP_ORCHESTRATION_USD_BOMB: v }), false, 'value: ' + JSON.stringify(v));
+  });
+  assert.equal(parseUsdBomb({}), false);
+  assert.equal(parseUsdBomb(undefined), false);
+});
+
+test('parseUsdBomb: unknown non-empty → false + LOUD warn (never silent)', function () {
+  const orig = process.stderr.write;
+  const seen = [];
+  process.stderr.write = function (s) { seen.push(String(s)); return true; };
+  try {
+    assert.equal(parseUsdBomb({ MCCP_ORCHESTRATION_USD_BOMB: 'ture' }), false);
+    assert.equal(parseUsdBomb({ MCCP_ORCHESTRATION_USD_BOMB: 'enabled' }), false);
+  } finally {
+    process.stderr.write = orig;
+  }
+  assert.equal(seen.length, 2, 'a typo on the rollback switch must be surfaced, not swallowed');
+  assert.ok(/MCCP_ORCHESTRATION_USD_BOMB/.test(seen[0]));
+});
+
+// ── M3 Codex F1 — parseCatastrophicUsd (the replacement bomb ceiling) ─────────
+
+test('parseCatastrophicUsd: default 500 when unset', function () {
+  assert.equal(parseCatastrophicUsd({}), DEFAULT_CATASTROPHIC_USD);
+  assert.equal(parseCatastrophicUsd({ MCCP_ORCHESTRATION_CATASTROPHIC_USD: '' }), 500);
+});
+
+test('parseCatastrophicUsd: honors a valid override, fractional included', function () {
+  assert.equal(parseCatastrophicUsd({ MCCP_ORCHESTRATION_CATASTROPHIC_USD: '1200' }), 1200);
+  assert.equal(parseCatastrophicUsd({ MCCP_ORCHESTRATION_CATASTROPHIC_USD: '250.5' }), 250.5);
+});
+
+test('parseCatastrophicUsd: invalid → default + loud warn (fail-open)', function () {
+  const orig = process.stderr.write;
+  const seen = [];
+  process.stderr.write = function (s) { seen.push(String(s)); return true; };
+  try {
+    ['garbage', '-5', '0', 'NaN'].forEach(function (v) {
+      assert.equal(parseCatastrophicUsd({ MCCP_ORCHESTRATION_CATASTROPHIC_USD: v }),
+        DEFAULT_CATASTROPHIC_USD, 'value: ' + v);
+    });
+  } finally {
+    process.stderr.write = orig;
+  }
+  assert.equal(seen.length, 4);
+});
+
+// ── M3 Codex F2 — atomic reserveWorkers (check-and-bump in one lock) ──────────
+
+test('reserveWorkers: grants the request and counts it in one call', function () {
+  const p = tmpState();
+  const r = reserveWorkers({ sessionId: 's1', requestedN: 4, env: {}, statePath: p });
+  assert.equal(r.granted, 4);
+  assert.equal(r.degraded, false);
+  assert.equal(r.reason, REASONS.OK);
+  assert.equal(r.launched, 4, 'the grant is already counted — callers must NOT bump again');
+  assert.equal(readCounter({ sessionId: 's1', statePath: p }).launched, 4);
+});
+
+// THE F2 REGRESSION. Under the old read-then-bump, two dispatches that both read
+// launched=4 (cap 8) would each grant 4 → 8 granted from a pre-bump view, and a
+// third would push past the cap. reserveWorkers makes the check and the bump one
+// critical section, so each successive reserve sees the previous grant.
+test('reserveWorkers: sequential reserves cannot amplify past the cap', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '8' };
+  const granted = [];
+  for (let i = 0; i < 5; i++) {
+    granted.push(reserveWorkers({ sessionId: 'loop', requestedN: 4, env: env, statePath: p }).granted);
+  }
+  assert.deepEqual(granted, [4, 4, 1, 1, 1],
+    'once the cap is reached the parallel amplification collapses to a single worker');
+});
+
+test('reserveWorkers: a re-entrant reserve sees the prior grant (no stale read)', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '6' };
+  const first = reserveWorkers({ sessionId: 're', requestedN: 4, env: env, statePath: p });
+  const second = reserveWorkers({ sessionId: 're', requestedN: 4, env: env, statePath: p });
+  assert.equal(first.granted, 4);
+  assert.equal(second.granted, 1, '4 + 4 > 6 → the second reserve degrades');
+  assert.equal(second.degraded, true);
+  assert.equal(second.reason, REASONS.RUNAWAY_CLAMP);
+});
+
+test('reserveWorkers: never grants 0 (degraded, never blocked)', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '1' };
+  const r = reserveWorkers({ sessionId: 'floor', requestedN: 4, env: env, statePath: p });
+  assert.equal(r.granted, 1, 'a lone worker is the minimum useful progress');
+  assert.equal(r.degraded, true);
+});
+
+test('reserveWorkers: lock exhaustion is fail-SAFE (grants 1, not the fleet)', function () {
+  const p = tmpState();
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  // Hold the lock with a FRESH mtime so the stale-reclaim path cannot break it.
+  fs.writeFileSync(p + '.lock', String(process.pid));
+  const orig = process.stderr.write;
+  process.stderr.write = function () { return true; };
+  let r;
+  try {
+    r = reserveWorkers({ sessionId: 'held', requestedN: 4, env: {}, statePath: p });
+  } finally {
+    process.stderr.write = orig;
+    fs.unlinkSync(p + '.lock');
+  }
+  assert.equal(r.granted, 1, 'an unverifiable counter must not grant a full fleet');
+  assert.equal(r.degraded, true);
+  assert.equal(r.reason, REASONS.LOCK_EXHAUSTED);
+  assert.equal(r.launched, null, 'no count was committed');
+});
+
+test('reserveWorkers: a different session key resets the cumulative count', function () {
+  const p = tmpState();
+  reserveWorkers({ sessionId: 'a', requestedN: 4, env: { MCCP_ORCHESTRATION_MAX_AGENTS: '4' }, statePath: p });
+  const other = reserveWorkers({ sessionId: 'b', requestedN: 4, env: { MCCP_ORCHESTRATION_MAX_AGENTS: '4' }, statePath: p });
+  assert.equal(other.granted, 4, 'a new session starts from a fresh counter');
+  assert.equal(other.degraded, false);
 });

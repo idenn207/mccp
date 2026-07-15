@@ -128,6 +128,31 @@ function deriveCodexFlags(codexResult) {
     } else {
       codexVerdict = String(raw).trim().toLowerCase() === 'approve' ? 'converged' : 'divergent';
     }
+    // v1.22.3 M3 follow-up (R1 F1/F4 + Implement-Codex R1 F4) — scope-exclusion is
+    // AUDIT, never a verdict rewrite.
+    //
+    // An earlier cut mapped a scope-excluded non-approve to 'converged'. Two
+    // separate defects killed that:
+    //   1. The pass rested on broad keyword matching over free text, and the
+    //      producer emits no category/scope field to verify against — so it could
+    //      drop a real security finding ("Brand asset loader reads arbitrary local
+    //      files") and pass the PR (Implement-Codex R1 F4).
+    //   2. resolution.codex_verdict is contracted as "the real Codex verdict" and
+    //      is the cross-gate dedupe key. Writing 'converged' over a "No ship"
+    //      review meant that receipt could authorize a later dedupe that skips
+    //      PR-Codex entirely.
+    // The verdict now stays what Codex actually said. The scope-exclusion flag and
+    // the raw verdict are stamped purely so the block can be EXPLAINED — the
+    // original complaint was an OPAQUE block, not the block itself — and so
+    // dropped_findings_digest / design_findings_dropped below reproduce exactly
+    // what was routed away and to whom.
+    if (codexResult.codex_scope_excluded_verdict === true) {
+      flags.push('--codex-scope-excluded-verdict');
+      if (raw !== null && raw !== undefined && String(raw).trim().length > 0) {
+        flags.push('--codex-raw-verdict');
+        flags.push(String(raw).trim());
+      }
+    }
   }
   if (codexVerdict) {
     flags.push('--codex-verdict');

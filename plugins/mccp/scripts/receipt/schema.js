@@ -302,6 +302,32 @@ function validate(receipt) {
         'meta.codex_review_actionable_findings must be a boolean if present');
     }
 
+    // v1.22.3 M3 follow-up (PR-Codex R1 F1 + F4) — the scope-excluded pair.
+    //
+    // codex_scope_excluded_verdict: the gate passed despite a RAW non-approving
+    // verdict because every itemized finding was design/a11y-scoped and dropped
+    // by the design-scope filter (deriveEffectiveReview row 5).
+    //
+    // codex_raw_verdict: what the model literally said. resolution.codex_verdict
+    // is contracted as "the real Codex verdict" and drives cross-gate dedupe, so
+    // when row 5 maps a raw `needs-attention` to an effective `converged`, the raw
+    // value would otherwise be machine-unreadable in the SEALED receipt and
+    // survive only out-of-band (PR body / tmp). Persisting it here keeps effective
+    // verdict AND provenance both readable from one receipt. Deliberately a free
+    // string, not CODEX_VERDICT_VALUES: this is the companion's raw vocabulary
+    // (`approve` | `needs-attention`), not the gate's, and reusing the enum would
+    // drag meta.merged_verify_verdict along for the ride.
+    //
+    // Both present-only — absent on legacy receipts, no migration.
+    if (m.codex_scope_excluded_verdict !== undefined) {
+      req(typeof m.codex_scope_excluded_verdict === 'boolean',
+        'meta.codex_scope_excluded_verdict must be a boolean if present');
+    }
+    if (m.codex_raw_verdict !== undefined && m.codex_raw_verdict !== null) {
+      req(typeof m.codex_raw_verdict === 'string' && m.codex_raw_verdict.length > 0,
+        'meta.codex_raw_verdict must be a non-empty string or null if present');
+    }
+
     // v0.3.5 — env-level disabled honor (codex_disabled / codex_disabled_at_pr).
     // Mirrors codex_skipped_at_pr but represents env policy (MCCP_CODEX_DISABLED=1),
     // not user-issued audited escape. Reason validator is bypassed when
@@ -718,6 +744,11 @@ function makeSkeleton(overrides) {
       codex_skipped_at_pr: false,
       codex_skip_reason: null,
       codex_review_actionable_findings: false,
+      // v1.22.3 M3 follow-up (R1 F1 + F4) — scope-excluded pass + raw provenance.
+      // Defaults keep the fields present-and-inert on receipts that never hit the
+      // design-scope path, mirroring codex_review_actionable_findings above.
+      codex_scope_excluded_verdict: false,
+      codex_raw_verdict: null,
       // v0.3.5 Task 4 — env-level MCCP_CODEX_DISABLED honor (parallel to codex_skipped).
       codex_disabled: false,
       codex_disabled_at_pr: false,

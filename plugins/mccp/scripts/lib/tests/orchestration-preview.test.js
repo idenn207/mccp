@@ -319,6 +319,12 @@ test('read-only static: module has NO counter-bump import/call path, DOES use re
   // clampForRunaway.
   assert.ok(!/reserveWorkers/.test(code),
     'the atomic reserve (which bumps) must not appear in code — observation cannot consume headroom');
+  // M3 follow-up (R1 F2) — reconcileReservation is the other write-side entry of
+  // the two-phase lifecycle. It rewrites launched + open[], so a preview calling
+  // it would commit or release someone else's in-flight reservation just by
+  // looking. Same denylist class as reserveWorkers/bumpCounter.
+  assert.ok(!/reconcileReservation/.test(code),
+    'the reservation reconciler (which writes) must not appear in code — observation cannot commit or release');
   assert.ok(/clampForRunaway/.test(code), 'must use the PURE no-bump clamp instead');
   assert.ok(/readCounter/.test(code), 'must source the read-side counter API');
   assert.ok(/require\(['"]\.\/orchestration-runaway['"]\)/.test(code),

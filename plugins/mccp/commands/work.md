@@ -153,6 +153,13 @@ GITDIR=$(git rev-parse --git-path mccp/tmp)
 mkdir -p "$GITDIR"
 rm -f "$GITDIR/dispatch-fleet-args.json" "$GITDIR/dispatch-partitions.json" \
       "$GITDIR/dispatch-fleet-prepare.json"   # clear stale
+# M3 follow-up (R1 F1) — the reservation token's stale-clear lives HERE and ONLY
+# here: immediately before a new reservation is created. It must NEVER be added to
+# Step 3.prep's rm -f list. Order is prep-parallel → prep → route, and route is the
+# single reconcile point, so clearing it in prep would delete the token we just
+# minted before it could ever be reconciled — leaving the phantom this whole axis
+# exists to remove.
+rm -f "$GITDIR/dispatch-fleet-reservation.json"
 rm -rf "$GITDIR/dispatch-fleet-results"
 ISOLATE="${MCCP_WORK_ISOLATE_IMPLEMENT:-1}"
 # live-activation M1 — DEFAULT FIRING FLIPPED to on (opt-out). Mirror of
@@ -204,6 +211,11 @@ if [ "$ISOLATE" != "0" ] && [ "$PARALLEL_LC" != "0" ] && [ "$PARALLEL_LC" != "of
       const usdBomb=runaway.parseUsdBomb(process.env);
       const catastrophicUsd=runaway.parseCatastrophicUsd(process.env);
       const sessionId=process.env.CLAUDE_SESSION_ID||"unknown";
+      // M3 follow-up (R1 F2) — capture the reservation id out of the closure. The
+      // oracle signature stays pure/injected (it still only sees {n,degraded,reason});
+      // the id rides alongside in the emitted JSON so Step 3.route can reconcile the
+      // reservation against the number of workers that ACTUALLY launched.
+      let reservationId=null;
       const r=b.resolveFleet({ env:process.env, mergeStrategy:process.argv[2],
         requestedN:parseInt(process.argv[3],10)||1, costStateRead:cs.readState, tierFor:cs.tierFor,
         costFailOpen:costFailOpen, usdBomb:usdBomb, catastrophicUsd:catastrophicUsd,
@@ -212,11 +224,24 @@ if [ "$ISOLATE" != "0" ] && [ "$PARALLEL_LC" != "0" ] && [ "$PARALLEL_LC" != "of
         // dispatches can no longer each read the same pre-bump value and overshoot
         // the cap. It only runs on a RUN path, and it ALREADY counted the grant —
         // there is deliberately no bumpCounter afterwards.
+        //
+        // M3 follow-up (R1 F2): the grant is now PENDING, not a permanent spend.
+        // Step 3.route commits it to the real launch count (or releases it).
         runawayClamp:function(n){ const res=runaway.reserveWorkers({ sessionId:sessionId, requestedN:n, env:process.env });
+          reservationId=res.reservationId;
           return { n:res.granted, degraded:res.degraded, reason:res.reason }; },
         subscriptionMode:sub.isSubscriptionMode(process.env), contextStateRead:ctx.readState });
-      process.stdout.write(JSON.stringify(r));
+      process.stdout.write(JSON.stringify(Object.assign({}, r, { reservationId: reservationId })));
     ' "$CLAUDE_PLUGIN_ROOT" "$MERGE_STRATEGY" "$REQ_N")
+    # Persist the reservation token so Step 3.route can reconcile it. Written only
+    # when reserveWorkers actually ran (a skip path never reserves, so there is
+    # nothing to reconcile and no phantom to clean up).
+    echo "$FLEET" | node -e '
+      const fs=require("fs");
+      let j={}; try{ j=JSON.parse(fs.readFileSync(0,"utf8")); }catch(_){}
+      if (j && typeof j.reservationId==="string" && j.reservationId)
+        fs.writeFileSync(process.argv[1], JSON.stringify({ reservation_id:j.reservationId, granted:j.n||1 }));
+    ' "$GITDIR/dispatch-fleet-reservation.json"
     RUN=$(echo "$FLEET" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).run?"1":"0")}catch{process.stdout.write("0")}')
     FLEET_N=$(echo "$FLEET" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).n||1))}catch{process.stdout.write("1")}')
     MINREM=$(echo "$FLEET" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).minRemaining||0))}catch{process.stdout.write("0")}')
@@ -311,6 +336,63 @@ ROUTE=$(node -e '
   }));
 ' "$CLAUDE_PLUGIN_ROOT" "$GITDIR" "$ISOLATE" "$WORKFLOW_AVAILABLE")
 echo "[mccp:work] Step 3 route=$ROUTE" 1>&2
+
+# M3 follow-up (R1 F1 + F2) — THE single reconcile point for the fleet reservation.
+#
+# Step 3.prep-parallel reserved cap headroom while resolving the oracle, but the
+# route decided here is the last word on how many workers actually launch. Placing
+# the correction at this ONE boundary covers BOTH phantom paths (prepare-fleet
+# failure → FLEET_N=1, and route falling back off the parallel leg) because route
+# is evaluated after both and before any worker exists.
+#
+# actualN per route — a CORRECTION, not a blanket release (R1 F2): the degraded
+# single-worker routes really do launch one worker, so releasing the whole
+# reservation there would under-count a real launch (over-permissive).
+#   workflow-parallel        → granted   (the fleet fires)
+#   workflow-single / task   → 1         (one worker fires)
+#   inline                   → 0         (nothing fires)
+# Never fails the pipeline: the CLI always exits 0, and an un-reconciled
+# reservation self-heals via the pending lease.
+if [ -f "$GITDIR/dispatch-fleet-reservation.json" ]; then
+  RES_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservation_id||"")}catch{process.stdout.write("")}' "$GITDIR/dispatch-fleet-reservation.json")
+  RES_GRANTED=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).granted||1))}catch{process.stdout.write("1")}' "$GITDIR/dispatch-fleet-reservation.json")
+  case "$ROUTE" in
+    workflow-parallel) ACTUAL_N="$RES_GRANTED" ;;
+    workflow-single|task) ACTUAL_N=1 ;;
+    *) ACTUAL_N=0 ;;
+  esac
+  if [ -n "$RES_ID" ]; then
+    # R1 F1 — the exit code is load-bearing when ACTUAL_N > 0. An uncommitted
+    # reservation whose workers DO launch gets dropped by the lease later, which
+    # under-counts the cap (over-permissive). Retry across the lock's 5s stale
+    # window before giving up; deleting the token on failure would erase the only
+    # handle we have on those launches.
+    RECONCILED=0
+    for attempt in 1 2 3; do
+      if node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
+           --reservation "$RES_ID" --actual "$ACTUAL_N" \
+           --session "${CLAUDE_SESSION_ID:-unknown}" 1>&2; then
+        RECONCILED=1; break
+      fi
+      echo "[mccp:work] reconcile attempt $attempt failed (actual=$ACTUAL_N) — retrying" 1>&2
+      sleep 3
+    done
+    if [ "$RECONCILED" = "1" ]; then
+      echo "[mccp:work] runaway reservation reconciled (route=$ROUTE actual=$ACTUAL_N granted=$RES_GRANTED)" 1>&2
+      rm -f "$GITDIR/dispatch-fleet-reservation.json"   # consumed; reconcile is idempotent anyway
+    else
+      # Fail-closed: we are about to launch workers we cannot account for, and the
+      # agent-count cap is the PRIMARY structural backstop (M3 retired the
+      # operational-USD block). Keep the token for a later retry and stop.
+      echo "[MCCP-GATE-STOP] runaway reservation $RES_ID could not be committed after 3 attempts" 1>&2
+      echo "  (actual=$ACTUAL_N would launch). Launching now would under-count the cap." 1>&2
+      echo "  Token kept at $GITDIR/dispatch-fleet-reservation.json — inspect .claude/state/orchestration-runaway.json{,.lock}" 1>&2
+      exit 1
+    fi
+  else
+    rm -f "$GITDIR/dispatch-fleet-reservation.json"
+  fi
+fi
 ```
 
 `$ROUTE` 값별 다음 sub-step으로 진행한다 (오라클 결정 트리는 [route.js](../scripts/lib/implement-dispatch/route.js) 참조):

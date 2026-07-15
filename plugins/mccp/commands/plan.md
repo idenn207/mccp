@@ -178,6 +178,7 @@ FANOUT_JSON=$(node -e '
   const usdBomb = runaway.parseUsdBomb(process.env);
   const catastrophicUsd = runaway.parseCatastrophicUsd(process.env);
   const sessionId = process.env.CLAUDE_SESSION_ID || "unknown";
+  let reservationId = null;
   const r = budget.resolveFanout({
     env: process.env,
     prdMode: prdMode,
@@ -191,8 +192,13 @@ FANOUT_JSON=$(node -e '
     // fan-outs can no longer each read the same pre-bump value and overshoot the
     // cap. It only runs on a RUN path, and it ALREADY counted the grant — there is
     // deliberately no bumpCounter afterwards.
+    //
+    // M3 follow-up (R1 F2): the grant is PENDING, not a permanent spend. 2.5.3
+    // reconciles it to the number of agents that actually spawned. The oracle
+    // signature stays pure/injected — the id rides out in the emitted JSON.
     runawayClamp: function (n) {
       const res = runaway.reserveWorkers({ sessionId: sessionId, requestedN: n, env: process.env });
+      reservationId = res.reservationId;
       return { n: res.granted, degraded: res.degraded, reason: res.reason };
     },
     // cost-model-subscription M1 — under MCCP_SUBSCRIPTION the fan-out bypasses
@@ -200,8 +206,20 @@ FANOUT_JSON=$(node -e '
     subscriptionMode: subscription.isSubscriptionMode(process.env),
     contextStateRead: contextState.readState,
   });
-  process.stdout.write(JSON.stringify(r));
+  process.stdout.write(JSON.stringify(Object.assign({}, r, { reservationId: reservationId })));
 ' "${CLAUDE_PLUGIN_ROOT}" "$PRD_MODE")
+# M3 follow-up (R1 F1) — stale-clear + persist the reservation token HERE only,
+# immediately around the reserve. Fan-out has no route boundary, so 2.5.3 is the
+# reconcile point and this token must survive until then.
+GITDIR_FANOUT=$(git rev-parse --git-path mccp/tmp)
+mkdir -p "$GITDIR_FANOUT"
+rm -f "$GITDIR_FANOUT/fanout-reservation.json"
+echo "$FANOUT_JSON" | node -e '
+  const fs=require("fs");
+  let j={}; try{ j=JSON.parse(fs.readFileSync(0,"utf8")); }catch(_){}
+  if (j && typeof j.reservationId==="string" && j.reservationId)
+    fs.writeFileSync(process.argv[1], JSON.stringify({ reservation_id:j.reservationId, granted:j.fleetSize||1 }));
+' "$GITDIR_FANOUT/fanout-reservation.json"
 FANOUT_RUN=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).run?"1":"0")}catch{process.stdout.write("0")}')
 FANOUT_REASON=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reason||"unknown")}catch{process.stdout.write("parse-error")}')
 FANOUT_MINREM=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).minRemaining||0))}catch{process.stdout.write("0")}')
@@ -249,6 +267,47 @@ The script spawns the read-only `mccp:fanout-*` perspectives named by `fleetKeys
 
 - **Success** (`skipped` falsy AND `coverage > 0`): inject the returned `markdown` verbatim into the plan body during Phase 4 WRITE (it becomes part of `plan_hash` and is reviewed by the Phase 5 Codex gate). Log `[mccp:plan-fanout] coverage=<N>/4 spent=<spent>`.
 - **Skip / empty / throw / Workflow unavailable** (`skipped:true`, `coverage===0`, a tool error, or the primitive not present in this install): DO NOT block. Keep the inline Pattern Grounding above as the grounding source and log the reason. Fan-out is a GROUND *enhancement*, never a gate.
+
+**Reconcile the runaway reservation (M3 follow-up, R1 F2).** 2.5.1 reserved cap headroom while resolving the oracle, and several paths below spawn nothing. Unlike `work.md`, fan-out has **no route boundary** — the `Workflow` call itself IS the launch point — so every post-invocation path must commit EXPLICITLY. Leaving a post-call path to the pending lease would expire a reservation whose agents really did spawn (over-permissive). `actualN` by outcome:
+
+| Outcome | actualN | Why |
+|---|---|---|
+| `skipped:true` (in-sandbox budget pre-guard) | **0** | the script contractually spawns zero agents |
+| Workflow unavailable / never invoked | **0** | no call was made |
+| success (`coverage > 0`) | granted | the fleet ran |
+| throw / `coverage === 0` | **granted** | agents may already have spawned then failed — stay conservative and count them |
+
+```bash
+GITDIR_FANOUT=$(git rev-parse --git-path mccp/tmp)
+if [ -f "$GITDIR_FANOUT/fanout-reservation.json" ]; then
+  RES_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservation_id||"")}catch{process.stdout.write("")}' "$GITDIR_FANOUT/fanout-reservation.json")
+  RES_GRANTED=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).granted||1))}catch{process.stdout.write("1")}' "$GITDIR_FANOUT/fanout-reservation.json")
+  # FANOUT_ACTUAL_N: the LLM sets this per the table above after reading the
+  # Workflow result — 0 when nothing spawned, else $RES_GRANTED.
+  #
+  # R1 F1 — a nonzero exit means the commit did NOT land while agents really did
+  # spawn; the lease would then drop them as "never launched" and under-count the
+  # cap. Retry across the lock's 5s stale window. Unlike work.md this runs AFTER
+  # the launch, so halting cannot un-spawn anything — keep the token, warn loudly,
+  # and let the plan proceed (fan-out is a GROUND enhancement and must never block
+  # a plan). The residual error direction is a conservative over-count until the
+  # lease resolves it.
+  RECONCILED=0
+  for attempt in 1 2 3; do
+    if node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
+         --reservation "$RES_ID" --actual "${FANOUT_ACTUAL_N:-$RES_GRANTED}" \
+         --session "${CLAUDE_SESSION_ID:-unknown}" 1>&2; then
+      RECONCILED=1; break
+    fi
+    sleep 3
+  done
+  if [ "$RECONCILED" = "1" ]; then
+    rm -f "$GITDIR_FANOUT/fanout-reservation.json"
+  else
+    echo "[mccp:plan-fanout] WARNING: reservation $RES_ID uncommitted after 3 attempts; token kept at $GITDIR_FANOUT/fanout-reservation.json. The runaway cap may under-count this fan-out." 1>&2
+  fi
+fi
+```
 
 Tuning env (documented in CLAUDE.md §4): `MCCP_PLAN_FANOUT` (default **on** — set `off`/`0` to opt out), `MCCP_PLAN_FANOUT_BUDGET` (per-agent token estimate, default 150000), `MCCP_PLAN_FANOUT_AUTODISABLE_TIER` (v1.22.3 M3 — default **empty**: operational tiers no longer disable the fan-out; set e.g. `critical` to re-block), `MCCP_ORCHESTRATION_COST_FAIL_OPEN` (default on; `=0` restores the old fail-closed skip), `MCCP_ORCHESTRATION_CATASTROPHIC_USD` (v1.22.3 M3 — replacement bomb detector, default `500`; a spend at or above it skips the fan-out), `MCCP_ORCHESTRATION_USD_BOMB` (v1.22.3 M3 — default off; `1|true|yes|on` restores the M1 operational-USD block: `hard_ceiling` skip + critical autoDisable), `MCCP_ORCHESTRATION_MAX_AGENTS` (atomic session launch cap, default 24 — now applied on every run path, not just the telemetry-absent one).
 
@@ -700,13 +759,31 @@ if [ "$CODEX_CLASS" = "disabled" ]; then
 elif [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || [ "$CODEX_CLASS" != "ok" ]; then
   CODEX_VERDICT="unavailable"      # advisory-mode auto-fallback (non-approving)
 else
-  # class=ok — parse the actual Codex response text from the wrapper JSON `.stdout`
-  # through codex-bridge.parseVerdict → 'converged' | 'divergent' | 'unavailable'.
+  # class=ok — read the STRUCTURED verdict (`.result.verdict`) out of the wrapper
+  # JSON's `.stdout`, via the shared codex-review-payload oracle that the PR gate
+  # also uses. Free-text scanning is the FALLBACK only.
+  #
+  # v1.22.3 M3 follow-up (F5) — this used to call codex-bridge.parseVerdict
+  # directly. That is a free-TEXT keyword scan with no `needs-attention` in its
+  # vocabulary, and its /\bconverged\b/ rule matches the word ANYWHERE in the
+  # prose. Measured on this cycle's own Plan-Codex R1 ('needs-attention', "No
+  # ship", 4 findings) it returned **converged** — matching the word inside a
+  # finding that was warning against stamping converged. Since
+  # resolution.codex_verdict feeds cross-gate dedupe, two such false stamps make
+  # /mccp:pr skip PR-Codex entirely: dual review silently bypassed.
   CODEX_VERDICT=$(node -e '
-    const bridge = require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/lib/codex-bridge");
-    let text = "";
-    try { text = JSON.parse(process.argv[1] || "{}").stdout || ""; } catch (_) {}
-    process.stdout.write(bridge.parseVerdict(text) || "unavailable");
+    const payload = require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/lib/codex-review-payload");
+    let envelope = null;
+    try { envelope = JSON.parse(process.argv[1] || "{}"); } catch (_) {}
+    const g = payload.deriveGateVerdict({
+      envelope: envelope,
+      freeText: (envelope && envelope.stdout) || "",
+    });
+    if (g.source !== "structured") {
+      process.stderr.write("[mccp:plan-codex] verdict source=" + g.source +
+        " (no structured .result.verdict; free-text fallback)\n");
+    }
+    process.stdout.write(g.verdict);
   ' "$CODEX_STDOUT")
 fi
 ```

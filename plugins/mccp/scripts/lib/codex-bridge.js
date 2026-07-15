@@ -95,6 +95,23 @@ function parseOpenQuestions(text) {
   return out;
 }
 
+// parseVerdict(text) → 'converged' | 'divergent' | 'unavailable'
+//
+// FREE-TEXT FALLBACK ONLY (v1.22.3 M3 follow-up, F5). This is a keyword scan over
+// prose and it has NO knowledge of the companion's structured vocabulary
+// (`approve` | `needs-attention`). It therefore cannot see a real verdict, and the
+// `/\bconverged\b/i` rule below matches the word ANYWHERE — including inside a
+// finding that is arguing *against* converging. Measured on this cycle's own
+// Plan-Codex R1 ('needs-attention', "No ship", 4 findings): this function returned
+// 'converged', because a finding body contained the sentence "…calls stamping
+// `converged` for a 'No ship' review an integrity bug".
+//
+// PRECEDENCE: callers deriving a gate verdict MUST go through
+// codex-review-payload.js#deriveGateVerdict, which reads the STRUCTURED
+// `.result.verdict` first and only falls back here when there is no structured
+// verdict to read (legacy / non-envelope input). Do not call this directly to
+// decide a receipt's resolution.codex_verdict — cross-gate dedupe keys on that
+// value, so a false 'converged' here silently bypasses dual review.
 function parseVerdict(text) {
   if (!text) return 'unavailable';
   if (/divergent[_ ]unresolved/i.test(text)) return 'divergent';

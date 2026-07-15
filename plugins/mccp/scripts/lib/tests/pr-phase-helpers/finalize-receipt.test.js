@@ -115,3 +115,74 @@ test('CLI: receipt-cli not found path surfaces error', () => {
   assert.notStrictEqual(r.status, 0);
   assert.match(r.stderr + r.stdout, /receipt-cli not found|receipt cli error/);
 });
+
+// ── v1.22.3 M3 follow-up — R1 F1 + F4: scope-excluded effective verdict ───────
+
+// Implement-Codex R1 F4 — scope-exclusion must NEVER rewrite the sealed verdict.
+//
+// These tests previously asserted the opposite (scope_excluded mapped
+// needs-attention → converged). That behavior rested on broad keyword matching
+// with no producer scope field to verify against, and resolution.codex_verdict is
+// the cross-gate dedupe key — so it could both drop a real security finding AND
+// authorize a dedupe that skips PR-Codex. The verdict now stays honest; the flags
+// exist to EXPLAIN the block, which is what the original complaint asked for.
+test('R1-F4: scope_excluded does NOT rewrite needs-attention (stays divergent)', () => {
+  const flags = deriveCodexFlags({
+    codex_outcome: 'invoked',
+    codex_verdict: 'needs-attention',
+    codex_scope_excluded_verdict: true,
+    codex_actionable_findings: true,
+  });
+  const i = flags.indexOf('--codex-verdict');
+  assert.strictEqual(flags[i + 1], 'divergent',
+    'keyword-matched drops are not evidence strong enough to authorize a pass');
+});
+
+test('R1-F4: scope_excluded + raw verdict are stamped as AUDIT so the block is explainable', () => {
+  const flags = deriveCodexFlags({
+    codex_outcome: 'invoked',
+    codex_verdict: 'needs-attention',
+    codex_scope_excluded_verdict: true,
+    codex_actionable_findings: true,
+  });
+  assert.ok(flags.includes('--codex-scope-excluded-verdict'));
+  const i = flags.indexOf('--codex-raw-verdict');
+  assert.ok(i !== -1, 'the raw verdict must stay machine-readable in the sealed receipt');
+  assert.strictEqual(flags[i + 1], 'needs-attention');
+});
+
+test('R1-F4 GUARD: scope_excluded never turns an unreadable review into a verdict', () => {
+  const flags = deriveCodexFlags({
+    codex_outcome: 'invoked',
+    codex_verdict: null,
+    codex_scope_excluded_verdict: true,
+    codex_actionable_findings: true,
+  });
+  const i = flags.indexOf('--codex-verdict');
+  assert.strictEqual(flags[i + 1], 'unavailable', 'fail-closed must never be relaxed');
+  assert.ok(!flags.includes('--codex-raw-verdict'),
+    'there is no raw verdict to preserve when the review could not be read');
+});
+
+test('R1-F4: an approving verdict is unaffected by the scope-excluded flag', () => {
+  const flags = deriveCodexFlags({
+    codex_outcome: 'invoked',
+    codex_verdict: 'approve',
+    codex_scope_excluded_verdict: true,
+    codex_actionable_findings: false,
+  });
+  const i = flags.indexOf('--codex-verdict');
+  assert.strictEqual(flags[i + 1], 'converged');
+});
+
+test('F1 GUARD: needs-attention WITHOUT scope_excluded stays divergent (no silent pass)', () => {
+  const flags = deriveCodexFlags({
+    codex_outcome: 'invoked',
+    codex_verdict: 'needs-attention',
+    codex_actionable_findings: true,
+  });
+  const i = flags.indexOf('--codex-verdict');
+  assert.strictEqual(flags[i + 1], 'divergent');
+  assert.ok(!flags.includes('--codex-raw-verdict'),
+    'raw is only stamped when the effective verdict diverges from it');
+});

@@ -373,3 +373,162 @@ test('codex-runner emits helper_manifest in output (F10 R2-F1 propagation)', () 
   });
   assert.ok(hasStdoutPipe, 'helper_manifest contains stdout-pipe-ipc.js');
 });
+
+// ── v1.22.3 M3 follow-up — PR-Codex R1 F1: scope-excluded effective verdict ────
+//
+// M3's verdict-read fix ACTIVATED a path that was previously unreachable: a
+// non-approving verdict short-circuited before the surviving findings were
+// examined, so a review that said needs-attention purely because of design/a11y
+// findings sealed the receipt as `divergent` even after the design-scope filter
+// dropped every one of them — zero in-scope objections, opaque block.
+//
+// Findings below use the REAL producer shape ({severity,title,body,file,...} per
+// codex-companion render.mjs#normalizeReviewFinding). The {category,text} shape
+// this suite's sibling filter fixtures use does not exist on any real payload.
+function runInvokeEnv(stubBody, extraEnv) {
+  const repo = mkTmpRepo();
+  const stub = writeStub(repo, 'fake-codex.js', stubBody);
+  const bodyFile = path.join(repo, '.git', 'mccp', 'tmp', 'body.md');
+  fs.mkdirSync(path.dirname(bodyFile), { recursive: true });
+  const r = spawnSync(NODE, [RUNNER,
+    '--base', 'master', '--decision', 'demo', '--body-file', bodyFile,
+    '--codex-invoke', stub, '--lock-cli', LOCK_CLI,
+    '--heartbeat-ms', '60000', '--cwd', repo,
+  ], { encoding: 'utf8', timeout: 30000,
+       env: { ...envWithoutDisabled(), ...(extraEnv || {}) } });
+  assert.strictEqual(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+}
+
+function producerFinding(title, body, severity) {
+  return {
+    severity: severity || 'high', title: title, body: body,
+    file: 'src/app.tsx', line_start: 1, line_end: 2, recommendation: 'fix it',
+  };
+}
+
+const IMPECCABLE_ON = { MCCP_IMPECCABLE_SKILL: 'available' };
+const IMPECCABLE_OFF = { MCCP_IMPECCABLE_SKILL: 'missing' };
+
+const STUB_ALL_DESIGN = stubCodexEnvelope({
+  verdict: 'needs-attention',
+  summary: 'No ship: visual issues',
+  findings: [
+    producerFinding('Insufficient color contrast', 'Accent fails AA.'),
+    producerFinding('Missing aria-label on icon button', 'Screen readers announce nothing.'),
+  ],
+});
+
+const STUB_PARTIAL_DESIGN = stubCodexEnvelope({
+  verdict: 'needs-attention',
+  summary: 'No ship: contrast + injection',
+  findings: [
+    producerFinding('Insufficient color contrast', 'Accent fails AA.'),
+    producerFinding('SQL injection in query builder', 'User input concatenated into SQL.'),
+  ],
+});
+
+test('R1-F4: needs-attention + ALL findings scope-routed → STILL blocks, but explains itself', () => {
+  const out = runInvokeEnv(STUB_ALL_DESIGN, IMPECCABLE_ON);
+  // Keyword-matched drops cannot authorize a pass (no producer scope field to
+  // verify against). The block stays; the opacity is what we removed.
+  assert.strictEqual(out.codex_actionable_findings, true,
+    'scope-exclusion explains a block, it does not make a pass');
+  assert.strictEqual(out.codex_scope_excluded_verdict, true);
+  assert.strictEqual(out.codex_verdict, 'needs-attention',
+    'raw verdict stays RAW — honesty about what the model actually said');
+  assert.strictEqual(out.codex_findings.length, 0);
+  assert.ok(typeof out.dropped_findings_digest === 'string',
+    'what was dropped must stay reproducible for audit');
+});
+
+test('F1 GUARD: partial drop (design + security) → still actionable, NOT scope_excluded', () => {
+  const out = runInvokeEnv(STUB_PARTIAL_DESIGN, IMPECCABLE_ON);
+  assert.strictEqual(out.codex_actionable_findings, true, 'a surviving security finding must still block');
+  assert.strictEqual(out.codex_scope_excluded_verdict, false);
+  assert.strictEqual(out.codex_findings.length, 1);
+});
+
+test('F1 GUARD: needs-attention + ZERO itemized findings → actionable (no evidence, no dissolve)', () => {
+  const out = runInvokeEnv(STUB_CODEX_NEEDS_ATTENTION_NO_FINDINGS, IMPECCABLE_ON);
+  assert.strictEqual(out.codex_actionable_findings, true);
+  assert.strictEqual(out.codex_scope_excluded_verdict, false);
+});
+
+test('F1 GUARD: unreadable review → actionable (fail-closed, never relaxed)', () => {
+  const out = runInvokeEnv(STUB_CODEX_UNREADABLE, IMPECCABLE_ON);
+  assert.strictEqual(out.codex_actionable_findings, true);
+  assert.strictEqual(out.codex_scope_excluded_verdict, false);
+  assert.strictEqual(out.codex_verdict, null);
+});
+
+test('F1 GUARD: impeccable MISSING → filter is identity → design findings still block', () => {
+  const out = runInvokeEnv(STUB_ALL_DESIGN, IMPECCABLE_OFF);
+  assert.strictEqual(out.codex_actionable_findings, true,
+    'without impeccable there is nowhere to route design findings — no relaxation');
+  assert.strictEqual(out.codex_scope_excluded_verdict, false);
+  assert.strictEqual(out.codex_findings.length, 2, 'identity filter keeps every finding');
+});
+
+test('F1: approving verdict path is unchanged (survivors>0 → actionable)', () => {
+  const out = runInvokeEnv(STUB_CODEX_FINDINGS, IMPECCABLE_ON);
+  assert.strictEqual(out.codex_verdict, 'approve');
+  assert.strictEqual(out.codex_actionable_findings, true);
+  assert.strictEqual(out.codex_scope_excluded_verdict, false);
+});
+
+// ── deriveEffectiveReview — direct unit tests of the rule table (no spawn) ────
+//
+// The integration tests above prove the wiring end-to-end through a real
+// codex-invoke envelope; these pin the ORACLE's rule order itself, so a future
+// edit that reorders the rows fails here loudly and cheaply.
+
+const { deriveEffectiveReview } = require('../../pr-phase-helpers/codex-runner');
+
+const f = (title) => ({ severity: 'high', title: title, body: 'b', file: 'x' });
+const filt = (survivors, dropped) => ({ filteredFindings: survivors, droppedFindings: dropped });
+
+test('oracle row 1: unreadable review → actionable, never scope-excluded', () => {
+  assert.deepStrictEqual(deriveEffectiveReview(null, filt([], [f('color')])),
+    { actionable: true, scopeExcluded: false });
+});
+
+test('oracle row 2: approve + survivors>0 → actionable (pre-existing path)', () => {
+  assert.deepStrictEqual(deriveEffectiveReview({ verdict: 'approve' }, filt([f('sql')], [])),
+    { actionable: true, scopeExcluded: false });
+});
+
+test('oracle row 2: approve + no survivors → not actionable', () => {
+  assert.deepStrictEqual(deriveEffectiveReview({ verdict: 'approve' }, filt([], [])),
+    { actionable: false, scopeExcluded: false });
+});
+
+test('oracle row 3: non-approve + survivors>0 → actionable (partial drop still blocks)', () => {
+  assert.deepStrictEqual(deriveEffectiveReview({ verdict: 'needs-attention' }, filt([f('sql')], [f('color')])),
+    { actionable: true, scopeExcluded: false });
+});
+
+test('oracle row 4: non-approve + zero itemized findings → actionable (no evidence, no dissolve)', () => {
+  assert.deepStrictEqual(deriveEffectiveReview({ verdict: 'needs-attention' }, filt([], [])),
+    { actionable: true, scopeExcluded: false });
+});
+
+test('oracle row 5: non-approve + all dropped → STILL actionable, flagged scope-excluded', () => {
+  // There is no relaxation row: every non-approving verdict stays actionable.
+  assert.deepStrictEqual(deriveEffectiveReview({ verdict: 'needs-attention' }, filt([], [f('color'), f('aria')])),
+    { actionable: true, scopeExcluded: true });
+});
+
+test('oracle: verdict casing is normalized', () => {
+  assert.strictEqual(deriveEffectiveReview({ verdict: 'APPROVE' }, filt([], [])).actionable, false);
+});
+
+test('oracle: an unknown verdict is treated as non-approving (fail-closed)', () => {
+  assert.deepStrictEqual(deriveEffectiveReview({ verdict: 'some-future-verdict' }, filt([f('sql')], [])),
+    { actionable: true, scopeExcluded: false });
+});
+
+test('oracle: missing filter result → actionable, not scope-excluded', () => {
+  assert.deepStrictEqual(deriveEffectiveReview({ verdict: 'needs-attention' }, null),
+    { actionable: true, scopeExcluded: false });
+});

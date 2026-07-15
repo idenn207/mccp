@@ -915,10 +915,38 @@ test('verify-decide: reads codex-json file, derives verdict (converged → pass)
   const sb = makeSandbox();
   try {
     const cj = path.join(sb, 'codex.json');
-    fs.writeFileSync(cj, JSON.stringify({ classification: 'ok', blocking: false, stdout: 'Verdict: converged' }));
+    // v1.22.3 M3 follow-up (F5, 4th gate) — producer-shaped envelope: the review is
+    // JSON TEXT under `.stdout` with the model payload under `.result`. The old
+    // fixture was bare prose ('Verdict: converged'), which codex-invoke never emits.
+    fs.writeFileSync(cj, JSON.stringify({
+      classification: 'ok', blocking: false,
+      stdout: JSON.stringify({ result: { verdict: 'approve', summary: 'Ship-safe.', findings: [] } }),
+    }));
     const cap = captureEmit(() => cli.cmdVerifyDecide({ 'codex-json': cj, mode: 'enforce' }));
     assert.strictEqual(cap.json.verdict, 'converged');
     assert.strictEqual(cap.json.block, false);
+  } finally { rimraf(sb); }
+});
+
+test('verify-decide: a No-ship review reaching this CLI blocks (F5 4th-gate regression)', () => {
+  const sb = makeSandbox();
+  try {
+    const cj = path.join(sb, 'codex.json');
+    // This cycle's real R1: needs-attention, and a finding body that contains the
+    // word `converged` inside a warning against stamping it. The free-text scan
+    // returned 'converged' here and merged-verify passed it through to commit.
+    fs.writeFileSync(cj, JSON.stringify({
+      classification: 'ok', blocking: false,
+      stdout: JSON.stringify({ result: {
+        verdict: 'needs-attention',
+        summary: 'No ship: concrete accounting holes remain.',
+        findings: [{ severity: 'medium', title: 'sealed verdict',
+          body: 'calls stamping `converged` for a "No ship" review an integrity bug.' }],
+      } }),
+    }));
+    const cap = captureEmit(() => cli.cmdVerifyDecide({ 'codex-json': cj, mode: 'enforce' }));
+    assert.strictEqual(cap.json.verdict, 'divergent');
+    assert.strictEqual(cap.json.block, true, 'merged-verify must HALT before commit');
   } finally { rimraf(sb); }
 });
 

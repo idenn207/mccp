@@ -40,6 +40,11 @@ const { spawnAndCaptureToken, spawnAndPipeToken } = require('./stdout-pipe-ipc')
 // v0.3.6 Task 8 (축 1 wire-up): scope split detection + output filter.
 const impeccableDetect = require('../impeccable-detect');
 const { filterDesignFindings, computeDroppedDigest } = require('../codex-result-filter');
+// v1.22.3 M3 follow-up (F5) — the structured reader now lives in one module so
+// plan / implement / pr all read `.result.verdict` the same way. This file used
+// to own a private copy; plan.md and prp-implement.md had no access to it and
+// fell back to a free-text keyword scan that mis-read this cycle's own review.
+const { parseReviewPayload, APPROVING_VERDICTS } = require('../codex-review-payload');
 
 const NODE = process.execPath;
 
@@ -65,39 +70,76 @@ function locateCodexInvoke() {
 // Measured live on the v1.22.3 M3 branch: runner said actionable=false while the
 // same diff's raw stdout carried verdict="needs-attention" + a HIGH finding.
 //
-// plan.md / prp-implement.md already parse `.stdout` correctly (via
-// codex-bridge.parseVerdict); only the PR gate lacked it. Note that parseVerdict
-// is a free-TEXT keyword scan and does NOT recognize the STRUCTURED verdict
-// vocabulary, so it cannot be reused here: the companion's contract
-// (codex/prompts/adversarial-review.md) emits exactly `approve` | `needs-attention`.
-const APPROVING_VERDICTS = Object.freeze(new Set(['approve']));
+// The original note here claimed "plan.md / prp-implement.md already parse
+// `.stdout` correctly (via codex-bridge.parseVerdict)" and then, two lines later,
+// that parseVerdict "is a free-TEXT keyword scan and does NOT recognize the
+// STRUCTURED verdict vocabulary". Both cannot hold. The second is the true one:
+// M3 fixed the PR gate and mis-recorded the other two as already-correct while
+// they stayed blind (F5). parseReviewPayload + APPROVING_VERDICTS now come from
+// codex-review-payload.js, which all three gates share.
 
-// parseReviewPayload(envelope) → { verdict, summary, findings, rounds } | null
-// null means "could not read the review" — callers MUST treat that as actionable
-// (fail-closed): an unreadable review cannot certify approval.
-function parseReviewPayload(envelope) {
-  let inner = null;
-  try { inner = JSON.parse((envelope && envelope.stdout) || ''); } catch (_) { return null; }
-  if (!inner || typeof inner !== 'object') return null;
-  // The companion wraps the model payload in `.result`; tolerate a bare payload.
-  const r = (inner.result && typeof inner.result === 'object') ? inner.result : inner;
-  if (typeof r.verdict !== 'string' || !r.verdict.trim()) return null;
-  return {
-    verdict: r.verdict.trim(),
-    summary: typeof r.summary === 'string' ? r.summary : '',
-    findings: Array.isArray(r.findings) ? r.findings : [],
-    rounds: Number.isFinite(inner.rounds) ? inner.rounds : (Number.isFinite(r.rounds) ? r.rounds : 1),
-  };
-}
-
-// isActionable({ review, filteredFindings }) → boolean
-// Actionable when the review could not be read (fail-closed), when the structured
-// verdict is not an approving one, or when any finding survived the design-scope
-// filter. The receipt's non-approving path keys off this.
-function isActionable(review, filteredFindings) {
-  if (!review) return true;
-  if (!APPROVING_VERDICTS.has(review.verdict.toLowerCase())) return true;
-  return (filteredFindings || []).length > 0;
+// deriveEffectiveReview(review, filtered) → { actionable, scopeExcluded }
+//
+// v1.22.3 M3 follow-up (PR-Codex R1 F1) — the post-filter EFFECTIVE verdict.
+//
+// The predecessor (isActionable) short-circuited to `true` on any non-approving
+// verdict BEFORE looking at the surviving findings. That path was unreachable
+// before M3 (isActionable was structurally always false — the runner read the
+// envelope, not the review), and M3's verdict-read fix ACTIVATED it. Consequence:
+// when Codex returned needs-attention purely because of design/a11y findings, the
+// design-scope filter dropped every one of them and the PR was still sealed as
+// `divergent` with zero in-scope evidence — the opposite of what the design-scope
+// preamble contract promises. This PR opened that door, so this PR closes it.
+//
+// SCOPE-EXCLUSION EXPLAINS A BLOCK; IT DOES NOT MAKE A PASS (Implement-Codex R1 F4).
+//
+// The first cut of this oracle let row 5 below flip `actionable` to false: a
+// non-approving review whose every itemized finding was design/a11y-scoped became
+// an effective pass. Codex refuted the evidence that pass rests on, and the
+// refutation holds — the drop decision is a broad keyword match over free text
+// (`brand`, `color`, `spacing`), and the producer emits NO category/scope field to
+// check against (render.mjs#normalizeReviewFinding is exactly
+// {severity,title,body,file,line_start,line_end,recommendation}). Measured:
+//
+//   "Brand asset loader reads arbitrary local files"
+//     → no IN_SCOPE_VETO term matches → \bbrand\b matches the title → DROPPED
+//     → survivors 0 → row 5 → PR passes with a real security objection removed.
+//
+// A finite veto list cannot prove a negative. Keyword evidence is fine for ROUTING
+// (send design findings to impeccable, a11y to a11y-architect) and for AUDIT, but
+// it is not strong enough to authorize a pass — and the two error directions are
+// not symmetric: a false pass is a silent security bypass, a false block is a
+// human reading a finding.
+//
+// The original backlog complaint (Implement-Codex R1 F2 @ M3) was that such a
+// block is OPAQUE — not that it is wrong. So we keep the block and kill the
+// opacity: `scopeExcluded` still rides out, and pr.md uses it to state the raw
+// verdict, the dropped count, and who owns those findings.
+//
+// Rule order (each row states the direction it errs in):
+//   1. unreadable review          → actionable  (fail-closed — an unreadable review
+//                                   cannot certify approval. NEVER relax this.)
+//   2. approving verdict          → survivors > 0  (pre-existing path, unchanged)
+//   3. non-approve, survivors > 0 → actionable  (partial drop still blocks)
+//   4. non-approve, 0 itemized    → actionable  (a non-approve with no evidence is
+//                                   not trustworthy; do not let it dissolve)
+//   5. non-approve, survivors 0,
+//      dropped > 0                → actionable + scopeExcluded=true
+//                                   (BLOCK, but say exactly why)
+//
+// There is no relaxation row. Every non-approving verdict remains actionable.
+function deriveEffectiveReview(review, filtered) {
+  if (!review) return { actionable: true, scopeExcluded: false };
+  const survivors = (filtered && filtered.filteredFindings) || [];
+  const dropped = (filtered && filtered.droppedFindings) || [];
+  if (APPROVING_VERDICTS.has(String(review.verdict).toLowerCase())) {
+    return { actionable: survivors.length > 0, scopeExcluded: false };
+  }
+  if (survivors.length > 0) return { actionable: true, scopeExcluded: false };
+  if (dropped.length === 0) return { actionable: true, scopeExcluded: false };
+  // Everything itemized was scope-routed. Still blocking — but the caller now has
+  // the signal it needs to explain the block instead of stonewalling.
+  return { actionable: true, scopeExcluded: true };
 }
 
 // v1.13.0 M3 — does the PR diff touch a rendered design surface? This is the
@@ -241,6 +283,10 @@ function runMain(args) {
   // put the ACTUAL review in the PR body instead of an empty 합치 결론.
   let codexVerdict = null;
   let codexFindings = [];
+  // v1.22.3 M3 follow-up (R1 F1) — true when a non-approving verdict survived the
+  // design-scope filter with zero in-scope findings. The receipt maps this to an
+  // effective 'converged' while preserving the raw verdict; pr.md states both.
+  let codexScopeExcludedVerdict = false;
   let designFindingsDropped = 0;
   let a11yRoutedToImpeccable = false;
   let droppedFindingsDigest = null;
@@ -299,7 +345,9 @@ function runMain(args) {
     const filtered = filterDesignFindings(review || { findings: [] },
       { impeccableAvailable: impeccableAvailable });
     const findings = filtered.filteredFindings;
-    codexActionableFindings = isActionable(review, findings);
+    const effective = deriveEffectiveReview(review, filtered);
+    codexActionableFindings = effective.actionable;
+    codexScopeExcludedVerdict = effective.scopeExcluded;
     designFindingsDropped = filtered.droppedFindings.length - filtered.a11yRoutedCount;
     a11yRoutedToImpeccable = filtered.a11yRoutedCount > 0;
     a11yFindings = filtered.a11yFindings || [];
@@ -334,6 +382,10 @@ function runMain(args) {
     // (codex_actionable_findings is then fail-closed true).
     codex_verdict: codexVerdict,
     codex_findings: codexFindings,
+    // v1.22.3 M3 follow-up (R1 F1) — codex_verdict above stays RAW on purpose
+    // (what the model actually said). This flag is the post-filter qualifier the
+    // receipt + PR body need to explain an effective pass over a raw non-approve.
+    codex_scope_excluded_verdict: codexScopeExcludedVerdict,
     codex_skip_reason: codexSkipReason,
     lock_exit_ok: lockExitOk,
     baseline_missing: baselineMissing,
@@ -381,4 +433,9 @@ if (require.main === module) {
   process.exit(main(process.argv.slice(2)));
 }
 
-module.exports = { main, runMain, runHeartbeat };
+module.exports = {
+  main, runMain, runHeartbeat,
+  // Exported so the effective-verdict rules can be unit-tested directly, without
+  // paying the full spawn/lock round trip of the integration tests above.
+  deriveEffectiveReview,
+};

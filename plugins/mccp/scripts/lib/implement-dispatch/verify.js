@@ -28,6 +28,9 @@
 // mccp Codex gate).
 
 const bridge = require('../codex-bridge');
+// v1.22.3 M3 follow-up (F5) — the shared structured reader. Every gate derives its
+// verdict through this one oracle so they cannot drift on what Codex concluded.
+const payload = require('../codex-review-payload');
 
 const MERGED_VERIFY_MODES = Object.freeze(['off', 'warn', 'enforce']);
 const VERDICTS = Object.freeze(['converged', 'divergent', 'critical', 'unavailable', 'skipped']);
@@ -121,15 +124,35 @@ function buildVerifyFocus(input) {
 //   - classification 'disabled'            → skipped   (MCCP_CODEX_DISABLED policy)
 //   - classification !== 'ok' OR blocking  → unavailable (Codex failed/unreachable)
 //   - stdout matches a CRITICAL category   → critical   (codex-bridge patterns)
-//   - else parseVerdict(stdout)            → converged | divergent | unavailable
+//   - else STRUCTURED `.result.verdict`    → converged | divergent
+//   - else free-text fallback              → divergent | unavailable (never converged)
+//
+// v1.22.3 M3 follow-up (F5, 4th gate) — READ THE STRUCTURED VERDICT.
+//
+// This used to hand `stdout` straight to codex-bridge.parseVerdict, a free-TEXT
+// keyword scan with no `needs-attention` in its vocabulary and a /\bconverged\b/i
+// rule that matches the word ANYWHERE in the prose. The producer, however, puts a
+// structured `.result.verdict` inside `.stdout` (codex-companion render.mjs), so
+// the scan was reading a JSON blob as prose. Measured on this cycle's real
+// Plan-Codex R1 (verdict='needs-attention', "No ship", 4 findings): it returned
+// **converged** — matching the word inside a finding that was arguing AGAINST
+// stamping it. With MCCP_WORK_MERGED_VERIFY defaulting to enforce, that made the
+// aggregate merged-verify gate rubber-stamp a "No ship" review before commit —
+// the same blindness M3 fixed for the PR gate and mis-recorded as fixed here.
+//
+// codex-review-payload is the shared oracle all gates now read through; its
+// fallback can raise a divergence but can never certify approval.
 function deriveVerdictFromCodex(codexJson) {
   if (!codexJson || typeof codexJson !== 'object') return 'unavailable';
   const cls = typeof codexJson.classification === 'string' ? codexJson.classification : null;
   if (cls === 'disabled') return 'skipped';
   if ((cls && cls !== 'ok') || codexJson.blocking === true) return 'unavailable';
   const text = typeof codexJson.stdout === 'string' ? codexJson.stdout : '';
+  // CRITICAL detection stays first and stays on the raw text: the auto-CRITICAL
+  // catalog (data loss, authz bypass, secret exposure) must fire regardless of how
+  // the review is shaped, and it escalates rather than approves.
   if (bridge.detectCriticalCategory(text)) return 'critical';
-  return bridge.parseVerdict(text); // converged | divergent | unavailable
+  return payload.deriveGateVerdict({ envelope: codexJson, freeText: text }).verdict;
 }
 
 // decideMergedVerify({ codexJson | verdict, mode, rounds, env }) →

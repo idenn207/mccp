@@ -45,11 +45,52 @@
 // read-only firing-preview (orchestration-preview.js) uses, since observation must
 // never mutate the counter it observes.
 
+// M3 follow-up (PR-Codex R1 F2) — RESERVE IS TWO-PHASE, NOT A PERMANENT SPEND.
+//
+// reserveWorkers used to add `granted` to `launched` at DECISION time and never
+// give it back. Callers resolve the oracle well before any worker exists, and
+// several downstream paths then launch nothing at all (prepare-fleet failure →
+// FLEET_N=1, route falling back to Task, fan-out's in-sandbox budget pre-guard
+// skipping, Workflow unavailable → inline). Those runs burned cap headroom for
+// workers that never ran — PHANTOM reservations. With M3 promoting this counter
+// to the PRIMARY structural backstop (operational USD retired), phantoms silently
+// demote later REAL work to a single worker: the cap stops being trustworthy,
+// which is exactly the claim M3 leads with.
+//
+// Lifecycle:
+//   pending   — reserved, route not yet reached. Recorded in `open[]`. EXPIRABLE.
+//   committed — reconciled against the actual launch count. Removed from `open[]`.
+//               PERMANENT: a real launch is never un-counted.
+//
+// Expiry is sound ONLY because the pending window is structurally launch-free:
+// work.md pins Step 3.route as the "before any worker is spawned" boundary
+// (M2a Codex F1) and the reservation is taken upstream of it at Step 3.prep-parallel.
+// So dropping an expired pending entry cannot un-count a real worker — the failure
+// mode a lease normally risks (over-permissive) has no way to occur here. This is
+// the same time-axis self-healing as cost-state.js#decayIfStale, which unstuck
+// "one spike locks automation forever" in v1.22.0 M3.
+//
+// reconcile is a CORRECTION to the real launch count, not a blanket release:
+//   workflow-parallel        → actualN = granted (the fleet really fired)
+//   workflow-single / task   → actualN = 1       (a single worker really fired)
+//   inline / skipped / N/A   → actualN = 0       (nothing fired)
+// Releasing everything on the single-worker path would UNDER-count a real launch,
+// which is over-permissive — the opposite of this module's conservative direction.
+
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const ENV_MAX_AGENTS = 'MCCP_ORCHESTRATION_MAX_AGENTS';
 const DEFAULT_MAX_AGENTS = 24;
+
+// M3 follow-up (R1 F3) — pending-reservation lease. A caller that dies between
+// reserve and route (crash, abandoned turn) would otherwise poison the session's
+// headroom forever: readCounter only resets on a missing/corrupt file or a
+// different session key, so a lost reservation is never recovered and the session
+// self-demotes to N=1 permanently. Only PENDING entries expire.
+const ENV_RESERVATION_LEASE_MS = 'MCCP_ORCHESTRATION_RESERVATION_LEASE_MS';
+const DEFAULT_RESERVATION_LEASE_MS = 600000; // 10 min — reserve→route is Bash ×3 + one LLM turn
 
 // M3 Codex F4 — back-compat kill switch restoring the M1 operational-USD bomb.
 const ENV_USD_BOMB = 'MCCP_ORCHESTRATION_USD_BOMB';
@@ -109,6 +150,24 @@ function parseUsdBomb(env) {
   return false;
 }
 
+// parseReservationLease(env) → positive ms (M3 follow-up R1 F3). Loud fail-open to
+// default (mirror of parseMaxAgents). 0 is NOT a kill switch: disabling expiry
+// would restore the permanent self-poisoning this lease exists to prevent, so it
+// is treated as invalid and warned about.
+function parseReservationLease(env) {
+  const raw = env && env[ENV_RESERVATION_LEASE_MS];
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return DEFAULT_RESERVATION_LEASE_MS;
+  }
+  const n = Number(String(raw).trim());
+  if (!Number.isFinite(n) || n <= 0) {
+    warn(ENV_RESERVATION_LEASE_MS + ' must be a positive number of milliseconds; got "' + raw +
+      '". Falling back to default ' + DEFAULT_RESERVATION_LEASE_MS + '.');
+    return DEFAULT_RESERVATION_LEASE_MS;
+  }
+  return Math.floor(n);
+}
+
 // parseCatastrophicUsd(env) → positive USD amount (M3 Codex F1). Loud fail-open to
 // default (mirror of parseMaxAgents). Not floored — a fractional ceiling is valid.
 function parseCatastrophicUsd(env) {
@@ -159,11 +218,27 @@ function getRunawayPath(opts) {
   return path.join(dir, 'orchestration-runaway.json');
 }
 
-// readCounter({ sessionId, statePath?, stateDir? }) → { launched, sessionId, fresh }
+// readCounter({ sessionId, statePath?, stateDir?, env?, now? })
+//   → { launched, open, sessionId, fresh }
+//
 // Reads the persisted counter. Returns a fresh {launched:0} when the file is
-// missing / corrupt / belongs to a DIFFERENT session key (session reset). Pure of
-// clock; touches only the read side of disk.
-function readCounter(opts) {
+// missing / corrupt / belongs to a DIFFERENT session key (session reset).
+//
+// `launched` is committed + still-pending — the conservative value the cap must
+// see. Expired PENDING reservations are subtracted IN THE VIEW ONLY: this
+// function performs NO write, because the read-only firing-preview
+// (orchestration-preview.js) calls it and observation must never mutate what it
+// observes. The pruned view is persisted only by the write-side callers below,
+// which recompute it under the lock. Legacy bodies (no `open`) read as [] and are
+// therefore unaffected.
+// readCounterRaw({ sessionId, statePath?, stateDir? })
+//   → { launched, open, sessionId, fresh }
+//
+// The persisted state with NO lease expiry applied — malformed `open` entries are
+// still dropped, since they are uninterpretable rather than merely old.
+// reconcileReservation needs this: an explicit reconcile must be able to find its
+// OWN reservation even after the lease has elapsed (Implement-Codex R1 F2).
+function readCounterRaw(opts) {
   opts = opts || {};
   const sessionId = opts.sessionId || 'unknown';
   const p = getRunawayPath(opts);
@@ -171,12 +246,63 @@ function readCounter(opts) {
   try {
     parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
   } catch (_e) {
-    return { launched: 0, sessionId: sessionId, fresh: true };
+    return { launched: 0, open: [], sessionId: sessionId, fresh: true };
   }
   if (!parsed || parsed.session_id !== sessionId || !Number.isFinite(parsed.launched) || parsed.launched < 0) {
-    return { launched: 0, sessionId: sessionId, fresh: true };
+    return { launched: 0, open: [], sessionId: sessionId, fresh: true };
   }
-  return { launched: Math.floor(parsed.launched), sessionId: sessionId, fresh: false };
+  const rawOpen = Array.isArray(parsed.open) ? parsed.open : [];
+  const open = [];
+  for (let i = 0; i < rawOpen.length; i++) {
+    const e = rawOpen[i];
+    if (!e || typeof e !== 'object' || typeof e.id !== 'string' ||
+        !Number.isFinite(e.n) || e.n < 0) {
+      continue; // malformed entry: uninterpretable, never counted
+    }
+    open.push({ id: e.id, n: Math.floor(e.n), at: e.at });
+  }
+  return { launched: Math.floor(parsed.launched), open: open, sessionId: sessionId, fresh: false };
+}
+
+// isExpired(entry, leaseMs, now) → boolean. An unparseable timestamp cannot be
+// aged; treat it as LIVE so a bad clock never releases headroom a real pending
+// reservation is holding.
+function isExpired(entry, leaseMs, now) {
+  const at = Date.parse(entry.at);
+  return Number.isFinite(at) && (now - at) > leaseMs;
+}
+
+// readCounter({ sessionId, statePath?, stateDir?, env?, now? })
+//   → { launched, open, sessionId, fresh }
+//
+// The LEASE-APPLIED view. `launched` is committed + still-pending — the
+// conservative value the cap must see — with expired PENDING reservations
+// subtracted IN THE VIEW ONLY. This function performs NO write, because the
+// read-only firing-preview (orchestration-preview.js) calls it and observation
+// must never mutate what it observes. The pruned view is persisted only by the
+// write-side callers below, which recompute it under the lock. Legacy bodies (no
+// `open`) read as [] and are therefore unaffected.
+function readCounter(opts) {
+  opts = opts || {};
+  const env = opts.env || process.env;
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+  const raw = readCounterRaw(opts);
+  if (raw.fresh) return raw;
+
+  const leaseMs = parseReservationLease(env);
+  const live = [];
+  let expiredN = 0;
+  for (let i = 0; i < raw.open.length; i++) {
+    const e = raw.open[i];
+    if (isExpired(e, leaseMs, now)) { expiredN += e.n; continue; }
+    live.push(e);
+  }
+  return {
+    launched: Math.max(0, raw.launched - expiredN),
+    open: live,
+    sessionId: raw.sessionId,
+    fresh: false,
+  };
 }
 
 function acquireLock(targetPath) {
@@ -229,11 +355,16 @@ function bumpCounter(opts) {
     return null;
   }
   try {
-    const cur = readCounter({ sessionId: sessionId, statePath: p });
+    const cur = readCounter({ sessionId: sessionId, statePath: p, env: opts.env });
     const launched = cur.launched + delta;
     const body = JSON.stringify({
       session_id: sessionId,
       launched: launched,
+      // Preserve pending reservations. This writer has no production caller today
+      // (reserveWorkers is the firing path), but omitting `open` here would make
+      // any future/legacy bump silently drop live reservations and hand their
+      // headroom back — the phantom bug in reverse.
+      open: cur.open,
       updated_at: new Date().toISOString(),
     });
     const tmp = p + '.' + process.pid + '.tmp';
@@ -278,18 +409,30 @@ function reserveWorkers(opts) {
     return {
       granted: 1, degraded: true, reason: REASONS.LOCK_EXHAUSTED,
       maxAgents: maxAgents, launched: null,
+      // No reservation was recorded, so there is nothing to reconcile later. A
+      // null id keeps callers from inventing one.
+      reservationId: null,
     };
   }
   try {
-    const cur = readCounter({ sessionId: sessionId, statePath: p });
+    const now = Date.now();
+    // Reading under the lock also PRUNES expired pending entries out of the view;
+    // the write below persists that pruning. Stale-reclaim therefore happens on
+    // the write side only (R1 F3), never in the read-only preview.
+    const cur = readCounter({ sessionId: sessionId, statePath: p, env: env, now: now });
     const decision = clampForRunaway({
       requestedN: requestedN, launchedSoFar: cur.launched, env: env,
     });
+    const reservationId = crypto.randomUUID();
     const launched = cur.launched + decision.n;
+    const open = cur.open.concat([{
+      id: reservationId, n: decision.n, at: new Date(now).toISOString(),
+    }]);
     const body = JSON.stringify({
       session_id: sessionId,
       launched: launched,
-      updated_at: new Date().toISOString(),
+      open: open,
+      updated_at: new Date(now).toISOString(),
     });
     const tmp = p + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, body);
@@ -300,19 +443,166 @@ function reserveWorkers(opts) {
       reason: decision.reason,
       maxAgents: maxAgents,
       launched: launched,
+      reservationId: reservationId,
     };
   } finally {
     releaseLock(lock);
   }
 }
 
+// reconcileReservation({ sessionId, reservationId, actualN, env, statePath?, stateDir? })
+//   → { reconciled, delta, launched }
+//
+// M3 follow-up (R1 F2) — CORRECT a pending reservation to the number of workers
+// that actually launched, then COMMIT it (remove from `open[]`, making it
+// permanent and no longer expirable).
+//
+// This is deliberately not a "release": the route that degrades to a single
+// worker still launches one, so releasing the whole reservation there would
+// under-count a real launch and leave the cap over-permissive. Pass the real
+// count — 0 only when nothing launched at all.
+//
+// Idempotent: an unknown / already-reconciled / null id is a no-op, so a retried
+// or duplicated call cannot double-correct the counter.
+//
+// Lock exhaustion returns reconciled:false and leaves the reservation pending —
+// conservative (the workers stay counted) and self-healing (the lease expires it
+// if it truly never launched). It NEVER fails the caller's pipeline.
+function reconcileReservation(opts) {
+  opts = opts || {};
+  const env = opts.env || process.env;
+  const sessionId = opts.sessionId || 'unknown';
+  const reservationId = opts.reservationId;
+  const actualN = (Number.isFinite(opts.actualN) && opts.actualN >= 0) ? Math.floor(opts.actualN) : 0;
+  if (typeof reservationId !== 'string' || !reservationId) {
+    return { reconciled: false, delta: 0, launched: null };
+  }
+  const p = getRunawayPath(opts);
+
+  const lock = acquireLock(p);
+  if (!lock) {
+    warn('counter lock exhausted; reservation ' + reservationId + ' left pending ' +
+      '(conservative — it stays counted and the lease will reclaim it if nothing launched).');
+    return { reconciled: false, delta: 0, launched: null };
+  }
+  try {
+    const now = Date.now();
+    const leaseMs = parseReservationLease(env);
+    // R1 F2 — find OUR reservation in the RAW state, BEFORE any lease pruning.
+    // Reading the lease-applied view first made an explicit reconcile unable to
+    // see its own id once the lease elapsed: it silently no-op'd, and the entry
+    // was then pruned as "never launched" even though the agents HAD spawned —
+    // under-counting real launches (over-permissive). plan.md's fan-out reserves
+    // before the Workflow call and reconciles after it returns, so any fan-out
+    // slower than the lease hit exactly this.
+    //
+    // An explicit reconcile is positive evidence about its own reservation and
+    // must always win over the lease's guess. Expiry still applies to the OTHER
+    // entries, which no one is currently reporting on.
+    const raw = readCounterRaw({ sessionId: sessionId, statePath: p });
+    let entry = null;
+    const others = [];
+    for (let i = 0; i < raw.open.length; i++) {
+      if (raw.open[i].id === reservationId && !entry) { entry = raw.open[i]; continue; }
+      others.push(raw.open[i]);
+    }
+    if (!entry) {
+      // Unknown id: already reconciled, legacy body, or a different session.
+      // Never guess a delta.
+      return { reconciled: false, delta: 0, launched: readCounter({
+        sessionId: sessionId, statePath: p, env: env, now: now }).launched };
+    }
+    const liveOthers = [];
+    let expiredN = 0;
+    for (let i = 0; i < others.length; i++) {
+      if (isExpired(others[i], leaseMs, now)) { expiredN += others[i].n; continue; }
+      liveOthers.push(others[i]);
+    }
+    const delta = actualN - entry.n;
+    const launched = Math.max(0, raw.launched - expiredN + delta);
+    const body = JSON.stringify({
+      session_id: sessionId,
+      launched: launched,
+      open: liveOthers,
+      updated_at: new Date(now).toISOString(),
+    });
+    const tmp = p + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, body);
+    fs.renameSync(tmp, p);
+    return { reconciled: true, delta: delta, launched: launched };
+  } finally {
+    releaseLock(lock);
+  }
+}
+
+// ── CLI (M3 follow-up Task 6) ────────────────────────────────────────────────
+//
+// `reconcile --reservation <id> --actual <n> [--session <id>] [--state-path <p>]`
+// so a slash-command body can correct a reservation in one Bash line at its route
+// boundary. Mirrors the thin require.main block in orchestration-preview.js.
+//
+// EXIT CODE DEPENDS ON actualN (Implement-Codex R1 F1). An earlier revision always
+// exited 0 "so a reconcile failure never breaks the pipeline". That reasoning only
+// holds when nothing launches:
+//
+//   actualN == 0  — nothing spawned. A failed reconcile leaves the entry pending,
+//                   the lease expires it, and the counter lands on the right
+//                   answer anyway. Ignorable → exit 0.
+//   actualN >  0  — workers ARE about to launch. A failed reconcile leaves them
+//                   recorded as PENDING, and the lease then subtracts them as if
+//                   they never ran: the cap UNDER-counts real launches. That is
+//                   the over-permissive direction this cap must never err in, and
+//                   the caller cannot see it because the shell said success and it
+//                   already deleted the token. → exit 11 so the caller halts/retries.
+const EXIT_RECONCILE_UNCOMMITTED = 11;
+function runCli(argv) {
+  const args = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.slice(0, 2) === '--') {
+      const next = argv[i + 1];
+      if (next !== undefined && next.slice(0, 2) !== '--') { args[a.slice(2)] = next; i++; }
+      else { args[a.slice(2)] = true; }
+    }
+  }
+  const cmd = argv[0] && argv[0].slice(0, 2) !== '--' ? argv[0] : null;
+  if (cmd !== 'reconcile') {
+    process.stderr.write('usage: orchestration-runaway.js reconcile --reservation <id> ' +
+      '--actual <n> [--session <id>] [--state-path <path>]\n');
+    return 2;
+  }
+  const actualN = Number(args.actual);
+  const out = reconcileReservation({
+    sessionId: args.session || process.env.CLAUDE_SESSION_ID || 'unknown',
+    reservationId: typeof args.reservation === 'string' ? args.reservation : null,
+    actualN: actualN,
+    statePath: typeof args['state-path'] === 'string' ? args['state-path'] : undefined,
+  });
+  process.stdout.write(JSON.stringify(out) + '\n');
+  if (!out.reconciled && Number.isFinite(actualN) && actualN > 0) {
+    warn('reservation ' + args.reservation + ' could NOT be committed while actual=' +
+      actualN + ' worker(s) are about to launch. Those launches would be recorded as ' +
+      'pending and then dropped by the lease, under-counting the cap. Do NOT delete ' +
+      'the reservation token; retry, and halt if it keeps failing.');
+    return EXIT_RECONCILE_UNCOMMITTED;
+  }
+  return 0;
+}
+
+if (require.main === module) {
+  process.exit(runCli(process.argv.slice(2)));
+}
+
 module.exports = {
   clampForRunaway: clampForRunaway,
   reserveWorkers: reserveWorkers,
+  reconcileReservation: reconcileReservation,
+  parseReservationLease: parseReservationLease,
   parseMaxAgents: parseMaxAgents,
   parseUsdBomb: parseUsdBomb,
   parseCatastrophicUsd: parseCatastrophicUsd,
   readCounter: readCounter,
+  readCounterRaw: readCounterRaw,
   bumpCounter: bumpCounter,
   getRunawayPath: getRunawayPath,
   REASONS: REASONS,
@@ -321,4 +611,6 @@ module.exports = {
   ENV_USD_BOMB: ENV_USD_BOMB,
   ENV_CATASTROPHIC_USD: ENV_CATASTROPHIC_USD,
   DEFAULT_CATASTROPHIC_USD: DEFAULT_CATASTROPHIC_USD,
+  ENV_RESERVATION_LEASE_MS: ENV_RESERVATION_LEASE_MS,
+  DEFAULT_RESERVATION_LEASE_MS: DEFAULT_RESERVATION_LEASE_MS,
 };

@@ -3,8 +3,14 @@
 // orchestration-runaway validate (Codex F2) — the cost-state-INDEPENDENT
 // cumulative worker-launch backstop. Proves that a telemetry-absent fail-open
 // path (no cost-state → the USD bomb-detector can never fire) CANNOT bypass the
-// absolute cap: the clamp degrades to a single worker purely from the persisted
-// launch counter + MCCP_ORCHESTRATION_MAX_AGENTS.
+// absolute cap: the decision comes purely from the persisted launch counter +
+// MCCP_ORCHESTRATION_MAX_AGENTS.
+//
+// THE INVARIANT UNDER TEST IS THE CUMULATIVE TOTAL, not the per-dispatch grant.
+// Until PR-Codex R1 F1 (5th round) this file asserted a floor of 1 per dispatch and
+// called that "cannot bypass the cap" — while the total climbed past it forever, one
+// worker at a time. Assertions about `granted` alone cannot see that; assert the
+// persisted total.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -48,23 +54,40 @@ test('at the boundary (launched + requestedN == cap) → still allowed', functio
   assert.equal(c.degraded, false);
 });
 
-test('over cap → degraded fail-open to n=1', function () {
+test('partial headroom → granted exactly what remains (PR-Codex R1 F1, 5th round)', function () {
+  // Was: "over cap → degraded fail-open to n=1". The floor threw away real headroom
+  // (3 slots remained, yet only 1 was granted) AND, worse, granted 1 even when 0
+  // remained — see the cap-exhausted test below.
   const c = clampForRunaway({ requestedN: 4, launchedSoFar: 21, env: { MCCP_ORCHESTRATION_MAX_AGENTS: '24' } });
-  assert.equal(c.n, 1);
+  assert.equal(c.n, 3, 'exactly the remaining headroom, not an arbitrary floor');
   assert.equal(c.degraded, true);
   assert.equal(c.reason, REASONS.RUNAWAY_CLAMP);
 });
 
-test('already at/over cap → still degrades to 1, never 0 (fail-open floor)', function () {
+test('at the cap → n=0 / CAP_EXHAUSTED (PR-Codex R1 F1, 5th round)', function () {
+  // Was: "already at/over cap → still degrades to 1, never 0 (fail-open floor)".
+  // That floor is what made this a throttle rather than a cap: reserveWorkers
+  // RECORDS what it grants, so every post-cap call persisted one more launch.
   const c = clampForRunaway({ requestedN: 4, launchedSoFar: 24, env: { MCCP_ORCHESTRATION_MAX_AGENTS: '24' } });
-  assert.equal(c.n, 1);
+  assert.equal(c.n, 0);
   assert.equal(c.degraded, true);
+  assert.equal(c.reason, REASONS.CAP_EXHAUSTED);
+});
+
+test('past the cap → still 0, never negative', function () {
+  const c = clampForRunaway({ requestedN: 4, launchedSoFar: 99, env: { MCCP_ORCHESTRATION_MAX_AGENTS: '24' } });
+  assert.equal(c.n, 0);
+  assert.equal(c.reason, REASONS.CAP_EXHAUSTED);
 });
 
 test('F2: cost-state absence CANNOT bypass the cap — clamp is purely counter-driven', function () {
   // The clamp takes NO cost input. Simulate a runaway loop under fail-open (no
-  // telemetry): each dispatch requests the full fleet; once cumulative launches
-  // pass the cap, the clamp degrades every subsequent dispatch to 1.
+  // telemetry): each dispatch requests the full fleet.
+  //
+  // PR-Codex R1 F1 (5th round) — this test used to assert [4,4,1,1,1,1] and call it
+  // "no dispatch escapes the clamp". It escaped: cap=8 but the cumulative total ran
+  // to 12 and kept climbing, one worker per dispatch, forever. The assertion
+  // measured the per-dispatch number and never the thing the cap is about.
   const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '8' };
   let launched = 0;
   const results = [];
@@ -73,9 +96,8 @@ test('F2: cost-state absence CANNOT bypass the cap — clamp is purely counter-d
     results.push(c.n);
     launched += c.n; // caller bumps the counter by the clamped N
   }
-  // 4 (0→4), 4 (4→8), then cap hit → 1,1,1,1. No dispatch escapes the clamp.
-  assert.deepEqual(results, [4, 4, 1, 1, 1, 1]);
-  results.forEach(function (n) { assert.ok(n <= 4, 'never above the per-dispatch fleet'); });
+  assert.deepEqual(results, [4, 4, 0, 0, 0, 0]);
+  assert.equal(launched, 8, 'the cumulative total never exceeds the cap — the actual invariant');
 });
 
 test('invalid requestedN falls back to 1', function () {
@@ -122,7 +144,11 @@ test('corrupt file → readCounter returns fresh (safe)', function () {
   assert.equal(c.fresh, true);
 });
 
-test('end-to-end: read → clamp → bump loop cannot exceed cap amplification', function () {
+test('end-to-end: read → clamp → bump loop cannot exceed the cap', function () {
+  // PR-Codex R1 F1 (5th round) — the old expectation was [4,4,1,1,1], i.e. a total
+  // of 11 against a cap of 8, under a test named "cannot exceed cap". Two tests in
+  // this file asserted the overrun as correct because both watched the per-dispatch
+  // number instead of the total. Assert the total.
   const p = tmpState();
   const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '8' };
   const sid = 'loop';
@@ -133,7 +159,8 @@ test('end-to-end: read → clamp → bump loop cannot exceed cap amplification',
     bumpCounter({ sessionId: sid, delta: c.n, statePath: p });
     launchedEach.push(c.n);
   }
-  assert.deepEqual(launchedEach, [4, 4, 1, 1, 1]);
+  assert.deepEqual(launchedEach, [4, 4, 0, 0, 0]);
+  assert.equal(readCounter({ sessionId: sid, statePath: p }).launched, 8);
 });
 
 // ── M3 Codex F4 — parseUsdBomb (the rollback kill switch) ─────────────────────
@@ -210,14 +237,19 @@ test('reserveWorkers: grants the request and counts it in one call', function ()
 // third would push past the cap. reserveWorkers makes the check and the bump one
 // critical section, so each successive reserve sees the previous grant.
 test('reserveWorkers: sequential reserves cannot amplify past the cap', function () {
+  // PR-Codex R1 F1 (5th round) — this asserted [4,4,1,1,1] against a cap of 8: a
+  // total of 11, under a test whose name says it cannot pass the cap. The trailing
+  // 1s were the leak, not the protection.
   const p = tmpState();
   const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '8' };
   const granted = [];
   for (let i = 0; i < 5; i++) {
     granted.push(reserveWorkers({ sessionId: 'loop', requestedN: 4, env: env, statePath: p }).granted);
   }
-  assert.deepEqual(granted, [4, 4, 1, 1, 1],
-    'once the cap is reached the parallel amplification collapses to a single worker');
+  assert.deepEqual(granted, [4, 4, 0, 0, 0],
+    'once the cap is reached, nothing more is granted');
+  assert.equal(runaway.readCounterRaw({ sessionId: 'loop', statePath: p }).launched, 8,
+    'the cumulative total is exactly the cap — the invariant the name promises');
 });
 
 test('reserveWorkers: a re-entrant reserve sees the prior grant (no stale read)', function () {
@@ -226,17 +258,27 @@ test('reserveWorkers: a re-entrant reserve sees the prior grant (no stale read)'
   const first = reserveWorkers({ sessionId: 're', requestedN: 4, env: env, statePath: p });
   const second = reserveWorkers({ sessionId: 're', requestedN: 4, env: env, statePath: p });
   assert.equal(first.granted, 4);
-  assert.equal(second.granted, 1, '4 + 4 > 6 → the second reserve degrades');
+  // 4 already spent of 6 → 2 remain. The point of the test is that the second
+  // reserve sees the first one's grant; R1 F1 (5th round) only changes the degraded
+  // number from an arbitrary floor of 1 to the headroom that actually remains.
+  assert.equal(second.granted, 2, '4 + 4 > 6 → trimmed to the 2 remaining slots');
   assert.equal(second.degraded, true);
   assert.equal(second.reason, REASONS.RUNAWAY_CLAMP);
+  assert.equal(second.launched, 6, 'and the total lands exactly on the cap');
 });
 
-test('reserveWorkers: never grants 0 (degraded, never blocked)', function () {
+test('reserveWorkers: a fleet request with only one slot left grants that one slot', function () {
+  // Was named "never grants 0 (degraded, never blocked)". It passed then and passes
+  // now, but the name asserted a property the module no longer has and should never
+  // have had: at the cap, 0 is exactly the right answer (see the tests above). What
+  // this case really pins is that leftover headroom is still usable.
   const p = tmpState();
   const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '1' };
   const r = reserveWorkers({ sessionId: 'floor', requestedN: 4, env: env, statePath: p });
-  assert.equal(r.granted, 1, 'a lone worker is the minimum useful progress');
+  assert.equal(r.granted, 1, 'one slot remained, so one worker runs');
   assert.equal(r.degraded, true);
+  assert.equal(reserveWorkers({ sessionId: 'floor', requestedN: 1, env: env, statePath: p }).granted, 0,
+    'and the next one gets nothing — the pipeline continues inline');
 });
 
 // PR-Codex R1 F1 — lock exhaustion grants ZERO, not 1. Granting 1 was fail-OPEN in
@@ -561,4 +603,125 @@ test('R1 F3: parseActualN accepts non-negative integers only', function () {
     assert.equal(raw.open.length, 1, 'still pending (not committed)');
     assert.equal(raw.launched, 4, 'the conservative count is intact');
   });
+});
+
+// ── PR-Codex R1 F1 (5th round): the cap actually caps ─────────────────────────
+//
+// The regression these lock down is not "granted is small" but "the cumulative
+// total stops". The old floor of 1 kept every assertion about `granted` true while
+// the session total climbed without bound.
+
+test('F1: repeated reservations never push the session past the cap', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '4' };
+  const granted = [];
+  let last = null;
+  for (let i = 0; i < 8; i++) {
+    last = reserveWorkers({ sessionId: 's', requestedN: 1, statePath: p, env: env });
+    granted.push(last.granted);
+  }
+  assert.deepEqual(granted, [1, 1, 1, 1, 0, 0, 0, 0],
+    'once the cap is reached every later reservation grants nothing');
+  assert.equal(last.launched, 4, 'the persisted total is pinned at the cap');
+  assert.equal(runaway.readCounterRaw({ sessionId: 's', statePath: p }).launched, 4);
+});
+
+test('F1: a refused reservation writes nothing and hands back no id', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '2' };
+  reserveWorkers({ sessionId: 's', requestedN: 2, statePath: p, env: env });
+  const before = fs.readFileSync(p, 'utf8');
+
+  const denied = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
+  assert.equal(denied.granted, 0);
+  assert.equal(denied.reason, runaway.REASONS.CAP_EXHAUSTED);
+  assert.equal(denied.reservationId, null, 'nothing to reconcile → no id to invent');
+  assert.equal(fs.readFileSync(p, 'utf8'), before, 'a refusal must not touch the counter');
+});
+
+test('F1: a fleet larger than the remaining headroom is trimmed to fit, not floored', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '4' };
+  reserveWorkers({ sessionId: 's', requestedN: 3, statePath: p, env: env });
+  const r = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
+  assert.equal(r.granted, 1, 'exactly the 1 remaining slot');
+  assert.equal(r.launched, 4);
+  assert.equal(reserveWorkers({ sessionId: 's', requestedN: 1, statePath: p, env: env }).granted, 0);
+});
+
+// ── PR-Codex R1 F2 (5th round): known launches are never lease-expired ────────
+
+test('F2: without a debt marker an expired pending is dropped (the bug being fixed)', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
+  reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
+  const view = runaway.readCounter({ sessionId: 's', statePath: p, env: env, now: Date.now() + 5000 });
+  assert.equal(view.launched, 0, 'baseline: the lease subtracts an un-pinned pending');
+});
+
+test('F2: a debt-marked reservation survives the lease', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
+  const res = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
+  assert.equal(runaway.markDebt({ reservationId: res.reservationId, n: 4, statePath: p }), true);
+
+  const view = runaway.readCounter({ sessionId: 's', statePath: p, env: env, now: Date.now() + 5000 });
+  assert.equal(view.launched, 4, 'these workers really ran; the lease must not guess otherwise');
+  assert.equal(view.open.length, 1, 'still pending, awaiting a reconcile that can commit');
+});
+
+test('F2: a later reconcile commits a debt-marked entry and clears the marker', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
+  const res = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
+  runaway.markDebt({ reservationId: res.reservationId, n: 4, statePath: p });
+
+  const rec = runaway.reconcileReservation({
+    sessionId: 's', reservationId: res.reservationId, actualN: 4, statePath: p, env: env,
+  });
+  assert.equal(rec.reconciled, true);
+  assert.equal(rec.launched, 4);
+  assert.equal(runaway.readDebtIds({ statePath: p }).size, 0, 'committed → the marker is spent');
+  assert.equal(runaway.readCounterRaw({ sessionId: 's', statePath: p }).open.length, 0);
+});
+
+test('F2: reconciling one reservation does not evict another debt-marked one', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
+  const pinned = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
+  runaway.markDebt({ reservationId: pinned.reservationId, n: 4, statePath: p });
+  const other = reserveWorkers({ sessionId: 's', requestedN: 2, statePath: p, env: env });
+
+  // This write persists the pruning of everything it does not commit.
+  runaway.reconcileReservation({
+    sessionId: 's', reservationId: other.reservationId, actualN: 2, statePath: p, env: env,
+  });
+
+  const view = runaway.readCounter({ sessionId: 's', statePath: p, env: env, now: Date.now() + 5000 });
+  assert.equal(view.launched, 6, "the pinned fan-out's 4 plus the committed 2");
+});
+
+test('F2: CLI pins the launches itself when it cannot commit them', function () {
+  const p = tmpState();
+  // A live lock the CLI cannot take, so reconcile fails for real rather than by mock.
+  fs.writeFileSync(p + '.lock', String(process.pid));
+  try {
+    const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
+    // Reserve before the lock exists, so there is a real pending entry to pin.
+    fs.unlinkSync(p + '.lock');
+    const res = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
+    fs.writeFileSync(p + '.lock', String(process.pid));
+
+    const r = spawnSync(process.execPath, [RUNAWAY_CLI, 'reconcile',
+      '--reservation', res.reservationId, '--actual', '4', '--session', 's', '--state-path', p],
+      { encoding: 'utf8' });
+    assert.equal(r.status, 11, 'an uncommitted real launch must not report success');
+    assert.ok(runaway.readDebtIds({ statePath: p }).has(res.reservationId),
+      'the CLI pins it without needing the lock it just failed to get');
+
+    const view = runaway.readCounter({ sessionId: 's', statePath: p, env: env, now: Date.now() + 5000 });
+    assert.equal(view.launched, 4, 'the launches stay counted despite the lease elapsing');
+  } finally {
+    try { fs.unlinkSync(p + '.lock'); } catch (_e) { /* already gone */ }
+  }
 });

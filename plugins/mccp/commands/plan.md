@@ -321,8 +321,18 @@ if [ -f "$GITDIR_FANOUT/fanout-reservation.json" ]; then
   # cap. Retry across the lock's 5s stale window. Unlike work.md this runs AFTER
   # the launch, so halting cannot un-spawn anything — keep the token, warn loudly,
   # and let the plan proceed (fan-out is a GROUND enhancement and must never block
-  # a plan). The residual error direction is a conservative over-count until the
-  # lease resolves it.
+  # a plan).
+  #
+  # R1 F2 (5th round) — the line that used to sit here said the residual was "a
+  # conservative over-count until the lease resolves it". That was wrong in the way
+  # that mattered: the lease does not resolve it, it PRUNES it. Pending entries are
+  # counted, so the error starts conservative — and then the lease flips it to an
+  # UNDER-count, the one direction a cap may never err in. Warning and proceeding
+  # therefore did not leave a safe residual; it left a timer on a silent bypass.
+  #
+  # The reconcile CLI now writes a lock-free DEBT MARKER whenever it cannot commit
+  # while actual > 0, which pins the entry against the lease. The residual really is
+  # a conservative over-count now, and it stays one until a later reconcile commits.
   RECONCILED=0
   for attempt in 1 2 3; do
     if node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
@@ -335,7 +345,7 @@ if [ -f "$GITDIR_FANOUT/fanout-reservation.json" ]; then
   if [ "$RECONCILED" = "1" ]; then
     rm -f "$GITDIR_FANOUT/fanout-reservation.json"
   else
-    echo "[mccp:plan-fanout] WARNING: reservation $RES_ID uncommitted after 3 attempts; token kept at $GITDIR_FANOUT/fanout-reservation.json. The runaway cap may under-count this fan-out." 1>&2
+    echo "[mccp:plan-fanout] WARNING: reservation $RES_ID uncommitted after 3 attempts; token kept at $GITDIR_FANOUT/fanout-reservation.json. The reconcile CLI pinned these launches with a debt marker, so the lease will NOT drop them — the cap stays conservative (over-counted) until a later reconcile commits it." 1>&2
   fi
   fi
 fi

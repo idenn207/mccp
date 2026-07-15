@@ -366,8 +366,14 @@ echo "[mccp:work] Step 3 route=$ROUTE" 1>&2
 #   workflow-parallel        → granted   (the fleet fires)
 #   workflow-single / task   → 1         (one worker fires)
 #   inline                   → 0         (nothing fires)
-# Never fails the pipeline: the CLI always exits 0, and an un-reconciled
-# reservation self-heals via the pending lease.
+#
+# An uncommitted reservation HALTS here (Implement-Codex R1 F1). The older note
+# claiming "never fails the pipeline; the CLI always exits 0" is no longer true and
+# was never safe: launching workers we cannot record under-counts the primary
+# backstop. Halting is available precisely because route is the pre-launch boundary,
+# so stopping un-spawns nothing. plan.md's fan-out cannot do this (its reconcile
+# runs AFTER the Workflow call), which is why that path pins its launches with a
+# debt marker instead — see orchestration-runaway.js, PR-Codex R1 F2.
 if [ -f "$GITDIR/dispatch-fleet-reservation.json" ]; then
   RES_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservation_id||"")}catch{process.stdout.write("")}' "$GITDIR/dispatch-fleet-reservation.json")
   RES_GRANTED=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).granted||1))}catch{process.stdout.write("1")}' "$GITDIR/dispatch-fleet-reservation.json")

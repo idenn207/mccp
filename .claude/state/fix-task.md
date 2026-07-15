@@ -1,186 +1,184 @@
-# Fix Task — PR-Codex R1 (v1.22.3 M3 absorption, 4th round)
+# Fix Task — PR-Codex R1 (v1.22.3 M3 absorption, 5th round)
 
 - **Source**: `/mccp:pr` PR-Codex gate, R1, decision `live-activation-m3-pr-codex-absorption`
-- **Verdict**: `needs-attention` → receipt `resolution.codex_verdict='divergent'`, `meta.codex_review_actionable_findings=true`
-- **Codex summary**: "No ship: the new primary runaway backstop still has untracked and mis-reconciled launch paths."
-- **Receipt**: `.claude/receipts/mccp-pr-codex/live-activation-m3-pr-codex-absorption.json` (head `f7c34e4`)
-- **Decision**: 3건 **전부 ACCEPT_NOW** (backlog 이연 없음). 흡수 후 `/mccp:pr` 재실행.
-- **Verified**: 3건 모두 실제 코드로 재현함 — Codex 주장 액면 수용 아님.
+- **Verdict**: `needs-attention` → receipt `resolution.codex_verdict='divergent'`, `codex_actionable_findings=true`
+- **Codex summary**: "No-ship: the new primary runaway backstop still permits unbounded post-cap launches and one fan-out failure path can erase real launches from the counter after the lease expires."
+- **Receipt**: `.claude/receipts/mccp-pr-codex/live-activation-m3-pr-codex-absorption.json` (head `09838cb`, validate `ok:true`)
+- **Decision**: 2건 **전부 ACCEPT_NOW** (backlog 이연 없음). 흡수 후 `/mccp:pr` 재실행(6라운드).
+- **Verified**: 2건 모두 실제 코드로 재현함 — Codex 주장 액면 수용 아님. F1은 합성 실측으로 무한 초과 재현.
+- **review-only 불변식**: 지켜짐 (`mutations:[]`, `lock_exit_ok:true`). a11y는 `rendering_surface=false`로 skip.
 
-## 왜 전부 흡수인가 (F1 이연 기각 근거)
+## 왜 또 전부 흡수인가 (4라운드와 동일 규칙)
 
-세 건 모두 **M3이 primary backstop으로 승격시킨 그 메커니즘 안**에 있다. M3의 헤드라인은
-"operational USD를 은퇴시켜도 원자 agent-count cap이 막는다"이다. 그 cap에 구멍이 있으면
-헤드라인이 거짓이다. F1을 이연하고 ship하는 것은 *중심 정당화가 거짓임을 알면서* 내보내는
-것이고, 지난 세 라운드가 반복해 잡아낸 실패 양식(주장이 현실을 앞지름)을 이번엔 알고서
-저지르는 셈이다. lock 고갈 발화율이 낮다는 사실은 F1을 **덜 급하게** 만들 뿐 주장을 참으로
-만들지 않는다.
+두 건 다 **M3이 primary backstop으로 승격시킨 그 메커니즘 안의 구멍**이다. 4라운드에서 확립한
+규칙이 그대로 적용된다: M3 헤드라인은 "operational USD를 은퇴시켜도 원자 agent-count cap이
+막는다"이고, cap에 구멍이 있으면 헤드라인이 거짓이다.
+
+4라운드는 `reserveWorkers`의 **lock 고갈** 구멍을 닫았다(granted 0 fail-closed). 그런데
+**cap 도달** 구멍은 열린 채였다 — 같은 함수, 인접한 분기. Codex가 그 인접 구멍을 짚었다.
+"lock 고갈은 닫았으니 cap은 지켜진다"고 믿은 것이 이번 라운드의 실패 양식이다.
 
 ---
 
-## F1 — Lock exhaustion grants untracked workers
+## F1 — Session cap is not actually enforced once reached
 
 - **Severity**: HIGH (Codex confidence 0.90)
-- **Locus**: `plugins/mccp/scripts/lib/orchestration-runaway.js:405-416` (`reserveWorkers`)
+- **Locus**: `plugins/mccp/scripts/lib/orchestration-runaway.js:198-210` (`clampForRunaway`) + `:438-446` (`reserveWorkers`)
 
-### 현상 (재현됨)
+### 현상 (합성 실측으로 재현)
+
+`clampForRunaway`는 cap 초과 시 **0을 반환하는 분기가 없다** — 항상 floor 1:
 
 ```js
-const lock = acquireLock(p);
-if (!lock) {
-  warn('counter lock exhausted; granting 1 worker (fail-safe degrade ...)');
-  return { granted: 1, degraded: true, reason: REASONS.LOCK_EXHAUSTED,
-           maxAgents: maxAgents, launched: null, reservationId: null };
+if (launchedSoFar + requestedN > maxAgents) {
+  return { n: 1, degraded: true, reason: REASONS.RUNAWAY_CLAMP, maxAgents: maxAgents };
 }
 ```
 
-`granted:1`을 주면서 **카운터 write가 없다**. `reservationId:null`이라 나중에 reconcile할
-것도 없다. `readCounter`는 이 worker를 영영 보지 못한다. lock 고갈이 반복되면 호출마다
-1개씩 **기록되지 않은** worker가 뜨고, `MCCP_ORCHESTRATION_MAX_AGENTS`는 원리상 무한히
-우회된다 — agent-count cap이 primary backstop이 된 바로 그 지점에서.
-
-주석은 이를 "fail-SAFE, not fail-open"이라 주장하지만, **기록할 수 없는 launch 권한을
-부여하는 것은 cap 관점에서 fail-open이다**.
-
-### 선택지 검토 (Codex 제안 3개 중)
-
-- **(a) stale-reclaim까지 재시도** — **이미 구현돼 있음**. `acquireLock`은 `LOCK_RETRY_MAX`회
-  재시도 + `STALE_LOCK_MS` 초과 시 stale lock을 깬다. 따라서 exhaustion은 "살아있는
-  holder가 재시도 창 내내 점유"를 의미하며, 더 기다리는 것은 답이 아니다.
-- **(c) debt 선기록** — lock이 없어서 원리상 쓸 수 없다. 불가능.
-- **(b) fail-closed, no launch** — **채택**.
-
-### 수정 — granted 0 + 인라인 fallback
-
-현 주석의 전제 "One worker is still granted (never 0) — the pipeline is degraded, never
-blocked"는 **거짓이다**. 두 호출자 모두 인라인 fallback이 있고, 인라인은 agent를 띄우지
-않으므로 cap을 소비하지 않는다:
-
-| 호출자 | granted 0일 때 경로 |
-|---|---|
-| `work.md:230` (`runawayClamp` → `resolveFleet`) | `MCCP_WORK_ISOLATE_IMPLEMENT=0` 인라인 implement (Step 3.F) |
-| `plan.md:200` (`runawayClamp` → `resolveFanout`) | 인라인 Pattern Grounding fallback (fail-open, plan 미차단) |
-
-즉 fail-closed가 파이프라인을 막지 않는다. cap의 불변식이 **"모든 agent launch는 기록된다"**로
-예외 없이 성립한다.
-
-- `reserveWorkers` lock-exhausted → `{ granted: 0, degraded: true, reason: LOCK_EXHAUSTED,
-  reservationId: null, launched: null }`.
-- `implement-dispatch/budget.js#resolveFleet` + `plan-fanout/budget.js#resolveFanout`:
-  주입된 `runawayClamp`가 `n === 0`을 반환하면 `run:false` + reason `LOCK_EXHAUSTED`로
-  skip (fleet 0 구성 금지).
-- `work.md` / `plan.md`: `granted === 0`이면 예약 아티팩트를 쓰지 않고(예약 자체가 없음)
-  인라인 경로로 강등 + loud stderr.
-- 주석의 "fail-SAFE" 서술을 정정 — cap이 primary가 된 이상 이 표현은 부정확했다.
-
----
-
-## F2 — Fan-out actual launch count is not mechanically derived
-
-- **Severity**: MEDIUM (Codex confidence 0.84) — **도달 가능성은 3건 중 가장 높음**
-- **Locus**: `plugins/mccp/commands/plan.md:285-298`
-
-### 현상 (재현됨)
-
-```bash
---actual "${FANOUT_ACTUAL_N:-$RES_GRANTED}"
-```
-
-바로 위 표는 `skipped:true` → **0**, Workflow 미가용/미호출 → **0**이라 규정한다. 그런데
-그 값을 전달하는 수단이 **LLM이 설정하는 셸 변수**이고, 미설정 시 default가 `$RES_GRANTED`다.
-표가 0이라 규정한 경로들이 정확히 LLM이 그 추론 단계에 도달하지 않을 경로다.
-
-commit된 항목은 `open[]`에서 제거돼 **lease 만료 대상이 아니다**. 따라서 이건 pending
-유령보다 나쁜 **영구 유령**이다 — 이 follow-up이 없앴다고 주장한 바로 그 문제를 재생산한다.
-
-### 수정 — 모르면 commit하지 않는다 (pending 유지)
-
-default를 0으로 뒤집는 것은 **오답**이다. 두 오류 방향은 비대칭이 아니라 서로 반대다:
-
-- default → granted: 영구 over-count → headroom 잠식 (availability 실패, 현재 버그)
-- default → 0: under-count → cap이 over-permissive (**safety 실패** — cap이 절대 틀리면
-  안 되는 방향, 코드 주석 551-556행이 스스로 명시)
-
-정답은 **default를 두지 않는 것**이다. `FANOUT_ACTUAL_N`이 unset/empty면 **reconcile을
-호출하지 않고 pending으로 남긴다**. pending은 정확히 "모름"의 표현이고 자기치유한다 —
-lease까지는 counted로 남아 safety를 지키고(보수적), 실제로 안 떴으면 lease가 만료시켜
-headroom을 돌려준다. 2단계 설계가 pending 상태를 가진 이유가 바로 이것이다.
-
-- `plan.md`: `${FANOUT_ACTUAL_N:-...}` default 제거 → unset이면 reconcile skip + loud warn.
-- 가능하면 Workflow 결과를 아티팩트로 남겨 `actualN`을 **기계적으로** 파생 (Codex 권고).
-  LLM 변수 의존 자체가 F2의 근인이다.
-- `work.md:358-360`은 **무결함** — `ACTUAL_N`을 `$ROUTE`에 대한 `case`로 기계 파생한다.
-  F2는 plan.md 전용.
-
----
-
-## F3 — Malformed reconcile actual count releases reservations as zero
-
-- **Severity**: HIGH (Codex confidence 0.82) — 현재 호출자로는 미도달, 수정은 가장 저렴
-- **Locus**: `plugins/mccp/scripts/lib/orchestration-runaway.js:574-582` (`runCli`)
-
-### 현상 (재현됨)
+`reserveWorkers`는 그 `decision.n`을 **조건 없이** 누적·기록한다:
 
 ```js
-const actualN = Number(args.actual);               // --actual 누락 → Number(undefined) = NaN
-const out = reconcileReservation({ ..., actualN });// :476 non-finite → 0으로 강제
-...
-if (!out.reconciled && Number.isFinite(actualN) && actualN > 0) { return 11; }
-return 0;                                          // reconciled=true → exit 0
+const launched = cur.launched + decision.n;
+const open = cur.open.concat([{ id: reservationId, n: decision.n, ... }]);
 ```
 
-`--actual` 누락 → `NaN` → `reconcileReservation`이 0으로 강제 → 예약 전체를 delta로 차감하고
-`open[]`에서 제거(commit) → 슬롯 반납 → **exit 0(성공)**. 실제 worker가 떴다면 cap이
-under-count한다. `--actual` 뒤에 다른 플래그가 오면 `args.actual = true` → `Number(true) = 1`로
-현실과 무관하게 1이 된다.
+`MCCP_ORCHESTRATION_MAX_AGENTS=4` 실측 (requestedN=1 반복):
 
-같은 파일 551-556행 주석이 "actualN > 0에서 미commit은 cap이 실 launch를 under-count하는,
-이 cap이 절대 틀리면 안 되는 방향"이라 못박았는데, **malformed 입력에선 그 가드가 발화하지
-않는다** (exit 검사가 `Number.isFinite(actualN)`을 요구하므로 NaN은 통과).
+```
+call#1 granted=1 launched=1 reason=ok
+call#4 granted=1 launched=4 reason=ok
+call#5 granted=1 launched=5 reason=runaway-clamp   ← cap 초과 시작
+call#9 granted=1 launched=9 reason=runaway-clamp   ← 무한 증가
+```
 
-### 수정 — 검증 후 호출
+cap=4인데 `launched`가 5,6,7,8,9…로 **상한 없이** 증가한다. `degraded=true`가 붙을 뿐
+매 호출이 1개씩 grant되고 영구 기록된다.
 
-- `runCli`: `--actual`을 **필수 non-negative integer**로 검증. 위반 시
-  `reconcileReservation`을 **호출하지 않고** 하드 nonzero exit(usage 2) — 예약은 손대지 않음.
-- `args.actual === true`(값 없는 플래그)도 invalid로 판정.
-- 회귀 test: `--actual` 누락 / `--actual --session x` / `--actual abc` / `--actual -1` →
-  예약 불변 + nonzero exit.
+### 왜 M3 헤드라인이 거짓이 되는가
+
+이건 cap이 아니라 **병렬도 throttle**이다. 반복/재귀 dispatch(정확히 cap이 존재하는 이유인
+그 시나리오)는 `MAX_AGENTS`를 한 번에 1개씩, 무한히 초과할 수 있다. operational USD를
+은퇴시킨 지금 이 카운터가 **유일한 구조적 backstop**이므로, 이 구멍은 M3이 내세운
+"원자 cap이 막는다"를 정면으로 거짓으로 만든다.
+
+CLAUDE.md §4의 현재 서술("이 값을 초과 예정이면 fleet N을 degraded로 1로 clamp(0 아님 —
+단일 worker는 항상 진행)")은 **설계 의도로 floor 1을 명시**하고 있다. 즉 코드 버그가 아니라
+**설계와 헤드라인의 불일치**다. 둘 중 하나를 고쳐야 한다.
+
+### 수정 방향
+
+두 갈래 중 택일 — **(a) 채택 권장**:
+
+- **(a) cap을 진짜 cap으로**: `reserveWorkers`가 lock 안에서 remaining headroom을
+  계산해 `remaining === 0`이면 **granted 0**(4라운드 F1의 lock-고갈 처리와 동일한
+  fail-closed), 아니면 `min(requestedN, remaining)`. 4라운드에서 확인한 전제가 여기서도
+  성립한다: 두 호출자(work.md → 인라인 implement, plan.md → 인라인 Pattern Grounding)가
+  **인라인 fallback을 갖고 있고 인라인은 agent를 안 띄워 cap을 미소비**하므로, granted 0이
+  파이프라인을 막지 않는다. 불변식 "모든 agent launch는 기록된다"가 "cap을 넘는 launch는
+  없다"로 강화된다.
+- **(b) 이름·문서 정정**: cap이 아니라 throttle임을 인정하고 `MAX_AGENTS`를
+  `MAX_PARALLEL`류로 개명 + M3 헤드라인에서 "절대 상한" 주장 철회. 이 경우 operational USD
+  은퇴를 정당화하던 backstop이 사라지므로 **M3의 설계 전제 자체를 재검토**해야 한다.
+
+(a)가 옳다. M3이 USD를 은퇴시킨 근거가 "cap이 막는다"였으므로, cap을 실제로 막게 만드는
+것이 주장과 현실을 일치시키는 유일한 방향이다.
+
+- **주의 — read-only 불변식 보존**: `clampForRunaway`는 firing-preview(`orchestration-preview.js`)가
+  쓰는 **pure no-bump 오라클**이다. preview는 floor 1(0 미반환)을 유지해야 한다(관측이
+  headroom을 소비하거나 0을 보고해선 안 됨). 따라서 **0 반환은 `reserveWorkers`의
+  write-side 판정에만** 도입하고 `clampForRunaway` 시그니처는 건드리지 말 것.
+  기존 preview read-only test가 이 경계를 지킨다.
+- **두 budget 오라클**: `implement-dispatch/budget.js` · `plan-fanout/budget.js`가 이미
+  `n===0` → `run:false` + `lock-exhausted` skip을 해석하므로(4라운드 F1), 신규 0 경로도
+  같은 skip으로 수렴한다. `resolveWorkRoute`의 `reserveDenied` → inline 강제도 재사용.
 
 ---
 
-## 부수 발견 (이번 PR 무관, pre-existing — backlog 후보)
+## F2 — Failed fan-out reconcile can under-count real spawned agents
 
-`finalize-receipt.js:269`의 `timeoutMs: 60000`이 만료돼 `spawnSync ETIMEDOUT` + exit 127을
-냈으나 **receipt write는 이미 성공**했다 (`validate ok:true`, schema 유효). 명령 본문은
-`FINALIZE_EXIT != 0`이면 GATE-STOP이라 정상 receipt에도 게이트가 멈춘다 — write 성공 /
-caller 실패 보고라는 정직성 갭. `git diff origin/main..HEAD`에 이 줄이 없으므로 본 PR이
-만든 것이 아니다. 별도 cycle.
+- **Severity**: HIGH (Codex confidence 0.86)
+- **Locus**: `plugins/mccp/commands/plan.md:325-343` (fan-out reconcile 재시도 루프)
+
+### 현상 (코드가 자백함)
+
+`FANOUT_ACTUAL_N > 0`(실제 agent가 떴음이 **확정**된 상태)인데 reconcile이 3회 재시도 후
+실패하면, 경고만 남기고 진행한다:
+
+```bash
+if [ "$RECONCILED" = "1" ]; then
+  rm -f "$GITDIR_FANOUT/fanout-reservation.json"
+else
+  echo "[mccp:plan-fanout] WARNING: reservation $RES_ID uncommitted after 3 attempts; \
+token kept ... The runaway cap may under-count this fan-out." 1>&2
+fi
+```
+
+예약은 `open[]`에 **pending으로 잔존** → `MCCP_ORCHESTRATION_RESERVATION_LEASE_MS`(default
+10분) 만료 → `readCounter`가 뷰에서 prune → **실제로 뜬 agent가 카운터에서 사라진다**.
+
+### 주석의 근거가 스스로 틀렸다
+
+같은 블록의 주석은 이렇게 적혀 있다:
+
+> The residual error direction is a conservative over-count until the lease resolves it.
+
+앞부분은 맞다(pending은 `launched`에 포함되므로 over-count = 보수적 = 안전). 하지만
+lease가 그걸 "resolve"하는 방식이 **prune**이다 — 안전한 over-count를 **위험한
+under-count로 뒤집는다**. lease는 오차를 해소하는 게 아니라 방향을 안전에서 위험으로
+바꾼다. 주석은 이 뒤집힘을 못 본 채 "resolve"라고 불렀다.
+
+### lease 만료의 건전성 전제가 깨진다
+
+`orchestration-runaway.js` 주석이 lease 만료의 안전성을 이렇게 정당화한다:
+
+> Expiry is sound ONLY because the pending window is structurally launch-free:
+> work.md pins Step 3.route as the "before any worker is spawned" boundary
+
+그리고 CLAUDE.md §4는 fan-out에 대해 이렇게 보충한다:
+
+> fan-out은 route 경계가 없어(Workflow 호출 자체가 launch 지점) 호출 후 전 경로를 명시 commit한다.
+
+F2가 바로 **"전 경로 명시 commit"이 성립하지 않는 경로**다. reconcile 3회 실패 경로는
+launch **후**인데 commit하지 않는다. 즉 lease 만료의 건전성 전제(pending 창은
+구조적으로 launch-free)가 fan-out에서 위반된다. 전제가 깨지면 만료는 실제 worker를
+미카운트한다 — lease가 원래 감수하는 실패 양식(over-permissive)이 "여기선 발생할 수 없다"던
+근거가 사라진다.
+
+### 수정 방향
+
+**known-nonzero launch를 절대 expirable로 두지 않는다.** `FANOUT_ACTUAL_N > 0`인데
+commit 불가면 둘 중 하나:
+
+- **(a) 비만료 debt 레코드**(권장): `open[]`의 pending과 구분되는 **committed-unreconciled**
+  상태를 도입해 `readCounter`의 lease-prune 대상에서 제외. "모른다"(pending, 만료 가능)와
+  "떴는데 정산 못 했다"(debt, 영구)를 타입으로 분리. 보수적 over-count로 영구 고정되므로
+  cap은 절대 over-permissive해지지 않는다. `reconcileReservation`이 나중에 debt를 정산.
+- **(b) fail-closed halt**: 정산될 때까지 진행 거부. 하지만 fan-out은 **plan을 절대 막으면
+  안 되는** GROUND enhancement라는 기존 계약(주석에 명시)과 충돌하므로 부적합.
+
+(a)가 계약을 지키면서 구멍을 닫는다. F1 수정의 "모르면 pending" 원칙과도 정합한다 —
+**아는 것(떴다)은 pending으로 두지 않는다**가 그 원칙의 대칭 절반이다.
+
+- **work.md 대칭 확인 필요**: work.md의 reconcile 실패 경로도 같은 구멍이 있는지
+  점검할 것. work.md는 route가 launch **전** 경계라 pending 만료가 안전하지만,
+  route **후** 실패 경로가 있다면 동일 처리 필요.
 
 ---
 
-## Acceptance
+## 흡수 완료 (구현됨)
 
-- [x] F1: lock-exhausted → `granted:0`; 두 budget 오라클이 `run:false`(`lock-exhausted`)로 skip;
-      두 command body가 인라인 강등; "fail-SAFE" 주석 정정
-- [x] F2: `plan.md` default 제거 → unset이면 reconcile skip(pending 유지) + loud warn
-- [x] F3: `runCli` `--actual` 검증 후 호출; invalid → 예약 불변 + nonzero exit
-- [x] 회귀 test 3축 (runaway 51 + fleet/fanout/route/reconcile 포함 1133개 중 pre-existing 1건 외 green)
-- [ ] `/mccp:pr` 재실행 → PR-Codex R1 재판정
+**F1** — `clampForRunaway`를 headroom-aware로 전환(`remaining===0`→`n:0`+`cap-exhausted`, `0<remaining<requestedN`→`n:remaining`) + `reserveWorkers`가 `n===0`에 write 없이 `granted:0`·`reservationId:null` 반환. 실측: cap=4에서 `launched`가 4에 고정(이전 5,6,7,8,9…).
 
-### 구현 중 확장된 범위 (fix-task 원안보다 넓음 — 근거)
+**계획에서 벗어난 지점(의도적)**: 위 초안은 "0 반환은 `reserveWorkers` write-side에만, `clampForRunaway`는 건드리지 말 것"이었다. **틀렸다.** preview만 floor 1을 유지하면 실제로는 거부될 상황에서 "1개 뜬다"고 보고하는 **false green-light**가 된다 — M2 Codex F1이 `effective_fire`로 막으려던 바로 그 유형. read-only 불변식은 *mutate 금지*이지 *공식 고정*이 아니며, 순수성(무 I/O·무 bump)이 read-only를 보장한다. 그래서 오라클을 고쳐 preview와 발화 경로가 **같은 공식**을 공유하게 했고, 실측으로 preview(`run:false`/`cap-exhausted`) ↔ reserve(`granted:0`/`cap-exhausted`) 일치를 확인했다. preview의 정적·디스크 read-only test는 그대로 통과.
 
-- **F1은 `route.js`까지 가야 성립**. 원안은 "두 budget 오라클 skip + 인라인 강등"이었으나,
-  `resolveFleet`이 `run:false`를 줘도 work.md는 `FLEET_N=1`로 내려가 route가 `task`/
-  `workflow-single`을 고른다 — **단일 worker 1개를 여전히 untracked로 띄운다**. 누수가
-  1/4로 줄 뿐 불변식은 그대로 깨진다. 그래서 route에 `reserveDenied` 축을 신설해 inline을
-  강제했다. 신호 전달은 shell var가 아니라 `dispatch-cap-denied.json` 아티팩트 —
-  Step 3.route는 별도 Bash invocation이라 shell var면 게이트가 조용히 no-op 된다(§3.9 교훈).
-  단, 이 축은 reserve를 **실제로 시도한** 경우에만 켜진다: env-off/single-partition/
-  merge-strategy skip은 clamp 이전에 반환하므로 기존 단일 worker 경로는 무영향.
-- **budget 오라클의 `c.n >= 1` 가드가 F1을 무력화할 뻔했다**. `granted:0`은 그 가드에 걸려
-  **무시**되고 N이 full fleet로 남는다 — `n===0`을 `>=1` 분기보다 **먼저** 처리해야 수정이
-  실효를 갖는다. 두 오라클 모두 회귀 test로 고정.
-- **F2의 "기계적 파생"(Codex 권고)을 실제로 구현**. LLM 변수 의존 자체가 근인이므로
-  신규 `plan-fanout/reconcile.js#deriveFanoutActualN`로 매핑을 코드에 옮기고, LLM 역할을
-  "Workflow 결과를 아티팩트에 받아적기"로 축소했다. 아티팩트 부재 → `null` → reconcile
-  미호출(pending 유지) — default를 두지 않는다는 원안 결정 그대로.
+**F2** — reconcile CLI가 `actual>0`인데 commit 못 하면 **lock-free debt 마커**를 자동 기록(`orchestration-runaway.json.debt/<id>.json`). `readCounter`·`reconcileReservation`이 debt 항목을 lease 만료에서 제외. 마커는 기존 pending을 고정할 뿐 카운트 미가산(이중 계산 0). plan.md는 CLI 호출만 하면 되므로 별도 배선 불필요 — 잊을 여지를 없앰. 틀린 주석("conservative over-count until the lease resolves it") 정정. `work.md`는 route가 launch 전 경계라 HALT로 충분해 debt 불필요(의도된 비대칭 · stale 주석도 정정).
+
+**부수 발견 — 테스트가 버그를 정답으로 고정** : `cannot amplify past the cap`(cap 8→누적 11) · `cannot exceed cap amplification`(cap 8→누적 11) · `F2: cost-state absence CANNOT bypass the cap`(cap 8→누적 12) 3개가 통과 중이었다. 전부 per-dispatch `granted`만 assert하고 **누적 총량**은 안 봤다 — 이름이 약속한 불변식을 아무도 검사하지 않았다. 총량 assert로 교체 + F1/F2 회귀 테스트 9개 추가.
+
+## 남은 리스크 (정직 기록)
+
+**F2 잔여 race**: fan-out이 lease(10분)를 초과하는 **동안** 다른 dispatch의 write-side prune이 pending을 이미 제거하면, 이후 reconcile은 raw에서도 항목을 못 찾아 no-op이고 debt 마커도 없는 항목을 고정할 수 없다. debt는 "떴다"를 아는 시점(Workflow 반환 후)에 찍히므로 그 이전 창은 못 덮는다. reserve 시점에 미리 찍으면 덮이지만 아무것도 안 뜬 경우 유령 예약이 되어 R1 F3가 고친 자기중독이 되살아난다. Codex가 지목한 경로(reconcile 실패)는 닫혔고 이 잔여는 더 좁다 — backlog 후보.
+
+## Next
+
+`/mccp:pr` 재실행 (6라운드)

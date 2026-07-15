@@ -62,6 +62,11 @@ const REASONS = Object.freeze({
   // take the counter lock, so a launch here would go unrecorded and bypass the cap.
   // Mirrors orchestration-runaway REASONS.LOCK_EXHAUSTED.
   LOCK_EXHAUSTED: 'lock-exhausted',
+  // PR-Codex R1 F1 (5th round) — the reserve granted 0 because the session has
+  // spent its whole agent budget. Mirrors orchestration-runaway REASONS.CAP_EXHAUSTED.
+  // Distinct from LOCK_EXHAUSTED: that one means "cannot verify", this one means
+  // "verified, and the answer is no". Both arrive here as n === 0.
+  CAP_EXHAUSTED: 'cap-exhausted',
 });
 
 const FLEET_SIZE = 4;

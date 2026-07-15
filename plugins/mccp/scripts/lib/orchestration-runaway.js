@@ -12,10 +12,26 @@
 //
 // SOLUTION: an independent, session-keyed cumulative worker-launch counter
 // persisted on disk, plus an absolute env cap MCCP_ORCHESTRATION_MAX_AGENTS
-// (default 24). A fail-open N that would push the session total past the cap is
-// clamped (degraded fail-open) to a single worker — never 0: a lone worker is the
-// minimum useful progress, so the pipeline is never fully blocked, but the
-// parallel amplification is removed once the cumulative launches approach the cap.
+// (default 24). An N that would push the session total past the cap is clamped to
+// the REMAINING HEADROOM — including 0 once the cap is reached.
+//
+// PR-Codex R1 F1 (5th round) — THE FLOOR USED TO BE 1, AND THAT MADE THIS A
+// THROTTLE, NOT A CAP. The original rule was "clamp to a single worker, never 0:
+// a lone worker is the minimum useful progress, so the pipeline is never fully
+// blocked". But reserveWorkers RECORDS what it grants, so every post-cap call
+// granted and persisted one more launch: cap=24 → launched 25, 26, 27 … unbounded,
+// one worker at a time. Measured directly at cap=4: launched went 5,6,7,8,9 with
+// nothing but a `degraded` flag to show for it. A repeated / recursive dispatch —
+// precisely the scenario this cap exists for — could exceed the cap without bound.
+//
+// That was survivable while operational USD was the real blocker. M3 retired it and
+// promoted this counter to the PRIMARY structural backstop, so "the cap holds" is
+// now a load-bearing claim, and a floor of 1 made it false.
+//
+// Granting 0 does NOT block the pipeline (same premise the 4th round verified for
+// lock exhaustion): both callers have an inline fallback that launches no agent at
+// all (work.md → inline implement, plan.md → inline Pattern Grounding), and inline
+// consumes no cap. Progress continues; only the agent amplification stops.
 //
 // The pure oracle (clampForRunaway) is separated from the disk I/O (readCounter /
 // bumpCounter) so the decision is unit-testable without touching disk. Mirrors
@@ -108,11 +124,16 @@ const STALE_LOCK_MS = 5000;
 
 const REASONS = Object.freeze({
   OK: 'ok',
+  // Granted less than requested because only that much headroom remained.
   RUNAWAY_CLAMP: 'runaway-clamp',
-  // M3 Codex F2 — reserveWorkers could not take the lock, so the counter is
-  // unverifiable. The cap is the primary backstop now, so this degrades to the
-  // conservative floor (1) rather than granting the full fleet unchecked.
+  // M3 Codex F2 / PR-Codex R1 F1 (4th round) — reserveWorkers could not take the
+  // lock, so the launch could not be RECORDED. Granting an unrecordable launch
+  // bypasses the cap, so this grants 0 (fail-closed) and the caller goes inline.
   LOCK_EXHAUSTED: 'lock-exhausted',
+  // PR-Codex R1 F1 (5th round) — the session already used its whole agent budget.
+  // Grant 0: this is the cap actually capping. Distinct from LOCK_EXHAUSTED, which
+  // means "cannot verify", while this means "verified, and the answer is no".
+  CAP_EXHAUSTED: 'cap-exhausted',
 });
 
 function warn(line) {
@@ -187,14 +208,26 @@ function parseCatastrophicUsd(env) {
 // clampForRunaway({ requestedN, launchedSoFar, env }) → { n, degraded, reason, maxAgents }
 // PURE, and does NOT bump. requestedN is the fleet/fanout oracle's already-
 // structurally-capped N. launchedSoFar is the session cumulative worker-launch
-// count (read from disk by the caller). If launching requestedN MORE workers would
-// exceed the absolute cap, degrade fail-open to n=1 (never 0) — the parallel
-// amplification is removed while a lone worker still makes progress. Otherwise
-// return requestedN unchanged.
+// count (read from disk by the caller). Grants at most the REMAINING headroom:
+//   remaining == 0            → n=0, CAP_EXHAUSTED  (the cap, capping)
+//   0 < remaining < requestedN → n=remaining, RUNAWAY_CLAMP (partial)
+//   remaining >= requestedN    → n=requestedN, OK
+//
+// PR-Codex R1 F1 (5th round) — n=0 IS REACHABLE NOW. This used to floor at 1, which
+// let a repeated dispatch walk past the cap one worker per call, forever (see the
+// module header). The floor's stated purpose — "never fully block the pipeline" —
+// is served by the callers' inline fallbacks, not by handing out agents the cap has
+// already spent.
 //
 // M3: firing callers must go through reserveWorkers (atomic check-and-bump)
 // instead. This pure form remains the decision core reserveWorkers calls under the
 // lock, and is what the READ-ONLY firing-preview uses — observation must not bump.
+//
+// The preview and the firing path therefore share ONE formula, which is the point:
+// a preview that still reported n=1 while reserveWorkers refused would be a false
+// green-light, the exact failure class M2's Codex F1 built `effective_fire` to
+// prevent. Purity (no I/O, no bump) is what keeps the preview read-only — not the
+// shape of the answer.
 function clampForRunaway(opts) {
   opts = opts || {};
   const env = opts.env || process.env;
@@ -203,8 +236,12 @@ function clampForRunaway(opts) {
   const launchedSoFar = (Number.isFinite(opts.launchedSoFar) && opts.launchedSoFar >= 0)
     ? Math.floor(opts.launchedSoFar) : 0;
 
-  if (launchedSoFar + requestedN > maxAgents) {
-    return { n: 1, degraded: true, reason: REASONS.RUNAWAY_CLAMP, maxAgents: maxAgents };
+  const remaining = Math.max(0, maxAgents - launchedSoFar);
+  if (remaining === 0) {
+    return { n: 0, degraded: true, reason: REASONS.CAP_EXHAUSTED, maxAgents: maxAgents };
+  }
+  if (remaining < requestedN) {
+    return { n: remaining, degraded: true, reason: REASONS.RUNAWAY_CLAMP, maxAgents: maxAgents };
   }
   return { n: requestedN, degraded: false, reason: REASONS.OK, maxAgents: maxAgents };
 }
@@ -216,6 +253,84 @@ function getRunawayPath(opts) {
   if (opts.statePath) return opts.statePath;
   const dir = opts.stateDir || path.join(process.cwd(), '.claude', 'state');
   return path.join(dir, 'orchestration-runaway.json');
+}
+
+// ── debt markers (PR-Codex R1 F2, 5th round) ─────────────────────────────────
+//
+// A pending reservation is EXPIRABLE because the reserve→route window is
+// structurally launch-free, so dropping it cannot un-count a real worker. plan.md's
+// fan-out breaks that premise: the Workflow call IS the launch point, so once it
+// returns with FANOUT_ACTUAL_N > 0 the agents demonstrably ran. If reconcile then
+// fails to commit (lock held through every retry), the entry stays PENDING and the
+// lease later subtracts it — erasing real launches from the counter and leaving the
+// cap over-permissive, in the one direction it must never err.
+//
+// A debt marker pins such an entry: "these workers really launched; never expire
+// this." reconcile clears the marker when it finally commits.
+//
+// WHY A SEPARATE FILE INSTEAD OF A FLAG IN THE COUNTER: the counter needs the lock,
+// and the only situation that creates debt is precisely being unable to take the
+// lock. A marker is a unique write-once path, so it needs no lock and cannot
+// contend. readCounter merely READS the directory, which keeps the read-only
+// firing-preview read-only.
+//
+// The marker pins the EXISTING pending entry rather than adding a count, so nothing
+// is double-counted: `launched` already includes the pending reservation.
+function getDebtDir(opts) {
+  return getRunawayPath(opts) + '.debt';
+}
+
+// readDebtIds(opts) → Set<string>. Missing dir → empty. READ-ONLY.
+function readDebtIds(opts) {
+  let names = [];
+  try {
+    names = fs.readdirSync(getDebtDir(opts));
+  } catch (_e) {
+    return new Set();
+  }
+  const ids = new Set();
+  for (let i = 0; i < names.length; i++) {
+    if (names[i].slice(-5) === '.json') ids.add(names[i].slice(0, -5));
+  }
+  return ids;
+}
+
+// markDebt({ reservationId, n?, statePath?, stateDir? }) → boolean
+// Lock-free, idempotent. Records that reservationId's workers ACTUALLY launched, so
+// readCounter stops treating it as expirable. Best-effort: a marker we cannot write
+// leaves the pre-existing (already conservative) pending entry alone.
+function markDebt(opts) {
+  opts = opts || {};
+  const reservationId = opts.reservationId;
+  if (typeof reservationId !== 'string' || !reservationId) return false;
+  // Reject path separators — the id becomes a filename.
+  if (/[\\/]/.test(reservationId)) return false;
+  const dir = getDebtDir(opts);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, reservationId + '.json'), JSON.stringify({
+      reservation_id: reservationId,
+      n: (Number.isFinite(opts.n) && opts.n >= 0) ? Math.floor(opts.n) : null,
+      at: new Date().toISOString(),
+      note: 'workers launched but reconcile could not commit; never lease-expire this',
+    }));
+    return true;
+  } catch (_e) {
+    return false;
+  }
+}
+
+function clearDebt(opts) {
+  opts = opts || {};
+  const reservationId = opts.reservationId;
+  if (typeof reservationId !== 'string' || !reservationId) return false;
+  if (/[\\/]/.test(reservationId)) return false;
+  try {
+    fs.unlinkSync(path.join(getDebtDir(opts), reservationId + '.json'));
+    return true;
+  } catch (_e) {
+    return false;
+  }
 }
 
 // readCounter({ sessionId, statePath?, stateDir?, env?, now? })
@@ -290,11 +405,16 @@ function readCounter(opts) {
   if (raw.fresh) return raw;
 
   const leaseMs = parseReservationLease(env);
+  // R1 F2 (5th round) — a debt-marked entry is KNOWN to have launched, so the
+  // lease's guess ("pending this long means it never ran") is simply wrong about
+  // it. Positive evidence beats the lease, same principle as reconcile reading raw
+  // state to find its own id (Implement-Codex R1 F2).
+  const debtIds = readDebtIds(opts);
   const live = [];
   let expiredN = 0;
   for (let i = 0; i < raw.open.length; i++) {
     const e = raw.open[i];
-    if (isExpired(e, leaseMs, now)) { expiredN += e.n; continue; }
+    if (isExpired(e, leaseMs, now) && !debtIds.has(e.id)) { expiredN += e.n; continue; }
     live.push(e);
   }
   return {
@@ -438,6 +558,21 @@ function reserveWorkers(opts) {
     const decision = clampForRunaway({
       requestedN: requestedN, launchedSoFar: cur.launched, env: env,
     });
+    // PR-Codex R1 F1 (5th round) — the cap is spent. Record NOTHING and grant
+    // nothing: writing a 0-worker reservation would only add an entry for
+    // reconcile to clean up, and granting 1 "so something runs" is exactly the
+    // leak this finding closed (every post-cap call used to persist one more
+    // launch, without bound). The caller falls back to inline, which launches no
+    // agent and consumes no cap.
+    if (decision.n === 0) {
+      return {
+        granted: 0, degraded: true, reason: decision.reason,
+        maxAgents: maxAgents, launched: cur.launched,
+        // Nothing was recorded, so there is nothing to reconcile later. A null id
+        // keeps callers from inventing one.
+        reservationId: null,
+      };
+    }
     const reservationId = crypto.randomUUID();
     const launched = cur.launched + decision.n;
     const open = cur.open.concat([{
@@ -527,10 +662,16 @@ function reconcileReservation(opts) {
       return { reconciled: false, delta: 0, launched: readCounter({
         sessionId: sessionId, statePath: p, env: env, now: now }).launched };
     }
+    // R1 F2 (5th round) — this write PERSISTS the pruning of the other entries, so
+    // it must honor debt markers exactly as readCounter does. Otherwise reconciling
+    // reservation A would quietly evict B's known-launched workers.
+    const debtIds = readDebtIds({ statePath: p });
     const liveOthers = [];
     let expiredN = 0;
     for (let i = 0; i < others.length; i++) {
-      if (isExpired(others[i], leaseMs, now)) { expiredN += others[i].n; continue; }
+      if (isExpired(others[i], leaseMs, now) && !debtIds.has(others[i].id)) {
+        expiredN += others[i].n; continue;
+      }
       liveOthers.push(others[i]);
     }
     const delta = actualN - entry.n;
@@ -544,6 +685,9 @@ function reconcileReservation(opts) {
     const tmp = p + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, body);
     fs.renameSync(tmp, p);
+    // The entry is committed (out of `open[]`, permanent, no longer expirable), so
+    // any debt marker pinning it has done its job.
+    clearDebt({ reservationId: reservationId, statePath: p });
     return { reconciled: true, delta: delta, launched: launched };
   } finally {
     releaseLock(lock);
@@ -569,6 +713,12 @@ function reconcileReservation(opts) {
 //                   the over-permissive direction this cap must never err in, and
 //                   the caller cannot see it because the shell said success and it
 //                   already deleted the token. → exit 11 so the caller halts/retries.
+//                   PR-Codex R1 F2 (5th round): exit 11 alone was not enough. The
+//                   callers that "warn and proceed" (fan-out must never block a
+//                   plan) still left the launches expirable, so the under-count
+//                   happened anyway ~10 min later. The CLI now also writes a DEBT
+//                   MARKER, which pins the entry against the lease regardless of
+//                   what the caller does with the exit code.
 //
 // --actual IS VALIDATED BEFORE reconcileReservation IS CALLED (PR-Codex R1 F3).
 // It used to go straight through `Number(args.actual)`, so a malformed invocation
@@ -621,18 +771,32 @@ function runCli(argv) {
       'reclaims it if nothing launched. Re-run with a real count.');
     return EXIT_USAGE;
   }
+  const statePath = typeof args['state-path'] === 'string' ? args['state-path'] : undefined;
   const out = reconcileReservation({
     sessionId: args.session || process.env.CLAUDE_SESSION_ID || 'unknown',
     reservationId: typeof args.reservation === 'string' ? args.reservation : null,
     actualN: actualN,
-    statePath: typeof args['state-path'] === 'string' ? args['state-path'] : undefined,
+    statePath: statePath,
   });
   process.stdout.write(JSON.stringify(out) + '\n');
   if (!out.reconciled && actualN > 0) {
+    // PR-Codex R1 F2 (5th round) — we KNOW actualN workers launched and we could
+    // not commit that. Leaving the entry merely pending hands it to the lease,
+    // which subtracts it as "never ran" and under-counts the cap. Pin it instead:
+    // a debt marker is lock-free (the lock is exactly what we could not get) and
+    // stops the expiry. The error direction becomes a conservative over-count,
+    // which is the only direction a cap may err in.
+    const pinned = markDebt({
+      reservationId: typeof args.reservation === 'string' ? args.reservation : null,
+      n: actualN, statePath: statePath,
+    });
     warn('reservation ' + args.reservation + ' could NOT be committed while actual=' +
-      actualN + ' worker(s) are about to launch. Those launches would be recorded as ' +
-      'pending and then dropped by the lease, under-counting the cap. Do NOT delete ' +
-      'the reservation token; retry, and halt if it keeps failing.');
+      actualN + ' worker(s) launched. ' + (pinned
+        ? 'Pinned with a debt marker — the lease will NOT drop them, so the cap stays ' +
+          'conservative (over-counted) until a later reconcile commits it.'
+        : 'AND the debt marker could not be written — these launches may be dropped by ' +
+          'the lease and under-count the cap. Investigate the state dir permissions.') +
+      ' Do NOT delete the reservation token; retry, and halt if it keeps failing.');
     return EXIT_RECONCILE_UNCOMMITTED;
   }
   return 0;
@@ -656,6 +820,10 @@ module.exports = {
   readCounterRaw: readCounterRaw,
   bumpCounter: bumpCounter,
   getRunawayPath: getRunawayPath,
+  getDebtDir: getDebtDir,
+  readDebtIds: readDebtIds,
+  markDebt: markDebt,
+  clearDebt: clearDebt,
   REASONS: REASONS,
   ENV_MAX_AGENTS: ENV_MAX_AGENTS,
   DEFAULT_MAX_AGENTS: DEFAULT_MAX_AGENTS,

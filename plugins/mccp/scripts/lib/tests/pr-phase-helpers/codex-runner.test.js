@@ -46,22 +46,72 @@ function writeStub(dir, name, body) {
   return p;
 }
 
-const STUB_CODEX_OK = [
+// v1.22.3 M3 — the stub now emits the REAL codex-invoke envelope.
+//
+// This stub previously put `findings` / `summary` directly ON the envelope. The
+// real codex-invoke.js never does that: its ok-path envelope is
+// { ok, stdout, stderr, durationMs, classification, blocking, advisory } and the
+// entire review lives inside `.stdout` as the companion's JSON text. So the stub
+// encoded the runner's (wrong) assumption instead of the producer's actual
+// contract, and the suite stayed green while codex_summary was always '' and
+// codex_actionable_findings was always false in production — a needs-attention
+// verdict was rubber-stamped. Stubs must mirror the real producer, or they only
+// test the implementation against itself.
+function stubCodexEnvelope(review) {
+  return [
+    '#!/usr/bin/env node',
+    '"use strict";',
+    'process.stdout.write(JSON.stringify({',
+    '  ok: true,',
+    '  classification: "ok",',
+    '  blocking: false,',
+    '  advisory: false,',
+    '  durationMs: 1,',
+    '  stderr: "",',
+    // The companion wraps the model payload under `.result` (verbatim shape of a
+    // real run). `.stdout` is TEXT, hence the nested stringify.
+    '  stdout: ' + JSON.stringify(JSON.stringify({
+      review: 'Adversarial Review',
+      threadId: 'stub-thread',
+      result: review,
+    })),
+    '}));',
+    'process.exit(0);',
+  ].join('\n');
+}
+
+// verdict vocabulary per codex/prompts/adversarial-review.md: approve | needs-attention
+const STUB_CODEX_OK = stubCodexEnvelope({
+  verdict: 'approve', summary: 'stub-codex-ok', findings: [],
+});
+
+const STUB_CODEX_FINDINGS = stubCodexEnvelope({
+  verdict: 'approve', summary: 'stub-codex-ok',
+  findings: [{ severity: 'MEDIUM', title: 'stub finding', body: 'stub finding' }],
+});
+
+// The case the old stub could not express: a blocking verdict with a finding.
+const STUB_CODEX_NEEDS_ATTENTION = stubCodexEnvelope({
+  verdict: 'needs-attention',
+  summary: 'No ship: stub blocking risk',
+  findings: [{ severity: 'high', title: 'stub high', body: 'stub high risk' }],
+});
+
+// verdict=needs-attention with NO findings — actionable must still be true.
+const STUB_CODEX_NEEDS_ATTENTION_NO_FINDINGS = stubCodexEnvelope({
+  verdict: 'needs-attention', summary: 'No ship: risk without an itemized finding', findings: [],
+});
+
+// class=ok but the review text is unparseable → fail-closed actionable.
+const STUB_CODEX_UNREADABLE = [
   '#!/usr/bin/env node',
   '"use strict";',
-  // Emit a minimal "ok" response shape that codex-runner expects.
   'process.stdout.write(JSON.stringify({',
-  '  classification: "ok",',
-  '  blocking: false,',
-  '  rounds: 1,',
-  '  findings: [],',
-  '  summary: "stub-codex-ok"',
+  '  ok: true, classification: "ok", blocking: false, advisory: false,',
+  '  durationMs: 1, stderr: "", stdout: "not-json-at-all"',
   '}));',
   'process.exit(0);',
 ].join('\n');
-
-const STUB_CODEX_FINDINGS = STUB_CODEX_OK.replace(
-  'findings: []', 'findings: [{ severity: "MEDIUM", msg: "stub finding" }]');
 
 const STUB_CODEX_BLOCKING = [
   '#!/usr/bin/env node',
@@ -196,8 +246,64 @@ test('codex-runner invoke path: stub codex-ok → lock_exit_ok=true, no mutation
   assert.strictEqual(out.lock_exit_ok, true);
   assert.strictEqual(out.codex_actionable_findings, false);
   assert.strictEqual(out.mutations.length, 0);
+  // v1.22.3 M3 — the review must actually be READ out of the envelope's .stdout,
+  // not looked for on the envelope itself (where it never exists).
+  assert.strictEqual(out.codex_verdict, 'approve');
+  assert.strictEqual(out.codex_summary, 'stub-codex-ok',
+    'summary comes from the parsed review payload; the old envelope read yielded ""');
   // Lock unlinked
   assert.ok(!fs.existsSync(path.join(repo, '.claude', 'state', 'pr-phase.lock')));
+});
+
+// ── v1.22.3 M3 — PR-Codex gate blindness regression (the rubber-stamp hole) ────
+//
+// Measured live on the v1.22.3 M3 branch: codex-runner reported
+// actionable=false while the same diff's review carried verdict="needs-attention"
+// + a HIGH finding. The gate verified only THAT Codex ran, never WHAT it
+// concluded, so a "No ship" verdict created the PR anyway.
+
+function runInvoke(stubBody) {
+  const repo = mkTmpRepo();
+  const stub = writeStub(repo, 'fake-codex.js', stubBody);
+  const bodyFile = path.join(repo, '.git', 'mccp', 'tmp', 'body.md');
+  fs.mkdirSync(path.dirname(bodyFile), { recursive: true });
+  const r = spawnSync(NODE, [RUNNER,
+    '--base', 'master', '--decision', 'demo', '--body-file', bodyFile,
+    '--codex-invoke', stub, '--lock-cli', LOCK_CLI,
+    '--heartbeat-ms', '60000', '--cwd', repo,
+  ], { encoding: 'utf8', timeout: 30000, env: envWithoutDisabled() });
+  assert.strictEqual(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+}
+
+test('M3: verdict=needs-attention + HIGH finding → actionable=true (was rubber-stamped)', () => {
+  const out = runInvoke(STUB_CODEX_NEEDS_ATTENTION);
+  assert.strictEqual(out.codex_verdict, 'needs-attention');
+  assert.strictEqual(out.codex_actionable_findings, true,
+    'a blocking verdict must make the receipt non-approving');
+  assert.match(out.codex_summary, /No ship/);
+  assert.strictEqual(out.codex_findings.length, 1);
+  assert.strictEqual(out.codex_findings[0].severity, 'high');
+});
+
+test('M3: verdict=needs-attention with NO findings → still actionable (verdict alone blocks)', () => {
+  const out = runInvoke(STUB_CODEX_NEEDS_ATTENTION_NO_FINDINGS);
+  assert.strictEqual(out.codex_verdict, 'needs-attention');
+  assert.strictEqual(out.codex_actionable_findings, true,
+    'actionable must not depend on an itemized findings array');
+});
+
+test('M3: approve + a surviving finding → actionable=true', () => {
+  const out = runInvoke(STUB_CODEX_FINDINGS);
+  assert.strictEqual(out.codex_verdict, 'approve');
+  assert.strictEqual(out.codex_actionable_findings, true);
+});
+
+test('M3: unreadable review payload → fail-closed actionable, verdict null', () => {
+  const out = runInvoke(STUB_CODEX_UNREADABLE);
+  assert.strictEqual(out.codex_verdict, null);
+  assert.strictEqual(out.codex_actionable_findings, true,
+    'an unreadable review cannot certify approval — fail closed');
 });
 
 test('codex-runner invoke path: stub findings → codex_actionable_findings=true', () => {

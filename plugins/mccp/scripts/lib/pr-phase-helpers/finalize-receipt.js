@@ -99,20 +99,36 @@ function deriveCodexFlags(codexResult) {
   } else if (codexResult.codex_outcome === 'deduped') {
     flags.push('--codex-dedupe-at-pr');
   }
-  // v1.20.3 — forward the Codex verdict onto the mccp-pr-codex receipt for audit
-  // completeness. codex-runner fail-stops (exit 12) on any non-'ok' / blocking
-  // review, so an 'invoked' outcome reaching finalize means Codex approved →
-  // 'converged'. disabled/skipped/deduped never ran Codex at the PR step →
-  // 'skipped'. Cross-gate dedupe reads plan/implement receipts (not this one),
-  // so this is audit-only, but keeps resolution.codex_verdict consistent across
-  // all three gate receipts. Present-only: absent codex_outcome forwards nothing.
+  // v1.20.3 — forward the Codex verdict onto the mccp-pr-codex receipt.
+  //
+  // v1.22.3 M3 (Implement-Codex R1 F1) — an 'invoked' outcome used to map
+  // unconditionally to 'converged'. The reasoning was that "codex-runner
+  // fail-stops on any non-ok/blocking review, so invoked means approved" — but
+  // that check is on the WRAPPER ENVELOPE (transport: classification/blocking),
+  // not on the review's verdict. An envelope with classification='ok' carrying
+  // verdict='needs-attention' reached here and was stamped 'converged': the
+  // receipt certified convergence for a "No ship" review, and because
+  // evaluateForDedupe keys on codex_verdict==='converged', that receipt could even
+  // authorize a later dedupe. Map from the REAL parsed verdict instead.
+  //
+  //   approve            → converged
+  //   any other verdict  → divergent   (needs-attention per the companion contract)
+  //   null (unreadable)  → unavailable (fail-closed: cannot certify approval)
+  //   disabled/skipped/deduped → skipped (Codex never ran at the PR step)
   const OUTCOME_TO_VERDICT = {
-    invoked: 'converged',
     disabled: 'skipped',
     skipped: 'skipped',
     deduped: 'skipped',
   };
-  const codexVerdict = OUTCOME_TO_VERDICT[codexResult.codex_outcome];
+  let codexVerdict = OUTCOME_TO_VERDICT[codexResult.codex_outcome];
+  if (codexResult.codex_outcome === 'invoked') {
+    const raw = codexResult.codex_verdict;
+    if (raw === null || raw === undefined) {
+      codexVerdict = 'unavailable';
+    } else {
+      codexVerdict = String(raw).trim().toLowerCase() === 'approve' ? 'converged' : 'divergent';
+    }
+  }
   if (codexVerdict) {
     flags.push('--codex-verdict');
     flags.push(codexVerdict);

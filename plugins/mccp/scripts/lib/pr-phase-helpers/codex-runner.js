@@ -27,7 +27,8 @@
 //   [--cwd <path>]
 // Stdout (JSON):
 //   { ok, codex_outcome, codex_rounds, codex_summary, codex_actionable_findings,
-//     lock_exit_ok, mutations, run_id, helper_manifest, codex_skip_reason }
+//     codex_verdict, codex_findings, lock_exit_ok, mutations, run_id,
+//     helper_manifest, codex_skip_reason }
 
 const fs = require('fs');
 const path = require('path');
@@ -46,6 +47,57 @@ function locateCodexInvoke() {
   const root = process.env.CLAUDE_PLUGIN_ROOT
     || path.resolve(__dirname, '..', '..', '..');
   return path.join(root, 'scripts', 'lib', 'codex-invoke.js');
+}
+
+// v1.22.3 M3 — READ THE ACTUAL REVIEW (PR-Codex gate blindness fix).
+//
+// codex-invoke.js's ok-path envelope is
+//   { ok, stdout, stderr, durationMs, classification, blocking, advisory }
+// The review itself lives entirely inside `.stdout` as the companion's JSON text.
+// The envelope has NO `summary`, NO `conclusion`, and NO `findings` of its own.
+//
+// This helper used to read `codexJson.summary || codexJson.conclusion` (always
+// undefined → empty summary) and hand the ENVELOPE to filterDesignFindings, which
+// looks for `.findings` (never present → malformed-input path → []). The result:
+// `codex_actionable_findings` was structurally ALWAYS false, so a `needs-attention`
+// verdict was rubber-stamped and the PR body's 합치 결론 was always blank —
+// i.e. the PR gate verified only THAT Codex ran, never WHAT it concluded.
+// Measured live on the v1.22.3 M3 branch: runner said actionable=false while the
+// same diff's raw stdout carried verdict="needs-attention" + a HIGH finding.
+//
+// plan.md / prp-implement.md already parse `.stdout` correctly (via
+// codex-bridge.parseVerdict); only the PR gate lacked it. Note that parseVerdict
+// is a free-TEXT keyword scan and does NOT recognize the STRUCTURED verdict
+// vocabulary, so it cannot be reused here: the companion's contract
+// (codex/prompts/adversarial-review.md) emits exactly `approve` | `needs-attention`.
+const APPROVING_VERDICTS = Object.freeze(new Set(['approve']));
+
+// parseReviewPayload(envelope) → { verdict, summary, findings, rounds } | null
+// null means "could not read the review" — callers MUST treat that as actionable
+// (fail-closed): an unreadable review cannot certify approval.
+function parseReviewPayload(envelope) {
+  let inner = null;
+  try { inner = JSON.parse((envelope && envelope.stdout) || ''); } catch (_) { return null; }
+  if (!inner || typeof inner !== 'object') return null;
+  // The companion wraps the model payload in `.result`; tolerate a bare payload.
+  const r = (inner.result && typeof inner.result === 'object') ? inner.result : inner;
+  if (typeof r.verdict !== 'string' || !r.verdict.trim()) return null;
+  return {
+    verdict: r.verdict.trim(),
+    summary: typeof r.summary === 'string' ? r.summary : '',
+    findings: Array.isArray(r.findings) ? r.findings : [],
+    rounds: Number.isFinite(inner.rounds) ? inner.rounds : (Number.isFinite(r.rounds) ? r.rounds : 1),
+  };
+}
+
+// isActionable({ review, filteredFindings }) → boolean
+// Actionable when the review could not be read (fail-closed), when the structured
+// verdict is not an approving one, or when any finding survived the design-scope
+// filter. The receipt's non-approving path keys off this.
+function isActionable(review, filteredFindings) {
+  if (!review) return true;
+  if (!APPROVING_VERDICTS.has(review.verdict.toLowerCase())) return true;
+  return (filteredFindings || []).length > 0;
 }
 
 // v1.13.0 M3 — does the PR diff touch a rendered design surface? This is the
@@ -185,6 +237,10 @@ function runMain(args) {
   let codexRounds = 0;
   let codexSummary = '';
   let codexActionableFindings = false;
+  // v1.22.3 M3 — the structured verdict + surviving findings, so the caller can
+  // put the ACTUAL review in the PR body instead of an empty 합치 결론.
+  let codexVerdict = null;
+  let codexFindings = [];
   let designFindingsDropped = 0;
   let a11yRoutedToImpeccable = false;
   let droppedFindingsDigest = null;
@@ -227,18 +283,31 @@ function runMain(args) {
       return fail('codex review failed (class=' + codexClass +
         ' exit=' + codexRes.status + ')', 12);
     }
+    // v1.22.3 M3 — read the REVIEW, not the envelope. `.stdout` carries the
+    // companion's JSON; the envelope has no verdict/summary/findings (see
+    // parseReviewPayload). A null payload is unreadable → fail-closed actionable.
+    const review = parseReviewPayload(codexJson);
+    if (!review) {
+      process.stderr.write('[mccp:codex-runner] could not parse the review payload from ' +
+        'codex-invoke stdout — treating as actionable (fail-closed: an unreadable ' +
+        'review cannot certify approval).\n');
+    }
     // v0.3.6 Task 8 — apply output-level filter when impeccable is honoring.
     // When impeccable is missing or kill-switch active, filter is identity
-    // (filteredFindings = original findings, dropped = []).
-    const filtered = filterDesignFindings(codexJson, { impeccableAvailable: impeccableAvailable });
+    // (filteredFindings = original findings, dropped = []). The filter reads
+    // `.findings`, so it must receive the parsed REVIEW, not the envelope.
+    const filtered = filterDesignFindings(review || { findings: [] },
+      { impeccableAvailable: impeccableAvailable });
     const findings = filtered.filteredFindings;
-    codexActionableFindings = findings.length > 0;
+    codexActionableFindings = isActionable(review, findings);
     designFindingsDropped = filtered.droppedFindings.length - filtered.a11yRoutedCount;
     a11yRoutedToImpeccable = filtered.a11yRoutedCount > 0;
     a11yFindings = filtered.a11yFindings || [];
     droppedFindingsDigest = computeDroppedDigest(filtered.droppedFindings);
-    codexRounds = codexJson.rounds || 1;
-    codexSummary = codexJson.summary || codexJson.conclusion || '';
+    codexRounds = (review && review.rounds) || codexJson.rounds || 1;
+    codexVerdict = review ? review.verdict : null;
+    codexSummary = review ? review.summary : '';
+    codexFindings = findings;
   }
 
   // 5. Kill heartbeat, then exit lock and capture mutations.
@@ -260,6 +329,11 @@ function runMain(args) {
     codex_rounds: codexRounds,
     codex_summary: codexSummary,
     codex_actionable_findings: codexActionableFindings,
+    // v1.22.3 M3 — surfaced so pr.md can inject the real verdict + findings into
+    // `## Codex Adversarial Review`. null verdict = the review was unreadable
+    // (codex_actionable_findings is then fail-closed true).
+    codex_verdict: codexVerdict,
+    codex_findings: codexFindings,
     codex_skip_reason: codexSkipReason,
     lock_exit_ok: lockExitOk,
     baseline_missing: baselineMissing,

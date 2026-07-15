@@ -25,24 +25,54 @@ test('deriveCodexFlags: outcome=deduped → --codex-dedupe-at-pr + --codex-verdi
   assert.deepStrictEqual(flags, ['--codex-dedupe-at-pr', '--codex-verdict', 'skipped']);
 });
 
-test('deriveCodexFlags: actionable findings → --codex-verdict converged + --codex-actionable-findings', () => {
-  // v1.20.3 — reaching finalize with outcome=invoked means codex-runner did not
-  // fail-stop (class ok, non-blocking) → 'converged'. Actionable findings are
-  // advisory (PR body inject) and tracked by their own flag.
+test('deriveCodexFlags: approve + actionable findings → converged + --codex-actionable-findings', () => {
+  // v1.22.3 M3 — 'invoked' alone no longer implies convergence. codex-runner's
+  // fail-stop is on the wrapper ENVELOPE (transport: classification/blocking),
+  // NOT on the review's verdict, so an approving verdict must be asserted
+  // explicitly. Findings that survive the scope filter still ride their own flag.
   const flags = deriveCodexFlags({
     codex_outcome: 'invoked',
+    codex_verdict: 'approve',
     codex_actionable_findings: true,
   });
   assert.deepStrictEqual(flags, ['--codex-verdict', 'converged', '--codex-actionable-findings']);
 });
 
-test('deriveCodexFlags: codex_outcome → codex_verdict mapping (v1.20.3 Task 4)', () => {
-  const verdictOf = (outcome) => {
-    const flags = deriveCodexFlags({ codex_outcome: outcome });
+// v1.22.3 M3 (Implement-Codex R1 F1) — the rubber-stamp regression. 'invoked' used
+// to map unconditionally to 'converged', so a needs-attention ("No ship") review
+// produced a receipt certifying convergence — and since evaluateForDedupe keys on
+// codex_verdict==='converged', that receipt could even authorize a later dedupe.
+test('M3: invoked + needs-attention → divergent (never stamps convergence)', () => {
+  const flags = deriveCodexFlags({
+    codex_outcome: 'invoked',
+    codex_verdict: 'needs-attention',
+    codex_actionable_findings: true,
+  });
+  const i = flags.indexOf('--codex-verdict');
+  assert.strictEqual(flags[i + 1], 'divergent');
+});
+
+test('M3: invoked + unreadable verdict (null) → unavailable (fail-closed)', () => {
+  const flags = deriveCodexFlags({
+    codex_outcome: 'invoked',
+    codex_verdict: null,
+    codex_actionable_findings: true,
+  });
+  const i = flags.indexOf('--codex-verdict');
+  assert.strictEqual(flags[i + 1], 'unavailable',
+    'an unreadable review cannot certify approval');
+});
+
+test('deriveCodexFlags: codex_outcome → codex_verdict mapping (v1.20.3 Task 4 · M3 verdict-aware)', () => {
+  const verdictOf = (outcome, codexVerdict) => {
+    const flags = deriveCodexFlags({ codex_outcome: outcome, codex_verdict: codexVerdict });
     const i = flags.indexOf('--codex-verdict');
     return i === -1 ? null : flags[i + 1];
   };
-  assert.strictEqual(verdictOf('invoked'), 'converged');
+  assert.strictEqual(verdictOf('invoked', 'approve'), 'converged');
+  assert.strictEqual(verdictOf('invoked', 'needs-attention'), 'divergent');
+  assert.strictEqual(verdictOf('invoked', null), 'unavailable');
+  // Non-invoked outcomes never ran Codex at the PR step — verdict-independent.
   assert.strictEqual(verdictOf('disabled'), 'skipped');
   assert.strictEqual(verdictOf('skipped'), 'skipped');
   assert.strictEqual(verdictOf('deduped'), 'skipped');

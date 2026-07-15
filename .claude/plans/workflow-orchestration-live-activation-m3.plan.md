@@ -200,4 +200,26 @@ node --test plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js
 
 ## Codex Implementation Review
 
-decision-set already converged in mccp-plan-codex review. No new implement-time decisions detected. Cross-gate dedupe applied.
+- 호출: `node plugins/mccp/scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, v0.2.2; class=ok, blocking=0) · `--impeccable-available`
+- 라운드 수: 1 (ACCEPT_NOW × HIGH가 R1에서 완전 해소 — escalate 조건 미충족, cap=1)
+- 합치 결론: **첫 진입 시엔 cross-gate dedupe 적용**(plan이 결정을 전부 사전 확정)이었으나, **PR 게이트에서 PR-Codex가 `needs-attention`(No ship) + HIGH를 냈고**(fan-out이 granted worker 수를 무시) 그 흡수 과정에서 **implement-time 결정이 새로 생겨 dedupe가 무효화**됐다 → Implement-Codex 재발화. R1이 `needs-attention` 3건 중 ACCEPT_NOW 2건(HIGH 1 + MEDIUM 1)을 흡수하고 MEDIUM 1건을 backlog로 이연 → converged.
+- YAGNI Triage:
+  | Finding | Severity | Verdict | Why |
+  |---|---|---|---|
+  | F1 `finalize-receipt`가 `invoked`를 무조건 `converged`로 매핑 — codex-runner가 verdict를 읽어도 receipt가 rubber-stamp 유지. `evaluateForDedupe`가 `codex_verdict==='converged'`를 보므로 후속 dedupe까지 승인 | HIGH | ACCEPT_NOW | gate-critical. 실제 verdict 기반 매핑으로 교체(`approve`→converged / 그 외→divergent / null→unavailable). 옛 주석의 가정("invoked면 승인")은 **envelope transport 검사**를 verdict 검사로 착각한 것 — 정정 |
+  | F3 `plan-fanout.js`가 `fleetKeys` 부재 시 4개 전부로 default — command-body 치환 누락/serialization drift면 granted 1인데 4 spawn | MEDIUM | ACCEPT_NOW | M3이 닫겠다 선언한 바로 그 우회. workflow 자체를 fail-safe로(부재 시 단일 관점 강등 + loud log). plan.md forward와 이중 방어 |
+  | F2 `isActionable`이 filtered findings보다 verdict를 우선 — scope-excluded design finding만으로 non-approve면 `findings=[]`인 채 불투명 차단 | MEDIUM | DEFER_TO_BACKLOG | 현 동작은 보수적 차단(안전 측)이고 `DESIGN_SCOPE_PREAMBLE`이 design finding 배출을 억제해 발생 조건이 좁음. 불투명성 개선은 별도 axis |
+- Deferred to backlog: 1 → `.claude/plans/codex-findings-backlog.md`
+- Open Questions: none (ACCEPT_NOW 2건 R1 완전 흡수 — 검증: finalize-receipt 매핑 6-case + fleetKeys 4-case + 회귀 green. auto-CRITICAL 카탈로그 해당 없음)
+- Codex session 참조: threadId `019f643d-ca37-7062-b98a-7d7484f39322` (PR-Codex R1) · Implement-Codex R1 (uncommitted-diff focus)
+
+### Scope expansion (사용자 승인)
+
+PR-Codex F1 흡수 과정에서 게이트 자체 결함이 드러나 사용자 결정으로 M3에 포함됨 — plan `Files to Change` 밖 2파일 추가:
+
+| File | Action | Why |
+|---|---|---|
+| `plugins/mccp/scripts/lib/pr-phase-helpers/codex-runner.js` | UPDATE | envelope `.stdout`에서 실제 review(verdict/summary/findings) 파싱. 기존엔 존재하지 않는 `.summary`/`.findings`를 envelope에서 읽어 `codex_actionable_findings`가 **구조적으로 항상 false** → PR-Codex가 `needs-attention`을 rubber-stamp |
+| `plugins/mccp/scripts/lib/pr-phase-helpers/finalize-receipt.js` | UPDATE | (F1) 실제 verdict 기반 receipt 매핑 |
+| `plugins/mccp/scripts/workflows/plan-fanout.js` | UPDATE | (F3) `fleetKeys` 부재 시 fail-safe 단일 강등 |
+| `plugins/mccp/scripts/lib/tests/pr-phase-helpers/{codex-runner,finalize-receipt}.test.js` | UPDATE | stub이 **실제 producer 계약**을 반영하도록 교정(기존 stub은 구현의 잘못된 가정을 인코딩해 suite가 green인 채 production이 blind했음) + rubber-stamp 회귀 |

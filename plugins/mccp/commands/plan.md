@@ -206,6 +206,22 @@ FANOUT_RUN=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(JSON.parse(
 FANOUT_REASON=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reason||"unknown")}catch{process.stdout.write("parse-error")}')
 FANOUT_MINREM=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).minRemaining||0))}catch{process.stdout.write("0")}')
 FANOUT_DEGRADED=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).degraded?"1":"0")}catch{process.stdout.write("0")}')
+# M3 (PR-Codex R1 F1) — the GRANTED fleet must reach the Workflow. reserveWorkers
+# can degrade fleetSize to 1, but the workflow defaults a missing fleetKeys to all
+# four perspectives — so a degraded reservation would record one worker and still
+# spawn four, and the lowered minRemaining would let the budget pre-guard pass on
+# one agent's budget while four ran. Deriving fleetKeys from the granted fleetSize
+# makes the runaway cap actually bind (it is M3's primary backstop now, so an
+# unenforced cap would make that claim false).
+FANOUT_FLEETSIZE=$(echo "$FANOUT_JSON" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).fleetSize||0))}catch{process.stdout.write("0")}')
+FANOUT_FLEET_KEYS=$(node -e '
+  // Mirror of plan-fanout.js PERSPECTIVE_ORDER — the workflow filters its CATALOG
+  // by these keys, so the prefix slice IS the spawned subset.
+  const order = ["architect", "security", "test", "explorer"];
+  const n = parseInt(process.argv[1], 10);
+  const keep = (Number.isFinite(n) && n >= 1 && n < order.length) ? order.slice(0, n) : order;
+  process.stdout.write(JSON.stringify(keep));
+' "$FANOUT_FLEETSIZE")
 
 if [ "$FANOUT_RUN" = "1" ]; then
   echo "[mccp:plan-fanout] fan-out 발화 (reason=$FANOUT_REASON degraded=$FANOUT_DEGRADED) — default on, MCCP_PLAN_FANOUT=off로 opt-out" 1>&2
@@ -222,10 +238,12 @@ When `FANOUT_RUN=1`, invoke the `Workflow` tool. This slash-command instruction 
 
     Workflow({
       scriptPath: "${CLAUDE_PLUGIN_ROOT}/scripts/workflows/plan-fanout.js",
-      args: { prdPath: "<PRD path>", planPath: "<draft plan path or null>", minRemaining: <FANOUT_MINREM> }
+      args: { prdPath: "<PRD path>", planPath: "<draft plan path or null>", minRemaining: <FANOUT_MINREM>, fleetKeys: <FANOUT_FLEET_KEYS> }
     })
 
-The script spawns the four read-only `mccp:fanout-*` perspectives in parallel (`effort:'low'`), applies its own budget pre-guard (skips without spawning a single agent when a `+Nk` target cannot cover the fleet), synthesizes deterministically, and returns `{ markdown, coverage, spent, skipped }`.
+The script spawns the read-only `mccp:fanout-*` perspectives named by `fleetKeys` in parallel (`effort:'low'`), applies its own budget pre-guard (skips without spawning a single agent when a `+Nk` target cannot cover the fleet), synthesizes deterministically, and returns `{ markdown, coverage, spent, skipped }`.
+
+**`fleetKeys` is load-bearing, not cosmetic** (M3 / PR-Codex R1 F1): it carries the fleet the runaway reserve actually GRANTED. Omit it and the workflow falls back to all four perspectives, so a near-cap or lock-exhausted session records one worker and still spawns four — the cap M3 promotes to primary backstop would not bind, and the lowered `minRemaining` would clear the budget pre-guard on one agent's budget while four ran. Always pass `<FANOUT_FLEET_KEYS>` derived from the oracle's `fleetSize`.
 
 ### 2.5.3 — Inject or fall back (fail-open)
 

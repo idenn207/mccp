@@ -425,3 +425,48 @@ test('subscription: absent context -> fail-open run', () => {
   assert.equal(r.run, true);
   assert.equal(r.reason, REASONS.OK_RUN);
 });
+
+// ── M3 follow-up (PR-Codex R1 F1) — a clamp of 0 must SKIP, not be ignored ────
+//
+// reserveWorkers now grants 0 when the counter lock is unavailable (an unrecordable
+// launch would bypass the cap). The old clamp block guarded on `c.n >= 1`, so a 0
+// fell through and left N at the FULL fleet — the fix would have been silently
+// inert. Skip instead: work.md's inline path spawns no agent and consumes no cap.
+
+const GREEN = function () { return { cost_usd: 1, threshold_tier: 'green', hard_ceiling_reached: false }; };
+
+function fleetWithClamp(clampN, extra) {
+  return resolveFleet(Object.assign({
+    env: {}, mergeStrategy: 'worktree-merge', requestedN: 4, costStateRead: GREEN,
+    runawayClamp: function () { return { n: clampN, degraded: true, reason: 'lock-exhausted' }; },
+  }, extra || {}));
+}
+
+test('R1 F1: runawayClamp n=0 → run:false + lock-exhausted (never a fleet)', function () {
+  const r = fleetWithClamp(0);
+  assert.equal(r.run, false, 'a launch that cannot be recorded must not be granted');
+  assert.equal(r.reason, REASONS.LOCK_EXHAUSTED);
+  assert.equal(r.degraded, true);
+  assert.equal(r.runawayReason, 'lock-exhausted');
+});
+
+test('R1 F1: n=0 skips on the metered path too, not just fail-open', function () {
+  const sticky = function () { return { cost_usd: 186.92, threshold_tier: 'critical', hard_ceiling_reached: true }; };
+  assert.equal(fleetWithClamp(0, { costStateRead: sticky }).reason, REASONS.LOCK_EXHAUSTED);
+});
+
+test('R1 F1: a normal degrade to 1 still RUNS (only 0 blocks)', function () {
+  const r = fleetWithClamp(1);
+  assert.equal(r.run, true, 'a recordable single worker is still useful progress');
+  assert.equal(r.n, 1);
+  assert.equal(r.degraded, true);
+});
+
+test('R1 F1: an ungated clamp (n=4) is unaffected', function () {
+  const r = resolveFleet({
+    env: {}, mergeStrategy: 'worktree-merge', requestedN: 4, costStateRead: GREEN,
+    runawayClamp: function (n) { return { n: n, degraded: false, reason: 'ok' }; },
+  });
+  assert.equal(r.run, true);
+  assert.equal(r.n, 4);
+});

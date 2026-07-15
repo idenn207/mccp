@@ -213,7 +213,7 @@ FANOUT_JSON=$(node -e '
 # reconcile point and this token must survive until then.
 GITDIR_FANOUT=$(git rev-parse --git-path mccp/tmp)
 mkdir -p "$GITDIR_FANOUT"
-rm -f "$GITDIR_FANOUT/fanout-reservation.json"
+rm -f "$GITDIR_FANOUT/fanout-reservation.json" "$GITDIR_FANOUT/fanout-result.json"
 echo "$FANOUT_JSON" | node -e '
   const fs=require("fs");
   let j={}; try{ j=JSON.parse(fs.readFileSync(0,"utf8")); }catch(_){}
@@ -243,6 +243,11 @@ FANOUT_FLEET_KEYS=$(node -e '
 
 if [ "$FANOUT_RUN" = "1" ]; then
   echo "[mccp:plan-fanout] fan-out 발화 (reason=$FANOUT_REASON degraded=$FANOUT_DEGRADED) — default on, MCCP_PLAN_FANOUT=off로 opt-out" 1>&2
+elif [ "$FANOUT_REASON" = "lock-exhausted" ]; then
+  # R1 F1 — the reserve granted 0: the counter lock was unavailable, so no agent
+  # launched here could be recorded and the cap would be bypassed. Inline Pattern
+  # Grounding spawns nothing, so the plan proceeds and the cap stays exact.
+  echo "[mccp:plan-fanout] runaway counter lock 고갈 — 예약 불가(granted 0). 기록되지 않는 launch를 막기 위해 인라인 Pattern Grounding으로 강등한다(에이전트 0개, cap 미소비). plan은 차단되지 않는다." 1>&2
 else
   echo "[mccp:plan-fanout] skipped reason=$FANOUT_REASON — using inline Pattern Grounding (default on; off로 opt-out했다면 정상)" 1>&2
 fi
@@ -277,14 +282,40 @@ The script spawns the read-only `mccp:fanout-*` perspectives named by `fleetKeys
 | success (`coverage > 0`) | granted | the fleet ran |
 | throw / `coverage === 0` | **granted** | agents may already have spawned then failed — stay conservative and count them |
 
+**The count is derived MECHANICALLY, not inferred (R1 F2).** An earlier revision had the LLM set a `FANOUT_ACTUAL_N` shell variable per this table, defaulting to `$RES_GRANTED` when unset — and the rows that say **0** are precisely the ones where the model never reaches that reasoning step, so the default committed a full phantom grant *permanently* (a committed entry leaves `open[]` and the lease can never reclaim it). Your only job now is to **write down the Workflow result verbatim**; `reconcile.js#deriveFanoutActualN` owns the mapping. Immediately after 2.5.2 resolves — success, skip, throw, or "the tool isn't available" — write the artifact:
+
+```bash
+GITDIR_FANOUT=$(git rev-parse --git-path mccp/tmp)
+# Fill from the ACTUAL Workflow result. Never invoked / tool absent → {"invoked":false}.
+# Invoked → {"invoked":true,"skipped":<bool>,"coverage":<number>}. On a throw, record
+# what you know: {"invoked":true,"skipped":false,"coverage":0}.
+echo '<result json>' > "$GITDIR_FANOUT/fanout-result.json"
+```
+
+If this artifact is missing, 2.5.3 does **not** reconcile: the reservation stays pending and the lease resolves it. That is the correct handling of "unknown" — pending is conservative (still counted) and self-healing, whereas guessing 0 would under-count a real launch and leave the cap over-permissive.
+
 ```bash
 GITDIR_FANOUT=$(git rev-parse --git-path mccp/tmp)
 if [ -f "$GITDIR_FANOUT/fanout-reservation.json" ]; then
   RES_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservation_id||"")}catch{process.stdout.write("")}' "$GITDIR_FANOUT/fanout-reservation.json")
   RES_GRANTED=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).granted||1))}catch{process.stdout.write("1")}' "$GITDIR_FANOUT/fanout-reservation.json")
-  # FANOUT_ACTUAL_N: the LLM sets this per the table above after reading the
-  # Workflow result — 0 when nothing spawned, else $RES_GRANTED.
-  #
+  # R1 F2 — actualN is DERIVED from the result artifact by deriveFanoutActualN, not
+  # inferred by the model into a shell var with a default. No artifact → empty →
+  # SKIP the reconcile entirely: the reservation stays pending (counted,
+  # conservative) and the lease reclaims it if nothing ever launched. There is
+  # deliberately no `:-` default here; a default is what made the zero-rows commit
+  # a permanent phantom.
+  FANOUT_ACTUAL_N=$(node -e '
+    const fs=require("fs");
+    const rc=require(process.argv[1]+"/scripts/lib/plan-fanout/reconcile");
+    let result=null;
+    try { result=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); } catch(_) {}
+    const d=rc.deriveFanoutActualN({ result:result, granted:parseInt(process.argv[3],10) });
+    if (d) { process.stderr.write("[mccp:plan-fanout] actualN="+d.actualN+" ("+d.reason+")\n"); process.stdout.write(String(d.actualN)); }
+  ' "${CLAUDE_PLUGIN_ROOT}" "$GITDIR_FANOUT/fanout-result.json" "$RES_GRANTED")
+  if [ -z "$FANOUT_ACTUAL_N" ]; then
+    echo "[mccp:plan-fanout] WARNING: fanout-result.json 없음/판독 불가 — reconcile을 건너뛴다. 예약 $RES_ID 는 pending으로 남아 counted(보수적)이며 lease(MCCP_ORCHESTRATION_RESERVATION_LEASE_MS)가 회수한다." 1>&2
+  else
   # R1 F1 — a nonzero exit means the commit did NOT land while agents really did
   # spawn; the lease would then drop them as "never launched" and under-count the
   # cap. Retry across the lock's 5s stale window. Unlike work.md this runs AFTER
@@ -295,7 +326,7 @@ if [ -f "$GITDIR_FANOUT/fanout-reservation.json" ]; then
   RECONCILED=0
   for attempt in 1 2 3; do
     if node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
-         --reservation "$RES_ID" --actual "${FANOUT_ACTUAL_N:-$RES_GRANTED}" \
+         --reservation "$RES_ID" --actual "$FANOUT_ACTUAL_N" \
          --session "${CLAUDE_SESSION_ID:-unknown}" 1>&2; then
       RECONCILED=1; break
     fi
@@ -305,6 +336,7 @@ if [ -f "$GITDIR_FANOUT/fanout-reservation.json" ]; then
     rm -f "$GITDIR_FANOUT/fanout-reservation.json"
   else
     echo "[mccp:plan-fanout] WARNING: reservation $RES_ID uncommitted after 3 attempts; token kept at $GITDIR_FANOUT/fanout-reservation.json. The runaway cap may under-count this fan-out." 1>&2
+  fi
   fi
 fi
 ```

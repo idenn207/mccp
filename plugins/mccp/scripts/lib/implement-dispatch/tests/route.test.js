@@ -114,3 +114,31 @@ test('every route enum value is reachable from the matrix', function () {
   });
   assert.equal(seen.size, 4, 'all 4 routes reachable: ' + Array.from(seen).join(','));
 });
+
+// ── M3 follow-up (PR-Codex R1 F1) — reserveDenied forces inline ───────────────
+//
+// Skipping the FLEET is not enough when the reserve grants 0: task and
+// workflow-single each still launch ONE worker, and with no reservation that
+// worker is invisible to the counter — the same per-call leak, just smaller.
+// Inline is the only route that launches nothing.
+
+test('R1 F1: reserveDenied → inline even with fleet args + Workflow available', function () {
+  assert.equal(resolveWorkRoute(base({
+    reserveDenied: true, hasFleetArgs: true, workflowAvailable: true,
+  })), ROUTES.INLINE);
+});
+
+test('R1 F1: reserveDenied → inline, never the single-worker task fallback', function () {
+  assert.equal(resolveWorkRoute(base({ reserveDenied: true, workflowAvailable: false })), ROUTES.INLINE);
+});
+
+test('R1 F1: reserveDenied → inline, never workflow-single', function () {
+  assert.equal(resolveWorkRoute(base({
+    env: WF_ON, reserveDenied: true, hasWorkflowArgs: true, workflowAvailable: true,
+  })), ROUTES.INLINE);
+});
+
+test('R1 F1: reserveDenied absent/false leaves every route unchanged', function () {
+  assert.equal(resolveWorkRoute(base({ hasFleetArgs: true, workflowAvailable: true })), ROUTES.WORKFLOW_PARALLEL);
+  assert.equal(resolveWorkRoute(base({ reserveDenied: false })), ROUTES.TASK);
+});

@@ -239,7 +239,13 @@ test('reserveWorkers: never grants 0 (degraded, never blocked)', function () {
   assert.equal(r.degraded, true);
 });
 
-test('reserveWorkers: lock exhaustion is fail-SAFE (grants 1, not the fleet)', function () {
+// PR-Codex R1 F1 — lock exhaustion grants ZERO, not 1. Granting 1 was fail-OPEN in
+// the only sense the cap cares about: no lock means no write, so that worker was
+// never recorded and no reservationId existed to reconcile it. Repeated exhaustion
+// leaked one untracked launch per call and MCCP_ORCHESTRATION_MAX_AGENTS was
+// bypassable without bound — at the exact point M3 promotes this counter to the
+// PRIMARY structural backstop.
+test('R1 F1: lock exhaustion grants 0 (fail-CLOSED — an unrecordable launch is not permitted)', function () {
   const p = tmpState();
   fs.mkdirSync(path.dirname(p), { recursive: true });
   // Hold the lock with a FRESH mtime so the stale-reclaim path cannot break it.
@@ -253,10 +259,32 @@ test('reserveWorkers: lock exhaustion is fail-SAFE (grants 1, not the fleet)', f
     process.stderr.write = orig;
     fs.unlinkSync(p + '.lock');
   }
-  assert.equal(r.granted, 1, 'an unverifiable counter must not grant a full fleet');
+  assert.equal(r.granted, 0, 'a launch that cannot be recorded must not be granted');
   assert.equal(r.degraded, true);
   assert.equal(r.reason, REASONS.LOCK_EXHAUSTED);
   assert.equal(r.launched, null, 'no count was committed');
+  assert.equal(r.reservationId, null, 'nothing was recorded, so there is nothing to reconcile');
+});
+
+// The leak this closes: N exhausted reserves used to hand out N untracked workers
+// while the persisted counter stayed at 0.
+test('R1 F1: repeated lock exhaustion cannot leak untracked launches', function () {
+  const p = tmpState();
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p + '.lock', String(process.pid));
+  const orig = process.stderr.write;
+  process.stderr.write = function () { return true; };
+  let total = 0;
+  try {
+    for (let i = 0; i < 5; i++) {
+      total += reserveWorkers({ sessionId: 'held', requestedN: 4, env: {}, statePath: p }).granted;
+    }
+  } finally {
+    process.stderr.write = orig;
+    fs.unlinkSync(p + '.lock');
+  }
+  assert.equal(total, 0, 'no worker is granted while the counter cannot be written');
+  assert.equal(readCounter({ sessionId: 'held', statePath: p, env: {} }).launched, 0);
 });
 
 test('reserveWorkers: a different session key resets the cumulative count', function () {
@@ -488,4 +516,49 @@ test('R1 F1: CLI exits 0 on a successful worker-spawning reconcile', function ()
     '--session', 's', '--state-path', p], { encoding: 'utf8' });
   assert.equal(r.status, 0);
   assert.equal(readCounter({ sessionId: 's', statePath: p }).launched, 4);
+});
+
+// ── M3 follow-up (PR-Codex R1 F3) — --actual is validated BEFORE reconcile ────
+//
+// `Number(args.actual)` used to run straight into reconcileReservation, which
+// coerces a non-finite actualN to 0 — subtracting the WHOLE reservation, removing
+// it from open[] (committing it), and exiting 0. Real launches then went
+// un-counted, the over-permissive direction this cap must never err in, and the
+// exit-11 guard could not catch it because it requires Number.isFinite(actualN).
+
+const { parseActualN } = runaway;
+
+test('R1 F3: parseActualN accepts non-negative integers only', function () {
+  assert.equal(parseActualN('0'), 0);
+  assert.equal(parseActualN('4'), 4);
+  assert.equal(parseActualN(undefined), null, '--actual omitted');
+  assert.equal(parseActualN(true), null, '--actual followed by another flag');
+  assert.equal(parseActualN('abc'), null);
+  assert.equal(parseActualN('-1'), null);
+  assert.equal(parseActualN('1.5'), null);
+  assert.equal(parseActualN(''), null);
+});
+
+// The reservation must be left EXACTLY as it was: untouched means still pending,
+// which is conservative (counted) and self-healing via the lease.
+[
+  { name: '--actual omitted', extra: [] },
+  { name: '--actual followed by a flag', extra: ['--actual', '--session', 'x'] },
+  { name: '--actual abc', extra: ['--actual', 'abc'] },
+  { name: '--actual -1', extra: ['--actual', '-1'] },
+].forEach(function (c) {
+  test('R1 F3: ' + c.name + ' → nonzero exit, reservation untouched', function () {
+    const p = tmpState();
+    const res = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: {} });
+    const before = fs.readFileSync(p, 'utf8');
+    const r = spawnSync(process.execPath, [RUNAWAY_CLI, 'reconcile',
+      '--reservation', res.reservationId, '--session', 's', '--state-path', p]
+      .concat(c.extra), { encoding: 'utf8' });
+    assert.notEqual(r.status, 0, 'a malformed count must never report success');
+    assert.equal(fs.readFileSync(p, 'utf8'), before,
+      'the reservation stays pending — the lease resolves it, never a guess');
+    const raw = runaway.readCounterRaw({ sessionId: 's', statePath: p });
+    assert.equal(raw.open.length, 1, 'still pending (not committed)');
+    assert.equal(raw.launched, 4, 'the conservative count is intact');
+  });
 });

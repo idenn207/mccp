@@ -350,3 +350,40 @@ test('subscription: absent context -> fail-open run (Codex F1)', () => {
   assert.equal(r.run, true);
   assert.equal(r.reason, REASONS.OK_RUN);
 });
+
+// ── M3 follow-up (PR-Codex R1 F1) — a clamp of 0 must SKIP, not be ignored ────
+//
+// Mirror of implement-dispatch/tests/budget.test.js. reserveWorkers grants 0 when
+// the counter lock is unavailable; the old `c.n >= 1 && c.n < fleet` guard let that
+// 0 fall through and kept the FULL fleet. plan.md's inline Pattern Grounding spawns
+// no agent, so skipping here never blocks a plan.
+
+const GREEN_CS = function () { return { cost_usd: 1, threshold_tier: 'green', hard_ceiling_reached: false }; };
+
+function fanoutWithClamp(clampN, extra) {
+  return resolveFanout(Object.assign({
+    env: {}, prdMode: true, costStateRead: GREEN_CS,
+    runawayClamp: function () { return { n: clampN, degraded: true, reason: 'lock-exhausted' }; },
+  }, extra || {}));
+}
+
+test('R1 F1: runawayClamp n=0 → run:false + lock-exhausted (never a fleet)', function () {
+  const r = fanoutWithClamp(0);
+  assert.equal(r.run, false);
+  assert.equal(r.reason, REASONS.LOCK_EXHAUSTED);
+  assert.equal(r.fleetSize, 0);
+  assert.equal(r.degraded, true);
+});
+
+test('R1 F1: n=0 skips on the metered path too, not just fail-open', function () {
+  const sticky = function () { return { cost_usd: 186.92, threshold_tier: 'critical', hard_ceiling_reached: true }; };
+  assert.equal(fanoutWithClamp(0, { costStateRead: sticky }).reason, REASONS.LOCK_EXHAUSTED);
+  assert.equal(fanoutWithClamp(0, { costStateRead: null }).reason, REASONS.LOCK_EXHAUSTED);
+});
+
+test('R1 F1: a normal degrade to 1 still RUNS (only 0 blocks)', function () {
+  const r = fanoutWithClamp(1);
+  assert.equal(r.run, true);
+  assert.equal(r.fleetSize, 1);
+  assert.equal(r.degraded, true);
+});

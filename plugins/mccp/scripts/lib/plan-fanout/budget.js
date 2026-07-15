@@ -34,7 +34,8 @@
 //   5. cost-tier ∈ autoDisableTiers       → TIER_*             (M3 default: EMPTY)
 //   6. cost_usd ≥ catastrophicUsd         → CATASTROPHIC_USD   (M3 replacement bomb)
 //   7. otherwise                          → OK_RUN + fleetSize + minRemaining
-// The injected runaway clamp then applies to EVERY run path (M3).
+// The injected runaway clamp then applies to EVERY run path (M3). A clamp of 0 (the
+// atomic reserve could not record the launch) skips with LOCK_EXHAUSTED.
 
 const subscription = require('../subscription');
 
@@ -57,6 +58,10 @@ const REASONS = Object.freeze({
   // cost-model-subscription M1 — positive context-overflow critical under
   // MCCP_SUBSCRIPTION (replaces the USD cost-state + tier gates).
   SUBSCRIPTION_OVERFLOW: 'subscription-overflow',
+  // M3 follow-up (PR-Codex R1 F1) — the injected reserve granted 0: it could not
+  // take the counter lock, so a launch here would go unrecorded and bypass the cap.
+  // Mirrors orchestration-runaway REASONS.LOCK_EXHAUSTED.
+  LOCK_EXHAUSTED: 'lock-exhausted',
 });
 
 const FLEET_SIZE = 4;
@@ -163,6 +168,17 @@ function resolveFanout(opts) {
     let runawayReason = null;
     if (typeof opts.runawayClamp === 'function') {
       const c = opts.runawayClamp(FLEET_SIZE);
+      // n === 0 — the atomic reserve refused to grant (PR-Codex R1 F1: the counter
+      // lock was unavailable, so any launch would be unrecorded and the cap would
+      // be bypassed). SKIP: plan.md then keeps the inline Pattern Grounding, which
+      // spawns no agent and consumes no cap, so the plan is still never blocked.
+      // Checked before the n >= 1 branch, which would otherwise ignore the 0 and
+      // leave the full fleet in place.
+      if (c && c.n === 0) {
+        return Object.assign(skip(c.reason || REASONS.LOCK_EXHAUSTED, tier), {
+          degraded: true, runawayReason: c.reason || REASONS.LOCK_EXHAUSTED,
+        });
+      }
       if (c && Number.isInteger(c.n) && c.n >= 1 && c.n < fleet) {
         fleet = c.n;
         degraded = c.degraded === true;

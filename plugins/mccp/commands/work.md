@@ -152,7 +152,7 @@ fi
 GITDIR=$(git rev-parse --git-path mccp/tmp)
 mkdir -p "$GITDIR"
 rm -f "$GITDIR/dispatch-fleet-args.json" "$GITDIR/dispatch-partitions.json" \
-      "$GITDIR/dispatch-fleet-prepare.json"   # clear stale
+      "$GITDIR/dispatch-fleet-prepare.json" "$GITDIR/dispatch-cap-denied.json"   # clear stale
 # M3 follow-up (R1 F1) — the reservation token's stale-clear lives HERE and ONLY
 # here: immediately before a new reservation is created. It must NEVER be added to
 # Step 3.prep's rm -f list. Order is prep-parallel → prep → route, and route is the
@@ -242,6 +242,18 @@ if [ "$ISOLATE" != "0" ] && [ "$PARALLEL_LC" != "0" ] && [ "$PARALLEL_LC" != "of
       if (j && typeof j.reservationId==="string" && j.reservationId)
         fs.writeFileSync(process.argv[1], JSON.stringify({ reservation_id:j.reservationId, granted:j.n||1 }));
     ' "$GITDIR/dispatch-fleet-reservation.json"
+    # M3 follow-up (PR-Codex R1 F1) — the reserve granted 0: the counter lock was
+    # unavailable, so NOTHING launched from here can be recorded. Mark it as an
+    # ARTIFACT (Step 3.route is a separate Bash invocation — a shell var would not
+    # survive, and the gate would silently no-op). route then forces `inline`, the
+    # only path that spawns no agent, keeping the cap's invariant exact. Note this
+    # fires only when the reserve was actually ATTEMPTED: every earlier skip
+    # (env-off / single-partition / merge-strategy) returns before the clamp runs,
+    # so their single-worker routes are unaffected.
+    if [ "$(echo "$FLEET" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reason||"")}catch{process.stdout.write("")}')" = "lock-exhausted" ]; then
+      echo '{"reason":"lock-exhausted"}' > "$GITDIR/dispatch-cap-denied.json"
+      echo "[mccp:work] runaway counter lock 고갈 — 예약 불가(granted 0). 기록되지 않는 launch를 막기 위해 인라인 implement로 강등한다(에이전트 0개, cap 미소비)." 1>&2
+    fi
     RUN=$(echo "$FLEET" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).run?"1":"0")}catch{process.stdout.write("0")}')
     FLEET_N=$(echo "$FLEET" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).n||1))}catch{process.stdout.write("1")}')
     MINREM=$(echo "$FLEET" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).minRemaining||0))}catch{process.stdout.write("0")}')
@@ -333,6 +345,9 @@ ROUTE=$(node -e '
     hasPrepare:has(gitdir+"/dispatch-prepare.json"),
     hasWorkflowArgs:has(gitdir+"/dispatch-workflow-args.json"),
     workflowAvailable:process.argv[4]==="1",
+    // R1 F1 — prep-parallel wrote this when the atomic reserve granted 0. Forces
+    // inline: no agent, nothing to record, cap invariant intact.
+    reserveDenied:has(gitdir+"/dispatch-cap-denied.json"),
   }));
 ' "$CLAUDE_PLUGIN_ROOT" "$GITDIR" "$ISOLATE" "$WORKFLOW_AVAILABLE")
 echo "[mccp:work] Step 3 route=$ROUTE" 1>&2

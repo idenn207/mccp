@@ -60,7 +60,9 @@
 //   8. budgetTotal set & unaffordable           → BUDGET_INSUFFICIENT     (N=1)
 //   9. otherwise                                → OK_RUN / COST_FAILOPEN + n + minRemaining
 // The injected runaway clamp then applies to EVERY run path (M3) — it only ever
-// lowers N, so a far-from-cap session is unaffected.
+// lowers N, so a far-from-cap session is unaffected. A clamp of 0 (the atomic
+// reserve could not record the launch) skips with LOCK_EXHAUSTED — see the clamp
+// block below.
 
 const subscription = require('../subscription');
 
@@ -85,6 +87,10 @@ const REASONS = Object.freeze({
   // cost-model-subscription M1 — positive context-overflow critical under
   // MCCP_SUBSCRIPTION (replaces the USD cost-state + tier gates, orders 4-6).
   SUBSCRIPTION_OVERFLOW: 'subscription-overflow',
+  // M3 follow-up (PR-Codex R1 F1) — the injected reserve granted 0: it could not
+  // take the counter lock, so a launch here would go unrecorded and bypass the cap.
+  // Mirrors orchestration-runaway REASONS.LOCK_EXHAUSTED.
+  LOCK_EXHAUSTED: 'lock-exhausted',
 });
 
 // MAX_WORKERS_DEFAULT (+ MCCP_WORK_PARALLEL_MAX override) is the per-dispatch
@@ -276,6 +282,16 @@ function resolveFleet(opts) {
   let runawayReason = null;
   if (typeof opts.runawayClamp === 'function') {
     const c = opts.runawayClamp(n);
+    // n === 0 — the atomic reserve refused to grant (PR-Codex R1 F1: the counter
+    // lock was unavailable, so any launch would be unrecorded and the cap would be
+    // bypassed). SKIP rather than build a fleet: the caller's inline path spawns no
+    // agent and therefore consumes no cap. Checked before the n >= 1 branch, which
+    // would otherwise ignore the 0 and leave N at the full fleet.
+    if (c && c.n === 0) {
+      return skip(c.reason || REASONS.LOCK_EXHAUSTED, {
+        tier: tier, degraded: true, runawayReason: c.reason || REASONS.LOCK_EXHAUSTED,
+      });
+    }
     if (c && Number.isInteger(c.n) && c.n >= 1) {
       if (c.n < n) n = c.n;
       degraded = c.degraded === true;

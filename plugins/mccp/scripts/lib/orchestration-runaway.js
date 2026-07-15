@@ -387,10 +387,24 @@ function bumpCounter(opts) {
 // `granted` is what the caller may actually launch and is ALREADY counted — the
 // caller must NOT call bumpCounter afterwards.
 //
-// Lock exhaustion is fail-SAFE, not fail-open: the counter cannot be verified, and
-// with the operational-USD block retired this cap is the primary structural
-// backstop, so the conservative floor (1) is granted rather than the full fleet.
-// One worker is still granted (never 0) — the pipeline is degraded, never blocked.
+// LOCK EXHAUSTION GRANTS 0 (PR-Codex R1 F1). An earlier revision granted 1 here and
+// called it "fail-safe, not fail-open". It was fail-OPEN in the only sense that
+// matters to a cap: no lock means no write, so that worker was never recorded and
+// no reservationId existed to reconcile it later. readCounter would never see it.
+// Repeated exhaustion therefore leaks one untracked launch per call and
+// MCCP_ORCHESTRATION_MAX_AGENTS is bypassed without bound — at the exact point M3
+// promotes this counter to the PRIMARY structural backstop. Granting launch
+// permission that cannot be recorded breaks the cap's whole invariant.
+//
+// Waiting longer is not the answer: acquireLock already retries LOCK_RETRY_MAX
+// times AND breaks locks older than STALE_LOCK_MS, so exhaustion means a LIVE
+// holder held it through the entire window. Pre-recording the debt is impossible —
+// that would need the lock we could not get.
+//
+// So: grant nothing. This does NOT block the pipeline. Both callers keep an inline
+// fallback that launches no agent at all (work.md → inline implement, plan.md →
+// inline Pattern Grounding), and inline consumes no cap. The invariant holds
+// without exception: EVERY agent launch is recorded.
 function reserveWorkers(opts) {
   opts = opts || {};
   const env = opts.env || process.env;
@@ -404,10 +418,11 @@ function reserveWorkers(opts) {
 
   const lock = acquireLock(p);
   if (!lock) {
-    warn('counter lock exhausted; granting 1 worker (fail-safe degrade — the cap ' +
-      'is the primary backstop, so an unverifiable counter must not grant a fleet).');
+    warn('counter lock exhausted; granting 0 workers (fail-CLOSED — a launch that ' +
+      'cannot be recorded would bypass the cap, and the caller has an inline ' +
+      'fallback that launches nothing).');
     return {
-      granted: 1, degraded: true, reason: REASONS.LOCK_EXHAUSTED,
+      granted: 0, degraded: true, reason: REASONS.LOCK_EXHAUSTED,
       maxAgents: maxAgents, launched: null,
       // No reservation was recorded, so there is nothing to reconcile later. A
       // null id keeps callers from inventing one.
@@ -554,7 +569,34 @@ function reconcileReservation(opts) {
 //                   the over-permissive direction this cap must never err in, and
 //                   the caller cannot see it because the shell said success and it
 //                   already deleted the token. → exit 11 so the caller halts/retries.
+//
+// --actual IS VALIDATED BEFORE reconcileReservation IS CALLED (PR-Codex R1 F3).
+// It used to go straight through `Number(args.actual)`, so a malformed invocation
+// silently corrupted the counter and reported success:
+//   --actual omitted        → Number(undefined) = NaN → reconcileReservation coerces
+//                             non-finite to 0 → the WHOLE reservation is subtracted
+//                             and committed → slots handed back → exit 0.
+//   --actual --session x    → args.actual === true → Number(true) = 1 → the count
+//                             becomes 1 regardless of reality.
+// Both under-count real launches — the over-permissive direction this cap must
+// never err in — and the exit-11 guard below could not catch them, because it
+// requires Number.isFinite(actualN) and NaN slips past. Reject up front instead:
+// an invalid count means we do not know the answer, and the reservation must be
+// left untouched (pending → the lease resolves it) rather than guessed at.
 const EXIT_RECONCILE_UNCOMMITTED = 11;
+const EXIT_USAGE = 2;
+
+// parseActualN(raw) → non-negative integer | null. `true` is the valueless-flag
+// form (`--actual --session x`) and is invalid, not 1.
+function parseActualN(raw) {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim();
+  if (s === '') return null;
+  const n = Number(s);
+  if (!Number.isInteger(n) || n < 0) return null;
+  return n;
+}
+
 function runCli(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i++) {
@@ -569,9 +611,16 @@ function runCli(argv) {
   if (cmd !== 'reconcile') {
     process.stderr.write('usage: orchestration-runaway.js reconcile --reservation <id> ' +
       '--actual <n> [--session <id>] [--state-path <path>]\n');
-    return 2;
+    return EXIT_USAGE;
   }
-  const actualN = Number(args.actual);
+  const actualN = parseActualN(args.actual);
+  if (actualN === null) {
+    warn('--actual must be a non-negative integer (the number of workers that ' +
+      'ACTUALLY launched); got ' + JSON.stringify(args.actual) + '. The reservation ' +
+      'was left untouched — it stays pending (counted, conservative) and the lease ' +
+      'reclaims it if nothing launched. Re-run with a real count.');
+    return EXIT_USAGE;
+  }
   const out = reconcileReservation({
     sessionId: args.session || process.env.CLAUDE_SESSION_ID || 'unknown',
     reservationId: typeof args.reservation === 'string' ? args.reservation : null,
@@ -579,7 +628,7 @@ function runCli(argv) {
     statePath: typeof args['state-path'] === 'string' ? args['state-path'] : undefined,
   });
   process.stdout.write(JSON.stringify(out) + '\n');
-  if (!out.reconciled && Number.isFinite(actualN) && actualN > 0) {
+  if (!out.reconciled && actualN > 0) {
     warn('reservation ' + args.reservation + ' could NOT be committed while actual=' +
       actualN + ' worker(s) are about to launch. Those launches would be recorded as ' +
       'pending and then dropped by the lease, under-counting the cap. Do NOT delete ' +
@@ -597,6 +646,8 @@ module.exports = {
   clampForRunaway: clampForRunaway,
   reserveWorkers: reserveWorkers,
   reconcileReservation: reconcileReservation,
+  runCli: runCli,
+  parseActualN: parseActualN,
   parseReservationLease: parseReservationLease,
   parseMaxAgents: parseMaxAgents,
   parseUsdBomb: parseUsdBomb,

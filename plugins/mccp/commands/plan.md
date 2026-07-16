@@ -381,9 +381,14 @@ if [ -f "$GITDIR_FANOUT/fanout-reservation.json" ]; then
   # a conservative over-count now, and it stays one until a later reconcile commits.
   RECONCILED=0
   for attempt in 1 2 3; do
+    # No --session (PR-Codex R1, 8th round): the CLI resolves it via
+    # resolveSessionKey(process.env) — the SAME precedence the reserve at 2.5.1 used.
+    # Passing ${CLAUDE_SESSION_ID:-unknown} would key the LEGACY var; under env skew
+    # (both vars set but differing) reconcile would look in the wrong bucket, exit 0 for
+    # actualN=0, and the caller would delete the token while the debt marker still pins
+    # the reservation — a permanent phantom pin.
     if node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
-         --reservation "$RES_ID" --actual "$FANOUT_ACTUAL_N" \
-         --session "${CLAUDE_SESSION_ID:-unknown}" 1>&2; then
+         --reservation "$RES_ID" --actual "$FANOUT_ACTUAL_N" 1>&2; then
       RECONCILED=1; break
     fi
     sleep 3

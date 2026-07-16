@@ -74,6 +74,35 @@ test('CLI reserve+reconcile with the shell "unknown" sentinel land in the SAME r
   }
 });
 
+test('CLI reserve+reconcile omit --session and stay in ONE bucket even when both session vars differ', function () {
+  // PR-Codex R1 (8th round): the 7th-round fix keyed reserve on CLAUDE_CODE_SESSION_ID
+  // but left reconcile passing the legacy CLAUDE_SESSION_ID explicitly. When the two are
+  // both set but differ, resolveCliSession honours the explicit legacy value, so reserve
+  // and reconcile split into two buckets and reconcile never finds its reservation (or
+  // deletes a token while a debt marker still pins it). With --session omitted, BOTH
+  // sides resolve identically via resolveSessionKey.
+  const p = tmpState();
+  const savedCode = process.env.CLAUDE_CODE_SESSION_ID;
+  const savedLegacy = process.env.CLAUDE_SESSION_ID;
+  process.env.CLAUDE_CODE_SESSION_ID = 'canonical-A';
+  process.env.CLAUDE_SESSION_ID = 'legacy-B-different';
+  try {
+    runaway.runCli(['reserve', '--n', '2', '--state-path', p]);   // no --session
+    const canon = runaway.readCounterRaw({ sessionId: 'canonical-A', statePath: p });
+    assert.equal(canon.launched, 2, 'reserve keyed the canonical CLAUDE_CODE_SESSION_ID');
+    assert.equal(runaway.readCounterRaw({ sessionId: 'legacy-B-different', statePath: p }).launched, 0,
+      'nothing leaked into the legacy bucket');
+    const resId = canon.open[0].id;
+    runaway.runCli(['reconcile', '--reservation', resId, '--actual', '2', '--state-path', p]);  // no --session
+    const after = runaway.readCounterRaw({ sessionId: 'canonical-A', statePath: p });
+    assert.equal(after.open.length, 0, 'reconcile found the reservation in the SAME canonical bucket');
+    assert.equal(after.launched, 2);
+  } finally {
+    if (savedCode === undefined) delete process.env.CLAUDE_CODE_SESSION_ID; else process.env.CLAUDE_CODE_SESSION_ID = savedCode;
+    if (savedLegacy === undefined) delete process.env.CLAUDE_SESSION_ID; else process.env.CLAUDE_SESSION_ID = savedLegacy;
+  }
+});
+
 // ── parseMaxAgents (loud fail-open) ───────────────────────────────────────────
 
 test('parseMaxAgents: default 24; positive override; fail-open on garbage/<=0', function () {

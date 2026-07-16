@@ -400,9 +400,13 @@ if [ -f "$GITDIR/dispatch-fleet-reservation.json" ]; then
     # handle we have on those launches.
     RECONCILED=0
     for attempt in 1 2 3; do
+      # No --session (PR-Codex R1, 8th round): the CLI resolves it via
+      # resolveSessionKey(process.env) — the SAME precedence the fleet reserve used.
+      # Passing ${CLAUDE_SESSION_ID:-unknown} would key the LEGACY var, and when it and
+      # CLAUDE_CODE_SESSION_ID are both set but differ, reserve and reconcile would land
+      # in different buckets — reconcile could never find its reservation.
       if node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
-           --reservation "$RES_ID" --actual "$ACTUAL_N" \
-           --session "${CLAUDE_SESSION_ID:-unknown}" 1>&2; then
+           --reservation "$RES_ID" --actual "$ACTUAL_N" 1>&2; then
         RECONCILED=1; break
       fi
       echo "[mccp:work] reconcile attempt $attempt failed (actual=$ACTUAL_N) — retrying" 1>&2
@@ -446,7 +450,7 @@ else
   ' "$CLAUDE_PLUGIN_ROOT" "$ROUTE")
   if [ "$NEEDS_RES" = "1" ]; then
     SINGLE_RES=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reserve \
-      --n 1 --session "${CLAUDE_SESSION_ID:-unknown}" 2>/dev/null)
+      --n 1 2>/dev/null)   # no --session: CLI resolveSessionKey — one bucket for reserve+reconcile (R1 8th round)
     SR_GRANTED=$(echo "$SINGLE_RES" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).granted||0))}catch{process.stdout.write("0")}')
     SR_ID=$(echo "$SINGLE_RES" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reservationId||"")}catch{process.stdout.write("")}')
     SR_REASON=$(echo "$SINGLE_RES" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reason||"unknown")}catch{process.stdout.write("unknown")}')
@@ -465,8 +469,7 @@ else
       RECONCILED=0
       for attempt in 1 2 3; do
         if node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
-             --reservation "$SR_ID" --actual 1 \
-             --session "${CLAUDE_SESSION_ID:-unknown}" 1>&2; then
+             --reservation "$SR_ID" --actual 1 1>&2; then   # no --session — see fleet reconcile above (R1 8th round)
           RECONCILED=1; break
         fi
         echo "[mccp:work] 단일 worker reconcile attempt $attempt 실패 — 재시도" 1>&2

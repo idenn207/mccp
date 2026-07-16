@@ -125,7 +125,7 @@ function previewFiring(opts) {
 
   // ── read-only observation of the session runaway counter ──────────────────
   let launched = 0;
-  let sessionId = (env && env.CLAUDE_SESSION_ID) || 'unknown';
+  let sessionId = runaway.resolveSessionKey(env);
   try {
     const rc = runawayRead() || {};
     if (Number.isFinite(rc.launched) && rc.launched >= 0) launched = Math.floor(rc.launched);
@@ -387,7 +387,7 @@ if (require.main === module) {
   }
 
   const env = process.env;
-  const sessionId = env.CLAUDE_SESSION_ID || 'unknown';
+  const sessionId = runaway.resolveSessionKey(env);
   const report = previewFiring({
     env: env,
     planText: planText,

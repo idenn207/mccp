@@ -210,7 +210,7 @@ if [ "$ISOLATE" != "0" ] && [ "$PARALLEL_LC" != "0" ] && [ "$PARALLEL_LC" != "of
       // replacement bomb detector far above it (Codex F1/F4).
       const usdBomb=runaway.parseUsdBomb(process.env);
       const catastrophicUsd=runaway.parseCatastrophicUsd(process.env);
-      const sessionId=process.env.CLAUDE_SESSION_ID||"unknown";
+      const sessionId=runaway.resolveSessionKey(process.env); // CLAUDE_CODE_SESSION_ID — must match Step 3.route reconcile's key
       // M3 follow-up (R1 F2) — capture the reservation id out of the closure. The
       // oracle signature stays pure/injected (it still only sees {n,degraded,reason});
       // the id rides alongside in the emitted JSON so Step 3.route can reconcile the

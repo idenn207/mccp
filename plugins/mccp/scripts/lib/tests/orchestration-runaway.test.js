@@ -29,6 +29,51 @@ function tmpState() {
   return path.join(dir, 'orchestration-runaway.json');
 }
 
+// ── session key resolution (PR-Codex R1, 7th round) ───────────────────────────
+//
+// The cap is session-keyed so a dead-controller pin resets next session. It read
+// CLAUDE_SESSION_ID, which the Claude Code CLI does NOT set (it exports
+// CLAUDE_CODE_SESSION_ID), so every run collapsed into one permanent shared 'unknown'
+// bucket that never reset — a single pin exhausted the cap for all future runs.
+
+test('resolveSessionKey: prefers the real runtime var, then legacy, then unknown', function () {
+  assert.equal(runaway.resolveSessionKey({ CLAUDE_CODE_SESSION_ID: 'real', CLAUDE_SESSION_ID: 'legacy' }), 'real');
+  assert.equal(runaway.resolveSessionKey({ MCCP_SESSION_ID: 'm', CLAUDE_CODE_SESSION_ID: 'real' }), 'm');
+  assert.equal(runaway.resolveSessionKey({ CLAUDE_SESSION_ID: 'legacy' }), 'legacy');
+  assert.equal(runaway.resolveSessionKey({}), 'unknown');
+});
+
+test('resolveCliSession: the shell "unknown"/empty sentinel resolves from env; a real id wins', function () {
+  assert.equal(runaway.resolveCliSession({ session: 'unknown' }, { CLAUDE_CODE_SESSION_ID: 'real' }), 'real');
+  assert.equal(runaway.resolveCliSession({ session: '' }, { CLAUDE_CODE_SESSION_ID: 'real' }), 'real');
+  assert.equal(runaway.resolveCliSession({}, { CLAUDE_CODE_SESSION_ID: 'real' }), 'real');
+  assert.equal(runaway.resolveCliSession({ session: 'sess-123' }, { CLAUDE_CODE_SESSION_ID: 'real' }), 'sess-123');
+});
+
+test('CLI reserve+reconcile with the shell "unknown" sentinel land in the SAME real-session bucket', function () {
+  // Regression guard: reserve (cliReserve) and reconcile (runCli) both pass --session
+  // "unknown" from the shell's ${CLAUDE_SESSION_ID:-unknown}. Before the fix they keyed
+  // 'unknown'; a library that resolved only ONE side would split them into two buckets
+  // and the reconcile would never find its reservation. Both must resolve identically.
+  const p = tmpState();
+  const saved = process.env.CLAUDE_CODE_SESSION_ID;
+  process.env.CLAUDE_CODE_SESSION_ID = 'ci-session-xyz';
+  try {
+    runaway.runCli(['reserve', '--n', '3', '--session', 'unknown', '--state-path', p]);
+    const raw = runaway.readCounterRaw({ sessionId: 'ci-session-xyz', statePath: p });
+    assert.equal(raw.launched, 3, 'reserve keyed the REAL session, not the unknown bucket');
+    assert.equal(raw.open.length, 1);
+    const resId = raw.open[0].id;
+    runaway.runCli(['reconcile', '--reservation', resId, '--actual', '3', '--session', 'unknown', '--state-path', p]);
+    const after = runaway.readCounterRaw({ sessionId: 'ci-session-xyz', statePath: p });
+    assert.equal(after.open.length, 0, 'reconcile found the reservation in the same real-session bucket');
+    assert.equal(after.launched, 3);
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
+    else process.env.CLAUDE_CODE_SESSION_ID = saved;
+  }
+});
+
 // ── parseMaxAgents (loud fail-open) ───────────────────────────────────────────
 
 test('parseMaxAgents: default 24; positive override; fail-open on garbage/<=0', function () {

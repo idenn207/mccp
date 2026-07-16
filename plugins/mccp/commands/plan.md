@@ -177,7 +177,7 @@ FANOUT_JSON=$(node -e '
   // path, not just the telemetry-absent one.
   const usdBomb = runaway.parseUsdBomb(process.env);
   const catastrophicUsd = runaway.parseCatastrophicUsd(process.env);
-  const sessionId = process.env.CLAUDE_SESSION_ID || "unknown";
+  const sessionId = runaway.resolveSessionKey(process.env); // CLAUDE_CODE_SESSION_ID — must match 2.5.3 reconcile's key
   let reservationId = null;
   const r = budget.resolveFanout({
     env: process.env,

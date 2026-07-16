@@ -299,7 +299,7 @@ function getDebtDir(opts) {
 // The permanent pin is the CONSERVATIVE (over-count) choice. The self-poisoning it
 // leaves — a dead-controller fan-out holding headroom for the rest of the session — is
 // bounded, not permanent: the counter is session-keyed (readCounterRaw returns fresh on
-// a different CLAUDE_SESSION_ID), so the next session resets it, and each incident pins
+// a different session key — see resolveSessionKey), so the next session resets it, and each incident pins
 // at most fleetSize (≤4) of MCCP_ORCHESTRATION_MAX_AGENTS. A bounded, self-resetting
 // liveness cost is the right price for never bypassing a safety cap.
 function readDebtIds(opts) {
@@ -546,6 +546,32 @@ function bumpCounter(opts) {
 // fallback that launches no agent at all (work.md → inline implement, plan.md →
 // inline Pattern Grounding), and inline consumes no cap. The invariant holds
 // without exception: EVERY agent launch is recorded.
+// resolveSessionKey(env) — the cap is session-keyed so a dead-controller pin resets on
+// the NEXT session (readCounterRaw returns fresh {launched:0} on a different key). That
+// reset is the whole reason a permanent debt pin is "bounded, not permanent". The
+// Claude Code runtime exposes the session id as CLAUDE_CODE_SESSION_ID; the older
+// CLAUDE_SESSION_ID this code used to read is NOT set by the CLI, so every reserve /
+// reconcile / preview fell through to the 'unknown' constant — collapsing every run on a
+// machine into ONE shared bucket that NEVER reset. A single pinned marker then exhausted
+// the cap for all future runs (PR-Codex R1, 7th round). Prefer an explicit mccp override,
+// then the real runtime var, then the legacy name, and only then the degraded shared
+// bucket (genuinely session-less contexts, e.g. a bare `node` invocation).
+function resolveSessionKey(env) {
+  env = env || process.env;
+  return env.MCCP_SESSION_ID || env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID || 'unknown';
+}
+
+// resolveCliSession(args, env) — a CLI `--session ''` or the literal `--session unknown`
+// is the shell's "no session" sentinel (`${CLAUDE_SESSION_ID:-unknown}` when the var is
+// unset), never a real id. Treat it as absent and resolve from the environment, so a
+// caller that still passes the old sentinel is keyed to the real session anyway (the fix
+// holds even for a shell call site left un-migrated). A real explicit id always wins.
+function resolveCliSession(args, env) {
+  const passed = typeof args.session === 'string' ? args.session.trim() : '';
+  if (passed && passed !== 'unknown') return passed;
+  return resolveSessionKey(env || process.env);
+}
+
 function reserveWorkers(opts) {
   opts = opts || {};
   const env = opts.env || process.env;
@@ -810,7 +836,7 @@ function runCli(argv) {
   }
   const statePath = typeof args['state-path'] === 'string' ? args['state-path'] : undefined;
   const out = reconcileReservation({
-    sessionId: args.session || process.env.CLAUDE_SESSION_ID || 'unknown',
+    sessionId: resolveCliSession(args, process.env),
     reservationId: typeof args.reservation === 'string' ? args.reservation : null,
     actualN: actualN,
     statePath: statePath,
@@ -859,7 +885,7 @@ function cliReserve(args) {
     return EXIT_USAGE;
   }
   const out = reserveWorkers({
-    sessionId: args.session || process.env.CLAUDE_SESSION_ID || 'unknown',
+    sessionId: resolveCliSession(args, process.env),
     requestedN: n,
     env: process.env,
     statePath: typeof args['state-path'] === 'string' ? args['state-path'] : undefined,
@@ -904,6 +930,8 @@ module.exports = {
   clampForRunaway: clampForRunaway,
   reserveWorkers: reserveWorkers,
   reconcileReservation: reconcileReservation,
+  resolveSessionKey: resolveSessionKey,
+  resolveCliSession: resolveCliSession,
   runCli: runCli,
   parseActualN: parseActualN,
   parseReservationLease: parseReservationLease,

@@ -357,7 +357,12 @@ test('read-only disk: CLI run leaves runaway.json + cost-current.json + STATE.md
   const before = { runaway: snap(runawayPath), cost: snap(costPath), state: snap(statePath) };
 
   const childEnv = Object.assign({}, process.env, {
-    HOME: tmp, USERPROFILE: tmp, CLAUDE_SESSION_ID: 'ro-test',
+    HOME: tmp, USERPROFILE: tmp,
+    // The session key is CLAUDE_CODE_SESSION_ID (the real runtime var); override it AND
+    // clear the higher-precedence MCCP override so resolveSessionKey lands on 'ro-test'
+    // and reads the seeded counter. (Inheriting the harness's real CLAUDE_CODE_SESSION_ID
+    // would otherwise win — exactly the precedence the 7th-round fix introduced.)
+    CLAUDE_CODE_SESSION_ID: 'ro-test', CLAUDE_SESSION_ID: 'ro-test', MCCP_SESSION_ID: '',
     // ensure no ambient opt-out/subscription bends the run
     MCCP_PLAN_FANOUT: '', MCCP_WORK_IMPLEMENT_PARALLEL: '', MCCP_SUBSCRIPTION: '',
   });

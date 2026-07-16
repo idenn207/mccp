@@ -273,8 +273,11 @@ fi
 # post-call handler is worthless exactly when that handler is missed. Pin with the
 # real debt marker BEFORE calling Workflow instead: the window closes, and a normal
 # 2.5.3 reconcile still commits and clears it (orchestration-runaway.js#clearDebt).
-# The pin decays after MCCP_ORCHESTRATION_DEBT_DECAY_HOURS so a dead controller
-# over-counts temporarily instead of poisoning the session forever.
+# The pin is PERMANENT — it never decays (PR-Codex R1 5th round rejected time-based
+# decay: a marker present after a controller death is proof those agents launched, so
+# aging it out would UNDER-count the cap). A dead controller over-counts for the rest of
+# the session; that self-poisoning is bounded (the counter is session-keyed, so the next
+# session resets, and each incident pins ≤ fleetSize of MCCP_ORCHESTRATION_MAX_AGENTS).
 #
 # Pin failure ⇒ DO NOT LAUNCH: an unrecordable launch is not permitted, and inline
 # Pattern Grounding spawns nothing. fan-out is a GROUND enhancement, so degrading
@@ -335,7 +338,7 @@ echo '<result json>' > "$GITDIR_FANOUT/fanout-result.json"
 
 If this artifact is missing, 2.5.3 does **not** reconcile: the reservation stays pending, **pinned by the debt marker written before the Workflow call**, and a later reconcile commits and clears it. That is the correct handling of "unknown" — guessing 0 would under-count a real launch and leave the cap over-permissive.
 
-> **The pin is what makes this safe** (Implement-Codex R1 F2, 7th round). An earlier revision of this note claimed a bare pending entry was "conservative (still counted) and self-healing". It was neither: pending entries are counted only until the lease expires them, at which point a safe over-count silently flips into an under-count. The lease is safe for `work.md` because its route boundary is provably pre-launch; fan-out has no such boundary, so it pins instead. The pin itself decays after `MCCP_ORCHESTRATION_DEBT_DECAY_HOURS` (default 6h) so a dead controller costs temporary headroom rather than poisoning the session permanently.
+> **The pin is what makes this safe** (Implement-Codex R1 F2, 7th round). An earlier revision of this note claimed a bare pending entry was "conservative (still counted) and self-healing". It was neither: pending entries are counted only until the lease expires them, at which point a safe over-count silently flips into an under-count. The lease is safe for `work.md` because its route boundary is provably pre-launch; fan-out has no such boundary, so it pins instead. The pin is **permanent** — PR-Codex R1 (5th-round PR gate) rejected time-based decay on it, because a marker present after a controller death is proof the agents launched, and aging it out would let `readCounter` subtract those real launches (under-count — the one direction the cap must never err). The self-poisoning a permanent pin leaves is bounded, not permanent: the counter is session-keyed, so the next session resets it, and each dead-controller incident pins at most `fleetSize` (≤4) of `MCCP_ORCHESTRATION_MAX_AGENTS`.
 
 ```bash
 GITDIR_FANOUT=$(git rev-parse --git-path mccp/tmp)
@@ -357,7 +360,7 @@ if [ -f "$GITDIR_FANOUT/fanout-reservation.json" ]; then
     if (d) { process.stderr.write("[mccp:plan-fanout] actualN="+d.actualN+" ("+d.reason+")\n"); process.stdout.write(String(d.actualN)); }
   ' "${CLAUDE_PLUGIN_ROOT}" "$GITDIR_FANOUT/fanout-result.json" "$RES_GRANTED")
   if [ -z "$FANOUT_ACTUAL_N" ]; then
-    echo "[mccp:plan-fanout] WARNING: fanout-result.json 없음/판독 불가 — reconcile을 건너뛴다. 예약 $RES_ID 는 Workflow 호출 전 debt marker로 pin돼 있어 lease가 prune하지 못한다(counted, 보수적). MCCP_ORCHESTRATION_DEBT_DECAY_HOURS(default 6h) 경과 후 자동 decay되거나, 뒤늦은 reconcile이 commit하며 청소한다." 1>&2
+    echo "[mccp:plan-fanout] WARNING: fanout-result.json 없음/판독 불가 — reconcile을 건너뛴다. 예약 $RES_ID 는 Workflow 호출 전 debt marker로 pin돼 있어 lease가 prune하지 못한다(counted, 보수적, 영구 pin). 뒤늦은 reconcile이 commit하며 청소하거나, 다음 세션에서 session-keyed counter가 리셋된다." 1>&2
   else
   # R1 F1 — a nonzero exit means the commit did NOT land while agents really did
   # spawn; the lease would then drop them as "never launched" and under-count the

@@ -726,98 +726,62 @@ test('F2: CLI pins the launches itself when it cannot commit them', function () 
   }
 });
 
-// ── debt decay (Implement-Codex R1 F2, 7th round) ─────────────────────────────
+// ── debt markers pin FOREVER (PR-Codex R1, 5th-round PR gate) ─────────────────
 //
-// The 5th round's debt marker pins a pending entry against the lease FOREVER. Safe
-// direction, but it reintroduces the permanent self-poisoning the lease exists to
-// prevent: a controller that dies after pinning consumes headroom for good. Decay is
-// the same time-axis answer cost-state.js#decayIfStale uses — the error starts as a
-// conservative over-count and self-heals instead of accumulating.
+// The 7th round briefly added time-based decay to these markers, reasoning that a
+// permanent pin re-introduced the self-poisoning the lease prevents. PR-Codex rejected
+// it: every debt marker is written by plan.md's fan-out IMMEDIATELY before the Workflow
+// call that launches the agents, so a marker surviving a controller death is evidence
+// that real workers launched. Decaying it lets readCounter lease-expire the still-open
+// reservation and subtract those real launches — an UNDER-count, the one over-permissive
+// direction a safety cap must never err in. The pin is permanent; the self-poisoning it
+// leaves is bounded (session-keyed counter resets next session; ≤fleetSize per incident).
 
 function ageFile(p, ms) {
   const t = new Date(Date.now() - ms);
   fs.utimesSync(p, t, t);
 }
 
-test('parseDebtDecayHours: default 6; 0 is a VALID kill switch; negative/garbage → default', function () {
-  const { parseDebtDecayHours, DEFAULT_DEBT_DECAY_HOURS } = runaway;
-  assert.equal(parseDebtDecayHours({}), DEFAULT_DEBT_DECAY_HOURS);
-  assert.equal(parseDebtDecayHours({ MCCP_ORCHESTRATION_DEBT_DECAY_HOURS: '12' }), 12);
-  // 0 disables decay = pin forever = the pre-decay behaviour. Unlike the lease (where
-  // 0 would restore self-poisoning and is rejected), that is the CONSERVATIVE choice
-  // here, so an operator may legitimately ask for it.
-  assert.equal(parseDebtDecayHours({ MCCP_ORCHESTRATION_DEBT_DECAY_HOURS: '0' }), 0);
-  assert.equal(parseDebtDecayHours({ MCCP_ORCHESTRATION_DEBT_DECAY_HOURS: '-3' }), DEFAULT_DEBT_DECAY_HOURS);
-  assert.equal(parseDebtDecayHours({ MCCP_ORCHESTRATION_DEBT_DECAY_HOURS: 'soon' }), DEFAULT_DEBT_DECAY_HOURS);
-});
-
-test('F2 decay: a stale debt marker stops pinning, so the lease can finally reclaim', function () {
+test('F2 pin: a debt marker NEVER decays — aged markers still count real launches', function () {
+  // PR-Codex R1 (5th round) regression: fan-out launched, the controller died before
+  // reconcile, and a lot of time passed. The pin is the only record those agents ran,
+  // so the cap must STILL count them however old the marker is.
   const p = tmpState();
   const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
   const res = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
   runaway.markDebt({ reservationId: res.reservationId, n: 4, statePath: p });
-  ageFile(path.join(runaway.getDebtDir({ statePath: p }), res.reservationId + '.json'), 7 * 3600000);
-
-  const view = runaway.readCounter({ sessionId: 's', statePath: p, env: env, now: Date.now() + 5000 });
-  assert.equal(view.launched, 0, 'a 7h-old pin under a 6h window releases; the session self-heals');
-  assert.equal(view.open.length, 0);
-});
-
-test('F2 decay: a fresh debt marker still pins (decay must not break the 5th-round fix)', function () {
-  const p = tmpState();
-  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
-  const res = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
-  runaway.markDebt({ reservationId: res.reservationId, n: 4, statePath: p });
-  ageFile(path.join(runaway.getDebtDir({ statePath: p }), res.reservationId + '.json'), 1 * 3600000);
-
-  const view = runaway.readCounter({ sessionId: 's', statePath: p, env: env, now: Date.now() + 5000 });
-  assert.equal(view.launched, 4, '1h < 6h — these workers really ran and stay counted');
-});
-
-test('F2 decay: MCCP_ORCHESTRATION_DEBT_DECAY_HOURS=0 pins forever (kill switch)', function () {
-  const p = tmpState();
-  const env = {
-    MCCP_ORCHESTRATION_MAX_AGENTS: '24',
-    MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1',
-    MCCP_ORCHESTRATION_DEBT_DECAY_HOURS: '0',
-  };
-  const res = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
-  runaway.markDebt({ reservationId: res.reservationId, n: 4, statePath: p });
+  // Age the marker far past any window a decay scheme might once have used.
   ageFile(path.join(runaway.getDebtDir({ statePath: p }), res.reservationId + '.json'), 999 * 3600000);
 
   const view = runaway.readCounter({ sessionId: 's', statePath: p, env: env, now: Date.now() + 5000 });
-  assert.equal(view.launched, 4, 'decay disabled → the pre-decay permanent pin is restored exactly');
+  assert.equal(view.launched, 4, 'the real launches stay counted no matter how old the pin is');
+  assert.equal(view.open.length, 1, 'the pinned reservation is not lease-expired');
 });
 
-test('F2 decay: the read side is VIEW-ONLY — a decayed marker stays on disk', function () {
+test('F2 pin: the read side is VIEW-ONLY — reading never unlinks a marker', function () {
   const p = tmpState();
   const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24' };
   const res = reserveWorkers({ sessionId: 's', requestedN: 2, statePath: p, env: env });
   const marker = path.join(runaway.getDebtDir({ statePath: p }), res.reservationId + '.json');
   runaway.markDebt({ reservationId: res.reservationId, n: 2, statePath: p });
-  ageFile(marker, 7 * 3600000);
 
-  assert.equal(runaway.readDebtIds({ statePath: p, env: env }).size, 0, 'dropped from the view');
+  assert.equal(runaway.readDebtIds({ statePath: p }).size, 1, 'the pin is honored');
   assert.equal(fs.existsSync(marker), true,
-    'but NOT unlinked — the read-only firing-preview must never mutate state');
+    'and reading never mutates disk — the firing-preview stays read-only');
 });
 
-test('F2 decay: reconcileReservation applies decay identically to readCounter', function () {
-  // The write side persists its pruning. If it disagreed with readCounter about which
-  // markers still pin, reconciling A would re-pin (or evict) B against the read view.
+test('F2 pin: self-poisoning is bounded — a different session reads fresh (launched 0)', function () {
+  // Why pinning forever is acceptable: the counter is session-keyed, so a dead-controller
+  // pin cannot cross into the next session. The bounded, self-resetting liveness cost is
+  // the right price for never bypassing the cap.
   const p = tmpState();
   const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
-  const stale = reserveWorkers({ sessionId: 's', requestedN: 3, statePath: p, env: env });
-  runaway.markDebt({ reservationId: stale.reservationId, n: 3, statePath: p });
-  ageFile(path.join(runaway.getDebtDir({ statePath: p }), stale.reservationId + '.json'), 7 * 3600000);
-  const live = reserveWorkers({ sessionId: 's', requestedN: 2, statePath: p, env: env });
+  const res = reserveWorkers({ sessionId: 's-old', requestedN: 4, statePath: p, env: env });
+  runaway.markDebt({ reservationId: res.reservationId, n: 4, statePath: p });
+  ageFile(path.join(runaway.getDebtDir({ statePath: p }), res.reservationId + '.json'), 999 * 3600000);
 
-  const rec = runaway.reconcileReservation({
-    sessionId: 's', reservationId: live.reservationId, actualN: 2, statePath: p, env: env,
-    now: Date.now() + 5000,
-  });
-  assert.equal(rec.reconciled, true);
-  assert.equal(rec.launched, 2, 'the decayed pin was released here too, exactly as readCounter sees it');
+  const fresh = runaway.readCounter({ sessionId: 's-new', statePath: p, env: env, now: Date.now() + 5000 });
+  assert.equal(fresh.launched, 0, 'a new session resets — the old pin does not leak headroom forward');
 });
 
 // ── CLI: reserve (Implement-Codex R1 F1, 7th round) ──────────────────────────

@@ -108,20 +108,6 @@ const DEFAULT_MAX_AGENTS = 24;
 const ENV_RESERVATION_LEASE_MS = 'MCCP_ORCHESTRATION_RESERVATION_LEASE_MS';
 const DEFAULT_RESERVATION_LEASE_MS = 600000; // 10 min — reserve→route is Bash ×3 + one LLM turn
 
-// Implement-Codex R1 F2 (7th round) — debt markers pin a pending entry against the
-// lease FOREVER, which is the safe direction but reintroduces exactly the permanent
-// self-poisoning the lease exists to prevent: a controller that dies after pinning
-// leaves headroom consumed for good, and the session degrades to inline until the
-// counter file is hand-deleted. cost-state.js#decayIfStale answers the same shape of
-// problem with a time axis, so debt does too. A marker older than this window stops
-// pinning and the lease may reclaim it — the error starts as a safe over-count and
-// self-heals instead of accumulating.
-//
-// The window must be MUCH larger than the lease: within it, "pinned" must outlast any
-// legitimate reconcile delay. 6h mirrors MCCP_COST_STATE_DECAY_HOURS.
-const ENV_DEBT_DECAY_HOURS = 'MCCP_ORCHESTRATION_DEBT_DECAY_HOURS';
-const DEFAULT_DEBT_DECAY_HOURS = 6;
-
 // M3 Codex F4 — back-compat kill switch restoring the M1 operational-USD bomb.
 const ENV_USD_BOMB = 'MCCP_ORCHESTRATION_USD_BOMB';
 // M3 Codex F1 — replacement bomb detector, deliberately far above the operational
@@ -201,28 +187,6 @@ function parseReservationLease(env) {
     return DEFAULT_RESERVATION_LEASE_MS;
   }
   return Math.floor(n);
-}
-
-// parseDebtDecayHours(env) → hours (>= 0). Mirror of cost-state.js#parseDecayMs.
-//
-// Unlike the lease, `0` IS a valid kill switch here: it disables decay, so markers pin
-// forever — the pre-decay behaviour, and the CONSERVATIVE direction (over-count). The
-// lease treats 0 as invalid because there it would restore self-poisoning; here 0 is
-// the self-poisoning-tolerant choice an operator may legitimately want. Negative and
-// non-finite values are still invalid.
-function parseDebtDecayHours(env) {
-  const raw = env && env[ENV_DEBT_DECAY_HOURS];
-  if (raw === undefined || raw === null || String(raw).trim() === '') {
-    return DEFAULT_DEBT_DECAY_HOURS;
-  }
-  const n = Number(String(raw).trim());
-  if (!Number.isFinite(n) || n < 0) {
-    warn(ENV_DEBT_DECAY_HOURS + ' must be a non-negative number of hours (0 disables ' +
-      'decay = pin forever); got "' + raw + '". Falling back to default ' +
-      DEFAULT_DEBT_DECAY_HOURS + '.');
-    return DEFAULT_DEBT_DECAY_HOURS;
-  }
-  return n;
 }
 
 // parseCatastrophicUsd(env) → positive USD amount (M3 Codex F1). Loud fail-open to
@@ -316,37 +280,34 @@ function getDebtDir(opts) {
   return getRunawayPath(opts) + '.debt';
 }
 
-// readDebtIds(opts) → Set<string> of ids that still PIN their pending entry.
-// Missing dir → empty. READ-ONLY: decayed markers are dropped from the returned view
-// only; nothing is unlinked here, so the firing-preview stays side-effect free (a
-// later reconcile is what actually clears a marker).
+// readDebtIds(opts) → Set<string> of ids that PIN their pending entry. Missing dir →
+// empty. READ-ONLY: nothing is unlinked here (a later reconcile is what clears a
+// marker), so the firing-preview stays side-effect free.
 //
-// Implement-Codex R1 F2 (7th round) — a marker older than parseDebtDecayHours stops
-// pinning, so the lease can finally reclaim an entry whose controller died. Decay is
-// keyed on file mtime (cost-state.js mirror) rather than the body's `at`, so an
-// unparsable marker still ages out instead of pinning forever.
+// A marker pins its entry FOREVER — it never ages out. PR-Codex R1 (5th-round PR gate)
+// rejected time-based decay here: every debt marker is written by plan.md's fan-out
+// IMMEDIATELY before the Workflow call that launches the agents, so a marker present
+// after a controller death is evidence that real workers launched. Aging it out lets
+// readCounter subtract those real launches (lease-expire the still-open reservation),
+// which UNDER-counts the cap — the one over-permissive direction it must never err in,
+// and with operational USD retired the cap is the primary backstop.
+//
+// The permanent pin is the CONSERVATIVE (over-count) choice. The self-poisoning it
+// leaves — a dead-controller fan-out holding headroom for the rest of the session — is
+// bounded, not permanent: the counter is session-keyed (readCounterRaw returns fresh on
+// a different CLAUDE_SESSION_ID), so the next session resets it, and each incident pins
+// at most fleetSize (≤4) of MCCP_ORCHESTRATION_MAX_AGENTS. A bounded, self-resetting
+// liveness cost is the right price for never bypassing a safety cap.
 function readDebtIds(opts) {
-  opts = opts || {};
-  const dir = getDebtDir(opts);
   let names = [];
   try {
-    names = fs.readdirSync(dir);
+    names = fs.readdirSync(getDebtDir(opts));
   } catch (_e) {
     return new Set();
   }
-  const decayHours = parseDebtDecayHours(opts.env || process.env);
-  const decayMs = decayHours * 3600000;
-  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const ids = new Set();
   for (let i = 0; i < names.length; i++) {
-    if (names[i].slice(-5) !== '.json') continue;
-    if (decayMs > 0) {
-      let st = null;
-      try { st = fs.statSync(path.join(dir, names[i])); } catch (_e) { st = null; }
-      // Unstattable → keep pinning (fail-safe: we cannot prove it is stale).
-      if (st && (now - st.mtimeMs) > decayMs) continue;
-    }
-    ids.add(names[i].slice(0, -5));
+    if (names[i].slice(-5) === '.json') ids.add(names[i].slice(0, -5));
   }
   return ids;
 }
@@ -721,10 +682,7 @@ function reconcileReservation(opts) {
     // R1 F2 (5th round) — this write PERSISTS the pruning of the other entries, so
     // it must honor debt markers exactly as readCounter does. Otherwise reconciling
     // reservation A would quietly evict B's known-launched workers.
-    // Forward env + now so debt DECAY (7th round F2) is applied identically on both
-    // sides. Omitting them here would let this write re-pin markers that readCounter
-    // already considers decayed — the two views must not disagree.
-    const debtIds = readDebtIds({ statePath: p, env: env, now: now });
+    const debtIds = readDebtIds({ statePath: p });
     const liveOthers = [];
     let expiredN = 0;
     for (let i = 0; i < others.length; i++) {
@@ -933,7 +891,6 @@ module.exports = {
   runCli: runCli,
   parseActualN: parseActualN,
   parseReservationLease: parseReservationLease,
-  parseDebtDecayHours: parseDebtDecayHours,
   parseMaxAgents: parseMaxAgents,
   parseUsdBomb: parseUsdBomb,
   parseCatastrophicUsd: parseCatastrophicUsd,
@@ -953,6 +910,4 @@ module.exports = {
   DEFAULT_CATASTROPHIC_USD: DEFAULT_CATASTROPHIC_USD,
   ENV_RESERVATION_LEASE_MS: ENV_RESERVATION_LEASE_MS,
   DEFAULT_RESERVATION_LEASE_MS: DEFAULT_RESERVATION_LEASE_MS,
-  ENV_DEBT_DECAY_HOURS: ENV_DEBT_DECAY_HOURS,
-  DEFAULT_DEBT_DECAY_HOURS: DEFAULT_DEBT_DECAY_HOURS,
 };

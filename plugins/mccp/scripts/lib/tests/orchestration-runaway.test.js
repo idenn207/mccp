@@ -726,6 +726,62 @@ test('F2: CLI pins the launches itself when it cannot commit them', function () 
   }
 });
 
+// ── actualN==0 + lock-fail must NOT leave a false pin (PR-Codex R1, 6th round) ─
+//
+// plan.md pre-pins every fan-out reservation immediately before the Workflow call.
+// When the Workflow launches 0 agents (in-sandbox budget skip / tool absent) the
+// reconcile runs with actualN=0; if it then cannot take the lock, the pre-pin is a
+// FALSE pin over zero launches. The CLI exits 0 for actualN=0 ("the lease will clean
+// it up") and the caller deletes the token — but the pin blocks the lease, so the
+// phantom over-counts PERMANENTLY and the live-activation paths self-disable under
+// contention. The fix: a lock-failed reconcile that learns actualN===0 clears the pin.
+
+test('R1 (6th round): actualN=0 + lock-fail clears the false pin so the lease reclaims the phantom', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
+  const res = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
+  runaway.markDebt({ reservationId: res.reservationId, n: 4, statePath: p }); // pre-pinned before Workflow
+  assert.equal(runaway.readDebtIds({ statePath: p }).size, 1);
+
+  // A live lock the reconcile cannot take → the commit fails for real (not by mock).
+  fs.writeFileSync(p + '.lock', String(process.pid));
+  try {
+    const rec = runaway.reconcileReservation({
+      sessionId: 's', reservationId: res.reservationId, actualN: 0, statePath: p, env: env,
+    });
+    assert.equal(rec.reconciled, false, 'lock held → cannot commit the release');
+    assert.equal(runaway.readDebtIds({ statePath: p }).size, 0,
+      '0 launches → the false pin is cleared lock-free so the lease can reclaim the phantom');
+  } finally {
+    try { fs.unlinkSync(p + '.lock'); } catch (_e) { /* already gone */ }
+  }
+
+  const view = runaway.readCounter({ sessionId: 's', statePath: p, env: env, now: Date.now() + 5000 });
+  assert.equal(view.launched, 0, 'the phantom is reclaimed after the lease — not pinned forever');
+});
+
+test('R1 (6th round): a real launch (actualN>0) is NEVER unpinned by a lock-fail', function () {
+  // The guard is EXACTLY actualN===0. A lock-failed reconcile that knows workers ran must
+  // keep the pin — under-counting real launches is the over-permissive direction the cap
+  // must never err in.
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
+  const res = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
+  runaway.markDebt({ reservationId: res.reservationId, n: 4, statePath: p });
+  fs.writeFileSync(p + '.lock', String(process.pid));
+  try {
+    runaway.reconcileReservation({
+      sessionId: 's', reservationId: res.reservationId, actualN: 4, statePath: p, env: env,
+    });
+    assert.equal(runaway.readDebtIds({ statePath: p }).size, 1,
+      'workers really launched → the pin stays even though the commit could not land');
+  } finally {
+    try { fs.unlinkSync(p + '.lock'); } catch (_e) { /* already gone */ }
+  }
+  const view = runaway.readCounter({ sessionId: 's', statePath: p, env: env, now: Date.now() + 5000 });
+  assert.equal(view.launched, 4, 'the real launches stay counted despite the lease elapsing');
+});
+
 // ── debt markers pin FOREVER (PR-Codex R1, 5th-round PR gate) ─────────────────
 //
 // The 7th round briefly added time-based decay to these markers, reasoning that a

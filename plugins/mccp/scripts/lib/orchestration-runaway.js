@@ -266,7 +266,11 @@ function getRunawayPath(opts) {
 // cap over-permissive, in the one direction it must never err.
 //
 // A debt marker pins such an entry: "these workers really launched; never expire
-// this." reconcile clears the marker when it finally commits.
+// this." reconcile clears the marker when it finally commits — or, if a lock-failed
+// reconcile learns actualN===0, immediately: a pin over zero launches is false and
+// would otherwise over-count a phantom forever (PR-Codex R1, 6th round). The permanent
+// pin only survives the case we NEVER learned the count (controller death), never the
+// case we learned it was zero.
 //
 // WHY A SEPARATE FILE INSTEAD OF A FLAG IN THE COUNTER: the counter needs the lock,
 // and the only situation that creates debt is precisely being unable to take the
@@ -648,6 +652,18 @@ function reconcileReservation(opts) {
 
   const lock = acquireLock(p);
   if (!lock) {
+    // PR-Codex R1 (6th round) — the warn below promises "the lease will reclaim it if
+    // nothing launched", but a debt marker pins the entry against exactly that lease.
+    // plan.md pre-pins EVERY fan-out reservation immediately before the Workflow call,
+    // so when the Workflow launches 0 agents (in-sandbox budget skip / tool absent) and
+    // the commit then cannot take the lock, the pin is FALSE: it protects zero real
+    // launches yet would over-count the phantom PERMANENTLY — the lease never reclaims a
+    // pinned entry, and this is the only reconcile the reservation gets. actualN===0
+    // asserts no real launches, so clear the pin lock-free (clearDebt needs no lock, the
+    // one thing we just failed to get): the lease then reclaims the 0-launch phantom and
+    // the permanent over-count degrades to a bounded one. Guard on the RAW opts value so
+    // a non-finite input (coerced to 0 at the top) can never clear a real launch's pin.
+    if (opts.actualN === 0) clearDebt({ reservationId: reservationId, statePath: p });
     warn('counter lock exhausted; reservation ' + reservationId + ' left pending ' +
       '(conservative — it stays counted and the lease will reclaim it if nothing launched).');
     return { reconciled: false, delta: 0, launched: null };

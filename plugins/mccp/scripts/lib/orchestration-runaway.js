@@ -108,6 +108,20 @@ const DEFAULT_MAX_AGENTS = 24;
 const ENV_RESERVATION_LEASE_MS = 'MCCP_ORCHESTRATION_RESERVATION_LEASE_MS';
 const DEFAULT_RESERVATION_LEASE_MS = 600000; // 10 min — reserve→route is Bash ×3 + one LLM turn
 
+// Implement-Codex R1 F2 (7th round) — debt markers pin a pending entry against the
+// lease FOREVER, which is the safe direction but reintroduces exactly the permanent
+// self-poisoning the lease exists to prevent: a controller that dies after pinning
+// leaves headroom consumed for good, and the session degrades to inline until the
+// counter file is hand-deleted. cost-state.js#decayIfStale answers the same shape of
+// problem with a time axis, so debt does too. A marker older than this window stops
+// pinning and the lease may reclaim it — the error starts as a safe over-count and
+// self-heals instead of accumulating.
+//
+// The window must be MUCH larger than the lease: within it, "pinned" must outlast any
+// legitimate reconcile delay. 6h mirrors MCCP_COST_STATE_DECAY_HOURS.
+const ENV_DEBT_DECAY_HOURS = 'MCCP_ORCHESTRATION_DEBT_DECAY_HOURS';
+const DEFAULT_DEBT_DECAY_HOURS = 6;
+
 // M3 Codex F4 — back-compat kill switch restoring the M1 operational-USD bomb.
 const ENV_USD_BOMB = 'MCCP_ORCHESTRATION_USD_BOMB';
 // M3 Codex F1 — replacement bomb detector, deliberately far above the operational
@@ -187,6 +201,28 @@ function parseReservationLease(env) {
     return DEFAULT_RESERVATION_LEASE_MS;
   }
   return Math.floor(n);
+}
+
+// parseDebtDecayHours(env) → hours (>= 0). Mirror of cost-state.js#parseDecayMs.
+//
+// Unlike the lease, `0` IS a valid kill switch here: it disables decay, so markers pin
+// forever — the pre-decay behaviour, and the CONSERVATIVE direction (over-count). The
+// lease treats 0 as invalid because there it would restore self-poisoning; here 0 is
+// the self-poisoning-tolerant choice an operator may legitimately want. Negative and
+// non-finite values are still invalid.
+function parseDebtDecayHours(env) {
+  const raw = env && env[ENV_DEBT_DECAY_HOURS];
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return DEFAULT_DEBT_DECAY_HOURS;
+  }
+  const n = Number(String(raw).trim());
+  if (!Number.isFinite(n) || n < 0) {
+    warn(ENV_DEBT_DECAY_HOURS + ' must be a non-negative number of hours (0 disables ' +
+      'decay = pin forever); got "' + raw + '". Falling back to default ' +
+      DEFAULT_DEBT_DECAY_HOURS + '.');
+    return DEFAULT_DEBT_DECAY_HOURS;
+  }
+  return n;
 }
 
 // parseCatastrophicUsd(env) → positive USD amount (M3 Codex F1). Loud fail-open to
@@ -280,17 +316,37 @@ function getDebtDir(opts) {
   return getRunawayPath(opts) + '.debt';
 }
 
-// readDebtIds(opts) → Set<string>. Missing dir → empty. READ-ONLY.
+// readDebtIds(opts) → Set<string> of ids that still PIN their pending entry.
+// Missing dir → empty. READ-ONLY: decayed markers are dropped from the returned view
+// only; nothing is unlinked here, so the firing-preview stays side-effect free (a
+// later reconcile is what actually clears a marker).
+//
+// Implement-Codex R1 F2 (7th round) — a marker older than parseDebtDecayHours stops
+// pinning, so the lease can finally reclaim an entry whose controller died. Decay is
+// keyed on file mtime (cost-state.js mirror) rather than the body's `at`, so an
+// unparsable marker still ages out instead of pinning forever.
 function readDebtIds(opts) {
+  opts = opts || {};
+  const dir = getDebtDir(opts);
   let names = [];
   try {
-    names = fs.readdirSync(getDebtDir(opts));
+    names = fs.readdirSync(dir);
   } catch (_e) {
     return new Set();
   }
+  const decayHours = parseDebtDecayHours(opts.env || process.env);
+  const decayMs = decayHours * 3600000;
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const ids = new Set();
   for (let i = 0; i < names.length; i++) {
-    if (names[i].slice(-5) === '.json') ids.add(names[i].slice(0, -5));
+    if (names[i].slice(-5) !== '.json') continue;
+    if (decayMs > 0) {
+      let st = null;
+      try { st = fs.statSync(path.join(dir, names[i])); } catch (_e) { st = null; }
+      // Unstattable → keep pinning (fail-safe: we cannot prove it is stale).
+      if (st && (now - st.mtimeMs) > decayMs) continue;
+    }
+    ids.add(names[i].slice(0, -5));
   }
   return ids;
 }
@@ -665,7 +721,10 @@ function reconcileReservation(opts) {
     // R1 F2 (5th round) — this write PERSISTS the pruning of the other entries, so
     // it must honor debt markers exactly as readCounter does. Otherwise reconciling
     // reservation A would quietly evict B's known-launched workers.
-    const debtIds = readDebtIds({ statePath: p });
+    // Forward env + now so debt DECAY (7th round F2) is applied identically on both
+    // sides. Omitting them here would let this write re-pin markers that readCounter
+    // already considers decayed — the two views must not disagree.
+    const debtIds = readDebtIds({ statePath: p, env: env, now: now });
     const liveOthers = [];
     let expiredN = 0;
     for (let i = 0; i < others.length; i++) {
@@ -758,9 +817,13 @@ function runCli(argv) {
     }
   }
   const cmd = argv[0] && argv[0].slice(0, 2) !== '--' ? argv[0] : null;
+  if (cmd === 'reserve') return cliReserve(args);
+  if (cmd === 'mark-debt') return cliMarkDebt(args);
   if (cmd !== 'reconcile') {
     process.stderr.write('usage: orchestration-runaway.js reconcile --reservation <id> ' +
-      '--actual <n> [--session <id>] [--state-path <path>]\n');
+      '--actual <n> [--session <id>] [--state-path <path>]\n' +
+      '       orchestration-runaway.js reserve --n <n> [--session <id>] [--state-path <path>]\n' +
+      '       orchestration-runaway.js mark-debt --reservation <id> [--n <n>] [--state-path <path>]\n');
     return EXIT_USAGE;
   }
   const actualN = parseActualN(args.actual);
@@ -802,6 +865,63 @@ function runCli(argv) {
   return 0;
 }
 
+// cliReserve — the atomic check-and-bump exposed for the COMMON pre-launch boundary
+// (Implement-Codex R1 F1, 7th round). Until now `reserveWorkers` was reachable only
+// through resolveFleet's injected runawayClamp, and resolveFleet itself runs only
+// behind work.md's 4-way parallel guard (ISOLATE≠0 ∧ PARALLEL≠off ∧
+// merge-strategy=worktree-merge ∧ partitions). Every single-worker route —
+// PARALLEL=off, merge-strategy disabled, single-partition, budget-insufficient —
+// launched a worker that the cap NEVER counted, so "every agent launch is recorded"
+// was false by construction and the cap only ever bounded parallel fleets.
+//
+// Step 3.route calls this when no fleet reservation exists and the route launches a
+// worker. granted 0 → the caller must go inline (a launch we cannot record is not
+// permitted). Always exits 0: `granted` is the answer, not an error condition.
+function cliReserve(args) {
+  const n = parseActualN(args.n);
+  if (n === null || n < 1) {
+    warn('--n must be a positive integer (the number of workers about to launch); got ' +
+      JSON.stringify(args.n) + '. Nothing was reserved.');
+    return EXIT_USAGE;
+  }
+  const out = reserveWorkers({
+    sessionId: args.session || process.env.CLAUDE_SESSION_ID || 'unknown',
+    requestedN: n,
+    env: process.env,
+    statePath: typeof args['state-path'] === 'string' ? args['state-path'] : undefined,
+  });
+  process.stdout.write(JSON.stringify(out) + '\n');
+  return 0;
+}
+
+// cliMarkDebt — pin a reservation BEFORE the launch that it accounts for
+// (Implement-Codex R1 F2, 7th round). plan.md's fan-out has no pre-launch boundary:
+// the Workflow call IS the launch. Writing the pin only AFTER the call returns leaves
+// a window where the controller dies mid-flight and the lease later prunes real
+// launches — readCounter honours debt markers, and nothing else. Pinning first closes
+// the window; a failed write means the caller must NOT launch.
+function cliMarkDebt(args) {
+  const reservationId = typeof args.reservation === 'string' ? args.reservation : null;
+  if (!reservationId) {
+    warn('--reservation <id> is required.');
+    return EXIT_USAGE;
+  }
+  const n = parseActualN(args.n);
+  const ok = markDebt({
+    reservationId: reservationId,
+    n: n === null ? undefined : n,
+    statePath: typeof args['state-path'] === 'string' ? args['state-path'] : undefined,
+  });
+  if (!ok) {
+    warn('could not write a debt marker for reservation ' + reservationId + '. The ' +
+      'caller MUST NOT launch: without the pin, a crash before reconcile lets the ' +
+      'lease drop real launches and under-count the cap.');
+    return EXIT_RECONCILE_UNCOMMITTED;
+  }
+  process.stdout.write(JSON.stringify({ pinned: true, reservation_id: reservationId }) + '\n');
+  return 0;
+}
+
 if (require.main === module) {
   process.exit(runCli(process.argv.slice(2)));
 }
@@ -813,6 +933,7 @@ module.exports = {
   runCli: runCli,
   parseActualN: parseActualN,
   parseReservationLease: parseReservationLease,
+  parseDebtDecayHours: parseDebtDecayHours,
   parseMaxAgents: parseMaxAgents,
   parseUsdBomb: parseUsdBomb,
   parseCatastrophicUsd: parseCatastrophicUsd,
@@ -832,4 +953,6 @@ module.exports = {
   DEFAULT_CATASTROPHIC_USD: DEFAULT_CATASTROPHIC_USD,
   ENV_RESERVATION_LEASE_MS: ENV_RESERVATION_LEASE_MS,
   DEFAULT_RESERVATION_LEASE_MS: DEFAULT_RESERVATION_LEASE_MS,
+  ENV_DEBT_DECAY_HOURS: ENV_DEBT_DECAY_HOURS,
+  DEFAULT_DEBT_DECAY_HOURS: DEFAULT_DEBT_DECAY_HOURS,
 };

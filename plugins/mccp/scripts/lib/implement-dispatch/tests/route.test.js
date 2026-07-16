@@ -8,7 +8,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { resolveWorkRoute, parseWorkflowMode, ROUTES } = require('../route');
+const { resolveWorkRoute, requiresReservation, parseWorkflowMode, ROUTES } = require('../route');
 
 const WF_ON = { MCCP_WORK_IMPLEMENT_WORKFLOW: '1' };
 const WF_OFF = {};
@@ -141,4 +141,45 @@ test('R1 F1: reserveDenied → inline, never workflow-single', function () {
 test('R1 F1: reserveDenied absent/false leaves every route unchanged', function () {
   assert.equal(resolveWorkRoute(base({ hasFleetArgs: true, workflowAvailable: true })), ROUTES.WORKFLOW_PARALLEL);
   assert.equal(resolveWorkRoute(base({ reserveDenied: false })), ROUTES.TASK);
+});
+
+// ── requiresReservation (Implement-Codex R1 F1, 7th round) ───────────────────
+//
+// The cap used to be reserved inside resolveFleet, which work.md reaches only behind
+// a 4-way parallel guard. task and workflow-single each spawn ONE worker and were
+// never reserved, so `launched` stayed 0 forever on the default single-worker config
+// and the cap bounded parallel fleets only — "every agent launch is recorded" was
+// false by construction. Step 3.route now reserves for any route this predicate
+// marks, which is the one boundary every launching route passes through.
+
+test('requiresReservation: every route that spawns an agent needs a recorded reservation', function () {
+  assert.equal(requiresReservation(ROUTES.TASK), true, 'task spawns one worker');
+  assert.equal(requiresReservation(ROUTES.WORKFLOW_SINGLE), true, 'workflow-single spawns one worker');
+  assert.equal(requiresReservation(ROUTES.WORKFLOW_PARALLEL), true, 'the fleet spawns N');
+});
+
+test('requiresReservation: inline is the ONLY route that consumes no cap', function () {
+  // This is what makes fail-closed affordable: refusing a reservation cannot deadlock
+  // the pipeline, because inline still runs the work — it just costs main-context
+  // tokens instead of an agent.
+  assert.equal(requiresReservation(ROUTES.INLINE), false);
+});
+
+test('requiresReservation: unknown/absent route is not treated as launching', function () {
+  // A route we cannot name did not come from resolveWorkRoute, so there is nothing to
+  // account for. The reserve is keyed off a route the oracle actually produced.
+  assert.equal(requiresReservation(undefined), false);
+  assert.equal(requiresReservation(''), false);
+  assert.equal(requiresReservation('skipped'), false);
+});
+
+test('requiresReservation: covers the oracle exhaustively — no ROUTES value is unclassified', function () {
+  // Guards the exact failure shape of the 5th→6th round: a new enum value added to
+  // one side and never taught to its consumer. If ROUTES grows, this fails until the
+  // predicate is updated deliberately.
+  const known = Object.keys(ROUTES).map(function (k) { return ROUTES[k]; });
+  assert.deepEqual(known.sort(), ['inline', 'task', 'workflow-parallel', 'workflow-single']);
+  known.forEach(function (r) {
+    assert.equal(typeof requiresReservation(r), 'boolean', r + ' must have an explicit answer');
+  });
 });

@@ -725,3 +725,177 @@ test('F2: CLI pins the launches itself when it cannot commit them', function () 
     try { fs.unlinkSync(p + '.lock'); } catch (_e) { /* already gone */ }
   }
 });
+
+// ── debt decay (Implement-Codex R1 F2, 7th round) ─────────────────────────────
+//
+// The 5th round's debt marker pins a pending entry against the lease FOREVER. Safe
+// direction, but it reintroduces the permanent self-poisoning the lease exists to
+// prevent: a controller that dies after pinning consumes headroom for good. Decay is
+// the same time-axis answer cost-state.js#decayIfStale uses — the error starts as a
+// conservative over-count and self-heals instead of accumulating.
+
+function ageFile(p, ms) {
+  const t = new Date(Date.now() - ms);
+  fs.utimesSync(p, t, t);
+}
+
+test('parseDebtDecayHours: default 6; 0 is a VALID kill switch; negative/garbage → default', function () {
+  const { parseDebtDecayHours, DEFAULT_DEBT_DECAY_HOURS } = runaway;
+  assert.equal(parseDebtDecayHours({}), DEFAULT_DEBT_DECAY_HOURS);
+  assert.equal(parseDebtDecayHours({ MCCP_ORCHESTRATION_DEBT_DECAY_HOURS: '12' }), 12);
+  // 0 disables decay = pin forever = the pre-decay behaviour. Unlike the lease (where
+  // 0 would restore self-poisoning and is rejected), that is the CONSERVATIVE choice
+  // here, so an operator may legitimately ask for it.
+  assert.equal(parseDebtDecayHours({ MCCP_ORCHESTRATION_DEBT_DECAY_HOURS: '0' }), 0);
+  assert.equal(parseDebtDecayHours({ MCCP_ORCHESTRATION_DEBT_DECAY_HOURS: '-3' }), DEFAULT_DEBT_DECAY_HOURS);
+  assert.equal(parseDebtDecayHours({ MCCP_ORCHESTRATION_DEBT_DECAY_HOURS: 'soon' }), DEFAULT_DEBT_DECAY_HOURS);
+});
+
+test('F2 decay: a stale debt marker stops pinning, so the lease can finally reclaim', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
+  const res = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
+  runaway.markDebt({ reservationId: res.reservationId, n: 4, statePath: p });
+  ageFile(path.join(runaway.getDebtDir({ statePath: p }), res.reservationId + '.json'), 7 * 3600000);
+
+  const view = runaway.readCounter({ sessionId: 's', statePath: p, env: env, now: Date.now() + 5000 });
+  assert.equal(view.launched, 0, 'a 7h-old pin under a 6h window releases; the session self-heals');
+  assert.equal(view.open.length, 0);
+});
+
+test('F2 decay: a fresh debt marker still pins (decay must not break the 5th-round fix)', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
+  const res = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
+  runaway.markDebt({ reservationId: res.reservationId, n: 4, statePath: p });
+  ageFile(path.join(runaway.getDebtDir({ statePath: p }), res.reservationId + '.json'), 1 * 3600000);
+
+  const view = runaway.readCounter({ sessionId: 's', statePath: p, env: env, now: Date.now() + 5000 });
+  assert.equal(view.launched, 4, '1h < 6h — these workers really ran and stay counted');
+});
+
+test('F2 decay: MCCP_ORCHESTRATION_DEBT_DECAY_HOURS=0 pins forever (kill switch)', function () {
+  const p = tmpState();
+  const env = {
+    MCCP_ORCHESTRATION_MAX_AGENTS: '24',
+    MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1',
+    MCCP_ORCHESTRATION_DEBT_DECAY_HOURS: '0',
+  };
+  const res = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
+  runaway.markDebt({ reservationId: res.reservationId, n: 4, statePath: p });
+  ageFile(path.join(runaway.getDebtDir({ statePath: p }), res.reservationId + '.json'), 999 * 3600000);
+
+  const view = runaway.readCounter({ sessionId: 's', statePath: p, env: env, now: Date.now() + 5000 });
+  assert.equal(view.launched, 4, 'decay disabled → the pre-decay permanent pin is restored exactly');
+});
+
+test('F2 decay: the read side is VIEW-ONLY — a decayed marker stays on disk', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24' };
+  const res = reserveWorkers({ sessionId: 's', requestedN: 2, statePath: p, env: env });
+  const marker = path.join(runaway.getDebtDir({ statePath: p }), res.reservationId + '.json');
+  runaway.markDebt({ reservationId: res.reservationId, n: 2, statePath: p });
+  ageFile(marker, 7 * 3600000);
+
+  assert.equal(runaway.readDebtIds({ statePath: p, env: env }).size, 0, 'dropped from the view');
+  assert.equal(fs.existsSync(marker), true,
+    'but NOT unlinked — the read-only firing-preview must never mutate state');
+});
+
+test('F2 decay: reconcileReservation applies decay identically to readCounter', function () {
+  // The write side persists its pruning. If it disagreed with readCounter about which
+  // markers still pin, reconciling A would re-pin (or evict) B against the read view.
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
+  const stale = reserveWorkers({ sessionId: 's', requestedN: 3, statePath: p, env: env });
+  runaway.markDebt({ reservationId: stale.reservationId, n: 3, statePath: p });
+  ageFile(path.join(runaway.getDebtDir({ statePath: p }), stale.reservationId + '.json'), 7 * 3600000);
+  const live = reserveWorkers({ sessionId: 's', requestedN: 2, statePath: p, env: env });
+
+  const rec = runaway.reconcileReservation({
+    sessionId: 's', reservationId: live.reservationId, actualN: 2, statePath: p, env: env,
+    now: Date.now() + 5000,
+  });
+  assert.equal(rec.reconciled, true);
+  assert.equal(rec.launched, 2, 'the decayed pin was released here too, exactly as readCounter sees it');
+});
+
+// ── CLI: reserve (Implement-Codex R1 F1, 7th round) ──────────────────────────
+//
+// reserveWorkers used to be reachable ONLY through resolveFleet's injected clamp, and
+// resolveFleet only runs behind work.md's 4-way parallel guard. Every single-worker
+// route launched an agent the cap never saw. This CLI is the common pre-launch
+// boundary Step 3.route now calls.
+
+function captureStdout(fn) {
+  const out = [];
+  const w = process.stdout.write;
+  process.stdout.write = function (s) { out.push(s); return true; };
+  let code;
+  try { code = fn(); } finally { process.stdout.write = w; }
+  return { code: code, text: out.join('') };
+}
+
+test('CLI reserve: grants and records at the common pre-launch boundary', function () {
+  const p = tmpState();
+  const r = captureStdout(function () {
+    return runaway.runCli(['reserve', '--n', '1', '--session', 's', '--state-path', p]);
+  });
+  assert.equal(r.code, 0, 'granted is the ANSWER, not an error condition — always exit 0');
+  const j = JSON.parse(r.text);
+  assert.equal(j.granted, 1);
+  assert.ok(j.reservationId, 'a recorded launch must hand back a handle to reconcile');
+  assert.equal(readCounter({ sessionId: 's', statePath: p, env: {} }).launched, 1);
+});
+
+test('CLI reserve: at cap it grants 0 with no id — the caller must go inline', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '2' };
+  bumpCounter({ sessionId: 's', delta: 2, statePath: p, env: env });
+  const prev = process.env.MCCP_ORCHESTRATION_MAX_AGENTS;
+  process.env.MCCP_ORCHESTRATION_MAX_AGENTS = '2';
+  let r;
+  try {
+    r = captureStdout(function () {
+      return runaway.runCli(['reserve', '--n', '1', '--session', 's', '--state-path', p]);
+    });
+  } finally {
+    if (prev === undefined) delete process.env.MCCP_ORCHESTRATION_MAX_AGENTS;
+    else process.env.MCCP_ORCHESTRATION_MAX_AGENTS = prev;
+  }
+  const j = JSON.parse(r.text);
+  assert.equal(j.granted, 0, 'the cap is spent');
+  assert.equal(j.reservationId, null, 'nothing recorded → nothing to reconcile → no id to invent');
+  assert.equal(j.reason, REASONS.CAP_EXHAUSTED);
+  assert.equal(readCounter({ sessionId: 's', statePath: p, env: env }).launched, 2,
+    'a refused reserve must not move the total');
+});
+
+test('CLI reserve: --n garbage reserves nothing (never guess a launch count)', function () {
+  const p = tmpState();
+  assert.notEqual(runaway.runCli(['reserve', '--n', 'abc', '--state-path', p]), 0);
+  assert.notEqual(runaway.runCli(['reserve', '--n', '0', '--state-path', p]), 0);
+  assert.notEqual(runaway.runCli(['reserve', '--state-path', p]), 0);
+  assert.equal(readCounter({ sessionId: 's', statePath: p, env: {} }).launched, 0);
+});
+
+// ── CLI: mark-debt (Implement-Codex R1 F2, 7th round) ────────────────────────
+
+test('CLI mark-debt: pins a reservation BEFORE its launch', function () {
+  const p = tmpState();
+  const env = { MCCP_ORCHESTRATION_MAX_AGENTS: '24', MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '1' };
+  const res = reserveWorkers({ sessionId: 's', requestedN: 4, statePath: p, env: env });
+  const r = captureStdout(function () {
+    return runaway.runCli(['mark-debt', '--reservation', res.reservationId, '--n', '4',
+      '--state-path', p]);
+  });
+  assert.equal(r.code, 0);
+  // The pin is what makes a post-launch crash survivable: fan-out has no pre-launch
+  // boundary, so the marker must already exist when Workflow is called.
+  const view = readCounter({ sessionId: 's', statePath: p, env: env, now: Date.now() + 5000 });
+  assert.equal(view.launched, 4, 'lease elapsed, but the pin holds the real launches');
+});
+
+test('CLI mark-debt: missing --reservation is a usage error, not a silent no-op', function () {
+  assert.notEqual(runaway.runCli(['mark-debt', '--n', '4']), 0);
+});

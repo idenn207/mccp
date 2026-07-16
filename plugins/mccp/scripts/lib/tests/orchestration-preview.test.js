@@ -383,3 +383,45 @@ test('read-only disk: CLI run leaves runaway.json + cost-current.json + STATE.md
 
   fs.rmSync(tmp, { recursive: true, force: true });
 });
+
+// ── single-worker cap projection (Implement-Codex R1 F1, 7th round) ──────────
+//
+// Step 3.route reserves one worker at the common pre-launch boundary when no fleet
+// reservation exists. At cap that reserve is refused and the route degrades to
+// inline. If the preview projected the raw route it would announce "task fires" for
+// a session that will run inline — the false green-light effective_fire exists to
+// block, and the same rule the 5th round applied to clampForRunaway: preview and the
+// firing path share the FORMULA; purity (no bump, no I/O) is what keeps it read-only.
+
+test('F1 7R: at cap a single-worker route projects INLINE, not task', function () {
+  const atCap = function () { return { launched: 4, sessionId: 's' }; };
+  const r = previewFiring({
+    env: { MCCP_ORCHESTRATION_MAX_AGENTS: '4', MCCP_WORK_IMPLEMENT_PARALLEL: '0' },
+    planText: TWO_TASK_PLAN, prdMode: true, costStateRead: nullCost, runawayRead: atCap,
+  });
+  assert.equal(r.runaway.headroom, 0);
+  assert.equal(r.runaway.single_reserve_denied, true, 'the boundary reserve would be refused');
+  assert.equal(r.route, ROUTES.INLINE, 'so the route the operator will actually get is inline');
+  assert.equal(r.effective_fire.task_fires, false, 'no false green-light');
+  assert.equal(r.effective_fire.inline, true);
+});
+
+test('F1 7R: with headroom the same config still projects a worker route', function () {
+  const r = previewFiring({
+    env: { MCCP_ORCHESTRATION_MAX_AGENTS: '4', MCCP_WORK_IMPLEMENT_PARALLEL: '0' },
+    planText: TWO_TASK_PLAN, prdMode: true, costStateRead: nullCost, runawayRead: read0,
+  });
+  assert.equal(r.runaway.single_reserve_denied, false);
+  assert.notEqual(r.route, ROUTES.INLINE, 'headroom exists → the reserve would be granted');
+  assert.equal(r.effective_fire.inline, false);
+});
+
+test('F1 7R: a parallel route is untouched — resolveFleet already reserved it', function () {
+  // hasFleetArgs ⇒ the fleet path reserved inside resolveFleet, so the boundary
+  // reserve must not double-count it.
+  const r = previewFiring({
+    env: {}, planText: TWO_TASK_PLAN, prdMode: true, costStateRead: nullCost, runawayRead: read0,
+  });
+  assert.equal(r.route, ROUTES.WORKFLOW_PARALLEL);
+  assert.equal(r.runaway.single_reserve_denied, false, 'not a single-worker route — no boundary reserve');
+});

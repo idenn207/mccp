@@ -242,17 +242,27 @@ if [ "$ISOLATE" != "0" ] && [ "$PARALLEL_LC" != "0" ] && [ "$PARALLEL_LC" != "of
       if (j && typeof j.reservationId==="string" && j.reservationId)
         fs.writeFileSync(process.argv[1], JSON.stringify({ reservation_id:j.reservationId, granted:j.n||1 }));
     ' "$GITDIR/dispatch-fleet-reservation.json"
-    # M3 follow-up (PR-Codex R1 F1) — the reserve granted 0: the counter lock was
-    # unavailable, so NOTHING launched from here can be recorded. Mark it as an
-    # ARTIFACT (Step 3.route is a separate Bash invocation — a shell var would not
-    # survive, and the gate would silently no-op). route then forces `inline`, the
-    # only path that spawns no agent, keeping the cap's invariant exact. Note this
-    # fires only when the reserve was actually ATTEMPTED: every earlier skip
-    # (env-off / single-partition / merge-strategy) returns before the clamp runs,
-    # so their single-worker routes are unaffected.
-    if [ "$(echo "$FLEET" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reason||"")}catch{process.stdout.write("")}')" = "lock-exhausted" ]; then
-      echo '{"reason":"lock-exhausted"}' > "$GITDIR/dispatch-cap-denied.json"
-      echo "[mccp:work] runaway counter lock 고갈 — 예약 불가(granted 0). 기록되지 않는 launch를 막기 위해 인라인 implement로 강등한다(에이전트 0개, cap 미소비)." 1>&2
+    # M3 follow-up (PR-Codex R1 F1) — the reserve granted 0, so NOTHING launched from
+    # the fleet path can be recorded. Mark it as an ARTIFACT (Step 3.route is a
+    # separate Bash invocation — a shell var would not survive, and the gate would
+    # silently no-op). route then forces `inline`, the only path that spawns no agent.
+    #
+    # PR-Codex R1 F1 (6th round) — this used to compare `reason` against the LITERAL
+    # "lock-exhausted". The 5th round ADDED a second zero-grant reason
+    # ('cap-exhausted') and wired all three oracles but not this caller, so at cap the
+    # artifact was never written and route happily launched an unrecorded worker — the
+    # very leak the 5th round claimed to close, reborn through its own new reason.
+    # The test is now STRUCTURAL and reason-agnostic: `runawayReason` is set by the
+    # budget oracle ONLY when the injected runawayClamp actually ran (skip() defaults
+    # it to null and every pre-clamp skip leaves it null), so
+    #   run == false  AND  runawayReason != null
+    # means exactly "the reserve was attempted and granted 0", whatever it was called.
+    # A third zero-grant reason cannot reopen the hole. The reason still travels in the
+    # artifact BODY for audit; route only tests presence.
+    FLEET_DENIED=$(echo "$FLEET" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write((!j.run && j.runawayReason)?String(j.runawayReason):"")}catch{process.stdout.write("")}')
+    if [ -n "$FLEET_DENIED" ]; then
+      printf '{"reason":"%s"}' "$FLEET_DENIED" > "$GITDIR/dispatch-cap-denied.json"
+      echo "[mccp:work] runaway 예약 거부($FLEET_DENIED) — granted 0. 기록되지 않는 launch를 막기 위해 인라인 implement로 강등한다(에이전트 0개, cap 미소비)." 1>&2
     fi
     RUN=$(echo "$FLEET" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).run?"1":"0")}catch{process.stdout.write("0")}')
     FLEET_N=$(echo "$FLEET" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).n||1))}catch{process.stdout.write("1")}')
@@ -412,6 +422,65 @@ if [ -f "$GITDIR/dispatch-fleet-reservation.json" ]; then
     fi
   else
     rm -f "$GITDIR/dispatch-fleet-reservation.json"
+  fi
+else
+  # ── Implement-Codex R1 F1 (7th round) — THE COMMON PRE-LAUNCH BOUNDARY ────────
+  #
+  # No fleet reservation exists. Until now that meant NO reservation at all: the
+  # reserve lived inside resolveFleet, which Step 3.prep-parallel only reaches behind
+  # a 4-way guard (ISOLATE≠0 ∧ PARALLEL≠off ∧ merge-strategy=worktree-merge ∧
+  # partitions). Every other configuration — PARALLEL=off, merge-strategy disabled,
+  # single-partition plan, budget-insufficient — fell straight through to `task` /
+  # `workflow-single`, each of which SPAWNS ONE WORKER. That worker was never
+  # reserved, so `launched` stayed 0 forever and the cap bounded only parallel
+  # fleets. "Every agent launch is recorded" was false by construction, and at cap a
+  # single-partition plan still launched, one per invocation, without bound.
+  #
+  # What decides whether the cap is consumed is the ROUTE — does an agent spawn? —
+  # never whether some upstream oracle happened to attempt a reserve. So reserve
+  # HERE, at the one boundary every launching route passes through, and keep the
+  # decision in the tested oracle (`requiresReservation`) rather than a shell literal.
+  NEEDS_RES=$(node -e '
+    const route=require(process.argv[1]+"/scripts/lib/implement-dispatch/route");
+    process.stdout.write(route.requiresReservation(process.argv[2])?"1":"0");
+  ' "$CLAUDE_PLUGIN_ROOT" "$ROUTE")
+  if [ "$NEEDS_RES" = "1" ]; then
+    SINGLE_RES=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reserve \
+      --n 1 --session "${CLAUDE_SESSION_ID:-unknown}" 2>/dev/null)
+    SR_GRANTED=$(echo "$SINGLE_RES" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).granted||0))}catch{process.stdout.write("0")}')
+    SR_ID=$(echo "$SINGLE_RES" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reservationId||"")}catch{process.stdout.write("")}')
+    SR_REASON=$(echo "$SINGLE_RES" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reason||"unknown")}catch{process.stdout.write("unknown")}')
+    if [ "$SR_GRANTED" = "0" ] || [ -z "$SR_ID" ]; then
+      # The cap is spent (or the counter lock is unavailable): this launch cannot be
+      # recorded, so it is not permitted. Inline spawns no agent and consumes no cap,
+      # so the pipeline still runs — it just costs main-context tokens.
+      printf '{"reason":"%s"}' "$SR_REASON" > "$GITDIR/dispatch-cap-denied.json"
+      ROUTE=inline
+      echo "[mccp:work] 단일 worker 예약 거부($SR_REASON) — route를 inline으로 강등한다(에이전트 0개, cap 미소비)." 1>&2
+    else
+      # Commit immediately: route is the last word on how many workers launch, and
+      # the answer here is exactly 1. Leaving it pending would hand a REAL launch to
+      # the lease, which subtracts it as "never ran" (under-count — the one direction
+      # a cap may never err in).
+      RECONCILED=0
+      for attempt in 1 2 3; do
+        if node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
+             --reservation "$SR_ID" --actual 1 \
+             --session "${CLAUDE_SESSION_ID:-unknown}" 1>&2; then
+          RECONCILED=1; break
+        fi
+        echo "[mccp:work] 단일 worker reconcile attempt $attempt 실패 — 재시도" 1>&2
+        sleep 3
+      done
+      if [ "$RECONCILED" != "1" ]; then
+        # Fail-closed, and free to be: route is the PRE-launch boundary, so halting
+        # un-spawns nothing (plan.md's fan-out cannot halt — hence its debt marker).
+        echo "[MCCP-GATE-STOP] 단일 worker 예약 $SR_ID 를 3회 시도에도 commit하지 못했다." 1>&2
+        echo "  지금 launch하면 cap이 그 worker를 영영 놓친다. inspect .claude/state/orchestration-runaway.json{,.lock}" 1>&2
+        exit 1
+      fi
+      echo "[mccp:work] 단일 worker 예약 commit (route=$ROUTE actual=1)" 1>&2
+    fi
   fi
 fi
 ```

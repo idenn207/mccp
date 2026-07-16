@@ -43,6 +43,28 @@ const ROUTES = Object.freeze({
   WORKFLOW_PARALLEL: 'workflow-parallel',
 });
 
+// requiresReservation(route) → true when the route SPAWNS AT LEAST ONE AGENT and
+// therefore must hold a recorded cap reservation before it runs.
+//
+// Implement-Codex R1 F1 (7th round). The cap used to be reserved inside
+// resolveFleet, which work.md only reaches behind a 4-way parallel guard
+// (ISOLATE≠0 ∧ PARALLEL≠off ∧ merge-strategy=worktree-merge ∧ partitions). Every
+// other route still launched a worker — task and workflow-single each spawn one —
+// with no reservation at all, so `launched` stayed 0 forever on the default
+// single-worker configuration and the cap bounded only parallel fleets. The
+// invariant "every agent launch is recorded" was false by construction.
+//
+// Predicate, not an enumeration of skip reasons: what decides whether the cap is
+// consumed is the ROUTE (does an agent spawn?), never whether some upstream oracle
+// happened to attempt a reserve. The 6th-round fix-task got this exactly backwards —
+// it classified "never reserved" as "consumes no cap", when it actually means
+// "consumes cap without recording".
+function requiresReservation(route) {
+  return route === ROUTES.TASK
+    || route === ROUTES.WORKFLOW_SINGLE
+    || route === ROUTES.WORKFLOW_PARALLEL;
+}
+
 const ENV_WORKFLOW = 'MCCP_WORK_IMPLEMENT_WORKFLOW';
 
 // parseWorkflowMode(env) → 'on' | 'off'. Default OFF (M2a kill switch — the Task
@@ -98,6 +120,7 @@ function resolveWorkRoute(opts) {
 
 module.exports = {
   resolveWorkRoute: resolveWorkRoute,
+  requiresReservation: requiresReservation,
   parseWorkflowMode: parseWorkflowMode,
   ROUTES: ROUTES,
   ENV_WORKFLOW: ENV_WORKFLOW,

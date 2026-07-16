@@ -241,15 +241,56 @@ FANOUT_FLEET_KEYS=$(node -e '
   process.stdout.write(JSON.stringify(keep));
 ' "$FANOUT_FLEETSIZE")
 
+FANOUT_RUNAWAY_REASON=$(echo "$FANOUT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write((!j.run && j.runawayReason)?String(j.runawayReason):"")}catch{process.stdout.write("")}')
 if [ "$FANOUT_RUN" = "1" ]; then
   echo "[mccp:plan-fanout] fan-out 발화 (reason=$FANOUT_REASON degraded=$FANOUT_DEGRADED) — default on, MCCP_PLAN_FANOUT=off로 opt-out" 1>&2
-elif [ "$FANOUT_REASON" = "lock-exhausted" ]; then
-  # R1 F1 — the reserve granted 0: the counter lock was unavailable, so no agent
-  # launched here could be recorded and the cap would be bypassed. Inline Pattern
-  # Grounding spawns nothing, so the plan proceeds and the cap stays exact.
-  echo "[mccp:plan-fanout] runaway counter lock 고갈 — 예약 불가(granted 0). 기록되지 않는 launch를 막기 위해 인라인 Pattern Grounding으로 강등한다(에이전트 0개, cap 미소비). plan은 차단되지 않는다." 1>&2
+elif [ -n "$FANOUT_RUNAWAY_REASON" ]; then
+  # R1 F1 — the reserve granted 0, so no agent launched here could be recorded and
+  # the cap would be bypassed. Inline Pattern Grounding spawns nothing, so the plan
+  # proceeds and the cap stays exact.
+  #
+  # PR-Codex R1 F1 (6th round) — was a literal compare against "lock-exhausted",
+  # which silently lost the 5th round's new 'cap-exhausted'. Unlike work.md this was
+  # only a message-specificity bug (a zero-grant already sets FANOUT_RUN=0, and 2.5.2
+  # never fires without it), but the same structural test is used here so the two
+  # callers cannot drift again.
+  echo "[mccp:plan-fanout] runaway 예약 거부($FANOUT_RUNAWAY_REASON) — granted 0. 기록되지 않는 launch를 막기 위해 인라인 Pattern Grounding으로 강등한다(에이전트 0개, cap 미소비). plan은 차단되지 않는다." 1>&2
 else
   echo "[mccp:plan-fanout] skipped reason=$FANOUT_REASON — using inline Pattern Grounding (default on; off로 opt-out했다면 정상)" 1>&2
+fi
+
+# ── Implement-Codex R1 F2 (7th round) — PIN BEFORE THE LAUNCH ──────────────────
+#
+# fan-out has no pre-launch boundary: the Workflow call in 2.5.2 IS the launch
+# point. 2.5.3 reconciles AFTER it returns, which is fine when it returns — but if
+# the controller dies mid-flight (timeout, crash, abandoned turn), nothing ever
+# reaches that block. The reservation then sits pending, and the lease prunes it as
+# "never launched" while the agents really ran: an under-count, the one direction a
+# cap may never err in.
+#
+# An earlier draft answered this with a separate "started" marker, but readCounter
+# honours debt markers and NOTHING else, so a started marker read only by the
+# post-call handler is worthless exactly when that handler is missed. Pin with the
+# real debt marker BEFORE calling Workflow instead: the window closes, and a normal
+# 2.5.3 reconcile still commits and clears it (orchestration-runaway.js#clearDebt).
+# The pin decays after MCCP_ORCHESTRATION_DEBT_DECAY_HOURS so a dead controller
+# over-counts temporarily instead of poisoning the session forever.
+#
+# Pin failure ⇒ DO NOT LAUNCH: an unrecordable launch is not permitted, and inline
+# Pattern Grounding spawns nothing. fan-out is a GROUND enhancement, so degrading
+# here never blocks the plan.
+if [ "$FANOUT_RUN" = "1" ] && [ -f "$GITDIR_FANOUT/fanout-reservation.json" ]; then
+  PIN_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservation_id||"")}catch{process.stdout.write("")}' "$GITDIR_FANOUT/fanout-reservation.json")
+  PIN_N=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).granted||1))}catch{process.stdout.write("1")}' "$GITDIR_FANOUT/fanout-reservation.json")
+  if [ -n "$PIN_ID" ]; then
+    if node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" mark-debt \
+         --reservation "$PIN_ID" --n "$PIN_N" 1>/dev/null 2>&1; then
+      echo "[mccp:plan-fanout] 예약 $PIN_ID pin 완료(debt marker) — Workflow 호출 전. 컨트롤러가 죽어도 lease가 실 launch를 prune하지 못한다." 1>&2
+    else
+      FANOUT_RUN=0
+      echo "[mccp:plan-fanout] WARNING: debt marker write 실패 — Workflow를 호출하지 않는다(기록 불가능한 launch 금지). 인라인 Pattern Grounding으로 강등. plan은 차단되지 않는다." 1>&2
+    fi
+  fi
 fi
 ```
 
@@ -292,7 +333,9 @@ GITDIR_FANOUT=$(git rev-parse --git-path mccp/tmp)
 echo '<result json>' > "$GITDIR_FANOUT/fanout-result.json"
 ```
 
-If this artifact is missing, 2.5.3 does **not** reconcile: the reservation stays pending and the lease resolves it. That is the correct handling of "unknown" — pending is conservative (still counted) and self-healing, whereas guessing 0 would under-count a real launch and leave the cap over-permissive.
+If this artifact is missing, 2.5.3 does **not** reconcile: the reservation stays pending, **pinned by the debt marker written before the Workflow call**, and a later reconcile commits and clears it. That is the correct handling of "unknown" — guessing 0 would under-count a real launch and leave the cap over-permissive.
+
+> **The pin is what makes this safe** (Implement-Codex R1 F2, 7th round). An earlier revision of this note claimed a bare pending entry was "conservative (still counted) and self-healing". It was neither: pending entries are counted only until the lease expires them, at which point a safe over-count silently flips into an under-count. The lease is safe for `work.md` because its route boundary is provably pre-launch; fan-out has no such boundary, so it pins instead. The pin itself decays after `MCCP_ORCHESTRATION_DEBT_DECAY_HOURS` (default 6h) so a dead controller costs temporary headroom rather than poisoning the session permanently.
 
 ```bash
 GITDIR_FANOUT=$(git rev-parse --git-path mccp/tmp)
@@ -314,7 +357,7 @@ if [ -f "$GITDIR_FANOUT/fanout-reservation.json" ]; then
     if (d) { process.stderr.write("[mccp:plan-fanout] actualN="+d.actualN+" ("+d.reason+")\n"); process.stdout.write(String(d.actualN)); }
   ' "${CLAUDE_PLUGIN_ROOT}" "$GITDIR_FANOUT/fanout-result.json" "$RES_GRANTED")
   if [ -z "$FANOUT_ACTUAL_N" ]; then
-    echo "[mccp:plan-fanout] WARNING: fanout-result.json 없음/판독 불가 — reconcile을 건너뛴다. 예약 $RES_ID 는 pending으로 남아 counted(보수적)이며 lease(MCCP_ORCHESTRATION_RESERVATION_LEASE_MS)가 회수한다." 1>&2
+    echo "[mccp:plan-fanout] WARNING: fanout-result.json 없음/판독 불가 — reconcile을 건너뛴다. 예약 $RES_ID 는 Workflow 호출 전 debt marker로 pin돼 있어 lease가 prune하지 못한다(counted, 보수적). MCCP_ORCHESTRATION_DEBT_DECAY_HOURS(default 6h) 경과 후 자동 decay되거나, 뒤늦은 reconcile이 commit하며 청소한다." 1>&2
   else
   # R1 F1 — a nonzero exit means the commit did NOT land while agents really did
   # spawn; the lease would then drop them as "never launched" and under-count the

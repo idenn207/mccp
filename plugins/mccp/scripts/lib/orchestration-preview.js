@@ -188,7 +188,27 @@ function previewFiring(opts) {
     isolate: isolate, hasFleetArgs: hasFleetArgs, hasPrepare: hasPrepare,
     hasWorkflowArgs: hasWorkflowArgs, workflowAvailable: workflowAvailable,
   };
-  const route = routeOracle.resolveWorkRoute(Object.assign({ env: env }, routeInputs));
+  let route = routeOracle.resolveWorkRoute(Object.assign({ env: env }, routeInputs));
+
+  // ── single-worker cap projection (Implement-Codex R1 F1, 7th round) ────────
+  // Step 3.route now reserves ONE worker at the common pre-launch boundary whenever
+  // no fleet reservation exists and the route launches an agent — the fix for the cap
+  // having only ever counted parallel fleets. At cap that reserve is refused and the
+  // route degrades to inline, so projecting the raw route here would report
+  // "task fires" for a session that will actually run inline: precisely the false
+  // green-light effective_fire exists to block (M2 Codex F1), and the same reasoning
+  // that made the 5th round share clampForRunaway's formula with the firing path.
+  //
+  // hasFleetArgs ⇒ resolveFleet already reserved, so the boundary reserve does not
+  // apply. Uses the injected PURE clamp — observing headroom must never consume it.
+  let singleReserveDenied = false;
+  if (!hasFleetArgs && routeOracle.requiresReservation(route)) {
+    const c = runawayClamp(1);
+    if (c && c.n === 0) {
+      singleReserveDenied = true;
+      route = routeOracle.ROUTES.INLINE;
+    }
+  }
 
   // ── merged-verify axis (enforce/warn/off) ──────────────────────────────────
   const mergedVerify = { mode: verifyOracle.parseMergedVerifyMode(env) };
@@ -235,6 +255,10 @@ function previewFiring(opts) {
       launched: launched,
       max_agents: maxAgents,
       headroom: Math.max(0, maxAgents - launched),
+      // 7th round F1 — the boundary reserve would be refused, so a route that names a
+      // worker actually degrades to inline. Surfaced so `route` is never silently
+      // rewritten: the projection is visible, not just its effect.
+      single_reserve_denied: singleReserveDenied,
     },
     fanout: fanout,                 // raw resolveFanout return (byte-consistent w/ direct call)
     fleet: fleet,                   // raw resolveFleet return | null (no --plan)
@@ -275,7 +299,10 @@ function renderHuman(r) {
         : ' — operational USD 비차단(M3); catastrophic $' + e.catastrophic_usd + '만 차단'))
     : 'ABSENT — fail-open green 가정 (cost_fail_open=' + e.cost_fail_open + ')'));
   lines.push('runaway  : launched=' + r.runaway.launched + '/' + r.runaway.max_agents +
-    ' headroom=' + r.runaway.headroom + ' (session=' + r.runaway.session_id + ')');
+    ' headroom=' + r.runaway.headroom + ' (session=' + r.runaway.session_id + ')' +
+    (r.runaway.single_reserve_denied
+      ? ' — cap 소진: 단일 worker 예약 거부 → route가 inline으로 강등된다'
+      : ''));
   lines.push('');
   lines.push('── component signals (oracle run — 필요조건이지 발화 보장 아님) ──');
   lines.push('  fan-out : run=' + r.fanout.run + ' reason=' + r.fanout.reason +

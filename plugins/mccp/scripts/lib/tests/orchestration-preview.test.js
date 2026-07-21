@@ -19,7 +19,7 @@ const { resolveFanout, REASONS: FANOUT_REASONS } = require('../plan-fanout/budge
 const { resolveFleet, parseMaxWorkers, REASONS: FLEET_REASONS } = require('../implement-dispatch/budget');
 const { resolveWorkRoute, ROUTES } = require('../implement-dispatch/route');
 const { partitionFromPlanText } = require('../implement-dispatch/partition');
-const { clampForRunaway } = require('../orchestration-runaway');
+const { clampForRunaway, parseUsdBomb, parseCatastrophicUsd } = require('../orchestration-runaway');
 
 const PREVIEW_SRC = path.join(__dirname, '..', 'orchestration-preview.js');
 
@@ -197,6 +197,68 @@ test('(h) caller_gates.*_assumed are projection labels; oracle_run vs effective_
     ['hasFleetArgs', 'hasPrepare', 'hasWorkflowArgs', 'isolate', 'workflowAvailable'].sort());
 });
 
+// ── M3: operational USD retired / catastrophic ceiling / usdBomb restore ──────
+
+// The measured dogfood cost-state that blocked every M2 live observation.
+function stickyCost() {
+  return { cost_usd: 186.92, threshold_tier: 'critical', hard_ceiling_reached: true };
+}
+
+test('M3 (a): sticky $186 critical + hard_ceiling → fleet run:true ok-run (was hard-ceiling)', function () {
+  const r = previewFiring({
+    env: {}, planText: TWO_TASK_PLAN, prdMode: true,
+    costStateRead: stickyCost, runawayRead: read0,
+  });
+  assert.equal(r.fleet.run, true);
+  assert.equal(r.fleet.reason, FLEET_REASONS.OK_RUN);
+  assert.equal(r.fanout.run, true);
+  assert.equal(r.fanout.reason, FANOUT_REASONS.OK_RUN);
+  // effective_fire stays route-composed (M2 F1) — run alone is never the verdict.
+  assert.equal(r.route, ROUTES.WORKFLOW_PARALLEL);
+  assert.equal(r.effective_fire.parallel_fires, true);
+  assert.equal(r.effective_fire.fanout_fires, true);
+  assert.equal(r.cost_state.present, true);
+  assert.equal(r.cost_state.cost_usd, 186.92);
+});
+
+test('M3 (b): cost_usd >= catastrophic → catastrophic-usd skip on both oracles', function () {
+  const r = previewFiring({
+    env: { MCCP_ORCHESTRATION_CATASTROPHIC_USD: '100' },
+    planText: TWO_TASK_PLAN, prdMode: true,
+    costStateRead: stickyCost, runawayRead: read0,
+  });
+  assert.equal(r.fleet.run, false);
+  assert.equal(r.fleet.reason, FLEET_REASONS.CATASTROPHIC_USD);
+  assert.equal(r.fanout.run, false);
+  assert.equal(r.fanout.reason, FANOUT_REASONS.CATASTROPHIC_USD);
+  assert.equal(r.effective_fire.parallel_fires, false);
+  assert.equal(r.effective_fire.fanout_fires, false);
+  assert.equal(r.env_summary.catastrophic_usd, 100);
+});
+
+test('M3 (c): usdBomb=1 + sticky critical → hard-ceiling skip restored', function () {
+  const r = previewFiring({
+    env: { MCCP_ORCHESTRATION_USD_BOMB: '1' },
+    planText: TWO_TASK_PLAN, prdMode: true,
+    costStateRead: stickyCost, runawayRead: read0,
+  });
+  assert.equal(r.fleet.run, false);
+  assert.equal(r.fleet.reason, FLEET_REASONS.HARD_CEILING);
+  assert.equal(r.fanout.run, false);
+  assert.equal(r.fanout.reason, FANOUT_REASONS.HARD_CEILING);
+  assert.equal(r.env_summary.usd_bomb, true);
+  assert.equal(r.effective_fire.parallel_fires, false);
+});
+
+test('M3: env_summary surfaces both new axes with their defaults', function () {
+  const r = previewFiring({
+    env: {}, planText: TWO_TASK_PLAN, prdMode: true,
+    costStateRead: greenCost, runawayRead: read0,
+  });
+  assert.equal(r.env_summary.usd_bomb, false);
+  assert.equal(r.env_summary.catastrophic_usd, 500);
+});
+
 // ── byte-consistency: preview sub-objects == direct oracle calls (no re-impl) ──
 
 test('consistency: preview.fanout/fleet/route == direct resolveFanout/resolveFleet/resolveWorkRoute', function () {
@@ -209,15 +271,21 @@ test('consistency: preview.fanout/fleet/route == direct resolveFanout/resolveFle
   const launched = 0;
   const clamp = function (n) { return clampForRunaway({ requestedN: n, launchedSoFar: launched, env: env }); };
 
+  // M3 — the direct calls must forward the same usdBomb/catastrophicUsd the
+  // preview parses, otherwise the preview verdict could drift from real firing.
   const directFanout = resolveFanout({
-    env: env, prdMode: true, costStateRead: greenCost, costFailOpen: true, runawayClamp: clamp,
+    env: env, prdMode: true, costStateRead: greenCost, costFailOpen: true,
+    usdBomb: parseUsdBomb(env), catastrophicUsd: parseCatastrophicUsd(env),
+    runawayClamp: clamp,
   });
   assert.deepEqual(preview.fanout, directFanout);
 
   const part = partitionFromPlanText(TWO_TASK_PLAN, parseMaxWorkers(env));
   const directFleet = resolveFleet({
     env: env, mergeStrategy: 'worktree-merge', requestedN: part.n,
-    costStateRead: greenCost, costFailOpen: true, runawayClamp: clamp,
+    costStateRead: greenCost, costFailOpen: true,
+    usdBomb: parseUsdBomb(env), catastrophicUsd: parseCatastrophicUsd(env),
+    runawayClamp: clamp,
   });
   assert.deepEqual(preview.fleet, directFleet);
 
@@ -245,6 +313,19 @@ test('read-only static: module has NO counter-bump import/call path, DOES use re
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/\/\/.*$/gm, '');
   assert.ok(!/bumpCounter/.test(code), 'counter-bump symbol must not appear in code');
+  // M3 — reserveWorkers is the ATOMIC check-and-bump the firing callers use. It
+  // MUTATES the counter, so a preview that called it would consume the session's
+  // runaway headroom merely by observing. The preview must stay on the pure
+  // clampForRunaway.
+  assert.ok(!/reserveWorkers/.test(code),
+    'the atomic reserve (which bumps) must not appear in code — observation cannot consume headroom');
+  // M3 follow-up (R1 F2) — reconcileReservation is the other write-side entry of
+  // the two-phase lifecycle. It rewrites launched + open[], so a preview calling
+  // it would commit or release someone else's in-flight reservation just by
+  // looking. Same denylist class as reserveWorkers/bumpCounter.
+  assert.ok(!/reconcileReservation/.test(code),
+    'the reservation reconciler (which writes) must not appear in code — observation cannot commit or release');
+  assert.ok(/clampForRunaway/.test(code), 'must use the PURE no-bump clamp instead');
   assert.ok(/readCounter/.test(code), 'must source the read-side counter API');
   assert.ok(/require\(['"]\.\/orchestration-runaway['"]\)/.test(code),
     'must import the runaway SoT, not re-implement the counter');
@@ -276,7 +357,12 @@ test('read-only disk: CLI run leaves runaway.json + cost-current.json + STATE.md
   const before = { runaway: snap(runawayPath), cost: snap(costPath), state: snap(statePath) };
 
   const childEnv = Object.assign({}, process.env, {
-    HOME: tmp, USERPROFILE: tmp, CLAUDE_SESSION_ID: 'ro-test',
+    HOME: tmp, USERPROFILE: tmp,
+    // The session key is CLAUDE_CODE_SESSION_ID (the real runtime var); override it AND
+    // clear the higher-precedence MCCP override so resolveSessionKey lands on 'ro-test'
+    // and reads the seeded counter. (Inheriting the harness's real CLAUDE_CODE_SESSION_ID
+    // would otherwise win — exactly the precedence the 7th-round fix introduced.)
+    CLAUDE_CODE_SESSION_ID: 'ro-test', CLAUDE_SESSION_ID: 'ro-test', MCCP_SESSION_ID: '',
     // ensure no ambient opt-out/subscription bends the run
     MCCP_PLAN_FANOUT: '', MCCP_WORK_IMPLEMENT_PARALLEL: '', MCCP_SUBSCRIPTION: '',
   });
@@ -301,4 +387,46 @@ test('read-only disk: CLI run leaves runaway.json + cost-current.json + STATE.md
   });
 
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+// ── single-worker cap projection (Implement-Codex R1 F1, 7th round) ──────────
+//
+// Step 3.route reserves one worker at the common pre-launch boundary when no fleet
+// reservation exists. At cap that reserve is refused and the route degrades to
+// inline. If the preview projected the raw route it would announce "task fires" for
+// a session that will run inline — the false green-light effective_fire exists to
+// block, and the same rule the 5th round applied to clampForRunaway: preview and the
+// firing path share the FORMULA; purity (no bump, no I/O) is what keeps it read-only.
+
+test('F1 7R: at cap a single-worker route projects INLINE, not task', function () {
+  const atCap = function () { return { launched: 4, sessionId: 's' }; };
+  const r = previewFiring({
+    env: { MCCP_ORCHESTRATION_MAX_AGENTS: '4', MCCP_WORK_IMPLEMENT_PARALLEL: '0' },
+    planText: TWO_TASK_PLAN, prdMode: true, costStateRead: nullCost, runawayRead: atCap,
+  });
+  assert.equal(r.runaway.headroom, 0);
+  assert.equal(r.runaway.single_reserve_denied, true, 'the boundary reserve would be refused');
+  assert.equal(r.route, ROUTES.INLINE, 'so the route the operator will actually get is inline');
+  assert.equal(r.effective_fire.task_fires, false, 'no false green-light');
+  assert.equal(r.effective_fire.inline, true);
+});
+
+test('F1 7R: with headroom the same config still projects a worker route', function () {
+  const r = previewFiring({
+    env: { MCCP_ORCHESTRATION_MAX_AGENTS: '4', MCCP_WORK_IMPLEMENT_PARALLEL: '0' },
+    planText: TWO_TASK_PLAN, prdMode: true, costStateRead: nullCost, runawayRead: read0,
+  });
+  assert.equal(r.runaway.single_reserve_denied, false);
+  assert.notEqual(r.route, ROUTES.INLINE, 'headroom exists → the reserve would be granted');
+  assert.equal(r.effective_fire.inline, false);
+});
+
+test('F1 7R: a parallel route is untouched — resolveFleet already reserved it', function () {
+  // hasFleetArgs ⇒ the fleet path reserved inside resolveFleet, so the boundary
+  // reserve must not double-count it.
+  const r = previewFiring({
+    env: {}, planText: TWO_TASK_PLAN, prdMode: true, costStateRead: nullCost, runawayRead: read0,
+  });
+  assert.equal(r.route, ROUTES.WORKFLOW_PARALLEL);
+  assert.equal(r.runaway.single_reserve_denied, false, 'not a single-worker route — no boundary reserve');
 });

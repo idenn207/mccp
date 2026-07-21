@@ -57,14 +57,62 @@ test('shouldAbort: cost-current.json missing triggers cost-telemetry', () => {
   } finally { h.restore(); }
 });
 
-test('shouldAbort: hard_ceiling_reached=true triggers cost-telemetry', () => {
+// ── live-activation M3 (Codex F3) — USD abort aligned with the firing oracles ──
+//
+// Firing happens upstream of auto-chain, so retiring the operational-USD block in
+// the oracles while leaving hard_ceiling aborting commit→pr here would only move
+// the stall: firing goes green and the run still dies before completing. The
+// operational block is therefore retired here too, with the catastrophic ceiling
+// as the replacement and usdBomb as the restore.
+
+function writeCost(usd, tier, hardCeiling) {
+  fs.mkdirSync(costPath.getCostStateDir(), { recursive: true });
+  fs.writeFileSync(costPath.getCostStatePath(), JSON.stringify({
+    cost_usd: usd, threshold_tier: tier, hard_ceiling_reached: hardCeiling,
+    last_write_ts: Date.now(),
+  }));
+}
+
+test('M3: hard_ceiling at operational $186 does NOT abort by default', () => {
   const h = freshHome();
   try {
-    fs.mkdirSync(costPath.getCostStateDir(), { recursive: true });
-    fs.writeFileSync(costPath.getCostStatePath(), JSON.stringify({
-      cost_usd: 100.5, threshold_tier: 'critical', hard_ceiling_reached: true, last_write_ts: Date.now(),
-    }));
+    writeCost(186.92, 'critical', true);
     const r = autoChain.shouldAbort({ env: {}, cwd: h.dir });
+    assert.ok(!r.reasons.some(x => x.trigger === 'cost-telemetry'),
+      'operational spend must not abort the chain — that is the M3 contract');
+  } finally { h.restore(); }
+});
+
+test('M3: cost_usd >= catastrophic ceiling aborts with cost-catastrophic', () => {
+  const h = freshHome();
+  try {
+    writeCost(600, 'critical', true);
+    const r = autoChain.shouldAbort({ env: {}, cwd: h.dir });
+    assert.strictEqual(r.shouldAbort, true);
+    assert.ok(r.reasons.some(x => x.trigger === 'cost-telemetry' && /cost-catastrophic/.test(x.detail)));
+  } finally { h.restore(); }
+});
+
+test('M3: MCCP_ORCHESTRATION_CATASTROPHIC_USD override moves the abort boundary', () => {
+  const h = freshHome();
+  try {
+    writeCost(186.92, 'critical', true);
+    const r = autoChain.shouldAbort({
+      env: { MCCP_ORCHESTRATION_CATASTROPHIC_USD: '100' }, cwd: h.dir,
+    });
+    assert.ok(r.reasons.some(x => x.trigger === 'cost-telemetry' && /cost-catastrophic/.test(x.detail)),
+      '$186 is above a $100 ceiling → aborts');
+  } finally { h.restore(); }
+});
+
+test('M3: usdBomb=1 restores the hard_ceiling abort (back-compat)', () => {
+  const h = freshHome();
+  try {
+    writeCost(100.5, 'critical', true);
+    const r = autoChain.shouldAbort({
+      env: { MCCP_ORCHESTRATION_USD_BOMB: '1' }, cwd: h.dir,
+    });
+    assert.strictEqual(r.shouldAbort, true);
     assert.ok(r.reasons.some(x => x.trigger === 'cost-telemetry' && /cost-hard-ceiling/.test(x.detail)));
   } finally { h.restore(); }
 });

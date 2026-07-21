@@ -310,3 +310,154 @@ test('M3 a11yFindings: empty findings → empty array', () => {
 test('M3 a11yFindings: EMPTY_RESULT carries a11yFindings key', () => {
   assert.deepStrictEqual(filter.EMPTY_RESULT.a11yFindings, []);
 });
+
+// ---- v1.22.3 M3 follow-up: REAL PRODUCER SHAPE (F1 premise repair) ---------
+//
+// The fixtures above use {category, text}. The real producer emits NEITHER.
+// codex-companion render.mjs#normalizeReviewFinding pins every finding to
+// { severity, title, body, file, line_start, line_end, recommendation } and
+// codex-invoke.js forwards that JSON verbatim. These tests pin the filter to the
+// PRODUCER's contract so the module can never silently regress to an identity
+// again — the exact hole that made design_findings_dropped=0 on all 18 receipts
+// that recorded codex_design_scope_excluded=true.
+//
+// Keep `pf` in sync with render.mjs#normalizeReviewFinding, not with our code.
+function pf(title, body, severity) {
+  return {
+    severity: severity || 'high',
+    title: title,
+    body: body,
+    file: 'src/app.tsx',
+    line_start: 1,
+    line_end: 2,
+    recommendation: 'do the thing',
+  };
+}
+
+test('producer shape: design finding dropped via title (was structurally identity)', () => {
+  const input = { findings: [
+    pf('Insufficient color contrast', 'The accent fails AA on the dashboard.'),
+    pf('SQL injection in query builder', 'User input is concatenated into SQL.'),
+  ] };
+  const r = filterDesignFindings(input, { impeccableAvailable: true });
+  assert.strictEqual(r.droppedFindings.length, 1, 'design finding must drop on a producer-shaped payload');
+  assert.strictEqual(r.filteredFindings.length, 1);
+  assert.strictEqual(r.filteredFindings[0].title, 'SQL injection in query builder');
+});
+
+test('producer shape: a11y finding dropped via title + routed', () => {
+  const input = { findings: [pf('Missing aria-label on icon button', 'Screen readers announce nothing.')] };
+  const r = filterDesignFindings(input, { impeccableAvailable: true });
+  assert.strictEqual(r.a11yRoutedCount, 1);
+  assert.strictEqual(r.a11yFindings.length, 1);
+  assert.strictEqual(r.filteredFindings.length, 0);
+});
+
+test('producer shape: all-design non-approve leaves ZERO survivors (F1 scope-excluded precondition)', () => {
+  const input = { findings: [
+    pf('Inconsistent spacing in cards', 'Padding drifts between breakpoints.'),
+    pf('Typography scale is ad-hoc', 'Heading sizes are hand-picked.'),
+  ] };
+  const r = filterDesignFindings(input, { impeccableAvailable: true });
+  assert.strictEqual(r.filteredFindings.length, 0, 'survivors must be 0 so deriveEffectiveReview can scope-exclude');
+  assert.strictEqual(r.droppedFindings.length, 2);
+  assert.ok(r.dropped_findings_digest === undefined, 'digest is computed by the caller, not the filter');
+});
+
+test('producer shape: digest resolves the title (was null → audit claimed nothing dropped)', () => {
+  const r = filterDesignFindings({ findings: [pf('Low color contrast', 'body text')] },
+    { impeccableAvailable: true });
+  const digest = computeDroppedDigest(r.droppedFindings);
+  assert.ok(typeof digest === 'string' && digest.startsWith('sha256:'),
+    'a dropped producer finding must produce a reproducible digest, not null');
+});
+
+test('producer shape: impeccable unavailable → identity (no drop weakening)', () => {
+  const input = { findings: [pf('Insufficient color contrast', 'fails AA')] };
+  const r = filterDesignFindings(input, { impeccableAvailable: false });
+  assert.strictEqual(r.filteredFindings.length, 1);
+  assert.strictEqual(r.droppedFindings.length, 0);
+});
+
+// Deliberate asymmetry: `body`/`recommendation` are NOT matched. A false DROP
+// silently removes an in-scope finding from the review surface; a false KEEP is
+// fail-closed (PR blocks, human reads). Prose mentions of `color`/`brand` in a
+// security finding must therefore NEVER cause a drop.
+test('producer shape: design keyword in BODY of a security finding does not drop it', () => {
+  const input = { findings: [
+    pf('Path traversal in asset handler',
+      'The brand color asset path is joined without normalization, so ../ escapes the root.'),
+  ] };
+  const r = filterDesignFindings(input, { impeccableAvailable: true });
+  assert.strictEqual(r.droppedFindings.length, 0,
+    'body prose must not drop an in-scope finding (false-drop weakens the gate)');
+  assert.strictEqual(r.filteredFindings.length, 1);
+});
+
+// ── in-scope VETO — the hole that making the matcher WORK would have opened ───
+//
+// While findingMatches was structurally an identity, nothing could ever be
+// dropped, so a security finding was never at risk. Repairing it introduced the
+// inverse hazard: a real security finding whose TITLE carries a design word
+// ("Brand asset path traversal") would match and drop, and if it were the only
+// finding, deriveEffectiveReview row 5 would scope-exclude the whole review and
+// let the PR pass with that objection silently removed.
+
+test('VETO: a security finding with a design-ish TITLE is never dropped', () => {
+  const cases = [
+    pf('Brand asset path traversal', 'User input is joined into the brand asset path.'),
+    pf('Color palette config allows script injection', 'The palette JSON is eval-ed.'),
+    pf('Spacing token loader leaks credentials', 'The token file is world-readable.'),
+    pf('Animation config enables privilege escalation', 'The role check is skipped.'),
+  ];
+  for (const c of cases) {
+    const r = filterDesignFindings({ findings: [c] }, { impeccableAvailable: true });
+    assert.strictEqual(r.droppedFindings.length, 0,
+      'must NOT drop an in-scope finding: ' + c.title);
+    assert.strictEqual(r.filteredFindings.length, 1);
+  }
+});
+
+test('VETO: genuine design findings stay droppable (veto is not a blanket keep)', () => {
+  const cases = [
+    pf('Insufficient color contrast', 'The accent fails AA on the dashboard.'),
+    pf('Inconsistent spacing in cards', 'Padding drifts between breakpoints.'),
+    pf('Typography scale is ad-hoc', 'Heading sizes are hand-picked.'),
+  ];
+  for (const c of cases) {
+    const r = filterDesignFindings({ findings: [c] }, { impeccableAvailable: true });
+    assert.strictEqual(r.droppedFindings.length, 1, 'design finding must still drop: ' + c.title);
+  }
+});
+
+test('VETO: an in-scope signal in the BODY rescues a design-titled finding', () => {
+  // Veto reads WIDER fields than the drop does — a false veto is fail-closed.
+  const r = filterDesignFindings(
+    { findings: [pf('Color contrast tweak', 'Also the same handler is vulnerable to SQL injection.')] },
+    { impeccableAvailable: true });
+  assert.strictEqual(r.droppedFindings.length, 0, 'body evidence must veto the drop');
+});
+
+test('VETO: an a11y-titled finding with a security body is not routed away', () => {
+  const r = filterDesignFindings(
+    { findings: [pf('Missing aria-label', 'The label is rendered from unsanitized user input (XSS).')] },
+    { impeccableAvailable: true });
+  assert.strictEqual(r.a11yRoutedCount, 0, 'must not route a security finding to a11y-architect');
+  assert.strictEqual(r.filteredFindings.length, 1);
+});
+
+test('VETO: scope-exclusion cannot be reached when a vetoed finding is the only one', () => {
+  // The row-5 precondition (survivors 0) must NOT hold for an in-scope finding.
+  const r = filterDesignFindings(
+    { findings: [pf('Brand asset path traversal', 'Escapes the root.')] },
+    { impeccableAvailable: true });
+  assert.ok(r.filteredFindings.length > 0,
+    'survivors > 0 keeps deriveEffectiveReview on the actionable path');
+});
+
+test('VETO: hasInScopeSignal is exported and field-wide', () => {
+  assert.strictEqual(filter.hasInScopeSignal({ title: 'auth bypass' }), true);
+  assert.strictEqual(filter.hasInScopeSignal({ recommendation: 'sanitize the input' }), true);
+  assert.strictEqual(filter.hasInScopeSignal({ title: 'color contrast' }), false);
+  assert.strictEqual(filter.hasInScopeSignal(null), false);
+});

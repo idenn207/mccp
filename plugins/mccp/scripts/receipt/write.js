@@ -201,6 +201,12 @@ function buildReceipt(args) {
         return args['codex-skip-reason'] || null;
       })(),
       codex_review_actionable_findings: args['codex-actionable-findings'] === true,
+      // v1.22.3 M3 follow-up (R1 F1 + F4) — scope-excluded pass + raw provenance.
+      // codex_raw_verdict is present-only: absent flag → null, so a receipt never
+      // implies a raw verdict was observed when none was forwarded.
+      codex_scope_excluded_verdict: args['codex-scope-excluded-verdict'] === true,
+      codex_raw_verdict: (typeof args['codex-raw-verdict'] === 'string'
+        && args['codex-raw-verdict'].length > 0) ? args['codex-raw-verdict'] : null,
       // v0.3.5 Task 5 — env-level disabled honor + auto-stamp.
       // Env detection: process.env.MCCP_CODEX_DISABLED === '1' implicitly
       // stamps both codex_disabled=true. The --codex-disabled-at-pr flag is

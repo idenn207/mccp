@@ -3,10 +3,15 @@
 // fleet budget validate — mode × merge-strategy × cost-tier × budget decision
 // tree. live-activation M1: default FIRING flipped ON (opt-out), missing
 // cost-state fails OPEN by default (COST_FAILOPEN) with the =0 kill switch
-// restoring the old fail-closed COST_STATE_UNKNOWN, tier autoDisable narrowed to
-// critical-only, a hard_ceiling bomb-detector skip, and an injected runaway clamp
-// on the fail-open path. The merge-strategy + single-partition + budget-cap gates
-// are UNCHANGED (structural safety preserved).
+// restoring the old fail-closed COST_STATE_UNKNOWN.
+//
+// live-activation M3 — the OPERATIONAL USD block is retired, so several M1
+// assertions here are deliberately INVERTED: hard_ceiling and a critical tier now
+// FIRE by default (they only skip under usdBomb or an explicit tier override), the
+// catastrophic-USD ceiling is the replacement bomb detector, and the runaway clamp
+// applies to EVERY run path rather than only the fail-open branch. The
+// merge-strategy + single-partition + budget-cap gates are UNCHANGED (structural
+// safety preserved).
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -118,13 +123,39 @@ test('kill switch costFailOpen=false + throw → skip COST_STATE_UNKNOWN (back-c
 
 // ── gate 5: hard_ceiling bomb detector ────────────────────────────────────────
 
-test('hard_ceiling_reached → skip HARD_CEILING regardless of tier', function () {
+// M3 — the operational USD block is RETIRED by default. This is the milestone's
+// whole point: the measured dogfood state (sticky $186.92 + hard_ceiling) was
+// skipping every dispatch, so the flip only ever fired on machines with no
+// cost-state at all.
+test('M3: hard_ceiling_reached → RUNS by default (operational USD retired)', function () {
   const r = resolveFleet(ok({ costStateRead: ceiling }));
+  assert.equal(r.run, true);
+  assert.equal(r.reason, REASONS.OK_RUN);
+});
+
+test('M3: usdBomb=true → hard_ceiling skips again (M1 restore)', function () {
+  const r = resolveFleet(ok({ costStateRead: ceiling, usdBomb: true }));
   assert.equal(r.run, false);
   assert.equal(r.reason, REASONS.HARD_CEILING);
 });
 
-// ── gate 6: cost-tier autoDisable narrowed to critical-only ───────────────────
+// The measured dogfood state, end to end: sticky critical AND hard_ceiling at
+// $186.92 must fire under the M3 default and skip under the kill switch.
+test('M3: sticky $186.92 critical + hard_ceiling → RUNS (the dogfood blocker)', function () {
+  const sticky = function () {
+    return { cost_usd: 186.92, threshold_tier: 'critical', hard_ceiling_reached: true };
+  };
+  const r = resolveFleet(ok({ costStateRead: sticky, catastrophicUsd: 500 }));
+  assert.equal(r.run, true);
+  assert.equal(r.reason, REASONS.OK_RUN);
+  assert.equal(r.n, 3);
+
+  const restored = resolveFleet(ok({ costStateRead: sticky, catastrophicUsd: 500, usdBomb: true }));
+  assert.equal(restored.run, false);
+  assert.equal(restored.reason, REASONS.HARD_CEILING);
+});
+
+// ── gate 6: cost-tier autoDisable — M3 default EMPTY ──────────────────────────
 
 test('notice tier → RUNS now (critical-only narrow)', function () {
   const r = resolveFleet(ok({ costStateRead: notice }));
@@ -139,10 +170,69 @@ test('warning tier → RUNS now (critical-only narrow)', function () {
   assert.equal(r.reason, REASONS.OK_RUN);
 });
 
-test('critical tier → skip TIER_CRITICAL (still a bomb)', function () {
+test('M3: critical tier → RUNS by default (autoDisable default now EMPTY)', function () {
   const r = resolveFleet(ok({ costStateRead: critical }));
+  assert.equal(r.run, true);
+  assert.equal(r.reason, REASONS.OK_RUN);
+});
+
+test('M3: usdBomb=true → critical tier skips again (M1 restore)', function () {
+  const r = resolveFleet(ok({ costStateRead: critical, usdBomb: true }));
   assert.equal(r.run, false);
   assert.equal(r.reason, REASONS.TIER_CRITICAL);
+});
+
+// An explicit env override outranks BOTH defaults — the operator can re-block a
+// tier without turning the whole M1 USD bomb back on.
+test('M3: AUTODISABLE_TIER=critical override → re-blocks even with usdBomb off', function () {
+  const r = resolveFleet(ok({
+    env: { MCCP_WORK_IMPLEMENT_PARALLEL: '1', MCCP_WORK_PARALLEL_AUTODISABLE_TIER: 'critical' },
+    costStateRead: critical,
+  }));
+  assert.equal(r.run, false);
+  assert.equal(r.reason, REASONS.TIER_CRITICAL);
+});
+
+// ── gate 7: catastrophic-USD — the replacement bomb detector (Codex F1) ───────
+
+test('M3: cost_usd >= catastrophicUsd → skip CATASTROPHIC_USD', function () {
+  const r = resolveFleet(ok({
+    costStateRead: function () { return { cost_usd: 600, threshold_tier: 'critical' }; },
+    catastrophicUsd: 500,
+  }));
+  assert.equal(r.run, false);
+  assert.equal(r.reason, REASONS.CATASTROPHIC_USD);
+  assert.equal(r.tier, 'critical');
+});
+
+test('M3: catastrophic fires at the exact boundary, and $186 stays under it', function () {
+  const at = resolveFleet(ok({
+    costStateRead: function () { return { cost_usd: 500, threshold_tier: 'critical' }; },
+    catastrophicUsd: 500,
+  }));
+  assert.equal(at.reason, REASONS.CATASTROPHIC_USD, '>= is inclusive');
+
+  const under = resolveFleet(ok({
+    costStateRead: function () { return { cost_usd: 186.92, threshold_tier: 'critical' }; },
+    catastrophicUsd: 500,
+  }));
+  assert.equal(under.run, true, 'operational spend well below catastrophic must fire');
+});
+
+test('M3: catastrophic applies even under usdBomb (independent axis)', function () {
+  const r = resolveFleet(ok({
+    costStateRead: function () { return { cost_usd: 600, threshold_tier: 'green' }; },
+    catastrophicUsd: 500, usdBomb: true,
+  }));
+  assert.equal(r.run, false);
+  assert.equal(r.reason, REASONS.CATASTROPHIC_USD);
+});
+
+test('M3: catastrophicUsd absent/0 disables the ceiling (no accidental block)', function () {
+  const r = resolveFleet(ok({
+    costStateRead: function () { return { cost_usd: 99999, threshold_tier: 'green' }; },
+  }));
+  assert.equal(r.run, true, 'an un-injected ceiling must not silently block');
 });
 
 test('AUTODISABLE_TIER="notice,critical" override → notice skips again', function () {
@@ -158,12 +248,22 @@ test('threshold_tier absent → tierFor recomputes; else defaults green', functi
   const rDefault = resolveFleet(ok({ costStateRead: function () { return { cost_usd: 90 }; } }));
   assert.equal(rDefault.run, true, 'no tierFor + no threshold_tier → green → run');
 
+  // M3: the recomputed tier no longer blocks by itself, so assert the recompute
+  // through a surface that still acts on it (usdBomb restores critical-only).
   const rComputed = resolveFleet(ok({
     costStateRead: function () { return { cost_usd: 200 }; },
     tierFor: function (usd) { return usd >= 100 ? 'critical' : 'green'; },
+    usdBomb: true,
   }));
   assert.equal(rComputed.run, false);
   assert.equal(rComputed.reason, REASONS.TIER_CRITICAL);
+
+  const rComputedDefault = resolveFleet(ok({
+    costStateRead: function () { return { cost_usd: 200 }; },
+    tierFor: function (usd) { return usd >= 100 ? 'critical' : 'green'; },
+  }));
+  assert.equal(rComputedDefault.run, true, 'M3 default: a recomputed critical still fires');
+  assert.equal(rComputedDefault.tier, 'critical', 'tier is still reported honestly');
 });
 
 // ── run path: N capping (per-dispatch structural runaway cap) ─────────────────
@@ -226,14 +326,26 @@ test('runaway clamp degrades N on the fail-open path', function () {
   assert.equal(r.runawayReason, 'runaway-clamp');
 });
 
-test('runaway clamp NOT applied on the normal (cost-state present) path', function () {
+// M3 (Codex F2) — INVERTED from M1. With operational USD retired, the metered path
+// has no USD backstop either, so the agent-count cap must govern every run path.
+test('M3: runaway clamp IS applied on the metered (cost-state present) path', function () {
   let called = false;
   const r = resolveFleet(ok({
     requestedN: 3, costStateRead: green,
-    runawayClamp: function () { called = true; return { n: 1, degraded: true }; },
+    runawayClamp: function () { called = true; return { n: 1, degraded: true, reason: 'runaway-clamp' }; },
   }));
-  assert.equal(called, false, 'clamp only fires on the telemetry-absent fail-open branch');
-  assert.equal(r.n, 3);
+  assert.equal(called, true, 'the cap is now the primary backstop — it must govern metered runs too');
+  assert.equal(r.n, 1);
+  assert.equal(r.degraded, true);
+  assert.equal(r.runawayReason, 'runaway-clamp');
+});
+
+test('M3: metered far-from-cap clamp is a no-op (never raises, never degrades)', function () {
+  const r = resolveFleet(ok({
+    requestedN: 3, costStateRead: green,
+    runawayClamp: function (n) { return { n: n, degraded: false, reason: 'ok' }; },
+  }));
+  assert.equal(r.n, 3, 'headroom available → N unchanged');
   assert.equal(r.degraded, false);
 });
 
@@ -312,4 +424,49 @@ test('subscription: absent context -> fail-open run', () => {
   const r = resolveFleet({ env: SUB_FLEET, mergeStrategy: ENABLING_MERGE_STRATEGY, requestedN: 2, subscriptionMode: true, contextStateRead: () => null, costStateRead: () => null });
   assert.equal(r.run, true);
   assert.equal(r.reason, REASONS.OK_RUN);
+});
+
+// ── M3 follow-up (PR-Codex R1 F1) — a clamp of 0 must SKIP, not be ignored ────
+//
+// reserveWorkers now grants 0 when the counter lock is unavailable (an unrecordable
+// launch would bypass the cap). The old clamp block guarded on `c.n >= 1`, so a 0
+// fell through and left N at the FULL fleet — the fix would have been silently
+// inert. Skip instead: work.md's inline path spawns no agent and consumes no cap.
+
+const GREEN = function () { return { cost_usd: 1, threshold_tier: 'green', hard_ceiling_reached: false }; };
+
+function fleetWithClamp(clampN, extra) {
+  return resolveFleet(Object.assign({
+    env: {}, mergeStrategy: 'worktree-merge', requestedN: 4, costStateRead: GREEN,
+    runawayClamp: function () { return { n: clampN, degraded: true, reason: 'lock-exhausted' }; },
+  }, extra || {}));
+}
+
+test('R1 F1: runawayClamp n=0 → run:false + lock-exhausted (never a fleet)', function () {
+  const r = fleetWithClamp(0);
+  assert.equal(r.run, false, 'a launch that cannot be recorded must not be granted');
+  assert.equal(r.reason, REASONS.LOCK_EXHAUSTED);
+  assert.equal(r.degraded, true);
+  assert.equal(r.runawayReason, 'lock-exhausted');
+});
+
+test('R1 F1: n=0 skips on the metered path too, not just fail-open', function () {
+  const sticky = function () { return { cost_usd: 186.92, threshold_tier: 'critical', hard_ceiling_reached: true }; };
+  assert.equal(fleetWithClamp(0, { costStateRead: sticky }).reason, REASONS.LOCK_EXHAUSTED);
+});
+
+test('R1 F1: a normal degrade to 1 still RUNS (only 0 blocks)', function () {
+  const r = fleetWithClamp(1);
+  assert.equal(r.run, true, 'a recordable single worker is still useful progress');
+  assert.equal(r.n, 1);
+  assert.equal(r.degraded, true);
+});
+
+test('R1 F1: an ungated clamp (n=4) is unaffected', function () {
+  const r = resolveFleet({
+    env: {}, mergeStrategy: 'worktree-merge', requestedN: 4, costStateRead: GREEN,
+    runawayClamp: function (n) { return { n: n, degraded: false, reason: 'ok' }; },
+  });
+  assert.equal(r.run, true);
+  assert.equal(r.n, 4);
 });

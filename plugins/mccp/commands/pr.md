@@ -437,6 +437,15 @@ CODEX_ROUNDS=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf
 CODEX_SUMMARY=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.codex_summary||"")}catch{process.stdout.write("")}' < "$CODEX_RESULT_FILE")
 CODEX_ACTIONABLE_FINDINGS=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.codex_actionable_findings?"1":"0")}catch{process.stdout.write("0")}' < "$CODEX_RESULT_FILE")
 LOCK_EXIT_OK=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.lock_exit_ok?"1":"0")}catch{process.stdout.write("0")}' < "$CODEX_RESULT_FILE")
+# v1.22.3 M3 follow-up (R1 F1) — the RAW verdict + the scope-excluded qualifier.
+# CODEX_VERDICT_RAW is what the model literally said; CODEX_SCOPE_EXCLUDED marks a
+# raw non-approve whose every itemized finding was design/a11y-scoped and dropped.
+# 2.5.4 must state BOTH — an effective pass over a "No ship" verdict is never
+# allowed to read as a plain approval.
+CODEX_VERDICT_RAW=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.codex_verdict||"")}catch{process.stdout.write("")}' < "$CODEX_RESULT_FILE")
+CODEX_SCOPE_EXCLUDED=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.codex_scope_excluded_verdict?"1":"0")}catch{process.stdout.write("0")}' < "$CODEX_RESULT_FILE")
+DESIGN_DROPPED=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(String(j.design_findings_dropped||0))}catch{process.stdout.write("0")}' < "$CODEX_RESULT_FILE")
+A11Y_ROUTED=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.a11y_routed_to_impeccable?"1":"0")}catch{process.stdout.write("0")}' < "$CODEX_RESULT_FILE")
 ```
 
 If `LOCK_EXIT_OK != 1`, Phase 2.5.6b's finalizer will fail-stop with the violation details from `mutations[]`. The lock file has already been released by `codex-runner.js`.
@@ -461,6 +470,25 @@ Construct the `## Codex Adversarial Review` PR body section with the same schema
 - Open Questions: <item — severity CRITICAL/HIGH/MEDIUM/LOW>
 - Codex session 참조: <task-id from Skill result>
 ```
+
+#### Scope-excluded block — explain it, never stonewall (v1.22.3 M3 follow-up, R1 F1 + Implement-Codex R1 F4)
+
+When `CODEX_SCOPE_EXCLUDED=1`, Codex returned a **raw non-approving verdict** and every itemized finding matched the design/a11y scope filter, leaving zero findings on the review surface.
+
+**This stays NON-APPROVING.** An earlier design mapped it to an effective `converged`; that was withdrawn because the drop decision is a broad keyword match over free text and the producer emits no category/scope field to verify it against — so a genuine in-scope finding ("Brand asset loader reads arbitrary local files") could be dropped and the review recorded as convergence. Keyword evidence is good enough to ROUTE a finding and to AUDIT it, not to certify approval.
+
+Be precise about what that buys: `codex_actionable_findings` has **no mechanical hard-stop** here (this body only parses it, and validate-cmd does not gate on it). What the non-approving state guarantees is (a) the receipt seals `divergent`, so cross-gate dedupe fail-closes and a later `/mccp:pr` really does re-run PR-Codex, and (b) this section states the objection instead of showing an empty conclusion. Do not describe it as "the PR is blocked".
+
+What this flag fixes is the **opacity** — which is what the original complaint was about. Say exactly what happened instead of showing an empty conclusion:
+
+```markdown
+- 합치 결론: Codex raw verdict=`<CODEX_VERDICT_RAW>` — **non-approving 유지**(receipt `divergent` 봉인). itemized finding <DESIGN_DROPPED + a11y>건이 전부 design/a11y scope로 분류돼 review 표면에서 라우팅됐다(design → impeccable, a11y → a11y-architect).
+  in-scope 표면은 비어 있으나, 키워드 매칭은 "오직 design"임을 증명하지 못하므로(producer에 scope 필드 부재) 통과 근거가 될 수 없다.
+  drop된 항목은 receipt `meta.dropped_findings_digest`로 재현 가능하며 raw verdict는 `meta.codex_raw_verdict`에 보존된다.
+  해소: 라우팅된 finding을 해당 소유자(impeccable / a11y-architect)에서 처리한 뒤 재실행.
+```
+
+Do NOT collapse this to "Codex approved" and do NOT leave 합치 결론 blank. The raw verdict, the dropped count, and the routing owner all belong in the line — that is what turns a stonewall into an auditable block.
 
 Severity-gated re-rerun (default cap=1): after R1's YAGNI triage table is written, escalate ONLY if BOTH:
   (a) ≥1 finding is `verdict=ACCEPT_NOW` AND `severity ∈ {CRITICAL, HIGH}`

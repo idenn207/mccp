@@ -240,13 +240,29 @@ if [ "$CODEX_CLASS" = "disabled" ]; then
 elif [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || [ "$CODEX_CLASS" != "ok" ]; then
   CODEX_VERDICT="unavailable"      # advisory-mode auto-fallback (non-approving)
 else
-  # class=ok — parse the actual Codex response from the wrapper JSON `.stdout`
-  # via codex-bridge.parseVerdict → 'converged' | 'divergent' | 'unavailable'.
+  # class=ok — read the STRUCTURED verdict (`.result.verdict`) out of the wrapper
+  # JSON's `.stdout`, via the shared codex-review-payload oracle that the PR gate
+  # also uses. Free-text scanning is the FALLBACK only.
+  #
+  # v1.22.3 M3 follow-up (F5) — this used to call codex-bridge.parseVerdict
+  # directly: a free-TEXT keyword scan that does not know the structured
+  # vocabulary (`approve` | `needs-attention`) and whose /\bconverged\b/ rule
+  # matches the word anywhere in the prose. Because resolution.codex_verdict is
+  # the cross-gate dedupe input, a false 'converged' here plus one on the plan
+  # receipt makes /mccp:pr skip PR-Codex entirely — dual review bypassed.
   CODEX_VERDICT=$(node -e '
-    const bridge = require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/lib/codex-bridge");
-    let text = "";
-    try { text = JSON.parse(process.argv[1] || "{}").stdout || ""; } catch (_) {}
-    process.stdout.write(bridge.parseVerdict(text) || "unavailable");
+    const payload = require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/lib/codex-review-payload");
+    let envelope = null;
+    try { envelope = JSON.parse(process.argv[1] || "{}"); } catch (_) {}
+    const g = payload.deriveGateVerdict({
+      envelope: envelope,
+      freeText: (envelope && envelope.stdout) || "",
+    });
+    if (g.source !== "structured") {
+      process.stderr.write("[mccp:implement-codex] verdict source=" + g.source +
+        " (no structured .result.verdict; free-text fallback)\n");
+    }
+    process.stdout.write(g.verdict);
   ' "$CODEX_STDOUT")
 fi
 ```

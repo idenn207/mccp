@@ -2,39 +2,43 @@
 state_version: 1
 task_fingerprint: dashboard-data-exploration
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-07-01T06:09:56.219Z
+updated_at: 2026-07-15T15:25:04.371Z
 last_event: stop_loop_pass
-last_event_at: 2026-06-22T18:06:10.227Z
+last_event_at: 2026-07-15T15:25:04.371Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
-chain_aborted: true
+chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
-dashboard-data-exploration PRD(형제 ③ — 그룹핑/필터/정렬/검색) 종료. M1·M2·M3 전부 머지, worktree cleanup 완료. 현재: 마감 housekeeping(PRD M3 status complete + STATE 갱신, chore/dashboard-status-sync 브랜치).
+workflow-orchestration live-activation M3 (v1.22.3) — PR-Codex R1 4라운드 3건(F1/F2/F3) 흡수 완료. PR 재실행 대기.
 
 ## Plan
-- M3(NEXT) 검색 + 잔여 탐색 축 — 형태만 있던 검색 입력을 실제 클라이언트 필터로 wiring(텍스트 매칭, 단축키 없음) + M2 이관 축(진행상태/worktree 필터·진행순 정렬, 멀티세션 표면 의존). 작업범위순은 'PRD 기준 진행도' 재기획까지 보류. JS off 시 입력 숨김 + 전체 표시.
-- ship 전 impeccable audit/polish(a11y·반응형). 컨트롤 중립 토큰, 강조색 viewport당 ≤1.
+- M3 + 3차 흡수까지 로컬 커밋 4개(7ef5def+ca48678+a4db756+f7c34e4). push/PR 없음.
+- 4라운드 PR-Codex R1 = No ship(HIGH 2 + MEDIUM 1). 3건 전부 ACCEPT_NOW — 상세/수정방향은 .claude/state/fix-task.md.
+- 세 건 모두 M3이 primary backstop으로 승격시킨 agent-count cap 내부의 구멍. cap에 구멍 = M3 헤드라인이 거짓 → F1 backlog 이연 기각.
 
 ## Done
-- M3 SHIPPED — PR #71 머지(squash 301e4f7), 1.18.17. 검색 wiring(cross-route .li-item 텍스트 + nav 뱃지 + live-region) + 가시성 reason 모델(_hf/_hs AND) + 멀티세션 잔여축(진행상태/worktree 필터·진행순). Implement-Codex IF1/IF2 흡수, 590 PASS.
-- M2 SHIPPED — PR #70 머지(squash 94f922f), 1.18.16. 위험·질문 필터(PRD축·plan축 AND)+정렬(위험도순·시간순).
-- M1 SHIPPED — PR #69 머지(squash ab43890), 1.18.15. PRD 그룹핑 + PE 토대 + H19.
+- 3차 흡수 커밋 f7c34e4(27파일 +2592): codex-review-payload.js 4게이트 공용 verdict SoT, 2단계 reserve/reconcile, filter title 매처 + in-scope veto.
+- 4라운드 /mccp:pr 완주: Phase 0/1/1.6 통과, dedupe fail-closed(양 게이트 divergent) → PR-Codex 실발화 → receipt divergent 봉인(validate ok:true).
+- findings 3건 전부 실제 코드로 재현 검증(액면 수용 아님). acquireLock 확인 → Codex 제안 (a)는 이미 구현됨, (c)는 lock 부재로 원리상 불가 → (b) fail-closed 채택.
+- review-only 불변식 지켜짐(mutations:[], lock_exit_ok:true). a11y는 rendering_surface=false로 skip.
 
 ## In Progress
-data-exploration PRD 마감 housekeeping — PRD M3 status in-progress→complete 정정 + STATE 갱신. 완료 plan은 dashboard cycle 관행상 .claude/plans/ 유지(archive 안 함).
+PR 미생성 — PR-Codex R1(4라운드) No ship. fix-task.md에 F1/F2/F3 수정방향 확정. 다음은 흡수 구현 cycle.
 
 ## Next Step
-dashboard 추적 표면(위험/질문/진행) 최신화를 PR #78 브랜치에서 계속.
+/mccp:pr 재실행(5라운드) → PR-Codex R1 재판정
 
 ## Last Decision
-2026-06-30 data-exploration M3 완료 확인 + 마감. PR #71 이미 머지 검증(빈-diff Codex 게이트 미실행 — 정직). 완료 plan은 .claude/plans/ 유지가 dashboard cycle 관행(multi-session/truthfulness/pipeline-chart 동일) — 완료 마커는 PRD status 테이블.
+2026-07-15 4라운드 PR-Codex R1 No ship. 3건 전부 흡수, F1 이연 절충 기각 — M3 헤드라인이 "USD를 열어도 원자 agent-count cap이 막는다"인데 F1/F2/F3 전부 그 cap 안의 구멍이라, 이연은 중심 정당화가 거짓임을 알면서 ship하는 것. lock 고갈 발화율이 낮다는 건 F1을 덜 급하게 만들 뿐 주장을 참으로 만들지 않음. F1 수정=granted 0 + 인라인 fallback("granted 0이면 파이프라인 차단"이라는 현 주석 전제가 거짓임을 확인 — 두 호출자 모두 인라인 경로 보유, 인라인은 cap 미소비). F2 수정=default를 0으로 뒤집는 건 오답(safety 방향 실패), default 자체 제거 → unset이면 reconcile skip + pending 유지(자기치유). 고쳐진 runner가 구조화 payload로 verdict를 읽어 No ship을 정직 보고 — 구 blind runner였다면 고무도장(F5 수정의 실전 증명 2회차).
 
 ## Open Questions
-- 작업범위순 정렬 측정 단위(마일스톤/파일/LOC) — PRD 기준 진행도 재기획 시 확정(M3에서 보류).
+- pre-existing(본 PR 무관): finalize-receipt.js:269 timeoutMs 60000 만료로 exit 127인데 receipt write는 성공 → 정상 receipt에도 GATE-STOP. backlog 후보.
+- pre-existing 실패 2건(design-critique-loop-e2e fixture 부재, verdict-label.test.js) 별도 cycle 유지 — 이번 1133개 run에서도 fixture 건만 재현.
+- cache 1.22.0 stale — /mccp:pr 본문 하드코딩 경로가 구 blind runner를 가리켜 워크트리 스크립트로 우회 실행 중. 머지 후 claude plugin update로 해소 예상.
 
 ## Last Updated
-2026-07-01T06:09:56.219Z
+2026-07-15T15:25:04.371Z

@@ -126,7 +126,7 @@ v1.20.2 M1부터 implement 스텝은 **격리된 단일 worker 위임**으로 �
 
 - `MCCP_WORK_ISOLATE_IMPLEMENT` (default `1`) — 최상위 축. `0`이면 Step 3.F 인라인 `Skill(mccp:prp-implement)` fallback(loud stderr). 미지정/오타 시 격리(보수적 default = 격리 on).
 - `MCCP_WORK_IMPLEMENT_WORKFLOW` (default `0`) — 격리 활성 시 하위 축. `=1` AND prepare 성공 AND `Workflow` tool 가용이면 **Workflow 경로**(Step 3.W 단일 / Step 3.WP 병렬), 그 외(`0`/미설정/오타/tool 미가용)면 **Step 3.I**(기존 Task dispatch). fail-open — Workflow 미가용이 implement를 절대 막지 않는다. **Codex F1**: Task fallback은 Workflow 호출을 **개시하기 전**에만 허용된다(개시 후 회수 실패는 두 번째 경쟁 worker를 막기 위해 fail-closed HALT).
-- `MCCP_WORK_IMPLEMENT_PARALLEL` (default `0`, v1.20.8 M2b) — Workflow 경로의 최하위 축. `=1` AND partition oracle이 N>1개 서로소 partition을 산출 AND `resolveFleet`이 run=true(비용·budget 통과)이면 **Step 3.WP**(N-worker `parallel`), 그 외는 **Step 3.W**(단일 worker). **구조적 gate — merge_strategy**: `MCCP_WORK_MERGE_STRATEGY`(v1.21.0 M4부터 default `worktree-merge` — Task 0 run wf_1f689994-fb8이 live 상관 입증)가 `worktree-merge`가 **아니면** `resolveFleet`이 무조건 N=1로 fail-close한다. M4 default flip 이후에도 병렬 실제 발화는 여전히 `=1` 명시 opt-in + cost-state green(고비용 tier autoDisable) + N>1 partition 4중 AND를 요구한다(default flip은 구조적 gate만 열 뿐 비용/opt-in gate는 무변경). `MCCP_WORK_MERGE_STRATEGY=disable-parallel` 명시 시 M2a 단일 동작으로 back-compat 강등. same-worktree fallback(A2)은 atomic-merge 보호 실장 전까지 여전히 금지.
+- `MCCP_WORK_IMPLEMENT_PARALLEL` (default **on** since v1.22.1 M1 — `off`/`0`로 opt-out) — Workflow 경로의 최하위 축. opt-out 안 함 AND partition oracle이 N>1개 서로소 partition을 산출 AND `resolveFleet`이 run=true(merge_strategy·budget·catastrophic-USD 통과)이면 **Step 3.WP**(N-worker `parallel`), 그 외는 **Step 3.W**(단일 worker). **v1.22.3 M3 — operational USD는 더 이상 발화를 막지 않는다**: sticky critical/`hard_ceiling`($100)에서도 발화하며, 차단은 catastrophic-USD(`MCCP_ORCHESTRATION_CATASTROPHIC_USD`, default $500) + 원자 runaway-cap(`MCCP_ORCHESTRATION_MAX_AGENTS`, default 24, 전 run 경로) + per-worker budget이 담당한다. `MCCP_ORCHESTRATION_USD_BOMB=1`로 M1 USD 차단 복원. **구조적 gate — merge_strategy**: `MCCP_WORK_MERGE_STRATEGY`(v1.21.0 M4부터 default `worktree-merge` — Task 0 run wf_1f689994-fb8이 live 상관 입증)가 `worktree-merge`가 **아니면** `resolveFleet`이 무조건 N=1로 fail-close한다. M3(v1.22.3) 이후 병렬 실제 발화 조건은 **opt-out 안 함 + merge_strategy=worktree-merge + N>1 partition + catastrophic-USD 미도달**이다 — cost-state green 요구는 **폐기**(operational tier autoDisable default empty). `MCCP_WORK_MERGE_STRATEGY=disable-parallel` 명시 시 M2a 단일 동작으로 back-compat 강등. same-worktree fallback(A2)은 atomic-merge 보호 실장 전까지 여전히 금지.
 - `MCCP_WORK_MERGED_VERIFY` (default `enforce`, v1.20.12 M3) — 위 3축과 **직교(⊥)**. implement가 끝난 뒤(어떤 경로든) **commit 전** 통합 diff를 worker 밖에서 1회 cross-model(Codex) adversarial verify하는 **Step 3.verify** 스테이지를 지배한다. `enforce`=divergent/critical/unavailable HALT · `warn`=advisory pass · `off`=skipped. **단일 경로에서도 발화**하므로(DD6) 병렬이 gated여도 M3 verify-네이티브화가 runtime 가치를 갖는다.
 
 **Pre-flight (기존 `next-step` HALT 보존)** — 격리 여부와 무관하게 먼저 실행:
@@ -152,7 +152,14 @@ fi
 GITDIR=$(git rev-parse --git-path mccp/tmp)
 mkdir -p "$GITDIR"
 rm -f "$GITDIR/dispatch-fleet-args.json" "$GITDIR/dispatch-partitions.json" \
-      "$GITDIR/dispatch-fleet-prepare.json"   # clear stale
+      "$GITDIR/dispatch-fleet-prepare.json" "$GITDIR/dispatch-cap-denied.json"   # clear stale
+# M3 follow-up (R1 F1) — the reservation token's stale-clear lives HERE and ONLY
+# here: immediately before a new reservation is created. It must NEVER be added to
+# Step 3.prep's rm -f list. Order is prep-parallel → prep → route, and route is the
+# single reconcile point, so clearing it in prep would delete the token we just
+# minted before it could ever be reconciled — leaving the phantom this whole axis
+# exists to remove.
+rm -f "$GITDIR/dispatch-fleet-reservation.json"
 rm -rf "$GITDIR/dispatch-fleet-results"
 ISOLATE="${MCCP_WORK_ISOLATE_IMPLEMENT:-1}"
 # live-activation M1 — DEFAULT FIRING FLIPPED to on (opt-out). Mirror of
@@ -163,10 +170,14 @@ ISOLATE="${MCCP_WORK_ISOLATE_IMPLEMENT:-1}"
 PARALLEL="${MCCP_WORK_IMPLEMENT_PARALLEL:-1}"
 # M4 default flip — Task 0 (run wf_1f689994-fb8) PROVED the live worktree↔dispatchId
 # correlation (worktrees persist + controller-enumerable + worker-seeded envelopes
-# correlate), so worktree-merge is now the default. The cost guard is now: PARALLEL
-# opt-OUT (default on) · cost-state fail-OPEN by default (MCCP_ORCHESTRATION_COST_FAIL_OPEN=0
-# to restore fail-closed) · critical-only tier autoDisable · hard_ceiling bomb
-# detector · cost-state-independent session runaway cap.
+# correlate), so worktree-merge is now the default. M3 then retired the OPERATIONAL
+# USD block (a present sticky $186 critical / hard_ceiling was skipping every
+# dispatch, which is exactly the shelf-ware the PRD exists to fix). The cost guard
+# is now: PARALLEL opt-OUT (default on) · cost-state fail-OPEN by default
+# (MCCP_ORCHESTRATION_COST_FAIL_OPEN=0 to restore fail-closed) · NO operational-tier
+# autoDisable (MCCP_ORCHESTRATION_USD_BOMB=1 restores it) · catastrophic-USD ceiling
+# (MCCP_ORCHESTRATION_CATASTROPHIC_USD, default $500) as the replacement bomb
+# detector · the ATOMIC cost-state-independent session runaway cap on EVERY run path.
 MERGE_STRATEGY="${MCCP_WORK_MERGE_STRATEGY:-worktree-merge}"
 FLEET_N=0
 # live-activation M1 — opt-OUT gate (default on). Normalize then treat only 'off'/'0'
@@ -194,18 +205,65 @@ if [ "$ISOLATE" != "0" ] && [ "$PARALLEL_LC" != "0" ] && [ "$PARALLEL_LC" != "of
       // live-activation M1 — cost fail-open (default true) + cost-state-independent
       // runaway backstop. =0 restores the old fail-closed COST_STATE_UNKNOWN skip.
       const costFailOpen=String(process.env.MCCP_ORCHESTRATION_COST_FAIL_OPEN||"").trim()!=="0";
-      const sessionId=process.env.CLAUDE_SESSION_ID||"unknown";
-      const launched=runaway.readCounter({ sessionId:sessionId }).launched;
+      // live-activation M3 — operational USD ($50/$80/$100 + hard_ceiling) no longer
+      // blocks firing; usdBomb restores that M1 block, catastrophicUsd is the
+      // replacement bomb detector far above it (Codex F1/F4).
+      const usdBomb=runaway.parseUsdBomb(process.env);
+      const catastrophicUsd=runaway.parseCatastrophicUsd(process.env);
+      const sessionId=runaway.resolveSessionKey(process.env); // CLAUDE_CODE_SESSION_ID — must match Step 3.route reconcile's key
+      // M3 follow-up (R1 F2) — capture the reservation id out of the closure. The
+      // oracle signature stays pure/injected (it still only sees {n,degraded,reason});
+      // the id rides alongside in the emitted JSON so Step 3.route can reconcile the
+      // reservation against the number of workers that ACTUALLY launched.
+      let reservationId=null;
       const r=b.resolveFleet({ env:process.env, mergeStrategy:process.argv[2],
         requestedN:parseInt(process.argv[3],10)||1, costStateRead:cs.readState, tierFor:cs.tierFor,
-        costFailOpen:costFailOpen,
-        runawayClamp:function(n){ return runaway.clampForRunaway({ requestedN:n, launchedSoFar:launched, env:process.env }); },
+        costFailOpen:costFailOpen, usdBomb:usdBomb, catastrophicUsd:catastrophicUsd,
+        // M3 Codex F2 — ATOMIC reserve replaces read-then-bump. It decides the grant
+        // AND counts it inside ONE lock critical section, so concurrent / re-entrant
+        // dispatches can no longer each read the same pre-bump value and overshoot
+        // the cap. It only runs on a RUN path, and it ALREADY counted the grant —
+        // there is deliberately no bumpCounter afterwards.
+        //
+        // M3 follow-up (R1 F2): the grant is now PENDING, not a permanent spend.
+        // Step 3.route commits it to the real launch count (or releases it).
+        runawayClamp:function(n){ const res=runaway.reserveWorkers({ sessionId:sessionId, requestedN:n, env:process.env });
+          reservationId=res.reservationId;
+          return { n:res.granted, degraded:res.degraded, reason:res.reason }; },
         subscriptionMode:sub.isSubscriptionMode(process.env), contextStateRead:ctx.readState });
-      // bump the session launch counter by the effective N so repeated/recursive
-      // /mccp:work dispatches accumulate toward the absolute runaway cap.
-      if(r.run) runaway.bumpCounter({ sessionId:sessionId, delta:r.n });
-      process.stdout.write(JSON.stringify(r));
+      process.stdout.write(JSON.stringify(Object.assign({}, r, { reservationId: reservationId })));
     ' "$CLAUDE_PLUGIN_ROOT" "$MERGE_STRATEGY" "$REQ_N")
+    # Persist the reservation token so Step 3.route can reconcile it. Written only
+    # when reserveWorkers actually ran (a skip path never reserves, so there is
+    # nothing to reconcile and no phantom to clean up).
+    echo "$FLEET" | node -e '
+      const fs=require("fs");
+      let j={}; try{ j=JSON.parse(fs.readFileSync(0,"utf8")); }catch(_){}
+      if (j && typeof j.reservationId==="string" && j.reservationId)
+        fs.writeFileSync(process.argv[1], JSON.stringify({ reservation_id:j.reservationId, granted:j.n||1 }));
+    ' "$GITDIR/dispatch-fleet-reservation.json"
+    # M3 follow-up (PR-Codex R1 F1) — the reserve granted 0, so NOTHING launched from
+    # the fleet path can be recorded. Mark it as an ARTIFACT (Step 3.route is a
+    # separate Bash invocation — a shell var would not survive, and the gate would
+    # silently no-op). route then forces `inline`, the only path that spawns no agent.
+    #
+    # PR-Codex R1 F1 (6th round) — this used to compare `reason` against the LITERAL
+    # "lock-exhausted". The 5th round ADDED a second zero-grant reason
+    # ('cap-exhausted') and wired all three oracles but not this caller, so at cap the
+    # artifact was never written and route happily launched an unrecorded worker — the
+    # very leak the 5th round claimed to close, reborn through its own new reason.
+    # The test is now STRUCTURAL and reason-agnostic: `runawayReason` is set by the
+    # budget oracle ONLY when the injected runawayClamp actually ran (skip() defaults
+    # it to null and every pre-clamp skip leaves it null), so
+    #   run == false  AND  runawayReason != null
+    # means exactly "the reserve was attempted and granted 0", whatever it was called.
+    # A third zero-grant reason cannot reopen the hole. The reason still travels in the
+    # artifact BODY for audit; route only tests presence.
+    FLEET_DENIED=$(echo "$FLEET" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write((!j.run && j.runawayReason)?String(j.runawayReason):"")}catch{process.stdout.write("")}')
+    if [ -n "$FLEET_DENIED" ]; then
+      printf '{"reason":"%s"}' "$FLEET_DENIED" > "$GITDIR/dispatch-cap-denied.json"
+      echo "[mccp:work] runaway 예약 거부($FLEET_DENIED) — granted 0. 기록되지 않는 launch를 막기 위해 인라인 implement로 강등한다(에이전트 0개, cap 미소비)." 1>&2
+    fi
     RUN=$(echo "$FLEET" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).run?"1":"0")}catch{process.stdout.write("0")}')
     FLEET_N=$(echo "$FLEET" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).n||1))}catch{process.stdout.write("1")}')
     MINREM=$(echo "$FLEET" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).minRemaining||0))}catch{process.stdout.write("0")}')
@@ -224,10 +282,11 @@ if [ "$ISOLATE" != "0" ] && [ "$PARALLEL_LC" != "0" ] && [ "$PARALLEL_LC" != "of
     fi
   fi
 fi
+FLEET_REASON=$(echo "$FLEET" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reason||"unknown")}catch{process.stdout.write("n/a")}' 2>/dev/null || echo "n/a")
 if [ -f "$GITDIR/dispatch-fleet-args.json" ]; then
-  echo "[mccp:work] parallel fleet 발화 (N=$FLEET_N, merge_strategy=$MERGE_STRATEGY) — default on, MCCP_WORK_IMPLEMENT_PARALLEL=off로 단일 경로 opt-out"
+  echo "[mccp:work] parallel fleet 발화 (N=$FLEET_N granted, merge_strategy=$MERGE_STRATEGY, reason=$FLEET_REASON) — operational USD 비차단(M3); backstop = catastrophic-USD(\$${MCCP_ORCHESTRATION_CATASTROPHIC_USD:-500}) + 원자 runaway-cap(${MCCP_ORCHESTRATION_MAX_AGENTS:-24}) + per-worker budget. MCCP_WORK_IMPLEMENT_PARALLEL=off로 단일 경로 opt-out, MCCP_ORCHESTRATION_USD_BOMB=1로 M1 USD 차단 복원"
 else
-  echo "[mccp:work] parallel implement 비활성 (parallel=$PARALLEL merge_strategy=$MERGE_STRATEGY) — 단일 worker 경로 (default on; off로 opt-out했거나 N=1/cost-gate)" 1>&2
+  echo "[mccp:work] parallel implement 비활성 (parallel=$PARALLEL merge_strategy=$MERGE_STRATEGY reason=$FLEET_REASON) — 단일 worker 경로 (default on; off로 opt-out했거나 N=1/merge-strategy/budget/catastrophic-USD/usd_bomb)" 1>&2
 fi
 ```
 
@@ -296,9 +355,137 @@ ROUTE=$(node -e '
     hasPrepare:has(gitdir+"/dispatch-prepare.json"),
     hasWorkflowArgs:has(gitdir+"/dispatch-workflow-args.json"),
     workflowAvailable:process.argv[4]==="1",
+    // R1 F1 — prep-parallel wrote this when the atomic reserve granted 0. Forces
+    // inline: no agent, nothing to record, cap invariant intact.
+    reserveDenied:has(gitdir+"/dispatch-cap-denied.json"),
   }));
 ' "$CLAUDE_PLUGIN_ROOT" "$GITDIR" "$ISOLATE" "$WORKFLOW_AVAILABLE")
 echo "[mccp:work] Step 3 route=$ROUTE" 1>&2
+
+# M3 follow-up (R1 F1 + F2) — THE single reconcile point for the fleet reservation.
+#
+# Step 3.prep-parallel reserved cap headroom while resolving the oracle, but the
+# route decided here is the last word on how many workers actually launch. Placing
+# the correction at this ONE boundary covers BOTH phantom paths (prepare-fleet
+# failure → FLEET_N=1, and route falling back off the parallel leg) because route
+# is evaluated after both and before any worker exists.
+#
+# actualN per route — a CORRECTION, not a blanket release (R1 F2): the degraded
+# single-worker routes really do launch one worker, so releasing the whole
+# reservation there would under-count a real launch (over-permissive).
+#   workflow-parallel        → granted   (the fleet fires)
+#   workflow-single / task   → 1         (one worker fires)
+#   inline                   → 0         (nothing fires)
+#
+# An uncommitted reservation HALTS here (Implement-Codex R1 F1). The older note
+# claiming "never fails the pipeline; the CLI always exits 0" is no longer true and
+# was never safe: launching workers we cannot record under-counts the primary
+# backstop. Halting is available precisely because route is the pre-launch boundary,
+# so stopping un-spawns nothing. plan.md's fan-out cannot do this (its reconcile
+# runs AFTER the Workflow call), which is why that path pins its launches with a
+# debt marker instead — see orchestration-runaway.js, PR-Codex R1 F2.
+if [ -f "$GITDIR/dispatch-fleet-reservation.json" ]; then
+  RES_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservation_id||"")}catch{process.stdout.write("")}' "$GITDIR/dispatch-fleet-reservation.json")
+  RES_GRANTED=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).granted||1))}catch{process.stdout.write("1")}' "$GITDIR/dispatch-fleet-reservation.json")
+  case "$ROUTE" in
+    workflow-parallel) ACTUAL_N="$RES_GRANTED" ;;
+    workflow-single|task) ACTUAL_N=1 ;;
+    *) ACTUAL_N=0 ;;
+  esac
+  if [ -n "$RES_ID" ]; then
+    # R1 F1 — the exit code is load-bearing when ACTUAL_N > 0. An uncommitted
+    # reservation whose workers DO launch gets dropped by the lease later, which
+    # under-counts the cap (over-permissive). Retry across the lock's 5s stale
+    # window before giving up; deleting the token on failure would erase the only
+    # handle we have on those launches.
+    RECONCILED=0
+    for attempt in 1 2 3; do
+      # No --session (PR-Codex R1, 8th round): the CLI resolves it via
+      # resolveSessionKey(process.env) — the SAME precedence the fleet reserve used.
+      # Passing ${CLAUDE_SESSION_ID:-unknown} would key the LEGACY var, and when it and
+      # CLAUDE_CODE_SESSION_ID are both set but differ, reserve and reconcile would land
+      # in different buckets — reconcile could never find its reservation.
+      if node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
+           --reservation "$RES_ID" --actual "$ACTUAL_N" 1>&2; then
+        RECONCILED=1; break
+      fi
+      echo "[mccp:work] reconcile attempt $attempt failed (actual=$ACTUAL_N) — retrying" 1>&2
+      sleep 3
+    done
+    if [ "$RECONCILED" = "1" ]; then
+      echo "[mccp:work] runaway reservation reconciled (route=$ROUTE actual=$ACTUAL_N granted=$RES_GRANTED)" 1>&2
+      rm -f "$GITDIR/dispatch-fleet-reservation.json"   # consumed; reconcile is idempotent anyway
+    else
+      # Fail-closed: we are about to launch workers we cannot account for, and the
+      # agent-count cap is the PRIMARY structural backstop (M3 retired the
+      # operational-USD block). Keep the token for a later retry and stop.
+      echo "[MCCP-GATE-STOP] runaway reservation $RES_ID could not be committed after 3 attempts" 1>&2
+      echo "  (actual=$ACTUAL_N would launch). Launching now would under-count the cap." 1>&2
+      echo "  Token kept at $GITDIR/dispatch-fleet-reservation.json — inspect .claude/state/orchestration-runaway.json{,.lock}" 1>&2
+      exit 1
+    fi
+  else
+    rm -f "$GITDIR/dispatch-fleet-reservation.json"
+  fi
+else
+  # ── Implement-Codex R1 F1 (7th round) — THE COMMON PRE-LAUNCH BOUNDARY ────────
+  #
+  # No fleet reservation exists. Until now that meant NO reservation at all: the
+  # reserve lived inside resolveFleet, which Step 3.prep-parallel only reaches behind
+  # a 4-way guard (ISOLATE≠0 ∧ PARALLEL≠off ∧ merge-strategy=worktree-merge ∧
+  # partitions). Every other configuration — PARALLEL=off, merge-strategy disabled,
+  # single-partition plan, budget-insufficient — fell straight through to `task` /
+  # `workflow-single`, each of which SPAWNS ONE WORKER. That worker was never
+  # reserved, so `launched` stayed 0 forever and the cap bounded only parallel
+  # fleets. "Every agent launch is recorded" was false by construction, and at cap a
+  # single-partition plan still launched, one per invocation, without bound.
+  #
+  # What decides whether the cap is consumed is the ROUTE — does an agent spawn? —
+  # never whether some upstream oracle happened to attempt a reserve. So reserve
+  # HERE, at the one boundary every launching route passes through, and keep the
+  # decision in the tested oracle (`requiresReservation`) rather than a shell literal.
+  NEEDS_RES=$(node -e '
+    const route=require(process.argv[1]+"/scripts/lib/implement-dispatch/route");
+    process.stdout.write(route.requiresReservation(process.argv[2])?"1":"0");
+  ' "$CLAUDE_PLUGIN_ROOT" "$ROUTE")
+  if [ "$NEEDS_RES" = "1" ]; then
+    SINGLE_RES=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reserve \
+      --n 1 2>/dev/null)   # no --session: CLI resolveSessionKey — one bucket for reserve+reconcile (R1 8th round)
+    SR_GRANTED=$(echo "$SINGLE_RES" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).granted||0))}catch{process.stdout.write("0")}')
+    SR_ID=$(echo "$SINGLE_RES" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reservationId||"")}catch{process.stdout.write("")}')
+    SR_REASON=$(echo "$SINGLE_RES" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reason||"unknown")}catch{process.stdout.write("unknown")}')
+    if [ "$SR_GRANTED" = "0" ] || [ -z "$SR_ID" ]; then
+      # The cap is spent (or the counter lock is unavailable): this launch cannot be
+      # recorded, so it is not permitted. Inline spawns no agent and consumes no cap,
+      # so the pipeline still runs — it just costs main-context tokens.
+      printf '{"reason":"%s"}' "$SR_REASON" > "$GITDIR/dispatch-cap-denied.json"
+      ROUTE=inline
+      echo "[mccp:work] 단일 worker 예약 거부($SR_REASON) — route를 inline으로 강등한다(에이전트 0개, cap 미소비)." 1>&2
+    else
+      # Commit immediately: route is the last word on how many workers launch, and
+      # the answer here is exactly 1. Leaving it pending would hand a REAL launch to
+      # the lease, which subtracts it as "never ran" (under-count — the one direction
+      # a cap may never err in).
+      RECONCILED=0
+      for attempt in 1 2 3; do
+        if node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
+             --reservation "$SR_ID" --actual 1 1>&2; then   # no --session — see fleet reconcile above (R1 8th round)
+          RECONCILED=1; break
+        fi
+        echo "[mccp:work] 단일 worker reconcile attempt $attempt 실패 — 재시도" 1>&2
+        sleep 3
+      done
+      if [ "$RECONCILED" != "1" ]; then
+        # Fail-closed, and free to be: route is the PRE-launch boundary, so halting
+        # un-spawns nothing (plan.md's fan-out cannot halt — hence its debt marker).
+        echo "[MCCP-GATE-STOP] 단일 worker 예약 $SR_ID 를 3회 시도에도 commit하지 못했다." 1>&2
+        echo "  지금 launch하면 cap이 그 worker를 영영 놓친다. inspect .claude/state/orchestration-runaway.json{,.lock}" 1>&2
+        exit 1
+      fi
+      echo "[mccp:work] 단일 worker 예약 commit (route=$ROUTE actual=1)" 1>&2
+    fi
+  fi
+fi
 ```
 
 `$ROUTE` 값별 다음 sub-step으로 진행한다 (오라클 결정 트리는 [route.js](../scripts/lib/implement-dispatch/route.js) 참조):

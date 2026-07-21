@@ -80,9 +80,51 @@ test('deriveVerdictFromCodex: CRITICAL category in stdout → critical', functio
   assert.equal(deriveVerdictFromCodex(j), 'critical');
 });
 
-test('deriveVerdictFromCodex: converged / divergent via parseVerdict', function () {
-  assert.equal(deriveVerdictFromCodex({ classification: 'ok', stdout: 'Verdict: converged. Ship-safe.' }), 'converged');
-  assert.equal(deriveVerdictFromCodex({ classification: 'ok', stdout: 'Verdict: divergent — API drift.' }), 'divergent');
+// v1.22.3 M3 follow-up (F5, 4th gate) — these fixtures now mirror the REAL
+// producer. codex-invoke's ok-path envelope carries the review as JSON TEXT inside
+// `.stdout`, with the model payload under `.result` (codex-companion render.mjs).
+// The previous fixtures were bare prose ('Verdict: converged. Ship-safe.'), a shape
+// the producer never emits — so the suite proved the free-text scan worked on input
+// that does not exist while production fed it a JSON blob and got 'converged' for a
+// "No ship" review.
+function verifyEnvelope(review) {
+  return {
+    classification: 'ok', blocking: false,
+    stdout: JSON.stringify({ review: 'Adversarial Review', threadId: 't', result: review }),
+  };
+}
+
+test('deriveVerdictFromCodex: structured approve → converged; needs-attention → divergent', function () {
+  assert.equal(deriveVerdictFromCodex(verifyEnvelope({
+    verdict: 'approve', summary: 'Ship-safe.', findings: [],
+  })), 'converged');
+  assert.equal(deriveVerdictFromCodex(verifyEnvelope({
+    verdict: 'needs-attention', summary: 'No ship: API drift.', findings: [{ severity: 'high' }],
+  })), 'divergent');
+});
+
+// THE MEASURED REGRESSION for this gate. Before the structured read, merged-verify
+// (MCCP_WORK_MERGED_VERIFY defaults to enforce) returned 'converged' for this exact
+// payload — passing a "No ship" review straight through to commit.
+test('deriveVerdictFromCodex: "converged" in a finding body does NOT approve a No-ship review', function () {
+  const env = verifyEnvelope({
+    verdict: 'needs-attention',
+    summary: 'No ship: the plan still has concrete accounting holes.',
+    findings: [{
+      severity: 'medium', title: 'sealed verdict overwritten',
+      body: 'finalize-receipt.js explicitly calls stamping `converged` for a "No ship" review an integrity bug.',
+    }],
+  });
+  assert.equal(deriveVerdictFromCodex(env), 'divergent',
+    'the structured verdict must win over a keyword sitting in someone prose');
+});
+
+test('deriveVerdictFromCodex: unreadable stdout can never certify approval (fail-closed)', function () {
+  // Free-text fallback may raise a divergence, never approve (R1 F3).
+  assert.equal(deriveVerdictFromCodex({ classification: 'ok', stdout: 'Verdict: converged. Ship-safe.' }),
+    'unavailable', 'a non-producer blob is not evidence of approval');
+  assert.equal(deriveVerdictFromCodex({ classification: 'ok', stdout: 'Verdict: divergent — API drift.' }),
+    'divergent', 'suspicion is still cheap to raise');
 });
 
 // ── decideMergedVerify — block matrix ─────────────────────────────────────────
@@ -129,7 +171,12 @@ test('mode=off short-circuits to skipped before any codex read', function () {
 });
 
 test('decideMergedVerify derives verdict from codexJson when no explicit verdict', function () {
-  const d = decideMergedVerify({ codexJson: { classification: 'ok', stdout: 'converged' }, mode: 'enforce' });
+  // Producer-shaped envelope (F5): the review lives as JSON text under .stdout.
+  // The old fixture was the bare word 'converged', which the producer never emits.
+  const d = decideMergedVerify({
+    codexJson: verifyEnvelope({ verdict: 'approve', summary: 'Ship-safe.', findings: [] }),
+    mode: 'enforce',
+  });
   assert.equal(d.verdict, 'converged');
   assert.equal(d.block, false);
 });

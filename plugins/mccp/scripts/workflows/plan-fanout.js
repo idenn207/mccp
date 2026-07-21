@@ -170,9 +170,22 @@ const prdPath = input.prdPath || null;
 const planPath = input.planPath || null;
 const minRemaining = Number.isFinite(input.minRemaining) ? input.minRemaining : 0;
 const budgetTotal = Number.isFinite(input.budgetTotal) ? input.budgetTotal : null;
-const fleetKeys = (Array.isArray(input.fleetKeys) && input.fleetKeys.length)
-  ? input.fleetKeys
-  : PERSPECTIVE_ORDER;
+// v1.22.3 M3 (Implement-Codex R1 F3) — fleetKeys carries the fleet that
+// reserveWorkers actually GRANTED, so defaulting a missing value to "all four"
+// is the exact runaway-cap bypass M3 exists to close: a command-body
+// substitution miss, a tool-call serialization drift, or any future caller that
+// omits the arg would spawn four workers after the reserve granted one.
+// Fail SAFE instead of fail-open — degrade to the conservative single-worker
+// prefix rather than silently restoring the full fleet. (Not a hard skip: the
+// fan-out is a GROUND enhancement and must never block the plan.)
+const fleetKeysProvided = Array.isArray(input.fleetKeys) && input.fleetKeys.length > 0;
+if (!fleetKeysProvided) {
+  log('[plan-fanout] fleetKeys missing/empty — the granted fleet did not reach the'
+    + ' workflow. Degrading to a single perspective (' + PERSPECTIVE_ORDER[0] + ') rather'
+    + ' than spawning all ' + PERSPECTIVE_ORDER.length + ': an unverified fleet must not'
+    + ' bypass the runaway cap.');
+}
+const fleetKeys = fleetKeysProvided ? input.fleetKeys : PERSPECTIVE_ORDER.slice(0, 1);
 
 const fleet = CATALOG.filter(function (p) { return fleetKeys.indexOf(p.key) !== -1; });
 

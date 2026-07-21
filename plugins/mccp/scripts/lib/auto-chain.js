@@ -24,7 +24,8 @@
 //   5. Receipt missing / stale (validate-cmd reports it)
 //   6. Previous chain step exit nonzero (recorded in STATE.md chain_progress)
 //   7. Cost telemetry: cost-current.json missing / stale (>3600s) / unreadable
-//      / hard_ceiling_reached === true
+//      / cost_usd >= the catastrophic ceiling (live-activation M3 — was
+//      hard_ceiling_reached; see checkCostTelemetry)
 //   8. STATE.md chain_aborted=true
 
 const fs = require('fs');
@@ -32,6 +33,7 @@ const path = require('path');
 const cost = require('./cost-state');
 const subscription = require('./subscription');
 const contextState = require('./context-state');
+const runaway = require('./orchestration-runaway');
 
 const ABORT_EXIT = 13;
 // v0.2.8 Task 2.6.5a A3 R2 F2 + R3 absorption — tempfail exit mirrors
@@ -85,7 +87,24 @@ function readStateMd(repoRoot) {
   }
 }
 
-function checkCostTelemetry() {
+// checkCostTelemetry({ env }) → { ok, reason?, detail?, state? }
+//
+// live-activation M3 (Codex F3) — the USD abort is aligned with the firing
+// oracles. Firing happens upstream of this gate (plan GROUND / work Step 3), so
+// retiring the operational-USD block there but leaving hard_ceiling aborting the
+// commit→pr chain here would just move the stall: firing goes green and the run
+// still dies before it completes. The same principle therefore applies to both —
+// operational spend ($100 hard ceiling) no longer aborts; a CATASTROPHIC spend
+// ($500 default) does, and MCCP_ORCHESTRATION_USD_BOMB restores the M1 abort.
+//
+// The telemetry-INTEGRITY triggers (missing / unreadable / stale) are UNCHANGED:
+// they mean "the cost signal cannot be trusted", which is orthogonal to how much
+// was spent, so they stay conservative regardless of the USD policy.
+function checkCostTelemetry(opts) {
+  opts = opts || {};
+  const env = opts.env || process.env;
+  const usdBomb = runaway.parseUsdBomb(env);
+  const catastrophicUsd = runaway.parseCatastrophicUsd(env);
   const p = require('./cost-state-path').getCostStatePath();
   if (!fs.existsSync(p)) {
     return { ok: false, reason: 'cost-state-missing', detail: 'cost-current.json not found at ' + p };
@@ -99,8 +118,15 @@ function checkCostTelemetry() {
   if (cost.isStale(COST_STALE_MS)) {
     return { ok: false, reason: 'cost-state-stale', detail: 'cost-current.json mtime > 3600s old' };
   }
-  if (state.hard_ceiling_reached === true) {
+  if (usdBomb && state.hard_ceiling_reached === true) {
     return { ok: false, reason: 'cost-hard-ceiling', detail: 'hard_ceiling_reached=true' };
+  }
+  if (catastrophicUsd > 0 && Number.isFinite(state.cost_usd) && state.cost_usd >= catastrophicUsd) {
+    return {
+      ok: false,
+      reason: 'cost-catastrophic',
+      detail: 'cost_usd=' + state.cost_usd + ' >= catastrophic ceiling ' + catastrophicUsd,
+    };
   }
   return { ok: true, state: state };
 }
@@ -162,11 +188,12 @@ function shouldAbort(opts) {
   }
 
   // 7. Runaway telemetry. Metered path: cost-current.json (missing/stale/
-  // unreadable/hard_ceiling → abort). Subscription path (cost-model-subscription
-  // M1): context overflow — only a POSITIVE critical overflow aborts; an absent/
-  // green signal does NOT abort (fail-OPEN, Codex F1, user-accepted). The other
-  // triggers (kill-switch, receipt validation, previous-step-failed, STATE.md
-  // chain_aborted) are unchanged, so auto-chain stays conservative on real failures.
+  // unreadable → abort on integrity; catastrophic USD → abort on spend — M3
+  // Codex F3). Subscription path (cost-model-subscription M1): context overflow —
+  // only a POSITIVE critical overflow aborts; an absent/green signal does NOT abort
+  // (fail-OPEN, Codex F1, user-accepted). The other triggers (kill-switch, receipt
+  // validation, previous-step-failed, STATE.md chain_aborted) are unchanged, so
+  // auto-chain stays conservative on real failures.
   if (!opts.skipCostCheck) {
     if (subscription.isSubscriptionMode(env)) {
       const ctxRead = typeof opts.contextStateRead === 'function' ? opts.contextStateRead : contextState.readState;
@@ -181,7 +208,7 @@ function shouldAbort(opts) {
         reasons.push({ trigger: 'context-overflow', detail: of.reason });
       }
     } else {
-      const cs = checkCostTelemetry();
+      const cs = checkCostTelemetry({ env: env });
       if (!cs.ok) {
         reasons.push({ trigger: 'cost-telemetry', detail: cs.reason + ': ' + cs.detail });
       }

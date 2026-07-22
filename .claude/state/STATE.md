@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: dashboard-data-exploration
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-07-15T15:25:04.371Z
+updated_at: 2026-07-22T11:45:12.458Z
 last_event: stop_loop_pass
-last_event_at: 2026-07-15T15:25:04.371Z
+last_event_at: 2026-07-22T11:45:12.458Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -13,32 +13,34 @@ last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
-workflow-orchestration live-activation M3 (v1.22.3) — PR-Codex R1 4라운드 3건(F1/F2/F3) 흡수 완료. PR 재실행 대기.
+multi-session-work-loop M1 (측정 설계, v1.22.5) — implement 게이트 수렴 완료. commit/PR 대기.
 
 ## Plan
-- M3 + 3차 흡수까지 로컬 커밋 4개(7ef5def+ca48678+a4db756+f7c34e4). push/PR 없음.
-- 4라운드 PR-Codex R1 = No ship(HIGH 2 + MEDIUM 1). 3건 전부 ACCEPT_NOW — 상세/수정방향은 .claude/state/fix-task.md.
-- 세 건 모두 M3이 primary backstop으로 승격시킨 agent-count cap 내부의 구멍. cap에 구멍 = M3 헤드라인이 거짓 → F1 backlog 이연 기각.
+- M1 산출물(문서 4 + 스냅샷 2)은 선행 세션 완료. 본 세션은 Validation 실행 + 게이트 재수렴.
+- Implement-Codex R2 = No ship(HIGH 1 + MEDIUM 1). F1 전건 흡수, F2 부분 흡수(provenance 기록).
+- auto-chain이 cost-catastrophic($514.40 >= 500)으로 commit 단계에서 abort — 운영자 판단 대기.
 
 ## Done
-- 3차 흡수 커밋 f7c34e4(27파일 +2592): codex-review-payload.js 4게이트 공용 verdict SoT, 2단계 reserve/reconcile, filter title 매처 + in-scope veto.
-- 4라운드 /mccp:pr 완주: Phase 0/1/1.6 통과, dedupe fail-closed(양 게이트 divergent) → PR-Codex 실발화 → receipt divergent 봉인(validate ok:true).
-- findings 3건 전부 실제 코드로 재현 검증(액면 수용 아님). acquireLock 확인 → Codex 제안 (a)는 이미 구현됨, (c)는 lock 부재로 원리상 불가 → (b) fail-closed 채택.
-- review-only 불변식 지켜짐(mutations:[], lock_exit_ok:true). a11y는 rendering_surface=false로 skip.
+- Validation 13개 전부 통과 (plan 본문에서 블록을 그대로 추출해 실행, exit 0).
+- 자체 발견 D1 — CHECK 2c가 통과 가능한 입력 없음(정상 케이스에서 grep exit 1 + pipefail로 사망). awk로 교체.
+- Codex R2 F1(HIGH) 재현 검증 후 흡수 — 부호 제거 탓에 동일 추가 라인 2개가 짝수로 통과 + plugin.json 결합 라인 통과. diff 파싱 폐기하고 main 기준 파일 전문 대조로 교체, 양방향 실측.
+- design 게이트: routing auto(renderingSurface=false), detector 실행, critique CONVERGED(1 round).
+- receipt 2건 최종 plan_hash 852f4c4에 anchor, validate ok:true. codex_verdict=divergent 정직 봉인.
+- backlog 2행 이연 (CHECK 6 zero-match hazard + impeccable detector severity 어휘 불일치).
 
 ## In Progress
 PR 미생성 — PR-Codex R1(4라운드) No ship. fix-task.md에 F1/F2/F3 수정방향 확정. 다음은 흡수 구현 cycle.
 
 ## Next Step
-/mccp:pr 재실행(5라운드) → PR-Codex R1 재판정
+운영자 판단: cost-catastrophic 임계 조정 후 auto-chain 재개, 또는 /mccp:prp-commit + /mccp:pr 수동 실행(MCCP_BRIEFING=off 필요).
 
 ## Last Decision
-2026-07-15 4라운드 PR-Codex R1 No ship. 3건 전부 흡수, F1 이연 절충 기각 — M3 헤드라인이 "USD를 열어도 원자 agent-count cap이 막는다"인데 F1/F2/F3 전부 그 cap 안의 구멍이라, 이연은 중심 정당화가 거짓임을 알면서 ship하는 것. lock 고갈 발화율이 낮다는 건 F1을 덜 급하게 만들 뿐 주장을 참으로 만들지 않음. F1 수정=granted 0 + 인라인 fallback("granted 0이면 파이프라인 차단"이라는 현 주석 전제가 거짓임을 확인 — 두 호출자 모두 인라인 경로 보유, 인라인은 cap 미소비). F2 수정=default를 0으로 뒤집는 건 오답(safety 방향 실패), default 자체 제거 → unset이면 reconcile skip + pending 유지(자기치유). 고쳐진 runner가 구조화 payload로 verdict를 읽어 No ship을 정직 보고 — 구 blind runner였다면 고무도장(F5 수정의 실전 증명 2회차).
+2026-07-22 implement 중 발견한 Validation 결함을 plan 편집으로 수정하기로 결정. 그 편집이 plan_hash를 이동시켜 plan-codex receipt가 stale이 되자, 운영자가 세 선택지 중 'receipt-write 재anchor + Implement-Codex 재실행'을 선택. 재실행이 실제로 HIGH 1건을 잡아냈으므로 가드 편집은 무검증 통과하지 않았다. 재anchor가 fresh Plan-Codex 산출물이 아니라는 사실은 plan 본문 provenance 절에 명시 기록.
 
 ## Open Questions
-- pre-existing(본 PR 무관): finalize-receipt.js:269 timeoutMs 60000 만료로 exit 127인데 receipt write는 성공 → 정상 receipt에도 GATE-STOP. backlog 후보.
-- pre-existing 실패 2건(design-critique-loop-e2e fixture 부재, verdict-label.test.js) 별도 cycle 유지 — 이번 1133개 run에서도 fixture 건만 재현.
-- cache 1.22.0 stale — /mccp:pr 본문 하드코딩 경로가 구 blind runner를 가리켜 워크트리 스크립트로 우회 실행 중. 머지 후 claude plugin update로 해소 예상.
+- cost-catastrophic $514.40 — M3가 도입한 catastrophic-USD backstop의 첫 발화. 이번 세션 실누적(11:42 UTC 기록, stale 아님)이나 tier 필드는 notice로 불일치. 임계 조정 여부는 운영자 결정.
+- pre-existing: finalize-receipt.js:269 briefing timeout → exit 127로 /mccp:pr 전체 차단. MCCP_BRIEFING=off 우회 필수. backlog HIGH 기등재.
+- pre-existing 테스트 실패 1건(design-critique-loop-e2e fixture) — §3.9가 미tracked로 명시한 정상 상태.
 
 ## Last Updated
-2026-07-15T15:25:04.371Z
+2026-07-22T11:45:12.458Z

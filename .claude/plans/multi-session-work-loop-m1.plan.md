@@ -39,9 +39,19 @@ GROUND 실측이 PRD Evidence의 전제 하나를 뒤집었다. PRD는 *"데이�
 | `plugins/mccp/.claude-plugin/plugin.json` | UPDATE | version `→ 1.22.5` — §3.7 milestone 의무 (Codex R1 F2). **1.22.4가 아닌 이유**: `durable-evidence-substrate` chore가 1.22.4를 선점하고 그쪽이 선행이다(§순서). §3.7 forward-only reconcile |
 | `plugins/mccp/scripts/lib/renderer/html.js` | UPDATE | page-foot version 문자열 동기 (§3.7 footer drift 회피) |
 | `plugins/mccp/scripts/lib/renderer/markdown.js` | UPDATE | derived version 줄 동기 |
+| `plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js` | UPDATE | **네 번째 version surface** — footer 버전을 assert하는 회귀 테스트. 하드코딩된 `v1.22.3`을 `plugin.json` 파생으로 교체 (PR-Codex R1 F1) |
 | `CHANGELOG.md` | UPDATE | M1 행 추가 |
 
-**"코드 변경 0"의 해석 (Codex R1 F2 흡수)** — PRD 제약은 *동작 코드* 0을 뜻하며 릴리스 메타데이터를 면제하지 않는다. §3.7은 milestone PR에 `plugin.json` bump를 의무로 걸고, 이를 건너뛰면 M2의 bump가 두 milestone 상태를 한 버전에 뭉갠다. 따라서 `plugins/mccp/**` 변경을 **version surface 3개 파일로 allowlist**하고, 그 diff가 버전 문자열 외 라인을 포함하지 않음을 Validation에서 기계 검증한다. 계약을 어기지도, 조용히 개정하지도 않는 유일한 경로다.
+**"코드 변경 0"의 해석 (Codex R1 F2 흡수)** — PRD 제약은 *동작 코드* 0을 뜻하며 릴리스 메타데이터를 면제하지 않는다. §3.7은 milestone PR에 `plugin.json` bump를 의무로 걸고, 이를 건너뛰면 M2의 bump가 두 milestone 상태를 한 버전에 뭉갠다. 따라서 `plugins/mccp/**` 변경을 **version surface 파일로 allowlist**하고, 그 diff가 버전 문자열 외 라인을 포함하지 않음을 Validation에서 기계 검증한다. 계약을 어기지도, 조용히 개정하지도 않는 유일한 경로다.
+
+**allowlist는 3개가 아니라 4개다 (PR-Codex R1 F1 흡수)** — 초판은 version surface를 `plugin.json` + renderer 2종으로 셌고, 그게 틀렸다. `renderer/tests/i18n-surface.test.js`가 그 footer 문자열을 `v1.22.3`으로 **하드코딩 assert**하고 있어서, bump가 그 테스트를 빨갛게 만든다. 실측: main에서 renderer 스위트는 667개 중 1개 실패(선재), bump 후 **3개 실패**. 즉 이 milestone은 자기가 만든 회귀를 안은 채 ship될 뻔했다.
+
+이게 통과한 이유는 CHECK 10의 glob(`lib/tests/*.test.js`)이 **`lib/renderer/tests/`를 아예 스캔하지 않기** 때문이다 — 유일한 기계적 강제 수단에 디렉토리 크기의 사각이 있었다. 흡수는 두 겹이다:
+
+- 테스트를 `plugin.json`에서 **파생**시킨다(값 교체가 아니라 — 교체는 다음 bump에 같은 실패를 되돌려 놓는다). 이로써 version-surface drift 계열이 구조적으로 닫힌다
+- **CHECK 11**을 신설해 renderer 스위트를 회귀 대상에 포함시킨다(알려진 선재 실패 1건 외 0). 사각을 만든 것이 검사 부재였으므로 흡수도 검사여야 한다
+
+이 테스트 파일은 **순수 버전 치환이 아니므로 CHECK 2c의 전문 대조 대상이 아니다**(하드코딩 리터럴을 require 파생으로 바꾸는 구조 변경이다). CHECK 2c가 지키는 명제는 "*렌더 출력*이 버전 외에 안 바뀌었다"이고, 테스트 파일은 렌더 출력이 아니다. 대신 CHECK 11이 그 파일의 정당성을 검증한다 — 스위트가 초록이면 파생이 옳고, 빨가면 틀렸다.
 
 ## Tasks
 
@@ -165,10 +175,13 @@ grep -q 'v1[.]22[.]5' plugins/mccp/scripts/lib/renderer/markdown.js \
 changed=$( { git diff --name-only main...HEAD -- plugins/
              git diff --name-only -- plugins/
              git diff --cached --name-only -- plugins/; } | sort -u )
+#     allowlist는 4개다 — 네 번째는 footer 버전을 assert하는 회귀 테스트다.
+#     bump가 그 테스트를 깨뜨리므로 같은 변경 안에서 따라가야 한다(PR-Codex R1 F1).
 allowed=$(printf '%s\n' \
   plugins/mccp/.claude-plugin/plugin.json \
   plugins/mccp/scripts/lib/renderer/html.js \
-  plugins/mccp/scripts/lib/renderer/markdown.js | sort -u)
+  plugins/mccp/scripts/lib/renderer/markdown.js \
+  plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js | sort -u)
 extra=$(comm -23 <(printf '%s\n' "$changed" | grep -v '^$') <(printf '%s\n' "$allowed"))
 [ -z "$extra" ] || { echo "FAIL: behavioral code changed: $extra"; exit 1; }
 
@@ -215,6 +228,37 @@ try{
 }catch(e){ bad.push(P+" : 파싱/기준본 실패 "+e.message); }
 if(bad.length){ console.log("FAIL: 순수 버전 치환이 아님:"); bad.forEach(x=>console.log("  "+x)); process.exit(1); }
 console.log("OK: renderer 2종 파일 전문이 버전 토큰 외 동일 · plugin.json은 version 필드만 상이");'
+
+# 2d. feasibility 산문 표 ↔ evidence-snapshot.json 일치 (PR-Codex R1 F2)
+#     §1.5는 "산문과 스냅샷이 어긋나면 스냅샷이 정답"이라 선언했지만, 선언은
+#     어긋남을 막지 못한다 — 실제로 §2.1이 121/120으로 굳어 있는 동안 스냅샷은
+#     122/121이었고, §2의 제목은 그 표가 "스냅샷의 관측값"이라고 주장하고 있었다.
+#     M2가 이 표를 보고 분모를 freeze하면 틀린 분모를 물려받는다. 선언을 강제로 바꾼다.
+#     CHECK 7과 동일한 컬럼 분해 방식 — 문자열 생성 정규식을 쓰지 않는다.
+node -e '
+const fs=require("fs");
+const D="docs/multi-session-work-loop";
+const snap=JSON.parse(fs.readFileSync(D+"/evidence-snapshot.json","utf8"));
+const body=fs.readFileSync(D+"/measurement-feasibility.md","utf8");
+const rows=body.split(/\r?\n/).filter(x=>x.trim().startsWith("|"));
+// [산문 표의 1열 접두, 스냅샷 값]. 값 셀에서 정수를 모두 뽑아 기대값 포함을 요구한다
+// — 굵게/"건"/"0 / 122" 같은 표기 차이는 허용하되 낡은 숫자는 못 넘어간다.
+const pairs=[
+  ["파싱 가능 receipt", snap.receipts.parsed],
+  ["`resolution.accepted`", snap.receipts.empty_resolution],
+  ["`resolution.codex_verdict` 부재", snap.receipts.no_codex_verdict],
+  ["`head_sha`", snap.receipts.head_sha_unreachable],
+  ["`base_sha`", snap.receipts.base_sha_reachable],
+];
+const bad=[];
+for(const [label,want] of pairs){
+  const row=rows.find(x=>{ const c=x.split("|"); return c[1]!==undefined && c[1].trim().startsWith(label); });
+  if(!row){ bad.push(label+" : 행 없음"); continue; }
+  const nums=((row.split("|")[2]||"").match(/[0-9]+/g)||[]).map(Number);
+  if(!nums.includes(want)) bad.push(label+" : 산문 "+JSON.stringify(nums)+" 에 스냅샷 값 "+want+" 없음");
+}
+if(bad.length){ console.log("FAIL: 산문 표가 evidence-snapshot.json 과 어긋남:"); bad.forEach(x=>console.log("  "+x)); process.exit(1); }
+console.log("OK: feasibility 산문 표 "+pairs.length+"행이 스냅샷과 일치");'
 
 # 3. 지표 10개 × 6 라벨 완비 — 누락 1개라도 실패 (F4)
 #    R2-F2 + 자체 발견 2건을 함께 흡수:
@@ -354,6 +398,20 @@ fails=$(printf '%s\n' "$out" | sed -n 's/^ℹ fail \([0-9]*\)$/\1/p' | tail -1)
 printf '%s\n' "$out" | grep -q 'design-critique-loop-e2e.test.js' \
   || { echo "FAIL: the single failure is NOT the known fixture case — new regression"; exit 1; }
 echo "OK: only the known pre-existing fixture failure"
+
+# 11. renderer 회귀 — CHECK 10이 만든 사각을 닫는다 (PR-Codex R1 F1)
+#     CHECK 10의 glob은 `lib/tests/*.test.js` 라서 `lib/renderer/tests/` 를 아예
+#     스캔하지 않는다. version bump가 그 디렉토리의 footer assert 2건을 깨뜨렸는데도
+#     Validation 전체가 초록이었다 — 유일한 기계적 강제 수단에 디렉토리 크기의
+#     구멍이 있었다는 뜻이다. CHECK 10과 같은 형태로 닫는다.
+#     실측 기준선: main에서 667개 중 선재 실패 1건(verdict-label metric — 이 milestone
+#     과 무관, bump 되돌리면 재현). 그 1건 외 0을 강제한다.
+rout=$(node --test "plugins/mccp/scripts/lib/renderer/tests/*.test.js" 2>&1 || true)
+rfails=$(printf '%s\n' "$rout" | sed -n 's/^ℹ fail \([0-9]*\)$/\1/p' | tail -1)
+[ "$rfails" = "1" ] || { echo "FAIL: renderer suite expected exactly 1 known failure, got ${rfails:-?}"; exit 1; }
+printf '%s\n' "$rout" | grep -q 'verdict-label metric' \
+  || { echo "FAIL: the single renderer failure is NOT the known verdict-label case — new regression"; exit 1; }
+echo "OK: renderer suite — only the known pre-existing verdict-label failure"
 ```
 
 ## 순서 — 선행 chore와의 관계 (2026-07-22 추가)
@@ -407,7 +465,9 @@ M1 자체는 설계 문서만 만들므로 **차단되지 않는다**. 지금 �
 - [ ] 코호트가 **불변 pre-start 메타데이터 임계 규칙**의 출력으로 등록됨(현 milestone 구성상 2개) + PRD 반증 조건 충족 불가가 명시 기록됨 (F3 + IF3)
 - [ ] C2·C3의 관측 전용 지위가 지표 명세와 라벨 규약 양쪽에 명시됨
 - [ ] `measurement-feasibility.md`의 모든 수치가 같은 문서의 명령으로 재현됨
-- [ ] **동작 코드 변경 0** — `plugins/` diff가 version surface 3파일 + 버전 문자열 라인으로 한정 (F2); renderer 두 파일의 변경 라인이 v1.22.x 토큰뿐임을 CHECK 2c가 hunk-scoped 기계 검증 (Codex R3 F1)
+- [ ] **동작 코드 변경 0** — `plugins/` diff가 version surface **4파일**로 한정 (F2 + PR-Codex R1 F1); renderer 두 파일이 v1.22.x 토큰 외 main과 전문 동일함을 CHECK 2c가 기계 검증 (Codex R3 F1 · Implement-Codex R2 F1)
+- [ ] **version bump가 회귀를 남기지 않음** — `i18n-surface.test.js`가 버전을 `plugin.json`에서 파생(하드코딩 교체가 아님)하고, CHECK 11이 renderer 스위트를 선재 실패 1건 외 0으로 강제 (PR-Codex R1 F1)
+- [ ] **산문 표 ↔ 스냅샷 일치가 강제됨** — CHECK 2d가 `measurement-feasibility.md` §2 표 5행을 `evidence-snapshot.json`과 대조 (PR-Codex R1 F2)
 - [ ] **A1 forward-only** — A1 소급 baseline을 만들지 않고 M2 전향 수립; measurement-design/feasibility A1 소급 가부가 forward-only + §4.0 A계열 비대상 명시, ledger 소급 재사용 금지 (Codex R3 F2, 운영자 결정)
 - [ ] **데이터 수집 0** — 신규 텔레메트리 파일·이벤트 레코드 없음
 - [ ] M4·M5·M7 소유 Open Question 4건은 M1에서 미변경
@@ -521,3 +581,20 @@ R3 흡수가 measurement-design/feasibility 문서를 편집해 implement-codex 
 - Deferred to backlog: 2 → `.claude/plans/codex-findings-backlog.md` (R2 next_steps의 CHECK 6 항목 + 자체 발견 1건)
 - Open Questions: 없음 (auto-CRITICAL 해당 없음)
 - Implement-Codex R2 구조화 verdict: `divergent` (raw `needs-attention`; F1 흡수, F2 부분 흡수). Codex가 clean 승인을 발급한 적이 없으므로 receipt는 `divergent`로 정직 봉인
+
+### PR-Codex R1 (2026-07-23 — commit `dbb5180` 대상 PR 게이트)
+
+commit 후 `/mccp:pr` 게이트가 발화했다(cross-gate dedupe는 양쪽 receipt가 `divergent`라 fail-closed → PR-Codex 실발화, 설계대로다). raw verdict **`needs-attention`(No ship)**, `codex_actionable_findings=true`, HIGH 1 + MEDIUM 1. `classification=ok`, `mutations=[]`(review-only 불변식 무손상).
+
+| Finding | Severity | Verdict | 재현 검증 | 흡수 |
+|---|---|---|---|---|
+| F1 version bump가 renderer 회귀 테스트를 깨뜨림 | HIGH (conf .96) | ACCEPT_NOW | **재현됨, 양방향 실측** — main: 667개 중 실패 1(`verdict-label metric`, 선재) / HEAD: 실패 **3**. 늘어난 2건이 정확히 `i18n-surface.test.js`의 footer assert(`v1.22.3` 하드코딩)다. bump 3파일을 main으로 되돌리자 실패가 1로 복귀 → 인과 확정 | 값 교체가 아니라 **`plugin.json` 파생**으로 전환(다음 bump에 같은 실패를 되돌려 놓지 않기 위해). allowlist를 4파일로 확장 + **CHECK 11 신설**로 renderer 스위트를 회귀 대상에 포함 |
+| F2 feasibility 산문 표가 스냅샷과 불일치 | MEDIUM (conf .88) | ACCEPT_NOW | **재현됨** — §2.1 표 `121/120` vs `evidence-snapshot.json` `parsed:122`/`empty_resolution:121`; §2.2 `0/121`·`121/121`·`~2026-07-15` vs 스냅샷 `122`·`122`·`2026-07-21`. §2 제목이 그 표를 "스냅샷의 관측값"이라 주장하는데 사실이 아니었다 | 표를 스냅샷 기준으로 재생성 + **CHECK 2d 신설**로 산문↔스냅샷 5행 대조를 기계 강제. §1.5의 "스냅샷이 정답"이 선언에서 강제로 승격 |
+
+> **F1이 통과한 경로가 finding 자체보다 중요하다.** 이 milestone의 Validation은 "유일한 기계적 강제 수단"으로 설계됐고 13개 검사가 전부 초록이었는데, 그 초록이 거짓이었다 — CHECK 10의 glob `lib/tests/*.test.js`가 `lib/renderer/tests/`를 **스캔조차 하지 않기** 때문이다. 즉 가드가 틀린 답을 준 게 아니라 **묻지 않았다**. 이것으로 "가드가 가드하지 못함" 계열이 본 Validation 블록에서 **넷째**다(앞선 셋: 백슬래시 붕괴로 항상-실패 / 항상-통과, grep 성공-시-실패). 앞선 셋은 검사를 실행해야 드러났고, 이번 것은 실행해도 안 드러난다 — **커버리지 밖이라 실행 자체가 안 됐다**. 검사를 실행해보는 것만으로는 부족하고 무엇이 실행되지 않는지도 봐야 한다는 교훈이며, 그래서 흡수를 검사 추가(CHECK 11)로 했다.
+>
+> **범위 판단**: F1의 `plugins/` 4번째 파일은 PRD의 `동작 코드 변경 0`을 위반하지 않는다 — 테스트 파일이고, 변경 내용은 자기가 검증하는 version surface를 따라가는 것뿐이다. 다만 초판 allowlist가 3개였던 것은 **plan의 사실 오류**(version surface를 하나 빠뜨림)이므로 plan을 고쳤다. plan에만 예외를 적고 넘어가는 것은 R1 F2가 이미 기각한 "계약을 조용히 개정" 패턴이다.
+
+- Deferred to backlog: 0
+- Open Questions: 없음 (auto-CRITICAL 해당 없음)
+- PR-Codex R1 구조화 verdict: `divergent` (raw `needs-attention`; 2건 전건 ACCEPT_NOW 흡수). 흡수가 plan 본문·Validation을 편집했으므로 `plan_hash`가 이동 → plan/implement receipt 재anchor + Implement-Codex 재실행 후 PR-Codex 재발화가 필요하다(본 사이클에서 네 번째 재anchor — 매번 실제 결함을 잡았다)

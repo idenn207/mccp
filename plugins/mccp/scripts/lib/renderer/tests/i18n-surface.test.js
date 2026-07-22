@@ -4,6 +4,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { renderStatus } = require('../index');
 
+// Footer version assertions derive from plugin.json (the release SoT) instead
+// of a hardcoded literal. A literal put the bump and its assertion in two files
+// with nothing tying them together, so every §3.7 version bump turned the suite
+// that exists to catch footer drift into the thing that broke.
+const PLUGIN_VERSION = require('../../../../.claude-plugin/plugin.json').version;
+
 function makeFullModel(now) {
   return {
     derived_at: new Date(now).toISOString(),
@@ -85,12 +91,19 @@ test('html — topbar freshness "갱신" present', () => {
   assert.match(r.html, /<span class="freshness">[\s\S]*?갱신/);
 });
 
-test('html — footer version v1.22.3 (footer element anchored)', () => {
+test('html — footer version tracks plugin.json (footer element anchored)', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
   // Anchor the version inside the <footer> element. Asserting a bare /v1\.x\.y/
   // against r.html silently matched the model's plan-derived milestone label
   // (e.g. "v1.4.2 · …"), so footer drift went untested — anchor on the tag.
-  assert.match(r.html, /<footer[^>]*>v1\.22\.3 ·/);
+  // Extract-then-startsWith keeps the regex a literal: no string-built RegExp,
+  // which is the form that has silently collapsed backslashes in this repo.
+  const footer = r.html.match(/<footer[^>]*>([\s\S]*?)<\/footer>/);
+  assert.ok(footer, 'footer element present');
+  assert.ok(
+    footer[1].startsWith('v' + PLUGIN_VERSION + ' ·'),
+    'html footer must track plugin.json (' + PLUGIN_VERSION + '), got: ' + footer[1].slice(0, 40)
+  );
   assert.match(r.html, /통합 derive/);
 });
 
@@ -122,7 +135,13 @@ test('markdown — title "mccp 상태"', () => {
   assert.match(r.md, /^# mccp 상태/m);
 });
 
-test('markdown — footer with v1.22.3 version', () => {
+test('markdown — footer version tracks plugin.json', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
-  assert.match(r.md, /v1\.22\.3/);
+  // Anchor on the whole derived-footer line, not a bare version match — the
+  // html test above documents why a loose match tests nothing here (plan
+  // milestone labels are shaped like versions and match first).
+  assert.ok(
+    r.md.includes('_derived from .claude/ · v' + PLUGIN_VERSION + '_'),
+    'markdown footer must track plugin.json (' + PLUGIN_VERSION + ')'
+  );
 });

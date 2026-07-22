@@ -32,10 +32,12 @@ PRD는 *"약 125건의 게이트 증거와 105건의 PR 이력이 쌓여 있는�
 
 | 항목 | 실측 |
 |---|---|
-| 파싱 가능 receipt (3 게이트) | 121건 |
+| 파싱 가능 receipt (3 게이트) | 122건 |
 | `findings` 보유 | **1건** (최대 3개) |
-| `resolution.accepted`·`rejected` 모두 빈 배열 | **120건** |
+| `resolution.accepted`·`rejected` 모두 빈 배열 | **121건** |
 | `resolution.codex_verdict` 부재 | **90건** (v1.20.3 이전 작성분) |
+
+> 이 표의 값은 [evidence-snapshot.json](./evidence-snapshot.json)의 `receipts.*`와 **기계 검증된다**(Validation CHECK 2d). 산문과 스냅샷이 어긋나면 검사가 실패하므로, §1.5의 "스냅샷이 정답" 규칙이 선언이 아니라 강제다. 초판은 이 표가 121/120으로 굳어 있었고 스냅샷은 122/121이었다 — PR-Codex R1 F2가 잡았다.
 
 ```bash
 node -e '
@@ -61,8 +63,8 @@ receipt 스키마에 timestamp 필드가 **없다**. 유일한 시간 단서는 
 
 | anchor | 도달 가능 | 용도 |
 |---|---|---|
-| `head_sha` | **0 / 121** | 사용 불가 — squash-merge가 feature 커밋을 폐기했다 |
-| `base_sha` | **121 / 121** | 하한 anchor로만 사용 가능 (2026-06-03 ~ 2026-07-15) |
+| `head_sha` | **0 / 122** | 사용 불가 — squash-merge가 feature 커밋을 폐기했다 |
+| `base_sha` | **122 / 122** | 하한 anchor로만 사용 가능 (2026-06-03 ~ 2026-07-21) |
 
 즉 receipt를 버전·시기별로 층화하려면 `base_sha`의 커밋 날짜를 써야 하며, 이는 "receipt가 그 시점 *이후*에 작성됐다"는 하한만 준다.
 

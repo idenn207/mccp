@@ -235,30 +235,82 @@ console.log("OK: renderer 2종 파일 전문이 버전 토큰 외 동일 · plug
 #     122/121이었고, §2의 제목은 그 표가 "스냅샷의 관측값"이라고 주장하고 있었다.
 #     M2가 이 표를 보고 분모를 freeze하면 틀린 분모를 물려받는다. 선언을 강제로 바꾼다.
 #     CHECK 7과 동일한 컬럼 분해 방식 — 문자열 생성 정규식을 쓰지 않는다.
+#
+#     초판은 "값 셀에서 정수를 모두 뽑아 스냅샷 값이 그 안에 있으면 통과"였고 **뚫린다**.
+#     자체 공격으로 재현했고 Implement-Codex R3 F2가 독립적으로 같은 것을 지적했다:
+#       · `| 파싱 가능 receipt | 121건 (스냅샷 122) |` → 122가 등장하므로 통과.
+#         화면에 보이는 값은 낡은 121인데도.
+#       · `| base_sha | 121 / 122 |` → 122가 등장하므로 통과. 분자가 낡았는데도.
+#       · 날짜 범위는 3열이라 아예 검사 대상이 아니었다.
+#     "어딘가 있으면 통과"는 표를 검증하는 게 아니라 숫자의 존재를 검증한다.
+#     그래서 행별 **형태**를 정확히 단정한다 — count는 "<n>건"으로 시작, ratio는 전체 일치,
+#     날짜 행은 min ~ max 범위 문자열까지.
 node -e '
 const fs=require("fs");
 const D="docs/multi-session-work-loop";
 const snap=JSON.parse(fs.readFileSync(D+"/evidence-snapshot.json","utf8"));
 const body=fs.readFileSync(D+"/measurement-feasibility.md","utf8");
 const rows=body.split(/\r?\n/).filter(x=>x.trim().startsWith("|"));
-// [산문 표의 1열 접두, 스냅샷 값]. 값 셀에서 정수를 모두 뽑아 기대값 포함을 요구한다
-// — 굵게/"건"/"0 / 122" 같은 표기 차이는 허용하되 낡은 숫자는 못 넘어간다.
-const pairs=[
-  ["파싱 가능 receipt", snap.receipts.parsed],
-  ["`resolution.accepted`", snap.receipts.empty_resolution],
-  ["`resolution.codex_verdict` 부재", snap.receipts.no_codex_verdict],
-  ["`head_sha`", snap.receipts.head_sha_unreachable],
-  ["`base_sha`", snap.receipts.base_sha_reachable],
+const R=snap.receipts;
+const strip=s=>s.split("*").join("").trim();
+const cell=(row,i)=>strip(row.split("|")[i]||"");
+const specs=[
+  {label:"파싱 가능 receipt", kind:"count", want:String(R.parsed)},
+  {label:"`findings` 보유", kind:"count", want:String(R.with_findings)},
+  {label:"`resolution.accepted`", kind:"count", want:String(R.empty_resolution)},
+  {label:"`resolution.codex_verdict` 부재", kind:"count", want:String(R.no_codex_verdict)},
+  {label:"`head_sha`", kind:"ratio", want:(R.parsed-R.head_sha_unreachable)+" / "+R.parsed},
+  {label:"`base_sha`", kind:"ratio", want:R.base_sha_reachable+" / "+R.parsed,
+   dateCol:3, dateWant:R.base_date_min+" ~ "+R.base_date_max},
 ];
 const bad=[];
-for(const [label,want] of pairs){
-  const row=rows.find(x=>{ const c=x.split("|"); return c[1]!==undefined && c[1].trim().startsWith(label); });
-  if(!row){ bad.push(label+" : 행 없음"); continue; }
-  const nums=((row.split("|")[2]||"").match(/[0-9]+/g)||[]).map(Number);
-  if(!nums.includes(want)) bad.push(label+" : 산문 "+JSON.stringify(nums)+" 에 스냅샷 값 "+want+" 없음");
+for(const s of specs){
+  const row=rows.find(x=>{ const c=x.split("|"); return c[1]!==undefined && c[1].trim().startsWith(s.label); });
+  if(!row){ bad.push(s.label+" : 행 없음"); continue; }
+  const v=cell(row,2);
+  if(s.kind==="count"){
+    if(!v.startsWith(s.want+"건")) bad.push(s.label+" : 값 "+JSON.stringify(v)+" 가 "+s.want+"건 으로 시작하지 않음");
+  } else if(v!==s.want){
+    bad.push(s.label+" : 값 "+JSON.stringify(v)+" != "+JSON.stringify(s.want));
+  }
+  if(s.dateCol){
+    const d=cell(row,s.dateCol);
+    if(!d.includes(s.dateWant)) bad.push(s.label+" : 날짜 범위에 "+s.dateWant+" 없음 ("+JSON.stringify(d)+")");
+  }
 }
 if(bad.length){ console.log("FAIL: 산문 표가 evidence-snapshot.json 과 어긋남:"); bad.forEach(x=>console.log("  "+x)); process.exit(1); }
-console.log("OK: feasibility 산문 표 "+pairs.length+"행이 스냅샷과 일치");'
+console.log("OK: feasibility 산문 표 "+specs.length+"행이 스냅샷과 정확 일치(개수 형태·비율 전체·날짜 범위)");'
+
+# 2e. version-surface 테스트 파일의 구조 가드 (Implement-Codex R3 F3)
+#     CHECK 2가 i18n-surface.test.js **파일 전체**를 allowlist에 넣었는데, 그 파일이
+#     무엇을 유지해야 하는지는 아무도 안 본다. CHECK 2c는 renderer 2종만 전문 대조하고,
+#     CHECK 11은 스위트가 초록이면 통과한다 — footer assert를 **지워버려도** 스위트는
+#     초록이 되므로 둘 다 통과한다. 즉 "테스트 파일은 동작 코드가 아니다"라는 면제가
+#     유일한 기계적 가드에 구멍을 낸다. 파일의 계약을 직접 단정해 닫는다.
+node -e '
+const fs=require("fs");
+const Q=String.fromCharCode(39);
+const P="plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js";
+const b=fs.readFileSync(P,"utf8");
+const NAMES=["html — footer version tracks plugin.json",
+             "markdown — footer version tracks plugin.json"];
+const bad=[];
+if(!b.includes(".claude-plugin/plugin.json")) bad.push("plugin.json 파생이 사라짐 — 버전이 다시 하드코딩됐을 수 있음");
+if(!b.includes("PLUGIN_VERSION")) bad.push("PLUGIN_VERSION 상수 부재");
+for(const n of NAMES){
+  if(!b.includes(n)){ bad.push("footer 테스트 사라짐: "+n); continue; }
+  // 이름만 남고 본문이 비워지는 경우를 막는다 — 해당 test 블록이 실제로
+  // PLUGIN_VERSION 을 참조해야 한다.
+  // 접두 매칭 — 실제 이름에는 접미사가 붙는다(예: "… (footer element anchored)").
+  // 닫는 따옴표까지 요구하면 정상 파일에서도 파싱 실패한다(자체 실행으로 확인).
+  const blk=b.split("test(").find(x=>x.startsWith(Q+n));
+  const end=blk?blk.indexOf("});"):-1;
+  if(!blk||end<0){ bad.push("footer 테스트 블록 파싱 실패: "+n); continue; }
+  if(!blk.slice(0,end).includes("PLUGIN_VERSION"))
+    bad.push("footer 테스트 본문이 PLUGIN_VERSION 을 쓰지 않음: "+n);
+}
+if(bad.length){ console.log("FAIL: version-surface 테스트 계약 위반:"); bad.forEach(x=>console.log("  "+x)); process.exit(1); }
+console.log("OK: i18n-surface.test.js 가 plugin.json 파생 + footer assert 2종을 유지");'
 
 # 3. 지표 10개 × 6 라벨 완비 — 누락 1개라도 실패 (F4)
 #    R2-F2 + 자체 발견 2건을 함께 흡수:
@@ -392,26 +444,45 @@ if(bad) process.exit(1); console.log("OK: links");'
 #            design-critique-loop-e2e.test.js "fixture file exists in .claude/cache/".
 #            CLAUDE.md §3.9가 이 fixture를 "현재 tracked 상태가 아님"으로 명시하므로
 #            정상 상태다. 따라서 "실패 0"이 아니라 **"알려진 그 1건 외 실패 0"**을 강제한다.
-out=$(node --test "plugins/mccp/scripts/lib/tests/*.test.js" 2>&1 || true)
-fails=$(printf '%s\n' "$out" | sed -n 's/^ℹ fail \([0-9]*\)$/\1/p' | tail -1)
-[ "$fails" = "1" ] || { echo "FAIL: expected exactly 1 known failure, got ${fails:-?}"; exit 1; }
-printf '%s\n' "$out" | grep -q 'design-critique-loop-e2e.test.js' \
-  || { echo "FAIL: the single failure is NOT the known fixture case — new regression"; exit 1; }
-echo "OK: only the known pre-existing fixture failure"
+#    주의 3 (Implement-Codex R3 F1): 초판은 `ℹ fail N` **개수**를 세고 전체 출력에서
+#            파일명을 grep했다. 그건 실패 동일성 검사가 아니다 —
+#              · 알려진 실패가 고쳐지고 **다른** 테스트가 깨지면 총계는 여전히 1이고,
+#                알려진 이름은 통과 라인(`ok N - …`)에도 있어 grep이 매칭돼 **통과**한다
+#              · 반대로 알려진 실패를 고치면 총계가 0이 되어 **정상 개선이 검사를 깨뜨린다**
+#            그래서 TAP의 `not ok` 라인에서 실패 **이름**만 뽑아 allowlist의
+#            **부분집합**인지 본다. 부분집합이므로 개선은 통과하고 신규 회귀만 잡는다.
+#            CHECK 11(renderer)도 같은 판정기를 공유한다 — 형태가 갈리면 한쪽만 썩는다.
+TMPD=$(git rev-parse --git-path mccp/tmp); mkdir -p "$TMPD"
+cat > "$TMPD/tap-subset.js" <<'TAPEOF'
+const fs=require("fs");
+const [,,tapFile,suite,...allow]=process.argv;
+const failed=[];
+for(const line of fs.readFileSync(tapFile,"utf8").split(/\r?\n/)){
+  const t=line.trim();
+  if(!t.startsWith("not ok ")) continue;
+  const d=t.indexOf(" - ");
+  failed.push(d<0?t:t.slice(d+3));
+}
+const unexpected=failed.filter(n=>!allow.some(a=>n.includes(a)));
+if(unexpected.length){
+  console.log("FAIL: "+suite+" — allowlist 밖의 실패 "+unexpected.length+"건 (신규 회귀):");
+  unexpected.forEach(x=>console.log("  "+x));
+  process.exit(1);
+}
+console.log("OK: "+suite+" — 실패 "+failed.length+"건, 전부 알려진 선재 실패");
+TAPEOF
+
+node --test --test-reporter=tap "plugins/mccp/scripts/lib/tests/*.test.js" > "$TMPD/tap-lib.txt" 2>&1 || true
+node "$TMPD/tap-subset.js" "$TMPD/tap-lib.txt" "lib 스위트" "fixture file exists in .claude/cache/"
 
 # 11. renderer 회귀 — CHECK 10이 만든 사각을 닫는다 (PR-Codex R1 F1)
 #     CHECK 10의 glob은 `lib/tests/*.test.js` 라서 `lib/renderer/tests/` 를 아예
 #     스캔하지 않는다. version bump가 그 디렉토리의 footer assert 2건을 깨뜨렸는데도
-#     Validation 전체가 초록이었다 — 유일한 기계적 강제 수단에 디렉토리 크기의
-#     구멍이 있었다는 뜻이다. CHECK 10과 같은 형태로 닫는다.
-#     실측 기준선: main에서 667개 중 선재 실패 1건(verdict-label metric — 이 milestone
-#     과 무관, bump 되돌리면 재현). 그 1건 외 0을 강제한다.
-rout=$(node --test "plugins/mccp/scripts/lib/renderer/tests/*.test.js" 2>&1 || true)
-rfails=$(printf '%s\n' "$rout" | sed -n 's/^ℹ fail \([0-9]*\)$/\1/p' | tail -1)
-[ "$rfails" = "1" ] || { echo "FAIL: renderer suite expected exactly 1 known failure, got ${rfails:-?}"; exit 1; }
-printf '%s\n' "$rout" | grep -q 'verdict-label metric' \
-  || { echo "FAIL: the single renderer failure is NOT the known verdict-label case — new regression"; exit 1; }
-echo "OK: renderer suite — only the known pre-existing verdict-label failure"
+#     Validation 전체가 초록이었다 — 가드가 틀린 답을 준 게 아니라 **묻지 않았다**.
+#     실측 기준선: main 667개 중 선재 실패 1건(verdict-label metric — 이 milestone과
+#     무관, bump 되돌리면 재현). 판정은 CHECK 10과 동일한 부분집합 방식.
+node --test --test-reporter=tap "plugins/mccp/scripts/lib/renderer/tests/*.test.js" > "$TMPD/tap-renderer.txt" 2>&1 || true
+node "$TMPD/tap-subset.js" "$TMPD/tap-renderer.txt" "renderer 스위트" "verdict-label metric"
 ```
 
 ## 순서 — 선행 chore와의 관계 (2026-07-22 추가)
@@ -466,8 +537,10 @@ M1 자체는 설계 문서만 만들므로 **차단되지 않는다**. 지금 �
 - [ ] C2·C3의 관측 전용 지위가 지표 명세와 라벨 규약 양쪽에 명시됨
 - [ ] `measurement-feasibility.md`의 모든 수치가 같은 문서의 명령으로 재현됨
 - [ ] **동작 코드 변경 0** — `plugins/` diff가 version surface **4파일**로 한정 (F2 + PR-Codex R1 F1); renderer 두 파일이 v1.22.x 토큰 외 main과 전문 동일함을 CHECK 2c가 기계 검증 (Codex R3 F1 · Implement-Codex R2 F1)
-- [ ] **version bump가 회귀를 남기지 않음** — `i18n-surface.test.js`가 버전을 `plugin.json`에서 파생(하드코딩 교체가 아님)하고, CHECK 11이 renderer 스위트를 선재 실패 1건 외 0으로 강제 (PR-Codex R1 F1)
-- [ ] **산문 표 ↔ 스냅샷 일치가 강제됨** — CHECK 2d가 `measurement-feasibility.md` §2 표 5행을 `evidence-snapshot.json`과 대조 (PR-Codex R1 F2)
+- [ ] **version bump가 회귀를 남기지 않음** — `i18n-surface.test.js`가 버전을 `plugin.json`에서 파생(하드코딩 교체가 아님)하고, CHECK 11이 renderer 스위트를 회귀 대상에 포함 (PR-Codex R1 F1)
+- [ ] **회귀 판정이 개수가 아니라 실패 집합** — CHECK 10·11이 TAP `not ok` 이름 집합의 allowlist 부분집합 여부로 판정하고 **같은 판정기를 공유**. 알려진 실패가 고쳐져도 통과, 신규 회귀는 차단 (Implement-Codex R3 F1)
+- [ ] **산문 표 ↔ 스냅샷 정확 일치가 강제됨** — CHECK 2d가 `measurement-feasibility.md` §2 표 **6행**을 형태별(개수 시작·비율 전체·날짜 범위)로 대조. "정수가 어딘가 있으면 통과"는 폐기 (PR-Codex R1 F2 · Implement-Codex R3 F2)
+- [ ] **test-file allowlist가 변경 범위까지 구속** — CHECK 2e가 `i18n-surface.test.js`의 `plugin.json` 파생 + footer 테스트 2종 + 각 본문의 `PLUGIN_VERSION` 참조를 단정. 3방향 자체 공격(정상/assert 삭제/하드코딩 복귀)으로 실측 (Implement-Codex R3 F3)
 - [ ] **A1 forward-only** — A1 소급 baseline을 만들지 않고 M2 전향 수립; measurement-design/feasibility A1 소급 가부가 forward-only + §4.0 A계열 비대상 명시, ledger 소급 재사용 금지 (Codex R3 F2, 운영자 결정)
 - [ ] **데이터 수집 0** — 신규 텔레메트리 파일·이벤트 레코드 없음
 - [ ] M4·M5·M7 소유 Open Question 4건은 M1에서 미변경
@@ -598,3 +671,23 @@ commit 후 `/mccp:pr` 게이트가 발화했다(cross-gate dedupe는 양쪽 rece
 - Deferred to backlog: 0
 - Open Questions: 없음 (auto-CRITICAL 해당 없음)
 - PR-Codex R1 구조화 verdict: `divergent` (raw `needs-attention`; 2건 전건 ACCEPT_NOW 흡수). 흡수가 plan 본문·Validation을 편집했으므로 `plan_hash`가 이동 → plan/implement receipt 재anchor + Implement-Codex 재실행 후 PR-Codex 재발화가 필요하다(본 사이클에서 네 번째 재anchor — 매번 실제 결함을 잡았다)
+
+### Implement-Codex R3 (2026-07-23 — PR-Codex R1 흡수분 재리뷰)
+
+PR-Codex R1 흡수(`748cce0`)가 Validation에 검사 2개를 신설하고 allowlist를 넓혔다. 그 편집 대상이 또다시 **milestone의 유일한 기계적 강제 수단**이라 재리뷰했다(focus를 그 5개 implement-time 결정에 한정). raw verdict **`needs-attention`(No ship)**, HIGH 1 + MEDIUM 2, `classification=ok`, durationMs 355318.
+
+**두 항목은 방어에 성공했다** — Codex가 명시적으로 확인: (1) `html.js`/`markdown.js`가 footer 문자열을 하드코딩하고 `plugin.json`을 읽지 않으므로 파생 테스트는 **tautology가 아니다**(자체 사전 검증과 일치), (2) PROVISIONAL 층의 수치 갱신은 이미 frozen된 계약을 무효화하지 않는다. 나머지 3건은 전부 **"새로 만든 가드가 약하다"**로 수렴했다.
+
+| Finding | Severity | Verdict | 재현 검증 | 흡수 |
+|---|---|---|---|---|
+| F1 CHECK 11이 실패 **동일성**을 증명하지 않음 | HIGH (conf .82) | ACCEPT_NOW | 확인 — 개수(`ℹ fail 1`)를 세고 전체 출력을 grep하는데, 알려진 이름은 **통과 라인**(`ok 648 - verdict-label metric …`)에도 나타난다. 따라서 알려진 실패가 고쳐지고 다른 하나가 깨져도 총계 1 + grep 매칭 → **통과**. 역으로 알려진 실패를 고치면 총계 0이 되어 정상 개선이 검사를 깨뜨린다. CHECK 10도 동일 결함(내가 그 형태를 복제했다) | TAP `not ok` 라인에서 실패 **이름 집합**을 뽑아 allowlist **부분집합** 판정으로 교체. 부분집합이라 개선(실패 감소)은 통과, 신규 회귀만 차단. CHECK 10·11이 **같은 판정기 파일**을 공유 — 형태가 갈리면 한쪽만 썩는다 |
+| F2 CHECK 2d가 "정수가 어딘가 있으면" 통과 | MEDIUM (conf .93) | ACCEPT_NOW | **자체 선행 재현** — Codex 응답 전에 `121건 (스냅샷 122)` 주입으로 PASS 확인. Codex는 추가로 `base_sha: 121 / 122`(분자 stale)와 **3열 날짜 미검사**를 지적 | 행별 **형태 정확 일치**로 교체 — count는 `<n>건` 시작, ratio는 전체 문자열 일치, `base_sha` 행은 `base_date_min ~ base_date_max`까지. 검사 행 5 → 6 |
+| F3 test-file allowlist가 파일 단위라 변경 범위를 안 봄 | MEDIUM (conf .78) | ACCEPT_NOW | 확인 — CHECK 2c는 renderer 2종만 전문 대조하고 CHECK 11은 스위트가 초록이면 통과한다. **footer assert를 지워버려도 둘 다 통과**한다. "테스트 파일은 동작 코드가 아니다"라는 면제가 유일한 기계적 가드에 구멍이 된다 | **CHECK 2e 신설** — `i18n-surface.test.js`가 (a) `plugin.json` 파생을 유지하고 (b) footer 테스트 2종이 존재하며 (c) 각 테스트 **본문**이 실제로 `PLUGIN_VERSION`을 참조하는지 단정(이름만 남고 assert가 비는 경우 차단) |
+
+> **같은 계열이 다섯째와 여섯째다.** F1은 내가 PR-Codex F1을 흡수하며 *새로 만든* 가드가 곧바로 같은 병에 걸린 사례다 — 나는 CHECK 10의 형태를 그대로 복제했고, 그 형태가 이미 틀려 있었다. 즉 결함 있는 가드를 복제하면 결함도 복제된다. 이번 흡수에서 두 검사가 **판정기 파일을 공유**하게 만든 이유가 그것이다.
+>
+> **범위 판단**: F1의 권고 중 "알려진 실패를 skip/todo로 표시하고 실패 0을 요구하라"는 채택하지 않았다. 그건 선재 실패 2건(`design-critique-loop-e2e` fixture · `verdict-label metric`)의 **소스 파일을 편집**해야 하는데, 둘 다 본 milestone 범위 밖이고 하나는 CLAUDE.md §3.9가 정상 상태로 명시한 것이다. 부분집합 판정은 소스를 건드리지 않고 같은 보증(신규 회귀 차단 + 개선 허용)을 준다.
+
+- Deferred to backlog: 0
+- Open Questions: 없음 (auto-CRITICAL 해당 없음)
+- Implement-Codex R3 구조화 verdict: `divergent` (raw `needs-attention`; 3건 전건 ACCEPT_NOW 흡수). Codex가 clean 승인을 발급한 적이 없으므로 receipt는 `divergent`로 정직 봉인 — cross-gate dedupe fail-closed 유지

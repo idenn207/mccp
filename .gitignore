@@ -23,8 +23,15 @@ dist/
 build/
 *.tsbuildinfo
 
-# Runtime receipts (working tree only, per plan §3.1 + Codex Q3 default)
-.claude/receipts/
+# Runtime receipts — 내구성 계약(CLAUDE.md):
+#   plan/implement receipt = 세션 진단용 → working-tree only
+#   ship receipt(mccp-pr-codex) = 감사 대조 corpus → git-tracked
+# 2026-07-22: 부트스트랩 미검토 기본값(mccp-bootstrap.plan.md §11 Q3,
+# commit 375157d) 대체. 그 기본값이 감사 자체를 불가능하게 만들었다(E1).
+.claude/receipts/*
+!.claude/receipts/mccp-pr-codex/
+.claude/receipts/mccp-pr-codex/*.lock
+.claude/receipts/mccp-pr-codex/*.tmp
 
 # v0.2 Stop-loop bounded counter and advisory locks (session-local).
 # STATE.md and fix-task.md remain git-tracked per plan §4.

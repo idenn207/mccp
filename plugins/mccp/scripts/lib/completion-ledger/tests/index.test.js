@@ -159,3 +159,79 @@ test('fail-open: store.writeEntry throwing does NOT propagate out of the facade'
     });
   } finally { cleanup(root); }
 });
+
+// ── PR-Codex R2 F1: verdict is codex_verdict-first; divergent/critical excluded ──
+
+function driveWithCapture(root, receipt, p) {
+  let captured = null;
+  let writeCalled = 0;
+  ledger.triggerLedgerAppend(root, receipt, p, {
+    isLedgerAppendSafe: () => ({ safe: true, commit_sha: 'a'.repeat(40) }),
+    resolveVersion: () => null,
+    readPlanSnapshot: () => ({ risks: [], openQuestions: [] }),
+    writeEntry: (_r, entry) => { writeCalled++; captured = entry; return { ok: true }; },
+  });
+  return { captured, writeCalled };
+}
+
+test('R2 F1: divergent codex_verdict → NO ledger entry (resolution.converged is unreliable)', () => {
+  const root = tmpRepo();
+  try {
+    const { receipt, path: p } = makeReceipt(root, {});
+    receipt.resolution.codex_verdict = 'divergent'; // converged stays true — the unreliable field
+    const { writeCalled } = driveWithCapture(root, receipt, p);
+    assert.equal(writeCalled, 0, 'a divergent ship must never be recorded as a completion');
+  } finally { cleanup(root); }
+});
+
+test('R2 F1: critical codex_verdict → NO ledger entry', () => {
+  const root = tmpRepo();
+  try {
+    const { receipt, path: p } = makeReceipt(root, {});
+    receipt.resolution.codex_verdict = 'critical';
+    const { writeCalled } = driveWithCapture(root, receipt, p);
+    assert.equal(writeCalled, 0);
+  } finally { cleanup(root); }
+});
+
+test('R2 F1: skipped codex_verdict → ledger verdict "skipped"', () => {
+  const root = tmpRepo();
+  try {
+    const { receipt, path: p } = makeReceipt(root, {});
+    receipt.resolution.codex_verdict = 'skipped';
+    const { captured, writeCalled } = driveWithCapture(root, receipt, p);
+    assert.equal(writeCalled, 1);
+    assert.equal(captured.verdict, 'skipped');
+  } finally { cleanup(root); }
+});
+
+test('R2 F1: unavailable codex_verdict → ledger verdict "advisory" (matches verdictsAgree)', () => {
+  const root = tmpRepo();
+  try {
+    const { receipt, path: p } = makeReceipt(root, {});
+    receipt.resolution.codex_verdict = 'unavailable';
+    const { captured } = driveWithCapture(root, receipt, p);
+    assert.equal(captured.verdict, 'advisory');
+  } finally { cleanup(root); }
+});
+
+test('R2 F1: converged codex_verdict → ledger verdict "converged"', () => {
+  const root = tmpRepo();
+  try {
+    const { receipt, path: p } = makeReceipt(root, {});
+    receipt.resolution.codex_verdict = 'converged';
+    const { captured } = driveWithCapture(root, receipt, p);
+    assert.equal(captured.verdict, 'converged');
+  } finally { cleanup(root); }
+});
+
+test('R2 F1: legacy receipt (no codex_verdict) keeps the converged path', () => {
+  const root = tmpRepo();
+  try {
+    const { receipt, path: p } = makeReceipt(root, {});
+    delete receipt.resolution.codex_verdict; // legacy — only resolution.converged===true
+    const { captured, writeCalled } = driveWithCapture(root, receipt, p);
+    assert.equal(writeCalled, 1);
+    assert.equal(captured.verdict, 'converged');
+  } finally { cleanup(root); }
+});

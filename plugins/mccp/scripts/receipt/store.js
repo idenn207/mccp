@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 function receiptsDir(repoRoot) {
   return path.join(repoRoot, '.claude', 'receipts');
@@ -93,10 +94,63 @@ function readReceipt(repoRoot, gateId, decisionId) {
   }
 }
 
+// durable-evidence-substrate Task A3-b — is the receipt file git-tracked? Only
+// tracked receipts carry an audit binding worth protecting (untracked
+// working-tree receipts and brand-new decisions are ephemera).
+function isGitTracked(repoRoot, filePath) {
+  try {
+    execFileSync('git', ['ls-files', '--error-unmatch', '--', filePath], {
+      cwd: repoRoot,
+      stdio: ['ignore', 'ignore', 'ignore'],
+    });
+    return true;
+  } catch (_e) {
+    return false;
+  }
+}
+
+// durable-evidence-substrate Task A3-b (Codex R3/R4 F1) — overwrite HALT guard.
+// A git-tracked ship receipt is an audit-binding anchor: the completion-ledger
+// entry's filename identity is `<decision>__<receipt_hash[0:12]>`, so silently
+// overwriting a tracked receipt with a DIFFERENT hash snaps that binding and
+// produces unverifiable superseded state (E4). This anchors in writeReceipt —
+// the ONLY path that replaces the canonical receipt (the two direct stampers,
+// briefing + ledger skip-diagnostic, only mutate hash-carved fields and cannot
+// change receipt_hash) — so it covers EVERY caller, not just /mccp:pr. rebase is
+// one instance of this defect; ordinary re-PR of the same slug is another
+// (8 dangling bindings observed 2026-07-22).
+function assertNoTrackedOverwrite(repoRoot, p, receipt) {
+  if (!fs.existsSync(p)) return;          // brand-new decision — nothing to overwrite
+  if (!isGitTracked(repoRoot, p)) return; // untracked working-tree ephemera — allowed
+  let diskHash = null;
+  try {
+    diskHash = JSON.parse(fs.readFileSync(p, 'utf8')).receipt_hash || null;
+  } catch (_e) {
+    // existing tracked file unreadable/corrupt — not a known binding to protect;
+    // allow the (repairing) write but say so loudly.
+    process.stderr.write('[mccp-receipt-store] WARNING: tracked receipt at ' + p
+      + ' is unreadable; allowing overwrite (cannot compare receipt_hash).\n');
+    return;
+  }
+  const newHash = receipt && receipt.receipt_hash;
+  if (diskHash && newHash && diskHash === newHash) return; // idempotent rewrite — allowed
+  const err = new Error(
+    'refusing to overwrite git-tracked receipt with a different hash '
+    + '(disk=' + String(diskHash).slice(0, 20) + '… new=' + String(newHash).slice(0, 20) + '…). '
+    + 'A tracked ship receipt is an audit-binding anchor (E4); overwriting it snaps the '
+    + 'ledger↔receipt binding. To legitimately re-ship this decision, use a NEW decision slug — '
+    + 'either pass --decision <new-slug> explicitly, or (for /mccp:pr, which is BRANCH_BASED) '
+    + 'ship from a new branch name. Overwriting an existing slug is disallowed until a '
+    + 'supersession schema exists (Out of Scope).');
+  err.code = 'TRACKED_RECEIPT_OVERWRITE';
+  throw err;
+}
+
 function writeReceipt(repoRoot, receipt) {
   const p = receiptPath(repoRoot, receipt.gate_id, receipt.decision_id);
   const dir = path.dirname(p);
   fs.mkdirSync(dir, { recursive: true });
+  assertNoTrackedOverwrite(repoRoot, p, receipt);
   fs.writeFileSync(p, JSON.stringify(receipt, null, 2) + '\n', 'utf8');
   return p;
 }

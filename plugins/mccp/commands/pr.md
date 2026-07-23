@@ -507,6 +507,14 @@ before Phase 2.5.5. Format:
 
 ```bash
 HEAD_SHA=$(git rev-parse HEAD)
+# Task A4 (F2-a) — persist the capture-time HEAD_SHA durably so Phase 4 reads the
+# SAME value instead of re-running `git rev-parse HEAD`. The body-file is keyed on
+# this sha; the Phase 3 evidence-commit moves HEAD between here and Phase 4, so a
+# recomputed sha would miss the body-file and silently drop the `## Design Review`
+# / `## Codex Adversarial Review` sections.
+GITDIR=$(git rev-parse --git-dir)   # worktree-safe (§3.8)
+mkdir -p "$GITDIR/mccp/tmp"
+printf '%s' "$HEAD_SHA" > "$GITDIR/mccp/tmp/pr-head-sha-${DECISION_SLUG}.txt"
 
 # Write content to a temp file first (multi-line shell-safe), then call CLI.
 TMP_CONTENT=$(mktemp 2>/dev/null || echo "$TMPDIR/mccp-pr-body-$$.md")
@@ -569,6 +577,11 @@ read sees the security additions (Codex Round 1 F3):
 
 ```bash
 HEAD_SHA=$(git rev-parse HEAD)
+# Task A4 (F2-a) — keep the durable passthrough in lockstep with the LAST
+# body-file write (this re-persist re-keys the body-file on the current sha).
+GITDIR=$(git rev-parse --git-dir)
+mkdir -p "$GITDIR/mccp/tmp"
+printf '%s' "$HEAD_SHA" > "$GITDIR/mccp/tmp/pr-head-sha-${DECISION_SLUG}.txt"
 TMP_CONTENT=$(mktemp 2>/dev/null || echo "$TMPDIR/mccp-pr-body-$$.md")
 {
   echo "## Design Review"
@@ -778,18 +791,145 @@ Same forbidden phrase catalog as Plan-Codex Phase 7. No "shall I invoke Codex?" 
 
 ## Phase 3 — PUSH
 
+### 3.0a — F1 pre-stage absolute-cwd guard (durable-evidence-substrate follow-up)
+
+BEFORE staging any receipt, assert no ship receipt under
+`.claude/receipts/mccp-pr-codex/` still carries an ABSOLUTE `meta.cwd`. A new
+receipt is normalized to repo-relative on write (`normalizeReceiptCwd`), but a
+historical or externally-produced receipt could still leak a `<drive>:\…` local
+path into public history. This is the cheap pre-stage check; the authoritative
+corpus-integrity gate is the rebind tool's own fail-closed post-apply scan
+(`v1.22.4-cwd-rebind.js`, run at rebind time), so pr.md does NOT re-run the full
+binding scan — it has no rebind plan in context.
+
+```bash
+GITDIR=$(git rev-parse --git-dir)
+mkdir -p "$GITDIR/mccp/tmp"
+LEAKING=$(node -e '
+  const fs = require("fs"), p = require("path");
+  const d = p.join(process.cwd(), ".claude", "receipts", "mccp-pr-codex");
+  if (!fs.existsSync(d)) process.exit(0);
+  const bad = [];
+  for (const f of fs.readdirSync(d)) {
+    if (!f.endsWith(".json")) continue;
+    try {
+      const c = JSON.parse(fs.readFileSync(p.join(d, f), "utf8")).meta.cwd;
+      if (typeof c === "string" && (p.isAbsolute(c) || /^[A-Za-z]:[\\/]/.test(c))) bad.push(f);
+    } catch (_e) { /* unreadable — skip */ }
+  }
+  process.stdout.write(bad.join("\n"));
+')
+if [ -n "$LEAKING" ]; then
+  echo "[MCCP-EVIDENCE-STOP] ship receipt(s) carry an ABSOLUTE meta.cwd — refusing to stage/commit/push a local-path leak:" 1>&2
+  printf '  %s\n' $LEAKING 1>&2
+  echo "  Recovery: node plugins/mccp/scripts/migrations/v1.22.4-cwd-rebind.js --apply && --stage (then commit), before re-running /mccp:pr." 1>&2
+  exit 1
+fi
+```
+
+### 3.0 — Evidence commit (Task A4 — receipt-only, F3 fail-closed before push)
+
+Persist the ship-receipt corpus into git history so the audit evidence survives
+worktree deletion (E5). This stages **only** `.claude/receipts/mccp-pr-codex/` —
+**never** `.claude/state/completion-ledger/` (E6: the ledger's untracked entry is
+a poison false-positive that Phase B — not Phase A — handles; the tracked ledger
+re-keys are committed at rebind time by `v1.22.4-cwd-rebind.js --stage`, not
+here). A separate commit (**no `--amend`**) keeps the reviewed diff intact.
+
+**F3 (durable-evidence-substrate follow-up)**: this step was fail-loud-OPEN — a
+failed commit only warned, then pushed anyway, leaving receipts working-tree-only
+and recreating the exact blind-audit failure Phase A closes. It is now
+**fail-CLOSED before push**: when there ARE receipt changes to persist but they
+cannot be cleanly committed, HALT rather than push. PR creation stays reachable
+only when the evidence commit succeeded (or there was nothing to persist).
+
+```bash
+if [ -n "$(git status --porcelain .claude/receipts/mccp-pr-codex/ 2>/dev/null)" ]; then
+  git add -- .claude/receipts/mccp-pr-codex/
+  # F2 (PR-Codex R2 absorption): the corpus-wide `git add` above is deliberately
+  # broad (the audit corpus is ALL ship receipts), but a corrupt, unrelated, or
+  # leak-carrying receipt would otherwise be published as durable evidence. Validate
+  # EVERY staged receipt fail-CLOSED before the commit — unreadable/unparseable JSON,
+  # a missing receipt_hash, or an absolute meta.cwd HALTs the push (the pre-stage cwd
+  # guard fail-OPEN-skipped unreadable files; this closes that exact gap).
+  STAGED_OFFENDERS=$(git diff --cached --name-only -- .claude/receipts/mccp-pr-codex/ \
+    | node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/evidence-stage-guard.js")
+  if [ "$?" != "0" ]; then
+    echo "[MCCP-EVIDENCE-STOP] staged receipt validation failed — NOT committing/pushing (unsafe evidence would be published):" 1>&2
+    echo "$STAGED_OFFENDERS" 1>&2
+    git reset -q HEAD -- . 2>/dev/null || true
+    exit 1
+  fi
+  # Guard: refuse to commit if ANYTHING outside the ship-receipt path is staged
+  # (esp. completion-ledger/ — E6). A wrong staged set means we cannot produce a
+  # clean evidence commit → HALT (F3 fail-closed), do NOT push an unpersisted set.
+  OUTSIDE=$(git diff --cached --name-only | grep -v '^\.claude/receipts/mccp-pr-codex/' | grep -v '^$' || true)
+  if [ -n "$OUTSIDE" ]; then
+    echo "[MCCP-EVIDENCE-STOP] non-receipt paths staged — refusing evidence commit, NOT pushing (receipts would be working-tree-only):" 1>&2
+    printf '  %s\n' $OUTSIDE 1>&2
+    git reset -q HEAD -- . 2>/dev/null || true
+    exit 1
+  fi
+  if ! git commit -q -m "chore(evidence): persist mccp-pr-codex ship receipts for ${DECISION_SLUG}"; then
+    echo "[MCCP-EVIDENCE-STOP] evidence-commit failed — NOT pushing (receipts would be working-tree-only, recreating blind audit)." 1>&2
+    exit 1
+  fi
+fi
+```
+
+### 3.1 — F-H/F-I MANDATORY pre-push HISTORY-leak gate, ALL blobs (Codex R5 + R6)
+
+The working-tree redaction + exact-manifest gate only protect the STAGED tree.
+They do NOT remove leaking content from **ancestor commits** (F-H), and the leak
+is NOT confined to receipt blobs — committed design artifacts (plan, findings
+report) embed the same absolute paths (F-I). This is the terminal push-time
+guarantee: scan **every NEW text blob** reachable in `origin/<base>..HEAD` (all
+ancestor commits, not just the tip tree) for a repo-root absolute-path leak, with
+a **line/fixture-specific allowlist** (never directory-wide), and HALT on any
+non-allowlisted leak. The scan is a tested library
+([`history-leak-scan.js`](../scripts/lib/history-leak-scan.js)), NOT an inline
+regex — the pattern is repo-root-anchored + separator-flexible so it catches the
+JSON-escaped `C:\\_project\\…` form receipt blobs store, while never
+false-positiving on the plugin's own cache-path convention or test fixtures.
+
+```bash
+GITDIR=$(git rev-parse --git-dir); mkdir -p "$GITDIR/mccp/tmp"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/history-leak-scan.js" --json \
+  > "$GITDIR/mccp/tmp/history-leak.json" 2>/dev/null
+HIST_EXIT=$?
+if [ "$HIST_EXIT" != "0" ]; then
+  echo "[MCCP-EVIDENCE-STOP] pre-push HISTORY-leak gate FAILED — repo-root absolute path(s) reachable in origin/<base>..HEAD (receipt OR artifact):" 1>&2
+  node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));(j.leaks||[]).slice(0,25).forEach(l=>process.stderr.write("  LEAK "+l.path+":"+l.line+" ["+l.pattern+"]\n"));if((j.leaks||[]).length>25)process.stderr.write("  … +"+(j.leaks.length-25)+" more\n")}catch(_){process.stderr.write("  (leak report unreadable — HALT anyway)\n")}' "$GITDIR/mccp/tmp/history-leak.json" 1>&2
+  echo "  Recovery (Task 6): run v1.22.4-cwd-rebind.js --apply && --stage; rewrite unpushed history" 1>&2
+  echo "  (git reset --soft origin/<base> → rebind → re-commit); placeholder-redact committed plan/report artifacts. Then re-run /mccp:pr." 1>&2
+  exit 1
+fi
+```
+
+### 3.2 — Push (rebase is a fail-closed HALT, not auto-executed)
+
 ```bash
 git push -u origin HEAD
 ```
 
-If push fails due to divergence:
-```bash
-git fetch origin
-git rebase origin/<base>
-git push -u origin HEAD
+If push fails due to remote divergence, **HALT — do NOT auto-rebase**. A rebase
+rewrites HEAD, which strands the ship-receipt bindings the completion-ledger
+points at (E4/F2 — dangling receipts, observed 8× in practice). Auto-reentry after
+a HEAD move is exactly the unverifiable-superseded-state defect this plan closes:
+
+```
+[MCCP-PUSH-HALT] push rejected — remote diverged. NOT auto-rebasing.
+  A rebase rewrites HEAD and strands the just-committed ship-receipt bindings
+  the completion-ledger references (E4/F2 dangling receipts).
+  The PR-Codex gate already ran and its ship receipt is committed, so finish by
+  hand: `git fetch origin`, inspect `git log origin/<base>..HEAD`, reconcile
+  WITHOUT rewriting already-committed receipts, then `git push` + `gh pr create`.
+  Do NOT re-run /mccp:pr on THIS branch — the gate would rewrite the tracked ship
+  receipt at a new HEAD and the overwrite guard fail-closes (TRACKED_RECEIPT_OVERWRITE).
+  To re-run the full gate instead, re-ship from a NEW branch (a fresh decision slug).
 ```
 
-If rebase conflicts occur, stop and inform the user.
+End the response. Do not proceed to Phase 4.
 
 ---
 
@@ -863,7 +1003,21 @@ When `A11Y_INVOKED=0` (no rendered surface in the diff, or `MCCP_A11Y_AUTO_INVOK
 The Phase 2.5 body-file under `<gitdir>/mccp/tmp/pr-body-${DECISION_SLUG}-${HEAD_SHA:0:12}.md` (gitdir resolved by the `pr-body` CLI — worktree-safe) is authoritative for the `## Design Review` and `## Codex Adversarial Review` sections. Prepend the title-derived Summary / Changes / Files / Testing sections to that file (or to the template-filled body) and pass the final body via `--body-file`, not `--body`. This avoids shell-quoting truncation of multi-line review content.
 
 ```bash
-HEAD_SHA=$(git rev-parse HEAD)
+# Task A4 (F2-a) — passthrough the Phase 2.5 capture-time HEAD_SHA (the sha the
+# body-file is keyed on) instead of recomputing. The Phase 3 evidence-commit moved
+# HEAD, so `git rev-parse HEAD` here would key a DIFFERENT body-file path and
+# silently drop the review sections. Fail-closed when the passthrough is missing.
+GITDIR=$(git rev-parse --git-dir)
+HEAD_SHA_FILE="$GITDIR/mccp/tmp/pr-head-sha-${DECISION_SLUG}.txt"
+if [ -f "$HEAD_SHA_FILE" ]; then
+  HEAD_SHA=$(cat "$HEAD_SHA_FILE")
+else
+  echo "[MCCP-PR-HALT] Phase 2.5 HEAD_SHA passthrough missing ($HEAD_SHA_FILE)." 1>&2
+  echo "  Cannot locate the gate body-file deterministically; refusing to create a PR" 1>&2
+  echo "  with silently-missing ## Design Review / ## Codex Adversarial Review sections." 1>&2
+  echo "  Re-run /mccp:pr." 1>&2
+  exit 1
+fi
 GATE_BODY=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js pr-body \
   --action path \
   --decision ${DECISION_SLUG} \
@@ -896,6 +1050,7 @@ if [ $GH_EXIT -eq 0 ]; then
     --action delete \
     --decision ${DECISION_SLUG} \
     --head ${HEAD_SHA}
+  rm -f "$HEAD_SHA_FILE"   # Task A4 — drop the passthrough marker on success
 fi
 ```
 

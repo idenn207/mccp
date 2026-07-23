@@ -95,6 +95,22 @@ function triggerLedgerAppend(repoRoot, receipt, receiptPath, opts) {
     if (!receipt || receipt.gate_id !== 'mccp-pr-codex') return;
     if (!receipt.resolution || receipt.resolution.converged !== true) return;
 
+    // §3.12 — resolution.converged is an UNRELIABLE completion key (it stays
+    // `true` even on a divergent ship). resolution.codex_verdict is the
+    // authoritative outcome. A divergent/critical terminus is NOT a clean
+    // completion: the completion ledger has no verdict that corroborates it
+    // (evidence-audit verdictsAgree maps only converged/skipped/advisory), so
+    // recording it would ship a permanent false-positive into the durable corpus
+    // (PR-Codex R2 F1). Fail-closed: skip the append. Legacy receipts with no
+    // codex_verdict keep the converged path the pre-existing gate already vetted.
+    const codexVerdict = (typeof receipt.resolution.codex_verdict === 'string')
+      ? receipt.resolution.codex_verdict
+      : null;
+    if (codexVerdict === 'divergent' || codexVerdict === 'critical') {
+      logSkip('non-converged codex_verdict: ' + codexVerdict, decisionId);
+      return;
+    }
+
     const safetyFn = opts.isLedgerAppendSafe || store.isLedgerAppendSafe;
     const safety = safetyFn(repoRoot, opts);
     if (!safety || !safety.safe) {
@@ -105,7 +121,13 @@ function triggerLedgerAppend(repoRoot, receipt, receiptPath, opts) {
     }
 
     const meta = receipt.meta || {};
-    const verdict = meta.advisory ? 'advisory' : (meta.skipped ? 'skipped' : 'converged');
+    // Verdict derivation is codex_verdict-first (§3.12); meta flags are the legacy
+    // fallback. Maps onto evidence-audit verdictsAgree (converged↔converged,
+    // skipped↔skipped, advisory↔unavailable) so the ledger never disagrees with
+    // the receipt it is bound to.
+    const verdict = (meta.advisory || codexVerdict === 'unavailable')
+      ? 'advisory'
+      : ((meta.skipped || codexVerdict === 'skipped') ? 'skipped' : 'converged');
     const completedAt = (typeof meta.created_at === 'string' && ISO8601_RE.test(meta.created_at))
       ? meta.created_at
       : new Date().toISOString();

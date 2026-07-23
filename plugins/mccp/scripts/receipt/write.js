@@ -39,6 +39,22 @@ function relativeToRepo(filePath, repoRoot) {
   return rel.split(path.sep).join('/');
 }
 
+// durable-evidence-substrate Task A3 — normalize the receipt's meta.cwd to a
+// repo-relative form for NEW writes only. Storing the absolute cwd leaked the
+// working-tree path (and, in old worktrees, the prior repo name) into what
+// becomes a git-tracked audit corpus (E7). This runs only for fresh writes;
+// existing receipts are never re-read/re-written and NO meta.cwd carve-out is
+// added to hash.js (E4), so the 33 existing hashes stay byte-identical — only
+// new receipts seal the relative value. Outside-repo cwd → placeholder (never
+// an absolute leak); missing repo root → '.'.
+function normalizeReceiptCwd(cwd, repoRoot) {
+  if (!repoRoot) return '.';
+  const rel = relativeToRepo(cwd, repoRoot);
+  if (rel === '') return '.';
+  if (rel === '..' || rel.startsWith('../') || path.isAbsolute(rel)) return '<outside-repo>';
+  return rel;
+}
+
 // v1.2.0-m1 Task 6 — controller-worker attribution detection. Marker is
 // detected from MCCP_DISPATCH_CONTEXT=1 OR the supplied --ipc-envelope-path
 // existing on disk. When marker is true, all 3 attribution flags must be
@@ -166,7 +182,7 @@ function buildReceipt(args) {
     meta: {
       created_at: new Date().toISOString(),
       command: args.command || '/' + gateId,
-      cwd: cwd,
+      cwd: normalizeReceiptCwd(cwd, repoRoot),
       git_branch: branch,
       skipped: skipped,
       skip_reason: skipReason,
@@ -528,4 +544,5 @@ module.exports = {
   triggerEscalateIfNeeded: triggerEscalateIfNeeded,
   deriveEscalateSummary: deriveEscalateSummary,
   restampGroundingVerdict: restampGroundingVerdict,
+  normalizeReceiptCwd: normalizeReceiptCwd, // Task A3 — tested in cwd-normalization.test.js
 };

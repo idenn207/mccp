@@ -1,0 +1,23 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "workflow-orchestration-m4-parallel-activation",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.21.0",
+    "completed_at": "2026-07-09T11:59:01.537Z",
+    "commit_sha": "a045f27ffa3b1268ef3cea0d0106423ccaed94a5",
+    "plan_basename": "workflow-orchestration-m4-parallel-activation.plan.md",
+    "plan_file_hash": "sha256:193f9f3d4b8104e558e5659348b75308e75059df336af3200d9b832cc2b32954",
+    "risks_closed": [
+      "Task 0 dogfood가 correlation 미입증 (harness가 worktree 자동 제거 / `git worktree list` 미노출)",
+      "seed-envelope가 worktree에 잔존 안 함 (harness가 반환 시 gitignored 파일 정리)",
+      "default flip으로 의도치 않은 병렬 발화",
+      "dogfood fan-out 비용 폭증",
+      "reconcile worktree-read 오배선으로 정상 worker 오탐 HALT",
+      "correlation runtime 실패 시 parent 오염"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:bab06383c572226c26187a6aea43fa70081884e3bb8a0702ea5a8ebfb42b22e0"
+  }
+}

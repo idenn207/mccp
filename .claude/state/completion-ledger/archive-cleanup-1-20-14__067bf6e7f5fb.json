@@ -1,0 +1,25 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "archive-cleanup-1-20-14",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.20.15",
+    "completed_at": "2026-07-08T20:50:56.245Z",
+    "commit_sha": "ad08a763a483ce33cff9a20a3bff1b6c22a134f7",
+    "plan_basename": "archive-complete-command.plan.md",
+    "plan_file_hash": "sha256:d00b7c8ca919138402819a30810dc596886a3c1d0cf413fc6999925f48395161",
+    "risks_closed": [
+      "dangling active PRD 소실(C2 위반)",
+      "비정규 status 행이 분모서 증발 → 오분류(Codex F1)",
+      "apply 중간 실패로 부분 상태(archived PRD + active plan, Codex F2)",
+      "파괴적 변경 audit 유실(Codex F3)",
+      "drift false-positive(미완을 완료로 flip → 미해결 은폐)",
+      "목적지 collision 데이터 손실",
+      "`.claude/plans/` vs `.claude/PRPs/plans/` 이중 소스 drift",
+      "command 버전 경로 하드코딩 skew"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:067bf6e7f5fb776a827a4af1ee60b19f799f152ae1b1d6488ff2eea47602225c"
+  }
+}

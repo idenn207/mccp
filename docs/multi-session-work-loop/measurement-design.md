@@ -162,3 +162,5 @@ M2의 수용 조건에 **추가 LLM 호출 금지**가 걸려 있으므로, 위 
 ## 7. 감사 표본
 
 매 측정 주기마다 지표별로 소수 표본을 사람이 직접 확인해 자동 산출값과 대조한다. 불일치가 발견되면 해당 지표는 다음 주기까지 무효 처리한다. 표본 수와 추출 방법은 [label-protocol.md](./label-protocol.md) §5가 소유한다.
+
+<!-- C-SERIES-LABELS: C1=recoverability-undetermined C2=forward-only C3=forward-only -->

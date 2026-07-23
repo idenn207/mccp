@@ -432,13 +432,34 @@ const feas=fs.readFileSync(D+"/measurement-feasibility.md","utf8");
 const UND="recoverability-undetermined";
 const FWD="forward-only";
 // 문서에서 "### <id>" 섹션 또는 "| <id> " 표 행을 뽑아 그 안의 라벨을 본다.
-const seg=(body,id)=>{
+// 마커 줄은 **구조 검사에서 제외**한다 — 마커는 세 라벨을 모두 담고 있어서, 파일
+// 끝에 두면 마지막 섹션(measurement-design 의 C3)에 딸려 들어가 오탐한다(실측으로
+// 잡음). 마커 검증은 아래 (a)가 따로 하므로 여기서 빼도 커버리지 손실이 없다.
+const demark=(t)=>t.split(/\r?\n/).filter(l=>!l.includes("C-SERIES-LABELS")).join("\n");
+const seg=(bodyRaw,id)=>{ const body=demark(bodyRaw);
   const s=body.split(/^###\s+/m).find(x=>x.startsWith(id+" ")||x.startsWith(id+"\n"));
   if(s) return s;
   return body.split(/\r?\n/).filter(l=>l.trim().startsWith("| "+id+" ")).join("\n");
 };
 const bad=[];
 const want={C1:UND, C2:FWD, C3:FWD};
+// (a) canonical 마커 — 계약 표면 **4곳 전부**가 같은 어휘를 명시 선언해야 한다.
+//     초판은 design·feasibility 2곳만 순회하면서 plan 본문은 "4곳을 검증한다"고
+//     적었다 — 가드에 대한 거짓 주장이었고 PR-Codex R3 F3가 잡았다. 산문 매칭은
+//     PRD·label-protocol 처럼 C1 설명과 C2·C3 설명이 한 줄에 섞이는 문서에서
+//     오탐하므로, CHECK 5 의 SELECTION-RULE 마커 관용구를 따른다.
+const MARKER="<!-- C-SERIES-LABELS: C1="+UND+" C2="+FWD+" C3="+FWD+" -->";
+const SURFACES=[
+  D+"/measurement-design.md",
+  D+"/measurement-feasibility.md",
+  D+"/label-protocol.md",
+  ".claude/prds/multi-session-work-loop.prd.md",
+];
+for(const f of SURFACES){
+  let t=""; try{ t=fs.readFileSync(f,"utf8"); }catch(e){ bad.push(f+" : 읽기 실패"); continue; }
+  if(!t.includes(MARKER)) bad.push(f+" : canonical C-SERIES-LABELS 마커 없음/불일치");
+}
+// (b) 구조 검사 — 지표 섹션·표 행이 실제로 그 라벨을 달고 있는지(마커만 맞추는 것 방지)
 for(const doc of [["measurement-design.md",design],["measurement-feasibility.md",feas]]){
   for(const id of ["C1","C2","C3"]){
     const s=seg(doc[1],id);
@@ -450,7 +471,7 @@ for(const doc of [["measurement-design.md",design],["measurement-feasibility.md"
   }
 }
 if(bad.length){ console.log("FAIL: C계열 상태 어휘 불일치:"); bad.forEach(x=>console.log("  "+x)); process.exit(1); }
-console.log("OK: C1=recoverability-undetermined · C2/C3=forward-only 가 design·feasibility 양쪽에서 일치");'
+console.log("OK: C1=recoverability-undetermined · C2/C3=forward-only — 계약 표면 "+SURFACES.length+"곳 마커 일치 + design/feasibility 구조 검사 통과");'
 
 # 9. 링크 무결성 — 신규 문서의 상대 링크 전수
 node -e '
@@ -591,7 +612,8 @@ M1 자체는 설계 문서만 만들므로 **차단되지 않는다**. 지금 �
 - [ ] W가 민감도 밴드 5개로 보고되고 밴드 집합이 freeze됨
 - [ ] 코호트가 **불변 pre-start 메타데이터 임계 규칙**의 출력으로 등록됨(현 milestone 구성상 2개) + PRD 반증 조건 충족 불가가 명시 기록됨 (F3 + IF3)
 - [ ] C2·C3의 관측 전용 지위가 지표 명세와 라벨 규약 양쪽에 명시됨
-- [ ] **C계열 상태 어휘가 계약층에서 일치** — C1만 `recoverability-undetermined`(유일한 소급 프로토콜 대상), C2·C3은 `forward-only`. design·feasibility·label-protocol·PRD 4곳 동일 어휘이며 CHECK 8이 기계 검증. 정합화가 PROVISIONAL 층 각주로만 존재하던 상태를 해소 (PR-Codex R2 F2)
+- [ ] **C계열 상태 어휘가 계약층에서 일치** — C1만 `recoverability-undetermined`(유일한 소급 프로토콜 대상), C2·C3은 `forward-only`. 정합화가 PROVISIONAL 층 각주로만 존재하던 상태를 해소 (PR-Codex R2 F2)
+- [ ] **그 일치가 4곳 전부에서 기계 검증됨** — design·feasibility·label-protocol·PRD가 canonical `<!-- C-SERIES-LABELS: … -->` 마커를 공유하고 CHECK 8이 4곳을 순회 + design/feasibility는 섹션 구조까지 검사. negative fixture 3종으로 실측. 초판은 2곳만 돌면서 4곳을 검증한다고 적었다 (PR-Codex R3 F3)
 - [ ] **B3 분모가 런타임 표면 전수** — `scripts/**/*.js ∪ commands/*.md`(명시 제외 `MCCP_TMP`), 스냅샷 `in_runtime_surface=99`, CHECK 12가 재산출로 대조해 분모가 주장이 아니라 검증 대상 (PR-Codex R2 F1)
 - [ ] `measurement-feasibility.md`의 모든 수치가 같은 문서의 명령으로 재현됨
 - [ ] **동작 코드 변경 0** — `plugins/` diff가 version surface **4파일**로 한정 (F2 + PR-Codex R1 F1); renderer 두 파일이 v1.22.x 토큰 외 main과 전문 동일함을 CHECK 2c가 기계 검증 (Codex R3 F1 · Implement-Codex R2 F1)
@@ -766,3 +788,24 @@ dedupe는 여전히 `skip_safe:false`(양쪽 `divergent` + residual 5) → 설�
 - Deferred to backlog: 0
 - Open Questions: 없음 (auto-CRITICAL 해당 없음)
 - PR-Codex R2 구조화 verdict: `divergent` (raw `needs-attention`; 2건 전건 ACCEPT_NOW 흡수)
+
+### PR-Codex R3 (2026-07-23 — 최종 라운드, 사전 확정 종료 규칙 적용)
+
+**이 라운드는 종료가 사전에 확정된 상태로 실행됐다.** 앞선 세 라운드가 전부 실제 결함을 잡아 품질이 노이즈로 떨어지지 않았지만, 흡수가 매번 plan을 편집해 다음 라운드를 부르는 구조라 이 저장소의 게이트 루프는 스스로 수렴하지 않는다(직전 PRD가 8라운드까지 가서 `DEFER_TO_BACKLOG` triage로 끊었고, round cap은 재호출마다 R1으로 리셋돼 구조적으로 무력하다). 그래서 **실행 전에** 규칙을 못박았다 — CRITICAL 또는 실제 회귀만 ACCEPT_NOW, 나머지는 전부 이연. 운영자 승인 하에 결정했다.
+
+raw verdict **`needs-attention`(No ship)**, HIGH 2 + MEDIUM 1, `mutations=[]`.
+
+| Finding | Severity | Verdict | 재현 검증 | 처리 |
+|---|---|---|---|---|
+| F1 §4 소급 프로토콜의 estimand가 C1이 아님 | HIGH (conf .92) | **DEFER_TO_BACKLOG** | 확인 — §4는 "C1 전용"(L208)이라면서 임계 서술(L234)은 "revert 0 · fix-title 15인 corpus에서 셀당 5는 **C3의** 대부분 셀에서 미달 예정"이라 C3 불가 증명 형태다. C1은 "같은 작업 단위 안에서 해소"인데 그 단위로 표집·판정하는 절차가 없다 | 이연. 해당 절은 **PROVISIONAL 층**이고 plan이 M2 진입 전 **re-freeze를 의무화한 바로 그 표면**이다(§"필수 re-freeze 게이트") — 설계된 catch point가 이미 존재한다. backlog에 재작성 방향까지 기록 |
+| F2 코호트 선정 후 반증 게이트를 약화 | HIGH (conf .89) | **REJECT** | **Codex 오독 — 실측으로 반증.** registry §4.1의 제목이 이미 "PRD 반증 조건 **충족 불가** — 정직한 기록"이고, "**반증력 한계**: 코호트가 2개이므로 반증 시험은 초안이 상정한 3개보다 **약하다**... 통계적 강도가 낮다"를 명시하며, §5도 "(2 < 3)은 §4.1대로 충족 불가로 기록됐다"고 적는다. Codex가 "equivalent or stronger로 제시"라 읽은 문장은 *선택지 C가 선택지 1(3→2 하향)보다 낫다*는 **선택지 간 비교**이지 원 조건과 동등하다는 주장이 아니다 | 기각. 권고한 두 조치("3+ 조건을 미충족으로 유지" · "underpowered로 표시")가 **이미 문서에 둘 다 있다** |
+| F3 Validation이 주장한 계약 표면을 다 검사하지 않음 | MEDIUM (conf .84) | **ACCEPT_NOW** (규칙 예외) | **확인 — 내 주장이 거짓이었다.** Acceptance는 "design·feasibility·label-protocol·PRD **4곳** 동일 어휘이며 CHECK 8이 기계 검증", 리뷰 표는 "**3문서** 어휘 합의 검사"라 적었는데 구현은 **2곳**만 순회했다 | 마커 방식으로 4곳 고정 — CHECK 5의 `SELECTION-RULE` 관용구를 따라 각 문서에 `<!-- C-SERIES-LABELS: … -->`를 두고 4곳 일치를 단정. **negative fixture 3종**(label-protocol · PRD · design 각각 drift 주입)으로 실제 차단 확인 |
+
+> **MEDIUM 하나를 규칙에서 예외 처리한 이유.** 종료 규칙은 "CRITICAL 또는 실제 회귀"였고 F3는 둘 다 아니다. 그럼에도 고친 것은, F3가 지적한 것이 *계약이 더 정확할 수 있다*가 아니라 **문서가 가드에 대해 거짓을 말하고 있다**는 사실이기 때문이다. 측정 무결성이 주제인 milestone에서 "이 검사가 4곳을 본다"고 적어놓고 2곳만 보는 것은 이 사이클이 네 번 반복해 고쳐온 바로 그 실패(가드가 가드하지 못함)의 가장 노골적인 형태다. 규칙을 기계적으로 적용해 이걸 넘기면 규칙이 정직성보다 앞서게 된다.
+>
+> **F3 흡수 중 자체 발견.** 마커를 파일 **끝**에 붙였더니 `measurement-design.md`의 C3가 마지막 `###` 섹션이라 마커 문자열(`C1=recoverability-undetermined` 포함)이 C3 본문으로 딸려 들어가 구조 검사가 **오탐**했다. 검사를 실제로 돌려서 잡았고, 마커 줄을 구조 검사에서 제외해 마커 위치와 무관하게 만들었다. 새 가드를 넣을 때마다 그 가드를 다시 공격해야 한다는 것이 이 사이클의 반복 교훈이다.
+
+- Deferred to backlog: 1 (F1) → `.claude/plans/codex-findings-backlog.md`
+- Rejected: 1 (F2 — 문서에 이미 존재하는 내용을 요구, 실측 인용으로 기각)
+- Open Questions: 없음 (auto-CRITICAL 해당 없음)
+- PR-Codex R3 구조화 verdict: `divergent` (raw `needs-attention`). **본 사이클의 마지막 게이트 라운드**이며, 잔여 finding은 위 triage대로 이연·기각으로 처리하고 PR을 생성한다. receipt는 `divergent`로 정직 봉인 — Codex가 clean 승인을 발급한 적이 없으므로 `converged`를 stamp하지 않는다

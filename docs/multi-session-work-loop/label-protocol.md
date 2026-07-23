@@ -126,3 +126,5 @@ finding의 종결을 아래 유형으로 분리 기록한다.
 ## 7. 이 규약이 담보하지 못하는 것
 
 판별 기준은 기계적이지만 **정확하지 않다**. revert·fix-type은 작성자가 title을 어떻게 적었는지에 의존하고, finding 귀속은 아직 기록되지 않는다. 이 규약의 목적은 정확한 결함 탐지가 아니라 **판정 규칙을 사전에 고정해 사후 조정을 막는 것**이다. 정확도 개선은 M2 이후 별도 축이며, 개선하더라도 규칙 변경은 이력을 남긴다.
+
+<!-- C-SERIES-LABELS: C1=recoverability-undetermined C2=forward-only C3=forward-only -->

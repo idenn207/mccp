@@ -256,3 +256,5 @@ A3의 목표는 *"절반 이하로 감축"* 이므로 baseline이 방법과 함�
 - 모든 수치는 **mccp 자신에 대해서만** 유효하다. 외부 대조군은 PRD out-of-scope다.
 - 19건의 대조 불가는 **영구 손실**이다. `durable-evidence-substrate` chore는 앞으로의 소실을 막을 뿐 과거를 복구하지 못한다.
 - §2의 재현 명령은 `.claude/receipts/`가 존재하는 트리에서만 동작한다. receipt가 gitignored인 현재, fresh clone에서는 §2.1·2.2·2.6이 재현되지 않는다 — 이 사실 자체가 chore의 근거다.
+
+<!-- C-SERIES-LABELS: C1=recoverability-undetermined C2=forward-only C3=forward-only -->

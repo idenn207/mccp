@@ -226,3 +226,5 @@ We believe **세션 스코프 상태 모델 + 증거 기반 진행 판정 + 검�
 *Status: DRAFT — requirements only. Implementation planning pending via /mccp:plan.*
 *Co-created with user on 2026-07-21.*
 *PRD-stage Codex adversarial review (advisory, receipt 미작성) 2026-07-21 — verdict `needs-attention`, HIGH 4 + MEDIUM 1 전건 흡수.*
+
+<!-- C-SERIES-LABELS: C1=recoverability-undetermined C2=forward-only C3=forward-only -->

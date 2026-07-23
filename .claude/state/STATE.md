@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: dashboard-data-exploration
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-07-23T05:48:16.858Z
-last_event: pr_created
-last_event_at: 2026-07-23T05:48:16.858Z
+updated_at: 2026-07-23T07:44:48.772Z
+last_event: stop_loop_pass
+last_event_at: 2026-07-23T05:49:23.938Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -40,7 +40,7 @@ PR #109 리뷰·머지. 머지 후 worktree cleanup(§3.8) + M2 착수 전 measu
 ## Open Questions
 - PR-Codex R3 F1(HIGH, backlog 이연) — measurement-feasibility §4가 C1 전용이라면서 임계는 C3 불가 증명 형태. M2 진입 전 re-freeze에서 재작성 필요
 - pre-existing: finalize-receipt.js briefing timeout → /mccp:pr이 MCCP_BRIEFING=off 없이 exit 127 (backlog HIGH)
-- completion-ledger 신규 false positive 1건 관측(verdict converged인데 receipt divergent) — 미커밋. ledger 승인 술어 정정은 별도 plan
+- completion-ledger 승인 술어 결함 확정(HIGH, backlog 이연) — index.js:96이 레거시 resolution.converged를 gate로 써 codex_verdict=divergent인 receipt에서도 verdict:converged 항목을 생성. 거짓 항목 2건은 커밋 전 격리(scratchpad/ledger-quarantine/), 정정은 별도 patch cycle
 
 ## Last Updated
-2026-07-23T05:48:16.858Z
+2026-07-23T07:44:48.772Z

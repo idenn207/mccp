@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: dashboard-data-exploration
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-07-22T11:45:12.458Z
-last_event: stop_loop_pass
-last_event_at: 2026-07-22T11:45:12.458Z
+updated_at: 2026-07-23T05:48:16.858Z
+last_event: pr_created
+last_event_at: 2026-07-23T05:48:16.858Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -13,7 +13,7 @@ last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
-multi-session-work-loop M1 (측정 설계, v1.22.5) — implement 게이트 수렴 완료. commit/PR 대기.
+multi-session-work-loop M1 (측정 설계, v1.22.5) — PR #109 생성 완료. 리뷰/머지 대기.
 
 ## Plan
 - M1 산출물(문서 4 + 스냅샷 2)은 선행 세션 완료. 본 세션은 Validation 실행 + 게이트 재수렴.
@@ -29,18 +29,18 @@ multi-session-work-loop M1 (측정 설계, v1.22.5) — implement 게이트 수�
 - backlog 2행 이연 (CHECK 6 zero-match hazard + impeccable detector severity 어휘 불일치).
 
 ## In Progress
-PR 미생성 — PR-Codex R1(4라운드) No ship. fix-task.md에 F1/F2/F3 수정방향 확정. 다음은 흡수 구현 cycle.
+PR #109 OPEN — https://github.com/idenn207/mccp/pull/109
 
 ## Next Step
-운영자 판단: cost-catastrophic 임계 조정 후 auto-chain 재개, 또는 /mccp:prp-commit + /mccp:pr 수동 실행(MCCP_BRIEFING=off 필요).
+PR #109 리뷰·머지. 머지 후 worktree cleanup(§3.8) + M2 착수 전 measurement-feasibility.md re-freeze 게이트 확인.
 
 ## Last Decision
-2026-07-22 implement 중 발견한 Validation 결함을 plan 편집으로 수정하기로 결정. 그 편집이 plan_hash를 이동시켜 plan-codex receipt가 stale이 되자, 운영자가 세 선택지 중 'receipt-write 재anchor + Implement-Codex 재실행'을 선택. 재실행이 실제로 HIGH 1건을 잡아냈으므로 가드 편집은 무검증 통과하지 않았다. 재anchor가 fresh Plan-Codex 산출물이 아니라는 사실은 plan 본문 provenance 절에 명시 기록.
+2026-07-23 게이트 4라운드(PR-Codex R1/R2/R3 + Implement-Codex R3) 전부 needs-attention이었고 전부 실제 결함을 잡았다. 루프가 구조적으로 수렴하지 않으므로(직전 PRD 8라운드 선례) R3 실행 전에 종료 규칙을 확정 — CRITICAL 또는 실제 회귀만 ACCEPT_NOW. R3는 1 이연·1 기각·1 수정으로 착지. receipt 3건은 divergent 정직 봉인(converged 미stamp).
 
 ## Open Questions
-- cost-catastrophic $514.40 — M3가 도입한 catastrophic-USD backstop의 첫 발화. 이번 세션 실누적(11:42 UTC 기록, stale 아님)이나 tier 필드는 notice로 불일치. 임계 조정 여부는 운영자 결정.
-- pre-existing: finalize-receipt.js:269 briefing timeout → exit 127로 /mccp:pr 전체 차단. MCCP_BRIEFING=off 우회 필수. backlog HIGH 기등재.
-- pre-existing 테스트 실패 1건(design-critique-loop-e2e fixture) — §3.9가 미tracked로 명시한 정상 상태.
+- PR-Codex R3 F1(HIGH, backlog 이연) — measurement-feasibility §4가 C1 전용이라면서 임계는 C3 불가 증명 형태. M2 진입 전 re-freeze에서 재작성 필요
+- pre-existing: finalize-receipt.js briefing timeout → /mccp:pr이 MCCP_BRIEFING=off 없이 exit 127 (backlog HIGH)
+- completion-ledger 신규 false positive 1건 관측(verdict converged인데 receipt divergent) — 미커밋. ledger 승인 술어 정정은 별도 plan
 
 ## Last Updated
-2026-07-22T11:45:12.458Z
+2026-07-23T05:48:16.858Z

@@ -186,14 +186,14 @@ fp.forEach(x=>console.log("  "+x));'
 | B1 진행 상태 drift | **부분** | 문서 status는 읽을 수 있으나 독립 증거 소스가 ledger인데 무신호 |
 | B2 동시 세션 충돌 사고 | **불가** | 동시 세션 쌍 기록이 존재하지 않음. 분모 0 |
 | B3 활성 축 수 | **가능** | 오늘 산출됨 (96 / 82 / 실사용 이력은 M2) |
-| C1 피드백 폐쇄율 | **`recoverability-undetermined`** | §4 프로토콜 미실행 |
-| C2 게이트 헛발화율 | **`recoverability-undetermined`** | §4 프로토콜 미실행 |
-| C3 누출 결함율 | **`recoverability-undetermined`** | §4 프로토콜 미실행 |
+| C1 피드백 폐쇄율 | **`recoverability-undetermined`** | §4 프로토콜 미실행 — C계열 중 유일한 프로토콜 대상 |
+| C2 게이트 헛발화율 | **forward-only** | [label-protocol §4.2](./label-protocol.md)가 전향 귀속 기록 전 산출 금지로 확정 — 프로토콜 대상 아님 |
+| C3 누출 결함율 | **forward-only** | [label-protocol §2.2](./label-protocol.md)가 소급 불가로 확정(revert 0 · 귀속 미기록) — 프로토콜 대상 아님. fix-title-proxy만 별도 보고 |
 
 **C계열의 소급 지위는 지표마다 다르다** (§4.0과 정합):
 
 - **C1** — `recoverability-undetermined`. PR body 산문 97건이 미탐색 소스로 남아 있어, §4 프로토콜을 실행해 임계에 미달할 때만 불가가 확정된다. C계열 중 유일하게 소급 프로토콜 대상이다.
-- **C2·C3** — 프로토콜 대상이 **아니다**. §4.0대로 C3은 [label-protocol.md §2.2](./label-protocol.md)가 소급 불가로 이미 확정했고(revert 0 · 귀속 미기록), C2는 [label-protocol.md §4.2](./label-protocol.md)가 전향 계측 전 산출 금지로 확정했다. 아래 §3 표의 `recoverability-undetermined` 라벨은 C2·C3에 대해 "프로토콜을 돌려 판정할 대상"이 아니라 **"전향 기록 전까지 산출하지 않음"**을 뜻한다.
+- **C2·C3** — 프로토콜 대상이 **아니다**. §4.0대로 C3은 [label-protocol.md §2.2](./label-protocol.md)가 소급 불가로 이미 확정했고(revert 0 · 귀속 미기록), C2는 [label-protocol.md §4.2](./label-protocol.md)가 전향 계측 전 산출 금지로 확정했다. 따라서 §3 표는 C2·C3에 **`forward-only`** 라벨을 쓰고 `recoverability-undetermined`는 **C1에만** 남긴다. 초판은 셋 다 `recoverability-undetermined`로 적고 "C2·C3의 경우 이 라벨을 다르게 읽으라"는 주석으로 정합화했는데, 같은 라벨에 두 뜻을 얹는 것은 계약이 아니라 각주다 — 계약층인 [measurement-design.md](./measurement-design.md)에는 그 각주가 없어 실제로 어긋나 있었다(PR-Codex R2 F2). 라벨을 나누면 재해석이 필요 없다.
 
 즉 M2에게 주는 지시는 하나다: **소급 프로토콜은 C1에만 돌리고, C2·C3은 전향 계측을 기다린다.**
 
@@ -208,7 +208,7 @@ fp.forEach(x=>console.log("  "+x));'
 - **C1만 대상** — finding 생성·해소는 PR body 산문에 부분적으로 존재하므로, 아래 프로토콜로 소급 가능성을 판정한다.
 - **A계열 비대상 (Codex R3 F2 흡수)** — 이 프로토콜은 finding 소급(C1) 전용이며 A1 recovery 절차를 정의하지 않는다. §3 표의 A1이 forward-only인 이유가 이것이다 — ledger는 대조 소스로 불가하고(`verdict` 판별력 0) §4에 A1 절차가 없으므로, A1은 소급 baseline 없이 M2가 전향 수립한다. A1을 §4로 소급하려는 시도(=ledger 재사용)는 손상된 술어 재사용 위험이라 금지한다.
 
-아래 §3 표의 C3 상태 `recoverability-undetermined`는 "복구 가능성이 아직 정해지지 않았다"가 아니라 **"전향 귀속 기록 전까지 산출하지 않는다"**를 뜻한다(label-protocol과 동일 의미). fix-title-proxy를 C3으로 승격하지 않는다.
+§3 표의 C3 상태는 **`forward-only`**다 — "전향 귀속 기록 전까지 산출하지 않는다"는 뜻이며 label-protocol §2.2와 동일하다. `recoverability-undetermined`(=프로토콜이 아직 판정하지 않음)와는 **다른 라벨**이므로 혼용하지 않는다. fix-title-proxy를 C3으로 승격하지 않는다.
 
 ### 4.1 절차 (C1 전용)
 

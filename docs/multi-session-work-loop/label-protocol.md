@@ -52,7 +52,7 @@
 
 - **소급 C3(누출 결함율)는 산출하지 않는다.** revert·finding-귀속 축은 데이터 부재로 영구 불가, fix-type 축은 별도 이름 **`fix-title-proxy`** 로만 보고하며 C3 본체로 승격하지 않는다.
 - C3 본체는 M2가 **`gate_decision_id → finding_id → remediation_pr`** 귀속을 전향 기록한 뒤에만 산출한다. 그 전까지 C3은 존재하지 않는 지표로 취급한다.
-- [measurement-feasibility.md](./measurement-feasibility.md)의 C3 상태 `recoverability-undetermined`는 이 선언과 정합한다 — 그 라벨은 "복구 가능성이 아직 정해지지 않았다"가 아니라 "전향 귀속 기록 전까지 산출하지 않는다"로 읽는다.
+- [measurement-feasibility.md](./measurement-feasibility.md) §3과 [measurement-design.md](./measurement-design.md) C3의 상태는 **`forward-only`**이며 이 선언과 같은 뜻이다. `recoverability-undetermined`(=소급 프로토콜이 아직 판정하지 않음, C1 전용)와 **다른 라벨**로 분리돼 있다 — 세 문서가 같은 어휘를 쓰는지는 Validation CHECK 8이 기계 검증한다.
 
 ### 2.3 알려진 false positive — 자기수정 사이클
 

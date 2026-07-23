@@ -416,11 +416,41 @@ for(const k of need){
 if(bad.length){ console.log("FAIL threshold:"); bad.forEach(x=>console.log("  "+x)); process.exit(1); }
 console.log("OK: 4 thresholds parsed, all positive");'
 
-# 8. C계열 각각이 명시적 recoverability 상태를 갖는지 (F1)
-for m in C1 C2 C3; do
-  grep -qE "$m[^\n]*recoverability-undetermined" "$DOC/measurement-feasibility.md" \
-    || { echo "FAIL: $m lacks explicit recoverability status"; exit 1; }
-done
+# 8. C계열 상태 어휘가 세 문서에서 합의되는지 (F1 + PR-Codex R2 F2)
+#     초판은 "C1·C2·C3 전부 recoverability-undetermined"를 요구했다. 그건 label-protocol이
+#     이미 C2(§4.2)·C3(§2.2)를 전향 기록 전 산출 금지로 **확정**한 것과 어긋난다 —
+#     계약층(measurement-design)이 "프로토콜 미실행"이라 적어두면 M2가 프로토콜을 돌려
+#     protocol 층이 금지한 소급 baseline을 freeze할 수 있다. 라벨을 나누고, 세 문서가
+#     같은 어휘를 쓰는지 검사한다.
+#       C1        → recoverability-undetermined (유일한 소급 프로토콜 대상)
+#       C2·C3     → forward-only
+node -e '
+const fs=require("fs");
+const D="docs/multi-session-work-loop";
+const design=fs.readFileSync(D+"/measurement-design.md","utf8");
+const feas=fs.readFileSync(D+"/measurement-feasibility.md","utf8");
+const UND="recoverability-undetermined";
+const FWD="forward-only";
+// 문서에서 "### <id>" 섹션 또는 "| <id> " 표 행을 뽑아 그 안의 라벨을 본다.
+const seg=(body,id)=>{
+  const s=body.split(/^###\s+/m).find(x=>x.startsWith(id+" ")||x.startsWith(id+"\n"));
+  if(s) return s;
+  return body.split(/\r?\n/).filter(l=>l.trim().startsWith("| "+id+" ")).join("\n");
+};
+const bad=[];
+const want={C1:UND, C2:FWD, C3:FWD};
+for(const doc of [["measurement-design.md",design],["measurement-feasibility.md",feas]]){
+  for(const id of ["C1","C2","C3"]){
+    const s=seg(doc[1],id);
+    if(!s){ bad.push(doc[0]+" / "+id+" : 섹션·행 없음"); continue; }
+    const w=want[id];
+    if(!s.includes(w)) bad.push(doc[0]+" / "+id+" : 기대 라벨 "+w+" 없음");
+    // C2·C3 이 undetermined 를 달고 있으면 계약이 다시 어긋난 것이다.
+    if(w===FWD && s.includes(UND)) bad.push(doc[0]+" / "+id+" : forward-only 인데 "+UND+" 가 남아 있음");
+  }
+}
+if(bad.length){ console.log("FAIL: C계열 상태 어휘 불일치:"); bad.forEach(x=>console.log("  "+x)); process.exit(1); }
+console.log("OK: C1=recoverability-undetermined · C2/C3=forward-only 가 design·feasibility 양쪽에서 일치");'
 
 # 9. 링크 무결성 — 신규 문서의 상대 링크 전수
 node -e '
@@ -483,6 +513,32 @@ node "$TMPD/tap-subset.js" "$TMPD/tap-lib.txt" "lib 스위트" "fixture file exi
 #     무관, bump 되돌리면 재현). 판정은 CHECK 10과 동일한 부분집합 방식.
 node --test --test-reporter=tap "plugins/mccp/scripts/lib/renderer/tests/*.test.js" > "$TMPD/tap-renderer.txt" 2>&1 || true
 node "$TMPD/tap-subset.js" "$TMPD/tap-renderer.txt" "renderer 스위트" "verdict-label metric"
+
+# 12. B3 분모 재산출 (PR-Codex R2 F1)
+#     B3의 분모는 freeze된 숫자가 아니라 measurement-design 의 스캔 규칙이 내는 출력이다.
+#     초판 규칙은 `scripts/**/*.js` 만 봤고, command markdown 의 bash 블록에만 존재하는
+#     런타임 게이트(MCCP_A11Y_AUTO_INVOKE · MCCP_AUTO_CHAIN_SKIP_PR)가 분모 밖으로 샜다.
+#     규칙을 고쳤으니 숫자도 주장이 아니라 **재산출로 검증**한다 — 규칙이 바뀌거나
+#     토글이 늘면 여기서 실패한다.
+node -e '
+const fs=require("fs"),path=require("path");
+const RE=/MCCP_[A-Z0-9_]+/g;
+const EXCLUDE=new Set(["MCCP_TMP"]);   // 셸 지역변수 (measurement-design 명시 제외 목록)
+const walk=(d,o)=>{for(const e of fs.readdirSync(d,{withFileTypes:true})){
+  const p=path.join(d,e.name); e.isDirectory()?walk(p,o):o.push(p.split(path.sep).join("/"));} return o;};
+const js=walk("plugins/mccp/scripts",[]).filter(f=>f.endsWith(".js")&&!f.includes("/tests/")&&!f.endsWith(".test.js"));
+const md=walk("plugins/mccp/commands",[]).filter(f=>f.endsWith(".md"));
+const pick=(files)=>{const s=new Set();for(const f of files){
+  (fs.readFileSync(f,"utf8").match(RE)||[]).forEach(x=>{ if(!EXCLUDE.has(x)) s.add(x); });} return s;};
+const jsOnly=pick(js).size;
+const surface=pick(js.concat(md)).size;
+const snap=JSON.parse(fs.readFileSync("docs/multi-session-work-loop/evidence-snapshot.json","utf8")).toggles;
+const bad=[];
+if(snap.in_code!==jsOnly) bad.push("in_code: 스냅샷 "+snap.in_code+" != 재산출 "+jsOnly);
+if(snap.in_runtime_surface!==surface) bad.push("in_runtime_surface: 스냅샷 "+snap.in_runtime_surface+" != 재산출 "+surface);
+if(!(surface>=jsOnly)) bad.push("런타임 표면 분모가 js-only 보다 작다 — 스캔 범위가 좁아졌다");
+if(bad.length){ console.log("FAIL: B3 분모가 재산출과 어긋남:"); bad.forEach(x=>console.log("  "+x)); process.exit(1); }
+console.log("OK: B3 분모 재산출 일치 — 런타임 표면 "+surface+" (js-only "+jsOnly+")");'
 ```
 
 ## 순서 — 선행 chore와의 관계 (2026-07-22 추가)
@@ -535,6 +591,8 @@ M1 자체는 설계 문서만 만들므로 **차단되지 않는다**. 지금 �
 - [ ] W가 민감도 밴드 5개로 보고되고 밴드 집합이 freeze됨
 - [ ] 코호트가 **불변 pre-start 메타데이터 임계 규칙**의 출력으로 등록됨(현 milestone 구성상 2개) + PRD 반증 조건 충족 불가가 명시 기록됨 (F3 + IF3)
 - [ ] C2·C3의 관측 전용 지위가 지표 명세와 라벨 규약 양쪽에 명시됨
+- [ ] **C계열 상태 어휘가 계약층에서 일치** — C1만 `recoverability-undetermined`(유일한 소급 프로토콜 대상), C2·C3은 `forward-only`. design·feasibility·label-protocol·PRD 4곳 동일 어휘이며 CHECK 8이 기계 검증. 정합화가 PROVISIONAL 층 각주로만 존재하던 상태를 해소 (PR-Codex R2 F2)
+- [ ] **B3 분모가 런타임 표면 전수** — `scripts/**/*.js ∪ commands/*.md`(명시 제외 `MCCP_TMP`), 스냅샷 `in_runtime_surface=99`, CHECK 12가 재산출로 대조해 분모가 주장이 아니라 검증 대상 (PR-Codex R2 F1)
 - [ ] `measurement-feasibility.md`의 모든 수치가 같은 문서의 명령으로 재현됨
 - [ ] **동작 코드 변경 0** — `plugins/` diff가 version surface **4파일**로 한정 (F2 + PR-Codex R1 F1); renderer 두 파일이 v1.22.x 토큰 외 main과 전문 동일함을 CHECK 2c가 기계 검증 (Codex R3 F1 · Implement-Codex R2 F1)
 - [ ] **version bump가 회귀를 남기지 않음** — `i18n-surface.test.js`가 버전을 `plugin.json`에서 파생(하드코딩 교체가 아님)하고, CHECK 11이 renderer 스위트를 회귀 대상에 포함 (PR-Codex R1 F1)
@@ -691,3 +749,20 @@ PR-Codex R1 흡수(`748cce0`)가 Validation에 검사 2개를 신설하고 allow
 - Deferred to backlog: 0
 - Open Questions: 없음 (auto-CRITICAL 해당 없음)
 - Implement-Codex R3 구조화 verdict: `divergent` (raw `needs-attention`; 3건 전건 ACCEPT_NOW 흡수). Codex가 clean 승인을 발급한 적이 없으므로 receipt는 `divergent`로 정직 봉인 — cross-gate dedupe fail-closed 유지
+
+### PR-Codex R2 (2026-07-23 — R3 흡수 후 PR 게이트 재발화)
+
+dedupe는 여전히 `skip_safe:false`(양쪽 `divergent` + residual 5) → 설계대로 PR-Codex 실발화. raw verdict **`needs-attention`(No ship)**, HIGH 2, `lock_exit_ok=true`·`mutations=[]`(review-only 무손상). 앞선 두 라운드가 **가드**를 겨눴다면 이번 둘은 **계약 내용 자체**를 겨눴다.
+
+| Finding | Severity | Verdict | 재현 검증 | 흡수 |
+|---|---|---|---|---|
+| F1 B3 분모가 command markdown 런타임 토글을 제외 | HIGH (conf .90) | ACCEPT_NOW | **부분 확인 — Codex 예시는 틀렸다.** 실측: 현행 규칙 분모 96(스냅샷과 정확 일치), `commands/*.md` 전용 토큰 4개. Codex가 지목한 `MCCP_PLAN_FANOUT`·`MCCP_ORCHESTRATION_COST_FAIL_OPEN`·`MCCP_GATE_ROUND_CAP`은 **전부 `scripts/*.js`에 있다**. 실제 누락은 2개(`MCCP_A11Y_AUTO_INVOKE`·`MCCP_AUTO_CHAIN_SKIP_PR`) + 문서화된 test env 1개이며, `MCCP_TMP`는 셸 지역변수라 토글이 아니다(정규식 오탐) | 규모는 96→99(3%)로 어떤 결론도 안 바꾸지만 **규칙이 FROZEN에 들어가므로 freeze 전에 고친다**. 스캔 범위를 `scripts/**/*.js ∪ commands/*.md`로 확장 + `MCCP_TMP` **명시 제외 목록**(조용한 축소 금지) + 스냅샷 `in_runtime_surface:99` 신설 + **CHECK 12**가 분모를 재산출해 대조 — 숫자가 주장이 아니라 검증 대상이 된다 |
+| F2 C2·C3 계약이 label-protocol과 모순 | HIGH (conf .88) | ACCEPT_NOW | **완전 확인** — `label-protocol.md`(FROZEN)는 §2.2 "소급 C3는 산출하지 않는다"·§4.2 "전향 기록 전 C2 산출 금지"로 **이미 확정**했는데 `measurement-design.md`(FROZEN)는 둘 다 `recoverability-undetermined — 프로토콜 미실행`이었다. feasibility(PROVISIONAL)는 L196·L206·L211에서 철저히 정합화해 뒀지만 **계약층에는 그 각주가 없다** → M2가 design을 읽고 protocol 층이 금지한 소급 baseline을 freeze할 수 있다 | 라벨을 **분리**한다 — C1만 `recoverability-undetermined`(유일한 프로토콜 대상), C2·C3은 `forward-only` + 확정 근거 cross-link. design·feasibility·label-protocol·PRD 4곳을 같은 어휘로 맞추고 **CHECK 8을 3문서 어휘 합의 검사로 재작성**(C2·C3에 `undetermined`가 남아 있으면 실패) |
+
+> **정합화가 각주로만 존재하면 계약이 아니다.** F2의 교훈은 이것이다 — feasibility는 세 곳에서 "C2·C3의 이 라벨은 다르게 읽으라"고 명시했고 그건 정확했다. 하지만 그 재해석은 **PROVISIONAL 층에만** 있었고, plan 스스로 정한 두 층 구분(§"산출물을 두 층으로 가른다")에 따르면 M2가 신뢰해야 할 것은 계약층이다. 같은 라벨에 두 뜻을 얹고 한쪽 문서의 각주로 구분하는 대신, **라벨을 나눠** 재해석을 불필요하게 만들었다.
+>
+> **Codex 예시가 틀렸다고 finding이 틀린 것은 아니다.** F1은 지목한 토글 3개가 전부 오답이었지만 결함 자체는 실재했다(다른 2개). 실측 없이 finding을 그대로 흡수했다면 존재하지 않는 문제를 고치고 실제 문제는 놓쳤을 것이다 — 이번 사이클에서 재현 검증을 매 finding마다 돌린 이유다.
+
+- Deferred to backlog: 0
+- Open Questions: 없음 (auto-CRITICAL 해당 없음)
+- PR-Codex R2 구조화 verdict: `divergent` (raw `needs-attention`; 2건 전건 ACCEPT_NOW 흡수)

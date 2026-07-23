@@ -107,9 +107,11 @@ M1은 A3의 *방법*만 freeze하고 *baseline 값*은 만들지 않는다. 이�
 **실행 규칙 (IF2 흡수)**:
 
 - **토글 식별자**: 정규식 `MCCP_[A-Z0-9_]+`에 매치되는 토큰. 이 prefix 규약이 mccp 토글의 정의다.
-- **분모의 스캔 범위**: `plugins/mccp/scripts/` 하위 `*.js` 중 `*/tests/*` 경로와 `*.test.js` 파일을 **제외**한 것. 테스트가 만드는 mock 토글이 분모를 오염시키지 않게 한다.
+- **분모의 스캔 범위**: `MCCP_*` 값으로 **분기할 수 있는 런타임 표면 전부**다 — `plugins/mccp/scripts/` 하위 `*.js`(`*/tests/*` 경로와 `*.test.js` 파일 **제외**: 테스트가 만드는 mock 토글이 분모를 오염시키지 않게 한다) **∪ `plugins/mccp/commands/*.md`**. command markdown의 bash 블록은 실행되는 코드이며 `MCCP_A11Y_AUTO_INVOKE`·`MCCP_AUTO_CHAIN_SKIP_PR`처럼 **그곳에만 존재하는 런타임 게이트**가 있다. `.js`만 스캔하면 이들이 분모 밖으로 새고, B3 목표(≤40)를 command-level 분기를 손대지 않은 채 달성했다고 주장할 수 있다(PR-Codex R2 F1).
+- **명시 제외 토큰**: `MCCP_TMP` — command body의 셸 지역변수이지 env 게이트가 아니다(정규식 오탐). 제외는 이 목록에 이름을 적을 때만 유효하며, 범위를 조용히 좁히는 것은 금지한다.
 - **동작 분기 수**: 토글 하나가 몇 개의 서로 다른 값으로 분기하는지의 합. 예를 들어 `MCCP_STOP_LOOP`(off/observe/enforce 3분기)은 분기 3, 불리언 토글은 분기 2로 센다. "토글 수를 줄였다"가 "동작 분기를 줄였다"와 다름을 이 병기가 드러낸다.
-- **worked example** (2026-07-22, [evidence-snapshot.json](../../docs/multi-session-work-loop/evidence-snapshot.json) `toggles`): 비-테스트 코드 스캔 = **96**, `CLAUDE.md` 문서화 = 55, `docs/ENVIRONMENT.md` = 38, 두 문서 union = 82. 즉 코드에 96개가 있고 그중 문서화된 것은 82개(14개는 코드에만 존재). 분모는 96, 사용 이력(분자)은 M2 전향 수집 전까지 미상. B3 목표(전체 ≤ 40)는 96에서 출발한다.
+- **worked example** (2026-07-22, [evidence-snapshot.json](../../docs/multi-session-work-loop/evidence-snapshot.json) `toggles`): 런타임 표면 전수 = **99**(`in_runtime_surface`) — 그중 `.js`만 세면 96(`in_code`)이고 나머지 3개는 command markdown에만 있다. `CLAUDE.md` 문서화 = 55, `docs/ENVIRONMENT.md` = 38, 두 문서 union = 82. 분모는 **99**, 사용 이력(분자)은 M2 전향 수집 전까지 미상. B3 목표(전체 ≤ 40)는 99에서 출발한다.
+- **분모는 주장이 아니라 재산출된다**: 위 99는 freeze된 숫자가 아니라 위 규칙의 출력이며, Validation CHECK 12가 스캔을 다시 돌려 스냅샷 값과 일치하는지 검사한다. 규칙이 바뀌거나 코드에 토글이 늘면 검사가 실패한다 — 분모가 조용히 낡는 경로를 닫는다.
 
 ## 5. C 계열 — 피드백·검증 실효
 
@@ -123,7 +125,7 @@ M1은 A3의 *방법*만 freeze하고 *baseline 값*은 만들지 않는다. 이�
 - 소스: finding 생성·해소 이벤트(M2 신설). 현재는 PR body 산문과 backlog 6행뿐이다
 - 산출식: 해소 비율. 이연률을 함께 보고한다
 - 무결성 검사: 해소 사유를 유형별로 분리 보고하며 **강등·기각은 해소로 계상 금지**. 유형 분리가 없는 집계는 무효
-- 소급 가부: recoverability-undetermined — 프로토콜 미실행
+- 소급 가부: `recoverability-undetermined` — [measurement-feasibility.md §4](./measurement-feasibility.md) 프로토콜 미실행. **C계열 중 유일한 소급 프로토콜 대상**이며, 임계 미달일 때만 불가로 확정된다. C2·C3은 label-protocol이 이미 forward-only로 확정했으므로 이 라벨을 쓰지 않는다 — 라벨의 구분 자체가 계약이다(PR-Codex R2 F2)
 
 ### C2 게이트 헛발화율
 
@@ -132,7 +134,7 @@ M1은 A3의 *방법*만 freeze하고 *baseline 값*은 만들지 않는다. 이�
 - 소스: 차단 판정 기록 + 그 판정에 귀속되는 diff(M2 신설). 현재 이 귀속이 기록되지 않는다
 - 산출식: 비율을 게이트별로 분리 산출한다. 게이트를 합산하면 유효 범위 판별이라는 목적이 사라진다
 - 무결성 검사: 차단을 경고로 전환하거나 사소한 편집을 요구해 분자를 줄이는 경로를 차단한다. 관측 전용이므로 값의 개선 자체를 성과로 보고하지 않는다
-- 소급 가부: recoverability-undetermined — 프로토콜 미실행
+- 소급 가부: **forward-only — 소급 산출 금지.** [label-protocol.md §4.2](./label-protocol.md)가 "M2가 귀속을 전향 기록하기 전까지 C2를 산출하지 않는다"로 이미 확정했다. 따라서 C2는 [measurement-feasibility.md §4](./measurement-feasibility.md) 소급 프로토콜의 **대상이 아니다** — 프로토콜을 돌려 판정할 여지가 남아 있지 않다
 
 ### C3 누출 결함율
 
@@ -141,7 +143,7 @@ M1은 A3의 *방법*만 freeze하고 *baseline 값*은 만들지 않는다. 이�
 - 소스: 통과 판정 기록 + PR·커밋 이력
 - 산출식: 관측 창을 **민감도 밴드 5종 전부**로 산출해 함께 보고한다. 단일 창의 값만 보고하는 것은 금지
 - 무결성 검사: 창 길이와 매칭 규칙은 label-protocol에 freeze되어 있으며 사후 변경 금지. 결론이 밴드 선택에 따라 뒤집히면 그 사실 자체를 결과로 보고한다
-- 소급 가부: recoverability-undetermined — 프로토콜 미실행
+- 소급 가부: **forward-only — 소급 산출 금지.** [label-protocol.md §2.2](./label-protocol.md)가 이미 확정했다(revert 0건 · finding 귀속 미기록 → 분자 0, fix-type 축은 별도 이름 `fix-title-proxy`로만 보고하며 C3 본체로 **승격 금지**). C3 본체는 M2가 `gate_decision_id → finding_id → remediation_pr` 귀속을 전향 기록한 뒤에만 산출하며, 그 전까지 존재하지 않는 지표로 취급한다. [measurement-feasibility.md §4](./measurement-feasibility.md) 프로토콜의 **대상이 아니다**
 
 ## 6. M2가 전향 기록해야 할 이벤트 (지표에서 역산 — M1은 구현하지 않는다)
 

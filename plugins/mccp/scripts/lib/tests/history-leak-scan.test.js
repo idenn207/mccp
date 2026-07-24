@@ -171,6 +171,45 @@ test('DEFAULT allowlist suppresses the scanner OWN fixture path, but not a real 
   assert.ok(res.leaks.some(function (l) { return l.path === 'somewhere/else.md'; }), 'a leak in a DIFFERENT file is NOT masked');
 });
 
+test('R5-F3: same blob at an allowlisted path AND a non-allowlisted path → non-allowlisted leak still reported', function () {
+  // The masking bug: `git rev-list --objects` annotates a blob with only its
+  // FIRST-seen path. If that representative path is allowlisted, the old code
+  // suppressed the leak for the WHOLE blob — hiding the SAME content leaking on a
+  // sibling (non-allowlisted) path. Two files with IDENTICAL content share one
+  // blob oid (git sorts `allowed.md` before `other.md` within docs/, so the
+  // representative is the allowlisted one — the exact masking case). ls-tree -r
+  // augmentation now recovers BOTH paths and the allowlist is evaluated per-path.
+  const root = initBase();
+  const leak = 'documented example path ' + root + '/foo\n';
+  commit(root, {
+    'docs/allowed.md': leak,   // allowlisted below
+    'docs/other.md': leak,     // SAME content → SAME blob oid, NOT allowlisted
+  });
+  const res = scan.scanRange({
+    repoRoot: root, base: 'main',
+    allowlist: [{ path: 'docs/allowed.md' }],
+  });
+  assert.equal(res.ok, false, 'the non-allowlisted sibling path of the same blob must still leak');
+  assert.ok(res.leaks.some(function (l) { return l.path === 'docs/other.md'; }), 'other.md leak reported');
+  assert.ok(res.leaks.every(function (l) { return l.path !== 'docs/allowed.md'; }), 'allowed.md path suppressed');
+});
+
+test('R5-F3: a blob reachable ONLY via allowlisted paths stays fully suppressed (regression 0)', function () {
+  // The single-/all-allowlisted-path case must keep suppressing — the fix only
+  // ADDS sibling-path reporting; it must not start reporting an all-allowlisted blob.
+  const root = initBase();
+  const leak = 'doc ' + root + '/bar\n';
+  commit(root, {
+    'docs/a.md': leak,
+    'docs/b.md': leak,   // same blob, BOTH allowlisted
+  });
+  const res = scan.scanRange({
+    repoRoot: root, base: 'main',
+    allowlist: [{ path: 'docs/a.md' }, { path: 'docs/b.md' }],
+  });
+  assert.equal(res.ok, true, JSON.stringify(res.leaks));
+});
+
 test('empty range (HEAD === base) → ok, nothing scanned', function () {
   const root = buildRepo([]); // no extra commits: HEAD === main
   const res = scan.scanRange({ repoRoot: root, base: 'main' });

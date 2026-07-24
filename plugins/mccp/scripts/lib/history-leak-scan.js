@@ -144,20 +144,58 @@ function scanRange(opts) {
   } catch (err) {
     return { ok: false, leaks: [{ path: '(git)', evidence: 'rev-list --objects failed: ' + err.message }], scanned_blobs: 0, base: base, commits: commitCount };
   }
-  const byOid = new Map(); // oid → path (first-seen path is representative)
+  // R5-F3 (M2 Task 2) — collect EVERY path each NEW blob is reachable at, not
+  // just the first. `git rev-list --objects` annotates each object with only its
+  // FIRST-seen path (empirically: a blob at two paths emits ONE object line), so
+  // the old `oid → representative path` map let an allowlisted fixture path MASK a
+  // real leak on a sibling path of the SAME blob (identical content). The
+  // allowlist is now evaluated PER PATH in the scan loop below, so a blob reaching
+  // an allowlisted path AND a non-allowlisted path still reports the latter.
+  const byOid = new Map(); // oid → paths[] (representative first; all tree paths appended)
+  const commits = [];      // bare-sha lines in rev-list --objects are commits (root tree has an empty path)
   for (const raw of objectsRaw.split(/\r?\n/)) {
     if (!raw) continue;
     const sp = raw.indexOf(' ');
-    if (sp === -1) continue;            // commit (no path) — skip
+    if (sp === -1) { commits.push(raw); continue; }   // commit (no path) — reused for the ls-tree walk
     const oid = raw.slice(0, sp);
     const p = raw.slice(sp + 1);
-    if (!p) continue;
-    if (!byOid.has(oid)) byOid.set(oid, p);
+    if (!p) continue;                                 // root tree line ("<sha> ") — empty path, skip
+    if (!byOid.has(oid)) byOid.set(oid, []);
+    const arr = byOid.get(oid);
+    if (arr.indexOf(p) === -1) arr.push(p);
+  }
+  // Augment with the FULL path set. rev-list gave only the representative path;
+  // `git ls-tree -r <commit>` lists every (oid, path) in a tree (empirically a
+  // dup-content blob appears once per path). Walk each range commit's tree and
+  // append additional paths for oids we already know are NEW (present in byOid
+  // from rev-list). A ls-tree failure is fail-CLOSED (mirrors the cat-file
+  // scan-error contract): a security backstop must never pass an unenumerated
+  // range. Test gitFn stubs that emit no bare-commit line leave `commits` empty,
+  // so this walk is skipped and byOid keeps the rev-list representative paths.
+  for (const c of commits) {
+    let treeRaw;
+    try {
+      treeRaw = gitFn(['ls-tree', '-r', c], repoRoot);
+    } catch (err) {
+      return { ok: false, leaks: [{ path: '(git)', evidence: 'ls-tree -r ' + c + ' failed: ' + String((err && err.message) || 'unknown').slice(0, 160) }], scanned_blobs: 0, base: base, commits: commitCount };
+    }
+    for (const line of treeRaw.split(/\r?\n/)) {
+      if (!line) continue;
+      const tab = line.indexOf('\t');
+      if (tab === -1) continue;                        // "<mode> <type> <oid>\t<path>"
+      const oid = line.slice(0, tab).split(/\s+/)[2];
+      if (!oid || !byOid.has(oid)) continue;           // only NEW objects (from rev-list)
+      const p = line.slice(tab + 1);
+      if (!p) continue;
+      const arr = byOid.get(oid);
+      if (arr.indexOf(p) === -1) arr.push(p);
+    }
   }
 
   const leaks = [];
   let scanned = 0;
-  for (const [oid, p] of byOid) {
+  for (const [oid, paths] of byOid) {
+    const repPath = paths[0]; // blob-level scan-errors report a representative path
     // type check — only blobs.
     let type;
     try {
@@ -166,7 +204,7 @@ function scanRange(opts) {
       // R4/F2 — a security backstop must NOT skip a blob it cannot classify. A
       // swallowed `continue` here returns ok while a transient cat-file failure
       // could hide a leak. Fail-CLOSED via a scan-error (ok becomes false).
-      leaks.push({ oid: oid, path: p, line: 0, pattern: 'scan-error', evidence: 'cat-file -t failed: ' + String((e && e.message) || 'unknown').slice(0, 160) });
+      leaks.push({ oid: oid, path: repPath, line: 0, pattern: 'scan-error', evidence: 'cat-file -t failed: ' + String((e && e.message) || 'unknown').slice(0, 160) });
       continue;
     }
     if (type !== 'blob') continue;
@@ -178,7 +216,7 @@ function scanRange(opts) {
       // returned ok while leaving that blob UNSCANNED, so a repo-root path inside
       // it would reach the push. Fail-CLOSED — the operator must confirm no leak
       // (a receipt-corpus blob this large is anomalous by itself).
-      leaks.push({ oid: oid, path: p, line: 0, pattern: 'scan-error', evidence: 'cat-file blob failed (unscanned, possibly >64MiB): ' + String((e && e.message) || 'unknown').slice(0, 160) });
+      leaks.push({ oid: oid, path: repPath, line: 0, pattern: 'scan-error', evidence: 'cat-file blob failed (unscanned, possibly >64MiB): ' + String((e && e.message) || 'unknown').slice(0, 160) });
       continue;
     }
     if (content.indexOf(String.fromCharCode(0)) !== -1) continue; // NUL byte => binary blob, skip
@@ -187,14 +225,19 @@ function scanRange(opts) {
     for (let i = 0; i < lines.length; i++) {
       for (const pat of patterns) {
         if (pat.re.test(lines[i])) {
-          if (isAllowlisted(allowlist, p, lines[i])) continue;
-          leaks.push({
-            oid: oid,
-            path: p,
-            line: i + 1,
-            pattern: pat.name,
-            evidence: lines[i].trim().slice(0, 200),
-          });
+          // Per-path allowlist — a match is suppressed only for the exact path(s)
+          // an allowlist entry names; the SAME leaking line on a non-allowlisted
+          // path of the same blob is still reported (R5-F3 fix).
+          for (const p of paths) {
+            if (isAllowlisted(allowlist, p, lines[i])) continue;
+            leaks.push({
+              oid: oid,
+              path: p,
+              line: i + 1,
+              pattern: pat.name,
+              evidence: lines[i].trim().slice(0, 200),
+            });
+          }
         }
       }
     }

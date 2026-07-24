@@ -14,6 +14,7 @@
 
 const path = require('path');
 const codexInvoke = require('../codex-invoke');
+const { isConvergedVerdict } = require('../receipt-convergence');
 
 const BRIEFING_TIMEOUT_MS = 60 * 1000;  // 60s — much tighter than codex 900s default.
 const SUMMARY_CAP_CHARS = 1024;          // matches schema.js validate cap.
@@ -24,7 +25,12 @@ function buildFocus(receipt, deriveModel) {
   const lines = [];
   lines.push('Briefing for receipt ' + (r.gate_id || '?') + '/' + (r.decision_id || '?') + ':');
   lines.push('- phase: ' + (r.phase || 'unknown'));
-  lines.push('- converged: ' + (!!res.converged) + ', rounds: ' + (res.rounds || r.round || 1)
+  // M2 Task 4 (integrity-unification) — use the codex_verdict-first shared helper,
+  // NOT raw `!!res.converged`. resolution.converged is ALWAYS true once findings
+  // are finalized (writer-finalized, not Codex-approved), so a divergent/critical
+  // ship would otherwise be summarized as "converged: true". Closes the M1 Task 1b
+  // sweep residual (the last raw resolution.converged consumer).
+  lines.push('- converged: ' + isConvergedVerdict(res) + ', rounds: ' + (res.rounds || r.round || 1)
     + ', open_questions: ' + ((res.open_questions || []).length));
   lines.push('- findings: ' + ((r.findings || []).length));
 

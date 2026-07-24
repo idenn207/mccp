@@ -34,7 +34,7 @@ function writeBlockReason(stderr, result) {
     // below deliberately does NOT say "regenerate" (that overwrites evidence).
     let label = 'INVALID ';
     if (b && b.kind === 'tempfail') label = 'TEMPFAIL';
-    else if (b && b.kind === 'receipt-tamper') label = 'TAMPER  ';
+    else if (b && (b.kind === 'receipt-tamper' || b.kind === 'subject-tamper')) label = 'TAMPER  ';
     stderr.write('  ' + label + ' ' + b.gate_id + ': ' + b.reason + '\n');
   }
   for (const c of result.open_critical) {
@@ -53,6 +53,13 @@ function writeBlockReason(stderr, result) {
   // line instead (Codex R1 F1).
   if (result.blocking.some(function (b) { return b && b.kind === 'receipt-tamper'; })) {
     stderr.write(GATE_TAG + ' TAMPER: receipt_hash mismatch — receipt body (findings/resolution/meta) altered after signing. Do NOT regenerate (that destroys the evidence). Inspect the receipt against its source and investigate the change before any re-run.\n');
+  }
+  // M2 Task 1 — subject_hash tamper is INTEGRITY, not staleness (symmetric with
+  // the receipt_hash line above). Same "Do NOT regenerate" investigation-first
+  // guidance — routing it to the "regenerate STALE" hint would overwrite the
+  // tampered receipt and destroy the evidence.
+  if (result.blocking.some(function (b) { return b && b.kind === 'subject-tamper'; })) {
+    stderr.write(GATE_TAG + ' TAMPER: subject_hash mismatch — receipt subject fields (task_id/phase/gate_id/plan_hash/base_sha/head_sha/round) altered after signing. Do NOT regenerate (that destroys the evidence). Inspect the receipt against its source and investigate the change before any re-run.\n');
   }
   stderr.write(GATE_TAG + ' To bypass once: MCCP_SKIP_RECEIPT=1\n');
   stderr.write(GATE_TAG + ' To inspect:     node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js status --gate <name>\n');

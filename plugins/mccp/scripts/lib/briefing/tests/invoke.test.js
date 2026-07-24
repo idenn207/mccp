@@ -130,3 +130,39 @@ test('tokenEstimate counts input+output (Codex R1 F2 absorption)', function () {
   // (100 + 20) / 4 = 30, ceil → 30.
   assert.equal(e, 30);
 });
+
+// ---- Task 4 (M2): convergence residual — codex_verdict-first briefing focus ---
+//
+// resolution.converged is ALWAYS true once findings are finalized (writer-finalized,
+// not Codex-approved). Reading it raw let a DIVERGENT ship be summarized as
+// "converged: true". buildFocus now routes through receipt-convergence's shared
+// isConvergedVerdict helper (M1 Task 1b sweep residual).
+
+test('Task 4: divergent-ship receipt renders "converged: false"', function () {
+  const focus = buildFocus(makeReceipt({
+    resolution: { converged: true, codex_verdict: 'divergent', rounds: 2, open_questions: [] },
+  }), null);
+  assert.ok(focus.includes('- converged: false'),
+    'divergent ship (converged:true, codex_verdict:divergent) must render converged:false\n' + focus);
+});
+
+test('Task 4: critical-ship receipt also renders "converged: false"', function () {
+  const focus = buildFocus(makeReceipt({
+    resolution: { converged: true, codex_verdict: 'critical', rounds: 1, open_questions: [] },
+  }), null);
+  assert.ok(focus.includes('- converged: false'));
+});
+
+test('Task 4: converged ship still renders "converged: true" (no regression)', function () {
+  const focus = buildFocus(makeReceipt({
+    resolution: { converged: true, codex_verdict: 'converged', rounds: 1, open_questions: [] },
+  }), null);
+  assert.ok(focus.includes('- converged: true'));
+});
+
+test('Task 4: absent codex_verdict falls back to resolution.converged (no regression)', function () {
+  const focus = buildFocus(makeReceipt({
+    resolution: { converged: true, rounds: 1, open_questions: [] },
+  }), null);
+  assert.ok(focus.includes('- converged: true'));
+});

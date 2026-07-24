@@ -251,10 +251,22 @@ function validateCommand(command, opts) {
 
     const computedSubject = subjectHash(receipt);
     if (computedSubject !== receipt.subject_hash) {
-      result.stale.push({
+      // M2 Task 1 (integrity-unification) — subject_hash is a self-consistency
+      // seal over the receipt's OWN SUBJECT_FIELDS (hash.js: task_id/phase/
+      // gate_id/plan_hash/design_doc_hash/base_sha/head_sha/round). A mismatch is
+      // a post-seal alteration of those subject fields (tamper), NOT plan
+      // staleness — plan staleness is the separate plan_hash comparison below,
+      // which compares the receipt against the CURRENT plan file. Classifying it
+      // as `stale` routed preflight.js to "regenerate STALE", which would
+      // overwrite (destroy) the tamper evidence — the subject-side residual of
+      // the exact P5 hole the receipt_hash block below already closed. Symmetric
+      // with that receipt-tamper block: blocking + kind:'subject-tamper'
+      // (classify.js treats non-tempfail kinds as exit 2).
+      result.blocking.push({
         gate_id: gateId,
         decision_id: result.decisionId,
-        reason: 'subject_hash mismatch (receipt fields altered after signing)',
+        kind: 'subject-tamper',
+        reason: 'subject_hash mismatch (subject fields altered after signing)',
       });
       continue;
     }

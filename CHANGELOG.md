@@ -2,7 +2,23 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.22.6] — 2026-07-24
+
+**무결성 통일 cycle M2 — 독립 무결성 fixes** — M1이 durable corpus를 지키는 tightly-coupled 3축을 닫았다면, M2는 서로 다른 trust boundary에 흩어진 **서로 독립적인** 국소 결함 4건을 닫는다(롤백·호환성 위험이 M1과 분리되므로 별도 milestone; 각 Task 자기완결 회귀 test, 순서 불변식 없음). Implement-Codex는 환경 Codex companion `exit-nonzero`(~20s crash)로 **advisory** 진행(운영자 승인, M1 #110 선례) → receipt `codex_verdict='unavailable'` 봉인 → PR-Codex 별도 발화. security-reviewer agent가 security-sensitive 두 축(leak-scan · subject-tamper)을 독립 검토해 SOUND 확인(Codex 부재 부분 보완). M3(terminal `/mccp:pr` non-approving mechanical hard-stop 재설계)는 별건.
+
+### Changed
+- `plugins/mccp/scripts/receipt/validate-cmd.js` · `receipt/preflight.js` — subject_hash mismatch를 `result.stale`→`result.blocking` `kind:'subject-tamper'`로 승격(Task 1). receipt_hash receipt-tamper 블록과 대칭 — `subjectHash`는 SUBJECT_FIELDS self-consistency seal이라 mismatch=서명-후-변조(tamper)이지 plan staleness(별도 plan_hash 비교)가 아니고, stale→"regenerate STALE" 힌트가 tamper 증거를 파괴하던 subject-side 잔여(M1이 `receipt_hash`에 대해 이미 닫은 것과 동일 잠복 결함)를 닫는다. preflight는 subject-tamper에 "Do NOT regenerate" INTEGRITY 힌트 + TAMPER 라벨 확장.
+- `plugins/mccp/scripts/lib/history-leak-scan.js` — allowlist를 `oid→paths[]`로 확장(Task 2, R5-F3). `git rev-list --objects`는 blob당 first-path 1개만 방출하므로(실측 — 플랜의 "다중경로 방출" 가정 정정) range 커밋 `git ls-tree -r`로 전 경로를 증강하고 allowlist를 **경로별**로 판정. 같은 blob이 allowlisted fixture 경로 + non-allowlisted real 경로에 도달할 때 real leak을 더 이상 억제하지 않는다(pre-push secret/path backstop 복구). ls-tree 실패는 fail-closed(cat-file scan-error 계약 미러).
+- `plugins/mccp/scripts/lib/briefing/invoke.js` — raw `!!res.converged`를 `receipt-convergence#isConvergedVerdict(res)`로 교체(Task 4) + import 추가. divergent/critical ship이 briefing 요약에 "converged: true"로 오기되던 M1 Task 1b sweep의 마지막 raw 소비처를 정합(derive projection은 M1이 이미 교정).
+- `plugins/mccp/.claude-plugin/plugin.json` `1.22.5 → 1.22.6` + renderer footer(html/markdown) 동기.
+
+### Tests
+- `receipt/tests/validate-cmd.test.js` — subject-tamper 회귀 2건(stale→blocking flip · receipt-tamper pre-empt). `lib/tests/history-leak-scan.test.js` — 다중경로 회귀 2건(non-allowlisted sibling leak 보고 + all-allowlisted 억제 regression-0). `lib/tests/codex-review-payload.test.js` — 실-producer envelope 회귀 4건(Task 3 verify-and-close). `lib/briefing/tests/invoke.test.js` — divergent/critical ship "converged: false" 회귀 4건.
+
+### Note
+- Task 3(`parseReviewPayload`)은 **코드 변경 없음** — 현 `.stdout`→`.result.verdict` 파서가 실-producer 응답을 정상 파싱함을 실측·회귀 fixture로 봉인(verify-and-close, "통과했다≠검사했다" drift 방지). backlog 3행(2026-07-08 subject_hash · 2026-07-22 parseReviewPayload · 2026-07-23 R5-F3) ABSORBED 표식(row 보존).
 
 ## [1.22.5] — 2026-07-24
 

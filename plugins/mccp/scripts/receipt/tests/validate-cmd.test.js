@@ -62,7 +62,11 @@ test('validate-cmd: stale plan_hash → blocked (stale)', function () {
   }
 });
 
-test('validate-cmd: tampered subject_hash → blocked (stale)', function () {
+test('validate-cmd: tampered subject_hash → blocking (subject-tamper, NOT stale)', function () {
+  // M2 Task 1 (integrity-unification) — a subject_hash mismatch is a post-seal
+  // alteration of the receipt's own SUBJECT_FIELDS (tamper), not plan staleness.
+  // It MUST classify as blocking(kind='subject-tamper'), never stale: stale routes
+  // preflight to "regenerate STALE", which would overwrite (destroy) the evidence.
   const { repo, planRel } = setupRepo();
   const cwd = process.cwd();
   process.chdir(repo);
@@ -73,8 +77,10 @@ test('validate-cmd: tampered subject_hash → blocked (stale)', function () {
     fs.writeFileSync(r.path, JSON.stringify(raw, null, 2));
     const result = validateCommand('/mccp:prp-implement', { cwd: repo, decisionId: 'feature-x' });
     assert.strictEqual(result.ok, false);
-    assert.strictEqual(result.stale.length, 1, JSON.stringify(result));
-    assert.match(result.stale[0].reason, /subject_hash mismatch/);
+    assert.strictEqual(result.blocking.length, 1, JSON.stringify(result));
+    assert.strictEqual(result.blocking[0].kind, 'subject-tamper');
+    assert.match(result.blocking[0].reason, /subject_hash mismatch/);
+    assert.strictEqual(result.stale.length, 0);
   } finally {
     process.chdir(cwd);
   }
@@ -248,7 +254,11 @@ test('validate-cmd: tampered meta.command → blocking (receipt-tamper)', functi
   }
 });
 
-test('validate-cmd: subject-field tamper still wins (subject_hash stale, not receipt-tamper)', function () {
+test('validate-cmd: subject-field tamper wins as subject-tamper (pre-empts receipt-tamper via continue)', function () {
+  // M2 Task 1 — altering a SUBJECT_FIELD trips subject_hash FIRST; that block now
+  // `continue`s with blocking(subject-tamper), so the downstream receipt_hash
+  // receipt-tamper block is never reached. Both are integrity failures; the
+  // subject block just pre-empts.
   const { repo, planRel } = setupRepo();
   const cwd = process.cwd();
   process.chdir(repo);
@@ -259,9 +269,10 @@ test('validate-cmd: subject-field tamper still wins (subject_hash stale, not rec
     fs.writeFileSync(r.path, JSON.stringify(raw, null, 2));
     const result = validateCommand('/mccp:prp-implement', { cwd: repo, decisionId: 'feature-x' });
     assert.strictEqual(result.ok, false);
-    assert.strictEqual(result.stale.length, 1, JSON.stringify(result));
-    assert.match(result.stale[0].reason, /subject_hash mismatch/);
-    assert.strictEqual(result.blocking.length, 0);  // receipt-tamper never reached (subject continue)
+    assert.strictEqual(result.blocking.length, 1, JSON.stringify(result));
+    assert.strictEqual(result.blocking[0].kind, 'subject-tamper');
+    assert.match(result.blocking[0].reason, /subject_hash mismatch/);
+    assert.strictEqual(result.stale.length, 0);
   } finally {
     process.chdir(cwd);
   }

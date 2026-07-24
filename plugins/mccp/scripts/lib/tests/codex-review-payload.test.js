@@ -173,3 +173,74 @@ test('F5: a structured read never calls the free-text scan at all', () => {
   assert.strictEqual(called, 0, 'structured short-circuits — the scan must not even run');
   assert.strictEqual(g.verdict, 'converged');
 });
+
+// ---- Task 3 (M2, verify-and-close): full real-producer envelope regression ---
+//
+// The backlog (2026-07-22) flagged parseReviewPayload as failing to read a NORMAL
+// response. Re-measured this cycle: the current reader (.stdout -> .result.verdict)
+// parses it correctly and M1 proved source:structured live — so this is a
+// fixture-only close (NO code change). These fixtures pin the FULL codex-companion
+// adversarial-review envelope shape (result under .result, with sibling
+// rawOutput/parseError/context/codex the reader must ignore) so a future schema
+// drift that silently breaks structured parsing is caught as a regression —
+// "passed != checked".
+
+function realProducerEnvelope(result) {
+  const inner = {
+    review: 'Adversarial Review',
+    target: 'implement-time decisions',
+    threadId: 'thread_abc123',
+    context: { round: 1, focus: 'challenge decisions' },
+    codex: { model: 'gpt-5.4', durationMs: 42000 },
+    result: result,
+    rawOutput: 'Verdict: ' + (result.verdict || '?') + '\n' + (result.summary || ''),
+    parseError: null,
+  };
+  return {
+    ok: true, classification: 'ok', blocking: false, advisory: false,
+    durationMs: 42000, stderr: '',
+    stdout: JSON.stringify(inner),
+  };
+}
+
+test('Task 3: real-producer envelope (approve) → source:structured + converged', () => {
+  const env = realProducerEnvelope({
+    verdict: 'approve', summary: 'Ship it — no blocking findings.',
+    findings: [], next_steps: ['merge'],
+  });
+  const review = parseReviewPayload(env);
+  assert.ok(review, 'parseReviewPayload reads the nested .result.verdict');
+  assert.strictEqual(review.verdict, 'approve');
+
+  const g = deriveGateVerdict({ envelope: env, freeText: env.stdout });
+  assert.strictEqual(g.source, 'structured', 'the structured .result.verdict is authoritative');
+  assert.strictEqual(g.verdict, 'converged');
+  assert.strictEqual(g.rawVerdict, 'approve');
+});
+
+test('Task 3: real-producer envelope (needs-attention) → source:structured + divergent', () => {
+  const env = realProducerEnvelope({
+    verdict: 'needs-attention', summary: 'No ship: unresolved F2.',
+    findings: [{ severity: 'high', title: 'x' }], next_steps: ['fix F2'],
+  });
+  const g = deriveGateVerdict({ envelope: env, freeText: env.stdout });
+  assert.strictEqual(g.source, 'structured');
+  assert.strictEqual(g.verdict, 'divergent');
+  assert.strictEqual(g.rawVerdict, 'needs-attention');
+});
+
+test('Task 3: producer envelope with malformed/truncated stdout → unavailable (fail-closed)', () => {
+  // Schema drift / truncated stdout must NEVER certify approval.
+  const env = { ok: true, classification: 'ok', blocking: false, stdout: '{"review":"x","result":{trunc' };
+  assert.strictEqual(parseReviewPayload(env), null);
+  const g = deriveGateVerdict({ envelope: env, freeText: '' });
+  assert.strictEqual(g.verdict, 'unavailable');
+  assert.strictEqual(g.source, 'unavailable');
+});
+
+test('Task 3: producer envelope whose .result has NO verdict → unavailable (fail-closed)', () => {
+  const env = realProducerEnvelope({ summary: 'no verdict here', findings: [] });
+  assert.strictEqual(parseReviewPayload(env), null, 'missing verdict → null (fail-closed)');
+  const g = deriveGateVerdict({ envelope: env, freeText: '' });
+  assert.strictEqual(g.verdict, 'unavailable');
+});

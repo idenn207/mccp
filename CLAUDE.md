@@ -242,6 +242,15 @@ my-claude-code-plugin/
 - PR 본문: `/mccp:prp-pr`이 템플릿을 자동 생성 — 직접 작성하기보다 명령을 통하세요.
 - main 직접 push 금지. 항상 feature branch 경유.
 
+#### 3.5.1 머지/리베이스가 파일을 소리 없이 삭제하지 않았는지 검증 (실측 사고 — PR #110 회귀)
+
+**오래 산 feature branch에 base(main)를 머지하거나 그 branch를 main에 머지·squash할 때, base 쪽에서 intervening PR이 새로 추가한 파일이 branch의 옛 트리에 밀려 조용히 드롭될 수 있다.** 실제로 PR #110(durable-evidence-substrate, 브랜치 `feat/integrity-unification-m1`)이 머지되며 **PR #109가 main에 새로 추가한 `multi-session-work-loop` 산출물 9개 파일**(PRD·plan·report·`docs/multi-session-work-loop/` 6개, ~2144줄)을 머지 해소 과정에서 전부 삭제했다. 브랜치가 #109 이전에 갈라져 그 파일들을 몰랐고, 머지가 브랜치의 옛 트리를 favor하면서 반대편 신규 파일을 함께 지운 것이다. `git checkout 626b82b -- <files>`로 복구 (branch `fix/restore-multi-session-work-loop`).
+
+- **커밋/PR 직전 삭제 검증 의무**: `git diff --diff-filter=D --name-only <base>...HEAD`로 이번 브랜치가 삭제하는 파일 목록을 확인한다. 목록에 **내가 의도적으로 지운 것이 아닌 파일**(특히 다른 사람/다른 PR이 최근 추가한 `.claude/prds/`·`.claude/plans/`·`docs/*` 산출물)이 있으면 **멈추고 조사**한다 — 그 삭제는 거의 항상 머지 사고다.
+- **금지**: 머지 충돌을 "내 branch 쪽 디렉토리를 통째로 취함"(`git checkout --ours <dir>`, 무분별한 `git rm -r`, 브랜치 트리 강제 덮어쓰기)으로 해소하는 것. 반대편이 새로 추가한 파일을 함께 삭제한다. 충돌은 파일 단위로 해소하고, 반대편 신규 파일은 **보존이 기본**이다.
+- **의심 시 base와 대조**: 산출물 디렉토리(`.claude/prds/`, `.claude/plans/`, `docs/`)는 `git ls-tree -r --name-only <base> -- <dir>`와 현재 HEAD를 비교해 base에 있는데 HEAD에 없는 파일이 없는지 확인한다.
+- 관련: [memory: stacked-pr-merge-order](머지 순서 함정), [memory: merge-drops-intervening-files](본 사고).
+
 ### 3.6 Atomic state locks (`pr-phase.lock` + `v0.2.8-generic-receipt-quarantine.lock`)
 
 v0.2.8 Task 2.6.1-followup F10+F11+F7 (PR #8)부터 mccp는 두 가지 state lock을 운용합니다. 둘 다 단일 writer + multi-reader, lease-based reclaim(PID liveness OR mtime>60s), in-loop heartbeat를 **공유**하지만, **ownership-token 모델은 서로 다릅니다** — `pr-phase.lock`은 hash + stdin-pipe sealed channel(canonical), `quarantine.lock`은 raw-token/advisory(lock body 평문 token, 0o600 보호). 아래 락별 구분을 참조하세요("양쪽 공통"으로 뭉뚱그리지 말 것).

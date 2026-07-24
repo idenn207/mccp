@@ -210,6 +210,32 @@ test('R5-F3: a blob reachable ONLY via allowlisted paths stays fully suppressed 
   assert.equal(res.ok, true, JSON.stringify(res.leaks));
 });
 
+test('F1: a NEW path onto a blob that ALREADY exists in base (allowlisted there) still leaks', function () {
+  // Codex divergent F1: `git rev-list --objects base..HEAD` excludes objects
+  // already reachable from base. A branch that copies an existing (base) leaking
+  // blob to a NON-allowlisted new path therefore never entered `byOid`, and the
+  // ls-tree walk's `byOid.has(oid)` guard skipped it too — so the new disclosure
+  // path escaped the scan entirely (reported ok). The changed-path (`git diff
+  // --raw`) augmentation folds in the HEAD blob at each changed path even when the
+  // blob predates base.
+  const root = initBase();
+  const leak = 'documented path ' + root + '/foo\n';
+  // Put the leaking blob in BASE at an allowlisted path, then move `main` onto it
+  // so the blob is already reachable from base (excluded by rev-list base..HEAD).
+  commit(root, { 'docs/allowed.md': leak }, null, 'base-adds-allowlisted-leak');
+  g(root, ['branch', '-f', 'main', 'HEAD']);
+  // Feature commit: copy the SAME content to a non-allowlisted sibling path. Git
+  // dedups identical content → SAME blob oid, which predates the new base.
+  commit(root, { 'docs/other.md': leak }, null, 'copy-to-nonallowlisted-path');
+  const res = scan.scanRange({
+    repoRoot: root, base: 'main',
+    allowlist: [{ path: 'docs/allowed.md' }],
+  });
+  assert.equal(res.ok, false, 'a new non-allowlisted path onto a pre-existing blob must still leak');
+  assert.ok(res.leaks.some(function (l) { return l.path === 'docs/other.md'; }), 'docs/other.md leak reported');
+  assert.ok(res.leaks.every(function (l) { return l.path !== 'docs/allowed.md'; }), 'the allowlisted base path stays suppressed');
+});
+
 test('empty range (HEAD === base) → ok, nothing scanned', function () {
   const root = buildRepo([]); // no extra commits: HEAD === main
   const res = scan.scanRange({ repoRoot: root, base: 'main' });
@@ -224,6 +250,7 @@ test('R4/F2: a blob that cannot be read (e.g. >64MiB maxBuffer throw) is fail-CL
     if (a.indexOf('rev-parse') === 0) return 'deadbeef';                       // base resolves
     if (a.indexOf('rev-list --count') === 0) return '1\n';
     if (a.indexOf('rev-list --objects') === 0) return 'oid1 clean.json\noid2 big.json\n';
+    if (a.indexOf('diff --raw') === 0) return '';       // M2 F1 changed-path augmentation — no extra paths
     if (a === 'cat-file -t oid1' || a === 'cat-file -t oid2') return 'blob\n';
     if (a === 'cat-file blob oid1') return '{"receipt_hash":"x","meta":{"cwd":"."}}\n';
     if (a === 'cat-file blob oid2') { throw new Error('spawnSync git maxBuffer length exceeded'); }
@@ -242,6 +269,7 @@ test('R4/F2: a cat-file -t classification failure is also fail-CLOSED', function
     if (a.indexOf('rev-parse') === 0) return 'deadbeef';
     if (a.indexOf('rev-list --count') === 0) return '1\n';
     if (a.indexOf('rev-list --objects') === 0) return 'oidX weird/path\n';
+    if (a.indexOf('diff --raw') === 0) return '';       // M2 F1 changed-path augmentation — no extra paths
     if (a === 'cat-file -t oidX') throw new Error('cat-file: bad object oidX');
     throw new Error('unexpected git call: ' + a);
   };

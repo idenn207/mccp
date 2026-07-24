@@ -192,6 +192,42 @@ function scanRange(opts) {
     }
   }
 
+  // F1 (M2 follow-up — Codex divergent absorption). The seed above (rev-list
+  // --objects base..HEAD) enumerates only NEW blob OIDs. A branch that adds,
+  // copies, or renames a NON-allowlisted path onto a blob that ALREADY exists in
+  // base (identical content → same OID, which rev-list excludes) would never enter
+  // `byOid`, so that new disclosure path escaped the scan entirely — the allowlist
+  // could then be masked by nothing at all (the blob was simply invisible). Fold
+  // in the blob AT EACH PATH the push changes: `git diff --raw --full-index` emits
+  // one line per changed path with the destination (HEAD) blob OID, even when that
+  // OID predates base. --no-renames so a rename surfaces its new path as an add
+  // (the disclosure surface is the new name). Deletions carry an all-zero dest OID
+  // and are skipped (no HEAD blob to scan). The allowlist is still evaluated
+  // per-path in the scan loop, so Codex's repro — base has the allowlisted fixture
+  // blob, the branch copies it to a non-allowlisted sibling path — now reports the
+  // sibling. A diff failure is fail-CLOSED (mirrors the rev-list/ls-tree contract:
+  // a backstop must never pass an unenumerated range). Test gitFn stubs that return
+  // an empty diff simply add no extra paths, leaving the rev-list seed intact.
+  let rawDiff;
+  try {
+    rawDiff = gitFn(['diff', '--raw', '--full-index', '--no-renames', base + '..HEAD'], repoRoot);
+  } catch (err) {
+    return { ok: false, leaks: [{ path: '(git)', evidence: 'diff --raw failed: ' + String((err && err.message) || 'unknown').slice(0, 160) }], scanned_blobs: 0, base: base, commits: commitCount };
+  }
+  for (const line of rawDiff.split(/\r?\n/)) {
+    if (!line || line[0] !== ':') continue;            // ":<m1> <m2> <oldoid> <newoid> <status>\t<path>"
+    const tab = line.indexOf('\t');
+    if (tab === -1) continue;
+    const meta = line.slice(0, tab).split(/\s+/);
+    const newOid = meta[3];
+    if (!newOid || /^0+$/.test(newOid)) continue;      // deletion → no HEAD blob
+    const p = line.slice(tab + 1);
+    if (!p) continue;
+    if (!byOid.has(newOid)) byOid.set(newOid, []);
+    const arr = byOid.get(newOid);
+    if (arr.indexOf(p) === -1) arr.push(p);
+  }
+
   const leaks = [];
   let scanned = 0;
   for (const [oid, paths] of byOid) {

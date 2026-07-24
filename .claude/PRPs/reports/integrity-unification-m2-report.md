@@ -75,7 +75,35 @@ M2는 M1의 tightly-coupled 3축(ledger 술어·stage-guard·audit)과 분리된
 | `lib/tests/codex-review-payload.test.js` | 4 new | real-producer envelope source:structured(approve/needs-attention) · malformed/absent → unavailable |
 | `lib/briefing/tests/invoke.test.js` | 4 new | divergent·critical → converged:false · converged·absent → converged:true |
 
+## Codex Divergent Review 흡수 (2026-07-25, PR #113 follow-up)
+
+Codex quota 회복 후 M2 diff(`main..HEAD`)에 실제 adversarial-review를 재실행 → verdict **`needs-attention` (divergent)** + findings 2건. 로컬 `/mccp:code-review`(Claude leg)가 놓친 것을 cross-model review가 잡은 사례(single-model blind-spot 방지의 실증). 운영자 결정 = **둘 다 수정**.
+
+### F2 [MEDIUM] — tamper 메시징이 preflight에만, hook 표면엔 없음 (CONFIRMED, Task 1 incomplete)
+
+Task 1은 "Do NOT regenerate (that destroys the evidence)" 가이드를 `preflight.js`(CLI)에만 추가했으나, 슬래시 명령의 실제 enforcement 표면인 `receipt-prompt.js`(UserPromptExpansion)·`receipt-skill.js`(Skill)는 여전히 모든 blocking을 generic `INVALID`로 출력 + **항상** "Write missing receipt"를 append → subject/receipt-tamper block이 tamper 경고 없이 사용자에게 도달하고 receipt regenerate/overwrite를 유도(증거 파괴). 이 세션에서 `/mccp:pr` 차단 시 나온 payload가 정확히 그 generic 메시징이었다.
+
+- 수정 = 신규 shared formatter [`receipt/block-format.js`](../../../plugins/mccp/scripts/receipt/block-format.js) (`entryLabel`/`tamperGuidanceLines`/`hasTamper`/`blockDetailLines`) 도입 → **3개 표면(preflight + 2 hook) 통일**. tamper는 어디서나 `TAMPER` 라벨 + "Do NOT regenerate", "Write missing receipt"는 `missing.length > 0`일 때만. hook의 `additionalContext`도 tamper 시 INTEGRITY 문구로 분기. hook은 fail-open으로 optional require(로드 실패 시 generic fallback).
+
+### F1 [HIGH→실질 MED] — new-path-to-old-blob 미스캔 (CONFIRMED, per-path 보증 완전화)
+
+`byOid`가 `git rev-list --objects base..HEAD`(base 도달 객체 제외)로만 seed되어, branch가 **base에 이미 존재하는 leaking blob**(예: allowlisted fixture)과 동일 콘텐츠를 non-allowlisted 새 경로에 추가하면 그 blob이 `byOid`에 없어 새 경로가 미스캔 → `ok` 오보고. 정보-노출 위협 모델로는 콘텐츠가 이미 base에 public이라 LOW지만, per-path allowlist **보증 완전성** 관점에서 fair. 운영자 철학(품질>비용, security backstop)상 완전화 채택.
+
+- 수정 = `history-leak-scan.js`에 changed-path 증강 추가: `git diff --raw --full-index --no-renames base..HEAD`로 push가 바꾸는 각 경로의 **HEAD blob**을 fold-in(blob이 base보다 오래됐어도). deletion(all-zero dest oid)은 skip. allowlist는 여전히 per-path 판정 → Codex repro(base fixture blob을 non-allowlist sibling에 복사) 이제 보고. diff 실패는 fail-closed. R4/F2 mock은 `diff --raw`→'' 추가로 무손상.
+
+### 흡수 검증
+
+| Test | 결과 |
+|---|---|
+| `receipt/tests/block-format.test.js` (신규 8) | Pass 8/8 — 라벨·tamper 가이드·조건부 detail |
+| `hooks/tests/receipt-prompt-tamper.test.js` (신규 3) | Pass — receipt/subject-tamper → TAMPER + Do NOT regenerate + no "Write missing" · missing은 여전히 write-hint |
+| `receipt/tests/preflight.test.js` (+1 subject-tamper) | Pass — refactor 무손상 + subject_hash 가이드 |
+| `lib/tests/history-leak-scan.test.js` (+1 F1) | Pass — base allowlisted blob의 non-allowlist 새 경로 leak 보고, all-allowlisted regression-0 유지 |
+| hooks informational/skill 회귀 | Pass 무손상 |
+
+신규 파일: `receipt/block-format.js`. 수정: `preflight.js`(shared formatter 배선)·`receipt-prompt.js`·`receipt-skill.js`(tamper-aware block)·`history-leak-scan.js`(changed-path 증강). 버전은 1.22.6 유지(미머지 M2 마일스톤에 리뷰 흡수).
+
 ## Next Steps
 
-- [ ] `/mccp:pr` — 별도 처리 (advisory receipt → PR-Codex 별도 발화, dual-review 보존). 운영자가 Codex 복구 후 또는 M1 #110 선례대로 진행.
+- [ ] `/mccp:pr` #113 — Codex가 이번엔 실제 divergent를 냈으므로, 흡수 후 재리뷰로 수렴 확인 → non-advisory 봉인. (PR #113 본문은 재리뷰 결과로 갱신 필요.)
 - [ ] M3 — terminal `/mccp:pr` non-approving mechanical hard-stop 재설계 (별도 milestone).

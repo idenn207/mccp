@@ -20,6 +20,12 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 ### Note
 - Task 3(`parseReviewPayload`)은 **코드 변경 없음** — 현 `.stdout`→`.result.verdict` 파서가 실-producer 응답을 정상 파싱함을 실측·회귀 fixture로 봉인(verify-and-close, "통과했다≠검사했다" drift 방지). backlog 3행(2026-07-08 subject_hash · 2026-07-22 parseReviewPayload · 2026-07-23 R5-F3) ABSORBED 표식(row 보존).
 
+### Fixed (Codex divergent absorption, 2026-07-25 — PR #113)
+Codex quota 회복 후 M2 diff에 실제 adversarial-review 재실행 → verdict `needs-attention`(divergent) 2건. 로컬 code-review(Claude leg)가 놓친 것을 cross-model이 잡음. 운영자 결정 = 둘 다 수정.
+- **F2 [MEDIUM]** — tamper 메시징이 `preflight.js`(CLI)에만 있고 실제 슬래시-명령 enforcement 표면인 `receipt-prompt.js`(UserPromptExpansion)·`receipt-skill.js`(Skill)는 여전히 generic `INVALID` + 항상 "Write missing receipt"를 출력(tamper receipt regenerate/overwrite 유도 = 증거 파괴). 신규 shared formatter [`receipt/block-format.js`](plugins/mccp/scripts/receipt/block-format.js)(`entryLabel`/`tamperGuidanceLines`/`hasTamper`/`blockDetailLines`)로 **3개 표면 통일** — 어디서나 `TAMPER` 라벨 + "Do NOT regenerate", "Write missing receipt"는 `missing.length>0`일 때만. hook `additionalContext`도 tamper 시 INTEGRITY 분기. hook은 fail-open optional require.
+- **F1 [HIGH→실질 MED]** — `history-leak-scan.js`의 `byOid`가 `rev-list --objects base..HEAD`(base 도달 객체 제외)로만 seed되어, base에 이미 존재하는 leaking blob과 동일 콘텐츠를 non-allowlisted 새 경로에 추가하면 미스캔 → `ok` 오보고. `git diff --raw --full-index --no-renames base..HEAD`로 push가 바꾸는 각 경로의 HEAD blob을 fold-in(blob이 base보다 오래됐어도) → per-path allowlist 보증 완전화. deletion skip, diff 실패 fail-closed.
+- Tests: `receipt/tests/block-format.test.js`(신규 8) · `hooks/tests/receipt-prompt-tamper.test.js`(신규 3) · `preflight.test.js`(+1 subject-tamper) · `lib/tests/history-leak-scan.test.js`(+1 F1 base-blob-new-path). 버전은 1.22.6 유지(미머지 M2에 리뷰 흡수).
+
 ## [1.22.5] — 2026-07-24
 
 **무결성 통일 cycle M1 — verdict-SoT + hash 무결성 core** — durable-evidence-substrate(#110)가 ship receipt를 git-tracked 감사 corpus로 승격했으나, completion-ledger 승인 술어가 여전히 `resolution.converged`(always-true, "writer finalized" ≠ "Codex approved")를 1차 게이트로 읽어 **거짓 승인이 durable corpus에 영구 기록되는 상태가 진행 중**이었다. M1은 corpus를 지키는 tightly-coupled 3축(ledger 승인 술어 · stage-guard write-side · audit read-side)을 verdict SoT=`resolution.codex_verdict`, 무결성=`receiptHash` 재계산+schema validate로 통일한다. Implement-Codex는 환경 Codex companion timeout(570s)으로 **advisory** 진행(운영자 승인) — cross-model 적대 검토는 plan-codex `divergent` 봉인 → dedupe fail-closed로 `/mccp:pr`(PR-Codex)에 이연. M2(leak-scan·subject_hash·parser fixture)·M3(terminal gate 재설계)는 별건.

@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: dashboard-data-exploration
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-07-15T15:25:04.371Z
+updated_at: 2026-07-24T07:57:54.159Z
 last_event: stop_loop_pass
 last_event_at: 2026-07-15T15:25:04.371Z
 unsafe_checkpoint: false
@@ -41,4 +41,4 @@ PR 미생성 — PR-Codex R1(4라운드) No ship. fix-task.md에 F1/F2/F3 수정
 - cache 1.22.0 stale — /mccp:pr 본문 하드코딩 경로가 구 blind runner를 가리켜 워크트리 스크립트로 우회 실행 중. 머지 후 claude plugin update로 해소 예상.
 
 ## Last Updated
-2026-07-15T15:25:04.371Z
+2026-07-24T07:57:54.159Z

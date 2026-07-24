@@ -2,6 +2,7 @@
 
 const { listReceipts, readReceipt } = require('./store');
 const { gitRepoRoot } = require('./hash');
+const { isConvergedVerdict } = require('../lib/receipt-convergence');
 
 function status(args, io) {
   const stdout = (io && io.stdout) || process.stdout;
@@ -26,7 +27,8 @@ function status(args, io) {
         decision_id: e.decision_id,
         phase: rec.phase,
         round: rec.round,
-        converged: !!(rec.resolution && rec.resolution.converged),
+        // M1 — codex_verdict-first: never label a divergent/critical ship "converged".
+        converged: isConvergedVerdict(rec.resolution),
         open_questions: ((rec.resolution || {}).open_questions || []).length,
         base_sha: (rec.base_sha || '').slice(0, 8),
         head_sha: (rec.head_sha || '').slice(0, 8),

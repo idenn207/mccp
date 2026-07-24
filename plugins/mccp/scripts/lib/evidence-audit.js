@@ -53,6 +53,8 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { receiptHash } = require('../receipt/hash');
+const { validate: validateReceiptSchema } = require('./../receipt/schema');
 
 // state → CLI exit code. Unknown state → 1 (nonzero, fail-closed): a state the
 // ladder did not produce must never masquerade as a clean exit 0.
@@ -143,6 +145,26 @@ function receiptVerdict(receipt) {
   return res && typeof res.codex_verdict === 'string' ? res.codex_verdict : null;
 }
 
+// Task 3 / R5-F2 — a receipt's DECLARED receipt_hash must be a recomputation of
+// its canonical body AND the body must be schema-valid. A declared-hash string
+// that equals the ledger's stored hash is NECESSARY for a binding but NOT
+// sufficient: an attacker who flips an audited field and leaves the stale hash
+// (which the ledger also stored) would otherwise count as bound. This is the
+// read-side mirror of evidence-stage-guard.validateContent (same receiptHash fn).
+function receiptIntegrityOk(receipt) {
+  if (!receipt || typeof receipt.receipt_hash !== 'string' || receipt.receipt_hash.length === 0) {
+    return false;
+  }
+  let recomputed;
+  try {
+    recomputed = receiptHash(receipt);
+  } catch (_e) {
+    return false;
+  }
+  if (recomputed !== receipt.receipt_hash) return false;
+  return validateReceiptSchema(receipt).ok;
+}
+
 // F2 / Implement-Codex IF1 — TOTAL ledger↔receipt agreement check. Pre-F2 the
 // audit only verified agreement when the LEDGER verdict was 'converged'; a
 // comparable hash-bound pair with an 'advisory'/'skipped' ledger verdict fell
@@ -196,9 +218,14 @@ function audit(opts) {
     // ok === comparable (every pair agrees). A disagreement is E2.
     if (verdictsAgree(entry.verdict, cv)) ok += 1;
     else falsePositive += 1;
-    // binding: entry.receipt_hash must point at the receipt on disk (E4).
+    // binding: entry.receipt_hash must point at the receipt on disk (E4) AND the
+    // receipt body must recompute to that hash + be schema-valid (Task 3 / R5-F2).
+    // A declared-hash match alone is necessary but NOT sufficient — a tampered body
+    // carrying a stale-but-ledger-matching hash must NOT count as bound; the
+    // shortfall (hash_bound < comparable) promotes state to 'inconsistent'.
     if (entry.receipt_hash && receipt.receipt_hash
-        && entry.receipt_hash === receipt.receipt_hash) {
+        && entry.receipt_hash === receipt.receipt_hash
+        && receiptIntegrityOk(receipt)) {
       hashBound += 1;
     }
   }
@@ -275,6 +302,7 @@ module.exports = {
   readRawLedger: readRawLedger,
   readShipReceipts: readShipReceipts,
   receiptVerdict: receiptVerdict,
+  receiptIntegrityOk: receiptIntegrityOk,
   verdictsAgree: verdictsAgree,
   renderHuman: renderHuman,
   exitCodeForState: exitCodeForState,

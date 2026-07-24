@@ -19,6 +19,7 @@
       "dual-review 손상"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:561d50650b61d2fa57c5baf33ba3fd3476af144a217792925f493aa98074ef1a"
+    "receipt_hash": "sha256:561d50650b61d2fa57c5baf33ba3fd3476af144a217792925f493aa98074ef1a",
+    "verdict_provenance": "legacy-unknown"
   }
 }

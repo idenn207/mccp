@@ -23,6 +23,7 @@
       "OQ/위험 메인 복사 버튼 — icon-only(aria-label) vs `복사` 텍스트 라벨 동반. 메인 잡음 최소화(Constraint 4) 위해 icon-only default 제안(드로어 action 은 `복사` 라벨 유지).",
       "plugin.json 1.19.0(PRD 종료 minor) vs 1.18.7(patch) — **결정: 1.18.7 patch**(Codex R1 F2 흡수). §3.7 conservative default + PRD 미완 상태 minor 조기발행 회피. PRD 완전 종료 시 minor 정리는 별도 hot-fix 후보."
     ],
-    "receipt_hash": "sha256:326619c03283931e280fdfb964eb9dfbf6c822101f74729d16ce82849bb3ef50"
+    "receipt_hash": "sha256:326619c03283931e280fdfb964eb9dfbf6c822101f74729d16ce82849bb3ef50",
+    "verdict_provenance": "legacy-unknown"
   }
 }

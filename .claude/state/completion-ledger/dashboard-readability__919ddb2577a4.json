@@ -16,6 +16,7 @@
       "M1이 작아 단독 PR이 과해 보임"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:919ddb2577a45c763751656963b80e835ceefb9c4580664ce49d30a36c6400c4"
+    "receipt_hash": "sha256:919ddb2577a45c763751656963b80e835ceefb9c4580664ce49d30a36c6400c4",
+    "verdict_provenance": "legacy-unknown"
   }
 }

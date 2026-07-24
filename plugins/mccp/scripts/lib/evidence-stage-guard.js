@@ -22,6 +22,10 @@
 //   - not valid JSON                          (corrupt blob — never silently skip)
 //   - missing a string `receipt_hash`         (not a real ship receipt)
 //   - receipt_hash !== receiptHash(parsed)    (tampered or stale evidence)
+//   - schema.validate(parsed) fails           (M1 R5-F1 — malformed receipt body)
+//   - gate_id !== 'mccp-pr-codex'             (M1 R5-F1 — wrong gate, not a ship)
+//   - phase !== 'pr'                          (M1 R5-F1 — wrong phase)
+//   - basename(path) !== decision_id          (M1 R5-F1 — filename/decision mismatch)
 //   - carrying an absolute `meta.cwd`         (drive-letter or POSIX-absolute leak)
 //
 // Read-only: it never writes or stages. The caller (pr.md) resets the index and
@@ -32,6 +36,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { receiptHash } = require('../receipt/hash');
+const { validate: validateReceiptSchema } = require('../receipt/schema');
 
 // An absolute cwd is a leak: Windows drive-letter (`C:\`, `C:/`) or POSIX
 // absolute (`/...`). A redacted receipt is repo-relative ('.', 'sub/dir') or the
@@ -69,6 +74,27 @@ function validateContent(relPath, raw) {
   }
   if (recomputed !== receipt.receipt_hash) {
     return { path: relPath, reason: 'receipt_hash mismatch (tampered/stale): declared ' + receipt.receipt_hash + ' recomputed ' + recomputed };
+  }
+  // M1 Task 2 (R5-F1) — a matching hash proves the bytes are un-tampered, but NOT
+  // that the blob is a well-formed pr-codex ship receipt FOR THIS decision. A
+  // hash-valid receipt for the wrong gate/phase, a schema-invalid body, or a
+  // decision_id that disagrees with its filename would still be published as
+  // durable evidence. Fail-closed on each (same schema.validate validate-cmd uses).
+  const schemaResult = validateReceiptSchema(receipt);
+  if (!schemaResult.ok) {
+    return { path: relPath, reason: 'schema invalid: ' + schemaResult.errors.slice(0, 3).join('; ') };
+  }
+  if (receipt.gate_id !== 'mccp-pr-codex') {
+    return { path: relPath, reason: 'wrong gate_id (durable corpus is ship receipts only): ' + receipt.gate_id };
+  }
+  if (receipt.phase !== 'pr') {
+    return { path: relPath, reason: 'wrong phase (ship receipts are phase="pr"): ' + receipt.phase };
+  }
+  // Filename basename must equal decision_id: a receipt copied under the wrong
+  // slug (or a stray decision_id) breaks the ledger↔corpus join identity.
+  const slug = path.basename(String(relPath)).replace(/\.json$/i, '');
+  if (slug !== receipt.decision_id) {
+    return { path: relPath, reason: 'filename slug "' + slug + '" != decision_id "' + receipt.decision_id + '"' };
   }
   const cwd = receipt.meta && receipt.meta.cwd;
   if (isAbsoluteCwd(cwd)) {

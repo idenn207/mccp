@@ -2,7 +2,24 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.22.5] — 2026-07-24
+
+**무결성 통일 cycle M1 — verdict-SoT + hash 무결성 core** — durable-evidence-substrate(#110)가 ship receipt를 git-tracked 감사 corpus로 승격했으나, completion-ledger 승인 술어가 여전히 `resolution.converged`(always-true, "writer finalized" ≠ "Codex approved")를 1차 게이트로 읽어 **거짓 승인이 durable corpus에 영구 기록되는 상태가 진행 중**이었다. M1은 corpus를 지키는 tightly-coupled 3축(ledger 승인 술어 · stage-guard write-side · audit read-side)을 verdict SoT=`resolution.codex_verdict`, 무결성=`receiptHash` 재계산+schema validate로 통일한다. Implement-Codex는 환경 Codex companion timeout(570s)으로 **advisory** 진행(운영자 승인) — cross-model 적대 검토는 plan-codex `divergent` 봉인 → dedupe fail-closed로 `/mccp:pr`(PR-Codex)에 이연. M2(leak-scan·subject_hash·parser fixture)·M3(terminal gate 재설계)는 별건.
+
+### Added
+- `plugins/mccp/scripts/lib/receipt-convergence.js` — codex_verdict-first 수렴 read 헬퍼(`isConvergedVerdict`/`isDivergentVerdict`). `codex_verdict ∈ {divergent, critical}`이면 `resolution.converged`가 true여도 **절대 converged 아님**. `resolution.converged`를 직접 읽던 모든 소비처(semantic + display)가 이 한 곳으로 통일.
+- `plugins/mccp/scripts/migrations/v1.22.5-ledger-verdict-repair.js` — 기존 ledger 엔트리를 ship receipt와 대조 재판정해 `verdict_provenance`(`codex-verdict`/`legacy-unknown`/`superseded`)를 stamp. idempotent · `--dry-run` · **cardinality-invariant(never drop)** · in-place body edit(receipt_hash·파일명 불변, no-rehash §3.12). 실측: 28 엔트리 → 9 codex-verdict + 19 legacy-unknown + 0 superseded, 28→28 불변.
+- 테스트 4종 — `migrations/tests/v1.22.5-ledger-verdict-repair.test.js`(분류 오라클·cardinality·idempotency·superseded 보존·no-rehash) · `lib/tests/receipt-convergence.test.js`(헬퍼 + derive projection + escalate 회귀) + 기존 evidence-stage-guard/evidence-audit/completion-ledger 테스트에 신규 케이스 추가.
+
+### Changed
+- `plugins/mccp/scripts/lib/completion-ledger/index.js` — 승인 술어를 **codex_verdict-first**로 교체(Task 1). `resolution.converged`는 신뢰 키에서 은퇴. NEW append = `converged`(∧ actionable≠true)·`skipped`·`unavailable`만; `divergent`/`critical`/absent는 fail-closed skip. **운영자 승인 deviation**(plan의 converged-only 초안 대비): `skipped`(dedupe happy-path)·`unavailable` append 유지 — dedupe는 plan+implement 둘 다 converged일 때만 발화하므로 PR ship이 `skipped`가 되고, 이를 제외하면 가장 잘 리뷰된 결정이 corpus에서 누락된다.
+- `plugins/mccp/scripts/lib/completion-ledger/store.js` — 엔트리 스키마에 `verdict_provenance`(present-only enum) 추가.
+- `plugins/mccp/scripts/lib/evidence-stage-guard.js` — `validateContent`(PURE)가 hash tamper 검증 후 `schema.validate` + `gate_id==='mccp-pr-codex'` + `phase==='pr'` + 파일명 slug↔`decision_id` 일치를 fail-closed 강제(Task 2, R5-F1).
+- `plugins/mccp/scripts/lib/evidence-audit.js` — `hash_bound` 집계가 declared-hash 일치에 더해 `receiptHash` 재계산 + `schema.validate`를 요구(Task 3, R5-F2, Task 2와 대칭). 실측 corpus 불변(hash_bound 9, state incomplete).
+- `plugins/mccp/scripts/derive/sources/receipts.js` · `receipt/status.js` · `derive/sources/worktrees.js` · `lib/escalate-detector.js` — `resolution.converged` 직접 읽기를 codex_verdict-aware로 이전(Task 1b). projection source(receipts.js) 수정으로 decision-state·audit-timeline·snapshot이 자동 상속. 실측: divergent ship 3건이 이제 `converged=false`로 표시.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.22.4 → 1.22.5` + renderer footer(html/markdown) 동기.
 
 ## [1.22.4] — 2026-07-22
 

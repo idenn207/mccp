@@ -18,6 +18,7 @@
       "**R6 (Codex F1 흡수) redirect-only 블록이 dir 미생성으로 실패** — 리터럴 제거해도 `2> \"$MCCP_TMP/x\"`는 부모 dir 없으면 clean worktree에서 깨짐; static 스캔은 통과(false confidence)"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:5022cd2370c6f215e4269a868ee33ff3270d9973939799ce79931d90f429988c"
+    "receipt_hash": "sha256:5022cd2370c6f215e4269a868ee33ff3270d9973939799ce79931d90f429988c",
+    "verdict_provenance": "codex-verdict"
   }
 }

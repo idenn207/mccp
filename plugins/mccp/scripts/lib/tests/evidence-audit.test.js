@@ -7,6 +7,12 @@
 // That is the exact inverse of the E1 defect (absence reported as "no defect").
 // Everything else pins the join contract: ok / false_positive / unverifiable /
 // hash_bound counting and the always-numeric coverage.
+//
+// M1 Task 3 (R5-F2): hash_bound now requires the on-disk receipt to RECOMPUTE to
+// its declared receipt_hash AND be schema-valid — a declared-hash match alone no
+// longer binds. So ship-receipt fixtures are FULL valid receipts (makeSkeleton +
+// real receiptHash), and ledger entries use the 'MATCH' sentinel to reference the
+// receipt's real hash (a literal string is an intentional mismatch).
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -15,17 +21,70 @@ const os = require('os');
 const path = require('path');
 
 const { audit, exitCodeForState } = require('../evidence-audit');
+const { receiptHash } = require('../../receipt/hash');
+const { makeSkeleton } = require('../../receipt/schema');
 
-// Build a temp repo tree with raw ledger entries + ship receipts.
-//   ledger:   [{ decision_id, verdict, receipt_hash }]
-//   receipts: [{ decision_id, receipt_hash, codex_verdict }]
+// buildReceipt(r) → a full, schema-valid ship receipt with a REAL receipt_hash.
+//   r.codex_verdict          resolution.codex_verdict (omit → absent)
+//   r.tamperBody             flip a benign body field AFTER hashing → declared
+//                            hash goes stale (recompute fails) but verdict is
+//                            unchanged (isolates the hash_bound axis from verdict)
+//   r.schemaInvalidConsistent set round out of range THEN hash → declared ===
+//                            recompute, but schema.validate fails (isolates the
+//                            schema gate from the recompute gate)
+function buildReceipt(r) {
+  const receipt = makeSkeleton({});
+  receipt.gate_id = 'mccp-pr-codex';
+  receipt.phase = 'pr';
+  receipt.decision_id = r.decision_id;
+  receipt.plan_hash = 'sha256:' + 'a'.repeat(64);
+  receipt.base_sha = 'a'.repeat(40);
+  receipt.head_sha = 'b'.repeat(40);
+  receipt.subject_hash = 'sha256:' + 'c'.repeat(64);
+  receipt.resolution.converged = true;
+  if (r.codex_verdict !== undefined) receipt.resolution.codex_verdict = r.codex_verdict;
+  receipt.meta.command = '/mccp:pr';
+  receipt.meta.cwd = '.';
+  if (r.schemaInvalidConsistent) {
+    receipt.round = 99; // out of [1,10] — schema invalid, but hashed as-is below
+    receipt.receipt_hash = receiptHash(receipt); // declared === recompute
+  } else {
+    receipt.receipt_hash = receiptHash(receipt); // clean, consistent
+    if (r.tamperBody) {
+      // Mutate a benign, still-schema-valid field AFTER hashing. codex_verdict is
+      // untouched (verdictsAgree stays true), but the declared hash is now stale.
+      receipt.meta.git_branch = 'tampered-after-hash';
+    }
+  }
+  return receipt;
+}
+
+// Build a temp repo tree with raw ledger entries + FULL ship receipts.
+//   ledger:   [{ decision_id, verdict, receipt_hash: 'MATCH' | <literal> }]
+//   receipts: [{ decision_id, codex_verdict?, tamperBody?, schemaInvalidConsistent? }]
 //   rawFiles: optional [{ dir:'ledger'|'receipts', name, content }] for corruption
 function mkTree(spec) {
   spec = spec || {};
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'evaudit-test-'));
   const ledgerDir = path.join(root, '.claude', 'state', 'completion-ledger');
   fs.mkdirSync(ledgerDir, { recursive: true });
+
+  // Build receipts first so ledger entries can reference their real hashes.
+  const realHashByDecision = {};
+  if (spec.receipts) {
+    const rDir = path.join(root, '.claude', 'receipts', 'mccp-pr-codex');
+    fs.mkdirSync(rDir, { recursive: true });
+    spec.receipts.forEach(function (r, i) {
+      const receipt = buildReceipt(r);
+      realHashByDecision[r.decision_id] = receipt.receipt_hash;
+      const file = path.join(rDir, (r.decision_id || 'x') + '_' + i + '.json');
+      fs.writeFileSync(file, JSON.stringify(receipt));
+    });
+  }
+
   (spec.ledger || []).forEach(function (e, i) {
+    let rh = e.receipt_hash;
+    if (rh === 'MATCH') rh = realHashByDecision[e.decision_id] || 'sha256:no-such-receipt';
     const file = path.join(ledgerDir, (e.decision_id || 'x') + '__' + i + '.json');
     fs.writeFileSync(file, JSON.stringify({
       schema_version: 'v1',
@@ -33,22 +92,11 @@ function mkTree(spec) {
         decision_id: e.decision_id,
         gate: 'mccp-pr-codex',
         verdict: e.verdict,
-        receipt_hash: e.receipt_hash || null,
+        receipt_hash: rh || null,
       },
     }));
   });
-  if (spec.receipts) {
-    const rDir = path.join(root, '.claude', 'receipts', 'mccp-pr-codex');
-    fs.mkdirSync(rDir, { recursive: true });
-    spec.receipts.forEach(function (r, i) {
-      const file = path.join(rDir, (r.decision_id || 'x') + '_' + i + '.json');
-      fs.writeFileSync(file, JSON.stringify({
-        decision_id: r.decision_id,
-        receipt_hash: r.receipt_hash || null,
-        resolution: { converged: true, codex_verdict: r.codex_verdict },
-      }));
-    });
-  }
+
   (spec.rawFiles || []).forEach(function (rf) {
     const dir = rf.dir === 'receipts'
       ? path.join(root, '.claude', 'receipts', 'mccp-pr-codex')
@@ -86,8 +134,8 @@ test('blind: ledger entries present but zero receipts → still blind', function
 
 test('ok: converged ledger + matching converged receipt', function () {
   const root = mkTree({
-    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'sha256:aa' }],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'converged' }],
+    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'MATCH' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'converged' }],
   });
   const r = audit({ repoRoot: root });
   assert.equal(r.state, 'ok');
@@ -100,25 +148,23 @@ test('ok: converged ledger + matching converged receipt', function () {
 
 test('false_positive: ledger says converged, receipt says divergent → inconsistent (F2)', function () {
   const root = mkTree({
-    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'sha256:aa' }],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'divergent' }],
+    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'MATCH' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'divergent' }],
   });
   const r = audit({ repoRoot: root });
-  // F2: a comparable pair that disagrees on verdict is a real integrity violation
-  // (E2) — the audit MUST NOT exit 0 on it. Pre-F2 this returned state='ok'.
   assert.equal(r.state, 'inconsistent');
   assert.equal(exitCodeForState(r.state), 3);
   assert.notEqual(exitCodeForState(r.state), 0);
   assert.equal(r.comparable, 1);
   assert.equal(r.ok, 0);
   assert.equal(r.false_positive, 1);
-  assert.equal(r.hash_bound, 1);
+  assert.equal(r.hash_bound, 1); // hash binds (real receipt), the VERDICT disagrees
 });
 
 test('false_positive: ledger converged, receipt skipped (E2 second case)', function () {
   const root = mkTree({
-    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'sha256:aa' }],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'skipped' }],
+    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'MATCH' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'skipped' }],
   });
   const r = audit({ repoRoot: root });
   assert.equal(r.false_positive, 1);
@@ -128,10 +174,10 @@ test('false_positive: ledger converged, receipt skipped (E2 second case)', funct
 test('unverifiable: ledger entry with no matching receipt', function () {
   const root = mkTree({
     ledger: [
-      { decision_id: 'a', verdict: 'converged', receipt_hash: 'sha256:aa' },
+      { decision_id: 'a', verdict: 'converged', receipt_hash: 'MATCH' },
       { decision_id: 'gone', verdict: 'converged', receipt_hash: 'sha256:zz' },
     ],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'converged' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'converged' }],
   });
   const r = audit({ repoRoot: root });
   assert.equal(r.comparable, 1);
@@ -139,18 +185,49 @@ test('unverifiable: ledger entry with no matching receipt', function () {
   assert.equal(r.ok, 1);
 });
 
-test('hash_bound: mismatched receipt_hash is comparable but NOT bound → inconsistent (F2)', function () {
+test('hash_bound: declared receipt_hash mismatch is comparable but NOT bound → inconsistent (F2)', function () {
   const root = mkTree({
-    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'sha256:OLD' }],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:NEW', codex_verdict: 'converged' }],
+    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'sha256:' + 'd'.repeat(64) }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'converged' }],
   });
   const r = audit({ repoRoot: root });
   assert.equal(r.comparable, 1);
   assert.equal(r.ok, 1);       // verdict still agrees
-  assert.equal(r.hash_bound, 0); // but the binding is broken (E4 audit chain snap)
-  // F2: hash_bound < comparable is an integrity violation even when verdicts agree.
+  assert.equal(r.hash_bound, 0); // but the declared binding is broken (E4)
   assert.equal(r.state, 'inconsistent');
   assert.equal(exitCodeForState(r.state), 3);
+});
+
+// ── M1 Task 3 (R5-F2): a declared-hash match is necessary but NOT sufficient ──
+
+test('Task3: body tampered after hashing (verdict still agrees) → NOT bound → inconsistent', function () {
+  const root = mkTree({
+    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'MATCH' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'converged', tamperBody: true }],
+  });
+  const r = audit({ repoRoot: root });
+  // The ledger's stored hash EQUALS the receipt's declared (stale) hash, and the
+  // verdicts agree — pre-Task3 this counted as bound + ok. The recompute now fails.
+  assert.equal(r.comparable, 1);
+  assert.equal(r.ok, 1);          // verdicts agree (codex_verdict untouched)
+  assert.equal(r.false_positive, 0);
+  assert.equal(r.hash_bound, 0);  // recompute != declared → not bound
+  assert.equal(r.state, 'inconsistent');
+  assert.equal(exitCodeForState(r.state), 3);
+});
+
+test('Task3: schema-invalid receipt (declared hash consistent) → NOT bound → inconsistent', function () {
+  const root = mkTree({
+    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'MATCH' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'converged', schemaInvalidConsistent: true }],
+  });
+  const r = audit({ repoRoot: root });
+  // declared === recompute (both of the round=99 body), so ONLY schema.validate
+  // can reject it — proving the schema gate is load-bearing for hash_bound.
+  assert.equal(r.comparable, 1);
+  assert.equal(r.ok, 1);          // verdicts agree
+  assert.equal(r.hash_bound, 0);  // schema invalid → not integrity-ok → not bound
+  assert.equal(r.state, 'inconsistent');
 });
 
 test('raw files, no dedup: N ledger entries for one decision count N times', function () {
@@ -171,8 +248,8 @@ test('raw files, no dedup: N ledger entries for one decision count N times', fun
 
 test('degraded: an unparseable receipt file surfaces, does not crash', function () {
   const root = mkTree({
-    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'sha256:aa' }],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'converged' }],
+    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'MATCH' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'converged' }],
     rawFiles: [{ dir: 'receipts', name: 'broken.json', content: '{ not json' }],
   });
   const r = audit({ repoRoot: root });
@@ -184,8 +261,8 @@ test('degraded: an unparseable receipt file surfaces, does not crash', function 
 
 test('coverage is always a number (contract field)', function () {
   for (const spec of [{ ledger: [] }, {
-    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'sha256:aa' }],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'converged' }],
+    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'MATCH' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'converged' }],
   }]) {
     const r = audit({ repoRoot: mkTree(spec) });
     assert.equal(typeof r.coverage, 'number');
@@ -194,16 +271,14 @@ test('coverage is always a number (contract field)', function () {
 });
 
 // ── F2 (durable-evidence-substrate follow-up): graduated states + nonzero exits ──
-// The single fixation: the audit must NOT exit 0 on the inconsistencies it exists
-// to expose. Each state asserts FAIL (nonzero exit-code oracle), not just counters.
 
 test('incomplete: unverifiable>0 with zero false_positive → incomplete, nonzero exit (F2)', function () {
   const root = mkTree({
     ledger: [
-      { decision_id: 'a', verdict: 'converged', receipt_hash: 'sha256:aa' },
+      { decision_id: 'a', verdict: 'converged', receipt_hash: 'MATCH' },
       { decision_id: 'gone', verdict: 'converged', receipt_hash: 'sha256:zz' },
     ],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'converged' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'converged' }],
   });
   const r = audit({ repoRoot: root });
   assert.equal(r.comparable, 1);
@@ -217,10 +292,10 @@ test('incomplete: unverifiable>0 with zero false_positive → incomplete, nonzer
 test('precedence: false_positive>0 AND unverifiable>0 → inconsistent wins (most-severe) (F2)', function () {
   const root = mkTree({
     ledger: [
-      { decision_id: 'a', verdict: 'converged', receipt_hash: 'sha256:aa' }, // false_positive
+      { decision_id: 'a', verdict: 'converged', receipt_hash: 'MATCH' }, // false_positive
       { decision_id: 'gone', verdict: 'converged', receipt_hash: 'sha256:zz' }, // unverifiable
     ],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'divergent' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'divergent' }],
   });
   const r = audit({ repoRoot: root });
   assert.equal(r.false_positive, 1);
@@ -232,12 +307,12 @@ test('precedence: false_positive>0 AND unverifiable>0 → inconsistent wins (mos
 test('regression: a fully-clean bound corpus still → ok / exit 0 (no false alarm) (F2)', function () {
   const root = mkTree({
     ledger: [
-      { decision_id: 'a', verdict: 'converged', receipt_hash: 'sha256:aa' },
-      { decision_id: 'b', verdict: 'converged', receipt_hash: 'sha256:bb' },
+      { decision_id: 'a', verdict: 'converged', receipt_hash: 'MATCH' },
+      { decision_id: 'b', verdict: 'converged', receipt_hash: 'MATCH' },
     ],
     receipts: [
-      { decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'converged' },
-      { decision_id: 'b', receipt_hash: 'sha256:bb', codex_verdict: 'converged' },
+      { decision_id: 'a', codex_verdict: 'converged' },
+      { decision_id: 'b', codex_verdict: 'converged' },
     ],
   });
   const r = audit({ repoRoot: root });
@@ -250,12 +325,11 @@ test('regression: a fully-clean bound corpus still → ok / exit 0 (no false ala
 
 test('parse-degraded outranked by integrity: inconsistent + a stray parse failure → inconsistent (F2)', function () {
   const root = mkTree({
-    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'sha256:aa' }],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'divergent' }],
+    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'MATCH' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'divergent' }],
     rawFiles: [{ dir: 'receipts', name: 'broken.json', content: '{ not json' }],
   });
   const r = audit({ repoRoot: root });
-  // parse_failures>0 makes the degraded boolean true, but integrity outranks it.
   assert.equal(r.degraded, true);
   assert.equal(r.state, 'inconsistent');
   assert.equal(exitCodeForState(r.state), 3);
@@ -271,13 +345,12 @@ test('exit-code oracle: state→code map is total and unknown fails closed (F2)'
 });
 
 // ── Implement-Codex IF1: TOTAL agreement — a non-'converged' ledger verdict is
-// no longer a silent pass. A stale/tampered ledger that moves OUT of 'converged'
-// must not hide a disagreement behind exit 0.
+// no longer a silent pass. ──
 
 test('IF1: advisory ledger + converged receipt (mismatch) → inconsistent, nonzero', function () {
   const root = mkTree({
-    ledger: [{ decision_id: 'a', verdict: 'advisory', receipt_hash: 'sha256:aa' }],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'converged' }],
+    ledger: [{ decision_id: 'a', verdict: 'advisory', receipt_hash: 'MATCH' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'converged' }],
   });
   const r = audit({ repoRoot: root });
   assert.equal(r.comparable, 1);
@@ -289,8 +362,8 @@ test('IF1: advisory ledger + converged receipt (mismatch) → inconsistent, nonz
 
 test('IF1: skipped ledger + converged receipt (mismatch) → inconsistent, nonzero', function () {
   const root = mkTree({
-    ledger: [{ decision_id: 'a', verdict: 'skipped', receipt_hash: 'sha256:aa' }],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'converged' }],
+    ledger: [{ decision_id: 'a', verdict: 'skipped', receipt_hash: 'MATCH' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'converged' }],
   });
   const r = audit({ repoRoot: root });
   assert.equal(r.false_positive, 1);
@@ -300,8 +373,8 @@ test('IF1: skipped ledger + converged receipt (mismatch) → inconsistent, nonze
 
 test('IF1: advisory ledger + unavailable receipt (agree) → ok / exit 0', function () {
   const root = mkTree({
-    ledger: [{ decision_id: 'a', verdict: 'advisory', receipt_hash: 'sha256:aa' }],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'unavailable' }],
+    ledger: [{ decision_id: 'a', verdict: 'advisory', receipt_hash: 'MATCH' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'unavailable' }],
   });
   const r = audit({ repoRoot: root });
   assert.equal(r.ok, 1);
@@ -312,8 +385,8 @@ test('IF1: advisory ledger + unavailable receipt (agree) → ok / exit 0', funct
 
 test('IF1: skipped ledger + skipped receipt (agree) → ok / exit 0', function () {
   const root = mkTree({
-    ledger: [{ decision_id: 'a', verdict: 'skipped', receipt_hash: 'sha256:aa' }],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa', codex_verdict: 'skipped' }],
+    ledger: [{ decision_id: 'a', verdict: 'skipped', receipt_hash: 'MATCH' }],
+    receipts: [{ decision_id: 'a', codex_verdict: 'skipped' }],
   });
   const r = audit({ repoRoot: root });
   assert.equal(r.ok, 1);
@@ -323,8 +396,8 @@ test('IF1: skipped ledger + skipped receipt (agree) → ok / exit 0', function (
 
 test('IF1: converged ledger + receipt with NO codex_verdict (null) → inconsistent', function () {
   const root = mkTree({
-    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'sha256:aa' }],
-    receipts: [{ decision_id: 'a', receipt_hash: 'sha256:aa' }], // codex_verdict undefined
+    ledger: [{ decision_id: 'a', verdict: 'converged', receipt_hash: 'MATCH' }],
+    receipts: [{ decision_id: 'a' }], // codex_verdict absent
   });
   const r = audit({ repoRoot: root });
   assert.equal(r.false_positive, 1); // null corroborates nothing

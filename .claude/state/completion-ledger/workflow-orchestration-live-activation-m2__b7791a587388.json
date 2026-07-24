@@ -18,6 +18,7 @@
       "footer/version drift(§3.7 상습 누락)"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:b7791a587388aff56bb24f07e74d84c39e9c8933f0568557a3e6e221f87ea000"
+    "receipt_hash": "sha256:b7791a587388aff56bb24f07e74d84c39e9c8933f0568557a3e6e221f87ea000",
+    "verdict_provenance": "codex-verdict"
   }
 }

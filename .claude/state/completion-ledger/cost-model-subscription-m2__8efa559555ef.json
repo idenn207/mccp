@@ -20,6 +20,7 @@
       "**Codex F3** — fresh-but-lower harness가 최신 spike의 hard_ceiling/경고를 억제(under-protection)"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:8efa559555ef946f7ff7453af822696f9c5e0268b22ce89651850346541063b5"
+    "receipt_hash": "sha256:8efa559555ef946f7ff7453af822696f9c5e0268b22ce89651850346541063b5",
+    "verdict_provenance": "codex-verdict"
   }
 }

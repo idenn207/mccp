@@ -20,6 +20,7 @@
       "command 버전 경로 하드코딩 skew"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:067bf6e7f5fb776a827a4af1ee60b19f799f152ae1b1d6488ff2eea47602225c"
+    "receipt_hash": "sha256:067bf6e7f5fb776a827a4af1ee60b19f799f152ae1b1d6488ff2eea47602225c",
+    "verdict_provenance": "codex-verdict"
   }
 }

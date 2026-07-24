@@ -21,6 +21,7 @@
       "PRD① ledger와 중복 표시"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:6ab0ff55333badc3890f5a64cfa4071ff96fe8b1e51186c1863f9fc42253bc9b"
+    "receipt_hash": "sha256:6ab0ff55333badc3890f5a64cfa4071ff96fe8b1e51186c1863f9fc42253bc9b",
+    "verdict_provenance": "legacy-unknown"
   }
 }

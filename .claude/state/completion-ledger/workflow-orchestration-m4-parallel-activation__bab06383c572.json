@@ -18,6 +18,7 @@
       "correlation runtime 실패 시 parent 오염"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:bab06383c572226c26187a6aea43fa70081884e3bb8a0702ea5a8ebfb42b22e0"
+    "receipt_hash": "sha256:bab06383c572226c26187a6aea43fa70081884e3bb8a0702ea5a8ebfb42b22e0",
+    "verdict_provenance": "codex-verdict"
   }
 }

@@ -21,6 +21,7 @@
       "M3 비대화(worktree-merge + verify 동시)"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:adaafb254f6a3aac93abe98eca50c818a9d3a9ca6bd6abf2f5b36c97977c8deb"
+    "receipt_hash": "sha256:adaafb254f6a3aac93abe98eca50c818a9d3a9ca6bd6abf2f5b36c97977c8deb",
+    "verdict_provenance": "legacy-unknown"
   }
 }

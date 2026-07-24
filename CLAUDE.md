@@ -590,6 +590,8 @@ ship receipt(`mccp-pr-codex`)는 **감사 대조 corpus**다 — worktree 삭제
 
 추적 corpus에는 오도성 필드 `resolution.converged`가 함께 실린다(divergent ship인데 이 필드는 `true`). v1.20.3이 dedupe 축에서 이미 내린 판정처럼, **완료/승인 판정의 키는 `resolution.codex_verdict`**(enum `converged|divergent|critical|unavailable|skipped`)여야 한다. 추적이 옳은 이유는 바로 옆 `codex_verdict`가 불일치를 증명 가능하게 만들기 때문이다(E1 감사를 성립시키는 성질). 소비처(ledger backfill·derive·renderer)는 `resolution.converged`를 완료 신호로 삼지 마라.
 
+> **v1.22.5 무결성 통일 M1 — 위 지침의 mechanical 강제**: (1) `completion-ledger/index.js` 승인 술어가 codex_verdict-first로 교체됨 — `resolution.converged`는 신뢰 키에서 은퇴하고 NEW append는 `codex_verdict ∈ {converged(∧ actionable≠true)·skipped·unavailable}`만, `divergent`/`critical`/absent는 fail-closed skip(운영자 승인: `skipped`=dedupe happy-path·`unavailable` 유지). (2) `resolution.converged`를 직접 읽던 전 소비처(status·worktrees·escalate-detector·derive projection)가 [receipt-convergence.js](plugins/mccp/scripts/lib/receipt-convergence.js) `isConvergedVerdict`/`isDivergentVerdict` 한 곳으로 통일 — `divergent`/`critical` ship은 `converged`가 true여도 절대 converged로 렌더/판정되지 않음. (3) 기존 ledger 엔트리는 `v1.22.5-ledger-verdict-repair.js`가 `verdict_provenance`(`codex-verdict`/`legacy-unknown`/`superseded`)로 재판정·**보존+표식**(drop 금지, cardinality 불변, no-rehash). (4) 무결성 검증이 write-side(`evidence-stage-guard`: schema+gate+phase+slug)와 read-side(`evidence-audit`: `hash_bound`에 `receiptHash` 재계산+schema)에서 같은 `receiptHash` 함수로 대칭화. M2(leak-scan·subject_hash·parser fixture)·M3(terminal `/mccp:pr` non-approving mechanical hard-stop 재설계)는 별건.
+
 #### merge-commit 정책
 
 ship squash 시 PR merge 방식은 **merge commit**(GitHub 설정 적용 완료)이다 — squash가 개별 커밋 SHA를 소급 재작성해 evidence-commit이 참조하는 SHA 도달성을 깨는 것을 피하기 위함. 과거 squash 커밋의 SHA 복구는 원리상 불가능이므로(Out of Scope), 앞으로의 ship은 merge-commit으로 SHA를 보존한다.

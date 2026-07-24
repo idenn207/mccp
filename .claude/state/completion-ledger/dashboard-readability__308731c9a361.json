@@ -18,6 +18,7 @@
       "평탄 active 리스트가 길어져 그룹이 주던 시각적 청킹 상실(Design Critique F-DC2, LOW)"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:308731c9a361444b1abe845ba6228b06d6e6e2ef2472df883cbfde101a6d2c12"
+    "receipt_hash": "sha256:308731c9a361444b1abe845ba6228b06d6e6e2ef2472df883cbfde101a6d2c12",
+    "verdict_provenance": "legacy-unknown"
   }
 }

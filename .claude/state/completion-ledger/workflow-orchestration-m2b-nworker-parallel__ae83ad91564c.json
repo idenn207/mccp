@@ -20,6 +20,7 @@
       "verify 네이티브화 미완으로 M2 목표 부분"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:ae83ad91564c4399e92b5cbe8a5fb138202cb32594abea21813c4371fc04bf5f"
+    "receipt_hash": "sha256:ae83ad91564c4399e92b5cbe8a5fb138202cb32594abea21813c4371fc04bf5f",
+    "verdict_provenance": "legacy-unknown"
   }
 }

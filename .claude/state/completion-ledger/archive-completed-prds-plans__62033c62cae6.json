@@ -13,6 +13,7 @@
     "oq_closed": [
       "아카이브된 마일스톤의 렌더 시각이 ship 시점이 아니라 아카이브-이동 커밋의"
     ],
-    "receipt_hash": "sha256:62033c62cae6e5aab60dfa053ef65be1e78c424d002a93e2d6861f2e903f9a48"
+    "receipt_hash": "sha256:62033c62cae6e5aab60dfa053ef65be1e78c424d002a93e2d6861f2e903f9a48",
+    "verdict_provenance": "codex-verdict"
   }
 }

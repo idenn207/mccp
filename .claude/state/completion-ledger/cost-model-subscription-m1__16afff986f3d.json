@@ -18,6 +18,7 @@
       "tool_count 임계 미정 → 대체 축 약함"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:16afff986f3df6bd656a4df02ad10eebc76257ff6630a8e451eff51017cdafce"
+    "receipt_hash": "sha256:16afff986f3df6bd656a4df02ad10eebc76257ff6630a8e451eff51017cdafce",
+    "verdict_provenance": "codex-verdict"
   }
 }

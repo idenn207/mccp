@@ -19,6 +19,7 @@
       "command-body md 블록은 unit-test 불가 → 로그/default 오타 잠복"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:7ff35eaf18a54cc8e867c455d17a0a26e7c26a702062608f543ec68e02c6742f"
+    "receipt_hash": "sha256:7ff35eaf18a54cc8e867c455d17a0a26e7c26a702062608f543ec68e02c6742f",
+    "verdict_provenance": "codex-verdict"
   }
 }

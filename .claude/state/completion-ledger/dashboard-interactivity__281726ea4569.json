@@ -25,6 +25,7 @@
       "**상한** = `OVERVIEW_CAP = 3` worktree 표시(Output Constraint 4 \"top 3 expanded\" anchor 정합 — Critique F3 흡수). 초과 시 foot affordance \"활동 · 기록에서 +N개 더 보기\"(`#route-activity` 링크, pin-alert affordance 미러). canonical 전체 목록은 활동 route 멀티세션 표 = loud-on-demand(개요에 `<details>` 중복 회피). silent cap 금지 — total/shown을 projection에 보존하고 foot에 명시.",
       "**개요 패널 visibility = 멀티세션 *표* visibility와 분리**(Codex F2, MEDIUM, ACCEPT_NOW 흡수). 원안은 overview를 `multiSession` present에 gating했으나 `renderMultiSession`은 `count===1 && healthy`에서 null 반환 → **단일 worktree(가장 흔한 케이스)의 active 마일스톤이 개요에 안 뜨는** 결함. 해소: `renderMultiSession`이 scanned 시 **모든** item에 대해 projection(+detail)을 *표 early-return 앞에서* 1회 계산하고, healthy-single이어도 eligible overview item이 있으면 `{ overview, details }`(표 md/html 없음)를 반환. 표 자체는 기존대로 healthy-single에서 hidden(md/html 미생성). html.js/markdown.js는 멀티세션 *표 패널*을 `multiSession.html`/`multiSession.md` 존재로 gating(`!!multiSession` 아님), 개요는 `multiSession.overview`를 독립 소비. scan off / eligible 0 → `null`(완전 부재)."
     ],
-    "receipt_hash": "sha256:281726ea45695d070de16512fc0390f4a426ce883449f6cbe94447e9ffa7d108"
+    "receipt_hash": "sha256:281726ea45695d070de16512fc0390f4a426ce883449f6cbe94447e9ffa7d108",
+    "verdict_provenance": "legacy-unknown"
   }
 }

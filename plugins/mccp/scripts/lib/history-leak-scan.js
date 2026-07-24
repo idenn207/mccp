@@ -164,14 +164,45 @@ function scanRange(opts) {
     const arr = byOid.get(oid);
     if (arr.indexOf(p) === -1) arr.push(p);
   }
-  // Augment with the FULL path set. rev-list gave only the representative path;
-  // `git ls-tree -r <commit>` lists every (oid, path) in a tree (empirically a
-  // dup-content blob appears once per path). Walk each range commit's tree and
-  // append additional paths for oids we already know are NEW (present in byOid
-  // from rev-list). A ls-tree failure is fail-CLOSED (mirrors the cat-file
-  // scan-error contract): a security backstop must never pass an unenumerated
-  // range. Test gitFn stubs that emit no bare-commit line leave `commits` empty,
-  // so this walk is skipped and byOid keeps the rev-list representative paths.
+  // F1 (M2 follow-up, Codex R2) — base tree (oid+path) set. `rev-list --objects
+  // base..HEAD` seeds byOid with NEW blobs only, so an OLD (base-reachable) blob
+  // re-referenced at a range-introduced path is invisible there. To tell a
+  // range-introduced disclosure path apart from an unchanged base path during the
+  // ls-tree walk below, we need to know exactly which (oid,path) pairs base already
+  // published. `git ls-tree -r <base>` lists every leaf blob (path→oid) in base.
+  // Build a `oid\0path` membership set; a walk entry whose pair is in base is
+  // unchanged (already public) and skipped, everything else is range-introduced and
+  // scanned. Fail-CLOSED on error (we cannot classify without the base tree).
+  const baseTree = new Set();
+  {
+    let baseRaw;
+    try {
+      baseRaw = gitFn(['ls-tree', '-r', base], repoRoot);
+    } catch (err) {
+      return { ok: false, leaks: [{ path: '(git)', evidence: 'ls-tree -r ' + base + ' (base) failed: ' + String((err && err.message) || 'unknown').slice(0, 160) }], scanned_blobs: 0, base: base, commits: commitCount };
+    }
+    for (const line of baseRaw.split(/\r?\n/)) {
+      if (!line) continue;
+      const tab = line.indexOf('\t');
+      if (tab === -1) continue;
+      const oid = line.slice(0, tab).split(/\s+/)[2];
+      const p = line.slice(tab + 1);
+      if (!oid || !p) continue;
+      baseTree.add(oid + '\0' + p);
+    }
+  }
+  // Walk EVERY range commit's full tree. `git ls-tree -r <commit>` lists every leaf
+  // blob (path→oid) in that commit — so a path introduced in an INTERMEDIATE commit
+  // and deleted before HEAD is still enumerated here (this is what preserves the
+  // ancestor-leak guarantee, F-H). Fold a (oid,path) when the blob is NEW (in byOid
+  // from rev-list) OR it is an OLD blob at a pair base did NOT publish — a range-
+  // introduced disclosure path onto pre-existing content. This closes F1 (Codex
+  // R2): a copy of a base-existing leaking blob to a non-allowlisted path is now
+  // scanned even if a later range commit deletes it before HEAD, because we read the
+  // full tree of EVERY range commit (not just the net base..HEAD diff, which missed
+  // ancestor-only paths). Unchanged base paths (pair in baseTree) are already public
+  // → skipped. A ls-tree failure is fail-CLOSED. Test gitFn stubs that emit no
+  // bare-commit line leave `commits` empty, so this walk is skipped.
   for (const c of commits) {
     let treeRaw;
     try {
@@ -184,48 +215,15 @@ function scanRange(opts) {
       const tab = line.indexOf('\t');
       if (tab === -1) continue;                        // "<mode> <type> <oid>\t<path>"
       const oid = line.slice(0, tab).split(/\s+/)[2];
-      if (!oid || !byOid.has(oid)) continue;           // only NEW objects (from rev-list)
       const p = line.slice(tab + 1);
-      if (!p) continue;
+      if (!oid || !p) continue;
+      // OLD blob at an unchanged base path → already public, skip. Otherwise fold
+      // (NEW blob, or OLD blob at a range-introduced path/content).
+      if (!byOid.has(oid) && baseTree.has(oid + '\0' + p)) continue;
+      if (!byOid.has(oid)) byOid.set(oid, []);
       const arr = byOid.get(oid);
       if (arr.indexOf(p) === -1) arr.push(p);
     }
-  }
-
-  // F1 (M2 follow-up — Codex divergent absorption). The seed above (rev-list
-  // --objects base..HEAD) enumerates only NEW blob OIDs. A branch that adds,
-  // copies, or renames a NON-allowlisted path onto a blob that ALREADY exists in
-  // base (identical content → same OID, which rev-list excludes) would never enter
-  // `byOid`, so that new disclosure path escaped the scan entirely — the allowlist
-  // could then be masked by nothing at all (the blob was simply invisible). Fold
-  // in the blob AT EACH PATH the push changes: `git diff --raw --full-index` emits
-  // one line per changed path with the destination (HEAD) blob OID, even when that
-  // OID predates base. --no-renames so a rename surfaces its new path as an add
-  // (the disclosure surface is the new name). Deletions carry an all-zero dest OID
-  // and are skipped (no HEAD blob to scan). The allowlist is still evaluated
-  // per-path in the scan loop, so Codex's repro — base has the allowlisted fixture
-  // blob, the branch copies it to a non-allowlisted sibling path — now reports the
-  // sibling. A diff failure is fail-CLOSED (mirrors the rev-list/ls-tree contract:
-  // a backstop must never pass an unenumerated range). Test gitFn stubs that return
-  // an empty diff simply add no extra paths, leaving the rev-list seed intact.
-  let rawDiff;
-  try {
-    rawDiff = gitFn(['diff', '--raw', '--full-index', '--no-renames', base + '..HEAD'], repoRoot);
-  } catch (err) {
-    return { ok: false, leaks: [{ path: '(git)', evidence: 'diff --raw failed: ' + String((err && err.message) || 'unknown').slice(0, 160) }], scanned_blobs: 0, base: base, commits: commitCount };
-  }
-  for (const line of rawDiff.split(/\r?\n/)) {
-    if (!line || line[0] !== ':') continue;            // ":<m1> <m2> <oldoid> <newoid> <status>\t<path>"
-    const tab = line.indexOf('\t');
-    if (tab === -1) continue;
-    const meta = line.slice(0, tab).split(/\s+/);
-    const newOid = meta[3];
-    if (!newOid || /^0+$/.test(newOid)) continue;      // deletion → no HEAD blob
-    const p = line.slice(tab + 1);
-    if (!p) continue;
-    if (!byOid.has(newOid)) byOid.set(newOid, []);
-    const arr = byOid.get(newOid);
-    if (arr.indexOf(p) === -1) arr.push(p);
   }
 
   const leaks = [];

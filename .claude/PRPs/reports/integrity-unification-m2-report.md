@@ -85,11 +85,12 @@ Task 1은 "Do NOT regenerate (that destroys the evidence)" 가이드를 `preflig
 
 - 수정 = 신규 shared formatter [`receipt/block-format.js`](../../../plugins/mccp/scripts/receipt/block-format.js) (`entryLabel`/`tamperGuidanceLines`/`hasTamper`/`blockDetailLines`) 도입 → **3개 표면(preflight + 2 hook) 통일**. tamper는 어디서나 `TAMPER` 라벨 + "Do NOT regenerate", "Write missing receipt"는 `missing.length > 0`일 때만. hook의 `additionalContext`도 tamper 시 INTEGRITY 문구로 분기. hook은 fail-open으로 optional require(로드 실패 시 generic fallback).
 
-### F1 [HIGH→실질 MED] — new-path-to-old-blob 미스캔 (CONFIRMED, per-path 보증 완전화)
+### F1 [HIGH→실질 MED] — new-path-to-old-blob 미스캔 (CONFIRMED, per-path 보증 완전화; R1→R2 2회 정련)
 
-`byOid`가 `git rev-list --objects base..HEAD`(base 도달 객체 제외)로만 seed되어, branch가 **base에 이미 존재하는 leaking blob**(예: allowlisted fixture)과 동일 콘텐츠를 non-allowlisted 새 경로에 추가하면 그 blob이 `byOid`에 없어 새 경로가 미스캔 → `ok` 오보고. 정보-노출 위협 모델로는 콘텐츠가 이미 base에 public이라 LOW지만, per-path allowlist **보증 완전성** 관점에서 fair. 운영자 철학(품질>비용, security backstop)상 완전화 채택.
+`byOid`가 `git rev-list --objects base..HEAD`(base 도달 객체 제외)로만 seed되어, branch가 **base에 이미 존재하는 leaking blob**(예: allowlisted fixture)과 동일 콘텐츠를 non-allowlisted 새 경로에 추가하면 그 blob이 `byOid`에 없어 새 경로가 미스캔 → `ok` 오보고. 정보-노출 위협 모델로는 콘텐츠가 이미 base에 public이라 LOW지만, per-path allowlist **보증 완전성**(스캐너 자신의 F-H ancestor-leak 보증) 관점에서 fair. 운영자 철학(품질>비용, security backstop)상 완전화 채택.
 
-- 수정 = `history-leak-scan.js`에 changed-path 증강 추가: `git diff --raw --full-index --no-renames base..HEAD`로 push가 바꾸는 각 경로의 **HEAD blob**을 fold-in(blob이 base보다 오래됐어도). deletion(all-zero dest oid)은 skip. allowlist는 여전히 per-path 판정 → Codex repro(base fixture blob을 non-allowlist sibling에 복사) 이제 보고. diff 실패는 fail-closed. R4/F2 mock은 `diff --raw`→'' 추가로 무손상.
+- **R1(불충분)**: `git diff --raw base..HEAD` 순-diff로 push가 바꾸는 각 경로의 HEAD blob을 fold-in. → Codex 재리뷰가 **ancestor-only 잔여 gap** 지적: 중간 커밋이 base blob을 non-allowlist 경로에 복사한 뒤 **HEAD 전에 삭제**하면 순-diff에 안 잡혀 미스캔(F-H 보증 위배). 정확한 지적.
+- **R2(완전)**: 순-diff를 **base-tree map + 전-커밋 ls-tree walk**로 교체. `git ls-tree -r <base>`로 base의 `(oid,path)` 집합을 만들고, 각 range 커밋의 **전체 트리**(`ls-tree -r`)를 순회하며 blob을 fold-in — NEW blob(byOid) OR base가 발행하지 않은 `(oid,path)`의 OLD blob(=range-introduced 노출 경로). 중간 커밋 트리가 삭제된 경로도 여전히 열거하므로 ancestor-only 케이스까지 포착. base map 실패는 fail-closed. R4/F2 mock은 `ls-tree`→'' 추가로 무손상.
 
 ### 흡수 검증
 

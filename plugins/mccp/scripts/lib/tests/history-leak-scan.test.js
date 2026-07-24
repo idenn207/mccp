@@ -214,10 +214,9 @@ test('F1: a NEW path onto a blob that ALREADY exists in base (allowlisted there)
   // Codex divergent F1: `git rev-list --objects base..HEAD` excludes objects
   // already reachable from base. A branch that copies an existing (base) leaking
   // blob to a NON-allowlisted new path therefore never entered `byOid`, and the
-  // ls-tree walk's `byOid.has(oid)` guard skipped it too — so the new disclosure
-  // path escaped the scan entirely (reported ok). The changed-path (`git diff
-  // --raw`) augmentation folds in the HEAD blob at each changed path even when the
-  // blob predates base.
+  // ls-tree walk's old `byOid.has(oid)` guard skipped it too — so the new
+  // disclosure path escaped the scan entirely (reported ok). The base-tree map lets
+  // the walk fold OLD blobs at any (oid,path) pair base did not already publish.
   const root = initBase();
   const leak = 'documented path ' + root + '/foo\n';
   // Put the leaking blob in BASE at an allowlisted path, then move `main` onto it
@@ -236,6 +235,31 @@ test('F1: a NEW path onto a blob that ALREADY exists in base (allowlisted there)
   assert.ok(res.leaks.every(function (l) { return l.path !== 'docs/allowed.md'; }), 'the allowlisted base path stays suppressed');
 });
 
+test('F1 (Codex R2): ancestor-only old-blob path (copied then DELETED before HEAD) still leaks', function () {
+  // The residual R1 missed: a net base..HEAD diff only sees paths present at HEAD.
+  // A branch can copy a base-existing leaking blob to a non-allowlisted path in an
+  // INTERMEDIATE commit, then delete that path before HEAD — pushed history still
+  // carries the disclosure path, but the net diff no longer shows it. Walking EVERY
+  // range commit's full tree (against the base-tree map) catches it: the
+  // intermediate commit's tree still lists the path.
+  const root = initBase();
+  const leak = 'documented path ' + root + '/foo\n';
+  commit(root, { 'docs/allowed.md': leak }, null, 'base-adds-allowlisted-leak');
+  g(root, ['branch', '-f', 'main', 'HEAD']);
+  // Intermediate commit copies the base blob to a non-allowlisted path...
+  commit(root, { 'docs/sneaky.md': leak }, null, 'intermediate-copies-to-nonallowlisted');
+  // ...then a later commit deletes it before HEAD (net diff no longer sees it).
+  commit(root, { 'docs/clean.md': 'no leak\n' }, ['docs/sneaky.md'], 'tip-removes-sneaky');
+  assert.ok(!fs.existsSync(path.join(root, 'docs/sneaky.md')), 'sneaky path is gone at HEAD');
+  const res = scan.scanRange({
+    repoRoot: root, base: 'main',
+    allowlist: [{ path: 'docs/allowed.md' }],
+  });
+  assert.equal(res.ok, false, 'an ancestor-only disclosure path onto a base blob must still leak');
+  assert.ok(res.leaks.some(function (l) { return l.path === 'docs/sneaky.md'; }), 'docs/sneaky.md leak reported from the intermediate commit');
+  assert.ok(res.leaks.every(function (l) { return l.path !== 'docs/allowed.md'; }), 'the allowlisted base path stays suppressed');
+});
+
 test('empty range (HEAD === base) → ok, nothing scanned', function () {
   const root = buildRepo([]); // no extra commits: HEAD === main
   const res = scan.scanRange({ repoRoot: root, base: 'main' });
@@ -250,7 +274,7 @@ test('R4/F2: a blob that cannot be read (e.g. >64MiB maxBuffer throw) is fail-CL
     if (a.indexOf('rev-parse') === 0) return 'deadbeef';                       // base resolves
     if (a.indexOf('rev-list --count') === 0) return '1\n';
     if (a.indexOf('rev-list --objects') === 0) return 'oid1 clean.json\noid2 big.json\n';
-    if (a.indexOf('diff --raw') === 0) return '';       // M2 F1 changed-path augmentation — no extra paths
+    if (a.indexOf('ls-tree') === 0) return '';          // M2 F1 base-tree map + walk — empty base tree
     if (a === 'cat-file -t oid1' || a === 'cat-file -t oid2') return 'blob\n';
     if (a === 'cat-file blob oid1') return '{"receipt_hash":"x","meta":{"cwd":"."}}\n';
     if (a === 'cat-file blob oid2') { throw new Error('spawnSync git maxBuffer length exceeded'); }
@@ -269,7 +293,7 @@ test('R4/F2: a cat-file -t classification failure is also fail-CLOSED', function
     if (a.indexOf('rev-parse') === 0) return 'deadbeef';
     if (a.indexOf('rev-list --count') === 0) return '1\n';
     if (a.indexOf('rev-list --objects') === 0) return 'oidX weird/path\n';
-    if (a.indexOf('diff --raw') === 0) return '';       // M2 F1 changed-path augmentation — no extra paths
+    if (a.indexOf('ls-tree') === 0) return '';          // M2 F1 base-tree map + walk — empty base tree
     if (a === 'cat-file -t oidX') throw new Error('cat-file: bad object oidX');
     throw new Error('unexpected git call: ' + a);
   };

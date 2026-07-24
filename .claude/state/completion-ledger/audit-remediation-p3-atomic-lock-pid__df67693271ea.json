@@ -19,6 +19,7 @@
       "버전 reconcile 누락 → cache stuck"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:df67693271ea657a34b8bfdc9c39e72f35b01f652244c096d1cd89e049d11ce7"
+    "receipt_hash": "sha256:df67693271ea657a34b8bfdc9c39e72f35b01f652244c096d1cd89e049d11ce7",
+    "verdict_provenance": "legacy-unknown"
   }
 }

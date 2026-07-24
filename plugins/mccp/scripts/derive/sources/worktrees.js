@@ -21,6 +21,7 @@ const { execFileSync } = require('child_process');
 const stateWriter = require('../../state/state-writer');
 const { listReceipts, readReceipt } = require('../../receipt/store');
 const mask = require('../mask');
+const { isConvergedVerdict } = require('../../lib/receipt-convergence');
 
 const SCAN_TIMEOUT_MS = 3000;
 const DEFAULT_CAP = 20;
@@ -225,11 +226,17 @@ function deriveWorktreeProgress(worktreePath, repoRoot, opts) {
     const res = latest.resolution || {};
     const meta = latest.meta || {};
     progress.current_gate = latest.gate_id || null;
-    progress.gate_converged = (typeof res.converged === 'boolean') ? res.converged : null;
-    if (res.converged === false) {
+    // M1 — codex_verdict-first: a divergent/critical ship is not converged (and
+    // is blocked) even though resolution.converged stays true.
+    const trulyConverged = (typeof res.converged === 'boolean' || typeof res.codex_verdict === 'string')
+      ? isConvergedVerdict(res) : null;
+    progress.gate_converged = trulyConverged;
+    if (trulyConverged === false) {
       progress.blocked = true;
+      const cv = res.codex_verdict;
       progress.blocked_reason = progress.blocked_reason
-        || ('gate ' + (latest.gate_id || '?') + ' not converged');
+        || ('gate ' + (latest.gate_id || '?')
+          + ((cv === 'divergent' || cv === 'critical') ? ' codex_verdict=' + cv : ' not converged'));
     } else if (meta.advisory === true) {
       progress.blocked = true;
       progress.blocked_reason = progress.blocked_reason

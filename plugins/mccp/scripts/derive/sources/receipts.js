@@ -2,6 +2,7 @@
 
 const path = require('path');
 const { listReceipts, readReceipt } = require('../../receipt/store');
+const { isConvergedVerdict } = require('../../lib/receipt-convergence');
 
 function pick(m, k) {
   return (m && Object.prototype.hasOwnProperty.call(m, k)) ? m[k] : undefined;
@@ -38,7 +39,12 @@ function extract(repoRoot, entry) {
     gate: entry.gate_id,
     decision_id: entry.decision_id,
     round: receipt.round,
-    converged: !!resolution.converged,
+    // M1 — codex_verdict-first: a divergent/critical ship is NOT converged even
+    // though resolution.converged stays true. Every projection consumer
+    // (decision-state, audit-timeline, snapshot) inherits this via `.converged`.
+    converged: isConvergedVerdict(resolution),
+    codex_verdict: (resolution && typeof resolution.codex_verdict === 'string')
+      ? resolution.codex_verdict : null,
     open_questions_count: (resolution.open_questions || []).length,
     advisory: !!meta.advisory,
     skipped: !!meta.skipped,

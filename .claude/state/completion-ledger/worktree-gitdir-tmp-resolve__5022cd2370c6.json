@@ -1,0 +1,24 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "worktree-gitdir-tmp-resolve",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.20.10",
+    "completed_at": "2026-07-08T04:57:04.034Z",
+    "commit_sha": "60aa1c3c9f23b38afaf4b8523a0e72144be6b820",
+    "plan_basename": "worktree-gitdir-tmp-resolve.plan.md",
+    "plan_file_hash": "sha256:2f2d03549f029c52f522ecc0098289c84517cf3769eb81966b907e5ca6fc45c3",
+    "risks_closed": [
+      "**R1 (HEADLINE) pr-phase-guard가 gitdir 형태를 lock 중 차단** — guard의 `INDIRECT_INVOKE_PATTERNS` `/\\$\\(/`가 `$(git rev-parse --git-dir)`를 무조건 DENY, mkdir 예외는 리터럴 `.git/mccp/tmp`만([:77](../../plugins/mccp/scripts/hooks/pr-phase-guard.js#L77)·[:112](../../plugins/mccp/scripts/hooks/pr-phase-guard.js#L112)·[:134](../../plugins/mccp/scripts/hooks/pr-phase-guard.js#L134))",
+      "R2 pr-body.test.js가 `.git/mccp/tmp` 문자열 기대",
+      "R3 work.md 3블록 shell-state 비지속 계약 위반",
+      "R4 재발 방지 테스트 false-positive(의도적 리터럴 오탐)",
+      "R5 `git rev-parse --git-dir` 상대경로 반환(subdir cwd)",
+      "**R6 (Codex F1 흡수) redirect-only 블록이 dir 미생성으로 실패** — 리터럴 제거해도 `2> \"$MCCP_TMP/x\"`는 부모 dir 없으면 clean worktree에서 깨짐; static 스캔은 통과(false confidence)"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:5022cd2370c6f215e4269a868ee33ff3270d9973939799ce79931d90f429988c",
+    "verdict_provenance": "codex-verdict"
+  }
+}

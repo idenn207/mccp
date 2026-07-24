@@ -19,6 +19,7 @@
       "Workflow 미가용 환경(plugin-only install)"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:115b77e230814e25b51aad8e396bc10952f3355812d0fbf1c3ee2665a2e5031d"
+    "receipt_hash": "sha256:115b77e230814e25b51aad8e396bc10952f3355812d0fbf1c3ee2665a2e5031d",
+    "verdict_provenance": "legacy-unknown"
   }
 }

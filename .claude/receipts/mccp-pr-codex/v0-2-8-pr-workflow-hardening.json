@@ -1,0 +1,40 @@
+{
+  "schema_version": "v1",
+  "gate_id": "mccp-pr-codex",
+  "phase": "pr",
+  "decision_id": "v0-2-8-pr-workflow-hardening",
+  "task_id": null,
+  "plan_hash": "sha256:d21191dcc694315a462e1ae536c76da265ffa6c13c3bd7d68446537a0ebc9e7c",
+  "design_doc_hash": [],
+  "base_sha": "4ab8988cc100f3b7c6f682d26ebaa07bd66743ad",
+  "head_sha": "84024e68a67a3a40568a6a36f62ba6849898d63e",
+  "round": 1,
+  "findings": [],
+  "resolution": {
+    "converged": true,
+    "rounds": 1,
+    "accepted": [],
+    "rejected": [],
+    "open_questions": []
+  },
+  "subject_hash": "sha256:5841603b471a8366fff5332c1b64709fcf22a87360595405fa5b638311bbce3c",
+  "receipt_hash": "sha256:b6dcc144fb2cc7adfb368b4661e1e0929a7fd58845be1e091d159bec65421873",
+  "meta": {
+    "created_at": "2026-06-06T21:45:05.466Z",
+    "command": "/mccp-pr-codex",
+    "cwd": "<outside-repo>",
+    "git_branch": "feat/v0-2-8-task-2-6-5-validate-cmd-quarantine",
+    "skipped": false,
+    "skip_reason": null,
+    "codex_skipped": false,
+    "advisory": false,
+    "security_skipped": false,
+    "security_skip_reason": null,
+    "security_force_override": false,
+    "security_force_override_reason": null,
+    "impeccable_skipped": false,
+    "impeccable_skip_reason": null,
+    "impeccable_force_override": true,
+    "impeccable_force_override_reason": "v0.2.8 Task 2.6.5/2.6.5a is backend hardening only — receipt CLI tempfail dispatch (classify.js), migration lock ownership token (crypto.randomUUID), path containment validation, hook ALLOW path with retry systemMessage. Zero UI surface; impeccable Skill not installed (cached detect: skill-missing); per CLAUDE.md §1.1 attribution decision impeccable is not bundled in mccp."
+  }
+}

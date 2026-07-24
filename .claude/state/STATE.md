@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: dashboard-data-exploration
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-07-23T07:44:48.772Z
+updated_at: 2026-07-24T07:57:54.159Z
 last_event: stop_loop_pass
-last_event_at: 2026-07-23T05:49:23.938Z
+last_event_at: 2026-07-15T15:25:04.371Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -13,34 +13,32 @@ last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
-multi-session-work-loop M1 (측정 설계, v1.22.5) — PR #109 생성 완료. 리뷰/머지 대기.
+workflow-orchestration live-activation M3 (v1.22.3) — PR-Codex R1 4라운드 3건(F1/F2/F3) 흡수 완료. PR 재실행 대기.
 
 ## Plan
-- M1 산출물(문서 4 + 스냅샷 2)은 선행 세션 완료. 본 세션은 Validation 실행 + 게이트 재수렴.
-- Implement-Codex R2 = No ship(HIGH 1 + MEDIUM 1). F1 전건 흡수, F2 부분 흡수(provenance 기록).
-- auto-chain이 cost-catastrophic($514.40 >= 500)으로 commit 단계에서 abort — 운영자 판단 대기.
+- M3 + 3차 흡수까지 로컬 커밋 4개(7ef5def+ca48678+a4db756+f7c34e4). push/PR 없음.
+- 4라운드 PR-Codex R1 = No ship(HIGH 2 + MEDIUM 1). 3건 전부 ACCEPT_NOW — 상세/수정방향은 .claude/state/fix-task.md.
+- 세 건 모두 M3이 primary backstop으로 승격시킨 agent-count cap 내부의 구멍. cap에 구멍 = M3 헤드라인이 거짓 → F1 backlog 이연 기각.
 
 ## Done
-- Validation 13개 전부 통과 (plan 본문에서 블록을 그대로 추출해 실행, exit 0).
-- 자체 발견 D1 — CHECK 2c가 통과 가능한 입력 없음(정상 케이스에서 grep exit 1 + pipefail로 사망). awk로 교체.
-- Codex R2 F1(HIGH) 재현 검증 후 흡수 — 부호 제거 탓에 동일 추가 라인 2개가 짝수로 통과 + plugin.json 결합 라인 통과. diff 파싱 폐기하고 main 기준 파일 전문 대조로 교체, 양방향 실측.
-- design 게이트: routing auto(renderingSurface=false), detector 실행, critique CONVERGED(1 round).
-- receipt 2건 최종 plan_hash 852f4c4에 anchor, validate ok:true. codex_verdict=divergent 정직 봉인.
-- backlog 2행 이연 (CHECK 6 zero-match hazard + impeccable detector severity 어휘 불일치).
+- 3차 흡수 커밋 f7c34e4(27파일 +2592): codex-review-payload.js 4게이트 공용 verdict SoT, 2단계 reserve/reconcile, filter title 매처 + in-scope veto.
+- 4라운드 /mccp:pr 완주: Phase 0/1/1.6 통과, dedupe fail-closed(양 게이트 divergent) → PR-Codex 실발화 → receipt divergent 봉인(validate ok:true).
+- findings 3건 전부 실제 코드로 재현 검증(액면 수용 아님). acquireLock 확인 → Codex 제안 (a)는 이미 구현됨, (c)는 lock 부재로 원리상 불가 → (b) fail-closed 채택.
+- review-only 불변식 지켜짐(mutations:[], lock_exit_ok:true). a11y는 rendering_surface=false로 skip.
 
 ## In Progress
-PR #109 OPEN — https://github.com/idenn207/mccp/pull/109
+PR 미생성 — PR-Codex R1(4라운드) No ship. fix-task.md에 F1/F2/F3 수정방향 확정. 다음은 흡수 구현 cycle.
 
 ## Next Step
-PR #109 리뷰·머지. 머지 후 worktree cleanup(§3.8) + M2 착수 전 measurement-feasibility.md re-freeze 게이트 확인.
+/mccp:pr 재실행(5라운드) → PR-Codex R1 재판정
 
 ## Last Decision
-2026-07-23 게이트 4라운드(PR-Codex R1/R2/R3 + Implement-Codex R3) 전부 needs-attention이었고 전부 실제 결함을 잡았다. 루프가 구조적으로 수렴하지 않으므로(직전 PRD 8라운드 선례) R3 실행 전에 종료 규칙을 확정 — CRITICAL 또는 실제 회귀만 ACCEPT_NOW. R3는 1 이연·1 기각·1 수정으로 착지. receipt 3건은 divergent 정직 봉인(converged 미stamp).
+2026-07-15 4라운드 PR-Codex R1 No ship. 3건 전부 흡수, F1 이연 절충 기각 — M3 헤드라인이 "USD를 열어도 원자 agent-count cap이 막는다"인데 F1/F2/F3 전부 그 cap 안의 구멍이라, 이연은 중심 정당화가 거짓임을 알면서 ship하는 것. lock 고갈 발화율이 낮다는 건 F1을 덜 급하게 만들 뿐 주장을 참으로 만들지 않음. F1 수정=granted 0 + 인라인 fallback("granted 0이면 파이프라인 차단"이라는 현 주석 전제가 거짓임을 확인 — 두 호출자 모두 인라인 경로 보유, 인라인은 cap 미소비). F2 수정=default를 0으로 뒤집는 건 오답(safety 방향 실패), default 자체 제거 → unset이면 reconcile skip + pending 유지(자기치유). 고쳐진 runner가 구조화 payload로 verdict를 읽어 No ship을 정직 보고 — 구 blind runner였다면 고무도장(F5 수정의 실전 증명 2회차).
 
 ## Open Questions
-- PR-Codex R3 F1(HIGH, backlog 이연) — measurement-feasibility §4가 C1 전용이라면서 임계는 C3 불가 증명 형태. M2 진입 전 re-freeze에서 재작성 필요
-- pre-existing: finalize-receipt.js briefing timeout → /mccp:pr이 MCCP_BRIEFING=off 없이 exit 127 (backlog HIGH)
-- completion-ledger 승인 술어 결함 확정(HIGH, backlog 이연) — index.js:96이 레거시 resolution.converged를 gate로 써 codex_verdict=divergent인 receipt에서도 verdict:converged 항목을 생성. 거짓 항목 2건은 커밋 전 격리(scratchpad/ledger-quarantine/), 정정은 별도 patch cycle
+- pre-existing(본 PR 무관): finalize-receipt.js:269 timeoutMs 60000 만료로 exit 127인데 receipt write는 성공 → 정상 receipt에도 GATE-STOP. backlog 후보.
+- pre-existing 실패 2건(design-critique-loop-e2e fixture 부재, verdict-label.test.js) 별도 cycle 유지 — 이번 1133개 run에서도 fixture 건만 재현.
+- cache 1.22.0 stale — /mccp:pr 본문 하드코딩 경로가 구 blind runner를 가리켜 워크트리 스크립트로 우회 실행 중. 머지 후 claude plugin update로 해소 예상.
 
 ## Last Updated
-2026-07-23T07:44:48.772Z
+2026-07-24T07:57:54.159Z

@@ -24,6 +24,7 @@
 // without re-scanning the receipt.
 
 const { detectCriticalCategory } = require('./codex-bridge');
+const { isDivergentVerdict } = require('./receipt-convergence');
 
 const NULL_RESULT = Object.freeze({
   trigger: null,
@@ -56,6 +57,10 @@ function collectOpenCritical(receipt) {
 function isDivergentUnresolved(receipt) {
   if (!isObject(receipt.resolution)) return false;
   const r = receipt.resolution;
+  // M1 — codex_verdict-first: a divergent/critical Codex verdict IS an unresolved
+  // divergence regardless of the always-true resolution.converged. The legacy
+  // rounds>=3 path stays for receipts written before codex_verdict existed.
+  if (isDivergentVerdict(r)) return true;
   return r.converged === false && Number.isInteger(r.rounds) && r.rounds >= 3;
 }
 

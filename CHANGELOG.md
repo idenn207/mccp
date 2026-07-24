@@ -4,30 +4,49 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
-## [1.22.5] — 2026-07-22
+## [1.22.5] — 2026-07-24
 
-**Multi-session work loop — M1 (측정 설계)** — PRD의 7개 milestone 중 유일한 무변경 단계. 지표를 계산하지 않고 **이후의 측정이 반박 가능해지도록** 분모·결함 정의·관측 창·표본 유효 범위를 사전 고정한다. GROUND 실측이 PRD 전제 하나를 뒤집었고(C계열이 필요로 하는 구조화 필드가 채워진 적 없음), 두 번째 실측이 결함 정의의 형태를 바꿨다(파일 겹침은 결함 신호가 아님). Codex R1·R2 각 4 HIGH, 총 8건 전건 흡수(backlog 이연 0).
+**무결성 통일 cycle M1 — verdict-SoT + hash 무결성 core** — durable-evidence-substrate(#110)가 ship receipt를 git-tracked 감사 corpus로 승격했으나, completion-ledger 승인 술어가 여전히 `resolution.converged`(always-true, "writer finalized" ≠ "Codex approved")를 1차 게이트로 읽어 **거짓 승인이 durable corpus에 영구 기록되는 상태가 진행 중**이었다. M1은 corpus를 지키는 tightly-coupled 3축(ledger 승인 술어 · stage-guard write-side · audit read-side)을 verdict SoT=`resolution.codex_verdict`, 무결성=`receiptHash` 재계산+schema validate로 통일한다. Implement-Codex는 환경 Codex companion timeout(570s)으로 **advisory** 진행(운영자 승인) — cross-model 적대 검토는 plan-codex `divergent` 봉인 → dedupe fail-closed로 `/mccp:pr`(PR-Codex)에 이연. M2(leak-scan·subject_hash·parser fixture)·M3(terminal gate 재설계)는 별건.
 
 ### Added
-
-- `docs/multi-session-work-loop/measurement-design.md` — **계약층(FROZEN)**. 지표 10개(A1-A4·B1-B3·C1-C3)를 `분모`/`분자`/`소스`/`산출식`/`무결성 검사`/`소급 가부` 6항목으로 명세. PRD anti-gaming 표를 **산출 시점 실행 검사**로 번역(B1 소스 독립성 검증, B2 분모 0이면 무효 등). C2·C3의 관측 전용 지위를 명세 안에 못박음. M2가 전향 기록할 이벤트 목록을 지표에서 역산.
-- `docs/multi-session-work-loop/label-protocol.md` — **계약층(FROZEN)**. 결함 = 파일 겹침 **AND** 판별 기준(revert 0/108 · fix-type 15/108 · finding 귀속). 겹침 단독 정의는 실측으로 기각(101 pair, p50 0.23일 · 30일 내 100% → 전 이력이 결함으로 분류됨). W는 단일 숫자가 아니라 **민감도 밴드 {1,3,7,14,30}** freeze이며 결론이 밴드에 따라 뒤집히면 그 사실을 결과로 보고. 자기수정 사이클 배제 규칙 + 해소 유형 분리(이연·강등·기각은 해소로 계상 금지) + 감사 표본 절차.
-- `docs/multi-session-work-loop/large-cohort-registry.md` — **계약층(FROZEN)**. 코호트 **M4·M5 사전 지정**(임계 규칙 출력). 입력은 착수 전 불변 메타데이터만(참조 지표 수 · Risks 지목 수 · 코드 변경 선언). 임계 3을 넘는 milestone이 2개뿐이라 **임계를 낮추지도 rank 규칙으로 3개를 제조하지도 않고** 반증 조건을 개정했다(아래 Notes "반증 조건 개정"). self-hosting 평가라는 잔여 한계도 명시.
-- `docs/multi-session-work-loop/cohort-input-snapshot.md` — 코호트 도출 입력의 PRD 스냅샷. sha256으로 pin해 사후 이동을 차단(Codex R2-F3 — 같은 변경이 그 PRD를 편집하므로 "불변 메타데이터를 쓴다"는 선언만으로는 불변이 아니다).
-- `docs/multi-session-work-loop/measurement-feasibility.md` — **가용성층(PROVISIONAL)**. 실측치 + 재현 명령 + 소급 recoverability 프로토콜(사전 임계: 표집 40 · 파싱 성공률 60 · 일치율 75 · 셀당 5). C계열은 "불가"가 아니라 `recoverability-undetermined`이며 임계 미달 시에만 불가로 확정.
+- `plugins/mccp/scripts/lib/receipt-convergence.js` — codex_verdict-first 수렴 read 헬퍼(`isConvergedVerdict`/`isDivergentVerdict`). `codex_verdict ∈ {divergent, critical}`이면 `resolution.converged`가 true여도 **절대 converged 아님**. `resolution.converged`를 직접 읽던 모든 소비처(semantic + display)가 이 한 곳으로 통일.
+- `plugins/mccp/scripts/migrations/v1.22.5-ledger-verdict-repair.js` — 기존 ledger 엔트리를 ship receipt와 대조 재판정해 `verdict_provenance`(`codex-verdict`/`legacy-unknown`/`superseded`)를 stamp. idempotent · `--dry-run` · **cardinality-invariant(never drop)** · in-place body edit(receipt_hash·파일명 불변, no-rehash §3.12). 실측: 28 엔트리 → 9 codex-verdict + 19 legacy-unknown + 0 superseded, 28→28 불변.
+- 테스트 4종 — `migrations/tests/v1.22.5-ledger-verdict-repair.test.js`(분류 오라클·cardinality·idempotency·superseded 보존·no-rehash) · `lib/tests/receipt-convergence.test.js`(헬퍼 + derive projection + escalate 회귀) + 기존 evidence-stage-guard/evidence-audit/completion-ledger 테스트에 신규 케이스 추가.
 
 ### Changed
+- `plugins/mccp/scripts/lib/completion-ledger/index.js` — 승인 술어를 **codex_verdict-first**로 교체(Task 1). `resolution.converged`는 신뢰 키에서 은퇴. NEW append = `converged`(∧ actionable≠true)·`skipped`·`unavailable`만; `divergent`/`critical`/absent는 fail-closed skip. **운영자 승인 deviation**(plan의 converged-only 초안 대비): `skipped`(dedupe happy-path)·`unavailable` append 유지 — dedupe는 plan+implement 둘 다 converged일 때만 발화하므로 PR ship이 `skipped`가 되고, 이를 제외하면 가장 잘 리뷰된 결정이 corpus에서 누락된다.
+- `plugins/mccp/scripts/lib/completion-ledger/store.js` — 엔트리 스키마에 `verdict_provenance`(present-only enum) 추가.
+- `plugins/mccp/scripts/lib/evidence-stage-guard.js` — `validateContent`(PURE)가 hash tamper 검증 후 `schema.validate` + `gate_id==='mccp-pr-codex'` + `phase==='pr'` + 파일명 slug↔`decision_id` 일치를 fail-closed 강제(Task 2, R5-F1).
+- `plugins/mccp/scripts/lib/evidence-audit.js` — `hash_bound` 집계가 declared-hash 일치에 더해 `receiptHash` 재계산 + `schema.validate`를 요구(Task 3, R5-F2, Task 2와 대칭). 실측 corpus 불변(hash_bound 9, state incomplete).
+- `plugins/mccp/scripts/derive/sources/receipts.js` · `receipt/status.js` · `derive/sources/worktrees.js` · `lib/escalate-detector.js` — `resolution.converged` 직접 읽기를 codex_verdict-aware로 이전(Task 1b). projection source(receipts.js) 수정으로 decision-state·audit-timeline·snapshot이 자동 상속. 실측: divergent ship 3건이 이제 `converged=false`로 표시.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.22.4 → 1.22.5` + renderer footer(html/markdown) 동기.
 
-- `.claude/prds/multi-session-work-loop.prd.md` — M1 `pending → in-progress` + Plan 셀. Open Question 4건 해소 + 나머지 4건의 소유 milestone 명시. **Evidence 정정** — 초안의 *"데이터는 있는데 판정을 안 한다"* 는 틀렸다(receipt 121건 중 findings 보유 1건, `accepted`/`rejected` 빈 배열 120건, `codex_verdict` 부재 90건). **최초의 측정된 게이트 실효 사례 추가** — completion-ledger 승인 술어가 always-true 필드를 봐 29/29 전부 `converged`, 대조 가능 10건 중 3건 거짓 양성, 19건 대조 불가. M2 행에 **feasibility re-freeze 진입 조건** 신설(Codex R2-F4 — 부패한 corpus 기준 baseline 고정 방지).
-- `plugins/mccp/.claude-plugin/plugin.json` · `renderer/{html,markdown}.js` — `1.22.3 → 1.22.5`. 1.22.4는 `durable-evidence-substrate` chore가 선점(§3.7 forward-only reconcile).
+## [1.22.4] — 2026-07-22
 
-### Notes
+**내구 증거층 봉인 — 감사 가능성 복구 (Phase A)** — worktree 삭제 워크플로에서 ship receipt 증거가 소실돼, 교차 세션 감사가 정반대 결론에 도달하는 2차 결함(E1: 대조 대상 부재를 "이상 없음"으로 보고)을 닫는 독립 chore. 핵심 분리: **receipt는 참(`codex_verdict: divergent`를 정직 기록)이고 ledger가 거짓(그것을 `converged`로 뒤집음)** — 따라서 receipt 추적은 지금 가능하고(오히려 술어 결함을 증명), ledger 소급 정정은 술어 수정(별건 E2) 뒤 Phase B로 미룬다. Codex adversarial review는 4라운드에서 수렴(needs-attention→approve).
 
-- **동작 코드 변경 0** — `plugins/` diff는 version surface 3파일의 버전 문자열 3줄뿐이다. PRD의 "코드 변경 0"을 *동작 코드* 0으로 해석하고 PRD 문구도 함께 정정했다(§3.7 릴리스 의무는 면제 대상이 아니라는 Codex R1-F2 흡수).
-- **Validation 자체가 두 번 무력했다** — 지표 검사는 `new RegExp` 인자의 백슬래시가 한 겹 붕괴해 `\b`가 백스페이스가 되면서 **항상 전 지표 실패**했고, 임계표 검사는 같은 붕괴로 `\|`가 `|`가 되어 **임계표 없는 문서도 통과**시켰다. 둘 다 정규식 문자열 생성자를 제거하고 양방향(불량 거부 / 양호 수용) 실측으로 검증했다. 앞선 라운드에서 "양방향 검증했다"고 기록한 것은 plan 본문과 다른 문자열을 시험한 오류였고 정정했다.
-- **잔여 한계** — 산문 문서를 문자열 검사로 완전히 검증할 수는 없다. 현재 가드는 빈 값·형식적 값·placeholder·누락 표를 걸러내지만 *내용이 틀린* 문서는 못 걸러낸다. 이 수준을 상한으로 명시하고 그 위는 사람 리뷰가 담당한다.
-- **반증 조건 개정 (운영자 결정, 2026-07-22)** — Implement-Codex가 측정한 결과 이 PRD에서 대형으로 분류되는 milestone은 **M4·M5 2개**뿐이라, 초안 반증 조건("대형 3개 이상 완주")이 충족 불가였다. 선택지 C를 채택 — 반증 조건을 **"대형으로 분류된 milestone 전부의 완주"**로 개정하고 현 구성에서 그 수가 2임을 명시했다. 이는 약화가 아니라 정직화다("임의의 3개"보다 "규칙이 대형이라 판정한 전부"가 개수 조작을 못 하므로 더 강하다). 3자 일치: [PRD 반증 조건 §개정 이력] · [large-cohort-registry.md §4.1] · 본 노트. 표본 2개의 반증력 한계는 registry §4.1에 기록.
-- **Implement-Codex 2라운드 · 총 8건 흡수** — R1(HIGH 3+MEDIUM 2): 증거 재현성(evidence-snapshot.json 단일 출처), A3/B3 실행 규칙, rank→임계 규칙 복귀, C3 소급 불가 선언, 임계 base-rate 정박. R2(HIGH 3): 반증 조건 개정(위), C3을 소급 프로토콜에서 제외(C1 전용), A3 baseline을 M2 계측 전까지 `baseline-unavailable`로 강등. 두 라운드 모두 receipt에 `codex_verdict: divergent`로 정직 봉인(거짓 converged 금지) — dedupe가 fail-closed 되어 PR-Codex가 실발화한다.
+### Added
+- `plugins/mccp/scripts/lib/evidence-audit.js` — ledger↔receipt 대조 감사 도구. `comparable===0`이면 절대 `ok`/`clean`을 반환하지 않고 `state='blind'` + CLI 비영점 exit(E1이 만든 결함의 정확한 반대). 조인 키는 `entry.decision_id`(raw ledger files, no dedup), `entry.receipt_hash`↔`receipt.receipt_hash` 결속은 `hash_bound`로 별도 보고(E4). read-only · LLM-free. main 실측 재현: `comparable=10 · ok=7 · false_positive=3 · unverifiable=19 · hash_bound=10`.
+- `plugins/mccp/scripts/receipt/store.js#writeReceipt` — **덮어쓰기 HALT 가드**(Codex R3/R4 F1). git-tracked ship receipt를 다른 hash로 덮어쓰려 하면 fail-closed(정본을 교체하는 유일한 경로에 앵커 → 모든 호출자 커버). 탈출구: 정당한 재-ship은 **새 decision slug**. untracked·멱등 재작성·신규 decision은 무영향.
+- 테스트 3종 — `lib/tests/evidence-audit.test.js`(blind 계약 고정) · `receipt/tests/overwrite-guard.test.js`(rebase 미경유 같은-slug 반복을 writer 직접 호출로 재현) · `receipt/tests/cwd-normalization.test.js`(신규 정규화 + carve-out 부재).
+
+### Changed
+- `plugins/mccp/scripts/receipt/write.js` — **신규** receipt의 `meta.cwd`를 repo-relative로 정규화(`.`/상대경로, repo 밖은 `<outside-repo>` placeholder). 기존 33건은 읽지도 쓰지도 않으며 `hash.js`에 `meta.cwd` carve-out을 추가하지 않아 기존 해시 불변(E4).
+- `.gitignore` — ship receipt(`mccp-pr-codex`)를 감사 대조 corpus로 git-tracked 전환(`.claude/receipts/*` + `!.../mccp-pr-codex/` 선별 해제). plan/implement receipt는 여전히 working-tree only. 부트스트랩 미검토 기본값(commit `375157d`) 대체.
+- `plugins/mccp/commands/pr.md` — HEAD_SHA passthrough(F2-a: Phase 2.5 캡처값을 Phase 4가 재계산 없이 사용 → evidence-commit의 HEAD 이동에도 body-file 조회 성립) + receipt-only evidence-commit(Phase 3 push 직전, `mccp-pr-codex/` 한 경로만, `--amend` 금지, `completion-ledger/` 혼입 거부 — E6) + **rebase fail-closed HALT**(자동 재진입 금지 — HEAD 재작성이 ledger↔receipt 결속을 끊음, F2).
+- ship receipt **clean 12건** git-tracked(내용 무변경). 유출 21건(구 저장소명 노출)은 Phase B rebind 후 추적(E7 — 감사 기여 0, 비가역 이력 공개 회피).
+- `CLAUDE.md` — merge-commit 정책 + 증거 내구성 계약(재봉인 금지 근거 + `resolution.converged` 비신뢰 명시).
+- `plugin.json` `1.22.3 → 1.22.4` + renderer footer×2.
+
+### Follow-up — PR-Codex No-ship 흡수 (같은 1.22.4, PR 전 마감)
+
+Phase A의 dogfood PR-Codex(R1 No-ship, 3 actionable)가 내구성 메커니즘 자체의 3결함을 표면화 → 첫 PR 전 흡수(버전 bump 없음 — 1.22.4를 완성). plan-gate는 6라운드 비수렴(`divergent` 봉인), Implement-Codex R1도 No-ship(3 HIGH 전부 ACCEPT_NOW·흡수).
+
+- **F2** — `evidence-audit.js`가 comparable pair면 `state='ok'`/exit 0을 냈다(모순 노출 실패). graduated states로 교체: `inconsistent`(exit 3, `false_positive>0` OR `hash_bound<comparable`) · `incomplete`(exit 4, `unverifiable>0`) + 사다리 문서화. **Implement-Codex IF1**: agreement 검사를 total로(`verdictsAgree` — advisory/skipped ledger verdict도 corroborate 요구, 이전엔 무검증 통과). 실측 corpus는 `inconsistent`/exit 3(19 dangling + 3 false_positive 정직 노출).
+- **F1** — `scripts/migrations/v1.22.4-cwd-rebind.js`(CREATE) — 33 tracked receipt의 절대 `meta.cwd`를 redact + 재해시하고 bound된 **git-tracked** ledger 9건을 **원자적으로 재키잉**(`## 3.12` 유일 sanctioned 재봉인). fail-closed lock(withLedgerLock fail-open을 flip) + TOCTOU re-read + new-ledger→receipt→unlink-old ordering + self-contained post-apply invariant scan(index 비의존) + explicit planned-set staging(`git add -A` 금지, E6 제외) + **exact-manifest gate**(정확히 M/D/A + blob content hash — concurrent-recreate 삭제 누락 포착). 16 test.
+- **F3** — `pr.md` Phase 3 evidence-commit을 fail-loud-open → **fail-closed**(commit 실패 시 push 차단) + F1 pre-stage 절대-cwd 가드.
+- **F-H/F-I** — `scripts/lib/history-leak-scan.js`(CREATE) — pre-push 전-blob HISTORY-leak 게이트: `origin/<base>..HEAD`의 모든 신규 blob(조상 커밋 포함)을 repo-root anchored·separator-flexible 패턴으로 스캔(receipt JSON의 double-backslash 형까지) + line/fixture-specific allowlist(directory-wide 금지). 10 test. 게이트가 tracked corpus의 latent fixture leak(`cwd-normalization.test.js`)을 표면화 → synthetic 경로로 정정.
+- `CLAUDE.md` §3.12 — v1.22.4 cwd-rebind을 유일 sanctioned 재봉인으로 문서화(다른 writer는 no-rehash 불변식 유지).
 
 ## [1.22.3] — 2026-07-15
 

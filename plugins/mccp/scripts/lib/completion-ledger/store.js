@@ -28,6 +28,14 @@ const ISO8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d
 const SHA_HEX_RE = /^[0-9a-f]{7,40}$/i;
 const VALID_VERDICTS = Object.freeze(['converged', 'advisory', 'skipped']);
 
+// M1 Task 1 — verdict_provenance (additive, present-only). Records HOW an entry's
+// verdict was established so audits + the migration can distinguish a fresh
+// codex_verdict-corroborated append from a preserved-but-unverified legacy entry.
+//   'codex-verdict'  new append, corroborated by a present resolution.codex_verdict
+//   'legacy-unknown' migration-preserved: no ship OR a ship with no codex_verdict
+//   'superseded'     migration-preserved: recorded verdict disagrees with the ship
+const VALID_PROVENANCE = Object.freeze(['codex-verdict', 'legacy-unknown', 'superseded']);
+
 const KNOWN_ENTRY_KEYS = Object.freeze(new Set([
   'decision_id',
   'gate',
@@ -40,6 +48,7 @@ const KNOWN_ENTRY_KEYS = Object.freeze(new Set([
   'risks_closed',
   'oq_closed',
   'receipt_hash',
+  'verdict_provenance',
 ]));
 
 // clean-tree git-safety allowlist (F1). These are mccp's own
@@ -133,6 +142,12 @@ function validateEntry(entry) {
     'oq_closed must be an array of strings');
   req(typeof entry.receipt_hash === 'string' && entry.receipt_hash.length > 0,
     'receipt_hash must be a non-empty string');
+  // Present-only: absent on pre-M1 entries (they validate unchanged).
+  if (entry.verdict_provenance !== undefined && entry.verdict_provenance !== null) {
+    req(typeof entry.verdict_provenance === 'string'
+        && VALID_PROVENANCE.indexOf(entry.verdict_provenance) !== -1,
+      'verdict_provenance must be one of: ' + VALID_PROVENANCE.join(', ') + ' (or absent)');
+  }
 
   for (const k of Object.keys(entry)) {
     if (!KNOWN_ENTRY_KEYS.has(k)) {
@@ -363,6 +378,7 @@ module.exports = {
   LEDGER_SUBDIR: LEDGER_SUBDIR,
   APPEND_SAFE_ALLOWLIST: APPEND_SAFE_ALLOWLIST,
   VALID_VERDICTS: VALID_VERDICTS,
+  VALID_PROVENANCE: VALID_PROVENANCE,
   ledgerDir: ledgerDir,
   entryId: entryId,
   entryFilePath: entryFilePath,

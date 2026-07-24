@@ -1,0 +1,40 @@
+{
+  "schema_version": "v1",
+  "gate_id": "mccp-pr-codex",
+  "phase": "pr",
+  "decision_id": "mccp-roadmap-implement",
+  "task_id": null,
+  "plan_hash": "sha256:50a8f866fe45ebda1b5de0b8e8a7ab31d3c1ee4dae6d5ad109d9dd9a2878a6a2",
+  "design_doc_hash": [],
+  "base_sha": "48964a5585b8a9039b9c78f2a3271bdb49f44d4e",
+  "head_sha": "5e215e7f833321814c51fe604ad0562c2c3bf1fe",
+  "round": 1,
+  "findings": [],
+  "resolution": {
+    "converged": true,
+    "rounds": 1,
+    "accepted": [],
+    "rejected": [],
+    "open_questions": []
+  },
+  "subject_hash": "sha256:e1cb9ca7dfd7ccad56e47fa30ade5d98e0288cc15aae1bac02529e8f84ee2896",
+  "receipt_hash": "sha256:8db2b9a9ea2cf2eb580ca1dd07b2851713d2175bee5f30029fea7b4558d66298",
+  "meta": {
+    "created_at": "2026-06-06T08:53:46.001Z",
+    "command": "/mccp-pr-codex",
+    "cwd": "<outside-repo>",
+    "git_branch": "feat/mccp-roadmap-implement",
+    "skipped": false,
+    "skip_reason": null,
+    "codex_skipped": false,
+    "advisory": false,
+    "security_skipped": false,
+    "security_skip_reason": null,
+    "security_force_override": false,
+    "security_force_override_reason": null,
+    "impeccable_skipped": false,
+    "impeccable_skip_reason": null,
+    "impeccable_force_override": true,
+    "impeccable_force_override_reason": "impeccable Skill is not installed in this dev environment; v0.2.7 milestone introduces only hook lifecycle surface and the plan-codex dedupe at round 2 already covers M2.5 design impact"
+  }
+}

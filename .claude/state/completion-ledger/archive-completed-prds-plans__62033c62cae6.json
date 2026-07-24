@@ -1,0 +1,19 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "archive-completed-prds-plans",
+    "gate": "mccp-pr-codex",
+    "verdict": "converged",
+    "version": "1.20.6",
+    "completed_at": "2026-07-07T08:44:56.398Z",
+    "commit_sha": "727f61ef7dbced572c5070f3e578845be3df395b",
+    "plan_basename": "archive-completed-prds-plans.plan.md",
+    "plan_file_hash": "sha256:fea089d206b934f33048322a25b755a25c1916c03b4bf902638d522edce48f0f",
+    "risks_closed": [],
+    "oq_closed": [
+      "아카이브된 마일스톤의 렌더 시각이 ship 시점이 아니라 아카이브-이동 커밋의"
+    ],
+    "receipt_hash": "sha256:62033c62cae6e5aab60dfa053ef65be1e78c424d002a93e2d6861f2e903f9a48",
+    "verdict_provenance": "codex-verdict"
+  }
+}

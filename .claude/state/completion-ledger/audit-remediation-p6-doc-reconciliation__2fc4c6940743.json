@@ -21,6 +21,7 @@
       "**Q1 (Task 5)**: A⑦ fixture — (a) 문서 정정(fixture는 커밋물 아님, env force-fail이 dogfood 보장) **[기본]** vs (b) `.claude/cache/test-fixture-status.html` 1줄 생성해 문서와 일치. 기본=(a): P6는 doc-only 스코프이고 env 경로가 이미 회귀 보장. implement 미세결정.",
       "**Q2 (Risk, 해소)**: #94 P5·#95 M2b·#93 worktree fix가 이미 머지(HEAD=1.20.11) → P6는 현재 main에서 독립 분기, 버전=1.20.12. stacked-PR 우려 대부분 해소. 남은 결정: workflow-orch M3가 1.20.12를 먼저 점유하면 P6는 next-free로 재reconcile(PR 직전, §3.7)."
     ],
-    "receipt_hash": "sha256:2fc4c694074358baa4a283b6f3399cf94e99e40e077430fb541cd5859b1a499d"
+    "receipt_hash": "sha256:2fc4c694074358baa4a283b6f3399cf94e99e40e077430fb541cd5859b1a499d",
+    "verdict_provenance": "legacy-unknown"
   }
 }

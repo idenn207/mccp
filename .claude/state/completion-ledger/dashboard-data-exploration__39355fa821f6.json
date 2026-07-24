@@ -31,6 +31,7 @@
       "검색 매칭 범위: M3 범위(M2 무관).",
       "no-JS degrade 검증: `.js-only` 숨김 + script-strip 회귀 테스트(M1 패턴 계승)."
     ],
-    "receipt_hash": "sha256:39355fa821f6ea03246a8a7a17548dce74776379fb44280a33e7d7069acffea1"
+    "receipt_hash": "sha256:39355fa821f6ea03246a8a7a17548dce74776379fb44280a33e7d7069acffea1",
+    "verdict_provenance": "legacy-unknown"
   }
 }

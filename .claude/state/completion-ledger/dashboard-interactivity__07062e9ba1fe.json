@@ -17,6 +17,7 @@
       "`.li-q strong` 중립화가 다른 리스트 표면(widget-card 등)에 미적용"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:07062e9ba1fe438dbf39f2efe4e25ba2209f038861f6d8109710147415c95b14"
+    "receipt_hash": "sha256:07062e9ba1fe438dbf39f2efe4e25ba2209f038861f6d8109710147415c95b14",
+    "verdict_provenance": "legacy-unknown"
   }
 }

@@ -1,0 +1,16 @@
+{
+  "migration": "v1.22.5-ledger-verdict-repair",
+  "completed_at": "2026-07-24T07:48:49.919Z",
+  "state": "complete",
+  "scanned": 28,
+  "changed": 28,
+  "unchanged": 0,
+  "by_provenance": {
+    "codex-verdict": 9,
+    "legacy-unknown": 19,
+    "superseded": 0
+  },
+  "cardinality_before": 28,
+  "cardinality_after": 28,
+  "errors": []
+}

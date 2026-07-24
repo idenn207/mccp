@@ -17,6 +17,7 @@
       "멀티라인 proseText의 md 들여쓰기 오류로 plain-text 구조 파손"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:82b59987861de340e4b54f0ec04dec9cee3a02a0c59c3389bd41bfeddfe14bb8"
+    "receipt_hash": "sha256:82b59987861de340e4b54f0ec04dec9cee3a02a0c59c3389bd41bfeddfe14bb8",
+    "verdict_provenance": "legacy-unknown"
   }
 }

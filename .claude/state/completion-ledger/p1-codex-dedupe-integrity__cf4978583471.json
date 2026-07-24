@@ -16,6 +16,7 @@
       "schema 변경이 기존 receipt validate 회귀"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:cf497858347137d5103a7ff2e0e12ed95f24d64604bc445e7e96cc1f17c808e1"
+    "receipt_hash": "sha256:cf497858347137d5103a7ff2e0e12ed95f24d64604bc445e7e96cc1f17c808e1",
+    "verdict_provenance": "legacy-unknown"
   }
 }

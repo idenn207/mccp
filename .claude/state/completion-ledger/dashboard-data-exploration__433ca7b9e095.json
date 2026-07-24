@@ -20,6 +20,7 @@
       "병렬 cycle version 경쟁(main이 1.18.15 선점)"
     ],
     "oq_closed": [],
-    "receipt_hash": "sha256:433ca7b9e095c45f9dacbf4dc0b98ea33830f0a4f6813680c0ec8ebb4dec7cfe"
+    "receipt_hash": "sha256:433ca7b9e095c45f9dacbf4dc0b98ea33830f0a4f6813680c0ec8ebb4dec7cfe",
+    "verdict_provenance": "legacy-unknown"
   }
 }

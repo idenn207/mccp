@@ -11,6 +11,7 @@
     "plan_file_hash": "sha256:be19eb10916aa8a854d145cdd845cb121294fce43167033ea96e37bc540027ae",
     "risks_closed": [],
     "oq_closed": [],
-    "receipt_hash": "sha256:37cc2ad5a7b588a16b1947965cbe7f5e6bac8bd63ef4175b1436c3f8f2e45300"
+    "receipt_hash": "sha256:37cc2ad5a7b588a16b1947965cbe7f5e6bac8bd63ef4175b1436c3f8f2e45300",
+    "verdict_provenance": "legacy-unknown"
   }
 }

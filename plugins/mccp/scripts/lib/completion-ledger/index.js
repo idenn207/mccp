@@ -4,8 +4,9 @@
 //
 //   triggerLedgerAppend(repoRoot, receipt, receiptPath, opts) → void
 //
-// Fires from the receipt-write epilogue. Gate-gated to converged
-// `mccp-pr-codex` receipts only. On the git-SAFE path it assembles a
+// Fires from the receipt-write epilogue. Gate-gated to `mccp-pr-codex` receipts
+// with a non-divergent, present `resolution.codex_verdict` (M1 — resolution.converged
+// is retired as the trust key; absent verdict fail-closes). On the git-SAFE path it assembles a
 // completion entry and hands it to store.writeEntry — the entry's existence
 // is the authoritative completion signal (F3), so the receipt is NOT
 // re-stamped on success. On the git-UNSAFE path (detached/unborn HEAD or
@@ -91,9 +92,44 @@ function triggerLedgerAppend(repoRoot, receipt, receiptPath, opts) {
   const decisionId = receipt && receipt.decision_id;
 
   try {
-    // Gate-gating: only converged mccp-pr-codex receipts mark a milestone ship.
+    // Gate-gating: only mccp-pr-codex receipts mark a milestone ship.
     if (!receipt || receipt.gate_id !== 'mccp-pr-codex') return;
-    if (!receipt.resolution || receipt.resolution.converged !== true) return;
+    if (!receipt.resolution) return;
+
+    // §3.12 / R2 F1 — resolution.converged is an UNRELIABLE completion key (it
+    // stays `true` even on a divergent ship) and is RETIRED from the trust key.
+    // The authoritative outcome is resolution.codex_verdict. NEW appends are
+    // codex_verdict-first + fail-closed:
+    //   converged   → append (verdict 'converged'), unless actionable findings remain
+    //   skipped     → append (verdict 'skipped')   — dedupe/disabled happy-path
+    //   unavailable → append (verdict 'advisory')  — advisory/degraded completion
+    //   divergent   → SKIP (never record a No-ship as a completion — false-positive)
+    //   critical    → SKIP
+    //   absent      → SKIP (fail-closed). finalize-receipt.deriveCodexFlags always
+    //                 forwards a verdict on a real ship, so absence means a legacy
+    //                 pre-v1.20.3 write — the migration re-judges + preserves those;
+    //                 they must NOT enter the durable corpus as a fresh completion.
+    // Maps onto evidence-audit verdictsAgree (converged↔converged, skipped↔skipped,
+    // advisory↔unavailable) so the ledger never disagrees with its bound receipt.
+    // (Operator-confirmed vs the plan's converged-only draft: keeping skipped +
+    // unavailable appends preserves the dedupe happy-path — dedupe fires only when
+    // plan+implement BOTH converged, which makes the PR ship codex_verdict='skipped'.)
+    const codexVerdict = (typeof receipt.resolution.codex_verdict === 'string')
+      ? receipt.resolution.codex_verdict
+      : null;
+    if (codexVerdict === null) {
+      logSkip('codex_verdict absent (legacy/pre-v1.20.3) — fail-closed on new append', decisionId);
+      return;
+    }
+    if (codexVerdict === 'divergent' || codexVerdict === 'critical') {
+      logSkip('non-converged codex_verdict: ' + codexVerdict, decisionId);
+      return;
+    }
+    const meta = receipt.meta || {};
+    if (meta.codex_review_actionable_findings === true) {
+      logSkip('codex_review_actionable_findings=true — not a clean completion', decisionId);
+      return;
+    }
 
     const safetyFn = opts.isLedgerAppendSafe || store.isLedgerAppendSafe;
     const safety = safetyFn(repoRoot, opts);
@@ -104,8 +140,11 @@ function triggerLedgerAppend(repoRoot, receipt, receiptPath, opts) {
       return;
     }
 
-    const meta = receipt.meta || {};
-    const verdict = meta.advisory ? 'advisory' : (meta.skipped ? 'skipped' : 'converged');
+    // codexVerdict ∈ {converged, skipped, unavailable} here. Derive the ledger
+    // verdict from it (codex_verdict-first — the meta.advisory/skipped legacy
+    // fallback is retired along with resolution.converged).
+    const verdict = codexVerdict === 'skipped' ? 'skipped'
+      : (codexVerdict === 'unavailable' ? 'advisory' : 'converged');
     const completedAt = (typeof meta.created_at === 'string' && ISO8601_RE.test(meta.created_at))
       ? meta.created_at
       : new Date().toISOString();
@@ -126,6 +165,9 @@ function triggerLedgerAppend(repoRoot, receipt, receiptPath, opts) {
       risks_closed: snap.risks,
       oq_closed: snap.openQuestions,
       receipt_hash: receipt.receipt_hash,
+      // NEW appends always carry a present, non-divergent codex_verdict (absent
+      // returned above), so their verdict is codex-corroborated by construction.
+      verdict_provenance: 'codex-verdict',
     };
 
     const res = (opts.writeEntry || store.writeEntry)(repoRoot, entry, opts);

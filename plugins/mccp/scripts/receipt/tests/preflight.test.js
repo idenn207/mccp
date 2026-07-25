@@ -150,3 +150,32 @@ test('preflight: receipt-tamper → TAMPER label + investigate hint, no "regener
     process.chdir(cwd);
   }
 });
+
+// M2 F2 — subject-tamper is symmetric with receipt-tamper: TAMPER label +
+// investigation-first line, never the "regenerate STALE" hint. Confirms the
+// block-format refactor still emits the subject_hash guidance from preflight.
+test('preflight: subject-tamper → TAMPER label + subject_hash investigate hint, no "regenerate STALE"', function () {
+  const fs = require('fs');
+  const { repo, planRel } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repo);
+  const io = captureIO();
+  try {
+    const r = write({ gate: 'mccp-plan-codex', decision: 'x', plan: planRel });
+    // Mutate a SUBJECT field (task_id — a free string that stays schema-valid;
+    // round is range-checked [1,10] and would trip schema validation first) →
+    // subject_hash mismatch (subject-tamper), which fires before receipt_hash.
+    const raw = JSON.parse(fs.readFileSync(r.path, 'utf8'));
+    raw.task_id = 'tampered-after-signing';
+    fs.writeFileSync(r.path, JSON.stringify(raw, null, 2));
+    const code = preflight({ command: '/mccp:prp-implement', decision: 'x' }, io);
+    assert.strictEqual(code, 2, io.errput());
+    const err = io.errput();
+    assert.match(err, /TAMPER/);
+    assert.match(err, /subject_hash mismatch/);
+    assert.match(err, /Do NOT regenerate/);
+    assert.doesNotMatch(err, /To regenerate STALE/);
+  } finally {
+    process.chdir(cwd);
+  }
+});

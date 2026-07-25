@@ -15,7 +15,7 @@
 | Milestone | Scope | Status | Plan |
 |---|---|---|---|
 | **M1** | verdict-SoT + hash 무결성 core: ledger 승인 술어(+소비처 sweep) · stage-guard write-side · audit read-side · migration | **complete** | (this plan) |
-| M2 | 독립 무결성 fixes: history-leak-scan path-precision(R5-F3) · subject_hash tamper 통일(2026-07-08) · parseReviewPayload 실-producer fixture(2026-07-22 MEDIUM) | pending | — |
+| M2 | 독립 무결성 fixes: history-leak-scan path-precision(R5-F3) · subject_hash tamper 통일(2026-07-08) · parseReviewPayload 실-producer fixture(2026-07-22 MEDIUM) | complete | `.claude/plans/integrity-unification-m2.plan.md` |
 | M3 | terminal `/mccp:pr` non-approving mechanical hard-stop 재설계(2026-07-21 HIGH) — bounded orchestration·re-entrancy·lock·crash-window·self-receipt 포함 semantics + absent-verdict fail-closed(Codex R1 F2) + 자체 version bump·acceptance gates | pending | — |
 
 > M1/M2는 서로 다른 trust boundary라 롤백·호환성 위험이 분리된다(Codex R1 F5). M3는 이미 8라운드 비수렴 루프를 유발한 축이라 독립 재설계 단위로 격리한다(Codex R1 F1). M1은 M2/M3 없이 단독 ship 가능.

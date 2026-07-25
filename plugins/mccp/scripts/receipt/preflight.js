@@ -1,6 +1,7 @@
 'use strict';
 
 const { validateCommand } = require('./validate-cmd');
+const blockFormat = require('./block-format');
 
 // v0.2.8 Task 2.6.5a A3 R2 F2 absorption — shared classifier. Load
 // optimistically; fall back to old `result.ok` gating on load failure.
@@ -27,15 +28,12 @@ function writeBlockReason(stderr, result) {
     stderr.write('  STALE    ' + s.gate_id + ': ' + s.reason + extra + '\n');
   }
   for (const b of result.blocking) {
-    // v0.2.8 Task 2.6.5a A3 — tempfail entries surface as TEMPFAIL so the
-    // operator-facing line matches the machine-readable exit (75 vs 2).
-    // P5 (audit-remediation) — receipt-tamper surfaces as TAMPER (not generic
-    // INVALID) so an integrity failure is legible; the dedicated recovery line
-    // below deliberately does NOT say "regenerate" (that overwrites evidence).
-    let label = 'INVALID ';
-    if (b && b.kind === 'tempfail') label = 'TEMPFAIL';
-    else if (b && b.kind === 'receipt-tamper') label = 'TAMPER  ';
-    stderr.write('  ' + label + ' ' + b.gate_id + ': ' + b.reason + '\n');
+    // Label via the shared formatter (block-format.js) so preflight, the
+    // UserPromptExpansion hook, and the Skill hook can never disagree on whether a
+    // block is TEMPFAIL / TAMPER / INVALID. tempfail → machine-readable exit 75;
+    // receipt/subject-tamper → TAMPER (the recovery line below deliberately does
+    // NOT say "regenerate", which would overwrite evidence).
+    stderr.write('  ' + blockFormat.entryLabel(b) + ' ' + b.gate_id + ': ' + b.reason + '\n');
   }
   for (const c of result.open_critical) {
     stderr.write('  CRITICAL ' + c.gate_id + ': ' + c.item + '\n');
@@ -47,12 +45,13 @@ function writeBlockReason(stderr, result) {
   if (result.stale.length > 0) {
     stderr.write(GATE_TAG + ' To regenerate STALE: re-run the producing gate (e.g. /mccp:plan for mccp-plan-codex, /mccp:prp-implement for mccp-implement-codex)\n');
   }
-  // P5 (audit-remediation) — receipt-tamper is INTEGRITY, not staleness. Do NOT
-  // route it to the "regenerate" hint above: re-running the gate would overwrite
-  // the tampered receipt and destroy the evidence. Emit an investigation-first
-  // line instead (Codex R1 F1).
-  if (result.blocking.some(function (b) { return b && b.kind === 'receipt-tamper'; })) {
-    stderr.write(GATE_TAG + ' TAMPER: receipt_hash mismatch — receipt body (findings/resolution/meta) altered after signing. Do NOT regenerate (that destroys the evidence). Inspect the receipt against its source and investigate the change before any re-run.\n');
+  // receipt/subject-tamper is INTEGRITY, not staleness. Do NOT route it to the
+  // "regenerate" hint above: re-running the gate would overwrite the tampered
+  // receipt and destroy the evidence. The shared formatter emits the same
+  // investigation-first line here, in the UserPromptExpansion hook, and in the
+  // Skill hook (M2 F2 — no drift between surfaces).
+  for (const line of blockFormat.tamperGuidanceLines(result, GATE_TAG)) {
+    stderr.write(line + '\n');
   }
   stderr.write(GATE_TAG + ' To bypass once: MCCP_SKIP_RECEIPT=1\n');
   stderr.write(GATE_TAG + ' To inspect:     node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js status --gate <name>\n');

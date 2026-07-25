@@ -2,7 +2,32 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.22.6] — 2026-07-24
+
+**무결성 통일 cycle M2 — 독립 무결성 fixes** — M1이 durable corpus를 지키는 tightly-coupled 3축을 닫았다면, M2는 서로 다른 trust boundary에 흩어진 **서로 독립적인** 국소 결함 4건을 닫는다(롤백·호환성 위험이 M1과 분리되므로 별도 milestone; 각 Task 자기완결 회귀 test, 순서 불변식 없음). Implement-Codex는 환경 Codex companion `exit-nonzero`(~20s crash)로 **advisory** 진행(운영자 승인, M1 #110 선례) → receipt `codex_verdict='unavailable'` 봉인 → PR-Codex 별도 발화. security-reviewer agent가 security-sensitive 두 축(leak-scan · subject-tamper)을 독립 검토해 SOUND 확인(Codex 부재 부분 보완). M3(terminal `/mccp:pr` non-approving mechanical hard-stop 재설계)는 별건.
+
+### Changed
+- `plugins/mccp/scripts/receipt/validate-cmd.js` · `receipt/preflight.js` — subject_hash mismatch를 `result.stale`→`result.blocking` `kind:'subject-tamper'`로 승격(Task 1). receipt_hash receipt-tamper 블록과 대칭 — `subjectHash`는 SUBJECT_FIELDS self-consistency seal이라 mismatch=서명-후-변조(tamper)이지 plan staleness(별도 plan_hash 비교)가 아니고, stale→"regenerate STALE" 힌트가 tamper 증거를 파괴하던 subject-side 잔여(M1이 `receipt_hash`에 대해 이미 닫은 것과 동일 잠복 결함)를 닫는다. preflight는 subject-tamper에 "Do NOT regenerate" INTEGRITY 힌트 + TAMPER 라벨 확장.
+- `plugins/mccp/scripts/lib/history-leak-scan.js` — allowlist를 `oid→paths[]`로 확장(Task 2, R5-F3). `git rev-list --objects`는 blob당 first-path 1개만 방출하므로(실측 — 플랜의 "다중경로 방출" 가정 정정) range 커밋 `git ls-tree -r`로 전 경로를 증강하고 allowlist를 **경로별**로 판정. 같은 blob이 allowlisted fixture 경로 + non-allowlisted real 경로에 도달할 때 real leak을 더 이상 억제하지 않는다(pre-push secret/path backstop 복구). ls-tree 실패는 fail-closed(cat-file scan-error 계약 미러).
+- `plugins/mccp/scripts/lib/briefing/invoke.js` — raw `!!res.converged`를 `receipt-convergence#isConvergedVerdict(res)`로 교체(Task 4) + import 추가. divergent/critical ship이 briefing 요약에 "converged: true"로 오기되던 M1 Task 1b sweep의 마지막 raw 소비처를 정합(derive projection은 M1이 이미 교정).
+- `plugins/mccp/.claude-plugin/plugin.json` `1.22.5 → 1.22.6` + renderer footer(html/markdown) 동기.
+
+### Tests
+- `receipt/tests/validate-cmd.test.js` — subject-tamper 회귀 2건(stale→blocking flip · receipt-tamper pre-empt). `lib/tests/history-leak-scan.test.js` — 다중경로 회귀 2건(non-allowlisted sibling leak 보고 + all-allowlisted 억제 regression-0). `lib/tests/codex-review-payload.test.js` — 실-producer envelope 회귀 4건(Task 3 verify-and-close). `lib/briefing/tests/invoke.test.js` — divergent/critical ship "converged: false" 회귀 4건.
+
+### Note
+- Task 3(`parseReviewPayload`)은 **코드 변경 없음** — 현 `.stdout`→`.result.verdict` 파서가 실-producer 응답을 정상 파싱함을 실측·회귀 fixture로 봉인(verify-and-close, "통과했다≠검사했다" drift 방지). backlog 3행(2026-07-08 subject_hash · 2026-07-22 parseReviewPayload · 2026-07-23 R5-F3) ABSORBED 표식(row 보존).
+
+### Fixed (Codex divergent absorption, 2026-07-25 — PR #113)
+Codex quota 회복 후 M2 diff에 실제 adversarial-review 재실행 → verdict `needs-attention`(divergent) 2건. 로컬 code-review(Claude leg)가 놓친 것을 cross-model이 잡음. 운영자 결정 = 둘 다 수정.
+- **F2 [MEDIUM]** — tamper 메시징이 `preflight.js`(CLI)에만 있고 실제 슬래시-명령 enforcement 표면인 `receipt-prompt.js`(UserPromptExpansion)·`receipt-skill.js`(Skill)는 여전히 generic `INVALID` + 항상 "Write missing receipt"를 출력(tamper receipt regenerate/overwrite 유도 = 증거 파괴). 신규 shared formatter [`receipt/block-format.js`](plugins/mccp/scripts/receipt/block-format.js)(`entryLabel`/`tamperGuidanceLines`/`hasTamper`/`blockDetailLines`)로 **3개 표면 통일** — 어디서나 `TAMPER` 라벨 + "Do NOT regenerate", "Write missing receipt"는 `missing.length>0`일 때만. hook `additionalContext`도 tamper 시 INTEGRITY 분기. hook은 fail-open optional require.
+- **F1 [HIGH→실질 MED]** — `history-leak-scan.js`의 `byOid`가 `rev-list --objects base..HEAD`(base 도달 객체 제외)로만 seed되어, base에 이미 존재하는 leaking blob과 동일 콘텐츠를 non-allowlisted 새 경로에 추가하면 미스캔 → `ok` 오보고. **2회 정련**: R1의 순-diff(`git diff --raw base..HEAD`)는 Codex 재리뷰가 ancestor-only 잔여(중간 커밋 복사→HEAD 전 삭제)를 지적해 불충분 → R2에서 **base-tree map(`git ls-tree -r <base>`) + 전-커밋 ls-tree walk**로 교체. 각 range 커밋의 전체 트리를 순회하며 NEW blob 또는 base 미발행 `(oid,path)`의 OLD blob을 fold-in → 삭제된 중간-커밋 경로까지 포착(F-H ancestor-leak 보증 완전화). base map 실패 fail-closed.
+- **F3 [MEDIUM]** (Codex R3) — `history-leak-scan.js`의 `resolveBase()`가 null(opts.base·origin/main·origin/master·main·master 전부 부재)이면 `scanRange`가 `ok:true`로 silent pass — unclassified range를 empty range처럼 통과시켜 bare CI checkout에서 HEAD를 미스캔 publish(fail-open). `ok:false` + scan-error로 fail-closed 전환(F1 R2가 표방한 fail-closed 계약 완성). pre-existing이나 흡수.
+- **F4 [HIGH]** (Codex R4) — `buildLeakPatterns()`가 repo-root를 case-sensitive RegExp로 컴파일 → Windows(case-insensitive fs)에서 `X:\parent\repo`와 `x:\parent\repo`가 동일 위치인데 방출 casing만 탐지, 다른 casing 같은 경로 leak이 backstop 통과. drive-letter(Windows) root는 `i` 플래그로 컴파일(POSIX는 case-sensitive라 그대로), old-repo drive-letter 패턴은 항상 `i`. 본 환경이 Windows라 실제 dev 플랫폼 우회. pre-existing이나 흡수.
+- **F5 [HIGH]** (Codex R5, F4 self-inflicted) — F4 설명 주석/report가 실제 workspace root를 리터럴 예시로 embed했고, F4가 켠 case-insensitive 매칭이 그 줄을 자기-소스 leak으로 탐지 → pre-push 스캔 실패(실측 3 leak). 예시를 전부 synthetic(`X:\parent\repo`)으로 교체 + 실제-root로 컴파일한 패턴이 소스에 0-match임을 단언하는 회귀 test. leaky blob은 F4 커밋(unpushed HEAD)에만 있어 `git commit --amend`로 rewrite(F1 R2 ancestor-leak 보증을 자기 자신에 dogfood, force-push 불필요).
+- Tests: `receipt/tests/block-format.test.js`(신규 8) · `hooks/tests/receipt-prompt-tamper.test.js`(신규 3) · `preflight.test.js`(+1 subject-tamper) · `lib/tests/history-leak-scan.test.js`(+5: F1 base-blob-new-path · F1 R2 ancestor-only-deleted-before-HEAD · F3 unresolved-base-fail-closed · F4 windows-case-variant · F5 self-source-no-leak) + 실 pre-push 스캔 leaks=0. Codex 수렴 loop 5+라운드(#1 F1H+F2M → #2 F1 ancestor-only → #3 F3 → #4 F4 → #5 F5 자기-leak), 매 라운드 실제 결함 정확히 좁힘(F3/F4는 pre-existing 하드닝, F5는 스캐너 self-dogfood). 버전은 1.22.6 유지(미머지 M2에 리뷰 흡수).
 
 ## [1.22.5] — 2026-07-24
 

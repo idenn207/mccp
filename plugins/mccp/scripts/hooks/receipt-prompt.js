@@ -29,6 +29,14 @@ const hookTrace = (function () {
   catch (_) { return null; }
 })();
 
+// M2 F2 — shared block-body formatter so tamper-aware recovery guidance matches
+// preflight.js and the Skill hook. Loaded optionally (fail-open): a load failure
+// falls back to generic labels inside block(), never throws.
+const blockFormat = (function () {
+  try { return require(path.join(RECEIPT_DIR, 'block-format')); }
+  catch (_) { return null; }
+})();
+
 function readStdin() {
   return new Promise(function (resolve) {
     let buf = '';
@@ -144,22 +152,32 @@ function g1Allow(event, opts) {
 function block(commandName, decisionId, result) {
   const lines = [];
   lines.push('[MCCP-RECEIPT-GATE] ' + commandName + ' (decision="' + decisionId + '") blocked:');
-  for (const m of result.missing || []) {
-    lines.push('  MISSING  ' + m.gate_id + ': ' + m.reason);
-  }
-  for (const s of result.stale || []) {
-    lines.push('  STALE    ' + s.gate_id + ': ' + s.reason);
-  }
-  for (const b of result.blocking || []) {
-    lines.push('  INVALID  ' + b.gate_id + ': ' + b.reason);
-  }
-  for (const c of result.open_critical || []) {
-    lines.push('  CRITICAL ' + c.gate_id + ': ' + c.item);
+  // M2 F2 — shared detail lines so a subject/receipt-tamper block is labeled
+  // TAMPER (not generic INVALID) here too. Fall back to inline generic labels only
+  // if the shared formatter failed to load (fail-open).
+  if (blockFormat) {
+    for (const l of blockFormat.blockDetailLines(result)) lines.push(l);
+  } else {
+    for (const m of result.missing || []) lines.push('  MISSING  ' + m.gate_id + ': ' + m.reason);
+    for (const s of result.stale || []) lines.push('  STALE    ' + s.gate_id + ': ' + s.reason);
+    for (const b of result.blocking || []) lines.push('  INVALID  ' + b.gate_id + ': ' + b.reason);
+    for (const c of result.open_critical || []) lines.push('  CRITICAL ' + c.gate_id + ': ' + c.item);
   }
   lines.push('');
   lines.push('Bypass once: MCCP_SKIP_RECEIPT=1');
   lines.push('Inspect:     node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js status');
-  lines.push('Write missing receipt: node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write --gate <id> --decision ' + decisionId + ' --plan <path>');
+  // M2 F2 — offer "Write missing receipt" ONLY when something is actually MISSING.
+  // For a tamper/stale/critical block, writing a receipt would overwrite the
+  // evidence (tamper) or paper over the failure. This mirrors preflight.js, which
+  // gates its recovery hints on missing.length / stale.length.
+  if ((result.missing || []).length > 0) {
+    lines.push('Write missing receipt: node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write --gate <id> --decision ' + decisionId + ' --plan <path>');
+  }
+  // M2 F2 — investigation-first tamper guidance, identical wording across all
+  // three surfaces via the shared formatter.
+  if (blockFormat) {
+    for (const l of blockFormat.tamperGuidanceLines(result)) lines.push(l);
+  }
 
   if (process.env.MCCP_RECEIPT_DEBUG === '1') {
     lines.push('');
@@ -167,12 +185,19 @@ function block(commandName, decisionId, result) {
     lines.push('[DEBUG] hook stderr is not surfaced in UserPromptExpansion block payload; debug inlined here.');
   }
 
+  const isTamper = blockFormat
+    ? blockFormat.hasTamper(result)
+    : (result.blocking || []).some(function (b) { return b && (b.kind === 'receipt-tamper' || b.kind === 'subject-tamper'); });
+  const additionalContext = isTamper
+    ? 'mccp gate enforcement: a receipt failed INTEGRITY verification (hash tamper). Do NOT regenerate or overwrite it — inspect the receipt against its source and investigate the change before any re-run.'
+    : 'mccp gate enforcement: previous-phase receipt is missing or stale. Either write the receipt, fix the staleness, or bypass with MCCP_SKIP_RECEIPT=1.';
+
   const payload = {
     decision: 'block',
     reason: lines.join('\n'),
     hookSpecificOutput: {
       hookEventName: 'UserPromptExpansion',
-      additionalContext: 'mccp gate enforcement: previous-phase receipt is missing or stale. Either write the receipt, fix the staleness, or bypass with MCCP_SKIP_RECEIPT=1.',
+      additionalContext: additionalContext,
     },
   };
   process.stdout.write(JSON.stringify(payload));

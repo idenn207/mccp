@@ -24,6 +24,13 @@ const hookTrace = (function () {
   catch (_) { return null; }
 })();
 
+// M2 F2 — shared block-body formatter so tamper-aware guidance matches preflight
+// and the UserPromptExpansion hook. Optional (fail-open): null → generic labels.
+const blockFormat = (function () {
+  try { return require(path.join(RECEIPT_DIR, 'block-format')); }
+  catch (_) { return null; }
+})();
+
 function tryShardLog(event, opts) {
   if (!hookTrace || !event) return null;
   const sid = event.session_id;
@@ -227,12 +234,24 @@ async function main() {
   }
 
   process.stderr.write('[MCCP-RECEIPT-GATE] Skill ' + skillName + ' (decision="' + decisionId + '") blocked:\n');
-  for (const m of result.missing || []) process.stderr.write('  MISSING  ' + m.gate_id + ': ' + m.reason + '\n');
-  for (const s of result.stale || []) process.stderr.write('  STALE    ' + s.gate_id + ': ' + s.reason + '\n');
-  for (const b of result.blocking || []) process.stderr.write('  INVALID  ' + b.gate_id + ': ' + b.reason + '\n');
-  for (const c of result.open_critical || []) process.stderr.write('  CRITICAL ' + c.gate_id + ': ' + c.item + '\n');
+  // M2 F2 — shared detail lines so a subject/receipt-tamper block is labeled
+  // TAMPER (not generic INVALID). Fall back to inline labels if the shared
+  // formatter failed to load (fail-open).
+  if (blockFormat) {
+    for (const l of blockFormat.blockDetailLines(result)) process.stderr.write(l + '\n');
+  } else {
+    for (const m of result.missing || []) process.stderr.write('  MISSING  ' + m.gate_id + ': ' + m.reason + '\n');
+    for (const s of result.stale || []) process.stderr.write('  STALE    ' + s.gate_id + ': ' + s.reason + '\n');
+    for (const b of result.blocking || []) process.stderr.write('  INVALID  ' + b.gate_id + ': ' + b.reason + '\n');
+    for (const c of result.open_critical || []) process.stderr.write('  CRITICAL ' + c.gate_id + ': ' + c.item + '\n');
+  }
   process.stderr.write('\nBypass once: MCCP_SKIP_RECEIPT=1\n');
   process.stderr.write('Inspect:     node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js status\n');
+  // M2 F2 — investigation-first tamper guidance, identical to the other surfaces.
+  // A tamper block must never be silently recoverable via a plain "write receipt".
+  if (blockFormat) {
+    for (const l of blockFormat.tamperGuidanceLines(result)) process.stderr.write(l + '\n');
+  }
   return 2;
 }
 

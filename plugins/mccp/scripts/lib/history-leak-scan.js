@@ -69,14 +69,25 @@ function buildLeakPatterns(repoRoot, oldNames) {
   const rootFwd = String(repoRoot).replace(/\\/g, '/');
   const segs = rootFwd.split('/').filter(function (s) { return s.length > 0; });
   const sepFlexible = segs.map(escapeRe).join('[\\\\/]+');
+  // F4 (Codex R4) — Windows paths are case-INSENSITIVE: `X:\parent\repo` and
+  // `x:\parent\repo` name the SAME repo root, so a leak line with a differently-
+  // cased drive letter or segment would slip past a case-sensitive regex compiled
+  // from the one casing `repoRoot` happens to emit (examples are synthetic on
+  // purpose — a comment must never embed THIS repo's real root, or the case-
+  // insensitive pattern below would flag its own source, per line ~66). Compile the
+  // repo-root pattern case-insensitively when the root is a drive-letter (Windows)
+  // path; POSIX roots stay case-sensitive because their filesystems are (a
+  // case-variant there is a genuinely different path, and `i` would over-match).
+  // The old-repo drive-letter patterns are Windows by construction → always `i`.
+  const winStyle = /^[A-Za-z]:/.test(rootFwd);
   const patterns = [
-    { name: 'repo-root', re: new RegExp(sepFlexible) },
+    { name: 'repo-root', re: new RegExp(sepFlexible, winStyle ? 'i' : '') },
   ];
   for (const nm of (oldNames || DEFAULT_OLD_REPO_NAMES)) {
     // drive-letter path (any separator run) that ends in the old repo name.
     patterns.push({
       name: 'old-repo:' + nm,
-      re: new RegExp('[A-Za-z]:[\\\\/][^\\s"\'`]*' + escapeRe(nm)),
+      re: new RegExp('[A-Za-z]:[\\\\/][^\\s"\'`]*' + escapeRe(nm), 'i'),
     });
   }
   return patterns;
@@ -124,7 +135,23 @@ function scanRange(opts) {
   const patterns = buildLeakPatterns(repoRoot, opts.oldRepoNames);
 
   const base = resolveBase(repoRoot, opts.base, gitFn);
-  if (!base) return { ok: true, leaks: [], scanned_blobs: 0, base: null, commits: 0 };
+  if (!base) {
+    // F3 (M2 follow-up, Codex R3) — an UNRESOLVED base is NOT an empty range; it is
+    // an unclassified range. As the mandatory pre-push backstop, returning ok:true
+    // here would publish HEAD without scanning ANY range commit (including the
+    // ancestor-only old-blob disclosure paths F1 exists to catch) whenever
+    // opts.base, origin/main, origin/master, main, and master are ALL absent (bare
+    // CI checkout, detached env). That silently voids the fail-closed guarantee the
+    // rest of scanRange upholds. Fail-CLOSED — the caller must supply a resolvable
+    // base (pass an explicit --base <sha>).
+    return {
+      ok: false,
+      leaks: [{ path: '(git)', line: 0, pattern: 'scan-error', evidence: 'no base ref resolved (tried opts.base, origin/main, origin/master, main, master) — cannot classify NEW objects; pass an explicit --base' }],
+      scanned_blobs: 0,
+      base: null,
+      commits: 0,
+    };
+  }
 
   const range = base + '..HEAD';
   let commitCount = 0;
@@ -144,20 +171,92 @@ function scanRange(opts) {
   } catch (err) {
     return { ok: false, leaks: [{ path: '(git)', evidence: 'rev-list --objects failed: ' + err.message }], scanned_blobs: 0, base: base, commits: commitCount };
   }
-  const byOid = new Map(); // oid → path (first-seen path is representative)
+  // R5-F3 (M2 Task 2) — collect EVERY path each NEW blob is reachable at, not
+  // just the first. `git rev-list --objects` annotates each object with only its
+  // FIRST-seen path (empirically: a blob at two paths emits ONE object line), so
+  // the old `oid → representative path` map let an allowlisted fixture path MASK a
+  // real leak on a sibling path of the SAME blob (identical content). The
+  // allowlist is now evaluated PER PATH in the scan loop below, so a blob reaching
+  // an allowlisted path AND a non-allowlisted path still reports the latter.
+  const byOid = new Map(); // oid → paths[] (representative first; all tree paths appended)
+  const commits = [];      // bare-sha lines in rev-list --objects are commits (root tree has an empty path)
   for (const raw of objectsRaw.split(/\r?\n/)) {
     if (!raw) continue;
     const sp = raw.indexOf(' ');
-    if (sp === -1) continue;            // commit (no path) — skip
+    if (sp === -1) { commits.push(raw); continue; }   // commit (no path) — reused for the ls-tree walk
     const oid = raw.slice(0, sp);
     const p = raw.slice(sp + 1);
-    if (!p) continue;
-    if (!byOid.has(oid)) byOid.set(oid, p);
+    if (!p) continue;                                 // root tree line ("<sha> ") — empty path, skip
+    if (!byOid.has(oid)) byOid.set(oid, []);
+    const arr = byOid.get(oid);
+    if (arr.indexOf(p) === -1) arr.push(p);
+  }
+  // F1 (M2 follow-up, Codex R2) — base tree (oid+path) set. `rev-list --objects
+  // base..HEAD` seeds byOid with NEW blobs only, so an OLD (base-reachable) blob
+  // re-referenced at a range-introduced path is invisible there. To tell a
+  // range-introduced disclosure path apart from an unchanged base path during the
+  // ls-tree walk below, we need to know exactly which (oid,path) pairs base already
+  // published. `git ls-tree -r <base>` lists every leaf blob (path→oid) in base.
+  // Build a `oid\0path` membership set; a walk entry whose pair is in base is
+  // unchanged (already public) and skipped, everything else is range-introduced and
+  // scanned. Fail-CLOSED on error (we cannot classify without the base tree).
+  const baseTree = new Set();
+  {
+    let baseRaw;
+    try {
+      baseRaw = gitFn(['ls-tree', '-r', base], repoRoot);
+    } catch (err) {
+      return { ok: false, leaks: [{ path: '(git)', evidence: 'ls-tree -r ' + base + ' (base) failed: ' + String((err && err.message) || 'unknown').slice(0, 160) }], scanned_blobs: 0, base: base, commits: commitCount };
+    }
+    for (const line of baseRaw.split(/\r?\n/)) {
+      if (!line) continue;
+      const tab = line.indexOf('\t');
+      if (tab === -1) continue;
+      const oid = line.slice(0, tab).split(/\s+/)[2];
+      const p = line.slice(tab + 1);
+      if (!oid || !p) continue;
+      baseTree.add(oid + '\0' + p);
+    }
+  }
+  // Walk EVERY range commit's full tree. `git ls-tree -r <commit>` lists every leaf
+  // blob (path→oid) in that commit — so a path introduced in an INTERMEDIATE commit
+  // and deleted before HEAD is still enumerated here (this is what preserves the
+  // ancestor-leak guarantee, F-H). Fold a (oid,path) when the blob is NEW (in byOid
+  // from rev-list) OR it is an OLD blob at a pair base did NOT publish — a range-
+  // introduced disclosure path onto pre-existing content. This closes F1 (Codex
+  // R2): a copy of a base-existing leaking blob to a non-allowlisted path is now
+  // scanned even if a later range commit deletes it before HEAD, because we read the
+  // full tree of EVERY range commit (not just the net base..HEAD diff, which missed
+  // ancestor-only paths). Unchanged base paths (pair in baseTree) are already public
+  // → skipped. A ls-tree failure is fail-CLOSED. Test gitFn stubs that emit no
+  // bare-commit line leave `commits` empty, so this walk is skipped.
+  for (const c of commits) {
+    let treeRaw;
+    try {
+      treeRaw = gitFn(['ls-tree', '-r', c], repoRoot);
+    } catch (err) {
+      return { ok: false, leaks: [{ path: '(git)', evidence: 'ls-tree -r ' + c + ' failed: ' + String((err && err.message) || 'unknown').slice(0, 160) }], scanned_blobs: 0, base: base, commits: commitCount };
+    }
+    for (const line of treeRaw.split(/\r?\n/)) {
+      if (!line) continue;
+      const tab = line.indexOf('\t');
+      if (tab === -1) continue;                        // "<mode> <type> <oid>\t<path>"
+      const oid = line.slice(0, tab).split(/\s+/)[2];
+      const p = line.slice(tab + 1);
+      if (!oid || !p) continue;
+      // OLD blob at an unchanged base path → already public, skip. Otherwise fold
+      // (NEW blob, or OLD blob at a range-introduced path/content).
+      if (!byOid.has(oid) && baseTree.has(oid + '\0' + p)) continue;
+      if (!byOid.has(oid)) byOid.set(oid, []);
+      const arr = byOid.get(oid);
+      if (arr.indexOf(p) === -1) arr.push(p);
+    }
   }
 
   const leaks = [];
   let scanned = 0;
-  for (const [oid, p] of byOid) {
+  for (const [oid, paths] of byOid) {
+    const repPath = paths[0]; // blob-level scan-errors report a representative path
     // type check — only blobs.
     let type;
     try {
@@ -166,7 +265,7 @@ function scanRange(opts) {
       // R4/F2 — a security backstop must NOT skip a blob it cannot classify. A
       // swallowed `continue` here returns ok while a transient cat-file failure
       // could hide a leak. Fail-CLOSED via a scan-error (ok becomes false).
-      leaks.push({ oid: oid, path: p, line: 0, pattern: 'scan-error', evidence: 'cat-file -t failed: ' + String((e && e.message) || 'unknown').slice(0, 160) });
+      leaks.push({ oid: oid, path: repPath, line: 0, pattern: 'scan-error', evidence: 'cat-file -t failed: ' + String((e && e.message) || 'unknown').slice(0, 160) });
       continue;
     }
     if (type !== 'blob') continue;
@@ -178,7 +277,7 @@ function scanRange(opts) {
       // returned ok while leaving that blob UNSCANNED, so a repo-root path inside
       // it would reach the push. Fail-CLOSED — the operator must confirm no leak
       // (a receipt-corpus blob this large is anomalous by itself).
-      leaks.push({ oid: oid, path: p, line: 0, pattern: 'scan-error', evidence: 'cat-file blob failed (unscanned, possibly >64MiB): ' + String((e && e.message) || 'unknown').slice(0, 160) });
+      leaks.push({ oid: oid, path: repPath, line: 0, pattern: 'scan-error', evidence: 'cat-file blob failed (unscanned, possibly >64MiB): ' + String((e && e.message) || 'unknown').slice(0, 160) });
       continue;
     }
     if (content.indexOf(String.fromCharCode(0)) !== -1) continue; // NUL byte => binary blob, skip
@@ -187,14 +286,19 @@ function scanRange(opts) {
     for (let i = 0; i < lines.length; i++) {
       for (const pat of patterns) {
         if (pat.re.test(lines[i])) {
-          if (isAllowlisted(allowlist, p, lines[i])) continue;
-          leaks.push({
-            oid: oid,
-            path: p,
-            line: i + 1,
-            pattern: pat.name,
-            evidence: lines[i].trim().slice(0, 200),
-          });
+          // Per-path allowlist — a match is suppressed only for the exact path(s)
+          // an allowlist entry names; the SAME leaking line on a non-allowlisted
+          // path of the same blob is still reported (R5-F3 fix).
+          for (const p of paths) {
+            if (isAllowlisted(allowlist, p, lines[i])) continue;
+            leaks.push({
+              oid: oid,
+              path: p,
+              line: i + 1,
+              pattern: pat.name,
+              evidence: lines[i].trim().slice(0, 200),
+            });
+          }
         }
       }
     }

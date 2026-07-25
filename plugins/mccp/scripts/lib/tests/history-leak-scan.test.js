@@ -171,6 +171,111 @@ test('DEFAULT allowlist suppresses the scanner OWN fixture path, but not a real 
   assert.ok(res.leaks.some(function (l) { return l.path === 'somewhere/else.md'; }), 'a leak in a DIFFERENT file is NOT masked');
 });
 
+test('R5-F3: same blob at an allowlisted path AND a non-allowlisted path → non-allowlisted leak still reported', function () {
+  // The masking bug: `git rev-list --objects` annotates a blob with only its
+  // FIRST-seen path. If that representative path is allowlisted, the old code
+  // suppressed the leak for the WHOLE blob — hiding the SAME content leaking on a
+  // sibling (non-allowlisted) path. Two files with IDENTICAL content share one
+  // blob oid (git sorts `allowed.md` before `other.md` within docs/, so the
+  // representative is the allowlisted one — the exact masking case). ls-tree -r
+  // augmentation now recovers BOTH paths and the allowlist is evaluated per-path.
+  const root = initBase();
+  const leak = 'documented example path ' + root + '/foo\n';
+  commit(root, {
+    'docs/allowed.md': leak,   // allowlisted below
+    'docs/other.md': leak,     // SAME content → SAME blob oid, NOT allowlisted
+  });
+  const res = scan.scanRange({
+    repoRoot: root, base: 'main',
+    allowlist: [{ path: 'docs/allowed.md' }],
+  });
+  assert.equal(res.ok, false, 'the non-allowlisted sibling path of the same blob must still leak');
+  assert.ok(res.leaks.some(function (l) { return l.path === 'docs/other.md'; }), 'other.md leak reported');
+  assert.ok(res.leaks.every(function (l) { return l.path !== 'docs/allowed.md'; }), 'allowed.md path suppressed');
+});
+
+test('R5-F3: a blob reachable ONLY via allowlisted paths stays fully suppressed (regression 0)', function () {
+  // The single-/all-allowlisted-path case must keep suppressing — the fix only
+  // ADDS sibling-path reporting; it must not start reporting an all-allowlisted blob.
+  const root = initBase();
+  const leak = 'doc ' + root + '/bar\n';
+  commit(root, {
+    'docs/a.md': leak,
+    'docs/b.md': leak,   // same blob, BOTH allowlisted
+  });
+  const res = scan.scanRange({
+    repoRoot: root, base: 'main',
+    allowlist: [{ path: 'docs/a.md' }, { path: 'docs/b.md' }],
+  });
+  assert.equal(res.ok, true, JSON.stringify(res.leaks));
+});
+
+test('F1: a NEW path onto a blob that ALREADY exists in base (allowlisted there) still leaks', function () {
+  // Codex divergent F1: `git rev-list --objects base..HEAD` excludes objects
+  // already reachable from base. A branch that copies an existing (base) leaking
+  // blob to a NON-allowlisted new path therefore never entered `byOid`, and the
+  // ls-tree walk's old `byOid.has(oid)` guard skipped it too — so the new
+  // disclosure path escaped the scan entirely (reported ok). The base-tree map lets
+  // the walk fold OLD blobs at any (oid,path) pair base did not already publish.
+  const root = initBase();
+  const leak = 'documented path ' + root + '/foo\n';
+  // Put the leaking blob in BASE at an allowlisted path, then move `main` onto it
+  // so the blob is already reachable from base (excluded by rev-list base..HEAD).
+  commit(root, { 'docs/allowed.md': leak }, null, 'base-adds-allowlisted-leak');
+  g(root, ['branch', '-f', 'main', 'HEAD']);
+  // Feature commit: copy the SAME content to a non-allowlisted sibling path. Git
+  // dedups identical content → SAME blob oid, which predates the new base.
+  commit(root, { 'docs/other.md': leak }, null, 'copy-to-nonallowlisted-path');
+  const res = scan.scanRange({
+    repoRoot: root, base: 'main',
+    allowlist: [{ path: 'docs/allowed.md' }],
+  });
+  assert.equal(res.ok, false, 'a new non-allowlisted path onto a pre-existing blob must still leak');
+  assert.ok(res.leaks.some(function (l) { return l.path === 'docs/other.md'; }), 'docs/other.md leak reported');
+  assert.ok(res.leaks.every(function (l) { return l.path !== 'docs/allowed.md'; }), 'the allowlisted base path stays suppressed');
+});
+
+test('F1 (Codex R2): ancestor-only old-blob path (copied then DELETED before HEAD) still leaks', function () {
+  // The residual R1 missed: a net base..HEAD diff only sees paths present at HEAD.
+  // A branch can copy a base-existing leaking blob to a non-allowlisted path in an
+  // INTERMEDIATE commit, then delete that path before HEAD — pushed history still
+  // carries the disclosure path, but the net diff no longer shows it. Walking EVERY
+  // range commit's full tree (against the base-tree map) catches it: the
+  // intermediate commit's tree still lists the path.
+  const root = initBase();
+  const leak = 'documented path ' + root + '/foo\n';
+  commit(root, { 'docs/allowed.md': leak }, null, 'base-adds-allowlisted-leak');
+  g(root, ['branch', '-f', 'main', 'HEAD']);
+  // Intermediate commit copies the base blob to a non-allowlisted path...
+  commit(root, { 'docs/sneaky.md': leak }, null, 'intermediate-copies-to-nonallowlisted');
+  // ...then a later commit deletes it before HEAD (net diff no longer sees it).
+  commit(root, { 'docs/clean.md': 'no leak\n' }, ['docs/sneaky.md'], 'tip-removes-sneaky');
+  assert.ok(!fs.existsSync(path.join(root, 'docs/sneaky.md')), 'sneaky path is gone at HEAD');
+  const res = scan.scanRange({
+    repoRoot: root, base: 'main',
+    allowlist: [{ path: 'docs/allowed.md' }],
+  });
+  assert.equal(res.ok, false, 'an ancestor-only disclosure path onto a base blob must still leak');
+  assert.ok(res.leaks.some(function (l) { return l.path === 'docs/sneaky.md'; }), 'docs/sneaky.md leak reported from the intermediate commit');
+  assert.ok(res.leaks.every(function (l) { return l.path !== 'docs/allowed.md'; }), 'the allowlisted base path stays suppressed');
+});
+
+test('F4 (Codex R4): a repo-root path with different CASE still leaks (Windows case-insensitivity)', function () {
+  // Windows paths are case-insensitive: C:\X and c:\x name the same root, so a leak
+  // line spelling the repo root with a lowercased drive/segment must still be
+  // caught. On POSIX (case-sensitive fs) a case variant is a genuinely different
+  // path, so the repo-root pattern stays case-sensitive there and this does not
+  // apply (the test skips when the root is already all-lowercase / has no drive).
+  const root = initBase();
+  const variant = root.toLowerCase();
+  if (variant === root) { return; } // POSIX / already lowercase — not applicable
+  commit(root, { 'report.md': 'leaked path ' + variant + '/sub here\n' });
+  const res = scan.scanRange({ repoRoot: root, base: 'main' });
+  assert.equal(res.ok, false, 'a case-variant of the repo root must still leak on Windows');
+  assert.ok(res.leaks.some(function (l) { return /report\.md/.test(l.path) && l.pattern === 'repo-root'; }),
+    'the differently-cased repo-root path is detected by the repo-root pattern');
+});
+
 test('empty range (HEAD === base) → ok, nothing scanned', function () {
   const root = buildRepo([]); // no extra commits: HEAD === main
   const res = scan.scanRange({ repoRoot: root, base: 'main' });
@@ -179,12 +284,51 @@ test('empty range (HEAD === base) → ok, nothing scanned', function () {
   assert.equal(res.scanned_blobs, 0);
 });
 
+test('F5 (Codex R5): the scanner source must not embed THIS repo root in its own comments', function () {
+  // F4 made repo-root matching case-insensitive; a comment that spells the real
+  // workspace root (even as an example) is then flagged by the scanner against its
+  // own source, failing the mandatory pre-push gate. Examples MUST be synthetic
+  // (X:/parent/repo). Guard: compile patterns from the ACTUAL repo root and assert
+  // the scanner source file has zero matches. Uses the dynamic root so it is not
+  // tied to any checkout location.
+  let realRoot;
+  try { realRoot = g(process.cwd(), ['rev-parse', '--show-toplevel']); }
+  catch (_e) { return; } // not in a git repo (unlikely in CI) — skip
+  const patterns = scan.buildLeakPatterns(realRoot);
+  const srcPath = path.resolve(__dirname, '..', 'history-leak-scan.js');
+  const lines = fs.readFileSync(srcPath, 'utf8').split(/\r?\n/);
+  lines.forEach(function (line, i) {
+    for (const pat of patterns) {
+      assert.ok(!pat.re.test(line),
+        'history-leak-scan.js:' + (i + 1) + ' embeds the real repo root (' + pat.name + '): ' + line.trim());
+    }
+  });
+});
+
+test('F3 (Codex R3): unresolved base ref → fail-CLOSED (ok:false scan-error), NOT silent pass', function () {
+  // An empty range (HEAD===base) is ok:true; an UNRESOLVED base is different — it
+  // is unclassified. When no base candidate resolves (bare CI checkout without
+  // origin/main|master or main|master), the mandatory pre-push gate must NOT
+  // publish HEAD unscanned. rev-parse throws for every candidate here.
+  const gitFn = function (args) {
+    const a = args.join(' ');
+    if (a.indexOf('rev-parse') === 0) throw new Error('fatal: Needed a single revision');
+    throw new Error('unexpected git call: ' + a);
+  };
+  const res = scan.scanRange({ repoRoot: '/fake-repo', gitFn: gitFn }); // no opts.base either
+  assert.equal(res.ok, false, 'an unresolved base must fail closed, not pass silently');
+  assert.equal(res.base, null);
+  assert.ok((res.leaks || []).some(function (l) { return l.pattern === 'scan-error'; }), 'a scan-error is recorded');
+  assert.ok((res.leaks || []).some(function (l) { return /no base ref resolved/.test(l.evidence); }));
+});
+
 test('R4/F2: a blob that cannot be read (e.g. >64MiB maxBuffer throw) is fail-CLOSED, not silently skipped', function () {
   const gitFn = function (args) {
     const a = args.join(' ');
     if (a.indexOf('rev-parse') === 0) return 'deadbeef';                       // base resolves
     if (a.indexOf('rev-list --count') === 0) return '1\n';
     if (a.indexOf('rev-list --objects') === 0) return 'oid1 clean.json\noid2 big.json\n';
+    if (a.indexOf('ls-tree') === 0) return '';          // M2 F1 base-tree map + walk — empty base tree
     if (a === 'cat-file -t oid1' || a === 'cat-file -t oid2') return 'blob\n';
     if (a === 'cat-file blob oid1') return '{"receipt_hash":"x","meta":{"cwd":"."}}\n';
     if (a === 'cat-file blob oid2') { throw new Error('spawnSync git maxBuffer length exceeded'); }
@@ -203,6 +347,7 @@ test('R4/F2: a cat-file -t classification failure is also fail-CLOSED', function
     if (a.indexOf('rev-parse') === 0) return 'deadbeef';
     if (a.indexOf('rev-list --count') === 0) return '1\n';
     if (a.indexOf('rev-list --objects') === 0) return 'oidX weird/path\n';
+    if (a.indexOf('ls-tree') === 0) return '';          // M2 F1 base-tree map + walk — empty base tree
     if (a === 'cat-file -t oidX') throw new Error('cat-file: bad object oidX');
     throw new Error('unexpected git call: ' + a);
   };

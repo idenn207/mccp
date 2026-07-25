@@ -317,3 +317,228 @@ test('validate-cmd: grounding restamp (legit re-seal) does NOT false-positive as
     process.chdir(cwd);
   }
 });
+
+// ── integrity-unification M3 — PR-terminal self-verdict ship gate ─────────────
+
+const { makeSkeleton } = require('../schema');
+const { subjectHash, receiptHash } = require('../hash');
+const { writeReceipt } = require('../store');
+
+const M3_SG_REASON =
+  'cherry-pick PR whose diff was already adversarially reviewed upstream branch';
+
+// Seal a receipt via the store directly (no write()) so these tests don't trip
+// the briefing invoke path — deterministic, hermetic (mirror of
+// receipt-convergence.test.js#shipReceipt) with REAL subject/receipt hashes so the
+// self-gate's tamper checks pass.
+function sealReceipt(repo, gate, decision, opts) {
+  opts = opts || {};
+  const phase = gate === 'mccp-pr-codex' ? 'pr'
+    : gate === 'mccp-implement-codex' ? 'implement' : 'plan';
+  const r = makeSkeleton({});
+  r.gate_id = gate;
+  r.phase = phase;
+  r.decision_id = decision;
+  r.plan_hash = 'sha256:' + 'a'.repeat(64);
+  r.base_sha = 'a'.repeat(40);
+  r.head_sha = 'b'.repeat(40);
+  r.resolution.converged = true;
+  if (opts.codexVerdict !== undefined) r.resolution.codex_verdict = opts.codexVerdict;
+  r.meta.command = '/' + (gate === 'mccp-pr-codex' ? 'mccp:pr' : gate);
+  if (opts.meta) Object.assign(r.meta, opts.meta);
+  r.subject_hash = subjectHash(r);
+  r.receipt_hash = receiptHash(r);
+  writeReceipt(repo, r);
+  return r;
+}
+
+// Preceding gates (plan + implement) converged so the ONLY variable is the
+// pr-codex self-verdict.
+function seedConvergedUpstream(repo, decision) {
+  sealReceipt(repo, 'mccp-plan-codex', decision, { codexVerdict: 'converged' });
+  sealReceipt(repo, 'mccp-implement-codex', decision, { codexVerdict: 'converged' });
+}
+
+test('M3 self-gate: divergent pr-codex + --check-ship-verdict → blocking(pr_codex_nonconverged)', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-a');
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-a', { codexVerdict: 'divergent' });
+  const r = validateCommand('/mccp:pr', {
+    cwd: repo, decisionId: 'feat-a', checkShipVerdict: true,
+  });
+  assert.strictEqual(r.ok, false, JSON.stringify(r));
+  const b = r.blocking.find(function (x) { return x.kind === 'pr_codex_nonconverged'; });
+  assert.ok(b, 'expected pr_codex_nonconverged blocking: ' + JSON.stringify(r.blocking));
+  assert.strictEqual(b.prior_verdict, 'divergent');
+});
+
+test('M3 self-gate: converged pr-codex + flag → ok (no self-block)', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-b');
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-b', { codexVerdict: 'converged' });
+  const r = validateCommand('/mccp:pr', {
+    cwd: repo, decisionId: 'feat-b', checkShipVerdict: true,
+  });
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  assert.ok(!r.blocking.some(function (x) { return x.kind === 'pr_codex_nonconverged'; }));
+});
+
+test('M3 self-gate: skipped pr-codex + flag → ok (dedupe/disabled/audited-skip ship)', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-c');
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-c', { codexVerdict: 'skipped' });
+  const r = validateCommand('/mccp:pr', {
+    cwd: repo, decisionId: 'feat-c', checkShipVerdict: true,
+  });
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+});
+
+test('M3 self-gate: absent codex_verdict + flag → blocking (fail-closed, verdict=absent)', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-d');
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-d', {}); // no codex_verdict
+  const r = validateCommand('/mccp:pr', {
+    cwd: repo, decisionId: 'feat-d', checkShipVerdict: true,
+  });
+  assert.strictEqual(r.ok, false);
+  const b = r.blocking.find(function (x) { return x.kind === 'pr_codex_nonconverged'; });
+  assert.ok(b);
+  assert.strictEqual(b.prior_verdict, 'absent');
+});
+
+test('M3 self-gate: divergent + meta override → warning(not blocking), ok', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-e');
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-e', {
+    codexVerdict: 'divergent',
+    meta: { pr_codex_force_override: true, pr_codex_force_override_reason: M3_SG_REASON },
+  });
+  const r = validateCommand('/mccp:pr', {
+    cwd: repo, decisionId: 'feat-e', checkShipVerdict: true,
+  });
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  assert.ok(!r.blocking.some(function (x) { return x.kind === 'pr_codex_nonconverged'; }));
+  const w = r.warnings.find(function (x) { return x.kind === 'pr_codex_force_override'; });
+  assert.ok(w, 'expected override warning: ' + JSON.stringify(r.warnings));
+  assert.strictEqual(w.prior_verdict, 'divergent');
+});
+
+test('M3 self-gate: divergent + env override → warning(not blocking), ok', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-f');
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-f', { codexVerdict: 'divergent' });
+  const prev = process.env.MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE;
+  process.env.MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE = M3_SG_REASON;
+  try {
+    const r = validateCommand('/mccp:pr', {
+      cwd: repo, decisionId: 'feat-f', checkShipVerdict: true,
+    });
+    assert.strictEqual(r.ok, true, JSON.stringify(r));
+    assert.ok(r.warnings.some(function (x) { return x.kind === 'pr_codex_force_override'; }));
+  } finally {
+    if (prev === undefined) delete process.env.MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE;
+    else process.env.MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE = prev;
+  }
+});
+
+test('M3 self-gate: env override with BAD reason does NOT unblock (stays blocking)', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-g');
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-g', { codexVerdict: 'divergent' });
+  const prev = process.env.MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE;
+  process.env.MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE = 'nope';
+  try {
+    const r = validateCommand('/mccp:pr', {
+      cwd: repo, decisionId: 'feat-g', checkShipVerdict: true,
+    });
+    assert.strictEqual(r.ok, false, 'bad reason must not unblock');
+    assert.ok(r.blocking.some(function (x) { return x.kind === 'pr_codex_nonconverged'; }));
+  } finally {
+    if (prev === undefined) delete process.env.MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE;
+    else process.env.MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE = prev;
+  }
+});
+
+// DD4 re-entrancy regression — WITHOUT the flag the self-gate is entirely inert,
+// even on a divergent pr-codex receipt, so a re-run is never self-poisoned.
+test('M3 self-gate: divergent pr-codex WITHOUT flag → no self-block (re-entrancy)', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-h');
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-h', { codexVerdict: 'divergent' });
+  const r = validateCommand('/mccp:pr', { cwd: repo, decisionId: 'feat-h' });
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  assert.ok(!r.blocking.some(function (x) { return x.kind === 'pr_codex_nonconverged'; }),
+    'flag-less validate must never self-gate (DD4)');
+});
+
+test('M3 self-gate: pre-write (no pr-codex receipt) + flag → no-op (not blocking)', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-i');
+  const r = validateCommand('/mccp:pr', {
+    cwd: repo, decisionId: 'feat-i', checkShipVerdict: true,
+  });
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  assert.ok(!r.blocking.some(function (x) { return x.kind === 'pr_codex_nonconverged'; }));
+});
+
+test('M3 self-gate: non-terminal command (prp-implement) + flag → self-gate inert', function () {
+  const { repo } = setupRepo();
+  sealReceipt(repo, 'mccp-plan-codex', 'feat-j', { codexVerdict: 'converged' });
+  // Even if a divergent pr-codex receipt exists, prp-implement is not terminal.
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-j', { codexVerdict: 'divergent' });
+  const r = validateCommand('/mccp:prp-implement', {
+    cwd: repo, decisionId: 'feat-j', checkShipVerdict: true,
+  });
+  assert.ok(!r.blocking.some(function (x) { return x.kind === 'pr_codex_nonconverged'; }),
+    'only terminal PR commands self-gate');
+});
+
+// Ship-gate integrity guards — the tamper/schema branches run BEFORE the verdict
+// is trusted. These prove a receipt forged/broken after signing can NOT ship
+// (they are the branches pr.md 2.5.9 now honors via ok===false, not just the
+// pr_codex_nonconverged kind).
+
+// Seal with correct hashes over `sealedVerdict`, then optionally forge the on-disk
+// verdict to `forgedVerdict` WITHOUT re-hashing (subject fields untouched, so the
+// receipt_hash mismatch is what must catch the forge).
+function sealPrCodex(repo, decision, sealedVerdict, forgedVerdict) {
+  seedConvergedUpstream(repo, decision);
+  const r = makeSkeleton({});
+  r.gate_id = 'mccp-pr-codex';
+  r.phase = 'pr';
+  r.decision_id = decision;
+  r.plan_hash = 'sha256:' + 'a'.repeat(64);
+  r.base_sha = 'a'.repeat(40);
+  r.head_sha = 'b'.repeat(40);
+  r.resolution.converged = true;
+  r.resolution.codex_verdict = sealedVerdict;
+  r.meta.command = '/mccp:pr';
+  r.subject_hash = subjectHash(r);
+  r.receipt_hash = receiptHash(r);
+  if (forgedVerdict !== undefined) r.resolution.codex_verdict = forgedVerdict;
+  writeReceipt(repo, r);
+}
+
+test('M3 self-gate: receipt forged divergent→converged after signing → blocking(receipt-tamper), NOT silent ship', function () {
+  const { repo } = setupRepo();
+  sealPrCodex(repo, 'feat-forge', 'divergent', 'converged');
+  const r = validateCommand('/mccp:pr', {
+    cwd: repo, decisionId: 'feat-forge', checkShipVerdict: true,
+  });
+  assert.strictEqual(r.ok, false, 'a forged "converged" must NOT ship: ' + JSON.stringify(r));
+  assert.ok(r.blocking.some(function (x) { return x.kind === 'receipt-tamper'; }),
+    'expected receipt-tamper blocking: ' + JSON.stringify(r.blocking));
+});
+
+test('M3 self-gate: schema-invalid pr-codex (bad codex_verdict enum) + flag → blocking(ship-gate-schema-invalid)', function () {
+  const { repo } = setupRepo();
+  // hashes computed over the bogus content → subject/receipt checks PASS, isolating
+  // the schema failure (which the ship-gate checks first).
+  sealPrCodex(repo, 'feat-badenum', 'bogus-not-an-enum');
+  const r = validateCommand('/mccp:pr', {
+    cwd: repo, decisionId: 'feat-badenum', checkShipVerdict: true,
+  });
+  assert.strictEqual(r.ok, false, JSON.stringify(r));
+  assert.ok(r.blocking.some(function (x) { return x.kind === 'ship-gate-schema-invalid'; }),
+    'expected ship-gate-schema-invalid blocking: ' + JSON.stringify(r.blocking));
+});

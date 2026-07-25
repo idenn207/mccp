@@ -569,6 +569,108 @@ function validateCommand(command, opts) {
     }
   }
 
+  // integrity-unification M3 (DD2/DD4/DD5) — terminal /mccp:pr self-verdict ship
+  // gate. Fires ONLY when the caller opts in via checkShipVerdict AND the command
+  // is a terminal PR step. pr.md Phase 2.5.9 sets it as a read-back right after
+  // finalize wrote the fresh mccp-pr-codex receipt; the early Phase 1.6 preflight,
+  // the auto-chain preflight, and read-only code-review chain-checks all leave it
+  // off, so:
+  //   - re-entrancy (DD4): the early preflight never self-gates, so a stale
+  //     divergent receipt cannot block the very re-run that would refresh it.
+  //   - historical (DD5): the gate only judges the just-written receipt at this
+  //     locus (the fresh-receipt read-back), so absent-verdict fail-closed never
+  //     retro-blocks an old receipt on a default (flag-less) validate.
+  if (isPrTerminal && opts.checkShipVerdict) {
+    const shipGate = require('../lib/pr-ship-gate');
+    let prReceipt = null;
+    let readErr = null;
+    try {
+      prReceipt = readReceipt(repoRoot, 'mccp-pr-codex', result.decisionId);
+    } catch (err) {
+      readErr = err;
+    }
+    if (readErr) {
+      // Fail-closed: a receipt we cannot read cannot certify a ship.
+      result.blocking.push({
+        gate_id: 'mccp-pr-codex',
+        decision_id: result.decisionId,
+        kind: 'pr_codex_nonconverged',
+        reason: 'ship-gate: cannot read mccp-pr-codex receipt: ' + readErr.message,
+      });
+    } else if (prReceipt) {
+      // Schema + tamper checks (mirror of the preceding-gate loop) before trusting
+      // resolution.codex_verdict.
+      const sres = validateSchema(prReceipt);
+      if (!sres.ok) {
+        result.blocking.push({
+          gate_id: 'mccp-pr-codex',
+          decision_id: result.decisionId,
+          kind: 'ship-gate-schema-invalid',
+          reason: 'ship-gate: mccp-pr-codex schema invalid: ' + sres.errors.join('; '),
+        });
+      } else if (subjectHash(prReceipt) !== prReceipt.subject_hash) {
+        result.blocking.push({
+          gate_id: 'mccp-pr-codex',
+          decision_id: result.decisionId,
+          kind: 'subject-tamper',
+          reason: 'ship-gate: subject_hash mismatch (subject fields altered after signing)',
+        });
+      } else if (receiptHash(prReceipt) !== prReceipt.receipt_hash) {
+        result.blocking.push({
+          gate_id: 'mccp-pr-codex',
+          decision_id: result.decisionId,
+          kind: 'receipt-tamper',
+          reason: 'ship-gate: receipt_hash mismatch (findings/resolution/meta altered after signing)',
+        });
+      } else {
+        // forceOverrideActive: the durable meta flag (finalize stamped it) OR a
+        // live env var that passes the strict reason validator. Either unblocks
+        // THIS ship; neither rewrites the sealed verdict (DD3).
+        const meta = prReceipt.meta || {};
+        let overrideActive = meta.pr_codex_force_override === true;
+        let envOverrideReason = null;
+        if (!overrideActive) {
+          const raw = process.env.MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE;
+          if (typeof raw === 'string' && raw.length > 0
+              && validateReason(raw, { strict: true }).ok) {
+            overrideActive = true;
+            envOverrideReason = raw;
+          }
+        }
+        const decision = shipGate.deriveShipDecision(prReceipt,
+          { forceOverrideActive: overrideActive });
+        if (!decision.ship) {
+          result.blocking.push({
+            gate_id: 'mccp-pr-codex',
+            decision_id: result.decisionId,
+            kind: 'pr_codex_nonconverged',
+            reason: 'PR-Codex ship-gate BLOCKED: resolution.codex_verdict="' +
+              decision.blockingVerdict + '" is non-approving. Resolve the divergence ' +
+              '(re-run so PR-Codex re-fires on the fresh diff), or set ' +
+              'MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE with a substantive reason for an ' +
+              'audited override that ships WITHOUT rewriting the sealed verdict.',
+            prior_verdict: decision.blockingVerdict,
+          });
+        } else if (overrideActive && decision.blockingVerdict) {
+          // Shipping a non-approving verdict under audited override — surface as
+          // warning (audit), never blocking. PR body is the canonical audit source.
+          result.warnings.push({
+            gate_id: 'mccp-pr-codex',
+            decision_id: result.decisionId,
+            kind: 'pr_codex_force_override',
+            reason: 'PR-Codex ship-gate: shipped under MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE ' +
+              'audited override (verdict="' + decision.blockingVerdict + '" sealed unchanged — ' +
+              'PR body is canonical audit source)',
+            prior_verdict: decision.blockingVerdict,
+            force_override_reason:
+              meta.pr_codex_force_override_reason || envOverrideReason || null,
+          });
+        }
+      }
+    }
+    // prReceipt === null (pre-write / not yet finalized) → no-op: nothing to gate.
+  }
+
   result.ok = result.missing.length === 0
     && result.stale.length === 0
     && result.blocking.length === 0

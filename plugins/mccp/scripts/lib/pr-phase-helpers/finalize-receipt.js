@@ -29,6 +29,12 @@ const fs = require('fs');
 const path = require('path');
 const { parseArgs, locateReceiptCli, callReceiptCli, emit, fail } =
   require('./_args');
+// integrity-unification M3 — runtime primary ship gate. finalize is the write
+// path itself (pr.md runs it unconditionally + checks its exit unconditionally),
+// so enforcing here cannot be skipped by an LLM dropping a markdown step (DD2).
+const { readReceipt } = require('../../receipt/store');
+const { gitRepoRoot } = require('../../receipt/hash');
+const { deriveShipDecision, EX_SHIP_BLOCKED } = require('../pr-ship-gate');
 
 // v1.0.1 axis K — relative path of the stale-reclaim marker written by
 // pr-phase-guard's lockActive() when it reclaimed an orphan pr-phase.lock.
@@ -265,6 +271,18 @@ function run(args) {
     writeFlags.push(String(args['pr-design-chain-skip-reason']));
   }
 
+  // integrity-unification M3 — PR-Codex ship-gate audited override forward. pr.md
+  // Phase 0.4 validated MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE's reason and
+  // exported it; Phase 2.5.7 passes it here. Forward both flags so write.js stamps
+  // meta.pr_codex_force_override=true + reason (schema re-runs the strict validator,
+  // so a bad reason REJECTs the write before the ship-gate below even runs).
+  if (args['pr-codex-force-override-reason']
+      && args['pr-codex-force-override-reason'] !== true) {
+    writeFlags.push('--pr-codex-force-override');
+    writeFlags.push('--pr-codex-force-override-reason');
+    writeFlags.push(String(args['pr-codex-force-override-reason']));
+  }
+
   const cli = locateReceiptCli();
   const result = callReceiptCli(cli, writeFlags, { cwd: args.cwd, timeoutMs: 60000 });
   if (result.error) {
@@ -274,6 +292,45 @@ function run(args) {
     if (result.stderr) process.stderr.write(result.stderr);
     if (result.stdout) process.stdout.write(result.stdout);
     return result.exitCode;
+  }
+
+  // integrity-unification M3 (DD1/DD2/DD3) — runtime primary ship gate. The
+  // mccp-pr-codex receipt is now written; re-read it and enforce deriveShipDecision
+  // BEFORE reporting success. A non-approving verdict (divergent/critical/
+  // unavailable/absent) returns EX_SHIP_BLOCKED so pr.md HALTs before push, unless
+  // the receipt carries the audited override (which ships without rewriting the
+  // sealed verdict). Only fires for the PR-Codex gate; plan/implement finalize is
+  // unaffected. Re-read failure is fail-closed (cannot certify what we cannot read).
+  if (gateId === 'mccp-pr-codex') {
+    let prReceipt = null;
+    let shipErr = null;
+    try {
+      const repoRoot = gitRepoRoot(args.cwd || process.cwd());
+      prReceipt = readReceipt(repoRoot, gateId, args.decision);
+    } catch (err) {
+      shipErr = err;
+    }
+    if (shipErr || !prReceipt) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate could not re-read the ' +
+        'just-written receipt (' + (shipErr ? shipErr.message : 'not found') +
+        ') — cannot certify ship. push blocked.\n');
+      return EX_SHIP_BLOCKED;
+    }
+    const overrideActive = !!(prReceipt.meta
+      && prReceipt.meta.pr_codex_force_override === true);
+    const decision = deriveShipDecision(prReceipt, { forceOverrideActive: overrideActive });
+    if (!decision.ship) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex non-approving (verdict=' +
+        decision.blockingVerdict + ') — push blocked. ' +
+        'Set MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE="<substantive reason ≥30 chars, ≥3 words>" ' +
+        'for an audited override (ships without rewriting the sealed verdict).\n');
+      return EX_SHIP_BLOCKED;
+    }
+    if (overrideActive && decision.blockingVerdict) {
+      process.stderr.write('[mccp] PR-Codex ship-gate: shipping under ' +
+        'MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE audited override (verdict=' +
+        decision.blockingVerdict + ' sealed unchanged).\n');
+    }
   }
 
   // Receipt write succeeded — compose summary

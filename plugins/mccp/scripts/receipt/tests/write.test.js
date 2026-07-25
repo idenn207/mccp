@@ -261,3 +261,73 @@ test('escalate integration: clean receipt clears escalate_pending for matching d
     process.chdir(cwd);
   }
 });
+
+// ── integrity-unification M3 — pr_codex_force_override write wiring ────────────
+
+const M3_WRITE_REASON =
+  'cherry-pick PR whose diff was already adversarially reviewed upstream';
+
+test('write M3: --pr-codex-force-override[-reason] stamps meta + round-trips valid', function () {
+  const repo = mkTmpRepo();
+  const plan = writeFileSync(repo, '.claude/plans/feature-x.plan.md',
+    '# Plan: feature-x\n\nbody\n');
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    const result = write({
+      gate: 'mccp-pr-codex',
+      decision: 'feature-x',
+      plan: path.relative(repo, plan),
+      'codex-verdict': 'divergent',
+      'pr-codex-force-override': true,
+      'pr-codex-force-override-reason': M3_WRITE_REASON,
+    });
+    assert.strictEqual(result.receipt.meta.pr_codex_force_override, true);
+    assert.strictEqual(result.receipt.meta.pr_codex_force_override_reason, M3_WRITE_REASON);
+    // The real verdict is sealed unchanged (DD3 — override never launders it).
+    assert.strictEqual(result.receipt.resolution.codex_verdict, 'divergent');
+    assert.strictEqual(validate(result.receipt).ok, true);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('write M3: bad override reason → SCHEMA_INVALID (write REJECT, defense-in-depth)', function () {
+  const repo = mkTmpRepo();
+  const plan = writeFileSync(repo, '.claude/plans/feature-x.plan.md',
+    '# Plan: feature-x\n\nbody\n');
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    assert.throws(function () {
+      write({
+        gate: 'mccp-pr-codex',
+        decision: 'feature-x',
+        plan: path.relative(repo, plan),
+        'pr-codex-force-override': true,
+        'pr-codex-force-override-reason': 'nope',
+      });
+    }, /schema validation failed|pr_codex_force_override_reason rejected/);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('write M3: default receipt has present-and-inert override fields', function () {
+  const repo = mkTmpRepo();
+  const plan = writeFileSync(repo, '.claude/plans/feature-x.plan.md',
+    '# Plan: feature-x\n\nbody\n');
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    const result = write({
+      gate: 'mccp-plan-codex',
+      decision: 'feature-x',
+      plan: path.relative(repo, plan),
+    });
+    assert.strictEqual(result.receipt.meta.pr_codex_force_override, false);
+    assert.strictEqual(result.receipt.meta.pr_codex_force_override_reason, null);
+  } finally {
+    process.chdir(cwd);
+  }
+});

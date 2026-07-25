@@ -2,7 +2,28 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.22.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.23.0] — 2026-07-25
+
+**무결성 통일 cycle M3 — terminal `/mccp:pr` non-approving mechanical hard-stop 재설계 (PRD 종료 → minor bump)** — M1이 durable corpus의 verdict-SoT를 세우고 M2가 독립 무결성 4축을 닫았지만, **terminal `/mccp:pr` 게이트 자체는 여전히 non-approving PR-Codex 결과(`resolution.codex_verdict='divergent'` 등)를 mechanical하게 막지 못했다** — 파서는 복구됐으나 terminal 게이트에서 audit-only였다(backlog 2026-07-21 HIGH). M3은 이 gap을 닫는다: no-ship verdict(`divergent`/`critical`/`unavailable`/absent)를 낸 pr-codex receipt는 push/`gh pr create` **전에** mechanical HALT되고, 유일한 우회는 audited override env `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE="<reason>"`다. override는 verdict를 `converged`로 **재작성하지 않는다** — receipt는 실제 divergent verdict를 봉인한 채 `meta.pr_codex_force_override=true`와 함께 auditable하게 ship된다(§3.12 봉인 + dedupe fail-closed 무손상). 이 축의 즉시 흡수 시도가 8라운드 비수렴 루프의 직접 원인이었어서 우회 표면(env opt-out·lock·crash-window·session key·absent-verdict·re-entrancy)을 plan 단계 §Design Decisions(DD1~DD7)에서 선제 설계로 닫았다. Codex는 이번 환경에서 unavailable(companion timeout)이라 Implement-Codex는 **advisory** 진행(운영자 승인, M1 #110·M2 #113 선례) → PR-Codex 별도 발화 이연. integrity-unification PRD 전체 완료 → §3.7 minor bump.
+
+### Added
+- `plugins/mccp/scripts/lib/pr-ship-gate.js` — 단일 pure 오라클 `deriveShipDecision(receipt, {forceOverrideActive})` → `{ship, blockingVerdict, absent, overrideActive, reason}`. `receipt-convergence.js#isDivergentVerdict`(M1 공유 헬퍼) 재사용 + `unavailable`/absent fail-closed 추가. 이중 enforcement locus(finalize runtime primary + validate-cmd canonical)가 **같은 오라클을 공유**해 판정 drift를 구조적으로 차단(DD2). `EX_SHIP_BLOCKED=12` export(codex-invoke blocking exit 정합).
+- `plugins/mccp/scripts/lib/tests/pr-ship-gate.test.js` — 파티션 전건(converged/skipped→ship · divergent/critical/unavailable/absent→no-ship) + override가 verdict 재작성 안 함(blockingVerdict 보존) + null-safety 17건.
+
+### Changed
+- `plugins/mccp/scripts/lib/pr-phase-helpers/finalize-receipt.js` — **runtime 1차 강제**(primary spine). `--pr-codex-force-override-reason` accept+forward → write가 `meta.pr_codex_force_override` stamp. write 성공 후 `gate==='mccp-pr-codex'`이면 방금 쓴 receipt 재read → `deriveShipDecision` → no-ship이면 `[MCCP-GATE-STOP]` stderr + **exit 12** 반환(pr.md HALT). finalize는 write 경로 자체라 LLM이 누락 불가(DD2). 재read 실패는 fail-closed.
+- `plugins/mccp/scripts/receipt/validate-cmd.js` — **canonical/외부 표면**(defense-in-depth). preceding-gate 루프 후 `isPrTerminal && opts.checkShipVerdict` gated self-verdict gate: `mccp-pr-codex` receipt를 **verdict를 신뢰하기 전** schema+subject/receipt tamper 재검(4종 fail-closed blocking kind — `pr_codex_nonconverged`·`subject-tamper`·`receipt-tamper`·`ship-gate-schema-invalid`) 후 `deriveShipDecision`(env OR meta override 존중) → no-ship+override 미활성 → `blocking.kind='pr_codex_nonconverged'`, override 활성 → `warning.kind='pr_codex_force_override'`. **flag 미전달 시 전체 skip** → 조기 preflight(1.6)·표준 code-review 무영향(DD4 re-entrancy·DD5 historical 자동 충족).
+- `plugins/mccp/scripts/receipt/schema.js` · `write.js` · `cli.js` — `meta.pr_codex_force_override`(bool default false) + `_reason`(string|null, override=true 시 strict `validateReason` REJECT — impeccable 패턴 mirror) present-only 배선 + `validate --check-ship-verdict` 옵션. `receipt_hash` carve-out 무변경(override 결정은 verdict와 함께 tamper-protected). 기존 git-tracked ship corpus는 present-only라 unchanged.
+- `plugins/mccp/commands/pr.md` — Phase 0.4 override preflight(0.1/0.2 mirror, 0.3 mutex와 독립) · 2.5.4 line 480 노트 갱신("이제 M3 ship gate가 divergent verdict를 mechanical HALT") · 2.5.7 override forward + `FINALIZE_EXIT==12` ship-block 분기 · Phase 2.5.9 self-gate read-back(`--check-ship-verdict`) — 단일 kind가 아니라 **aggregate `ok===false`로 HALT**(4종 ship-gate blocking kind 전부 존중 + validate 출력 parse 실패도 fail-closed) · Phase 4 `## PR-Codex Override` inject.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.22.6 → 1.23.0`(minor — integrity-unification PRD 종료) + renderer footer(html/markdown) 동기 + `CLAUDE.md`/`integrity-unification-m1.plan.md`(M3 in-progress)/`codex-findings-backlog.md`(2026-07-21 HIGH ABSORBED, row 보존).
+
+### Tests
+- `lib/tests/pr-phase-helpers/finalize-receipt.test.js` — M3 runtime e2e 7건(divergent→exit12+GATE-STOP · approve→0 · skipped→0 · unavailable→exit12 · override→0+meta stamp+verdict 봉인 · 나쁜 reason write REJECT · plan gate 미발화). `receipt/tests/validate-cmd.test.js` — self-gate 12건(divergent/absent→block · converged/skipped→ok · meta/env override→warning · 나쁜 reason 미우회 · **flag 없으면 무영향**(re-entrancy) · non-terminal 미발화 · pre-write no-op) + ship-gate 무결성 2건(**위조 divergent→converged**=receipt-tamper block으로 silent ship 차단 · schema-invalid enum=ship-gate-schema-invalid block). `receipt/tests/schema.test.js` · `write.test.js` — override 필드 valid/invalid-reason REJECT·round-trip·verdict 봉인 12건.
+
+### Note
+- briefing hang(2026-07-21 HIGH, exit-127)은 M3 scope 밖(PR-gate operability, verdict-SoT 아님)이나 dogfood를 막으므로 implement/test 시 `MCCP_BRIEFING=off`로 우회(문서화된 §4 토글 — 요약 stamp만 끔, 리뷰 무약화). pre-existing 실패 2건(`verdict-label` · `design-critique-loop-e2e` fixture)은 별도 cycle baseline.
 
 ## [1.22.6] — 2026-07-24
 

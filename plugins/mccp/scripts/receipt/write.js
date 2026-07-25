@@ -196,6 +196,15 @@ function buildReceipt(args) {
       impeccable_skip_reason: args['impeccable-skip-reason'] || null,
       impeccable_force_override: args['impeccable-force-override'] === true,
       impeccable_force_override_reason: args['impeccable-force-override-reason'] || null,
+      // integrity-unification M3 — PR-Codex ship-gate audited override. Stamped by
+      // finalize-receipt (forwarding pr.md Phase 0.4's validated reason) when
+      // MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE is exercised. schema.js re-runs the
+      // strict reason validator so a bad reason REJECTs the write (defense-in-depth,
+      // mirror of impeccable_force_override).
+      pr_codex_force_override: args['pr-codex-force-override'] === true,
+      pr_codex_force_override_reason: (typeof args['pr-codex-force-override-reason'] === 'string'
+        && args['pr-codex-force-override-reason'].length > 0)
+        ? args['pr-codex-force-override-reason'] : null,
       // v1.3.0 design-gate enforcement M1 Task 1 — silent-skip surface.
       // Stamped by 4 command bodies (plan / prp-implement / pr / plan-prd) when
       // impeccable-detect returns SKILL_AVAIL=1 + SIGNAL=0 + design-surface

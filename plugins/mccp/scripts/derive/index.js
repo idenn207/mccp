@@ -17,6 +17,9 @@ const { scanPR } = require('./sources/pr');
 const { scanEnvelopes } = require('./sources/envelopes');
 const { scanLedger } = require('./sources/ledger');
 const { scanWorktrees } = require('./sources/worktrees');
+const { scanSessionActivity } = require('./sources/session-activity');
+const { scanToggleUsage } = require('./sources/toggle-usage');
+const { scanHandoffItems } = require('./sources/handoff-items');
 
 const SOURCE_SCANNERS = {
   plans: (root, opts) => scanPlans(root, opts),
@@ -31,6 +34,10 @@ const SOURCE_SCANNERS = {
   // opts.worktreeScan; gate decision lives inside scanWorktrees (default-off
   // keeps bare derive() spawn-free per perf budget).
   worktrees: (root, opts) => scanWorktrees(root, opts),
+  // M2 계측 소스
+  session_activity: (root) => scanSessionActivity(root),
+  toggle_usage: (root) => scanToggleUsage(root),
+  handoff_items: (root) => scanHandoffItems(root),
 };
 
 function pushWarning(model, severity, source, message) {
@@ -97,6 +104,15 @@ function derive(repoRoot, opts) {
     model.correlations = correlate(model);
   } catch (err) {
     pushWarning(model, 'medium', 'correlate', 'correlate threw: ' + err.message);
+  }
+
+  // M2 계측: derive model → metrics 산출 (anti-gaming integrity checks 포함)
+  try {
+    const { computeMetrics } = require('../lib/msw-metrics');
+    model.metrics = computeMetrics(model);
+  } catch (err) {
+    pushWarning(model, 'medium', 'metrics', 'metrics computation threw: ' + err.message);
+    model.metrics = {};
   }
 
   // Dashboard Truthfulness M2 (Codex R1 F2) — stamp host-project version signal

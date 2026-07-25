@@ -25,12 +25,22 @@ function showHelp() {
     '       --out <dir>  Output directory (default .claude/cache/).',
     '       --raw      Pass through to derive() — model.masked=false. HTML output gets a red ribbon. Stderr WARNING.',
     '       --strict   Exit 1 if M0 capability check reports contract_present=false.',
+    '  metrics-assert [--json] [--fixtures] [--dry-run]',
+    '       Mechanical acceptance gate: enumerate claimed-computable ids, reject null/baseline-forming.',
+    '       Exit non-zero if any assertion fails. --json emits metrics object.',
+    '  msw-a3 [--json]',
+    '       A3 instruction-cost measurement: token counts of injected payloads.',
+    '       Emits JSON with component breakdown (counts + hashes, no raw text).',
+    '  msw-recoverability [--json] [--dry-run]',
+    '       C1 recoverability probe: stratified sample of PR findings.',
+    '       Read-only audit; applies 4 pre-registered thresholds. Emits verdict + coverage.',
     '  version          Print derive model version and exit 0.',
     '  --help, -h       Show this help.',
     '',
     'Notes:',
     '  - Default emits masked, share-safe JSON. --raw is opt-in for internal tools.',
     '  - Does not write to disk. Does not call any LLM. Reads `.claude/` only.',
+    '  - msw-a3 requires tiktoken (pip install tiktoken) for o200k_base tokenization.',
     '',
   ].join('\n'));
 }
@@ -179,7 +189,184 @@ function cmdRender(rest) {
   return 0;
 }
 
-function main(argv) {
+function cmdMetricsAssert(rest) {
+  // R2-F2 mechanical acceptance gate
+  // Enumerates claimed-computable ids, rejects null/baseline-forming, asserts B3 real value
+  const {
+    computeMetrics,
+    METRIC_IDS,
+    A1_WORK_COMPLETION_RATE,
+    A2_CONTEXT_REMAINING,
+    A4_RESTORE_RATE,
+    B1_STATUS_DRIFT,
+    B2_CONCURRENT_CONFLICTS,
+    B3_TOGGLE_AXES,
+    C1_FEEDBACK_CLOSURE,
+    C2_GATE_FALSE_POSITIVE,
+    C3_LEAKED_DEFECTS,
+  } = require('../lib/msw-metrics');
+  const { buildSeededModel } = require('../lib/msw-metrics/fixture');
+
+  // PR-Codex R2-F3: C1은 live findings derive source가 없어(fixture만 주입)
+  // 실 derive에서 절대 산출 못 하므로 claimed-computable에서 제외(forward-only).
+  // A1은 session_activity(실 source)가 producer-absent를 정직 보고하므로 유지 —
+  // fixture는 producer 배선 상태의 compute 경로를 실증한다.
+  const claimedComputable = [
+    A1_WORK_COMPLETION_RATE,
+    A2_CONTEXT_REMAINING,
+    A4_RESTORE_RATE,
+    B2_CONCURRENT_CONFLICTS,
+    B3_TOGGLE_AXES,
+  ];
+
+  // --fixtures: run the gate against the shared seeded fixture so it exercises
+  // the compute path deterministically (baseline data accumulates over time, so
+  // real derive on a fresh repo legitimately yields insufficient/baseline-forming
+  // — that is NOT an acceptance signal). Without --fixtures the gate reads real
+  // derive output (used later for monitoring once a baseline has formed).
+  let metrics;
+  if (rest.fixtures) {
+    try {
+      metrics = computeMetrics(buildSeededModel());
+    } catch (err) {
+      process.stderr.write('[mccp:metrics-assert] fixture compute failed: ' + err.message + '\n');
+      return 1;
+    }
+  } else {
+    const cwd = process.cwd();
+    let model;
+    try {
+      model = derive(cwd, { raw: false, strict: false });
+    } catch (err) {
+      process.stderr.write('[mccp:metrics-assert] derive failed: ' + err.message + '\n');
+      return 1;
+    }
+    if (!model.metrics || typeof model.metrics !== 'object') {
+      process.stderr.write('[mccp:metrics-assert] FAIL: model.metrics not computed\n');
+      return 1;
+    }
+    metrics = model.metrics;
+  }
+  let failures = 0;
+
+  // Check 1: All claimed-computable must be present
+  for (const id of claimedComputable) {
+    if (!metrics[id]) {
+      process.stderr.write(`[mccp:metrics-assert] FAIL: claimed-computable ${id} not in metrics\n`);
+      failures++;
+    }
+  }
+
+  // Check 2: No claimed-computable can have null numerator/denominator
+  for (const id of claimedComputable) {
+    const m = metrics[id];
+    if (!m) continue;
+
+    if (m.numerator === null || m.numerator === undefined) {
+      process.stderr.write(`[mccp:metrics-assert] FAIL: ${id} numerator is null\n`);
+      failures++;
+    }
+    if (m.denominator === null || m.denominator === undefined) {
+      process.stderr.write(`[mccp:metrics-assert] FAIL: ${id} denominator is null\n`);
+      failures++;
+    }
+  }
+
+  // Check 3: No claimed-computable can have status='baseline-forming'
+  for (const id of claimedComputable) {
+    const m = metrics[id];
+    if (!m) continue;
+
+    if (m.status === 'baseline-forming') {
+      process.stderr.write(`[mccp:metrics-assert] FAIL: ${id} status is 'baseline-forming' (not computed)\n`);
+      failures++;
+    }
+  }
+
+  // Check 4: B3 must have a real numeric value
+  const b3 = metrics[B3_TOGGLE_AXES];
+  if (b3) {
+    if (typeof b3.value !== 'number' || b3.value < 0 || b3.value > 1) {
+      process.stderr.write(`[mccp:metrics-assert] FAIL: B3 value is not numeric ratio [0,1] (got ${b3.value})\n`);
+      failures++;
+    }
+  }
+
+  // Ensure {metrics:{}} cannot pass
+  if (Object.keys(metrics).length === 0) {
+    process.stderr.write('[mccp:metrics-assert] FAIL: metrics object is empty\n');
+    failures++;
+  }
+
+  if (failures > 0) {
+    process.stderr.write(`[mccp:metrics-assert] ${failures} assertion(s) failed\n`);
+    return 1;
+  }
+
+  if (rest.json) {
+    process.stdout.write(JSON.stringify(metrics, null, 2) + '\n');
+  }
+  return 0;
+}
+
+async function cmdA3Measurement(rest) {
+  // Task 7: A3 instruction-cost measurement
+  // Measures token counts of CLAUDE.md + MEMORY.md index + STATE.md block
+  // Read-only; emits counts + hashes only (no raw text)
+  const { measureA3 } = require('../lib/msw-metrics/a3-instruction-cost');
+
+  try {
+    const result = await measureA3({
+      readUserMemory: !!process.env.MCCP_A3_READ_USER_MEMORY,
+    });
+
+    if (rest.json || true) { // always JSON for now
+      process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+    }
+
+    // Exit with appropriate code
+    if (result.status === 'error') {
+      return 1;
+    } else if (result.status === 'baseline-unavailable') {
+      // Loud marking on stderr already done; exit ok but data incomplete
+      return 0;
+    } else {
+      return 0;
+    }
+  } catch (err) {
+    process.stderr.write('[mccp:derive:msw-a3] ERROR: ' + err.message + '\n');
+    return 1;
+  }
+}
+
+async function cmdRecoverabilityProbe(rest) {
+  // Task 8: C1 recoverability probe
+  // Stratified sample of PR findings; apply 4 pre-registered thresholds
+  // Read-only; writes 0 new records
+  const { probeRecoverability } = require('../lib/msw-metrics/recoverability-probe');
+
+  try {
+    const result = await probeRecoverability({
+      dryRun: !!rest['dry-run'],
+    });
+
+    if (rest.json || true) { // always JSON for now
+      process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+    }
+
+    // Exit with appropriate code
+    if (result.status === 'error') {
+      return 1;
+    } else {
+      return 0;
+    }
+  } catch (err) {
+    process.stderr.write('[mccp:derive:msw-recoverability] ERROR: ' + err.message + '\n');
+    return 1;
+  }
+}
+
+async function main(argv) {
   const args = argv.slice(2);
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
     showHelp();
@@ -195,6 +382,12 @@ function main(argv) {
       return cmdRun(rest);
     case 'render':
       return cmdRender(rest);
+    case 'metrics-assert':
+      return cmdMetricsAssert(rest);
+    case 'msw-a3':
+      return await cmdA3Measurement(rest);
+    case 'msw-recoverability':
+      return await cmdRecoverabilityProbe(rest);
     default:
       process.stderr.write('mccp-derive: unknown subcommand "' + sub + '"\n');
       showHelp();
@@ -203,7 +396,7 @@ function main(argv) {
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv));
+  main(process.argv).then(code => process.exit(code));
 }
 
 module.exports = { main };

@@ -105,3 +105,14 @@ ECC/
 # during /mccp:prp-implement Phase 3.5. Working-tree only audit (F4 absorption).
 # Plan body remains committable; delegation history is local per-machine.
 *.delegations.jsonl
+
+# multi-session-work-loop M2 — 관측 계측 sidecar (CL-1, santa R1: sidecar 생성 전 등록).
+# msw-events append-only event log(per-session .jsonl) + SessionStart env-snapshot
+# + SessionEnd handoff-items(세션 id·미완 항목명 — PR-Codex F1: 이것도 per-session
+# 로컬 런타임 아티팩트라 커밋 시 세션 상태 유출 + stale 시 baseline 오염).
+# 셋 다 per-session working-tree only(원자 append/capture). 커밋 오염 + 이력 유출 방지
+# (hook-trace/·session-ledgers/·dispatches/ 패턴 mirror). 미등록 시 raw 이벤트·비밀
+# 섞인 토글 값이 git 이력에 유출 → sidecar 파일이 생기기 전에 등록해야 함.
+.claude/state/msw-events/
+.claude/state/*.env-snapshot.json
+.claude/state/*.handoff-items.json

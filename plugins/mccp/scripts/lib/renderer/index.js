@@ -12,6 +12,7 @@ const { renderAuditTimeline } = require('./sections/audit-timeline');
 const { renderOpenQuestions } = require('./sections/open-questions');
 const { renderRisks } = require('./sections/risks');
 const { renderMilestoneHistory } = require('./sections/milestone-history');
+const { renderMswMetrics } = require('./sections/msw-metrics');
 const { dedupOQAndRisks } = require('./parsers/cross-section-dedupe');
 const { annotateResolution } = require('./parsers/resolution-classify');
 const { renderMarkdown } = require('./markdown');
@@ -133,8 +134,10 @@ function renderStatus(model, opts) {
     const risks = safeSection('risks', () => renderRisks(m, formatUtils, planBody, opts));
     const milestoneHistory = safeSection('milestone-history',
       () => renderMilestoneHistory(m, formatUtils, planBody, opts));
+    const mswMetrics = safeSection('msw-metrics',
+      () => renderMswMetrics(m, formatUtils, opts));
 
-    const sections = [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory, multiSession];
+    const sections = [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory, multiSession, mswMetrics];
     const derivedAt = m.derived_at || new Date().toISOString();
 
     const md = safeCompose(

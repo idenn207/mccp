@@ -124,7 +124,23 @@ function scanRange(opts) {
   const patterns = buildLeakPatterns(repoRoot, opts.oldRepoNames);
 
   const base = resolveBase(repoRoot, opts.base, gitFn);
-  if (!base) return { ok: true, leaks: [], scanned_blobs: 0, base: null, commits: 0 };
+  if (!base) {
+    // F3 (M2 follow-up, Codex R3) — an UNRESOLVED base is NOT an empty range; it is
+    // an unclassified range. As the mandatory pre-push backstop, returning ok:true
+    // here would publish HEAD without scanning ANY range commit (including the
+    // ancestor-only old-blob disclosure paths F1 exists to catch) whenever
+    // opts.base, origin/main, origin/master, main, and master are ALL absent (bare
+    // CI checkout, detached env). That silently voids the fail-closed guarantee the
+    // rest of scanRange upholds. Fail-CLOSED — the caller must supply a resolvable
+    // base (pass an explicit --base <sha>).
+    return {
+      ok: false,
+      leaks: [{ path: '(git)', line: 0, pattern: 'scan-error', evidence: 'no base ref resolved (tried opts.base, origin/main, origin/master, main, master) — cannot classify NEW objects; pass an explicit --base' }],
+      scanned_blobs: 0,
+      base: null,
+      commits: 0,
+    };
+  }
 
   const range = base + '..HEAD';
   let commitCount = 0;

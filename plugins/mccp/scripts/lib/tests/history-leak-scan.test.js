@@ -268,6 +268,23 @@ test('empty range (HEAD === base) → ok, nothing scanned', function () {
   assert.equal(res.scanned_blobs, 0);
 });
 
+test('F3 (Codex R3): unresolved base ref → fail-CLOSED (ok:false scan-error), NOT silent pass', function () {
+  // An empty range (HEAD===base) is ok:true; an UNRESOLVED base is different — it
+  // is unclassified. When no base candidate resolves (bare CI checkout without
+  // origin/main|master or main|master), the mandatory pre-push gate must NOT
+  // publish HEAD unscanned. rev-parse throws for every candidate here.
+  const gitFn = function (args) {
+    const a = args.join(' ');
+    if (a.indexOf('rev-parse') === 0) throw new Error('fatal: Needed a single revision');
+    throw new Error('unexpected git call: ' + a);
+  };
+  const res = scan.scanRange({ repoRoot: '/fake-repo', gitFn: gitFn }); // no opts.base either
+  assert.equal(res.ok, false, 'an unresolved base must fail closed, not pass silently');
+  assert.equal(res.base, null);
+  assert.ok((res.leaks || []).some(function (l) { return l.pattern === 'scan-error'; }), 'a scan-error is recorded');
+  assert.ok((res.leaks || []).some(function (l) { return /no base ref resolved/.test(l.evidence); }));
+});
+
 test('R4/F2: a blob that cannot be read (e.g. >64MiB maxBuffer throw) is fail-CLOSED, not silently skipped', function () {
   const gitFn = function (args) {
     const a = args.join(' ');

@@ -92,6 +92,12 @@ Task 1은 "Do NOT regenerate (that destroys the evidence)" 가이드를 `preflig
 - **R1(불충분)**: `git diff --raw base..HEAD` 순-diff로 push가 바꾸는 각 경로의 HEAD blob을 fold-in. → Codex 재리뷰가 **ancestor-only 잔여 gap** 지적: 중간 커밋이 base blob을 non-allowlist 경로에 복사한 뒤 **HEAD 전에 삭제**하면 순-diff에 안 잡혀 미스캔(F-H 보증 위배). 정확한 지적.
 - **R2(완전)**: 순-diff를 **base-tree map + 전-커밋 ls-tree walk**로 교체. `git ls-tree -r <base>`로 base의 `(oid,path)` 집합을 만들고, 각 range 커밋의 **전체 트리**(`ls-tree -r`)를 순회하며 blob을 fold-in — NEW blob(byOid) OR base가 발행하지 않은 `(oid,path)`의 OLD blob(=range-introduced 노출 경로). 중간 커밋 트리가 삭제된 경로도 여전히 열거하므로 ancestor-only 케이스까지 포착. base map 실패는 fail-closed. R4/F2 mock은 `ls-tree`→'' 추가로 무손상.
 
+### F3 [MEDIUM] — unresolved base ref fail-open (Codex R3, pre-existing)
+
+Codex 재리뷰 #3이 F1 R2 + F2 정렬 확인 후 새 결함 지적: `resolveBase()`가 null이면(opts.base·origin/main·origin/master·main·master 전부 부재) `scanRange`가 **`ok:true` silent pass** — empty range가 아니라 **unclassified range**. base ref 없는 bare CI checkout에서 아무것도 스캔 않고 HEAD publish → fail-**open**. F1 R2가 표방한 fail-closed 계약을 이 경로가 무력화. pre-existing이나 fail-closed 주장과 모순이라 흡수.
+
+- 수정 = `if (!base)` → `ok:true`에서 **`ok:false` + scan-error leak**('no base ref resolved …')로 전환. caller가 resolvable base(`--base <sha>`)를 공급해야 함. empty-range(HEAD===base, base 해석됨) test는 `commitCount===0` 분기라 무영향.
+
 ### 흡수 검증
 
 | Test | 결과 |
@@ -99,10 +105,10 @@ Task 1은 "Do NOT regenerate (that destroys the evidence)" 가이드를 `preflig
 | `receipt/tests/block-format.test.js` (신규 8) | Pass 8/8 — 라벨·tamper 가이드·조건부 detail |
 | `hooks/tests/receipt-prompt-tamper.test.js` (신규 3) | Pass — receipt/subject-tamper → TAMPER + Do NOT regenerate + no "Write missing" · missing은 여전히 write-hint |
 | `receipt/tests/preflight.test.js` (+1 subject-tamper) | Pass — refactor 무손상 + subject_hash 가이드 |
-| `lib/tests/history-leak-scan.test.js` (+1 F1) | Pass — base allowlisted blob의 non-allowlist 새 경로 leak 보고, all-allowlisted regression-0 유지 |
+| `lib/tests/history-leak-scan.test.js` (+3: F1 base-blob-new-path · F1 R2 ancestor-only-deleted · F3 unresolved-base) | Pass 18/18 — regression-0 |
 | hooks informational/skill 회귀 | Pass 무손상 |
 
-신규 파일: `receipt/block-format.js`. 수정: `preflight.js`(shared formatter 배선)·`receipt-prompt.js`·`receipt-skill.js`(tamper-aware block)·`history-leak-scan.js`(changed-path 증강). 버전은 1.22.6 유지(미머지 M2 마일스톤에 리뷰 흡수).
+Codex 수렴 loop(3 라운드): #1 divergent(F1 HIGH+F2 MED) → #2 divergent(F2 정렬✓, F1 ancestor-only 잔여) → #3 divergent(F1 R2✓, F3 unresolved-base MED). 매 라운드 실제 결함을 정확히 좁혀감(cross-model review 가치). 신규 파일: `receipt/block-format.js`. 수정: `preflight.js`·`receipt-prompt.js`·`receipt-skill.js`(F2 tamper-aware)·`history-leak-scan.js`(F1 base-tree map + F3 fail-closed base). 버전은 1.22.6 유지(미머지 M2 마일스톤에 리뷰 흡수).
 
 ## Next Steps
 

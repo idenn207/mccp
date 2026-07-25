@@ -260,12 +260,49 @@ test('F1 (Codex R2): ancestor-only old-blob path (copied then DELETED before HEA
   assert.ok(res.leaks.every(function (l) { return l.path !== 'docs/allowed.md'; }), 'the allowlisted base path stays suppressed');
 });
 
+test('F4 (Codex R4): a repo-root path with different CASE still leaks (Windows case-insensitivity)', function () {
+  // Windows paths are case-insensitive: C:\X and c:\x name the same root, so a leak
+  // line spelling the repo root with a lowercased drive/segment must still be
+  // caught. On POSIX (case-sensitive fs) a case variant is a genuinely different
+  // path, so the repo-root pattern stays case-sensitive there and this does not
+  // apply (the test skips when the root is already all-lowercase / has no drive).
+  const root = initBase();
+  const variant = root.toLowerCase();
+  if (variant === root) { return; } // POSIX / already lowercase — not applicable
+  commit(root, { 'report.md': 'leaked path ' + variant + '/sub here\n' });
+  const res = scan.scanRange({ repoRoot: root, base: 'main' });
+  assert.equal(res.ok, false, 'a case-variant of the repo root must still leak on Windows');
+  assert.ok(res.leaks.some(function (l) { return /report\.md/.test(l.path) && l.pattern === 'repo-root'; }),
+    'the differently-cased repo-root path is detected by the repo-root pattern');
+});
+
 test('empty range (HEAD === base) → ok, nothing scanned', function () {
   const root = buildRepo([]); // no extra commits: HEAD === main
   const res = scan.scanRange({ repoRoot: root, base: 'main' });
   assert.equal(res.ok, true);
   assert.equal(res.commits, 0);
   assert.equal(res.scanned_blobs, 0);
+});
+
+test('F5 (Codex R5): the scanner source must not embed THIS repo root in its own comments', function () {
+  // F4 made repo-root matching case-insensitive; a comment that spells the real
+  // workspace root (even as an example) is then flagged by the scanner against its
+  // own source, failing the mandatory pre-push gate. Examples MUST be synthetic
+  // (X:/parent/repo). Guard: compile patterns from the ACTUAL repo root and assert
+  // the scanner source file has zero matches. Uses the dynamic root so it is not
+  // tied to any checkout location.
+  let realRoot;
+  try { realRoot = g(process.cwd(), ['rev-parse', '--show-toplevel']); }
+  catch (_e) { return; } // not in a git repo (unlikely in CI) — skip
+  const patterns = scan.buildLeakPatterns(realRoot);
+  const srcPath = path.resolve(__dirname, '..', 'history-leak-scan.js');
+  const lines = fs.readFileSync(srcPath, 'utf8').split(/\r?\n/);
+  lines.forEach(function (line, i) {
+    for (const pat of patterns) {
+      assert.ok(!pat.re.test(line),
+        'history-leak-scan.js:' + (i + 1) + ' embeds the real repo root (' + pat.name + '): ' + line.trim());
+    }
+  });
 });
 
 test('F3 (Codex R3): unresolved base ref → fail-CLOSED (ok:false scan-error), NOT silent pass', function () {

@@ -98,6 +98,19 @@ Codex 재리뷰 #3이 F1 R2 + F2 정렬 확인 후 새 결함 지적: `resolveBa
 
 - 수정 = `if (!base)` → `ok:true`에서 **`ok:false` + scan-error leak**('no base ref resolved …')로 전환. caller가 resolvable base(`--base <sha>`)를 공급해야 함. empty-range(HEAD===base, base 해석됨) test는 `commitCount===0` 분기라 무영향.
 
+### F4 [HIGH] — Windows case-sensitivity bypass (Codex R4, pre-existing)
+
+Codex 재리뷰 #4가 F1/F2/F3 수렴 확인 후 새 결함: `buildLeakPatterns()`가 repo-root를 **case-sensitive** RegExp로 컴파일. Windows 경로는 case-**insensitive**이므로 `X:\parent\repo`와 `x:\parent\repo`(소문자 드라이브/세그먼트)는 동일 위치인데(예시는 synthetic — 실제 root를 문서에 박으면 case-insensitive 패턴이 그 줄을 leak으로 잡음, F5 참조), `repoRoot`가 방출한 정확한 casing만 탐지 → 다른 casing의 같은 경로 leak이 backstop 통과. **본 환경이 Windows**라 실제 dev 플랫폼 우회 = HIGH.
+
+- 수정 = repo-root 패턴을 drive-letter(Windows-style) root일 때 `i` 플래그로 컴파일(POSIX root는 case-sensitive fs라 그대로 — `i`는 over-match). old-repo drive-letter 패턴은 Windows by construction → 항상 `i`. exact-case leak은 `i` 하에서도 매칭되므로 기존 test 무손상, cache-path/`C:\evil\abs` 비-leak도 casing 무관 미매칭 유지.
+
+### F5 [HIGH] — F4 자기-leak (Codex R5, self-inflicted)
+
+Codex 재리뷰 #5가 F4가 만든 **자책골** 지적: F4 설명 주석이 실제 workspace root와 그 소문자 변형을 **리터럴 예시로 embed**했는데, F4가 방금 case-insensitive 매칭을 켰으므로 스캐너가 **자기 소스 주석을 repo-root leak으로 탐지** → 이 브랜치의 mandatory pre-push 스캔이 (올바르게) 실패. 실측: `history-leak-scan.js` 주석 2줄 + 본 report의 F4 설명 1줄, 총 3 leak. 이미 소스 line ~66에 "예시는 synthetic이어야 함, 실제 root embed 금지" 관례가 있는데 F4 주석/문서가 어김.
+
+- 수정 = 실제 root 예시를 전부 synthetic(`X:\parent\repo`/`x:\parent\repo`)으로 교체(소스 주석 + report). 회귀 test 추가: **실제 repo root(`git rev-parse --show-toplevel`)로 컴파일한 패턴이 `history-leak-scan.js` 소스에 0-match**임을 단언(dynamic root라 checkout 위치 무관).
+- **히스토리 정정**: leaky blob이 F4 커밋(HEAD)에만 존재하고 그 커밋이 unpushed → **`git commit --amend`로 F4 커밋을 leak-free 버전으로 rewrite**(e5dc673/PR #113은 보존, force-push 불필요). 이는 F1 R2가 표방한 ancestor-leak 보증을 **자기 자신에게 적용한** dogfood — working-tree redaction만으로는 조상 blob이 안 지워지므로 amend 필수([[durable-evidence-substrate]] Method A 축약판).
+
 ### 흡수 검증
 
 | Test | 결과 |
@@ -105,10 +118,11 @@ Codex 재리뷰 #3이 F1 R2 + F2 정렬 확인 후 새 결함 지적: `resolveBa
 | `receipt/tests/block-format.test.js` (신규 8) | Pass 8/8 — 라벨·tamper 가이드·조건부 detail |
 | `hooks/tests/receipt-prompt-tamper.test.js` (신규 3) | Pass — receipt/subject-tamper → TAMPER + Do NOT regenerate + no "Write missing" · missing은 여전히 write-hint |
 | `receipt/tests/preflight.test.js` (+1 subject-tamper) | Pass — refactor 무손상 + subject_hash 가이드 |
-| `lib/tests/history-leak-scan.test.js` (+3: F1 base-blob-new-path · F1 R2 ancestor-only-deleted · F3 unresolved-base) | Pass 18/18 — regression-0 |
+| `lib/tests/history-leak-scan.test.js` (+5: F1 base-blob-new-path · F1 R2 ancestor-only-deleted · F3 unresolved-base · F4 windows-case-variant · F5 self-source-no-leak) | Pass 20/20 — regression-0 |
+| 실 pre-push 스캔 (`--base main`) | leaks=0 (amend 후 — F4 자기-leak 3건 제거 검증) |
 | hooks informational/skill 회귀 | Pass 무손상 |
 
-Codex 수렴 loop(3 라운드): #1 divergent(F1 HIGH+F2 MED) → #2 divergent(F2 정렬✓, F1 ancestor-only 잔여) → #3 divergent(F1 R2✓, F3 unresolved-base MED). 매 라운드 실제 결함을 정확히 좁혀감(cross-model review 가치). 신규 파일: `receipt/block-format.js`. 수정: `preflight.js`·`receipt-prompt.js`·`receipt-skill.js`(F2 tamper-aware)·`history-leak-scan.js`(F1 base-tree map + F3 fail-closed base). 버전은 1.22.6 유지(미머지 M2 마일스톤에 리뷰 흡수).
+Codex 수렴 loop(5+ 라운드): #1(F1 HIGH+F2 MED) → #2(F2✓, F1 ancestor-only) → #3(F1 R2✓, F3 unresolved-base MED) → #4(F1/F2/F3✓, F4 windows-case HIGH) → #5(F4 자기-leak HIGH). 매 라운드 실제 결함을 정확히 좁혀감(cross-model review의 실증 가치 — 특히 F5는 스캐너가 자기 자신을 dogfood). 신규 파일: `receipt/block-format.js`. 수정: `preflight.js`·`receipt-prompt.js`·`receipt-skill.js`(F2 tamper-aware)·`history-leak-scan.js`(F1 base-tree map + F3 fail-closed base + F4 case-insensitive + F5 synthetic 예시). 버전은 1.22.6 유지(미머지 M2 마일스톤에 리뷰 흡수).
 
 ## Next Steps
 

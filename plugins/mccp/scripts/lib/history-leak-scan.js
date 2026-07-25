@@ -69,14 +69,25 @@ function buildLeakPatterns(repoRoot, oldNames) {
   const rootFwd = String(repoRoot).replace(/\\/g, '/');
   const segs = rootFwd.split('/').filter(function (s) { return s.length > 0; });
   const sepFlexible = segs.map(escapeRe).join('[\\\\/]+');
+  // F4 (Codex R4) — Windows paths are case-INSENSITIVE: `X:\parent\repo` and
+  // `x:\parent\repo` name the SAME repo root, so a leak line with a differently-
+  // cased drive letter or segment would slip past a case-sensitive regex compiled
+  // from the one casing `repoRoot` happens to emit (examples are synthetic on
+  // purpose — a comment must never embed THIS repo's real root, or the case-
+  // insensitive pattern below would flag its own source, per line ~66). Compile the
+  // repo-root pattern case-insensitively when the root is a drive-letter (Windows)
+  // path; POSIX roots stay case-sensitive because their filesystems are (a
+  // case-variant there is a genuinely different path, and `i` would over-match).
+  // The old-repo drive-letter patterns are Windows by construction → always `i`.
+  const winStyle = /^[A-Za-z]:/.test(rootFwd);
   const patterns = [
-    { name: 'repo-root', re: new RegExp(sepFlexible) },
+    { name: 'repo-root', re: new RegExp(sepFlexible, winStyle ? 'i' : '') },
   ];
   for (const nm of (oldNames || DEFAULT_OLD_REPO_NAMES)) {
     // drive-letter path (any separator run) that ends in the old repo name.
     patterns.push({
       name: 'old-repo:' + nm,
-      re: new RegExp('[A-Za-z]:[\\\\/][^\\s"\'`]*' + escapeRe(nm)),
+      re: new RegExp('[A-Za-z]:[\\\\/][^\\s"\'`]*' + escapeRe(nm), 'i'),
     });
   }
   return patterns;

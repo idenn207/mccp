@@ -211,11 +211,15 @@ function cmdMetricsAssert(rest) {
   // 실 derive에서 절대 산출 못 하므로 claimed-computable에서 제외(forward-only).
   // A1은 session_activity(실 source)가 producer-absent를 정직 보고하므로 유지 —
   // fixture는 producer 배선 상태의 compute 경로를 실증한다.
+  //
+  // msw-m2-measurement-honesty-downgrade (Plan-Codex R1 PF2 / R3-F0): A2·A4·B2도
+  // C1과 함께 제외한다. A4는 self-credit, A2는 unverified stamp로 계산이 오염됐고,
+  // B2는 독립 collision-producer-presence 신호가 없어 computed-zero를 낼 수 없다.
+  // 셋 다 forward-only(numerator null)인데 claimed-computable은 null numerator를
+  // 거부하므로(아래 Check 2), 목록에 두면 fixture만 통과하고 production은 계약을
+  // 못 지킨다. A1은 task_completed KIND 이벤트로 computed-zero를 낼 수 있어 유지.
   const claimedComputable = [
     A1_WORK_COMPLETION_RATE,
-    A2_CONTEXT_REMAINING,
-    A4_RESTORE_RATE,
-    B2_CONCURRENT_CONFLICTS,
     B3_TOGGLE_AXES,
   ];
 

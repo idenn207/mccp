@@ -82,7 +82,12 @@ test('A1: timestamp inversion detected → invalid', (t) => {
   assert(a1.invalid_reason.includes('inversion'));
 });
 
-test('A2: context remaining p50/p95 computes percentiles', (t) => {
+// msw-m2-measurement-honesty-downgrade (Plan-Codex R1/R3): A2/A4/B2 are downgraded to
+// C1-pattern forward-only (removed from claimed-computable). Codex R3 found the earlier
+// producer-flag design let confidently-wrong values through; these tests lock the honest
+// forward-only state + the specific defects (A4 self-credit, A2 unverified stamp).
+
+test('A2: context remaining → forward-only (not session-bound/freshness-verified)', (t) => {
   const model = {
     sources: {
       session_activity: {
@@ -91,25 +96,39 @@ test('A2: context remaining p50/p95 computes percentiles', (t) => {
           { context_remaining_pct: 20 },
           { context_remaining_pct: 40 },
           { context_remaining_pct: 60 },
-          { context_remaining_pct: 80 },
-          { context_remaining_pct: 100 },
         ],
         producer_coverage: 'session-activity',
       },
     },
   };
 
-  const metrics = computeMetrics(model);
-  const a2 = metrics[A2_CONTEXT_REMAINING];
-
-  assert(typeof a2.value === 'object');
-  assert(a2.value.p50 !== undefined);
-  assert(a2.value.p95 !== undefined);
-  assert.strictEqual(a2.numerator, 5);
-  assert.strictEqual(a2.denominator, 5);
+  const a2 = computeMetrics(model)[A2_CONTEXT_REMAINING];
+  assert.strictEqual(a2.status, 'forward-only');
+  assert.strictEqual(a2.value, null);
+  assert.strictEqual(a2.numerator, null);
+  assert.strictEqual(a2.denominator, 3); // session volume observation preserved
+  assert.match(a2.invalid_reason, /not session-bound/);
 });
 
-test('A4: restore rate computes numerator/denominator', (t) => {
+test('A2: stale/cross-session sample is NOT attributed as a computed A2 value (Codex R3 F3)', (t) => {
+  // Even with a numeric context_remaining_pct present (which the contaminated producer
+  // could have stamped from another session), A2 must stay forward-only.
+  const model = {
+    sources: {
+      session_activity: {
+        ok: true,
+        sessions: [{ context_remaining_pct: 99 }], // could be a stale/cross-session value
+        producer_coverage: 'session-activity',
+      },
+    },
+  };
+
+  const a2 = computeMetrics(model)[A2_CONTEXT_REMAINING];
+  assert.strictEqual(a2.status, 'forward-only');
+  assert.strictEqual(a2.value, null);
+});
+
+test('A4: restore rate → forward-only (not boundary-scoped)', (t) => {
   const model = {
     sources: {
       handoff_items: {
@@ -121,15 +140,34 @@ test('A4: restore rate computes numerator/denominator', (t) => {
     },
   };
 
-  const metrics = computeMetrics(model);
-  const a4 = metrics[A4_RESTORE_RATE];
-
-  assert.strictEqual(a4.numerator, 5);
-  assert.strictEqual(a4.denominator, 8);
-  assert.strictEqual(a4.value, 0.625);
+  const a4 = computeMetrics(model)[A4_RESTORE_RATE];
+  assert.strictEqual(a4.status, 'forward-only');
+  assert.strictEqual(a4.value, null);
+  assert.strictEqual(a4.numerator, null);
+  assert.strictEqual(a4.denominator, 8); // backlog observation preserved
+  assert.match(a4.invalid_reason, /boundary-scoped/);
 });
 
-test('B2: concurrent conflicts computes rate', (t) => {
+test('A4: self-credit scenario does NOT report computed 100% (Codex R3 F2)', (t) => {
+  // The contaminated scanner intersects the current session's own sidecar, so
+  // items_left == items_restored (a fake 100%). A4 must be forward-only, never 1.0.
+  const model = {
+    sources: {
+      handoff_items: {
+        ok: true,
+        items_left_count: 3,
+        items_restored_count: 3,
+        producer_coverage: 'handoff-items',
+      },
+    },
+  };
+
+  const a4 = computeMetrics(model)[A4_RESTORE_RATE];
+  assert.strictEqual(a4.status, 'forward-only');
+  assert.notStrictEqual(a4.value, 1);
+});
+
+test('B2: concurrent conflicts → forward-only (no live collision producer)', (t) => {
   const model = {
     sources: {
       session_activity: {
@@ -141,15 +179,17 @@ test('B2: concurrent conflicts computes rate', (t) => {
     },
   };
 
-  const metrics = computeMetrics(model);
-  const b2 = metrics[B2_CONCURRENT_CONFLICTS];
-
-  assert.strictEqual(b2.numerator, 2);
-  assert.strictEqual(b2.denominator, 10);
-  assert.strictEqual(b2.value, 0.2);
+  const b2 = computeMetrics(model)[B2_CONCURRENT_CONFLICTS];
+  assert.strictEqual(b2.status, 'forward-only');
+  assert.strictEqual(b2.value, null);
+  assert.strictEqual(b2.numerator, null);
+  assert.strictEqual(b2.denominator, 10); // concurrency observation preserved
+  assert.match(b2.invalid_reason, /no live collision producer/);
 });
 
-test('B2: denominator=0 → invalid', (t) => {
+test('B2: zero concurrent pairs also → forward-only, not invalid (C1-pattern)', (t) => {
+  // The old denominator-zero invalid guard is gone; B2 is unconditionally forward-only
+  // since it is not claimed-computable (Codex R3 F1 — no producer-flag branch to mis-order).
   const model = {
     sources: {
       session_activity: {
@@ -161,12 +201,9 @@ test('B2: denominator=0 → invalid', (t) => {
     },
   };
 
-  const metrics = computeMetrics(model);
-  const b2 = metrics[B2_CONCURRENT_CONFLICTS];
-
-  assert.strictEqual(b2.status, 'invalid');
-  assert.strictEqual(b2.integrity_ok, false);
-  assert(b2.invalid_reason.includes('denominator_zero'));
+  const b2 = computeMetrics(model)[B2_CONCURRENT_CONFLICTS];
+  assert.strictEqual(b2.status, 'forward-only');
+  assert.strictEqual(b2.denominator, 0);
 });
 
 test('B3: toggle axes computes usage rate + branch count', (t) => {

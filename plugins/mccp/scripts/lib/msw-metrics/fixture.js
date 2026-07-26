@@ -3,11 +3,20 @@
 // R2-F2 shared seeded fixture. Used by BOTH the `metrics-assert --fixtures`
 // CLI gate and the acceptance test, so the mechanical gate and the test that
 // guards it can never drift. Represents a minimal-but-representative derive
-// model in which every claimed-computable metric (A1/A2/A4/B2/B3) has enough
-// source data to compute a real (non-null, non-baseline-forming) value. C1 is
-// forward-only (no live findings derive source) so it is NOT injected (PR-Codex
-// R2-F3 — injecting a fake source would be a masquerade). The
-// gate's whole point is that this forces compute — `{metrics:{}}` or an
+// model in which every claimed-computable metric (A1/B3 — see below) has enough
+// source data to compute a real (non-null, non-baseline-forming) value.
+//
+// msw-m2-measurement-honesty-downgrade (Plan-Codex R1/R3): A2/A4/B2 are now
+// C1-pattern forward-only and NO validity flag is injected for them. A4/A2 have
+// contaminated computations (self-credit / unverified stamp) and B2 has no
+// independent collision-producer-presence signal, so injecting a fixture flag to
+// force compute would masquerade an unfixed producer (same reason C1's findings
+// source is not injected, below). The claimed-computable set is therefore just
+// {A1, B3}. The session_activity/handoff_items numeric fields below are retained
+// (harmless — A2/A4/B2 ignore them and return forward-only), and only A1's
+// completions_producer_present drives a computed value.
+//
+// The gate's whole point is that this forces compute — `{metrics:{}}` or an
 // all-baseline-forming result can never satisfy the enumeration.
 function buildSeededModel() {
   return {

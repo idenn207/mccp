@@ -28,7 +28,8 @@ const {
 const { resolveProjectContext, resolveSessionId } = require('../lib/observer-sessions');
 const sessionLedger = require('../state/session-ledger');
 const mswEvents = require('../state/msw-events');
-const contextState = require('../lib/context-state');
+// context-state require removed (msw-m2-measurement-honesty-downgrade / PF3): session-end
+// no longer reads latest-wins context for A2 — it emits null until session-bound freshness exists.
 const handoffItems = require('../state/handoff-items');
 
 const SUMMARY_START_MARKER = '<!-- ECC:SUMMARY:START -->';
@@ -349,12 +350,14 @@ async function main() {
         const ledger = sessionLedger.readLedger({ sessionId: sid, projectContext: ctx });
         const endedAt = ledger && ledger.ended_at ? ledger.ended_at : new Date().toISOString();
 
-        // A2 context% 읽기
-        let contextRemainingPct = null;
-        const ctxState = contextState.readState();
-        if (ctxState && Number.isFinite(ctxState.context_remaining_pct)) {
-          contextRemainingPct = ctxState.context_remaining_pct;
-        }
+        // A2 context% — PF3 (msw-m2-measurement-honesty-downgrade): contextState.readState()
+        // reads a latest-wins context-current.json with NO session-id/freshness binding, so a
+        // concurrent or stale sample would be attributed to THIS ending session. Until a
+        // session-bound freshness path exists, emit null rather than stamp an unverified value
+        // into the append-only event log. A2 is forward-only downstream, so no honest consumer
+        // relies on this field today; recording a contaminated number would only mislead a
+        // future scanner. When session-bound context is implemented, restore the read here.
+        const contextRemainingPct = null;
 
         // A2 종료 이벤트 (task_completed는 always false for SessionEnd hook; 실제는 derive가 판정)
         const endEventResult = mswEvents.appendEvent(sid, {

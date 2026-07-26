@@ -23,15 +23,22 @@ const {
 // the gate and the test that guards it can never drift.
 const { buildSeededModel } = require('../msw-metrics/fixture');
 
-// Claimed-computable IDs: A1, A2, A4, B2, B3 (all backed by a real derive source)
-// Forward-only: C1 (no live findings source — PR-Codex R2-F3), C2/C3 (귀속 미구축)
-// Not computed: B1 (no independent evidence source)
+// Claimed-computable IDs: A1, B3 (backed by a real derive source with an honest
+// computed-including-zero path). msw-m2-measurement-honesty-downgrade (Plan-Codex
+// R1/R3): A2/A4/B2 were removed — they are C1-pattern forward-only (A4 self-credit,
+// A2 unverified stamp, B2 no independent collision-producer-presence signal).
+// Forward-only: A2/A4/B2 (downgraded), C1 (no live findings source — PR-Codex R2-F3),
+// C2/C3 (귀속 미구축). Not computed: B1 (no independent evidence source).
 const CLAIMED_COMPUTABLE = [
   A1_WORK_COMPLETION_RATE,
+  B3_TOGGLE_AXES,
+];
+// Downgraded metrics: present in the seeded fixture but must resolve to forward-only,
+// so they can never be silently promoted back into the claimed-computable enumeration.
+const DOWNGRADED_FORWARD_ONLY = [
   A2_CONTEXT_REMAINING,
   A4_RESTORE_RATE,
   B2_CONCURRENT_CONFLICTS,
-  B3_TOGGLE_AXES,
 ];
 
 test('msw-metrics-acceptance: seeded fixture with non-null numerator/denominator/status', async (t) => {
@@ -82,6 +89,25 @@ test('msw-metrics-acceptance: seeded fixture with non-null numerator/denominator
     assert(
       emptyMetrics[id] === undefined,
       `empty metrics object must not contain ${id}`
+    );
+  }
+
+  // Assertion 6 (downgrade): A2/A4/B2 have source data in the seeded fixture but MUST
+  // resolve to forward-only (null numerator) — proving they are not silently promoted
+  // back into claimed-computable (Plan-Codex R1 PF2 / R3-F0).
+  for (const id of DOWNGRADED_FORWARD_ONLY) {
+    const metric = metrics[id];
+    assert(
+      metric.status === 'forward-only',
+      `downgraded ${id}: status must be 'forward-only' (got ${metric.status})`
+    );
+    assert(
+      metric.numerator === null,
+      `downgraded ${id}: numerator must be null (got ${metric.numerator})`
+    );
+    assert(
+      !CLAIMED_COMPUTABLE.includes(id),
+      `downgraded ${id}: must not be in the claimed-computable set`
     );
   }
 });

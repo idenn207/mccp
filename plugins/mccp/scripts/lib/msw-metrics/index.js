@@ -142,71 +142,57 @@ function computeA1(model) {
 }
 
 function computeA2(model) {
-  // A2 context remaining: from session-end events
+  // A2 context remaining: from session-end events.
+  // Downgrade (msw-m2-measurement-honesty-downgrade, Plan-Codex R1/PF3): session-end
+  // reads a latest-wins context-current.json with no session-id/freshness binding and
+  // stamps it onto the ending session's event, so a concurrent or stale sample can be
+  // attributed to the wrong session. The samples are contaminated at the producer, so A2
+  // is forward-only and excluded from claimed-computable (C1-pattern). The producer
+  // (session-end.js) now emits null until session-bound freshness exists, so contaminated
+  // samples stop accumulating in the append-only log. session count is kept as the
+  // denominator so the observed session volume is preserved; only the percentile is not claimed.
   const sessionActivity = model.sources?.session_activity;
   if (!sessionActivity || !sessionActivity.ok) {
     return insufficientMetric(A2_CONTEXT_REMAINING, 'session_activity source unavailable');
   }
 
   const sessions = sessionActivity.sessions || [];
-  const withContext = sessions.filter(s => s.context_remaining_pct !== null && s.context_remaining_pct !== undefined);
-
-  if (withContext.length === 0) {
-    return insufficientMetric(A2_CONTEXT_REMAINING, 'no sessions with context_remaining_pct recorded');
-  }
-
-  // Anti-gaming: miscompletion-up (미완 종료 건이 늘면 A1 실패 조합) → check via A1 state
-  // For now, just compute p50/p95
-  const values = withContext.map(s => s.context_remaining_pct).sort((a, b) => a - b);
-  const p50 = values[Math.floor(values.length * 0.5)];
-  const p95 = values[Math.floor(values.length * 0.95)];
-
   return {
     id: A2_CONTEXT_REMAINING,
-    numerator: withContext.length, // sessions with context data
-    denominator: sessions.length,   // all sessions
-    value: { p50, p95 },
+    numerator: null,
+    denominator: sessions.length || null,
+    value: null,
     integrity_ok: true,
-    status: sessions.length > 0 ? 'computed' : 'insufficient',
+    invalid_reason: 'context% not session-bound/freshness-verified (session-end reads latest-wins context-current.json)',
+    status: 'forward-only',
     coverage: sessionActivity.producer_coverage || 'unknown',
   };
 }
 
 function computeA4(model) {
-  // A4 restore rate: from handoff-items source
+  // A4 restore rate: from handoff-items source.
+  // Downgrade (msw-m2-measurement-honesty-downgrade, Plan-Codex R1): the handoff-items
+  // scanner intersects ALL sidecars (including the current session's own, written at
+  // session-end) with current unfinished items, so a first session self-credits its own
+  // handoff as "restored" — a fake 100% restore rate with no session boundary crossed.
+  // The compute is contaminated (not merely a missing producer), so a fixture flag would
+  // masquerade an unfixed scanner. Until the scanner is boundary-scoped, A4 is
+  // forward-only and excluded from claimed-computable (C1-pattern). items_left is kept
+  // as the denominator so the observed backlog is preserved; only the rate is not claimed.
   const handoffItems = model.sources?.handoff_items;
   if (!handoffItems || !handoffItems.ok) {
     return insufficientMetric(A4_RESTORE_RATE, 'handoff_items source unavailable');
   }
 
   const itemsLeft = handoffItems.items_left_count || 0;
-  const itemsRestored = handoffItems.items_restored_count || 0;
-
-  // Anti-gaming: denominator shrink (分모 축소 부풀리기)
-  const denominatorShrinkFlag = itemsLeft < (model._priorItemsLeft || itemsLeft)
-    ? 'denominator_shrink_suspected' : null;
-
-  if (denominatorShrinkFlag) {
-    return {
-      id: A4_RESTORE_RATE,
-      numerator: null,
-      denominator: null,
-      value: null,
-      integrity_ok: false,
-      invalid_reason: denominatorShrinkFlag,
-      status: 'invalid',
-      coverage: handoffItems.producer_coverage || 'unknown',
-    };
-  }
-
-  const value = itemsLeft > 0 ? itemsRestored / itemsLeft : null;
   return {
     id: A4_RESTORE_RATE,
-    numerator: itemsRestored,
+    numerator: null,
     denominator: itemsLeft,
-    value: value,
+    value: null,
     integrity_ok: true,
-    status: itemsLeft > 0 ? 'computed' : 'insufficient',
+    invalid_reason: 'restore rate not boundary-scoped (scanner self-credits current-session handoff items)',
+    status: 'forward-only',
     coverage: handoffItems.producer_coverage || 'unknown',
   };
 }
@@ -218,37 +204,31 @@ function computeB1(model) {
 }
 
 function computeB2(model) {
-  // B2 concurrent conflicts: from session-activity concurrent pairs + collision events
+  // B2 concurrent conflicts: from session-activity concurrent pairs + collision events.
+  // Downgrade (msw-m2-measurement-honesty-downgrade, Plan-Codex R1/R2/R3): production
+  // emits only session_start/session_end events, so no live collision producer exists —
+  // collision_events_count is structurally 0 and a "computed 0%" would be confidently
+  // wrong. Deriving a producer-present flag from observed collision events would tie it
+  // to collision_events_count>0, making a legitimate computed-zero (a wired producer
+  // observing zero collisions among N concurrent pairs) unreachable. Until an INDEPENDENT
+  // collision-producer-presence signal exists (building it = building the producer,
+  // out of scope), B2 is forward-only and excluded from claimed-computable (C1-pattern).
+  // concurrent_pairs is kept as the denominator so concurrency observation is preserved;
+  // only the collision rate is not claimed.
   const sessionActivity = model.sources?.session_activity;
   if (!sessionActivity || !sessionActivity.ok) {
     return insufficientMetric(B2_CONCURRENT_CONFLICTS, 'session_activity source unavailable');
   }
 
   const concurrentPairs = sessionActivity.concurrent_pairs_count || 0;
-  const collisions = sessionActivity.collision_events_count || 0;
-
-  // Anti-gaming: if denominator=0, invalid (can't distinguish serialization from no-collision)
-  if (concurrentPairs === 0) {
-    return {
-      id: B2_CONCURRENT_CONFLICTS,
-      numerator: null,
-      denominator: null,
-      value: null,
-      integrity_ok: false,
-      invalid_reason: 'denominator_zero',
-      status: 'invalid',
-      coverage: sessionActivity.producer_coverage || 'unknown',
-    };
-  }
-
-  const value = collisions / concurrentPairs;
   return {
     id: B2_CONCURRENT_CONFLICTS,
-    numerator: collisions,
+    numerator: null,
     denominator: concurrentPairs,
-    value: value,
+    value: null,
     integrity_ok: true,
-    status: 'computed',
+    invalid_reason: 'no live collision producer (production emits only session_start/session_end; computed-zero needs an independent producer-presence signal)',
+    status: 'forward-only',
     coverage: sessionActivity.producer_coverage || 'unknown',
   };
 }

@@ -50,3 +50,23 @@ test('session-hooks-no-llm: msw-events + toggle-snapshot + handoff-items no LLM'
   assert.ok(!handoffContent.includes('Agent('));
   assert.ok(!handoffContent.includes('Skill('));
 });
+
+test('session-end: A2 context null-emitted at producer boundary, not read from unverified latest-wins (PF3)', () => {
+  // msw-m2-measurement-honesty-downgrade (Plan-Codex R1 PF3, Codex R3 next_steps):
+  // session-end must NOT stamp an unverified latest-wins context-current.json value onto
+  // the append-only session_end event (a concurrent/stale sample would be mis-attributed
+  // to the ending session). It emits null until session-bound freshness exists. This locks
+  // the producer boundary so the contaminated read cannot silently return.
+  const endContent = fs.readFileSync(SESSION_END_PATH, 'utf8');
+  // Structural guard: the context-state module must not be imported, so no readState()
+  // call can reintroduce the contaminated read. (Checking the require, not a method-name
+  // string, so an explanatory comment mentioning the old API does not false-fail.)
+  assert.ok(
+    !/require\(['"][^'"]*context-state['"]\)/.test(endContent),
+    'session-end must not import context-state (the unverified latest-wins reader) — PF3'
+  );
+  assert.ok(
+    /const contextRemainingPct = null/.test(endContent),
+    'session-end must emit null context_remaining_pct until session-bound freshness exists (PF3)'
+  );
+});

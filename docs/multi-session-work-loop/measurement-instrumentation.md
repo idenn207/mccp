@@ -16,12 +16,27 @@ This document specifies:
 | Event | Numerator Semantics | Producer (file:line) | Derive Source | Metric IDs |
 |---|---|---|---|---|
 | **1-session-start** | Session initialized successfully | `session-start.js:L668` `createLedger` | `session-activity.js` | A1 denominator |
-| **2-session-context** | `context_remaining_pct` recorded | `session-end.js:L336` (read from context-state) | `session-activity.js` | A2 numerator/denominator |
-| **3-handoff-item** | Unresolved work item enumerated (denominator) or resumed (numerator) | `handoff-items.js` + `session-start.js` recovery | `session-activity.js` | A4 numerator/denominator |
+| **2-session-context** | `context_remaining_pct` recorded — **⚠ forward-only** (see Status below) | `session-end.js` (emits `null`) | `session-activity.js` | A2 (forward-only) |
+| **3-handoff-item** | Unresolved work item enumerated (denominator) or resumed (numerator) — **⚠ forward-only** | `handoff-items.js` + `session-start.js` recovery | `session-activity.js` | A4 (forward-only) |
 | **4-toggle-usage** | Non-default `MCCP_*` env setting observed | `session-start.js` env-snapshot capture | `toggle-usage.js` | B3 numerator/denominator |
-| **5-concurrent-session** | 2+ sessions detected overlapping (pairwise) | `session-activity.js` (hook-trace shard correlation + session-ledger heartbeat) | `session-activity.js` | B2 denominator |
-| **6-conflict-window** | Concurrent sessions touched same file during overlap | hook-trace shard diff union + PR diff audit | `session-activity.js` | B2 numerator |
+| **5-concurrent-session** | 2+ sessions detected overlapping (pairwise) | `session-activity.js` (hook-trace shard correlation + session-ledger heartbeat) | `session-activity.js` | B2 denominator (observed) |
+| **6-conflict-window** | Concurrent sessions touched same file during overlap — **⚠ forward-only** (no live producer) | hook-trace shard diff union + PR diff audit | `session-activity.js` | B2 (forward-only) |
 | **7-codex-finding** | Codex-produced finding from any gate (plan/implement/pr) | `receipt` `findings[]` count (mccp-plan/implement/pr-codex) | `recoverability-probe.js` | C1 numerator/denominator |
+
+### Current metric status (v1.22.7 measurement-honesty downgrade)
+
+Codex R3 cross-model review found that A2/A4/B2 could report **confidently-wrong** values, so they are downgraded to `forward-only` (not claimed-computable). The event table above describes the *intended* instrumentation; the current honest status is:
+
+| Metric | Status | Why |
+|---|---|---|
+| **A2** context% | `forward-only` | `session-end.js` now emits `context_remaining_pct: null` — the old latest-wins read had no session-id/freshness binding, so a stale/cross-session sample could be mis-attributed. The producer emits null until session-bound freshness exists. |
+| **A4** restore rate | `forward-only` | The handoff scanner intersects the current session's own sidecar → first-session self-credit → fake 100%. Not boundary-scoped. |
+| **B2** conflict rate | `forward-only` | Production emits only `session_start`/`session_end`; there is no live collision producer, so a "computed 0%" would be confidently wrong. The concurrent-pairs *denominator* is still observed. |
+| **A1** completion rate | `forward-only` in real corpus | `completions_producer_present` flips only on a `task_completed` KIND event, which no production hook emits today; the fixture proves the compute path. |
+| **B3** toggle usage | `computed` | Live env-snapshot producer. (Known refinement backlog: numerator uses `TOGGLE_DEFAULTS` while the denominator scans all `MCCP_*` tokens — toggles absent from the defaults table can be under-counted.) |
+| **C1/C2/C3** | `forward-only` | No live findings/attribution source wired. |
+
+The real producers (collision detection, boundary-scoped restore, session-bound context, an independent completion producer) are deferred to a follow-up milestone. `metrics-assert --fixtures` proves the compute paths against the seeded fixture; it is **not** evidence that these metrics are computable in current production.
 
 ## No-LLM Contract
 

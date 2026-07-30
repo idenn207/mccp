@@ -59,7 +59,7 @@ validity flag·fixture 주입 **없음**(masquerade 회피). 추가로 A2 오염
 | `plugins/mccp/scripts/lib/msw-metrics/index.js` | UPDATE | computeB2·computeA4·computeA2를 source-check 후 **무조건 forward-only**(C1형, 각 오염/부재 사유). B2의 denominator-zero invalid·collision rate 계산 경로는 제거(비청구 metric엔 불필요) |
 | `plugins/mccp/scripts/derive/cli.js` | UPDATE | `claimedComputable = [B3]` (B2·A2·A4·A1 제거 — re-R3 F0). 사유 주석(PF2·R3-F0) |
 | `plugins/mccp/scripts/hooks/session-end.js` | UPDATE | (PF3) `context_remaining_pct: null` emit — 검증 불가 latent-wins 값 기록 중단. 사유 주석 |
-| `plugins/mccp/scripts/lib/msw-metrics/fixture.js` | UPDATE | 주석만 갱신(claimed=`[B3]`, A1/A2/A4/B2는 forward-only·A1은 fixture서만 compute). **flag 주입 없음**. 기존 데이터는 무해하게 잔류 |
+| `plugins/mccp/scripts/lib/msw-metrics/fixture.js` | UPDATE | 주석 갱신(claimed=`[B3]`) + A1 `completions_producer_present` flag 제거 → A1도 fixture서 forward-only. **어느 downgraded metric도 flag 주입 없음**(A1 compute-path는 전용 unit test가 실증). 기존 데이터는 무해하게 잔류 |
 | `plugins/mccp/scripts/lib/tests/msw-metrics.test.js` | UPDATE | B2/A4/A2 forward-only, A4 self-credit·A2 stale/cross-session·A2 producer-boundary 회귀 test |
 | `plugins/mccp/scripts/lib/tests/msw-metrics-acceptance.test.js` | UPDATE | claimedComputable=`[B3]` 반영, A1/A2/A4/B2 non-claimed·forward-only 확인 |
 | `plugins/mccp/scripts/lib/tests/msw-metrics-render.test.js` | UPDATE(필요 시) | B2/A4/A2 forward-only 렌더 확인 |
@@ -86,8 +86,8 @@ validity flag·fixture 주입 **없음**(masquerade 회피). 추가로 A2 오염
 - **Validate**: `node --test plugins/mccp/scripts/lib/tests/msw-metrics.test.js` (producer-boundary test)
 
 ### Task 4: fixture 주석 갱신 (flag 주입 없음)
-- **Action**: `fixture.js` 상단 주석을 claimed=`[B3]`로 갱신 + "A2/A4/B2는 C1-패턴 forward-only, A1은 실 derive forward-only·fixture서만 compute, fixture 미주입(masquerade 회피)". **데이터 구조 자체는 flag 추가 없음**(기존 collision/handoff/context 데이터는 무해 잔류; 필요 시 정리는 선택).
-- **Validate**: metrics-assert --fixtures exit 0 (claimed B3만 compute 요구; A1은 fixture서 compute하나 non-claimed)
+- **Action**: `fixture.js` 상단 주석을 claimed=`[B3]`로 갱신 + "A1/A2/A4/B2 모두 forward-only, fixture 미주입(masquerade 회피)". **A1의 `completions_producer_present` flag도 제거**(re-R3 F0 — downgraded·non-claimed metric에 forcing flag 잔존은 masquerade). A1 compute-path는 전용 unit test(`msw-metrics.test.js` 'A1: work completion rate computes value')가 자체 model로 실증.
+- **Validate**: metrics-assert --fixtures exit 0 (claimed B3만 compute; A1/A2/A4/B2 모두 fixture서 forward-only)
 
 ### Task 5: 회귀 test (Codex R3 next_steps 반영)
 - **Action**: msw-metrics.test.js / msw-derive-sources.test.js / acceptance —
@@ -96,7 +96,7 @@ validity flag·fixture 주입 **없음**(masquerade 회피). 추가로 A2 오염
   (c) **A2 stale/cross-session**(unverified → forward-only),
   (d) **A2 producer-boundary**(session-end null-emit → 로그에 오염값 미기록),
   (e) claimedComputable=`[B3]`; A1/A2/A4/B2 non-claimed 확인,
-  (f) B3는 fixture·실 derive 양쪽 `computed`; A1은 fixture서 `computed`·실 derive `forward-only`.
+  (f) B3는 fixture·실 derive 양쪽 `computed`; A1은 양쪽 `forward-only`(compute-path는 전용 unit test가 자체 model로 실증).
 - **Validate**: 4개 `node --test` + metrics-assert
 
 ## Validation
@@ -120,7 +120,7 @@ node plugins/mccp/scripts/derive/cli.js run --json > /dev/null             # 실
 ## Acceptance
 - [ ] Task 1-5 완료
 - [ ] 6개 validation pass (metrics-assert --fixtures exit 0, claimed=[B3])
-- [ ] 실 derive: A1/A2/A4/B2=`forward-only`, B3=`computed`; fixture: A1·B3=`computed`(A1 non-claimed)
+- [ ] 실 derive·fixture 양쪽: A1/A2/A4/B2=`forward-only`, B3=`computed`; A1 compute-path는 전용 unit test가 실증
 - [ ] A4 self-credit·A2 stale·A2 producer-boundary 회귀 test가 결함 재현 잠금
 - [ ] 패턴 재발명 없음 (B2/A4/A2 = C1 미러)
 - [ ] 재-R3 Codex 수렴 (별도 `/mccp:pr` 재실행 acceptance)

@@ -279,12 +279,16 @@ test('M3 finalize: unreadable verdict (null) → unavailable → exit 12 (fail-c
   assert.match(r.stderr, /verdict=unavailable/);
 });
 
-test('M3 finalize: divergent + override reason → exit 0 + meta stamp (verdict sealed)', () => {
+test('M3 finalize: divergent + override reason (env authorized) → exit 0 + meta stamp (verdict sealed)', () => {
   const repo = mkTmpRepo();
   const r = runFinalize(repo, {
     decision: 'feat-ov',
     codexResult: { codex_outcome: 'invoked', codex_verdict: 'needs-attention' },
     overrideReason: M3_FIN_REASON,
+    // santa-loop R1 (Codex FAIL): the override now requires MCCP_FORCE_PR_WITHOUT_
+    // CODEX_CONVERGENCE to be strict-valid in THIS run's env (finalize re-validates
+    // provenance). The legit path has the user's env var set — set it here.
+    env: { MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE: M3_FIN_REASON },
   });
   assert.strictEqual(r.status, 0, r.stderr + r.stdout);
   const receipt = JSON.parse(fs.readFileSync(
@@ -295,12 +299,39 @@ test('M3 finalize: divergent + override reason → exit 0 + meta stamp (verdict 
   assert.strictEqual(receipt.resolution.codex_verdict, 'divergent');
 });
 
-test('M3 finalize: bad override reason → write REJECT (exit != 0, not exit 12)', () => {
+// santa-loop R1 (Codex FAIL absorption, suggestion #3) — a forwarded override
+// reason flag ALONE, with NO MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE set this run
+// (the stale/ambient PR_CODEX_FORCE_OVERRIDE_REASON case), must NOT ship a divergent
+// PR: the override is dropped fail-closed and the sealed verdict gates the ship.
+test('M3 finalize: override reason flag WITHOUT env authorization → divergent still blocked (exit 12) [santa-R1]', () => {
+  const repo = mkTmpRepo();
+  const r = runFinalize(repo, {
+    decision: 'feat-stale-ov',
+    codexResult: { codex_outcome: 'invoked', codex_verdict: 'needs-attention' },
+    overrideReason: M3_FIN_REASON,
+    // runFinalize default env sets MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE: '' —
+    // i.e. NOT set this run. The flag is a stale/unprovenanced forward.
+  });
+  assert.strictEqual(r.status, 12, r.stderr + r.stdout);
+  assert.match(r.stderr, /stale\/unprovenanced override.*DROPPING/s);
+  assert.match(r.stderr, /PR-Codex non-approving.*verdict=divergent/s);
+  // The override was dropped → the receipt seals divergent with NO override stamp.
+  const receipt = JSON.parse(fs.readFileSync(
+    path.join(repo, '.claude', 'receipts', 'mccp-pr-codex', 'feat-stale-ov.json'), 'utf8'));
+  assert.notStrictEqual(receipt.meta.pr_codex_force_override, true);
+  assert.strictEqual(receipt.resolution.codex_verdict, 'divergent');
+});
+
+test('M3 finalize: bad override reason (env authorized) → write REJECT (exit != 0, not exit 12)', () => {
   const repo = mkTmpRepo();
   const r = runFinalize(repo, {
     decision: 'feat-bad',
     codexResult: { codex_outcome: 'invoked', codex_verdict: 'approve' },
     overrideReason: 'nope',
+    // Env authorizes the override this run (valid reason), but the forwarded reason
+    // string itself is malformed — the write-time schema validator is the backstop
+    // that REJECTs it (defense-in-depth beyond the provenance gate).
+    env: { MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE: M3_FIN_REASON },
   });
   // schema REJECT at write time (exit 2) — ship-gate never runs.
   assert.notStrictEqual(r.status, 0);

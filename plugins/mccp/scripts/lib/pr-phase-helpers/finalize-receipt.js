@@ -36,6 +36,7 @@ const { readReceipt } = require('../../receipt/store');
 const { gitRepoRoot, subjectHash, receiptHash, gitRefs } = require('../../receipt/hash');
 const { validate: validateReceiptSchema } = require('../../receipt/schema');
 const { deriveShipDecision, EX_SHIP_BLOCKED } = require('../pr-ship-gate');
+const { validateReason: validateForceReason } = require('../../receipt/lib/force-override-reason');
 
 // v1.0.1 axis K — relative path of the stale-reclaim marker written by
 // pr-phase-guard's lockActive() when it reclaimed an orphan pr-phase.lock.
@@ -280,11 +281,34 @@ function run(args) {
   // exported it; Phase 2.5.7 passes it here. Forward both flags so write.js stamps
   // meta.pr_codex_force_override=true + reason (schema re-runs the strict validator,
   // so a bad reason REJECTs the write before the ship-gate below even runs).
+  //
+  // santa-loop R1 (Codex FAIL absorption) — PROVENANCE-BIND the override to THIS
+  // run. The forwarded reason flag alone is NOT proof the override was authorized
+  // now: an ambient/stale PR_CODEX_FORCE_OVERRIDE_REASON (settings.json, an
+  // inherited shell export, a prior run) forwards here with no
+  // MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE set this run, and would silently stamp
+  // the override and ship a divergent PR — a second, unvalidated bypass of the
+  // "only sanctioned bypass" contract (the symmetric hole the entry `unset
+  // CODEX_DEDUPE_AT_PR` reset guards). The strict validator on the reason string
+  // only proves it is well-formed, not that it was authorized this run. finalize
+  // is the write locus and inherits the ambient env, so re-reading + strict-
+  // validating MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE HERE is authoritative; a
+  // forwarded flag with no valid env this run is dropped fail-closed (the sealed
+  // verdict then gates the ship at the runtime primary check below).
   if (args['pr-codex-force-override-reason']
       && args['pr-codex-force-override-reason'] !== true) {
-    writeFlags.push('--pr-codex-force-override');
-    writeFlags.push('--pr-codex-force-override-reason');
-    writeFlags.push(String(args['pr-codex-force-override-reason']));
+    const forceProv = validateForceReason(
+      process.env.MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE, { strict: true });
+    if (forceProv.ok) {
+      writeFlags.push('--pr-codex-force-override');
+      writeFlags.push('--pr-codex-force-override-reason');
+      writeFlags.push(String(args['pr-codex-force-override-reason']));
+    } else {
+      process.stderr.write('[mccp] PR-Codex ship-gate: a --pr-codex-force-override-reason ' +
+        'flag was forwarded but MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE is not set/valid ' +
+        'this run (' + forceProv.reason + ') — treating as a stale/unprovenanced override ' +
+        'and DROPPING it. The sealed verdict gates the ship.\n');
+    }
   }
 
   const cli = locateReceiptCli();

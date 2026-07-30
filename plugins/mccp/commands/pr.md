@@ -134,6 +134,17 @@ fi
 Mirror of Phase 0.1/0.2 but for the M3 **ship gate**: from M3 on, a non-approving PR-Codex verdict (`divergent`/`critical`/`unavailable`/absent) mechanically HALTs the ship at finalize (2.5.7) + the self-gate read-back (2.5.9). The only sanctioned bypass is this audited override. If the env var is set, validate its reason **before** any phase work runs so a bad reason fails fast.
 
 ```bash
+# santa-loop R1 (Codex FAIL absorption) — hard-reset any inherited/stale
+# PR_CODEX_FORCE_OVERRIDE_REASON before evaluating the override, mirroring the
+# entry `unset CODEX_DEDUPE_AT_PR` at Phase 2.5.2. This internal signal is NOT a
+# user knob — the ONLY sanctioned setter is the validated branch below. If a prior
+# chain (or a shell / .claude/settings.json working around a stale receipt) left it
+# exported, forwarding it at 2.5.7 would stamp the override and ship a divergent PR
+# with no MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE set THIS run — a bypass of the
+# "only sanctioned bypass" contract. Defense-in-depth: finalize-receipt.js also
+# re-validates the env var at the write locus, so a stale forward is dropped there
+# even if this reset is skipped, but clearing it here keeps the signal honest.
+unset PR_CODEX_FORCE_OVERRIDE_REASON
 if [ -n "${MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE:-}" ]; then
   REASON="$MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE"
   REASON_OK=$(node -e "

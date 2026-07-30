@@ -38,15 +38,14 @@ function computeMetrics(model) {
   // Integrity: unit count spike (分할 의심) + inverted timestamps → invalid
   metrics[A1_WORK_COMPLETION_RATE] = computeA1(model);
 
-  // A2: Session context remaining % at endpoint (forward-only, session-end events)
-  // numerator = specific session termination context%, denominator = sessions with end events
-  // p50·p95 percentile reporting
-  // Integrity: miscompletion-up (세션 미완료가 늘면 A1 실패와 조합) → invalid
+  // A2: Session context remaining % — forward-only (downgraded, non-claimed).
+  // Not session-bound/freshness-verified (see computeA2); denominator = observed session
+  // count only, percentile/value not claimed. Old compute path (percentile) removed.
   metrics[A2_CONTEXT_REMAINING] = computeA2(model);
 
-  // A4: Session boundary restore rate (forward-only, handoff items)
-  // numerator = items actually restored, denominator = items left by prior session
-  // Integrity: denominator shrink (분모 축소 부풀리기) → flag
+  // A4: Session boundary restore rate — forward-only (downgraded, non-claimed).
+  // Not boundary-scoped (scanner self-credits current session, see computeA4);
+  // denominator = items_left only, rate not claimed. Old compute/denominator-shrink path removed.
   metrics[A4_RESTORE_RATE] = computeA4(model);
 
   // B1: Status drift — documents vs independent evidence (partial)
@@ -54,9 +53,9 @@ function computeMetrics(model) {
   // Integrity: two-source independence check → invalid if dependent
   metrics[B1_STATUS_DRIFT] = computeB1(model);
 
-  // B2: Concurrent session conflicts (forward-only, concurrent pairs + collision events)
-  // numerator = collisions, denominator = concurrent session pairs
-  // Integrity: if denom=0, invalid (可 直列化·衝突無し区別不可)
+  // B2: Concurrent session conflicts — forward-only (downgraded, non-claimed).
+  // No live collision producer (see computeB2); denominator = concurrent pairs only,
+  // collision rate not claimed. Old denominator-zero-invalid/rate compute path removed.
   metrics[B2_CONCURRENT_CONFLICTS] = computeB2(model);
 
   // B3: Toggle axes — non-default usage (partial sopping, forward-only for usage)

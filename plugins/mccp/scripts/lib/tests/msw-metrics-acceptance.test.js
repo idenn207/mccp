@@ -27,8 +27,8 @@ const { buildSeededModel } = require('../msw-metrics/fixture');
 // (env-snapshot toggle scan) that yields real computed values. msw-m2-measurement-
 // honesty-downgrade (Plan-Codex R1/R3 + re-R3 F0): A1/A2/A4/B2 were all removed. A2/A4
 // have contaminated computations (self-credit / unverified stamp), B2 has no independent
-// collision-producer-presence signal, and A1 has no live task_completed producer (only
-// the fixture flips completions_producer_present). All are forward-only in real derive;
+// collision-producer-presence signal, and A1 has no live task_completed producer. All
+// are forward-only in real derive AND in the shared fixture (re-R3 F0 removed A1's flag);
 // keeping them claimed would green the acceptance gate on the fixture while production
 // cannot satisfy the null-numerator contract.
 // Forward-only: A1/A2/A4/B2 (downgraded), C1 (no live findings source — PR-Codex R2-F3),
@@ -38,10 +38,12 @@ const CLAIMED_COMPUTABLE = [
 ];
 // Downgraded metrics: present in the seeded fixture but must resolve to forward-only,
 // so they can never be silently promoted back into the claimed-computable enumeration.
-// (A1 is NOT here — the seeded fixture injects completions_producer_present, so A1
-// computes in the fixture; its real-corpus forward-only state is asserted separately
-// below and in msw-metrics.test.js.)
+// A1 is included now — the shared fixture injects NO validity flag for any downgraded
+// metric (re-R3 F0), so A1 is forward-only in the fixture too; its compute path is proven
+// by a dedicated unit test with its own model (msw-metrics.test.js 'A1: work completion
+// rate computes value').
 const DOWNGRADED_FORWARD_ONLY = [
+  A1_WORK_COMPLETION_RATE,
   A2_CONTEXT_REMAINING,
   A4_RESTORE_RATE,
   B2_CONCURRENT_CONFLICTS,

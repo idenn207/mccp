@@ -12,12 +12,14 @@
 // independent collision-producer-presence signal, so injecting a fixture flag to
 // force compute would masquerade an unfixed producer (same reason C1's findings
 // source is not injected, below). The claimed-computable set is therefore just
-// {B3}. A1 ALSO computes in this fixture (via the injected completions_producer_present
-// flag, which exercises A1's compute path), but A1 is NOT claimed-computable — it is
-// forward-only in real derive because production has no live task_completed producer
-// (re-R3 F0), so the acceptance gate does not enumerate it. The session_activity/
-// handoff_items numeric fields below are retained (harmless — A2/A4/B2 ignore them
-// and return forward-only).
+// {B3}. NO validity flag is injected for ANY downgraded metric — A1/A2/A4/B2 all
+// resolve to forward-only here, matching real derive (A1 has no live task_completed
+// producer in production either; re-R3 F0). A1's compute path is proven separately by a
+// dedicated unit test with its own inline model (msw-metrics.test.js 'A1: work completion
+// rate computes value'), so it does NOT need a forcing flag in this shared gate fixture —
+// leaving one here would be the same masquerade the downgrade set out to remove. The
+// session_activity/handoff_items numeric fields below are retained (harmless — A1/A2/A4/B2
+// ignore them for compute purposes and return forward-only).
 //
 // The gate's whole point is that this forces compute — `{metrics:{}}` or an
 // all-baseline-forming result can never satisfy the enumeration.
@@ -28,9 +30,10 @@ function buildSeededModel() {
         ok: true,
         task_startups_count: 5,
         task_completions_count: 3,
-        // PR-Codex F2: fixture는 완료 producer가 배선된 상태를 시뮬레이션해 A1
-        // compute 경로를 실증한다(실 corpus는 producer 부재로 forward-only).
-        completions_producer_present: true,
+        // A1 completions_producer_present is intentionally NOT injected (re-R3 F0):
+        // A1 is a downgraded, non-claimed metric, so forcing it to compute here would
+        // reintroduce a masquerade flag into the shared gate fixture. A1's compute path
+        // is proven by its own unit test (msw-metrics.test.js). A1 → forward-only here.
         sessions: [
           { session_id: 'sid-1', context_remaining_pct: 45, task_completed: true },
           { session_id: 'sid-2', context_remaining_pct: 62, task_completed: true },

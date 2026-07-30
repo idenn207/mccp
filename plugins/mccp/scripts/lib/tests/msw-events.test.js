@@ -128,6 +128,35 @@ test('msw-events: number/boolean fields preserve their type (no String coercion)
   cleanup(tempDir);
 });
 
+test('msw-events: session_end null context_remaining_pct round-trips as explicit null (A2 producer-boundary, PF3)', () => {
+  // msw-m2-measurement-honesty-downgrade (Codex R3 F3 / re-R3): session-end.js now emits
+  // context_remaining_pct=null (the unverified latest-wins read was removed). This locks
+  // the null at the SERIALIZATION layer — an explicit null must round-trip as null (key
+  // present, value null), NOT be dropped and NOT be coerced to a number — so a contaminated
+  // numeric sample can never silently reappear in the append-only log. Complements the
+  // source-level producer-boundary guard in hooks/tests/session-hooks-no-llm.test.js.
+  const tempDir = getTempDir('null-context');
+  cleanup(tempDir);
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  const sessionId = 'test-session-null-context';
+  const result = mswEvents.appendEvent(sessionId, {
+    kind: 'session_end',
+    ended_at: '2026-07-26T10:00:00.000Z',
+    task_completed: false,
+    context_remaining_pct: null,
+    producer: 'session-end.js',
+  }, { dir: tempDir });
+  assert.strictEqual(result.ok, true);
+
+  const line = fs.readFileSync(path.join(tempDir, `${sessionId}.jsonl`), 'utf8').trim();
+  const event = JSON.parse(line);
+  assert.ok('context_remaining_pct' in event, 'context_remaining_pct key must be present, not dropped');
+  assert.strictEqual(event.context_remaining_pct, null, 'null must round-trip as null, not coerced');
+
+  cleanup(tempDir);
+});
+
 test('msw-events: missing kind error', () => {
   const tempDir = getTempDir('missing-kind');
   cleanup(tempDir);

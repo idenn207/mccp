@@ -192,18 +192,13 @@ function cmdRender(rest) {
 function cmdMetricsAssert(rest) {
   // R2-F2 mechanical acceptance gate
   // Enumerates claimed-computable ids, rejects null/baseline-forming, asserts B3 real value
+  // Only B3 remains claimed-computable after the measurement-honesty downgrade
+  // (A1/A2/A4/B2 → forward-only, C1/C2/C3 forward-only, B1 insufficient), so the
+  // per-id constants for the non-claimed metrics are no longer referenced here.
   const {
     computeMetrics,
     METRIC_IDS,
-    A1_WORK_COMPLETION_RATE,
-    A2_CONTEXT_REMAINING,
-    A4_RESTORE_RATE,
-    B1_STATUS_DRIFT,
-    B2_CONCURRENT_CONFLICTS,
     B3_TOGGLE_AXES,
-    C1_FEEDBACK_CLOSURE,
-    C2_GATE_FALSE_POSITIVE,
-    C3_LEAKED_DEFECTS,
   } = require('../lib/msw-metrics');
   const { buildSeededModel } = require('../lib/msw-metrics/fixture');
 
@@ -212,14 +207,18 @@ function cmdMetricsAssert(rest) {
   // A1은 session_activity(실 source)가 producer-absent를 정직 보고하므로 유지 —
   // fixture는 producer 배선 상태의 compute 경로를 실증한다.
   //
-  // msw-m2-measurement-honesty-downgrade (Plan-Codex R1 PF2 / R3-F0): A2·A4·B2도
-  // C1과 함께 제외한다. A4는 self-credit, A2는 unverified stamp로 계산이 오염됐고,
-  // B2는 독립 collision-producer-presence 신호가 없어 computed-zero를 낼 수 없다.
-  // 셋 다 forward-only(numerator null)인데 claimed-computable은 null numerator를
-  // 거부하므로(아래 Check 2), 목록에 두면 fixture만 통과하고 production은 계약을
-  // 못 지킨다. A1은 task_completed KIND 이벤트로 computed-zero를 낼 수 있어 유지.
+  // msw-m2-measurement-honesty-downgrade (Plan-Codex R1 PF2 / R3-F0 / re-R3 F0):
+  // A2·A4·B2·A1 모두 C1과 함께 제외한다. A4는 self-credit, A2는 unverified stamp로
+  // 계산이 오염됐고, B2는 독립 collision-producer-presence 신호가 없어 computed-zero를
+  // 낼 수 없다. **A1도** production에 `task_completed` KIND 이벤트를 emit하는 live
+  // producer가 없어(session-end는 `session_end` KIND + `task_completed:false` 필드만
+  // 방출) 실 derive에선 항상 forward-only다 — fixture만 completions_producer_present를
+  // 주입해 compute 경로를 실증할 뿐이라, claimed-computable에 두면 fixture만 통과하고
+  // production은 계약(아래 Check 2: null numerator 거부)을 못 지킨다(re-R3 F0, 0.92).
+  // 즉 B2를 제거한 바로 그 PF2 논리가 A1에도 동일 적용된다. A1은 flag가 live-derivable
+  // (task_completed 관측 시 flip)이라 producer가 배선되면 A1을 다시 목록에 넣을 수 있다.
+  // 남는 건 live producer가 실재하는 B3뿐 — 유일한 claimed-computable.
   const claimedComputable = [
-    A1_WORK_COMPLETION_RATE,
     B3_TOGGLE_AXES,
   ];
 

@@ -23,18 +23,24 @@ const {
 // the gate and the test that guards it can never drift.
 const { buildSeededModel } = require('../msw-metrics/fixture');
 
-// Claimed-computable IDs: A1, B3 (backed by a real derive source with an honest
-// computed-including-zero path). msw-m2-measurement-honesty-downgrade (Plan-Codex
-// R1/R3): A2/A4/B2 were removed — they are C1-pattern forward-only (A4 self-credit,
-// A2 unverified stamp, B2 no independent collision-producer-presence signal).
-// Forward-only: A2/A4/B2 (downgraded), C1 (no live findings source — PR-Codex R2-F3),
+// Claimed-computable IDs: B3 only — the sole metric with a live production producer
+// (env-snapshot toggle scan) that yields real computed values. msw-m2-measurement-
+// honesty-downgrade (Plan-Codex R1/R3 + re-R3 F0): A1/A2/A4/B2 were all removed. A2/A4
+// have contaminated computations (self-credit / unverified stamp), B2 has no independent
+// collision-producer-presence signal, and A1 has no live task_completed producer (only
+// the fixture flips completions_producer_present). All are forward-only in real derive;
+// keeping them claimed would green the acceptance gate on the fixture while production
+// cannot satisfy the null-numerator contract.
+// Forward-only: A1/A2/A4/B2 (downgraded), C1 (no live findings source — PR-Codex R2-F3),
 // C2/C3 (귀속 미구축). Not computed: B1 (no independent evidence source).
 const CLAIMED_COMPUTABLE = [
-  A1_WORK_COMPLETION_RATE,
   B3_TOGGLE_AXES,
 ];
 // Downgraded metrics: present in the seeded fixture but must resolve to forward-only,
 // so they can never be silently promoted back into the claimed-computable enumeration.
+// (A1 is NOT here — the seeded fixture injects completions_producer_present, so A1
+// computes in the fixture; its real-corpus forward-only state is asserted separately
+// below and in msw-metrics.test.js.)
 const DOWNGRADED_FORWARD_ONLY = [
   A2_CONTEXT_REMAINING,
   A4_RESTORE_RATE,
@@ -110,6 +116,30 @@ test('msw-metrics-acceptance: seeded fixture with non-null numerator/denominator
       `downgraded ${id}: must not be in the claimed-computable set`
     );
   }
+});
+
+test('msw-metrics-acceptance: A1 is NOT claimed-computable and is forward-only without a live producer (re-R3 F0)', async (t) => {
+  // A1 has no live task_completed producer in production, so a real-corpus model (no
+  // completions_producer_present) must yield forward-only, and A1 must be excluded from
+  // the claimed-computable set — same PF2 rule applied to B2/A4/A2.
+  assert(
+    !CLAIMED_COMPUTABLE.includes(A1_WORK_COMPLETION_RATE),
+    'A1 must NOT be in the claimed-computable set (no live task_completed producer)'
+  );
+  const realCorpusModel = {
+    sources: {
+      session_activity: {
+        ok: true,
+        task_startups_count: 6,
+        task_completions_count: 0,
+        // completions_producer_present intentionally absent — real production state.
+        producer_coverage: 'session-activity',
+      },
+    },
+  };
+  const a1 = computeMetrics(realCorpusModel)[A1_WORK_COMPLETION_RATE];
+  assert.strictEqual(a1.status, 'forward-only', 'A1 must be forward-only without a live completion producer');
+  assert.strictEqual(a1.numerator, null);
 });
 
 test('msw-metrics-acceptance: forward-only ids must have forward-only status', async (t) => {

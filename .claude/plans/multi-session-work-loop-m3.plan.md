@@ -146,8 +146,10 @@ Phase 2.5 Workflow fan-out 대신 **인라인 Pattern Grounding**으로 수행�
   | tombstone | 아니오 | **통과**(승계자의 정상 write) |
 
   호출자 세션 정체는 `session-start.js`가 쓰는 것과 **동일 소스**(observer session id / `CLAUDE_SESSION_ID`)를 재사용한다. 즉 fence의 신뢰 근거는 "호출자가 제시한 토큰"이 아니라 "**파일에 기록된 holder 정체 ↔ 실행 중 세션 정체**"의 대조이며, epoch은 그 대조의 tamper-resistant 바인딩이다. 이 설계는 `/mccp:receipt-write` 같은 bare CLI 경로에도 **인자 변경 없이** 적용된다(Codex가 요구한 "모든 ingress 커버"를 flag 배선 없이 만족).
-- **(santa R1 I2 — 두 리뷰어 수렴) `레코드 부재 → 통과`가 fence에 구멍을 남긴다 → 암묵 claim-on-first-write로 닫는다**: A·B 모두 같은 지적을 했다 — 5개 standalone ingress를 살리려고 "레코드 없으면 통과"로 두면 **그 5개끼리는 claim 없이 같은 slug를 순차로 덮어쓸 수 있다**. 그러면 PRD가 말한 중복 방지가 "claim을 만든 흐름에만" 성립하고 milestone 결과가 전역으로 성립하지 않는다. 해소: **`writeReceipt`가 evidence lock 안에서, fence 판정 *이전에*, 레코드가 없으면 실행 세션을 holder로 하는 claim을 암묵 생성한다.** 그 결과 "레코드 부재" 분기는 **최초 write 1회로 소멸**하고, 이후 다른 live 세션의 write는 "다른 live holder → 거부"로 떨어진다. 진짜 동시 진입(둘 다 부재를 관측)은 **lock이 직렬화**하므로 먼저 lock을 잡은 쪽만 생성에 성공하고 두 번째는 생성된 레코드를 보게 된다 — 생성과 판정이 같은 임계구역에 있으므로 원자적이다. standalone 단일 세션은 자기 자신이 holder가 될 뿐이라 동작이 바뀌지 않고(멱등 재진입), **CLI 인자·command body 변경은 여전히 0**이다.
+- **(santa R1 I2 — 두 리뷰어 수렴) `레코드 부재 → 통과`가 fence에 구멍을 남긴다 → 암묵 claim-on-first-write로 닫는다**: A·B 모두 같은 지적을 했다 — 5개 standalone ingress를 살리려고 "레코드 없으면 통과"로 두면 **그 5개끼리는 claim 없이 같은 slug를 순차로 덮어쓸 수 있다**. 그러면 PRD가 말한 중복 방지가 "claim을 만든 흐름에만" 성립하고 milestone 결과가 전역으로 성립하지 않는다. 해소: **`writeReceipt`가 evidence lock 안에서, fence 판정 *이전에*, 레코드가 없으면 실행 세션을 holder로 하는 claim을 암묵 생성한다.** 그 결과 "레코드 부재" 분기는 **최초 write 1회로 소멸**하고, 이후 다른 live 세션의 write는 "다른 live holder → 거부"로 떨어진다. 진짜 동시 진입(둘 다 부재를 관측)의 원자성은 **~~evidence lock의 직렬화~~가 아니라 `acquireClaim` 자체의 `O_EXCL`이 보장한다** — santa R2 J1이 반증했듯 evidence lock 키는 `(gate, slug)`라 **같은 slug·다른 게이트면 직렬화해 주지 않는다**(이 문장의 원래 근거였던 "같은 임계구역이라 원자적"은 거짓이었고, 아래 J1 항목이 대체 설계다). standalone 단일 세션은 자기 자신이 holder가 될 뿐이라 동작이 바뀌지 않고(멱등 재진입), **CLI 인자·command body 변경은 여전히 0**이다.
 - **(santa R3 OQ-1 — 운영자 승인 R4에서 해소) holder 정체에서 `process.pid`를 뺀다. 세션-안정 식별자로 교체**: R1(I3)은 "정체 공유 붕괴"를 막으려 `{session_id, host, session_pid}` 3원소를 넣었는데, Reviewer B가 R3에서 **그 pid가 정상 경로를 깨뜨린다**고 지적했고 옳다 — `receipt/cli.js`는 **write마다 새 node 프로세스**라 `process.pid`가 매번 달라져 **같은 세션의 두 번째 write가 "다른 holder"로 거부**된다. 실측으로 확인한 대체 소스가 있다: write 프로세스 env에 **`CLAUDE_CODE_SESSION_ID`**와 **`CLAUDE_PID`**(= Claude **세션** 프로세스의 pid, CLI 프로세스가 아님)가 모두 도달한다. 따라서 정체를 **`{session_id, host, session_pid}`**로 정의한다 — `session_id`는 기존 선례 `orchestration-runaway.js:559 resolveSessionKey`(`MCCP_SESSION_ID || CLAUDE_CODE_SESSION_ID || CLAUDE_SESSION_ID`)를 **재사용**하고, `session_pid`는 `process.pid`가 **아니라** `CLAUDE_PID`다. 세 값 모두 `cli.js` 재실행 사이에 **안정**하므로 동일 세션 재진입이 멱등이고, I3가 겨냥한 정체-공유 판별력도 `session_pid`가 유지한다.
+  - **측정 증거(santa R4 — Reviewer A가 "무근거 가정"으로 지목해 기록)**: 별개 node 프로세스 3회 실행에서 `CLAUDE_PID`는 **4756으로 3회 모두 동일**했고 `process.pid`는 **43832 / 94636 / 103764**로 매번 달랐다. `process.kill(4756, 0)`은 **ALIVE**. `CLAUDE_CODE_SESSION_ID`도 3회 동일(`df6ef99e…`). 즉 (a) 세션-안정성과 (b) 프로세스 실재가 모두 확인됐다. 재현 명령을 Validation 블록에 넣어 **리뷰어가 직접 재현 가능**하게 한다 — plan이 "실측했다"고만 적고 증거를 안 남긴 것이 R4에서 정당하게 지적됐다.
+  - **런타임 가드(가정에 기대지 않는다)**: `CLAUDE_PID`가 **부재하거나 `kill(pid,0)`이 실패**하면 정체에서 그 축을 빼고 `{session_id, host}`로 강등하며 liveness는 `last_touch` TTL 단독으로 판정한다(+ loud 기록). 즉 env가 사라져도 **fence가 붕괴하지 않고 판별력만 낮아진다**. 이 강등 경로 자체를 test로 고정한다(env 제거 후 정상 동작 확인).
   - **부수 효과 — liveness가 다시 의미를 갖는다**: `CLAUDE_PID`는 실제로 살아 있는 세션 프로세스이므로 `process.kill(CLAUDE_PID, 0)`이 **진짜 생존 판정**이 된다(J4가 무효화한 것은 *hook 프로세스* pid였지 이 값이 아니다). claim liveness는 `last_touch` TTL을 **1차**로 쓰되 `session_pid` 생존을 **보강 신호**로 병용한다(TTL 안이라도 세션이 죽었으면 즉시 승계 → 대기 단축). `CLAUDE_PID` 부재 환경은 TTL 단독으로 강등 + loud 기록.
   - **`session_id` 부재 시**: claim을 **생성하지 않고 fence도 걸지 않는다**(`claim_skipped_no_identity` + loud warn). 무명 프로세스에 nonce를 주면 자기 자신의 다음 write와도 불일치해 정상 경로가 깨지고, host만 쓰면 전부 하나로 붕괴한다 — 둘 다 나쁘다. 이때도 evidence lock + post-rename 검증 + B2 감사는 그대로이므로 **G3는 유지되고 해당 write에 대해서만 G1·G2가 비활성**이며 그 사실을 기록한다.
   - **J4 상류 결함의 구체적 수정안이 여기서 나온다**: `session-start.js:671`이 `createLedger`에 `pid: Number(process.env.CLAUDE_PID)`를 넘기면 ledger의 PID 축도 되살아난다. M3 범위 밖이므로 **backlog에 이 구체안과 함께** 기록한다(막연한 "고쳐야 함"이 아니라 실행 가능한 형태로).
@@ -220,6 +222,11 @@ node plugins/mccp/scripts/lib/msw-metrics/b2-coverage-gate.js --json          # 
 ! grep -rnE "(writeFileSync|writeFile|appendFileSync|createWriteStream)\([^)]*receipts" \
     plugins/mccp/scripts --include=*.js \
   | grep -vE "receipt/store\.js|receipt/evidence-lock\.js|lib/briefing/index\.js|lib/completion-ledger/index\.js|migrations/|/tests/"
+
+# 2b-1. (santa R4) 세션-안정 정체 소스 재현 — 리뷰어가 직접 확인할 수 있어야 한다.
+#       CLAUDE_PID는 3회 모두 동일해야 하고, process.pid는 매번 달라야 한다.
+for i in 1 2 3; do node -e 'console.log(process.env.CLAUDE_PID+" "+process.pid)'; done
+node -e 'process.kill(Number(process.env.CLAUDE_PID),0); console.log("session process ALIVE")'
 
 # 2c. 핵심 안전 회귀 — 이 5건이 통과하지 않으면 M3의 주장이 거짓이다.
 node --test plugins/mccp/scripts/receipt/tests/evidence-lock.test.js   # (R1F1) abandoned-live-lock reclaim + PID-reuse
@@ -449,8 +456,8 @@ R2 수정이 A 기준 C1·C2·C4·C5·C6·C7을 **전부 PASS**로 끌어올렸�
 |---|---|---|---|
 | K1 | A(C3) + B(C3) | round 1 문단(Task 2)이 R2에서 거짓 판정된 옛 G3 문구를 유지하고 "plan 전체에서 이 문구로 통일한다"고까지 적음 | **교정 완료** — 단일 기준은 G1~G3 표임을 명시 |
 | K2 | B | Task 4가 `listLedgers`를 실격시킨 뒤에도 GROUND·Patterns·Files-to-Change·Task 7이 그대로 의존 → advisory 표면이 plan 스스로 부정한 소스 위에 섬 | **교정 완료** — 4곳 모두 제거/취소선, Task 7은 `listClaims` 단독 |
-| **OQ-1** | **B (신규)** | **`{session_id, host, session_pid}` 정체가 실제 ingress 형태와 비호환** — `receipt/cli.js`는 매 write마다 **새 node 프로세스**로 실행되므로 pid가 매번 다르다. R2에서 "정체 공유 붕괴"를 막으려 넣은 pid가 **정상 단일 세션의 재진입을 깨뜨린다**(같은 세션의 두 번째 write가 "다른 holder"로 거부됨) | **미해결 — 설계 결정 필요** |
-| **OQ-2** | **B (신규)** | **G3의 "덮어쓴 쪽이 항상 보고한다"가 crash에 취약** — A가 rename 직후 post-rename 검증 전에 죽으면 아무도 보고하지 않는다 | **미해결** — B2 런타임 감사가 crash-proof 사후 관찰자로서 backstop이 될 수 있으나, G3 문구를 그에 맞춰 다시 좁힐지 판단 필요 |
+| **OQ-1** | **B (신규)** | **`{session_id, host, process.pid}` 정체가 실제 ingress 형태와 비호환** — `receipt/cli.js`는 매 write마다 **새 node 프로세스**로 실행되므로 `process.pid`가 매번 다르다. R2에서 "정체 공유 붕괴"를 막으려 넣은 그 pid가 **정상 단일 세션의 재진입을 깨뜨린다**(같은 세션의 두 번째 write가 "다른 holder"로 거부됨) | **R4에서 해소** — `process.pid` → **`CLAUDE_PID`**(세션 프로세스). 실측: 별개 node 3회 실행에서 `CLAUDE_PID`는 `4756` 고정, `process.pid`는 43832/94636/103764로 매번 상이, `process.kill(4756,0)` = ALIVE |
+| **OQ-2** | **B (신규)** | **G3의 "덮어쓴 쪽이 항상 보고한다"가 crash에 취약** — A가 rename 직후 post-rename 검증 전에 죽으면 아무도 보고하지 않는다 | **R4에서 해소** — G3를 "보고**되거나** 감사에서 검출된다"로 재정의. B2 런타임 감사는 write 프로세스와 다른 시점·다른 프로세스에서 도는 crash-proof 독립 관찰자 |
 | **OQ-3** | A(C4) + B | PRD 문장("구조적으로 불가능")과 plan 보증(G1~G3)의 강도 차이가 PR 시점까지 열려 있음 | **운영자 지시로 이연**(PR 시 PRD 문구 조정) — 매 라운드 재지목됨 |
 
 - **verdict**: **NAUGHTY (escalated)** — push 안 함. santa-method 계약상 3라운드 초과.

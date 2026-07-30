@@ -502,8 +502,13 @@ test('schema M3: non-boolean pr_codex_force_override → REJECT', function () {
   assert.match(r.errors.join(' '), /pr_codex_force_override must be a boolean/);
 });
 
-test('makeSkeleton M3: pr_codex_force_override defaults to false/null', function () {
+test('makeSkeleton M3: pr_codex_force_override is PRESENT-ONLY (absent from skeleton) [santa-R2]', function () {
+  // santa-loop R2 (Codex FAIL absorption) — the override fields are no longer
+  // materialized in the skeleton; they are stamped by write.js ONLY when the
+  // override is active. Absence keeps a normal receipt's hash pre-M3-identical
+  // (§3.12 tracked-corpus hash stability). An explicit false still validates
+  // (back-compat, covered by the 'pr_codex_force_override=false validates' test).
   const s = makeSkeleton();
-  assert.strictEqual(s.meta.pr_codex_force_override, false);
-  assert.strictEqual(s.meta.pr_codex_force_override_reason, null);
+  assert.strictEqual('pr_codex_force_override' in s.meta, false);
+  assert.strictEqual('pr_codex_force_override_reason' in s.meta, false);
 });

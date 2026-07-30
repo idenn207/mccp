@@ -764,11 +764,14 @@ function makeSkeleton(overrides) {
       impeccable_skip_reason: null,
       impeccable_force_override: false,
       impeccable_force_override_reason: null,
-      // integrity-unification M3 — PR-Codex ship-gate audited override. Default
-      // inert (present-and-false); flipped true + reason only via
-      // --pr-codex-force-override[-reason] (MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE).
-      pr_codex_force_override: false,
-      pr_codex_force_override_reason: null,
+      // integrity-unification M3 — PR-Codex ship-gate audited override is
+      // PRESENT-ONLY (santa-loop R2, Codex FAIL absorption): NOT materialized in the
+      // skeleton. write.js adds pr_codex_force_override=true + reason ONLY when the
+      // override is active, so a normal receipt omits both keys and its receipt_hash
+      // stays pre-M3-identical (§3.12 git-tracked ship-corpus hash stability — this
+      // is the first audit field added AFTER ship receipts became tracked in v1.22.4,
+      // so it must not perturb the hash of receipts that never exercise it). The
+      // validate() branch treats both keys as optional (present-only guards).
       // v1.3.0 design-gate enforcement M1 — silent-skip surface. Default false
       // for green path; flipped by `--impeccable-silent-skip` CLI flag when
       // detector returns SKILL_AVAIL=1 + SIGNAL=0.

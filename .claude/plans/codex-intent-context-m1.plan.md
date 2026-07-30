@@ -106,7 +106,9 @@ santa-loop R1(Opus + GPT-5.4 둘 다 FAIL)이 초안의 근본 착각 하나를 
 
 **DD11 — 봉인된 intent verdict를 load-bearing으로 (R1 F3 흡수).** DD5는 override 하에서도 실제 verdict를 봉인한다고 했지만, **봉인만으로는 아무것도 막지 못한다**. `dedupe.js:374`의 dedupe 술어는 `receipt.resolution.codex_verdict === 'converged'` **단독**이고 intent gate를 전혀 보지 않는다. 따라서 plan-codex가 intent gate override로 통과하면서 Codex verdict는 `converged`인 조합에서, `/mccp:pr`의 cross-gate dedupe가 그 plan을 clean으로 보고 **PR-Codex를 통째로 skip**한다 — dual-review 우회. 이는 integrity-unification M1이 `resolution.converged`(항상 true)에 대해 이미 닫은 "봉인됐지만 승인 지점에서 무력한 필드" 패턴의 재발이다.
 
-  수정: `evaluateForDedupe`의 게이트별 convergence 술어를 `codex_verdict === 'converged'` **AND** intent gate가 승인 상태(`intent_gate_verdict === 'preserved'` 또는 증명된 `skipped`) **AND** `intent_gate_force_override !== true`로 확장한다. 위반 시 `skip_safe=false` + reason에 intent 축을 명시 → PR-Codex 실발화(fail-closed, 안전한 방향). legacy receipt(DD1b 키 부재)는 종전 동작 유지.
+  수정: `evaluateForDedupe`가 **plan-codex receipt에 한해** `codex_verdict === 'converged'` **AND** intent 승인(`preserved` 또는 증명된 `skipped`) **AND** `intent_gate_force_override !== true`를 요구한다. 위반 시 `skip_safe=false` + reason에 intent 축 명시 → PR-Codex 실발화(fail-closed).
+
+  **공유 헬퍼를 건드리면 안 된다 (santa-loop R2 M5)**: `codexConverged(receipt)`는 plan·implement 양쪽에 쓰이는 단일 함수라, 여기에 intent 조건을 넣으면 UI4로 out-of-scope인 implement receipt가 영구히 `unknown → false`가 되어 **dedupe 전체가 죽는다**. 조건은 `evaluateForDedupe`의 plan 축에만 얹는다. out-of-scope 게이트의 intent 필드가 `null`인 것은 **정상 상태**이며 판정 대상이 아니다.
 
   **적용 범위는 dedupe로 한정한다(정직 표기).** F3은 completion-ledger 승인 술어와 derive/renderer도 지목했으나, ledger(v1.22.5 M1)는 **ship receipt(`mccp-pr-codex`)**에만 append하고 이 게이트는 plan-codex만 stamp하므로 plan-codex override가 ledger 승인 경로에 도달하지 않는다 — 회피가 아니라 구조적 미도달이다. derive/renderer 노출은 critique C1(LOW)로 이미 기록됐고 UI1(MVP 2축)·UI7 상 M2 이후 축이다.
 
@@ -155,7 +157,7 @@ santa-loop R1(Opus + GPT-5.4 둘 다 FAIL)이 초안의 근본 착각 하나를 
 - **Validate**: `node --test plugins/mccp/scripts/lib/tests/intent-context.test.js`
 
 ### Task 2: 오라클 테스트 (결정 트리 전수)
-- **Action**: CREATE `intent-context.test.js`. 케이스: (a) verdict 6종 전수 + 미지값 fail-closed, (b) marker 미발화(free-form / 증명된 findings 0) → `skipped`, (c) DD6 가드 6종(빈 표·중복 ID·미지 kind·1단어·placeholder·표 부재) 각각 `present:false`, (d) adjudication 누락 1건 → `incomplete`(silent-accept 검출 = UI10 1차 성공기준), (e) conflict + `ACCEPT_NOW` + override reason 부재 → `conflict_unresolved`, (f) conflict + `REJECTED_BY_DESIGN` + rationale → `preserved`, (g) dangling intent ref → `incomplete`, (h) override 시 `pass:true` ∧ `blockingVerdict` 보존(DD5), (i) `buildIntentReference`가 items 외 어떤 입력도 반영하지 않음(DD7 구조 증명), **(j) R1 F2 — 증명 없는 `skipped` → `skipped-unproven` block + 3종 증명 각각 pass**, **(k) R1 F2 — 키 부재(legacy) → 무증명 `skipped` 허용, 키 존재 + null → 증명 요구**(DD1b `in` 연산자 검증), **(l) R1 F1 — review 아티팩트 부재 시 findings 0 아님 → `incomplete`**(증명 부재 ≠ 지적 없음), **(m) R1 F1 — plan digest 불일치 → `incomplete`**(DD3b), **(n) R1 F4 — 리뷰어가 `UI3`를 인용한 finding을 `intent_conflict:'none'`으로 adjudicate → `conflict_unresolved`**, **(o) DD12 비대칭 방향 — 리뷰어 미인용 finding을 conflict로 올리는 것은 pass**, **(p) `isIntentApproved`/`isIntentChainAllowed` 진리표 — legacy 키 부재는 chain ALLOW이지만 dedupe는 false(santa-loop M2)**, **(q) santa-loop M3 — finding≥1 ∧ `INTENT:` 마커 전무 → `inconclusive` block**, **(r) reference 하드닝 — 구분자/백틱/개행 이스케이프 + 항목 길이상한 + 지시문 형태 constraint는 `present:false`**
+- **Action**: CREATE `intent-context.test.js`. 케이스: (a) verdict 6종 전수 + 미지값 fail-closed, (b) marker 미발화(free-form / 증명된 findings 0) → `skipped`, (c) DD6 가드 6종(빈 표·중복 ID·미지 kind·1단어·placeholder·표 부재) 각각 `present:false`, (d) adjudication 누락 1건 → `incomplete`(silent-accept 검출 = UI10 1차 성공기준), (e) conflict + `ACCEPT_NOW` + override reason 부재 → `conflict_unresolved`, (f) conflict + `REJECTED_BY_DESIGN` + rationale → `preserved`, (g) dangling intent ref → `incomplete`, (h) override 시 `pass:true` ∧ `blockingVerdict` 보존(DD5), (i) `buildIntentReference`가 items 외 어떤 입력도 반영하지 않음(DD7 구조 증명), **(j) R1 F2 — 증명 없는 `skipped` → `skipped-unproven` block + 3종 증명 각각 pass**, **(k) santa-loop M2 — 키 부재(legacy) → `unknown`이며 승인 아님: `isIntentChainAllowed=true`(+warning)이지만 `isIntentApproved=false`. 키를 빼서 dedupe skip을 얻는 경로가 성립하지 않음**(DD1b `in` 연산자 검증), **(l) R1 F1 — review payload 획득 실패(runner가 Codex 응답을 못 읽음)는 `findings:[]`(runner 성공 + 빈 목록)와 다르다: 전자는 `incomplete`, 후자는 `skipped`+`no_codex_findings`**(증명 부재 ≠ 지적 없음), **(m) DD3b — runner가 Codex에 넘긴 본문의 digest가 receipt에 stamp된다(감사 앵커). 디스크 감사 사본을 사후 변조해도 판정·stamp가 불변**(단일 프로세스라 대조할 외부 파일이 없음 — 강제가 아니라 감사임을 test가 고정), **(n) R1 F4 — 리뷰어가 `UI3`를 인용한 finding을 `intent_conflict:'none'`으로 adjudicate → `conflict_unresolved`**, **(o) DD12 비대칭 방향 — 리뷰어 미인용 finding을 conflict로 올리는 것은 pass**, **(p) `isIntentApproved`/`isIntentChainAllowed` 진리표 — legacy 키 부재는 chain ALLOW이지만 dedupe는 false(santa-loop M2)**, **(q) santa-loop M3 — finding≥1 ∧ `INTENT:` 마커 전무 → `inconclusive` block**, **(r) reference 하드닝 — 구분자/백틱/개행 이스케이프 + 항목 길이상한 + 지시문 형태 constraint는 `present:false`**
 - **Mirror**: `design-critique-decide.test.js`
 - **Validate**: 위와 동일 (모든 case green)
 
@@ -191,7 +193,8 @@ santa-loop R1(Opus + GPT-5.4 둘 다 FAIL)이 초안의 근본 착각 하나를 
 - **Validate**: `node --test plugins/mccp/scripts/receipt/tests/validate-cmd-intent-gate.test.js`
 
 ### Task 7b: `dedupe.js` — 봉인된 verdict를 load-bearing으로 (R1 F3)
-- **Action**: UPDATE `dedupe.js`. 게이트별 convergence 술어(L368-374)를 `codex_verdict === 'converged'` **AND** `intentContext.isIntentApproved(receipt.meta)`로 확장. 위반 시 `skip_safe=false` + reason에 intent 축 명시(예: `plan-codex intent gate not approved (verdict=incomplete, override=true) — dual-review required (fail-closed)`).
+- **Action**: UPDATE `dedupe.js`. **`codexConverged`(L372)는 손대지 않는다.** 대신 `evaluateForDedupe`(L381~)의 `convergence.plan_codex_receipt` 축에만 `intent_approved: intentContext.isIntentApproved(planReceipt.meta)`를 추가하고, `skipSafe`가 그 값도 요구하게 한다. 위반 시 reason에 intent 축 명시(예: `plan-codex intent gate not approved (verdict=incomplete, override=true) — dual-review required (fail-closed)`).
+- **왜 gate-specific이어야 하나 (santa-loop R2 M5 — GPT-5.4 포착, 초안이 만든 심각한 회귀)**: 초안은 "게이트별 convergence 술어"를 확장하라 했는데, 실제 코드에서 `codexConverged(receipt)`는 plan·implement receipt에 **공유되는 단일 헬퍼**다(L422/L428이 같은 함수를 호출 — 코드로 확인). 거기에 intent 조건을 넣으면 UI4로 **의도적으로 out-of-scope인** `mccp-implement-codex` receipt가 항상 `unknown → false`가 되어 **모든 decision의 dedupe가 영구히 깨진다**. 이는 흡수가 아니라 신규 회귀이고, 복구 경로도 없다. intent 조건은 **plan-codex receipt에만** 적용한다.
 - **legacy는 `false`다 (R1 M2 — GPT-5.4 포착, 초안 정정)**: 초안은 legacy(키 부재)를 `true`로 통과시켰는데, 그러면 receipt에서 키만 빼면 override된 plan이 PR-Codex를 계속 skip시켜 **F3가 그대로 되살아난다**. 이제 `unknown → false`이므로 legacy plan receipt는 dedupe되지 않고 PR-Codex가 실발화한다. 비용은 리뷰 1회, 이득은 위장의 보상 0. **기존 dedupe 동작이 바뀌는 유일한 지점**이므로 Task 12 회귀에서 명시 확인한다.
 - **Mirror**: `dedupe.js:374` 기존 fail-closed 술어 + `receipt-convergence.js` 단일 헬퍼 철학
 - **Validate**: `node --test plugins/mccp/scripts/receipt/tests/dedupe.test.js`
@@ -202,7 +205,7 @@ santa-loop R1(Opus + GPT-5.4 둘 다 FAIL)이 초안의 근본 착각 하나를 
 - **Validate**: `node --test plugins/mccp/scripts/receipt/tests/`
 
 ### Task 9: `plan.md` 배선 (L1 capture + L2 gate)
-- **Action**: UPDATE. (1) `## PRD Artifact Output` 템플릿에 `## User Intent` 표를 **필수 섹션**으로 추가 + 작성 규칙(사용자 발화만, 저자 근거 금지) 명시. (2) 신규 **Phase 1.5 — CAPTURE USER INTENT**: 대화·PRD에서 명시 제약을 추출해 표로 기록. (3) Phase 5.2: 섹션 → `buildIntentReference` → tmp 파일(`git rev-parse --git-path mccp/tmp`, worktree-safe) → `--intent-reference-file` forward. **호출 직전에 plan 본문 sha256을 `intent-plan-digest.txt`로 봉인하고, codex-invoke envelope 전체를 `codex-plan-r<N>.json`으로 남긴다**(DD3/DD3b — 이 두 아티팩트가 marker의 유일한 출처). (4) Phase 5.3 YAGNI Triage 표에 `Intent conflict` · `Rationale` 열 추가 + adjudication JSON을 같은 tmp 경로에 기록. (5) 신규 **Phase 5.4a — INTENT-CONFLICT GATE**: 오라클 호출 → block이면 `[MCCP-INTENT-GATE-STOP]` + 복구 지시(비대칭 위반 시 어떤 finding이 어떤 `UI<n>`를 인용했는지 명시). (6) Phase 5.6 `WRITE_FLAGS`에 `--intent-adjudication-file` · `--codex-review-file` · `--intent-plan-digest` + L1 boolean 2개 조건 forward. **Bash 도구 timeout 상한(10분) < codex timeout(15분)이므로 5.2 호출은 백그라운드 실행 + 완료 파일 marker 패턴을 command body에 명시**(이번 cycle 실측: 470s로 foreground 10분 상한에 걸려 SIGTERM).
+- **Action**: UPDATE. (1) `## PRD Artifact Output` 템플릿에 `## User Intent` 표를 **필수 섹션**으로 추가 + 작성 규칙(사용자 발화만, 저자 근거 금지) 명시. (2) 신규 **Phase 1.5 — CAPTURE USER INTENT**: 대화·PRD에서 명시 제약을 추출해 표로 기록. (3) Phase 5.2~5.6을 **runner 호출 1회로 대체**한다(santa-loop R2 M1 정합). command body는 `node plan-codex-runner.js --plan <path> --decision <slug> --adjudication-file <path>`만 호출하고, **아티팩트 경로를 marker 입력으로 forward하지 않는다** — `--codex-review-file`·`--intent-plan-digest` 같은 플래그는 존재하지 않는다(존재하면 DD3가 무너진다). runner가 reference 합성·Codex 호출·payload 파싱·digest 계산·판정·receipt write를 소유한다. (4) Phase 5.3 YAGNI Triage 표에 `Intent conflict` · `Rationale` 열 추가 + adjudication JSON만 tmp에 기록(이것은 **저자의 판정 입력**이지 리뷰어 증거가 아니므로 위조 대상이 아니다 — 저자가 자기 판정을 쓰는 채널이다). (5) 신규 **Phase 5.4a — INTENT-CONFLICT GATE**: runner가 block을 반환하면 `[MCCP-INTENT-GATE-STOP]` + 복구 지시(비대칭 위반 시 어떤 finding이 어떤 `UI<n>`를 인용했는지 명시). (6) Bash 백그라운드 실행·완료 marker 패턴은 runner 내부로 흡수(아래 실측 근거). **Bash 도구 timeout 상한(10분) < codex timeout(15분)이므로 5.2 호출은 백그라운드 실행 + 완료 파일 marker 패턴을 command body에 명시**(이번 cycle 실측: 470s로 foreground 10분 상한에 걸려 SIGTERM).
 - **Mirror**: Phase 5.0 design-critique 블록의 오라클 호출·flag forward 형태
 - **Validate**: `grep -n "## User Intent" plugins/mccp/commands/plan.md` + `node --test plugins/mccp/scripts/lib/tests/command-tmp-worktree-safe.test.js`
 
@@ -250,6 +253,8 @@ node --test plugins/mccp/scripts/hooks/tests/
 
 # command body 계약 — 필수 섹션 존재 + worktree-safe tmp 경로
 grep -n "^## User Intent" plugins/mccp/commands/plan.md
+# santa-loop R2 M1 — command body가 아티팩트를 marker 입력으로 되돌리지 않았는지 (0건이어야 함)
+! grep -nE '\-\-codex-review-file|\-\-intent-plan-digest' plugins/mccp/commands/plan.md plugins/mccp/scripts/receipt/cli.js
 node --test plugins/mccp/scripts/lib/tests/command-tmp-worktree-safe.test.js
 
 # version drift
@@ -294,6 +299,9 @@ git diff --diff-filter=D --name-only origin/main...HEAD
 - [ ] **R1 F4/DD12**: 리뷰어가 `UI<n>`를 인용한 finding을 `intent_conflict:'none'`으로 adjudicate하면 `conflict_unresolved`로 block된다 (오심 탐지 가능성 확보)
 - [ ] **santa-loop M1/DD3**: 리뷰와 receipt write 사이에 marker가 의존하는 **읽히는 파일이 존재하지 않는다** — `plan-codex-runner.js` 단일 프로세스. 감사 사본 envelope를 조작해도 판정이 바뀌지 않음을 test가 증명
 - [ ] **santa-loop M2/DD1b**: legacy(키 부재) receipt가 `isIntentApproved=false`라 dedupe되지 않는다 — 키를 빼서 PR-Codex를 skip시키는 우회가 성립하지 않는다
+- [ ] **santa-loop R2/DD11**: `codexConverged` 공유 헬퍼는 **불변**이고 intent 조건은 `evaluateForDedupe`의 plan-codex 축에만 붙는다 — out-of-scope `mccp-implement-codex`(intent 필드 `null`)가 dedupe를 깨뜨리지 않음을 test가 고정
+- [ ] **santa-loop R2/DD3**: command body와 `receipt/cli.js` 어디에도 `--codex-review-file` / `--intent-plan-digest` 같은 **아티팩트 marker 입력이 존재하지 않는다**(Validation의 negative grep) — runner가 `no_codex_findings` 증명과 plan digest stamp의 유일한 출처
+- [ ] **santa-loop R2**: plan 전체(DD·Task·Test·Validation·Acceptance·Codex triage 표)가 단일 아키텍처를 서술한다 — 폐기된 아티팩트 기반 흡수안이 어디에도 유효한 지시로 남아있지 않다
 - [ ] **santa-loop M3/DD12**: finding이 있는데 `INTENT:` 마커가 전무하면 `inconclusive`로 **block**된다 (인용 0건이 조용한 통과가 아님) + reference가 `<user_intent_reference>` 구분자·이스케이프·길이상한으로 하드닝되고 지시문 형태 constraint는 DD6가 `present:false`로 떨군다
 - [ ] **santa-loop M4/Task 5**: in-scope 게이트의 신규 receipt는 `intent_gate_verdict`가 절대 `null`이 아니다 (free-form plan도 `skipped` + proof 명시 stamp) → free-form 무회귀와 "미지값 block"이 충돌하지 않는다
 - [ ] **santa-loop M5**: enum(6종)·필드 수(9)가 Summary/DD/Task/Validation/Acceptance 전체에서 일치한다
@@ -342,7 +350,7 @@ routing mode: `auto` (effective at implement stage). plan 단계는 렌더 UI가
 - YAGNI Triage:
   | Finding | Severity | Verdict | Why |
   |---|---|---|---|
-  | F1 Marker Depends On Unsealed Caller Data | HIGH | ACCEPT_NOW | `--findings-file` 생략만으로 게이트가 skip됨을 코드로 재현. marker를 봉인 review 아티팩트로 이전 + plan digest bind (DD3/DD3b) |
+  | F1 Marker Depends On Unsealed Caller Data | HIGH | ACCEPT_NOW | `--findings-file` 생략만으로 게이트가 skip됨을 코드로 재현. ~~marker를 review 아티팩트로 이전 + plan digest bind~~ → **이 흡수안은 santa-loop R1에서 폐기됨**(그 아티팩트도 위조 가능했다). 현행 흡수는 단일 프로세스 runner(DD3/DD3b/DD13) |
   | F2 Skipped Is An Unproven Pass | HIGH | ACCEPT_NOW | `pr-ship-gate.js:55-68`이 이미 값을 치른 `skipped-unproven`과 동일 구멍. 3종 증명 요구 + 키-존재 legacy 판별 (DD1/DD1b) |
   | F3 Override Verdict Can Still Certify Downstream | HIGH | ACCEPT_NOW | 봉인만으로는 아무것도 막지 못함을 `dedupe.js:374`로 확인. dedupe 술어에 intent 승인 AND 추가 (DD11). ledger/derive 축은 구조적 미도달·C1로 분리 |
   | F4 Adjudication Still Rubber-Stamps Conflicts | MEDIUM | ACCEPT_NOW | PRD가 쓰인 이유 그 자체라 이연 불가. 리뷰어 주장 비대칭 검사로 오심 **탐지 가능**화 (DD12). 상한 아닌 하한임을 정직 표기 |

@@ -323,6 +323,101 @@ test('S10b: mode=implement → reason=mode-mismatch', () => {
   });
 });
 
+// === S11: plan-cell forms × resolution base (false-negative regression) ===
+//
+// Every fixture above puts the PRD at repoRoot, so prdDir === repoRoot and the
+// resolution base was never actually exercised. These place the PRD in a
+// subdirectory (as real PRDs are, under .claude/prds/) so the two defects that
+// made a live PRD report plan-missing are each independently reproducible:
+//   (1) extractPlanPath did not strip inline-code backticks
+//   (2) a bare repo-root-relative cell resolved against prdDir
+
+function writeNestedPrd(dir, planCell) {
+  const prdDir = path.join(dir, '.claude', 'prds');
+  const planDir = path.join(dir, '.claude', 'plans');
+  fs.mkdirSync(prdDir, { recursive: true });
+  fs.mkdirSync(planDir, { recursive: true });
+  fs.writeFileSync(path.join(planDir, 'm2.plan.md'), '# m2\n', 'utf8');
+  const body = '# Test PRD\n\n## Delivery Milestones\n\n'
+    + '| # | Milestone | Outcome | Status | Plan |\n|---|---|---|---|---|\n'
+    + `| 2 | live 완주 검증 | x | in-progress | ${planCell} |\n`;
+  const prdPath = path.join(prdDir, 'prd.md');
+  fs.writeFileSync(prdPath, body, 'utf8');
+  return prdPath;
+}
+
+function detectNested(dir, planCell) {
+  const prdPath = writeNestedPrd(dir, planCell);
+  return withEnv({ MCCP_GOAL_FEATURE: 'available' }, () => detector.detect({
+    mode: 'milestone-close',
+    milestone: '2',
+    prdPath: prdPath,
+    repoRoot: dir,
+  }));
+}
+
+test('S11a: backticked repo-root-relative plan cell → goal_signal=true (defect 1+2)', () => {
+  withTempDir((dir) => {
+    const result = detectNested(dir, '`.claude/plans/m2.plan.md`');
+    assert.strictEqual(result.reason, 'ok');
+    assert.strictEqual(result.goal_signal, true);
+    // backticks must not survive into the emitted path — the command body
+    // stamps signal_ref.plan into the closure doc and edits that file.
+    assert.strictEqual(result.signal_ref.plan, '.claude/plans/m2.plan.md');
+  });
+});
+
+test('S11b: bare repo-root-relative plan cell → goal_signal=true (defect 2 alone)', () => {
+  withTempDir((dir) => {
+    const result = detectNested(dir, '.claude/plans/m2.plan.md');
+    assert.strictEqual(result.reason, 'ok');
+    assert.strictEqual(result.goal_signal, true);
+  });
+});
+
+test('S11c: backticked markdown link → link target extracted', () => {
+  withTempDir((dir) => {
+    const result = detectNested(dir, '`[m2](../plans/m2.plan.md)`');
+    assert.strictEqual(result.reason, 'ok');
+    assert.strictEqual(result.signal_ref.plan, '../plans/m2.plan.md');
+  });
+});
+
+test('S11d: ./-relative cell still resolves against the PRD dir (no regression)', () => {
+  withTempDir((dir) => {
+    const prdDir = path.join(dir, '.claude', 'prds');
+    fs.mkdirSync(prdDir, { recursive: true });
+    fs.writeFileSync(path.join(prdDir, 'sibling.plan.md'), '# sib\n', 'utf8');
+    const result = detectNested(dir, '[sib](./sibling.plan.md)');
+    assert.strictEqual(result.reason, 'ok');
+    assert.strictEqual(result.signal_ref.plan, './sibling.plan.md');
+  });
+});
+
+test('S11e: backticked em-dash cell is still an empty plan → plan-missing', () => {
+  withTempDir((dir) => {
+    const result = detectNested(dir, '`—`');
+    assert.strictEqual(result.goal_signal, false);
+    assert.strictEqual(result.reason, 'plan-missing');
+  });
+});
+
+test('S11f: genuinely absent plan file → plan-missing (not path-traversal)', () => {
+  withTempDir((dir) => {
+    const result = detectNested(dir, '`.claude/plans/nope.plan.md`');
+    assert.strictEqual(result.goal_signal, false);
+    assert.strictEqual(result.reason, 'plan-missing');
+  });
+});
+
+test('S11g: plan cell escaping the repo under every base → path-traversal', () => {
+  withTempDir((dir) => {
+    const result = detectNested(dir, '`../../../../etc/passwd`');
+    assert.strictEqual(result.goal_signal, false);
+    assert.strictEqual(result.reason, 'path-traversal');
+  });
+});
+
 // === bonus: availability=unknown + ok-eligible row → reason=unknown-default ===
 
 test('Bonus: availability=unknown + eligible row → goal_signal=false + reason=unknown-default', () => {

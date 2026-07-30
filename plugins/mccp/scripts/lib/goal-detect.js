@@ -31,6 +31,9 @@
 //   --milestone <prd>    → treat as PRD path, auto-pick first in-progress row
 //   --prd <path>         → explicit PRD path (auto-pick)
 //   row.status='in-progress' + plan cell !== '—' + plan file exists → goal_signal=true
+//   plan cell accepts `` `path` ``, `[label](path)` and bare `path`; a bare path
+//   resolves against repoRoot (PRD table convention), `./`-prefixed against the
+//   PRD dir, with the other base as fallback.
 //
 // `/goal` is a built-in (v2.1.139+) prompt-based Stop hook wrapper — unrelated
 // to the dynamic workflows feature. Availability is derived from hooks settings
@@ -152,10 +155,26 @@ function matchMilestoneRow(rows, milestoneRef) {
 }
 
 function extractPlanPath(planCell) {
-  if (!planCell || planCell === '—' || planCell === '-' || planCell === '') return null;
-  const md = planCell.match(/\[[^\]]+\]\(([^)]+)\)/);
-  if (md) return md[1];
-  return planCell.trim();
+  if (planCell == null) return null;
+  let cell = String(planCell).trim();
+  // PRD tables wrap the plan path in inline code far more often than in a
+  // markdown link — strip the fence before anything else so the backticks
+  // never reach path resolution.
+  const fenced = cell.match(/^`+([^`]+)`+$/);
+  if (fenced) cell = fenced[1].trim();
+  if (!cell || cell === '—' || cell === '-') return null;
+  const md = cell.match(/\[[^\]]+\]\(([^)]+)\)/);
+  if (md) return md[1].trim();
+  return cell;
+}
+
+// A cell written `./x.plan.md` / `../x.plan.md` is a document-relative markdown
+// reference (resolve against the PRD), a bare `.claude/plans/x.plan.md` is the
+// repo-root-relative form every mccp PRD table actually uses. Try the likely
+// base first and keep the other as fallback so neither convention breaks.
+function planResolutionBases(planRel, repoRoot, prdDir) {
+  if (path.isAbsolute(planRel)) return [null];
+  return /^\.\.?[\\/]/.test(planRel) ? [prdDir, repoRoot] : [repoRoot, prdDir];
 }
 
 function evaluateRow(row, repoRoot, prdDir) {
@@ -184,22 +203,28 @@ function evaluateRow(row, repoRoot, prdDir) {
       reason: 'plan-missing',
     };
   }
-  const planAbs = path.isAbsolute(planRel)
-    ? planRel
-    : path.resolve(prdDir, planRel);
-  const safety = validatePathSafety(planAbs, repoRoot);
-  if (!safety.ok) {
+  let anyBaseSafe = false;
+  let planExists = false;
+  for (const base of planResolutionBases(planRel, repoRoot, prdDir)) {
+    const planAbs = base === null ? planRel : path.resolve(base, planRel);
+    const safety = validatePathSafety(planAbs, repoRoot);
+    if (!safety.ok) continue;
+    anyBaseSafe = true;
+    const candidate = safety.resolved || planAbs;
+    try {
+      planExists = fs.existsSync(candidate) && fs.statSync(candidate).isFile();
+    } catch (_err) { planExists = false; }
+    if (planExists) break;
+  }
+  // Only a cell that escapes the repo under EVERY base is a traversal attempt;
+  // one safe-but-absent base is an ordinary missing plan.
+  if (!anyBaseSafe) {
     return {
       goal_signal: false,
       signal_ref: { row: row.row, name: row.name, plan: planRel, status: row.status },
       reason: 'path-traversal',
     };
   }
-  let planExists = false;
-  try {
-    planExists = fs.existsSync(safety.resolved || planAbs)
-      && fs.statSync(safety.resolved || planAbs).isFile();
-  } catch (_err) { /* ignore */ }
   if (!planExists) {
     return {
       goal_signal: false,

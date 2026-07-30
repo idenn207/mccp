@@ -46,7 +46,7 @@ Phase 2.5 Workflow fan-out 대신 **인라인 Pattern Grounding**으로 수행�
 - **`session-ledger.js#withLedgerLock`(L275-299)** 이 가장 가까운 선례다 — `O_EXCL`(`openSync wx`, L258) + bounded retry(50×20ms) + stale unlink(30s). **단 실패 정책이 fail-soft**다: 획득 실패 시 경고만 남기고 lock 없이 진행(L285-289, last-writer-wins). 이는 PRD가 STATE.md의 구조적 취약으로 지목한 바로 그 동작이다 → M3은 **메커니즘은 mirror하되 실패 정책을 반전**한다(fail-closed). 이 구분이 M3의 핵심 설계 결정이다.
 - **`writeLedgerAtomic`(L301-311)** 은 tmp 이름이 고정(`target + '.tmp'`)이라 동시 writer가 tmp에서 충돌한다 → M3은 `context-state.js:69-98`의 **pid+random unique tmp** 패턴을 쓴다.
 - **`.gitignore` 상호작용(중요)**: `.claude/receipts/*`는 무시되나 `mccp-pr-codex/`는 negate(L32)되고 그 안의 `*.lock`/`*.tmp`만 무시된다(L33-34). 따라서 신규 tmp 파일명은 **반드시 `.tmp`로 끝나야** 하고(`<name>.<pid>.<rand>.tmp`) lock은 `.lock`으로 끝나야 한다 — `.tmp-<pid>` 같은 이름은 glob에 안 걸려 ship receipt 디렉토리를 오염시킨다.
-- **live 세션 판정 substrate 완비**: `session-ledger.js#listLedgers({activeOnly:true})`(L558-660)가 heartbeat TTL(5분) + `pidIsLive`(L194) + host-aware 분기를 이미 구현. **점유 만료 판정을 새로 발명할 필요가 없다** — 재사용한다. 스키마는 M2 F1대로 **미변경**(strict unknown-key validator L102-171).
+- ~~**live 세션 판정 substrate 완비**: `listLedgers({activeOnly:true})`를 재사용하면 된다.~~ **← 이 GROUND 결론은 santa R2(J4)에서 실측으로 반증됐다.** 기록되는 pid가 SessionStart **hook 프로세스**의 것이고 heartbeat가 pid를 갱신하지 않으므로, 단일 머신에서 `activeOnly`는 사실상 공집합이다. 상세와 대체 설계는 Task 4의 J4 항목 참조. **이 문장을 지우지 않고 취소선으로 남기는 이유**: 최초 GROUND의 오판이 두 라운드를 지나서야 잡혔다는 사실 자체가 감사 가치가 있고, 같은 전제가 다른 milestone에서 재사용되는 것을 막기 위해서다. 스키마는 M2 F1대로 **미변경**(strict unknown-key validator L102-171).
 - **B2 현황**: `msw-metrics/index.js#computeB2`(L205-233)가 `forward-only`이며 주석(L210-214)이 차단 이유를 명시한다 — "production은 session_start/session_end만 emit하므로 collision producer가 없고, collision 관측으로 producer-present를 파생하면 정당한 computed-zero가 도달 불가해진다. **INDEPENDENT collision-producer-presence signal이 필요**하다." `session-activity.js:144`는 `kind === 'conflict' || 'collision'`을 읽지만 그 kind를 쓰는 producer가 없어 **dead read**다(back-compat 부담 0). `msw-events.js` ALLOWED_FIELDS(L29-39)에도 충돌 관련 필드가 없다.
 - **M5 경계**: PRD L170-172가 "점유 만료·재생 방어(세션 epoch·순번·tombstone)"를 **M5** 소관으로 명시. M3은 그 모델을 만들지 않고, 대신 write 시점 **fencing**(현 소유자 확인)만 제공하고 잔여 gap을 설계 문서에 기록한다.
 
@@ -58,7 +58,7 @@ Phase 2.5 Workflow fan-out 대신 **인라인 Pattern Grounding**으로 수행�
 | host-aware stale reclaim | `plugins/mccp/scripts/lib/pr-phase-lock.js:264,295` | `isPidAlive`(process.kill(pid,0), Windows EPERM=alive) + `tryReclaimStaleLock` tri-state(same-host+alive = NEVER reclaim) |
 | lock body + 0o600 | `plugins/mccp/scripts/migrations/v0.2.8-generic-receipt-quarantine.js` | advisory raw-token in body + owner-only mode + ownership 일치 시에만 unlink |
 | 원자 write(unique tmp) | `plugins/mccp/scripts/lib/context-state.js:69-98` | tmp+pid+random nonce → rename. 고정 tmp 이름 금지 |
-| live 세션 열거 | `plugins/mccp/scripts/state/session-ledger.js:558-660` | `listLedgers({activeOnly:true})` heartbeat TTL + PID liveness + host 분기. **스키마 미변경 재사용** |
+| ~~live 세션 열거~~ | ~~`session-ledger.js:558-660`~~ | **미러 대상에서 제외(santa R2 J4)** — PID 축이 이 아키텍처에서 무효. claim liveness는 자기완결 `last_touch` TTL로 자체 정의(Task 4). ledger 스키마는 여전히 미변경 |
 | sidecar 이벤트 append | `plugins/mccp/scripts/state/msw-events.js:161-214` | allowlist bounded 스키마 + O_APPEND + per-line malformed 격리 + retention GC |
 | derive source | `plugins/mccp/scripts/derive/sources/session-activity.js` | read-only·dep-free·`{ok, degraded, producer_coverage}` emit |
 | hook fail-loud-open | `plugins/mccp/scripts/hooks/session-end-trace.js:70-82` | 모듈 로드 실패에도 진행 보장 + degraded loud stderr |
@@ -78,7 +78,7 @@ Phase 2.5 Workflow fan-out 대신 **인라인 Pattern Grounding**으로 수행�
 | `plugins/mccp/scripts/lib/briefing/index.js` | UPDATE | L69 직접 `writeFileSync` → 같은 lock + atomic write 경유. read-modify-write 구간 전체가 임계구역 안 |
 | `plugins/mccp/scripts/lib/completion-ledger/index.js` | UPDATE | L87 직접 `writeFileSync` → 동일. (ledger 엔트리 store는 이미 tmp+rename — 그쪽은 미변경) |
 | `plugins/mccp/scripts/receipt/write.js` | UPDATE | `restampGroundingVerdict`(L~520-560) read-modify-write를 lock 안으로. `write()`는 store 경유라 자동 |
-| `plugins/mccp/scripts/state/evidence-claim.js` | CREATE | 작업 단위 점유 레지스트리 — 키=decision slug, `.claude/state/evidence-claims/<slug>.json`. `acquireClaim`/`verifyClaim`/`releaseClaim`/`listClaims`. live 판정은 `listLedgers({activeOnly:true})` 재사용(신규 만료 로직 발명 금지). 동일 세션 재진입은 **멱등 no-op**(단일 세션 사용성 보호) |
+| `plugins/mccp/scripts/state/evidence-claim.js` | CREATE | 작업 단위 점유 레지스트리 — 키=decision slug, `.claude/state/evidence-claims/<slug>.json`. `acquireClaim`(O_EXCL)/`verifyClaim`/`releaseClaim`/`listClaims`. live 판정은 **자기완결 `last_touch` TTL**(santa R2 J4 — `listLedgers` PID 축은 무효라 미사용). 동일 세션 재진입 멱등성은 **santa R3에서 미해결로 남음**(아래 ESCALATION OQ-1) |
 | `plugins/mccp/scripts/state/msw-events.js` | UPDATE | ALLOWED_FIELDS에 `work_unit`·`conflict_kind`·`holder_session`·**`pre_hash`·`post_hash`·`claim_epoch`**(santa R2 J5 — 미추가 시 `eventToJsonLine`이 조용히 strip해 B2 감사가 무효) 추가. 신규 kind 4종(`evidence_guard_active`·`evidence_conflict_prevented`·`evidence_overwrite_observed`·`work_claim_denied`). bounded cap·malformed 격리 계약 불변. **(CL-5)** 기본 경로를 cwd 상대(L22,177)에서 **명시 repoRoot 해석**으로 교정 — reader(`session-activity.js:34`)와 기준점 일치 |
 | `plugins/mccp/scripts/hooks/session-end.js` | UPDATE | **(CL-5)** `appendEvent` 호출(L363)에 repoRoot 전달 — 현재 미전달로 cwd 종속 |
 | `plugins/mccp/scripts/derive/sources/session-activity.js` | UPDATE | dead read(`kind==='conflict'\|\|'collision'`, L144) → 신규 taxonomy. **`collision_producer_present`를 guard_active 관측에서 파생**(충돌 건수와 독립 — 이것이 M2가 요구한 independent signal). `overwrite_observed`만 B2 분자 |
@@ -116,7 +116,7 @@ Phase 2.5 Workflow fan-out 대신 **인라인 Pattern Grounding**으로 수행�
   1. **heartbeat 연장 lease** — 임계구역 진입 시와 rename **직전**에 lock mtime을 갱신한다(§3.6 in-loop heartbeat 미러). 느린 FS에서 *진행 중인* holder는 lease를 유지하고, **정지한** holder만 reclaim 대상이 된다. R1 F1이 지적한 영구 stall을 재도입하지 않으면서 reclaim 창을 "진짜 고장"으로 좁힌다.
   2. **post-rename 검증** — rename 후 파일을 다시 읽어 우리가 쓴 내용의 hash와 일치하는지 확인한다. 불일치 = 경쟁에서 졌다는 **확정 관측**.
   3. **감지 시 fail-closed** — 진 writer는 `evidence_overwrite_observed`를 기록하고 **throw**한다. 게이트는 조용히 진행하지 않고 중단되며, 운영자는 재실행으로 복구한다.
-  이 재정의는 후퇴가 아니라 PRD 정합이다 — B2는 "덮어쓴 **사고 건수**"를 세고 목표는 0건인데, **감지되어 차단된 경합은 조용한 덮어쓰기가 아니다**. M3이 보증하는 것은 "경합이 물리적으로 불가능"이 아니라 "**어떤 증거 손실도 조용히 지나가지 않는다**"이며, plan 전체에서 이 문구로 통일한다.
+  이 재정의는 후퇴가 아니라 PRD 정합이다 — B2는 "덮어쓴 **사고 건수**"를 세고 목표는 0건인데, 감지되어 차단된 경합은 조용한 덮어쓰기가 아니다. **(santa R3 — Reviewer A C3 교정) 단, 이 문단이 round 1에 쓴 "어떤 증거 손실도 조용히 지나가지 않는다"를 그대로 두고 "plan 전체에서 이 문구로 통일한다"고까지 적은 것은 오류였다** — R2(J2)가 그 문구를 이미 거짓으로 판정했는데 보증 표만 고치고 이 문단을 놓쳤다. **단일 기준은 상단 G1~G3 표이며 이 문단은 그것을 참조할 뿐이다.** G3의 정확한 문구는 "덮어쓴 쪽이 보고하거나 B2 런타임 감사가 검출한다"이고, 덮인 쪽의 늦은 인지는 명시된 잔여다.
 - **(Claude 독립분석 CL-2) lease 단독은 정확하지 않다 — write-side fencing과 반드시 쌍으로 간다**: F1 흡수가 lease를 liveness-무관하게 만든 순간 새 구멍이 열린다. holder가 **정말로 쓰는 중**인데(AV 스캔·네트워크 드라이브·Windows 핸들 경합으로 5s 초과) 다른 프로세스가 reclaim하면 임계구역에 **writer 2명**이 생긴다. 원자 tmp+rename은 torn file만 막고 **lost update는 못 막는다** — M3이 존재하는 이유인 바로 그 결함이 되돌아온다. lease는 liveness 판정을 대체할 뿐 상호배제를 보장하지 않으므로, **fencing 없는 lease는 그 자체로 부정확**하다. 따라서 write는 두 단계 방어를 **반드시** 통과한다: (a) **base-hash 선조건** — 임계구역 진입 시 읽은 disk hash를 기억하고, rename 직전 disk가 그대로인지 재확인. 다르면 write를 **거부**하고 `evidence_overwrite_observed` 기록(reclaim 경쟁이 실제로 일어났다는 관측). (b) **rename 직전 lock 소유 재확인** — 우리 token이 아직 lock body에 있는지 검사, 아니면 abort. 잔여 창은 `rename` 시스콜 자체로 축소된다. Task 5의 `overwrite_observed` 검출은 별개 기능이 아니라 **이 fencing의 관측 면**이다(초안은 둘을 분리 서술해 이 의존을 놓쳤다).
 - **(Codex R1 F1) 운영자 가시 복구 경로**: `EVIDENCE_LOCK_UNAVAILABLE` 메시지는 lock 절대경로 + 잔여 lease + 재시도 지침 + kill switch(`MCCP_EVIDENCE_CONFLICT_GUARD=warn`)를 반드시 포함한다(조용한 실패도, 진단 불가한 실패도 금지).
 - **Mirror**: `session-ledger.js:256-299`(메커니즘 — 실패 정책만 반전), `pr-phase-lock.js:264`(`isPidAlive`만 차용, tri-state **미차용** — 위 근거), `context-state.js:69-98`(unique tmp), quarantine lock(0o600 + token)
@@ -170,7 +170,7 @@ Phase 2.5 Workflow fan-out 대신 **인라인 Pattern Grounding**으로 수행�
 - **Validate**: `derive/cli.js metrics-assert --fixtures --dry-run`이 B2를 claimed-computable로 강제(baseline-forming/null이면 non-zero exit). **coverage gate 각 항 독립 test**(런타임 감사 primary 포함) + **부정 fixture에서 B2가 forward-only로 남음**(가장 중요한 회귀 — 통과하면 gate가 실효) + **정적 축만으로는 통과하지만 런타임 축이 잡는 케이스**(셸 write 주입 — 두 축의 역할 분담 입증). 실 corpus에서 gate 통과 시 `computed`. 분모 0 fixture → invalid.
 
 ### Task 7: advisory 통보 (SessionStart + work.md 조기 경고)
-- **Action**: `session-start.js` — `listClaims()` × `listLedgers({activeOnly:true})` 교차로 **다른 live 세션이 점유한 작업 단위**를 `<system-reminder>`에 주입(차단 없음). 모듈 로드 실패에도 세션 부팅 무중단(fail-loud-open). `work.md` Step 0 — 착수 slug의 점유를 조기 확인해 사용자에게 알린다. **본문에 다음 문장을 그대로 넣는다(santa R2 J9 — Reviewer A)**: "이 단계는 **조기 경고 전용**이다. 실제 강제는 receipt write 시점(evidence lock + claim 판정)에서 일어난다. 이 경고를 무시하고 진행해도 안전하며, 중복 점유는 write 시점에 기계적으로 거부된다." — advisory 게이트와 enforcement locus를 같은 문장 안에서 구분해, 둘을 혼동해 "여기서 막히지 않았으니 안전하다"로 읽히는 것을 차단한다(command body 게이트 신뢰 금지).
+- **Action**: `session-start.js` — **`listClaims()` 단독**으로(각 claim의 `last_touch` TTL로 live 판정) 다른 세션이 점유한 작업 단위를 `<system-reminder>`에 주입(차단 없음). **(santa R3 — Reviewer B) 초안은 여기서 `listLedgers({activeOnly:true})`를 교차 참조했는데, Task 4가 그 substrate를 무효로 판정한 뒤에도 남아 있어 자체 모순이었다** — advisory 표면이 plan 스스로 실격시킨 소스 위에 서 있으면 "경고가 안 뜬다"가 "충돌이 없다"로 오독된다. ledger는 참조하지 않는다. 모듈 로드 실패에도 세션 부팅 무중단(fail-loud-open). `work.md` Step 0 — 착수 slug의 점유를 조기 확인해 사용자에게 알린다. **본문에 다음 문장을 그대로 넣는다(santa R2 J9 — Reviewer A)**: "이 단계는 **조기 경고 전용**이다. 실제 강제는 receipt write 시점(evidence lock + claim 판정)에서 일어난다. 이 경고를 무시하고 진행해도 안전하며, 중복 점유는 write 시점에 기계적으로 거부된다." — advisory 게이트와 enforcement locus를 같은 문장 안에서 구분해, 둘을 혼동해 "여기서 막히지 않았으니 안전하다"로 읽히는 것을 차단한다(command body 게이트 신뢰 금지).
 - **Mirror**: `session-end-trace.js:70-82`(fail-loud-open), 기존 SessionStart STATE.md 주입
 - **Validate**: 다른 live 세션 점유 fixture → SessionStart 출력에 통보 등장, 부팅 차단 0. 모듈 삭제 주입 시 세션 정상 부팅 + loud stderr.
 
@@ -434,3 +434,19 @@ R1 수정이 C5·C7(A 기준)을 FAIL→PASS로 올렸으나, **양쪽 모두 R1
 | **J9** | A | advisory 게이트와 enforcement locus 혼동 소지 | work.md 본문에 넣을 문장을 **축자 지정** |
 
 - **관측 2회차**: J4는 내가 **최초 GROUND에서 "검증된 substrate"라고 단정한 전제**였고, 두 라운드를 거쳐서야 리뷰어가 실측으로 깨뜨렸다. J1은 R1에서 내가 새로 도입한 메커니즘의 원자성 결함이다. 즉 **R1 수정이 J1·J2·J5 세 건을 새로 만들었다** — "흡수가 새 결함을 낳는다"는 패턴의 4번째 재현이며, round 3가 마지막 허용 라운드다.
+
+### R3 (fresh 리뷰어) — **A FAIL(6/7 PASS) · B FAIL(1/7 PASS) → NAUGHTY. 3라운드 소진 → ESCALATION**
+
+R2 수정이 A 기준 C1·C2·C4·C5·C6·C7을 **전부 PASS**로 끌어올렸고 A의 유일한 FAIL은 C3(문서 모순)이었다. B는 더 엄격하게 판정했고 **새 설계 결함 1건**을 추가로 찾았다.
+
+| # | 출처 | Finding | 상태 |
+|---|---|---|---|
+| K1 | A(C3) + B(C3) | round 1 문단(Task 2)이 R2에서 거짓 판정된 옛 G3 문구를 유지하고 "plan 전체에서 이 문구로 통일한다"고까지 적음 | **교정 완료** — 단일 기준은 G1~G3 표임을 명시 |
+| K2 | B | Task 4가 `listLedgers`를 실격시킨 뒤에도 GROUND·Patterns·Files-to-Change·Task 7이 그대로 의존 → advisory 표면이 plan 스스로 부정한 소스 위에 섬 | **교정 완료** — 4곳 모두 제거/취소선, Task 7은 `listClaims` 단독 |
+| **OQ-1** | **B (신규)** | **`{session_id, host, pid}` 정체가 실제 ingress 형태와 비호환** — `receipt/cli.js`는 매 write마다 **새 node 프로세스**로 실행되므로 pid가 매번 다르다. R2에서 "정체 공유 붕괴"를 막으려 넣은 pid가 **정상 단일 세션의 재진입을 깨뜨린다**(같은 세션의 두 번째 write가 "다른 holder"로 거부됨) | **미해결 — 설계 결정 필요** |
+| **OQ-2** | **B (신규)** | **G3의 "덮어쓴 쪽이 항상 보고한다"가 crash에 취약** — A가 rename 직후 post-rename 검증 전에 죽으면 아무도 보고하지 않는다 | **미해결** — B2 런타임 감사가 crash-proof 사후 관찰자로서 backstop이 될 수 있으나, G3 문구를 그에 맞춰 다시 좁힐지 판단 필요 |
+| **OQ-3** | A(C4) + B | PRD 문장("구조적으로 불가능")과 plan 보증(G1~G3)의 강도 차이가 PR 시점까지 열려 있음 | **운영자 지시로 이연**(PR 시 PRD 문구 조정) — 매 라운드 재지목됨 |
+
+- **verdict**: **NAUGHTY (escalated)** — push 안 함. santa-method 계약상 3라운드 초과.
+- **패턴 5회차**: OQ-1은 **R2에서 내가 J3를 고치며 새로 넣은 필드**가 원인이다. R1 수정이 3건, R2 수정이 1건의 새 결함을 낳았다. 4라운드째 자체 흡수는 같은 패턴을 6번째로 재현할 가능성이 높으므로 **운영자 판단으로 넘긴다**.
+- **수렴한 것**: CL-3·CL-5·J4는 **양 리뷰어·전 라운드에서 일관 CONFIRMED**이고 더 이상 논쟁 대상이 아니다. A 기준 C1(설계 정합성)·C7(증거 안전성)은 R3에서 PASS로 전환됐다.

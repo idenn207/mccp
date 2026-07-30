@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { planAwareMarkdownHash, gitRepoRoot, subjectHash, receiptHash } = require('./hash');
+const { planAwareMarkdownHash, gitRepoRoot, subjectHash, receiptHash, gitRefs } = require('./hash');
 const { validate: validateSchema } = require('./schema');
 const { readReceipt } = require('./store');
 const { getCommandSpec, normalizeCommand } = require('./aliases');
@@ -600,6 +600,10 @@ function validateCommand(command, opts) {
     } else if (prReceipt) {
       // Schema + tamper checks (mirror of the preceding-gate loop) before trusting
       // resolution.codex_verdict.
+      // R2 F4 — current HEAD for the staleness binding below (best-effort; a git
+      // failure leaves it null → staleness sub-check is skipped, other checks stay).
+      let curHeadSha = null;
+      try { curHeadSha = gitRefs({ cwd: repoRoot }).headSha; } catch (_) { curHeadSha = null; }
       const sres = validateSchema(prReceipt);
       if (!sres.ok) {
         result.blocking.push({
@@ -621,6 +625,19 @@ function validateCommand(command, opts) {
           decision_id: result.decisionId,
           kind: 'receipt-tamper',
           reason: 'ship-gate: receipt_hash mismatch (findings/resolution/meta altered after signing)',
+        });
+      } else if (curHeadSha && prReceipt.head_sha && prReceipt.head_sha !== curHeadSha) {
+        // R2 F4 — bind certification to the CURRENT diff. A stale converged receipt
+        // (same decision slug, older head_sha) must not certify unreviewed commits
+        // just because a receipt for this decision happens to exist.
+        result.blocking.push({
+          gate_id: 'mccp-pr-codex',
+          decision_id: result.decisionId,
+          kind: 'ship-gate-stale-head',
+          reason: 'ship-gate: receipt head_sha ' + prReceipt.head_sha +
+            ' != current HEAD ' + curHeadSha + ' (stale receipt for an older commit — ' +
+            'the current diff was not reviewed). push blocked.',
+          prior_verdict: (prReceipt.resolution && prReceipt.resolution.codex_verdict) || null,
         });
       } else {
         // forceOverrideActive: the durable meta flag (finalize stamped it) OR a

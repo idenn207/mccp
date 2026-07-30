@@ -321,7 +321,7 @@ test('validate-cmd: grounding restamp (legit re-seal) does NOT false-positive as
 // ── integrity-unification M3 — PR-terminal self-verdict ship gate ─────────────
 
 const { makeSkeleton } = require('../schema');
-const { subjectHash, receiptHash } = require('../hash');
+const { subjectHash, receiptHash, gitRefs } = require('../hash');
 const { writeReceipt } = require('../store');
 
 const M3_SG_REASON =
@@ -341,7 +341,9 @@ function sealReceipt(repo, gate, decision, opts) {
   r.decision_id = decision;
   r.plan_hash = 'sha256:' + 'a'.repeat(64);
   r.base_sha = 'a'.repeat(40);
-  r.head_sha = 'b'.repeat(40);
+  // R2 F4 — default head_sha to the repo's CURRENT HEAD so the ship-gate staleness
+  // check treats the fixture as a current receipt. opts.headSha forces a stale one.
+  r.head_sha = opts.headSha || gitRefs({ cwd: repo }).headSha;
   r.resolution.converged = true;
   if (opts.codexVerdict !== undefined) r.resolution.codex_verdict = opts.codexVerdict;
   r.meta.command = '/' + (gate === 'mccp-pr-codex' ? 'mccp:pr' : gate);
@@ -498,6 +500,21 @@ test('M3 self-gate: missing pr-codex receipt at read-back + flag → blocking (s
   assert.strictEqual(r.ok, false, JSON.stringify(r));
   assert.ok(r.blocking.some(function (x) { return x.kind === 'ship-gate-receipt-missing'; }),
     'missing ship receipt at read-back must fail closed: ' + JSON.stringify(r.blocking));
+});
+
+// F4 — a converged receipt whose head_sha is NOT the current HEAD is stale: it
+// reviewed an older commit and must not certify the current (unreviewed) diff.
+test('M3 self-gate: stale head_sha (converged receipt for older commit) + flag → blocking (ship-gate-stale-head) [F4]', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-stale');
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-stale',
+    { codexVerdict: 'converged', headSha: 'c'.repeat(40) });
+  const r = validateCommand('/mccp:pr', {
+    cwd: repo, decisionId: 'feat-stale', checkShipVerdict: true,
+  });
+  assert.strictEqual(r.ok, false, JSON.stringify(r));
+  assert.ok(r.blocking.some(function (x) { return x.kind === 'ship-gate-stale-head'; }),
+    'stale head_sha must fail closed even for a converged verdict: ' + JSON.stringify(r.blocking));
 });
 
 test('M3 self-gate: non-terminal command (prp-implement) + flag → self-gate inert', function () {

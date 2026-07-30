@@ -33,7 +33,8 @@ const { parseArgs, locateReceiptCli, callReceiptCli, emit, fail } =
 // path itself (pr.md runs it unconditionally + checks its exit unconditionally),
 // so enforcing here cannot be skipped by an LLM dropping a markdown step (DD2).
 const { readReceipt } = require('../../receipt/store');
-const { gitRepoRoot } = require('../../receipt/hash');
+const { gitRepoRoot, subjectHash, receiptHash, gitRefs } = require('../../receipt/hash');
+const { validate: validateReceiptSchema } = require('../../receipt/schema');
 const { deriveShipDecision, EX_SHIP_BLOCKED } = require('../pr-ship-gate');
 
 // v1.0.1 axis K — relative path of the stale-reclaim marker written by
@@ -314,6 +315,39 @@ function run(args) {
       process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate could not re-read the ' +
         'just-written receipt (' + (shipErr ? shipErr.message : 'not found') +
         ') — cannot certify ship. push blocked.\n');
+      return EX_SHIP_BLOCKED;
+    }
+    // R2 F3 — the runtime PRIMARY gate must be SELF-SUFFICIENT: verify integrity
+    // (schema + subject_hash + receipt_hash) before trusting resolution.codex_verdict.
+    // Otherwise a post-write corruption/replacement that flips a non-approving
+    // verdict to converged before this re-read would ship at exit 0, relying on the
+    // markdown 2.5.9 read-back (which can be skipped). Mirror validate-cmd's checks.
+    const shipSchema = validateReceiptSchema(prReceipt);
+    if (!shipSchema.ok) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate: re-read receipt failed ' +
+        'schema validation (' + shipSchema.errors.join('; ') + ') — push blocked.\n');
+      return EX_SHIP_BLOCKED;
+    }
+    if (subjectHash(prReceipt) !== prReceipt.subject_hash) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate: subject_hash mismatch ' +
+        '(subject fields altered after signing) — push blocked.\n');
+      return EX_SHIP_BLOCKED;
+    }
+    if (receiptHash(prReceipt) !== prReceipt.receipt_hash) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate: receipt_hash mismatch ' +
+        '(findings/resolution/meta altered after signing) — push blocked.\n');
+      return EX_SHIP_BLOCKED;
+    }
+    // R2 F4 — bind certification to the CURRENT diff: a stale receipt (older
+    // head_sha) must not certify unreviewed commits. Best-effort HEAD read; a git
+    // failure leaves curHeadSha null and skips only this sub-check.
+    let curHeadSha = null;
+    try { curHeadSha = gitRefs({ cwd: args.cwd || process.cwd() }).headSha; }
+    catch (_) { curHeadSha = null; }
+    if (curHeadSha && prReceipt.head_sha && prReceipt.head_sha !== curHeadSha) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate: receipt head_sha ' +
+        prReceipt.head_sha + ' != current HEAD ' + curHeadSha +
+        ' (stale receipt for an older commit) — cannot certify ship. push blocked.\n');
       return EX_SHIP_BLOCKED;
     }
     const overrideActive = !!(prReceipt.meta

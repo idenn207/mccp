@@ -27,6 +27,11 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - **F2 (pr-ship-gate.js)** — `deriveCodexFlags`가 `codex_outcome ∈ {skipped(reason), deduped, disabled}`를 verdict `skipped`로 매핑하는데, ship-gate가 `skipped`를 무조건 approving으로 취급해 위조/malformed `{codex_outcome:"skipped"}`(reason 없음)이 Codex 승인·증거 없이 ship될 수 있었다. `deriveShipDecision`이 이제 `skipped` verdict를 sanctioned proof 마커(`codex_skipped_at_pr`/`codex_dedupe_at_pr`/`codex_disabled[_at_pr]`) 존재 시에만 ship 허용, 부재 시 `blockingVerdict='skipped-unproven'`로 fail-closed. 정규 skip/dedupe/disabled 경로(전부 proof 마커 stamp)는 무변경.
 - 회귀 test 6건 추가/전환(pr-ship-gate skipped proof/unproven/override, finalize skipped-with-reason/deduped/unproven-exit12, validate-cmd skipped-dedupe-ok/skipped-unproven-block, missing-receipt-block).
 
+### Absorbed (Implement-Codex R2 — cross-model, 2 HIGH → fail-closed)
+- **F3 (finalize-receipt.js)** — runtime primary 게이트가 receipt 재read 후 schema/subject_hash/receipt_hash 검증 없이 바로 `deriveShipDecision`을 신뢰했다. write 후 corruption/replacement이 non-approving verdict을 converged로 뒤집으면 primary가 exit 0 반환하고, markdown 2.5.9 read-back(skip 가능)에만 의존했다. finalize가 이제 `deriveShipDecision` **전에** validate-cmd와 동일한 schema+subject+receipt hash 검증을 수행하고 mismatch 시 `EX_SHIP_BLOCKED` — 두 locus 모두 tamper에 self-sufficient.
+- **F4 (finalize-receipt.js + validate-cmd.js)** — self-gate가 `decisionId`로만 receipt를 로드하고 finalize write에 bind하지 않아, 같은 decision의 **stale converged receipt**(옛 `head_sha`)가 현재 미리뷰 HEAD를 ship 인증할 수 있었다. 두 locus가 이제 `receipt.head_sha`를 현재 `git rev-parse HEAD`와 대조 → 불일치 시 신규 kind `ship-gate-stale-head`로 fail-closed(head_sha는 subject 필드라 tamper-보호됨; git 실패 시 sub-check만 skip). 정규 flow(finalize→read-back 동일 HEAD)는 무영향.
+- 회귀 test 2건(validate-cmd stale-head block; finalize 정규 경로가 F3/F4 false-block 없이 여전히 ship) + `sealReceipt` fixture를 실 HEAD로 전환.
+
 ### Note
 - briefing hang(2026-07-21 HIGH, exit-127)은 M3 scope 밖(PR-gate operability, verdict-SoT 아님)이나 dogfood를 막으므로 implement/test 시 `MCCP_BRIEFING=off`로 우회(문서화된 §4 토글 — 요약 stamp만 끔, 리뷰 무약화). pre-existing 실패 2건(`verdict-label` · `design-critique-loop-e2e` fixture)은 별도 cycle baseline.
 

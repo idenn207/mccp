@@ -29,6 +29,14 @@ const fs = require('fs');
 const path = require('path');
 const { parseArgs, locateReceiptCli, callReceiptCli, emit, fail } =
   require('./_args');
+// integrity-unification M3 — runtime primary ship gate. finalize is the write
+// path itself (pr.md runs it unconditionally + checks its exit unconditionally),
+// so enforcing here cannot be skipped by an LLM dropping a markdown step (DD2).
+const { readReceipt } = require('../../receipt/store');
+const { gitRepoRoot, subjectHash, receiptHash, gitRefs } = require('../../receipt/hash');
+const { validate: validateReceiptSchema } = require('../../receipt/schema');
+const { deriveShipDecision, EX_SHIP_BLOCKED } = require('../pr-ship-gate');
+const { validateReason: validateForceReason } = require('../../receipt/lib/force-override-reason');
 
 // v1.0.1 axis K — relative path of the stale-reclaim marker written by
 // pr-phase-guard's lockActive() when it reclaimed an orphan pr-phase.lock.
@@ -202,7 +210,10 @@ function run(args) {
     '--decision', args.decision,
     '--plan', args.plan,
   ];
-  if (args.quiet) writeFlags.push('--quiet');
+  // R3 F5 — the pr-codex ship gate needs the sealed receipt_hash back to bind the
+  // re-read to THIS write, and --quiet emits only the path. Keep --quiet for other
+  // gates when requested; for mccp-pr-codex always take the JSON (carries receipt_hash).
+  if (args.quiet && gateId !== 'mccp-pr-codex') writeFlags.push('--quiet');
 
   // Conditional flags driven by codex-result
   const codexFlags = deriveCodexFlags(codexResult);
@@ -265,6 +276,41 @@ function run(args) {
     writeFlags.push(String(args['pr-design-chain-skip-reason']));
   }
 
+  // integrity-unification M3 — PR-Codex ship-gate audited override forward. pr.md
+  // Phase 0.4 validated MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE's reason and
+  // exported it; Phase 2.5.7 passes it here. Forward both flags so write.js stamps
+  // meta.pr_codex_force_override=true + reason (schema re-runs the strict validator,
+  // so a bad reason REJECTs the write before the ship-gate below even runs).
+  //
+  // santa-loop R1 (Codex FAIL absorption) — PROVENANCE-BIND the override to THIS
+  // run. The forwarded reason flag alone is NOT proof the override was authorized
+  // now: an ambient/stale PR_CODEX_FORCE_OVERRIDE_REASON (settings.json, an
+  // inherited shell export, a prior run) forwards here with no
+  // MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE set this run, and would silently stamp
+  // the override and ship a divergent PR — a second, unvalidated bypass of the
+  // "only sanctioned bypass" contract (the symmetric hole the entry `unset
+  // CODEX_DEDUPE_AT_PR` reset guards). The strict validator on the reason string
+  // only proves it is well-formed, not that it was authorized this run. finalize
+  // is the write locus and inherits the ambient env, so re-reading + strict-
+  // validating MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE HERE is authoritative; a
+  // forwarded flag with no valid env this run is dropped fail-closed (the sealed
+  // verdict then gates the ship at the runtime primary check below).
+  if (args['pr-codex-force-override-reason']
+      && args['pr-codex-force-override-reason'] !== true) {
+    const forceProv = validateForceReason(
+      process.env.MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE, { strict: true });
+    if (forceProv.ok) {
+      writeFlags.push('--pr-codex-force-override');
+      writeFlags.push('--pr-codex-force-override-reason');
+      writeFlags.push(String(args['pr-codex-force-override-reason']));
+    } else {
+      process.stderr.write('[mccp] PR-Codex ship-gate: a --pr-codex-force-override-reason ' +
+        'flag was forwarded but MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE is not set/valid ' +
+        'this run (' + forceProv.reason + ') — treating as a stale/unprovenanced override ' +
+        'and DROPPING it. The sealed verdict gates the ship.\n');
+    }
+  }
+
   const cli = locateReceiptCli();
   const result = callReceiptCli(cli, writeFlags, { cwd: args.cwd, timeoutMs: 60000 });
   if (result.error) {
@@ -276,6 +322,111 @@ function run(args) {
     return result.exitCode;
   }
 
+  // R3 F5 — capture the receipt_hash the write CLI just sealed (non-quiet JSON for
+  // the pr-codex gate) so the ship-gate can bind its re-read to THIS write.
+  let writtenReceiptHash = null;
+  if (gateId === 'mccp-pr-codex') {
+    try { writtenReceiptHash = (JSON.parse(result.stdout) || {}).receipt_hash || null; }
+    catch (_) { writtenReceiptHash = null; }
+  }
+
+  // integrity-unification M3 (DD1/DD2/DD3) — runtime primary ship gate. The
+  // mccp-pr-codex receipt is now written; re-read it and enforce deriveShipDecision
+  // BEFORE reporting success. A non-approving verdict (divergent/critical/
+  // unavailable/absent) returns EX_SHIP_BLOCKED so pr.md HALTs before push, unless
+  // the receipt carries the audited override (which ships without rewriting the
+  // sealed verdict). Only fires for the PR-Codex gate; plan/implement finalize is
+  // unaffected. Re-read failure is fail-closed (cannot certify what we cannot read).
+  if (gateId === 'mccp-pr-codex') {
+    let prReceipt = null;
+    let shipErr = null;
+    try {
+      const repoRoot = gitRepoRoot(args.cwd || process.cwd());
+      prReceipt = readReceipt(repoRoot, gateId, args.decision);
+    } catch (err) {
+      shipErr = err;
+    }
+    if (shipErr || !prReceipt) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate could not re-read the ' +
+        'just-written receipt (' + (shipErr ? shipErr.message : 'not found') +
+        ') — cannot certify ship. push blocked.\n');
+      return EX_SHIP_BLOCKED;
+    }
+    // R2 F3 — the runtime PRIMARY gate must be SELF-SUFFICIENT: verify integrity
+    // (schema + subject_hash + receipt_hash) before trusting resolution.codex_verdict.
+    // Otherwise a post-write corruption/replacement that flips a non-approving
+    // verdict to converged before this re-read would ship at exit 0, relying on the
+    // markdown 2.5.9 read-back (which can be skipped). Mirror validate-cmd's checks.
+    const shipSchema = validateReceiptSchema(prReceipt);
+    if (!shipSchema.ok) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate: re-read receipt failed ' +
+        'schema validation (' + shipSchema.errors.join('; ') + ') — push blocked.\n');
+      return EX_SHIP_BLOCKED;
+    }
+    if (subjectHash(prReceipt) !== prReceipt.subject_hash) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate: subject_hash mismatch ' +
+        '(subject fields altered after signing) — push blocked.\n');
+      return EX_SHIP_BLOCKED;
+    }
+    if (receiptHash(prReceipt) !== prReceipt.receipt_hash) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate: receipt_hash mismatch ' +
+        '(findings/resolution/meta altered after signing) — push blocked.\n');
+      return EX_SHIP_BLOCKED;
+    }
+    // R3 F5 — bind the re-read to THIS invocation's write. The write CLI reported
+    // the receipt_hash it sealed; if the file on disk now carries a different hash,
+    // it was swapped/replaced (concurrent /mccp:pr or external write) between write
+    // and re-read. With the self-consistency check above, an equal hash proves the
+    // certified receipt IS the one this finalize wrote — a converged receipt for the
+    // same decision/head can no longer shadow a divergent write.
+    if (!writtenReceiptHash || prReceipt.receipt_hash !== writtenReceiptHash) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate: re-read receipt_hash ' +
+        (prReceipt.receipt_hash || 'null') + ' != the hash this finalize wrote ' +
+        (writtenReceiptHash || 'null') + ' (receipt swapped/replaced after write) — ' +
+        'push blocked.\n');
+      return EX_SHIP_BLOCKED;
+    }
+    // R2 F4 — bind certification to the CURRENT diff: a stale receipt (older
+    // head_sha) must not certify unreviewed commits.
+    // santa-loop R3 (Codex FAIL absorption) — this binding is now FAIL-CLOSED when
+    // the receipt declares a head_sha but HEAD is unreadable. Previously a git failure
+    // left curHeadSha=null and SILENTLY SKIPPED the stale-head guard, so an
+    // unverifiable binding could certify an old commit. If the receipt has a head_sha
+    // we MUST confirm it against HEAD; a read failure blocks. (No head_sha → nothing
+    // to bind → skip.)
+    let curHeadSha = null;
+    let headErr = null;
+    try { curHeadSha = gitRefs({ cwd: args.cwd || process.cwd() }).headSha; }
+    catch (e) { headErr = e; }
+    if (prReceipt.head_sha && !curHeadSha) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate: cannot read current HEAD ' +
+        '(' + (headErr ? headErr.message : 'no HEAD sha') + ') to bind receipt head_sha ' +
+        prReceipt.head_sha + ' — unverifiable HEAD binding, cannot certify ship. push blocked.\n');
+      return EX_SHIP_BLOCKED;
+    }
+    if (curHeadSha && prReceipt.head_sha && prReceipt.head_sha !== curHeadSha) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate: receipt head_sha ' +
+        prReceipt.head_sha + ' != current HEAD ' + curHeadSha +
+        ' (stale receipt for an older commit) — cannot certify ship. push blocked.\n');
+      return EX_SHIP_BLOCKED;
+    }
+    const overrideActive = !!(prReceipt.meta
+      && prReceipt.meta.pr_codex_force_override === true);
+    const decision = deriveShipDecision(prReceipt, { forceOverrideActive: overrideActive });
+    if (!decision.ship) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex non-approving (verdict=' +
+        decision.blockingVerdict + ') — push blocked. ' +
+        'Set MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE="<substantive reason ≥30 chars, ≥3 words>" ' +
+        'for an audited override (ships without rewriting the sealed verdict).\n');
+      return EX_SHIP_BLOCKED;
+    }
+    if (overrideActive && decision.blockingVerdict) {
+      process.stderr.write('[mccp] PR-Codex ship-gate: shipping under ' +
+        'MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE audited override (verdict=' +
+        decision.blockingVerdict + ' sealed unchanged).\n');
+    }
+  }
+
   // Receipt write succeeded — compose summary
   const receiptPath = path.posix.join('.claude', 'receipts', gateId, args.decision + '.json');
   return emit({
@@ -283,6 +434,9 @@ function run(args) {
     gate_id: gateId,
     decision: args.decision,
     receipt_path: receiptPath,
+    // R3 F5 — surface the sealed receipt_hash so pr.md can forward it to the
+    // 2.5.9 read-back (--expected-receipt-hash) for defense-in-depth binding.
+    receipt_hash: writtenReceiptHash || null,
     write_flags_used: writeFlags.slice(1), // drop leading 'write'
     receipt_cli_stdout: result.stdout.trim(),
   }, 0);

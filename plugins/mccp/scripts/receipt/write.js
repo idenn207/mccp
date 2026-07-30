@@ -196,6 +196,11 @@ function buildReceipt(args) {
       impeccable_skip_reason: args['impeccable-skip-reason'] || null,
       impeccable_force_override: args['impeccable-force-override'] === true,
       impeccable_force_override_reason: args['impeccable-force-override-reason'] || null,
+      // integrity-unification M3 — PR-Codex ship-gate audited override fields are
+      // PRESENT-ONLY (santa-loop R2, Codex FAIL absorption): they are NOT part of the
+      // always-materialized meta block. They are stamped after makeSkeleton below,
+      // ONLY when the override is active, so a normal receipt omits them and its hash
+      // stays pre-M3-identical (see the post-construction block near receipt_hash).
       // v1.3.0 design-gate enforcement M1 Task 1 — silent-skip surface.
       // Stamped by 4 command bodies (plan / prp-implement / pr / plan-prd) when
       // impeccable-detect returns SKILL_AVAIL=1 + SIGNAL=0 + design-surface
@@ -341,6 +346,24 @@ function buildReceipt(args) {
       })(),
     },
   });
+
+  // integrity-unification M3 (santa-loop R2, Codex FAIL absorption) — PRESENT-ONLY
+  // PR-Codex audited-override fields. Materialize them ONLY when the override is
+  // active. A normal receipt therefore omits both keys entirely, so its canonical
+  // receipt_hash is bit-identical to a pre-M3 receipt (which also lacked them). This
+  // keeps the now git-tracked ship-receipt corpus (§3.12) hash-stable: a new audit
+  // field must never perturb the hash of receipts that do not exercise it, or an
+  // idempotent re-write of a pre-M3 tracked receipt would trip store.js
+  // TRACKED_RECEIPT_OVERWRITE. NOT a hash carve-out (unlike briefing_*) — when
+  // present the field IS hashed, so override=true stays tamper-protected. schema.js
+  // re-runs the strict reason validator on write, so a bad reason REJECTs.
+  if (args['pr-codex-force-override'] === true) {
+    receipt.meta.pr_codex_force_override = true;
+    receipt.meta.pr_codex_force_override_reason =
+      (typeof args['pr-codex-force-override-reason'] === 'string'
+        && args['pr-codex-force-override-reason'].length > 0)
+        ? args['pr-codex-force-override-reason'] : null;
+  }
 
   receipt.subject_hash = subjectHash(receipt);
   receipt.receipt_hash = receiptHash(receipt);

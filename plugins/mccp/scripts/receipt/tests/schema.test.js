@@ -441,3 +441,74 @@ test('makeSkeleton v1.2.0-m1: attribution axis defaults to absent state', functi
   assert.strictEqual(s.meta.worker_dispatch_id, null);
   assert.strictEqual(s.meta.ipc_envelope_path, null);
 });
+
+// ── integrity-unification M3 — pr_codex_force_override ────────────────────────
+
+const M3_GOOD_REASON =
+  'cherry-pick PR whose diff was already adversarially reviewed upstream';
+
+test('schema M3: legacy receipt WITHOUT pr_codex_force_override validates (present-only)', function () {
+  // valid() builds meta without the M3 field — the git-tracked ship corpus is
+  // exactly this shape, so absence must NOT fail validation.
+  const r = validate(valid());
+  assert.strictEqual(r.ok, true, JSON.stringify(r.errors));
+});
+
+test('schema M3: pr_codex_force_override=false (default) validates', function () {
+  const v = valid();
+  v.meta.pr_codex_force_override = false;
+  v.meta.pr_codex_force_override_reason = null;
+  assert.strictEqual(validate(v).ok, true);
+});
+
+test('schema M3: override=true + substantive reason validates', function () {
+  const v = valid();
+  v.meta.pr_codex_force_override = true;
+  v.meta.pr_codex_force_override_reason = M3_GOOD_REASON;
+  const r = validate(v);
+  assert.strictEqual(r.ok, true, JSON.stringify(r.errors));
+});
+
+test('schema M3: override=true + short reason → REJECT', function () {
+  const v = valid();
+  v.meta.pr_codex_force_override = true;
+  v.meta.pr_codex_force_override_reason = 'too short';
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /pr_codex_force_override_reason rejected/);
+});
+
+test('schema M3: override=true + 1-token banlist reason → REJECT', function () {
+  const v = valid();
+  v.meta.pr_codex_force_override = true;
+  v.meta.pr_codex_force_override_reason = 'yes';
+  assert.strictEqual(validate(v).ok, false);
+});
+
+test('schema M3: override=true + null reason → REJECT (reason-required)', function () {
+  const v = valid();
+  v.meta.pr_codex_force_override = true;
+  v.meta.pr_codex_force_override_reason = null;
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /pr_codex_force_override_reason rejected/);
+});
+
+test('schema M3: non-boolean pr_codex_force_override → REJECT', function () {
+  const v = valid();
+  v.meta.pr_codex_force_override = 'true';
+  const r = validate(v);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.errors.join(' '), /pr_codex_force_override must be a boolean/);
+});
+
+test('makeSkeleton M3: pr_codex_force_override is PRESENT-ONLY (absent from skeleton) [santa-R2]', function () {
+  // santa-loop R2 (Codex FAIL absorption) — the override fields are no longer
+  // materialized in the skeleton; they are stamped by write.js ONLY when the
+  // override is active. Absence keeps a normal receipt's hash pre-M3-identical
+  // (§3.12 tracked-corpus hash stability). An explicit false still validates
+  // (back-compat, covered by the 'pr_codex_force_override=false validates' test).
+  const s = makeSkeleton();
+  assert.strictEqual('pr_codex_force_override' in s.meta, false);
+  assert.strictEqual('pr_codex_force_override_reason' in s.meta, false);
+});

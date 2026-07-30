@@ -261,3 +261,130 @@ test('escalate integration: clean receipt clears escalate_pending for matching d
     process.chdir(cwd);
   }
 });
+
+// ── integrity-unification M3 — pr_codex_force_override write wiring ────────────
+
+const M3_WRITE_REASON =
+  'cherry-pick PR whose diff was already adversarially reviewed upstream';
+
+test('write M3: --pr-codex-force-override[-reason] stamps meta + round-trips valid', function () {
+  const repo = mkTmpRepo();
+  const plan = writeFileSync(repo, '.claude/plans/feature-x.plan.md',
+    '# Plan: feature-x\n\nbody\n');
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    const result = write({
+      gate: 'mccp-pr-codex',
+      decision: 'feature-x',
+      plan: path.relative(repo, plan),
+      'codex-verdict': 'divergent',
+      'pr-codex-force-override': true,
+      'pr-codex-force-override-reason': M3_WRITE_REASON,
+    });
+    assert.strictEqual(result.receipt.meta.pr_codex_force_override, true);
+    assert.strictEqual(result.receipt.meta.pr_codex_force_override_reason, M3_WRITE_REASON);
+    // The real verdict is sealed unchanged (DD3 — override never launders it).
+    assert.strictEqual(result.receipt.resolution.codex_verdict, 'divergent');
+    assert.strictEqual(validate(result.receipt).ok, true);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('write M3: bad override reason → SCHEMA_INVALID (write REJECT, defense-in-depth)', function () {
+  const repo = mkTmpRepo();
+  const plan = writeFileSync(repo, '.claude/plans/feature-x.plan.md',
+    '# Plan: feature-x\n\nbody\n');
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    assert.throws(function () {
+      write({
+        gate: 'mccp-pr-codex',
+        decision: 'feature-x',
+        plan: path.relative(repo, plan),
+        'pr-codex-force-override': true,
+        'pr-codex-force-override-reason': 'nope',
+      });
+    }, /schema validation failed|pr_codex_force_override_reason rejected/);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('write M3 [santa-R2]: a non-override receipt OMITS the override fields (present-only, hash stability)', function () {
+  const repo = mkTmpRepo();
+  const plan = writeFileSync(repo, '.claude/plans/feature-x.plan.md',
+    '# Plan: feature-x\n\nbody\n');
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    const result = write({
+      gate: 'mccp-plan-codex',
+      decision: 'feature-x',
+      plan: path.relative(repo, plan),
+    });
+    // santa-loop R2 (Codex FAIL): present-only — a normal receipt must not carry the
+    // keys at all, so its receipt_hash is bit-identical to a pre-M3 receipt (which
+    // also lacked them). An idempotent re-write of a pre-M3 tracked receipt therefore
+    // won't trip store.js TRACKED_RECEIPT_OVERWRITE.
+    assert.strictEqual('pr_codex_force_override' in result.receipt.meta, false);
+    assert.strictEqual('pr_codex_force_override_reason' in result.receipt.meta, false);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('write M3 [santa-R2]: an active override DOES stamp the keys (in-hash, tamper-protected)', function () {
+  const repo = mkTmpRepo();
+  const plan = writeFileSync(repo, '.claude/plans/feature-ov.plan.md',
+    '# Plan: feature-ov\n\nbody\n');
+  const reason = 'cherry-pick PR whose diff was already adversarially reviewed upstream branch';
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    const result = write({
+      gate: 'mccp-pr-codex',
+      decision: 'feature-ov',
+      plan: path.relative(repo, plan),
+      'pr-codex-force-override': true,
+      'pr-codex-force-override-reason': reason,
+    });
+    assert.strictEqual(result.receipt.meta.pr_codex_force_override, true);
+    assert.strictEqual(result.receipt.meta.pr_codex_force_override_reason, reason);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('write M3 [santa-R2]: present-only override field does NOT perturb receipt_hash of a normal receipt', function () {
+  // Directly prove the hash-stability property the fix restores: a receipt without
+  // the override keys hashes the SAME as it would pre-M3, and materializing an inert
+  // pr_codex_force_override=false WOULD change the hash (which is exactly why the
+  // field must be absent, not present-and-false, on the now-tracked corpus).
+  const { receiptHash } = require('../hash');
+  const repo = mkTmpRepo();
+  const plan = writeFileSync(repo, '.claude/plans/feature-h.plan.md',
+    '# Plan: feature-h\n\nbody\n');
+  const cwd = process.cwd();
+  process.chdir(repo);
+  try {
+    const result = write({
+      gate: 'mccp-plan-codex',
+      decision: 'feature-h',
+      plan: path.relative(repo, plan),
+    });
+    const baseHash = result.receipt.receipt_hash;
+    // Recompute the stored receipt's hash — it must match (self-consistent, keys absent).
+    assert.strictEqual(receiptHash(result.receipt), baseHash);
+    // Now materialize the inert field the way pre-fix code did; the hash MUST change,
+    // demonstrating why present-and-false broke the tracked-corpus hash stability.
+    const perturbed = JSON.parse(JSON.stringify(result.receipt));
+    perturbed.meta.pr_codex_force_override = false;
+    perturbed.meta.pr_codex_force_override_reason = null;
+    assert.notStrictEqual(receiptHash(perturbed), baseHash);
+  } finally {
+    process.chdir(cwd);
+  }
+});

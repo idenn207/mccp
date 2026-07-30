@@ -224,6 +224,36 @@ function validate(receipt) {
         'force_override = deliberate audited bypass)');
     }
 
+    // integrity-unification M3 — PR-Codex ship-gate audited override.
+    //
+    // pr_codex_force_override: audited escape for the terminal /mccp:pr ship gate
+    //   (MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE). When true the mechanical HALT on
+    //   a non-approving PR-Codex verdict is bypassed for this one ship, but the real
+    //   resolution.codex_verdict is left SEALED (divergent stays divergent) — the
+    //   override never launders the verdict into converged, so cross-gate dedupe
+    //   stays fail-closed (DD3). Reason validator is strict (mirror of
+    //   impeccable_force_override) so the bypass carries deliberate authored context.
+    //   Present-only: pre-M3 receipts (and the git-tracked ship corpus) validate
+    //   unchanged. NOT carved out of receipt_hash — the override decision is
+    //   tamper-protected like the verdict it accompanies.
+    if (m.pr_codex_force_override !== undefined) {
+      req(typeof m.pr_codex_force_override === 'boolean',
+        'meta.pr_codex_force_override must be a boolean if present');
+    }
+    if (m.pr_codex_force_override_reason !== null
+        && m.pr_codex_force_override_reason !== undefined) {
+      req(typeof m.pr_codex_force_override_reason === 'string',
+        'meta.pr_codex_force_override_reason must be a string or null');
+    }
+    if (m.pr_codex_force_override === true) {
+      const v = validateReason(m.pr_codex_force_override_reason, { strict: true });
+      if (!v.ok) {
+        err('meta.pr_codex_force_override_reason rejected (' + v.reason + '): ' +
+          'MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE requires substantive reason ' +
+          '≥30 chars + ≥3 words, no placeholder/URL-only/banlist token');
+      }
+    }
+
     // v1.3.0 design-gate enforcement M1 Task 1 — silent-skip surface.
     //
     // impeccable_silent_skip:        Detector returned SKILL_AVAIL=1 + SIGNAL=0
@@ -734,6 +764,14 @@ function makeSkeleton(overrides) {
       impeccable_skip_reason: null,
       impeccable_force_override: false,
       impeccable_force_override_reason: null,
+      // integrity-unification M3 — PR-Codex ship-gate audited override is
+      // PRESENT-ONLY (santa-loop R2, Codex FAIL absorption): NOT materialized in the
+      // skeleton. write.js adds pr_codex_force_override=true + reason ONLY when the
+      // override is active, so a normal receipt omits both keys and its receipt_hash
+      // stays pre-M3-identical (§3.12 git-tracked ship-corpus hash stability — this
+      // is the first audit field added AFTER ship receipts became tracked in v1.22.4,
+      // so it must not perturb the hash of receipts that never exercise it). The
+      // validate() branch treats both keys as optional (present-only guards).
       // v1.3.0 design-gate enforcement M1 — silent-skip surface. Default false
       // for green path; flipped by `--impeccable-silent-skip` CLI flag when
       // detector returns SKILL_AVAIL=1 + SIGNAL=0.

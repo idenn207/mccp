@@ -129,6 +129,43 @@ fi
 
 `CODEX_DEDUPE_AT_PR` is normally exported by Phase 2.5.2 cross-gate dedupe — it is **not** a user-facing knob. If you find yourself setting it from a shell or `.claude/settings.json`, you are almost certainly working around a stale receipt and the right fix is `/mccp:receipt-validate` / `/mccp:receipt-write` rather than the escape. This preflight is defense-in-depth — the receipt CLI's 3-way `codex_skipped_at_pr ⊕ codex_dedupe_at_pr ⊕ codex_disabled_at_pr` schema invariant remains the authoritative gate.
 
+### Phase 0.4 — `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE` audited override preflight (integrity-unification M3)
+
+Mirror of Phase 0.1/0.2 but for the M3 **ship gate**: from M3 on, a non-approving PR-Codex verdict (`divergent`/`critical`/`unavailable`/absent) mechanically HALTs the ship at finalize (2.5.7) + the self-gate read-back (2.5.9). The only sanctioned bypass is this audited override. If the env var is set, validate its reason **before** any phase work runs so a bad reason fails fast.
+
+```bash
+# santa-loop R1 (Codex FAIL absorption) — hard-reset any inherited/stale
+# PR_CODEX_FORCE_OVERRIDE_REASON before evaluating the override, mirroring the
+# entry `unset CODEX_DEDUPE_AT_PR` at Phase 2.5.2. This internal signal is NOT a
+# user knob — the ONLY sanctioned setter is the validated branch below. If a prior
+# chain (or a shell / .claude/settings.json working around a stale receipt) left it
+# exported, forwarding it at 2.5.7 would stamp the override and ship a divergent PR
+# with no MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE set THIS run — a bypass of the
+# "only sanctioned bypass" contract. Defense-in-depth: finalize-receipt.js also
+# re-validates the env var at the write locus, so a stale forward is dropped there
+# even if this reset is skipped, but clearing it here keeps the signal honest.
+unset PR_CODEX_FORCE_OVERRIDE_REASON
+if [ -n "${MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE:-}" ]; then
+  REASON="$MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE"
+  REASON_OK=$(node -e "
+    const { validateReason } = require('${CLAUDE_PLUGIN_ROOT}/scripts/receipt/lib/force-override-reason');
+    const r = validateReason(process.env.MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE, { strict: true });
+    process.stdout.write(r.ok ? '1' : '0:' + r.reason);
+  " 2>/dev/null)
+  if [ "$REASON_OK" != "1" ]; then
+    echo "[MCCP-GATE-STOP] MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE reason rejected (${REASON_OK#0:})." 1>&2
+    echo "integrity-unification M3: reason must be ≥30 chars + ≥3 words, no placeholder/URL-only/banlist." 1>&2
+    echo "The receipt CLI applies the same validator at schema time — a bad reason is rejected upstream as well." 1>&2
+    exit 1
+  fi
+  export PR_CODEX_FORCE_OVERRIDE_REASON="$REASON"
+fi
+```
+
+**Independence from Phase 0.3's 3-way mutex** — the override is deliberately **not** part of that mutex. `dedupe`/`skipped`/`disabled` are three mutually-exclusive *ways Codex did not need to speak at the PR step*; the M3 override is orthogonal — it lets a ship proceed *despite* a Codex verdict that DID speak and said "No ship". Critically, the override **never rewrites `resolution.codex_verdict`** — the receipt still seals the real `divergent` verdict, so cross-gate dedupe stays fail-closed (a later `/mccp:pr` still re-runs PR-Codex) and the §3.12 sealing invariant holds. It only clears *this* invocation's mechanical HALT. Because it is not a Codex-skip path, it composes with (does not conflict with) the 0.3 mutex; a divergent verdict + override is a legal, audited state.
+
+`MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE` is intended for **one-shot** use (e.g. a cherry-pick PR whose diff was already adversarially reviewed upstream). Do not export it persistently. Phase 4 auto-injects a `## PR-Codex Override` section (canonical audit source — the receipt itself is now git-tracked per §3.12, but the PR body states the objection in plain sight).
+
 ---
 
 ## Phase 1 — VALIDATE
@@ -477,7 +514,7 @@ When `CODEX_SCOPE_EXCLUDED=1`, Codex returned a **raw non-approving verdict** an
 
 **This stays NON-APPROVING.** An earlier design mapped it to an effective `converged`; that was withdrawn because the drop decision is a broad keyword match over free text and the producer emits no category/scope field to verify it against — so a genuine in-scope finding ("Brand asset loader reads arbitrary local files") could be dropped and the review recorded as convergence. Keyword evidence is good enough to ROUTE a finding and to AUDIT it, not to certify approval.
 
-Be precise about what that buys: `codex_actionable_findings` has **no mechanical hard-stop** here (this body only parses it, and validate-cmd does not gate on it). What the non-approving state guarantees is (a) the receipt seals `divergent`, so cross-gate dedupe fail-closes and a later `/mccp:pr` really does re-run PR-Codex, and (b) this section states the objection instead of showing an empty conclusion. Do not describe it as "the PR is blocked".
+Be precise about what that buys: `codex_actionable_findings` (the count of findings that survived the scope filter) has no hard-stop of its own — this body only parses it. But the **verdict** now does. Because the receipt seals `divergent`, the integrity-unification **M3 ship gate** mechanically HALTs the ship: finalize (2.5.7) re-reads the just-written receipt and returns exit 12 on any non-approving verdict, and the self-gate read-back (2.5.9) re-checks it via `validate --check-ship-verdict`. So a scope-excluded non-approve now yields (a) cross-gate dedupe fail-closes and a later `/mccp:pr` re-runs PR-Codex, (b) this section states the objection, AND (c) from M3 the PR **is** blocked from shipping — unless `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE` is set with a substantive reason (Phase 0.4), and even then the sealed `divergent` verdict is preserved (the override unblocks the ship, it does not rewrite the verdict).
 
 What this flag fixes is the **opacity** — which is what the original complaint was about. Say exactly what happened instead of showing an empty conclusion:
 
@@ -749,13 +786,35 @@ if [ -n "${MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN:-}" ]; then
     FINALIZE_FLAGS+=(--pr-design-chain-skip-reason "$MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN")
   fi
 fi
+# integrity-unification M3 — PR-Codex ship-gate audited override forward. Phase 0.4
+# validated the reason and exported PR_CODEX_FORCE_OVERRIDE_REASON. Forwarding it
+# makes finalize stamp meta.pr_codex_force_override=true + reason (schema re-runs the
+# strict validator) AND makes finalize's in-process ship-gate let this ship through
+# WITHOUT rewriting the sealed verdict.
+if [ -n "${PR_CODEX_FORCE_OVERRIDE_REASON:-}" ]; then
+  FINALIZE_FLAGS+=(--pr-codex-force-override-reason "$PR_CODEX_FORCE_OVERRIDE_REASON")
+fi
 
-node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/finalize-receipt.js" "${FINALIZE_FLAGS[@]}"
+FINALIZE_OUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/finalize-receipt.js" "${FINALIZE_FLAGS[@]}")
 FINALIZE_EXIT=$?
-if [ "$FINALIZE_EXIT" != "0" ]; then
+if [ "$FINALIZE_EXIT" = "12" ]; then
+  # integrity-unification M3 — RUNTIME PRIMARY ship gate blocked this ship: PR-Codex
+  # returned a non-approving verdict (divergent/critical/unavailable/absent). The
+  # helper already printed the precise [MCCP-GATE-STOP] with the verdict + override
+  # instructions. This is the mechanical hard-stop the M3 backlog HIGH asked for.
+  # Do NOT push. Do NOT enter Phase 3.
+  echo "[MCCP-GATE-STOP] PR-Codex ship gate blocked this ship (finalize exit 12 — non-approving verdict)." 1>&2
+  echo "  Resolve the divergence (re-run so PR-Codex re-fires on the fresh diff)," 1>&2
+  echo "  or set MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE=\"<substantive reason ≥30 chars, ≥3 words>\"" 1>&2
+  echo "  (Phase 0.4) for an audited override that ships WITHOUT rewriting the sealed verdict." 1>&2
+  exit 1
+elif [ "$FINALIZE_EXIT" != "0" ]; then
   echo "[MCCP-GATE-STOP] finalize-receipt failed (exit=$FINALIZE_EXIT)." 1>&2
   exit 1
 fi
+# R3 F5 — capture the receipt_hash finalize sealed so the 2.5.9 read-back can bind
+# to THIS write (defense-in-depth against a same-decision/head receipt swap).
+FINALIZE_RECEIPT_HASH=$(printf '%s' "$FINALIZE_OUT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.receipt_hash||"")}catch{process.stdout.write("")}')
 ```
 
 Bash hook block handling: same as Plan-Codex Phase 7.6 — output `[MCCP-GATE-STOP]` with captured hook stderr and end the response. Do NOT enter Phase 3.
@@ -782,6 +841,46 @@ Print one info line before Phase 3:
 ```
 PR-Codex: converged in <N> rounds (or: skipped, auto-fallback) | Receipt: <path> | Body: <body-file path>
 ```
+
+### 2.5.9 — PR-Codex ship-gate read-back (integrity-unification M3, defense-in-depth)
+
+finalize (2.5.7) is the runtime **primary** ship gate — its exit 12 already HALTs a non-approving verdict before we ever reach here, and it cannot be skipped because it is the write path itself. 2.5.9 is the canonical/external **defense-in-depth** re-check on the freshly-written receipt, through the auditable `validate` surface, using the **same** `deriveShipDecision` oracle (`validate --check-ship-verdict`). Two loci, one oracle — the partition cannot drift.
+
+```bash
+# --check-ship-verdict opts the PR-terminal self-verdict gate ON. ONLY this
+# read-back sets it — the early Phase 1.6 preflight, the auto-chain preflight, and
+# the 2.5.8 code-review chain-check all leave it off, so a re-run is never
+# self-poisoned by a stale divergent receipt (DD4) and historical receipts are
+# never retro-blocked (DD5). An active MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE
+# (env, Phase 0.4) OR meta.pr_codex_force_override=true downgrades the block to a
+# warning here (ship proceeds; verdict stays sealed).
+SHIP_GATE_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" validate \
+  --command mccp:pr \
+  --decision "${DECISION_SLUG}" \
+  --check-ship-verdict \
+  ${FINALIZE_RECEIPT_HASH:+--expected-receipt-hash "$FINALIZE_RECEIPT_HASH"} 2>/dev/null)
+# Gate on the aggregate `ok` flag, NOT on a single blocking kind. The ship-gate
+# emits FOUR fail-closed blocking kinds on the freshly-written receipt —
+# pr_codex_nonconverged (non-approving verdict / unreadable), subject-tamper,
+# receipt-tamper, and ship-gate-schema-invalid — and matching only the first
+# would let a tampered-to-look-converged or schema-broken receipt ship. `ok===false`
+# is the superset (classify.js maps any blocking to exit 2), and an audited override
+# yields a WARNING (not blocking) so `ok` stays true → ship proceeds. The `catch`
+# defaults to "0" so an unparseable/empty validate output HALTs (fail-closed), never
+# slips through as a silent proceed.
+SHIP_OK=$(printf '%s' "$SHIP_GATE_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.ok===true?"1":"0")}catch{process.stdout.write("0")}')
+if [ "$SHIP_OK" != "1" ]; then
+  echo "[MCCP-GATE-STOP] PR-Codex ship-gate read-back BLOCKED (validate --check-ship-verdict)." 1>&2
+  printf '%s\n' "$SHIP_GATE_JSON" 1>&2
+  echo "Resolve the divergence (re-run so PR-Codex re-fires on the fresh diff)," 1>&2
+  echo "or set MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE=\"<substantive reason>\" (Phase 0.4)." 1>&2
+  echo "(A subject-tamper/receipt-tamper/schema-invalid block means the just-written" 1>&2
+  echo " receipt failed its integrity re-check — do NOT regenerate; investigate.)" 1>&2
+  exit 1
+fi
+```
+
+If the read-back surfaces a `pr_codex_force_override` **warning** (not a block), log it and proceed — the ship is audited, and Phase 4 injects the `## PR-Codex Override` section.
 
 ### Forbidden during Phase 2.5
 
@@ -983,6 +1082,23 @@ If Phase 2.5.5 entered the `MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER` escape bran
 If a project `.github/pull_request_template.md` is present, inject above the template content; the template author's framing remains intact below.
 
 The `meta.security_force_override_reason` value passed via `--security-force-override-reason` MUST be identical to the `Reason` field inserted into the PR body. Validators cross-check the two at `validate-cmd` time.
+
+### PR-Codex Override (conditional, integrity-unification M3)
+
+If Phase 0.4 exported `PR_CODEX_FORCE_OVERRIDE_REASON` (i.e. this PR shipped past a non-approving PR-Codex verdict via `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE`), the body assembly step MUST inject the following section immediately after `## Codex Adversarial Review`. This states the objection in plain sight — the ship went through **despite** a Codex "No ship", and the reviewer must weigh that.
+
+```markdown
+## PR-Codex Override
+
+- **Triggered by**: `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE`
+- **Raw PR-Codex verdict**: <sealed resolution.codex_verdict — e.g. `divergent`> (**NOT rewritten** — the receipt still seals this verdict; cross-gate dedupe stays fail-closed and a later `/mccp:pr` re-runs PR-Codex)
+- **Reason**: <reason text from env var>
+- **Findings routed away (scope-excluded)**: <DESIGN_DROPPED + a11y count, or 0 — from the `## Codex Adversarial Review` section>
+- **Timestamp**: <ISO 8601 UTC>
+- **Reviewer action**: This override unblocked the ship only; it did NOT certify convergence. Confirm the reason is acceptable and re-examine the Codex objection before merge.
+```
+
+The `Reason` field MUST be identical to `meta.pr_codex_force_override_reason` (validators cross-check at `validate-cmd` time). The `Raw PR-Codex verdict` field MUST equal the sealed `resolution.codex_verdict` — an override that rewrote it to `converged` is exactly the dedupe-defeating defect DD3 exists to prevent.
 
 ### Accessibility Review (conditional, v1.13.0 M3)
 

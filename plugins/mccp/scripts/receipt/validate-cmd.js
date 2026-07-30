@@ -600,10 +600,14 @@ function validateCommand(command, opts) {
     } else if (prReceipt) {
       // Schema + tamper checks (mirror of the preceding-gate loop) before trusting
       // resolution.codex_verdict.
-      // R2 F4 — current HEAD for the staleness binding below (best-effort; a git
-      // failure leaves it null → staleness sub-check is skipped, other checks stay).
+      // R2 F4 — current HEAD for the staleness binding below.
+      // santa-loop R3 (Codex FAIL absorption) — FAIL-CLOSED when the receipt declares
+      // a head_sha but HEAD is unreadable. A git failure previously left curHeadSha
+      // null and SKIPPED the stale-head guard, so an unverifiable binding could certify
+      // an old commit. Capture the error and block below when HEAD cannot be confirmed.
       let curHeadSha = null;
-      try { curHeadSha = gitRefs({ cwd: repoRoot }).headSha; } catch (_) { curHeadSha = null; }
+      let headErr = null;
+      try { curHeadSha = gitRefs({ cwd: repoRoot }).headSha; } catch (e) { headErr = e; }
       const sres = validateSchema(prReceipt);
       if (!sres.ok) {
         result.blocking.push({
@@ -625,6 +629,19 @@ function validateCommand(command, opts) {
           decision_id: result.decisionId,
           kind: 'receipt-tamper',
           reason: 'ship-gate: receipt_hash mismatch (findings/resolution/meta altered after signing)',
+        });
+      } else if (prReceipt.head_sha && !curHeadSha) {
+        // santa-loop R3 (Codex FAIL absorption) — the receipt declares a head_sha but
+        // current HEAD is unreadable (git failure). We cannot confirm the receipt binds
+        // to the reviewed commit, so fail CLOSED rather than skip the staleness guard.
+        result.blocking.push({
+          gate_id: 'mccp-pr-codex',
+          decision_id: result.decisionId,
+          kind: 'ship-gate-head-unverifiable',
+          reason: 'ship-gate: cannot read current HEAD (' +
+            (headErr ? headErr.message : 'no HEAD sha') + ') to bind receipt head_sha ' +
+            prReceipt.head_sha + ' — unverifiable HEAD binding, cannot certify ship. push blocked.',
+          prior_verdict: (prReceipt.resolution && prReceipt.resolution.codex_verdict) || null,
         });
       } else if (curHeadSha && prReceipt.head_sha && prReceipt.head_sha !== curHeadSha) {
         // R2 F4 — bind certification to the CURRENT diff. A stale converged receipt

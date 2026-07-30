@@ -387,11 +387,23 @@ function run(args) {
       return EX_SHIP_BLOCKED;
     }
     // R2 F4 — bind certification to the CURRENT diff: a stale receipt (older
-    // head_sha) must not certify unreviewed commits. Best-effort HEAD read; a git
-    // failure leaves curHeadSha null and skips only this sub-check.
+    // head_sha) must not certify unreviewed commits.
+    // santa-loop R3 (Codex FAIL absorption) — this binding is now FAIL-CLOSED when
+    // the receipt declares a head_sha but HEAD is unreadable. Previously a git failure
+    // left curHeadSha=null and SILENTLY SKIPPED the stale-head guard, so an
+    // unverifiable binding could certify an old commit. If the receipt has a head_sha
+    // we MUST confirm it against HEAD; a read failure blocks. (No head_sha → nothing
+    // to bind → skip.)
     let curHeadSha = null;
+    let headErr = null;
     try { curHeadSha = gitRefs({ cwd: args.cwd || process.cwd() }).headSha; }
-    catch (_) { curHeadSha = null; }
+    catch (e) { headErr = e; }
+    if (prReceipt.head_sha && !curHeadSha) {
+      process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate: cannot read current HEAD ' +
+        '(' + (headErr ? headErr.message : 'no HEAD sha') + ') to bind receipt head_sha ' +
+        prReceipt.head_sha + ' — unverifiable HEAD binding, cannot certify ship. push blocked.\n');
+      return EX_SHIP_BLOCKED;
+    }
     if (curHeadSha && prReceipt.head_sha && prReceipt.head_sha !== curHeadSha) {
       process.stderr.write('[MCCP-GATE-STOP] PR-Codex ship-gate: receipt head_sha ' +
         prReceipt.head_sha + ' != current HEAD ' + curHeadSha +

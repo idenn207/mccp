@@ -517,6 +517,27 @@ test('M3 self-gate: stale head_sha (converged receipt for older commit) + flag �
     'stale head_sha must fail closed even for a converged verdict: ' + JSON.stringify(r.blocking));
 });
 
+// santa-loop R3 (Codex FAIL absorption) — the HEAD binding must FAIL CLOSED when the
+// receipt declares a head_sha but current HEAD is unreadable. Previously gitRefs()
+// throwing left curHeadSha=null and SILENTLY SKIPPED the stale-head guard (fail-open),
+// so an unverifiable binding could certify an old commit.
+test('M3 self-gate: HEAD unreadable + head_sha present + flag → blocking (ship-gate-head-unverifiable) [santa-R3]', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-headfail');
+  // A CONVERGED receipt whose verdict would itself ship — so the ONLY thing that can
+  // block is the HEAD-binding fail-closed path. head_sha defaults to the real HEAD.
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-headfail', { codexVerdict: 'converged' });
+  // Corrupt .git/HEAD so `git rev-parse HEAD` (gitRefs) throws while the repo dir stays
+  // a git repo (gitRepoRoot uses --show-toplevel, which does not need HEAD).
+  fs.writeFileSync(path.join(repo, '.git', 'HEAD'), 'ref: refs/heads/does-not-exist\n');
+  const r = validateCommand('/mccp:pr', {
+    cwd: repo, decisionId: 'feat-headfail', checkShipVerdict: true,
+  });
+  assert.strictEqual(r.ok, false, JSON.stringify(r));
+  assert.ok(r.blocking.some(function (x) { return x.kind === 'ship-gate-head-unverifiable'; }),
+    'unreadable HEAD must fail closed even for a converged verdict: ' + JSON.stringify(r.blocking));
+});
+
 // F5 — the read-back binds to the exact receipt finalize sealed (expected-receipt-hash).
 test('M3 self-gate: expected-receipt-hash MATCH + flag → ok (bound to finalize write) [F5]', function () {
   const { repo } = setupRepo();

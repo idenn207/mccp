@@ -18,16 +18,19 @@ const {
 } = require('../pr-ship-gate');
 const { makeSkeleton } = require('../../receipt/schema');
 
-function receiptWithVerdict(cv) {
+function receiptWithVerdict(cv, metaOverrides) {
   // Mirror the real producer: write.js sets resolution.codex_verdict onto the
   // default resolution ({converged:true,...}); a divergent SHIP receipt keeps
   // converged=true while codex_verdict='divergent' (the B#11 split).
+  // metaOverrides lets a test attach the skip-proof markers a `skipped` verdict
+  // needs to be a constructive ship (F2).
   const r = makeSkeleton({});
   r.gate_id = 'mccp-pr-codex';
   r.phase = 'pr';
   r.decision_id = 'feature-x';
   r.resolution.converged = true;
   if (cv !== undefined) r.resolution.codex_verdict = cv;
+  if (metaOverrides) Object.assign(r.meta, metaOverrides);
   return r;
 }
 
@@ -41,10 +44,36 @@ test('converged → ship', () => {
   assert.equal(d.overrideActive, false);
 });
 
-test('skipped → ship (dedupe/disabled/audited-skip are constructively approved)', () => {
-  const d = deriveShipDecision(receiptWithVerdict('skipped'), {});
+test('skipped WITH audited-skip proof (codex_skipped_at_pr) → ship', () => {
+  const d = deriveShipDecision(receiptWithVerdict('skipped', { codex_skipped_at_pr: true }), {});
   assert.equal(d.ship, true);
   assert.equal(d.blockingVerdict, null);
+});
+
+test('skipped WITH dedupe proof (codex_dedupe_at_pr) → ship', () => {
+  const d = deriveShipDecision(receiptWithVerdict('skipped', { codex_dedupe_at_pr: true }), {});
+  assert.equal(d.ship, true);
+  assert.equal(d.blockingVerdict, null);
+});
+
+test('skipped WITH disabled policy (codex_disabled) → ship', () => {
+  const d = deriveShipDecision(receiptWithVerdict('skipped', { codex_disabled: true }), {});
+  assert.equal(d.ship, true);
+});
+
+// F2 — a `skipped` verdict with NO proof marker is unproven and fails closed.
+test('skipped WITHOUT any proof marker → no-ship (skipped-unproven, fail-closed) [F2]', () => {
+  const d = deriveShipDecision(receiptWithVerdict('skipped'), {});
+  assert.equal(d.ship, false);
+  assert.equal(d.blockingVerdict, 'skipped-unproven');
+  assert.equal(d.absent, false);
+});
+
+test('override on skipped-unproven → ship=true, blockingVerdict STILL skipped-unproven (sealed)', () => {
+  const d = deriveShipDecision(receiptWithVerdict('skipped'), { forceOverrideActive: true });
+  assert.equal(d.ship, true);
+  assert.equal(d.blockingVerdict, 'skipped-unproven');
+  assert.equal(d.overrideActive, true);
 });
 
 test('divergent → no-ship (blockingVerdict preserved)', () => {

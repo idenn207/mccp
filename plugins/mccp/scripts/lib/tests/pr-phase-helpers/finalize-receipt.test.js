@@ -242,12 +242,32 @@ test('M3 finalize: approve → converged → exit 0 (ships)', () => {
   assert.strictEqual(r.status, 0, r.stderr + r.stdout);
 });
 
-test('M3 finalize: skipped verdict → exit 0 (dedupe/disabled/audited-skip ship)', () => {
+test('M3 finalize: skipped WITH audited reason → exit 0 (proven skip ships)', () => {
   const repo = mkTmpRepo();
   const r = runFinalize(repo, {
-    codexResult: { codex_outcome: 'skipped' },
+    codexResult: { codex_outcome: 'skipped', codex_skip_reason: M3_FIN_REASON },
   });
   assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+});
+
+test('M3 finalize: deduped → exit 0 (dedupe proof ships)', () => {
+  const repo = mkTmpRepo();
+  const r = runFinalize(repo, {
+    decision: 'feat-dedupe',
+    codexResult: { codex_outcome: 'deduped' },
+  });
+  assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+});
+
+// F2 — a `skipped` outcome with NO backing reason/proof must NOT ship.
+test('M3 finalize: skipped WITHOUT reason (unproven) → exit 12 (fail-closed) [F2]', () => {
+  const repo = mkTmpRepo();
+  const r = runFinalize(repo, {
+    decision: 'feat-unproven',
+    codexResult: { codex_outcome: 'skipped' },
+  });
+  assert.strictEqual(r.status, 12, r.stderr + r.stdout);
+  assert.match(r.stderr, /verdict=skipped-unproven/);
 });
 
 test('M3 finalize: unreadable verdict (null) → unavailable → exit 12 (fail-closed)', () => {

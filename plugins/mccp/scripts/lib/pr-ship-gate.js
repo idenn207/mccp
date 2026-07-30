@@ -44,6 +44,29 @@ const EX_SHIP_BLOCKED = 12;
 // Verdicts that constructively authorize a ship. Anything else is fail-closed.
 const SHIP_VERDICTS = ['converged', 'skipped'];
 
+// Sanctioned proof markers that make a `skipped` verdict a CONSTRUCTIVE ship —
+// the v0.3.5 3-way "Codex did not need to speak at the PR step" mutex plus the
+// env-level disabled policy. A `skipped` verdict carrying NONE of these is
+// unproven: deriveCodexFlags maps codex_outcome ∈ {skipped(with reason), deduped,
+// disabled} → verdict `skipped`, so a malformed/forged/stale codex-result.json
+// like {codex_outcome:"skipped"} (no reason) yields verdict `skipped` with no
+// evidence and would otherwise ship without Codex approval (Implement-Codex R1 F2).
+// Fail closed on unproven skip.
+const SKIP_PROOF_META_KEYS = [
+  'codex_skipped_at_pr',  // audited MCCP_PR_SKIP_CODEX_REVIEW (strict reason)
+  'codex_dedupe_at_pr',   // cross-gate dedupe (itself fail-closed on codex_verdict)
+  'codex_disabled',       // MCCP_CODEX_DISABLED env policy
+  'codex_disabled_at_pr', // terminal /mccp:pr disabled marker
+];
+
+function hasSkipProof(meta) {
+  if (!meta || typeof meta !== 'object') return false;
+  for (let i = 0; i < SKIP_PROOF_META_KEYS.length; i++) {
+    if (meta[SKIP_PROOF_META_KEYS[i]] === true) return true;
+  }
+  return false;
+}
+
 // classifyVerdict(resolution) → { ship, absent, verdict }
 //   ship    : true iff codex_verdict ∈ SHIP_VERDICTS
 //   absent  : true iff codex_verdict is missing/null
@@ -76,12 +99,21 @@ function classifyVerdict(resolution) {
 function deriveShipDecision(receipt, opts) {
   opts = opts || {};
   const overrideActive = opts.forceOverrideActive === true;
-  const resolution = (receipt && typeof receipt === 'object') ? receipt.resolution : null;
+  const isObj = receipt && typeof receipt === 'object';
+  const resolution = isObj ? receipt.resolution : null;
+  const meta = (isObj && receipt.meta && typeof receipt.meta === 'object')
+    ? receipt.meta : null;
   const cls = classifyVerdict(resolution);
 
-  const rawShip = cls.ship;
+  // F2 — a `skipped` verdict is only a constructive ship when backed by one
+  // sanctioned proof marker; an unproven skip fails closed (blockingVerdict
+  // 'skipped-unproven' so the audit surface names WHY it was blocked).
+  const skippedUnproven = cls.ship && cls.verdict === 'skipped' && !hasSkipProof(meta);
+
+  const rawShip = cls.ship && !skippedUnproven;
   const ship = rawShip || overrideActive;
-  const blockingVerdict = rawShip ? null : (cls.absent ? 'absent' : cls.verdict);
+  const blockingVerdict = rawShip ? null
+    : (cls.absent ? 'absent' : (skippedUnproven ? 'skipped-unproven' : cls.verdict));
 
   let reason;
   if (rawShip) {
@@ -89,6 +121,10 @@ function deriveShipDecision(receipt, opts) {
   } else if (overrideActive) {
     reason = 'PR-Codex non-approving (verdict=' + blockingVerdict +
       ') — shipped under audited override (verdict sealed unchanged)';
+  } else if (skippedUnproven) {
+    reason = 'codex_verdict=skipped but no sanctioned proof marker ' +
+      '(codex_skipped_at_pr/codex_dedupe_at_pr/codex_disabled[_at_pr]) — ' +
+      'unproven skip, push blocked';
   } else {
     reason = 'PR-Codex non-approving (verdict=' + blockingVerdict + ') — push blocked';
   }

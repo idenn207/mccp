@@ -22,6 +22,11 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 ### Tests
 - `lib/tests/pr-phase-helpers/finalize-receipt.test.js` — M3 runtime e2e 7건(divergent→exit12+GATE-STOP · approve→0 · skipped→0 · unavailable→exit12 · override→0+meta stamp+verdict 봉인 · 나쁜 reason write REJECT · plan gate 미발화). `receipt/tests/validate-cmd.test.js` — self-gate 12건(divergent/absent→block · converged/skipped→ok · meta/env override→warning · 나쁜 reason 미우회 · **flag 없으면 무영향**(re-entrancy) · non-terminal 미발화 · pre-write no-op) + ship-gate 무결성 2건(**위조 divergent→converged**=receipt-tamper block으로 silent ship 차단 · schema-invalid enum=ship-gate-schema-invalid block). `receipt/tests/schema.test.js` · `write.test.js` — override 필드 valid/invalid-reason REJECT·round-trip·verdict 봉인 12건.
 
+### Absorbed (Implement-Codex R1 — cross-model, 2 HIGH → fail-closed)
+- **F1 (validate-cmd.js)** — `--check-ship-verdict` self-gate에서 `readReceipt`가 `null`(receipt 부재)을 반환하면 read-error만 block하고 null은 comment-only no-op라 `ok===true`로 통과했다. checkShipVerdict는 **POST-finalize read-back(pr.md 2.5.9)에서만** 세팅되므로 receipt 부재는 anomaly → 신규 blocking kind `ship-gate-receipt-missing`으로 fail-closed(pr.md는 이미 `ok===false` 게이트라 무변경, DD4/DD5 무손상 — flag 없는 조기 preflight는 미발화).
+- **F2 (pr-ship-gate.js)** — `deriveCodexFlags`가 `codex_outcome ∈ {skipped(reason), deduped, disabled}`를 verdict `skipped`로 매핑하는데, ship-gate가 `skipped`를 무조건 approving으로 취급해 위조/malformed `{codex_outcome:"skipped"}`(reason 없음)이 Codex 승인·증거 없이 ship될 수 있었다. `deriveShipDecision`이 이제 `skipped` verdict를 sanctioned proof 마커(`codex_skipped_at_pr`/`codex_dedupe_at_pr`/`codex_disabled[_at_pr]`) 존재 시에만 ship 허용, 부재 시 `blockingVerdict='skipped-unproven'`로 fail-closed. 정규 skip/dedupe/disabled 경로(전부 proof 마커 stamp)는 무변경.
+- 회귀 test 6건 추가/전환(pr-ship-gate skipped proof/unproven/override, finalize skipped-with-reason/deduped/unproven-exit12, validate-cmd skipped-dedupe-ok/skipped-unproven-block, missing-receipt-block).
+
 ### Note
 - briefing hang(2026-07-21 HIGH, exit-127)은 M3 scope 밖(PR-gate operability, verdict-SoT 아님)이나 dogfood를 막으므로 implement/test 시 `MCCP_BRIEFING=off`로 우회(문서화된 §4 토글 — 요약 stamp만 끔, 리뷰 무약화). pre-existing 실패 2건(`verdict-label` · `design-critique-loop-e2e` fixture)은 별도 cycle baseline.
 

@@ -667,8 +667,21 @@ function validateCommand(command, opts) {
           });
         }
       }
+    } else {
+      // prReceipt === null: no receipt on disk. checkShipVerdict is set ONLY by
+      // pr.md Phase 2.5.9 — the POST-finalize read-back — so a missing receipt
+      // here is an anomaly (finalize guarantees it wrote one), NOT a benign
+      // pre-write probe. Fail closed rather than let the aggregate ok===true gate
+      // ship with no receipt to audit (Implement-Codex R1 F1). No pre-write caller
+      // sets checkShipVerdict, so this never retro-blocks a historical receipt (DD5).
+      result.blocking.push({
+        gate_id: 'mccp-pr-codex',
+        decision_id: result.decisionId,
+        kind: 'ship-gate-receipt-missing',
+        reason: 'ship-gate: no mccp-pr-codex receipt found at read-back — finalize ' +
+          'must have written one; cannot certify ship. push blocked.',
+      });
     }
-    // prReceipt === null (pre-write / not yet finalized) → no-op: nothing to gate.
   }
 
   result.ok = result.missing.length === 0

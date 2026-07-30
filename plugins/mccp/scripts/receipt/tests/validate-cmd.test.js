@@ -383,14 +383,30 @@ test('M3 self-gate: converged pr-codex + flag → ok (no self-block)', function 
   assert.ok(!r.blocking.some(function (x) { return x.kind === 'pr_codex_nonconverged'; }));
 });
 
-test('M3 self-gate: skipped pr-codex + flag → ok (dedupe/disabled/audited-skip ship)', function () {
+test('M3 self-gate: skipped pr-codex WITH dedupe proof + flag → ok', function () {
   const { repo } = setupRepo();
   seedConvergedUpstream(repo, 'feat-c');
-  sealReceipt(repo, 'mccp-pr-codex', 'feat-c', { codexVerdict: 'skipped' });
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-c',
+    { codexVerdict: 'skipped', meta: { codex_dedupe_at_pr: true } });
   const r = validateCommand('/mccp:pr', {
     cwd: repo, decisionId: 'feat-c', checkShipVerdict: true,
   });
   assert.strictEqual(r.ok, true, JSON.stringify(r));
+});
+
+// F2 — a `skipped` verdict with no sanctioned proof marker fails closed at the
+// self-gate (a forged/malformed {codex_outcome:"skipped"} cannot ship).
+test('M3 self-gate: skipped pr-codex WITHOUT proof + flag → blocking (skipped-unproven) [F2]', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-c2');
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-c2', { codexVerdict: 'skipped' });
+  const r = validateCommand('/mccp:pr', {
+    cwd: repo, decisionId: 'feat-c2', checkShipVerdict: true,
+  });
+  assert.strictEqual(r.ok, false, JSON.stringify(r));
+  const b = r.blocking.find(function (x) { return x.kind === 'pr_codex_nonconverged'; });
+  assert.ok(b, 'expected pr_codex_nonconverged blocking: ' + JSON.stringify(r.blocking));
+  assert.strictEqual(b.prior_verdict, 'skipped-unproven');
 });
 
 test('M3 self-gate: absent codex_verdict + flag → blocking (fail-closed, verdict=absent)', function () {
@@ -471,14 +487,17 @@ test('M3 self-gate: divergent pr-codex WITHOUT flag → no self-block (re-entran
     'flag-less validate must never self-gate (DD4)');
 });
 
-test('M3 self-gate: pre-write (no pr-codex receipt) + flag → no-op (not blocking)', function () {
+// F1 — checkShipVerdict is set ONLY by the POST-finalize read-back, so a missing
+// pr-codex receipt there is an anomaly and must fail closed (not a benign no-op).
+test('M3 self-gate: missing pr-codex receipt at read-back + flag → blocking (ship-gate-receipt-missing) [F1]', function () {
   const { repo } = setupRepo();
   seedConvergedUpstream(repo, 'feat-i');
   const r = validateCommand('/mccp:pr', {
     cwd: repo, decisionId: 'feat-i', checkShipVerdict: true,
   });
-  assert.strictEqual(r.ok, true, JSON.stringify(r));
-  assert.ok(!r.blocking.some(function (x) { return x.kind === 'pr_codex_nonconverged'; }));
+  assert.strictEqual(r.ok, false, JSON.stringify(r));
+  assert.ok(r.blocking.some(function (x) { return x.kind === 'ship-gate-receipt-missing'; }),
+    'missing ship receipt at read-back must fail closed: ' + JSON.stringify(r.blocking));
 });
 
 test('M3 self-gate: non-terminal command (prp-implement) + flag → self-gate inert', function () {

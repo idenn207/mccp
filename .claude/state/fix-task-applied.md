@@ -2,14 +2,15 @@
 fix_task_version: 1
 task_fingerprint: dashboard-data-exploration
 gate_id: stop-review-loop
-decision_id: integrity-unification-m1
-created_at: 2026-07-24T07:57:50.891Z
-expires_at: 2026-07-31T07:57:50.891Z
+decision_id: msw-m2-measurement-honesty-downgrade
+created_at: 2026-07-26T06:34:32.295Z
+expires_at: 2026-08-02T06:34:32.295Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - C:\_project\my\mccp\.claude\receipts\mccp-plan-codex\integrity-unification-m1.json
+  - .claude/receipts/mccp-plan-codex/msw-m2-measurement-honesty-downgrade.json
+  - .claude/receipts/mccp-implement-codex/msw-m2-measurement-honesty-downgrade.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -25,7 +26,8 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- C:\_project\my\mccp\.claude\receipts\mccp-plan-codex\integrity-unification-m1.json
+- .claude/receipts/mccp-plan-codex/msw-m2-measurement-honesty-downgrade.json
+- .claude/receipts/mccp-implement-codex/msw-m2-measurement-honesty-downgrade.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-plan-codex/integrity-unification-m1>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/msw-m2-measurement-honesty-downgrade>'

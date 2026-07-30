@@ -1,55 +1,55 @@
 {
   "schema_version": "v1",
-  "observed_at": "2026-07-22",
-  "observed_from": "main worktree (C:/_project/my/mccp)",
+  "observed_at": "2026-07-24",
+  "re_frozen_at": "2026-07-24",
+  "prior_observation": "2026-07-22, main worktree (C:/_project/my/mccp)",
+  "observed_from": "v1.22.6-multi-session-m2 worktree",
   "corpus_is_mutable": true,
-  "corpus_note": "receipt corpus는 gitignored이며 세션마다 변한다. 본 측정 중에도 parsed 121에서 122로 증가했다(동시 진행 중이던 다른 게이트). 따라서 이 파일은 재현 가능한 계산이 아니라 특정 시점의 관측 기록이며, FROZEN 계약이 인용하는 수치의 단일 출처다.",
+  "corpus_note": "receipt corpus의 plan/implement 축은 여전히 gitignored·worktree-local이라 재현 불가. 재-freeze는 durable-evidence-substrate(ship receipt git-tracked)와 ledger 승인 술어 정정(codex_verdict-first, v1.22.5)이 착지한 뒤 수행됐다. 이번 관측은 v1.22.6-multi-session-m2 worktree에서 이뤄졌으며, 이 worktree는 ship receipt(git-tracked, 34)만 branch와 함께 이동하고 plan/implement receipt는 로컬 소량뿐이라 receipts.parsed(37)가 2026-07-22 main 관측(122)보다 낮다 — 부패가 아니라 worktree-local 특성이다.",
   "reproducible_in_fresh_clone": false,
-  "reproducibility_blocker": ".claude/receipts/ is gitignored. durable-evidence-substrate chore Phase A가 ship receipt를 tracked로 만들면 ship 축은 재현 가능해진다. plan/implement receipt는 계속 working-tree only.",
-  "receipts": {
-    "parsed": 122,
-    "with_findings": 1,
-    "empty_resolution": 121,
-    "no_codex_verdict": 90,
-    "head_sha_unreachable": 122,
-    "base_sha_reachable": 122,
-    "base_date_min": "2026-06-03",
-    "base_date_max": "2026-07-21"
+  "reproducibility_blocker": ".claude/receipts/의 plan/implement 축은 gitignored로 남는다. 단 durable-evidence-substrate Phase A 착지로 ship receipt(mccp-pr-codex)는 이제 git-tracked → ship 축은 fresh clone에서 재현 가능하다(re-freeze의 핵심 회복).",
+  "re_freeze_deltas": {
+    "ledger_verdict_discrimination_restored": true,
+    "ledger_verdict_note": "2026-07-22 관측은 verdict 29/29 converged로 판별력 0이었다. v1.22.5 codex_verdict-first 술어 + ledger-verdict-repair(verdict_provenance stamp) 착지 후 재관측: 28 엔트리 {converged:26, skipped:2} — 값 2종으로 판별력>0. provenance {codex-verdict:9, legacy-unknown:19}로 신뢰 축 분리. 대조 false_positive 3→0 (이전 divergent 1·skipped 2 거짓양성이 술어 정정으로 소거).",
+    "ship_receipts_now_tracked": true,
+    "ship_receipts_note": "durable-evidence-substrate Phase A로 mccp-pr-codex receipt가 git-tracked. 34건이 branch와 함께 이동·재현 가능."
   },
-  "ship_receipts_count": 33,
+  "receipts": {
+    "parsed": 37,
+    "with_findings": 1,
+    "empty_resolution": 36,
+    "no_codex_verdict": 22,
+    "head_sha_unreachable": 37,
+    "base_sha_reachable": 37,
+    "note": "worktree-local. parsed=37 = ship(34, tracked) + 로컬 plan/implement receipt 소량. 2026-07-22 main의 122와 다른 것은 worktree-local plan/implement receipt가 이동 안 하기 때문(부패 아님)."
+  },
+  "ship_receipts_count": 34,
+  "ship_receipts_tracked": true,
   "completion_ledger": {
-    "entries": 29,
-    "verdict_converged": 29,
-    "comparable_ok": 7,
-    "false_positive": 3,
-    "false_positive_ids": [
-      {
-        "decision_id": "live-activation-m3-pr-codex-absorption",
-        "receipt_codex_verdict": "divergent"
-      },
-      {
-        "decision_id": "workflow-orchestration-m4-parallel-activation",
-        "receipt_codex_verdict": "skipped"
-      },
-      {
-        "decision_id": "worktree-gitdir-tmp-resolve",
-        "receipt_codex_verdict": "skipped"
-      }
-    ],
+    "entries": 28,
+    "verdict_dist": { "converged": 26, "skipped": 2 },
+    "verdict_provenance_dist": { "codex-verdict": 9, "legacy-unknown": 19 },
+    "discrimination_restored": true,
+    "comparable": 9,
+    "comparable_ok": 9,
+    "false_positive": 0,
     "unauditable": 19
   },
   "claude_md": {
     "lines": 782,
-    "bytes": 139335
+    "bytes": 139335,
+    "carried_forward": "2026-07-22 관측 — A3 baseline은 Task 7(a3-instruction-cost.js) tokenizer가 재산출 소유. re-freeze는 ship+ledger 무결성 축에 집중."
   },
   "toggles": {
-    "in_code": 96,
-    "in_runtime_surface": 99,
+    "in_code": 101,
+    "in_runtime_surface": 101,
     "in_claude_md": 55,
     "in_environment_md": 38,
-    "documented_union": 82
+    "documented_union": 82,
+    "note": "2026-07-24 재스캔. M2 구현 자체가 신규 토글 MCCP_A3_READ_USER_MEMORY(A3 user-memory opt-in)를 추가해 runtime surface 분모가 100→101로 자랐다(재-freeze Task 1 스캔은 A3 추가 전이라 100이었다). Task 3 `toggle-snapshot.js --scan-denominator`가 101을 반환하며 본 값과 CHECK 일치(Validation 4). in_claude_md/in_environment_md/documented_union은 2026-07-22 문서 스캔 carried-forward."
   },
   "pull_requests": {
+    "carried_forward": "2026-07-22 main 관측 — gh는 re-freeze에서 재실행하지 않음(re-freeze 대상은 ship+ledger 무결성이며 PR 축은 C1 recoverability probe(Task 8) 소유). 아래 수치는 2026-07-22 기준.",
     "merged_prs": 108,
     "date_min": "2026-06-03",
     "date_max": "2026-07-21",

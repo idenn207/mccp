@@ -27,6 +27,10 @@ const {
 } = require('../lib/utils');
 const { resolveProjectContext, resolveSessionId } = require('../lib/observer-sessions');
 const sessionLedger = require('../state/session-ledger');
+const mswEvents = require('../state/msw-events');
+// context-state require removed (msw-m2-measurement-honesty-downgrade / PF3): session-end
+// no longer reads latest-wins context for A2 — it emits null until session-bound freshness exists.
+const handoffItems = require('../state/handoff-items');
 
 const SUMMARY_START_MARKER = '<!-- ECC:SUMMARY:START -->';
 const SUMMARY_END_MARKER = '<!-- ECC:SUMMARY:END -->';
@@ -338,6 +342,47 @@ async function main() {
         log(`[SessionEnd] Finalized session ledger ${sid} (paths=${fin.paths.length})`);
       } else if (!fin.ok) {
         process.stderr.write(`[mccp:session-ledger] WARNING: finalizeLedger reported errors: ${JSON.stringify(fin.errors || [])} (allow)\n`);
+      }
+
+      // M2 관측 계측 — msw-events 종료 이벤트 + handoff 항목 기록
+      // fail-loud-open: 실패해도 세션 종료 무중단
+      try {
+        const ledger = sessionLedger.readLedger({ sessionId: sid, projectContext: ctx });
+        const endedAt = ledger && ledger.ended_at ? ledger.ended_at : new Date().toISOString();
+
+        // A2 context% — PF3 (msw-m2-measurement-honesty-downgrade): contextState.readState()
+        // reads a latest-wins context-current.json with NO session-id/freshness binding, so a
+        // concurrent or stale sample would be attributed to THIS ending session. Until a
+        // session-bound freshness path exists, emit null rather than stamp an unverified value
+        // into the append-only event log. A2 is forward-only downstream, so no honest consumer
+        // relies on this field today; recording a contaminated number would only mislead a
+        // future scanner. When session-bound context is implemented, restore the read here.
+        const contextRemainingPct = null;
+
+        // A2 종료 이벤트 (task_completed는 always false for SessionEnd hook; 실제는 derive가 판정)
+        const endEventResult = mswEvents.appendEvent(sid, {
+          kind: 'session_end',
+          ts: new Date().toISOString(),
+          ended_at: endedAt,
+          task_completed: false,
+          context_remaining_pct: contextRemainingPct,
+          producer: 'session-end.js',
+        });
+
+        if (!endEventResult.ok) {
+          process.stderr.write(`[mccp:msw-events] WARNING: SessionEnd event append failed: ${endEventResult.reason} (allow)\n`);
+        }
+
+        // A4 미완 인계 항목 기록
+        const unfinished = handoffItems.enumerateUnfinishedItems(process.cwd());
+        const writeResult = handoffItems.writeHandoffItems(sid, unfinished);
+        if (!writeResult.ok) {
+          process.stderr.write(`[mccp:handoff-items] WARNING: write failed: ${writeResult.reason} (allow)\n`);
+        } else if (unfinished.length > 0) {
+          log(`[SessionEnd] Recorded ${unfinished.length} unfinished items for handoff`);
+        }
+      } catch (err) {
+        process.stderr.write(`[mccp:msw-events] WARNING: M2 instrumentation threw: ${err && err.message ? err.message : err} (allow)\n`);
       }
     }
   } catch (err) {

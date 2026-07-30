@@ -32,6 +32,10 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - **F4 (finalize-receipt.js + validate-cmd.js)** — self-gate가 `decisionId`로만 receipt를 로드하고 finalize write에 bind하지 않아, 같은 decision의 **stale converged receipt**(옛 `head_sha`)가 현재 미리뷰 HEAD를 ship 인증할 수 있었다. 두 locus가 이제 `receipt.head_sha`를 현재 `git rev-parse HEAD`와 대조 → 불일치 시 신규 kind `ship-gate-stale-head`로 fail-closed(head_sha는 subject 필드라 tamper-보호됨; git 실패 시 sub-check만 skip). 정규 flow(finalize→read-back 동일 HEAD)는 무영향.
 - 회귀 test 2건(validate-cmd stale-head block; finalize 정규 경로가 F3/F4 false-block 없이 여전히 ship) + `sealReceipt` fixture를 실 HEAD로 전환.
 
+### Absorbed (Implement-Codex R3 — cross-model, 1 HIGH → fail-closed)
+- **F5 (finalize-receipt.js + validate-cmd.js + cli.js + pr.md)** — R2 F4의 head_sha binding으로는 부족했다: 공격자/동시 `/mccp:pr`이 **같은 decision·같은 head_sha의 converged receipt**를 write와 re-read 사이에 swap하면 head 체크·self-consistency를 통과해 divergent write를 shadow하고 ship됐다. 정합의 유일한 방법은 이번 write가 봉인한 **정확한 receipt_hash** 대조. finalize가 write CLI(pr-codex는 non-quiet)가 반환한 `receipt_hash`를 붙잡아 re-read와 대조 → 불일치 시 `EX_SHIP_BLOCKED`(runtime primary가 write에 self-bind). 추가로 finalize가 sealed hash를 emit → pr.md 2.5.7이 캡처 → 2.5.9 read-back에 `--expected-receipt-hash`로 forward → validate-cmd가 신규 kind `ship-gate-hash-mismatch`로 defense-in-depth 재bind. 정규 flow(동일 receipt)는 무영향.
+- 회귀 test 2건(validate-cmd expected-hash match→ok / mismatch→block). finalize 정규 경로가 non-quiet 전환·binding 후에도 여전히 ship(happy-path가 binding 가드).
+
 ### Note
 - briefing hang(2026-07-21 HIGH, exit-127)은 M3 scope 밖(PR-gate operability, verdict-SoT 아님)이나 dogfood를 막으므로 implement/test 시 `MCCP_BRIEFING=off`로 우회(문서화된 §4 토글 — 요약 stamp만 끔, 리뷰 무약화). pre-existing 실패 2건(`verdict-label` · `design-critique-loop-e2e` fixture)은 별도 cycle baseline.
 

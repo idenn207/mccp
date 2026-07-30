@@ -517,6 +517,33 @@ test('M3 self-gate: stale head_sha (converged receipt for older commit) + flag �
     'stale head_sha must fail closed even for a converged verdict: ' + JSON.stringify(r.blocking));
 });
 
+// F5 — the read-back binds to the exact receipt finalize sealed (expected-receipt-hash).
+test('M3 self-gate: expected-receipt-hash MATCH + flag → ok (bound to finalize write) [F5]', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-bind');
+  const rec = sealReceipt(repo, 'mccp-pr-codex', 'feat-bind', { codexVerdict: 'converged' });
+  const r = validateCommand('/mccp:pr', {
+    cwd: repo, decisionId: 'feat-bind', checkShipVerdict: true,
+    expectedReceiptHash: rec.receipt_hash,
+  });
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+});
+
+test('M3 self-gate: expected-receipt-hash MISMATCH (swapped receipt) + flag → blocking (ship-gate-hash-mismatch) [F5]', function () {
+  const { repo } = setupRepo();
+  seedConvergedUpstream(repo, 'feat-swap');
+  // The receipt on disk is converged, but finalize sealed a DIFFERENT (e.g.
+  // divergent) receipt this invocation — the expected hash won't match.
+  sealReceipt(repo, 'mccp-pr-codex', 'feat-swap', { codexVerdict: 'converged' });
+  const r = validateCommand('/mccp:pr', {
+    cwd: repo, decisionId: 'feat-swap', checkShipVerdict: true,
+    expectedReceiptHash: 'sha256:' + 'd'.repeat(64),
+  });
+  assert.strictEqual(r.ok, false, JSON.stringify(r));
+  assert.ok(r.blocking.some(function (x) { return x.kind === 'ship-gate-hash-mismatch'; }),
+    'a receipt whose hash != finalize-sealed must fail closed: ' + JSON.stringify(r.blocking));
+});
+
 test('M3 self-gate: non-terminal command (prp-implement) + flag → self-gate inert', function () {
   const { repo } = setupRepo();
   sealReceipt(repo, 'mccp-plan-codex', 'feat-j', { codexVerdict: 'converged' });

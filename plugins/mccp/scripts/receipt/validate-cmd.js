@@ -639,6 +639,20 @@ function validateCommand(command, opts) {
             'the current diff was not reviewed). push blocked.',
           prior_verdict: (prReceipt.resolution && prReceipt.resolution.codex_verdict) || null,
         });
+      } else if (opts.expectedReceiptHash
+          && prReceipt.receipt_hash !== opts.expectedReceiptHash) {
+        // R3 F5 — defense-in-depth binding: pr.md 2.5.9 passes the exact receipt_hash
+        // finalize sealed (2.5.7). If the receipt read here carries a different hash,
+        // it was swapped/replaced between finalize and this read-back — fail closed
+        // so a converged receipt cannot shadow the divergent one finalize wrote.
+        result.blocking.push({
+          gate_id: 'mccp-pr-codex',
+          decision_id: result.decisionId,
+          kind: 'ship-gate-hash-mismatch',
+          reason: 'ship-gate: read-back receipt_hash ' + prReceipt.receipt_hash +
+            ' != expected ' + opts.expectedReceiptHash + ' (finalize sealed a different ' +
+            'receipt — swapped/replaced after write). push blocked.',
+        });
       } else {
         // forceOverrideActive: the durable meta flag (finalize stamped it) OR a
         // live env var that passes the strict reason validator. Either unblocks

@@ -784,7 +784,7 @@ if [ -n "${PR_CODEX_FORCE_OVERRIDE_REASON:-}" ]; then
   FINALIZE_FLAGS+=(--pr-codex-force-override-reason "$PR_CODEX_FORCE_OVERRIDE_REASON")
 fi
 
-node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/finalize-receipt.js" "${FINALIZE_FLAGS[@]}"
+FINALIZE_OUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/finalize-receipt.js" "${FINALIZE_FLAGS[@]}")
 FINALIZE_EXIT=$?
 if [ "$FINALIZE_EXIT" = "12" ]; then
   # integrity-unification M3 — RUNTIME PRIMARY ship gate blocked this ship: PR-Codex
@@ -801,6 +801,9 @@ elif [ "$FINALIZE_EXIT" != "0" ]; then
   echo "[MCCP-GATE-STOP] finalize-receipt failed (exit=$FINALIZE_EXIT)." 1>&2
   exit 1
 fi
+# R3 F5 — capture the receipt_hash finalize sealed so the 2.5.9 read-back can bind
+# to THIS write (defense-in-depth against a same-decision/head receipt swap).
+FINALIZE_RECEIPT_HASH=$(printf '%s' "$FINALIZE_OUT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.receipt_hash||"")}catch{process.stdout.write("")}')
 ```
 
 Bash hook block handling: same as Plan-Codex Phase 7.6 — output `[MCCP-GATE-STOP]` with captured hook stderr and end the response. Do NOT enter Phase 3.
@@ -843,7 +846,8 @@ finalize (2.5.7) is the runtime **primary** ship gate — its exit 12 already HA
 SHIP_GATE_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" validate \
   --command mccp:pr \
   --decision "${DECISION_SLUG}" \
-  --check-ship-verdict 2>/dev/null)
+  --check-ship-verdict \
+  ${FINALIZE_RECEIPT_HASH:+--expected-receipt-hash "$FINALIZE_RECEIPT_HASH"} 2>/dev/null)
 # Gate on the aggregate `ok` flag, NOT on a single blocking kind. The ship-gate
 # emits FOUR fail-closed blocking kinds on the freshly-written receipt —
 # pr_codex_nonconverged (non-approving verdict / unreadable), subject-tamper,

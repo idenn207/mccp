@@ -20,7 +20,7 @@ function showHelp() {
     'Receipt core subcommands:',
     '  write            --gate <id> --decision <slug> --plan <path> [--design-doc <p>] [--findings-file <p>] [--resolution-file <p>] [--codex-verdict converged|divergent|critical|unavailable|skipped] [--auto-round] [--codex-skipped] [--codex-disabled] [--codex-disabled-at-pr] [--advisory] [--security-skipped] [--security-skip-reason <text>] [--security-force-override] [--security-force-override-reason <text>] [--impeccable-skipped] [--impeccable-skip-reason <text>] [--impeccable-silent-skip] [--impeccable-silent-skip-reason <text>] [--impeccable-force-override] [--impeccable-force-override-reason <text>] [--deferred-findings <N>] [--codex-design-scope-excluded] [--design-findings-dropped <N>] [--a11y-routed-to-impeccable] [--dropped-findings-digest sha256:<hex>] [--plan-conflict-escalated] [--pr-phase-lock-stale-reclaimed-at-hook] [--dispatched-by-controller-session <uuid>] [--worker-dispatch-id <uuid>] [--ipc-envelope-path <path>] [--design-critique-rounds <N>] [--design-critique-verdict converged|divergent|skipped] [--design-intent-reason <text>] [--pr-design-chain-skip-reason <text>] [--impeccable-routing-mode auto|hybrid|recommend] [--impeccable-commands-routed-file <path>] [--design-grounding-captured] [--design-grounding-verdict grounded|anchor_clean|inconclusive|violations|skipped] [--merged-verify-verdict converged|divergent|critical|unavailable|skipped] [--merged-verify-rounds <N>] [--pr-codex-force-override] [--pr-codex-force-override-reason <text>] [--quiet]',
     '  restamp-grounding --gate <id> --decision <slug> --design-grounding-verdict <enum> [--cwd <path>] [--quiet]',
-    '  validate         --command <slug> [--decision <slug>] [--plan <path>] [--check-ship-verdict]',
+    '  validate         --command <slug> [--decision <slug>] [--plan <path>] [--check-ship-verdict] [--expected-receipt-hash <hex>]',
     '  preflight        --command <slug> [--decision <slug>] [--plan <path>]',
     '  status           [--gate <id>] [--json]',
     '  derive-decision  --command <name> [--args "<raw args>"] [--plan <path>] [--cwd <path>]',
@@ -238,6 +238,11 @@ function cmdValidate(args) {
       // so the self-gate cannot self-poison a re-run (DD4) or retro-block a
       // historical receipt (DD5).
       checkShipVerdict: args['check-ship-verdict'] === true,
+      // R3 F5 — defense-in-depth binding: pr.md 2.5.9 forwards the receipt_hash
+      // finalize sealed so the read-back certifies THAT exact receipt, not a
+      // swapped same-decision/head one. Omitted → binding sub-check skipped.
+      expectedReceiptHash: (typeof args['expected-receipt-hash'] === 'string'
+        && args['expected-receipt-hash'].length > 0) ? args['expected-receipt-hash'] : null,
     });
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     if (!classify) return result.ok ? 0 : 2;

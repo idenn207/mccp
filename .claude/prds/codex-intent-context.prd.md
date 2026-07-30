@@ -30,7 +30,7 @@ mccp의 `/mccp:plan`(및 `/mccp:pr`) 게이트는 Codex adversarial review에 **
 
 | Metric | Target | How measured |
 |---|---|---|
-| 의도-충돌 finding의 silent-accept | **0건** | 모든 intent-conflict finding이 receipt에 `accepted` / `rejected-by-design` 판정 + 근거와 함께 기록 |
+| 의도-충돌 finding의 silent-accept | **0건** | 모든 intent-conflict finding이 receipt에 `accepted` / `rejected-by-design` 판정 + 근거와 함께 기록. **달성 milestone은 M1.5** — M1의 커버리지 강제만으로는 이 지표가 동어반복이 된다(저자가 충돌을 `none`으로 표시하면 그 finding이 intent-conflict 모집단에서 빠져 분모가 줄 뿐이다). 리뷰어가 독립적으로 충돌을 주장하는 신호가 있어야 모집단이 저자 라벨과 무관해진다 |
 | 의도 보존 | 최종 plan이 명시 의도를 보존 | 게이트 종료 시 intent-preservation 자기점검 플래그 |
 | 측정 가능성 자체 | finding 판정 카운트가 존재 | `receipt.meta`에 판정 카운트 stamp (baseline: 현재 **측정값 0 — 아무것도 안 셈**) |
 
@@ -55,8 +55,13 @@ mccp의 `/mccp:plan`(및 `/mccp:pr`) 게이트는 Codex adversarial review에 **
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | 의도 표면화 + arbiter intent-conflict gate + 측정 | 대화 의도가 plan에 남고 리뷰어 focus에 reference로 전달됨; 의도-충돌 finding이 무근거 수용 없이 기록·판정됨; 게이트가 처음으로 의도-보존을 측정 | in-progress | `.claude/plans/codex-intent-context-m1.plan.md` |
+| 1 | 의도 표면화 + 판정 커버리지 + 측정 인프라 | 대화 의도가 plan에 남고 리뷰어 focus에 reference로 전달됨; **모든 finding이 실제 리뷰 payload에 bind된 명시 판정을 받지 않으면 receipt가 써지지 않음**(누락·payload 불일치 차단 + 판정 카운트 측정 개시) | in-progress | `.claude/plans/codex-intent-context-m1.plan.md` |
+| 1.5 | 오심(mislabelling) 탐지 — **UI10 달성 milestone** | 저자가 충돌을 `none`으로 잘못 표시한 것이 **탐지 가능**해짐(리뷰어 per-finding `INTENT:` 계약과 저자 판정의 비대칭 대조). 이때 비로소 "의도-충돌 finding의 silent-accept 0건"이 실질적으로 성립 | pending | — |
 | 2 | arbiter 컨텍스트 분리 + cross-vendor 독립 2차 리뷰어(opt-in) | 심판이 저자 컨텍스트에서 완전 분리(fresh subagent); 중요 plan에 한해 이종 리뷰어 다양성 복원 | pending | — |
+
+> **M1.5 분리 근거 (2026-07-31)**: M1 plan에 대한 santa-loop 3라운드(Opus + GPT-5.4)가 비수렴으로 종료했고, 미해소 지적의 무게중심이 **오심 탐지 축 하나**에 몰려 있었다. 그 축은 리뷰어가 preamble 지시를 자발적으로 따르는지에 의존해 계약(per-finding `INTENT:` 필수)·데이터 바인딩·불응 시 처리(all-absent → block)를 자체 설계 라운드로 다뤄야 한다. M1이 그것까지 안고 가면 **이미 검증된 나머지**(의도 표면화·판정 누락 불가·측정·단일 프로세스 runner)가 함께 묶여 못 나간다. M2(arbiter 분리 + cross-vendor)는 성격이 다른 축이므로 여기 합치지 않고 M1.5로 **별도 명명**한다.
+>
+> **M1이 닫지 않는 것(정직 표기)**: 저자가 모든 finding을 `intent_conflict: 'none'`으로 표시하면 M1의 완전성 검사는 전부 통과한다. 즉 M1은 **누락**을 막고 **오심**은 막지 못한다. 오심 탐지는 M1.5, 심판 분리는 M2가 소유한다.
 
 ## Open Questions
 

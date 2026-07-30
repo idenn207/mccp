@@ -2,14 +2,15 @@
 fix_task_version: 1
 task_fingerprint: dashboard-data-exploration
 gate_id: stop-review-loop
-decision_id: multi-session-work-loop-m2
-created_at: 2026-07-24T13:54:07.256Z
-expires_at: 2026-07-31T13:54:07.256Z
+decision_id: msw-m2-measurement-honesty-downgrade
+created_at: 2026-07-26T06:34:32.295Z
+expires_at: 2026-08-02T06:34:32.295Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-plan-codex/multi-session-work-loop-m2.json
+  - .claude/receipts/mccp-plan-codex/msw-m2-measurement-honesty-downgrade.json
+  - .claude/receipts/mccp-implement-codex/msw-m2-measurement-honesty-downgrade.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -25,7 +26,8 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- .claude/receipts/mccp-plan-codex/multi-session-work-loop-m2.json
+- .claude/receipts/mccp-plan-codex/msw-m2-measurement-honesty-downgrade.json
+- .claude/receipts/mccp-implement-codex/msw-m2-measurement-honesty-downgrade.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-plan-codex/multi-session-work-loop-m2>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/msw-m2-measurement-honesty-downgrade>'

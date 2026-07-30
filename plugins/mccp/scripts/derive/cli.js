@@ -204,8 +204,6 @@ function cmdMetricsAssert(rest) {
 
   // PR-Codex R2-F3: C1은 live findings derive source가 없어(fixture만 주입)
   // 실 derive에서 절대 산출 못 하므로 claimed-computable에서 제외(forward-only).
-  // A1은 session_activity(실 source)가 producer-absent를 정직 보고하므로 유지 —
-  // fixture는 producer 배선 상태의 compute 경로를 실증한다.
   //
   // msw-m2-measurement-honesty-downgrade (Plan-Codex R1 PF2 / R3-F0 / re-R3 F0):
   // A2·A4·B2·A1 모두 C1과 함께 제외한다. A4는 self-credit, A2는 unverified stamp로

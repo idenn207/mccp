@@ -3,18 +3,21 @@
 // R2-F2 shared seeded fixture. Used by BOTH the `metrics-assert --fixtures`
 // CLI gate and the acceptance test, so the mechanical gate and the test that
 // guards it can never drift. Represents a minimal-but-representative derive
-// model in which every claimed-computable metric (A1/B3 — see below) has enough
+// model in which the sole claimed-computable metric (B3 — see below) has enough
 // source data to compute a real (non-null, non-baseline-forming) value.
 //
-// msw-m2-measurement-honesty-downgrade (Plan-Codex R1/R3): A2/A4/B2 are now
+// msw-m2-measurement-honesty-downgrade (Plan-Codex R1/R3 + re-R3 F0): A2/A4/B2 are
 // C1-pattern forward-only and NO validity flag is injected for them. A4/A2 have
 // contaminated computations (self-credit / unverified stamp) and B2 has no
 // independent collision-producer-presence signal, so injecting a fixture flag to
 // force compute would masquerade an unfixed producer (same reason C1's findings
 // source is not injected, below). The claimed-computable set is therefore just
-// {A1, B3}. The session_activity/handoff_items numeric fields below are retained
-// (harmless — A2/A4/B2 ignore them and return forward-only), and only A1's
-// completions_producer_present drives a computed value.
+// {B3}. A1 ALSO computes in this fixture (via the injected completions_producer_present
+// flag, which exercises A1's compute path), but A1 is NOT claimed-computable — it is
+// forward-only in real derive because production has no live task_completed producer
+// (re-R3 F0), so the acceptance gate does not enumerate it. The session_activity/
+// handoff_items numeric fields below are retained (harmless — A2/A4/B2 ignore them
+// and return forward-only).
 //
 // The gate's whole point is that this forces compute — `{metrics:{}}` or an
 // all-baseline-forming result can never satisfy the enumeration.

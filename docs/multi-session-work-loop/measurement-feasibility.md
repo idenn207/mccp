@@ -1,12 +1,27 @@
 # 측정 가능성 부록 — 실측 근거와 소급 recoverability 프로토콜
 
-STATUS: PROVISIONAL — corpus 기준일 2026-07-22
+STATUS: RE-FROZEN — 2026-07-24 (v1.22.6-multi-session-m2 worktree). durable-evidence-substrate(ship receipt git-tracked) + ledger 승인 술어 정정(codex_verdict-first, v1.22.5) 착지 후 재산출. 재-freeze 델타는 §0.
 
 > 본 문서는 **가용성층**이다. 어느 소스가 *지금* 쓸 만한지의 관측 기록이며 약속이 아니다.
 > 계약층([measurement-design.md](./measurement-design.md) · [label-protocol.md](./label-protocol.md) ·
 > [large-cohort-registry.md](./large-cohort-registry.md))은 FROZEN이지만 이 문서는 아니다.
 > **re-freeze 게이트**: `durable-evidence-substrate` chore와 ledger 승인 술어 정정이 착지한 뒤
 > 본 문서를 재산출·재기록하기 전에는 M2(관측 계측)를 착수하지 않는다.
+
+## 0. 재-freeze 기록 (2026-07-24, M2 Task 1)
+
+re-freeze 게이트 두 선행조건이 착지해(durable-evidence-substrate PR #110 = ship receipt git-tracked · v1.22.5 = ledger 승인 술어 codex_verdict-first + ledger-verdict-repair) 진입조건이 해제됐고, M2 계측 코드를 얹기 전에 현재 corpus로 재산출했다. 관측은 `v1.22.6-multi-session-m2` worktree에서 수행. 수치의 단일 출처는 [evidence-snapshot.json](./evidence-snapshot.json)이며 아래는 요약이다.
+
+**재관측된 무결성 축(핵심 델타):**
+
+- **ledger 판별력 복원** — 2026-07-22엔 `verdict` 29/29 converged로 **판별력 0**이었다(§2.6). v1.22.5 codex_verdict-first 술어 + `verdict_provenance` stamp 착지 후 재관측: 28 엔트리 `{converged: 26, skipped: 2}` — 값 2종으로 **판별력 > 0**. provenance `{codex-verdict: 9, legacy-unknown: 19}`로 신뢰 축 분리. 대조 **false_positive 3 → 0**(이전 divergent 1·skipped 2 거짓양성이 술어 정정으로 소거). §2.6/§2.7의 "판별력 0·30% 오판" 문제는 이 정정으로 해소됐다.
+- **ship receipt git-tracked** — mccp-pr-codex 34건이 이제 git-tracked·fresh clone 재현 가능(§1.5가 예고한 "완전한 해소"의 착지). plan/implement receipt는 여전히 working-tree only.
+
+**전향-수립 축(M2가 채움, 변동 없음):** `context-current.json` 미존재(A2 소스 없음) · session ledger 0건(A4 소스 없음) — M2가 sidecar event log로 전향 수립.
+
+**carried-forward(재-freeze 비대상):** PR 이력(§2.3–2.5, gh 미재실행 — C1 probe/Task 8 소유) · CLAUDE.md 바이트(§5, A3/Task 7 tokenizer 소유). 토글 분모는 재스캔 → runtime surface **100**(전 99), code **97**(전 96).
+
+**결론:** re-freeze 게이트 해제 확인. 부패 축(ship 미추적 · ledger 무판별)이 정정된 corpus 위에서 M2 계측을 진행한다. 소급 baseline은 여전히 만들지 않으며(A1/A2/A4/B2는 전향 수립), C1만 §4 소급 프로토콜 대상이다.
 
 ## 1. 왜 이 문서가 있는가
 
@@ -135,7 +150,7 @@ findings는 소실된 것이 아니라 **구조화되지 않은 채 존재**한�
 | ship receipt 소실로 대조 불가 | 19 | 영구 손실 |
 | 역방향 — ledger 엔트리 없는 ship receipt | **23 / 33** | ledger는 ship의 완전한 기록이 아니다 |
 
-근본 원인은 `plugins/mccp/scripts/lib/completion-ledger/index.js`의 append 게이트가 `resolution.converged`(v1.20.3이 dedupe 축에서 이미 신뢰 불가로 판정한 always-true 필드)를 보고 `resolution.codex_verdict`를 보지 않는 것이다. `codex_verdict`는 completion-ledger 전체에서 **한 번도 참조되지 않는다**.
+근본 원인은 `plugins/mccp/scripts/lib/completion-ledger/index.js`의 append 게이트가 `resolution.converged`(v1.20.3이 dedupe 축에서 이미 신뢰 불가로 판정한 always-true 필드)를 보고 `resolution.codex_verdict`를 보지 않는 것이다. `codex_verdict`는 completion-ledger 전체에서 **한 번도 참조되지 않는다**. **(재-freeze 2026-07-24 — 해소됨)** v1.22.5가 이 근본 원인을 정정했다: append 술어가 codex_verdict-first로 교체되고 소비처가 `receipt-convergence.js`로 통일됐다. 재관측 결과 verdict 분포 `{converged:26, skipped:2}`·false_positive 0(§0). 아래 표는 정정 *이전*(2026-07-22)의 실측으로, 계측 설계의 동기 기록으로 보존한다.
 
 ```bash
 node -e '
@@ -161,6 +176,8 @@ fp.forEach(x=>console.log("  "+x));'
 
 - ship 승인 술어의 통과율: **100%** (29/29)
 - 대조 가능한 것 중 실제로 틀린 비율: **30%** (3/10)
+
+> **(재-freeze 2026-07-24 — 정정 확인)** v1.22.5 codex_verdict-first 술어 착지 후 재관측에서 대조 오판 비율은 **0%** (0/9)로 떨어졌다(§0). 위 30%는 정정 *이전* 측정으로, 게이트 실효를 *측정으로* 드러낸 최초 사례이자 정정의 근거로 보존한다 — 표본 10건·단일 게이트 한계는 그대로이므로 여전히 C2/C3 판정에는 쓰지 않는다.
 
 이것은 C2(게이트 헛발화율)와 같은 축은 아니다 — C2는 "차단했는데 실질 수정이 없었나"를 묻고, 이 사례는 "통과시켰는데 통과시키면 안 됐나"를 보인다. 오히려 C3(누출 결함율)의 구조에 가깝다. 다만 두 지표 어느 쪽으로도 **아직 계상하지 않는다** — 표본이 10건이고 단일 게이트이며, C2·C3은 라벨 프로토콜 확립 전 의사결정에 사용 금지이기 때문이다(PRD anti-gaming 규칙). 여기서의 용도는 **측정 설계가 왜 필요한지의 실증** 하나다.
 

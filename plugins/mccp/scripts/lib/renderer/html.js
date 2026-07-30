@@ -1227,7 +1227,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
   const { escapeHtml, formatRelativeTime } = formatUtils;
   const escapeAttr = formatUtils.escapeAttr || escapeHtml;
   const m = model || {};
-  const [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory, multiSession] = sections;
+  const [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory, multiSession, mswMetrics] = sections;
   const derivedMs = new Date(derivedAt).getTime();
   const relative = formatRelativeTime(derivedAt, Date.now());
 
@@ -1269,6 +1269,8 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     // 마일스톤 기록: 위험·질문 분리 후 활동 route 에서 짝 없는 단독 패널 →
     // half-orphan(오른쪽 빈칸) 방지로 full-width. 마일스톤 표도 full 이 적합.
     { title: '마일스톤 기록', section: milestoneHistory, present: !!milestoneHistory, span2: true },
+    // 계측: MSW M2 계측 대시보드 섹션 (graceful hide if insufficient data)
+    { title: '계측', section: mswMetrics, present: !!mswMetrics, span2: false },
   ].filter(p => p.present);
 
   // M3-b — 위험·질문을 전용 route 로 분리(사용자 결정 2026-06-25 "전용 사이드바").

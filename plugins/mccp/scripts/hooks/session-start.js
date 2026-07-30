@@ -23,6 +23,9 @@ const {
 const { resolveProjectContext, writeSessionLease, resolveSessionId, getHomunculusDir } = require('../lib/observer-sessions');
 const sessionLedger = require('../state/session-ledger');
 const frictionTelemetry = require('../lib/friction-telemetry');
+const mswEvents = require('../state/msw-events');
+const toggleSnapshot = require('../state/toggle-snapshot');
+const handoffItems = require('../state/handoff-items');
 const { spawnSync } = require('child_process');
 const { getPackageManager, getSelectionPrompt } = require('../lib/package-manager');
 const { listAliases } = require('../lib/session-aliases');
@@ -694,6 +697,48 @@ async function main() {
       }
     } catch (err) {
       process.stderr.write(`[mccp:session-ledger] WARNING: SessionStart ledger threw: ${err && err.message ? err.message : err} (allow)\n`);
+    }
+
+    // M2 관측 계측 — msw-events 착수 이벤트 + env-snapshot + handoff 복원
+    // fail-loud-open: 실패해도 세션 진행 무중단
+    try {
+      if (observerSessionId) {
+        // A1 착수 이벤트
+        const ledgerData = sessionLedger.readLedger({ sessionId: observerSessionId, projectContext: observerContext });
+        const createdAt = ledgerData && ledgerData.created_at ? ledgerData.created_at : new Date().toISOString();
+
+        const startEventResult = mswEvents.appendEvent(observerSessionId, {
+          kind: 'session_start',
+          ts: new Date().toISOString(),
+          created_at: createdAt,
+          producer: 'session-start.js',
+        });
+
+        if (!startEventResult.ok) {
+          process.stderr.write(`[mccp:msw-events] WARNING: SessionStart event append failed: ${startEventResult.reason} (allow)\n`);
+        }
+
+        // B3 env-snapshot 캡처
+        const nonDefault = toggleSnapshot.captureNonDefault(process.env);
+        const snapshot = {
+          session_id: observerSessionId,
+          captured_at: new Date().toISOString(),
+          toggles: nonDefault,
+        };
+
+        const snapshotResult = toggleSnapshot.writeSnapshot(observerSessionId, snapshot);
+        if (!snapshotResult.ok) {
+          process.stderr.write(`[mccp:toggle-snapshot] WARNING: env-snapshot write failed: ${snapshotResult.reason} (allow)\n`);
+        }
+
+        // A4 인계 항목 복원
+        const restoreResult = handoffItems.restoreAndMatch(observerSessionId);
+        if (restoreResult.ok && restoreResult.restored_count > 0) {
+          log(`[SessionStart] Restored ${restoreResult.restored_count} handoff items from prior session`);
+        }
+      }
+    } catch (err) {
+      process.stderr.write(`[mccp:msw-events] WARNING: M2 instrumentation threw: ${err && err.message ? err.message : err} (allow)\n`);
     }
   } else {
     log('[SessionStart] No CLAUDE_SESSION_ID available; skipping observer lease registration');

@@ -5,7 +5,7 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   const norm = typeof normalizeProse === 'function' ? normalizeProse : (s) => s;
   const verdictText = norm(verdict.text);
   const m = model || {};
-  const [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory, multiSession] = sections;
+  const [grid, pipeline, fanout, activeSessions, timeline, questions, risks, milestoneHistory, multiSession, mswMetrics] = sections;
 
   const now = Date.now();
   const derivedMs = new Date(derivedAt).getTime();
@@ -131,6 +131,15 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
     out.push('## 마일스톤 기록');
     out.push('');
     out.push(milestoneHistory.md);
+    out.push('');
+    out.push('---');
+    out.push('');
+  }
+
+  if (mswMetrics) {
+    out.push('## 계측');
+    out.push('');
+    out.push(mswMetrics.md);
     out.push('');
     out.push('---');
     out.push('');

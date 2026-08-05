@@ -129,7 +129,7 @@ function renderStatus(model, opts) {
     const activeSessions = safeSection('active-sessions', () => renderActiveSessions(m, formatUtils));
     const multiSession = safeSection('multi-session', () => renderMultiSession(m, formatUtils, opts, planBody));
     const timeline = safeSection('audit-timeline',
-      () => renderAuditTimeline(m, formatUtils, undefined, { snapshotsDir: snapshotsDir }));
+      () => renderAuditTimeline(m, formatUtils, opts && opts.now, { snapshotsDir: snapshotsDir }));
     const questions = safeSection('open-questions', () => renderOpenQuestions(m, formatUtils, planBody, opts));
     const risks = safeSection('risks', () => renderRisks(m, formatUtils, planBody, opts));
     const milestoneHistory = safeSection('milestone-history',

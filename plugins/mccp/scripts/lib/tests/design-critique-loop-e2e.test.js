@@ -197,14 +197,46 @@ test('E) converged verdict → no chain-check warning at PR', () => {
   assert.strictEqual(designWarn, undefined);
 });
 
-test('F) fixture file exists in .claude/cache/ (pre-ship dogfood artifact)', () => {
-  // The synthetic fixture is the artifact axis-b (narrow whitelist) uses to
-  // force detector positive in actual /mccp:plan invocations. Verify it's
-  // present in the repo so future cycles can rely on it.
-  const fixturePath = path.resolve(REPO_ROOT_PROBE,
-    '.claude', 'cache', 'test-fixture-status.html');
-  assert.ok(fs.existsSync(fixturePath),
-    'expected synthetic fixture at .claude/cache/test-fixture-status.html');
-  const body = fs.readFileSync(fixturePath, 'utf8');
-  assert.match(body, /v1\.3\.0-m2 Task 10/);
+test('F) fixture 합성 + detector 검증 (축 b design-surface whitelist)', () => {
+  // 축 b whitelist는 .claude/cache/test-fixture-status.html 이 plan 에서
+  // 언급되면 detector signal 로 동작하게 한다. repo 에 fixture 가 존재하는지
+  // 묻지 않고, plan markdown 에서 whitelist path 를 인식하는지 검증한다
+  // — 이것이 §3.9 가 서술한 실제 계약이다.
+  const {
+    findDesignSignalInArtifact,
+  } = require('../impeccable-detect');
+
+  // test-time 합성 — 임시 디렉터리 + fixture plan
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-fixture-test-'));
+  const planDir = path.join(tempDir, '.claude', 'plans');
+  fs.mkdirSync(planDir, { recursive: true });
+
+  // Plan markdown 이 .claude/cache/test-fixture-status.html 을 reference
+  const planContent = `# Test Plan
+
+## Summary
+Test the design-surface whitelist detector.
+
+## Files to Change
+
+| File | Action | Why |
+|---|---|---|
+| \`.claude/cache/test-fixture-status.html\` | UPDATE | v1.3.0-m2 Task 10 fixture for impeccable-detect whitelist axis-b |
+
+## Tasks
+- Verify detector recognizes whitelist paths
+`;
+  const planPath = path.join(planDir, 'fixture-test.plan.md');
+  fs.writeFileSync(planPath, planContent);
+
+  // detector 호출 — plan 이 .claude/cache/test-fixture-status.html 을 언급하면
+  // detector 가 design_signal=true 로 반환
+  const signalFiles = findDesignSignalInArtifact(planPath);
+  assert.ok(signalFiles.length > 0,
+    'impeccable-detect 가 plan 의 Files to Change 에서 .claude/cache/test-fixture-status.html 을 인식');
+  assert.ok(signalFiles.some((f) => f.includes('test-fixture-status.html')),
+    'signal file 목록에 fixture 경로 포함');
+
+  // cleanup
+  fs.rmSync(tempDir, { recursive: true, force: true });
 });

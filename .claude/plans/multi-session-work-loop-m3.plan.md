@@ -37,6 +37,31 @@ M3이 보증하는 것은 정확히 셋이다. 이 목록 밖의 표현은 plan 
 
 **(santa R2 J6 — Reviewer A) "모든 caller"는 *현재* 알려진 경로에 한정된다.** 초안 표현은 미래까지 자동 보장하는 것처럼 읽혔으나, M3 이후 누군가 `.claude/receipts`에 직접 쓰는 신규 경로를 추가하면 보증은 조용히 증발한다(실제로 지금도 store 밖 직접 writer가 2개 있다). 이 간극은 Task 6 coverage gate의 **정적 lint가 그대로 guardrail 역할을 겸한다** — 승인 helper 밖의 receipt-path write가 생기면 lint가 실패하고 B2도 `forward-only`로 떨어진다. 즉 "신규 미보호 writer 유입"은 별도 장치가 아니라 **B2 gate의 사전 축과 동일한 검사**이며, 이 겸용 관계를 명시해 두 곳이 따로 놀지 않게 한다.
 
+## 착수 전 요약 (리뷰 6라운드 종료 시점 — 2026-08-06)
+
+이 plan은 **Codex adversarial 2라운드 + santa-loop dual-review 4라운드**를 거쳤다(양 리뷰어 = Claude Opus + Codex GPT-5.4, 컨텍스트 격리). 구현을 시작하기 전에 이 절만 읽어도 상태를 알 수 있게 정리한다.
+
+**1. 보증의 단일 기준은 바로 위 G1~G3 표다.** plan 다른 곳의 어떤 표현도 그보다 강하게 읽혀서는 안 된다. 명시된 잔여 2건 — (a) 덮인 writer가 이미 성공을 반환했을 수 있음, (b) tombstone TTL 만료 후 replay fence lapse — 는 **M5(전역 순번) 없이는 닫히지 않는다**.
+
+**2. 리뷰가 수렴하지 않은 지점(설계 판단, 문장 수정으로 해결 불가).** Reviewer B는 마지막까지 C1/C7을 FAIL로 두었고 근거는 "덮어쓰기를 여전히 허용하고 사후 보고·감사로 좁혔을 뿐"이다. 이는 **설계상 참**이다 — 파일 기반 advisory lock은 절대 상호배제를 줄 수 없고 `rename`은 CAS가 아니다. 남은 선택지는 (i) 잔여 수용, (ii) M3를 G1 전용으로 좁히고 G3를 M5 순번 축으로 통째 이연, (iii) 기판 교체(범위 초과) 셋뿐이며 **운영자 결정 사항**이다.
+
+**3. 구현 단계에서 확정할 항목(리뷰가 지적했으나 설계 결함이 아니라 미확정 detail).**
+
+| 항목 | 내용 |
+|---|---|
+| 재진입·데드락 | 세 write 경로(store · briefing · completion-ledger)를 같은 lock으로 감쌀 때 중첩 획득이 없는지 실코드에서 확인. 규약만 있고 강제 장치 미설계 |
+| fence 라우팅 | Task 4의 5분기 표를 `writeReceipt` 호출 스택 어느 지점에서 읽고, 거부 시 어떤 예외로 caller에 전달할지 |
+| ENOENT 엣지 | post-rename 재read 시 파일이 이미 사라진 경우(reclaim 후 삭제)를 손상 검출과 구분 |
+| 부정 fixture payload | "guard 우회 write"의 구체적 셸 명령·타이밍을 test에 고정 |
+| 느린 FS 창 | lease 값·heartbeat 주기를 CLAUDE.md §3.6 표에 수치로 기재 + 정체된 receipt 복구 절차 |
+
+**4. 이 사이클이 발견한 M3 범위 밖 실결함 2건 — 선행 처리 권고.** 둘 다 **M2가 이미 ship한 표면**이라 지금도 지표가 오염된 채 쌓이고 있다.
+
+- **J4** — `session-start.js:671`이 `createLedger`에 pid를 넘기지 않아 기록 pid가 SessionStart **hook 프로세스**의 것이고, `updateLedgerHeartbeat`가 pid를 갱신하지 않으며, `listLedgers` same-host 분기가 그 pid 생존을 요구한다 → **단일 머신에서 `activeOnly`가 사실상 공집합**. 수정안: `pid: Number(process.env.CLAUDE_PID)` 전달.
+- **CL-5** — `msw-events` writer는 cwd 상대경로, reader는 repoRoot 고정 → 이벤트 유실 또는 worktree 교차 오염.
+
+**5. 미해결 운영 항목**: OQ-3(PRD M3 문구가 G1~G3보다 강함 — PR 시 조정), CL-3(sibling worktree `feat/codex-intent-context`와 `1.23.1` 충돌 — 나중 머지 쪽이 상향), PRD M1·M2 행 status drift.
+
 ## GROUND — 조사 경로 (inline, fail-open)
 
 Phase 2.5 Workflow fan-out 대신 **인라인 Pattern Grounding**으로 수행했다(command body가 명시한 fail-open 경로 — fan-out은 GROUND *enhancement*이고 게이트가 아니다). M2 plan이 같은 PRD에서 확립한 선례를 따른다. 확정된 사실(전부 실파일 대조):

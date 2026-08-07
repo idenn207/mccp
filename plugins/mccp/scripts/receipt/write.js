@@ -12,6 +12,8 @@ const {
   receiptHash,
 } = require('./hash');
 const { validate, makeSkeleton, GATE_IDS } = require('./schema');
+const { validateReason } = require('./lib/force-override-reason');
+const { parseIntentGateSkipReason, isPrdModePlan } = require('../lib/intent-context');
 const { phaseFromGate } = require('./aliases');
 const { writeReceipt, readReceipt } = require('./store');
 const escalateDetector = require('../lib/escalate-detector');
@@ -103,6 +105,149 @@ function detectDispatchContext(args, cwd) {
   return { marker: false, session_id: null, dispatch_id: null, envelope_path: null };
 }
 
+// codex-intent-context M1 — gates the intent oracle actually governs. The
+// implement gate is deliberately EXCLUDED (UI4): it reviews code patterns, not
+// conversation intent, and wiring it in would make every implement receipt
+// unknown → dedupe dead for every decision (DD9).
+const INTENT_IN_SCOPE_GATES = ['mccp-plan-codex'];
+
+// stampIntentDecision — write.js STAMPS, it never DECIDES (DD5). The verdict is
+// computed by plan-codex-runner.js inside the same process that invoked Codex
+// and held the review payload in memory.
+//
+// PROGRAMMATIC-ONLY BY CONSTRUCTION (Implement-Codex R1 F2, HIGH).
+// There is no `--intent-*` CLI flag and there must never be one: cli.js
+// parseFlags accepts arbitrary `--key value` pairs and forwards them straight
+// into write(), so a flag here would let ANY shell caller stamp
+// intent_gate_verdict='preserved' without Codex ever running — the exact
+// forgery this milestone exists to prevent. parseFlags can only ever produce
+// strings, `true`, or arrays, so requiring a non-null plain OBJECT closes the
+// CLI path structurally rather than by convention.
+function stampIntentDecision(receipt, args, gateId, planText) {
+  const inScope = INTENT_IN_SCOPE_GATES.indexOf(gateId) !== -1;
+  const d = args.intentDecision;
+  const isObject = d !== null && typeof d === 'object' && !Array.isArray(d);
+
+  if (d !== undefined && !isObject) {
+    const err = new Error(
+      'intentDecision must be a non-null object supplied programmatically by ' +
+      'plan-codex-runner.js. Received ' + (Array.isArray(d) ? 'an array' : typeof d) +
+      ' — CLI flags cannot supply an intent decision, by design.');
+    err.code = 'INTENT_GATE_BLOCKED';
+    throw err;
+  }
+
+  if (!isObject) {
+    if (!inScope) return;  // out-of-scope gates legitimately have no intent axis
+
+    // DD1 — a free-form (non-PRD) plan has no upstream intent record, so the
+    // gate genuinely does not apply to it. That is not a judgement call: the
+    // proof is `**Source PRD**:` being absent from the very body this receipt
+    // is about to seal, checked mechanically here exactly as resolveSkipProof
+    // checks it in the runner. Applying it here keeps write.js a stamper (it
+    // still decides nothing) while confining the fail-closed to the plans that
+    // actually carry intent.
+    //
+    // This is not a new bypass: DD1 already makes `free_form_plan` a passing
+    // proof, so stripping the Source PRD line to dodge the gate is equally
+    // available through the runner — and it changes plan_hash and is recorded
+    // honestly in the receipt either way (DD10 threat model).
+    if (typeof planText === 'string' && !isPrdModePlan(planText)) {
+      const m1 = receipt.meta;
+      m1.intent_section_present = false;
+      m1.intent_items_count = null;
+      m1.intent_reference_injected = false;
+      m1.intent_gate_verdict = 'skipped';
+      m1.intent_skip_proof = 'free_form_plan';
+      m1.intent_plan_digest = receipt.plan_hash;
+      m1.intent_run_nonce = null;
+      m1.intent_adjudication_counts = null;
+      m1.intent_gate_force_override = false;
+      m1.intent_gate_force_override_reason = null;
+      return;
+    }
+
+    // DD6 — the audited override is the ONE way to write an in-scope receipt
+    // without the runner. It unblocks the RUN, never the RECORD: the receipt
+    // seals verdict='incomplete' so cross-gate dedupe stays fail-closed and the
+    // audit corpus stays honest about what actually happened.
+    const overrideReason = parseIntentGateSkipReason(process.env);
+    if (overrideReason) {
+      const v = validateReason(overrideReason, { strict: true });
+      if (!v.ok) {
+        const e = new Error(
+          'MCCP_SKIP_INTENT_GATE rejected (' + v.reason + '): a substantive reason ' +
+          '(≥30 chars, ≥3 words, no placeholder/URL-only/banlist token) is required.');
+        e.code = 'INTENT_GATE_BLOCKED';
+        throw e;
+      }
+      const m0 = receipt.meta;
+      m0.intent_section_present = false;
+      m0.intent_items_count = null;
+      m0.intent_reference_injected = false;
+      m0.intent_gate_verdict = 'incomplete';
+      m0.intent_skip_proof = null;
+      m0.intent_plan_digest = null;
+      m0.intent_run_nonce = null;
+      m0.intent_adjudication_counts = null;
+      m0.intent_gate_force_override = true;
+      m0.intent_gate_force_override_reason = overrideReason;
+      process.stderr.write('[mccp:intent-gate] audited override active — receipt seals ' +
+        'intent_gate_verdict=incomplete (dedupe stays fail-closed)\n');
+      return;
+    }
+
+    const err = new Error(
+      'gate ' + gateId + ' is in scope for the intent gate but no intentDecision ' +
+      'was supplied — failing closed (verdict=incomplete).\n' +
+      'Recovery:\n' +
+      '  1. Re-run `/mccp:plan <plan-path>` so plan-codex-runner.js performs the ' +
+      'review and writes this receipt itself (the supported path); OR\n' +
+      '  2. Set MCCP_SKIP_INTENT_GATE="<substantive reason>" to proceed under an ' +
+      'audited override (the real blocking verdict is still sealed in the receipt).\n' +
+      'Writing this receipt directly via `cli.js write` cannot satisfy the gate: ' +
+      'the intent decision has no CLI surface (see write.js#stampIntentDecision).');
+    err.code = 'INTENT_GATE_BLOCKED';
+    throw err;
+  }
+
+  if (!inScope) {
+    const err = new Error(
+      'intentDecision supplied for out-of-scope gate ' + gateId +
+      ' — the intent gate governs ' + INTENT_IN_SCOPE_GATES.join(', ') + ' only (UI4).');
+    err.code = 'INTENT_GATE_BLOCKED';
+    throw err;
+  }
+
+  const m = receipt.meta;
+  m.intent_section_present = d.section_present === true;
+  m.intent_items_count = Number.isInteger(d.items_count) ? d.items_count : null;
+  m.intent_reference_injected = d.reference_injected === true;
+  m.intent_gate_verdict = typeof d.verdict === 'string' ? d.verdict : null;
+  m.intent_skip_proof = typeof d.skip_proof === 'string' ? d.skip_proof : null;
+  m.intent_plan_digest = typeof d.plan_digest === 'string' ? d.plan_digest : null;
+  m.intent_run_nonce = typeof d.run_nonce === 'string' ? d.run_nonce : null;
+  m.intent_adjudication_counts =
+    (d.counts && typeof d.counts === 'object' && !Array.isArray(d.counts)) ? d.counts : null;
+  m.intent_gate_force_override = d.force_override === true;
+  m.intent_gate_force_override_reason =
+    (typeof d.force_override_reason === 'string' && d.force_override_reason.length > 0)
+      ? d.force_override_reason : null;
+
+  // DD6 — the override unblocks the RUN, never the record. The receipt seals
+  // the real verdict so cross-gate dedupe stays fail-closed downstream.
+  if (d.runtime_allowed === false) {
+    const err = new Error(
+      'intent gate is blocking (verdict=' + m.intent_gate_verdict + '): ' +
+      (d.reason || 'no reason supplied') + '\n' +
+      'Recovery:\n' +
+      '  1. Fix the adjudication/User Intent section and re-run `/mccp:plan <plan-path>`; OR\n' +
+      '  2. Set MCCP_SKIP_INTENT_GATE="<substantive reason>" for an audited override.');
+    err.code = 'INTENT_GATE_BLOCKED';
+    throw err;
+  }
+}
+
 function buildReceipt(args) {
   const gateId = args.gate || args['gate-id'];
   const decisionId = args.decision || args['decision-id'];
@@ -121,6 +266,11 @@ function buildReceipt(args) {
   const phase = phaseFromGate(gateId);
   const planAbs = path.resolve(cwd, planPath);
   const planHash = planAwareMarkdownHash(planAbs);
+  // codex-intent-context M1 — read once for the DD1 free-form proof in
+  // stampIntentDecision. Unreadable → null, which keeps the in-scope path
+  // fail-closed rather than silently granting a skip.
+  let planText = null;
+  try { planText = fs.readFileSync(planAbs, 'utf8'); } catch (_) { planText = null; }
 
   const designDocPaths = asArray(args['design-doc']);
   const designDocHash = designDocPaths.map(function (p) {
@@ -364,6 +514,8 @@ function buildReceipt(args) {
         && args['pr-codex-force-override-reason'].length > 0)
         ? args['pr-codex-force-override-reason'] : null;
   }
+
+  stampIntentDecision(receipt, args, gateId, planText);
 
   receipt.subject_hash = subjectHash(receipt);
   receipt.receipt_hash = receiptHash(receipt);

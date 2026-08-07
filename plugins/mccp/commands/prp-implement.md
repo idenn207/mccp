@@ -55,6 +55,25 @@ The receipt-prompt hook may inject an `mccp_receipt_gate` context block when thi
 
 4. **Write the missing receipt.** For each `missing[i]`:
 
+   **In-scope branch first (codex-intent-context M1).** If `missing[i].gate_id` is
+   `mccp-plan-codex`, do **NOT** run `cli.js write`. That gate is governed by the
+   intent gate, whose decision has no CLI surface by design (a flag there would let
+   any shell caller stamp an approving verdict without Codex running). A blind write
+   would fail closed with exit 12 and surface as an opaque error. Instead output:
+
+   ```
+   [MCCP-INTENT-GATE-STOP] cannot auto-recover a missing mccp-plan-codex receipt.
+   That gate is produced by plan-codex-runner.js, which invokes Codex and adjudicates
+   every finding in one process — there is no CLI path that can reproduce it.
+   Recovery:
+     1. Run `/mccp:plan <plan path>` to regenerate the gate properly; OR
+     2. Set MCCP_SKIP_INTENT_GATE="<substantive reason>" and re-enter
+        /mccp:prp-implement for an audited override (the receipt still seals the
+        real blocking verdict, so cross-gate dedupe stays fail-closed).
+   ```
+
+   End the response. For every other `gate_id`, the existing blind write is unchanged:
+
    ```bash
    node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
      --gate <missing[i].gate_id> \

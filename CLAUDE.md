@@ -615,6 +615,53 @@ ship squash 시 PR merge 방식은 **merge commit**(GitHub 설정 적용 완료)
 
 ---
 
+### 3.13 Plan-Codex 의도 컨텍스트 게이트 (v1.23.1 — codex-intent-context M1)
+
+`/mccp:plan`의 Plan-Codex 게이트는 리뷰어(out-of-process Codex)에게 **사용자 대화 의도를 전달할 채널이 없었다**. 리뷰어는 제안서만 보고 요구사항은 못 봤고, finding 수용 판단은 어디에도 기록되지 않았다. M1은 세 축을 닫는다.
+
+#### L1 — 의도 표면화
+
+PRD-모드 plan은 `## User Intent` 표를 **필수**로 갖는다(`| ID | Constraint (user-stated) | Kind |`). [intent-context.js](plugins/mccp/scripts/lib/intent-context.js)가 이 표의 `Constraint` 열**만** 읽어 `<user_intent_reference>` 블록을 만들고 `codex-invoke --intent-reference-file`로 리뷰어 focus에 주입한다(순서: design-scope → intent → base focus).
+
+- **저자 정당화는 절대 넣지 않는다**(UI2). anchoring 회피는 텍스트 lint가 아니라 **구조 분리**로 한다 — 오라클은 `## Design Decisions`에 도달할 경로 자체가 없다.
+- 구조 가드(위반 시 섹션을 **부재**로 취급): ID `^UI\d+$` 유일 · `Kind ∈ {constraint, exception, exclusion, direction}` · ≥3단어 · placeholder 금지 · 지시문 형태 금지 · ≤200행.
+- 주입 하드닝: 입력 엔티티 **1회 비재귀** 디코드(`&lt;`/`&#60;`/`&#x3c;`) → 이스케이프(역슬래시 **우선**) → 300자 상한(홀수 trailing `\` 제거). **homoglyph는 NFKC가 접지 못한다**(실측: `ignоre`의 U+043E 불변) — primary 통제는 토큰 내 **mixed-script 거부**(일반 규칙)이고 Cyrillic/Greek→Latin fold는 열거식 보조다.
+
+#### L2-A — 판정 커버리지 강제
+
+Codex의 **모든 finding**이 명시 adjudication을 받아야 한다. 1건이라도 빠지면 `incomplete` → **receipt 미작성** → `/mccp:prp-implement` 진입 불가. verdict 5종: `preserved` · `skipped` · `skipped-unproven` · `incomplete` · `conflict_unresolved`.
+
+- **증명 없는 `skipped`는 통과 티켓**이므로 `meta.intent_skip_proof ∈ {free_form_plan, no_codex_findings, codex_disabled}` 하나를 mechanical하게 대조한다(`pr-ship-gate.js:55-68`이 이미 값을 치른 구멍).
+- 유일한 **실질** 규칙: `intent_conflict ≠ none` ∧ `verdict=ACCEPT_NOW`면 `intent_override_reason` 필수 → 부재 시 `conflict_unresolved`.
+- **M1은 오심을 막지 못한다.** 저자가 충돌을 `none`으로 찍으면 커버리지는 통과한다. M1은 **누락**을 막고, 오심 탐지(리뷰어 per-finding `INTENT:` 계약)는 **M1.5** 소유다. M1은 UI10 달성을 **주장하지 않는다**.
+
+#### 단일 프로세스가 위조 창을 없앤다 (DD3)
+
+[plan-codex-runner.js](plugins/mccp/scripts/lib/plan-codex-runner.js)가 Codex 호출 → payload를 **메모리 보유** → adjudication 대기(bounded) → 판정 → receipt write를 한 프로세스로 수행한다. 감사 envelope는 디스크에 남기되 **다시 읽지 않는다**(회귀 test: 변조해도 verdict 불변). 2-pass 설계는 pass 2가 envelope를 재read해야 하므로 **채택하지 않았다**.
+
+- codex 900s > Bash 600s라 호출자는 runner를 **detached**로 띄우고 marker를 poll한다. marker 경로에 `RUN_NONCE`가 포함돼 stale marker가 새 경로에 존재할 수 없고, `meta.intent_run_nonce`가 receipt에 봉인돼 **marker 유실 크래시도 markerless로 복구**된다. per-decision lease lock이 동시 writer를 거부한다(host-aware tri-state).
+- poll 상태는 `running`/`succeeded-markerless`/`crashed`/`timeout` 4종 — 무한 대기도 조용한 진행도 없다.
+
+#### intent 결정은 CLI 표면을 갖지 않는다
+
+`cli.js parseFlags`는 임의 `--*`를 `write()`로 전달하므로 intent 플래그를 만들면 **아무 셸 호출자나 Codex 없이 `preserved`를 stamp**할 수 있다. 따라서 `intentDecision`은 **프로그래매틱 non-null 객체 전용**이고(parseFlags는 문자열/`true`/배열만 생성 가능 → 타입 가드가 구조적 차단), `--intent-*` 플래그는 **0건**이다. 수동 복구는 `/mccp:plan` 재실행 또는 `MCCP_SKIP_INTENT_GATE`이며 `cli.js write`가 아니다 — `prp-implement.md` Phase 0.0도 `mccp-plan-codex`를 blind write하지 않고 분기한다.
+
+#### 소비처별 판정 (단일 `pass` 없음)
+
+| 출력 | 소비처 | override 영향 |
+|---|---|---|
+| `runtimeAllowed` | runner/write | 받음 |
+| `chainAllowed` | `validate-cmd` 비-terminal | 받음 |
+| `dedupeApproved` | `dedupe.js` | **절대 안 받음** |
+
+강제된 `incomplete` receipt가 dedupe를 인증하면 PR-Codex가 skip돼 dual-review가 우회된다 — 그래서 단일 불리언을 쓰지 않는다. `dedupe.js`의 공유 `codexConverged`는 **불변**이고 intent 조건은 plan 축에만 붙는다(DD9 — 공유 헬퍼에 넣으면 out-of-scope implement receipt가 항상 unknown이 되어 **전 dedupe 사망**). legacy(키 부재) receipt는 chain ALLOW + warning이지만 dedupe는 거부 → "키를 빼면 공짜 skip"의 보상이 0.
+
+#### Receipt audit (10 present-only 필드)
+
+`intent_section_present` · `intent_items_count` · `intent_reference_injected` · `intent_gate_verdict` · `intent_adjudication_counts` · `intent_gate_force_override` · `intent_gate_force_override_reason` · `intent_skip_proof` · `intent_plan_digest` · `intent_run_nonce`. `makeSkeleton` **미포함**(`pr_codex_force_override` 선례 — §3.12 tracked ship corpus hash 안정성 + DD2의 "키 부재 = 모름" 보존). `by_verdict`는 **open map**이고 검증은 합계 불변식이다(닫힌 키 집합은 신규 verdict 추가 시 과거 receipt를 소급 invalid로 만든다).
+
+---
+
 ## 4. 자주 쓰는 명령 (Cheat Sheet)
 
 ```bash
@@ -749,6 +796,10 @@ MCCP_DESIGN_GROUNDING=off|warn|enforce    # v1.18.22 default: enforce (fail-clos
 MCCP_IMPECCABLE_ROUTING_MODE=auto|hybrid|recommend  # v1.13.0 default: auto. 디자인 게이트가 stage-appropriate impeccable 명령(shape/layout/typeset/audit/harden/polish)을 어떻게 다룰지 결정. auto=실제 호출 / hybrid=evaluate(critique/audit)만 invoke·나머지 recommend / recommend=전부 권장만. 미지정·오타 시 auto. critique은 모드 무관하게 §3.9 retry loop가 소유(divergent blocking 보존). pr 게이트는 모드 무관 recommend-only(review-only invariant). prp-implement은 renderingSurface=0(control-plane-only diff)일 때 auto에서도 refine/discovery를 recommend로 강등(Codex F4). receipt에 meta.impeccable_routing_mode + meta.impeccable_commands_routed(structured outcome) stamp.
 MCCP_IMPECCABLE_INTENT_COMMANDS="bolder,quieter,overdrive,delight"  # v1.13.0 M2. mood/direction 명령은 diff로 감지 불가 → 기본 recommend-only. 이 env에 나열된 mood 명령은 4중 AND(auto + renderingSurface + designIntentActive(=MCCP_DESIGN_INTENT_REASON 활성) + 본 membership)에서만 prp-implement이 invoke로 승격. 미지정/조건 미충족 시 recommend. comma-separated, 알 수 없는 토큰은 무시. content-detectable 명령(animate/colorize/typeset/adapt)은 본 env와 무관 — diff signal positive-presence로 자동 선별(§3.10 M2).
 MCCP_A11Y_AUTO_INVOKE=0|1                 # v1.13.0 M3 default: 1. /mccp:pr 게이트에서 PR diff에 rendered design surface(UI ext)가 있으면 mccp:a11y-architect를 review-only로 auto-invoke해 WCAG 2.2 관점 review를 PR body `## Accessibility Review`에 inject. 트리거는 rendering_surface(Codex finding 유무 아님 — design-scope preamble starvation 회피, Codex R1 F1). 전용 a11y-review pr-phase lock window + mutations finalizer로 review-only 보증(편집 시 hard-stop, R1 F2). receipt meta.a11y_auto_invoked stamp via finalize-receipt --a11y-auto-invoked(R1 F3). =0이면 auto-invoke 비활성(기존 routing-only count 동작 유지). rendering_surface=false면 어느 값이든 skip. remediation은 advisory — 적용은 별도 /mccp:prp-implement cycle.
+
+# v1.23.1 Plan-Codex 의도 컨텍스트 게이트 (see §3.13)
+MCCP_SKIP_INTENT_GATE="<reason>"           # v1.23.1 audited override. /mccp:plan의 intent gate가 block(`incomplete`/`conflict_unresolved`/`skipped-unproven`)일 때 **이번 호출의 mechanical HALT만** 해제한다. strict reason validator(≥30자·≥3단어·placeholder/URL-only/banlist 거부 — `MCCP_FORCE_PR_WITHOUT_IMPECCABLE`와 동일 규칙). **verdict를 세탁하지 않는다** — receipt는 실제 blocking verdict를 봉인한 채 `meta.intent_gate_force_override=true` + reason과 함께 작성되므로, cross-gate dedupe는 여전히 fail-closed고(PR-Codex 실발화) 감사 corpus도 거짓이 되지 않는다(DD6, M3 `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE`와 동형). `cli.js write --gate mccp-plan-codex`가 in-scope fail-closed로 막힐 때의 유일한 비-runner 통로이기도 하다. 1회용 권장.
+MCCP_INTENT_ADJUDICATION_TIMEOUT_MS=1800000 # v1.23.1 default: 1800000(30분). plan-codex-runner가 adjudication 파일을 기다리는 bounded 상한. 초과 시 `incomplete`로 종료하고 receipt를 쓰지 않는다(무한 대기 금지). runner는 대기 중 lease lock에 heartbeat를 찍어 동시 runner가 자신을 live로 인식하게 한다.
 
 # Silent-hook UX (v0.2.7 — Observability Surface)
 MCCP_RECEIPT_DEBUG_LEGACY_INLINE=0                 # v0.2.7 advanced opt-out. MCCP_RECEIPT_DEBUG=1일 때 L2a ALLOW-path systemMessage emit을 끄고 기존 block-payload inline 모드만 유지. Default(unset 또는 =1)는 L2a active. 자세한 precedence는 docs/ENVIRONMENT.md §1.

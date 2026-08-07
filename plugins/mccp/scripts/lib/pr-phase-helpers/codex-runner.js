@@ -311,6 +311,17 @@ function runMain(args) {
       '--json',
     ];
     if (impeccableAvailable) invokeArgs.push('--impeccable-available');
+    // codex-intent-context M1 (Task 10) — L1 ONLY at the PR gate. The user-intent
+    // reference is forwarded so PR-Codex reviews the diff against what the user
+    // actually asked for; the L2-A adjudication gate is NOT run here. Adjudication
+    // is owned by the plan step (it is where findings are triaged), and re-running
+    // it at PR time would both duplicate that work and collide with the review-only
+    // invariant this gate is built around. Absent/unreadable → flag omitted, and the
+    // PR review proceeds exactly as before (fail-open: intent context is an
+    // enhancement to this gate, never a new way for it to fail).
+    if (typeof args['intent-reference-file'] === 'string' && args['intent-reference-file']) {
+      invokeArgs.push('--intent-reference-file', args['intent-reference-file']);
+    }
     const codexRes = spawnSync(NODE, invokeArgs, {
       cwd: cwd,
       env: process.env,

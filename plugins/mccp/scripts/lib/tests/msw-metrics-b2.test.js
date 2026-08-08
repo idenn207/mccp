@@ -62,12 +62,18 @@ test('producer presence is INDEPENDENT of incident count (M2 requirement)', () =
   assert.equal(some.value, 0.5);
 });
 
-test('denominator zero → invalid (a rate cannot be manufactured)', () => {
+test('denominator zero → insufficient, not invalid (absence is not a contradiction)', () => {
+  // `invalid` in this module means the data contradicts itself (A1 unit spike /
+  // timestamp inversion, C1 type-separation violation) and the renderer ranks it
+  // at the top of the decision-priority order. "No overlapping sessions yet" is
+  // an absence, not a contradiction — and it is the state of every solo-operator
+  // repo, so `invalid` would put a permanent false integrity alarm on the most
+  // common configuration. C1 already models this case as `insufficient`.
   const r = b2({ concurrent_pairs_count: 0 });
-  assert.equal(r.status, 'invalid');
-  assert.equal(r.integrity_ok, false);
+  assert.equal(r.status, 'insufficient');
+  assert.equal(r.integrity_ok, true, 'nothing is contradictory, there is just no data');
   assert.equal(r.value, null);
-  assert.match(r.invalid_reason, /denominator is zero/);
+  assert.match(r.invalid_reason, /no concurrent session pairs/);
 });
 
 test('prevented conflicts are co-reported but NEVER in the numerator', () => {

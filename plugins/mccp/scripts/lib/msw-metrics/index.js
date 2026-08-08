@@ -253,16 +253,22 @@ function computeB2(model) {
     };
   }
 
-  // 분모 0 → invalid (무결성 규칙 유지): 동시 활동 쌍이 없으면 비율을 만들 수 없다.
+  // 분모 0 → `insufficient`. 이 파일에서 `invalid`는 **무결성 위반**을 뜻한다
+  // (A1의 unit spike·timestamp inversion, C1의 type separation violated) — 즉
+  // 데이터가 서로 모순된다는 뜻이다. "동시 활동 쌍이 아직 없다"는 모순이 아니라
+  // 데이터의 부재이고, 같은 파일 C1이 그 경우를 이미 `insufficient`로 표기한다
+  // (`allFindings > 0 ? 'computed' : 'insufficient'`). `invalid`로 두면 겹치는
+  // 세션이 없는 **1인 세션 저장소**(가장 흔한 구성)가 렌더러의 최우선 순위
+  // 버킷에 무결성 위반으로 올라가 상시 오탐이 된다.
   if (concurrentPairs === 0) {
     return {
       id: B2_CONCURRENT_CONFLICTS,
       numerator: sessionActivity.overwrite_observed_count || 0,
       denominator: 0,
       value: null,
-      integrity_ok: false,
-      invalid_reason: 'denominator is zero (no concurrent session pairs observed)',
-      status: 'invalid',
+      integrity_ok: true,
+      invalid_reason: 'no concurrent session pairs observed yet (denominator is zero)',
+      status: 'insufficient',
       coverage: sessionActivity.producer_coverage || 'unknown',
       conflicts_prevented: prevented,
     };

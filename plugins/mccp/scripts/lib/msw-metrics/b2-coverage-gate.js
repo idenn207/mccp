@@ -40,6 +40,12 @@ const APPROVED_PREFIXES = [
   'plugins/mccp/scripts/migrations/',                // sanctioned migration
 ];
 
+// 감사자 자신. 이 파일은 검출 패턴을 **데이터로** 담고 있어서(정규식 리터럴이
+// `receiptPath(`를 문자 그대로 포함한다) 자기 자신을 잡는다. 이 파일의 유일한
+// fs write는 `writeGateArtifact`의 `.claude/cache/b2-coverage-gate.json`이며
+// receipt 경로에 쓰지 않는다 — 그 사실은 test가 별도로 고정한다.
+const SELF_EXEMPT = 'plugins/mccp/scripts/lib/msw-metrics/b2-coverage-gate.js';
+
 // 기대 mutation entrypoint 레지스트리. 목록 밖 = 실패, 목록에 있는데 부재 = 실패.
 const MUTATION_ENTRYPOINTS = [
   { file: 'plugins/mccp/scripts/receipt/store.js', fn: 'writeReceipt' },
@@ -47,10 +53,40 @@ const MUTATION_ENTRYPOINTS = [
   { file: 'plugins/mccp/scripts/receipt/evidence-lock.js', fn: 'writeFileAtomic' },
 ];
 
-const WRITE_CALL_RE = /(writeFileSync|writeFile|appendFileSync|createWriteStream)\s*\([^)]*receipts/;
+// 정적 lint의 두 축.
+//
+// 축 A는 fs write 호출의 **인자**에 receipt 계열 토큰이 보이는 경우다. 이전
+// 판본은 리터럴 `receipts`(복수)만 봤는데, 그것은 실제 writer 형태를 하나도
+// 잡지 못했다 — 이 milestone이 제거한 두 writer
+// (`writeFileSync(receiptPath, json, 'utf8')` · `writeFileSync(p,
+// JSON.stringify(receipt, ...))`) 와 승인된 writer 자신의 형태까지 전부 통과했고,
+// 저장소 전체 스캔이 위반 0을 보고했다. 즉 "미래 writer는 lint가 잡는다"는
+// store.js의 한정 근거가 실재하지 않았다. `/receipt/i` 단수 + 대소문자 무시로
+// 넓히면 세 형태가 모두 걸린다.
+const WRITE_CALL_RE = /(writeFileSync|writeFile|appendFileSync|createWriteStream)\s*\([^)]*receipt/i;
+
+// 축 B는 축 A가 원리상 못 보는 형태를 덮는다 — 경로를 먼저 변수에 담고
+// (`const target = receiptPath(root, gate, slug)`) write 줄에는 receipt 토큰이
+// 남지 않는 경우. store의 경로 helper를 부르면서 fs write도 하는 비승인 파일은
+// receipt를 직접 쓰고 있다고 본다.
+const RECEIPT_PATH_HELPER_RE = /receiptPath\s*\(/;
+const ANY_WRITE_CALL_RE = /(writeFileSync|writeFile|appendFileSync|createWriteStream)\s*\(/;
 
 function toPosix(p) {
   return String(p).split(path.sep).join('/');
+}
+
+// 주석 줄은 검사에서 뺀다. 넓힌 패턴이 주석까지 보면 **금지된 형태를 문서에
+// 적는 행위 자체가 위반**이 되어(이 파일 헤더가 실제로 그렇게 걸렸다) 설명을
+// 쓸 수 없게 된다. 줄 시작 기준의 근사이며 — 블록 주석 안에서 `*`로 시작하지
+// 않는 이어지는 줄은 여전히 검사된다 — 보수적 방향(덜 무시)이라 안전하다.
+function isCommentLine(line) {
+  const t = String(line).trim();
+  return t.indexOf('//') === 0 || t.indexOf('*') === 0 || t.indexOf('/*') === 0;
+}
+
+function stripComments(raw) {
+  return String(raw).split(/\r?\n/).filter(function (l) { return !isCommentLine(l); }).join('\n');
 }
 
 // ── 스냅샷 ───────────────────────────────────────────────────────────────────
@@ -196,20 +232,33 @@ function listJsFiles(dir, acc) {
   return acc;
 }
 
+// **정직한 한계**: 이것은 한 줄 단위 텍스트 검사이고 타입 해석을 하지 않는다.
+// 경로가 helper 밖에서 계산되고(`getPath(gate, slug)`) write 줄에도 receipt
+// 토큰이 없으면 두 축 모두 놓친다. 그래서 이 lint는 **보조** 축이고 primary
+// falsifier는 런타임 변형 감사다 — 정적 축 단독으로는 `ok`를 낼 수 없다
+// (`evaluateGate` 참조). 여기서 주장하는 것은 "모든 우회를 잡는다"가 아니라
+// "우발적으로 유입되는 통상적 writer 형태를 잡는다"뿐이다.
 function staticLint(repoRoot) {
   const scanRoot = path.join(repoRoot, 'plugins', 'mccp', 'scripts');
   const violations = [];
   for (const full of listJsFiles(scanRoot)) {
     const rel = toPosix(path.relative(repoRoot, full));
     if (rel.indexOf('/tests/') !== -1) continue;
+    if (rel === SELF_EXEMPT) continue;
     if (APPROVED_WRITERS.indexOf(rel) !== -1) continue;
     if (APPROVED_PREFIXES.some(function (p) { return rel.indexOf(p) === 0; })) continue;
     let raw;
     try { raw = fs.readFileSync(full, 'utf8'); } catch (_e) { continue; }
+    const usesReceiptPathHelper = RECEIPT_PATH_HELPER_RE.test(stripComments(raw));
     const lines = raw.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
-      if (WRITE_CALL_RE.test(lines[i])) {
-        violations.push({ file: rel, line: i + 1, text: lines[i].trim().slice(0, 160) });
+      const line = lines[i];
+      if (isCommentLine(line)) continue;
+      let axis = null;
+      if (WRITE_CALL_RE.test(line)) axis = 'write-call-args';
+      else if (usesReceiptPathHelper && ANY_WRITE_CALL_RE.test(line)) axis = 'receipt-path-helper';
+      if (axis) {
+        violations.push({ file: rel, line: i + 1, axis: axis, text: line.trim().slice(0, 160) });
       }
     }
   }
@@ -348,6 +397,7 @@ module.exports = {
   readGateArtifact: readGateArtifact,
   runCli: runCli,
   APPROVED_WRITERS: APPROVED_WRITERS,
+  SELF_EXEMPT: SELF_EXEMPT,
   MUTATION_ENTRYPOINTS: MUTATION_ENTRYPOINTS,
   TS_TOLERANCE_MS: TS_TOLERANCE_MS,
 };

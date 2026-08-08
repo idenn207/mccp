@@ -413,6 +413,12 @@ function deriveFingerprint(repoRoot, fallback) {
 function triggerEscalateIfNeeded(repoRoot, receipt, receiptPath) {
   const det = escalateDetector.detectFromReceipt(receipt);
   if (det.escalate) {
+    // fix-task.md / fix-task-applied.md are git-tracked (CLAUDE.md §3.2), so the
+    // recorded path must be repo-relative. writeReceipt returns an absolute one,
+    // which pinned the operator's machine + worktree into a committed file and
+    // broke on every other clone. Matches the convention already visible in the
+    // file's own earlier entries.
+    const relReceiptPath = path.relative(repoRoot, receiptPath).split(path.sep).join('/');
     fixTask.writeOrAppend(repoRoot, {
       verdict: det.verdict,
       escalate: true,
@@ -420,7 +426,7 @@ function triggerEscalateIfNeeded(repoRoot, receipt, receiptPath) {
       decisionId: receipt.decision_id,
       codexSummary: deriveEscalateSummary(det),
       originalPrompt: '<gate-receipt:' + receipt.gate_id + '/' + receipt.decision_id + '>',
-      originatingReceipts: [receiptPath],
+      originatingReceipts: [relReceiptPath],
     });
     stateWriter.update(repoRoot, {
       escalate_pending: true,

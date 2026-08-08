@@ -24,7 +24,9 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const store = require('./store');
-const { readReceipt } = require('../../receipt/store');
+// `readReceipt` is gone: stampSkipDiagnostic now reads inside the evidence lock
+// (multi-session-work-loop M3), so a separate reader outside the critical
+// section has no caller left.
 const { validate } = require('../../receipt/schema');
 const { extractRisksAndOpenQuestions } = require('../renderer/parsers/plan-body');
 

@@ -135,18 +135,49 @@ test('taxonomy counters read the new kinds and the dead read is gone', () => {
   mswEvents.appendEvent('s', Object.assign({ kind: 'evidence_guard_active' }, base), { repoRoot: repo });
   mswEvents.appendEvent('s', Object.assign({ kind: 'evidence_guard_active' }, base), { repoRoot: repo });
   mswEvents.appendEvent('s', Object.assign({ kind: 'evidence_overwrite_observed' }, base), { repoRoot: repo });
-  mswEvents.appendEvent('s', Object.assign({ kind: 'evidence_conflict_prevented' }, base), { repoRoot: repo });
-  mswEvents.appendEvent('s', Object.assign({ kind: 'work_claim_denied' }, base), { repoRoot: repo });
+  // Claim denials are NOT a separate kind. They arrive as prevented + a
+  // claim-fence `conflict_kind`; the reader derives claim_denied_count from that
+  // discriminator. The earlier shape counted a dedicated `work_claim_denied`
+  // kind that no producer ever emitted, so the counter was structurally stuck at
+  // zero — the same dead-read defect this milestone removed for
+  // `collision`/`conflict`, reintroduced one field over.
+  mswEvents.appendEvent('s', Object.assign({
+    kind: 'evidence_conflict_prevented', conflict_kind: 'base-hash-changed',
+  }, base), { repoRoot: repo });
+  mswEvents.appendEvent('s', Object.assign({
+    kind: 'evidence_conflict_prevented', conflict_kind: 'other-live-holder',
+  }, base), { repoRoot: repo });
   // The retired kinds must contribute nothing.
   mswEvents.appendEvent('s', Object.assign({ kind: 'collision' }, base), { repoRoot: repo });
+  mswEvents.appendEvent('s', Object.assign({ kind: 'work_claim_denied' }, base), { repoRoot: repo });
 
   const r = scanSessionActivity(repo);
   assert.equal(r.guard_active_count, 2);
   assert.equal(r.collision_producer_present, true, 'guard_active alone proves the producer is wired');
   assert.equal(r.overwrite_observed_count, 1);
-  assert.equal(r.conflict_prevented_count, 1);
-  assert.equal(r.claim_denied_count, 1);
+  assert.equal(r.conflict_prevented_count, 2, 'both lock-axis and claim-axis preventions');
+  assert.equal(r.claim_denied_count, 1, 'only the claim-fence one, derived from conflict_kind');
   assert.equal(r.collision_events_count, 1, 'B2 numerator counts incidents only');
+});
+
+test('a claim-fence denial is counted through a kind that a producer really emits', () => {
+  // Regression guard for the dead read: assert against the reader using an event
+  // shaped exactly as receipt/evidence-lock.js emits it, so renaming the kind on
+  // one side alone breaks this test instead of silently zeroing the counter.
+  const repo = mkRepo('claimdeny');
+  mswEvents.appendEvent('s', {
+    kind: 'evidence_conflict_prevented',
+    ts: '2026-01-01T00:00:00.000Z',
+    work_unit: 'unit-x',
+    conflict_kind: 'other-live-holder',
+    holder_session: 'someone-else',
+    target: '.claude/receipts/mccp-plan-codex/unit-x.json',
+    producer: 'evidence-lock.js',
+  }, { repoRoot: repo });
+
+  const r = scanSessionActivity(repo);
+  assert.equal(r.claim_denied_count, 1);
+  assert.equal(r.overwrite_observed_count, 0, 'a refused write is not an incident');
 });
 
 test('coverage gate artifact absence reads as NOT passed (fail-closed)', () => {

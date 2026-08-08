@@ -186,17 +186,22 @@ function writeReceipt(repoRoot, receipt) {
 function updateReceipt(repoRoot, gateId, decisionId, mutate) {
   const p = receiptPath(repoRoot, gateId, decisionId);
   const { guardedReadModifyWrite } = require('./evidence-lock');
+
+  // Mirror readReceipt's symlink/junction defenses, and do it BEFORE acquiring
+  // the lock. Acquisition creates `<gateDir>/<slug>.json.lock` (and mkdirs the
+  // parent), so checking inside the critical section would already have written
+  // a file through a junction pointing outside the worktree — the very thing the
+  // check exists to prevent. Nothing is created before this returns.
+  const gd = gateDir(repoRoot, gateId);
+  if (fs.existsSync(gd) && !isSafeGateDir(gd)) {
+    const e = new Error('gate dir is not a regular directory (symlink/junction/file)');
+    e.code = 'UNSAFE_GATE_DIR';
+    e.path = gd;
+    throw e;
+  }
+
   let out = null;
   guardedReadModifyWrite(p, function (raw) {
-    // Mirror readReceipt's symlink/junction defenses. Inside the lock the
-    // lstat→read window is as narrow as it can get.
-    const gd = gateDir(repoRoot, gateId);
-    if (fs.existsSync(gd) && !isSafeGateDir(gd)) {
-      const e = new Error('gate dir is not a regular directory (symlink/junction/file)');
-      e.code = 'UNSAFE_GATE_DIR';
-      e.path = gd;
-      throw e;
-    }
     if (raw === null || raw === undefined) {
       const e = new Error('no existing receipt for ' + gateId + '/' + decisionId);
       e.code = 'RECEIPT_NOT_FOUND';

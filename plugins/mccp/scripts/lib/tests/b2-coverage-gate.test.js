@@ -131,6 +131,67 @@ test('static lint FAILS when an unapproved writer is introduced', () => {
   assert.equal(r.violations[0].file, 'plugins/mccp/scripts/lib/rogue.js');
 });
 
+// 회귀 고정: lint가 "실제로 존재했던" writer 형태를 잡는지.
+//
+// 이전 판본의 정규식은 리터럴 `receipts`(복수)만 봤고, 위 test는 하필 그 형태
+// 하나로만 검증해서 **통과했다**. 그래서 lint는 저장소 전체에서 위반 0을
+// 보고하면서도 이 milestone이 방금 제거한 두 writer를 못 잡는 상태였다.
+// 아래 fixture는 전부 이 저장소에 실재했던 코드에서 그대로 가져온 것이다 —
+// 하나라도 통과하면 guardrail이 다시 비어 있다는 뜻이다.
+const HISTORICAL_WRITER_SHAPES = [
+  { name: 'briefing stamper (pre-M3)', src: "  fs.writeFileSync(receiptPath, json, 'utf8');\n" },
+  { name: 'store.writeReceipt (pre-M3)', src: "  fs.writeFileSync(p, JSON.stringify(receipt, null, 2) + '\\n', 'utf8');\n" },
+  { name: 'ledger skip stamper (pre-M3)', src: "  fs.writeFileSync(receiptPath, JSON.stringify(fresh, null, 2) + '\\n', 'utf8');\n" },
+  {
+    name: 'path via store helper, no token on the write line',
+    src: "const p = receiptPath(repoRoot, gateId, decisionId);\nfs.writeFileSync(p, body, 'utf8');\n",
+  },
+];
+
+test('static lint catches every writer shape that actually existed here', () => {
+  for (const shape of HISTORICAL_WRITER_SHAPES) {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-lint-shape-'));
+    const dir = path.join(repo, 'plugins', 'mccp', 'scripts', 'lib');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'rogue.js'), shape.src, 'utf8');
+    const r = gate.staticLint(repo);
+    assert.equal(r.ok, false, 'MISSED writer shape: ' + shape.name + ' — ' + shape.src.trim());
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('static lint does not fire on non-receipt writes in the same tree', () => {
+  // The guardrail must stay usable: a file that writes something else entirely
+  // (PR body staging, cache artifacts) is not a receipt writer.
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-lint-fp-'));
+  const dir = path.join(repo, 'plugins', 'mccp', 'scripts', 'lib');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'innocent.js'),
+    "fs.writeFileSync(staging, String(content == null ? '' : content), 'utf8');\n"
+    + "fs.writeFileSync(path.join(repoRoot, '.claude/cache/STATUS.md'), md, 'utf8');\n", 'utf8');
+  const r = gate.staticLint(repo);
+  assert.equal(r.ok, true, 'false positives: ' + JSON.stringify(r.violations, null, 2));
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('the auditor exempts itself, and that exemption stays honest', () => {
+  // The gate file holds the detection patterns as DATA, so it matches itself and
+  // has to be exempt. An exemption is only acceptable while the claim behind it
+  // holds: this file must never write to a receipt path. Pin that directly
+  // rather than trusting the comment.
+  const src = fs.readFileSync(path.join(process.cwd(), gate.SELF_EXEMPT), 'utf8');
+  const writeTargets = src.split(/\r?\n/)
+    .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+    .filter((l) => /(writeFileSync|appendFileSync|createWriteStream)\s*\(/.test(l));
+  assert.ok(writeTargets.length > 0, 'the file does write something; if not, drop the exemption');
+  for (const l of writeTargets) {
+    assert.ok(!/receipts/.test(l),
+      'the exempt auditor must not write into .claude/receipts: ' + l.trim());
+  }
+  assert.ok(src.includes("'.claude', 'cache', 'b2-coverage-gate.json'"),
+    'its only artifact target is the cache verdict file');
+});
+
 test('static lint ignores tests and sanctioned migrations', () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-lint2-'));
   const testsDir = path.join(repo, 'plugins', 'mccp', 'scripts', 'lib', 'tests');

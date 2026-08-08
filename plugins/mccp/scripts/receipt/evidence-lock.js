@@ -415,13 +415,17 @@ function runGuarded(target, produce, opts) {
       if (token) {
         heartbeat(lockPath);
         if (!isOwned(lockPath, token)) {
-          reportOverwrite(desc, preReceiptHash, null, 'lock-lost-before-rename', mode, abs, claimEpoch, env);
+          reportOverwrite({ desc: desc, preHash: preReceiptHash, postHash: null,
+            kind: 'lock-lost-before-rename', phase: 'pre',
+            mode: mode, abs: abs, claimEpoch: claimEpoch, env: env });
         }
       }
       const nowRaw = readFileOrNull(abs);
       const nowHash = nowRaw === null ? null : sha256(nowRaw);
       if (nowHash !== baseHash) {
-        reportOverwrite(desc, preReceiptHash, extractReceiptHash(nowRaw), 'base-hash-changed', mode, abs, claimEpoch, env);
+        reportOverwrite({ desc: desc, preHash: preReceiptHash, postHash: extractReceiptHash(nowRaw),
+          kind: 'base-hash-changed', phase: 'pre',
+          mode: mode, abs: abs, claimEpoch: claimEpoch, env: env });
       }
 
       // (5) 원자 rename — retry 루프 안에서도 heartbeat + 소유 재확인(F5)
@@ -436,14 +440,18 @@ function runGuarded(target, produce, opts) {
       // (6) post-rename 검증 — ENOENT는 통과가 아니다.
       const after = readFileOrNull(abs);
       if (after === null) {
-        reportOverwrite(desc, preReceiptHash, null, 'vanished-after-rename', mode, abs, claimEpoch, env);
+        reportOverwrite({ desc: desc, preHash: preReceiptHash, postHash: null,
+          kind: 'vanished-after-rename', phase: 'post',
+          mode: mode, abs: abs, claimEpoch: claimEpoch, env: env });
       } else if (after !== content) {
-        reportOverwrite(desc, preReceiptHash, extractReceiptHash(after), 'content-differs-after-rename',
-          mode, abs, claimEpoch, env);
+        reportOverwrite({ desc: desc, preHash: preReceiptHash, postHash: extractReceiptHash(after),
+          kind: 'content-differs-after-rename', phase: 'post',
+          mode: mode, abs: abs, claimEpoch: claimEpoch, env: env });
       } else if (token && !isOwned(lockPath, token)) {
         // 우리는 소유 없이 썼다 — 승계자를 덮었을 수 있다. G3의 "덮어쓴 쪽이 보고한다".
-        reportOverwrite(desc, preReceiptHash, extractReceiptHash(after), 'wrote-without-ownership',
-          mode, abs, claimEpoch, env);
+        reportOverwrite({ desc: desc, preHash: preReceiptHash, postHash: extractReceiptHash(after),
+          kind: 'wrote-without-ownership', phase: 'post',
+          mode: mode, abs: abs, claimEpoch: claimEpoch, env: env });
       }
 
       if (desc) {
@@ -476,31 +484,49 @@ function runGuarded(target, produce, opts) {
 }
 
 // 사고 기록은 throw **전에** emit한다(fail-closed 경로는 버퍼를 못 비운다).
-function reportOverwrite(desc, preHash, postHash, kind, mode, abs, claimEpoch, env) {
+//
+// `phase`가 이벤트 kind를 결정한다. rename **전** 검출(`pre`)은 enforce에서
+// write를 실제로 거부하므로 사고가 아니라 **예방**이고, 그래서
+// `evidence_conflict_prevented`로 나간다. 이것을 사고로 세면 B2 분자가 차단된
+// 경합을 계상해 **방어가 잘 될수록 지표가 나빠지는** 역인센티브가 생긴다 —
+// 설계 §5가 `prevented`를 분자에서 뺀 이유와 정확히 같은 성질이다. warn
+// 모드에서는 같은 pre 검출이 write를 막지 않아 실제로 덮어쓰므로 사고로 센다.
+// rename **후** 검출(`post`)은 변형이 이미 착지했으므로 모드와 무관하게 사고다
+// (throw는 사후 알림일 뿐 되돌리지 않는다).
+function reportOverwrite(args) {
+  const desc = args.desc;
+  const mode = args.mode;
+  const kind = args.kind;
+  const blocked = args.phase === 'pre' && mode === 'enforce';
+
   if (desc) {
     emitEvent(desc.repoRoot, {
-      kind: 'evidence_overwrite_observed',
+      kind: blocked ? 'evidence_conflict_prevented' : 'evidence_overwrite_observed',
       work_unit: desc.slug,
       conflict_kind: kind,
-      holder_session: resolveSessionId(env),
-      pre_hash: preHash,
-      post_hash: postHash,
-      claim_epoch: claimEpoch,
+      holder_session: resolveSessionId(args.env),
+      pre_hash: args.preHash,
+      post_hash: args.postHash,
+      claim_epoch: args.claimEpoch,
       target: desc.relPath,
       event_id: crypto.randomUUID(),
       producer: 'evidence-lock.js',
-    }, env);
+    }, args.env);
   }
   if (mode === 'enforce') {
     throw new EvidenceLockError('EVIDENCE_OVERWRITE_OBSERVED',
-      'evidence overwrite observed (' + kind + ') at ' + abs + '.\n'
-      + '  pre_hash:  ' + preHash + '\n'
-      + '  post_hash: ' + postHash + '\n'
-      + '  The write was REFUSED (or detected after the fact). Re-run the gate command; '
-      + 'another session raced this receipt.');
+      (blocked ? 'evidence overwrite PREVENTED (' : 'evidence overwrite OBSERVED (')
+      + kind + ') at ' + args.abs + '.\n'
+      + '  pre_hash:  ' + args.preHash + '\n'
+      + '  post_hash: ' + args.postHash + '\n'
+      + (blocked
+        ? '  The write was REFUSED before it landed. Re-run the gate command; '
+          + 'another session raced this receipt.'
+        : '  The mutation ALREADY landed and was detected after the fact. Inspect the '
+          + 'receipt before re-running; another session raced this write.'));
   }
   process.stderr.write('[mccp:evidence-lock] WARNING: overwrite observed (' + kind
-    + ') at ' + abs + ' — warn mode, not blocking\n');
+    + ') at ' + args.abs + ' — warn mode, not blocking\n');
 }
 
 function readFileOrNull(p) {

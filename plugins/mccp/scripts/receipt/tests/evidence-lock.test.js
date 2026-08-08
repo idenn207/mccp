@@ -218,6 +218,72 @@ test('warn mode observes without blocking; off mode is loud and unguarded', () =
   assert.equal(off.guarded, false, 'off mode reports that it did not guard');
 });
 
+// M3 review follow-up — the event kind is decided by WHEN the conflict is
+// caught, not by which check caught it.
+//
+// A pre-rename detection under `enforce` refuses the write, so it is a
+// prevention. Emitting `evidence_overwrite_observed` for it put blocked races
+// into B2's numerator, which makes the metric worse the better the guard works —
+// the exact perverse incentive the design excludes `prevented` to avoid. Under
+// `warn` the same detection does NOT stop the write, so it really does overwrite
+// and must be counted as an incident.
+function readEvents(repo) {
+  const dir = path.join(repo, '.claude', 'state', 'msw-events');
+  let files = [];
+  try { files = fs.readdirSync(dir); } catch (_e) { return []; }
+  const out = [];
+  for (const f of files) {
+    for (const line of fs.readFileSync(path.join(dir, f), 'utf8').split('\n')) {
+      if (line.trim()) out.push(JSON.parse(line));
+    }
+  }
+  return out;
+}
+
+test('a refused write is reported as PREVENTED, not as an overwrite incident', () => {
+  const repo = mkRepo();
+  const p = receiptTarget(repo, 'refused');
+  fs.writeFileSync(p, body('base'), 'utf8');
+
+  let raced = false;
+  assert.throws(() => {
+    lock.guardedWrite(p, () => {
+      if (!raced) { raced = true; fs.writeFileSync(p, body('other'), 'utf8'); }
+      return body('mine');
+    }, { env: ENV_A });
+  }, (e) => e.code === 'EVIDENCE_OVERWRITE_OBSERVED');
+
+  assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).v, 'other',
+    'enforce refused before the rename, so the racer content survives untouched');
+
+  const kinds = readEvents(repo).map((e) => e.kind);
+  assert.ok(kinds.includes('evidence_conflict_prevented'),
+    'a blocked race is a prevention, got ' + JSON.stringify(kinds));
+  assert.ok(!kinds.includes('evidence_overwrite_observed'),
+    'nothing was overwritten, so it must not enter the B2 numerator');
+  const ev = readEvents(repo).find((e) => e.kind === 'evidence_conflict_prevented');
+  assert.equal(ev.conflict_kind, 'base-hash-changed',
+    'the specific check is preserved as the discriminator');
+});
+
+test('warn mode does NOT block, so the same detection IS an incident', () => {
+  const repo = mkRepo();
+  const p = receiptTarget(repo, 'notblocked');
+  fs.writeFileSync(p, body('base'), 'utf8');
+
+  let raced = false;
+  lock.guardedWrite(p, () => {
+    if (!raced) { raced = true; fs.writeFileSync(p, body('other'), 'utf8'); }
+    return body('mine');
+  }, { env: Object.assign({ MCCP_EVIDENCE_CONFLICT_GUARD: 'warn' }, ENV_A) });
+
+  assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).v, 'mine',
+    'warn proceeded and really did overwrite the racer');
+  const kinds = readEvents(repo).map((e) => e.kind);
+  assert.ok(kinds.includes('evidence_overwrite_observed'),
+    'an overwrite that actually landed must be counted, got ' + JSON.stringify(kinds));
+});
+
 test('parseGuardMode defaults to enforce and rejects typos loudly', () => {
   assert.equal(lock.parseGuardMode({}), 'enforce');
   assert.equal(lock.parseGuardMode({ MCCP_EVIDENCE_CONFLICT_GUARD: 'warn' }), 'warn');

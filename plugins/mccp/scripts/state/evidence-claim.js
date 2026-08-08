@@ -233,10 +233,12 @@ function evaluateFence(args) {
     }
 
     // 여기부터 stale 또는 released(tombstone).
-    if (isSupersededHolder(record, identity)
-        || (mine && record.released_at)
-        || (mine && record.claim_epoch && args.presentedEpoch
-            && args.presentedEpoch !== record.claim_epoch)) {
+    // 부활 holder 판정 2분기. 세 번째 분기(`presentedEpoch` 불일치)가 있었으나
+    // epoch을 제시하는 호출자가 존재하지 않았다 — 이 모듈의 설계가 정확히
+    // "호출자는 epoch을 제시하지 않는다"(위 §fence 판정 주석)이므로 그 분기는
+    // 도달 불가였다. 죽은 분기를 남기면 fence가 검사하지 않는 것을 검사한다고
+    // 읽히므로 제거한다.
+    if (isSupersededHolder(record, identity) || (mine && record.released_at)) {
       // 부활 holder — 이미 승계됐거나 스스로 release한 뒤 되살아났다.
       outcome = {
         allow: false,

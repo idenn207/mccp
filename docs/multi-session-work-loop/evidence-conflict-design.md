@@ -170,13 +170,26 @@ post-rename 검증은 *내가 덮인* 경우를 잡는다. 그러나 위험한 �
 | kind | 언제 | B2 계상 |
 |---|---|---|
 | `evidence_guard_active` | guard가 감싼 write **마다** (충돌 유무 무관) | 분자·분모 **아님**. producer-present 신호 + 런타임 감사 대조 대상 |
-| `evidence_conflict_prevented` | lock 또는 fencing이 실제로 막음 | 분자 **미계상** (예방은 사고가 아니다) · 병기만 |
+| `evidence_conflict_prevented` | 변형이 **착지하기 전에** 막힘 — claim fence 거부, 또는 enforce에서 rename 전 검출 | 분자 **미계상** (예방은 사고가 아니다) · 병기만 |
 | `evidence_overwrite_observed` | 방어를 뚫고 덮인 실사고 (목표 0) | **분자** |
-| `work_claim_denied` | 다른 live holder가 있어 claim 거부 | 분자 아님 · 병기 |
 
 `prevented`를 분자에 넣으면 **방어가 잘 될수록 지표가 나빠지는** 역인센티브가 생긴다.
 
-분모는 `concurrent_pairs`(동시 활동 쌍). 분모 0이면 `invalid`(무결성 규칙 유지) — 비율을 만들 수 없다.
+**kind는 시점이 정한다, 형태가 아니다.** `conflict_kind`는 무슨 일이 있었는지를 말하고, 그것이 사고인지 예방인지는 변형이 착지했는지가 정한다:
+
+| 검출 시점 | enforce | warn |
+|---|---|---|
+| claim fence (write 이전) | `prevented` — write 거부됨 | `prevented` — **라벨 유지, 실제로는 진행**(아래) |
+| rename **전** (`base-hash-changed` · `lock-lost-before-rename`) | `prevented` — write 거부됨 | `overwrite_observed` — 막지 않으므로 실제로 덮는다 |
+| rename **후** (`vanished-after-rename` · `content-differs-after-rename` · `wrote-without-ownership`) | `overwrite_observed` | `overwrite_observed` |
+
+rename 후 검출에서 throw는 사후 알림일 뿐 변형을 되돌리지 않으므로, 모드와 무관하게 사고다.
+
+warn 모드의 claim fence는 `prevented`로 남는데 실제로는 막지 않으므로 그 라벨이 정확하지 않다 — **알려진 부정확**이다. 그대로 두는 이유는 영향 범위가 병기 카운터(`conflict_prevented_count`)에 한정되고 B2 **분자에는 들어가지 않기** 때문이다. 그 write가 정말로 무언가를 덮었다면 바로 뒤 base-hash 재검이 `overwrite_observed`로 별도 계상한다. warn은 명시적 kill switch이고 이 카운터는 advisory이므로, 상태를 하나 더 만드는 것보다 과대계상을 문서화하는 편이 낫다고 판단했다.
+
+claim 거부는 **별도 kind가 아니라** `evidence_conflict_prevented` + `conflict_kind ∈ {other-live-holder, resurrected-holder, claim-denied}`로 나간다. reader는 그 discriminator로 `claim_denied_count`를 파생한다 — 전용 kind를 두면 producer가 그것을 emit하지 않는 한 영원히 0인 dead read가 된다.
+
+분모는 `concurrent_pairs`(동시 활동 쌍). 분모 0이면 `insufficient` — 비율을 만들 수 없다. `invalid`가 **아니다**: 이 코드베이스에서 `invalid`는 데이터가 서로 모순된다는 뜻(unit spike · timestamp inversion · type separation violated)이고, "아직 겹친 세션이 없다"는 모순이 아니라 부재다. `invalid`로 두면 1인 세션 저장소가 대시보드 최우선 버킷에 상시 무결성 위반으로 뜬다.
 
 ### 5.1 이벤트 필드와 emit 시점
 

@@ -903,8 +903,10 @@ nohup node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-codex-runner.js" \
   > "$MCCP_TMP/plan-codex-runner.out" 2> "$MCCP_TMP/plan-codex-runner.err" &
 RUNNER_PID=$!
 
-# Exit 11 means another live run already owns this decision — attach to ITS
-# marker rather than becoming a second writer for the same receipt (R1 F5).
+# Exit 11 means another live run already owns this decision. The runner refuses to
+# become a second writer for the same receipt (R1 F5) and writes no marker, so this
+# invocation has nothing of its own to wait for. Phase 5.6 detects the foreign lock
+# owner and stops with that diagnosis instead of waiting out its deadline.
 ```
 
 Then wait for the runner to publish the findings (it stays alive while you adjudicate):
@@ -1127,23 +1129,57 @@ shell caller stamp an approving verdict without Codex running). So there is no
 # from an earlier run cannot be mistaken for this one.
 DEADLINE=$(( $(date +%s) + 2400 ))
 MARKERLESS=0
+
+# "Did the runner finish without leaving a marker?" is asked from two places
+# below, so read the nonce the receipt sealed (meta.intent_run_nonce) once here.
+sealed_nonce() {
+  node -e '
+    const {readReceipt}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/store");
+    const {gitRepoRoot}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/hash");
+    try{const r=readReceipt(gitRepoRoot(process.cwd()),"mccp-plan-codex",process.argv[1]);
+      process.stdout.write((r&&r.meta&&r.meta.intent_run_nonce)||"");}catch(_){}
+  ' "$DECISION_SLUG" 2>/dev/null
+}
+
+# The lock names its owner. A lock held by a DIFFERENT nonce means the runner we
+# launched exited 11 (another live run owns this decision) and wrote no marker,
+# so our nonce-scoped $AWAITING/$MARKER paths will never appear. Without this
+# check the loop below would wait out the full deadline and then blame a timeout,
+# or — once the winner released the lock — read the winner's nonce, find it is
+# not ours, and report "crashed" for a run that actually succeeded.
+LOCK_OWNER=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).run_nonce||"")}catch{}' "$LOCKFILE" 2>/dev/null)
+if [ -n "$LOCK_OWNER" ] && [ "$LOCK_OWNER" != "$RUN_NONCE" ]; then
+  echo "[MCCP-GATE-STOP] another run (nonce $LOCK_OWNER) already owns decision \"$DECISION_SLUG\"."
+  echo "This invocation launched no second writer, by design. Wait for that run to"
+  echo "finish, then re-run /mccp:plan."
+  exit 1
+fi
+
 while [ ! -f "$MARKER" ] && [ "$(date +%s)" -lt "$DEADLINE" ]; do
   if [ ! -f "$LOCKFILE" ]; then
     # Lock gone with no marker: the runner died, or its marker write failed. Tell
     # "died after the receipt was written" from "died before" by looking for OUR
     # nonce sealed inside the receipt (meta.intent_run_nonce).
-    SEALED=$(node -e '
-      const {readReceipt}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/store");
-      const {gitRepoRoot}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/hash");
-      try{const r=readReceipt(gitRepoRoot(process.cwd()),"mccp-plan-codex",process.argv[1]);
-        process.stdout.write((r&&r.meta&&r.meta.intent_run_nonce)||"");}catch(_){}
-    ' "$DECISION_SLUG" 2>/dev/null)
+    SEALED=$(sealed_nonce)
     if [ "$SEALED" = "$RUN_NONCE" ]; then MARKERLESS=1; break; fi   # succeeded-markerless
     echo "[MCCP-GATE-STOP] plan-codex runner died before writing a receipt (crashed)."
     exit 1
   fi
   sleep 5
 done
+
+# Deadline reached with the lock still in place. The loop only consults the
+# receipt when the lock DISAPPEARS, but a hard kill (SIGKILL, host power loss)
+# skips the runner's finally block, so the lock outlives the process and the
+# receipt it already wrote is never noticed. Ask once more before calling this a
+# timeout — otherwise a completed gate is reported as a failure.
+if [ "$MARKERLESS" = "0" ] && [ ! -f "$MARKER" ]; then
+  SEALED=$(sealed_nonce)
+  if [ "$SEALED" = "$RUN_NONCE" ]; then
+    echo "[mccp:intent-gate] deadline passed with a stale lock, but the receipt seals run_nonce $RUN_NONCE — treating as succeeded-markerless." 1>&2
+    MARKERLESS=1
+  fi
+fi
 ```
 
 Marker states — handle each explicitly, never "proceed because the file appeared":

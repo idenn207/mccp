@@ -93,3 +93,31 @@ test('the blocked branch surfaces the verdict and the reason, not just an exit c
   assert.match(blocked, /MCCP-INTENT-GATE-STOP/,
     'the stop must be the intent-gate one, not a generic gate stop');
 });
+
+test('a decision lock held by another run is diagnosed instead of waited out', function () {
+  // The runner exits 11 rather than becoming a second writer, and it writes no
+  // marker when it does. Nothing of ours will ever appear, so polling our own
+  // nonce-scoped paths burns the full deadline and then blames a timeout — or,
+  // once the winner releases the lock, reads the winner's nonce, sees it is not
+  // ours, and calls a successful run "crashed". The caller must read the lock's
+  // owner and say what actually happened.
+  assert.match(markerBash, /LOCK_OWNER=/,
+    'the caller must read the lock owner; exit 11 is otherwise invisible to it');
+  assert.match(markerBash, /\[ "\$LOCK_OWNER" != "\$RUN_NONCE" \]/,
+    'a foreign owner must be compared against our nonce');
+  const foreign = markerBash.slice(markerBash.indexOf('LOCK_OWNER='));
+  assert.match(foreign, /already owns decision/,
+    'the operator must be told another run owns the decision, not "timed out"');
+});
+
+test('a stale lock does not turn an already-written receipt into a timeout', function () {
+  // The poll loop only consults the receipt when the lock DISAPPEARS. A hard kill
+  // skips the runner's finally block, so the lock outlives the process and a gate
+  // that already wrote its receipt is reported as a timeout. The recheck after the
+  // loop is what makes `succeeded-markerless` reachable in that state.
+  const afterLoop = markerBash.slice(markerBash.lastIndexOf('done'));
+  assert.match(afterLoop, /MARKERLESS/,
+    'the post-loop recheck must be able to set the markerless state');
+  assert.match(afterLoop, /sealed_nonce|intent_run_nonce/,
+    'the recheck must consult the nonce the receipt sealed');
+});

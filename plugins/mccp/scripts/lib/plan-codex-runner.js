@@ -537,7 +537,14 @@ function run(opts, deps) {
   } finally {
     // security S5 — the adjudication + awaiting artifacts are per-run scratch.
     // The envelope audit copy and the marker deliberately survive.
+    //
+    // The adjudication file matters most here: unlike everything else this
+    // process writes, it is authored by the caller's shell heredoc (Phase 5.5a)
+    // and so lands with the ambient umask rather than this module's 0600. Its
+    // path is nonce-scoped but sits in a shared git tmp dir, and it is already
+    // fully consumed — the decision was derived from it before this block runs.
     try { if (fs.existsSync(p.awaiting)) fs.unlinkSync(p.awaiting); } catch (_) {}
+    try { if (fs.existsSync(p.adjudication)) fs.unlinkSync(p.adjudication); } catch (_) {}
     releaseLock(p.lock, nonce);
   }
 }

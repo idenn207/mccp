@@ -912,18 +912,53 @@ RUNNER_PID=$!
 Then wait for the runner to publish the findings (it stays alive while you adjudicate):
 
 ```bash
+# The runner is detached, so it needs a moment to create its lock. Without this
+# grace the very first poll below races the spawn, sees no lock, and reports a
+# crash for a runner that simply had not started yet.
+SPAWN_GRACE=$(( $(date +%s) + 30 ))
+while [ ! -f "$LOCKFILE" ] && [ ! -f "$AWAITING" ] && [ ! -f "$MARKER" ] \
+      && [ "$(date +%s)" -lt "$SPAWN_GRACE" ]; do
+  sleep 1
+done
+
 DEADLINE=$(( $(date +%s) + 1200 ))
 while [ ! -f "$AWAITING" ] && [ ! -f "$MARKER" ] && [ "$(date +%s)" -lt "$DEADLINE" ]; do
-  # The runner exits 11 — writing nothing at all — when another live run already
-  # owns this decision, so neither $AWAITING nor $MARKER can EVER appear and this
-  # wait would burn its full deadline before reporting a generic stop. The lock
-  # names its owner, so check it here rather than only in 5.6: this loop runs
-  # first, and a diagnosis that arrives after 1200s of silence is not one.
-  LOCK_OWNER=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).run_nonce||"")}catch{}' "$LOCKFILE" 2>/dev/null)
-  if [ -n "$LOCK_OWNER" ] && [ "$LOCK_OWNER" != "$RUN_NONCE" ]; then
-    echo "[MCCP-GATE-STOP] another run (nonce $LOCK_OWNER) already owns decision \"$DECISION_SLUG\"."
-    echo "This invocation launched no second writer, by design. Wait for that run to"
-    echo "finish, then re-run /mccp:plan."
+  if [ -f "$LOCKFILE" ]; then
+    # A lock owned by someone else means our runner exited 11 without writing
+    # anything, so neither $AWAITING nor $MARKER can EVER appear here.
+    LOCK_OWNER=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).run_nonce||"")}catch{}' "$LOCKFILE" 2>/dev/null)
+    if [ -n "$LOCK_OWNER" ] && [ "$LOCK_OWNER" != "$RUN_NONCE" ]; then
+      echo "[MCCP-GATE-STOP] another run (nonce $LOCK_OWNER) already owns decision \"$DECISION_SLUG\"."
+      echo "This invocation launched no second writer, by design. Wait for that run to"
+      echo "finish, then re-run /mccp:plan."
+      exit 1
+    fi
+  else
+    # No lock: our runner has exited. Three very different things look identical
+    # from here, and deciding between them is the whole point of this branch —
+    # otherwise all three decay into the same 1200s timeout. Note this also covers
+    # the no-adjudication paths (free-form plan / zero findings / codex disabled):
+    # those never create $AWAITING, so without this check a lost marker on such a
+    # run would time out here and never reach 5.6's recovery.
+    SEALED=$(node -e '
+      const {readReceipt}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/store");
+      const {gitRepoRoot}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/hash");
+      try{const r=readReceipt(gitRepoRoot(process.cwd()),"mccp-plan-codex",process.argv[1]);
+        process.stdout.write((r&&r.meta&&r.meta.intent_run_nonce)||"");}catch(_){}
+    ' "$DECISION_SLUG" 2>/dev/null)
+    # (1) Ours: the run finished and only the marker is missing. Fall through to
+    #     5.6, whose markerless branch confirms and consumes it.
+    if [ "$SEALED" = "$RUN_NONCE" ]; then break; fi
+    # (2) Someone else's: we lost the race and the winner has since finished and
+    #     released the lock — the edge the owner check above can no longer see.
+    if [ -n "$SEALED" ]; then
+      echo "[MCCP-GATE-STOP] decision \"$DECISION_SLUG\" was completed by another run"
+      echo "(sealed nonce $SEALED, ours $RUN_NONCE). Our runner exited without writing,"
+      echo "by design. Re-run /mccp:plan if you need the current body reviewed."
+      exit 1
+    fi
+    # (3) Nothing sealed: the runner died before writing a receipt.
+    echo "[MCCP-GATE-STOP] plan-codex runner exited without writing a receipt (crashed)."
     exit 1
   fi
   sleep 10
@@ -933,7 +968,13 @@ done
 - `$MARKER` appearing first means the gate finished without needing adjudication
   (zero findings / free-form plan / `MCCP_CODEX_DISABLED=1`) — skip to 5.6.
 - `$AWAITING` appearing means findings need adjudication — do 5.3/5.4, then **5.5a**.
-- Neither, and the deadline passed → `[MCCP-GATE-STOP]` (do NOT assume success).
+- The loop ending because the lock is gone and the receipt already seals OUR nonce
+  means the run finished but its marker never landed — continue to 5.6, whose
+  markerless branch confirms it. This is why the no-adjudication paths (which never
+  create `$AWAITING`) cannot time out here with a valid receipt on disk.
+- Any `[MCCP-GATE-STOP]` the loop printed already named the state — foreign owner,
+  completed by another run, or crashed. Do not re-interpret it as a timeout.
+- Neither file, and the deadline passed → `[MCCP-GATE-STOP]` (do NOT assume success).
 
 The classification/verdict derivation below is performed **by the runner**; the values
 are reported in `$MARKER` (`codex_verdict`, `intent_gate_verdict`). The block below is
@@ -1097,7 +1138,11 @@ Read `$AWAITING` (written by the runner) and produce one entry per finding. Copy
 adjudication to this exact review, so a stale or reordered payload is rejected.
 
 ```bash
-cat > "$ADJUDICATION" <<'JSON'
+# Write to a temp path and rename. The runner polls for $ADJUDICATION and reads it
+# the moment it appears, so writing in place lets it read a half-written heredoc,
+# fail JSON parsing, and block the gate as `incomplete` for a file that was in fact
+# complete a millisecond later. rename(2) is atomic within a directory.
+cat > "$ADJUDICATION.tmp" <<'JSON'
 {
   "plan_path": "<plan path>",
   "round": 1,
@@ -1114,6 +1159,7 @@ cat > "$ADJUDICATION" <<'JSON'
   ]
 }
 JSON
+mv "$ADJUDICATION.tmp" "$ADJUDICATION"
 ```
 
 Field rules (all enforced mechanically by `intent-context.js`):

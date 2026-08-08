@@ -148,3 +148,38 @@ test('5.6b rejects an unreplaced placeholder, not just a missing heading', funct
   assert.match(verify, /if grep -q/,
     'use `if`, not `grep … && { … }` — a non-match would otherwise trip set -e');
 });
+
+test('the 5.2 wait resolves a vanished lock three ways, not one', function () {
+  // 5.6 owns markerless recovery, but 5.2 runs first and used to stop before it.
+  // A no-adjudication run (free-form / zero findings / codex disabled) never
+  // creates $AWAITING, so a lost marker on such a run timed out here with a valid
+  // receipt already on disk. The same blind spot swallowed the lock-loser whose
+  // winner released the lock between polls.
+  const i = body.indexOf('Then wait for the runner to publish the findings');
+  assert.ok(i > 0, 'anchor moved: 5.2 wait');
+  const wait = body.slice(i, body.indexOf('### 5.3', i));
+
+  assert.match(wait, /SPAWN_GRACE/,
+    'a detached runner needs time to create its lock, or the first poll calls it a crash');
+  assert.match(wait, /intent_run_nonce/,
+    '5.2 must consult the nonce the receipt sealed, not only $AWAITING/$MARKER');
+  assert.match(wait, /if \[ "\$SEALED" = "\$RUN_NONCE" \]; then break/,
+    'our own sealed nonce must hand off to 5.6 rather than stop');
+  assert.match(wait, /completed by another run/,
+    'a winner that already released the lock must still be named, not timed out');
+  assert.match(wait, /crashed/,
+    'nothing sealed at all is a crash, and must be reported as one');
+});
+
+test('the adjudication file is published atomically', function () {
+  // The runner polls for $ADJUDICATION and reads it the instant it appears, so an
+  // in-place heredoc lets it parse a half-written file and block the gate as
+  // `incomplete` for input that was complete a millisecond later.
+  const i = body.indexOf('cat > "$ADJUDICATION');
+  assert.ok(i > 0, 'anchor moved: 5.5a heredoc');
+  const block = body.slice(i, i + 1800);
+  assert.match(block, /cat > "\$ADJUDICATION\.tmp"/,
+    'write to a temp path first');
+  assert.match(block, /mv "\$ADJUDICATION\.tmp" "\$ADJUDICATION"/,
+    'then rename — rename(2) is atomic within a directory');
+});

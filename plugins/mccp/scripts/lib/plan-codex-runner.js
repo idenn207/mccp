@@ -507,7 +507,17 @@ function run(opts, deps) {
     return finish(EX_OK, derived, decision, result);
 
     function finish(exitCode, derivedOrDecision, rawDecision, writeResult) {
-      writeMarker(p.marker, {
+      // writeMarker returns false only when the retry AND the degraded fallback
+      // both failed. Nothing here can escalate that: this process is detached, so
+      // its exit code and stdout are discarded, and the one channel to the caller
+      // is the file that just could not be written. Recovery therefore lives on
+      // the caller side — plan.md 5.2 and 5.6 fall back to the nonce this run
+      // sealed inside the receipt. That covers every SUCCESSFUL run; a blocked run
+      // has no receipt to seal, so it degrades to `crashed`, which still stops the
+      // chain. Surfaced in the result because the in-process tests assert on it
+      // and because a silent `false` here is exactly the kind of lost signal this
+      // gate exists to prevent.
+      const markerWritten = writeMarker(p.marker, {
         run_nonce: nonce,
         decision_id: decisionId,
         plan_digest: planDigest,
@@ -524,6 +534,7 @@ function run(opts, deps) {
         reason: derivedOrDecision.reason || null,
         receiptPath: (writeResult && writeResult.path) || null,
         markerPath: p.marker,
+        markerWritten: markerWritten,
       };
     }
   } catch (err) {

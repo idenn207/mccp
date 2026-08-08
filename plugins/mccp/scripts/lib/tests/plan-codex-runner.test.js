@@ -285,6 +285,10 @@ test('an unwritable marker is retried, then downgraded, then reported as FATAL',
     'a single attempt is not enough — transient locks are the common case on Windows');
   assert.match(log, /FATAL: no marker could be written/,
     'losing the only channel to the caller must be reported as fatal, not as a stray warning');
+  assert.strictEqual(out.res.markerWritten, false,
+    'the result must say the marker never landed — a silent success here is the ' +
+    'lost signal this gate exists to prevent (the caller then recovers via the ' +
+    'nonce sealed in the receipt, per plan.md 5.2/5.6)');
   // The verdict itself must be unaffected by the channel failing.
   assert.strictEqual(out.res.exitCode, runner.EX_OK);
 });

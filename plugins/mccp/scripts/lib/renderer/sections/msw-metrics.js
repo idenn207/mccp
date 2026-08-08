@@ -47,8 +47,11 @@ const METRICS_META = {
     type: 'standard',
   },
   B2: {
-    name: '동시세션 충돌률',
-    desc: '동시 활동 쌍당 파일 충돌 이벤트 (낮을수록 안전)',
+    // critique F2 — M3 이후 분자는 `evidence_overwrite_observed`(증거 덮어쓰기
+    // 사고)다. 이전 라벨 "파일 충돌 이벤트"는 computed 값을 stale 의미 아래
+    // 노출하는 셈이라 PRODUCT.md 원칙 2와 PRD B1(drift) 정신에 어긋난다.
+    name: '증거 덮어쓰기율',
+    desc: '동시 활동 쌍당 증거 덮어쓰기 사고 (0이 목표 · 차단된 경합은 미계상)',
     category: 'B',
     type: 'standard',
   },
@@ -97,11 +100,45 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-// 지표 값 → 백분율 문자열 또는 'N/A'
+// critique F1 — expanded 슬라이스를 **index 순서가 아니라 의사결정 우선순위**로
+// 고른다. METRICS_ORDER에서 B2는 index 4이고 TOP_EXPANDED=3이라, 순서를 그대로
+// 쓰면 M3의 헤드라인 지표가 `<details>` collapse 안으로 떨어져 PRD 수용조건
+// ("운영자가 문서를 읽지 않고 판정")을 충족하지 못한다.
+//
+// 상한 3은 그대로 유지한다 — 순서만 바뀌고 개수는 늘지 않는다(제약 4).
+// 동순위는 METRICS_ORDER index로 안정 정렬한다(렌더 결정성 보존).
+function decisionPriority(metric) {
+  if (!metric) return 9;
+  if (metric.status === 'invalid') return 0;                       // 무결성 위반이 최우선
+  if (metric.status === 'computed') {
+    // 실사고가 있는 computed는 무결성 위반 다음으로 급하다.
+    return (typeof metric.numerator === 'number' && metric.numerator > 0) ? 1 : 2;
+  }
+  if (metric.status === 'insufficient') return 3;
+  if (metric.status === 'baseline-forming') return 4;
+  return 5;                                                        // forward-only
+}
+
+function orderForDisplay(metrics, ids) {
+  const indexOf = new Map(ids.map((id, i) => [id, i]));
+  return ids.slice().sort((a, b) => {
+    const d = decisionPriority(metrics[a]) - decisionPriority(metrics[b]);
+    return d !== 0 ? d : indexOf.get(a) - indexOf.get(b);
+  });
+}
+
+// critique F3 — 값 셀은 **한 지표만** 담는다. B2는 사고 건수가 의미의 전부라
+// 백분율보다 `n/N`이 정확하다(0/20은 "20쌍 중 0건"을 그대로 말한다).
+// prevented 건수는 값 셀에 밀어넣지 않고 collapse 상세로 내린다 — 숫자 3개를
+// 한 셀에 넣으면 compact 4-컬럼 톤이 깨진다.
 function formatValue(metric) {
   if (metric == null) return 'N/A';
   // forward-only check first (before null checks)
   if (metric.status === 'forward-only') return '-';  // H10-safe no-value (em-dash '—' is normalized away in rendered prose)
+  if (metric.id === 'B2' && typeof metric.numerator === 'number'
+      && typeof metric.denominator === 'number') {
+    return metric.numerator + '/' + metric.denominator;
+  }
   // Percentile 값(A2 등): value={p50,p95}면 잔여%를 직접 표시한다. num/den(=coverage)로
   // 렌더하면 모든 세션이 5% 잔여로 끝나도 100%(기록률)로 보여 고갈을 은폐한다(PR-Codex R2-F2).
   if (metric.value && typeof metric.value === 'object' && metric.value.p50 != null) {
@@ -126,6 +163,16 @@ function statusLabel(status) {
   return meta.label;
 }
 
+// critique F3 — prevented(차단된 경합)는 collapse 상세 전용. 값 셀에 올리면
+// "방어가 잘 되고 있다"가 "사고가 많다"로 오독될 여지가 생기고, 강조색도
+// 쓰지 않는다(제약 2 — 예방 성공은 중립 톤). 신규 문자열에 em-dash 금지(F4):
+// 구분자는 `·`와 괄호만 쓴다.
+function preventedDetail(metrics) {
+  const b2 = metrics && metrics.B2;
+  if (!b2 || typeof b2.conflicts_prevented !== 'number' || b2.conflicts_prevented <= 0) return null;
+  return 'B2 상세: 차단된 경합 ' + b2.conflicts_prevented + '건 (분자 미계상 · 예방은 사고가 아님)';
+}
+
 // 마크다운 렌더: 지표 테이블 + 상세 설명
 function renderMetricsMarkdown(metrics) {
   if (!metrics || typeof metrics !== 'object') return null;
@@ -144,11 +191,13 @@ function renderMetricsMarkdown(metrics) {
 
   if (!hasComputed) return null;
 
+  const displayIds = orderForDisplay(metrics, sortedIds);
+
   const lines = [];
   lines.push('| 지표 | 값 | 상태 | 커버리지 |');
   lines.push('|---|---|---|---|');
 
-  sortedIds.forEach((id, index) => {
+  displayIds.forEach((id, index) => {
     const m = metrics[id];
     if (!m) return;
     const meta = METRICS_META[id] || {};
@@ -165,24 +214,33 @@ function renderMetricsMarkdown(metrics) {
 
   let md = lines.join('\n');
 
-  // 초과분은 collapse로 표시 (placeholder only — 실제 내용은 HTML에서)
-  const extra = sortedIds.length - TOP_EXPANDED;
-  if (extra > 0) {
-    md += '\n\n<details><summary>추가 지표 ' + extra + '개 보기</summary>\n\n';
-    const extraLines = [];
-    extraLines.push('| 지표 | 값 | 상태 | 커버리지 |');
-    extraLines.push('|---|---|---|---|');
-    sortedIds.slice(TOP_EXPANDED).forEach((id) => {
-      const m = metrics[id];
-      if (!m) return;
-      const meta = METRICS_META[id] || {};
-      const val = formatValue(m);
-      const stat = statusLabel(m.status);
-      const cov = m.coverage || 'unknown';
-      const row = `| **${id}** · ${meta.name || id} | ${val} | ${stat} | ${cov} |`;
-      extraLines.push(row);
-    });
-    md += extraLines.join('\n');
+  // 초과분 + B2 상세는 collapse로. prevented는 값 셀이 아니라 여기 산다(F3).
+  const extraIds = displayIds.slice(TOP_EXPANDED);
+  const preventedNote = preventedDetail(metrics);
+  if (extraIds.length > 0 || preventedNote) {
+    const summary = extraIds.length > 0
+      ? '추가 지표 ' + extraIds.length + '개 보기'
+      : '계측 상세 보기';
+    md += '\n\n<details><summary>' + summary + '</summary>\n\n';
+    if (extraIds.length > 0) {
+      const extraLines = [];
+      extraLines.push('| 지표 | 값 | 상태 | 커버리지 |');
+      extraLines.push('|---|---|---|---|');
+      extraIds.forEach((id) => {
+        const m = metrics[id];
+        if (!m) return;
+        const meta = METRICS_META[id] || {};
+        const val = formatValue(m);
+        const stat = statusLabel(m.status);
+        const cov = m.coverage || 'unknown';
+        const row = `| **${id}** · ${meta.name || id} | ${val} | ${stat} | ${cov} |`;
+        extraLines.push(row);
+      });
+      md += extraLines.join('\n');
+    }
+    if (preventedNote) {
+      md += (extraIds.length > 0 ? '\n\n' : '') + preventedNote;
+    }
     md += '\n\n</details>';
   }
 
@@ -208,10 +266,11 @@ function renderMetricsHtml(metrics, formatUtils) {
 
   if (!hasComputed) return null;
 
+  const displayIds = orderForDisplay(metrics, sortedIds);
   const rows = [];
   const extraRows = [];
 
-  sortedIds.forEach((id, index) => {
+  displayIds.forEach((id, index) => {
     const m = metrics[id];
     if (!m) return;
     const meta = METRICS_META[id] || {};
@@ -241,14 +300,24 @@ function renderMetricsHtml(metrics, formatUtils) {
     + rows.join('')
     + '</tbody></table>';
 
-  if (extraRows.length > 0) {
-    html += '<details class="msw-metrics-extra"><summary>추가 지표 ' + extraRows.length + '개 보기</summary>'
-      + '<table class="msw-metrics"><thead><tr>'
-      + '<th>지표</th><th>값</th><th>상태</th><th>커버리지</th>'
-      + '</tr></thead><tbody>'
-      + extraRows.join('')
-      + '</tbody></table>'
-      + '</details>';
+  const preventedNote = preventedDetail(metrics);
+  if (extraRows.length > 0 || preventedNote) {
+    const summary = extraRows.length > 0
+      ? '추가 지표 ' + extraRows.length + '개 보기'
+      : '계측 상세 보기';
+    html += '<details class="msw-metrics-extra"><summary>' + esc(summary) + '</summary>';
+    if (extraRows.length > 0) {
+      html += '<table class="msw-metrics"><thead><tr>'
+        + '<th>지표</th><th>값</th><th>상태</th><th>커버리지</th>'
+        + '</tr></thead><tbody>'
+        + extraRows.join('')
+        + '</tbody></table>';
+    }
+    if (preventedNote) {
+      // 중립 톤 — 신규 색 클래스를 추가하지 않는다(제약 2).
+      html += '<p class="muted">' + esc(preventedNote) + '</p>';
+    }
+    html += '</details>';
   }
 
   return { html };

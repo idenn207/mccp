@@ -253,14 +253,22 @@ my-claude-code-plugin/
 - **의심 시 base와 대조**: 산출물 디렉토리(`.claude/prds/`, `.claude/plans/`, `docs/`)는 `git ls-tree -r --name-only <base> -- <dir>`와 현재 HEAD를 비교해 base에 있는데 HEAD에 없는 파일이 없는지 확인한다.
 - 관련: [memory: stacked-pr-merge-order](머지 순서 함정), [memory: merge-drops-intervening-files](본 사고).
 
-### 3.6 Atomic state locks (`pr-phase.lock` + `v0.2.8-generic-receipt-quarantine.lock`)
+### 3.6 Atomic state locks (`pr-phase.lock` + `quarantine.lock` + `evidence write lock`)
 
-v0.2.8 Task 2.6.1-followup F10+F11+F7 (PR #8)부터 mccp는 두 가지 state lock을 운용합니다. 둘 다 단일 writer + multi-reader, lease-based reclaim(PID liveness OR mtime>60s), in-loop heartbeat를 **공유**하지만, **ownership-token 모델은 서로 다릅니다** — `pr-phase.lock`은 hash + stdin-pipe sealed channel(canonical), `quarantine.lock`은 raw-token/advisory(lock body 평문 token, 0o600 보호). 아래 락별 구분을 참조하세요("양쪽 공통"으로 뭉뚱그리지 말 것).
+v0.2.8 Task 2.6.1-followup F10+F11+F7 (PR #8)부터 mccp는 state lock을 운용합니다(v1.23.1에서 **세 번째** lock 추가). 셋 다 단일 writer + multi-reader, lease-based reclaim, heartbeat를 **공유**하지만, **ownership-token 모델과 실패 정책은 서로 다릅니다** — `pr-phase.lock`은 hash + stdin-pipe sealed channel(canonical), `quarantine.lock`은 raw-token/advisory(lock body 평문 token, 0o600 보호), evidence write lock은 raw-token/advisory이면서 **유일하게 fail-closed**입니다. 아래 락별 구분을 참조하세요("공통"으로 뭉뚱그리지 말 것).
 
 | Lock file | 사용처 | 생명주기 |
 |---|---|---|
 | `<repo>/.claude/state/pr-phase.lock` | `/mccp:pr` Phase 3.5 Codex-review subphase 진입/이탈. PreToolUse가 write-tool block 결정에 사용. | enter (Phase 3.5 직전) → exit (PR 본문 inject 직후, gh pr create 직전). crash 시 다음 invocation의 `detect-stale`이 finalizer 우선 실행 후 clear. |
 | `<repo>/.claude/receipts/.migrations/v0.2.8-generic-quarantine.lock` | validate-cmd / `/mccp:pr` Phase 0 부팅 시 동시 trigger 직렬화. winner만 rename 수행, loser는 marker complete bounded poll. | acquire (`fs.openSync wx`) → release (try/finally). |
+| `<target>.lock` (receipt 파일별 · claim 파일별) — [evidence-lock.js](plugins/mccp/scripts/receipt/evidence-lock.js) | v1.23.1 multi-session-work-loop M3. **모든** receipt write(`store.js#writeReceipt`/`updateReceipt` · briefing/completion-ledger 메타 stamp)와 모든 claim mutation을 감싸는 짧은 임계구역. | acquire → base-hash 캡처 → claim fence → 원자 rename(retry 안에서도 heartbeat) → post-rename 검증 → release. 한 호출 안에서 완결(helper IPC 없음). |
+
+#### evidence write lock이 앞의 둘과 다른 점 (v1.23.1)
+
+- **실패 정책이 fail-closed**입니다. `session-ledger.js#withLedgerLock`은 획득 실패 시 경고만 남기고 lock 없이 진행하는데(last-writer-wins), 그 동작이 PRD가 구조적 취약으로 지목한 결함 자체라 여기서는 **throw**합니다(`EVIDENCE_LOCK_UNAVAILABLE` — 에러에 lock 경로·잔여 lease·복구 지침·kill switch 포함). 단 **caller별 비대칭은 의도적**입니다: `writeReceipt`는 fail-closed, hash-carved 메타 stamper 2건(briefing · completion-ledger 진단)은 fail-open + loud skip.
+- **lease(5s)가 PID liveness와 무관하게 항상 적용**됩니다. `pr-phase-lock.js`의 tri-state("same-host + pid alive → 절대 reclaim 안 함")를 **차용하지 않습니다** — 그 정당화는 분 단위 lock에만 성립하고, ms 단위 임계구역에서 live holder의 lease 초과는 *작업 중*이 아니라 **고장**이라 tri-state + fail-closed 조합은 해당 receipt를 영구 차단합니다. liveness는 reclaim을 *막는* 조건이 아니라 lease 이전에도 즉시 reclaim하게 하는 **추가 trigger**입니다(dead PID·cross-host → 즉시).
+- **파일명 규약이 강제**입니다: lock은 `.lock`, tmp는 `<target>.<pid>.<rand>.tmp`. `.gitignore`가 `mccp-pr-codex/*.lock`·`*.tmp`만 재무시하므로 다른 이름은 git-tracked ship receipt 디렉토리를 오염시킵니다. tmp 이름이 고정이면 동시 writer가 tmp에서 충돌하므로 pid + nonce가 필수입니다.
+- 보증 범위와 명시된 잔여는 [docs/multi-session-work-loop/evidence-conflict-design.md](docs/multi-session-work-loop/evidence-conflict-design.md) §1 참조. **무조건적 상호배제를 주장하지 않습니다** — `rename`은 advisory lock에 대한 CAS가 아닙니다.
 
 #### Ownership-token 모델 (락별 상이 — "양쪽 공통" 아님)
 
@@ -791,6 +799,9 @@ MCCP_SUBSCRIPTION_OVERFLOW_CONTEXT_CRITICAL_PCT=25 # v1.20.16 default: 25. conte
 MCCP_SUBSCRIPTION_OVERFLOW_TOOL_WARN=0             # v1.20.16 default: 0(disabled). tool_count warning 임계(count ≥ 값 → warning). 0=비활성(근거 없는 임계 날조 회피 — opt-in). critical>0 설정 시 0≤warn<critical invariant.
 MCCP_SUBSCRIPTION_OVERFLOW_TOOL_CRITICAL=0         # v1.20.16 default: 0(disabled). tool_count critical 임계(count ≥ 값 → critical). 0=비활성(보조 축). 설정 시 context 축과 most-severe 합성. invariant 위반 → 축 disable + warn.
 MCCP_COST_STATE_DECAY_HOURS=6                       # v1.22.0 M3 default: 6(시간). cost-current.json의 mtime이 이 시간보다 오래되면 `cost-state.js#readState()`(decayed reader)가 green view(`cost_usd:0`·tier green·`hard_ceiling_reached:false`)를 반환 → tier 소비처(fleet/fanout/briefing/breakpoint)가 한 번 튄 sticky critical에 영구 잠기지 않음. **명시적 raw/decayed 분리**(Codex F1): `readStateRaw()`(raw, 관측/write-side)·`readState()`(decayed, tier 게이트)·`readStateOrThrow()`(raw, auto-chain 전용 — 불변). `writeStateMerged`는 명시적 write-side decay로 stale floor를 리셋해 첫 fresh write가 monotonic MAX 계승을 끊음(sticky 자기치유). Axis 2: `ecc-context-monitor` STATE.md producer가 subscription-aware SET(구독권은 USD 아니라 context overflow에서만 `chain_aborted`)·`abort_owner='cost'`+`cost_abort_at` provenance stamp·decay-clear(4중 stable AND)·legacy sweep(marker 없는 cost-origin flag). `=0`이면 decay/sweep 완전 비활성(kill switch) → M2 판정 byte-identical. 음수/비유한 → default + loud warn. **auto-chain divergence는 의도적**: auto-chain은 raw `readStateOrThrow`+`isStale(1h)` fail-safe stale-abort 유지(decay 창 6h ≫ 1h라 활성 세션 무발화, 세션 경계 무활동에서만 발화·첫 write 후 자기치유).
+
+# v1.23.1 multi-session-work-loop M3 — 증거 write guard (see §3.6 세 번째 lock)
+MCCP_EVIDENCE_CONFLICT_GUARD=enforce|warn|off  # v1.23.1 default: enforce (fail-closed). 모든 receipt write(store.writeReceipt/updateReceipt · briefing/completion-ledger 메타 stamp)와 claim mutation을 감싸는 evidence write lock의 동작 축. enforce = lock 미획득·claim fence 거부·덮어쓰기 관측이 전부 throw(단 hash-carved 메타 stamper 2건은 fail-open + loud skip — 의도적 비대칭) / warn = 관측과 이벤트 기록은 그대로 두되 **차단하지 않음**(정체된 receipt 복구용 kill switch, race window 개방) / off = guard 전체 비활성(lock·fence·덮어쓰기 검출 모두 없음, loud stderr warn). 미지정·오타 → enforce. 이 토글이 M3이 추가하는 **유일한** 신규 축이다(B3 토글 증가 억제) — lease(5s)·claim TTL(15분)·retry 예산은 상수이고 test 주입만 허용한다. 복구 절차: `EVIDENCE_LOCK_UNAVAILABLE` 에러가 lock 절대경로 + 잔여 lease + 재시도 지침을 포함하므로, 정지한 holder는 lease 만료 후 자동 reclaim되고 재실행이 1차 복구다.
 
 # Auto-handoff (v0.3.0 S10b — live, v1.1.0 honest quarantine)
 MCCP_AUTO_HANDOFF=off|notify             # default: notify. cost-tier 검출 + STATE.md write + stderr 배너. 실제 세션 spawn은 아래 experimental flag에 종속됨. (spawn은 v1.1.0+ deprecated alias — flag 없으면 notify로 강등됨, ledger에 experimental_spawn_requested=true 기록.)

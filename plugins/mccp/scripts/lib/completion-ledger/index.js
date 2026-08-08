@@ -76,15 +76,43 @@ function readPlanSnapshot(repoRoot, planPath) {
 // recomputed — hash.js canonicalizes ledger_write_skipped out so the
 // tamper-detect digest stays valid (F3 + briefing precedent).
 function stampSkipDiagnostic(repoRoot, receipt, receiptPath) {
-  let fresh = readReceipt(repoRoot, receipt.gate_id, receipt.decision_id);
-  if (!fresh) fresh = receipt;
-  if (!fresh.meta || typeof fresh.meta !== 'object') fresh.meta = {};
-  fresh.meta.ledger_write_skipped = true;
-  const v = validate(fresh);
-  if (!v.ok) {
-    throw new Error('ledger skip-stamp produced invalid receipt: ' + v.errors.join('; '));
+  // multi-session-work-loop M3 — read AND write inside one evidence-lock
+  // critical section (the previous split read/write was a lost-update window).
+  // Fail-open + loud skip, same asymmetry as the briefing stamper: this touches
+  // only the hash-CARVED `ledger_write_skipped` field, so it cannot perturb
+  // receipt_hash and is not worth aborting a gate over (design doc §3.2).
+  const { guardedReadModifyWrite } = require('../../receipt/evidence-lock');
+  const GUARD_SKIP = new Set([
+    'EVIDENCE_LOCK_UNAVAILABLE',
+    'EVIDENCE_CLAIM_DENIED',
+    'EVIDENCE_OVERWRITE_OBSERVED',
+    'EVIDENCE_LOCK_REENTRANT',
+  ]);
+
+  try {
+    guardedReadModifyWrite(receiptPath, function (raw) {
+      let fresh = null;
+      if (raw !== null && raw !== undefined) {
+        try { fresh = JSON.parse(raw); } catch (_e) { fresh = null; }
+      }
+      if (!fresh) fresh = receipt;
+      if (!fresh.meta || typeof fresh.meta !== 'object') fresh.meta = {};
+      fresh.meta.ledger_write_skipped = true;
+      const v = validate(fresh);
+      if (!v.ok) {
+        throw new Error('ledger skip-stamp produced invalid receipt: ' + v.errors.join('; '));
+      }
+      return JSON.stringify(fresh, null, 2) + '\n';
+    });
+  } catch (err) {
+    if (err && GUARD_SKIP.has(err.code)) {
+      process.stderr.write('[mccp:completion-ledger] WARNING: skip-diagnostic stamp SKIPPED — '
+        + err.code + ' on ' + receiptPath + '. Receipt intact; only the carved '
+        + 'ledger_write_skipped flag is missing. (allow)\n');
+      return;
+    }
+    throw err;
   }
-  fs.writeFileSync(receiptPath, JSON.stringify(fresh, null, 2) + '\n', 'utf8');
 }
 
 function triggerLedgerAppend(repoRoot, receipt, receiptPath, opts) {

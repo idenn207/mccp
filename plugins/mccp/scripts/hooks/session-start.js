@@ -707,12 +707,16 @@ async function main() {
         const ledgerData = sessionLedger.readLedger({ sessionId: observerSessionId, projectContext: observerContext });
         const createdAt = ledgerData && ledgerData.created_at ? ledgerData.created_at : new Date().toISOString();
 
+        // CL-5 — pass repoRoot explicitly so the write lands where the reader
+        // (derive/sources/session-activity.js) scans. Without it the path was
+        // cwd-relative while the reader was repoRoot-anchored, so events either
+        // vanished from the reader's view or cross-contaminated across worktrees.
         const startEventResult = mswEvents.appendEvent(observerSessionId, {
           kind: 'session_start',
           ts: new Date().toISOString(),
           created_at: createdAt,
           producer: 'session-start.js',
-        });
+        }, { repoRoot: observerContext.projectRoot });
 
         if (!startEventResult.ok) {
           process.stderr.write(`[mccp:msw-events] WARNING: SessionStart event append failed: ${startEventResult.reason} (allow)\n`);
@@ -754,6 +758,45 @@ async function main() {
     const instinctSummary = summarizeActiveInstincts(observerContext);
     if (instinctSummary) {
       additionalContextParts.push(instinctSummary);
+    }
+
+    // multi-session-work-loop M3 — work-unit occupancy advisory.
+    //
+    // Source is `listClaims()` ALONE. It deliberately does NOT cross-reference
+    // `listLedgers({activeOnly:true})`: that substrate's PID axis is invalid in
+    // this architecture (the recorded pid belongs to the SessionStart hook
+    // process, which exits within seconds, so activeOnly is effectively empty on
+    // a single machine). An advisory standing on a source this plan itself
+    // disqualified would let "no warning shown" read as "no conflict".
+    //
+    // This is ADVISORY ONLY — it never blocks. Real enforcement happens at
+    // receipt-write time (evidence lock + claim fence). Loud fail-open: a module
+    // load failure must never stop the session from booting.
+    if (observerContext.projectRoot) {
+      try {
+        const { listClaims } = require('../state/evidence-claim');
+        // Same identity source the claim writer uses (evidence-lock#resolveSessionId),
+        // so "mine" vs "theirs" cannot disagree between the advisory and the fence.
+        const selfId = process.env.MCCP_SESSION_ID
+          || process.env.CLAUDE_CODE_SESSION_ID
+          || process.env.CLAUDE_SESSION_ID
+          || observerSessionId;
+        const held = listClaims({ repoRoot: observerContext.projectRoot })
+          .filter((c) => c.live && c.session_id && c.session_id !== selfId);
+        if (held.length > 0) {
+          const lines = held.slice(0, 5).map((c) =>
+            `  - ${c.slug} · held by session ${String(c.session_id).slice(0, 8)} on ${c.host} · last touch ${c.last_touch}`);
+          const more = held.length > 5 ? `\n  (+${held.length - 5} more)` : '';
+          additionalContextParts.push(
+            '[mccp:evidence-claims] Another live session currently holds these work units:\n'
+            + lines.join('\n') + more
+            + '\n\nThis is a heads-up, not a block. Starting work on one of these is safe: '
+            + 'a duplicate claim is refused mechanically at receipt-write time, not here.');
+        }
+      } catch (claimErr) {
+        process.stderr.write('[mccp:evidence-claims] WARNING: claim advisory unavailable: '
+          + (claimErr && claimErr.message ? claimErr.message : claimErr) + ' (allow)\n');
+      }
     }
 
     // v1.4.0-m2 — discovery surface for sibling sessions in this project.

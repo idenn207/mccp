@@ -2,7 +2,32 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.23.1] — 2026-08-06
+
+**multi-session-work-loop M3 — 증거 충돌 소거 (단일 milestone → patch bump)** — receipt write가 세션 간에 조용히 덮이는 경로를 구조적으로 닫고, 같은 작업 단위를 두 세션이 동시에 잡는 상황을 감지·차단한다. grounding 결과 PRD의 "동시 쓰기 보호 없음"은 실제보다 **더 나빴다**: `store.js#writeReceipt`는 lock이 없는 데 더해 **원자성도 없었고**(최종 경로 직접 `writeFileSync`), `assertNoTrackedOverwrite`는 read-then-write TOCTOU이며 그 보호마저 git-tracked ship receipt에만 적용돼 실제 대다수인 plan/implement receipt는 완전 무보호였다. store 밖 read-modify-write writer도 둘 더 있었다.
+
+보증 범위는 정확히 셋이며 그 이상을 주장하지 않는다 — **G1** live 세션 간 동일 작업 단위 중복 점유 불가 · **G2** stale·부활 holder의 write-time 거부(tombstone TTL 내) · **G3** 모든 덮어쓰기는 보고되거나 감사에서 검출됨. 무조건적 상호배제는 파일시스템 원자 CAS를 요구하고 `rename`은 advisory lock에 대한 CAS가 아니므로, 확인과 rename 사이의 창은 원리상 닫히지 않는다. 덮인 writer가 이미 성공을 반환했을 수 있다는 잔여와 tombstone TTL 만료 후 replay fence lapse는 **명시된 잔여**이며 전역 단조 순번(M5) 없이 닫히지 않는다.
+
+### Added
+- `plugins/mccp/scripts/receipt/evidence-lock.js` — fail-closed 짧은 임계구역 + 원자 write. 메커니즘은 `session-ledger.js#withLedgerLock`(O_EXCL + bounded retry + stale reclaim) 미러, **실패 정책만 반전**(fail-soft → throw). 공개 API는 전 구간을 소유하는 `guardedWrite`/`guardedReadModifyWrite` **둘뿐**이고 raw lock context는 test-only(Implement-Codex R1 F3 — caller가 `assertOwned`를 빠뜨려도 정적 커버리지는 통과하는 형태를 API 차원에서 제거). lease(5s)는 PID liveness와 **무관하게** 적용(`pr-phase-lock` tri-state 미차용 — ms 단위 임계구역에서 lease 초과는 작업 중이 아니라 고장이고, tri-state + fail-closed는 영구 stall class를 만든다). rename retry 루프 **안에서도** heartbeat + 소유 재확인(R1 F5).
+- `plugins/mccp/scripts/state/evidence-claim.js` — 작업 단위(=decision slug) 점유 레지스트리. holder 정체 `{session_id, host, session_pid}`이고 `session_pid`는 `process.pid`가 **아니라** `CLAUDE_PID`(cli.js가 write마다 새 프로세스라 process.pid면 같은 세션의 두 번째 write가 거부된다). live 판정은 자기완결 `last_touch` TTL(ledger PID 축은 이 아키텍처에서 무효라 미사용). **모든 claim mutation을 per-slug lock으로 직렬화**(R1 F2 — `O_EXCL`은 생성 원자성만 증명하고, evidence lock 키가 `(gate, slug)`라 게이트가 다르면 같은 stale claim을 둘 다 승계할 수 있었다). 승계자가 tombstone을 쓰므로 `releaseClaim` 호출 누락이 정확성을 깨지 않는다.
+- `plugins/mccp/scripts/lib/msw-metrics/b2-coverage-gate.js` — B2 flip을 종속시키는 반증 가능 gate. **primary = 런타임 파일시스템 변형 감사**(receipts 트리 사전/사후 `path → {receipt_hash, mtime, size}` 스냅샷 → 모든 hash 변경이 대응 guard 이벤트를 갖는지 pre/post hash 양쪽 + ts ±30s로 판정), 보조 = 정적 lint + entrypoint 레지스트리. **런타임 관측 아티팩트 없이는 `ok:false`(indeterminate)**를 반환한다(R1 F4 — 정적 축만으로 통과하면 primary를 한 번도 관측하지 않고 `computed`로 뒤집힌다).
+- `docs/multi-session-work-loop/evidence-conflict-design.md` — 점유 모델 · 충돌 taxonomy 4종과 B2 계상 규칙 · caller별 실패 정책 비대칭 · lease 근거 · coverage gate 명세 · M3/M5 경계 · **위협 모델 명시**(적대적 위조자는 범위 밖).
+
+### Changed
+- `plugins/mccp/scripts/receipt/store.js` — `writeReceipt`가 guarded write를 경유하고 `assertNoTrackedOverwrite` 재검이 **lock 안**으로 이동(TOCTOU 폐쇄). 신규 `updateReceipt`가 기존 receipt의 read-modify-write를 한 임계구역에 담아 caller가 조합을 잊을 수 없게 한다. 출력 바이트 불변(§3.12).
+- `plugins/mccp/scripts/lib/briefing/index.js` · `lib/completion-ledger/index.js` — 직접 `writeFileSync` 제거, read까지 임계구역 안으로. 실패 정책은 `writeReceipt`와 **의도적 비대칭**(carve-out 필드만 건드리므로 fail-open + loud skip).
+- `plugins/mccp/scripts/receipt/write.js` — `restampGroundingVerdict`가 `updateReceipt` 경유(이 restamp는 `receipt_hash`를 재계산하므로 lost update가 stale seal을 되살릴 수 있었다).
+- `plugins/mccp/scripts/state/msw-events.js` — ALLOWED_FIELDS에 `work_unit`·`conflict_kind`·`holder_session`·`pre_hash`·`post_hash`·`claim_epoch`·`target`·`event_id` 추가(**추가만** — 기존 필드·cap·malformed 격리 불변). **CL-5**: 경로를 cwd 상대에서 명시 repoRoot 해석으로 교정(`opts.dir` > `opts.repoRoot` > walk-up > 레거시) + 두 hook caller가 repoRoot 전달. `event_id` append 시점 부여(R1 F6 — 이중 위치 스캔의 dedupe 키).
+- `plugins/mccp/scripts/derive/sources/session-activity.js` — dead read(`kind==='conflict'|'collision'`, producer 부재) 제거 → 신규 taxonomy. `collision_producer_present`를 `evidence_guard_active`에서 파생(**충돌 건수와 독립** — M2가 요구한 independent signal). 구·신 위치 이중 스캔 + `event_id` dedupe.
+- `plugins/mccp/scripts/lib/msw-metrics/index.js` — `computeB2` flip: producer-present ∧ coverage gate 통과 시 `computed`(분자 = `overwrite_observed`, 분모 = `concurrent_pairs`), 분모 0 → `invalid`, 그 외 → `forward-only` 유지. `prevented`는 병기하되 **분자 미계상**(계상하면 방어가 잘 될수록 지표가 나빠진다).
+- `plugins/mccp/scripts/derive/cli.js` · `lib/msw-metrics/fixture.js` — claimed-computable에 B2 복귀 + fixture가 compute 경로를 실증.
+- `plugins/mccp/scripts/lib/renderer/sections/msw-metrics.js` — expanded 슬라이스를 index 순서에서 **의사결정 우선순위**로(B2가 index 4라 `TOP_EXPANDED=3` collapse에 묻히던 문제). `METRICS_META.B2` 라벨을 `overwrite_observed` 의미로 갱신. 값 셀은 `n/N` 단일 지표, `prevented`는 collapse 상세, 신규 색 클래스 0, 신규 문자열 em-dash 0.
+- `plugins/mccp/scripts/hooks/session-start.js` — 다른 live 세션 점유 작업 단위를 `<system-reminder>`로 통보(**advisory** — 차단 없음, fail-loud-open). 소스는 `listClaims()` **단독**(ledger PID 축 미사용).
+- `plugins/mccp/commands/work.md` — Step 0 조기 점유 확인 + enforcement locus를 같은 문장 안에서 구분하는 안내.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.0 → 1.23.1` + renderer footer 2면 동기 + `.gitignore`(`evidence-claims/` **선행** 등록) + `CLAUDE.md` §3.6(세 번째 lock)·§4(토글 1개).
 
 ## [1.23.0] — 2026-07-25
 

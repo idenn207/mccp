@@ -13,7 +13,7 @@ const {
 } = require('./hash');
 const { validate, makeSkeleton, GATE_IDS } = require('./schema');
 const { phaseFromGate } = require('./aliases');
-const { writeReceipt, readReceipt } = require('./store');
+const { writeReceipt, readReceipt, updateReceipt } = require('./store');
 const escalateDetector = require('../lib/escalate-detector');
 const fixTask = require('../state/fix-task');
 const stateWriter = require('../state/state-writer');
@@ -523,40 +523,40 @@ function restampGroundingVerdict(args) {
 
   const cwd = args.cwd || process.cwd();
   const repoRoot = gitRepoRoot(cwd);
-  const existing = readReceipt(repoRoot, gateId, decisionId);
-  if (!existing) {
-    const e = new Error('cannot restamp grounding verdict: no existing receipt for ' +
-      gateId + '/' + decisionId);
-    e.code = 'RECEIPT_NOT_FOUND';
-    throw e;
-  }
 
-  existing.meta = existing.meta || {};
-  // Mutate ONLY the grounding verdict. Backfill captured=false on a legacy
-  // receipt so the present-only validator stays happy; never overwrite a
-  // gate-time captured=true.
-  if (existing.meta.design_grounding_captured === undefined) {
-    existing.meta.design_grounding_captured = false;
-  }
-  existing.meta.design_grounding_verdict = verdict;
+  // multi-session-work-loop M3 — the read, the mutation and the write are now a
+  // single critical section (`store.updateReceipt`). The previous shape read via
+  // readReceipt and wrote via writeReceipt, so a concurrent write landing between
+  // the two was silently reverted. This restamp recomputes receipt_hash (the
+  // verdict is NOT hash-carved), so a lost update here would resurrect a stale
+  // seal — exactly the class §3.12 protects.
+  const out = updateReceipt(repoRoot, gateId, decisionId, function (existing) {
+    existing.meta = existing.meta || {};
+    // Mutate ONLY the grounding verdict. Backfill captured=false on a legacy
+    // receipt so the present-only validator stays happy; never overwrite a
+    // gate-time captured=true.
+    if (existing.meta.design_grounding_captured === undefined) {
+      existing.meta.design_grounding_captured = false;
+    }
+    existing.meta.design_grounding_verdict = verdict;
 
-  // subject_hash excludes meta (hash.js SUBJECT_FIELDS), so it is unchanged —
-  // recompute defensively. receipt_hash DOES include the verdict (not carved
-  // out), so recomputing seals the new value.
-  existing.subject_hash = subjectHash(existing);
-  existing.receipt_hash = receiptHash(existing);
+    // subject_hash excludes meta (hash.js SUBJECT_FIELDS), so it is unchanged —
+    // recompute defensively. receipt_hash DOES include the verdict (not carved
+    // out), so recomputing seals the new value.
+    existing.subject_hash = subjectHash(existing);
+    existing.receipt_hash = receiptHash(existing);
 
-  const result = validate(existing);
-  if (!result.ok) {
-    const err = new Error('restamp grounding verdict validation failed:\n  - ' +
-      result.errors.join('\n  - '));
-    err.code = 'SCHEMA_INVALID';
-    err.errors = result.errors;
-    throw err;
-  }
-
-  const p = writeReceipt(repoRoot, existing);
-  return { path: p, receipt: existing };
+    const result = validate(existing);
+    if (!result.ok) {
+      const err = new Error('restamp grounding verdict validation failed:\n  - ' +
+        result.errors.join('\n  - '));
+      err.code = 'SCHEMA_INVALID';
+      err.errors = result.errors;
+      throw err;
+    }
+    return existing;
+  });
+  return { path: out.path, receipt: out.receipt };
 }
 
 module.exports = {

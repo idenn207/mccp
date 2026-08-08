@@ -59,9 +59,33 @@ We'll know we're right when **전체 테스트 스위트의 fail 수가 0이 되
 
 ## Open Questions
 
-- [ ] `#drawer-data` 실패의 원인이 **프로덕션 렌더러**인가 **테스트 기대**인가? receipt detail이 0건으로 파싱된다는 것은 드로어 데이터가 실제로 비어 있다는 뜻일 수도, 테스트가 낡은 어휘를 기대한다는 뜻일 수도 있다. 전자면 사용자에게 보이는 대시보드 결함이므로 심각도가 올라간다.
-- [ ] 합성 fixture 실패를 테스트가 **스스로 fixture를 생성**하도록 고칠 것인가, **부재 시 skip**하도록 고칠 것인가? §3.9는 "dogfood는 env 경로만으로 성립한다"고 하므로 후자가 계약에 더 가깝지만, 그러면 해당 e2e 경로가 평시에 한 번도 실행되지 않는 문제가 남는다.
-- [ ] 이 두 건 외에 다른 red가 남아 있는가? 본 PRD는 renderer 스위트와 design-critique 스위트만 실측했고 전 테스트 경로를 전수 실행하지 않았다.
+세 건 모두 M1(`.claude/plans/red-test-suite-restore-m1.plan.md`)에서 **답이 나왔다**. 근거는 `.claude/PRPs/reports/red-test-suite-restore-m1-report.md`.
+
+- [x] `#drawer-data` 실패의 원인이 **프로덕션 렌더러**인가 **테스트 기대**인가? → **프로덕션 렌더러**. `renderer/index.js`가 `renderAuditTimeline`의 `now` 인자에 `undefined`를 하드코딩해 함수의 `Date.now()` 폴백이 항상 발동, 7일 창 필터가 픽스처(2026-07-01 고정)를 실시각과 비교했다. 낡은 기대가 아니라 **시한폭탄**이었다(2026-07-08 이후 red). 다만 **사용자 대시보드 결함은 아니다** — 프로덕션 호출부 2곳(`derive/cli.js:146`, `renderer/trigger.js:298`)이 모두 `now`를 안 넘겨 폴백이 곧 의도된 동작이므로, 결정론은 테스트에서만 복원됐고 프로덕션 delta는 0이다.
+- [x] 합성 fixture 실패를 **스스로 생성**할 것인가 **부재 시 skip**할 것인가? → **둘 다 아니다.** repo 존재 assert는 `.gitignore:82`가 `.claude/cache/`를 무시하므로 구조적으로 충족 불가능했고, skip은 Out of scope가 금지한 은폐다. 실제 계약(detector가 whitelist 경로를 인식하는가)을 test-time 합성 위에서 검증하도록 **교체**했다 — 그래서 "e2e 경로가 평시 미실행"이라는 우려도 함께 해소된다.
+- [x] 이 두 건 외에 다른 red가 남아 있는가? → **있다. 8건 — 단 성격이 셋으로 갈리며 실제 코드/문서 결함은 4건(근본원인 2개)이다.** 전수 실행(`node --test "plugins/mccp/scripts/**/*.test.js"`, 2026-08-08) 결과 `tests 3366 / pass 3352 / fail 8 / skipped 6`. 5개 파일에 분포하며 본 브랜치가 그 5개 파일을 **하나도 건드리지 않았다**(`git log origin/main..HEAD` 전부 0 commits) — 전부 pre-existing.
+
+  읽기 전용 재현으로 원인만 규명했다(수정은 Task 4 계약대로 미수행):
+
+  | 축 | 건수 | 성격 |
+  |---|---|---|
+  | **A** `receipt-prompt.js:70` / `receipt-skill.js:105`의 무방비 top-level require → G1 fail-open 불변식 파손(hook이 exit 1로 죽음) | 3 | **실제 코드 결함** — `8cc9ac5`(v0.2.8)가 유발한 회귀, 약 2개월 방치 |
+  | **B** `pr.md:202`/`:856`이 validate에 `--plan` 누락 → [validate-cmd.js:296](plugins/mccp/scripts/receipt/validate-cmd.js)의 staleness 검사가 조건부라 **plan 변경이 stale로 안 잡힘** | 1 | **실제 계약 위반** — terminal 게이트 |
+  | **C** `runFinalize`가 앰비언트 `MCCP_CODEX_DISABLED=1`을 중화하지 않음 → reason이 `'codex_disabled'`(15자)로 교체되고 `codex_disabled=true`가 ship proof marker로 계산됨 | 2 | 테스트 hermeticity 결함 — 변수 제거 시 **26/26 통과** |
+  | **D** 전수 병렬 실행에서만 실패(개별 14/14·24/24, 동시 38/38, env-제거 전수도 통과) | 2 | flaky — 재현 조건 미확정 |
+
+  **A는 본 PRD의 논지를 그대로 입증한다** — 테스트는 2026-06-05에 생성돼 통과했고, v0.2.8이 그것을 깨뜨렸는데 스위트가 상시 red라 신호가 묻혔다. **C는 우선순위가 높다** — 가드가 무력화되는 조건(`MCCP_CODEX_DISABLED=1`)이 CLAUDE.md §4상 `/mccp:setup` Phase 4의 **기본 설치 절차와 일치**하므로, "증거 없는 skip은 ship 불가"를 지키는 테스트가 표준 설치 기계에서 조용히 반전된다.
+
+  전체 목록·단언·재현 절차는 리포트 「전수 baseline」 절 참조.
+
+## Status Note (2026-08-08)
+
+Milestone 1은 **지목된 2건을 해소했으나 milestone Outcome("전체 실행 fail 0")은 미충족**이다 — 잔존 red 8건이 남아 있고, M1 plan이 Task 4에서 이를 명시적으로 범위 밖("기록만, 별건 판단은 사용자 몫")으로 규정했기 때문이다. plan 범위와 milestone outcome 사이의 이 간극은 plan 작성 시점에 생겼다.
+
+따라서 status를 `complete`로 뒤집지 않았다 — 뒤집으면 Success Metric "전체 스위트 fail 수 0"이 달성됐다는 거짓 신호가 대시보드·milestone-history에 남는다. 해소 경로는 **사용자 결정**이다:
+
+- (a) 잔존 8건을 다루는 **M2 추가** → PRD를 원래 outcome대로 종료
+- (b) Milestone 1 outcome을 "지목된 2건 해소 + 잔존 목록 확정"으로 **축소 개정**하고 잔존 8건은 별도 PRD로 분리
 
 ## Risks
 

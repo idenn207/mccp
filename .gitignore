@@ -52,7 +52,11 @@ build/
 # Dogfood ephemera (fixtures + sandboxes) — never committed.
 .claude/state/dogfood-*/
 # v0.2.7 hook-trace shard ledgers (per-invocation observability — local only).
-.claude/state/hook-trace/
+# `**/` because a hook run whose cwd is a nested package writes its shards under
+# that package's own .claude/ — a root-anchored pattern misses those, and one
+# escaped into plugins/mccp/ (see ec57467). Long shard filenames also break
+# `git worktree add` under a deep prefix on Windows.
+**/.claude/state/hook-trace/
 # v0.2.7 hook capability probe cache (per-machine binary path + mtime — local only).
 .claude/state/hook-caps.json
 # v0.3.0 auto-handoff append-only log (per-session cost-tier events — local only).

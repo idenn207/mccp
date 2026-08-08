@@ -177,6 +177,24 @@ function planResolutionBases(planRel, repoRoot, prdDir) {
   return /^\.\.?[\\/]/.test(planRel) ? [prdDir, repoRoot] : [repoRoot, prdDir];
 }
 
+// PR-Codex R1 (HIGH) — the existence check above accepts a candidate under
+// EITHER base, but consumers resolve the returned string from the repo root
+// (`/mccp:milestone-close`: `PLAN_PATH="${SIGNAL_REF.plan}"`). Echoing the raw
+// cell back therefore lets detection and mutation name DIFFERENT files: a bare
+// `x.plan.md` that only exists under prdDir passes here, then resolves from the
+// repo root downstream — hitting a same-named file if one exists there, and
+// nothing at all if it does not. Emitting the base that actually satisfied the
+// check, canonicalised repo-relative, keeps both ends on one file.
+function toRepoRelative(absPath, repoRoot) {
+  let root;
+  try {
+    root = fs.realpathSync(repoRoot);
+  } catch (_err) {
+    root = path.resolve(repoRoot);
+  }
+  return path.relative(root, absPath).split(path.sep).join('/');
+}
+
 function evaluateRow(row, repoRoot, prdDir) {
   if (!row) {
     return { goal_signal: false, signal_ref: null, reason: 'milestone-not-found' };
@@ -205,6 +223,7 @@ function evaluateRow(row, repoRoot, prdDir) {
   }
   let anyBaseSafe = false;
   let planExists = false;
+  let matchedAbs = null;
   for (const base of planResolutionBases(planRel, repoRoot, prdDir)) {
     const planAbs = base === null ? planRel : path.resolve(base, planRel);
     const safety = validatePathSafety(planAbs, repoRoot);
@@ -214,7 +233,10 @@ function evaluateRow(row, repoRoot, prdDir) {
     try {
       planExists = fs.existsSync(candidate) && fs.statSync(candidate).isFile();
     } catch (_err) { planExists = false; }
-    if (planExists) break;
+    if (planExists) {
+      matchedAbs = candidate;
+      break;
+    }
   }
   // Only a cell that escapes the repo under EVERY base is a traversal attempt;
   // one safe-but-absent base is an ordinary missing plan.
@@ -234,7 +256,12 @@ function evaluateRow(row, repoRoot, prdDir) {
   }
   return {
     goal_signal: true,
-    signal_ref: { row: row.row, name: row.name, plan: planRel, status: row.status },
+    signal_ref: {
+      row: row.row,
+      name: row.name,
+      plan: toRepoRelative(matchedAbs, repoRoot),
+      status: row.status,
+    },
     reason: 'ok',
   };
 }

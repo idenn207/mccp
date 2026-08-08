@@ -14,6 +14,15 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `plugins/mccp/scripts/lib/tests/design-critique-loop-e2e.test.js` — 케이스 F 교체(fixture 합성 + plan의 whitelist 경로 인식 검증)
 - `plugins/mccp/.claude-plugin/plugin.json` `1.23.1 → 1.23.2`(patch — bug fix/axis close, §3.7) + renderer footer(html/markdown) 동기.
 
+### Fixed — PR-Codex R1 흡수 (HIGH, goal-detect 경로 반환)
+
+`goal-detect.js`의 plan 존재 확인 루프는 `[repoRoot, prdDir]`(또는 `./`·`../` 셀이면 역순) 두 base를 순회하며 존재하는 후보에서 멈추지만, **어느 base가 매칭됐는지 버리고 원본 셀 문자열을 그대로 `signal_ref.plan`으로 반환**했다. 유일한 소비처 `milestone-close.md`는 그 값을 `PLAN_PATH`로 직접 쓰며 repo root 기준으로 해석하므로, 검출이 승인한 파일과 명령이 편집하는 파일이 **서로 다를 수 있었다** — 예컨대 bare 셀 `x.plan.md`가 `<prdDir>/x.plan.md`로 매칭되면 downstream은 `<repoRoot>/x.plan.md`를 가리켜, 같은 이름의 다른 파일이 있으면 조용히 엉뚱한 plan을 stamp/close하고 없으면 dead-end가 된다. 즉 `plan-missing` 정지였어야 할 것이 `goal_signal=true`로 바뀌며 milestone provenance가 오염된다.
+
+이제 실제로 존재 확인을 통과한 후보를 **repo-relative canonical 경로**로 정규화해 반환한다(신규 `toRepoRelative`). 검출과 변형이 항상 같은 파일을 지목한다.
+
+- `plugins/mccp/scripts/lib/goal-detect.js` — 매칭된 base를 추적해 canonical 경로 emit
+- `plugins/mccp/scripts/lib/tests/goal-detect.test.js` — **기존 S11c·S11d가 결함을 정답으로 고정하고 있었다**(raw 셀 `'../plans/m2.plan.md'` · `'./sibling.plan.md'`를 기대). 두 단언을 canonical 경로로 정정하고, 충돌 회귀 2건(S11e prdDir 매칭 · S11f repo-root fallback)을 추가. 수정을 되돌리면 4건 전부 실패함을 A/B로 확인(공허하지 않음).
+
 ## [1.23.1] — 2026-07-31
 
 **`/mccp:milestone-close` detector false-negative 수정 (patch — axis close)** — `/mccp:milestone-close`를 실제 PRD에 처음 돌리자 Phase 1 DETECT가 `reason=plan-missing`으로 STOP했다. plan 파일은 **존재**했다 — `goal-detect.js`가 실제 PRD 표의 plan 셀을 해석하지 못한 것이다. 서로 **독립적으로 치명적인** 결함 2건이 겹쳐 있었다: (1) `extractPlanPath`가 markdown link `[label](path)`만 처리하고 **inline-code 백틱을 제거하지 않아** `` `.claude/plans/x.plan.md` `` 가 백틱째로 경로 해석에 흘러갔고, (2) plan 경로를 **`prdDir` 기준**으로 resolve해 repo-root 상대 표기(`.claude/prds/` + `.claude/plans/…`)가 원리상 절대 맞지 않았다. 백틱만 제거해도 여전히 `plan-missing`, resolve base만 바꿔도 여전히 `plan-missing` — 둘 다 고쳐야 `goal_signal=true`가 된다. 기존 테스트가 이 버그를 정답으로 고정하고 있던 것은 **아니다**: 모든 fixture가 PRD를 repoRoot에 직접 두어 `prdDir === repoRoot`였고, 그래서 resolution base가 **한 번도 실행되지 않았다**(under-coverage). 회귀 테스트는 PRD를 `.claude/prds/` 하위에 두는 실제 배치로 바꿔 두 축을 각각 재현한다.

@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: dashboard-data-exploration
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-08T04:04:51.645Z
+updated_at: 2026-08-08T05:03:20.037Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-05T15:34:25.228Z
 unsafe_checkpoint: false
@@ -13,32 +13,33 @@ last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
-workflow-orchestration live-activation M3 (v1.22.3) — PR-Codex R1 4라운드 3건(F1/F2/F3) 흡수 완료. PR 재실행 대기.
+codex-intent-context M1 (v1.23.1) — santa-loop NICE 수렴 후 push 완료. /mccp:pr은 stale receipt 2건으로 차단.
 
 ## Plan
-- M3 + 3차 흡수까지 로컬 커밋 4개(7ef5def+ca48678+a4db756+f7c34e4). push/PR 없음.
-- 4라운드 PR-Codex R1 = No ship(HIGH 2 + MEDIUM 1). 3건 전부 ACCEPT_NOW — 상세/수정방향은 .claude/state/fix-task.md.
-- 세 건 모두 M3이 primary backstop으로 승격시킨 agent-count cap 내부의 구멍. cap에 구멍 = M3 헤드라인이 거짓 → F1 backlog 이연 기각.
+- ec57467 구현 + 3686260 escalation clear, 둘 다 origin/feat/codex-intent-context에 push됨.
+- /mccp:pr 차단 원인: santa-loop의 plan 문서 정정이 plan_hash를 바꿔 plan-codex/implement-codex 두 receipt가 stale (validate ok:false).
+- 정직한 해소는 게이트 재실행이지만 plan-codex/implement-codex 둘 다 codex 필요 — codex 사용량 한도로 2026-08-13까지 불가.
 
 ## Done
-- 3차 흡수 커밋 f7c34e4(27파일 +2592): codex-review-payload.js 4게이트 공용 verdict SoT, 2단계 reserve/reconcile, filter title 매처 + in-scope veto.
-- 4라운드 /mccp:pr 완주: Phase 0/1/1.6 통과, dedupe fail-closed(양 게이트 divergent) → PR-Codex 실발화 → receipt divergent 봉인(validate ok:true).
-- findings 3건 전부 실제 코드로 재현 검증(액면 수용 아님). acquireLock 확인 → Codex 제안 (a)는 이미 구현됨, (c)는 lock 부재로 원리상 불가 → (b) fail-closed 채택.
-- review-only 불변식 지켜짐(mutations:[], lock_exit_ok:true). a11y는 rendering_surface=false로 skip.
+- santa-loop 2라운드 수렴: R1 = Opus PASS / GPT-5.4 FAIL(실결함 5건), R2 = 둘 다 PASS.
+- R1 5건 전부 코드 재현 후 흡수: DD4-1 stableBodyDigest 실강제 · decision/runNonce path traversal · 4MiB 상한 read 경계 · plan.md Phase 0 blind write · spec drift 5곳.
+- 검증: 핵심 6파일 140/140, receipt 스위트 전량 green(297+160), negative grep 6종 통과.
+- renderer verdict-label 실패는 HEAD 임시 worktree에서 재현 → 기존 결함으로 확정(본 브랜치 무관).
+- receipt 스위트 지연 원인은 assertion 아니라 briefing 타임아웃 — MCCP_BRIEFING=off로 590s→26s.
 
 ## In Progress
-PR 미생성 — PR-Codex R1(4라운드) No ship. fix-task.md에 F1/F2/F3 수정방향 확정. 다음은 흡수 구현 cycle.
+PR 미생성. stale receipt 2건 + codex 한도로 /mccp:pr 진행 불가 — 사용자 결정 대기.
 
 ## Next Step
-/mccp:pr 재실행(5라운드) → PR-Codex R1 재판정
+2026-08-13 codex 한도 리셋 후 /mccp:plan + /mccp:prp-implement 게이트 재실행으로 receipt 재봉인 → /mccp:pr. 또는 audited escape로 즉시 PR 생성(무결성 비용 있음).
 
 ## Last Decision
-2026-07-15 4라운드 PR-Codex R1 No ship. 3건 전부 흡수, F1 이연 절충 기각 — M3 헤드라인이 "USD를 열어도 원자 agent-count cap이 막는다"인데 F1/F2/F3 전부 그 cap 안의 구멍이라, 이연은 중심 정당화가 거짓임을 알면서 ship하는 것. lock 고갈 발화율이 낮다는 건 F1을 덜 급하게 만들 뿐 주장을 참으로 만들지 않음. F1 수정=granted 0 + 인라인 fallback("granted 0이면 파이프라인 차단"이라는 현 주석 전제가 거짓임을 확인 — 두 호출자 모두 인라인 경로 보유, 인라인은 cap 미소비). F2 수정=default를 0으로 뒤집는 건 오답(safety 방향 실패), default 자체 제거 → unset이면 reconcile skip + pending 유지(자기치유). 고쳐진 runner가 구조화 payload로 verdict를 읽어 No ship을 정직 보고 — 구 blind runner였다면 고무도장(F5 수정의 실전 증명 2회차).
+2026-08-08 santa-loop NICE 후 push. 단 R2 Reviewer B는 codex 한도 초과로 Claude fallback이라 model diversity 없음 — R1에서 Opus가 실결함 5건을 전부 통과시켰으므로 이번 NICE는 cross-model 비대칭 포착에 근거하지 않는다. receipt 재봉인(cli.js write)은 기각: Codex가 리뷰한 적 없는 본문을 리뷰했다고 주장하게 되어 §3.12가 막으려는 바로 그 종류의 거짓.
 
 ## Open Questions
-- pre-existing(본 PR 무관): finalize-receipt.js:269 timeoutMs 60000 만료로 exit 127인데 receipt write는 성공 → 정상 receipt에도 GATE-STOP. backlog 후보.
-- pre-existing 실패 2건(design-critique-loop-e2e fixture 부재, verdict-label.test.js) 별도 cycle 유지 — 이번 1133개 run에서도 fixture 건만 재현.
-- cache 1.22.0 stale — /mccp:pr 본문 하드코딩 경로가 구 blind runner를 가리켜 워크트리 스크립트로 우회 실행 중. 머지 후 claude plugin update로 해소 예상.
+- write.js#stampIntentDecision free-form 경로: **Source PRD** 없는 plan은 runner 없이 skipped+proof stamp + intent_plan_digest=plan_hash → 셸 호출자가 --codex-verdict converged와 조합 시 dedupe-approved receipt 생성 가능. M1 이전에도 가능했고 DD10 위협모델 밖이지만 M1이 닫았다고 주장하지 않음.
+- plan-codex/implement-codex receipt는 codex_verdict=divergent이고 intent 필드 부재(legacy) — dedupe는 어차피 fail-closed.
+- pre-existing: renderer verdict-label.test.js 실패(HEAD에서도 재현).
 
 ## Last Updated
-2026-08-08T04:04:51.645Z
+2026-08-08T05:03:20.037Z

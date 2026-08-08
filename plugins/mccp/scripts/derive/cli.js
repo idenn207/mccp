@@ -192,12 +192,13 @@ function cmdRender(rest) {
 function cmdMetricsAssert(rest) {
   // R2-F2 mechanical acceptance gate
   // Enumerates claimed-computable ids, rejects null/baseline-forming, asserts B3 real value
-  // Only B3 remains claimed-computable after the measurement-honesty downgrade
-  // (A1/A2/A4/B2 → forward-only, C1/C2/C3 forward-only, B1 insufficient), so the
-  // per-id constants for the non-claimed metrics are no longer referenced here.
+  // Claimed-computable = {B2, B3} after multi-session-work-loop M3 restored B2
+  // (A1/A2/A4 → forward-only, C1/C2/C3 forward-only, B1 insufficient), so only
+  // those two per-id constants are referenced here.
   const {
     computeMetrics,
     METRIC_IDS,
+    B2_CONCURRENT_CONFLICTS,
     B3_TOGGLE_AXES,
   } = require('../lib/msw-metrics');
   const { buildSeededModel } = require('../lib/msw-metrics/fixture');
@@ -216,7 +217,19 @@ function cmdMetricsAssert(rest) {
   // 즉 B2를 제거한 바로 그 PF2 논리가 A1에도 동일 적용된다. A1은 flag가 live-derivable
   // (task_completed 관측 시 flip)이라 producer가 배선되면 A1을 다시 목록에 넣을 수 있다.
   // 남는 건 live producer가 실재하는 B3뿐 — 유일한 claimed-computable.
+  //
+  // multi-session-work-loop M3: **B2 rejoins** the claimed-computable set. The
+  // PF2 argument that removed it was "no INDEPENDENT collision-producer-presence
+  // signal exists; building one = building the producer, out of scope". M3 built
+  // the producer — `evidence_guard_active` fires on every guarded receipt write,
+  // so presence is orthogonal to incident count and a computed-zero is reachable.
+  // The flip is additionally gated on a falsifiable runtime coverage audit
+  // (b2-coverage-gate.js), so an uncovered writer keeps B2 at forward-only
+  // instead of silently reporting `computed 0/N`.
+  //
+  // A1/A2/A4/C1 stay excluded — their producers are still absent or contaminated.
   const claimedComputable = [
+    B2_CONCURRENT_CONFLICTS,
     B3_TOGGLE_AXES,
   ];
 

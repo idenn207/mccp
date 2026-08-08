@@ -2,43 +2,50 @@
 state_version: 1
 task_fingerprint: dashboard-data-exploration
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-07-30T08:29:16.058Z
+updated_at: 2026-08-05T17:39:46.574Z
 last_event: stop_loop_pass
-last_event_at: 2026-07-15T15:25:04.371Z
+last_event_at: 2026-08-05T17:39:46.574Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
+escalate_pending: true
+escalate_pending_decision_id: multi-session-work-loop
 ---
 ## Goal
-workflow-orchestration live-activation M3 (v1.22.3) — PR-Codex R1 4라운드 3건(F1/F2/F3) 흡수 완료. PR 재실행 대기.
+MSW M3 (증거 충돌 소거) 구현 완료 — Task 1~9 전부 적용, 커밋/PR 미수행.
 
 ## Plan
-- M3 + 3차 흡수까지 로컬 커밋 4개(7ef5def+ca48678+a4db756+f7c34e4). push/PR 없음.
-- 4라운드 PR-Codex R1 = No ship(HIGH 2 + MEDIUM 1). 3건 전부 ACCEPT_NOW — 상세/수정방향은 .claude/state/fix-task.md.
-- 세 건 모두 M3이 primary backstop으로 승격시킨 agent-count cap 내부의 구멍. cap에 구멍 = M3 헤드라인이 거짓 → F1 backlog 이연 기각.
+- plan: `.claude/plans/multi-session-work-loop-m3.plan.md` — 상단 `## 착수 전 요약`부터 읽을 것
+- 리뷰: Codex adversarial 2R + santa-loop dual-review 4R (Claude Opus + Codex GPT-5.4, 컨텍스트 격리)
+- receipt: `mccp-plan-codex/multi-session-work-loop` · validate ok · `codex_verdict=divergent` (세탁 안 함)
+- 보증의 단일 기준은 plan 상단 G1~G3 표. 명시된 잔여 2건은 M5(전역 순번) 없이 안 닫힘
 
 ## Done
-- 3차 흡수 커밋 f7c34e4(27파일 +2592): codex-review-payload.js 4게이트 공용 verdict SoT, 2단계 reserve/reconcile, filter title 매처 + in-scope veto.
-- 4라운드 /mccp:pr 완주: Phase 0/1/1.6 통과, dedupe fail-closed(양 게이트 divergent) → PR-Codex 실발화 → receipt divergent 봉인(validate ok:true).
-- findings 3건 전부 실제 코드로 재현 검증(액면 수용 아님). acquireLock 확인 → Codex 제안 (a)는 이미 구현됨, (c)는 lock 부재로 원리상 불가 → (b) fail-closed 채택.
-- review-only 불변식 지켜짐(mutations:[], lock_exit_ok:true). a11y는 rendering_surface=false로 skip.
+- Task 1~9 전부 구현. Implement-Codex R1 실발화(386s) → 6 findings 중 5 흡수 · F1 코드로 반증
+- 신규: evidence-lock.js · evidence-claim.js · b2-coverage-gate.js · evidence-conflict-design.md + 테스트 7파일(80건)
+- 변경: store(writeReceipt/updateReceipt) · briefing · completion-ledger · write.js restamp · msw-events(CL-5+event_id) · session-activity · computeB2 · derive cli · renderer · session-start/end · work.md · 1.23.1 3면 동기
+- 구현 중 자체 발견·수정: opts.env 미전달로 fence 무발화 · guard 이벤트 hash 어휘 불일치(receipt_hash로 교정) · 이중 스캔 교차 오염(다른 repo 127건 유입) · 버전 정규식 미치환
+- 계약 갱신 3건(silent-change 방지 장치라 명시적 갱신): msw-metrics.test / msw-metrics-acceptance(B2 승격) / session-activity.test(dead read 은퇴)
+- J4 상류 결함을 codex-findings-backlog.md에 구체 수정안과 함께 기록
+- 보고서: .claude/PRPs/reports/multi-session-work-loop-m3-report.md
 
 ## In Progress
-PR 미생성 — PR-Codex R1(4라운드) No ship. fix-task.md에 F1/F2/F3 수정방향 확정. 다음은 흡수 구현 cycle.
+구현 완료(Task 1~9). 신규 파일 8 + 변경 25. 신규 테스트 80건 green. 전체 회귀 진행 중 — baseline 실패 6건(M3 범위 밖) 대비 대조 필요. 커밋·push 없음.
 
 ## Next Step
-/mccp:pr 재실행(5라운드) → PR-Codex R1 재판정
+escalation 미해소 상태에서 (a) /mccp:santa-loop로 Implement-Codex 흡수 품질 cross-model 재검증 또는 (b) /mccp:prp-commit → /mccp:pr (dedupe fail-closed라 PR-Codex 실발화 보장) 중 운영자 선택.
 
 ## Last Decision
-2026-07-15 4라운드 PR-Codex R1 No ship. 3건 전부 흡수, F1 이연 절충 기각 — M3 헤드라인이 "USD를 열어도 원자 agent-count cap이 막는다"인데 F1/F2/F3 전부 그 cap 안의 구멍이라, 이연은 중심 정당화가 거짓임을 알면서 ship하는 것. lock 고갈 발화율이 낮다는 건 F1을 덜 급하게 만들 뿐 주장을 참으로 만들지 않음. F1 수정=granted 0 + 인라인 fallback("granted 0이면 파이프라인 차단"이라는 현 주석 전제가 거짓임을 확인 — 두 호출자 모두 인라인 경로 보유, 인라인은 cap 미소비). F2 수정=default를 0으로 뒤집는 건 오답(safety 방향 실패), default 자체 제거 → unset이면 reconcile skip + pending 유지(자기치유). 고쳐진 runner가 구조화 payload로 verdict를 읽어 No ship을 정직 보고 — 구 blind runner였다면 고무도장(F5 수정의 실전 증명 2회차).
+Implement-Codex R1: HIGH 4 + MED 2 중 5건 흡수, F1은 코드로 반증(state-injector의 설계된 inject-후-rotate). receipt를 codex_verdict=divergent로 봉인 — R2 재검증 미획득이므로 converged로 올리지 않음.
 
 ## Open Questions
-- pre-existing(본 PR 무관): finalize-receipt.js:269 timeoutMs 60000 만료로 exit 127인데 receipt write는 성공 → 정상 receipt에도 GATE-STOP. backlog 후보.
-- pre-existing 실패 2건(design-critique-loop-e2e fixture 부재, verdict-label.test.js) 별도 cycle 유지 — 이번 1133개 run에서도 fixture 건만 재현.
-- cache 1.22.0 stale — /mccp:pr 본문 하드코딩 경로가 구 blind runner를 가리켜 워크트리 스크립트로 우회 실행 중. 머지 후 claude plugin update로 해소 예상.
+- OQ-3: PRD M3 문구(구조적으로 불가능)가 plan 보증 G1~G3보다 강함 — PR 시 조정
+- CL-3: sibling worktree feat/codex-intent-context도 1.23.1 선언 — PR 시 origin/main 재확인 후 상향
+- 실 corpus B2는 forward-only 유지: coverage gate 런타임 관측 아티팩트가 아직 없음(손으로 만들면 masquerade)
+- perf-budget이 이 머신에서 예산 가장자리(clean 853ms / 1000ms) — 신규 테스트 병렬 부하로 초과
 
 ## Last Updated
-2026-07-30T08:29:16.058Z
+2026-08-05T17:39:46.574Z

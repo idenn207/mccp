@@ -25,7 +25,14 @@ const MAX_LINE_BYTES = 8192;
 const PER_FILE_MAX_BYTES = 256 * 1024; // 256KB per session file
 const GLOBAL_MAX_BYTES = 100 * 1024 * 1024; // 100MB total
 
-// allowlist — 이 필드들만 기록 가능
+// allowlist — 이 필드들만 기록 가능.
+//
+// M3 추가분(work_unit ~ event_id)은 **추가만**이다: 기존 필드 · cap ·
+// malformed 격리 계약은 불변이라 M2 하위 표면이 회귀하지 않는다.
+//
+// 왜 allowlist 확장이 감사와 같은 Task에 묶여야 하는가: `eventToJsonLine`은
+// allowlist에 없는 키를 **조용히 버린다**. pre/post hash를 emit해도 여기 없으면
+// 디스크에 남지 않고, B2 런타임 감사는 영원히 대조할 값을 못 찾는다.
 const ALLOWED_FIELDS = new Set([
   'kind',
   'ts',
@@ -36,6 +43,15 @@ const ALLOWED_FIELDS = new Set([
   'task_completed',
   'context_remaining_pct',
   'producer',
+  // multi-session-work-loop M3 — 증거 충돌 taxonomy
+  'work_unit',       // = decision slug (점유 키)
+  'conflict_kind',   // 사고/차단의 구체 형태
+  'holder_session',  // 충돌 상대 또는 기록 주체
+  'pre_hash',        // 변형 **전** receipt_hash (감사 상관의 좌변)
+  'post_hash',       // 변형 **후** receipt_hash (사후조작만으로는 통과 못 하게)
+  'claim_epoch',     // fence 바인딩
+  'target',          // repo-relative receipt 경로 (건별 상관의 키)
+  'event_id',        // 안정적 dedupe 키 (Implement-Codex R1 F6)
 ]);
 
 class MswEventsError extends Error {
@@ -157,6 +173,44 @@ function checkFileSize(filePath) {
   return true;
 }
 
+// multi-session-work-loop M3 (CL-5) — writer↔reader 경로 정합.
+//
+// 기존 기본 경로는 **cwd 상대**(`EVENTS_DIRNAME`)인데 reader
+// (`derive/sources/session-activity.js`)는 **repoRoot 고정**이었다. 두 hook
+// caller 어느 쪽도 `opts.dir`을 넘기지 않았으므로 실제 기록 위치가 hook
+// 프로세스의 `process.cwd()`에 종속됐고, 결과는 (a) 이벤트가 reader가 보지 않는
+// 곳에 쌓여 조용히 0건이 되거나 (b) worktree가 여럿일 때 서로의 이벤트가 교차
+// 계상되는 것이었다. 이 저장소에 worktree 3개가 동시에 살아 있으므로 (b)는
+// 가설이 아니다. B2의 분모와 guard 커버리지가 전부 이 sidecar 위에 얹히므로
+// M3의 헤드라인 acceptance가 여기에 직접 달려 있다.
+//
+// 해석 우선순위: opts.dir(테스트) > opts.repoRoot(명시) > cwd에서 위로 올라가며
+// `.claude` 보유 디렉토리 탐색 > cwd 상대(레거시 fallback).
+//
+// walk-up을 쓰는 이유: `git rev-parse --show-toplevel` spawn은 append마다 ~44ms
+// (실측)라 hot path에 부적합하다. statSync 몇 번이면 같은 답을 얻는다.
+function discoverRepoRoot(startDir) {
+  let dir = path.resolve(startDir || process.cwd());
+  for (let i = 0; i < 40; i++) {
+    try {
+      if (fs.statSync(path.join(dir, '.claude')).isDirectory()) return dir;
+    } catch (_e) { /* keep walking */ }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+function resolveEventsDir(opts) {
+  opts = opts || {};
+  if (opts.dir) return opts.dir;
+  if (opts.repoRoot) return path.join(opts.repoRoot, EVENTS_DIRNAME);
+  const discovered = discoverRepoRoot(opts.cwd);
+  if (discovered) return path.join(discovered, EVENTS_DIRNAME);
+  return EVENTS_DIRNAME;   // 레거시 fallback (repo 밖에서 실행된 경우)
+}
+
 // 핵심: append 이벤트
 function appendEvent(sessionId, event, opts) {
   opts = opts || {};
@@ -172,9 +226,14 @@ function appendEvent(sessionId, event, opts) {
     event.ts = new Date().toISOString();
   }
   event.session_id = sessionId;
+  // 안정적 dedupe 키(Implement-Codex R1 F6). back-compat 이중 스캔이 구·신
+  // 위치를 모두 읽어야 하는데, 본문 전체로 dedupe하면 필드가 우연히 같은
+  // **별개 이벤트가 붕괴**한다. append 시점에 id를 부여해 그 모호성을 없앤다.
+  if (!event.event_id) {
+    event.event_id = crypto.randomUUID();
+  }
 
-  // 디렉토리 (테스트용 override 가능)
-  const eventsDir = opts.dir || EVENTS_DIRNAME;
+  const eventsDir = resolveEventsDir(opts);
 
   // 디렉토리 생성
   if (!fs.existsSync(eventsDir)) {
@@ -216,6 +275,8 @@ function appendEvent(sessionId, event, opts) {
 // 공개 API
 module.exports = {
   appendEvent,
+  resolveEventsDir,
+  discoverRepoRoot,
   eventToJsonLine,
   sanitizeField,
   MswEventsError,

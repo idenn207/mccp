@@ -1126,18 +1126,19 @@ shell caller stamp an approving verdict without Codex running). So there is no
 # Poll for the marker this run owns. The nonce is in the PATH, so a stale marker
 # from an earlier run cannot be mistaken for this one.
 DEADLINE=$(( $(date +%s) + 2400 ))
+MARKERLESS=0
 while [ ! -f "$MARKER" ] && [ "$(date +%s)" -lt "$DEADLINE" ]; do
   if [ ! -f "$LOCKFILE" ]; then
-    # Lock gone with no marker: the runner died. Distinguish "died after the
-    # receipt was written" from "died before" by looking for OUR nonce sealed
-    # inside the receipt (meta.intent_run_nonce) — markerless success recovery.
+    # Lock gone with no marker: the runner died, or its marker write failed. Tell
+    # "died after the receipt was written" from "died before" by looking for OUR
+    # nonce sealed inside the receipt (meta.intent_run_nonce).
     SEALED=$(node -e '
       const {readReceipt}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/store");
       const {gitRepoRoot}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/hash");
       try{const r=readReceipt(gitRepoRoot(process.cwd()),"mccp-plan-codex",process.argv[1]);
         process.stdout.write((r&&r.meta&&r.meta.intent_run_nonce)||"");}catch(_){}
     ' "$DECISION_SLUG" 2>/dev/null)
-    if [ "$SEALED" = "$RUN_NONCE" ]; then break; fi   # succeeded-markerless
+    if [ "$SEALED" = "$RUN_NONCE" ]; then MARKERLESS=1; break; fi   # succeeded-markerless
     echo "[MCCP-GATE-STOP] plan-codex runner died before writing a receipt (crashed)."
     exit 1
   fi
@@ -1157,13 +1158,29 @@ Marker states — handle each explicitly, never "proceed because the file appear
 | `timeout` | deadline passed | STOP — do not assume success |
 
 ```bash
-# Verify the marker belongs to THIS run before trusting any of its contents.
-MARKER_NONCE=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).run_nonce||"")}catch{}' "$MARKER")
-[ "$MARKER_NONCE" = "$RUN_NONCE" ] || {
-  echo "[MCCP-GATE-STOP] marker run_nonce mismatch — refusing to trust a foreign run's marker."
-  exit 1
-}
-MARKER_EXIT=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).exit_code))}catch{process.stdout.write("12")}' "$MARKER")
+if [ "$MARKERLESS" = "1" ]; then
+  # There is no marker to verify — the receipt IS the evidence. Reading it as a
+  # success is only sound because the runner quarantines any receipt it refuses to
+  # stand behind (post-write digest mismatch renames it aside), so a readable
+  # receipt carrying this run_nonce is never a blocked run. Phase 5.7 re-validates
+  # it regardless. Do NOT fall through to the marker checks below: $MARKER does not
+  # exist, and parsing it would report a foreign-marker mismatch for a run that in
+  # fact succeeded.
+  echo "[mccp:intent-gate] marker absent but the receipt seals run_nonce $RUN_NONCE — succeeded-markerless." 1>&2
+  MARKER_EXIT=0
+else
+  if [ ! -f "$MARKER" ]; then
+    echo "[MCCP-GATE-STOP] intent gate timed out (2400s): no marker, and no receipt seals run_nonce $RUN_NONCE. Do NOT assume success — re-run /mccp:plan."
+    exit 1
+  fi
+  # Verify the marker belongs to THIS run before trusting any of its contents.
+  MARKER_NONCE=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).run_nonce||"")}catch{}' "$MARKER")
+  [ "$MARKER_NONCE" = "$RUN_NONCE" ] || {
+    echo "[MCCP-GATE-STOP] marker run_nonce mismatch — refusing to trust a foreign run's marker."
+    exit 1
+  }
+  MARKER_EXIT=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).exit_code))}catch{process.stdout.write("12")}' "$MARKER")
+fi
 ```
 
 ### 5.6b — Verify the Codex section was injected

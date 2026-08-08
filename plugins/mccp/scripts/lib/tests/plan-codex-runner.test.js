@@ -235,6 +235,60 @@ test('DD4-2 — a post-write plan_hash mismatch fails loudly instead of reportin
   assert.match(out.res.reason, /plan_hash mismatch/);
 });
 
+// Phase 5.6's markerless recovery reads "a receipt seals our run_nonce" as success.
+// That inference is only sound while a receipt the runner refuses to stand behind
+// never stays readable — otherwise the conjunction of a failed marker write and
+// this blocked path reports a blocked run as a pass. Pin the rename, not the prose.
+test('DD4-2 — the mis-sealed receipt is quarantined, so markerless recovery cannot read it as success', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ title: 'F1', severity: 'high' }]);
+  stageAdjudication(s, 'n8q', env);
+
+  // A real file on disk: the invariant under test is a rename, not a return value.
+  const receiptPath = path.join(s.dir, 'plan-codex-receipt.json');
+  fs.writeFileSync(receiptPath, JSON.stringify({ meta: { intent_run_nonce: 'n8q' } }));
+
+  const out = runWith(s, { runNonce: 'n8q' }, env, function () {
+    return { path: receiptPath, receipt: { plan_hash: 'sha256:' + '9'.repeat(64), receipt_hash: 'x' } };
+  });
+
+  assert.strictEqual(out.res.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(fs.existsSync(receiptPath), false,
+    'a receipt the runner refuses to stand behind must leave the consumable path');
+  assert.strictEqual(fs.existsSync(receiptPath + '.invalid-n8q'), true,
+    'quarantine must preserve the artifact for diagnosis rather than delete it');
+  assert.strictEqual(out.res.receiptPath, null,
+    'the marker must not advertise a receipt_path that was just quarantined');
+});
+
+// The runner is launched detached, so its stderr and exit code never reach the
+// caller — the marker is the whole channel. Assert on what an operator can
+// actually observe, because "the run still exited 0" is true with or without the
+// retry and would pin nothing.
+test('an unwritable marker is retried, then downgraded, then reported as FATAL', function () {
+  const s = scratch(PRD_PLAN);
+  const p = runner.paths(s.tmpDir, 'r', 'n8m');
+  // Occupy the marker path with a NON-EMPTY directory: rename() onto it fails on
+  // every platform this runs on, so both the full and the degraded write fail.
+  fs.mkdirSync(p.marker, { recursive: true });
+  fs.writeFileSync(path.join(p.marker, 'occupied'), 'x');
+
+  const seen = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = function (chunk) { seen.push(String(chunk)); return true; };
+  let out;
+  try { out = runWith(s, { runNonce: 'n8m' }, envelopeWith([])); }
+  finally { process.stderr.write = realWrite; }
+  const log = seen.join('');
+
+  assert.match(log, /marker write failed after 3 attempts/,
+    'a single attempt is not enough — transient locks are the common case on Windows');
+  assert.match(log, /FATAL: no marker could be written/,
+    'losing the only channel to the caller must be reported as fatal, not as a stray warning');
+  // The verdict itself must be unaffected by the channel failing.
+  assert.strictEqual(out.res.exitCode, runner.EX_OK);
+});
+
 // ── (c) the DD3 negative test ────────────────────────────────────────────────
 
 test('(c) tampering with the audit envelope on disk does NOT change the verdict', function () {

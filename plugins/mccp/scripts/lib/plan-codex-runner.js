@@ -59,6 +59,8 @@ const HEARTBEAT_EVERY_MS = 20 * 1000;
 const DEFAULT_ADJUDICATION_TIMEOUT_MS = 30 * 60 * 1000;
 const POLL_INTERVAL_MS = 1000;
 const FILE_MODE = 0o600;
+const MARKER_WRITE_ATTEMPTS = 3;
+const MARKER_RETRY_DELAY_MS = 50;
 
 function gitTmpDir(cwd) {
   const rel = execFileSync('git', ['rev-parse', '--git-path', 'mccp/tmp'],
@@ -190,10 +192,65 @@ function waitForAdjudication(p, timeoutMs) {
 // main
 // ---------------------------------------------------------------------------
 
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// The marker is the caller's ONLY channel. plan.md Phase 5.6 launches this runner
+// detached and then polls for the marker, so neither this process's stderr nor its
+// exit code ever reaches the caller. Dropping the marker therefore does not merely
+// lose a log line — it downgrades a precise `blocked` verdict, with its actionable
+// reason, into an indistinguishable `crashed`. Retry first (on Windows the AV
+// scanner and the search indexer both take transient locks on a freshly renamed
+// file), then fall back to just the four fields Phase 5.6 actually branches on,
+// which is far likelier to land when the original write failed on ENOSPC.
 function writeMarker(markerPath, body) {
-  try { writePrivate(markerPath, JSON.stringify(body, null, 2)); }
-  catch (err) {
-    process.stderr.write('[plan-codex-runner] marker write failed: ' + err.message + '\n');
+  for (let attempt = 1; attempt <= MARKER_WRITE_ATTEMPTS; attempt++) {
+    try { writePrivate(markerPath, JSON.stringify(body, null, 2)); return true; }
+    catch (err) {
+      if (attempt < MARKER_WRITE_ATTEMPTS) { sleepMs(MARKER_RETRY_DELAY_MS); continue; }
+      process.stderr.write('[plan-codex-runner] marker write failed after ' +
+        MARKER_WRITE_ATTEMPTS + ' attempts: ' + err.message + '\n');
+    }
+  }
+  try {
+    writePrivate(markerPath, JSON.stringify({
+      run_nonce: body.run_nonce,
+      decision_id: body.decision_id,
+      exit_code: body.exit_code,
+      intent_gate_verdict: body.intent_gate_verdict,
+      reason: body.reason || null,
+      marker_degraded: true,
+    }));
+    process.stderr.write('[plan-codex-runner] wrote a minimal degraded marker instead\n');
+    return true;
+  } catch (err) {
+    process.stderr.write('[plan-codex-runner] FATAL: no marker could be written (' +
+      err.message + '). The caller cannot read this run\'s verdict and will fail ' +
+      'closed on the crashed/timeout path.\n');
+    return false;
+  }
+}
+
+// A receipt the runner refuses to stand behind must not stay on the consumable
+// path. It carries this run's nonce, so leaving it would both let
+// /mccp:prp-implement read a receipt bound to a body that was never reviewed and
+// make Phase 5.6's markerless recovery — which infers success from "a receipt
+// seals our nonce" — report this blocked run as a success. Rename rather than
+// delete: the artifact stays available for diagnosis, just not for consumption.
+function quarantineReceipt(receiptPath, nonce) {
+  if (!receiptPath) return;
+  // Nothing on disk means nothing on the consumable path — the invariant already
+  // holds, so this is not a degraded outcome worth shouting about.
+  if (!fs.existsSync(receiptPath)) return;
+  const dest = receiptPath + '.invalid-' + nonce;
+  try {
+    fs.renameSync(receiptPath, dest);
+    process.stderr.write('[plan-codex-runner] quarantined the mis-sealed receipt → ' + dest + '\n');
+  } catch (err) {
+    process.stderr.write('[plan-codex-runner] FATAL: could not quarantine the mis-sealed ' +
+      'receipt at ' + receiptPath + ' (' + err.message + '). Remove it by hand before ' +
+      're-running — it seals a body that was never reviewed.\n');
   }
 }
 
@@ -437,11 +494,14 @@ function run(opts, deps) {
     if (!result || !result.receipt || result.receipt.plan_hash !== digestNow) {
       process.stderr.write('[plan-codex-runner] FATAL: written receipt plan_hash ' +
         ((result && result.receipt && result.receipt.plan_hash) || '(none)') +
-        ' != reviewed digest ' + planDigest + '\n');
+        ' != sealed digest ' + digestNow + '\n');
+      quarantineReceipt(result && result.path, nonce);
+      // Pass no write result: there is no receipt the caller may act on, so the
+      // marker must not advertise a receipt_path that has just been quarantined.
       return finish(EX_BLOCKED, {
         verdict: 'incomplete',
         reason: 'post-write plan_hash mismatch — receipt does not seal the reviewed body',
-      }, null, result);
+      }, null, null);
     }
 
     return finish(EX_OK, derived, decision, result);

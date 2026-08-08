@@ -1028,17 +1028,34 @@ later reconcile is the correct direction to err.
 
 #### 5.2f — L3 Codex layer (hybrid only)
 
-Run the same wrapper as 5.2z **but do not perform 5.3's plan injection** — the
-plan is frozen (invariant ii) and injecting the Codex section here would change
-`plan_hash` and make the 5.6 write exit 12. Record the outcome as JSON instead:
+**Step 1 — actually run the wrapper.** Execute 5.2z's Codex wrapper block below
+*verbatim*. It ends by persisting the verdict to `$REVIEW_DIR/codex-verdict`,
+which is what bridges it to this section. **Then stop** — do NOT continue into
+5.3's plan injection: the plan is frozen (invariant ii) and adding the Codex
+section would change `plan_hash` and make the 5.6 write exit 12.
+
+This must be spelled out because "run the same wrapper as 5.2z" is not a thing
+the mode table makes happen. Hybrid's branch is 5.2a → … → **5.2f** → 5.2e and
+skips 5.2z entirely, so nothing else in this document ever executes that wrapper.
+Reading the artifact without running the wrapper leaves it absent on every hybrid
+run, and the branch below writes `invoked:false` forever — hybrid would be a mode
+that can never reach its own verdict (it fails closed to `unavailable`, so it is
+a dead mode rather than an unsafe one, but dead all the same).
+
+**Step 2 — record the outcome as JSON** (a separate block, so read the artifact,
+not `$CODEX_VERDICT`, which the block boundary has already emptied):
 
 ```bash
 REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
-# Read the verdict from the artifact 5.2z persisted, NOT from $CODEX_VERDICT:
-# the wrapper ran in an earlier fenced block and shell state does not cross that
-# boundary, so the variable is empty here and this would write `"verdict":""` —
-# the one value the paragraph below forbids.
+# The artifact is written at the end of 5.2z's wrapper block (Step 1 above).
+# Absent here means Step 1 was skipped or the wrapper died before persisting —
+# NOT "Codex chose not to speak". Both fail closed, but only one is a wiring bug,
+# so say which. $CODEX_VERDICT is useless at this point: it was set in the
+# wrapper's block and shell state does not cross a fence.
 L3_VERDICT=$(cat "$REVIEW_DIR/codex-verdict" 2>/dev/null || printf '')
+if [ -z "$L3_VERDICT" ]; then
+  echo "[mccp:plan-review] WARNING: \$REVIEW_DIR/codex-verdict is absent. If you did not run 5.2z's wrapper block first (Step 1), that is the bug — hybrid will fail closed to 'unavailable' and HALT." 1>&2
+fi
 if [ -n "$L3_VERDICT" ]; then
   printf '{"invoked":true,"verdict":"%s","reason":"%s"}\n' "$L3_VERDICT" "${CODEX_CLASS:-unknown}" \
     > "$REVIEW_DIR/l3.json"

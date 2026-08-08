@@ -284,6 +284,22 @@ function stripSectionBodies(planText, headings) {
   for (let i = 0; i < list.length; i++) strip[String(list[i]).trim()] = true;
 
   const lines = String(planText == null ? '' : planText).split('\n');
+
+  // Only the LAST instance of each gate-owned heading is elided. Phase 5.1
+  // appends its placeholder at the bottom, so the gate's own section is always
+  // the latest one with that heading; an EARLIER section of the same name is a
+  // previous run's review record, which is ordinary plan content this anchor
+  // must keep binding. Eliding purely by name let an edit under that older
+  // record leave the digest unchanged, so the runner read a real divergence as
+  // "just the gate's own injection" and sealed a body Codex never reviewed.
+  const lastIdx = Object.create(null);
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (/^##\s/.test(lines[i]) && strip[t]) lastIdx[t] = i;
+  }
+  const elide = Object.create(null);
+  Object.keys(lastIdx).forEach(function (k) { elide[lastIdx[k]] = true; });
+
   const out = [];
   let skipping = false;
   for (let i = 0; i < lines.length; i++) {
@@ -295,7 +311,7 @@ function stripSectionBodies(planText, headings) {
       // placeholder would fail closed with a message blaming an edit that
       // never happened. Dropping both makes the anchor invariant to whether
       // the review record exists yet.
-      if (strip[line.trim()]) { skipping = true; continue; }
+      if (elide[i]) { skipping = true; continue; }
       skipping = false;
     }
     if (!skipping) out.push(line);

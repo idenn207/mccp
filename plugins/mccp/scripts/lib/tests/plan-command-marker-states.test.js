@@ -121,3 +121,30 @@ test('a stale lock does not turn an already-written receipt into a timeout', fun
   assert.match(afterLoop, /sealed_nonce|intent_run_nonce/,
     'the recheck must consult the nonce the receipt sealed');
 });
+
+test('a lock-loser is diagnosed in the 5.2 wait, not only in 5.6', function () {
+  // 5.6's owner check is unreachable for a lock-loser: the exit-11 runner writes
+  // nothing, so 5.2 waits out its full 1200s on nonce-scoped artifacts that can
+  // never appear and generic-stops before 5.6 runs. A diagnosis that arrives
+  // after 1200s of silence is not a diagnosis.
+  const i = body.indexOf('Then wait for the runner to publish the findings');
+  assert.ok(i > 0, 'anchor moved: 5.2 wait');
+  const wait = body.slice(i, body.indexOf('### 5.3', i));
+  assert.match(wait, /LOCK_OWNER=/,
+    'the 5.2 wait must read the lock owner');
+  assert.match(wait, /already owns decision/,
+    'the lock-loser must be told what happened instead of waiting out the deadline');
+});
+
+test('5.6b rejects an unreplaced placeholder, not just a missing heading', function () {
+  // Phase 5.1 appends the heading AND the placeholder together, so a heading-only
+  // grep passes even when 5.3 never wrote the triage record — an approved receipt
+  // for a plan carrying no review content.
+  const i = body.indexOf('5.6b — Verify the Codex section was injected');
+  assert.ok(i > 0, 'anchor moved: 5.6b');
+  const verify = body.slice(i, i + 1400);
+  assert.match(verify, /placeholder: will be replaced/,
+    "5.6b must reject a plan still carrying 5.1's placeholder");
+  assert.match(verify, /if grep -q/,
+    'use `if`, not `grep … && { … }` — a non-match would otherwise trip set -e');
+});

@@ -914,6 +914,18 @@ Then wait for the runner to publish the findings (it stays alive while you adjud
 ```bash
 DEADLINE=$(( $(date +%s) + 1200 ))
 while [ ! -f "$AWAITING" ] && [ ! -f "$MARKER" ] && [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  # The runner exits 11 — writing nothing at all — when another live run already
+  # owns this decision, so neither $AWAITING nor $MARKER can EVER appear and this
+  # wait would burn its full deadline before reporting a generic stop. The lock
+  # names its owner, so check it here rather than only in 5.6: this loop runs
+  # first, and a diagnosis that arrives after 1200s of silence is not one.
+  LOCK_OWNER=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).run_nonce||"")}catch{}' "$LOCKFILE" 2>/dev/null)
+  if [ -n "$LOCK_OWNER" ] && [ "$LOCK_OWNER" != "$RUN_NONCE" ]; then
+    echo "[MCCP-GATE-STOP] another run (nonce $LOCK_OWNER) already owns decision \"$DECISION_SLUG\"."
+    echo "This invocation launched no second writer, by design. Wait for that run to"
+    echo "finish, then re-run /mccp:plan."
+    exit 1
+  fi
   sleep 10
 done
 ```
@@ -1042,8 +1054,11 @@ written**. Read `intent_gate_verdict` + `reason` from `$MARKER` and output:
 Reason: <reason from marker>
 No mccp-plan-codex receipt was written, so /mccp:prp-implement cannot start.
 Recovery:
-  - incomplete            → every Codex finding needs an explicit adjudication row;
-                            fix .../intent-adjudication-<nonce>.json and re-run /mccp:plan
+  - incomplete            → every Codex finding needs an explicit adjudication row.
+                            Re-run /mccp:plan and write a complete one at 5.5a. Do NOT go
+                            looking for this run's intent-adjudication-<nonce>.json: its
+                            path carries the run nonce, so a new run neither reads nor
+                            reuses it, and it is removed with the run's other scratch.
   - conflict_unresolved   → a finding conflicting with a UI<n> constraint was ACCEPT_NOW'd
                             without intent_override_reason; either reject it, or write down
                             why the user's constraint is being overridden
@@ -1241,6 +1256,16 @@ grep -q "^## Codex Adversarial Review$" <plan path> || {
   echo "[MCCP-GATE-STOP] plan에 Codex 섹션 주입 실패. Phase 5.3 재시도 필요."
   exit 1
 }
+
+# The heading on its own proves nothing: Phase 5.1 appended it TOGETHER WITH the
+# placeholder, so the check above passes even when 5.3 never replaced the body —
+# and the command would hand off an approved receipt for a plan carrying no review
+# record at all. `if` rather than `grep … && { … }` so a non-match cannot trip
+# `set -e` on the way past.
+if grep -q "placeholder: will be replaced" <plan path>; then
+  echo "[MCCP-GATE-STOP] Codex 섹션이 5.1의 placeholder 그대로입니다 — Phase 5.3이 triage 기록으로 교체하지 않았습니다."
+  exit 1
+fi
 
 ```
 

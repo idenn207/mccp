@@ -690,3 +690,37 @@ test('constraints that DISCUSS verdicts are not mistaken for directives', functi
   assert.strictEqual(s.present, true, s.reason || 'legitimate constraints were refused');
   assert.strictEqual(s.items.length, 4);
 });
+
+test('DD4-1 — only the LAST gate section is elided, so an older review record still binds', function () {
+  // A re-run leaves the previous run's review record in the plan, and Phase 5.1
+  // appends a fresh section with the SAME heading. Eliding by heading NAME
+  // dropped both, so an edit under the OLD record left the anchor unchanged and
+  // the runner read a real divergence as "just the gate's own injection".
+  const base = [
+    '# Plan',
+    '',
+    '**Source PRD**: `.claude/prds/x.prd.md`',
+    '',
+    '## Codex Adversarial Review',
+    '',
+    'R1: ACCEPT_NOW on the first finding.',
+    '',
+    '## Tasks',
+    '',
+    '- do the thing',
+    '',
+    '## Codex Adversarial Review',
+    '',
+    '<!-- placeholder: will be replaced by Phase 7.3 -->',
+  ].join('\n');
+
+  const editedOld = base.replace('R1: ACCEPT_NOW on the first finding.',
+    'R1: REJECT_YAGNI on the first finding.');
+  assert.notStrictEqual(ic.stableBodyDigest(editedOld), ic.stableBodyDigest(base),
+    'an edit under the PREVIOUS run review record must move the anchor');
+
+  const editedGate = base.replace('<!-- placeholder: will be replaced by Phase 7.3 -->',
+    'R1 triage: 2 findings, both ACCEPT_NOW.');
+  assert.strictEqual(ic.stableBodyDigest(editedGate), ic.stableBodyDigest(base),
+    "the gate's own injection into the LAST section must still not move the anchor");
+});

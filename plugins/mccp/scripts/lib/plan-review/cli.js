@@ -311,6 +311,27 @@ function cmdDecide(args) {
     return EX_BLOCK;
   }
 
+  // DD3 short-circuit. L1 is the gatekeeper: when it fails, 5.2c never runs and
+  // no l2.json exists, so demanding one here turns a real L1 defect into
+  // "unavailable — L2 produced no readable result". Those are different events.
+  // The operator is told the gate could not run when in fact the gate ran and
+  // found violations in their plan, and the L1 violation list never reaches the
+  // decision reason. It also made decideReview's own DD3 branch dead code on the
+  // only path that reaches it (santa-loop R2, Codex GPT-5.4).
+  //
+  // Ordering matters and mirrors the oracle: an `inconclusive` L1 ("could not
+  // check") still resolves to unavailable, and a converged L1 still REQUIRES a
+  // readable L2 below — this widens nothing, it only stops asking L2 a question
+  // that L1 already answered.
+  const l1v = (l1r.value && typeof l1r.value === 'object' && !Array.isArray(l1r.value))
+    ? l1r.value.verdict : null;
+  if (l1v !== 'converged') {
+    const d = decideReview({ mode: mode, l1: l1r.value, l2: null, l3: null });
+    errln('BLOCK: L1 gatekeeper — ' + d.reason);
+    out(d);
+    return d.block ? EX_BLOCK : EX_OK;
+  }
+
   const l2r = readJsonOrBlock(args['l2-file'], '--l2-file');
   if (!l2r.ok) {
     errln('BLOCK: ' + l2r.reason + ' — L2 produced no readable result, so the ' +

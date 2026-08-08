@@ -995,11 +995,23 @@ REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
 RES_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservationId||"")}catch{process.stdout.write("")}' "$REVIEW_DIR/reservation.json")
 ACTUAL_N=$(node -e 'try{process.stdout.write(String((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).fleet||[]).length))}catch{process.stdout.write("")}' "$REVIEW_DIR/workflow-args.json")
 [ -n "$RES_ID" ] && [ -n "$ACTUAL_N" ] || { echo "[MCCP-GATE-STOP] reservation or fleet artifact unreadable — cannot reconcile the agent cap honestly."; exit 1; }
+# Only reconcile when the panel actually returned. 5.2c permits a Workflow that
+# throws or is unavailable, and on that path zero reviewers may have launched —
+# committing the PLANNED fleet size there records phantom launches permanently
+# (committed entries never expire). Guessing 0 is equally wrong in the other
+# direction: the reviewers may have launched and only the return was lost, and a
+# cap may never under-count. So when l2.json is absent, do not answer at all —
+# leave the reservation pending and PINNED by 5.2c's debt marker, exactly as the
+# fan-out does at Phase 2.5.3. "Unknown" stays unknown and stays conservative.
+if [ ! -s "$REVIEW_DIR/l2.json" ]; then
+  echo "[mccp:plan-review] l2.json absent — NOT reconciling. Reservation $RES_ID stays pending and pinned by the debt marker; a later reconcile commits and clears it." 1>&2
+else
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
   --reservation "$RES_ID" --actual "$ACTUAL_N"
 RECONCILE_EXIT=$?
 if [ "$RECONCILE_EXIT" -ne 0 ]; then
   echo "[mccp:plan-review] WARNING: reconcile exited $RECONCILE_EXIT — reservation $RES_ID stays pending. It is PINNED by the debt marker written before the Workflow call, so the lease cannot prune these $ACTUAL_N real launches; the cap stays conservative (over-counted) until a later reconcile commits and clears it." 1>&2
+fi
 fi
 ```
 

@@ -186,6 +186,37 @@ const BYPASS_WRITER_SHAPES = [
   },
 ];
 
+// 회귀 고정 3: 경로를 **인라인으로** 넘기는 변형 API.
+//
+// 축 C(변수 taint)는 write 대상이 식별자일 때만 발동하므로, 경로를 호출 안에서
+// 바로 만들면 축 C가 못 받는다. 그러면 방어는 축 A의 **동사 목록**에만 의존하는데
+// 그 목록이 4개(write/append/createWriteStream 계열)뿐이라 아래 8종이 전부
+// 통과했다 — 측정으로 확인했고, santa round 2의 Reviewer B가 그중 `openSync`
+// 하나를 반례로 제시했다. 한 건만 고치면 같은 모양의 나머지 7개가 남으므로
+// 목록 전체를 넓혔고, 여기서 모양째 고정한다.
+const INLINE_PATH_WRITER_SHAPES = [
+  { name: 'openSync for write', src: "const fd = fs.openSync(path.join(root, '.claude/receipts/g/s.json'), 'w');\n" },
+  { name: 'promises.open for write', src: "const h = await fs.promises.open(path.join(root, '.claude/receipts/g/s.json'), 'w');\n" },
+  { name: 'promises.appendFile', src: "await fs.promises.appendFile(path.join(root, '.claude/receipts/g/s.json'), line);\n" },
+  { name: 'copyFileSync onto a receipt', src: "fs.copyFileSync(src, path.join(root, '.claude/receipts/g/s.json'));\n" },
+  { name: 'renameSync onto a receipt', src: "fs.renameSync(tmp, path.join(root, '.claude/receipts/g/s.json'));\n" },
+  { name: 'cpSync onto a receipt', src: "fs.cpSync(srcDir, path.join(root, '.claude/receipts/g/s.json'));\n" },
+  { name: 'truncateSync a receipt', src: "fs.truncateSync(path.join(root, '.claude/receipts/g/s.json'), 0);\n" },
+  { name: 'symlinkSync over a receipt', src: "fs.symlinkSync(evil, path.join(root, '.claude/receipts/g/s.json'));\n" },
+];
+
+test('static lint catches inline-path mutators, not just the write family', () => {
+  for (const shape of INLINE_PATH_WRITER_SHAPES) {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-lint-inline-'));
+    const dir = path.join(repo, 'plugins', 'mccp', 'scripts', 'lib');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'rogue.js'), shape.src, 'utf8');
+    const r = gate.staticLint(repo);
+    assert.equal(r.ok, false, 'MISSED inline-path shape: ' + shape.name + ' — ' + shape.src.trim());
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test('static lint catches writer shapes a future caller would plausibly use', () => {
   for (const shape of BYPASS_WRITER_SHAPES) {
     const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-lint-bypass-'));

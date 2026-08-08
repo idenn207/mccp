@@ -66,14 +66,27 @@ const MUTATION_ENTRYPOINTS = [
 // 저장소 전체 스캔이 위반 0을 보고했다. 즉 "미래 writer는 lint가 잡는다"는
 // store.js의 한정 근거가 실재하지 않았다. `/receipt/i` 단수 + 대소문자 무시로
 // 넓히면 세 형태가 모두 걸린다.
-const WRITE_CALL_RE = /(writeFileSync|writeFile|appendFileSync|createWriteStream)\s*\([^)]*receipt/i;
+//
+// 동사 목록이 곧 이 축의 범위다. 초기 4개(`writeFileSync|writeFile|
+// appendFileSync|createWriteStream`)는 **경로를 인라인으로 넘기는** 변형을
+// 거의 다 놓쳤다 — 측정: 9종 중 8종 통과(`openSync(p,'w')` · `promises.open` ·
+// `promises.appendFile` · `copyFileSync(src,p)` · `renameSync(tmp,p)` ·
+// `cpSync` · `truncateSync` · `symlinkSync(evil,p)`). 인라인이면 축 C(변수
+// taint)도 못 받는다. 그래서 목록은 **경로를 인자로 받아 내용을 만들거나
+// 덮어쓰는 fs API 전체**로 넓힌다. dest가 두 번째 인자인 것들(copy·rename·
+// cp·symlink·link)도 `[^)]*receipt` 스캔에 걸린다.
+//
+// **의도적으로 제외**: 삭제 계열(`unlink`·`rm`). 증거 파괴이긴 하나 이 축의
+// 선언된 대상은 "미승인 writer 유입"이고, 정리 코드에 오검출을 만든다. 빠져
+// 있다는 사실을 여기 적어 둔다 — 조용한 누락으로 두지 않는다.
+const WRITE_CALL_RE = /(writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|openSync|\bopen|copyFileSync|copyFile|renameSync|\brename|cpSync|\bcp\b|truncateSync|truncate|symlinkSync|symlink|linkSync|\blink)\s*\([^)]*receipt/i;
 
 // 축 B는 축 A가 원리상 못 보는 형태를 덮는다 — 경로를 먼저 변수에 담고
 // (`const target = receiptPath(root, gate, slug)`) write 줄에는 receipt 토큰이
 // 남지 않는 경우. store의 경로 helper를 부르면서 fs write도 하는 비승인 파일은
 // receipt를 직접 쓰고 있다고 본다.
 const RECEIPT_PATH_HELPER_RE = /receiptPath\s*\(/;
-const ANY_WRITE_CALL_RE = /(writeFileSync|writeFile|appendFileSync|createWriteStream)\s*\(/;
+const ANY_WRITE_CALL_RE = /(writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|openSync|\bopen|copyFileSync|copyFile|renameSync|\brename|cpSync|\bcp\b|truncateSync|truncate|symlinkSync|symlink|linkSync|\blink)\s*\(/;
 
 // 축 C는 축 A·B가 원리상 못 보는 나머지를 덮는다 — **경로를 변수에 세탁하는**
 // 형태다. 축 A는 write 줄 하나만 보므로 `const t = path.join(root, '.claude',
@@ -92,9 +105,13 @@ const ANY_WRITE_CALL_RE = /(writeFileSync|writeFile|appendFileSync|createWriteSt
 // 파생만 추적해 그 변수가 write 대상일 때만 잡는다 — 실 repo 오검출 0.
 const RECEIPT_PATH_TOKEN_RE = /(\.claude[\/\\]receipts|['"`]receipts['"`]|receiptPath\s*\(|receiptsDir|RECEIPTS_DIR)/;
 const TAINT_ASSIGN_RE = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(.+)$/;
+// 축 C의 동사 목록은 축 A와 **대칭으로** 유지한다. 한쪽만 넓히면 "변수로
+// 넘기면 잡히고 인라인이면 안 잡힌다"(또는 그 반대)는 비대칭 구멍이 생긴다.
 const TAINT_WRITE_TARGET_RE =
-  /(?:writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|openSync)\s*\(\s*([A-Za-z_$][\w$]*)/;
-const TAINT_RENAME_TARGET_RE = /rename(?:Sync)?\s*\(\s*[^,]+,\s*([A-Za-z_$][\w$]*)/;
+  /(?:writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|openSync|\bopen|truncateSync|truncate)\s*\(\s*([A-Za-z_$][\w$]*)/;
+// dest가 두 번째 인자인 계열.
+const TAINT_DEST_TARGET_RE =
+  /(?:renameSync|\brename|copyFileSync|copyFile|cpSync|\bcp\b|symlinkSync|symlink|linkSync|\blink)\s*\(\s*[^,]+,\s*([A-Za-z_$][\w$]*)/;
 
 function toPosix(p) {
   return String(p).split(path.sep).join('/');
@@ -291,7 +308,7 @@ function taintedReceiptWrites(raw) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (isCommentLine(line)) continue;
-    const m = TAINT_WRITE_TARGET_RE.exec(line) || TAINT_RENAME_TARGET_RE.exec(line);
+    const m = TAINT_WRITE_TARGET_RE.exec(line) || TAINT_DEST_TARGET_RE.exec(line);
     if (m && tainted.has(m[1])) out.push({ line: i + 1, via: m[1] });
   }
   return out;

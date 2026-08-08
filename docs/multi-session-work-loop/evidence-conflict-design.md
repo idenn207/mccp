@@ -231,6 +231,10 @@ pre/post hash를 **둘 다** 요구하는 이유: "delta + 아무 guard 이벤�
 
    **탐지 범위를 정확히 적는다(이 축이 실재보다 넓게 읽히면 안 된다).** 3축이다 — (A) write 호출 **인자**에 receipt 토큰이 보이는 줄, (B) store의 `receiptPath(` helper를 부르는 파일의 모든 write 줄, (C) receipt 경로 식으로 대입된 변수와 그 파생이 write·rename 대상인 줄(**한 홉** taint). 축 C는 축 A·B가 못 보던 형태를 덮는다 — 초기 판본은 A·B뿐이라 `path.join(root,'.claude','receipts',…)`을 변수에 담고 다음 줄에서 쓰는 형태, tmp write 후 `renameSync(tmp,target)`(이 milestone 자신의 관용구), `fs.promises.writeFile`, `openSync`+`writeSync` **네 형태를 전부 통과시켰고** 저장소 전체 스캔이 위반 0을 보고했다. 즉 guardrail 주장이 실재보다 넓었다.
 
+   **축의 실제 범위는 동사 목록이 정한다.** santa round 2가 그 점을 다시 확인했다 — 축 C를 넣은 뒤에도 동사 목록이 write 계열 4개뿐이라, 경로를 **호출 안에서 인라인으로** 만드는 변형은 축 C(대상이 식별자일 때만 발동)도 못 받아 9종 중 8종이 통과했다(`openSync(p,'w')` · `promises.open` · `promises.appendFile` · `copyFileSync(src,p)` · `renameSync(tmp,p)` · `cpSync` · `truncateSync` · `symlinkSync(evil,p)`). 리뷰어가 제시한 반례는 그중 `openSync` 하나였지만 나머지 7개가 같은 모양이므로 목록 전체를 **경로를 인자로 받아 내용을 만들거나 덮어쓰는 fs API**로 넓혔다(dest가 두 번째 인자인 copy·rename·cp·symlink·link 포함). 축 A와 축 C의 동사 목록은 **대칭으로** 유지한다 — 한쪽만 넓히면 "변수로 넘기면 잡히고 인라인이면 안 잡힌다"는 비대칭 구멍이 생긴다.
+
+   **의도적으로 제외한 것**: 삭제 계열(`unlink`·`rm`). 증거 파괴이긴 하지만 이 축의 선언된 대상은 "미승인 writer 유입"이고 정리 코드에 오검출을 만든다. 조용한 누락이 아니라 명시된 비대상이다.
+
    **여전히 못 보는 것**: 객체 필드·함수 인자를 거쳐 다단계로 세탁된 경로, 런타임에만 결정되는 동적 경로, `plugins/mccp/scripts` 밖의 코드, 셸·생성 스크립트. 이것들의 falsifier는 정적 축이 아니라 **런타임 변형 감사(primary)**다 — 아래 역할 분담이 성립하는 이유가 바로 이 한계다.
 2. **변형 entrypoint 레지스트리** — 기대 mutation 경로를 명시 목록으로 두고 lint 결과와 대조(목록 밖 = 실패, 목록에 있는데 guard 미경유 = 실패).
 3. **건별 상관** — 열거의 출발점은 **receipt corpus의 `receipt_hash` 관측값**이다. guard 이벤트에서 출발해 receipt를 확인하는 방향은 미커버 writer를 **원리상 못 본다**(guard를 안 탄 write는 이벤트를 안 남기므로 열거에 안 잡힌다). 총량 비교는 금지 — 누락을 은폐한다.

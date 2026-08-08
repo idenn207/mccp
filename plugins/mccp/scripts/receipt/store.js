@@ -160,9 +160,11 @@ function assertNoTrackedOverwrite(repoRoot, p, receipt) {
 // 그 한정은 의도적이다 — 미래에 추가되는 직접 writer는 b2-coverage-gate의
 // 정적 lint가 guardrail로 잡되, **정적 축이 보는 범위 안에서만** 잡는다:
 // `plugins/mccp/scripts` 안의 .js에서 write 줄·store helper·한 홉 변수 taint로
-// receipt 경로가 드러나는 형태까지다. 다단계로 세탁된 경로·런타임 결정 경로·
-// 셸/생성 writer는 정적 축이 원리상 못 보며, 그것들의 falsifier는 lint가 아니라
-// 런타임 변형 감사(primary)다.
+// receipt 경로가 드러나고, 그 호출이 lint의 **동사 목록**(경로를 인자로 받아
+// 내용을 만들거나 덮어쓰는 fs API — 삭제 계열은 명시적 비대상)에 있는 형태까지다.
+// 다단계로 세탁된 경로·런타임 결정 경로·셸/생성 writer는 정적 축이 원리상 못
+// 보며, 그것들의 falsifier는 lint가 아니라 런타임 변형 감사(primary)다.
+// 범위의 canonical 서술은 evidence-conflict-design.md §6.3.
 //
 // 출력 바이트는 불변이다(§3.12 no-rehash): 같은 입력이면 이전과 byte-identical.
 function writeReceipt(repoRoot, receipt) {

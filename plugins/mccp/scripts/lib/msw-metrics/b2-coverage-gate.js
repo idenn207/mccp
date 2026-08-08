@@ -31,6 +31,9 @@ const TS_TOLERANCE_MS = 30 * 1000;
 
 // 승인된 receipt writer. 이 목록 밖에서 `.claude/receipts` 경로에 write하는 코드가
 // 생기면 정적 lint가 실패한다 — "현재 알려진 caller"라는 한정을 지탱하는 guardrail.
+// 단 그 탐지는 아래 3축(A: write 인자 토큰 · B: store helper 사용 파일 · C: 한 홉
+// 변수 taint)이 보는 범위 안에서다. 다단계 세탁·동적 경로·이 트리 밖·셸 writer는
+// 정적으로 반증할 수 없고 런타임 변형 감사(primary)가 담당한다.
 const APPROVED_WRITERS = [
   'plugins/mccp/scripts/receipt/evidence-lock.js',   // 유일한 실제 원자 writer
   'plugins/mccp/scripts/receipt/store.js',           // guarded facade (writeReceipt/updateReceipt)
@@ -71,6 +74,27 @@ const WRITE_CALL_RE = /(writeFileSync|writeFile|appendFileSync|createWriteStream
 // receipt를 직접 쓰고 있다고 본다.
 const RECEIPT_PATH_HELPER_RE = /receiptPath\s*\(/;
 const ANY_WRITE_CALL_RE = /(writeFileSync|writeFile|appendFileSync|createWriteStream)\s*\(/;
+
+// 축 C는 축 A·B가 원리상 못 보는 나머지를 덮는다 — **경로를 변수에 세탁하는**
+// 형태다. 축 A는 write 줄 하나만 보므로 `const t = path.join(root, '.claude',
+// 'receipts', ...)` 다음 줄의 `writeFileSync(t, json)`을 통과시키고, 축 B는
+// store의 `receiptPath(` helper를 부를 때만 발동하므로 경로를 직접 조립하면
+// 발동하지 않는다. 실측으로 확인한 통과 형태 4종: 인라인 path.join → 변수,
+// tmp write 후 renameSync(tmp, target), `fs.promises.writeFile(target, …)`,
+// `openSync(target,'w')` + `writeSync(fd, …)`. 마지막 둘은 축 A의 write-call
+// 목록에도 없었다. 이 milestone이 확립한 tmp+rename 관용구를 그대로 베낀
+// 신규 writer가 정확히 이 구멍으로 들어온다.
+//
+// 정밀도를 위해 **한 홉 taint**를 쓴다. 파일 안에 receipt 경로 토큰이 있다는
+// 사실만으로 잡으면 receipt를 *읽기만* 하면서 다른 대상에 쓰는 정당한 파일이
+// 걸린다(실측: completion-ledger/store.js · dispatch-cli.js · pr-phase-lock.js
+// 3건이 그렇게 오검출됐다). 대신 receipt 경로 식으로 **대입된 변수**와 그
+// 파생만 추적해 그 변수가 write 대상일 때만 잡는다 — 실 repo 오검출 0.
+const RECEIPT_PATH_TOKEN_RE = /(\.claude[\/\\]receipts|['"`]receipts['"`]|receiptPath\s*\(|receiptsDir|RECEIPTS_DIR)/;
+const TAINT_ASSIGN_RE = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(.+)$/;
+const TAINT_WRITE_TARGET_RE =
+  /(?:writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|openSync)\s*\(\s*([A-Za-z_$][\w$]*)/;
+const TAINT_RENAME_TARGET_RE = /rename(?:Sync)?\s*\(\s*[^,]+,\s*([A-Za-z_$][\w$]*)/;
 
 function toPosix(p) {
   return String(p).split(path.sep).join('/');
@@ -238,6 +262,41 @@ function listJsFiles(dir, acc) {
 // falsifier는 런타임 변형 감사다 — 정적 축 단독으로는 `ok`를 낼 수 없다
 // (`evaluateGate` 참조). 여기서 주장하는 것은 "모든 우회를 잡는다"가 아니라
 // "우발적으로 유입되는 통상적 writer 형태를 잡는다"뿐이다.
+// 축 C 본체. 반환은 `[{line, via}]` — `via`는 오검출을 진단할 수 있도록 어느
+// 변수가 오염됐는지 남긴다. 대입을 두 번 훑는 이유는 write가 대입보다 텍스트
+// 상 먼저 나오는 배치(함수 hoisting·역순 정의)를 놓치지 않기 위해서다.
+//
+// 한계를 정확히 적는다(이 파일이 지탱하는 주장이 실재보다 넓어지면 안 된다):
+// 한 홉 대입만 추적하므로 객체 필드·배열·함수 인자를 거쳐 여러 단계로 세탁된
+// 경로, 런타임에만 결정되는 동적 경로, `plugins/mccp/scripts` 밖의 코드, 셸·
+// 생성 스크립트는 여전히 못 본다. 그것들의 falsifier는 정적 축이 아니라
+// 런타임 변형 감사(primary)다.
+function taintedReceiptWrites(raw) {
+  const lines = String(raw).split(/\r?\n/);
+  const tainted = new Set();
+  for (let pass = 0; pass < 2; pass++) {
+    for (const line of lines) {
+      if (isCommentLine(line)) continue;
+      const a = TAINT_ASSIGN_RE.exec(line);
+      if (!a) continue;
+      const name = a[1];
+      const rhs = a[2];
+      if (RECEIPT_PATH_TOKEN_RE.test(rhs)) { tainted.add(name); continue; }
+      for (const t of tainted) {
+        if (new RegExp('\\b' + t + '\\b').test(rhs)) { tainted.add(name); break; }
+      }
+    }
+  }
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (isCommentLine(line)) continue;
+    const m = TAINT_WRITE_TARGET_RE.exec(line) || TAINT_RENAME_TARGET_RE.exec(line);
+    if (m && tainted.has(m[1])) out.push({ line: i + 1, via: m[1] });
+  }
+  return out;
+}
+
 function staticLint(repoRoot) {
   const scanRoot = path.join(repoRoot, 'plugins', 'mccp', 'scripts');
   const violations = [];
@@ -250,6 +309,7 @@ function staticLint(repoRoot) {
     let raw;
     try { raw = fs.readFileSync(full, 'utf8'); } catch (_e) { continue; }
     const usesReceiptPathHelper = RECEIPT_PATH_HELPER_RE.test(stripComments(raw));
+    const taintedLines = new Set(taintedReceiptWrites(raw).map(function (t) { return t.line; }));
     const lines = raw.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -257,6 +317,7 @@ function staticLint(repoRoot) {
       let axis = null;
       if (WRITE_CALL_RE.test(line)) axis = 'write-call-args';
       else if (usesReceiptPathHelper && ANY_WRITE_CALL_RE.test(line)) axis = 'receipt-path-helper';
+      else if (taintedLines.has(i + 1)) axis = 'receipt-path-taint';
       if (axis) {
         violations.push({ file: rel, line: i + 1, axis: axis, text: line.trim().slice(0, 160) });
       }

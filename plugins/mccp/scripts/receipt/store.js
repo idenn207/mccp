@@ -156,9 +156,13 @@ function assertNoTrackedOverwrite(repoRoot, p, receipt) {
 // 두 세션이 같은 창에서 **둘 다 통과**할 수 있었다.
 //
 // 이 지점이 enforcement locus다. LLM이 command body 지시를 건너뛰어도 receipt
-// write는 여기를 지나므로 보호가 **현재 알려진 모든 caller**에 자동 적용된다
-// (그 한정은 의도적이다 — 미래에 추가되는 직접 writer는 b2-coverage-gate의
-// 정적 lint가 guardrail로 잡는다).
+// write는 여기를 지나므로 보호가 **현재 알려진 모든 caller**에 자동 적용된다.
+// 그 한정은 의도적이다 — 미래에 추가되는 직접 writer는 b2-coverage-gate의
+// 정적 lint가 guardrail로 잡되, **정적 축이 보는 범위 안에서만** 잡는다:
+// `plugins/mccp/scripts` 안의 .js에서 write 줄·store helper·한 홉 변수 taint로
+// receipt 경로가 드러나는 형태까지다. 다단계로 세탁된 경로·런타임 결정 경로·
+// 셸/생성 writer는 정적 축이 원리상 못 보며, 그것들의 falsifier는 lint가 아니라
+// 런타임 변형 감사(primary)다.
 //
 // 출력 바이트는 불변이다(§3.12 no-rehash): 같은 입력이면 이전과 byte-identical.
 function writeReceipt(repoRoot, receipt) {

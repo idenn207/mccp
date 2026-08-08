@@ -160,6 +160,44 @@ test('static lint catches every writer shape that actually existed here', () => 
   }
 });
 
+// 회귀 고정 2: lint가 "앞으로 생길" writer 형태를 잡는지.
+//
+// 위 HISTORICAL fixture는 **이미 제거된** 형태만 담고 있어서, 그것만 통과하면
+// guardrail이 과거만 막고 미래는 안 막는 상태가 된다. 실제로 그랬다 — 축 A는
+// write 줄 하나만 보고 축 B는 store helper 호출에만 반응하므로, 아래 네 형태는
+// 저장소 전체 스캔에서 전부 통과했다(측정으로 확인). 신규 writer가 자연스럽게
+// 고를 형태들이고, 특히 tmp+rename은 이 milestone 자신이 확립한 관용구다.
+const BYPASS_WRITER_SHAPES = [
+  {
+    name: 'inline path.join into a variable, write on the next line',
+    src: "const target = path.join(root, '.claude', 'receipts', gate, slug + '.json');\nfs.writeFileSync(target, json);\n",
+  },
+  {
+    name: 'tmp write then rename onto the receipt (this milestone own idiom)',
+    src: "const target = path.join(root, '.claude', 'receipts', gate, slug + '.json');\nconst tmp = target + '.new';\nfs.writeFileSync(tmp, json);\nfs.renameSync(tmp, target);\n",
+  },
+  {
+    name: 'async fs.promises.writeFile',
+    src: "const target = path.join(root, '.claude', 'receipts', gate, slug + '.json');\nawait fs.promises.writeFile(target, json);\n",
+  },
+  {
+    name: 'file descriptor write (openSync + writeSync)',
+    src: "const target = path.join(root, '.claude', 'receipts', gate, slug + '.json');\nconst fd = fs.openSync(target, 'w');\nfs.writeSync(fd, json);\n",
+  },
+];
+
+test('static lint catches writer shapes a future caller would plausibly use', () => {
+  for (const shape of BYPASS_WRITER_SHAPES) {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-lint-bypass-'));
+    const dir = path.join(repo, 'plugins', 'mccp', 'scripts', 'lib');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'rogue.js'), shape.src, 'utf8');
+    const r = gate.staticLint(repo);
+    assert.equal(r.ok, false, 'MISSED bypass shape: ' + shape.name + ' — ' + shape.src.trim());
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test('static lint does not fire on non-receipt writes in the same tree', () => {
   // The guardrail must stay usable: a file that writes something else entirely
   // (PR body staging, cache artifacts) is not a receipt writer.
@@ -169,6 +207,19 @@ test('static lint does not fire on non-receipt writes in the same tree', () => {
   fs.writeFileSync(path.join(dir, 'innocent.js'),
     "fs.writeFileSync(staging, String(content == null ? '' : content), 'utf8');\n"
     + "fs.writeFileSync(path.join(repoRoot, '.claude/cache/STATUS.md'), md, 'utf8');\n", 'utf8');
+  // 축 C(변수 taint) 음성 대조군. 이 둘은 tmp+rename·fd write라는 **같은 관용구**를
+  // 쓰지만 대상이 receipt가 아니다. 파일 안에 receipt 토큰이 있다는 이유만으로
+  // 잡는 초안 설계는 실제로 이 형태의 실파일 3개를 오검출했다
+  // (completion-ledger/store.js · dispatch-cli.js · pr-phase-lock.js).
+  fs.writeFileSync(path.join(dir, 'ledger-writer.js'),
+    "const target = path.join(root, '.claude', 'state', 'completion-ledger', name);\n"
+    + "const tmp = target + '.tmp';\n"
+    + "fs.writeFileSync(tmp, content, 'utf8');\n"
+    + 'fs.renameSync(tmp, target);\n', 'utf8');
+  fs.writeFileSync(path.join(dir, 'lock-writer.js'),
+    "const lockFile = path.join(dir, 'x.lock');\n"
+    + "const fd = fs.openSync(lockFile, 'wx');\n"
+    + 'fs.writeSync(fd, body);\n', 'utf8');
   const r = gate.staticLint(repo);
   assert.equal(r.ok, true, 'false positives: ' + JSON.stringify(r.violations, null, 2));
   fs.rmSync(repo, { recursive: true, force: true });

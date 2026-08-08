@@ -1181,7 +1181,22 @@ else
   }
   MARKER_EXIT=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).exit_code))}catch{process.stdout.write("12")}' "$MARKER")
 fi
+
+# The documented `blocked` state. Without this branch MARKER_EXIT is write-only and
+# 5.4a is unreachable prose. The chain would still stop — 5.7's read-back validate
+# finds no receipt — but the operator would get a generic "no receipt" error instead
+# of the verdict, the reason, and the recovery steps that tell them how to fix it.
+if [ "$MARKER_EXIT" != "0" ]; then
+  MARKER_VERDICT=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).intent_gate_verdict||"unknown")}catch{process.stdout.write("unknown")}' "$MARKER")
+  MARKER_REASON=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reason||"(none recorded)")}catch{process.stdout.write("(marker unreadable)")}' "$MARKER")
+  echo "[MCCP-INTENT-GATE-STOP] intent gate blocked (verdict=$MARKER_VERDICT, exit=$MARKER_EXIT)."
+  echo "Reason: $MARKER_REASON"
+  exit 1
+fi
 ```
+
+If that branch fired, print the **5.4a** recovery block using the `verdict` and
+`reason` it echoed, and end the response. Do not continue to 5.6b.
 
 ### 5.6b — Verify the Codex section was injected
 

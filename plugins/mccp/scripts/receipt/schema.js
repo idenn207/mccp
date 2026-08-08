@@ -37,8 +37,11 @@ const CODEX_VERDICT_VALUES = ['converged', 'divergent', 'critical', 'unavailable
 // says who issued it. The structural proof oracle is imported rather than
 // re-implemented so schema-side and read-side can never disagree about what a
 // valid proof is (the double-definition drift this project keeps re-finding).
-const { SOURCES: REVIEW_SOURCE_VALUES, isReviewProofStructurallyValid } =
-  require('../lib/review-verdict');
+const {
+  SOURCES: REVIEW_SOURCE_VALUES,
+  isReviewProofStructurallyValid,
+  isRepoRelativeEvidencePath,
+} = require('../lib/review-verdict');
 
 const SHA256_RE = /^sha256:[0-9a-f]{64}$/;
 const GIT_SHA_RE = /^[0-9a-f]{7,40}$/;
@@ -186,10 +189,22 @@ function validate(receipt) {
           'resolution.review_source must be one of: ' +
           REVIEW_SOURCE_VALUES.join(', ') + ' (or absent)');
       }
-      // The proof only has to hold up when it is being used to justify an
-      // approval. A divergent/unavailable verdict carries its proof for audit,
-      // and demanding structural perfection there would block honest records of
-      // a review that did not converge.
+      // The proof only has to hold up STRUCTURALLY when it is being used to
+      // justify an approval. A divergent/unavailable verdict carries its proof
+      // for audit, and demanding a satisfied quorum there would block honest
+      // records of a review that did not converge.
+      //
+      // Path shape is NOT part of that relaxation. The two invariants answer
+      // different questions: "is this proof good enough to approve?" (verdict-
+      // dependent) versus "may this string be sealed into the receipt?" (never).
+      // dispatch_evidence is operator-supplied text that gets hashed into the
+      // receipt and, for ship receipts, committed — an absolute or host-specific
+      // path leaks the developer's filesystem into the durable corpus, which
+      // §3.12 already had to unwind once with a sanctioned rebind tool
+      // (v1.22.4-cwd-rebind) because a sealed receipt cannot simply be rewritten.
+      // The read-side oracle downgrades a leaking proof to `unavailable`, so the
+      // APPROVAL axis was already safe; this closes the LEAK axis, where a
+      // non-converged verdict was the unguarded door.
       if (r.review_verdict === 'converged') {
         req(isReviewProofStructurallyValid(r.review_proof),
           'resolution.review_proof fails the structural invariant required for a ' +
@@ -197,6 +212,18 @@ function validate(receipt) {
           'dispatch_evidence repo-relative paths/reviewed_plan_hash)');
       } else if (r.review_proof !== null && r.review_proof !== undefined) {
         req(isPlainObject(r.review_proof), 'resolution.review_proof must be an object');
+        const ev = r.review_proof.dispatch_evidence;
+        if (ev !== null && ev !== undefined) {
+          req(Array.isArray(ev),
+            'resolution.review_proof.dispatch_evidence must be an array');
+          for (let i = 0; i < ev.length; i++) {
+            req(isRepoRelativeEvidencePath(ev[i]),
+              'resolution.review_proof.dispatch_evidence[' + i + '] must be a ' +
+              'repo-relative path (no absolute/drive/UNC/backslash/".." segments) ' +
+              'even when review_verdict is not "converged" — it is sealed into ' +
+              'receipt_hash either way');
+          }
+        }
       }
 
       // DD11 contradiction guard — 'multi-agent' asserts Codex never spoke, so a

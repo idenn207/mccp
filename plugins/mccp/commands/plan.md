@@ -915,6 +915,37 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" emit-workflow-args \
 exit **12** → HALT (the granted fleet cannot satisfy the quorum, or the plan could
 not be hashed). Do not reconcile the reservation; leave it pending.
 
+**Pin the reservation with a debt marker before the panel fires.** The `Workflow`
+call below IS the launch point — 5.2d reconciles only *after* it returns, and
+nothing reaches 5.2d if the controller dies mid-flight (timeout, crash, abandoned
+turn). The reservation would then sit pending and the lease would prune it as
+"never launched" while four reviewers really ran: an under-count, the one
+direction a cap may never err in. This is the same window the fan-out closes at
+Phase 2.5.2, and it applies here for the same reason — `readCounter` honours debt
+markers and nothing else, so the marker must exist *before* the call, not be
+written by a post-call handler that may never execute.
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+PIN_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservationId||"")}catch{process.stdout.write("")}' "$REVIEW_DIR/reservation.json")
+PIN_N=$(node -e 'try{process.stdout.write(String((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).fleet||[]).length))}catch{process.stdout.write("0")}' "$REVIEW_DIR/workflow-args.json")
+if [ -z "$PIN_ID" ] || [ "$PIN_N" = "0" ]; then
+  echo "[MCCP-GATE-STOP] reservation/fleet artifact unreadable — refusing to launch a panel the agent cap cannot record."; exit 1
+fi
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" mark-debt \
+  --reservation "$PIN_ID" --n "$PIN_N" 1>/dev/null 2>&1 \
+  || { echo "[MCCP-GATE-STOP] debt marker write failed — an unrecordable launch is not permitted."; exit 1; }
+echo "[mccp:plan-review] reservation $PIN_ID pinned (debt marker, n=$PIN_N) before the Workflow call." 1>&2
+```
+
+**Pin failure means do not launch.** The fan-out answers the same failure by
+degrading to inline grounding, because it only enriches GROUND. This is a gate
+and has no inline equivalent — an approval issued by agents the cap never
+recorded is worse than no approval, so it stops, exactly as 5.2b stops on a
+denied reservation. The pin is permanent by design (time-based decay was
+rejected: a marker surviving a controller death is *proof* those agents ran, so
+aging it out would under-count). A normal 5.2d reconcile commits and clears it.
+
 Then invoke `Workflow` with `scriptPath: plugins/mccp/scripts/workflows/plan-review.js`
 and `args` set to the **parsed contents** of `workflow-args.json` — a real JSON
 object, NOT the file's text and NOT a JSON-encoded string. Passing a string is a
@@ -956,12 +987,22 @@ ACTUAL_N=$(node -e 'try{process.stdout.write(String((JSON.parse(require("fs").re
 [ -n "$RES_ID" ] && [ -n "$ACTUAL_N" ] || { echo "[MCCP-GATE-STOP] reservation or fleet artifact unreadable — cannot reconcile the agent cap honestly."; exit 1; }
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
   --reservation "$RES_ID" --actual "$ACTUAL_N"
+RECONCILE_EXIT=$?
+if [ "$RECONCILE_EXIT" -ne 0 ]; then
+  echo "[mccp:plan-review] WARNING: reconcile exited $RECONCILE_EXIT — reservation $RES_ID stays pending. It is PINNED by the debt marker written before the Workflow call, so the lease cannot prune these $ACTUAL_N real launches; the cap stays conservative (over-counted) until a later reconcile commits and clears it." 1>&2
+fi
 ```
 
 Unlike the fan-out, this commit is mandatory — the panel either launched the
 emitted fleet or the run HALTed at 5.2b/5.2c, so there is no ambiguity to leave
 pending. If the artifacts cannot be read, HALT rather than guessing a number: an
 invented `--actual` is worse than a pending reservation, which the lease reclaims.
+
+A non-zero reconcile does **not** HALT: the reviewers have already launched, so
+stopping here would neither un-spawn them nor improve the count. It warns and
+proceeds, and the pin from 5.2c is what makes that safe — without it this exact
+path is how a real launch silently leaves the counter. Over-counting until a
+later reconcile is the correct direction to err.
 
 #### 5.2f — L3 Codex layer (hybrid only)
 
@@ -1004,19 +1045,38 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" decide \
   > "$REVIEW_DIR/decision.json"
 DECIDE_EXIT=$?
 
-node -e 'const fs=require("fs");const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(j.review_proof)fs.writeFileSync(process.argv[2],JSON.stringify(j.review_proof,null,2));else{try{fs.unlinkSync(process.argv[2])}catch(_){}}' \
-  "$REVIEW_DIR/decision.json" "$REVIEW_DIR/proof.json" 2>/dev/null || true
+# Clear any proof from an earlier round FIRST, then write this round's. Deleting
+# after the fact is the wrong order: if the unlink is the step that fails, a
+# stale converged proof survives and 5.6's `-f` test happily seals it against a
+# decision it does not belong to.
+rm -f "$REVIEW_DIR/proof.json"
+node -e 'const fs=require("fs");const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(j.review_proof)fs.writeFileSync(process.argv[2],JSON.stringify(j.review_proof,null,2));' \
+  "$REVIEW_DIR/decision.json" "$REVIEW_DIR/proof.json"
+PROOF_EXIT=$?
+if [ "$PROOF_EXIT" -ne 0 ]; then
+  echo "[MCCP-GATE-STOP] proof extraction failed (exit $PROOF_EXIT) — the panel's decision cannot be recorded, so no receipt may claim it."; exit 12
+fi
 node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.error("[mccp:plan-review] verdict="+j.review_verdict+" source="+j.review_source+" forwardCodex="+(j.forwardCodexVerdict?1:0));console.error("[mccp:plan-review] reason: "+j.reason)}catch(e){console.error("[mccp:plan-review] decision unreadable")}' \
   "$REVIEW_DIR/decision.json"
 ```
 
-A stale `proof.json` from an earlier round is deleted when the new decision
-carries none — otherwise a later block would find a converged proof belonging to
-a run that has since been superseded.
+The unconditional `rm -f` before the write is what keeps a superseded proof from
+outliving its run. Extraction failure is a stop, not a shrug: the alternative is
+a receipt that records no approval while the gate prints success, which is the
+same silent-omission class this milestone already had to fix once at 5.6.
 
-`DECIDE_EXIT` 12 → **HALT**, do not write a receipt. Print the `reason` field from
-the decision JSON plus the three recovery paths (`MCCP_PLAN_REVIEW=codex` · a new
-session · raise the agent cap).
+`DECIDE_EXIT` 12 → **HALT, but run 5.2h first.** Write the review record, then
+print the `reason` field from the decision JSON plus the three recovery paths
+(`MCCP_PLAN_REVIEW=codex` · a new session · raise the agent cap), then end the
+response without writing a receipt.
+
+**Do not skip ahead to the stop.** A blocked decision is the only case where the
+author actually needs the findings, and 5.2h is the one artifact that carries
+them — `review_proof.perspectives` keeps `{perspective, verdict}` pairs, which
+prove a quorum and explain nothing. Halting at this line without writing the
+record reproduces the exact defect 5.2h was added to fix: a gate that stops
+without telling the author what was found is a gate they will route around.
+5.2g is skipped on this path (there is no converged proof to verify).
 
 **Read `forwardCodexVerdict` from `decision.json` and nothing else** to decide
 whether `--codex-verdict` is forwarded at 5.6. Do NOT re-derive it in shell from
@@ -1077,9 +1137,15 @@ This is a **new file, not an edit to the plan** — writing it into the plan bod
 would change `plan_hash` and make the 5.6 write exit 12 on the DD13 bind. It also
 survives the `.claude/state/` working artifacts, which are transient.
 
-On a blocked decision (`divergent`/`unavailable`) write this record too, then HALT.
-A gate that stops without telling the author what was found is a gate they will
-route around.
+**This section runs on both outcomes, and document order is not execution order.**
+A converged run reaches it after 5.2g. A blocked run (`DECIDE_EXIT` 12 —
+`divergent`/`unavailable`) jumps here directly from 5.2e, writes the record, and
+only then halts. Reading 5.2e's stop as "end the response now" skips the section
+that exists precisely for that case: a gate that stops without telling the author
+what was found is a gate they will route around. On the blocked path fill
+`<review_verdict>` from `decision.json` and leave the quorum line as whatever the
+panel actually observed — an unavailable review reports the responses it got, not
+the ones it needed.
 
 #### 5.2z — Codex path (`mode=codex` only — unchanged from v1.23.0)
 

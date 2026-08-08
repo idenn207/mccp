@@ -110,6 +110,71 @@ test('DD11: multi-agent source alongside a codex_verdict is a contradictory rece
   }), 'multi-agent + codex_verdict');
 });
 
+// ── evidence-path leak: the LEAK axis is verdict-independent ─────────────────
+//
+// santa-loop R1 (Codex GPT-5.4). Schema relaxed the whole proof invariant for
+// non-converged verdicts so an honest record of a failed review would not be
+// blocked. But that relaxation covered dispatch_evidence PATH SHAPE too, and the
+// two invariants answer different questions: "good enough to approve?" is
+// verdict-dependent, "may this string be sealed into receipt_hash?" never is.
+// The approval axis was already safe (the read-side oracle downgrades a leaking
+// proof to `unavailable` — plan-review-decide.test.js asserts exactly that), so
+// a divergent verdict was the one unguarded door into the durable corpus.
+
+function leakyProof(reviewedPlanHash, evidence) {
+  const p = validProof(reviewedPlanHash);
+  p.layers = { l1: 'converged', l2: 'divergent', l3: null };
+  p.verification_verdict = 'divergent';
+  p.quorum = { passed: false, required: 3, of: 4, roles: 2, responded: 2 };
+  p.dispatch_evidence = evidence;
+  return p;
+}
+
+test('a non-converged proof may NOT seal an absolute evidence path', () => {
+  const hash = planAwareMarkdownHash(PLAN_ABS);
+  [
+    ['C:/Users/me/secret.json', 'drive letter'],
+    ['/home/me/secret.json', 'posix absolute'],
+    ['..\\..\\outside.json', 'backslash + traversal'],
+    ['.claude/../../outside.json', 'traversal segment'],
+  ].forEach(function (pair) {
+    const proofPath = tmpFile('leaky-proof.json',
+      JSON.stringify(leakyProof(hash, [pair[0]])));
+    let threw = null;
+    try {
+      buildReceipt(baseArgs({
+        'review-verdict': 'divergent',
+        'review-source': 'multi-agent',
+        'review-proof-file': proofPath,
+      }));
+    } catch (e) { threw = e; }
+    assert.ok(threw, 'divergent proof leaking a ' + pair[1] + ': expected a throw');
+    // SCHEMA_INVALID, not REVIEW_STAMP_INVALID: the leak guard lives in the
+    // schema because that is the layer every writer passes through, including
+    // any future one that does not go via the review-stamp flags.
+    assert.equal(threw.code, 'SCHEMA_INVALID',
+      'divergent proof leaking a ' + pair[1] + ': ' + threw.message);
+    assert.match(threw.message, /dispatch_evidence/,
+      'the rejection must name the offending field, not fail generically');
+  });
+});
+
+test('the relaxation itself survives: a non-converged proof with clean paths is accepted', () => {
+  // Guards against over-correcting the fix into "non-converged proofs must be
+  // structurally perfect", which would block the honest failed-review record
+  // the relaxation exists to permit. A failed quorum is the POINT here.
+  const proofPath = tmpFile('clean-divergent-proof.json', JSON.stringify(
+    leakyProof(planAwareMarkdownHash(PLAN_ABS), ['.claude/state/plan-review/l2.json'])));
+  const r = buildReceiptObj(baseArgs({
+    'review-verdict': 'divergent',
+    'review-source': 'multi-agent',
+    'review-proof-file': proofPath,
+  }));
+  assert.equal(r.resolution.review_verdict, 'divergent');
+  assert.equal(r.resolution.review_proof.quorum.passed, false,
+    'an unsatisfied quorum must still be recordable on a non-converged verdict');
+});
+
 test('hybrid source legitimately carries a codex_verdict (L3 IS Codex)', () => {
   const proofPath = tmpFile('proof.json', JSON.stringify(validProof(planAwareMarkdownHash(PLAN_ABS))));
   const r = buildReceiptObj(baseArgs({

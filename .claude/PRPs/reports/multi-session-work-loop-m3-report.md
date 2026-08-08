@@ -125,9 +125,32 @@ receipt write가 세션 간에 조용히 덮이는 경로를 구조적으로 닫
 - **테스트 잔여 오염**: CL-5 수정 이전 테스트들이 이벤트를 실 repo의 `.claude/state/msw-events/`(cwd 상대)에 흘렸다. 127건 전부 `target` 필드가 없어(ALLOWED_FIELDS 확장 이전) 합성 잔여임이 확정됐고, gitignored라 커밋된 적은 없다. 제거해 실 corpus를 정직한 상태(`guard_active: 0 · producer_present: false`)로 되돌렸다.
 - **실 corpus B2는 여전히 forward-only**다. producer는 코드에 배선됐지만 이 저장소 corpus에는 아직 관측이 없고 coverage gate 아티팩트도 없다. gate 아티팩트를 손으로 만드는 것은 설계가 금지한 masquerade이므로 하지 않았다. flip 경로는 fixture + gate test로 기계적으로 실증돼 있다.
 
+## santa-loop (구현 단계) — 3라운드 소진, 미수렴
+
+**Reviewer B는 cross-model이 아니었다.** Codex CLI가 계정 사용량 한도를 소진해(`try again at Aug 13th, 2026`) `gemini`도 미설치라, santa-loop 명세의 Claude fallback으로 돌았다. 즉 **이 세 라운드는 model diversity 없이** 컨텍스트·관점 격리만으로 수행됐다. 같은 이유로 `/mccp:pr`의 PR-Codex도 8/13까지 발화 불가다.
+
+| 라운드 | Reviewer A | Reviewer B | 결과 |
+|---|---|---|---|
+| R1 | code-reviewer · PASS 12/12 | code-reviewer · PASS 12/12 | **오퍼레이터 검증으로 뒤집힘** — C7 근거가 양쪽 다 순환(A는 테스트 픽스처, B는 lint 자신의 정규식으로 grep). 실행해보니 신규 writer 6종 중 4종 미검출 → `898eaed` |
+| R2 | code-reviewer · PASS 13/13 | **silent-failure-hunter · FAIL** (C7·C13) | B만 `openSync` 인라인 반례를 찾음. 모양 전체를 재면 9종 중 8종 미검출 → `a2bcbd1` |
+| R3 | **FAIL** (C7·C13) — "너무 좁다" | **FAIL** (C7·C13) — "너무 넓다" | 정반대 방향. 아래 |
+
+**R3의 두 FAIL은 같은 정규식 손잡이의 양 끝이다.** 실측으로 확인한 것:
+
+- A 주장 3건 중 2건 실재 — `'.claude' + '/receipts' + '/x.json'`, `.concat()`. 문자열 연산이 리터럴 경계에서 토큰을 쪼갠다. 나머지 1건(`const r='receipts'` 후 `path.join`)은 **오판**이며 축 C가 실제로 잡는다.
+- B 주장 2건 모두 실재 — 축 A는 값 인자의 `receipt` 토큰에도 반응하고, 축 B는 `receiptPath(`를 읽기용으로만 부르는 파일의 write도 잡는다.
+
+둘을 **동시에** 만족시키려면 write 대상 인자를 구조적으로 판정해야 하고(그것도 dest가 두 번째 인자인 계열까지), 이는 정규식이 아니라 AST 파서의 일이다. **보조 축 하나에 그 비용을 쓰지 않기로 했다** — 정밀 판정은 애초에 primary(런타임 변형 감사)의 몫이고, 이 축의 정직한 성격은 검출기가 아니라 "receipt 근처의 미승인 write를 시끄럽게 만드는 guardrail"이다. 두 오류의 비용이 비대칭이라는 것이 근거다: 오검출은 gate가 시끄럽게 실패해 승인 목록으로 분류되면 끝이지만, 미검출은 guardrail을 조용히 비운다(이 milestone이 정확히 그 상태로 두 번 ship될 뻔했다).
+
+따라서 R3에 대한 조치는 정규식 재조정이 **아니라** 두 리뷰어가 C13에서 공통 요구한 것 — 문서와 실측의 일치 — 이다(본 보고서와 같은 커밋): design §6.3이 문자열 연산 gap과 의도적 과잉 포섭을 각각 명시하고, 양방향 경계를 `KNOWN_GAP_SHAPES` / `DELIBERATE_OVERREACH_SHAPES` test로 고정해 동작이 조용히 바뀌면 실패하게 했다.
+
+**G1~G3은 세 라운드 내내 무손상**이다. 모든 지적이 보조 정적 축에 국한됐고 lock·claim fence·overwrite 검출·런타임 감사에는 confirmed finding이 없었다.
+
+**미해소 잔여(운영자 판단 필요)**: 정적 축의 정밀도/재현율 frontier. 선택지는 (i) 현 상태 수용(문서·test로 경계 고정 완료), (ii) AST 기반 lint로 교체(별도 축), (iii) 정적 축을 아예 진단용으로 강등하고 gate 판정은 런타임 감사 단독. **push하지 않았다** — santa-loop 계약상 3라운드 미수렴은 escalation이다.
+
 ## Next Steps
 
-- [ ] **미해소 escalation**: implement receipt가 `divergent`로 봉인돼 `escalate_pending`이 세워졌다. 선택지는 (a) `/mccp:santa-loop`로 흡수 품질을 cross-model 재검증, (b) `/mccp:pr`로 진행 — dedupe fail-closed라 PR-Codex가 반드시 발화한다.
+- [ ] **미해소 escalation**: implement receipt가 `divergent`로 봉인돼 `escalate_pending`이 세워졌다. santa-loop 3라운드로도 수렴하지 않았다(위 절). 선택지는 (a) 위 잔여 (i)/(ii)/(iii) 중 택일 후 진행, (b) Codex 한도가 복구되는 8/13 이후 cross-model 재검증, (c) `/mccp:pr`로 진행 — 단 PR-Codex도 같은 한도에 막힌다.
 - [ ] **OQ-3**: PRD M3 문구("구조적으로 불가능")가 plan 보증 G1~G3보다 강하다. PR 시 조정(운영자 지시로 이연됨).
 - [ ] **CL-3**: sibling worktree `feat/codex-intent-context`도 `1.23.1`을 선언한다. PR 작성 시 `origin/main`의 `plugin.json`을 재확인해 나중 머지 쪽이 상향.
 - [ ] **backlog**: J4 상류 결함(`session-start.js`가 `createLedger`에 `pid: Number(process.env.CLAUDE_PID)` 미전달 → 단일 머신에서 `activeOnly` 공집합). M3 범위 밖으로 명시 기록.

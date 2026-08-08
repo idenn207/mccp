@@ -229,6 +229,67 @@ test('static lint catches writer shapes a future caller would plausibly use', ()
   }
 });
 
+// 알려진 gap 고정 (santa round 3, 실측).
+//
+// 이 test는 lint가 **못 잡는다는 것**을 assert한다. 통과를 축하하려는 게 아니라
+// 경계를 고정하려는 것이다 — 누가 나중에 축을 바꿔 이 형태가 잡히기 시작하면
+// 이 test가 실패하고, 그때 design §6.3의 "여전히 못 보는 것" 목록을 함께
+// 갱신하게 된다(설계는 바꿨는데 문서는 옛 주장을 유지하는 것이 이 사이클에서
+// 세 라운드 연속 잡힌 실패 유형이다). tombstone TTL lapse를 known-gap으로
+// 고정한 것과 같은 취급이다.
+//
+// 문자열 연산은 리터럴 경계에서 토큰을 쪼개므로 정규식 축이 원리상 못 본다.
+// 이걸 잡으려면 AST가 필요하고, 그 판정은 런타임 변형 감사(primary)의 몫이다.
+const KNOWN_GAP_SHAPES = [
+  { name: 'path built with the + operator', src: "const p = '.claude' + '/receipts' + '/x.json';\nfs.writeFileSync(p, data);\n" },
+  { name: 'path built with .concat()', src: "const p = '.claude'.concat('/receipts', '/x.json');\nfs.writeFileSync(p, data);\n" },
+];
+
+test('KNOWN GAP: string-operator paths are not seen by the static axes', () => {
+  for (const shape of KNOWN_GAP_SHAPES) {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-lint-gap-'));
+    const dir = path.join(repo, 'plugins', 'mccp', 'scripts', 'lib');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'rogue.js'), shape.src, 'utf8');
+    const r = gate.staticLint(repo);
+    assert.equal(r.ok, true,
+      'this shape is now CAUGHT: ' + shape.name
+      + ' — that is an improvement, but update design 6.3 "여전히 못 보는 것" and move it out of KNOWN_GAP_SHAPES');
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+// 반대 방향의 경계도 고정한다. 축 A·B는 의도적으로 과잉 포섭이며(design §6.3),
+// 그 판단의 근거는 두 오류의 비용이 비대칭이라는 것이다 — 오검출은 시끄럽게
+// 실패해 승인 목록으로 분류되고, 미검출은 guardrail을 조용히 비운다. 누가
+// 정밀도를 올리려 좁히면 이 test가 실패하면서 그 trade-off를 다시 마주하게 된다.
+const DELIBERATE_OVERREACH_SHAPES = [
+  {
+    name: 'receipt token in the value argument, non-receipt target',
+    src: "fs.writeFileSync(configFile, JSON.stringify(receipt.meta));\n",
+  },
+  {
+    name: 'file uses receiptPath() to READ, writes somewhere else',
+    src: "const p = receiptPath(root, gate, slug);\n"
+      + "const data = JSON.parse(fs.readFileSync(p, 'utf8'));\n"
+      + "fs.writeFileSync(path.join(root, 'other', 'file.json'), data);\n",
+  },
+];
+
+test('DELIBERATE: the static axes over-reach, and that is the chosen trade-off', () => {
+  for (const shape of DELIBERATE_OVERREACH_SHAPES) {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-lint-over-'));
+    const dir = path.join(repo, 'plugins', 'mccp', 'scripts', 'lib');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'probe.js'), shape.src, 'utf8');
+    const r = gate.staticLint(repo);
+    assert.equal(r.ok, false,
+      'this shape is no longer flagged: ' + shape.name
+      + ' — narrowing the axes re-opens the inline-dest misses from round 2; if that is intended, update design 6.3');
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test('static lint does not fire on non-receipt writes in the same tree', () => {
   // The guardrail must stay usable: a file that writes something else entirely
   // (PR body staging, cache artifacts) is not a receipt writer.

@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: red-test-suite-restore-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-08T07:37:30.776Z
+updated_at: 2026-08-08T22:41:57.090Z
 last_event: stop_loop_pass
 last_event_at: 2026-07-15T15:25:04.371Z
 unsafe_checkpoint: false
@@ -11,8 +11,6 @@ session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
-escalate_pending: true
-escalate_pending_decision_id: red-test-suite-restore
 ---
 ## Goal
 red-test-suite-restore M1 (v1.23.2) — 지목된 red 2건 해소 완료·커밋됨(55badb5). Phase 5 산출물 작성 완료. PR은 ship-gate divergent로 차단 중.
@@ -47,4 +45,4 @@ PR 미생성 — v1.23.0 M3 ship-gate가 pr_codex_nonconverged(prior_verdict=div
 - mccp-pr-codex/red-test-suite-restore.json 이 untracked — CLAUDE.md 3.12상 ship receipt는 git-tracked여야 하므로 PR 확정 시 커밋 대상.
 
 ## Last Updated
-2026-08-08T07:37:30.776Z
+2026-08-08T22:41:57.090Z

@@ -32,6 +32,14 @@ const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
 // Present-only + fail-closed: absence reads as NOT converged in dedupe.
 const CODEX_VERDICT_VALUES = ['converged', 'divergent', 'critical', 'unavailable', 'skipped'];
 
+// diverse-agent-review M1 — the approval ISSUER, orthogonal to the verdict
+// vocabulary above. review_verdict reuses CODEX_VERDICT_VALUES; review_source
+// says who issued it. The structural proof oracle is imported rather than
+// re-implemented so schema-side and read-side can never disagree about what a
+// valid proof is (the double-definition drift this project keeps re-finding).
+const { SOURCES: REVIEW_SOURCE_VALUES, isReviewProofStructurallyValid } =
+  require('../lib/review-verdict');
+
 const SHA256_RE = /^sha256:[0-9a-f]{64}$/;
 const GIT_SHA_RE = /^[0-9a-f]{7,40}$/;
 const DECISION_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -140,6 +148,68 @@ function validate(receipt) {
         CODEX_VERDICT_VALUES.indexOf(r.codex_verdict) !== -1,
         'resolution.codex_verdict must be one of: ' +
         CODEX_VERDICT_VALUES.join(', ') + ' (or absent)');
+    }
+
+    // diverse-agent-review M1 — review_* triple. Present-only: legacy receipts
+    // (and every git-tracked ship receipt written before M1) omit all three and
+    // validate byte-unchanged. makeSkeleton deliberately does NOT materialize
+    // them (DD6), so absence is the default state, not a migration debt.
+    //
+    // DD11 all-or-nothing — schema is the LAST write-side wall. A partial triple
+    // must never reach disk: resolveEffectiveVerdict would report `unavailable`
+    // for it, but a receipt that is unreadable-by-construction is a defect we
+    // should refuse to persist rather than something to interpret later.
+    const reviewPresent = [];
+    const reviewAbsent = [];
+    [['review_verdict', r.review_verdict],
+     ['review_source', r.review_source],
+     ['review_proof', r.review_proof]].forEach(function (pair) {
+      if (pair[1] !== null && pair[1] !== undefined) reviewPresent.push(pair[0]);
+      else reviewAbsent.push(pair[0]);
+    });
+
+    if (reviewPresent.length > 0) {
+      req(reviewAbsent.length === 0,
+        'resolution.review_* is all-or-nothing (DD11): present [' +
+        reviewPresent.join(', ') + '] but missing [' + reviewAbsent.join(', ') +
+        ']. A partial stamp must not be persisted.');
+
+      if (r.review_verdict !== null && r.review_verdict !== undefined) {
+        req(typeof r.review_verdict === 'string' &&
+          CODEX_VERDICT_VALUES.indexOf(r.review_verdict) !== -1,
+          'resolution.review_verdict must be one of: ' +
+          CODEX_VERDICT_VALUES.join(', ') + ' (or absent)');
+      }
+      if (r.review_source !== null && r.review_source !== undefined) {
+        req(typeof r.review_source === 'string' &&
+          REVIEW_SOURCE_VALUES.indexOf(r.review_source) !== -1,
+          'resolution.review_source must be one of: ' +
+          REVIEW_SOURCE_VALUES.join(', ') + ' (or absent)');
+      }
+      // The proof only has to hold up when it is being used to justify an
+      // approval. A divergent/unavailable verdict carries its proof for audit,
+      // and demanding structural perfection there would block honest records of
+      // a review that did not converge.
+      if (r.review_verdict === 'converged') {
+        req(isReviewProofStructurallyValid(r.review_proof),
+          'resolution.review_proof fails the structural invariant required for a ' +
+          'converged review_verdict (layers/verification_verdict/quorum/perspectives/' +
+          'dispatch_evidence repo-relative paths/reviewed_plan_hash)');
+      } else if (r.review_proof !== null && r.review_proof !== undefined) {
+        req(isPlainObject(r.review_proof), 'resolution.review_proof must be an object');
+      }
+
+      // DD11 contradiction guard — 'multi-agent' asserts Codex never spoke, so a
+      // codex_verdict sitting beside it makes the receipt claim both at once.
+      // Cross-gate dedupe reads source to decide whether cross-model corroboration
+      // exists; an ambiguous receipt is exactly what must not be interpretable.
+      // 'hybrid' legitimately carries both (L3 IS Codex); 'codex' likewise.
+      if (r.review_source === 'multi-agent') {
+        req(r.codex_verdict === null || r.codex_verdict === undefined,
+          'resolution.codex_verdict must be absent when review_source is ' +
+          '"multi-agent" (contradictory receipt: multi-agent asserts Codex did ' +
+          'not issue this approval)');
+      }
     }
   }
 
@@ -719,6 +789,26 @@ function validate(receipt) {
       req(Number.isInteger(m.merged_verify_rounds) && m.merged_verify_rounds >= 0,
         'meta.merged_verify_rounds must be a non-negative integer if present');
     }
+
+    // diverse-agent-review M1 — L3 instrumentation + gate wall-clock. Present-
+    // only (not in makeSkeleton, DD6) and deliberately NOT carved out of
+    // receipt_hash: unlike briefing_*, which is stamped AFTER the receipt is
+    // sealed and therefore cannot hash itself, these are settled at write time
+    // and are part of the approval record. Carving them out would let the
+    // instrumentation be edited without breaking the tamper digest, which is
+    // exactly the audit story M1 wants to keep honest.
+    if (m.review_l3_invoked !== null && m.review_l3_invoked !== undefined) {
+      req(typeof m.review_l3_invoked === 'boolean',
+        'meta.review_l3_invoked must be a boolean if present');
+    }
+    if (m.review_l3_reason !== null && m.review_l3_reason !== undefined) {
+      req(typeof m.review_l3_reason === 'string' && m.review_l3_reason.length > 0,
+        'meta.review_l3_reason must be a non-empty string if present');
+    }
+    if (m.review_wall_clock_ms !== null && m.review_wall_clock_ms !== undefined) {
+      req(Number.isInteger(m.review_wall_clock_ms) && m.review_wall_clock_ms >= 0,
+        'meta.review_wall_clock_ms must be a non-negative integer if present');
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -857,6 +947,7 @@ module.exports = {
   GATE_IDS: GATE_IDS,
   SEVERITIES: SEVERITIES,
   CODEX_VERDICT_VALUES: CODEX_VERDICT_VALUES,
+  REVIEW_SOURCE_VALUES: REVIEW_SOURCE_VALUES,
   SHA256_RE: SHA256_RE,
   GIT_SHA_RE: GIT_SHA_RE,
   DECISION_ID_RE: DECISION_ID_RE,

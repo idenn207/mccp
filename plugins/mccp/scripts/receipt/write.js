@@ -156,6 +156,89 @@ function buildReceipt(args) {
     resolution.codex_verdict = codexVerdict;
   }
 
+  // diverse-agent-review M1 — review_* triple. Present-only like codex_verdict
+  // above, but with two hard invariants enforced HERE, before anything reaches
+  // disk. schema.js repeats both; this is the earlier of the two walls and the
+  // one that guarantees a rejected write leaves no partial artifact behind.
+  //
+  // DD11 all-or-nothing: supplying any one of the three requires all three.
+  // A partial stamp is the single scenario where BOTH dedupe belts fail at once
+  // — resolveEffectiveVerdict would report `unavailable`, but a receipt that is
+  // unreadable by construction should never have been persisted in the first
+  // place. Mirrors detectDispatchContext's 3-flag invariant.
+  //
+  // DD13 bind: the proof must name the plan version the reviewers actually read.
+  // planHash above was computed from the plan ON DISK moments ago; if the proof
+  // names a different one, the plan was edited between review and seal and the
+  // approval does not describe what we are about to seal. The recovery is to
+  // rerun L2, never to reseal — this is the same judgement v1.22.6 M2 made when
+  // it promoted subject_hash mismatch from stale to tamper.
+  const reviewVerdict = args['review-verdict'];
+  const reviewSource = args['review-source'];
+  const reviewProofFile = args['review-proof-file'];
+  const nonEmpty = function (v) { return typeof v === 'string' && v.length > 0; };
+
+  if (nonEmpty(reviewVerdict) || nonEmpty(reviewSource) || nonEmpty(reviewProofFile)) {
+    const missing = [];
+    if (!nonEmpty(reviewVerdict)) missing.push('--review-verdict');
+    if (!nonEmpty(reviewSource)) missing.push('--review-source');
+    if (!nonEmpty(reviewProofFile)) missing.push('--review-proof-file');
+    if (missing.length > 0) {
+      const err = new Error(
+        'review_* stamping is all-or-nothing (DD11): missing ' + missing.join(', ') +
+        '. A partially stamped receipt must not reach disk — supply all three or none.');
+      err.code = 'REVIEW_STAMP_INVALID';
+      throw err;
+    }
+
+    // Read directly rather than via readJsonIfPresent: that helper throws a
+    // generic Error on a missing file, and a generic error would exit 1 instead
+    // of the fail-closed 12 this path owes its caller.
+    let proof = null;
+    try {
+      proof = JSON.parse(fs.readFileSync(path.resolve(cwd, reviewProofFile), 'utf8'));
+    } catch (e) {
+      const err = new Error(
+        '--review-proof-file is missing or unreadable: ' + reviewProofFile + ' (' +
+        (e && e.message ? e.message : String(e)) +
+        '). The proof is the evidence for the verdict; without it there is nothing to seal.');
+      err.code = 'REVIEW_STAMP_INVALID';
+      throw err;
+    }
+    if (proof === null || typeof proof !== 'object' || Array.isArray(proof)) {
+      const err = new Error(
+        '--review-proof-file is not a JSON object: ' + reviewProofFile);
+      err.code = 'REVIEW_STAMP_INVALID';
+      throw err;
+    }
+
+    if (reviewSource === 'multi-agent' && nonEmpty(resolution.codex_verdict)) {
+      const err = new Error(
+        'contradictory receipt: review_source="multi-agent" asserts Codex did not ' +
+        'issue this approval, but codex_verdict="' + resolution.codex_verdict +
+        '" is also present. Cross-gate dedupe reads the source to decide whether ' +
+        'cross-model corroboration exists, so an ambiguous receipt must not exist. ' +
+        'Forward --codex-verdict only when decideReview returns forwardCodexVerdict=true.');
+      err.code = 'REVIEW_STAMP_INVALID';
+      throw err;
+    }
+
+    if (nonEmpty(proof.reviewed_plan_hash) && proof.reviewed_plan_hash !== planHash) {
+      const err = new Error(
+        'plan changed after L2 reviewed it (DD13): proof binds ' +
+        String(proof.reviewed_plan_hash).slice(0, 19) + '… but the plan on disk now ' +
+        'hashes to ' + String(planHash).slice(0, 19) + '…. The review does not describe ' +
+        'the artifact being sealed. Recovery: rerun the L2 review against the current ' +
+        'plan — do NOT reseal, that would certify an unreviewed version.');
+      err.code = 'REVIEW_STAMP_INVALID';
+      throw err;
+    }
+
+    resolution.review_verdict = reviewVerdict;
+    resolution.review_source = reviewSource;
+    resolution.review_proof = proof;
+  }
+
   const existing = readReceipt(repoRoot, gateId, decisionId);
   let round = args.round !== undefined ? parseInt(args.round, 10) : 1;
   if (args['auto-round'] && existing && Number.isInteger(existing.round)) {
@@ -357,6 +440,22 @@ function buildReceipt(args) {
   // TRACKED_RECEIPT_OVERWRITE. NOT a hash carve-out (unlike briefing_*) — when
   // present the field IS hashed, so override=true stays tamper-protected. schema.js
   // re-runs the strict reason validator on write, so a bad reason REJECTs.
+  // diverse-agent-review M1 — L3 instrumentation + gate wall-clock. Present-only
+  // (absent keys on every receipt that never ran the review path) and NOT carved
+  // out of receipt_hash: these are settled at write time and form part of the
+  // approval record, unlike briefing_*, which is stamped after sealing and
+  // therefore cannot hash itself.
+  if (args['review-l3-invoked'] === true) {
+    receipt.meta.review_l3_invoked = true;
+  }
+  if (typeof args['review-l3-reason'] === 'string' && args['review-l3-reason'].length > 0) {
+    receipt.meta.review_l3_reason = args['review-l3-reason'];
+  }
+  if (args['review-wall-clock-ms'] !== undefined && args['review-wall-clock-ms'] !== null) {
+    const ms = parseInt(args['review-wall-clock-ms'], 10);
+    if (Number.isInteger(ms) && ms >= 0) receipt.meta.review_wall_clock_ms = ms;
+  }
+
   if (args['pr-codex-force-override'] === true) {
     receipt.meta.pr_codex_force_override = true;
     receipt.meta.pr_codex_force_override_reason =

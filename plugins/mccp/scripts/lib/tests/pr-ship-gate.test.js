@@ -163,8 +163,77 @@ test('null receipt + override → ship=true (override still forces through)', ()
 });
 
 test('classifyVerdict is null-safe on non-object resolution', () => {
-  assert.deepEqual(classifyVerdict(undefined), { ship: false, absent: true, verdict: null });
-  assert.deepEqual(classifyVerdict('nope'), { ship: false, absent: true, verdict: null });
+  assert.deepEqual(classifyVerdict(undefined),
+    { ship: false, absent: true, verdict: null, source: null });
+  assert.deepEqual(classifyVerdict('nope'),
+    { ship: false, absent: true, verdict: null, source: null });
+});
+
+// ── DD8: terminal ships need cross-model corroboration ────────────────────────
+// diverse-agent-review M1. M1 never writes review_* onto an mccp-pr-codex
+// receipt, so these paths are defensive — closed now because a terminal gate
+// that later accepts a same-model panel's self-approval is a far more expensive
+// mistake than an unreachable branch.
+
+function reviewProof() {
+  return {
+    layers: { l1: 'converged', l2: 'converged', l3: null },
+    verification_verdict: 'converged',
+    quorum: { passed: true, required: 3, of: 4, roles: 3, responded: 4 },
+    perspectives: [
+      { perspective: 'architect', verdict: 'pass' },
+      { perspective: 'security', verdict: 'pass' },
+      { perspective: 'test', verdict: 'pass' },
+      { perspective: 'invariant', verdict: 'pass' },
+    ],
+    dispatch_evidence: ['.claude/state/dispatches/abc.envelope.json'],
+    reviewed_plan_hash: 'sha256:' + 'a'.repeat(64),
+  };
+}
+
+function reviewReceipt(verdict, source) {
+  const r = makeSkeleton({});
+  r.gate_id = 'mccp-pr-codex';
+  r.phase = 'pr';
+  r.decision_id = 'feature-x';
+  r.resolution.converged = true;
+  r.resolution.review_verdict = verdict;
+  r.resolution.review_source = source;
+  r.resolution.review_proof = reviewProof();
+  return r;
+}
+
+test('DD8: multi-agent converged does NOT ship at a terminal gate', () => {
+  const d = deriveShipDecision(reviewReceipt('converged', 'multi-agent'), {});
+  assert.equal(d.ship, false);
+  assert.equal(d.blockingVerdict, 'multi-agent-unproven-at-terminal');
+});
+
+test('DD8: hybrid converged DOES ship (Codex was in the loop)', () => {
+  const d = deriveShipDecision(reviewReceipt('converged', 'hybrid'), {});
+  assert.equal(d.ship, true);
+  assert.equal(d.blockingVerdict, null);
+});
+
+test('DD8: a divergent review verdict blocks regardless of source', () => {
+  ['multi-agent', 'hybrid', 'codex'].forEach((src) => {
+    const d = deriveShipDecision(reviewReceipt('divergent', src), {});
+    assert.equal(d.ship, false, src);
+    assert.equal(d.blockingVerdict, 'divergent', src);
+  });
+});
+
+test('DD8: the audited override still ships but preserves the blocking verdict', () => {
+  const d = deriveShipDecision(reviewReceipt('converged', 'multi-agent'),
+    { forceOverrideActive: true });
+  assert.equal(d.ship, true);
+  assert.equal(d.blockingVerdict, 'multi-agent-unproven-at-terminal',
+    'the override unblocks this invocation, it never launders the verdict');
+});
+
+test('classifyVerdict surfaces the issuing source', () => {
+  assert.equal(classifyVerdict(reviewReceipt('converged', 'hybrid').resolution).source, 'hybrid');
+  assert.equal(classifyVerdict({ codex_verdict: 'converged' }).source, 'codex');
 });
 
 // ── constants ─────────────────────────────────────────────────────────────────

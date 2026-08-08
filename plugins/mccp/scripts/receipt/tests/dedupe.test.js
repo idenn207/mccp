@@ -502,3 +502,68 @@ test('evaluateForDedupe: residual present overrides both-converged → skip_safe
     fs.rmSync(repo, { recursive: true, force: true });
   }
 });
+
+// ── diverse-agent-review M1 (DD2) — cross-model corroboration required ────────
+// The skip predicate asserts "Codex already reviewed this twice". A multi-agent
+// panel approval is not evidence Codex ever spoke, so it must not satisfy the
+// skip — otherwise moving plan review off Codex would delete cross-model review
+// from the pipeline instead of relocating it to the ship point.
+
+const { crossModelConverged } = require('../dedupe');
+
+function panelResolution(verdict, source) {
+  return {
+    converged: true,
+    review_verdict: verdict,
+    review_source: source,
+    review_proof: {
+      layers: { l1: 'converged', l2: 'converged', l3: null },
+      verification_verdict: 'converged',
+      quorum: { passed: true, required: 3, of: 4, roles: 3, responded: 4 },
+      perspectives: [
+        { perspective: 'architect', verdict: 'pass' },
+        { perspective: 'security', verdict: 'pass' },
+        { perspective: 'test', verdict: 'pass' },
+        { perspective: 'invariant', verdict: 'pass' },
+      ],
+      dispatch_evidence: ['.claude/state/dispatches/abc.envelope.json'],
+      reviewed_plan_hash: 'sha256:' + 'a'.repeat(64),
+    },
+  };
+}
+
+test('DD2: a multi-agent converged receipt does NOT satisfy the skip predicate', () => {
+  assert.strictEqual(
+    crossModelConverged({ resolution: panelResolution('converged', 'multi-agent') }),
+    false,
+    'multi-agent approval is not cross-model corroboration');
+});
+
+test('DD2: a hybrid converged receipt DOES satisfy it (Codex was in the loop)', () => {
+  assert.strictEqual(
+    crossModelConverged({ resolution: panelResolution('converged', 'hybrid') }),
+    true);
+});
+
+test('DD2: legacy codex_verdict=converged still satisfies it (no regression)', () => {
+  assert.strictEqual(
+    crossModelConverged({ resolution: { converged: true, codex_verdict: 'converged' } }),
+    true);
+});
+
+test('DD2: every non-converged verdict fails closed regardless of source', () => {
+  ['divergent', 'critical', 'unavailable', 'skipped'].forEach(function (v) {
+    assert.strictEqual(
+      crossModelConverged({ resolution: panelResolution(v, 'hybrid') }), false, v);
+    assert.strictEqual(
+      crossModelConverged({ resolution: { converged: true, codex_verdict: v } }), false, v);
+  });
+});
+
+test('DD2: a missing receipt or a structurally broken proof fails closed', () => {
+  assert.strictEqual(crossModelConverged(null), false);
+  assert.strictEqual(crossModelConverged({}), false);
+  const broken = panelResolution('converged', 'hybrid');
+  broken.review_proof.quorum.passed = false;
+  assert.strictEqual(crossModelConverged({ resolution: broken }), false);
+});

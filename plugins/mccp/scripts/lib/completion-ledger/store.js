@@ -34,7 +34,14 @@ const VALID_VERDICTS = Object.freeze(['converged', 'advisory', 'skipped']);
 //   'codex-verdict'  new append, corroborated by a present resolution.codex_verdict
 //   'legacy-unknown' migration-preserved: no ship OR a ship with no codex_verdict
 //   'superseded'     migration-preserved: recorded verdict disagrees with the ship
-const VALID_PROVENANCE = Object.freeze(['codex-verdict', 'legacy-unknown', 'superseded']);
+//   'multi-agent'    diverse-agent-review M1: approval issued by the L1+L2 review
+//                    panel (no Codex in the loop for this gate)
+//   'hybrid'         M1: L1+L2 panel corroborated by a Codex L3 layer
+// The two M1 values are ADDITIVE — the original three keep their exact meaning,
+// so no existing git-tracked ledger entry needs rekeying (§3.12 no-rehash).
+const VALID_PROVENANCE = Object.freeze([
+  'codex-verdict', 'legacy-unknown', 'superseded', 'multi-agent', 'hybrid',
+]);
 
 const KNOWN_ENTRY_KEYS = Object.freeze(new Set([
   'decision_id',

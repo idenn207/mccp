@@ -16,6 +16,13 @@ const { makeSkeleton } = require('../schema');
 
 function baseReceipt() {
   const r = makeSkeleton({});
+  // makeSkeleton stamps meta.created_at from the wall clock, and created_at is
+  // NOT a hash carve-out. Two calls that straddle a millisecond therefore hash
+  // differently, which made every "two skeletons must hash identically" case
+  // here flaky under parallel load — it failed once in a full-suite run and
+  // passed in isolation. Pin it: these tests are about briefing_*, and a clock
+  // tick is not the difference they mean to measure.
+  r.meta.created_at = '2026-01-01T00:00:00.000Z';
   r.gate_id = 'mccp-plan-codex';
   r.phase = 'plan';
   r.decision_id = 'hash-exclusion-test';

@@ -803,6 +803,16 @@ mode to use — the oracle decides from the environment.
 ```bash
 REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
 mkdir -p "$REVIEW_DIR"
+# Purge the previous run's artifacts before anything reads them. These files are
+# the IPC between fenced blocks, so a survivor from an earlier invocation is
+# indistinguishable from one this run produced — a stale `codex-verdict` would be
+# stamped into a fresh receipt, a stale `decision.json` would answer for a panel
+# that never fired. Every one of them is rewritten below on the paths that own it;
+# absence is what each consumer already fails closed on.
+rm -f "$REVIEW_DIR/codex-verdict" "$REVIEW_DIR/decision.json" "$REVIEW_DIR/proof.json" \
+      "$REVIEW_DIR/l1.json" "$REVIEW_DIR/l2.json" "$REVIEW_DIR/l3.json" \
+      "$REVIEW_DIR/reservation.json" "$REVIEW_DIR/workflow-args.json" \
+      "$REVIEW_DIR/started-at"
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" mode > "$REVIEW_DIR/mode.json"
 REVIEW_MODE=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mode)}catch{process.stdout.write("codex")}' "$REVIEW_DIR/mode.json")
 echo "[mccp:plan-review] mode=$REVIEW_MODE" 1>&2
@@ -1012,11 +1022,21 @@ plan is frozen (invariant ii) and injecting the Codex section here would change
 
 ```bash
 REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
-printf '{"invoked":true,"verdict":"%s","reason":"%s"}\n' "$CODEX_VERDICT" "$CODEX_CLASS" \
-  > "$REVIEW_DIR/l3.json"
+# Read the verdict from the artifact 5.2z persisted, NOT from $CODEX_VERDICT:
+# the wrapper ran in an earlier fenced block and shell state does not cross that
+# boundary, so the variable is empty here and this would write `"verdict":""` —
+# the one value the paragraph below forbids.
+L3_VERDICT=$(cat "$REVIEW_DIR/codex-verdict" 2>/dev/null || printf '')
+if [ -n "$L3_VERDICT" ]; then
+  printf '{"invoked":true,"verdict":"%s","reason":"%s"}\n' "$L3_VERDICT" "${CODEX_CLASS:-unknown}" \
+    > "$REVIEW_DIR/l3.json"
+else
+  printf '{"invoked":false,"reason":"codex verdict artifact absent — L3 did not complete"}\n' \
+    > "$REVIEW_DIR/l3.json"
+fi
 ```
 
-`$CODEX_VERDICT` must be one of `converged|divergent|critical|unavailable|skipped`.
+The verdict must be one of `converged|divergent|critical|unavailable|skipped`.
 If L3 did not run at all (`MCCP_PLAN_REVIEW_L3=0`, Codex disabled, timeout), write
 `{"invoked":false,"reason":"<why>"}` — never `"verdict":""`. Do not fake a verdict:
 "requested hybrid" is not "hybrid happened", and 5.2e fails closed on the
@@ -1232,9 +1252,24 @@ else
     process.stdout.write(g.verdict);
   ' "$CODEX_STDOUT")
 fi
+# v1.23.1 M1 (santa-loop R2) — PERSIST the verdict, do not carry it in a shell
+# variable. 5.2f and 5.6 both consume it and both run in LATER fenced blocks, and
+# shell state does not survive a block boundary (§3.9). Held only in $CODEX_VERDICT
+# it arrives EMPTY at both: 5.6's `[ -n "${CODEX_VERDICT:-}" ]` silently drops
+# --codex-verdict, so a receipt records no Codex verdict even though Codex spoke,
+# and 5.2f writes `"verdict":""` — the exact value its own prose forbids.
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+mkdir -p "$REVIEW_DIR"
+printf '%s' "$CODEX_VERDICT" > "$REVIEW_DIR/codex-verdict"
+echo "[mccp:plan-codex] codex verdict persisted: '${CODEX_VERDICT}'" 1>&2
 ```
 
-After Phase 5.4's YAGNI triage loop finishes: if the loop annotated `Open Questions: DIVERGENT_UNRESOLVED` (cap reached with an unresolved ACCEPT_NOW HIGH/CRITICAL), set `CODEX_VERDICT="divergent"` — overriding the parsed value so the receipt records the unresolved divergence. This is the ONLY place the triage outcome overrides the raw parse.
+After Phase 5.4's YAGNI triage loop finishes: if the loop annotated `Open Questions: DIVERGENT_UNRESOLVED` (cap reached with an unresolved ACCEPT_NOW HIGH/CRITICAL), set `CODEX_VERDICT="divergent"` — overriding the parsed value so the receipt records the unresolved divergence. This is the ONLY place the triage outcome overrides the raw parse. **Re-write the artifact when you do**, or the override lives only in a shell variable that 5.6 will never see:
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+printf '%s' "divergent" > "$REVIEW_DIR/codex-verdict"
+```
 
 When `CODEX_CLASS=disabled`: replace the placeholder with `> Codex skipped per MCCP_CODEX_DISABLED=1 (env-level policy)` and jump to 5.5. When in advisory mode (auto-fallback for unavailable): replace with `> Codex unavailable, skipped (auto-fallback): <classification>` and jump to 5.5.
 
@@ -1377,8 +1412,17 @@ REVIEW_SOURCE=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readF
 # legacy behaviour is byte-identical. On a panel path the artifact exists (Step A
 # just proved it), so this reads the oracle's answer, never a shell reconstruction.
 FORWARD_CODEX=$(node -e 'const fs=require("fs");try{process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).forwardCodexVerdict?"1":"0")}catch{process.stdout.write("1")}' "$REVIEW_DIR/decision.json")
-if [ "$FORWARD_CODEX" = "1" ] && [ -n "${CODEX_VERDICT:-}" ]; then
-  WRITE_FLAGS+=(--codex-verdict "$CODEX_VERDICT")
+# santa-loop R2 — read the verdict from the artifact 5.2z persisted. It was set in
+# an earlier fenced block, so `${CODEX_VERDICT:-}` alone is empty here and the flag
+# was silently dropped: a receipt that recorded NO Codex verdict on a run where
+# Codex actually spoke. Cross-gate dedupe fail-closes on the absence, so nothing
+# unsafe shipped — but the audit record was false, and this is the very path
+# MCCP_PLAN_REVIEW=codex exists to fall back to. The shell variable stays as a
+# fallback so any path that does reach 5.6 in the same block is unchanged.
+CODEX_VERDICT_EFF=$(cat "$REVIEW_DIR/codex-verdict" 2>/dev/null || printf '')
+if [ -z "$CODEX_VERDICT_EFF" ]; then CODEX_VERDICT_EFF="${CODEX_VERDICT:-}"; fi
+if [ "$FORWARD_CODEX" = "1" ] && [ -n "$CODEX_VERDICT_EFF" ]; then
+  WRITE_FLAGS+=(--codex-verdict "$CODEX_VERDICT_EFF")
 fi
 # v1.23.1 M1 — review_* triple. All three or none (DD11): write.js exits 12 on a
 # partial supply, so there is deliberately no branch here that forwards a subset.

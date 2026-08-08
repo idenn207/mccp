@@ -407,7 +407,7 @@ test('S11d: ./-relative cell still resolves against the PRD dir (no regression)'
 // path naming the base that actually matched. Both directions are covered
 // because each fails differently: one silently retargets, one dead-ends.
 
-test('S11e: bare cell matched under prdDir must not emit a repo-root-relative path', () => {
+test('S11h: bare cell matched under prdDir must not emit a repo-root-relative path', () => {
   withTempDir((dir) => {
     const prdDir = path.join(dir, '.claude', 'prds');
     fs.mkdirSync(prdDir, { recursive: true });
@@ -424,7 +424,7 @@ test('S11e: bare cell matched under prdDir must not emit a repo-root-relative pa
   });
 });
 
-test('S11f: ./-cell falling back to repo root emits the repo-root path it matched', () => {
+test('S11i: ./-cell falling back to repo root emits the repo-root path it matched', () => {
   withTempDir((dir) => {
     // PRD-relative target absent, repo-root fallback present — the exact shape
     // that used to turn a plan-missing stop into goal_signal=true while still

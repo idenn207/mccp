@@ -21,7 +21,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 이제 실제로 존재 확인을 통과한 후보를 **repo-relative canonical 경로**로 정규화해 반환한다(신규 `toRepoRelative`). 검출과 변형이 항상 같은 파일을 지목한다.
 
 - `plugins/mccp/scripts/lib/goal-detect.js` — 매칭된 base를 추적해 canonical 경로 emit
-- `plugins/mccp/scripts/lib/tests/goal-detect.test.js` — **기존 S11c·S11d가 결함을 정답으로 고정하고 있었다**(raw 셀 `'../plans/m2.plan.md'` · `'./sibling.plan.md'`를 기대). 두 단언을 canonical 경로로 정정하고, 충돌 회귀 2건(S11e prdDir 매칭 · S11f repo-root fallback)을 추가. 수정을 되돌리면 4건 전부 실패함을 A/B로 확인(공허하지 않음).
+- `plugins/mccp/scripts/lib/tests/goal-detect.test.js` — **기존 S11c·S11d가 결함을 정답으로 고정하고 있었다**(raw 셀 `'../plans/m2.plan.md'` · `'./sibling.plan.md'`를 기대). 두 단언을 canonical 경로로 정정하고, 충돌 회귀 2건(S11h prdDir 매칭 · S11i repo-root fallback)을 추가. 수정을 되돌리면 4건 전부 실패함을 A/B로 확인(공허하지 않음).
 
 ## [1.23.1] — 2026-07-31
 

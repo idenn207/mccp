@@ -313,6 +313,51 @@ Codex가 `MCCP_CODEX_DISABLED=1`로 skip돼 plan-codex 게이트에서 cross-mod
 
 > **부수 관찰 — 본 PRD의 실패 형태가 검토 과정에서 재현됐다.** grep이 찾은 `"verdict": "PASS"` 한 건을 그대로 신뢰했다면 "B도 통과"로 읽고 NICE를 선언했을 것이다. 실제로는 검사가 일어나지 않았다. *통과 신호의 존재가 검사가 일어났음을 의미하지 않는다* — PRD Problem 문단 그대로다. 부정 케이스 직접 재현(오프셋·후행 문자 확인)이 이것을 잡았다.
 
+## Codex Implementation Review
+
+> Codex skipped per `MCCP_CODEX_DISABLED=1` (env-level policy)
+
+- 호출: `node .../scripts/lib/codex-invoke.js adversarial-review` → `classification=disabled`, `blocking=false`, `advisory=false`, `durationMs=0` (spawn 직전 short-circuit)
+- 라운드 수: 0
+- `resolution.codex_verdict`: `skipped`
+- **이 구현도 cross-model adversarial review를 받지 않았다.** plan 단계에서 명시한 잔여 공백("재설계된 plan을 Codex가 검토한 적 없다")을 Implement-Codex 게이트가 메울 1차 기회였으나, `MCCP_CODEX_DISABLED=1`이 사용자 전역 설정에 살아 있고 Codex 한도가 2026-08-13까지 소진돼 있어 이번에도 획득되지 않았다. §3.3상 `disabled`는 실패가 아니라 의도된 skip이지만, **dual-review의 실제 가치는 이 cycle에서도 미획득**이다.
+- 대안: `/mccp:santa-loop`(Opus + `codex exec` 직접 호출 — wrapper env policy와 무관)이 가용하다. plan 단계에서 R1이 5건 중 4건을 Codex만 잡은 선례가 있으므로, ship 전에 재실행하는 것이 권장된다.
+
+### Implement-time decisions (2.5.2)
+
+plan이 사전 확약하지 않은 구현 시점 결정 — Codex가 검토했어야 할 표적:
+
+1. **Task 5의 flag forward 형태**: plan은 `--codex-disabled-at-pr` 하나만 지정했으나, `schema.js:397-402`가 `codex_disabled_at_pr=true → codex_skip_reason==='codex_disabled'`를 **강제**한다. finalize가 reason을 forward하지 않으면 write 시점 ambient env에 의존하게 되고, env가 없는 프로세스에서는 **schema invalid**로 receipt write가 실패한다. 따라서 `--codex-skip-reason codex_disabled`를 **함께** forward한다(기존 `'skipped'` 분기의 2-flag forward와 동형). Task 4b의 precedence 변경과 정합 — 명시값이 canonical과 동일하므로 충돌 없음.
+2. **Task 4b의 "명시값" 판정 기준**: `args['codex-skip-reason']`가 `true`(값 없는 flag)일 수 있으므로 `typeof === 'string' && length > 0`으로 좁힌다. `|| null` 관용구를 그대로 쓰면 `--codex-skip-reason` 단독 지정이 `true`를 통과시켜 schema type check(`must be a string or null`)에 걸린다.
+3. **G1 방어화의 반환 계약 차이**: `receipt-prompt.js`는 exit 0 + stdout JSON, `receipt-skill.js`는 exit 0(허용)/2(차단). 두 파일의 `g1Allow`는 각각 다른 `hookEventName`을 쓰므로 공용화하지 않고 파일별로 유지한다. module-scope에서 로드 실패를 감지하되 **실제 라우팅은 `main()` 안에서** 수행한다 — module-scope에서 `process.exit`하면 stdin을 읽지 못해 event가 null이 되고 shard 로그가 사라진다.
+4. **Task 2의 부정 케이스 구성**: 기존 3개 테스트는 `validate-cmd` 부재(receipt/ 트리 없음)로 G1을 유발한다. 신규 2케이스는 `receipt-mode`만 부재 / `extract-plan-path`만 부재를 각각 격리해야 하므로, fixture가 **나머지 모듈은 전부 갖춘 상태**여야 한다. 실제 plugin root를 복사하는 대신 필요한 lib 모듈만 선별 복사하고 `scripts/receipt`는 실제 트리를 심볼릭하지 않고 복사한다 — 그러면 두 모듈 부재가 단독 원인이 된다.
+
+### Security Reviewer
+
+security-reviewer를 **호출하지 않았다**. 판정 근거: 본 변경은 auth/crypto/secrets/input validation/injection/SSRF/path traversal/privilege escalation 어디에도 해당하지 않는다. `pr-ship-gate.js`의 proof 집합은 **내부 워크플로 게이트**(PR 생성 진행 여부)이지 신뢰 경계가 아니며, 공격자 모델·비신뢰 입력·자격증명이 없다. 카탈로그를 "authorization"으로 확대 해석하면 모든 게이트 변경이 보안 리뷰 대상이 되어 트리거가 무의미해진다. 또한 이 변경의 방향은 **fail-open → fail-closed**이므로 권한을 넓히지 않는다.
+
+`--security-skipped`는 forward하지 **않는다** — 그 플래그는 "호출했으나 실패"를 뜻하고, 여기서는 트리거 자체가 미성립이다. 잘못 쓰면 다운스트림 `/mccp:pr`이 실재하지 않는 실패로 차단된다.
+
+### Design Review
+
+`impeccable-detect --mode implement` → `skill_available=true` · `design_signal=false` · `reason=no-signal` · `silent_skip=true`.
+
+**타이밍 gap을 정직하게 기록한다**: implement-mode detector는 **게이트 시점의 git diff**를 읽는데, Phase 2.5는 Phase 3 EXECUTE **이전**이라 worktree가 clean이었다. EXECUTE 후에는 `plugins/mccp/scripts/receipt/write.js`(=`DESIGN_SURFACE_PATHS` 원소, `impeccable-detect.js:88`)가 diff에 들어가므로 같은 detector가 `design_signal=true`를 냈을 것이다. 즉 이 silent-skip은 "디자인 표면 없음"이 아니라 **"게이트 시점에 아직 diff가 없음"**이다.
+
+critique loop을 강제하지 않는 이유: plan 단계 Design Critique이 이미 같은 축을 R0에서 CONVERGED로 닫았고(findings 0), 실측으로 `renderer/sections/`의 `codex_*` 소비 0건 — 렌더 surface 영향이 구조적으로 없음을 확인했다. `MCCP_DESIGN_INTENT_REASON` 우회로 loop을 재발화시키는 것은 같은 판정을 중복 수행할 뿐이다.
+
+receipt에는 `--impeccable-silent-skip --impeccable-silent-skip-reason no-signal`을 forward한다(validator는 warnings-only, `validate-cmd.js:459`). Phase 2.5.5c capture 미발생 → Phase 3.7 grounding lint는 no-op.
+
+### YAGNI Triage
+
+| Finding | Severity | Verdict | Why |
+|---|---|---|---|
+| — | — | — | Codex 미발화(`disabled`)로 finding 0건. triage 대상 없음 |
+
+- Deferred to backlog: 0
+- Open Questions: **cross-model 미검토** — severity HIGH. plan R1 이후 상태(OQ2 3부 수정 A/B/C, OQ3 callsite 비대칭)와 위 4개 구현 시점 결정이 단일 모델 판단으로 남는다. auto-CRITICAL 카탈로그(security boundary / atomic state / schema breakage) 해당 없음 → Phase 3 진입 차단 사유 아님.
+- Codex session 참조: 없음 (spawn 미발생)
+
 ## Design Critique
 
 `impeccable-detect --mode plan` → `skill_available=true` · `design_signal=true` · `signal_files=["plugins/mccp/scripts/receipt/write.js"]`. PRD 단계(`design_signal=false`)와 달리 발화했다 — Task 4가 `write.js`를 건드리고 그 경로가 `DESIGN_SURFACE_PATHS` 화이트리스트 원소이기 때문이다(briefing 필드 → 대시보드 렌더러 경로). 오탐이 아니라 실 hit이므로 §3.9 critique retry loop을 정상 수행했다.

@@ -2,7 +2,32 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.23.5] — 2026-08-09
+
+**Gate guard integrity M1 — fail-open이어야 할 자리가 아니었던 가드 3개 복원 (patch — bug fix/axis close)** — 세 가드가 서로 다른 파일·서로 다른 원인으로 무력화돼 있었고, 셋 다 "fail-closed여야 할 자리가 fail-open"이라는 같은 형태였다. green을 만드는 것이 아니라 **신호를 복원**하는 것이 목적이므로 어떤 테스트도 skip/삭제/완화하지 않았다. 세 가드 모두 수정 전 코드에서 신규 테스트가 실제로 red임을 A/B로 확인했다(비공허성).
+
+- **G1 — hook fail-open 무력화**: `receipt-prompt.js`·`receipt-skill.js`의 `receipt-mode`·`extract-plan-path` **4곳**이 무방비 top-level `require`였다. 로드 실패가 `main()`이 존재하기도 전에 module scope에서 프로세스를 죽여, 파일 스스로 명문화한 fail-open 불변식(*"A buggy gate is worse than no gate"*)이 **한 번도 실행되지 못했다**. PRD는 `extract-plan-path` 2곳만 지목했으나 실측상 4곳. 게다가 기존 테스트는 broken-root fixture에 `receipt-mode.js`를 **일부러 복사해 넣어** 결함이 발화하지 못하게 막고 있었다(green 유지용 우회). 방어 IIFE + export shape 검사로 감싸고, 실패를 **null fallback이 아니라** 기존 G1 경로(`g1Allow` — systemMessage + exit 0)로 라우팅한다. `extract-plan-path`를 null로 떨어뜨리면 `--plan`이 **조용히** 사라져 아래 G2의 실패 모드를 hook 안에 재생산하기 때문이다.
+- **G2 — staleness 강제 부재**: `pr.md`의 validate callsite 2곳이 `--plan`을 넘기지 않아 validator가 plan을 **재해싱하지 않았고**, 그래서 `stale`이 발화할 수 없었다 — 게이트 이후 plan이 바뀌어도 무통과. 두 callsite의 효력은 **서로 다르다**: `2.5.9` ship-gate read-back은 Phase 2 DISCOVER 이후라 plan 경로가 실재하고 aggregate `ok`로 gate하므로 **실질 복원 locus**이고, Phase 1.6 preflight는 Phase 2 이전이라 slug 파생 경로로 **validator 스코핑만 교정**한다(이 지점은 `blocking`만 읽고 부재 plan은 `stale`로 떨어지므로 오탐 차단 불가 — fail-safe). lint는 **플래그 존재만** 검사해 치환 경로가 비어도 green이므로, lint와 별개로 A/B 재현을 수행했다: 게이트 후 plan에 구조적 변경 → `--plan` 있음 `ok=false`/`stale=2` · 없음 `ok=true`/`stale=0`.
+- **G3 — 표준 설치에서 ship proof 위조 분기 도달 불가**: `SKIP_PROOF_META_KEYS`가 ambient `meta.codex_disabled`를 ship proof로 인정했다. 이 저장소는 `codex_disabled`(env 유래 **정직한 주석**)와 `codex_disabled_at_pr`(**명시 PR-step 축**)을 의도적으로 분리해 두었고 — `pr-codex-dedupe.test.js:113-118`이 그 계약을 주석까지 달아 단언한다 — 그 구분을 무너뜨린 쪽이 proof 집합이었다. `MCCP_CODEX_DISABLED=1`이 사용자 `settings.json`에 있는 **표준 설치**에서는 write가 매 receipt에 이 필드를 찍으므로, **증거 없는 skip이 예외 없이 증거를 얻어** F2 위조 탐지 분기가 구조적으로 죽어 있었다.
+
+### Fixed
+- `plugins/mccp/scripts/hooks/receipt-prompt.js` / `receipt-skill.js` — 무방비 require 4곳 방어화 + export shape 검사. 실패는 `g1Allow`로 loud 라우팅(조용한 null fallback 금지).
+- `plugins/mccp/commands/pr.md` — Phase 1.6(스코핑 교정, slug 파생) · 2.5.9(실 staleness 강제)에 `--plan` forward.
+- `plugins/mccp/scripts/lib/pr-ship-gate.js` — `SKIP_PROOF_META_KEYS`에서 `'codex_disabled'` **제거**(`'codex_disabled_at_pr'` 유지). ship proof는 caller가 **주장한 것만** 인정한다.
+- `plugins/mccp/scripts/receipt/write.js` — `codex_skip_reason` precedence **반전**: 명시 `--codex-skip-reason` > env canonical(fallback). 기존 동작은 ambient env가 audited 사유를 14자 canonical로 덮어써, `codex_skipped_at_pr=true`가 발동시키는 strict validator(≥30자)에 걸리는 **자기 schema가 거부하는 receipt**를 생산했다 — env가 켜진 환경에서 audited escape 경로가 아예 사용 불가였다. `:236` env-stamp은 **무변경**(관찰 계층인 `codex-runner.js:234-238`의 반대 precedence도 의도적으로 유지 — 관찰자는 env가 canonical, 기록자는 caller 주장을 덮으면 안 된다).
+- `plugins/mccp/scripts/lib/pr-phase-helpers/finalize-receipt.js` — `codex_outcome==='disabled'` 분기 신설(부재였음), `--codex-disabled-at-pr` + canonical `--codex-skip-reason` 명시 forward. **ship-gate 수정과 단일 커밋 불변식**: 이것 없이 proof 제거만 착지하면 운영자의 `MCCP_CODEX_DISABLED` ship 경로가 **조용히** 끊긴다(receipt는 써지고 gate만 막힘). 회귀 테스트가 이 half-landing을 기계적으로 잡는다(실증: fix C만 되돌리면 3건 red).
+
+### Changed
+- `plugins/mccp/scripts/hooks/tests/g1-patch.test.js` — fixture의 `receipt-mode.js` **우회 복사 제거** + 모듈별 격리 fixture 신설(실 트리 복사 후 대상 1개만 삭제). **positive control** 포함 — 아무것도 제거하지 않은 fixture가 `ModuleLoadError`를 내지 **않음**을 먼저 단언해, 두 부재 케이스가 우연한 다른 로드 실패로 통과하는 것을 차단한다. 3 → 8 케이스.
+- `plugins/mccp/scripts/lib/tests/pr-ship-gate.test.js` — `skipped WITH disabled policy (codex_disabled) → ship` 단언을 **반전**. 이 테스트는 결함을 정답으로 고정하고 있었다(테스트가 버그를 봉인한 4번째 사례).
+- `plugins/mccp/scripts/lib/tests/pr-phase-helpers/finalize-receipt.test.js` — `MCCP_CODEX_DISABLED=1`을 **명시적으로 켠 채** unproven skip이 exit 12임을 단언(env 중화 금지 — 결함은 env가 켜져야만 나타나므로 끄면 버그를 통과시킨다) + `outcome='disabled'` ship 경로 + write 프로세스에 env가 **없는** 경우까지. 26 → 31 케이스.
+- `plugins/mccp/scripts/receipt/tests/codex-disabled-precedence.test.js` — NEW. precedence 단위 회귀 6건.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.3 → 1.23.5` + renderer footer(html/markdown) 동기. **forward-only**: plan은 1.23.4를 목표했으나 병렬 브랜치 #118이 main에서 그 번호를 선점(같은 충돌 4번째 재발, §3.7).
+- `CLAUDE.md` §3.3 / §4 — PR ship proof가 `codex_disabled_at_pr`(명시) 축임을 문서화.
+
+> **미포함 (의도적)**: `plugins/mccp/scripts/receipt/tests/pr-codex-dedupe.test.js`는 **무변경**. plan R1에서 한 리뷰어가 이 테스트를 "버그를 정답으로 고정한 것"으로 지목했으나 검증 결과 그 반대였다 — 이 테스트가 두 축의 **옳은 계약**을 지키고 있고, 무너뜨린 쪽은 proof 집합이었다. 수정 A는 이 테스트를 통과시킨 채 성립한다(diff 0으로 확인).
 
 ## [1.23.3] — 2026-08-06
 

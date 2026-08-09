@@ -4,6 +4,28 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.23.4] — 2026-08-09
+
+**Plan-Codex 의도 컨텍스트 게이트 M1 (patch — 단일 milestone ship, §3.7)** — `/mccp:plan`의 Plan-Codex 게이트는 out-of-process 리뷰어에게 **사용자 대화 의도를 전달할 채널이 없었다**. 리뷰어는 제안서만 보고 요구사항은 보지 못했고, finding을 수용/기각한 판단은 어디에도 기록되지 않았다. M1은 세 축(L1 의도 표면화 · L2-A 판정 커버리지 강제 · M 측정 인프라)을 닫는다. 상세 계약은 CLAUDE.md §3.13.
+
+### Added
+- `plugins/mccp/scripts/lib/intent-context.js` — 순수 오라클. PRD-모드 plan의 `## User Intent` 표에서 `Constraint` 열**만** 읽어 `<user_intent_reference>` 블록으로 리뷰어 focus에 주입한다. 저자 정당화(`## Design Decisions`)는 오라클이 도달할 경로 자체가 없어 anchoring 회피가 텍스트 lint가 아니라 **구조 분리**로 보장된다. verdict 5종(`preserved`/`skipped`/`skipped-unproven`/`incomplete`/`conflict_unresolved`) + canonical digest + 소비처별 판정 3분기.
+- `plugins/mccp/scripts/lib/plan-codex-runner.js` — 단일 장수 프로세스(DD3). Codex 호출 → payload 메모리 보유 → adjudication bounded 대기 → 판정 → receipt write가 한 프로세스에서 일어나므로 리뷰와 write 사이에 판정 입력 파일이 **존재하지 않는다**. 감사 envelope는 디스크에 남기되 **다시 읽지 않으며**(변조해도 verdict 불변 — 회귀 test가 강제), per-decision lease lock(host-aware tri-state) · nonce 봉인 marker · post-write digest 검증 + mis-sealed receipt quarantine을 포함한다.
+- `plugins/mccp/scripts/lib/markdown-table.js` — 중립 표 파서(게이트가 렌더러에 의존하지 않도록 분리).
+
+### Changed
+- `plugins/mccp/scripts/receipt/write.js` — `stampIntentDecision`. **프로그래매틱 non-null 객체 전용**이며 `--intent-*` CLI 플래그는 0건이다(`parseFlags`가 문자열·`true`·배열만 만들 수 있어 셸 위조가 타입 가드로 구조 차단). receipt `meta.intent_*` 10개 present-only 필드는 `makeSkeleton` 미포함 — §3.12 tracked ship corpus의 `receipt_hash` 안정성 보존.
+- `plugins/mccp/scripts/receipt/dedupe.js` · `schema.js` · `validate-cmd.js` — 소비처별 판정(`runtimeAllowed` / `chainAllowed` / `dedupeApproved`). `dedupeApproved`는 audited override의 영향을 **절대 받지 않는다** — 강제된 `incomplete` receipt가 dedupe를 인증하면 PR-Codex가 skip돼 dual-review가 우회되기 때문.
+- `plugins/mccp/commands/plan.md` Phase 5.x — detached runner 기동 + marker 상태 기계 4종(`running`/`succeeded-markerless`/`crashed`/`timeout`). codex 900s가 Bash 600s 상한을 넘으므로 foreground 호출이 불가능한 데 따른 설계.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.3 → 1.23.4`(patch — 단일 milestone ship, §3.7) + renderer footer(html/markdown) 동기.
+- `CLAUDE.md` §3.13 신설 + §4 운영 토글 2건(`MCCP_SKIP_INTENT_GATE` · `MCCP_INTENT_ADJUDICATION_TIMEOUT_MS`).
+
+### Notes — 이 milestone이 달성하지 **않은** 것
+
+- **M1은 UI10(의도-충돌 finding의 silent-accept 0건)을 달성하지 않는다.** 저자가 모든 finding을 `intent_conflict:'none'`으로 표시하면 커버리지 검사는 전부 통과한다. M1은 **누락**을 막고 **오심**은 막지 못하며, 오심 탐지(리뷰어 per-finding `INTENT:` 계약)는 M1.5 소유다.
+- santa-loop 6라운드로 22건을 흡수했고 **그중 16건은 Codex(GPT-5.4)만 포착**했다(Opus는 R3·R5·merge 라운드에서 PASS). santa-loop Reviewer B는 `codex exec` 직접 호출이라 wrapper 게이트가 env policy로 죽어도 cross-model 검증을 얻는다.
+- PR-Codex는 `MCCP_CODEX_DISABLED=1`로 미발화했다 — ship gate는 `skipped` + proof로 통과했으며 이는 **Codex 승인이 아니다**.
+
 ## [1.23.3] — 2026-08-06
 
 **Red test suite 복원 M1 — 시한폭탄 테스트 + fixture 전제 교체 (patch — bug fix/axis close)** — pre-existing 상시 red 테스트 2건을 각각의 실제 원인에 맞게 해소한다. (1) `verdict-label.test.js`의 audit-timeline 케이스 — renderer/index.js가 renderAuditTimeline에 undefined를 하드코딩해 함수의 clock 폴백(Date.now())이 항상 발동, 픽스처의 2026-07-01 타임스탬프가 현재(2026-08-06)와 35일 벌어져 7일 필터로 제외됨 → 회귀 가드 케이스 추가(F2 — 주입 clock이 실제로 지배하는지 검증). (2) `design-critique-loop-e2e.test.js`의 fixture 케이스 F — .gitignore가 .claude/cache/를 보호해 fixture를 커밋 불가하면서도 repo 존재 assert가 구조적으로 충족 불가능 → repo-존재 검증에서 test-time 합성 + detector 검증으로 교체(실제 계약 = detector가 whitelist 경로를 인식하는지, fixture 파일의 물리적 존재가 아님).

@@ -1,0 +1,24 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "codex-intent-context",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.23.4",
+    "completed_at": "2026-08-09T04:16:43.608Z",
+    "commit_sha": "b13e81b2afb55bce75320f5f24456f5fdb764bdf",
+    "plan_basename": "codex-intent-context-m1.plan.md",
+    "plan_file_hash": "sha256:55a7b018f3f31a3962a3cfa7c2783f95403d57f610579496a8078168c7369c5f",
+    "risks_closed": [
+      "M1이 오심을 막지 못해 \"서류만 늘었다\"는 비판이 유효하다",
+      "runner 경유 요구가 Phase 0 recovery·수동 receipt-write를 막는다",
+      "legacy receipt가 dedupe 대상에서 빠져 PR-Codex가 추가로 도는 비용",
+      "의도 섹션이 형식적으로만 채워져 실효 없음",
+      "단일 프로세스 runner가 `/mccp:plan` body 구조를 크게 바꾼다",
+      "10 필드 추가가 receipt_hash·derive·renderer를 깬다"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:749bf854ff027b5caf6b1b00d035d3cff1e17f2bb340dd2119f018b1a658e77c",
+    "verdict_provenance": "codex-verdict"
+  }
+}

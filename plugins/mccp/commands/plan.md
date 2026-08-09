@@ -1464,6 +1464,26 @@ if [ -n "$REVIEW_VERDICT" ] && [ -n "$REVIEW_SOURCE" ] \
                 --review-source "$REVIEW_SOURCE"
                 --review-proof-file "$REVIEW_DIR/proof.json")
 fi
+# santa-loop R3 — declare the mode so write.js can refuse a panel receipt that
+# carries no approval record. The all-or-nothing guard above prevents a PARTIAL
+# stamp by forwarding NOTHING, and a receipt with neither axis inherits
+# `resolution.converged: true` from write.js's defaults — so a panel run that
+# certified nothing would read as converged. Re-derived from mode.json, which is
+# written at Phase 5.2 entry and is therefore still trustworthy when the decision
+# artifact is not.
+REVIEW_MODE_EFF=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mode||"")}catch{process.stdout.write("")}' "$REVIEW_DIR/mode.json")
+if [ -n "$REVIEW_MODE_EFF" ]; then
+  WRITE_FLAGS+=(--review-mode "$REVIEW_MODE_EFF")
+fi
+# Defence in depth: HALT here too. write.js is the mechanism (it cannot be
+# forgotten by an LLM), but stopping before the call gives the operator the
+# actionable message instead of a stack trace.
+if { [ "$REVIEW_MODE_EFF" = "multi-agent" ] || [ "$REVIEW_MODE_EFF" = "hybrid" ]; } \
+   && { [ -z "$REVIEW_VERDICT" ] || [ -z "$REVIEW_SOURCE" ] || [ ! -f "$REVIEW_DIR/proof.json" ]; }; then
+  echo "[MCCP-GATE-STOP] mode=$REVIEW_MODE_EFF but the review triple is incomplete (verdict='$REVIEW_VERDICT' source='$REVIEW_SOURCE' proof=$([ -f "$REVIEW_DIR/proof.json" ] && echo present || echo absent))."
+  echo "A panel receipt with no approval record would read as CONVERGED. Re-run 5.2c-5.2e; do not write a receipt for a review whose outcome is unknown."
+  exit 12
+fi
 # L3 instrumentation + gate wall-clock (Acceptance: the ≤10-minute target is
 # measured, not asserted). 5.2a wrote started-at as a FILE for exactly this hop.
 if [ "$REVIEW_SOURCE" = "hybrid" ]; then

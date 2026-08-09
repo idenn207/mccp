@@ -178,6 +178,46 @@ function buildReceipt(args) {
   const reviewProofFile = args['review-proof-file'];
   const nonEmpty = function (v) { return typeof v === 'string' && v.length > 0; };
 
+  // santa-loop R3 (Codex GPT-5.4) — a plan-gate receipt must carry a verdict axis.
+  //
+  // The failure this closes: a panel run whose decision.json was malformed forwards
+  // no review_* triple (the all-or-nothing guard above turns a partial stamp into
+  // NO stamp) and, in a panel mode, no --codex-verdict either. The receipt then
+  // lands with neither axis and `resolution.converged: true` — the defaultResolution
+  // literal a few dozen lines up. resolveEffectiveVerdict answers axis:'none', which
+  // means receipt-convergence.js skips its strict review branch and falls through to
+  // `resolution.converged === true`. A run that approved NOTHING reads as converged.
+  //
+  // The gate is keyed on --review-mode, NOT on "gate === mccp-plan-codex && no
+  // axis". The broader form was tried first and was wrong: a verdict-less plan
+  // receipt turns out to be ordinary across the corpus (advisory paths, skipped
+  // gates, manual recovery), so requiring an axis unconditionally broke ~30 tests
+  // including the e2e dogfood chain. The sample that suggested otherwise was two
+  // receipts on disk — too small to generalise from, and the suite said so.
+  //
+  // What is NEVER legitimate is narrower: a PANEL run that stamps no triple. Only
+  // the caller knows it ran a panel, so it says so. mode.json is written at Phase
+  // 5.2 entry, before anything downstream can corrupt it, which makes the mode the
+  // one fact still trustworthy when decision.json is not.
+  //
+  // Omitting the flag reproduces the old behaviour exactly — that is the
+  // no-regression property, and it is also this check's limit: it cannot catch a
+  // caller that forgets to pass it. 5.6 Step A HALTs on the same condition for that
+  // reason. Two layers, neither sufficient alone.
+  const reviewMode = args['review-mode'];
+  if ((reviewMode === 'multi-agent' || reviewMode === 'hybrid') &&
+      !nonEmpty(reviewVerdict) && !nonEmpty(reviewSource) && !nonEmpty(reviewProofFile)) {
+    const err = new Error(
+      '--review-mode=' + reviewMode + ' declares a review-panel run, but no ' +
+      '--review-verdict/--review-source/--review-proof-file triple was supplied. ' +
+      'resolution.converged defaults to true and resolveEffectiveVerdict would ' +
+      'answer axis:"none", so this receipt would read as CONVERGED while recording ' +
+      'no approval at all. If the panel decision artifact is unreadable, re-run L2 — ' +
+      'do not seal a receipt for a review whose outcome is unknown.');
+    err.code = 'REVIEW_STAMP_INVALID';
+    throw err;
+  }
+
   if (nonEmpty(reviewVerdict) || nonEmpty(reviewSource) || nonEmpty(reviewProofFile)) {
     const missing = [];
     if (!nonEmpty(reviewVerdict)) missing.push('--review-verdict');

@@ -145,6 +145,36 @@ function cmdMode() {
   return EX_OK;
 }
 
+// ── path containment ──────────────────────────────────────────────────────────
+// santa-loop R2/R3 (Codex GPT-5.4, flagged twice): --plan/--prd were path.resolve'd,
+// read, hashed, and echoed into reviewer prompts with no containment check, so the
+// panel could be pointed at a file outside the repository.
+//
+// Deliberately NOT isRepoRelativeEvidencePath, which is what the reviewer proposed.
+// That predicate exists for strings that get SEALED into a receipt, where the shape
+// of the string is itself the product (an absolute path there leaks the developer's
+// filesystem into the durable corpus — §3.12). A --plan argument is not sealed; it
+// is a file to read. The property that matters is CONTAINMENT, and requiring the
+// literal to be repo-relative would reject an ordinary absolute path to a plan
+// inside the repo, which the command body may legitimately pass. Resolve, then ask
+// whether the result is inside the root.
+function insideRoot(p, root) {
+  const rel = path.relative(root, p);
+  if (rel === '') return true;
+  if (rel.startsWith('..')) return false;
+  return !path.isAbsolute(rel);
+}
+
+function resolveContained(rawPath, root, flag) {
+  if (typeof rawPath !== 'string' || rawPath.length === 0) return { ok: false, reason: flag + ' is empty' };
+  if (rawPath.indexOf('\0') !== -1) return { ok: false, reason: flag + ' contains a NUL byte' };
+  const abs = path.resolve(root, rawPath);
+  if (!insideRoot(abs, root)) {
+    return { ok: false, reason: flag + ' resolves outside the repository (' + rawPath + ')' };
+  }
+  return { ok: true, abs: abs };
+}
+
 // ── l1 ────────────────────────────────────────────────────────────────────────
 function cmdL1(args) {
   const planPath = args.plan;
@@ -154,6 +184,15 @@ function cmdL1(args) {
   }
   const root = args['repo-root'] && args['repo-root'] !== true
     ? args['repo-root'] : repoRoot();
+
+  const contained = resolveContained(planPath, root, '--plan');
+  if (!contained.ok) {
+    errln('BLOCK: ' + contained.reason + ' — L1 reads and quotes the plan, so it ' +
+      'may only be given a file inside the repository');
+    out({ verdict: 'inconclusive', violations: [{ code: 'E_PATH', detail: contained.reason }],
+      plan: planPath });
+    return EX_BLOCK;
+  }
 
   const result = checkPlanConsistency({ planPath: planPath, repoRoot: root });
   out({ verdict: result.verdict, violations: result.violations, plan: planPath });
@@ -179,10 +218,25 @@ function cmdEmitWorkflowArgs(args) {
     errln('emit-workflow-args requires --plan <path>');
     return EX_USAGE;
   }
-  const abs = path.resolve(planPath);
+  const emitRoot = (args['repo-root'] && args['repo-root'] !== true) ? args['repo-root'] : repoRoot();
+  const contained = resolveContained(planPath, emitRoot, '--plan');
+  if (!contained.ok) {
+    errln('BLOCK: ' + contained.reason + ' — the plan is hashed into ' +
+      'reviewed_plan_hash and quoted to the panel, so it may only be a file ' +
+      'inside the repository');
+    return EX_BLOCK;
+  }
+  const abs = contained.abs;
   if (!fs.existsSync(abs)) {
     errln('plan does not exist: ' + planPath);
     return EX_BLOCK;
+  }
+  if (args.prd && args.prd !== true) {
+    const prdContained = resolveContained(args.prd, emitRoot, '--prd');
+    if (!prdContained.ok) {
+      errln('BLOCK: ' + prdContained.reason + ' — the PRD is quoted to the panel');
+      return EX_BLOCK;
+    }
   }
 
   let reviewedPlanHash;
@@ -370,8 +424,21 @@ function cmdDecide(args) {
   const planPath = (args.plan && args.plan !== true) ? args.plan : null;
   let currentPlanHash = null;
   if (planPath) {
+    // Containment applies here too: this hash is what DD13 compares the sealed
+    // reviewed_plan_hash against, so an out-of-repo file must not be able to
+    // satisfy the bind.
+    const decideRoot = (args['repo-root'] && args['repo-root'] !== true) ? args['repo-root'] : repoRoot();
+    const contained = resolveContained(planPath, decideRoot, '--plan');
+    if (!contained.ok) {
+      errln('BLOCK: ' + contained.reason + ' — the DD13 bind may only be satisfied ' +
+        'by a plan inside the repository');
+      out({ review_verdict: 'unavailable', review_source: 'multi-agent',
+        review_proof: null, block: true, reason: contained.reason,
+        forwardCodexVerdict: false });
+      return EX_BLOCK;
+    }
     try {
-      currentPlanHash = planAwareMarkdownHash(path.resolve(planPath));
+      currentPlanHash = planAwareMarkdownHash(contained.abs);
     } catch (_) {
       currentPlanHash = null;
     }

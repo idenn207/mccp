@@ -179,7 +179,7 @@ function reviewProof() {
   return {
     layers: { l1: 'converged', l2: 'converged', l3: null },
     verification_verdict: 'converged',
-    quorum: { passed: true, required: 3, of: 4, roles: 3, responded: 4 },
+    quorum: { passed: true, required: 3, of: 4, roles: 4, responded: 4 },
     perspectives: [
       { perspective: 'architect', verdict: 'pass' },
       { perspective: 'security', verdict: 'pass' },

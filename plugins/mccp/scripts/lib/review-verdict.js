@@ -157,7 +157,16 @@ function isReviewProofStructurallyValid(proof) {
     if (seenRoles[role]) return false;
     seenRoles[role] = true;
   }
-  if (Object.keys(seenRoles).length < q.roles) return false;
+  // EXACT, not a floor. santa-loop R3 (Codex GPT-5.4): `>= q.roles` let a proof
+  // with four distinct perspectives seal `roles: 1`. quorum.roles is an OBSERVATION
+  // — decideReview writes what it counted — so any value other than the count is a
+  // proof misstating its own evidence. Under-reporting is harmless to the approval
+  // decision (it never over-claims diversity), which is exactly why a floor looked
+  // sufficient; but the proof is the durable audit record, and a record permitted
+  // to disagree with itself is not evidence. This repo has now had to fix the
+  // threshold-in-an-observation-slot confusion twice (the earlier one wrote
+  // rolesMin into this same field).
+  if (Object.keys(seenRoles).length !== q.roles) return false;
 
   // Evidence — non-empty array of repo-relative paths. Existence is the
   // caller's axis (verify-proof); format is ours.

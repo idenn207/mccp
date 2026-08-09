@@ -73,7 +73,8 @@ function withTmp(fn) {
 }
 
 function emit(ctx, extraArgs) {
-  const argv = ['emit-workflow-args', '--plan', ctx.planPath, '--out', ctx.outPath]
+  const argv = ['emit-workflow-args', '--plan', ctx.planPath, '--out', ctx.outPath,
+    '--repo-root', ctx.dir]
     .concat(extraArgs || []);
   const code = runCli(argv);
   const payload = fs.existsSync(ctx.outPath)

@@ -26,7 +26,7 @@ function validProof(overrides) {
   const p = {
     layers: { l1: 'converged', l2: 'converged', l3: null },
     verification_verdict: 'converged',
-    quorum: { passed: true, required: 3, of: 4, roles: 3, responded: 4 },
+    quorum: { passed: true, required: 3, of: 4, roles: 4, responded: 4 },
     perspectives: [
       { perspective: 'architect', verdict: 'pass' },
       { perspective: 'security', verdict: 'pass' },
@@ -191,24 +191,24 @@ test('verification_verdict must be converged', () => {
 test('quorum.passed must be strictly true', () => {
   [false, 'true', 1, null].forEach((v) => {
     assert.equal(isReviewProofStructurallyValid(
-      validProof({ quorum: { passed: v, required: 3, of: 4, roles: 3 } })), false, String(v));
+      validProof({ quorum: { passed: v, required: 3, of: 4, roles: 4 } })), false, String(v));
   });
 });
 
 test('quorum.required below 2 is not a quorum', () => {
   assert.equal(isReviewProofStructurallyValid(
-    validProof({ quorum: { passed: true, required: 1, of: 4, roles: 1 } })), false);
+    validProof({ quorum: { passed: true, required: 1, of: 4, roles: 4 } })), false);
   assert.equal(isReviewProofStructurallyValid(
-    validProof({ quorum: { passed: true, required: 0, of: 4, roles: 1 } })), false);
+    validProof({ quorum: { passed: true, required: 0, of: 4, roles: 4 } })), false);
 });
 
 test('quorum.of must be >= required', () => {
   assert.equal(isReviewProofStructurallyValid(
-    validProof({ quorum: { passed: true, required: 4, of: 3, roles: 3 } })), false);
+    validProof({ quorum: { passed: true, required: 4, of: 3, roles: 4 } })), false);
 });
 
 test('quorum counters must be non-negative integers', () => {
-  [{ required: 2.5, of: 4, roles: 3 }, { required: 3, of: '4', roles: 3 },
+  [{ required: 2.5, of: 4, roles: 4 }, { required: 3, of: '4', roles: 4 },
    { required: 3, of: 4, roles: -1 }].forEach((q) => {
     assert.equal(isReviewProofStructurallyValid(
       validProof({ quorum: Object.assign({ passed: true }, q) })), false, JSON.stringify(q));
@@ -252,7 +252,7 @@ test('quorum.responded must clear required and sit inside of', () => {
   })), false, 'responded below the threshold');
   // responded > of — more answers than reviewers fielded.
   assert.equal(isReviewProofStructurallyValid(validProof({
-    quorum: { passed: true, required: 2, of: 2, roles: 2, responded: 3 },
+    quorum: { passed: true, required: 2, of: 2, roles: 3, responded: 3 },
     perspectives: three,
   })), false, 'responded exceeds the panel');
   // roles > responded — more distinct lenses than answers.

@@ -9,8 +9,8 @@ counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - C:\_project\my\mccp\.worktrees\codex-intent-context\.claude\receipts\mccp-plan-codex\codex-intent-context-m1.json
-  - C:\_project\my\mccp\.worktrees\codex-intent-context\.claude\receipts\mccp-implement-codex\codex-intent-context-m1.json
+  - .claude/receipts/mccp-plan-codex/codex-intent-context-m1.json
+  - .claude/receipts/mccp-implement-codex/codex-intent-context-m1.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -26,8 +26,8 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- C:\_project\my\mccp\.worktrees\codex-intent-context\.claude\receipts\mccp-plan-codex\codex-intent-context-m1.json
-- C:\_project\my\mccp\.worktrees\codex-intent-context\.claude\receipts\mccp-implement-codex\codex-intent-context-m1.json
+- .claude/receipts/mccp-plan-codex/codex-intent-context-m1.json
+- .claude/receipts/mccp-implement-codex/codex-intent-context-m1.json
 
 ## Dual Reviewer Escalation Required
 Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/codex-intent-context-m1>'

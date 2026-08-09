@@ -13,7 +13,7 @@ last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
-codex-intent-context M1 (v1.23.1) — santa-loop NICE 수렴 후 push 완료. /mccp:pr은 stale receipt 2건으로 차단.
+codex-intent-context M1 (v1.23.4) — santa-loop 5라운드 착지 + origin/main 24커밋 reconcile 완료. /mccp:pr 게이트 진행 중.
 
 ## Plan
 - ec57467 구현 + 3686260 escalation clear, 둘 다 origin/feat/codex-intent-context에 push됨.

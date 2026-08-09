@@ -1,0 +1,75 @@
+{
+  "captured_at": "2026-08-09",
+  "dir_note": "out-of-repo auto-memory; MEMORY.md is the injected index and is EXPECTED to shrink",
+  "files": {
+    "MEMORY.md": {
+      "bytes": 10537,
+      "sha256": "e38d2a8efb6dc22bc793eb6c4f5539afedff793f2f002a2931e025a2b0af6827"
+    },
+    "audit-remediation-p1-p6.md": {
+      "bytes": 16346,
+      "sha256": "3ac56091a12412e8ab1512a7617ccdefd3ca28fd5f661eabb193e22a17ad1e65"
+    },
+    "bash-tool-backslash-collapse.md": {
+      "bytes": 1546,
+      "sha256": "5e8dde5cb6ea47cbe82cde7a42fc1614e4c88f6e98b11495bfb2d0dfc9a3aaa9"
+    },
+    "codex-intent-context-m1.md": {
+      "bytes": 6409,
+      "sha256": "17156812d0620a9c18d4b3a25fd9fce39bd9ba47c6404d3ab38d3ee099c90d2d"
+    },
+    "codex-invoke-exceeds-bash-timeout.md": {
+      "bytes": 1523,
+      "sha256": "4450b6d3b5f59bd4b02c451dfef084665279705a8bbec3e888dbbd7503dfb1e1"
+    },
+    "cost-model-subscription-remediation.md": {
+      "bytes": 3918,
+      "sha256": "3a5fe6519343bfac3fa600208fd1241f91676a0d2cf190fe1f697d3c0aaf11cd"
+    },
+    "diverse-agent-review-prd.md": {
+      "bytes": 4406,
+      "sha256": "0aea4a431d44067fe93398052dc9813386f0943b51fe0a8dd1b4c60c664c1868"
+    },
+    "durable-evidence-substrate.md": {
+      "bytes": 10710,
+      "sha256": "5c33b63264c493bd18b0221deb573fddeb4bd4803f55f710b6246ab359185cd2"
+    },
+    "integrity-unification-m3.md": {
+      "bytes": 7828,
+      "sha256": "e08e137d124607cf9eccf91a31b8baf2cd2d66d27d43ea254a4525f33d93af84"
+    },
+    "literal-escape-becomes-nul.md": {
+      "bytes": 2317,
+      "sha256": "6957965de5aa0e9dffefb7fafb7288a0167e9c56307cf9eddcd634b37713bec3"
+    },
+    "merge-drops-intervening-files.md": {
+      "bytes": 2594,
+      "sha256": "965c6ce12ea670184933a903a4db75cfb2c174fc992bc5f576c31ac8cfaf65b3"
+    },
+    "multi-session-work-loop-m2.md": {
+      "bytes": 10863,
+      "sha256": "16088ea353205e1192d4a8360b85f9026cddbca51c12ec726cb9fb819c4db4af"
+    },
+    "multi-session-work-loop-m3.md": {
+      "bytes": 11427,
+      "sha256": "7d72623580422d775efcc4d2fee6714765b0bf3698e321a76dbd052071257b5f"
+    },
+    "multi-session-work-loop-m4.md": {
+      "bytes": 4085,
+      "sha256": "47e87f46b64f898d59f33d47b508f8bc7002a19fab2b39db014c2a3b952e2c22"
+    },
+    "red-test-suite-restore-m1.md": {
+      "bytes": 4640,
+      "sha256": "136e2623891ec91af94071d600857d2fb40ba5add1e011b27c7d6e49e55d6572"
+    },
+    "stacked-pr-merge-order.md": {
+      "bytes": 1840,
+      "sha256": "8c06be1bd29d03720d5ad3b90a603d064ae3d69f7c82ee76697334298bdea0c2"
+    },
+    "workflow-orchestration-m1.md": {
+      "bytes": 19237,
+      "sha256": "3dc1a7358303514f9229ef428bc8c26a1f42f75b5c336ba2f1b92d4aece51d34"
+    }
+  },
+  "file_count": 17
+}

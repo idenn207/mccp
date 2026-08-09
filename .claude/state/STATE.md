@@ -11,6 +11,8 @@ session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
+escalate_pending: true
+escalate_pending_decision_id: multi-session-work-loop
 ---
 ## Goal
 codex-intent-context M1 (v1.23.4) — santa-loop 5라운드 착지 + origin/main 24커밋 reconcile 완료. /mccp:pr 게이트 진행 중.

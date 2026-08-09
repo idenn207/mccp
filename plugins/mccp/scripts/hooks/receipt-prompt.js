@@ -19,7 +19,7 @@ const path = require('path');
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..', '..');
 const RECEIPT_DIR = path.join(PLUGIN_ROOT, 'scripts', 'receipt');
 const LIB_DIR = path.join(PLUGIN_ROOT, 'scripts', 'lib');
-// v1.23.4 G1 — receipt-mode was an UNGUARDED top-level require. A load failure
+// v1.23.5 G1 — receipt-mode was an UNGUARDED top-level require. A load failure
 // killed the process at module scope, before main() existed to route it, so the
 // documented fail-open above never ran: the hook died instead of allowing. Guard
 // it at module scope (a require inside a catch can itself throw) and let main()
@@ -76,7 +76,7 @@ function debug(msg) {
 // way. Without this, branch-based commands on `main`/`default` with an
 // explicit --plan hit the v0.2.8 generic-slug reject path.
 //
-// v1.23.4 G1 — guarded, and deliberately NOT with a `catch → null` fallback like
+// v1.23.5 G1 — guarded, and deliberately NOT with a `catch → null` fallback like
 // blockFormat above. blockFormat may degrade to null because its absence only
 // coarsens block LABELS. This module is a gate INPUT: a null fallback would make
 // --plan silently vanish from the validator call, which is exactly the
@@ -262,7 +262,7 @@ async function main() {
     return allow();
   }
 
-  // v1.23.4 G1 — core gate modules (receipt-mode, extract-plan-path). Checked
+  // v1.23.5 G1 — core gate modules (receipt-mode, extract-plan-path). Checked
   // here rather than at module scope so the failure takes the SAME loud
   // fail-open path as a validate-cmd load failure below: stdin is already
   // parsed, so g1Allow can write an L1 shard against the real session.

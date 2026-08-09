@@ -719,6 +719,113 @@ function validate(receipt) {
       req(Number.isInteger(m.merged_verify_rounds) && m.merged_verify_rounds >= 0,
         'meta.merged_verify_rounds must be a non-negative integer if present');
     }
+
+    // codex-intent-context M1 — intent-gate audit axis. 10 fields, ALL
+    // PRESENT-ONLY: they are not materialized in makeSkeleton, so a receipt that
+    // never exercises the gate omits every key and its receipt_hash is
+    // bit-identical to a pre-M1 receipt. That matters because makeSkeleton is
+    // shared by every gate including the now git-tracked mccp-pr-codex ship
+    // corpus (§3.12) — mirrors the pr_codex_force_override precedent.
+    //
+    // Absence is also SEMANTIC (DD2): `!('intent_gate_verdict' in meta)` means
+    // "written before this field existed" = unknown, which the chain allows and
+    // dedupe refuses. Materializing a default null would destroy that signal.
+    const INTENT_VERDICT_VALUES = [
+      'preserved', 'skipped', 'skipped-unproven', 'incomplete', 'conflict_unresolved',
+    ];
+    const INTENT_SKIP_PROOFS = ['free_form_plan', 'no_codex_findings', 'codex_disabled'];
+
+    if (m.intent_section_present !== undefined) {
+      req(typeof m.intent_section_present === 'boolean',
+        'meta.intent_section_present must be a boolean if present');
+    }
+    if (m.intent_reference_injected !== undefined) {
+      req(typeof m.intent_reference_injected === 'boolean',
+        'meta.intent_reference_injected must be a boolean if present');
+    }
+    if (m.intent_items_count !== null && m.intent_items_count !== undefined) {
+      req(Number.isInteger(m.intent_items_count) && m.intent_items_count >= 0,
+        'meta.intent_items_count must be a non-negative integer or null');
+    }
+    if (m.intent_gate_verdict !== null && m.intent_gate_verdict !== undefined) {
+      req(typeof m.intent_gate_verdict === 'string' &&
+        INTENT_VERDICT_VALUES.indexOf(m.intent_gate_verdict) !== -1,
+        'meta.intent_gate_verdict must be one of: ' +
+        INTENT_VERDICT_VALUES.join(', ') + ' (or null)');
+    }
+    if (m.intent_skip_proof !== null && m.intent_skip_proof !== undefined) {
+      req(typeof m.intent_skip_proof === 'string' &&
+        INTENT_SKIP_PROOFS.indexOf(m.intent_skip_proof) !== -1,
+        'meta.intent_skip_proof must be one of: ' + INTENT_SKIP_PROOFS.join(', ') + ' (or null)');
+    }
+    if (m.intent_plan_digest !== null && m.intent_plan_digest !== undefined) {
+      req(typeof m.intent_plan_digest === 'string' && SHA256_RE.test(m.intent_plan_digest),
+        'meta.intent_plan_digest must match sha256:<64 hex> or be null');
+    }
+    if (m.intent_run_nonce !== null && m.intent_run_nonce !== undefined) {
+      req(typeof m.intent_run_nonce === 'string' && UUID_V4_RE.test(m.intent_run_nonce),
+        'meta.intent_run_nonce must be a UUID or null');
+    }
+    // Codex F2 — the top level is a closed 5-key shape, but `by_verdict` is an
+    // OPEN string→non-negative-int map. Pinning today's ADJUDICATION_VERDICTS
+    // into the schema would make every historical receipt retroactively invalid
+    // the day a verdict is added, and sealed receipt_hash forbids silent
+    // patching. Validation is therefore a SUM INVARIANT, not key completeness
+    // (same reasoning as impeccable_commands_routed[].command's open string).
+    if (m.intent_adjudication_counts !== null && m.intent_adjudication_counts !== undefined) {
+      const c = m.intent_adjudication_counts;
+      if (!c || typeof c !== 'object' || Array.isArray(c)) {
+        err('meta.intent_adjudication_counts must be an object or null');
+      } else {
+        const ints = ['total', 'conflict', 'none', 'overrides'];
+        let intsOk = true;
+        ints.forEach(function (k) {
+          const ok = Number.isInteger(c[k]) && c[k] >= 0;
+          if (!ok) intsOk = false;
+          req(ok, 'meta.intent_adjudication_counts.' + k +
+            ' must be a non-negative integer');
+        });
+        const bv = c.by_verdict;
+        if (!bv || typeof bv !== 'object' || Array.isArray(bv)) {
+          err('meta.intent_adjudication_counts.by_verdict must be an object');
+        } else {
+          let sum = 0;
+          let bvOk = true;
+          Object.keys(bv).forEach(function (k) {
+            const ok = Number.isInteger(bv[k]) && bv[k] >= 0;
+            if (!ok) bvOk = false;
+            req(ok, 'meta.intent_adjudication_counts.by_verdict.' + k +
+              ' must be a non-negative integer');
+            if (ok) sum += bv[k];
+          });
+          if (intsOk && bvOk) {
+            req(c.total === sum,
+              'meta.intent_adjudication_counts.total must equal the sum of by_verdict');
+            req(c.total === c.conflict + c.none,
+              'meta.intent_adjudication_counts.total must equal conflict + none');
+            req(c.overrides <= c.conflict,
+              'meta.intent_adjudication_counts.overrides must not exceed conflict');
+          }
+        }
+      }
+    }
+    if (m.intent_gate_force_override !== undefined) {
+      req(typeof m.intent_gate_force_override === 'boolean',
+        'meta.intent_gate_force_override must be a boolean if present');
+    }
+    if (m.intent_gate_force_override_reason !== null
+        && m.intent_gate_force_override_reason !== undefined) {
+      req(typeof m.intent_gate_force_override_reason === 'string',
+        'meta.intent_gate_force_override_reason must be a string or null');
+    }
+    if (m.intent_gate_force_override === true) {
+      const v = validateReason(m.intent_gate_force_override_reason, { strict: true });
+      if (!v.ok) {
+        err('meta.intent_gate_force_override_reason rejected (' + v.reason + '): ' +
+          'MCCP_SKIP_INTENT_GATE requires a substantive reason ≥30 chars + ≥3 words, ' +
+          'no placeholder/URL-only/banlist token');
+      }
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };

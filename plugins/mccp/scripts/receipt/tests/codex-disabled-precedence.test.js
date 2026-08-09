@@ -1,6 +1,6 @@
 'use strict';
 
-// v1.23.4 gate-guard-integrity M1, fix B — codex_skip_reason precedence.
+// v1.23.5 gate-guard-integrity M1, fix B — codex_skip_reason precedence.
 //
 // write.js used to let ambient MCCP_CODEX_DISABLED=1 overwrite an explicitly
 // supplied --codex-skip-reason with the 14-char canonical 'codex_disabled'. On a

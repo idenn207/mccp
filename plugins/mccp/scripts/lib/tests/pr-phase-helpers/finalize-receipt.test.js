@@ -348,7 +348,7 @@ test('M3 finalize: plan gate finalize is NOT ship-gated (divergent verdict, exit
   assert.strictEqual(r.status, 0, r.stderr + r.stdout);
 });
 
-// ── v1.23.4 gate-guard-integrity M1 — guard 3, exercised on a STANDARD install ─
+// ── v1.23.5 gate-guard-integrity M1 — guard 3, exercised on a STANDARD install ─
 //
 // The env var these tests set is not a synthetic condition: MCCP_CODEX_DISABLED=1
 // lives in the user's ~/.claude/settings.json, so it is the normal state of this
@@ -356,7 +356,7 @@ test('M3 finalize: plan gate finalize is NOT ship-gated (divergent verdict, exit
 // ambient inheritance, so the guard is proved under the configuration that
 // disabled it — neutralizing the env would make the suite green against the bug.
 
-test('M3 finalize [v1.23.4]: unproven skip stays exit 12 with MCCP_CODEX_DISABLED=1 explicitly ON', () => {
+test('M3 finalize [v1.23.5]: unproven skip stays exit 12 with MCCP_CODEX_DISABLED=1 explicitly ON', () => {
   const repo = mkTmpRepo();
   const r = runFinalize(repo, {
     decision: 'feat-unproven-envon',
@@ -374,7 +374,7 @@ test('M3 finalize [v1.23.4]: unproven skip stays exit 12 with MCCP_CODEX_DISABLE
   assert.strictEqual(receipt.meta.codex_disabled_at_pr, false);
 });
 
-test('M3 finalize [v1.23.4]: audited skip reason survives env and ships (fix B end-to-end)', () => {
+test('M3 finalize [v1.23.5]: audited skip reason survives env and ships (fix B end-to-end)', () => {
   const repo = mkTmpRepo();
   const r = runFinalize(repo, {
     decision: 'feat-audited-envon',
@@ -390,7 +390,7 @@ test('M3 finalize [v1.23.4]: audited skip reason survives env and ships (fix B e
   assert.strictEqual(receipt.meta.codex_skipped_at_pr, true);
 });
 
-test('deriveCodexFlags [v1.23.4]: outcome=disabled → --codex-disabled-at-pr + canonical reason', () => {
+test('deriveCodexFlags [v1.23.5]: outcome=disabled → --codex-disabled-at-pr + canonical reason', () => {
   const flags = deriveCodexFlags({ codex_outcome: 'disabled', codex_skip_reason: 'codex_disabled' });
   assert.ok(flags.includes('--codex-disabled-at-pr'), 'explicit PR-step claim, not the ambient stamp');
   const i = flags.indexOf('--codex-skip-reason');
@@ -403,7 +403,7 @@ test('deriveCodexFlags [v1.23.4]: outcome=disabled → --codex-disabled-at-pr + 
   assert.ok(!flags.includes('--codex-dedupe-at-pr'));
 });
 
-test('M3 finalize [v1.23.4]: outcome=disabled ships via the EXPLICIT marker (fix C)', () => {
+test('M3 finalize [v1.23.5]: outcome=disabled ships via the EXPLICIT marker (fix C)', () => {
   const repo = mkTmpRepo();
   const r = runFinalize(repo, {
     decision: 'feat-disabled',
@@ -421,7 +421,7 @@ test('M3 finalize [v1.23.4]: outcome=disabled ships via the EXPLICIT marker (fix
   assert.strictEqual(receipt.meta.codex_dedupe_at_pr, false);
 });
 
-test('M3 finalize [v1.23.4]: outcome=disabled ships even when the WRITE process has no env (fix C)', () => {
+test('M3 finalize [v1.23.5]: outcome=disabled ships even when the WRITE process has no env (fix C)', () => {
   const repo = mkTmpRepo();
   // The codex-result.json is what carries the fact that Codex was disabled; the
   // finalize process need not have inherited the env. Forwarding the canonical

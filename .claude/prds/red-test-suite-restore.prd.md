@@ -27,13 +27,15 @@ mccp의 테스트 스위트가 상시 red 상태다. 게이트 chain(stop-loop, 
 
 We believe **red 상태인 기존 테스트 2건의 제거**가 **`node --test` 전체 결과를 다시 이진 신호로 되돌려** **mccp 게이트를 돌리는 운영자**에게 회귀 판정 능력을 복원할 것이다.
 
-We'll know we're right when **전체 테스트 스위트의 fail 수가 0이 되고, 이후 cycle에서 회귀가 도입되는 즉시 red로 드러난다**.
+We'll know we're right when **지목된 red 2건이 각 근본원인대로 해소되고, 잔존 red가 전수 목록·귀속과 함께 후속 PRD로 승계되어 어느 red도 미상(未詳)으로 남지 않는다**. (원래 문구는 "전체 스위트 fail 0" — 2026-08-09 축소 개정, 아래 Status Note 참조.)
 
 ## Success Metrics
 
 | Metric | Target | How measured |
 |---|---|---|
-| 전체 스위트 fail 수 | 0 | `node --test` 를 전 테스트 경로에 대해 실행한 뒤 `ℹ fail` 값 |
+| 지목된 2건의 해소 | 2/2 | 해당 스위트 재실행 — `renderer` · `design-critique-loop-e2e` 가 green (실측 달성) |
+| 잔존 red 전수 목록·귀속 확정 | 100% | 전 경로 실행 후 각 fail의 파일·근본원인·pre-existing 여부를 리포트에 기재 (실측 8건 확정) |
+| ~~전체 스위트 fail 수 0~~ | ~~0~~ | **축소 개정(2026-08-09)** — 잔존 8건은 이 PRD가 아니라 `gate-guard-integrity` PRD가 승계한다. 아래 Status Note 참조 |
 | 회귀 판정에 드는 수동 확인 | 0회 | red 발생 시 stash A/B 재현 없이 곧바로 신규 회귀로 판정 가능 |
 | 기존 통과 케이스 회귀 | 0건 | 수정 전후 pass 수 비교 — 감소가 없어야 함 |
 
@@ -55,7 +57,7 @@ We'll know we're right when **전체 테스트 스위트의 fail 수가 0이 되
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | 테스트 신호 복원 | `node --test` 전체 실행이 fail 0으로 통과해, 이후 red가 곧 신규 회귀를 의미하게 된다 | in-progress | `.claude/plans/red-test-suite-restore-m1.plan.md` |
+| 1 | 테스트 신호 복원 | 지목된 red 2건이 각 근본원인대로 해소되고, 잔존 red의 전수 목록·귀속이 확정되어 후속 PRD로 승계된다 | complete | `.claude/plans/red-test-suite-restore-m1.plan.md` |
 
 ## Open Questions
 
@@ -86,6 +88,21 @@ Milestone 1은 **지목된 2건을 해소했으나 milestone Outcome("전체 실
 
 - (a) 잔존 8건을 다루는 **M2 추가** → PRD를 원래 outcome대로 종료
 - (b) Milestone 1 outcome을 "지목된 2건 해소 + 잔존 목록 확정"으로 **축소 개정**하고 잔존 8건은 별도 PRD로 분리
+
+### 결정 (2026-08-09) — (b) 채택, PRD 종료
+
+사용자가 **(b) 축소 개정**을 선택했다. 잔존 red 8건은 신규 PRD `gate-guard-integrity`가 승계한다(worktree `.worktrees/gate-guard-integrity`, 아직 미push).
+
+개정 범위는 **서로 맞물린 네 곳 전부**다 — 하나만 고치면 지표가 거짓으로 남는다:
+
+1. Milestone 1 Outcome → "지목된 red 2건 해소 + 잔존 전수 목록·귀속 확정 후 후속 PRD 승계", status `complete`
+2. 상단 "We'll know we're right" 문구 → 같은 기준으로 교체
+3. Success Metrics → "전체 스위트 fail 수 0"을 취소선 처리하고 실제 달성한 2개 지표로 대체
+4. 본 Status Note → 결정 기록
+
+**축소 개정이 은폐가 아닌 이유**: 잔존 8건은 사라진 게 아니라 **전수 목록·근본원인·귀속(전부 pre-existing, 본 브랜치가 해당 5개 파일을 하나도 건드리지 않음)이 확정된 채** 후속 PRD로 넘어갔다. Out of scope가 금지한 것은 red의 **무력화**(skip/삭제)였고, 승계는 그에 해당하지 않는다. 다만 "이 PRD가 스위트를 green으로 만들었다"는 주장은 **철회**된 것이며, 전체 green은 `gate-guard-integrity`가 닫을 때까지 미달성이다.
+
+Ship: PR #117 (merge-commit `71491f8`, main `1.23.3`).
 
 ## Risks
 

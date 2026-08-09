@@ -108,7 +108,7 @@ function deriveCodexFlags(codexResult) {
   } else if (codexResult.codex_outcome === 'deduped') {
     flags.push('--codex-dedupe-at-pr');
   } else if (codexResult.codex_outcome === 'disabled') {
-    // v1.23.4 (gate-guard-integrity M1, fix C) — this branch did not exist, so
+    // v1.23.5 (gate-guard-integrity M1, fix C) — this branch did not exist, so
     // the env-policy ship path got its proof ONLY from the ambient
     // meta.codex_disabled stamp that fix A just retired from SKIP_PROOF_META_KEYS.
     // Landing fix A without this would silently break the operator's

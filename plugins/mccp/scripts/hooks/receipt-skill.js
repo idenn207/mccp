@@ -15,7 +15,7 @@ const path = require('path');
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..', '..');
 const RECEIPT_DIR = path.join(PLUGIN_ROOT, 'scripts', 'receipt');
 const LIB_DIR = path.join(PLUGIN_ROOT, 'scripts', 'lib');
-// v1.23.4 G1 — receipt-mode was an UNGUARDED top-level require (mirror of the
+// v1.23.5 G1 — receipt-mode was an UNGUARDED top-level require (mirror of the
 // receipt-prompt defect). A load failure killed the process at module scope,
 // before main() existed to route it, so the fail-open invariant declared above
 // never ran. Guard at module scope; main() routes the failure via g1Allow.
@@ -110,7 +110,7 @@ function debug(msg) {
 // parity with receipt-prompt). Skill `arguments` can arrive as a string
 // or pre-tokenized array; the lib normalizes both.
 //
-// v1.23.4 G1 — guarded, and deliberately NOT a `catch → null` fallback like
+// v1.23.5 G1 — guarded, and deliberately NOT a `catch → null` fallback like
 // blockFormat above. blockFormat's absence only coarsens block LABELS; this one
 // is a gate INPUT, and a null fallback would silently drop --plan from the
 // validator call — the very defect this milestone closes. Route loudly instead.
@@ -165,7 +165,7 @@ async function main() {
     return 0;
   }
 
-  // v1.23.4 G1 — core gate modules (receipt-mode, extract-plan-path). Checked
+  // v1.23.5 G1 — core gate modules (receipt-mode, extract-plan-path). Checked
   // after stdin parse so g1Allow can write an L1 shard against the real session,
   // matching the validate-cmd load-failure path below.
   const coreErr = coreModuleLoadError();

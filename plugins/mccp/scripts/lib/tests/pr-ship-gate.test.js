@@ -62,13 +62,13 @@ test('skipped WITH explicit disabled marker (codex_disabled_at_pr) → ship', ()
   assert.equal(d.blockingVerdict, null);
 });
 
-// v1.23.4 (gate-guard-integrity M1, fix A) — this assertion is INVERTED from
+// v1.23.5 (gate-guard-integrity M1, fix A) — this assertion is INVERTED from
 // what it was. It used to assert that ambient `codex_disabled` alone ships, which
 // pinned the defect as correct: on a standard install (MCCP_CODEX_DISABLED=1 in
 // settings.json) write.js stamps that field on EVERY receipt, so an unproven skip
 // always found proof and the F2 forgery branch became unreachable. The ambient
 // annotation is not a caller's claim; only `codex_disabled_at_pr` is.
-test('skipped WITH ambient annotation ONLY (codex_disabled) → no-ship [v1.23.4 fix A]', () => {
+test('skipped WITH ambient annotation ONLY (codex_disabled) → no-ship [v1.23.5 fix A]', () => {
   const d = deriveShipDecision(receiptWithVerdict('skipped', { codex_disabled: true }), {});
   assert.equal(d.ship, false);
   assert.equal(d.blockingVerdict, 'skipped-unproven');

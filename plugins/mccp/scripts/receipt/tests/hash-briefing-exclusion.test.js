@@ -16,6 +16,13 @@ const { makeSkeleton } = require('../schema');
 
 function baseReceipt() {
   const r = makeSkeleton({});
+  // Pin the creation stamp. makeSkeleton reads the wall clock, and receiptHash
+  // deliberately does NOT carve created_at out — the stamp is part of what the
+  // receipt attests. So two independently built skeletons legitimately hash
+  // differently whenever their construction straddles a millisecond, which the
+  // tests below misread as briefing divergence. Under full-suite load that is
+  // exactly what happens. Pinning it isolates the one variable each test names.
+  r.meta.created_at = '2026-01-01T00:00:00.000Z';
   r.gate_id = 'mccp-plan-codex';
   r.phase = 'plan';
   r.decision_id = 'hash-exclusion-test';

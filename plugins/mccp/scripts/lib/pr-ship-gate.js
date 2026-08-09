@@ -53,7 +53,7 @@ const SHIP_VERDICTS = ['converged', 'skipped'];
 // evidence and would otherwise ship without Codex approval (Implement-Codex R1 F2).
 // Fail closed on unproven skip.
 //
-// v1.23.4 (gate-guard-integrity M1, fix A) — 'codex_disabled' was REMOVED from
+// v1.23.5 (gate-guard-integrity M1, fix A) — 'codex_disabled' was REMOVED from
 // this set. Every remaining member is a PR-step axis that the CALLER explicitly
 // asserted; `codex_disabled` alone was an AMBIENT env inference, and the repo
 // already separates the two axes deliberately:

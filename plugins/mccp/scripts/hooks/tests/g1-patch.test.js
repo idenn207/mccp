@@ -31,7 +31,7 @@ function makeBrokenPluginRoot() {
     path.join(REAL_PLUGIN_ROOT, 'scripts', 'lib', 'hook-trace.js'),
     path.join(libDir, 'hook-trace.js')
   );
-  // v1.23.4 G1 — receipt-mode.js is NO LONGER copied in. It used to be, which
+  // v1.23.5 G1 — receipt-mode.js is NO LONGER copied in. It used to be, which
   // meant this fixture never exercised the unguarded top-level `require`
   // of receipt-mode: the module was handed to the hook so the defect could not
   // fire. Copying a module in to keep a fixture green is the failure mode this
@@ -41,7 +41,7 @@ function makeBrokenPluginRoot() {
   return root;
 }
 
-// v1.23.4 G1 Task 2 — per-module isolation fixture. Copies the real scripts/lib
+// v1.23.5 G1 Task 2 — per-module isolation fixture. Copies the real scripts/lib
 // + scripts/receipt trees (minus tests/) so EVERY module resolves, then removes
 // exactly one. That makes the omitted module the SOLE cause of the G1 route —
 // without it, an incidental load failure elsewhere would satisfy a
@@ -161,7 +161,7 @@ test('receipt-skill: module-load error emits systemMessage + allows (G1)', () =>
   }
 });
 
-// ── v1.23.4 G1 Task 2 — per-module isolation (the four unguarded requires) ────
+// ── v1.23.5 G1 Task 2 — per-module isolation (the four unguarded requires) ────
 //
 // Control first: the isolation fixture with NOTHING removed must NOT produce a
 // ModuleLoadError. Without this control, the two omission tests below could pass

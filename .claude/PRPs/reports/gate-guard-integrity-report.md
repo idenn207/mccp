@@ -110,13 +110,23 @@ plan은 `1.23.3 → 1.23.4`를 지정했으나, 구현 중 `origin/main`을 재�
 ### 전수 회귀 대조 (동일 조건)
 
 ```
-BEFORE: # tests 3457  # pass 3444  # fail 7
-AFTER : # tests 3477  # pass 3470  # fail 1
+BEFORE (milestone 착수 전) : # tests 3457  # pass 3444  # fail 7
+AFTER  (M1만, main 머지 전) : # tests 3477  # pass 3470  # fail 1
+FINAL  (santa 3R + main 머지): # tests 3584  # pass 3575  # fail 3
 ```
 
-- **fail 7 → 1** (G1 3 + G2 1 + G3 2 해소)
-- **pass 3444 → 3470 (+26)** — 비감소 조건 충족
-- 잔여 1건: `a3-instruction-cost.test.js` — **단독 실행 시 5/5 pass**, 전수 병렬 실행에서만 파일 단위 실패. PRD가 Milestone 2("신호 신뢰도")로 배정한 비결정적 간섭이며 본 milestone 범위 밖이다.
+- **본 milestone이 표적한 6건은 전부 해소** (G1 3 + G2 1 + G3 2).
+- **pass 3444 → 3575 (+131)** — 비감소 조건 충족(증가분에는 main 머지가 가져온 테스트가 포함).
+- FINAL의 잔여 3건 내역:
+
+| 잔여 | 원인 | 소관 |
+|---|---|---|
+| `b2-coverage-gate` 2건 | **main 승계** — `origin/main` clean checkout에서 동일 violation 1건(`plan-codex-runner.js:248`) 실측 확인. PR #116의 lint × PR #118의 직접 rename 충돌 | #118 (backlog 기록) |
+| timing-flaky 1건 | 전수 병렬 실행에서만 실패, 단독 실행은 통과 | PRD **Milestone 2** |
+
+**flaky는 고정 집합이 아니다** — M1 완료 시점 실행에서는 `a3-instruction-cost.test.js`(단독 5/5 pass), 최종 실행에서는 `perf-budget.test.js`(단독 1/1 pass)가 흔들렸다. PRD가 Milestone 2("신호 신뢰도")에 "실행마다 다른 파일이 흔들린다"고 적은 성질이 그대로 재현됐다. 본 milestone 범위 밖.
+
+**plan의 합격 기준 대비**: plan은 "fail 8 → 2"를 적었으나 실측 baseline은 7이었고(G1 3 + G2 1 + G3 2 + flaky 1), 표적 6건은 전부 닫혔다. 최종 3건 중 본 milestone에 귀속되는 것은 **0건**이다.
 
 ### 가드별 독립 실행
 
@@ -180,6 +190,88 @@ AFTER : # tests 3477  # pass 3470  # fail 1
 | `lib/tests/pr-phase-helpers/finalize-receipt.test.js` | 26 → **31** | env 명시 ON 부정 케이스, `outcome='disabled'` ship, write-프로세스 env 부재 |
 | `lib/tests/pr-ship-gate.test.js` | 21 → **23** | ambient-only → no-ship(반전), ambient+명시 동시 |
 | `receipt/tests/codex-disabled-precedence.test.js` | **NEW 6** | precedence 반전 + fallback 보존 + boolean flag 방어 |
+
+## 운영자 위임 판단 4건 (2026-08-09, 구현 후)
+
+사용자가 아래 4건을 위임했다. 각 판정과 근거.
+
+### #4 auto-chain cost abort — **실제 폭주 아님, 커밋 진행**
+
+`auto-chain check --next-step commit`이 exit 13 (`cost-catastrophic: cost_usd=611.9215 >= 500`). 그러나 같은 cost-state의 `threshold_tier`는 **`notice`**이고 `hard_ceiling_reached`는 **`false`**다. 사용자가 `MCCP_HANDOFF_THRESHOLDS_USD="500,800,1000"`으로 기본값의 10배를 설정해 뒀기 때문인데, `MCCP_ORCHESTRATION_CATASTROPHIC_USD`는 튜닝되지 않은 기본값 **500**에 머물러 있다. 즉 **catastrophic 상한이 운영자 본인의 최하 경고 밴드(500)보다 낮은 역전 상태**다. 폭주 신호가 아니라 두 축의 스케일 불일치이므로 커밋을 진행했다. 권고: `MCCP_ORCHESTRATION_CATASTROPHIC_USD`를 handoff 임계에 맞춰 상향(예: 5000).
+
+### #3 origin/main reconcile — **수행 완료 (커밋 `fafa6e0`)**
+
+26커밋 머지. 충돌 7건을 `--ours` 일괄이 아니라 **파일별**로 해소했다(§3.5.1 + STATE.md `--ours` 사고 선례).
+
+| 충돌 | 해소 |
+|---|---|
+| version 6건 (plugin.json · renderer html/markdown · i18n 단언 3) | raw OURS/THEIRS 덤프로 **version-only임을 먼저 입증**한 뒤 HEAD(1.23.5) 유지. 마커만 편집해 main이 auto-merge한 다른 변경 보존 |
+| CHANGELOG · backlog | **양쪽 보존**. 각자 다른 내용을 추가했고 한쪽을 버리는 것이 §3.5.1이 막으려는 손실 |
+| STATE.md | state-writer API로 병합 + 양쪽 Open Questions 합집합 |
+
+검증: 삭제 **0건**, main 신규 13파일 전부 존재, 마커 0, write.js 양쪽 변경 공존. 부수로 내 코드 주석의 `v1.23.4`를 `v1.23.5`로 정정(23곳) — #118 소유 참조는 미변경.
+
+**머지가 표면화한 것 — main이 이미 red다.** 머지 트리에서 `b2-coverage-gate.test.js` 2건이 새로 실패했으나, `origin/main` clean checkout에서 동일 lint를 돌려 **main 단독으로도 `ok:false`, 동일 violation 1건**임을 실측했다: `plan-codex-runner.js:248`의 `fs.renameSync(receiptPath, dest)`. PR #116(MSW M3)이 "receipt 변형은 승인 writer 경유" static lint를 추가했고 PR #118이 그 직접 rename을 추가했으며 두 PR이 서로를 못 봤다. **본 milestone이 고치지 않았다** — 올바른 해소가 (a) guarded writer 경유 vs (b) lint 예외 등록 중 무엇인지는 "mis-sealed receipt 격리가 receipt 작성인가"라는 #118의 설계 판단에 달렸다. backlog 기록.
+
+### #2 plan 아카이브 — **미수행 (실측 재현으로 확정)**
+
+추론이 아니라 재현으로 확정했다. plan을 `completed/`로 옮긴 뒤 `/mccp:pr` 2.5.9와 동일한 validate를 실행:
+
+```
+ok=false  stale=2
+   mccp-plan-codex:      cannot read plan to re-hash: ENOENT ...
+   mccp-implement-codex: cannot read plan to re-hash: ENOENT ...
+```
+
+2.5.9는 aggregate `ok`로 gate하므로 **PR이 HALT된다**. command Phase 5를 문자 그대로 따르면 chain이 방금 자기가 복원한 가드에 스스로 막힌다. §3.11 C2(PRD 전체 완료 시에만)와도 어긋난다. backlog에 수정 방향(`/mccp:archive-complete` 위임)과 함께 기록.
+
+### #1 cross-model 검토 — santa-loop 3라운드, **NICE 미달성 (cap 도달)**
+
+Reviewer A(Opus `code-reviewer`) + Reviewer B(`codex exec -m gpt-5.4`) 병렬. **Reviewer B는 `codex exec` 직접 호출이라 `MCCP_CODEX_DISABLED=1` wrapper 정책과 무관하게 동작한다** — 게이트가 env로 막힌 상태에서 cross-model 검증을 얻는 유일한 경로.
+
+| 라운드 | A (Opus) | B (Codex) | 결과 |
+|---|---|---|---|
+| R1 | PASS | **FAIL** ×2 | NAUGHTY → `7ee8867` |
+| R2 | PASS | **FAIL** ×2 | NAUGHTY → `3824d6d` |
+| R3 | **FAIL** ×1 | **FAIL** ×2 | cap 도달 → `6f11736` |
+
+**정직한 착지**: 세 라운드 중 **양쪽 PASS로 끝난 라운드가 없다.** santa-loop 계약상 이것은 NICE가 아니다. 지적은 전부 흡수했지만(아래), R3 수정분은 새 리뷰어의 검증을 받지 못했다 — cap이 3이기 때문이다. 이 저장소의 이전 두 cycle과 같은 착지 형태다.
+
+#### 흡수 내역 (5건 흡수 · 1건 반증 · 1건 이관)
+
+| 라운드 | 포착 | 지적 | 판정 |
+|---|---|---|---|
+| R1 | **B만** | broken-root fixture가 `validate-cmd` 로드 실패 경로에 더 이상 도달 안 함 | **흡수** — 코어 가드 도입으로 G1 **원래 경로 커버리지가 0**이 돼 있었다. 전용 fixture로 복원 |
+| R1 | **B만** | 격리 fixture가 "모든 모듈 resolve" 주장하나 `migrations` 누락 | **흡수** — 확인 중 `state` 트리도 누락 발견(B 지적보다 넓음) |
+| R1 | **B만** | Phase 1.6 `--plan`이 divergent 오차단 유발 | **반증** — `planPath`는 `:213`·`:301-303`에서만 소비, divergent 블록은 receipt만 참조. 실측: 잘못된 plan → `blocking=0 stale=2` / `--plan` 없음 → `blocking=0 stale=0`. 단 주석 과잉 주장은 정정 |
+| R2 | **B만** | Phase 1.6이 `set -e`에서 `CHAIN_BLOCKED` 파싱 전 셸 중단 | **흡수** — 실측 확인(기본 셸 무해, `set -e` 재현). `\|\| PRECHECK_EXIT=$?`로 무조건 성립 |
+| R2 | B | free-form `mccp-plan-codex` write 경로 ↔ 문서 불일치 | **이관** — PR #118 코드(DD1 근거 주석 실재). backlog 기록, 본 milestone 미수정 |
+| R3 | **A만** | 2.5.9의 `--plan <plan-path>`가 리터럴 placeholder | **흡수** — 미치환 시 인자 오류가 아니라 **bash 문법 오류**(`<`=리다이렉션). 기계적 게이트가 모델 치환에 의존하면 안 됨 → `SHIP_PLAN_PATH` self-derive |
+| R3 | **B만** | 2.5.9도 `set -e` 미가드(R2가 1.6만 고침) | **흡수** — 누락이었음. 여기선 abort도 HALT라 오ship 불가하나 진단·override 경로 소실 |
+
+**메타 관찰 — 이것이 cross-model을 유지하는 이유다.** 세 라운드 모두 최소 1건의 실질 결함이 나왔고 **매 라운드 잡은 쪽이 달랐다**(R1·R2는 B 단독, R3는 A가 placeholder를, B가 `set -e`를 각각 단독). 한 모델만 돌렸다면 어느 조합으로도 5건을 다 얻지 못한다. 이 저장소에서 비대칭 포착이 7~9회째 재현됐다.
+
+**자기 적용 실패 1건 (기록)**: R1의 과잉 주장을 고치겠다며 `cannot load` 진단 부재 단언을 추가했는데, 두 fixture에 실제로 돌려보니 **양쪽 다 통과**했다 — 실패할 수 없는 단언, 즉 본 PRD가 제거하려는 결함 그 자체를 내가 재생산한 것이다. 제거하고 control이 관측으로 증명하는 것만 주장하도록 좁혔다. *"통과 신호의 존재가 검사가 일어났음을 의미하지 않는다"*가 리뷰 과정에서 두 번째로 재현됐다(plan R2의 `"verdict": "PASS"` 반향 사건에 이어).
+
+**Reviewer B 제약**: R3의 B는 sandbox에서 명령 실행이 막혀 정적 검토만 수행했다(`Test honesty` PASS는 inspection-only). R1·R2는 실행 가능했다.
+
+Reviewer A(Opus `code-reviewer`) + Reviewer B(`codex exec -m gpt-5.4`) 병렬. **Reviewer B는 `codex exec` 직접 호출이라 `MCCP_CODEX_DISABLED=1` wrapper 정책과 무관하게 동작한다** — 게이트가 env로 막힌 상태에서도 cross-model 검증을 얻는 경로. 결과는 아래 별도 섹션.
+
+머지 후 가드 3개 재확인: 6개 파일 80/80 pass.
+
+## 최종 상태 · 남은 판단
+
+커밋 10개, 미push. 브랜치 `fix/gate-guard-integrity`, v1.23.5.
+
+**ship 가능 여부에 대한 정직한 진술**: 세 가드는 복원됐고 부정 케이스에서 실제로 발화함이 A/B 재현으로 입증됐다. 그러나 **santa-loop이 수렴하지 않았다**(cap 3라운드, 양쪽 PASS 라운드 0). R3에서 흡수한 3건은 새 리뷰어의 검증을 받지 못한 상태다. "3라운드 돌렸으니 검증됐다"고 쓰지 않는다 — 그 문장이 이 PRD가 제거하려는 형태의 주장이다.
+
+운영자 판단이 필요한 항목:
+
+1. **push / PR 생성** — 미수행. 외부로 나가는 동작이고 loop 미수렴 상태다. 진행 시 §3.12대로 **merge-commit**(squash 금지 — evidence-commit SHA 도달성).
+2. **`MCCP_ORCHESTRATION_CATASTROPHIC_USD`** — 기본 500이 사용자 handoff 임계(500/800/1000)와 역전. 전역 설정이라 임의 수정하지 않았다. 상향 권장(예: 5000).
+3. **main의 `b2-coverage-gate` red 2건** — #118 소관. PR 본문에 "제 회귀 아님 + 실측 근거" 명시 필요.
+4. **main CHANGELOG `[1.23.4]` 헤딩 중복**(7행·94행, 본문 상이) — #118의 기존 결함. 남의 릴리스 노트라 임의 병합하지 않고 양쪽 보존했다.
+5. **PRD Milestone 1 status** — 여전히 `in-progress`. 지표는 충족(표적 6건 전부 해소, 잔여 3건 중 본 milestone 귀속 0).
 
 ## Next Steps
 

@@ -8,7 +8,7 @@
 
 M1(v1.23.4)은 **누락**을 닫았다 — 모든 Codex finding이 payload에 bind된 명시 판정을 받지 않으면 receipt가 써지지 않는다. 그러나 저자가 모든 finding을 `intent_conflict: 'none'`으로 찍으면 완전성 검사는 전부 통과하므로, M1은 **오심**을 막지 못하고 PRD 1차 지표(UI10)는 동어반복으로 남는다.
 
-M1.5는 리뷰어에게 **per-finding `INTENT:` 계약**을 부과하고, 리뷰어의 주장과 저자의 판정을 **비대칭 대조**한다. **리뷰어가 지목한 `UI` id를 저자가 지목하지 않은** finding — 저자가 `none`으로 찍었든(`reviewer-only`) 다른 id를 찍었든(`id-mismatch`) — 은 저자에게 **명시 응답**(라벨 정정 또는 `intent_dispute_reason` 기재)을 강제하고, 응답이 없으면 receipt가 써지지 않는다. 이로써 UI10의 분모가 **저자 라벨과 무관해진다**.
+M1.5는 리뷰어에게 **per-finding `INTENT:` 계약**을 부과하고, 리뷰어의 주장과 저자의 판정을 **비대칭 대조**한다. **리뷰어가 지목한 `UI` id를 저자가 지목하지 않은** finding — 저자가 `none`으로 찍었든(`reviewer-only`) 다른 id를 찍었든(`id-mismatch`) — 은 저자에게 **명시 응답**(라벨 정정 또는 `intent_dispute_reason` 기재)을 강제한다. `enforce`에서 응답이 없으면 **receipt가 써지지 않는다**; `warn`에서는 receipt가 **blocking verdict를 봉인한 채** 작성되고 dedupe가 닫힌 채 남아 PR-Codex가 실제로 발화한다(`write.js:239`는 `runtime_allowed === false`에서만 멈춘다). 이로써 UI10의 분모가 **저자 라벨과 무관해진다** — 단 그 달성은 `enforce`에 한한다(DD9).
 
 **M1.5가 주장하지 않는 것**: 오심을 *교정*하지 않는다. 저자 라벨을 **반증 가능(falsifiable)** 하게 만들 뿐이다. 양쪽이 모두 `none`이면 여전히 아무것도 탐지되지 않는다 — 다만 그 `none`이 이제 한 당사자의 무검증 라벨이 아니라 **독립된 두 당사자의 합의**다(L1/DD8이 리뷰어를 저자 정당화로부터 구조적으로 격리하므로). 그리고 UI10 달성은 **`warn` 모드에서는 성립하지 않는다**(DD9) — 리뷰어 준수율 실측이 default를 정하기 전까지 이 milestone은 감사 표면을 배송하는 것이지 지표를 달성하는 것이 아니다.
 
@@ -60,8 +60,8 @@ M1.5는 리뷰어에게 **per-finding `INTENT:` 계약**을 부과하고, 리뷰
 | `plugins/mccp/scripts/lib/tests/codex-invoke.test.js` | UPDATE | 계약 문단이 reference 없을 때 미출현(byte-identical) 확인 |
 | `plugins/mccp/scripts/lib/plan-codex-runner.js` | UPDATE | in-memory payload에서 claims 파싱 → 오라클 주입 → meta stamp |
 | `plugins/mccp/scripts/lib/tests/plan-codex-runner.test.js` | UPDATE | claims가 **디스크가 아닌 메모리**에서 온다는 tamper 회귀 |
-| `plugins/mccp/scripts/receipt/schema.js` | UPDATE | verdict enum 2종 + present-only meta **5필드**(DD11 audit 배열 포함) |
-| `plugins/mccp/scripts/receipt/write.js` | UPDATE | `intentDecision`의 신규 **5필드** stamp |
+| `plugins/mccp/scripts/receipt/schema.js` | UPDATE | verdict enum 2종 + present-only meta **6필드**(DD2 claims digest + DD11 audit 배열 포함) |
+| `plugins/mccp/scripts/receipt/write.js` | UPDATE | `intentDecision`의 신규 **6필드** stamp |
 | `plugins/mccp/scripts/receipt/validate-cmd.js` | UPDATE | 신규 verdict 2종의 **per-verdict 복구 메시지** — 현재는 어떤 blocking intent verdict든 M1 문구("모든 finding에 명시 판정") 하나만 내보내 오진 유도(`:543-555`) |
 | `plugins/mccp/scripts/receipt/tests/intent-gate-fields.test.js` | UPDATE | 신규 필드 present-only + audit 배열 bind + 구 receipt 무손상 |
 | `plugins/mccp/commands/plan.md` | UPDATE | 5.5a 계약 필드 2개 추가 · 5.6 verdict 분기 2종 추가 |
@@ -93,7 +93,9 @@ M1.5는 리뷰어에게 **per-finding `INTENT:` 계약**을 부과하고, 리뷰
 
 Task 6은 저자가 대조 상대를 볼 수 있도록 awaiting 아티팩트에 리뷰어 주장을 **투영**한다. 이것이 DD2를 깨지 않는 이유는 순서와 방향이 고정돼 있기 때문이다: **파싱(메모리) → 투영(쓰기) → 대기 → 대조(메모리 값)**. 투영은 출력이고, 대조는 투영을 읽지 않는다.
 
-라벨만으로는 부족하므로 mechanical하게 고정한다: (a) 회귀 test가 대기 중 **awaiting 아티팩트 자체를 변조**한 뒤 verdict·counts 불변을 단언하고(초안은 envelope만 변조했는데, 정작 주장을 싣는 파일은 awaiting이라 겨냥이 어긋나 있었다), (b) **리뷰어 claim map을 receipt에 봉인**한다(`meta.intent_mislabel_audit`, DD11).
+라벨만으로는 부족하므로 mechanical하게 고정한다: (a) 회귀 test가 대기 중 **awaiting 아티팩트 자체를 변조**한 뒤 verdict·counts 불변을 단언하고(초안은 envelope만 변조했는데, 정작 주장을 싣는 파일은 awaiting이라 겨냥이 어긋나 있었다), (b) **전체 claim map의 digest**(`meta.intent_claims_digest`)와 **분쟁 대상 finding의 상세**(`meta.intent_mislabel_audit`, DD11)를 receipt에 봉인한다.
+
+두 필드로 나눈 이유: 전 finding의 claim을 통째로 담으면 receipt가 비대해지고, 분쟁 항목만 담으면 통과한 finding의 claim이 조작돼도 사후 대조가 불가능하다. digest는 **전체 map의 무결성**을, audit 배열은 **분쟁의 근거**를 각각 맡는다.
 
 **(b)가 없으면 "조작이 진단 가능하다"는 주장은 공허하다.** 초안은 awaiting에 `claims_digest`를 stamp하는 것으로 충분하다고 적었는데, awaiting은 runner의 `finally`가 **삭제하는** per-run 임시 파일이고 그 digest를 나중에 대조하는 코드도 없다. 사라지는 파일 안의 digest는 감사 증거가 아니다. 내구적 증거는 receipt에 있어야 한다.
 
@@ -134,7 +136,7 @@ Task 6은 저자가 대조 상대를 볼 수 있도록 awaiting 아티팩트에 
 따라서 신규 present-only 필드 `intent_mislabel_mode ∈ {enforce,warn,off}`를 세우고 reader를 명시적으로 확장한다:
 
 - `deriveIntentGateDecision(input, { advisoryActive })` — `forceOverrideActive`와 **별개 입력**. `runtimeAllowed:true` · `chainAllowed:true` · **`dedupeApproved:false`**.
-- `isIntentChainAllowed(meta)` — `meta.intent_mislabel_mode === 'warn'` ∧ blocking verdict가 mislabel 축(`inconclusive`/`mislabel_unresolved`)일 때 allow + warning. **다른 blocking verdict(`incomplete`/`conflict_unresolved`/`skipped-unproven`)에는 절대 적용하지 않는다** — warn은 M1.5가 새로 만든 축만 완화한다.
+- `isIntentChainAllowed(meta)` — `meta.intent_mislabel_mode === 'warn'` ∧ blocking verdict가 mislabel 축(`inconclusive`/`mislabel_unresolved`)일 때 allow + warning. **다른 blocking verdict(`incomplete`/`conflict_unresolved`/`skipped-unproven`)에는 절대 적용하지 않는다** — warn은 M1.5가 새로 만든 축만 완화한다. 이 분기는 기존 `intent_gate_force_override` early-return과 **같은 위치**(`classifyIntentMeta` 호출 **전**)에 둔다 — `classifyIntentMeta`는 신규 verdict를 `blocked`로 반환하므로, 그 뒤에 두면 분기에 영영 도달하지 못한다.
 - `isIntentApproved(receipt)` — **무변경**. dedupe는 `preserved`/증명된 `skipped`만 인정하므로 `warn`은 dedupe를 열지 않고 PR-Codex가 실제로 발화한다. `warn`이 공짜가 아닌 지점이 정확히 여기다.
 
 **DD7 — 과다 주장 유도를 상쇄한다.** "충돌을 선언하라"는 요구는 리뷰어가 성실해 보이려 충돌을 **날조**하도록 유도할 수 있고, 그러면 dispute 부담만 늘고 신호는 희석된다. preamble이 `INTENT: none`을 **명시적 1급 답변**으로 규정하고 날조를 금지한다. 그리고 `reviewer_only`+`id_mismatch` 중 dispute로 기각된 비율이 receipt에 남으므로 과다 주장은 감사에서 관측된다 — 텍스트 훈계가 아니라 계측이 통제다.
@@ -143,7 +145,7 @@ Task 6은 저자가 대조 상대를 볼 수 있도록 awaiting 아티팩트에 
 
 `classifyIntentMeta`가 `preserved`/증명된 `skipped` 외 전부를 `blocked`로 반환하므로 신규 verdict 2종은 **차단 방향으로는** 코드 변경 없이 자동 성립한다. 초안은 여기서 멈췄는데 그건 절반만 참이었다 — `warn` 완화는 자동으로 생기지 않으므로 `isIntentChainAllowed`에 DD6의 명시 분기를 **추가해야 한다**. 그 분기는 mislabel 축에만 적용되므로 M1 verdict의 차단 동작은 불변이다.
 
-**DD9 — UI10 달성 여부는 조건부이며, 조건을 계측한다.** `full` compliance인 리뷰에 한해 UI10의 분모는 `리뷰어 주장 충돌 ∪ 저자 주장 충돌`이고, 리뷰어 항은 저자 라벨과 독립이다. 그 분모 위에서 "기록된 근거 없는 수용"은 mechanical하게 0이 강제된다(`intent_override_reason` 또는 `intent_dispute_reason` 부재 시 receipt 미작성).
+**DD9 — UI10 달성 여부는 조건부이며, 조건을 계측한다.** `full` compliance인 리뷰에 한해 UI10의 분모는 `리뷰어 주장 충돌 ∪ 저자 주장 충돌`이고, 리뷰어 항은 저자 라벨과 독립이다. 그 분모 위에서 "기록된 근거 없는 수용"은 **`enforce` 모드에서** mechanical하게 0이 강제된다(`intent_override_reason` 또는 `intent_dispute_reason` 부재 시 receipt 미작성). `warn`에서는 receipt가 blocking verdict를 봉인한 채 작성되므로 강제가 아니라 **기록**만 남는다.
 
 **강제되는 명제를 정확히 쓴다**: "리뷰어 또는 저자가 주장한 충돌이 **기록된 근거 없이** 수용되는 일은 0". **"오심이 0"이 아니다.**
 
@@ -160,7 +162,7 @@ Task 6은 저자가 대조 상대를 볼 수 있도록 awaiting 아티팩트에 
 - 표본은 3회를 **하한**으로 두되, 준수율이 갈리면(예: full 2 / partial 1) 결론을 내리지 말고 회차를 늘린다. 3회는 "전부 full" 또는 "전부 absent" 같은 명백한 결과에서만 결론을 낼 수 있는 크기다.
 - **측정 불가 시**: default `warn`으로 ship하되 PRD Milestone 1.5 status를 `complete`로 올리지 **않는다**. UI10 미달성을 명시하고 enforce flip을 측정 선행조건이 붙은 후속 축으로 남긴다(v1.20.12 M3의 DORMANT + 정직 강등 패턴). 초안 Acceptance의 "실측 문서 **또는** 미실행 사유"는 강도를 한 번도 재지 않은 게이트를 `complete`로 ship하는 것을 허용했고, 그건 이 plan이 반면교사로 인용한 실패 형태 그 자체였다.
 
-**DD11 — 감사 증거는 receipt에 봉인되고, 카운트만으로는 부족하다.** `intent_mislabel_disputes` 같은 집계 수치는 대시보드용이지 감사 증거가 아니다 — "리뷰어가 UI2를 지목했는데 저자가 무슨 근거로 기각했나"를 나중에 대조할 수 없다. 따라서 present-only 필드 `intent_mislabel_audit`(배열, ≤200 entry)를 세우고 **명시 응답이 필요했던 finding에 한해** 다음을 봉인한다:
+**DD11 — 감사 증거는 receipt에 봉인되고, 카운트만으로는 부족하다.** `intent_mislabel_disputes` 같은 집계 수치는 대시보드용이지 감사 증거가 아니다 — "리뷰어가 UI2를 지목했는데 저자가 무슨 근거로 기각했나"를 나중에 대조할 수 없다. 따라서 present-only 필드 `intent_mislabel_audit`(배열)을 세우고 **명시 응답이 필요했던 finding에 한해** 다음을 봉인한다:
 
 ```
 { finding_index, finding_digest, reviewer_claim, author_conflict,
@@ -169,16 +171,31 @@ Task 6은 저자가 대조 상대를 볼 수 있도록 awaiting 아티팩트에 
   dispute_reason: <text|null> }
 ```
 
-`dispute_reason`을 텍스트로 담는 것은 M1의 `intent_gate_force_override_reason`(`write.js:233-235`)이 이미 세운 선례다. `finding_digest`가 함께 실리므로 이 항목은 특정 리뷰 payload에 bind되고, awaiting 아티팩트 변조는 receipt의 봉인값과 어긋나 **사후 진단이 가능**해진다. 통과한 finding(`agree-*`/`author-only`)은 담지 않는다 — receipt 비대화 방지와 "분쟁만 기록" 원칙.
+`dispute_reason`을 텍스트로 담는 것은 M1의 `intent_gate_force_override_reason`(`write.js:233-235`)이 이미 세운 선례다. `finding_digest`가 함께 실리므로 이 항목은 특정 리뷰 payload에 bind되고, awaiting 아티팩트 변조는 receipt의 봉인값과 어긋나 **사후 진단이 가능**해진다. 통과한 finding(`agree-*`/`author-only`)은 담지 않는다 — 그쪽의 무결성은 `intent_claims_digest`가 맡는다(DD2).
 
-**DD12 — 두 override의 우선순위를 명시한다.** `MCCP_INTENT_MISLABEL`과 `MCCP_SKIP_INTENT_GATE`가 동시에 설정되면: mode가 먼저 verdict와 advisory 여부를 정하고, `MCCP_SKIP_INTENT_GATE`는 그 **결과가 여전히 blocking일 때만** 적용된다(`forceOverrideActive`). 둘 다 활성이면 receipt는 `intent_mislabel_mode` **와** `intent_gate_force_override=true`를 **동시에** 봉인한다 — 어느 쪽이 통과를 만들었는지 감사에서 구분 가능해야 하므로 하나로 접지 않는다. `dedupeApproved`는 두 경로 모두에서 닫힌 채다.
+**상한은 `ADJUDICATION_LIMITS.ITEMS`(1000)와 같게 둔다.** 초안의 200은 M1이 이미 허용하는 1000 adjudication과 어긋나, 분쟁이 200건을 넘을 때 truncate인지 block인지가 미정의였다. **조용한 truncation은 감사 표면을 무력화하므로 선택지가 아니고**, 상한을 맞추면 그 분기 자체가 사라진다(분쟁 항목은 finding 수의 부분집합이므로 1000을 넘을 수 없다).
+
+**scope 주의**: intent 게이트는 `mccp-plan-codex` 전용(`write.js#INTENT_IN_SCOPE_GATES`)이고 §3.12상 plan receipt는 **working-tree only**다. 이 배열은 git-tracked ship corpus(`mccp-pr-codex`)에 들어가지 않으므로 추적 이력에 자유 텍스트가 남지 않는다.
+
+**DD12 — 두 override의 관계는 하나의 확정된 결과를 갖는다.** 순서: ① mode가 verdict와 advisory(`warn`) 여부를 정한다 → ② 그 결과가 **여전히 blocking일 때만** `MCCP_SKIP_INTENT_GATE`가 `forceOverrideActive`로 적용된다.
+
+따라서 봉인되는 조합은 셋뿐이다:
+
+| mode | 결과 | `intent_mislabel_mode` | `intent_gate_force_override` |
+|---|---|---|---|
+| `warn` + mislabel 축 blocking | warn이 통과시킴 | `'warn'` | **`false`** — override는 적용될 일이 없었다 |
+| `enforce` + `MCCP_SKIP_INTENT_GATE` | override가 통과시킴 | `'enforce'` | `true` + reason |
+| `warn` + M1 축 blocking(`incomplete` 등) + `MCCP_SKIP_INTENT_GATE` | warn은 이 축을 열지 않으므로 override가 통과시킴 | `'warn'` | `true` + reason |
+
+초안은 "둘 다 활성이면 두 필드를 동시에 봉인"이라 적었는데, `warn`이 이미 통과시킨 경우 override는 **적용되지 않았으므로** `true`를 찍으면 거짓 기록이다. 플래그는 *설정 여부*가 아니라 **실제로 효력을 발휘했는지**를 나타낸다. `dedupeApproved`는 세 경우 모두에서 닫힌 채다.
 
 ## Tasks
 
 ### Task 0: 리뷰어 계약 준수율 실측 (spike — 기본 모드 결정 게이트)
 
 - **Action**: **production 경로로** 측정한다(DD10) — Task 5의 preamble을 넣은 `codex-invoke.js adversarial-review --intent-reference-file <ref>`를 호출하고 응답을 `parseReviewPayload`로 판독한 뒤 Task 1의 `parseReviewerClaims`에 그대로 먹인다. 입력은 `## User Intent` 표 + **의도적 충돌을 심은 합성 plan**. 측정 **4축**: (a) finding당 유효 주장 1건 비율 → `claimed/total` 및 `full` 도달 여부, (b) 심어둔 충돌을 리뷰어가 `INTENT: UI<n>`으로 지목하는가(탐지 민감도), (c) 날조 주장(심지 않은 충돌 지목) 발생 여부(DD7 과다 주장 축), (d) **오형식 1건이 리뷰 전체를 `inconclusive`로 만드는 빈도** — DD5 이분법의 오탐율이며, 이 값이 곧 liveness 비용이다. 결과를 `docs/codex-intent-context/reviewer-contract-compliance.md`에 raw 발췌와 함께 기록한다.
-- **결정 규칙(사전 선언 — 사후 합리화 방지)**: 리뷰 단위 `full` 도달률이 **≥95% → `enforce`** · **70~95% → `warn`** · **<70% → `off`**(계약 자체가 작동하지 않으므로 배선만 남기고 발화시키지 않는다). 이 임계는 *일회성 ship 결정*을 사람이 내리는 기준이지 runtime 게이트가 아니다 — DD5가 runtime 임계를 거부한 것과 모순되지 않는다. 실측이 이 규칙을 뒤집을 근거를 주면 규칙을 고치되, **고쳤다는 사실과 이유를 문서에 남긴다**.
+- **결정 규칙(사전 선언 — 사후 합리화 방지)**: 리뷰 단위 `full` 도달률이 **≥95% → `enforce`** · **70~95% → `warn`** · **<70% → `off`**(계약 자체가 작동하지 않으므로 배선만 남기고 발화시키지 않는다).
+- **결정이 코드에 남는 지점을 명시한다**: 측정 결과는 `intent-context.js`의 명명 상수 `DEFAULT_MISLABEL_MODE`에 **커밋**되고 `parseMislabelMode(env)`가 env 미설정 시 그 상수를 반환한다. Task 9가 CLAUDE.md §4 토글 문서의 default 표기를 같은 값으로 동기한다. 상수 위 주석에 **측정 근거 문서 경로와 측정일**을 적어, 나중에 "이 default가 왜 이 값인가"가 코드에서 추적 가능하게 한다. 초안은 "실측이 default를 정한다"고만 적고 그 값이 런타임 어디에 사는지를 비워뒀다. 이 임계는 *일회성 ship 결정*을 사람이 내리는 기준이지 runtime 게이트가 아니다 — DD5가 runtime 임계를 거부한 것과 모순되지 않는다. 실측이 이 규칙을 뒤집을 근거를 주면 규칙을 고치되, **고쳤다는 사실과 이유를 문서에 남긴다**.
 - **Mirror**: v1.20.10 M2b Task 0 spike → 실측이 `merge_strategy` 기본값을 정한 선례.
 - **Validate**: 문서에 (1) 회차별 raw 출력 발췌, (2) `claimed/total` 표, (3) 결정 근거 1문단이 존재. **정지 규칙**: 최소 **5회**. 관측된 `full` 도달률이 위 임계 경계에서 **10%p 이내**이면 **10회까지** 연장한다(경계 근처에서 소표본 잡음으로 default가 뒤집히는 것을 막기 위함). 5회가 만장일치(전부 `full` 또는 전부 `absent`)면 거기서 종료. 초안의 "3회, 갈리면 증회"는 정지 조건이 아니라 희망이었다.
 - **`MCCP_CODEX_DISABLED=1` 처리**: wrapper 경유가 요건이므로 **이 측정 실행에 한해** env를 해제하고, 해제했다는 사실과 시각을 문서에 적는다. 직접 `codex exec` 호출로 대체하지 **않는다** — 프롬프트 조립(`composeFocus`)과 판독(`parseReviewPayload`)이 달라 shipped default를 정당화하지 못한다(DD10).
@@ -198,7 +215,7 @@ Task 6은 저자가 대조 상대를 볼 수 있도록 awaiting 아티팩트에 
 
 ### Task 3: `intent-context.js` — verdict 확장 + dispute 계약 + warn 축 + chain reader
 
-- **Action**: UPDATE. (a) `INTENT_GATE_VERDICTS`에 `inconclusive`·`mislabel_unresolved` 추가(PASS 집합 불변) · (b) `ADJUDICATION_LIMITS`에 `DISPUTE_REASON_CHARS: 5000` · (c) `parseAdjudicationFile`이 `intent_dispute_reason` 길이 검증 + **`validateReason({strict:true})` 적용**(`receipt/lib/force-override-reason.js` 재사용 — 1-token/placeholder/URL-only 기각; 위반 시 그 dispute는 **부재로 취급**돼 `mislabel_unresolved`, DD4) · (d) `decideIntentGate`가 신규 옵션 `comparison`을 받아 **M1 규칙 전부 통과 후** 판정: `comparison.compliance !== 'full'` → `inconclusive`(DD5); `reviewer-only` ∪ `id-mismatch` 중 라벨 미정정 ∧ `intent_dispute_reason` 부재가 1건이라도 있으면 → `mislabel_unresolved`(DD3/DD4) · (e) `deriveIntentGateDecision(input, { forceOverrideActive, advisoryActive })` — `advisoryActive`는 **별개 입력**이며 `runtimeAllowed/chainAllowed`만 열고 `dedupeApproved`는 안 연다 · (f) **`isIntentChainAllowed` 확장** — `meta.intent_mislabel_mode === 'warn'` ∧ verdict가 mislabel 축(`inconclusive`/`mislabel_unresolved`)일 때만 allow. `incomplete`/`conflict_unresolved`/`skipped-unproven`에는 **절대 미적용**(DD6/DD8). `isIntentApproved`는 **무변경** · (g) `parseMislabelMode(env)` 3-mode 파서(오타·미설정 → Task 0이 정한 default + loud warn).
+- **Action**: UPDATE. (a) `INTENT_GATE_VERDICTS`에 `inconclusive`·`mislabel_unresolved` 추가(PASS 집합 불변) · (b) `ADJUDICATION_LIMITS`에 `DISPUTE_REASON_CHARS: 5000` · (c) `parseAdjudicationFile`이 `intent_dispute_reason` 길이 검증 + **`validateReason({strict:true})` 적용**(`receipt/lib/force-override-reason.js` 재사용 — 1-token/placeholder/URL-only 기각; 위반 시 그 dispute는 **부재로 취급**돼 `mislabel_unresolved`, DD4) · (d) `decideIntentGate`가 신규 옵션 `comparison`을 받아 **M1 규칙 전부 통과 후** 판정: `comparison.compliance !== 'full'` → `inconclusive`(DD5); `reviewer-only` ∪ `id-mismatch` 중 라벨 미정정 ∧ `intent_dispute_reason` 부재가 1건이라도 있으면 → `mislabel_unresolved`(DD3/DD4) · (e) `deriveIntentGateDecision(input, { forceOverrideActive, advisoryActive })` — `advisoryActive`는 **별개 입력**이며 `runtimeAllowed/chainAllowed`만 열고 `dedupeApproved`는 안 연다 · (f) **`isIntentChainAllowed` 확장** — `meta.intent_mislabel_mode === 'warn'` ∧ verdict가 mislabel 축(`inconclusive`/`mislabel_unresolved`)일 때만 allow. `incomplete`/`conflict_unresolved`/`skipped-unproven`에는 **절대 미적용**(DD6/DD8). `isIntentApproved`는 **무변경** · (g) `parseMislabelMode(env)` 3-mode 파서 — env 미설정·오타 시 명명 상수 **`DEFAULT_MISLABEL_MODE`**(Task 0 측정 결과가 커밋되는 지점, 위 주석에 근거 문서 경로 + 측정일) 반환 + loud warn.
 - **Mirror**: `deriveIntentGateDecision`의 기존 3분리; `design-critique-decide.js#parseRetryCap`의 3-mode 파서.
 - **Validate**: `node --test plugins/mccp/scripts/lib/tests/intent-context.test.js`
 
@@ -209,7 +226,22 @@ Task 6은 저자가 대조 상대를 볼 수 있도록 awaiting 아티팩트에 
 
 ### Task 5: `codex-invoke.js` — preamble 계약 문단
 
-- **Action**: UPDATE `INTENT_REFERENCE_PREAMBLE`에 문단 추가, DD1 규칙을 **정확히** 서술한다: 각 finding 본문에 `INTENT: <단일 UI id>` 또는 `INTENT: none`을 **라인 선두로 정확히 1줄** 적을 것 · 2줄 이상이거나 콤마 목록이면 **주장으로 세지 않는다**고 명시(리뷰어가 규칙을 알아야 준수 가능) · 다른 finding이나 문서를 **인용하지 말 것**(인용된 `INTENT:` 줄은 제거되며, 인용이 자기 finding에 섞이면 2건 매칭으로 주장이 무효화된다) · `none`은 1급 정답이며 충돌을 **날조하지 말 것**(DD7) · 지목은 reference 블록의 id만. **계약 문단은 신규 옵션 `mislabelContract`가 참일 때만 붙는다** — `composeFocus`가 mode를 모른 채 무조건 붙이면 `MCCP_INTENT_MISLABEL=off`에서도 리뷰어 프롬프트가 달라져 end-to-end M1 등가가 깨진다(DD5). reference 자체가 없으면 preamble도 안 붙는 기존 성질은 유지.
+- **Action**: UPDATE `codex-invoke.js`. `INTENT_REFERENCE_PREAMBLE`을 **base(항상) + contract(조건부)** 두 상수로 분리하고, `composeFocus(focus, opts)`가 `opts.mislabelContract === true`일 때만 contract를 base 뒤에 붙인다(`impeccableAvailable`가 preamble을 조건부로 붙이는 기존 패턴 미러). **contract 문단 원문**(구현자 재량 제거 — DD1과 1:1):
+
+  ```
+  [intent-conflict 판정 계약]
+  각 finding 본문에 아래 형식의 줄을 **정확히 1줄** 포함하세요.
+    INTENT: none        (이 finding은 위 제약 어느 것과도 충돌하지 않음)
+    INTENT: UI3         (이 finding이 지적하는 제안이 UI3과 충돌함)
+  규칙:
+  - 줄 **맨 앞**에서 시작해야 합니다. 문장 중간의 언급은 무시됩니다.
+  - id는 **하나만**. `UI3, UI7` 같은 목록은 주장으로 세지 않습니다.
+  - 위 reference 블록에 **실제로 있는** id만 쓰세요.
+  - 2줄 이상 쓰면 어느 것이 진짜인지 알 수 없어 주장이 **무효**가 됩니다.
+  - 다른 finding이나 문서를 인용하지 마세요 — 인용문 안의 이 줄도 세어집니다.
+  - `INTENT: none`은 회피가 아니라 **1급 정답**입니다. 충돌을 지어내지 마세요.
+  [/intent-conflict 판정 계약]
+  ``` **계약 문단은 신규 옵션 `mislabelContract`가 참일 때만 붙는다** — `composeFocus`가 mode를 모른 채 무조건 붙이면 `MCCP_INTENT_MISLABEL=off`에서도 리뷰어 프롬프트가 달라져 end-to-end M1 등가가 깨진다(DD5). reference 자체가 없으면 preamble도 안 붙는 기존 성질은 유지.
 - **Mirror**: `DESIGN_SCOPE_PREAMBLE`의 상수 문자열 스타일; `impeccableAvailable` 옵션이 preamble을 조건부로 붙이는 기존 패턴.
 - **Validate**: `node --test plugins/mccp/scripts/lib/tests/codex-invoke.test.js` — (a) reference 미공급 시 focus 무변경 · (b) **reference 공급 + `mislabelContract:false` → focus가 v1.23.4와 byte-identical**(off 등가의 핵심 단언) · (c) `mislabelContract:true` → 계약 문단 1회만 삽입.
 
@@ -221,7 +253,7 @@ Task 6은 저자가 대조 상대를 볼 수 있도록 awaiting 아티팩트에 
 
 ### Task 7: receipt 표면 — schema + write + test
 
-- **Action**: UPDATE **4파일**. `schema.js`: `INTENT_VERDICT_VALUES`에 2종 추가 + present-only **5필드** — `intent_reviewer_contract` enum `full|partial|absent`|null · `intent_claim_counts` 객체|null(top-level 닫힌 키, 합계 불변식 검증) · `intent_mislabel_disputes` 비음 정수|null · `intent_mislabel_mode` enum `enforce|warn|off`|null(DD6 sealed warn 상태) · **`intent_mislabel_audit` 배열|null**(DD11 — entry ≤200, 항목 스키마 검증, `dispute_reason`은 `ADJUDICATION_LIMITS.DISPUTE_REASON_CHARS` 상한). `write.js#stampIntentDecision`이 5필드 stamp(`--intent-*` CLI 플래그는 **여전히 0건** — M1 Implement-Codex R1 F2 불변식). **`validate-cmd.js`**: blocking intent verdict별 복구 문구 분기 — `incomplete`(기존 M1 문구) / `conflict_unresolved` / **`inconclusive`("리뷰어가 `INTENT:` 계약을 따르지 않았다 — 재실행하거나 `MCCP_INTENT_MISLABEL=warn`") / `mislabel_unresolved`("리뷰어가 지목한 id를 저자가 지목하지 않았다 — 라벨 정정 또는 `intent_dispute_reason` 기재")** / `skipped-unproven`. `intent-gate-fields.test.js`: present-only · 구 receipt 무손상 · `makeSkeleton` 미포함 · 합계 불변식 위반 reject · **audit entry의 `finding_digest`가 해당 payload에 bind** · **`intent_mislabel_mode='warn'` + blocking verdict receipt가 `isIntentChainAllowed=true` ∧ `isIntentApproved=false`**(DD6) · **mode+`MCCP_SKIP_INTENT_GATE` 동시 활성 시 두 필드가 모두 봉인**(DD12).
+- **Action**: UPDATE **4파일**. `schema.js`: `INTENT_VERDICT_VALUES`에 2종 추가 + present-only **6필드** — `intent_reviewer_contract` enum `full|partial|absent`|null · `intent_claim_counts` 객체|null(top-level 닫힌 키, 합계 불변식 검증) · `intent_mislabel_disputes` 비음 정수|null · `intent_mislabel_mode` enum `enforce|warn|off`|null(DD6 sealed warn 상태) · **`intent_claims_digest` `sha256:<64hex>`|null**(DD2 — 전체 claim map 무결성) · **`intent_mislabel_audit` 배열|null**(DD11 — entry 상한은 `ADJUDICATION_LIMITS.ITEMS`(1000)와 동일해 truncation 분기 없음, 항목 스키마 검증, `dispute_reason`은 `DISPUTE_REASON_CHARS` 상한). `write.js#stampIntentDecision`이 6필드 stamp(`--intent-*` CLI 플래그는 **여전히 0건** — M1 Implement-Codex R1 F2 불변식). **`validate-cmd.js`**: blocking intent verdict별 복구 문구 분기 — `incomplete`(기존 M1 문구) / `conflict_unresolved` / **`inconclusive`("리뷰어가 `INTENT:` 계약을 따르지 않았다 — 재실행하거나 `MCCP_INTENT_MISLABEL=warn`") / `mislabel_unresolved`("리뷰어가 지목한 id를 저자가 지목하지 않았다 — 라벨 정정 또는 `intent_dispute_reason` 기재")** / `skipped-unproven`. `intent-gate-fields.test.js`: present-only · 구 receipt 무손상 · `makeSkeleton` 미포함 · 합계 불변식 위반 reject · **audit entry의 `finding_digest`가 해당 payload에 bind** · **`intent_mislabel_mode='warn'` + blocking verdict receipt가 `isIntentChainAllowed=true` ∧ `isIntentApproved=false`**(DD6) · **mode+`MCCP_SKIP_INTENT_GATE` 동시 활성 시 두 필드가 모두 봉인**(DD12).
 - **Mirror**: `schema.js:738-766` present-only 가드; `by_verdict` open-map 선례; `intent_gate_force_override_reason` 텍스트 봉인 선례(`write.js:233-235`).
 - **Validate**: `node --test plugins/mccp/scripts/receipt/tests/intent-gate-fields.test.js`
 
@@ -281,22 +313,24 @@ git diff --diff-filter=D --name-only origin/main...HEAD
 ## Acceptance
 
 - [ ] Task 0 실측이 **production 경로**(`codex-invoke` wrapper + `parseReviewPayload`)로 수행되고 `claimed/total` 표가 문서에 존재 — 또는 미실행 시 **PRD Milestone 1.5가 `complete`로 올라가지 않고** UI10 미달성이 명시됨(DD10)
-- [ ] `reviewer-only` 1건 + `intent_conflict='none'` + dispute 부재 → **receipt 미작성**(mechanical 증명)
-- [ ] **`id-mismatch`(리뷰어 UI2 / 저자 UI7) + 미정정 + dispute 부재 → receipt 미작성** — conflict-vs-none만이 아니라 라벨 비대칭을 실제로 탐지함
+- [ ] **`enforce`에서** `reviewer-only` 1건 + `intent_conflict='none'` + dispute 부재 → **receipt 미작성**(mechanical 증명). **`warn`에서는 receipt가 blocking verdict를 봉인한 채 작성**되고 `isIntentApproved=false`가 유지됨
+- [ ] **`id-mismatch`(리뷰어 UI2 / 저자 UI7) + 미정정 + dispute 부재 → `enforce`에서 receipt 미작성** — conflict-vs-none만이 아니라 라벨 비대칭을 실제로 탐지함
 - [ ] 같은 케이스에 dispute 기재 → pass, 라벨 정정 → M1 override 규칙으로 이관
 - [ ] **`compliance='partial'`(1/20)이 `inconclusive`** — 주장 1건이 20건 리뷰를 통과시키지 못함
 - [ ] `claimed/total` 계측이 receipt에 남아 1/20과 19/20이 감사에서 구분됨
 - [ ] **fenced code block · blockquote · 앵커 2건 이상 · 콤마 목록 · dangling id가 전부 `unclaimed`** — `none`으로 접히지 않음(자기참조 인용 벡터 차단)
 - [ ] **`warn`이 `dedupeApproved`를 절대 열지 않음** ∧ **`intent_gate_force_override`를 재사용하지 않음** ∧ **mislabel 축 외 verdict(`incomplete` 등)를 열지 않음**을 test가 고정
 - [ ] **`off` 모드가 end-to-end M1 등가** — (1) 리뷰어에게 간 focus 문자열이 v1.23.4와 byte-identical(계약 문단 미삽입) ∧ (2) `parseReviewerClaims`가 **호출조차 되지 않음**(spy 고정) ∧ (3) 오라클 판정 동일. `intent_mislabel_mode` 키 부재 receipt도 M1 동작 유지
-- [ ] **`intent_mislabel_audit`이 receipt에 봉인**되고 각 entry가 `finding_digest`로 해당 payload에 bind — 감사자가 "리뷰어 주장 vs 저자 근거"를 사후 대조 가능(카운트만으로는 불가)
-- [ ] `MCCP_INTENT_MISLABEL`과 `MCCP_SKIP_INTENT_GATE` 동시 활성 시 **두 필드가 모두 봉인**돼 어느 쪽이 통과를 만들었는지 구분 가능(DD12)
+- [ ] **`intent_mislabel_audit`이 receipt에 봉인**되고 각 entry가 `finding_digest`로 해당 payload에 bind — 감사자가 "리뷰어 주장 vs 저자 근거"를 사후 대조 가능(카운트만으로는 불가). 상한이 `ADJUDICATION_LIMITS.ITEMS`와 같아 **truncation 경로가 존재하지 않음**
+- [ ] **`intent_claims_digest`가 전체 claim map을 봉인** — 통과한 finding의 claim이 조작돼도 사후 탐지 가능(DD2)
+- [ ] DD12 3조합 표대로 봉인 — 특히 **`warn`이 통과시킨 경우 `intent_gate_force_override`는 `false`**(적용되지 않은 override를 참으로 기록하지 않음)
+- [ ] `parseMislabelMode`의 default가 **명명 상수 `DEFAULT_MISLABEL_MODE`** 이고, 그 위 주석이 Task 0 근거 문서 경로 + 측정일을 가리킴
 - [ ] `validate-cmd`가 신규 verdict 2종에 **각각의 복구 문구**를 내보냄(M1 문구 재사용 금지)
 - [ ] **`intent_dispute_reason`에 strict validator 적용** — `"no"` 류 1-token은 dispute 부재로 취급돼 여전히 blocking
 - [ ] plan이 강제하는 명제가 **"기록 없는 수용 0"**으로 서술돼 있고, "오심 0"으로 읽히는 문구가 DD9·Summary·milestone 표기 어디에도 없음
 - [ ] 리뷰어 주장이 **메모리에서만** 온다 — 대기 중 **awaiting 아티팩트** 변조에도 카운트·verdict 불변(DD2 회귀, envelope도 함께)
 - [ ] `--intent-*` CLI 플래그 여전히 0건
-- [ ] 신규 meta **5필드** present-only + `makeSkeleton` 미포함 + 구 ship corpus hash 무손상
+- [ ] 신규 meta **6필드** present-only + `makeSkeleton` 미포함 + 구 ship corpus hash 무손상
 - [ ] `plugin.json` `1.23.5` + footer 2면 + i18n test 2건 + CHANGELOG + CLAUDE.md §3.13/§4 동기
 - [ ] `git diff --diff-filter=D` 결과에 의도치 않은 삭제 0건
 - [ ] Patterns mirrored, not reinvented
@@ -367,6 +401,27 @@ R1 findings 기록은 프롬프트 사본에서 **제거**하고 돌렸다(이�
 **B 제안 중 반영**: 정지 규칙 강화(3회 → 최소 5회, 경계 10%p 이내면 10회). **미반영**: "compliance를 mislabel blocking과 분리해 오형식 1건을 warning으로 강등" — DD5가 방금 닫은 `partial` 통과를 다른 이름으로 되살린다. 완화는 임계가 아니라 mode가 담당한다는 결정을 유지한다.
 
 **방법론 관찰 2**: A는 1 FAIL, B는 7 FAIL. R1에서 A가 만든 수정 방향(#12 `off` 경로 미진입)을 B가 "절반만 닫혔다"고 정정했다 — **한 리뷰어의 수정이 다른 리뷰어의 다음 라운드 표적이 되는** 구조가 실제로 작동했다. 이번 라운드 흡수 8건 중 **3건(#14·#15·#16)은 R1 수정이 만든 결함**이다.
+
+### santa-loop R3 — cap 도달, **비수렴 종료(NAUGHTY escalated)**
+
+| Round | Reviewer A (Opus) | Reviewer B (GPT-5.4) |
+|---|---|---|
+| 3 | FAIL (8중 8 FAIL — 아래 참조) | FAIL (8중 **3** FAIL) |
+
+**B의 지적 4건 — 전부 실재, 전부 흡수**
+
+| # | 지적 | 처리 |
+|---|---|---|
+| 19 | Summary·Acceptance가 "응답 없으면 receipt 미작성"을 **무조건**으로 서술하나, `warn`에서는 receipt가 써진다(`write.js:239`는 `runtime_allowed===false`에서만 멈춤) — 자기 plan의 DD6과 모순 | Summary·DD9·Acceptance를 **mode-qualified**로 재서술 |
+| 20 | `intent_mislabel_audit` 상한 200 vs M1의 adjudication 상한 1000 — 초과 시 truncate/block 미정의 | 상한을 `ADJUDICATION_LIMITS.ITEMS`(1000)로 일치 → 분기 자체 소멸(조용한 truncation은 감사 표면 무력화라 선택지 아님) |
+| 21 | DD12 자기모순 — "여전히 blocking일 때만 override 적용"과 "둘 다 활성이면 두 필드 동시 봉인"이 양립 불가 | DD12를 **3조합 표**로 확정. `warn`이 통과시켰으면 override는 적용된 적 없으므로 `false` — 플래그는 *설정 여부*가 아니라 **효력 발휘 여부** |
+| 22 | Task 0의 측정 default가 **런타임 어디에 사는지** 미정의 | `DEFAULT_MISLABEL_MODE` 명명 상수 + 근거 문서 경로·측정일 주석 + Task 9 문서 동기 |
+
+B 제안 중 **미반영**: 다중 `UI` id 충돌 케이스 — 단일 id 계약이 정당한 multi-conflict를 `id-mismatch`로 만든다는 지적은 맞으나, 그 해소는 저자 라벨(`intent_conflict`)을 집합으로 바꾸는 M1 스키마 변경을 요구한다. `id-mismatch`는 **명시 응답을 요구할 뿐 차단이 아니므로** 이 경우 저자가 dispute로 "복수 충돌 중 하나를 지목했다"고 적으면 통과한다 — 비용이 문장 하나이므로 M1 스키마를 건드릴 근거가 못 된다.
+
+**Reviewer A R3는 신뢰도가 낮아 대부분 기각했다.** 8/8 FAIL이었으나 실제 대조 결과: `composeFocus`에 파라미터가 "없다"(→ plan이 추가하자는 제안 · 범주 오류) · `INTENT_GATE_VERDICTS`가 "아직 확장 안 됐다"(→ Task 3(a) · 범주 오류) · DD12·Task 0·dispute 카운트가 "미명시"(→ 셋 다 본문에 있음 · 오독) · `intent_mislabel_audit`이 "git-tracked ship corpus에 leak 표면"(→ **전제 거짓**: intent 게이트는 `mccp-plan-codex` 전용이고 §3.12상 plan receipt는 working-tree only). 출력에 문자 깨짐(`리버에 间 focus文字列`)이 섞여 생성 품질 자체가 저하된 것으로 보인다. **채택한 3건**: `isIntentChainAllowed` 신규 분기의 **위치**를 명시(early-return, `classifyIntentMeta` 호출 전) · Task 5에 계약 문단 **원문** 기재 · DD11의 tracked-corpus scope를 본문에 명시.
+
+**종료 판정**: 3라운드 cap 도달, 양쪽 FAIL → santa-loop 규정대로 **push 없이 escalate**. 단 B는 7→3으로 수렴했고 남은 3 FAIL은 전부 서술 정합성 결함이었지 설계 반론이 아니었다(Correctness·Security·Error handling·No regressions·Liveness 5축 PASS). **위 #19~#22 및 A 채택 3건은 cap 이후 수정이므로 어느 리뷰어의 검증도 받지 않았다** — 구현 착수 전 R4를 한 번 더 돌리거나, `/mccp:prp-implement`의 Implement-Codex 게이트가 그 역할을 대신해야 한다.
 
 ## Notes
 

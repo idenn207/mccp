@@ -480,3 +480,38 @@ test('lint C3: a markdown link to the destination satisfies the check', () => {
       'the link text need not be the path; the TARGET is what makes it followable');
   });
 });
+
+test('lint C3: a link inside a code fence is a sample, not a pointer', () => {
+  // Self-found while probing the round-5b regex: `](docs/moved.md)` inside a
+  // fence satisfied the link check even though nothing there is followable.
+  // Same reason extractHeadings ignores `##` inside fences.
+  withTree({
+    pointer: ['```', '[x](docs/moved.md)', '```'].join('\n'),
+    rows: [
+      { id: 'S1', heading: '1. Kept section', disposition: 'resident' },
+      {
+        id: 'S2', heading: '2. Moved section', disposition: 'on-demand',
+        destFile: 'docs/moved.md', destAnchor: 'Relocated detail', pointer: 'docs/moved.md',
+      },
+    ],
+  }, (root) => {
+    const r = runLint(root);
+    assert.strictEqual(r.checks.C3, 'fail', 'a code sample is not a way back');
+  });
+});
+
+test('lint C3: a fence elsewhere in the section does not hide a real link', () => {
+  withTree({
+    pointer: ['```', 'some sample', '```', '', 'see [x](docs/moved.md)'].join('\n'),
+    rows: [
+      { id: 'S1', heading: '1. Kept section', disposition: 'resident' },
+      {
+        id: 'S2', heading: '2. Moved section', disposition: 'on-demand',
+        destFile: 'docs/moved.md', destAnchor: 'Relocated detail', pointer: 'docs/moved.md',
+      },
+    ],
+  }, (root) => {
+    const r = runLint(root);
+    assert.strictEqual(r.checks.C3, 'pass', 'stripping fences must not eat the surrounding prose');
+  });
+});

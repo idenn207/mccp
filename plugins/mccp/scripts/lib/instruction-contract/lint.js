@@ -141,6 +141,21 @@ function unsafePathReason(p) {
  * path in prose does not count. This is the difference between "the section
  * says where the content went" and "the section contains those characters".
  */
+/**
+ * Drop fenced code blocks. A link inside a fence is a code sample, not
+ * something the reader can follow, so it must not satisfy the pointer check --
+ * the same reason extractHeadings ignores `##` inside fences.
+ */
+function stripFences(text) {
+  const out = [];
+  let inFence = false;
+  String(text == null ? '' : text).split(/\r?\n/).forEach((line) => {
+    if (/^\s{0,3}(```|~~~)/.test(line)) { inFence = !inFence; return; }
+    if (!inFence) out.push(line);
+  });
+  return out.join('\n');
+}
+
 function linksTo(body, dest) {
   if (!body || !dest) return false;
   const escaped = String(dest).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -214,7 +229,7 @@ function lintReachability(opts = {}) {
     for (let i = at + 1; i < claudeHeadingList.length; i++) {
       if (claudeHeadingList[i].level <= level) { end = claudeHeadingList[i].line - 1; break; }
     }
-    return claudeLines.slice(start - 1, end).join('\n');
+    return stripFences(claudeLines.slice(start - 1, end).join('\n'));
   }
 
   parsed.rows.forEach((row) => {

@@ -8,6 +8,20 @@
 const fs = require('fs');
 const path = require('path');
 
+// `evidence_conflict_prevented` 중 **claim fence**가 막은 것들의 `conflict_kind`.
+//
+// 이전 판본은 별도 kind `work_claim_denied`를 셌는데 그것을 emit하는 producer가
+// 없었다 — 바로 아래 §5 주석이 제거를 설명하는 `conflict`/`collision`과 정확히
+// 같은 dead read다. 실제 producer(`receipt/evidence-lock.js`)는 claim 거부를
+// `evidence_conflict_prevented` + `conflict_kind=<fence reason>`로 낸다. 그래서
+// 별도 kind를 기다리는 대신 그 discriminator에서 파생한다. 나머지 prevented
+// (`base-hash-changed` 등)는 lock 축이라 여기 들어가지 않는다.
+const CLAIM_FENCE_KINDS = new Set([
+  'other-live-holder',
+  'resurrected-holder',
+  'claim-denied',
+]);
+
 function scanSessionActivity(repoRoot) {
   const result = {
     ok: true,
@@ -22,6 +36,19 @@ function scanSessionActivity(repoRoot) {
     sessions: [],
     concurrent_pairs_count: 0,
     collision_events_count: 0,
+    // multi-session-work-loop M3 — 증거 충돌 taxonomy.
+    //
+    // `collision_producer_present`는 **충돌 건수와 독립**이다. M2가 요구한
+    // "INDEPENDENT collision-producer-presence signal"이 정확히 이것 —
+    // `evidence_guard_active`는 guard가 감싼 write **마다** emit되므로 충돌이
+    // 0건이어도 producer 배선을 증명한다. 충돌 관측에서 파생하면 정당한
+    // computed-zero(배선된 producer가 N쌍에서 0충돌을 관측)가 도달 불가해진다.
+    collision_producer_present: false,
+    guard_active_count: 0,
+    overwrite_observed_count: 0,      // B2 분자 — 방어를 뚫고 덮인 실사고
+    conflict_prevented_count: 0,      // 병기만 (예방은 사고가 아니다)
+    claim_denied_count: 0,            // 병기만 — prevented의 claim-fence 부분집합
+    coverage_gate_ok: false,          // b2-coverage-gate 아티팩트 verdict
     inversion_detected: false,
     producer_coverage: 'session-activity',
     degraded: false,
@@ -31,10 +58,54 @@ function scanSessionActivity(repoRoot) {
 
   try {
     // 1. Read msw-events sidecars (.claude/state/msw-events/<session_id>.jsonl)
-    const mswEventsDir = path.join(repoRoot, '.claude', 'state', 'msw-events');
-    const sessions = {};
+    //
+    // CL-5 back-compat — 이벤트 위치가 M3 이전에는 writer의 cwd 상대였고 지금은
+    // repoRoot 고정이다. 그래서 구 위치에 남은 이벤트도 읽되 **중복 계상은
+    // 금지**다. 두 후보 디렉토리를 canonical realpath로 정규화해 같은 곳이면
+    // 한 번만 스캔하고, 다르면 둘 다 스캔하되 dedupe한다.
+    //
+    // dedupe 키는 `event_id`(M3부터 append 시점에 부여)다. 본문 전체로 dedupe하면
+    // 필드가 우연히 같은 **별개 이벤트가 붕괴**한다(Implement-Codex R1 F6).
+    // event_id가 없는 구 이벤트는 **위치 간 교차**에서만 보수적 복합키로
+    // 판정하고(같은 위치 안에서는 절대 dedupe하지 않는다) 이 한계를 명시한다.
+    const canonical = (p) => {
+      try { return fs.realpathSync.native ? fs.realpathSync.native(p) : fs.realpathSync(p); }
+      catch (_e) { return path.resolve(p); }
+    };
+    const primaryDir = path.join(repoRoot, '.claude', 'state', 'msw-events');
 
-    if (fs.existsSync(mswEventsDir)) {
+    // The legacy (cwd-relative) location is back-compat ONLY when the cwd is
+    // inside this repoRoot. If the process happens to run from a DIFFERENT repo
+    // or worktree, that directory belongs to someone else and scanning it is
+    // precisely the cross-contamination CL-5 exists to prevent — it would inflate
+    // B2's denominator and the guard-coverage signal with a stranger's events.
+    // (Caught by msw-events-path.test.js: a temp-repo scan pulled in 127 events
+    // from the real worktree.)
+    const cwdAbs = path.resolve(process.cwd());
+    const rootAbs = path.resolve(repoRoot);
+    const cwdInsideRepo = cwdAbs === rootAbs || cwdAbs.startsWith(rootAbs + path.sep);
+    const candidates = cwdInsideRepo
+      ? [primaryDir, path.join(cwdAbs, '.claude', 'state', 'msw-events')]
+      : [primaryDir];
+
+    const scanDirs = [];
+    const seenDirs = new Set();
+    for (const d of candidates) {
+      if (!fs.existsSync(d)) continue;
+      const key = canonical(d);
+      if (seenDirs.has(key)) continue;
+      seenDirs.add(key);
+      scanDirs.push(d);
+    }
+
+    const sessions = {};
+    const seenEventIds = new Set();
+    const seenLegacyKeys = new Set();
+    const legacyKeyOf = (e) => [e.session_id, e.kind, e.ts, e.ended_at || '', e.created_at || ''].join('\u0000');
+
+    for (let di = 0; di < scanDirs.length; di++) {
+      const mswEventsDir = scanDirs[di];
+      const isCrossLocation = di > 0;   // 첫 디렉토리는 전부 수용
       const files = fs.readdirSync(mswEventsDir);
       for (const file of files) {
         if (!file.endsWith('.jsonl')) continue;
@@ -48,6 +119,16 @@ function scanSessionActivity(repoRoot) {
           for (const line of lines) {
             try {
               const evt = JSON.parse(line);
+              if (evt && evt.event_id) {
+                if (seenEventIds.has(evt.event_id)) continue;
+                seenEventIds.add(evt.event_id);
+              } else if (isCrossLocation) {
+                const k = legacyKeyOf(evt || {});
+                if (seenLegacyKeys.has(k)) continue;
+                seenLegacyKeys.add(k);
+              } else if (evt) {
+                seenLegacyKeys.add(legacyKeyOf(evt));
+              }
               if (!sessions[sessionId]) {
                 sessions[sessionId] = {
                   session_id: sessionId,
@@ -76,6 +157,18 @@ function scanSessionActivity(repoRoot) {
               if (evt.kind === 'task_completed') {
                 result.task_completions_count++;
                 result.completions_producer_present = true;
+              }
+
+              // M3 증거 충돌 taxonomy. guard_active는 충돌 유무와 무관하게
+              // guarded write마다 emit되므로 producer-present의 **독립** 신호다.
+              if (evt.kind === 'evidence_guard_active') {
+                result.guard_active_count++;
+                result.collision_producer_present = true;
+              } else if (evt.kind === 'evidence_overwrite_observed') {
+                result.overwrite_observed_count++;
+              } else if (evt.kind === 'evidence_conflict_prevented') {
+                result.conflict_prevented_count++;
+                if (CLAIM_FENCE_KINDS.has(evt.conflict_kind)) result.claim_denied_count++;
               }
             } catch (lineErr) {
               // Per-line malformed isolation (R2-F1 absorption)
@@ -138,14 +231,26 @@ function scanSessionActivity(repoRoot) {
       }
     }
 
-    // 5. Detect collision events (from msw-events collision markers)
-    for (const sid of Object.keys(sessions)) {
-      const sess = sessions[sid];
-      const collisionEvents = sess.events.filter(e => e.kind === 'conflict' || e.kind === 'collision');
-      result.collision_events_count += collisionEvents.length;
+    // 5. B2 분자 = `evidence_overwrite_observed`(실사고)뿐이다.
+    //
+    // 이전 구현은 `kind === 'conflict' || 'collision'`을 읽었는데 그 kind를 쓰는
+    // producer가 없어 **dead read**였다(back-compat 부담 0 — reader만 교체).
+    // `prevented`는 분자에 넣지 않는다: 계상하면 방어가 잘 될수록 지표가
+    // 나빠지는 역인센티브가 생긴다. 병기만 한다.
+    result.collision_events_count = result.overwrite_observed_count;
+
+    // 6. coverage gate verdict — B2 flip의 전제. derive는 read-only에 시점이
+    // 하나뿐이라 사전/사후 관측 창을 스스로 만들 수 없으므로, 하니스가 남긴
+    // gate 아티팩트의 판정을 소비한다. 아티팩트가 없으면 gate 미통과로 본다
+    // (fail-closed — 관측하지 않은 것을 통과로 읽지 않는다).
+    try {
+      const gate = require('../../lib/msw-metrics/b2-coverage-gate').readGateArtifact(repoRoot);
+      result.coverage_gate_ok = !!(gate && gate.ok === true);
+    } catch (_e) {
+      result.coverage_gate_ok = false;
     }
 
-    // 6. Check for timestamp inversions (착수 시각 > 종료 시각)
+    // 7. Check for timestamp inversions (착수 시각 > 종료 시각)
     // 원본 지시 시각은 msw-events에 없으므로 세션 내 event 순서로 근사한다.
     // span helper와 동일하게 마지막 session_end를 종료로 쓴다(F3 일관성).
     for (const sid of Object.keys(sessions)) {

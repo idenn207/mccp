@@ -40,6 +40,27 @@ function buildSeededModel() {
         ],
         concurrent_pairs_count: 1,
         collision_events_count: 0,
+        // multi-session-work-loop M3 — B2 is claimed-computable again, so the
+        // shared gate fixture must exercise its compute path.
+        //
+        // This is NOT the masquerade flag the M2 downgrade removed. The rule M2
+        // set was: never inject a validity flag for a metric whose producer does
+        // not exist in production. M3 BUILDS that producer —
+        // `evidence_guard_active` is emitted by every guarded receipt write
+        // (receipt/evidence-lock.js), so `collision_producer_present` is
+        // genuinely live-derivable from a real corpus. Injecting it here
+        // reproduces a state production actually reaches, which is exactly the
+        // condition A1/A2/A4 still fail to meet (they stay un-injected below).
+        //
+        // `coverage_gate_ok` mirrors the b2-coverage-gate verdict artifact; the
+        // gate's own falsifiability is proven separately in
+        // lib/tests/b2-coverage-gate.test.js (negative fixtures).
+        collision_producer_present: true,
+        coverage_gate_ok: true,
+        guard_active_count: 3,
+        overwrite_observed_count: 0,     // 목표 0 — computed-zero가 정당하게 도달 가능
+        conflict_prevented_count: 1,     // 병기만, 분자 미계상
+        claim_denied_count: 0,
         producer_coverage: 'session-activity',
       },
       handoff_items: {

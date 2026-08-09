@@ -4,13 +4,15 @@ task_fingerprint: red-test-suite-restore-m1
 created_at: 2026-06-03T18:51:31.328Z
 updated_at: 2026-08-08T22:45:22.211Z
 last_event: stop_loop_pass
-last_event_at: 2026-07-15T15:25:04.371Z
+last_event_at: 2026-08-05T17:39:46.574Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
+escalate_pending: true
+escalate_pending_decision_id: multi-session-work-loop
 ---
 ## Goal
 red-test-suite-restore M1 (v1.23.2) SHIPPED — PR #117 OPEN. 잔존 red는 신규 PRD gate-guard-integrity로 분리(worktree .worktrees/gate-guard-integrity, 미push).

@@ -184,7 +184,55 @@ test('B2: concurrent conflicts → forward-only (no live collision producer)', (
   assert.strictEqual(b2.value, null);
   assert.strictEqual(b2.numerator, null);
   assert.strictEqual(b2.denominator, 10); // concurrency observation preserved
-  assert.match(b2.invalid_reason, /no live collision producer/);
+  // multi-session-work-loop M3: the SEMANTICS here are unchanged (a model with no
+  // producer signal stays forward-only with a null value). Only the reason text
+  // changed, because M3 now distinguishes the two ways B2 can fail to compute:
+  // producer absent vs coverage gate not passed. Asserting on the new wording
+  // keeps this test a guard rather than letting it pass on a stale message.
+  assert.match(b2.invalid_reason, /no evidence_guard_active observed/);
+});
+
+test('B2 (M3): producer present but coverage gate NOT passed → still forward-only', () => {
+  // The gate is load-bearing. A wired producer alone must not flip B2, or an
+  // uncovered writer would be reported as `computed 0/N`.
+  const model = {
+    sources: {
+      session_activity: {
+        ok: true,
+        concurrent_pairs_count: 10,
+        collision_producer_present: true,
+        coverage_gate_ok: false,
+        overwrite_observed_count: 0,
+        producer_coverage: 'session-activity',
+      },
+    },
+  };
+  const b2 = computeMetrics(model)[B2_CONCURRENT_CONFLICTS];
+  assert.strictEqual(b2.status, 'forward-only');
+  assert.strictEqual(b2.numerator, null);
+  assert.match(b2.invalid_reason, /coverage gate/);
+});
+
+test('B2 (M3): producer present AND gate passed → computed', () => {
+  const model = {
+    sources: {
+      session_activity: {
+        ok: true,
+        concurrent_pairs_count: 10,
+        collision_producer_present: true,
+        coverage_gate_ok: true,
+        overwrite_observed_count: 1,
+        conflict_prevented_count: 4,
+        producer_coverage: 'session-activity',
+      },
+    },
+  };
+  const b2 = computeMetrics(model)[B2_CONCURRENT_CONFLICTS];
+  assert.strictEqual(b2.status, 'computed');
+  assert.strictEqual(b2.numerator, 1, 'only overwrite_observed counts as an incident');
+  assert.strictEqual(b2.denominator, 10);
+  assert.strictEqual(b2.value, 0.1);
+  assert.strictEqual(b2.conflicts_prevented, 4, 'prevented is co-reported, never in the numerator');
 });
 
 test('B2: zero concurrent pairs also → forward-only, not invalid (C1-pattern)', (t) => {

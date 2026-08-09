@@ -2,9 +2,9 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
-## [1.23.2] — 2026-08-06
+## [1.23.3] — 2026-08-06
 
 **Red test suite 복원 M1 — 시한폭탄 테스트 + fixture 전제 교체 (patch — bug fix/axis close)** — pre-existing 상시 red 테스트 2건을 각각의 실제 원인에 맞게 해소한다. (1) `verdict-label.test.js`의 audit-timeline 케이스 — renderer/index.js가 renderAuditTimeline에 undefined를 하드코딩해 함수의 clock 폴백(Date.now())이 항상 발동, 픽스처의 2026-07-01 타임스탬프가 현재(2026-08-06)와 35일 벌어져 7일 필터로 제외됨 → 회귀 가드 케이스 추가(F2 — 주입 clock이 실제로 지배하는지 검증). (2) `design-critique-loop-e2e.test.js`의 fixture 케이스 F — .gitignore가 .claude/cache/를 보호해 fixture를 커밋 불가하면서도 repo 존재 assert가 구조적으로 충족 불가능 → repo-존재 검증에서 test-time 합성 + detector 검증으로 교체(실제 계약 = detector가 whitelist 경로를 인식하는지, fixture 파일의 물리적 존재가 아님).
 
@@ -12,7 +12,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `plugins/mccp/scripts/lib/renderer/index.js` — audit-timeline에 `opts.now` 전달 (하드코딩 undefined 제거)
 - `plugins/mccp/scripts/lib/renderer/tests/verdict-label.test.js` — F2 회귀 가드 추가(7일 경계 — 같은 model을 서로 다른 clock으로 render해 output 차이 검증)
 - `plugins/mccp/scripts/lib/tests/design-critique-loop-e2e.test.js` — 케이스 F 교체(fixture 합성 + plan의 whitelist 경로 인식 검증)
-- `plugins/mccp/.claude-plugin/plugin.json` `1.23.1 → 1.23.2`(patch — bug fix/axis close, §3.7) + renderer footer(html/markdown) 동기.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.2 → 1.23.3`(patch — bug fix/axis close, §3.7) + renderer footer(html/markdown) 동기.
 
 ### Fixed — PR-Codex R1 흡수 (HIGH, goal-detect 경로 반환)
 
@@ -23,7 +23,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `plugins/mccp/scripts/lib/goal-detect.js` — 매칭된 base를 추적해 canonical 경로 emit
 - `plugins/mccp/scripts/lib/tests/goal-detect.test.js` — **기존 S11c·S11d가 결함을 정답으로 고정하고 있었다**(raw 셀 `'../plans/m2.plan.md'` · `'./sibling.plan.md'`를 기대). 두 단언을 canonical 경로로 정정하고, 충돌 회귀 2건(S11h prdDir 매칭 · S11i repo-root fallback)을 추가. 수정을 되돌리면 4건 전부 실패함을 A/B로 확인(공허하지 않음).
 
-## [1.23.1] — 2026-07-31
+## [1.23.2] — 2026-07-31
 
 **`/mccp:milestone-close` detector false-negative 수정 (patch — axis close)** — `/mccp:milestone-close`를 실제 PRD에 처음 돌리자 Phase 1 DETECT가 `reason=plan-missing`으로 STOP했다. plan 파일은 **존재**했다 — `goal-detect.js`가 실제 PRD 표의 plan 셀을 해석하지 못한 것이다. 서로 **독립적으로 치명적인** 결함 2건이 겹쳐 있었다: (1) `extractPlanPath`가 markdown link `[label](path)`만 처리하고 **inline-code 백틱을 제거하지 않아** `` `.claude/plans/x.plan.md` `` 가 백틱째로 경로 해석에 흘러갔고, (2) plan 경로를 **`prdDir` 기준**으로 resolve해 repo-root 상대 표기(`.claude/prds/` + `.claude/plans/…`)가 원리상 절대 맞지 않았다. 백틱만 제거해도 여전히 `plan-missing`, resolve base만 바꿔도 여전히 `plan-missing` — 둘 다 고쳐야 `goal_signal=true`가 된다. 기존 테스트가 이 버그를 정답으로 고정하고 있던 것은 **아니다**: 모든 fixture가 PRD를 repoRoot에 직접 두어 `prdDir === repoRoot`였고, 그래서 resolution base가 **한 번도 실행되지 않았다**(under-coverage). 회귀 테스트는 PRD를 `.claude/prds/` 하위에 두는 실제 배치로 바꿔 두 축을 각각 재현한다.
 
@@ -31,7 +31,43 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `plugins/mccp/scripts/lib/goal-detect.js` — `extractPlanPath`가 inline-code fence를 먼저 벗기고(백틱 안의 markdown link도 처리) 그 다음 link/bare를 해석. plan 경로 해석은 단일 base가 아니라 **후보 base 목록**(`planResolutionBases`): bare 경로는 repoRoot 우선·prdDir fallback, `./`·`../` 접두는 문서 상대이므로 prdDir 우선·repoRoot fallback. `path-traversal`은 **모든** base에서 repo를 벗어날 때만 발급하고, 안전하지만 부재인 경우는 `plan-missing`으로 유지(두 reason의 의미 보존).
 - `plugins/mccp/scripts/lib/tests/goal-detect.test.js` — S11a~S11g 추가. PRD를 `.claude/prds/` 하위에 배치해 base 축을 실제로 행사: 백틱+bare 조합(결함 1+2), bare 단독(결함 2), 백틱 안 markdown link, `./` 상대 경로 무회귀, 백틱 감싼 `—`, 실제 부재(`plan-missing`), 전 base traversal(`path-traversal`). 미수정 코드(cache 1.22.7) A/B로 신규 테스트가 공허하지 않음을 확인.
 - `plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js` — markdown footer 검증을 bare `/v1\.x\.y/`에서 footer 줄 anchor로 교체(html 쪽이 이미 흡수한 교훈 — plan 파생 milestone 라벨이 body에서 우연히 매칭됨).
-- `plugins/mccp/.claude-plugin/plugin.json` `1.23.0 → 1.23.1`(patch — bug fix/axis close, §3.7) + renderer footer(html/markdown) 동기.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.1 → 1.23.2`(patch — bug fix/axis close, §3.7) + renderer footer(html/markdown) 동기.
+
+## [1.23.1] — 2026-08-06
+
+**multi-session-work-loop M3 — 증거 충돌 소거 (단일 milestone → patch bump)** — receipt write가 세션 간에 조용히 덮이는 경로를 구조적으로 닫고, 같은 작업 단위를 두 세션이 동시에 잡는 상황을 감지·차단한다. grounding 결과 PRD의 "동시 쓰기 보호 없음"은 실제보다 **더 나빴다**: `store.js#writeReceipt`는 lock이 없는 데 더해 **원자성도 없었고**(최종 경로 직접 `writeFileSync`), `assertNoTrackedOverwrite`는 read-then-write TOCTOU이며 그 보호마저 git-tracked ship receipt에만 적용돼 실제 대다수인 plan/implement receipt는 완전 무보호였다. store 밖 read-modify-write writer도 둘 더 있었다.
+
+보증 범위는 정확히 셋이며 그 이상을 주장하지 않는다 — **G1** live 세션 간 동일 작업 단위 중복 점유 불가 · **G2** stale·부활 holder의 write-time 거부(tombstone TTL 내) · **G3** 모든 덮어쓰기는 보고되거나 감사에서 검출됨. 무조건적 상호배제는 파일시스템 원자 CAS를 요구하고 `rename`은 advisory lock에 대한 CAS가 아니므로, 확인과 rename 사이의 창은 원리상 닫히지 않는다. 덮인 writer가 이미 성공을 반환했을 수 있다는 잔여와 tombstone TTL 만료 후 replay fence lapse는 **명시된 잔여**이며 전역 단조 순번(M5) 없이 닫히지 않는다.
+
+### Added
+- `plugins/mccp/scripts/receipt/evidence-lock.js` — fail-closed 짧은 임계구역 + 원자 write. 메커니즘은 `session-ledger.js#withLedgerLock`(O_EXCL + bounded retry + stale reclaim) 미러, **실패 정책만 반전**(fail-soft → throw). 공개 API는 전 구간을 소유하는 `guardedWrite`/`guardedReadModifyWrite` **둘뿐**이고 raw lock context는 test-only(Implement-Codex R1 F3 — caller가 `assertOwned`를 빠뜨려도 정적 커버리지는 통과하는 형태를 API 차원에서 제거). lease(5s)는 PID liveness와 **무관하게** 적용(`pr-phase-lock` tri-state 미차용 — ms 단위 임계구역에서 lease 초과는 작업 중이 아니라 고장이고, tri-state + fail-closed는 영구 stall class를 만든다). rename retry 루프 **안에서도** heartbeat + 소유 재확인(R1 F5).
+- `plugins/mccp/scripts/state/evidence-claim.js` — 작업 단위(=decision slug) 점유 레지스트리. holder 정체 `{session_id, host, session_pid}`이고 `session_pid`는 `process.pid`가 **아니라** `CLAUDE_PID`(cli.js가 write마다 새 프로세스라 process.pid면 같은 세션의 두 번째 write가 거부된다). live 판정은 자기완결 `last_touch` TTL(ledger PID 축은 이 아키텍처에서 무효라 미사용). **모든 claim mutation을 per-slug lock으로 직렬화**(R1 F2 — `O_EXCL`은 생성 원자성만 증명하고, evidence lock 키가 `(gate, slug)`라 게이트가 다르면 같은 stale claim을 둘 다 승계할 수 있었다). 승계자가 tombstone을 쓰므로 `releaseClaim` 호출 누락이 정확성을 깨지 않는다.
+- `plugins/mccp/scripts/lib/msw-metrics/b2-coverage-gate.js` — B2 flip을 종속시키는 반증 가능 gate. **primary = 런타임 파일시스템 변형 감사**(receipts 트리 사전/사후 `path → {receipt_hash, mtime, size}` 스냅샷 → 모든 hash 변경이 대응 guard 이벤트를 갖는지 pre/post hash 양쪽 + ts ±30s로 판정), 보조 = 정적 lint + entrypoint 레지스트리. **런타임 관측 아티팩트 없이는 `ok:false`(indeterminate)**를 반환한다(R1 F4 — 정적 축만으로 통과하면 primary를 한 번도 관측하지 않고 `computed`로 뒤집힌다).
+- `docs/multi-session-work-loop/evidence-conflict-design.md` — 점유 모델 · 충돌 taxonomy 4종과 B2 계상 규칙 · caller별 실패 정책 비대칭 · lease 근거 · coverage gate 명세 · M3/M5 경계 · **위협 모델 명시**(적대적 위조자는 범위 밖).
+
+### Changed
+- `plugins/mccp/scripts/receipt/store.js` — `writeReceipt`가 guarded write를 경유하고 `assertNoTrackedOverwrite` 재검이 **lock 안**으로 이동(TOCTOU 폐쇄). 신규 `updateReceipt`가 기존 receipt의 read-modify-write를 한 임계구역에 담아 caller가 조합을 잊을 수 없게 한다. 출력 바이트 불변(§3.12).
+- `plugins/mccp/scripts/lib/briefing/index.js` · `lib/completion-ledger/index.js` — 직접 `writeFileSync` 제거, read까지 임계구역 안으로. 실패 정책은 `writeReceipt`와 **의도적 비대칭**(carve-out 필드만 건드리므로 fail-open + loud skip).
+- `plugins/mccp/scripts/receipt/write.js` — `restampGroundingVerdict`가 `updateReceipt` 경유(이 restamp는 `receipt_hash`를 재계산하므로 lost update가 stale seal을 되살릴 수 있었다).
+- `plugins/mccp/scripts/state/msw-events.js` — ALLOWED_FIELDS에 `work_unit`·`conflict_kind`·`holder_session`·`pre_hash`·`post_hash`·`claim_epoch`·`target`·`event_id` 추가(**추가만** — 기존 필드·cap·malformed 격리 불변). **CL-5**: 경로를 cwd 상대에서 명시 repoRoot 해석으로 교정(`opts.dir` > `opts.repoRoot` > walk-up > 레거시) + 두 hook caller가 repoRoot 전달. `event_id` append 시점 부여(R1 F6 — 이중 위치 스캔의 dedupe 키).
+- `plugins/mccp/scripts/derive/sources/session-activity.js` — dead read(`kind==='conflict'|'collision'`, producer 부재) 제거 → 신규 taxonomy. `collision_producer_present`를 `evidence_guard_active`에서 파생(**충돌 건수와 독립** — M2가 요구한 independent signal). 구·신 위치 이중 스캔 + `event_id` dedupe.
+- `plugins/mccp/scripts/lib/msw-metrics/index.js` — `computeB2` flip: producer-present ∧ coverage gate 통과 시 `computed`(분자 = `overwrite_observed`, 분모 = `concurrent_pairs`), 분모 0 → `invalid`, 그 외 → `forward-only` 유지. `prevented`는 병기하되 **분자 미계상**(계상하면 방어가 잘 될수록 지표가 나빠진다).
+- `plugins/mccp/scripts/derive/cli.js` · `lib/msw-metrics/fixture.js` — claimed-computable에 B2 복귀 + fixture가 compute 경로를 실증.
+- `plugins/mccp/scripts/lib/renderer/sections/msw-metrics.js` — expanded 슬라이스를 index 순서에서 **의사결정 우선순위**로(B2가 index 4라 `TOP_EXPANDED=3` collapse에 묻히던 문제). `METRICS_META.B2` 라벨을 `overwrite_observed` 의미로 갱신. 값 셀은 `n/N` 단일 지표, `prevented`는 collapse 상세, 신규 색 클래스 0, 신규 문자열 em-dash 0.
+- `plugins/mccp/scripts/hooks/session-start.js` — 다른 live 세션 점유 작업 단위를 `<system-reminder>`로 통보(**advisory** — 차단 없음, fail-loud-open). 소스는 `listClaims()` **단독**(ledger PID 축 미사용).
+- `plugins/mccp/commands/work.md` — Step 0 조기 점유 확인 + enforcement locus를 같은 문장 안에서 구분하는 안내.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.0 → 1.23.1` + renderer footer 2면 동기 + `.gitignore`(`evidence-claims/` **선행** 등록) + `CLAUDE.md` §3.6(세 번째 lock)·§4(토글 1개).
+
+### Fixed (pre-ship code review)
+
+`/mccp:code-review` 로컬 리뷰가 잡은 지적을 같은 milestone 안에서 흡수. 보증 G1~G3 구조는 무변경이고, 전부 reader·lint·분류 축의 국소 수정이다.
+
+- **소스의 리터럴 NUL 제거** — `derive/sources/session-activity.js`의 `legacyKeyOf` 구분자가 원시 U+0000 문자였다. git이 파일을 **바이너리로 취급**해 텍스트 diff가 사라졌고(리뷰 불가), 머지 충돌은 hunk 단위 해소가 불가능해져 §3.5.1이 금지한 "한쪽 트리 통째로 취함" 형태를 강제했다. 6문자 이스케이프 시퀀스로 교체 — 런타임 문자열 값은 동일하고 소스는 순수 ASCII가 된다.
+- **정적 lint 실효화** — `b2-coverage-gate.js`의 패턴이 리터럴 `receipts`(복수)만 봐서 **실제 writer 형태를 하나도 못 잡았다**: 이 milestone이 제거한 두 writer(`writeFileSync(receiptPath, …)` · `writeFileSync(p, JSON.stringify(receipt, …))`)와 승인 writer 자신의 형태까지 전부 통과했고 저장소 전체 스캔이 위반 0을 보고했다. 즉 store.js가 "현재 알려진 caller" 한정의 근거로 삼은 guardrail이 실재하지 않았다. `/receipt/i` 단수 + `receiptPath()` 파생 경로 축을 추가하고, 주석 줄은 검사에서 제외(금지 형태를 문서에 적는 것이 위반이 되던 문제), 감사자 자신은 명시 예외(그 예외의 전제 — receipt 경로에 쓰지 않음 — 은 test가 고정). 실재했던 writer 형태 4종을 회귀로 pin.
+- **예방을 사고로 계상하던 B2 분자 교정** — `evidence_overwrite_observed`가 rename **전** 검출(`base-hash-changed`·`lock-lost-before-rename`)에도 붙었는데, enforce에서 그 경로는 write를 **거부**한다. 차단된 경합이 분자에 들어가 **방어가 잘 될수록 지표가 나빠지는** 역인센티브가 생겼다(설계가 `prevented`를 분자에서 뺀 이유와 같은 성질). kind를 **검출 시점**으로 결정 — pre + enforce → `prevented`, warn(막지 않음) → `observed`, post(이미 착지) → 항상 `observed`.
+- **dead read 제거** — reader가 `work_claim_denied` kind를 셌으나 그것을 emit하는 producer가 없어 `claim_denied_count`가 구조적으로 0이었다(제거한 `conflict`/`collision`과 같은 결함이 한 필드 옆에서 재발). claim 거부는 `evidence_conflict_prevented` + claim-fence `conflict_kind`로 나가므로 그 discriminator에서 파생하도록 교체.
+- **분모 0 판정** `invalid` → `insufficient` — 이 모듈에서 `invalid`는 데이터 모순(unit spike·timestamp inversion·type separation)을 뜻하고 렌더러 최우선 버킷에 오른다. "겹친 세션이 아직 없다"는 부재이지 모순이 아니며, 그대로 두면 **1인 세션 저장소**(가장 흔한 구성)에 상시 무결성 오탐이 뜬다. 같은 파일 C1의 선례와 정합.
+- **잔여 정리** — `updateReceipt`의 gate-dir symlink 검사를 lock 획득 **앞**으로(검사 전에 junction을 통해 lock 파일이 worktree 밖에 쓰이던 defense-in-depth 축소) · `completion-ledger`의 dead import · `evidence-claim`의 도달 불가 `presentedEpoch` 분기 · `write.js`가 git-tracked `fix-task-applied.md`에 절대 Windows 경로를 기록하던 것을 repo-relative로.
 
 ## [1.23.0] — 2026-07-25
 

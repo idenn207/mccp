@@ -360,6 +360,10 @@ async function main() {
         const contextRemainingPct = null;
 
         // A2 종료 이벤트 (task_completed는 always false for SessionEnd hook; 실제는 derive가 판정)
+        // CL-5 — repoRoot을 명시 전달(session-start.js와 동형). 전달 전에는
+        // 기록 위치가 hook 프로세스의 cwd에 종속돼 reader 기준점과 어긋났다.
+        // ctx.projectRoot는 global 컨텍스트에서 ''이고, 그 경우 resolveEventsDir이
+        // walk-up 탐색으로 떨어져 여전히 올바른 경로를 찾는다.
         const endEventResult = mswEvents.appendEvent(sid, {
           kind: 'session_end',
           ts: new Date().toISOString(),
@@ -367,7 +371,7 @@ async function main() {
           task_completed: false,
           context_remaining_pct: contextRemainingPct,
           producer: 'session-end.js',
-        });
+        }, { repoRoot: ctx.projectRoot });
 
         if (!endEventResult.ok) {
           process.stderr.write(`[mccp:msw-events] WARNING: SessionEnd event append failed: ${endEventResult.reason} (allow)\n`);

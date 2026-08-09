@@ -47,6 +47,14 @@ build/
 # crash-leaked locks/tmps out of the tracked register directory.
 .claude/state/completion-ledger/*.lock
 .claude/state/completion-ledger/*.tmp
+# multi-session-work-loop M3 — work-unit occupancy registry (evidence-claim.js).
+# Session-local by construction: a claim binds {session_id, host, session_pid} of
+# a LIVE session, so committing one would resurrect a dead holder in every clone
+# and make the fence reject legitimate writers. Registered BEFORE the artifacts
+# exist (Task 1 precedes Task 4) so there is no window in which a claim file can
+# be staged by accident. Directory-level entry also covers the per-slug
+# `<slug>.json.lock` and `<slug>.json.<pid>.<rand>.tmp` siblings.
+.claude/state/evidence-claims/
 # Codex stop-loop bridge scratch input — local-only.
 .claude/state/codex-stop-loop-input.txt
 # Dogfood ephemera (fixtures + sandboxes) — never committed.

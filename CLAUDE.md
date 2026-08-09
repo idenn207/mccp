@@ -366,6 +366,18 @@ PR 작성 직전(또는 작성과 함께):
 3. follow-up PR (단일 파일 변경이라 cross-gate dedupe + Codex 빠르게 통과)
 4. merge 후 `claude plugin update` 재실행 → `~/.claude/plugins/cache/mccp/mccp/<X.Y.Z>/` 새 디렉토리 생성 확인
 
+#### 병렬 브랜치 version 충돌 — forward-only 상향 (실측 3회 재발)
+
+같은 base에서 갈라진 두 브랜치가 **같은 version 번호를 각기 다른 작업에 선언**하는 일이 반복된다. 먼저 머지된 쪽이 그 번호를 가져가므로, 나중 브랜치는 base를 병합할 때 번호를 **한 칸씩 올려야** 한다.
+
+선례 3건: `#94 audit P5`가 1.20.9를 선점 → 후속 브랜치가 1.20.10으로 상향(§1.4) · MSW M3 노트 CL-3이 sibling worktree `feat/codex-intent-context`의 1.23.1 중복을 사전 경고 · PR #117이 goal-detect에 1.23.1을 쓰는 사이 main이 MSW M3에 1.23.1을 발행(merge-commit `71491f8`, goal-detect→1.23.2 · red-test-suite→1.23.3으로 상향 해소).
+
+- **감지**: `git merge origin/main` 후 `CHANGELOG.md`에 같은 `## [X.Y.Z]` 헤딩이 둘 생기면 충돌이다. 헤딩 중복은 조용히 넘어가지 말 것 — CHANGELOG가 깨진 상태다.
+- **해소**: 이미 발행된(=main에 있는) 번호는 **불가침**이다. 미머지 브랜치의 항목만 위로 민다. 항목이 여러 개면 각각 한 칸씩(예: 1.23.1→1.23.2, 1.23.2→1.23.3). 서로 다른 축이면 **하나로 합치지 말 것** — CHANGELOG 서사가 뭉개진다.
+- **동기 대상 5면**: `plugin.json` · `renderer/html.js` page-foot · `renderer/markdown.js` derived 줄 · `renderer/tests/i18n-surface.test.js` 단언 2개 · `CHANGELOG.md`의 `currently \`X.Y.Z\`` 노트 + 각 항목 본문의 `A → B` bump 서술. 하나라도 빠지면 surface drift다.
+- **PR title 재확인**: 상향 후 PR 제목의 version이 stale해진다(§3.7 체크리스트 4번). `gh pr edit <N> --title ...`로 맞출 것.
+- **날짜 역전은 정상**: 병렬 브랜치의 작성일을 그대로 두면 version 내림차순과 날짜 순서가 어긋날 수 있다. version 순서가 정본이므로 날짜를 조작하지 말 것.
+
 #### 자동화 후보 (v1.2.x cycle 부채)
 
 - pre-PR hook: `plugins/mccp/scripts/lib/*.js` 또는 `commands/*.md` 변경 검출 시 `plugin.json` version bump 요구 (semantic version 자동 추론은 hard — major bump 판단은 사람 몫)

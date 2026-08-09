@@ -66,6 +66,34 @@ function baseArgs(extra) {
   }, extra || {});
 }
 
+// codex-intent-context M1 (origin/main) made mccp-plan-codex un-writable on a
+// PRD-mode plan unless ONE of two things holds: a programmatic intentDecision —
+// what plan-codex-runner.js supplies whenever Codex actually reviewed — or
+// review_source='multi-agent', which write.js reads as mechanical proof that
+// Codex never ran (diverse-agent-review M1 carve-out).
+//
+// Tests whose subject is NEITHER of those (meta stamping; the hybrid rules) hand
+// over the runner's decision so the assertion they name is the one exercised,
+// instead of every such test collapsing into the same INTENT_GATE_BLOCKED throw.
+// The carve-out and its boundary get their own dedicated coverage in
+// plan-review-intent-carveout.test.js — do not weaken it here.
+function runnerIntent(extra) {
+  return Object.assign({
+    verdict: 'preserved',
+    runtime_allowed: true,
+    reason: 'all findings adjudicated',
+    skip_proof: null,
+    counts: { total: 0, conflict: 0, none: 0, overrides: 0, by_verdict: {} },
+    section_present: true,
+    items_count: 1,
+    reference_injected: true,
+    plan_digest: planAwareMarkdownHash(PLAN_ABS),
+    run_nonce: '11111111-2222-4333-8444-555555555555',
+    force_override: false,
+    force_override_reason: null,
+  }, extra || {});
+}
+
 function expectReviewStampInvalid(args, label) {
   let threw = null;
   try { buildReceipt(args); } catch (e) { threw = e; }
@@ -192,6 +220,7 @@ test('hybrid source legitimately carries a codex_verdict (L3 IS Codex)', () => {
     'review-source': 'hybrid',
     'review-proof-file': proofPath,
     'codex-verdict': 'converged',
+    intentDecision: runnerIntent(),
   }));
   assert.equal(r.resolution.review_source, 'hybrid');
   assert.equal(r.resolution.codex_verdict, 'converged');
@@ -287,7 +316,9 @@ test('a proof bound to the CURRENT plan seals cleanly and validates', () => {
 // ── (5) wall-clock instrumentation is really written ─────────────────────────
 
 test('meta.review_wall_clock_ms is stamped as a non-negative integer', () => {
-  const r = buildReceiptObj(baseArgs({ 'review-wall-clock-ms': '48213' }));
+  const r = buildReceiptObj(baseArgs({
+    'review-wall-clock-ms': '48213', intentDecision: runnerIntent(),
+  }));
   assert.equal(r.meta.review_wall_clock_ms, 48213);
   assert.ok(Number.isInteger(r.meta.review_wall_clock_ms));
   assert.ok(r.meta.review_wall_clock_ms >= 0);
@@ -295,12 +326,13 @@ test('meta.review_wall_clock_ms is stamped as a non-negative integer', () => {
 });
 
 test('meta.review_l3_invoked / review_l3_reason stamp only when supplied', () => {
-  const bare = buildReceiptObj(baseArgs({}));
+  const bare = buildReceiptObj(baseArgs({ intentDecision: runnerIntent() }));
   assert.equal(Object.prototype.hasOwnProperty.call(bare.meta, 'review_l3_invoked'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(bare.meta, 'review_wall_clock_ms'), false);
 
   const stamped = buildReceiptObj(baseArgs({
     'review-l3-invoked': true, 'review-l3-reason': 'codex converged',
+    intentDecision: runnerIntent(),
   }));
   assert.equal(stamped.meta.review_l3_invoked, true);
   assert.equal(stamped.meta.review_l3_reason, 'codex converged');
@@ -308,7 +340,9 @@ test('meta.review_l3_invoked / review_l3_reason stamp only when supplied', () =>
 
 test('a garbage wall-clock value is dropped rather than stamped', () => {
   ['abc', '-5', ''].forEach(function (raw) {
-    const r = buildReceiptObj(baseArgs({ 'review-wall-clock-ms': raw }));
+    const r = buildReceiptObj(baseArgs({
+      'review-wall-clock-ms': raw, intentDecision: runnerIntent(),
+    }));
     assert.equal(Object.prototype.hasOwnProperty.call(r.meta, 'review_wall_clock_ms'), false, raw);
   });
 });
@@ -453,6 +487,7 @@ test('a converged hybrid receipt without an L3 layer cannot be written', () => {
       'review-source': 'hybrid',
       'review-proof-file': proofPath,
       'codex-verdict': 'converged',
+      intentDecision: runnerIntent(),
     }));
   } catch (e) { threw = e; }
   assert.ok(threw, 'a converged hybrid receipt with layers.l3 null must not reach disk');

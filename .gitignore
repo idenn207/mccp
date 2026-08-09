@@ -47,12 +47,24 @@ build/
 # crash-leaked locks/tmps out of the tracked register directory.
 .claude/state/completion-ledger/*.lock
 .claude/state/completion-ledger/*.tmp
+# multi-session-work-loop M3 — work-unit occupancy registry (evidence-claim.js).
+# Session-local by construction: a claim binds {session_id, host, session_pid} of
+# a LIVE session, so committing one would resurrect a dead holder in every clone
+# and make the fence reject legitimate writers. Registered BEFORE the artifacts
+# exist (Task 1 precedes Task 4) so there is no window in which a claim file can
+# be staged by accident. Directory-level entry also covers the per-slug
+# `<slug>.json.lock` and `<slug>.json.<pid>.<rand>.tmp` siblings.
+.claude/state/evidence-claims/
 # Codex stop-loop bridge scratch input — local-only.
 .claude/state/codex-stop-loop-input.txt
 # Dogfood ephemera (fixtures + sandboxes) — never committed.
 .claude/state/dogfood-*/
 # v0.2.7 hook-trace shard ledgers (per-invocation observability — local only).
-.claude/state/hook-trace/
+# `**/` because a hook run whose cwd is a nested package writes its shards under
+# that package's own .claude/ — a root-anchored pattern misses those, and one
+# escaped into plugins/mccp/ (see ec57467). Long shard filenames also break
+# `git worktree add` under a deep prefix on Windows.
+**/.claude/state/hook-trace/
 # v0.2.7 hook capability probe cache (per-machine binary path + mtime — local only).
 .claude/state/hook-caps.json
 # v0.3.0 auto-handoff append-only log (per-session cost-tier events — local only).

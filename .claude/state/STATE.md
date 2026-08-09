@@ -1,44 +1,51 @@
 ---
 state_version: 1
-task_fingerprint: dashboard-data-exploration
+task_fingerprint: codex-intent-context-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-07-30T08:29:16.058Z
+updated_at: 2026-08-09T06:17:11.619Z
 last_event: stop_loop_pass
-last_event_at: 2026-07-15T15:25:04.371Z
+last_event_at: 2026-08-05T15:34:25.228Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
+escalate_pending: true
+escalate_pending_decision_id: multi-session-work-loop
 ---
 ## Goal
-workflow-orchestration live-activation M3 (v1.22.3) — PR-Codex R1 4라운드 3건(F1/F2/F3) 흡수 완료. PR 재실행 대기.
+codex-intent-context M1 (v1.23.4) MERGED — PR #118이 merge-commit 280b9ef로 main에 안착. 다음 cycle은 gate-guard-integrity.
 
 ## Plan
-- M3 + 3차 흡수까지 로컬 커밋 4개(7ef5def+ca48678+a4db756+f7c34e4). push/PR 없음.
-- 4라운드 PR-Codex R1 = No ship(HIGH 2 + MEDIUM 1). 3건 전부 ACCEPT_NOW — 상세/수정방향은 .claude/state/fix-task.md.
-- 세 건 모두 M3이 primary backstop으로 승격시킨 agent-count cap 내부의 구멍. cap에 구멍 = M3 헤드라인이 거짓 → F1 backlog 이연 기각.
+- claude plugin update로 1.23.4 캐시 반영 (~/.claude/plugins/cache/mccp/mccp/1.23.4/ 생성 확인).
+- worktree cleanup: git worktree remove .worktrees/codex-intent-context + prune (§3.8 — 머지와 같은 cycle 안에서).
+- 다음 cycle: /mccp:plan .claude/prds/gate-guard-integrity.prd.md (worktree .worktrees/gate-guard-integrity, 브랜치 fix/gate-guard-integrity 이미 존재).
+- red-test-suite-restore PRD는 전 milestone complete → /mccp:archive-complete 대상(§3.11, 파일 이동이라 human-gate 별도 실행).
 
 ## Done
-- 3차 흡수 커밋 f7c34e4(27파일 +2592): codex-review-payload.js 4게이트 공용 verdict SoT, 2단계 reserve/reconcile, filter title 매처 + in-scope veto.
-- 4라운드 /mccp:pr 완주: Phase 0/1/1.6 통과, dedupe fail-closed(양 게이트 divergent) → PR-Codex 실발화 → receipt divergent 봉인(validate ok:true).
-- findings 3건 전부 실제 코드로 재현 검증(액면 수용 아님). acquireLock 확인 → Codex 제안 (a)는 이미 구현됨, (c)는 lock 부재로 원리상 불가 → (b) fail-closed 채택.
-- review-only 불변식 지켜짐(mutations:[], lock_exit_ok:true). a11y는 rendering_surface=false로 skip.
+- PR #118 MERGED (2026-08-09T06:09:54Z, merge-commit 280b9ef) — §3.12대로 merge-commit 방식이라 evidence-commit SHA 도달성 보존.
+- 머지 직전 conflict 해소(8203655): origin/main 신규 1커밋(77ceba2)과 충돌한 STATE.md를 checkout --ours가 아니라 state-writer API로 병합 — §3.5.1 드롭 0건 검증.
+- CHANGELOG.md [1.23.4] 엔트리 추가 — plugin.json이 1.23.4인데 CHANGELOG는 1.23.3까지였다(§3.7 체크리스트 2번 누락분). renderer footer 2면과 versioning note는 이미 동기 상태였음.
+- codex-intent-context PRD Milestone 1 status in-progress → complete. Outcome(의도 표면화 + 판정 커버리지 + 측정 개시)이 ship 범위와 일치해 red-test처럼 outcome 축소 개정은 불필요했다.
+- PRD Open Questions 3건은 전부 유지 — arbiter 분리 깊이·anchoring 저항 충분성은 오심 탐지(M1.5) 전에는 실측 불가, 독립 리뷰어 트리거는 M2 소관.
 
 ## In Progress
-PR 미생성 — PR-Codex R1(4라운드) No ship. fix-task.md에 F1/F2/F3 수정방향 확정. 다음은 흡수 구현 cycle.
+PR #118 머지 완료 + 문서 정리(CHANGELOG·PRD·STATE) 완료 — 커밋 경로 확인 대기.
 
 ## Next Step
-/mccp:pr 재실행(5라운드) → PR-Codex R1 재판정
+claude plugin update(1.23.4) → worktree cleanup → /mccp:plan .claude/prds/gate-guard-integrity.prd.md
 
 ## Last Decision
-2026-07-15 4라운드 PR-Codex R1 No ship. 3건 전부 흡수, F1 이연 절충 기각 — M3 헤드라인이 "USD를 열어도 원자 agent-count cap이 막는다"인데 F1/F2/F3 전부 그 cap 안의 구멍이라, 이연은 중심 정당화가 거짓임을 알면서 ship하는 것. lock 고갈 발화율이 낮다는 건 F1을 덜 급하게 만들 뿐 주장을 참으로 만들지 않음. F1 수정=granted 0 + 인라인 fallback("granted 0이면 파이프라인 차단"이라는 현 주석 전제가 거짓임을 확인 — 두 호출자 모두 인라인 경로 보유, 인라인은 cap 미소비). F2 수정=default를 0으로 뒤집는 건 오답(safety 방향 실패), default 자체 제거 → unset이면 reconcile skip + pending 유지(자기치유). 고쳐진 runner가 구조화 payload로 verdict를 읽어 No ship을 정직 보고 — 구 blind runner였다면 고무도장(F5 수정의 실전 증명 2회차).
+2026-08-09 PR #118을 merge-commit 280b9ef로 머지하고 문서를 정리했다. codex-intent-context PRD는 M1만 complete이고 M1.5(오심 탐지 = UI10 달성)·M2(arbiter 분리 + cross-vendor 리뷰어)가 pending이라 §3.11 archive 대상이 아니다 — archive는 전 milestone complete/dropped일 때만이며, 미완료 PRD의 plan을 옮기면 어느 스캔에도 안 잡혀 PRD가 소실된다(C2). 반면 red-test-suite-restore PRD는 유일 milestone이 complete라 archive 대상이지만 파일 이동 + status flip이라 human-gate(/mccp:archive-complete)로 별도 실행한다.
 
 ## Open Questions
-- pre-existing(본 PR 무관): finalize-receipt.js:269 timeoutMs 60000 만료로 exit 127인데 receipt write는 성공 → 정상 receipt에도 GATE-STOP. backlog 후보.
-- pre-existing 실패 2건(design-critique-loop-e2e fixture 부재, verdict-label.test.js) 별도 cycle 유지 — 이번 1133개 run에서도 fixture 건만 재현.
-- cache 1.22.0 stale — /mccp:pr 본문 하드코딩 경로가 구 blind runner를 가리켜 워크트리 스크립트로 우회 실행 중. 머지 후 claude plugin update로 해소 예상.
+- multi-session-work-loop PRD의 M1·M2·M3 status가 in-progress로 남아 있으나 셋 다 실제로는 ship됐다(M2 PR #114, M3 PR #116) — PRD status drift. 이번 cycle 소관 밖이라 미수정.
+- PR #118 ship receipt는 verdict=skipped(codex_disabled proof) — Codex 승인이 아니다. 외부 Codex 한도 복구(2026-08-13) 후 재판정 여부 결정 필요.
+- backup/v1.23.2-preredact ref는 redaction 전 히스토리(절대경로 포함) 보관 — PR #117 머지가 확인됐으니 삭제 가능.
+- STATE.md frontmatter의 escalate_pending(multi-session-work-loop)은 여전히 미해소 — MSW M3 santa-loop 비수렴 건이며 이번 cycle 소관 아님.
+- write.js#stampIntentDecision free-form 경로: **Source PRD** 없는 plan은 runner 없이 skipped+proof stamp → 셸 호출자가 --codex-verdict converged와 조합 시 dedupe-approved receipt 생성 가능. M1 이전에도 가능했고 DD10 위협모델 밖이지만 M1이 닫았다고 주장하지 않음.
+- pre-existing: renderer verdict-label.test.js 등 잔존 red 8건 — gate-guard-integrity PRD가 승계.
 
 ## Last Updated
-2026-07-30T08:29:16.058Z
+2026-08-09T06:17:11.619Z

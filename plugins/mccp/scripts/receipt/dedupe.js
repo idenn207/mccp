@@ -35,6 +35,7 @@ const { execFileSync } = require('child_process');
 const { gitRepoRoot } = require('./hash');
 const { readReceipt } = require('./store');
 const { isCrossModelCorroborated } = require('../lib/review-verdict');
+const { isIntentApproved } = require('../lib/intent-context');
 
 const FILES_HEADING_RE = /^#{1,6}\s+files\s+to\s+change\s*$/i;
 const HEADING_RE = /^#{1,6}\s+/;
@@ -440,6 +441,13 @@ function evaluateForDedupe(opts) {
       codex_verdict: (planReceipt.resolution && planReceipt.resolution.codex_verdict) || null,
       review_verdict: (planReceipt.resolution && planReceipt.resolution.review_verdict) || null,
       review_source: (planReceipt.resolution && planReceipt.resolution.review_source) || null,
+      // codex-intent-context M1 (DD9) — the intent axis is added HERE, on the
+      // plan receipt only, and NOT inside the shared codexConverged helper.
+      // codexConverged is used for both receipts, so folding intent into it
+      // would make mccp-implement-codex — deliberately out of intent scope
+      // (UI4) — always read as unknown → false, killing dedupe for every
+      // decision in the repo.
+      intent_approved: isIntentApproved(planReceipt),
       round: planReceipt.round,
       head_sha: planReceipt.head_sha,
     } : null,
@@ -459,11 +467,22 @@ function evaluateForDedupe(opts) {
     if (!convergence.plan_codex_receipt || !convergence.plan_codex_receipt.converged) {
       skipSafe = false;
       reason = 'plan-codex codex_verdict !== "converged" (or receipt missing) — dual-review required (fail-closed)';
+    } else if (!convergence.plan_codex_receipt.intent_approved) {
+      // DD2 — a legacy receipt (field absent) reads as unknown → not approved.
+      // Refusing it costs one extra PR-Codex review; approving it would let
+      // "delete the key" buy a free dual-review bypass, so the incentive to
+      // forge by omission is zero. DD6 — a receipt written under the audited
+      // override seals its real blocking verdict, so it lands here too.
+      skipSafe = false;
+      reason = 'plan-codex intent gate not approved (verdict=' +
+        ((planReceipt.meta && planReceipt.meta.intent_gate_verdict) === undefined
+          ? 'absent/legacy' : String(planReceipt.meta.intent_gate_verdict)) +
+        ') — dual-review required (fail-closed)';
     } else if (!convergence.implement_codex_receipt || !convergence.implement_codex_receipt.converged) {
       skipSafe = false;
       reason = 'implement-codex codex_verdict !== "converged" (or receipt missing) — dual-review required (fail-closed)';
     } else {
-      reason = 'residual empty AND both gates codex_verdict="converged"';
+      reason = 'residual empty AND both gates codex_verdict="converged" AND plan intent gate approved';
     }
   }
 

@@ -3,6 +3,9 @@
 const fs = require('fs');
 const path = require('path');
 const { stripLineMarker, isResolved } = require('./resolution-marker');
+// codex-intent-context M1 (DD7) — 표 리더 단일 구현체. 게이트(intent-context.js)
+// 와 공유하며, 이 파일은 자신의 마커 스트리퍼를 주입해 위임한다.
+const { parseTableRows: sharedParseTableRows } = require('../../markdown-table');
 const { isMilestoneClosed, ledgerCloseFresh } = require('./decision-state');
 // Dashboard Data Exploration M1 — PRD 그룹핑 토대. canonicalPlanPath/prdSlug 를
 // prd-group.js 와 공유(섹션이 item.source 를 같은 함수로 정규화해 planPrd 조회).
@@ -96,33 +99,19 @@ function findSection(body, heading) {
 // split 이전** 적용해 행끝 해결 마커를 제거(phantom 셀 0)하고 row 객체
 // `{cells, resolved, meta}` 를 반환. 기본(withMeta 미지정)은 cells 배열을 그대로
 // 반환 — 마일스톤 파서 등 기존 caller 의 반환 shape 불변.
+//
+// codex-intent-context M1 (DD7 / Plan-Codex R2 F4) — 구현체는 중립 공유 모듈
+// `lib/markdown-table.js` 로 이전됐다. intent 게이트가 같은 리더를 쓰되 renderer
+// 를 require 하지 않도록(판정 입력 층 분리) 하기 위함이며, escaped-pipe 정규식이
+// 두 벌로 갈라져 과거 행-드롭 버그가 재발하는 것도 막는다. 마커 제거는 주입식
+// 이라 공유 모듈은 dep-free 이고, 여기서 renderer 의 stripLineMarker 를 넘겨
+// 동작을 byte-identical 로 유지한다.
 function parseTableRows(section, opts) {
   opts = opts || {};
-  const withMeta = !!opts.withMeta;
-  if (!section) return [];
-  const lines = section.split(/\r?\n/);
-  const rows = [];
-  let inTable = false;
-  for (const rawLine of lines) {
-    const sm = withMeta ? stripLineMarker(rawLine) : null;
-    const line = sm ? sm.line : rawLine;
-    const trimmed = line.trim();
-    if (/^\|\s*-+/.test(trimmed)) { inTable = true; continue; }
-    if (!inTable) continue;
-    if (!trimmed.startsWith('|')) {
-      if (trimmed === '') continue;
-      break;
-    }
-    const inner = trimmed.replace(/^\|/, '').replace(/\|$/, '');
-    // M8 follow-up — UNescaped 파이프만 셀 구분자로 분리. markdown `\|` 는 셀 안의
-    // 리터럴 파이프다. 이전 `split('|')` 는 escaped pipe 까지 쪼개 Outcome 셀의
-    // `a\|b\|c` 가 downstream 컬럼을 전부 밀어 Status/Plan 셀이 엉뚱한 index 로
-    // 가고 행이 조용히 드롭됐다(완료 plan lifecycle 미검출 → 위험 오집계 원인).
-    const cells = inner.split(/(?<!\\)\|/).map(c => c.replace(/\\\|/g, '|').trim());
-    if (withMeta) rows.push({ cells, resolved: sm.resolved, meta: sm.meta });
-    else rows.push(cells);
-  }
-  return rows;
+  return sharedParseTableRows(section, {
+    withMeta: !!opts.withMeta,
+    stripLineMarker: stripLineMarker,
+  });
 }
 
 function parseDeliveryMilestones(prdBody) {

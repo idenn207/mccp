@@ -100,12 +100,25 @@ test('session-activity: collision events detected', (t) => {
       session_id: 'sid-1',
       created_at: '2026-07-24T10:00:00Z',
     });
+    // multi-session-work-loop M3 — the `collision` kind was a DEAD READ: no
+    // producer ever emitted it, so this assertion could only ever be satisfied by
+    // a hand-written fixture. M3 replaces it with the real taxonomy, whose
+    // producer is `receipt/evidence-lock.js`. The retired kind is kept in the
+    // fixture below to prove it now contributes nothing.
     writeMswEvent(tmpDir, 'sid-1', {
-      kind: 'collision',
+      kind: 'evidence_overwrite_observed',
       session_id: 'sid-1',
     });
     writeMswEvent(tmpDir, 'sid-1', {
-      kind: 'collision',
+      kind: 'evidence_overwrite_observed',
+      session_id: 'sid-1',
+    });
+    writeMswEvent(tmpDir, 'sid-1', {
+      kind: 'collision',        // retired kind — must contribute 0
+      session_id: 'sid-1',
+    });
+    writeMswEvent(tmpDir, 'sid-1', {
+      kind: 'evidence_guard_active',
       session_id: 'sid-1',
     });
     writeMswEvent(tmpDir, 'sid-1', {
@@ -118,7 +131,11 @@ test('session-activity: collision events detected', (t) => {
     const result = scanSessionActivity(tmpDir);
 
     assert.strictEqual(result.ok, true);
-    assert.strictEqual(result.collision_events_count, 2);
+    assert.strictEqual(result.overwrite_observed_count, 2, 'B2 numerator counts real incidents');
+    assert.strictEqual(result.collision_events_count, 2, 'legacy field mirrors the incident count');
+    assert.strictEqual(result.guard_active_count, 1);
+    assert.strictEqual(result.collision_producer_present, true,
+      'guard_active alone proves the producer is wired, independently of incidents');
   } finally {
     if (fs.existsSync(tmpDir)) {
       fs.rmSync(tmpDir, { recursive: true });

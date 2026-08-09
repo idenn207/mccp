@@ -576,3 +576,126 @@ test('DD2: a missing receipt or a structurally broken proof fails closed', () =>
   broken.review_proof.quorum.passed = false;
   assert.strictEqual(crossModelConverged({ resolution: broken }), false);
 });
+
+// ---------------------------------------------------------------------------
+// codex-intent-context M1 Task 7b (DD9) — the intent axis is added on the PLAN
+// receipt only. The shared codexConverged helper is untouched, because it is
+// used for BOTH receipts and mccp-implement-codex is deliberately outside the
+// intent scope (UI4) — folding intent in there would make every implement
+// receipt read as unknown and kill dedupe for every decision in the repo.
+// ---------------------------------------------------------------------------
+
+const { isIntentApproved } = require('../../lib/intent-context');
+
+// Rewrite a receipt's intent meta in place and re-seal it (fixtures need states
+// write.js will not produce, e.g. a legacy receipt with no intent keys).
+function restampIntent(repo, gateId, mutate) {
+  const { readReceipt, writeReceipt: wr } = require('../store');
+  const { subjectHash, receiptHash } = require('../hash');
+  const r = readReceipt(repo, gateId, DEDUPE_DECISION);
+  mutate(r.meta, r);
+  r.subject_hash = subjectHash(r);
+  r.receipt_hash = receiptHash(r);
+  wr(repo, r);
+  return r;
+}
+
+test('DD9: codexConverged remains gate-agnostic — no intent condition inside it', function () {
+  // If intent were folded into the shared helper, an implement receipt (which
+  // never carries intent fields) would read as false here.
+  const implementLike = {
+    resolution: { codex_verdict: 'converged' },
+    meta: { created_at: 'x' },
+  };
+  assert.strictEqual(codexConverged(implementLike), true);
+});
+
+test('DD2: a legacy plan receipt (no intent keys) blocks dedupe → PR-Codex runs', function () {
+  const repo = mkTmpRepo();
+  try {
+    const { base } = setupDedupeRepo(repo);
+    writeGateReceipt(repo, 'mccp-plan-codex', 'converged');
+    writeGateReceipt(repo, 'mccp-implement-codex', 'converged');
+    // Strip the intent axis to emulate a receipt written before the field existed.
+    restampIntent(repo, 'mccp-plan-codex', function (meta) {
+      delete meta.intent_gate_verdict;
+      delete meta.intent_skip_proof;
+      delete meta.intent_plan_digest;
+    });
+    const result = evaluateForDedupe({
+      cwd: repo, planPath: DEDUPE_PLAN_REL, baseRef: base, decisionId: DEDUPE_DECISION,
+    });
+    assert.strictEqual(result.skip_safe, false, result.reason);
+    assert.match(result.reason, /intent gate not approved/);
+    assert.strictEqual(result.convergence.plan_codex_receipt.intent_approved, false);
+    // ...and the implement receipt is unaffected: it still reads as converged.
+    assert.strictEqual(result.convergence.implement_codex_receipt.converged, true);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('DD6: a plan receipt forced through the audited override cannot certify a skip', function () {
+  const repo = mkTmpRepo();
+  try {
+    const { base } = setupDedupeRepo(repo);
+    writeGateReceipt(repo, 'mccp-plan-codex', 'converged');
+    writeGateReceipt(repo, 'mccp-implement-codex', 'converged');
+    restampIntent(repo, 'mccp-plan-codex', function (meta) {
+      meta.intent_gate_verdict = 'incomplete';
+      meta.intent_skip_proof = null;
+      meta.intent_gate_force_override = true;
+      meta.intent_gate_force_override_reason =
+        'operator accepted the residual gap after manual review this cycle';
+    });
+    const result = evaluateForDedupe({
+      cwd: repo, planPath: DEDUPE_PLAN_REL, baseRef: base, decisionId: DEDUPE_DECISION,
+    });
+    assert.strictEqual(result.skip_safe, false, result.reason);
+    assert.match(result.reason, /intent gate not approved/);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('DD4-2: a plan digest that disagrees with plan_hash blocks dedupe', function () {
+  const repo = mkTmpRepo();
+  try {
+    const { base } = setupDedupeRepo(repo);
+    writeGateReceipt(repo, 'mccp-plan-codex', 'converged');
+    writeGateReceipt(repo, 'mccp-implement-codex', 'converged');
+    restampIntent(repo, 'mccp-plan-codex', function (meta) {
+      meta.intent_gate_verdict = 'preserved';
+      meta.intent_plan_digest = 'sha256:' + '0'.repeat(64);
+    });
+    const result = evaluateForDedupe({
+      cwd: repo, planPath: DEDUPE_PLAN_REL, baseRef: base, decisionId: DEDUPE_DECISION,
+    });
+    assert.strictEqual(result.skip_safe, false, result.reason);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('an intent-approved plan receipt still dedupes (no regression on the happy path)', function () {
+  const repo = mkTmpRepo();
+  try {
+    const { base } = setupDedupeRepo(repo);
+    writeGateReceipt(repo, 'mccp-plan-codex', 'converged');
+    writeGateReceipt(repo, 'mccp-implement-codex', 'converged');
+    restampIntent(repo, 'mccp-plan-codex', function (meta, r) {
+      meta.intent_gate_verdict = 'preserved';
+      meta.intent_plan_digest = r.plan_hash;
+    });
+    const result = evaluateForDedupe({
+      cwd: repo, planPath: DEDUPE_PLAN_REL, baseRef: base, decisionId: DEDUPE_DECISION,
+    });
+    assert.strictEqual(result.skip_safe, true, result.reason);
+    assert.strictEqual(result.convergence.plan_codex_receipt.intent_approved, true);
+    assert.ok(isIntentApproved({
+      plan_hash: 'sha256:x', meta: { intent_gate_verdict: 'preserved', intent_plan_digest: 'sha256:x' },
+    }));
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});

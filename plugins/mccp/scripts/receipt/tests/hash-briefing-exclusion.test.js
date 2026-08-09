@@ -16,12 +16,12 @@ const { makeSkeleton } = require('../schema');
 
 function baseReceipt() {
   const r = makeSkeleton({});
-  // makeSkeleton stamps meta.created_at from the wall clock, and created_at is
-  // NOT a hash carve-out. Two calls that straddle a millisecond therefore hash
-  // differently, which made every "two skeletons must hash identically" case
-  // here flaky under parallel load — it failed once in a full-suite run and
-  // passed in isolation. Pin it: these tests are about briefing_*, and a clock
-  // tick is not the difference they mean to measure.
+  // Pin the creation stamp. makeSkeleton reads the wall clock, and receiptHash
+  // deliberately does NOT carve created_at out — the stamp is part of what the
+  // receipt attests. So two independently built skeletons legitimately hash
+  // differently whenever their construction straddles a millisecond, which the
+  // tests below misread as briefing divergence. Under full-suite load that is
+  // exactly what happens. Pinning it isolates the one variable each test names.
   r.meta.created_at = '2026-01-01T00:00:00.000Z';
   r.gate_id = 'mccp-plan-codex';
   r.phase = 'plan';

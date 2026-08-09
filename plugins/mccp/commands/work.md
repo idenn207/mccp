@@ -36,6 +36,36 @@ If working tree is dirty AND current branch is `main`/`master`:
 
 End the response. Do NOT proceed.
 
+### Work-unit occupancy check (multi-session-work-loop M3 — advisory)
+
+Probe whether another live session already holds the work unit you are about to
+start. The key is the decision slug, so derive it the same way the gates do.
+
+```bash
+WORK_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decision \
+  --command mccp:work --args "$ARGUMENTS" 2>/dev/null)
+node -e '
+  const { listClaims } = require(process.argv[1] + "/scripts/state/evidence-claim");
+  const slug = process.argv[2];
+  const self = process.env.MCCP_SESSION_ID || process.env.CLAUDE_CODE_SESSION_ID
+    || process.env.CLAUDE_SESSION_ID || "";
+  const held = listClaims({ repoRoot: process.cwd() })
+    .filter((c) => c.live && c.session_id && c.session_id !== self)
+    .filter((c) => !slug || c.slug === slug);
+  if (held.length) {
+    process.stderr.write("[mccp:evidence-claims] work unit already held: "
+      + held.map((c) => c.slug + " (session " + String(c.session_id).slice(0, 8)
+        + ", last touch " + c.last_touch + ")").join(", ") + "\n");
+  }
+' "${CLAUDE_PLUGIN_ROOT}" "$WORK_SLUG" 2>&1 || true
+```
+
+이 단계는 **조기 경고 전용**이다. 실제 강제는 receipt write 시점(evidence lock +
+claim 판정)에서 일어난다. 이 경고를 무시하고 진행해도 안전하며, 중복 점유는 write
+시점에 기계적으로 거부된다.
+
+Surface the warning to the user if it fired, then continue — do NOT stop here.
+
 ### Classification
 
 ```bash

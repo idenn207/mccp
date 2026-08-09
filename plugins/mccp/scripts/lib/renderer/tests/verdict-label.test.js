@@ -159,3 +159,51 @@ test('verdict-label metric (F1) — #drawer-data 파싱: receipt/worktree verdic
   // 전체 드로어 JSON 에 구 어휘 0 (blanket-strip false-negative 차단).
   assert.equal((JSON.stringify(j).match(OLD_G) || []).length, 0, '드로어 JSON 잔여 구 어휘 0');
 });
+
+test('verdict-label metric (F2 — audit-timeline 7-day boundary) — 주입 clock 이 timeline 필터를 지배한다', () => {
+  // F1 회귀 방지: renderer/index.js:131 이 undefined → opts.now 로 수정되면,
+  // renderAuditTimeline 이 injected clock 을 받아 7일 필터를 실제로 지배한다.
+  // 테스트는 같은 model 을 두 개의 서로 다른 clock 값으로 render 해서,
+  // 두 output 이 다른지(시간 기준의 receipt 필터링이 차이나는지) 확인한다.
+  // 깨진 구현은 opts.now 를 무시하고 Date.now() 를 쓰므로,
+  // 이 테스트 두 경우가 같은 (또는 거의 같은) 출력을 낼 것이다.
+
+  const model = metricModel();
+
+  // Case 1: Render at NOW (=Date.UTC(2026, 6, 1)) — 3개 receipt 모두 7일 창 내
+  const r1 = renderStatus(model, { cwd: '/test', now: NOW });
+  const html1 = r1.html;
+
+  // Case 2: Render at NOW + 8 days — 3개 receipt 모두 7일 창 밖
+  // 이때 renderAuditTimeline 이 올바른 now 를 받으면 drawer-data 에서
+  // receipt 행이 사라질 것이고, 깨진 구현은 여전히 receipt 를 포함할 것이다.
+  const tEightDaysLater = NOW + (8 * 24 * 60 * 60 * 1000);
+  const r2 = renderStatus(model, { cwd: '/test', now: tEightDaysLater });
+  const html2 = r2.html;
+
+  // 두 렌더링 HTML 이 다른지 확인. clock 주입이 작동하면 drawer-data 구조가 달라진다.
+  // (r1 은 receipt: 키 3개, r2 는 receipt: 키 0개 또는 다른 개수)
+  assert.notEqual(html1, html2,
+    '주입 clock 이 audit-timeline 을 지배한다: 시간이 8일 뒤로 이동하면 렌더링이 달라진다');
+
+  // 핵심 단언 — Implement-Codex R1 IF1 흡수. 이전 판은 아래 개수 비교를
+  // `if (m1 && m2)` 안에 두어, drawer-data 가 사라지거나 이름이 바뀌면 강한 단언이
+  // 조용히 건너뛰어지고 위의 notEqual 만으로 통과했다. notEqual 은 audit-timeline 과
+  // 무관한 clock-민감 출력(다른 섹션의 상대시각 문자열 등) 때문에도 참이 될 수 있으므로,
+  // 그 조합은 "7일 receipt 필터링" 계약을 증명하지 못한 채 green 을 낼 수 있었다.
+  // 이제 존재 자체를 단언하고 개수는 무조건 검사한다.
+  const m1 = html1.match(/id="drawer-data">([\s\S]*?)<\/script>/);
+  const m2 = html2.match(/id="drawer-data">([\s\S]*?)<\/script>/);
+  assert.ok(m1, 'NOW 렌더에 #drawer-data 존재');
+  assert.ok(m2, 'NOW+8d 렌더에 #drawer-data 존재');
+  const unesc = (s) => s.replace(/\\u003c/g, '<').replace(/\\u003e/g, '>').replace(/\\u0026/g, '&');
+  const j1 = JSON.parse(unesc(m1[1]));
+  const j2 = JSON.parse(unesc(m2[1]));
+  const countReceipts = (j) => Object.keys(j).filter((k) => k.startsWith('receipt:')).length;
+  const k1 = countReceipts(j1);
+  const k2 = countReceipts(j2);
+  // 정확한 기대값 — metricModel() 의 receipt 3건은 모두 NOW-1h/2h/3h 이므로
+  // NOW 기준으로는 전부 7일 창 안, NOW+8d 기준으로는 전부 밖이다.
+  assert.equal(k1, 3, '7d 창 내(NOW): receipt 3건이어야 함, 실제 ' + k1);
+  assert.equal(k2, 0, '7d 창 밖(NOW+8d): receipt 0건이어야 함, 실제 ' + k2);
+});

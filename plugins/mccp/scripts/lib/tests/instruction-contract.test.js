@@ -49,7 +49,7 @@ function makeTree(overrides = {}) {
     '',
   ].concat(claudeHeadings.map((h) => `## ${h}\n\nbody\n`));
   if (overrides.pointer !== null) {
-    claudeBody.push(overrides.pointer || 'See docs/moved.md for the relocated detail.');
+    claudeBody.push(overrides.pointer || 'See [docs/moved.md](docs/moved.md) for the relocated detail.');
   }
   fs.writeFileSync(path.join(root, 'CLAUDE.md'), claudeBody.join('\n'), 'utf8');
 
@@ -330,7 +330,7 @@ test('lint C3: a routed row with no resident pointer fails (was silently skipped
 
 test('lint C3: a pointer that never names its destination fails', () => {
   withTree({
-    pointer: 'See the appendix for the relocated detail.',
+    pointer: 'See the [appendix](docs/appendix.md) for the relocated detail.',
     rows: [
       { id: 'S1', heading: '1. Kept section', disposition: 'resident' },
       {
@@ -342,7 +342,7 @@ test('lint C3: a pointer that never names its destination fails', () => {
     const r = runLint(root);
     assert.strictEqual(r.checks.C3, 'fail',
       'pointer text present in CLAUDE.md is not the same as the destination being reachable');
-    assert.match(r.failures.map((f) => f.message).join('\n'), /never names the destination/);
+    assert.match(r.failures.map((f) => f.message).join('\n'), /never LINKS to/);
   });
 });
 
@@ -434,7 +434,7 @@ test('lint C3: a pointer found only in ANOTHER section does not count', () => {
     // Put the path in the FIRST section only; the moved section has no pointer.
     const claudePath = path.join(root, 'CLAUDE.md');
     const text = fs.readFileSync(claudePath, 'utf8')
-      .replace('## 1. Kept section\n\nbody\n', '## 1. Kept section\n\nsee docs/moved.md\n');
+      .replace('## 1. Kept section\n\nbody\n', '## 1. Kept section\n\nsee [docs/moved.md](docs/moved.md)\n');
     fs.writeFileSync(claudePath, text, 'utf8');
 
     const r = runLint(root);
@@ -449,5 +449,34 @@ test('lint C3: a routed row whose heading is gone leaves no stub to point from',
     const r = runLint(root);
     assert.strictEqual(r.checks.C3, 'fail');
     assert.match(r.failures.map((f) => f.message).join('\n'), /heading is gone from/);
+  });
+});
+
+test('lint C3: prose that merely names the destination is not a way back', () => {
+  // Round 5, third time this was raised: scoping the search to the section still
+  // accepted any substring, so an unrelated sentence or a code sample containing
+  // the path satisfied the check. A pointer the reader can follow is a link.
+  withTree({
+    pointer: 'The relocated detail now lives in docs/moved.md somewhere.',
+    rows: [
+      { id: 'S1', heading: '1. Kept section', disposition: 'resident' },
+      {
+        id: 'S2', heading: '2. Moved section', disposition: 'on-demand',
+        destFile: 'docs/moved.md', destAnchor: 'Relocated detail', pointer: 'docs/moved.md',
+      },
+    ],
+  }, (root) => {
+    const r = runLint(root);
+    assert.strictEqual(r.checks.C3, 'fail',
+      'naming the path in prose leaves the reader to go find it');
+    assert.match(r.failures.map((f) => f.message).join('\n'), /never LINKS to/);
+  });
+});
+
+test('lint C3: a markdown link to the destination satisfies the check', () => {
+  withTree({ pointer: 'Moved — see [the ledger](docs/moved.md) for detail.' }, (root) => {
+    const r = runLint(root);
+    assert.strictEqual(r.checks.C3, 'pass',
+      'the link text need not be the path; the TARGET is what makes it followable');
   });
 });

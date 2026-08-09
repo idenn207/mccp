@@ -134,6 +134,19 @@ function unsafePathReason(p) {
   return null;
 }
 
+/**
+ * Does `body` contain a markdown link whose target is `dest`?
+ *
+ * Accepts `](dest)`, `](dest#anchor)` and `](./dest)`; a bare mention of the
+ * path in prose does not count. This is the difference between "the section
+ * says where the content went" and "the section contains those characters".
+ */
+function linksTo(body, dest) {
+  if (!body || !dest) return false;
+  const escaped = String(dest).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('\\]\\(\\s*\\.?/?' + escaped + '(?:[)#\\s])').test(body);
+}
+
 function readFileOrNull(target) {
   try {
     return fs.readFileSync(target, 'utf8');
@@ -262,13 +275,15 @@ function lintReachability(opts = {}) {
           `"${row.heading}": its own section does not contain the pointer ` +
           `"${row.resident_pointer}" (a mention elsewhere in CLAUDE.md is not a way back ` +
           'from here)');
-      } else if (body.indexOf(row.dest_file) === -1) {
-        // Pointer text being present is not the same as the destination being
-        // reachable. A pointer that never names where it leads sends the reader
-        // nowhere, so matching arbitrary prose is not enough.
+      } else if (!linksTo(body, row.dest_file)) {
+        // Naming the destination is still not the same as linking to it. Prose
+        // that merely mentions a path leaves the reader to go find it, and a
+        // bare substring is satisfied by an unrelated sentence or a code sample
+        // that happens to contain the same characters. Require the form a reader
+        // can actually follow: a markdown link whose target is the destination.
         fail('C3',
-          `"${row.heading}": its section never names the destination "${row.dest_file}" ` +
-          `(pointer "${row.resident_pointer}" does not lead anywhere)`);
+          `"${row.heading}": its section never LINKS to "${row.dest_file}" ` +
+          '(a mention in prose is not a way back — write it as a markdown link)');
       }
     } else if (row.resident_pointer && claudeText.indexOf(row.resident_pointer) === -1) {
       fail('C3',

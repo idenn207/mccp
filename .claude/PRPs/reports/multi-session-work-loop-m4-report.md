@@ -227,6 +227,13 @@ Reviewer A는 PASS(critical 0, 되돌림 검사까지 수행), **Reviewer B만**
 
 신규 test 3건(누적 35건).
 
+
+## santa-loop round 5b — (C3 세 번째 지적 수용)
+
+Reviewer B가 세 라운드 연속 같은 지점을 지적했다: **C3가 substring만 본다.** round 4에서 섹션 범위로 좁혔지만 그 안에서는 여전히 substring이라, 무관한 문장이나 같은 경로를 담은 코드 샘플이 검사를 만족시켰다. 이번엔 판단을 접고 **읽는 사람이 따라갈 수 있는 형태** — 목적지를 target으로 갖는 markdown 링크 — 를 요구한다. 링크 텍스트는 경로가 아니어도 된다(따라갈 수 있게 만드는 것은 target이다). fixture 4곳이 산문 포인터를 쓰고 있어 실제 관례에 맞췄고, "산문은 실패 / 링크는 통과"를 양방향 test로 고정했다.
+
+같은 라운드의 나머지 2건은 새 결함이 아니다 — headline/title consumer 지적은 리뷰어가 직전 커밋 이전 트리를 읽은 것이고(현재 MD H1·HTML title 양쪽 모두 `지표 무효`를 싣는다, 실측 확인), plan 절대경로는 운영자가 되돌리기 + backlog로 이미 결정한 항목이다(3회째 재지적).
+
 ## Plan 아카이브 미수행 (의도)
 
 Phase 5의 기본 절차는 plan을 `completed/`로 옮기는 것이나 **수행하지 않았다.** receipt의 `plan_hash`가 `.claude/plans/multi-session-work-loop-m4.plan.md` 경로에 anchor돼 있어 지금 옮기면 `/mccp:pr`의 chain validate가 깨진다. 저장소 관례도 동일하다(M1~M3 plan 모두 `.claude/plans/`에 잔류하며, 완료 아카이브는 §3.11의 `/mccp:archive-complete`가 PRD 전체 완료 시점에 소유한다).

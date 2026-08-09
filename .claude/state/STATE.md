@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: red-test-suite-restore-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-09T03:38:01.150Z
+updated_at: 2026-08-09T09:47:35.172Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-05T17:39:46.574Z
 unsafe_checkpoint: false
@@ -15,7 +15,7 @@ escalate_pending: true
 escalate_pending_decision_id: multi-session-work-loop
 ---
 ## Goal
-red-test-suite-restore M1 (v1.23.3) MERGED — PR #117이 merge-commit 71491f8로 main에 안착. 잔존 red 8건은 신규 PRD gate-guard-integrity가 승계(worktree, 미push).
+context-budget-cleanup 구현 완료 — CLAUDE.md 45,357→18,560 토큰, MEMORY.md 3,393→523, 주입 창점유 25.0%→10.2%. 16개 Validation 전부 PASS. 미커밋 상태.
 
 ## Plan
 - claude plugin update로 1.23.3 캐시 반영 (사용자가 worktree cleanup 담당).
@@ -33,19 +33,18 @@ red-test-suite-restore M1 (v1.23.3) MERGED — PR #117이 merge-commit 71491f8�
 - CLAUDE.md §3.7에 "병렬 브랜치 version 충돌 — forward-only 상향" 소절 추가(3회 재발이라 memory 아닌 프로젝트 룰로 승격, CLAUDE.md 자체 지침 준수).
 
 ## In Progress
-PR #117 머지 완료. gate-guard-integrity는 worktree에 PRD 커밋만 있고 plan/push 미착수.
+Phase 7 auto-chain이 exit 13으로 abort — cost telemetry $611.92 >= catastrophic 상한 $500. commit/PR 미수행.
 
 ## Next Step
-claude plugin update(1.23.3) → /mccp:plan .claude/prds/gate-guard-integrity.prd.md
+사용자 판단: (a) 그대로 /mccp:prp-commit → /mccp:pr 수동 진행, 또는 (b) MCCP_ORCHESTRATION_CATASTROPHIC_USD 상향/cost-state decay 후 auto-chain 재시도.
 
 ## Last Decision
-2026-08-09 red-test-suite-restore PRD를 (b) 축소 개정으로 종료했다. 잔존 red 8건이 사라진 게 아니라 전수 목록·근본원인·귀속(전부 pre-existing)이 확정된 채 gate-guard-integrity PRD로 승계됐으므로, Out of scope가 금지한 red 무력화(skip/삭제)에 해당하지 않는다. 다만 "이 PRD가 스위트를 green으로 만들었다"는 주장은 철회됐고 전체 green은 후속 PRD 몫이다. Success Metric "전체 스위트 fail 수 0"을 함께 취소선 처리하지 않으면 status만 complete이고 지표는 거짓으로 남으므로 네 표면을 같이 고쳤다.
+2026-08-09 §4 요약 표를 4열(per-row 앵커)에서 3열로 이탈시켰다 — per-row 앵커는 56행 기준 하한 5,702 B라 Validation 6의 6,000 B 예산과 산술적으로 양립 불가다(실측 7,718 B). plan이 불변식으로 명시한 default+kill-switch 잔류는 유지했고, 앵커 규약은 섹션 도입부에 해석되는 링크 1개로 명시했다. mandated plan-conflict-detector는 conflict=true를 냈으나 근거인 file-expansion이 detector 자체 결함(백틱 미제거)이라 백틱 보정 시 세 signal 모두 미발화임을 실측 확인하고 minor-deviation 경로로 진행했다.
 
 ## Open Questions
-- PR #117의 ship receipt는 verdict=skipped(codex_disabled proof) — Codex 승인이 아니다. 외부 Codex 한도 복구(2026-08-13) 후 재판정 여부 결정 필요.
-- backup/v1.23.2-preredact ref는 redaction 전 히스토리(절대경로 포함)를 보관 중 — 머지가 확인됐으니 삭제 가능.
-- sibling worktree feat/codex-intent-context가 1.23.1을 선언 중 — main이 1.23.3이므로 그 브랜치는 1.23.4 이상으로 상향 필요(CLAUDE.md §3.7 신규 소절).
-- STATE.md frontmatter의 escalate_pending(multi-session-work-loop)은 여전히 미해소 — MSW M3 santa-loop 비수렴 건이며 이번 cycle 소관 아님.
+- plan-conflict-detector parseFilesToChange 백틱 결함(backlog HIGH 등재) — 백틱 표를 쓰는 모든 plan이 오탐 escalation을 맞는다
+- plan 아카이브는 §3.11 orphan 런북대로 PR 머지 후 수동 git mv (지금 옮기면 receipt plan_path가 깨진다)
+- 병렬 worktree 5개 rebase 시 CLAUDE.md는 압축본을 base로 취하고 상대 브랜치의 신규 § 만 재적용해야 함
 
 ## Last Updated
-2026-08-09T03:38:01.150Z
+2026-08-09T09:47:35.172Z

@@ -281,3 +281,49 @@ raw lock context(`withEvidenceLock`의 heartbeat/assertOwned 핸들)는 **module
 | `MCCP_EVIDENCE_CONFLICT_GUARD` | `enforce` | `enforce` = fail-closed lock + fence · `warn` = 관측·이벤트는 그대로 두되 차단하지 않음(복구용 kill switch) · `off` = guard 전체 비활성(loud warn) |
 
 신규 토글은 **정확히 1개**로 제한한다(B3 토글 축 증가 억제 방향과의 균형). lease/TTL 값은 상수로 두되 test 주입만 허용한다.
+
+---
+
+## CLAUDE.md §3.12 원문 아카이브
+
+CLAUDE.md §3.12 「증거 내구성 계약」이 싣던 **원문 전문**이다(11,734 B). 재봉인 금지 불변식 ·
+`codex_verdict` 우선 규칙 · merge-commit 정책은 CLAUDE.md에 그대로 남아 있고, 여기 보존한
+것은 무결성 통일 M1~M3의 도출 내력이다.
+
+### evidence-durability-contract
+
+CLAUDE.md §3.12의 원문이다. 한 글자도 다듬지 않았다 — 이전이 재작성으로
+변질되지 않았음을 줄 단위로 기계 검증할 수 있어야 하기 때문이다.
+
+### 3.12 증거 내구성 계약 (Evidence durability contract) (v1.22.4 — durable-evidence-substrate Phase A)
+
+ship receipt(`mccp-pr-codex`)는 **감사 대조 corpus**다 — worktree 삭제 후에도 ledger↔receipt 대조가 성립하도록 **git-tracked**로 유지한다(v1.22.4 `.gitignore` 선별 해제). plan/implement receipt는 세션 진단용이라 여전히 working-tree only. 이 비대칭은 감사 가능성을 위한 것이다: fresh clone이 항상 "대조 대상 부재" 상태이면 저장소를 새로 받은 누구도 술어 결함(E1)을 발견할 수 없다.
+
+#### 재봉인 금지 (no-rehash invariant)
+
+기존 ship receipt의 `receipt_hash`는 **하나의 sanctioned 재봉인 도구를 제외하면 절대 재계산하지 않는다.** completion-ledger 엔트리의 파일명 정체성이 `<decision_id>__<receipt_hash[0:12]>`이고 `writeEntry`가 `(decision_id, receipt_hash)` 쌍에 멱등이므로, receipt를 **결속 재키잉 없이** 재봉인하면 ledger가 그 receipt를 가리키던 **결속이 끊겨 dangling**이 되고 재-append가 no-op이 아니라 **중복 엔트리**를 만든다(E4). 그래서 무단 재봉인은 금지다.
+
+**유일한 sanctioned 재봉인 — `v1.22.4-cwd-rebind.js` (durable-evidence-substrate follow-up · F1).** 원래 §3.12는 "노출 제거보다 결속 보존이 우선 — 유출 receipt는 재봉인이 아니라 추적 제외(Phase B rebind 대상)로 회피한다"고 적었으나, **F1이 바로 그 Phase B rebind을 앞당긴 것**이다. 이 도구는 receipt의 `meta.cwd`를 repo-relative로 redact하고 `receipt_hash`를 재계산하되, 그 receipt에 bound된 **git-tracked** ledger 엔트리(파일명 + `entry.receipt_hash`)를 **같은 run에서 원자적으로 재키잉**한다 — 그래서 §3.12가 막으려던 E4(dangling/중복)가 발생하지 않는다. 즉 무단 위반이 아니라 §3.12가 예고한 sanctioned 진화다. no-rehash 불변식은 **다른 모든 writer에 대해 여전히 유효**하다.
+
+- 신규 receipt의 `meta.cwd`는 `write.js`가 repo-relative로 정규화한다(절대경로 leak 회피). 기존 receipt는 이 sanctioned 도구로만 손댄다.
+- `hash.js`에 `meta.cwd` carve-out을 **추가하지 마라** — `meta.cwd`는 전 receipt에 존재하므로 carve-out은 전 receipt의 검증을 깨뜨린다. rebind은 carve-out이 아니라 결속 재키잉으로 hash 변경을 처리한다.
+- git-tracked receipt를 다른 hash로 덮어쓰려는 시도는 `store.js#writeReceipt`의 가드가 fail-closed HALT한다. **cwd-rebind은 이 가드를 의도적으로 우회**한다 — `store.writeReceipt`가 아니라 직접 `fs`(atomic tmp+rename)로 쓰되, 결속을 원자적으로 재키잉하기 때문에 정당하다(도구 헤더에 명시). 그 외의 정당한 재-ship은 여전히 **새 decision slug**를 쓴다(기존 slug 덮어쓰기는 supersession 스키마가 생기기 전까지 불허). rebind이 아닌 어떤 tracked-hash 변경도 여전히 금지다.
+
+#### `resolution.converged`는 신뢰 불가 필드 — 완료 판정 키로 쓰지 마라
+
+추적 corpus에는 오도성 필드 `resolution.converged`가 함께 실린다(divergent ship인데 이 필드는 `true`). v1.20.3이 dedupe 축에서 이미 내린 판정처럼, **완료/승인 판정의 키는 `resolution.codex_verdict`**(enum `converged|divergent|critical|unavailable|skipped`)여야 한다. 추적이 옳은 이유는 바로 옆 `codex_verdict`가 불일치를 증명 가능하게 만들기 때문이다(E1 감사를 성립시키는 성질). 소비처(ledger backfill·derive·renderer)는 `resolution.converged`를 완료 신호로 삼지 마라.
+
+> **v1.22.5 무결성 통일 M1 — 위 지침의 mechanical 강제**: (1) `completion-ledger/index.js` 승인 술어가 codex_verdict-first로 교체됨 — `resolution.converged`는 신뢰 키에서 은퇴하고 NEW append는 `codex_verdict ∈ {converged(∧ actionable≠true)·skipped·unavailable}`만, `divergent`/`critical`/absent는 fail-closed skip(운영자 승인: `skipped`=dedupe happy-path·`unavailable` 유지). (2) `resolution.converged`를 직접 읽던 전 소비처(status·worktrees·escalate-detector·derive projection)가 [receipt-convergence.js](plugins/mccp/scripts/lib/receipt-convergence.js) `isConvergedVerdict`/`isDivergentVerdict` 한 곳으로 통일 — `divergent`/`critical` ship은 `converged`가 true여도 절대 converged로 렌더/판정되지 않음. (3) 기존 ledger 엔트리는 `v1.22.5-ledger-verdict-repair.js`가 `verdict_provenance`(`codex-verdict`/`legacy-unknown`/`superseded`)로 재판정·**보존+표식**(drop 금지, cardinality 불변, no-rehash). (4) 무결성 검증이 write-side(`evidence-stage-guard`: schema+gate+phase+slug)와 read-side(`evidence-audit`: `hash_bound`에 `receiptHash` 재계산+schema)에서 같은 `receiptHash` 함수로 대칭화. M2(leak-scan·subject_hash·parser fixture)·M3(terminal `/mccp:pr` non-approving mechanical hard-stop 재설계)는 별건.
+
+> **v1.22.6 무결성 통일 M2 — 독립 무결성 fixes**: M1의 tightly-coupled 3축과 분리된, 서로 다른 trust boundary의 국소 결함 4건을 닫는다(각 Task 자기완결 회귀 test, 순서 불변식 없음). (1) `validate-cmd.js`의 subject_hash mismatch를 `result.stale`→`result.blocking` `kind:'subject-tamper'`로 승격(`preflight.js`도 "Do NOT regenerate (that destroys the evidence)" INTEGRITY 힌트로 확장) — 바로 아래 receipt_hash receipt-tamper 블록과 대칭. `subjectHash`는 SUBJECT_FIELDS self-consistency seal이라 mismatch=서명-후-변조(tamper)이지 plan staleness가 아니며(staleness는 별도 plan_hash 비교), stale→regenerate가 tamper 증거를 파괴하던 subject-side 잔여(M1이 `receipt_hash`에 대해 이미 닫은 것과 동일 잠복 결함)를 닫는다. (2) `history-leak-scan.js` allowlist를 `oid→paths[]`로 확장 — `git rev-list --objects`는 blob당 first-path 1개만 방출(실측 확인 · 플랜의 "다중경로 방출" 가정은 거짓)하므로 range 커밋 `git ls-tree -r`로 전 경로를 증강하고 allowlist를 **경로별**로 판정. 같은 blob이 allowlisted fixture 경로 + non-allowlisted real 경로에 도달할 때 real leak을 더 이상 조용히 억제하지 않는다(pre-push secret/path backstop 복구 · ls-tree 실패는 fail-closed · security-reviewer 독립 검토 SOUND). (3) `codex-review-payload.js`는 이미 `.stdout`→`.result.verdict`를 정상 파싱함을 실-producer envelope 회귀 fixture로 봉인(코드 변경 0 — "통과했다≠검사했다" drift 방지, verify-and-close). (4) `briefing/invoke.js`가 raw `!!res.converged` 대신 [receipt-convergence.js](plugins/mccp/scripts/lib/receipt-convergence.js) `isConvergedVerdict`를 소비 — divergent/critical ship이 briefing 요약에 더 이상 "converged: true"로 오기되지 않는다(M1 Task 1b sweep의 마지막 raw 소비처; derive projection은 M1이 이미 교정). Implement-Codex는 환경 companion `exit-nonzero`로 **advisory** 진행(운영자 승인, M1 #110 선례) → receipt `codex_verdict='unavailable'` 봉인 → PR-Codex 별도 발화. M3(terminal gate 재설계)는 계속 별건.
+
+> **v1.23.0 무결성 통일 M3 — terminal `/mccp:pr` non-approving mechanical hard-stop 재설계(PRD 종료)**: M1이 verdict-SoT를, M2가 독립 무결성 4축을 닫았지만 **terminal `/mccp:pr` 게이트 자체는 non-approving PR-Codex verdict를 mechanical하게 막지 못했다** — 파서는 복구됐으나 게이트에서 audit-only였다(backlog 2026-07-21 HIGH: receipt `codex_verdict='divergent'`인데 `validate --command mccp:pr` exit 0). M3은 단일 pure 오라클 [pr-ship-gate.js](plugins/mccp/scripts/lib/pr-ship-gate.js) `deriveShipDecision`으로 no-ship 집합 **{divergent, critical, unavailable, absent}**을 판정하고(ship 집합 = {converged, skipped}; `!==converged` 전량 차단이 아니라 `skipped` sanctioned ship 보존 — DD1), 이를 **이중 locus·단일 오라클**로 강제해 drift를 구조 차단한다(DD2): (1) **runtime 1차** = `finalize-receipt.js`가 write 성공 후 receipt 재read → no-ship이면 `EX_SHIP_BLOCKED(12)` 반환 → `pr.md` 2.5.7 HALT(write 경로 자체라 LLM 누락 불가), (2) **canonical 표면** = `validate-cmd.js` `--check-ship-verdict`(pr.md Phase 2.5.9 read-back). read-back은 verdict를 신뢰하기 전 receipt를 schema+tamper 재검하고 단일 kind가 아니라 **aggregate `ok===false`로 HALT**한다 — 4종 fail-closed blocking kind(`pr_codex_nonconverged`·`subject-tamper`·`receipt-tamper`·`ship-gate-schema-invalid`)를 모두 존중하고 validate 출력 parse 실패도 fail-closed(위조 divergent→converged가 봉인 무결성으로 차단되고 조용히 ship되지 않음). 유일 우회는 audited override `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE="<reason>"`(strict validator 재사용, Phase 0.4)인데 **verdict를 `converged`로 재작성하지 않는다** — receipt는 실제 divergent를 봉인한 채 `meta.pr_codex_force_override=true`와 ship돼 cross-gate dedupe fail-closed·§3.12 봉인·ledger 승인 술어(M1) 무손상(DD3). **8라운드 비수렴 회피**: 강제 메커니즘을 적대 리뷰하면 우회 표면이 매 라운드 노출되므로(env opt-out·lock·crash-window·session key·absent-verdict·re-entrancy) plan §Design Decisions(DD1~DD7)에서 선제 설계로 닫았다 — self-gate는 `checkShipVerdict` flag-gated라 조기 preflight(1.6)엔 미발화(재실행 self-poison 회피·DD4), fresh-receipt locus라 historical absent-verdict 예외 자동 충족(DD5), ship-gate는 codex-runner lock exit **후** 실행이라 lock 무상호작용(DD6), divergent receipt는 evidence-commit 미도달이라 §3.12 정합(DD7). present-only meta 필드(default false/null)라 `receipt_hash` carve-out 무변경·기존 git-tracked ship corpus 무손상. integrity-unification PRD 전체 완료 → §3.7 minor bump `1.22.6 → 1.23.0`. **Implement-Codex dogfood(cross-model, 4라운드)**: 환경 companion이 실작동해(라운드당 ~8분) M3 ship-gate를 적대 리뷰 → core fail-open 5건을 fail-closed로 흡수 → `deriveShipDecision` no-ship 집합이 verdict뿐 아니라 `skipped`-proof 부재(`skipped-unproven`)까지 포함하고, blocking kind가 위 4종에 더해 `ship-gate-receipt-missing`(R1 F1: read-back null fail-closed)·`ship-gate-stale-head`(R2 F4: `head_sha≠HEAD`)·`ship-gate-hash-mismatch`(R3 F5: finalize가 봉인한 정확한 `receipt_hash`에 read-back bind)로 확장됨. finalize primary도 재read 후 schema+subject+receipt-hash+head+write-binding을 `deriveShipDecision` **전에** 검증(self-sufficient, markdown read-back 미의존). R4 F6(dedupe skip proof 재검증 — upstream `evaluateForDedupe`가 이미 fail-closed 검증하는 defense-in-depth, 완전 fix는 sealed verifiable dedupe proof = 후속 milestone)만 DEFER_TO_BACKLOG(2026-07-30). Implement-Codex receipt는 §3.12 dogfood대로 **divergent 봉인**(F6 미해소 정직 반영 → cross-gate dedupe fail-closes → M3 코드가 `/mccp:pr` PR-Codex를 실제로 받음).
+
+#### merge-commit 정책
+
+ship squash 시 PR merge 방식은 **merge commit**(GitHub 설정 적용 완료)이다 — squash가 개별 커밋 SHA를 소급 재작성해 evidence-commit이 참조하는 SHA 도달성을 깨는 것을 피하기 위함. 과거 squash 커밋의 SHA 복구는 원리상 불가능이므로(Out of Scope), 앞으로의 ship은 merge-commit으로 SHA를 보존한다.
+
+감사 도구: `node plugins/mccp/scripts/lib/evidence-audit.js --json` (ledger↔receipt 대조 · `state=blind`면 비영점 exit · read-only · LLM-free).
+
+---
+

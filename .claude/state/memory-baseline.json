@@ -1,10 +1,10 @@
 {
   "captured_at": "2026-08-09",
-  "dir_note": "out-of-repo auto-memory; MEMORY.md is the injected index and is EXPECTED to shrink",
+  "file_count": 17,
   "files": {
     "MEMORY.md": {
-      "bytes": 10537,
-      "sha256": "e38d2a8efb6dc22bc793eb6c4f5539afedff793f2f002a2931e025a2b0af6827"
+      "bytes": 11009,
+      "sha256": "bc5bde555d4e738d7ad4489c66034214e2ebc0d8c07703e44cf3d6accb70bdba"
     },
     "audit-remediation-p1-p6.md": {
       "bytes": 16346,
@@ -15,8 +15,8 @@
       "sha256": "5e8dde5cb6ea47cbe82cde7a42fc1614e4c88f6e98b11495bfb2d0dfc9a3aaa9"
     },
     "codex-intent-context-m1.md": {
-      "bytes": 6409,
-      "sha256": "17156812d0620a9c18d4b3a25fd9fce39bd9ba47c6404d3ab38d3ee099c90d2d"
+      "bytes": 7908,
+      "sha256": "9b0e1ccec09516a8cc104ae3c9c604fd14f20ae1403518ec37b470b3cfb48f6e"
     },
     "codex-invoke-exceeds-bash-timeout.md": {
       "bytes": 1523,
@@ -27,8 +27,8 @@
       "sha256": "3a5fe6519343bfac3fa600208fd1241f91676a0d2cf190fe1f697d3c0aaf11cd"
     },
     "diverse-agent-review-prd.md": {
-      "bytes": 4406,
-      "sha256": "0aea4a431d44067fe93398052dc9813386f0943b51fe0a8dd1b4c60c664c1868"
+      "bytes": 5246,
+      "sha256": "04b75854c6f22eda6924ae80dd79510ecf7688438cba736198628deaf530aa17"
     },
     "durable-evidence-substrate.md": {
       "bytes": 10710,
@@ -70,6 +70,5 @@
       "bytes": 19237,
       "sha256": "3dc1a7358303514f9229ef428bc8c26a1f42f75b5c336ba2f1b92d4aece51d34"
     }
-  },
-  "file_count": 17
+  }
 }

@@ -935,3 +935,28 @@ R4·R5·R6에서 닫힌 것과 남은 것을 분리한다. 앞선 라운드의 �
 - **리뷰어 지적을 검증 없이 받으면 멀쩡한 코드를 고친다.** R2·R3에서 Reviewer A가 제기한 정규식 파손·섹션 경계·tautology 주장 5건은 재현 시도에서 전부 반증됐다. 반대로 R3에서 Reviewer B가 "V3 정규식이 깨졌다"고 한 것도 기전은 틀렸지만, 그걸 확인하려 실제로 돌려본 덕에 **진짜 결함**(§1.4는 24행인데 27로 세고 있었다 — §1.1 Fork Lineage 표 3행을 함께 잡았다)이 드러났다. 틀린 지적도 옳은 곳을 가리킬 수 있다.
 - **실행되지 않은 검사는 검사가 아니다.** V3·V7의 정규식은 세 라운드 동안 한 번도 실행된 적이 없었다(조기 반환). 리뷰어 둘 다 코드를 읽었을 뿐이고, 결함은 합성 입력을 만들어 돌려본 뒤에야 나왔다.
 - **자기 산술을 검산하지 않으면 헤드라인이 거짓이 된다.** 60,000 B 목표는 이 plan 자신의 예산 합계보다 작았고, 진단표는 바이트라 적힌 문자 수였다.
+
+## Codex Implementation Review
+
+> Codex skipped per `MCCP_CODEX_DISABLED=1` (env-level policy, first-class skip)
+
+- 호출: `node .../scripts/lib/codex-invoke.js adversarial-review` (v1.23.3 fail-closed wrapper)
+- 결과: `{"ok":true,"classification":"disabled","blocking":false,"advisory":false,"durationMs":0}` — spawn 직전 short-circuit
+- 출처: 사용자 레벨 `~/.claude/settings.json`(프로젝트 설정에는 이 키가 없다 — plan §Codex Adversarial Review와 동일)
+- 라운드 수: 0 · `resolution.codex_verdict`: `skipped`
+
+### Cross-gate dedupe
+
+미적용. plan 게이트도 `skipped`(Codex disabled)라 수렴한 decision-set이 없다. dedupe는 양쪽 `converged`를 요구하므로 fail-closed로 미발화한다.
+
+### 새 implement-time 결정
+
+없다. plan이 Task 0~6, 잔류 manifest 24행, 혼합 9줄 manifest, Validation 0~13을 전부 확정된 형태로 싣고 있어 구현자가 새로 정할 구조 결정(파일 레이아웃 · helper 추상화 · 외부 의존 · 동시성 모델 · 에러 처리)이 없다. 신규 코드 모듈 0건 — 변경 대상은 문서 4개 + 상태 파일 2개다.
+
+### Security Reviewer
+
+해당 없음. auth/crypto/secret/입력 검증/injection/SSRF/path traversal/권한 상승 표면을 건드리지 않는다 — 문서 재배치 + git-tracked 상태 파일 생성뿐이다.
+
+### Design Review
+
+`impeccable-detect` 결과 `skill_available=true` · `design_signal=false` · `silent_skip_reason=no-signal`. rendered surface(`.tsx/.css/.html`/`.claude/cache/*`) 변경이 없는 control-plane 문서 작업이라 critique retry loop 미발화. receipt에 `impeccable_silent_skip=true`로 정직 기록.

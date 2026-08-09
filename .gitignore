@@ -106,6 +106,14 @@ ECC/
 # (sources of truth remain receipts + STATE.md). Mirrors .claude/state/*.lock.
 .claude/state/dispatches/
 
+# diverse-agent-review M1 — /mccp:plan L2 review-panel working artifacts
+# (mode/l1/l2/l3/decision/proof/reservation). Per-invocation IPC between the
+# command body's fenced blocks; the DURABLE record is .claude/reviews/
+# plan-review-<slug>.md plus the receipt's review_proof. Mirrors
+# .claude/state/dispatches/ above — and lives under the repo root (not
+# .git/mccp/tmp) so review_proof.dispatch_evidence can cite it repo-relatively.
+.claude/state/plan-review/
+
 # v1.5.0-m1 — session-ledger repo opt-in scope. Default is global
 # (~/.local/share/ecc-homunculus/projects/<projectId>/.session-ledgers/),
 # but MCCP_SESSION_LEDGER_SCOPE=repo or hybrid writes here too. Per-session

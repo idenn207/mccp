@@ -87,6 +87,16 @@ function buildSeededModel() {
         // fixture는 compute 경로를 실증하기 위해 corpus 존재를 주입한다.
         snapshot_corpus_present: true,
         snapshot_files_read: 3,
+        // 존재 판정의 기준은 **파싱에 성공한** 스냅샷이다 — 읽히기만 하고
+        // 해석되지 않은 파일은 이력이 아니므로 fixture도 그 구분을 갖는다.
+        snapshot_files_parsed: 3,
+        // 제외가 규범 문서(measurement-design.md §B3)의 이름과 일치할 때만 이
+        // 분모를 발행할 수 있다(G3). fixture가 이 값을 밝히지 않으면 compute
+        // 경로는 정직하게 invalid로 떨어진다 — 게이트를 느슨하게 푸는 대신
+        // fixture가 대조 결과를 명시한다.
+        exclusion_doc_ok: true,
+        exclusion_doc_drift: [],
+        degraded: false,
       },
       // M4 — A3는 커밋 아티팩트(docs/multi-session-work-loop/a3-baseline.json)를
       // 읽는 instruction-cost 소스에서 온다. derive는 tokenizer를 절대 돌리지

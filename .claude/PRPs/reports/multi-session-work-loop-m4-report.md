@@ -190,6 +190,20 @@ Reviewer A(Opus)는 이번엔 baseline 대조를 지정받아 11개 기준 전�
 
 신규 test 5건(섹션 범위 C3 2 · drift 전파 1 · 명시 거부 1 · routed stub 1). round 1의 healthy fixture는 "routed 행의 heading이 사라진" 모양이었는데 이는 실제 repo(routed=2, removed=0)와 다르고 정확히 이번에 닫은 구멍이라, fixture를 실제 관례에 맞췄다.
 
+
+## santa-loop round 4 — 흡수 (cap 초과, 운영자 결정)
+
+3라운드 상한에서 escalate했고 운영자가 속행을 선택했다. Reviewer B가 R3에서 올린 6건 중 **같은 결함군 2건 + 1건**을 닫았다.
+
+- **`computeA3`·`computeB3`가 생산자 신호를 평탄화하고 있었다 (R3-1 + R3-5).** 이 루프에서 같은 모양이 층만 바꿔 **세 번** 재발한 축이다: R1은 대조를 만들었고, R2는 그 결과를 source에 `degraded`로 전파했고, R3는 그 `degraded`를 **지표를 발행하는 소비자가 읽지 않는다**는 것이었다. 이제 `computeA3`는 손상(`degraded`/`error`)을 `artifact_present` 판정 **앞에서** 먼저 보고 `status:'invalid'`로 내며(A1의 "무결성 위반은 producer 부재보다 먼저" 선례), `computeB3`는 `exclusion_doc_ok !== true`면 분모를 발행하지 않는다. 부재·판독불가·손상은 서로 다른 사실이고, drift난 분모는 문서가 승인한 분모가 아니다.
+- **제외표 대조가 evidence 열을 보지 않았다 (R3-4).** token·class만 맞으면 근거가 비어 있거나 지어낸 행도 통과했다 — §B3이 요구하는 "항목마다 file:line 근거"보다 약한 게이트다. 이제 evidence 셀이 실제 소스 위치(`path.js:123`)를 담아야 하며, glob(`commands/*.md`)은 라인 없이 허용한다(근거가 "모든 command body"라 단일 라인이 가리킬 수 없다).
+- **인터프리터 probe가 tiktoken import 가능성을 확인하지 않았다 (R3-2).** 첫 Python 3을 채택하므로 여러 설치가 있는 머신에서 tiktoken을 가진 인터프리터를 지나칠 수 있었다. 이제 probe가 한 프로세스에서 버전과 `import tiktoken`을 함께 답하고, tiktoken을 가진 후보가 우선한다. 어디에도 없으면 기존 loud `baseline-unavailable`을 실제 인터프리터 기준으로 유지한다.
+- **유지 판정 (R3-3)**: C3가 코드펜스 안 언급도 포인터로 인정한다. 더 조이면 인라인 코드로 적은 정상 포인터를 오탐하고, "섹션이 목적지를 명시한다"는 검사 목적은 이미 충족한다. **해당 없음 (R3-6)**: plan의 홈 절대경로는 운영자가 되돌리기 + backlog로 이미 결정한 항목이다.
+
+신규 test 6건은 helper가 아니라 **발행 층(`computeMetrics`)** 에 건다 — Codex가 "현재 test는 helper에서 멈추고 A3/B3를 실제로 발행하는 소비자 경로를 건드리지 않는다"고 지적한 지점이다. 손상·drift가 `invalid`로 뒤집히는지와, **정상 경로가 새 게이트에 걸리지 않는지**를 함께 단언한다.
+
+새 게이트가 seeded acceptance fixture를 깨뜨렸고, 그것이 논점을 그대로 실증했다 — 그 fixture는 R2가 도입한 `snapshot_files_parsed`조차 갖고 있지 않았다. **fixture가 producer의 실제 출력 모양보다 뒤처져 있었는데 소비자 층 test가 없어 아무도 그 격차를 보지 못했다.** 게이트를 느슨하게 푸는 대신 fixture가 대조 결과를 명시하도록 고쳤다.
+
 ## Plan 아카이브 미수행 (의도)
 
 Phase 5의 기본 절차는 plan을 `completed/`로 옮기는 것이나 **수행하지 않았다.** receipt의 `plan_hash`가 `.claude/plans/multi-session-work-loop-m4.plan.md` 경로에 anchor돼 있어 지금 옮기면 `/mccp:pr`의 chain validate가 깨진다. 저장소 관례도 동일하다(M1~M3 plan 모두 `.claude/plans/`에 잔류하며, 완료 아카이브는 §3.11의 `/mccp:archive-complete`가 PRD 전체 완료 시점에 소유한다).

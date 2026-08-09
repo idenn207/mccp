@@ -2,9 +2,9 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
-## [1.23.5] — 2026-08-09
+## [1.23.6] — 2026-08-09
 
 **multi-session-work-loop M4 — 예산 감축 (단일 milestone → patch bump)** — 작업이 시작되기도 전에 소진되는 컨텍스트(A3)를 절반으로 줄이고, 토글 축(B3)의 분모를 정직하게 만든다. GROUND 결과 PRD가 적은 상황보다 나빴다: **두 축 모두 측정 기판이 죽어 있었다.** A3는 `spawn('python3')` 하드코딩이 이 플랫폼에서 WindowsApps 스텁으로 풀려 항상 `baseline-unavailable`이었고, 그마저 `computeMetrics`가 `measureA3`를 **호출조차 하지 않았다**(import 후 재export만). B3는 `session-start.js`가 스냅샷 경로를 cwd 기준으로 풀어 M2 이후 `*.env-snapshot.json`이 **단 한 건도** 기록되지 않았고, 빈 corpus 위에서 `computed 0%`를 내보내고 있었다.
 
@@ -29,7 +29,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `plugins/mccp/scripts/lib/renderer/sections/msw-metrics.js` — `METRICS_ORDER`에 A3 추가 + `METRICS_META.A3` 신설. **C2·C3 라벨 오배정 정정**(둘 다 A3의 정의를 담고 있어 A3가 `computed`가 되는 순간 대시보드가 "게이트 헛발화율 = 산출됨"을 표시하게 된다). 같은 결함군인 **B1·C1 라벨도 정정**. 값 셀은 지표 정의 그대로의 단일 수치를 유지하고 병기 수치(A3 감축률 · B3 제외 전/후 분모 · 분기 수)는 `<details>` collapse로.
 - `docs/multi-session-work-loop/measurement-design.md` — §B3 제외 분류표 본문화(규칙상 이름을 적을 때만 유효). §A3 tokenizer 버전 기록 출처를 명시 **개정**(분모·산출식·무결성 검사는 불변 — 바뀐 것은 버전 문자열의 출처뿐).
 - `plugins/mccp/scripts/derive/cli.js` · `lib/msw-metrics/fixture.js` · `lib/tests/msw-metrics-acceptance.test.js` — claimed-computable에 **A3 명시 승격**(silent promotion을 막는 목록이므로 편집이 정식 경로). B3는 유지하되 **live는 corpus가 쌓일 때까지 forward-only**임을 기록.
-- `plugins/mccp/.claude-plugin/plugin.json` `1.23.1 → 1.23.5` + renderer footer 2면 동기. 브랜치 base는 `1.23.1`이지만 착수 이후 `origin/main`이 `1.23.2`(PR #117)·`1.23.3`·`1.23.4`(PR #118 codex-intent-context M1)를 모두 소비했으므로 §3.7 forward-only reconcile로 **세 칸 상향**한다 — plan이 적은 `1.23.2`를 그대로 쓰면 CHANGELOG에 같은 버전 항목이 둘 생기고 매니페스트가 후퇴한다. 이 재조정은 PR #118 머지 후 rebase 시점에 한 번 더 발생했다(`1.23.4` 선점 → `1.23.5`), 같은 축의 **4번째 실측 재발**이다.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.1 → 1.23.6` + renderer footer 2면 동기. 브랜치 base는 `1.23.1`이지만 착수 이후 `origin/main`이 `1.23.2`(PR #117)·`1.23.3`·`1.23.4`(PR #118 codex-intent-context M1)·`1.23.5`(PR #120 diverse-agent-review M1)를 모두 소비했으므로 §3.7 forward-only reconcile로 **네 칸 상향**한다 — plan이 적은 `1.23.2`를 그대로 쓰면 CHANGELOG에 같은 버전 항목이 둘 생기고 매니페스트가 후퇴한다. 이 재조정은 같은 브랜치에서 **두 번** 더 발생했다(PR #118 머지 후 `1.23.4` 선점 → `1.23.5`, PR #120 머지 후 `1.23.5` 선점 → `1.23.6`) — 같은 축의 **5번째 실측 재발**이며, 병렬 브랜치가 같은 base에서 버전을 선언하는 한 구조적으로 반복된다.
 - `plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js` — footer version 단언을 리터럴 pin에서 **`plugin.json` 파생**으로 교체. §3.7이 열거하는 "동기 대상 5면" 중 이 테스트 2건은 bump마다 손으로 고쳐야 하는 항목이었는데, 그러면 drift를 잡는 가드가 아니라 bump 자체에서 실패하는 장애물이 된다. main이 도입한 footer 줄 anchor(plan 파생 milestone 라벨 오매칭 회피)는 그대로 유지한다.
 
 ### Notes — santa-loop round 1 흡수 (dual-review)
@@ -56,6 +56,132 @@ Reviewer A(Opus)는 이번엔 baseline 대조를 지정받아 11개 기준 전�
 - **backlog 이연**: tracked plan의 홈 절대경로. repo 전역 관례(main archived plan 약 30개)이고 비밀이 아니며, 고치면 receipt `plan_hash`가 stale해져 게이트가 본 적 없는 본문에 재봉인해야 한다 — 운영자가 되돌리기를 선택했고 신규 유입 차단 + 일괄 sweep으로 이연했다.
 
 신규 test 5건(섹션 범위 C3 2 · drift 전파 1 · 명시 거부 1 · routed stub 1). round 1의 healthy fixture는 "routed 행의 heading이 사라진" 모양이었는데 이는 실제 repo(routed=2, removed=0)와 다르고 정확히 이번에 닫은 구멍이라, fixture를 실제 관례에 맞췄다.
+## [1.23.5] — 2026-08-09
+
+### Reconciled with origin/main (#118 codex-intent-context M1)
+
+#118은 `mccp-plan-codex` receipt의 writer를 `plan-codex-runner.js` 단독으로 좁히고, PRD-모드 plan에 대해 **프로그래매틱 `intentDecision`을 강제**한다(위조 방지를 위해 `--intent-*` CLI 플래그는 의도적으로 0건). panel 경로는 Codex를 호출하지 않아 runner가 존재하지 않으므로, 머지만 하면 **이 milestone의 default mode가 PRD-driven plan에서 receipt를 아예 쓸 수 없었다**.
+
+해소는 새 예외를 발명하지 않고 **main 자신의 DD1(free-form) carve-out을 미러링**한다. `write.js#stampIntentDecision`이 `resolution.review_source === 'multi-agent'`를 보고 `intent_gate_verdict='skipped'` + 신규 proof `intent_skip_proof='codex_not_invoked'`를 stamp한다. 이것이 판단이 아니라 **기계적 사실**인 이유: review triple은 all-or-nothing(DD11)이고, proof는 구조 검증을 통과했으며, `multi-agent`와 `codex_verdict`를 동시에 담은 receipt는 이미 거부된다 — 따라서 "Codex가 발화하지 않았다"는 봉인 대상 receipt 자체가 증명한다.
+
+- **경계는 좁게 유지된다.** `hybrid`는 L3 발화 = Codex 발화이므로 carve-out 대상이 아니라 계속 fail-closed(에러 메시지가 그 이유를 명시한다). review 축이 없는 bare write도 그대로 차단된다.
+- **dedupe는 무변경.** DD2가 panel 승인을 cross-model 확증에서 이미 배제하므로 이 intent stamp는 PR-Codex skip을 사지 못한다 — 즉 carve-out이 `/mccp:pr`의 안전판을 건드리지 않는다.
+- `plan.md`는 writer 소유권을 mode로 분기한다: `mode=codex` → runner(5.2z)가 write, panel → 5.6b가 write. main이 top-level에 둔 placeholder 검사는 **codex 분기 안으로** 옮겼다 — 5.1은 모든 mode에 placeholder를 붙이지만 그것을 교체하는 5.3은 codex 전용이라, 그대로 두면 default mode가 매번 HALT하거나 작성자가 실재하지 않는 Codex 섹션을 지어내게 된다.
+- 신규 `plan-review-intent-carveout.test.js`가 carve-out · 경계(hybrid/bare) · DD2 불변 · 두 skip-proof 목록의 lockstep을 고정하고, 변이 검증(carve-out 무력화 → 3/6 실패, enum 되돌림 → 4/6 실패)으로 실효성을 확인했다. 전체 스위트 실패는 `origin/main` 베이스라인 8건과 **정확히 일치**한다(본 브랜치가 만든 회귀 0).
+
+> **알려진 갭 — M1.5.** 패널은 `<user_intent_reference>` 주입을 받지 않고, 자기 findings를 user intent에 대해 adjudicate하지 않는다. panel run에서 intent gate는 **만족된 것이 아니라 skip된 것**이다. backlog에 기록했다.
+
+버전은 §3.7 forward-only로 `1.23.1 → 1.23.5`(main이 1.23.4를 선점). 병렬 브랜치 version 충돌은 이 저장소에서 4번째 재발이다.
+
+**diverse-agent-review M1 — `/mccp:plan` 승인을 cross-model 단일 판정에서 L1+L2 합성 판정으로 (patch)** — `/mccp:plan` 게이트의 승인 발급자를 Codex 단독(호출당 10~15분, 최근 사이클에서 timeout·app-server crash·사용량 초과로 3회 연속 미가용)에서 **L1 mechanical backbone + L2 다관점 refute 패널**로 전환한다. 승인 표면은 `resolution.codex_verdict` 옆에 present-only `review_verdict`/`review_source`/`review_proof` 3필드를 신설하고, 판정을 읽던 소비처는 단일 helper `resolveEffectiveVerdict`로 통일한다(v1.22.5 M1 `receipt-convergence.js` 수술과 동형).
+
+**dual-review는 제거가 아니라 이동이다.** cross-gate dedupe의 skip 술어를 "converged **∧ source ∈ {codex, hybrid}**"로 좁혀 multi-agent 승인이 dedupe를 구조적으로 만족하지 못하게 했다(DD2) — 그 결과 plan 게이트가 패널로 승인돼도 terminal `/mccp:pr`에서 PR-Codex가 **반드시 발화**한다. 반복되는 plan 작성에서 10~15분 대기만 사라지고 cross-model 안전판은 ship 지점에 그대로 남는다.
+
+### Added
+- `plugins/mccp/scripts/lib/review-verdict.js` — 승인 판독 SSoT. `resolveEffectiveVerdict(resolution) → {verdict, source, axis, proofFailed}`(우선순위 `review_verdict` > `codex_verdict`) + `isReviewProofStructurallyValid` + `isCrossModelCorroborated`(DD2 술어). **DD11**: `review_*` 중 하나라도 present이면 review 축이 판정을 소유하고 `codex_verdict`로 **fallback하지 않는다** — 부분 stamp가 `source='codex'`로 읽혀 dedupe를 통과하던 유일한 구멍을 닫는다. `dispatch_evidence` 경로 불변식은 POSIX 절대경로·드라이브 문자·UNC·backslash·`..`·비정규 세그먼트를 거부한다(§3.12 `v1.22.4-cwd-rebind` 유출 선례 재발 방지).
+- `plugins/mccp/scripts/lib/plan-review/l1-check.js` — L1 mechanical gatekeeper(LLM-free). 검사 C1~C7(필수 섹션·repo-root full 경로·action↔실존·per-task Validate·Source PRD·`path:line` 인용 실존·markdown 구조 정합). **throw하지 않는다** — 내부 실패는 `inconclusive`로 반환돼 "위반을 찾았다"(divergent)와 "검사하지 못했다"(unavailable)가 분리된다. 인용 base는 1-depth 동적 탐색(플랜이 규정한 정적 4개로는 자기 자신의 `verify.js:44-52` 인용을 해결하지 못함이 실측됐다).
+- `plugins/mccp/scripts/lib/plan-review/{perspectives,quorum,decide,cli}.js` + `plugins/mccp/scripts/workflows/plan-review.js` + `plugins/mccp/agents/review-{architect,security,test,invariant}.md` — refute-framed 4관점 패널. 승인은 **증거 부재로만** 도출되며(`refutationAttempted` 필수 필드), read-only는 프롬프트가 아니라 frontmatter `tools: [Read, Grep, Glob]` **도구 부재**로 보증한다. quorum은 M(응답 수)과 K(고유 역할 수)를 별 축으로 강제해 한 역할의 중복 응답이 다양성을 위장하지 못하게 한다.
+- L3 계측 meta 3필드(`review_l3_invoked`/`review_l3_reason`/`review_wall_clock_ms`) — 전부 `hash.js` carve-out에 **넣지 않았다**(DD6). briefing_*이 carve-out된 이유(봉인 *후* stamp되어 자기 자신을 해시할 수 없음)가 여기엔 적용되지 않으며, 계측을 봉인 밖에 두면 감사 서사를 흔적 없이 바꿀 수 있다.
+
+### Changed
+- `receipt/schema.js` — `review_*` present-only 검증 + **DD11 all-or-nothing**(부분 triple은 schema invalid) + 모순 거부(`review_source='multi-agent'` ∧ `codex_verdict` present). 구조 오라클은 Task 1 것을 **재사용**해 write-side와 read-side가 "유효한 proof"에 대해 갈라질 수 없게 했다.
+- `receipt/write.js` — `review_*` stamping + 두 hard invariant를 **디스크 도달 전에** 집행: all-or-nothing과 **DD13 bind**(`review_proof.reviewed_plan_hash !== plan_hash` → exit 12). 복구는 재봉인이 아니라 **L2 재실행**임을 stderr가 명시한다(검증 대상이 바뀌었으면 검증 결과는 무효 — v1.22.6 M2가 subject_hash mismatch를 stale이 아니라 tamper로 승격시킨 것과 같은 계열).
+- `receipt/dedupe.js` — `codexConverged` → `crossModelConverged`(기존 이름은 별칭 유지). `convergence` 블록이 `review_verdict`/`review_source`를 함께 노출해, multi-agent 승인이 "receipt 누락"이 아니라 "cross-model 미확증"으로 감사에 드러난다.
+- `lib/receipt-convergence.js` · `lib/pr-ship-gate.js` · `lib/completion-ledger/{index,store}.js` · `lib/evidence-audit.js` · `derive/sources/receipts.js` — 판정을 helper로 통일. **DD8**: terminal ship은 cross-model 확증을 요구하므로 `converged ∧ source='multi-agent'`는 `multi-agent-unproven-at-terminal`로 no-ship(M1에서는 도달 불가 경로이나 방어적으로 닫음). ledger `VALID_PROVENANCE`에 `multi-agent`/`hybrid` **additive 확장**(미확장 시 `writeEntry`가 신규 엔트리를 거부).
+- `commands/plan.md` Phase 5.2 — mode 분기(5.2a L1 → 5.2b 예약 → 5.2c Workflow → 5.2d commit → 5.2e decide → 5.2f L3 → 5.2g verify-proof). **`MCCP_PLAN_REVIEW=codex`는 5.2z로 v1.23.0 경로를 그대로 보존**한다. Workflow 실패는 fan-out과 **의도적으로 반대** — 게이트이므로 조용한 인라인 강등 없이 `decide`가 exit 12로 HALT한다. `--codex-verdict` forward 여부는 오라클의 `forwardCodexVerdict` 불리언 **하나만** 읽으며 셸에서 mode와 L3 결과를 AND하지 않는다(v1.22.3 M3 4라운드 결함 형태 회피).
+
+### Fixed (post-implementation `/mccp:code-review` — 게이트 배선 결함 8건)
+구현 검증이 전부 단위 수준이라 **command body ↔ 오라클 seam**이 한 번도 실행되지 않았고, 결함이 전부 그 층에 몰려 있었다. 오라클 자체는 견고했다.
+- **default 경로가 완주 불가였다 (3건).** `MCCP_TMP`가 5.2z(codex 경로) 블록 안에서만 정의돼 panel 모드에서는 전 sub-step이 unset 변수로 파일을 읽고 썼다 · Bash 블록 간 셸 상태가 보존되지 않아(5.2c의 `Workflow` 툴 호출이 블록을 강제 분리) `$RES_ID`·`$REVIEW_VERDICT`·`$REVIEW_SOURCE`·`$FORWARD_CODEX`·`$REVIEW_STARTED_AT`가 소비 시점에 전부 비어 있었다 — 특히 5.6에서 review triple이 **조용히 미전달**돼 패널이 발급한 승인이 receipt에 한 글자도 남지 않은 채 성공 handoff가 출력됐다 · workflow args payload에 `fleetKeys`가 아예 없어 `workflows/plan-review.js`의 degrade 분기가 **매 실행** 발화, 패널이 영구히 리뷰어 1명이라 quorum을 만족할 수 없었다. → 전 블록이 `REVIEW_DIR`(repo 루트 하위 `.claude/state/plan-review/`)를 재파생하고 필요한 값을 **아티팩트에서 재read**한다(§3.9 shell-state 독립 규칙을 승인 자체에 적용). `emit-workflow-args`가 `fleetKeys`를 emit한다.
+- **문서화된 default quorum `3of4`가 실질 `4of4`였다.** `isReviewProofStructurallyValid`가 `perspectives.length === quorum.of`를 요구해, 4명 중 3명이 응답한 정상 통과가 proof 구조 검증에서 탈락 → `resolveEffectiveVerdict`가 `unavailable`로 강등하고 schema가 write를 거부했다. M<N quorum의 존재 이유가 무력화된 상태. → 바인딩을 **관측치**(`responded`)로 옮기고 `responded ∈ [required, of]` · `roles ≤ responded` 경계를 추가. 기존 test는 이 결함을 `perspectives length must equal quorum.of`라는 이름으로 **정답으로 고정**하고 있었다(이 저장소에서 4번째 목격) — 교체했다.
+- **worktree에서 evidence 경로가 repo-relative가 아니었다.** `path.relative(cwd, "$(git rev-parse --git-dir)/…")`가 linked worktree에서 `../../.git/worktrees/…`를 내고(git-dir이 working tree 바깥), Windows에서는 backslash가 남았다(`.replace(/\\\\/g,"/")`가 백슬래시 **2개**를 매칭). 둘 다 `isRepoRelativeEvidencePath`가 거부 → 모든 converged proof가 구조 무효, 5.2g가 무조건 HALT. CLAUDE.md §3.8이 worktree를 강제하므로 예외가 아니라 기본 경로였다. → 아티팩트를 repo 루트 하위로 옮기고 evidence를 **리터럴 repo-relative 문자열**로 기록(계산 제거).
+- **예약보다 많은 agent를 띄울 수 있었다.** `clampForRunaway`는 headroom이 모자라면 `n: remaining`을 주는데, 5.2b는 `granted==0`에서만 HALT하고 5.2c는 granted와 무관하게 `fleet_keys`(항상 4)로 발화, 5.2d는 `--actual $RES_GRANTED`로 commit했다 — "모든 agent launch는 기록된다" 불변식의 새 구멍. → `emit-workflow-args --granted`가 fleet을 상한하고(테스트 가능한 오라클 안에서), `--actual`은 실제 emit된 `fleet.length`, quorum 미충족 grant는 **spend 전에** exit 12.
+- **`hybrid`는 receipt를 쓸 수 없었다 (구조적).** 5.3의 `## Codex Adversarial Review` 주입이 `plan_hash`를 바꾸므로(section 추가는 정규화되지 않음 — 실측) `write.js`의 DD13 bind가 반드시 exit 12. `multi-agent`는 반대로 5.6 Step A가 존재할 수 없는 Codex 섹션을 `grep -q … || exit 1`로 요구했다(또는 LLM이 빈 섹션을 지어내 **일어나지 않은 Codex 리뷰를 주장하는 plan**을 남긴다). → **plan body 동결 불변식**을 명문화: `emit-workflow-args`부터 receipt write까지 plan은 편집 금지, panel 모드는 5.3을 건너뛰고 Step A는 mode-aware로 decision 아티팩트를 검증한다.
+- **패널의 findings가 전량 폐기됐다.** `review_proof.perspectives`는 `{perspective, verdict}`만 남기고 claim·evidence는 어디에도 도달하지 않아, 차단당한 작성자가 손에 쥐는 게 없었다. → 신규 5.2h가 `.claude/reviews/plan-review-<slug>.md`에 findings·refutation 표를 쓴다(**plan body가 아니라 sibling 파일** — plan에 쓰면 위 동결 불변식을 깬다).
+- **proof가 임계값을 관측치 자리에 기록했다.** `quorum.roles`에 `rolesMin`이 들어가, `ROLES_MIN=2`에서 4개 역할이 응답해도 봉인된 proof는 `roles: 2`를 주장했다 — 증거 기록이 자기 증거를 과소 진술. → 관측 `roles`를 기록하고, `perspectives`를 quorum이 센 것과 **동일 술어**로 필터(느슨한 필터 탓에 malformed 결과가 배열에 섞여 자기정합성이 깨질 수 있었다).
+- **작은 fail-open 3건.** `hybrid`의 L3 `ran` 판정이 verdict enum을 검사하지 않아 `verdict:""`(unset 셸 변수를 printf한 결과)를 "L3가 돌았다"로 받았다 · `MCCP_PLAN_REVIEW_ROLES_MIN`이 `of`와 교차 검증되지 않아 K>N인 **통과 불가능한** quorum이 조용히 성립했다 · `--granted 2.5`가 `parseInt`로 조용히 `2`가 됐다(`reconcile --actual`이 이미 닫은 부류). → 각각 enum 교집합 · panel 크기로 clamp + loud warn · digits-only 검증.
+- renderer footer(`html.js`/`markdown.js`)를 `v1.23.1`로 동기화(§3.7 — plugin.json만 bump하고 빠뜨린 surface drift).
+
+### Fixed (santa-loop R1 — dual-review 흡수 4건)
+`/mccp:santa-loop` 1라운드에서 Claude Opus와 Codex GPT-5.4가 **양쪽 FAIL**. 두 리뷰어가 공통으로 짚은 1건 + 각자만 짚은 3건을 흡수했다(양쪽이 제기한 9건 중 4건은 실코드 대조로 **기각** — 아래 Notes).
+
+- **L2 패널 발화가 기록 불가능했다** (agent cap **under-count**). 5.2c의 `Workflow` 호출이 곧 launch 지점인데 debt marker를 pin하지 않았고, 5.2d의 reconcile은 종료코드를 검사하지 않았다. 컨트롤러가 mid-flight로 죽거나 reconcile이 실패하면 예약이 pending으로 남고 lease가 그것을 "띄운 적 없음"으로 prune한다 — 실제로 뜬 리뷰어 최대 4명이 누적 카운터에서 증발한다. **같은 파일 Phase 2.5.2의 fan-out이 이미 이 창을 닫아 놓았고**(주석에 근거까지 적혀 있다), 신규 경로에 적용되지 않았을 뿐이다. → Workflow 호출 **전** `mark-debt` pin, pin 실패는 **HALT**(fan-out은 인라인으로 강등하지만 게이트는 인라인 등가물이 없다 — 5.2b가 거부된 예약에 대해 이미 정한 철학). reconcile 실패는 HALT하지 않고 경고 후 진행한다(리뷰어는 이미 떴고, pin이 그것을 안전하게 만든다).
+- **5.2h가 차단된 결정에서 도달 불가였다.** 1080행은 "divergent/unavailable에도 이 기록을 쓰라"고 지시하지만 5.2e가 먼저 HALT하고 5.2h는 문서상 뒤에 온다 — **차단된 작성자가 근거를 못 본다는, 5.2h가 추가된 바로 그 이유**가 그대로 재생산됐다(직전 `/mccp:code-review` 라운드의 수정이 순서 때문에 무효화된 형태). → 5.2e의 HALT를 "5.2h를 먼저 실행한 뒤" 정지로 바꾸고, 5.2h에 "문서 순서는 실행 순서가 아니다"를 명문화.
+- **proof 추출 실패가 묵살됐다** (양쪽 리뷰어 공통 지적). `2>/dev/null || true`가 실패를 삼켰고, 삭제가 write **뒤**에 있어 unlink가 실패하는 경우 이전 라운드의 converged proof가 살아남아 5.6의 `-f` 검사를 통과했다 — 자기 것이 아닌 결정에 봉인된다. → 순서를 뒤집어 `rm -f`를 **먼저**, 추출 실패는 exit 12. 승인 기록이 0인 receipt에 성공을 출력하던 경로(5.6이 이미 한 번 고친 silent-omission 계열)도 함께 닫힌다.
+- **non-converged proof가 `dispatch_evidence` 경로 검증을 우회했다** (§3.12 leak). schema가 converged일 때만 구조 불변식을 요구했는데, 그 완화가 **경로 형태까지** 덮었다. 두 불변식은 다른 질문에 답한다 — "승인하기에 충분한가"(verdict 의존) vs "이 문자열을 receipt에 봉인해도 되는가"(**절대 아님**). 승인 축은 read-side 오라클이 leaking proof를 `unavailable`로 강등해 이미 안전했고(테스트가 그렇게 단정한다), **유출 축**에서 divergent verdict가 유일한 무방비 문이었다. → 경로 검증을 verdict와 무관하게 상시 적용, 완화는 quorum·layers 구조에만. 회귀 test는 거부 4종(drive letter·posix 절대·backslash traversal·`..` 세그먼트)과 **과교정 방지**(실패한 quorum을 가진 깨끗한 non-converged proof는 여전히 기록 가능)를 함께 봉인.
+
+### Fixed (santa-loop R2 — codex verdict가 블록 경계를 못 넘고 있었다)
+R2에서 Claude Opus가 단일 critical로, R1에서 Codex GPT-5.4가 이미 지적했던 축에 **서로 다른 리뷰어가 두 라운드에 걸쳐 독립 수렴**했다. R1에서는 "선재 결함이므로 backlog 이연"으로 판단했는데, 추적해 보니 **결함이 하나가 아니라 둘**이었고 그중 하나는 본 커밋이 새로 만든 것이었다.
+
+- **`hybrid` 모드가 구조적으로 항상 HALT했다.** 5.2f는 `$CODEX_VERDICT`를 읽어 `l3.json`을 쓰는데, 그 변수는 5.2z에서 설정되고 5.2f는 **문서상 5.2z보다 앞**에 있으며 어차피 별 fenced block이다. 셸 상태는 블록을 넘지 않으므로 실제로 기록되는 값은 `"verdict":""` — 바로 아래 문단이 *'never `"verdict":""`'*라고 금지한 그 값이다. decide의 enum 검사가 이를 "L3 미발화"로 읽어 `hybrid`는 요청해도 언제나 `unavailable`로 착지했다(fail-closed라 위험하지는 않으나 모드 자체가 죽어 있었다).
+  - **R2의 수정은 이 결함을 절반만 닫았고, R2 기록은 그것을 과장했다 (santa-loop R3에서 적발 — 정정).** 아티팩트 경유로 바꾼 것은 *산출물의 정직성*(`"verdict":""` → `{"invoked":false}`)이지 hybrid의 동작이 아니었다. hybrid 분기는 5.2a → … → **5.2f** → 5.2e로 **5.2z를 건너뛰므로**, 아티팩트를 *쓰는* 코드가 그 경로에서 한 번도 실행되지 않는다 — 읽기만 아티팩트로 옮겼을 뿐 쓰기 쪽을 확인하지 않은 것이다. hybrid는 여전히 매 실행 `invoked:false` → `unavailable` → HALT였다. R3에서 5.2f를 2단계로 명문화해 닫았다: **Step 1은 5.2z의 wrapper 블록을 실제로 실행**(그 블록 끝에서 아티팩트를 persist)하고 5.3으로 넘어가지 않는다, Step 2가 아티팩트를 읽어 `l3.json`을 쓰며 아티팩트 부재 시 "Codex가 말하지 않기로 한 것"이 아니라 **배선 버그**임을 loud warn한다.
+- **`codex` 롤백 경로의 receipt에 `codex_verdict`가 누락됐다 (선재, 그러나 본 milestone의 지정 안전밸브).** 5.6의 `[ -n "${CODEX_VERDICT:-}" ]`가 항상 거짓이라 `--codex-verdict`가 조용히 빠졌다 — Codex가 실제로 발화한 실행인데 receipt는 그 사실을 기록하지 않는다. cross-gate dedupe가 부재에 fail-close하므로 **안전 측**이고 v1.23.0 이전부터 그랬지만(`git show`로 확인), DD7이 이 경로를 "이미 검증된 기존 경로"로 지정해 놓은 이상 그 경로가 거짓 감사 기록을 낳는 상태로 두는 것은 milestone 자체의 전제를 무르게 한다. 이연 판단을 철회하고 흡수했다.
+- **수정은 하나다** — 두 결함의 근본 원인이 같기 때문이다: verdict를 셸 변수로 블록 간 운반. 5.2z가 파생 즉시 `$REVIEW_DIR/codex-verdict` 아티팩트로 **persist**하고(Phase 5.4의 `divergent` override도 아티팩트를 재기록), 5.2f와 5.6은 아티팩트에서 **재read**한다. 5.6은 아티팩트 부재 시 기존 셸 변수로 fallback해 추적하지 않은 경로의 회귀를 막는다. 5.2f는 아티팩트가 없으면 빈 verdict를 지어내지 않고 `{"invoked":false}`를 쓴다.
+- **그 수정이 새로 만드는 위험도 같은 라운드에서 닫았다.** 아티팩트는 gitignored 디렉토리에 남으므로 이전 실행분이 다음 실행의 receipt에 봉인될 수 있다 — 감사 결함 하나를 다른 것으로 바꾸는 셈이다. Phase 5.2 진입 블록이 per-run 아티팩트 9종을 **선제 purge**한다(각 소비처가 이미 부재에 fail-close하므로 purge는 안전 방향).
+- 배선은 합성 실측으로 확인했다(오라클 단위 test가 아니라 **블록 경계 재현**): stale purge 후 5.6이 빈 값을 읽음 · 5.2z→5.6 아티팩트 전달 성립 · **수정 전 코드가 같은 조건에서 플래그를 실제로 떨굼(결함 재현)** · 아티팩트 부재 시 5.2f가 금지된 빈 verdict를 쓰지 않음.
+
+같은 라운드에서 Codex GPT-5.4가 별도 2건을 짚었고 둘 다 흡수했다.
+
+- **DD3 게이트키퍼가 실제 경로에서 dead code였다.** `decide.js:159-166`은 DD3를 정확히 구현한다 — L1이 위반을 찾으면 L2를 보기도 **전에** `divergent` + "L2 was not fired"로 착지한다. 그런데 `cli.js`의 `cmdDecide`가 오라클을 부르기 **전에** `--l2-file`을 무조건 읽고 막았다. DD3가 발동하는 유일한 경로(L1 실패 → 5.2c 미실행 → l2.json 부재)에서 답은 `divergent`가 아니라 `unavailable`("L2 produced no readable result")이었다. 두 값은 교환 가능하지 않다 — 전자는 "게이트가 돌았고 당신 플랜에 위반이 있다, 여기 목록"이고 후자는 "게이트를 돌리지 못했다"다. receipt가 **다른 사건**을 기록했고 L1 위반 목록은 작성자에게 영영 닿지 않았다. → L1이 converged가 아니면 L2를 요구하지 않고 오라클로 단락. `inconclusive`("검사 못 함")는 여전히 `unavailable`이고 converged L1은 여전히 readable L2를 **요구**한다 — 넓히는 수정이 아니라 L1이 이미 답한 질문을 L2에 되묻지 않는 수정이다.
+- **Workflow가 던진 경로에서 유령 launch가 영구 commit됐다.** 5.2c는 Workflow throw/미가용을 허용하고 그때 리뷰어가 0명일 수 있는데, 5.2d는 **계획된** fleet 크기로 무조건 reconcile했다(commit된 항목은 만료되지 않으므로 영구). Codex의 진단은 옳았으나 처방("0으로 commit")은 이 저장소가 이미 기각한 답이다 — 리뷰어가 실제로 떴는데 반환만 유실된 경우 **under-count**가 되고, cap이 절대 틀리면 안 되는 방향이 바로 그쪽이다. → fan-out Phase 2.5.3의 규칙을 그대로 적용: `l2.json`이 없으면 **아예 답하지 않는다**. 예약은 pending으로 남고 5.2c의 debt marker가 그것을 pin한다. "모름"은 모름으로 두고 보수적으로 둔다.
+- **회귀 test는 CLI 통합 수준으로 작성했다** — 이 결함은 오라클 test로는 원리상 못 잡는다(`decideReview`는 한 번도 틀린 적이 없다). 그리고 test가 **수정 전 코드에서 실제로 실패하는지 실측**했다: 6개 중 정확히 2개 실패(결함을 짚는 것들), 나머지 4개는 양쪽에서 통과(불변식 보존 확인용). 이 저장소가 반복 목격한 "test가 버그를 정답으로 고정"을 구조적으로 배제한다.
+
+### Fixed (santa-loop R3 — 패널 fail-open 외 2건)
+R3에서도 양쪽 FAIL. Codex가 3건을 짚었고 전부 흡수했다(R2에서 backlog로 이연했던 1건 포함 — 두 라운드 연속 재지적이라 철회).
+
+- **패널 fail-open (HIGH, 실측 재현).** 패널 실행이 `decision.json` 손상으로 triple을 못 실으면 5.6의 all-or-nothing 가드가 **부분 stamp를 무-stamp로** 바꾸고, 패널 모드에는 forward할 `codex_verdict`도 없다. receipt는 `write.js`의 `defaultResolution`이 넣은 `converged: true`만 지닌 채 착지하고, `resolveEffectiveVerdict`가 `axis:'none'`을 답해 `receipt-convergence.js:45`의 엄격한 review 분기를 **건너뛰며**, 48행 `resolution.converged === true`가 답이 된다 — **아무것도 승인하지 않은 실행이 converged로 읽힌다.** 이 milestone이 5.6에서 이미 한 번 고친 silent-omission과 같은 계열이다.
+  - **첫 수정 시도는 틀렸고 테스트 스위트가 잡았다.** "`mccp-plan-codex`는 무조건 verdict 축을 요구"로 만들었더니 e2e dogfood chain 포함 **약 30개가 깨졌다** — verdict 없는 plan receipt는 advisory·skipped·수동 복구 경로에서 평범하다. 근거로 삼았던 "디스크 receipt 2개 모두 축 보유"는 n=2였고 일반화가 성립하지 않았다.
+  - **채택한 형태는 좁다**: 신규 present-only `--review-mode`가 패널 실행임을 **선언**할 때만 triple을 요구한다. `mode.json`은 Phase 5.2 진입 시 기록돼 하류가 오염시킬 수 없으므로, `decision.json`이 못 미더울 때 여전히 믿을 수 있는 유일한 사실이다. 플래그 미지정·`codex`는 **기존 동작 그대로**(회귀 0). 이 검사의 한계는 "호출자가 플래그를 빠뜨리면 못 잡는다"이고, 그래서 5.6이 write **전에** 같은 조건으로 HALT한다 — 두 층 모두 단독으로는 불충분하다.
+- **`quorum.roles`가 관측치 자리에 floor였다.** `>= q.roles`라 4개 역할이 응답해도 `roles:1`로 봉인됐다. `roles`는 `quorum.js:156`이 usable 결과에서 센 **관측치**이고 `perspectives`도 `decide.js:217`의 **같은 `isUsableResult` 필터**로 만들어지므로 정직한 producer는 둘이 어긋난 상태를 생성할 수 없다 → 정확 일치로 전환. 과소보고는 승인을 과대주장하지 않아 무해해 보이지만, proof는 durable 감사 기록이고 **자기 자신과 불일치해도 되는 기록은 증거가 아니다**(같은 필드에 `rolesMin`을 쓰던 앞선 사례에 이은 임계값-관측치 혼동 2회차). 교정 과정에서 기존 fixture 11곳이 **생성 불가능한 상태**(4 perspectives + `roles:3`)를 단정하고 있었고, 그중 여럿은 의도한 축이 아닌 이유로 통과 중이었다(예: `quorum.of must be >= required`가 roles에서도 실패).
+- **`--plan`/`--prd` 경로 미검증.** 리뷰어는 `isRepoRelativeEvidencePath` 미러를 제안했으나 **다른 불변식**이다 — 그 술어는 receipt에 *봉인될* 문자열용이라 리터럴 자체가 산출물이지만, `--plan`은 읽을 파일이고 필요한 속성은 **봉쇄(containment)**다. 문자열이 repo-relative일 것을 요구하면 repo 내부를 가리키는 정상 절대경로를 거부해 기존 흐름이 깨진다. resolve 후 root 내부인지 판정하는 방식으로 구현하고(`cmdL1`의 `--repo-root` 패턴을 emit/decide로 확장), 회귀 test가 "repo 내부 절대경로는 여전히 통과"를 함께 봉인한다.
+- 회귀 test 8개는 **수정 전 코드에서 정확히 4개가 실패**함을 실측했다(결함당 1개 + containment 특정성). 나머지 4개는 양쪽에서 통과하는 불변식 보존 가드다.
+
+### Fixed (santa-loop R4/R5 — DD2 척추의 구멍 + bind 무력화)
+R4는 split(A FAIL·B FAIL), R5도 split(**A PASS**·B FAIL). 두 라운드에서 4건을 흡수하고 3건을 실측으로 기각했다.
+
+- **`hybrid`가 L3 없이도 cross-model 확증으로 읽혔다 (R5, DD2 척추).** `isCrossModelCorroborated`가 `source ∈ {codex, hybrid}`만 보고 `review_proof.layers.l3`는 보지 않았다 — `hybrid` + `layers.l3: null`이 구조적으로 유효하고 확증으로 판정됐다(실측). producer는 이 모양을 만들 수 없지만(`decide.js:237`이 L3 미발화 hybrid를 `multi-agent`로 강등) **이 술어가 읽는 것은 receipt**이고, receipt는 자신을 쓴 프로세스보다 오래 산다. 그 오라클을 거치지 않은 무엇(다른 writer·손 복구본·부분 마이그레이션)이 `hybrid`를 주장하면 dedupe가 terminal PR-Codex를 건너뛴다 — **same-model 패널이 cross-model로 도장 찍히고, 미루기로 한 그 검사가 영영 실행되지 않는다.** milestone이 "cross-model은 제거가 아니라 ship 지점으로 이동"이라 말하는 근거가 정확히 이 술어다. → 읽기 측(확증 술어)과 쓰기 측(schema) 양쪽에서 `hybrid ∧ converged ⇒ layers.l3 === "converged"` 요구.
+- **테스트 3개가 그 결함을 정답으로 고정하고 있었다** (이 저장소 5번째 목격, R5 Codex 지적). `hybrid` positive 케이스들이 `layers.l3: null` fixture를 썼다 — 즉 **결함이 있어야 통과하는** 테스트였고, 고치면 회귀처럼 보였을 것이다. fixture에 실제 hybrid 실행이 남길 L3 layer를 주고, 각 위치에 빠져 있던 negative 케이스(L3 없는 hybrid는 확증 아님)를 추가했다.
+- **`MCCP_PLAN_REVIEW_L3=0`이 실제로 L3를 막지 못했다 (R5).** CLI가 `mode.json`에 `fires.l3`를 emit하는데 `plan.md`가 읽지 않았고, mode 표는 `hybrid`에서 5.2f를 무조건 실행했다 — 문서화된 kill switch가 산문에만 존재했다(§4는 "Codex 사용량 소진 시 mode를 건드리지 않고 L3만 끌 수 있어야 한다"고 그 존재 이유까지 적어 두었다). → 5.2f에 Step 0을 신설해 `fires.l3`를 읽고, false면 `{"invoked":false}`를 기록한 뒤 wrapper를 건너뛴다. `mode.json` 판독 실패는 `0`으로 착지한다 — 알 수 없는 정책이 Codex 호출을 조용히 지출해서는 안 된다.
+- **DD13 bind가 `--plan` 누락·해시 실패로 조용히 꺼졌다 (R4).** `decide.js:197`은 `currentPlanHash`가 비어 있으면 비교 자체를 건너뛰는데, `cmdDecide`가 `--plan`을 선택 인자로 두고 해싱 예외도 `null`로 흡수했다. bind는 "리뷰어를 띄운 뒤 plan을 편집"이라는 **본 PRD가 실제로 겪은 실패**에 대한 답인데, 플래그 하나 빠지면 무력화되는 bind는 bind가 아니다. → CLI에서 fail-closed(오라클이 아니라 — R3에서 오라클을 넓게 손대 30개를 깬 전례를 반복하지 않는다).
+- **containment가 승인한 파일과 L1이 읽는 파일이 달랐다 (R4, R3 수정의 버그).** `resolveContained`는 repo root 기준으로 검증하는데 `cmdL1`이 **raw argv**를 넘겼고 `l1-check.js:224`는 `nodePath.resolve()`로 **cwd 기준** 재resolve했다. repo 루트가 아닌 cwd에서는 서로 다른 파일이다 — **후속 read를 구속하지 않는 검사는 검사가 아니다.** → `contained.abs`를 넘기고, 심볼릭 링크 회피도 `realpathSync` 대조로 닫았다(R5 재지적).
+
+#### 기각 3건 (실측 반증)
+- **"읽기 측을 조여 `axis:'none'`을 비-converged로"** (R4·R5 반복 지적) — 추적된 receipt **35개 중 22개가 verdict 축 없이 `converged: true`**다(`codex_verdict`가 생긴 v1.20.3 이전 ship receipt 전부). 조이면 그 22개가 소급 무효화돼 §3.12가 보존하려는 durable corpus의 ledger 대조가 깨진다. 이 fallback은 결함이 아니라 **떠받치는 구조**이고, 그래서 패널 쪽 수정이 producer에 살아야 한다. 리뷰어는 그 사실을 고정한 회귀 test를 "fail-open을 축복한다"고 읽었으므로 test 주석에 22/35 실측을 박아 뒀다.
+- **"`--plan`의 절대경로를 선차단하라"** — `isRepoRelativeEvidencePath` 미러 제안이지만 **다른 불변식**이다. 그 술어는 receipt에 *봉인될* 문자열용이라 리터럴 자체가 산출물이고, `--plan`은 읽을 파일이라 필요한 속성은 **봉쇄**다. 문자열 모양을 요구하면 repo 내부를 가리키는 정상 절대경로를 거부해 기존 흐름이 깨진다(회귀 test가 이를 고정).
+- **"`quorum.roles`와 `perspectives`가 어긋날 수 있다"** — 한 리뷰어가 제기했다가 **스스로 철회**했다. 둘 다 `isUsableResult` 동일 필터 산출이다.
+
+### Fixed (santa-loop R6 — 아티팩트 배선의 마지막 셸-상태 유실)
+양쪽 FAIL. 4건 흡수. 셋은 **앞선 라운드의 내 수정이 남긴 것**이고, 그 사실 자체가 이 층의 성질을 말한다 — `commands/plan.md`는 LLM이 실행하는 마크다운이라 단위 테스트가 닿지 않고, 매 수정이 새 셸 배선을 더한다.
+
+- **`mode.json` 판독 실패 하나가 가드 두 개를 동시에 무장해제했다 (HIGH).** 5.6이 mode를 못 읽으면 `--review-mode` 플래그를 조용히 빼고, 사전 HALT도 mode 값이 있어야 걸리므로 함께 침묵한다. 그 조합에서 패널 실행은 verdict 축이 **하나도 없는** receipt를 봉인하고, `resolveEffectiveVerdict`가 `axis:'none'`을 답해 `receipt-convergence.js:48`의 `resolution.converged === true`가 판정을 가져간다 — 승인을 하나도 발급하지 않은 실행이 `converged`로 읽힌다. R5 기록은 이 가드의 한계를 "플래그를 빠뜨리는 호출자"라고 적었지만, **명령 자신이 읽기 실패마다 빠뜨리고 있었다.** → `mode.json`은 Phase 5.2 진입에서 모든 모드에 대해 생성되므로, receipt-write 시점의 부재는 first-run이 아니라 고장이다. exit 12.
+- **`CODEX_CLASS`가 블록 경계에서 유실돼 L3 기록이 매번 `reason:"unknown"`이었다.** 성공한 hybrid 실행이 "왜 L3가 돌았는지 모른다"고 기록했다 — 알고 있었는데도. R2가 verdict에 대해 고친 것과 **완전히 같은 형태**를 같은 커밋에서 재생산한 것이다(`${CODEX_CLASS:-unknown}`은 5.2z 블록의 변수를 5.2f 블록에서 읽는다). → classification도 verdict 옆에 persist하고 5.2f가 아티팩트에서 읽는다.
+- **`mode.json` 판독 실패가 "정책상 L3 비활성"으로 기록됐다.** Step 0의 catch가 `0`으로 떨어져 `reason:"MCCP_PLAN_REVIEW_L3=0 — L3 disabled by policy"`를 썼다 — 확립된 적 없는 원인을 감사 기록에 넣는다. → tri-state(`-1`)로 "정책이 아니라고 함"과 "판단할 수 없음"을 분리하고, 후자는 HALT.
+- **`codex-verdict` 쓰기가 실패를 검사하지 않았다.** 이 아티팩트는 블록 경계를 넘는 **유일한 운반체**라 사본이 없다. 종료코드 검사에 더해 **read-back 검증**을 넣었다 — 디스크가 가득 찬 상태에서 open은 성공하고 write가 조용히 비는 경우는 종료코드만으로 못 잡는다.
+- **도달 불가능한 fallback 제거.** R2가 "회귀 방지"로 넣은 `${CODEX_VERDICT:-}` 셸 fallback은 5.2z가 fence 뒤라 **구조적으로 절대 발화할 수 없었다**. 잡을 수 없는 안전망은 없는 것보다 나쁘다 — 있지도 않은 2차 방어선이 있다고 읽힌다. 그것을 "유지된다"고 적은 낡은 주석도 함께 지웠다.
+
+#### 이 사이클을 여기서 닫는 이유 (정직한 잔여)
+santa-loop 6라운드에서 **20건 흡수 · 7건 기각**했고 회귀 스위트는 1781개 중 선재 실패 1건(§3.9 문서화된 fixture 부재)만 남는다. 알려진 미해결 fail-open은 없다. 다만 흡수한 20건 중 **6건이 앞선 라운드의 내 수정이 만든 것**이었고, 그중 셋이 같은 셸-상태 유실 형태였다. 근본 원인은 개별 실수가 아니라 구조다 — 게이트 배선이 단위 테스트가 닿지 않는 마크다운에 살아 있고, 매 수정이 새 배선을 더한다. **`commands/plan.md` Phase 5.2의 셸 배선을 테스트 가능한 오라클로 추출하는 것**을 후속 축으로 남긴다(이번 사이클에서 오라클 자체는 6라운드 내내 견고했고 결함은 전부 그 둘레의 seam에 몰렸다 — 어디를 고쳐야 하는지가 이미 측정됐다).
+
+### Notes
+- **santa-loop R1에서 기각한 4건.** 리뷰어 지적을 액면 수용하지 않고 실코드로 재현한 결과: (a) "5.2c의 `l2.json` write가 코드블록에 없다" → `Workflow` 결과는 LLM에 반환되지 셸로 파이프될 수 **없고**, 925행이 명시 지시하며 부재 시 5.2e가 fail-closed. (b) "5.2g의 `&&`가 exit 12를 삼킨다" → 셸 의미론 오독이다. 좌변이 참이면 우변의 종료코드가 곧 복합문의 종료코드다. (c) "quorum test가 `responded ≤ of`를 미검증" → `responded`는 `usable.length`로 **파생**되는 관측치라 초과값이 입력될 수 없다. (d) "`plan-review-decide.test.js:273-281`이 유출 결함을 정답으로 고정한다" → 리뷰어가 275행에서 읽기를 멈췄다. 281-282행이 정확히 반대를 단정한다(read-side 오라클이 `unavailable`로 강등 + `proofFailed:true`). 다만 이 확인이 위 4번째 흡수를 **강화**했다 — 승인 축의 방어가 증명되면서 유출 축의 공백이 분리돼 드러났다.
+- **backlog로 이연한 1건 (santa-loop R2, Codex).** `plan-review/cli.js`와 `receipt/write.js`가 `--plan`/`--prd`/`--design-doc` 경로를 `path.resolve`로 그대로 받고(절대/UNC/`..` 거부 없음), `commands/plan.md`가 `<plan path>` 자리표시자를 큰따옴표 셸 문자열에 직접 보간한다 — command substitution 페이로드가 실행 가능하다. 실재하는 표면이지만 (a) 본 커밋이 만든 것이 아니라 `plan.md` 전반의 기존 패턴이고, (b) 위협 모델이 "운영자가 자기 저장소에서 자기가 입력한 경로"이며, (c) **본 milestone의 안전 논증이 이 축에 기대지 않는다** — 플랜 경로를 통제하는 자는 이미 플랜 내용을 통제하므로 `reviewed_plan_hash`/L1이 새로 무르게 되는 것이 없다. R2에서 세운 이연 기준(선재성이 아니라 *이번 변경이 그 결함에 기대는가*)을 그대로 적용한 결과다. 공용 repo-relative 경로 validator 도입은 별 사이클.
+- **R1의 "backlog 이연" 판단은 R2에서 철회했다.** R1은 `$CODEX_VERDICT` 셸 상태 단절을 선재 결함으로 보고 이연했다. 사실 자체는 맞았지만(`git show`로 확인 — 의존은 v1.23.0 이전부터 존재) 결론이 틀렸다: 추적해 보니 같은 근본 원인의 **신규** 인스턴스가 5.2f에 있었고(`hybrid` 상시 HALT), 선재 쪽도 하필 DD7이 안전밸브로 지정한 경로였다. 위 R2 항목에서 흡수. 교훈은 "선재인가"가 이연의 충분조건이 아니라는 것 — **그 결함이 이번 변경이 기대는 전제인지**를 함께 봐야 한다.
+- **DD7 — 미상 값은 `codex`로 떨어진다.** `parseMergedVerifyMode`가 미상 값을 가장 엄격한 신규 모드로 보내는 것과 **반대 방향**이다: 이 축의 실패 모드는 "검증이 꺼짐"이 아니라 "**승인 발급자 오인**"이고, 그때 안전한 착지는 더 엄격한 신규 경로가 아니라 **이미 검증된 기존 경로**다. 미설정은 opt-out이 아니므로 신규 default(`multi-agent`)를 받는다.
+- **DD10 no-render 계약** — derive projection에는 `review_verdict`/`review_source`가 추가되지만 **어떤 renderer section도 이 두 필드를 읽지 않는다**(mechanical 확인: renderer 파일 변경 0). 사용자가 본 적 없는 세 번째 verdict 어휘를 예고 없이 화면에 올리지 않는다 — 표시 설계는 별도 디자인 사이클.
+- **이 사이클의 Codex는 `MCCP_CODEX_DISABLED=1` 정책으로 미발화**했고 receipt는 `codex_verdict='skipped'`로 정직하게 봉인됐다. 게이트 내 적대 검토는 `Task(security-reviewer)` 1회(CRITICAL 0, HIGH 2 — 둘 다 플랜 DD11/DD13이 이미 규정한 구현-정확성 요구로 흡수)이며 **cross-model이 아니다**.
+
+### Notes — santa-loop round 4 흡수 (cap 초과, 운영자 결정)
+
+3라운드 상한에서 escalate했고 운영자가 속행을 선택했다. Reviewer B가 R3에서 올린 6건 중 **같은 결함군 2건 + 1건**을 닫았다.
+
+- **`computeA3`·`computeB3`가 생산자 신호를 평탄화하고 있었다 (R3-1 + R3-5).** 이 루프에서 같은 모양이 층만 바꿔 **세 번** 재발한 축이다: R1은 대조를 만들었고, R2는 그 결과를 source에 `degraded`로 전파했고, R3는 그 `degraded`를 **지표를 발행하는 소비자가 읽지 않는다**는 것이었다. 이제 `computeA3`는 손상(`degraded`/`error`)을 `artifact_present` 판정 **앞에서** 먼저 보고 `status:'invalid'`로 내며(A1의 "무결성 위반은 producer 부재보다 먼저" 선례), `computeB3`는 `exclusion_doc_ok !== true`면 분모를 발행하지 않는다. 부재·판독불가·손상은 서로 다른 사실이고, drift난 분모는 문서가 승인한 분모가 아니다.
+- **제외표 대조가 evidence 열을 보지 않았다 (R3-4).** token·class만 맞으면 근거가 비어 있거나 지어낸 행도 통과했다 — §B3이 요구하는 "항목마다 file:line 근거"보다 약한 게이트다. 이제 evidence 셀이 실제 소스 위치(`path.js:123`)를 담아야 하며, glob(`commands/*.md`)은 라인 없이 허용한다(근거가 "모든 command body"라 단일 라인이 가리킬 수 없다).
+- **인터프리터 probe가 tiktoken import 가능성을 확인하지 않았다 (R3-2).** 첫 Python 3을 채택하므로 여러 설치가 있는 머신에서 tiktoken을 가진 인터프리터를 지나칠 수 있었다. 이제 probe가 한 프로세스에서 버전과 `import tiktoken`을 함께 답하고, tiktoken을 가진 후보가 우선한다. 어디에도 없으면 기존 loud `baseline-unavailable`을 실제 인터프리터 기준으로 유지한다.
+- **유지 판정 (R3-3)**: C3가 코드펜스 안 언급도 포인터로 인정한다. 더 조이면 인라인 코드로 적은 정상 포인터를 오탐하고, "섹션이 목적지를 명시한다"는 검사 목적은 이미 충족한다. **해당 없음 (R3-6)**: plan의 홈 절대경로는 운영자가 되돌리기 + backlog로 이미 결정한 항목이다.
+
+신규 test 6건은 helper가 아니라 **발행 층(`computeMetrics`)** 에 건다 — Codex가 "현재 test는 helper에서 멈추고 A3/B3를 실제로 발행하는 소비자 경로를 건드리지 않는다"고 지적한 지점이다. 손상·drift가 `invalid`로 뒤집히는지와, **정상 경로가 새 게이트에 걸리지 않는지**를 함께 단언한다.
+
+새 게이트가 seeded acceptance fixture를 깨뜨렸고, 그것이 논점을 그대로 실증했다 — 그 fixture는 R2가 도입한 `snapshot_files_parsed`조차 갖고 있지 않았다. **fixture가 producer의 실제 출력 모양보다 뒤처져 있었는데 소비자 층 test가 없어 아무도 그 격차를 보지 못했다.** 게이트를 느슨하게 푸는 대신 fixture가 대조 결과를 명시하도록 고쳤다.
 
 ## [1.23.4] — 2026-08-09
 

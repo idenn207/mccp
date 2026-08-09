@@ -228,7 +228,15 @@ function deriveWorktreeProgress(worktreePath, repoRoot, opts) {
     progress.current_gate = latest.gate_id || null;
     // M1 — codex_verdict-first: a divergent/critical ship is not converged (and
     // is blocked) even though resolution.converged stays true.
-    const trulyConverged = (typeof res.converged === 'boolean' || typeof res.codex_verdict === 'string')
+    // diverse-agent-review M1 — review_verdict joins the presence test so a
+    // panel-issued receipt is judged rather than reported as "unknown". The
+    // JUDGEMENT itself is isConvergedVerdict's, which already honours the review
+    // axis; only the "is there anything to judge?" gate needed widening. The raw
+    // codex_verdict read below is display text only (DD10 keeps the rendered
+    // vocabulary unchanged in M1), never a decision input.
+    const trulyConverged = (typeof res.converged === 'boolean'
+      || typeof res.codex_verdict === 'string'
+      || typeof res.review_verdict === 'string')
       ? isConvergedVerdict(res) : null;
     progress.gate_converged = trulyConverged;
     if (trulyConverged === false) {

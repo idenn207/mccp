@@ -503,6 +503,80 @@ test('evaluateForDedupe: residual present overrides both-converged → skip_safe
   }
 });
 
+// ── diverse-agent-review M1 (DD2) — cross-model corroboration required ────────
+// The skip predicate asserts "Codex already reviewed this twice". A multi-agent
+// panel approval is not evidence Codex ever spoke, so it must not satisfy the
+// skip — otherwise moving plan review off Codex would delete cross-model review
+// from the pipeline instead of relocating it to the ship point.
+
+const { crossModelConverged } = require('../dedupe');
+
+function panelResolution(verdict, source) {
+  return {
+    converged: true,
+    review_verdict: verdict,
+    review_source: source,
+    review_proof: {
+      layers: { l1: 'converged', l2: 'converged', l3: null },
+      verification_verdict: 'converged',
+      quorum: { passed: true, required: 3, of: 4, roles: 4, responded: 4 },
+      perspectives: [
+        { perspective: 'architect', verdict: 'pass' },
+        { perspective: 'security', verdict: 'pass' },
+        { perspective: 'test', verdict: 'pass' },
+        { perspective: 'invariant', verdict: 'pass' },
+      ],
+      dispatch_evidence: ['.claude/state/dispatches/abc.envelope.json'],
+      reviewed_plan_hash: 'sha256:' + 'a'.repeat(64),
+    },
+  };
+}
+
+test('DD2: a multi-agent converged receipt does NOT satisfy the skip predicate', () => {
+  assert.strictEqual(
+    crossModelConverged({ resolution: panelResolution('converged', 'multi-agent') }),
+    false,
+    'multi-agent approval is not cross-model corroboration');
+});
+
+test('DD2: a hybrid converged receipt DOES satisfy it (Codex was in the loop)', () => {
+  // santa-loop R5: the L3 layer must be present. A hybrid stamp without it is a
+  // cross-model claim with no cross-model evidence, and this predicate is what
+  // buys the PR-Codex skip.
+  const r = panelResolution('converged', 'hybrid');
+  r.review_proof.layers = { l1: 'converged', l2: 'converged', l3: 'converged' };
+  assert.strictEqual(crossModelConverged({ resolution: r }), true);
+});
+
+test('DD2: a hybrid receipt WITHOUT the L3 layer does NOT satisfy it', () => {
+  const r = panelResolution('converged', 'hybrid');   // layers.l3 stays null
+  assert.strictEqual(crossModelConverged({ resolution: r }), false,
+    'claiming hybrid must not be enough to skip terminal PR-Codex');
+});
+
+test('DD2: legacy codex_verdict=converged still satisfies it (no regression)', () => {
+  assert.strictEqual(
+    crossModelConverged({ resolution: { converged: true, codex_verdict: 'converged' } }),
+    true);
+});
+
+test('DD2: every non-converged verdict fails closed regardless of source', () => {
+  ['divergent', 'critical', 'unavailable', 'skipped'].forEach(function (v) {
+    assert.strictEqual(
+      crossModelConverged({ resolution: panelResolution(v, 'hybrid') }), false, v);
+    assert.strictEqual(
+      crossModelConverged({ resolution: { converged: true, codex_verdict: v } }), false, v);
+  });
+});
+
+test('DD2: a missing receipt or a structurally broken proof fails closed', () => {
+  assert.strictEqual(crossModelConverged(null), false);
+  assert.strictEqual(crossModelConverged({}), false);
+  const broken = panelResolution('converged', 'hybrid');
+  broken.review_proof.quorum.passed = false;
+  assert.strictEqual(crossModelConverged({ resolution: broken }), false);
+});
+
 // ---------------------------------------------------------------------------
 // codex-intent-context M1 Task 7b (DD9) — the intent axis is added on the PLAN
 // receipt only. The shared codexConverged helper is untouched, because it is

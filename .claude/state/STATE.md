@@ -1,8 +1,8 @@
 ---
 state_version: 1
-task_fingerprint: dashboard-data-exploration
+task_fingerprint: red-test-suite-restore-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-05T17:39:46.574Z
+updated_at: 2026-08-08T22:45:22.211Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-05T17:39:46.574Z
 unsafe_checkpoint: false
@@ -15,37 +15,35 @@ escalate_pending: true
 escalate_pending_decision_id: multi-session-work-loop
 ---
 ## Goal
-MSW M3 (증거 충돌 소거) 구현 완료 — Task 1~9 전부 적용, 커밋/PR 미수행.
+red-test-suite-restore M1 (v1.23.3) SHIPPED — PR #117 OPEN. origin/main(MSW M3, 1.23.1) 병합 완료 — 버전 충돌로 goal-detect는 1.23.2, red-test-suite는 1.23.3으로 상향. 잔존 red는 신규 PRD gate-guard-integrity로 분리(worktree .worktrees/gate-guard-integrity, 미push).
 
 ## Plan
-- plan: `.claude/plans/multi-session-work-loop-m3.plan.md` — 상단 `## 착수 전 요약`부터 읽을 것
-- 리뷰: Codex adversarial 2R + santa-loop dual-review 4R (Claude Opus + Codex GPT-5.4, 컨텍스트 격리)
-- receipt: `mccp-plan-codex/multi-session-work-loop` · validate ok · `codex_verdict=divergent` (세탁 안 함)
-- 보증의 단일 기준은 plan 상단 G1~G3 표. 명시된 잔여 2건은 M5(전역 순번) 없이 안 닫힘
+- PR #117 리뷰/머지 대기. 머지는 merge-commit(§3.12 — squash는 evidence-commit SHA 도달성을 깬다).
+- 다음 cycle: /mccp:plan .claude/prds/gate-guard-integrity.prd.md (worktree .worktrees/gate-guard-integrity, 브랜치 fix/gate-guard-integrity, origin/main 분기).
+- 머지 후 claude plugin update로 1.23.3 캐시 반영 + worktree cleanup.
 
 ## Done
-- Task 1~9 전부 구현. Implement-Codex R1 실발화(386s) → 6 findings 중 5 흡수 · F1 코드로 반증
-- 신규: evidence-lock.js · evidence-claim.js · b2-coverage-gate.js · evidence-conflict-design.md + 테스트 7파일(80건)
-- 변경: store(writeReceipt/updateReceipt) · briefing · completion-ledger · write.js restamp · msw-events(CL-5+event_id) · session-activity · computeB2 · derive cli · renderer · session-start/end · work.md · 1.23.1 3면 동기
-- 구현 중 자체 발견·수정: opts.env 미전달로 fence 무발화 · guard 이벤트 hash 어휘 불일치(receipt_hash로 교정) · 이중 스캔 교차 오염(다른 repo 127건 유입) · 버전 정규식 미치환
-- 계약 갱신 3건(silent-change 방지 장치라 명시적 갱신): msw-metrics.test / msw-metrics-acceptance(B2 승격) / session-activity.test(dead read 은퇴)
-- J4 상류 결함을 codex-findings-backlog.md에 구체 수정안과 함께 기록
-- 보고서: .claude/PRPs/reports/multi-session-work-loop-m3-report.md
+- PR #117 생성: fix/v1.23.1-goal-detect-and-red-tests → main, +1033 -57 / 17파일, 커밋 7개.
+- PR-Codex R1 HIGH(goal-detect가 검증한 base를 버리고 raw 셀 반환 → milestone-close가 다른 파일을 stamp/close) 흡수. 기존 S11c/S11d가 결함을 정답으로 고정하고 있어 정정 + 충돌 가드 S11h/S11i 추가, A/B로 비공허성 확인.
+- security-reviewer 호출(경로 해석 = path-traversal 카탈로그): exploitable 없음. 단 제가 만든 테스트 라벨 중복(S11e/S11f 재사용)을 잡아 S11h/S11i로 정정.
+- pre-push HISTORY leak gate가 fix-task-applied.md 절대경로 5건 차단 → 백업 ref backup/v1.23.2-preredact 남기고 filter-branch로 redact. 최종 트리 차이 1줄, leak 0.
+- evidence 커밋 안의 receipt head_sha가 재작성으로 dangling이 되어, evidence 커밋 되돌리고 새 HEAD에서 게이트 재실행 후 재커밋(§3.12 SHA 도달성).
+- 신규 PRD 작성: .claude/prds/gate-guard-integrity.prd.md (worktree, 커밋 f5df463). A+B+C가 Milestone 1, D+E가 Milestone 2.
 
 ## In Progress
-구현 완료(Task 1~9). 신규 파일 8 + 변경 25. 신규 테스트 80건 green. 전체 회귀 진행 중 — baseline 실패 6건(M3 범위 밖) 대비 대조 필요. 커밋·push 없음.
+PR #117 OPEN — 리뷰 대기. gate-guard-integrity worktree는 PRD 커밋만 있고 push/PR 없음.
 
 ## Next Step
-escalation 미해소 상태에서 (a) /mccp:santa-loop로 Implement-Codex 흡수 품질 cross-model 재검증 또는 (b) /mccp:prp-commit → /mccp:pr (dedupe fail-closed라 PR-Codex 실발화 보장) 중 운영자 선택.
+PR #117 머지(merge-commit) → claude plugin update(1.23.3) → /mccp:plan gate-guard-integrity.prd.md
 
 ## Last Decision
-Implement-Codex R1: HIGH 4 + MED 2 중 5건 흡수, F1은 코드로 반증(state-injector의 설계된 inject-후-rotate). receipt를 codex_verdict=divergent로 봉인 — R2 재검증 미획득이므로 converged로 올리지 않음.
+2026-08-09 PR #117 ship. ship-gate는 verdict=skipped + codex_disabled proof로 통과했으나 이는 승인이 아니다 — MCCP_CODEX_DISABLED=1이라 Codex가 흡수 결과를 다시 보지 못했고, 직전 divergent(실제 No-ship)를 이 receipt가 대체한다. 그 사실과 원 finding 전문을 PR 본문에 명시했다. 외부 Codex 한도 복구(2026-08-13) 후 재판정이 바람직. 히스토리 재작성은 leak gate에 override env가 없고 main이 clean이라 신규 유입을 막는 쪽을 택함(백업 ref 보존).
 
 ## Open Questions
-- OQ-3: PRD M3 문구(구조적으로 불가능)가 plan 보증 G1~G3보다 강함 — PR 시 조정
-- CL-3: sibling worktree feat/codex-intent-context도 1.23.1 선언 — PR 시 origin/main 재확인 후 상향
-- 실 corpus B2는 forward-only 유지: coverage gate 런타임 관측 아티팩트가 아직 없음(손으로 만들면 masquerade)
-- perf-budget이 이 머신에서 예산 가장자리(clean 853ms / 1000ms) — 신규 테스트 병렬 부하로 초과
+- PR #117의 ship receipt verdict=skipped는 Codex 승인이 아님 — 한도 복구 후 재판정 여부 결정 필요.
+- PRD red-test-suite-restore Milestone 1은 outcome("전수 fail 0") 미충족으로 in-progress 유지. gate-guard-integrity가 잔존을 맡으므로 outcome 축소 개정 또는 M2 추가 중 택일 필요.
+- backup/v1.23.2-preredact ref는 redaction 전 히스토리(절대경로 포함) 보관 — PR 머지 확인 후 삭제할 것.
+- 잔존 red D(flaky 2건)는 실행마다 다른 파일이 흔들림(baseline은 hook-caps+dedupe, 후속 실행은 stop-review-loop). 고정 집합이 아님.
 
 ## Last Updated
-2026-08-05T17:39:46.574Z
+2026-08-08T22:45:22.211Z

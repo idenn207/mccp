@@ -2,7 +2,36 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.23.3] — 2026-08-06
+
+**Red test suite 복원 M1 — 시한폭탄 테스트 + fixture 전제 교체 (patch — bug fix/axis close)** — pre-existing 상시 red 테스트 2건을 각각의 실제 원인에 맞게 해소한다. (1) `verdict-label.test.js`의 audit-timeline 케이스 — renderer/index.js가 renderAuditTimeline에 undefined를 하드코딩해 함수의 clock 폴백(Date.now())이 항상 발동, 픽스처의 2026-07-01 타임스탬프가 현재(2026-08-06)와 35일 벌어져 7일 필터로 제외됨 → 회귀 가드 케이스 추가(F2 — 주입 clock이 실제로 지배하는지 검증). (2) `design-critique-loop-e2e.test.js`의 fixture 케이스 F — .gitignore가 .claude/cache/를 보호해 fixture를 커밋 불가하면서도 repo 존재 assert가 구조적으로 충족 불가능 → repo-존재 검증에서 test-time 합성 + detector 검증으로 교체(실제 계약 = detector가 whitelist 경로를 인식하는지, fixture 파일의 물리적 존재가 아님).
+
+### Changed
+- `plugins/mccp/scripts/lib/renderer/index.js` — audit-timeline에 `opts.now` 전달 (하드코딩 undefined 제거)
+- `plugins/mccp/scripts/lib/renderer/tests/verdict-label.test.js` — F2 회귀 가드 추가(7일 경계 — 같은 model을 서로 다른 clock으로 render해 output 차이 검증)
+- `plugins/mccp/scripts/lib/tests/design-critique-loop-e2e.test.js` — 케이스 F 교체(fixture 합성 + plan의 whitelist 경로 인식 검증)
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.2 → 1.23.3`(patch — bug fix/axis close, §3.7) + renderer footer(html/markdown) 동기.
+
+### Fixed — PR-Codex R1 흡수 (HIGH, goal-detect 경로 반환)
+
+`goal-detect.js`의 plan 존재 확인 루프는 `[repoRoot, prdDir]`(또는 `./`·`../` 셀이면 역순) 두 base를 순회하며 존재하는 후보에서 멈추지만, **어느 base가 매칭됐는지 버리고 원본 셀 문자열을 그대로 `signal_ref.plan`으로 반환**했다. 유일한 소비처 `milestone-close.md`는 그 값을 `PLAN_PATH`로 직접 쓰며 repo root 기준으로 해석하므로, 검출이 승인한 파일과 명령이 편집하는 파일이 **서로 다를 수 있었다** — 예컨대 bare 셀 `x.plan.md`가 `<prdDir>/x.plan.md`로 매칭되면 downstream은 `<repoRoot>/x.plan.md`를 가리켜, 같은 이름의 다른 파일이 있으면 조용히 엉뚱한 plan을 stamp/close하고 없으면 dead-end가 된다. 즉 `plan-missing` 정지였어야 할 것이 `goal_signal=true`로 바뀌며 milestone provenance가 오염된다.
+
+이제 실제로 존재 확인을 통과한 후보를 **repo-relative canonical 경로**로 정규화해 반환한다(신규 `toRepoRelative`). 검출과 변형이 항상 같은 파일을 지목한다.
+
+- `plugins/mccp/scripts/lib/goal-detect.js` — 매칭된 base를 추적해 canonical 경로 emit
+- `plugins/mccp/scripts/lib/tests/goal-detect.test.js` — **기존 S11c·S11d가 결함을 정답으로 고정하고 있었다**(raw 셀 `'../plans/m2.plan.md'` · `'./sibling.plan.md'`를 기대). 두 단언을 canonical 경로로 정정하고, 충돌 회귀 2건(S11h prdDir 매칭 · S11i repo-root fallback)을 추가. 수정을 되돌리면 4건 전부 실패함을 A/B로 확인(공허하지 않음).
+
+## [1.23.2] — 2026-07-31
+
+**`/mccp:milestone-close` detector false-negative 수정 (patch — axis close)** — `/mccp:milestone-close`를 실제 PRD에 처음 돌리자 Phase 1 DETECT가 `reason=plan-missing`으로 STOP했다. plan 파일은 **존재**했다 — `goal-detect.js`가 실제 PRD 표의 plan 셀을 해석하지 못한 것이다. 서로 **독립적으로 치명적인** 결함 2건이 겹쳐 있었다: (1) `extractPlanPath`가 markdown link `[label](path)`만 처리하고 **inline-code 백틱을 제거하지 않아** `` `.claude/plans/x.plan.md` `` 가 백틱째로 경로 해석에 흘러갔고, (2) plan 경로를 **`prdDir` 기준**으로 resolve해 repo-root 상대 표기(`.claude/prds/` + `.claude/plans/…`)가 원리상 절대 맞지 않았다. 백틱만 제거해도 여전히 `plan-missing`, resolve base만 바꿔도 여전히 `plan-missing` — 둘 다 고쳐야 `goal_signal=true`가 된다. 기존 테스트가 이 버그를 정답으로 고정하고 있던 것은 **아니다**: 모든 fixture가 PRD를 repoRoot에 직접 두어 `prdDir === repoRoot`였고, 그래서 resolution base가 **한 번도 실행되지 않았다**(under-coverage). 회귀 테스트는 PRD를 `.claude/prds/` 하위에 두는 실제 배치로 바꿔 두 축을 각각 재현한다.
+
+### Changed
+- `plugins/mccp/scripts/lib/goal-detect.js` — `extractPlanPath`가 inline-code fence를 먼저 벗기고(백틱 안의 markdown link도 처리) 그 다음 link/bare를 해석. plan 경로 해석은 단일 base가 아니라 **후보 base 목록**(`planResolutionBases`): bare 경로는 repoRoot 우선·prdDir fallback, `./`·`../` 접두는 문서 상대이므로 prdDir 우선·repoRoot fallback. `path-traversal`은 **모든** base에서 repo를 벗어날 때만 발급하고, 안전하지만 부재인 경우는 `plan-missing`으로 유지(두 reason의 의미 보존).
+- `plugins/mccp/scripts/lib/tests/goal-detect.test.js` — S11a~S11g 추가. PRD를 `.claude/prds/` 하위에 배치해 base 축을 실제로 행사: 백틱+bare 조합(결함 1+2), bare 단독(결함 2), 백틱 안 markdown link, `./` 상대 경로 무회귀, 백틱 감싼 `—`, 실제 부재(`plan-missing`), 전 base traversal(`path-traversal`). 미수정 코드(cache 1.22.7) A/B로 신규 테스트가 공허하지 않음을 확인.
+- `plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js` — markdown footer 검증을 bare `/v1\.x\.y/`에서 footer 줄 anchor로 교체(html 쪽이 이미 흡수한 교훈 — plan 파생 milestone 라벨이 body에서 우연히 매칭됨).
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.1 → 1.23.2`(patch — bug fix/axis close, §3.7) + renderer footer(html/markdown) 동기.
 
 ## [1.23.1] — 2026-08-06
 

@@ -2,14 +2,14 @@
 fix_task_version: 1
 task_fingerprint: dashboard-data-exploration
 gate_id: stop-review-loop
-decision_id: multi-session-work-loop
-created_at: 2026-08-05T15:46:08.675Z
-expires_at: 2026-08-12T15:46:08.675Z
+decision_id: red-test-suite-restore
+created_at: 2026-08-05T18:01:43.411Z
+expires_at: 2026-08-12T18:01:43.411Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-implement-codex/multi-session-work-loop.json
+  - .claude/receipts/mccp-pr-codex/red-test-suite-restore.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -25,7 +25,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- .claude/receipts/mccp-implement-codex/multi-session-work-loop.json
+- .claude/receipts/mccp-pr-codex/red-test-suite-restore.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/multi-session-work-loop>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-pr-codex/red-test-suite-restore>'

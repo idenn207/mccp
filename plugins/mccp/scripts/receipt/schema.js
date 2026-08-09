@@ -226,6 +226,22 @@ function validate(receipt) {
         }
       }
 
+      // santa-loop R5 — 'hybrid' must SHOW its L3 layer. `hybrid` is a
+      // CROSS_MODEL_SOURCES member, so cross-gate dedupe counts a converged
+      // hybrid receipt as cross-model corroboration and skips terminal PR-Codex.
+      // A receipt that claims the L3 layer without carrying its verdict would
+      // buy that skip with evidence it never had — the read-side predicate
+      // rejects it, and this stops it reaching disk in the first place.
+      if (r.review_source === 'hybrid' && r.review_verdict === 'converged') {
+        const layers = isPlainObject(r.review_proof) ? r.review_proof.layers : null;
+        const l3 = isPlainObject(layers) ? layers.l3 : null;
+        req(l3 === 'converged',
+          'a converged review_source="hybrid" receipt must carry ' +
+          'review_proof.layers.l3 === "converged" — hybrid claims cross-model ' +
+          'corroboration, and cross-gate dedupe skips PR-Codex on that claim, so ' +
+          'the L3 verdict it rests on must be present (got ' + JSON.stringify(l3) + ')');
+      }
+
       // DD11 contradiction guard — 'multi-agent' asserts Codex never spoke, so a
       // codex_verdict sitting beside it makes the receipt claim both at once.
       // Cross-gate dedupe reads source to decide whether cross-model corroboration

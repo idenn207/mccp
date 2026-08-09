@@ -172,7 +172,21 @@ function resolveContained(rawPath, root, flag) {
   if (!insideRoot(abs, root)) {
     return { ok: false, reason: flag + ' resolves outside the repository (' + rawPath + ')' };
   }
-  return { ok: true, abs: abs };
+  // santa-loop R5 — lexical containment alone is defeated by a symlink pointing
+  // out of the tree, so compare REAL paths when both sides exist. Resolution
+  // failure is not fatal: a plan that does not exist yet still fails later on
+  // read, and treating ENOENT as an escape would reject ordinary first-run cases.
+  try {
+    const realAbs = fs.realpathSync(abs);
+    const realRoot = fs.realpathSync(root);
+    if (!insideRoot(realAbs, realRoot)) {
+      return { ok: false, reason: flag + ' resolves outside the repository through a ' +
+        'symlink (' + rawPath + ')' };
+    }
+    return { ok: true, abs: realAbs };
+  } catch (_) {
+    return { ok: true, abs: abs };
+  }
 }
 
 // ── l1 ────────────────────────────────────────────────────────────────────────

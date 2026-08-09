@@ -822,7 +822,7 @@ echo "[mccp:plan-review] mode=$REVIEW_MODE" 1>&2
 |---|---|
 | `codex` | **5.2z** below — the pre-M1 Codex path, unchanged. Skip 5.2a–5.2h entirely and stamp NO `review_*` fields. |
 | `multi-agent` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2e → 5.2g → 5.2h (L3 is not fired) |
-| `hybrid` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2f → 5.2e → 5.2g → 5.2h |
+| `hybrid` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2f → 5.2e → 5.2g → 5.2h — **5.2f only when `mode.json` `fires.l3` is true** (see below) |
 
 `MCCP_PLAN_REVIEW` unset means `multi-agent`; an unreadable value falls back to
 `codex` with a loud warn (DD7 — an unreadable mode must not silently change who
@@ -1027,6 +1027,27 @@ path is how a real launch silently leaves the counter. Over-counting until a
 later reconcile is the correct direction to err.
 
 #### 5.2f — L3 Codex layer (hybrid only)
+
+**Step 0 — is L3 supposed to fire at all?** `MCCP_PLAN_REVIEW_L3=0` turns L3 off
+without touching the mode, so the mode table alone does not decide this. The CLI
+already computed it; read the answer rather than re-deriving it from the env.
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+FIRES_L3=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.fires&&j.fires.l3?"1":"0")}catch{process.stdout.write("0")}' "$REVIEW_DIR/mode.json")
+if [ "$FIRES_L3" != "1" ]; then
+  printf '{"invoked":false,"reason":"MCCP_PLAN_REVIEW_L3=0 — L3 disabled by policy"}
+' > "$REVIEW_DIR/l3.json"
+  echo "[mccp:plan-review] L3 disabled (fires.l3=false) — skipping the Codex wrapper." 1>&2
+fi
+```
+
+When `FIRES_L3` is `0`, **skip the rest of 5.2f entirely** and go to 5.2e. The
+artifact above is the honest record, and 5.2e turns it into `unavailable` with
+source `multi-agent` — requesting hybrid and then disabling its cross-model layer
+is not hybrid, and the gate says so rather than stamping a corroboration that
+never happened. Unreadable `mode.json` reads as `0`: an unknown policy must not
+silently spend a Codex call.
 
 **Step 1 — actually run the wrapper.** Execute 5.2z's Codex wrapper block below
 *verbatim*. It ends by persisting the verdict to `$REVIEW_DIR/codex-verdict`,

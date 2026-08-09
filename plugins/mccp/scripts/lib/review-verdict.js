@@ -245,7 +245,32 @@ function resolveEffectiveVerdict(resolution) {
 function isCrossModelCorroborated(resolution) {
   const eff = resolveEffectiveVerdict(resolution);
   if (eff.verdict !== 'converged') return false;
-  return CROSS_MODEL_SOURCES.indexOf(eff.source) !== -1;
+  if (CROSS_MODEL_SOURCES.indexOf(eff.source) === -1) return false;
+
+  // santa-loop R5 (Codex GPT-5.4) — `hybrid` must SHOW its L3 layer, not just
+  // claim it.
+  //
+  // decideReview cannot emit hybrid without a real L3 verdict (decide.js:237
+  // downgrades a requested-but-not-run hybrid to source 'multi-agent'), so the
+  // producer was never the problem. But this predicate reads RECEIPTS, and a
+  // receipt is a durable artifact that outlives the process that wrote it —
+  // anything not produced by that exact oracle (a future writer, a hand-repaired
+  // file, a partially migrated corpus) could assert `source: 'hybrid'` beside a
+  // proof whose `layers.l3` is null and be counted as cross-model corroboration.
+  //
+  // That is not a cosmetic gap: this predicate is the DD2 gate. Reading it as
+  // corroborated makes cross-gate dedupe skip PR-Codex, which is exactly the
+  // "cross-model is moved to ship, not removed" guarantee the milestone rests on.
+  // A same-model panel would have been stamped as cross-model and the terminal
+  // check it was supposed to defer to would never run.
+  if (eff.source === 'hybrid') {
+    const proof = resolution && resolution.review_proof;
+    const l3 = isPlainObject(proof) && isPlainObject(proof.layers) ? proof.layers.l3 : null;
+    // Only a CONVERGED L3 corroborates. A dissenting L3 is a real cross-model
+    // opinion, but it is not an approval, and eff.verdict already rejects it.
+    if (l3 !== 'converged') return false;
+  }
+  return true;
 }
 
 module.exports = {

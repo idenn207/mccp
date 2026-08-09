@@ -540,9 +540,18 @@ test('DD2: a multi-agent converged receipt does NOT satisfy the skip predicate',
 });
 
 test('DD2: a hybrid converged receipt DOES satisfy it (Codex was in the loop)', () => {
-  assert.strictEqual(
-    crossModelConverged({ resolution: panelResolution('converged', 'hybrid') }),
-    true);
+  // santa-loop R5: the L3 layer must be present. A hybrid stamp without it is a
+  // cross-model claim with no cross-model evidence, and this predicate is what
+  // buys the PR-Codex skip.
+  const r = panelResolution('converged', 'hybrid');
+  r.review_proof.layers = { l1: 'converged', l2: 'converged', l3: 'converged' };
+  assert.strictEqual(crossModelConverged({ resolution: r }), true);
+});
+
+test('DD2: a hybrid receipt WITHOUT the L3 layer does NOT satisfy it', () => {
+  const r = panelResolution('converged', 'hybrid');   // layers.l3 stays null
+  assert.strictEqual(crossModelConverged({ resolution: r }), false,
+    'claiming hybrid must not be enough to skip terminal PR-Codex');
 });
 
 test('DD2: legacy codex_verdict=converged still satisfies it (no regression)', () => {

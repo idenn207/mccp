@@ -369,8 +369,22 @@ test('DD2: multi-agent converged is NOT cross-model corroborated', () => {
   assert.equal(isCrossModelCorroborated(reviewResolution()), false);
 });
 
-test('DD2: hybrid converged IS cross-model corroborated', () => {
-  assert.equal(isCrossModelCorroborated(reviewResolution({ review_source: 'hybrid' })), true);
+test('DD2: hybrid WITHOUT an L3 layer is NOT corroborated (santa-loop R5)', () => {
+  // The producer cannot emit this (decide.js downgrades a hybrid whose L3 did
+  // not run to source multi-agent), but the predicate reads RECEIPTS, which
+  // outlive the process that wrote them. Claiming hybrid must not be enough.
+  assert.equal(isCrossModelCorroborated({
+    review_verdict: 'converged',
+    review_source: 'hybrid',
+    review_proof: validProof(),               // layers.l3 === null
+  }), false);
+});
+
+test('DD2: hybrid converged IS cross-model corroborated — WITH its L3 layer', () => {
+  const proof = validProof();
+  proof.layers = { l1: 'converged', l2: 'converged', l3: 'converged' };
+  assert.equal(isCrossModelCorroborated(
+    reviewResolution({ review_source: 'hybrid', review_proof: proof })), true);
 });
 
 test('DD2: legacy codex converged IS cross-model corroborated', () => {

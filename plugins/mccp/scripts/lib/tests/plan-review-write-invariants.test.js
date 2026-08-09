@@ -175,8 +175,18 @@ test('the relaxation itself survives: a non-converged proof with clean paths is 
     'an unsatisfied quorum must still be recordable on a non-converged verdict');
 });
 
+function hybridProof(hash) {
+  const p = validProof(hash);
+  // A real hybrid run records the L3 verdict it actually got. santa-loop R5:
+  // this fixture used to leave layers.l3 null, which pinned `hybrid without
+  // any L3` as a valid cross-model receipt — the exact shape dedupe trusts to
+  // skip terminal PR-Codex.
+  p.layers = { l1: 'converged', l2: 'converged', l3: 'converged' };
+  return p;
+}
+
 test('hybrid source legitimately carries a codex_verdict (L3 IS Codex)', () => {
-  const proofPath = tmpFile('proof.json', JSON.stringify(validProof(planAwareMarkdownHash(PLAN_ABS))));
+  const proofPath = tmpFile('proof.json', JSON.stringify(hybridProof(planAwareMarkdownHash(PLAN_ABS))));
   const r = buildReceiptObj(baseArgs({
     'review-verdict': 'converged',
     'review-source': 'hybrid',
@@ -428,4 +438,23 @@ test('(7) writeEntry validation accepts entries with the new provenance', () => 
 
   const bogus = Object.assign({}, entry, { verdict_provenance: 'vibes' });
   assert.equal(validateEntry(bogus).ok, false, 'unknown provenance must still be rejected');
+});
+
+test('a converged hybrid receipt without an L3 layer cannot be written', () => {
+  // hybrid buys a PR-Codex skip through cross-gate dedupe. A receipt claiming it
+  // must carry the L3 verdict that claim rests on, or the skip is bought with
+  // evidence that does not exist.
+  const noL3 = validProof(planAwareMarkdownHash(PLAN_ABS));   // layers.l3 === null
+  const proofPath = tmpFile('no-l3-proof.json', JSON.stringify(noL3));
+  let threw = null;
+  try {
+    buildReceipt(baseArgs({
+      'review-verdict': 'converged',
+      'review-source': 'hybrid',
+      'review-proof-file': proofPath,
+      'codex-verdict': 'converged',
+    }));
+  } catch (e) { threw = e; }
+  assert.ok(threw, 'a converged hybrid receipt with layers.l3 null must not reach disk');
+  assert.match(threw.message, /layers\.l3/, threw.message);
 });

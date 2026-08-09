@@ -21,9 +21,15 @@ function mkTempRepo() {
 }
 
 function makeBrokenPluginRoot() {
-  // hook-trace lives in <root>/scripts/lib, so we point CLAUDE_PLUGIN_ROOT at a
-  // skeleton that has hook-trace.js but NO receipt/ tree → validate-cmd require
-  // fails, triggering G1 path.
+  // Points CLAUDE_PLUGIN_ROOT at a skeleton holding hook-trace.js and nothing
+  // else, so the hook hits a missing core module and takes the G1 route.
+  //
+  // santa-loop R3 (Reviewer B) — this used to read "NO receipt/ tree →
+  // validate-cmd require fails, triggering G1 path", which contradicted the
+  // explanation added just below. Since the core-module guard landed, the hook
+  // returns at coreModuleLoadError() (receipt-mode is absent here) and never
+  // reaches the validate-cmd require. That route is covered by
+  // makeValidateCmdBrokenRoot() instead.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-g1-broken-root-'));
   const libDir = path.join(root, 'scripts', 'lib');
   fs.mkdirSync(libDir, { recursive: true });

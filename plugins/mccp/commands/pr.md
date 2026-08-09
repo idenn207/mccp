@@ -905,20 +905,45 @@ finalize (2.5.7) is the runtime **primary** ship gate — its exit 12 already HA
 # never retro-blocked (DD5). An active MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE
 # (env, Phase 0.4) OR meta.pr_codex_force_override=true downgrades the block to a
 # warning here (ship proceeds; verdict stays sealed).
-# v1.23.5 G2 — `--plan <plan-path>` is REQUIRED here, and this is the callsite
-# where it actually enforces something. Without it the validator never re-hashes
+# v1.23.5 G2 — `--plan` is REQUIRED here. Without it the validator never re-hashes
 # the plan, so `stale` could not fire and a plan edited AFTER its gate shipped
-# unnoticed. Unlike the Phase 1.6 preflight (scoping only), this read-back gates
-# on the aggregate `ok`, so a stale plan HALTs the push.
-# Substitute the SAME plan path Phase 2 DISCOVER found (the one used at 2.5.2's
-# `--plan`), not a fresh guess — a path that does not resolve lands in `stale`
-# and will (correctly) block here.
+# unnoticed. Unlike the Phase 1.6 preflight (scoping only — it reads `blocking`),
+# this read-back gates on the aggregate `ok`, so a stale plan HALTs the push.
+# santa-loop R3 (Reviewer B): this is the ship-verdict locus, but not the only
+# place a stale plan can stop the run — 2.5.8's code-review chain-check also
+# passes `--plan` and can stale-block before Phase 3. Stated as scope, not as
+# uniqueness.
+# santa-loop R3 (Reviewer A) — this uses a real shell variable, NOT the
+# `<plan-path>` placeholder the surrounding command body uses elsewhere. The
+# distinction matters here specifically: an unsubstituted `<plan-path>` is not a
+# bad argument, it is a bash SYNTAX ERROR (`<` opens a redirection), so a gate
+# that depends on the model substituting it correctly is not the mechanical gate
+# this milestone claims to restore. Phase 1.6 above already derives a real
+# variable; leaving the load-bearing ship gate on a placeholder was an
+# inconsistency between the two edits. Same self-derivation discipline as
+# prp-implement.md's design-grounding gate (shell-state independent, re-derived
+# from a stable input).
+#
+# PR_PLAN_PATH is the escape hatch: Phase 2 DISCOVER sets it when the discovered
+# plan's basename differs from the decision slug. Unset, the deterministic
+# `.claude/plans/<slug>.plan.md` derivation applies, which is /mccp:plan's output
+# convention. Either way this cannot degrade into a syntax error, and a path that
+# does not resolve lands in `stale` and correctly blocks here.
+# santa-loop R3 (Reviewer B) — same `|| SHIP_GATE_EXIT=$?` guard as Phase 1.6, and
+# for the same reason: `validate` exits 2 on any non-ok result, so under `set -e` a
+# bare capture aborts the shell. R2 hardened 1.6 and left this sibling callsite
+# bare, which was an omission, not a distinction. The failure mode here is milder
+# than at 1.6 — an abort still HALTs, so it cannot ship anything — but it skips
+# `SHIP_OK`, the `[MCCP-GATE-STOP]` diagnostics below, and the audited-override
+# warning path, turning an explained stop into a bare exit 2.
+SHIP_PLAN_PATH="${PR_PLAN_PATH:-.claude/plans/${DECISION_SLUG}.plan.md}"
 SHIP_GATE_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" validate \
   --command mccp:pr \
   --decision "${DECISION_SLUG}" \
-  --plan <plan-path> \
+  --plan "$SHIP_PLAN_PATH" \
   --check-ship-verdict \
-  ${FINALIZE_RECEIPT_HASH:+--expected-receipt-hash "$FINALIZE_RECEIPT_HASH"} 2>/dev/null)
+  ${FINALIZE_RECEIPT_HASH:+--expected-receipt-hash "$FINALIZE_RECEIPT_HASH"} 2>/dev/null) \
+  && SHIP_GATE_EXIT=0 || SHIP_GATE_EXIT=$?
 # Gate on the aggregate `ok` flag, NOT on a single blocking kind. The ship-gate
 # emits FOUR fail-closed blocking kinds on the freshly-written receipt —
 # pr_codex_nonconverged (non-approving verdict / unreadable), subject-tamper,

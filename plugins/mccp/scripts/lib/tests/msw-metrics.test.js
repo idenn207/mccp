@@ -8,6 +8,7 @@ const {
   computeMetrics,
   A1_WORK_COMPLETION_RATE,
   A2_CONTEXT_REMAINING,
+  A3_INSTRUCTION_COST,
   A4_RESTORE_RATE,
   B1_STATUS_DRIFT,
   B2_CONCURRENT_CONFLICTS,
@@ -258,6 +259,9 @@ test('B3: toggle axes computes usage rate + branch count', (t) => {
   const model = {
     sources: {
       toggle_usage: {
+        // round 4: the denominator is only publishable when the normative
+        // exclusion table and the code agree; fixtures must say so explicitly.
+        exclusion_doc_ok: true,
         ok: true,
         used_toggle_count: 15,
         denominator: 100,
@@ -353,6 +357,9 @@ test('B3: an empty env-snapshot corpus is forward-only, not "computed 0%"', (t) 
   const metrics = computeMetrics({
     sources: {
       toggle_usage: {
+        // round 4: the denominator is only publishable when the normative
+        // exclusion table and the code agree; fixtures must say so explicitly.
+        exclusion_doc_ok: true,
         ok: true,
         used_toggle_count: 0,
         denominator: 94,
@@ -383,6 +390,9 @@ test('B3: a high branch count is co-reported, never an integrity violation', (t)
   const metrics = computeMetrics({
     sources: {
       toggle_usage: {
+        // round 4: the denominator is only publishable when the normative
+        // exclusion table and the code agree; fixtures must say so explicitly.
+        exclusion_doc_ok: true,
         ok: true,
         used_toggle_count: 12,
         denominator: 94,
@@ -482,6 +492,9 @@ test('all computed metrics have coverage marker', (t) => {
         producer_coverage: 'handoff-items',
       },
       toggle_usage: {
+        // round 4: the denominator is only publishable when the normative
+        // exclusion table and the code agree; fixtures must say so explicitly.
+        exclusion_doc_ok: true,
         ok: true,
         used_toggle_count: 8,
         denominator: 100,
@@ -508,4 +521,102 @@ test('all computed metrics have coverage marker', (t) => {
       `${id}: must have coverage marker`
     );
   }
+});
+
+// --------------------------------- santa-loop round 4: consumers must not flatten
+//
+// Three rounds running, a fix landed on the producer while the consumer kept
+// collapsing the signal: the source learned to say "degraded"/"unparsable", and
+// computeA3/computeB3 published anyway. These assert at the PUBLISHING layer,
+// which is where the earlier helper-level tests stopped.
+
+test('A3: a corrupt artifact is invalid, not "no artifact emitted yet"', () => {
+  const a3 = computeMetrics({
+    sources: {
+      instruction_cost: {
+        ok: true,
+        artifact_present: false,
+        degraded: true,
+        invalid_count: 1,
+        error: 'a3 artifact unparsable: Unexpected token }',
+        artifact_path: 'docs/multi-session-work-loop/a3-baseline.json',
+        producer_coverage: 'a3-instruction-cost',
+      },
+    },
+  })[A3_INSTRUCTION_COST];
+
+  assert.strictEqual(a3.status, 'invalid',
+    'corruption and absence are different facts and must not share a status');
+  assert.strictEqual(a3.integrity_ok, false);
+  assert.match(a3.invalid_reason, /unparsable/);
+  assert.doesNotMatch(a3.invalid_reason, /no A3 artifact emitted yet/);
+});
+
+test('A3: a genuinely absent artifact stays forward-only', () => {
+  const a3 = computeMetrics({
+    sources: {
+      instruction_cost: {
+        ok: true, artifact_present: false, degraded: false, error: null,
+        artifact_path: 'docs/multi-session-work-loop/a3-baseline.json',
+        producer_coverage: 'a3-instruction-cost',
+      },
+    },
+  })[A3_INSTRUCTION_COST];
+
+  assert.strictEqual(a3.status, 'forward-only', 'absence must not be reported as corruption either');
+  assert.strictEqual(a3.integrity_ok, true);
+});
+
+test('B3: exclusion-table drift makes the metric invalid, not a published number', () => {
+  const b3 = computeMetrics({
+    sources: {
+      toggle_usage: {
+        ok: true,
+        denominator: 96,
+        raw_surface_count: 106,
+        used_toggle_count: 4,
+        operation_branch_count: 203,
+        snapshot_corpus_present: true,
+        snapshot_files_read: 1,
+        snapshot_files_parsed: 1,
+        exclusion_doc_ok: false,
+        exclusion_doc_drift: ['excluded in code but not named in the normative table: MCCP_FAKE'],
+        degraded: true,
+        error: 'exclusion table drift — the denominator is not the one measurement-design.md §B3 names',
+        producer_coverage: 'toggle-usage',
+      },
+    },
+  })[B3_TOGGLE_AXES];
+
+  assert.strictEqual(b3.status, 'invalid',
+    'a denominator the normative table does not endorse must not be published');
+  assert.strictEqual(b3.integrity_ok, false);
+  assert.strictEqual(b3.value, null);
+  assert.match(b3.invalid_reason, /drift/);
+});
+
+test('B3: a clean cross-check still publishes normally', () => {
+  const b3 = computeMetrics({
+    sources: {
+      toggle_usage: {
+        ok: true,
+        denominator: 96,
+        raw_surface_count: 106,
+        used_toggle_count: 4,
+        operation_branch_count: 203,
+        snapshot_corpus_present: true,
+        snapshot_files_read: 1,
+        snapshot_files_parsed: 1,
+        exclusion_doc_ok: true,
+        exclusion_doc_drift: [],
+        degraded: false,
+        error: null,
+        producer_coverage: 'toggle-usage',
+      },
+    },
+  })[B3_TOGGLE_AXES];
+
+  assert.notStrictEqual(b3.status, 'invalid',
+    'the new gate must not swallow the healthy path');
+  assert.strictEqual(b3.integrity_ok, true);
 });

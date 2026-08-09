@@ -332,3 +332,18 @@ test('a3: a missing CLAUDE.md is an explicit refusal, not an empty measurement',
     fsx.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('probe: the adopted interpreter reports whether IT can import tiktoken', () => {
+  // Round 4: selection used to stop at the first Python 3 on PATH. On a machine
+  // with several installs that is routinely not the one carrying tiktoken, so
+  // A3 reported baseline-unavailable while a usable interpreter sat one
+  // candidate later. The probe now answers both questions in one process.
+  const { resolveInterpreter } = require('../msw-metrics/a3-instruction-cost');
+  const found = resolveInterpreter({ noCache: true });
+
+  if (found === null) return; // no Python at all: nothing to assert about selection
+
+  assert.strictEqual(typeof found.tiktoken_available, 'boolean',
+    'the adopted interpreter must state its own tiktoken availability, not leave it unknown');
+  assert.ok(found.cmd, 'an adopted interpreter always names the command it resolved to');
+});

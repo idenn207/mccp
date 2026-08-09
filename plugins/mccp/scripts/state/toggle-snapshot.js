@@ -147,7 +147,16 @@ const EXCLUSION_DOC_REL = path.join('docs', 'multi-session-work-loop', 'measurem
 // is itself inside the scanned surface, so a literal example would be counted
 // as a toggle and inflate the very denominator it documents (same
 // self-contamination the PYPROBE_OK marker hit).
-const EXCLUSION_ROW = /^[ \t]*\|[ \t]*([a-z][a-z-]*)[ \t]*\|[ \t]*`(MCCP_[A-Z0-9_]*)`[ \t]*\|/gm;
+//
+// The evidence cell is captured too. §B3 requires "항목마다 file:line 근거", so
+// comparing only token and class would accept a row whose justification is blank
+// or made up -- a weaker gate than the one the milestone claims.
+const EXCLUSION_ROW = /^[ \t]*\|[ \t]*([a-z][a-z-]*)[ \t]*\|[ \t]*`(MCCP_[A-Z0-9_]*)`[ \t]*\|([^|\n]*)\|/gm;
+
+// A usable justification names a real source location. `path/file.js:123` is the
+// norm; a glob (`commands/*.md`) is accepted without a line because the evidence
+// there is "every command body", which no single line can point at.
+const EVIDENCE_PATH = /[A-Za-z0-9_./*-]+\.(?:js|mjs|cjs|md|json)(?::\d+)?/;
 
 function parseExclusionDoc(repoRoot, docPath) {
   const target = path.resolve(repoRoot || process.cwd(), docPath || EXCLUSION_DOC_REL);
@@ -158,13 +167,15 @@ function parseExclusionDoc(repoRoot, docPath) {
     return { ok: false, tokens: null, path: target, error: err.message };
   }
   const tokens = new Map();
+  const evidence = new Map();
   EXCLUSION_ROW.lastIndex = 0;
   let m;
   while ((m = EXCLUSION_ROW.exec(text)) !== null) {
     if (EXCLUSION_CLASSES.indexOf(m[1]) === -1) continue;
     tokens.set(m[2], m[1]);
+    evidence.set(m[2], String(m[3] || '').trim());
   }
-  return { ok: true, tokens: tokens, path: target, error: null };
+  return { ok: true, tokens: tokens, evidence: evidence, path: target, error: null };
 }
 
 /**
@@ -189,10 +200,22 @@ function crossCheckExclusions(repoRoot, docPath) {
     .filter((n) => doc.tokens.has(n) && doc.tokens.get(n) !== TOGGLE_EXCLUSIONS[n].class)
     .map((n) => n + ' (code=' + TOGGLE_EXCLUSIONS[n].class + ', doc=' + doc.tokens.get(n) + ')');
 
+  // §B3 demands per-item file:line evidence. Accepting a row on token+class
+  // alone would let a blank or invented justification stand, which is a weaker
+  // gate than the guarantee this milestone states.
+  const badEvidence = [];
+  doc.tokens.forEach((_cls, name) => {
+    const cell = (doc.evidence && doc.evidence.get(name)) || '';
+    if (!EVIDENCE_PATH.test(cell)) {
+      badEvidence.push(name + ' (evidence names no source location: "' + cell.slice(0, 60) + '")');
+    }
+  });
+
   const drift = []
     .concat(missingInDoc.map((n) => 'excluded in code but not named in the normative table: ' + n))
     .concat(missingInCode.map((n) => 'named in the normative table but not excluded in code: ' + n))
-    .concat(classMismatch.map((s) => 'class mismatch — ' + s));
+    .concat(classMismatch.map((s) => 'class mismatch — ' + s))
+    .concat(badEvidence.map((s) => 'missing file:line evidence — ' + s));
 
   return {
     ok: drift.length === 0,
@@ -200,6 +223,7 @@ function crossCheckExclusions(repoRoot, docPath) {
     missing_in_doc: missingInDoc,
     missing_in_code: missingInCode,
     class_mismatch: classMismatch,
+    bad_evidence: badEvidence,
     doc_token_count: doc.tokens.size,
     code_token_count: codeNames.length,
   };

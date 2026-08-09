@@ -47,9 +47,21 @@ const PY_CANDIDATES = Object.freeze([
 ]);
 
 const PROBE_MARKER = 'PYPROBE_OK:';
+// The probe reports BOTH the major version and whether tiktoken imports in that
+// same interpreter. Selecting on version alone picks the first Python 3 on PATH,
+// which on a machine with several installs is routinely not the one carrying
+// tiktoken — A3 then reports `baseline-unavailable` while a perfectly usable
+// interpreter sits one candidate later. The import is attempted here rather than
+// inferred from `pip` for the same reason the version string is: the process that
+// answers must be the process that would tokenize.
 const PROBE_SRC = [
   'import sys',
-  'sys.stdout.write("' + PROBE_MARKER + '%d" % sys.version_info[0])',
+  'try:',
+  '    import tiktoken',
+  '    _tk = 1',
+  'except Exception:',
+  '    _tk = 0',
+  'sys.stdout.write("' + PROBE_MARKER + '%d:%d" % (sys.version_info[0], _tk))',
   'raise SystemExit(0 if sys.version_info[0] == 3 else 3)',
 ].join('\n');
 
@@ -64,7 +76,13 @@ let _interpreterCache;
 function resolveInterpreter(opts = {}) {
   if (!opts.noCache && _interpreterCache !== undefined) return _interpreterCache;
 
-  let found = null;
+  // Two-tier selection. A candidate that imports tiktoken wins outright; the
+  // first bare Python 3 is kept only as a fallback so that "no tiktoken anywhere"
+  // still reports the existing loud baseline-unavailable against a real
+  // interpreter instead of returning null and losing that detail.
+  let withTiktoken = null;
+  let barePython3 = null;
+
   for (const cand of PY_CANDIDATES) {
     let r;
     try {
@@ -79,11 +97,24 @@ function resolveInterpreter(opts = {}) {
     }
     if (!r || r.error || r.status !== 0) continue;
     const out = String(r.stdout || '');
-    if (out.indexOf(PROBE_MARKER + '3') === -1) continue;
-    found = { cmd: cand.cmd, prefix: cand.prefix.slice(), version: null };
-    break;
+    const at = out.indexOf(PROBE_MARKER + '3');
+    if (at === -1) continue;
+
+    // marker is `PYPROBE_OK:<major>:<tiktoken 0|1>`; tolerate the older
+    // major-only shape by treating a missing third field as unknown.
+    const tail = out.slice(at + PROBE_MARKER.length + 1);
+    const hasTiktoken = /^:1\b/.test(tail);
+    const entry = {
+      cmd: cand.cmd,
+      prefix: cand.prefix.slice(),
+      version: null,
+      tiktoken_available: hasTiktoken,
+    };
+    if (hasTiktoken) { withTiktoken = entry; break; }
+    if (!barePython3) barePython3 = entry;
   }
 
+  const found = withTiktoken || barePython3;
   if (!opts.noCache) _interpreterCache = found;
   return found;
 }

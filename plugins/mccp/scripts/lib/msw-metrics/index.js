@@ -194,6 +194,24 @@ function computeA3(model) {
     measured_at: src.measured_at,
   };
 
+  // 무결성 위반(invalid)은 producer 부재(forward-only)보다 강한 신호이므로 먼저
+  // 판정한다(A1 선례). 이 순서가 없으면 **손상된** 아티팩트가 `artifact_present`
+  // false 하나로 뭉개져 "아직 안 만들었다"로 보고되고 `integrity_ok:true`까지
+  // 달고 나간다 — source는 `degraded`/`error`로 손상을 구분하는데 소비자가 그
+  // 구분을 버리는 것이다(부재·판독불가·손상은 서로 다른 사실이다).
+  if (src.degraded || src.error) {
+    return Object.assign({
+      id: A3_INSTRUCTION_COST,
+      numerator: null,
+      denominator: null,
+      value: null,
+      integrity_ok: false,
+      invalid_reason: src.error || 'A3 source degraded',
+      status: 'invalid',
+      coverage: src.producer_coverage || 'unknown',
+    }, coReport);
+  }
+
   if (!src.artifact_present) {
     return Object.assign({
       id: A3_INSTRUCTION_COST,
@@ -378,6 +396,26 @@ function computeB3(model) {
   const totalToggles = toggleUsage.denominator || 0;
   const usedToggleCount = toggleUsage.used_toggle_count || 0;
   const operationBranchCount = toggleUsage.operation_branch_count || 0;
+
+  // G3의 내용은 "제외는 규범 문서가 그 이름을 적을 때만 유효"다. 그 대조가
+  // 어긋났거나 아예 불가능했다면 이 분모는 문서가 승인한 분모가 아니므로
+  // 지표로 발행할 수 없다. source가 `degraded`로 표시해도 소비자가 읽지 않으면
+  // drift난 분모가 `integrity_ok:true`를 달고 그대로 나간다 — 세 라운드에 걸쳐
+  // 같은 층에서 반복된 결함이라 발행 지점에서 막는다.
+  if (toggleUsage.exclusion_doc_ok !== true || toggleUsage.degraded) {
+    const reason = toggleUsage.error
+      || 'exclusion table drift — the denominator is not the one measurement-design.md §B3 names';
+    return {
+      id: B3_TOGGLE_AXES,
+      numerator: null,
+      denominator: null,
+      value: null,
+      integrity_ok: false,
+      invalid_reason: reason,
+      status: 'invalid',
+      coverage: toggleUsage.producer_coverage || 'unknown',
+    };
+  }
 
   if (totalToggles === 0) {
     return insufficientMetric(B3_TOGGLE_AXES, 'no toggles in runtime surface');

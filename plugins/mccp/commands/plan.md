@@ -893,6 +893,16 @@ LOCKFILE="$MCCP_TMP/intent-gate-$DECISION_SLUG.lock"
 
 # The nonce is part of every path, so a stale artifact from a previous run can
 # never be mistaken for this one (R2 F3) — no pre-launch cleanup needed.
+# The runner owns the receipt write now, so every audit value Phase 5.0 computed
+# has to travel WITH it. A flag omitted here is not "defaulted" — it is silently
+# absent from the receipt, while the prose above ("Receipt-write at 5.6 forwards")
+# and plan-codex-runner.js's parseArgs both say it is sealed. Keep these three in
+# agreement: this list, that prose, and parseArgs.
+SILENT_SKIP_FORWARD=""
+if [ "${SILENT_SKIP:-0}" = "1" ] && [ -z "${IMPECCABLE_FORCE_OVERRIDE_REASON:-}" ]; then
+  SILENT_SKIP_FORWARD=1     # schema mutex: suppressed when the audited escape is set
+fi
+
 nohup node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-codex-runner.js" \
   --plan "<plan path>" \
   --decision "$DECISION_SLUG" \
@@ -900,6 +910,11 @@ nohup node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-codex-runner.js" \
   --focus "challenge the following plan decisions: <list 1-3 key decisions from the plan>" \
   $IMPECCABLE_FLAG \
   ${IMPECCABLE_SKIPPED_REASON:+--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"} \
+  ${SILENT_SKIP_FORWARD:+--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON"} \
+  ${MODE:+--impeccable-routing-mode "$MODE"} \
+  ${DESIGN_CRITIQUE_ROUNDS:+--design-critique-rounds "$DESIGN_CRITIQUE_ROUNDS"} \
+  ${RECEIPT_VERDICT:+--design-critique-verdict "$RECEIPT_VERDICT"} \
+  ${DESIGN_INTENT_REASON_FORWARD:+--design-intent-reason "$DESIGN_INTENT_REASON_FORWARD"} \
   > "$MCCP_TMP/plan-codex-runner.out" 2> "$MCCP_TMP/plan-codex-runner.err" &
 RUNNER_PID=$!
 
@@ -912,15 +927,18 @@ RUNNER_PID=$!
 Then wait for the runner to publish the findings (it stays alive while you adjudicate):
 
 ```bash
+RUN_STARTED_AT=$(date +%s)
+
 # The runner is detached, so it needs a moment to create its lock. Without this
 # grace the very first poll below races the spawn, sees no lock, and reports a
 # crash for a runner that simply had not started yet.
-SPAWN_GRACE=$(( $(date +%s) + 30 ))
+SPAWN_GRACE=$(( RUN_STARTED_AT + 30 ))
 while [ ! -f "$LOCKFILE" ] && [ ! -f "$AWAITING" ] && [ ! -f "$MARKER" ] \
       && [ "$(date +%s)" -lt "$SPAWN_GRACE" ]; do
   sleep 1
 done
 
+MARKERLESS_EARLY=0
 DEADLINE=$(( $(date +%s) + 1200 ))
 while [ ! -f "$AWAITING" ] && [ ! -f "$MARKER" ] && [ "$(date +%s)" -lt "$DEADLINE" ]; do
   if [ -f "$LOCKFILE" ]; then
@@ -948,21 +966,52 @@ while [ ! -f "$AWAITING" ] && [ ! -f "$MARKER" ] && [ "$(date +%s)" -lt "$DEADLI
     ' "$DECISION_SLUG" 2>/dev/null)
     # (1) Ours: the run finished and only the marker is missing. Fall through to
     #     5.6, whose markerless branch confirms and consumes it.
-    if [ "$SEALED" = "$RUN_NONCE" ]; then break; fi
-    # (2) Someone else's: we lost the race and the winner has since finished and
-    #     released the lock — the edge the owner check above can no longer see.
+    if [ "$SEALED" = "$RUN_NONCE" ]; then MARKERLESS_EARLY=1; break; fi
+    # (2) A DIFFERENT nonce is sealed. That is a concurrent winner only if the
+    #     receipt was written after we started; a receipt left by an earlier run
+    #     looks identical from the nonce alone. Reporting both as "completed by
+    #     another run" sends the operator hunting for a race that never happened,
+    #     so compare against this run's start before naming it.
     if [ -n "$SEALED" ]; then
-      echo "[MCCP-GATE-STOP] decision \"$DECISION_SLUG\" was completed by another run"
-      echo "(sealed nonce $SEALED, ours $RUN_NONCE). Our runner exited without writing,"
-      echo "by design. Re-run /mccp:plan if you need the current body reviewed."
+      RECEIPT_AT=$(node -e '
+        const {readReceipt}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/store");
+        const {gitRepoRoot}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/hash");
+        try{const r=readReceipt(gitRepoRoot(process.cwd()),"mccp-plan-codex",process.argv[1]);
+          const t=r&&r.meta&&r.meta.created_at;
+          process.stdout.write(t?String(Math.floor(Date.parse(t)/1000)):"");}catch(_){}
+      ' "$DECISION_SLUG" 2>/dev/null)
+      if [ -n "$RECEIPT_AT" ] && [ "$RECEIPT_AT" -ge "$RUN_STARTED_AT" ]; then
+        echo "[MCCP-GATE-STOP] decision \"$DECISION_SLUG\" was completed by a concurrent run"
+        echo "(sealed nonce $SEALED, ours $RUN_NONCE). Our runner exited without writing,"
+        echo "by design. Re-run /mccp:plan if you need the current body reviewed."
+      else
+        echo "[MCCP-GATE-STOP] plan-codex runner exited without writing a receipt."
+        echo "The receipt on disk predates this run (sealed nonce $SEALED) — it is STALE,"
+        echo "not evidence that this run succeeded. The runner either crashed or blocked"
+        echo "and could not write its marker; $MCCP_TMP/plan-codex-runner.err has the detail."
+      fi
       exit 1
     fi
-    # (3) Nothing sealed: the runner died before writing a receipt.
-    echo "[MCCP-GATE-STOP] plan-codex runner exited without writing a receipt (crashed)."
+    # (3) Nothing sealed at all.
+    echo "[MCCP-GATE-STOP] plan-codex runner exited without writing a receipt."
+    echo "Either it crashed, or it blocked and could not write its marker — in the"
+    echo "latter case the verdict and reason are in $MCCP_TMP/plan-codex-runner.err."
     exit 1
   fi
   sleep 10
 done
+
+# The documented timeout state, which until now existed only in the prose below.
+# Without this branch the loop simply falls through into the next phase after
+# 1200s of silence — the one outcome the state table says must never happen:
+# nothing produced, and nothing saying so. MARKERLESS_EARLY guards the legitimate
+# break above, where neither file exists but the receipt already seals our nonce.
+if [ "$MARKERLESS_EARLY" = "0" ] && [ ! -f "$AWAITING" ] && [ ! -f "$MARKER" ]; then
+  echo "[MCCP-GATE-STOP] intent gate timed out after 1200s: the runner still holds its"
+  echo "lock but has produced neither findings nor a marker. Do NOT assume success —"
+  echo "re-run /mccp:plan once the holding run has finished or been cleared."
+  exit 1
+fi
 ```
 
 - `$MARKER` appearing first means the gate finished without needing adjudication

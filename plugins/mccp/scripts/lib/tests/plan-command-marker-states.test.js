@@ -163,7 +163,7 @@ test('the 5.2 wait resolves a vanished lock three ways, not one', function () {
     'a detached runner needs time to create its lock, or the first poll calls it a crash');
   assert.match(wait, /intent_run_nonce/,
     '5.2 must consult the nonce the receipt sealed, not only $AWAITING/$MARKER');
-  assert.match(wait, /if \[ "\$SEALED" = "\$RUN_NONCE" \]; then break/,
+  assert.match(wait, /if \[ "\$SEALED" = "\$RUN_NONCE" \]; then[^\n]*break/,
     'our own sealed nonce must hand off to 5.6 rather than stop');
   assert.match(wait, /completed by another run/,
     'a winner that already released the lock must still be named, not timed out');
@@ -182,4 +182,54 @@ test('the adjudication file is published atomically', function () {
     'write to a temp path first');
   assert.match(block, /mv "\$ADJUDICATION\.tmp" "\$ADJUDICATION"/,
     'then rename — rename(2) is atomic within a directory');
+});
+
+test('every audit flag the runner parses is actually forwarded by 5.2', function () {
+  // The runner owns the receipt write, so a flag plan.md forgets to pass is not
+  // "defaulted" — it is silently absent from the receipt while the prose above the
+  // invocation claims it was sealed. Diffing the two lists is the only way this
+  // stays true; eyeballing them is exactly how five of them went missing.
+  const runnerSrc = fs.readFileSync(path.join(__dirname, '..', 'plan-codex-runner.js'), 'utf8');
+
+  // Supplied positionally by 5.2, or runner-internal knobs rather than audit values.
+  const INTERNAL = new Set([
+    '--plan', '--decision', '--run-nonce', '--focus', '--git-path',
+    '--impeccable-available', '--codex-timeout-ms', '--adjudication-timeout-ms',
+  ]);
+  const parsed = new Set((runnerSrc.match(/'--[a-z-]+'/g) || []).map(function (s) {
+    return s.slice(1, -1);
+  }));
+  const auditFlags = Array.from(parsed).filter(function (f) { return !INTERNAL.has(f); });
+  assert.ok(auditFlags.length >= 6,
+    'expected a non-trivial audit flag set; got ' + JSON.stringify(auditFlags));
+
+  const i = body.indexOf('nohup node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-codex-runner.js"');
+  assert.ok(i > 0, 'anchor moved: runner invocation');
+  const invocation = body.slice(i, body.indexOf('RUNNER_PID=$!', i));
+
+  const missing = auditFlags.filter(function (f) { return invocation.indexOf(f) === -1; });
+  assert.deepStrictEqual(missing, [],
+    'plan.md must forward every audit flag plan-codex-runner.js parses');
+});
+
+test('the 5.2 wait has a real timeout branch, not only prose', function () {
+  const i = body.indexOf('Then wait for the runner to publish the findings');
+  assert.ok(i > 0, 'anchor moved: 5.2 wait');
+  const wait = body.slice(i, body.indexOf('### 5.3', i));
+  assert.match(wait, /timed out after 1200s/,
+    'the documented timeout state needs an implementation, not just a bullet');
+  assert.match(wait, /MARKERLESS_EARLY/,
+    'and it must not fire on the legitimate markerless break out of the same loop');
+});
+
+test('a stale prior receipt is not reported as a concurrent winner', function () {
+  // Nonce alone cannot tell "another run just won" from "a receipt from last week
+  // is still on disk" — both are simply "not our nonce".
+  const i = body.indexOf('Then wait for the runner to publish the findings');
+  assert.ok(i > 0, 'anchor moved: 5.2 wait');
+  const wait = body.slice(i, body.indexOf('### 5.3', i));
+  assert.match(wait, /RUN_STARTED_AT/,
+    'freshness needs a reference point captured before the runner is spawned');
+  assert.match(wait, /is STALE/,
+    'an older receipt must be named as stale, not as a race that never happened');
 });

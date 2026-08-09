@@ -33,7 +33,19 @@ const { buildSeededModel } = require('../msw-metrics/fixture');
 // cannot satisfy the null-numerator contract.
 // Forward-only: A1/A2/A4/B2 (downgraded), C1 (no live findings source — PR-Codex R2-F3),
 // C2/C3 (귀속 미구축). Not computed: B1 (no independent evidence source).
+// multi-session-work-loop M3 — B2 is promoted back into the claimed set. This
+// list is deliberately the guard against SILENT promotion, so editing it is the
+// sanctioned way to promote and it must stay in lockstep with derive/cli.js.
+//
+// The promotion is justified, not convenient: the PF2 argument that downgraded
+// B2 was "no INDEPENDENT collision-producer-presence signal exists". M3 builds
+// that producer — `evidence_guard_active` fires on every guarded receipt write,
+// so presence is orthogonal to incident count and a computed-zero is reachable.
+// The flip is additionally gated on a falsifiable runtime coverage audit
+// (b2-coverage-gate.js), whose own falsifiability is pinned by negative fixtures
+// in lib/tests/b2-coverage-gate.test.js.
 const CLAIMED_COMPUTABLE = [
+  B2_CONCURRENT_CONFLICTS,
   B3_TOGGLE_AXES,
 ];
 // Downgraded metrics: present in the seeded fixture but must resolve to forward-only,
@@ -42,11 +54,13 @@ const CLAIMED_COMPUTABLE = [
 // metric (re-R3 F0), so A1 is forward-only in the fixture too; its compute path is proven
 // by a dedicated unit test with its own model (msw-metrics.test.js 'A1: work completion
 // rate computes value').
+// B2 left this list in M3 (see CLAIMED_COMPUTABLE above). A1/A2/A4 stay: their
+// producers are still absent or contaminated, so no fixture flag is injected for
+// them and they must resolve to forward-only.
 const DOWNGRADED_FORWARD_ONLY = [
   A1_WORK_COMPLETION_RATE,
   A2_CONTEXT_REMAINING,
   A4_RESTORE_RATE,
-  B2_CONCURRENT_CONFLICTS,
 ];
 
 test('msw-metrics-acceptance: seeded fixture with non-null numerator/denominator/status', async (t) => {

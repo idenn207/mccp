@@ -203,32 +203,88 @@ function computeB1(model) {
 }
 
 function computeB2(model) {
-  // B2 concurrent conflicts: from session-activity concurrent pairs + collision events.
-  // Downgrade (msw-m2-measurement-honesty-downgrade, Plan-Codex R1/R2/R3): production
-  // emits only session_start/session_end events, so no live collision producer exists —
-  // collision_events_count is structurally 0 and a "computed 0%" would be confidently
-  // wrong. Deriving a producer-present flag from observed collision events would tie it
-  // to collision_events_count>0, making a legitimate computed-zero (a wired producer
-  // observing zero collisions among N concurrent pairs) unreachable. Until an INDEPENDENT
-  // collision-producer-presence signal exists (building it = building the producer,
-  // out of scope), B2 is forward-only and excluded from claimed-computable (C1-pattern).
-  // concurrent_pairs is kept as the denominator so concurrency observation is preserved;
-  // only the collision rate is not claimed.
+  // B2 concurrent conflicts — multi-session-work-loop M3 lifts the M2 downgrade,
+  // but ONLY behind a falsifiable coverage gate.
+  //
+  // M2 downgraded B2 because production emitted just session_start/session_end,
+  // so there was no live collision producer and a "computed 0%" would have been
+  // confidently wrong. Crucially, M2 also refused to derive producer-presence
+  // FROM observed collisions: that ties presence to collision_events_count>0 and
+  // makes a legitimate computed-zero (a wired producer observing zero collisions
+  // across N concurrent pairs) unreachable.
+  //
+  // M3 supplies the missing INDEPENDENT signal: `evidence_guard_active` is
+  // emitted by every guarded receipt write, collision or not. So presence and
+  // incident count are finally orthogonal.
+  //
+  // That alone is still self-attestation ("SOME guarded write happened"), not
+  // proof that EVERY mutation path is covered — a missed writer would emit
+  // neither guard_active nor overwrite_observed, and B2 would flip to
+  // `computed 0/N` while an uncovered writer exists. So the flip is additionally
+  // gated on `coverage_gate_ok`, whose PRIMARY axis is a runtime filesystem
+  // mutation audit (b2-coverage-gate.js). Gate not passed → stay forward-only,
+  // honestly.
+  //
+  // `prevented` is co-reported but NEVER in the numerator: counting blocked
+  // races as incidents would make the metric worse the better the defense works.
   const sessionActivity = model.sources?.session_activity;
   if (!sessionActivity || !sessionActivity.ok) {
     return insufficientMetric(B2_CONCURRENT_CONFLICTS, 'session_activity source unavailable');
   }
 
   const concurrentPairs = sessionActivity.concurrent_pairs_count || 0;
+  const producerPresent = !!sessionActivity.collision_producer_present;
+  const gateOk = !!sessionActivity.coverage_gate_ok;
+  const prevented = sessionActivity.conflict_prevented_count || 0;
+
+  if (!producerPresent || !gateOk) {
+    return {
+      id: B2_CONCURRENT_CONFLICTS,
+      numerator: null,
+      denominator: concurrentPairs,
+      value: null,
+      integrity_ok: true,
+      invalid_reason: !producerPresent
+        ? 'no evidence_guard_active observed (collision producer not wired in this corpus)'
+        : 'b2 coverage gate not passed (runtime mutation audit missing or found uncovered writes)',
+      status: 'forward-only',
+      coverage: sessionActivity.producer_coverage || 'unknown',
+      conflicts_prevented: prevented,
+    };
+  }
+
+  // 분모 0 → `insufficient`. 이 파일에서 `invalid`는 **무결성 위반**을 뜻한다
+  // (A1의 unit spike·timestamp inversion, C1의 type separation violated) — 즉
+  // 데이터가 서로 모순된다는 뜻이다. "동시 활동 쌍이 아직 없다"는 모순이 아니라
+  // 데이터의 부재이고, 같은 파일 C1이 그 경우를 이미 `insufficient`로 표기한다
+  // (`allFindings > 0 ? 'computed' : 'insufficient'`). `invalid`로 두면 겹치는
+  // 세션이 없는 **1인 세션 저장소**(가장 흔한 구성)가 렌더러의 최우선 순위
+  // 버킷에 무결성 위반으로 올라가 상시 오탐이 된다.
+  if (concurrentPairs === 0) {
+    return {
+      id: B2_CONCURRENT_CONFLICTS,
+      numerator: sessionActivity.overwrite_observed_count || 0,
+      denominator: 0,
+      value: null,
+      integrity_ok: true,
+      invalid_reason: 'no concurrent session pairs observed yet (denominator is zero)',
+      status: 'insufficient',
+      coverage: sessionActivity.producer_coverage || 'unknown',
+      conflicts_prevented: prevented,
+    };
+  }
+
+  const numerator = sessionActivity.overwrite_observed_count || 0;
   return {
     id: B2_CONCURRENT_CONFLICTS,
-    numerator: null,
+    numerator: numerator,
     denominator: concurrentPairs,
-    value: null,
+    value: numerator / concurrentPairs,
     integrity_ok: true,
-    invalid_reason: 'no live collision producer (production emits only session_start/session_end; computed-zero needs an independent producer-presence signal)',
-    status: 'forward-only',
+    invalid_reason: null,
+    status: 'computed',
     coverage: sessionActivity.producer_coverage || 'unknown',
+    conflicts_prevented: prevented,
   };
 }
 

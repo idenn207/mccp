@@ -146,13 +146,95 @@ function assertNoTrackedOverwrite(repoRoot, p, receipt) {
   throw err;
 }
 
+// multi-session-work-loop M3 — write는 fail-closed 짧은 임계구역 + 원자 rename을
+// 거친다. 이전 구현은 `mkdirSync → assertNoTrackedOverwrite → writeFileSync(최종
+// 경로)`였고, 그래서 (a) 동시 writer 2명이 lost update, (b) 쓰는 중 reader가 torn
+// JSON을 읽음, (c) 쓰는 중 crash가 receipt를 손상시켰다.
+//
+// 핵심은 `assertNoTrackedOverwrite` 재검이 **lock 안**이라는 것이다 — 그 함수는
+// disk hash를 읽고(L127) caller가 write(L154)하는 read-then-write TOCTOU라,
+// 두 세션이 같은 창에서 **둘 다 통과**할 수 있었다.
+//
+// 이 지점이 enforcement locus다. LLM이 command body 지시를 건너뛰어도 receipt
+// write는 여기를 지나므로 보호가 **현재 알려진 모든 caller**에 자동 적용된다.
+// 그 한정은 의도적이다 — 미래에 추가되는 직접 writer는 b2-coverage-gate의
+// 정적 lint가 guardrail로 잡되, **정적 축이 보는 범위 안에서만** 잡는다:
+// `plugins/mccp/scripts` 안의 .js에서 write 줄·store helper·한 홉 변수 taint로
+// receipt 경로가 드러나고, 그 호출이 lint의 **동사 목록**(경로를 인자로 받아
+// 내용을 만들거나 덮어쓰는 fs API — 삭제 계열은 명시적 비대상)에 있는 형태까지다.
+// 다단계로 세탁된 경로·런타임 결정 경로·셸/생성 writer는 정적 축이 원리상 못
+// 보며, 그것들의 falsifier는 lint가 아니라 런타임 변형 감사(primary)다.
+// 범위의 canonical 서술은 evidence-conflict-design.md §6.3.
+//
+// 출력 바이트는 불변이다(§3.12 no-rehash): 같은 입력이면 이전과 byte-identical.
 function writeReceipt(repoRoot, receipt) {
   const p = receiptPath(repoRoot, receipt.gate_id, receipt.decision_id);
-  const dir = path.dirname(p);
-  fs.mkdirSync(dir, { recursive: true });
-  assertNoTrackedOverwrite(repoRoot, p, receipt);
-  fs.writeFileSync(p, JSON.stringify(receipt, null, 2) + '\n', 'utf8');
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const { guardedWrite } = require('./evidence-lock');
+  guardedWrite(p, function () {
+    assertNoTrackedOverwrite(repoRoot, p, receipt);
+    return JSON.stringify(receipt, null, 2) + '\n';
+  });
   return p;
+}
+
+// multi-session-work-loop M3 — guarded read-modify-write for an EXISTING
+// receipt. `mutate(receipt)` returns the mutated receipt (or null for no-op);
+// the read, the mutation, the tracked-overwrite guard and the atomic write all
+// happen inside ONE critical section.
+//
+// This exists so callers never have to compose the pieces themselves. A caller
+// that did `readReceipt()` … `writeReceipt()` would reopen the lost-update
+// window between the two, and one that acquired the lock and then called
+// writeReceipt would deadlock on the re-entrancy guard. Keeping
+// assertNoTrackedOverwrite in here (rather than exporting it) means the §3.12
+// tracked-hash invariant cannot be forgotten at a call site.
+function updateReceipt(repoRoot, gateId, decisionId, mutate) {
+  const p = receiptPath(repoRoot, gateId, decisionId);
+  const { guardedReadModifyWrite } = require('./evidence-lock');
+
+  // Mirror readReceipt's symlink/junction defenses, and do it BEFORE acquiring
+  // the lock. Acquisition creates `<gateDir>/<slug>.json.lock` (and mkdirs the
+  // parent), so checking inside the critical section would already have written
+  // a file through a junction pointing outside the worktree — the very thing the
+  // check exists to prevent. Nothing is created before this returns.
+  const gd = gateDir(repoRoot, gateId);
+  if (fs.existsSync(gd) && !isSafeGateDir(gd)) {
+    const e = new Error('gate dir is not a regular directory (symlink/junction/file)');
+    e.code = 'UNSAFE_GATE_DIR';
+    e.path = gd;
+    throw e;
+  }
+
+  let out = null;
+  guardedReadModifyWrite(p, function (raw) {
+    if (raw === null || raw === undefined) {
+      const e = new Error('no existing receipt for ' + gateId + '/' + decisionId);
+      e.code = 'RECEIPT_NOT_FOUND';
+      throw e;
+    }
+    if (!isPlainFile(p)) {
+      const e = new Error('receipt file is not a regular file (symlink/special)');
+      e.code = 'UNSAFE_RECEIPT_FILE';
+      e.path = p;
+      throw e;
+    }
+    let existing;
+    try {
+      existing = JSON.parse(raw);
+    } catch (_e) {
+      const e = new Error('cannot parse receipt');
+      e.code = 'RECEIPT_PARSE_ERROR';
+      e.path = p;
+      throw e;
+    }
+    const next = mutate(existing);
+    if (next === null || next === undefined) return null;   // no-op, no write
+    assertNoTrackedOverwrite(repoRoot, p, next);
+    out = next;
+    return JSON.stringify(next, null, 2) + '\n';
+  });
+  return { path: p, receipt: out };
 }
 
 // v0.2.8 Task 2.6.5a A2 — gate-dir symlink rejection. A symlinked or
@@ -264,6 +346,7 @@ module.exports = {
   receiptPath: receiptPath,
   readReceipt: readReceipt,
   writeReceipt: writeReceipt,
+  updateReceipt: updateReceipt,
   listReceipts: listReceipts,
   listGenericReceipts: listGenericReceipts,
   listUnsafeGateDirs: listUnsafeGateDirs,

@@ -191,7 +191,13 @@ Task 6은 저자가 대조 상대를 볼 수 있도록 awaiting 아티팩트에 
 
 ## Tasks
 
-### Task 0: 리뷰어 계약 준수율 실측 (spike — 기본 모드 결정 게이트)
+### Task 0: 리뷰어 계약 준수율 실측 (spike — 기본 모드 결정 게이트) — **시도됨 / 미측정 (2026-08-09)**
+
+> **상태**: 하네스는 구축·검증됐고 spawn 경계까지 도달했으나 **Codex 계정 쿼터 소진**으로 측정 불가. companion이 `parseError`로 `"You've hit your usage limit … try again at Aug 16th, 2026 6:07 AM"`을 반환. 쿼터 복구는 **2026-08-16 06:07**.
+>
+> **DD10 fallback 발동**: `DEFAULT_MISLABEL_MODE = 'warn'`(측정값 아님) · **UI10 미달성** · **PRD Milestone 1.5는 `complete`로 올리지 않음**. 전말·하네스·재현법은 [docs/codex-intent-context/reviewer-contract-compliance.md](../../docs/codex-intent-context/reviewer-contract-compliance.md).
+>
+> 쿼터 복구 후 아래 절차를 그대로 실행하고 결과를 그 문서에 append한 뒤 `DEFAULT_MISLABEL_MODE`를 갱신하는 것이 `enforce` flip의 **유일한** 경로다.
 
 - **Action**: **production 경로로** 측정한다(DD10) — Task 5의 preamble을 넣은 `codex-invoke.js adversarial-review --intent-reference-file <ref>`를 호출하고 응답을 `parseReviewPayload`로 판독한 뒤 Task 1의 `parseReviewerClaims`에 그대로 먹인다. 입력은 `## User Intent` 표 + **의도적 충돌을 심은 합성 plan**. 측정 **4축**: (a) finding당 유효 주장 1건 비율 → `claimed/total` 및 `full` 도달 여부, (b) 심어둔 충돌을 리뷰어가 `INTENT: UI<n>`으로 지목하는가(탐지 민감도), (c) 날조 주장(심지 않은 충돌 지목) 발생 여부(DD7 과다 주장 축), (d) **오형식 1건이 리뷰 전체를 `inconclusive`로 만드는 빈도** — DD5 이분법의 오탐율이며, 이 값이 곧 liveness 비용이다. 결과를 `docs/codex-intent-context/reviewer-contract-compliance.md`에 raw 발췌와 함께 기록한다.
 - **결정 규칙(사전 선언 — 사후 합리화 방지)**: 리뷰 단위 `full` 도달률이 **≥95% → `enforce`** · **70~95% → `warn`** · **<70% → `off`**(계약 자체가 작동하지 않으므로 배선만 남기고 발화시키지 않는다).

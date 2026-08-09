@@ -90,7 +90,7 @@ test('html — footer version v1.23.6 (footer element anchored)', () => {
   // Anchor the version inside the <footer> element. Asserting a bare /v1\.x\.y/
   // against r.html silently matched the model's plan-derived milestone label
   // (e.g. "v1.4.2 · …"), so footer drift went untested — anchor on the tag.
-  assert.match(r.html, /<footer[^>]*>v1\.23\.5 ·/);
+  assert.match(r.html, /<footer[^>]*>v1\.23\.6 ·/);
   assert.match(r.html, /통합 derive/);
 });
 
@@ -126,5 +126,5 @@ test('markdown — footer with v1.23.6 version (footer line anchored)', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
   // Anchor on the footer line for the same reason the html assertion does — a
   // bare /v1\.x\.y/ also matches plan-derived milestone labels in the body.
-  assert.match(r.md, /^_derived from \.claude\/ · v1\.23\.5_$/m);
+  assert.match(r.md, /^_derived from \.claude\/ · v1\.23\.6_$/m);
 });

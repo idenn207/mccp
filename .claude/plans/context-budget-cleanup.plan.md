@@ -131,6 +131,7 @@ env 개별 항목 실측 — 상위 2개가 7,653 B로 §4의 24%:
 | `memory/MEMORY.md` | UPDATE | 16개 항목 전부 한 줄 hook으로 정규화(byte 기준) |
 | `memory/{integrity-unification-m3, multi-session-work-loop-m3, workflow-orchestration-m1, cost-model-subscription-remediation}.md` | UPDATE | stale PR 상태만 **추가 전용** 정정 |
 | 나머지 12파일 | 무편집 | sha256 동일성 검증 대상 |
+| `memory-snapshot-2026-08-09/` (형제 디렉토리) | CREATE(완료) | **복구 경로**. 17파일 사본 + baseline 해시 17/17 일치 검증 완료. repo 밖 편집이 잘못되면 여기서 되돌린다(U2 해소) |
 
 ## Tasks
 
@@ -153,6 +154,42 @@ env 개별 항목 실측 — 상위 2개가 7,653 B로 §4의 24%:
   1. 그 행이 인용한 **primary path가 현재 repo에 실재**한다 (`git ls-files`로 확인).
   2. 같은 서브시스템(= primary path의 디렉토리)을 다루는 행 중 **가장 최신 version**이다. 선행 milestone 행은 후속에 흡수된 것으로 보고 log로만 보낸다.
 - 두 조건은 스크립트로 판정 가능하며 판정 결과(잔류/이전 24행 분류표)를 `docs/milestone-log.md` 머리말에 기록해 재현성을 남긴다.
+
+#### 잔류 manifest — 24행 전수 판정 (U1 해소)
+
+리뷰어 양측이 3라운드 내내 "기계 규칙"이 여전히 해석 여지를 남긴다고 지적했다. 24행은 열거 가능한 크기이므로 **규칙을 서술하는 대신 판정 결과를 그대로 싣는다**. 구현자는 해석하지 않고 이 표를 따른다.
+
+판정 축은 **계보 승계**다 — 같은 서브시스템을 뒤 milestone이 흡수했으면 앞 행은 log로만 간다(내용은 `docs/milestone-log.md`에 원문 보존되므로 소실 아님).
+
+| # | 행 | 판정 | 근거 |
+|---|---|---|---|
+| 1 | Stop-loop | **잔류** | 독립 서브시스템, 후속 흡수 없음 |
+| 2 | STATE.md continuity | **잔류** | 독립, §3.2가 참조 |
+| 3 | Auto-handoff | **잔류** | 독립, §4 토글이 참조 |
+| 4 | `/mccp:work` | **잔류** | 진입점 |
+| 5 | dual-reviewer escalate | **잔류** | 독립 |
+| 6 | Codex disabled honor | **잔류** | §3.3 classification 표가 의존 |
+| 7 | Codex/impeccable scope split | **잔류** | 독립 |
+| 8 | dispatch-controller (Stage 2 M1) | **잔류** | IPC substrate — 15~20이 그 위에 얹힌 것이지 대체가 아님 |
+| 9 | v1.3.0 schema baseline | 이전 | 문서 freeze 자체가 산출물이고 그 문서가 §5에 이미 등재 |
+| 10 | derive engine (m1) | **잔류** | 독립 모듈, §5 등재 |
+| 11 | briefing stamp (m2) | **잔류** | 독립 모듈 |
+| 12 | STATUS.md + HTML renderer (m3) | **잔류** | 독립 모듈, §5 등재 |
+| 13 | Refresh trigger + privacy guard (m4) | **잔류** | 독립 모듈 |
+| 14 | cwd-mask + branch-validation polish | 이전 | patch 흡수분, 별도 표면 없음 |
+| 15 | work implement isolation (1.20.2 M1) | 이전 | 20이 승계 |
+| 16 | plan fan-out (1.20.4 M1) | **잔류** | 별도 축(plan GROUND), 승계 아님 |
+| 17 | single-worker Workflow 이전 (1.20.7 M2a) | 이전 | 18→20이 승계 |
+| 18 | N-worker parallel scaffold (1.20.10 M2b) | 이전 | 20이 승계(default flip) |
+| 19 | aggregate verify + worktree-merge substrate | **잔류** | verify는 병렬과 직교(⊥) 축 |
+| 20 | 병렬 활성화 worktree-merge live (1.21.0 M4) | **잔류** | implement-dispatch 계보의 최신 |
+| 21 | cost-state time-based decay (1.22.0 M3) | **잔류** | 독립, §3.2·§4가 참조 |
+| 22 | orchestration live-activation (1.22.1 M1) | 이전 | 23이 승계(default·USD 축 재정의) |
+| 23 | orchestration operational-USD 은퇴 (1.22.3 M3) | **잔류** | orchestration 계보의 최신 |
+| 24 | orchestration firing-preview (1.22.2 M2) | **잔류** | 독립 도구(read-only preview), §4가 참조 |
+
+**잔류 18행 · 이전 6행.** 잔류 행은 CLAUDE.md에 `| 모듈 | 한 줄 역할 | [상세](docs/milestone-log.md#앵커) |` 형식 한 줄로 남는다 — 18행 × 약 120 B ≈ 2,200 B로 §1.4 예산 6,000 B 안에 여유 있게 들어간다. 24행 전부의 원문은 `docs/milestone-log.md`에 보존되므로 **이전 6행도 소실이 아니다**.
+
 - **Validate**: Validation 3 — §1.4로 범위를 좁힌 **24행이 행 전체(row payload) 그대로** source↔destination 일치. first-column 키만 비교하면 행 내용이 뭉개져도 통과한다.
 
 ### Task 2: §4 운영 토글을 요약 표로 축약, 상세는 `docs/ENVIRONMENT.md`로
@@ -170,6 +207,25 @@ env 개별 항목 실측 — 상위 2개가 7,653 B로 §4의 24%:
   - **잔류(규칙)** — 규범 표지(`하라`/`한다`/`금지`/`필수`/`must`/`never`)를 포함하거나, default 값을 명시하거나, 복구 절차를 서술하는 문장.
   - **이전(서사)** — version 표지(`vN.N.N`), 라운드 표지(`R1`/`R2`/`N라운드`), finding id(`F1`~`F9`), PR 번호를 포함하는 문장. 단 위 잔류 조건과 동시에 해당하면 **잔류가 우선**한다(규칙이 version을 인용할 수 있으므로).
 - **보존 의무 키워드 6종**(Acceptance와 동일 — 초안은 3개만 적어 불일치였다, R1 B-F6): `no-rehash` · `ownership_token_hash` · `Output Constraints` · `--diff-filter=D` · `forward-only` · `codex_verdict`. 단 **키워드 존재는 증거가 아니다**(R1 B-F4) — 진짜 증거는 Validation 8이고, Validation 4는 해당 키워드가 **원래 소속 섹션 안에** 남아 있는지까지 확인한다.
+
+#### 작동 예시 — §3.6 evidence write lock 한 문단 (U1 잔여 완화)
+
+규칙을 서술만 하면 구현자마다 다르게 자른다는 지적이 3라운드 내내 나왔다. 전수 열거는 34,459 B라 비현실적이므로 **한 문단을 실제로 갈라 보인다**. 나머지는 이 패턴을 따른다.
+
+원문(§3.6):
+
+> **실패 정책이 fail-closed**입니다. `session-ledger.js#withLedgerLock`은 획득 실패 시 경고만 남기고 lock 없이 진행하는데(last-writer-wins), 그 동작이 PRD가 구조적 취약으로 지목한 결함 자체라 여기서는 **throw**합니다(`EVIDENCE_LOCK_UNAVAILABLE` — 에러에 lock 경로·잔여 lease·복구 지침·kill switch 포함). 단 **caller별 비대칭은 의도적**입니다: `writeReceipt`는 fail-closed, hash-carved 메타 stamper 2건(briefing · completion-ledger 진단)은 fail-open + loud skip.
+
+**CLAUDE.md 잔류** — 현재 계약과 복구 정보만:
+
+> evidence write lock은 획득 실패 시 **throw**한다(fail-closed). 에러 `EVIDENCE_LOCK_UNAVAILABLE`이 lock 경로·잔여 lease·복구 지침·kill switch를 포함한다. **caller별 비대칭은 의도적** — `writeReceipt`는 fail-closed, 메타 stamper 2건(briefing · completion-ledger)은 fail-open + loud skip. 배경: [상세](docs/gate-design.md#evidence-write-lock)
+
+**gate-design.md 이전** — 왜 그 정책이 됐는지:
+
+> `session-ledger.js#withLedgerLock`은 획득 실패 시 경고만 남기고 lock 없이 진행한다(last-writer-wins). v1.23.1 multi-session-work-loop M3은 그 동작 자체를 PRD가 구조적 취약으로 지목한 결함으로 보고 정책을 뒤집었다.
+
+판정 근거: 앞 두 문장은 *현재 무엇을 하는가*(throw·비대칭)라 잔류, 마지막은 *어떤 milestone이 왜 바꿨는가*(v1.23.1·PRD 판단)라 이전. **한 문장이 양쪽에 걸치면 쪼개고, 쪼갤 수 없으면 잔류**한다 — 규칙이 사라지는 것보다 서사가 남는 편이 덜 해롭다.
+
 - **포인터 의무**: 서사를 덜어낸 각 섹션은 목적지로 가는 링크를 **반드시 남긴다** — `[상세](docs/gate-design.md#앵커)` 형식. Validation 7이 링크 대상 파일 실재 + 앵커 실재까지 확인하므로 죽은 포인터는 통과 못 한다. 이전이 매장으로 변질되는 것을 막는 유일한 기계적 장치다.
 - **Validate**: 네 섹션 합 ≤ 12,000 B(Validation 6) + Validation 4 + Validation 7(포인터 해석) + Validation 8 + Validation 12(질량 보존).
 
@@ -396,6 +452,8 @@ process.exit((substantive.length<400||orphans.length||excUsed>cap)?1:0);
 
 # 9) 회귀 — baseline(red 7건, gate-guard-integrity 소관) 대비 '신규' 실패만 판정
 #    (R2 B-F5: 이전 판은 출력만 하고 exit code를 내지 않아 절대 실패하지 않았다)
+#    (R3 자체감사: 고정 baseline 집합 차이만 보면 순서 의존 실패가 거짓 회귀로 잡힌다 —
+#     실측으로 hash-briefing-exclusion이 그 경우였다. 격리 재현을 요구한다)
 node --test $(find plugins/mccp/scripts -name '*.test.js' | tr '\n' ' ') 2>&1 \
   | grep -E '^✖ ' | grep -v '^✖ failing tests' | sed -E 's/ \([0-9.]+ms\)$//' | sort -u > /tmp/mccp-red-now.txt
 cat > /tmp/mccp-red-base.txt <<'BASE_EOF'
@@ -408,8 +466,25 @@ cat > /tmp/mccp-red-base.txt <<'BASE_EOF'
 ✖ validate-callsite-lint: every validate call in command bodies forwards --decision AND --plan
 BASE_EOF
 NOVEL=$(comm -13 <(sort -u /tmp/mccp-red-base.txt) /tmp/mccp-red-now.txt)
-echo "신규 실패:"; echo "$NOVEL"
-[ -z "$NOVEL" ] || { echo "FAIL: 신규 회귀 발생"; exit 1; }
+echo "baseline에 없던 실패:"; echo "$NOVEL"
+# 플레이키 재현 확인 — 이 스위트는 순서 의존 실패가 관측됐다(실측: hash-briefing-exclusion이
+# 전체 실행에서만 빨갛고 격리 실행에서는 통과). 고정 baseline 집합 차이만으로 회귀를
+# 선언하면 거짓 경보가 난다. 신규 실패는 해당 파일을 단독 실행해 재현될 때만 회귀로 친다.
+REGRESSED=""
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  NAME=$(echo "$line" | sed -E "s/^✖ //")
+  FILE=$(grep -rl -F "$NAME" plugins/mccp/scripts --include=*.test.js 2>/dev/null | head -1)
+  if [ -z "$FILE" ]; then REGRESSED="$REGRESSED
+(파일 미상) $NAME"; continue; fi
+  if node --test "$FILE" >/dev/null 2>&1; then
+    echo "  플레이키(격리 실행 통과, 회귀 아님): $NAME"
+  else
+    REGRESSED="$REGRESSED
+$NAME"
+  fi
+done <<< "$NOVEL"
+[ -z "$REGRESSED" ] || { echo "FAIL: 재현된 신규 회귀:$REGRESSED"; exit 1; }
 
 # 10) 토큰 축 — a3-instruction-cost.js와 같은 o200k_base.
 #     (R2 B-F: 이전 판은 CLAUDE/MEMORY/STATE 원문을 /tmp 파일로 썼다. 그건 A3 모듈이
@@ -444,6 +519,10 @@ echo "삭제된 파일:"; echo "$DELETED"
 # 12) 질량 보존 — CLAUDE.md가 덜어낸 만큼이 목적지 문서에 실제로 쌓였는가.
 #     줄 단위 검사(8)의 집계 축 보완: 목적지가 자라지 않았는데 원본만 줄었다면
 #     '이전'이 아니라 '삭제'다.
+#     임계 90%의 근거(U4): V8이 줄 단위 '정확 일치'를 이미 강제하므로 옮겨진 내용은
+#     바이트 그대로 도착한다. 100%에서 깎이는 몫은 (a) 예외 등재분 최대 5%,
+#     (b) 목적지에 새로 붙는 heading·앵커 정도다. 90%는 그 둘을 더한 값이며
+#     초안의 70%처럼 임의로 고른 수치가 아니다.
 node -e "
 const fs=require('fs'),cp=require('child_process');
 const BASE=process.argv[1];
@@ -454,8 +533,8 @@ const DEST=['docs/milestone-log.md','docs/ENVIRONMENT.md','docs/gate-design.md',
 const shed=wasB('CLAUDE.md')-B('CLAUDE.md');
 const gained=DEST.reduce((a,f)=>a+(B(f)-wasB(f)),0);
 const ratio=shed>0?gained/shed:0;
-console.log('CLAUDE.md 감소',shed,'B | 목적지 증가',gained,'B | 보존율',(ratio*100).toFixed(1)+'% (>=70% 필요)');
-process.exit((shed>0&&ratio>=0.70)?0:1);
+console.log('CLAUDE.md 감소',shed,'B | 목적지 증가',gained,'B | 보존율',(ratio*100).toFixed(1)+'% (>=90% 필요)');
+process.exit((shed>0&&ratio>=0.90)?0:1);
 " "$BASE"
 ```
 
@@ -486,8 +565,8 @@ process.exit((shed>0&&ratio>=0.70)?0:1);
 - [ ] 불변식 키워드 6종이 **원래 소속 섹션 안에** 잔존 — Validation 4
 - [ ] 운영 앵커 5종 잔존 · env 표 default 열 전부 non-empty · **CLAUDE.md의 docs 링크가 파일·앵커까지 해석됨** · `ENVIRONMENT.md` stale 마커 0건 — Validation 7
 - [ ] **삭제된 줄이 목적지에 정규화 줄-단위로 정확히 도착**, 고아 0건, 예외 사용 ≤ 5% — Validation 8 (핵심 게이트)
-- [ ] **질량 보존** — CLAUDE.md 감소분의 70% 이상이 목적지 문서 증가로 나타남 — Validation 12
-- [ ] **신규** 테스트 실패 0건(baseline red 7건은 pre-existing, gate-guard-integrity 소관) — Validation 9
+- [ ] **질량 보존** — CLAUDE.md 감소분의 **90% 이상**이 목적지 문서 증가로 나타남 — Validation 12
+- [ ] **격리 재현되는** 신규 테스트 실패 0건(baseline red 7건은 pre-existing, gate-guard-integrity 소관. 순서 의존 플레이키는 회귀로 치지 않음) — Validation 9
 - [ ] `--diff-filter=D` 의도치 않은 삭제 0건 — Validation 11
 
 ## Open Questions

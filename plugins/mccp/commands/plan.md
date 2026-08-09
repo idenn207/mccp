@@ -1309,8 +1309,15 @@ fi
 # --codex-verdict, so a receipt records no Codex verdict even though Codex spoke,
 # and 5.2f writes `"verdict":""` — the exact value its own prose forbids.
 REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
-mkdir -p "$REVIEW_DIR"
-printf '%s' "$CODEX_VERDICT" > "$REVIEW_DIR/codex-verdict"
+mkdir -p "$REVIEW_DIR" || { echo "[MCCP-GATE-STOP] cannot create $REVIEW_DIR — the Codex verdict cannot be persisted, and an unrecorded review must not be sealed as if it never happened."; exit 12; }
+printf '%s' "$CODEX_VERDICT" > "$REVIEW_DIR/codex-verdict" || { echo "[MCCP-GATE-STOP] cannot write $REVIEW_DIR/codex-verdict — Codex spoke but the verdict would be lost, and 5.6 would stamp a receipt claiming no Codex review."; exit 12; }
+# Read it back. A write that returns 0 and lands empty (a full disk that reports
+# success on the open, a filesystem that defers the error) is the failure mode a
+# bare exit-code check misses, and the whole point of this artifact is that it is
+# the ONLY carrier across the block boundary — there is no second copy to fall
+# back on. Verifying costs one read.
+CODEX_VERDICT_BACK=$(cat "$REVIEW_DIR/codex-verdict" 2>/dev/null || printf '')
+[ "$CODEX_VERDICT_BACK" = "$CODEX_VERDICT" ] || { echo "[MCCP-GATE-STOP] codex-verdict artifact read back as '$CODEX_VERDICT_BACK' but Codex returned '$CODEX_VERDICT' — refusing to continue with a corrupted audit record."; exit 12; }
 echo "[mccp:plan-codex] codex verdict persisted: '${CODEX_VERDICT}'" 1>&2
 ```
 
@@ -1467,10 +1474,15 @@ FORWARD_CODEX=$(node -e 'const fs=require("fs");try{process.stdout.write(JSON.pa
 # was silently dropped: a receipt that recorded NO Codex verdict on a run where
 # Codex actually spoke. Cross-gate dedupe fail-closes on the absence, so nothing
 # unsafe shipped — but the audit record was false, and this is the very path
-# MCCP_PLAN_REVIEW=codex exists to fall back to. The shell variable stays as a
-# fallback so any path that does reach 5.6 in the same block is unchanged.
+# MCCP_PLAN_REVIEW=codex exists to fall back to.
+#
+# santa-loop R6 — the artifact is the ONLY carrier. The shell fallback that used to sit here read
+# `${CODEX_VERDICT:-}`, which is always empty in this block — 5.2z ran behind a
+# fence — so it could never fire. A safety net that cannot catch anything is worse
+# than none: it reads as a second line of defence that does not exist. 5.2z now
+# fails closed (exit 12) if the artifact cannot be written or does not read back,
+# so an empty value here means Codex genuinely produced no verdict.
 CODEX_VERDICT_EFF=$(cat "$REVIEW_DIR/codex-verdict" 2>/dev/null || printf '')
-if [ -z "$CODEX_VERDICT_EFF" ]; then CODEX_VERDICT_EFF="${CODEX_VERDICT:-}"; fi
 if [ "$FORWARD_CODEX" = "1" ] && [ -n "$CODEX_VERDICT_EFF" ]; then
   WRITE_FLAGS+=(--codex-verdict "$CODEX_VERDICT_EFF")
 fi

@@ -296,7 +296,7 @@ git diff --diff-filter=D --name-only origin/main...HEAD
 - [ ] plan이 강제하는 명제가 **"기록 없는 수용 0"**으로 서술돼 있고, "오심 0"으로 읽히는 문구가 DD9·Summary·milestone 표기 어디에도 없음
 - [ ] 리뷰어 주장이 **메모리에서만** 온다 — 대기 중 **awaiting 아티팩트** 변조에도 카운트·verdict 불변(DD2 회귀, envelope도 함께)
 - [ ] `--intent-*` CLI 플래그 여전히 0건
-- [ ] 신규 meta 4필드 present-only + `makeSkeleton` 미포함 + 구 ship corpus hash 무손상
+- [ ] 신규 meta **5필드** present-only + `makeSkeleton` 미포함 + 구 ship corpus hash 무손상
 - [ ] `plugin.json` `1.23.5` + footer 2면 + i18n test 2건 + CHANGELOG + CLAUDE.md §3.13/§4 동기
 - [ ] `git diff --diff-filter=D` 결과에 의도치 않은 삭제 0건
 - [ ] Patterns mirrored, not reinvented

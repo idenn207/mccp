@@ -19,7 +19,15 @@ const path = require('path');
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..', '..');
 const RECEIPT_DIR = path.join(PLUGIN_ROOT, 'scripts', 'receipt');
 const LIB_DIR = path.join(PLUGIN_ROOT, 'scripts', 'lib');
-const { resolveMode: resolveReceiptMode, warnIfOff } = require(path.join(LIB_DIR, 'receipt-mode'));
+// v1.23.5 G1 — receipt-mode was an UNGUARDED top-level require. A load failure
+// killed the process at module scope, before main() existed to route it, so the
+// documented fail-open above never ran: the hook died instead of allowing. Guard
+// it at module scope (a require inside a catch can itself throw) and let main()
+// route the failure through g1Allow.
+const receiptModeMod = (function () {
+  try { return require(path.join(LIB_DIR, 'receipt-mode')); }
+  catch (err) { return { _load_error: err.message }; }
+})();
 
 // v0.2.7 G1 invariant — hook-trace is loaded once at module scope so a failed
 // require during a catch block can't itself throw. C6: live hook state = event
@@ -67,7 +75,32 @@ function debug(msg) {
 // (this UserPromptExpansion + receipt-skill PreToolUse) parse the same
 // way. Without this, branch-based commands on `main`/`default` with an
 // explicit --plan hit the v0.2.8 generic-slug reject path.
-const { extractPlanPath } = require(path.join(LIB_DIR, 'extract-plan-path'));
+//
+// v1.23.5 G1 — guarded, and deliberately NOT with a `catch → null` fallback like
+// blockFormat above. blockFormat may degrade to null because its absence only
+// coarsens block LABELS. This module is a gate INPUT: a null fallback would make
+// --plan silently vanish from the validator call, which is exactly the
+// "validate without --plan" defect this milestone exists to close. A missing gate
+// input routes loudly through g1Allow instead.
+const extractPlanPathMod = (function () {
+  try { return require(path.join(LIB_DIR, 'extract-plan-path')); }
+  catch (err) { return { _load_error: err.message }; }
+})();
+
+// Shape check, not just load success: a module that loads but lacks its export
+// would crash at the callsite with the same uncaught-throw failure mode.
+function coreModuleLoadError() {
+  if (!receiptModeMod || typeof receiptModeMod.resolveMode !== 'function' ||
+      typeof receiptModeMod.warnIfOff !== 'function') {
+    return 'receipt-mode: ' +
+      ((receiptModeMod && receiptModeMod._load_error) || 'missing resolveMode/warnIfOff export');
+  }
+  if (!extractPlanPathMod || typeof extractPlanPathMod.extractPlanPath !== 'function') {
+    return 'extract-plan-path: ' +
+      ((extractPlanPathMod && extractPlanPathMod._load_error) || 'missing extractPlanPath export');
+  }
+  return null;
+}
 
 // v1.3.1 — informational-hook schema lib. Shared between hook ALLOW emit,
 // receipt-context-schema unit tests, and validate-callsite-lint static check.
@@ -229,14 +262,28 @@ async function main() {
     return allow();
   }
 
+  // v1.23.5 G1 — core gate modules (receipt-mode, extract-plan-path). Checked
+  // here rather than at module scope so the failure takes the SAME loud
+  // fail-open path as a validate-cmd load failure below: stdin is already
+  // parsed, so g1Allow can write an L1 shard against the real session.
+  const coreErr = coreModuleLoadError();
+  if (coreErr) {
+    debug('cannot load core gate module: ' + coreErr);
+    return g1Allow(event, {
+      exceptionClass: 'ModuleLoadError',
+      reason: coreErr,
+      commandName: commandName,
+    });
+  }
+
   // v0.2.2 Task 4 — MCCP_RECEIPT_GATE_MODE resolution.
   // 'off' → bypass entirely with loud stderr warning (debugging only).
   // 'soft' → opt-in, allow missing receipts (no placeholder write at hook time;
   //          placeholders are operator-driven via /mccp:receipt-write).
   // 'hard' (default) → existing behavior, block on missing/stale.
-  const receiptMode = resolveReceiptMode(process.env);
+  const receiptMode = receiptModeMod.resolveMode(process.env);
   if (receiptMode === 'off') {
-    warnIfOff('off', 'UserPromptExpansion ' + commandName);
+    receiptModeMod.warnIfOff('off', 'UserPromptExpansion ' + commandName);
     debug('MCCP_RECEIPT_GATE_MODE=off bypass');
     return allow();
   }
@@ -276,7 +323,7 @@ async function main() {
   // `--plan "path with space.md"` would still validate plan-aware but
   // against the wrong slug — the receipt lookup misses and falls through
   // to a stale receipt at the branch slug.
-  const planPath = extractPlanPath(event.command_args);
+  const planPath = extractPlanPathMod.extractPlanPath(event.command_args);
   const decisionId = decisionMod
     ? decisionMod.deriveDecisionId(commandName, event.command_args, {
         cwd: event.cwd || process.cwd(),

@@ -73,8 +73,41 @@ function buildSeededModel() {
         ok: true,
         used_toggle_count: 8,
         denominator: 100,
-        operation_branch_count: 15,
-        producer_coverage: 'toggle-usage',
+        // M4 — 제외 전/후 두 분모를 함께 낸다(G3). 하나만 내면 명명된 제외가
+        // 감축으로 오독된다. raw - excluded === denominator 항등이 계약이다.
+        raw_surface_count: 110,
+        excluded_count: 10,
+        operation_branch_count: 215,
+        operation_branch_method: 'enum-table+boolean-floor (lower bound)',
+        // M4 — producer presence는 사용 건수와 직교하는 신호다(A1·B2 선례).
+        // 이 flag가 없으면 B3는 forward-only이며, 그것이 실 corpus의 현재 상태다:
+        // session-start.js가 스냅샷 경로를 cwd 기준으로 풀어 M2 이후 단 한 건도
+        // 기록되지 않았고(M4 Task 6이 수정), 그 위에서 `computed 0%`를 내던 것이
+        // 정확히 M2가 A1·A2·A4·B2에서 강등시킨 confidently-wrong 패턴이다.
+        // fixture는 compute 경로를 실증하기 위해 corpus 존재를 주입한다.
+        snapshot_corpus_present: true,
+        snapshot_files_read: 3,
+      },
+      // M4 — A3는 커밋 아티팩트(docs/multi-session-work-loop/a3-baseline.json)를
+      // 읽는 instruction-cost 소스에서 온다. derive는 tokenizer를 절대 돌리지
+      // 않는다(렌더 예산). stale=false여야 computed이며, CLAUDE.md가 바뀌면
+      // 실 derive는 insufficient로 정직 강등된다.
+      instruction_cost: {
+        ok: true,
+        artifact_present: true,
+        artifact_path: 'docs/multi-session-work-loop/a3-baseline.json',
+        status: 'computed',
+        baseline_tokens: 45646,
+        current_tokens: 23028,
+        denominator_tokens: 200000,
+        reduction_ratio: 0.4955,
+        claude_md_reduction_ratio: 0.5054,
+        measured_at: '2026-08-09T00:00:00.000Z',
+        tokenizer_version: '0.13.0',
+        tokenizer_version_source: 'tokenizing-process',
+        stale: false,
+        stale_reason: null,
+        producer_coverage: 'instruction-cost',
       },
       // PR-Codex R2-F3: `findings` source는 실 derive에 배선돼 있지 않으므로
       // fixture에 주입하지 않는다(fake source 주입 = masquerade). C1은 forward-only.

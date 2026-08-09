@@ -261,7 +261,13 @@ test('B3: toggle axes computes usage rate + branch count', (t) => {
         ok: true,
         used_toggle_count: 15,
         denominator: 100,
+        raw_surface_count: 108,
+        excluded_count: 8,
         operation_branch_count: 25,
+        // M4 contract change (explicit): producer presence now gates the compute
+        // path, mirroring A1's completions_producer_present and B2's
+        // collision_producer_present. Without it B3 is forward-only.
+        snapshot_corpus_present: true,
         producer_coverage: 'toggle-usage',
       },
     },
@@ -274,6 +280,127 @@ test('B3: toggle axes computes usage rate + branch count', (t) => {
   assert.strictEqual(b3.denominator, 100);
   assert.strictEqual(b3.value, 0.15);
   assert.strictEqual(b3.operation_branches, 25);
+  assert.strictEqual(b3.raw_surface_count, 108, 'pre-exclusion denominator co-reported');
+  assert.strictEqual(b3.excluded_count, 8);
+});
+
+test('A3: computes occupancy from the committed artifact', (t) => {
+  const metrics = computeMetrics({
+    sources: {
+      instruction_cost: {
+        ok: true, artifact_present: true, status: 'computed',
+        baseline_tokens: 45646, current_tokens: 23028, denominator_tokens: 200000,
+        reduction_ratio: 0.4955, claude_md_reduction_ratio: 0.5054,
+        tokenizer_version: '0.13.0', stale: false, producer_coverage: 'instruction-cost',
+      },
+    },
+  });
+  const a3 = metrics.A3;
+
+  assert.strictEqual(a3.status, 'computed');
+  assert.strictEqual(a3.numerator, 23028);
+  assert.strictEqual(a3.denominator, 200000);
+  // The value cell is the metric's own definition (occupancy), not the reduction.
+  // Rendering the reduction as the headline under the name "상시 지시문 점유율"
+  // would reintroduce the label/value mismatch M4 just fixed on C2/C3.
+  assert.ok(Math.abs(a3.value - 0.11514) < 1e-6);
+  assert.ok(Math.abs(a3.reduction_ratio - 0.4955) < 1e-9, 'reduction is co-reported, not the value');
+});
+
+test('A3: a stale artifact degrades to insufficient, never a stale "computed"', (t) => {
+  const metrics = computeMetrics({
+    sources: {
+      instruction_cost: {
+        ok: true, artifact_present: true, status: 'computed',
+        current_tokens: 23028, denominator_tokens: 200000,
+        stale: true, stale_reason: 'CLAUDE.md changed since the A3 measurement',
+        producer_coverage: 'instruction-cost',
+      },
+    },
+  });
+  const a3 = metrics.A3;
+
+  assert.strictEqual(a3.status, 'insufficient');
+  assert.strictEqual(a3.numerator, null, 'a measurement of a tree that no longer exists is not a value');
+  assert.match(a3.invalid_reason, /CLAUDE\.md changed/);
+});
+
+test('A3: no artifact is forward-only with the emit instruction, never an estimate', (t) => {
+  // measurement-design.md §A3 prohibits byte-based estimation (bytes/4 is ~12%
+  // off on this Korean-dense corpus), so "no tokenizer run" must say so rather
+  // than substitute a guess.
+  const metrics = computeMetrics({
+    sources: {
+      instruction_cost: {
+        ok: true, artifact_present: false,
+        artifact_path: 'docs/multi-session-work-loop/a3-baseline.json',
+        producer_coverage: 'instruction-cost',
+      },
+    },
+  });
+  const a3 = metrics.A3;
+
+  assert.strictEqual(a3.status, 'forward-only');
+  assert.strictEqual(a3.numerator, null);
+  assert.match(a3.invalid_reason, /a3 --emit/);
+});
+
+test('B3: an empty env-snapshot corpus is forward-only, not "computed 0%"', (t) => {
+  // Regression for the defect this milestone found: session-start.js resolved
+  // the snapshot path against cwd, so no *.env-snapshot.json was ever written,
+  // and B3 reported `{used: 0, denominator: 103, degraded: false}` — a confident
+  // "nobody uses any toggle" derived from a corpus that never existed.
+  const metrics = computeMetrics({
+    sources: {
+      toggle_usage: {
+        ok: true,
+        used_toggle_count: 0,
+        denominator: 94,
+        raw_surface_count: 104,
+        excluded_count: 10,
+        operation_branch_count: 199,
+        snapshot_corpus_present: false,
+        producer_coverage: 'toggle-usage',
+      },
+    },
+  });
+  const b3 = metrics[B3_TOGGLE_AXES];
+
+  assert.strictEqual(b3.status, 'forward-only');
+  assert.strictEqual(b3.numerator, null, 'no usage claim may be made from an empty corpus');
+  assert.strictEqual(b3.denominator, 94, 'the denominator is still known and reported');
+  assert.match(b3.invalid_reason, /no env-snapshot corpus/);
+  assert.strictEqual(b3.operation_branches, 199,
+    'the anti-gaming branch co-report survives producer absence (it counts the surface, not usage)');
+});
+
+test('B3: a high branch count is co-reported, never an integrity violation', (t) => {
+  // M4 removed an `operation_branch_count > 100 -> invalid` rule that appears
+  // nowhere in measurement-design.md. The contract's B3 integrity check is fold
+  // detection ("토글 수는 줄었는데 분기 수는 그대로"), not an absolute ceiling.
+  // Counting branches over the real surface yields ~199, so the old rule would
+  // have marked B3 invalid for being computed correctly.
+  const metrics = computeMetrics({
+    sources: {
+      toggle_usage: {
+        ok: true,
+        used_toggle_count: 12,
+        denominator: 94,
+        raw_surface_count: 104,
+        excluded_count: 10,
+        operation_branch_count: 199,
+        snapshot_corpus_present: true,
+        producer_coverage: 'toggle-usage',
+      },
+    },
+  });
+  const b3 = metrics[B3_TOGGLE_AXES];
+
+  assert.strictEqual(b3.status, 'computed');
+  assert.strictEqual(b3.integrity_ok, true);
+  assert.strictEqual(b3.invalid_reason, null);
+  assert.match(b3.branch_fold_check, /forward-only/,
+    'fold detection needs a prior-cycle pair, which is honestly reported as absent');
 });
 
 test('C1: feedback closure separates resolve types', (t) => {

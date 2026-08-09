@@ -730,7 +730,16 @@ async function main() {
           toggles: nonDefault,
         };
 
-        const snapshotResult = toggleSnapshot.writeSnapshot(observerSessionId, snapshot);
+        // CL-5 (same defect, same block, 12 lines apart). The msw-events call
+        // above was fixed in M3 but this one still omitted opts, so `stateDir`
+        // fell back to a cwd-relative '.claude/state' while the reader
+        // (derive/sources/toggle-usage.js) scans repoRoot. Result: not one
+        // *.env-snapshot.json was ever produced, and B3 reported
+        // `{used: 0, degraded: false}` over an empty corpus. This starts the
+        // clock for the usage history M8 needs — it is not a retirement.
+        const snapshotResult = toggleSnapshot.writeSnapshot(observerSessionId, snapshot, {
+          stateDir: path.join(observerContext.projectRoot, '.claude', 'state'),
+        });
         if (!snapshotResult.ok) {
           process.stderr.write(`[mccp:toggle-snapshot] WARNING: env-snapshot write failed: ${snapshotResult.reason} (allow)\n`);
         }

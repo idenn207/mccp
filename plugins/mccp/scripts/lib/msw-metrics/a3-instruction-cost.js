@@ -18,9 +18,75 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const MEMORY_ENV_FLAG = 'MCCP_A3_READ_USER_MEMORY';
+const TIKTOKEN_ENCODING = 'o200k_base';
+
+// M4 Task 1 — interpreter probe (replaces the `python3` hardcode).
+//
+// `python3` on Windows usually resolves to the WindowsApps Store stub, which
+// prints an install hint and never runs Python. The hardcode therefore made
+// A3 permanently `baseline-unavailable` on the operator's machine.
+//
+// Security absorption S1+S7: judge a candidate by its EXIT CODE plus a marker
+// on stdout, never by parsing a version string out of prose — a stub that
+// prints "Python was not found..." must not be mistaken for an interpreter.
+// `shell: false` is explicit so no candidate name is ever handed to a shell.
+//
+// Scope note (S1, partially rejected): PATH resolution is NOT a new trust
+// boundary here. Anyone who can prepend to PATH already controls the `node`
+// that runs this file. Absolute-path pinning with ownership/signature checks
+// was rejected as disproportionate for a local metrics script; instead the
+// interpreter actually adopted is recorded in the emitted artifact so the
+// measurement stays auditable.
+const PY_CANDIDATES = Object.freeze([
+  Object.freeze({ cmd: 'python3', prefix: Object.freeze([]) }),
+  Object.freeze({ cmd: 'python', prefix: Object.freeze([]) }),
+  Object.freeze({ cmd: 'py', prefix: Object.freeze(['-3']) }),
+]);
+
+const PROBE_MARKER = 'PYPROBE_OK:';
+const PROBE_SRC = [
+  'import sys',
+  'sys.stdout.write("' + PROBE_MARKER + '%d" % sys.version_info[0])',
+  'raise SystemExit(0 if sys.version_info[0] == 3 else 3)',
+].join('\n');
+
+let _interpreterCache;
+
+/**
+ * Find the first candidate that is a real Python 3.
+ * @param {Object} [opts]
+ * @param {boolean} [opts.noCache] - bypass the per-process memo (tests)
+ * @returns {{cmd: string, prefix: string[], version: string}|null}
+ */
+function resolveInterpreter(opts = {}) {
+  if (!opts.noCache && _interpreterCache !== undefined) return _interpreterCache;
+
+  let found = null;
+  for (const cand of PY_CANDIDATES) {
+    let r;
+    try {
+      r = spawnSync(cand.cmd, cand.prefix.concat(['-c', PROBE_SRC]), {
+        encoding: 'utf8',
+        shell: false,
+        timeout: 20000,
+        windowsHide: true,
+      });
+    } catch (_e) {
+      continue;
+    }
+    if (!r || r.error || r.status !== 0) continue;
+    const out = String(r.stdout || '');
+    if (out.indexOf(PROBE_MARKER + '3') === -1) continue;
+    found = { cmd: cand.cmd, prefix: cand.prefix.slice(), version: null };
+    break;
+  }
+
+  if (!opts.noCache) _interpreterCache = found;
+  return found;
+}
 
 /**
  * Measure instruction-cost A3
@@ -113,20 +179,22 @@ async function measureA3(opts = {}) {
     let stateBytes = 0;
     let stateHash = '';
 
-    if (opts.statePath && fs.existsSync(opts.statePath)) {
-      const stateContent = fs.readFileSync(opts.statePath, 'utf8');
-      // Extract SessionStart injected block (heuristic: look for injected STATE section)
-      const sessionBlockMatch = stateContent.match(/^---\n([\s\S]*?)\n---/m);
-      if (sessionBlockMatch) {
-        stateText = sessionBlockMatch[1];
-        stateBytes = Buffer.byteLength(stateText, 'utf8');
-        stateHash = crypto.createHash('sha256').update(stateText).digest('hex');
-        result.components.state_block = {
-          bytes: stateBytes,
-          hash: stateHash,
-          tokens: null,
-        };
-      }
+    // M4 Task 1 — measure what is ACTUALLY injected, not the frontmatter.
+    //
+    // The previous implementation matched /^---\n(...)\n---/ and measured the
+    // YAML frontmatter, which SessionStart never injects. What reaches the
+    // model is `formatStateBlock(body)` — the system-reminder wrapper around
+    // the STATE.md *body* (plus the escalation section when flagged). Measuring
+    // the frontmatter therefore counted the wrong slice of the numerator.
+    stateText = readInjectedStateBlock(opts);
+    if (stateText) {
+      stateBytes = Buffer.byteLength(stateText, 'utf8');
+      stateHash = crypto.createHash('sha256').update(stateText).digest('hex');
+      result.components.state_block = {
+        bytes: stateBytes,
+        hash: stateHash,
+        tokens: null,
+      };
     }
 
     // Total bytes (never store raw text)
@@ -139,8 +207,14 @@ async function measureA3(opts = {}) {
 
       result.tokenizer_info = {
         tool: 'tiktoken',
-        model: 'o200k_base',
+        model: TIKTOKEN_ENCODING,
         version: tokenInfo.version,
+        // Provenance of the version above: it was read in the SAME process that
+        // ran enc.encode, so "reproducible with this tokenizer" is verifiable.
+        version_source: 'tokenizing-process',
+        python_version: tokenInfo.python_version,
+        interpreter: tokenInfo.interpreter,
+        executable: tokenInfo.executable,
       };
 
       // Store token counts per component
@@ -189,36 +263,55 @@ async function measureA3(opts = {}) {
  * @returns {Promise<Object>} token counts
  */
 async function tokenizeWithTiktoken(...texts) {
-  // Check tiktoken availability via pip show
-  let tiktokenVersion = 'unknown';
-  try {
-    const pipOutput = execSync('pip show tiktoken', { encoding: 'utf8' });
-    const versionMatch = pipOutput.match(/Version: ([\d.]+)/);
-    if (versionMatch) {
-      tiktokenVersion = versionMatch[1];
-    }
-  } catch (e) {
-    throw new Error('tiktoken not installed. Install with: pip install tiktoken');
+  // M4 Task 1 — the tokenizer version is read INSIDE the process that does the
+  // tokenizing. The previous `execSync('pip show tiktoken')` could report a
+  // version from an entirely different pip/interpreter than the one that ran
+  // `enc.encode`, so the "pin the tokenizer for reproducibility" contract
+  // (measurement-design.md §A3) was not actually enforced. It also went
+  // through a shell; this does not.
+  const interp = resolveInterpreter();
+  if (!interp) {
+    throw new Error(
+      'no Python 3 interpreter found (tried ' +
+      PY_CANDIDATES.map((c) => [c.cmd].concat(c.prefix).join(' ')).join(', ') + ')'
+    );
   }
 
-  // Use python to count tokens (subprocess to avoid JS tokenizer approximations)
-  const pythonScript = `
-import tiktoken
-enc = tiktoken.get_encoding("o200k_base")
-import sys
-import json
-data = json.load(sys.stdin)
-results = {}
-total = 0
-for key, text in data.items():
-  if text is not None:
-    count = len(enc.encode(text))
-    results[key] = count
-    total += count
-  else:
-    results[key] = 0
-print(json.dumps({'counts': results, 'total': total}))
-`;
+  // `disallowed_special=()` — CLAUDE.md is prose that may legitimately contain
+  // sequences tiktoken treats as special tokens; the default raises on them and
+  // would surface as a spurious baseline-unavailable.
+  const pythonScript = [
+    'import sys, json',
+    'try:',
+    '    import tiktoken',
+    'except Exception as e:',
+    '    sys.stderr.write("tiktoken import failed: %s" % e)',
+    '    raise SystemExit(4)',
+    'enc = tiktoken.get_encoding("' + TIKTOKEN_ENCODING + '")',
+    'data = json.load(sys.stdin)',
+    'counts = {}',
+    'total = 0',
+    'for key, text in data.items():',
+    '    if text is None:',
+    '        counts[key] = 0',
+    '        continue',
+    '    n = len(enc.encode(text, disallowed_special=()))',
+    '    counts[key] = n',
+    '    total += n',
+    'version = getattr(tiktoken, "__version__", None)',
+    'if not version:',
+    '    try:',
+    '        from importlib.metadata import version as _v',
+    '        version = _v("tiktoken")',
+    '    except Exception:',
+    '        version = "unknown"',
+    'sys.stdout.write(json.dumps({',
+    '    "counts": counts, "total": total,',
+    '    "tiktoken_version": version,',
+    '    "python_version": sys.version.split()[0],',
+    '    "executable": sys.executable,',
+    '}))',
+  ].join('\n');
 
   const inputData = {
     claude_md: texts[0] || '',
@@ -227,8 +320,10 @@ print(json.dumps({'counts': results, 'total': total}))
   };
 
   return new Promise((resolve, reject) => {
-    const proc = require('child_process').spawn('python3', ['-c', pythonScript], {
+    const proc = spawn(interp.cmd, interp.prefix.concat(['-c', pythonScript]), {
       stdio: ['pipe', 'pipe', 'pipe'],
+      shell: false,
+      windowsHide: true,
     });
 
     let stdout = '';
@@ -266,7 +361,10 @@ print(json.dumps({'counts': results, 'total': total}))
           memory_tokens: result.counts.memory_index || 0,
           state_tokens: result.counts.state_block || 0,
           total_tokens: result.total || 0,
-          version: tiktokenVersion,
+          version: result.tiktoken_version || 'unknown',
+          python_version: result.python_version || null,
+          executable: result.executable || null,
+          interpreter: [interp.cmd].concat(interp.prefix).join(' '),
         });
       } catch (e) {
         reject(new Error(`Failed to parse tiktoken output: ${e.message}`));
@@ -283,25 +381,100 @@ print(json.dumps({'counts': results, 'total': total}))
   });
 }
 
+// SessionStart wrapper shapes. These MIRROR state-injector.js#formatStateBlock
+// and #appendEscalateSection.
+//
+// We deliberately do NOT call state-injector.inject(): that entry point has
+// side effects (it sweeps stale fix-task-applied.md) and A3 must stay a
+// read-only measurement. The BODY comes from the injector's own exported
+// reader, so only these two small wrapper shapes are duplicated — if the
+// injector's wrapper changes, this must follow. The emitted artifact records
+// this as a caveat so a silent drift is visible at audit time.
+const STATE_BLOCK_HEAD = '<system-reminder>\n[mccp:STATE.md — restored from previous session]\n\n';
+const STATE_BLOCK_TAIL = '\n</system-reminder>\n';
+
+function wrapStateBlock(body) {
+  return STATE_BLOCK_HEAD + body + STATE_BLOCK_TAIL;
+}
+
+function stripFrontmatter(raw) {
+  const m = String(raw).match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+  return m ? String(raw).slice(m[0].length) : String(raw);
+}
+
 /**
- * Find MEMORY.md files recursively (simple implementation)
+ * Reconstruct the SessionStart-injected STATE.md block (read-only).
+ * @returns {string|null} the exact text injected, or null when absent
  */
-function findMemoryFiles(basePath, maxDepth = 5, currentDepth = 0) {
+function readInjectedStateBlock(opts = {}) {
+  if (typeof opts.stateBlockText === 'string') return opts.stateBlockText;
+
+  if (opts.statePath) {
+    if (!fs.existsSync(opts.statePath)) return null;
+    try {
+      return wrapStateBlock(stripFrontmatter(fs.readFileSync(opts.statePath, 'utf8')).trimEnd());
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  try {
+    const injector = require('../../state/state-injector');
+    const state = injector.readState(opts.repoRoot || process.cwd());
+    if (!state || state.kind !== 'ok' || typeof state.body !== 'string') return null;
+    let body = state.body;
+    const fm = state.frontmatter;
+    if (fm && fm.escalate_pending === true) {
+      const dec = fm.escalate_pending_decision_id || '(unknown)';
+      body += '\n' + [
+        '',
+        '## Escalation Pending',
+        '- decision: ' + dec,
+        '- Next: /mccp:santa-loop (가용)',
+        '- 해제: santa-loop 통과 후 receipt가 ACCEPT 상태로 갱신되면 자동 clear',
+      ].join('\n');
+    }
+    return wrapStateBlock(body);
+  } catch (_e) {
+    return null;
+  }
+}
+
+/**
+ * Find MEMORY.md files recursively (simple implementation).
+ *
+ * Security absorption S4: skip symlinks. `readdirSync(withFileTypes)` uses
+ * lstat semantics, so a symlinked directory already fails isDirectory() and is
+ * not traversed — the real exposure was a symlinked MEMORY.md *file* pointing
+ * outside ~/.claude (its bytes would be tokenized and its size recorded). We
+ * reject any candidate whose realpath escapes the search root.
+ */
+function findMemoryFiles(basePath, maxDepth = 5, currentDepth = 0, rootReal = null) {
   const results = [];
   if (currentDepth > maxDepth) return results;
+
+  let root = rootReal;
+  if (root === null) {
+    try {
+      root = fs.realpathSync(basePath);
+    } catch (_e) {
+      return results;
+    }
+  }
 
   try {
     const entries = fs.readdirSync(basePath, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = path.join(basePath, entry.name);
+      if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory() && entry.name !== '.git') {
         if (entry.name === 'memory') {
           const memPath = path.join(fullPath, 'MEMORY.md');
-          if (fs.existsSync(memPath)) {
+          if (isContainedRegularFile(memPath, root)) {
             results.push(memPath);
           }
         }
-        results.push(...findMemoryFiles(fullPath, maxDepth, currentDepth + 1));
+        results.push(...findMemoryFiles(fullPath, maxDepth, currentDepth + 1, root));
       }
     }
   } catch (e) {
@@ -311,4 +484,24 @@ function findMemoryFiles(basePath, maxDepth = 5, currentDepth = 0) {
   return results;
 }
 
-module.exports = { measureA3, tokenizeWithTiktoken };
+// A regular (non-symlink) file whose realpath stays under `root`.
+function isContainedRegularFile(candidate, root) {
+  try {
+    if (!fs.lstatSync(candidate).isFile()) return false;
+    const real = fs.realpathSync(candidate);
+    const rel = path.relative(root, real);
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  } catch (_e) {
+    return false;
+  }
+}
+
+module.exports = {
+  measureA3,
+  tokenizeWithTiktoken,
+  resolveInterpreter,
+  readInjectedStateBlock,
+  MEMORY_ENV_FLAG,
+  TIKTOKEN_ENCODING,
+  DENOMINATOR_TOKENS: 200000,
+};

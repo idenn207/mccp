@@ -8,19 +8,27 @@
 const fs = require('fs');
 const path = require('path');
 
-// 계약: MCCP_* 토글 식별자는 정규식 MCCP_[A-Z0-9_]+에 매치
-// 분모 범위: plugins/mccp/scripts/**/*.js (tests 제외) ∪ commands/*.md
-// 명시 제외: MCCP_TMP
+const toggleSnapshot = require('../../state/toggle-snapshot');
 
-const TOGGLE_RE = /MCCP_[A-Z0-9_]+/g;
-const EXCLUDE_TOKENS = new Set(['MCCP_TMP']);
+// 계약(measurement-design.md §B3): 토글 식별자는 정규식 MCCP_[A-Z0-9_]+에 매치하고,
+// 분모 범위는 plugins/mccp/scripts/**/*.js (`*/tests/*` 경로와 `*.test.js` 파일 제외)
+// ∪ plugins/mccp/commands/*.md 이며, 제외는 **명명된 분류표**에만 유효하다.
+//
+// M4 Task 5 — 스캐너를 toggle-snapshot.js 하나로 통일했다. 이전에는 이 파일이
+// 자체 스캐너 + 자체 EXCLUDE_TOKENS를 들고 있어 producer와 reader가 서로 다른
+// 분모를 볼 수 있었고, 실제로 `*.test.js` 제외 여부가 두 구현에서 달랐다.
 
 function scanToggleUsage(repoRoot) {
   const result = {
     ok: true,
     used_toggle_count: 0,
     denominator: 0,
+    raw_surface_count: 0,
+    excluded_count: 0,
     operation_branch_count: 0,
+    operation_branch_method: BRANCH_METHOD,
+    snapshot_corpus_present: false,
+    snapshot_files_read: 0,
     producer_coverage: 'toggle-usage',
     degraded: false,
     invalid_count: 0,
@@ -28,11 +36,14 @@ function scanToggleUsage(repoRoot) {
   };
 
   try {
-    // 1. Scan runtime surface for toggles (분모)
-    const denominator = scanDenominator(repoRoot);
-    result.denominator = denominator.count;
+    // 1. 런타임 표면 스캔 — 제외 전/후 두 분모를 함께 보고한다(G3).
+    //    하나만 내면 "제외했더니 줄었다"가 감축으로 오독된다.
+    const surface = toggleSnapshot.scanSurfaceDetailed(repoRoot);
+    result.raw_surface_count = surface.raw_surface_count;
+    result.denominator = surface.toggle_count;
+    result.excluded_count = surface.excluded.length;
 
-    // 2. Read env-snapshots to find non-default usage (분자)
+    // 2. env-snapshot을 읽어 non-default 사용 이력(분자)을 센다.
     const snapDir = path.join(repoRoot, '.claude', 'state');
     const usedToggles = new Set();
 
@@ -41,6 +52,7 @@ function scanToggleUsage(repoRoot) {
       for (const file of files) {
         if (!file.endsWith('.env-snapshot.json')) continue;
         const filePath = path.join(snapDir, file);
+        result.snapshot_files_read++;
 
         try {
           const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -59,12 +71,18 @@ function scanToggleUsage(repoRoot) {
       }
     }
 
+    // producer 존재 여부는 사용 건수와 **직교**다. 스냅샷 파일이 하나도 없으면
+    // "토글을 아무도 안 썼다"가 아니라 "이력이 수집된 적 없다"이고, 둘을 같은
+    // `0`으로 내보내면 빈 corpus 위에서 confidently-wrong 0%가 나온다(M2가
+    // A1·A2·A4·B2에 대해 이미 강등시킨 패턴).
+    result.snapshot_corpus_present = result.snapshot_files_read > 0;
     result.used_toggle_count = usedToggles.size;
 
-    // 3. Calculate operation branch count (동작 분기 수)
-    // This is a heuristic: count distinct conditional branches per toggle
-    // For now, estimate based on toggle name patterns and usage
-    result.operation_branch_count = estimateOperationBranches(usedToggles, denominator.byName);
+    // 3. 동작 분기 수 — **분모 표면 전체** 위에서 센다.
+    //    measurement-design.md §B3의 병기 목적은 "토글 수를 줄였다 ≠ 동작 분기를
+    //    줄였다"를 드러내는 것이다. 분자(사용 이력) 위에서 세면 토글을 은퇴시켜도
+    //    값이 안 움직여 그 목적을 달성하지 못하고, 이력이 비면 그냥 0이 된다.
+    result.operation_branch_count = countOperationBranches(surface.toggles);
 
   } catch (err) {
     result.ok = false;
@@ -75,114 +93,47 @@ function scanToggleUsage(repoRoot) {
   return result;
 }
 
-function scanDenominator(repoRoot) {
-  const result = {
-    count: 0,
-    byName: {},
-    degraded: false,
-  };
+// 동작 분기 수 (measurement-design.md §B3 "동작 분기 수").
+//
+// "토글 하나가 몇 개의 서로 다른 값으로 분기하는지의 합. 예를 들어
+// MCCP_STOP_LOOP(off/observe/enforce 3분기)은 분기 3, 불리언 토글은 분기 2."
+//
+// 열거형은 이름을 적어 고정하고 나머지는 불리언 2로 센다. 임계값 토글(숫자·
+// 리스트)도 2로 세는데, 이는 "기본값 대 override" 두 갈래라는 **하한**이지 정확한
+// 값이 아니다 — 그래서 산출 방법을 함께 내보내고(`operation_branch_method`) 값을
+// 정밀도가 있는 것처럼 쓰지 않는다. 하한이어도 목적은 달성된다: 토글을 설정 blob
+// 안으로 접어 개수만 줄이면 이 합이 따라 줄지 않는다.
+const BRANCH_VALUES = Object.freeze({
+  MCCP_STOP_LOOP: 3,                    // off | observe | enforce
+  MCCP_RECEIPT_GATE_MODE: 3,            // soft | hard | off
+  MCCP_IMPECCABLE_ROUTING_MODE: 3,      // auto | hybrid | recommend
+  MCCP_DESIGN_GROUNDING: 3,             // off | warn | enforce
+  MCCP_WORK_MERGED_VERIFY: 3,           // off | warn | enforce
+  MCCP_EVIDENCE_CONFLICT_GUARD: 3,      // enforce | warn | off
+  MCCP_BRIEFING: 3,                     // on | off | auto
+  MCCP_AUTO_HANDOFF: 3,                 // off | notify | spawn(deprecated alias)
+  MCCP_GATE_ROUND_CAP: 3,               // 1 | 2 | 3
+  MCCP_DESIGN_CRITIQUE_MAX_RETRY: 4,    // 0 | 1 | 2 | 3
+  MCCP_WORK_MERGE_STRATEGY: 2,          // disable-parallel | worktree-merge
+});
 
-  try {
-    // Scan plugins/mccp/scripts/**/*.js (tests excluded)
-    const scriptsDir = path.join(repoRoot, 'plugins', 'mccp', 'scripts');
-    if (fs.existsSync(scriptsDir)) {
-      scanDir(scriptsDir, '.js', true, result);
-    }
+const DEFAULT_BRANCHES = 2;
+const BRANCH_METHOD = 'enum-table+boolean-floor (lower bound)';
 
-    // Scan plugins/mccp/commands/*.md
-    const commandsDir = path.join(repoRoot, 'plugins', 'mccp', 'commands');
-    if (fs.existsSync(commandsDir)) {
-      scanDir(commandsDir, '.md', false, result);
-    }
-  } catch (err) {
-    result.degraded = true;
-  }
-
-  // 분모 = runtime surface에서 발견된 distinct 토글 수. scanDir은 byName만
-  // 누적하므로 여기서 count를 파생한다(과거: count가 0으로 고정돼 B3가 항상
-  // insufficient였던 버그).
-  result.count = Object.keys(result.byName).length;
-
-  return result;
+function branchesForToggle(name) {
+  return Object.prototype.hasOwnProperty.call(BRANCH_VALUES, name)
+    ? BRANCH_VALUES[name]
+    : DEFAULT_BRANCHES;
 }
 
-function scanDir(dirPath, ext, excludeTests, result) {
-  try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const fullPath = path.join(dirPath, entry.name);
-
-      if (entry.isDirectory()) {
-        // Skip tests directory for .js
-        if (ext === '.js' && excludeTests && entry.name === 'tests') {
-          continue;
-        }
-        scanDir(fullPath, ext, excludeTests, result);
-      } else if (entry.name.endsWith(ext)) {
-        // Skip .test.js files
-        if (ext === '.js' && excludeTests && entry.name.endsWith('.test.js')) {
-          continue;
-        }
-
-        try {
-          const content = fs.readFileSync(fullPath, 'utf8');
-          let match;
-          while ((match = TOGGLE_RE.exec(content)) !== null) {
-            const token = match[0];
-            if (!EXCLUDE_TOKENS.has(token)) {
-              if (!result.byName[token]) {
-                result.byName[token] = 0;
-              }
-              result.byName[token]++;
-            }
-          }
-        } catch (fileErr) {
-          // Skip unreadable files
-        }
-      }
-    }
-  } catch (err) {
-    result.degraded = true;
-  }
-}
-
-function estimateOperationBranches(usedToggles, denominatorByName) {
-  // 동작 분기 수: 토글 하나가 몇 개의 서로 다른 값으로 분기하는지의 합
-  // 예: MCCP_STOP_LOOP (off/observe/enforce 3분기) = 3, boolean = 2
-  // This is a heuristic based on toggle patterns
-
-  let totalBranches = 0;
-
-  for (const toggleName of usedToggles) {
-    const branchCount = estimateBranchesForToggle(toggleName);
-    totalBranches += branchCount;
-  }
-
-  return totalBranches;
-}
-
-function estimateBranchesForToggle(toggleName) {
-  // Heuristic: infer from token patterns
-  // Default = 2 (boolean on/off)
-  // Special patterns = higher
-
-  if (toggleName === 'MCCP_STOP_LOOP' || toggleName === 'MCCP_RECEIPT_GATE_MODE') {
-    return 3;
-  }
-  if (toggleName === 'MCCP_IMPECCABLE_ROUTING_MODE') {
-    return 3;
-  }
-  if (toggleName === 'MCCP_DESIGN_GROUNDING') {
-    return 3;
-  }
-  if (toggleName === 'MCCP_ORCHESTRATION_COST_FAIL_OPEN') {
-    return 2;
-  }
-  // Default: boolean (2 branches)
-  return 2;
+function countOperationBranches(toggles) {
+  return (toggles || []).reduce((sum, name) => sum + branchesForToggle(name), 0);
 }
 
 module.exports = {
   scanToggleUsage,
+  countOperationBranches,
+  branchesForToggle,
+  BRANCH_VALUES,
+  BRANCH_METHOD,
 };

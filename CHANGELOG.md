@@ -2,7 +2,35 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.23.5] — 2026-08-09
+
+**multi-session-work-loop M4 — 예산 감축 (단일 milestone → patch bump)** — 작업이 시작되기도 전에 소진되는 컨텍스트(A3)를 절반으로 줄이고, 토글 축(B3)의 분모를 정직하게 만든다. GROUND 결과 PRD가 적은 상황보다 나빴다: **두 축 모두 측정 기판이 죽어 있었다.** A3는 `spawn('python3')` 하드코딩이 이 플랫폼에서 WindowsApps 스텁으로 풀려 항상 `baseline-unavailable`이었고, 그마저 `computeMetrics`가 `measureA3`를 **호출조차 하지 않았다**(import 후 재export만). B3는 `session-start.js`가 스냅샷 경로를 cwd 기준으로 풀어 M2 이후 `*.env-snapshot.json`이 **단 한 건도** 기록되지 않았고, 빈 corpus 위에서 `computed 0%`를 내보내고 있었다.
+
+보증 범위는 정확히 셋이며 그 이상을 주장하지 않는다 — **G1** A3 전후 값이 동일 방법으로 재현 가능하게 측정됨 · **G2** 감축이 삭제가 아니라 이전임이 기계 검증됨 · **G3** B3 분모가 정직해지고 그 정직화가 감축으로 위장되지 않음. **"옮긴 뒤에도 지시 준수율이 유지되는가"는 측정하지 못한다** — PRD가 M4에 건 B1·C1 회귀 검사는 두 지표의 producer가 없어 산출 불가이며, 이 미충족은 숨기지 않고 기록한다. 토글 **은퇴는 0건**이다(사용 이력이 0이면 "이력 0인 것만 은퇴"가 96개 전부를 대상으로 만들어 무의미하므로 M8 이후로 이연).
+
+### Added
+- `plugins/mccp/scripts/lib/msw-metrics/cli.js` — A3 baseline 아티팩트 emitter. `a3 --emit`(BEFORE · 기존 파일 덮어쓰기 거부)·`--emit-after`(감축 후 값을 같은 문서의 `after`로 기록)·`--print`. 커밋 아티팩트에는 user-level `MEMORY.md`의 content digest를 **절대 담지 않는다**(security S5 — repo 밖 파일을 git 이력에 지문화하고, fresh clone에서 재현 불가라 G1과 모순).
+- `docs/multi-session-work-loop/a3-baseline.json` — 재현 가능한 A3 전후 측정 아티팩트(성분별 bytes·sha256·tokens · tokenizer{tool,encoding,version,version_source} · git HEAD · 방법 caveat).
+- `docs/multi-session-work-loop/instruction-contract.md` — 최소 지시 계약(PRD Open Question 직접 응답). RESIDENT 3중 AND 기준을 **먼저** 명문화하고 CLAUDE.md 25개 절 전수를 분류(resident 15 · on-demand 10 · retire 0). **분류 ≠ 이전**을 규칙으로 못박아, 준수를 측정할 수 없는 동안 §3 행동 규칙은 분류만 하고 옮기지 않는다.
+- `plugins/mccp/scripts/lib/instruction-contract/{ledger.js,lint.js}` — ledger 순수 파서 + 4중 reachability 검사(C1 목적지 존재 · C2 anchor 존재 · C3 상주 포인터 · C4 무목적지 소실 0), fail-closed. C4는 명세보다 강하게 **목적지 있는 on-demand 또는 retire만** 사라질 수 있게 한다(목적지 없는 on-demand의 소멸은 이전이 아니라 삭제다). 문서가 공급하는 `dest_file`은 열기 **전에** 어휘 검사(절대·`..`·UNC·드라이브 거부) 후 realpath 봉쇄(security S3).
+- `docs/milestone-ledger.md` — CLAUDE.md §1.4 milestone 이력 전문 이전 목적지.
+- `plugins/mccp/scripts/derive/sources/instruction-cost.js` — A3 derive 소스. **커밋 아티팩트를 읽을 뿐 tokenizer를 절대 돌리지 않는다**(derive는 매 render trigger마다 ~1s 예산). CLAUDE.md를 재해시해 stale이면 `insufficient`로 강등 — 낡은 값을 현재값으로 내놓지 않는다.
+
+### Changed
+- `plugins/mccp/scripts/lib/msw-metrics/a3-instruction-cost.js` — `python3` 하드코딩을 인터프리터 probe로 교체(`python3`→`python`→`py -3`, **exit code + stdout 마커**로 판정해 "Python was not found" 스텁을 구조적으로 배제 · `shell:false` 명시). `execSync('pip show tiktoken')` 제거 — tokenizer 버전을 **`enc.encode`를 실행한 그 프로세스 안에서** 취득한다(다른 pip을 볼 수 있어 "버전 pin으로 재현성 확보" 조항이 실제로는 지켜지지 않았다). STATE.md 성분이 **frontmatter가 아니라 실제 주입 블록**을 재도록 교정. `findMemoryFiles`가 symlink를 건너뛰고 realpath 봉쇄(security S4).
+- `CLAUDE.md` **167,832 → 87,528바이트(-47.8%)** — §1.4 milestone 이력 → `docs/milestone-ledger.md`, §4 운영 토글 산문 → `docs/ENVIRONMENT.md` §11. 두 절 모두 헤딩과 포인터는 제자리에 남는다(이전이지 삭제가 아니다). **§3 행동 규칙은 한 줄도 바뀌지 않았다.** 분모는 ship 직전 base인 `origin/main`(`280b9ef`)이다 — 착수 base(`7fe48d9`, 159,013B) 기준으로는 79,971B/-49.7%였고, 그 사이 main이 §3.13 신설 등으로 CLAUDE.md에 8,819B를 더했다(§3.13·§3.7 하위절은 상주로 승계, 신규 토글 2개는 §11로 함께 이전).
+- `docs/ENVIRONMENT.md` — §11 "운영 토글 레퍼런스 (canonical)"로 CLAUDE.md §4 흡수. PRD Evidence가 지목한 파일 간 중복 해소이며, 파일 **내부** 중복(§1~§7의 옛 서술)은 잔여로 명시.
+- `plugins/mccp/scripts/state/toggle-snapshot.js` — 명명된 제외 분류표 `TOGGLE_EXCLUSIONS`(shell-local 1 · browser-global 3 · dynamic-key-prefix 2 · test-only 4, 항목마다 file:line 근거). `*.test.js` 파일 제외(설계 규칙은 요구했으나 디렉토리만 걸러 왔다). `scanSurfaceDetailed`가 제외 **전/후 두 분모**를 함께 낸다(106 → 96 · 구현 시점 104 → 94였고 rebase로 승계한 main의 신규 토글 2개가 분모에 들어왔다). 상대 `stateDir`에 loud warn. 초안의 "하네스 내부 변수" 제외 후보 3건은 set·read 양쪽이라 **철회**하고 기록으로 남김.
+- `plugins/mccp/scripts/derive/sources/toggle-usage.js` — 자체 스캐너를 폐기하고 `toggle-snapshot`으로 통일(두 구현의 `*.test.js` 제외 여부가 서로 달랐다). `operation_branch_count`를 **분모 표면 위에서** 계산(203) — 분자 위에서 세면 토글을 은퇴시켜도 값이 안 변해 반-조작 병기 목적을 달성하지 못한다. `snapshot_corpus_present` 신설.
+- `plugins/mccp/scripts/lib/msw-metrics/index.js` — `computeA3` 신설 + `computeMetrics` 배선 + `METRIC_IDS`에 A3 추가. `computeB3`의 `operation_branch_count > 100 → invalid` 규칙 **제거**(measurement-design.md에 없는 절대 임계이며, 분기를 올바로 세면 199라 정확히 계산했다는 이유로 invalid가 된다) → 계약이 규정한 fold 탐지는 직전 주기 쌍이 없어 `forward-only`로 정직 표기. 빈 corpus는 `computed 0%`가 아니라 `forward-only`.
+- `plugins/mccp/scripts/hooks/session-start.js` — `writeSnapshot`에 repoRoot 기반 `stateDir` 전달(**CL-5와 동일 결함**이 같은 `try` 블록 12줄 아래에서 재발한 것). M8이 쓸 사용 이력 축적의 시계를 지금 시작시킨다.
+- `plugins/mccp/scripts/lib/renderer/sections/msw-metrics.js` — `METRICS_ORDER`에 A3 추가 + `METRICS_META.A3` 신설. **C2·C3 라벨 오배정 정정**(둘 다 A3의 정의를 담고 있어 A3가 `computed`가 되는 순간 대시보드가 "게이트 헛발화율 = 산출됨"을 표시하게 된다). 같은 결함군인 **B1·C1 라벨도 정정**. 값 셀은 지표 정의 그대로의 단일 수치를 유지하고 병기 수치(A3 감축률 · B3 제외 전/후 분모 · 분기 수)는 `<details>` collapse로.
+- `docs/multi-session-work-loop/measurement-design.md` — §B3 제외 분류표 본문화(규칙상 이름을 적을 때만 유효). §A3 tokenizer 버전 기록 출처를 명시 **개정**(분모·산출식·무결성 검사는 불변 — 바뀐 것은 버전 문자열의 출처뿐).
+- `plugins/mccp/scripts/derive/cli.js` · `lib/msw-metrics/fixture.js` · `lib/tests/msw-metrics-acceptance.test.js` — claimed-computable에 **A3 명시 승격**(silent promotion을 막는 목록이므로 편집이 정식 경로). B3는 유지하되 **live는 corpus가 쌓일 때까지 forward-only**임을 기록.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.1 → 1.23.5` + renderer footer 2면 동기. 브랜치 base는 `1.23.1`이지만 착수 이후 `origin/main`이 `1.23.2`(PR #117)·`1.23.3`·`1.23.4`(PR #118 codex-intent-context M1)를 모두 소비했으므로 §3.7 forward-only reconcile로 **세 칸 상향**한다 — plan이 적은 `1.23.2`를 그대로 쓰면 CHANGELOG에 같은 버전 항목이 둘 생기고 매니페스트가 후퇴한다. 이 재조정은 PR #118 머지 후 rebase 시점에 한 번 더 발생했다(`1.23.4` 선점 → `1.23.5`), 같은 축의 **4번째 실측 재발**이다.
+- `plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js` — footer version 단언을 리터럴 pin에서 **`plugin.json` 파생**으로 교체. §3.7이 열거하는 "동기 대상 5면" 중 이 테스트 2건은 bump마다 손으로 고쳐야 하는 항목이었는데, 그러면 drift를 잡는 가드가 아니라 bump 자체에서 실패하는 장애물이 된다. main이 도입한 footer 줄 anchor(plan 파생 milestone 라벨 오매칭 회피)는 그대로 유지한다.
 
 ## [1.23.3] — 2026-08-06
 

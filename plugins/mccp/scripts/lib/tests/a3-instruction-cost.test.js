@@ -11,6 +11,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { measureA3 } = require('../msw-metrics/a3-instruction-cost');
 
@@ -121,9 +122,16 @@ test('A3: bytes and token counts only', async () => {
     const testContent = 'A quick brown fox jumps over the lazy dog.';
     fs.writeFileSync(tempClaude, testContent);
 
+    // M4 contract update (explicit, not silent): the STATE component is now
+    // measured by default from repoRoot. Before M4 it required an opts.statePath
+    // that no caller ever passed, so component 3 of the numerator was silently
+    // always zero. This case isolates the CLAUDE.md component on purpose, so
+    // `stateBlockText: ''` pins "no state block" rather than relying on the old
+    // silent omission. The default-on behaviour is covered by the case below.
     const result = await measureA3({
       claudePath: tempClaude,
       readUserMemory: false,
+      stateBlockText: '',
     });
 
     // Assert numerator_bytes is set
@@ -144,6 +152,100 @@ test('A3: bytes and token counts only', async () => {
   } finally {
     if (fs.existsSync(tempClaude)) fs.unlinkSync(tempClaude);
   }
+});
+
+test('A3: STATE component measures the INJECTED block, not the frontmatter (M4)', async () => {
+  // Regression for the M4 Task 1 defect: the old extractor matched
+  // /^---\n(...)\n---/ and measured the YAML frontmatter — a slice SessionStart
+  // never injects. What is actually injected is the system-reminder wrapper
+  // around the STATE.md *body*.
+  const { readInjectedStateBlock } = require('../msw-metrics/a3-instruction-cost');
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'a3-state-'));
+
+  try {
+    const stateDir = path.join(tmpRoot, '.claude', 'state');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(path.join(stateDir, 'STATE.md'), [
+      '---',
+      'state_version: 1',
+      'task_fingerprint: a3-state-block-fixture',
+      'created_at: 2026-08-09T00:00:00.000Z',
+      'updated_at: 2026-08-09T00:00:00.000Z',
+      'frontmatter_only_sentinel: FRONTMATTER_ONLY_SENTINEL',
+      '---',
+      '',
+      '## Goal',
+      'BODY_SENTINEL goal line',
+      '',
+      '## Next Step',
+      'BODY_SENTINEL next line',
+      '',
+    ].join('\n'), 'utf8');
+
+    const block = readInjectedStateBlock({ repoRoot: tmpRoot });
+    assert.ok(block, 'injected state block should be produced from repoRoot');
+    assert.ok(block.includes('BODY_SENTINEL'),
+      'injected block must contain the STATE.md body (what SessionStart actually injects)');
+    assert.ok(!block.includes('FRONTMATTER_ONLY_SENTINEL'),
+      'injected block must NOT contain frontmatter (the pre-M4 extractor measured exactly this)');
+    assert.ok(block.includes('[mccp:STATE.md — restored from previous session]'),
+      'injected block must carry the SessionStart wrapper, which is part of the token cost');
+
+    // And it flows into the numerator as its own component.
+    const tempClaude = path.join(tmpRoot, 'CLAUDE.md');
+    fs.writeFileSync(tempClaude, 'claude content', 'utf8');
+    const result = await measureA3({ claudePath: tempClaude, repoRoot: tmpRoot, readUserMemory: false });
+    assert.ok(result.components.state_block, 'state_block component should be present by default');
+    assert.strictEqual(result.components.state_block.bytes, Buffer.byteLength(block, 'utf8'),
+      'state_block bytes should equal the injected block size');
+
+    console.log('✓ A3: STATE component = injected block (not frontmatter)');
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test('A3: committed artifact never carries a user-memory content digest (S5)', () => {
+  // Security absorption S5. The in-memory measurement may hold the hash; the
+  // artifact writer must not. A sha256 of a user-level file in git history
+  // fingerprints a file outside the repo and is unreproducible on a clone.
+  const { redactForCommit } = require('../msw-metrics/cli');
+
+  const out = redactForCommit({
+    claude_md: { bytes: 10, hash: 'aaa', tokens: 3 },
+    memory_index: { bytes: 20, hash: 'secret-digest', tokens: 5 },
+    state_block: { bytes: 30, hash: 'ccc', tokens: 7 },
+  });
+
+  assert.strictEqual(out.memory_index.hash, null, 'user-memory digest must be redacted');
+  assert.ok(out.memory_index.hash_redacted, 'redaction must be visible, not silent');
+  assert.strictEqual(out.memory_index.bytes, 20, 'counts stay — the numerator must remain honest');
+  assert.strictEqual(out.memory_index.tokens, 5);
+  assert.strictEqual(out.claude_md.hash, 'aaa', 'repo-tracked component keeps its digest');
+  assert.strictEqual(out.state_block.hash, 'ccc', 'repo-tracked component keeps its digest');
+
+  console.log('✓ A3: user-memory digest never reaches the committed artifact');
+});
+
+test('A3: interpreter probe adopts a real Python 3 (or honestly reports none)', () => {
+  // M4 Task 1: the pre-M4 hardcoded `python3` resolves to the WindowsApps stub,
+  // which prints an install hint and exits non-zero. The probe judges by exit
+  // code plus a stdout marker, so a stub can never be adopted.
+  const { resolveInterpreter } = require('../msw-metrics/a3-instruction-cost');
+  const { spawnSync } = require('child_process');
+
+  const interp = resolveInterpreter({ noCache: true });
+  if (!interp) {
+    console.log('✓ A3: no Python 3 on this machine — probe reported null (loud path)');
+    return;
+  }
+
+  const r = spawnSync(interp.cmd, interp.prefix.concat(['-c', 'import sys; print(sys.version_info[0])']), {
+    encoding: 'utf8', shell: false, windowsHide: true,
+  });
+  assert.strictEqual(r.status, 0, 'adopted interpreter must execute Python');
+  assert.strictEqual(String(r.stdout).trim(), '3', 'adopted interpreter must be Python 3');
+  console.log(`✓ A3: probe adopted "${[interp.cmd].concat(interp.prefix).join(' ')}"`);
 });
 
 test('A3: denominator is documented context window', async () => {

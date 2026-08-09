@@ -192,12 +192,13 @@ function cmdRender(rest) {
 function cmdMetricsAssert(rest) {
   // R2-F2 mechanical acceptance gate
   // Enumerates claimed-computable ids, rejects null/baseline-forming, asserts B3 real value
-  // Claimed-computable = {B2, B3} after multi-session-work-loop M3 restored B2
-  // (A1/A2/A4 → forward-only, C1/C2/C3 forward-only, B1 insufficient), so only
-  // those two per-id constants are referenced here.
+  // Claimed-computable = {A3, B2, B3} after multi-session-work-loop M4 added A3
+  // (M3 had restored B2). A1/A2/A4 → forward-only, C1/C2/C3 forward-only,
+  // B1 insufficient, so only those three per-id constants are referenced here.
   const {
     computeMetrics,
     METRIC_IDS,
+    A3_INSTRUCTION_COST,
     B2_CONCURRENT_CONFLICTS,
     B3_TOGGLE_AXES,
   } = require('../lib/msw-metrics');
@@ -228,7 +229,21 @@ function cmdMetricsAssert(rest) {
   // instead of silently reporting `computed 0/N`.
   //
   // A1/A2/A4/C1 stay excluded — their producers are still absent or contaminated.
+  //
+  // multi-session-work-loop M4: **A3 joins**. It was previously uncomputable on
+  // two independent counts — `measureA3` spawned a hardcoded `python3` (the
+  // WindowsApps stub here, so every run was `baseline-unavailable`) and
+  // `computeMetrics` never called it at all. M4 probes for a real interpreter,
+  // pins the tokenizer version inside the tokenizing process, and reads a
+  // committed artifact through the instruction-cost source. Staleness is
+  // falsifiable: the source re-hashes CLAUDE.md against the artifact digest and
+  // degrades A3 to `insufficient` rather than serving a stale number.
+  //
+  // Kept in lockstep with CLAIMED_COMPUTABLE in
+  // lib/tests/msw-metrics-acceptance.test.js — editing one without the other is
+  // the silent-promotion path this list exists to block.
   const claimedComputable = [
+    A3_INSTRUCTION_COST,
     B2_CONCURRENT_CONFLICTS,
     B3_TOGGLE_AXES,
   ];

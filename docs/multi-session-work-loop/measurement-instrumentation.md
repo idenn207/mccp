@@ -174,7 +174,7 @@ Applied at **compute time** (msw-metrics/index.js), mechanical enforcement:
 **Artifact storage**:
 - Raw CLAUDE.md / MEMORY.md / STATE.md text: ❌ **NEVER stored**
 - Stored only: count (integer) + sha256 (hex digest)
-- User-level MEMORY.md: only read if `MCCP_A3_INCLUDE_MEMORY=1` env opt-in
+- User-level MEMORY.md: only read if `MCCP_A3_READ_USER_MEMORY=1` env opt-in (M4: corrected from the non-existent `MCCP_A3_INCLUDE_MEMORY`; the code constant at `a3-instruction-cost.js` `MEMORY_ENV_FLAG` is canonical, and following the old spelling meant the component was never captured)
 
 ### Integration
 

@@ -1,52 +1,57 @@
 ---
 state_version: 1
-task_fingerprint: codex-intent-context-m1
+task_fingerprint: multi-session-work-loop-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-09T05:53:41.273Z
+updated_at: 2026-08-09T06:21:25.000Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-05T15:34:25.228Z
+last_event_at: 2026-08-09T01:17:14.100Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
-escalate_pending: true
-escalate_pending_decision_id: multi-session-work-loop
 ---
 ## Goal
-codex-intent-context M1 (v1.23.4) — PR #118 OPEN. origin/main(77ceba2, 1.23.3) 머지 conflict 해소 완료.
+MSW M4 (예산 감축) 구현 완료 + origin/main(PR #118 머지, 1.23.4) rebase 완료 — PR 생성 대기.
 
 ## Plan
-- conflict 해소 커밋 push → PR #118 mergeable 확인 → 리뷰/머지(merge-commit, §3.12 evidence-commit SHA 도달성).
-- 머지 후 claude plugin update로 1.23.4 캐시 반영 + worktree cleanup.
-- 다음 cycle: /mccp:plan .claude/prds/gate-guard-integrity.prd.md (브랜치 fix/gate-guard-integrity, origin/main 분기).
-- red-test-suite-restore PRD는 전 milestone complete → /mccp:archive-complete 대상(§3.11, 파일 이동이라 human-gate 별도 실행).
+- plan: `.claude/plans/multi-session-work-loop-m4.plan.md` — 보증의 단일 기준은 상단 G1~G3 표
+- 보고서: `.claude/PRPs/reports/multi-session-work-loop-m4-report.md` (Deviations D1~D7 · 명시 잔여 포함)
+- receipt: mccp-plan-codex + mccp-implement-codex / decision=multi-session-work-loop-m4 · validate ok · codex_verdict=skipped (MCCP_CODEX_DISABLED=1 first-class)
+- 리뷰: Codex 미발화(env 정책) · security-reviewer 실발화 7 findings 흡수(S1 부분기각 · S2 non-finding · S3~S7 ACCEPT_NOW)
 
 ## Done
-- PR #118 생성 (v1.23.4) — santa-loop 6라운드 22건 흡수, 그중 16건을 Codex만 포착(Opus는 R3·R5·merge에서 PASS).
-- 직전 origin/main 24커밋 reconcile(b89db9b)에서 --ours 해소가 결함 2건 유발 → b13e81b(stale version)·75a4aba(escalate_pending 신호)로 복구.
-- mccp-pr-codex ship receipt 커밋(1ff07c3) — PR-Codex는 MCCP_CODEX_DISABLED=1로 미발화, ship gate는 skipped+proof로 통과(승인 아님).
-- 이번 conflict: origin/main 신규 1커밋(77ceba2) 병합 — 충돌은 STATE.md 단독. CLAUDE.md §3.7 신규 소절(병렬 브랜치 version 충돌)과 red-test PRD 축소 개정은 auto-merge로 유입.
-- STATE.md은 checkout --ours로 끝내지 않고 state-writer API로 재작성 — main측 사실(PR #117 머지@1.23.3, PRD 종료, backup ref, escalate_pending)을 전부 보존.
-- main측 사실 승계: PR #117이 merge-commit 71491f8로 main에 안착(1.23.3), red-test-suite-restore PRD는 (b) 축소 개정으로 종료, 잔존 red 8건은 gate-guard-integrity PRD가 승계.
+- A3 측정 기판 복구: python3 하드코딩 → 인터프리터 probe(exit code + 마커) · tokenizer 버전을 tokenize 프로세스 내 취득 · STATE 성분을 frontmatter가 아닌 실제 주입 블록으로 교정
+- A3 감축: 구현 시점 49.3% → **ship 시점 43.8%**(45,646 → 25,644 토큰) · CLAUDE.md 성분 45.3% · 목표 50% 미달을 정직 보고(분할 안 함, baseline 재봉인 안 함)
+- CLAUDE.md 167,832 → 87,528B(-47.8%, origin/main 분모) — §1.4 → docs/milestone-ledger.md · §4 토글 → docs/ENVIRONMENT.md §11 · §3 변경 0줄
+- instruction-contract.md(24절 전수 3분류) + ledger.js/lint.js(4중 검사 fail-closed) + 부정 fixture 4종 + traversal 방어
+- B3 분모 정직화: 명명된 제외 10건(file:line) · raw 106 / toggle 96 병기(구현 시점 104/94 · rebase가 main 신규 토글 2개 승계) · operation_branch_count를 분모 표면 위에서 계산(203) · 은퇴 0건
+- B3 producer clock-start(session-start.js stateDir) — 호출부를 지나는 회귀 test로 검증(되돌리면 실패 확인)
+- A3를 computeMetrics에 배선 + instruction-cost derive 소스 신설 + claimed-computable 명시 승격
+- METRICS_META 라벨 오배정 정정: C2·C3(A3 정의 점유) + 같은 결함군 B1·C1
+- 구현 중 발견·수정: computeB3의 계약 밖 >100 invalid 규칙 · 빈 corpus의 computed 0% · 자체 오염 MCCP_PY_OK · 조용히 skip되던 repo-coverage 검사 · 사전 존재 flake(hash-ledger-exclusion created_at)
+- 릴리스: plugin.json 1.23.5 + footer 2면 + CHANGELOG + PRD(M4 status·Open Question)
+- rebase(origin/main 280b9ef): 충돌 5파일 해소 — main 신규 §3.13·§3.7 하위절 승계, main 신규 토글 2개는 §11로 이관(59개 전수 대조 소실 0), backlog은 양쪽 항목 보존, i18n footer 단언은 plugin.json 파생으로 통합
+- rebase 후속: §3.13을 relocation ledger에 S3.13(on-demand·분류만)으로 등록해 lint advisory 해소(rows 25 · C1~C4 pass), a3 after 재측정, 파생 수치 6개 문서 동기
 
 ## In Progress
-PR #118 OPEN — origin/main 머지 conflict 해소 완료, push 대기.
+구현 완료 + rebase 완료. 커밋 1개(미push). PR 미생성.
 
 ## Next Step
-conflict 해소 커밋 push → PR #118 mergeable 재확인 → 리뷰/머지(merge-commit)
+/mccp:pr. PR 본문에 "PRD의 B1·C1 회귀 검사 조항 미충족"과 "rebase로 A3 감축률 49.3% → 43.8%"를 반드시 명시.
 
 ## Last Decision
-2026-08-09 PR #118 conflict 해소. 충돌은 STATE.md 단독이며 checkout --ours로 끝내지 않았다 — 그 방식은 직전 reconcile(b89db9b)에서 escalate_pending을 조용히 지워 75a4aba로 되돌려야 했던 바로 그 실패다. 대신 state-writer API로 양측 사실을 병합했다: 이 브랜치의 활성 작업(PR #118, v1.23.4)을 주 서술로 두고, main이 가져온 사실(PR #117이 merge-commit 71491f8로 1.23.3 안착, red-test PRD 축소 종료, backup ref 삭제 가능, escalate_pending 미해소)을 보존했다. main의 Open Question "sibling worktree가 1.23.1 선언 중"은 20680f8이 1.23.4로 상향해 이미 해소됐으므로 승계하지 않았다.
+A3 값 셀을 plan이 적은 감축률이 아니라 점유율로 렌더했다(D3) — "상시 지시문 점유율" 라벨 아래 감축률을 넣으면 이번 Task가 C2·C3에서 고친 라벨/값 불일치를 새로 만든다. 감축률은 collapse 상세로 내렸다.
 
 ## Open Questions
-- write.js#stampIntentDecision free-form 경로: **Source PRD** 없는 plan은 runner 없이 skipped+proof stamp + intent_plan_digest=plan_hash → 셸 호출자가 --codex-verdict converged와 조합 시 dedupe-approved receipt 생성 가능. M1 이전에도 가능했고 DD10 위협모델 밖이지만 M1이 닫았다고 주장하지 않음.
-- plan-codex/implement-codex receipt는 codex_verdict=divergent이고 intent 필드 부재(legacy) — dedupe는 어차피 fail-closed.
-- PR #118·#117 모두 ship receipt verdict=skipped(codex_disabled proof) — Codex 승인이 아니다. 외부 Codex 한도 복구(2026-08-13) 후 재판정 여부 결정 필요.
-- backup/v1.23.2-preredact ref는 redaction 전 히스토리(절대경로 포함) 보관 — PR #117 머지가 확인됐으니 삭제 가능.
-- STATE.md frontmatter의 escalate_pending(multi-session-work-loop)은 여전히 미해소 — MSW M3 santa-loop 비수렴 건이며 이번 cycle 소관 아님.
-- pre-existing: renderer verdict-label.test.js 실패(HEAD에서도 재현) — gate-guard-integrity PRD가 승계한 잔존 red에 포함.
+- PRD 인정 조건 미충족: B1·C1 회귀 검사는 producer 부재로 산출 불가 → 도달성·보존만 검증했고 준수율은 미측정(PRD M4 status에 명시, non-canonical이라 archive 거부는 의도)
+- 버전 순서: 해소됨 — origin/main이 1.23.4(PR #118)까지 소비해 forward-only로 **1.23.5** 확정. 같은 축의 4번째 재발이라 CHANGELOG에 기록
+- main에서 승계한 미해소 사실: PR #117·#118 ship receipt는 verdict=skipped(codex_disabled proof)로 Codex 승인이 아님(한도 복구 2026-08-13 후 재판정 여부 결정) · backup/v1.23.2-preredact ref 삭제 가능 · escalate_pending(multi-session-work-loop, M3 santa-loop 비수렴) 미해소 · pre-existing red: renderer verdict-label.test.js(gate-guard-integrity PRD 승계)
+- 다음 cycle 후보(main 승계): /mccp:plan .claude/prds/gate-guard-integrity.prd.md · red-test-suite-restore PRD는 /mccp:archive-complete 대상
+- live B3는 corpus가 쌓일 때까지 forward-only — 다음 세션 1회 후 .claude/state/*.env-snapshot.json 생성 및 computed 전환 확인 필요
+- backlog 신규: prp-implement 2.5.4가 plan을 수정해 2.5.7 자기 게이트를 stale로 만드는 구조 결함(수동 재anchor로 우회)
+- docs/ENVIRONMENT.md 내부 중복(§1~§7 ↔ 신규 §11) · A3 MEMORY.md 성분이 Windows에서 미탐색 · MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL의 제외/defaults 모순은 M8 소관
 
 ## Last Updated
-2026-08-09T05:53:41.273Z
+2026-08-09T01:17:14.100Z

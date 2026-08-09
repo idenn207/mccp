@@ -302,6 +302,17 @@ Codex가 `MCCP_CODEX_DISABLED=1`로 skip돼 plan-codex 게이트에서 cross-mod
 
 **메타 관찰**: 5건 중 4건을 Codex만 잡았고, Claude는 그중 하나(`:223`)를 PASS로 오검증했다. cross-model 비대칭 포착이 이 저장소에서 4회째 재현됐다. 동시에 B의 원인 귀속 1건(#7)은 코드로 반증됐다 — **지적은 신호이되 처방은 검증 대상**이다.
 
+### Round 2 — 부분 수렴 (Reviewer A: PASS · Reviewer B: 판정 부재)
+
+- **Reviewer A (Opus)**: PASS, `critical_issues` 0건. R1에서 재설계한 세 축을 각각 독립 검증했고, 특히 (a) 무방비 require가 주장한 4곳에 실재하며 **그 외에는 없음**, (b) `pr-codex-dedupe.test.js`가 옳은 계약을 인코딩하므로 R1 Codex의 "테스트를 고쳐라" 처방을 기각한 것이 정당함을 확인했다. 잔여 제안 5건은 전부 MEDIUM 이하 문서 명료성 항목이다.
+- **Reviewer B (Codex)**: **두 시도 모두 검토 미수행.** 1차는 Windows sandbox DLL init 실패(`0xc0000142` 12건), 2차는 PowerShell 실행 정책 차단 4건으로 plan/PRD 파일을 **한 번도 읽지 못했다**. 두 출력 모두 `"verdict": "PASS"` 문자열을 포함했으나 **바이트 오프셋 170,832 동일 위치의 프롬프트 템플릿 반향**(`"verdict": "PASS" | "FAIL",`)이었다.
+
+**운영자 판정 (2026-08-09)**: R1의 완주한 Codex 검토를 cross-model 기여로 인정하고 loop 종료. 근거는 R2의 변경이 R1 Codex 지적의 흡수분이고 그 방향을 제시한 것이 Codex 본인이며, Opus가 독립 재검증해 critical 0을 냈다는 것이다.
+
+**명시된 잔여 공백**: **재설계된 plan(R1 이후 상태)을 Codex가 검토한 적 없다.** 특히 OQ2의 3부 수정(A/B/C)과 OQ3의 callsite 비대칭 표는 Opus 단독 검증만 받았다. 구현 단계의 Implement-Codex 게이트가 이 공백을 메울 1차 기회이며, 그때 Codex가 가용하면 위 두 축을 우선 검토 대상으로 지정한다.
+
+> **부수 관찰 — 본 PRD의 실패 형태가 검토 과정에서 재현됐다.** grep이 찾은 `"verdict": "PASS"` 한 건을 그대로 신뢰했다면 "B도 통과"로 읽고 NICE를 선언했을 것이다. 실제로는 검사가 일어나지 않았다. *통과 신호의 존재가 검사가 일어났음을 의미하지 않는다* — PRD Problem 문단 그대로다. 부정 케이스 직접 재현(오프셋·후행 문자 확인)이 이것을 잡았다.
+
 ## Design Critique
 
 `impeccable-detect --mode plan` → `skill_available=true` · `design_signal=true` · `signal_files=["plugins/mccp/scripts/receipt/write.js"]`. PRD 단계(`design_signal=false`)와 달리 발화했다 — Task 4가 `write.js`를 건드리고 그 경로가 `DESIGN_SURFACE_PATHS` 화이트리스트 원소이기 때문이다(briefing 필드 → 대시보드 렌더러 경로). 오탐이 아니라 실 hit이므로 §3.9 critique retry loop을 정상 수행했다.

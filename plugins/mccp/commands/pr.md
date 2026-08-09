@@ -211,7 +211,8 @@ DECISION_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decis
 #
 # Precisely what the derived path can and cannot do here (santa-loop R1 asked for
 # this to be stated exactly rather than as a blanket "cannot false-block"):
-#   - It CANNOT introduce a block. validate-cmd consumes planPath in exactly two
+#   - It CANNOT introduce a block, GIVEN the `|| PRECHECK_EXIT=$?` guard below.
+#     validate-cmd consumes planPath in exactly two
 #     places — the generic-slug guard (:213) and the staleness re-hash (:301-303).
 #     A path that is absent, or present but belonging to another decision, lands
 #     in `stale`. Measured both ways on a real receipt pair: wrong-but-existing
@@ -221,11 +222,20 @@ DECISION_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decis
 #     meta.design_critique_verdict (validate-cmd.js:485-503) and is completely
 #     independent of planPath. Passing --plan neither causes nor suppresses it.
 PRECHECK_PLAN=".claude/plans/${DECISION_SLUG}.plan.md"
+# santa-loop R2 (Reviewer B) — the `|| PRECHECK_EXIT=$?` tail is load-bearing, not
+# style. `validate` exits 2 on ANY non-ok result (classify.js), and BEFORE this
+# milestone a plan-less call at this callsite could not go non-ok on staleness at
+# all. Adding --plan makes exit 2 reachable here, and a bare `VAR=$(cmd)` whose
+# command fails aborts the shell under `set -e` — before CHAIN_BLOCKED is ever
+# parsed. Measured both ways: default shell -> next line runs, CHAIN_BLOCKED
+# empty, no false stop; `set -e` -> the block aborts with exit 2. pr.md does not
+# set -e today, so this was latent, but resting the guarantee below on "nobody
+# enables set -e" is exactly the kind of implicit assumption this milestone
+# exists to remove. The || form is exempt from set -e and preserves the code.
 PRECHECK_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" validate \
   --command mccp:pr \
   --decision "$DECISION_SLUG" \
-  --plan "$PRECHECK_PLAN" 2>&1)
-PRECHECK_EXIT=$?
+  --plan "$PRECHECK_PLAN" 2>&1) && PRECHECK_EXIT=0 || PRECHECK_EXIT=$?
 # Look for design_critique_chain_divergent blocking entries specifically — other
 # blocking reasons (missing receipt, schema invalid) are handled by Phase 2.5
 # downstream.

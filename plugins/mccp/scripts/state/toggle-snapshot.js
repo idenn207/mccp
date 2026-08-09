@@ -204,10 +204,27 @@ function crossCheckExclusions(repoRoot, docPath) {
   // alone would let a blank or invented justification stand, which is a weaker
   // gate than the guarantee this milestone states.
   const badEvidence = [];
+  const root = repoRoot || process.cwd();
   doc.tokens.forEach((_cls, name) => {
     const cell = (doc.evidence && doc.evidence.get(name)) || '';
-    if (!EVIDENCE_PATH.test(cell)) {
+    const m = cell.match(EVIDENCE_PATH);
+    if (!m) {
       badEvidence.push(name + ' (evidence names no source location: "' + cell.slice(0, 60) + '")');
+      return;
+    }
+    // Matching the SHAPE of a path is not evidence -- `x.js` satisfies any
+    // regex and points at nothing. A glob stands for a set of files, so it is
+    // checked by its directory; everything else must be a file that exists.
+    const ref = m[0].replace(/:\d+$/, '');
+    const probe = ref.indexOf('*') === -1 ? ref : path.dirname(ref.split('*')[0] + 'x');
+    // The table writes some rows repo-relative (`plugins/mccp/commands/*.md`)
+    // and others relative to the scripts tree (`lib/dashboard-server.js`), which
+    // is how the surrounding docs already cite code. Resolve against both rather
+    // than forcing one convention and reporting the rest as fabricated.
+    const bases = ['', 'plugins/mccp/scripts', 'plugins/mccp'];
+    const resolved = probe && bases.some((b) => fs.existsSync(path.resolve(root, b, probe)));
+    if (!resolved) {
+      badEvidence.push(name + ' (evidence points at a path that does not exist: "' + ref + '")');
     }
   });
 

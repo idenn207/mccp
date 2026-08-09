@@ -85,6 +85,12 @@ function scanInstructionCost(repoRoot) {
     // user-level memory digest is intentionally never committed (S5) and the
     // STATE.md block is session-volatile, so neither is a usable staleness
     // signal; CLAUDE.md is, and it is the component M4 actually moves.
+    // The numerator has three components but only one of them can be checked
+    // here, so the metric publishes WHICH one -- a freshness claim whose scope
+    // is invisible reads as if it covered the whole number.
+    result.freshness_scope = 'claude_md';
+    result.numerator_components = current.components ? Object.keys(current.components) : [];
+
     const recordedHash = current.components
       && current.components.claude_md
       && current.components.claude_md.hash;

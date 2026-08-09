@@ -204,6 +204,17 @@ Reviewer A(Opus)는 이번엔 baseline 대조를 지정받아 11개 기준 전�
 
 새 게이트가 seeded acceptance fixture를 깨뜨렸고, 그것이 논점을 그대로 실증했다 — 그 fixture는 R2가 도입한 `snapshot_files_parsed`조차 갖고 있지 않았다. **fixture가 producer의 실제 출력 모양보다 뒤처져 있었는데 소비자 층 test가 없어 아무도 그 격차를 보지 못했다.** 게이트를 느슨하게 푸는 대신 fixture가 대조 결과를 명시하도록 고쳤다.
 
+
+## santa-loop round 4 — 흡수 (렌더 층 평탄화)
+
+Reviewer A는 PASS(critical 0, 되돌림 검사까지 수행), **Reviewer B만** 3건을 올렸다. 그중 하나가 이 사이클에서 가장 중요한 발견이다.
+
+- **렌더 층이 `invalid`을 숨기고 있었다 (다섯 번째 재발).** `renderMswMetrics`가 `computed` 지표가 하나도 없으면 섹션 전체를 `null`로 반환한다 — exclusion drift로 B3가, 아티팩트 손상으로 A3가 `invalid`가 되면 대시보드는 실패를 보여주는 대신 **아무것도 보여주지 않는다**. round 4가 지표 층에서 없앤 confidently-wrong 평탄화가 한 층 밖에서 그대로 부활한 것이다. 게다가 `msw-metrics-render.test.js`가 **`status:'invalid'`인 B3가 null로 렌더되는 것을 명시 단언**해 그 동작을 고정하고 있었다(이 저장소가 반복해서 겪은 "test가 버그를 정답으로 고정"). 이제 `!hasComputed && !hasInvalid`일 때만 숨긴다 — baseline 미형성(insufficient/forward-only)은 조용히 넘어가되 **무결성 위반은 반드시 표면화**한다. test는 둘로 갈라 각각을 단언한다.
+- **evidence가 형식만 통과하면 됐다.** `x.js` 같은 값도 정규식을 만족했다. 실재 검증을 추가했는데 처음엔 오탐 8건이 났다 — 문서 관례가 repo-root가 아니라 `plugins/mccp/scripts/` 상대였다. 기준 경로 후보(repo-root · scripts · plugin)를 모두 시도해 실 repo는 `ok=true`, 조작한 경로는 정확히 1건만 검출된다. glob은 디렉토리로 검증한다.
+- **A3 freshness 범위를 공개한다.** 분자는 3성분인데 repo에서 검증 가능한 것은 `claude_md` 하나뿐이다(STATE.md는 세션 휘발성, memory digest는 미커밋 — S5). 이는 의도된 한계이므로 로직은 유지하고, `freshness_scope`와 `numerator_components`를 지표가 함께 발행해 "현재 점유율"이 무엇에 대해 신선한지 읽는 쪽이 알 수 있게 했다. 넣지 않으면 매 세션 stale이 되어 지표가 무용해진다.
+
+신규 test 3건(누적 29건).
+
 ## Plan 아카이브 미수행 (의도)
 
 Phase 5의 기본 절차는 plan을 `completed/`로 옮기는 것이나 **수행하지 않았다.** receipt의 `plan_hash`가 `.claude/plans/multi-session-work-loop-m4.plan.md` 경로에 anchor돼 있어 지금 옮기면 `/mccp:pr`의 chain validate가 깨진다. 저장소 관례도 동일하다(M1~M3 plan 모두 `.claude/plans/`에 잔류하며, 완료 아카이브는 §3.11의 `/mccp:archive-complete`가 PRD 전체 완료 시점에 소유한다).

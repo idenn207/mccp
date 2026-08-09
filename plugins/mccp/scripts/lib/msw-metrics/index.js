@@ -192,6 +192,12 @@ function computeA3(model) {
     baseline_tokens: src.baseline_tokens,
     tokenizer_version: src.tokenizer_version,
     measured_at: src.measured_at,
+    // Disclose the scope of the staleness check next to the value it qualifies.
+    // STATE.md is session-volatile and the memory digest is never committed, so
+    // neither can serve as a staleness signal -- but a reader of "current
+    // occupancy" is entitled to know the check covers only CLAUDE.md.
+    freshness_scope: src.freshness_scope || null,
+    numerator_components: src.numerator_components || null,
   };
 
   // 무결성 위반(invalid)은 producer 부재(forward-only)보다 강한 신호이므로 먼저

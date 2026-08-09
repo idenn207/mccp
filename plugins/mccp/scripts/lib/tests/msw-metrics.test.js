@@ -620,3 +620,30 @@ test('B3: a clean cross-check still publishes normally', () => {
     'the new gate must not swallow the healthy path');
   assert.strictEqual(b3.integrity_ok, true);
 });
+
+test('A3: the published metric discloses what its freshness check covers', () => {
+  // The numerator has three components but only CLAUDE.md can be verified from
+  // the repo (STATE.md is session-volatile, the memory digest is never
+  // committed). That is a deliberate limit, so the metric states it rather than
+  // letting "current occupancy" imply the check covered the whole number.
+  const a3 = computeMetrics({
+    sources: {
+      instruction_cost: {
+        ok: true,
+        artifact_present: true,
+        status: 'computed',
+        current_tokens: 25644,
+        baseline_tokens: 45646,
+        denominator_tokens: 200000,
+        freshness_scope: 'claude_md',
+        numerator_components: ['claude_md', 'memory_index', 'state_block'],
+        producer_coverage: 'a3-instruction-cost',
+      },
+    },
+  })[A3_INSTRUCTION_COST];
+
+  assert.strictEqual(a3.freshness_scope, 'claude_md');
+  assert.deepStrictEqual(a3.numerator_components, ['claude_md', 'memory_index', 'state_block']);
+  assert.ok(a3.numerator_components.length > 1,
+    'the disclosure only means something because more components exist than are checked');
+});

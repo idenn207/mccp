@@ -332,3 +332,31 @@ test('exclusions: the live surface carries the doc comparison beside the denomin
   assert.strictEqual(d.raw_surface_count - d.toggle_count, d.excluded.length,
     'the gap between the two denominators is exactly the exclusion count');
 });
+
+test('exclusions: evidence that names a nonexistent path is drift', () => {
+  // Round 4: matching the SHAPE of a path is not evidence -- `x.js` satisfies
+  // any regex and points at nothing, so a row could look justified while
+  // justifying nothing.
+  const os = require('os');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ev-exist-'));
+  try {
+    const docRel = path.join('docs', 'multi-session-work-loop', 'measurement-design.md');
+    const real = fs.readFileSync(path.join(REPO_ROOT, docRel), 'utf8');
+    const doctored = real.replace(
+      /(\|\s*test-only\s*\|\s*`MCCP_STOP_LOOP_E2E`\s*\|)[^|\n]*\|/,
+      '$1 totally/made-up/nowhere.js:7 — fabricated |'
+    );
+    assert.notStrictEqual(doctored, real, 'fixture must actually alter the evidence cell');
+    const f = path.join(tmp, 'doctored.md');
+    fs.writeFileSync(f, doctored, 'utf8');
+
+    const x = toggleSnapshot.crossCheckExclusions(REPO_ROOT, f);
+    assert.strictEqual(x.ok, false);
+    assert.strictEqual(x.bad_evidence.length, 1,
+      'only the fabricated row may fail — the real rows use script-relative paths and must still resolve');
+    assert.match(x.bad_evidence[0], /MCCP_STOP_LOOP_E2E/);
+    assert.match(x.bad_evidence[0], /does not exist/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

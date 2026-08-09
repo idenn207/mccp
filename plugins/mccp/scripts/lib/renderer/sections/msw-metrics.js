@@ -245,13 +245,21 @@ function renderMetricsMarkdown(metrics) {
 
   if (sortedIds.length === 0) return null;
 
-  // computed 지표가 1개 이상인지 확인 (전부 insufficient/invalid면 hide)
+  // 값이 하나도 없으면 숨기되, **무결성 위반은 예외다.** `invalid`은 "아직
+  // 측정 전"이 아니라 "측정 기판이 어긋났다"는 신호이므로 숨기면 운영자에게
+  // 침묵으로 도달한다 — M4가 지표 층에서 없앤 confidently-wrong 평탄화를
+  // 렌더 층에서 되살리는 셈이다. baseline 미형성(insufficient/forward-only)만
+  // 조용히 넘어간다.
   const hasComputed = sortedIds.some((id) => {
     const m = metrics[id];
     return m && m.status === 'computed';
   });
+  const hasInvalid = sortedIds.some((id) => {
+    const m = metrics[id];
+    return m && m.status === 'invalid';
+  });
 
-  if (!hasComputed) return null;
+  if (!hasComputed && !hasInvalid) return null;
 
   const displayIds = orderForDisplay(metrics, sortedIds);
 
@@ -320,13 +328,17 @@ function renderMetricsHtml(metrics, formatUtils) {
 
   if (sortedIds.length === 0) return null;
 
-  // computed 지표가 1개 이상인지 확인
+  // markdown 면과 동일 규칙 — 무결성 위반은 숨기지 않는다.
   const hasComputed = sortedIds.some((id) => {
     const m = metrics[id];
     return m && m.status === 'computed';
   });
+  const hasInvalid = sortedIds.some((id) => {
+    const m = metrics[id];
+    return m && m.status === 'invalid';
+  });
 
-  if (!hasComputed) return null;
+  if (!hasComputed && !hasInvalid) return null;
 
   const displayIds = orderForDisplay(metrics, sortedIds);
   const rows = [];

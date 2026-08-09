@@ -56,6 +56,16 @@ Reviewer A(Opus)는 이번엔 baseline 대조를 지정받아 11개 기준 전�
 - **backlog 이연**: tracked plan의 홈 절대경로. repo 전역 관례(main archived plan 약 30개)이고 비밀이 아니며, 고치면 receipt `plan_hash`가 stale해져 게이트가 본 적 없는 본문에 재봉인해야 한다 — 운영자가 되돌리기를 선택했고 신규 유입 차단 + 일괄 sweep으로 이연했다.
 
 신규 test 5건(섹션 범위 C3 2 · drift 전파 1 · 명시 거부 1 · routed stub 1). round 1의 healthy fixture는 "routed 행의 heading이 사라진" 모양이었는데 이는 실제 repo(routed=2, removed=0)와 다르고 정확히 이번에 닫은 구멍이라, fixture를 실제 관례에 맞췄다.
+### Notes — santa-loop round 4 흡수 (렌더 층 평탄화)
+
+Reviewer A는 PASS(critical 0, 되돌림 검사까지 수행), **Reviewer B만** 3건을 올렸다. 그중 하나가 이 사이클에서 가장 중요한 발견이다.
+
+- **렌더 층이 `invalid`을 숨기고 있었다 (다섯 번째 재발).** `renderMswMetrics`가 `computed` 지표가 하나도 없으면 섹션 전체를 `null`로 반환한다 — exclusion drift로 B3가, 아티팩트 손상으로 A3가 `invalid`가 되면 대시보드는 실패를 보여주는 대신 **아무것도 보여주지 않는다**. round 4가 지표 층에서 없앤 confidently-wrong 평탄화가 한 층 밖에서 그대로 부활한 것이다. 게다가 `msw-metrics-render.test.js`가 **`status:'invalid'`인 B3가 null로 렌더되는 것을 명시 단언**해 그 동작을 고정하고 있었다(이 저장소가 반복해서 겪은 "test가 버그를 정답으로 고정"). 이제 `!hasComputed && !hasInvalid`일 때만 숨긴다 — baseline 미형성(insufficient/forward-only)은 조용히 넘어가되 **무결성 위반은 반드시 표면화**한다. test는 둘로 갈라 각각을 단언한다.
+- **evidence가 형식만 통과하면 됐다.** `x.js` 같은 값도 정규식을 만족했다. 실재 검증을 추가했는데 처음엔 오탐 8건이 났다 — 문서 관례가 repo-root가 아니라 `plugins/mccp/scripts/` 상대였다. 기준 경로 후보(repo-root · scripts · plugin)를 모두 시도해 실 repo는 `ok=true`, 조작한 경로는 정확히 1건만 검출된다. glob은 디렉토리로 검증한다.
+- **A3 freshness 범위를 공개한다.** 분자는 3성분인데 repo에서 검증 가능한 것은 `claude_md` 하나뿐이다(STATE.md는 세션 휘발성, memory digest는 미커밋 — S5). 이는 의도된 한계이므로 로직은 유지하고, `freshness_scope`와 `numerator_components`를 지표가 함께 발행해 "현재 점유율"이 무엇에 대해 신선한지 읽는 쪽이 알 수 있게 했다. 넣지 않으면 매 세션 stale이 되어 지표가 무용해진다.
+
+신규 test 3건(누적 29건).
+
 ## [1.23.5] — 2026-08-09
 
 ### Reconciled with origin/main (#118 codex-intent-context M1)

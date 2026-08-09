@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: multi-session-work-loop-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-09T06:21:25.000Z
+updated_at: 2026-08-09T07:17:23.708Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-09T01:17:14.100Z
 unsafe_checkpoint: false
@@ -11,15 +11,19 @@ session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
+escalate_pending: true
+escalate_pending_decision_id: multi-session-work-loop
 ---
 ## Goal
-MSW M4 (예산 감축) 구현 완료 + origin/main(PR #118 머지, 1.23.4) rebase 완료 — PR 생성 대기.
+MSW M4 (예산 감축) — PR #119 OPEN. origin/main(be88e5c) merge conflict 해소 완료, santa-loop dual-review 진행 중.
 
 ## Plan
 - plan: `.claude/plans/multi-session-work-loop-m4.plan.md` — 보증의 단일 기준은 상단 G1~G3 표
 - 보고서: `.claude/PRPs/reports/multi-session-work-loop-m4-report.md` (Deviations D1~D7 · 명시 잔여 포함)
 - receipt: mccp-plan-codex + mccp-implement-codex / decision=multi-session-work-loop-m4 · validate ok · codex_verdict=skipped (MCCP_CODEX_DISABLED=1 first-class)
 - 리뷰: Codex 미발화(env 정책) · security-reviewer 실발화 7 findings 흡수(S1 부분기각 · S2 non-finding · S3~S7 ACCEPT_NOW)
+- main 승계 미수행: worktree cleanup `git worktree remove .worktrees/codex-intent-context` + prune (§3.8)
+- main 승계 미수행: `claude plugin update` — main은 1.23.4, 이 PR 머지 후 1.23.5 캐시 확인
 
 ## Done
 - A3 측정 기판 복구: python3 하드코딩 → 인터프리터 probe(exit code + 마커) · tokenizer 버전을 tokenize 프로세스 내 취득 · STATE 성분을 frontmatter가 아닌 실제 주입 블록으로 교정
@@ -34,12 +38,13 @@ MSW M4 (예산 감축) 구현 완료 + origin/main(PR #118 머지, 1.23.4) rebas
 - 릴리스: plugin.json 1.23.5 + footer 2면 + CHANGELOG + PRD(M4 status·Open Question)
 - rebase(origin/main 280b9ef): 충돌 5파일 해소 — main 신규 §3.13·§3.7 하위절 승계, main 신규 토글 2개는 §11로 이관(59개 전수 대조 소실 0), backlog은 양쪽 항목 보존, i18n footer 단언은 plugin.json 파생으로 통합
 - rebase 후속: §3.13을 relocation ledger에 S3.13(on-demand·분류만)으로 등록해 lint advisory 해소(rows 25 · C1~C4 pass), a3 after 재측정, 파생 수치 6개 문서 동기
+- origin/main(be88e5c) merge — STATE.md 충돌을 state-writer API로 해소하고 48b2f05가 드롭한 escalate_pending을 복원(§3.5.1 정신 · 75a4aba 재발). CHANGELOG는 자동 병합.
 
 ## In Progress
-구현 완료 + rebase 완료. 커밋 1개(미push). PR 미생성.
+PR #119 OPEN. main merge 해소 완료 → santa-loop dual-review(Reviewer A Opus + Reviewer B codex gpt-5.4) 진행.
 
 ## Next Step
-/mccp:pr. PR 본문에 "PRD의 B1·C1 회귀 검사 조항 미충족"과 "rebase로 A3 감축률 49.3% → 43.8%"를 반드시 명시.
+santa-loop 판정 → NICE면 push, NAUGHTY면 findings 수정 후 재리뷰. PR 본문에 B1·C1 인정 조건 미충족 명시 유지.
 
 ## Last Decision
 A3 값 셀을 plan이 적은 감축률이 아니라 점유율로 렌더했다(D3) — "상시 지시문 점유율" 라벨 아래 감축률을 넣으면 이번 Task가 C2·C3에서 고친 라벨/값 불일치를 새로 만든다. 감축률은 collapse 상세로 내렸다.
@@ -52,6 +57,9 @@ A3 값 셀을 plan이 적은 감축률이 아니라 점유율로 렌더했다(D3
 - live B3는 corpus가 쌓일 때까지 forward-only — 다음 세션 1회 후 .claude/state/*.env-snapshot.json 생성 및 computed 전환 확인 필요
 - backlog 신규: prp-implement 2.5.4가 plan을 수정해 2.5.7 자기 게이트를 stale로 만드는 구조 결함(수동 재anchor로 우회)
 - docs/ENVIRONMENT.md 내부 중복(§1~§7 ↔ 신규 §11) · A3 MEMORY.md 성분이 Windows에서 미탐색 · MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL의 제외/defaults 모순은 M8 소관
+- multi-session-work-loop PRD의 M1·M2·M3 status가 in-progress로 남아 있으나 셋 다 실제로는 ship됐다(M2 PR #114, M3 PR #116) — PRD status drift, 이번 cycle 소관 밖 (main 승계)
+- write.js#stampIntentDecision free-form 경로: Source PRD 없는 plan은 runner 없이 skipped+proof stamp → 셸 호출자가 --codex-verdict converged와 조합 시 dedupe-approved receipt 생성 가능 (M1 이전에도 가능, DD10 위협모델 밖 · main 승계)
+- CHANGELOG.md에 `## [1.23.4]` 헤딩이 둘 — merge base 280b9ef가 이미 보유한 선재 결함(PR #118이 하나, 후속 be88e5c가 top에 또 하나). 이 PR이 만든 것이 아니며 §3.7 "헤딩 중복 = CHANGELOG 깨짐" 대상 — 별도 정리 필요
 
 ## Last Updated
-2026-08-09T01:17:14.100Z
+2026-08-09T07:17:23.708Z

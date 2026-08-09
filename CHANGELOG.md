@@ -83,6 +83,18 @@ R4는 split(A FAIL·B FAIL), R5도 split(**A PASS**·B FAIL). 두 라운드에�
 - **"`--plan`의 절대경로를 선차단하라"** — `isRepoRelativeEvidencePath` 미러 제안이지만 **다른 불변식**이다. 그 술어는 receipt에 *봉인될* 문자열용이라 리터럴 자체가 산출물이고, `--plan`은 읽을 파일이라 필요한 속성은 **봉쇄**다. 문자열 모양을 요구하면 repo 내부를 가리키는 정상 절대경로를 거부해 기존 흐름이 깨진다(회귀 test가 이를 고정).
 - **"`quorum.roles`와 `perspectives`가 어긋날 수 있다"** — 한 리뷰어가 제기했다가 **스스로 철회**했다. 둘 다 `isUsableResult` 동일 필터 산출이다.
 
+### Fixed (santa-loop R6 — 아티팩트 배선의 마지막 셸-상태 유실)
+양쪽 FAIL. 4건 흡수. 셋은 **앞선 라운드의 내 수정이 남긴 것**이고, 그 사실 자체가 이 층의 성질을 말한다 — `commands/plan.md`는 LLM이 실행하는 마크다운이라 단위 테스트가 닿지 않고, 매 수정이 새 셸 배선을 더한다.
+
+- **`mode.json` 판독 실패 하나가 가드 두 개를 동시에 무장해제했다 (HIGH).** 5.6이 mode를 못 읽으면 `--review-mode` 플래그를 조용히 빼고, 사전 HALT도 mode 값이 있어야 걸리므로 함께 침묵한다. 그 조합에서 패널 실행은 verdict 축이 **하나도 없는** receipt를 봉인하고, `resolveEffectiveVerdict`가 `axis:'none'`을 답해 `receipt-convergence.js:48`의 `resolution.converged === true`가 판정을 가져간다 — 승인을 하나도 발급하지 않은 실행이 `converged`로 읽힌다. R5 기록은 이 가드의 한계를 "플래그를 빠뜨리는 호출자"라고 적었지만, **명령 자신이 읽기 실패마다 빠뜨리고 있었다.** → `mode.json`은 Phase 5.2 진입에서 모든 모드에 대해 생성되므로, receipt-write 시점의 부재는 first-run이 아니라 고장이다. exit 12.
+- **`CODEX_CLASS`가 블록 경계에서 유실돼 L3 기록이 매번 `reason:"unknown"`이었다.** 성공한 hybrid 실행이 "왜 L3가 돌았는지 모른다"고 기록했다 — 알고 있었는데도. R2가 verdict에 대해 고친 것과 **완전히 같은 형태**를 같은 커밋에서 재생산한 것이다(`${CODEX_CLASS:-unknown}`은 5.2z 블록의 변수를 5.2f 블록에서 읽는다). → classification도 verdict 옆에 persist하고 5.2f가 아티팩트에서 읽는다.
+- **`mode.json` 판독 실패가 "정책상 L3 비활성"으로 기록됐다.** Step 0의 catch가 `0`으로 떨어져 `reason:"MCCP_PLAN_REVIEW_L3=0 — L3 disabled by policy"`를 썼다 — 확립된 적 없는 원인을 감사 기록에 넣는다. → tri-state(`-1`)로 "정책이 아니라고 함"과 "판단할 수 없음"을 분리하고, 후자는 HALT.
+- **`codex-verdict` 쓰기가 실패를 검사하지 않았다.** 이 아티팩트는 블록 경계를 넘는 **유일한 운반체**라 사본이 없다. 종료코드 검사에 더해 **read-back 검증**을 넣었다 — 디스크가 가득 찬 상태에서 open은 성공하고 write가 조용히 비는 경우는 종료코드만으로 못 잡는다.
+- **도달 불가능한 fallback 제거.** R2가 "회귀 방지"로 넣은 `${CODEX_VERDICT:-}` 셸 fallback은 5.2z가 fence 뒤라 **구조적으로 절대 발화할 수 없었다**. 잡을 수 없는 안전망은 없는 것보다 나쁘다 — 있지도 않은 2차 방어선이 있다고 읽힌다. 그것을 "유지된다"고 적은 낡은 주석도 함께 지웠다.
+
+#### 이 사이클을 여기서 닫는 이유 (정직한 잔여)
+santa-loop 6라운드에서 **20건 흡수 · 7건 기각**했고 회귀 스위트는 1781개 중 선재 실패 1건(§3.9 문서화된 fixture 부재)만 남는다. 알려진 미해결 fail-open은 없다. 다만 흡수한 20건 중 **6건이 앞선 라운드의 내 수정이 만든 것**이었고, 그중 셋이 같은 셸-상태 유실 형태였다. 근본 원인은 개별 실수가 아니라 구조다 — 게이트 배선이 단위 테스트가 닿지 않는 마크다운에 살아 있고, 매 수정이 새 배선을 더한다. **`commands/plan.md` Phase 5.2의 셸 배선을 테스트 가능한 오라클로 추출하는 것**을 후속 축으로 남긴다(이번 사이클에서 오라클 자체는 6라운드 내내 견고했고 결함은 전부 그 둘레의 seam에 몰렸다 — 어디를 고쳐야 하는지가 이미 측정됐다).
+
 ### Notes
 - **santa-loop R1에서 기각한 4건.** 리뷰어 지적을 액면 수용하지 않고 실코드로 재현한 결과: (a) "5.2c의 `l2.json` write가 코드블록에 없다" → `Workflow` 결과는 LLM에 반환되지 셸로 파이프될 수 **없고**, 925행이 명시 지시하며 부재 시 5.2e가 fail-closed. (b) "5.2g의 `&&`가 exit 12를 삼킨다" → 셸 의미론 오독이다. 좌변이 참이면 우변의 종료코드가 곧 복합문의 종료코드다. (c) "quorum test가 `responded ≤ of`를 미검증" → `responded`는 `usable.length`로 **파생**되는 관측치라 초과값이 입력될 수 없다. (d) "`plan-review-decide.test.js:273-281`이 유출 결함을 정답으로 고정한다" → 리뷰어가 275행에서 읽기를 멈췄다. 281-282행이 정확히 반대를 단정한다(read-side 오라클이 `unavailable`로 강등 + `proofFailed:true`). 다만 이 확인이 위 4번째 흡수를 **강화**했다 — 승인 축의 방어가 증명되면서 유출 축의 공백이 분리돼 드러났다.
 - **backlog로 이연한 1건 (santa-loop R2, Codex).** `plan-review/cli.js`와 `receipt/write.js`가 `--plan`/`--prd`/`--design-doc` 경로를 `path.resolve`로 그대로 받고(절대/UNC/`..` 거부 없음), `commands/plan.md`가 `<plan path>` 자리표시자를 큰따옴표 셸 문자열에 직접 보간한다 — command substitution 페이로드가 실행 가능하다. 실재하는 표면이지만 (a) 본 커밋이 만든 것이 아니라 `plan.md` 전반의 기존 패턴이고, (b) 위협 모델이 "운영자가 자기 저장소에서 자기가 입력한 경로"이며, (c) **본 milestone의 안전 논증이 이 축에 기대지 않는다** — 플랜 경로를 통제하는 자는 이미 플랜 내용을 통제하므로 `reviewed_plan_hash`/L1이 새로 무르게 되는 것이 없다. R2에서 세운 이연 기준(선재성이 아니라 *이번 변경이 그 결함에 기대는가*)을 그대로 적용한 결과다. 공용 repo-relative 경로 validator 도입은 별 사이클.

@@ -121,6 +121,69 @@ test('a malformed L1 artifact does not become an approval', () => {
   });
 });
 
+// ── DD13 bind cannot be switched off by omission (santa-loop R4) ─────────────
+//
+// decideReview compares the sealed reviewed_plan_hash against currentPlanHash
+// only when the latter is a non-empty string (decide.js:197). cmdDecide treated
+// --plan as optional and swallowed a hashing failure into null, so either one
+// left the bind evaluating nothing — a converged verdict could certify a plan
+// version nobody checked. The bind exists because this project actually hit the
+// failure it guards (reviewers launched, then the plan edited); a guard that
+// no-ops when a flag is missing is not a guard.
+
+// The L2 artifact must be READABLE and the quorum satisfiable, or the run blocks
+// earlier than the plan check and the test would prove nothing about DD13.
+function writeGoodL2(ctx) {
+  const p = path.join(ctx.dir, 'l2.json');
+  fs.writeFileSync(p, JSON.stringify({
+    reviewedPlanHash: 'sha256:' + 'a'.repeat(64),
+    results: ['architect', 'security', 'test', 'invariant'].map(function (k) {
+      return { perspective: k, verdict: 'pass', refutationAttempted: 'looked', findings: [] };
+    }),
+  }), 'utf8');
+  return p;
+}
+
+test('DD13: decide REFUSES to run without --plan rather than skipping the bind', () => {
+  withTmp(function (ctx) {
+    const code = runCli(['decide', '--mode', 'multi-agent',
+      '--l1-file', writeL1(ctx, { verdict: 'converged', violations: [] }),
+      '--l2-file', writeGoodL2(ctx)]);
+    const d = ctx.decision();
+    assert.equal(code, EX_BLOCK, 'a missing --plan must block, not silently unbind');
+    assert.equal(d.review_verdict, 'unavailable');
+    assert.equal(d.review_proof, null);
+    assert.match(d.reason, /DD13/, 'the reason must name the invariant that could not be evaluated');
+  });
+});
+
+test('DD13: an unhashable plan blocks instead of passing as a satisfied bind', () => {
+  withTmp(function (ctx) {
+    // A directory resolves and is contained, but cannot be hashed as a plan.
+    const dirAsPlan = path.join(ctx.dir, 'not-a-file');
+    fs.mkdirSync(dirAsPlan);
+    const code = runCli(['decide', '--mode', 'multi-agent',
+      '--l1-file', writeL1(ctx, { verdict: 'converged', violations: [] }),
+      '--l2-file', writeGoodL2(ctx),
+      '--repo-root', ctx.dir, '--plan', dirAsPlan]);
+    const d = ctx.decision();
+    assert.equal(code, EX_BLOCK);
+    assert.equal(d.review_verdict, 'unavailable');
+    assert.match(d.reason, /bind/, 'an unverifiable bind is not a satisfied bind');
+  });
+});
+
+test('the DD3 short-circuit still runs BEFORE the --plan requirement', () => {
+  // Ordering matters: an L1 failure is decidable without a plan hash, and making
+  // --plan mandatory must not convert that honest `divergent` into `unavailable`.
+  withTmp(function (ctx) {
+    const code = runCli(['decide', '--mode', 'multi-agent', '--l1-file', writeL1(ctx, L1_FAILED)]);
+    const d = ctx.decision();
+    assert.equal(d.review_verdict, 'divergent', 'L1 violations still report as violations');
+    assert.equal(code, EX_BLOCK);
+  });
+});
+
 test('the codex mode is untouched by the short-circuit', () => {
   withTmp(function (ctx) {
     const code = runCli(['decide', '--mode', 'codex']);

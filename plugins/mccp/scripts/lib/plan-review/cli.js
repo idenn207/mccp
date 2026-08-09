@@ -421,27 +421,48 @@ function cmdDecide(args) {
     rolesMin: parseRolesMin(process.env, fielded),
   });
 
+  // santa-loop R4 — --plan is MANDATORY here, and an unhashable plan is a block.
+  //
+  // decideReview compares the sealed reviewed_plan_hash against currentPlanHash
+  // only when the latter is a non-empty string (decide.js:197). So a missing
+  // --plan, or a hash that threw, left currentPlanHash null and the DD13 bind
+  // silently did nothing — a converged verdict could be issued for a plan version
+  // nobody checked. The bind is the milestone's answer to "reviewers were launched
+  // and then the plan was edited"; a bind that no-ops on an omitted flag is not a
+  // bind. Failing closed here costs nothing: the only production caller (5.2e)
+  // always passes --plan.
+  //
+  // Enforced at the CLI rather than in decideReview because the oracle is used
+  // with hand-built inputs throughout the suite, and widening a pure function to
+  // demand a hash it was never given would reject valid callers — the
+  // over-correction this cycle already made once.
   const planPath = (args.plan && args.plan !== true) ? args.plan : null;
   let currentPlanHash = null;
-  if (planPath) {
-    // Containment applies here too: this hash is what DD13 compares the sealed
-    // reviewed_plan_hash against, so an out-of-repo file must not be able to
-    // satisfy the bind.
-    const decideRoot = (args['repo-root'] && args['repo-root'] !== true) ? args['repo-root'] : repoRoot();
-    const contained = resolveContained(planPath, decideRoot, '--plan');
-    if (!contained.ok) {
-      errln('BLOCK: ' + contained.reason + ' — the DD13 bind may only be satisfied ' +
-        'by a plan inside the repository');
-      out({ review_verdict: 'unavailable', review_source: 'multi-agent',
-        review_proof: null, block: true, reason: contained.reason,
-        forwardCodexVerdict: false });
-      return EX_BLOCK;
-    }
-    try {
-      currentPlanHash = planAwareMarkdownHash(contained.abs);
-    } catch (_) {
-      currentPlanHash = null;
-    }
+  const blockBind = function (reason) {
+    errln('BLOCK: ' + reason);
+    out({ review_verdict: 'unavailable', review_source: 'multi-agent',
+      review_proof: null, block: true, reason: reason, forwardCodexVerdict: false });
+    return EX_BLOCK;
+  };
+  if (!planPath) {
+    return blockBind('decide requires --plan: without it the DD13 bind cannot be ' +
+      'evaluated and a converged verdict would certify an unverified plan version');
+  }
+  // Containment applies here too: this hash is what DD13 compares the sealed
+  // reviewed_plan_hash against, so an out-of-repo file must not be able to
+  // satisfy the bind.
+  const decideRoot = (args['repo-root'] && args['repo-root'] !== true) ? args['repo-root'] : repoRoot();
+  const contained = resolveContained(planPath, decideRoot, '--plan');
+  if (!contained.ok) {
+    return blockBind(contained.reason + ' — the DD13 bind may only be satisfied ' +
+      'by a plan inside the repository');
+  }
+  try {
+    currentPlanHash = planAwareMarkdownHash(contained.abs);
+  } catch (e) {
+    return blockBind('cannot hash the plan for the DD13 bind (' +
+      (e && e.message ? e.message : String(e)) + ') — an unverifiable bind must ' +
+      'not pass as a satisfied one');
   }
 
   const decision = decideReview({

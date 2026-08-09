@@ -206,11 +206,20 @@ DECISION_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decis
 # /mccp:plan's output convention (.claude/plans/<slug>.plan.md).
 #
 # This is a SCOPING correction, NOT staleness enforcement — and the distinction
-# is load-bearing. This preflight reads only `blocking` (specifically
-# design_critique_chain_divergent). A plan file that is absent or mis-derived
-# lands in `stale`, never in `blocking`, so a wrong guess here cannot false-block
-# the PR at this very early phase. The real staleness locus is 2.5.9, which runs
-# after Phase 2 and gates on the aggregate `ok`.
+# is load-bearing. The real staleness locus is 2.5.9, which runs after Phase 2
+# and gates on the aggregate `ok`.
+#
+# Precisely what the derived path can and cannot do here (santa-loop R1 asked for
+# this to be stated exactly rather than as a blanket "cannot false-block"):
+#   - It CANNOT introduce a block. validate-cmd consumes planPath in exactly two
+#     places — the generic-slug guard (:213) and the staleness re-hash (:301-303).
+#     A path that is absent, or present but belonging to another decision, lands
+#     in `stale`. Measured both ways on a real receipt pair: wrong-but-existing
+#     plan -> blocking=0 stale=2; no --plan at all -> blocking=0 stale=0.
+#   - This preflight CAN still block, and is meant to: it reads `blocking` for
+#     design_critique_chain_divergent, which is driven by the prior receipt's
+#     meta.design_critique_verdict (validate-cmd.js:485-503) and is completely
+#     independent of planPath. Passing --plan neither causes nor suppresses it.
 PRECHECK_PLAN=".claude/plans/${DECISION_SLUG}.plan.md"
 PRECHECK_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" validate \
   --command mccp:pr \

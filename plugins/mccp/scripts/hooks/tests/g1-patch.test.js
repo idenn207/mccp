@@ -35,30 +35,62 @@ function makeBrokenPluginRoot() {
   // meant this fixture never exercised the unguarded top-level `require`
   // of receipt-mode: the module was handed to the hook so the defect could not
   // fire. Copying a module in to keep a fixture green is the failure mode this
-  // milestone exists to remove. Now only hook-trace is provided, so BOTH the
-  // core-module guard and the validate-cmd guard have a real absence to route.
-  // Intentionally no scripts/receipt/* — validate-cmd require will throw.
+  // milestone exists to remove. Now only hook-trace is provided.
+  //
+  // santa-loop R1 (Reviewer B, Test honesty) — this comment used to end with
+  // "Intentionally no scripts/receipt/* — validate-cmd require will throw", and
+  // that is NO LONGER what happens. Once the core-module guard landed, the hooks
+  // return at coreModuleLoadError() (receipt-mode is missing here) BEFORE they
+  // ever require validate-cmd. So this fixture now exercises the CORE-module
+  // route, and the validate-cmd route it used to cover lost its only test —
+  // restored below by makeValidateCmdBrokenRoot(). The assertions here still
+  // hold; the description was the stale part.
   return root;
 }
 
-// v1.23.5 G1 Task 2 — per-module isolation fixture. Copies the real scripts/lib
-// + scripts/receipt trees (minus tests/) so EVERY module resolves, then removes
-// exactly one. That makes the omitted module the SOLE cause of the G1 route —
-// without it, an incidental load failure elsewhere would satisfy a
-// /ModuleLoadError/ assertion and the test would pass for the wrong reason.
-// `omitLibModule === null` builds the positive control (nothing removed).
-function makeIsolatedPluginRoot(omitLibModule) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-g1-iso-'));
-  const skipTests = function (src) {
-    return path.basename(src) !== 'tests';
-  };
-  for (const sub of ['lib', 'receipt']) {
+// santa-loop R1 (Reviewer B) — restores coverage of the ORIGINAL G1 route: the
+// validate-cmd require failing. Gives the hook every core module it needs (so
+// coreModuleLoadError passes and cannot short-circuit first) but no
+// scripts/receipt tree, so `require(RECEIPT_DIR/validate-cmd)` throws and the
+// hook must route THAT through g1Allow.
+function makeValidateCmdBrokenRoot() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-g1-vcmd-'));
+  copyRuntimeTrees(root, { omit: ['receipt'] });
+  return root;
+}
+
+// Trees the hooks + receipt modules resolve at runtime. `lib` and `receipt` are
+// the obvious ones; `migrations` and `state` are NOT optional —
+// validate-cmd.js:90 lazy-requires ../migrations/v0.2.8-generic-receipt-quarantine
+// and the receipt tree reaches ../state/{fix-task,state-writer,msw-events,
+// evidence-claim}. Both were missing from the first version of this fixture,
+// which is why its "every module resolves" claim was false (Reviewer B caught
+// migrations; state was found while verifying the report).
+const RUNTIME_TREES = ['lib', 'receipt', 'migrations', 'state'];
+
+function copyRuntimeTrees(root, opts) {
+  opts = opts || {};
+  const omit = opts.omit || [];
+  const skipTests = function (src) { return path.basename(src) !== 'tests'; };
+  for (const sub of RUNTIME_TREES) {
+    if (omit.indexOf(sub) !== -1) continue;
     fs.cpSync(
       path.join(REAL_PLUGIN_ROOT, 'scripts', sub),
       path.join(root, 'scripts', sub),
       { recursive: true, filter: skipTests }
     );
   }
+}
+
+// v1.23.5 G1 Task 2 — per-module isolation fixture. Copies the runtime trees
+// (minus tests/) so the hook's dependency graph resolves, then removes exactly
+// one lib module. That makes the omitted module the SOLE cause of the G1 route —
+// without it, an incidental load failure elsewhere would satisfy a
+// /ModuleLoadError/ assertion and the test would pass for the wrong reason.
+// `omitLibModule === null` builds the positive control (nothing removed).
+function makeIsolatedPluginRoot(omitLibModule) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-g1-iso-'));
+  copyRuntimeTrees(root);
   if (omitLibModule) {
     const target = path.join(root, 'scripts', 'lib', omitLibModule);
     assert.ok(fs.existsSync(target), 'fixture precondition: ' + omitLibModule + ' must exist before removal');
@@ -171,6 +203,20 @@ test('G1 isolation control: complete fixture does NOT route to ModuleLoadError',
   const repo = mkTempRepo();
   const root = makeIsolatedPluginRoot(null);
   try {
+    // What this control proves, precisely: the complete fixture takes NO
+    // ModuleLoadError route, which is the precondition the omission tests below
+    // depend on. It is non-vacuous — makeValidateCmdBrokenRoot() differs from
+    // this fixture by one tree and DOES trip this assertion (tests 4/5).
+    //
+    // What it does NOT prove: that every lazily-required dependency resolved.
+    // santa-loop R1 (Reviewer B) correctly flagged that the fixture omitted
+    // scripts/migrations (validate-cmd.js:90) — and scripts/state was missing too.
+    // Both are now copied. But an "assert no load diagnostic" check was tried here
+    // and MEASURED to be vacuous: it passes identically on the incomplete and the
+    // complete fixture, because those load failures degrade into result.warnings
+    // the hook never surfaces. Rather than keep an assertion that cannot fail —
+    // the exact defect this milestone exists to remove — the claim is narrowed to
+    // what is observable, and RUNTIME_TREES documents the resolution requirement.
     const r = runPromptHook(repo, root);
     assert.strictEqual(r.status, 0, 'control run must exit 0: ' + r.stderr);
     assert.doesNotMatch(
@@ -178,6 +224,62 @@ test('G1 isolation control: complete fixture does NOT route to ModuleLoadError',
       'complete fixture must not report a module load failure — if it does, the ' +
       'omission tests below prove nothing about the omitted module'
     );
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// santa-loop R1 (Reviewer B, Test honesty) — the validate-cmd load-failure route
+// is the ORIGINAL G1 case. Once the core-module guard landed it stopped being
+// reachable from makeBrokenPluginRoot (that fixture also lacks receipt-mode, so
+// the core guard returns first), leaving the route with no coverage at all. These
+// two tests restore it by supplying every core module and removing only the
+// receipt tree.
+
+test('receipt-prompt: validate-cmd load failure alone → G1 allows (core modules all present)', () => {
+  const repo = mkTempRepo();
+  const root = makeValidateCmdBrokenRoot();
+  try {
+    const r = runPromptHook(repo, root);
+    assert.strictEqual(r.status, 0, 'must allow (exit 0): ' + r.stderr);
+    const payload = JSON.parse(r.stdout || '{}');
+    assert.match(payload.systemMessage || '', /receipt-gate internal error/);
+    assert.match(payload.systemMessage || '', /ModuleLoadError/);
+    // Proves the core guard did NOT short-circuit: neither core module is named.
+    assert.doesNotMatch(payload.systemMessage || '', /receipt-mode:/);
+    assert.doesNotMatch(payload.systemMessage || '', /extract-plan-path:/);
+    assert.match(payload.hookSpecificOutput.additionalContext, /G1 fail-open/);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('receipt-skill: validate-cmd load failure alone → G1 allows (core modules all present)', () => {
+  const repo = mkTempRepo();
+  const root = makeValidateCmdBrokenRoot();
+  try {
+    const r = spawnSync(process.execPath, [RECEIPT_SKILL], {
+      cwd: repo,
+      input: JSON.stringify({
+        tool_name: 'Skill',
+        tool_input: { name: 'mccp:plan' },
+        session_id: 'g1vc2', tool_use_id: 'g1vc2tu', cwd: repo,
+      }),
+      encoding: 'utf8',
+      timeout: 30000,
+      env: Object.assign({}, process.env, {
+        CLAUDE_PLUGIN_ROOT: root,
+        MCCP_RECEIPT_DEBUG: '0',
+      }),
+    });
+    assert.strictEqual(r.status, 0, 'must allow (exit 0), not block (2): ' + r.stderr);
+    const payload = JSON.parse(r.stdout || '{}');
+    assert.match(payload.systemMessage || '', /Skill receipt-gate internal error/);
+    assert.match(payload.systemMessage || '', /ModuleLoadError/);
+    assert.doesNotMatch(payload.systemMessage || '', /receipt-mode:/);
+    assert.doesNotMatch(payload.systemMessage || '', /extract-plan-path:/);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(root, { recursive: true, force: true });

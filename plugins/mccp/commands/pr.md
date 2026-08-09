@@ -200,9 +200,22 @@ call, so a divergent prior receipt blocks the PR before any side effect.
 DECISION_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decision \
   --command mccp:pr \
   --args "$ARGUMENTS")
+# v1.23.4 G2 — forward --plan so the validator scopes to the right receipt
+# instead of falling back to its plan-less path. Phase 2 DISCOVER has NOT run
+# yet, so there is no discovered plan path to reuse; derive it from the slug per
+# /mccp:plan's output convention (.claude/plans/<slug>.plan.md).
+#
+# This is a SCOPING correction, NOT staleness enforcement — and the distinction
+# is load-bearing. This preflight reads only `blocking` (specifically
+# design_critique_chain_divergent). A plan file that is absent or mis-derived
+# lands in `stale`, never in `blocking`, so a wrong guess here cannot false-block
+# the PR at this very early phase. The real staleness locus is 2.5.9, which runs
+# after Phase 2 and gates on the aggregate `ok`.
+PRECHECK_PLAN=".claude/plans/${DECISION_SLUG}.plan.md"
 PRECHECK_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" validate \
   --command mccp:pr \
-  --decision "$DECISION_SLUG" 2>&1)
+  --decision "$DECISION_SLUG" \
+  --plan "$PRECHECK_PLAN" 2>&1)
 PRECHECK_EXIT=$?
 # Look for design_critique_chain_divergent blocking entries specifically — other
 # blocking reasons (missing receipt, schema invalid) are handled by Phase 2.5
@@ -854,9 +867,18 @@ finalize (2.5.7) is the runtime **primary** ship gate — its exit 12 already HA
 # never retro-blocked (DD5). An active MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE
 # (env, Phase 0.4) OR meta.pr_codex_force_override=true downgrades the block to a
 # warning here (ship proceeds; verdict stays sealed).
+# v1.23.4 G2 — `--plan <plan-path>` is REQUIRED here, and this is the callsite
+# where it actually enforces something. Without it the validator never re-hashes
+# the plan, so `stale` could not fire and a plan edited AFTER its gate shipped
+# unnoticed. Unlike the Phase 1.6 preflight (scoping only), this read-back gates
+# on the aggregate `ok`, so a stale plan HALTs the push.
+# Substitute the SAME plan path Phase 2 DISCOVER found (the one used at 2.5.2's
+# `--plan`), not a fresh guess — a path that does not resolve lands in `stale`
+# and will (correctly) block here.
 SHIP_GATE_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" validate \
   --command mccp:pr \
   --decision "${DECISION_SLUG}" \
+  --plan <plan-path> \
   --check-ship-verdict \
   ${FINALIZE_RECEIPT_HASH:+--expected-receipt-hash "$FINALIZE_RECEIPT_HASH"} 2>/dev/null)
 # Gate on the aggregate `ok` flag, NOT on a single blocking kind. The ship-gate

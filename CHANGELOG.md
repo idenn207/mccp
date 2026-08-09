@@ -2,7 +2,7 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
 ## [1.23.3] — 2026-08-06
 
@@ -69,7 +69,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - **분모 0 판정** `invalid` → `insufficient` — 이 모듈에서 `invalid`는 데이터 모순(unit spike·timestamp inversion·type separation)을 뜻하고 렌더러 최우선 버킷에 오른다. "겹친 세션이 아직 없다"는 부재이지 모순이 아니며, 그대로 두면 **1인 세션 저장소**(가장 흔한 구성)에 상시 무결성 오탐이 뜬다. 같은 파일 C1의 선례와 정합.
 - **잔여 정리** — `updateReceipt`의 gate-dir symlink 검사를 lock 획득 **앞**으로(검사 전에 junction을 통해 lock 파일이 worktree 밖에 쓰이던 defense-in-depth 축소) · `completion-ledger`의 dead import · `evidence-claim`의 도달 불가 `presentedEpoch` 분기 · `write.js`가 git-tracked `fix-task-applied.md`에 절대 Windows 경로를 기록하던 것을 repo-relative로.
 
-## [1.23.1] — 2026-08-06
+## [1.23.4] — 2026-08-09
 
 **codex-intent-context M1 — 의도 표면화 + 판정 커버리지 + 측정 인프라 (단일 milestone → patch bump)** — `/mccp:plan`의 Plan-Codex 게이트는 리뷰어(out-of-process Codex)에게 **사용자 대화 의도를 전달할 채널이 없었고**, finding 수용 판단이 어디에도 기록되지 않았다. M1은 세 축을 닫는다: **(L1)** plan의 구조화된 `## User Intent` 표를 하드닝해 리뷰어 focus에 주입 · **(L2-A)** 모든 finding이 명시 판정을 받도록 mechanical 완전성 강제 · **(M)** receipt `meta.intent_*` 10 필드로 측정 인프라 확립.
 

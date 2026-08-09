@@ -115,7 +115,7 @@ v0.1의 receipt chain은 *"adversarial review가 일어났는가"* 만 검증하
 
 | 축 | 모듈 |
 |---|---|
-| 실행 게이트 | Stop-loop · STATE.md continuity · Auto-handoff · `/mccp:work` · dual-reviewer escalate |
+| 실행 게이트 | Stop-loop · STATE.md continuity · Auto-handoff · `/mccp:work` · dual-reviewer escalate · diverse-agent review (plan 승인 다관점 전환) |
 | Codex 경계 | Codex disabled honor · Codex/impeccable scope split |
 | 관측 (v1.3.0) | schema baseline · derive engine · briefing stamp · STATUS.md+HTML renderer · refresh trigger + privacy guard |
 | 오케스트레이션 | dispatch-controller · work implement isolation · plan fan-out · single-worker Workflow 이전 · N-worker parallel scaffold · aggregate verify 네이티브화 · 병렬 활성화 worktree-merge live |

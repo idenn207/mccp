@@ -3,7 +3,7 @@
 **Source PRD**: (없음 — free-form `/mccp:plan` 입력)
 **Branch**: `chore/context-budget-cleanup` (worktree `.worktrees/context-budget-cleanup/`, base `origin/main` @ `77ceba2`)
 **Complexity**: Medium
-**Review**: santa-loop 3라운드 전부 NAUGHTY (R1 Opus 4/10·GPT-5.4 9/10 → R2 8/10·9/10 → R3 8/10·9/10). **상한 도달 → 사용자 에스컬레이션.** 검증된 지적은 전량 흡수했고 미해소 항목은 아래 §미해소에 열거한다. push 안 함.
+**Review**: santa-loop 4라운드 전부 NAUGHTY (R1 Opus 4/10·GPT-5.4 9/10 → R2 8/10·9/10 → R3 8/10·9/10 → **R4** Opus PASS(신뢰 불가)·GPT-5.4 10/12 FAIL). R3 상한 도달 후 U1/U2/U4를 닫은 개정본이 미리뷰 상태여서 fresh loop을 다시 돌렸고, **게이트를 통과 불가로 만드는 결함 3건**(V8 문턱·V5b 불변식·자기 상태 오보고)을 포함해 8건을 흡수했다. 검증에 실패한 지적 4건은 기각하고 근거를 남겼다. 잔존 항목은 아래 §미해소. push 안 함.
 
 ## Summary
 
@@ -138,6 +138,7 @@ env 개별 항목 실측 — 상위 2개가 7,653 B로 §4의 24%:
 ### Task 0: repo 밖 memory baseline 캡처 (다른 모든 작업보다 먼저)
 
 - **Action**: memory 디렉토리를 **한 글자도 건드리기 전에** `.claude/state/memory-baseline.json`을 만든다. Validation 5b의 유일한 진실 원천이므로 편집 이후에 캡처하면 그 검사가 자기 자신을 승인하게 된다(R2 B-F7 — 초안은 이 캡처를 어느 task에도 배정하지 않았다).
+- **캡처는 Task 4·5와 같은 세션에서, 편집 직전에 한다**(R4 적발). 이 디렉토리는 auto-memory 시스템이 세션 중 제자리 재작성하므로, 며칠 전 baseline은 시간이 갈수록 제3자 갱신을 축적해 대조를 무의미하게 만든다. 실측: 2026-08-09 캡처 후 같은 날 안에 `codex-intent-context-m1.md`·`diverse-agent-review-prd.md`·`MEMORY.md` 3건이 본 plan과 무관하게 재작성됐다. 세션 경계를 넘어 재사용해야 하면 **재캡처 후 Task 4로 진행**한다 — 재캡처가 곧 "여기부터 내 책임"의 선언이다.
 - **스키마(고정)**:
   ```json
   { "captured_at": "YYYY-MM-DD",
@@ -202,7 +203,17 @@ env 개별 항목 실측 — 상위 2개가 7,653 B로 §4의 24%:
 
 ### Task 3: §3.6 / §3.9 / §3.10 / §3.12 서사 이전
 
-- **Action**: 네 섹션(26,715 B — 레벨 인지 실측)에서 규칙만 남기고 서사를 목적지로 옮긴다 — §3.6/§3.9/§3.10 → [docs/gate-design.md](docs/gate-design.md), §3.12 → [docs/multi-session-work-loop/evidence-conflict-design.md](docs/multi-session-work-loop/evidence-conflict-design.md).
+- **Action**: 네 섹션(**34,459 B** — 레벨 인지 실측, 진단표·Validation 6·Acceptance와 같은 수치. 초안의 26,715 B는 어느 측정과도 맞지 않는 stale 값이었다, R4 B 적발)에서 규칙만 남기고 서사를 목적지로 옮긴다 — §3.6/§3.9/§3.10 → [docs/gate-design.md](docs/gate-design.md), §3.12 → [docs/multi-session-work-loop/evidence-conflict-design.md](docs/multi-session-work-loop/evidence-conflict-design.md).
+- **이전은 축자(verbatim)다.** 옮긴 문장은 목적지에서 한 글자도 다듬지 않는다 — Validation 8이 정규화 **줄 전체** 일치를 요구하므로 어미 하나만 바꿔도(`합니다`→`한다`) 고아가 된다. 다듬기가 필요하면 이전이 끝난 **뒤 별도 커밋**으로 한다.
+- **이전 단위와 예외 예산은 실측으로 정해져 있다**(R4 A 검산 — 이전 판은 이 수치가 없어 구현자가 예외를 어디에 쓸지 알 수 없었다). 네 섹션의 실질 줄 144개를 분류하면:
+
+  | 분류 | 줄 | 바이트 | 처리 |
+  |---|---|---|---|
+  | 순수 서사(규범 표지 없음) | 118 | 19,035 | **줄 단위 축자 이전** → V8 자동 통과 |
+  | 규칙+서사 **혼합** | **9** | 8,889 | **문장 단위로 쪼갠다** → 원본 줄이 고아가 되므로 **예외 등재 대상** |
+  | 순수 규칙 | 17 | 6,176 | 잔류(삭제 안 함) |
+
+  줄 단위로만 옮기면 잔류 하한이 15,065 B라 예산 12,000 B를 **넘는다** — 그래서 혼합 9줄은 반드시 쪼개야 한다. 예상 삭제 실질 줄 233에 대한 V8 예외 상한은 `ceil(233×0.05)=12`이므로 9줄은 상한 안에 든다. **예외 파일에 등재할 것은 원칙적으로 이 9줄뿐**이며, 그보다 많이 필요해지면 축자 원칙이 깨졌다는 신호다.
 - **분류도 기계 규칙이다**(R1 B-F8). 문장 단위로:
   - **잔류(규칙)** — 규범 표지(`하라`/`한다`/`금지`/`필수`/`must`/`never`)를 포함하거나, default 값을 명시하거나, 복구 절차를 서술하는 문장.
   - **이전(서사)** — version 표지(`vN.N.N`), 라운드 표지(`R1`/`R2`/`N라운드`), finding id(`F1`~`F9`), PR 번호를 포함하는 문장. 단 위 잔류 조건과 동시에 해당하면 **잔류가 우선**한다(규칙이 version을 인용할 수 있으므로).
@@ -226,6 +237,8 @@ env 개별 항목 실측 — 상위 2개가 7,653 B로 §4의 24%:
 
 판정 근거: 앞 두 문장은 *현재 무엇을 하는가*(throw·비대칭)라 잔류, 마지막은 *어떤 milestone이 왜 바꿨는가*(v1.23.1·PRD 판단)라 이전. **한 문장이 양쪽에 걸치면 쪼개고, 쪼갤 수 없으면 잔류**한다 — 규칙이 사라지는 것보다 서사가 남는 편이 덜 해롭다.
 
+> **이 예시는 위 표의 「혼합 9줄」에 속한다.** 그래서 이전분이 축자가 아니라 재작성이고(`합니다`→`한다`, 주어 보강), 원본 줄은 목적지 어디에도 줄-단위로 일치하지 않아 **Validation 8의 고아가 된다**. 정상이다 — 이런 줄이 정확히 예외 파일에 사유와 함께 등재될 9줄이다. 축자 원칙은 나머지 118개 **순수 서사 줄**에 적용되며, 거기서 어미를 손대면 예외 예산(상한 12)이 9줄을 덮지 못해 게이트가 떨어진다.
+
 - **포인터 의무**: 서사를 덜어낸 각 섹션은 목적지로 가는 링크를 **반드시 남긴다** — `[상세](docs/gate-design.md#앵커)` 형식. Validation 7이 링크 대상 파일 실재 + 앵커 실재까지 확인하므로 죽은 포인터는 통과 못 한다. 이전이 매장으로 변질되는 것을 막는 유일한 기계적 장치다.
 - **Validate**: 네 섹션 합 ≤ 12,000 B(Validation 6) + Validation 4 + Validation 7(포인터 해석) + Validation 8 + Validation 12(질량 보존).
 
@@ -234,7 +247,7 @@ env 개별 항목 실측 — 상위 2개가 7,653 B로 §4의 24%:
 - **예산 긴장 주의**: 16항목 × 160 B = 2,560 B > 총량 상한 2,500 B다. 두 제약을 동시에 만족하려면 **평균 ≤150 B**여야 하고 상한을 다 쓰는 항목이 몇 개 이상이면 총량에서 걸린다(R3 A 적발). 160 B는 개별 상한일 뿐 목표치가 아니다.
 - **Action**: 전 항목을 `- [Title](file.md) — <한 줄 hook>` 형식으로 재작성, 항목당 **≤ 160 바이트**(char 아님 — 한글은 1.19~1.85 B/char이라 char 검사는 목표보다 느슨하다, R1 A-F5/B-F5). PR 번호·머지 여부는 **제거**한다(git이 소유하는 값이라 인덱스에 실리면 구조적으로 다시 stale해진다).
 - **hook 작성 기준**: "언제 이 memory를 꺼내야 하는가"만 적는다. 결론·수치는 본문 소관.
-- **Validate**: Validation 5 — `Buffer.byteLength(line,'utf8') ≤ 160` 전 항목 + 파일 ≤ 2,500 B + 링크 무결성.
+- **Validate**: Validation 5 — `Buffer.byteLength(line,'utf8') ≤ 160` 전 항목 + 링크 무결성 + PR 상태 부재. **파일 총량 ≤ 2,500 B는 Validation 1이 강제한다**(V5의 exit 조건에는 총량 검사가 없다 — 귀속 오기였다, R4 B 적발).
 
 ### Task 5: stale memory 상태 주장 비파괴 정정 — **삭제 없음**
 
@@ -250,7 +263,7 @@ env 개별 항목 실측 — 상위 2개가 7,653 B로 §4의 24%:
 | `cost-model-subscription-remediation.md` | "PR #102 OPEN" | MERGED 2026-07-14 | `> 상태(2026-08-09): PR #102 MERGED.` |
 
 - **증류본은 만들지 않는다** — 원본이 남으므로 중복이다. recall 가능성은 Task 4의 hook이 유지한다.
-- **Validate**: Validation 5b — 17파일 전수 존재, 무편집 12파일은 **sha256 동일**, 편집 4파일은 바이트 증가만, `MEMORY.md`만 감소 허용.
+- **Validate**: Validation 5b — 17파일 전수 존재 · **어떤 파일도 baseline 대비 축소되지 않음**(`MEMORY.md`만 감소 허용) · 위 표의 정정 문자열 4건이 실제로 각 파일에 존재. sha256 불일치는 **보고만** 한다 — auto-memory 시스템이 같은 디렉토리를 제자리 재작성하므로 "안 바뀌었음"은 이 표면에서 성립하지 않는 불변식이다.
 
 ### Task 6: 이전 완결성 기계 검증 스크립트 작성
 
@@ -348,29 +361,41 @@ over.slice(0,5).forEach(l=>console.log('  OVER',Buffer.byteLength(l,'utf8'),'B:'
 process.exit((over.length||dead.length||pr.length)?1:0);
 " "$MEM"
 
-# 5b) 비파괴 불변식 — baseline manifest(sha256) 대조
+# 5b) 비파괴 불변식 — 이 plan이 아무것도 파괴하지 않았음을 증명한다
+#     (R4 적발: 이전 판은 memory 디렉토리를 frozen 표면으로 가정해 무편집 12파일에
+#      sha256 '동일'을, 편집 4파일에 append-only prefix를 요구했다. 둘 다 거짓 가정이다.
+#      이 디렉토리는 auto-memory 시스템이 소유하고 세션 중에 **제자리 재작성**한다 —
+#      baseline 캡처 이후 codex-intent-context-m1.md(6409->7908 B)와
+#      diverse-agent-review-prd.md(4406->5246 B)가 본 plan과 무관하게 바뀌었고,
+#      실측하면 세 파일 모두 append-only prefix가 BROKEN이다(덧붙임이 아니라 재작성).
+#      그래서 이전 판은 두 분기 모두 통과 불가였다. 정당한 제3자 갱신을 되돌리는 것은
+#      plan이 금지한 데이터 손실이고, baseline 재캡처는 Task 0의 의미를 없앤다.
+#      이제 불변식을 '아무것도 안 바뀌었다'가 아니라 '내가 아무것도 파괴하지 않았다'로
+#      바꾼다. 파괴만 hard-fail이고 제3자 갱신은 보고 대상이다.)
 node -e "
 const fs=require('fs'),crypto=require('crypto'),p=process.argv[1]+'/';
 const base=JSON.parse(fs.readFileSync('.claude/state/memory-baseline.json','utf8'));
-const EDIT=new Set(['integrity-unification-m3.md','multi-session-work-loop-m3.md',
-  'workflow-orchestration-m1.md','cost-model-subscription-remediation.md']);
-const gone=[],tampered=[],shrunk=[];
+const NEED={'integrity-unification-m3.md':'PR #115 MERGED',
+  'multi-session-work-loop-m3.md':'PR #116 MERGED',
+  'workflow-orchestration-m1.md':'PR #107 MERGED',
+  'cost-model-subscription-remediation.md':'PR #102 MERGED'};
+const gone=[],shrunk=[],missingFix=[],drift=[];
 for(const [f,b] of Object.entries(base.files)){
   if(!fs.existsSync(p+f)){gone.push(f);continue}
   const buf=fs.readFileSync(p+f);
-  if(f==='MEMORY.md') continue;
-  if(EDIT.has(f)){
-    // append-only 증명: 새 파일의 앞 b.bytes 바이트가 baseline 해시와 일치해야 한다.
-    // '바이트가 안 줄었다'만 보면 같은 길이의 파괴적 재작성이 통과한다(R3 B).
-    if(buf.length<b.bytes){ shrunk.push(f); }
-    else if(crypto.createHash('sha256').update(buf.subarray(0,b.bytes)).digest('hex')!==b.sha256)
-      tampered.push(f+' (append-only 위반)');
-  }
-  else if(crypto.createHash('sha256').update(buf).digest('hex')!==b.sha256) tampered.push(f);
+  // (1) 파괴 = 축소. MEMORY.md만 감소가 설계상 허용된다(인덱스 압축이 목표).
+  if(f!=='MEMORY.md' && buf.length<b.bytes) shrunk.push(f+' ('+b.bytes+'->'+buf.length+')');
+  // (2) Task 5가 지정한 정정 줄이 실제로 들어갔는가 (R4 B 적발: 이전 판은 미검증)
+  if(NEED[f] && !buf.toString('utf8').includes(NEED[f])) missingFix.push(f+' <- '+NEED[f]);
+  // (3) 제3자 갱신은 보고만 — 차단하지 않는다
+  if(crypto.createHash('sha256').update(buf).digest('hex')!==b.sha256) drift.push(f);
 }
 const now=fs.readdirSync(p).filter(f=>f.endsWith('.md')).length;
-console.log('baseline',base.file_count,'now',now,'| 삭제',gone,'| 무편집 변조',tampered,'| 축소',shrunk);
-process.exit((gone.length||tampered.length||shrunk.length||now!==base.file_count)?1:0);
+console.log('baseline',base.file_count,'now',now);
+console.log('  [HARD] 소실',gone,'| 축소',shrunk,'| 정정줄 누락',missingFix);
+console.log('  [INFO] baseline 이후 변경된 파일',drift.length,'건',drift);
+console.log('         (본 plan 편집분 5건 + auto-memory 제3자 갱신. 축소가 없으면 파괴 아님)');
+process.exit((gone.length||shrunk.length||missingFix.length||now!==base.file_count)?1:0);
 " "$MEM"
 
 # 6) 섹션별 예산 — UTF-8 바이트로 측정 (R2 B-F1: 이전 판은 .length=문자 수였고
@@ -425,6 +450,16 @@ process.exit((rows.length<56||emptyDefault.length||lostAnchor.length||badLink.le
 #     이제 형식 잡음(표 구분선·코드펜스·8자 미만·문자 없음)만 제외한다.
 #     의도적으로 재작성한 줄은 추적되는 예외 파일에 사유와 함께 등재해야 하고
 #     예외는 삭제 줄의 5%를 넘을 수 없다 — 예외가 검사를 삼키지 못하게)
+#
+#    문턱 180의 도출(R4 A 적발 — 이전 판의 400은 달성 불가능한 수치였다).
+#    이 검사 자신의 NOISE 정의로 실측하면 CLAUDE.md 전체가 실질 줄 548개이고
+#    본 plan이 손대는 6개 섹션은 250개다(§1.4 28 · §4 78 · 4섹션 144).
+#    즉 대상 섹션을 100% 통째로 지워도 250 < 400이라 400은 영구 실패였다.
+#    400에 닿으려면 plan이 '범위 밖'이라 명시한 §0·§2·§3.1~3.5·§3.7·§3.8·§5까지
+#    지워야 한다. 이제 측정에서 역산한다 — 예상 삭제는 233줄(§1.4 28 + §4 78 +
+#    4섹션 순수 서사 118 + 혼합 9)이고, 5% 예외 상한이 혼합 줄 9개를 정확히 덮는
+#    최소 문턱이 180(ceil(180*0.05)=9)이다. 180은 no-op·시늉을 떨어뜨리면서
+#    설계대로 한 작업은 통과시킨다.
 node -e "
 const fs=require('fs'),cp=require('child_process');
 const BASE=process.argv[1];
@@ -444,10 +479,10 @@ const substantive=del.filter(l=>!NOISE(l));
 const orphans=substantive.filter(l=>!pool.has(l)&&!exc.has(l));
 const excUsed=substantive.filter(l=>!pool.has(l)&&exc.has(l)).length;
 const cap=Math.ceil(substantive.length*0.05);
-console.log('삭제 실질 줄',substantive.length,'(>=400 필요) | 고아',orphans.length,
+console.log('삭제 실질 줄',substantive.length,'(>=180 필요, 실측 상한 250) | 고아',orphans.length,
             '| 예외 사용',excUsed,'/ 상한',cap);
 orphans.slice(0,10).forEach(o=>console.log('  ORPHAN:',o.slice(0,90)));
-process.exit((substantive.length<400||orphans.length||excUsed>cap)?1:0);
+process.exit((substantive.length<180||orphans.length||excUsed>cap)?1:0);
 " "$BASE"
 
 # 9) 회귀 — baseline(red 7건, gate-guard-integrity 소관) 대비 '신규' 실패만 판정
@@ -467,9 +502,13 @@ cat > /tmp/mccp-red-base.txt <<'BASE_EOF'
 BASE_EOF
 NOVEL=$(comm -13 <(sort -u /tmp/mccp-red-base.txt) /tmp/mccp-red-now.txt)
 echo "baseline에 없던 실패:"; echo "$NOVEL"
-# 플레이키 재현 확인 — 이 스위트는 순서 의존 실패가 관측됐다(실측: hash-briefing-exclusion이
-# 전체 실행에서만 빨갛고 격리 실행에서는 통과). 고정 baseline 집합 차이만으로 회귀를
-# 선언하면 거짓 경보가 난다. 신규 실패는 해당 파일을 단독 실행해 재현될 때만 회귀로 친다.
+# 플레이키 관용은 '이름 붙은 한 파일'로만 좁힌다 (R4 B 적발).
+# R3 판은 격리 실행에서 통과하는 신규 실패를 전부 용서했다. 그건 순서 의존 회귀 —
+# 즉 다른 테스트와 함께 돌 때만 깨지는 진짜 회귀 — 를 정의상 통째로 삼킨다.
+# 관측된 플레이키는 receipt/tests/hash-briefing-exclusion.test.js 하나뿐이므로
+# 그 파일만 allowlist에 올리고, 나머지 신규 실패는 격리 통과 여부와 무관하게 회귀다.
+# allowlist 항목도 격리 실행이 실패하면 회귀로 승격된다.
+FLAKY_ALLOWLIST="plugins/mccp/scripts/receipt/tests/hash-briefing-exclusion.test.js"
 REGRESSED=""
 while IFS= read -r line; do
   [ -z "$line" ] && continue
@@ -477,14 +516,20 @@ while IFS= read -r line; do
   FILE=$(grep -rl -F "$NAME" plugins/mccp/scripts --include=*.test.js 2>/dev/null | head -1)
   if [ -z "$FILE" ]; then REGRESSED="$REGRESSED
 (파일 미상) $NAME"; continue; fi
-  if node --test "$FILE" >/dev/null 2>&1; then
-    echo "  플레이키(격리 실행 통과, 회귀 아님): $NAME"
-  else
-    REGRESSED="$REGRESSED
-$NAME"
-  fi
+  case " $FLAKY_ALLOWLIST " in
+    *" $FILE "*)
+      if node --test "$FILE" >/dev/null 2>&1; then
+        echo "  allowlist 플레이키(격리 통과, 회귀 아님): $NAME"
+      else
+        REGRESSED="$REGRESSED
+$NAME (allowlist이지만 격리에서도 실패)"
+      fi ;;
+    *)
+      REGRESSED="$REGRESSED
+$NAME (allowlist 밖 — 격리 통과 여부와 무관하게 회귀)" ;;
+  esac
 done <<< "$NOVEL"
-[ -z "$REGRESSED" ] || { echo "FAIL: 재현된 신규 회귀:$REGRESSED"; exit 1; }
+[ -z "$REGRESSED" ] || { echo "FAIL: 신규 회귀:$REGRESSED"; exit 1; }
 
 # 10) 토큰 축 — a3-instruction-cost.js와 같은 o200k_base.
 #     (R2 B-F: 이전 판은 CLAUDE/MEMORY/STATE 원문을 /tmp 파일로 썼다. 그건 A3 모듈이
@@ -516,6 +561,15 @@ DELETED=$(git diff --diff-filter=D --name-only "$BASE"...HEAD)
 echo "삭제된 파일:"; echo "$DELETED"
 [ -z "$DELETED" ] || { echo "FAIL: 의도치 않은 파일 삭제"; exit 1; }
 
+# 11b) 대칭 가드 — 테스트가 흘린 잡파일이 커밋에 섞이지 않게 (R4 실측)
+#      a3-instruction-cost.test.js는 자기 디렉토리에 temp-claude-test{,2..5}.md를 만들고
+#      python3 부재로 중단되면서 cleanup을 못 한다(baseline red 7건 중 하나).
+#      gitignore 대상도 아니라 git add -A 한 번이면 repo에 들어온다. Validation 9가
+#      그 테스트를 반드시 돌리므로 이 가드는 본 plan의 실행 경로 위에 있다.
+UNTRACKED=$(git ls-files --others --exclude-standard -- plugins/ docs/ .claude/)
+echo "미추적 신규 파일:"; echo "$UNTRACKED"
+[ -z "$UNTRACKED" ] || { echo "FAIL: 커밋 전 정리 필요(테스트 잡파일 가능성)"; exit 1; }
+
 # 12) 질량 보존 — CLAUDE.md가 덜어낸 만큼이 목적지 문서에 실제로 쌓였는가.
 #     줄 단위 검사(8)의 집계 축 보완: 목적지가 자라지 않았는데 원본만 줄었다면
 #     '이전'이 아니라 '삭제'다.
@@ -546,7 +600,7 @@ process.exit((shed>0&&ratio>=0.90)?0:1);
 | **"이전"이 실은 "매장"** — docs로 옮겼는데 아무도 안 읽으면 삭제와 같다 | Medium | CLAUDE.md 잔류 줄이 **반드시 포인터를 동반**하고(§5 형식), Validation 7이 운영 앵커 5종 잔존을 확인한다. 다만 "읽힘"은 기계로 증명 불가 — 이건 잔여 리스크로 남는다 |
 | **병렬 worktree 충돌** — 활성 worktree 5개가 CLAUDE.md 보유 | High | "빨리 랜딩"은 통제가 아니다(R1 B-F9). 실제 통제: (1) 착수 전 `git -C <각 worktree> status --short CLAUDE.md`로 미커밋 편집 유무를 전수 확인, (2) 랜딩 후 각 worktree에서 즉시 rebase하며 CLAUDE.md 충돌은 **압축본을 base로 취하고 상대 브랜치의 신규 §만 재적용**, (3) §3.5.1 `--diff-filter=D` 검증 |
 | **§3.7 지침과의 외견상 충돌** | Medium | 규칙 자체는 전부 CLAUDE.md 잔류. 옮기는 것은 규칙의 *도출 과정*뿐임을 §5 포인터에 명시 |
-| **repo 밖 절반을 게이트가 못 봄** | Medium | baseline manifest의 **sha256**으로 무편집 12파일 무변조를 증명(바이트만으로는 변조를 못 잡음). MEMORY.md·편집 4건은 방향 제약(감소/증가)으로 검증 |
+| **repo 밖 절반을 게이트가 못 봄** | Medium | **불변식은 "무변조"가 아니라 "무파괴"다**(R4-2 실측 — auto-memory가 같은 디렉토리를 제자리 재작성하므로 무변조는 성립 불가). V5b가 파일 소실·축소·Task 5 정정줄 누락을 hard-fail로 잡고, 제3자 갱신은 보고만 한다. 복원은 `memory-snapshot-2026-08-09/`가 담당 |
 | ~~바이트 감축 ≠ 토큰 감축~~ | — | **해소(R2)** — Validation 10이 `o200k_base`로 **토큰을 직접** 잰다. 대용치 논쟁이 사라졌고 수용 기준이 사용자가 말한 단위와 같아졌다 |
 | ~~목표치가 임의적~~ | — | **해소(R3)** — 초안은 목표에서 역산했고 그 산술이 불가능했다(R2 B-F1). 이제 **적산**이다: 6,000 + 6,000 + 12,000 + 44,646(손대지 않는 나머지) = 68,646 B → 천장 70,000 B, 실측 3.55 B/token으로 ≤20,000 토큰. Validation 6이 **자리별로** 강제하므로 전체 수치만 맞추는 편법이 통하지 않는다 |
 | **A3 계측기가 Windows에서 불능** | Medium | 본 plan은 고치지 않는다 — `python3` 하드코딩 결함은 STATE.md대로 gate-guard-integrity PRD가 승계한 red 7건에 속한다. Validation 10이 같은 인코딩으로 독립 측정해 이 plan의 수용 판정은 그 결함에 의존하지 않는다 |
@@ -558,16 +612,16 @@ process.exit((shed>0&&ratio>=0.90)?0:1);
 - [ ] 주입 합계 200k 창 점유 25.0% → 12% 미만 — Validation 10
 - [ ] `CLAUDE.md` ≤ 70,000 B (현 160,920 B) — Validation 1
 - [ ] §1.4 ≤ 6,000 B · §4 토글 ≤ 6,000 B · §3.6+3.9+3.10+3.12 ≤ 12,000 B — Validation 6 (**UTF-8 바이트**, 기준선 37,353 / 44,462 / 34,459)
-- [ ] `MEMORY.md` ≤ 2,500 B, 전 항목 ≤ 160 **바이트**, PR 상태 0건 — Validation 5
-- [ ] memory 17파일 전수 존재 · 무편집 12파일 **sha256 동일** · 편집 4파일 바이트 비감소 — Validation 5b
+- [ ] `MEMORY.md` ≤ 2,500 B — **Validation 1** · 전 항목 ≤ 160 **바이트**, PR 상태 0건, 링크 무결 — Validation 5
+- [ ] memory 17파일 전수 존재 · **축소 0건**(MEMORY.md 제외) · Task 5 정정 줄 4건 실재 — Validation 5b (제3자 auto-memory 갱신은 보고만 하고 차단하지 않는다)
 - [ ] §1.4 **24행**이 `docs/milestone-log.md`에 **행 전체 그대로**(first-column만이 아니라) 도착, 중복 0 — Validation 3
 - [ ] env 표 **56행** ↔ `docs/ENVIRONMENT.md` 앵커 **양방향 동일**, 은퇴 토글 표 부재 — Validation 2
 - [ ] 불변식 키워드 6종이 **원래 소속 섹션 안에** 잔존 — Validation 4
 - [ ] 운영 앵커 5종 잔존 · env 표 default 열 전부 non-empty · **CLAUDE.md의 docs 링크가 파일·앵커까지 해석됨** · `ENVIRONMENT.md` stale 마커 0건 — Validation 7
-- [ ] **삭제된 줄이 목적지에 정규화 줄-단위로 정확히 도착**, 고아 0건, 예외 사용 ≤ 5% — Validation 8 (핵심 게이트)
+- [ ] **삭제된 줄이 목적지에 정규화 줄-단위로 정확히 도착**, 고아 0건, 삭제 실질 줄 **≥ 180**(실측 상한 250에서 도출), 예외 사용 ≤ 5%(예상 상한 12 ≥ 혼합 9줄) — Validation 8 (핵심 게이트)
 - [ ] **질량 보존** — CLAUDE.md 감소분의 **90% 이상**이 목적지 문서 증가로 나타남 — Validation 12
-- [ ] **격리 재현되는** 신규 테스트 실패 0건(baseline red 7건은 pre-existing, gate-guard-integrity 소관. 순서 의존 플레이키는 회귀로 치지 않음) — Validation 9
-- [ ] `--diff-filter=D` 의도치 않은 삭제 0건 — Validation 11
+- [ ] 신규 테스트 실패 0건 — Validation 9. baseline red 7건은 pre-existing(gate-guard-integrity 소관)이고, 플레이키 관용은 **이름 붙은 1개 파일**(`hash-briefing-exclusion.test.js`)로만 좁혀 순서 의존 회귀가 통째로 면제되지 않는다
+- [ ] `--diff-filter=D` 의도치 않은 삭제 0건 — Validation 11 · 미추적 잡파일 0건(테스트 산출물이 커밋에 섞이지 않음) — Validation 11b
 
 ## Open Questions
 
@@ -639,20 +693,64 @@ process.exit((shed>0&&ratio>=0.90)?0:1);
 **R3가 흡수한 것**: 위 유효분 전량 — 목표 재도출 · 바이트 단위 교정 · V3 범위·행전체 대조 · V7 non-empty + **링크·앵커 해석 검증** · V8 **정규화 줄-전체 정확 일치 + 감사되는 예외 파일(≤5% 상한)** · V9/V11 exit assertion · V10 **stdin 파이프(원문 디스크 미기록)** · base 커밋 고정 · Task 0 신설 · **Validation 12 질량 보존**(CLAUDE.md 감소분의 70% 이상이 목적지 증가로 나타나야 함) · Task 3 포인터 의무.
 
 
-## 미해소 (santa-loop 3라운드 상한 도달)
+### santa-loop R4 (재호출 — fresh loop) — NAUGHTY
 
-santa-method는 3라운드 안에 양쪽 NICE가 아니면 push를 금지하고 사람에게 넘기도록 규정한다. 세 라운드 모두 NAUGHTY였고, **검증에 성공한 지적은 전부 흡수**했으나 다음은 남는다.
+에스컬레이션 뒤 U1(Task 1)/U2/U4를 닫은 개정본(`63d7441`)은 **한 번도 리뷰를 받지 않은 상태**였다. 그 개정본에 대해 리뷰어를 새로 띄웠다. 라운드 카운터는 재호출마다 R1로 리셋되므로 "3라운드 상한"은 구조적으로 무력하다 — 이 점을 상한 근거로 쓰지 않는다.
 
-| # | 미해소 항목 | 성격 | 왜 이번에 안 닫았나 |
+| Reviewer | Model | Verdict |
+|---|---|---|
+| A | Claude Opus (`code-reviewer`) | **PASS (신뢰 불가)** |
+| B | Codex GPT-5.4 (`codex exec --sandbox read-only`) | **FAIL** (12개 중 10개 FAIL) |
+
+**Reviewer A의 보고는 그 자체가 결함이었다.** verdict가 `PASS`인데 `critical_issues`를 2건 달았고(자기모순), `memory-baseline.json`이 "77 items"라 서술했으나 실제는 17이며, "12개 검사 전부 정상"이라 단언했지만 Validation 5b는 실행하면 즉시 실패한다. A는 검사를 읽고 통과를 줬다 — 세 라운드 내내 반복된 바로 그 실패 형태다.
+
+**이 라운드에서 실제로 잡힌 것 — 셋은 게이트를 통과 불가로 만드는 결함**:
+
+| # | 결함 | 출처 | 조치 |
 |---|---|---|---|
-| U1 | Task 1·3의 판정 규칙이 여전히 **휴리스틱** — "primary path", "가장 최신 version", 규범표지 vs version표지 문장 분류 | 설계 | 두 리뷰어가 3라운드 내내 지적했고 옳다. 진짜 해법은 B의 제안대로 **잔류 대상을 행/문장 단위로 전부 열거한 manifest**인데, 그건 사실상 구현 작업을 plan 안에서 미리 수행하는 것이라 별도 판단이 필요하다 |
-| U2 | repo 밖 memory에 **복구 경로 없음** — sha256은 탐지이지 복원이 아니다 | 안전 | 삭제를 없앴고 편집 4건은 append-only로 증명하지만, 사고가 나면 되돌릴 스냅샷이 없다. 실제 사본을 뜨려면 사용자 판단 필요(개인 memory 복제) |
-| U3 | **의미 보존 미증명** — V8은 줄 단위 정확 일치라, 옮긴 뒤 목적지에서 다듬는 정상 편집을 고아로 잡는다 | 설계 잔여 | 그 압력이 5% 예외 상한으로 몰린다. 완전 해법은 span 단위 manifest(U1과 동일 축) |
-| U4 | Validation 12의 **70% 임계는 임의값** | 임의성 | 근거 있는 값을 고르려면 실제 이전을 한 번 해봐야 한다 |
+| R4-1 | **★핵심★ Validation 8의 `>=400` 문턱이 달성 불가.** 검사 자신의 NOISE 정의로 실측하면 압축 대상 6섹션의 실질 줄은 **250**(CLAUDE.md 전체가 548)이다. 대상을 100% 지워도 400에 못 미친다 — 400에 닿으려면 plan이 "범위 밖"이라 명시한 섹션까지 지워야 한다. R2 자체감사가 "공허한 PASS"를 막으려 붙인 숫자가 실측 없이 골라져 반대편(impossible-fail)으로 넘어갔다 | 자체 검산 (양 리뷰어 모두 놓침) | 실측에서 역산한 **180**으로 교체 + 상한 250·예상 삭제 233을 주석에 기록 |
+| R4-2 | **Validation 5b가 양쪽 분기 모두 통과 불가.** memory 디렉토리는 auto-memory 시스템이 소유하고 **제자리 재작성**한다. baseline 캡처 이후 무관한 파일 2건이 이미 변경됐고(6,409→7,908 · 4,406→5,246), 실측하면 세 파일 모두 append-only prefix가 BROKEN이다. 즉 "무편집 12파일 sha256 동일"도 "편집 4파일 append-only"도 성립하지 않는다 | 자체 검산 + B | 불변식을 "아무것도 안 바뀌었다"에서 **"내가 아무것도 파괴하지 않았다"**로 재정의 — 축소·소실·정정줄 누락만 hard-fail, 제3자 갱신은 보고. Task 0을 **같은 세션·편집 직전** 캡처로 강화 |
+| R4-3 | **`## 미해소` 표가 자기 상태를 오보고.** U2는 "복구 경로 없음"인데 Files to Change는 같은 문서에서 "snapshot CREATE(완료)·U2 해소"라 적었고(스냅샷 17파일 실재 확인), U4는 존재하지 않는 "70% 임계"를 열거했으며(실제 90%), U1은 Task 1에 이미 실린 manifest를 "별도 판단 필요"라 했다 | 자체 검산 + B | 본 표를 해소/잔존으로 분리 재작성 |
+| R4-4 | Task 3이 네 섹션을 **26,715 B**라 적었으나 진단표·V6·Acceptance는 전부 34,459 B | B | 34,459로 통일 |
+| R4-5 | `MEMORY.md ≤ 2,500 B`를 Task 4 Validate와 Acceptance가 **Validation 5에 귀속**했으나 V5의 exit 조건에 총량 검사가 없다. 실제 강제자는 Validation 1이다(B는 "강제되지 않는다"고 했으나 그건 틀렸다 — 귀속 오기다) | B (부분 정정) | 귀속을 V1로 수정 |
+| R4-6 | Task 5가 지정한 정정 줄 4건을 **어떤 검사도 확인하지 않음** | B | V5b에 내용 검증 추가 |
+| R4-7 | V9의 격리-재실행 관용이 **순서 의존 회귀를 정의상 전부 면제**. 관측된 플레이키는 1개 파일뿐인데 관용은 무제한이었다 | B | 이름 붙은 1개 파일 allowlist로 축소 |
+| R4-8 | **이전 단위와 예외 예산이 정량화되지 않음.** 네 섹션 실질 줄 144개를 분류하면 순수 서사 118 · 혼합 9 · 순수 규칙 17이고, 줄 단위로만 옮기면 잔류 하한 15,065 B로 예산 12,000 B를 초과한다. 즉 혼합 9줄은 반드시 쪼개야 하고 그때 V8 고아가 된다 — 예외를 어디에 쓸지가 plan에 없었다 | 자체 검산 (U3의 정량화) | 분류표·축자 원칙·예외 대상 9줄을 Task 3에 명시 |
+
+**기각한 지적** (재현 실패 또는 영향 판단이 반대):
+
+- B: "예외 파일이 없어도 게이트가 안 떨어지니 등재부를 생략할 수 있다" → **반대다.** 부재는 예외 0으로 취급되어 고아 허용치가 사라지므로 **더 엄격**해진다. 무해.
+- B: "Validation 블록이 Git Bash 전용이라 이식성 FAIL" → plan이 헤더에 Git Bash를 전제로 명시했고 이 머신에 존재하며, 12개 검사를 전부 거기서 실행했다. 선언된 전제가 충족된 것을 결함으로 볼 수 없다.
+- A: `memory-baseline.json` 77 items → 실제 17.
+- A: 잔류 manifest 24행이 미검증이라는 의심 → 실제 §1.4 행을 추출해 대조한 결과 **순서까지 1:1 일치**.
+
+## 미해소
+
+R4에서 닫힌 것과 남은 것을 분리한다. 앞선 라운드의 표가 닫힌 항목을 계속 "열림"으로 실어 다음 세션이 같은 자리를 다시 파게 만들었다(R4-3).
+
+**해소됨**
+
+| # | 항목 | 어떻게 닫혔나 |
+|---|---|---|
+| U1 | Task 1의 판정 규칙이 휴리스틱 | 24행 전수 판정 manifest를 plan에 실었다. 실제 §1.4 행과 1:1 일치 확인(R4) |
+| U2 | repo 밖 memory에 복구 경로 없음 | `memory-snapshot-2026-08-09/`에 17파일 사본 + baseline 해시 17/17 일치. 탐지와 복원이 모두 존재 |
+| U4 | Validation 12의 임계가 임의값 | 90%로 올리고 도출을 명시(예외 상한 5% + 목적지 heading 증가분) |
+
+**잔존**
+
+| # | 미해소 항목 | 성격 | 왜 안 닫았나 |
+|---|---|---|---|
+| U3 | **의미 보존 미증명** — V8은 줄 단위 정확 일치라 문장 단위 분할을 고아로 잡는다 | 설계 잔여 (R4에서 정량화) | 완전 해법은 span 단위 manifest다. 대신 압력의 크기를 실측했다 — 혼합 9줄 / 예외 상한 12로 **덮인다는 것까지는 확인**했고, 그 이상 필요해지면 축자 원칙이 깨졌다는 신호로 삼는다 |
 | U5 | MEMORY.md hook이 **운영 경고를 떨어뜨릴 수 있음** | 잔여 | 본문에는 남지만 인덱스만 읽는 세션은 놓친다. hook 문구 설계로 완화할 뿐 기계 보증은 불가 |
 | U6 | A3 계측기의 `python3` 하드코딩 | **의도적 이연** | gate-guard-integrity PRD가 승계한 red 7건 소속. 남의 PRD 범위를 조용히 침범하지 않는다 |
+| U7 | **규칙이 CLAUDE.md에 남았음을 강제하는 검사가 없다** — V8은 "도착"만 보고 V4는 키워드 6개만 본다. 규범 문장이 통째로 docs로 이주해도 전 게이트가 통과한다 | 설계 (R4 B) | Task 3의 분류 규칙과 축자 원칙이 이를 *지시*하지만 *강제*하지는 않는다. 기계화하려면 규범 문장 단위 대조가 필요해 U3와 같은 축이다. 본 plan의 범위에서는 순수 규칙 17줄이 삭제 대상이 아니라는 점(=diff에 안 나타남)으로 완화된다 |
+| U8 | **repo 밖 표면의 제3자 갱신은 원리적으로 차단 불가** | 잔여 (R4-2의 잔여) | V5b는 이제 파괴만 막고 제3자 재작성은 보고한다. auto-memory가 소유한 파일에 대해 "안 바뀌었음"을 요구하는 검사는 어떤 형태로도 안정적일 수 없다 |
 
-### 3라운드에서 배운 것
+### 라운드에서 배운 것
+
+- **공허한 PASS를 막으려 급히 붙인 문턱이 그대로 impossible-fail이 된다.** R2 자체감사는 V8이 "삭제 0건이면 통과"하는 것을 보고 `>=400`을 넣었는데, 그 숫자를 실측에 대보지 않았다. 대상 섹션의 실질 줄은 250뿐이라 게이트는 이후 두 라운드 내내 **영구 실패** 상태였고 아무도 실행하지 않아 아무도 몰랐다. 반대 방향 실패도 실패다.
+- **다른 시스템이 소유한 표면에 "변하지 않음"을 요구하지 마라.** V5b는 memory 디렉토리를 frozen으로 가정했지만 그 디렉토리는 auto-memory가 세션 중 제자리 재작성한다. 필요한 불변식은 "아무것도 안 바뀌었다"가 아니라 **"내가 아무것도 파괴하지 않았다"**였다.
+- **닫은 항목을 표에서 지우지 않으면 다음 세션이 다시 판다.** 개정 커밋은 U1/U2/U4를 닫았다고 적었지만 §미해소 표는 그대로였고, 같은 문서 안에서 U2가 "해소"이자 "미해소"였다. 리뷰어 B가 그 모순을 정확히 집었다.
 
 - **리뷰어 지적을 검증 없이 받으면 멀쩡한 코드를 고친다.** R2·R3에서 Reviewer A가 제기한 정규식 파손·섹션 경계·tautology 주장 5건은 재현 시도에서 전부 반증됐다. 반대로 R3에서 Reviewer B가 "V3 정규식이 깨졌다"고 한 것도 기전은 틀렸지만, 그걸 확인하려 실제로 돌려본 덕에 **진짜 결함**(§1.4는 24행인데 27로 세고 있었다 — §1.1 Fork Lineage 표 3행을 함께 잡았다)이 드러났다. 틀린 지적도 옳은 곳을 가리킬 수 있다.
 - **실행되지 않은 검사는 검사가 아니다.** V3·V7의 정규식은 세 라운드 동안 한 번도 실행된 적이 없었다(조기 반환). 리뷰어 둘 다 코드를 읽었을 뿐이고, 결함은 합성 입력을 만들어 돌려본 뒤에야 나왔다.

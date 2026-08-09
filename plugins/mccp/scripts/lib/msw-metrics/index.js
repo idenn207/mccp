@@ -243,9 +243,14 @@ function computeA3(model) {
   // wrong shape this milestone exists to remove, so it degrades to insufficient
   // with the re-measure instruction attached.
   if (src.stale) {
+    // Carry the staleness forward as its own flag. `insufficient` alone is
+    // indistinguishable from "no baseline yet", and the surfaces downstream hide
+    // that quietly -- but a measurement that EXISTS and has gone out of date is
+    // an actionable instruction ("re-run --emit-after"), not an absence.
     return Object.assign(
       insufficientMetric(A3_INSTRUCTION_COST, src.stale_reason || 'A3 artifact is stale'),
-      coReport
+      coReport,
+      { stale: true, stale_reason: src.stale_reason || 'A3 artifact is stale' }
     );
   }
 

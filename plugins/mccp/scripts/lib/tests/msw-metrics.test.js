@@ -647,3 +647,29 @@ test('A3: the published metric discloses what its freshness check covers', () =>
   assert.ok(a3.numerator_components.length > 1,
     'the disclosure only means something because more components exist than are checked');
 });
+
+test('A3: a stale artifact carries the staleness forward, not just "insufficient"', () => {
+  // Round 5: `insufficient` alone is indistinguishable from "no baseline yet",
+  // and every surface downstream hides that quietly. A measurement that EXISTS
+  // and went out of date is an instruction ("re-run --emit-after"), so the flag
+  // has to travel with the metric for the renderer and the banner to see it.
+  const a3 = computeMetrics({
+    sources: {
+      instruction_cost: {
+        ok: true,
+        artifact_present: true,
+        status: 'computed',
+        stale: true,
+        stale_reason: 'CLAUDE.md changed since the A3 measurement',
+        current_tokens: 26377,
+        denominator_tokens: 200000,
+        producer_coverage: 'a3-instruction-cost',
+      },
+    },
+  })[A3_INSTRUCTION_COST];
+
+  assert.strictEqual(a3.status, 'insufficient');
+  assert.strictEqual(a3.stale, true, 'the staleness must survive into the metric');
+  assert.match(a3.stale_reason, /CLAUDE\.md changed/);
+  assert.strictEqual(a3.value, null, 'a stale measurement must not be served as a current value');
+});

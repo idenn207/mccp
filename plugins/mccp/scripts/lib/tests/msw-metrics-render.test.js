@@ -347,3 +347,30 @@ test('msw-metrics: invalid reason shown in status when invalid', async (t) => {
   // Result should render B1 as computed
   assert.ok(result.html.includes('B1'));
 });
+
+test('msw-metrics: a stale metric is surfaced even with nothing computed', async (t) => {
+  // The live tree hit exactly this: A3 stale + B3 forward-only meant the section
+  // vanished from STATUS.md entirely, so the milestone that put A3 on the
+  // dashboard produced a dashboard with no metrics on it.
+  const model = {
+    metrics: {
+      A3: {
+        id: 'A3',
+        numerator: null,
+        denominator: null,
+        value: null,
+        status: 'insufficient',
+        stale: true,
+        stale_reason: 'CLAUDE.md changed since the A3 measurement',
+        coverage: 'a3-instruction-cost',
+      },
+      B3: {
+        id: 'B3', numerator: null, denominator: null, value: null,
+        status: 'forward-only', coverage: 'toggle-usage',
+      },
+    },
+  };
+  const result = renderMswMetrics(model, mockFormatUtils);
+  assert.notStrictEqual(result, null,
+    'a measurement that exists but went stale must reach the operator');
+});

@@ -66,6 +66,15 @@ Reviewer A는 PASS(critical 0, 되돌림 검사까지 수행), **Reviewer B만**
 
 신규 test 3건(누적 29건).
 
+### Notes — santa-loop round 5 흡수 (여섯 번째 층, 그리고 사슬의 끝)
+
+- **라이브 대시보드에 metrics 섹션이 아예 없었다.** A3를 대시보드에 처음 올린 milestone이 정작 그 섹션이 사라진 대시보드를 만들고 있었다. main 병합으로 CLAUDE.md가 바뀌어 A3 아티팩트가 stale → `insufficient`가 됐는데, round 4의 게이트는 `invalid`만 살리고 `insufficient`는 그대로 숨겼다. 실측: `A3 insufficient(stale) · B3 forward-only → 섹션 NULL · verdict muted`. **"측정된 적 있으나 낡음"과 "측정된 적 없음"은 다른 사실**이고, 전자는 실행 가능한 지시(`--emit-after` 재실행)다. 지표가 `stale`을 실어 나르고 · 섹션이 stale이면 렌더하고 · verdict가 해결 방법까지 amber로 표시하도록 세 층에서 갈랐다.
+- **headline verdict가 `metrics`를 한 번도 읽지 않았다.** `computeVerdict`는 `sources`·`warnings`만 본다. M4가 만든 두 `invalid` 경로는 source에 `degraded`를 함께 세워 둔 덕에 이미 도달하고 있었지만(실측: 둘 다 amber), **source는 멀쩡한데 metric만 invalid**한 경우(A1의 unit-spike·timestamp-inversion — 선재 경로)는 침묵했다. 지목된 두 경로만이 아니라 그 모양 전체를 닫았다. degraded source가 있으면 더 구체적인 그쪽 메시지가 이기고, `forward-only`/`computed`는 건드리지 않는다.
+
+**감축률 42.2%로 하락 (두 번째 base 이동).** santa-loop 진행 중 main이 PR #120을 머지했고 이 브랜치가 병합했다. after는 `280b9ef`(25,644 토큰) → `b1fe03f`(**26,377**)로 이동해 감축률이 43.8% → **42.2%**가 됐다(CLAUDE.md 성분 45.25%). **before는 두 차례 모두 `7fe48d9`/45,646 토큰에 봉인 유지** — 분모를 바꿔 수치를 지키는 대신 분자가 커진 사실을 보고한다. 목표 50% 미달 폭이 커진 원인은 M4가 아니라 병렬 ship이 상시 지시문을 다시 늘리고 있다는 것이며, **이 현상 자체가 M4가 측정하려던 대상**이다.
+
+신규 test 3건(누적 35건).
+
 ## [1.23.5] — 2026-08-09
 
 ### Reconciled with origin/main (#118 codex-intent-context M1)

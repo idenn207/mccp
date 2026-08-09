@@ -19,7 +19,7 @@ plan이 예고한 대로 두 축 모두 **측정 기판이 죽어 있었고**, �
 |---|---|---|
 | Complexity | Large | Large (범위 내) |
 | Files Changed | 22 | 33 (25 modified · 8 created) |
-| A3 감축률 | ≥ 50% (byte 추정 51.4%, "토큰은 더 높을 공산") | 구현 시점 **총 49.3%** · CLAUDE.md 성분 **50.2%** → ship 시점 **총 43.8%** · CLAUDE.md **45.3%** (아래 "ship 직전 base 이동") |
+| A3 감축률 | ≥ 50% (byte 추정 51.4%, "토큰은 더 높을 공산") | 구현 시점 **총 49.3%** · CLAUDE.md 성분 **50.2%** → ship 시점 **총 42.2%** · CLAUDE.md **45.3%** (아래 "ship 직전 base 이동" — #118·#120 두 차례) |
 | B3 분모 | ~94 | 구현 시점 **94** (raw 104) → ship 시점 **96** (raw 106) · 명명된 제외 10 (rebase가 승계한 main 신규 토글 2개) |
 | 은퇴 건수 | 0 | **0** |
 
@@ -37,7 +37,9 @@ plan이 예고한 대로 두 축 모두 **측정 기판이 죽어 있었고**, �
 
 구현이 끝난 뒤 `origin/main`이 PR #118(codex-intent-context M1, `1.23.4`)을 머지했고, 이 브랜치를 그 위로 rebase했다. main은 그 사이 CLAUDE.md에 **8,819B**를 더했다 — §3.13 신설(codex-intent-context 계약) · §3.7 하위절(병렬 브랜치 version 충돌) · §4 토글 2개. 앞의 둘은 상주 지시라 그대로 승계했고(§3.13은 relocation ledger에 `S3.13`으로 신규 분류 — `on-demand`/분류만, 근거 (b) 불성립), 토글 2개는 이번 주기 이전 대상인 S4.2를 따라 `docs/ENVIRONMENT.md` §11로 함께 옮겼다.
 
-그 결과 **ship되는 트리의 A3는 구현 시점보다 크다**: CLAUDE.md 79,971B → 87,528B, 총 23,165 → 25,644 토큰. 감축률은 43.8%(CLAUDE.md 성분 45.3%)로 내려간다.
+그 결과 **ship되는 트리의 A3는 구현 시점보다 크다**: CLAUDE.md 79,971B → 87,528B, 총 23,165 → 25,644 토큰. 감축률은 43.8%(CLAUDE.md 성분 45.3%)로 내려갔다.
+
+**그리고 한 번 더 내려갔다.** santa-loop 진행 중 `origin/main`이 PR #120(diverse-agent-review M1, `1.23.5`)을 머지했고 이 브랜치가 그것을 병합했다. main이 CLAUDE.md를 또 늘려 after는 `280b9ef`(25,644 토큰)에서 `b1fe03f`(**26,377 토큰**)로 이동했고, 감축률은 **42.2%**(CLAUDE.md 성분 45.25%)가 됐다. before는 두 차례 모두 `7fe48d9`/45,646 토큰에 **봉인된 채 유지**된다 — 분모를 바꿔 수치를 지키는 대신 분자가 커진 사실을 그대로 보고한다. 목표 50% 미달 폭은 커졌고, 그 원인은 M4가 아니라 병렬 ship이 상시 지시문을 다시 늘리고 있다는 사실이다(이 자체가 M4가 측정하려던 현상이다).
 
 이 차이를 감추지 않기 위해 baseline은 **재봉인하지 않았다**. `msw-metrics/cli.js`의 `--emit`은 기존 baseline 덮어쓰기를 거부하며("감축 후 baseline을 덮으면 비교 대상이 조용히 바뀌어 감축 주장이 반증 불가능해진다"), 그 설계대로 `--emit-after`로 **after만** 재측정했다. `a3-baseline.json`의 `before`는 여전히 `7fe48d9`에 봉인돼 있고 `after.git_head`는 `280b9ef`다 — 두 값의 base가 다르다는 사실이 아티팩트 안에서 그대로 읽힌다.
 
@@ -214,6 +216,16 @@ Reviewer A는 PASS(critical 0, 되돌림 검사까지 수행), **Reviewer B만**
 - **A3 freshness 범위를 공개한다.** 분자는 3성분인데 repo에서 검증 가능한 것은 `claude_md` 하나뿐이다(STATE.md는 세션 휘발성, memory digest는 미커밋 — S5). 이는 의도된 한계이므로 로직은 유지하고, `freshness_scope`와 `numerator_components`를 지표가 함께 발행해 "현재 점유율"이 무엇에 대해 신선한지 읽는 쪽이 알 수 있게 했다. 넣지 않으면 매 세션 stale이 되어 지표가 무용해진다.
 
 신규 test 3건(누적 29건).
+
+
+## santa-loop round 5 — 흡수 (여섯 번째 층, 그리고 사슬의 끝)
+
+- **라이브 대시보드에 metrics 섹션이 아예 없었다.** A3를 대시보드에 처음 올린 milestone이 정작 그 섹션이 사라진 대시보드를 만들고 있었다. main 병합으로 CLAUDE.md가 바뀌어 A3 아티팩트가 stale → `insufficient`가 됐는데, round 4의 게이트는 `invalid`만 살리고 `insufficient`는 그대로 숨겼다. 실측: `A3 insufficient(stale) · B3 forward-only → 섹션 NULL · verdict muted`. **"측정된 적 있으나 낡음"과 "측정된 적 없음"은 다른 사실**이고, 전자는 실행 가능한 지시(`--emit-after` 재실행)다. 지표가 `stale`을 실어 나르고 · 섹션이 stale이면 렌더하고 · verdict가 해결 방법까지 amber로 표시하도록 세 층에서 갈랐다.
+- **headline verdict가 `metrics`를 한 번도 읽지 않았다.** `computeVerdict`는 `sources`·`warnings`만 본다. M4가 만든 두 `invalid` 경로는 source에 `degraded`를 함께 세워 둔 덕에 이미 도달하고 있었지만(실측: 둘 다 amber), **source는 멀쩡한데 metric만 invalid**한 경우(A1의 unit-spike·timestamp-inversion — 선재 경로)는 침묵했다. 지목된 두 경로만이 아니라 그 모양 전체를 닫았다. degraded source가 있으면 더 구체적인 그쪽 메시지가 이기고, `forward-only`/`computed`는 건드리지 않는다.
+
+**감축률 42.2%로 하락 (두 번째 base 이동).** santa-loop 진행 중 main이 PR #120을 머지했고 이 브랜치가 병합했다. after는 `280b9ef`(25,644 토큰) → `b1fe03f`(**26,377**)로 이동해 감축률이 43.8% → **42.2%**가 됐다(CLAUDE.md 성분 45.25%). **before는 두 차례 모두 `7fe48d9`/45,646 토큰에 봉인 유지** — 분모를 바꿔 수치를 지키는 대신 분자가 커진 사실을 보고한다. 목표 50% 미달 폭이 커진 원인은 M4가 아니라 병렬 ship이 상시 지시문을 다시 늘리고 있다는 것이며, **이 현상 자체가 M4가 측정하려던 대상**이다.
+
+신규 test 3건(누적 35건).
 
 ## Plan 아카이브 미수행 (의도)
 

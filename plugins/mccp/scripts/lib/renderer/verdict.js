@@ -81,6 +81,36 @@ function computeVerdict(model, planBody, opts) {
     return { tone: 'amber', icon: '⏱', text };
   }
 
+  // A metric can be `invalid` while its source looks healthy — an integrity
+  // violation detected at compute time rather than at read time (A1's unit-spike
+  // and timestamp-inversion checks are the standing example). Reading only
+  // `sources` here left that case with no route to the headline: the section
+  // would show ✕ 무효 while the banner above it said nothing was wrong. This is
+  // the same flattening M4 removed at four lower layers, so it is closed for the
+  // whole class rather than for the two paths M4 happens to produce.
+  const metrics = (m.metrics && typeof m.metrics === 'object') ? m.metrics : {};
+  const invalidMetrics = Object.keys(metrics)
+    .filter((id) => metrics[id] && metrics[id].status === 'invalid');
+  if (invalidMetrics.length > 0) {
+    const first = invalidMetrics[0];
+    const reason = metrics[first].invalid_reason || 'integrity violation';
+    const rest = invalidMetrics.length - 1;
+    const text = (rest > 0 ? first + ' + ' + rest + ' more' : first) +
+      ' 지표 무효: ' + String(reason).slice(0, 80);
+    return { tone: 'amber', icon: '⏱', text };
+  }
+
+  // A stale measurement is not a failure, but it IS an instruction: the number
+  // on screen describes a tree that no longer exists. Saying nothing lets the
+  // operator read a stale figure as current.
+  const staleMetrics = Object.keys(metrics)
+    .filter((id) => metrics[id] && metrics[id].stale === true);
+  if (staleMetrics.length > 0) {
+    const first = staleMetrics[0];
+    const reason = metrics[first].stale_reason || 're-measure required';
+    return { tone: 'amber', icon: '⏱', text: first + ' 지표 stale: ' + String(reason).slice(0, 80) };
+  }
+
   const stateItem = sources.state && sources.state.item;
   if (stateItem) {
     if (stateItem.resume_state === 'giveup') {

@@ -258,8 +258,15 @@ function renderMetricsMarkdown(metrics) {
     const m = metrics[id];
     return m && m.status === 'invalid';
   });
+  // A measurement that exists but has gone stale is actionable, not absent:
+  // hiding it is how the dashboard ends up silent about the very number this
+  // milestone added. Only "never measured" stays quiet.
+  const hasStale = sortedIds.some((id) => {
+    const m = metrics[id];
+    return m && m.stale === true;
+  });
 
-  if (!hasComputed && !hasInvalid) return null;
+  if (!hasComputed && !hasInvalid && !hasStale) return null;
 
   const displayIds = orderForDisplay(metrics, sortedIds);
 
@@ -337,8 +344,15 @@ function renderMetricsHtml(metrics, formatUtils) {
     const m = metrics[id];
     return m && m.status === 'invalid';
   });
+  // A measurement that exists but has gone stale is actionable, not absent:
+  // hiding it is how the dashboard ends up silent about the very number this
+  // milestone added. Only "never measured" stays quiet.
+  const hasStale = sortedIds.some((id) => {
+    const m = metrics[id];
+    return m && m.stale === true;
+  });
 
-  if (!hasComputed && !hasInvalid) return null;
+  if (!hasComputed && !hasInvalid && !hasStale) return null;
 
   const displayIds = orderForDisplay(metrics, sortedIds);
   const rows = [];

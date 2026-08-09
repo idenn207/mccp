@@ -44,6 +44,19 @@ function scanToggleUsage(repoRoot) {
     result.denominator = surface.toggle_count;
     result.excluded_count = surface.excluded.length;
 
+    // measurement-design.md §B3의 "이름을 규범 문서에 적을 때만 유효"는 대조가
+    // 소비처까지 닿아야 규칙이다. drift를 계산만 하고 버리면 코드만 고쳐 분모를
+    // 바꾸는 경로가 그대로 열려 있고 test 하나만 빨개진다 — 그 test를 지우면
+    // 아무 신호도 남지 않는다. 분모를 내는 바로 이 자리에서 degrade시킨다.
+    const doc = surface.exclusion_doc;
+    result.exclusion_doc_ok = doc ? doc.ok : null;
+    result.exclusion_doc_drift = doc && doc.drift ? doc.drift : [];
+    if (doc && !doc.ok) {
+      result.degraded = true;
+      result.error = 'exclusion table drift — the denominator is not the one the normative ' +
+        'document names: ' + result.exclusion_doc_drift.join('; ');
+    }
+
     // 2. env-snapshot을 읽어 non-default 사용 이력(분자)을 센다.
     const snapDir = path.join(repoRoot, '.claude', 'state');
     const usedToggles = new Set();

@@ -120,8 +120,34 @@ test('toggle-usage: one parseable snapshot among corrupt ones is a real corpus',
     assert.strictEqual(r.snapshot_corpus_present, true);
     assert.strictEqual(r.snapshot_files_parsed, 1);
     assert.strictEqual(r.invalid_count, 1, 'the corrupt file is still reported');
-    assert.strictEqual(r.degraded, false);
     assert.strictEqual(r.used_toggle_count, 1);
+    // A synthetic root has no normative exclusion table, which now degrades the
+    // source on its own. Assert the corpus is not what degraded it, rather than
+    // asserting a blanket false that a different axis can flip.
+    assert.ok(!/env-snapshot file/.test(r.error || ''),
+      'the corpus parsed, so it must not be the reason for any degradation');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('toggle-usage: exclusion-table drift degrades the live denominator, not just a test', () => {
+  // Round 2: the comparison existed but its result was discarded, so a code-only
+  // exclusion edit still changed the reported denominator at runtime. The drift
+  // has to reach the consumer that publishes the number.
+  const os = require('os');
+  const { scanToggleUsage } = require('../../derive/sources/toggle-usage');
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tu-drift-'));
+  try {
+    // No normative table exists under this synthetic root, so the comparison
+    // cannot be made -- which must read as drift, not as clean.
+    const r = scanToggleUsage(root);
+    assert.strictEqual(r.exclusion_doc_ok, false);
+    assert.ok(r.exclusion_doc_drift.length > 0);
+    assert.strictEqual(r.degraded, true,
+      'a denominator whose exclusions cannot be checked must not be served as sound');
+    assert.match(r.error || '', /exclusion table drift/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -45,6 +45,18 @@ Reviewer A(Opus)는 G1·G2·G3를 모두 PASS로 통과시켰고, **Reviewer B(c
 - `a3-instruction-cost.js` — `MCCP_A3_READ_USER_MEMORY` 판정이 truthy라 `=0`이 opt-in을 **켜고** 있었다. 문서가 적은 `=1` 계약대로 `1`/`true`/`yes`/`on`만 수용한다.
 - `CHANGELOG.md` — `## [1.23.4]` 헤딩이 둘이었다(같은 ship에 대해 PR #118이 하나, 후속 `be88e5c`가 파일 최상단만 보고 하나 더). 이 PR이 만든 것은 아니나 §3.7의 "헤딩 중복 = CHANGELOG 깨짐"이라 하나로 병합했다 — 어느 쪽도 상대를 포함하지 않아(파일 목록 vs santa-loop 회고) 승자를 고르지 않고 양쪽 Notes를 모두 보존했다.
 
+### Notes — santa-loop round 2 흡수
+
+Reviewer A(Opus)는 이번엔 baseline 대조를 지정받아 11개 기준 전부 PASS·critical 0을 냈고, **Reviewer B(codex)만** 다시 4건을 올렸다. 3건 흡수, 1건 반증, 1건은 운영자 판단으로 backlog.
+
+- `instruction-contract/lint.js` C3 — round 1의 강화가 여전히 **문서 전체 substring**이었다. `docs/ENVIRONMENT.md`는 CLAUDE.md에 2번 나오므로 §4가 자기 포인터를 통째로 잃어도 §1.4 쪽 언급 때문에 통과했다(실측 재현). 이제 각 행의 **자기 섹션 본문**(heading부터 동급 이상 다음 heading까지)만 검색하고, routed 행이 heading stub조차 잃으면 그 자체로 실패한다 — 포인터가 "다른 어딘가"에서 발견되는 것은 그 섹션에서의 귀로가 아니다.
+- `derive/sources/toggle-usage.js` — round 1이 만든 제외표 대조가 **계산만 되고 버려지고 있었다.** test 하나만 빨개질 뿐 런타임 분모는 그대로 나갔고, 그 test를 지우면 신호가 사라진다. drift를 분모를 내는 자리에서 `degraded`로 전파하고, `--scan-denominator`도 제외 전/후를 함께 내며 drift 시 **비영점 exit**한다.
+- `msw-metrics/a3-instruction-cost.js` — CLAUDE.md 부재가 fail-closed이긴 했으나 **TypeError가 계약을 대신하고** 있었다(round 1에서 이 경로를 "반증"으로 판정한 근거가 그 크래시였다). 누군가 그 성분을 방어적으로 초기화하는 순간 조용히 0-토큰 baseline 봉인으로 뒤집히므로, 요구사항을 명시 거부로 적었다.
+- **반증 유지**: "가짜 0 baseline을 봉인할 수 있다"는 결론은 CLAUDE.md 없는 트리 + STATE.md만 있는 트리 두 경우 모두에서 재현되지 않았다(artifact 미생성).
+- **backlog 이연**: tracked plan의 홈 절대경로. repo 전역 관례(main archived plan 약 30개)이고 비밀이 아니며, 고치면 receipt `plan_hash`가 stale해져 게이트가 본 적 없는 본문에 재봉인해야 한다 — 운영자가 되돌리기를 선택했고 신규 유입 차단 + 일괄 sweep으로 이연했다.
+
+신규 test 5건(섹션 범위 C3 2 · drift 전파 1 · 명시 거부 1 · routed stub 1). round 1의 healthy fixture는 "routed 행의 heading이 사라진" 모양이었는데 이는 실제 repo(routed=2, removed=0)와 다르고 정확히 이번에 닫은 구멍이라, fixture를 실제 관례에 맞췄다.
+
 ## [1.23.4] — 2026-08-09
 
 **codex-intent-context M1 — 의도 표면화 + 판정 커버리지 + 측정 인프라 (단일 milestone → patch bump)** — `/mccp:plan`의 Plan-Codex 게이트는 리뷰어(out-of-process Codex)에게 **사용자 대화 의도를 전달할 채널이 없었고**, finding 수용 판단이 어디에도 기록되지 않았다. M1은 세 축을 닫는다: **(L1)** plan의 구조화된 `## User Intent` 표를 하드닝해 리뷰어 focus에 주입 · **(L2-A)** 모든 finding이 명시 판정을 받도록 mechanical 완전성 강제 · **(M)** receipt `meta.intent_*` 10 필드로 측정 인프라 확립.

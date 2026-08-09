@@ -39,7 +39,11 @@ function ledgerDoc(rows) {
  */
 function makeTree(overrides = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ic-lint-'));
-  const claudeHeadings = overrides.claudeHeadings || ['1. Kept section'];
+  // A relocated section keeps its heading as a pointer stub -- that is what
+  // makes the move a relocation rather than a deletion, and it is what the real
+  // CLAUDE.md does (routed=2, removed=0). The pointer line is appended last so
+  // it lands inside the moved section's own body, which is where C3 looks.
+  const claudeHeadings = overrides.claudeHeadings || ['1. Kept section', '2. Moved section'];
   const claudeBody = [
     '# CLAUDE.md',
     '',
@@ -158,7 +162,8 @@ test('lint: healthy tree passes all four checks', () => {
     assert.strictEqual(r.ok, true, JSON.stringify(r.failures));
     assert.deepStrictEqual(r.checks, { C1: 'pass', C2: 'pass', C3: 'pass', C4: 'pass' });
     assert.strictEqual(r.stats.routed, 1, "one row declares a destination");
-    assert.strictEqual(r.stats.removed, 1, "and that heading is gone from CLAUDE.md in this fixture");
+    assert.strictEqual(r.stats.removed, 0,
+      "and its heading stays behind as the pointer stub, which is what a relocation looks like");
   });
 });
 
@@ -187,7 +192,7 @@ test('lint C3: resident pointer removed → C3 fails', () => {
     const r = runLint(root);
     assert.strictEqual(r.ok, false);
     assert.strictEqual(r.checks.C3, 'fail');
-    assert.match(r.failures.map((f) => f.message).join(' '), /no pointer containing/);
+    assert.match(r.failures.map((f) => f.message).join(' '), /does not contain the pointer/);
   });
 });
 
@@ -236,7 +241,9 @@ test('lint C4: a retire row may disappear without a destination', () => {
 });
 
 test('lint: an unledgered CLAUDE.md heading is an advisory, not a failure', () => {
-  withTree({ claudeHeadings: ['1. Kept section', '9. Brand new section'] }, (root) => {
+  // The moved section keeps its stub here too; this fixture is about the
+  // unledgered heading, so it must not also trip C3.
+  withTree({ claudeHeadings: ['1. Kept section', '9. Brand new section', '2. Moved section'] }, (root) => {
     const r = runLint(root);
     assert.strictEqual(r.ok, true, JSON.stringify(r.failures));
     assert.match(r.advisories.join(' '), /9\. Brand new section/);
@@ -405,4 +412,42 @@ test('lint: the real repo passes with the STRICT C4 pass enabled', () => {
   assert.strictEqual(r.stats.c4_strict, true,
     'the reduction claim rests on a before-set actually being available');
   assert.strictEqual(r.ok, true, r.failures.map((f) => f.check + ': ' + f.message).join('\n'));
+});
+
+// ------------------------------------------------- santa-loop round 2 hardening
+
+test('lint C3: a pointer found only in ANOTHER section does not count', () => {
+  // Round 1 searched the whole document, so any other mention of the same path
+  // satisfied the check. `docs/ENVIRONMENT.md` appears twice in the real
+  // CLAUDE.md, which made that hole reachable in practice, not just in theory.
+  withTree({
+    claudeHeadings: ['1. Kept section', '2. Moved section'],
+    pointer: null,
+    rows: [
+      { id: 'S1', heading: '1. Kept section', disposition: 'resident' },
+      {
+        id: 'S2', heading: '2. Moved section', disposition: 'on-demand',
+        destFile: 'docs/moved.md', destAnchor: 'Relocated detail', pointer: 'docs/moved.md',
+      },
+    ],
+  }, (root) => {
+    // Put the path in the FIRST section only; the moved section has no pointer.
+    const claudePath = path.join(root, 'CLAUDE.md');
+    const text = fs.readFileSync(claudePath, 'utf8')
+      .replace('## 1. Kept section\n\nbody\n', '## 1. Kept section\n\nsee docs/moved.md\n');
+    fs.writeFileSync(claudePath, text, 'utf8');
+
+    const r = runLint(root);
+    assert.strictEqual(r.checks.C3, 'fail',
+      'a mention elsewhere is not a way back from the section that moved');
+    assert.match(r.failures.map((f) => f.message).join('\n'), /does not contain the pointer/);
+  });
+});
+
+test('lint C3: a routed row whose heading is gone leaves no stub to point from', () => {
+  withTree({ claudeHeadings: ['1. Kept section'] }, (root) => {
+    const r = runLint(root);
+    assert.strictEqual(r.checks.C3, 'fail');
+    assert.match(r.failures.map((f) => f.message).join('\n'), /heading is gone from/);
+  });
 });

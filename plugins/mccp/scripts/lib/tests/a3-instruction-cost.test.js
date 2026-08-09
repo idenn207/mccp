@@ -310,3 +310,25 @@ test('reseal: an unreadable prior record blocks the re-pin', () => {
   assert.strictEqual(buildResealHistory('{ not json', 't').ok, false);
   assert.strictEqual(buildResealHistory('"a string"', 't').ok, false);
 });
+
+test('a3: a missing CLAUDE.md is an explicit refusal, not an empty measurement', () => {
+  // Round 2: absent CLAUDE.md did fail closed, but only because tokenisation
+  // then dereferenced a component that was never created. A TypeError standing
+  // in for a contract breaks the moment someone initialises that component
+  // defensively, so the requirement is stated rather than crashed into.
+  const os = require('os');
+  const fsx = require('fs');
+  const pathx = require('path');
+  const { measureA3 } = require('../msw-metrics/a3-instruction-cost');
+
+  const root = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'a3-noclaude-'));
+  try {
+    return measureA3({ repoRoot: root, claudePath: pathx.join(root, 'CLAUDE.md') }).then((r) => {
+      assert.strictEqual(r.status, 'baseline-unavailable');
+      assert.match(r.not_delivered_reason || '', /CLAUDE\.md not found/);
+      assert.notStrictEqual(r.status, 'computed', 'an absent numerator must never seal a baseline');
+    });
+  } finally {
+    fsx.rmSync(root, { recursive: true, force: true });
+  }
+});

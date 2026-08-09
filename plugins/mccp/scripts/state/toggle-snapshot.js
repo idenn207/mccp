@@ -411,9 +411,23 @@ function writeSnapshot(sessionId, snapshot, opts) {
 }
 
 // CLI: --scan-denominator (분모 출력)
+//
+// 제외 후 한 숫자만 내면 그 숫자가 규범 문서가 승인한 제외로 만들어진 것인지
+// 읽는 쪽이 알 수 없다. 제외 전 분모를 함께 내고, 표와 코드가 어긋났으면
+// 숫자를 조용히 내주지 않고 **비영점 exit로 실패**한다.
 function scanDenominator(repoRoot) {
-  const vars = scanRuntimeSurface(repoRoot || process.cwd());
-  console.log(vars.length);
+  const root = repoRoot || process.cwd();
+  const d = scanSurfaceDetailed(root);
+  console.log(d.toggle_count);
+  console.error('[toggle-denominator] raw=' + d.raw_surface_count +
+    ' excluded=' + d.excluded.length + ' -> denominator=' + d.toggle_count);
+  if (d.exclusion_doc && !d.exclusion_doc.ok) {
+    console.error('[toggle-denominator] EXCLUSION TABLE DRIFT — this denominator is not the ' +
+      'one measurement-design.md §B3 names:');
+    d.exclusion_doc.drift.forEach((x) => console.error('  - ' + x));
+    return 1;
+  }
+  return 0;
 }
 
 // CLI: --scan-surface (제외 전/후 분모 + 분류별 제외 근거)
@@ -457,7 +471,7 @@ module.exports = {
 if (require.main === module) {
   const arg = process.argv[2];
   if (arg === '--scan-denominator') {
-    scanDenominator(process.cwd());
+    process.exitCode = scanDenominator(process.cwd());
   } else if (arg === '--scan-surface') {
     printSurface(process.cwd(), process.argv.indexOf('--json') !== -1);
   }

@@ -182,8 +182,27 @@ function lintReachability(opts = {}) {
     return { ok: false, checks: checks, failures: failures, advisories: advisories, stats: {} };
   }
 
-  const currentHeadings = new Set(extractHeadings(claudeText).map((h) => h.title));
+  const claudeHeadingList = extractHeadings(claudeText);
+  const currentHeadings = new Set(claudeHeadingList.map((h) => h.title));
+  const claudeLines = claudeText.split(/\r?\n/);
   const anchorCache = new Map();
+
+  // Body of one section: from its heading to the next heading at the same or a
+  // higher level. C3 searches here rather than the whole document, because a
+  // document-wide substring match is satisfied by any other mention of the same
+  // path -- `docs/ENVIRONMENT.md` appears twice in CLAUDE.md, so a whole-file
+  // check would let either section drop its own pointer and still pass.
+  function sectionBody(title) {
+    const at = claudeHeadingList.findIndex((h) => h.title === title);
+    if (at === -1) return null;
+    const start = claudeHeadingList[at].line;
+    const level = claudeHeadingList[at].level;
+    let end = claudeLines.length;
+    for (let i = at + 1; i < claudeHeadingList.length; i++) {
+      if (claudeHeadingList[i].level <= level) { end = claudeHeadingList[i].line - 1; break; }
+    }
+    return claudeLines.slice(start - 1, end).join('\n');
+  }
 
   parsed.rows.forEach((row) => {
     // ---- C1 destination exists -------------------------------------------
@@ -225,20 +244,30 @@ function lintReachability(opts = {}) {
     // column and the "relocated with no way back" guard silently stops running
     // for that row while the lint still reports C3 pass.
     if (row.dest_file) {
+      const body = sectionBody(row.heading);
       if (!row.resident_pointer) {
         fail('C3',
           `"${row.heading}": routed to ${row.dest_file} but the ledger declares no ` +
           'Resident Pointer (a relocation with no way back is a deletion)');
-      } else if (claudeText.indexOf(row.resident_pointer) === -1) {
+      } else if (body === null) {
+        // A routed section keeps its heading as the pointer stub -- that is what
+        // makes the move a relocation. Once the heading is gone there is no
+        // in-place way back, and the pointer could only be "found" somewhere
+        // else in the document, which proves nothing about this section.
         fail('C3',
-          `"${row.heading}": CLAUDE.md has no pointer containing "${row.resident_pointer}" ` +
-          '(relocated without a way back is a deletion)');
-      } else if (claudeText.indexOf(row.dest_file) === -1) {
+          `"${row.heading}": routed to ${row.dest_file} but the heading is gone from ` +
+          'CLAUDE.md, so no pointer stub remains where the reader would look');
+      } else if (body.indexOf(row.resident_pointer) === -1) {
+        fail('C3',
+          `"${row.heading}": its own section does not contain the pointer ` +
+          `"${row.resident_pointer}" (a mention elsewhere in CLAUDE.md is not a way back ` +
+          'from here)');
+      } else if (body.indexOf(row.dest_file) === -1) {
         // Pointer text being present is not the same as the destination being
         // reachable. A pointer that never names where it leads sends the reader
         // nowhere, so matching arbitrary prose is not enough.
         fail('C3',
-          `"${row.heading}": CLAUDE.md never names the destination "${row.dest_file}" ` +
+          `"${row.heading}": its section never names the destination "${row.dest_file}" ` +
           `(pointer "${row.resident_pointer}" does not lead anywhere)`);
       }
     } else if (row.resident_pointer && claudeText.indexOf(row.resident_pointer) === -1) {

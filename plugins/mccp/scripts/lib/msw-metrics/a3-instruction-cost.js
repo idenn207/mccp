@@ -127,6 +127,22 @@ async function measureA3(opts = {}) {
     let claudeBytes = 0;
     let claudeHash = '';
 
+    // CLAUDE.md IS the A3 numerator's headline component; without it there is no
+    // measurement to make. Today an absent file happens to fail closed further
+    // down, but only because tokenization then dereferences a component that was
+    // never created — a TypeError standing in for a contract. Anyone who later
+    // initialises that component defensively would silently turn this into a
+    // sealed zero-token baseline, so state the requirement here instead of
+    // relying on a crash to enforce it.
+    if (!fs.existsSync(claudePath)) {
+      result.status = 'baseline-unavailable';
+      result.not_delivered_reason =
+        `CLAUDE.md not found at ${claudePath} — the A3 numerator has no headline component ` +
+        '(measuring an absent instruction file as zero would seal a meaningless baseline)';
+      process.stderr.write('[A3 MEASUREMENT] Baseline unavailable: ' + result.not_delivered_reason + '\n');
+      return result;
+    }
+
     if (fs.existsSync(claudePath)) {
       claudeText = fs.readFileSync(claudePath, 'utf8');
       claudeBytes = Buffer.byteLength(claudeText, 'utf8');

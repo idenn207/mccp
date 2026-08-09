@@ -177,6 +177,19 @@ G2는 **명세대로 복원됐다** — plan의 C4는 원래 "감축 전 헤딩 
 
 신규 test 15건(instruction-contract 6 · toggle-snapshot 4 · derive-sources 2 · a3 3). 전 fixture는 **부정 방향**으로 각각 red를 재현한 뒤 채택했다.
 
+
+## santa-loop round 2 — 흡수
+
+Reviewer A(Opus)는 이번엔 baseline 대조를 지정받아 11개 기준 전부 PASS·critical 0을 냈고, **Reviewer B(codex)만** 다시 4건을 올렸다. 3건 흡수, 1건 반증, 1건은 운영자 판단으로 backlog.
+
+- `instruction-contract/lint.js` C3 — round 1의 강화가 여전히 **문서 전체 substring**이었다. `docs/ENVIRONMENT.md`는 CLAUDE.md에 2번 나오므로 §4가 자기 포인터를 통째로 잃어도 §1.4 쪽 언급 때문에 통과했다(실측 재현). 이제 각 행의 **자기 섹션 본문**(heading부터 동급 이상 다음 heading까지)만 검색하고, routed 행이 heading stub조차 잃으면 그 자체로 실패한다 — 포인터가 "다른 어딘가"에서 발견되는 것은 그 섹션에서의 귀로가 아니다.
+- `derive/sources/toggle-usage.js` — round 1이 만든 제외표 대조가 **계산만 되고 버려지고 있었다.** test 하나만 빨개질 뿐 런타임 분모는 그대로 나갔고, 그 test를 지우면 신호가 사라진다. drift를 분모를 내는 자리에서 `degraded`로 전파하고, `--scan-denominator`도 제외 전/후를 함께 내며 drift 시 **비영점 exit**한다.
+- `msw-metrics/a3-instruction-cost.js` — CLAUDE.md 부재가 fail-closed이긴 했으나 **TypeError가 계약을 대신하고** 있었다(round 1에서 이 경로를 "반증"으로 판정한 근거가 그 크래시였다). 누군가 그 성분을 방어적으로 초기화하는 순간 조용히 0-토큰 baseline 봉인으로 뒤집히므로, 요구사항을 명시 거부로 적었다.
+- **반증 유지**: "가짜 0 baseline을 봉인할 수 있다"는 결론은 CLAUDE.md 없는 트리 + STATE.md만 있는 트리 두 경우 모두에서 재현되지 않았다(artifact 미생성).
+- **backlog 이연**: tracked plan의 홈 절대경로. repo 전역 관례(main archived plan 약 30개)이고 비밀이 아니며, 고치면 receipt `plan_hash`가 stale해져 게이트가 본 적 없는 본문에 재봉인해야 한다 — 운영자가 되돌리기를 선택했고 신규 유입 차단 + 일괄 sweep으로 이연했다.
+
+신규 test 5건(섹션 범위 C3 2 · drift 전파 1 · 명시 거부 1 · routed stub 1). round 1의 healthy fixture는 "routed 행의 heading이 사라진" 모양이었는데 이는 실제 repo(routed=2, removed=0)와 다르고 정확히 이번에 닫은 구멍이라, fixture를 실제 관례에 맞췄다.
+
 ## Plan 아카이브 미수행 (의도)
 
 Phase 5의 기본 절차는 plan을 `completed/`로 옮기는 것이나 **수행하지 않았다.** receipt의 `plan_hash`가 `.claude/plans/multi-session-work-loop-m4.plan.md` 경로에 anchor돼 있어 지금 옮기면 `/mccp:pr`의 chain validate가 깨진다. 저장소 관례도 동일하다(M1~M3 plan 모두 `.claude/plans/`에 잔류하며, 완료 아카이브는 §3.11의 `/mccp:archive-complete`가 PRD 전체 완료 시점에 소유한다).

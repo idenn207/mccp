@@ -1,0 +1,38 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "gate-guard-integrity",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.23.6",
+    "completed_at": "2026-08-09T12:22:34.272Z",
+    "commit_sha": "53b7acc2e4492e23ca9d41d2ea3067aee2020398",
+    "plan_basename": "gate-guard-integrity.plan.md",
+    "plan_file_hash": "sha256:98429b0529c13e222933d9eb5dd07e4472ead999456676e07bbf046bc77b6b42",
+    "risks_closed": [
+      "Task 4가 Task 5 없이 착지해 운영자의 `MCCP_CODEX_DISABLED` ship 경로가 **조용히** 끊긴다",
+      "`meta.codex_disabled`를 승인 신호로 읽는 미확인 소비처가 있다",
+      "**lint가 green이 됐는데 가드는 여전히 죽어 있다** — `validate-callsite-lint`는 플래그 **존재만** 검사하므로 치환 경로가 비거나 틀려도 통과",
+      "G1 방어 경로가 `receipt-mode`에 의존해 순환 실패",
+      "G2 복원이 이번 cycle 자신의 `/mccp:pr`을 stale로 막는다",
+      "`extract-plan-path` 로드 실패를 null fallback으로 처리해 `--plan`이 조용히 사라진다",
+      "CHANGELOG 헤딩 중복 (병렬 브랜치 3회 재발)",
+      "green 압력으로 fixture에 모듈을 더 복사해 우회"
+    ],
+    "oq_closed": [
+      "**A** — `pr-ship-gate.js`의 `SKIP_PROOF_META_KEYS`에서 `'codex_disabled'`를 **제거**한다. `'codex_disabled_at_pr'`는 남긴다. ship proof는 caller가 주장한 것만 인정한다.",
+      "**B** — `write.js:215-220` precedence: 명시 `--codex-skip-reason`이 있으면 그것을 쓴다. env canonical(`'codex_disabled'`)은 인자 부재 시 fallback으로만. (test 19의 원인 — 14자 canonical이 audited 장문 사유를 덮어 strict validator에 걸린다.)",
+      "**C** — `finalize-receipt.js#deriveCodexFlags`가 `codex_outcome === 'disabled'`일 때 **`--codex-disabled-at-pr`** 를 forward한다. 기존 두 분기가 forward하는 것이 `--codex-skipped-at-pr` / `--codex-dedupe-at-pr`인 것과 같은 꼴이다.",
+      "`codex-runner.js:243-245`가 env=1에서 실제로 `codex_outcome='disabled'` + `codex_skip_reason='codex_disabled'`를 emit한다 → 수정 C의 표적 분기는 실존한다.",
+      "현재 `deriveCodexFlags`(`:103-108`)에는 `'disabled'` 분기가 **없다** → 오늘의 실 ship 경로는 오직 ambient `codex_disabled`로만 proof를 얻는다. **A를 C 없이 넣으면 운영자 경로가 끊긴다.** 단일 커밋 불변식의 근거가 이것이다.",
+      "`plugins/mccp/scripts/receipt/validate-cmd.js:224` `readReceipt(repoRoot, gateId, result.decisionId)` — **현재 decision 1건만** 조회. 과거 ship receipt는 두 callsite의 사정거리 밖이다. (초안의 `:223`은 오기 — 실제 224.)",
+      "참고 측정(전 receipt 38건): plan 해석 가능 27건 중 13건이 이미 hash drift. **위 스코핑 때문에 재검증 대상이 아니다.** 이 수치는 zero-migration 주장의 반증이 아니라 \"과거 산출물은 원래 이 경로가 안 본다\"의 방증이다.",
+      "`plugins/mccp/scripts/receipt/hash.js:174-176` `planAwareMarkdownHash` → plan 경로는 `markdownHashStructural`. 체크박스/status 토큰 변동은 정규화되어 stale을 유발하지 않는다.",
+      "`validate-cmd.js:223` `readReceipt(repoRoot, gateId, result.decisionId)` — **현재 decision 1건만** 조회. 과거 ship receipt는 이 callsite의 사정거리 밖이다.",
+      "참고 측정(전 receipt 38건 대상): plan 파일 해석 가능 27건 중 13건이 이미 hash drift. **그러나 위 스코핑 때문에 그 13건은 이 두 callsite로 재검증되지 않는다.**",
+      "`hash.js:174` `planAwareMarkdownHash` → plan 경로는 `markdownHashStructural`. 체크박스/status 토큰 변동은 이미 정규화되어 stale을 유발하지 않는다."
+    ],
+    "receipt_hash": "sha256:40e73a0851d1ac13091f7cf9875ade423ebb9e8c9790871d75cb0ea86ce3930d",
+    "verdict_provenance": "codex-verdict"
+  }
+}

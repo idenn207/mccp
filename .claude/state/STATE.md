@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: multi-session-work-loop-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-09T07:17:23.708Z
+updated_at: 2026-08-09T13:31:24.196Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-09T01:17:14.100Z
 unsafe_checkpoint: false
@@ -15,7 +15,7 @@ escalate_pending: true
 escalate_pending_decision_id: multi-session-work-loop
 ---
 ## Goal
-MSW M4 (예산 감축) — PR #119 OPEN. origin/main(be88e5c) merge conflict 해소 완료, santa-loop dual-review 진행 중.
+MSW M4 (예산 감축) — santa-loop 6라운드 수렴(양 리뷰어 PASS). origin/main(#121) merge + 버전 1.23.7 상향 완료, push 대기.
 
 ## Plan
 - plan: `.claude/plans/multi-session-work-loop-m4.plan.md` — 보증의 단일 기준은 상단 G1~G3 표
@@ -39,12 +39,14 @@ MSW M4 (예산 감축) — PR #119 OPEN. origin/main(be88e5c) merge conflict 해
 - rebase(origin/main 280b9ef): 충돌 5파일 해소 — main 신규 §3.13·§3.7 하위절 승계, main 신규 토글 2개는 §11로 이관(59개 전수 대조 소실 0), backlog은 양쪽 항목 보존, i18n footer 단언은 plugin.json 파생으로 통합
 - rebase 후속: §3.13을 relocation ledger에 S3.13(on-demand·분류만)으로 등록해 lint advisory 해소(rows 25 · C1~C4 pass), a3 after 재측정, 파생 수치 6개 문서 동기
 - origin/main(be88e5c) merge — STATE.md 충돌을 state-writer API로 해소하고 48b2f05가 드롭한 escalate_pending을 복원(§3.5.1 정신 · 75a4aba 재발). CHANGELOG는 자동 병합.
+- santa-loop 6라운드: 실결함 14건 흡수(그중 11건 Codex 단독 포착) · 신규 test 39건 · 결함군 "신호 평탄화"를 producer→STATUS.md 산출물까지 전 층 폐쇄
+- origin/main(#121 gate-guard-integrity M1) merge — 충돌 5파일 해소, main §4 토글 64개가 전부 ENVIRONMENT.md에 있음을 확인해 소실 0, 버전 1.23.6 충돌을 forward-only 1.23.7로 상향
 
 ## In Progress
-PR #119 OPEN. main merge 해소 완료 → santa-loop dual-review(Reviewer A Opus + Reviewer B codex gpt-5.4) 진행.
+santa-loop 수렴 완료. #121 merge 해소 + 1.23.7 상향 완료 — 검증 후 push.
 
 ## Next Step
-santa-loop 판정 → NICE면 push, NAUGHTY면 findings 수정 후 재리뷰. PR 본문에 B1·C1 인정 조건 미충족 명시 유지.
+push → PR #119 conflict 해소 확인. Codex 한도 복구(2026-08-16) 후 재판정 여부는 운영자 결정.
 
 ## Last Decision
 A3 값 셀을 plan이 적은 감축률이 아니라 점유율로 렌더했다(D3) — "상시 지시문 점유율" 라벨 아래 감축률을 넣으면 이번 Task가 C2·C3에서 고친 라벨/값 불일치를 새로 만든다. 감축률은 collapse 상세로 내렸다.
@@ -60,6 +62,15 @@ A3 값 셀을 plan이 적은 감축률이 아니라 점유율로 렌더했다(D3
 - multi-session-work-loop PRD의 M1·M2·M3 status가 in-progress로 남아 있으나 셋 다 실제로는 ship됐다(M2 PR #114, M3 PR #116) — PRD status drift, 이번 cycle 소관 밖 (main 승계)
 - write.js#stampIntentDecision free-form 경로: Source PRD 없는 plan은 runner 없이 skipped+proof stamp → 셸 호출자가 --codex-verdict converged와 조합 시 dedupe-approved receipt 생성 가능 (M1 이전에도 가능, DD10 위협모델 밖 · main 승계)
 - CHANGELOG.md에 `## [1.23.4]` 헤딩이 둘 — merge base 280b9ef가 이미 보유한 선재 결함(PR #118이 하나, 후속 be88e5c가 top에 또 하나). 이 PR이 만든 것이 아니며 §3.7 "헤딩 중복 = CHANGELOG 깨짐" 대상 — 별도 정리 필요
+- push/PR 미수행 — santa-loop 미수렴 상태라 운영자 판단. 진행 시 merge-commit(§3.12).
+- main이 b2-coverage-gate 2건으로 이미 red — origin/main clean checkout 실측 확인. plan-codex-runner.js:248 직접 rename vs PR #116 lint. #118 소관, backlog 기록.
+- MCCP_ORCHESTRATION_CATASTROPHIC_USD 기본 500이 사용자 handoff 임계 500/800/1000과 역전 — 상향 권장(전역 설정이라 미수정).
+- main CHANGELOG [1.23.4] 헤딩 중복(7행·94행 본문 상이) — #118 기존 결함, 양쪽 보존.
+- gate-guard-integrity PRD M1 status가 in-progress로 남음 — 지표는 충족.
+- PRD M2(신호 신뢰도): flaky는 고정 집합이 아님 — 실행마다 a3-instruction-cost / perf-budget 등 다른 파일이 흔들림(둘 다 단독 실행은 통과).
+- free-form mccp-plan-codex write 경로 ↔ 문서 불일치(#118) — santa R2 B 지적, backlog 이관.
+- santa-loop round 6은 Codex 사용량 한도(2026-08-16 복구)로 모델 다양성 상실 — Claude fallback으로 대체했고 round 5b·코드펜스 수정 2건만 cross-model 미검증 상태로 착지(둘 다 lint를 더 엄격하게 만드는 방향이라 fail-open 위험 아님)
+- 버전 충돌이 이번 사이클에만 3회(1.23.5 #120 · 1.23.6 #121) — §3.7 자동화 후보(pre-PR version freshness check)의 근거가 누적됨
 
 ## Last Updated
-2026-08-09T07:17:23.708Z
+2026-08-09T13:31:24.196Z

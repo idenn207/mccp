@@ -527,13 +527,29 @@ function buildReceipt(args) {
       codex_dedupe_at_pr: args['codex-dedupe-at-pr'] === true,
       codex_skipped_at_pr: args['codex-skipped-at-pr'] === true,
       codex_skip_reason: (function () {
-        // v0.3.5 — env-derived disabled overrides any user-supplied reason
-        // because env policy is canonical. Explicit --codex-disabled or
-        // MCCP_CODEX_DISABLED=1 → reason='codex_disabled'.
+        // v1.23.5 (gate-guard-integrity M1, fix B) — precedence FLIPPED: an
+        // explicitly-supplied reason now wins over the env-derived canonical.
+        //
+        // Before, ambient MCCP_CODEX_DISABLED=1 overwrote a caller's audited
+        // reason with the 14-char canonical 'codex_disabled'. On a standard
+        // install that made the writer produce a receipt its OWN schema rejects:
+        // codex_skipped_at_pr=true runs the strict validator (≥30 chars, ≥3
+        // words), which the canonical literal cannot satisfy. The audited-escape
+        // path was therefore unusable whenever the env var was set.
+        //
+        // This is the WRITER, not an observer. codex-runner.js:234-238 keeps the
+        // opposite precedence on purpose, and that is right for it: it reports
+        // what actually happened, so canonical operator policy wins there. A
+        // writer must not overwrite the claim its own caller made.
+        //
+        // Narrower than `|| null`: a bare `--codex-skip-reason` with no value
+        // parses to boolean true, which would fail schema's string|null check.
+        const explicit = args['codex-skip-reason'];
+        if (typeof explicit === 'string' && explicit.length > 0) return explicit;
         if (args['codex-disabled'] === true || process.env.MCCP_CODEX_DISABLED === '1') {
           return 'codex_disabled';
         }
-        return args['codex-skip-reason'] || null;
+        return null;
       })(),
       codex_review_actionable_findings: args['codex-actionable-findings'] === true,
       // v1.22.3 M3 follow-up (R1 F1 + F4) — scope-excluded pass + raw provenance.

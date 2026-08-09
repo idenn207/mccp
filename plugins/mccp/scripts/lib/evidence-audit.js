@@ -55,6 +55,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { receiptHash } = require('../receipt/hash');
 const { validate: validateReceiptSchema } = require('./../receipt/schema');
+const { resolveEffectiveVerdict } = require('./review-verdict');
 
 // state → CLI exit code. Unknown state → 1 (nonzero, fail-closed): a state the
 // ladder did not produce must never masquerade as a clean exit 0.
@@ -138,11 +139,41 @@ function readShipReceipts(root) {
   return out;
 }
 
-// The ship receipt's honest verdict lives in resolution.codex_verdict (v1.20.3 —
-// resolution.converged is always-true and NOT trustworthy). null when absent.
+// The ship receipt's honest verdict (v1.20.3 — resolution.converged is
+// always-true and NOT trustworthy). diverse-agent-review M1 routes this through
+// the approval SSoT so a panel-issued verdict is audited by the same rules;
+// receipts with no review_* fields resolve to their raw codex_verdict, so the
+// entire existing tracked corpus audits exactly as before. null when absent.
 function receiptVerdict(receipt) {
   const res = receipt && receipt.resolution;
-  return res && typeof res.codex_verdict === 'string' ? res.codex_verdict : null;
+  if (!res || typeof res !== 'object') return null;
+  const eff = resolveEffectiveVerdict(res);
+  return typeof eff.verdict === 'string' ? eff.verdict : null;
+}
+
+// Who issued the verdict — 'codex' | 'multi-agent' | 'hybrid' | null. Surfaced
+// alongside the verdict so an audit can tell a Codex-corroborated completion
+// apart from a panel-issued one; the ledger records the same fact in
+// verdict_provenance, and the two disagreeing is itself an audit signal.
+function receiptSource(receipt) {
+  const res = receipt && receipt.resolution;
+  if (!res || typeof res !== 'object') return null;
+  return resolveEffectiveVerdict(res).source;
+}
+
+// Ledger verdict_provenance ↔ receipt review_source correspondence. Only the
+// pairs below are meaningful; anything else (legacy-unknown, superseded, or an
+// absent source) carries no claim and cannot contradict.
+const PROVENANCE_SOURCE = Object.freeze({
+  'codex-verdict': 'codex',
+  'multi-agent': 'multi-agent',
+  hybrid: 'hybrid',
+});
+
+function provenanceAgrees(entryProvenance, source) {
+  const expected = PROVENANCE_SOURCE[entryProvenance];
+  if (!expected || !source) return true;
+  return expected === source;
 }
 
 // Task 3 / R5-F2 — a receipt's DECLARED receipt_hash must be a recomputation of
@@ -216,7 +247,12 @@ function audit(opts) {
     // corroborated — a non-'converged' ledger verdict is NO LONGER a silent
     // pass. ok + false_positive === comparable always, so 'ok' state requires
     // ok === comparable (every pair agrees). A disagreement is E2.
-    if (verdictsAgree(entry.verdict, cv)) ok += 1;
+    // M1 — the pair must agree on the verdict AND on who issued it. A ledger
+    // entry claiming 'codex-verdict' provenance bound to a receipt whose
+    // approval came from a multi-agent panel is a corroboration claim the
+    // evidence does not support, even when the verdict strings match.
+    if (verdictsAgree(entry.verdict, cv)
+        && provenanceAgrees(entry.verdict_provenance, receiptSource(receipt))) ok += 1;
     else falsePositive += 1;
     // binding: entry.receipt_hash must point at the receipt on disk (E4) AND the
     // receipt body must recompute to that hash + be schema-valid (Task 3 / R5-F2).
@@ -302,8 +338,10 @@ module.exports = {
   readRawLedger: readRawLedger,
   readShipReceipts: readShipReceipts,
   receiptVerdict: receiptVerdict,
+  receiptSource: receiptSource,
   receiptIntegrityOk: receiptIntegrityOk,
   verdictsAgree: verdictsAgree,
+  provenanceAgrees: provenanceAgrees,
   renderHuman: renderHuman,
   exitCodeForState: exitCodeForState,
   STATE_EXIT_CODES: STATE_EXIT_CODES,

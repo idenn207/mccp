@@ -1,0 +1,40 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "diverse-agent-review-m1",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.23.5",
+    "completed_at": "2026-08-09T10:53:35.206Z",
+    "commit_sha": "062c918fab9cc43ef441d09922ffa5006e83725e",
+    "plan_basename": "diverse-agent-review-m1.plan.md",
+    "plan_file_hash": "sha256:edcc43e77c82dd151fb1e06036dfaf83daf7a1405edbd3ed9318028dfd31c2fd",
+    "risks_closed": [
+      "**multi-agent 승인이 dedupe를 만족시켜 PR-Codex까지 skip → cross-model 전면 소실**",
+      "same-model L2가 correlated → self-approval",
+      "`review_proof`가 controller-authored 아티팩트라 위조 가능",
+      "기존 tracked ship corpus `receipt_hash` 변동(재봉인 사고)",
+      "default 플립이 plan 게이트 동작을 조용히 바꿈",
+      "runaway cap 소진으로 plan 게이트가 HALT",
+      "목표 10분 미달(L2 4병렬이 느림)",
+      "Workflow 미가용 install에서 L2 불가",
+      "신규 verdict 어휘(`multi-agent`)·`review_source` 뱃지가 대시보드 신호색/어휘 예산을 잠식",
+      "**`review_*` 부분 stamp가 `codex_verdict` fallback을 유발 → dedupe가 cross-model 확증으로 오인**",
+      "`hybrid` 요청했으나 L3가 못 돌았는데 `source='hybrid'`로 봉인 → dedupe skip 허가",
+      "helper 위임이 legacy receipt 판정을 조용히 변경 → escalate/briefing/derive 동시 오작동",
+      "`dispatch_evidence`에 절대경로가 실려 tracked corpus로 유출",
+      "Workflow throw가 조용한 게이트 통과로 이어짐",
+      "**신규 `verdict_provenance` 값이 ledger `writeEntry` enum 검증에 거부돼 append 실패**",
+      "**L2가 읽은 plan과 봉인된 plan이 달라 proof가 무효 아티팩트를 증명**",
+      "L1 판독 실패를 \"위반 없음\"으로 오해석"
+    ],
+    "oq_closed": [
+      "**proof 위조 방지 강도(M2)** — 각 perspective의 verdict 내용까지 `review_proof`에 hash-bind할지, Workflow 런타임 journal(`journal.jsonl`)을 mechanical anchor로 승격할지. M1은 경로 실존 + 예약 회계까지만.",
+      "**self-consistency 샘플 수** — M1은 역할 다양성(4역할 × 1샘플)만 diversity 축으로 쓴다. 동일 질문 N회 독립 샘플 majority는 wall-clock 비용 때문에 M2로 이연 — `decideQuorum`이 역할당 복수 verdict를 받도록 시그니처만 열어둔다.",
+      "**L3 자동 트리거 조건(M2)** — M1은 `MCCP_PLAN_REVIEW=hybrid` 수동 opt-in + `meta.review_l3_invoked` 계측만. 임계는 M1 실측 후 결정.",
+      "pre-existing 실패 2건(`design-critique-loop-e2e` fixture 부재, `verdict-label.test.js`)은 본 cycle 범위 밖 — 별도 사이클 유지."
+    ],
+    "receipt_hash": "sha256:f46fa776ef3ad66a15c4804a5d33d8edb40d9f8854e8b5a961243568d98a8b84",
+    "verdict_provenance": "codex-verdict"
+  }
+}

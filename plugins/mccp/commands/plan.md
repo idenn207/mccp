@@ -859,7 +859,440 @@ Edit the plan file to add at the bottom:
 <!-- placeholder: will be replaced by Phase 7.3 -->
 ```
 
-### 5.2 — Invoke Codex automatically (v0.2.2 fail-closed Bash wrapper)
+### 5.2 — REVIEW GATE (mode-branched, v1.23.1 diverse-agent-review M1)
+
+The approval for this gate may be issued by Codex (legacy) or by an L1+L2 review
+panel. Resolve which, then take exactly one branch. **Do NOT** ask the user which
+mode to use — the oracle decides from the environment.
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+mkdir -p "$REVIEW_DIR"
+# Purge the previous run's artifacts before anything reads them. These files are
+# the IPC between fenced blocks, so a survivor from an earlier invocation is
+# indistinguishable from one this run produced — a stale `codex-verdict` would be
+# stamped into a fresh receipt, a stale `decision.json` would answer for a panel
+# that never fired. Every one of them is rewritten below on the paths that own it;
+# absence is what each consumer already fails closed on.
+rm -f "$REVIEW_DIR/codex-verdict" "$REVIEW_DIR/codex-class" "$REVIEW_DIR/decision.json" "$REVIEW_DIR/proof.json" \
+      "$REVIEW_DIR/l1.json" "$REVIEW_DIR/l2.json" "$REVIEW_DIR/l3.json" \
+      "$REVIEW_DIR/reservation.json" "$REVIEW_DIR/workflow-args.json" \
+      "$REVIEW_DIR/started-at"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" mode > "$REVIEW_DIR/mode.json"
+REVIEW_MODE=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mode)}catch{process.stdout.write("codex")}' "$REVIEW_DIR/mode.json")
+echo "[mccp:plan-review] mode=$REVIEW_MODE" 1>&2
+```
+
+| `$REVIEW_MODE` | Branch |
+|---|---|
+| `codex` | **5.2z** below — the pre-M1 Codex path, unchanged. Skip 5.2a–5.2h entirely and stamp NO `review_*` fields. |
+| `multi-agent` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2e → 5.2g → 5.2h (L3 is not fired) |
+| `hybrid` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2f → 5.2e → 5.2g → 5.2h — **5.2f only when `mode.json` `fires.l3` is true** (see below) |
+
+`MCCP_PLAN_REVIEW` unset means `multi-agent`; an unreadable value falls back to
+`codex` with a loud warn (DD7 — an unreadable mode must not silently change who
+issues approval).
+
+##### Two invariants that govern every sub-step below
+
+**(i) No shell state crosses a block.** Each fenced block runs in a fresh shell,
+and 5.2c interposes a `Workflow` tool call, so a variable set in one block is
+gone by the next. Every block therefore re-derives `REVIEW_DIR` and reads what it
+needs from the artifacts in it. This is the §3.9 rule ("게이트 조건은 shell-state
+독립") applied to the approval itself: a gate whose verdict lives only in `$VAR`
+does not fail loudly when the variable evaporates, it silently seals a receipt
+with **no approval record at all**. `REVIEW_DIR` is `.claude/state/plan-review/`
+under the repo root — repo-relative (so it can be cited as evidence verbatim) and
+inside the worktree (unlike `$MCCP_TMP`, which `git rev-parse --git-dir` places
+*outside* it in a linked worktree).
+
+**(ii) The plan body is FROZEN from 5.2c until the receipt is written.**
+`emit-workflow-args` binds `reviewed_plan_hash` to the plan the reviewers are
+about to read (DD13), and `write.js` refuses to seal if the plan on disk no longer
+hashes to it. Any edit in between — including 5.3's `## Codex Adversarial Review`
+injection, which changes `plan_hash` (section addition is not normalized away) —
+makes the write exit 12 with "plan changed after L2 reviewed it". So in panel
+modes the review record goes to a **sibling artifact** (5.2h), never into the plan.
+Recovery from a genuine mismatch is to rerun L2, never to reseal.
+
+#### 5.2a — L1 mechanical gatekeeper
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+mkdir -p "$REVIEW_DIR"
+# Gate wall-clock start. An ARTIFACT, not a variable — 5.6 is five sections and
+# several tool calls away, so a shell variable would be gone and the receipt
+# would carry no wall-clock at all (the Acceptance criterion is that the ≤10-min
+# target is MEASURED, and an absent measurement reads as a passing one).
+date +%s%3N > "$REVIEW_DIR/started-at"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" l1 --plan "<plan path>" \
+  > "$REVIEW_DIR/l1.json"
+L1_EXIT=$?
+echo "[mccp:plan-review] L1 exit=$L1_EXIT" 1>&2
+```
+
+- exit **0** → continue to 5.2b.
+- exit **1** → L1 found violations. Do NOT fire L2 (agents cost tokens and an
+  LLM panel cannot overturn a mechanical fact). Jump straight to 5.2e, which
+  composes `divergent` from the L1 artifact.
+- exit **12** → L1 could not be evaluated (plan unreadable, worktree race). This
+  is an environment problem: print the stop block and end the response.
+
+#### 5.2b — Reserve the agent budget (DD9)
+
+Every agent launch is accounted for; L2 is no exception.
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+REQUIRED=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).quorum.required))}catch{process.stdout.write("3")}' "$REVIEW_DIR/mode.json")
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reserve --n 4 \
+  > "$REVIEW_DIR/reservation.json"
+RES_GRANTED=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).granted))}catch{process.stdout.write("0")}' "$REVIEW_DIR/reservation.json")
+echo "[mccp:plan-review] reserved granted=$RES_GRANTED required=$REQUIRED" 1>&2
+```
+
+**HALT when `RES_GRANTED` is `0`, and equally when it is below `$REQUIRED`.**
+Unlike the fan-out this is a gate, so a denied reservation degrades to nothing —
+it stops. A grant below the quorum threshold is the same stop reached later and
+more expensively: those reviewers would run, cost tokens, and then fail the quorum
+on arithmetic. (`emit-workflow-args --granted` re-checks this at 5.2c and exits 12,
+so the arithmetic is enforced in a tested oracle and not only here.) Print:
+
+```
+[MCCP-GATE-STOP] L2 review panel could not be launched (granted <N>, quorum needs <M>).
+Recovery: start a new session · raise MCCP_ORCHESTRATION_MAX_AGENTS · lower MCCP_PLAN_REVIEW_QUORUM · or set MCCP_PLAN_REVIEW=codex.
+```
+
+The reservation stays **pending** on this path — do not reconcile it to a number
+you did not launch. 5.2d commits it only once the panel has actually fired.
+
+#### 5.2c — Fire the L2 refutation panel
+
+`emit-workflow-args` computes `reviewed_plan_hash` here, **before** the reviewers
+read the plan (DD13 — computing it later would read the post-edit file and erase
+the very mismatch the binding exists to detect).
+
+`--granted` is what makes the launch set the *reserved* set. `reserveWorkers`
+clamps to the remaining session headroom, so reserving 4 and receiving 2 is normal;
+firing 4 anyway would launch two agents the cap never recorded — the leak
+`reserveWorkers` exists to close. The cap is applied inside the CLI so the
+arithmetic is tested rather than improvised in shell.
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+RES_GRANTED=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).granted))}catch{process.stdout.write("0")}' "$REVIEW_DIR/reservation.json")
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" emit-workflow-args \
+  --plan "<plan path>" --prd "<prd path or omit>" \
+  --granted "$RES_GRANTED" \
+  --out "$REVIEW_DIR/workflow-args.json"
+```
+
+exit **12** → HALT (the granted fleet cannot satisfy the quorum, or the plan could
+not be hashed). Do not reconcile the reservation; leave it pending.
+
+**Pin the reservation with a debt marker before the panel fires.** The `Workflow`
+call below IS the launch point — 5.2d reconciles only *after* it returns, and
+nothing reaches 5.2d if the controller dies mid-flight (timeout, crash, abandoned
+turn). The reservation would then sit pending and the lease would prune it as
+"never launched" while four reviewers really ran: an under-count, the one
+direction a cap may never err in. This is the same window the fan-out closes at
+Phase 2.5.2, and it applies here for the same reason — `readCounter` honours debt
+markers and nothing else, so the marker must exist *before* the call, not be
+written by a post-call handler that may never execute.
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+PIN_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservationId||"")}catch{process.stdout.write("")}' "$REVIEW_DIR/reservation.json")
+PIN_N=$(node -e 'try{process.stdout.write(String((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).fleet||[]).length))}catch{process.stdout.write("0")}' "$REVIEW_DIR/workflow-args.json")
+if [ -z "$PIN_ID" ] || [ "$PIN_N" = "0" ]; then
+  echo "[MCCP-GATE-STOP] reservation/fleet artifact unreadable — refusing to launch a panel the agent cap cannot record."; exit 1
+fi
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" mark-debt \
+  --reservation "$PIN_ID" --n "$PIN_N" 1>/dev/null 2>&1 \
+  || { echo "[MCCP-GATE-STOP] debt marker write failed — an unrecordable launch is not permitted."; exit 1; }
+echo "[mccp:plan-review] reservation $PIN_ID pinned (debt marker, n=$PIN_N) before the Workflow call." 1>&2
+```
+
+**Pin failure means do not launch.** The fan-out answers the same failure by
+degrading to inline grounding, because it only enriches GROUND. This is a gate
+and has no inline equivalent — an approval issued by agents the cap never
+recorded is worse than no approval, so it stops, exactly as 5.2b stops on a
+denied reservation. The pin is permanent by design (time-based decay was
+rejected: a marker surviving a controller death is *proof* those agents ran, so
+aging it out would under-count). A normal 5.2d reconcile commits and clears it.
+
+Then invoke `Workflow` with `scriptPath: plugins/mccp/scripts/workflows/plan-review.js`
+and `args` set to the **parsed contents** of `workflow-args.json` — a real JSON
+object, NOT the file's text and NOT a JSON-encoded string. Passing a string is a
+silent failure: every field reads as `undefined`, so `fleetKeys` is missing, the
+workflow degrades to one reviewer, and `reviewedPlanHash` comes back `null`. It
+fails closed (one reviewer cannot satisfy the quorum → `unavailable` → HALT), so
+nothing unsafe ships, but it burns an agent and the reason is invisible unless you
+notice `coverage: 0` in the return. **Write the returned object verbatim** to
+`$REVIEW_DIR/l2.json`.
+
+If the run fails with `agent type 'mccp:review-architect' not found`, the installed
+plugin cache predates this milestone: the four `review-*` agents live in
+`plugins/mccp/agents/` but the registry is loaded from
+`~/.claude/plugins/cache/mccp/mccp/<version>/`. Run `claude plugin update` and start
+a **new session** — the agent registry is built at session start, so copying files
+into the cache mid-session does not register them (§3.7).
+
+From this point the plan file is frozen (invariant ii). Do not edit it again until
+the receipt is written.
+
+**Failure handling is the opposite of the fan-out's.** The fan-out degrades to
+inline grounding because it only enriches GROUND; this is a gate, so a Workflow
+that throws, is unavailable in this install, or returns something unreadable must
+NOT be papered over. Write whatever you got (or nothing), and let 5.2e's
+`--l2-file` handling turn the absence into exit 12. Both "L2 was silently broken"
+and "L2 found defects" converge on *do not proceed*, and neither can produce a
+`converged` receipt.
+
+#### 5.2d — Commit the reservation
+
+`--actual` is the number of reviewers that were actually launched, which is
+`fleet.length` in the emitted args — not the granted number and not 4. Both are
+read from artifacts because `$RES_ID` from 5.2b no longer exists in this shell.
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+RES_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservationId||"")}catch{process.stdout.write("")}' "$REVIEW_DIR/reservation.json")
+ACTUAL_N=$(node -e 'try{process.stdout.write(String((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).fleet||[]).length))}catch{process.stdout.write("")}' "$REVIEW_DIR/workflow-args.json")
+[ -n "$RES_ID" ] && [ -n "$ACTUAL_N" ] || { echo "[MCCP-GATE-STOP] reservation or fleet artifact unreadable — cannot reconcile the agent cap honestly."; exit 1; }
+# Only reconcile when the panel actually returned. 5.2c permits a Workflow that
+# throws or is unavailable, and on that path zero reviewers may have launched —
+# committing the PLANNED fleet size there records phantom launches permanently
+# (committed entries never expire). Guessing 0 is equally wrong in the other
+# direction: the reviewers may have launched and only the return was lost, and a
+# cap may never under-count. So when l2.json is absent, do not answer at all —
+# leave the reservation pending and PINNED by 5.2c's debt marker, exactly as the
+# fan-out does at Phase 2.5.3. "Unknown" stays unknown and stays conservative.
+if [ ! -s "$REVIEW_DIR/l2.json" ]; then
+  echo "[mccp:plan-review] l2.json absent — NOT reconciling. Reservation $RES_ID stays pending and pinned by the debt marker; a later reconcile commits and clears it." 1>&2
+else
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
+  --reservation "$RES_ID" --actual "$ACTUAL_N"
+RECONCILE_EXIT=$?
+if [ "$RECONCILE_EXIT" -ne 0 ]; then
+  echo "[mccp:plan-review] WARNING: reconcile exited $RECONCILE_EXIT — reservation $RES_ID stays pending. It is PINNED by the debt marker written before the Workflow call, so the lease cannot prune these $ACTUAL_N real launches; the cap stays conservative (over-counted) until a later reconcile commits and clears it." 1>&2
+fi
+fi
+```
+
+Unlike the fan-out, this commit is mandatory — the panel either launched the
+emitted fleet or the run HALTed at 5.2b/5.2c, so there is no ambiguity to leave
+pending. If the artifacts cannot be read, HALT rather than guessing a number: an
+invented `--actual` is worse than a pending reservation, which the lease reclaims.
+
+A non-zero reconcile does **not** HALT: the reviewers have already launched, so
+stopping here would neither un-spawn them nor improve the count. It warns and
+proceeds, and the pin from 5.2c is what makes that safe — without it this exact
+path is how a real launch silently leaves the counter. Over-counting until a
+later reconcile is the correct direction to err.
+
+#### 5.2f — L3 Codex layer (hybrid only)
+
+**Step 0 — is L3 supposed to fire at all?** `MCCP_PLAN_REVIEW_L3=0` turns L3 off
+without touching the mode, so the mode table alone does not decide this. The CLI
+already computed it; read the answer rather than re-deriving it from the env.
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+# `-1` separates "policy says no" from "cannot tell". Recording an unreadable
+# mode.json as "disabled by policy" states a cause that was never established.
+FIRES_L3=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.fires&&j.fires.l3?"1":"0")}catch{process.stdout.write("-1")}' "$REVIEW_DIR/mode.json")
+if [ "$FIRES_L3" = "-1" ]; then
+  echo "[MCCP-GATE-STOP] $REVIEW_DIR/mode.json unreadable — cannot tell whether L3 should fire, and guessing either way falsifies the L3 record. Re-run Phase 5.2."
+  exit 12
+fi
+if [ "$FIRES_L3" != "1" ]; then
+  printf '{"invoked":false,"reason":"MCCP_PLAN_REVIEW_L3=0 — L3 disabled by policy"}
+' > "$REVIEW_DIR/l3.json"
+  echo "[mccp:plan-review] L3 disabled (fires.l3=false) — skipping the Codex wrapper." 1>&2
+fi
+```
+
+When `FIRES_L3` is `0`, **skip the rest of 5.2f entirely** and go to 5.2e. The
+artifact above is the honest record, and 5.2e turns it into `unavailable` with
+source `multi-agent` — requesting hybrid and then disabling its cross-model layer
+is not hybrid, and the gate says so rather than stamping a corroboration that
+never happened. Unreadable `mode.json` reads as `0`: an unknown policy must not
+silently spend a Codex call.
+
+**Step 1 — actually run the wrapper.** Execute 5.2z's Codex wrapper block below
+*verbatim*. It ends by persisting the verdict to `$REVIEW_DIR/codex-verdict`,
+which is what bridges it to this section. **Then stop** — do NOT continue into
+5.3's plan injection: the plan is frozen (invariant ii) and adding the Codex
+section would change `plan_hash` and make the 5.6 write exit 12.
+
+This must be spelled out because "run the same wrapper as 5.2z" is not a thing
+the mode table makes happen. Hybrid's branch is 5.2a → … → **5.2f** → 5.2e and
+skips 5.2z entirely, so nothing else in this document ever executes that wrapper.
+Reading the artifact without running the wrapper leaves it absent on every hybrid
+run, and the branch below writes `invoked:false` forever — hybrid would be a mode
+that can never reach its own verdict (it fails closed to `unavailable`, so it is
+a dead mode rather than an unsafe one, but dead all the same).
+
+**Step 2 — record the outcome as JSON** (a separate block, so read the artifact,
+not `$CODEX_VERDICT`, which the block boundary has already emptied):
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+# The artifact is written at the end of 5.2z's wrapper block (Step 1 above).
+# Absent here means Step 1 was skipped or the wrapper died before persisting —
+# NOT "Codex chose not to speak". Both fail closed, but only one is a wiring bug,
+# so say which. $CODEX_VERDICT is useless at this point: it was set in the
+# wrapper's block and shell state does not cross a fence.
+L3_VERDICT=$(cat "$REVIEW_DIR/codex-verdict" 2>/dev/null || printf '')
+if [ -z "$L3_VERDICT" ]; then
+  echo "[mccp:plan-review] WARNING: \$REVIEW_DIR/codex-verdict is absent. If you did not run 5.2z's wrapper block first (Step 1), that is the bug — hybrid will fail closed to 'unavailable' and HALT." 1>&2
+fi
+if [ -n "$L3_VERDICT" ]; then
+  # From the artifact, not $CODEX_CLASS: that is set in the wrapper's block and
+  # this is a later fence, so it read `unknown` on EVERY successful hybrid run —
+  # the record said it did not know why L3 ran when it did (santa-loop R6, Codex).
+  L3_CLASS=$(cat "$REVIEW_DIR/codex-class" 2>/dev/null || printf 'unknown')
+  printf '{"invoked":true,"verdict":"%s","reason":"%s"}\n' "$L3_VERDICT" "$L3_CLASS" \
+    > "$REVIEW_DIR/l3.json"
+else
+  printf '{"invoked":false,"reason":"codex verdict artifact absent — L3 did not complete"}\n' \
+    > "$REVIEW_DIR/l3.json"
+fi
+```
+
+The verdict must be one of `converged|divergent|critical|unavailable|skipped`.
+If L3 did not run at all (`MCCP_PLAN_REVIEW_L3=0`, Codex disabled, timeout), write
+`{"invoked":false,"reason":"<why>"}` — never `"verdict":""`. Do not fake a verdict:
+"requested hybrid" is not "hybrid happened", and 5.2e fails closed on the
+difference. L3's findings reach the operator through 5.2h, not the plan body.
+
+#### 5.2e — Compose the verdict
+
+The evidence path is written as a **literal repo-relative string**, not computed
+with `path.relative`. Computing it was wrong twice over: in a linked worktree
+`git rev-parse --git-dir` points outside the working tree, so the result began
+with `../..`, and on Windows the separators stayed backslashes — both rejected by
+`isRepoRelativeEvidencePath`, which made every converged proof structurally
+invalid and blocked 5.2g unconditionally. `REVIEW_DIR` is under the repo root
+precisely so the literal is correct on every platform.
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+REVIEW_MODE=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mode)}catch{process.stdout.write("codex")}' "$REVIEW_DIR/mode.json")
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" decide \
+  --mode "$REVIEW_MODE" \
+  --plan "<plan path>" \
+  --l1-file "$REVIEW_DIR/l1.json" \
+  --l2-file "$REVIEW_DIR/l2.json" \
+  $( [ -f "$REVIEW_DIR/l3.json" ] && echo --l3-file "$REVIEW_DIR/l3.json" ) \
+  --evidence ".claude/state/plan-review/l2.json" \
+  > "$REVIEW_DIR/decision.json"
+DECIDE_EXIT=$?
+
+# Clear any proof from an earlier round FIRST, then write this round's. Deleting
+# after the fact is the wrong order: if the unlink is the step that fails, a
+# stale converged proof survives and 5.6's `-f` test happily seals it against a
+# decision it does not belong to.
+rm -f "$REVIEW_DIR/proof.json"
+node -e 'const fs=require("fs");const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(j.review_proof)fs.writeFileSync(process.argv[2],JSON.stringify(j.review_proof,null,2));' \
+  "$REVIEW_DIR/decision.json" "$REVIEW_DIR/proof.json"
+PROOF_EXIT=$?
+if [ "$PROOF_EXIT" -ne 0 ]; then
+  echo "[MCCP-GATE-STOP] proof extraction failed (exit $PROOF_EXIT) — the panel's decision cannot be recorded, so no receipt may claim it."; exit 12
+fi
+node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.error("[mccp:plan-review] verdict="+j.review_verdict+" source="+j.review_source+" forwardCodex="+(j.forwardCodexVerdict?1:0));console.error("[mccp:plan-review] reason: "+j.reason)}catch(e){console.error("[mccp:plan-review] decision unreadable")}' \
+  "$REVIEW_DIR/decision.json"
+```
+
+The unconditional `rm -f` before the write is what keeps a superseded proof from
+outliving its run. Extraction failure is a stop, not a shrug: the alternative is
+a receipt that records no approval while the gate prints success, which is the
+same silent-omission class this milestone already had to fix once at 5.6.
+
+`DECIDE_EXIT` 12 → **HALT, but run 5.2h first.** Write the review record, then
+print the `reason` field from the decision JSON plus the three recovery paths
+(`MCCP_PLAN_REVIEW=codex` · a new session · raise the agent cap), then end the
+response without writing a receipt.
+
+**Do not skip ahead to the stop.** A blocked decision is the only case where the
+author actually needs the findings, and 5.2h is the one artifact that carries
+them — `review_proof.perspectives` keeps `{perspective, verdict}` pairs, which
+prove a quorum and explain nothing. Halting at this line without writing the
+record reproduces the exact defect 5.2h was added to fix: a gate that stops
+without telling the author what was found is a gate they will route around.
+5.2g is skipped on this path (there is no converged proof to verify).
+
+**Read `forwardCodexVerdict` from `decision.json` and nothing else** to decide
+whether `--codex-verdict` is forwarded at 5.6. Do NOT re-derive it in shell from
+the mode and the L3 result — that AND is precisely the shape that produced the
+v1.22.3 M3 round-4 defect. 5.6 reads it from the artifact for the same reason.
+
+#### 5.2g — Verify the proof's evidence exists
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+[ -f "$REVIEW_DIR/proof.json" ] && node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" verify-proof \
+  --proof-file "$REVIEW_DIR/proof.json"
+```
+
+exit 12 → HALT (the proof names evidence that is missing or not repo-relative).
+Skipped automatically when no proof was produced (a non-converged decision).
+
+#### 5.2h — Write the review record (sibling artifact, NOT the plan)
+
+The panel's findings are the substance of the review, and until now they existed
+only inside `l2.json`. `review_proof.perspectives` keeps `{perspective, verdict}`
+pairs — enough to prove a quorum, useless to an author who has just been blocked.
+Write the readable record where the author and a later audit can both find it:
+
+```bash
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+mkdir -p "$REPO_ROOT/.claude/reviews"
+```
+
+Then create `.claude/reviews/plan-review-<DECISION_SLUG>.md` (derive the slug with
+`receipt/cli.js derive-decision` as 5.6 Step B does) containing:
+
+```markdown
+# Plan Review Panel — <decision slug>
+
+**Plan**: <plan path> · **Plan version**: <reviewed_plan_hash>
+**Verdict**: <review_verdict> via <review_source>
+**Quorum**: <responded>/<required> responses · <roles> distinct roles (of <of> fielded)
+**Layers**: L1 <l1> · L2 <l2> · L3 <l3 or "not fired">
+
+## Findings
+
+| Perspective | Severity | Claim | Evidence |
+|---|---|---|---|
+| <perspective> | <severity> | <claim> | <file:line or quote> |
+
+(Rows come from `l2.json` `results[].findings[]`. Write "None — all reviewers
+passed" when there are none.)
+
+## Refutation attempted
+
+| Perspective | Verdict | What was attacked |
+|---|---|---|
+| <perspective> | <pass\|fail> | <refutationAttempted> |
+```
+
+This is a **new file, not an edit to the plan** — writing it into the plan body
+would change `plan_hash` and make the 5.6 write exit 12 on the DD13 bind. It also
+survives the `.claude/state/` working artifacts, which are transient.
+
+**This section runs on both outcomes, and document order is not execution order.**
+A converged run reaches it after 5.2g. A blocked run (`DECIDE_EXIT` 12 —
+`divergent`/`unavailable`) jumps here directly from 5.2e, writes the record, and
+only then halts. Reading 5.2e's stop as "end the response now" skips the section
+that exists precisely for that case: a gate that stops without telling the author
+what was found is a gate they will route around. On the blocked path fill
+`<review_verdict>` from `decision.json` and leave the quorum line as whatever the
+panel actually observed — an unavailable review reports the responses it got, not
+the ones it needed.
+
+#### 5.2z — Codex path (`mode=codex` only — unchanged from v1.23.0)
 
 Skill interface `codex:adversarial-review` does not exist in the codex plugin's skill index (only `codex-cli-runtime` / `codex-result-handling` / `gpt-5-4-prompting`), and the `/codex:adversarial-review` slash command sets `disable-model-invocation: true` to block model-driven auto-invocation. v0.2.2 replaces both blocked paths with a **fail-closed Bash wrapper** that spawns `codex-companion.mjs` directly via `node` and normalizes every failure to a JSON `classification` (see [scripts/lib/codex-invoke.js](../scripts/lib/codex-invoke.js)).
 
@@ -1092,13 +1525,46 @@ else
     process.stdout.write(g.verdict);
   ' "$CODEX_STDOUT")
 fi
+# v1.23.1 M1 (santa-loop R2) — PERSIST the verdict, do not carry it in a shell
+# variable. 5.2f and 5.6 both consume it and both run in LATER fenced blocks, and
+# shell state does not survive a block boundary (§3.9). Held only in $CODEX_VERDICT
+# it arrives EMPTY at both: 5.6's `[ -n "${CODEX_VERDICT:-}" ]` silently drops
+# --codex-verdict, so a receipt records no Codex verdict even though Codex spoke,
+# and 5.2f writes `"verdict":""` — the exact value its own prose forbids.
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+mkdir -p "$REVIEW_DIR" || { echo "[MCCP-GATE-STOP] cannot create $REVIEW_DIR — the Codex verdict cannot be persisted, and an unrecorded review must not be sealed as if it never happened."; exit 12; }
+printf '%s' "$CODEX_VERDICT" > "$REVIEW_DIR/codex-verdict" || { echo "[MCCP-GATE-STOP] cannot write $REVIEW_DIR/codex-verdict — Codex spoke but the verdict would be lost, and 5.6 would stamp a receipt claiming no Codex review."; exit 12; }
+# Read it back. A write that returns 0 and lands empty (a full disk that reports
+# success on the open, a filesystem that defers the error) is the failure mode a
+# bare exit-code check misses, and the whole point of this artifact is that it is
+# the ONLY carrier across the block boundary — there is no second copy to fall
+# back on. Verifying costs one read.
+# Persist the classification too. 5.2f needs it for the L3 record and runs behind
+# a later fence, where $CODEX_CLASS is empty — the same block-boundary loss this
+# artifact exists to fix.
+printf '%s' "${CODEX_CLASS:-unknown}" > "$REVIEW_DIR/codex-class" || { echo "[MCCP-GATE-STOP] cannot write $REVIEW_DIR/codex-class — the L3 record would have to invent a reason."; exit 12; }
+CODEX_VERDICT_BACK=$(cat "$REVIEW_DIR/codex-verdict" 2>/dev/null || printf '')
+[ "$CODEX_VERDICT_BACK" = "$CODEX_VERDICT" ] || { echo "[MCCP-GATE-STOP] codex-verdict artifact read back as '$CODEX_VERDICT_BACK' but Codex returned '$CODEX_VERDICT' — refusing to continue with a corrupted audit record."; exit 12; }
+echo "[mccp:plan-codex] codex verdict persisted: '${CODEX_VERDICT}'" 1>&2
 ```
 
-After Phase 5.4's YAGNI triage loop finishes: if the loop annotated `Open Questions: DIVERGENT_UNRESOLVED` (cap reached with an unresolved ACCEPT_NOW HIGH/CRITICAL), set `CODEX_VERDICT="divergent"` — overriding the parsed value so the receipt records the unresolved divergence. This is the ONLY place the triage outcome overrides the raw parse.
+After Phase 5.4's YAGNI triage loop finishes: if the loop annotated `Open Questions: DIVERGENT_UNRESOLVED` (cap reached with an unresolved ACCEPT_NOW HIGH/CRITICAL), set `CODEX_VERDICT="divergent"` — overriding the parsed value so the receipt records the unresolved divergence. This is the ONLY place the triage outcome overrides the raw parse. **Re-write the artifact when you do**, or the override lives only in a shell variable that 5.6 will never see:
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+printf '%s' "divergent" > "$REVIEW_DIR/codex-verdict"
+```
 
 When `CODEX_CLASS=disabled`: replace the placeholder with `> Codex skipped per MCCP_CODEX_DISABLED=1 (env-level policy)` and jump to 5.5. When in advisory mode (auto-fallback for unavailable): replace with `> Codex unavailable, skipped (auto-fallback): <classification>` and jump to 5.5.
 
-### 5.3 — Inject Codex result into the plan
+### 5.3 — Inject Codex result into the plan (`mode=codex` ONLY)
+
+**Skip this entire step in `multi-agent` and `hybrid` modes.** The plan is frozen
+(5.2 invariant ii): this injection changes `plan_hash`, and `write.js` would then
+refuse to seal the receipt because `review_proof.reviewed_plan_hash` no longer
+describes the plan on disk. In panel modes the equivalent record is 5.2h, and the
+L3 verdict is already sealed inside `review_proof.layers.l3`. Leave the
+placeholder in place — 5.6 Step A only demands the Codex heading on the codex path.
 
 Edit the plan: replace the placeholder section with:
 
@@ -1162,7 +1628,7 @@ End the response. Do NOT hand-write the receipt.
 
 ### 5.5 — Auto-CRITICAL check
 
-Scan Codex Open Questions for any auto-CRITICAL items (per §0 catalog: secret exposure, data loss, irreversible migration, auth bypass, external destination change, crypto key handling). If any present:
+Scan for auto-CRITICAL items (per §0 catalog: secret exposure, data loss, irreversible migration, auth bypass, external destination change, crypto key handling). The source depends on who reviewed: on the codex path, the Codex Open Questions in the plan body; in panel modes, the `CRITICAL` rows of the 5.2h findings table (equivalently `results[].findings[]` in `l2.json`). If any present:
 
 1. Do NOT proceed to 5.6 / 5.7
 2. Output:
@@ -1227,7 +1693,11 @@ contradicts a user-stated constraint requires you to write down why. Marking a g
 conflict as `"none"` would pass the completeness check — M1 blocks OMISSION, not
 mislabelling; detecting the latter is M1.5's job. Do not use `"none"` to move faster.
 
-### 5.6 — Await the runner's completion marker (receipt is written BY the runner)
+### 5.6 — Await the runner's completion marker (`mode=codex` ONLY — receipt is written BY the runner)
+
+**Skip this entire step in `multi-agent` and `hybrid` modes.** Only 5.2z launches a
+runner, so on the panel paths `$RUN_NONCE`, `$MARKER` and `$LOCKFILE` do not exist and
+there is nothing to await — 5.6b writes the receipt there instead. Go straight to 5.6b.
 
 The runner — not this command body — writes the `mccp-plan-codex` receipt, because the
 intent decision travels in-process and has **no CLI surface** (a flag there would let any
@@ -1344,35 +1814,209 @@ fi
 If that branch fired, print the **5.4a** recovery block using the `verdict` and
 `reason` it echoed, and end the response. Do not continue to 5.6b.
 
-### 5.6b — Verify the Codex section was injected
+### 5.6b — Verify the review record the mode produced
 
 ```bash
-grep -q "^## Codex Adversarial Review$" <plan path> || {
-  echo "[MCCP-GATE-STOP] plan에 Codex 섹션 주입 실패. Phase 5.3 재시도 필요."
-  exit 1
-}
+# v1.23.1 M1 — every review value below is re-derived from the 5.2 artifacts.
+# Shell state does not survive between fenced blocks, so reading $REVIEW_VERDICT
+# here would silently find it empty and seal a receipt with NO approval record
+# while printing success (§3.9: gate conditions must be shell-state independent).
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+REVIEW_MODE=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mode)}catch{process.stdout.write("codex")}' "$REVIEW_DIR/mode.json")
 
-# The heading on its own proves nothing: Phase 5.1 appended it TOGETHER WITH the
-# placeholder, so the check above passes even when 5.3 never replaced the body —
-# and the command would hand off an approved receipt for a plan carrying no review
-# record at all. `if` rather than `grep … && { … }` so a non-match cannot trip
-# `set -e` on the way past.
-if grep -q "placeholder: will be replaced" <plan path>; then
-  echo "[MCCP-GATE-STOP] Codex 섹션이 5.1의 placeholder 그대로입니다 — Phase 5.3이 triage 기록으로 교체하지 않았습니다."
-  exit 1
+# Step A: verify the review record the mode actually produces.
+#   codex path  → 5.3 injected the Codex section into the plan.
+#   panel modes → the plan is FROZEN (no injection ever happens); what must exist
+#                 is a readable decision. Demanding the Codex heading here would
+#                 stop the default mode outright, or invite an invented section
+#                 claiming a Codex review that never ran.
+if [ "$REVIEW_MODE" = "codex" ]; then
+  grep -q "^## Codex Adversarial Review$" <plan path> || {
+    echo "[MCCP-GATE-STOP] plan에 Codex 섹션 주입 실패. Phase 5.3 재시도 필요."
+    exit 1
+  }
+  # The heading on its own proves nothing: Phase 5.1 appended it TOGETHER WITH the
+  # placeholder, so the check above passes even when 5.3 never replaced the body —
+  # and the command would hand off an approved receipt for a plan carrying no review
+  # record at all. `if` rather than `grep … && { … }` so a non-match cannot trip
+  # `set -e` on the way past.
+  #
+  # This lives INSIDE the codex branch on purpose. 5.1 appends the placeholder for
+  # every mode, but only 5.3 replaces it and 5.3 is codex-only (the panel path keeps
+  # the plan frozen). Left at top level — where the origin/main merge put it — it
+  # would fire unconditionally on the default mode and HALT every panel run, or
+  # push the operator into inventing a Codex section that no Codex ever wrote.
+  if grep -q "placeholder: will be replaced" <plan path>; then
+    echo "[MCCP-GATE-STOP] Codex 섹션이 5.1의 placeholder 그대로입니다 — Phase 5.3이 triage 기록으로 교체하지 않았습니다."
+    exit 1
+  fi
+else
+  node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));if(!j.review_verdict)process.exit(1)' \
+    "$REVIEW_DIR/decision.json" || {
+    echo "[MCCP-GATE-STOP] review decision 아티팩트 부재/불량 — Phase 5.2e 재실행 필요."
+    exit 1
+  }
 fi
 
+# Step B: derive the decision slug deterministically (must match what the hook computes).
+DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:plan \
+  --args "$ARGUMENTS")
+
+# codex-intent-context M1 × diverse-agent-review M1 — WHO WRITES THE RECEIPT
+# depends on the mode, and only one writer may exist per receipt:
+#   mode=codex  → plan-codex-runner.js already wrote it (5.2z). The intent decision
+#                 travels in-process and has NO CLI surface, so a `cli.js write`
+#                 here fails closed with INTENT_GATE_BLOCKED — and if it somehow
+#                 succeeded it would be a SECOND writer for an existing receipt.
+#   panel modes → Codex never ran, so there is no runner and no in-process intent
+#                 decision to carry. This block writes the receipt, and write.js
+#                 stamps intent_gate_verdict='skipped' / skip_proof='codex_not_invoked'
+#                 from the mechanical evidence in the receipt itself (review_source).
+# End the block on the codex path; 5.7 reads the runner's receipt back either way.
+if [ "$REVIEW_MODE" = "codex" ]; then
+  echo "[mccp:plan-review] mode=codex — receipt was written by plan-codex-runner.js (5.2z). 5.6b writes nothing."
+  exit 0
+fi
+
+# Step C: auto-write the mccp-plan-codex receipt.
+# v1.3.0 M1 — forward silent-skip flags when Phase 5.0 detected SKILL_AVAIL=1
+# + SIGNAL=0. plan-codex validator emits silent_skip as informational warning;
+# M2 will promote strict gates to blocking after SKILL first-step is wired.
+# Schema mutex: silent_skip + force_override cannot coexist, so we suppress
+# silent_skip forward when IMPECCABLE_FORCE_OVERRIDE_REASON is set. Bash array
+# form avoids eval and keeps quoting around reasons safe.
+WRITE_FLAGS=(
+  write
+  --gate mccp-plan-codex
+  --decision "$DECISION_SLUG"
+  --plan "<plan path>"
+)
+if [ -n "$IMPECCABLE_SKIPPED_REASON" ]; then
+  WRITE_FLAGS+=(--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON")
+elif [ "$SILENT_SKIP" = "1" ] && [ -z "${IMPECCABLE_FORCE_OVERRIDE_REASON:-}" ]; then
+  WRITE_FLAGS+=(--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON")
+fi
+# v1.3.0-m2 — design-critique retry-loop audit forward. Only emitted when the
+# retry loop actually ran (SIGNAL=1 OR DESIGN_INTENT_ACTIVE=1). The audited
+# override reason is separate so receipt-write can apply the strict validator.
+if [ -n "${RECEIPT_VERDICT:-}" ] && [ "${RECEIPT_VERDICT:-skipped}" != "skipped" ]; then
+  WRITE_FLAGS+=(--design-critique-rounds "$DESIGN_CRITIQUE_ROUNDS"
+                --design-critique-verdict "$RECEIPT_VERDICT")
+fi
+if [ -n "${DESIGN_INTENT_REASON_FORWARD:-}" ]; then
+  WRITE_FLAGS+=(--design-intent-reason "$DESIGN_INTENT_REASON_FORWARD")
+fi
+# v1.13.0 — routing GUIDE recorded the effective mode (plan stage is recommend-
+# only, so no commands-routed-file is forwarded here).
+if [ -n "${MODE:-}" ]; then
+  WRITE_FLAGS+=(--impeccable-routing-mode "$MODE")
+fi
+# v1.20.3 (Task 5) — forward the real Codex verdict so cross-gate dedupe (at
+# /mccp:pr) checks the actual outcome instead of the always-true
+# resolution.converged. $CODEX_VERDICT is the DEDICATED Phase 5.2 variable — NOT
+# the design-critique $RECEIPT_VERDICT. Omit when empty (blocked/exited path).
+# v1.23.1 M1 — in a review-panel mode the ONLY authority on whether a codex
+# verdict may be forwarded is decideReview's forwardCodexVerdict boolean, read
+# verbatim at 5.2e. Do NOT reconstruct it here from mode + L3 result. Unset (the
+# codex path, which never runs 5.2e) defaults to 1 so the legacy behaviour is
+# byte-identical.
+REVIEW_VERDICT=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).review_verdict||"")}catch{process.stdout.write("")}' "$REVIEW_DIR/decision.json")
+REVIEW_SOURCE=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).review_source||"")}catch{process.stdout.write("")}' "$REVIEW_DIR/decision.json")
+# Absent decision artifact = the codex path, which never ran 5.2e → default 1 so
+# legacy behaviour is byte-identical. On a panel path the artifact exists (Step A
+# just proved it), so this reads the oracle's answer, never a shell reconstruction.
+FORWARD_CODEX=$(node -e 'const fs=require("fs");try{process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).forwardCodexVerdict?"1":"0")}catch{process.stdout.write("1")}' "$REVIEW_DIR/decision.json")
+# santa-loop R2 — read the verdict from the artifact 5.2z persisted. It was set in
+# an earlier fenced block, so `${CODEX_VERDICT:-}` alone is empty here and the flag
+# was silently dropped: a receipt that recorded NO Codex verdict on a run where
+# Codex actually spoke. Cross-gate dedupe fail-closes on the absence, so nothing
+# unsafe shipped — but the audit record was false, and this is the very path
+# MCCP_PLAN_REVIEW=codex exists to fall back to.
+#
+# santa-loop R6 — the artifact is the ONLY carrier. The shell fallback that used to sit here read
+# `${CODEX_VERDICT:-}`, which is always empty in this block — 5.2z ran behind a
+# fence — so it could never fire. A safety net that cannot catch anything is worse
+# than none: it reads as a second line of defence that does not exist. 5.2z now
+# fails closed (exit 12) if the artifact cannot be written or does not read back,
+# so an empty value here means Codex genuinely produced no verdict.
+CODEX_VERDICT_EFF=$(cat "$REVIEW_DIR/codex-verdict" 2>/dev/null || printf '')
+if [ "$FORWARD_CODEX" = "1" ] && [ -n "$CODEX_VERDICT_EFF" ]; then
+  WRITE_FLAGS+=(--codex-verdict "$CODEX_VERDICT_EFF")
+fi
+# v1.23.1 M1 — review_* triple. All three or none (DD11): write.js exits 12 on a
+# partial supply, so there is deliberately no branch here that forwards a subset.
+# A panel mode that reaches this point WITH a verdict but WITHOUT a proof file is
+# a non-converged decision; the flags stay off and the receipt records no approval,
+# which is correct — but 5.2e already HALTed on those, so it should not occur.
+if [ -n "$REVIEW_VERDICT" ] && [ -n "$REVIEW_SOURCE" ] \
+   && [ -f "$REVIEW_DIR/proof.json" ]; then
+  WRITE_FLAGS+=(--review-verdict "$REVIEW_VERDICT"
+                --review-source "$REVIEW_SOURCE"
+                --review-proof-file "$REVIEW_DIR/proof.json")
+fi
+# santa-loop R3 — declare the mode so write.js can refuse a panel receipt that
+# carries no approval record. The all-or-nothing guard above prevents a PARTIAL
+# stamp by forwarding NOTHING, and a receipt with neither axis inherits
+# `resolution.converged: true` from write.js's defaults — so a panel run that
+# certified nothing would read as converged. Re-derived from mode.json, which is
+# written at Phase 5.2 entry and is therefore still trustworthy when the decision
+# artifact is not.
+REVIEW_MODE_EFF=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mode||"")}catch{process.stdout.write("")}' "$REVIEW_DIR/mode.json")
+# An unreadable mode.json HALTS. It is written at Phase 5.2 entry for EVERY mode,
+# so by receipt-write time its absence means something is broken — and the failure
+# is not benign. Dropping the flag on a read error disarms BOTH guards at once:
+# write.js only demands the triple when --review-mode names a panel, and the HALT
+# below only fires when the mode is known. A panel run would then seal a receipt
+# with no verdict axis, which resolveEffectiveVerdict answers axis:'none' for and
+# receipt-convergence reads as `resolution.converged === true`. An earlier note
+# called this guard's limit "a caller that forgets the flag"; in fact the command
+# dropped it itself on any read failure (santa-loop R6, Codex GPT-5.4).
+if [ -z "$REVIEW_MODE_EFF" ]; then
+  echo "[MCCP-GATE-STOP] $REVIEW_DIR/mode.json is missing or unreadable at receipt-write time. It is created at Phase 5.2 entry, so this is not a first-run condition. Without the mode neither the write-side triple requirement nor the HALT below can fire, and a panel receipt carrying no approval record reads as CONVERGED. Re-run Phase 5.2."
+  exit 12
+fi
+WRITE_FLAGS+=(--review-mode "$REVIEW_MODE_EFF")
+# Defence in depth: HALT here too. write.js is the mechanism (it cannot be
+# forgotten by an LLM), but stopping before the call gives the operator the
+# actionable message instead of a stack trace.
+if { [ "$REVIEW_MODE_EFF" = "multi-agent" ] || [ "$REVIEW_MODE_EFF" = "hybrid" ]; } \
+   && { [ -z "$REVIEW_VERDICT" ] || [ -z "$REVIEW_SOURCE" ] || [ ! -f "$REVIEW_DIR/proof.json" ]; }; then
+  echo "[MCCP-GATE-STOP] mode=$REVIEW_MODE_EFF but the review triple is incomplete (verdict='$REVIEW_VERDICT' source='$REVIEW_SOURCE' proof=$([ -f "$REVIEW_DIR/proof.json" ] && echo present || echo absent))."
+  echo "A panel receipt with no approval record would read as CONVERGED. Re-run 5.2c-5.2e; do not write a receipt for a review whose outcome is unknown."
+  exit 12
+fi
+# L3 instrumentation + gate wall-clock (Acceptance: the ≤10-minute target is
+# measured, not asserted). 5.2a wrote started-at as a FILE for exactly this hop.
+if [ "$REVIEW_SOURCE" = "hybrid" ]; then
+  WRITE_FLAGS+=(--review-l3-invoked)
+fi
+if [ -f "$REVIEW_DIR/started-at" ]; then
+  WRITE_FLAGS+=(--review-wall-clock-ms "$(( $(date +%s%3N) - $(cat "$REVIEW_DIR/started-at") ))")
+fi
+WRITE_FLAGS+=(--quiet)
+node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" "${WRITE_FLAGS[@]}"
 ```
 
-> **The receipt is NOT written here (codex-intent-context M1).** `cli.js write
-> --gate mccp-plan-codex` cannot satisfy this gate: the intent decision is
-> programmatic-only, so a hand-written receipt fails closed with an actionable
+> **On `mode=codex` the receipt is NOT written here (codex-intent-context M1).**
+> `cli.js write --gate mccp-plan-codex` cannot satisfy that path: the intent decision
+> is programmatic-only, so a hand-written receipt fails closed with an actionable
 > `INTENT_GATE_BLOCKED` error. `plan-codex-runner.js` performed the review, held the
 > payload in memory, consumed your adjudication, and wrote the receipt itself —
 > including `--codex-verdict` and every impeccable/design-critique audit flag, which
-> Phase 5.2 forwarded to it. If you find yourself reaching for `cli.js write` here,
-> the correct move is to re-run `/mccp:plan`, or set
+> Phase 5.2 forwarded to it. If you find yourself reaching for `cli.js write` on that
+> path, the correct move is to re-run `/mccp:plan`, or set
 > `MCCP_SKIP_INTENT_GATE="<substantive reason>"` for an audited override.
+>
+> **On the panel paths the write above IS the receipt write, and it is legitimate.**
+> No runner exists there because Codex was never invoked, so there is no in-process
+> intent decision to carry and nothing for a CLI flag to forge. `write.js` derives the
+> intent axis itself from evidence already sealed in the receipt — `review_source`
+> naming a panel is mechanical proof that Codex did not speak — and stamps
+> `intent_gate_verdict='skipped'` with `intent_skip_proof='codex_not_invoked'`, exactly
+> as it already does for a free-form plan (DD1). Cross-gate dedupe is unaffected: DD2
+> already refuses a panel receipt as cross-model corroboration, so a PR-Codex run still
+> fires at the ship point regardless of this intent stamp.
 
 If the Bash call is blocked by a PreToolUse hook (output contains `[hook]` rejection / `permission denied` / non-zero exit), output:
 
@@ -1400,7 +2044,17 @@ If exit code is 0:
 
 ```
 Receipt: <receipt path from 5.6 stdout> | Codex: converged in <N> rounds  (or: skipped, auto-fallback)
+review: <review_verdict> via <review_source> (<wall-clock>s) — .claude/reviews/plan-review-<slug>.md
 Next: /mccp:prp-implement <plan path>
+```
+
+The `review:` line is printed only when the review panel actually issued the
+verdict (`review_verdict` present in `decision.json` — i.e. not the `codex` path). When
+`review_source` is `multi-agent`, add one line so the operator is not surprised
+later at the ship gate:
+
+```
+note: multi-agent approval does not satisfy cross-gate dedupe — PR-Codex will run at /mccp:pr (DD2).
 ```
 
 If exit code is non-zero: do NOT print the handoff. Output the validate stderr and end the response — let the user inspect via `node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js status`.

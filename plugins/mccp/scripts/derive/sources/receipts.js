@@ -45,6 +45,17 @@ function extract(repoRoot, entry) {
     converged: isConvergedVerdict(resolution),
     codex_verdict: (resolution && typeof resolution.codex_verdict === 'string')
       ? resolution.codex_verdict : null,
+    // diverse-agent-review M1 (DD10 no-render contract) — projection ONLY.
+    // No renderer section reads these two fields: the dashboard keeps consuming
+    // `.converged`, which is already correct via the isConvergedVerdict
+    // delegation above. They exist here for evidence-audit and
+    // `derive/cli.js run --json`, which are a different consumer from the
+    // rendered surface. Introducing a third verdict vocabulary on screen is a
+    // deliberate M2 design cycle, not a side effect of this milestone.
+    review_verdict: (resolution && typeof resolution.review_verdict === 'string')
+      ? resolution.review_verdict : null,
+    review_source: (resolution && typeof resolution.review_source === 'string')
+      ? resolution.review_source : null,
     open_questions_count: (resolution.open_questions || []).length,
     advisory: !!meta.advisory,
     skipped: !!meta.skipped,

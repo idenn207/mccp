@@ -7,6 +7,11 @@ const { validate: validateSchema } = require('./schema');
 const { readReceipt } = require('./store');
 const { getCommandSpec, normalizeCommand } = require('./aliases');
 const { validateReason } = require('./lib/force-override-reason');
+const { classifyIntentMeta, isIntentChainAllowed } = require('../lib/intent-context');
+
+// codex-intent-context M1 — gates the intent oracle governs. Mirrors
+// write.js#INTENT_IN_SCOPE_GATES; mccp-implement-codex is excluded by UI4.
+const INTENT_IN_SCOPE_GATES = ['mccp-plan-codex'];
 
 // v1.3.0-m2 Task 5 (F3 absorption) — terminal PR commands trigger the
 // design-critique chain-check. Codex review is invoked at plan + implement,
@@ -506,6 +511,66 @@ function validateCommand(command, opts) {
           kind: 'design_critique_divergent',
           prior_verdict: 'divergent',
           design_critique_rounds: receipt.meta.design_critique_rounds || null,
+        });
+      }
+    }
+
+    // codex-intent-context M1 (DD5) — intent-gate canonical read-back surface.
+    //
+    // Placement is load-bearing: this sits AFTER schema / subject-tamper /
+    // receipt-tamper / plan-staleness, each of which `continue`s out of the
+    // loop on failure. So a receipt whose integrity is already in question
+    // never has its intent fields read, let alone trusted.
+    //
+    // Scoped to the gates the oracle governs (UI4 — mccp-implement-codex is
+    // deliberately out of scope and must never be judged here).
+    if (INTENT_IN_SCOPE_GATES.indexOf(gateId) !== -1 && receipt.meta) {
+      const cls = classifyIntentMeta(receipt.meta);
+      if (cls === 'unknown') {
+        // DD2 — absence means "written before this field existed", not
+        // "approved". Blocking in-flight work retroactively buys nothing (the
+        // plan has no intent record to begin with), so the chain allows it and
+        // says so out loud. dedupe still refuses it (dedupe.js), which is where
+        // the fail-closed pressure belongs.
+        result.warnings.push({
+          gate_id: gateId,
+          decision_id: result.decisionId,
+          kind: 'intent_gate_unknown',
+          reason: 'preceding gate predates the intent gate (meta.intent_gate_verdict ' +
+            'absent) — allowed for chain continuity; cross-gate dedupe still ' +
+            'declines it, so PR-Codex will run.',
+        });
+      } else if (!isIntentChainAllowed(receipt.meta)) {
+        result.blocking.push({
+          gate_id: gateId,
+          decision_id: result.decisionId,
+          kind: 'intent_gate_incomplete',
+          reason: 'preceding gate has meta.intent_gate_verdict="' +
+            String(receipt.meta.intent_gate_verdict) + '"' +
+            (receipt.meta.intent_gate_verdict === 'skipped'
+              ? ' without a corroborated meta.intent_skip_proof' : '') +
+            ' — every Codex finding must carry an explicit adjudication. ' +
+            'INTEGRITY: do NOT hand-write this receipt (the intent decision has ' +
+            'no CLI surface). Re-run `/mccp:plan <plan-path>`, or set ' +
+            'MCCP_SKIP_INTENT_GATE="<substantive reason>" for an audited override.',
+          intent_gate_verdict: receipt.meta.intent_gate_verdict === undefined
+            ? null : receipt.meta.intent_gate_verdict,
+          intent_skip_proof: receipt.meta.intent_skip_proof || null,
+        });
+      } else if (Object.prototype.hasOwnProperty.call(receipt.meta, 'intent_plan_digest')
+                 && receipt.meta.intent_plan_digest
+                 && receipt.meta.intent_plan_digest !== receipt.plan_hash) {
+        // DD4-2 — the reviewed body and the sealed body must be the same
+        // document. This is the canonical backstop for the residual TOCTOU
+        // window write.js cannot close on its own (it re-reads the plan itself).
+        result.blocking.push({
+          gate_id: gateId,
+          decision_id: result.decisionId,
+          kind: 'intent_gate_incomplete',
+          reason: 'meta.intent_plan_digest (' + receipt.meta.intent_plan_digest +
+            ') != receipt.plan_hash (' + receipt.plan_hash + ') — the intent verdict ' +
+            'was reached on a different plan body than the one this receipt seals. ' +
+            'INTEGRITY: re-run `/mccp:plan <plan-path>` (do NOT edit the receipt).',
         });
       }
     }

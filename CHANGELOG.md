@@ -2,7 +2,7 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
 ## [1.23.3] — 2026-08-06
 
@@ -68,6 +68,35 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - **dead read 제거** — reader가 `work_claim_denied` kind를 셌으나 그것을 emit하는 producer가 없어 `claim_denied_count`가 구조적으로 0이었다(제거한 `conflict`/`collision`과 같은 결함이 한 필드 옆에서 재발). claim 거부는 `evidence_conflict_prevented` + claim-fence `conflict_kind`로 나가므로 그 discriminator에서 파생하도록 교체.
 - **분모 0 판정** `invalid` → `insufficient` — 이 모듈에서 `invalid`는 데이터 모순(unit spike·timestamp inversion·type separation)을 뜻하고 렌더러 최우선 버킷에 오른다. "겹친 세션이 아직 없다"는 부재이지 모순이 아니며, 그대로 두면 **1인 세션 저장소**(가장 흔한 구성)에 상시 무결성 오탐이 뜬다. 같은 파일 C1의 선례와 정합.
 - **잔여 정리** — `updateReceipt`의 gate-dir symlink 검사를 lock 획득 **앞**으로(검사 전에 junction을 통해 lock 파일이 worktree 밖에 쓰이던 defense-in-depth 축소) · `completion-ledger`의 dead import · `evidence-claim`의 도달 불가 `presentedEpoch` 분기 · `write.js`가 git-tracked `fix-task-applied.md`에 절대 Windows 경로를 기록하던 것을 repo-relative로.
+
+## [1.23.4] — 2026-08-09
+
+**codex-intent-context M1 — 의도 표면화 + 판정 커버리지 + 측정 인프라 (단일 milestone → patch bump)** — `/mccp:plan`의 Plan-Codex 게이트는 리뷰어(out-of-process Codex)에게 **사용자 대화 의도를 전달할 채널이 없었고**, finding 수용 판단이 어디에도 기록되지 않았다. M1은 세 축을 닫는다: **(L1)** plan의 구조화된 `## User Intent` 표를 하드닝해 리뷰어 focus에 주입 · **(L2-A)** 모든 finding이 명시 판정을 받도록 mechanical 완전성 강제 · **(M)** receipt `meta.intent_*` 10 필드로 측정 인프라 확립.
+
+강제는 **단일 장수(long-lived) 프로세스** `plan-codex-runner.js`가 소유한다 — Codex 호출·adjudication 대기·판정·receipt write가 한 프로세스 안에서 일어나므로 리뷰와 write 사이에 판정 입력 파일이 **존재하지 않는다**(DD3). 감사 envelope는 디스크에 남기되 **절대 재read하지 않으며**, 이를 회귀 test가 강제한다(변조해도 verdict 불변).
+
+> **M1은 UI10(의도-충돌 finding의 silent-accept 0건)을 달성하지 않는다.** 저자가 모든 finding을 `intent_conflict:'none'`으로 표시하면 커버리지 검사는 전부 통과한다 — M1은 **누락**을 막고 **오심**은 막지 못한다. 오심 탐지(리뷰어 per-finding `INTENT:` 계약 + 비대칭 대조)는 **M1.5**가 소유한다(Plan-Codex F1 흡수 — 초안의 UI10 달성 주장 철회).
+
+### Added
+- `plugins/mccp/scripts/lib/intent-context.js` — L1+L2-A 단일 pure 오라클. 섹션 파싱(DD7 구조 가드 8종) · reference 합성(DD8 이스케이프 표 + 300자 상한) · adjudication 완전성 판정 · **소비처별 출력**(`runtimeAllowed`/`chainAllowed`/`dedupeApproved` — 단일 `pass` 없음, Implement-R1 F3).
+- `plugins/mccp/scripts/lib/plan-codex-runner.js` — 단일 장수 프로세스. per-decision lease lock(host-aware tri-state) + `meta.intent_run_nonce` 봉인으로 marker 유실 크래시를 markerless 복구(Implement-R1 F5).
+- `plugins/mccp/scripts/lib/markdown-table.js` — 중립 공유 표 리더. `parseTableRows`의 **완전 계약**(`withMeta` + `{cells,resolved,meta}`)을 이관하고 마커 스트리퍼는 주입식이라 dep-free(Implement-R1 F4). renderer와 게이트가 둘 다 import — escaped-pipe 행 드롭 버그의 재발명·게이트→대시보드 의존 역전 양쪽을 차단.
+- 테스트 4본 — `intent-context.test.js`(30) · `plan-codex-runner.test.js`(17) · `intent-gate-fields.test.js`(12) · `validate-cmd-intent-gate.test.js`(11).
+
+### Changed
+- `receipt/schema.js` — `meta.intent_*` **10 present-only 필드**. `makeSkeleton` 미포함(`pr_codex_force_override` 선례) — §3.12 git-tracked ship corpus의 hash 안정성 보존 + DD2의 "키 부재 = 모름"을 의미 있게 유지. `intent_adjudication_counts.by_verdict`는 **open map**이며 검증은 합계 불변식(Codex F2 — 닫힌 키 집합은 신규 verdict 추가 시 과거 receipt를 소급 invalid로 만든다).
+- `receipt/write.js` — runner 결정을 stamp만 하고 판정하지 않는다. `intentDecision`은 **프로그래매틱 non-null 객체 전용**: `cli.js parseFlags`는 문자열/`true`/배열만 만들 수 있으므로 타입 가드가 CLI 위조 경로를 **구조적으로** 닫는다(Implement-R1 F2 — intent CLI 플래그 0건). free-form plan(`**Source PRD**:` 부재)은 DD1의 mechanical proof로 `skipped`.
+- `receipt/validate-cmd.js` — canonical read-back. 무결성 검사(schema→subject/receipt-tamper→staleness) **이후**에 배치돼 변조 receipt의 intent 필드는 읽히지 않음. `blocking[].kind='intent_gate_incomplete'` + 키 부재는 `warning.kind='intent_gate_unknown'`(DD2).
+- `receipt/dedupe.js` — **공유 `codexConverged`는 불변**(DD9 — 손대면 out-of-scope implement receipt가 항상 unknown이 되어 전 dedupe 사망). plan 축에만 `intent_approved` 추가.
+- `lib/codex-invoke.js` — `--intent-reference-file` + `composeFocus` 3-part 결정적 순서(design → intent → base). 판독 실패는 **spawn 전 exit 2**(classification enum 14종 보존).
+- `commands/plan.md` — `## User Intent` 필수 섹션 + Phase 1.5 CAPTURE · Phase 5.2 runner detached 실행 · 5.5a adjudication 작성 · 5.6 marker 4-state 판정 · 5.4a `[MCCP-INTENT-GATE-STOP]`.
+- `commands/prp-implement.md` — Phase 0.0 복구가 `mccp-plan-codex`를 **blind write하지 않는다**(Codex F1 — 없으면 informational allow-path가 불투명한 exit 12로 깨진다).
+- `commands/pr.md` + `pr-phase-helpers/codex-runner.js` — L1만 forward(fail-open). L2-A는 plan 단계 소유.
+
+### Notes
+- **운영 토글 1건**: `MCCP_SKIP_INTENT_GATE="<substantive reason>"` — mechanical HALT만 해제하며 **verdict를 세탁하지 않는다**. receipt는 실제 blocking verdict를 봉인한 채 `meta.intent_gate_force_override=true`와 ship되므로 cross-gate dedupe는 fail-closed를 유지한다(DD6).
+- **dedupe 동작 변화**: legacy plan-codex receipt(intent 키 부재)는 더 이상 dedupe되지 않아 PR-Codex가 한 번 더 돈다. 의도된 fail-closed 대가 — "키를 빼면 공짜 skip"이라는 유인을 0으로 만든다.
+- **DD4-1은 "안정 잔여" 형태로 강제된다**: plan이 요구한 "write 직전 재대조 = 리뷰 시점 **전체** digest"는 실제 흐름에서 성립할 수 없다 — 게이트 자신이 Phase 5.1에서 `## Codex Adversarial Review` placeholder를 넣고 5.3에서 그것을 교체한 뒤에야 receipt가 쓰이므로, 문자 그대로 강제하면 성공하는 모든 게이트가 abort한다. 따라서 `intent-context.js#stableBodyDigest`가 **게이트가 스스로 쓰는 섹션만 이름으로 제외**하고 나머지(`## User Intent` 표 · Codex가 읽은 Tasks/DD)를 byte-동일성으로 요구하며, 불일치 시 **write 없이** `incomplete`로 차단한다. `intent_plan_digest`는 실제 봉인되는 본문의 digest로 stamp되고 write 후 재검증된다(DD4-2). 초안 구현은 이 불가능성을 발견하고 경고 stderr로 강등해 바인딩을 강제하는 것이 아무것도 남지 않았고, santa-loop R1의 외부 리뷰어가 그 지점을 짚어 현재 형태로 교정됐다.
 
 ## [1.23.0] — 2026-07-25
 

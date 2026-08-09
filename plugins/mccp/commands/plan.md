@@ -60,6 +60,27 @@ The receipt-prompt hook may inject an `mccp_receipt_gate` context block when thi
 
 4. **Write the missing receipt.** For each `missing[i]`:
 
+   **In-scope branch first (codex-intent-context M1).** If `missing[i].gate_id` is
+   `mccp-plan-codex`, do **NOT** run `cli.js write`. Step 3 above already notes that
+   this is the *typical* missing receipt for `/mccp:plan` — and it is exactly the gate
+   the intent gate governs, whose decision has no CLI surface by design (a flag there
+   would let any shell caller stamp an approving verdict without Codex running). A
+   blind write fails closed with exit 12 and surfaces as an opaque error. Instead
+   output:
+
+   ```
+   [MCCP-INTENT-GATE-STOP] cannot auto-recover a missing mccp-plan-codex receipt.
+   That gate is produced by plan-codex-runner.js, which invokes Codex and adjudicates
+   every finding in one process — there is no CLI path that can reproduce it.
+   Recovery:
+     1. Re-enter `/mccp:plan <plan path>` so the runner regenerates the gate; OR
+     2. Set MCCP_SKIP_INTENT_GATE="<substantive reason>" for an audited override
+        (the receipt still seals the real blocking verdict, so cross-gate dedupe
+        stays fail-closed).
+   ```
+
+   End the response. For every other `gate_id`, the existing blind write is unchanged:
+
    ```bash
    node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write \
      --gate <missing[i].gate_id> \
@@ -130,6 +151,28 @@ The assistant will:
 | Empty input | Clarification mode | Ask what should be planned |
 
 In PRD artifact mode, create `.claude/plans/` if needed. If the PRD contains a `Delivery Milestones` table, update only the selected row from `pending` to `in-progress` and set its `Plan` cell to the generated plan path. If the PRD uses the legacy `.claude/PRPs/prds/` format with `Implementation Phases`, read it without migrating paths.
+
+## Phase 1.5 — CAPTURE USER INTENT (PRD mode, codex-intent-context M1)
+
+Before drafting the plan body, extract what the **user** stated — from the PRD, from
+this conversation, and from any explicit instruction in `$ARGUMENTS` — into the
+`## User Intent` table. This is the only channel by which the out-of-process reviewer
+can learn what was actually asked for; without it the reviewer sees a proposal with no
+requirements attached and can only judge it on internal consistency.
+
+Capture rules:
+
+- **User-stated only.** "Do not touch the implement gate", "cost is not a concern",
+  "split the remainder into M1.5" — these are intent. "I chose a single process because
+  it removes the forgery window" is author rationale and belongs in `## Design Decisions`.
+  The oracle reads the `Constraint` column and nothing else, so rationale placed there
+  is the one way to defeat the separation.
+- **Exclusions are intent too.** What the user ruled OUT is often the most valuable
+  signal for a reviewer, because it is what a plan is most likely to quietly re-expand.
+- **One row per constraint**, phrased as the user would recognize it.
+
+If the user stated no constraints at all, do not fabricate rows to satisfy the gate —
+say so and ask. A fabricated table passes the structural checks and poisons the review.
 
 ## Pattern Grounding
 
@@ -417,6 +460,28 @@ When called with a `.prd.md` file, write the plan to `.claude/plans/{kebab-case-
 
 ## Summary
 {2-3 sentences}
+
+## User Intent
+
+<!-- REQUIRED for PRD-mode plans (codex-intent-context M1). Injected verbatim into
+     the reviewer's focus. USER-STATED constraints ONLY — never author rationale
+     ("why I designed it this way"), which would anchor the reviewer to your
+     reasoning instead of the user's requirements. -->
+
+| ID | Constraint (user-stated) | Kind |
+|---|---|---|
+| UI1 | {what the user actually asked for or ruled out} | direction |
+| UI2 | {…} | constraint |
+
+Rules the gate enforces mechanically — violating any of them makes the section count
+as **absent**, which blocks the gate on a PRD-mode plan:
+
+- `ID` matches `^UI\d+$` and is unique.
+- `Kind` ∈ `constraint` / `exception` / `exclusion` / `direction`.
+- Constraint text is ≥3 words and contains no placeholder (`{...}`, `TODO`, `TBD`, `N/A`, `-`).
+- No instruction-shaped text (`ignore`, `disregard`, `you must`, `system:` …) — the block
+  is injected into a reviewer prompt, so it must read as data, not as directives.
+- ≤200 rows.
 
 ## Patterns to Mirror
 | Category | Source | Pattern |
@@ -813,11 +878,159 @@ const honored = process.env.MCCP_CODEX_DESIGN_SCOPE_HONOR !== '0';
 const detect = require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect');
 process.stdout.write(honored && detect.probeSkillAvailable({}) ? '--impeccable-available' : '');
 " 2> /dev/null || echo "")
-CODEX_STDOUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js" adversarial-review \
+# codex-intent-context M1 — the review now runs inside plan-codex-runner.js, which
+# ALSO writes the receipt. One process holds the review payload in memory from
+# invocation through decision to write, so no on-disk artifact is ever a decision
+# input (DD3). Launch it DETACHED: codex can block up to 900s while the Bash tool
+# caps at 600s, so a foreground call loses the whole review to SIGTERM.
+DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:plan --args "$ARGUMENTS")
+RUN_NONCE=$(node -e 'process.stdout.write(require("crypto").randomUUID())')
+AWAITING="$MCCP_TMP/intent-awaiting-$RUN_NONCE.json"
+ADJUDICATION="$MCCP_TMP/intent-adjudication-$RUN_NONCE.json"
+MARKER="$MCCP_TMP/intent-marker-$RUN_NONCE.json"
+LOCKFILE="$MCCP_TMP/intent-gate-$DECISION_SLUG.lock"
+
+# The nonce is part of every path, so a stale artifact from a previous run can
+# never be mistaken for this one (R2 F3) — no pre-launch cleanup needed.
+# The runner owns the receipt write now, so every audit value Phase 5.0 computed
+# has to travel WITH it. A flag omitted here is not "defaulted" — it is silently
+# absent from the receipt, while the prose above ("Receipt-write at 5.6 forwards")
+# and plan-codex-runner.js's parseArgs both say it is sealed. Keep these three in
+# agreement: this list, that prose, and parseArgs.
+SILENT_SKIP_FORWARD=""
+if [ "${SILENT_SKIP:-0}" = "1" ] && [ -z "${IMPECCABLE_FORCE_OVERRIDE_REASON:-}" ]; then
+  SILENT_SKIP_FORWARD=1     # schema mutex: suppressed when the audited escape is set
+fi
+
+nohup node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-codex-runner.js" \
+  --plan "<plan path>" \
+  --decision "$DECISION_SLUG" \
+  --run-nonce "$RUN_NONCE" \
   --focus "challenge the following plan decisions: <list 1-3 key decisions from the plan>" \
-  --timeout-ms 900000 \
-  --json $IMPECCABLE_FLAG 2> "$MCCP_TMP/codex-invoke.stderr")
-CODEX_EXIT=$?
+  $IMPECCABLE_FLAG \
+  ${IMPECCABLE_SKIPPED_REASON:+--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"} \
+  ${SILENT_SKIP_FORWARD:+--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON"} \
+  ${MODE:+--impeccable-routing-mode "$MODE"} \
+  ${DESIGN_CRITIQUE_ROUNDS:+--design-critique-rounds "$DESIGN_CRITIQUE_ROUNDS"} \
+  ${RECEIPT_VERDICT:+--design-critique-verdict "$RECEIPT_VERDICT"} \
+  ${DESIGN_INTENT_REASON_FORWARD:+--design-intent-reason "$DESIGN_INTENT_REASON_FORWARD"} \
+  > "$MCCP_TMP/plan-codex-runner.out" 2> "$MCCP_TMP/plan-codex-runner.err" &
+RUNNER_PID=$!
+
+# Exit 11 means another live run already owns this decision. The runner refuses to
+# become a second writer for the same receipt (R1 F5) and writes no marker, so this
+# invocation has nothing of its own to wait for. Phase 5.6 detects the foreign lock
+# owner and stops with that diagnosis instead of waiting out its deadline.
+```
+
+Then wait for the runner to publish the findings (it stays alive while you adjudicate):
+
+```bash
+RUN_STARTED_AT=$(date +%s)
+
+# The runner is detached, so it needs a moment to create its lock. Without this
+# grace the very first poll below races the spawn, sees no lock, and reports a
+# crash for a runner that simply had not started yet.
+SPAWN_GRACE=$(( RUN_STARTED_AT + 30 ))
+while [ ! -f "$LOCKFILE" ] && [ ! -f "$AWAITING" ] && [ ! -f "$MARKER" ] \
+      && [ "$(date +%s)" -lt "$SPAWN_GRACE" ]; do
+  sleep 1
+done
+
+MARKERLESS_EARLY=0
+DEADLINE=$(( $(date +%s) + 1200 ))
+while [ ! -f "$AWAITING" ] && [ ! -f "$MARKER" ] && [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  if [ -f "$LOCKFILE" ]; then
+    # A lock owned by someone else means our runner exited 11 without writing
+    # anything, so neither $AWAITING nor $MARKER can EVER appear here.
+    LOCK_OWNER=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).run_nonce||"")}catch{}' "$LOCKFILE" 2>/dev/null)
+    if [ -n "$LOCK_OWNER" ] && [ "$LOCK_OWNER" != "$RUN_NONCE" ]; then
+      echo "[MCCP-GATE-STOP] another run (nonce $LOCK_OWNER) already owns decision \"$DECISION_SLUG\"."
+      echo "This invocation launched no second writer, by design. Wait for that run to"
+      echo "finish, then re-run /mccp:plan."
+      exit 1
+    fi
+  else
+    # No lock: our runner has exited. Three very different things look identical
+    # from here, and deciding between them is the whole point of this branch —
+    # otherwise all three decay into the same 1200s timeout. Note this also covers
+    # the no-adjudication paths (free-form plan / zero findings / codex disabled):
+    # those never create $AWAITING, so without this check a lost marker on such a
+    # run would time out here and never reach 5.6's recovery.
+    SEALED=$(node -e '
+      const {readReceipt}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/store");
+      const {gitRepoRoot}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/hash");
+      try{const r=readReceipt(gitRepoRoot(process.cwd()),"mccp-plan-codex",process.argv[1]);
+        process.stdout.write((r&&r.meta&&r.meta.intent_run_nonce)||"");}catch(_){}
+    ' "$DECISION_SLUG" 2>/dev/null)
+    # (1) Ours: the run finished and only the marker is missing. Fall through to
+    #     5.6, whose markerless branch confirms and consumes it.
+    if [ "$SEALED" = "$RUN_NONCE" ]; then MARKERLESS_EARLY=1; break; fi
+    # (2) A DIFFERENT nonce is sealed. That is a concurrent winner only if the
+    #     receipt was written after we started; a receipt left by an earlier run
+    #     looks identical from the nonce alone. Reporting both as "completed by
+    #     another run" sends the operator hunting for a race that never happened,
+    #     so compare against this run's start before naming it.
+    if [ -n "$SEALED" ]; then
+      RECEIPT_AT=$(node -e '
+        const {readReceipt}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/store");
+        const {gitRepoRoot}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/hash");
+        try{const r=readReceipt(gitRepoRoot(process.cwd()),"mccp-plan-codex",process.argv[1]);
+          const t=r&&r.meta&&r.meta.created_at;
+          process.stdout.write(t?String(Math.floor(Date.parse(t)/1000)):"");}catch(_){}
+      ' "$DECISION_SLUG" 2>/dev/null)
+      if [ -n "$RECEIPT_AT" ] && [ "$RECEIPT_AT" -ge "$RUN_STARTED_AT" ]; then
+        echo "[MCCP-GATE-STOP] decision \"$DECISION_SLUG\" was completed by a concurrent run"
+        echo "(sealed nonce $SEALED, ours $RUN_NONCE). Our runner exited without writing,"
+        echo "by design. Re-run /mccp:plan if you need the current body reviewed."
+      else
+        echo "[MCCP-GATE-STOP] plan-codex runner exited without writing a receipt."
+        echo "The receipt on disk predates this run (sealed nonce $SEALED) — it is STALE,"
+        echo "not evidence that this run succeeded. The runner either crashed or blocked"
+        echo "and could not write its marker; $MCCP_TMP/plan-codex-runner.err has the detail."
+      fi
+      exit 1
+    fi
+    # (3) Nothing sealed at all.
+    echo "[MCCP-GATE-STOP] plan-codex runner exited without writing a receipt."
+    echo "Either it crashed, or it blocked and could not write its marker — in the"
+    echo "latter case the verdict and reason are in $MCCP_TMP/plan-codex-runner.err."
+    exit 1
+  fi
+  sleep 10
+done
+
+# The documented timeout state, which until now existed only in the prose below.
+# Without this branch the loop simply falls through into the next phase after
+# 1200s of silence — the one outcome the state table says must never happen:
+# nothing produced, and nothing saying so. MARKERLESS_EARLY guards the legitimate
+# break above, where neither file exists but the receipt already seals our nonce.
+if [ "$MARKERLESS_EARLY" = "0" ] && [ ! -f "$AWAITING" ] && [ ! -f "$MARKER" ]; then
+  echo "[MCCP-GATE-STOP] intent gate timed out after 1200s: the runner still holds its"
+  echo "lock but has produced neither findings nor a marker. Do NOT assume success —"
+  echo "re-run /mccp:plan once the holding run has finished or been cleared."
+  exit 1
+fi
+```
+
+- `$MARKER` appearing first means the gate finished without needing adjudication
+  (zero findings / free-form plan / `MCCP_CODEX_DISABLED=1`) — skip to 5.6.
+- `$AWAITING` appearing means findings need adjudication — do 5.3/5.4, then **5.5a**.
+- The loop ending because the lock is gone and the receipt already seals OUR nonce
+  means the run finished but its marker never landed — continue to 5.6, whose
+  markerless branch confirms it. This is why the no-adjudication paths (which never
+  create `$AWAITING`) cannot time out here with a valid receipt on disk.
+- Any `[MCCP-GATE-STOP]` the loop printed already named the state — foreign owner,
+  completed by another run, or crashed. Do not re-interpret it as a timeout.
+- Neither file, and the deadline passed → `[MCCP-GATE-STOP]` (do NOT assume success).
+
+The classification/verdict derivation below is performed **by the runner**; the values
+are reported in `$MARKER` (`codex_verdict`, `intent_gate_verdict`). The block below is
+retained only to document the mapping the runner applies.
+
+```bash
+CODEX_EXIT=0
 
 CODEX_BLOCKING=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.blocking?"1":"0")}catch{console.log("1")}' "$CODEX_STDOUT")
 CODEX_CLASS=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.classification||"unknown")}catch{console.log("parse-error")}' "$CODEX_STDOUT")
@@ -921,6 +1134,32 @@ All `DEFER_TO_BACKLOG` items: append a line to `.claude/plans/codex-findings-bac
 before Phase 5.5. Format:
 - `YYYY-MM-DD | <severity> | <source plan path> | <one-line finding>`
 
+### 5.4a — Intent-gate block (codex-intent-context M1)
+
+If the marker reports `exit_code=12`, the intent gate blocked and **no receipt was
+written**. Read `intent_gate_verdict` + `reason` from `$MARKER` and output:
+
+```
+[MCCP-INTENT-GATE-STOP] intent gate blocked (verdict=<intent_gate_verdict>).
+Reason: <reason from marker>
+No mccp-plan-codex receipt was written, so /mccp:prp-implement cannot start.
+Recovery:
+  - incomplete            → every Codex finding needs an explicit adjudication row.
+                            Re-run /mccp:plan and write a complete one at 5.5a. Do NOT go
+                            looking for this run's intent-adjudication-<nonce>.json: its
+                            path carries the run nonce, so a new run neither reads nor
+                            reuses it, and it is removed with the run's other scratch.
+  - conflict_unresolved   → a finding conflicting with a UI<n> constraint was ACCEPT_NOW'd
+                            without intent_override_reason; either reject it, or write down
+                            why the user's constraint is being overridden
+  - skipped-unproven      → a skip was claimed with no corroborated proof (this is a bug —
+                            report it)
+  - or set MCCP_SKIP_INTENT_GATE="<substantive reason>" for an audited override
+    (the receipt still seals the real blocking verdict, so PR-Codex will still run)
+```
+
+End the response. Do NOT hand-write the receipt.
+
 ### 5.5 — Auto-CRITICAL check
 
 Scan Codex Open Questions for any auto-CRITICAL items (per §0 catalog: secret exposure, data loss, irreversible migration, auth bypass, external destination change, crypto key handling). If any present:
@@ -935,63 +1174,205 @@ Scan Codex Open Questions for any auto-CRITICAL items (per §0 catalog: secret e
    ```
 3. End the response.
 
-### 5.6 — Verify plan integrity, then write receipt
+### 5.5a — Write the adjudication file (codex-intent-context M1, L2-A)
+
+**PRD-mode plans only.** If Phase 5.2 launched the runner (i.e. `$RUN_NONCE` is set)
+and the awaiting artifact lists ≥1 finding, the runner is **still alive**, holding the
+review payload in memory and waiting for your adjudication. Every finding must receive
+an explicit verdict — a single omission makes the gate `incomplete` and **no receipt is
+written**.
+
+Read `$AWAITING` (written by the runner) and produce one entry per finding. Copy
+`finding_index` and `finding_digest` **verbatim** from that file — they bind your
+adjudication to this exact review, so a stale or reordered payload is rejected.
 
 ```bash
-# Step A: verify Codex section was injected
+# Write to a temp path and rename. The runner polls for $ADJUDICATION and reads it
+# the moment it appears, so writing in place lets it read a half-written heredoc,
+# fail JSON parsing, and block the gate as `incomplete` for a file that was in fact
+# complete a millisecond later. rename(2) is atomic within a directory.
+cat > "$ADJUDICATION.tmp" <<'JSON'
+{
+  "plan_path": "<plan path>",
+  "round": 1,
+  "review_payload_digest": "<review_payload_digest, verbatim from $AWAITING>",
+  "adjudications": [
+    {
+      "finding_index": 0,
+      "finding_digest": "<finding_digest for index 0, verbatim from $AWAITING>",
+      "intent_conflict": "none",
+      "verdict": "ACCEPT_NOW",
+      "rationale": "<why — must be non-empty>",
+      "intent_override_reason": null
+    }
+  ]
+}
+JSON
+mv "$ADJUDICATION.tmp" "$ADJUDICATION"
+```
+
+Field rules (all enforced mechanically by `intent-context.js`):
+
+| Field | Rule |
+|---|---|
+| `finding_index` | 0..N-1, each exactly once — no gaps, no duplicates |
+| `finding_digest` | verbatim from `$AWAITING`; a mismatch means the payload changed |
+| `intent_conflict` | `"none"`, or a `UI<n>` id that EXISTS in `## User Intent` |
+| `verdict` | `ACCEPT_NOW` / `DEFER_TO_BACKLOG` / `REJECT_YAGNI` / `REJECTED_BY_DESIGN` |
+| `rationale` | non-empty |
+| `intent_override_reason` | **required** when `intent_conflict != "none"` AND `verdict = ACCEPT_NOW` |
+
+The last rule is the one substantive constraint M1 enforces: accepting a finding that
+contradicts a user-stated constraint requires you to write down why. Marking a genuine
+conflict as `"none"` would pass the completeness check — M1 blocks OMISSION, not
+mislabelling; detecting the latter is M1.5's job. Do not use `"none"` to move faster.
+
+### 5.6 — Await the runner's completion marker (receipt is written BY the runner)
+
+The runner — not this command body — writes the `mccp-plan-codex` receipt, because the
+intent decision travels in-process and has **no CLI surface** (a flag there would let any
+shell caller stamp an approving verdict without Codex running). So there is no
+`cli.js write` step here; instead, wait for the marker and verify it.
+
+```bash
+# Poll for the marker this run owns. The nonce is in the PATH, so a stale marker
+# from an earlier run cannot be mistaken for this one.
+DEADLINE=$(( $(date +%s) + 2400 ))
+MARKERLESS=0
+
+# "Did the runner finish without leaving a marker?" is asked from two places
+# below, so read the nonce the receipt sealed (meta.intent_run_nonce) once here.
+sealed_nonce() {
+  node -e '
+    const {readReceipt}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/store");
+    const {gitRepoRoot}=require("'"${CLAUDE_PLUGIN_ROOT}"'/scripts/receipt/hash");
+    try{const r=readReceipt(gitRepoRoot(process.cwd()),"mccp-plan-codex",process.argv[1]);
+      process.stdout.write((r&&r.meta&&r.meta.intent_run_nonce)||"");}catch(_){}
+  ' "$DECISION_SLUG" 2>/dev/null
+}
+
+# The lock names its owner. A lock held by a DIFFERENT nonce means the runner we
+# launched exited 11 (another live run owns this decision) and wrote no marker,
+# so our nonce-scoped $AWAITING/$MARKER paths will never appear. Without this
+# check the loop below would wait out the full deadline and then blame a timeout,
+# or — once the winner released the lock — read the winner's nonce, find it is
+# not ours, and report "crashed" for a run that actually succeeded.
+LOCK_OWNER=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).run_nonce||"")}catch{}' "$LOCKFILE" 2>/dev/null)
+if [ -n "$LOCK_OWNER" ] && [ "$LOCK_OWNER" != "$RUN_NONCE" ]; then
+  echo "[MCCP-GATE-STOP] another run (nonce $LOCK_OWNER) already owns decision \"$DECISION_SLUG\"."
+  echo "This invocation launched no second writer, by design. Wait for that run to"
+  echo "finish, then re-run /mccp:plan."
+  exit 1
+fi
+
+while [ ! -f "$MARKER" ] && [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  if [ ! -f "$LOCKFILE" ]; then
+    # Lock gone with no marker: the runner died, or its marker write failed. Tell
+    # "died after the receipt was written" from "died before" by looking for OUR
+    # nonce sealed inside the receipt (meta.intent_run_nonce).
+    SEALED=$(sealed_nonce)
+    if [ "$SEALED" = "$RUN_NONCE" ]; then MARKERLESS=1; break; fi   # succeeded-markerless
+    echo "[MCCP-GATE-STOP] plan-codex runner died before writing a receipt (crashed)."
+    exit 1
+  fi
+  sleep 5
+done
+
+# Deadline reached with the lock still in place. The loop only consults the
+# receipt when the lock DISAPPEARS, but a hard kill (SIGKILL, host power loss)
+# skips the runner's finally block, so the lock outlives the process and the
+# receipt it already wrote is never noticed. Ask once more before calling this a
+# timeout — otherwise a completed gate is reported as a failure.
+if [ "$MARKERLESS" = "0" ] && [ ! -f "$MARKER" ]; then
+  SEALED=$(sealed_nonce)
+  if [ "$SEALED" = "$RUN_NONCE" ]; then
+    echo "[mccp:intent-gate] deadline passed with a stale lock, but the receipt seals run_nonce $RUN_NONCE — treating as succeeded-markerless." 1>&2
+    MARKERLESS=1
+  fi
+fi
+```
+
+Marker states — handle each explicitly, never "proceed because the file appeared":
+
+| State | Condition | Action |
+|---|---|---|
+| `running` | awaiting artifact present AND lock alive | keep polling |
+| `ok` | marker `exit_code=0` AND `run_nonce` matches | continue to 5.7 |
+| `blocked` | marker `exit_code=12` | 5.4a `[MCCP-INTENT-GATE-STOP]` |
+| `succeeded-markerless` | lock gone, receipt seals our `intent_run_nonce` | continue to 5.7 |
+| `crashed` | lock gone, no marker, nonce not sealed | STOP (above) |
+| `timeout` | deadline passed | STOP — do not assume success |
+
+```bash
+if [ "$MARKERLESS" = "1" ]; then
+  # There is no marker to verify — the receipt IS the evidence. Reading it as a
+  # success is only sound because the runner quarantines any receipt it refuses to
+  # stand behind (post-write digest mismatch renames it aside), so a readable
+  # receipt carrying this run_nonce is never a blocked run. Phase 5.7 re-validates
+  # it regardless. Do NOT fall through to the marker checks below: $MARKER does not
+  # exist, and parsing it would report a foreign-marker mismatch for a run that in
+  # fact succeeded.
+  echo "[mccp:intent-gate] marker absent but the receipt seals run_nonce $RUN_NONCE — succeeded-markerless." 1>&2
+  MARKER_EXIT=0
+else
+  if [ ! -f "$MARKER" ]; then
+    echo "[MCCP-GATE-STOP] intent gate timed out (2400s): no marker, and no receipt seals run_nonce $RUN_NONCE. Do NOT assume success — re-run /mccp:plan."
+    exit 1
+  fi
+  # Verify the marker belongs to THIS run before trusting any of its contents.
+  MARKER_NONCE=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).run_nonce||"")}catch{}' "$MARKER")
+  [ "$MARKER_NONCE" = "$RUN_NONCE" ] || {
+    echo "[MCCP-GATE-STOP] marker run_nonce mismatch — refusing to trust a foreign run's marker."
+    exit 1
+  }
+  MARKER_EXIT=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).exit_code))}catch{process.stdout.write("12")}' "$MARKER")
+fi
+
+# The documented `blocked` state. Without this branch MARKER_EXIT is write-only and
+# 5.4a is unreachable prose. The chain would still stop — 5.7's read-back validate
+# finds no receipt — but the operator would get a generic "no receipt" error instead
+# of the verdict, the reason, and the recovery steps that tell them how to fix it.
+if [ "$MARKER_EXIT" != "0" ]; then
+  MARKER_VERDICT=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).intent_gate_verdict||"unknown")}catch{process.stdout.write("unknown")}' "$MARKER")
+  MARKER_REASON=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reason||"(none recorded)")}catch{process.stdout.write("(marker unreadable)")}' "$MARKER")
+  echo "[MCCP-INTENT-GATE-STOP] intent gate blocked (verdict=$MARKER_VERDICT, exit=$MARKER_EXIT)."
+  echo "Reason: $MARKER_REASON"
+  exit 1
+fi
+```
+
+If that branch fired, print the **5.4a** recovery block using the `verdict` and
+`reason` it echoed, and end the response. Do not continue to 5.6b.
+
+### 5.6b — Verify the Codex section was injected
+
+```bash
 grep -q "^## Codex Adversarial Review$" <plan path> || {
   echo "[MCCP-GATE-STOP] plan에 Codex 섹션 주입 실패. Phase 5.3 재시도 필요."
   exit 1
 }
 
-# Step B: derive decision-slug deterministically (must match what the hook computes)
-DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
-  --command mccp:plan \
-  --args "$ARGUMENTS")
+# The heading on its own proves nothing: Phase 5.1 appended it TOGETHER WITH the
+# placeholder, so the check above passes even when 5.3 never replaced the body —
+# and the command would hand off an approved receipt for a plan carrying no review
+# record at all. `if` rather than `grep … && { … }` so a non-match cannot trip
+# `set -e` on the way past.
+if grep -q "placeholder: will be replaced" <plan path>; then
+  echo "[MCCP-GATE-STOP] Codex 섹션이 5.1의 placeholder 그대로입니다 — Phase 5.3이 triage 기록으로 교체하지 않았습니다."
+  exit 1
+fi
 
-# Step C: auto-write the mccp-plan-codex receipt.
-# v1.3.0 M1 — forward silent-skip flags when Phase 5.0 detected SKILL_AVAIL=1
-# + SIGNAL=0. plan-codex validator emits silent_skip as informational warning;
-# M2 will promote strict gates to blocking after SKILL first-step is wired.
-# Schema mutex: silent_skip + force_override cannot coexist, so we suppress
-# silent_skip forward when IMPECCABLE_FORCE_OVERRIDE_REASON is set. Bash array
-# form avoids eval and keeps quoting around reasons safe.
-WRITE_FLAGS=(
-  write
-  --gate mccp-plan-codex
-  --decision "$DECISION_SLUG"
-  --plan "<plan path>"
-)
-if [ -n "$IMPECCABLE_SKIPPED_REASON" ]; then
-  WRITE_FLAGS+=(--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON")
-elif [ "$SILENT_SKIP" = "1" ] && [ -z "${IMPECCABLE_FORCE_OVERRIDE_REASON:-}" ]; then
-  WRITE_FLAGS+=(--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON")
-fi
-# v1.3.0-m2 — design-critique retry-loop audit forward. Only emitted when the
-# retry loop actually ran (SIGNAL=1 OR DESIGN_INTENT_ACTIVE=1). The audited
-# override reason is separate so receipt-write can apply the strict validator.
-if [ -n "${RECEIPT_VERDICT:-}" ] && [ "${RECEIPT_VERDICT:-skipped}" != "skipped" ]; then
-  WRITE_FLAGS+=(--design-critique-rounds "$DESIGN_CRITIQUE_ROUNDS"
-                --design-critique-verdict "$RECEIPT_VERDICT")
-fi
-if [ -n "${DESIGN_INTENT_REASON_FORWARD:-}" ]; then
-  WRITE_FLAGS+=(--design-intent-reason "$DESIGN_INTENT_REASON_FORWARD")
-fi
-# v1.13.0 — routing GUIDE recorded the effective mode (plan stage is recommend-
-# only, so no commands-routed-file is forwarded here).
-if [ -n "${MODE:-}" ]; then
-  WRITE_FLAGS+=(--impeccable-routing-mode "$MODE")
-fi
-# v1.20.3 (Task 5) — forward the real Codex verdict so cross-gate dedupe (at
-# /mccp:pr) checks the actual outcome instead of the always-true
-# resolution.converged. $CODEX_VERDICT is the DEDICATED Phase 5.2 variable — NOT
-# the design-critique $RECEIPT_VERDICT. Omit when empty (blocked/exited path).
-if [ -n "${CODEX_VERDICT:-}" ]; then
-  WRITE_FLAGS+=(--codex-verdict "$CODEX_VERDICT")
-fi
-WRITE_FLAGS+=(--quiet)
-node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" "${WRITE_FLAGS[@]}"
 ```
+
+> **The receipt is NOT written here (codex-intent-context M1).** `cli.js write
+> --gate mccp-plan-codex` cannot satisfy this gate: the intent decision is
+> programmatic-only, so a hand-written receipt fails closed with an actionable
+> `INTENT_GATE_BLOCKED` error. `plan-codex-runner.js` performed the review, held the
+> payload in memory, consumed your adjudication, and wrote the receipt itself —
+> including `--codex-verdict` and every impeccable/design-critique audit flag, which
+> Phase 5.2 forwarded to it. If you find yourself reaching for `cli.js write` here,
+> the correct move is to re-run `/mccp:plan`, or set
+> `MCCP_SKIP_INTENT_GATE="<substantive reason>"` for an audited override.
 
 If the Bash call is blocked by a PreToolUse hook (output contains `[hook]` rejection / `permission denied` / non-zero exit), output:
 

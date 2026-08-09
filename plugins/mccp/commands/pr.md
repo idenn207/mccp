@@ -455,6 +455,25 @@ elif [ "${CODEX_DEDUPE_AT_PR:-0}" = "1" ]; then
   RUNNER_FLAGS+=(--dedupe)
 fi
 
+# codex-intent-context M1 (Task 10) — L1 ONLY. Rebuild the user-intent reference
+# from the plan's `## User Intent` table and forward it so PR-Codex reviews the diff
+# against what the USER asked for, not just against internal consistency. The L2-A
+# adjudication gate is NOT re-run here: findings are triaged at the plan step, and
+# this gate is review-only. Section absent / unreadable → no flag, review proceeds
+# unchanged (fail-open — intent context enriches this gate, it never blocks it).
+INTENT_REF_FILE="$MCCP_TMP/intent-reference-$(node -e 'process.stdout.write(require("crypto").randomUUID())').txt"
+node -e '
+  const ic = require(process.argv[1] + "/scripts/lib/intent-context");
+  const fs = require("fs");
+  let planText = "";
+  try { planText = fs.readFileSync(process.argv[2], "utf8"); } catch (_) { process.exit(3); }
+  const s = ic.extractIntentSection(planText);
+  if (!s.present) process.exit(3);
+  fs.writeFileSync(process.argv[3], ic.buildIntentReference(s.items), { mode: 0o600 });
+' "${CLAUDE_PLUGIN_ROOT}" "<plan path>" "$INTENT_REF_FILE" 2>/dev/null \
+  && RUNNER_FLAGS+=(--intent-reference-file "$INTENT_REF_FILE") \
+  || echo "[mccp:intent] no usable ## User Intent section — PR-Codex proceeds without it" 1>&2
+
 CODEX_RESULT_FILE="$MCCP_TMP/codex-result.json"
 # v0.2.9 — codex-runner.js inherits env into the codex-invoke child process. No code change in the helper needed.
 export MCCP_GATE_ROUND_CAP="${MCCP_GATE_ROUND_CAP:-1}"

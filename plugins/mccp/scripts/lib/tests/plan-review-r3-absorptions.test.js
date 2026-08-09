@@ -34,11 +34,19 @@ const WRITE_CLI = path.join(REPO_ROOT, 'plugins/mccp/scripts/receipt/cli.js');
 // indistinguishable from this one by inspection, and the no-regression contract
 // pins that legacy behaviour. So the fix lives at the producer.
 
-test('the read-side fallback that made this reachable is still there (fix is at the producer)', () => {
+// This asserts the LEGACY FALLBACK, and it is deliberate — a santa-loop R4
+// reviewer read it as the suite blessing a fail-open and recommended tightening
+// `axis:'none'` to not-converged. Measured before rejecting that: of 35 GIT-TRACKED
+// receipts, 22 carry NO verdict axis and `converged: true` (every ship receipt
+// predating codex_verdict in v1.20.3). Tightening the read side would flip all 22
+// from converged to non-converged and break ledger reconciliation over the durable
+// corpus §3.12 exists to preserve. The fallback is load-bearing; that is precisely
+// WHY the panel fix has to live at the producer, and this test pins the constraint.
+test('the read-side fallback is load-bearing for the tracked corpus (fix belongs at the producer)', () => {
   const legacy = { converged: true, rounds: 1 };
   assert.equal(isConvergedVerdict(legacy), true,
-    'legacy receipts with no verdict axis must keep reading as converged — ' +
-    'this is the contract that forces the fix to live at the write layer');
+    'pre-v1.20.3 receipts have no verdict axis; reading them as non-converged ' +
+    'would retroactively un-approve 22 of the 35 tracked ship receipts');
 });
 
 function writeAttempt(extraFlags) {
@@ -196,4 +204,44 @@ test('the out-of-repo block is specifically a containment error', () => {
   assert.match(r.text, /inconclusive/,
     '"could not check" — not "checked and found violations"; the divergent/' +
     'inconclusive split must survive');
+});
+
+// ── containment must approve the SAME file L1 reads (santa-loop R4) ──────────
+//
+// resolveContained resolved --plan against the repo root, but cmdL1 then handed
+// l1-check.js the RAW argv string, and l1-check re-resolves with
+// nodePath.resolve(), which is relative to process.cwd(). From any cwd that is
+// not the repo root those are different files: the guard approved one and L1
+// read another. A check whose answer does not bind the subsequent read is not a
+// check.
+//
+// The discriminating signal is whether the plan is FOUND. The approved file
+// exists at the repo root; the cwd-relative path resolves to nothing. Pre-fix,
+// L1 reported `inconclusive`/E_READ because it looked in the wrong place.
+test('l1 reads the path containment approved, not the raw argument', () => {
+  const outer = fs.mkdtempSync(path.join(os.tmpdir(), 'l1-cwd-'));
+  const root = path.join(outer, 'root');
+  const sub = path.join(root, 'sub');
+  fs.mkdirSync(sub, { recursive: true });
+  fs.writeFileSync(path.join(root, 'p.plan.md'), '# Plan: approved\n\n## Summary\n\nx\n', 'utf8');
+  // Nothing at sub/p.plan.md — a cwd-relative resolve finds no file at all.
+
+  const cwd0 = process.cwd();
+  const chunks = [];
+  const so = process.stdout.write; const se = process.stderr.write;
+  process.stdout.write = function (c) { chunks.push(String(c)); return true; };
+  process.stderr.write = function () { return true; };
+  try {
+    process.chdir(sub);                       // cwd != repo root
+    runCli(['l1', '--plan', 'p.plan.md', '--repo-root', root]);
+  } finally {
+    process.chdir(cwd0);
+    process.stdout.write = so; process.stderr.write = se;
+  }
+  const d = JSON.parse(chunks.join(''));
+  assert.notEqual(d.verdict, 'inconclusive',
+    'L1 looked for the plan relative to cwd instead of the path containment approved');
+  assert.doesNotMatch(JSON.stringify(d.violations || []), /E_READ/,
+    'the approved file exists; an E_READ means L1 read somewhere else');
+  fs.rmSync(outer, { recursive: true, force: true });
 });

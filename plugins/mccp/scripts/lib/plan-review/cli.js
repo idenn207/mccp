@@ -194,7 +194,11 @@ function cmdL1(args) {
     return EX_BLOCK;
   }
 
-  const result = checkPlanConsistency({ planPath: planPath, repoRoot: root });
+  // Read the path containment APPROVED, not the raw argv string. l1-check.js
+  // re-resolves what it is given with nodePath.resolve(), which is relative to
+  // process.cwd() — so from any cwd that is not the repo root, the check
+  // validated one file and L1 read another (santa-loop R4, Codex GPT-5.4).
+  const result = checkPlanConsistency({ planPath: contained.abs, repoRoot: root });
   out({ verdict: result.verdict, violations: result.violations, plan: planPath });
 
   if (result.verdict === 'converged') return EX_OK;

@@ -36,6 +36,7 @@
 // verdict into 'converged'.
 
 const { isDivergentVerdict } = require('./receipt-convergence');
+const { resolveEffectiveVerdict } = require('./review-verdict');
 
 // Distinct exit code for a ship-blocked finalize (aligned with codex-invoke's
 // blocking exit 12). pr.md branches on it to emit a ship-specific GATE-STOP.
@@ -67,20 +68,45 @@ function hasSkipProof(meta) {
   return false;
 }
 
-// classifyVerdict(resolution) → { ship, absent, verdict }
-//   ship    : true iff codex_verdict ∈ SHIP_VERDICTS
-//   absent  : true iff codex_verdict is missing/null
-//   verdict : the raw codex_verdict string (null when absent)
-// Reuses the M1 isDivergentVerdict helper for the divergent/critical branch so the
-// convergence vocabulary lives in ONE place; unavailable + unknown fall through to
-// the positive-membership test, which is fail-closed by construction.
+// classifyVerdict(resolution) → { ship, absent, verdict, source }
+//   ship    : true iff the effective verdict ∈ SHIP_VERDICTS and the issuer is
+//             acceptable at a terminal gate
+//   absent  : true iff no verdict is present on either axis
+//   verdict : the effective verdict string (null when absent)
+//   source  : which issuer produced it ('codex' | 'multi-agent' | 'hybrid' | null)
+//
+// diverse-agent-review M1 — reads through resolveEffectiveVerdict so the review
+// axis is honoured wherever it is present. Legacy receipts (no review_* fields)
+// resolve to their raw codex_verdict with source='codex', so this function
+// computes exactly what it computed before on the entire existing ship corpus.
+//
+// DD8 — terminal ships require CROSS-MODEL corroboration. M1 never writes
+// review_* onto an mccp-pr-codex receipt, so the multi-agent branch below is
+// currently unreachable; it is closed defensively because the cost of getting it
+// wrong later (a terminal gate accepting a same-model panel's self-approval) is
+// far higher than the cost of the branch. `unavailable` + unknown values fall
+// through to the positive-membership test, which is fail-closed by construction.
 function classifyVerdict(resolution) {
-  const cv = (resolution && typeof resolution === 'object')
-    ? resolution.codex_verdict : undefined;
+  const eff = resolveEffectiveVerdict(resolution);
+  const cv = eff.verdict;
   const absent = cv === undefined || cv === null;
-  if (absent) return { ship: false, absent: true, verdict: null };
-  if (isDivergentVerdict(resolution)) return { ship: false, absent: false, verdict: cv };
-  return { ship: SHIP_VERDICTS.indexOf(cv) !== -1, absent: false, verdict: cv };
+  if (absent) return { ship: false, absent: true, verdict: null, source: eff.source };
+  if (isDivergentVerdict(resolution)) {
+    return { ship: false, absent: false, verdict: cv, source: eff.source };
+  }
+  if (cv === 'converged' && eff.source === 'multi-agent') {
+    return {
+      ship: false, absent: false,
+      verdict: 'multi-agent-unproven-at-terminal',
+      source: eff.source,
+    };
+  }
+  return {
+    ship: SHIP_VERDICTS.indexOf(cv) !== -1,
+    absent: false,
+    verdict: cv,
+    source: eff.source,
+  };
 }
 
 // deriveShipDecision(receipt, opts) → {

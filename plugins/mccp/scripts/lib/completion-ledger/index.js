@@ -29,6 +29,7 @@ const store = require('./store');
 // section has no caller left.
 const { validate } = require('../../receipt/schema');
 const { extractRisksAndOpenQuestions } = require('../renderer/parsers/plan-body');
+const { resolveEffectiveVerdict } = require('../review-verdict');
 
 const ISO8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
 
@@ -144,15 +145,19 @@ function triggerLedgerAppend(repoRoot, receipt, receiptPath, opts) {
     // (Operator-confirmed vs the plan's converged-only draft: keeping skipped +
     // unavailable appends preserves the dedupe happy-path — dedupe fires only when
     // plan+implement BOTH converged, which makes the PR ship codex_verdict='skipped'.)
-    const codexVerdict = (typeof receipt.resolution.codex_verdict === 'string')
-      ? receipt.resolution.codex_verdict
-      : null;
+    // diverse-agent-review M1 — read the verdict through the approval SSoT so a
+    // review-panel-issued approval is judged by the same rules. On every receipt
+    // written to date (no review_* fields) this resolves to the raw
+    // codex_verdict with source='codex', leaving the existing corpus untouched.
+    const eff = resolveEffectiveVerdict(receipt.resolution);
+    const codexVerdict = (typeof eff.verdict === 'string') ? eff.verdict : null;
     if (codexVerdict === null) {
-      logSkip('codex_verdict absent (legacy/pre-v1.20.3) — fail-closed on new append', decisionId);
+      logSkip('verdict absent (legacy/pre-v1.20.3) — fail-closed on new append', decisionId);
       return;
     }
     if (codexVerdict === 'divergent' || codexVerdict === 'critical') {
-      logSkip('non-converged codex_verdict: ' + codexVerdict, decisionId);
+      logSkip('non-converged verdict: ' + codexVerdict +
+        (eff.source ? ' (source=' + eff.source + ')' : ''), decisionId);
       return;
     }
     const meta = receipt.meta || {};
@@ -195,9 +200,15 @@ function triggerLedgerAppend(repoRoot, receipt, receiptPath, opts) {
       risks_closed: snap.risks,
       oq_closed: snap.openQuestions,
       receipt_hash: receipt.receipt_hash,
-      // NEW appends always carry a present, non-divergent codex_verdict (absent
-      // returned above), so their verdict is codex-corroborated by construction.
-      verdict_provenance: 'codex-verdict',
+      // NEW appends always carry a present, non-divergent verdict (absent
+      // returned above), so the entry is corroborated by construction — but by
+      // WHOM now varies, and recording 'codex-verdict' for a panel-issued
+      // approval would be the same class of lie that retiring
+      // resolution.converged was meant to end. store.js VALID_PROVENANCE is
+      // extended additively in the same commit; without that the enum check in
+      // writeEntry would reject these entries outright.
+      verdict_provenance: eff.source === 'multi-agent' ? 'multi-agent'
+        : (eff.source === 'hybrid' ? 'hybrid' : 'codex-verdict'),
     };
 
     const res = (opts.writeEntry || store.writeEntry)(repoRoot, entry, opts);

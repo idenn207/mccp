@@ -46,7 +46,14 @@ const ADJUDICATION_VERDICTS = [
 
 // DD1 — the three sanctioned reasons a gate may legitimately not run, each
 // mechanically corroborated by resolveSkipProof (never author-asserted).
-const SKIP_PROOFS = ['free_form_plan', 'no_codex_findings', 'codex_disabled'];
+// `codex_not_invoked` (diverse-agent-review M1) — the approval was issued by the
+// L1+L2 review panel, so Codex never ran and produced no findings to adjudicate.
+// It is a distinct proof from `codex_disabled` (operator env policy) and from
+// `no_codex_findings` (Codex ran and returned nothing): here the reviewer itself
+// was different. write.js derives it mechanically from resolution.review_source.
+const SKIP_PROOFS = [
+  'free_form_plan', 'no_codex_findings', 'codex_disabled', 'codex_not_invoked',
+];
 
 // security S4 — this file is external input to the runner process. Bound it
 // before parsing (bytes) and after parsing (structure). Every violation is a

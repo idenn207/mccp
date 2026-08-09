@@ -34,6 +34,7 @@ const { execFileSync } = require('child_process');
 
 const { gitRepoRoot } = require('./hash');
 const { readReceipt } = require('./store');
+const { isCrossModelCorroborated } = require('../lib/review-verdict');
 const { isIntentApproved } = require('../lib/intent-context');
 
 const FILES_HEADING_RE = /^#{1,6}\s+files\s+to\s+change\s*$/i;
@@ -366,14 +367,27 @@ function computeResidual(opts) {
   return result;
 }
 
-// v1.20.3 — fail-closed convergence predicate. Only resolution.codex_verdict
-// === 'converged' counts as converged. A missing receipt, a missing
-// codex_verdict, or any non-'converged' verdict (divergent/critical/unavailable/
-// skipped) all read as false, so dedupe declines to skip PR-Codex.
-function codexConverged(receipt) {
-  return !!(receipt && receipt.resolution &&
-    receipt.resolution.codex_verdict === 'converged');
+// v1.20.3 — fail-closed convergence predicate, widened by diverse-agent-review
+// M1 (DD2) from "Codex said converged" to "a CROSS-MODEL reviewer said converged".
+//
+// Skipping PR-Codex means asserting "Codex already reviewed this twice, so a
+// third pass adds nothing". A multi-agent panel approval is not evidence that
+// Codex ever spoke, so it must NOT satisfy the skip — otherwise moving plan
+// review off Codex would silently delete cross-model review from the pipeline
+// entirely instead of relocating it to the ship point. The predicate therefore
+// requires verdict==='converged' AND source ∈ {codex, hybrid}.
+//
+// Still fail-closed on everything else: a missing receipt, a missing verdict,
+// any non-'converged' verdict, a structurally broken proof, or a partial
+// review_* stamp all read false.
+function crossModelConverged(receipt) {
+  return !!(receipt && isCrossModelCorroborated(receipt.resolution));
 }
+
+// Retained name — this is the predicate's historical identity and several
+// call sites and tests refer to it. Semantics are now cross-model, not
+// Codex-literal.
+const codexConverged = crossModelConverged;
 
 // CLI integration: combines computeResidual with convergence check against
 // plan-codex + implement-codex receipts. Returns the same shape plus
@@ -414,13 +428,19 @@ function evaluateForDedupe(opts) {
     implementReceipt: implementReceipt,
   });
 
-  // `converged` here means codex_verdict==='converged' (fail-closed). The raw
-  // codex_verdict is surfaced alongside for transparent audit / trace output.
+  // `converged` here means CROSS-MODEL converged (DD2): verdict==='converged'
+  // AND the issuer was Codex or a hybrid panel. The raw codex_verdict and the
+  // review_source are both surfaced so an audit trail can see exactly why a
+  // skip was or was not permitted — a multi-agent approval shows up as
+  // converged:false with review_source:'multi-agent', which is a different
+  // story from a missing receipt and should read differently.
   const convergence = {
     decision_id: decisionId,
     plan_codex_receipt: planReceipt ? {
-      converged: codexConverged(planReceipt),
+      converged: crossModelConverged(planReceipt),
       codex_verdict: (planReceipt.resolution && planReceipt.resolution.codex_verdict) || null,
+      review_verdict: (planReceipt.resolution && planReceipt.resolution.review_verdict) || null,
+      review_source: (planReceipt.resolution && planReceipt.resolution.review_source) || null,
       // codex-intent-context M1 (DD9) — the intent axis is added HERE, on the
       // plan receipt only, and NOT inside the shared codexConverged helper.
       // codexConverged is used for both receipts, so folding intent into it
@@ -432,8 +452,10 @@ function evaluateForDedupe(opts) {
       head_sha: planReceipt.head_sha,
     } : null,
     implement_codex_receipt: implementReceipt ? {
-      converged: codexConverged(implementReceipt),
+      converged: crossModelConverged(implementReceipt),
       codex_verdict: (implementReceipt.resolution && implementReceipt.resolution.codex_verdict) || null,
+      review_verdict: (implementReceipt.resolution && implementReceipt.resolution.review_verdict) || null,
+      review_source: (implementReceipt.resolution && implementReceipt.resolution.review_source) || null,
       round: implementReceipt.round,
       head_sha: implementReceipt.head_sha,
     } : null,
@@ -477,6 +499,7 @@ module.exports = {
   computeResidual: computeResidual,
   evaluateForDedupe: evaluateForDedupe,
   codexConverged: codexConverged,
+  crossModelConverged: crossModelConverged,
   buildPlannedMatcher: buildPlannedMatcher,
   globToRegex: globToRegex,
   normalizePath: normalizePath,

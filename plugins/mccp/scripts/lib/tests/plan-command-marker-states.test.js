@@ -140,13 +140,28 @@ test('5.6b rejects an unreplaced placeholder, not just a missing heading', funct
   // Phase 5.1 appends the heading AND the placeholder together, so a heading-only
   // grep passes even when 5.3 never wrote the triage record — an approved receipt
   // for a plan carrying no review content.
-  const i = body.indexOf('5.6b — Verify the Codex section was injected');
+  //
+  // diverse-agent-review M1 added a second review mode, which splits this into TWO
+  // requirements rather than relaxing one. The check must still exist (below), and
+  // it must sit INSIDE the codex branch: only 5.3 replaces the placeholder and 5.3
+  // is codex-only, so at top level this would fire on every panel run and HALT the
+  // default mode — or push the operator into inventing a Codex section no Codex
+  // ever wrote, which is the same falsified-review-record failure in reverse.
+  const i = body.indexOf('5.6b — Verify the review record the mode produced');
   assert.ok(i > 0, 'anchor moved: 5.6b');
-  const verify = body.slice(i, i + 1400);
+  const verify = body.slice(i, body.indexOf('# Step B', i));
   assert.match(verify, /placeholder: will be replaced/,
     "5.6b must reject a plan still carrying 5.1's placeholder");
   assert.match(verify, /if grep -q/,
     'use `if`, not `grep … && { … }` — a non-match would otherwise trip set -e');
+
+  const codexBranch = verify.indexOf('if [ "$REVIEW_MODE" = "codex" ]; then');
+  const elseBranch = verify.indexOf('\nelse', codexBranch);
+  const placeholderCheck = verify.indexOf('placeholder: will be replaced');
+  assert.ok(codexBranch >= 0 && elseBranch > codexBranch, 'the mode branch moved');
+  assert.ok(placeholderCheck > codexBranch && placeholderCheck < elseBranch,
+    'the placeholder check must be scoped to the codex branch — at top level it '
+    + 'HALTs every multi-agent/hybrid run, whose plan is frozen and never injected');
 });
 
 test('the 5.2 wait resolves a vanished lock three ways, not one', function () {

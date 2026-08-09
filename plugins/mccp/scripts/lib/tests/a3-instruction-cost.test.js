@@ -267,3 +267,46 @@ test('A3: denominator is documented context window', async () => {
     if (fs.existsSync(tempClaude)) fs.unlinkSync(tempClaude);
   }
 });
+
+// -------------------------------- santa-loop round 1: --force leaves a record
+//
+// `--emit` refuses to clobber, but `--force` re-pinned the sealed before-value
+// with nothing written down. That reopens the exact hole the seal closes: once
+// the baseline is silently replaced, the reduction claim can no longer be
+// checked against anything. A re-pin is still allowed; it just cannot be quiet.
+
+const { buildResealHistory } = require('../msw-metrics/cli');
+
+test('reseal: --force carries forward the identity of the record it replaced', () => {
+  const prior = JSON.stringify({
+    git_head: 'aaaaaaaa', measured_at: '2026-01-01T00:00:00.000Z', numerator_tokens: 45646,
+    after: { git_head: 'bbbbbbbb' },
+  });
+  const r = buildResealHistory(prior, '2026-02-02T00:00:00.000Z');
+
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.history.length, 1);
+  assert.deepStrictEqual(r.history[0], {
+    resealed_at: '2026-02-02T00:00:00.000Z',
+    previous_git_head: 'aaaaaaaa',
+    previous_measured_at: '2026-01-01T00:00:00.000Z',
+    previous_numerator_tokens: 45646,
+    previous_after_git_head: 'bbbbbbbb',
+  });
+});
+
+test('reseal: repeated re-pins accumulate rather than overwrite each other', () => {
+  const first = buildResealHistory(JSON.stringify({ git_head: 'aaaa', numerator_tokens: 1 }), 't1');
+  const second = buildResealHistory(
+    JSON.stringify({ git_head: 'bbbb', numerator_tokens: 2, reseal_history: first.history }), 't2');
+
+  assert.strictEqual(second.history.length, 2, 'a second re-pin must not erase the first');
+  assert.strictEqual(second.history[0].previous_git_head, 'aaaa');
+  assert.strictEqual(second.history[1].previous_git_head, 'bbbb');
+});
+
+test('reseal: an unreadable prior record blocks the re-pin', () => {
+  assert.strictEqual(buildResealHistory(null, 't').ok, false);
+  assert.strictEqual(buildResealHistory('{ not json', 't').ok, false);
+  assert.strictEqual(buildResealHistory('"a string"', 't').ok, false);
+});

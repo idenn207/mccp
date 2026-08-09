@@ -69,8 +69,16 @@ function makeTree(overrides = {}) {
   return root;
 }
 
-function runLint(root) {
-  return lintReachability({ repoRoot: root, claudePath: 'CLAUDE.md', ledgerPath: 'ledger.md' });
+// Synthetic trees have no git history, so C4's strict pass has no pre-reduction
+// ref to anchor against and correctly fails closed. These fixtures exercise the
+// per-check logic, so they opt into the ledger-only C4 explicitly; the strict
+// pass is covered separately against the real repository below. Opting in here
+// is deliberate — silently defaulting to the weaker check is what would let the
+// strict pass rot unnoticed.
+function runLint(root, opts) {
+  return lintReachability(Object.assign({
+    repoRoot: root, claudePath: 'CLAUDE.md', ledgerPath: 'ledger.md', allowMissingBefore: true,
+  }, opts || {}));
 }
 
 function withTree(overrides, fn) {
@@ -288,4 +296,113 @@ test('lint: the real repo ledger parses and covers every CLAUDE.md heading', () 
   const unclassified = claudeHeadings.filter((h) => !ledgerHeadings.has(h));
   assert.deepStrictEqual(unclassified, [],
     'every CLAUDE.md heading must carry a disposition in the contract');
+});
+
+// ------------------------------------------------- santa-loop round 1 hardening
+//
+// Reviewer B found three ways the lint reported success while proving less than
+// G2 claims. Each fix gets the fixture that drives it red, because a check that
+// cannot be shown failing is indistinguishable from one that never runs.
+
+test('lint C3: a routed row with no resident pointer fails (was silently skipped)', () => {
+  withTree({
+    rows: [
+      { id: 'S1', heading: '1. Kept section', disposition: 'resident' },
+      {
+        id: 'S2', heading: '2. Moved section', disposition: 'on-demand',
+        destFile: 'docs/moved.md', destAnchor: 'Relocated detail', pointer: null,
+      },
+    ],
+  }, (root) => {
+    const r = runLint(root);
+    assert.strictEqual(r.checks.C3, 'fail',
+      'omitting the pointer column must not switch the check off');
+    assert.match(r.failures.map((f) => f.message).join('\n'), /declares no Resident Pointer/);
+  });
+});
+
+test('lint C3: a pointer that never names its destination fails', () => {
+  withTree({
+    pointer: 'See the appendix for the relocated detail.',
+    rows: [
+      { id: 'S1', heading: '1. Kept section', disposition: 'resident' },
+      {
+        id: 'S2', heading: '2. Moved section', disposition: 'on-demand',
+        destFile: 'docs/moved.md', destAnchor: 'Relocated detail', pointer: 'appendix',
+      },
+    ],
+  }, (root) => {
+    const r = runLint(root);
+    assert.strictEqual(r.checks.C3, 'fail',
+      'pointer text present in CLAUDE.md is not the same as the destination being reachable');
+    assert.match(r.failures.map((f) => f.message).join('\n'), /never names the destination/);
+  });
+});
+
+test('lint C4: with no resolvable before-ref the lint fails closed', () => {
+  withTree({}, (root) => {
+    const r = lintReachability({
+      repoRoot: root, claudePath: 'CLAUDE.md', ledgerPath: 'ledger.md',
+      beforeRef: 'refs/mccp-test/does-not-exist', baselinePath: 'no-such-baseline.json',
+      baseRef: 'refs/mccp-test/also-missing',
+    });
+    assert.strictEqual(r.checks.C4, 'fail', 'an unprovable C4 must not report pass');
+    assert.strictEqual(r.stats.c4_strict, false);
+    assert.match(r.failures.map((f) => f.message).join('\n'), /no trusted pre-reduction heading set/);
+  });
+});
+
+test('lint C4: --allow-missing-before degrades but says so', () => {
+  withTree({}, (root) => {
+    const r = lintReachability({
+      repoRoot: root, claudePath: 'CLAUDE.md', ledgerPath: 'ledger.md',
+      beforeRef: 'refs/mccp-test/does-not-exist', baselinePath: 'no-such-baseline.json',
+      baseRef: 'refs/mccp-test/also-missing', allowMissingBefore: true,
+    });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.stats.c4_strict, false, 'the weaker run must be visible in the stats');
+    assert.match(r.advisories.join('\n'), /WITHOUT a pre-reduction baseline/);
+  });
+});
+
+test('lint C4 strict: a section deleted from BOTH CLAUDE.md and the ledger is caught', () => {
+  // The ledger-row walk structurally cannot see this case: with the row gone
+  // there is nothing left to iterate. Only a trusted before-set catches it, so
+  // this runs against the real repo where git can supply one.
+  const repoRoot = path.resolve(__dirname, '..', '..', '..', '..', '..');
+  const claudeText = fs.readFileSync(path.join(repoRoot, 'CLAUDE.md'), 'utf8');
+  const ledgerRel = path.join('docs', 'multi-session-work-loop', 'instruction-contract.md');
+  const ledgerText = fs.readFileSync(path.join(repoRoot, ledgerRel), 'utf8');
+
+  const victim = '### 3.11 완료 PRD/plan 아카이브 (`archived/` 관례 + `/mccp:archive-complete`) (v1.20.15)';
+  assert.ok(claudeText.indexOf(victim) !== -1, 'fixture heading must exist in CLAUDE.md');
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ic-c4-'));
+  try {
+    const claudeCut = path.join(tmp, 'CLAUDE.cut.md');
+    const ledgerCut = path.join(tmp, 'ledger.cut.md');
+    fs.writeFileSync(claudeCut,
+      claudeText.split('\n').filter((ln) => ln.trim() !== victim).join('\n'), 'utf8');
+    fs.writeFileSync(ledgerCut,
+      ledgerText.split('\n').filter((ln) => ln.indexOf('3.11 완료 PRD/plan 아카이브') === -1).join('\n'), 'utf8');
+
+    const r = lintReachability({ repoRoot: repoRoot, claudePath: claudeCut, ledgerPath: ledgerCut });
+    assert.strictEqual(r.stats.c4_strict, true, 'the real repo must supply a before-ref');
+    assert.strictEqual(r.checks.C4, 'fail');
+    assert.match(r.failures.map((f) => f.message).join('\n'), /the ledger has\s+no row for it/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('lint: the real repo passes with the STRICT C4 pass enabled', () => {
+  const repoRoot = path.resolve(__dirname, '..', '..', '..', '..', '..');
+  const r = lintReachability({
+    repoRoot: repoRoot,
+    claudePath: 'CLAUDE.md',
+    ledgerPath: path.join('docs', 'multi-session-work-loop', 'instruction-contract.md'),
+  });
+  assert.strictEqual(r.stats.c4_strict, true,
+    'the reduction claim rests on a before-set actually being available');
+  assert.strictEqual(r.ok, true, r.failures.map((f) => f.check + ': ' + f.message).join('\n'));
 });

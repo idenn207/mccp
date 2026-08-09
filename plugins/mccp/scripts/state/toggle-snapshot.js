@@ -134,6 +134,77 @@ function isExcludedToggle(name) {
   return Object.prototype.hasOwnProperty.call(TOGGLE_EXCLUSIONS, name);
 }
 
+// measurement-design.md §B3 owns the exclusion list: "제외는 이 목록에 이름을
+// 적을 때만 유효" and "집행부는 TOGGLE_EXCLUSIONS이며 이 표와 1:1이다". Until
+// something compares them, that 1:1 is an assertion in prose while the code is
+// the real source of truth -- a denominator can then be changed by editing JS
+// alone, which is exactly what the named-exclusion rule exists to prevent.
+// These two functions make the claim checkable; the test asserts zero drift.
+const EXCLUSION_DOC_REL = path.join('docs', 'multi-session-work-loop', 'measurement-design.md');
+
+// Row shape: | class | `<TOKEN>` | evidence |   (trailing `_` allowed: prefix
+// families). The token is not spelled out with its real prefix here: this file
+// is itself inside the scanned surface, so a literal example would be counted
+// as a toggle and inflate the very denominator it documents (same
+// self-contamination the PYPROBE_OK marker hit).
+const EXCLUSION_ROW = /^[ \t]*\|[ \t]*([a-z][a-z-]*)[ \t]*\|[ \t]*`(MCCP_[A-Z0-9_]*)`[ \t]*\|/gm;
+
+function parseExclusionDoc(repoRoot, docPath) {
+  const target = path.resolve(repoRoot || process.cwd(), docPath || EXCLUSION_DOC_REL);
+  let text;
+  try {
+    text = fs.readFileSync(target, 'utf8');
+  } catch (err) {
+    return { ok: false, tokens: null, path: target, error: err.message };
+  }
+  const tokens = new Map();
+  EXCLUSION_ROW.lastIndex = 0;
+  let m;
+  while ((m = EXCLUSION_ROW.exec(text)) !== null) {
+    if (EXCLUSION_CLASSES.indexOf(m[1]) === -1) continue;
+    tokens.set(m[2], m[1]);
+  }
+  return { ok: true, tokens: tokens, path: target, error: null };
+}
+
+/**
+ * Compare the normative exclusion table against the enforcing constant.
+ * Drift in either direction is reported; an unreadable table is drift too,
+ * because "cannot check" must not read the same as "checked and clean".
+ */
+function crossCheckExclusions(repoRoot, docPath) {
+  const codeNames = Object.keys(TOGGLE_EXCLUSIONS);
+  const doc = parseExclusionDoc(repoRoot, docPath);
+  if (!doc.ok) {
+    return {
+      ok: false,
+      drift: ['normative exclusion table not readable at ' + doc.path + ' (' + doc.error + ')'],
+      missing_in_doc: codeNames, missing_in_code: [], class_mismatch: [],
+      doc_token_count: null, code_token_count: codeNames.length,
+    };
+  }
+  const missingInDoc = codeNames.filter((n) => !doc.tokens.has(n));
+  const missingInCode = Array.from(doc.tokens.keys()).filter((n) => !isExcludedToggle(n));
+  const classMismatch = codeNames
+    .filter((n) => doc.tokens.has(n) && doc.tokens.get(n) !== TOGGLE_EXCLUSIONS[n].class)
+    .map((n) => n + ' (code=' + TOGGLE_EXCLUSIONS[n].class + ', doc=' + doc.tokens.get(n) + ')');
+
+  const drift = []
+    .concat(missingInDoc.map((n) => 'excluded in code but not named in the normative table: ' + n))
+    .concat(missingInCode.map((n) => 'named in the normative table but not excluded in code: ' + n))
+    .concat(classMismatch.map((s) => 'class mismatch — ' + s));
+
+  return {
+    ok: drift.length === 0,
+    drift: drift,
+    missing_in_doc: missingInDoc,
+    missing_in_code: missingInCode,
+    class_mismatch: classMismatch,
+    doc_token_count: doc.tokens.size,
+    code_token_count: codeNames.length,
+  };
+}
+
 // 간단한 파일 재귀 스캔 (glob 미사용)
 function scanFilesRecursively(dir, fileExt) {
   const results = [];
@@ -202,6 +273,10 @@ function scanSurfaceDetailed(repoRoot) {
     excluded: excluded,
     excluded_by_class: byClass,
     defaults_conflicts: defaultsConflicts,
+    // Surfaced next to the denominator it governs: a reader who sees
+    // "denominator 96" should be able to see, in the same object, whether the
+    // exclusions producing that 96 are the ones the normative table names.
+    exclusion_doc: crossCheckExclusions(repoRoot),
   };
 }
 
@@ -366,7 +441,10 @@ module.exports = {
   TOGGLE_DEFAULTS,
   TOGGLE_EXCLUSIONS,
   EXCLUSION_CLASSES,
+  EXCLUSION_DOC_REL,
   isExcludedToggle,
+  parseExclusionDoc,
+  crossCheckExclusions,
   scanRuntimeSurface,
   scanSurfaceDetailed,
   captureNonDefault,

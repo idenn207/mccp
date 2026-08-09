@@ -29,6 +29,7 @@ function scanToggleUsage(repoRoot) {
     operation_branch_method: BRANCH_METHOD,
     snapshot_corpus_present: false,
     snapshot_files_read: 0,
+    snapshot_files_parsed: 0,
     producer_coverage: 'toggle-usage',
     degraded: false,
     invalid_count: 0,
@@ -56,6 +57,7 @@ function scanToggleUsage(repoRoot) {
 
         try {
           const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+          result.snapshot_files_parsed++;
           if (content.toggles && typeof content.toggles === 'object') {
             for (const toggleName of Object.keys(content.toggles)) {
               const toggleData = content.toggles[toggleName];
@@ -75,8 +77,21 @@ function scanToggleUsage(repoRoot) {
     // "토글을 아무도 안 썼다"가 아니라 "이력이 수집된 적 없다"이고, 둘을 같은
     // `0`으로 내보내면 빈 corpus 위에서 confidently-wrong 0%가 나온다(M2가
     // A1·A2·A4·B2에 대해 이미 강등시킨 패턴).
-    result.snapshot_corpus_present = result.snapshot_files_read > 0;
+    //
+    // 존재 판정의 기준은 **파싱에 성공한** 스냅샷이다. `files_read`로 세면 전부
+    // 손상된 corpus가 "이력이 수집됐다"로 통과해 바로 위 문단이 막으려는
+    // confidently-wrong 0%를 그대로 산출한다(읽기는 됐고 해석은 실패한 파일은
+    // 이력이 아니다). files_read와 invalid_count는 진단용으로 둘 다 남긴다.
+    result.snapshot_corpus_present = result.snapshot_files_parsed > 0;
     result.used_toggle_count = usedToggles.size;
+
+    // 파일은 있는데 하나도 파싱되지 않았다면 정상 상태가 아니다 — corpus 부재와
+    // 구분되도록 degraded로 표면화한다.
+    if (result.snapshot_files_read > 0 && result.snapshot_files_parsed === 0) {
+      result.degraded = true;
+      result.error = 'all ' + result.snapshot_files_read +
+        ' env-snapshot file(s) failed to parse; treating the corpus as absent';
+    }
 
     // 3. 동작 분기 수 — **분모 표면 전체** 위에서 센다.
     //    measurement-design.md §B3의 병기 목적은 "토글 수를 줄였다 ≠ 동작 분기를

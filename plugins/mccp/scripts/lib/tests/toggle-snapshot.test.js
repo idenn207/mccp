@@ -283,3 +283,52 @@ test('toggle-snapshot: raw env value not in output', () => {
   // 메타데이터만 있고 raw 값은 없음
   assert.ok(result.MCCP_STOP_LOOP.is_set === true, 'is_set flag should exist');
 });
+
+// --------------------------------------------- santa-loop round 1: G3 doc gate
+//
+// measurement-design.md §B3 says exclusions are only valid when NAMED there and
+// that TOGGLE_EXCLUSIONS is 1:1 with that table. Nothing compared them, so the
+// denominator could be changed by editing JS alone -- the exact move the
+// named-exclusion rule exists to prevent. These pin the comparison.
+
+test('exclusions: the normative table and the enforcing constant agree exactly', () => {
+  const x = toggleSnapshot.crossCheckExclusions(REPO_ROOT);
+  assert.deepStrictEqual(x.drift, [],
+    'measurement-design.md §B3 and TOGGLE_EXCLUSIONS must stay 1:1');
+  assert.strictEqual(x.ok, true);
+  assert.strictEqual(x.doc_token_count, x.code_token_count);
+  assert.ok(x.code_token_count > 0, 'a zero-token comparison would pass vacuously');
+});
+
+test('exclusions: a token excluded in code but absent from the table is drift', () => {
+  const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'excl-doc-'));
+  try {
+    const docRel = path.join('docs', 'multi-session-work-loop', 'measurement-design.md');
+    const real = fs.readFileSync(path.join(REPO_ROOT, docRel), 'utf8');
+    // Drop one named row; the constant still excludes it.
+    const cut = real.split('\n').filter((ln) => ln.indexOf('`MCCP_STOP_LOOP_E2E`') === -1).join('\n');
+    const cutPath = path.join(tmp, 'measurement-design.cut.md');
+    fs.writeFileSync(cutPath, cut, 'utf8');
+
+    const x = toggleSnapshot.crossCheckExclusions(REPO_ROOT, cutPath);
+    assert.strictEqual(x.ok, false, 'removing a row from the table must be visible');
+    assert.deepStrictEqual(x.missing_in_doc, ['MCCP_STOP_LOOP_E2E']);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('exclusions: an unreadable table is drift, not a clean pass', () => {
+  const x = toggleSnapshot.crossCheckExclusions(REPO_ROOT, 'docs/definitely-not-here.md');
+  assert.strictEqual(x.ok, false,
+    '"cannot check" must never report the same as "checked and clean"');
+  assert.match(x.drift.join('\n'), /not readable/);
+});
+
+test('exclusions: the live surface carries the doc comparison beside the denominator', () => {
+  const d = toggleSnapshot.scanSurfaceDetailed(REPO_ROOT);
+  assert.ok(d.exclusion_doc, 'the denominator and its provenance travel together');
+  assert.strictEqual(d.exclusion_doc.ok, true, JSON.stringify(d.exclusion_doc.drift));
+  assert.strictEqual(d.raw_surface_count - d.toggle_count, d.excluded.length,
+    'the gap between the two denominators is exactly the exclusion count');
+});

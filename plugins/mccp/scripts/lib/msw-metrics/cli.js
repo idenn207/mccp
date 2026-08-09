@@ -12,7 +12,10 @@
 //
 // Usage:
 //   node cli.js a3 --emit <path>              write the BEFORE record (refuses to clobber)
-//   node cli.js a3 --emit <path> --force      overwrite an existing record
+//   node cli.js a3 --emit <path> --force      re-pin an existing record; what it
+//                                             replaced is preserved under
+//                                             `reseal_history` so the re-pin is
+//                                             visible in the artifact itself
 //   node cli.js a3 --emit-after <path>        measure now, store as `.after` in <path>
 //   node cli.js a3 --print                    measure and print, write nothing
 //
@@ -177,7 +180,8 @@ async function cmdA3(argv) {
   // Guard the pinned before-value. Overwriting the baseline after a reduction
   // would silently retarget the comparison and make any reduction claim
   // unfalsifiable.
-  if (fs.existsSync(target) && !force) {
+  const targetExists = fs.existsSync(target);
+  if (targetExists && !force) {
     process.stderr.write(
       '[a3] refusing to overwrite existing baseline ' + target + '\n' +
       '     Use --emit-after <path> to record the post-reduction value, or --force to re-pin.\n'
@@ -185,10 +189,38 @@ async function cmdA3(argv) {
     return 1;
   }
 
+  // A re-pin stays possible, but it can never be silent. The guard above only
+  // stops the accidental clobber; without a record of what --force replaced,
+  // the escape hatch reopens the exact hole the guard exists to close (an
+  // operator re-pins the before-value after the reduction and the claim
+  // becomes unfalsifiable). So the replaced identity is carried forward in the
+  // artifact itself, and a prior record we cannot read is a hard stop rather
+  // than a re-pin over an unrecordable value.
+  let resealHistory = [];
+  if (targetExists) {
+    const reseal = buildResealHistory(readFileOrNull(target), new Date().toISOString());
+    if (!reseal.ok) {
+      process.stderr.write(
+        '[a3] --force: existing baseline at ' + target + ' is unreadable (' + reseal.error + ')\n' +
+        '     Refusing to re-pin over a record whose prior value cannot be preserved.\n'
+      );
+      return 1;
+    }
+    resealHistory = reseal.history;
+    const latest = resealHistory[resealHistory.length - 1];
+    process.stderr.write(
+      '[a3] --force: re-pinning baseline at ' + target + '\n' +
+      '     previous before-value (git_head=' + (latest.previous_git_head || 'unknown') +
+      ', tokens=' + (latest.previous_numerator_tokens != null ? latest.previous_numerator_tokens : 'unknown') + ')' +
+      ' recorded in reseal_history; any prior `after` is discarded.\n'
+    );
+  }
+
   const record = toRecord(result, repoRoot);
   writeJson(target, Object.assign({ schema: SCHEMA, role: 'a3-instruction-cost' }, record, {
     after: null,
     reduction: null,
+    reseal_history: resealHistory.length ? resealHistory : null,
     notes: NOTES,
   }));
   process.stdout.write(
@@ -196,6 +228,44 @@ async function cmdA3(argv) {
     ' (' + record.numerator_tokens + ' tokens / ' + record.denominator_tokens + ')\n'
   );
   return 0;
+}
+
+function readFileOrNull(target) {
+  try { return fs.readFileSync(target, 'utf8'); } catch (err) { return null; }
+}
+
+/**
+ * Carry forward what a --force re-pin is about to replace.
+ *
+ * Kept pure so the guard is testable without a tokenizer: the CLI path needs
+ * python + tiktoken, and a guard that can only be exercised on one machine is a
+ * guard nobody re-checks. Returns ok:false when the prior record cannot be read,
+ * because re-pinning over a value we cannot record is the unfalsifiable case the
+ * whole baseline seal exists to prevent.
+ *
+ * @param {string|null} priorRaw  existing artifact text, or null if unreadable
+ * @param {string} nowIso
+ * @returns {{ok: boolean, history?: Array, error?: string}}
+ */
+function buildResealHistory(priorRaw, nowIso) {
+  if (priorRaw === null) return { ok: false, error: 'file not readable' };
+  let prior;
+  try {
+    prior = JSON.parse(priorRaw);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+  if (!prior || typeof prior !== 'object') return { ok: false, error: 'not a JSON object' };
+
+  const history = Array.isArray(prior.reseal_history) ? prior.reseal_history.slice() : [];
+  history.push({
+    resealed_at: nowIso,
+    previous_git_head: prior.git_head || null,
+    previous_measured_at: prior.measured_at || null,
+    previous_numerator_tokens: Number.isFinite(prior.numerator_tokens) ? prior.numerator_tokens : null,
+    previous_after_git_head: prior.after && prior.after.git_head ? prior.after.git_head : null,
+  });
+  return { ok: true, history: history };
 }
 
 function writeJson(target, doc) {
@@ -227,4 +297,6 @@ if (require.main === module) {
     });
 }
 
-module.exports = { toRecord, redactForCommit, redactTokenizerForCommit, reductionOf, SCHEMA };
+module.exports = {
+  toRecord, redactForCommit, redactTokenizerForCommit, reductionOf, buildResealHistory, SCHEMA,
+};

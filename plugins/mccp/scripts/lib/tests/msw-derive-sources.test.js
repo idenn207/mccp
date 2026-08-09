@@ -70,3 +70,59 @@ test('handoff-items source: empty state dir returns ok with zero counts', () => 
   assert.strictEqual(r.items_left_count, 0);
   assert.strictEqual(r.items_restored_count, 0);
 });
+
+// ------------------------------- santa-loop round 1: corpus presence vs corrupt
+//
+// `snapshot_files_read` was incremented before JSON.parse, so a directory of
+// unparseable snapshots reported `snapshot_corpus_present: true` and B3 served a
+// confident "computed 0%" -- precisely the confidently-wrong shape the comment
+// above that line says the flag exists to prevent. Presence now means PARSED.
+
+test('toggle-usage: an all-corrupt snapshot corpus is absent, not empty', () => {
+  const os = require('os');
+  const { scanToggleUsage } = require('../../derive/sources/toggle-usage');
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tu-corrupt-'));
+  try {
+    const stateDir = path.join(root, '.claude', 'state');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(path.join(stateDir, 'a.env-snapshot.json'), '{ this is not json', 'utf8');
+    fs.writeFileSync(path.join(stateDir, 'b.env-snapshot.json'), '', 'utf8');
+
+    const r = scanToggleUsage(root);
+    assert.strictEqual(r.snapshot_files_read, 2, 'both files were seen');
+    assert.strictEqual(r.snapshot_files_parsed, 0, 'and neither could be read as history');
+    assert.strictEqual(r.snapshot_corpus_present, false,
+      'unparseable files are not usage history');
+    assert.strictEqual(r.invalid_count, 2);
+    assert.strictEqual(r.degraded, true, 'files present but none parseable is not a normal state');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('toggle-usage: one parseable snapshot among corrupt ones is a real corpus', () => {
+  const os = require('os');
+  const { scanToggleUsage } = require('../../derive/sources/toggle-usage');
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tu-mixed-'));
+  try {
+    const stateDir = path.join(root, '.claude', 'state');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(path.join(stateDir, 'bad.env-snapshot.json'), '<<<', 'utf8');
+    fs.writeFileSync(
+      path.join(stateDir, 'good.env-snapshot.json'),
+      JSON.stringify({ toggles: { MCCP_STOP_LOOP: { is_set: true } } }),
+      'utf8'
+    );
+
+    const r = scanToggleUsage(root);
+    assert.strictEqual(r.snapshot_corpus_present, true);
+    assert.strictEqual(r.snapshot_files_parsed, 1);
+    assert.strictEqual(r.invalid_count, 1, 'the corrupt file is still reported');
+    assert.strictEqual(r.degraded, false);
+    assert.strictEqual(r.used_toggle_count, 1);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -150,6 +150,33 @@ plan의 G1~G3 표가 단일 기준이며 그 밖의 표현은 쓰지 않는다.
 - **`MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL`이 제외 목록과 `TOGGLE_DEFAULTS`에 동시 존재** — `scanSurfaceDetailed`가 `defaults_conflicts`로 표면화한다. numerator 정합은 M8 소관.
 - **버전 순서 — 예고한 역전이 실제로 일어나 `1.23.4`로 상향 (2026-08-09, 커밋 전 코드리뷰에서 검출)**. 착수 시점 `origin/main`은 `1.23.1`이라 `1.23.2`가 맞았으나, 그 사이 sibling 브랜치가 먼저 머지되며 `origin/main`이 `1.23.2`(PR #117 — red test suite 복구)와 `1.23.3`을 **둘 다 소비**했다. `1.23.2`를 유지하면 CHANGELOG에 같은 버전 항목이 둘 생기고(`origin/main`에 이미 `## [1.23.2] — 2026-07-31` 존재) 매니페스트가 후퇴한다. §3.7 forward-only reconcile로 두 칸 상향했고, `plugin.json` · CHANGELOG 헤더 · renderer footer 2면을 함께 동기했다. 로컬 `feat/codex-intent-context`가 `1.23.4`를 선언 중이나 **미push**이며 santa-loop 비수렴 상태라, 먼저 착지하는 쪽이 번호를 갖는다 — 그쪽이 앞서면 그때 다시 상향한다(M3 CL-3와 같은 처리).
 
+## santa-loop round 1 — dual-review 흡수
+
+PR 생성 후 `/mccp:santa-loop`를 돌렸다. **Reviewer A(Opus)는 G1·G2·G3를 전부 PASS로 통과시켰고, Reviewer B(codex GPT-5.4)만 세 보증 각각에서 실제 구멍을 찾았다.** [[memory: multi-session-work-loop M2]]·[[integrity-unification M3]]에 이어 asymmetric catch가 다시 재현됐다.
+
+### Reviewer A 판정은 실측으로 대부분 반증됐다
+
+Reviewer A는 critical 6건 중 5건을 "M4가 새로 깨뜨린 테스트"로 올렸다(`finalize-receipt.test.js` 2건 · `validate-callsite-lint` + `pr.md --plan` 2건 · "보고서의 zero-new-failures 주장은 거짓" 1건). 지적된 4개 파일을 이 브랜치는 **하나도 건드리지 않았고**, `origin/main`을 detached worktree로 뽑아 대조한 결과 같은 테스트가 **이름·개수·실패 assertion까지 동일하게** 실패했다. 전체 스위트로도 확인했다 — `origin/main` 3717 tests / fail 9, 브랜치 3746 tests / fail 8, **브랜치에만 있는 실패 0건**(브랜치가 1건 적은 것은 `perf-budget` 타이밍 테스트가 main 실행에서만 튄 것). baseline 대조 없이 "지금 빨간색이니 이번 변경 탓"으로 귀속한 오탐이다.
+
+### Reviewer B 지적 6건 — 5건 확인·흡수, 1건 반증
+
+| # | 지적 | 판정 | 처리 |
+|---|---|---|---|
+| B1 | `cli.js` `--force`가 봉인 baseline을 흔적 없이 덮어씀 | 확인 | `reseal_history` 누적 기록 + 읽을 수 없는 이전 기록 위 재봉인 거부. `buildResealHistory` 순수 함수 분리(tokenizer 없이 회귀 검증) |
+| B2 | C4에 신뢰할 수 있는 before 헤딩 집합 없음 → 양쪽에서 동시에 지운 절 탐지 불가 | 확인 | strict pass 추가(before를 `a3-baseline.json` pin 커밋에서 git으로 취득). before-ref 부재는 **fail-closed**, `--allow-missing-before`로만 강등되며 `c4_strict`로 표면화 |
+| B3 | C3가 `resident_pointer` 있을 때만 동작(열 비우면 검사 소멸) | 확인 | 목적지 선언 행은 포인터 **필수** + 포인터가 그 목적지를 지목하는지 대조 |
+| B4 | 제외표가 JS 하드코딩, 규범 문서를 읽는 코드 0 | 확인 | `crossCheckExclusions` 양방향 drift + class 불일치 + "표 읽기 실패도 drift" |
+| B5 | 입력 부재 시 가짜 0 baseline 봉인 | **반증** | CLAUDE.md 없는 디렉토리에서 emitter 실행 → `refusing to write artifact: status=baseline-unavailable`, 아티팩트 미생성. 다만 거부가 명시 체크가 아니라 TypeError 변환이라 메시지가 불투명한 것은 사실 |
+| B6 | 손상 스냅샷이 corpus 존재로 계수됨 → 빈 corpus 위 confidently-wrong 0% | 확인 | 존재 판정을 **파싱 성공** 기준으로. 파일은 있는데 전부 실패하면 `degraded` |
+
+부수로 문서 drift 2건(`measurement-instrumentation.md`의 "B3만 claimed-computable" · `MCCP_A3_READ_USER_MEMORY` truthy 판정이 `=0`을 opt-in으로 해석)과 main 승계 `CHANGELOG.md` `[1.23.4]` 헤딩 중복을 함께 닫았다.
+
+### 이 라운드가 바꾼 보증의 강도
+
+G2는 **명세대로 복원됐다** — plan의 C4는 원래 "감축 전 헤딩 집합 − 감축 후 ⊆ ledger"였는데 구현에 before 집합이 없어 명세보다 약했다. G3의 "이름을 규범 문서에 적을 때만 유효"는 관례에서 **기계 검사**가 됐다. G1은 재봉인 경로가 감사 가능해졌다.
+
+신규 test 15건(instruction-contract 6 · toggle-snapshot 4 · derive-sources 2 · a3 3). 전 fixture는 **부정 방향**으로 각각 red를 재현한 뒤 채택했다.
+
 ## Plan 아카이브 미수행 (의도)
 
 Phase 5의 기본 절차는 plan을 `completed/`로 옮기는 것이나 **수행하지 않았다.** receipt의 `plan_hash`가 `.claude/plans/multi-session-work-loop-m4.plan.md` 경로에 anchor돼 있어 지금 옮기면 `/mccp:pr`의 chain validate가 깨진다. 저장소 관례도 동일하다(M1~M3 plan 모두 `.claude/plans/`에 잔류하며, 완료 아카이브는 §3.11의 `/mccp:archive-complete`가 PRD 전체 완료 시점에 소유한다).

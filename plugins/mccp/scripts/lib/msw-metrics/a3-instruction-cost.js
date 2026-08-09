@@ -111,7 +111,14 @@ async function measureA3(opts = {}) {
   };
 
   // Check if user-memory read is explicitly enabled
-  const readUserMemory = opts.readUserMemory !== false && process.env[MEMORY_ENV_FLAG];
+  // The documented contract is `=1`, so honour that literally. A bare truthiness
+  // test made `MCCP_A3_READ_USER_MEMORY=0` switch the component ON, which is the
+  // opposite of what anyone writing `0` means and a silent divergence from the
+  // documented spelling.
+  const memoryFlagRaw = process.env[MEMORY_ENV_FLAG];
+  const memoryFlagOn = typeof memoryFlagRaw === 'string'
+    && /^(1|true|yes|on)$/i.test(memoryFlagRaw.trim());
+  const readUserMemory = opts.readUserMemory !== false && memoryFlagOn;
 
   try {
     // Component 1: CLAUDE.md

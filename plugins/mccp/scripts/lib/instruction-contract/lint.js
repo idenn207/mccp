@@ -9,7 +9,13 @@
 //
 //   C1  destination exists      — every declared dest_file is a real file
 //   C2  anchor exists           — dest_anchor is a real heading inside dest_file
-//   C3  resident pointer exists — CLAUDE.md still points at the destination
+//   C3  resident pointer exists — CLAUDE.md still points at the destination.
+//                                 REQUIRED once a row declares a destination,
+//                                 and the destination must be named in
+//                                 CLAUDE.md: an optional pointer check is one
+//                                 the author can switch off by leaving a column
+//                                 blank, and a pointer that never names where it
+//                                 leads sends the reader nowhere.
 //   C4  no unrouted loss        — every heading that left CLAUDE.md is a ledger
 //                                 row that is `retire`, or `on-demand` WITH a
 //                                 destination. A section vanishing with nowhere
@@ -18,6 +24,16 @@
 // C4 is deliberately stricter than "removed ⊆ on-demand ∪ retire": an
 // on-demand row with no destination that disappears would satisfy the looser
 // reading while leaving the instruction nowhere, so a destination is required.
+//
+// C4 runs twice over different populations, because one of them cannot see the
+// worst case. Walking ledger rows catches a declared section that lost its
+// destination, but a section deleted from BOTH CLAUDE.md and the ledger has no
+// row left to walk and would pass in silence. The strict pass therefore takes
+// the pre-reduction heading set from git (the commit the A3 baseline is pinned
+// against, so the reduction figure and this proof share one anchor) and
+// enforces before − after ⊆ ledger(retire ∪ on-demand-with-dest). With no
+// resolvable before-ref the lint FAILS rather than quietly proving less;
+// --allow-missing-before opts into the weaker check and says so in the output.
 //
 // Security absorption S3: dest_file comes from a markdown document, i.e. it is
 // document-controlled input that this lint then opens. Paths are screened
@@ -28,9 +44,79 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const { parseLedger, extractHeadings } = require('./ledger');
 const { assertContained } = require('../path-containment');
+
+// A ref is fed to `git show`, so keep it to the shapes git actually uses and
+// nothing that could be read as an option or a second argument.
+const SAFE_REF = /^[0-9A-Za-z][0-9A-Za-z._/-]*$/;
+
+/** Read CLAUDE.md as of a git ref. Returns null when the ref cannot be read. */
+function gitShowClaude(repoRoot, ref) {
+  if (!SAFE_REF.test(ref)) return null;
+  try {
+    return execFileSync('git', ['show', ref + ':CLAUDE.md'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (_e) {
+    return null;
+  }
+}
+
+/**
+ * Establish the pre-reduction heading set C4 compares against.
+ *
+ * Preference order: an explicit --before-ref, then the commit the A3 baseline
+ * artifact was pinned against (the same commit the reduction figure is measured
+ * from, so the two claims share one anchor), then the base branch. Whichever is
+ * used is reported, because "which before" changes what C4 actually proved.
+ */
+function resolveBeforeHeadings(repoRoot, opts) {
+  const candidates = [];
+  if (opts.beforeRef) candidates.push({ ref: opts.beforeRef, source: 'explicit --before-ref' });
+
+  const baselinePath = path.resolve(
+    repoRoot,
+    opts.baselinePath || path.join('docs', 'multi-session-work-loop', 'a3-baseline.json')
+  );
+  const raw = readFileOrNull(baselinePath);
+  if (raw !== null) {
+    try {
+      const doc = JSON.parse(raw);
+      if (doc && typeof doc.git_head === 'string' && doc.git_head) {
+        candidates.push({ ref: doc.git_head, source: 'a3-baseline.json git_head' });
+      }
+    } catch (_e) { /* fall through to the base-branch candidate */ }
+  }
+  candidates.push({ ref: opts.baseRef || 'origin/main', source: 'base branch' });
+
+  const tried = [];
+  for (const candidate of candidates) {
+    const text = gitShowClaude(repoRoot, candidate.ref);
+    if (text !== null) {
+      return {
+        headings: new Set(extractHeadings(text).map((h) => h.title)),
+        ref: candidate.ref,
+        source: candidate.source,
+        tried: tried,
+        reason: null,
+      };
+    }
+    tried.push(candidate.ref + ' (' + candidate.source + ')');
+  }
+  return {
+    headings: null,
+    ref: null,
+    source: null,
+    tried: tried,
+    reason: 'no candidate ref resolved to a CLAUDE.md: ' + (tried.join(', ') || 'none tried'),
+  };
+}
 
 /**
  * Reject document-supplied paths that could reach outside the repo.
@@ -134,7 +220,28 @@ function lintReachability(opts = {}) {
     }
 
     // ---- C3 resident pointer exists ---------------------------------------
-    if (row.resident_pointer && claudeText.indexOf(row.resident_pointer) === -1) {
+    // The pointer column is REQUIRED once a row declares a destination. Leaving
+    // it optional made the check vanish exactly where it matters: omit the
+    // column and the "relocated with no way back" guard silently stops running
+    // for that row while the lint still reports C3 pass.
+    if (row.dest_file) {
+      if (!row.resident_pointer) {
+        fail('C3',
+          `"${row.heading}": routed to ${row.dest_file} but the ledger declares no ` +
+          'Resident Pointer (a relocation with no way back is a deletion)');
+      } else if (claudeText.indexOf(row.resident_pointer) === -1) {
+        fail('C3',
+          `"${row.heading}": CLAUDE.md has no pointer containing "${row.resident_pointer}" ` +
+          '(relocated without a way back is a deletion)');
+      } else if (claudeText.indexOf(row.dest_file) === -1) {
+        // Pointer text being present is not the same as the destination being
+        // reachable. A pointer that never names where it leads sends the reader
+        // nowhere, so matching arbitrary prose is not enough.
+        fail('C3',
+          `"${row.heading}": CLAUDE.md never names the destination "${row.dest_file}" ` +
+          `(pointer "${row.resident_pointer}" does not lead anywhere)`);
+      }
+    } else if (row.resident_pointer && claudeText.indexOf(row.resident_pointer) === -1) {
       fail('C3',
         `"${row.heading}": CLAUDE.md has no pointer containing "${row.resident_pointer}" ` +
         '(relocated without a way back is a deletion)');
@@ -165,6 +272,48 @@ function lintReachability(opts = {}) {
     }
   });
 
+  // ---- C4 (strict) vanished since the pre-reduction state -------------------
+  // The loop above walks ledger rows, so it can only notice a loss the ledger
+  // already knows about. A section deleted from BOTH CLAUDE.md and the ledger
+  // leaves no row to iterate and passes silently — which is exactly the loss
+  // C4 exists to forbid. The specified check is
+  //     before-headings − after-headings ⊆ ledger(retire ∪ on-demand-with-dest)
+  // and "before" has to come from outside the working tree to be trusted.
+  const rowByHeading = new Map(parsed.rows.map((r) => [r.heading, r]));
+  const before = resolveBeforeHeadings(repoRoot, opts);
+  let vanished = [];
+  if (before.headings) {
+    before.headings.forEach((title) => {
+      if (currentHeadings.has(title)) return;
+      vanished.push(title);
+      const row = rowByHeading.get(title);
+      if (!row) {
+        fail('C4',
+          `"${title}": present in CLAUDE.md at ${before.ref} but gone now, and the ledger has ` +
+          'no row for it (a section deleted from both the file and the ledger is an unrouted loss)');
+        return;
+      }
+      if (row.disposition === 'retire') return;
+      if (!row.dest_file || !row.dest_anchor) {
+        fail('C4',
+          `"${title}": removed since ${before.ref} but the ledger declares no destination ` +
+          '(on-demand without a destination is a deletion, not a relocation)');
+      }
+    });
+  } else if (opts.allowMissingBefore) {
+    // Degrading is allowed, but never quietly: without a before-set this lint
+    // cannot prove the thing G2 claims, and the caller has to see that.
+    advisories.push(
+      'C4 ran WITHOUT a pre-reduction baseline (' + before.reason + ') — it cannot detect a ' +
+      'section deleted from both CLAUDE.md and the ledger'
+    );
+  } else {
+    fail('C4',
+      'no trusted pre-reduction heading set — ' + before.reason + '. Pass --before-ref <rev> ' +
+      '(a commit whose CLAUDE.md predates the reduction), or --allow-missing-before to run the ' +
+      'weaker ledger-only C4 and have the report say so.');
+  }
+
   // Two distinct facts, deliberately not collapsed into one number:
   //   routed  — the ledger declares a destination (body moved out)
   //   removed — the heading is gone from CLAUDE.md entirely
@@ -189,6 +338,12 @@ function lintReachability(opts = {}) {
       routed_headings: routed.map((r) => r.heading),
       removed: removed.length,
       removed_headings: removed.map((r) => r.heading),
+      c4_strict: Boolean(before.headings),
+      c4_before_ref: before.ref,
+      c4_before_source: before.source,
+      c4_before_headings: before.headings ? before.headings.size : null,
+      vanished_since_before: vanished.length,
+      vanished_headings: vanished,
     },
   };
 }
@@ -204,6 +359,9 @@ function main(argv) {
     repoRoot: repoRoot,
     claudePath: argValue(argv, '--claude', 'CLAUDE.md'),
     ledgerPath: argValue(argv, '--ledger', path.join('docs', 'multi-session-work-loop', 'instruction-contract.md')),
+    beforeRef: argValue(argv, '--before-ref', null),
+    baseRef: argValue(argv, '--base-ref', null),
+    allowMissingBefore: argv.indexOf('--allow-missing-before') !== -1,
   });
 
   if (argv.indexOf('--json') !== -1) {
@@ -215,7 +373,8 @@ function main(argv) {
   process.stdout.write(
     `[instruction-contract] rows=${s.ledger_rows || 0} ` +
     `resident=${s.resident || 0} on-demand=${s.on_demand || 0} retire=${s.retire || 0} ` +
-    `routed=${s.routed || 0} removed=${s.removed || 0}\n`
+    `routed=${s.routed || 0} removed=${s.removed || 0} ` +
+    `c4=${s.c4_strict ? 'strict@' + String(s.c4_before_ref).slice(0, 8) : 'ledger-only'}\n`
   );
   Object.keys(result.checks).forEach((c) => {
     process.stdout.write(`  ${c} ${result.checks[c]}\n`);

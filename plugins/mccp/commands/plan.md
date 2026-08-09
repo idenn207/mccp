@@ -809,7 +809,7 @@ mkdir -p "$REVIEW_DIR"
 # stamped into a fresh receipt, a stale `decision.json` would answer for a panel
 # that never fired. Every one of them is rewritten below on the paths that own it;
 # absence is what each consumer already fails closed on.
-rm -f "$REVIEW_DIR/codex-verdict" "$REVIEW_DIR/decision.json" "$REVIEW_DIR/proof.json" \
+rm -f "$REVIEW_DIR/codex-verdict" "$REVIEW_DIR/codex-class" "$REVIEW_DIR/decision.json" "$REVIEW_DIR/proof.json" \
       "$REVIEW_DIR/l1.json" "$REVIEW_DIR/l2.json" "$REVIEW_DIR/l3.json" \
       "$REVIEW_DIR/reservation.json" "$REVIEW_DIR/workflow-args.json" \
       "$REVIEW_DIR/started-at"
@@ -1034,7 +1034,13 @@ already computed it; read the answer rather than re-deriving it from the env.
 
 ```bash
 REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
-FIRES_L3=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.fires&&j.fires.l3?"1":"0")}catch{process.stdout.write("0")}' "$REVIEW_DIR/mode.json")
+# `-1` separates "policy says no" from "cannot tell". Recording an unreadable
+# mode.json as "disabled by policy" states a cause that was never established.
+FIRES_L3=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.fires&&j.fires.l3?"1":"0")}catch{process.stdout.write("-1")}' "$REVIEW_DIR/mode.json")
+if [ "$FIRES_L3" = "-1" ]; then
+  echo "[MCCP-GATE-STOP] $REVIEW_DIR/mode.json unreadable — cannot tell whether L3 should fire, and guessing either way falsifies the L3 record. Re-run Phase 5.2."
+  exit 12
+fi
 if [ "$FIRES_L3" != "1" ]; then
   printf '{"invoked":false,"reason":"MCCP_PLAN_REVIEW_L3=0 — L3 disabled by policy"}
 ' > "$REVIEW_DIR/l3.json"
@@ -1078,7 +1084,11 @@ if [ -z "$L3_VERDICT" ]; then
   echo "[mccp:plan-review] WARNING: \$REVIEW_DIR/codex-verdict is absent. If you did not run 5.2z's wrapper block first (Step 1), that is the bug — hybrid will fail closed to 'unavailable' and HALT." 1>&2
 fi
 if [ -n "$L3_VERDICT" ]; then
-  printf '{"invoked":true,"verdict":"%s","reason":"%s"}\n' "$L3_VERDICT" "${CODEX_CLASS:-unknown}" \
+  # From the artifact, not $CODEX_CLASS: that is set in the wrapper's block and
+  # this is a later fence, so it read `unknown` on EVERY successful hybrid run —
+  # the record said it did not know why L3 ran when it did (santa-loop R6, Codex).
+  L3_CLASS=$(cat "$REVIEW_DIR/codex-class" 2>/dev/null || printf 'unknown')
+  printf '{"invoked":true,"verdict":"%s","reason":"%s"}\n' "$L3_VERDICT" "$L3_CLASS" \
     > "$REVIEW_DIR/l3.json"
 else
   printf '{"invoked":false,"reason":"codex verdict artifact absent — L3 did not complete"}\n' \
@@ -1316,6 +1326,10 @@ printf '%s' "$CODEX_VERDICT" > "$REVIEW_DIR/codex-verdict" || { echo "[MCCP-GATE
 # bare exit-code check misses, and the whole point of this artifact is that it is
 # the ONLY carrier across the block boundary — there is no second copy to fall
 # back on. Verifying costs one read.
+# Persist the classification too. 5.2f needs it for the L3 record and runs behind
+# a later fence, where $CODEX_CLASS is empty — the same block-boundary loss this
+# artifact exists to fix.
+printf '%s' "${CODEX_CLASS:-unknown}" > "$REVIEW_DIR/codex-class" || { echo "[MCCP-GATE-STOP] cannot write $REVIEW_DIR/codex-class — the L3 record would have to invent a reason."; exit 12; }
 CODEX_VERDICT_BACK=$(cat "$REVIEW_DIR/codex-verdict" 2>/dev/null || printf '')
 [ "$CODEX_VERDICT_BACK" = "$CODEX_VERDICT" ] || { echo "[MCCP-GATE-STOP] codex-verdict artifact read back as '$CODEX_VERDICT_BACK' but Codex returned '$CODEX_VERDICT' — refusing to continue with a corrupted audit record."; exit 12; }
 echo "[mccp:plan-codex] codex verdict persisted: '${CODEX_VERDICT}'" 1>&2
@@ -1505,9 +1519,20 @@ fi
 # written at Phase 5.2 entry and is therefore still trustworthy when the decision
 # artifact is not.
 REVIEW_MODE_EFF=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mode||"")}catch{process.stdout.write("")}' "$REVIEW_DIR/mode.json")
-if [ -n "$REVIEW_MODE_EFF" ]; then
-  WRITE_FLAGS+=(--review-mode "$REVIEW_MODE_EFF")
+# An unreadable mode.json HALTS. It is written at Phase 5.2 entry for EVERY mode,
+# so by receipt-write time its absence means something is broken — and the failure
+# is not benign. Dropping the flag on a read error disarms BOTH guards at once:
+# write.js only demands the triple when --review-mode names a panel, and the HALT
+# below only fires when the mode is known. A panel run would then seal a receipt
+# with no verdict axis, which resolveEffectiveVerdict answers axis:'none' for and
+# receipt-convergence reads as `resolution.converged === true`. An earlier note
+# called this guard's limit "a caller that forgets the flag"; in fact the command
+# dropped it itself on any read failure (santa-loop R6, Codex GPT-5.4).
+if [ -z "$REVIEW_MODE_EFF" ]; then
+  echo "[MCCP-GATE-STOP] $REVIEW_DIR/mode.json is missing or unreadable at receipt-write time. It is created at Phase 5.2 entry, so this is not a first-run condition. Without the mode neither the write-side triple requirement nor the HALT below can fire, and a panel receipt carrying no approval record reads as CONVERGED. Re-run Phase 5.2."
+  exit 12
 fi
+WRITE_FLAGS+=(--review-mode "$REVIEW_MODE_EFF")
 # Defence in depth: HALT here too. write.js is the mechanism (it cannot be
 # forgotten by an LLM), but stopping before the call gives the operator the
 # actionable message instead of a stack trace.

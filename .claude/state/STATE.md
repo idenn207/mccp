@@ -15,12 +15,12 @@ escalate_pending: true
 escalate_pending_decision_id: multi-session-work-loop
 ---
 ## Goal
-red-test-suite-restore M1 (v1.23.2) SHIPPED — PR #117 OPEN. 잔존 red는 신규 PRD gate-guard-integrity로 분리(worktree .worktrees/gate-guard-integrity, 미push).
+red-test-suite-restore M1 (v1.23.3) SHIPPED — PR #117 OPEN. origin/main(MSW M3, 1.23.1) 병합 완료 — 버전 충돌로 goal-detect는 1.23.2, red-test-suite는 1.23.3으로 상향. 잔존 red는 신규 PRD gate-guard-integrity로 분리(worktree .worktrees/gate-guard-integrity, 미push).
 
 ## Plan
 - PR #117 리뷰/머지 대기. 머지는 merge-commit(§3.12 — squash는 evidence-commit SHA 도달성을 깬다).
 - 다음 cycle: /mccp:plan .claude/prds/gate-guard-integrity.prd.md (worktree .worktrees/gate-guard-integrity, 브랜치 fix/gate-guard-integrity, origin/main 분기).
-- 머지 후 claude plugin update로 1.23.2 캐시 반영 + worktree cleanup.
+- 머지 후 claude plugin update로 1.23.3 캐시 반영 + worktree cleanup.
 
 ## Done
 - PR #117 생성: fix/v1.23.1-goal-detect-and-red-tests → main, +1033 -57 / 17파일, 커밋 7개.
@@ -34,7 +34,7 @@ red-test-suite-restore M1 (v1.23.2) SHIPPED — PR #117 OPEN. 잔존 red는 신�
 PR #117 OPEN — 리뷰 대기. gate-guard-integrity worktree는 PRD 커밋만 있고 push/PR 없음.
 
 ## Next Step
-PR #117 머지(merge-commit) → claude plugin update(1.23.2) → /mccp:plan gate-guard-integrity.prd.md
+PR #117 머지(merge-commit) → claude plugin update(1.23.3) → /mccp:plan gate-guard-integrity.prd.md
 
 ## Last Decision
 2026-08-09 PR #117 ship. ship-gate는 verdict=skipped + codex_disabled proof로 통과했으나 이는 승인이 아니다 — MCCP_CODEX_DISABLED=1이라 Codex가 흡수 결과를 다시 보지 못했고, 직전 divergent(실제 No-ship)를 이 receipt가 대체한다. 그 사실과 원 finding 전문을 PR 본문에 명시했다. 외부 Codex 한도 복구(2026-08-13) 후 재판정이 바람직. 히스토리 재작성은 leak gate에 override env가 없고 main이 clean이라 신규 유입을 막는 쪽을 택함(백업 ref 보존).

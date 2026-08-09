@@ -100,12 +100,29 @@ function deriveCodexFlags(codexResult) {
   //   'invoked'  — actual Codex round happened; check actionable findings
   //   'skipped'  — MCCP_PR_SKIP_CODEX_REVIEW path
   //   'deduped'  — dedupe-check signalled skip_safe=true
+  //   'disabled' — MCCP_CODEX_DISABLED env policy (codex-runner.js:242-245)
   if (codexResult.codex_outcome === 'skipped' && codexResult.codex_skip_reason) {
     flags.push('--codex-skipped-at-pr');
     flags.push('--codex-skip-reason');
     flags.push(String(codexResult.codex_skip_reason));
   } else if (codexResult.codex_outcome === 'deduped') {
     flags.push('--codex-dedupe-at-pr');
+  } else if (codexResult.codex_outcome === 'disabled') {
+    // v1.23.4 (gate-guard-integrity M1, fix C) — this branch did not exist, so
+    // the env-policy ship path got its proof ONLY from the ambient
+    // meta.codex_disabled stamp that fix A just retired from SKIP_PROOF_META_KEYS.
+    // Landing fix A without this would silently break the operator's
+    // MCCP_CODEX_DISABLED ship path (receipt written, gate blocked) — the two are
+    // a single-commit invariant. `_at_pr` is the right axis: it is the explicit
+    // PR-step claim, and the sibling branches above forward the same shape.
+    flags.push('--codex-disabled-at-pr');
+    // schema.js:397-402 requires codex_skip_reason === 'codex_disabled' whenever
+    // codex_disabled_at_pr is set. Forward it explicitly rather than relying on
+    // write.js inferring it from ambient env: finalize can run in a process where
+    // MCCP_CODEX_DISABLED is not set (the codex-result.json is what carries the
+    // fact), and there the receipt would fail schema validation on write.
+    flags.push('--codex-skip-reason');
+    flags.push('codex_disabled');
   }
   // v1.20.3 — forward the Codex verdict onto the mccp-pr-codex receipt.
   //

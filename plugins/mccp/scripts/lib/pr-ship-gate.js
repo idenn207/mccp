@@ -52,11 +52,28 @@ const SHIP_VERDICTS = ['converged', 'skipped'];
 // like {codex_outcome:"skipped"} (no reason) yields verdict `skipped` with no
 // evidence and would otherwise ship without Codex approval (Implement-Codex R1 F2).
 // Fail closed on unproven skip.
+//
+// v1.23.4 (gate-guard-integrity M1, fix A) — 'codex_disabled' was REMOVED from
+// this set. Every remaining member is a PR-step axis that the CALLER explicitly
+// asserted; `codex_disabled` alone was an AMBIENT env inference, and the repo
+// already separates the two axes deliberately:
+//
+//   meta.codex_disabled        — honest annotation that Codex was off
+//                                (write.js stamps it from MCCP_CODEX_DISABLED)
+//   meta.codex_disabled_at_pr  — PR-step audit axis, explicit flag only
+//
+// That split is asserted, with the reasoning spelled out, in
+// receipt/tests/pr-codex-dedupe.test.js:113-118 ("codex_disabled_at_pr is NOT
+// auto-set — only the explicit flag controls the PR-step audit axis (caller
+// decides)"), and schema.js's 3-way skip mutex likewise admits only the _at_pr
+// variant. Admitting the ambient field here promoted an annotation into ship
+// proof, so on a standard install (MCCP_CODEX_DISABLED=1 in settings.json) an
+// UNPROVEN skip always found proof — making the F2 forgery branch structurally
+// unreachable. Ship proof now recognizes only what a caller claimed.
 const SKIP_PROOF_META_KEYS = [
   'codex_skipped_at_pr',  // audited MCCP_PR_SKIP_CODEX_REVIEW (strict reason)
   'codex_dedupe_at_pr',   // cross-gate dedupe (itself fail-closed on codex_verdict)
-  'codex_disabled',       // MCCP_CODEX_DISABLED env policy
-  'codex_disabled_at_pr', // terminal /mccp:pr disabled marker
+  'codex_disabled_at_pr', // terminal /mccp:pr disabled marker (explicit flag only)
 ];
 
 function hasSkipProof(meta) {
@@ -123,7 +140,7 @@ function deriveShipDecision(receipt, opts) {
       ') — shipped under audited override (verdict sealed unchanged)';
   } else if (skippedUnproven) {
     reason = 'codex_verdict=skipped but no sanctioned proof marker ' +
-      '(codex_skipped_at_pr/codex_dedupe_at_pr/codex_disabled[_at_pr]) — ' +
+      '(codex_skipped_at_pr/codex_dedupe_at_pr/codex_disabled_at_pr) — ' +
       'unproven skip, push blocked';
   } else {
     reason = 'PR-Codex non-approving (verdict=' + blockingVerdict + ') — push blocked';

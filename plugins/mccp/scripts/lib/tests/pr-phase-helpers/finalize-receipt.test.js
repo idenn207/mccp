@@ -347,3 +347,94 @@ test('M3 finalize: plan gate finalize is NOT ship-gated (divergent verdict, exit
   });
   assert.strictEqual(r.status, 0, r.stderr + r.stdout);
 });
+
+// ── v1.23.4 gate-guard-integrity M1 — guard 3, exercised on a STANDARD install ─
+//
+// The env var these tests set is not a synthetic condition: MCCP_CODEX_DISABLED=1
+// lives in the user's ~/.claude/settings.json, so it is the normal state of this
+// gate in production. Every case below sets it EXPLICITLY rather than relying on
+// ambient inheritance, so the guard is proved under the configuration that
+// disabled it — neutralizing the env would make the suite green against the bug.
+
+test('M3 finalize [v1.23.4]: unproven skip stays exit 12 with MCCP_CODEX_DISABLED=1 explicitly ON', () => {
+  const repo = mkTmpRepo();
+  const r = runFinalize(repo, {
+    decision: 'feat-unproven-envon',
+    codexResult: { codex_outcome: 'skipped' }, // no reason → no proof forwarded
+    env: { MCCP_CODEX_DISABLED: '1' },
+  });
+  // Pre-fix this shipped (exit 0): write.js stamped ambient meta.codex_disabled=true
+  // and SKIP_PROOF_META_KEYS accepted it, so an unproven skip always found proof.
+  assert.strictEqual(r.status, 12, r.stderr + r.stdout);
+  assert.match(r.stderr, /verdict=skipped-unproven/);
+  const receipt = JSON.parse(fs.readFileSync(
+    path.join(repo, '.claude', 'receipts', 'mccp-pr-codex', 'feat-unproven-envon.json'), 'utf8'));
+  // The ambient annotation is still recorded honestly — it just is not ship proof.
+  assert.strictEqual(receipt.meta.codex_disabled, true);
+  assert.strictEqual(receipt.meta.codex_disabled_at_pr, false);
+});
+
+test('M3 finalize [v1.23.4]: audited skip reason survives env and ships (fix B end-to-end)', () => {
+  const repo = mkTmpRepo();
+  const r = runFinalize(repo, {
+    decision: 'feat-audited-envon',
+    codexResult: { codex_outcome: 'skipped', codex_skip_reason: M3_FIN_REASON },
+    env: { MCCP_CODEX_DISABLED: '1' },
+  });
+  assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+  const receipt = JSON.parse(fs.readFileSync(
+    path.join(repo, '.claude', 'receipts', 'mccp-pr-codex', 'feat-audited-envon.json'), 'utf8'));
+  // Pre-fix the env canonical overwrote this, and the 14-char literal then failed
+  // the strict ≥30-char validator that codex_skipped_at_pr=true triggers.
+  assert.strictEqual(receipt.meta.codex_skip_reason, M3_FIN_REASON);
+  assert.strictEqual(receipt.meta.codex_skipped_at_pr, true);
+});
+
+test('deriveCodexFlags [v1.23.4]: outcome=disabled → --codex-disabled-at-pr + canonical reason', () => {
+  const flags = deriveCodexFlags({ codex_outcome: 'disabled', codex_skip_reason: 'codex_disabled' });
+  assert.ok(flags.includes('--codex-disabled-at-pr'), 'explicit PR-step claim, not the ambient stamp');
+  const i = flags.indexOf('--codex-skip-reason');
+  assert.strictEqual(flags[i + 1], 'codex_disabled',
+    'schema.js requires the canonical literal whenever codex_disabled_at_pr is set');
+  const v = flags.indexOf('--codex-verdict');
+  assert.strictEqual(flags[v + 1], 'skipped');
+  // Must not claim a sibling axis — schema enforces a 3-way mutex.
+  assert.ok(!flags.includes('--codex-skipped-at-pr'));
+  assert.ok(!flags.includes('--codex-dedupe-at-pr'));
+});
+
+test('M3 finalize [v1.23.4]: outcome=disabled ships via the EXPLICIT marker (fix C)', () => {
+  const repo = mkTmpRepo();
+  const r = runFinalize(repo, {
+    decision: 'feat-disabled',
+    codexResult: { codex_outcome: 'disabled', codex_skip_reason: 'codex_disabled' },
+    env: { MCCP_CODEX_DISABLED: '1' },
+  });
+  assert.strictEqual(r.status, 0, 'operator env-policy ship path must survive fix A: ' + r.stderr + r.stdout);
+  const receipt = JSON.parse(fs.readFileSync(
+    path.join(repo, '.claude', 'receipts', 'mccp-pr-codex', 'feat-disabled.json'), 'utf8'));
+  assert.strictEqual(receipt.meta.codex_disabled_at_pr, true);
+  assert.strictEqual(receipt.meta.codex_skip_reason, 'codex_disabled');
+  assert.strictEqual(receipt.resolution.codex_verdict, 'skipped');
+  // 3-way mutex intact (schema.js:376-380).
+  assert.strictEqual(receipt.meta.codex_skipped_at_pr, false);
+  assert.strictEqual(receipt.meta.codex_dedupe_at_pr, false);
+});
+
+test('M3 finalize [v1.23.4]: outcome=disabled ships even when the WRITE process has no env (fix C)', () => {
+  const repo = mkTmpRepo();
+  // The codex-result.json is what carries the fact that Codex was disabled; the
+  // finalize process need not have inherited the env. Forwarding the canonical
+  // reason explicitly is what keeps this schema-valid — relying on write.js to
+  // infer it from ambient env would fail the write here.
+  const r = runFinalize(repo, {
+    decision: 'feat-disabled-noenv',
+    codexResult: { codex_outcome: 'disabled', codex_skip_reason: 'codex_disabled' },
+    env: { MCCP_CODEX_DISABLED: '' },
+  });
+  assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+  const receipt = JSON.parse(fs.readFileSync(
+    path.join(repo, '.claude', 'receipts', 'mccp-pr-codex', 'feat-disabled-noenv.json'), 'utf8'));
+  assert.strictEqual(receipt.meta.codex_disabled_at_pr, true);
+  assert.strictEqual(receipt.meta.codex_skip_reason, 'codex_disabled');
+});

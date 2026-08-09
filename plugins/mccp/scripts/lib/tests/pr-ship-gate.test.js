@@ -56,9 +56,32 @@ test('skipped WITH dedupe proof (codex_dedupe_at_pr) → ship', () => {
   assert.equal(d.blockingVerdict, null);
 });
 
-test('skipped WITH disabled policy (codex_disabled) → ship', () => {
-  const d = deriveShipDecision(receiptWithVerdict('skipped', { codex_disabled: true }), {});
+test('skipped WITH explicit disabled marker (codex_disabled_at_pr) → ship', () => {
+  const d = deriveShipDecision(receiptWithVerdict('skipped', { codex_disabled_at_pr: true }), {});
   assert.equal(d.ship, true);
+  assert.equal(d.blockingVerdict, null);
+});
+
+// v1.23.4 (gate-guard-integrity M1, fix A) — this assertion is INVERTED from
+// what it was. It used to assert that ambient `codex_disabled` alone ships, which
+// pinned the defect as correct: on a standard install (MCCP_CODEX_DISABLED=1 in
+// settings.json) write.js stamps that field on EVERY receipt, so an unproven skip
+// always found proof and the F2 forgery branch became unreachable. The ambient
+// annotation is not a caller's claim; only `codex_disabled_at_pr` is.
+test('skipped WITH ambient annotation ONLY (codex_disabled) → no-ship [v1.23.4 fix A]', () => {
+  const d = deriveShipDecision(receiptWithVerdict('skipped', { codex_disabled: true }), {});
+  assert.equal(d.ship, false);
+  assert.equal(d.blockingVerdict, 'skipped-unproven');
+  assert.match(d.reason, /codex_disabled_at_pr/);
+  assert.doesNotMatch(d.reason, /codex_disabled\[/);
+});
+
+// The ambient annotation must not weaken a proof that IS present, either.
+test('skipped WITH both ambient + explicit marker → ship (explicit is what counts)', () => {
+  const d = deriveShipDecision(
+    receiptWithVerdict('skipped', { codex_disabled: true, codex_disabled_at_pr: true }), {});
+  assert.equal(d.ship, true);
+  assert.equal(d.blockingVerdict, null);
 });
 
 // F2 — a `skipped` verdict with NO proof marker is unproven and fails closed.

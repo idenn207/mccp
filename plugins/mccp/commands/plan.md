@@ -977,21 +977,22 @@ wider than the wiring. When you add a stop to 5.2, add its stage here and call t
 recorder from it.
 
 **Not every stage is enforced the same way, and the difference is stated here so
-this section stays narrower than the wiring rather than wider.** Seven stops
+this section stays narrower than the wiring rather than wider.** Eight stops
 compute their own halt condition in shell and call the recorder from inside their
 own block, where nothing downstream has to remember to do it:
 
 | Enforcement | Stages |
 |---|---|
-| Shell — the block records before it stops | 5.2a · 5.2b · 5.2c-emit · 5.2c-pin · 5.2d · 5.2e-proof · 5.2f |
-| Directed — you run the call as instructed | 5.2e (via 5.2h, passing `--halt-stage 5.2e`) · 5.2g |
+| Shell — the block records before it stops | 5.2a · 5.2b · 5.2c-emit · 5.2c-pin · 5.2d · 5.2e-proof · 5.2f · 5.2g |
+| Directed — you run the call as instructed | 5.2e (via 5.2h, passing `--halt-stage 5.2e`) |
 
-The two directed stops are the residue this milestone did not mechanise: 5.2e
-already routes through 5.2h, so wiring it inline as well would write the record
-twice and the second write would erase `halt_stage`. Moving both into shell is
-milestone #5's job (extracting this wiring into unit-test range); until then they
-depend on you following the instruction, and that dependence is named rather than
-hidden.
+**5.2e is the only directed stop, and it is directed for a reason rather than by
+omission**: it already routes through 5.2h, so wiring it inline as well would
+write the record twice and the second write — the one 5.2h makes with no
+`--halt-stage` — would erase the stage. Every other stop computes its condition in
+shell, so every other stop records itself. If you find yourself listing a stage
+here as directed without a reason of that kind, mechanise it instead: "not yet
+mechanised" is a description of work left undone, not a design.
 
 Substitute the stage that is halting; everything else is identical, and the same
 call with no `--halt-stage` is what 5.2h runs on the pass path. It reads the
@@ -1356,13 +1357,26 @@ v1.22.3 M3 round-4 defect. 5.6 reads it from the artifact for the same reason.
 
 ```bash
 REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
-[ -f "$REVIEW_DIR/proof.json" ] && node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" verify-proof \
-  --proof-file "$REVIEW_DIR/proof.json"
+# An absent proof is a SKIP, not a failure — a non-converged decision produces
+# none. The earlier `[ -f … ] && node …` one-liner could not say which had
+# happened: the test failing and the verification failing both left a non-zero
+# status, so "nothing to check" was indistinguishable from "the check failed".
+VERIFY_EXIT=0
+if [ -f "$REVIEW_DIR/proof.json" ]; then
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" verify-proof \
+    --proof-file "$REVIEW_DIR/proof.json"
+  VERIFY_EXIT=$?
+fi
+if [ "$VERIFY_EXIT" -ne 0 ]; then
+  DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+    --command mccp:plan --args "$ARGUMENTS")
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2g 1>/dev/null 2>&1 || true
+fi
 ```
 
-exit 12 → run the recorder with `--halt-stage 5.2g`, then HALT (the proof names
-evidence that is missing or not repo-relative). Skipped automatically when no
-proof was produced (a non-converged decision).
+`VERIFY_EXIT` 12 → HALT (the proof names evidence that is missing or not
+repo-relative); the block above has already recorded it.
 
 #### 5.2h — Write the review record (sibling artifact, NOT the plan)
 
@@ -1409,10 +1423,9 @@ cleanup that takes the plan-gate receipt with it.
 **This section runs on both outcomes, and document order is not execution order.**
 A converged run reaches it after 5.2g and passes no `--halt-stage`. A blocked run
 (`DECIDE_EXIT` 12 — `divergent`/`unavailable`) jumps here directly from 5.2e and
-passes `--halt-stage 5.2e`; the infrastructure stops at
-5.2a/5.2b/5.2c-emit/5.2c-pin/5.2d/5.2e-proof/5.2f record from inside their own
-block, and 5.2g runs the same command at its own step — none of them route through
-here. Reading 5.2e's stop as "end the response
+passes `--halt-stage 5.2e`; every other stop
+(5.2a/5.2b/5.2c-emit/5.2c-pin/5.2d/5.2e-proof/5.2f/5.2g) records from inside its
+own block and does not route through here. Reading 5.2e's stop as "end the response
 now" skips the section that exists precisely for that case: a gate that stops
 without telling the author what was found is a gate they will route around.
 

@@ -936,6 +936,16 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" l1 --plan "<plan pat
   > "$REVIEW_DIR/l1.json"
 L1_EXIT=$?
 echo "[mccp:plan-review] L1 exit=$L1_EXIT" 1>&2
+# This block already knows whether it is halting, so it records the stop itself
+# rather than leaving the call to a later step to remember. exit 1 is deliberately
+# NOT recorded here: that path continues to 5.2e and the stop belongs where it
+# actually happens.
+if [ "$L1_EXIT" = "12" ]; then
+  DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+    --command mccp:plan --args "$ARGUMENTS")
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2a 1>/dev/null 2>&1 || true
+fi
 ```
 
 - exit **0** → continue to 5.2b.
@@ -943,8 +953,8 @@ echo "[mccp:plan-review] L1 exit=$L1_EXIT" 1>&2
   LLM panel cannot overturn a mechanical fact). Jump straight to 5.2e, which
   composes `divergent` from the L1 artifact.
 - exit **12** → L1 could not be evaluated (plan unreadable, worktree race). This
-  is an environment problem: **run the recorder (below) and then** print the stop
-  block and end the response.
+  is an environment problem: the block above has already recorded the stop, so
+  print the stop block and end the response.
 
 ##### The recorder runs before every stop in 5.2 (M4 axis A)
 
@@ -959,14 +969,29 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
   --halt-stage "<5.2a|5.2b|5.2c-emit|5.2c-pin|5.2d|5.2e|5.2e-proof|5.2f|5.2g>"
 ```
 
-**That stage list is the complete set of HALTs in 5.2, and it is complete on
-purpose.** An earlier revision of this section listed six stages while the body
-emitted seven and two stops had no recorder at all — 5.2d (reconcile artifacts
-unreadable) and 5.2f (`mode.json` unreadable). Both sit *after* the panel has
-already fired, so they are exactly the long samples this section claims to have
-stopped discarding; leaving them out made the claim wider than the wiring. When
-you add a stop to 5.2, add its stage here and call the recorder from it, or this
-heading becomes false again.
+**That stage list is the complete set of HALTs in 5.2.** An earlier revision
+listed six stages while the body emitted seven, and two stops had no recorder at
+all — 5.2d and 5.2f, both *after* the panel fired, so exactly the long samples
+this section claims to have stopped discarding. Leaving them out made the claim
+wider than the wiring. When you add a stop to 5.2, add its stage here and call the
+recorder from it.
+
+**Not every stage is enforced the same way, and the difference is stated here so
+this section stays narrower than the wiring rather than wider.** Seven stops
+compute their own halt condition in shell and call the recorder from inside their
+own block, where nothing downstream has to remember to do it:
+
+| Enforcement | Stages |
+|---|---|
+| Shell — the block records before it stops | 5.2a · 5.2b · 5.2c-emit · 5.2c-pin · 5.2d · 5.2e-proof · 5.2f |
+| Directed — you run the call as instructed | 5.2e (via 5.2h, passing `--halt-stage 5.2e`) · 5.2g |
+
+The two directed stops are the residue this milestone did not mechanise: 5.2e
+already routes through 5.2h, so wiring it inline as well would write the record
+twice and the second write would erase `halt_stage`. Moving both into shell is
+milestone #5's job (extracting this wiring into unit-test range); until then they
+depend on you following the instruction, and that dependence is named rather than
+hidden.
 
 Substitute the stage that is halting; everything else is identical, and the same
 call with no `--halt-stage` is what 5.2h runs on the pass path. It reads the
@@ -992,6 +1017,15 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reserve --n 4 
   > "$REVIEW_DIR/reservation.json"
 RES_GRANTED=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).granted))}catch{process.stdout.write("0")}' "$REVIEW_DIR/reservation.json")
 echo "[mccp:plan-review] reserved granted=$RES_GRANTED required=$REQUIRED" 1>&2
+# The stop below is decided entirely from values this block already holds, so the
+# recorder runs here — same shape as 5.2d/5.2f. Both readers fall back to a numeral
+# ("0"/"3"), so the comparison cannot be reached with a non-numeric operand.
+if [ "$RES_GRANTED" = "0" ] || [ "$RES_GRANTED" -lt "$REQUIRED" ]; then
+  DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+    --command mccp:plan --args "$ARGUMENTS")
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2b 1>/dev/null 2>&1 || true
+fi
 ```
 
 **HALT when `RES_GRANTED` is `0`, and equally when it is below `$REQUIRED`.**
@@ -999,8 +1033,8 @@ Unlike the fan-out this is a gate, so a denied reservation degrades to nothing �
 it stops. A grant below the quorum threshold is the same stop reached later and
 more expensively: those reviewers would run, cost tokens, and then fail the quorum
 on arithmetic. (`emit-workflow-args --granted` re-checks this at 5.2c and exits 12,
-so the arithmetic is enforced in a tested oracle and not only here.) Run the
-recorder with `--halt-stage 5.2b`, then print:
+so the arithmetic is enforced in a tested oracle and not only here.) The block
+above has already recorded this stop; print:
 
 ```
 [MCCP-GATE-STOP] L2 review panel could not be launched (granted <N>, quorum needs <M>).
@@ -1029,11 +1063,20 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" emit-workflow-args \
   --plan "<plan path>" --prd "<prd path or omit>" \
   --granted "$RES_GRANTED" \
   --out "$REVIEW_DIR/workflow-args.json"
+EMIT_EXIT=$?
+# Any non-zero exit here is a stop (12 block, 2 misuse), and the exit code is only
+# visible inside this block — so record here rather than downstream.
+if [ "$EMIT_EXIT" -ne 0 ]; then
+  DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+    --command mccp:plan --args "$ARGUMENTS")
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2c-emit 1>/dev/null 2>&1 || true
+fi
 ```
 
-exit **12** → run the recorder with `--halt-stage 5.2c-emit`, then HALT (the
-granted fleet cannot satisfy the quorum, or the plan could not be hashed). Do not
-reconcile the reservation; leave it pending.
+exit **12** → HALT (the granted fleet cannot satisfy the quorum, or the plan could
+not be hashed); the block above has already recorded it. Do not reconcile the
+reservation; leave it pending.
 
 The payload also carries `minRemaining` — the tokens the turn must still have for
 the panel to be worth firing, computed as `MCCP_PLAN_REVIEW_BUDGET` (default
@@ -1367,8 +1410,9 @@ cleanup that takes the plan-gate receipt with it.
 A converged run reaches it after 5.2g and passes no `--halt-stage`. A blocked run
 (`DECIDE_EXIT` 12 — `divergent`/`unavailable`) jumps here directly from 5.2e and
 passes `--halt-stage 5.2e`; the infrastructure stops at
-5.2a/5.2b/5.2c/5.2d/5.2e-proof/5.2f/5.2g call the same command inline with their
-own stage rather than routing through here. Reading 5.2e's stop as "end the response
+5.2a/5.2b/5.2c-emit/5.2c-pin/5.2d/5.2e-proof/5.2f record from inside their own
+block, and 5.2g runs the same command at its own step — none of them route through
+here. Reading 5.2e's stop as "end the response
 now" skips the section that exists precisely for that case: a gate that stops
 without telling the author what was found is a gate they will route around.
 

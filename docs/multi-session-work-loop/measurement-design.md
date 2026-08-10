@@ -51,7 +51,9 @@
 
 **실행 규칙 (IF2 흡수 — 두 구현자가 같은 값을 내도록)**:
 
-- **tokenizer**: `tiktoken` 패키지의 `o200k_base` 인코딩(현행 Claude/GPT 계열 근사). 버전은 산출 시점에 `pip show tiktoken`으로 기록한다. tokenizer를 바꾸려면 baseline을 재산출하고 변경 이력을 남긴다.
+- **tokenizer**: `tiktoken` 패키지의 `o200k_base` 인코딩(현행 Claude/GPT 계열 근사). 버전은 산출 시점에 **tokenize를 수행한 바로 그 프로세스 안에서** `tiktoken.__version__`으로 기록한다. tokenizer를 바꾸려면 baseline을 재산출하고 변경 이력을 남긴다.
+
+  > **개정 (M4, 2026-08-09) — 기록 출처만 강화. 분모·산출식·무결성 검사는 불변이다.** 원문은 버전을 `pip show tiktoken`으로 기록하라고 규정했으나, 그 pip은 `enc.encode`를 실행한 인터프리터와 **다를 수 있다**(실측: 이 머신에서 `python3`는 Store 스텁이고 실 인터프리터는 `python`). 즉 원문 그대로는 "버전 pin으로 재현성 확보"라는 조항의 **목적을 달성하지 못한다** — 기록된 버전이 실제로 토큰을 센 인코더의 버전이라는 보장이 없기 때문이다. tokenizer(`tiktoken`)와 인코딩(`o200k_base`)은 그대로이고 토큰 수 산출식도 그대로다. 바뀐 것은 버전 문자열의 출처뿐이며, 아티팩트는 이를 `tokenizer.version_source='tokenizing-process'`로 명시한다.
 - **분자의 파일 집합**: 세션 시작 시 자동 주입되는 것 전부 — (1) `CLAUDE.md`, (2) `~/.claude/.../memory/MEMORY.md`(인덱스만, 개별 memory 본문 제외), (3) SessionStart hook이 주입하는 STATE.md 블록. slash-command 본문·skill 정의는 요청 시 로드이므로 **제외**한다.
 - **분모**: 세션의 총 컨텍스트 윈도로, 산출 시점 모델의 공표 컨텍스트 길이를 기록한다(예: 200,000). 추정하지 않고 문서화된 값을 쓴다.
 - **worked example** (2026-07-22 관측): `CLAUDE.md` = 139,335바이트. `o200k_base` 토큰 수는 `len(enc.encode(open('CLAUDE.md').read()))`로 산출한다 — 이 값이 A3 분자의 CLAUDE.md 성분이다. 바이트/4 추정(≈34,834)은 24% 오차이므로 **쓰지 않는다**.
@@ -108,7 +110,24 @@ M1은 A3의 *방법*만 freeze하고 *baseline 값*은 만들지 않는다. 이�
 
 - **토글 식별자**: 정규식 `MCCP_[A-Z0-9_]+`에 매치되는 토큰. 이 prefix 규약이 mccp 토글의 정의다.
 - **분모의 스캔 범위**: `MCCP_*` 값으로 **분기할 수 있는 런타임 표면 전부**다 — `plugins/mccp/scripts/` 하위 `*.js`(`*/tests/*` 경로와 `*.test.js` 파일 **제외**: 테스트가 만드는 mock 토글이 분모를 오염시키지 않게 한다) **∪ `plugins/mccp/commands/*.md`**. command markdown의 bash 블록은 실행되는 코드이며 `MCCP_A11Y_AUTO_INVOKE`·`MCCP_AUTO_CHAIN_SKIP_PR`처럼 **그곳에만 존재하는 런타임 게이트**가 있다. `.js`만 스캔하면 이들이 분모 밖으로 새고, B3 목표(≤40)를 command-level 분기를 손대지 않은 채 달성했다고 주장할 수 있다(PR-Codex R2 F1).
-- **명시 제외 토큰**: `MCCP_TMP` — command body의 셸 지역변수이지 env 게이트가 아니다(정규식 오탐). 제외는 이 목록에 이름을 적을 때만 유효하며, 범위를 조용히 좁히는 것은 금지한다.
+- **명시 제외 토큰 (M4 확장 — 분류표)**: 제외는 이 목록에 **이름을 적을 때만** 유효하며, 범위를 조용히 좁히는 것은 금지한다. 각 항목에는 실파일 근거(file:line)를 단다. 집행부는 [toggle-snapshot.js](../../plugins/mccp/scripts/state/toggle-snapshot.js) `TOGGLE_EXCLUSIONS`이며 이 표와 1:1이다.
+
+  | 분류 | 토큰 | 근거 (file:line) |
+  |---|---|---|
+  | shell-local | `MCCP_TMP` | `plugins/mccp/commands/*.md` — command body의 셸 지역변수이지 env 게이트가 아니다 |
+  | browser-global | `MCCP_RESOLVE_NONCE` | `lib/dashboard-server.js:184` — `window.__MCCP_RESOLVE_NONCE` JS 전역 |
+  | browser-global | `MCCP_RESOLVE_PATH` | `lib/dashboard-server.js:185` — `window.__MCCP_RESOLVE_PATH` JS 전역 |
+  | browser-global | `MCCP_NONCE_HEADER` | `lib/dashboard-server.js:186` — `window.__MCCP_NONCE_HEADER` JS 전역 |
+  | dynamic-key-prefix | `MCCP_MCP_RECONNECT_` | `hooks/mcp-health-check.js:517` — `` `MCCP_MCP_RECONNECT_${serverName}` `` 템플릿 접두사. 실 멤버 `MCCP_MCP_RECONNECT_COMMAND`는 분모에 남는다 |
+  | dynamic-key-prefix | `MCCP_ORCHESTRATION_` | `lib/orchestration-runaway.js:41` — 주석의 `MCCP_ORCHESTRATION_*` glob 표기가 잘려 잡힌 것. 실 멤버는 각자 분모에 남는다 |
+  | test-only | `MCCP_LOCK_TEST_ARGV_TOKEN` | `hooks/pr-phase-guard.js:92` |
+  | test-only | `MCCP_IMPECCABLE_CLI_MOCK` | `lib/impeccable-detect.js:256` |
+  | test-only | `MCCP_STOP_LOOP_E2E` | `quality/runner.js:7` |
+  | test-only | `MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL` | `commands/plan.md:687` |
+
+  **제외는 은퇴가 아니다.** 제외 전 분모(`raw_surface_count`)와 제외 후 분모(`denominator`)를 **둘 다** 보고하며, 둘의 차이가 정확히 제외 건수다. M4의 토글 은퇴 건수는 **0**이다. 하나만 보고하면 제외가 곧 감축으로 오독된다.
+
+  **철회된 제외 후보 (기록으로 남긴다)**: `MCCP_PLUGIN_ROOT` · `MCCP_SESSION_ID` · `MCCP_HOOK_ID`를 "하네스 내부 프로세스 간 전달값"으로 제외하자는 M4 초안이 있었으나 철회했다. 셋 다 set과 read가 모두 있어(`bootstrap.js` set · `observe-runner.js` read) 운영자가 외부에서 override할 수 있으므로 실제 토글이다.
 - **동작 분기 수**: 토글 하나가 몇 개의 서로 다른 값으로 분기하는지의 합. 예를 들어 `MCCP_STOP_LOOP`(off/observe/enforce 3분기)은 분기 3, 불리언 토글은 분기 2로 센다. "토글 수를 줄였다"가 "동작 분기를 줄였다"와 다름을 이 병기가 드러낸다.
 - **worked example** (2026-07-22, [evidence-snapshot.json](../../docs/multi-session-work-loop/evidence-snapshot.json) `toggles`): 런타임 표면 전수 = **99**(`in_runtime_surface`) — 그중 `.js`만 세면 96(`in_code`)이고 나머지 3개는 command markdown에만 있다. `CLAUDE.md` 문서화 = 55, `docs/ENVIRONMENT.md` = 38, 두 문서 union = 82. 분모는 **99**, 사용 이력(분자)은 M2 전향 수집 전까지 미상. B3 목표(전체 ≤ 40)는 99에서 출발한다.
 - **분모는 주장이 아니라 재산출된다**: 위 99는 freeze된 숫자가 아니라 위 규칙의 출력이며, Validation CHECK 12가 스캔을 다시 돌려 스냅샷 값과 일치하는지 검사한다. 규칙이 바뀌거나 코드에 토글이 늘면 검사가 실패한다 — 분모가 조용히 낡는 경로를 닫는다.

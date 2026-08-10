@@ -207,3 +207,62 @@ test('verdict-label metric (F2 — audit-timeline 7-day boundary) — 주입 clo
   assert.equal(k1, 3, '7d 창 내(NOW): receipt 3건이어야 함, 실제 ' + k1);
   assert.equal(k2, 0, '7d 창 밖(NOW+8d): receipt 0건이어야 함, 실제 ' + k2);
 });
+
+// ------------------------------- santa-loop round 5: invalid metrics reach the banner
+//
+// Five layers of this loop were the same defect: a signal is raised, and the
+// next consumer flattens it. The chain ended at the headline verdict, which read
+// `sources` and `warnings` but never `metrics` — so a compute-time integrity
+// violation (A1's unit-spike / timestamp-inversion checks are the standing
+// example) rendered "✕ 무효" in the section while the banner above it said
+// nothing was wrong.
+
+const { computeVerdict } = require('../verdict');
+
+test('verdict: an invalid metric reaches the banner even when its source is healthy', () => {
+  const v = computeVerdict({
+    sources: { toggle_usage: { ok: true, degraded: false } },
+    metrics: { B3: { id: 'B3', status: 'invalid', invalid_reason: 'exclusion table drift' } },
+    warnings: [],
+  }, {}, {});
+
+  assert.strictEqual(v.tone, 'amber', 'an integrity violation must not read as "nothing in flight"');
+  assert.match(v.text, /B3/);
+  assert.match(v.text, /drift/);
+});
+
+test('verdict: forward-only and computed metrics do not trip the banner', () => {
+  const forwardOnly = computeVerdict({
+    sources: {}, metrics: { B3: { id: 'B3', status: 'forward-only' } }, warnings: [],
+  }, {}, {});
+  assert.notStrictEqual(forwardOnly.tone, 'amber',
+    'not-yet-measured is not a failure and must stay quiet');
+
+  const healthy = computeVerdict({
+    sources: { toggle_usage: { ok: true, degraded: false } },
+    metrics: { B3: { id: 'B3', status: 'computed' } }, warnings: [],
+  }, {}, {});
+  assert.notStrictEqual(healthy.tone, 'amber');
+});
+
+test('verdict: a degraded source still wins over the generic metric message', () => {
+  const v = computeVerdict({
+    sources: { toggle_usage: { ok: true, degraded: true } },
+    metrics: { B3: { id: 'B3', status: 'invalid' } },
+    warnings: [],
+  }, {}, {});
+  assert.match(v.text, /toggle_usage/, 'the more specific source-level diagnosis is preferred');
+});
+
+test('verdict: a stale metric reaches the banner with its remedy', () => {
+  const v = computeVerdict({
+    sources: {},
+    metrics: {
+      A3: { id: 'A3', status: 'insufficient', stale: true, stale_reason: 're-run --emit-after' },
+    },
+    warnings: [],
+  }, {}, {});
+  assert.strictEqual(v.tone, 'amber');
+  assert.match(v.text, /A3/);
+  assert.match(v.text, /emit-after/, 'the banner must carry the action, not just the fact');
+});

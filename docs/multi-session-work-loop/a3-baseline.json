@@ -1,0 +1,95 @@
+{
+  "schema": "a3-baseline/v1",
+  "role": "a3-instruction-cost",
+  "status": "computed",
+  "numerator_tokens": 45646,
+  "numerator_bytes": 161923,
+  "denominator_tokens": 200000,
+  "ratio": 0.22823,
+  "baseline_available": true,
+  "not_delivered_reason": null,
+  "components": {
+    "claude_md": {
+      "bytes": 159013,
+      "hash": "ff5fae5d2e6f4c2fc37f8d8a43042e35eb5d21eae5959e76c62dfaa6e1116a99",
+      "tokens": 44754
+    },
+    "memory_index": {
+      "bytes": null,
+      "hash": null,
+      "tokens": null,
+      "omitted": true,
+      "reason": "MCCP_A3_READ_USER_MEMORY not set (user-level memory read opt-in)"
+    },
+    "state_block": {
+      "bytes": 2910,
+      "hash": "ceca2c46adf40b0907068a6d80fec9ec282fd2d991520a4ca4fecf0132f733cc",
+      "tokens": 892
+    }
+  },
+  "tokenizer": {
+    "tool": "tiktoken",
+    "model": "o200k_base",
+    "version": "0.13.0",
+    "version_source": "tokenizing-process",
+    "python_version": "3.13.3",
+    "interpreter": "python",
+    "executable": "python.exe",
+    "executable_redacted": "absolute path intentionally not committed (machine-specific, not reproducible on a fresh clone)"
+  },
+  "measured_at": "2026-08-09T00:18:47.305Z",
+  "git_head": "7fe48d92fcdb4dad838a04cef465b7b303b8b0d4",
+  "after": {
+    "status": "computed",
+    "numerator_tokens": 26377,
+    "numerator_bytes": 93802,
+    "denominator_tokens": 200000,
+    "ratio": 0.131885,
+    "baseline_available": true,
+    "not_delivered_reason": null,
+    "components": {
+      "claude_md": {
+        "bytes": 87583,
+        "hash": "2f9e559b34f02b80031c06771d32bd9742f78b6f3fe074c90f3e7190ac8b0c48",
+        "tokens": 24504
+      },
+      "memory_index": {
+        "bytes": null,
+        "hash": null,
+        "tokens": null,
+        "omitted": true,
+        "reason": "MCCP_A3_READ_USER_MEMORY not set (user-level memory read opt-in)"
+      },
+      "state_block": {
+        "bytes": 6219,
+        "hash": "fa5e1213d00d65068652fd5953431f20abb98a20f1c69636b8790997eb1617fa",
+        "tokens": 1873
+      }
+    },
+    "tokenizer": {
+      "tool": "tiktoken",
+      "model": "o200k_base",
+      "version": "0.13.0",
+      "version_source": "tokenizing-process",
+      "python_version": "3.13.3",
+      "interpreter": "python",
+      "executable": "python.exe",
+      "executable_redacted": "absolute path intentionally not committed (machine-specific, not reproducible on a fresh clone)"
+    },
+    "measured_at": "2026-08-09T12:39:10.943Z",
+    "git_head": "b1fe03f94db9c1c1b0769357d73843485517cbb5"
+  },
+  "reduction": {
+    "total_ratio": 0.42213994654515186,
+    "before_tokens": 45646,
+    "after_tokens": 26377,
+    "claude_md_ratio": 0.45247352191982837
+  },
+  "notes": [
+    "A3 numerator = SessionStart auto-injected payload only (CLAUDE.md + MEMORY.md index + STATE.md block). Slash-command bodies and skill definitions are request-time loads and are excluded per measurement-design.md §A3.",
+    "The tokenizer version is read inside the same process that ran enc.encode, so it pins the encoder that actually produced these counts.",
+    "memory_index: omitted unless MCCP_A3_READ_USER_MEMORY is set. Even when present its content digest is never committed (user-level file, not reproducible on a fresh clone).",
+    "state_block: session-volatile. It is reconstructed read-only from state-injector.readState plus the injector wrapper shape; if that wrapper changes this measurement must follow. Compare the claude_md component for a reduction figure free of session noise.",
+    "Byte-based estimation is prohibited (measurement-design.md §A3 worked example): bytes/4 understates the observed Korean-dense count by roughly 12 percent."
+  ]
+}

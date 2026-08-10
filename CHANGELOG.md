@@ -4,6 +4,83 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.23.7] — 2026-08-09
+
+**multi-session-work-loop M4 — 예산 감축 (단일 milestone → patch bump)** — 작업이 시작되기도 전에 소진되는 컨텍스트(A3)를 절반으로 줄이고, 토글 축(B3)의 분모를 정직하게 만든다. GROUND 결과 PRD가 적은 상황보다 나빴다: **두 축 모두 측정 기판이 죽어 있었다.** A3는 `spawn('python3')` 하드코딩이 이 플랫폼에서 WindowsApps 스텁으로 풀려 항상 `baseline-unavailable`이었고, 그마저 `computeMetrics`가 `measureA3`를 **호출조차 하지 않았다**(import 후 재export만). B3는 `session-start.js`가 스냅샷 경로를 cwd 기준으로 풀어 M2 이후 `*.env-snapshot.json`이 **단 한 건도** 기록되지 않았고, 빈 corpus 위에서 `computed 0%`를 내보내고 있었다.
+
+보증 범위는 정확히 셋이며 그 이상을 주장하지 않는다 — **G1** A3 전후 값이 동일 방법으로 재현 가능하게 측정됨 · **G2** 감축이 삭제가 아니라 이전임이 기계 검증됨 · **G3** B3 분모가 정직해지고 그 정직화가 감축으로 위장되지 않음. **"옮긴 뒤에도 지시 준수율이 유지되는가"는 측정하지 못한다** — PRD가 M4에 건 B1·C1 회귀 검사는 두 지표의 producer가 없어 산출 불가이며, 이 미충족은 숨기지 않고 기록한다. 토글 **은퇴는 0건**이다(사용 이력이 0이면 "이력 0인 것만 은퇴"가 96개 전부를 대상으로 만들어 무의미하므로 M8 이후로 이연).
+
+### Added
+- `plugins/mccp/scripts/lib/msw-metrics/cli.js` — A3 baseline 아티팩트 emitter. `a3 --emit`(BEFORE · 기존 파일 덮어쓰기 거부)·`--emit-after`(감축 후 값을 같은 문서의 `after`로 기록)·`--print`. 커밋 아티팩트에는 user-level `MEMORY.md`의 content digest를 **절대 담지 않는다**(security S5 — repo 밖 파일을 git 이력에 지문화하고, fresh clone에서 재현 불가라 G1과 모순).
+- `docs/multi-session-work-loop/a3-baseline.json` — 재현 가능한 A3 전후 측정 아티팩트(성분별 bytes·sha256·tokens · tokenizer{tool,encoding,version,version_source} · git HEAD · 방법 caveat).
+- `docs/multi-session-work-loop/instruction-contract.md` — 최소 지시 계약(PRD Open Question 직접 응답). RESIDENT 3중 AND 기준을 **먼저** 명문화하고 CLAUDE.md 25개 절 전수를 분류(resident 15 · on-demand 10 · retire 0). **분류 ≠ 이전**을 규칙으로 못박아, 준수를 측정할 수 없는 동안 §3 행동 규칙은 분류만 하고 옮기지 않는다.
+- `plugins/mccp/scripts/lib/instruction-contract/{ledger.js,lint.js}` — ledger 순수 파서 + 4중 reachability 검사(C1 목적지 존재 · C2 anchor 존재 · C3 상주 포인터 · C4 무목적지 소실 0), fail-closed. C4는 명세보다 강하게 **목적지 있는 on-demand 또는 retire만** 사라질 수 있게 한다(목적지 없는 on-demand의 소멸은 이전이 아니라 삭제다). 문서가 공급하는 `dest_file`은 열기 **전에** 어휘 검사(절대·`..`·UNC·드라이브 거부) 후 realpath 봉쇄(security S3).
+- `docs/milestone-ledger.md` — CLAUDE.md §1.4 milestone 이력 전문 이전 목적지.
+- `plugins/mccp/scripts/derive/sources/instruction-cost.js` — A3 derive 소스. **커밋 아티팩트를 읽을 뿐 tokenizer를 절대 돌리지 않는다**(derive는 매 render trigger마다 ~1s 예산). CLAUDE.md를 재해시해 stale이면 `insufficient`로 강등 — 낡은 값을 현재값으로 내놓지 않는다.
+
+### Changed
+- `plugins/mccp/scripts/lib/msw-metrics/a3-instruction-cost.js` — `python3` 하드코딩을 인터프리터 probe로 교체(`python3`→`python`→`py -3`, **exit code + stdout 마커**로 판정해 "Python was not found" 스텁을 구조적으로 배제 · `shell:false` 명시). `execSync('pip show tiktoken')` 제거 — tokenizer 버전을 **`enc.encode`를 실행한 그 프로세스 안에서** 취득한다(다른 pip을 볼 수 있어 "버전 pin으로 재현성 확보" 조항이 실제로는 지켜지지 않았다). STATE.md 성분이 **frontmatter가 아니라 실제 주입 블록**을 재도록 교정. `findMemoryFiles`가 symlink를 건너뛰고 realpath 봉쇄(security S4).
+- `CLAUDE.md` **167,832 → 87,528바이트(-47.8%)** — §1.4 milestone 이력 → `docs/milestone-ledger.md`, §4 운영 토글 산문 → `docs/ENVIRONMENT.md` §11. 두 절 모두 헤딩과 포인터는 제자리에 남는다(이전이지 삭제가 아니다). **§3 행동 규칙은 한 줄도 바뀌지 않았다.** 분모는 ship 직전 base인 `origin/main`(`280b9ef`)이다 — 착수 base(`7fe48d9`, 159,013B) 기준으로는 79,971B/-49.7%였고, 그 사이 main이 §3.13 신설 등으로 CLAUDE.md에 8,819B를 더했다(§3.13·§3.7 하위절은 상주로 승계, 신규 토글 2개는 §11로 함께 이전).
+- `docs/ENVIRONMENT.md` — §11 "운영 토글 레퍼런스 (canonical)"로 CLAUDE.md §4 흡수. PRD Evidence가 지목한 파일 간 중복 해소이며, 파일 **내부** 중복(§1~§7의 옛 서술)은 잔여로 명시.
+- `plugins/mccp/scripts/state/toggle-snapshot.js` — 명명된 제외 분류표 `TOGGLE_EXCLUSIONS`(shell-local 1 · browser-global 3 · dynamic-key-prefix 2 · test-only 4, 항목마다 file:line 근거). `*.test.js` 파일 제외(설계 규칙은 요구했으나 디렉토리만 걸러 왔다). `scanSurfaceDetailed`가 제외 **전/후 두 분모**를 함께 낸다(106 → 96 · 구현 시점 104 → 94였고 rebase로 승계한 main의 신규 토글 2개가 분모에 들어왔다). 상대 `stateDir`에 loud warn. 초안의 "하네스 내부 변수" 제외 후보 3건은 set·read 양쪽이라 **철회**하고 기록으로 남김.
+- `plugins/mccp/scripts/derive/sources/toggle-usage.js` — 자체 스캐너를 폐기하고 `toggle-snapshot`으로 통일(두 구현의 `*.test.js` 제외 여부가 서로 달랐다). `operation_branch_count`를 **분모 표면 위에서** 계산(203) — 분자 위에서 세면 토글을 은퇴시켜도 값이 안 변해 반-조작 병기 목적을 달성하지 못한다. `snapshot_corpus_present` 신설.
+- `plugins/mccp/scripts/lib/msw-metrics/index.js` — `computeA3` 신설 + `computeMetrics` 배선 + `METRIC_IDS`에 A3 추가. `computeB3`의 `operation_branch_count > 100 → invalid` 규칙 **제거**(measurement-design.md에 없는 절대 임계이며, 분기를 올바로 세면 199라 정확히 계산했다는 이유로 invalid가 된다) → 계약이 규정한 fold 탐지는 직전 주기 쌍이 없어 `forward-only`로 정직 표기. 빈 corpus는 `computed 0%`가 아니라 `forward-only`.
+- `plugins/mccp/scripts/hooks/session-start.js` — `writeSnapshot`에 repoRoot 기반 `stateDir` 전달(**CL-5와 동일 결함**이 같은 `try` 블록 12줄 아래에서 재발한 것). M8이 쓸 사용 이력 축적의 시계를 지금 시작시킨다.
+- `plugins/mccp/scripts/lib/renderer/sections/msw-metrics.js` — `METRICS_ORDER`에 A3 추가 + `METRICS_META.A3` 신설. **C2·C3 라벨 오배정 정정**(둘 다 A3의 정의를 담고 있어 A3가 `computed`가 되는 순간 대시보드가 "게이트 헛발화율 = 산출됨"을 표시하게 된다). 같은 결함군인 **B1·C1 라벨도 정정**. 값 셀은 지표 정의 그대로의 단일 수치를 유지하고 병기 수치(A3 감축률 · B3 제외 전/후 분모 · 분기 수)는 `<details>` collapse로.
+- `docs/multi-session-work-loop/measurement-design.md` — §B3 제외 분류표 본문화(규칙상 이름을 적을 때만 유효). §A3 tokenizer 버전 기록 출처를 명시 **개정**(분모·산출식·무결성 검사는 불변 — 바뀐 것은 버전 문자열의 출처뿐).
+- `plugins/mccp/scripts/derive/cli.js` · `lib/msw-metrics/fixture.js` · `lib/tests/msw-metrics-acceptance.test.js` — claimed-computable에 **A3 명시 승격**(silent promotion을 막는 목록이므로 편집이 정식 경로). B3는 유지하되 **live는 corpus가 쌓일 때까지 forward-only**임을 기록.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.1 → 1.23.7` + renderer footer 2면 동기. 브랜치 base는 `1.23.1`이지만 착수 이후 `origin/main`이 `1.23.2`(PR #117)·`1.23.3`·`1.23.4`(PR #118 codex-intent-context M1)·`1.23.5`(PR #120 diverse-agent-review M1)를 모두 소비했으므로 §3.7 forward-only reconcile로 **네 칸 상향**한다 — plan이 적은 `1.23.2`를 그대로 쓰면 CHANGELOG에 같은 버전 항목이 둘 생기고 매니페스트가 후퇴한다. 이 재조정은 같은 브랜치에서 **두 번** 더 발생했다(PR #118 머지 후 `1.23.4` 선점 → `1.23.5`, PR #120 머지 후 `1.23.5` 선점 → `1.23.6`) — 같은 축의 **5번째 실측 재발**이며, 병렬 브랜치가 같은 base에서 버전을 선언하는 한 구조적으로 반복된다.
+- `plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js` — footer version 단언을 리터럴 pin에서 **`plugin.json` 파생**으로 교체. §3.7이 열거하는 "동기 대상 5면" 중 이 테스트 2건은 bump마다 손으로 고쳐야 하는 항목이었는데, 그러면 drift를 잡는 가드가 아니라 bump 자체에서 실패하는 장애물이 된다. main이 도입한 footer 줄 anchor(plan 파생 milestone 라벨 오매칭 회피)는 그대로 유지한다.
+
+### Notes — santa-loop round 1 흡수 (dual-review)
+
+Reviewer A(Opus)는 G1·G2·G3를 모두 PASS로 통과시켰고, **Reviewer B(codex GPT-5.4)만** 세 보증 각각에서 실제 구멍을 찾았다. 지적 6건 중 5건을 확인해 흡수하고 1건은 실측으로 반증했다. (Reviewer A가 올린 critical 6건 중 5건은 선재 실패의 오귀속이었다 — `origin/main` 트리에서 같은 테스트가 이름·개수까지 동일하게 실패함을 대조로 확인했다.)
+
+- `msw-metrics/cli.js` — `--force`가 봉인된 baseline을 **흔적 없이** 덮어썼다. 덮어쓰기 거부 가드의 목적("비교 대상이 조용히 바뀌면 감축 주장이 반증 불가능해진다")을 플래그 하나가 되돌리고 있었다. 재봉인 경로는 유지하되 교체 대상의 정체를 `reseal_history`에 누적 기록하고, **읽을 수 없는 이전 기록 위로는 재봉인을 거부**한다. 순수 함수 `buildResealHistory`로 분리해 tokenizer 없이도 회귀 검증된다.
+- `instruction-contract/lint.js` C4 — **신뢰할 수 있는 "감축 전 헤딩 집합"이 없었다.** 구현이 ledger 행만 순회해, CLAUDE.md와 ledger **양쪽에서 동시에** 지워진 절은 순회할 행 자체가 없어 조용히 통과했다 — G2가 금지한다고 선언한 바로 그 손실이다. strict pass를 추가해 before 집합을 git(`a3-baseline.json`이 pin한 커밋 — 감축률과 증명이 같은 anchor를 공유)에서 가져와 `before − after ⊆ ledger(retire ∪ 목적지 있는 on-demand)`를 강제한다. before-ref를 못 구하면 **fail-closed**이며, `--allow-missing-before`로만 약한 검사로 내려가고 그 사실이 출력·stats(`c4_strict`)에 남는다.
+- `instruction-contract/lint.js` C3 — 포인터 검사가 `resident_pointer`가 **있을 때만** 돌아, 열을 비우면 검사가 사라졌다. 목적지를 선언한 행은 포인터가 **필수**가 되고, 포인터가 그 목적지를 실제로 지목하는지도 함께 본다.
+- `state/toggle-snapshot.js` — 제외 목록이 JS 하드코딩이고 규범 문서(`measurement-design.md` §B3)를 읽는 코드가 없었다. 문서가 "집행부는 `TOGGLE_EXCLUSIONS`이며 이 표와 1:1"이라 선언만 하고 아무도 대조하지 않아, **코드만 고쳐도 분모가 바뀌는** 상태였다(G3의 "이름을 적을 때만 유효"가 기계 장치가 아니었다). `crossCheckExclusions`가 양방향 drift와 class 불일치를 잡고, 표를 못 읽는 것도 drift로 친다("검사 불가"가 "검사 통과"로 읽히지 않도록).
+- `derive/sources/toggle-usage.js` — `snapshot_files_read++`가 `JSON.parse` **앞**에 있어 전부 손상된 corpus가 `snapshot_corpus_present=true`로 통과했고, B3가 그 위에서 자신 있게 `computed 0%`를 냈다. 바로 위 주석이 막는다고 설명하는 그 패턴이다. 존재 판정을 **파싱 성공** 기준으로 바꾸고, 파일은 있는데 하나도 파싱 안 되면 `degraded`로 표면화한다.
+- **반증 1건**: "입력 부재 시 가짜 0 baseline을 봉인한다"는 지적은 CLAUDE.md 없는 디렉토리에서 emitter를 실제로 돌려 반증했다 — `refusing to write artifact: status=baseline-unavailable`로 거부하고 아티팩트를 만들지 않는다.
+- `a3-instruction-cost.js` — `MCCP_A3_READ_USER_MEMORY` 판정이 truthy라 `=0`이 opt-in을 **켜고** 있었다. 문서가 적은 `=1` 계약대로 `1`/`true`/`yes`/`on`만 수용한다.
+- `CHANGELOG.md` — `## [1.23.4]` 헤딩이 둘이었다(같은 ship에 대해 PR #118이 하나, 후속 `be88e5c`가 파일 최상단만 보고 하나 더). 이 PR이 만든 것은 아니나 §3.7의 "헤딩 중복 = CHANGELOG 깨짐"이라 하나로 병합했다 — 어느 쪽도 상대를 포함하지 않아(파일 목록 vs santa-loop 회고) 승자를 고르지 않고 양쪽 Notes를 모두 보존했다.
+
+### Notes — santa-loop round 2 흡수
+
+Reviewer A(Opus)는 이번엔 baseline 대조를 지정받아 11개 기준 전부 PASS·critical 0을 냈고, **Reviewer B(codex)만** 다시 4건을 올렸다. 3건 흡수, 1건 반증, 1건은 운영자 판단으로 backlog.
+
+- `instruction-contract/lint.js` C3 — round 1의 강화가 여전히 **문서 전체 substring**이었다. `docs/ENVIRONMENT.md`는 CLAUDE.md에 2번 나오므로 §4가 자기 포인터를 통째로 잃어도 §1.4 쪽 언급 때문에 통과했다(실측 재현). 이제 각 행의 **자기 섹션 본문**(heading부터 동급 이상 다음 heading까지)만 검색하고, routed 행이 heading stub조차 잃으면 그 자체로 실패한다 — 포인터가 "다른 어딘가"에서 발견되는 것은 그 섹션에서의 귀로가 아니다.
+- `derive/sources/toggle-usage.js` — round 1이 만든 제외표 대조가 **계산만 되고 버려지고 있었다.** test 하나만 빨개질 뿐 런타임 분모는 그대로 나갔고, 그 test를 지우면 신호가 사라진다. drift를 분모를 내는 자리에서 `degraded`로 전파하고, `--scan-denominator`도 제외 전/후를 함께 내며 drift 시 **비영점 exit**한다.
+- `msw-metrics/a3-instruction-cost.js` — CLAUDE.md 부재가 fail-closed이긴 했으나 **TypeError가 계약을 대신하고** 있었다(round 1에서 이 경로를 "반증"으로 판정한 근거가 그 크래시였다). 누군가 그 성분을 방어적으로 초기화하는 순간 조용히 0-토큰 baseline 봉인으로 뒤집히므로, 요구사항을 명시 거부로 적었다.
+- **반증 유지**: "가짜 0 baseline을 봉인할 수 있다"는 결론은 CLAUDE.md 없는 트리 + STATE.md만 있는 트리 두 경우 모두에서 재현되지 않았다(artifact 미생성).
+- **backlog 이연**: tracked plan의 홈 절대경로. repo 전역 관례(main archived plan 약 30개)이고 비밀이 아니며, 고치면 receipt `plan_hash`가 stale해져 게이트가 본 적 없는 본문에 재봉인해야 한다 — 운영자가 되돌리기를 선택했고 신규 유입 차단 + 일괄 sweep으로 이연했다.
+
+신규 test 5건(섹션 범위 C3 2 · drift 전파 1 · 명시 거부 1 · routed stub 1). round 1의 healthy fixture는 "routed 행의 heading이 사라진" 모양이었는데 이는 실제 repo(routed=2, removed=0)와 다르고 정확히 이번에 닫은 구멍이라, fixture를 실제 관례에 맞췄다.
+### Notes — santa-loop round 4 흡수 (렌더 층 평탄화)
+
+Reviewer A는 PASS(critical 0, 되돌림 검사까지 수행), **Reviewer B만** 3건을 올렸다. 그중 하나가 이 사이클에서 가장 중요한 발견이다.
+
+- **렌더 층이 `invalid`을 숨기고 있었다 (다섯 번째 재발).** `renderMswMetrics`가 `computed` 지표가 하나도 없으면 섹션 전체를 `null`로 반환한다 — exclusion drift로 B3가, 아티팩트 손상으로 A3가 `invalid`가 되면 대시보드는 실패를 보여주는 대신 **아무것도 보여주지 않는다**. round 4가 지표 층에서 없앤 confidently-wrong 평탄화가 한 층 밖에서 그대로 부활한 것이다. 게다가 `msw-metrics-render.test.js`가 **`status:'invalid'`인 B3가 null로 렌더되는 것을 명시 단언**해 그 동작을 고정하고 있었다(이 저장소가 반복해서 겪은 "test가 버그를 정답으로 고정"). 이제 `!hasComputed && !hasInvalid`일 때만 숨긴다 — baseline 미형성(insufficient/forward-only)은 조용히 넘어가되 **무결성 위반은 반드시 표면화**한다. test는 둘로 갈라 각각을 단언한다.
+- **evidence가 형식만 통과하면 됐다.** `x.js` 같은 값도 정규식을 만족했다. 실재 검증을 추가했는데 처음엔 오탐 8건이 났다 — 문서 관례가 repo-root가 아니라 `plugins/mccp/scripts/` 상대였다. 기준 경로 후보(repo-root · scripts · plugin)를 모두 시도해 실 repo는 `ok=true`, 조작한 경로는 정확히 1건만 검출된다. glob은 디렉토리로 검증한다.
+- **A3 freshness 범위를 공개한다.** 분자는 3성분인데 repo에서 검증 가능한 것은 `claude_md` 하나뿐이다(STATE.md는 세션 휘발성, memory digest는 미커밋 — S5). 이는 의도된 한계이므로 로직은 유지하고, `freshness_scope`와 `numerator_components`를 지표가 함께 발행해 "현재 점유율"이 무엇에 대해 신선한지 읽는 쪽이 알 수 있게 했다. 넣지 않으면 매 세션 stale이 되어 지표가 무용해진다.
+
+신규 test 3건(누적 29건).
+
+### Notes — santa-loop round 5 흡수 (여섯 번째 층, 그리고 사슬의 끝)
+
+- **라이브 대시보드에 metrics 섹션이 아예 없었다.** A3를 대시보드에 처음 올린 milestone이 정작 그 섹션이 사라진 대시보드를 만들고 있었다. main 병합으로 CLAUDE.md가 바뀌어 A3 아티팩트가 stale → `insufficient`가 됐는데, round 4의 게이트는 `invalid`만 살리고 `insufficient`는 그대로 숨겼다. 실측: `A3 insufficient(stale) · B3 forward-only → 섹션 NULL · verdict muted`. **"측정된 적 있으나 낡음"과 "측정된 적 없음"은 다른 사실**이고, 전자는 실행 가능한 지시(`--emit-after` 재실행)다. 지표가 `stale`을 실어 나르고 · 섹션이 stale이면 렌더하고 · verdict가 해결 방법까지 amber로 표시하도록 세 층에서 갈랐다.
+- **headline verdict가 `metrics`를 한 번도 읽지 않았다.** `computeVerdict`는 `sources`·`warnings`만 본다. M4가 만든 두 `invalid` 경로는 source에 `degraded`를 함께 세워 둔 덕에 이미 도달하고 있었지만(실측: 둘 다 amber), **source는 멀쩡한데 metric만 invalid**한 경우(A1의 unit-spike·timestamp-inversion — 선재 경로)는 침묵했다. 지목된 두 경로만이 아니라 그 모양 전체를 닫았다. degraded source가 있으면 더 구체적인 그쪽 메시지가 이기고, `forward-only`/`computed`는 건드리지 않는다.
+
+**감축률 42.2%로 하락 (두 번째 base 이동).** santa-loop 진행 중 main이 PR #120을 머지했고 이 브랜치가 병합했다. after는 `280b9ef`(25,644 토큰) → `b1fe03f`(**26,377**)로 이동해 감축률이 43.8% → **42.2%**가 됐다(CLAUDE.md 성분 45.25%). **before는 두 차례 모두 `7fe48d9`/45,646 토큰에 봉인 유지** — 분모를 바꿔 수치를 지키는 대신 분자가 커진 사실을 보고한다. 목표 50% 미달 폭이 커진 원인은 M4가 아니라 병렬 ship이 상시 지시문을 다시 늘리고 있다는 것이며, **이 현상 자체가 M4가 측정하려던 대상**이다.
+
+신규 test 3건(누적 35건).
+
+### Notes — santa-loop round 5b (C3 세 번째 지적 수용)
+
+Reviewer B가 세 라운드 연속 같은 지점을 지적했다: **C3가 substring만 본다.** round 4에서 섹션 범위로 좁혔지만 그 안에서는 여전히 substring이라, 무관한 문장이나 같은 경로를 담은 코드 샘플이 검사를 만족시켰다. 이번엔 판단을 접고 **읽는 사람이 따라갈 수 있는 형태** — 목적지를 target으로 갖는 markdown 링크 — 를 요구한다. 링크 텍스트는 경로가 아니어도 된다(따라갈 수 있게 만드는 것은 target이다). fixture 4곳이 산문 포인터를 쓰고 있어 실제 관례에 맞췄고, "산문은 실패 / 링크는 통과"를 양방향 test로 고정했다.
+
+같은 라운드의 나머지 2건은 새 결함이 아니다 — headline/title consumer 지적은 리뷰어가 직전 커밋 이전 트리를 읽은 것이고(현재 MD H1·HTML title 양쪽 모두 `지표 무효`를 싣는다, 실측 확인), plan 절대경로는 운영자가 되돌리기 + backlog로 이미 결정한 항목이다(3회째 재지적).
+
 ## [1.23.6] — 2026-08-09
 
 **Gate guard integrity M1 — fail-open이어야 할 자리가 아니었던 가드 3개 복원 (patch — bug fix/axis close)** — 세 가드가 서로 다른 파일·서로 다른 원인으로 무력화돼 있었고, 셋 다 "fail-closed여야 할 자리가 fail-open"이라는 같은 형태였다. green을 만드는 것이 아니라 **신호를 복원**하는 것이 목적이므로 어떤 테스트도 skip/삭제/완화하지 않았다. 세 가드 모두 수정 전 코드에서 신규 테스트가 실제로 red임을 A/B로 확인했다(비공허성).
@@ -28,7 +105,6 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `CLAUDE.md` §3.3 / §4 — PR ship proof가 `codex_disabled_at_pr`(명시) 축임을 문서화.
 
 > **미포함 (의도적)**: `plugins/mccp/scripts/receipt/tests/pr-codex-dedupe.test.js`는 **무변경**. plan R1에서 한 리뷰어가 이 테스트를 "버그를 정답으로 고정한 것"으로 지목했으나 검증 결과 그 반대였다 — 이 테스트가 두 축의 **옳은 계약**을 지키고 있고, 무너뜨린 쪽은 proof 집합이었다. 수정 A는 이 테스트를 통과시킨 채 성립한다(diff 0으로 확인).
-
 ## [1.23.5] — 2026-08-09
 
 ### Reconciled with origin/main (#118 codex-intent-context M1)
@@ -143,24 +219,47 @@ santa-loop 6라운드에서 **20건 흡수 · 7건 기각**했고 회귀 스위�
 - **DD10 no-render 계약** — derive projection에는 `review_verdict`/`review_source`가 추가되지만 **어떤 renderer section도 이 두 필드를 읽지 않는다**(mechanical 확인: renderer 파일 변경 0). 사용자가 본 적 없는 세 번째 verdict 어휘를 예고 없이 화면에 올리지 않는다 — 표시 설계는 별도 디자인 사이클.
 - **이 사이클의 Codex는 `MCCP_CODEX_DISABLED=1` 정책으로 미발화**했고 receipt는 `codex_verdict='skipped'`로 정직하게 봉인됐다. 게이트 내 적대 검토는 `Task(security-reviewer)` 1회(CRITICAL 0, HIGH 2 — 둘 다 플랜 DD11/DD13이 이미 규정한 구현-정확성 요구로 흡수)이며 **cross-model이 아니다**.
 
+### Notes — santa-loop round 4 흡수 (cap 초과, 운영자 결정)
+
+3라운드 상한에서 escalate했고 운영자가 속행을 선택했다. Reviewer B가 R3에서 올린 6건 중 **같은 결함군 2건 + 1건**을 닫았다.
+
+- **`computeA3`·`computeB3`가 생산자 신호를 평탄화하고 있었다 (R3-1 + R3-5).** 이 루프에서 같은 모양이 층만 바꿔 **세 번** 재발한 축이다: R1은 대조를 만들었고, R2는 그 결과를 source에 `degraded`로 전파했고, R3는 그 `degraded`를 **지표를 발행하는 소비자가 읽지 않는다**는 것이었다. 이제 `computeA3`는 손상(`degraded`/`error`)을 `artifact_present` 판정 **앞에서** 먼저 보고 `status:'invalid'`로 내며(A1의 "무결성 위반은 producer 부재보다 먼저" 선례), `computeB3`는 `exclusion_doc_ok !== true`면 분모를 발행하지 않는다. 부재·판독불가·손상은 서로 다른 사실이고, drift난 분모는 문서가 승인한 분모가 아니다.
+- **제외표 대조가 evidence 열을 보지 않았다 (R3-4).** token·class만 맞으면 근거가 비어 있거나 지어낸 행도 통과했다 — §B3이 요구하는 "항목마다 file:line 근거"보다 약한 게이트다. 이제 evidence 셀이 실제 소스 위치(`path.js:123`)를 담아야 하며, glob(`commands/*.md`)은 라인 없이 허용한다(근거가 "모든 command body"라 단일 라인이 가리킬 수 없다).
+- **인터프리터 probe가 tiktoken import 가능성을 확인하지 않았다 (R3-2).** 첫 Python 3을 채택하므로 여러 설치가 있는 머신에서 tiktoken을 가진 인터프리터를 지나칠 수 있었다. 이제 probe가 한 프로세스에서 버전과 `import tiktoken`을 함께 답하고, tiktoken을 가진 후보가 우선한다. 어디에도 없으면 기존 loud `baseline-unavailable`을 실제 인터프리터 기준으로 유지한다.
+- **유지 판정 (R3-3)**: C3가 코드펜스 안 언급도 포인터로 인정한다. 더 조이면 인라인 코드로 적은 정상 포인터를 오탐하고, "섹션이 목적지를 명시한다"는 검사 목적은 이미 충족한다. **해당 없음 (R3-6)**: plan의 홈 절대경로는 운영자가 되돌리기 + backlog로 이미 결정한 항목이다.
+
+신규 test 6건은 helper가 아니라 **발행 층(`computeMetrics`)** 에 건다 — Codex가 "현재 test는 helper에서 멈추고 A3/B3를 실제로 발행하는 소비자 경로를 건드리지 않는다"고 지적한 지점이다. 손상·drift가 `invalid`로 뒤집히는지와, **정상 경로가 새 게이트에 걸리지 않는지**를 함께 단언한다.
+
+새 게이트가 seeded acceptance fixture를 깨뜨렸고, 그것이 논점을 그대로 실증했다 — 그 fixture는 R2가 도입한 `snapshot_files_parsed`조차 갖고 있지 않았다. **fixture가 producer의 실제 출력 모양보다 뒤처져 있었는데 소비자 층 test가 없어 아무도 그 격차를 보지 못했다.** 게이트를 느슨하게 푸는 대신 fixture가 대조 결과를 명시하도록 고쳤다.
+
 ## [1.23.4] — 2026-08-09
 
-**Plan-Codex 의도 컨텍스트 게이트 M1 (patch — 단일 milestone ship, §3.7)** — `/mccp:plan`의 Plan-Codex 게이트는 out-of-process 리뷰어에게 **사용자 대화 의도를 전달할 채널이 없었다**. 리뷰어는 제안서만 보고 요구사항은 보지 못했고, finding을 수용/기각한 판단은 어디에도 기록되지 않았다. M1은 세 축(L1 의도 표면화 · L2-A 판정 커버리지 강제 · M 측정 인프라)을 닫는다. 상세 계약은 CLAUDE.md §3.13.
+**codex-intent-context M1 — 의도 표면화 + 판정 커버리지 + 측정 인프라 (단일 milestone → patch bump)** — `/mccp:plan`의 Plan-Codex 게이트는 리뷰어(out-of-process Codex)에게 **사용자 대화 의도를 전달할 채널이 없었고**, finding 수용 판단이 어디에도 기록되지 않았다. M1은 세 축을 닫는다: **(L1)** plan의 구조화된 `## User Intent` 표를 하드닝해 리뷰어 focus에 주입 · **(L2-A)** 모든 finding이 명시 판정을 받도록 mechanical 완전성 강제 · **(M)** receipt `meta.intent_*` 10 필드로 측정 인프라 확립.
+
+강제는 **단일 장수(long-lived) 프로세스** `plan-codex-runner.js`가 소유한다 — Codex 호출·adjudication 대기·판정·receipt write가 한 프로세스 안에서 일어나므로 리뷰와 write 사이에 판정 입력 파일이 **존재하지 않는다**(DD3). 감사 envelope는 디스크에 남기되 **절대 재read하지 않으며**, 이를 회귀 test가 강제한다(변조해도 verdict 불변).
+
+> **M1은 UI10(의도-충돌 finding의 silent-accept 0건)을 달성하지 않는다.** 저자가 모든 finding을 `intent_conflict:'none'`으로 표시하면 커버리지 검사는 전부 통과한다 — M1은 **누락**을 막고 **오심**은 막지 못한다. 오심 탐지(리뷰어 per-finding `INTENT:` 계약 + 비대칭 대조)는 **M1.5**가 소유한다(Plan-Codex F1 흡수 — 초안의 UI10 달성 주장 철회).
 
 ### Added
-- `plugins/mccp/scripts/lib/intent-context.js` — 순수 오라클. PRD-모드 plan의 `## User Intent` 표에서 `Constraint` 열**만** 읽어 `<user_intent_reference>` 블록으로 리뷰어 focus에 주입한다. 저자 정당화(`## Design Decisions`)는 오라클이 도달할 경로 자체가 없어 anchoring 회피가 텍스트 lint가 아니라 **구조 분리**로 보장된다. verdict 5종(`preserved`/`skipped`/`skipped-unproven`/`incomplete`/`conflict_unresolved`) + canonical digest + 소비처별 판정 3분기.
-- `plugins/mccp/scripts/lib/plan-codex-runner.js` — 단일 장수 프로세스(DD3). Codex 호출 → payload 메모리 보유 → adjudication bounded 대기 → 판정 → receipt write가 한 프로세스에서 일어나므로 리뷰와 write 사이에 판정 입력 파일이 **존재하지 않는다**. 감사 envelope는 디스크에 남기되 **다시 읽지 않으며**(변조해도 verdict 불변 — 회귀 test가 강제), per-decision lease lock(host-aware tri-state) · nonce 봉인 marker · post-write digest 검증 + mis-sealed receipt quarantine을 포함한다.
-- `plugins/mccp/scripts/lib/markdown-table.js` — 중립 표 파서(게이트가 렌더러에 의존하지 않도록 분리).
+- `plugins/mccp/scripts/lib/intent-context.js` — L1+L2-A 단일 pure 오라클. 섹션 파싱(DD7 구조 가드 8종) · reference 합성(DD8 이스케이프 표 + 300자 상한) · adjudication 완전성 판정 · **소비처별 출력**(`runtimeAllowed`/`chainAllowed`/`dedupeApproved` — 단일 `pass` 없음, Implement-R1 F3).
+- `plugins/mccp/scripts/lib/plan-codex-runner.js` — 단일 장수 프로세스. per-decision lease lock(host-aware tri-state) + `meta.intent_run_nonce` 봉인으로 marker 유실 크래시를 markerless 복구(Implement-R1 F5).
+- `plugins/mccp/scripts/lib/markdown-table.js` — 중립 공유 표 리더. `parseTableRows`의 **완전 계약**(`withMeta` + `{cells,resolved,meta}`)을 이관하고 마커 스트리퍼는 주입식이라 dep-free(Implement-R1 F4). renderer와 게이트가 둘 다 import — escaped-pipe 행 드롭 버그의 재발명·게이트→대시보드 의존 역전 양쪽을 차단.
+- 테스트 4본 — `intent-context.test.js`(30) · `plan-codex-runner.test.js`(17) · `intent-gate-fields.test.js`(12) · `validate-cmd-intent-gate.test.js`(11).
 
 ### Changed
-- `plugins/mccp/scripts/receipt/write.js` — `stampIntentDecision`. **프로그래매틱 non-null 객체 전용**이며 `--intent-*` CLI 플래그는 0건이다(`parseFlags`가 문자열·`true`·배열만 만들 수 있어 셸 위조가 타입 가드로 구조 차단). receipt `meta.intent_*` 10개 present-only 필드는 `makeSkeleton` 미포함 — §3.12 tracked ship corpus의 `receipt_hash` 안정성 보존.
-- `plugins/mccp/scripts/receipt/dedupe.js` · `schema.js` · `validate-cmd.js` — 소비처별 판정(`runtimeAllowed` / `chainAllowed` / `dedupeApproved`). `dedupeApproved`는 audited override의 영향을 **절대 받지 않는다** — 강제된 `incomplete` receipt가 dedupe를 인증하면 PR-Codex가 skip돼 dual-review가 우회되기 때문.
-- `plugins/mccp/commands/plan.md` Phase 5.x — detached runner 기동 + marker 상태 기계 4종(`running`/`succeeded-markerless`/`crashed`/`timeout`). codex 900s가 Bash 600s 상한을 넘으므로 foreground 호출이 불가능한 데 따른 설계.
-- `plugins/mccp/.claude-plugin/plugin.json` `1.23.3 → 1.23.4`(patch — 단일 milestone ship, §3.7) + renderer footer(html/markdown) 동기.
-- `CLAUDE.md` §3.13 신설 + §4 운영 토글 2건(`MCCP_SKIP_INTENT_GATE` · `MCCP_INTENT_ADJUDICATION_TIMEOUT_MS`).
+- `receipt/schema.js` — `meta.intent_*` **10 present-only 필드**. `makeSkeleton` 미포함(`pr_codex_force_override` 선례) — §3.12 git-tracked ship corpus의 hash 안정성 보존 + DD2의 "키 부재 = 모름"을 의미 있게 유지. `intent_adjudication_counts.by_verdict`는 **open map**이며 검증은 합계 불변식(Codex F2 — 닫힌 키 집합은 신규 verdict 추가 시 과거 receipt를 소급 invalid로 만든다).
+- `receipt/write.js` — runner 결정을 stamp만 하고 판정하지 않는다. `intentDecision`은 **프로그래매틱 non-null 객체 전용**: `cli.js parseFlags`는 문자열/`true`/배열만 만들 수 있으므로 타입 가드가 CLI 위조 경로를 **구조적으로** 닫는다(Implement-R1 F2 — intent CLI 플래그 0건). free-form plan(`**Source PRD**:` 부재)은 DD1의 mechanical proof로 `skipped`.
+- `receipt/validate-cmd.js` — canonical read-back. 무결성 검사(schema→subject/receipt-tamper→staleness) **이후**에 배치돼 변조 receipt의 intent 필드는 읽히지 않음. `blocking[].kind='intent_gate_incomplete'` + 키 부재는 `warning.kind='intent_gate_unknown'`(DD2).
+- `receipt/dedupe.js` — **공유 `codexConverged`는 불변**(DD9 — 손대면 out-of-scope implement receipt가 항상 unknown이 되어 전 dedupe 사망). plan 축에만 `intent_approved` 추가.
+- `lib/codex-invoke.js` — `--intent-reference-file` + `composeFocus` 3-part 결정적 순서(design → intent → base). 판독 실패는 **spawn 전 exit 2**(classification enum 14종 보존).
+- `commands/plan.md` — `## User Intent` 필수 섹션 + Phase 1.5 CAPTURE · Phase 5.2 runner detached 실행 · 5.5a adjudication 작성 · 5.6 marker 4-state 판정 · 5.4a `[MCCP-INTENT-GATE-STOP]`.
+- `commands/prp-implement.md` — Phase 0.0 복구가 `mccp-plan-codex`를 **blind write하지 않는다**(Codex F1 — 없으면 informational allow-path가 불투명한 exit 12로 깨진다).
+- `commands/pr.md` + `pr-phase-helpers/codex-runner.js` — L1만 forward(fail-open). L2-A는 plan 단계 소유.
 
-### Notes — 이 milestone이 달성하지 **않은** 것
-
+### Notes
+- **운영 토글 1건**: `MCCP_SKIP_INTENT_GATE="<substantive reason>"` — mechanical HALT만 해제하며 **verdict를 세탁하지 않는다**. receipt는 실제 blocking verdict를 봉인한 채 `meta.intent_gate_force_override=true`와 ship되므로 cross-gate dedupe는 fail-closed를 유지한다(DD6).
+- **dedupe 동작 변화**: legacy plan-codex receipt(intent 키 부재)는 더 이상 dedupe되지 않아 PR-Codex가 한 번 더 돈다. 의도된 fail-closed 대가 — "키를 빼면 공짜 skip"이라는 유인을 0으로 만든다.
+- **DD4-1은 "안정 잔여" 형태로 강제된다**: plan이 요구한 "write 직전 재대조 = 리뷰 시점 **전체** digest"는 실제 흐름에서 성립할 수 없다 — 게이트 자신이 Phase 5.1에서 `## Codex Adversarial Review` placeholder를 넣고 5.3에서 그것을 교체한 뒤에야 receipt가 쓰이므로, 문자 그대로 강제하면 성공하는 모든 게이트가 abort한다. 따라서 `intent-context.js#stableBodyDigest`가 **게이트가 스스로 쓰는 섹션만 이름으로 제외**하고 나머지(`## User Intent` 표 · Codex가 읽은 Tasks/DD)를 byte-동일성으로 요구하며, 불일치 시 **write 없이** `incomplete`로 차단한다. `intent_plan_digest`는 실제 봉인되는 본문의 digest로 stamp되고 write 후 재검증된다(DD4-2). 초안 구현은 이 불가능성을 발견하고 경고 stderr로 강등해 바인딩을 강제하는 것이 아무것도 남지 않았고, santa-loop R1의 외부 리뷰어가 그 지점을 짚어 현재 형태로 교정됐다.
 - **M1은 UI10(의도-충돌 finding의 silent-accept 0건)을 달성하지 않는다.** 저자가 모든 finding을 `intent_conflict:'none'`으로 표시하면 커버리지 검사는 전부 통과한다. M1은 **누락**을 막고 **오심**은 막지 못하며, 오심 탐지(리뷰어 per-finding `INTENT:` 계약)는 M1.5 소유다.
 - santa-loop 6라운드로 22건을 흡수했고 **그중 16건은 Codex(GPT-5.4)만 포착**했다(Opus는 R3·R5·merge 라운드에서 PASS). santa-loop Reviewer B는 `codex exec` 직접 호출이라 wrapper 게이트가 env policy로 죽어도 cross-model 검증을 얻는다.
 - PR-Codex는 `MCCP_CODEX_DISABLED=1`로 미발화했다 — ship gate는 `skipped` + proof로 통과했으며 이는 **Codex 승인이 아니다**.
@@ -229,35 +328,6 @@ santa-loop 6라운드에서 **20건 흡수 · 7건 기각**했고 회귀 스위�
 - **dead read 제거** — reader가 `work_claim_denied` kind를 셌으나 그것을 emit하는 producer가 없어 `claim_denied_count`가 구조적으로 0이었다(제거한 `conflict`/`collision`과 같은 결함이 한 필드 옆에서 재발). claim 거부는 `evidence_conflict_prevented` + claim-fence `conflict_kind`로 나가므로 그 discriminator에서 파생하도록 교체.
 - **분모 0 판정** `invalid` → `insufficient` — 이 모듈에서 `invalid`는 데이터 모순(unit spike·timestamp inversion·type separation)을 뜻하고 렌더러 최우선 버킷에 오른다. "겹친 세션이 아직 없다"는 부재이지 모순이 아니며, 그대로 두면 **1인 세션 저장소**(가장 흔한 구성)에 상시 무결성 오탐이 뜬다. 같은 파일 C1의 선례와 정합.
 - **잔여 정리** — `updateReceipt`의 gate-dir symlink 검사를 lock 획득 **앞**으로(검사 전에 junction을 통해 lock 파일이 worktree 밖에 쓰이던 defense-in-depth 축소) · `completion-ledger`의 dead import · `evidence-claim`의 도달 불가 `presentedEpoch` 분기 · `write.js`가 git-tracked `fix-task-applied.md`에 절대 Windows 경로를 기록하던 것을 repo-relative로.
-
-## [1.23.4] — 2026-08-09
-
-**codex-intent-context M1 — 의도 표면화 + 판정 커버리지 + 측정 인프라 (단일 milestone → patch bump)** — `/mccp:plan`의 Plan-Codex 게이트는 리뷰어(out-of-process Codex)에게 **사용자 대화 의도를 전달할 채널이 없었고**, finding 수용 판단이 어디에도 기록되지 않았다. M1은 세 축을 닫는다: **(L1)** plan의 구조화된 `## User Intent` 표를 하드닝해 리뷰어 focus에 주입 · **(L2-A)** 모든 finding이 명시 판정을 받도록 mechanical 완전성 강제 · **(M)** receipt `meta.intent_*` 10 필드로 측정 인프라 확립.
-
-강제는 **단일 장수(long-lived) 프로세스** `plan-codex-runner.js`가 소유한다 — Codex 호출·adjudication 대기·판정·receipt write가 한 프로세스 안에서 일어나므로 리뷰와 write 사이에 판정 입력 파일이 **존재하지 않는다**(DD3). 감사 envelope는 디스크에 남기되 **절대 재read하지 않으며**, 이를 회귀 test가 강제한다(변조해도 verdict 불변).
-
-> **M1은 UI10(의도-충돌 finding의 silent-accept 0건)을 달성하지 않는다.** 저자가 모든 finding을 `intent_conflict:'none'`으로 표시하면 커버리지 검사는 전부 통과한다 — M1은 **누락**을 막고 **오심**은 막지 못한다. 오심 탐지(리뷰어 per-finding `INTENT:` 계약 + 비대칭 대조)는 **M1.5**가 소유한다(Plan-Codex F1 흡수 — 초안의 UI10 달성 주장 철회).
-
-### Added
-- `plugins/mccp/scripts/lib/intent-context.js` — L1+L2-A 단일 pure 오라클. 섹션 파싱(DD7 구조 가드 8종) · reference 합성(DD8 이스케이프 표 + 300자 상한) · adjudication 완전성 판정 · **소비처별 출력**(`runtimeAllowed`/`chainAllowed`/`dedupeApproved` — 단일 `pass` 없음, Implement-R1 F3).
-- `plugins/mccp/scripts/lib/plan-codex-runner.js` — 단일 장수 프로세스. per-decision lease lock(host-aware tri-state) + `meta.intent_run_nonce` 봉인으로 marker 유실 크래시를 markerless 복구(Implement-R1 F5).
-- `plugins/mccp/scripts/lib/markdown-table.js` — 중립 공유 표 리더. `parseTableRows`의 **완전 계약**(`withMeta` + `{cells,resolved,meta}`)을 이관하고 마커 스트리퍼는 주입식이라 dep-free(Implement-R1 F4). renderer와 게이트가 둘 다 import — escaped-pipe 행 드롭 버그의 재발명·게이트→대시보드 의존 역전 양쪽을 차단.
-- 테스트 4본 — `intent-context.test.js`(30) · `plan-codex-runner.test.js`(17) · `intent-gate-fields.test.js`(12) · `validate-cmd-intent-gate.test.js`(11).
-
-### Changed
-- `receipt/schema.js` — `meta.intent_*` **10 present-only 필드**. `makeSkeleton` 미포함(`pr_codex_force_override` 선례) — §3.12 git-tracked ship corpus의 hash 안정성 보존 + DD2의 "키 부재 = 모름"을 의미 있게 유지. `intent_adjudication_counts.by_verdict`는 **open map**이며 검증은 합계 불변식(Codex F2 — 닫힌 키 집합은 신규 verdict 추가 시 과거 receipt를 소급 invalid로 만든다).
-- `receipt/write.js` — runner 결정을 stamp만 하고 판정하지 않는다. `intentDecision`은 **프로그래매틱 non-null 객체 전용**: `cli.js parseFlags`는 문자열/`true`/배열만 만들 수 있으므로 타입 가드가 CLI 위조 경로를 **구조적으로** 닫는다(Implement-R1 F2 — intent CLI 플래그 0건). free-form plan(`**Source PRD**:` 부재)은 DD1의 mechanical proof로 `skipped`.
-- `receipt/validate-cmd.js` — canonical read-back. 무결성 검사(schema→subject/receipt-tamper→staleness) **이후**에 배치돼 변조 receipt의 intent 필드는 읽히지 않음. `blocking[].kind='intent_gate_incomplete'` + 키 부재는 `warning.kind='intent_gate_unknown'`(DD2).
-- `receipt/dedupe.js` — **공유 `codexConverged`는 불변**(DD9 — 손대면 out-of-scope implement receipt가 항상 unknown이 되어 전 dedupe 사망). plan 축에만 `intent_approved` 추가.
-- `lib/codex-invoke.js` — `--intent-reference-file` + `composeFocus` 3-part 결정적 순서(design → intent → base). 판독 실패는 **spawn 전 exit 2**(classification enum 14종 보존).
-- `commands/plan.md` — `## User Intent` 필수 섹션 + Phase 1.5 CAPTURE · Phase 5.2 runner detached 실행 · 5.5a adjudication 작성 · 5.6 marker 4-state 판정 · 5.4a `[MCCP-INTENT-GATE-STOP]`.
-- `commands/prp-implement.md` — Phase 0.0 복구가 `mccp-plan-codex`를 **blind write하지 않는다**(Codex F1 — 없으면 informational allow-path가 불투명한 exit 12로 깨진다).
-- `commands/pr.md` + `pr-phase-helpers/codex-runner.js` — L1만 forward(fail-open). L2-A는 plan 단계 소유.
-
-### Notes
-- **운영 토글 1건**: `MCCP_SKIP_INTENT_GATE="<substantive reason>"` — mechanical HALT만 해제하며 **verdict를 세탁하지 않는다**. receipt는 실제 blocking verdict를 봉인한 채 `meta.intent_gate_force_override=true`와 ship되므로 cross-gate dedupe는 fail-closed를 유지한다(DD6).
-- **dedupe 동작 변화**: legacy plan-codex receipt(intent 키 부재)는 더 이상 dedupe되지 않아 PR-Codex가 한 번 더 돈다. 의도된 fail-closed 대가 — "키를 빼면 공짜 skip"이라는 유인을 0으로 만든다.
-- **DD4-1은 "안정 잔여" 형태로 강제된다**: plan이 요구한 "write 직전 재대조 = 리뷰 시점 **전체** digest"는 실제 흐름에서 성립할 수 없다 — 게이트 자신이 Phase 5.1에서 `## Codex Adversarial Review` placeholder를 넣고 5.3에서 그것을 교체한 뒤에야 receipt가 쓰이므로, 문자 그대로 강제하면 성공하는 모든 게이트가 abort한다. 따라서 `intent-context.js#stableBodyDigest`가 **게이트가 스스로 쓰는 섹션만 이름으로 제외**하고 나머지(`## User Intent` 표 · Codex가 읽은 Tasks/DD)를 byte-동일성으로 요구하며, 불일치 시 **write 없이** `incomplete`로 차단한다. `intent_plan_digest`는 실제 봉인되는 본문의 digest로 stamp되고 write 후 재검증된다(DD4-2). 초안 구현은 이 불가능성을 발견하고 경고 stderr로 강등해 바인딩을 강제하는 것이 아무것도 남지 않았고, santa-loop R1의 외부 리뷰어가 그 지점을 짚어 현재 형태로 교정됐다.
 
 ## [1.23.0] — 2026-07-25
 

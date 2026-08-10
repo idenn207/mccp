@@ -33,7 +33,8 @@ Codex R3 cross-model review found that A2/A4/B2 could report **confidently-wrong
 | **A4** restore rate | `forward-only` | The handoff scanner intersects the current session's own sidecar → first-session self-credit → fake 100%. Not boundary-scoped. |
 | **B2** conflict rate | `forward-only` | Production emits only `session_start`/`session_end`; there is no live collision producer, so a "computed 0%" would be confidently wrong. The concurrent-pairs *denominator* is still observed. |
 | **A1** completion rate | `forward-only` (removed from claimed-computable) | `completions_producer_present` flips only on a `task_completed` KIND event, which no production hook emits today (session-end emits `session_end` KIND + `task_completed:false` field), so A1 is always forward-only in real derive. re-R3 F0: removed from claimed-computable — the fixture proving the compute path is not evidence of production computability. The flag stays live-derivable, so A1 can rejoin claimed-computable once a real producer is wired. |
-| **B3** toggle usage | `computed` | Live env-snapshot producer — the **only** claimed-computable metric. (Known refinement backlog: numerator uses `TOGGLE_DEFAULTS` while the denominator scans all `MCCP_*` tokens — toggles absent from the defaults table can be under-counted.) |
+| **B3** toggle usage | `computed` once a snapshot corpus exists | Live env-snapshot producer. The producer wrote nothing until M4 fixed its `stateDir` (cwd-relative writer vs repoRoot-fixed reader), so the corpus starts accumulating from M4 forward and B3 reports `forward-only` until the first snapshot lands. Corpus presence counts **parsed** snapshots: files that fail to parse are diagnosed (`invalid_count`), never counted as history. (Known refinement backlog: numerator uses `TOGGLE_DEFAULTS` while the denominator scans all `MCCP_*` tokens — toggles absent from the defaults table can be under-counted.) |
+| **A3** resident-instruction cost | `computed` | Reads the committed `a3-baseline.json` artifact; the tokenizer never runs inside derive. Promoted to claimed-computable in M4 alongside B3, so B3 is no longer the only entry. Goes `insufficient` when CLAUDE.md no longer hashes to the artifact, rather than serving a stale figure as current. |
 | **C1/C2/C3** | `forward-only` | No live findings/attribution source wired. |
 
 The real producers (collision detection, boundary-scoped restore, session-bound context, an independent completion producer) are deferred to a follow-up milestone. `metrics-assert --fixtures` proves the compute paths against the seeded fixture; it is **not** evidence that these metrics are computable in current production.
@@ -174,7 +175,7 @@ Applied at **compute time** (msw-metrics/index.js), mechanical enforcement:
 **Artifact storage**:
 - Raw CLAUDE.md / MEMORY.md / STATE.md text: ❌ **NEVER stored**
 - Stored only: count (integer) + sha256 (hex digest)
-- User-level MEMORY.md: only read if `MCCP_A3_INCLUDE_MEMORY=1` env opt-in
+- User-level MEMORY.md: only read if `MCCP_A3_READ_USER_MEMORY=1` env opt-in (M4: corrected from the non-existent `MCCP_A3_INCLUDE_MEMORY`; the code constant at `a3-instruction-cost.js` `MEMORY_ENV_FLAG` is canonical, and following the old spelling meant the component was never captured). The accepted affirmative values are `1`/`true`/`yes`/`on` (case-insensitive); anything else — including `0` — leaves the component off, so the documented `=1` and the implementation agree rather than the code accepting any non-empty string.
 
 ### Integration
 

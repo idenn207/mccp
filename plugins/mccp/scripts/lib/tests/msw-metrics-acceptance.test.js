@@ -11,6 +11,7 @@ const {
   METRIC_IDS,
   A1_WORK_COMPLETION_RATE,
   A2_CONTEXT_REMAINING,
+  A3_INSTRUCTION_COST,
   A4_RESTORE_RATE,
   B1_STATUS_DRIFT,
   B2_CONCURRENT_CONFLICTS,
@@ -44,7 +45,31 @@ const { buildSeededModel } = require('../msw-metrics/fixture');
 // The flip is additionally gated on a falsifiable runtime coverage audit
 // (b2-coverage-gate.js), whose own falsifiability is pinned by negative fixtures
 // in lib/tests/b2-coverage-gate.test.js.
+// multi-session-work-loop M4 — A3 joins the claimed set. Same sanctioned path
+// as B2's M3 promotion: edit this list deliberately, with the justification.
+//
+// A3 was never computable before: `measureA3` spawned a hardcoded `python3`,
+// which on this platform is the WindowsApps stub, so every run returned
+// `baseline-unavailable`; and `computeMetrics` never called it at all (it was
+// import-and-re-export only). M4 fixes the interpreter probe, pins the tokenizer
+// version inside the tokenizing process, and routes A3 through an
+// instruction-cost derive source that reads a committed artifact. Live derive
+// now yields real numbers.
+//
+// The promotion is falsifiable rather than convenient: the source re-hashes
+// CLAUDE.md against the artifact's recorded digest, so letting the artifact go
+// stale degrades A3 to `insufficient` instead of serving an old number as
+// current. Byte-based estimation stays prohibited, so "no tokenizer" means "no
+// A3", never a guess.
+//
+// B3 stays claimed, but note what changed underneath it: its producer was in
+// fact writing nothing (session-start.js resolved the snapshot path against cwd)
+// and B3 was reporting `computed 0%` over an empty corpus. M4 Task 6 fixes the
+// producer and gates the compute path on `snapshot_corpus_present`, so LIVE B3
+// reads forward-only until one session has run under the fix. The fixture below
+// injects the presence flag to prove the compute path, exactly as B2 does.
 const CLAIMED_COMPUTABLE = [
+  A3_INSTRUCTION_COST,
   B2_CONCURRENT_CONFLICTS,
   B3_TOGGLE_AXES,
 ];

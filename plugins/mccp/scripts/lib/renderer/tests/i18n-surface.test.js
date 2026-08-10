@@ -85,12 +85,22 @@ test('html — topbar freshness "갱신" present', () => {
   assert.match(r.html, /<span class="freshness">[\s\S]*?갱신/);
 });
 
-test('html — footer version v1.23.6 (footer element anchored)', () => {
+// The expected version is DERIVED from the plugin manifest, not pinned as a
+// literal. §3.7 calls version bumps a frequently-missed axis, and a hardcoded
+// literal turns this drift guard into one more thing to remember to edit —
+// it fails on the bump itself rather than on the drift it exists to catch.
+// Deriving makes the test assert what it actually cares about: the footers and
+// the manifest agree.
+const MANIFEST_VERSION = require('../../../../.claude-plugin/plugin.json').version;
+
+test('html — footer version matches plugin.json (footer element anchored)', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
   // Anchor the version inside the <footer> element. Asserting a bare /v1\.x\.y/
   // against r.html silently matched the model's plan-derived milestone label
   // (e.g. "v1.4.2 · …"), so footer drift went untested — anchor on the tag.
-  assert.match(r.html, /<footer[^>]*>v1\.23\.6 ·/);
+  const escaped = MANIFEST_VERSION.replace(/\./g, '\\.');
+  assert.match(r.html, new RegExp('<footer[^>]*>v' + escaped + ' ·'),
+    `html footer must carry v${MANIFEST_VERSION} (plugin.json)`);
   assert.match(r.html, /통합 derive/);
 });
 
@@ -122,9 +132,11 @@ test('markdown — title "mccp 상태"', () => {
   assert.match(r.md, /^# mccp 상태/m);
 });
 
-test('markdown — footer with v1.23.6 version (footer line anchored)', () => {
+test('markdown — footer version matches plugin.json (footer line anchored)', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
   // Anchor on the footer line for the same reason the html assertion does — a
   // bare /v1\.x\.y/ also matches plan-derived milestone labels in the body.
-  assert.match(r.md, /^_derived from \.claude\/ · v1\.23\.6_$/m);
+  const escaped = MANIFEST_VERSION.replace(/\./g, '\\.');
+  assert.match(r.md, new RegExp('^_derived from \\.claude\\/ · v' + escaped + '_$', 'm'),
+    `markdown footer must carry v${MANIFEST_VERSION} (plugin.json)`);
 });

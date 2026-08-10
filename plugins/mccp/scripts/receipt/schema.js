@@ -32,6 +32,17 @@ const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
 // Present-only + fail-closed: absence reads as NOT converged in dedupe.
 const CODEX_VERDICT_VALUES = ['converged', 'divergent', 'critical', 'unavailable', 'skipped'];
 
+// diverse-agent-review M1 — the approval ISSUER, orthogonal to the verdict
+// vocabulary above. review_verdict reuses CODEX_VERDICT_VALUES; review_source
+// says who issued it. The structural proof oracle is imported rather than
+// re-implemented so schema-side and read-side can never disagree about what a
+// valid proof is (the double-definition drift this project keeps re-finding).
+const {
+  SOURCES: REVIEW_SOURCE_VALUES,
+  isReviewProofStructurallyValid,
+  isRepoRelativeEvidencePath,
+} = require('../lib/review-verdict');
+
 const SHA256_RE = /^sha256:[0-9a-f]{64}$/;
 const GIT_SHA_RE = /^[0-9a-f]{7,40}$/;
 const DECISION_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -140,6 +151,108 @@ function validate(receipt) {
         CODEX_VERDICT_VALUES.indexOf(r.codex_verdict) !== -1,
         'resolution.codex_verdict must be one of: ' +
         CODEX_VERDICT_VALUES.join(', ') + ' (or absent)');
+    }
+
+    // diverse-agent-review M1 — review_* triple. Present-only: legacy receipts
+    // (and every git-tracked ship receipt written before M1) omit all three and
+    // validate byte-unchanged. makeSkeleton deliberately does NOT materialize
+    // them (DD6), so absence is the default state, not a migration debt.
+    //
+    // DD11 all-or-nothing — schema is the LAST write-side wall. A partial triple
+    // must never reach disk: resolveEffectiveVerdict would report `unavailable`
+    // for it, but a receipt that is unreadable-by-construction is a defect we
+    // should refuse to persist rather than something to interpret later.
+    const reviewPresent = [];
+    const reviewAbsent = [];
+    [['review_verdict', r.review_verdict],
+     ['review_source', r.review_source],
+     ['review_proof', r.review_proof]].forEach(function (pair) {
+      if (pair[1] !== null && pair[1] !== undefined) reviewPresent.push(pair[0]);
+      else reviewAbsent.push(pair[0]);
+    });
+
+    if (reviewPresent.length > 0) {
+      req(reviewAbsent.length === 0,
+        'resolution.review_* is all-or-nothing (DD11): present [' +
+        reviewPresent.join(', ') + '] but missing [' + reviewAbsent.join(', ') +
+        ']. A partial stamp must not be persisted.');
+
+      if (r.review_verdict !== null && r.review_verdict !== undefined) {
+        req(typeof r.review_verdict === 'string' &&
+          CODEX_VERDICT_VALUES.indexOf(r.review_verdict) !== -1,
+          'resolution.review_verdict must be one of: ' +
+          CODEX_VERDICT_VALUES.join(', ') + ' (or absent)');
+      }
+      if (r.review_source !== null && r.review_source !== undefined) {
+        req(typeof r.review_source === 'string' &&
+          REVIEW_SOURCE_VALUES.indexOf(r.review_source) !== -1,
+          'resolution.review_source must be one of: ' +
+          REVIEW_SOURCE_VALUES.join(', ') + ' (or absent)');
+      }
+      // The proof only has to hold up STRUCTURALLY when it is being used to
+      // justify an approval. A divergent/unavailable verdict carries its proof
+      // for audit, and demanding a satisfied quorum there would block honest
+      // records of a review that did not converge.
+      //
+      // Path shape is NOT part of that relaxation. The two invariants answer
+      // different questions: "is this proof good enough to approve?" (verdict-
+      // dependent) versus "may this string be sealed into the receipt?" (never).
+      // dispatch_evidence is operator-supplied text that gets hashed into the
+      // receipt and, for ship receipts, committed — an absolute or host-specific
+      // path leaks the developer's filesystem into the durable corpus, which
+      // §3.12 already had to unwind once with a sanctioned rebind tool
+      // (v1.22.4-cwd-rebind) because a sealed receipt cannot simply be rewritten.
+      // The read-side oracle downgrades a leaking proof to `unavailable`, so the
+      // APPROVAL axis was already safe; this closes the LEAK axis, where a
+      // non-converged verdict was the unguarded door.
+      if (r.review_verdict === 'converged') {
+        req(isReviewProofStructurallyValid(r.review_proof),
+          'resolution.review_proof fails the structural invariant required for a ' +
+          'converged review_verdict (layers/verification_verdict/quorum/perspectives/' +
+          'dispatch_evidence repo-relative paths/reviewed_plan_hash)');
+      } else if (r.review_proof !== null && r.review_proof !== undefined) {
+        req(isPlainObject(r.review_proof), 'resolution.review_proof must be an object');
+        const ev = r.review_proof.dispatch_evidence;
+        if (ev !== null && ev !== undefined) {
+          req(Array.isArray(ev),
+            'resolution.review_proof.dispatch_evidence must be an array');
+          for (let i = 0; i < ev.length; i++) {
+            req(isRepoRelativeEvidencePath(ev[i]),
+              'resolution.review_proof.dispatch_evidence[' + i + '] must be a ' +
+              'repo-relative path (no absolute/drive/UNC/backslash/".." segments) ' +
+              'even when review_verdict is not "converged" — it is sealed into ' +
+              'receipt_hash either way');
+          }
+        }
+      }
+
+      // santa-loop R5 — 'hybrid' must SHOW its L3 layer. `hybrid` is a
+      // CROSS_MODEL_SOURCES member, so cross-gate dedupe counts a converged
+      // hybrid receipt as cross-model corroboration and skips terminal PR-Codex.
+      // A receipt that claims the L3 layer without carrying its verdict would
+      // buy that skip with evidence it never had — the read-side predicate
+      // rejects it, and this stops it reaching disk in the first place.
+      if (r.review_source === 'hybrid' && r.review_verdict === 'converged') {
+        const layers = isPlainObject(r.review_proof) ? r.review_proof.layers : null;
+        const l3 = isPlainObject(layers) ? layers.l3 : null;
+        req(l3 === 'converged',
+          'a converged review_source="hybrid" receipt must carry ' +
+          'review_proof.layers.l3 === "converged" — hybrid claims cross-model ' +
+          'corroboration, and cross-gate dedupe skips PR-Codex on that claim, so ' +
+          'the L3 verdict it rests on must be present (got ' + JSON.stringify(l3) + ')');
+      }
+
+      // DD11 contradiction guard — 'multi-agent' asserts Codex never spoke, so a
+      // codex_verdict sitting beside it makes the receipt claim both at once.
+      // Cross-gate dedupe reads source to decide whether cross-model corroboration
+      // exists; an ambiguous receipt is exactly what must not be interpretable.
+      // 'hybrid' legitimately carries both (L3 IS Codex); 'codex' likewise.
+      if (r.review_source === 'multi-agent') {
+        req(r.codex_verdict === null || r.codex_verdict === undefined,
+          'resolution.codex_verdict must be absent when review_source is ' +
+          '"multi-agent" (contradictory receipt: multi-agent asserts Codex did ' +
+          'not issue this approval)');
+      }
     }
   }
 
@@ -719,6 +832,139 @@ function validate(receipt) {
       req(Number.isInteger(m.merged_verify_rounds) && m.merged_verify_rounds >= 0,
         'meta.merged_verify_rounds must be a non-negative integer if present');
     }
+
+    // diverse-agent-review M1 — L3 instrumentation + gate wall-clock. Present-
+    // only (not in makeSkeleton, DD6) and deliberately NOT carved out of
+    // receipt_hash: unlike briefing_*, which is stamped AFTER the receipt is
+    // sealed and therefore cannot hash itself, these are settled at write time
+    // and are part of the approval record. Carving them out would let the
+    // instrumentation be edited without breaking the tamper digest, which is
+    // exactly the audit story M1 wants to keep honest.
+    if (m.review_l3_invoked !== null && m.review_l3_invoked !== undefined) {
+      req(typeof m.review_l3_invoked === 'boolean',
+        'meta.review_l3_invoked must be a boolean if present');
+    }
+    if (m.review_l3_reason !== null && m.review_l3_reason !== undefined) {
+      req(typeof m.review_l3_reason === 'string' && m.review_l3_reason.length > 0,
+        'meta.review_l3_reason must be a non-empty string if present');
+    }
+    if (m.review_wall_clock_ms !== null && m.review_wall_clock_ms !== undefined) {
+      req(Number.isInteger(m.review_wall_clock_ms) && m.review_wall_clock_ms >= 0,
+        'meta.review_wall_clock_ms must be a non-negative integer if present');
+    }
+
+    // codex-intent-context M1 — intent-gate audit axis. 10 fields, ALL
+    // PRESENT-ONLY: they are not materialized in makeSkeleton, so a receipt that
+    // never exercises the gate omits every key and its receipt_hash is
+    // bit-identical to a pre-M1 receipt. That matters because makeSkeleton is
+    // shared by every gate including the now git-tracked mccp-pr-codex ship
+    // corpus (§3.12) — mirrors the pr_codex_force_override precedent.
+    //
+    // Absence is also SEMANTIC (DD2): `!('intent_gate_verdict' in meta)` means
+    // "written before this field existed" = unknown, which the chain allows and
+    // dedupe refuses. Materializing a default null would destroy that signal.
+    const INTENT_VERDICT_VALUES = [
+      'preserved', 'skipped', 'skipped-unproven', 'incomplete', 'conflict_unresolved',
+    ];
+    // Keep in lockstep with intent-context.js SKIP_PROOFS — a value accepted by
+    // one and rejected by the other splits write-side and read-side on what
+    // counts as a valid skip. (`codex_not_invoked` = the panel issued the
+    // approval, diverse-agent-review M1.)
+    const INTENT_SKIP_PROOFS = [
+      'free_form_plan', 'no_codex_findings', 'codex_disabled', 'codex_not_invoked',
+    ];
+
+    if (m.intent_section_present !== undefined) {
+      req(typeof m.intent_section_present === 'boolean',
+        'meta.intent_section_present must be a boolean if present');
+    }
+    if (m.intent_reference_injected !== undefined) {
+      req(typeof m.intent_reference_injected === 'boolean',
+        'meta.intent_reference_injected must be a boolean if present');
+    }
+    if (m.intent_items_count !== null && m.intent_items_count !== undefined) {
+      req(Number.isInteger(m.intent_items_count) && m.intent_items_count >= 0,
+        'meta.intent_items_count must be a non-negative integer or null');
+    }
+    if (m.intent_gate_verdict !== null && m.intent_gate_verdict !== undefined) {
+      req(typeof m.intent_gate_verdict === 'string' &&
+        INTENT_VERDICT_VALUES.indexOf(m.intent_gate_verdict) !== -1,
+        'meta.intent_gate_verdict must be one of: ' +
+        INTENT_VERDICT_VALUES.join(', ') + ' (or null)');
+    }
+    if (m.intent_skip_proof !== null && m.intent_skip_proof !== undefined) {
+      req(typeof m.intent_skip_proof === 'string' &&
+        INTENT_SKIP_PROOFS.indexOf(m.intent_skip_proof) !== -1,
+        'meta.intent_skip_proof must be one of: ' + INTENT_SKIP_PROOFS.join(', ') + ' (or null)');
+    }
+    if (m.intent_plan_digest !== null && m.intent_plan_digest !== undefined) {
+      req(typeof m.intent_plan_digest === 'string' && SHA256_RE.test(m.intent_plan_digest),
+        'meta.intent_plan_digest must match sha256:<64 hex> or be null');
+    }
+    if (m.intent_run_nonce !== null && m.intent_run_nonce !== undefined) {
+      req(typeof m.intent_run_nonce === 'string' && UUID_V4_RE.test(m.intent_run_nonce),
+        'meta.intent_run_nonce must be a UUID or null');
+    }
+    // Codex F2 — the top level is a closed 5-key shape, but `by_verdict` is an
+    // OPEN string→non-negative-int map. Pinning today's ADJUDICATION_VERDICTS
+    // into the schema would make every historical receipt retroactively invalid
+    // the day a verdict is added, and sealed receipt_hash forbids silent
+    // patching. Validation is therefore a SUM INVARIANT, not key completeness
+    // (same reasoning as impeccable_commands_routed[].command's open string).
+    if (m.intent_adjudication_counts !== null && m.intent_adjudication_counts !== undefined) {
+      const c = m.intent_adjudication_counts;
+      if (!c || typeof c !== 'object' || Array.isArray(c)) {
+        err('meta.intent_adjudication_counts must be an object or null');
+      } else {
+        const ints = ['total', 'conflict', 'none', 'overrides'];
+        let intsOk = true;
+        ints.forEach(function (k) {
+          const ok = Number.isInteger(c[k]) && c[k] >= 0;
+          if (!ok) intsOk = false;
+          req(ok, 'meta.intent_adjudication_counts.' + k +
+            ' must be a non-negative integer');
+        });
+        const bv = c.by_verdict;
+        if (!bv || typeof bv !== 'object' || Array.isArray(bv)) {
+          err('meta.intent_adjudication_counts.by_verdict must be an object');
+        } else {
+          let sum = 0;
+          let bvOk = true;
+          Object.keys(bv).forEach(function (k) {
+            const ok = Number.isInteger(bv[k]) && bv[k] >= 0;
+            if (!ok) bvOk = false;
+            req(ok, 'meta.intent_adjudication_counts.by_verdict.' + k +
+              ' must be a non-negative integer');
+            if (ok) sum += bv[k];
+          });
+          if (intsOk && bvOk) {
+            req(c.total === sum,
+              'meta.intent_adjudication_counts.total must equal the sum of by_verdict');
+            req(c.total === c.conflict + c.none,
+              'meta.intent_adjudication_counts.total must equal conflict + none');
+            req(c.overrides <= c.conflict,
+              'meta.intent_adjudication_counts.overrides must not exceed conflict');
+          }
+        }
+      }
+    }
+    if (m.intent_gate_force_override !== undefined) {
+      req(typeof m.intent_gate_force_override === 'boolean',
+        'meta.intent_gate_force_override must be a boolean if present');
+    }
+    if (m.intent_gate_force_override_reason !== null
+        && m.intent_gate_force_override_reason !== undefined) {
+      req(typeof m.intent_gate_force_override_reason === 'string',
+        'meta.intent_gate_force_override_reason must be a string or null');
+    }
+    if (m.intent_gate_force_override === true) {
+      const v = validateReason(m.intent_gate_force_override_reason, { strict: true });
+      if (!v.ok) {
+        err('meta.intent_gate_force_override_reason rejected (' + v.reason + '): ' +
+          'MCCP_SKIP_INTENT_GATE requires a substantive reason ≥30 chars + ≥3 words, ' +
+          'no placeholder/URL-only/banlist token');
+      }
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -857,6 +1103,7 @@ module.exports = {
   GATE_IDS: GATE_IDS,
   SEVERITIES: SEVERITIES,
   CODEX_VERDICT_VALUES: CODEX_VERDICT_VALUES,
+  REVIEW_SOURCE_VALUES: REVIEW_SOURCE_VALUES,
   SHA256_RE: SHA256_RE,
   GIT_SHA_RE: GIT_SHA_RE,
   DECISION_ID_RE: DECISION_ID_RE,

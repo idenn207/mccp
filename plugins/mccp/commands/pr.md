@@ -200,10 +200,42 @@ call, so a divergent prior receipt blocks the PR before any side effect.
 DECISION_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decision \
   --command mccp:pr \
   --args "$ARGUMENTS")
+# v1.23.5 G2 — forward --plan so the validator scopes to the right receipt
+# instead of falling back to its plan-less path. Phase 2 DISCOVER has NOT run
+# yet, so there is no discovered plan path to reuse; derive it from the slug per
+# /mccp:plan's output convention (.claude/plans/<slug>.plan.md).
+#
+# This is a SCOPING correction, NOT staleness enforcement — and the distinction
+# is load-bearing. The real staleness locus is 2.5.9, which runs after Phase 2
+# and gates on the aggregate `ok`.
+#
+# Precisely what the derived path can and cannot do here (santa-loop R1 asked for
+# this to be stated exactly rather than as a blanket "cannot false-block"):
+#   - It CANNOT introduce a block, GIVEN the `|| PRECHECK_EXIT=$?` guard below.
+#     validate-cmd consumes planPath in exactly two
+#     places — the generic-slug guard (:213) and the staleness re-hash (:301-303).
+#     A path that is absent, or present but belonging to another decision, lands
+#     in `stale`. Measured both ways on a real receipt pair: wrong-but-existing
+#     plan -> blocking=0 stale=2; no --plan at all -> blocking=0 stale=0.
+#   - This preflight CAN still block, and is meant to: it reads `blocking` for
+#     design_critique_chain_divergent, which is driven by the prior receipt's
+#     meta.design_critique_verdict (validate-cmd.js:485-503) and is completely
+#     independent of planPath. Passing --plan neither causes nor suppresses it.
+PRECHECK_PLAN=".claude/plans/${DECISION_SLUG}.plan.md"
+# santa-loop R2 (Reviewer B) — the `|| PRECHECK_EXIT=$?` tail is load-bearing, not
+# style. `validate` exits 2 on ANY non-ok result (classify.js), and BEFORE this
+# milestone a plan-less call at this callsite could not go non-ok on staleness at
+# all. Adding --plan makes exit 2 reachable here, and a bare `VAR=$(cmd)` whose
+# command fails aborts the shell under `set -e` — before CHAIN_BLOCKED is ever
+# parsed. Measured both ways: default shell -> next line runs, CHAIN_BLOCKED
+# empty, no false stop; `set -e` -> the block aborts with exit 2. pr.md does not
+# set -e today, so this was latent, but resting the guarantee below on "nobody
+# enables set -e" is exactly the kind of implicit assumption this milestone
+# exists to remove. The || form is exempt from set -e and preserves the code.
 PRECHECK_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" validate \
   --command mccp:pr \
-  --decision "$DECISION_SLUG" 2>&1)
-PRECHECK_EXIT=$?
+  --decision "$DECISION_SLUG" \
+  --plan "$PRECHECK_PLAN" 2>&1) && PRECHECK_EXIT=0 || PRECHECK_EXIT=$?
 # Look for design_critique_chain_divergent blocking entries specifically — other
 # blocking reasons (missing receipt, schema invalid) are handled by Phase 2.5
 # downstream.
@@ -454,6 +486,25 @@ if [ -n "${CODEX_SKIP_AT_PR_REASON:-}" ]; then
 elif [ "${CODEX_DEDUPE_AT_PR:-0}" = "1" ]; then
   RUNNER_FLAGS+=(--dedupe)
 fi
+
+# codex-intent-context M1 (Task 10) — L1 ONLY. Rebuild the user-intent reference
+# from the plan's `## User Intent` table and forward it so PR-Codex reviews the diff
+# against what the USER asked for, not just against internal consistency. The L2-A
+# adjudication gate is NOT re-run here: findings are triaged at the plan step, and
+# this gate is review-only. Section absent / unreadable → no flag, review proceeds
+# unchanged (fail-open — intent context enriches this gate, it never blocks it).
+INTENT_REF_FILE="$MCCP_TMP/intent-reference-$(node -e 'process.stdout.write(require("crypto").randomUUID())').txt"
+node -e '
+  const ic = require(process.argv[1] + "/scripts/lib/intent-context");
+  const fs = require("fs");
+  let planText = "";
+  try { planText = fs.readFileSync(process.argv[2], "utf8"); } catch (_) { process.exit(3); }
+  const s = ic.extractIntentSection(planText);
+  if (!s.present) process.exit(3);
+  fs.writeFileSync(process.argv[3], ic.buildIntentReference(s.items), { mode: 0o600 });
+' "${CLAUDE_PLUGIN_ROOT}" "<plan path>" "$INTENT_REF_FILE" 2>/dev/null \
+  && RUNNER_FLAGS+=(--intent-reference-file "$INTENT_REF_FILE") \
+  || echo "[mccp:intent] no usable ## User Intent section — PR-Codex proceeds without it" 1>&2
 
 CODEX_RESULT_FILE="$MCCP_TMP/codex-result.json"
 # v0.2.9 — codex-runner.js inherits env into the codex-invoke child process. No code change in the helper needed.
@@ -854,11 +905,45 @@ finalize (2.5.7) is the runtime **primary** ship gate — its exit 12 already HA
 # never retro-blocked (DD5). An active MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE
 # (env, Phase 0.4) OR meta.pr_codex_force_override=true downgrades the block to a
 # warning here (ship proceeds; verdict stays sealed).
+# v1.23.5 G2 — `--plan` is REQUIRED here. Without it the validator never re-hashes
+# the plan, so `stale` could not fire and a plan edited AFTER its gate shipped
+# unnoticed. Unlike the Phase 1.6 preflight (scoping only — it reads `blocking`),
+# this read-back gates on the aggregate `ok`, so a stale plan HALTs the push.
+# santa-loop R3 (Reviewer B): this is the ship-verdict locus, but not the only
+# place a stale plan can stop the run — 2.5.8's code-review chain-check also
+# passes `--plan` and can stale-block before Phase 3. Stated as scope, not as
+# uniqueness.
+# santa-loop R3 (Reviewer A) — this uses a real shell variable, NOT the
+# `<plan-path>` placeholder the surrounding command body uses elsewhere. The
+# distinction matters here specifically: an unsubstituted `<plan-path>` is not a
+# bad argument, it is a bash SYNTAX ERROR (`<` opens a redirection), so a gate
+# that depends on the model substituting it correctly is not the mechanical gate
+# this milestone claims to restore. Phase 1.6 above already derives a real
+# variable; leaving the load-bearing ship gate on a placeholder was an
+# inconsistency between the two edits. Same self-derivation discipline as
+# prp-implement.md's design-grounding gate (shell-state independent, re-derived
+# from a stable input).
+#
+# PR_PLAN_PATH is the escape hatch: Phase 2 DISCOVER sets it when the discovered
+# plan's basename differs from the decision slug. Unset, the deterministic
+# `.claude/plans/<slug>.plan.md` derivation applies, which is /mccp:plan's output
+# convention. Either way this cannot degrade into a syntax error, and a path that
+# does not resolve lands in `stale` and correctly blocks here.
+# santa-loop R3 (Reviewer B) — same `|| SHIP_GATE_EXIT=$?` guard as Phase 1.6, and
+# for the same reason: `validate` exits 2 on any non-ok result, so under `set -e` a
+# bare capture aborts the shell. R2 hardened 1.6 and left this sibling callsite
+# bare, which was an omission, not a distinction. The failure mode here is milder
+# than at 1.6 — an abort still HALTs, so it cannot ship anything — but it skips
+# `SHIP_OK`, the `[MCCP-GATE-STOP]` diagnostics below, and the audited-override
+# warning path, turning an explained stop into a bare exit 2.
+SHIP_PLAN_PATH="${PR_PLAN_PATH:-.claude/plans/${DECISION_SLUG}.plan.md}"
 SHIP_GATE_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" validate \
   --command mccp:pr \
   --decision "${DECISION_SLUG}" \
+  --plan "$SHIP_PLAN_PATH" \
   --check-ship-verdict \
-  ${FINALIZE_RECEIPT_HASH:+--expected-receipt-hash "$FINALIZE_RECEIPT_HASH"} 2>/dev/null)
+  ${FINALIZE_RECEIPT_HASH:+--expected-receipt-hash "$FINALIZE_RECEIPT_HASH"} 2>/dev/null) \
+  && SHIP_GATE_EXIT=0 || SHIP_GATE_EXIT=$?
 # Gate on the aggregate `ok` flag, NOT on a single blocking kind. The ship-gate
 # emits FOUR fail-closed blocking kinds on the freshly-written receipt —
 # pr_codex_nonconverged (non-approving verdict / unreadable), subject-tamper,

@@ -16,7 +16,7 @@
 //   (3) **raw markdown marker 금지** — "baseline-forming" 같은 status는 렌더 문자열만
 //   (4) **list-of-N collapse** — 상위 3개(A/B/C 계열 요약) expanded + 나머지 collapse
 
-const METRICS_ORDER = ['A1', 'A2', 'A4', 'B1', 'B2', 'B3', 'C1'];
+const METRICS_ORDER = ['A1', 'A2', 'A3', 'A4', 'B1', 'B2', 'B3', 'C1'];
 const FORWARD_ONLY = new Set(['C2', 'C3']);
 const TOP_EXPANDED = 3;
 
@@ -34,15 +34,29 @@ const METRICS_META = {
     category: 'A',
     type: 'standard',
   },
+  A3: {
+    name: '상시 지시문 점유율',
+    desc: '세션 시작 시 자동 주입되는 지시문이 점유한 컨텍스트 토큰 비율',
+    category: 'A',
+    type: 'standard',
+  },
   A4: {
     name: '인계 항목 복원율',
     desc: '미완 인계 항목 중 복원된 비율',
     category: 'A',
     type: 'standard',
   },
+  // F1 흡수의 연장 (M4 구현 중 발견) — B1·C1도 같은 오배정이었다. 각각
+  // "설정-독립성 / 설정이 변경된 활동 비율"과 "PR 역추적 회복성 / PR 본문에서
+  // 지표 재구성 가능성"으로, measurement-design.md가 규정한 지표가 아니라 **다른
+  // 것**을 서술하고 있었다(후자는 recoverability probe의 설명이다). 값은 둘 다
+  // 미산출이라 오독의 크기는 C2·C3보다 작지만, 라벨이 계약과 어긋나면 독자가
+  // 대시보드와 measurement-design.md를 대조할 수 없다는 결함은 동일하다.
+  // 계약 정의로 정정한다. A1·A4·B3는 같은 지표의 다른 표현이라 두고, B2는 M3가
+  // 근거를 남기고 의도적으로 개명한 것이라 그대로 둔다.
   B1: {
-    name: '설정-독립성',
-    desc: '설정이 변경된 활동 비율',
+    name: '진행 상태 drift',
+    desc: '문서 status와 독립 증거 판정이 불일치한 작업 단위 건수 (0건이 목표)',
     category: 'B',
     type: 'standard',
   },
@@ -62,20 +76,26 @@ const METRICS_META = {
     type: 'standard',
   },
   C1: {
-    name: 'PR 역추적 회복성',
-    desc: 'PR 본문에서 지표 재구성 가능성',
+    name: '피드백 폐쇄율',
+    desc: '발견된 finding 중 같은 작업 단위 안에서 해소된 비율 (이연·강등·기각은 해소 미계상)',
     category: 'C',
     type: 'standard',
   },
+  // M4 critique F1 — these two slots carried A3's definition ("주입 명령어 비용" /
+  // "모델 컨텍스트 사용률" / "A3 토큰 예약"). Once M4 made A3 `computed`, the
+  // dashboard would have shown A3's number under the label "게이트 헛발화율" and
+  // "누출 결함율", manufacturing exactly the decision basis measurement-design.md
+  // §5 forbids. Labels restored to the PRD definitions; both stay forward-only
+  // (관측 전용 · label-protocol 확립 전 의사결정 사용 금지).
   C2: {
-    name: '주입 명령어 비용',
-    desc: '모델 컨텍스트 사용률',
+    name: '게이트 헛발화율',
+    desc: '차단 판정 중 실질 수정 없이 통과한 비율 (관측 전용 · 값 미산출)',
     category: 'C',
     type: 'forward-only',
   },
   C3: {
-    name: 'A3 토큰 예약',
-    desc: 'A3 계측 토큰 사용 추적',
+    name: '누출 결함율',
+    desc: '통과 판정 중 관측 창 안에 수정이나 되돌림이 붙은 비율 (관측 전용 · 값 미산출)',
     category: 'C',
     type: 'forward-only',
   },
@@ -173,6 +193,48 @@ function preventedDetail(metrics) {
   return 'B2 상세: 차단된 경합 ' + b2.conflicts_prevented + '건 (분자 미계상 · 예방은 사고가 아님)';
 }
 
+// critique F2 (M3 F3 재적용) — 병기 수치는 값 셀이 아니라 여기 산다.
+// A3 전후 2값 · B3 제외 전/후 2값 · 분기 수를 한 행에 늘어놓으면 compact 4-컬럼
+// 톤이 깨진다(Output Constraint 4). 값 셀은 지표 정의 그대로의 단일 수치를 유지하고
+// 무결성 규칙이 요구하는 병기는 collapse 안에서 충족한다 — 숨김이 아니라 계층화다.
+// 신규 문자열은 em-dash 대신 `·`와 괄호만 쓴다(M3 F4 카피 규칙).
+function coReportDetails(metrics) {
+  const lines = [];
+  if (!metrics) return lines;
+
+  const a3 = metrics.A3;
+  if (a3 && typeof a3.reduction_ratio === 'number') {
+    const parts = ['A3 상세: 감축률 ' + (a3.reduction_ratio * 100).toFixed(1) + '%'];
+    if (typeof a3.baseline_tokens === 'number' && typeof a3.numerator === 'number') {
+      parts.push('토큰 ' + a3.baseline_tokens + ' → ' + a3.numerator);
+    }
+    if (typeof a3.claude_md_reduction_ratio === 'number') {
+      parts.push('CLAUDE.md 성분만 ' + (a3.claude_md_reduction_ratio * 100).toFixed(1) + '%');
+    }
+    if (a3.tokenizer_version) parts.push('tiktoken ' + a3.tokenizer_version);
+    lines.push(parts.join(' · '));
+  }
+
+  const b3 = metrics.B3;
+  if (b3 && typeof b3.raw_surface_count === 'number') {
+    // 제외 전/후 분모를 둘 다 낸다(G3). 하나만 내면 제외가 감축으로 오독된다.
+    const parts = [
+      'B3 상세: 분모 ' + b3.raw_surface_count + ' (제외 전) → ' + b3.denominator + ' (제외 후)',
+      '명명된 제외 ' + (b3.excluded_count || 0) + '건 · 은퇴 0건',
+    ];
+    if (typeof b3.operation_branches === 'number') {
+      parts.push('동작 분기 ' + b3.operation_branches + '개' +
+        (b3.operation_branch_method ? ' (' + b3.operation_branch_method + ')' : ''));
+    }
+    lines.push(parts.join(' · '));
+  }
+
+  const prevented = preventedDetail(metrics);
+  if (prevented) lines.push(prevented);
+
+  return lines;
+}
+
 // 마크다운 렌더: 지표 테이블 + 상세 설명
 function renderMetricsMarkdown(metrics) {
   if (!metrics || typeof metrics !== 'object') return null;
@@ -183,13 +245,28 @@ function renderMetricsMarkdown(metrics) {
 
   if (sortedIds.length === 0) return null;
 
-  // computed 지표가 1개 이상인지 확인 (전부 insufficient/invalid면 hide)
+  // 값이 하나도 없으면 숨기되, **무결성 위반은 예외다.** `invalid`은 "아직
+  // 측정 전"이 아니라 "측정 기판이 어긋났다"는 신호이므로 숨기면 운영자에게
+  // 침묵으로 도달한다 — M4가 지표 층에서 없앤 confidently-wrong 평탄화를
+  // 렌더 층에서 되살리는 셈이다. baseline 미형성(insufficient/forward-only)만
+  // 조용히 넘어간다.
   const hasComputed = sortedIds.some((id) => {
     const m = metrics[id];
     return m && m.status === 'computed';
   });
+  const hasInvalid = sortedIds.some((id) => {
+    const m = metrics[id];
+    return m && m.status === 'invalid';
+  });
+  // A measurement that exists but has gone stale is actionable, not absent:
+  // hiding it is how the dashboard ends up silent about the very number this
+  // milestone added. Only "never measured" stays quiet.
+  const hasStale = sortedIds.some((id) => {
+    const m = metrics[id];
+    return m && m.stale === true;
+  });
 
-  if (!hasComputed) return null;
+  if (!hasComputed && !hasInvalid && !hasStale) return null;
 
   const displayIds = orderForDisplay(metrics, sortedIds);
 
@@ -216,8 +293,8 @@ function renderMetricsMarkdown(metrics) {
 
   // 초과분 + B2 상세는 collapse로. prevented는 값 셀이 아니라 여기 산다(F3).
   const extraIds = displayIds.slice(TOP_EXPANDED);
-  const preventedNote = preventedDetail(metrics);
-  if (extraIds.length > 0 || preventedNote) {
+  const detailLines = coReportDetails(metrics);
+  if (extraIds.length > 0 || detailLines.length > 0) {
     const summary = extraIds.length > 0
       ? '추가 지표 ' + extraIds.length + '개 보기'
       : '계측 상세 보기';
@@ -238,8 +315,8 @@ function renderMetricsMarkdown(metrics) {
       });
       md += extraLines.join('\n');
     }
-    if (preventedNote) {
-      md += (extraIds.length > 0 ? '\n\n' : '') + preventedNote;
+    if (detailLines.length > 0) {
+      md += (extraIds.length > 0 ? '\n\n' : '') + detailLines.join('\n\n');
     }
     md += '\n\n</details>';
   }
@@ -258,13 +335,24 @@ function renderMetricsHtml(metrics, formatUtils) {
 
   if (sortedIds.length === 0) return null;
 
-  // computed 지표가 1개 이상인지 확인
+  // markdown 면과 동일 규칙 — 무결성 위반은 숨기지 않는다.
   const hasComputed = sortedIds.some((id) => {
     const m = metrics[id];
     return m && m.status === 'computed';
   });
+  const hasInvalid = sortedIds.some((id) => {
+    const m = metrics[id];
+    return m && m.status === 'invalid';
+  });
+  // A measurement that exists but has gone stale is actionable, not absent:
+  // hiding it is how the dashboard ends up silent about the very number this
+  // milestone added. Only "never measured" stays quiet.
+  const hasStale = sortedIds.some((id) => {
+    const m = metrics[id];
+    return m && m.stale === true;
+  });
 
-  if (!hasComputed) return null;
+  if (!hasComputed && !hasInvalid && !hasStale) return null;
 
   const displayIds = orderForDisplay(metrics, sortedIds);
   const rows = [];
@@ -300,8 +388,8 @@ function renderMetricsHtml(metrics, formatUtils) {
     + rows.join('')
     + '</tbody></table>';
 
-  const preventedNote = preventedDetail(metrics);
-  if (extraRows.length > 0 || preventedNote) {
+  const detailLines = coReportDetails(metrics);
+  if (extraRows.length > 0 || detailLines.length > 0) {
     const summary = extraRows.length > 0
       ? '추가 지표 ' + extraRows.length + '개 보기'
       : '계측 상세 보기';
@@ -313,10 +401,10 @@ function renderMetricsHtml(metrics, formatUtils) {
         + extraRows.join('')
         + '</tbody></table>';
     }
-    if (preventedNote) {
-      // 중립 톤 — 신규 색 클래스를 추가하지 않는다(제약 2).
-      html += '<p class="muted">' + esc(preventedNote) + '</p>';
-    }
+    // 중립 톤 — 신규 색 클래스를 추가하지 않는다(제약 2).
+    detailLines.forEach((line) => {
+      html += '<p class="muted">' + esc(line) + '</p>';
+    });
     html += '</details>';
   }
 

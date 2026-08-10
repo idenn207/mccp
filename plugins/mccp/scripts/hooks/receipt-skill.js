@@ -15,7 +15,14 @@ const path = require('path');
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..', '..');
 const RECEIPT_DIR = path.join(PLUGIN_ROOT, 'scripts', 'receipt');
 const LIB_DIR = path.join(PLUGIN_ROOT, 'scripts', 'lib');
-const { resolveMode: resolveReceiptMode, warnIfOff } = require(path.join(LIB_DIR, 'receipt-mode'));
+// v1.23.5 G1 — receipt-mode was an UNGUARDED top-level require (mirror of the
+// receipt-prompt defect). A load failure killed the process at module scope,
+// before main() existed to route it, so the fail-open invariant declared above
+// never ran. Guard at module scope; main() routes the failure via g1Allow.
+const receiptModeMod = (function () {
+  try { return require(path.join(LIB_DIR, 'receipt-mode')); }
+  catch (err) { return { _load_error: err.message }; }
+})();
 
 // v0.2.7 G1 invariant — hook-trace loaded once at module scope; require failure
 // can't itself throw in a catch block. C6: live hook state = event payload only.
@@ -102,7 +109,30 @@ function debug(msg) {
 // v0.2.8 Task 2.6.5b R6-F3 — shared --plan extractor lib (dual-ingress
 // parity with receipt-prompt). Skill `arguments` can arrive as a string
 // or pre-tokenized array; the lib normalizes both.
-const { extractPlanPath } = require(path.join(LIB_DIR, 'extract-plan-path'));
+//
+// v1.23.5 G1 — guarded, and deliberately NOT a `catch → null` fallback like
+// blockFormat above. blockFormat's absence only coarsens block LABELS; this one
+// is a gate INPUT, and a null fallback would silently drop --plan from the
+// validator call — the very defect this milestone closes. Route loudly instead.
+const extractPlanPathMod = (function () {
+  try { return require(path.join(LIB_DIR, 'extract-plan-path')); }
+  catch (err) { return { _load_error: err.message }; }
+})();
+
+// Shape check, not just load success: a module that loads but lacks its export
+// would crash at the callsite with the same uncaught-throw failure mode.
+function coreModuleLoadError() {
+  if (!receiptModeMod || typeof receiptModeMod.resolveMode !== 'function' ||
+      typeof receiptModeMod.warnIfOff !== 'function') {
+    return 'receipt-mode: ' +
+      ((receiptModeMod && receiptModeMod._load_error) || 'missing resolveMode/warnIfOff export');
+  }
+  if (!extractPlanPathMod || typeof extractPlanPathMod.extractPlanPath !== 'function') {
+    return 'extract-plan-path: ' +
+      ((extractPlanPathMod && extractPlanPathMod._load_error) || 'missing extractPlanPath export');
+  }
+  return null;
+}
 
 async function main() {
   let event = null;
@@ -135,10 +165,23 @@ async function main() {
     return 0;
   }
 
+  // v1.23.5 G1 — core gate modules (receipt-mode, extract-plan-path). Checked
+  // after stdin parse so g1Allow can write an L1 shard against the real session,
+  // matching the validate-cmd load-failure path below.
+  const coreErr = coreModuleLoadError();
+  if (coreErr) {
+    debug('cannot load core gate module: ' + coreErr);
+    return g1Allow(event, {
+      exceptionClass: 'ModuleLoadError',
+      reason: coreErr,
+      commandName: skillName,
+    });
+  }
+
   // v0.2.2 Task 4 — MCCP_RECEIPT_GATE_MODE resolution (mirrors receipt-prompt.js).
-  const receiptMode = resolveReceiptMode(process.env);
+  const receiptMode = receiptModeMod.resolveMode(process.env);
   if (receiptMode === 'off') {
-    warnIfOff('off', 'Skill ' + skillName);
+    receiptModeMod.warnIfOff('off', 'Skill ' + skillName);
     debug('MCCP_RECEIPT_GATE_MODE=off bypass');
     return 0;
   }
@@ -170,7 +213,7 @@ async function main() {
   // v0.2.8 Task 2.6.5b R6-R3 F2 — extract planPath BEFORE deriveDecisionId
   // so plan-path commands derive their decisionId from the plan basename
   // instead of the branch fallback. Mirrors the receipt-prompt swap.
-  const planPath = extractPlanPath(ti.arguments);
+  const planPath = extractPlanPathMod.extractPlanPath(ti.arguments);
   const decisionId = decisionMod
     ? decisionMod.deriveDecisionId(skillName, ti.arguments, {
         cwd: event.cwd || process.cwd(),

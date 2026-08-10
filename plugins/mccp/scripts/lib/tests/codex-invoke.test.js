@@ -425,3 +425,101 @@ test('design-scope preamble: invokeAdversarialReview integration — companion r
   assert.strictEqual(focusArg, 'payload', 'expected raw focus pass-through');
   assert.ok(!focusArg.includes('[design-domain exclusion preamble]'));
 });
+
+// ---------------------------------------------------------------------------
+// codex-intent-context M1 (Task 3/4) — user-intent reference injection.
+// ---------------------------------------------------------------------------
+
+const { INTENT_REFERENCE_PREAMBLE } = codexInvoke;
+
+test('intent reference: design + intent compose in a deterministic 3-part order', () => {
+  const ref = '<user_intent_reference>\n- [UI1] (constraint) keep it small\n</user_intent_reference>';
+  const out = composeFocus('BASE FOCUS', { impeccableAvailable: true, intentReference: ref });
+
+  const iDesign = out.indexOf(DESIGN_SCOPE_PREAMBLE);
+  const iIntent = out.indexOf(INTENT_REFERENCE_PREAMBLE);
+  const iRef = out.indexOf(ref);
+  const iBase = out.indexOf('BASE FOCUS');
+
+  assert.strictEqual(iDesign, 0, 'design-scope preamble stays first');
+  assert.ok(iDesign < iIntent, 'design precedes intent');
+  assert.ok(iIntent < iRef, 'intent preamble precedes the reference block');
+  // Intent sits immediately before the caller focus (recency).
+  assert.ok(iRef < iBase, 'reference block precedes the base focus');
+});
+
+test('intent reference: intent alone does NOT pull in the design preamble', () => {
+  const ref = '<user_intent_reference>\n- [UI1] (constraint) x\n</user_intent_reference>';
+  const out = composeFocus('BASE', { intentReference: ref });
+  assert.ok(out.includes(INTENT_REFERENCE_PREAMBLE));
+  assert.ok(out.includes(ref));
+  assert.ok(!out.includes(DESIGN_SCOPE_PREAMBLE), 'design preamble must not appear');
+});
+
+test('intent reference: unspecified → byte-identical to the pre-M1 behavior', () => {
+  assert.strictEqual(composeFocus('BASE', {}), 'BASE');
+  assert.strictEqual(composeFocus('BASE', { intentReference: '' }), 'BASE');
+  assert.strictEqual(composeFocus('BASE', { intentReference: '   ' }), 'BASE');
+  assert.strictEqual(composeFocus('BASE', { intentReference: null }), 'BASE');
+  // and with design on, exactly the v1.23.0 two-part shape
+  assert.strictEqual(composeFocus('BASE', { impeccableAvailable: true }),
+    DESIGN_SCOPE_PREAMBLE + 'BASE');
+});
+
+test('parseCliArgs: --intent-reference-file is captured', () => {
+  const p = parseCliArgs(['adversarial-review', '--focus', 'f', '--intent-reference-file', '/tmp/ref.txt']);
+  assert.strictEqual(p.opts.intentReferenceFile, '/tmp/ref.txt');
+});
+
+test('runCli: unreadable --intent-reference-file → exit 2 and NO spawn', () => {
+  const tmp = makeTmpDir('intent-ref-missing');
+  const installPath = buildFakePlugin(tmp, '1.0.4', {
+    stdoutLine: 'SHOULD NOT RUN',
+  });
+  const marker = path.join(tmp, 'spawned.marker');
+  // Rewrite the companion so any spawn leaves evidence on disk.
+  fs.writeFileSync(path.join(installPath, 'scripts', 'codex-companion.mjs'),
+    'require("fs").writeFileSync(' + JSON.stringify(marker) + ', "1"); process.stdout.write("x");',
+    'utf8');
+  writeRegistry(tmp, { 'codex@openai-codex': [{ installPath: installPath, version: '1.0.4' }] });
+
+  const code = runCli(['adversarial-review', '--focus', 'f',
+    '--intent-reference-file', path.join(tmp, 'does-not-exist.txt'), '--json']);
+
+  assert.strictEqual(code, 2, 'must exit 2 (usage-class), not a codex classification');
+  assert.strictEqual(fs.existsSync(marker), false, 'companion must never be spawned');
+});
+
+test('runCli: empty --intent-reference-file → exit 2 (a blank reference is not a reference)', () => {
+  const tmp = makeTmpDir('intent-ref-empty');
+  const emptyRef = path.join(tmp, 'ref.txt');
+  fs.writeFileSync(emptyRef, '   \n', 'utf8');
+  const code = runCli(['adversarial-review', '--focus', 'f',
+    '--intent-reference-file', emptyRef, '--json']);
+  assert.strictEqual(code, 2);
+});
+
+test('intent reference: file content reaches the companion argv end-to-end', () => {
+  const tmp = makeTmpDir('intent-ref-e2e');
+  const installPath = path.join(tmp, 'plugin-install');
+  fs.mkdirSync(path.join(installPath, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(installPath, '.claude-plugin'), { recursive: true });
+  fs.writeFileSync(path.join(installPath, '.claude-plugin', 'plugin.json'),
+    JSON.stringify({ version: '1.0.4' }), 'utf8');
+  fs.writeFileSync(path.join(installPath, 'scripts', 'codex-companion.mjs'),
+    'process.stdout.write(JSON.stringify(process.argv.slice(2))); process.exit(0);', 'utf8');
+  const file = writeRegistry(tmp, {
+    'codex@openai-codex': [{ installPath: installPath, version: '1.0.4' }],
+  });
+
+  const ref = '<user_intent_reference>\n- [UI7] (exclusion) no perf work this cycle\n</user_intent_reference>';
+  const r = invokeAdversarialReview('payload', {
+    registryPath: file, env: {}, timeoutMs: 5_000, intentReference: ref,
+  });
+  assert.strictEqual(r.ok, true);
+  const argv = JSON.parse(r.stdout);
+  const focusArg = argv[argv.length - 1];
+  assert.ok(focusArg.includes('UI7'), 'intent items must reach the companion');
+  assert.ok(focusArg.includes(INTENT_REFERENCE_PREAMBLE.trim().split('\n')[0]));
+  assert.ok(focusArg.endsWith('payload'), 'caller focus stays last');
+});

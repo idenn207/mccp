@@ -19,6 +19,7 @@ const { scanLedger } = require('./sources/ledger');
 const { scanWorktrees } = require('./sources/worktrees');
 const { scanSessionActivity } = require('./sources/session-activity');
 const { scanToggleUsage } = require('./sources/toggle-usage');
+const { scanInstructionCost } = require('./sources/instruction-cost');
 const { scanHandoffItems } = require('./sources/handoff-items');
 
 const SOURCE_SCANNERS = {
@@ -37,6 +38,8 @@ const SOURCE_SCANNERS = {
   // M2 계측 소스
   session_activity: (root) => scanSessionActivity(root),
   toggle_usage: (root) => scanToggleUsage(root),
+  // M4 — A3 reads the committed artifact; the tokenizer never runs in derive.
+  instruction_cost: (root) => scanInstructionCost(root),
   handoff_items: (root) => scanHandoffItems(root),
 };
 

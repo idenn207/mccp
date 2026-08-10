@@ -10,6 +10,7 @@
 
 const A1_WORK_COMPLETION_RATE = 'A1';
 const A2_CONTEXT_REMAINING = 'A2';
+const A3_INSTRUCTION_COST = 'A3';
 const A4_RESTORE_RATE = 'A4';
 const B1_STATUS_DRIFT = 'B1';
 const B2_CONCURRENT_CONFLICTS = 'B2';
@@ -21,6 +22,7 @@ const C3_LEAKED_DEFECTS = 'C3';
 const METRIC_IDS = [
   A1_WORK_COMPLETION_RATE,
   A2_CONTEXT_REMAINING,
+  A3_INSTRUCTION_COST,
   A4_RESTORE_RATE,
   B1_STATUS_DRIFT,
   B2_CONCURRENT_CONFLICTS,
@@ -42,6 +44,12 @@ function computeMetrics(model) {
   // Not session-bound/freshness-verified (see computeA2); denominator = observed session
   // count only, percentile/value not claimed. Old compute path (percentile) removed.
   metrics[A2_CONTEXT_REMAINING] = computeA2(model);
+
+  // A3: Instruction-cost occupancy — injected instruction tokens / context window.
+  // M4 wires this into computeMetrics for the first time: measureA3 used to be
+  // re-exported here but never called, and derive/cli.js was its only caller, so
+  // the renderer's model carried no A3 at all.
+  metrics[A3_INSTRUCTION_COST] = computeA3(model);
 
   // A4: Session boundary restore rate — forward-only (downgraded, non-claimed).
   // Not boundary-scoped (scanner self-credits current session, see computeA4);
@@ -166,6 +174,105 @@ function computeA2(model) {
     status: 'forward-only',
     coverage: sessionActivity.producer_coverage || 'unknown',
   };
+}
+
+function computeA3(model) {
+  // A3 instruction cost: from the committed artifact via the instruction-cost
+  // derive source. measurement-design.md §A3 forbids byte-based estimation, so
+  // there is no fallback path — no tokenizer run means no A3, stated plainly.
+  const src = model.sources?.instruction_cost;
+  if (!src || !src.ok) {
+    return insufficientMetric(A3_INSTRUCTION_COST, 'instruction_cost source unavailable');
+  }
+
+  const coReport = {
+    reduction_ratio: Number.isFinite(src.reduction_ratio) ? src.reduction_ratio : null,
+    claude_md_reduction_ratio: Number.isFinite(src.claude_md_reduction_ratio)
+      ? src.claude_md_reduction_ratio : null,
+    baseline_tokens: src.baseline_tokens,
+    tokenizer_version: src.tokenizer_version,
+    measured_at: src.measured_at,
+    // Disclose the scope of the staleness check next to the value it qualifies.
+    // STATE.md is session-volatile and the memory digest is never committed, so
+    // neither can serve as a staleness signal -- but a reader of "current
+    // occupancy" is entitled to know the check covers only CLAUDE.md.
+    freshness_scope: src.freshness_scope || null,
+    numerator_components: src.numerator_components || null,
+  };
+
+  // 무결성 위반(invalid)은 producer 부재(forward-only)보다 강한 신호이므로 먼저
+  // 판정한다(A1 선례). 이 순서가 없으면 **손상된** 아티팩트가 `artifact_present`
+  // false 하나로 뭉개져 "아직 안 만들었다"로 보고되고 `integrity_ok:true`까지
+  // 달고 나간다 — source는 `degraded`/`error`로 손상을 구분하는데 소비자가 그
+  // 구분을 버리는 것이다(부재·판독불가·손상은 서로 다른 사실이다).
+  if (src.degraded || src.error) {
+    return Object.assign({
+      id: A3_INSTRUCTION_COST,
+      numerator: null,
+      denominator: null,
+      value: null,
+      integrity_ok: false,
+      invalid_reason: src.error || 'A3 source degraded',
+      status: 'invalid',
+      coverage: src.producer_coverage || 'unknown',
+    }, coReport);
+  }
+
+  if (!src.artifact_present) {
+    return Object.assign({
+      id: A3_INSTRUCTION_COST,
+      numerator: null,
+      denominator: null,
+      value: null,
+      integrity_ok: true,
+      invalid_reason: 'no A3 artifact emitted yet (run: msw-metrics/cli.js a3 --emit ' + src.artifact_path + ')',
+      status: 'forward-only',
+      coverage: src.producer_coverage || 'unknown',
+    }, coReport);
+  }
+
+  if (src.status !== 'computed') {
+    return Object.assign(
+      insufficientMetric(A3_INSTRUCTION_COST, 'A3 artifact status=' + (src.status || 'unknown')),
+      coReport
+    );
+  }
+
+  // A stale artifact still holds a real measurement, but it describes a tree
+  // that no longer exists. Serving it as `computed` would be the confidently-
+  // wrong shape this milestone exists to remove, so it degrades to insufficient
+  // with the re-measure instruction attached.
+  if (src.stale) {
+    // Carry the staleness forward as its own flag. `insufficient` alone is
+    // indistinguishable from "no baseline yet", and the surfaces downstream hide
+    // that quietly -- but a measurement that EXISTS and has gone out of date is
+    // an actionable instruction ("re-run --emit-after"), not an absence.
+    return Object.assign(
+      insufficientMetric(A3_INSTRUCTION_COST, src.stale_reason || 'A3 artifact is stale'),
+      coReport,
+      { stale: true, stale_reason: src.stale_reason || 'A3 artifact is stale' }
+    );
+  }
+
+  const numerator = src.current_tokens;
+  const denominator = src.denominator_tokens;
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) {
+    return Object.assign(
+      insufficientMetric(A3_INSTRUCTION_COST, 'A3 artifact lacks usable token counts'),
+      coReport
+    );
+  }
+
+  return Object.assign({
+    id: A3_INSTRUCTION_COST,
+    numerator: numerator,
+    denominator: denominator,
+    value: numerator / denominator,
+    integrity_ok: true,
+    invalid_reason: null,
+    status: 'computed',
+    coverage: src.producer_coverage || 'unknown',
+  }, coReport);
 }
 
 function computeA4(model) {
@@ -301,26 +408,83 @@ function computeB3(model) {
   const usedToggleCount = toggleUsage.used_toggle_count || 0;
   const operationBranchCount = toggleUsage.operation_branch_count || 0;
 
+  // G3의 내용은 "제외는 규범 문서가 그 이름을 적을 때만 유효"다. 그 대조가
+  // 어긋났거나 아예 불가능했다면 이 분모는 문서가 승인한 분모가 아니므로
+  // 지표로 발행할 수 없다. source가 `degraded`로 표시해도 소비자가 읽지 않으면
+  // drift난 분모가 `integrity_ok:true`를 달고 그대로 나간다 — 세 라운드에 걸쳐
+  // 같은 층에서 반복된 결함이라 발행 지점에서 막는다.
+  if (toggleUsage.exclusion_doc_ok !== true || toggleUsage.degraded) {
+    const reason = toggleUsage.error
+      || 'exclusion table drift — the denominator is not the one measurement-design.md §B3 names';
+    return {
+      id: B3_TOGGLE_AXES,
+      numerator: null,
+      denominator: null,
+      value: null,
+      integrity_ok: false,
+      invalid_reason: reason,
+      status: 'invalid',
+      coverage: toggleUsage.producer_coverage || 'unknown',
+    };
+  }
+
   if (totalToggles === 0) {
     return insufficientMetric(B3_TOGGLE_AXES, 'no toggles in runtime surface');
   }
 
-  // Anti-gaming: co-report branch count + blob-fold detection
-  const branchSuspicion = operationBranchCount > 100 ? 'branch_count_high' : null;
+  // Co-reported alongside every B3 shape below. `raw_surface_count` next to
+  // `denominator` is what stops a named exclusion from reading as a reduction:
+  // the difference between the two IS the exclusion count, and M4 retired zero
+  // toggles (measurement-design.md §B3, guarantee G3).
+  const coReport = {
+    operation_branches: operationBranchCount,
+    operation_branch_method: toggleUsage.operation_branch_method || null,
+    raw_surface_count: toggleUsage.raw_surface_count || null,
+    excluded_count: toggleUsage.excluded_count || 0,
+    // measurement-design.md §B3's integrity check is fold detection: "토글 수를
+    // 줄였다"가 "동작 분기를 줄였다"와 다름을 병기가 드러낸다. That comparison
+    // needs a PRIOR cycle's (toggle_count, branch_count) pair, which is not
+    // recorded anywhere yet, so the check is honestly forward-only rather than
+    // silently absent.
+    //
+    // M4 note: this replaced an `operation_branch_count > 100 → invalid` rule
+    // that appears nowhere in the frozen contract. An absolute ceiling is not
+    // fold detection — it just fires once the branch count is computed over the
+    // real surface (199 today), which would have flipped B3 to `invalid` for
+    // having correctly counted.
+    branch_fold_check: 'forward-only (no prior-cycle toggle/branch pair recorded)',
+  };
 
-  const value = usedToggleCount / totalToggles;
-  const status = branchSuspicion ? 'invalid' : 'computed';
-  return {
+  // Producer presence is orthogonal to usage count (A1/B2 precedent). With zero
+  // env-snapshot files the honest statement is "no usage history has ever been
+  // collected", not "0% of toggles are used" — the latter is a finding, and
+  // reporting it as `computed` on an empty corpus is the confidently-wrong
+  // pattern M2 downgraded elsewhere. The producer was in fact never writing
+  // (session-start.js resolved its snapshot path against cwd); M4 Task 6 starts
+  // the clock, so this flips to `computed` once one session has run.
+  if (!toggleUsage.snapshot_corpus_present) {
+    return Object.assign({
+      id: B3_TOGGLE_AXES,
+      numerator: null,
+      denominator: totalToggles,
+      value: null,
+      integrity_ok: true,
+      invalid_reason: 'no env-snapshot corpus yet (toggle usage history is forward-only from M4 Task 6)',
+      status: 'forward-only',
+      coverage: toggleUsage.producer_coverage || 'unknown',
+    }, coReport);
+  }
+
+  return Object.assign({
     id: B3_TOGGLE_AXES,
     numerator: usedToggleCount,
     denominator: totalToggles,
-    value: value,
-    integrity_ok: !branchSuspicion,
-    invalid_reason: branchSuspicion,
-    status: status,
-    operation_branches: operationBranchCount,
+    value: usedToggleCount / totalToggles,
+    integrity_ok: true,
+    invalid_reason: null,
+    status: 'computed',
     coverage: toggleUsage.producer_coverage || 'unknown',
-  };
+  }, coReport);
 }
 
 function computeC1(model) {
@@ -418,6 +582,7 @@ module.exports = {
   METRIC_IDS,
   A1_WORK_COMPLETION_RATE,
   A2_CONTEXT_REMAINING,
+  A3_INSTRUCTION_COST,
   A4_RESTORE_RATE,
   B1_STATUS_DRIFT,
   B2_CONCURRENT_CONFLICTS,

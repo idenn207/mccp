@@ -12,6 +12,8 @@ const {
   receiptHash,
 } = require('./hash');
 const { validate, makeSkeleton, GATE_IDS } = require('./schema');
+const { validateReason } = require('./lib/force-override-reason');
+const { parseIntentGateSkipReason, isPrdModePlan } = require('../lib/intent-context');
 const { phaseFromGate } = require('./aliases');
 const { writeReceipt, readReceipt, updateReceipt } = require('./store');
 const escalateDetector = require('../lib/escalate-detector');
@@ -103,6 +105,190 @@ function detectDispatchContext(args, cwd) {
   return { marker: false, session_id: null, dispatch_id: null, envelope_path: null };
 }
 
+// codex-intent-context M1 — gates the intent oracle actually governs. The
+// implement gate is deliberately EXCLUDED (UI4): it reviews code patterns, not
+// conversation intent, and wiring it in would make every implement receipt
+// unknown → dedupe dead for every decision (DD9).
+const INTENT_IN_SCOPE_GATES = ['mccp-plan-codex'];
+
+// stampIntentDecision — write.js STAMPS, it never DECIDES (DD5). The verdict is
+// computed by plan-codex-runner.js inside the same process that invoked Codex
+// and held the review payload in memory.
+//
+// PROGRAMMATIC-ONLY BY CONSTRUCTION (Implement-Codex R1 F2, HIGH).
+// There is no `--intent-*` CLI flag and there must never be one: cli.js
+// parseFlags accepts arbitrary `--key value` pairs and forwards them straight
+// into write(), so a flag here would let ANY shell caller stamp
+// intent_gate_verdict='preserved' without Codex ever running — the exact
+// forgery this milestone exists to prevent. parseFlags can only ever produce
+// strings, `true`, or arrays, so requiring a non-null plain OBJECT closes the
+// CLI path structurally rather than by convention.
+function stampIntentDecision(receipt, args, gateId, planText) {
+  const inScope = INTENT_IN_SCOPE_GATES.indexOf(gateId) !== -1;
+  const d = args.intentDecision;
+  const isObject = d !== null && typeof d === 'object' && !Array.isArray(d);
+
+  if (d !== undefined && !isObject) {
+    const err = new Error(
+      'intentDecision must be a non-null object supplied programmatically by ' +
+      'plan-codex-runner.js. Received ' + (Array.isArray(d) ? 'an array' : typeof d) +
+      ' — CLI flags cannot supply an intent decision, by design.');
+    err.code = 'INTENT_GATE_BLOCKED';
+    throw err;
+  }
+
+  if (!isObject) {
+    if (!inScope) return;  // out-of-scope gates legitimately have no intent axis
+
+    // DD1 — a free-form (non-PRD) plan has no upstream intent record, so the
+    // gate genuinely does not apply to it. That is not a judgement call: the
+    // proof is `**Source PRD**:` being absent from the very body this receipt
+    // is about to seal, checked mechanically here exactly as resolveSkipProof
+    // checks it in the runner. Applying it here keeps write.js a stamper (it
+    // still decides nothing) while confining the fail-closed to the plans that
+    // actually carry intent.
+    //
+    // This is not a new bypass: DD1 already makes `free_form_plan` a passing
+    // proof, so stripping the Source PRD line to dodge the gate is equally
+    // available through the runner — and it changes plan_hash and is recorded
+    // honestly in the receipt either way (DD10 threat model).
+    if (typeof planText === 'string' && !isPrdModePlan(planText)) {
+      const m1 = receipt.meta;
+      m1.intent_section_present = false;
+      m1.intent_items_count = null;
+      m1.intent_reference_injected = false;
+      m1.intent_gate_verdict = 'skipped';
+      m1.intent_skip_proof = 'free_form_plan';
+      m1.intent_plan_digest = receipt.plan_hash;
+      m1.intent_run_nonce = null;
+      m1.intent_adjudication_counts = null;
+      m1.intent_gate_force_override = false;
+      m1.intent_gate_force_override_reason = null;
+      return;
+    }
+
+    // diverse-agent-review M1 — the L1+L2 review panel path. Same shape as the
+    // DD1 free-form carve-out above and for the same reason: the gate genuinely
+    // does not apply, and that is not a judgement call but a MECHANICAL fact
+    // read off the receipt this call is about to seal. `review_source` is not
+    // caller-assertable here — the review_* triple is all-or-nothing (DD11), the
+    // proof was structurally validated, and a receipt claiming 'multi-agent'
+    // while also carrying a codex_verdict is rejected outright a few dozen lines
+    // up. So 'multi-agent' IS proof that Codex never spoke on this decision, and
+    // a reviewer that never ran cannot have produced findings to adjudicate.
+    //
+    // This grants nothing to dedupe. crossModelConverged (DD2) already refuses a
+    // panel receipt as cross-model corroboration on the review axis, so PR-Codex
+    // still fires at the ship point no matter what the intent axis says here.
+    //
+    // 'hybrid' is deliberately EXCLUDED: there L3 fired, meaning Codex did speak,
+    // so its findings owe the same adjudication as the legacy path and must go
+    // through the runner (or the audited override below). Falling through is the
+    // fail-closed answer, not an oversight.
+    //
+    // KNOWN GAP (M1.5): the panel does not receive the <user_intent_reference>
+    // injection and does not adjudicate its own findings against user intent. The
+    // intent gate is skipped for panel runs, not satisfied by them. Extending the
+    // gate to the panel reviewers is tracked as follow-up work.
+    if (receipt.resolution && receipt.resolution.review_source === 'multi-agent') {
+      const mp = receipt.meta;
+      mp.intent_section_present = false;
+      mp.intent_items_count = null;
+      mp.intent_reference_injected = false;
+      mp.intent_gate_verdict = 'skipped';
+      mp.intent_skip_proof = 'codex_not_invoked';
+      mp.intent_plan_digest = receipt.plan_hash;
+      mp.intent_run_nonce = null;
+      mp.intent_adjudication_counts = null;
+      mp.intent_gate_force_override = false;
+      mp.intent_gate_force_override_reason = null;
+      return;
+    }
+
+    // DD6 — the audited override is the ONE way to write an in-scope receipt
+    // without the runner. It unblocks the RUN, never the RECORD: the receipt
+    // seals verdict='incomplete' so cross-gate dedupe stays fail-closed and the
+    // audit corpus stays honest about what actually happened.
+    const overrideReason = parseIntentGateSkipReason(process.env);
+    if (overrideReason) {
+      const v = validateReason(overrideReason, { strict: true });
+      if (!v.ok) {
+        const e = new Error(
+          'MCCP_SKIP_INTENT_GATE rejected (' + v.reason + '): a substantive reason ' +
+          '(≥30 chars, ≥3 words, no placeholder/URL-only/banlist token) is required.');
+        e.code = 'INTENT_GATE_BLOCKED';
+        throw e;
+      }
+      const m0 = receipt.meta;
+      m0.intent_section_present = false;
+      m0.intent_items_count = null;
+      m0.intent_reference_injected = false;
+      m0.intent_gate_verdict = 'incomplete';
+      m0.intent_skip_proof = null;
+      m0.intent_plan_digest = null;
+      m0.intent_run_nonce = null;
+      m0.intent_adjudication_counts = null;
+      m0.intent_gate_force_override = true;
+      m0.intent_gate_force_override_reason = overrideReason;
+      process.stderr.write('[mccp:intent-gate] audited override active — receipt seals ' +
+        'intent_gate_verdict=incomplete (dedupe stays fail-closed)\n');
+      return;
+    }
+
+    const err = new Error(
+      'gate ' + gateId + ' is in scope for the intent gate but no intentDecision ' +
+      'was supplied — failing closed (verdict=incomplete).\n' +
+      'Recovery:\n' +
+      '  1. Re-run `/mccp:plan <plan-path>` so plan-codex-runner.js performs the ' +
+      'review and writes this receipt itself (the supported path); OR\n' +
+      '  2. Set MCCP_SKIP_INTENT_GATE="<substantive reason>" to proceed under an ' +
+      'audited override (the real blocking verdict is still sealed in the receipt).\n' +
+      'Writing this receipt directly via `cli.js write` cannot satisfy the gate: ' +
+      'the intent decision has no CLI surface (see write.js#stampIntentDecision).\n' +
+      'If you got here on MCCP_PLAN_REVIEW=hybrid: that is expected. L3 means Codex ' +
+      'DID review this plan, so its findings owe the same adjudication as the legacy ' +
+      'path — only review_source="multi-agent" (Codex never ran) skips the gate.');
+    err.code = 'INTENT_GATE_BLOCKED';
+    throw err;
+  }
+
+  if (!inScope) {
+    const err = new Error(
+      'intentDecision supplied for out-of-scope gate ' + gateId +
+      ' — the intent gate governs ' + INTENT_IN_SCOPE_GATES.join(', ') + ' only (UI4).');
+    err.code = 'INTENT_GATE_BLOCKED';
+    throw err;
+  }
+
+  const m = receipt.meta;
+  m.intent_section_present = d.section_present === true;
+  m.intent_items_count = Number.isInteger(d.items_count) ? d.items_count : null;
+  m.intent_reference_injected = d.reference_injected === true;
+  m.intent_gate_verdict = typeof d.verdict === 'string' ? d.verdict : null;
+  m.intent_skip_proof = typeof d.skip_proof === 'string' ? d.skip_proof : null;
+  m.intent_plan_digest = typeof d.plan_digest === 'string' ? d.plan_digest : null;
+  m.intent_run_nonce = typeof d.run_nonce === 'string' ? d.run_nonce : null;
+  m.intent_adjudication_counts =
+    (d.counts && typeof d.counts === 'object' && !Array.isArray(d.counts)) ? d.counts : null;
+  m.intent_gate_force_override = d.force_override === true;
+  m.intent_gate_force_override_reason =
+    (typeof d.force_override_reason === 'string' && d.force_override_reason.length > 0)
+      ? d.force_override_reason : null;
+
+  // DD6 — the override unblocks the RUN, never the record. The receipt seals
+  // the real verdict so cross-gate dedupe stays fail-closed downstream.
+  if (d.runtime_allowed === false) {
+    const err = new Error(
+      'intent gate is blocking (verdict=' + m.intent_gate_verdict + '): ' +
+      (d.reason || 'no reason supplied') + '\n' +
+      'Recovery:\n' +
+      '  1. Fix the adjudication/User Intent section and re-run `/mccp:plan <plan-path>`; OR\n' +
+      '  2. Set MCCP_SKIP_INTENT_GATE="<substantive reason>" for an audited override.');
+    err.code = 'INTENT_GATE_BLOCKED';
+    throw err;
+  }
+}
+
 function buildReceipt(args) {
   const gateId = args.gate || args['gate-id'];
   const decisionId = args.decision || args['decision-id'];
@@ -121,6 +307,11 @@ function buildReceipt(args) {
   const phase = phaseFromGate(gateId);
   const planAbs = path.resolve(cwd, planPath);
   const planHash = planAwareMarkdownHash(planAbs);
+  // codex-intent-context M1 — read once for the DD1 free-form proof in
+  // stampIntentDecision. Unreadable → null, which keeps the in-scope path
+  // fail-closed rather than silently granting a skip.
+  let planText = null;
+  try { planText = fs.readFileSync(planAbs, 'utf8'); } catch (_) { planText = null; }
 
   const designDocPaths = asArray(args['design-doc']);
   const designDocHash = designDocPaths.map(function (p) {
@@ -154,6 +345,129 @@ function buildReceipt(args) {
   const codexVerdict = args['codex-verdict'];
   if (typeof codexVerdict === 'string' && codexVerdict.length > 0) {
     resolution.codex_verdict = codexVerdict;
+  }
+
+  // diverse-agent-review M1 — review_* triple. Present-only like codex_verdict
+  // above, but with two hard invariants enforced HERE, before anything reaches
+  // disk. schema.js repeats both; this is the earlier of the two walls and the
+  // one that guarantees a rejected write leaves no partial artifact behind.
+  //
+  // DD11 all-or-nothing: supplying any one of the three requires all three.
+  // A partial stamp is the single scenario where BOTH dedupe belts fail at once
+  // — resolveEffectiveVerdict would report `unavailable`, but a receipt that is
+  // unreadable by construction should never have been persisted in the first
+  // place. Mirrors detectDispatchContext's 3-flag invariant.
+  //
+  // DD13 bind: the proof must name the plan version the reviewers actually read.
+  // planHash above was computed from the plan ON DISK moments ago; if the proof
+  // names a different one, the plan was edited between review and seal and the
+  // approval does not describe what we are about to seal. The recovery is to
+  // rerun L2, never to reseal — this is the same judgement v1.22.6 M2 made when
+  // it promoted subject_hash mismatch from stale to tamper.
+  const reviewVerdict = args['review-verdict'];
+  const reviewSource = args['review-source'];
+  const reviewProofFile = args['review-proof-file'];
+  const nonEmpty = function (v) { return typeof v === 'string' && v.length > 0; };
+
+  // santa-loop R3 (Codex GPT-5.4) — a plan-gate receipt must carry a verdict axis.
+  //
+  // The failure this closes: a panel run whose decision.json was malformed forwards
+  // no review_* triple (the all-or-nothing guard above turns a partial stamp into
+  // NO stamp) and, in a panel mode, no --codex-verdict either. The receipt then
+  // lands with neither axis and `resolution.converged: true` — the defaultResolution
+  // literal a few dozen lines up. resolveEffectiveVerdict answers axis:'none', which
+  // means receipt-convergence.js skips its strict review branch and falls through to
+  // `resolution.converged === true`. A run that approved NOTHING reads as converged.
+  //
+  // The gate is keyed on --review-mode, NOT on "gate === mccp-plan-codex && no
+  // axis". The broader form was tried first and was wrong: a verdict-less plan
+  // receipt turns out to be ordinary across the corpus (advisory paths, skipped
+  // gates, manual recovery), so requiring an axis unconditionally broke ~30 tests
+  // including the e2e dogfood chain. The sample that suggested otherwise was two
+  // receipts on disk — too small to generalise from, and the suite said so.
+  //
+  // What is NEVER legitimate is narrower: a PANEL run that stamps no triple. Only
+  // the caller knows it ran a panel, so it says so. mode.json is written at Phase
+  // 5.2 entry, before anything downstream can corrupt it, which makes the mode the
+  // one fact still trustworthy when decision.json is not.
+  //
+  // Omitting the flag reproduces the old behaviour exactly — that is the
+  // no-regression property, and it is also this check's limit: it cannot catch a
+  // caller that forgets to pass it. 5.6 Step A HALTs on the same condition for that
+  // reason. Two layers, neither sufficient alone.
+  const reviewMode = args['review-mode'];
+  if ((reviewMode === 'multi-agent' || reviewMode === 'hybrid') &&
+      !nonEmpty(reviewVerdict) && !nonEmpty(reviewSource) && !nonEmpty(reviewProofFile)) {
+    const err = new Error(
+      '--review-mode=' + reviewMode + ' declares a review-panel run, but no ' +
+      '--review-verdict/--review-source/--review-proof-file triple was supplied. ' +
+      'resolution.converged defaults to true and resolveEffectiveVerdict would ' +
+      'answer axis:"none", so this receipt would read as CONVERGED while recording ' +
+      'no approval at all. If the panel decision artifact is unreadable, re-run L2 — ' +
+      'do not seal a receipt for a review whose outcome is unknown.');
+    err.code = 'REVIEW_STAMP_INVALID';
+    throw err;
+  }
+
+  if (nonEmpty(reviewVerdict) || nonEmpty(reviewSource) || nonEmpty(reviewProofFile)) {
+    const missing = [];
+    if (!nonEmpty(reviewVerdict)) missing.push('--review-verdict');
+    if (!nonEmpty(reviewSource)) missing.push('--review-source');
+    if (!nonEmpty(reviewProofFile)) missing.push('--review-proof-file');
+    if (missing.length > 0) {
+      const err = new Error(
+        'review_* stamping is all-or-nothing (DD11): missing ' + missing.join(', ') +
+        '. A partially stamped receipt must not reach disk — supply all three or none.');
+      err.code = 'REVIEW_STAMP_INVALID';
+      throw err;
+    }
+
+    // Read directly rather than via readJsonIfPresent: that helper throws a
+    // generic Error on a missing file, and a generic error would exit 1 instead
+    // of the fail-closed 12 this path owes its caller.
+    let proof = null;
+    try {
+      proof = JSON.parse(fs.readFileSync(path.resolve(cwd, reviewProofFile), 'utf8'));
+    } catch (e) {
+      const err = new Error(
+        '--review-proof-file is missing or unreadable: ' + reviewProofFile + ' (' +
+        (e && e.message ? e.message : String(e)) +
+        '). The proof is the evidence for the verdict; without it there is nothing to seal.');
+      err.code = 'REVIEW_STAMP_INVALID';
+      throw err;
+    }
+    if (proof === null || typeof proof !== 'object' || Array.isArray(proof)) {
+      const err = new Error(
+        '--review-proof-file is not a JSON object: ' + reviewProofFile);
+      err.code = 'REVIEW_STAMP_INVALID';
+      throw err;
+    }
+
+    if (reviewSource === 'multi-agent' && nonEmpty(resolution.codex_verdict)) {
+      const err = new Error(
+        'contradictory receipt: review_source="multi-agent" asserts Codex did not ' +
+        'issue this approval, but codex_verdict="' + resolution.codex_verdict +
+        '" is also present. Cross-gate dedupe reads the source to decide whether ' +
+        'cross-model corroboration exists, so an ambiguous receipt must not exist. ' +
+        'Forward --codex-verdict only when decideReview returns forwardCodexVerdict=true.');
+      err.code = 'REVIEW_STAMP_INVALID';
+      throw err;
+    }
+
+    if (nonEmpty(proof.reviewed_plan_hash) && proof.reviewed_plan_hash !== planHash) {
+      const err = new Error(
+        'plan changed after L2 reviewed it (DD13): proof binds ' +
+        String(proof.reviewed_plan_hash).slice(0, 19) + '… but the plan on disk now ' +
+        'hashes to ' + String(planHash).slice(0, 19) + '…. The review does not describe ' +
+        'the artifact being sealed. Recovery: rerun the L2 review against the current ' +
+        'plan — do NOT reseal, that would certify an unreviewed version.');
+      err.code = 'REVIEW_STAMP_INVALID';
+      throw err;
+    }
+
+    resolution.review_verdict = reviewVerdict;
+    resolution.review_source = reviewSource;
+    resolution.review_proof = proof;
   }
 
   const existing = readReceipt(repoRoot, gateId, decisionId);
@@ -213,13 +527,29 @@ function buildReceipt(args) {
       codex_dedupe_at_pr: args['codex-dedupe-at-pr'] === true,
       codex_skipped_at_pr: args['codex-skipped-at-pr'] === true,
       codex_skip_reason: (function () {
-        // v0.3.5 — env-derived disabled overrides any user-supplied reason
-        // because env policy is canonical. Explicit --codex-disabled or
-        // MCCP_CODEX_DISABLED=1 → reason='codex_disabled'.
+        // v1.23.5 (gate-guard-integrity M1, fix B) — precedence FLIPPED: an
+        // explicitly-supplied reason now wins over the env-derived canonical.
+        //
+        // Before, ambient MCCP_CODEX_DISABLED=1 overwrote a caller's audited
+        // reason with the 14-char canonical 'codex_disabled'. On a standard
+        // install that made the writer produce a receipt its OWN schema rejects:
+        // codex_skipped_at_pr=true runs the strict validator (≥30 chars, ≥3
+        // words), which the canonical literal cannot satisfy. The audited-escape
+        // path was therefore unusable whenever the env var was set.
+        //
+        // This is the WRITER, not an observer. codex-runner.js:234-238 keeps the
+        // opposite precedence on purpose, and that is right for it: it reports
+        // what actually happened, so canonical operator policy wins there. A
+        // writer must not overwrite the claim its own caller made.
+        //
+        // Narrower than `|| null`: a bare `--codex-skip-reason` with no value
+        // parses to boolean true, which would fail schema's string|null check.
+        const explicit = args['codex-skip-reason'];
+        if (typeof explicit === 'string' && explicit.length > 0) return explicit;
         if (args['codex-disabled'] === true || process.env.MCCP_CODEX_DISABLED === '1') {
           return 'codex_disabled';
         }
-        return args['codex-skip-reason'] || null;
+        return null;
       })(),
       codex_review_actionable_findings: args['codex-actionable-findings'] === true,
       // v1.22.3 M3 follow-up (R1 F1 + F4) — scope-excluded pass + raw provenance.
@@ -357,6 +687,22 @@ function buildReceipt(args) {
   // TRACKED_RECEIPT_OVERWRITE. NOT a hash carve-out (unlike briefing_*) — when
   // present the field IS hashed, so override=true stays tamper-protected. schema.js
   // re-runs the strict reason validator on write, so a bad reason REJECTs.
+  // diverse-agent-review M1 — L3 instrumentation + gate wall-clock. Present-only
+  // (absent keys on every receipt that never ran the review path) and NOT carved
+  // out of receipt_hash: these are settled at write time and form part of the
+  // approval record, unlike briefing_*, which is stamped after sealing and
+  // therefore cannot hash itself.
+  if (args['review-l3-invoked'] === true) {
+    receipt.meta.review_l3_invoked = true;
+  }
+  if (typeof args['review-l3-reason'] === 'string' && args['review-l3-reason'].length > 0) {
+    receipt.meta.review_l3_reason = args['review-l3-reason'];
+  }
+  if (args['review-wall-clock-ms'] !== undefined && args['review-wall-clock-ms'] !== null) {
+    const ms = parseInt(args['review-wall-clock-ms'], 10);
+    if (Number.isInteger(ms) && ms >= 0) receipt.meta.review_wall_clock_ms = ms;
+  }
+
   if (args['pr-codex-force-override'] === true) {
     receipt.meta.pr_codex_force_override = true;
     receipt.meta.pr_codex_force_override_reason =
@@ -364,6 +710,8 @@ function buildReceipt(args) {
         && args['pr-codex-force-override-reason'].length > 0)
         ? args['pr-codex-force-override-reason'] : null;
   }
+
+  stampIntentDecision(receipt, args, gateId, planText);
 
   receipt.subject_hash = subjectHash(receipt);
   receipt.receipt_hash = receiptHash(receipt);

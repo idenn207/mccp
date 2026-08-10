@@ -31,7 +31,39 @@ test('msw-metrics: graceful hide when metrics unavailable', async (t) => {
   assert.strictEqual(result3, null);
 });
 
-test('msw-metrics: graceful hide when all metrics insufficient/invalid', async (t) => {
+test('msw-metrics: graceful hide when nothing is measured yet', async (t) => {
+  // Baseline not formed is genuinely nothing to say, so the section stays out
+  // of the dashboard. Integrity violations are a different case -- see below.
+  const model = {
+    metrics: {
+      A1: {
+        id: 'A1',
+        numerator: null,
+        denominator: null,
+        value: null,
+        status: 'insufficient',
+        coverage: 'unknown',
+      },
+      B3: {
+        id: 'B3',
+        numerator: null,
+        denominator: null,
+        value: null,
+        status: 'forward-only',
+        coverage: 'unknown',
+      },
+    },
+  };
+  const result = renderMswMetrics(model, mockFormatUtils);
+  assert.strictEqual(result, null);
+});
+
+test('msw-metrics: an invalid metric is surfaced even with nothing computed', async (t) => {
+  // This assertion used to say the opposite. Hiding `invalid` turns "the
+  // measurement substrate is broken" into silence on the operator's dashboard,
+  // which is the same confidently-wrong flattening M4 removed one layer down:
+  // the metric refuses to publish a drifted denominator, and then the renderer
+  // refuses to mention that it refused.
   const model = {
     metrics: {
       A1: {
@@ -48,12 +80,14 @@ test('msw-metrics: graceful hide when all metrics insufficient/invalid', async (
         denominator: null,
         value: null,
         status: 'invalid',
-        coverage: 'unknown',
+        invalid_reason: 'exclusion table drift',
+        coverage: 'toggle-usage',
       },
     },
   };
   const result = renderMswMetrics(model, mockFormatUtils);
-  assert.strictEqual(result, null);
+  assert.notStrictEqual(result, null,
+    'a broken measurement substrate must reach the operator, not vanish');
 });
 
 test('msw-metrics: renders when at least one computed metric exists', async (t) => {
@@ -312,4 +346,31 @@ test('msw-metrics: invalid reason shown in status when invalid', async (t) => {
   assert.notStrictEqual(result, null);
   // Result should render B1 as computed
   assert.ok(result.html.includes('B1'));
+});
+
+test('msw-metrics: a stale metric is surfaced even with nothing computed', async (t) => {
+  // The live tree hit exactly this: A3 stale + B3 forward-only meant the section
+  // vanished from STATUS.md entirely, so the milestone that put A3 on the
+  // dashboard produced a dashboard with no metrics on it.
+  const model = {
+    metrics: {
+      A3: {
+        id: 'A3',
+        numerator: null,
+        denominator: null,
+        value: null,
+        status: 'insufficient',
+        stale: true,
+        stale_reason: 'CLAUDE.md changed since the A3 measurement',
+        coverage: 'a3-instruction-cost',
+      },
+      B3: {
+        id: 'B3', numerator: null, denominator: null, value: null,
+        status: 'forward-only', coverage: 'toggle-usage',
+      },
+    },
+  };
+  const result = renderMswMetrics(model, mockFormatUtils);
+  assert.notStrictEqual(result, null,
+    'a measurement that exists but went stale must reach the operator');
 });

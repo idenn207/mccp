@@ -1,0 +1,26 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "multi-session-work-loop-m4",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.23.5",
+    "completed_at": "2026-08-09T06:52:37.439Z",
+    "commit_sha": "48b2f05b94ec93cc471108de1f7f08123bad21d2",
+    "plan_basename": "multi-session-work-loop-m4.plan.md",
+    "plan_file_hash": "sha256:82862974fb6865cac80441f9b98c1d4e75098c6efb44642a16e1035b0ebac8da",
+    "risks_closed": [
+      "**tiktoken 설치 실패로 A3가 끝까지 측정 불가**",
+      "**제외 분류표가 감축으로 오독됨** — 103→94가 성과처럼 보고됨",
+      "**은퇴 이연이 무기한 표류** — M8이 밀리면 B3는 영영 측정도 감축도 안 됨",
+      "**지시 준수가 실제로 떨어지는데 감지 못함**",
+      "CLAUDE.md 대량 편집이 다른 PR의 신규 파일을 드롭",
+      "안전판 토글을 미사용이라는 이유로 은퇴",
+      "감축률이 50% 미달",
+      "sibling worktree와 `1.23.2` 충돌"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:28f7ac6f6f1e2325ac3fba6669b6d18ae6bdd318cfd956c30e64d1cc6213b590",
+    "verdict_provenance": "codex-verdict"
+  }
+}

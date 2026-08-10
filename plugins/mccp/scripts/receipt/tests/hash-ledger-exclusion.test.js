@@ -14,6 +14,14 @@ const assert = require('node:assert/strict');
 const { receiptHash } = require('../hash');
 const { makeSkeleton, validate } = require('../schema');
 
+// `makeSkeleton` stamps meta.created_at at millisecond resolution and that field
+// IS part of the canonical hash. Tests below build two or three receipts and
+// assert their hashes are equal, so any pair straddling a millisecond boundary
+// fails for a reason that has nothing to do with the carve-out under test —
+// measured at roughly 1 in 2000 pairs on an idle machine, and more often under
+// parallel test load. Pinning created_at isolates the variable being tested.
+const FIXED_CREATED_AT = '2026-08-09T00:00:00.000Z';
+
 function baseReceipt() {
   const r = makeSkeleton({});
   r.gate_id = 'mccp-pr-codex';
@@ -24,6 +32,7 @@ function baseReceipt() {
   r.head_sha = 'a'.repeat(40);
   r.subject_hash = 'sha256:' + 'b'.repeat(64);
   r.meta.command = '/mccp-pr-codex';
+  r.meta.created_at = FIXED_CREATED_AT;
   return r;
 }
 

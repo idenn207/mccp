@@ -22,6 +22,70 @@ plan의 목표(약 22,100 토큰 / 11.1%)를 상회했다.
 > 커밋물을 다시 재어 정정한 것이다. `state_block`(STATE.md)은 세션마다 변하므로 주입 합계는
 > 본질적으로 ±수십 토큰 흔들린다 — 합계를 고정 수치로 인용하지 말 것.
 
+> **위 표는 머지 전 수치이며 §1.4·§4 축은 무효화됐다.** `origin/main`이 같은 두 절을
+> 병렬로 압축해 먼저 출하했기 때문이다 — 아래 「Post-merge reconciliation」 참조. 살아남은
+> 축은 §3.6/3.9/3.10/3.12뿐이고, 최종 `CLAUDE.md`는 **67,694 B**다.
+
+## Post-merge reconciliation — `origin/main` M4와의 중복 (2026-08-10)
+
+PR #122를 `origin/main`(`f976b53`)에 머지하려는 순간, main이 **multi-session-work-loop M4**로
+같은 일을 독립 수행해 이미 출하했음이 드러났다. 충돌 해소가 아니라 "어느 압축이 정본인가"의
+설계 결정이었고, **운영자 판단으로 main을 정본으로 채택**했다.
+
+### 두 압축의 대조
+
+| 축 | 이 브랜치 | `origin/main` (M4) |
+|---|---|---|
+| `CLAUDE.md` | 160,920 → 65,595 B | 160,920 → 90,163 B |
+| §1.4 목적지 | `docs/milestone-log.md` (42,963 B) | `docs/milestone-ledger.md` (47,335 B) |
+| §4 목적지 | `docs/ENVIRONMENT.md` 전수 확장 | `docs/ENVIRONMENT.md` §11 |
+| §4 잔류물 | 56행 default 표 (**값 잔류가 불변식**) | 표 없음 (**값 중복 금지가 불변식**) |
+| 검증 | 16개 수동 Validation | ledger + fail-closed lint (C1~C4) |
+
+§4의 두 불변식은 **정면으로 반대**다 — 우리는 "운영자가 토글을 끄려 할 때 문서를 열지 않아야
+한다", main은 "기본값을 두 곳에 적으면 곧 어긋난다". 기계적 병합으로 봉합할 수 없는 자리였다.
+`milestone-log.md`와 `milestone-ledger.md`는 git이 **77% 유사(R077)** 로 판정했다 — 같은 24행
+이력을 두 파일이 소유하게 되며, 그것이 정확히 main의 lint가 막으려던 drift다.
+
+### 채택 결과
+
+- **폐기**: `docs/milestone-log.md`(42,963 B) · `docs/ENVIRONMENT.md` 전수 레퍼런스(54,574 B) ·
+  §4 56행 default 표. §1.4·§4 축의 작업은 전부 main 것으로 대체됐다.
+- **생존**: §3.6/3.9/3.10/3.12 압축과 그 목적지 문서. 이 축은 main이 손대지 않았다.
+
+| 절 | main | 머지 후 |
+|---|---|---|
+| §3.6 | 5,888 B | **2,773 B** |
+| §3.9 | 6,622 B | **2,030 B** |
+| §3.10 | 5,745 B | **1,510 B** |
+| §3.12 | 8,460 B | **2,474 B** |
+
+`CLAUDE.md` 90,163 → **67,694 B** (**-22,469 B**). 목적지 `docs/gate-design.md`(19,005 → 42,858)와
+`docs/multi-session-work-loop/evidence-conflict-design.md`(33,194 → 45,489)는 그대로 유지된다.
+
+### 검증
+
+- **`##`/`###` 헤딩 집합이 `origin/main`과 완전 일치** — 우리가 없앤 37개는 전부 `####` 레벨이라
+  main의 ledger가 추적하는 축(`##`/`###`)을 건드리지 않는다.
+- **`instruction-contract` lint C1~C4 PASS** (`rows=25 removed=0 c4=strict@7fe48d92`). ledger 등재
+  추가 작업은 불필요했다.
+- **문서 앵커 4건 전수 해석** — `gate-design.md#{atomic-state-locks,design-critique-loop,impeccable-routing}` ·
+  `evidence-conflict-design.md#evidence-durability-contract`.
+- **§3.5.1 삭제 검증**: main 신규 파일 전수 생존, 의도치 않은 삭제 0건. 삭제는 `milestone-log.md`
+  1건이며 의도적 폐기다.
+- **테스트 3,869건 중 pass 3,860 · fail 3.** 3건 전부 이 브랜치 소행이 아니다 —
+  `b2-coverage-gate` 2건은 `plan-codex-runner.js:248`(main 소유, commit `96d35b6`)에 대한
+  선재 red이고, `perf-budget` 1건은 단독 실행 시 통과하는 known flaky다. `plugins/` 트리는
+  `origin/main`과 **바이트 동일**이라 코드 회귀 여지가 구조적으로 없다.
+- **`origin/main` 대비 델타는 정확히 10개 파일**이다.
+
+### 되살릴 수 있는 자산
+
+폐기한 `docs/ENVIRONMENT.md` 전수 레퍼런스(env별 `#### <ENV_NAME>` 절)는 main의 미해소 항목
+"`docs/ENVIRONMENT.md` 내부 중복(§1~§7 ↔ 신규 §11)"(main STATE.md Open Questions)을 정면으로
+다루는 작업이었다. 이번엔 중복 회피를 우선해 버렸으나, 그 축을 다시 열 때 `git show
+2b28836:docs/ENVIRONMENT.md`로 원문을 회수할 수 있다.
+
 ## Assessment vs Reality
 
 | Metric | Predicted (Plan) | Actual |

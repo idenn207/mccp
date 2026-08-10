@@ -502,3 +502,200 @@ test('evaluateForDedupe: residual present overrides both-converged → skip_safe
     fs.rmSync(repo, { recursive: true, force: true });
   }
 });
+
+// ── diverse-agent-review M1 (DD2) — cross-model corroboration required ────────
+// The skip predicate asserts "Codex already reviewed this twice". A multi-agent
+// panel approval is not evidence Codex ever spoke, so it must not satisfy the
+// skip — otherwise moving plan review off Codex would delete cross-model review
+// from the pipeline instead of relocating it to the ship point.
+
+const { crossModelConverged } = require('../dedupe');
+
+function panelResolution(verdict, source) {
+  return {
+    converged: true,
+    review_verdict: verdict,
+    review_source: source,
+    review_proof: {
+      layers: { l1: 'converged', l2: 'converged', l3: null },
+      verification_verdict: 'converged',
+      quorum: { passed: true, required: 3, of: 4, roles: 4, responded: 4 },
+      perspectives: [
+        { perspective: 'architect', verdict: 'pass' },
+        { perspective: 'security', verdict: 'pass' },
+        { perspective: 'test', verdict: 'pass' },
+        { perspective: 'invariant', verdict: 'pass' },
+      ],
+      dispatch_evidence: ['.claude/state/dispatches/abc.envelope.json'],
+      reviewed_plan_hash: 'sha256:' + 'a'.repeat(64),
+    },
+  };
+}
+
+test('DD2: a multi-agent converged receipt does NOT satisfy the skip predicate', () => {
+  assert.strictEqual(
+    crossModelConverged({ resolution: panelResolution('converged', 'multi-agent') }),
+    false,
+    'multi-agent approval is not cross-model corroboration');
+});
+
+test('DD2: a hybrid converged receipt DOES satisfy it (Codex was in the loop)', () => {
+  // santa-loop R5: the L3 layer must be present. A hybrid stamp without it is a
+  // cross-model claim with no cross-model evidence, and this predicate is what
+  // buys the PR-Codex skip.
+  const r = panelResolution('converged', 'hybrid');
+  r.review_proof.layers = { l1: 'converged', l2: 'converged', l3: 'converged' };
+  assert.strictEqual(crossModelConverged({ resolution: r }), true);
+});
+
+test('DD2: a hybrid receipt WITHOUT the L3 layer does NOT satisfy it', () => {
+  const r = panelResolution('converged', 'hybrid');   // layers.l3 stays null
+  assert.strictEqual(crossModelConverged({ resolution: r }), false,
+    'claiming hybrid must not be enough to skip terminal PR-Codex');
+});
+
+test('DD2: legacy codex_verdict=converged still satisfies it (no regression)', () => {
+  assert.strictEqual(
+    crossModelConverged({ resolution: { converged: true, codex_verdict: 'converged' } }),
+    true);
+});
+
+test('DD2: every non-converged verdict fails closed regardless of source', () => {
+  ['divergent', 'critical', 'unavailable', 'skipped'].forEach(function (v) {
+    assert.strictEqual(
+      crossModelConverged({ resolution: panelResolution(v, 'hybrid') }), false, v);
+    assert.strictEqual(
+      crossModelConverged({ resolution: { converged: true, codex_verdict: v } }), false, v);
+  });
+});
+
+test('DD2: a missing receipt or a structurally broken proof fails closed', () => {
+  assert.strictEqual(crossModelConverged(null), false);
+  assert.strictEqual(crossModelConverged({}), false);
+  const broken = panelResolution('converged', 'hybrid');
+  broken.review_proof.quorum.passed = false;
+  assert.strictEqual(crossModelConverged({ resolution: broken }), false);
+});
+
+// ---------------------------------------------------------------------------
+// codex-intent-context M1 Task 7b (DD9) — the intent axis is added on the PLAN
+// receipt only. The shared codexConverged helper is untouched, because it is
+// used for BOTH receipts and mccp-implement-codex is deliberately outside the
+// intent scope (UI4) — folding intent in there would make every implement
+// receipt read as unknown and kill dedupe for every decision in the repo.
+// ---------------------------------------------------------------------------
+
+const { isIntentApproved } = require('../../lib/intent-context');
+
+// Rewrite a receipt's intent meta in place and re-seal it (fixtures need states
+// write.js will not produce, e.g. a legacy receipt with no intent keys).
+function restampIntent(repo, gateId, mutate) {
+  const { readReceipt, writeReceipt: wr } = require('../store');
+  const { subjectHash, receiptHash } = require('../hash');
+  const r = readReceipt(repo, gateId, DEDUPE_DECISION);
+  mutate(r.meta, r);
+  r.subject_hash = subjectHash(r);
+  r.receipt_hash = receiptHash(r);
+  wr(repo, r);
+  return r;
+}
+
+test('DD9: codexConverged remains gate-agnostic — no intent condition inside it', function () {
+  // If intent were folded into the shared helper, an implement receipt (which
+  // never carries intent fields) would read as false here.
+  const implementLike = {
+    resolution: { codex_verdict: 'converged' },
+    meta: { created_at: 'x' },
+  };
+  assert.strictEqual(codexConverged(implementLike), true);
+});
+
+test('DD2: a legacy plan receipt (no intent keys) blocks dedupe → PR-Codex runs', function () {
+  const repo = mkTmpRepo();
+  try {
+    const { base } = setupDedupeRepo(repo);
+    writeGateReceipt(repo, 'mccp-plan-codex', 'converged');
+    writeGateReceipt(repo, 'mccp-implement-codex', 'converged');
+    // Strip the intent axis to emulate a receipt written before the field existed.
+    restampIntent(repo, 'mccp-plan-codex', function (meta) {
+      delete meta.intent_gate_verdict;
+      delete meta.intent_skip_proof;
+      delete meta.intent_plan_digest;
+    });
+    const result = evaluateForDedupe({
+      cwd: repo, planPath: DEDUPE_PLAN_REL, baseRef: base, decisionId: DEDUPE_DECISION,
+    });
+    assert.strictEqual(result.skip_safe, false, result.reason);
+    assert.match(result.reason, /intent gate not approved/);
+    assert.strictEqual(result.convergence.plan_codex_receipt.intent_approved, false);
+    // ...and the implement receipt is unaffected: it still reads as converged.
+    assert.strictEqual(result.convergence.implement_codex_receipt.converged, true);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('DD6: a plan receipt forced through the audited override cannot certify a skip', function () {
+  const repo = mkTmpRepo();
+  try {
+    const { base } = setupDedupeRepo(repo);
+    writeGateReceipt(repo, 'mccp-plan-codex', 'converged');
+    writeGateReceipt(repo, 'mccp-implement-codex', 'converged');
+    restampIntent(repo, 'mccp-plan-codex', function (meta) {
+      meta.intent_gate_verdict = 'incomplete';
+      meta.intent_skip_proof = null;
+      meta.intent_gate_force_override = true;
+      meta.intent_gate_force_override_reason =
+        'operator accepted the residual gap after manual review this cycle';
+    });
+    const result = evaluateForDedupe({
+      cwd: repo, planPath: DEDUPE_PLAN_REL, baseRef: base, decisionId: DEDUPE_DECISION,
+    });
+    assert.strictEqual(result.skip_safe, false, result.reason);
+    assert.match(result.reason, /intent gate not approved/);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('DD4-2: a plan digest that disagrees with plan_hash blocks dedupe', function () {
+  const repo = mkTmpRepo();
+  try {
+    const { base } = setupDedupeRepo(repo);
+    writeGateReceipt(repo, 'mccp-plan-codex', 'converged');
+    writeGateReceipt(repo, 'mccp-implement-codex', 'converged');
+    restampIntent(repo, 'mccp-plan-codex', function (meta) {
+      meta.intent_gate_verdict = 'preserved';
+      meta.intent_plan_digest = 'sha256:' + '0'.repeat(64);
+    });
+    const result = evaluateForDedupe({
+      cwd: repo, planPath: DEDUPE_PLAN_REL, baseRef: base, decisionId: DEDUPE_DECISION,
+    });
+    assert.strictEqual(result.skip_safe, false, result.reason);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('an intent-approved plan receipt still dedupes (no regression on the happy path)', function () {
+  const repo = mkTmpRepo();
+  try {
+    const { base } = setupDedupeRepo(repo);
+    writeGateReceipt(repo, 'mccp-plan-codex', 'converged');
+    writeGateReceipt(repo, 'mccp-implement-codex', 'converged');
+    restampIntent(repo, 'mccp-plan-codex', function (meta, r) {
+      meta.intent_gate_verdict = 'preserved';
+      meta.intent_plan_digest = r.plan_hash;
+    });
+    const result = evaluateForDedupe({
+      cwd: repo, planPath: DEDUPE_PLAN_REL, baseRef: base, decisionId: DEDUPE_DECISION,
+    });
+    assert.strictEqual(result.skip_safe, true, result.reason);
+    assert.strictEqual(result.convergence.plan_codex_receipt.intent_approved, true);
+    assert.ok(isIntentApproved({
+      plan_hash: 'sha256:x', meta: { intent_gate_verdict: 'preserved', intent_plan_digest: 'sha256:x' },
+    }));
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});

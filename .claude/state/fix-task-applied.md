@@ -2,14 +2,15 @@
 fix_task_version: 1
 task_fingerprint: dashboard-data-exploration
 gate_id: stop-review-loop
-decision_id: red-test-suite-restore
-created_at: 2026-08-05T18:01:43.411Z
-expires_at: 2026-08-12T18:01:43.411Z
+decision_id: codex-intent-context-m1
+created_at: 2026-08-05T17:01:52.181Z
+expires_at: 2026-08-12T17:01:52.181Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-pr-codex/red-test-suite-restore.json
+  - .claude/receipts/mccp-plan-codex/codex-intent-context-m1.json
+  - .claude/receipts/mccp-implement-codex/codex-intent-context-m1.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -25,7 +26,8 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- .claude/receipts/mccp-pr-codex/red-test-suite-restore.json
+- .claude/receipts/mccp-plan-codex/codex-intent-context-m1.json
+- .claude/receipts/mccp-implement-codex/codex-intent-context-m1.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-pr-codex/red-test-suite-restore>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/codex-intent-context-m1>'

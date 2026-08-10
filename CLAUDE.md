@@ -109,32 +109,22 @@ v0.2.9부터 각 게이트는 R1 default + YAGNI triage로 R2/R3 escalate 결정
 
 ### 1.4 v0.2 자동 게이트 레이어 (receipt chain 위)
 
-receipt chain 위에 얹힌 자동화 layer다. 아래는 **현재 표면으로 남은 18개 모듈**의 한 줄 요약이며,
-출하 이력 원문 24행 전체는 [docs/milestone-log.md](docs/milestone-log.md)가 보존한다
-(설계는 [docs/v0.2-architecture.md](docs/v0.2-architecture.md)).
+v0.1의 receipt chain은 *"adversarial review가 일어났는가"* 만 검증하고, *"사람이 감시해야만 다음으로 넘어가는 chokepoint"* 는 그대로 남겨 뒀습니다. v0.2 이후 그 위에 자동화 layer가 누적됐습니다 (설계와 sequence diagram은 [docs/v0.2-architecture.md](docs/v0.2-architecture.md)).
 
-| 모듈 | 역할 | 상세 |
-|---|---|---|
-| **Stop-loop** | stop 직전 lint/typecheck/test/e2e 자동 게이트 · 실패 시 fix-task + counter bump | [원문](docs/milestone-log.md#stop-loop) |
-| **STATE.md continuity** | PreCompact write · SessionStart inject — 세션 간 컨텍스트 복원 | [원문](docs/milestone-log.md#state-md-continuity) |
-| **Auto-handoff** | cost-tier 임계 검출 → STATE.md `handoff_spawn` 신호 + stderr 배너 | [원문](docs/milestone-log.md#auto-handoff) |
-| **`/mccp:work`** | PRD → plan → implement → PR 전 chain 단일 entry orchestration | [원문](docs/milestone-log.md#mccp-work) |
-| **dual-reviewer escalate** | CRITICAL/divergent 시 `fix-task.md`에 `/santa-loop` 안내 추가 | [원문](docs/milestone-log.md#dual-reviewer-escalate) |
-| **Codex disabled honor** | `MCCP_CODEX_DISABLED=1`을 spawn 직전 short-circuit + canonical reason 기록 | [원문](docs/milestone-log.md#codex-disabled-honor) |
-| **Codex/impeccable scope split** | impeccable 가용 시 Codex design/a11y finding drop + a11y routing | [원문](docs/milestone-log.md#codex-impeccable-scope-split) |
-| **dispatch-controller** | multi-worker fanout IPC substrate — envelope schema · watcher · attribution | [원문](docs/milestone-log.md#dispatch-controller) |
-| **derive engine** | `.claude/` 9 source → 단일 normalized model (read-only · LLM-free) | [원문](docs/milestone-log.md#derive-engine) |
-| **briefing stamp** | receipt write 경로가 capped LLM 요약 4필드 stamp (fail-open invariant) | [원문](docs/milestone-log.md#briefing-stamp) |
-| **STATUS.md + HTML renderer** | derive model → `.claude/cache/STATUS.md` + `status.html` 대시보드 | [원문](docs/milestone-log.md#status-renderer) |
-| **Refresh trigger + privacy guard** | 4개 trigger 경로가 ~5s 내 재렌더 + secret/path mask | [원문](docs/milestone-log.md#refresh-trigger-privacy-guard) |
-| **plan fan-out** | `/mccp:plan` GROUND를 4관점 read-only 병렬 fan-out으로 보강 | [원문](docs/milestone-log.md#plan-fanout) |
-| **aggregate verify + worktree-merge substrate** | implement 후 commit 전 통합 diff를 cross-model로 1회 verify | [원문](docs/milestone-log.md#aggregate-verify) |
-| **병렬 활성화 worktree-merge live** | N-worker 병렬 implement 해금 — worktree 격리 + disjoint patch merge | [원문](docs/milestone-log.md#worktree-merge-live) |
-| **cost-state time-based decay** | cost-state mtime 초과 시 green view 반환 — sticky critical 자기치유 | [원문](docs/milestone-log.md#cost-state-decay) |
-| **orchestration operational-USD 은퇴** | operational USD를 발화 blocker에서 제외 — 상한은 원자 agent-count cap | [원문](docs/milestone-log.md#orchestration-usd-retirement) |
-| **orchestration firing-preview** | 지금 무엇이 발화할지 동일 oracle로 read-only 사전 판정 (LLM 소비 0) | [원문](docs/milestone-log.md#orchestration-firing-preview) |
+**모듈별 상세 이력 — 무엇을 어떤 흡수를 거쳐 어느 버전에 ship했는지 — 은 [docs/milestone-ledger.md](docs/milestone-ledger.md)가 소유합니다.** 아래는 색인입니다.
 
-자동 게이트는 환경 변수로 토글합니다 — §4 cheat sheet의 "운영 토글" 블록 참조.
+| 축 | 모듈 |
+|---|---|
+| 실행 게이트 | Stop-loop · STATE.md continuity · Auto-handoff · `/mccp:work` · dual-reviewer escalate · diverse-agent review (plan 승인 다관점 전환) |
+| Codex 경계 | Codex disabled honor · Codex/impeccable scope split |
+| 관측 (v1.3.0) | schema baseline · derive engine · briefing stamp · STATUS.md+HTML renderer · refresh trigger + privacy guard |
+| 오케스트레이션 | dispatch-controller · work implement isolation · plan fan-out · single-worker Workflow 이전 · N-worker parallel scaffold · aggregate verify 네이티브화 · 병렬 활성화 worktree-merge live |
+| 비용·발화 | cost-state time-based decay · orchestration live-activation · firing-preview + 관찰 프로토콜 · operational-USD firing-block 은퇴 |
+| 기타 | cwd-mask + branch-validation polish |
+
+자동 게이트는 환경 변수로 토글합니다 — [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) §11 참조.
+
+> **이 파일을 줄일 때**: 무엇이 상주해야 하는지는 [docs/multi-session-work-loop/instruction-contract.md](docs/multi-session-work-loop/instruction-contract.md)가 소유하고, 절을 옮기면 `node plugins/mccp/scripts/lib/instruction-contract/lint.js --claude CLAUDE.md --ledger docs/multi-session-work-loop/instruction-contract.md`가 목적지·anchor·상주 포인터·무목적지 소실을 fail-closed로 검증합니다. ledger에 없는 절이 사라지면 실패합니다 — 이전과 삭제를 가르는 유일한 기계 장치입니다.
 
 ---
 
@@ -214,6 +204,10 @@ my-claude-code-plugin/
 위 표는 [`codex-invoke.js`](plugins/mccp/scripts/lib/codex-invoke.js)가 생산하는 **정확히 14종** classification입니다(주석 header enum과 1:1).
 
 > **v1.23.0 M3 — verdict-level ship gate는 위 classification 계층과 별개 축입니다.** 위 표는 codex 호출의 *transport* 상태(호출이 됐는가·응답이 왔는가)를 다루고, terminal `/mccp:pr`의 M3 ship gate는 그 위에서 *review verdict* 자체(`resolution.codex_verdict`)를 판정합니다. classification=`ok`(정상 응답)이어도 review verdict가 `divergent`/`critical`이면 [pr-ship-gate.js](plugins/mccp/scripts/lib/pr-ship-gate.js) `deriveShipDecision`이 no-ship으로 판정 → finalize `exit 12` + validate `--check-ship-verdict` `pr_codex_nonconverged`로 mechanical HALT(§1.4 M3 참조). advisory mode(`MCCP_ALLOW_CODEX_UNAVAILABLE`)는 verdict를 `unavailable`로 만들어 이 역시 no-ship(fail-closed)이지만, terminal `/mccp:pr`은 Phase 0에서 advisory를 이미 거부하므로 finalize에 `unavailable`이 도달하는 경로는 companion defect뿐입니다. 유일 우회는 audited override `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE`(§4)이며 verdict는 봉인 유지.
+
+> **v1.23.5 gate-guard-integrity M1 — ship proof는 `codex_disabled_at_pr`(명시) 축입니다.** verdict가 `skipped`일 때 ship이 성립하려면 [pr-ship-gate.js](plugins/mccp/scripts/lib/pr-ship-gate.js) `SKIP_PROOF_META_KEYS` 중 하나가 `true`여야 하는데(unproven skip은 `skipped-unproven`으로 fail-closed), 그 집합은 이제 **caller가 명시적으로 주장한 3개**만 갖습니다 — `codex_skipped_at_pr` · `codex_dedupe_at_pr` · `codex_disabled_at_pr`. **ambient `meta.codex_disabled`는 proof가 아닙니다.** 두 필드는 애초에 다른 축이며(`codex_disabled` = env 정책의 *정직한 주석*, `write.js`가 `MCCP_CODEX_DISABLED=1`에서 자동 stamp / `codex_disabled_at_pr` = *PR-step audit 축*, 명시 플래그 전용), 그 구분은 [pr-codex-dedupe.test.js](plugins/mccp/scripts/receipt/tests/pr-codex-dedupe.test.js) `:113-118`이 단언하고 `schema.js`의 3-way skip mutex도 `_at_pr` 변종만 원소로 갖습니다. ambient를 proof로 인정하던 시절에는 **표준 설치**(`MCCP_CODEX_DISABLED=1`이 사용자 `settings.json`에 존재)에서 전 receipt에 그 필드가 찍히므로 증거 없는 skip이 예외 없이 증거를 얻어, 위조 탐지 분기가 **구조적으로 도달 불가**였습니다. 운영자의 env-policy ship 경로는 `finalize-receipt.js#deriveCodexFlags`의 `codex_outcome==='disabled'` 분기가 `--codex-disabled-at-pr` + canonical `--codex-skip-reason`을 명시 forward해 보존됩니다(두 변경은 **단일 커밋 불변식** — proof 제거만 착지하면 ship 경로가 조용히 끊깁니다).
+>
+> 같은 milestone에서 `write.js`의 `codex_skip_reason` precedence도 **반전**됐습니다: 명시 `--codex-skip-reason` > env canonical(fallback). 이전에는 ambient env가 audited 사유를 14자 canonical `'codex_disabled'`로 덮어써, `codex_skipped_at_pr=true`가 발동시키는 strict validator(≥30자·≥3단어)에 걸리는 **자기 schema가 거부하는 receipt**를 생산했고 — env가 켜진 환경에서 `MCCP_PR_SKIP_CODEX_REVIEW` audited escape가 사실상 사용 불가였습니다. **계층 구분이 핵심**입니다: `codex-runner.js:234-238`은 반대 precedence(env 우선)를 **의도적으로** 유지합니다 — runner는 *무슨 일이 일어났는지 관찰*하므로 env 정책이 canonical이 맞고, writer는 *caller가 주장한 것을 기록*하므로 그 주장을 덮으면 안 됩니다. `write.js`의 `codex_disabled` env-stamp 자체는 무변경입니다(정직한 주석으로 남되 proof가 아닐 뿐).
 
 > **`tempfail` (exit 75)은 codex-invoke classification이 아닙니다.** codex-invoke 하위 계층이 아니라 [`scripts/receipt/classify.js`](plugins/mccp/scripts/receipt/classify.js) / validate-cmd 계층의 **transient outcome**입니다 — v0.2.8 generic-receipt quarantine migration이 in-progress(lock-loser bounded poll timeout)일 때 emit됩니다. 동작: retry-shortly · hook은 ALLOW · cli/preflight/auto-chain은 exit 75 (sysexits). 자세한 전파는 §4 cheat sheet의 "Generic-receipt quarantine runbook" tempfail propagation 항목 참조.
 
@@ -495,6 +489,53 @@ ship squash 시 PR merge 방식은 **merge commit**(GitHub 설정 적용 완료)
 
 ---
 
+### 3.13 Plan-Codex 의도 컨텍스트 게이트 (v1.23.1 — codex-intent-context M1)
+
+`/mccp:plan`의 Plan-Codex 게이트는 리뷰어(out-of-process Codex)에게 **사용자 대화 의도를 전달할 채널이 없었다**. 리뷰어는 제안서만 보고 요구사항은 못 봤고, finding 수용 판단은 어디에도 기록되지 않았다. M1은 세 축을 닫는다.
+
+#### L1 — 의도 표면화
+
+PRD-모드 plan은 `## User Intent` 표를 **필수**로 갖는다(`| ID | Constraint (user-stated) | Kind |`). [intent-context.js](plugins/mccp/scripts/lib/intent-context.js)가 이 표의 `Constraint` 열**만** 읽어 `<user_intent_reference>` 블록을 만들고 `codex-invoke --intent-reference-file`로 리뷰어 focus에 주입한다(순서: design-scope → intent → base focus).
+
+- **저자 정당화는 절대 넣지 않는다**(UI2). anchoring 회피는 텍스트 lint가 아니라 **구조 분리**로 한다 — 오라클은 `## Design Decisions`에 도달할 경로 자체가 없다.
+- 구조 가드(위반 시 섹션을 **부재**로 취급): ID `^UI\d+$` 유일 · `Kind ∈ {constraint, exception, exclusion, direction}` · ≥3단어 · placeholder 금지 · 지시문 형태 금지 · ≤200행.
+- 주입 하드닝: 입력 엔티티 **1회 비재귀** 디코드(`&lt;`/`&#60;`/`&#x3c;`) → 이스케이프(역슬래시 **우선**) → 300자 상한(홀수 trailing `\` 제거). **homoglyph는 NFKC가 접지 못한다**(실측: `ignоre`의 U+043E 불변) — primary 통제는 토큰 내 **mixed-script 거부**(일반 규칙)이고 Cyrillic/Greek→Latin fold는 열거식 보조다.
+
+#### L2-A — 판정 커버리지 강제
+
+Codex의 **모든 finding**이 명시 adjudication을 받아야 한다. 1건이라도 빠지면 `incomplete` → **receipt 미작성** → `/mccp:prp-implement` 진입 불가. verdict 5종: `preserved` · `skipped` · `skipped-unproven` · `incomplete` · `conflict_unresolved`.
+
+- **증명 없는 `skipped`는 통과 티켓**이므로 `meta.intent_skip_proof ∈ {free_form_plan, no_codex_findings, codex_disabled}` 하나를 mechanical하게 대조한다(`pr-ship-gate.js:55-68`이 이미 값을 치른 구멍).
+- 유일한 **실질** 규칙: `intent_conflict ≠ none` ∧ `verdict=ACCEPT_NOW`면 `intent_override_reason` 필수 → 부재 시 `conflict_unresolved`.
+- **M1은 오심을 막지 못한다.** 저자가 충돌을 `none`으로 찍으면 커버리지는 통과한다. M1은 **누락**을 막고, 오심 탐지(리뷰어 per-finding `INTENT:` 계약)는 **M1.5** 소유다. M1은 UI10 달성을 **주장하지 않는다**.
+
+#### 단일 프로세스가 위조 창을 없앤다 (DD3)
+
+[plan-codex-runner.js](plugins/mccp/scripts/lib/plan-codex-runner.js)가 Codex 호출 → payload를 **메모리 보유** → adjudication 대기(bounded) → 판정 → receipt write를 한 프로세스로 수행한다. 감사 envelope는 디스크에 남기되 **다시 읽지 않는다**(회귀 test: 변조해도 verdict 불변). 2-pass 설계는 pass 2가 envelope를 재read해야 하므로 **채택하지 않았다**.
+
+- codex 900s > Bash 600s라 호출자는 runner를 **detached**로 띄우고 marker를 poll한다. marker 경로에 `RUN_NONCE`가 포함돼 stale marker가 새 경로에 존재할 수 없고, `meta.intent_run_nonce`가 receipt에 봉인돼 **marker 유실 크래시도 markerless로 복구**된다. per-decision lease lock이 동시 writer를 거부한다(host-aware tri-state).
+- poll 상태는 `running`/`succeeded-markerless`/`crashed`/`timeout` 4종 — 무한 대기도 조용한 진행도 없다.
+
+#### intent 결정은 CLI 표면을 갖지 않는다
+
+`cli.js parseFlags`는 임의 `--*`를 `write()`로 전달하므로 intent 플래그를 만들면 **아무 셸 호출자나 Codex 없이 `preserved`를 stamp**할 수 있다. 따라서 `intentDecision`은 **프로그래매틱 non-null 객체 전용**이고(parseFlags는 문자열/`true`/배열만 생성 가능 → 타입 가드가 구조적 차단), `--intent-*` 플래그는 **0건**이다. 수동 복구는 `/mccp:plan` 재실행 또는 `MCCP_SKIP_INTENT_GATE`이며 `cli.js write`가 아니다 — `prp-implement.md` Phase 0.0도 `mccp-plan-codex`를 blind write하지 않고 분기한다.
+
+#### 소비처별 판정 (단일 `pass` 없음)
+
+| 출력 | 소비처 | override 영향 |
+|---|---|---|
+| `runtimeAllowed` | runner/write | 받음 |
+| `chainAllowed` | `validate-cmd` 비-terminal | 받음 |
+| `dedupeApproved` | `dedupe.js` | **절대 안 받음** |
+
+강제된 `incomplete` receipt가 dedupe를 인증하면 PR-Codex가 skip돼 dual-review가 우회된다 — 그래서 단일 불리언을 쓰지 않는다. `dedupe.js`의 공유 `codexConverged`는 **불변**이고 intent 조건은 plan 축에만 붙는다(DD9 — 공유 헬퍼에 넣으면 out-of-scope implement receipt가 항상 unknown이 되어 **전 dedupe 사망**). legacy(키 부재) receipt는 chain ALLOW + warning이지만 dedupe는 거부 → "키를 빼면 공짜 skip"의 보상이 0.
+
+#### Receipt audit (10 present-only 필드)
+
+`intent_section_present` · `intent_items_count` · `intent_reference_injected` · `intent_gate_verdict` · `intent_adjudication_counts` · `intent_gate_force_override` · `intent_gate_force_override_reason` · `intent_skip_proof` · `intent_plan_digest` · `intent_run_nonce`. `makeSkeleton` **미포함**(`pr_codex_force_override` 선례 — §3.12 tracked ship corpus hash 안정성 + DD2의 "키 부재 = 모름" 보존). `by_verdict`는 **open map**이고 검증은 합계 불변식이다(닫힌 키 집합은 신규 verdict 추가 시 과거 receipt를 소급 invalid로 만든다).
+
+---
+
 ## 4. 자주 쓰는 명령 (Cheat Sheet)
 
 ```bash
@@ -595,72 +636,9 @@ v0.2.8부터 validate-cmd가 generic decision_id(`default`/`main`) + `--plan` �
 
 ### 운영 토글 (환경 변수)
 
-`.claude/settings.json` 또는 셸에서 설정 — v0.2 자동 게이트 동작을 변경합니다.
-**default 값과 kill-switch 동작은 이 표에 남는다** — 토글을 끄려고 문서를 열 필요는 없다.
-각 항목의 전체 서술(왜 그 default인가 · 흡수된 finding · 상호작용)은
-[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md#전수-레퍼런스)의 **동명 절 `#### <ENV_NAME>`** 에 있다.
+**canonical 레퍼런스는 [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) §11 "운영 토글 레퍼런스"입니다.** 토글 이름·기본값·판정 순서·흡수 이력이 전부 거기 있습니다. 기본값을 여기 옮겨 적으면 두 문서가 곧 어긋나므로 이 절에는 값을 적지 않습니다.
 
-| env | default | 효과 · kill-switch |
-|---|---|---|
-| `MCCP_STOP_LOOP` | `observe` | stop 직전 자동 게이트 모드 · `off`=끔 |
-| `MCCP_STOP_LOOP_CODEX` | `0` | stop-loop의 Codex diff review opt-in |
-| `MCCP_RECEIPT_GATE_MODE` | `hard` | receipt 게이트 강도 · `off`=비활성(디버그) |
-| `MCCP_SKIP_RECEIPT` | unset | 한 호출만 receipt 게이트 bypass |
-| `MCCP_RECEIPT_DEBUG` | unset | receipt 디버그 출력 |
-| `MCCP_ALLOW_CODEX_UNAVAILABLE` | unset | Codex 실패 시 advisory 진행 · terminal `/mccp:pr`은 거부 |
-| `MCCP_CODEX_DISABLED` | unset | Codex 호출 영구 skip(spawn 직전 short-circuit) |
-| `MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER` | unset | security-reviewer 부재 시 audited override |
-| `MCCP_FORCE_PR_WITHOUT_IMPECCABLE` | unset | impeccable 부재 시 audited override(strict reason) |
-| `MCCP_PR_SKIP_CODEX_REVIEW` | unset | PR단계 Codex 호출 자체 skip(audited) |
-| `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE` | unset | non-approving ship gate override(audited) |
-| `CODEX_DEDUPE_AT_PR` | unset | dedupe 발화 내부 신호(사용자가 set할 값 아님) |
-| `MCCP_GATE_ROUND_CAP` | `1` | 게이트 라운드 상한(1~3) |
-| `MCCP_CODEX_DESIGN_SCOPE_HONOR` | `1` | design/a11y scope split · `0`=kill switch |
-| `MCCP_DESIGN_CRITIQUE_MAX_RETRY` | `2` | critique retry cap · `0`=R0 1회만 |
-| `MCCP_DESIGN_INTENT_REASON` | unset | design trigger 강제(axis c, strict reason) |
-| `MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN` | unset | PR chain-check advisory 우회(audited) |
-| `MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL` | `0` | critique 결과 mock(test 전용) |
-| `MCCP_DESIGN_GROUNDING` | `enforce` | produced-diff grounding lint · `off`=끔 |
-| `MCCP_IMPECCABLE_ROUTING_MODE` | `auto` | impeccable 명령 라우팅 모드 |
-| `MCCP_IMPECCABLE_INTENT_COMMANDS` | unset | mood 명령 invoke 승격 허용 목록 |
-| `MCCP_A11Y_AUTO_INVOKE` | `1` | PR단계 a11y-architect 자동 호출 · `0`=끔 |
-| `MCCP_RECEIPT_DEBUG_LEGACY_INLINE` | `1` | debug ALLOW-path systemMessage · `0`=옛 inline |
-| `MCCP_AUTO_CHAIN_DISABLE` | unset | auto-chain kill switch(mechanical) |
-| `MCCP_AUTO_CHAIN_SKIP_PR` | unset | commit까지만 · **LLM-observed**(강제 아님) |
-| `MCCP_WORK_ISOLATE_IMPLEMENT` | `1` | work implement 격리 위임 · `0`=인라인 |
-| `MCCP_WORK_IMPLEMENT_WORKFLOW` | `0` | 격리 채널을 Workflow로 · `0`=Task |
-| `MCCP_WORK_IMPLEMENT_PARALLEL` | `on` | N-worker 병렬 implement · `off`/`0`=단일 |
-| `MCCP_WORK_MERGE_STRATEGY` | `worktree-merge` | 병렬 구조 gate · `disable-parallel`=N=1 |
-| `MCCP_WORK_PARALLEL_MAX` | `4` | fleet worker 상한 |
-| `MCCP_WORK_PARALLEL_BUDGET` | `150000` | worker당 최소 예상 토큰 |
-| `MCCP_WORK_PARALLEL_AUTODISABLE_TIER` | empty | fleet을 막을 cost tier(명시가 우선) |
-| `MCCP_WORK_MERGED_VERIFY` | `enforce` | commit 전 통합 diff verify · `off`=끔 |
-| `MCCP_PLAN_FANOUT` | `on` | plan GROUND 병렬 fan-out · `off`=끔 |
-| `MCCP_PLAN_FANOUT_BUDGET` | `150000` | 관점당 최소 예상 토큰 |
-| `MCCP_PLAN_FANOUT_AUTODISABLE_TIER` | empty | fan-out을 막을 cost tier(명시가 우선) |
-| `MCCP_ORCHESTRATION_COST_FAIL_OPEN` | on | cost-state 부재를 green 가정 · `0`=fail-closed |
-| `MCCP_ORCHESTRATION_MAX_AGENTS` | `24` | 세션 누적 worker 절대 상한(원자 예약) |
-| `MCCP_ORCHESTRATION_RESERVATION_LEASE_MS` | `600000` | pending 예약 lease · `0`은 kill switch 아님 |
-| `MCCP_ORCHESTRATION_CATASTROPHIC_USD` | `500` | 대체 bomb detector 임계(항상 유효) |
-| `MCCP_ORCHESTRATION_USD_BOMB` | `off` | operational USD 차단 복원(back-compat) |
-| `MCCP_SUBSCRIPTION` | `off` | USD 게이트를 context-overflow 축으로 대체 |
-| `MCCP_SUBSCRIPTION_OVERFLOW_CONTEXT_WARN_PCT` | `35` | context 잔여% warning 임계 |
-| `MCCP_SUBSCRIPTION_OVERFLOW_CONTEXT_CRITICAL_PCT` | `25` | context 잔여% critical 임계 |
-| `MCCP_SUBSCRIPTION_OVERFLOW_TOOL_WARN` | `0` | tool_count warning 임계 · `0`=비활성 |
-| `MCCP_SUBSCRIPTION_OVERFLOW_TOOL_CRITICAL` | `0` | tool_count critical 임계 · `0`=비활성 |
-| `MCCP_COST_STATE_DECAY_HOURS` | `6` | cost-state decay 시간 · `0`=decay 끔 |
-| `MCCP_EVIDENCE_CONFLICT_GUARD` | `enforce` | evidence write lock · `off`=guard 끔 |
-| `MCCP_AUTO_HANDOFF` | `notify` | handoff 신호 동작 · `off`=끔 |
-| `MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN` | unset | 실제 세션 spawn opt-in |
-| `MCCP_HANDOFF_THRESHOLDS_USD` | `50,80,100` | notice/warning/critical USD 임계 |
-| `MCCP_ORCHESTRATOR_POLL_MS` | `500` | dispatch-watcher polling 간격 |
-| `MCCP_DISPATCH_CONTEXT` | `0` | =1이면 worker attribution 3필드 강제 |
-| `MCCP_BRIEFING` | `auto` | receipt briefing 호출 · `off`=끔 |
-| `MCCP_BRIEFING_AUTODISABLE_TIER` | `notice,warning,critical` | briefing 자동 disable tier |
-| `MCCP_RENDER_TRIGGER_DEBOUNCE_MS` | `5000` | STATUS 렌더 debounce |
-| `MCCP_RENDER_LOCK_LEASE_MS` | `90000` | 렌더 lock lease |
-
-은퇴 토글 `MCCP_ORCHESTRATION_DEBT_DECAY_HOURS`는 정의가 없다 — [Retired](docs/ENVIRONMENT.md#retired) 참조.
+설정 위치는 `.claude/settings.json`의 `env` 블록 또는 셸입니다. 게이트가 막혔을 때 가장 먼저 보는 축은 `MCCP_RECEIPT_GATE_MODE`(receipt 게이트 강도) · `MCCP_CODEX_DISABLED`(Codex 호출 skip) · `MCCP_SKIP_RECEIPT`(1회 bypass) 셋이며, 정확한 값과 실패 모드는 위 문서를 보세요.
 
 ---
 

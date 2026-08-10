@@ -41,13 +41,13 @@ We'll know we're right when **각 가드가 발화해야 하는 조건에서 실
 
 ## Success Metrics
 
-| Metric | Target | How measured |
-|---|---|---|
-| 무력화된 가드 수 | 3 → 0 | 각 가드의 부정 케이스를 재현해 발화 여부 확인 |
-| 부정 케이스 테스트 보유 | 3/3 | 가드마다 "발화해야 하는 조건"을 직접 단언하는 테스트 존재 |
-| 표준 설치 환경에서의 유효성 | 통과 | env를 인위적으로 제거하지 않은 상태에서 가드 테스트가 제 임무 수행 |
-| 전수 실행 fail 수 | 8 → 2 | `node --test` 전 경로. 잔여 2는 Milestone 2 대상 |
-| 기존 통과 케이스 회귀 | 0건 | 수정 전후 pass 수 비교 — 감소가 없어야 함 |
+| Metric | Target | How measured | Actual (2026-08-10 실측) |
+|---|---|---|---|
+| 무력화된 가드 수 | 3 → 0 | 각 가드의 부정 케이스를 재현해 발화 여부 확인 | **3 → 0** — 수정 전 코드에 신규 테스트를 돌려 G1 7 fail · G2 `ok=true/stale=0`(가드 사망) · G3 7+1+2 fail을 각각 확인 후 복원 |
+| 부정 케이스 테스트 보유 | 3/3 | 가드마다 "발화해야 하는 조건"을 직접 단언하는 테스트 존재 | **3/3** — `g1-patch`(10) · `validate-callsite-lint`(4) + 2.5.9 stale 1회 재현 · `finalize-receipt`(31)/`pr-ship-gate`(28)/`codex-disabled-precedence`(6) |
+| 표준 설치 환경에서의 유효성 | 통과 | env를 인위적으로 제거하지 않은 상태에서 가드 테스트가 제 임무 수행 | **통과** — `MCCP_CODEX_DISABLED=1`을 켠 채 위 6개 파일 전부 pass |
+| 전수 실행 fail 수 | 8 → 2 | `node --test` 전 경로. 잔여 2는 Milestone 2 대상 | **7 → 3** — 착수 시 실측 baseline은 8이 아니라 **7**이었고(원 target의 분모가 달랐다), 본 milestone이 표적한 **6건은 전부 해소**. 최종 3건 중 M1 귀속은 **0건**(`b2-coverage-gate` 2건은 `plan-codex-runner.js` 소유 — M1 커밋이 이 파일을 한 번도 건드리지 않음, PR #118 소관 / `perf-budget` 1건은 timing-flaky = Milestone 2 축) |
+| 기존 통과 케이스 회귀 | 0건 | 수정 전후 pass 수 비교 — 감소가 없어야 함 | **0건** — pass 3444 → **3794** (증가분에는 main 머지분 포함) |
 
 ## Scope
 
@@ -68,8 +68,18 @@ We'll know we're right when **각 가드가 발화해야 하는 조건에서 실
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | 가드 복원 | hook이 자기 실패에도 사용자를 막지 않고, terminal 게이트가 plan 변경을 stale로 잡으며, ship-gate 가드가 표준 설치 환경에서도 증거 없는 skip을 막는다 | in-progress | `.claude/plans/gate-guard-integrity.plan.md` |
+| 1 | 가드 복원 | hook이 자기 실패에도 사용자를 막지 않고, terminal 게이트가 plan 변경을 stale로 잡으며, ship-gate 가드가 표준 설치 환경에서도 증거 없는 skip을 막는다 | complete | `.claude/plans/gate-guard-integrity.plan.md` |
 | 2 | 신호 신뢰도 | 전수 실행 결과가 실행마다 동일해지고, 외부 의존 테스트가 도달 불가 시 정직하게 skip된다 | pending | — |
+
+### Milestone 1 완료 판정 (2026-08-10)
+
+v1.23.6으로 ship됨 — PR #121, merge commit `69fe06b`. 위 Success Metrics의 `Actual` 열이 판정 근거다. 판정은 santa-loop 2인 독립 검토를 거쳤고, 지적 중 반증된 5건과 수용된 4건의 내역은 구현 리포트에 남긴다.
+
+**status를 `complete`로 두는 것이 아카이브를 유발하지 않는다.** `archive-complete/scan.js` 오라클에 flip 전후를 직접 통과시켜 확인했다 — 두 경우 모두 `archivable=false`이고 사유만 `pending=1, in-progress=1` → `pending=1`로 바뀐다. CLAUDE.md §3.11 **C2**("PRD 전체 완료 시에만 이동")가 그대로 지켜지므로, 미완료 PRD의 plan이 옮겨져 소실되는 경로는 열리지 않는다.
+
+**미획득 항목 — cross-model adversarial review (부채로 기록, 닫힌 게이트가 아님).** 이 milestone은 plan · implement · PR 세 게이트 **전부**에서 `resolution.codex_verdict='skipped'`다(`MCCP_CODEX_DISABLED=1`이 사용자 전역 설정에 있고 Codex 한도가 소진). 완료 판정을 위해 2026-08-10에 돌린 santa-loop에서도 Codex는 한도 소진(2026-08-16까지)으로 **검토를 수행하지 못했고**, 규정대로 Claude 폴백 2인으로 진행해 컨텍스트 격리만 확보했다 — **모델 다양성은 이 축에서도 획득되지 않았다**. 따라서 OQ2의 3부 수정(A/B/C) 설계와 OQ3의 callsite 비대칭 판정은 여전히 단일 모델 판단이다.
+
+이 부채가 `complete` 판정을 무효화하지 않는 이유는 이 PRD 자신이 Risks 마지막 행에 적어 둔 것과 같다 — 검증의 근거는 "가드가 통과시켰다"가 아니라 **"가드가 막아야 할 것을 실제로 막는지의 직접 재현"**이며, 그 재현은 수정 전 코드에 대한 A/B로 세 축 모두 확보됐다. cross-model 확증은 그와 별개 축이고, 여기서 그것을 **획득했다고 주장하지 않는다**.
 
 ## Open Questions
 

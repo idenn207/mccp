@@ -514,7 +514,14 @@ as **absent**, which blocks the gate on a PRD-mode plan:
 - [ ] All tasks complete
 - [ ] Validation passes
 - [ ] Patterns mirrored, not reinvented
+- [ ] 게이트/경로를 실제로 1회 완주하고 산출물을 확인 (단위 test 통과 ≠ 경로 작동)
 ````
+
+The last item is not boilerplate. The diverse-agent-review M1 milestone passed
+every unit test it wrote and shipped eight command-body seam defects, because
+nothing in its acceptance required the path to run once end to end. State what
+artifact a live run must produce, so "complete" cannot be claimed from green
+tests alone.
 
 After writing the artifact, report its path and WAIT for confirmation before writing code.
 
@@ -936,7 +943,43 @@ echo "[mccp:plan-review] L1 exit=$L1_EXIT" 1>&2
   LLM panel cannot overturn a mechanical fact). Jump straight to 5.2e, which
   composes `divergent` from the L1 artifact.
 - exit **12** → L1 could not be evaluated (plan unreadable, worktree race). This
-  is an environment problem: print the stop block and end the response.
+  is an environment problem: **run the recorder (below) and then** print the stop
+  block and end the response.
+
+##### The recorder runs before every stop in 5.2 (M4 axis A)
+
+Each HALT below is preceded by one line:
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:plan --args "$ARGUMENTS")
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+  --slug "$DECISION_SLUG" --plan "<plan path>" \
+  --halt-stage "<5.2a|5.2b|5.2c-emit|5.2c-pin|5.2d|5.2e|5.2e-proof|5.2f|5.2g>"
+```
+
+**That stage list is the complete set of HALTs in 5.2, and it is complete on
+purpose.** An earlier revision of this section listed six stages while the body
+emitted seven and two stops had no recorder at all — 5.2d (reconcile artifacts
+unreadable) and 5.2f (`mode.json` unreadable). Both sit *after* the panel has
+already fired, so they are exactly the long samples this section claims to have
+stopped discarding; leaving them out made the claim wider than the wiring. When
+you add a stop to 5.2, add its stage here and call the recorder from it, or this
+heading becomes false again.
+
+Substitute the stage that is halting; everything else is identical, and the same
+call with no `--halt-stage` is what 5.2h runs on the pass path. It reads the
+artifacts, writes `.claude/reviews/plan-review-<slug>.md`, and **always exits 0** —
+so it can never turn a measurement failure into a gate failure. It also cannot
+change a verdict: it runs after the decision is made and before the stop is
+printed.
+
+M1 recorded wall-clock only inside 5.6b's receipt write, which sits past every
+one of these stops. A blocked run recorded nothing, and blocked runs are usually
+the slow ones — so the instrument systematically discarded its longest samples
+(40 receipts in the repository, zero with a review verdict). Recording at each
+stop is what makes the measurement mean anything (UI10).
 
 #### 5.2b — Reserve the agent budget (DD9)
 
@@ -956,7 +999,8 @@ Unlike the fan-out this is a gate, so a denied reservation degrades to nothing �
 it stops. A grant below the quorum threshold is the same stop reached later and
 more expensively: those reviewers would run, cost tokens, and then fail the quorum
 on arithmetic. (`emit-workflow-args --granted` re-checks this at 5.2c and exits 12,
-so the arithmetic is enforced in a tested oracle and not only here.) Print:
+so the arithmetic is enforced in a tested oracle and not only here.) Run the
+recorder with `--halt-stage 5.2b`, then print:
 
 ```
 [MCCP-GATE-STOP] L2 review panel could not be launched (granted <N>, quorum needs <M>).
@@ -987,8 +1031,15 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" emit-workflow-args \
   --out "$REVIEW_DIR/workflow-args.json"
 ```
 
-exit **12** → HALT (the granted fleet cannot satisfy the quorum, or the plan could
-not be hashed). Do not reconcile the reservation; leave it pending.
+exit **12** → run the recorder with `--halt-stage 5.2c-emit`, then HALT (the
+granted fleet cannot satisfy the quorum, or the plan could not be hashed). Do not
+reconcile the reservation; leave it pending.
+
+The payload also carries `minRemaining` — the tokens the turn must still have for
+the panel to be worth firing, computed as `MCCP_PLAN_REVIEW_BUDGET` (default
+150000) × the fleet size **after** the `--granted` cap. Until M4 the key was
+absent from the payload, so `workflows/plan-review.js` read `undefined`,
+substituted 0, and its budget branch could never fire (UI12).
 
 **Pin the reservation with a debt marker before the panel fires.** The `Workflow`
 call below IS the launch point — 5.2d reconciles only *after* it returns, and
@@ -1004,12 +1055,19 @@ written by a post-call handler that may never execute.
 REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
 PIN_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservationId||"")}catch{process.stdout.write("")}' "$REVIEW_DIR/reservation.json")
 PIN_N=$(node -e 'try{process.stdout.write(String((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).fleet||[]).length))}catch{process.stdout.write("0")}' "$REVIEW_DIR/workflow-args.json")
+DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:plan --args "$ARGUMENTS")
+PIN_HALT() {
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2c-pin 1>/dev/null 2>&1 || true
+}
 if [ -z "$PIN_ID" ] || [ "$PIN_N" = "0" ]; then
+  PIN_HALT
   echo "[MCCP-GATE-STOP] reservation/fleet artifact unreadable — refusing to launch a panel the agent cap cannot record."; exit 1
 fi
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" mark-debt \
   --reservation "$PIN_ID" --n "$PIN_N" 1>/dev/null 2>&1 \
-  || { echo "[MCCP-GATE-STOP] debt marker write failed — an unrecordable launch is not permitted."; exit 1; }
+  || { PIN_HALT; echo "[MCCP-GATE-STOP] debt marker write failed — an unrecordable launch is not permitted."; exit 1; }
 echo "[mccp:plan-review] reservation $PIN_ID pinned (debt marker, n=$PIN_N) before the Workflow call." 1>&2
 ```
 
@@ -1059,7 +1117,15 @@ read from artifacts because `$RES_ID` from 5.2b no longer exists in this shell.
 REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
 RES_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservationId||"")}catch{process.stdout.write("")}' "$REVIEW_DIR/reservation.json")
 ACTUAL_N=$(node -e 'try{process.stdout.write(String((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).fleet||[]).length))}catch{process.stdout.write("")}' "$REVIEW_DIR/workflow-args.json")
-[ -n "$RES_ID" ] && [ -n "$ACTUAL_N" ] || { echo "[MCCP-GATE-STOP] reservation or fleet artifact unreadable — cannot reconcile the agent cap honestly."; exit 1; }
+# This stop is reached only AFTER the panel has run, so it is one of the slow
+# samples the recorder exists to keep. Record before halting.
+if [ -z "$RES_ID" ] || [ -z "$ACTUAL_N" ]; then
+  DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+    --command mccp:plan --args "$ARGUMENTS")
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2d 1>/dev/null 2>&1 || true
+  echo "[MCCP-GATE-STOP] reservation or fleet artifact unreadable — cannot reconcile the agent cap honestly."; exit 1
+fi
 # Only reconcile when the panel actually returned. 5.2c permits a Workflow that
 # throws or is unavailable, and on that path zero reviewers may have launched —
 # committing the PLANNED fleet size there records phantom launches permanently
@@ -1103,6 +1169,11 @@ REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
 # mode.json as "disabled by policy" states a cause that was never established.
 FIRES_L3=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.fires&&j.fires.l3?"1":"0")}catch{process.stdout.write("-1")}' "$REVIEW_DIR/mode.json")
 if [ "$FIRES_L3" = "-1" ]; then
+  # Post-panel stop (hybrid reaches 5.2f after 5.2c/5.2d), so record before halting.
+  DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+    --command mccp:plan --args "$ARGUMENTS")
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2f 1>/dev/null 2>&1 || true
   echo "[MCCP-GATE-STOP] $REVIEW_DIR/mode.json unreadable — cannot tell whether L3 should fire, and guessing either way falsifies the L3 record. Re-run Phase 5.2."
   exit 12
 fi
@@ -1199,6 +1270,9 @@ node -e 'const fs=require("fs");const j=JSON.parse(fs.readFileSync(process.argv[
   "$REVIEW_DIR/decision.json" "$REVIEW_DIR/proof.json"
 PROOF_EXIT=$?
 if [ "$PROOF_EXIT" -ne 0 ]; then
+  DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision --command mccp:plan --args "$ARGUMENTS")
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2e-proof 1>/dev/null 2>&1 || true
   echo "[MCCP-GATE-STOP] proof extraction failed (exit $PROOF_EXIT) — the panel's decision cannot be recorded, so no receipt may claim it."; exit 12
 fi
 node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.error("[mccp:plan-review] verdict="+j.review_verdict+" source="+j.review_source+" forwardCodex="+(j.forwardCodexVerdict?1:0));console.error("[mccp:plan-review] reason: "+j.reason)}catch(e){console.error("[mccp:plan-review] decision unreadable")}' \
@@ -1210,10 +1284,17 @@ outliving its run. Extraction failure is a stop, not a shrug: the alternative is
 a receipt that records no approval while the gate prints success, which is the
 same silent-omission class this milestone already had to fix once at 5.6.
 
-`DECIDE_EXIT` 12 → **HALT, but run 5.2h first.** Write the review record, then
-print the `reason` field from the decision JSON plus the three recovery paths
-(`MCCP_PLAN_REVIEW=codex` · a new session · raise the agent cap), then end the
-response without writing a receipt.
+`DECIDE_EXIT` 12 → **HALT, but run 5.2h first** (with `--halt-stage 5.2e`). Write
+the review record, then print the `reason` field from the decision JSON, then end
+the response without writing a receipt.
+
+**Print `reason` verbatim and do not substitute a generic recovery list for it.**
+`decide` names the recovery that fits the specific stop — a budget skip reports
+the observed `remaining`/`minRemaining` and says to raise the turn's token target,
+lower `MCCP_PLAN_REVIEW_BUDGET`, or fall back to `MCCP_PLAN_REVIEW=codex`. Only
+when `reason` names no recovery of its own, add the general three
+(`MCCP_PLAN_REVIEW=codex` · a new session · raise the agent cap). Offering the
+agent cap to someone who ran out of tokens sends them to fix the wrong thing.
 
 **Do not skip ahead to the stop.** A blocked decision is the only case where the
 author actually needs the findings, and 5.2h is the one artifact that carries
@@ -1236,8 +1317,9 @@ REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
   --proof-file "$REVIEW_DIR/proof.json"
 ```
 
-exit 12 → HALT (the proof names evidence that is missing or not repo-relative).
-Skipped automatically when no proof was produced (a non-converged decision).
+exit 12 → run the recorder with `--halt-stage 5.2g`, then HALT (the proof names
+evidence that is missing or not repo-relative). Skipped automatically when no
+proof was produced (a non-converged decision).
 
 #### 5.2h — Write the review record (sibling artifact, NOT the plan)
 
@@ -1247,50 +1329,48 @@ pairs — enough to prove a quorum, useless to an author who has just been block
 Write the readable record where the author and a later audit can both find it:
 
 ```bash
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-mkdir -p "$REPO_ROOT/.claude/reviews"
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:plan --args "$ARGUMENTS")
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+  --slug "$DECISION_SLUG" --plan "<plan path>"
 ```
 
-Then create `.claude/reviews/plan-review-<DECISION_SLUG>.md` (derive the slug with
-`receipt/cli.js derive-decision` as 5.6 Step B does) containing:
+That writes `.claude/reviews/plan-review-<DECISION_SLUG>.md` — the same title,
+Verdict, Quorum, Layers, Findings and Refutation sections this step used to ask
+the LLM to type, plus a `## Measurement` block carrying the machine-readable
+record (verdict, source, layers, quorum counts, `wall_clock_ms`, `halt_stage`,
+`reviewed_plan_hash`).
 
-```markdown
-# Plan Review Panel — <decision slug>
+**Generated, not typed, because a typed record cannot be measured.** M1 asked for
+this markdown by hand and put the wall-clock stamp in 5.6b's receipt write
+instead — past every stop in 5.2, so blocked runs recorded nothing and the
+instrument lost its slowest samples. `record.js` is a pure function over the
+REVIEW_DIR artifacts, so the format is pinned by unit test and the measurement
+exists on every path. Absent artifacts are the normal early-halt case: missing
+axes are written as `null` and named under `### Recording degradations`, never
+guessed at.
 
-**Plan**: <plan path> · **Plan version**: <reviewed_plan_hash>
-**Verdict**: <review_verdict> via <review_source>
-**Quorum**: <responded>/<required> responses · <roles> distinct roles (of <of> fielded)
-**Layers**: L1 <l1> · L2 <l2> · L3 <l3 or "not fired">
-
-## Findings
-
-| Perspective | Severity | Claim | Evidence |
-|---|---|---|---|
-| <perspective> | <severity> | <claim> | <file:line or quote> |
-
-(Rows come from `l2.json` `results[].findings[]`. Write "None — all reviewers
-passed" when there are none.)
-
-## Refutation attempted
-
-| Perspective | Verdict | What was attacked |
-|---|---|---|
-| <perspective> | <pass\|fail> | <refutationAttempted> |
-```
+**It always exits 0.** Every other subcommand answers "may this plan be
+approved?", where an unknown input must block. This one answers "what happened?",
+and instrumentation that can block the gate is instrumentation that gets deleted
+the first time it misfires. Degradations still go to stderr — exit 0 means "I did
+not block you", not "everything was fine".
 
 This is a **new file, not an edit to the plan** — writing it into the plan body
 would change `plan_hash` and make the 5.6 write exit 12 on the DD13 bind. It also
-survives the `.claude/state/` working artifacts, which are transient.
+survives the `.claude/state/` working artifacts, which are transient, and
+`.claude/reviews/` is git-tracked, so the record outlives the §3.8 worktree
+cleanup that takes the plan-gate receipt with it.
 
 **This section runs on both outcomes, and document order is not execution order.**
-A converged run reaches it after 5.2g. A blocked run (`DECIDE_EXIT` 12 —
-`divergent`/`unavailable`) jumps here directly from 5.2e, writes the record, and
-only then halts. Reading 5.2e's stop as "end the response now" skips the section
-that exists precisely for that case: a gate that stops without telling the author
-what was found is a gate they will route around. On the blocked path fill
-`<review_verdict>` from `decision.json` and leave the quorum line as whatever the
-panel actually observed — an unavailable review reports the responses it got, not
-the ones it needed.
+A converged run reaches it after 5.2g and passes no `--halt-stage`. A blocked run
+(`DECIDE_EXIT` 12 — `divergent`/`unavailable`) jumps here directly from 5.2e and
+passes `--halt-stage 5.2e`; the infrastructure stops at
+5.2a/5.2b/5.2c/5.2d/5.2e-proof/5.2f/5.2g call the same command inline with their
+own stage rather than routing through here. Reading 5.2e's stop as "end the response
+now" skips the section that exists precisely for that case: a gate that stops
+without telling the author what was found is a gate they will route around.
 
 #### 5.2z — Codex path (`mode=codex` only — unchanged from v1.23.0)
 

@@ -978,23 +978,27 @@ this section claims to have stopped discarding. Leaving them out made the claim
 wider than the wiring. When you add a stop to 5.2, add its stage here and call the
 recorder from it.
 
-**Not every stage is enforced the same way, and the difference is stated here so
-this section stays narrower than the wiring rather than wider.** Eight stops
-compute their own halt condition in shell and call the recorder from inside their
-own block, where nothing downstream has to remember to do it:
+**Every stop computes its own halt condition in shell, records from inside its own
+block, and then exits.** Nothing downstream has to remember to do it, and no stage
+depends on you following an instruction:
 
 | Enforcement | Stages |
 |---|---|
-| Shell — the block records before it stops | 5.2a · 5.2b · 5.2c-emit · 5.2c-pin · 5.2d · 5.2e-proof · 5.2f · 5.2g |
-| Directed — you run the call as instructed | 5.2e (via 5.2h, passing `--halt-stage 5.2e`) |
+| Shell — the block records, then exits | 5.2a · 5.2b · 5.2c-emit · 5.2c-pin · 5.2d · 5.2e · 5.2e-proof · 5.2f · 5.2g |
 
-**5.2e is the only directed stop, and it is directed for a reason rather than by
-omission**: it already routes through 5.2h, so wiring it inline as well would
-write the record twice and the second write — the one 5.2h makes with no
-`--halt-stage` — would erase the stage. Every other stop computes its condition in
-shell, so every other stop records itself. If you find yourself listing a stage
-here as directed without a reason of that kind, mechanise it instead: "not yet
-mechanised" is a description of work left undone, not a design.
+5.2e was the last holdout, and the argument for leaving it to prose turned out to
+be circular. It read: 5.2e already routes through 5.2h, so recording inline would
+write the record twice and 5.2h's stage-less call would erase `halt_stage`. That
+is only true if the blocked run also *falls through* to 5.2h — and it does not,
+because the branch exits. The fall-through was the defect, not a constraint. While
+it stood, a divergent / budget-skipped / unavailable decision was written to disk
+as `halt_stage: null`, which is a blocked run recorded as a pass-path record: the
+one measurement UI10 asks for, corrupted at exactly the moment it matters.
+
+**The recorder must never be the last statement on a failure branch.** It is
+non-blocking by contract (`|| true`), so the branch would inherit exit 0 and a
+failed check would read as a pass. Every branch here ends in an explicit `exit`,
+and `plan-review-command-body.test.js` fails the build if a new one does not.
 
 Substitute the stage that is halting; everything else is identical, and the same
 call with no `--halt-stage` is what 5.2h runs on the pass path. It reads the
@@ -1328,6 +1332,24 @@ if [ "$PROOF_EXIT" -ne 0 ]; then
 fi
 node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.error("[mccp:plan-review] verdict="+j.review_verdict+" source="+j.review_source+" forwardCodex="+(j.forwardCodexVerdict?1:0));console.error("[mccp:plan-review] reason: "+j.reason)}catch(e){console.error("[mccp:plan-review] decision unreadable")}' \
   "$REVIEW_DIR/decision.json"
+# A blocked decision stops HERE, with its stage recorded, and never reaches the
+# 5.2h pass-path call. `DECIDE_EXIT` was captured above and then never branched
+# on: the instruction to "run 5.2h with --halt-stage 5.2e" lived in prose while
+# the executable 5.2h snippet passes no stage at all, so a divergent /
+# budget-skipped / unavailable run was recorded as `halt_stage: null` — a blocked
+# run written to disk as a pass-path record, corrupting the exact blocked-path
+# measurement this milestone exists to produce.
+#
+# Recording inline is safe precisely BECAUSE this exits: the double-write that
+# once justified leaving 5.2e to prose only happens if the run also falls through
+# to 5.2h, and it cannot now.
+if [ "$DECIDE_EXIT" -ne 0 ]; then
+  DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision --command mccp:plan --args "$ARGUMENTS")
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2e 1>/dev/null || true
+  echo "[MCCP-GATE-STOP] plan review did not approve (decide exit $DECIDE_EXIT). The reason printed above is the decision's own; do not substitute a generic recovery list for it."
+  exit 12
+fi
 ```
 
 The unconditional `rm -f` before the write is what keeps a superseded proof from
@@ -1335,9 +1357,11 @@ outliving its run. Extraction failure is a stop, not a shrug: the alternative is
 a receipt that records no approval while the gate prints success, which is the
 same silent-omission class this milestone already had to fix once at 5.6.
 
-`DECIDE_EXIT` 12 → **HALT, but run 5.2h first** (with `--halt-stage 5.2e`). Write
-the review record, then print the `reason` field from the decision JSON, then end
-the response without writing a receipt.
+`DECIDE_EXIT` 12 → the block above has already written the review record with
+`--halt-stage 5.2e` and exited. Print the `reason` field from the decision JSON
+and end the response without writing a receipt. Do not also run 5.2h: the record
+exists, and 5.2h's call passes no stage, so a second write would replace
+`halt_stage: "5.2e"` with `null`.
 
 **Print `reason` verbatim and do not substitute a generic recovery list for it.**
 `decide` names the recovery that fits the specific stop — a budget skip reports
@@ -1347,13 +1371,13 @@ when `reason` names no recovery of its own, add the general three
 (`MCCP_PLAN_REVIEW=codex` · a new session · raise the agent cap). Offering the
 agent cap to someone who ran out of tokens sends them to fix the wrong thing.
 
-**Do not skip ahead to the stop.** A blocked decision is the only case where the
-author actually needs the findings, and 5.2h is the one artifact that carries
+**The record is what the author actually needs.** A blocked decision is the only
+case where they need the findings, and the record is the one artifact that carries
 them — `review_proof.perspectives` keeps `{perspective, verdict}` pairs, which
-prove a quorum and explain nothing. Halting at this line without writing the
-record reproduces the exact defect 5.2h was added to fix: a gate that stops
-without telling the author what was found is a gate they will route around.
-5.2g is skipped on this path (there is no converged proof to verify).
+prove a quorum and explain nothing. That is why the branch records *before* it
+exits rather than leaving the write to a step the run has already left: a gate
+that stops without telling the author what was found is a gate they will route
+around. 5.2g never runs on this path (there is no converged proof to verify).
 
 **Read `forwardCodexVerdict` from `decision.json` and nothing else** to decide
 whether `--codex-verdict` is forwarded at 5.6. Do NOT re-derive it in shell from
@@ -1434,14 +1458,14 @@ survives the `.claude/state/` working artifacts, which are transient, and
 `.claude/reviews/` is git-tracked, so the record outlives the §3.8 worktree
 cleanup that takes the plan-gate receipt with it.
 
-**This section runs on both outcomes, and document order is not execution order.**
-A converged run reaches it after 5.2g and passes no `--halt-stage`. A blocked run
-(`DECIDE_EXIT` 12 — `divergent`/`unavailable`) jumps here directly from 5.2e and
-passes `--halt-stage 5.2e`; every other stop
-(5.2a/5.2b/5.2c-emit/5.2c-pin/5.2d/5.2e-proof/5.2f/5.2g) records from inside its
-own block and does not route through here. Reading 5.2e's stop as "end the response
-now" skips the section that exists precisely for that case: a gate that stops
-without telling the author what was found is a gate they will route around.
+**This section is the PASS path only, and it passes no `--halt-stage`.** A
+converged run reaches it after 5.2g. Every stop in 5.2 — including 5.2e, which
+used to route through here — records from inside its own block with its own stage
+and then exits, so no blocked run ever arrives at this call. That matters more
+than it reads: this call is deliberately stage-less, so a blocked run that did
+reach it would overwrite its own `halt_stage` with `null` and file itself as a
+pass. The section stays here because document order is not execution order, not
+because two outcomes share it.
 
 #### 5.2z — Codex path (`mode=codex` only — unchanged from v1.23.0)
 

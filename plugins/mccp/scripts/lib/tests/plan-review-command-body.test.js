@@ -112,18 +112,43 @@ test('the enforcement table matches the stages actually wired in shell', () => {
     'the table claims a different stage set than the shell blocks implement');
 });
 
-test('the only "directed" stage is 5.2e, and it states a structural reason', () => {
-  // "Not yet mechanised" is a description of unfinished work, not a design. 5.2e
-  // is exempt because it already routes through 5.2h, so an inline call would
-  // write the record twice and the second write would erase halt_stage.
-  const row = LINES.find((l) => /^\| Directed —/.test(l));
-  assert.ok(row, 'enforcement table row for directed stages is missing');
-  // Dedupe: the cell names the stage once and then repeats it inside the
-  // `--halt-stage 5.2e` flag it tells you to pass. 5.2h is the sink it routes
-  // through, not a stage of its own.
-  const directed = Array.from(new Set(row.match(/5\.2[0-9a-z-]*/g) || []))
-    .filter((s) => s !== '5.2h');
-  assert.deepEqual(directed, ['5.2e'], '5.2e must be the only directed stage');
-  assert.ok(/write the record twice/.test(SRC),
-    'the directed exemption must state why it is structural');
+test('no stage is left to prose — the enforcement table has no "directed" row', () => {
+  // The directed category existed for exactly one stage (5.2e) and the reason
+  // given for it was circular: "recording inline would double-write, because the
+  // run continues to 5.2h". It only continues if the branch does not exit, and
+  // the not-exiting WAS the defect. Once the branch exits there is no second
+  // write, so the exemption dissolved rather than being waived.
+  assert.equal(LINES.filter((l) => /^\| Directed —/.test(l)).length, 0,
+    'a directed row means some stage depends on the operator remembering; ' +
+    'mechanise it instead');
+});
+
+test('PR-Codex R2: a captured DECIDE_EXIT implies a halt-stage 5.2e branch', () => {
+  // DECIDE_EXIT was captured and then never branched on in shell. The instruction
+  // to record with --halt-stage 5.2e lived in prose while the executable 5.2h
+  // snippet passes no stage at all, so a divergent / budget-skipped / unavailable
+  // decision was written to disk with halt_stage: null — a blocked run filed as a
+  // pass-path record, which is precisely the measurement UI10 asks for, inverted.
+  const bash = bashBlockLines();
+  const captures = bash.filter((b) => /^\s*DECIDE_EXIT=\$\?/.test(b.line));
+  assert.ok(captures.length > 0, 'expected DECIDE_EXIT to be captured');
+
+  const branches = bash.filter((b) => /\[\s*"\$DECIDE_EXIT"\s*-ne\s*0\s*\]/.test(b.line));
+  assert.ok(branches.length > 0,
+    'DECIDE_EXIT is captured but never branched on; a blocked decision would ' +
+    'fall through to the stage-less 5.2h call and record halt_stage: null');
+
+  const recorded = bash.some((b) => /--halt-stage 5\.2e /.test(b.line));
+  assert.ok(recorded, 'the DECIDE_EXIT branch must record with --halt-stage 5.2e');
+});
+
+test('the pass-path 5.2h call stays stage-less', () => {
+  // It must remain the ONLY recorder invocation without a stage: that is what
+  // makes it the pass path. If a blocked run ever reaches it, a null stage
+  // overwrites a real one, so the guard above (blocked runs exit first) is what
+  // keeps this safe.
+  const stageless = bashBlockLines().filter(
+    (b) => /plan-review\/cli\.js" record/.test(b.line)
+  );
+  assert.ok(stageless.length > 0, 'expected the 5.2h recorder invocation');
 });

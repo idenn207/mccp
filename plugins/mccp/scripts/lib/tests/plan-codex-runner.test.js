@@ -565,6 +565,32 @@ test('M1.5 — warn seals the blocking verdict instead of suppressing it', funct
   assert.strictEqual(d.mislabel_disputes, 0);
 });
 
+test('M1.5 — warn consumes the block, so a set override is sealed as never applied', function () {
+  const s = scratch(PRD_PLAN);
+  const envelope = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const p = runner.paths(s.tmpDir, 'r', 'm2b');
+  fs.writeFileSync(p.adjudication,
+    JSON.stringify(adjudicationFor(s, envelope), null, 2));
+  // Both channels are open at once. Order decides: warn is judged first and
+  // passes the run, so the override is never reached.
+  const out = runWith(s, {
+    runNonce: 'm2b',
+    env: {
+      MCCP_INTENT_MISLABEL: 'warn',
+      MCCP_SKIP_INTENT_GATE: 'the reviewer quota is exhausted so this cycle proceeds on warn',
+    },
+  }, envelope);
+
+  assert.strictEqual(out.res.exitCode, runner.EX_OK);
+  const d = out.captured[0].intentDecision;
+  assert.strictEqual(d.verdict, 'mislabel_unresolved');
+  assert.strictEqual(d.force_override, false);
+  // and the reason goes with it: a justification sealed next to a flag that
+  // says the override never applied documents something that did not happen.
+  assert.strictEqual(d.force_override_reason, null,
+    'an unapplied override must not leave its reason behind');
+});
+
 test('M1.5 — a substantive dispute resolves the case and is sealed with its digest', function () {
   const s = scratch(PRD_PLAN);
   const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });

@@ -538,7 +538,11 @@ function run(opts, deps) {
         plan_digest: digestNow,
         run_nonce: nonce,
         force_override: derived.overrideActive,
-        force_override_reason: overrideReason || null,
+        // Only when it APPLIED. `warn` is judged first, so a run where both the
+        // env and warn were in play passes through warn and never uses the
+        // override — sealing its reason anyway would document a justification
+        // for something that did not happen (schema enforces the pairing).
+        force_override_reason: derived.overrideActive ? (overrideReason || null) : null,
         // M1.5 — 오심 축 감사 표면. mode는 항상 봉인한다(경로가 실제로 무엇이었는지가
         // 나중에 판독 가능해야 하므로). 나머지는 `off`에서 null이라 구 receipt와
         // 구분되지 않는데, 그것이 의도다 — "모름"과 "돌지 않음"은 같은 취급이다.

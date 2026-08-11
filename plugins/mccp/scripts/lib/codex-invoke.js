@@ -74,7 +74,12 @@ const INTENT_MISLABEL_CONTRACT =
   '- id는 **하나만**. `UI3, UI7` 같은 목록은 주장으로 세지 않습니다.\n' +
   '- 위 reference 블록에 **실제로 있는** id만 쓰세요.\n' +
   '- 2줄 이상 쓰면 어느 것이 진짜인지 알 수 없어 주장이 **무효**가 됩니다.\n' +
-  '- 다른 finding이나 문서를 인용하지 마세요 — 인용문 안의 이 줄도 세어집니다.\n' +
+  // 파서는 코드 블록·blockquote를 스캔 전에 제거하므로(intent-claims.js#stripQuotedStructures)
+  // 인용된 줄은 "세어진다"가 아니라 "안 세어진다"가 맞다. 프롬프트가 파서와 다른 약속을
+  // 하면, 주장을 인용 안에만 적은 리뷰어는 계약을 지켰다고 믿는데 게이트는 inconclusive를
+  // 낸다 — 리뷰어가 고칠 수 없는 실패다.
+  '- 주장 줄은 인용하지 마세요. 코드 블록·blockquote 안의 줄은 스캔 전에 제거되어 **세어지지 않고**,\n' +
+  '  제거되지 않은 인용이 남으면 주장이 2줄이 되어 무효가 됩니다 — 어느 쪽이든 인용은 손해입니다.\n' +
   '- `INTENT: none`은 회피가 아니라 **1급 정답**입니다. 충돌을 지어내지 마세요.\n' +
   '[/intent-conflict 판정 계약]\n\n';
 // 900_000 (15min): matches codex's own stop-review-gate-hook.mjs reference

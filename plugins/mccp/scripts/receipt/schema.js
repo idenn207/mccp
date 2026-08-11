@@ -1152,6 +1152,83 @@ function validate(receipt) {
         'meta.intent_mislabel_disputes (' + m.intent_mislabel_disputes +
         ') must equal the disputed entries in meta.intent_mislabel_audit (' + disputed + ')');
     }
+
+    // `intent_reviewer_contract` is a projection of the counts
+    // (intent-claims.js#deriveCompliance), so it is derivable rather than
+    // independent. Storing both and never comparing them lets the cheap-to-read
+    // one drift away from the one that carries the arithmetic.
+    if (ccUsable && typeof m.intent_reviewer_contract === 'string') {
+      const expected = ccUsable.total === 0 ? 'absent'
+        : (ccUsable.claimed === ccUsable.total ? 'full'
+          : (ccUsable.claimed === 0 ? 'absent' : 'partial'));
+      req(m.intent_reviewer_contract === expected,
+        'meta.intent_reviewer_contract ("' + m.intent_reviewer_contract +
+        '") must be derivable from meta.intent_claim_counts (expected "' + expected +
+        '" for ' + ccUsable.claimed + '/' + ccUsable.total + ')');
+    }
+
+    // ── verdict ↔ evidence ─────────────────────────────────────────────────
+    //
+    // decideIntentGate makes each mislabel verdict an ENTAILMENT of the
+    // evidence, not a separate opinion about it: `inconclusive` is returned
+    // only when compliance is not `full`, `mislabel_unresolved` only when at
+    // least one response-needed finding lacks a valid dispute, and reaching
+    // `preserved` means neither fired. A receipt that seals one of those
+    // verdicts next to evidence that could not have produced it is
+    // self-contradictory, and the one that matters is `preserved` — that is the
+    // value `isIntentApproved` reads.
+    //
+    // This does NOT make forgery impossible: an actor who rewrites the whole
+    // file can write a consistent lie (`preserved` + `full` + an empty audit)
+    // and no cross-check can see it. What it closes is the receipt that keeps
+    // its incriminating evidence while flipping the verdict above it, and
+    // producer drift where the two stop agreeing.
+    const contractPresent = typeof m.intent_reviewer_contract === 'string';
+    let unresolvedCount = null;
+    if (auditUsable) {
+      unresolvedCount = 0;
+      auditUsable.forEach(function (e) {
+        if (e.resolution === 'unresolved') unresolvedCount += 1;
+      });
+    }
+
+    if (m.intent_gate_verdict === 'preserved') {
+      if (contractPresent) {
+        req(m.intent_reviewer_contract === 'full',
+          'meta.intent_gate_verdict="preserved" contradicts meta.intent_reviewer_contract="' +
+          m.intent_reviewer_contract + '" — a non-full contract yields "inconclusive"');
+      }
+      if (unresolvedCount !== null) {
+        req(unresolvedCount === 0,
+          'meta.intent_gate_verdict="preserved" contradicts ' + unresolvedCount +
+          ' unresolved entr(ies) in meta.intent_mislabel_audit — those yield ' +
+          '"mislabel_unresolved"');
+      }
+    } else if (m.intent_gate_verdict === 'inconclusive') {
+      if (contractPresent) {
+        req(m.intent_reviewer_contract !== 'full',
+          'meta.intent_gate_verdict="inconclusive" requires a non-full ' +
+          'meta.intent_reviewer_contract');
+      }
+    } else if (m.intent_gate_verdict === 'mislabel_unresolved') {
+      if (unresolvedCount !== null) {
+        req(unresolvedCount > 0,
+          'meta.intent_gate_verdict="mislabel_unresolved" requires at least one ' +
+          'unresolved entry in meta.intent_mislabel_audit');
+      }
+    }
+
+    // The flag means the override TOOK EFFECT (intent-context.js DD12), so a
+    // sealed reason with the flag down records a justification for something
+    // that did not happen — exactly the reading the split was introduced to
+    // prevent.
+    if (typeof m.intent_gate_force_override_reason === 'string'
+        && m.intent_gate_force_override_reason.length > 0) {
+      req(m.intent_gate_force_override === true,
+        'meta.intent_gate_force_override_reason is sealed but ' +
+        'meta.intent_gate_force_override is not true — the reason must be dropped ' +
+        'when the override did not apply');
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };

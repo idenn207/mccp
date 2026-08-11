@@ -343,3 +343,49 @@ test('the module reads no filesystem and no environment', function () {
   assert.ok(!/require\(['"]fs['"]\)/.test(src), 'intent-claims must not require fs');
   assert.ok(!/process\.env/.test(src), 'intent-claims must not read process.env');
 });
+
+// ── the shipped contract must describe the parser that reads it ──────────────
+//
+// The reviewer only ever sees INTENT_MISLABEL_CONTRACT. If that text promises
+// behaviour the parser does not have, a reviewer can follow the contract exactly
+// and still be scored `unclaimed` — a failure it cannot diagnose or fix, which
+// then reads as reviewer non-compliance and blocks the author instead.
+const { INTENT_MISLABEL_CONTRACT } = require('../codex-invoke');
+
+test('the contract does not promise that quoted INTENT lines are counted', function () {
+  const ids = [{ id: 'UI1' }];
+  const quoted = [
+    { title: 't', body: '> INTENT: UI1', recommendation: '' },
+    { title: 't', body: '```\nINTENT: UI1\n```', recommendation: '' },
+    { title: 't', body: '    INTENT: UI1', recommendation: '' },
+    { title: 't', body: '<blockquote>\nINTENT: UI1\n</blockquote>', recommendation: '' },
+  ];
+  const r = icl.parseReviewerClaims({ findings: quoted, sectionItems: ids });
+  assert.strictEqual(r.claimed, 0, 'every quote form is stripped before the scan');
+  r.claims.forEach(function (c) {
+    assert.strictEqual(c.status, 'unclaimed');
+    assert.strictEqual(c.claim, null);
+  });
+
+  // …so the prompt must say so. The old wording ("a quoted line is also
+  // counted") described the opposite behaviour.
+  assert.ok(INTENT_MISLABEL_CONTRACT.indexOf('세어지지 않고') !== -1,
+    'the contract must state that quoted lines are NOT counted');
+  assert.ok(INTENT_MISLABEL_CONTRACT.indexOf('인용문 안의 이 줄도 세어집니다') === -1,
+    'the contract must not carry the old promise that quoted lines count');
+});
+
+test('an unquoted claim beside a quoted one still resolves to the real claim', function () {
+  // The stripper exists so a finding whose ONLY `INTENT:` line is an example
+  // does not become a false claim. It must not eat the genuine line next to it.
+  const r = icl.parseReviewerClaims({
+    findings: [{
+      title: 'x',
+      body: 'Example from another finding:\n\n```\nINTENT: UI9\n```\n\nINTENT: UI1',
+      recommendation: '',
+    }],
+    sectionItems: [{ id: 'UI1' }],
+  });
+  assert.strictEqual(r.claims[0].status, 'claimed');
+  assert.strictEqual(r.claims[0].claim, 'UI1');
+});

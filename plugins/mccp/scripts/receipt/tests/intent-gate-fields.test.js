@@ -270,6 +270,109 @@ test('M1.5 — a dispute count that the audit does not support is rejected', fun
   });
 });
 
+// ── verdict ↔ evidence ───────────────────────────────────────────────────────
+//
+// Each mislabel verdict is an ENTAILMENT of the evidence, so a receipt can be
+// internally well-formed and still seal a verdict its own evidence rules out.
+// `preserved` is the one that matters — it is what isIntentApproved reads.
+
+test('M1.5 — "preserved" cannot sit next to a non-full reviewer contract', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // A contract short of `full` is exactly what makes the gate `inconclusive`,
+    // so it can never coexist with the passing verdict.
+    r.receipt.meta.intent_reviewer_contract = 'partial';
+    r.receipt.meta.intent_claim_counts = goodCounts({ claimed: 1, unclaimed: 1, agree_none: 0 });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('inconclusive') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — "preserved" cannot sit next to an unresolved audit entry', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // Flipping the resolution is the cheapest way to turn a blocked round into
+    // an approving one while leaving the incriminating entry in place.
+    r.receipt.meta.intent_mislabel_audit = [auditEntry({
+      resolution: 'unresolved', dispute_reason: null,
+    })];
+    r.receipt.meta.intent_mislabel_disputes = 0;
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('mislabel_unresolved') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — "inconclusive" requires a non-full contract', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // Full compliance is precisely the state `inconclusive` cannot describe.
+    r.receipt.meta.intent_gate_verdict = 'inconclusive';
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('non-full') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — "mislabel_unresolved" requires an unresolved entry', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // mislabelDecision's audit entry is `disputed`, i.e. answered — which is the
+    // state that makes the gate pass, not block.
+    r.receipt.meta.intent_gate_verdict = 'mislabel_unresolved';
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('unresolved entry') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — the reviewer contract must be derivable from the counts', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // 2 of 2 claimed is `full` by construction; calling it `partial` makes the
+    // cheap-to-read field disagree with the one carrying the arithmetic. The
+    // verdict moves with it so this fails on derivability, not on the verdict
+    // rule that `preserved` + `partial` would otherwise trip.
+    r.receipt.meta.intent_gate_verdict = 'inconclusive';
+    r.receipt.meta.intent_reviewer_contract = 'partial';
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('derivable') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — an override reason cannot be sealed when the override never applied', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // The flag means "took effect" (DD12). A reason next to a false flag reads
+    // as a justification for something that did not happen.
+    r.receipt.meta.intent_gate_force_override_reason =
+      'proceeding under an audited override because the reviewer quota is exhausted today';
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('did not apply') !== -1, v.errors.join(' '));
+  });
+});
+
 test('M1.5 — an all-clear mislabel round (no responses needed) still validates', function () {
   withRepo(PRD_PLAN, function (repo, planRel) {
     // The reconciliation must not make the ordinary clean case unwritable: an

@@ -145,16 +145,32 @@ function quorumLine(q) {
 
 // ── findings / refutation tables ──────────────────────────────────────────────
 
+// PR-Codex R3 F2 — a reviewer can block WITHOUT filing a finding.
+//
+// quorum.js treats `verdict === 'fail'` as a blocking finding in its own right
+// (quorum.js:175-181), synthesising one even when `findings` is empty. Rendering
+// only `results[].findings[]` therefore produced a record that said "None — all
+// reviewers passed" for a run the gate had just blocked on that very reviewer —
+// a false operator-facing record on exactly the blocked path this milestone
+// exists to preserve. The synthetic row mirrors the oracle's own wording so the
+// record and the reason agree.
 function findingRows(l2) {
   const results = (isObj(l2) && Array.isArray(l2.results)) ? l2.results.filter(isObj) : [];
   const rows = [];
   results.forEach(function (r) {
     const findings = Array.isArray(r.findings) ? r.findings : [];
+    let emitted = 0;
     findings.forEach(function (f) {
       if (!isObj(f)) return;
+      emitted += 1;
       rows.push('| ' + cell(r.perspective) + ' | ' + cell(f.severity) + ' | ' +
         cell(f.claim) + ' | ' + cell(f.evidence) + ' |');
     });
+    if (r.verdict === 'fail' && emitted === 0) {
+      rows.push('| ' + cell(r.perspective) + ' | ' + cell('FAIL') + ' | ' +
+        cell('reviewer returned verdict=fail') + ' | ' +
+        cell('(no finding filed — the verdict itself is the block)') + ' |');
+    }
   });
   return rows;
 }

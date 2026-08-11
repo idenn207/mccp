@@ -152,3 +152,24 @@ test('the pass-path 5.2h call stays stage-less', () => {
   );
   assert.ok(stageless.length > 0, 'expected the 5.2h recorder invocation');
 });
+
+test('PR-Codex R3 F1: 5.2d must not charge the cap for a skipped panel', () => {
+  // Axis B made the budget-skip branch reachable for the first time. The workflow
+  // returns {skipped:true, results:[]} WITHOUT spawning an agent, and that return
+  // is written as l2.json — so the old `-s` (absence) guard passed and the block
+  // reconciled the full planned fleet. Committed reservation entries never expire,
+  // so that permanently charged session cap headroom for launches that never
+  // happened, and cleared the debt marker as if they had.
+  const bash = bashBlockLines().map((b) => b.line).join('\n');
+
+  assert.match(bash, /\.skipped\s*===\s*true/,
+    '5.2d must read l2.json.skipped, not just test the file for existence');
+  assert.match(bash, /ACTUAL_N=0/,
+    'a skipped panel must reconcile --actual 0');
+
+  // Unreadable is a THIRD state and must stay pending rather than resolving to 0:
+  // guessing 0 for a panel that may have launched under-counts the cap, which is
+  // the one direction a cap may never err in.
+  assert.match(bash, /"\$SKIPPED"\s*=\s*"\?"/,
+    'an unreadable l2.json must leave the reservation pending, not reconcile 0');
+});

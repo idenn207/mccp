@@ -322,3 +322,63 @@ test('corrupt artifacts degrade the record, they do not fail the command', () =>
     assert.match(markdown, /### Recording degradations/);
   });
 });
+
+// ── PR-Codex R3 F2 — an explicit reviewer failure with no findings ────────────
+//
+// quorum.js counts `verdict === 'fail'` as a blocking finding in its own right,
+// synthesising one even when the reviewer filed nothing (quorum.js:175-181). The
+// record rendered only `results[].findings[]`, so this reachable shape produced
+// "None — all reviewers passed." on a run the gate had just blocked because of
+// that reviewer. A record that contradicts the verdict is worse than no record:
+// it is the blocked path this milestone exists to preserve, preserved wrongly.
+test('R3-F2: verdict=fail with an empty findings array still appears in the record', () => {
+  const built = buildReviewRecord({
+    slug: 'r3-f2-explicit-fail',
+    planPath: '.claude/plans/x.plan.md',
+    mode: 'multi-agent',
+    l1: { verdict: 'converged', violations: [] },
+    l2: {
+      reviewedPlanHash: HASH,
+      results: [
+        { perspective: 'security', verdict: 'fail', findings: [],
+          refutationAttempted: 'tried to refute the trust boundary claim' },
+        { perspective: 'test', verdict: 'pass', findings: [],
+          refutationAttempted: 'tried to refute the validation strategy' },
+      ],
+    },
+    decision: { review_verdict: 'divergent', review_source: 'multi-agent',
+      block: true, reason: '1 blocking finding(s): security/FAIL' },
+    startedAtMs: 1000, nowMs: 2000,
+    haltStage: '5.2e',
+  });
+
+  assert.ok(!/None — all reviewers passed/.test(built.markdown),
+    'a blocked run must not report that every reviewer passed');
+  assert.match(built.markdown, /security/,
+    'the failing reviewer must be named in the Findings table');
+  assert.match(built.markdown, /verdict=fail/,
+    'the record must say the verdict itself was the block');
+});
+
+test('R3-F2: a fail WITH findings is not double-counted', () => {
+  const built = buildReviewRecord({
+    slug: 'r3-f2-fail-with-findings',
+    planPath: '.claude/plans/x.plan.md',
+    mode: 'multi-agent',
+    l1: { verdict: 'converged', violations: [] },
+    l2: {
+      reviewedPlanHash: HASH,
+      results: [
+        { perspective: 'security', verdict: 'fail',
+          findings: [{ severity: 'HIGH', claim: 'token leaks to argv', evidence: 'cli.js:12' }],
+          refutationAttempted: 'tried and failed' },
+      ],
+    },
+    decision: { review_verdict: 'divergent', review_source: 'multi-agent', block: true },
+    startedAtMs: 1000, nowMs: 2000, haltStage: '5.2e',
+  });
+  const synthetic = (built.markdown.match(/reviewer returned verdict=fail/g) || []).length;
+  assert.equal(synthetic, 0,
+    'the synthetic row is a fallback for an EMPTY findings list, not an addition');
+  assert.match(built.markdown, /token leaks to argv/);
+});

@@ -1189,9 +1189,23 @@ fi
 # cap may never under-count. So when l2.json is absent, do not answer at all —
 # leave the reservation pending and PINNED by 5.2c's debt marker, exactly as the
 # fan-out does at Phase 2.5.3. "Unknown" stays unknown and stays conservative.
-if [ ! -s "$REVIEW_DIR/l2.json" ]; then
-  echo "[mccp:plan-review] l2.json absent — NOT reconciling. Reservation $RES_ID stays pending and pinned by the debt marker; a later reconcile commits and clears it." 1>&2
+#
+# A budget SKIP is a third state, and it is the one M4 made reachable. The
+# workflow returns `{skipped:true, results:[]}` without spawning a single agent,
+# and that return IS l2.json — so the `-s` test above passes and, before this
+# branch existed, the block reconciled the full planned fleet. That commits
+# phantom launches (committed entries never expire) and clears the debt marker as
+# if the workers had run, permanently burning session cap headroom for work that
+# never happened. Axis B turned a dead branch live; this is the accounting that
+# had to follow it.
+SKIPPED=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).skipped===true?"1":"0")}catch{process.stdout.write("?")}' "$REVIEW_DIR/l2.json")
+if [ ! -s "$REVIEW_DIR/l2.json" ] || [ "$SKIPPED" = "?" ]; then
+  echo "[mccp:plan-review] l2.json absent or unreadable — NOT reconciling. Reservation $RES_ID stays pending and pinned by the debt marker; a later reconcile commits and clears it." 1>&2
 else
+if [ "$SKIPPED" = "1" ]; then
+  ACTUAL_N=0
+  echo "[mccp:plan-review] panel skipped (no agent spawned) — reconciling --actual 0 so the cap is not charged for launches that never happened." 1>&2
+fi
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
   --reservation "$RES_ID" --actual "$ACTUAL_N"
 RECONCILE_EXIT=$?

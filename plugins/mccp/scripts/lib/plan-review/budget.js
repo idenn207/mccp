@@ -52,7 +52,19 @@ function parsePanelBudget(env) {
       '". Falling back to default ' + MIN_PER_REVIEWER_DEFAULT + '.');
     return MIN_PER_REVIEWER_DEFAULT;
   }
-  return Math.floor(n);
+  // Validate the FLOORED value, not the raw one. `0 < n < 1` passes the check
+  // above and then floors to 0 — the one output this function documents as
+  // impossible, and the exact zero threshold the module exists to eliminate
+  // (`remaining < 0` is unreachable, so the gate silently switches off). Guarding
+  // before the floor rather than after is what made the docstring a lie.
+  const floored = Math.floor(n);
+  if (floored < 1) {
+    warn(ENV_MIN_PER_REVIEWER + ' floors to 0 (got "' + raw + '"), which would ' +
+      'disable the budget gate rather than relax it. Falling back to default ' +
+      MIN_PER_REVIEWER_DEFAULT + '.');
+    return MIN_PER_REVIEWER_DEFAULT;
+  }
+  return floored;
 }
 
 // panelMinRemaining(env, fleetLength) → tokens the turn must still have.

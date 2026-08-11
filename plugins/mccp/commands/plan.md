@@ -944,7 +944,9 @@ if [ "$L1_EXIT" = "12" ]; then
   DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
     --command mccp:plan --args "$ARGUMENTS")
   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
-    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2a 1>/dev/null 2>&1 || true
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2a 1>/dev/null || true
+  echo "[MCCP-GATE-STOP] L1 could not evaluate the plan (exit 12) — this is an environment problem (plan unreadable, worktree race), not a plan defect."
+  exit 12
 fi
 ```
 
@@ -1025,7 +1027,10 @@ if [ "$RES_GRANTED" = "0" ] || [ "$RES_GRANTED" -lt "$REQUIRED" ]; then
   DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
     --command mccp:plan --args "$ARGUMENTS")
   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
-    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2b 1>/dev/null 2>&1 || true
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2b 1>/dev/null || true
+  echo "[MCCP-GATE-STOP] L2 review panel could not be launched (granted $RES_GRANTED, quorum needs $REQUIRED)."
+  echo "Recovery: start a new session · raise MCCP_ORCHESTRATION_MAX_AGENTS · lower MCCP_PLAN_REVIEW_QUORUM · or set MCCP_PLAN_REVIEW=codex."
+  exit 12
 fi
 ```
 
@@ -1071,7 +1076,9 @@ if [ "$EMIT_EXIT" -ne 0 ]; then
   DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
     --command mccp:plan --args "$ARGUMENTS")
   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
-    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2c-emit 1>/dev/null 2>&1 || true
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2c-emit 1>/dev/null || true
+  echo "[MCCP-GATE-STOP] emit-workflow-args failed (exit $EMIT_EXIT) — the granted fleet cannot satisfy the quorum, or the plan could not be hashed. The reservation is left pending on purpose."
+  exit 12
 fi
 ```
 
@@ -1103,7 +1110,7 @@ DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decisio
   --command mccp:plan --args "$ARGUMENTS")
 PIN_HALT() {
   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
-    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2c-pin 1>/dev/null 2>&1 || true
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2c-pin 1>/dev/null || true
 }
 if [ -z "$PIN_ID" ] || [ "$PIN_N" = "0" ]; then
   PIN_HALT
@@ -1167,7 +1174,7 @@ if [ -z "$RES_ID" ] || [ -z "$ACTUAL_N" ]; then
   DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
     --command mccp:plan --args "$ARGUMENTS")
   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
-    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2d 1>/dev/null 2>&1 || true
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2d 1>/dev/null || true
   echo "[MCCP-GATE-STOP] reservation or fleet artifact unreadable — cannot reconcile the agent cap honestly."; exit 1
 fi
 # Only reconcile when the panel actually returned. 5.2c permits a Workflow that
@@ -1217,7 +1224,7 @@ if [ "$FIRES_L3" = "-1" ]; then
   DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
     --command mccp:plan --args "$ARGUMENTS")
   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
-    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2f 1>/dev/null 2>&1 || true
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2f 1>/dev/null || true
   echo "[MCCP-GATE-STOP] $REVIEW_DIR/mode.json unreadable — cannot tell whether L3 should fire, and guessing either way falsifies the L3 record. Re-run Phase 5.2."
   exit 12
 fi
@@ -1316,7 +1323,7 @@ PROOF_EXIT=$?
 if [ "$PROOF_EXIT" -ne 0 ]; then
   DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision --command mccp:plan --args "$ARGUMENTS")
   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
-    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2e-proof 1>/dev/null 2>&1 || true
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2e-proof 1>/dev/null || true
   echo "[MCCP-GATE-STOP] proof extraction failed (exit $PROOF_EXIT) — the panel's decision cannot be recorded, so no receipt may claim it."; exit 12
 fi
 node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.error("[mccp:plan-review] verdict="+j.review_verdict+" source="+j.review_source+" forwardCodex="+(j.forwardCodexVerdict?1:0));console.error("[mccp:plan-review] reason: "+j.reason)}catch(e){console.error("[mccp:plan-review] decision unreadable")}' \
@@ -1371,12 +1378,19 @@ if [ "$VERIFY_EXIT" -ne 0 ]; then
   DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
     --command mccp:plan --args "$ARGUMENTS")
   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
-    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2g 1>/dev/null 2>&1 || true
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2g 1>/dev/null || true
+  echo "[MCCP-GATE-STOP] proof evidence verification failed (exit $VERIFY_EXIT) — the proof names evidence that is missing or not repo-relative, so no receipt may claim it."
+  exit 12
 fi
 ```
 
-`VERIFY_EXIT` 12 → HALT (the proof names evidence that is missing or not
-repo-relative); the block above has already recorded it.
+The stop **exits the block**; it does not merely record and fall through. The
+recorder is deliberately non-blocking (`|| true`), so if it were the last command
+in the branch the block would exit 0 and a failed verification would read as a
+pass — 5.2h and 5.6b would then run against the same `proof.json`, and the receipt
+writer checks the proof's hash, not whether the evidence it names exists. Every
+halt in 5.2 ends in an explicit `exit` for this reason; a recorder must never be
+the last statement on a failure path.
 
 #### 5.2h — Write the review record (sibling artifact, NOT the plan)
 

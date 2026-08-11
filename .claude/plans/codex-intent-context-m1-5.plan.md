@@ -487,3 +487,40 @@ routing mode: `auto` (effective at implement stage). At implement the design gat
 - `resolution.codex_verdict`: `skipped` — 승인이 아니다. cross-gate dedupe는 `converged`만 인정하므로 `/mccp:pr` 단계에서 PR-Codex가 **실제로 발화**한다(fail-closed 유지).
 
 > **정직 표기**: 운영자 환경에 `MCCP_CODEX_DISABLED=1`이 설정돼 있어 Plan-Codex가 발화하지 않았다. 이 milestone은 리뷰어 계약 자체를 설계하는 축이므로 cross-model 검증의 가치가 특히 크다 — 구현 전 `/mccp:santa-loop`(Reviewer B가 `codex exec`를 직접 호출하므로 이 env와 무관, `commands/santa-loop.md:117`)로 적대 검증을 받는 것을 권장한다. Task 0 spike도 같은 경로를 쓴다.
+
+## Codex Implementation Review
+
+> Codex skipped per `MCCP_CODEX_DISABLED=1` (env-level policy, first-class)
+
+- 호출: `node <plugin-root>/scripts/lib/codex-invoke.js adversarial-review` → `classification=disabled`, `blocking=false`, `durationMs=0` (spawn 직전 short-circuit, v0.3.5)
+- 라운드 수: 0
+- 합치 결론: **미판정** — Implement-Codex가 실행되지 않았다. 아래 implement-time 결정들은 cross-model 적대 검증을 **받지 않은 상태**다.
+- YAGNI Triage: 해당 없음 (finding 0건)
+- Deferred to backlog: 0
+- Open Questions: 없음 (리뷰 미실행)
+- `resolution.codex_verdict`: `skipped` — 승인이 아니다. cross-gate dedupe는 `converged`만 인정하므로 `/mccp:pr`에서 PR-Codex가 실제로 발화한다.
+
+### Implement-time decisions (plan이 사전 확정하지 않은 항목)
+
+리뷰를 못 받았으므로 **무엇이 검증되지 않았는지**를 명시적으로 남긴다.
+
+| # | 결정 | plan의 상태 |
+|---|---|---|
+| D1 | `intent-claims.js` 내부 분해 — 인용 stripper / 앵커 스캐너 / 분류기를 별도 함수로 분리 | 미확정 (파일 단위만 지정) |
+| D2 | stripper 적용 순서 — fence(백틱·틸드) → HTML 블록 → 4-space 들여쓰기 → blockquote | DD1이 대상 5종만 열거, 순서 미지정 |
+| D3 | `compareIntentClaims` 집계 객체의 최종 키 이름 | Task 1이 목록만 제시 |
+| D4 | `intent_claim_counts`의 닫힌 키 집합 + 합계 불변식의 정확한 식 | Task 7이 "합계 불변식 검증"만 명시 |
+| D5 | `DEFAULT_MISLABEL_MODE` 상수의 export 여부·배치 | Task 3(g)가 이름만 확정 |
+| D6 | runner의 `off` 분기 배치 지점 (Codex 호출 전 단일 지점 vs 분산) | DD5가 "호출 앞"만 규정 |
+| D7 | `validate-cmd.js` per-verdict 복구 문구의 최종 문안 | Task 7이 요지만 제시 |
+| D8 | `parseReviewerClaims` 미호출을 고정하는 spy 구현 방식 | Task 4(j)가 "spy 고정"만 명시 |
+
+### Security Reviewer
+
+> security-reviewer unavailable, skipped (auto-fallback): 세션 정책상 Agent/subagent 호출이 금지돼 있어 Task tool을 호출할 수 없다 (plan `## Notes`의 "세션 정책상 workflow/Agent 미사용"과 동일 제약).
+
+본 변경은 security-sensitive 축에 해당한다 — 신뢰할 수 없는 LLM 출력(reviewer free text)에 대한 **입력 검증**(앵커 정규식·인용 stripper·상한)과 **게이트 인가 표면**(`warn` 모드 완화·`intent_dispute_reason` 통로)을 동시에 다룬다. 따라서 이 skip은 무해하지 않으며, receipt에 `security_skipped=true`로 봉인돼 `/mccp:pr`을 fail-closed로 막는다.
+
+### 검증 공백 (정직 표기)
+
+`## Adversarial Review Record` 말미가 요구한 대체 검증 — "구현 착수 전 R4를 한 번 더 돌리거나, `/mccp:prp-implement`의 Implement-Codex 게이트가 그 역할을 대신해야 한다" — 은 **어느 쪽도 충족되지 않았다**. Implement-Codex는 `MCCP_CODEX_DISABLED=1`로 미발화했고 santa-loop R4는 실행되지 않았다. cap 이후 수정분(#19~#22 + Reviewer A 채택 3건)과 위 D1~D8은 리뷰 없이 구현된다.

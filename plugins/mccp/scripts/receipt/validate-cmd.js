@@ -42,6 +42,55 @@ const GENERIC_DECISION_IDS = ['default', 'main'];
 
 // Validate the receipt situation for a given /mccp:* command invocation.
 // Returns: { ok, command, decisionId, missing, stale, blocking, warnings, open_critical, reason? }
+// Per-verdict recovery text. M1 emitted ONE sentence ("every Codex finding must
+// carry an explicit adjudication") for every blocking intent verdict, which
+// actively misdiagnoses the M1.5 verdicts: an operator told to go add
+// adjudications when the real problem is that the REVIEWER ignored the contract
+// will edit the wrong file and still be blocked.
+//
+// The shared tail is deliberate: the integrity warning ("do not hand-write this
+// receipt") applies to every one of these, because the intent decision has no
+// CLI surface in any of them.
+function intentVerdictRecovery(meta) {
+  const verdict = meta && meta.intent_gate_verdict;
+  const tail = ' INTEGRITY: do NOT hand-write this receipt (the intent decision has ' +
+    'no CLI surface). Re-run `/mccp:plan <plan-path>`, or set ' +
+    'MCCP_SKIP_INTENT_GATE="<substantive reason>" for an audited override.';
+
+  let head;
+  switch (verdict) {
+    case 'skipped':
+    case 'skipped-unproven':
+      head = 'the receipt claims the gate did not apply but carries no corroborated ' +
+        'meta.intent_skip_proof — an unproven skip is not a pass.';
+      break;
+    case 'conflict_unresolved':
+      head = 'a finding that conflicts with stated user intent was accepted ' +
+        '(ACCEPT_NOW) without an intent_override_reason. Write the override reason, ' +
+        'or change that adjudication\'s verdict.';
+      break;
+    case 'inconclusive':
+      head = 'the REVIEWER did not follow the per-finding `INTENT:` contract, so the ' +
+        'author\'s labels could not be checked against anything (see ' +
+        'meta.intent_reviewer_contract / meta.intent_claim_counts). This is not fixed ' +
+        'by editing adjudications — re-run the review so the reviewer emits one ' +
+        '`INTENT:` line per finding, or set MCCP_INTENT_MISLABEL=warn to record the ' +
+        'gap instead of blocking on it.';
+      break;
+    case 'mislabel_unresolved':
+      head = 'the reviewer named a user-intent id the author did not (see ' +
+        'meta.intent_mislabel_audit). Resolve each entry by correcting ' +
+        'intent_conflict to the id the reviewer named, or by writing a substantive ' +
+        'intent_dispute_reason saying why the reviewer is wrong. ' +
+        'MCCP_INTENT_MISLABEL=warn records it instead of blocking.';
+      break;
+    default:
+      head = 'every Codex finding must carry an explicit adjudication.';
+      break;
+  }
+  return head + tail;
+}
+
 function validateCommand(command, opts) {
   opts = opts || {};
   const cwd = opts.cwd || process.cwd();
@@ -546,13 +595,8 @@ function validateCommand(command, opts) {
           decision_id: result.decisionId,
           kind: 'intent_gate_incomplete',
           reason: 'preceding gate has meta.intent_gate_verdict="' +
-            String(receipt.meta.intent_gate_verdict) + '"' +
-            (receipt.meta.intent_gate_verdict === 'skipped'
-              ? ' without a corroborated meta.intent_skip_proof' : '') +
-            ' — every Codex finding must carry an explicit adjudication. ' +
-            'INTEGRITY: do NOT hand-write this receipt (the intent decision has ' +
-            'no CLI surface). Re-run `/mccp:plan <plan-path>`, or set ' +
-            'MCCP_SKIP_INTENT_GATE="<substantive reason>" for an audited override.',
+            String(receipt.meta.intent_gate_verdict) + '" — ' +
+            intentVerdictRecovery(receipt.meta),
           intent_gate_verdict: receipt.meta.intent_gate_verdict === undefined
             ? null : receipt.meta.intent_gate_verdict,
           intent_skip_proof: receipt.meta.intent_skip_proof || null,

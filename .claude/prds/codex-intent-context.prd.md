@@ -63,6 +63,8 @@ mccp의 `/mccp:plan`(및 `/mccp:pr`) 게이트는 Codex adversarial review에 **
 >
 > **M1이 닫지 않는 것(정직 표기)**: 저자가 모든 finding을 `intent_conflict: 'none'`으로 표시하면 M1의 완전성 검사는 전부 통과한다. 즉 M1은 **누락**을 막고 **오심**은 막지 못한다. 오심 탐지는 M1.5, 심판 분리는 M2가 소유한다.
 
+> **M1.5가 ship됐으나 `complete`가 아닌 이유 (2026-08-10, v1.23.8)**: 탐지 축(리뷰어 `INTENT:` 계약 · 비대칭 대조 · 6 감사 필드 · verdict 2종)은 전부 배송됐다. 그러나 기본 모드를 정할 **Task 0 실측**(리뷰어 계약 준수율을 production 경로로 측정)이 Codex 계정 쿼터 소진으로 수행되지 못했고, plan DD10 fallback에 따라 `DEFAULT_MISLABEL_MODE = 'warn'`으로 ship한다. `warn`은 blocking verdict를 receipt에 **봉인**하되 차단하지는 않으므로 **UI10은 달성되지 않는다** — 위 지표 행의 "silent-accept 0건"은 `enforce`에서만 성립하고, 그마저 강제하는 명제는 "오심 0"이 아니라 **"기록 없는 수용 0"**이다. 따라서 이 milestone은 **감사 표면을 배송한 것이지 지표를 달성한 것이 아니다**. `complete` 승격 조건은 단 하나 — 쿼터 복구(2026-08-16) 후 [reviewer-contract-compliance.md](../../docs/codex-intent-context/reviewer-contract-compliance.md)의 절차를 실행해 준수율을 실측하고 그 결과가 `enforce` 임계(≥95%)를 넘는 것. 측정 없이 status를 올리는 것은 강도를 한 번도 재지 않은 게이트를 완료로 기록하는 것이다.
+
 ## Open Questions
 
 - [ ] **arbiter 분리 깊이** — M1은 "세션 내 역할 분리 + 구조적 gate"로 시작한다. Cross-Context 근거상 완전한 이득은 fresh subagent(M2)에서만 나오므로, M1의 부분 완화(의도 대조 gate)가 sycophancy의 가장 큰 구멍(무근거 수용)을 닫기에 충분한지 실측이 필요하다.

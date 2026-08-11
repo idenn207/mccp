@@ -19,11 +19,11 @@ This file records the attempt, the harness, the blocker, and what the fallback o
 |---|---|
 | Fixture plan | Synthetic `.plan.md` with a `## User Intent` table of 4 items and five review targets: four that each violate exactly one item (UI1 new npm dependency · UI2 POST to an external endpoint · UI3 new config file · UI4 removes an existing CLI flag) and one with **no** intent conflict (last-writer-wins cache race). The clean one measures whether the reviewer treats `INTENT: none` as a first-class answer rather than manufacturing a conflict (DD7). |
 | Intent reference | Produced by the real `intent-context.js#buildIntentReference` from the fixture's table. Verified: `items=4`, 1542 bytes. |
-| Contract paragraph | The verbatim text from plan Task 5. |
-| Invocation | `codex-invoke.js#invokeAdversarialReview` with `intentReference`, `timeoutMs: 900000`, `json: true`. `MCCP_CODEX_DISABLED` is deleted from the child env **for this measurement only** (DD10 explicitly sanctions this; the operator's global setting is untouched). |
+| Contract paragraph | The verbatim text from plan Task 5, now shipped as `codex-invoke.js#INTENT_MISLABEL_CONTRACT`. |
+| Invocation | `codex-invoke.js#invokeAdversarialReview` with `intentReference`, **`mislabelContract: true`** (CLI: `--mislabel-contract`), `timeoutMs: 900000`, `json: true`. `MCCP_CODEX_DISABLED` is deleted from the child env **for this measurement only** (DD10 explicitly sanctions this; the operator's global setting is untouched). |
 | Reader | `codex-review-payload.js#parseReviewPayload` on the returned envelope. |
 
-**Known deviation, to be closed when Task 5 lands.** Production will carry the contract paragraph in a `codex-invoke` preamble constant placed *before* the reference block; this harness appends it to the end of the `--intent-reference-file` payload. Same wrapper, same reader, same reviewer-visible text — only the ordering inside the preamble region differs. When the measurement is finally run against the implemented Task 5, confirm the ordering change does not move the numbers.
+**Deviation closed by Task 5 (v1.23.8).** This note previously warned that production would place the contract paragraph *before* the reference block while the harness appended it *after*, and asked whoever ran the measurement to confirm the ordering did not move the numbers. That check is no longer needed: the shipped `composeFocus` places the contract **after** the reference block — the same position the harness used — because the contract's own text instructs the reviewer to use ids "from the reference block above", which is only true in that order. Re-running this harness now exercises the production string exactly, provided `--mislabel-contract` is passed (without it the contract is deliberately absent, which is what makes `MCCP_INTENT_MISLABEL=off` byte-identical to v1.23.4).
 
 ## What happened
 

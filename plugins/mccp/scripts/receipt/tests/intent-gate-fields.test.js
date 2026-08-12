@@ -811,3 +811,28 @@ test('M1.5 — a live mode may reach "skipped" with no evidence (the axis never 
       'the rule must not reject a run that never reached the comparison');
   });
 });
+
+test('M1.5 — warn costs something only when it actually relaxed something', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    // The companion to the DD6 test above, and the half that is easy to get
+    // wrong in the other direction: `warn` narrows nothing on a clean run, so a
+    // `preserved` receipt written under the DEFAULT mode must still be able to
+    // certify a dedupe skip. Keying dedupe on the mode instead of on whether a
+    // block was consumed would close cross-gate dedupe for every default-mode
+    // user — a behaviour change no invariant asks for.
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision({
+        mislabel_mode: 'warn',          // the shipped default
+        verdict: 'preserved',           // ...which never had anything to relax
+        runtime_allowed: true,
+        plan_digest: null,
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
+    assert.strictEqual(r.receipt.meta.intent_mislabel_mode, 'warn');
+    assert.strictEqual(isIntentChainAllowed(r.receipt.meta), true);
+    assert.strictEqual(classifyIntentMeta(r.receipt.meta), 'approved',
+      'a clean run under warn is a clean run — the mode did not widen the pass set');
+  });
+});

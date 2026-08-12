@@ -167,12 +167,31 @@ test('(c) structural guards collapse the section to present:false', function () 
   const emptyTable = '# Plan\n\n**Source PRD**: `p`\n\n## User Intent\n\n| ID | C | Kind |\n|---|---|---|\n\n## Summary\n';
   assert.strictEqual(ic.extractIntentSection(emptyTable).present, false);
 
-  // Row cap.
+  // Row cap. This REJECTS the section rather than truncating it, and that
+  // distinction carries an invariant worth naming: `buildIntentReference` shows
+  // the reviewer at most MAX_INTENT_ROWS ids, while `intent-claims.js` accepts
+  // ids from `section.items`. If an over-cap section were truncated instead of
+  // rejected, those two sets would diverge and the parser would honour an id the
+  // reviewer was never shown. Rejection keeps them equal by construction.
   const many = [];
   for (let i = 0; i <= ic.MAX_INTENT_ROWS; i++) {
     many.push('| UI' + i + ' | constraint number ' + i + ' here | constraint |');
   }
-  assert.strictEqual(ic.extractIntentSection(planWith(many)).reason, 'too-many-rows');
+  const over = ic.extractIntentSection(planWith(many));
+  assert.strictEqual(over.reason, 'too-many-rows');
+  assert.strictEqual(over.present, false, 'over-cap is absent, never truncated');
+  assert.strictEqual((over.items || []).length, 0,
+    'no item may survive an over-cap section — the accepted-id set can never ' +
+    'exceed what buildIntentReference injected');
+
+  // Exactly at the cap is accepted whole, so the two sets stay equal there too.
+  const atCap = [];
+  for (let i = 1; i <= ic.MAX_INTENT_ROWS; i++) {
+    atCap.push('| UI' + i + ' | constraint number ' + i + ' here | constraint |');
+  }
+  const capped = ic.extractIntentSection(planWith(atCap));
+  assert.strictEqual(capped.present, true);
+  assert.strictEqual(capped.items.length, ic.MAX_INTENT_ROWS);
 });
 
 // ---------------------------------------------------------------------------

@@ -2,20 +2,20 @@
 state_version: 1
 task_fingerprint: diverse-agent-review-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-12T13:27:35.271Z
+updated_at: 2026-08-12T13:35:57.531Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-09T01:17:14.100Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
-last_pr_url: https://github.com/idenn207/mccp/pull/71
+last_pr_url: https://github.com/idenn207/mccp/pull/126
 dep_check_at: 2026-06-17T05:35:00.000Z
 escalate_pending: true
 escalate_pending_decision_id: diverse-agent-review
 ---
 ## Goal
-diverse-agent-review M4 — origin/main 위로 rebase 완료(v1.23.8). PR 생성 진행 중.
+diverse-agent-review M4 — PR #126 생성 완료(v1.23.8, audited override로 ship). 머지 + 라이브 완주 대기.
 
 ## Plan
 - PR 생성: /mccp:pr 게이트 통과 후 gh pr create. base=main.
@@ -23,23 +23,25 @@ diverse-agent-review M4 — origin/main 위로 rebase 완료(v1.23.8). PR 생성
 - clause 1이 또 미달이면 Outcome 개정(clause 1을 신규 milestone으로 이관) 재검토.
 
 ## Done
-- santa-loop 3라운드(escalate) — 흡수 4건: 5.2b·5.2c-emit 산문 의존, 5.2a stage 토큰 미명시, 5.2g 무근거 directed(자체 회귀), proof 부재/실패 exit 혼동.
-- origin/main rebase — 고유 커밋 4개, 증거 커밋(.claude/receipts·completion-ledger) 미포함이라 ship receipt 결속 무손상. 파일 드롭 0건(§3.5.1 검증).
-- §3.7 version 충돌 6번째 재발 해소: main이 1.23.6(gate-guard-integrity M1)·1.23.7(MSW M4) 선점 → 1.23.8로 두 칸 상향.
-- CLAUDE.md env 치트시트가 main에서 docs/ENVIRONMENT.md로 압축 이전(0cf93d3) → MCCP_PLAN_REVIEW_BUDGET을 그쪽으로 이관.
-- i18n-surface.test.js는 main 쪽 채택 — version 리터럴 하드코딩 대신 plugin.json 파생(우리 쪽이 회귀였음).
+- PR #126 생성 — 26 files, +2884/-136. base=main.
+- PR-Codex 6라운드 실발화(MCCP_CODEX_DISABLED 한시 해제): 실재 결함 9건 흡수 + 오탐 1건 기각 + M1 선재 결함 1건 backlog 이연.
+- audited override로 ship — receipt는 divergent를 봉인(재작성 없음), ship-gate read-back은 ok=true + warning=pr_codex_force_override.
+- ship receipt를 git-tracked로 커밋(1fd64f6). leak scan 0건, evidence-stage-guard 통과.
+- stop-review-loop hook이 봉인된 divergent를 보고 escalation 발행 — override가 verdict를 세탁하지 않는다는 증거.
 
 ## In Progress
-/mccp:pr 진행 중 — rebase·version 정합 완료, 게이트 단계.
+PR #126 OPEN, 리뷰 대기.
 
 ## Next Step
-PR 생성 완료 후 머지, 그다음 새 세션에서 라이브 완주.
+PR #126 머지 → 새 세션에서 /mccp:plan 라이브 완주 → milestone #4 Outcome clause 1 판정.
 
 ## Last Decision
-2026-08-12 rebase를 실행했다. pr.md Phase 3.2가 rebase를 fail-closed HALT로 규정하지만 그 조항은 게이트가 receipt를 커밋한 뒤 push가 거부된 상황을 위한 것이고, 여기서는 브랜치가 미push이며 고유 커밋 4개 중 .claude/receipts/·completion-ledger를 건드리는 것이 0건이라 E4/F2 결속 stranding이 발생하지 않음을 먼저 실측 확인했다. 충돌 7파일은 --ours 일괄이 아니라 파일별로 해소했다(§3.5.1).
+2026-08-12 PR-Codex가 6라운드 연속 non-converged였고 사용자 승인 하에 audited override로 ship했다. R1~R4·R6의 findings 9건은 전부 실재해 수정했고 각 수정에 비공허성이 실측된 회귀 가드를 붙였다. R5는 오탐(5.2 진입 purge를 놓친 추론)이라 코드 변경 없이 불변식만 test로 고정했다. R6 F1(hybrid L3)은 M1(7ce8857) 선재 결함이라 backlog 이연했다. override는 verdict를 재작성하지 않으므로 cross-gate dedupe는 fail-closed로 남고 다음 /mccp:pr이 PR-Codex를 다시 발화시킨다.
 
 ## Open Questions
-- MCCP_CODEX_DISABLED=1이 사용자 설정에 상시 걸려 있어 PR-Codex가 실발화하지 않는다 — 이 PR이 리뷰 인프라 변경이라 cross-model 검토 가치가 큰데 정책상 skip된다.
+- milestone #4 Outcome clause 1(패널 승인 경로 1회 완주) 미충족 — 머지 후 새 세션 필요. 캐시에 review-* 4종 존재 확인됨.
+- backlog HIGH 1건: hybrid L3가 receipt-writing 5.2z에 위임(M1 소관).
+- santa-loop이 Codex fallback을 경고 없이 수행 — .claude/notes/diverse-agent-review-m4-review-diversity-collapse.md 참조.
 
 ## Last Updated
-2026-08-12T13:27:35.271Z
+2026-08-12T13:35:57.531Z

@@ -389,3 +389,72 @@ test('an unquoted claim beside a quoted one still resolves to the real claim', f
   assert.strictEqual(r.claims[0].status, 'claimed');
   assert.strictEqual(r.claims[0].claim, 'UI1');
 });
+
+// ── indentation is measured in columns, not characters ───────────────────────
+
+test('a space+tab indented line is code, not a claim', function () {
+  // Markdown advances a tab to the next 4-column tab stop, so " \t" is a
+  // 4-column indent — an indented code block. A character-counting stripper
+  // (`/^(?: {4,}|\t)/`) misses it, and then the anchor regex accepts it because
+  // it tolerates leading whitespace.
+  const mixed = [
+    ' \tINTENT: UI1',
+    '  \tINTENT: UI1',
+    '   \tINTENT: UI1',
+    '\t INTENT: UI1',
+  ];
+  mixed.forEach(function (line) {
+    const r = icl.parseReviewerClaims({
+      findings: [{ title: 'x', body: 'Example:\n\n' + line, recommendation: '' }],
+      sectionItems: [{ id: 'UI1' }],
+    });
+    assert.strictEqual(r.claims[0].status, 'unclaimed',
+      JSON.stringify(line) + ' expands to >=4 columns and must be stripped');
+  });
+});
+
+test('a quoted "none" cannot manufacture an agreement out of an example', function () {
+  // The damaging direction: an example line becomes the finding's ONLY claim, so
+  // a finding the reviewer never labelled reads as agreeing with the author.
+  const cmp = icl.compareIntentClaims({
+    claims: icl.parseReviewerClaims({
+      findings: [{ title: 'x', body: 'For instance:\n\n \tINTENT: none', recommendation: '' }],
+      sectionItems: [{ id: 'UI1' }],
+    }),
+    adjudications: [{ finding_index: 0, intent_conflict: 'none' }],
+  });
+  assert.strictEqual(cmp.entries[0].classification, 'unclaimed');
+  assert.notStrictEqual(cmp.compliance, 'full',
+    'a fabricated agreement must not read as reviewer compliance');
+});
+
+test('indents below 4 columns stay claimable (markdown lists, not code)', function () {
+  ['INTENT: UI1', ' INTENT: UI1', '  INTENT: UI1', '   INTENT: UI1'].forEach(function (line) {
+    const r = icl.parseReviewerClaims({
+      findings: [{ title: 'x', body: line, recommendation: '' }],
+      sectionItems: [{ id: 'UI1' }],
+    });
+    assert.strictEqual(r.claims[0].claim, 'UI1', JSON.stringify(line) + ' is not code');
+  });
+});
+
+test('the scan bound is characters, and multibyte text does not shorten it', function () {
+  // The cap exists to bound regex work over reviewer-controlled text, and that
+  // work tracks code units. Measuring UTF-8 bytes instead would make identical
+  // scan cost pass or fail based on the reviewer's language.
+  const ids = [{ id: 'UI1' }];
+  const korean = '가'.repeat(30000) + '\nINTENT: none';
+  assert.ok(Buffer.byteLength(korean, 'utf8') > icl.MAX_CLAIM_SCAN_CHARS,
+    'fixture must exceed the cap in BYTES to be meaningful');
+  assert.ok(korean.length < icl.MAX_CLAIM_SCAN_CHARS, 'but stay under it in characters');
+  assert.strictEqual(
+    icl.parseReviewerClaims({ findings: [{ title: '', body: korean, recommendation: '' }], sectionItems: ids })
+      .claims[0].status,
+    'claimed', 'under the character cap, a valid claim is still read');
+
+  const over = 'x'.repeat(icl.MAX_CLAIM_SCAN_CHARS + 1) + '\nINTENT: none';
+  assert.strictEqual(
+    icl.parseReviewerClaims({ findings: [{ title: '', body: over, recommendation: '' }], sectionItems: ids })
+      .claims[0].reason,
+    'text-too-large', 'over the character cap, it folds to unclaimed');
+});

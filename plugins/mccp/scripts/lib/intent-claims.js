@@ -14,11 +14,16 @@
 // 필드를 추가할 수 없기 때문이다(UI5). 자유 텍스트를 판정 채널로 쓰는 이상 위조·오인은
 // 파싱 규칙의 정밀도로 막는 것이 아니라 **모호성을 전부 `unclaimed`로 접어서** 막는다.
 
+// CHARACTERS, not bytes — and deliberately so. This bounds the work the anchor
+// regex does over reviewer-controlled text, and that work tracks code units, not
+// UTF-8 length. Measuring bytes would make the same scan cost fail or pass
+// depending on the reviewer's language, which is the wrong axis to gate on.
+// 64K chars of Korean is ~192KB on disk and still a bounded scan.
 const MAX_CLAIM_SCAN_CHARS = 64 * 1024;
 
 // DD1 — 라인 선두 앵커만 인정한다. 산문 중간의 "UI3" 언급은 구조적으로 매칭 불가.
-// 선행 공백 0~3칸은 허용하되(마크다운 목록 안의 정상 주장), 4칸 이상은 아래
-// stripIndentedCode가 코드 블록으로 걷어낸다 — 마크다운의 코드 블록 임계와 같다.
+// 선행 들여쓰기 0~3칼럼은 허용하되(마크다운 목록 안의 정상 주장), 4칼럼 이상은 아래
+// isIndentedCode가 코드 블록으로 걷어낸다 — 마크다운의 코드 블록 임계와 같다.
 const CLAIM_ANCHOR_RE = /^[ \t]*INTENT:[ \t]*(\S.*)$/gm;
 
 const CLAIM_ID_RE = /^UI\d+$/;
@@ -68,7 +73,22 @@ function stripHtmlBlocks(text) {
 
 const FENCE_OPEN_RE = /^[ ]{0,3}(`{3,}|~{3,})/;
 const BLOCKQUOTE_RE = /^[ ]{0,3}>/;
-const INDENTED_CODE_RE = /^(?: {4,}|\t)/;
+// 들여쓰기는 **칼럼**으로 재야 한다. `/^(?: {4,}|\t)/`처럼 문자로 재면 공백과 탭이
+// 섞인 선두(`" \tINTENT: UI1"`)가 걸리지 않는데, 마크다운에서 탭은 다음 4칼럼 탭스톱까지
+// 전진하므로 그 줄은 4칼럼 = 코드 블록이다. 걸러지지 않으면 CLAIM_ANCHOR_RE의 `[ \t]*`가
+// 그대로 받아 **인용된 예시가 진짜 주장이 된다** — 인용된 `INTENT: none` 하나가 그 finding의
+// 유일한 주장이 되면 없던 합의(`agree-none`)가 만들어지고 탐지가 조용히 꺼진다.
+function isIndentedCode(line) {
+  let col = 0;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === ' ') col += 1;
+    else if (ch === '\t') col += 4 - (col % 4);
+    else break;
+    if (col >= 4) return true;
+  }
+  return false;
+}
 
 // 백틱/틸드 fence · blockquote · 4칸 들여쓰기 코드 블록을 라인 단위로 제거한다.
 // fence는 상태 기계로 처리한다 — 여는 fence와 **같은 문자**의 같거나 더 긴 fence만
@@ -100,7 +120,7 @@ function stripQuotedStructures(text) {
       continue;
     }
 
-    if (BLOCKQUOTE_RE.test(line) || INDENTED_CODE_RE.test(line)) {
+    if (BLOCKQUOTE_RE.test(line) || isIndentedCode(line)) {
       out.push('');
       continue;
     }

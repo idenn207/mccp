@@ -270,6 +270,51 @@ test('M1.5 — a dispute count that the audit does not support is rejected', fun
   });
 });
 
+test('M1.5 — reviewer_conflict is an identity, not merely an upper bound', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // Naming an id puts the finding in exactly one of three classifications, so
+    // the counter is derivable. `<= claimed` alone let it be falsified downward
+    // — the direction that makes a conflicted review look conflict-free.
+    r.receipt.meta.intent_claim_counts = goodCounts({ reviewer_conflict: 0 });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('reviewer_conflict') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — author_conflict is bounded, and an unclaimed finding may carry one', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // The author's label is counted even when the reviewer made no claim, so
+    // author_conflict has no closed form — only a range. A receipt where an
+    // unclaimed finding carries the author's conflict is legitimate output and
+    // must validate: 1 unclaimed + 1 reviewer-only, floor 0, ceiling 1.
+    r.receipt.meta.intent_claim_counts = goodCounts({
+      claimed: 1, unclaimed: 1, agree_none: 0, author_conflict: 1,
+    });
+    r.receipt.meta.intent_reviewer_contract = 'partial';
+    r.receipt.meta.intent_gate_verdict = 'inconclusive';
+    assert.strictEqual(validate(r.receipt).ok, true,
+      'an author conflict on an unclaimed finding is producible and must be accepted');
+
+    // Above the ceiling it is not: only 2 findings exist, and one of them is the
+    // reviewer-only entry whose author said `none`.
+    r.receipt.meta.intent_claim_counts = goodCounts({
+      claimed: 1, unclaimed: 1, agree_none: 0, author_conflict: 2,
+    });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('author_conflict') !== -1, v.errors.join(' '));
+  });
+});
+
 // ── verdict ↔ evidence ───────────────────────────────────────────────────────
 //
 // Each mislabel verdict is an ENTAILMENT of the evidence, so a receipt can be

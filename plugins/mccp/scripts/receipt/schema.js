@@ -1039,8 +1039,26 @@ function validate(receipt) {
             + cc.reviewer_only + cc.author_only + cc.unclaimed;
           req(partition === cc.total,
             'meta.intent_claim_counts: the six classifications must partition total');
-          req(cc.reviewer_conflict <= cc.claimed,
-            'meta.intent_claim_counts.reviewer_conflict must not exceed claimed');
+          // `reviewer_conflict` counts findings where the reviewer named an id,
+          // and naming an id lands the finding in exactly one of three
+          // classifications — so this is an identity, not a bound, and an upper
+          // bound alone (`<= claimed`) let the counter be falsified downward.
+          req(cc.reviewer_conflict === cc.agree_conflict + cc.reviewer_only + cc.id_mismatch,
+            'meta.intent_claim_counts.reviewer_conflict (' + cc.reviewer_conflict +
+            ') must equal agree_conflict + reviewer_only + id_mismatch (' +
+            (cc.agree_conflict + cc.reviewer_only + cc.id_mismatch) + ')');
+          // `author_conflict` gets only a bound, and the asymmetry is real: the
+          // author's label is counted even when the REVIEWER made no claim, so
+          // an `unclaimed` finding can carry one. That share is not recoverable
+          // from the six classification counts, and asserting the same identity
+          // here would reject legitimate producer output.
+          const authorFloor = cc.author_only + cc.agree_conflict + cc.id_mismatch;
+          req(cc.author_conflict >= authorFloor
+            && cc.author_conflict <= authorFloor + cc.unclaimed,
+            'meta.intent_claim_counts.author_conflict (' + cc.author_conflict +
+            ') must lie in [' + authorFloor + ', ' + (authorFloor + cc.unclaimed) +
+            '] — author_only + agree_conflict + id_mismatch, plus at most the ' +
+            'unclaimed findings that may also carry an author label');
           if (sumOk && partition === cc.total) ccUsable = cc;
         }
       }

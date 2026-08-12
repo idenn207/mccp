@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: diverse-agent-review-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-11T22:14:45.873Z
+updated_at: 2026-08-12T13:27:35.271Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-09T01:17:14.100Z
 unsafe_checkpoint: false
@@ -12,7 +12,7 @@ chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
 escalate_pending: true
-escalate_pending_decision_id: multi-session-work-loop
+escalate_pending_decision_id: diverse-agent-review
 ---
 ## Goal
 diverse-agent-review M4 — origin/main 위로 rebase 완료(v1.23.8). PR 생성 진행 중.
@@ -42,4 +42,4 @@ PR 생성 완료 후 머지, 그다음 새 세션에서 라이브 완주.
 - MCCP_CODEX_DISABLED=1이 사용자 설정에 상시 걸려 있어 PR-Codex가 실발화하지 않는다 — 이 PR이 리뷰 인프라 변경이라 cross-model 검토 가치가 큰데 정책상 skip된다.
 
 ## Last Updated
-2026-08-11T22:14:45.873Z
+2026-08-12T13:27:35.271Z

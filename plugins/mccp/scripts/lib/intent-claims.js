@@ -71,6 +71,19 @@ function stripHtmlBlocks(text) {
   return text.replace(HTML_BLOCK_RE, '\n');
 }
 
+// 위 regex는 **짝이 맞는** 블록만 지운다. CommonMark의 HTML block type 1은 닫는
+// 태그 **또는 문서 끝**에서 끝나므로, 닫히지 않은 `<pre>`는 나머지를 통째로 삼킨다 —
+// 아래 fence 상태 기계가 이미 "닫히지 않은 fence는 끝까지 삼킨다"로 처리하는 것과
+// 같은 규칙이다. 여기서 잘라내지 않으면 두 구조가 서로 다른 마크다운을 가정하게 되고,
+// 그 틈으로 인용된 `INTENT: none`이 살아남아 **없던 합의**를 만든다.
+// 짝이 맞는 블록은 이미 제거됐으므로 여기 남은 여는 태그는 정의상 닫히지 않은 것이다.
+const UNCLOSED_HTML_RE = /<(?:pre|code|blockquote)\b/i;
+
+function truncateAtUnclosedHtml(text) {
+  const m = text.match(UNCLOSED_HTML_RE);
+  return m ? text.slice(0, m.index) : text;
+}
+
 const FENCE_OPEN_RE = /^[ ]{0,3}(`{3,}|~{3,})/;
 const BLOCKQUOTE_RE = /^[ ]{0,3}>/;
 // 들여쓰기는 **칼럼**으로 재야 한다. `/^(?: {4,}|\t)/`처럼 문자로 재면 공백과 탭이
@@ -94,10 +107,11 @@ function isIndentedCode(line) {
 // fence는 상태 기계로 처리한다 — 여는 fence와 **같은 문자**의 같거나 더 긴 fence만
 // 닫는 것으로 인정하며, 닫히지 않은 fence는 문서 끝까지 삼킨다(마크다운 동작).
 function stripQuotedStructures(text) {
-  const lines = stripHtmlBlocks(text).split('\n');
+  const lines = truncateAtUnclosedHtml(stripHtmlBlocks(text)).split('\n');
   const out = [];
   let fenceChar = null;
   let fenceLen = 0;
+  let inQuote = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -116,11 +130,31 @@ function stripQuotedStructures(text) {
     if (open) {
       fenceChar = open[1][0];
       fenceLen = open[1].length;
+      inQuote = false;
       out.push('');
       continue;
     }
 
-    if (BLOCKQUOTE_RE.test(line) || isIndentedCode(line)) {
+    if (BLOCKQUOTE_RE.test(line)) {
+      inQuote = true;
+      out.push('');
+      continue;
+    }
+
+    // CommonMark의 lazy continuation — `>` 다음 줄에 `>`가 없어도 빈 줄이 나오기
+    // 전까지는 여전히 인용 안이다. 리터럴 `>` 만 보면 `"> 인용\nINTENT: none"`의
+    // 둘째 줄이 인용 밖으로 새어 거짓 주장이 된다(실측).
+    if (inQuote) {
+      if (line.trim() === '') {
+        inQuote = false;
+        out.push(line);
+      } else {
+        out.push('');
+      }
+      continue;
+    }
+
+    if (isIndentedCode(line)) {
       out.push('');
       continue;
     }

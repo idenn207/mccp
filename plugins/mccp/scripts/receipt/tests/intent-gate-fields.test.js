@@ -756,3 +756,58 @@ test('Codex F2 — by_verdict stays an OPEN map: a future verdict key still vali
     assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
   });
 });
+
+test('M1.5 — a live mode cannot reach "preserved" with the evidence bundle nulled', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // The other shape of the same edit the reconciliation blocks: instead of
+    // leaving contradictory evidence, remove all of it and keep the verdict that
+    // isIntentApproved reads. The mode is what makes it detectable — reaching
+    // `preserved` with the axis live means the comparison ran.
+    ['intent_reviewer_contract', 'intent_claim_counts', 'intent_claims_digest',
+      'intent_mislabel_disputes', 'intent_mislabel_audit'].forEach(function (k) {
+      r.receipt.meta[k] = null;
+    });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('the comparison ran') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — `off` legitimately reaches "preserved" with no evidence', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    // The rule must key on the mode, not on the verdict alone: an `off` run
+    // produces exactly the shape the previous test rejects, and it is honest.
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: goodDecision({
+        mislabel_mode: 'off',
+        reviewer_contract: null, claim_counts: null, claims_digest: null,
+        mislabel_disputes: null, mislabel_audit: null,
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true);
+    assert.strictEqual(r.receipt.meta.intent_mislabel_mode, 'off');
+  });
+});
+
+test('M1.5 — a live mode may reach "skipped" with no evidence (the axis never ran)', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    // enforce + codex disabled: there is no payload to parse claims from, so the
+    // gate ends at a proven skip and the evidence is legitimately absent.
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: goodDecision({
+        verdict: 'skipped', skip_proof: 'codex_disabled', counts: null,
+        mislabel_mode: 'enforce',
+        reviewer_contract: null, claim_counts: null, claims_digest: null,
+        mislabel_disputes: null, mislabel_audit: null,
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true,
+      'the rule must not reject a run that never reached the comparison');
+  });
+});

@@ -458,3 +458,63 @@ test('the scan bound is characters, and multibyte text does not shorten it', fun
       .claims[0].reason,
     'text-too-large', 'over the character cap, it folds to unclaimed');
 });
+
+// ── unclosed / lazy quote structures ─────────────────────────────────────────
+//
+// The stripper cannot be complete, and the design says so. But it must at least
+// assume ONE markdown: the fence machine already swallows an unclosed fence to
+// the end of the text, so HTML blocks and blockquotes reading the same input
+// differently is an internal inconsistency, not an accepted residual. Every case
+// here produced `claimed none` before the fix — a finding the reviewer never
+// labelled, reading as agreement with the author.
+
+test('an unclosed HTML quote block swallows to the end, like an unclosed fence', function () {
+  const ids = [{ id: 'UI1' }];
+  ['<pre>', '<code>', '<blockquote>', '<PRE class="x">'].forEach(function (open) {
+    const r = icl.parseReviewerClaims({
+      findings: [{ title: 't', body: open + '\nINTENT: none', recommendation: '' }],
+      sectionItems: ids,
+    });
+    assert.strictEqual(r.claims[0].status, 'unclaimed', open + ' is never closed');
+  });
+
+  // …while a well-formed block still only removes itself, leaving a real claim
+  // after it readable.
+  const kept = icl.parseReviewerClaims({
+    findings: [{ title: 't', body: '<pre>\nINTENT: UI9\n</pre>\n\nINTENT: UI1', recommendation: '' }],
+    sectionItems: ids,
+  });
+  assert.strictEqual(kept.claims[0].claim, 'UI1');
+});
+
+test('a lazy blockquote continuation is still inside the quote', function () {
+  const ids = [{ id: 'UI1' }];
+  const r = icl.parseReviewerClaims({
+    findings: [{ title: 't', body: '> quoted context\nINTENT: none', recommendation: '' }],
+    sectionItems: ids,
+  });
+  assert.strictEqual(r.claims[0].status, 'unclaimed',
+    'CommonMark keeps the second line in the quote until a blank line ends it');
+
+  // A blank line ends the quote, so a claim after it is the reviewer's own.
+  const after = icl.parseReviewerClaims({
+    findings: [{ title: 't', body: '> quoted context\n\nINTENT: UI1', recommendation: '' }],
+    sectionItems: ids,
+  });
+  assert.strictEqual(after.claims[0].claim, 'UI1');
+});
+
+test('quoted text cannot manufacture agreement through any of these forms', function () {
+  const bodies = ['<pre>\nINTENT: none', '> ctx\nINTENT: none', ' \tINTENT: none'];
+  bodies.forEach(function (body) {
+    const cmp = icl.compareIntentClaims({
+      claims: icl.parseReviewerClaims({
+        findings: [{ title: 't', body: body, recommendation: '' }],
+        sectionItems: [{ id: 'UI1' }],
+      }),
+      adjudications: [{ finding_index: 0, intent_conflict: 'none' }],
+    });
+    assert.strictEqual(cmp.entries[0].classification, 'unclaimed', JSON.stringify(body));
+    assert.notStrictEqual(cmp.compliance, 'full', JSON.stringify(body));
+  });
+});

@@ -1236,6 +1236,32 @@ function validate(receipt) {
       }
     }
 
+    // `intent_mislabel_mode` is sealed on every current write, so it records
+    // whether the axis was live. If it was AND the gate still reached
+    // `preserved`, the comparison necessarily ran: plan-codex-runner.js builds
+    // `comparison` on exactly the branch that can return `preserved` (a run that
+    // never got that far ends at `skipped` or `incomplete`). So a `preserved`
+    // receipt claiming an active mode with no evidence at all is a receipt whose
+    // evidence was removed after the fact.
+    //
+    // Scope, stated plainly: this is NOT anti-forgery. Whoever nulls these five
+    // can null the mode too and land on something indistinguishable from a
+    // pre-M1.5 receipt — present-only makes that indistinguishability deliberate.
+    // It closes the partial edit, and (before any of this) an unsigned edit is
+    // already caught by receipt_hash, which covers these fields.
+    if ((m.intent_mislabel_mode === 'warn' || m.intent_mislabel_mode === 'enforce')
+        && m.intent_gate_verdict === 'preserved') {
+      [
+        'intent_reviewer_contract', 'intent_claim_counts', 'intent_claims_digest',
+        'intent_mislabel_disputes', 'intent_mislabel_audit',
+      ].forEach(function (k) {
+        req(m[k] !== null && m[k] !== undefined,
+          'meta.' + k + ' must be present when meta.intent_mislabel_mode="' +
+          m.intent_mislabel_mode + '" and meta.intent_gate_verdict="preserved" — ' +
+          'reaching that verdict with the axis live means the comparison ran');
+      });
+    }
+
     // The flag means the override TOOK EFFECT (intent-context.js DD12), so a
     // sealed reason with the flag down records a justification for something
     // that did not happen — exactly the reading the split was introduced to

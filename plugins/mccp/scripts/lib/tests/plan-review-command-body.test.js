@@ -215,3 +215,41 @@ test('R4: the known-zero and unknown cases stay distinguishable', () => {
   assert.match(SRC, /zero is observed, not assumed|observed rather than assumed/,
     'the known-zero case must state why it is allowed to answer');
 });
+
+// ── PR-Codex R5 — the singleton REVIEW_DIR must not leak between runs ─────────
+//
+// R5 reported this as a HIGH defect: `record` reads the whole artifact set from a
+// fixed directory, so a stale l2.json/decision.json from a previous invocation
+// could be folded into a current early-halt record. It was a false positive —
+// Phase 5.2 purges every one of those files at entry, roughly forty lines above
+// 5.2a, and the reviewer's own note says the claim is "inference from the command
+// wiring". Refuted, but worth pinning: the invariant is load-bearing (it is what
+// makes "absent axis" mean "not observed this run" rather than "left over from
+// last run") and it breaks silently the moment someone adds an artifact the
+// recorder reads and forgets the purge list.
+test('R5: every artifact the recorder reads is reset at Phase 5.2 entry', () => {
+  const cliSrc = fs.readFileSync(
+    path.join(__dirname, '..', 'plan-review', 'cli.js'), 'utf8');
+
+  // What cmdRecord actually consumes, read off the source rather than restated.
+  const readsJson = Array.from(cliSrc.matchAll(/readIf\('([^']+)'\)/g)).map((m) => m[1]);
+  const reads = Array.from(new Set(readsJson.concat(['started-at'])));
+  assert.ok(reads.length >= 6, `expected the recorder to read several artifacts, saw ${reads.length}`);
+
+  // The entry block: one unconditional `rm -f`, plus anything rewritten right
+  // after it (mode.json is regenerated rather than deleted, which is equally safe).
+  const entryIdx = LINES.findIndex((l) => /rm -f "\$REVIEW_DIR\/codex-verdict"/.test(l));
+  assert.ok(entryIdx >= 0, 'the Phase 5.2 entry purge is missing entirely');
+  const entryBlock = LINES.slice(entryIdx, entryIdx + 8).join('\n');
+
+  const unreset = reads.filter((f) => !entryBlock.includes(f));
+  assert.deepEqual(unreset, [],
+    'these artifacts are read by the recorder but neither purged nor rewritten at ' +
+    'Phase 5.2 entry, so a previous run can leak into this run\'s record');
+
+  // And the purge must precede the first thing that writes into the directory,
+  // otherwise it would erase the current run's own state.
+  const startedAtIdx = LINES.findIndex((l) => /date \+%s%3N > "\$REVIEW_DIR\/started-at"/.test(l));
+  assert.ok(startedAtIdx > entryIdx,
+    'the purge must run before started-at is stamped, not after');
+});

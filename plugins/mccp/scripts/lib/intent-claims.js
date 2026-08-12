@@ -77,7 +77,13 @@ function stripHtmlBlocks(text) {
 // 같은 규칙이다. 여기서 잘라내지 않으면 두 구조가 서로 다른 마크다운을 가정하게 되고,
 // 그 틈으로 인용된 `INTENT: none`이 살아남아 **없던 합의**를 만든다.
 // 짝이 맞는 블록은 이미 제거됐으므로 여기 남은 여는 태그는 정의상 닫히지 않은 것이다.
-const UNCLOSED_HTML_RE = /<(?:pre|code|blockquote)\b/i;
+// **줄 선두**에서 시작하는 여는 태그만 블록으로 본다(CommonMark HTML block start
+// condition 미러 — 선행 공백 0~3칸 허용). 문장 중간의 `<code>` 언급은 인라인 HTML이지
+// 블록이 아니며, 그것까지 블록으로 취급하면 "Use the <code> tag here" 같은 평범한
+// 리뷰 문장이 **뒤따르는 진짜 주장을 통째로 잘라낸다**(실측: unclaimed → enforce에서
+// 계약을 지킨 리뷰어가 불응으로 판정됨). 과다 제거가 안전 방향이라는 원칙은 인용을
+// 놓치지 않기 위한 것이지, 인용이 아닌 것을 인용으로 만들라는 뜻이 아니다.
+const UNCLOSED_HTML_RE = /^[ ]{0,3}<(?:pre|code|blockquote)\b/im;
 
 function truncateAtUnclosedHtml(text) {
   const m = text.match(UNCLOSED_HTML_RE);

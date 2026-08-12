@@ -1937,7 +1937,7 @@ Field rules (all enforced mechanically by `intent-context.js`):
 | `verdict` | `ACCEPT_NOW` / `DEFER_TO_BACKLOG` / `REJECT_YAGNI` / `REJECTED_BY_DESIGN` |
 | `rationale` | non-empty |
 | `intent_override_reason` | **required** when `intent_conflict != "none"` AND `verdict = ACCEPT_NOW` |
-| `intent_dispute_reason` | **required** when the reviewer named an id you did not — see below. ≥30 chars, ≥3 words (same strict validator as the override reason) |
+| `intent_dispute_reason` | **required** when the reviewer named an id you did not — see below. ≥30 chars, ≥3 words, no one-token shrug. Unlike an override reason it MAY name code (`test`, `bar.ts`, a `TODO`); only outright filler (`lorem`, `asdf`) is refused |
 
 The `intent_override_reason` rule is the one substantive constraint M1 enforces:
 accepting a finding that contradicts a user-stated constraint requires you to write

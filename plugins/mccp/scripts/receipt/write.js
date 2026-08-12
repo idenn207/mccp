@@ -222,6 +222,7 @@ function stampIntentDecision(receipt, args, gateId, planText) {
       mp.intent_adjudication_counts = null;
       mp.intent_gate_force_override = false;
       mp.intent_gate_force_override_reason = null;
+      nullMislabelAxis(mp);
       return;
     }
 

@@ -557,3 +557,37 @@ test('a commented-out example does not hide the real claim beside it', function 
   assert.strictEqual(r.claims[0].status, 'claimed');
   assert.strictEqual(r.claims[0].claim, 'none');
 });
+
+test('an inline HTML mention is not a block and does not eat the claim after it', function () {
+  // Over-stripping is the safe direction only for things that ARE quotes.
+  // Treating a mid-sentence `<code>` mention as an unclosed HTML BLOCK truncated
+  // the rest of the finding, so a reviewer discussing HTML lost its own claim and
+  // read as non-compliant — a false block under enforce.
+  const ids = [{ id: 'UI1' }];
+  [
+    'Use the <code> tag here for spans.\n\nINTENT: UI1',
+    'Wrap the sample in <pre> next time.\n\nINTENT: UI1',
+    'Consider a <blockquote> for the citation.\n\nINTENT: UI1',
+    'Use <code>x</code> inline.\n\nINTENT: UI1',
+  ].forEach(function (body) {
+    const r = icl.parseReviewerClaims({
+      findings: [{ title: 't', body: body, recommendation: '' }],
+      sectionItems: ids,
+    });
+    assert.strictEqual(r.claims[0].claim, 'UI1', JSON.stringify(body));
+  });
+});
+
+test('a line-start unclosed HTML block still swallows to the end', function () {
+  // The block case is what the truncation exists for, and narrowing it to
+  // line-start must not disarm it. 0-3 spaces of indent is still a block start;
+  // 4+ is indented code, which the column check already removes.
+  const ids = [{ id: 'UI1' }];
+  ['<pre>\nINTENT: none', '   <blockquote>\nINTENT: none', '<code>\nINTENT: UI1'].forEach(function (body) {
+    const r = icl.parseReviewerClaims({
+      findings: [{ title: 't', body: body, recommendation: '' }],
+      sectionItems: ids,
+    });
+    assert.strictEqual(r.claims[0].status, 'unclaimed', JSON.stringify(body));
+  });
+});

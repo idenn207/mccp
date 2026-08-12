@@ -560,7 +560,7 @@ companion의 finding 스키마는 **외부 plugin 소유**라 필드를 추가�
 
 blocking 규칙은 단 하나다: **"리뷰어가 지목한 id를 저자가 지목하지 않았다"**. `id-mismatch`를 통과시키면 conflict-vs-none만 탐지하면서 "라벨 비대칭을 탐지한다"고 주장하게 된다.
 
-해소는 ① `intent_conflict`를 리뷰어가 지목한 id로 **정정**(그 순간 M1의 override 규칙 발동)하거나 ② `intent_dispute_reason`에 **리뷰어가 틀린 이유**를 쓰는 것뿐이다. 둘 다 없으면 `mislabel_unresolved`. dispute는 기존 strict `validateReason`을 재사용하므로 `"no"` 류 1-token은 **부재로 취급**된다.
+해소는 ① `intent_conflict`를 리뷰어가 지목한 id로 **정정**(그 순간 M1의 override 규칙 발동)하거나 ② `intent_dispute_reason`에 **리뷰어가 틀린 이유**를 쓰는 것뿐이다. 둘 다 없으면 `mislabel_unresolved`. dispute는 strict `validateReason`을 재사용하되 **코드 어휘 half는 면제**한다(`allowCodeVocabulary`) — `"no"` 류 1-token과 명백한 filler(`lorem`·`asdf`)는 여전히 **부재로 취급**되지만, 반론은 코드를 논하는 산문이라 `test` scaffolding이나 `bar.ts`를 이름으로 부를 수 있어야 한다. 그것까지 막으면 저자의 출구는 validator가 놓아줄 때까지 문장을 고쳐 쓰는 것(게이밍 학습)이거나 포기하고 오심하는 것(게이트가 막으려는 바로 그 실패)뿐이다. override 표면은 면제 대상이 아니다 — opt-in per call이라 전체 목록을 그대로 유지한다.
 
 #### `partial`은 통과 상태가 아니다
 

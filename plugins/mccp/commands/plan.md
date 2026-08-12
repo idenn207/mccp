@@ -1834,8 +1834,15 @@ written**. Read `intent_gate_verdict` + `reason` from `$MARKER` and output:
 Reason: <reason from marker>
 No mccp-plan-codex receipt was written, so /mccp:prp-implement cannot start.
 Recovery:
-  - incomplete            → every Codex finding needs an explicit adjudication row.
-                            Re-run /mccp:plan and write a complete one at 5.5a. Do NOT go
+  - incomplete            → the gate could not certify that every finding was adjudicated.
+                            Usually that is a missing row, but the same verdict covers a
+                            file written against a DIFFERENT review (stale
+                            review_payload_digest), a count that does not match the
+                            findings, and a duplicate or out-of-range finding_index — the
+                            marker's reason says which.
+                            Re-run /mccp:plan and write a complete one at 5.5a; that
+                            regenerates the review and the adjudication together, which
+                            resolves every one of those causes. Do NOT go
                             looking for this run's intent-adjudication-<nonce>.json: its
                             path carries the run nonce, so a new run neither reads nor
                             reuses it, and it is removed with the run's other scratch.

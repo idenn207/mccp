@@ -85,7 +85,20 @@ function intentVerdictRecovery(meta) {
         'MCCP_INTENT_MISLABEL=warn records it instead of blocking.';
       break;
     default:
-      head = 'every Codex finding must carry an explicit adjudication.';
+      // `incomplete` is not one cause. decideIntentGate emits it for a missing
+      // adjudication, but also for a stale/foreign `review_payload_digest`, an
+      // adjudication count that does not match the findings, and an out-of-range
+      // or duplicate `finding_index` — and the receipt does not record which.
+      // Asserting the first one sends an operator whose real problem is a stale
+      // file off to add rows that already exist. Naming the range costs a line
+      // and the single re-run fixes all of them, because it regenerates the
+      // review and the adjudication together.
+      head = 'the gate could not certify that every finding was adjudicated. That is ' +
+        'usually a missing adjudication row, but it also covers an adjudication file ' +
+        'written against a different review (stale review_payload_digest), a count ' +
+        'that does not match the findings, and a duplicate or out-of-range ' +
+        'finding_index. Re-running the plan gate regenerates both sides together, ' +
+        'which resolves all of them.';
       break;
   }
   return head + tail;

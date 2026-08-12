@@ -836,3 +836,31 @@ test('M1.5 — warn costs something only when it actually relaxed something', fu
       'a clean run under warn is a clean run — the mode did not widen the pass set');
   });
 });
+
+test('M1.5 — `inconclusive` still carries the disagreements it DID observe', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    // Producible shape, verified against the oracle: two findings, one carrying a
+    // valid claim the author contradicted, one carrying none. Compliance is
+    // `partial` -> the verdict is `inconclusive`, and the observed reviewer-only
+    // entry is still real evidence.
+    //
+    // The schema must NOT reject this. `inconclusive` means "the comparison's
+    // completeness cannot be certified", not "nothing was found" — dropping the
+    // entry because the contract was partial would delete an observed
+    // disagreement, which is the exact thing this milestone exists to prevent.
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision({
+        verdict: 'inconclusive',
+        reviewer_contract: 'partial',
+        claim_counts: goodCounts({ claimed: 1, unclaimed: 1, agree_none: 0 }),
+      }),
+    });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, true, JSON.stringify(v.errors));
+    assert.strictEqual(r.receipt.meta.intent_mislabel_audit.length, 1);
+    assert.strictEqual(r.receipt.meta.intent_mislabel_disputes, 1);
+    // and the consumer can tell the count came from a partial comparison
+    assert.strictEqual(r.receipt.meta.intent_reviewer_contract, 'partial');
+  });
+});

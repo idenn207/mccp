@@ -382,3 +382,68 @@ test('R3-F2: a fail WITH findings is not double-counted', () => {
     'the synthetic row is a fallback for an EMPTY findings list, not an addition');
   assert.match(built.markdown, /token leaks to argv/);
 });
+
+// ── PR-Codex R6 F2 — silence from a reviewer is absence, never approval ───────
+//
+// R3 caught the explicit form: `verdict:"fail"` with an empty findings array was
+// recorded as "None — all reviewers passed." This is the partial-response form of
+// the same false operator-facing record. `[pass, null, null]` produces one usable
+// refutation row and zero findings, so the old branch asserted a clean panel while
+// decideQuorum was blocking on 1-of-3 responses.
+const { buildReviewRecord: buildR6 } = require('../plan-review/record');
+
+test('R6: a partial panel is not recorded as "all reviewers passed"', () => {
+  const built = buildR6({
+    slug: 'r6-partial',
+    l2: { results: [{ perspective: 'architect', verdict: 'pass', refutationAttempted: 'structure', findings: [] }, null, null] },
+    decision: {
+      review_verdict: 'divergent',
+      review_source: 'multi-agent',
+      reason: 'quorum not met: 1 of 3 responses',
+      quorum: { responded: 1, required: 3, of: 3, roles: 1, passed: false },
+    },
+    nowMs: 1000, startedAtMs: 900,
+  });
+
+  assert.ok(!/all .*reviewers? .*passed/i.test(built.markdown),
+    'a panel where two reviewers never answered must not be recorded as passing');
+  assert.match(built.markdown, /not\*{0,2} a clean pass/i,
+    'the record must say plainly that this is not a clean pass');
+  assert.match(built.markdown, /absent from this record, not passing/,
+    'silent reviewers must be named as absent rather than implied to have approved');
+});
+
+test('R6: a genuinely complete clean panel still reads as a pass', () => {
+  // The guard must not flip the honest case into a scare. All fielded reviewers
+  // responded, the quorum held, nobody filed anything.
+  const built = buildR6({
+    slug: 'r6-clean',
+    l2: { results: [
+      { perspective: 'architect', verdict: 'pass', refutationAttempted: 'a', findings: [] },
+      { perspective: 'security', verdict: 'pass', refutationAttempted: 'b', findings: [] },
+    ] },
+    decision: {
+      review_verdict: 'converged',
+      review_source: 'multi-agent',
+      quorum: { responded: 2, required: 2, of: 2, roles: 2, passed: true },
+    },
+    nowMs: 1000, startedAtMs: 900,
+  });
+
+  assert.match(built.markdown, /all 2 fielded reviewer\(s\) responded and passed/,
+    'a complete, passing panel must still be reported as one');
+});
+
+test('R6: an absent quorum block never manufactures a clean pass', () => {
+  // No quorum data at all — the record must fall back to the counts it can see
+  // and stay non-committal, never assert completeness it cannot observe.
+  const built = buildR6({
+    slug: 'r6-noquorum',
+    l2: { results: [{ perspective: 'test', verdict: 'pass', refutationAttempted: 'c', findings: [] }] },
+    decision: { review_verdict: 'unavailable', review_source: 'multi-agent' },
+    nowMs: 1000, startedAtMs: 900,
+  });
+
+  assert.ok(!/all .*reviewers? .*passed/i.test(built.markdown),
+    'without quorum data the record cannot claim the panel was complete');
+});

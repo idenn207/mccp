@@ -305,7 +305,26 @@ function buildReviewRecord(opts) {
     lines.push('|---|---|---|---|');
     fRows.forEach(function (r) { lines.push(r); });
   } else if (rRows.length > 0) {
-    lines.push('None — all reviewers passed.');
+    // "All reviewers passed" is a claim about the whole PANEL, but this branch only
+    // knows the reviewers that came back. `[pass, null, null]` lands here: one
+    // usable result, no findings, and a quorum that blocks because two reviewers
+    // never answered. Asserting they passed is the same false operator-facing
+    // record R3 already caught for an explicit `fail` with an empty findings
+    // array — this is its partial-response form. Silence from a reviewer is
+    // absence, never approval.
+    const q = measurement.quorum;
+    const fielded = (q && q.of !== null) ? q.of : null;
+    const responded = (q && q.responded !== null) ? q.responded : rRows.length;
+    const clean = !!(q && q.passed === true && fielded !== null && responded === fielded);
+    if (clean) {
+      lines.push('None — all ' + fielded + ' fielded reviewer(s) responded and passed.');
+    } else {
+      lines.push('None from the ' + responded + ' reviewer(s) that returned a usable result' +
+        (fielded !== null ? ' (of ' + fielded + ' fielded)' : '') +
+        '. This is **not** a clean pass: the panel verdict is `' + verdict + '`' +
+        ((q && q.passed === false) ? ' and the quorum did not hold' : '') +
+        '. Reviewers that returned nothing are absent from this record, not passing.');
+    }
   } else {
     lines.push('None recorded — the panel produced no readable results ' +
       (haltStage ? '(halted at `' + haltStage + '`).' : '.'));

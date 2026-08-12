@@ -879,3 +879,116 @@ test('M1.5 — a blocked inconclusive marker carries the claimed/total count', f
     'the marker must carry claimed/total — under enforce nothing else survives: ' + m.reason);
   assert.ok(m.reason.indexOf('compliance=') !== -1, m.reason);
 });
+
+// ── the awaiting artifact must distinguish "off" from "reviewer said nothing" ─
+//
+// Under `off` every `reviewer_claim` is null, and so is every `reviewer_claim`
+// when the reviewer ignored the contract. plan.md tells the author what a null
+// means, so the two cases have to be separable from the file itself — otherwise
+// an `off` run reads as reviewer non-compliance. `reviewer_claim_status` is the
+// discriminator, which is why plan.md 5.5a points at it and not at the value.
+
+function snapshotAwaiting(s, nonce, envelope, mode) {
+  let snap = null;
+  const planHash = require('../../receipt/hash').planAwareMarkdownHash(s.planAbs);
+  const p = runner.paths(s.tmpDir, 'r', nonce);
+  fs.writeFileSync(p.adjudication,
+    JSON.stringify(adjudicationFor(s, envelope), null, 2));
+  const res = runWith(s, { runNonce: nonce, env: { MCCP_INTENT_MISLABEL: mode } }, envelope,
+    function () {
+      // `write` runs after the wait and before the finally that deletes the
+      // artifact — the only point it is still on disk without a subprocess.
+      snap = JSON.parse(fs.readFileSync(p.awaiting, 'utf8'));
+      return {
+        path: '/fake/receipt.json',
+        receipt: { plan_hash: planHash, receipt_hash: 'sha256:' + 'a'.repeat(64), meta: {} },
+      };
+    });
+  return { snap: snap, res: res.res };
+}
+
+test('M1.5 — `off` marks the awaiting artifact as "never asked", not "no answer"', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ severity: 'HIGH', title: 'f', body: 'no claim', recommendation: 'x' }],
+    { rawFindings: true });
+  const got = snapshotAwaiting(s, 'aw1', env, 'off');
+  assert.ok(got.snap, 'the artifact must exist while write runs');
+  assert.strictEqual(got.snap.mislabel_mode, 'off');
+  assert.strictEqual(got.snap.claims_digest, null);
+  assert.strictEqual(got.snap.reviewer_contract, null);
+  got.snap.findings.forEach(function (f) {
+    assert.strictEqual(f.reviewer_claim, null);
+    assert.strictEqual(f.reviewer_claim_status, null,
+      'null status = the axis never ran; it must NOT read as reviewer non-compliance');
+  });
+  assert.strictEqual(got.res.verdict, 'preserved', 'and the verdict is M1\'s, not inconclusive');
+});
+
+test('M1.5 — a live mode marks the same shape as "asked, no usable answer"', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ severity: 'HIGH', title: 'f', body: 'no claim', recommendation: 'x' }],
+    { rawFindings: true });
+  const got = snapshotAwaiting(s, 'aw2', env, 'warn');
+  assert.strictEqual(got.snap.mislabel_mode, 'warn');
+  got.snap.findings.forEach(function (f) {
+    assert.strictEqual(f.reviewer_claim, null, 'the VALUE is identical to the off case...');
+    assert.strictEqual(f.reviewer_claim_status, 'unclaimed', '...only the status separates them');
+  });
+  assert.strictEqual(got.res.verdict, 'inconclusive');
+});
+
+// ── the audited override covers VERDICTS, not operational failure ────────────
+//
+// MCCP_SKIP_INTENT_GATE releases a blocking judgement. It deliberately does not
+// reach the exits that fire before a judgement exists: there is no completed
+// review to seal, so "proceeding" would mean writing a receipt about a review
+// that never happened. Pinning it here keeps that a boundary rather than an
+// accident of statement order.
+
+const VALID_OVERRIDE = 'the reviewer quota is exhausted so this cycle proceeds without it';
+
+test('M1.5 — the override does not rescue a missing adjudication (timeout)', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  // No adjudication staged: the runner waits, then gives up.
+  const out = runWith(s, {
+    runNonce: 'ov1',
+    adjudicationTimeoutMs: 300,
+    env: { MCCP_SKIP_INTENT_GATE: VALID_OVERRIDE },
+  }, env);
+  assert.strictEqual(out.res.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(out.res.verdict, 'incomplete');
+  assert.strictEqual(out.captured.length, 0,
+    'no adjudication ever arrived, so there is no judgement for the override to release');
+});
+
+test('M1.5 — the override does not rescue a malformed adjudication file', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const p = runner.paths(s.tmpDir, 'r', 'ov2');
+  fs.writeFileSync(p.adjudication, '{ this is not json');
+  const out = runWith(s, {
+    runNonce: 'ov2',
+    adjudicationTimeoutMs: 3000,
+    env: { MCCP_SKIP_INTENT_GATE: VALID_OVERRIDE },
+  }, env);
+  assert.strictEqual(out.res.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(out.captured.length, 0);
+});
+
+test('M1.5 — but the override DOES release a blocking judgement', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const p = runner.paths(s.tmpDir, 'r', 'ov3');
+  fs.writeFileSync(p.adjudication,
+    JSON.stringify(adjudicationFor(s, env), null, 2));
+  const out = runWith(s, {
+    runNonce: 'ov3',
+    env: { MCCP_INTENT_MISLABEL: 'enforce', MCCP_SKIP_INTENT_GATE: VALID_OVERRIDE },
+  }, env);
+  assert.strictEqual(out.res.exitCode, runner.EX_OK);
+  assert.strictEqual(out.captured.length, 1, 'a real judgement is what the override releases');
+  const d = out.captured[0].intentDecision;
+  assert.strictEqual(d.verdict, 'mislabel_unresolved', 'sealed, not laundered');
+  assert.strictEqual(d.force_override, true);
+});

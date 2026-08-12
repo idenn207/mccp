@@ -570,6 +570,8 @@ compliance는 `claimed/total`로 **계측**하되 판정은 이분법이다: `fu
 
 `MCCP_INTENT_MISLABEL=enforce|warn|off`(§4). mode는 runner가 **Codex 호출보다 먼저** 해석하며 `off`면 ① 계약 문단을 프롬프트에 붙이지 않고 ② claims를 파싱하지 않으며 ③ `comparison`을 넘기지 않는다. ①이 빠지면 오라클을 건드리지 않았는데 **리뷰 payload 자체가 달라져** end-to-end M1 등가가 아니게 된다.
 
+등가의 **범위는 리뷰 경로**(프롬프트 · 파싱 · 판정)다. 임시 작업 파일 `$AWAITING`은 등가 대상이 아니며 `off`에서도 `mislabel_mode`와 finding별 `reviewer_claim*` 키를 **null로** 싣는다 — 키를 지우면 그 파일을 읽는 저자가 "축이 꺼졌다"와 "리뷰어가 답을 안 했다"를 구분할 방법이 없어진다. 구분자는 `reviewer_claim_status`다: `'unclaimed'`는 물었는데 못 받은 것(→ `inconclusive`), `null`은 애초에 묻지 않은 것(→ M1.5 규칙 자체가 미적용). `reviewer_claim` **값**만 보면 둘이 똑같이 `null`이므로, plan.md 5.5a는 값이 아니라 status를 읽도록 지시한다.
+
 `warn`은 **자체 sealed 상태**(`intent_mislabel_mode`)를 가지며 `intent_gate_force_override`를 재사용하지 **않는다** — 재사용하면 strict reason을 요구하는 audited-override 표면의 의미가 오염된다. `warn`이 여는 것은 mislabel 축(`inconclusive`/`mislabel_unresolved`) **뿐**이고, M1 축(`incomplete`/`conflict_unresolved`/`skipped-unproven`)에는 절대 열리지 않는다. `isIntentApproved`는 **무변경**이라 `warn`은 dedupe를 열지 않고 PR-Codex가 실제로 발화한다 — warn이 공짜가 아닌 지점이 정확히 여기다.
 
 두 override의 관계는 순서가 정한다: mode가 먼저 판정하고, **여전히 blocking일 때만** `MCCP_SKIP_INTENT_GATE`가 적용된다. 따라서 `warn`이 통과시킨 경우 `intent_gate_force_override`는 `false`다 — 플래그는 *설정 여부*가 아니라 **효력 발휘 여부**를 뜻한다.

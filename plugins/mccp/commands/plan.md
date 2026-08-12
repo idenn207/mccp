@@ -1956,9 +1956,17 @@ right; it is refusing to let a disagreement disappear without a record — every
 finding is sealed into `meta.intent_mislabel_audit` with the reviewer's claim, your
 label, and your reason.
 
-If `reviewer_claim` is `null` for some findings, the reviewer did not follow the
-contract and the review is `inconclusive` — that is not something you can fix in this
-file (see 5.6).
+Read `reviewer_claim_status`, not `reviewer_claim`, to tell those two apart. A `null`
+`reviewer_claim` means one of two very different things, and only the status field
+distinguishes them:
+
+| `reviewer_claim_status` | meaning |
+|---|---|
+| `"unclaimed"` | the reviewer was asked and did not answer usably → the review is `inconclusive`, which you cannot fix in this file (see 5.6) |
+| `null` | the mislabel axis never ran (`MCCP_INTENT_MISLABEL=off`), so nothing on this page applies — no claim was requested, none is missing, and there is nothing to dispute |
+
+`$AWAITING` also carries `mislabel_mode` at the top level, which says the same thing
+once for the whole file.
 
 ### 5.6 — Await the runner's completion marker (`mode=codex` ONLY — receipt is written BY the runner)
 

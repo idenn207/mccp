@@ -330,6 +330,7 @@ function runCli(argv) {
     process.stderr.write(
       'usage: codex-invoke adversarial-review --focus "<text>" ' +
       '[--impeccable-available] [--intent-reference-file <path>] ' +
+      '[--mislabel-contract] ' +
       '[--base <ref>] [--scope <s>] [--timeout-ms N] [--json]\n');
     process.stderr.write('Always emits JSON to stdout. Exit 12 = blocking, 0 = ok/advisory.\n');
     return 2;

@@ -84,6 +84,22 @@ function truncateAtUnclosedHtml(text) {
   return m ? text.slice(0, m.index) : text;
 }
 
+// HTML 주석도 인용이다 — 오히려 렌더된 화면에 **보이지도 않는** 인용이라, 그 안의
+// 줄이 주장으로 세어지면 리뷰어가 화면에 아무 주장도 표시하지 않은 채 판정을
+// 발급한 셈이 된다. 한 줄짜리 `<!-- INTENT: none -->`은 앵커가 줄 선두를 요구하므로
+// 이미 매칭되지 않지만, 여러 줄 주석의 둘째 줄은 선두에 오므로 매칭됐다(실측:
+// claimed none → 없던 `agree-none`).
+//
+// 닫히지 않은 주석은 위 두 구조와 같은 규칙으로 문서 끝까지 삼킨다.
+const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
+const UNCLOSED_COMMENT_RE = /<!--/;
+
+function stripHtmlComments(text) {
+  const closed = text.replace(HTML_COMMENT_RE, '\n');
+  const m = closed.match(UNCLOSED_COMMENT_RE);
+  return m ? closed.slice(0, m.index) : closed;
+}
+
 const FENCE_OPEN_RE = /^[ ]{0,3}(`{3,}|~{3,})/;
 const BLOCKQUOTE_RE = /^[ ]{0,3}>/;
 // 들여쓰기는 **칼럼**으로 재야 한다. `/^(?: {4,}|\t)/`처럼 문자로 재면 공백과 탭이
@@ -107,7 +123,9 @@ function isIndentedCode(line) {
 // fence는 상태 기계로 처리한다 — 여는 fence와 **같은 문자**의 같거나 더 긴 fence만
 // 닫는 것으로 인정하며, 닫히지 않은 fence는 문서 끝까지 삼킨다(마크다운 동작).
 function stripQuotedStructures(text) {
-  const lines = truncateAtUnclosedHtml(stripHtmlBlocks(text)).split('\n');
+  // 주석을 먼저 걷어낸다 — 주석 안에 `<pre>` 같은 여는 태그가 있으면 아래 truncate가
+  // 주석 밖의 멀쩡한 본문까지 잘라낼 수 있다(과다 제거는 안전 방향이지만 불필요하다).
+  const lines = truncateAtUnclosedHtml(stripHtmlBlocks(stripHtmlComments(text))).split('\n');
   const out = [];
   let fenceChar = null;
   let fenceLen = 0;

@@ -518,3 +518,42 @@ test('quoted text cannot manufacture agreement through any of these forms', func
     assert.notStrictEqual(cmp.compliance, 'full', JSON.stringify(body));
   });
 });
+
+// ── HTML comments are quotes too, and invisible ones ─────────────────────────
+//
+// A claim inside `<!-- ... -->` renders to nothing, so counting it means the
+// reviewer issued a verdict that appears nowhere in what a human reads. The
+// single-line form was already safe (the anchor needs line-start), but the
+// second line of a multi-line comment IS at line-start and was counted.
+
+test('an INTENT line inside an HTML comment is not a claim', function () {
+  const ids = [{ id: 'UI1' }];
+  [
+    '<!--\nINTENT: none\n-->',
+    '<!--\nINTENT: UI1\n-->',
+    '<!-- INTENT: none -->',
+    '<!--\nINTENT: none',            // unclosed: swallows to the end, like a fence
+    'text\n<!--\nINTENT: none\n-->\nmore text',
+  ].forEach(function (body) {
+    const r = icl.parseReviewerClaims({
+      findings: [{ title: 't', body: body, recommendation: '' }],
+      sectionItems: ids,
+    });
+    assert.strictEqual(r.claims[0].status, 'unclaimed', JSON.stringify(body));
+  });
+});
+
+test('a commented-out example does not hide the real claim beside it', function () {
+  // Stripping must not be so eager that a genuine claim next to a commented
+  // example is lost — that would trade a false pass for a false block.
+  const r = icl.parseReviewerClaims({
+    findings: [{
+      title: 't',
+      body: 'Not this one:\n<!--\nINTENT: UI1\n-->\n\nINTENT: none',
+      recommendation: '',
+    }],
+    sectionItems: [{ id: 'UI1' }],
+  });
+  assert.strictEqual(r.claims[0].status, 'claimed');
+  assert.strictEqual(r.claims[0].claim, 'none');
+});

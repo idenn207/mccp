@@ -1012,3 +1012,46 @@ test('the shipped default points at the measurement that justifies it', function
   assert.ok(src.indexOf('reviewer-contract-compliance.md') !== -1,
     'DEFAULT_MISLABEL_MODE must cite the measurement document');
 });
+
+// ── a dispute is prose about code ───────────────────────────────────────────
+//
+// The shared placeholder list bans `test`, `tmp`, `foo`, `bar` as whole words
+// anywhere in the reason. For an override justification that is right. For a
+// rebuttal it is a false block on ordinary repo vocabulary, and the author's way
+// out would be to reword until the validator relents.
+
+test('M1.5 — a dispute may name test scaffolding and bar.ts', function () {
+  [
+    'the reviewer pointed at test scaffolding in bar.ts, not the shipped module boundary',
+    'this finding concerns the foo helper only and never reaches the public surface here',
+    'the reviewer flagged a TODO comment that predates this milestone entirely and is unrelated',
+  ].forEach(function (r) {
+    assert.strictEqual(ic.isValidDisputeReason(r), true, 'must be accepted: ' + r);
+  });
+});
+
+test('M1.5 — but filler is still filler, and a shrug is still a shrug', function () {
+  [
+    'lorem ipsum dolor sit amet consectetur adipiscing elit sed do',
+    'asdf asdf asdf asdf asdf asdf asdf asdf asdf asdf asdf asdf',
+    'no', 'ok', 'yes',
+    'too short',
+  ].forEach(function (r) {
+    assert.strictEqual(ic.isValidDisputeReason(r), false, 'must be rejected: ' + r);
+  });
+});
+
+test('M1.5 — the override validator is NOT relaxed by the dispute carve-out', function () {
+  // The carve-out is opt-in per call. An audited override reason containing the
+  // same code vocabulary must still be refused, or widening the dispute path
+  // would have quietly widened every override surface with it.
+  const { validateReason } = require('../../receipt/lib/force-override-reason');
+  assert.strictEqual(
+    validateReason('the reviewer pointed at test scaffolding in bar.ts, not the boundary',
+      { strict: true }).ok,
+    false, 'override reasons keep the full placeholder list');
+  assert.strictEqual(
+    validateReason('proceeding under an audited override because the quota is exhausted today',
+      { strict: true }).ok,
+    true);
+});

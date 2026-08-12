@@ -440,19 +440,43 @@ function run(opts, deps) {
           reason: 'adjudication file rejected: ' + parsed.reason });
       }
       // ④ 대조는 ①의 **지역 변수**를 읽는다. awaiting을 다시 읽는 코드는 없다.
-      comparison = claims ? iclaims.compareIntentClaims({
-        claims: claims,
-        adjudications: parsed.value.adjudications,
-      }) : null;
-
-      decision = ic.decideIntentGate({
+      //
+      // 단, 대조에 **앞서** M1 바인딩을 먼저 통과시킨다. `decideIntentGate`는
+      // adjudication 파일이 이 payload에 실제로 결속되는지(digest 일치 · 개수 일치 ·
+      // index 유일·범위)를 M1 규칙에서 검사하는데, 그 검사가 거부한 파일로 계산한
+      // 비교 결과는 **다른 리뷰에 대한 판정**이다. 그것을 receipt에 봉인하면 — override로
+      // 진행할 때 실제로 그렇게 됐다 — 감사 표면이 자기가 설명하지 않는 리뷰의 증거를
+      // 담게 된다.
+      //
+      // 그래서 comparison 없이 한 번 판정해 M1을 통과할 때만 대조한다. 오라클이 순수
+      // 함수라 두 번 호출해도 부작용이 없고, "M1.5 증거는 M1 바인딩이 성공했을 때만
+      // 존재한다"가 주석이 아니라 **구조**가 된다.
+      const m1Only = ic.decideIntentGate({
         planText: planText,
         section: section,
         reviewPayload: payload,
         adjudications: parsed.value,
         meta: meta,
-        comparison: comparison,
+        comparison: null,
       });
+
+      if (m1Only.verdict !== 'preserved') {
+        decision = m1Only;   // M1이 막았다 — comparison은 null로 남고 아무것도 stamp되지 않는다
+      } else {
+        comparison = claims ? iclaims.compareIntentClaims({
+          claims: claims,
+          adjudications: parsed.value.adjudications,
+        }) : null;
+
+        decision = ic.decideIntentGate({
+          planText: planText,
+          section: section,
+          reviewPayload: payload,
+          adjudications: parsed.value,
+          meta: meta,
+          comparison: comparison,
+        });
+      }
     }
 
     const overrideReason = ic.parseIntentGateSkipReason(env);

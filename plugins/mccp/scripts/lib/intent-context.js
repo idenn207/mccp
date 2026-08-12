@@ -595,10 +595,16 @@ function resolveSkipProof(opts) {
 // 하나씩 적으면 게이트는 통과한다 — M1의 intent_override_reason과 정확히 같은 성질이며
 // 텍스트 검증으로 닫을 수 있는 종류의 구멍이 아니다. M1.5가 사는 것은 "기록 없는
 // 수용"의 제거이지 "잘못된 수용"의 제거가 아니다(DD9 항목 4).
+// `allowCodeVocabulary` — a dispute is prose about code and must be free to name
+// `test` scaffolding or a `bar.ts`, which the shared placeholder list bans as
+// whole words. Rejecting those is a false block on ordinary repo vocabulary, and
+// the author's way out would be to reword until the validator relents. Length,
+// word count and the one-token banlist still apply; they are what make a reason
+// a sentence rather than a shrug.
 function isValidDisputeReason(text) {
   if (typeof text !== 'string' || !text.trim()) return false;
   if (text.length > ADJUDICATION_LIMITS.DISPUTE_REASON_CHARS) return false;
-  return validateReason(text, { strict: true }).ok === true;
+  return validateReason(text, { strict: true, allowCodeVocabulary: true }).ok === true;
 }
 
 // decideIntentGate → { verdict, skipProof, counts, reason }

@@ -1847,9 +1847,12 @@ Recovery:
   - inconclusive          → the REVIEWER did not follow the per-finding `INTENT:` contract,
                             so your labels had nothing to be checked against. This is NOT
                             fixed by editing the adjudication file: re-run the review so the
-                            reviewer emits exactly one `INTENT:` line per finding. Check
-                            meta.intent_claim_counts (claimed/total) to see how far off it
-                            was. If the reviewer simply will not comply, set
+                            reviewer emits exactly one `INTENT:` line per finding. The
+                            marker's reason carries the claimed/total count, which is how
+                            far off it was — under `enforce` that is the ONLY place it
+                            exists, because a blocked run writes no receipt. (Under `warn`
+                            the receipt is written, so meta.intent_claim_counts is there
+                            too.) If the reviewer simply will not comply, set
                             MCCP_INTENT_MISLABEL=warn to record the gap instead of blocking
                             on it — the receipt then seals `inconclusive` and cross-gate
                             dedupe stays closed, so PR-Codex still runs.

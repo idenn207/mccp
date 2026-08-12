@@ -832,3 +832,50 @@ test('DD2 — the runner never reads the awaiting artifact back', function () {
     'a read of p.awaiting would make that file the gate — anything able to write ' +
     'it could forge a passing verdict');
 });
+
+// ── the blocked run keeps its diagnostics ────────────────────────────────────
+//
+// A blocked run writes no receipt and deletes the awaiting/adjudication files in
+// its finally, so the marker is the ONLY surviving artifact. plan.md's recovery
+// text sends the operator there, which is only honest if the detail is actually
+// in it — the derived reason used to overwrite the oracle's message with a
+// generic "intent gate blocking (verdict=X)".
+
+function readMarker(s, nonce) {
+  const p = runner.paths(s.tmpDir, 'r', nonce);
+  return JSON.parse(fs.readFileSync(p.marker, 'utf8'));
+}
+
+test('M1.5 — a blocked mislabel_unresolved marker names the offending finding', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const out = runMislabel(s, 'mk1', env, 'enforce');
+  assert.strictEqual(out.res.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(out.captured.length, 0, 'no receipt is written, so the marker is all there is');
+
+  const m = readMarker(s, 'mk1');
+  assert.strictEqual(m.intent_gate_verdict, 'mislabel_unresolved');
+  assert.ok(/first: index \d+/.test(m.reason),
+    'the operator is told to fix a specific finding, so the marker must say which: ' + m.reason);
+  assert.ok(m.reason.indexOf('reviewer-only') !== -1 || m.reason.indexOf('id-mismatch') !== -1,
+    'and which way the labels disagreed: ' + m.reason);
+  assert.ok(m.reason.indexOf('UI1') !== -1, 'and the id the reviewer named: ' + m.reason);
+});
+
+test('M1.5 — a blocked inconclusive marker carries the claimed/total count', function () {
+  const s = scratch(PRD_PLAN);
+  // Two findings, only one of which carries a claim → compliance is `partial`,
+  // and plan.md tells the operator to read how far off it was from the marker.
+  const env = envelopeWith([
+    claimFinding('UI1', 1),
+    { severity: 'HIGH', title: 'no claim at all', body: 'nothing here', recommendation: 'x' },
+  ], { rawFindings: true });
+  const out = runMislabel(s, 'mk2', env, 'enforce');
+  assert.strictEqual(out.res.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(out.res.verdict, 'inconclusive');
+
+  const m = readMarker(s, 'mk2');
+  assert.ok(/\d+\/\d+ findings/.test(m.reason),
+    'the marker must carry claimed/total — under enforce nothing else survives: ' + m.reason);
+  assert.ok(m.reason.indexOf('compliance=') !== -1, m.reason);
+});

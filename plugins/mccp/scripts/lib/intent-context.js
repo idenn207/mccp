@@ -768,17 +768,25 @@ function deriveIntentGateDecision(input, opts) {
     && MISLABEL_VERDICTS.indexOf(verdict) !== -1;
   const overrideApplies = !rawPass && !advisoryApplies && overrideRequested;
 
+  // decideIntentGate's reason is where the actionable detail lives — which
+  // finding, which ids, how far off the contract was. On a BLOCKED run it is the
+  // only place that detail exists at all: the runner returns before the receipt
+  // write, and deletes the awaiting/adjudication files in its finally, so the
+  // marker is the whole channel. Dropping it here left the operator told to fix
+  // a specific finding with no way to learn which one.
+  const detail = (typeof i.reason === 'string' && i.reason) ? ' — ' + i.reason : '';
+
   let reason;
   if (rawPass) {
     reason = 'intent_gate_verdict=' + verdict + ' authorizes the gate';
   } else if (advisoryApplies) {
-    reason = 'intent gate blocking (verdict=' + verdict +
-      ') — proceeding in MCCP_INTENT_MISLABEL=warn (verdict sealed, dedupe stays closed)';
+    reason = 'intent gate blocking (verdict=' + verdict + ')' + detail +
+      ' — proceeding in MCCP_INTENT_MISLABEL=warn (verdict sealed, dedupe stays closed)';
   } else if (overrideApplies) {
-    reason = 'intent gate blocking (verdict=' + verdict +
-      ') — proceeding under audited override (verdict sealed unchanged)';
+    reason = 'intent gate blocking (verdict=' + verdict + ')' + detail +
+      ' — proceeding under audited override (verdict sealed unchanged)';
   } else {
-    reason = 'intent gate blocking (verdict=' + verdict + ')';
+    reason = 'intent gate blocking (verdict=' + verdict + ')' + detail;
   }
 
   return {

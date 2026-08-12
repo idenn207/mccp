@@ -173,3 +173,45 @@ test('PR-Codex R3 F1: 5.2d must not charge the cap for a skipped panel', () => {
   assert.match(bash, /"\$SKIPPED"\s*=\s*"\?"/,
     'an unreadable l2.json must leave the reservation pending, not reconcile 0');
 });
+
+// ── PR-Codex R4 — pre-launch halts must return the reservation ────────────────
+//
+// The cap can be poisoned from either direction, and this milestone hit both.
+// R3 caught the over-count: a budget-skipped panel reconciled the PLANNED fleet,
+// committing launches that never happened. R4 caught the mirror: the pre-launch
+// halts reserved workers and then exited without reconciling at all, so the
+// headroom stayed charged until the lease expired (10 min default) for reviewers
+// that never existed. `--actual 0` is the module's documented value for "nothing
+// fired", so a halt that KNOWS zero launched has no excuse to stay silent.
+test('R4: every pre-launch halt returns its reservation with --actual 0', () => {
+  const bash = bashBlockLines();
+
+  // The three stages that hold a reservation and can stop before the Workflow
+  // call. 5.2a is excluded on purpose: it halts before `reserve` runs.
+  const PRE_LAUNCH = ['5.2b', '5.2c-emit', '5.2c-pin'];
+
+  for (const stage of PRE_LAUNCH) {
+    const idx = bash.findIndex((b) => new RegExp('--halt-stage ' + stage.replace('.', '\.') + ' ').test(b.line));
+    assert.ok(idx >= 0, `recorder invocation for ${stage} not found`);
+
+    // Look in the enclosing branch/helper, both directions: the reconcile may sit
+    // before the recorder (5.2b/5.2c-emit) or above it in a helper (5.2c-pin).
+    const window = bash.slice(Math.max(0, idx - 8), idx + 8).map((b) => b.line).join('\n');
+    assert.match(window, /orchestration-runaway\.js" reconcile/,
+      `${stage} halts without reconciling; the reservation stays charged for the ` +
+      'lease window over reviewers that never launched');
+    assert.match(window, /--actual 0/,
+      `${stage} must reconcile with --actual 0 (the documented "nothing fired" value)`);
+  }
+});
+
+test('R4: the known-zero and unknown cases stay distinguishable', () => {
+  // 5.2d must NOT reconcile when l2.json is absent: the panel may have launched
+  // and only the return was lost, and a cap may never under-count. The pre-launch
+  // halts are the opposite case — zero is observed. If this guard ever fails, one
+  // of the two policies has been copied onto the other.
+  assert.match(SRC, /l2\.json absent or unreadable — NOT reconciling/,
+    'the unknown-launch case must still refuse to guess');
+  assert.match(SRC, /zero is observed, not assumed|observed rather than assumed/,
+    'the known-zero case must state why it is allowed to answer');
+});

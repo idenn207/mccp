@@ -1028,6 +1028,15 @@ echo "[mccp:plan-review] reserved granted=$RES_GRANTED required=$REQUIRED" 1>&2
 # recorder runs here — same shape as 5.2d/5.2f. Both readers fall back to a numeral
 # ("0"/"3"), so the comparison cannot be reached with a non-numeric operand.
 if [ "$RES_GRANTED" = "0" ] || [ "$RES_GRANTED" -lt "$REQUIRED" ]; then
+  # This halt is BEFORE the launch, so zero reviewers ran and the reservation must
+  # be given back. `--actual 0` is the module's own documented way to say "nothing
+  # fired" (orchestration-runaway.js: inline/skipped/N-A → actualN = 0), not a
+  # number we are inventing. Leaving it pending instead burns session headroom for
+  # the whole lease window (10 min default), so a near-cap retry loop can make
+  # /mccp:plan deny its own panel over agents that never existed.
+  RES_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservationId||"")}catch{process.stdout.write("")}' "$REVIEW_DIR/reservation.json")
+  [ -n "$RES_ID" ] && node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
+    --reservation "$RES_ID" --actual 0 1>/dev/null 2>&1 || true
   DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
     --command mccp:plan --args "$ARGUMENTS")
   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
@@ -1051,8 +1060,21 @@ above has already recorded this stop; print:
 Recovery: start a new session · raise MCCP_ORCHESTRATION_MAX_AGENTS · lower MCCP_PLAN_REVIEW_QUORUM · or set MCCP_PLAN_REVIEW=codex.
 ```
 
-The reservation stays **pending** on this path — do not reconcile it to a number
-you did not launch. 5.2d commits it only once the panel has actually fired.
+**The reservation is returned on this path, not left pending.** An earlier
+revision said the opposite — "do not reconcile it to a number you did not launch"
+— which misread the API it was protecting. `--actual 0` is not a number we did not
+launch; it is the module's documented value for *nothing fired*
+(`orchestration-runaway.js`: `inline / skipped / N/A → actualN = 0`), and it is
+the same correction 5.2d already makes for a budget-skipped panel. Leaving it
+pending charges the session cap for reviewers that never existed until the lease
+expires (10 min default), so a near-cap retry can make `/mccp:plan` deny its own
+panel over phantom headroom.
+
+The distinction that still holds is *unknown* vs *known-zero*. 5.2d leaves a
+reservation pending when `l2.json` is absent, because the panel may have launched
+and only the return was lost — guessing 0 there would under-count real agents,
+the one direction a cap may never err in. Here there is no ambiguity: the halt is
+before the Workflow call, so zero is observed, not assumed.
 
 #### 5.2c — Fire the L2 refutation panel
 
@@ -1077,18 +1099,24 @@ EMIT_EXIT=$?
 # Any non-zero exit here is a stop (12 block, 2 misuse), and the exit code is only
 # visible inside this block — so record here rather than downstream.
 if [ "$EMIT_EXIT" -ne 0 ]; then
+  # Pre-launch halt — same reasoning as 5.2b: give the reservation back with
+  # `--actual 0` rather than leaving it pending for the lease window.
+  RES_ID=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reservationId||"")}catch{process.stdout.write("")}' "$REVIEW_DIR/reservation.json")
+  [ -n "$RES_ID" ] && node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
+    --reservation "$RES_ID" --actual 0 1>/dev/null 2>&1 || true
   DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
     --command mccp:plan --args "$ARGUMENTS")
   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
     --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2c-emit 1>/dev/null || true
-  echo "[MCCP-GATE-STOP] emit-workflow-args failed (exit $EMIT_EXIT) — the granted fleet cannot satisfy the quorum, or the plan could not be hashed. The reservation is left pending on purpose."
+  echo "[MCCP-GATE-STOP] emit-workflow-args failed (exit $EMIT_EXIT) — the granted fleet cannot satisfy the quorum, or the plan could not be hashed. Reservation returned (--actual 0); nothing was launched."
   exit 12
 fi
 ```
 
 exit **12** → HALT (the granted fleet cannot satisfy the quorum, or the plan could
-not be hashed); the block above has already recorded it. Do not reconcile the
-reservation; leave it pending.
+not be hashed); the block above has already recorded it and returned the
+reservation with `--actual 0`, because the halt is before the launch and zero is
+therefore observed rather than assumed.
 
 The payload also carries `minRemaining` — the tokens the turn must still have for
 the panel to be worth firing, computed as `MCCP_PLAN_REVIEW_BUDGET` (default
@@ -1113,6 +1141,13 @@ PIN_N=$(node -e 'try{process.stdout.write(String((JSON.parse(require("fs").readF
 DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
   --command mccp:plan --args "$ARGUMENTS")
 PIN_HALT() {
+  # Both callers halt BEFORE the Workflow call, so nothing launched and the
+  # reservation goes back with `--actual 0` — the module's documented value for
+  # "nothing fired", not a guess. Guarded on PIN_ID because the first caller fires
+  # precisely when the reservation artifact was unreadable, and there is then no
+  # id to reconcile against.
+  [ -n "$PIN_ID" ] && node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" reconcile \
+    --reservation "$PIN_ID" --actual 0 1>/dev/null 2>&1 || true
   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
     --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2c-pin 1>/dev/null || true
 }

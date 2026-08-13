@@ -1834,8 +1834,15 @@ written**. Read `intent_gate_verdict` + `reason` from `$MARKER` and output:
 Reason: <reason from marker>
 No mccp-plan-codex receipt was written, so /mccp:prp-implement cannot start.
 Recovery:
-  - incomplete            → every Codex finding needs an explicit adjudication row.
-                            Re-run /mccp:plan and write a complete one at 5.5a. Do NOT go
+  - incomplete            → the gate could not certify that every finding was adjudicated.
+                            Usually that is a missing row, but the same verdict covers a
+                            file written against a DIFFERENT review (stale
+                            review_payload_digest), a count that does not match the
+                            findings, and a duplicate or out-of-range finding_index — the
+                            marker's reason says which.
+                            Re-run /mccp:plan and write a complete one at 5.5a; that
+                            regenerates the review and the adjudication together, which
+                            resolves every one of those causes. Do NOT go
                             looking for this run's intent-adjudication-<nonce>.json: its
                             path carries the run nonce, so a new run neither reads nor
                             reuses it, and it is removed with the run's other scratch.
@@ -1844,6 +1851,24 @@ Recovery:
                             why the user's constraint is being overridden
   - skipped-unproven      → a skip was claimed with no corroborated proof (this is a bug —
                             report it)
+  - inconclusive          → the REVIEWER did not follow the per-finding `INTENT:` contract,
+                            so your labels had nothing to be checked against. This is NOT
+                            fixed by editing the adjudication file: re-run the review so the
+                            reviewer emits exactly one `INTENT:` line per finding. The
+                            marker's reason carries the claimed/total count, which is how
+                            far off it was — under `enforce` that is the ONLY place it
+                            exists, because a blocked run writes no receipt. (Under `warn`
+                            the receipt is written, so meta.intent_claim_counts is there
+                            too.) If the reviewer simply will not comply, set
+                            MCCP_INTENT_MISLABEL=warn to record the gap instead of blocking
+                            on it — the receipt then seals `inconclusive` and cross-gate
+                            dedupe stays closed, so PR-Codex still runs.
+  - mislabel_unresolved   → the reviewer named a UI<n> id that you did not (see the marker's
+                            reason for the first offending index). At 5.5a either correct
+                            `intent_conflict` to the id the reviewer named, or write an
+                            `intent_dispute_reason` saying why the reviewer is wrong. A
+                            one-token reason is rejected and counts as no answer.
+                            MCCP_INTENT_MISLABEL=warn records it instead of blocking.
   - or set MCCP_SKIP_INTENT_GATE="<substantive reason>" for an audited override
     (the receipt still seals the real blocking verdict, so PR-Codex will still run)
 ```
@@ -1893,7 +1918,8 @@ cat > "$ADJUDICATION.tmp" <<'JSON'
       "intent_conflict": "none",
       "verdict": "ACCEPT_NOW",
       "rationale": "<why — must be non-empty>",
-      "intent_override_reason": null
+      "intent_override_reason": null,
+      "intent_dispute_reason": null
     }
   ]
 }
@@ -1911,11 +1937,43 @@ Field rules (all enforced mechanically by `intent-context.js`):
 | `verdict` | `ACCEPT_NOW` / `DEFER_TO_BACKLOG` / `REJECT_YAGNI` / `REJECTED_BY_DESIGN` |
 | `rationale` | non-empty |
 | `intent_override_reason` | **required** when `intent_conflict != "none"` AND `verdict = ACCEPT_NOW` |
+| `intent_dispute_reason` | **required** when the reviewer named an id you did not — see below. ≥30 chars, ≥3 words, no one-token shrug. Unlike an override reason it MAY name code (`test`, `bar.ts`, a `TODO`); only outright filler (`lorem`, `asdf`) is refused |
 
-The last rule is the one substantive constraint M1 enforces: accepting a finding that
-contradicts a user-stated constraint requires you to write down why. Marking a genuine
-conflict as `"none"` would pass the completeness check — M1 blocks OMISSION, not
-mislabelling; detecting the latter is M1.5's job. Do not use `"none"` to move faster.
+The `intent_override_reason` rule is the one substantive constraint M1 enforces:
+accepting a finding that contradicts a user-stated constraint requires you to write
+down why.
+
+#### Check your label against the reviewer's (codex-intent-context M1.5)
+
+Each finding in `$AWAITING` now also carries **`reviewer_claim`** — the id the reviewer
+itself named for that finding (`"none"`, a `UI<n>`, or `null` when its claim was
+missing or ambiguous). Marking a genuine conflict as `"none"` no longer passes
+silently: **if `reviewer_claim` is a `UI<n>` and your `intent_conflict` is not that
+same id**, you must do exactly one of two things:
+
+1. **Correct your label** — set `intent_conflict` to the id the reviewer named. (The
+   M1 rule then applies as usual: `ACCEPT_NOW` on a real conflict needs an
+   `intent_override_reason`.)
+2. **Dispute it** — write `intent_dispute_reason` explaining why the reviewer is
+   wrong. A one-token answer (`"no"`, `"ok"`) is rejected by the validator and counts
+   as no answer at all.
+
+Doing neither makes the gate `mislabel_unresolved`. The gate is not asking you to be
+right; it is refusing to let a disagreement disappear without a record — every disputed
+finding is sealed into `meta.intent_mislabel_audit` with the reviewer's claim, your
+label, and your reason.
+
+Read `reviewer_claim_status`, not `reviewer_claim`, to tell those two apart. A `null`
+`reviewer_claim` means one of two very different things, and only the status field
+distinguishes them:
+
+| `reviewer_claim_status` | meaning |
+|---|---|
+| `"unclaimed"` | the reviewer was asked and did not answer usably → the review is `inconclusive`, which you cannot fix in this file (see 5.6) |
+| `null` | the mislabel axis never ran (`MCCP_INTENT_MISLABEL=off`), so nothing on this page applies — no claim was requested, none is missing, and there is nothing to dispute |
+
+`$AWAITING` also carries `mislabel_mode` at the top level, which says the same thing
+once for the whole file.
 
 ### 5.6 — Await the runner's completion marker (`mode=codex` ONLY — receipt is written BY the runner)
 

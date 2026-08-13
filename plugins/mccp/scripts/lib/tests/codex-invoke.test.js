@@ -523,3 +523,66 @@ test('intent reference: file content reaches the companion argv end-to-end', () 
   assert.ok(focusArg.includes(INTENT_REFERENCE_PREAMBLE.trim().split('\n')[0]));
   assert.ok(focusArg.endsWith('payload'), 'caller focus stays last');
 });
+
+// ---------------------------------------------------------------------------
+// M1.5 — per-finding INTENT contract (Task 5)
+// ---------------------------------------------------------------------------
+
+const CONTRACT_MARKER = '[intent-conflict 판정 계약]';
+
+test('(a) with no intent reference the focus is untouched, contract requested or not', () => {
+  const original = 'review this diff';
+  assert.strictEqual(composeFocus(original, { mislabelContract: true }), original);
+  assert.strictEqual(composeFocus(original, { mislabelContract: false }), original);
+});
+
+test('(b) reference + mislabelContract:false is byte-identical to the pre-M1.5 composition', () => {
+  const ref = '<user_intent_reference>\nUI1: something\n</user_intent_reference>';
+  const focus = 'payload';
+  // This is exactly what v1.23.4 produced. If the contract ever leaks in
+  // unconditionally, `off` stops being end-to-end M1 equivalent (DD5) and the
+  // reviewer sees a different prompt even though the oracle path is skipped.
+  const expected = codexInvoke.INTENT_REFERENCE_PREAMBLE + ref + '\n\n' + focus;
+
+  assert.strictEqual(composeFocus(focus, { intentReference: ref }), expected);
+  assert.strictEqual(composeFocus(focus, { intentReference: ref, mislabelContract: false }), expected);
+  assert.ok(composeFocus(focus, { intentReference: ref }).indexOf(CONTRACT_MARKER) === -1);
+});
+
+test('(b) only the strict boolean true opts in — truthy strings do not', () => {
+  const ref = '<user_intent_reference>\nUI1: something\n</user_intent_reference>';
+  const out = composeFocus('payload', { intentReference: ref, mislabelContract: 'yes' });
+  assert.strictEqual(out.indexOf(CONTRACT_MARKER), -1);
+});
+
+test('(c) mislabelContract:true inserts the contract exactly once, after the reference', () => {
+  const ref = '<user_intent_reference>\nUI1: something\n</user_intent_reference>';
+  const out = composeFocus('payload', { intentReference: ref, mislabelContract: true });
+
+  const occurrences = out.split(CONTRACT_MARKER).length - 1;
+  assert.strictEqual(occurrences, 1, 'the contract must not be duplicated');
+
+  // The contract text tells the reviewer to use ids from "the reference block
+  // above", so it must actually sit after that block.
+  assert.ok(out.indexOf(ref) < out.indexOf(CONTRACT_MARKER),
+    'the contract must follow the reference block it points at');
+  assert.ok(out.endsWith('payload'), 'caller focus still stays last');
+});
+
+test('(c) the contract survives composition with the design-scope preamble', () => {
+  const ref = '<user_intent_reference>\nUI1: something\n</user_intent_reference>';
+  const out = composeFocus('payload', {
+    intentReference: ref, mislabelContract: true, impeccableAvailable: true,
+  });
+  assert.ok(out.startsWith(DESIGN_SCOPE_PREAMBLE), 'design scope stays first');
+  assert.ok(out.indexOf(CONTRACT_MARKER) !== -1);
+});
+
+test('the CLI exposes --mislabel-contract so Task 0 can measure the production path', () => {
+  const parsed = parseCliArgs([
+    'adversarial-review', '--focus', 'f', '--mislabel-contract',
+  ]);
+  assert.strictEqual(parsed.opts.mislabelContract, true);
+  const without = parseCliArgs(['adversarial-review', '--focus', 'f']);
+  assert.strictEqual(without.opts.mislabelContract, undefined);
+});

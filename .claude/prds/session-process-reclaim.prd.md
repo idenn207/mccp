@@ -56,8 +56,8 @@ We'll know we're right when **세션 종료 후 그 세션이 띄운 mccp 자식
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | 세션 프로세스 레지스트리 | mccp가 띄운 detached 자식이 세션 키와 함께 기록되어, 누가 무엇을 띄웠는지 알 수 있음 | pending | — |
-| 2 | SessionEnd 회수 + 실패 표면화 | 세션 종료 시 자기 소유 자식이 회수되고, 못 죽인 것은 조용히 넘어가지 않음 | pending | — |
+| 1 | 세션 프로세스 레지스트리 | mccp가 띄운 detached 자식이 세션 키와 함께 기록되어, 누가 무엇을 띄웠는지 알 수 있음 | in-progress | [.claude/plans/session-process-reclaim.plan.md](../plans/session-process-reclaim.plan.md) |
+| 2 | SessionEnd 회수 + 실패 표면화 | 세션 종료 시 자기 소유 자식이 회수되고, 못 죽인 것은 조용히 넘어가지 않음 | in-progress | [.claude/plans/session-process-reclaim.plan.md](../plans/session-process-reclaim.plan.md) |
 
 ## Open Questions
 

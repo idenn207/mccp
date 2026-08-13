@@ -57,6 +57,14 @@
 | `session_id` | `orchestration-runaway#resolveSessionKey`와 **동일** precedence로 해석 |
 | `session_epoch` | `session-ledger.created_at` (단조·host/pid 검증 완료). 부재 시 `ts` |
 | `epoch_source` | `ledger` / `ts-fallback` — 어느 근거인지가 레코드에 남는다 |
+| `work_unit` | 순서·tombstone의 키 (§3.1) |
+| `seq` | `work_unit` 별 단조 정수, 1부터 |
+| `kind` | `genesis` / `update` / `tombstone` / `checkpoint` / `reseed` |
+| `patch` | `state-writer` patch (update 전용) |
+| `prev_session_id` | **저널 tail**에서 파생 (§7) |
+| `superseded_by` | 강등 표식 — 폐기가 아니다 |
+| `checkpoint_of` | 스냅샷 + 접점 메타 (genesis/checkpoint/reseed) |
+| `content_hash` | 자기 자신을 제외한 정규 직렬화의 sha256 |
 
 > **ledger 리더의 기본값은 실제 리더다** (PR-Codex C1). 호출자 주입에 맡기면
 > "caller가 잊는" 실패 모드가 남고 **실제로 그것이 일어났다** — `state-writer`가
@@ -67,14 +75,6 @@
 > 쓰고(세션당 per-process 메모 — 모든 hook이 지나는 hot path다) test만 주입한다.
 > 회귀는 **프로덕션 형태**로 단언한다: 한 세션의 여러 `update()`가 같은
 > `session_epoch`을 `epoch_source: 'ledger'`로 유지하는가.
-| `work_unit` | 순서·tombstone의 키 (§3.1) |
-| `seq` | `work_unit` 별 단조 정수, 1부터 |
-| `kind` | `genesis` / `update` / `tombstone` / `checkpoint` / `reseed` |
-| `patch` | `state-writer` patch (update 전용) |
-| `prev_session_id` | **저널 tail**에서 파생 (§7) |
-| `superseded_by` | 강등 표식 — 폐기가 아니다 |
-| `checkpoint_of` | 스냅샷 + 접점 메타 (genesis/checkpoint/reseed) |
-| `content_hash` | 자기 자신을 제외한 정규 직렬화의 sha256 |
 
 ### 3.1 `work_unit` 해석 순서
 

@@ -22,7 +22,7 @@
 | Tasks | 10 | 10 (전부 착지) |
 | Files Changed | 31 | 31 (CREATE 17 · UPDATE 14) |
 | 신규 토글 | 정확히 1 | 1 (`MCCP_STATE_JOURNAL`) |
-| 회귀 단언 | Task별 열거 | **74건** (매니페스트 대조 absent 0 — PR-Codex 흡수 7건 포함) |
+| 회귀 단언 | Task별 열거 | **77건** (매니페스트 대조 absent 0 — PR-Codex 흡수 10건 포함) |
 
 ## Tasks Completed
 
@@ -44,14 +44,14 @@
 
 | # | Check | Status |
 |---|---|---|
-| §1 | 신규 모듈 회귀 8파일 | ✅ 74/74 |
+| §1 | 신규 모듈 회귀 8파일 | ✅ 77/77 |
 | §2 | 기존 표면 무회귀 (state-writer · injector · breakpoint · spawner) | ✅ 199/199 |
 | §3 | 전체 스위트 | ✅ **3584 tests / 3576 pass — 신규 red 0** (실패 3건 중 2건은 사전 존재 b2-coverage-gate, 1건은 병렬 부하 flake `perf-budget`으로 단독 실행 시 통과) |
 | §4 | `journal verify` · `journal query` | ✅ exit 0 |
 | §6 | 계측 무-LLM 계약 | ✅ 0 hit |
 | §7 | 릴리스 면 동기 | ✅ plugin.json · html.js · markdown.js · CHANGELOG · ENVIRONMENT |
 | §10 | `single-writer-lint --json` | ✅ exit 0 (위반 0) |
-| §11 | 매니페스트 대조 `absent 0` | ✅ 74/74 present |
+| §11 | 매니페스트 대조 `absent 0` | ✅ 77/77 present |
 | Task 9 | `instruction-contract/lint.js` | ✅ C1~C4 pass (CLAUDE.md 절 변경 0) |
 | §3.5.1 | `--diff-filter=D` 의도치 않은 삭제 | ✅ 0건 |
 | SHIP-1 | 배포 확인 | ❌ **미확인** (설계상 ship 시점 전용 — 아래 G5) |
@@ -196,6 +196,21 @@ verdict `needs-attention` (**No-ship**), HIGH 3건. `lock_exit_ok:true` ·
 수정 중 추가로 드러난 것: 손상 checkpoint를 `readCheckpoint`가 null로 돌려주므로
 **부트스트랩이 그것을 "부재"로 보고 새 genesis로 덮어썼다** — 격리가 아니라 증거
 인멸이다. Codex가 지적한 범위보다 한 칸 더 나빴고, 회귀 test가 그것을 잡았다.
+
+## PR-Codex R2 — 병합 트리 재발화 (실결함 2건 · 역시 override 없이 수정)
+
+R1 흡수 + `origin/main`(#131) 병합 후 최종 트리로 재발화. **R1의 3건은 재발하지
+않았고 새 축 2건**이 나왔다.
+
+| # | 지적 | 판정 | 수정 |
+|---|---|---|---|
+| D1 | 압축이 순서 인덱스를 버려 압축 후 지연 레코드가 admit됨 (HIGH, 0.90) | **실결함** | checkpoint에 `order_index` 봉인 + `buildOrderIndex`가 복원 |
+| D2 | `enforceLimits` 호출부 0개 — 상한 3종이 한 번도 발화 안 함 (MEDIUM, 0.86) | **실결함** | write 경로에 배선(읽은 레코드 재사용). 압축 실패는 loud warn |
+
+**R1과 같은 사각이 다시 확인됐다**: 회귀가 압축 전후 *상태*는 대조했지만 *순서
+메타*는 보지 않았고, 보존 정책은 *오라클*만 시험하고 *발화*는 시험하지 않았다.
+즉 두 라운드 모두 "산출물은 맞는데 메커니즘이 배선되지 않은" 형태였다. 신규 회귀
+3건은 전부 메커니즘 축이다(압축 후 admission · 회전된 tombstone · CLI 없는 자동 발화).
 
 ## Cross-model 검증 상태 (정직 기록)
 

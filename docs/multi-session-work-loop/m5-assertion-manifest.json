@@ -1,6 +1,6 @@
 {
   "milestone": "multi-session-work-loop M5",
-  "generated_from": "test() titles in the files listed under Files to Change (+ the PR-Codex R1 absorption suite)",
+  "generated_from": "test() titles in the files listed under Files to Change (+ the PR-Codex absorption suite)",
   "contract": "each title must match a test() title verbatim; Validation §11 requires absent 0",
   "assertions": [
     {
@@ -339,39 +339,54 @@
       "title": "M5 a4: an unresolvable root skips the write and leaves a countable marker"
     },
     {
-      "task": "Task PR-Codex R1",
-      "id": "TC-01",
+      "task": "Task PR-Codex",
+      "id": "TPC-01",
       "title": "M5 C1: the production update() path reads the session ledger for session_epoch"
     },
     {
-      "task": "Task PR-Codex R1",
-      "id": "TC-02",
+      "task": "Task PR-Codex",
+      "id": "TPC-02",
       "title": "M5 C2: a hash-tampered record is quarantined before it can drive the projection"
     },
     {
-      "task": "Task PR-Codex R1",
-      "id": "TC-03",
+      "task": "Task PR-Codex",
+      "id": "TPC-03",
       "title": "M5 C2: a hash-tampered checkpoint degrades instead of silently resetting the state"
     },
     {
-      "task": "Task PR-Codex R1",
-      "id": "TC-04",
+      "task": "Task PR-Codex",
+      "id": "TPC-04",
       "title": "M5 C3: a large next_chunk survives the journal without truncation"
     },
     {
-      "task": "Task PR-Codex R1",
-      "id": "TC-05",
+      "task": "Task PR-Codex",
+      "id": "TPC-05",
       "title": "M5 C3: a growing chain_progress survives the journal without truncation"
     },
     {
-      "task": "Task PR-Codex R1",
-      "id": "TC-06",
+      "task": "Task PR-Codex",
+      "id": "TPC-06",
       "title": "M5 C3: an unrepresentable patch degrades loudly instead of being silently trimmed"
     },
     {
-      "task": "Task PR-Codex R1",
-      "id": "TC-07",
+      "task": "Task PR-Codex",
+      "id": "TPC-07",
       "title": "M5 C3: preparePatch rejects nesting deeper than the journal can carry"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-08",
+      "title": "M5 D1: compaction carries the order index so a delayed record is still rejected"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-09",
+      "title": "M5 D1: a tombstone rotated into a segment still blocks post-compaction records"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-10",
+      "title": "M5 D2: the production update() path actually enforces the retention limits"
     }
   ]
 }

@@ -17,6 +17,7 @@ const path = require('path');
 
 const journalStore = require('../../state/journal-store');
 const record = require('./record');
+const order = require('./order');
 const projectMod = require('./project');
 
 // 상한은 **상수**이며 토글이 아니다 (DD7 — 신규 토글은 정확히 1개). test 주입만
@@ -121,6 +122,7 @@ function compact(opts) {
 
   const state = projectMod.project(input.records, input.base, {
     seededTombstones: input.seededTombstones,
+    baseIndex: input.baseIndex,
   });
 
   let throughSeq = 0;
@@ -143,6 +145,12 @@ function compact(opts) {
       through_seq: throughSeq,
       record_count: input.records.length,
       state: state,
+      // D1 — 상태만 봉인하면 순서 메타가 회전과 함께 사라진다. 압축 직후
+      // 인덱스가 빈 상태로 시작해 stale writer의 옛 seq가 admit된다.
+      order_index: order.snapshotOrderIndex(order.buildOrderIndex(input.records, {
+        seededTombstones: input.seededTombstones,
+        baseIndex: input.baseIndex,
+      })),
     },
   });
 
@@ -190,8 +198,12 @@ function enforceLimits(opts) {
 
   const totalBytes = dirBytes(dir) + dirBytes(journalStore.segmentsDir(opts));
 
-  const read = journalStore.readRecords(Object.assign({}, opts, { includeSegments: false }));
-  const oldestTs = read.records.length > 0 ? read.records[0].ts : null;
+  // 호출자가 이미 읽은 레코드를 재사용한다 — 이 경로는 **모든 `update()`가
+  // 지나는 hot path**라 저널을 두 번 읽으면 그 비용이 매 변형마다 붙는다.
+  const records = Array.isArray(opts.records)
+    ? opts.records
+    : journalStore.readRecords(Object.assign({}, opts, { includeSegments: false })).records;
+  const oldestTs = records.length > 0 ? records[0].ts : null;
 
   const decision = decideCompaction({
     activeBytes: activeBytes,

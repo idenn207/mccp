@@ -40,6 +40,8 @@ function cloneState(state) {
 // checkpoint 압축이 같은 경로를 탄다).
 function project(records, base, opts) {
   opts = opts || {};
+  // opts는 `{seededTombstones, baseIndex}`를 그대로 통과시킨다 — baseIndex는
+  // 압축이 봉인한 순서 메타로, 없으면 압축 이후 지연 레코드가 admit된다(D1).
   const classified = classifyAll(records || [], opts);
 
   let state = base ? cloneState(base) : emptyState();

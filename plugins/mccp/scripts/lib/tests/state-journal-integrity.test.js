@@ -16,6 +16,7 @@ const stateWriter = require('../../state/state-writer');
 const store = require('../../state/journal-store');
 const journal = require('../state-journal');
 const record = require('../state-journal/record');
+const order = require('../state-journal/order');
 const { project } = require('../state-journal/project');
 
 function mkRepo(name) {
@@ -190,4 +191,114 @@ test('M5 C3: preparePatch rejects nesting deeper than the journal can carry', ()
 
   assert.strictEqual(record.preparePatch({ goal: 'g', plan: ['a', 'b'] }).ok, true,
     'ordinary state patches stay representable');
+});
+
+// ── PR-Codex R2: D1 (압축이 순서 메타를 잃음) · D2 (보존 정책 미발화) ────────
+
+test('M5 D1: compaction carries the order index so a delayed record is still rejected', () => {
+  // 결함: `compact()`가 상태와 전역 through_seq만 봉인하고 활성 세그먼트를
+  // 회전시켰다. 투영 입력은 활성 세그먼트만 읽으므로 압축 직후 인덱스가 **빈
+  // 상태로 시작**했고, 압축 이전 시점의 stale writer가 옛 (work_unit, seq)를
+  // append하면 high-water도 tombstone도 없어 그대로 admit됐다 — G2가 압축 한
+  // 번에 무력해진다. 회귀 test가 상태만 대조하고 순서 메타는 안 봐서 통과했다.
+  const root = mkRepo('d1');
+  const retention = require('../state-journal/retention');
+
+  store.bootstrapGenesis({ repoRoot: root, state: stateWriter.emptyState() });
+  for (let seq = 2; seq <= 5; seq++) {
+    store.appendRecord(record.makeRecord({
+      session_id: 'live', session_epoch: '2026-06-01T00:00:00.000Z',
+      work_unit: 'wu-d1', seq: seq, kind: 'update', patch: { goal: 'live goal ' + seq },
+    }), { repoRoot: root });
+  }
+  const before = (function () {
+    const i = store.readProjectionInput({ repoRoot: root });
+    return project(i.records, i.base, { seededTombstones: i.seededTombstones, baseIndex: i.baseIndex });
+  })();
+
+  const out = retention.compact({ repoRoot: root });
+  assert.strictEqual(out.compacted, true);
+  assert.strictEqual(fs.existsSync(store.activePath({ repoRoot: root })), false,
+    'the active segment was rotated away — this is the window the defect lived in');
+
+  const cp = store.readCheckpoint({ repoRoot: root });
+  assert.ok(cp.checkpoint_of.order_index, 'the checkpoint carries the order index');
+  assert.strictEqual(cp.checkpoint_of.order_index.high_water['wu-d1'].seq, 5);
+
+  // 압축 이전 시점의 stale writer가 옛 seq로 돌아온다.
+  const stale = record.makeRecord({
+    session_id: 'stale', session_epoch: '2026-01-01T00:00:00.000Z',
+    work_unit: 'wu-d1', seq: 3, kind: 'update',
+    patch: { goal: 'RESURRECTED — must not reach STATE.md' },
+  });
+  store.appendRecord(stale, { repoRoot: root });
+
+  const input = store.readProjectionInput({ repoRoot: root });
+  const after = project(input.records, input.base, {
+    seededTombstones: input.seededTombstones, baseIndex: input.baseIndex,
+  });
+  assert.strictEqual(after.body.goal, before.body.goal,
+    'a pre-compaction record must not overwrite post-compaction state');
+  assert.notStrictEqual(after.body.goal, 'RESURRECTED — must not reach STATE.md');
+
+  // 새 seq는 봉인된 high-water 다음부터 발급된다(1부터 다시 시작하지 않는다).
+  const idx = order.buildOrderIndex(input.records, {
+    seededTombstones: input.seededTombstones, baseIndex: input.baseIndex,
+  });
+  assert.strictEqual(order.assignOrder({ workUnit: 'wu-d1', index: idx }), 6);
+});
+
+test('M5 D1: a tombstone rotated into a segment still blocks post-compaction records', () => {
+  const root = mkRepo('d1tomb');
+  const retention = require('../state-journal/retention');
+  store.bootstrapGenesis({ repoRoot: root, state: stateWriter.emptyState() });
+  store.appendRecord(record.makeRecord({
+    session_id: 's', session_epoch: '2026-06-01T00:00:00.000Z',
+    work_unit: 'wu-closed', seq: 2, kind: 'update', patch: { goal: 'work' },
+  }), { repoRoot: root });
+  store.appendRecord(record.makeRecord({
+    session_id: 's', session_epoch: '2026-06-01T00:00:00.000Z',
+    work_unit: 'wu-closed', seq: 3, kind: 'tombstone', patch: null,
+  }), { repoRoot: root });
+
+  retention.compact({ repoRoot: root });
+
+  const input = store.readProjectionInput({ repoRoot: root });
+  const idx = order.buildOrderIndex(input.records, {
+    seededTombstones: input.seededTombstones, baseIndex: input.baseIndex,
+  });
+  const revived = record.makeRecord({
+    session_id: 'zombie', session_epoch: '2030-01-01T00:00:00.000Z',
+    work_unit: 'wu-closed', seq: 9, kind: 'update', patch: { goal: 'revive' },
+  });
+  const d = order.decideAdmission({
+    record: revived, highWater: idx.highWater, tombstones: idx.tombstones,
+    epochOf: function (wu, seq) { return idx.occupants[order.occupantKey(wu, seq)] || null; },
+  });
+  assert.strictEqual(d.verdict, order.ADMISSION.POST_TOMBSTONE,
+    'a journal-only tombstone must survive rotation — otherwise compaction reopens closed units');
+});
+
+test('M5 D2: the production update() path actually enforces the retention limits', () => {
+  // 결함: `enforceLimits`의 호출부가 0개였다 — 상한 3종이 정상 사용에서 한 번도
+  // 발화하지 않았고, "투영 재생 비용의 상한"이라는 주장이 근거를 잃었다.
+  const root = mkRepo('d2');
+  const savedLimit = require('../state-journal/retention').LIMITS.ACTIVE_MAX_BYTES;
+  require('../state-journal/retention').LIMITS.ACTIVE_MAX_BYTES = 2048;   // test 주입
+  try {
+    for (let i = 0; i < 30; i++) {
+      stateWriter.update(root, { taskFingerprint: 'wu-d2', goal: 'g'.repeat(200) + i });
+    }
+    const segments = store.listSegments({ repoRoot: root });
+    assert.ok(segments.length >= 1,
+      'crossing the byte cap through the ordinary write path must rotate at least once ' +
+      '(the CLI was never invoked here)');
+    const cp = store.readCheckpoint({ repoRoot: root });
+    assert.strictEqual(cp.kind, 'checkpoint', 'and a compaction checkpoint was sealed');
+    assert.ok(cp.checkpoint_of.order_index, 'with its order index intact');
+    // 압축이 상태를 바꾸지 않았음을 함께 확인한다(G4).
+    assert.strictEqual(stateWriter.readState(root).body.goal, 'g'.repeat(200) + 29);
+  } finally {
+    require('../state-journal/retention').LIMITS.ACTIVE_MAX_BYTES = savedLimit;
+  }
 });

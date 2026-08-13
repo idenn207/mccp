@@ -461,6 +461,10 @@ function readProjectionInput(opts) {
     // degraded로 강등한다 — 조용히 emptyState로 투영하면 STATE.md가 통째로
     // 리셋된다(격리보다 나쁜 결과).
     checkpoint_corrupt: cp.corrupt === true,
+    // 압축이 봉인한 순서 메타 (D1). 활성 세그먼트만 읽는 투영이 압축 이전
+    // high-water·tombstone을 잃지 않도록 admission 오라클에 되먹인다.
+    baseIndex: (cp.checkpoint && cp.checkpoint.checkpoint_of &&
+      cp.checkpoint.checkpoint_of.order_index) || null,
     checkpoint_corrupt_reason: cp.reason || null,
     records: read.records,
     malformed_count: read.malformed_count,

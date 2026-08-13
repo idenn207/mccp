@@ -38,6 +38,15 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 회귀 7건 추가(`state-journal-integrity.test.js`) — 전부 프로덕션/권위 경로 형태이며, 되돌리면 실패한다.
 
+### Fixed (PR-Codex R2 — 병합 트리 재발화가 잡은 실결함 2건)
+
+R1 흡수 후 `origin/main`(#131)을 병합한 최종 트리로 PR-Codex를 **다시** 돌렸다. R1의 3건은 재발하지 않았고 **새 축 2건**이 나왔다. 둘 다 실결함이라 역시 override 없이 수정했다. R1과 같은 형태의 사각이 다시 확인된다 — 회귀가 *산출물*(상태)만 대조하고 *메커니즘*(순서 메타·자동 발화)은 대조하지 않았다.
+
+- **D1 (HIGH) — 압축이 재생 방어에 필요한 순서 인덱스를 버렸다.** `compact()`가 상태와 전역 `through_seq`만 봉인하고 활성 세그먼트를 회전시켰는데, 투영 입력은 활성 세그먼트만 읽는다 → 압축 직후 admission 인덱스가 **빈 상태로 시작**한다. 압축 이전 시점의 stale writer가 옛 `(work_unit, seq)`를 append하면 high-water도 tombstone도 없어 그대로 `admit`되어 **닫힌 상태가 되살아난다 — G2가 압축 한 번에 무력해진다.** checkpoint에 `order_index`(work_unit별 high-water + 경계 seq 점유자 + tombstone)를 싣고 `buildOrderIndex`가 그것을 먼저 복원하도록 했다. 회전된 세그먼트의 journal-only tombstone도 살아남는다.
+- **D2 (MEDIUM) — 보존 정책이 export만 되고 한 번도 발화하지 않았다.** `enforceLimits`의 호출부가 **0개**여서 256KB 활성 세그먼트 상한·90일 압축 트리거·64MB 경고가 정상 사용에서 전혀 동작하지 않았다(plan Task 5가 명시한 "상한 초과 시 자동 발화" 축이 통째로 비어 있었다). write 경로에 배선했고, 호출자가 읽은 레코드를 재사용해 hot path 이중 read를 피한다. 압축 실패는 강등이 아니라 loud warn이다 — append는 이미 성공했고 저널은 온전하다.
+
+회귀 3건 추가(압축 후 지연 레코드 거부 · 회전된 tombstone 유효 · CLI 없이 write 경로만으로 상한 발화). 누적 회귀 **77건**.
+
 ### Security
 - 사전 `security-reviewer` 실발화 — findings **7건**(CRITICAL 0 · HIGH 3 · MEDIUM 3 · LOW 1) 전건 트리아지. 신규 축 2건 흡수: **프로토타입 오염**(`JSON.parse`가 `__proto__`를 own 속성으로 만들고 `Object.assign` source로 쓰이면 `Object.prototype` setter가 발동 — allowlist 키별 대입 + `sanitizePatch`로 차단, 저널 라인·ledger 엔트리 양쪽 회귀 fixture) · **seq 충돌 잔여 정밀화**(락 fail-open 구간의 동시 append는 결정론적으로 해소되나 **진 쪽의 patch는 투영되지 않는다** — 레코드는 잔존·질의 가능. 즉 그 구간은 "손실 없음"이 아니라 "손실이 기록으로 남음"). 구현 불변식 3건: checkpoint rename **이후에만** 세그먼트 회전(부분 압축 tail 유실 차단) · `--reseed`가 폐기 범위를 새 genesis에 봉인(파괴를 막지는 않되 이력에 남김) · malformed 라인 > 0에서 `verify` 비영점 exit(truncation 은폐 차단). 1건은 사실 오류로 기각(`verify`가 투영↔디스크 일치를 이미 검사), DEFER 0건.
 ## [1.23.8] — 2026-08-09

@@ -1,7 +1,7 @@
 # Implementation Report: multi-session-work-loop M5 — 상태 진실원 이전
 
 **Plan**: [.claude/plans/multi-session-work-loop-m5.plan.md](../../plans/multi-session-work-loop-m5.plan.md)
-**Version**: `1.23.7 → 1.23.9` (계획 1.23.8 → main #126이 선점해 §3.7 forward-only 상향, **5번째 재발**) · **Branch**: `v1.24.0-multi-session-m5`
+**Version**: `1.23.7 → 1.23.10` (계획 1.23.8 → main #126이 1.23.8을, #131이 1.23.9를 각각 선점해 §3.7 forward-only로 두 번 상향 — **6번째 재발**) · **Branch**: `v1.24.0-multi-session-m5`
 **Design doc**: [docs/multi-session-work-loop/state-truth-source-design.md](../../../docs/multi-session-work-loop/state-truth-source-design.md)
 
 ## Summary
@@ -22,7 +22,7 @@
 | Tasks | 10 | 10 (전부 착지) |
 | Files Changed | 31 | 31 (CREATE 17 · UPDATE 14) |
 | 신규 토글 | 정확히 1 | 1 (`MCCP_STATE_JOURNAL`) |
-| 회귀 단언 | Task별 열거 | **67건** (매니페스트 대조 absent 0) |
+| 회귀 단언 | Task별 열거 | **74건** (매니페스트 대조 absent 0 — PR-Codex 흡수 7건 포함) |
 
 ## Tasks Completed
 
@@ -44,14 +44,14 @@
 
 | # | Check | Status |
 |---|---|---|
-| §1 | 신규 모듈 회귀 7파일 | ✅ 67/67 |
+| §1 | 신규 모듈 회귀 8파일 | ✅ 74/74 |
 | §2 | 기존 표면 무회귀 (state-writer · injector · breakpoint · spawner) | ✅ 199/199 |
-| §3 | 전체 스위트 | ✅ **3384 tests / 3377 pass / 2 fail — 신규 red 0** |
+| §3 | 전체 스위트 | ✅ **3584 tests / 3576 pass — 신규 red 0** (실패 3건 중 2건은 사전 존재 b2-coverage-gate, 1건은 병렬 부하 flake `perf-budget`으로 단독 실행 시 통과) |
 | §4 | `journal verify` · `journal query` | ✅ exit 0 |
 | §6 | 계측 무-LLM 계약 | ✅ 0 hit |
 | §7 | 릴리스 면 동기 | ✅ plugin.json · html.js · markdown.js · CHANGELOG · ENVIRONMENT |
-| §10 | `single-writer-lint --json` | ✅ exit 0 (318 파일 스캔, 위반 0) |
-| §11 | 매니페스트 대조 `absent 0` | ✅ 67/67 present |
+| §10 | `single-writer-lint --json` | ✅ exit 0 (위반 0) |
+| §11 | 매니페스트 대조 `absent 0` | ✅ 74/74 present |
 | Task 9 | `instruction-contract/lint.js` | ✅ C1~C4 pass (CLAUDE.md 절 변경 0) |
 | §3.5.1 | `--diff-filter=D` 의도치 않은 삭제 | ✅ 0건 |
 | SHIP-1 | 배포 확인 | ❌ **미확인** (설계상 ship 시점 전용 — 아래 G5) |
@@ -59,7 +59,7 @@
 ### 사전 존재 red 대조
 
 전체 스위트의 2건 실패는 **전부 사전 존재분**이다: `b2-coverage-gate` 정적 lint가
-`plugins/mccp/scripts/lib/plan-codex-runner.js:248`의 `fs.renameSync(receiptPath, dest)`
+`plugins/mccp/scripts/lib/plan-codex-runner.js`의 `fs.renameSync(receiptPath, dest)`
 하나를 잡는다. STATE.md Open Questions에 "main이 b2-coverage-gate 2건으로 이미 red —
 origin/main clean checkout 실측 확인 · #118 소관"으로 기록돼 있고, 이번 브랜치는 그
 파일을 **건드리지 않았다**(`git diff --name-only` 0 hit). 위반 목록에 M5 파일은 한
@@ -77,7 +77,7 @@ origin/main clean checkout 실측 확인 · #118 소관"으로 기록돼 있고,
 
 ### G5 — 미달 처리 (§G5 조건성대로 사전 고정된 경로)
 
-`Validation-SHIP-1`이 실패한다: `plugin.json` 1.23.9가 설치 캐시에 없다 = 이 사이클은
+`Validation-SHIP-1`이 실패한다: `plugin.json` 1.23.10이 설치 캐시에 없다 = 이 사이클은
 `claude plugin update`를 수행하지 않았다. 따라서 그 뒤의 "실측"은 **성립할 수 없다**.
 plan이 사후 협상을 막기 위해 미리 고정한 처리를 그대로 밟는다:
 
@@ -155,7 +155,7 @@ lint 축 1이 "투영 경로 밖 `writeStateAtomic` 0"을 요구하는데, `reco
 |---|---|---|
 | CREATE (구현) | 8 | `lib/state-journal/{record,order,project,retention,index,single-writer-lint}.js` · `state/journal-store.js` · `lib/msw-metrics/a4-boundary-restore.js` |
 | CREATE (derive) | 1 | `derive/sources/session-journal.js` |
-| CREATE (test) | 7 | `lib/tests/state-journal-{order,projection,replay,retention,single-writer}.test.js` · `lib/tests/a4-boundary-restore.test.js` · `state/tests/journal-store.test.js` |
+| CREATE (test) | 8 | `lib/tests/state-journal-{order,projection,replay,retention,single-writer}.test.js` · `lib/tests/a4-boundary-restore.test.js` · `lib/tests/state-journal-integrity.test.js`(PR-Codex 흡수) · `state/tests/journal-store.test.js` |
 | CREATE (docs) | 2 | `state-truth-source-design.md` · `m5-assertion-manifest.json` |
 | UPDATE | 13 | `state/{state-writer,cli,handoff-items}.js` · `hooks/{session-start,session-end}.js` · `lib/msw-metrics/index.js` · `derive/index.js` · `renderer/{html,markdown}.js` · `plugin.json` · `.gitignore` · `CHANGELOG.md` · `docs/ENVIRONMENT.md` |
 | UPDATE (docs) | 3 | `evidence-conflict-design.md` · `measurement-instrumentation.md` · PRD |

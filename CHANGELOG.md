@@ -2,9 +2,9 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.9`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.10`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
-## [1.23.9] — 2026-08-14
+## [1.23.10] — 2026-08-14
 
 **multi-session-work-loop M5 — 상태 진실원 이전 (단일 milestone → patch bump)** — 세션 간 진실의 원천을 **되돌릴 수 없는 요약 문서(STATE.md)에서 질의 가능한 append-only 저널로 옮기고**, STATE.md를 그 저널의 **파생 투영물**로 강등한다. GROUND 결과 PRD가 적은 것보다 한 칸 나빴다: `state-writer.update()`는 read-modify-write 전체 덮어쓰기이고 락은 실패 시 **경고만 남기고 그대로 쓴다**(last-writer-wins) — 저널이 없으므로 덮어쓴 내용에는 **복구 경로가 존재하지 않았다**. 게다가 M5가 의존하는 A4의 producer는 프로덕션에서 아티팩트를 **한 건도** 남긴 적이 없었다(`*.handoff-items.json` = main + worktree 6개 전체 0건). 원인은 CL-5 경로 결함의 **4번째 재발**이며 M4의 수정 주석이 같은 `try` 블록 8줄 위에 있었다.
 

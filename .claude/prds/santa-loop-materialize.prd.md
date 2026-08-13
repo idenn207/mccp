@@ -57,7 +57,7 @@ We'll know we're right when **santa-loop 실행이 라운드 카운터를 상태
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | 모듈 골격 + 캡 강제 | santa-loop이 라운드를 코드로 세고 캡에서 정지한다. 산문 캡 의존 종료 | pending | — |
+| 1 | 모듈 골격 + 캡 강제 | santa-loop이 라운드를 코드로 세고 캡에서 정지한다. 산문 캡 의존 종료 | in-progress | [santa-loop-materialize-m1.plan.md](../plans/santa-loop-materialize-m1.plan.md) |
 | 2 | receipt 편입 + 소유권 표 산출 | 라운드·원장 집계가 `mccp-santa-review`에 봉인되고, P1·P2·P3가 소유할 파일 경계가 문서로 확정됨 | pending | — |
 
 ## Open Questions

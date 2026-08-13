@@ -3,7 +3,7 @@
 ## Problem
 mccp의 plan/implement/pr 게이트는 dual-review를 위해 Codex(외부 cross-model) 리뷰에 의존한다. 이 리뷰가 게이트당 **평균 10-15분 blocking**이고 자주 미가용이라, 반복 plan 작성과 연속 milestone ship에서 대기가 누적되고 review 공백이 생긴다. 방치 비용: 운영 속도 저하 + Codex 미인증/companion 실패 시 dual-review 안전망 붕괴(receipt skip).
 
-> 상세 설계 근거는 `.claude/meta/` 3문서 참조: [diverse-agent-review-analysis.md](../meta/diverse-agent-review-analysis.md)(논문+사례+R2 결론) · [converged-redefinition-design.md](../meta/converged-redefinition-design.md)(verdict 재정의 + 소비처 계승) · [verification-layer-design.md](../meta/verification-layer-design.md)(L1/L2/L3 3층 verification).
+> 상세 설계 근거는 `.claude/meta/` 3문서 참조: [diverse-agent-review-analysis.md](../_meta/diverse-agent-review-analysis.md)(논문+사례+R2 결론) · [converged-redefinition-design.md](../_meta/converged-redefinition-design.md)(verdict 재정의 + 소비처 계승) · [verification-layer-design.md](../_meta/verification-layer-design.md)(L1/L2/L3 3층 verification).
 
 ## Evidence
 - **정량 pain**: Codex adversarial review 게이트당 평균 10-15분 blocking (운영자 실측). 반복·연속 ship 시 대기 누적.
@@ -59,9 +59,9 @@ We'll know we're right when **대상 게이트 리뷰 wall-clock이 10분 이내
 ## Risks
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| same-model L2가 correlated → self-approval (작성자=리뷰어 blind spot 재도입) | Medium | High | L1 deterministic backbone을 gatekeeper로 앞세움 + `review_proof` fail-closed(역할 다양성·독립 verification 강제) + L3 hybrid 안전판 ([verification-layer §7](../meta/verification-layer-design.md)) |
+| same-model L2가 correlated → self-approval (작성자=리뷰어 blind spot 재도입) | Medium | High | L1 deterministic backbone을 gatekeeper로 앞세움 + `review_proof` fail-closed(역할 다양성·독립 verification 강제) + L3 hybrid 안전판 ([verification-layer §7](../_meta/verification-layer-design.md)) |
 | L3 자동 트리거 과발동 → 10-15분 지연으로 회귀 | Medium | Medium | M1에서 발동 비율 계측 → M2에서 보수적 튜닝 + risk-signal(mechanical, L2 독립)로 트리거 상관 완화 |
-| `converged` 재정의가 dedupe/ship-gate 불변식 손상 | Low | High | `resolveEffectiveVerdict` 단일 helper로 소비처 계승(M1 receipt-convergence 패턴 mirror) + 회귀 test ([converged §4](../meta/converged-redefinition-design.md)) |
+| `converged` 재정의가 dedupe/ship-gate 불변식 손상 | Low | High | `resolveEffectiveVerdict` 단일 helper로 소비처 계승(M1 receipt-convergence 패턴 mirror) + 회귀 test ([converged §4](../_meta/converged-redefinition-design.md)) |
 | 기존 git-tracked ship corpus의 receipt_hash 변경(재봉인 사고) | Low | High | present-only 필드 + skeleton 미materialize(§3.12 no-rehash) + hash 안정성 test |
 | plan 게이트 L1 공백(코드 diff 없음) → verification 약화 | Medium | Medium | plan verification은 L2 중심 + L1은 plan 내부 일관성 mechanical check(경로 존재·참조 정합) |
 

@@ -74,7 +74,7 @@
 `evaluateForDedupe`의 skip은 "Codex가 이미 두 번 말했으니 PR-Codex를 생략해도 된다"는 뜻이다. multi-agent converged는 **Codex가 말했다는 증거가 아니다.** 따라서 skip 술어를 `resolveEffectiveVerdict().verdict==='converged' ∧ source ∈ {'codex','hybrid'}`로 좁힌다. 결과: default(multi-agent) 경로에서 plan receipt는 `codex_verdict`를 아예 stamp하지 않으므로 dedupe가 **자동으로 fail-closed** → PR-Codex 실발화. 이 한 줄이 "cross-model을 없앤 게 아니라 반복 지점에서 ship 지점으로 옮겼다"를 mechanical하게 만든다.
 
 **DD3 — L1이 gatekeeper, LLM 판정보다 앞서 short-circuit.**
-L1 실패 → 즉시 `divergent`, L2 미발화(에이전트 0개 · 토큰 0). "mechanical 실패를 LLM의 '괜찮아 보임'이 덮을 수 없다"([verification-layer §4](../meta/verification-layer-design.md)).
+L1 실패 → 즉시 `divergent`, L2 미발화(에이전트 0개 · 토큰 0). "mechanical 실패를 LLM의 '괜찮아 보임'이 덮을 수 없다"([verification-layer §4](../_meta/verification-layer-design.md)).
 
 **DD4 — L2는 fanout-* 재사용이 아니라 전용 refute agent 4종 신설.**
 `fanout-*`는 GROUND 보강(제안 지향) 프롬프트다. review는 **반증 지향**("invariant를 깬 증거를 찾아라. 승인은 증거 부재로만 도출")이라 system prompt 자체가 달라야 한다. 역할도 다르다 — `explorer`를 빼고 `invariant`(fail-closed gate / receipt anchoring / rollback safety)를 넣는다. read-only 보증은 프롬프트가 아니라 **frontmatter `tools: [Read, Grep, Glob]` 도구 부재**로 유지(F1 패턴).
@@ -187,7 +187,7 @@ R2 리뷰 지적 — 이전 판은 토글 **이름만** 열거하고 default·�
 
 ### Task 6: 3층 합성 오라클 + proof 조립
 - **Action**: `decide.js#decideReview({l1, l2, l3, mode, dispatchEvidence, rounds})` → `{review_verdict, review_source, review_proof, block, reason, forwardCodexVerdict}`. `parseReviewMode(env)` — `codex|multi-agent|hybrid`, **미상 → `codex` + loud warn**(DD7). proof 조립은 이 오라클이 단독 소유(command body가 JSON을 손으로 짜지 않게).
-- **합성표는 산문이 아니라 exhaustive match다** — `mode × l1 × l2 × l3` 전 조합을 열거하고 test가 전 행을 덮는다([verification-layer §4](../meta/verification-layer-design.md)):
+- **합성표는 산문이 아니라 exhaustive match다** — `mode × l1 × l2 × l3` 전 조합을 열거하고 test가 전 행을 덮는다([verification-layer §4](../_meta/verification-layer-design.md)):
 
   | mode | L1 | L2 | L3 | review_verdict | review_source | forwardCodexVerdict |
   |---|---|---|---|---|---|---|

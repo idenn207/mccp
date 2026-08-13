@@ -53,7 +53,7 @@ We'll know we're right when **설치 직후 `git status`에 mccp 런타임 산�
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | gitignore 프로비저닝 Phase | 신규 설치자가 `/mccp:setup` 한 번으로 무시 규칙을 얻고, 첫 커밋이 오염되지 않음 | pending | — |
+| 1 | gitignore 프로비저닝 Phase | 신규 설치자가 `/mccp:setup` 한 번으로 무시 규칙을 얻고, 첫 커밋이 오염되지 않음 | in-progress | [setup-gitignore-m1.plan.md](../plans/setup-gitignore-m1.plan.md) |
 
 ## Open Questions
 

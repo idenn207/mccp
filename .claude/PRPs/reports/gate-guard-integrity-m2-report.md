@@ -342,8 +342,9 @@ node plugins/mccp/scripts/lib/suite-determinism.js --runs 10 --json --repo-root 
 
 ## Next Steps
 
-- [ ] `origin/main` 머지 + 머지 후 전수 재확인 (D10 — PR 단계 의무)
-- [ ] CHANGELOG `## [1.23.8]` 헤딩이 머지 시 중복되지 않는지 확인 (§3.7)
+- [x] `origin/main` 머지 + 머지 후 전수 재확인 (D10) — **완료**. 머지 커밋 `f10e43c`. 충돌 4건은 전부 version 동기 표면(`plugin.json` · footer 2면 · CHANGELOG)이었고 코드 충돌 0건. 머지 후 전수 **tests 4096 / pass 4090 / fail 0 / skipped 6** (clean). §3.5.1 삭제 검증: `origin/main`에 있는데 트리에 없는 파일 **0건**.
+- [x] CHANGELOG 헤딩 중복 없음 — `## [1.23.10]` 1개 · `## [1.23.8]` 1개. 머지 중 main의 note 줄을 버리고 forward-only `currently 1.23.10`을 유지했다.
+- [ ] `origin/main`의 `plugin.json`(1.23.9)과 CHANGELOG 최상단(`## [1.23.8]`)이 어긋나 있다 — main 쪽 선재 drift이며 이 PR이 만든 것이 아니다(§3.7 동기 대상 5면 중 CHANGELOG 누락). 별건
 - [x] `git worktree remove .worktrees/m2-attribution-probe` — 귀속 측정 후 정리 완료
 - [ ] `plugins/mccp/scripts/.test-msw-events/`가 `.gitignore` 밖이라는 사실 (별건 — 이번 진단에서 드러남)
 - [ ] 신규 test-only env 2종(`MCCP_PERF_INJECT_QUADRATIC` · `MCCP_TEST_SESSION_START_PATH`)의 `docs/ENVIRONMENT.md` 등재 여부 — plan의 Files to Change에 없어 **범위를 조용히 넓히지 않았다**. 운영 토글이 아니라 test 전용이므로 §11 canonical 목록의 대상인지 자체가 판단 사항

@@ -5,7 +5,7 @@
 **Branch**: `docs/gate-guard-integrity-m2-completion` · **Version**: 1.23.7 → 1.23.10
 **Gate receipts**: `mccp-plan-codex` + `mccp-implement-codex` / decision=`gate-guard-integrity-m2` · validate ok
 
-## 판정: **Milestone 2는 complete가 아니다**
+## 판정: **잔여를 명시한 채 운영자 수용 → complete**
 
 축 B(스모크 skip 사유)와 축 C(`b2-coverage-gate` 상시 red 2건)는 **닫혔다** — 후자는 10회 전수에서 한 번도 재발하지 않았다. 축 A의 산출물도 전부 착지했고 각각 부정 케이스로 검증됐다.
 
@@ -13,7 +13,7 @@
 
 `after.tap` 한 번만 보면 §Validation의 네 델타 기준이 전부 충족되지만 **그 판정을 채택하지 않는다.** 8/10의 green을 성공으로 읽는 것이 이 PRD가 지목한 "통과 신호의 존재가 검사가 일어났음을 의미하지 않는다"의 재생산이다. 이 milestone의 harness가 그것을 잡았다는 사실은 도구가 작동한다는 증거이지, 통과의 근거가 아니다.
 
-**운영자 결정이 필요하다** — 아래 "남은 결정" 절 참조.
+**운영자 판정 (2026-08-14): 아래 "남은 결정" 1번 — 잔여를 명시한 채 수용하고 ship.** 근거는 PRD Scope가 "테스트 병렬 실행 구조 재설계 — 비결정적 간섭의 근본 해소"를 M2 **범위 밖**으로 못박고 "Milestone 2는 **재현 조건 확정까지만** 다룬다"고 규정한 것이다. 재현 조건 확정은 달성됐다. 유입된 비결정 2건은 PRD Open Question으로 승계됐고, 이 리포트의 측정 기록이 그 재개 지점이다. **지표 미달 사실 자체는 위 표에 그대로 남는다** — 수용은 측정을 바꾸지 않는다.
 
 ---
 

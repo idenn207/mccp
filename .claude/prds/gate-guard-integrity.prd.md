@@ -69,11 +69,13 @@ We'll know we're right when **각 가드가 발화해야 하는 조건에서 실
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | 가드 복원 | hook이 자기 실패에도 사용자를 막지 않고, terminal 게이트가 plan 변경을 stale로 잡으며, ship-gate 가드가 표준 설치 환경에서도 증거 없는 skip을 막는다 | complete | `.claude/plans/gate-guard-integrity.plan.md` |
-| 2 | 신호 신뢰도 | 전수 실행 결과가 실행마다 동일해지고, 외부 의존 테스트가 도달 불가 시 정직하게 skip된다 | in-progress | `.claude/plans/gate-guard-integrity-m2.plan.md` |
+| 2 | 신호 신뢰도 | 전수 실행 결과가 실행마다 동일해지고, 외부 의존 테스트가 도달 불가 시 정직하게 skip된다 | complete | `.claude/plans/gate-guard-integrity-m2.plan.md` |
 
-### Milestone 2 중간 판정 (2026-08-14) — **complete 아님**
+### Milestone 2 완료 판정 (2026-08-14) — **잔여를 명시한 채 운영자 수용**
 
-v1.23.10으로 구현은 착지했으나 **milestone 목표는 달성되지 않았다.** 판정 근거는 이 milestone이 만든 harness의 통제된 비교다 — 같은 도구·같은 머신으로 수정 전(`3eabab2`)과 수정 후(`6c23b54`)를 각 10회 돌렸다.
+v1.23.10으로 ship. **Outcome 문장의 전반부("전수 실행 결과가 실행마다 동일")는 달성되지 않았고, 그 사실을 지우지 않는다.** 여기서 `complete`는 지표 충족이 아니라 **운영자의 명시적 수용 판정**이며, 근거는 PRD Scope가 "테스트 병렬 실행 구조 재설계 — 비결정적 간섭의 근본 해소"를 **범위 밖**으로 못박고 "Milestone 2는 **재현 조건 확정까지만** 다룬다"고 규정한 것이다. 재현 조건 확정은 달성됐다 — 그 도구가 없었다면 아래 표의 오른쪽 열을 알 수조차 없었다.
+
+판정 근거는 이 milestone이 만든 harness의 통제된 비교다 — 같은 도구·같은 머신으로 수정 전(`3eabab2`)과 수정 후(`6c23b54`)를 각 10회 돌렸다.
 
 | | 수정 전 | 수정 후 | 판정 |
 |---|---|---|---|

@@ -2,7 +2,43 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.8`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.23.8] — 2026-08-09
+
+**diverse-agent-review M4 — 통과 경로 실증 + 지표 부채 상환 (patch)** — M1은 계기를 배송했지만 **한 번도 눈금을 읽지 못했다**. 저장소 receipt 40개 중 `review_verdict`를 가진 것은 0건이었고, 원인은 우연이 아니라 구조였다: wall-clock stamp가 `5.6b`의 receipt write 안에만 있고 차단된 실행은 그 앞에서 HALT하므로 **오래 걸린 실행일수록 기록될 확률이 낮았다**(survivorship bias가 계기에 내장). 게다가 plan 게이트 receipt는 `.gitignore:31`상 worktree-only라 §3.8 cleanup마다 소멸한다.
+
+### 축 A — 측정 표면을 옮긴다 (`.claude/reviews/`, git-tracked)
+
+- **`lib/plan-review/record.js` CREATE** — `REVIEW_DIR` 아티팩트에서 리뷰 기록 markdown 전체를 결정적으로 생성하는 순수 오라클. M1의 5.2h 포맷(제목·Verdict·Quorum·Layers·Findings 표·Refutation 표)을 그대로 재현하되 fenced ```json `## Measurement` 블록을 추가한다 — `{verdict, source, layers, quorum, wall_clock_ms, halt_stage, granted, reviewed_plan_hash, plan_path, recorded_at}`. **결손 내성이 설계 요구**다: 차단은 5.2 어느 단계에서든 일어나므로 `l2`/`decision`이 없는 조합이 정상 입력이고, 없는 축은 `null`로 적고 `halt_stage`가 어디서 멈췄는지 말한다. **측정 불가는 `null`이지 `0`이 아니다** — 0은 "게이트가 즉시 끝났다"는 거짓 측정이고, M1 수치를 못 쓰게 만든 침묵의 0과 같은 부류다.
+- **`cli.js record` 서브커맨드** — 아티팩트를 읽어 `.claude/reviews/plan-review-<slug>.md`를 쓰고 **항상 exit 0**. 다른 모든 서브커맨드는 "이 plan을 승인해도 되는가"에 답하므로 미상 입력이 차단이어야 하지만, 이것은 "무슨 일이 있었는가"에 답한다 — 게이트를 막을 수 있는 계측은 처음 오작동하는 순간 삭제되는 계측이다. 대신 모든 degradation은 loud stderr([[feedback-loud-fail-open]]): exit 0은 "막지 않았다"이지 "다 괜찮았다"가 아니다. slug는 파일 경로에 이어붙므로 repo-내부 출처여도 sanitize한다(`../../etc/passwd` → `etc-passwd`).
+- **`commands/plan.md` 5.2 전 HALT를 계측 경유로** — 이전에 5.2h에 도달하는 차단 경로는 **판정 계열뿐**(5.2a exit 1 → 5.2e, 5.2e `DECIDE_EXIT=12`)이었고 **인프라 계열**(5.2b 예약 거부 · 5.2c emit/pin 실패 · 5.2d reconcile 아티팩트 판독 실패 · 5.2e proof 추출 실패 · 5.2f `mode.json` 판독 실패 · 5.2g proof 검증 실패)은 5.2h 이전에 exit해 측정치가 어디에도 남지 않았다. 이제 **9곳 전부** 각 stop 블록 직전 1행 호출이 들어간다. 동시에 5.2h의 **손으로 타이핑하던 markdown이 같은 CLI 호출 1행으로 대체**된다 — 순증 배선이 아니라 치환이고, 결과적으로 이 층의 지시문은 줄어든다.
+  - *자기 리뷰 흡수*: 초안은 5.2d·5.2f 두 stop을 빠뜨린 채 heading이 "every stop"이라 단언했다. 둘 다 **패널이 발화한 뒤**의 stop이라 정확히 이 축이 되찾겠다던 느린 표본이고, 단언이 배선보다 넓으면 이 milestone의 주제 자체가 무너진다. 이제 stage enum(plan.md heading · `cli.js` usage)이 닫힌 9개 집합이고, heading이 "새 stop을 추가하면 여기도 추가하라"고 명시한다.
+
+### 축 A 보강 — 계측이 스스로에 대해서도 정직하게
+
+- **`cell()`이 백슬래시를 파이프보다 먼저 이스케이프한다**(`record.js`) — 파이프만 이스케이프하면 `a\|b`가 `a\\|b`가 되어 마크다운이 백슬래시 1개 + **살아있는 구분자**로 렌더하고 행이 쪼개진다. 이스케이프를 논하는 바로 그 입력에서 깨지는 형태였다. evidence 인용에 Windows 경로·정규식이 들어오므로 이론적 경계가 아니다.
+- **`--review-dir`도 `resolveContained`를 거친다**(`cli.js record`) — 이 파일의 다른 모든 경로 인자가 지키는 규약에서 유일하게 면제돼 있었다. 위반은 **차단하지 않는다**(exit 0 계약 유지): 읽기를 거부하고, 모든 축을 absent로 적고, `### Recording degradations`에 사유를 남긴다. 기본 디렉토리로 조용히 fallback하는 것이 최악이다 — 호출자가 지목하지 않은 실행을 기록하게 된다.
+
+### 축 B — 발화 불가였던 budget 게이트를 살린다
+
+`workflows/plan-review.js:132`가 `input.minRemaining`을 읽고 `:155`가 그것으로 발화를 막는데, 유일한 producer인 `cli.js` payload에 그 키가 **없어서** 값은 항상 0이었고 `budget.remaining() < 0`은 구조적으로 도달 불가였다. 게이트가 실행될 수 없는 소스로 한 milestone을 보냈다.
+
+- **`lib/plan-review/budget.js` CREATE** — `parsePanelBudget`(`MCCP_PLAN_REVIEW_BUDGET`, default 150000, 비정상 → default + loud warn) + `panelMinRemaining`. `plan-fanout/budget.js`의 `parseFanoutMinPerAgent`를 미러한다(라이브 패널이 초안의 `parseRolesMin` 인용을 정정했다 — 그것은 `"MofN"` 문자열 파서다). **fail-open 방향이 유의미하다**: 읽을 수 없는 값은 default로 가고 **절대 0으로 가지 않는다**. 0은 게이트를 완화하는 게 아니라 꺼버린다.
+- `cli.js`가 **fleet을 `--granted`로 상한한 뒤** `minRemaining`을 emit한다(순서가 유의미 — 예약이 2를 줬는데 4인분 예산을 요구하면 감당 가능한 패널을 건너뛴다). workflow의 budget skip 반환은 실측 `remaining`/`minRemaining`을 실어 "예산 부족"과 "패널 크래시"를 구분 가능하게 한다.
+- **`decide`가 skip을 skip이라고 말한다** — *자기 리뷰 흡수*. 초안은 위 숫자를 반환값에만 실었고 소비처가 `record.js`뿐이었다. `cmdDecide`는 `results:[]`만 보고 `decideQuorum` → `responded:0` → **"L2 fired but no reviewer responded usably"**를 발행했다. 오라클은 주어진 입력에 대해 옳았고 세계에 대해 거짓이었다 — 패널은 발화하지 않았다. 게다가 5.2e stop은 그 문구와 함께 복구 경로 3개(codex 강등 · 새 세션 · agent cap 상향)를 출력하는데 **어느 것도 토큰 부족을 못 고친다**. 이 결함이 이제 중요한 이유는 M4가 이 분기를 도달 불가에서 **도달 가능**으로 바꿨기 때문이다. 이제 `cmdDecide`가 `skipped===true`를 먼저 분기해 사유와 관측 `remaining`/`minRemaining`, 그리고 **실제로 듣는 복구 축**(턴 예산 상향 · `MCCP_PLAN_REVIEW_BUDGET` 하향 · `MCCP_PLAN_REVIEW=codex`)을 reason에 싣는다. verdict는 불변(`unavailable`, fail-closed) — 넓힌 것이 아니라 **사유만 참으로** 만들었다. skip은 L1 실패와 마찬가지로 plan 해시 없이 판정 가능하므로 DD13 `--plan` 요구보다 앞에 둔다. plan.md 5.2e는 이제 generic 목록을 **덮어쓰지 말고** `reason`을 그대로 출력하라고 지시한다.
+
+### 축 C — 검증을 실측으로 대체한다
+
+라이브 패널이 이 축의 초안을 반려한 사유가 정확히 **검증 공허함**이었다(`node --check`는 문법만 보는데 acceptance는 런타임 동작을 요구 · 기존 emit test에 `minRemaining` 단언 0건). UI5에 따라 **수정 전 실패를 먼저 실측**했다 — 신규 단언 5건이 fix 전 fail, 후 전량 green(23/23).
+
+- `plan-review-workflow-port.test.js`가 budget 분기를 **실행**한다. 분기가 top-level script body라 `extractFunction`으로 못 뽑으므로 ESM `export` 키워드만 제거하고 스크립트 전체를 `AsyncFunction`으로 돌린다 — `args`/`budget`/`log`/`phase`/`parallel`/`agent`를 Workflow 런타임과 같은 모양의 sandbox global로 주입. `budget.total` 미설정 시 무발화(기존 동작)를 함께 고정한다.
+- `plan-review-record.test.js` CREATE(통과·늦은 차단·이른 차단 3경로 + 표 파괴 방어 + slug 탈출 방어), `plan-review-budget.test.js` CREATE(경계값 전수).
+- `commands/plan.md`의 PRD Artifact Output 템플릿 `## Acceptance`에 **라이브 완주 항목**을 추가한다(UI11). M1의 shipped plan은 소급 편집하지 않는다 — `plan_hash`로 봉인된 이력이고 지나간 milestone의 acceptance를 고쳐도 앞으로에는 아무 힘이 없다. 전방으로 작용하는 자리는 템플릿이다.
+
+> **Task 5(패널 통과 경로 라이브 완주)는 미달로 기록한다.** 플러그인 캐시가 `1.23.4`까지만 있어 M1의 패널 경로와 `review-*` agent 4종이 런타임에 존재하지 않는다. `claude plugin update` 후 **새 세션**이 선행 조건이며(agent 레지스트리는 세션 시작 시 구축), 그 전까지 통과 경로는 관측되지 않았다. UI3에 따라 미산출을 달성으로 적지 않는다.
+
+버전 `1.23.7 → 1.23.8`(§3.7 patch · 병렬 브랜치 충돌 6번째 재발 — main이 1.23.6(gate-guard-integrity M1)·1.23.7(MSW M4)을 선점해 두 칸 상향. PRD 미완료, milestone #5·#1.5·#2·#3 pending).
 
 ## [1.23.7] — 2026-08-09
 

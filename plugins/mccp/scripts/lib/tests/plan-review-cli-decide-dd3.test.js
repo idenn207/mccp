@@ -24,6 +24,7 @@ const os = require('os');
 const path = require('path');
 
 const { runCli, EX_OK, EX_BLOCK } = require('../plan-review/cli');
+const { planAwareMarkdownHash } = require('../../receipt/hash');
 
 function withTmp(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-review-dd3-'));
@@ -181,6 +182,98 @@ test('the DD3 short-circuit still runs BEFORE the --plan requirement', () => {
     const d = ctx.decision();
     assert.equal(d.review_verdict, 'divergent', 'L1 violations still report as violations');
     assert.equal(code, EX_BLOCK);
+  });
+});
+
+// ── a SKIPPED panel never fired (M4 follow-up) ───────────────────────────────
+//
+// Same class as the DD3 defect above, at a different seam: the oracle is right
+// and the CLI mislabels the event. The workflow's budget gate returns
+// `{skipped:true, reason:'budget', results:[]}`, and cmdDecide fed only
+// `results` to decideQuorum — which answered `responded: 0`, which decideReview
+// correctly renders as "L2 fired but no reviewer responded usably". Correct for
+// the input it was given, and false about the world: the panel did not fire.
+//
+// This matters more since M4, because M4 is what made the branch reachable at
+// all. Before it, `minRemaining` had no producer and the skip was unreachable
+// source; now an operator can actually land here, read that the reviewers ran
+// and failed, and be handed recovery paths (agent cap, new session) that cannot
+// fix a token shortfall.
+
+function writeSkippedL2(ctx, extra) {
+  const p = path.join(ctx.dir, 'l2.json');
+  fs.writeFileSync(p, JSON.stringify(Object.assign({
+    skipped: true, reason: 'budget', coverage: 0, results: [],
+    reviewedPlanHash: 'sha256:' + 'a'.repeat(64),
+  }, extra || {})), 'utf8');
+  return p;
+}
+
+test('a budget skip says the panel did not fire, and names the numbers it failed', () => {
+  withTmp(function (ctx) {
+    const code = runCli(['decide', '--mode', 'multi-agent',
+      '--l1-file', writeL1(ctx, { verdict: 'converged', violations: [] }),
+      '--l2-file', writeSkippedL2(ctx, { remaining: 100000, minRemaining: 600000 })]);
+    const d = ctx.decision();
+
+    assert.equal(code, EX_BLOCK, 'a skipped panel is still fail-closed — this widens nothing');
+    assert.equal(d.review_verdict, 'unavailable');
+    assert.equal(d.review_proof, null);
+    assert.equal(d.forwardCodexVerdict, false);
+
+    assert.doesNotMatch(d.reason, /L2 fired/,
+      'the panel did not fire, and the stop must not claim it did');
+    assert.match(d.reason, /did not fire/);
+    assert.match(d.reason, /budget/);
+    assert.match(d.reason, /100000/, 'the observed remaining must reach the operator');
+    assert.match(d.reason, /600000/, 'so must the threshold it failed');
+    assert.match(d.reason, /MCCP_PLAN_REVIEW_BUDGET/,
+      'the reason must name a recovery that can actually fix this stop');
+  });
+});
+
+test('a skip for any other reason is still reported as a skip, not as a bad panel', () => {
+  withTmp(function (ctx) {
+    const code = runCli(['decide', '--mode', 'multi-agent',
+      '--l1-file', writeL1(ctx, { verdict: 'converged', violations: [] }),
+      '--l2-file', writeSkippedL2(ctx, { reason: 'no-perspectives' })]);
+    const d = ctx.decision();
+    assert.equal(code, EX_BLOCK);
+    assert.equal(d.review_verdict, 'unavailable');
+    assert.match(d.reason, /no-perspectives/);
+    assert.doesNotMatch(d.reason, /L2 fired/);
+    // No numbers to report here, and inventing them would be the same dishonesty
+    // in the other direction.
+    assert.doesNotMatch(d.reason, /token\(s\) remaining/);
+  });
+});
+
+test('a panel that DID fire and returned nothing keeps its own, different wording', () => {
+  // The regression guard for the fix above: "fired and produced nothing" is a
+  // real and distinct event (every reviewer errored), and collapsing the two
+  // would trade one wrong label for another.
+  //
+  // Reaching that wording needs a satisfied DD13 bind, because the --plan
+  // requirement blocks earlier — so this test carries a real plan and a matching
+  // hash. That the SKIP tests above need none of this is the point: a panel that
+  // never ran is decidable without a plan hash, exactly as an L1 failure is.
+  withTmp(function (ctx) {
+    const planPath = path.join(ctx.dir, 'x.plan.md');
+    fs.writeFileSync(planPath, '# Plan\n\nbody\n', 'utf8');
+    const hash = planAwareMarkdownHash(planPath);
+
+    const p = path.join(ctx.dir, 'l2.json');
+    fs.writeFileSync(p, JSON.stringify({
+      skipped: false, results: [], reviewedPlanHash: hash,
+    }), 'utf8');
+
+    const code = runCli(['decide', '--mode', 'multi-agent',
+      '--l1-file', writeL1(ctx, { verdict: 'converged', violations: [] }),
+      '--l2-file', p, '--repo-root', ctx.dir, '--plan', planPath]);
+    const d = ctx.decision();
+    assert.equal(code, EX_BLOCK);
+    assert.match(d.reason, /no reviewer responded usably/);
+    assert.doesNotMatch(d.reason, /did not fire/);
   });
 });
 

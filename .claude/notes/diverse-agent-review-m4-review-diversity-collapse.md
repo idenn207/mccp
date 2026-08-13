@@ -245,3 +245,48 @@ cross-model이 실행 의미론의 유일한 검출기인데, 그것이 소진�
 ## 9. 한 문장 요약
 
 **같은 모델 6개에게 같은 서사와 같은 rubric을 주는 것은 리뷰를 6번 하는 것이 아니라 한 번 하는 것이다. dual-review의 값은 리뷰어 수가 아니라 관측 채널의 비대칭에서 나오고, santa-loop은 그 비대칭이 사라졌을 때 멈추지 않는다.**
+
+---
+
+## 10. 재발 — 다른 원인, 같은 자리 (2026-08-13 santa-loop)
+
+M4 완료 판정을 위한 santa-loop에서 Reviewer B(Codex)가 **또 verdict를 내지 못했다**. 이번 원인은 usage limit이 아니다.
+
+```
+ERROR codex_core::compact_remote: remote compaction failed
+  last_api_response_total_tokens=235416  model_context_window_tokens=Some(258400)
+  compact_error=unexpected status 404 Not Found: .../codex/responses/compact
+tokens used 270,503
+```
+
+리뷰어가 `plugins/mccp/commands/plan.md`(~1500행)와 2887행 diff를 통독하다 컨텍스트를 소진했고, remote compaction이 404로 실패해 **exit 0인 채 JSON verdict 없이** 종료했다. exit code만 보면 성공이다.
+
+### 이것이 §C1에 추가하는 것
+
+§I1은 분류할 실패를 `usage-limit` / `not-authenticated` / `not-installed` 3종으로 열거했다. 실제로 두 번째 재발은 그 셋 중 어느 것도 아니었다 — `context-exhausted`다. 그리고 §C1이 지적한 스펙 공백이 그대로 재현됐다: `santa-loop.md:127`의 fallback 조건은 여전히 *미설치*뿐이고, "설치돼 있고 호출됐고 실패했다"는 이번에도 스펙에 없는 상태였다.
+
+더 나쁜 성질이 하나 있다. usage limit은 출력 말미에 `ERROR: You've hit your usage limit`이라는 **자기 진술**을 남긴다. context exhaustion은 exit 0 + 정상 출력처럼 보이는 5.7MB 로그를 남기고, 강등 여부는 "말미에 JSON이 있는가"를 확인해야만 드러난다. **verdict 부재를 verdict로 오독할 여지가 usage limit보다 크다.**
+
+### 이번에 한 것
+
+- 진입 전 **선제 probe**(§I7)를 실제로 돌렸다 — `echo "Reply with exactly: PROBE_OK" | codex exec`가 14,519 토큰으로 `PROBE_OK`를 반환. usage limit은 해소돼 있었다. probe는 제 일을 했지만 **가용성만 검증하고 완주 가능성은 검증하지 않는다**.
+- 강등을 same-model fallback으로 덮지 않고, 읽을 범위를 line-range로 못박은 프롬프트로 **cross-model을 재시도**했다(195,778 토큰, 완주). 재시도 프롬프트에 "예산이 떨어지면 미완이라도 JSON을 내라"를 명시했다.
+
+### §I1에 추가돼야 할 것
+
+- 실패 분류에 `context-exhausted`를 넣는다. 판정 기준은 exit code가 아니라 **verdict JSON의 존재**여야 한다 — exit 0 + JSON 부재는 성공이 아니라 강등이다.
+- 리뷰어 프롬프트는 읽을 범위를 상한과 함께 지정한다. "diff를 봐라"는 diff가 3000행일 때 리뷰가 아니라 컨텍스트 소진 지시다.
+- 프롬프트에 "예산 소진 시 미완이라도 JSON을 내고 미검증 축을 FAIL로 표기하라"를 상시 포함한다. 이번 재시도가 완주한 직접 원인이다.
+
+### 축 편중은 네 번째로 재현됐다
+
+이번 라운드의 결과도 §2와 같은 모양이다.
+
+| 리뷰어 | 실재 결함 | 오탐 |
+|---|---|---|
+| A (Opus, code-reviewer) | 0건 | 2건 — report 132행 `[ ]`를 `[x]`로 오독한 "자기모순" · `1>/dev/null`이 record markdown을 버린다는 주장(실제로는 `fs.writeFileSync`가 파일에 쓰고 stdout은 상태 JSON뿐) |
+| B (Codex GPT-5.4) | 1건 — `panelMinRemaining`이 곱셈 뒤 유한성을 재검증하지 않아 `9e307 × 4 → Infinity`, 즉 패널이 영구 skip | 0건 |
+
+A가 낸 4건의 critical issue 중 2건이 오탐이었고, 실재 결함 1건은 A가 통째로 놓쳤다. **누적 실측: 실행 의미론·경계값 결함의 검출은 이번에도 cross-model 단독이다.** §C2의 "같은 모델 n개는 표본 n개가 아니다"에 이어, 이번 라운드는 **same-model 리뷰어의 오탐률이 낮지 않다**는 관측을 더한다 — 강등을 fail-open으로 두면 얻는 것이 0인 게 아니라 음수일 수 있다.
+
+부수: A가 놓치고 B가 찾은 결함은 기존 test가 **의도한 축**이었다. `plan-review-budget.test.js`의 `F2: a huge value stays finite`가 `1e21`을 골랐고 `1e21 × 4 = 4e21`은 유한하다. 축을 적어 둔 것으로는 그 축을 덮지 못한다 — §3의 "rubric은 주의를 배분하지 않는다"가 test에도 성립한다.

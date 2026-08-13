@@ -23,7 +23,8 @@ mccp의 plan/implement/pr 게이트는 dual-review를 위해 Codex(외부 cross-
 
 **M4 ship 후 자기 실측 (2026-08-09 추가)**
 - **차단 경로 계측이 실제로 작동한다 — 합성 아닌 실측 1회**: M4 구현 직후 실제 `cli.js mode → l1 → decide → record` 체인을 이 저장소의 M4 plan 자신에 대해 돌렸다. L1이 `C3_CREATE_EXISTS` 4건으로 divergent(구현이 끝난 뒤라 CREATE 대상이 이미 존재 — L1이 제 일을 한 것이다) → `decide` exit 12 → `record`가 [plan-review-diverse-agent-review-m4-postimpl-l1.md](../reviews/plan-review-diverse-agent-review-m4-postimpl-l1.md)를 남겼고 `## Measurement`에 `halt_stage:"5.2e"` · `wall_clock_ms:43984`(정수) · `verdict:"divergent"`가 기록됐다. **M1이라면 이 실행은 아무것도 남기지 않았다** — receipt write에 도달하지 못했기 때문이다. 이 파일은 슬러그로 스스로를 post-implementation L1 실행이라 밝히며, 게이트의 승인 기록이 아니다.
-- **통과 경로는 이번에도 관측되지 않았다**: 플러그인 캐시가 `1.23.4`에 머물러 `mccp:review-{architect,security,test,invariant}` 4종이 세션 agent 레지스트리에 없다(캐시 `agents/` 실측 0건 · 워크트리에는 4건 존재). agent 레지스트리는 세션 시작 시 구축되므로 `claude plugin update` 후 **새 세션**이 필요하며, 이는 코드 변경으로 충족할 수 없는 런타임 선행 조건이다. UI3에 따라 미산출로 적는다 — M4는 계측 결손을 닫았지 통과 경로를 관측하지 못했다.
+- **통과 경로는 이번에도 관측되지 않았다**: 구현 시점의 사유는 플러그인 캐시가 `1.23.4`에 머물러 `mccp:review-{architect,security,test,invariant}` 4종이 세션 agent 레지스트리에 없다는 것이었다(캐시 `agents/` 실측 0건 · 워크트리에는 4건 존재). UI3에 따라 미산출로 적는다 — M4는 계측 결손을 닫았지 통과 경로를 관측하지 못했다.
+- **그 차단 사유는 이후 해소됐고, 미관측 사유는 다른 것으로 바뀌었다 (2026-08-13 santa-loop 실측)**: 캐시는 `1.23.6`·`1.23.7`로 진행했고 두 버전 모두 `review-*` 4종을 갖는다. installed는 `1.23.7`이며 agent 4종은 세션 레지스트리에 **등록돼 있다** — 위 문단이 지목한 런타임 선행 조건은 더 이상 차단 요인이 아니다. 남은 사유는 **installed 트리에 M4의 산출물이 없다**는 것이다: `1.23.7/scripts/lib/plan-review/`는 `cli.js·decide.js·l1-check.js·perspectives.js·quorum.js`뿐이고 이 브랜치의 `record.js`·`budget.js`가 없다. 따라서 지금 라이브 완주를 돌리면 receipt triple은 봉인되지만(그 배선은 M1 소유다) **M4가 만든 계측은 한 줄도 실행되지 않는다** — clause 1의 문면은 충족되나 M4의 증거는 아니다. 두 리뷰어(Opus·Codex GPT-5.4)가 이 구분에 독립적으로 수렴했다. 완주 자체는 PR #126 머지를 기다릴 필요가 없다 — 이 브랜치의 버전을 로컬에 설치하고 새 세션을 열면 된다.
 - **budget 게이트는 이제 발화 가능하다(런타임 실증)**: `plan-review-workflow-port.test.js`가 shipped workflow 소스를 `AsyncFunction`으로 실행해 `remaining < minRemaining`에서 agent 0개 spawn + 실측 `remaining`/`minRemaining` 반환을 단언한다. M1에서는 producer가 키를 emit하지 않아 이 분기가 **구조적으로 도달 불가**였다. 라이브 `/mccp:plan`에서의 발화는 통과 경로와 함께 미관측.
 - **UI5(수정 전 실패 실측)를 지켰다**: 신규 단언 5건이 fix **전** 실패(23개 중 5 fail)하는 것을 먼저 관측하고 기록한 뒤 구현했다 — 적용 후 23/23 green. M1의 "공허한 validation" 반려 사유를 같은 형태로 반복하지 않기 위한 절차다.
 
@@ -38,7 +39,7 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 ## Success Metrics
 | Metric | Target | How measured |
 |---|---|---|
-| plan 게이트 wall-clock (통과 경로) | 실측 1회 이상 ≤ 10분 | **M4 미산출 (forward-only)** — 계측 표면은 `.claude/reviews/*.md` `## Measurement`로 이전 완료. 통과 경로 라이브 완주는 플러그인 캐시가 `1.23.4`에 머물러(패널 경로·`review-*` agent 미등록) 미실행 |
+| plan 게이트 wall-clock (통과 경로) | 실측 1회 이상 ≤ 10분 | **M4 미산출 (forward-only)** — 계측 표면은 `.claude/reviews/*.md` `## Measurement`로 이전 완료. 구현 시점 미실행 사유는 캐시가 `1.23.4`(패널 경로·`review-*` agent 미등록)였다는 것이고, 그 사유는 해소됐다(캐시 `1.23.7` + agent 등록). 남은 사유는 installed 트리에 M4의 `record.js`·`budget.js`가 없어 지금 돌리면 M4 계측이 실행되지 않는다는 것 — 이 브랜치 버전 설치 + 새 세션이 선행 조건 |
 | plan 게이트 wall-clock (차단 경로) | 계측 도달 (M1에서 구조적 미계측) | **M4 달성** — `cli.js record`가 5.2의 HALT **9곳 전부**(5.2a·5.2b·5.2c-emit·5.2c-pin·5.2d·5.2e·5.2e-proof·5.2f·5.2g)에서 실행되고, 합성 fixture 실측으로 `halt_stage:"5.2b"` + 정수 `wall_clock_ms`(7841ms) 확인. 표면은 receipt(worktree-only)가 아니라 git-tracked `.claude/reviews/` |
 | `converged` 봉인 무결성 | proof 없으면 no-ship, 회귀 0 | dedupe/ship-gate 회귀 test |
 | dual-review 불변식 | 무손상 | 기존 게이트 test suite green |
@@ -48,6 +49,8 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 > **지표 정직성 규칙**: 산출 이력이 0인 지표는 "달성"이 아니라 `forward-only`로 적는다. M1은 계기를 배송했으나 통과 경로가 한 번도 관측되지 않아 headline 두 지표가 미산출이었다 — 이 사실을 status로 감추지 않고 Evidence와 이 표에 명시한다(선례: multi-session-work-loop M2 measurement-honesty downgrade).
 >
 > **M4 갱신**: 차단 경로 지표는 달성됐다(계측 표면이 receipt에서 git-tracked `.claude/reviews/`로 이전, 전 HALT 경유). 통과 경로 지표는 **여전히 미산출**이며 그렇게 적는다 — M4는 계측 결손을 닫았지 통과 경로를 관측하지 못했다. 선행 조건(`claude plugin update` → 새 세션)은 코드 변경으로 충족할 수 없는 런타임 조건이라 milestone 안에서 해소되지 않았다.
+>
+> **2026-08-13 santa-loop 갱신**: 위 선행 조건은 **여전히 유효하되 내용이 바뀌었다**. 막고 있던 것은 agent 미등록이었고 그것은 해소됐다(캐시 `1.23.7`, agent 4종 등록). 지금 막는 것은 installed 트리에 M4 산출물이 없다는 것이며, 해소는 이 브랜치 버전 설치 + 새 세션으로 가능하다(PR #126 머지 불필요). **stale한 사유로 milestone을 판정하지 않기 위해 사유를 갱신하되 판정은 바꾸지 않는다** — 미산출은 미산출이다.
 
 ## Scope
 **MVP (M1, 배송 완료)** — plan-codex 게이트 하나를 **multi-agent(L1+L2)로 전환**. `review_verdict`/`review_source`/`review_proof` verdict 재정의를 배선하고, 기존 소비처(dedupe·ship-gate·ledger·convergence)를 단일 helper로 계승. L3(Codex)는 **수동 opt-in** + **발동 계측 stamp**. plan은 코드 diff가 없어 L1은 "plan 내부 일관성 mechanical check", 무게중심은 L2(다관점 self-consistency).

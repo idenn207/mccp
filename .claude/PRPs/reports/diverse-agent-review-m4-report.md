@@ -1,6 +1,8 @@
 # Implementation Report: diverse-agent-review M4 — 통과 경로 실증 + 지표 부채 상환
 
-**Plan**: `.claude/plans/diverse-agent-review-m4.plan.md` · **Branch**: `diverse-agent-review-m2` · **Version**: `1.23.5 → 1.23.6`
+**Plan**: `.claude/plans/diverse-agent-review-m4.plan.md` · **Branch**: `diverse-agent-review-m2` · **Version**: `1.23.5 → 1.23.6` → **최종 `1.23.8`**
+
+> **2026-08-13 santa-loop 정정.** 이 보고서는 구현 시점 상태를 적은 이력이라 서술은 남기고 이후 바뀐 사실만 여기 명시한다. (1) version은 `1.23.6`으로 계획됐으나 main이 `1.23.6`(gate-guard-integrity M1)·`1.23.7`(MSW M4)을 먼저 발행해 §3.7 forward-only 상향 규칙에 따라 **`1.23.8`**로 이동했다 — 아래 본문의 `1.23.6` 표기는 전부 `1.23.8`로 읽어야 한다. (2) 아래 Tasks 표의 "7/9 shell-강제"는 PR-Codex R2(`4580837`)가 5.2e를 기계화하기 **전** 서술이다. 현재는 9개 halt stage가 전부 셸에 배선돼 있다(`grep -o "\-\-halt-stage [0-9a-z.\-]*" plugins/mccp/commands/plan.md` → 9종). PRD의 "HALT 9곳 전부"가 정확하고 이 보고서 쪽이 stale이었다.
 
 ## Summary
 
@@ -130,7 +132,7 @@ produced diff의 rendered-surface(v1.18.22 scope) 교집합 **0건** — control
 - [x] `budget.total` 미설정 시 동작 불변 — 런타임 test로 고정
 - [x] 신규 회귀 test가 수정 **전** 실패함을 실측하고 기록 (UI5)
 - [ ] **패널 통과 경로 1회 완주** — 미달, PRD에 forward-only 기록 (UI11, UI3)
-- [x] §3.7 5면 version `1.23.6` 동기
+- [x] §3.7 5면 version 동기 — 계획은 `1.23.6`, **실제 ship은 `1.23.8`**(병렬 브랜치 상향, 서두 정정 참조). `plugin.json`·`html.js`·`markdown.js`·`CHANGELOG.md`가 `1.23.8`로 일치하고 `i18n-surface.test.js`는 리터럴이 아니라 manifest 파생이라 자동 추종
 - [x] receipt schema·`receipt_hash`·git-tracked ship corpus 무변경 (UI7) — 신규 필드 0, receipt 548 tests green
 
 ## Next Steps

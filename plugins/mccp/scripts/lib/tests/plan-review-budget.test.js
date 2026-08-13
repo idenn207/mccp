@@ -137,3 +137,39 @@ test('F2: a huge value stays finite and serializable', () => {
   const min = panelMinRemaining(env('1e21'), 4);
   assert.ok(Number.isFinite(min) && min > 0, 'minRemaining must stay a usable number');
 });
+
+// santa-loop (Codex GPT-5.4) — the guarantee above is asserted on the PARSED
+// value, and the assertion that reaches for the product picked 1e21, which
+// multiplies to 4e21 and stays finite. Every value between there and
+// Number.MAX_VALUE was untested, and the product is where the failure lives:
+// parsePanelBudget accepts any finite positive number, so 9e307 survives it and
+// only overflows when multiplied by the fleet.
+//
+// The consequence is the exact inversion of this module's stated purpose. A
+// threshold of Infinity is not a strict gate — `remaining < Infinity` is true for
+// every remaining there is, so the panel skips on every run that sets
+// budget.total, permanently and without a word. The module's own header calls a
+// zero threshold "a threshold nobody can hit"; an infinite one is a threshold
+// nobody can clear, and it arrives from arithmetic rather than from anything the
+// operator typed.
+test('F3: minRemaining stays finite for every value parsePanelBudget accepts', () => {
+  // 9e307 * 4 overflows; 1e308 overflows against any fleet at all.
+  for (const raw of ['9e307', '1e308', '1.7e308']) {
+    for (const fleet of [1, 2, 3, 4]) {
+      const { value } = quiet(() => panelMinRemaining(env(raw), fleet));
+      assert.ok(Number.isFinite(value),
+        `${JSON.stringify(raw)} × ${fleet} produced ${value}; an infinite threshold ` +
+        'skips the panel on every run instead of gating it');
+    }
+  }
+});
+
+test('F3: an overflowing budget falls back loudly, it does not skip silently', () => {
+  const { value, warnings } = quiet(() => panelMinRemaining(env('9e307'), 4));
+  assert.ok(Number.isFinite(value) && value > 0, 'must land on a usable threshold');
+  assert.equal(value, MIN_PER_REVIEWER_DEFAULT * 4,
+    'the fallback is the validated default, not an invented number');
+  assert.ok(warnings.join('').includes(ENV_MIN_PER_REVIEWER),
+    'silence is the failure mode this module exists to prevent — the operator ' +
+    'must be told the value they set was not the value used');
+});

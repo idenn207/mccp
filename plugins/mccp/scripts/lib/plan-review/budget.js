@@ -75,10 +75,26 @@ function parsePanelBudget(env) {
 // a panel the turn can afford. A non-positive or unreadable length yields 0,
 // which reads downstream as "no threshold": there is no fleet to pay for, and
 // emit-workflow-args has already refused an empty fleet by then.
+// The product needs its own guard, not just the factor. parsePanelBudget accepts
+// any finite positive number, so a value near Number.MAX_VALUE passes every check
+// above and only overflows here, when multiplied by the fleet. An infinite
+// threshold is the mirror of the zero one this module was written to eliminate:
+// `remaining < Infinity` holds for every remaining there is, so the panel skips
+// on every run that sets budget.total — permanently, and from arithmetic rather
+// than from anything the operator typed. Same remedy as every other unusable
+// value here: land on the validated default and say so.
 function panelMinRemaining(env, fleetLength) {
   const n = Number(fleetLength);
   if (!Number.isInteger(n) || n <= 0) return 0;
-  return parsePanelBudget(env) * n;
+  const perReviewer = parsePanelBudget(env);
+  const product = perReviewer * n;
+  if (!Number.isFinite(product)) {
+    warn(ENV_MIN_PER_REVIEWER + '=' + perReviewer + ' overflows to Infinity across ' +
+      n + ' reviewer(s), which would skip the panel on every run rather than gate ' +
+      'it. Falling back to default ' + MIN_PER_REVIEWER_DEFAULT + ' per reviewer.');
+    return MIN_PER_REVIEWER_DEFAULT * n;
+  }
+  return product;
 }
 
 module.exports = {

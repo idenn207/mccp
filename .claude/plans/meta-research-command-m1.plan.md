@@ -103,8 +103,11 @@ MEDIUM 5건(테스트 위치 3중 기재의 정본 모호 · `--pre-register` �
 
 ### Task 1: `meta-research.js` — scaffold
 
-- **Action**: `scaffold --topic "<주제>" [--slug <slug>] [--date YYYY-MM-DD] [--repo-root <path>] [--json]`.
-  - **경로 3종은 lib이 파생한다 — 문서 입력도 자유 인자도 아니다 (R9 security HIGH 흡수).** `repoRoot`는 `--repo-root`가 주어지면 그 값, 아니면 `process.cwd()`에서 상향 탐색한 git 루트다(선례: `impeccable-detect.js`·`archive-complete/scan.js`가 `process.cwd()` 기본 + 옵션 override 형태). 거기서 **`metaDir = path.join(repoRoot, '.claude', '_meta')`**, **README = `path.join(metaDir, 'README.md')`** 로 고정 파생한다. `_meta` 위치와 README 위치를 인자로 열지 않는 것이 봉쇄의 전제다 — 열리면 allowlist와 `assertContained`가 지키는 대상 자체가 호출자 통제가 되어 2층이 동시에 무의미해진다. 앞선 판은 이 셋의 출처를 적지 않아, 봉쇄가 성립하는지를 구현자 재량에 맡기고 있었다.
+- **Action**: `scaffold --topic "<주제>" [--slug <slug>] [--date YYYY-MM-DD] [--json]`.
+  - **`repoRoot`는 CLI 표면을 갖지 않는다 — `--repo-root` 플래그는 0건이다 (santa R2 security HIGH 흡수, Codex).** 앞선 판은 test 주입 편의를 위해 `--repo-root <path>`를 열어 뒀는데, 그러면 이후의 모든 봉쇄가 **호출자가 고른 루트에 상대적**이 되어 `metaDir`·README·`assertContained`가 지키는 대상 자체를 인자로 이동시킬 수 있다. 즉 2층 봉쇄가 무의미해지는 경로가 봉쇄 안이 아니라 **CLI 인자에** 있었다.
+    - **해소 형태는 저장소에 선례가 있다** — CLAUDE.md §3.13의 `intentDecision`은 "`cli.js parseFlags`가 임의 `--*`를 전달하므로 플래그를 만들면 아무 셸 호출자나 게이트를 우회한다"는 이유로 **프로그래매틱 전용**이고 `--intent-*` 플래그가 0건이다. 여기도 같다: `repoRoot`는 **export된 함수의 매개변수**(test가 주입)이고, **CLI 진입점은 그것을 인자에서 읽지 않고** `process.cwd()`에서 상향 탐색한 git 루트로만 파생한다(선례: `impeccable-detect.js`·`archive-complete/scan.js`).
+    - 이 구분이 fixture 능력을 잃지 않는다 — Task 4는 어차피 lib을 `require`해 함수로 호출하므로 주입 경로가 그대로 살아 있고, 셸에서 루트를 바꾸는 경로만 사라진다.
+  - 거기서 **`metaDir = path.join(repoRoot, '.claude', '_meta')`**, **README = `path.join(metaDir, 'README.md')`** 로 고정 파생한다. `_meta` 위치와 README 위치를 인자로 열지 않는 것이 봉쇄의 전제다 — 열리면 allowlist와 `assertContained`가 지키는 대상 자체가 호출자 통제가 되어 2층이 동시에 무의미해진다. 앞선 판은 이 셋의 출처를 적지 않아, 봉쇄가 성립하는지를 구현자 재량에 맡기고 있었다.
   - **`_meta/` 부재 시 앵커 이전에 exit 1** (자동 생성하지 않는다). `assertContained`는 `fs.realpathSync(metaDir)`를 먼저 부르므로 미존재 디렉토리에서는 `PATH_ESCAPES_GATE`로 죽는데, 그 메시지는 "디렉토리가 없다"를 뜻하지 않아 원인을 가린다. 자동 생성하지 않는 이유는 Task 0(README 백필) 미완료 상태를 조용히 통과시키지 않기 위해서다.
   - **`--date`도 slug와 같은 강도로 봉쇄한다 (R3 architect HIGH 흡수).** 파일명은 `<date>-<slug>.md`이므로 date 역시 경로 성분이다. `^\d{4}-\d{2}-\d{2}$` 불일치면 write 전 exit 1 — 이 정규식에는 `/`·`\`·`.`가 표현 불가하므로 `--date 2026-08-13/../../etc/passwd` 류가 `path.join` 정규화 이전에 죽는다. 미지정 시 오늘 날짜를 같은 형식으로 생성한다(항상 통과).
   - **slug 도출과 봉쇄 (2중, fail-closed)** — `--slug` 미지정 시 `--topic`을 kebab-case로 정규화하되, 결과가 allowlist `^[a-z0-9][a-z0-9-]{0,63}$`에 **불일치하면 즉시 exit 1**로 `--slug` 명시를 요구한다(한국어 주제는 정규화 결과가 비므로 항상 이 경로). `--slug`가 주어져도 **같은 allowlist로 재검증**한다 — `.`·`/`·`\`·`..`가 문법적으로 표현 불가하므로 traversal이 정규식 단계에서 죽는다.
@@ -172,7 +175,11 @@ MEDIUM 5건(테스트 위치 3중 기재의 정본 모호 · `--pre-register` �
 - **idempotent** — 첫 열 링크 target이 같은 행이 있으면 그 행의 날짜/상태/한 줄을 **덮어쓰고** 새 행을 추가하지 않는다. `## 색인` 절 또는 그 표가 없으면 exit 1(Task 0 백필이 선행 조건).
 - **preflight → write 순서 (R6 invariant MEDIUM 흡수)** — README를 읽어 `## 색인` 절과 헤더행 존재를 **먼저** 확인하고, 없으면 그 자리에서 exit 1한다. tmp 파일도 만들지 않는다. 구조 검사를 write 시도 이후로 미루면 실패가 "쓰다가 죽었다"로 보이고, 원인이 문서 구조라는 사실이 가려진다.
 - **write 실패 처리** — 검사 통과 후에만 tmp write + `fs.renameSync` 원자 치환. rename 실패 시 non-zero exit + tmp 정리, README 원본 무손상(부분 기록된 색인이 남지 않는다).
-- **동시 writer 봉쇄 — lock + 고유 tmp 이름 (R10 invariant CRITICAL ×2 흡수).** register는 README를 **read-modify-write** 하므로 rename의 원자성만으로는 부족하다. 두 프로세스가 각각 README를 읽고 서로 다른 행을 더한 뒤 차례로 rename하면 **나중 것이 먼저 것의 행을 조용히 지운다**. mccp는 이 문제를 이미 겪었고 해법이 두 축으로 나뉜다 —
+- **동시 writer 완화 — lock + 고유 tmp 이름. "봉쇄"가 아니다 (santa R2 HIGH 흡수, Codex).** 앞선 판은 이 절을 "봉쇄"라 불렀는데, 같은 절이 실패 정책을 **fail-open**으로 정하고 있어 제목이 본문을 넘어섰다. 정확한 보증은 아래 「무엇을 보증하는가」다.
+  - **무엇을 보증하는가 / 하지 않는가** — lock을 **획득한** 경로에서는 lost update가 발생하지 않는다. lock을 **획득하지 못한** 경로에서는 경고 후 진행하므로 lost update가 **여전히 가능하다**. 즉 이 설계는 경합 창을 좁히고 그 사실을 시끄럽게 알릴 뿐, 제거하지 않는다.
+  - **그럼에도 fail-open이 옳은 이유(정책 선택이지 누락이 아니다)** — CLAUDE.md §3.6은 lock 실패 정책을 대상의 성격으로 가른다: evidence write lock은 **감사 corpus**라 fail-closed, `session-ledger`는 아니라 fail-open이다. `_meta/README.md` 색인은 UI1대로 receipt가 아니고 감사 대조 대상도 아닌 **발견 보조물**이므로 후자에 속한다. 여기서 fail-closed로 서면 stale lock 하나가 조사 작업 자체를 멈춘다.
+  - **유실이 조용하지 않다는 것이 이 선택의 전제다** — 유실된 행은 다음 `lint --all`에서 그 문서가 `NOT_INDEXED`로 나타나 **자기 검출**된다. 이 자기 검출은 산문이 아니라 L4 검사 자체이며 Task 4의 L4 부정 fixture가 그것을 red로 잡는다.
+  - register는 README를 **read-modify-write** 하므로 rename의 원자성만으로는 부족하다. 두 프로세스가 각각 README를 읽고 서로 다른 행을 더한 뒤 차례로 rename하면 **나중 것이 먼저 것의 행을 조용히 지운다**. mccp는 이 문제를 이미 겪었고 해법이 두 축으로 나뉜다 —
   - **lock**: `completion-ledger/store.js#withLedgerLock`([:190-213](../../plugins/mccp/scripts/lib/completion-ledger/store.js)) 형태를 그대로 쓴다 — `<README>.lock` O_EXCL 획득 · 재시도 · stale(mtime 초과) reclaim. 임계구역은 **읽기부터 rename까지 전체**다(읽기만 감싸면 같은 race가 남는다).
   - **tmp 이름은 고유해야 한다**: 같은 파일의 `writeFileAtomic`이 tmp를 `target + '.tmp'` **고정**으로 쓰는데, 이 이름이 고정이면 동시 writer가 tmp 단계에서 충돌한다(CLAUDE.md §3.6이 evidence write lock에 `<target>.<pid>.<rand>.tmp`를 강제하는 것과 같은 이유). register는 `<README>.<pid>.<rand>.tmp`를 쓴다.
   - **실패 정책은 fail-open + loud warn**(선례 동일) — 색인은 감사 corpus가 아니라 발견 보조물이고, 유실은 다음 `lint --all`이 `NOT_INDEXED`로 **자기 검출**한다. lock 미획득에 fail-closed로 서면 조사 작업이 lock 하나로 멈춘다. 다만 경고를 삼키지는 않는다.
@@ -240,7 +247,16 @@ MEDIUM 5건(테스트 위치 3중 기재의 정본 모호 · `--pre-register` �
 
     **왜 이것이 형식 문제가 아니라 증명의 존폐인가** — 앞선 판은 두 symlink 부정 케이스를 raw `fs.symlinkSync` + "`EPERM`이면 loud skip"으로 적었다. 대상 플랫폼이 win32이므로 그 문장은 *두 케이스가 이 환경에서 항상 skip된다*는 뜻으로 읽혔고, 그러면 `assertContained` 두 층은 "발생하지 않음" 쪽 단언만 남아 **호출을 통째로 지워도 전부 green**이 된다. Windows의 **디렉토리 junction은 권한 상승이 필요 없으므로**(NTFS junction ≠ symlink) 이 헬퍼를 쓰면 그 skip 자체가 사라진다.
     - **실측(2026-08-13, 이 워크트리 · win32 Windows 11 Home · node v24.19.0)**: `fs.symlinkSync(outside, link, 'junction')` **성공** · `fs.realpathSync(link)`가 repoRoot 밖으로 해석됨 확인. 따라서 아래 두 케이스는 이 플랫폼에서 **실행된다** — 스킵을 전제로 Acceptance를 낮출 이유가 없다.
-    - skip은 **헬퍼가 `false`를 반환할 때만** 허용하며 그때도 loud skip이다(조용한 통과 금지). 즉 skip은 정책이 아니라 잔여 예외다.
+    - **두 컨테인먼트 fixture는 skip하지 않는다 — 링크 생성 실패는 red다 (santa R2 HIGH 흡수, Codex).** 선례 2벌은 `if (!linked) t.skip(...)` 형태인데, 그 형태를 그대로 베끼면 *심각도만 낮춘 F1*이 된다: 헬퍼가 `false`를 반환하는 순간 두 층의 "발생함" 단언이 사라지고 `assertContained` 호출을 지워도 green이 된다. 그래서 이 두 케이스는
+
+      ```js
+      assert.ok(tryCreateDirLink(outsideDir, linkPath),
+        'directory link must be creatable (win32=junction, POSIX=dir) — ' +
+        'the containment proof may not be skipped');
+      ```
+
+      로 단언한다. **선례에서 skip이 정당했던 이유가 여기엔 없다** — 선례는 파일 symlink(권한 상승 필요)를 포함한 일반 헬퍼이고, 이 두 케이스는 **디렉토리 링크 전용**이라 win32에서 junction으로, POSIX에서 dir symlink로 각각 권한 없이 만들어진다. 만들어지지 않는 환경은 "이 플랫폼은 원래 그래"가 아니라 조사가 필요한 상태이므로 red가 정답이다.
+    - **이 단언이 곧 실측의 실행 가능한 형태다 (Codex 제안 흡수).** 위 실측은 산문이고 산문은 회귀하지 않는다. `assert.ok(...)`로 바꾸면 같은 사실이 **매 실행 검증**되며, junction이 안 되는 환경으로 옮겨가면 조용한 커버리지 상실이 아니라 red로 드러난다.
   - **T0 왕복(핵심)** — 이 케이스가 PRD "절차 재현성" 지표의 유일한 기계 증거다.
     **전제**: fixture는 tmp repo(`git init` 불필요, `repoRoot`는 주입)에 셋을 만든다 —
     (a) `_meta/` 디렉토리,
@@ -253,7 +269,7 @@ MEDIUM 5건(테스트 위치 3중 기재의 정본 모호 · `--pre-register` �
   - **커맨드 골격 계약 lint 1건 (R5 test HIGH 흡수 · R8 invariant HIGH로 순서 축 추가)** — PRD "절차 재현성" 지표는 *lib 왕복*이 아니라 **커맨드가 조사 골격을 구성함**을 요구한다. T0는 lib만 증명하므로 그 지표를 덮지 못한다. `commands/meta-research.md`를 읽어 **Phase 0~4 heading 5개가 정의된 순서대로 존재**하고, **Phase 4 블록이 `lint --doc --pre-register` → `register --doc` → 전체 `lint --doc`을 그 순서로 호출**함을 정적 단언한다. 골격이 빠지거나 순서가 뒤집히면 red — 특히 `register`가 `--pre-register` 검사보다 앞서면 고아 색인 항목의 창이 다시 열리므로, 존재만이 아니라 **등장 index 오름차순**을 단언한다.
     - **이 test가 증명하는 것과 못 하는 것**: Phase 1~3의 실제 조사는 LLM 작업이라 단위 test로 강제 불가하다. 이 단언은 **골격의 존재와 순서**만 증명하며, 조사 품질은 PRD Risk 1이 이미 강제 불가로 인정한 축이다. 그 이상을 주장하지 않는다.
   - **부정 fixture (총 27, 전부 `code` 단언)**:
-    - **scaffold 6** — `--slug ../../x` · `--date 2026-08-13/../x` · 한국어 `--topic` + slug 미지정 · 덮어쓰기 · **`_meta/` 디렉토리 부재 → 명시 사유로 exit 1**(R10 test 흡수 — 자동 생성하지 않는다는 계약에 대응하는 부정 케이스가 없으면 그 계약이 미검증이다) · **링크된 `_meta/` — win32=junction / POSIX=dir symlink (R8 security HIGH 흡수)**. 마지막 건은 tmp repo의 `_meta/`를 repo 밖 디렉토리로 링크해 두고 `scaffold`가 `PATH_ESCAPES_GATE`로 **거부**하는지 단언한다. 앞선 판은 이 층에 대해 "발생하지 않음"(아래 API 규약 회귀)만 갖고 있었고, 「symlink escape 부정」은 **L3 참조 검증** 케이스라 scaffold의 디렉토리 앵커를 덮지 못한다 — 즉 scaffold의 `assertContained` 호출을 통째로 지워도 test가 전부 green이었다. 두 층은 대상이 다르므로 부정 케이스도 **각각** 필요하다. 링크 생성은 위 `tryCreateDirLink`(win32=junction)를 쓴다 — 헬퍼가 `false`를 반환할 때만 loud skip
+    - **scaffold 6** — `--slug ../../x` · `--date 2026-08-13/../x` · 한국어 `--topic` + slug 미지정 · 덮어쓰기 · **`_meta/` 디렉토리 부재 → 명시 사유로 exit 1**(R10 test 흡수 — 자동 생성하지 않는다는 계약에 대응하는 부정 케이스가 없으면 그 계약이 미검증이다) · **링크된 `_meta/` — win32=junction / POSIX=dir symlink (R8 security HIGH 흡수)**. 마지막 건은 tmp repo의 `_meta/`를 repo 밖 디렉토리로 링크해 두고 `scaffold`가 `PATH_ESCAPES_GATE`로 **거부**하는지 단언한다. 앞선 판은 이 층에 대해 "발생하지 않음"(아래 API 규약 회귀)만 갖고 있었고, 「symlink escape 부정」은 **L3 참조 검증** 케이스라 scaffold의 디렉토리 앵커를 덮지 못한다 — 즉 scaffold의 `assertContained` 호출을 통째로 지워도 test가 전부 green이었다. 두 층은 대상이 다르므로 부정 케이스도 **각각** 필요하다. 링크 생성은 위 `tryCreateDirLink`(win32=junction)를 쓰고 그 성공을 `assert.ok`로 단언한다 — **skip 분기 없음**
     - register 3 — `**Date**` 부재 · `## 색인` 절 부재 · **`--doc`가 `_meta/` 밖 경로 → exit 1**(R11 security HIGH 흡수, 등재 이전에 죽는지)
     - **L1 1 — `BAD_FILENAME`.** fixture 문서는 **`**Status**` 헤더를 가진** 채로 파일명만 규격 위반이어야 한다. 헤더 없는 문서를 쓰면 면제 술어에 걸려 L1이 아예 안 돌고, test는 "위반 없음"을 통과로 읽어 **L1 구현이 통째로 비어 있어도 green**이 된다
     - **L2 9 — 검사 지점별 1건.** 헤더 3키 각각 삭제 3 + `##` 섹션 6개 각각 삭제 6. "`## Verdict` 하나만 지워 본다"로는 L2가 일부만 검사하는 구현 결함을 못 잡고, 헤더를 블록 단위로만 지워 보면 `**Topic**` 단독 누락을 놓친다(R4·R5 test MEDIUM 흡수)
@@ -263,7 +279,7 @@ MEDIUM 5건(테스트 위치 3중 기재의 정본 모호 · `--pre-register` �
   - **API 규약 회귀 1건** — scaffold를 실 `_meta/` 구조를 흉내낸 tmp에서 돌려 `PATH_ESCAPES_GATE`가 **발생하지 않음**을 단언한다. 3-arg `assertContained` 또는 미생성 파일 앵커로 되돌리면 red가 된다(R2 CRITICAL 회귀 잠금).
   - **symlink escape 부정 1건 — L3 참조 축 (R6 architect HIGH 흡수)** — 지금까지 `assertContained`는 "발생하지 않음"만 단언했다. 그 층이 존재한다고 주장하는 유일한 위협(lexical screen이 못 보는 symlink escape)에 대해 **발생함**을 단언하는 케이스가 없으면, 호출을 통째로 지워도 test는 전부 green이다. tmp fixture에서 repo 밖을 가리키는 링크를 만들고 그 경유 **Premises 참조**가 `REF_OUTSIDE_REPO`로 보고되는지 확인한다.
     - **탈출 경로는 파일 symlink가 아니라 `tryCreateDirLink`로 만든 디렉토리 링크를 경유한다.** repo 안에 `_meta/outside → <repo 밖 디렉토리>` 링크를 만들고, Premises 참조 셀을 그 링크 **하위 파일**(예 `.claude/_meta/outside/target.js`)로 둔다. 이 경로는 lexical screen 5축을 전부 통과하고(절대경로·드라이브·UNC·`..`·NUL 없음) `existsSync`도 true이므로, 3단계 `assertContained`만이 잡을 수 있는 **정확히 그 위협**이 된다. 파일 symlink는 Windows에서 개발자 모드를 요구할 수 있지만 디렉토리 junction은 요구하지 않으므로, 이 형태라야 win32에서 실행된다.
-    - 헬퍼가 `false`를 반환하면 **loud skip** — 조용히 통과시키지 않는다. (scaffold의 디렉토리 앵커는 **다른 층**이며 위 scaffold 부정 5번째가 담당한다.)
+    - 링크 생성은 `assert.ok`로 단언한다 — **skip 분기 없음**(위 Action의 「skip하지 않는다」 참조). (scaffold의 디렉토리 앵커는 **다른 층**이며 위 scaffold 부정 5번째가 담당한다.)
   - **실 repo 회귀 1건 (R4 test MEDIUM 흡수 · R8 test HIGH로 동일성 축 추가)** — tmp fixture만으로는 실제 `_meta/`의 인코딩·legacy markdown 변형에 대한 동작을 증명하지 못하고, Validation §3 스모크는 수동이라 이후 파일이 바뀌어도 안 잡힌다. 그래서 test 안에서 **실 repo root를 `repoRoot`로 주입해 `lint --all`을 돌리고 `ok:true`를 단언**한다(읽기 전용, 쓰기 없음).
     - **선행조건은 Task 0이다 (santa R1 흡수).** `## 색인` 백필 이전에는 legacy 5종이 전부 `NOT_INDEXED`라 이 단언이 red이고, 그 red는 lib 결함이 아니라 순서 위반이다. Validation §3이 같은 의존을 `grep -q '^## 색인$' … || SKIP`으로 표면화하듯, 이 test도 `## 색인` 절 부재를 감지하면 **loud skip**한다(조용한 green도, 오독되는 red도 만들지 않는다).
     - **면제 집합은 개수가 아니라 파일명 집합으로 단언한다.** `exempt[]` 길이 5만 보면 legacy 1종이 사라지고 규격 미달 신규 문서 1종이 들어와도 수가 5로 유지되어 **엉뚱한 문서가 면제된 채 green**이 된다. 단언 대상은 `exempt[].doc`의 정렬된 집합이 정확히 `{converged-redefinition-design.md, diverse-agent-review-analysis.md, verification-layer-design.md, 2026-08-12-prd-decomposition-addendum.md, 2026-08-12-review-loop-meta-analysis.md}`와 같다는 것이다. 이 5종은 PRD Evidence가 이름으로 열거한 바로 그 집합이고, 늘어나야 할 이유가 없다(신규 문서는 전부 scaffold 산출물 = 면제 대상 아님). 집합이 달라지면 red가 정답이다 — 그때 필요한 것은 단언 완화가 아니라 사람의 확인이다.
@@ -363,13 +379,14 @@ git grep -n "1\.23\.7" -- plugins/mccp ':!*CHANGELOG*'
 
 - [ ] `node --test plugins/mccp/scripts/lib/tests/meta-research.test.js` green (T0 왕복 + 커맨드 골격 계약 1 + 부정 27 + 긍정 3 + API 규약 회귀 1 + symlink escape 부정 1(L3 참조 축) + 동시 register 회귀 1 + 실 repo 회귀 1 + 면제 1)
 - [ ] **고아 색인 항목이 발생할 수 없는 순서로 고정** — Phase 4가 `lint --pre-register` → `register` → `lint`(전체)이고, 커맨드 골격 계약 test가 그 **등장 순서**를 단언한다. `register`를 앞으로 되돌리면 red. **"구조적으로 불가능"이라고는 주장하지 않는다** (R9 architect MEDIUM 흡수) — 강제 수단은 커맨드 본문에 대한 정적 계약 test이지 타입/API 수준 불변식이 아니며, 커맨드 본문을 벗어나 lib을 직접 호출하는 경로는 이 순서를 강제받지 않는다
-- [ ] scaffold의 `assertContained` 층이 **짝으로** 검증 — 정상 경로에서 미발화(API 규약 회귀) + 링크된 `_meta/`에서 발화(scaffold 부정 5번째). 한쪽만 있으면 호출을 지워도 green이 된다. **두 케이스 모두 win32에서 실행된다** — 링크는 `tryCreateDirLink`(win32=junction, 권한 상승 불요)로 만들며 실측으로 확인했다(Task 4). skip은 헬퍼가 `false`를 반환하는 잔여 예외뿐이고 그때도 loud다
+- [ ] scaffold의 `assertContained` 층이 **짝으로** 검증 — 정상 경로에서 미발화(API 규약 회귀) + 링크된 `_meta/`에서 발화(scaffold 부정 5번째). 한쪽만 있으면 호출을 지워도 green이 된다. **두 케이스 모두 win32에서 실행된다** — 링크는 `tryCreateDirLink`(win32=junction, 권한 상승 불요)로 만들고 그 성공을 `assert.ok`로 단언한다. **skip 분기가 없다** — 링크 생성 실패는 skip이 아니라 red이므로, "실행된다"가 산문이 아니라 suite가 강제하는 조건이다
 - [ ] Validation §3 정리가 3단 전부 통과 — README가 스모크 직전과 **byte-identical** · `## 색인` 행 수가 스모크 전과 동일 · `git status --porcelain .claude/_meta/`에 `??` 행 없음. **"빈 출력"을 요구하지 않는다**: 그 형태는 Task 0이 커밋됐을 때만 성립하므로 Task 0 성공 여부를 구분하지 못하고, 정리에 `git checkout`을 쓰면 Task 0의 미커밋 백필까지 지워져 어느 쪽이든 통과한다(R7 test HIGH)
 - [ ] `lint --all --json` → `ok:true` · `exempt[].doc` 집합이 legacy **5종 파일명과 정확히 일치**(개수만 세면 1종이 빠지고 다른 문서가 들어와도 통과한다 — R8 test HIGH). **Validation §3 정리 이후에 실행해도 같은 결과**여야 한다 — 스모크가 Task 0의 백필을 건드리지 않았다는 증거다
 - [ ] Validation §3 실 repo 왕복 스모크가 step1 red → step2 red → step3 exit 0 → **step4 idempotent(행 수 불변)** 으로 통과
 - [ ] T0 왕복이 test로 존재 — scaffold 직후 L3 red → Premises 채움 → register → exit 0 (절차 재현성 지표)
 - [ ] scaffold의 **`--slug`와 `--date` 양쪽** allowlist가 불일치 시 write 전에 exit 1 (Task 1 Validate) · 2층째 `assertContained`는 Task 4의 「API 규약 회귀」 + 「symlink escape 부정」 두 케이스가 짝으로 증명
-- [ ] 템플릿 생성 문서의 `## Premises` 참조 경로 실존 100% (primary 지표 — L3가 기계 검증). **L3 3단계가 전부 실행됨을 포함한다** — lexical screen(부정 5)·`existsSync`(부정 1)·`assertContained` realpath(symlink escape 부정 1)이며, 마지막 건은 디렉토리 junction 경유라 win32에서도 skip되지 않는다. 이 항목은 플랫폼 단서를 달지 않는다 — 단서가 필요했던 원인(raw `fs.symlinkSync` EPERM)이 헬퍼 교체로 제거됐기 때문이다
+- [ ] 템플릿 생성 문서의 `## Premises` 참조 경로 실존 100% (primary 지표 — L3가 기계 검증). **L3 3단계가 전부 실행됨을 포함한다** — lexical screen(부정 5)·`existsSync`(부정 1)·`assertContained` realpath(symlink escape 부정 1)이며, 마지막 건은 디렉토리 junction 경유 + `assert.ok` 단언이라 **skip 분기 자체가 없다**. 이 항목은 플랫폼 단서를 달지 않는다 — 단서가 필요했던 원인(raw `fs.symlinkSync` EPERM)이 헬퍼 교체로 제거됐고, 남아 있던 skip 경로도 red로 바뀌었기 때문이다
+- [ ] **register 동시성은 "봉쇄"가 아니라 "완화"로 기재** — lock 획득 경로에서만 lost update가 없고 미획득 경로에서는 여전히 가능하다는 사실이 Task 2에 명시되며, 유실은 `lint --all`의 `NOT_INDEXED`가 자기 검출한다(그 검출 자체는 L4 부정 fixture가 red로 잡는다). 이 항목은 fail-closed를 요구하지 않는다 — 색인은 감사 corpus가 아니므로 CLAUDE.md §3.6의 fail-open 쪽에 속한다
 - [ ] `_meta/` 전 산출물이 README 색인에서 1홉 도달 (발견 가능성 지표 — L4가 기계 검증)
 - [ ] `GATE_IDS` 무변경 (UI1)
 - [ ] `aliases.js`에 `mccp:meta-research`가 **빈 spec**으로 등재되고 회귀 test가 `produces`·`requires_preceding` 양쪽의 **빈 배열**을 단언 (DD8) — 등재 사실만 단언하면 나중에 게이트가 실려도 green이므로, UI1을 지키는 것은 등재가 아니라 *빈 배열* 단언 쪽이다

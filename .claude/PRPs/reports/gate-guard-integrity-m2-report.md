@@ -2,7 +2,7 @@
 
 **Plan**: `.claude/plans/gate-guard-integrity-m2.plan.md`
 **Source PRD**: `.claude/prds/gate-guard-integrity.prd.md` · Milestone 2
-**Branch**: `docs/gate-guard-integrity-m2-completion` · **Version**: 1.23.7 → 1.23.10
+**Branch**: `docs/gate-guard-integrity-m2-completion` · **Version**: 1.23.7 → 1.23.11
 **Gate receipts**: `mccp-plan-codex` + `mccp-implement-codex` / decision=`gate-guard-integrity-m2` · validate ok
 
 ## 판정: **잔여를 명시한 채 운영자 수용 → complete**
@@ -40,16 +40,22 @@ node --test --test-reporter=tap "plugins/mccp/scripts/**/*.test.js"
 
 원본 TAP은 `.claude/PRPs/reports/gate-guard-integrity-m2-baseline.tap`에 산출물로 보존된다.
 
-baseline.tap sha256: 3ca7d8c74f9402d542fb52fe5a99696215a6dd2c417f5349aa27036bd4fd7d69
+baseline.tap sha256: 8ddbd982395ba21568a3f17cc9c80697dc19e9d0fd68847437b2d74fa8146825
 
 plan의 2026-08-12 증거값 `{pass 3861, fail 2, skipped 6}`과 **네 지표 모두 일치**한다. 이는 갱신이 아니라 최초이자 유일한 확정이며, 값이 같다는 사실은 우연이 아니라 그 사이 트리가 움직이지 않았다는 뜻이다(HEAD=`3eabab2`=`origin/main`, 착수 시점 `git rev-list --left-right --count origin/main...HEAD` = `0 0`).
 
 **순서 증명** — 해시 일치는 변조만 잡고 순서는 잡지 못하므로 커밋 이력으로 증명한다.
 
+> **봉인 TAP은 경로 치환을 거쳤다 (D11).** 최초 봉인본은 실패한 두 `b2-coverage-gate` 테스트의 node 스택 트레이스에 저장소 절대경로 6곳을 담고 있었고, `/mccp:pr` Phase 3.1의 pre-push **history-leak 게이트가 HALT**했다. 두 불변식(봉인 TAP · 절대경로 무유출)이 충돌하므로 운영자 판정으로 **경로만 `<REPO_ROOT>`로 치환하고 미푸시 이력을 재작성**했다(`git filter-branch --index-filter`, 토폴로지·머지 보존).
+>
+> 치환이 측정을 바꾸지 않았음은 기계적으로 확인했다 — `# tests|suites|pass|fail|cancelled|skipped|todo` 요약 헤더와 `not ok` 실패 이름 **9줄 전부 바이트 동일**이며, 스크립트는 하나라도 달라지면 쓰기를 거부하도록 작성했다. 835,966 → 835,928바이트(경로 문자열 38바이트 감소). 재작성 후에도 **TAP 커밋 1개 · 조상 순서 증명**이 그대로 성립한다. 위 sha256은 치환본의 값이다.
+>
+> 대안 두 가지는 기각했다: leak 스캐너의 allowlist를 넓히는 것은 **내 산출물을 통과시키려 보안 게이트를 확장**하는 형태이고(이 PRD가 OQ-C에서 `APPROVED_WRITERS` 확대를 기각한 것과 같은 축), TAP을 git에서 빼는 것은 이 milestone이 세운 증거 사슬 자체를 포기한다.
+
 | 검사 | 결과 |
 |---|---|
-| TAP을 건드린 커밋 수 (`git log -- <tap>`) | **1** (`746e32a`) — 두 번째 측정이 없었다는 기계적 증거 |
-| 봉인 커밋 ⊂ Task 1 산출물 커밋(`6c23b54`)의 조상 | **참** (`git merge-base --is-ancestor`) |
+| TAP을 건드린 커밋 수 (`git log -- <tap>`) | **1** (`656c407`) — 두 번째 측정이 없었다는 기계적 증거 |
+| 봉인 커밋 ⊂ Task 1 산출물 커밋(`a0de8e4`)의 조상 | **참** (`git merge-base --is-ancestor`) |
 | report의 `baseline.tap sha256:` 줄 수 | **1** |
 | 재해시 대조 | 일치 |
 

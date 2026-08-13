@@ -1,0 +1,259 @@
+'use strict';
+
+// multi-session-work-loop M5 — state-journal facade.
+//
+// 설계: docs/multi-session-work-loop/state-truth-source-design.md
+//
+// `state-writer.update()`가 부르는 유일한 진입점. 여기서 하는 일은 **사실을
+// 모아 돌려주는 것**까지이고, degraded 진입 판정과 throw는 호출자가 소유한다
+// (DD6.1 책임 2층 표 — 유일 throw 지점은 `state-writer.update()`).
+
+const journalStore = require('../../state/journal-store');
+const record = require('./record');
+const order = require('./order');
+const projectMod = require('./project');
+
+// ── 토글 (DD7 · I5) ──────────────────────────────────────────────────────────
+//
+//   enforce (default) — 투영이 권위. STATE.md는 저널의 렌더다.
+//   shadow            — 저널은 계속 쓰되 STATE.md는 M5 이전 직접 경로. 회귀 복구용.
+//   off               — 저널 비활성 + loud warn.
+//
+// 운영 계약: **수동 전용**(자동 강등 경로 없음 — 그쪽은 `.degraded` 마커의 일이다) ·
+// **프로세스 수명**(env를 지우면 다음 프로세스는 enforce) · **마커 > 토글**
+// (`.degraded`가 있으면 enforce여도 직접 경로).
+const JOURNAL_MODES = new Set(['enforce', 'shadow', 'off']);
+
+function parseJournalMode(env) {
+  env = env || process.env;
+  const raw = String(env.MCCP_STATE_JOURNAL || '').trim().toLowerCase();
+  if (!raw) return 'enforce';
+  if (JOURNAL_MODES.has(raw)) return raw;
+  process.stderr.write('[mccp:state-journal] WARNING: unrecognized MCCP_STATE_JOURNAL="' +
+    raw + '" — falling back to enforce (allowed: enforce|shadow|off)\n');
+  return 'enforce';
+}
+
+// work_unit 해석 (I3).
+//
+// tombstone은 completion-ledger의 `decision_id`로 seed되므로(DD11) 두 네임스페이스가
+// 만나는 유일한 지점이 decision slug다. 그래서 그것을 최우선으로 둔다. slug가
+// 없는 hook 호출은 `task_fingerprint`로 떨어지며, 그 축의 레코드는 ledger
+// tombstone과 만나지 않는다 — 클론 경계를 넘는 방어가 decision-slug 축에만
+// 성립한다는 뜻이고, 잔여 1의 범위 정밀화로 문서에 기록돼 있다.
+function resolveWorkUnit(patch, existingState) {
+  patch = patch || {};
+  const fm = (existingState && existingState.frontmatter) || {};
+  // **patch가 먼저다.** 초기 구현은 기존 frontmatter만 읽어서, 작업 단위를 바꾸는
+  // 바로 그 변형이 *이전* 단위로 기록됐다(work_unit이 한 칸씩 밀림 — 회귀 test
+  // `journal query filters by work-unit`이 이것을 잡았다). 이 변형이 속한 작업
+  // 단위는 patch가 선언한 것이지 직전 상태가 아니다.
+  //
+  // decision slug가 fingerprint보다 우선한다 — tombstone이 `decision_id`로
+  // seed되므로(DD11) 두 네임스페이스가 만나는 유일한 지점이기 때문이다.
+  const candidates = [
+    patch.workUnit,
+    patch.work_unit,
+    patch.escalate_pending_decision_id,
+    fm.escalate_pending_decision_id,
+    patch.taskFingerprint,
+    fm.task_fingerprint,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
+  }
+  return 'unknown';
+}
+
+function lastRecord(records) {
+  if (!Array.isArray(records) || records.length === 0) return null;
+  return records[records.length - 1];
+}
+
+// ── 실제 session-ledger 리더 (PR-Codex C1 흡수) ──────────────────────────────
+//
+// **초기 구현은 이 배선이 없었다.** `state-writer`가 `ledgerRead` 없이
+// `journalApply`를 불렀고, `resolveIdentity`는 주입이 없으면 `ts-fallback`으로
+// 떨어진다. 그래서 프로덕션의 `session_epoch`은 세션의 `created_at`이 아니라
+// **그 업데이트의 write 시각**이었다 — DD2가 세운 단조 세션 epoch이 존재하지
+// 않았다는 뜻이다. 귀결이 치명적이다: 판정 ③(같은 seq는 큰 epoch 승리)이 사실상
+// "나중에 append한 쪽이 승리"가 되어, **되살아난 오래된 세션이 늦게 쓰면 이긴다**.
+// UI5가 요구한 재생 방어가 그 지점에서 뒤집힌다.
+//
+// 기본값을 여기 두는 이유: 호출자가 주입하도록 두면 "caller가 잊는" 실패 모드가
+// 남는다(방금 그것이 실제로 일어났다). 기본이 실제 리더이고 test만 주입한다.
+//
+// per-process 메모: `created_at`은 세션 내 불변이므로 매 update마다 파일을 다시
+// 읽을 이유가 없다(hot path — 모든 hook이 지난다).
+const ledgerEpochMemo = new Map();
+
+function defaultLedgerRead(repoRoot) {
+  return function (args) {
+    const sessionId = args && args.sessionId;
+    if (!sessionId || sessionId === 'unknown') return { ok: false };
+    const key = String(repoRoot) + '\u0000' + sessionId;
+    if (ledgerEpochMemo.has(key)) return ledgerEpochMemo.get(key);
+    let result = { ok: false };
+    try {
+      const sessionLedger = require('../../state/session-ledger');
+      result = sessionLedger.readLedger({ sessionId: sessionId, cwd: repoRoot });
+    } catch (_e) {
+      result = { ok: false };
+    }
+    // 성공만 메모한다 — 실패를 캐시하면 세션 초반(ledger 생성 전)에 한 번 실패한
+    // 것이 그 프로세스 내내 ts-fallback을 고정시킨다.
+    if (result && result.ok) ledgerEpochMemo.set(key, result);
+    return result;
+  };
+}
+
+// journalApply — 한 번의 상태 변형을 저널에 반영하고 투영을 돌려준다.
+//
+// 반환 계약 (호출자가 분기한다):
+//   { mode:'off' }                              토글 off — 호출자는 직접 경로
+//   { mode, degraded:true }                     마커 존재 — 호출자는 직접 경로
+//   { mode, appendFailed:true, reason }          append 실패 — 호출자가 마커+throw 판정
+//   { mode, authoritative, projected, record }   정상
+function journalApply(args) {
+  args = args || {};
+  const env = args.env || process.env;
+  const mode = parseJournalMode(env);
+  // 주입이 없으면 **실제** ledger 리더를 쓴다 (C1). 이전에는 여기서 undefined가
+  // 그대로 흘러 `resolveIdentity`가 항상 ts-fallback으로 떨어졌다.
+  const ledgerRead = args.ledgerRead || defaultLedgerRead(args.repoRoot);
+  const opts = { repoRoot: args.repoRoot, env: env, ledgerRead: ledgerRead };
+
+  if (mode === 'off') {
+    process.stderr.write('[mccp:state-journal] WARNING: MCCP_STATE_JOURNAL=off — ' +
+      'state mutations are NOT journaled; STATE.md is the only record for this process\n');
+    return { mode: mode, degraded: false, authoritative: false, projected: null };
+  }
+
+  if (journalStore.isDegraded(opts)) {
+    const marker = journalStore.readDegradedMarker(opts);
+    process.stderr.write('[mccp:state-journal] WARNING: degraded marker present (' +
+      ((marker && marker.reason) || 'unknown') + ') — projection is suspended and ' +
+      'STATE.md is written directly. Recover with `journal checkpoint --reseed`.\n');
+    return { mode: mode, degraded: true, authoritative: false, projected: null };
+  }
+
+  // genesis 부트스트랩 — checkpoint가 없으면 현재 상태를 봉인한다. 멱등.
+  const boot = journalStore.bootstrapGenesis(Object.assign({}, opts, {
+    state: args.existingState || null,
+  }));
+  if (!boot.ok && boot.reason === 'degraded') {
+    return { mode: mode, degraded: true, authoritative: false, projected: null };
+  }
+  // checkpoint 무결성 실패는 격리로 해소되지 않는다 (C2) — checkpoint는 투영의
+  // base 그 자체라 버리면 STATE.md가 통째로 리셋된다. 저널을 신뢰할 수 없다는
+  // 뜻이므로 append 실패와 같은 처리를 받는다: degraded 마커 + 직접 경로.
+  if (!boot.ok && boot.reason === 'checkpoint-corrupt') {
+    return {
+      mode: mode, degraded: false, appendFailed: true,
+      reason: 'checkpoint integrity failure (' + (boot.detail || 'unknown') + ')',
+    };
+  }
+
+  const input = journalStore.readProjectionInput(opts);
+  if (input.checkpoint_corrupt) {
+    return {
+      mode: mode, degraded: false, appendFailed: true,
+      reason: 'checkpoint integrity failure (' + (input.checkpoint_corrupt_reason || 'unknown') + ')',
+    };
+  }
+
+  // patch가 손실 없이 실릴 수 있는지 **먼저** 확인한다 (C3). 실을 수 없으면
+  // 조용히 잘라 성공을 반환하지 않고 degraded로 강등한다.
+  const prepared = record.preparePatch(args.patch || {});
+  if (!prepared.ok) {
+    return {
+      mode: mode, degraded: false, appendFailed: true,
+      reason: 'patch not representable in the journal: ' + prepared.reason,
+    };
+  }
+
+  const identity = record.resolveIdentity({
+    env: env,
+    journalTail: lastRecord(input.records),
+    ledgerRead: ledgerRead,
+  });
+  const workUnit = resolveWorkUnit(args.patch, args.existingState);
+  const index = order.buildOrderIndex(input.records, {
+    seededTombstones: input.seededTombstones,
+    // 압축이 봉인한 순서 메타 (D1). 없으면 압축 직후 seq가 1부터 다시 발급되고
+    // 지연 레코드가 admit된다.
+    baseIndex: input.baseIndex,
+  });
+  const seq = order.assignOrder({ workUnit: workUnit, index: index });
+
+  const rec = record.makeRecord({
+    session_id: identity.session_id,
+    session_epoch: identity.session_epoch,
+    epoch_source: identity.epoch_source,
+    prev_session_id: identity.prev_session_id,
+    work_unit: workUnit,
+    seq: seq,
+    kind: 'update',
+    patch: args.patch || {},
+  });
+
+  const appended = journalStore.appendRecord(rec, opts);
+  if (!appended.ok) {
+    return { mode: mode, degraded: false, appendFailed: true, reason: appended.reason };
+  }
+
+  const after = journalStore.readProjectionInput(opts);
+  const projected = projectMod.project(after.records, after.base, {
+    seededTombstones: after.seededTombstones,
+    baseIndex: after.baseIndex,
+  });
+
+  // **보존 정책을 write 경로에서 실제로 발화시킨다** (PR-Codex R2 D2 흡수).
+  //
+  // `enforceLimits`는 정의와 export만 있고 **호출부가 0개**였다 — 256KB 활성
+  // 세그먼트 상한도, 90일 압축 트리거도, 64MB 경고도 정상 사용에서는 한 번도
+  // 발화하지 않았다. plan Task 5가 "명시 호출과 상한 초과 시 **자동 발화** 양쪽"이라
+  // 적은 그 자동 축이 비어 있었고, 투영 재생 비용의 상한이라는 주장도 근거를
+  // 잃는다(활성 세그먼트가 무한히 자란다).
+  //
+  // 실패는 강등이 아니다: append는 이미 성공했고 저널은 온전하며 압축이 미뤄질
+  // 뿐이다. 그래서 loud warn만 하고 진행한다 — 여기서 degraded로 떨어뜨리면
+  // 압축 실패가 곧 SoT 포기가 되어 과잉이다.
+  try {
+    const retention = require('./retention');
+    const enforced = retention.enforceLimits(Object.assign({}, opts, { records: after.records }));
+    if (enforced && enforced.executed && enforced.executed.ok === false) {
+      process.stderr.write('[mccp:state-journal] WARNING: retention compaction did not run (' +
+        enforced.executed.reason + ') — the journal is intact but uncompacted; ' +
+        'replay cost is unbounded until it succeeds\n');
+    }
+  } catch (err) {
+    process.stderr.write('[mccp:state-journal] WARNING: retention enforcement threw (' +
+      (err && err.message) + ') — append succeeded, journal intact, compaction deferred\n');
+  }
+
+  return {
+    mode: mode,
+    degraded: false,
+    // shadow는 STATE.md **쓰기 경로만** 되돌린다 — 저널은 계속 자란다(회귀
+    // 진단용 데이터를 남기는 것이 이 값의 목적이다).
+    authoritative: mode === 'enforce',
+    projected: projected,
+    record: rec,
+    malformed_count: after.malformed_count,
+  };
+}
+
+module.exports = {
+  JOURNAL_MODES: JOURNAL_MODES,
+  parseJournalMode: parseJournalMode,
+  resolveWorkUnit: resolveWorkUnit,
+  journalApply: journalApply,
+  defaultLedgerRead: defaultLedgerRead,
+  // 재수출 — 소비처가 하위 모듈 경로를 알 필요가 없게 한다.
+  record: record,
+  order: order,
+  project: projectMod.project,
+  projectionDiagnostics: projectMod.projectionDiagnostics,
+  store: journalStore,
+};

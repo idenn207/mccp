@@ -804,9 +804,29 @@ async function main() {
         }
 
         // A4 인계 항목 복원
-        const restoreResult = handoffItems.restoreAndMatch(observerSessionId);
-        if (restoreResult.ok && restoreResult.restored_count > 0) {
-          log(`[SessionStart] Restored ${restoreResult.restored_count} handoff items from prior session`);
+        //
+        // CL-5 **4번째 재발** 수정 (multi-session-work-loop M5, Task 8). 바로 위
+        // 두 블록(M3 msw-events · M4 toggle-snapshot)이 같은 결함 형태를 이미
+        // 닫았는데 이 호출만 `opts` 없이 남아 `stateDir`/`cwd`가 둘 다 hook
+        // 프로세스의 cwd로 풀렸다. `ctx.projectRoot`를 그대로 쓰지 않고
+        // `resolveHandoffRoot`를 거치는 이유는 그 값이 global 컨텍스트에서 빈
+        // 문자열일 수 있고, 그러면 `path.join('', …)`이 다시 cwd 상대로 접히기
+        // 때문이다(위 두 수정에도 잠재한 구멍).
+        const handoffRoot = handoffItems.resolveHandoffRoot({
+          projectRoot: observerContext.projectRoot,
+          cwd: process.cwd(),
+          sessionId: observerSessionId,
+        });
+        if (handoffRoot.ok) {
+          const restoreResult = handoffItems.restoreAndMatch(observerSessionId, {
+            stateDir: path.join(handoffRoot.root, '.claude', 'state'),
+            cwd: handoffRoot.root,
+          });
+          if (restoreResult.ok && restoreResult.restored_count > 0) {
+            log(`[SessionStart] Restored ${restoreResult.restored_count} handoff items from prior session`);
+          }
+        } else {
+          log('[SessionStart] handoff root unresolved — skipped handoff restore');
         }
       }
     } catch (err) {

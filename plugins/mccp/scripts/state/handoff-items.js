@@ -13,6 +13,74 @@
 const fs = require('fs');
 const path = require('path');
 
+// multi-session-work-loop M5 (Task 8) — CL-5 4번째 재발의 경로 해석 단일 지점.
+//
+// **이 모듈은 state-journal을 import하지 않는다** (Task 7 축 4가 기계 검증).
+// M5에서 handoff-items는 저널과 통합하지 않고 독립 sidecar로 남으며, 이번
+// milestone이 고치는 것은 오직 경로 해석뿐이다 — A4 분자는 handoff-items가
+// 아니라 저널 쪽에서 파생한다(a4-boundary-restore.js).
+//
+// 왜 `ctx.projectRoot`를 그대로 쓰면 안 되는가: `observer-sessions.js:99`가
+// global 컨텍스트에서 `projectRoot: ''`를 반환하고, 그러면
+// `path.join('', '.claude', 'state')`가 `.claude/state`로 접혀 **고치려던
+// cwd-상대 경로가 그대로 남는다**. M3·M4의 CL-5 수정이 같은 값을 쓰므로 이 구멍은
+// 그 둘에도 잠재한다.
+//
+// skip이 조용하면 CL-5 우회와 구별되지 않으므로(마커 부재 = 미배포인지 해소
+// 실패인지 알 수 없다) **셀 수 있게** 만든다: 마커 + msw-event 2채널. 두 채널은
+// 서로의 백업이며, SHIP-2는 여기에 `session_end` 이벤트를 더해 3-state로 판정한다.
+const HANDOFF_ROOT_UNRESOLVED_MARKER = '.handoff-root-unresolved';
+
+function resolveHandoffRoot(ctx) {
+  ctx = ctx || {};
+  const declared = typeof ctx.projectRoot === 'string' ? ctx.projectRoot.trim() : '';
+  if (declared) return { ok: true, root: declared, source: 'project-context' };
+
+  // msw-events의 walk-up을 재사용한다 — spawn 0이고 이미 존재하는 부품이다.
+  // 새 해석 로직을 만들면 writer마다 답이 갈라진다(CL-5의 원인 형태 그 자체).
+  let discovered = null;
+  try {
+    discovered = require('./msw-events').discoverRepoRoot(ctx.cwd);
+  } catch (_e) {
+    discovered = null;
+  }
+  if (discovered) return { ok: true, root: discovered, source: 'walk-up' };
+
+  // 여기까지 왔다는 것은 40단계 walk-up으로도 `.claude/`를 못 찾았다는 뜻이고,
+  // 그것은 **repo 밖에서 hook이 돌았다**는 의미다 — 쓸 대상 자체가 없으므로
+  // skip이 올바른 동작이다. 마커는 "구현 결함"과 "해당 없음"을 사람이 판별할
+  // 재료를 남기는 것이지 그 자체가 실패 판정은 아니다.
+  const reason = 'projectRoot empty and discoverRepoRoot found no .claude/ ancestor';
+  markHandoffRootUnresolved(ctx, reason);
+  return { ok: false, root: null, reason: reason, source: 'unresolved' };
+}
+
+function markHandoffRootUnresolved(ctx, reason) {
+  process.stderr.write('[mccp:handoff-items] WARNING: cannot resolve a repo root for ' +
+    'handoff items (' + reason + ') — SKIPPING the write. Writing to a cwd-relative ' +
+    'path would let the next session count it as its own denominator, which is worse ' +
+    'than not writing.\n');
+
+  // 채널 1 — 마커. 경로가 안 풀리는 상황이므로 cwd 상대가 최선이다(진단용).
+  try {
+    const dir = path.join(ctx && ctx.cwd ? ctx.cwd : process.cwd(), '.claude', 'state');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, HANDOFF_ROOT_UNRESOLVED_MARKER),
+      JSON.stringify({ at: new Date().toISOString(), reason: reason, pid: process.pid }) + '\n',
+      'utf8');
+  } catch (_e) { /* 채널 2가 백업이다 */ }
+
+  // 채널 2 — msw-event. 마커 write가 조용히 실패해도 이쪽이 남을 수 있다.
+  try {
+    const mswEvents = require('./msw-events');
+    mswEvents.appendEvent(String((ctx && ctx.sessionId) || 'unknown'), {
+      kind: 'handoff_root_unresolved',
+      ts: new Date().toISOString(),
+      producer: 'handoff-items.js',
+    }, { cwd: ctx && ctx.cwd });
+  } catch (_e) { /* 두 채널이 동시에 실패하면 SHIP-2가 3-state로 판정한다 */ }
+}
+
 // STATE.md frontmatter 읽기 (stateWriter 스타일)
 function readStateFrontmatter(statePath) {
   if (!fs.existsSync(statePath)) return null;
@@ -235,4 +303,6 @@ module.exports = {
   writeHandoffItems,
   restoreAndMatch,
   readStateFrontmatter,
+  resolveHandoffRoot,
+  HANDOFF_ROOT_UNRESOLVED_MARKER,
 };

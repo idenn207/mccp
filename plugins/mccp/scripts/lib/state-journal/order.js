@@ -1,0 +1,319 @@
+'use strict';
+
+// multi-session-work-loop M5 — 순번·epoch 할당과 재생 방어 판정 오라클 (순수, G2).
+//
+// 설계: docs/multi-session-work-loop/state-truth-source-design.md
+// 선례: lib/pr-ship-gate.js#deriveShipDecision (판정은 순수, 실행은 얇게)
+//
+// 이 모듈은 부작용이 0이다. "이 레코드를 투영에 넣을 것인가"를 오직 인자만 보고
+// 답하므로, 크래시·재개 시나리오를 파일 없이 재현할 수 있다 (DD4).
+
+const { ADMISSION, validateRecord } = require('./record');
+
+// ledger에서 seed된 tombstone의 sentinel seq.
+//
+// completion-ledger 엔트리는 seq를 갖지 않는다(저널 밖에서 닫힌 작업이므로).
+// 그래서 "저널의 어떤 레코드보다도 앞서 닫혔다"를 뜻하는 0을 쓴다 — 판정 ②가
+// `record.seq > tombstone.seq`이므로 seq ≥ 1인 모든 후속 레코드가
+// `admit-post-tombstone`이 된다. 이것이 DD11의 "+∞ high-water"의 구현형이다.
+const LEDGER_TOMBSTONE_SEQ = 0;
+
+function occupantKey(workUnit, seq) {
+  // \u0000은 work_unit에 나타날 수 없으므로 키 충돌이 구조적으로 불가능하다.
+  return String(workUnit) + '\u0000' + String(seq);
+}
+
+// epoch 비교 — 큰 쪽이 이긴다. 동률은 session_id 사전순으로 결정론적으로 깬다
+// (DD2). 결정론이 없으면 같은 저널을 두 번 투영했을 때 답이 달라진다.
+function compareIdentity(a, b) {
+  const ea = String((a && a.session_epoch) || '');
+  const eb = String((b && b.session_epoch) || '');
+  if (ea > eb) return 1;
+  if (ea < eb) return -1;
+  const sa = String((a && a.session_id) || '');
+  const sb = String((b && b.session_id) || '');
+  if (sa > sb) return 1;
+  if (sa < sb) return -1;
+  return 0;
+}
+
+// 저널 레코드 목록에서 판정 입력을 만든다.
+//
+// high-water와 점유(occupant)는 **admit된 레코드에서만** 센다. superseded된
+// 레코드가 high-water를 올리면 그 뒤 정상 레코드가 전부 역행으로 오판된다.
+function buildOrderIndex(records, opts) {
+  opts = opts || {};
+  const highWater = {};
+  const tombstones = {};
+  const occupants = {};
+
+  // ledger seed는 저널 레코드보다 먼저 적용한다 — 클론 직후에도 방어가 서 있어야
+  // 하므로(DD11), 저널이 비어 있어도 tombstone이 존재할 수 있다.
+  const seeded = Array.isArray(opts.seededTombstones) ? opts.seededTombstones : [];
+  for (const t of seeded) {
+    if (!t || typeof t.work_unit !== 'string' || !t.work_unit) continue;
+    tombstones[t.work_unit] = {
+      seq: LEDGER_TOMBSTONE_SEQ,
+      record_id: t.record_id || null,
+      from_ledger: true,
+    };
+  }
+
+  // **압축이 봉인한 순서 메타데이터를 먼저 복원한다** (PR-Codex R2 D1 흡수).
+  //
+  // `compact()`는 활성 세그먼트를 `segments/`로 회전시키고, 투영 입력은 활성
+  // 세그먼트만 읽는다. 그래서 checkpoint에 순서 메타를 싣지 않으면 압축 직후
+  // 인덱스가 **빈 상태로 시작**한다 — 압축 이전 시점의 stale writer가 옛
+  // `(work_unit, seq)`를 append하면 high-water도 tombstone도 없으므로 그대로
+  // `admit`되어 닫힌 상태가 되살아난다. G2가 정확히 막겠다고 한 것이 압축 한 번에
+  // 무력해진다. 회귀 test가 상태(state)만 대조하고 **순서 메타는 대조하지 않아**
+  // 이 구멍이 통과했다.
+  const base = opts.baseIndex || null;
+  if (base && base.high_water && typeof base.high_water === 'object') {
+    for (const wu of Object.keys(base.high_water)) {
+      const hw = base.high_water[wu];
+      if (!hw || !Number.isInteger(hw.seq)) continue;
+      highWater[wu] = hw.seq;
+      // 경계 seq의 점유자도 함께 복원한다 — 없으면 `seq === highWater`인 지연
+      // 레코드가 규칙 ③(충돌)에도 ④(역행, strict <)에도 걸리지 않고 admit된다.
+      occupants[occupantKey(wu, hw.seq)] = {
+        record_id: hw.record_id || null,
+        session_epoch: hw.session_epoch || null,
+        session_id: hw.session_id || null,
+      };
+    }
+  }
+  if (base && base.tombstones && typeof base.tombstones === 'object') {
+    for (const wu of Object.keys(base.tombstones)) {
+      const t = base.tombstones[wu];
+      if (!t || !Number.isInteger(t.seq)) continue;
+      const prior = tombstones[wu];
+      if (!prior || t.seq < prior.seq) {
+        tombstones[wu] = { seq: t.seq, record_id: t.record_id || null, from_ledger: !!t.from_ledger };
+      }
+    }
+  }
+
+  for (const r of records || []) {
+    if (!r || typeof r.work_unit !== 'string') continue;
+    if (r.superseded_by) continue;   // 강등된 레코드는 순서에 기여하지 않는다
+    const wu = r.work_unit;
+    const seq = Number(r.seq);
+    if (!Number.isInteger(seq)) continue;
+    if (!(wu in highWater) || seq > highWater[wu]) highWater[wu] = seq;
+    occupants[occupantKey(wu, seq)] = {
+      record_id: r.record_id,
+      session_epoch: r.session_epoch,
+      session_id: r.session_id,
+    };
+    if (r.kind === 'tombstone') {
+      const prior = tombstones[wu];
+      // 같은 work_unit에 tombstone이 여럿이면 **가장 이른 것**이 이긴다 — 한 번
+      // 닫힌 작업은 그 뒤 무엇이 와도 닫힌 것이고, 늦은 tombstone을 채택하면
+      // 그 사이 레코드가 되살아난다.
+      if (!prior || seq < prior.seq) {
+        tombstones[wu] = { seq: seq, record_id: r.record_id, from_ledger: false };
+      }
+    }
+  }
+
+  return { highWater: highWater, tombstones: tombstones, occupants: occupants };
+}
+
+// 다음 seq. work_unit 별 단조 정수이며 1부터 시작한다 (I6).
+function assignOrder(args) {
+  args = args || {};
+  const workUnit = args.workUnit;
+  const index = args.index || buildOrderIndex(args.records || []);
+  const hw = index.highWater[workUnit];
+  return Number.isInteger(hw) ? hw + 1 : 1;
+}
+
+// 판정 우선순위 (이 순서가 계약이다):
+//
+//   ① 스키마/allowlist 위반                        → reject-malformed
+//   ② tombstone 존재 ∧ seq > tombstone.seq         → admit-post-tombstone
+//   ③ 같은 seq를 이미 다른 레코드가 점유            → epoch 큰 쪽 admit, 작은 쪽 superseded
+//   ④ seq < highWater (역행·지연)                   → admit-superseded
+//   ⑤ 그 외                                        → admit
+//
+// **plan의 ③/④ 순서에서 벗어난 지점과 그 이유** (구현 시 발견):
+// plan은 ③을 `seq ≤ highWater → admit-superseded`, ④를 same-seq epoch 비교로
+// 적었다. 그런데 highWater는 정의상 admit된 최대 seq이므로, 동시 append로 같은
+// seq가 발급된 두 번째 레코드는 `seq ≤ highWater`를 **항상** 만족한다 → ③에서
+// 걸려 ④가 **도달 불가능한 죽은 규칙**이 된다. plan이 ④에 대한 별도 회귀 단언을
+// 요구하므로(“같은 seq에 이미 다른 레코드가 있으면…”) 두 규칙이 모두 효력을
+// 갖는 유일한 해석은 same-seq 충돌을 역행보다 **먼저** 보고 역행을 strict `<`로
+// 두는 것이다. ②가 epoch 비교보다 앞선다는 plan의 명시 계약(tombstone은 epoch보다
+// 강하다)은 그대로 보존된다.
+function decideAdmission(args) {
+  args = args || {};
+  const record = args.record;
+
+  const v = validateRecord(record);
+  if (!v.ok) {
+    return { verdict: ADMISSION.REJECT, reason: v.errors.join('; '), supersededBy: null };
+  }
+
+  const wu = record.work_unit;
+  const tombstones = args.tombstones || {};
+  const highWater = args.highWater || {};
+  const epochOf = typeof args.epochOf === 'function'
+    ? args.epochOf
+    : function () { return null; };
+
+  const tomb = tombstones[wu];
+  if (tomb && record.seq > tomb.seq && record.kind !== 'tombstone') {
+    return {
+      verdict: ADMISSION.POST_TOMBSTONE,
+      reason: 'work_unit closed at seq ' + tomb.seq +
+        (tomb.from_ledger ? ' (seeded from completion-ledger)' : ''),
+      supersededBy: tomb.record_id || null,
+    };
+  }
+
+  const occupant = epochOf(wu, record.seq);
+  if (occupant && occupant.record_id !== record.record_id) {
+    const cmp = compareIdentity(record, occupant);
+    if (cmp > 0) {
+      // 새 레코드의 epoch가 더 크다 — 이 레코드가 admit되고 점유자가 강등된다.
+      return {
+        verdict: ADMISSION.ADMIT,
+        reason: 'seq collision won on session_epoch',
+        supersededBy: null,
+        supersedes: occupant.record_id,
+      };
+    }
+    return {
+      verdict: ADMISSION.SUPERSEDED,
+      reason: 'seq collision lost on session_epoch (advisory-lock fail-open window)',
+      supersededBy: occupant.record_id,
+    };
+  }
+
+  const hw = highWater[wu];
+  if (Number.isInteger(hw) && record.seq < hw) {
+    return {
+      verdict: ADMISSION.SUPERSEDED,
+      reason: 'seq ' + record.seq + ' is behind high-water ' + hw,
+      supersededBy: null,
+    };
+  }
+
+  return { verdict: ADMISSION.ADMIT, reason: 'in order', supersededBy: null };
+}
+
+// 투영에 도달하는 enum은 `admit` 하나뿐이다 (DD6.2 마지막 문단).
+function isProjected(verdict) {
+  return verdict === ADMISSION.ADMIT;
+}
+
+// 저널 전체를 훑어 각 레코드의 판정을 매긴다. `project()`가 소비하는 형태.
+function classifyAll(records, opts) {
+  opts = opts || {};
+  // **재생 순서는 append 순서다 — 전역 seq 정렬이 아니다** (PR-Codex R3, CRITICAL).
+  //
+  // 판정(admission) 순서와 재생(replay) 순서는 다른 축이다. `seq`는 I6대로
+  // **work_unit별**로 1부터 매겨지므로, 전역으로 seq 정렬하면 새 작업 단위의
+  // `seq:1`이 이전 단위의 `seq:2` **앞으로** 밀린다. 그 상태로 `mergeState`를
+  // 접으면 **더 오래된 patch가 더 새로운 상태를 덮어쓴다.**
+  //
+  // 실측 재현: `A#1 → A#2 → B#1` 순으로 쓰면 STATE.md가 `B#1`이 아니라 `A#2`를
+  // 렌더했다. 작업 단위(=task fingerprint)가 바뀔 때마다 발생하므로 예외 상황이
+  // 아니라 정상 사용 경로다.
+  //
+  // 이 결함은 plan의 두 조항이 서로 모순돼서 생겼다 — I6("seq는 work_unit별")과
+  // Task 3("`sort(by seq)`로 접는다")은 양립할 수 없다. 구현이 후자를 그대로
+  // 따랐고, 회귀는 단일 work_unit만 써서 통과했다.
+  //
+  // 파일 순서가 곧 진짜 직렬화 순서다: `readRecords`가 세그먼트(오래된 것부터) →
+  // 활성 세그먼트를 이어 붙이고, 각 파일 안의 줄 순서는 `O_APPEND`가 보장하는
+  // 실제 append 순서다. 동시 writer의 지연 레코드도 파일 순서대로 처리하면 그
+  // 시점의 high-water와 대조돼 정확히 `admit-superseded`로 떨어진다.
+  const ordered = (records || []).slice();
+
+  const index = buildOrderIndex([], {
+    seededTombstones: opts.seededTombstones,
+    baseIndex: opts.baseIndex,
+  });
+  const out = [];
+
+  for (const record of ordered) {
+    const decision = decideAdmission({
+      record: record,
+      highWater: index.highWater,
+      tombstones: index.tombstones,
+      epochOf: function (wu, seq) { return index.occupants[occupantKey(wu, seq)] || null; },
+    });
+    out.push({ record: record, decision: decision });
+
+    if (decision.verdict === ADMISSION.ADMIT) {
+      const wu = record.work_unit;
+      const seq = Number(record.seq);
+      if (decision.supersedes) {
+        // 충돌에서 이긴 경우 점유자를 강등 표시한다.
+        for (const entry of out) {
+          if (entry.record.record_id === decision.supersedes) {
+            entry.decision = {
+              verdict: ADMISSION.SUPERSEDED,
+              reason: 'superseded by a higher session_epoch at the same seq',
+              supersededBy: record.record_id,
+            };
+          }
+        }
+      }
+      if (!(wu in index.highWater) || seq > index.highWater[wu]) index.highWater[wu] = seq;
+      index.occupants[occupantKey(wu, seq)] = {
+        record_id: record.record_id,
+        session_epoch: record.session_epoch,
+        session_id: record.session_id,
+      };
+      if (record.kind === 'tombstone') {
+        const prior = index.tombstones[wu];
+        if (!prior || seq < prior.seq) {
+          index.tombstones[wu] = { seq: seq, record_id: record.record_id, from_ledger: false };
+        }
+      }
+    }
+  }
+
+  return out;
+}
+
+// checkpoint에 실을 직렬화 가능한 순서 메타 (D1). 전체 occupants를 싣지 않는
+// 이유: 경계보다 낮은 seq는 규칙 ④(역행)가 이미 잡으므로, 이후 admission에
+// 영향을 주는 점유자는 **work_unit별 high-water 하나뿐**이다.
+function snapshotOrderIndex(index) {
+  const out = { high_water: {}, tombstones: {} };
+  if (!index) return out;
+  for (const wu of Object.keys(index.highWater || {})) {
+    const seq = index.highWater[wu];
+    if (!Number.isInteger(seq)) continue;
+    const occ = (index.occupants || {})[occupantKey(wu, seq)] || {};
+    out.high_water[wu] = {
+      seq: seq,
+      record_id: occ.record_id || null,
+      session_epoch: occ.session_epoch || null,
+      session_id: occ.session_id || null,
+    };
+  }
+  for (const wu of Object.keys(index.tombstones || {})) {
+    const t = index.tombstones[wu];
+    if (!t || !Number.isInteger(t.seq)) continue;
+    out.tombstones[wu] = { seq: t.seq, record_id: t.record_id || null, from_ledger: !!t.from_ledger };
+  }
+  return out;
+}
+
+module.exports = {
+  ADMISSION: ADMISSION,
+  snapshotOrderIndex: snapshotOrderIndex,
+  LEDGER_TOMBSTONE_SEQ: LEDGER_TOMBSTONE_SEQ,
+  compareIdentity: compareIdentity,
+  buildOrderIndex: buildOrderIndex,
+  assignOrder: assignOrder,
+  decideAdmission: decideAdmission,
+  isProjected: isProjected,
+  classifyAll: classifyAll,
+  occupantKey: occupantKey,
+};

@@ -387,6 +387,16 @@
       "task": "Task PR-Codex",
       "id": "TPC-10",
       "title": "M5 D2: the production update() path actually enforces the retention limits"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-11",
+      "title": "M5 E1: a new work unit starting at seq 1 is not overwritten by an older unit"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-12",
+      "title": "M5 E1: interleaved work units keep last-write-wins across many switches"
     }
   ]
 }

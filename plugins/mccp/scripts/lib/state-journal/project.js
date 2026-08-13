@@ -35,7 +35,11 @@ function cloneState(state) {
 // journal-store.js의 일이고, 이 함수는 받은 것을 접기만 한다 — 그 분리가 없으면
 // "I/O를 갖지 않는다"가 거짓이 된다.
 //
-// 반환은 정확히 `records.filter(admit).sort(by seq).reduce(mergeState, base)`이며,
+// 반환은 정확히 `records.filter(admit).reduce(mergeState, base)`이며 — **append
+// 순서 그대로 접는다**. plan은 `sort(by seq)`라 적었으나 seq는 work_unit별이라
+// 전역 정렬하면 새 단위의 seq:1이 이전 단위의 seq:2 앞으로 밀려 옛 patch가 새
+// 상태를 덮어쓴다(PR-Codex R3 CRITICAL, 실측 재현). 판정 순서와 재생 순서는
+// 다른 축이다 — 자세한 근거는 order.js#classifyAll 주석 참조.
 // 스냅샷 레코드를 만나면 그 시점부터 상태를 갈아끼운다(genesis 부트스트랩과
 // checkpoint 압축이 같은 경로를 탄다).
 function project(records, base, opts) {

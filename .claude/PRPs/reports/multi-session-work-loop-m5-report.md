@@ -22,7 +22,7 @@
 | Tasks | 10 | 10 (전부 착지) |
 | Files Changed | 31 | 31 (CREATE 17 · UPDATE 14) |
 | 신규 토글 | 정확히 1 | 1 (`MCCP_STATE_JOURNAL`) |
-| 회귀 단언 | Task별 열거 | **77건** (매니페스트 대조 absent 0 — PR-Codex 흡수 10건 포함) |
+| 회귀 단언 | Task별 열거 | **79건** (매니페스트 대조 absent 0 — PR-Codex 흡수 12건 포함) |
 
 ## Tasks Completed
 
@@ -44,14 +44,14 @@
 
 | # | Check | Status |
 |---|---|---|
-| §1 | 신규 모듈 회귀 8파일 | ✅ 77/77 |
+| §1 | 신규 모듈 회귀 8파일 | ✅ 79/79 |
 | §2 | 기존 표면 무회귀 (state-writer · injector · breakpoint · spawner) | ✅ 199/199 |
 | §3 | 전체 스위트 | ✅ **3584 tests / 3576 pass — 신규 red 0** (실패 3건 중 2건은 사전 존재 b2-coverage-gate, 1건은 병렬 부하 flake `perf-budget`으로 단독 실행 시 통과) |
 | §4 | `journal verify` · `journal query` | ✅ exit 0 |
 | §6 | 계측 무-LLM 계약 | ✅ 0 hit |
 | §7 | 릴리스 면 동기 | ✅ plugin.json · html.js · markdown.js · CHANGELOG · ENVIRONMENT |
 | §10 | `single-writer-lint --json` | ✅ exit 0 (위반 0) |
-| §11 | 매니페스트 대조 `absent 0` | ✅ 77/77 present |
+| §11 | 매니페스트 대조 `absent 0` | ✅ 79/79 present |
 | Task 9 | `instruction-contract/lint.js` | ✅ C1~C4 pass (CLAUDE.md 절 변경 0) |
 | §3.5.1 | `--diff-filter=D` 의도치 않은 삭제 | ✅ 0건 |
 | SHIP-1 | 배포 확인 | ❌ **미확인** (설계상 ship 시점 전용 — 아래 G5) |
@@ -211,6 +211,21 @@ R1 흡수 + `origin/main`(#131) 병합 후 최종 트리로 재발화. **R1의 3
 메타*는 보지 않았고, 보존 정책은 *오라클*만 시험하고 *발화*는 시험하지 않았다.
 즉 두 라운드 모두 "산출물은 맞는데 메커니즘이 배선되지 않은" 형태였다. 신규 회귀
 3건은 전부 메커니즘 축이다(압축 후 admission · 회전된 tombstone · CLI 없는 자동 발화).
+
+## PR-Codex R3 — CRITICAL 1건 (실측 재현 후 수정)
+
+| # | 지적 | 판정 | 수정 |
+|---|---|---|---|
+| E1 | 투영이 work_unit을 가로질러 레코드를 재정렬해 옛 patch가 새 상태를 덮음 (**CRITICAL**, 0.92) | **실결함 · 실측 재현** | 판정 순서와 재생 순서 분리 — 재생은 append 순서 |
+
+재현: `taskFingerprint`를 바꿔 `A#1 → A#2 → B#1` 순으로 쓰면 STATE.md가 `B#1`이
+아니라 **`A#2`** 를 렌더했다. 작업 단위 전환은 정상 사용 경로이므로 드문 조건이
+아니다.
+
+**이 건은 plan 자체의 모순이다.** I6("`seq`는 work_unit별")과 Task 3("`sort(by seq)`
+로 접는다")이 양립할 수 없는데 구현이 후자를 충실히 따랐다. 즉 R1·R2가 "구현이
+plan을 못 따라간" 결함이었다면 R3은 **"plan을 따랐더니 틀린"** 결함이다 — L2 패널
+11라운드가 이 모순을 잡지 못했고, cross-model 리뷰가 처음으로 잡았다.
 
 ## Cross-model 검증 상태 (정직 기록)
 

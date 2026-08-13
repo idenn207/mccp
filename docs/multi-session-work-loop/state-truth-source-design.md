@@ -128,7 +128,27 @@ checkpoint를 *부재*로 착각해 새 genesis로 덮어쓰지 않는다 — �
 
 ---
 
-## 4. 재생 방어 판정 (UI5·UI7 응답)
+## 4. 판정 순서와 재생 순서는 다른 축이다 (PR-Codex R3 — CRITICAL)
+
+`seq`는 I6대로 **work_unit별**로 1부터 매겨진다. 따라서 재생(replay)을 전역 `seq`로
+정렬하면 **새 작업 단위의 `seq:1`이 이전 단위의 `seq:2` 앞으로 밀린다** — 그 순서로
+`mergeState`를 접으면 더 오래된 patch가 더 새로운 상태를 덮어쓴다.
+
+실측 재현: `A#1 → A#2 → B#1` 순으로 쓰면 STATE.md가 `B#1`이 아니라 `A#2`를 렌더했다.
+작업 단위(= task fingerprint)가 바뀔 때마다 발생하므로 예외가 아니라 **정상 사용
+경로**다.
+
+**이것은 plan의 두 조항이 서로 모순된 결과다** — I6("seq는 work_unit별")과
+Task 3("`records.filter(admit).sort(by seq).reduce(...)`")은 양립할 수 없다. 구현이
+후자를 그대로 따랐고, 회귀가 단일 work_unit만 써서 모순을 드러내지 못했다.
+
+**해소**: 재생은 **append 순서**(파일 순서)로 접는다. `readRecords`가 세그먼트(오래된
+것부터) → 활성 세그먼트를 이어 붙이고 각 파일 안의 줄 순서는 `O_APPEND`가 보장하는
+실제 직렬화 순서다. 판정(admission)은 그대로 work_unit별 인덱스를 쓴다 — 지연
+레코드도 파일 순서대로 처리하면 그 시점의 high-water와 대조돼 정확히
+`admit-superseded`로 떨어진다.
+
+## 4.1 재생 방어 판정 (UI5·UI7 응답)
 
 `order.js#decideAdmission` — 순수 함수, 부작용 0.
 

@@ -302,3 +302,50 @@ test('M5 D2: the production update() path actually enforces the retention limits
     require('../state-journal/retention').LIMITS.ACTIVE_MAX_BYTES = savedLimit;
   }
 });
+
+// ── PR-Codex R3: E1 (작업 단위가 바뀌면 옛 patch가 새 상태를 덮어씀) ──────────
+
+test('M5 E1: a new work unit starting at seq 1 is not overwritten by an older unit', () => {
+  // 결함(CRITICAL): `classifyAll`이 전역 seq로 정렬했는데 seq는 work_unit별로 1부터
+  // 다시 시작한다 → 새 단위의 seq:1이 이전 단위의 seq:2 **앞으로** 밀려 접히고,
+  // 더 오래된 patch가 더 새로운 상태를 덮어썼다. 작업 단위(task fingerprint)가
+  // 바뀔 때마다 발생하므로 예외가 아니라 정상 경로다.
+  //
+  // plan의 두 조항이 모순됐다 — I6("seq는 work_unit별") vs Task 3("sort(by seq)").
+  // 기존 회귀가 단일 work_unit만 써서 이 모순을 드러내지 못했다.
+  const root = mkRepo('e1');
+
+  stateWriter.update(root, { taskFingerprint: 'wu-A', goal: 'A first' });
+  stateWriter.update(root, { goal: 'A second' });
+  stateWriter.update(root, { taskFingerprint: 'wu-B', goal: 'B first — the newest write' });
+
+  const recs = store.readRecords({ repoRoot: root }).records
+    .filter(function (r) { return r.kind === 'update'; });
+  assert.deepStrictEqual(
+    recs.map(function (r) { return r.work_unit + '#' + r.seq; }),
+    ['wu-A#1', 'wu-A#2', 'wu-B#1'],
+    'fixture precondition: the new work unit really does restart at seq 1');
+
+  assert.strictEqual(stateWriter.readState(root).body.goal, 'B first — the newest write',
+    'the LAST write must win — replay order is append order, not global seq order');
+
+  // 투영을 직접 돌려도 같은 결론이어야 한다(디스크 write skip에 기대지 않는다).
+  const input = store.readProjectionInput({ repoRoot: root });
+  const projected = project(input.records, input.base, {
+    seededTombstones: input.seededTombstones, baseIndex: input.baseIndex,
+  });
+  assert.strictEqual(projected.body.goal, 'B first — the newest write');
+});
+
+test('M5 E1: interleaved work units keep last-write-wins across many switches', () => {
+  const root = mkRepo('e1mix');
+  const expected = [];
+  for (let i = 0; i < 6; i++) {
+    const wu = 'wu-' + (i % 3);
+    const goal = 'write-' + i + ' (' + wu + ')';
+    stateWriter.update(root, { taskFingerprint: wu, goal: goal });
+    expected.push(goal);
+  }
+  assert.strictEqual(stateWriter.readState(root).body.goal, expected[expected.length - 1],
+    'with three work units interleaved, the final append still wins');
+});

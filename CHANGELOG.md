@@ -38,6 +38,14 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 회귀 7건 추가(`state-journal-integrity.test.js`) — 전부 프로덕션/권위 경로 형태이며, 되돌리면 실패한다.
 
+### Fixed (PR-Codex R3 — CRITICAL: 작업 단위가 바뀌면 옛 patch가 새 상태를 덮어썼다)
+
+R2 흡수 후 3라운드에서 **CRITICAL** 1건. 실측 재현했다: `taskFingerprint`를 바꿔 `A#1 → A#2 → B#1` 순으로 쓰면 STATE.md가 `B#1`이 아니라 **`A#2`** 를 렌더한다 — 최신 write가 더 오래된 것에게 덮인다. 작업 단위가 바뀔 때마다 발생하므로 예외가 아니라 정상 사용 경로다.
+
+원인은 **plan의 두 조항이 서로 모순된 것**이다 — I6은 "`seq`는 work_unit별로 1부터", Task 3은 "`records.filter(admit).sort(by seq).reduce(...)`". seq가 work_unit별인데 전역으로 정렬하면 새 단위의 `seq:1`이 이전 단위의 `seq:2` 앞으로 밀린다. 구현이 후자를 충실히 따랐고, 회귀가 단일 work_unit만 써서 모순을 드러내지 못했다.
+
+**판정(admission) 순서와 재생(replay) 순서를 분리**했다: 판정은 그대로 work_unit별 인덱스를 쓰고, 재생은 **append 순서**(파일 순서 — `O_APPEND`가 보장하는 실제 직렬화 순서)로 접는다. 지연 레코드도 파일 순서대로 처리하면 그 시점 high-water와 대조돼 정확히 `admit-superseded`로 떨어지므로 G2는 무손상이다. 회귀 2건 추가(작업 단위 전환 · 3개 단위 교차). 누적 회귀 **79건**.
+
 ### Fixed (PR-Codex R2 — 병합 트리 재발화가 잡은 실결함 2건)
 
 R1 흡수 후 `origin/main`(#131)을 병합한 최종 트리로 PR-Codex를 **다시** 돌렸다. R1의 3건은 재발하지 않았고 **새 축 2건**이 나왔다. 둘 다 실결함이라 역시 override 없이 수정했다. R1과 같은 형태의 사각이 다시 확인된다 — 회귀가 *산출물*(상태)만 대조하고 *메커니즘*(순서 메타·자동 발화)은 대조하지 않았다.

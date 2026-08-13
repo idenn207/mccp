@@ -161,7 +161,11 @@ function appendRecord(rec, opts) {
   try {
     line = record.serialize(rec);
   } catch (err) {
-    return { ok: false, reason: 'serialize-failed: ' + (err && err.message) };
+    // RECORD_TOO_LARGE는 **절단이 아니라 실패**다 (C3). 호출자가 degraded로
+    // 강등하고 STATE.md 직접 경로가 값을 보존한다.
+    const prefix = (err && err.code === 'RECORD_TOO_LARGE')
+      ? 'record-too-large: ' : 'serialize-failed: ';
+    return { ok: false, reason: prefix + (err && err.message) };
   }
   try {
     fs.appendFileSync(path.join(dir, ACTIVE_SEGMENT), line, { encoding: 'utf8', flag: 'a' });
@@ -195,6 +199,22 @@ function readSegmentFile(target, out) {
       }
       continue;
     }
+    // **content_hash를 read 경로에서 검증한다** (PR-Codex C2 흡수).
+    //
+    // 초기 구현은 스키마 모양만 맞으면 전부 `records`에 넣고 해시 검증은
+    // `journal verify`에만 뒀다. 그러면 손상·변조됐지만 파싱은 되는 레코드가
+    // **투영을 구동한 뒤에야** 보고된다 — DD6.3이 "손상 레코드는 격리(투영 제외 +
+    // 진단 카운트)"라고 명시한 바로 그 지점이 비어 있었다. 격리를 여기서 하면
+    // `project()`는 검증된 레코드만 본다.
+    if (!record.verifyContentHash(parsed)) {
+      out.corrupt.push({
+        path: target,
+        record_id: parsed.record_id,
+        work_unit: parsed.work_unit,
+        seq: parsed.seq,
+      });
+      continue;
+    }
     out.records.push(parsed);
   }
 }
@@ -214,7 +234,13 @@ function listSegments(opts) {
 
 function readRecords(opts) {
   opts = opts || {};
-  const out = { records: [], malformed_count: 0, malformed_samples: [], read_errors: [] };
+  const out = {
+    records: [], malformed_count: 0, malformed_samples: [], read_errors: [],
+    // 해시 검증에 실패해 **투영에서 격리된** 레코드 (C2). `records`에 들어가지
+    // 않으므로 `journal verify`는 이 목록을 봐야 한다 — `records`를 재검하면
+    // 이미 걸러진 뒤라 언제나 0건이 되어 검사가 무력해진다.
+    corrupt: [],
+  };
   if (opts.includeSegments !== false) {
     for (const seg of listSegments(opts)) readSegmentFile(seg, out);
   }
@@ -224,18 +250,35 @@ function readRecords(opts) {
 }
 
 // ── checkpoint ───────────────────────────────────────────────────────────────
-function readCheckpoint(opts) {
+// checkpoint도 **해시를 검증한다** (C2). checkpoint는 투영의 base 그 자체이므로
+// 검증 없이 통과시키면 손상된 스냅샷이 STATE.md의 권위 원본이 된다 — 레코드
+// 격리보다 더 나쁜 경로다.
+//
+// `{checkpoint, corrupt}`를 돌려주고, 얇은 `readCheckpoint`는 손상 시 null을
+// 준다(호출자가 corrupt 여부를 알아야 하면 이 함수를 쓴다).
+function readCheckpointChecked(opts) {
   const target = checkpointPath(opts);
-  if (!fs.existsSync(target)) return null;
+  if (!fs.existsSync(target)) return { checkpoint: null, corrupt: false };
+  let parsed;
   try {
-    const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
-    const clean = record.sanitizeRecord(parsed);
-    if (!clean) return null;
-    return clean;
+    parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
   } catch (err) {
     warn('checkpoint unreadable at ' + target + ' (' + (err && err.message) + ')');
-    return null;
+    return { checkpoint: null, corrupt: true, reason: 'unparsable' };
   }
+  const clean = record.sanitizeRecord(parsed);
+  if (!clean) return { checkpoint: null, corrupt: true, reason: 'not-a-record' };
+  if (!record.verifyContentHash(clean)) {
+    warn('checkpoint content_hash MISMATCH at ' + target +
+      ' — the projection base is not trustworthy. The journal enters degraded mode; ' +
+      'recover with `journal checkpoint --reseed`.');
+    return { checkpoint: null, corrupt: true, reason: 'content_hash mismatch' };
+  }
+  return { checkpoint: clean, corrupt: false };
+}
+
+function readCheckpoint(opts) {
+  return readCheckpointChecked(opts).checkpoint;
 }
 
 // checkpoint는 원자 tmp+rename으로만 착지한다 (security-reviewer S5). 세그먼트
@@ -349,8 +392,22 @@ function bootstrapGenesis(opts) {
     };
   }
 
-  const existing = readCheckpoint(opts);
-  if (existing) return { ok: true, bootstrapped: false, checkpoint: existing };
+  // 손상된 checkpoint를 **부재로 착각하면 안 된다** (C2 후속 — 회귀 test가 잡음).
+  // `readCheckpoint`는 손상 시 null을 주므로, 그대로 쓰면 아래 부트스트랩이
+  // 손상된 checkpoint를 조용히 새 genesis로 덮어쓴다 — 격리는커녕 증거 인멸이다.
+  const existingCp = readCheckpointChecked(opts);
+  if (existingCp.corrupt) {
+    return {
+      ok: false,
+      reason: 'checkpoint-corrupt',
+      detail: existingCp.reason || null,
+      message: 'existing checkpoint failed integrity verification; refusing to overwrite it. ' +
+        'Recover with `journal checkpoint --reseed`.',
+    };
+  }
+  if (existingCp.checkpoint) {
+    return { ok: true, bootstrapped: false, checkpoint: existingCp.checkpoint };
+  }
 
   if (!ensureDir(dir)) return { ok: false, reason: 'mkdir-failed' };
 
@@ -393,16 +450,22 @@ function bootstrapGenesis(opts) {
 // 투영 입력 한 벌. base(=checkpoint 상태) + 그 이후 레코드 + ledger tombstone seed.
 function readProjectionInput(opts) {
   opts = opts || {};
-  const checkpoint = readCheckpoint(opts);
+  const cp = readCheckpointChecked(opts);
   const read = readRecords(Object.assign({}, opts, { includeSegments: false }));
   const seed = opts.skipLedgerSeed ? { tombstones: [], seeded: 0, corrupt: 0 }
     : seedTombstonesFromLedger(opts);
   return {
-    base: checkpoint && checkpoint.checkpoint_of ? checkpoint.checkpoint_of.state : null,
-    checkpoint: checkpoint,
+    base: cp.checkpoint && cp.checkpoint.checkpoint_of ? cp.checkpoint.checkpoint_of.state : null,
+    checkpoint: cp.checkpoint,
+    // 손상된 checkpoint는 base를 못 준다. 호출자(`journalApply`)는 이걸 보고
+    // degraded로 강등한다 — 조용히 emptyState로 투영하면 STATE.md가 통째로
+    // 리셋된다(격리보다 나쁜 결과).
+    checkpoint_corrupt: cp.corrupt === true,
+    checkpoint_corrupt_reason: cp.reason || null,
     records: read.records,
     malformed_count: read.malformed_count,
     malformed_samples: read.malformed_samples,
+    corrupt_records: read.corrupt,
     read_errors: read.read_errors,
     seededTombstones: seed.tombstones,
     ledger: seed,
@@ -431,6 +494,7 @@ module.exports = {
   appendRecord: appendRecord,
   readRecords: readRecords,
   readCheckpoint: readCheckpoint,
+  readCheckpointChecked: readCheckpointChecked,
   writeCheckpoint: writeCheckpoint,
   seedTombstonesFromLedger: seedTombstonesFromLedger,
   bootstrapGenesis: bootstrapGenesis,

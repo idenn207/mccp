@@ -28,6 +28,16 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - **`work_unit` 한 칸 밀림** — 해석이 기존 frontmatter만 읽어 작업 단위를 바꾸는 바로 그 변형이 *이전* 단위로 기록됐다. patch를 frontmatter보다 먼저 본다.
 - **lint 인자 추출이 CL-5 형태를 통과** — 순진한 `\(([^)]*)`가 `fn(process.cwd())`의 첫 `)`에서 끊겨 잡아야 할 형태 바로 그것을 놓쳤다. 괄호 균형 스캔으로 교체.
 
+### Fixed (PR-Codex R1 — 첫 cross-model 발화가 잡은 실결함 3건)
+
+이 milestone은 Plan-Codex·Implement-Codex가 `MCCP_CODEX_DISABLED=1`로 미발화했고 L2 패널은 11라운드 divergent라 **cross-model 검증을 한 번도 받지 못한 채** ship 직전까지 왔다(plan 잔여 8이 예고한 상태). `/mccp:pr`에서 env를 해제해 PR-Codex를 실제로 발화시키자 첫 라운드에 HIGH 3건이 나왔고, 셋 다 실결함으로 확인돼 **override 없이 수정**했다. 공통 형태가 같다 — 단위 test가 *강등 분기*나 *작은 입력*만 시험해 통과했고 **프로덕션 경로·권위 경로는 한 번도 확인되지 않았다**.
+
+- **C1 — 프로덕션 레코드가 안정적인 session epoch을 받지 못했다.** `state-writer`가 `ledgerRead` 없이 `journalApply`를 불러 `resolveIdentity`가 언제나 `ts-fallback`으로 떨어졌다 → `session_epoch`이 세션의 `created_at`이 아니라 **그 update의 write 시각**. 판정 ③(같은 seq는 큰 epoch 승리)이 사실상 "나중에 append한 쪽이 승리"가 되어 **되살아난 오래된 세션이 늦게 쓰면 이긴다** — UI5가 M5의 차단 요구사항으로 건 재생 방어가 그 지점에서 뒤집혔다. 기본값을 실제 `session-ledger.readLedger`로 두고(세션당 per-process 메모) test만 주입하게 바꿨다. 회귀는 프로덕션 형태로 단언한다.
+- **C2 — 손상 레코드가 투영을 구동했다.** 해시 검증이 `journal verify`에만 있어, 파싱되는 손상·변조 레코드가 **투영을 구동한 뒤에야** 보고됐다(DD6.3이 명시한 격리가 비어 있었다). 이제 `readRecords`가 read 경로에서 격리하고 `verify`는 그 격리 목록을 읽는다(걸러진 `records`를 재검하면 언제나 0건이라 검사가 무력해진다). **checkpoint는 격리로 해소되지 않으므로**(투영의 base 그 자체 — 버리면 STATE.md가 통째로 리셋된다) 해시 불일치 시 degraded로 강등하고, 부트스트랩이 손상 checkpoint를 *부재*로 착각해 새 genesis로 덮어쓰던 경로(증거 인멸)도 함께 닫았다.
+- **C3 — 큰 patch가 조용히 잘리거나 버려졌다.** patch 문자열 8192자 절단 + 라인 16KiB 초과 시 `patch: null` 치환. enforce 모드에서 투영이 권위이므로 **`update()`가 성공을 반환하면서** `chain_progress`·`next_chunk`를 잃는 경로였다(G1·UI4 동시 위반). patch 절단을 전면 제거하고, 표현 불가능한 경우는 절단이 아니라 **append 실패 → degraded**로 처리한다. 그 구간에서 값은 STATE.md 직접 경로가 온전히 보존한다. 식별자성 스칼라의 256자 상한은 유지(절단이 의미를 바꾸지 않는 축).
+
+회귀 7건 추가(`state-journal-integrity.test.js`) — 전부 프로덕션/권위 경로 형태이며, 되돌리면 실패한다.
+
 ### Security
 - 사전 `security-reviewer` 실발화 — findings **7건**(CRITICAL 0 · HIGH 3 · MEDIUM 3 · LOW 1) 전건 트리아지. 신규 축 2건 흡수: **프로토타입 오염**(`JSON.parse`가 `__proto__`를 own 속성으로 만들고 `Object.assign` source로 쓰이면 `Object.prototype` setter가 발동 — allowlist 키별 대입 + `sanitizePatch`로 차단, 저널 라인·ledger 엔트리 양쪽 회귀 fixture) · **seq 충돌 잔여 정밀화**(락 fail-open 구간의 동시 append는 결정론적으로 해소되나 **진 쪽의 patch는 투영되지 않는다** — 레코드는 잔존·질의 가능. 즉 그 구간은 "손실 없음"이 아니라 "손실이 기록으로 남음"). 구현 불변식 3건: checkpoint rename **이후에만** 세그먼트 회전(부분 압축 tail 유실 차단) · `--reseed`가 폐기 범위를 새 genesis에 봉인(파괴를 막지는 않되 이력에 남김) · malformed 라인 > 0에서 `verify` 비영점 exit(truncation 은폐 차단). 1건은 사실 오류로 기각(`verify`가 투영↔디스크 일치를 이미 검사), DEFER 0건.
 ## [1.23.8] — 2026-08-09

@@ -210,16 +210,22 @@ function cmdJournalVerify(flags) {
   result.malformed_count = read.malformed_count;
   result.malformed_samples = read.malformed_samples;
 
-  // ① 레코드별 content_hash 전수 재계산 (DD6.3). 손상 레코드는 **격리**되며
-  //    조용히 통과하지 않는다.
+  // ① 레코드별 content_hash (DD6.3). **격리는 read 경로가 이미 수행했으므로**
+  //    여기서 `read.records`를 재검하면 언제나 0건이 나온다(걸러진 뒤다) —
+  //    검사가 무력해진다. 격리 목록(`read.corrupt`)을 보는 것이 정답이다.
+  result.corrupt_records = (read.corrupt || []).slice();
+  result.checks.content_hash = result.corrupt_records.length === 0;
+
+  // 방어적 재검 — 통과한 레코드가 정말로 유효한지 한 번 더 본다(read 경로가
+  // 조용히 느슨해지면 여기서 잡힌다).
   for (const r of read.records) {
     if (!rec.verifyContentHash(r)) {
       result.corrupt_records.push({
-        record_id: r.record_id, work_unit: r.work_unit, seq: r.seq,
+        record_id: r.record_id, work_unit: r.work_unit, seq: r.seq, source: 'post-filter',
       });
+      result.checks.content_hash = false;
     }
   }
-  result.checks.content_hash = result.corrupt_records.length === 0;
 
   // malformed는 truncation(디스크 full 등)을 은폐할 수 있으므로 비영점 exit 대상이다.
   result.checks.no_malformed_lines = read.malformed_count === 0;
@@ -230,6 +236,13 @@ function cmdJournalVerify(flags) {
 
   // ② 투영 ↔ 디스크 STATE.md 일치.
   const input = store.readProjectionInput(opts);
+
+  // checkpoint 무결성 (C2) — checkpoint는 투영의 base이므로 레코드보다 강한 축이다.
+  result.checks.checkpoint_integrity = !input.checkpoint_corrupt;
+  if (input.checkpoint_corrupt) {
+    result.checkpoint_corrupt_reason = input.checkpoint_corrupt_reason;
+  }
+
   let projectionMatches = null;
   if (!input.checkpoint) {
     result.checks.projection_matches_disk = null;   // 저널 없음 — 판정 대상 아님
@@ -282,7 +295,8 @@ function cmdJournalVerify(flags) {
 
   emit(flags, result, [
     'journal verify: ' + (result.ok ? 'OK' : 'FAILED'),
-    '  content_hash        : ' + result.checks.content_hash + ' (' + result.corrupt_records.length + ' corrupt)',
+    '  content_hash        : ' + result.checks.content_hash + ' (' + result.corrupt_records.length + ' corrupt, quarantined from projection)',
+    '  checkpoint_integrity: ' + result.checks.checkpoint_integrity,
     '  no_malformed_lines  : ' + result.checks.no_malformed_lines + ' (' + result.malformed_count + ')',
     '  not_degraded        : ' + result.checks.not_degraded,
     '  projection==disk    : ' + result.checks.projection_matches_disk,

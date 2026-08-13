@@ -174,6 +174,29 @@ LOW 1) 전건 트리아지, DEFER 0건. 상세는 plan의 `### Security Reviewer
 - **위협 모델 밖 1건** — `--reseed` 인가 게이트/rate limit(저장소 write 권한자는 저널
   파일을 직접 지울 수 있으므로 CLI 게이트가 막지 못한다). 감사 축 절반만 수용
 
+## PR-Codex R1 — 첫 cross-model 발화 결과 (실결함 3건 · override 없이 수정)
+
+`/mccp:pr`에서 `MCCP_CODEX_DISABLED`를 해제해 PR-Codex를 실제로 발화시켰다.
+verdict `needs-attention` (**No-ship**), HIGH 3건. `lock_exit_ok:true` ·
+`mutations:[]`로 review-only 불변식은 지켜졌다. 세 건 모두 코드 대조로 실결함임을
+확인하고 **audited override를 쓰지 않고 수정**했다.
+
+| # | 지적 | 판정 | 수정 |
+|---|---|---|---|
+| C1 | 프로덕션 레코드가 안정적 session epoch을 못 받음 (0.93) | **실결함** | `journalApply`의 `ledgerRead` 기본값을 실제 `session-ledger.readLedger`로. 세션당 per-process 메모(hot path) |
+| C2 | 손상 레코드가 투영을 구동 (0.90) | **실결함** | read 경로 해시 검증 + 격리. checkpoint는 격리 불가 → degraded. 부트스트랩의 손상-checkpoint 덮어쓰기도 차단 |
+| C3 | 큰 patch가 조용히 절단/폐기 (0.88) | **실결함** | patch 절단 전면 제거. 표현 불가 시 절단이 아니라 append 실패 → degraded |
+
+**공통 형태가 이 milestone의 교훈이다**: 세 건 모두 단위 test가 *강등 분기*(C1은
+`ts-fallback`)나 *작은 입력*(C3)만 시험해 통과했고, **프로덕션 경로와 권위 경로는
+한 번도 확인되지 않았다**. C2는 plan(DD6.3)이 명시한 격리를 구현하지 않았는데도
+`verify` test가 통과해 가려졌다. 신규 회귀 7건은 전부 프로덕션/권위 형태로 다시
+썼다(`state-journal-integrity.test.js`).
+
+수정 중 추가로 드러난 것: 손상 checkpoint를 `readCheckpoint`가 null로 돌려주므로
+**부트스트랩이 그것을 "부재"로 보고 새 genesis로 덮어썼다** — 격리가 아니라 증거
+인멸이다. Codex가 지적한 범위보다 한 칸 더 나빴고, 회귀 test가 그것을 잡았다.
+
 ## Cross-model 검증 상태 (정직 기록)
 
 - **Plan-Codex · Implement-Codex 모두 미발화** — `MCCP_CODEX_DISABLED=1`(user-level

@@ -142,11 +142,29 @@ test('M5 store: a __proto__ key in a journal line cannot pollute Object.prototyp
   const read = store.readRecords({ repoRoot: root });
   assert.strictEqual({}.polluted, undefined, 'Object.prototype must be untouched');
   assert.strictEqual({}.pollutedPatch, undefined, 'nested patch must not pollute either');
-  const parsed = read.records.filter(function (r) { return r.record_id === 'x'; })[0];
-  assert.ok(parsed, 'the record itself is still read');
-  assert.strictEqual(Object.prototype.hasOwnProperty.call(parsed.patch, 'constructor'), false,
+  // PR-Codex C2 이후 이 라인은 **격리**된다 — 손으로 심은 레코드라 content_hash가
+  // 없어 read 경로가 투영 대상에서 뺀다. 오염 방어와 격리는 서로 다른 축이므로
+  // 둘 다 단언한다.
+  assert.ok(!read.records.some(function (r) { return r.record_id === 'x'; }),
+    'an unhashed hand-planted record does not reach the projection');
+  assert.ok(read.corrupt.some(function (c) { return c.record_id === 'x'; }),
+    'and it is counted as quarantined rather than silently dropped');
+
+  // 정상적으로 봉인된 레코드에 오염 키가 들어와도 patch에서 제거되는지 — 이쪽이
+  // allowlist 복사 자체의 단언이다.
+  const sealed = record.makeRecord({
+    session_id: 's', session_epoch: '2026-01-01T00:00:00.000Z', work_unit: 'wu',
+    seq: 3, kind: 'update',
+    patch: JSON.parse('{"__proto__":{"sealedPollution":"yes"},"constructor":{"bad":1},"goal":"g"}'),
+  });
+  store.appendRecord(sealed, { repoRoot: root });
+  const read2 = store.readRecords({ repoRoot: root });
+  const admitted = read2.records.filter(function (r) { return r.record_id === sealed.record_id; })[0];
+  assert.ok(admitted, 'a properly sealed record IS admitted');
+  assert.strictEqual({}.sealedPollution, undefined, 'and it still cannot pollute');
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(admitted.patch, 'constructor'), false,
     'pollution keys are stripped from the patch');
-  assert.strictEqual(parsed.patch.goal, 'g', 'legitimate patch fields survive');
+  assert.strictEqual(admitted.patch.goal, 'g', 'legitimate patch fields survive');
 });
 
 test('M5 store: a __proto__ key in a completion-ledger entry cannot pollute Object.prototype', () => {

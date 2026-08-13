@@ -57,6 +57,16 @@
 | `session_id` | `orchestration-runaway#resolveSessionKey`와 **동일** precedence로 해석 |
 | `session_epoch` | `session-ledger.created_at` (단조·host/pid 검증 완료). 부재 시 `ts` |
 | `epoch_source` | `ledger` / `ts-fallback` — 어느 근거인지가 레코드에 남는다 |
+
+> **ledger 리더의 기본값은 실제 리더다** (PR-Codex C1). 호출자 주입에 맡기면
+> "caller가 잊는" 실패 모드가 남고 **실제로 그것이 일어났다** — `state-writer`가
+> `ledgerRead` 없이 불러 프로덕션 `session_epoch`이 언제나 `ts-fallback`(= 그
+> write의 시각)이었다. 그러면 판정 ③이 사실상 "나중에 append한 쪽이 승리"가 되어
+> **되살아난 오래된 세션이 늦게 쓰면 이긴다** — UI5가 요구한 방어가 그 지점에서
+> 뒤집힌다. 이제 `journalApply`가 기본으로 실제 `session-ledger.readLedger`를
+> 쓰고(세션당 per-process 메모 — 모든 hook이 지나는 hot path다) test만 주입한다.
+> 회귀는 **프로덕션 형태**로 단언한다: 한 세션의 여러 `update()`가 같은
+> `session_epoch`을 `epoch_source: 'ledger'`로 유지하는가.
 | `work_unit` | 순서·tombstone의 키 (§3.1) |
 | `seq` | `work_unit` 별 단조 정수, 1부터 |
 | `kind` | `genesis` / `update` / `tombstone` / `checkpoint` / `reseed` |
@@ -91,6 +101,30 @@ write 측 장치는 `O_APPEND` **단일 버퍼 write** 하나이고, 그것이 �
 **목록에서만** 가져오므로 그 경로가 구조적으로 닫히며, patch(중첩 객체)는
 `sanitizePatch`가 오염 키를 직접 턴다. 저널 라인과 ledger 엔트리 양쪽에 회귀
 fixture가 있다.
+
+**검증은 read 경로에서 일어난다 — verify에서만이 아니다** (PR-Codex C2). 초기
+구현은 스키마 모양만 맞으면 레코드를 전부 통과시키고 `content_hash`는
+`journal verify`에서만 봤다. 그러면 손상·변조됐지만 파싱은 되는 레코드가
+**투영을 구동한 뒤에야** 보고된다 — DD6.3이 약속한 격리가 비어 있었다. 이제
+`readRecords`가 해시 불일치 레코드를 `corrupt[]`로 격리해 `project()`에 넘기지
+않고, `journal verify`는 `records`를 재검하는 대신 그 격리 목록을 읽는다(걸러진
+뒤의 목록을 재검하면 언제나 0건이 되어 검사가 무력해진다).
+
+**checkpoint는 격리로 해소되지 않는다.** checkpoint는 투영의 base 그 자체라
+버리면 STATE.md가 통째로 리셋된다. 그래서 해시 불일치 checkpoint는 **degraded
+모드를 발동**시킨다(§5.1의 append 실패와 같은 처리). 부트스트랩도 손상
+checkpoint를 *부재*로 착각해 새 genesis로 덮어쓰지 않는다 — 그것은 격리가 아니라
+증거 인멸이다.
+
+**patch는 절단하지 않는다** (PR-Codex C3). 초기 구현은 patch 내부 문자열을
+8192자에서 자르고 라인이 16KiB를 넘으면 `patch`를 통째로 `null`로 바꿨다. enforce
+모드에서 투영이 권위이므로 그 조합은 **`update()`가 성공을 반환하면서
+`chain_progress`·`next_chunk` 같은 의미 있는 값을 잃는** 경로였다 — G1과 UI4를
+동시에 위반한다. 이제 patch는 있는 그대로 실리고, 표현 불가능한 경우(중첩 8단계
+초과, 라인 256KB 초과)는 **조용한 절단이 아니라 append 실패**가 되어 degraded로
+강등된다. 그 구간에서 값을 보존하는 것은 STATE.md 직접 경로다. 식별자성 스칼라
+필드(`session_id`·`work_unit`…)의 256자 상한은 유지된다 — 그쪽은 절단이 의미를
+바꾸지 않는 키·진단 축이다.
 
 ---
 
@@ -156,6 +190,8 @@ append하면 **이미 닫힌 작업 단위가 admit된다**. 해법은 새 durab
 | append 성공 · STATE.md write 실패 | 레코드 **잔존** | 미갱신 | 저널이 완전하므로 다음 `update()`의 재투영이 자동 수렴. 손실 없음 |
 | **append 실패 ∧ 마커 성공** | 없음 | write **한다** | degraded 모드 진입 (sticky) |
 | **append 실패 ∧ STATE.md 성공 ∧ 마커 실패** | 없음 | write **했다**(되돌리지 않는다) | `update()`가 **throw**. rollback은 *또 하나의 실패 가능한 write*이고 이미 fs가 흔들리는 구간에서 신뢰할 근거가 없다 |
+| **checkpoint 해시 불일치** (C2) | 손대지 않음 | write **한다** | degraded 진입. base를 신뢰할 수 없으므로 투영 자체가 성립하지 않는다. 부트스트랩도 이 checkpoint를 덮어쓰지 않는다 |
+| **patch 표현 불가**(중첩 초과·라인 상한 초과, C3) | 없음 | write **한다** | degraded 진입. 절단해서 성공을 반환하지 않는다 — 값은 STATE.md 직접 경로가 온전히 보존한다 |
 | `reject-malformed` | append 안 함 | 미갱신 | caller에 `{ok:false}` + loud warn |
 
 ### 5.2 책임 2층

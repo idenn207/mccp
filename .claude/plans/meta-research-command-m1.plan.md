@@ -39,6 +39,17 @@
   - **이 결정이 UI1을 침범하지 않는다는 근거**: `aliases.js`는 `GATE_IDS`도 receipt schema도 아니다. `produces`가 비면 어떤 receipt도 발행되지 않으며, `requires_preceding`이 비면 어떤 선행 게이트도 요구하지 않는다 — `plan-prd`와 정확히 같은 형태다.
 - **DD7 — register는 단일 형식만 파싱한다.** legacy 5종의 blockquote 서두까지 받는 다형 파서를 만들면, 형식이 둘이 되어 어느 쪽이 정본인지 사라지고 Task 1↔Task 2 결합의 검증 대상도 흐려진다. legacy는 Task 0이 한 번 손으로 백필하면 끝이고(5행, 1회), 이후 생기는 문서는 전부 scaffold 산출물이다.
 
+### santa-loop 3라운드 결과 (cap 소진 · 미수렴 종료)
+
+Claude Opus ↔ Codex GPT-5.4 교차 리뷰 3라운드. **A는 R2·R3 PASS, Codex는 R1~R3 FAIL**로 갈린 채 cap이 소진됐다. 수용/기각은 아래와 같고, 이 절이 그 판단의 상주 기록이다.
+
+수용(전부 메커니즘 수정으로 처리): R1 junction 헬퍼 도입(F1~F3 근인) · R1 `aliases.js` 등재(F5) · R1 Phase 4 stop-at-first-failure(F4) · R2 `--repo-root` CLI 제거(H1) · R2 "봉쇄"→"완화" 정정(H2) · R2 skip 분기 제거(H3) · R3 `impeccable-detect.js` 선례 오인용 철회(위 항목).
+
+기각:
+
+- **"win32 실행 보증이 여전히 미증명"(R3 test HIGH ×3)** — 근거로 든 것은 *선례 파일*이 skip한다는 사실인데, 이 plan은 그 선례에서 **명시적으로 이탈**해 `assert.ok(linked)`를 쓴다고 적었고 이탈 사유(디렉토리 링크 전용이라 권한 상승 불요)까지 적었다. 선례의 정책을 이 test의 정책으로 읽으면 어떤 이탈도 문서로 표현할 수 없다. 다만 **남는 실체 하나는 인정한다**: 실측 근거가 1대다. junction이 안 되는 win32 구성(컨테이너·비-NTFS 등)에서는 red가 나며, 그것은 조용한 커버리지 상실이 아니라 **의도한 fail-closed 방향**이다. 심각도는 MEDIUM이 맞다.
+- **"검사와 write 사이 TOCTOU가 열려 있다"(R3 security HIGH)** — 기각한다. (1) **같은 리뷰어가 R1에서 이 축을 명시적으로 검사하고 PASS**했으며 해당 plan 본문은 그 뒤 변경되지 않았다 — 새 증거 없는 판정 반전이다. (2) 위협 모델이 성립하지 않는다: 링크를 바꿔치기하려면 워킹트리 쓰기 권한이 필요하고, 그 권한이면 파일을 직접 고치면 된다. 권한 경계를 넘지 않는다. (3) 요구된 handle-pinned/openat 형태는 **저장소 어디에도 선례가 없다** — 공용 가드 `path-containment.js`가 check-then-use이고 receipt store·`pr-phase-lock`·`session-spawner`가 전부 그 위에 서 있다. 조사 문서 도구에만 receipt chain보다 엄격한 새 기준을 적용할 근거가 없다.
+
 ### 리뷰에서 기각한 지적 (R10) — 루프 종료 지점
 
 R10에서 test 관점이 HIGH 3건을 냈고 셋 다 기각했다. **이 라운드로 흡수 루프를 종료**한다(운영자 결정: HIGH 수준만 수용). 기각 사유:
@@ -105,7 +116,9 @@ MEDIUM 5건(테스트 위치 3중 기재의 정본 모호 · `--pre-register` �
 
 - **Action**: `scaffold --topic "<주제>" [--slug <slug>] [--date YYYY-MM-DD] [--json]`.
   - **`repoRoot`는 CLI 표면을 갖지 않는다 — `--repo-root` 플래그는 0건이다 (santa R2 security HIGH 흡수, Codex).** 앞선 판은 test 주입 편의를 위해 `--repo-root <path>`를 열어 뒀는데, 그러면 이후의 모든 봉쇄가 **호출자가 고른 루트에 상대적**이 되어 `metaDir`·README·`assertContained`가 지키는 대상 자체를 인자로 이동시킬 수 있다. 즉 2층 봉쇄가 무의미해지는 경로가 봉쇄 안이 아니라 **CLI 인자에** 있었다.
-    - **해소 형태는 저장소에 선례가 있다** — CLAUDE.md §3.13의 `intentDecision`은 "`cli.js parseFlags`가 임의 `--*`를 전달하므로 플래그를 만들면 아무 셸 호출자나 게이트를 우회한다"는 이유로 **프로그래매틱 전용**이고 `--intent-*` 플래그가 0건이다. 여기도 같다: `repoRoot`는 **export된 함수의 매개변수**(test가 주입)이고, **CLI 진입점은 그것을 인자에서 읽지 않고** `process.cwd()`에서 상향 탐색한 git 루트로만 파생한다(선례: `impeccable-detect.js`·`archive-complete/scan.js`).
+    - **해소 형태는 저장소에 선례가 있다** — CLAUDE.md §3.13의 `intentDecision`은 "`cli.js parseFlags`가 임의 `--*`를 전달하므로 플래그를 만들면 아무 셸 호출자나 게이트를 우회한다"는 이유로 **프로그래매틱 전용**이고 `--intent-*` 플래그가 0건이다. 여기도 같다: `repoRoot`는 **export된 함수의 매개변수**(test가 주입)이고, **CLI 진입점은 그것을 인자에서 읽지 않고** `process.cwd()`에서 상향 탐색한 git 루트로만 파생한다. 형태 선례는 [`archive-complete/scan.js:228`](../../plugins/mccp/scripts/lib/archive-complete/scan.js)의 `opts.repoRoot || process.cwd()`(모듈 매개변수이고 CLI 플래그가 아니다).
+    - **반례를 정직하게 적는다 — `impeccable-detect.js`는 선례가 아니다 (santa R3 흡수, Codex).** 앞선 판은 이 파일을 "CLI가 인자에서 읽지 않는" 선례로 인용했으나 **사실이 아니다**: [`impeccable-detect.js:340`](../../plugins/mccp/scripts/lib/impeccable-detect.js)이 `--repo-root`를 파싱하고 `:373`이 그 값을 쓴다. 인용을 철회한다.
+    - **그럼에도 여기서 그 형태를 따르지 않는 이유** — `impeccable-detect.js`는 **읽기 전용 detector**라 caller가 고른 루트는 *조회 범위*를 옮길 뿐이다. 이 lib은 **파일을 쓴다**(scaffold가 문서를 만들고 register가 README를 치환한다). 쓰기 도구에서 루트가 인자면 그것은 범위 이동이 아니라 **쓰기 방향 재지정**이고, `assertContained`가 지키는 대상이 인자로 따라 움직이므로 봉쇄가 자기 자신을 검사하는 꼴이 된다. 즉 두 파일의 차이는 취향이 아니라 읽기/쓰기 차이다.
     - 이 구분이 fixture 능력을 잃지 않는다 — Task 4는 어차피 lib을 `require`해 함수로 호출하므로 주입 경로가 그대로 살아 있고, 셸에서 루트를 바꾸는 경로만 사라진다.
   - 거기서 **`metaDir = path.join(repoRoot, '.claude', '_meta')`**, **README = `path.join(metaDir, 'README.md')`** 로 고정 파생한다. `_meta` 위치와 README 위치를 인자로 열지 않는 것이 봉쇄의 전제다 — 열리면 allowlist와 `assertContained`가 지키는 대상 자체가 호출자 통제가 되어 2층이 동시에 무의미해진다. 앞선 판은 이 셋의 출처를 적지 않아, 봉쇄가 성립하는지를 구현자 재량에 맡기고 있었다.
   - **`_meta/` 부재 시 앵커 이전에 exit 1** (자동 생성하지 않는다). `assertContained`는 `fs.realpathSync(metaDir)`를 먼저 부르므로 미존재 디렉토리에서는 `PATH_ESCAPES_GATE`로 죽는데, 그 메시지는 "디렉토리가 없다"를 뜻하지 않아 원인을 가린다. 자동 생성하지 않는 이유는 Task 0(README 백필) 미완료 상태를 조용히 통과시키지 않기 위해서다.

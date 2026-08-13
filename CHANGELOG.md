@@ -38,6 +38,14 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 회귀 7건 추가(`state-journal-integrity.test.js`) — 전부 프로덕션/권위 경로 형태이며, 되돌리면 실패한다.
 
+### Fixed (최종 라운드 — 리뷰 가능성 blocker) · Known-open (audited override로 ship)
+
+shipping HEAD에 대한 최종 PR-Codex 라운드가 4건을 반환했다(CRITICAL 1 · HIGH 2 · MEDIUM 1). 운영자 결정으로 **`MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE` audited override로 ship**하며, receipt는 실제 `divergent` verdict를 **재작성하지 않고 그대로 봉인**한다(cross-gate dedupe fail-closed 유지 → 다음 `/mccp:pr`에서 PR-Codex 재발화).
+
+**즉시 수정한 것 (MEDIUM, 리뷰 가능성 blocker)** — `order.js`·`index.js`·`a4-boundary-restore.js`에 **리터럴 NUL 바이트**가 들어가 git이 세 파일을 **바이너리로 취급**했다(`git diff --numstat` = `-  -`). 순서 오라클·facade·A4 지표, 즉 리뷰어가 가장 봐야 할 세 파일이 diff에서 보이지 않는 상태였다. 6자 이스케이프로 치환해 소스는 순수 ASCII 텍스트, 런타임 구분자는 그대로 U+0000이다(치환 후 단언). 로직 변경 0.
+
+**미해소 3건 — backlog 이관** (`.claude/plans/codex-findings-backlog.md`, 2026-08-14): ① **CRITICAL** `kind=tombstone`을 쓰는 **프로덕션 writer가 없다** → G2의 tombstone 축이 사실상 test 전용이며, 잔여 1b가 적은 것보다 한 칸 더 나쁘다(저널 수명 *안*의 방어도 decision-slug 축에만 성립) ② **HIGH** A4가 투영이 거부한 레코드(`admit-superseded`/`admit-post-tombstone`, 감사 목적 잔존)를 경계로 계상 → UI9 위반 가능 ③ **HIGH** `journal verify`가 `baseIndex` 없이 재투영해 production과 다른 오라클로 판정.
+
 ### Fixed (PR-Codex R3 — CRITICAL: 작업 단위가 바뀌면 옛 patch가 새 상태를 덮어썼다)
 
 R2 흡수 후 3라운드에서 **CRITICAL** 1건. 실측 재현했다: `taskFingerprint`를 바꿔 `A#1 → A#2 → B#1` 순으로 쓰면 STATE.md가 `B#1`이 아니라 **`A#2`** 를 렌더한다 — 최신 write가 더 오래된 것에게 덮인다. 작업 단위가 바뀔 때마다 발생하므로 예외가 아니라 정상 사용 경로다.

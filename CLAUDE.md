@@ -536,7 +536,7 @@ Codex의 **모든 finding**이 명시 adjudication을 받아야 한다. 1건이�
 
 ---
 
-### 3.13.1 오심(mislabelling) 탐지 (v1.23.8 — codex-intent-context M1.5)
+### 3.13.1 오심(mislabelling) 탐지 (v1.23.9 — codex-intent-context M1.5)
 
 M1은 **누락**을 닫았다. 그러나 저자가 모든 finding을 `intent_conflict:'none'`으로 찍으면 커버리지 검사는 전부 통과하므로 **오심**은 남았다. M1.5는 리뷰어에게 per-finding 계약을 부과하고 리뷰어 주장과 저자 판정을 **비대칭 대조**한다.
 

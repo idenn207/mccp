@@ -67,6 +67,7 @@
 | S3.11 | 3.11 완료 PRD/plan 아카이브 (`archived/` 관례 + `/mccp:archive-complete`) (v1.20.15) | on-demand | - | - | - | (b) 불성립 — archive-complete command가 판정·트랜잭션을 소유한다. 이번 주기 미이전(분류만) |
 | S3.12 | 3.12 증거 내구성 계약 (Evidence durability contract) (v1.22.4 — durable-evidence-substrate Phase A) | resident | - | - | - | (a) 무단 재봉인은 ledger 결속을 dangling으로 만들고 중복 엔트리를 낳음(E4) · (b) sanctioned 도구 밖 writer를 막는 강제기 없음 · (c) receipt를 쓰기 직전에 알아야 함 |
 | S3.13 | 3.13 Plan-Codex 의도 컨텍스트 게이트 (v1.23.1 — codex-intent-context M1) | on-demand | - | - | - | (b) 불성립 — 구조 가드·adjudication 커버리지·receipt 미작성이 전부 기계 판정이다(위반 시 `/mccp:prp-implement` 진입 자체가 막힌다). 이번 주기 미이전(분류만) |
+| S3.13.1 | 3.13.1 오심(mislabelling) 탐지 (v1.23.9 — codex-intent-context M1.5) | on-demand | - | - | - | (b) 불성립 — S3.13과 같은 축의 후속 milestone이고 판정이 전부 기계적이다(리뷰어 `INTENT:` 계약 파싱 · 비대칭 대조 · receipt 미작성). 이번 주기 미이전(분류만) |
 | S4 | 4. 자주 쓰는 명령 (Cheat Sheet) | resident | - | - | - | (c) 명령 이름을 고르기 전에 필요한 색인. 이전 후에는 색인과 포인터만 남는다 |
 | S4.1 | Generic-receipt quarantine runbook (v0.2.8 Task 2.6.5) | on-demand | - | - | - | (c) 불성립 — quarantine 실패가 발생한 뒤 따라가는 런북이다. 이번 주기 미이전(분류만) |
 | S4.2 | 운영 토글 (환경 변수) | on-demand | docs/ENVIRONMENT.md | 11. 운영 토글 레퍼런스 (canonical) | docs/ENVIRONMENT.md | (b) 불성립 — 각 토글은 자기 소비처 오라클이 parse·검증한다. 44,462B(28.0%)이며 docs/ENVIRONMENT.md와 **중복**이다(PRD Evidence가 지목한 그 중복). **이번 주기 이전** |

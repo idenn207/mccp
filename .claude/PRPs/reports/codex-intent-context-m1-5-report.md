@@ -2,7 +2,7 @@
 
 **Plan**: `.claude/plans/codex-intent-context-m1-5.plan.md`
 **Branch**: `feat/codex-intent-context-m1-5`
-**Version**: `1.23.7 → 1.23.8` (plan은 `1.23.5`를 가정 — §3.7 forward-only 상향, 아래 D1)
+**Version**: `1.23.8 → 1.23.9` (plan은 `1.23.5`를 가정 — §3.7 forward-only 상향, 아래 D1)
 **Date**: 2026-08-10 (구현) · 2026-08-13 (Task 0 실측 + `enforce` 확정 — 아래 "Post-ship")
 
 ## Summary
@@ -19,7 +19,7 @@ M1.5는 리뷰어에게 per-finding `INTENT:` 계약을 부과하고, 리뷰어 
 |---|---|---|
 | Complexity | Medium | Medium — 설계가 santa-loop 3라운드로 이미 확정돼 구현 판단이 적었다 |
 | Files Changed | 21 (CREATE 3 / UPDATE 18) | 22 (CREATE 2 / UPDATE 20) — 아래 D8 |
-| Version | `1.23.4 → 1.23.5` | `1.23.7 → 1.23.8` (D1) |
+| Version | `1.23.4 → 1.23.5` | `1.23.8 → 1.23.9` (D1) |
 
 ## Tasks Completed
 
@@ -83,7 +83,7 @@ N/A — design trigger 미발화(`design_signal=false`, `silent_skip=no-signal`)
 
 ## Deviations from Plan
 
-**D1 — 버전 `1.23.5` → `1.23.8`.** plan 작성 시점 이후 main이 `1.23.7`까지 진행했다(브랜치는 origin/main보다 51 커밋 뒤). §3.7 forward-only에 따라 이미 발행된 번호는 불가침이므로 상향했다. plan의 Risks 표가 이 가능성을 예고하고 있었다(`1.23.6`으로 올릴 준비).
+**D1 — 버전 `1.23.5` → `1.23.9`.** plan 작성 시점 이후 main이 `1.23.7`까지 진행했고(브랜치는 origin/main보다 51 커밋 뒤) 구현 시점에 `1.23.8`로 올렸다. 이후 ship 직전 main 기준 rebase에서 main이 `1.23.8`(diverse-agent-review M4, PR #126)을 선점한 것이 확인돼 **한 칸 더** 밀었다. §3.7 forward-only에 따라 이미 발행된 번호는 불가침이다. plan의 Risks 표가 이 가능성을 예고하고 있었다(`1.23.6`으로 올릴 준비). 같은 축의 7번째 재발이며, 한 사이클 안에서 두 번 밀린 것은 이번이 처음이다.
 
 **D2 — CHANGELOG 중복 `## [1.23.4]` 헤딩 제거 (plan 범위 밖).** 이 브랜치에는 같은 milestone에 대한 `[1.23.4]` 항목이 **2개** 있었다. PR #118이 발행한 항목이 파일 중간(1.23.1 아래)에 삽입돼 있었고, 다음 세션이 맨 위 헤딩만 보고 "1.23.4 누락"으로 판단해 하나를 더 추가했다(be88e5c). §3.7이 "헤딩 중복은 조용히 넘어가지 말 것 — CHANGELOG가 깨진 상태"라 규정하므로, main에 있는 항목을 정본으로 두고 미발행 중복을 제거했다. **순서 정렬은 하지 않았다** — main의 배치를 건드리는 것은 머지 해소의 몫이다.
 
@@ -142,7 +142,7 @@ N/A — design trigger 미발화(`design_signal=false`, `silent_skip=no-signal`)
 | 주장이 메모리에서만 — awaiting 변조 무효 | 충족 (동시 변조 + 소스 스캔 2중) |
 | `--intent-*` CLI 플래그 0건 | 충족 |
 | 신규 meta 6필드 present-only + `makeSkeleton` 미포함 + 구 corpus 무손상 | 충족 (receipt 554 회귀 0) |
-| 버전 5면 + CHANGELOG + CLAUDE.md 동기 | 충족 (`1.23.8`) |
+| 버전 5면 + CHANGELOG + CLAUDE.md 동기 | 충족 (`1.23.9`) |
 | 의도치 않은 삭제 0건 | 충족 |
 | Patterns mirrored, not reinvented | 충족 |
 

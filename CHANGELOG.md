@@ -2,7 +2,7 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.8`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.9`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
 ## [1.23.8] — 2026-08-09
 
@@ -268,11 +268,11 @@ santa-loop 6라운드에서 **20건 흡수 · 7건 기각**했고 회귀 스위�
 
 새 게이트가 seeded acceptance fixture를 깨뜨렸고, 그것이 논점을 그대로 실증했다 — 그 fixture는 R2가 도입한 `snapshot_files_parsed`조차 갖고 있지 않았다. **fixture가 producer의 실제 출력 모양보다 뒤처져 있었는데 소비자 층 test가 없어 아무도 그 격차를 보지 못했다.** 게이트를 느슨하게 푸는 대신 fixture가 대조 결과를 명시하도록 고쳤다.
 
-## [1.23.8] — 2026-08-10
+## [1.23.9] — 2026-08-10
 
 **codex-intent-context M1.5 — 오심(mislabelling) 탐지 (patch — 단일 milestone ship, §3.7)** — M1(1.23.4)은 **누락**을 닫았다: 모든 Codex finding이 명시 판정을 받지 않으면 receipt가 써지지 않는다. 그러나 저자가 모든 finding을 `intent_conflict:'none'`으로 찍으면 커버리지 검사는 전부 통과하므로 M1은 **오심**을 막지 못했고 PRD 1차 지표(UI10)는 동어반복으로 남았다. M1.5는 리뷰어에게 per-finding `INTENT:` 계약을 부과하고 리뷰어 주장과 저자 판정을 **비대칭 대조**한다. 상세 계약은 CLAUDE.md §3.13.
 
-> **버전 주의(§3.7 forward-only)**: plan은 `1.23.5`를 가정했으나 그 사이 main이 `1.23.7`까지 진행해 `1.23.8`로 상향했다. 같은 커밋에서 **중복된 `## [1.23.4]` 헤딩 1건을 제거**했다 — PR #118이 이미 발행한 항목을 다음 세션이 "누락분"으로 오인해 다시 추가한 것으로, main에 있는 항목이 정본이다.
+> **버전 주의(§3.7 forward-only)**: plan은 `1.23.5`를 가정했으나 main이 그 사이 `1.23.8`(diverse-agent-review M4)까지 진행해 `1.23.9`로 상향했다. 같은 축의 **7번째 재발**이며, 이 사이클에서만 `1.23.8` → `1.23.9`로 한 번 더 밀렸다(main 기준 rebase 시점). §3.7의 pre-PR version freshness check 자동화 근거가 계속 누적된다. 같은 커밋에서 **중복된 `## [1.23.4]` 헤딩 1건을 제거**했다 — PR #118이 이미 발행한 항목을 다음 세션이 "누락분"으로 오인해 다시 추가한 것으로, main에 있는 항목이 정본이다.
 
 ### Added
 - `plugins/mccp/scripts/lib/intent-claims.js` — 리뷰어 주장 파서 + 비대칭 대조 순수 오라클(fs/process/clock 없음). finding의 `title`+`body`+`recommendation`을 **하나의 텍스트**로 이어붙여 라인 선두 앵커 `INTENT:`를 스캔하고, 매칭이 **정확히 1건이 아니면** `unclaimed`로 접는다. 인용 구조 5종(백틱/틸드 fence · **4칼럼 이상** 들여쓰기 · blockquote · HTML `<pre>`/`<code>`/`<blockquote>`)은 스캔 **전에** 제거된다 — 들여쓰기는 문자가 아니라 **칼럼**으로 재므로(탭 = 다음 4칼럼 탭스톱) 공백+탭 혼합 선두도 코드로 걸러진다. 대조는 DD3 6분류(`agree-none`/`agree-conflict`/`id-mismatch`/`reviewer-only`/`author-only`/`unclaimed`)이며 blocking 규칙은 단 하나다 — "리뷰어가 지목한 id를 저자가 지목하지 않았다".
@@ -285,7 +285,7 @@ santa-loop 6라운드에서 **20건 흡수 · 7건 기각**했고 회귀 스위�
 - `plugins/mccp/scripts/receipt/schema.js` · `write.js` — present-only **6필드**(`intent_mislabel_mode` · `intent_reviewer_contract` · `intent_claim_counts` · `intent_claims_digest` · `intent_mislabel_disputes` · `intent_mislabel_audit`). `makeSkeleton` 미포함 — §3.12 tracked ship corpus의 `receipt_hash` 무손상. `intent_claim_counts`는 **닫힌 키 집합 + 분할 불변식**으로 검증하고, audit 배열 상한은 `ADJUDICATION_LIMITS.ITEMS`(1000)와 같아 **truncation 분기가 존재하지 않는다**(조용한 절삭은 감사 표면을 무력화하므로 선택지가 아니다). 그 위에 **집계 ↔ 증거 ↔ verdict 대조**를 얹었다 — 분할 불변식은 `reviewer_only`를 `author_only`로 옮기는 편집을 그대로 통과시키므로, 분류별 tally 일치 · audit 삭제 금지 · dispute 수 일치 · 계약값의 counts 파생 가능성 · verdict 함의(`preserved`⇒full ∧ 미해소 0 / `inconclusive`⇒non-full / `mislabel_unresolved`⇒미해소 ≥1)를 schema가 검증한다. **위조 방지가 아니라**(파일 전체를 다시 쓰면 모순 없는 거짓을 쓸 수 있다) *증거를 남긴 채 결론만 바꾼* receipt와 producer drift를 닫는 것이다. 같은 축으로 `intent_gate_force_override_reason`은 override가 실제 적용됐을 때만 봉인된다(§3.13.1).
 - `plugins/mccp/scripts/receipt/validate-cmd.js` — blocking intent verdict별 **개별 복구 문구**. 이전에는 어떤 verdict든 M1 문구 하나("모든 finding에 명시 판정")만 내보내, 실제 문제가 *리뷰어 불응*일 때 운영자를 엉뚱한 파일로 보냈다.
 - `plugins/mccp/commands/plan.md` — 5.5a에 `intent_dispute_reason` 행 + `reviewer_claim` 대조 지시, 5.4a verdict 분기에 신규 2종 복구 지시.
-- `plugins/mccp/.claude-plugin/plugin.json` `1.23.7 → 1.23.8` + renderer footer(html/markdown) + i18n 단언 동기(§3.7 5면).
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.8 → 1.23.9` + renderer footer(html/markdown) 동기(§3.7 5면). i18n 단언 2건은 main이 plugin.json 파생으로 전환해 리터럴 편집이 불필요해졌다.
 
 ### Notes — 이 milestone이 달성하지 **않은** 것
 

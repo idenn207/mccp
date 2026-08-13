@@ -131,7 +131,7 @@ produced diff의 rendered-surface(v1.18.22 scope) 교집합 **0건** — control
 - [x] `minRemaining`이 `--granted` 상한된 `fleet.length`에 비례 (UI12)
 - [x] `budget.total` 미설정 시 동작 불변 — 런타임 test로 고정
 - [x] 신규 회귀 test가 수정 **전** 실패함을 실측하고 기록 (UI5)
-- [ ] **패널 통과 경로 1회 완주** — 미달, PRD에 forward-only 기록 (UI11, UI3)
+- [~] **패널 통과 경로 1회 완주** — 미달로 기록한 뒤 **milestone #6으로 이관** (2026-08-13). 이 항목의 충족 절차(`claude plugin update` → 새 세션)가 git-source 플러그인에서는 **머지된 main**을 요구하므로, 머지 전 milestone의 acceptance로 성립하지 않는다. 항목을 버린 것이 아니라 관측이 가능한 자리로 옮긴 것이며, UI3대로 여전히 미산출로 적는다 (UI11, UI3)
 - [x] §3.7 5면 version 동기 — 계획은 `1.23.6`, **실제 ship은 `1.23.8`**(병렬 브랜치 상향, 서두 정정 참조). `plugin.json`·`html.js`·`markdown.js`·`CHANGELOG.md`가 `1.23.8`로 일치하고 `i18n-surface.test.js`는 리터럴이 아니라 manifest 파생이라 자동 추종
 - [x] receipt schema·`receipt_hash`·git-tracked ship corpus 무변경 (UI7) — 신규 필드 0, receipt 548 tests green
 

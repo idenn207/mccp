@@ -58,6 +58,7 @@ function withTmp(fn) {
   const outPath = path.join(dir, 'args.json');
   const savedQuorum = process.env.MCCP_PLAN_REVIEW_QUORUM;
   const savedRoles = process.env.MCCP_PLAN_REVIEW_ROLES_MIN;
+  const savedBudget = process.env.MCCP_PLAN_REVIEW_BUDGET;
   const savedWrite = process.stdout.write;
   process.stdout.write = function () { return true; };   // the CLI prints JSON
   try {
@@ -68,6 +69,8 @@ function withTmp(fn) {
     else process.env.MCCP_PLAN_REVIEW_QUORUM = savedQuorum;
     if (savedRoles === undefined) delete process.env.MCCP_PLAN_REVIEW_ROLES_MIN;
     else process.env.MCCP_PLAN_REVIEW_ROLES_MIN = savedRoles;
+    if (savedBudget === undefined) delete process.env.MCCP_PLAN_REVIEW_BUDGET;
+    else process.env.MCCP_PLAN_REVIEW_BUDGET = savedBudget;
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
@@ -147,6 +150,57 @@ test('rolesMin in the payload is clamped to the fielded panel', () => {
     const { payload } = emit(ctx, ['--granted', '2']);
     assert.equal(payload.quorum.rolesMin, 2,
       'K cannot exceed the number of reviewers actually fielded');
+  });
+});
+
+// ── minRemaining: the budget gate's only producer (M4 axis B) ─────────────────
+//
+// workflows/plan-review.js reads `input.minRemaining` and refuses to fire when
+// `budget.remaining()` is below it. This payload is the sole producer of that
+// field, and it did not emit the key at all — so the value was always 0 and the
+// gate was structurally unreachable. Nothing in this file asserted on it, which
+// is why the defect survived the milestone that introduced it.
+
+test('the payload carries minRemaining — the field the budget gate reads', () => {
+  withTmp(function (ctx) {
+    const { code, payload } = emit(ctx);
+    assert.equal(code, EX_OK);
+    assert.equal(typeof payload.minRemaining, 'number',
+      'minRemaining must be present; an absent key reads as 0 and disables the gate');
+    assert.ok(Number.isInteger(payload.minRemaining) && payload.minRemaining > 0);
+    assert.equal(payload.minRemaining, 150000 * payload.fleet.length,
+      'default per-reviewer estimate mirrors plan-fanout (150000)');
+  });
+});
+
+test('minRemaining tracks the fleet CAPPED by --granted, not the requested panel', () => {
+  withTmp(function (ctx) {
+    process.env.MCCP_PLAN_REVIEW_QUORUM = '2of4';
+    const { code, payload } = emit(ctx, ['--granted', '2']);
+    assert.equal(code, EX_OK);
+    assert.equal(payload.fleet.length, 2);
+    assert.equal(payload.minRemaining, 150000 * 2,
+      'reserving a budget for four reviewers when two will launch overstates the ' +
+      'threshold and would skip a panel the turn can actually afford');
+  });
+});
+
+test('MCCP_PLAN_REVIEW_BUDGET overrides the per-reviewer estimate', () => {
+  withTmp(function (ctx) {
+    process.env.MCCP_PLAN_REVIEW_BUDGET = '1000';
+    const { payload } = emit(ctx);
+    assert.equal(payload.minRemaining, 1000 * payload.fleet.length);
+  });
+});
+
+test('a malformed MCCP_PLAN_REVIEW_BUDGET falls back to the default, never to 0', () => {
+  withTmp(function (ctx) {
+    ['0', '-5', 'abc', ''].forEach(function (raw) {
+      process.env.MCCP_PLAN_REVIEW_BUDGET = raw;
+      const { payload } = emit(ctx);
+      assert.equal(payload.minRemaining, 150000 * payload.fleet.length,
+        'a value we cannot read must not silently disable the gate (raw="' + raw + '")');
+    });
   });
 });
 

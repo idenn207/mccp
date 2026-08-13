@@ -1,0 +1,30 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "context-budget-cleanup",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.23.3",
+    "completed_at": "2026-08-10T13:08:43.720Z",
+    "commit_sha": "f7c4c90acde989247fa17932016d462760dae562",
+    "plan_basename": "context-budget-cleanup.plan.md",
+    "plan_file_hash": "sha256:d7b924e8688e34afe69183d5f1f65b9c502192899b1d383545bd9932439266f8",
+    "risks_closed": [
+      "**정보 손실** — 서사가 없어지면 다음 사이클이 같은 결함을 다시 유도",
+      "**\"이전\"이 실은 \"매장\"** — docs로 옮겼는데 아무도 안 읽으면 삭제와 같다",
+      "**병렬 worktree 충돌** — 활성 worktree 5개가 CLAUDE.md 보유",
+      "**§3.7 지침과의 외견상 충돌**",
+      "**repo 밖 절반을 게이트가 못 봄**",
+      "~~바이트 감축 ≠ 토큰 감축~~",
+      "~~목표치가 임의적~~",
+      "**A3 계측기가 Windows에서 불능**"
+    ],
+    "oq_closed": [
+      "~~memory 삭제 승인 범위~~ — **해소(2026-08-09)**: 사용자가 \"삭제 없음, 인덱스만 정리\"를 선택.",
+      "**`docs/milestone-log.md` 신설 vs CHANGELOG 흡수** — CHANGELOG.md가 같은 내용을 버전 축으로 이미 소유한다. 별도 파일 대신 병합하면 파일 수는 줄지만 \"모듈 → 역할\" 조회축이 사라진다. 현 plan은 신설을 택했다.",
+      "**\"읽힘\"은 증명 불가** — Validation 7이 운영 앵커 잔존까지는 보지만, 옮겨진 docs를 실제로 참조하는지는 기계로 확인할 수 없다. 이전이 매장으로 변질되는지는 다음 사이클의 실사용에서만 드러난다."
+    ],
+    "receipt_hash": "sha256:600e358bfe3ac3b6a294c202c1cdf25a874baff533c84f7b134c0b67c316c1e9",
+    "verdict_provenance": "codex-verdict"
+  }
+}

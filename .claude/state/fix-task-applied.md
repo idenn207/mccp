@@ -1,16 +1,15 @@
 ---
 fix_task_version: 1
-task_fingerprint: dashboard-data-exploration
+task_fingerprint: diverse-agent-review-m4
 gate_id: stop-review-loop
-decision_id: codex-intent-context-m1
-created_at: 2026-08-05T17:01:52.181Z
-expires_at: 2026-08-12T17:01:52.181Z
+decision_id: diverse-agent-review
+created_at: 2026-08-12T13:27:35.267Z
+expires_at: 2026-08-19T13:27:35.267Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-plan-codex/codex-intent-context-m1.json
-  - .claude/receipts/mccp-implement-codex/codex-intent-context-m1.json
+  - .claude/receipts/mccp-pr-codex/diverse-agent-review.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -26,8 +25,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- .claude/receipts/mccp-plan-codex/codex-intent-context-m1.json
-- .claude/receipts/mccp-implement-codex/codex-intent-context-m1.json
+- .claude/receipts/mccp-pr-codex/diverse-agent-review.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/codex-intent-context-m1>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-pr-codex/diverse-agent-review>'

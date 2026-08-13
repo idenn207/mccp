@@ -271,7 +271,7 @@ Reviewer A(Opus `code-reviewer`) + Reviewer B(`codex exec -m gpt-5.4`) 병렬. *
 2. **`MCCP_ORCHESTRATION_CATASTROPHIC_USD`** — 기본 500이 사용자 handoff 임계(500/800/1000)와 역전. 전역 설정이라 임의 수정하지 않았다. 상향 권장(예: 5000).
 3. **main의 `b2-coverage-gate` red 2건** — #118 소관. PR 본문에 "제 회귀 아님 + 실측 근거" 명시 필요.
 4. **main CHANGELOG `[1.23.4]` 헤딩 중복**(7행·94행, 본문 상이) — #118의 기존 결함. 남의 릴리스 노트라 임의 병합하지 않고 양쪽 보존했다.
-5. **PRD Milestone 1 status** — 여전히 `in-progress`. 지표는 충족(표적 6건 전부 해소, 잔여 3건 중 본 milestone 귀속 0).
+5. **PRD Milestone 1 status** — **`complete`로 갱신 완료(2026-08-10)**. 지표 충족(표적 6건 전부 해소, 잔여 3건 중 본 milestone 귀속 0) + santa-loop 판정 검토를 거쳤다. 상세는 위 "PRD status drift — 해소됨" 참조.
 
 ## Next Steps
 
@@ -287,6 +287,26 @@ Reviewer A(Opus `code-reviewer`) + Reviewer B(`codex exec -m gpt-5.4`) 병렬. *
 
 특히 단일 모델 판단으로 남은 것: OQ2의 3부 수정(A/B/C) 설계, OQ3의 callsite 비대칭 판정, 그리고 위 "구현 시점 발견" 4건. plan R1에서 5건 중 4건을 Codex만 잡은 선례가 있으므로 `/mccp:santa-loop`(Opus + `codex exec` 직접 호출 — wrapper env policy와 무관한 경로) 실행이 권장된다.
 
-### PRD status drift
+### PRD status drift — **해소됨 (2026-08-10)**
 
-plan은 "PRD Milestone 1 행 갱신은 plan 작성 시점에 **이미 적용됨** — Task 7에서 제외"라고 적었으나, 실측상 PRD `:71`의 Status는 여전히 **`in-progress`**다. plan의 그 서술이 부정확했다. Task 7이 "재편집 금지"를 명시했으므로 이 구현에서는 손대지 않았고, 사실만 남긴다 — commit/PR 단계에서 `complete`로 갱신할지는 운영자 판단이다(성공 지표 "fail 8 → 2"는 실측 "7 → 1"로 충족).
+plan은 "PRD Milestone 1 행 갱신은 plan 작성 시점에 **이미 적용됨** — Task 7에서 제외"라고 적었으나, 실측상 PRD `:71`의 Status는 여전히 **`in-progress`**였다. plan의 그 서술이 부정확했다. Task 7이 "재편집 금지"를 명시했으므로 구현 단계에서는 손대지 않고 사실만 남겼다.
+
+2026-08-10 ship 이후(PR #121 머지, `69fe06b`) 별도 santa-loop 검토를 거쳐 `complete`로 갱신했다. plan의 그 한 줄은 **사후 수정하지 않는다** — 이미 ship된 게이트 아티팩트를 고치면 `plan_hash`가 바뀌어 `mccp-plan-codex` receipt 결속이 흔들리고, 오기의 사실 자체는 이 섹션이 보존하는 편이 감사에 정직하다.
+
+**완료 판정 santa-loop (2026-08-10) — 2인 검토, 반증 5 · 수용 4**
+
+`/mccp:santa-loop`을 "M1을 `complete`로 flip하는 판정이 정당한가"를 스코프로 실행했다. Reviewer B(Codex)는 **한도 소진으로 검토를 수행하지 못했고**(`EXIT=1`, 2026-08-16까지), 출력에 있던 `"verdict"` 1건은 바이트 오프셋 170303의 **프롬프트 반향**이었다 — plan R2와 **같은 함정이 세 번째로 재현**됐다. 규정대로 Claude 폴백으로 대체(컨텍스트 격리만 확보, 모델 다양성 미획득).
+
+| # | 지적 | 포착 | 판정 | 근거 |
+|---|---|---|---|---|
+| 1 | G1 테스트가 현재 0/3 fail | B | **반증** | env ON/OFF 양쪽 `10/10 pass` 실측 |
+| 2 | M1 complete + M2 pending은 §3.11 위반 · trapped state · validation 실패 유발 | A·B | **반증** | `scan.js` 오라클 직접 실행: flip 전후 모두 `archivable=false`, 사유만 변경. 저장소에 혼합 status PRD **4건** 선례 |
+| 3 | receipt가 구현을 검증 안 함(`head_sha`가 구현 커밋보다 앞섬) | B | **반증** | `01bca41`은 구현이 아니라 ledger 1파일 evidence 커밋. 구현은 전부 `53b7acc` 이전 |
+| 4 | fixture 우회 제거의 before/after 증거 부재 | B | **반증** | `659b48d`에 `receipt-mode.js` 복사 제거 diff 실재 |
+| 5 | 잔여 3건 귀속이 주장뿐 | B | **반증** | `plan-codex-runner.js`를 M1 커밋이 한 번도 건드리지 않음 |
+| 6 | plan의 "PRD 행 기적용"이 거짓 | A·B | **수용** | 위 문단 |
+| 7 | PRD status 모순을 고치거나 미루는 이유를 명시하라 | A | **수용** | flip 수행 + PRD에 판정 근거 섹션 추가 |
+| 8 | cross-model 미획득을 닫힌 게이트로 취급 말고 부채로 기록하라 | A·B | **수용** | PRD "미획득 항목" 문단. A 자신이 조건부 수용을 명시 |
+| 9 | baseline 재기술(8→2 vs 7→1)이 goalpost 이동일 수 있다 | B | **수용** | PRD Success Metrics에 `Actual` 열 **병기**(원 Target 미삭제) |
+
+**메타 관찰**: 두 리뷰어 모두 FAIL을 냈으나 FAIL 근거의 과반이 반증됐다. 특히 B의 "G1 0/3"은 실측과 정면 배치였고, 그것이 B의 C1·C3 FAIL의 유일한 근거였다. *지적은 신호이되 처방은 검증 대상*이라는 이 저장소의 규칙이 다시 성립했다 — 다만 이번에는 **잡은 쪽이 아니라 틀린 쪽**에서.

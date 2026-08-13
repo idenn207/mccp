@@ -1,7 +1,7 @@
 # Implementation Report: multi-session-work-loop M5 — 상태 진실원 이전
 
 **Plan**: [.claude/plans/multi-session-work-loop-m5.plan.md](../../plans/multi-session-work-loop-m5.plan.md)
-**Version**: `1.23.7 → 1.23.8` · **Branch**: `v1.24.0-multi-session-m5`
+**Version**: `1.23.7 → 1.23.9` (계획 1.23.8 → main #126이 선점해 §3.7 forward-only 상향, **5번째 재발**) · **Branch**: `v1.24.0-multi-session-m5`
 **Design doc**: [docs/multi-session-work-loop/state-truth-source-design.md](../../../docs/multi-session-work-loop/state-truth-source-design.md)
 
 ## Summary
@@ -77,7 +77,7 @@ origin/main clean checkout 실측 확인 · #118 소관"으로 기록돼 있고,
 
 ### G5 — 미달 처리 (§G5 조건성대로 사전 고정된 경로)
 
-`Validation-SHIP-1`이 실패한다: `plugin.json` 1.23.8이 설치 캐시에 없다 = 이 사이클은
+`Validation-SHIP-1`이 실패한다: `plugin.json` 1.23.9가 설치 캐시에 없다 = 이 사이클은
 `claude plugin update`를 수행하지 않았다. 따라서 그 뒤의 "실측"은 **성립할 수 없다**.
 plan이 사후 협상을 막기 위해 미리 고정한 처리를 그대로 밟는다:
 

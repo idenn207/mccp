@@ -1,0 +1,962 @@
+# Plan: 세션 컨텍스트 예산 정리 (CLAUDE.md + auto-memory)
+
+**Source PRD**: (없음 — free-form `/mccp:plan` 입력)
+**Branch**: `chore/context-budget-cleanup` (worktree `.worktrees/context-budget-cleanup/`, base `origin/main` @ `77ceba2`)
+**Complexity**: Medium
+**Review**: santa-loop 6라운드 전부 NAUGHTY (R1 Opus 4/10·GPT-5.4 9/10 → R2 8/10·9/10 → R3 8/10·9/10 → **R4** Opus PASS(신뢰 불가)·GPT-5.4 10/12 FAIL → **R5** 양쪽 FAIL → **R6** Opus PASS·GPT-5.4 3 critical). R3 상한 도달 후 U1/U2/U4를 닫은 개정본이 미리뷰 상태여서 fresh loop(R4~R6)을 다시 돌렸고 20건을 흡수, 11건을 기각했다. 그중 **게이트를 통과 불가로 만든 결함이 3건**(V8 문턱 400·V5b frozen 가정·V8 예외 파서) — 셋 다 "검사를 읽고 통과시킨" 라운드를 여러 번 지나왔다. 라운드별 실질 결함은 8 → 7 → 5로, 통과불가급은 3 → 1 → 0으로 줄었으나 **양쪽 NICE는 나오지 않았다.** 상한 도달 → 사람 판단. push 안 함.
+
+## Summary
+
+세션마다 자동 주입되는 두 표면 — `CLAUDE.md`(160,920 B / 849줄)와 auto-memory 인덱스 `MEMORY.md`(10,537 B / 16 항목 — 이 파일은 auto-memory 시스템이 세션 중에도 갱신하므로 값이 흔들린다. 2026-08-09 실측) — 이 지시문이 아니라 **아카이브**로 자라났다. 둘 다 "무엇을 결정해야 하는가"보다 "어떻게 여기까지 왔는가"를 더 많이 싣고 있고, 그 기록은 이미 `CHANGELOG.md`(318,378 B / 77 버전)·`docs/`·git history·PRD status 표가 소유한다.
+
+이 plan은 **삭제가 아니라 이전(relocate)** 을 원칙으로 두 표면을 압축한다. 규칙·트리거·복구 절차는 CLAUDE.md에 남기고, 그 규칙이 어느 라운드에서 왜 나왔는지의 서사는 이미 존재하는 문서로 옮긴다. auto-memory는 **인덱스만** 정규화하고 memory 본문 파일은 **한 건도 삭제하지 않는다**(사용자 결정 2026-08-09).
+
+목표는 **토큰 축이 1차, 바이트가 2차**다(사용자가 토큰으로 말했고, 레포에 이미 토큰 계측기가 있다):
+
+| 축 | 현재 | 목표 |
+|---|---|---|
+| `CLAUDE.md` 토큰 | 45,357 | **≤20,000** (-56%) |
+| `MEMORY.md` 토큰 | 3,393 | **≤800** (-76%) |
+| 주입 합계 / 200k 창 | 50,049 = **25.0%** | 약 22,100 = **11.1%** |
+| `CLAUDE.md` 바이트 | 160,920 | ≤70,000 (-56%) |
+| `MEMORY.md` 바이트 | 10,537 | ≤2,500 |
+
+**파괴적 변경 0건.**
+
+> **"이전했다"는 주장이 아니라 검사다.** R1 리뷰의 핵심 지적이 정확히 이것이었다 — 키워드 6개 존재와 행 수(24)는 원문이 통째로 뭉개져도 통과한다. 그래서 본 개정은 **Validation 8(고아 줄 검사)** 를 중심 게이트로 둔다: `git diff`가 CLAUDE.md에서 지운 모든 실질 줄이, 목적지 문서 어딘가에 정규화 일치로 도착했음을 기계로 확인하고, 하나라도 도착하지 못하면 실패한다. 나머지 검사는 그 위의 보조 게이트다.
+
+## 실측 진단
+
+### CLAUDE.md — 6개 섹션이 파일의 72.3%
+
+| 섹션 | 바이트 | 비중 | 성격 |
+|---|---|---|---|
+| §4 「운영 토글 (환경 변수)」 | 44,462 | 27.6% | env **정의 56개**. 서술이 라운드별 finding 고고학 |
+| §1.4 「v0.2 자동 게이트 레이어」 표 | 37,353 | 23.2% | **24행** milestone 출하 로그 = CHANGELOG 중복 |
+| §3.12 증거 내구성 계약 | 11,734 | 7.3% | 규칙 + 3개 milestone 서사 누적 |
+| §3.9 design critique | 7,967 | 5.0% | |
+| §3.6 atomic state locks | 7,684 | 4.8% | |
+| §3.10 impeccable routing | 7,074 | 4.4% | |
+| 나머지 | 44,646 | 27.7% | 대체로 실제 지시문 |
+
+> **수치 정정(R2 자체감사).** 초안은 §4=35,509 · §1.4=31,381 · §3.12=11,005이라 적었다. 그 측정이 heading **레벨**을 무시하고 다음 `###`까지 잘라 인접 섹션을 삼킨 결과다(§1.4는 §2 머리를, §4 토글은 §5를, §3.12는 §4 앞부분을 흡수). 위 표는 레벨 인지 측정이며 Validation 6이 **같은 함수**를 쓴다 — 진단과 검증이 다른 자로 재던 불일치를 제거했다.
+
+### 토큰 실측 (사용자가 말한 단위)
+
+사용자는 "claude.md 75k, 메모리 5k"라 했다. 레포에 이미 있는 계측기 [msw-metrics/a3-instruction-cost.js](plugins/mccp/scripts/lib/msw-metrics/a3-instruction-cost.js)와 같은 인코딩(tiktoken `o200k_base`)으로 실측한 값:
+
+| 주입 표면 | 토큰 | 바이트 | B/token |
+|---|---|---|---|
+| `CLAUDE.md` | **45,357** | 160,920 | 3.55 |
+| `MEMORY.md` 인덱스 | **3,393** | 10,537 | 3.11 |
+| `.claude/state/STATE.md` 전체 | 1,299 | 4,267 | 3.28 |
+| **합계** | **50,049** | 175,724 | — |
+
+**200k 컨텍스트 창의 25.0%가 첫 토큰을 쓰기 전에 소비된다.** 사용자 추정(75k+5k=80k)보다는 낮지만 결론은 오히려 선명하다 — 문제는 과장이 아니라 실재한다.
+
+목표는 **역산이 아니라 적산**이다(R2 Reviewer B F1이 초안의 역산을 산술 모순으로 적발). 섹션 예산에서 더해 올린다: 6,000(§1.4) + 6,000(§4 토글) + 12,000(4섹션) + 44,646(나머지, 손대지 않음) = **68,646 B** → 천장 **≤70,000 B**. 실측 비율 3.55 B/token으로 환산해 **≤20,000 토큰**. 주입 합계 50,049 → 약 22,100 토큰, 창 점유 **25.0% → 11.1%**.
+
+> **초안의 60,000 B는 달성 불가능한 수치였다.** 같은 task set으로는 24,000(예산 3종) + 44,646(나머지) = 68,646 B가 하한인데 목표를 60,000으로 적었다 — 계획이 자기 산술과 모순이었고, 거기서 파생된 16,900 토큰 목표도 함께 거짓이었다. 나머지 44,646 B를 더 깎는 것은 §0·§1.1~1.3·§2·§3.1~3.5·§3.7·§3.8·§3.11·§5로 대부분 실제 지시문이라 **본 plan의 범위 밖**이다.
+
+> **A3 계측기는 현재 Windows에서 불능이며 이 plan은 그것을 고치지 않는다.** `a3-instruction-cost.js`는 가용성은 `pip show tiktoken`으로 확인하면서 실제 토큰화는 `python3`을 하드코딩해 spawn한다. 이 머신에는 `python`(3.13.3) + tiktoken 0.13.0이 있고 `python3`은 없어 `baseline_unavailable`로 떨어지며, 이것이 잔존 red 7건 중 `a3-instruction-cost.test.js`가 빨간 이유다. 그 결함은 STATE.md대로 **gate-guard-integrity PRD가 승계한 잔존 red**에 속하므로 본 plan은 모듈을 건드리지 않고, Validation 10이 같은 인코딩으로 **독립 측정**만 한다.
+
+> **A3와 동일 분해가 아니다(R3 Reviewer B 적발).** A3의 `state_block`은 STATE.md의 **frontmatter 블록**(`^---
+…
+---`)만 뽑는데 Validation 10은 STATE.md **파일 전체**를 센다. 따라서 위 표의 1,299 토큰은 A3 수치와 직접 비교할 수 없는 **상한**이다. 본 plan의 수용 기준은 `CLAUDE.md`와 `MEMORY.md` 두 축뿐이고 STATE는 맥락 정보이므로 판정에 영향은 없지만, "같은 3-컴포넌트 분해"라는 초안의 주장은 **거짓이었고 철회한다**.
+
+**env 개수 정정(R1 Reviewer A F1).** 초안은 "55개"라 적었다. 원 측정 정규식이 `^MCCP_[A-Z_]+=`라 숫자를 포함한 이름(`MCCP_A11Y_AUTO_INVOKE`)을 놓친 결과다. 실측:
+
+- **정의 줄 56개** (`^MCCP_[A-Z0-9_]+=`)
+- **본문 고유 식별자 57개** — 57번째 `MCCP_ORCHESTRATION_DEBT_DECAY_HOURS`는 §4가 **삭제됐다고 서술한 은퇴 토글**이며 정의가 없다.
+
+이 구분이 검증에 직접 영향을 준다: 본문 전체를 정규식으로 훑는 검사는 은퇴 토글까지 "문서화하라"고 요구해 영구히 실패하거나 존재하지 않는 토글의 문서를 만들게 한다. 따라서 Validation 2는 **요약 표 행**만 대상으로 하고 은퇴 목록을 명시적으로 제외한다.
+
+env 개별 항목 실측 — 상위 2개가 7,653 B로 §4의 24%:
+
+| env | 바이트 |
+|---|---|
+| `MCCP_ORCHESTRATION_MAX_AGENTS` | 4,761 |
+| `MCCP_ORCHESTRATION_RESERVATION_LEASE_MS` | 2,892 |
+| `MCCP_WORK_MERGED_VERIFY` | 1,250 |
+| `MCCP_DESIGN_GROUNDING` | 1,123 |
+| `MCCP_COST_STATE_DECAY_HOURS` | 1,077 |
+| (나머지 51개) | 20,589 |
+
+`MCCP_ORCHESTRATION_MAX_AGENTS` 항목 하나가 4,761 B다. 운영자가 이 토글을 만질 때 필요한 건 *default 24 · 초과 시 granted 0 · 인라인 fallback* 세 줄이고, 나머지는 그 세 줄이 왜 그런지의 증명이다.
+
+### MEMORY.md — 인덱스가 요약이 아니라 본문
+
+- 16개 항목 중 **byte 기준 16개 전부가 160 B 초과**(char 기준으로는 15개 — 한글 1.19~1.85 B/char이라 두 축이 갈린다). 최대 1,356 B.
+- memory 계약은 `- [Title](file.md) — hook` **한 줄**을 요구한다.
+- **stale 4건 실측**: 인덱스가 `OPEN`이라 주장하는 PR #102·#107·#115·#116이 gh 확인 결과 전부 `MERGED`.
+- **분류 혼선**: 16개 중 9개가 PRD/milestone **사이클 상태**다. memory 계약이 금지한 "repo가 이미 기록하는 것"이며 PR 머지 순간 stale이 된다.
+
+### 이전 목적지 실측
+
+| 목적지 | 현재 | 상태 |
+|---|---|---|
+| `docs/ENVIRONMENT.md` | 22,575 B, MCCP_/CLAUDE_ 식별자 38개 | **stale** — 56개에 못 미치고 `## 5. mccp Auto-handoff (S10b, 🚧 미구현)`처럼 ship된 항목을 미구현으로 표기 |
+| `docs/gate-design.md` | 19,005 B | 사용 가능 |
+| `docs/multi-session-work-loop/evidence-conflict-design.md` | 존재 | §3.12 서사 목적지 |
+| `docs/milestone-log.md` | 없음 | Task 1이 생성 |
+
+## Patterns to Mirror
+
+| Category | Source | Pattern |
+|---|---|---|
+| 상세 문서 분리 | [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | env 상세의 기존 목적지가 이미 존재 — 신규 디렉토리 신설 없이 흡수 |
+| 이력 아카이브 | [CHANGELOG.md](CHANGELOG.md) | 77개 버전 항목이 milestone 서사를 이미 소유 |
+| 규칙 승격 | [CLAUDE.md](CLAUDE.md) §3.5.1 | memory → CLAUDE.md 승격 시 memory 본문에 승격 사실을 남기는 관행 |
+| 완료 산출물 은퇴 | [CLAUDE.md](CLAUDE.md) §3.11 | `archived/` 이동 + 비재귀 스캔으로 활성 표면에서 제외 |
+| 요약 후 포인터 | [CLAUDE.md](CLAUDE.md) §5 | 한 줄 + 경로 포인터 형식 |
+| **주입비용 계측** | [msw-metrics/a3-instruction-cost.js](plugins/mccp/scripts/lib/msw-metrics/a3-instruction-cost.js) | CLAUDE.md·MEMORY 인덱스·STATE 블록의 **토큰**을 재고 200k 창 대비 비율을 내는 전용 계측기가 이미 존재. Validation 10이 같은 인코딩(`o200k_base`)을 쓴다(3번째 컴포넌트는 분해가 다름 — 아래 주석) — R1 시점 plan은 이 자산을 못 보고 바이트 대용치를 새로 발명했다(자체감사 적발) |
+
+## Files to Change
+
+| File | Action | Why |
+|---|---|---|
+| `CLAUDE.md` | UPDATE | §1.4 표 축약 · §4 토글 표 축약 · §3.6/3.9/3.10/3.12 서사 이전 |
+| `docs/milestone-log.md` | CREATE | §1.4 **24행**을 **원문 그대로** 이전받는 목적지 |
+| `docs/ENVIRONMENT.md` | UPDATE | env 56개 전체 서술 이전 + stale 상태 마커 정합화 |
+| `docs/gate-design.md` | UPDATE | §3.6 lock 모델 · §3.9/§3.10 critique·routing 상세 이전받음 |
+| `docs/multi-session-work-loop/evidence-conflict-design.md` | UPDATE | §3.12 milestone 서사(M1/M2/M3) 이전받음 |
+| `.claude/state/memory-baseline.json` | CREATE | repo 밖 memory 17파일의 이름·바이트·sha256 baseline (Validation 5b가 대조) |
+| `.claude/state/relocation-exceptions.txt` | CREATE | Validation 8이 읽는 "의도적 재작성" 등재부. 형식 `<정규화 원문 줄>  # reason: M<n> — <사유>` (`M<n>` = Task 3 혼합 9줄 manifest의 번호). **선언된 M1~M9에만 허용**하며 태그 없는 등재·중복 태그는 거부한다 — 5% 상한은 예산이지 계약이 아니라, 상한만 두면 선언보다 많은 줄이 조용히 사라진다(R6). 비어 있어도 파일은 존재해야 한다(부재 시 예외 0으로 취급 = 더 엄격) |
+| `.claude/plans/context-budget-cleanup.plan.md` | CREATE | 본 plan |
+
+> **repo 밖 (git 미추적).** 아래 memory 표면은 `C:/Users/skypark207/.claude/projects/c---project-my-mccp/memory/` 에 있어 git이 추적하지 않는다. `plan_hash`·cross-gate dedupe·`git diff`가 이 절반을 **볼 수 없다**. 초안은 "바이트 카운트로 자립"이라 적었으나 그건 과장이었다(R1 B-F9) — 바이트만으로는 내용 변조를 못 잡는다. 그래서 baseline manifest에 **sha256을 넣고** 무편집 대상 12파일은 해시 동일성으로 검증한다.
+
+| Path (repo 밖) | Action | Why |
+|---|---|---|
+| `memory/MEMORY.md` | UPDATE | 16개 항목 전부 한 줄 hook으로 정규화(byte 기준) |
+| `memory/{integrity-unification-m3, workflow-orchestration-m1, cost-model-subscription-remediation}.md` | UPDATE | stale PR 상태만 **추가 전용** 정정 (**3건** — `multi-session-work-loop-m3.md`는 본문이 이미 정확해 제외, Task 5 참조) |
+| 나머지 13파일 | 무편집 | 축소·소실 검증 대상. sha256 불일치는 auto-memory 제3자 갱신이 정상적으로 발생시키므로 **차단 사유가 아니다**(R4-2) |
+| `memory-snapshot-2026-08-09/` (형제 디렉토리) | CREATE(완료) | **복구 경로**. 17파일 사본 + baseline 해시 17/17 일치 검증 완료. repo 밖 편집이 잘못되면 여기서 되돌린다(U2 해소) |
+
+## Tasks
+
+### Task 0: repo 밖 memory baseline 캡처 (다른 모든 작업보다 먼저)
+
+- **Action**: memory 디렉토리를 **한 글자도 건드리기 전에** `.claude/state/memory-baseline.json`을 만든다. Validation 5b의 유일한 진실 원천이므로 편집 이후에 캡처하면 그 검사가 자기 자신을 승인하게 된다(R2 B-F7 — 초안은 이 캡처를 어느 task에도 배정하지 않았다).
+- **캡처는 Task 4·5와 같은 세션에서, 편집 직전에 한다**(R4 적발). 이 디렉토리는 auto-memory 시스템이 세션 중 제자리 재작성하므로, 며칠 전 baseline은 시간이 갈수록 제3자 갱신을 축적해 대조를 무의미하게 만든다. 실측: 2026-08-09 캡처 후 같은 날 안에 `codex-intent-context-m1.md`·`diverse-agent-review-prd.md`·`MEMORY.md` 3건이 본 plan과 무관하게 재작성됐다. 세션 경계를 넘어 재사용해야 하면 **재캡처 후 Task 4로 진행**한다 — 재캡처가 곧 "여기부터 내 책임"의 선언이다.
+- **스키마(고정)**:
+  ```json
+  { "captured_at": "YYYY-MM-DD",
+    "file_count": 17,
+    "files": { "<name>.md": { "bytes": <int>, "sha256": "<hex64>" } } }
+  ```
+- **Action(명령)**: `.md` 파일 전수를 정렬 순회하며 바이트와 sha256을 기록. git-tracked이므로 이후 어떤 세션에서도 대조 가능하다.
+- **Validate**: `file_count === 17` ∧ 모든 항목이 `bytes` + `sha256` 보유 ∧ 실제 디렉토리와 파일명 집합 일치.
+
+### Task 1: §1.4 milestone 표를 `docs/milestone-log.md`로 이전
+
+- **Action**: **24행**(§1.4 전체 37,353 B 중 표 본문)을 **원문 그대로** 신규 `docs/milestone-log.md`에 옮긴다. CLAUDE.md에는 잔류 대상만 한 줄씩(모듈 · 역할 · 상세 포인터).
+- **잔류 판정은 기계 규칙이다**(R1 A-F8 / B-F10 — 초안의 "이번 세션에 필요한가"는 재현 불가였다). 다음 2조건을 **모두** 만족하는 행만 CLAUDE.md에 한 줄로 남는다:
+  1. 그 행이 인용한 **primary path가 현재 repo에 실재**한다 (`git ls-files`로 확인).
+  2. 같은 서브시스템(= primary path의 디렉토리)을 다루는 행 중 **가장 최신 version**이다. 선행 milestone 행은 후속에 흡수된 것으로 보고 log로만 보낸다.
+- 두 조건은 스크립트로 판정 가능하며 판정 결과(잔류/이전 24행 분류표)를 `docs/milestone-log.md` 머리말에 기록해 재현성을 남긴다.
+
+#### 잔류 manifest — 24행 전수 판정 (U1 해소)
+
+리뷰어 양측이 3라운드 내내 "기계 규칙"이 여전히 해석 여지를 남긴다고 지적했다. 24행은 열거 가능한 크기이므로 **규칙을 서술하는 대신 판정 결과를 그대로 싣는다**. 구현자는 해석하지 않고 이 표를 따른다.
+
+판정 축은 **계보 승계**다 — 같은 서브시스템을 뒤 milestone이 흡수했으면 앞 행은 log로만 간다(내용은 `docs/milestone-log.md`에 원문 보존되므로 소실 아님).
+
+| # | 행 | 판정 | 근거 |
+|---|---|---|---|
+| 1 | Stop-loop | **잔류** | 독립 서브시스템, 후속 흡수 없음 |
+| 2 | STATE.md continuity | **잔류** | 독립, §3.2가 참조 |
+| 3 | Auto-handoff | **잔류** | 독립, §4 토글이 참조 |
+| 4 | `/mccp:work` | **잔류** | 진입점 |
+| 5 | dual-reviewer escalate | **잔류** | 독립 |
+| 6 | Codex disabled honor | **잔류** | §3.3 classification 표가 의존 |
+| 7 | Codex/impeccable scope split | **잔류** | 독립 |
+| 8 | dispatch-controller (Stage 2 M1) | **잔류** | IPC substrate — 15~20이 그 위에 얹힌 것이지 대체가 아님 |
+| 9 | v1.3.0 schema baseline | 이전 | 문서 freeze 자체가 산출물이고 그 문서가 §5에 이미 등재 |
+| 10 | derive engine (m1) | **잔류** | 독립 모듈, §5 등재 |
+| 11 | briefing stamp (m2) | **잔류** | 독립 모듈 |
+| 12 | STATUS.md + HTML renderer (m3) | **잔류** | 독립 모듈, §5 등재 |
+| 13 | Refresh trigger + privacy guard (m4) | **잔류** | 독립 모듈 |
+| 14 | cwd-mask + branch-validation polish | 이전 | patch 흡수분, 별도 표면 없음 |
+| 15 | work implement isolation (1.20.2 M1) | 이전 | 20이 승계 |
+| 16 | plan fan-out (1.20.4 M1) | **잔류** | 별도 축(plan GROUND), 승계 아님 |
+| 17 | single-worker Workflow 이전 (1.20.7 M2a) | 이전 | 18→20이 승계 |
+| 18 | N-worker parallel scaffold (1.20.10 M2b) | 이전 | 20이 승계(default flip) |
+| 19 | aggregate verify + worktree-merge substrate | **잔류** | verify는 병렬과 직교(⊥) 축 |
+| 20 | 병렬 활성화 worktree-merge live (1.21.0 M4) | **잔류** | implement-dispatch 계보의 최신 |
+| 21 | cost-state time-based decay (1.22.0 M3) | **잔류** | 독립, §3.2·§4가 참조 |
+| 22 | orchestration live-activation (1.22.1 M1) | 이전 | 23이 승계(default·USD 축 재정의) |
+| 23 | orchestration operational-USD 은퇴 (1.22.3 M3) | **잔류** | orchestration 계보의 최신 |
+| 24 | orchestration firing-preview (1.22.2 M2) | **잔류** | 독립 도구(read-only preview), §4가 참조 |
+
+**잔류 18행 · 이전 6행.** 잔류 행은 CLAUDE.md에 `| 모듈 | 한 줄 역할 | [상세](docs/milestone-log.md#앵커) |` 형식 한 줄로 남는다 — 18행 × 약 120 B ≈ 2,200 B로 §1.4 예산 6,000 B 안에 여유 있게 들어간다. 24행 전부의 원문은 `docs/milestone-log.md`에 보존되므로 **이전 6행도 소실이 아니다**.
+
+- **Validate**: Validation 3 — §1.4로 범위를 좁힌 **24행이 행 전체(row payload) 그대로** source↔destination 일치. first-column 키만 비교하면 행 내용이 뭉개져도 통과한다.
+
+### Task 2: §4 운영 토글을 요약 표로 축약, 상세는 `docs/ENVIRONMENT.md`로
+
+- **Action**: CLAUDE.md는 `| env | default | 한 줄 효과 | 상세 |` 4열 표만 유지(**56행**). 각 env의 full 서술은 `docs/ENVIRONMENT.md`의 env별 앵커(`### MCCP_X`)로 옮기고 표의 `상세` 열이 그 앵커를 가리킨다.
+- **불변식**: `default` 값과 kill-switch 동작은 **CLAUDE.md에 남는다**. 운영자가 토글을 끄려 할 때 문서를 열지 않아도 되어야 한다. 옮기는 것은 *왜 그 default인가* 뿐이다.
+- **은퇴 토글 처리**: `MCCP_ORCHESTRATION_DEBT_DECAY_HOURS`는 표에 **넣지 않는다**(정의가 없음). 은퇴 서술은 `docs/ENVIRONMENT.md`의 "Retired" 절로 옮긴다.
+- **목적지 정합화가 선행 조건**: `docs/ENVIRONMENT.md`는 38개만 다루고 ship된 항목을 `🚧 미구현`으로 표기 중이다. 이전은 "옮기기 + 정합화"이며, stale 문서로 옮기면 "옮겼다"가 "묻었다"가 된다.
+- **Validate**: Validation 2 — 표 56행 ↔ ENVIRONMENT.md 앵커 **양방향 집합 동일**, 은퇴 토글 표 부재, 표의 각 행에 default 토큰 존재(Validation 7 usability).
+
+### Task 3: §3.6 / §3.9 / §3.10 / §3.12 서사 이전
+
+- **Action**: 네 섹션(**34,459 B** — 레벨 인지 실측, 진단표·Validation 6·Acceptance와 같은 수치. 초안의 26,715 B는 어느 측정과도 맞지 않는 stale 값이었다, R4 B 적발)에서 규칙만 남기고 서사를 목적지로 옮긴다 — §3.6/§3.9/§3.10 → [docs/gate-design.md](docs/gate-design.md), §3.12 → [docs/multi-session-work-loop/evidence-conflict-design.md](docs/multi-session-work-loop/evidence-conflict-design.md).
+- **이전은 축자(verbatim)다.** 옮긴 문장은 목적지에서 한 글자도 다듬지 않는다 — Validation 8이 정규화 **줄 전체** 일치를 요구하므로 어미 하나만 바꿔도(`합니다`→`한다`) 고아가 된다. 다듬기가 필요하면 이전이 끝난 **뒤 별도 커밋**으로 한다.
+- **이전 단위와 예외 예산은 실측으로 정해져 있다**(R4 A 검산 — 이전 판은 이 수치가 없어 구현자가 예외를 어디에 쓸지 알 수 없었다). 네 섹션의 실질 줄 144개를 분류하면:
+
+  | 분류 | 줄 | 바이트 | 처리 |
+  |---|---|---|---|
+  | 순수 서사(규범 표지 없음) | 118 | 19,035 | **줄 단위 축자 이전** → V8 자동 통과 |
+  | 규칙+서사 **혼합** | **9** | 8,889 | **문장 단위로 쪼갠다** → 원본 줄이 고아가 되므로 **예외 등재 대상** |
+  | 순수 규칙 | 17 | 6,176 | 잔류(삭제 안 함) |
+
+  줄 단위로만 옮기면 잔류 하한이 15,065 B라 예산 12,000 B를 **넘는다** — 그래서 혼합 9줄은 반드시 쪼개야 한다. 예상 삭제 실질 줄 233에 대한 V8 예외 상한은 `ceil(233×0.05)=12`이므로 9줄은 상한 안에 든다. **예외 파일에 등재할 것은 원칙적으로 이 9줄뿐**이며, 그보다 많이 필요해지면 축자 원칙이 깨졌다는 신호다.
+
+#### 혼합 9줄 manifest — 쪼갤 대상 전수 (R5 B 요구)
+
+개수만 적고 목록이 없으면 구현자가 어느 줄을 쪼갤지 다시 찾아야 한다. Task 1이 24행을 열거했듯 9줄도 열거한다. 행 식별은 **줄 번호가 아니라 시작 문구**로 한다 — 구현 중 줄 번호는 계속 움직인다.
+
+| # | 섹션 | 바이트 | 시작 문구 |
+|---|---|---|---|
+| M1 | §3.6 | 610 | `v0.2.8 Task 2.6.1-followup F10+F11+F7 (PR #8)부터 mccp는 state lock을 운용합니다…` |
+| M2 | §3.6 | 186 | `v0.2.7 lock holder가 살아있는 동안 v0.2.8 binary가 부팅하면…` |
+| M3 | §3.9 | 533 | `critique retry loop(위)은 EXECUTE *이전* plan/방향만 보고…` |
+| M4 | §3.10 | 401 | `v1.3.0-m2의 design-critique는 impeccable \`critique\` 하나만 호출했습니다…` |
+| M5 | §3.12 | 473 | `ship receipt(\`mccp-pr-codex\`)는 **감사 대조 corpus**다…` |
+| M6 | §3.12 | 836 | `**유일한 sanctioned 재봉인 — \`v1.22.4-cwd-rebind.js\`…** ` |
+| M7 | §3.12 | 569 | `추적 corpus에는 오도성 필드 \`resolution.converged\`가 함께 실린다…` |
+| M8 | §3.12 | 1,341 | `> **v1.22.5 무결성 통일 M1 — 위 지침의 mechanical 강제**…` |
+| M9 | §3.12 | 3,940 | `> **v1.23.0 무결성 통일 M3 — terminal \`/mccp:pr\` non-approving…**` |
+
+**합 8,889 B.** 이 9줄만 문장 단위로 갈라 규칙은 CLAUDE.md에, 서사는 목적지에 두고, 원본 줄을 `relocation-exceptions.txt`에 사유와 함께 등재한다. 나머지 118개 순수 서사 줄은 손대지 않고 통째로 옮긴다.
+- **분류도 기계 규칙이다**(R1 B-F8). 문장 단위로:
+  - **잔류(규칙)** — 규범 표지(`하라`/`한다`/`금지`/`필수`/`must`/`never`)를 포함하거나, default 값을 명시하거나, 복구 절차를 서술하는 문장.
+  - **이전(서사)** — version 표지(`vN.N.N`), 라운드 표지(`R1`/`R2`/`N라운드`), finding id(`F1`~`F9`), PR 번호를 포함하는 문장. 단 위 잔류 조건과 동시에 해당하면 **잔류가 우선**한다(규칙이 version을 인용할 수 있으므로).
+- **보존 의무 키워드 6종**(Acceptance와 동일 — 초안은 3개만 적어 불일치였다, R1 B-F6): `no-rehash` · `ownership_token_hash` · `Output Constraints` · `--diff-filter=D` · `forward-only` · `codex_verdict`. 단 **키워드 존재는 증거가 아니다**(R1 B-F4) — 진짜 증거는 Validation 8이고, Validation 4는 해당 키워드가 **원래 소속 섹션 안에** 남아 있는지까지 확인한다.
+
+#### 작동 예시 — §3.6 evidence write lock 한 문단 (U1 잔여 완화)
+
+규칙을 서술만 하면 구현자마다 다르게 자른다는 지적이 3라운드 내내 나왔다. 전수 열거는 34,459 B라 비현실적이므로 **한 문단을 실제로 갈라 보인다**. 나머지는 이 패턴을 따른다.
+
+원문(§3.6):
+
+> **실패 정책이 fail-closed**입니다. `session-ledger.js#withLedgerLock`은 획득 실패 시 경고만 남기고 lock 없이 진행하는데(last-writer-wins), 그 동작이 PRD가 구조적 취약으로 지목한 결함 자체라 여기서는 **throw**합니다(`EVIDENCE_LOCK_UNAVAILABLE` — 에러에 lock 경로·잔여 lease·복구 지침·kill switch 포함). 단 **caller별 비대칭은 의도적**입니다: `writeReceipt`는 fail-closed, hash-carved 메타 stamper 2건(briefing · completion-ledger 진단)은 fail-open + loud skip.
+
+**CLAUDE.md 잔류** — 현재 계약과 복구 정보만:
+
+> evidence write lock은 획득 실패 시 **throw**한다(fail-closed). 에러 `EVIDENCE_LOCK_UNAVAILABLE`이 lock 경로·잔여 lease·복구 지침·kill switch를 포함한다. **caller별 비대칭은 의도적** — `writeReceipt`는 fail-closed, 메타 stamper 2건(briefing · completion-ledger)은 fail-open + loud skip. 배경: [상세](docs/gate-design.md#evidence-write-lock)
+
+**gate-design.md 이전** — 왜 그 정책이 됐는지:
+
+> `session-ledger.js#withLedgerLock`은 획득 실패 시 경고만 남기고 lock 없이 진행한다(last-writer-wins). v1.23.1 multi-session-work-loop M3은 그 동작 자체를 PRD가 구조적 취약으로 지목한 결함으로 보고 정책을 뒤집었다.
+
+판정 근거: 앞 두 문장은 *현재 무엇을 하는가*(throw·비대칭)라 잔류, 마지막은 *어떤 milestone이 왜 바꿨는가*(v1.23.1·PRD 판단)라 이전. **한 문장이 양쪽에 걸치면 쪼개고, 쪼갤 수 없으면 잔류**한다 — 규칙이 사라지는 것보다 서사가 남는 편이 덜 해롭다.
+
+> **이 예시는 위 표의 「혼합 9줄」에 속한다.** 그래서 이전분이 축자가 아니라 재작성이고(`합니다`→`한다`, 주어 보강), 원본 줄은 목적지 어디에도 줄-단위로 일치하지 않아 **Validation 8의 고아가 된다**. 정상이다 — 이런 줄이 정확히 예외 파일에 사유와 함께 등재될 9줄이다. 축자 원칙은 나머지 118개 **순수 서사 줄**에 적용되며, 거기서 어미를 손대면 예외 예산(상한 12)이 9줄을 덮지 못해 게이트가 떨어진다.
+
+- **포인터 의무**: 서사를 덜어낸 각 섹션은 목적지로 가는 링크를 **반드시 남긴다** — `[상세](docs/gate-design.md#앵커)` 형식. Validation 7이 링크 대상 파일 실재 + 앵커 실재까지 확인하므로 죽은 포인터는 통과 못 한다. 이전이 매장으로 변질되는 것을 막는 유일한 기계적 장치다.
+- **Validate**: 네 섹션 합 ≤ 12,000 B(Validation 6) + Validation 4 + Validation 7(포인터 해석) + Validation 8 + Validation 12(질량 보존).
+
+### Task 4: MEMORY.md 인덱스를 한 줄 hook으로 정규화
+
+- **예산 긴장 주의**: 16항목 × 160 B = 2,560 B > 총량 상한 2,500 B다. 두 제약을 동시에 만족하려면 **평균 ≤150 B**여야 하고 상한을 다 쓰는 항목이 몇 개 이상이면 총량에서 걸린다(R3 A 적발). 160 B는 개별 상한일 뿐 목표치가 아니다.
+- **Action**: 전 항목을 `- [Title](file.md) — <한 줄 hook>` 형식으로 재작성, 항목당 **≤ 160 바이트**(char 아님 — 한글은 1.19~1.85 B/char이라 char 검사는 목표보다 느슨하다, R1 A-F5/B-F5). PR 번호·머지 여부는 **제거**한다(git이 소유하는 값이라 인덱스에 실리면 구조적으로 다시 stale해진다).
+- **hook 작성 기준**: "언제 이 memory를 꺼내야 하는가"만 적는다. 결론·수치는 본문 소관.
+- **Validate**: Validation 5 — `Buffer.byteLength(line,'utf8') ≤ 160` 전 항목 + 링크 무결성 + PR 상태 부재. **파일 총량 ≤ 2,500 B는 Validation 1이 강제한다**(V5의 exit 조건에는 총량 검사가 없다 — 귀속 오기였다, R4 B 적발).
+
+### Task 5: stale memory 상태 주장 비파괴 정정 — **삭제 없음**
+
+> **결정(2026-08-09)** — 초안은 사이클 상태 memory 9건(~88 KB)을 증류 후 삭제하려 했다. 사용자가 **삭제 없음**을 선택해 철회한다. 근거: (1) 세션 주입 대상은 인덱스뿐이라 삭제가 예산을 줄이지 않는다, (2) repo 밖이라 되돌릴 수 없다.
+
+- **Action**: 파일은 **전부 보존**한다. stale해진 상태 주장만 각 본문에 **한 줄 추가**로 정정한다(기존 문장 삭제 금지). gh 실측 4건:
+
+| 파일 | 잘못된 주장 | 실측 | 추가할 줄 |
+|---|---|---|---|
+| `integrity-unification-m3.md` | "PR #115 OPEN" | MERGED 2026-07-30 | `> 상태(2026-08-09): PR #115 MERGED.` |
+| `workflow-orchestration-m1.md` | "M3=PR #107 OPEN" | MERGED 2026-07-21 | `> 상태(2026-08-09): PR #107 MERGED.` |
+| `cost-model-subscription-remediation.md` | "PR #102 OPEN" | MERGED 2026-07-14 | `> 상태(2026-08-09): PR #102 MERGED.` |
+| ~~`multi-session-work-loop-m3.md`~~ | ~~"PR #116 OPEN"~~ | **편집 불필요** | 아래 참조 |
+
+> **정정(R6 자체 검산) — 편집 대상은 4건이 아니라 3건이다.** 초안은 `multi-session-work-loop-m3.md` 본문이 "PR #116 OPEN"이라 주장한다고 적었으나, 실측하면 그 본문은 이미 `PR #116 MERGED`라 쓰고 있고 `OPEN`은 **0회** 등장한다(스냅샷 사본에서도 동일 — 즉 baseline 캡처 시점에 이미 정확했다). stale한 "PR #116 OPEN"은 **인덱스(`MEMORY.md`)** 쪽이며, Task 4가 인덱스에서 PR 상태를 통째로 제거하므로 자동 해소된다. 본문 주장과 인덱스 주장을 같은 칸에 적은 것이 오류였다.
+>
+> V5b의 `NEED` 목록에는 이 파일을 **남겨둔다** — 이제 그것은 "정정하라"가 아니라 "MERGED 상태가 유지되는가"라는 회귀 가드다. 상태 단언이므로 이미 참인 경우 통과하는 것이 옳은 동작이다.
+
+- **증류본은 만들지 않는다** — 원본이 남으므로 중복이다. recall 가능성은 Task 4의 hook이 유지한다.
+- **Validate**: Validation 5b — 17파일 전수 존재 · **어떤 파일도 baseline 대비 축소되지 않음**(`MEMORY.md`만 감소 허용) · 위 표의 정정 문자열 4건이 실제로 각 파일에 존재. sha256 불일치는 **보고만** 한다 — auto-memory 시스템이 같은 디렉토리를 제자리 재작성하므로 "안 바뀌었음"은 이 표면에서 성립하지 않는 불변식이다.
+
+### Task 6: 이전 완결성 기계 검증 스크립트 작성
+
+- **Action**: Validation 8의 고아-줄 검사를 `scripts/verify-relocation.js`가 아니라 **plan의 Validation 블록 안에 완성된 형태로** 둔다(초안은 "집합 비교 스크립트를 돌린다"고만 적고 스크립트를 명시하지 않았다 — R1 B-F8). 아래 Validation 8이 그 스크립트다.
+- **판정**: `git diff`가 CLAUDE.md에서 지운 줄 중 **형식 잡음이 아닌 전부**에 대해, 정규화된 **줄 전체**가 목적지 4개 문서의 줄 집합에 있어야 한다(잔류 CLAUDE.md는 pool에 넣지 않는다 — 안 옮기고 남겨둔 것을 "도착"으로 세면 검사가 무의미해진다). 의도적 재작성은 `.claude/state/relocation-exceptions.txt`에 사유와 함께 등재하며 삭제 줄의 5%를 넘을 수 없다.
+- **왜 이게 핵심인가**: 행 수·키워드·바이트는 원문이 뭉개져도 통과한다. 고아 검사만이 "지운 것이 도착했다"를 직접 검사한다.
+
+## Validation
+
+```bash
+# 이 블록은 Git Bash에서 실행한다. 비교 기준은 헤더에 고정한 base 커밋이며
+# 움직이는 ref(origin/main·HEAD)를 쓰지 않는다 — R2 B-F6이 재현성 결함으로 적발.
+BASE=77ceba2
+MEM=C:/Users/skypark207/.claude/projects/c---project-my-mccp/memory
+
+# 0) Task 0 baseline manifest 자체 검증 (R5 B 적발 — Acceptance 첫 항목에 대응하는
+#    번호 붙은 검사가 없어, 스키마가 깨져도 5b가 크래시로만 드러났다)
+node -e "
+const fs=require('fs'),p=process.argv[1]+'/';
+const F='.claude/state/memory-baseline.json';
+if(!fs.existsSync(F)){console.log('FAIL: '+F+' 없음 (Task 0 미완)');process.exit(1)}
+let b; try{b=JSON.parse(fs.readFileSync(F,'utf8'))}catch(e){console.log('FAIL: JSON 파싱 실패',e.message);process.exit(1)}
+const bad=Object.entries(b.files||{}).filter(([,v])=>!Number.isInteger(v.bytes)||!/^[0-9a-f]{64}\$/.test(v.sha256||''));
+const disk=fs.readdirSync(p).filter(f=>f.endsWith('.md')).sort();
+const keys=Object.keys(b.files||{}).sort();
+const setDiff=disk.filter(f=>!keys.includes(f)).concat(keys.filter(f=>!disk.includes(f)));
+console.log('file_count',b.file_count,'| files',keys.length,'| 디스크',disk.length);
+console.log('스키마 위반',bad.map(x=>x[0]),'| 파일명 집합 불일치',setDiff);
+process.exit((b.file_count!==17||keys.length!==17||bad.length||setDiff.length)?1:0);
+" "$MEM"
+
+# 1) 표면 예산 — 바이트(작업 후에만 통과. 작업 전 실패가 정상)
+node -e "
+const fs=require('fs');
+const c=Buffer.byteLength(fs.readFileSync('CLAUDE.md','utf8'),'utf8');
+const m=Buffer.byteLength(fs.readFileSync(process.argv[1]+'/MEMORY.md','utf8'),'utf8');
+console.log('CLAUDE.md',c,c<=70000?'OK':'FAIL(>70000)');
+console.log('MEMORY.md',m,m<=2500?'OK':'FAIL(>2500)');
+process.exit((c<=70000&&m<=2500)?0:1);
+" "$MEM"
+
+# 2) env 양방향 집합 동일성 — 요약 표 56행 ↔ ENVIRONMENT.md 앵커 (은퇴 토글 제외)
+node -e "
+const fs=require('fs');
+const RETIRED=new Set(['MCCP_ORCHESTRATION_DEBT_DECAY_HOURS']);
+const table=new Set([...fs.readFileSync('CLAUDE.md','utf8')
+  .matchAll(/^\|\s*\\\`(MCCP_[A-Z0-9_]+)\\\`/gm)].map(m=>m[1]));
+const docs=new Set([...fs.readFileSync('docs/ENVIRONMENT.md','utf8')
+  .matchAll(/^#{2,4}\s*\\\`?(MCCP_[A-Z0-9_]+)\\\`?/gm)].map(m=>m[1]));
+const a=[...table].filter(n=>!docs.has(n));
+const b=[...docs].filter(n=>!table.has(n)&&!RETIRED.has(n));
+const r=[...table].filter(n=>RETIRED.has(n));
+console.log('table',table.size,'(기대 56) docs',docs.size);
+console.log('table→docs 누락',a); console.log('docs→table 누락',b); console.log('표에 남은 은퇴 토글',r);
+process.exit((table.size!==56||a.length||b.length||r.length)?1:0);
+"
+
+# 3) milestone 행 이전 — §1.4로 범위를 좁히고 first-column이 아니라 '행 전체'를 대조
+#    (R2 B-F5: 이전 판은 CLAUDE.md 전역의 아무 bold 표나 매칭했고, 키만 비교해
+#     행 내용이 통째로 뭉개져도 통과했다)
+node -e "
+const fs=require('fs'),cp=require('child_process');
+const BASE=process.argv[1], DST='docs/milestone-log.md';
+if(!fs.existsSync(DST)){console.log('FAIL: '+DST+' 없음 (Task 1 미완)');process.exit(1)}
+function sec14(txt){
+  const L=txt.split(/\r?\n/); let fence=false,s=-1,e=L.length,lvl=0;
+  for(let i=0;i<L.length;i++){ if(/^\`\`\`/.test(L[i]))fence=!fence; if(fence)continue;
+    const m=L[i].match(/^(#{2,4})\s/); if(!m)continue;
+    if(s<0 && L[i].includes('1.4')){s=i;lvl=m[1].length;continue}
+    if(s>=0 && m[1].length<=lvl){e=i;break} }
+  return s<0?'':L.slice(s,e).join('\n');
+}
+const norm=r=>r.replace(/\s+/g,' ').trim();
+const rows=t=>[...t.matchAll(/^\|\s*\*\*.+\$/gm)].map(m=>norm(m[0]));
+const src=rows(sec14(cp.execSync('git show '+BASE+':CLAUDE.md',{encoding:'utf8',maxBuffer:1e8})));
+const dstAll=rows(fs.readFileSync(DST,'utf8'));
+const miss=src.filter(r=>!dstAll.includes(r));
+const dup=dstAll.filter((r,i)=>dstAll.indexOf(r)!==i);
+// 잔류 판정도 검증한다 (R5 A 적발 — 24행이 log에 '도착'하는 것은 잔류 18행이든
+// 이전 6행이든 똑같이 성립하므로, 위 대조만으로는 manifest를 지켰는지 알 수 없다.
+// CLAUDE.md 쪽에 정확히 18개의 한 줄 요약이 포인터를 달고 남았는지 본다)
+const cur=sec14(fs.readFileSync('CLAUDE.md','utf8'));
+const kept=cur.split(/\r?\n/).filter(l=>/^\|/.test(l)&&l.includes('docs/milestone-log.md'));
+console.log('§1.4 source rows',src.length,'(기대 24) | dest rows',dstAll.length);
+console.log('CLAUDE.md 잔류 한 줄 행',kept.length,'(기대 18, 각 행이 milestone-log 포인터 보유)');
+console.log('행 전체가 일치하지 않는 것',miss.length); miss.slice(0,5).forEach(r=>console.log('  MISS:',r.slice(0,80)));
+console.log('중복',dup.length);
+process.exit((src.length!==24||miss.length||dup.length||kept.length!==18)?1:0);
+" "$BASE"
+
+# 4) 불변식 키워드가 '원래 소속 섹션 안에' 살아있는가 (레벨 인지 슬라이스)
+node -e "
+const fs=require('fs');const lines=fs.readFileSync('CLAUDE.md','utf8').split(/\r?\n/);
+let fence=false;const h=[];
+lines.forEach((l,i)=>{if(/^\`\`\`/.test(l))fence=!fence;
+  const m=!fence&&l.match(/^(#{2,4})\s/); if(m)h.push({i,lvl:m[1].length,t:l.trim()})});
+function sec(n){for(let k=0;k<h.length;k++){ if(!h[k].t.includes(n))continue;
+  let end=lines.length; for(let j=k+1;j<h.length;j++){if(h[j].lvl<=h[k].lvl){end=h[j].i;break}}
+  return lines.slice(h[k].i,end).join('\n');} return '';}
+const need=[['3.12','no-rehash'],['3.6','ownership_token_hash'],['3.9','Output Constraints'],
+            ['3.5.1','--diff-filter=D'],['3.7','forward-only'],['3.12','codex_verdict']];
+const lost=need.filter(([s,k])=>!sec(s).includes(k));
+console.log('섹션 밖으로 이탈/소실:',lost);
+process.exit(lost.length?1:0);
+"
+
+# 5) MEMORY.md — 바이트 기준 줄 상한 + 링크 무결성 + PR 상태 부재
+node -e "
+const fs=require('fs'),p=process.argv[1]+'/';
+const idx=fs.readFileSync(p+'MEMORY.md','utf8');
+const rows=idx.split(/\r?\n/).filter(l=>l.trim().startsWith('- ['));
+const over=rows.filter(l=>Buffer.byteLength(l,'utf8')>160);
+const dead=[...idx.matchAll(/\]\(([^)]+\.md)\)/g)].map(m=>m[1]).filter(f=>!fs.existsSync(p+f));
+const pr=rows.filter(l=>/#\d{2,}|MERGED|OPEN/.test(l));
+console.log('rows',rows.length,'over-160B',over.length,'dead links',dead,'PR상태 잔존',pr.length);
+over.slice(0,5).forEach(l=>console.log('  OVER',Buffer.byteLength(l,'utf8'),'B:',l.slice(0,50)));
+process.exit((over.length||dead.length||pr.length)?1:0);
+" "$MEM"
+
+# 5b) 비파괴 불변식 — 이 plan이 아무것도 파괴하지 않았음을 증명한다
+#     (R4 적발: 이전 판은 memory 디렉토리를 frozen 표면으로 가정해 무편집 12파일에
+#      sha256 '동일'을, 편집 4파일에 append-only prefix를 요구했다. 둘 다 거짓 가정이다.
+#      이 디렉토리는 auto-memory 시스템이 소유하고 세션 중에 **제자리 재작성**한다 —
+#      baseline 캡처 이후 codex-intent-context-m1.md(6409->7908 B)와
+#      diverse-agent-review-prd.md(4406->5246 B)가 본 plan과 무관하게 바뀌었고,
+#      실측하면 세 파일 모두 append-only prefix가 BROKEN이다(덧붙임이 아니라 재작성).
+#      그래서 이전 판은 두 분기 모두 통과 불가였다. 정당한 제3자 갱신을 되돌리는 것은
+#      plan이 금지한 데이터 손실이고, baseline 재캡처는 Task 0의 의미를 없앤다.
+#      이제 불변식을 '아무것도 안 바뀌었다'가 아니라 '내가 아무것도 파괴하지 않았다'로
+#      바꾼다. 파괴만 hard-fail이고 제3자 갱신은 보고 대상이다.)
+node -e "
+const fs=require('fs'),crypto=require('crypto'),p=process.argv[1]+'/';
+const base=JSON.parse(fs.readFileSync('.claude/state/memory-baseline.json','utf8'));
+const NEED={'integrity-unification-m3.md':'PR #115 MERGED',
+  'multi-session-work-loop-m3.md':'PR #116 MERGED',
+  'workflow-orchestration-m1.md':'PR #107 MERGED',
+  'cost-model-subscription-remediation.md':'PR #102 MERGED'};
+const gone=[],shrunk=[],missingFix=[],drift=[],lostId=[];
+for(const [f,b] of Object.entries(base.files)){
+  if(!fs.existsSync(p+f)){gone.push(f);continue}
+  const buf=fs.readFileSync(p+f);
+  // (1) 파괴 = 축소. MEMORY.md만 감소가 설계상 허용된다(인덱스 압축이 목표).
+  if(f!=='MEMORY.md' && buf.length<b.bytes) shrunk.push(f+' ('+b.bytes+'->'+buf.length+')');
+  // (1b) 정체성 앵커 — 같은 크기의 통째 교체를 잡는다 (R6 B 적발: 축소만 보면
+  //      같거나 큰 크기의 파괴적 재작성이 INFO로 빠져나간다). memory 계약상
+  //      본문 파일은 'name: <파일명 stem>' frontmatter를 갖는다(16/16 실측).
+  if(f!=='MEMORY.md'){
+    const stem=f.replace(/\.md\$/,'');
+    if(!new RegExp('^name: *'+stem+'\\\\s*\$','m').test(buf.toString('utf8'))) lostId.push(f);
+  }
+  // (2) Task 5가 지정한 정정 줄이 실제로 들어갔는가 (R4 B 적발: 이전 판은 미검증)
+  if(NEED[f] && !buf.toString('utf8').includes(NEED[f])) missingFix.push(f+' <- '+NEED[f]);
+  // (3) 제3자 갱신은 보고만 — 차단하지 않는다
+  if(crypto.createHash('sha256').update(buf).digest('hex')!==b.sha256) drift.push(f);
+}
+const now=fs.readdirSync(p).filter(f=>f.endsWith('.md')).length;
+console.log('baseline',base.file_count,'now',now);
+console.log('  [HARD] 소실',gone,'| 축소',shrunk,'| 정정줄 누락',missingFix,'| 정체성 상실',lostId);
+console.log('  [INFO] baseline 이후 변경된 파일',drift.length,'건',drift);
+console.log('         (본 plan 편집분 4건 + auto-memory 제3자 갱신. 축소가 없으면 파괴 아님)');
+if(shrunk.length) console.log(
+'  ↳ 축소는 보수적으로 hard-fail이다. 다만 auto-memory가 항목을 압축해도 줄어들 수 있으니\n'+
+'    memory-snapshot-2026-08-09/ 의 사본과 대조해 본 plan의 편집이 지운 것인지 먼저 확인하라.\n'+
+'    제3자 갱신이 확실하면 Task 0으로 돌아가 baseline을 재캡처한 뒤 진행한다.');
+process.exit((gone.length||shrunk.length||missingFix.length||lostId.length||now!==base.file_count)?1:0);
+" "$MEM"
+
+# 6) 섹션별 예산 — UTF-8 바이트로 측정 (R2 B-F1: 이전 판은 .length=문자 수였고
+#    진단표가 그걸 '바이트'라 표기해 §4를 44,462가 아닌 33,971로 과소 계상했다)
+node -e "
+const fs=require('fs');const lines=fs.readFileSync('CLAUDE.md','utf8').split(/\r?\n/);
+let fence=false;const h=[];
+lines.forEach((l,i)=>{if(/^\`\`\`/.test(l))fence=!fence;
+  const m=!fence&&l.match(/^(#{2,4})\s/); if(m)h.push({i,lvl:m[1].length,t:l.trim()})});
+function size(n){for(let k=0;k<h.length;k++){ if(!h[k].t.includes(n))continue;
+  let end=lines.length; for(let j=k+1;j<h.length;j++){if(h[j].lvl<=h[k].lvl){end=h[j].i;break}}
+  return Buffer.byteLength(lines.slice(h[k].i,end).join('\n'),'utf8');} return -1;}
+const s14=size('1.4'), s4=size('운영 토글');
+const four=['3.6','3.9','3.10','3.12'].map(size);
+const sum4=four.reduce((a,b)=>a+b,0);
+console.log('§1.4',s14,'B (기준선 37353 → <=6000) | §4토글',s4,'B (44462 → <=6000)');
+console.log('4섹션합',sum4,'B (34459 → <=12000)',four);
+process.exit((s14>0&&s14<=6000&&s4>0&&s4<=6000&&four.every(x=>x>0)&&sum4<=12000)?0:1);
+"
+
+# 7) 사용성 — 작아진 게 아니라 '여전히 쓸 수 있는' 지시문인가
+#    (R2 B-F5: default 열을 'default|기본|없음' 단어로 판정하던 것을 폐기 —
+#     실제 default는 24·observe·1 같은 값이라 멀쩡한 표를 떨어뜨렸다. 이제 비어있지
+#     않은지만 본다. A-R2: 포인터가 실제로 해석되는지도 확인)
+node -e "
+const fs=require('fs');const c=fs.readFileSync('CLAUDE.md','utf8');
+const rows=[...c.matchAll(/^\|\s*\\\`(MCCP_[A-Z0-9_]+)\\\`\s*\|([^|]*)\|/gm)];
+const emptyDefault=rows.filter(m=>!m[2].trim()).map(m=>m[1]);
+const anchors=['/mccp:work','/mccp:plan','/mccp:pr','/codex:setup','MCCP_RECEIPT_GATE_MODE'];
+const lostAnchor=anchors.filter(a=>!c.includes(a));
+// 포인터 해석: CLAUDE.md가 가리키는 docs/*.md#anchor 가 실재하고 그 앵커가 있는가
+const links=[...c.matchAll(/\]\((docs\/[^)#]+\.md)(#([^)]+))?\)/g)];
+const badLink=[], badAnchor=[];
+for(const [,f,,anc] of links){
+  if(!fs.existsSync(f)){ badLink.push(f); continue; }
+  if(anc){ const slugs=[...fs.readFileSync(f,'utf8').matchAll(/^#{1,6}\s+(.+)\$/gm)]
+      .map(m=>m[1].toLowerCase().replace(/[^\w가-힣 -]/g,'').trim().replace(/\s+/g,'-'));
+    if(!slugs.includes(anc.toLowerCase())) badAnchor.push(f+'#'+anc); }
+}
+const stale=(fs.readFileSync('docs/ENVIRONMENT.md','utf8').match(/🚧\s*미구현|🚧\s*예정/g)||[]).length;
+console.log('env 표 행수',rows.length,'(>=56) | default 빈 행',emptyDefault);
+console.log('사라진 운영 앵커',lostAnchor,'| 깨진 링크',badLink,'| 없는 앵커',badAnchor.slice(0,5));
+console.log('ENVIRONMENT stale 마커',stale);
+process.exit((rows.length<56||emptyDefault.length||lostAnchor.length||badLink.length||badAnchor.length||stale>0)?1:0);
+"
+
+# 8) ★핵심★ 이전 완결성 — 지운 줄이 목적지에 '정확히' 도착했는가
+#    (R2/A-R2: 이전 판은 80자 prefix 부분문자열 매칭이라 꼬리가 잘리거나 뭉개져도
+#     통과했다. 이제 정규화된 '줄 전체'가 목적지 줄 집합에 있어야 한다.
+#     40자 문턱은 폐기했다 — CLAUDE.md에는 40자 미만 실질 줄이 118개 있고 그중에는
+#     'main 직접 push 금지' 같은 규칙이 섞여 있어 문턱이 곧 사각지대였다(R3 A).
+#     이제 형식 잡음(표 구분선·코드펜스·8자 미만·문자 없음)만 제외한다.
+#     의도적으로 재작성한 줄은 추적되는 예외 파일에 사유와 함께 등재해야 하고
+#     예외는 삭제 줄의 5%를 넘을 수 없다 — 예외가 검사를 삼키지 못하게)
+#
+#    문턱의 내력(R4 A → R5 A). 이전 판은 400을 요구했는데, 이 검사 자신의 NOISE
+#    정의로 실측하면 CLAUDE.md 전체가 실질 줄 548개이고 본 plan이 손대는 6개 섹션은
+#    250개다(§1.4 28 · §4 78 · 4섹션 144). 대상 섹션을 100% 통째로 지워도 250 < 400이라
+#    400은 영구 실패였고, 400에 닿으려면 plan이 '범위 밖'이라 명시한 §0·§2·§3.1~3.5·
+#    §3.7·§3.8·§5까지 지워야 했다.
+#    R4는 이를 180으로 고쳤지만 그건 숫자를 숫자로 바꾼 것이라 CLAUDE.md가 바뀌면
+#    같은 병이 재발한다. 그래서 **이제 문턱은 아래 코드가 BASE에서 직접 재어 파생한다**
+#    (ceiling × 0.72). 비율 0.72는 예상 삭제 233 / 상한 250에서 왔고, 현 CLAUDE.md에서는
+#    250 → 180을 낸다 — 5% 예외 상한이 혼합 9줄을 덮는 최소 문턱과 같은 값이다.
+#    아래 어떤 상수도 손으로 고칠 필요가 없다.
+node -e "
+const fs=require('fs'),cp=require('child_process');
+const BASE=process.argv[1];
+const norm=s=>s.replace(/\s+/g,' ').trim();
+const del=cp.execSync('git diff -U0 '+BASE+' -- CLAUDE.md',{encoding:'utf8',maxBuffer:1e8})
+  .split(/\r?\n/).filter(l=>l.startsWith('-')&&!l.startsWith('---')).map(l=>norm(l.slice(1)));
+const DEST=['docs/milestone-log.md','docs/ENVIRONMENT.md','docs/gate-design.md',
+  'docs/multi-session-work-loop/evidence-conflict-design.md'];
+const pool=new Set();
+for(const f of DEST) if(fs.existsSync(f))
+  fs.readFileSync(f,'utf8').split(/\r?\n/).forEach(l=>pool.add(norm(l)));
+const EXC='.claude/state/relocation-exceptions.txt';
+// 등재 형식은 '<정규화 원문 줄>  # reason: <사유>' 다. 사유 꼬리를 떼고 비교해야 한다
+// (R5 B 적발 — 이전 판은 줄 전체를 그대로 집합에 담아 **어떤 예외도 고아와 매칭되지
+//  않았다**. 예외가 무력화되면 혼합 9줄에 탈출구가 없어 V8이 다른 문으로 다시
+//  impossible-fail이 된다. 사유가 없는 등재는 감사 불가이므로 거부한다)
+const stripReason=l=>l.replace(/\s*#\s*reason:.*\$/,'');
+const excRaw=fs.existsSync(EXC)?fs.readFileSync(EXC,'utf8').split(/\r?\n/)
+  .filter(l=>l.trim()&&!l.trim().startsWith('#')):[];
+const noReason=excRaw.filter(l=>!/#\s*reason:\s*\S/.test(l));
+// 예외는 **선언된 혼합 9줄(M1~M9)에만** 허용한다 (R6 B 적발 — 5% 상한만으로는
+// 선언보다 3줄 더 많은 손실을 게이트가 조용히 통과시킨다. 상한은 예산이지 계약이 아니다).
+// 태그 형식: '<정규화 원문 줄>  # reason: M3 — <사유>'
+const tags=excRaw.map(l=>((l.match(/#\s*reason:\s*(M[1-9])\b/)||[])[1])||null);
+const untagged=excRaw.filter((l,i)=>!tags[i]);
+const dupTag=tags.filter((t,i)=>t&&tags.indexOf(t)!==i);
+const exc=new Set(excRaw.map(l=>norm(stripReason(l))));
+const NOISE=l=>l.length<8||!/[가-힣A-Za-z]/.test(l)||/^\|[\s|:-]*\|?$/.test(l);
+// 문턱은 하드코딩하지 않고 BASE에서 **파생**한다 (R5 A 적발 — 400을 180으로 고친 것은
+// 숫자 하나를 다른 숫자로 바꾼 것일 뿐이라, CLAUDE.md가 바뀌면 R4-1과 같은
+// impossible-fail이 그대로 재발한다. 이제 검사가 자기 상한을 스스로 잰다).
+const baseTxt=cp.execSync('git show '+BASE+':CLAUDE.md',{encoding:'utf8',maxBuffer:1e8});
+const BL=baseTxt.split(/\r?\n/); let fen=false; const H=[];
+BL.forEach((l,i)=>{if(/^\`\`\`/.test(l))fen=!fen;
+  const m=!fen&&l.match(/^(#{2,4})\s/); if(m)H.push({i,lvl:m[1].length,t:l.trim()})});
+function secLines(n){for(let k=0;k<H.length;k++){ if(!H[k].t.includes(n))continue;
+  let e=BL.length; for(let j=k+1;j<H.length;j++){if(H[j].lvl<=H[k].lvl){e=H[j].i;break}}
+  return BL.slice(H[k].i,e);} return [];}
+const TARGET=['1.4','운영 토글','3.6','3.9','3.10','3.12'];
+const ceiling=TARGET.reduce((a,n)=>a+secLines(n).map(norm).filter(l=>!NOISE(l)).length,0);
+const floor=Math.ceil(ceiling*0.72);   // 0.72 = 예상 삭제 233 / 상한 250 에서 나온 비율
+const substantive=del.filter(l=>!NOISE(l));
+const orphans=substantive.filter(l=>!pool.has(l)&&!exc.has(l));
+const excUsed=substantive.filter(l=>!pool.has(l)&&exc.has(l)).length;
+const cap=Math.ceil(substantive.length*0.05);
+console.log('대상 6섹션 실질 줄(BASE 실측 상한)',ceiling,'-> 요구 문턱',floor);
+console.log('삭제 실질 줄',substantive.length,'| 고아',orphans.length,
+            '| 예외 사용',excUsed,'/ 상한',cap);
+if(noReason.length){console.log('  사유 없는 예외 등재',noReason.length,'건 — 감사 불가');
+  noReason.slice(0,5).forEach(l=>console.log('    NO-REASON:',l.slice(0,70)))}
+if(untagged.length){console.log('  M 태그 없는 예외',untagged.length,'건 — 선언된 혼합 9줄 밖');
+  untagged.slice(0,5).forEach(l=>console.log('    UNTAGGED:',l.slice(0,70)))}
+if(dupTag.length)console.log('  중복 M 태그',[...new Set(dupTag)],'— 한 줄당 한 번만');
+if(ceiling<1){console.log('FAIL: 대상 섹션을 BASE에서 찾지 못함 — 슬라이서/제목 불일치');process.exit(1)}
+orphans.slice(0,10).forEach(o=>console.log('  ORPHAN:',o.slice(0,90)));
+process.exit((substantive.length<floor||orphans.length||excUsed>cap
+  ||noReason.length||untagged.length||dupTag.length)?1:0);
+" "$BASE"
+
+# 9) 회귀 — baseline(red 7건, gate-guard-integrity 소관) 대비 '신규' 실패만 판정
+#    (R2 B-F5: 이전 판은 출력만 하고 exit code를 내지 않아 절대 실패하지 않았다)
+#    (R3 자체감사: 고정 baseline 집합 차이만 보면 순서 의존 실패가 거짓 회귀로 잡힌다 —
+#     실측으로 hash-briefing-exclusion이 그 경우였다. 격리 재현을 요구한다)
+node --test $(find plugins/mccp/scripts -name '*.test.js' | tr '\n' ' ') 2>&1 \
+  | grep -E '^✖ ' | grep -v '^✖ failing tests' | sed -E 's/ \([0-9.]+ms\)$//' | sort -u > /tmp/mccp-red-now.txt
+cat > /tmp/mccp-red-base.txt <<'BASE_EOF'
+✖ receipt-prompt: module-load error emits systemMessage + allows (G1)
+✖ receipt-skill: module-load error emits systemMessage + allows (G1)
+✖ receipt-prompt: no session_id → G1 allows + emits systemMessage without trace path
+✖ plugins\mccp\scripts\lib\tests\a3-instruction-cost.test.js
+✖ M3 finalize: skipped WITH audited reason → exit 0 (proven skip ships)
+✖ M3 finalize: skipped WITHOUT reason (unproven) → exit 12 (fail-closed) [F2]
+✖ validate-callsite-lint: every validate call in command bodies forwards --decision AND --plan
+BASE_EOF
+NOVEL=$(comm -13 <(sort -u /tmp/mccp-red-base.txt) /tmp/mccp-red-now.txt)
+echo "baseline에 없던 실패:"; echo "$NOVEL"
+# 플레이키 관용은 '이름 붙은 한 파일'로만 좁힌다 (R4 B 적발).
+# R3 판은 격리 실행에서 통과하는 신규 실패를 전부 용서했다. 그건 순서 의존 회귀 —
+# 즉 다른 테스트와 함께 돌 때만 깨지는 진짜 회귀 — 를 정의상 통째로 삼킨다.
+# 관측된 플레이키는 receipt/tests/hash-briefing-exclusion.test.js 하나뿐이므로
+# 그 파일만 allowlist에 올리고, 나머지 신규 실패는 격리 통과 여부와 무관하게 회귀다.
+# allowlist 항목도 격리 실행이 실패하면 회귀로 승격된다.
+FLAKY_ALLOWLIST="plugins/mccp/scripts/receipt/tests/hash-briefing-exclusion.test.js"
+REGRESSED=""
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  NAME=$(echo "$line" | sed -E "s/^✖ //")
+  FILE=$(grep -rl -F "$NAME" plugins/mccp/scripts --include=*.test.js 2>/dev/null | head -1)
+  if [ -z "$FILE" ]; then REGRESSED="$REGRESSED
+(파일 미상) $NAME"; continue; fi
+  case " $FLAKY_ALLOWLIST " in
+    *" $FILE "*)
+      if node --test "$FILE" >/dev/null 2>&1; then
+        echo "  allowlist 플레이키(격리 통과, 회귀 아님): $NAME"
+      else
+        REGRESSED="$REGRESSED
+$NAME (allowlist이지만 격리에서도 실패)"
+      fi ;;
+    *)
+      REGRESSED="$REGRESSED
+$NAME (allowlist 밖 — 격리 통과 여부와 무관하게 회귀)" ;;
+  esac
+done <<< "$NOVEL"
+[ -z "$REGRESSED" ] || { echo "FAIL: 신규 회귀:$REGRESSED"; exit 1; }
+
+# 10) 토큰 축 — a3-instruction-cost.js와 같은 o200k_base.
+#     (R2 B-F: 이전 판은 CLAUDE/MEMORY/STATE 원문을 /tmp 파일로 썼다. 그건 A3 모듈이
+#      지키는 no-raw-persistence 경계를 이 plan이 인용하면서 스스로 위반한 것이라
+#      임시 파일을 없애고 stdin 파이프로 넘긴다 — 원문은 디스크에 남지 않는다)
+node -e "
+const fs=require('fs');
+process.stdout.write(JSON.stringify({
+  claude_md: fs.readFileSync('CLAUDE.md','utf8'),
+  memory_index: fs.readFileSync(process.argv[1]+'/MEMORY.md','utf8'),
+  state_block: fs.existsSync('.claude/state/STATE.md')?fs.readFileSync('.claude/state/STATE.md','utf8'):''
+}));
+" "$MEM" | python -c "
+import tiktoken, json, sys
+enc = tiktoken.get_encoding('o200k_base')
+d = json.load(sys.stdin)
+n = {k: len(enc.encode(v)) for k, v in d.items()}
+tot = sum(n.values())
+for k, v in n.items(): print('%-14s %7d tok' % (k, v))
+print('%-14s %7d tok = %.1f%% of 200k (baseline 50049 = 25.0%%)' % ('TOTAL', tot, tot/2000.0))
+# 창 점유율도 실제로 게이트한다 (R5 B 적발 — Acceptance는 '12% 미만'을 V10에
+# 귀속했지만 V10은 그 값을 출력만 하고 판정에 쓰지 않았다. plan의 헤드라인 주장이
+# 어떤 검사에도 걸리지 않는 상태였다)
+share = tot / 2000.0
+ok = n['claude_md'] <= 20000 and n['memory_index'] <= 800 and share < 12.0
+print('VERDICT', 'OK' if ok else 'FAIL (claude_md<=20000, memory_index<=800, 창점유<12%%)')
+sys.exit(0 if ok else 1)
+"
+
+# 11) §3.5.1 삭제 검증 의무 — 출력만 하지 말고 실제로 실패시킨다 (R2 B-F: 이전 판은
+#     삭제가 있어도 exit 0이었다)
+DELETED=$(git diff --diff-filter=D --name-only "$BASE"...HEAD)
+echo "삭제된 파일:"; echo "$DELETED"
+[ -z "$DELETED" ] || { echo "FAIL: 의도치 않은 파일 삭제"; exit 1; }
+
+# 11b) 대칭 가드 — 테스트가 흘린 잡파일이 커밋에 섞이지 않게 (R4 실측)
+#      a3-instruction-cost.test.js는 자기 디렉토리에 temp-claude-test{,2..5}.md를 만들고
+#      python3 부재로 중단되면서 cleanup을 못 한다(baseline red 7건 중 하나).
+#      gitignore 대상도 아니라 git add -A 한 번이면 repo에 들어온다. Validation 9가
+#      그 테스트를 반드시 돌리므로 이 가드는 본 plan의 실행 경로 위에 있다.
+UNTRACKED=$(git ls-files --others --exclude-standard -- plugins/ docs/ .claude/)
+echo "미추적 신규 파일:"; echo "$UNTRACKED"
+[ -z "$UNTRACKED" ] || { echo "FAIL: 커밋 전 정리 필요(테스트 잡파일 가능성)"; exit 1; }
+
+# 12) 질량 보존 — CLAUDE.md가 덜어낸 만큼이 목적지 문서에 실제로 쌓였는가.
+#     줄 단위 검사(8)의 집계 축 보완: 목적지가 자라지 않았는데 원본만 줄었다면
+#     '이전'이 아니라 '삭제'다.
+#     임계 90%의 근거(U4): V8이 줄 단위 '정확 일치'를 이미 강제하므로 옮겨진 내용은
+#     바이트 그대로 도착한다. 100%에서 깎이는 몫은 (a) 예외 등재분 최대 5%,
+#     (b) 목적지에 새로 붙는 heading·앵커 정도다. 90%는 그 둘을 더한 값이며
+#     초안의 70%처럼 임의로 고른 수치가 아니다.
+node -e "
+const fs=require('fs'),cp=require('child_process');
+const BASE=process.argv[1];
+const B=f=>{try{return Buffer.byteLength(fs.readFileSync(f,'utf8'),'utf8')}catch{return 0}};
+const wasB=f=>{try{return Buffer.byteLength(cp.execSync('git show '+BASE+':'+f,{encoding:'utf8',maxBuffer:1e8,stdio:['pipe','pipe','ignore']}),'utf8')}catch{return 0}};
+const DEST=['docs/milestone-log.md','docs/ENVIRONMENT.md','docs/gate-design.md',
+  'docs/multi-session-work-loop/evidence-conflict-design.md'];
+const shed=wasB('CLAUDE.md')-B('CLAUDE.md');
+const gained=DEST.reduce((a,f)=>a+(B(f)-wasB(f)),0);
+const ratio=shed>0?gained/shed:0;
+console.log('CLAUDE.md 감소',shed,'B | 목적지 증가',gained,'B | 보존율',(ratio*100).toFixed(1)+'% (>=90% 필요)');
+process.exit((shed>0&&ratio>=0.90)?0:1);
+" "$BASE"
+
+# 13) 규범 잔류 — 규칙이 CLAUDE.md를 떠나지 않았는가 (R6 B 적발, U7의 기계적 폐쇄)
+#     V8은 '지운 줄이 목적지에 도착했는가'만 보고 V4는 키워드 6종만 본다. 그 사이로
+#     규범 문장이 통째로 docs로 이주해도 전 게이트가 통과했다 — 리뷰어가 실제 사례를
+#     지목했다(§3.6 'Stdin-pipe IPC contract … command-line argument로 token 전달 금지').
+#     Task 3의 분류상 순수 규칙 줄은 애초에 삭제 대상이 아니므로, BASE에서 그 집합(17줄)을
+#     뽑아 전수 잔류를 요구하면 '정책'이 '검사'로 승격된다. 규칙이 한 줄이라도 CLAUDE.md를
+#     떠나면 여기서 떨어진다.
+node -e "
+const fs=require('fs'),cp=require('child_process');
+const BASE=process.argv[1];
+const norm=s=>s.replace(/\s+/g,' ').trim();
+const NOISE=l=>l.length<8||!/[가-힣A-Za-z]/.test(l)||/^\|[\s|:-]*\|?\$/.test(l);
+const RULE=/하라|한다|합니다|금지|필수|must|never|해야|하세요|말 것|마세요/;
+const VER=/v?\d+\.\d+\.\d+|R[123]\b|F\d\b|PR #\d+|라운드/;
+function slicer(txt){
+  const L=txt.split(/\r?\n/); let fen=false; const H=[];
+  L.forEach((l,i)=>{if(/^\`\`\`/.test(l))fen=!fen;
+    const m=!fen&&l.match(/^(#{2,4})\s/); if(m)H.push({i,lvl:m[1].length,t:l.trim()})});
+  return n=>{for(let k=0;k<H.length;k++){ if(!H[k].t.includes(n))continue;
+    let e=L.length; for(let j=k+1;j<H.length;j++){if(H[j].lvl<=H[k].lvl){e=H[j].i;break}}
+    return L.slice(H[k].i,e);} return [];};
+}
+const baseSec=slicer(cp.execSync('git show '+BASE+':CLAUDE.md',{encoding:'utf8',maxBuffer:1e8}));
+const rules=[];
+for(const s of ['3.6','3.9','3.10','3.12'])
+  for(const l of baseSec(s)){ const t=norm(l);
+    if(!NOISE(t)&&RULE.test(l)&&!VER.test(l)) rules.push(t); }
+const now=new Set(fs.readFileSync('CLAUDE.md','utf8').split(/\r?\n/).map(norm));
+const lost=rules.filter(r=>!now.has(r));
+console.log('BASE 순수 규칙 줄',rules.length,'(기대 17) | CLAUDE.md 이탈',lost.length);
+lost.slice(0,8).forEach(r=>console.log('  LOST-RULE:',r.slice(0,90)));
+process.exit((rules.length<1||lost.length)?1:0);
+" "$BASE"
+```
+
+## Risks
+
+| Risk | Likelihood | Mitigation |
+|---|---|---|
+| **정보 손실** — 서사가 없어지면 다음 사이클이 같은 결함을 다시 유도 | High | 원칙을 *삭제*가 아니라 *이전*으로 고정하고, **Validation 8**이 지운 줄의 도착을 전수 검사한다. §1.4에서 CLAUDE.md 밖으로 나가는 행도 `docs/milestone-log.md`에 원문 보존되므로 순수 제거는 어디에도 없다 |
+| **"이전"이 실은 "매장"** — docs로 옮겼는데 아무도 안 읽으면 삭제와 같다 | Medium | CLAUDE.md 잔류 줄이 **반드시 포인터를 동반**하고(§5 형식), Validation 7이 운영 앵커 5종 잔존을 확인한다. 다만 "읽힘"은 기계로 증명 불가 — 이건 잔여 리스크로 남는다 |
+| **병렬 worktree 충돌** — 활성 worktree 5개가 CLAUDE.md 보유 | High | "빨리 랜딩"은 통제가 아니다(R1 B-F9). 실제 통제: (1) 착수 전 `git -C <각 worktree> status --short CLAUDE.md`로 미커밋 편집 유무를 전수 확인, (2) 랜딩 후 각 worktree에서 즉시 rebase하며 CLAUDE.md 충돌은 **압축본을 base로 취하고 상대 브랜치의 신규 §만 재적용**, (3) §3.5.1 `--diff-filter=D` 검증 |
+| **§3.7 지침과의 외견상 충돌** | Medium | 규칙 자체는 전부 CLAUDE.md 잔류. 옮기는 것은 규칙의 *도출 과정*뿐임을 §5 포인터에 명시 |
+| **repo 밖 절반을 게이트가 못 봄** | Medium | **불변식은 "무변조"가 아니라 "무파괴"다**(R4-2 실측 — auto-memory가 같은 디렉토리를 제자리 재작성하므로 무변조는 성립 불가). V5b가 파일 소실·축소·Task 5 정정줄 누락을 hard-fail로 잡고, 제3자 갱신은 보고만 한다. 복원은 `memory-snapshot-2026-08-09/`가 담당 |
+| ~~바이트 감축 ≠ 토큰 감축~~ | — | **해소(R2)** — Validation 10이 `o200k_base`로 **토큰을 직접** 잰다. 대용치 논쟁이 사라졌고 수용 기준이 사용자가 말한 단위와 같아졌다 |
+| ~~목표치가 임의적~~ | — | **해소(R3)** — 초안은 목표에서 역산했고 그 산술이 불가능했다(R2 B-F1). 이제 **적산**이다: 6,000 + 6,000 + 12,000 + 44,646(손대지 않는 나머지) = 68,646 B → 천장 70,000 B, 실측 3.55 B/token으로 ≤20,000 토큰. Validation 6이 **자리별로** 강제하므로 전체 수치만 맞추는 편법이 통하지 않는다 |
+| **A3 계측기가 Windows에서 불능** | Medium | 본 plan은 고치지 않는다 — `python3` 하드코딩 결함은 STATE.md대로 gate-guard-integrity PRD가 승계한 red 7건에 속한다. Validation 10이 같은 인코딩으로 독립 측정해 이 plan의 수용 판정은 그 결함에 의존하지 않는다 |
+
+## Acceptance
+
+- [ ] Task 0 baseline이 **memory 편집 전에** 캡처됨 · `file_count === 17` · 전 항목 `bytes`+`sha256` · 파일명 집합이 실제 디렉토리와 일치 — **Validation 0**
+- [ ] **`CLAUDE.md` ≤ 20,000 토큰 · `MEMORY.md` ≤ 800 토큰** (현 45,357 / 3,393) — Validation 10 **(1차 기준)**
+- [ ] 주입 합계 200k 창 점유 25.0% → 12% 미만 — Validation 10
+- [ ] `CLAUDE.md` ≤ 70,000 B (현 160,920 B) — Validation 1
+- [ ] §1.4 ≤ 6,000 B · §4 토글 ≤ 6,000 B · §3.6+3.9+3.10+3.12 ≤ 12,000 B — Validation 6 (**UTF-8 바이트**, 기준선 37,353 / 44,462 / 34,459)
+- [ ] `MEMORY.md` ≤ 2,500 B — **Validation 1** · 전 항목 ≤ 160 **바이트**, PR 상태 0건, 링크 무결 — Validation 5
+- [ ] memory 17파일 전수 존재 · **축소 0건**(MEMORY.md 제외) · PR 상태 문자열 4건이 **MERGED 상태로 실재**(3건은 Task 5가 정정, 1건은 이미 정확 — 회귀 가드) — Validation 5b (제3자 auto-memory 갱신은 보고만 하고 차단하지 않는다)
+- [ ] §1.4 **24행**이 `docs/milestone-log.md`에 **행 전체 그대로**(first-column만이 아니라) 도착, 중복 0 — Validation 3
+- [ ] env 표 **56행** ↔ `docs/ENVIRONMENT.md` 앵커 **양방향 동일**, 은퇴 토글 표 부재 — Validation 2
+- [ ] 불변식 키워드 6종이 **원래 소속 섹션 안에** 잔존 — Validation 4
+- [ ] 운영 앵커 5종 잔존 · env 표 default 열 전부 non-empty · **CLAUDE.md의 docs 링크가 파일·앵커까지 해석됨** · `ENVIRONMENT.md` stale 마커 0건 — Validation 7
+- [ ] **삭제된 줄이 목적지에 정규화 줄-단위로 정확히 도착**, 고아 0건, 삭제 실질 줄이 **BASE에서 파생한 문턱**(대상 6섹션 실질 줄 × 0.72 — 현 CLAUDE.md 기준 250 × 0.72 = 180) 이상, 예외는 전부 `# reason:` 보유 + 사용량 ≤ 5%(현 기준 상한 12 ≥ 혼합 9줄) — Validation 8 (핵심 게이트)
+- [ ] **질량 보존** — CLAUDE.md 감소분의 **90% 이상**이 목적지 문서 증가로 나타남 — Validation 12
+- [ ] 신규 테스트 실패 0건 — Validation 9. baseline red 7건은 pre-existing(gate-guard-integrity 소관)이고, 플레이키 관용은 **이름 붙은 1개 파일**(`hash-briefing-exclusion.test.js`)로만 좁혀 순서 의존 회귀가 통째로 면제되지 않는다
+- [ ] `--diff-filter=D` 의도치 않은 삭제 0건 — Validation 11 · 미추적 잡파일 0건(테스트 산출물이 커밋에 섞이지 않음) — Validation 11b
+
+## Open Questions
+
+- ~~memory 삭제 승인 범위~~ — **해소(2026-08-09)**: 사용자가 "삭제 없음, 인덱스만 정리"를 선택.
+- **`docs/milestone-log.md` 신설 vs CHANGELOG 흡수** — CHANGELOG.md가 같은 내용을 버전 축으로 이미 소유한다. 별도 파일 대신 병합하면 파일 수는 줄지만 "모듈 → 역할" 조회축이 사라진다. 현 plan은 신설을 택했다.
+- **"읽힘"은 증명 불가** — Validation 7이 운영 앵커 잔존까지는 보지만, 옮겨진 docs를 실제로 참조하는지는 기계로 확인할 수 없다. 이전이 매장으로 변질되는지는 다음 사이클의 실사용에서만 드러난다.
+
+## Codex Adversarial Review
+
+> Codex skipped per `MCCP_CODEX_DISABLED=1` (env-level policy, first-class skip)
+
+- 호출: `node .../scripts/lib/codex-invoke.js adversarial-review` (v1.23.3 wrapper, background + exit marker)
+- 결과: `{"ok":true,"classification":"disabled","blocking":false,"advisory":false,"durationMs":0}`
+- **출처: 사용자 레벨 `~/.claude/settings.json`** — 프로젝트 `.claude/settings.json`에는 이 키가 없다. 초안은 프로젝트 설정이라 적었고 그건 오류였다(santa-loop R1 Reviewer B F1이 적발; Reviewer A는 못 잡음).
+- 라운드 수: 0 · `resolution.codex_verdict`: `skipped`
+
+**이 plan은 mccp의 Codex 게이트를 받지 않았다.** 대신 사용자 지시로 **santa-loop**(적대적 dual-review)를 대체 실행했다.
+
+### santa-loop R1 — NAUGHTY
+
+| Reviewer | Model | Verdict | FAIL |
+|---|---|---|---|
+| A | Claude Opus (`code-reviewer`) | FAIL | 4/10 |
+| B | Codex GPT-5.4 (`codex exec --sandbox read-only`) | FAIL | 9/10 |
+
+**양쪽 공통**: Validation char↔byte 축 오류 · 행 수 검사가 원문 충실성 미증명 · Task 1/3 판정 기준 재현 불가 · env 검사 단방향
+
+**A 단독**: env 개수 오류(55 → 실제 정의 56)
+
+**B 단독**: `settings.json` 출처 허위 · Files to Change가 `evidence-conflict-design.md` 누락 · Risk 행에 철회된 삭제 서술 잔존 · Task 3 키워드 3 vs Acceptance 6 불일치 · Validation 7(구)이 **파일 내부 삭제에 공허** · 섹션별 바이트 검증 부재 · 17파일 불변 검증 부재 · 사용성 게이트 부재 · baseline이 해시 없는 하드코딩 · "land fast"/"바이트로 자립" 과장
+
+**R2가 흡수한 것**: 위 전부. 가장 큰 구조 변경은 **Validation 8(고아 줄 전수 검사)** 신설 — R1 이전에는 "이전했다"를 증명하는 검사가 하나도 없었고 행 수·키워드·바이트는 원문이 뭉개져도 통과했다. 부수적으로 baseline manifest에 sha256을 넣고, Task 1/3의 주관적 판정을 기계 규칙으로 교체하고, 섹션별 예산·사용성 게이트를 추가했다.
+
+### R2 자체감사 — Validation을 실제로 실행해서 나온 것
+
+리뷰어 지적을 반영한 뒤 Validation 블록을 **추출해 그대로 돌렸다**. 검사 자체에서 결함 6건이 더 나왔다. 두 리뷰어 중 누구도 이걸 지적하지 못했다 — 둘 다 코드를 *읽었지* *실행하지* 않았기 때문이다.
+
+| # | 결함 | 조치 |
+|---|---|---|
+| 1 | V3이 `docs/milestone-log.md` 부재 시 **ENOENT로 크래시** (실패가 아니라 예외) | `existsSync` 가드 → 깨끗한 FAIL |
+| 2 | V4의 섹션 슬라이스가 heading **레벨을 무시**해 하위 `####` 내용을 섹션 밖으로 밀어냄 → 멀쩡한 키워드 4개를 "소실"로 **오판** | 레벨 인지 슬라이스로 교체, 실행 결과 오탐 0 |
+| 3 | 진단표 수치가 **과다 계상** — 같은 레벨 무시 버그로 §1.4가 §2를, §4가 §5를, §3.12가 §4 앞부분을 삼킴 | 31,381→29,808 · 35,509→33,971 · 11,005→8,460로 정정하고 V6이 **같은 함수**를 쓰게 통일 |
+| 4 | V7이 표가 없으면 `rows=0` → **공허하게 PASS** | `rows>=56` 요구 추가 |
+| 5 | V8이 삭제가 없으면 고아 0 → **공허하게 PASS**(= 미착수와 완료를 구분 못 함) | `del>=400` 실질 압축 요구 추가 |
+| 6 | V9가 **절대 green**을 요구 — 이 레포는 착수 시점에 이미 red 7건이라 내 작업과 무관하게 영구 실패 | baseline 7건 명시 + **신규 실패만** 판정 |
+
+**같은 감사에서 나온 별건 — 레포에 이미 토큰 계측기가 있었다.** [msw-metrics/a3-instruction-cost.js](plugins/mccp/scripts/lib/msw-metrics/a3-instruction-cost.js)가 CLAUDE.md·MEMORY 인덱스·STATE 블록의 토큰을 재고 200k 창 대비 비율까지 낸다. R1 시점 plan은 이걸 못 보고 바이트 대용치를 발명했고, 리뷰어 둘 다 "바이트가 토큰의 대용치로 타당한가"는 물었지만 "이미 있는 도구를 왜 안 쓰나"는 묻지 않았다. 이제 Patterns to Mirror에 등재하고 Validation 10이 같은 인코딩을 쓴다 — 덕분에 수용 기준이 사용자가 말한 단위와 일치하고 "바이트≠토큰" 리스크가 해소됐다.
+
+부수 발견: 그 모듈은 가용성은 `pip show tiktoken`으로 확인하면서 실제 토큰화는 **`python3`을 하드코딩**해 spawn한다. 이 Windows 머신에는 `python`(3.13.3)+tiktoken 0.13.0이 있고 `python3`이 없어 영구 `baseline_unavailable`이며, 이것이 red 7건 중 하나의 원인이다. **본 plan은 고치지 않는다** — gate-guard-integrity PRD가 승계한 잔존 red이고, 남의 PRD 범위를 조용히 침범하는 것보다 명시적으로 넘기는 게 맞다.
+
+### santa-loop R2 — NAUGHTY
+
+| Reviewer | Verdict | FAIL |
+|---|---|---|
+| A (Claude Opus) | FAIL | 8/10 (criterion 1·2는 PASS로 전환 — R1 사실오류 해소 확인) |
+| B (Codex GPT-5.4) | FAIL | 9/10 |
+
+**B가 잡은 것 — plan의 헤드라인 수치를 무너뜨린 2건**:
+
+1. **목표 60,000 B가 산술적으로 불가능**했다. 같은 task set의 하한은 24,000(예산 3종) + 44,646(나머지) = 68,646 B다. 계획이 자기 산술과 모순이었고, 거기서 환산한 16,900 토큰 목표도 함께 거짓이었다. → 역산을 폐기하고 **적산**으로 재도출(≤70,000 B / ≤20,000 토큰).
+2. **진단표 전체가 바이트가 아니라 문자 수**였다. Validation 6이 `.length`(chars)를 쓰면서 "바이트"라 표기했고, 한글 1.20~1.39 B/char이라 §4를 44,462가 아닌 33,971로 **과소** 계상했다. → `Buffer.byteLength`로 교체, 진단표 전량 재측정. 실제로는 6개 섹션이 파일의 **72.3%**(초안 주장 41.6%)로, 압축 여지가 오히려 더 컸다.
+
+**B의 나머지 유효 지적**: V11(`--diff-filter=D`)과 V9(신규 회귀)가 **출력만 하고 exit code를 내지 않아 절대 실패하지 않음** · V3이 §1.4로 범위를 안 좁혀 CLAUDE.md 전역 bold 표를 매칭 · V7의 default 열 판정이 `default|기본|없음` **단어**를 요구해 `24`·`observe` 같은 실제 값을 떨어뜨림 · 검증이 움직이는 ref(`origin/main`)를 써서 재현 불가 · **V10이 CLAUDE/MEMORY/STATE 원문을 `/tmp` 파일로 씀** — plan이 인용하며 존중한다던 A3의 no-raw-persistence 경계를 스스로 위반 · Task 0(baseline 캡처)이 어느 task에도 미배정.
+
+**A의 유효 지적**: V8의 80자 prefix 부분문자열 매칭이 꼬리 절단·뭉갬을 통과시킴 · 압축 섹션의 포인터가 실제로 해석되는지 미검증 · 목적지 증가가 무제한.
+
+**A의 무효 지적 3건**(검증 후 기각): V2 정규식 이스케이프가 깨졌다 → 합성 표로 `table 2` 매칭 확인, 정상 · 판정 기준의 "양쪽 표지 동시" 케이스 미정의 → plan에 "잔류가 우선" 이미 명시 · "land fast"가 통제가 아님 → 이미 3개 구체 통제로 교체했고 A가 그 **교체 문구를 인용하며** 미교체라 주장. 리뷰어 지적을 검증 없이 받았으면 멀쩡한 정규식을 "고칠" 뻔했다.
+
+**R3가 흡수한 것**: 위 유효분 전량 — 목표 재도출 · 바이트 단위 교정 · V3 범위·행전체 대조 · V7 non-empty + **링크·앵커 해석 검증** · V8 **정규화 줄-전체 정확 일치 + 감사되는 예외 파일(≤5% 상한)** · V9/V11 exit assertion · V10 **stdin 파이프(원문 디스크 미기록)** · base 커밋 고정 · Task 0 신설 · **Validation 12 질량 보존**(CLAUDE.md 감소분의 70% 이상이 목적지 증가로 나타나야 함) · Task 3 포인터 의무.
+
+
+### santa-loop R4 (재호출 — fresh loop) — NAUGHTY
+
+에스컬레이션 뒤 U1(Task 1)/U2/U4를 닫은 개정본(`63d7441`)은 **한 번도 리뷰를 받지 않은 상태**였다. 그 개정본에 대해 리뷰어를 새로 띄웠다. 라운드 카운터는 재호출마다 R1로 리셋되므로 "3라운드 상한"은 구조적으로 무력하다 — 이 점을 상한 근거로 쓰지 않는다.
+
+| Reviewer | Model | Verdict |
+|---|---|---|
+| A | Claude Opus (`code-reviewer`) | **PASS (신뢰 불가)** |
+| B | Codex GPT-5.4 (`codex exec --sandbox read-only`) | **FAIL** (12개 중 10개 FAIL) |
+
+**Reviewer A의 보고는 그 자체가 결함이었다.** verdict가 `PASS`인데 `critical_issues`를 2건 달았고(자기모순), `memory-baseline.json`이 "77 items"라 서술했으나 실제는 17이며, "12개 검사 전부 정상"이라 단언했지만 Validation 5b는 실행하면 즉시 실패한다. A는 검사를 읽고 통과를 줬다 — 세 라운드 내내 반복된 바로 그 실패 형태다.
+
+**이 라운드에서 실제로 잡힌 것 — 셋은 게이트를 통과 불가로 만드는 결함**:
+
+| # | 결함 | 출처 | 조치 |
+|---|---|---|---|
+| R4-1 | **★핵심★ Validation 8의 `>=400` 문턱이 달성 불가.** 검사 자신의 NOISE 정의로 실측하면 압축 대상 6섹션의 실질 줄은 **250**(CLAUDE.md 전체가 548)이다. 대상을 100% 지워도 400에 못 미친다 — 400에 닿으려면 plan이 "범위 밖"이라 명시한 섹션까지 지워야 한다. R2 자체감사가 "공허한 PASS"를 막으려 붙인 숫자가 실측 없이 골라져 반대편(impossible-fail)으로 넘어갔다 | 자체 검산 (양 리뷰어 모두 놓침) | 실측에서 역산한 **180**으로 교체 + 상한 250·예상 삭제 233을 주석에 기록 |
+| R4-2 | **Validation 5b가 양쪽 분기 모두 통과 불가.** memory 디렉토리는 auto-memory 시스템이 소유하고 **제자리 재작성**한다. baseline 캡처 이후 무관한 파일 2건이 이미 변경됐고(6,409→7,908 · 4,406→5,246), 실측하면 세 파일 모두 append-only prefix가 BROKEN이다. 즉 "무편집 12파일 sha256 동일"도 "편집 4파일 append-only"도 성립하지 않는다 | 자체 검산 + B | 불변식을 "아무것도 안 바뀌었다"에서 **"내가 아무것도 파괴하지 않았다"**로 재정의 — 축소·소실·정정줄 누락만 hard-fail, 제3자 갱신은 보고. Task 0을 **같은 세션·편집 직전** 캡처로 강화 |
+| R4-3 | **`## 미해소` 표가 자기 상태를 오보고.** U2는 "복구 경로 없음"인데 Files to Change는 같은 문서에서 "snapshot CREATE(완료)·U2 해소"라 적었고(스냅샷 17파일 실재 확인), U4는 존재하지 않는 "70% 임계"를 열거했으며(실제 90%), U1은 Task 1에 이미 실린 manifest를 "별도 판단 필요"라 했다 | 자체 검산 + B | 본 표를 해소/잔존으로 분리 재작성 |
+| R4-4 | Task 3이 네 섹션을 **26,715 B**라 적었으나 진단표·V6·Acceptance는 전부 34,459 B | B | 34,459로 통일 |
+| R4-5 | `MEMORY.md ≤ 2,500 B`를 Task 4 Validate와 Acceptance가 **Validation 5에 귀속**했으나 V5의 exit 조건에 총량 검사가 없다. 실제 강제자는 Validation 1이다(B는 "강제되지 않는다"고 했으나 그건 틀렸다 — 귀속 오기다) | B (부분 정정) | 귀속을 V1로 수정 |
+| R4-6 | Task 5가 지정한 정정 줄 4건을 **어떤 검사도 확인하지 않음** | B | V5b에 내용 검증 추가 |
+| R4-7 | V9의 격리-재실행 관용이 **순서 의존 회귀를 정의상 전부 면제**. 관측된 플레이키는 1개 파일뿐인데 관용은 무제한이었다 | B | 이름 붙은 1개 파일 allowlist로 축소 |
+| R4-8 | **이전 단위와 예외 예산이 정량화되지 않음.** 네 섹션 실질 줄 144개를 분류하면 순수 서사 118 · 혼합 9 · 순수 규칙 17이고, 줄 단위로만 옮기면 잔류 하한 15,065 B로 예산 12,000 B를 초과한다. 즉 혼합 9줄은 반드시 쪼개야 하고 그때 V8 고아가 된다 — 예외를 어디에 쓸지가 plan에 없었다 | 자체 검산 (U3의 정량화) | 분류표·축자 원칙·예외 대상 9줄을 Task 3에 명시 |
+
+**기각한 지적** (재현 실패 또는 영향 판단이 반대):
+
+- B: "예외 파일이 없어도 게이트가 안 떨어지니 등재부를 생략할 수 있다" → **반대다.** 부재는 예외 0으로 취급되어 고아 허용치가 사라지므로 **더 엄격**해진다. 무해.
+- B: "Validation 블록이 Git Bash 전용이라 이식성 FAIL" → plan이 헤더에 Git Bash를 전제로 명시했고 이 머신에 존재하며, 12개 검사를 전부 거기서 실행했다. 선언된 전제가 충족된 것을 결함으로 볼 수 없다.
+- A: `memory-baseline.json` 77 items → 실제 17.
+- A: 잔류 manifest 24행이 미검증이라는 의심 → 실제 §1.4 행을 추출해 대조한 결과 **순서까지 1:1 일치**.
+
+### santa-loop R5 (fresh loop 2라운드) — NAUGHTY
+
+R4 수정본에 리뷰어를 다시 새로 띄웠다. 양쪽 다 FAIL.
+
+| Reviewer | Model | Verdict |
+|---|---|---|
+| A | Claude Opus (`code-reviewer`) | **FAIL** (critical 5건) |
+| B | Codex GPT-5.4 (`codex exec --sandbox read-only`) | **FAIL** (12개 중 10개 FAIL) |
+
+**흡수 7건**:
+
+| # | 결함 | 출처 | 조치 |
+|---|---|---|---|
+| R5-1 | **V8의 예외 파서가 자기가 문서화한 형식을 못 읽는다.** 등재 형식은 `<원문 줄>  # reason: <사유>`인데 파서는 줄 전체를 집합에 담고 고아 줄과 직접 비교했다 — 실측하면 **어떤 예외도 매칭되지 않는다**. 예외가 무력화되면 반드시 쪼개야 하는 혼합 9줄에 탈출구가 없어 V8이 **다른 문으로 다시 impossible-fail**이 된다(R4-1과 같은 병, 다른 자리) | B | 사유 꼬리를 떼고 비교 + 사유 없는 등재는 거부(감사 불가) |
+| R5-2 | **문턱 180이 여전히 하드코딩.** R4가 400을 180으로 고친 것은 숫자를 숫자로 바꾼 것일 뿐이라, CLAUDE.md가 바뀌면 R4-1이 그대로 재발한다 | A | V8이 BASE에서 대상 6섹션 실질 줄을 **직접 재서** 문턱을 파생(`ceiling × 0.72`). 실행 확인: 250 → 180 |
+| R5-3 | **잔류 판정이 미검증.** 24행이 log에 "도착"하는 것은 잔류 18행이든 이전 6행이든 똑같이 성립하므로 V3만으로는 manifest 준수를 알 수 없다 | A | V3에 "CLAUDE.md §1.4에 포인터를 단 한 줄 요약이 정확히 18개" 검사 추가. 합성 fixture 4종(정상·행 누락·압축 안 함·포인터 없음)으로 분기 동작 확인 |
+| R5-4 | **plan의 헤드라인 주장이 어떤 게이트에도 안 걸린다.** Acceptance는 "창 점유 12% 미만"을 V10에 귀속했지만 V10은 그 값을 출력만 했다 | B | V10이 `share < 12.0`을 판정에 포함 |
+| R5-5 | Task 0 Acceptance 항목에 대응하는 **번호 붙은 검사 부재** | B | Validation 0 신설(스키마·file_count·파일명 집합 대조) |
+| R5-6 | 혼합 9줄을 **개수만 말하고 열거하지 않음** — Task 1은 24행을 열거했는데 여기만 서술 | B | 9줄 manifest를 시작 문구·바이트와 함께 전수 등재 |
+| R5-7 | 제3자 축소로 hard-fail이 났을 때 **구분 방법 안내 없음** | A | V5b 실패 메시지가 스냅샷 대조 → baseline 재캡처 경로를 안내 |
+
+**기각 6건** (재현 실패):
+
+- B: "V7·V3의 정규식이 리터럴 `$`를 요구해 impossible-fail" → **실측 반증.** 셸 이중따옴표를 지나며 `\$`는 앵커 `$`가 된다(`node -e`로 확인: 헤딩 2개 정상 매칭, 표 행 정상 매칭). B가 PowerShell/.NET 의미로 번역해 생긴 오판이다. 이 지적을 검증 없이 받았으면 멀쩡한 두 검사를 "고쳐서" 실제로 깨뜨렸을 것이다.
+- B: "Git Bash 전용이라 이식성 FAIL" → 2라운드 연속 같은 지적이고 근거는 매번 B 자신의 실행 권한 거부다. plan은 헤더에 전제를 명시했고 이 머신에서 13개 검사를 전부 실행했다.
+- B: "V5b가 같은 크기의 파괴적 재작성을 못 막는다" → 사실이지만 **U8로 이미 등재된 원리적 한계**다. 제3자가 소유한 표면에 대해 내용 동일성을 요구하는 검사는 어떤 형태로도 안정적일 수 없다.
+- A: "sha256 검증 전제가 깨졌다" → R4 **이전** 설계를 서술하고 있다. 현 V5b는 drift를 INFO로만 보고한다.
+- A: "Task 5를 제대로 해도 V5b는 실패한다" → **실측 반증.** hard-fail 조건은 소실·축소·정정줄 누락·파일 수뿐이고 축소는 0건이다. 정정줄이 들어가면 통과한다.
+- A: "Task 3에 tie-break가 없다" → 두 곳에 명시돼 있고("쪼갤 수 없으면 잔류", "잔류가 우선"), A가 든 예시 문장은 규범 표지가 없어 애초에 경계 사례가 아니다.
+
+### santa-loop R6 (fresh loop 3라운드, 상한) — NAUGHTY
+
+| Reviewer | Model | Verdict |
+|---|---|---|
+| A | Claude Opus (`code-reviewer`) | **PASS** (critical 0건 — 다만 근거에 사실오류 2건) |
+| B | Codex GPT-5.4 (`codex exec --sandbox read-only`) | **FAIL** (critical 3건, 4개 항목은 자기 도구 한계를 `UNVERIFIED`로 정직 표기) |
+
+**흡수 5건**:
+
+| # | 결함 | 출처 | 조치 |
+|---|---|---|---|
+| R6-1 | **Task 5 표의 사실오류.** `multi-session-work-loop-m3.md` 본문은 이미 `PR #116 MERGED`라 적고 `OPEN`은 0회 등장한다(스냅샷 사본도 동일 → baseline 시점에 이미 정확). stale한 "OPEN"은 **인덱스** 쪽이고 Task 4가 PR 상태를 제거하므로 자동 해소된다. 본문 주장과 인덱스 주장을 같은 칸에 적은 것이 오류 | 자체 검산 | 편집 대상 4건 → **3건**. V5b의 해당 항목은 "정정하라"가 아니라 **회귀 가드**로 재정의 |
+| R6-2 | **V8 주석이 R4의 고정 문턱 180과 R5의 파생 코드를 나란히 실어** 고정값처럼 읽힘 — 내 R5 수정이 남긴 drift | 자체 검산 | 하나의 서사로 통합, "손으로 고칠 상수 없음" 명시 |
+| R6-3 | **예외 메커니즘이 산문 계약보다 넓다.** 5% 상한만 있고 선언된 혼합 9줄에 결속돼 있지 않아, 현 산술로 **선언보다 3줄 더** 잃어도 게이트가 통과한다. 상한은 예산이지 계약이 아니다 | B | 등재에 `# reason: M<n>` 태그 의무화 + M1~M9만 허용 + 중복 거부. fixture 5종(정상·무태그·중복·범위밖 M10·경계 M9)으로 확인 |
+| R6-4 | **규범 규칙이 CLAUDE.md를 떠나도 전 게이트가 통과**(U7). B가 구체 사례를 지목했다 — §3.6 `Stdin-pipe IPC contract … command-line argument로 token 전달 금지` | B | **Validation 13 신설.** BASE에서 4개 섹션의 순수 규칙 줄 17개를 뽑아 전수 잔류를 요구한다. 지목된 규칙이 실제로 그 17줄에 포함됨을 확인했다 — 정책이 검사로 승격됐다 |
+| R6-5 | **V5b가 같은 크기의 통째 교체를 못 잡는다** — 축소만 보므로 동일·초과 크기 파괴적 재작성이 INFO로 빠져나간다 | B | 정체성 앵커 추가 — memory 계약상 본문 파일은 `name: <파일명>` frontmatter를 갖는다(16/16 실측). 앵커가 사라지면 hard-fail |
+
+**기각 1건**: A의 "tiktoken이 Windows에서 불가하므로 V10은 추정치" → **실측 반증.** `python`(3.13.3)+tiktoken 0.13.0으로 V10을 실행해 45,357 토큰을 얻었다. 불가한 것은 `python3` 별칭뿐이고 plan은 처음부터 `python`을 쓴다. A는 예외 상한 도출도 틀렸다(실제 삭제 줄 기준인데 floor 기준이라 서술).
+
+**이번 라운드에서 내 앞선 수정이 만든 결함이 1건(R6-2)이다.** R5도 그랬다. 수정이 수정을 낳는 국면이라, 남은 것은 아래 표대로 공개하고 사람 판단에 넘긴다.
+
+## 미해소
+
+R4·R5·R6에서 닫힌 것과 남은 것을 분리한다. 앞선 라운드의 표가 닫힌 항목을 계속 "열림"으로 실어 다음 세션이 같은 자리를 다시 파게 만들었다(R4-3).
+
+**해소됨**
+
+| # | 항목 | 어떻게 닫혔나 |
+|---|---|---|
+| U1 | Task 1의 판정 규칙이 휴리스틱 | 24행 전수 판정 manifest를 plan에 실었다. 실제 §1.4 행과 1:1 일치 확인(R4) |
+| U2 | repo 밖 memory에 복구 경로 없음 | `memory-snapshot-2026-08-09/`에 17파일 사본 + baseline 해시 17/17 일치. 탐지와 복원이 모두 존재 |
+| U4 | Validation 12의 임계가 임의값 | 90%로 올리고 도출을 명시(예외 상한 5% + 목적지 heading 증가분) |
+| U7 | 규칙이 CLAUDE.md에 남았음을 강제하는 검사 부재 — 규범 문장이 통째로 docs로 이주해도 전 게이트 통과 | **Validation 13**(R6). BASE에서 4개 섹션의 순수 규칙 17줄을 뽑아 전수 잔류 요구. 리뷰어가 지목한 구체 사례(§3.6 Stdin-pipe IPC contract)가 그 17줄에 포함됨을 확인 |
+
+**잔존**
+
+| # | 미해소 항목 | 성격 | 왜 안 닫았나 |
+|---|---|---|---|
+| U3 | **의미 보존 미증명** — V8은 줄 단위 정확 일치라 문장 단위 분할을 고아로 잡는다 | 설계 잔여 (R4에서 정량화) | 완전 해법은 span 단위 manifest다. 대신 압력의 크기를 실측했다 — 혼합 9줄 / 예외 상한 12로 **덮인다는 것까지는 확인**했고, 그 이상 필요해지면 축자 원칙이 깨졌다는 신호로 삼는다 |
+| U5 | MEMORY.md hook이 **운영 경고를 떨어뜨릴 수 있음** | 잔여 | 본문에는 남지만 인덱스만 읽는 세션은 놓친다. hook 문구 설계로 완화할 뿐 기계 보증은 불가 |
+| U6 | A3 계측기의 `python3` 하드코딩 | **의도적 이연** | gate-guard-integrity PRD가 승계한 red 7건 소속. 남의 PRD 범위를 조용히 침범하지 않는다 |
+| U8 | **repo 밖 표면의 제3자 갱신은 원리적으로 차단 불가** | 잔여 (R4-2 · R6-5에서 축소) | V5b는 파괴만 막고 제3자 재작성은 보고한다. R6에서 정체성 앵커(`name:` frontmatter)를 더해 **통째 교체**는 잡게 됐지만, 앵커를 유지한 채 같은 크기로 내용을 갈아끼우는 변조는 여전히 탐지 밖이다. auto-memory가 소유한 파일에 "안 바뀌었음"을 요구하는 검사는 어떤 형태로도 안정적일 수 없고, 그 경우의 복구는 스냅샷이 담당한다 |
+| U9 | **수정이 수정을 낳고 있다** | 프로세스 | R5는 R4 수정 안에서 1건, R6은 R5 수정 안에서 1건(R6-2)의 결함을 새로 만들었다. 라운드마다 실질 결함이 줄고는 있으나(R4 8건 → R5 7건 → R6 5건, 그중 게이트 통과불가급은 3 → 1 → 0) 수렴을 선언할 근거는 아직 없다. santa-method 상한에 도달했으므로 사람 판단으로 넘긴다 |
+
+### 라운드에서 배운 것
+
+- **공허한 PASS를 막으려 급히 붙인 문턱이 그대로 impossible-fail이 된다.** R2 자체감사는 V8이 "삭제 0건이면 통과"하는 것을 보고 `>=400`을 넣었는데, 그 숫자를 실측에 대보지 않았다. 대상 섹션의 실질 줄은 250뿐이라 게이트는 이후 두 라운드 내내 **영구 실패** 상태였고 아무도 실행하지 않아 아무도 몰랐다. 반대 방향 실패도 실패다.
+- **다른 시스템이 소유한 표면에 "변하지 않음"을 요구하지 마라.** V5b는 memory 디렉토리를 frozen으로 가정했지만 그 디렉토리는 auto-memory가 세션 중 제자리 재작성한다. 필요한 불변식은 "아무것도 안 바뀌었다"가 아니라 **"내가 아무것도 파괴하지 않았다"**였다.
+- **닫은 항목을 표에서 지우지 않으면 다음 세션이 다시 판다.** 개정 커밋은 U1/U2/U4를 닫았다고 적었지만 §미해소 표는 그대로였고, 같은 문서 안에서 U2가 "해소"이자 "미해소"였다. 리뷰어 B가 그 모순을 정확히 집었다.
+
+- **리뷰어 지적을 검증 없이 받으면 멀쩡한 코드를 고친다.** R2·R3에서 Reviewer A가 제기한 정규식 파손·섹션 경계·tautology 주장 5건은 재현 시도에서 전부 반증됐다. 반대로 R3에서 Reviewer B가 "V3 정규식이 깨졌다"고 한 것도 기전은 틀렸지만, 그걸 확인하려 실제로 돌려본 덕에 **진짜 결함**(§1.4는 24행인데 27로 세고 있었다 — §1.1 Fork Lineage 표 3행을 함께 잡았다)이 드러났다. 틀린 지적도 옳은 곳을 가리킬 수 있다.
+- **실행되지 않은 검사는 검사가 아니다.** V3·V7의 정규식은 세 라운드 동안 한 번도 실행된 적이 없었다(조기 반환). 리뷰어 둘 다 코드를 읽었을 뿐이고, 결함은 합성 입력을 만들어 돌려본 뒤에야 나왔다.
+- **자기 산술을 검산하지 않으면 헤드라인이 거짓이 된다.** 60,000 B 목표는 이 plan 자신의 예산 합계보다 작았고, 진단표는 바이트라 적힌 문자 수였다.
+
+## Codex Implementation Review
+
+> Codex skipped per `MCCP_CODEX_DISABLED=1` (env-level policy, first-class skip)
+
+- 호출: `node .../scripts/lib/codex-invoke.js adversarial-review` (v1.23.3 fail-closed wrapper)
+- 결과: `{"ok":true,"classification":"disabled","blocking":false,"advisory":false,"durationMs":0}` — spawn 직전 short-circuit
+- 출처: 사용자 레벨 `~/.claude/settings.json`(프로젝트 설정에는 이 키가 없다 — plan §Codex Adversarial Review와 동일)
+- 라운드 수: 0 · `resolution.codex_verdict`: `skipped`
+
+### Cross-gate dedupe
+
+미적용. plan 게이트도 `skipped`(Codex disabled)라 수렴한 decision-set이 없다. dedupe는 양쪽 `converged`를 요구하므로 fail-closed로 미발화한다.
+
+### 새 implement-time 결정
+
+없다. plan이 Task 0~6, 잔류 manifest 24행, 혼합 9줄 manifest, Validation 0~13을 전부 확정된 형태로 싣고 있어 구현자가 새로 정할 구조 결정(파일 레이아웃 · helper 추상화 · 외부 의존 · 동시성 모델 · 에러 처리)이 없다. 신규 코드 모듈 0건 — 변경 대상은 문서 4개 + 상태 파일 2개다.
+
+### Security Reviewer
+
+해당 없음. auth/crypto/secret/입력 검증/injection/SSRF/path traversal/권한 상승 표면을 건드리지 않는다 — 문서 재배치 + git-tracked 상태 파일 생성뿐이다.
+
+### Design Review
+
+`impeccable-detect` 결과 `skill_available=true` · `design_signal=false` · `silent_skip_reason=no-signal`. rendered surface(`.tsx/.css/.html`/`.claude/cache/*`) 변경이 없는 control-plane 문서 작업이라 critique retry loop 미발화. receipt에 `impeccable_silent_skip=true`로 정직 기록.

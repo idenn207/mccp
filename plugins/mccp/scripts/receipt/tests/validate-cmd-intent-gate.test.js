@@ -230,3 +230,94 @@ test('integrity checks win: a tampered receipt is never read for its intent fiel
   assert.strictEqual(kinds.indexOf('intent_gate_incomplete'), -1,
     'intent fields must not be read from a receipt already known to be tampered');
 });
+
+// ── recovery guidance must fit the verdict it is reporting ───────────────────
+//
+// M1 emitted one sentence for every blocking intent verdict. That sentence names
+// the most common cause of `incomplete` as though it were the only one, and it
+// actively misdiagnoses the M1.5 verdicts — an operator told to go add
+// adjudications when the reviewer is the one who ignored the contract edits the
+// wrong file and stays blocked.
+
+function blockingReason(repo) {
+  const res = validateImplement(repo);
+  const hit = res.blocking.filter(function (b) { return b.kind === 'intent_gate_incomplete'; });
+  assert.strictEqual(hit.length, 1, 'expected exactly one intent blocker');
+  return hit[0].reason;
+}
+
+test('(R) `incomplete` guidance names its other causes, not just the missing row', function () {
+  const repo = makeRepo();
+  seedPlanReceipt(repo, {
+    intent_gate_verdict: 'incomplete',
+    intent_plan_digest: planAwareMarkdownHash(repo.planAbs),
+  });
+  const reason = blockingReason(repo);
+  // The receipt does not record WHICH cause fired, so the guidance must not
+  // assert one. All four are fixed by the same re-run, which is why naming the
+  // range costs nothing.
+  ['review_payload_digest', 'count', 'finding_index'].forEach(function (cause) {
+    assert.ok(reason.indexOf(cause) !== -1, 'must mention ' + cause + ': ' + reason);
+  });
+  assert.ok(reason.indexOf('no CLI surface') !== -1,
+    'and must keep the integrity warning that applies to every intent verdict');
+});
+
+// A mislabel verdict is only reachable from a real comparison, so the schema now
+// requires its evidence. Seeding the verdict alone built a shape the producer
+// cannot emit — the fixture, not the rule, was wrong.
+function mislabelEvidence(extra) {
+  return Object.assign({
+    intent_mislabel_mode: 'enforce',
+    intent_reviewer_contract: 'full',
+    intent_claim_counts: {
+      total: 1, claimed: 1, unclaimed: 0,
+      agree_none: 0, agree_conflict: 0, id_mismatch: 0,
+      reviewer_only: 1, author_only: 0,
+      reviewer_conflict: 1, author_conflict: 0,
+    },
+    intent_claims_digest: 'sha256:' + 'c'.repeat(64),
+    intent_mislabel_disputes: 0,
+    intent_mislabel_audit: [{
+      finding_index: 0,
+      finding_digest: 'sha256:' + 'b'.repeat(64),
+      reviewer_claim: 'UI1',
+      author_conflict: 'none',
+      classification: 'reviewer-only',
+      resolution: 'unresolved',
+      dispute_reason: null,
+    }],
+  }, extra || {});
+}
+
+test('(R) the M1.5 verdicts get their own guidance, not the incomplete text', function () {
+  const inconclusive = makeRepo();
+  seedPlanReceipt(inconclusive, {
+    intent_gate_verdict: 'inconclusive',
+    intent_plan_digest: planAwareMarkdownHash(inconclusive.planAbs),
+    ...mislabelEvidence({
+      intent_reviewer_contract: 'partial',
+      intent_claim_counts: {
+        total: 2, claimed: 1, unclaimed: 1,
+        agree_none: 0, agree_conflict: 0, id_mismatch: 0,
+        reviewer_only: 1, author_only: 0,
+        reviewer_conflict: 1, author_conflict: 0,
+      },
+    }),
+  });
+  const a = blockingReason(inconclusive);
+  assert.ok(a.indexOf('REVIEWER') !== -1,
+    'inconclusive is the reviewer\'s failure, and the text must say so: ' + a);
+  assert.ok(a.indexOf('not fixed by editing adjudications') !== -1, a);
+
+  const mislabel = makeRepo();
+  seedPlanReceipt(mislabel, {
+    intent_gate_verdict: 'mislabel_unresolved',
+    intent_plan_digest: planAwareMarkdownHash(mislabel.planAbs),
+    ...mislabelEvidence(),
+  });
+  const b = blockingReason(mislabel);
+  assert.ok(b.indexOf('intent_dispute_reason') !== -1,
+    'mislabel_unresolved has two concrete resolutions and must name them: ' + b);
+  assert.notStrictEqual(a, b, 'the two M1.5 verdicts must not share one message');
+});

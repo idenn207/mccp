@@ -1,6 +1,10 @@
 'use strict';
 
 const { validateReason } = require('./lib/force-override-reason');
+// One definition, two enforcement points: the oracle decides the verdict, and
+// the schema refuses to seal an entry whose label the oracle would not have
+// produced. Importing rather than restating it is what keeps them from drifting.
+const { isValidDisputeReason } = require('../lib/intent-context');
 
 const SCHEMA_VERSION = 'v1';
 
@@ -865,6 +869,9 @@ function validate(receipt) {
     // dedupe refuses. Materializing a default null would destroy that signal.
     const INTENT_VERDICT_VALUES = [
       'preserved', 'skipped', 'skipped-unproven', 'incomplete', 'conflict_unresolved',
+      // M1.5 — widening an enum only VALIDATES new values; it cannot make a
+      // historical receipt retroactively invalid.
+      'inconclusive', 'mislabel_unresolved',
     ];
     // Keep in lockstep with intent-context.js SKIP_PROOFS — a value accepted by
     // one and rejected by the other splits write-side and read-side on what
@@ -873,6 +880,15 @@ function validate(receipt) {
     const INTENT_SKIP_PROOFS = [
       'free_form_plan', 'no_codex_findings', 'codex_disabled', 'codex_not_invoked',
     ];
+    const INTENT_CONTRACT_VALUES = ['full', 'partial', 'absent'];
+    const INTENT_MISLABEL_MODES = ['enforce', 'warn', 'off'];
+    const INTENT_MISLABEL_CLASSIFICATIONS = ['reviewer-only', 'id-mismatch'];
+    // 'relabelled' is unreachable by construction (relabelling reclassifies the
+    // finding as agree-conflict, which never enters the audit array). It stays
+    // accepted so DD11's stated enum remains valid input.
+    const INTENT_MISLABEL_RESOLUTIONS = ['relabelled', 'disputed', 'unresolved'];
+    const INTENT_AUDIT_MAX = 1000;   // == ADJUDICATION_LIMITS.ITEMS, so no truncation branch exists
+    const INTENT_DISPUTE_REASON_CHARS = 5000;   // == ADJUDICATION_LIMITS.DISPUTE_REASON_CHARS
 
     if (m.intent_section_present !== undefined) {
       req(typeof m.intent_section_present === 'boolean',
@@ -964,6 +980,338 @@ function validate(receipt) {
           'MCCP_SKIP_INTENT_GATE requires a substantive reason ≥30 chars + ≥3 words, ' +
           'no placeholder/URL-only/banlist token');
       }
+    }
+
+    // ── M1.5 mislabel axis — 6 present-only fields ──────────────────────────
+    //
+    // Same present-only contract as the M1 block above: absent means "this
+    // receipt predates the field", not "clean". None of these are in
+    // makeSkeleton, so the tracked ship corpus's receipt_hash is untouched.
+    if (m.intent_mislabel_mode !== null && m.intent_mislabel_mode !== undefined) {
+      req(typeof m.intent_mislabel_mode === 'string'
+        && INTENT_MISLABEL_MODES.indexOf(m.intent_mislabel_mode) !== -1,
+        'meta.intent_mislabel_mode must be one of: ' +
+        INTENT_MISLABEL_MODES.join(', ') + ' (or null)');
+    }
+    if (m.intent_reviewer_contract !== null && m.intent_reviewer_contract !== undefined) {
+      req(typeof m.intent_reviewer_contract === 'string'
+        && INTENT_CONTRACT_VALUES.indexOf(m.intent_reviewer_contract) !== -1,
+        'meta.intent_reviewer_contract must be one of: ' +
+        INTENT_CONTRACT_VALUES.join(', ') + ' (or null)');
+    }
+    if (m.intent_mislabel_disputes !== null && m.intent_mislabel_disputes !== undefined) {
+      req(Number.isInteger(m.intent_mislabel_disputes) && m.intent_mislabel_disputes >= 0,
+        'meta.intent_mislabel_disputes must be a non-negative integer or null');
+    }
+    if (m.intent_claims_digest !== null && m.intent_claims_digest !== undefined) {
+      req(typeof m.intent_claims_digest === 'string' && SHA256_RE.test(m.intent_claims_digest),
+        'meta.intent_claims_digest must match sha256:<64 hex> or be null');
+    }
+    // Unlike intent_adjudication_counts, this shape is CLOSED: every key is
+    // produced by one oracle in this repo, so a stray key means the object did
+    // not come from compareIntentClaims. Validation is the same partition
+    // invariant that oracle asserts — the six classifications must account for
+    // every finding exactly once, and claimed+unclaimed must too.
+    //
+    // That invariant alone does NOT stop a hand-edited object from claiming
+    // `reviewer_only: 0` while the audit array lists three of them: moving the
+    // three into `author_only` keeps the partition intact. Catching that needs
+    // the aggregates compared against the evidence, which is the reconciliation
+    // block after the audit array — this block only establishes that they are
+    // well-formed enough to compare.
+    let ccUsable = null;
+    if (m.intent_claim_counts !== null && m.intent_claim_counts !== undefined) {
+      const cc = m.intent_claim_counts;
+      if (!cc || typeof cc !== 'object' || Array.isArray(cc)) {
+        err('meta.intent_claim_counts must be an object or null');
+      } else {
+        const CC_KEYS = ['total', 'claimed', 'unclaimed', 'agree_none', 'agree_conflict',
+          'id_mismatch', 'reviewer_only', 'author_only', 'reviewer_conflict', 'author_conflict'];
+        let ccOk = true;
+        CC_KEYS.forEach(function (k) {
+          const ok = Number.isInteger(cc[k]) && cc[k] >= 0;
+          if (!ok) ccOk = false;
+          req(ok, 'meta.intent_claim_counts.' + k + ' must be a non-negative integer');
+        });
+        Object.keys(cc).forEach(function (k) {
+          req(CC_KEYS.indexOf(k) !== -1, 'meta.intent_claim_counts has unknown key "' + k + '"');
+        });
+        if (ccOk) {
+          const sumOk = cc.claimed + cc.unclaimed === cc.total;
+          req(sumOk, 'meta.intent_claim_counts: claimed + unclaimed must equal total');
+          const partition = cc.agree_none + cc.agree_conflict + cc.id_mismatch
+            + cc.reviewer_only + cc.author_only + cc.unclaimed;
+          req(partition === cc.total,
+            'meta.intent_claim_counts: the six classifications must partition total');
+          // `reviewer_conflict` counts findings where the reviewer named an id,
+          // and naming an id lands the finding in exactly one of three
+          // classifications — so this is an identity, not a bound, and an upper
+          // bound alone (`<= claimed`) let the counter be falsified downward.
+          req(cc.reviewer_conflict === cc.agree_conflict + cc.reviewer_only + cc.id_mismatch,
+            'meta.intent_claim_counts.reviewer_conflict (' + cc.reviewer_conflict +
+            ') must equal agree_conflict + reviewer_only + id_mismatch (' +
+            (cc.agree_conflict + cc.reviewer_only + cc.id_mismatch) + ')');
+          // `author_conflict` gets only a bound, and the asymmetry is real: the
+          // author's label is counted even when the REVIEWER made no claim, so
+          // an `unclaimed` finding can carry one. That share is not recoverable
+          // from the six classification counts, and asserting the same identity
+          // here would reject legitimate producer output.
+          const authorFloor = cc.author_only + cc.agree_conflict + cc.id_mismatch;
+          req(cc.author_conflict >= authorFloor
+            && cc.author_conflict <= authorFloor + cc.unclaimed,
+            'meta.intent_claim_counts.author_conflict (' + cc.author_conflict +
+            ') must lie in [' + authorFloor + ', ' + (authorFloor + cc.unclaimed) +
+            '] — author_only + agree_conflict + id_mismatch, plus at most the ' +
+            'unclaimed findings that may also carry an author label');
+          if (sumOk && partition === cc.total) ccUsable = cc;
+        }
+      }
+    }
+    let auditUsable = null;
+    if (m.intent_mislabel_audit !== null && m.intent_mislabel_audit !== undefined) {
+      const au = m.intent_mislabel_audit;
+      if (!Array.isArray(au)) {
+        err('meta.intent_mislabel_audit must be an array or null');
+      } else if (au.length > INTENT_AUDIT_MAX) {
+        // Unreachable in practice (disputed findings are a subset of findings,
+        // and findings are already capped at the same number) — but a silent
+        // truncation would defeat the whole point of the array, so it is an
+        // ERROR rather than a slice.
+        err('meta.intent_mislabel_audit exceeds ' + INTENT_AUDIT_MAX + ' entries');
+      } else {
+        // Only classification/resolution gate the reconciliation below, so only
+        // those two decide whether the array is comparable — a bad digest is an
+        // error but does not make the tallies meaningless.
+        let comparable = true;
+        au.forEach(function (e, i) {
+          const at = 'meta.intent_mislabel_audit[' + i + ']';
+          if (!e || typeof e !== 'object' || Array.isArray(e)) {
+            err(at + ' must be an object');
+            comparable = false;
+            return;
+          }
+          req(Number.isInteger(e.finding_index) && e.finding_index >= 0,
+            at + '.finding_index must be a non-negative integer');
+          req(e.finding_digest === null
+            || (typeof e.finding_digest === 'string' && SHA256_RE.test(e.finding_digest)),
+            at + '.finding_digest must match sha256:<64 hex> or be null');
+          const clsOk = typeof e.classification === 'string'
+            && INTENT_MISLABEL_CLASSIFICATIONS.indexOf(e.classification) !== -1;
+          req(clsOk, at + '.classification must be one of: ' +
+            INTENT_MISLABEL_CLASSIFICATIONS.join(', '));
+          const resOk = typeof e.resolution === 'string'
+            && INTENT_MISLABEL_RESOLUTIONS.indexOf(e.resolution) !== -1;
+          req(resOk, at + '.resolution must be one of: ' +
+            INTENT_MISLABEL_RESOLUTIONS.join(', '));
+          if (!clsOk || !resOk) comparable = false;
+          req(e.reviewer_claim === null || typeof e.reviewer_claim === 'string',
+            at + '.reviewer_claim must be a string or null');
+          req(e.author_conflict === null || typeof e.author_conflict === 'string',
+            at + '.author_conflict must be a string or null');
+          req(e.dispute_reason === null
+            || (typeof e.dispute_reason === 'string'
+              && e.dispute_reason.length <= INTENT_DISPUTE_REASON_CHARS),
+            at + '.dispute_reason must be a string ≤' + INTENT_DISPUTE_REASON_CHARS +
+            ' chars or null');
+          // `resolution:'disputed'` is a CLAIM that the author answered, and the
+          // oracle only reaches it when isValidDisputeReason accepted the text.
+          // Length-checking alone left the label trusted on its own word: an
+          // entry could seal `dispute_reason:'no'` as `disputed`, count toward
+          // intent_mislabel_disputes, and carry `preserved` — while the same
+          // text through the oracle is no answer at all and yields
+          // `mislabel_unresolved`. Re-run the predicate here so the record
+          // cannot assert a resolution its own evidence does not support.
+          if (e.resolution === 'disputed') {
+            req(isValidDisputeReason(e.dispute_reason),
+              at + '.resolution is "disputed" but .dispute_reason is not a valid ' +
+              'dispute (the oracle would treat it as no answer, making this ' +
+              'finding unresolved)');
+          }
+        });
+        if (comparable) auditUsable = au;
+      }
+    }
+
+    // ── aggregate ↔ evidence reconciliation ────────────────────────────────
+    //
+    // The aggregates SUMMARIZE the audit array, so a receipt where the two
+    // disagree is not merely odd: it is a receipt whose summary contradicts its
+    // own evidence, which is exactly the shape a hand-edit takes when someone
+    // wants the counts to look clean without deleting the entries that prove
+    // otherwise. Shape validation cannot see it — the comparison has to be made.
+    //
+    // The equality is exact rather than an inequality because ONLY the two
+    // NEEDS_RESPONSE classifications ever enter the array
+    // (intent-claims.js#NEEDS_RESPONSE, projected by
+    // plan-codex-runner.js#buildMislabelAudit), and `resolution:'disputed'` is
+    // set by the same predicate that counts a dispute.
+    const auditAbsent = m.intent_mislabel_audit === null
+      || m.intent_mislabel_audit === undefined;
+    const disputesPresent = Number.isInteger(m.intent_mislabel_disputes)
+      && m.intent_mislabel_disputes >= 0;
+
+    if (auditUsable && ccUsable) {
+      let reviewerOnly = 0;
+      let idMismatch = 0;
+      auditUsable.forEach(function (e) {
+        if (e.classification === 'reviewer-only') reviewerOnly += 1;
+        else if (e.classification === 'id-mismatch') idMismatch += 1;
+      });
+      req(reviewerOnly === ccUsable.reviewer_only,
+        'meta.intent_claim_counts.reviewer_only (' + ccUsable.reviewer_only +
+        ') must equal the reviewer-only entries in meta.intent_mislabel_audit (' +
+        reviewerOnly + ')');
+      req(idMismatch === ccUsable.id_mismatch,
+        'meta.intent_claim_counts.id_mismatch (' + ccUsable.id_mismatch +
+        ') must equal the id-mismatch entries in meta.intent_mislabel_audit (' +
+        idMismatch + ')');
+    }
+
+    // Deleting the array is the other half of the same edit, so absence is only
+    // acceptable when the aggregates agree that there was nothing to record.
+    if (auditAbsent) {
+      if (ccUsable) {
+        req(ccUsable.reviewer_only + ccUsable.id_mismatch === 0,
+          'meta.intent_mislabel_audit is absent but meta.intent_claim_counts reports ' +
+          (ccUsable.reviewer_only + ccUsable.id_mismatch) +
+          ' finding(s) that required an explicit response — the evidence array cannot be dropped');
+      }
+      if (disputesPresent) {
+        req(m.intent_mislabel_disputes === 0,
+          'meta.intent_mislabel_disputes is ' + m.intent_mislabel_disputes +
+          ' but meta.intent_mislabel_audit is absent — a dispute has no evidence');
+      }
+    } else if (auditUsable && disputesPresent) {
+      let disputed = 0;
+      auditUsable.forEach(function (e) { if (e.resolution === 'disputed') disputed += 1; });
+      req(m.intent_mislabel_disputes === disputed,
+        'meta.intent_mislabel_disputes (' + m.intent_mislabel_disputes +
+        ') must equal the disputed entries in meta.intent_mislabel_audit (' + disputed + ')');
+    }
+
+    // `intent_reviewer_contract` is a projection of the counts
+    // (intent-claims.js#deriveCompliance), so it is derivable rather than
+    // independent. Storing both and never comparing them lets the cheap-to-read
+    // one drift away from the one that carries the arithmetic.
+    if (ccUsable && typeof m.intent_reviewer_contract === 'string') {
+      const expected = ccUsable.total === 0 ? 'absent'
+        : (ccUsable.claimed === ccUsable.total ? 'full'
+          : (ccUsable.claimed === 0 ? 'absent' : 'partial'));
+      req(m.intent_reviewer_contract === expected,
+        'meta.intent_reviewer_contract ("' + m.intent_reviewer_contract +
+        '") must be derivable from meta.intent_claim_counts (expected "' + expected +
+        '" for ' + ccUsable.claimed + '/' + ccUsable.total + ')');
+    }
+
+    // ── verdict ↔ evidence ─────────────────────────────────────────────────
+    //
+    // decideIntentGate makes each mislabel verdict an ENTAILMENT of the
+    // evidence, not a separate opinion about it: `inconclusive` is returned
+    // only when compliance is not `full`, `mislabel_unresolved` only when at
+    // least one response-needed finding lacks a valid dispute, and reaching
+    // `preserved` means neither fired. A receipt that seals one of those
+    // verdicts next to evidence that could not have produced it is
+    // self-contradictory, and the one that matters is `preserved` — that is the
+    // value `isIntentApproved` reads.
+    //
+    // This does NOT make forgery impossible: an actor who rewrites the whole
+    // file can write a consistent lie (`preserved` + `full` + an empty audit)
+    // and no cross-check can see it. What it closes is the receipt that keeps
+    // its incriminating evidence while flipping the verdict above it, and
+    // producer drift where the two stop agreeing.
+    const contractPresent = typeof m.intent_reviewer_contract === 'string';
+    let unresolvedCount = null;
+    if (auditUsable) {
+      unresolvedCount = 0;
+      auditUsable.forEach(function (e) {
+        if (e.resolution === 'unresolved') unresolvedCount += 1;
+      });
+    }
+
+    if (m.intent_gate_verdict === 'preserved') {
+      if (contractPresent) {
+        req(m.intent_reviewer_contract === 'full',
+          'meta.intent_gate_verdict="preserved" contradicts meta.intent_reviewer_contract="' +
+          m.intent_reviewer_contract + '" — a non-full contract yields "inconclusive"');
+      }
+      if (unresolvedCount !== null) {
+        req(unresolvedCount === 0,
+          'meta.intent_gate_verdict="preserved" contradicts ' + unresolvedCount +
+          ' unresolved entr(ies) in meta.intent_mislabel_audit — those yield ' +
+          '"mislabel_unresolved"');
+      }
+    } else if (m.intent_gate_verdict === 'inconclusive') {
+      if (contractPresent) {
+        req(m.intent_reviewer_contract !== 'full',
+          'meta.intent_gate_verdict="inconclusive" requires a non-full ' +
+          'meta.intent_reviewer_contract');
+      }
+    } else if (m.intent_gate_verdict === 'mislabel_unresolved') {
+      if (unresolvedCount !== null) {
+        req(unresolvedCount > 0,
+          'meta.intent_gate_verdict="mislabel_unresolved" requires at least one ' +
+          'unresolved entry in meta.intent_mislabel_audit');
+      }
+    }
+
+    // `intent_mislabel_mode` is sealed on every current write, so it records
+    // whether the axis was live. If it was AND the gate still reached
+    // `preserved`, the comparison necessarily ran: plan-codex-runner.js builds
+    // `comparison` on exactly the branch that can return `preserved` (a run that
+    // never got that far ends at `skipped` or `incomplete`). So a `preserved`
+    // receipt claiming an active mode with no evidence at all is a receipt whose
+    // evidence was removed after the fact.
+    //
+    // Scope, stated plainly: this is NOT anti-forgery. Whoever nulls these five
+    // can null the mode too and land on something indistinguishable from a
+    // pre-M1.5 receipt — present-only makes that indistinguishability deliberate.
+    // It closes the partial edit, and (before any of this) an unsigned edit is
+    // already caught by receipt_hash, which covers these fields.
+    //
+    // The same entailment runs the other way for the two verdicts the mislabel
+    // axis itself produces. `inconclusive` and `mislabel_unresolved` are returned
+    // ONLY from the block that requires a comparison, so they cannot exist
+    // without one — and a comparison cannot exist with the axis off. Requiring
+    // the bundle only for `preserved` left the blocking half of the axis able to
+    // validate with its evidence stripped, which is the shape that matters most:
+    // those are exactly the receipts an operator is sent to read.
+    const liveMislabelMode = m.intent_mislabel_mode === 'warn'
+      || m.intent_mislabel_mode === 'enforce';
+    const isMislabelVerdict = m.intent_gate_verdict === 'inconclusive'
+      || m.intent_gate_verdict === 'mislabel_unresolved';
+
+    if (isMislabelVerdict) {
+      req(liveMislabelMode,
+        'meta.intent_gate_verdict="' + m.intent_gate_verdict + '" requires ' +
+        'meta.intent_mislabel_mode to be "warn" or "enforce" — the axis produces ' +
+        'that verdict only when it ran (got ' +
+        JSON.stringify(m.intent_mislabel_mode) + ')');
+    }
+
+    if (isMislabelVerdict || (liveMislabelMode && m.intent_gate_verdict === 'preserved')) {
+      const why = isMislabelVerdict
+        ? 'meta.intent_gate_verdict="' + m.intent_gate_verdict +
+          '" is produced only from a comparison, so its evidence must be present'
+        : 'meta.intent_mislabel_mode="' + m.intent_mislabel_mode +
+          '" with verdict "preserved" means the comparison ran';
+      [
+        'intent_reviewer_contract', 'intent_claim_counts', 'intent_claims_digest',
+        'intent_mislabel_disputes', 'intent_mislabel_audit',
+      ].forEach(function (k) {
+        req(m[k] !== null && m[k] !== undefined, 'meta.' + k + ' must be present — ' + why);
+      });
+    }
+
+    // The flag means the override TOOK EFFECT (intent-context.js DD12), so a
+    // sealed reason with the flag down records a justification for something
+    // that did not happen — exactly the reading the split was introduced to
+    // prevent.
+    if (typeof m.intent_gate_force_override_reason === 'string'
+        && m.intent_gate_force_override_reason.length > 0) {
+      req(m.intent_gate_force_override === true,
+        'meta.intent_gate_force_override_reason is sealed but ' +
+        'meta.intent_gate_force_override is not true — the reason must be dropped ' +
+        'when the override did not apply');
     }
   }
 

@@ -37,6 +37,7 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const ic = require('./intent-context');
+const iclaims = require('./intent-claims');
 const codexInvoke = require('./codex-invoke');
 const codexPayload = require('./codex-review-payload');
 const receiptWrite = require('../receipt/write');
@@ -326,12 +327,23 @@ function run(opts, deps) {
     const section = ic.extractIntentSection(planText);
     const intentReference = section.present ? ic.buildIntentReference(section.items) : null;
 
+    // M1.5 DD5 — ⓪ mode는 Codex 호출보다 **먼저** 해석된다. `off`의 경계는 오라클이
+    // 아니라 리뷰어 호출 **앞**에 있다: 계약 문단을 붙이지 않고(프롬프트 축),
+    // claims를 파싱하지 않으며(경로 축), comparison을 넘기지 않는다(판정 축).
+    // 셋 중 하나라도 빠지면 `off`는 end-to-end M1 등가가 아니다 — 특히 ①이 빠지면
+    // 오라클은 건드리지 않았는데 **리뷰 payload 자체가 달라진다**.
+    const mislabelMode = ic.parseMislabelMode(env, function (m) {
+      process.stderr.write(m + '\n');
+    });
+    const mislabelActive = mislabelMode !== 'off';
+
     const envelope = invoke(o.focus || '', {
       env: env,
       timeoutMs: o.codexTimeoutMs,
       json: true,
       impeccableAvailable: o.impeccableAvailable === true,
       intentReference: intentReference,
+      mislabelContract: mislabelActive,
     });
 
     // Audit copy only. Nothing below reads this back (DD3).
@@ -366,10 +378,26 @@ function run(opts, deps) {
     const skipProof = ic.resolveSkipProof({ planText: planText, reviewPayload: payload, meta: meta });
 
     let decision;
+    let comparison = null;
+    let claims = null;
     if (skipProof) {
       decision = { verdict: 'skipped', skipProof: skipProof, counts: null,
         reason: 'gate does not apply (' + skipProof + ')' };
     } else {
+      // M1.5 DD2 — ① 리뷰어 주장은 **메모리의** payload에서만 파싱되고 지역 변수에
+      // 보관된다. 아래 ②가 그 값을 awaiting 아티팩트에 투영하지만 그건 출력이고,
+      // ④의 대조는 투영이 아니라 이 지역 변수를 읽는다. 디스크에서 claims를 읽는
+      // 코드 경로는 이 파일에 존재하지 않는다 — 존재하면 그 파일이 곧 게이트가 되고
+      // 아무나 통과 verdict를 위조할 수 있다.
+      claims = mislabelActive ? iclaims.parseReviewerClaims({
+        findings: payload.findings,
+        sectionItems: section.items,
+      }) : null;
+      const claimByIndex = Object.create(null);
+      if (claims) {
+        claims.claims.forEach(function (c) { claimByIndex[c.finding_index] = c; });
+      }
+
       // Publish findings for the LLM to adjudicate, then wait — still holding
       // `payload` in memory as the sole source of truth for the digests.
       writePrivate(p.awaiting, JSON.stringify({
@@ -377,8 +405,25 @@ function run(opts, deps) {
         decision_id: decisionId,
         plan_path: planPath,
         review_payload_digest: ic.canonicalDigest(payload),
+        // ② 투영 — 저자가 대조 상대를 볼 수 있어야 라벨을 정정하거나 dispute를 쓸 수
+        // 있다. digest는 감사용 사본일 뿐이며, 내구적 증거는 receipt에 봉인된다
+        // (DD11 — awaiting은 아래 finally가 삭제하는 임시 파일이라 그 안의 digest는
+        // 증거가 될 수 없다).
+        mislabel_mode: mislabelMode,
+        claims_digest: claims ? ic.canonicalDigest(claims.claims) : null,
+        reviewer_contract: claims
+          ? iclaims.compareIntentClaims({ claims: claims, adjudications: [] }).compliance
+          : null,
         findings: payload.findings.map(function (f, i) {
-          return { finding_index: i, finding_digest: ic.canonicalDigest(f), finding: f };
+          const c = claimByIndex[i];
+          return {
+            finding_index: i,
+            finding_digest: ic.canonicalDigest(f),
+            reviewer_claim: c ? (c.status === 'claimed' ? c.claim : null) : null,
+            reviewer_claim_status: c ? c.status : null,
+            reviewer_claim_reason: c ? c.reason : null,
+            finding: f,
+          };
         }),
         adjudication_path: p.adjudication,
       }, null, 2));
@@ -394,18 +439,53 @@ function run(opts, deps) {
         return finish(EX_BLOCKED, { verdict: 'incomplete',
           reason: 'adjudication file rejected: ' + parsed.reason });
       }
-      decision = ic.decideIntentGate({
+      // ④ 대조는 ①의 **지역 변수**를 읽는다. awaiting을 다시 읽는 코드는 없다.
+      //
+      // 단, 대조에 **앞서** M1 바인딩을 먼저 통과시킨다. `decideIntentGate`는
+      // adjudication 파일이 이 payload에 실제로 결속되는지(digest 일치 · 개수 일치 ·
+      // index 유일·범위)를 M1 규칙에서 검사하는데, 그 검사가 거부한 파일로 계산한
+      // 비교 결과는 **다른 리뷰에 대한 판정**이다. 그것을 receipt에 봉인하면 — override로
+      // 진행할 때 실제로 그렇게 됐다 — 감사 표면이 자기가 설명하지 않는 리뷰의 증거를
+      // 담게 된다.
+      //
+      // 그래서 comparison 없이 한 번 판정해 M1을 통과할 때만 대조한다. 오라클이 순수
+      // 함수라 두 번 호출해도 부작용이 없고, "M1.5 증거는 M1 바인딩이 성공했을 때만
+      // 존재한다"가 주석이 아니라 **구조**가 된다.
+      const m1Only = ic.decideIntentGate({
         planText: planText,
         section: section,
         reviewPayload: payload,
         adjudications: parsed.value,
         meta: meta,
+        comparison: null,
       });
+
+      if (m1Only.verdict !== 'preserved') {
+        decision = m1Only;   // M1이 막았다 — comparison은 null로 남고 아무것도 stamp되지 않는다
+      } else {
+        comparison = claims ? iclaims.compareIntentClaims({
+          claims: claims,
+          adjudications: parsed.value.adjudications,
+        }) : null;
+
+        decision = ic.decideIntentGate({
+          planText: planText,
+          section: section,
+          reviewPayload: payload,
+          adjudications: parsed.value,
+          meta: meta,
+          comparison: comparison,
+        });
+      }
     }
 
     const overrideReason = ic.parseIntentGateSkipReason(env);
     const derived = ic.deriveIntentGateDecision(decision, {
       forceOverrideActive: !!overrideReason,
+      // DD6/DD12 — advisory는 override와 **독립 입력**이다. 순서상 mode가 먼저
+      // 판정하므로, warn이 통과시킨 경우 override는 적용된 적이 없고 그 플래그는
+      // false로 봉인된다(적용되지 않은 override를 참으로 기록하지 않는다).
+      advisoryActive: mislabelMode === 'warn',
     });
 
     if (!derived.runtimeAllowed) {
@@ -482,7 +562,20 @@ function run(opts, deps) {
         plan_digest: digestNow,
         run_nonce: nonce,
         force_override: derived.overrideActive,
-        force_override_reason: overrideReason || null,
+        // Only when it APPLIED. `warn` is judged first, so a run where both the
+        // env and warn were in play passes through warn and never uses the
+        // override — sealing its reason anyway would document a justification
+        // for something that did not happen (schema enforces the pairing).
+        force_override_reason: derived.overrideActive ? (overrideReason || null) : null,
+        // M1.5 — 오심 축 감사 표면. mode는 항상 봉인한다(경로가 실제로 무엇이었는지가
+        // 나중에 판독 가능해야 하므로). 나머지는 `off`에서 null이라 구 receipt와
+        // 구분되지 않는데, 그것이 의도다 — "모름"과 "돌지 않음"은 같은 취급이다.
+        mislabel_mode: mislabelMode,
+        reviewer_contract: comparison ? comparison.compliance : null,
+        claim_counts: comparison ? comparison.counts : null,
+        claims_digest: claims ? ic.canonicalDigest(claims.claims) : null,
+        mislabel_disputes: comparison ? countValidDisputes(comparison) : null,
+        mislabel_audit: buildMislabelAudit(comparison, payload),
       },
     }));
 
@@ -558,6 +651,44 @@ function run(opts, deps) {
     try { if (fs.existsSync(p.adjudication)) fs.unlinkSync(p.adjudication); } catch (_) {}
     releaseLock(p.lock, nonce);
   }
+}
+
+// M1.5 DD11 — 감사 증거는 receipt에 봉인된다. 집계 수치는 대시보드용이지 증거가
+// 아니다: "리뷰어가 UI2를 지목했는데 저자가 무슨 근거로 기각했나"를 카운트로는 나중에
+// 대조할 수 없다. finding_digest를 동봉하므로 각 항목은 특정 review payload에 bind되고,
+// awaiting 아티팩트 변조는 봉인값과 어긋나 사후 진단이 가능해진다.
+//
+// 통과한 finding(agree-* / author-only)은 담지 않는다 — 그쪽 무결성은
+// claims_digest가 맡는다(DD2). 상한 분기가 없는 이유는 분쟁 항목이 finding 수의
+// 부분집합이라 ADJUDICATION_LIMITS.ITEMS를 넘을 수 없기 때문이다. 조용한 truncation은
+// 감사 표면을 무력화하므로 애초에 선택지가 아니다.
+function buildMislabelAudit(comparison, payload) {
+  if (!comparison) return null;
+  const findings = (payload && Array.isArray(payload.findings)) ? payload.findings : [];
+  return comparison.needsResponse.map(function (e) {
+    const disputed = ic.isValidDisputeReason(e.dispute_reason);
+    const f = findings[e.finding_index];
+    return {
+      finding_index: e.finding_index,
+      finding_digest: f === undefined ? null : ic.canonicalDigest(f),
+      reviewer_claim: e.reviewer_claim,
+      author_conflict: e.author_conflict,
+      classification: e.classification,
+      // 'relabelled'은 구조적으로 도달 불가하다: 저자가 리뷰어 id로 정정하면 분류가
+      // agree-conflict가 되어 needsResponse에 들어오지 않는다. 스키마는 DD11 원문대로
+      // 허용하되 여기서 발급하지 않는다.
+      resolution: disputed ? 'disputed' : 'unresolved',
+      // 기각된 dispute의 원문도 남긴다 — 무엇이 왜 기각됐는지가 감사 대상이다.
+      dispute_reason: typeof e.dispute_reason === 'string' ? e.dispute_reason : null,
+    };
+  });
+}
+
+function countValidDisputes(comparison) {
+  if (!comparison) return null;
+  return comparison.needsResponse.filter(function (e) {
+    return ic.isValidDisputeReason(e.dispute_reason);
+  }).length;
 }
 
 function writeMarkerSafe(file, obj) {

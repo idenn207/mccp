@@ -300,6 +300,7 @@ node plugins/mccp/scripts/lib/suite-determinism.js --runs 10 --json --repo-root 
 1. **2.5.4 ↔ 2.5.7 구조 결함** (D5) — 커맨드가 지시한 plan 본문 주입이 같은 커맨드의 다음 단계를 stale로 만든다. STATE.md Open Questions에 이미 backlog 항목으로 있던 것이 이번에 실제로 발화했다. 우회는 sibling 아티팩트.
 2. **`gitRepoRoot`가 비-git 디렉토리에서 throw** — 반환값이 아니라 예외다. 격리는 실패 경로 위의 정리 동작이라 여기서 예외가 올라가면 진짜 사유가 가려진다. `containmentRoot()`로 흡수하고 cwd로 떨어진다.
 3. **주입 스위치 무효화** (D9) — 자기 검증 없이 착지했다면 "대체가 아니라 완화"를 그대로 통과시킬 뻔했다. `[NEG-FAIL]`이 잡았다.
+4. **소스 파일에 실제 제어 바이트 유입** — `store-quarantine.test.js`의 제어문자 부정 케이스를 escape 리터럴(`'a\0b'` 등)로 쓴 결과 **NUL(0x00)과 BEL(0x07)이 파일에 그대로** 들어갔고, git이 그 파일을 **binary로 판정**했다(`Bin 0 -> 7802 bytes`). 테스트는 통과했으므로 스위트로는 잡히지 않는다 — PR diff 단계에서 발견했다. 리뷰 불가능한 소스 파일은 이 milestone의 주제(신호 신뢰도)와 정면으로 어긋나므로, 제어문자를 `String.fromCharCode(c)`로 **조립**하도록 바꾸고 그 이유를 코드 주석에 계약으로 고정했다.
 
 ---
 

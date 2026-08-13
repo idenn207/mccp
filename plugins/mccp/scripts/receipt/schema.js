@@ -1267,16 +1267,38 @@ function validate(receipt) {
     // pre-M1.5 receipt — present-only makes that indistinguishability deliberate.
     // It closes the partial edit, and (before any of this) an unsigned edit is
     // already caught by receipt_hash, which covers these fields.
-    if ((m.intent_mislabel_mode === 'warn' || m.intent_mislabel_mode === 'enforce')
-        && m.intent_gate_verdict === 'preserved') {
+    //
+    // The same entailment runs the other way for the two verdicts the mislabel
+    // axis itself produces. `inconclusive` and `mislabel_unresolved` are returned
+    // ONLY from the block that requires a comparison, so they cannot exist
+    // without one — and a comparison cannot exist with the axis off. Requiring
+    // the bundle only for `preserved` left the blocking half of the axis able to
+    // validate with its evidence stripped, which is the shape that matters most:
+    // those are exactly the receipts an operator is sent to read.
+    const liveMislabelMode = m.intent_mislabel_mode === 'warn'
+      || m.intent_mislabel_mode === 'enforce';
+    const isMislabelVerdict = m.intent_gate_verdict === 'inconclusive'
+      || m.intent_gate_verdict === 'mislabel_unresolved';
+
+    if (isMislabelVerdict) {
+      req(liveMislabelMode,
+        'meta.intent_gate_verdict="' + m.intent_gate_verdict + '" requires ' +
+        'meta.intent_mislabel_mode to be "warn" or "enforce" — the axis produces ' +
+        'that verdict only when it ran (got ' +
+        JSON.stringify(m.intent_mislabel_mode) + ')');
+    }
+
+    if (isMislabelVerdict || (liveMislabelMode && m.intent_gate_verdict === 'preserved')) {
+      const why = isMislabelVerdict
+        ? 'meta.intent_gate_verdict="' + m.intent_gate_verdict +
+          '" is produced only from a comparison, so its evidence must be present'
+        : 'meta.intent_mislabel_mode="' + m.intent_mislabel_mode +
+          '" with verdict "preserved" means the comparison ran';
       [
         'intent_reviewer_contract', 'intent_claim_counts', 'intent_claims_digest',
         'intent_mislabel_disputes', 'intent_mislabel_audit',
       ].forEach(function (k) {
-        req(m[k] !== null && m[k] !== undefined,
-          'meta.' + k + ' must be present when meta.intent_mislabel_mode="' +
-          m.intent_mislabel_mode + '" and meta.intent_gate_verdict="preserved" — ' +
-          'reaching that verdict with the axis live means the comparison ran');
+        req(m[k] !== null && m[k] !== undefined, 'meta.' + k + ' must be present — ' + why);
       });
     }
 

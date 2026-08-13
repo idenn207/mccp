@@ -904,3 +904,46 @@ test('M1.5 — an unresolved entry is not required to carry a reason', function 
     assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
   });
 });
+
+test('M1.5 — a blocking mislabel verdict cannot have its evidence stripped', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision({
+        verdict: 'mislabel_unresolved',
+        mislabel_disputes: 0,
+        mislabel_audit: [auditEntry({ resolution: 'unresolved', dispute_reason: null })],
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true, 'the honest receipt validates');
+
+    // The rule previously covered `preserved` only, so the blocking half of the
+    // axis could validate with its evidence removed — and those are exactly the
+    // receipts an operator is told to read.
+    ['intent_reviewer_contract', 'intent_claim_counts', 'intent_claims_digest',
+      'intent_mislabel_disputes', 'intent_mislabel_audit'].forEach(function (k) {
+      r.receipt.meta[k] = null;
+    });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('produced only from a comparison') !== -1,
+      v.errors.join(' '));
+  });
+});
+
+test('M1.5 — a mislabel verdict cannot claim the axis was off', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision({ verdict: 'inconclusive', reviewer_contract: 'partial',
+        claim_counts: goodCounts({ claimed: 1, unclaimed: 1, agree_none: 0 }) }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true);
+
+    // `off` never builds a comparison, so it can never yield this verdict.
+    r.receipt.meta.intent_mislabel_mode = 'off';
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('only when it ran') !== -1, v.errors.join(' '));
+  });
+});

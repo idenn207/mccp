@@ -263,11 +263,47 @@ test('(R) `incomplete` guidance names its other causes, not just the missing row
     'and must keep the integrity warning that applies to every intent verdict');
 });
 
+// A mislabel verdict is only reachable from a real comparison, so the schema now
+// requires its evidence. Seeding the verdict alone built a shape the producer
+// cannot emit — the fixture, not the rule, was wrong.
+function mislabelEvidence(extra) {
+  return Object.assign({
+    intent_mislabel_mode: 'enforce',
+    intent_reviewer_contract: 'full',
+    intent_claim_counts: {
+      total: 1, claimed: 1, unclaimed: 0,
+      agree_none: 0, agree_conflict: 0, id_mismatch: 0,
+      reviewer_only: 1, author_only: 0,
+      reviewer_conflict: 1, author_conflict: 0,
+    },
+    intent_claims_digest: 'sha256:' + 'c'.repeat(64),
+    intent_mislabel_disputes: 0,
+    intent_mislabel_audit: [{
+      finding_index: 0,
+      finding_digest: 'sha256:' + 'b'.repeat(64),
+      reviewer_claim: 'UI1',
+      author_conflict: 'none',
+      classification: 'reviewer-only',
+      resolution: 'unresolved',
+      dispute_reason: null,
+    }],
+  }, extra || {});
+}
+
 test('(R) the M1.5 verdicts get their own guidance, not the incomplete text', function () {
   const inconclusive = makeRepo();
   seedPlanReceipt(inconclusive, {
     intent_gate_verdict: 'inconclusive',
     intent_plan_digest: planAwareMarkdownHash(inconclusive.planAbs),
+    ...mislabelEvidence({
+      intent_reviewer_contract: 'partial',
+      intent_claim_counts: {
+        total: 2, claimed: 1, unclaimed: 1,
+        agree_none: 0, agree_conflict: 0, id_mismatch: 0,
+        reviewer_only: 1, author_only: 0,
+        reviewer_conflict: 1, author_conflict: 0,
+      },
+    }),
   });
   const a = blockingReason(inconclusive);
   assert.ok(a.indexOf('REVIEWER') !== -1,
@@ -278,6 +314,7 @@ test('(R) the M1.5 verdicts get their own guidance, not the incomplete text', fu
   seedPlanReceipt(mislabel, {
     intent_gate_verdict: 'mislabel_unresolved',
     intent_plan_digest: planAwareMarkdownHash(mislabel.planAbs),
+    ...mislabelEvidence(),
   });
   const b = blockingReason(mislabel);
   assert.ok(b.indexOf('intent_dispute_reason') !== -1,

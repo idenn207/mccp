@@ -611,19 +611,97 @@ function contentHash(state) {
     .digest('hex');
 }
 
+// multi-session-work-loop M5 — 상태 변형의 단일 임계구역 (G1·G3).
+//
+// **호출자는 반드시 withStateLock 안에서 부른다.** update()와
+// recordChainProgress()가 둘 다 이 함수를 거치므로 `writeStateAtomic` 호출부는
+// 저장소 전체에서 여기 하나뿐이고, single-writer-lint.js 축 1이 그 사실을
+// 정적으로 검사한다. 두 함수가 각자 write하던 이전 구조에서는 축 1이 자기
+// 모듈 안에서 이미 거짓이었다.
+//
+// 공개 시그니처·렌더 바이트는 불변이다 (G3). 바뀌는 것은 `merged`를 어디서
+// 얻는가 하나뿐 — 디스크 read-modify-write냐, 저널 투영이냐.
+function applyLocked(repoRoot, patch) {
+  const existing = readState(repoRoot);
+  const target = statePath(repoRoot);
+  const fileExisted = fs.existsSync(target);
+
+  // DD6.1 — 마커 검사는 **락을 잡은 직후 가장 먼저** 수행되고 그 뒤에 분기가
+  // 결정된다. 락 밖에서 보거나 분기 이후에 보면 두 프로세스가 서로 다른 모드로
+  // 같은 STATE.md를 쓰는 창이 열린다. 락 자체는 여전히 advisory이므로(잔여 4)
+  // 이 배치가 상호배제를 *만들지는* 않지만, 모드 판정과 쓰기가 같은 임계구역
+  // 안에 있다는 것은 보장한다.
+  //
+  // lazy require인 이유 (I2): `project.js`가 top-level에서 이 모듈의
+  // `mergeState`를 require하므로, 여기서 top-level로 저널을 require하면 CommonJS
+  // 부분 초기화로 `mergeState`가 undefined가 된다.
+  let journal = null;
+  try {
+    journal = require('../lib/state-journal').journalApply({
+      repoRoot: repoRoot,
+      patch: patch,
+      existingState: existing,
+    });
+  } catch (err) {
+    // 저널 모듈이 로드/실행 불가. 조용히 넘기면 "SoT는 저널"이라는 주장이 검증
+    // 불가가 되므로 loud warn 후 직접 경로로 계속한다 (fail-loud-open).
+    process.stderr.write('[mccp:state-writer] WARNING: state-journal unavailable (' +
+      (err && err.message) + '); writing STATE.md directly\n');
+    journal = null;
+  }
+
+  if (journal && journal.appendFailed) {
+    // DD6.1 abort 표 3·4행. STATE.md는 **쓴다**(변형을 잃지 않는다) — 그 다음
+    // degraded 마커를 남기고, 마커가 실패하면 throw한다. 되돌리지 않는 이유는
+    // rollback이 *또 하나의 실패 가능한 write*이고, 이미 fs가 흔들리는 구간에서
+    // 그것을 신뢰할 근거가 없기 때문이다.
+    const merged = mergeState(existing, patch);
+    const skip = fileExisted && contentHash(existing) === contentHash(merged);
+    let writeError = null;
+    if (!skip) {
+      try { writeStateAtomic(repoRoot, merged); }
+      catch (err) { writeError = err; }
+    }
+    const marker = require('./journal-store')
+      .writeDegradedMarker(repoRoot, { reason: journal.reason });
+    if (!marker.ok) {
+      // **유일 throw 지점** (DD6.1 책임 2층 표). 보증하는 것은 "세션이 시끄럽게
+      // 죽는다"가 아니라 둘이다: ① update()가 성공을 반환하지 않는다 ② 다음
+      // 세션의 `journal verify` 추론 축이 반드시 잡는다.
+      process.stderr.write('[mccp:state-writer] WARNING: journal append failed (' +
+        journal.reason + ') AND the degraded marker could not be written (' +
+        marker.reason + '). A downgrade that cannot be recorded must not be ' +
+        'reported as success.\n');
+      throw new Error('MCCP_JOURNAL_DEGRADED_UNRECORDED: ' + journal.reason +
+        ' / marker: ' + marker.reason);
+    }
+    process.stderr.write('[mccp:state-writer] WARNING: journal append failed (' +
+      journal.reason + ') — entering degraded mode. STATE.md is now the source of ' +
+      'truth for this repo until `journal checkpoint --reseed` runs.\n');
+    if (writeError) throw writeError;
+    return skip ? existing : merged;
+  }
+
+  // enforce + 저널 정상 → 투영이 권위. off/shadow/degraded → 기존 직접 경로.
+  const authoritative = !!(journal && journal.authoritative && journal.projected);
+  const merged = authoritative ? journal.projected : mergeState(existing, patch);
+
+  if (fileExisted && contentHash(existing) === contentHash(merged)) {
+    // Content is semantically identical — only timestamps would change.
+    // Skip disk write so STATE.md stays out of `git status`.
+    //
+    // 지연 레코드(admit-superseded / admit-post-tombstone)가 투영에서 배제되면
+    // 재투영 결과가 이전과 같으므로 이 비교에서 write가 skip된다 — 부활 시도는
+    // 파일 mtime조차 건드리지 못한다 (G2, Task 4 단언 d).
+    return existing;
+  }
+  writeStateAtomic(repoRoot, merged);
+  return merged;
+}
+
 function update(repoRoot, patch) {
   return withStateLock(repoRoot, function () {
-    const existing = readState(repoRoot);
-    const target = statePath(repoRoot);
-    const fileExisted = fs.existsSync(target);
-    const merged = mergeState(existing, patch || {});
-    if (fileExisted && contentHash(existing) === contentHash(merged)) {
-      // Content is semantically identical — only timestamps would change.
-      // Skip disk write so STATE.md stays out of `git status`.
-      return existing;
-    }
-    writeStateAtomic(repoRoot, merged);
-    return merged;
+    return applyLocked(repoRoot, patch || {});
   });
 }
 
@@ -645,8 +723,10 @@ function recordChainProgress(repoRoot, entry) {
       receipt_path: entry.receipt_path || entry.receiptPath || null,
       ts: nowIso(),
     });
-    const merged = mergeState(existing, { chain_progress: JSON.stringify(log) });
-    writeStateAtomic(repoRoot, merged);
+    // M5 — 직접 write 대신 공용 임계구역을 거친다. 이미 락 안이므로
+    // update()를 부르면 재진입이 되어 락 획득이 실패한다(fail-soft 경고 후
+    // 무락 진행) — 그래서 applyLocked를 직접 부른다.
+    applyLocked(repoRoot, { chain_progress: JSON.stringify(log) });
     return { path: statePath(repoRoot), log: log };
   });
 }

@@ -274,6 +274,14 @@ raw lock context(`withEvidenceLock`의 heartbeat/assertOwned 핸들)는 **module
 
 `claim_epoch`는 M5 모델의 **대체물이 아니다**. 그 축의 최소 선행 조건이며, 그것만으로 순서 의미론을 주장하지 않는다.
 
+> **M5 착지 결과 (v1.23.8) — 대체가 아니라 확장임이 확정됐다.** M5는 `evidence-claim.js`를 한 줄도 재작성하지 않았다. 순서 축은 별도 기판(`lib/state-journal/` + `state/journal-store.js`)에 서고, 세션 epoch은 새로 발명하지 않고 `session-ledger.created_at`에서 파생한다(UUID인 `claim_epoch`은 순서를 갖지 않아 "누가 먼저인가"를 답할 수 없다). 두 축의 관계는 다음과 같이 고정됐다:
+>
+> - **점유는 시간 창(TTL 15분)의 문제, 순서는 시간 상한이 없는 문제다.** M5의 `session_epoch` 비교에는 만료가 없으므로, M3 claim TTL이 지난 뒤 되살아난 세션의 지연 append도 여전히 `admit-post-tombstone`으로 배제된다(회귀 test가 TTL 경과 후 동일 판정을 단언). 이것이 §8이 M5에 배정한 "TTL 만료 이후의 무기한 replay 방어"의 구현형이다.
+> - **tombstone은 epoch보다 강하다.** 판정 우선순위상 tombstone 검사가 epoch 비교보다 먼저이므로, 더 새로운 세션이라도 닫힌 작업 단위를 되살리지 못한다.
+> - **클론 경계에서의 방어는 M3 claim이 아니라 git-tracked `completion-ledger`가 지탱한다.** 저널은 working-tree 전용이라 클론 후 tombstone이 0이 되는데, genesis 부트스트랩이 ledger 엔트리를 tombstone으로 seed해 그 구멍을 메운다. 단 그 seed는 `decision_id` 키이므로 `task_fingerprint` 축 레코드에는 미치지 않는다(명시 잔여 1b).
+>
+> 상세와 보증/비보증의 단일 기준: [state-truth-source-design.md](state-truth-source-design.md).
+
 ## 9. 토글
 
 | 토글 | default | 의미 |

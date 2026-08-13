@@ -2,7 +2,34 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.8`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.23.8] — 2026-08-13
+
+**multi-session-work-loop M5 — 상태 진실원 이전 (단일 milestone → patch bump)** — 세션 간 진실의 원천을 **되돌릴 수 없는 요약 문서(STATE.md)에서 질의 가능한 append-only 저널로 옮기고**, STATE.md를 그 저널의 **파생 투영물**로 강등한다. GROUND 결과 PRD가 적은 것보다 한 칸 나빴다: `state-writer.update()`는 read-modify-write 전체 덮어쓰기이고 락은 실패 시 **경고만 남기고 그대로 쓴다**(last-writer-wins) — 저널이 없으므로 덮어쓴 내용에는 **복구 경로가 존재하지 않았다**. 게다가 M5가 의존하는 A4의 producer는 프로덕션에서 아티팩트를 **한 건도** 남긴 적이 없었다(`*.handoff-items.json` = main + worktree 6개 전체 0건). 원인은 CL-5 경로 결함의 **4번째 재발**이며 M4의 수정 주석이 같은 `try` 블록 8줄 위에 있었다.
+
+보증 범위는 정확히 다섯이며 그 이상을 주장하지 않는다 — **G1** 정상 모드의 모든 상태 변형이 손실 없이 append됨(degraded 구간은 제외이며 그 제외가 마커·loud stderr·`journal verify` 비영점 exit 세 곳에 동시에 드러남) · **G2** 닫힌 작업 단위는 지연·재생 기록으로 되살아나지 않음(저널이 유실된 뒤에도 — genesis 부트스트랩이 git-tracked `completion-ledger`에서 tombstone을 재수집) · **G3** STATE.md 소비 계약 불변(렌더 **byte-identical** · `mergeState`/`renderState` 재구현 0) · **G4** 이력이 질의 가능하고 압축이 투영을 손상시키지 않음 · **G5** A4 분자가 경계 스코프로 파생됨. **G5의 `computed` 전환은 미확인이다** — 배포(`claude plugin update`) + 새 세션 1회가 필요하고 이 사이클은 수행하지 않았으므로, §G5 조건성이 사전 고정한 미달 처리를 그대로 밟는다(`computed` 주장 금지 · `measurement-instrumentation.md` A4 행 `forward-only` 유지 · PRD M5 status를 순정 `complete`로 적지 않음).
+
+### Added
+- `plugins/mccp/scripts/lib/state-journal/{record,order,project,retention,index,single-writer-lint}.js` — 레코드 스키마(bounded allowlist + `content_hash`) · 재생 방어 판정 오라클(순수, 부작용 0) · 투영 reduce(`fs`/`child_process`/`net`/`os` import 0) · 보존 정책 · facade · 5축 정적 lint.
+- `plugins/mccp/scripts/state/journal-store.js` — `O_APPEND` append · malformed per-line 격리 + 카운트 · 원자 tmp+rename checkpoint · genesis 부트스트랩 · `completion-ledger` tombstone seed.
+- `plugins/mccp/scripts/lib/msw-metrics/a4-boundary-restore.js` + `derive/sources/session-journal.js` — A4 분자를 저널 `prev_session_id` 경계에서 파생. self-credit이 **구조적으로 불가능**하다(경계는 `prev !== cur`일 때만 성립).
+- `state/cli.js journal query|verify|checkpoint [--reseed]` — `verify`는 5축(content_hash 전수 · malformed 라인 · degraded 마커 · 투영↔디스크 일치 · ledger seed 무결성)이며 하나라도 실패하면 비영점 exit.
+- 회귀 **67건** + `docs/multi-session-work-loop/m5-assertion-manifest.json`(단언 ↔ test 제목 기계 대조, absent 0 강제).
+
+### Changed
+- `state-writer.js` — `update()`가 저널 append → 재투영 경유로 재배선. **공개 시그니처·렌더 바이트 불변.** `recordChainProgress`도 같은 임계구역(`applyLocked`)을 거치게 해 `writeStateAtomic` 호출부가 저장소 전체에서 **하나**가 됐다(lint 축 1이 그 사실을 검사).
+- `hooks/session-{start,end}.js` — CL-5 4번째 재발 수정 **3곳**(열거·기록·복원). `resolveHandoffRoot`를 거치므로 `projectRoot=''`가 cwd 상대로 접히는 구멍(M3·M4 수정에도 잠재)이 닫혔고, 해소 실패는 마커 + msw-event **2채널**로 셀 수 있게 남는다.
+- `docs/ENVIRONMENT.md` §11 — 신규 토글 **정확히 1개** `MCCP_STATE_JOURNAL=enforce|shadow|off` 등재(운영 계약 4축: 수동 전용 · 프로세스 수명 · **마커 > 토글** · `shadow`는 쓰기 경로만 되돌림).
+
+### Fixed
+- **`completion-ledger` 엔트리 스키마 오독** — 최초 구현이 top-level `decision_id`를 읽어 실측 32건 전부가 `corrupt`로 계상됐다(실제 스키마는 `{schema_version, entry:{…}}`). 조용히 0건을 seed했다면 G2가 성립한다고 오독됐을 자리이며, **DD11이 요구한 corrupt 카운터가 이 결함을 드러냈다**. 수정 후 27개 distinct 작업 단위가 seed된다.
+- **`created_at` 재파생** — 재투영이 매번 replay 시각으로 `created_at`을 덮어써 "이 상태가 처음 만들어진 시각"이 호출마다 미래로 밀렸다. 레코드의 `ts`를 결정론적 앵커로 고정(기존 회귀 `read-modify-write preserves unspecified fields`가 검출).
+- **`work_unit` 한 칸 밀림** — 해석이 기존 frontmatter만 읽어 작업 단위를 바꾸는 바로 그 변형이 *이전* 단위로 기록됐다. patch를 frontmatter보다 먼저 본다.
+- **lint 인자 추출이 CL-5 형태를 통과** — 순진한 `\(([^)]*)`가 `fn(process.cwd())`의 첫 `)`에서 끊겨 잡아야 할 형태 바로 그것을 놓쳤다. 괄호 균형 스캔으로 교체.
+
+### Security
+- 사전 `security-reviewer` 실발화 — findings **7건**(CRITICAL 0 · HIGH 3 · MEDIUM 3 · LOW 1) 전건 트리아지. 신규 축 2건 흡수: **프로토타입 오염**(`JSON.parse`가 `__proto__`를 own 속성으로 만들고 `Object.assign` source로 쓰이면 `Object.prototype` setter가 발동 — allowlist 키별 대입 + `sanitizePatch`로 차단, 저널 라인·ledger 엔트리 양쪽 회귀 fixture) · **seq 충돌 잔여 정밀화**(락 fail-open 구간의 동시 append는 결정론적으로 해소되나 **진 쪽의 patch는 투영되지 않는다** — 레코드는 잔존·질의 가능. 즉 그 구간은 "손실 없음"이 아니라 "손실이 기록으로 남음"). 구현 불변식 3건: checkpoint rename **이후에만** 세그먼트 회전(부분 압축 tail 유실 차단) · `--reseed`가 폐기 범위를 새 genesis에 봉인(파괴를 막지는 않되 이력에 남김) · malformed 라인 > 0에서 `verify` 비영점 exit(truncation 은폐 차단). 1건은 사실 오류로 기각(`verify`가 투영↔디스크 일치를 이미 검사), DEFER 0건.
 
 ## [1.23.7] — 2026-08-09
 

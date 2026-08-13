@@ -184,3 +184,24 @@ test('every intent-context SKIP_PROOFS value is accepted by the receipt schema',
       sp + ' is schema-legal but the reader does not treat it as a proven skip');
   });
 });
+
+// ── M1.5: the carve-out is a third direct-write exit ────────────────────────
+//
+// M1.5 added six present-only `intent_mislabel_*` keys and the rule that every
+// current in-scope writer materializes them, so an ABSENT key means one thing:
+// the receipt predates the field. The two exits M1.5 knew about null them
+// explicitly. This branch arrived from the other side of a merge, which is
+// exactly how that rule quietly stops being true — the branch is correct on its
+// own terms and simply predates the axis it now has to honour.
+
+test('M1.5 — the panel carve-out nulls the mislabel axis rather than omitting it', () => {
+  const r = withoutOverride(() => buildReceipt(panelArgs()).receipt);
+  [
+    'intent_mislabel_mode', 'intent_reviewer_contract', 'intent_claim_counts',
+    'intent_claims_digest', 'intent_mislabel_disputes', 'intent_mislabel_audit',
+  ].forEach((k) => {
+    assert.ok(Object.prototype.hasOwnProperty.call(r.meta, k),
+      `meta.${k} must be written (as null) by a current writer, not omitted`);
+    assert.equal(r.meta[k], null, `meta.${k} must be null — the panel ran no mislabel axis`);
+  });
+});

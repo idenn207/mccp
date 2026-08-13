@@ -136,3 +136,76 @@ test('the degrade branch still exists and still degrades to ONE reviewer', () =>
   assert.match(SRC, /PERSPECTIVE_ORDER\.slice\(0,\s*1\)/,
     'missing fleetKeys must degrade to a single reviewer, never to the full panel');
 });
+
+// ── 3. the budget gate, EXECUTED ──────────────────────────────────────────────
+//
+// M4 axis B. The budget branch was only ever `node --check`ed, and a syntax check
+// cannot see that `minRemaining` had no producer: the sole caller (cli.js
+// emit-workflow-args) never put the key in the payload, so `input.minRemaining`
+// read `undefined`, the Number.isFinite guard substituted 0, and
+// `budget.remaining() < 0` is unreachable for any non-negative remaining. The
+// gate existed in source and could not fire.
+//
+// `extractFunction` cannot reach it — the branch is top-level script body, not a
+// function — so run the whole script instead. The only edit is stripping the ESM
+// `export` keyword, which `new AsyncFunction` cannot parse; everything the branch
+// touches (`args`, `budget`, `log`, `phase`, `parallel`, `agent`) is supplied as a
+// sandbox global exactly as the Workflow runtime supplies it.
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+
+function runWorkflow(opts) {
+  const o = opts || {};
+  const logs = [];
+  const spawned = [];
+  const body = SRC.replace(/^export const meta/m, 'const meta');
+  const fn = new AsyncFunction('args', 'log', 'budget', 'phase', 'parallel', 'agent', body);
+  return fn(
+    o.input,
+    function (m) { logs.push(String(m)); },
+    o.budget || { total: null, spent: function () { return 0; }, remaining: function () { return Infinity; } },
+    function () {},
+    function (thunks) { return Promise.all(thunks.map(function (t) { return t(); })); },
+    function (prompt, agentOpts) {
+      spawned.push(agentOpts.label);
+      return Promise.resolve({ perspective: agentOpts.label.replace('review:', ''),
+        verdict: 'pass', findings: [], refutationAttempted: 'stub' });
+    }
+  ).then(function (result) { return { result: result, logs: logs, spawned: spawned }; });
+}
+
+const FULL_FLEET = ['architect', 'security', 'test', 'invariant'];
+
+test('budget.total unset → the panel fires (pre-existing behaviour preserved)', async () => {
+  const { result, spawned } = await runWorkflow({
+    input: { planPath: 'p.md', fleetKeys: FULL_FLEET, minRemaining: 600000 },
+    budget: { total: null, spent: function () { return 0; }, remaining: function () { return 0; } },
+  });
+  assert.equal(result.skipped, false,
+    'an unmetered turn must not be gated — budget.total null means "no target set"');
+  assert.equal(spawned.length, 4);
+});
+
+test('remaining below minRemaining skips the panel — the branch that could never fire', async () => {
+  const { result, logs, spawned } = await runWorkflow({
+    input: { planPath: 'p.md', fleetKeys: FULL_FLEET, minRemaining: 600000 },
+    budget: { total: 500000, spent: function () { return 400000; }, remaining: function () { return 100000; } },
+  });
+  assert.equal(result.skipped, true);
+  assert.equal(result.reason, 'budget');
+  assert.equal(spawned.length, 0, 'no agent may be spawned once the budget gate trips');
+  assert.match(logs.join('\n'), /budget-exhausted/);
+  // The measured numbers must travel with the skip. Without them `decide`'s
+  // reason says "L2 produced no readable result" and the operator cannot tell a
+  // budget stop from a crashed panel.
+  assert.equal(result.remaining, 100000, 'the skip must carry the observed remaining');
+  assert.equal(result.minRemaining, 600000, 'the skip must carry the threshold it failed');
+});
+
+test('remaining at or above minRemaining still fires', async () => {
+  const { result, spawned } = await runWorkflow({
+    input: { planPath: 'p.md', fleetKeys: FULL_FLEET, minRemaining: 600000 },
+    budget: { total: 2000000, spent: function () { return 0; }, remaining: function () { return 600000; } },
+  });
+  assert.equal(result.skipped, false, 'the comparison is strict — exactly enough is enough');
+  assert.equal(spawned.length, 4);
+});

@@ -85,6 +85,488 @@ test('intent fields are PRESENT-ONLY: a receipt that never exercises the gate om
   });
 });
 
+// ── M1.5 — mislabel axis receipt surface (Task 7) ────────────────────────────
+
+const MISLABEL_KEYS = [
+  'intent_mislabel_mode', 'intent_reviewer_contract', 'intent_claim_counts',
+  'intent_claims_digest', 'intent_mislabel_disputes', 'intent_mislabel_audit',
+];
+
+function goodCounts(extra) {
+  return Object.assign({
+    total: 2, claimed: 2, unclaimed: 0,
+    agree_none: 1, agree_conflict: 0, id_mismatch: 0,
+    reviewer_only: 1, author_only: 0,
+    reviewer_conflict: 1, author_conflict: 0,
+  }, extra || {});
+}
+
+function auditEntry(extra) {
+  return Object.assign({
+    finding_index: 0,
+    finding_digest: 'sha256:' + 'b'.repeat(64),
+    reviewer_claim: 'UI1',
+    author_conflict: 'none',
+    classification: 'reviewer-only',
+    resolution: 'disputed',
+    dispute_reason: 'the reviewer misread the boundary and this finding never touches it',
+  }, extra || {});
+}
+
+// The two direct-write exits (free-form skip, audited override) never reach the
+// runner, so they have to null the mislabel axis themselves. `hasOwnProperty` is
+// the point of this helper, not decoration: an ABSENT key and a null one read
+// identically through `meta.x === null`, and absence is precisely the regression
+// — it would make a receipt written today indistinguishable from one written
+// before M1.5 existed, which is the opposite of what the schema's present-only
+// contract promises.
+const MISLABEL_AXIS_KEYS = [
+  'intent_mislabel_mode', 'intent_reviewer_contract', 'intent_claim_counts',
+  'intent_claims_digest', 'intent_mislabel_disputes', 'intent_mislabel_audit',
+];
+function assertMislabelAxisNulled(meta) {
+  MISLABEL_AXIS_KEYS.forEach(function (k) {
+    assert.ok(Object.prototype.hasOwnProperty.call(meta, k),
+      'meta.' + k + ' must be written (as null), not omitted, by a current writer');
+    assert.strictEqual(meta[k], null, 'meta.' + k + ' must be null on a direct-write path');
+  });
+}
+
+function mislabelDecision(extra) {
+  return goodDecision(Object.assign({
+    mislabel_mode: 'enforce',
+    reviewer_contract: 'full',
+    claim_counts: goodCounts(),
+    claims_digest: 'sha256:' + 'c'.repeat(64),
+    mislabel_disputes: 1,
+    mislabel_audit: [auditEntry()],
+  }, extra || {}));
+}
+
+test('M1.5 fields are PRESENT-ONLY and never materialized out of scope', function () {
+  withRepo(FREE_FORM_PLAN, function (repo, planRel) {
+    const r = write({ gate: 'mccp-implement-codex', decision: 'ig-x', plan: planRel });
+    MISLABEL_KEYS.forEach(function (k) {
+      assert.strictEqual(Object.prototype.hasOwnProperty.call(r.receipt.meta, k), false,
+        k + ' must not be materialized on an out-of-scope receipt');
+    });
+  });
+});
+
+test('M1.5 fields are absent from makeSkeleton — the tracked ship corpus hash is untouched', function () {
+  // Call it rather than scanning its source: a textual scan silently passes the
+  // day the function is renamed, which is exactly when this guard matters.
+  const { makeSkeleton } = require('../schema');
+  const meta = makeSkeleton({}).meta;
+  assert.ok(meta && typeof meta === 'object', 'makeSkeleton must still produce a meta object');
+  MISLABEL_KEYS.forEach(function (k) {
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(meta, k), false,
+      k + ' must not be in makeSkeleton (absence is the "unknown" signal, and a ' +
+      'materialized default would move receipt_hash for every existing receipt)');
+  });
+});
+
+test('M1.5 — a full mislabel decision round-trips and validates', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, true, JSON.stringify(v.errors));
+    assert.strictEqual(r.receipt.meta.intent_mislabel_mode, 'enforce');
+    assert.strictEqual(r.receipt.meta.intent_reviewer_contract, 'full');
+    assert.strictEqual(r.receipt.meta.intent_mislabel_disputes, 1);
+    assert.strictEqual(r.receipt.meta.intent_mislabel_audit.length, 1);
+    assert.strictEqual(r.receipt.meta.intent_mislabel_audit[0].finding_digest,
+      'sha256:' + 'b'.repeat(64));
+  });
+});
+
+test('M1.5 — a counts object that does not partition the findings is rejected', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // Dropping a classification without redistributing it leaves the six
+    // classifications summing to less than total. This test covers ONLY that
+    // arithmetic — the aggregate-vs-evidence check is a separate axis below,
+    // because a partition-preserving edit sails straight through this one.
+    r.receipt.meta.intent_claim_counts = goodCounts({ reviewer_only: 0 });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('partition') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — counts that partition cleanly but contradict the audit are rejected', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // The edit the partition invariant cannot see: move the reviewer_only into
+    // author_only. Total, claimed/unclaimed and the partition all still balance,
+    // so the summary now reads "nothing needed a response" while the audit array
+    // right below it still holds the evidence that one did.
+    r.receipt.meta.intent_claim_counts = goodCounts({ reviewer_only: 0, author_only: 1 });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false, 'a clean-looking summary must not outvote its own evidence');
+    const joined = v.errors.join(' ');
+    assert.ok(joined.indexOf('partition') === -1,
+      'this must fail on reconciliation, not on arithmetic: ' + joined);
+    assert.ok(joined.indexOf('reviewer_only') !== -1 && joined.indexOf('audit') !== -1, joined);
+  });
+});
+
+test('M1.5 — an id-mismatch tally that disagrees with the audit is rejected', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // Relabel the response as the other blocking kind. The partition, the total
+    // and even the number of entries all still agree — only the per-class tally
+    // disagrees, so a reconciliation done on array length alone would miss it.
+    r.receipt.meta.intent_claim_counts = goodCounts({ reviewer_only: 0, id_mismatch: 1 });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('id_mismatch') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — the audit array cannot be dropped to make the counts look clean', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // The other half of the same edit: keep the honest counts, delete the
+    // evidence. Absence is only acceptable when the counts agree there was
+    // nothing to record.
+    r.receipt.meta.intent_mislabel_audit = null;
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('cannot be dropped') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — a dispute count that the audit does not support is rejected', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // Understating disputes hides that a reviewer objection was waved off;
+    // overstating them manufactures a record that no entry backs.
+    r.receipt.meta.intent_mislabel_disputes = 0;
+    assert.strictEqual(validate(r.receipt).ok, false);
+
+    r.receipt.meta.intent_mislabel_disputes = 2;
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('disputes') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — reviewer_conflict is an identity, not merely an upper bound', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // Naming an id puts the finding in exactly one of three classifications, so
+    // the counter is derivable. `<= claimed` alone let it be falsified downward
+    // — the direction that makes a conflicted review look conflict-free.
+    r.receipt.meta.intent_claim_counts = goodCounts({ reviewer_conflict: 0 });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('reviewer_conflict') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — author_conflict is bounded, and an unclaimed finding may carry one', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // The author's label is counted even when the reviewer made no claim, so
+    // author_conflict has no closed form — only a range. A receipt where an
+    // unclaimed finding carries the author's conflict is legitimate output and
+    // must validate: 1 unclaimed + 1 reviewer-only, floor 0, ceiling 1.
+    r.receipt.meta.intent_claim_counts = goodCounts({
+      claimed: 1, unclaimed: 1, agree_none: 0, author_conflict: 1,
+    });
+    r.receipt.meta.intent_reviewer_contract = 'partial';
+    r.receipt.meta.intent_gate_verdict = 'inconclusive';
+    assert.strictEqual(validate(r.receipt).ok, true,
+      'an author conflict on an unclaimed finding is producible and must be accepted');
+
+    // Above the ceiling it is not: only 2 findings exist, and one of them is the
+    // reviewer-only entry whose author said `none`.
+    r.receipt.meta.intent_claim_counts = goodCounts({
+      claimed: 1, unclaimed: 1, agree_none: 0, author_conflict: 2,
+    });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('author_conflict') !== -1, v.errors.join(' '));
+  });
+});
+
+// ── verdict ↔ evidence ───────────────────────────────────────────────────────
+//
+// Each mislabel verdict is an ENTAILMENT of the evidence, so a receipt can be
+// internally well-formed and still seal a verdict its own evidence rules out.
+// `preserved` is the one that matters — it is what isIntentApproved reads.
+
+test('M1.5 — "preserved" cannot sit next to a non-full reviewer contract', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // A contract short of `full` is exactly what makes the gate `inconclusive`,
+    // so it can never coexist with the passing verdict.
+    r.receipt.meta.intent_reviewer_contract = 'partial';
+    r.receipt.meta.intent_claim_counts = goodCounts({ claimed: 1, unclaimed: 1, agree_none: 0 });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('inconclusive') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — "preserved" cannot sit next to an unresolved audit entry', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // Flipping the resolution is the cheapest way to turn a blocked round into
+    // an approving one while leaving the incriminating entry in place.
+    r.receipt.meta.intent_mislabel_audit = [auditEntry({
+      resolution: 'unresolved', dispute_reason: null,
+    })];
+    r.receipt.meta.intent_mislabel_disputes = 0;
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('mislabel_unresolved') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — "inconclusive" requires a non-full contract', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // Full compliance is precisely the state `inconclusive` cannot describe.
+    r.receipt.meta.intent_gate_verdict = 'inconclusive';
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('non-full') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — "mislabel_unresolved" requires an unresolved entry', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // mislabelDecision's audit entry is `disputed`, i.e. answered — which is the
+    // state that makes the gate pass, not block.
+    r.receipt.meta.intent_gate_verdict = 'mislabel_unresolved';
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('unresolved entry') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — the reviewer contract must be derivable from the counts', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // 2 of 2 claimed is `full` by construction; calling it `partial` makes the
+    // cheap-to-read field disagree with the one carrying the arithmetic. The
+    // verdict moves with it so this fails on derivability, not on the verdict
+    // rule that `preserved` + `partial` would otherwise trip.
+    r.receipt.meta.intent_gate_verdict = 'inconclusive';
+    r.receipt.meta.intent_reviewer_contract = 'partial';
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('derivable') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — an override reason cannot be sealed when the override never applied', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // The flag means "took effect" (DD12). A reason next to a false flag reads
+    // as a justification for something that did not happen.
+    r.receipt.meta.intent_gate_force_override_reason =
+      'proceeding under an audited override because the reviewer quota is exhausted today';
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('did not apply') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — an all-clear mislabel round (no responses needed) still validates', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    // The reconciliation must not make the ordinary clean case unwritable: an
+    // empty audit array with zeroed response tallies is what a compliant review
+    // with no disagreement actually produces.
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision({
+        claim_counts: goodCounts({ reviewer_only: 0, agree_none: 2, reviewer_conflict: 0 }),
+        mislabel_disputes: 0,
+        mislabel_audit: [],
+      }),
+    });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, true, JSON.stringify(v.errors));
+  });
+});
+
+test('M1.5 — claimed + unclaimed must equal total', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    r.receipt.meta.intent_claim_counts = goodCounts({ claimed: 1, agree_none: 2 });
+    assert.strictEqual(validate(r.receipt).ok, false);
+  });
+});
+
+test('M1.5 — an unknown key in intent_claim_counts is rejected', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    r.receipt.meta.intent_claim_counts = goodCounts({ smuggled: 3 });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('unknown key') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — audit entries are schema-checked, not free-form', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    r.receipt.meta.intent_mislabel_audit = [auditEntry({ classification: 'agree-none' })];
+    assert.strictEqual(validate(r.receipt).ok, false, 'only the two response-needed classes belong here');
+
+    r.receipt.meta.intent_mislabel_audit = [auditEntry({ resolution: 'whatever' })];
+    assert.strictEqual(validate(r.receipt).ok, false);
+
+    r.receipt.meta.intent_mislabel_audit = [auditEntry({ finding_digest: 'not-a-digest' })];
+    assert.strictEqual(validate(r.receipt).ok, false);
+
+    r.receipt.meta.intent_mislabel_audit = [auditEntry({ finding_index: -1 })];
+    assert.strictEqual(validate(r.receipt).ok, false);
+  });
+});
+
+test('M1.5 — the audit array has no silent truncation branch', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    const many = [];
+    for (let i = 0; i < 1001; i++) many.push(auditEntry({ finding_index: i }));
+    r.receipt.meta.intent_mislabel_audit = many;
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false, 'over-cap must ERROR, never be sliced away');
+    assert.ok(v.errors.join(' ').indexOf('exceeds 1000') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — a warn receipt allows the chain but is never dedupe-approved (DD6)', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision({
+        verdict: 'mislabel_unresolved',
+        runtime_allowed: true,          // warn allowed the run
+        force_override: false,          // ...so the override never applied (DD12)
+        mislabel_mode: 'warn',
+        mislabel_disputes: 0,
+        mislabel_audit: [auditEntry({ resolution: 'unresolved', dispute_reason: null })],
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
+    assert.strictEqual(r.receipt.meta.intent_gate_verdict, 'mislabel_unresolved',
+      'warn seals the real verdict rather than laundering it');
+    assert.strictEqual(isIntentChainAllowed(r.receipt.meta), true);
+    assert.strictEqual(isIntentApproved(r.receipt), false,
+      'warn must never open cross-gate dedupe — this is where warn costs something');
+    assert.strictEqual(r.receipt.meta.intent_gate_force_override, false);
+  });
+});
+
+test('M1.5 — DD12: warn plus an applied override seals BOTH fields', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    // warn does not reach the M1 axis, so an `incomplete` under warn is passed
+    // by the audited override — and both facts must be readable afterwards.
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision({
+        verdict: 'incomplete',
+        runtime_allowed: true,
+        mislabel_mode: 'warn',
+        force_override: true,
+        force_override_reason:
+          'proceeding under an audited override because the reviewer quota is exhausted today',
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
+    assert.strictEqual(r.receipt.meta.intent_mislabel_mode, 'warn');
+    assert.strictEqual(r.receipt.meta.intent_gate_force_override, true);
+    assert.strictEqual(r.receipt.meta.intent_gate_verdict, 'incomplete');
+    assert.strictEqual(isIntentApproved(r.receipt), false);
+  });
+});
+
+test('M1.5 — off leaves every mislabel field null except the mode itself', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: goodDecision({
+        mislabel_mode: 'off',
+        reviewer_contract: null,
+        claim_counts: null,
+        claims_digest: null,
+        mislabel_disputes: null,
+        mislabel_audit: null,
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
+    assert.strictEqual(r.receipt.meta.intent_mislabel_mode, 'off');
+    assert.strictEqual(r.receipt.meta.intent_reviewer_contract, null);
+    assert.strictEqual(r.receipt.meta.intent_mislabel_audit, null);
+  });
+});
+
+test('M1.5 — there is still NO --intent-* CLI flag', function () {
+  const src = require('fs').readFileSync(require.resolve('../cli.js'), 'utf8');
+  assert.strictEqual(/--intent-[a-z-]+/.test(src), false,
+    'any --intent-* flag would let a shell caller stamp an approving verdict');
+});
+
 test('a legacy-shaped receipt (no intent keys) validates unchanged', function () {
   withRepo(FREE_FORM_PLAN, function (repo, planRel) {
     const r = write({ gate: 'mccp-implement-codex', decision: 'ig-x', plan: planRel });
@@ -124,6 +606,7 @@ test('DD1 — a free-form plan is a PROVEN skip, stamped mechanically, and appro
     // the proof is corroborated by the very body being sealed
     assert.strictEqual(r.receipt.meta.intent_plan_digest, r.receipt.plan_hash);
     assert.strictEqual(isIntentApproved(r.receipt), true);
+    assertMislabelAxisNulled(r.receipt.meta);
   });
 });
 
@@ -217,6 +700,7 @@ test('DD6/R1 F3 — an overridden receipt seals the REAL verdict; chain allows, 
     assert.strictEqual(isIntentChainAllowed(m), true);
     assert.strictEqual(isIntentApproved(r.receipt), false,
       'a forced receipt must never certify a cross-gate dedupe skip');
+    assertMislabelAxisNulled(m);
   });
 });
 
@@ -270,5 +754,196 @@ test('Codex F2 — by_verdict stays an OPEN map: a future verdict key still vali
       }),
     });
     assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
+  });
+});
+
+test('M1.5 — a live mode cannot reach "preserved" with the evidence bundle nulled', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // The other shape of the same edit the reconciliation blocks: instead of
+    // leaving contradictory evidence, remove all of it and keep the verdict that
+    // isIntentApproved reads. The mode is what makes it detectable — reaching
+    // `preserved` with the axis live means the comparison ran.
+    ['intent_reviewer_contract', 'intent_claim_counts', 'intent_claims_digest',
+      'intent_mislabel_disputes', 'intent_mislabel_audit'].forEach(function (k) {
+      r.receipt.meta[k] = null;
+    });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('the comparison ran') !== -1, v.errors.join(' '));
+  });
+});
+
+test('M1.5 — `off` legitimately reaches "preserved" with no evidence', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    // The rule must key on the mode, not on the verdict alone: an `off` run
+    // produces exactly the shape the previous test rejects, and it is honest.
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: goodDecision({
+        mislabel_mode: 'off',
+        reviewer_contract: null, claim_counts: null, claims_digest: null,
+        mislabel_disputes: null, mislabel_audit: null,
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true);
+    assert.strictEqual(r.receipt.meta.intent_mislabel_mode, 'off');
+  });
+});
+
+test('M1.5 — a live mode may reach "skipped" with no evidence (the axis never ran)', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    // enforce + codex disabled: there is no payload to parse claims from, so the
+    // gate ends at a proven skip and the evidence is legitimately absent.
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: goodDecision({
+        verdict: 'skipped', skip_proof: 'codex_disabled', counts: null,
+        mislabel_mode: 'enforce',
+        reviewer_contract: null, claim_counts: null, claims_digest: null,
+        mislabel_disputes: null, mislabel_audit: null,
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true,
+      'the rule must not reject a run that never reached the comparison');
+  });
+});
+
+test('M1.5 — warn costs something only when it actually relaxed something', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    // The companion to the DD6 test above, and the half that is easy to get
+    // wrong in the other direction: `warn` narrows nothing on a clean run, so a
+    // `preserved` receipt written under the DEFAULT mode must still be able to
+    // certify a dedupe skip. Keying dedupe on the mode instead of on whether a
+    // block was consumed would close cross-gate dedupe for every default-mode
+    // user — a behaviour change no invariant asks for.
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision({
+        mislabel_mode: 'warn',          // the shipped default
+        verdict: 'preserved',           // ...which never had anything to relax
+        runtime_allowed: true,
+        plan_digest: null,
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
+    assert.strictEqual(r.receipt.meta.intent_mislabel_mode, 'warn');
+    assert.strictEqual(isIntentChainAllowed(r.receipt.meta), true);
+    assert.strictEqual(classifyIntentMeta(r.receipt.meta), 'approved',
+      'a clean run under warn is a clean run — the mode did not widen the pass set');
+  });
+});
+
+test('M1.5 — `inconclusive` still carries the disagreements it DID observe', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    // Producible shape, verified against the oracle: two findings, one carrying a
+    // valid claim the author contradicted, one carrying none. Compliance is
+    // `partial` -> the verdict is `inconclusive`, and the observed reviewer-only
+    // entry is still real evidence.
+    //
+    // The schema must NOT reject this. `inconclusive` means "the comparison's
+    // completeness cannot be certified", not "nothing was found" — dropping the
+    // entry because the contract was partial would delete an observed
+    // disagreement, which is the exact thing this milestone exists to prevent.
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision({
+        verdict: 'inconclusive',
+        reviewer_contract: 'partial',
+        claim_counts: goodCounts({ claimed: 1, unclaimed: 1, agree_none: 0 }),
+      }),
+    });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, true, JSON.stringify(v.errors));
+    assert.strictEqual(r.receipt.meta.intent_mislabel_audit.length, 1);
+    assert.strictEqual(r.receipt.meta.intent_mislabel_disputes, 1);
+    // and the consumer can tell the count came from a partial comparison
+    assert.strictEqual(r.receipt.meta.intent_reviewer_contract, 'partial');
+  });
+});
+
+test('M1.5 — a "disputed" entry whose reason is no answer does not validate', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // `resolution:'disputed'` is a claim that the author answered, and the oracle
+    // only reaches it when isValidDisputeReason accepted the text. Trusting the
+    // label on its own word let a one-token shrug count as a dispute AND carry
+    // `preserved`, while the same text through the oracle is `mislabel_unresolved`.
+    r.receipt.meta.intent_mislabel_audit = [auditEntry({ dispute_reason: 'no' })];
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('not a valid dispute') !== -1, v.errors.join(' '));
+
+    // …and the carve-out still applies here: a dispute naming code is fine.
+    r.receipt.meta.intent_mislabel_audit = [auditEntry({
+      dispute_reason: 'the reviewer pointed at test scaffolding in bar.ts, not the shipped boundary',
+    })];
+    assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
+  });
+});
+
+test('M1.5 — an unresolved entry is not required to carry a reason', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    // The predicate applies to the `disputed` label only. An unresolved entry is
+    // precisely the one with no valid answer, so requiring one there would make
+    // the blocking case unrepresentable.
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision({
+        verdict: 'mislabel_unresolved',
+        mislabel_disputes: 0,
+        mislabel_audit: [auditEntry({ resolution: 'unresolved', dispute_reason: null })],
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
+  });
+});
+
+test('M1.5 — a blocking mislabel verdict cannot have its evidence stripped', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision({
+        verdict: 'mislabel_unresolved',
+        mislabel_disputes: 0,
+        mislabel_audit: [auditEntry({ resolution: 'unresolved', dispute_reason: null })],
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true, 'the honest receipt validates');
+
+    // The rule previously covered `preserved` only, so the blocking half of the
+    // axis could validate with its evidence removed — and those are exactly the
+    // receipts an operator is told to read.
+    ['intent_reviewer_contract', 'intent_claim_counts', 'intent_claims_digest',
+      'intent_mislabel_disputes', 'intent_mislabel_audit'].forEach(function (k) {
+      r.receipt.meta[k] = null;
+    });
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('produced only from a comparison') !== -1,
+      v.errors.join(' '));
+  });
+});
+
+test('M1.5 — a mislabel verdict cannot claim the axis was off', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision({ verdict: 'inconclusive', reviewer_contract: 'partial',
+        claim_counts: goodCounts({ claimed: 1, unclaimed: 1, agree_none: 0 }) }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true);
+
+    // `off` never builds a comparison, so it can never yield this verdict.
+    r.receipt.meta.intent_mislabel_mode = 'off';
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('only when it ran') !== -1, v.errors.join(' '));
   });
 });

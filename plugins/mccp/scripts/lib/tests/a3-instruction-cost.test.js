@@ -15,16 +15,66 @@ const os = require('os');
 const path = require('path');
 const { measureA3 } = require('../msw-metrics/a3-instruction-cost');
 
+// gate-guard-integrity M2 축 A(Task 2b) — 라이브 저장소 상태와의 결합 제거.
+//
+// `measureA3()` 는 `repoRoot` 를 받지 않으면 `a3-instruction-cost.js:477` 에서
+// `injector.readState(process.cwd())` 로 **실제 저장소의** `.claude/state/STATE.md`
+// 를 읽는다. 그 파일은 세션 hook 이 갱신하는 가변 파일이므로, repoRoot 를 넘기지
+// 않는 케이스는 "테스트가 무엇을 재는가"가 실행 시점의 세션 상태에 종속된다.
+// 같은 파일 `:163,185,197` 이 이미 올바른 형태(명시 fixture repoRoot)를 보여준다.
+//
+// 아래 헬퍼는 그 형태를 나머지 케이스에도 적용한다. temp CLAUDE.md 도 fixture
+// 안으로 옮긴다 — 이전에는 `__dirname`(= 저장소 트리 안)에 썼는데, 전수 병렬
+// 실행 중 저장소 트리를 변형하는 것은 이 milestone 이 제거하려는 간섭 형태 자체다.
+function a3Fixture(opts) {
+  const o = opts || {};
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'a3-fixture-'));
+  if (o.stateBody !== undefined) {
+    const stateDir = path.join(root, '.claude', 'state');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(path.join(stateDir, 'STATE.md'), o.stateBody, 'utf8');
+  }
+  const claudePath = path.join(root, 'CLAUDE.md');
+  fs.writeFileSync(claudePath, o.claude === undefined ? 'fixture CLAUDE.md' : o.claude, 'utf8');
+  return { root: root, claudePath: claudePath };
+}
+
+function a3Cleanup(fx) {
+  try { fs.rmSync(fx.root, { recursive: true, force: true }); } catch (_e) { /* ignore */ }
+}
+
+// `:204` 의 검증된 fixture 형태를 그대로 따른다 — injector 는 frontmatter 스키마를
+// 검사하므로 임의로 줄인 frontmatter 는 state_block 자체를 만들지 못한다.
+function stateFixtureBody(sentinel, padLines) {
+  const body = [
+    '---',
+    'state_version: 1',
+    'task_fingerprint: ' + sentinel,
+    'created_at: 2026-08-13T00:00:00.000Z',
+    'updated_at: 2026-08-13T00:00:00.000Z',
+    '---',
+    '',
+    '## Goal',
+    sentinel + ' goal line',
+    '',
+    '## Next Step',
+    sentinel + ' next line',
+    '',
+  ];
+  for (let i = 0; i < (padLines || 0); i++) body.push('- padding line ' + i + ' for the ' + sentinel + ' fixture');
+  return body.join('\n') + '\n';
+}
+
 test('A3: source-text-0 assertion — artifact has no raw CLAUDE/MEMORY/STATE text', async () => {
   // Create temp CLAUDE.md for testing
   const testClaude = 'Test CLAUDE.md content with Korean: 한국어 테스트';
-  const tempClaude = path.join(__dirname, 'temp-claude-test.md');
+  const fx = a3Fixture({ claude: testClaude, stateBody: stateFixtureBody('SOURCE_TEXT_0_FIXTURE') });
+  const tempClaude = fx.claudePath;
 
   try {
-    fs.writeFileSync(tempClaude, testClaude);
-
     const result = await measureA3({
       claudePath: tempClaude,
+      repoRoot: fx.root,
       readUserMemory: false,
     });
 
@@ -54,21 +104,21 @@ test('A3: source-text-0 assertion — artifact has no raw CLAUDE/MEMORY/STATE te
 
     console.log('✓ A3: source-text-0 boundary verified (no raw text persisted)');
   } finally {
-    if (fs.existsSync(tempClaude)) fs.unlinkSync(tempClaude);
+    a3Cleanup(fx);
   }
 });
 
 test('A3: user-memory omitted when MCCP_A3_READ_USER_MEMORY not set', async () => {
-  const tempClaude = path.join(__dirname, 'temp-claude-test2.md');
+  const fx = a3Fixture({ claude: 'Test content' });
+  const tempClaude = fx.claudePath;
 
   try {
-    fs.writeFileSync(tempClaude, 'Test content');
-
     // Ensure env flag is NOT set
     delete process.env.MCCP_A3_READ_USER_MEMORY;
 
     const result = await measureA3({
       claudePath: tempClaude,
+      repoRoot: fx.root,
       readUserMemory: false, // Explicitly don't read
     });
 
@@ -79,18 +129,18 @@ test('A3: user-memory omitted when MCCP_A3_READ_USER_MEMORY not set', async () =
 
     console.log('✓ A3: user-memory opt-in honored');
   } finally {
-    if (fs.existsSync(tempClaude)) fs.unlinkSync(tempClaude);
+    a3Cleanup(fx);
   }
 });
 
 test('A3: baseline-unavailable when tokenizer absent', async () => {
-  const tempClaude = path.join(__dirname, 'temp-claude-test3.md');
+  const fx = a3Fixture({ claude: 'Test content without real tokenizer' });
+  const tempClaude = fx.claudePath;
 
   try {
-    fs.writeFileSync(tempClaude, 'Test content without real tokenizer');
-
     const result = await measureA3({
       claudePath: tempClaude,
+      repoRoot: fx.root,
       readUserMemory: false,
       // Simulate no tiktoken available by using invalid python
     });
@@ -111,17 +161,16 @@ test('A3: baseline-unavailable when tokenizer absent', async () => {
       console.log('✓ A3: tiktoken available, token count computed');
     }
   } finally {
-    if (fs.existsSync(tempClaude)) fs.unlinkSync(tempClaude);
+    a3Cleanup(fx);
   }
 });
 
 test('A3: bytes and token counts only', async () => {
-  const tempClaude = path.join(__dirname, 'temp-claude-test4.md');
+  const testContent = 'A quick brown fox jumps over the lazy dog.';
+  const fx = a3Fixture({ claude: testContent });
+  const tempClaude = fx.claudePath;
 
   try {
-    const testContent = 'A quick brown fox jumps over the lazy dog.';
-    fs.writeFileSync(tempClaude, testContent);
-
     // M4 contract update (explicit, not silent): the STATE component is now
     // measured by default from repoRoot. Before M4 it required an opts.statePath
     // that no caller ever passed, so component 3 of the numerator was silently
@@ -130,6 +179,7 @@ test('A3: bytes and token counts only', async () => {
     // silent omission. The default-on behaviour is covered by the case below.
     const result = await measureA3({
       claudePath: tempClaude,
+      repoRoot: fx.root,
       readUserMemory: false,
       stateBlockText: '',
     });
@@ -150,7 +200,37 @@ test('A3: bytes and token counts only', async () => {
 
     console.log('✓ A3: byte and token counts verified');
   } finally {
-    if (fs.existsSync(tempClaude)) fs.unlinkSync(tempClaude);
+    a3Cleanup(fx);
+  }
+});
+
+test('A3: measurement is driven by the explicit repoRoot, never the live repo (M2 Task 2b)', async () => {
+  // 이 milestone 이 제거한 결합의 falsifier. `measureA3` 가 fixture repoRoot 를
+  // 실제로 존중한다면, cwd 를 한 번도 바꾸지 않고 서로 다른 두 fixture 를 재는
+  // 것만으로 값이 갈려야 한다. 라이브 `.claude/state/STATE.md` 에 종속된 구현은
+  // 두 값이 **같게** 나오므로 여기서 걸린다.
+  //
+  // 라이브 파일을 변조하지 않는다 — git-tracked 파일을 건드리는 프로브는 크래시
+  // 시 복원에 실패한다(L2 test 지적 흡수). 결합의 정체가 "repoRoot 미전달"이므로
+  // 서로 다른 repoRoot 두 개만으로 증명된다.
+  const small = a3Fixture({ stateBody: stateFixtureBody('FIXTURE_SMALL') });
+  const large = a3Fixture({ stateBody: stateFixtureBody('FIXTURE_LARGE', 60) });
+
+  try {
+    const rSmall = await measureA3({ claudePath: small.claudePath, repoRoot: small.root, readUserMemory: false });
+    const rLarge = await measureA3({ claudePath: large.claudePath, repoRoot: large.root, readUserMemory: false });
+
+    assert.ok(rSmall.components.state_block, 'state_block must be measured from the fixture');
+    assert.ok(rLarge.components.state_block, 'state_block must be measured from the fixture');
+    assert.ok(rLarge.components.state_block.bytes > rSmall.components.state_block.bytes + 1000,
+      'the two fixtures differ by ~3KB of STATE body; a live-repo read would return the same value twice '
+      + '(small=' + rSmall.components.state_block.bytes + ' large=' + rLarge.components.state_block.bytes + ')');
+
+    console.log('✓ A3: state_block follows repoRoot (small='
+      + rSmall.components.state_block.bytes + 'B large=' + rLarge.components.state_block.bytes + 'B)');
+  } finally {
+    a3Cleanup(small);
+    a3Cleanup(large);
   }
 });
 
@@ -249,13 +329,12 @@ test('A3: interpreter probe adopts a real Python 3 (or honestly reports none)', 
 });
 
 test('A3: denominator is documented context window', async () => {
-  const tempClaude = path.join(__dirname, 'temp-claude-test5.md');
+  const fx = a3Fixture({ claude: 'Test' });
 
   try {
-    fs.writeFileSync(tempClaude, 'Test');
-
     const result = await measureA3({
-      claudePath: tempClaude,
+      claudePath: fx.claudePath,
+      repoRoot: fx.root,
       readUserMemory: false,
     });
 
@@ -264,7 +343,7 @@ test('A3: denominator is documented context window', async () => {
 
     console.log('✓ A3: denominator = documented context window');
   } finally {
-    if (fs.existsSync(tempClaude)) fs.unlinkSync(tempClaude);
+    a3Cleanup(fx);
   }
 });
 

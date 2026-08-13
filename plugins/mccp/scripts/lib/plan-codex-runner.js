@@ -41,7 +41,10 @@ const iclaims = require('./intent-claims');
 const codexInvoke = require('./codex-invoke');
 const codexPayload = require('./codex-review-payload');
 const receiptWrite = require('../receipt/write');
-const { planAwareMarkdownHash } = require('../receipt/hash');
+const { planAwareMarkdownHash, gitRepoRoot } = require('../receipt/hash');
+// 격리 위임 대상. `store.js` 는 APPROVED_WRITERS 원소이므로 receipt 를 옮기는
+// 동작이 승인된 계층 안에서 일어난다(gate-guard-integrity M2 축 C).
+const receiptStore = require('../receipt/store');
 
 // Exit codes. 12 mirrors codex-invoke's BLOCKING_EXIT so callers branch on one
 // vocabulary; 11 is distinct so "another run owns this decision" never reads as
@@ -239,20 +242,33 @@ function writeMarker(markerPath, body) {
 // make Phase 5.6's markerless recovery — which infers success from "a receipt
 // seals our nonce" — report this blocked run as a success. Rename rather than
 // delete: the artifact stays available for diagnosis, just not for consumption.
-function quarantineReceipt(receiptPath, nonce) {
-  if (!receiptPath) return;
-  // Nothing on disk means nothing on the consumable path — the invariant already
-  // holds, so this is not a degraded outcome worth shouting about.
-  if (!fs.existsSync(receiptPath)) return;
-  const dest = receiptPath + '.invalid-' + nonce;
-  try {
-    fs.renameSync(receiptPath, dest);
-    process.stderr.write('[plan-codex-runner] quarantined the mis-sealed receipt → ' + dest + '\n');
-  } catch (err) {
-    process.stderr.write('[plan-codex-runner] FATAL: could not quarantine the mis-sealed ' +
-      'receipt at ' + receiptPath + ' (' + err.message + '). Remove it by hand before ' +
-      're-running — it seals a body that was never reviewed.\n');
+// gate-guard-integrity M2 축 C — 격리는 승인된 receipt 계층(`store.js`)이 소유한다.
+// 여기서 직접 `fs.renameSync` 를 부르던 것이 b2-coverage-gate 정적 lint 의 상시 red
+// 2건이었다(axis=write-call-args). helper 는 **throw 하지 않으므로** 반환값을 반드시
+// 검사한다 — 무시하면 격리 실패가 조용히 지나가면서 lint 는 통과하는 fail-open
+// drift 가 된다("위임했다"가 "격리됐다"를 의미하지 않게 되는 형태).
+// 봉쇄의 기준점. 경로에서 역산하면 공격자 입력이 자기 봉쇄 루트를 정의하므로
+// 반드시 바깥에서 주입한다. `gitRepoRoot` 는 비-git 디렉토리에서 **throw** 하므로
+// (테스트 scratch 가 그렇다) 여기서 흡수하고 cwd 로 떨어진다 — 격리 자체가
+// 실패 경로 위의 정리 동작이라 여기서 예외를 올리면 진짜 사유가 가려진다.
+function containmentRoot(cwd) {
+  try { return gitRepoRoot(cwd) || cwd; } catch (_e) { return cwd; }
+}
+
+function quarantineReceipt(repoRoot, filePath, nonce, quarantineImpl) {
+  if (!filePath) return;
+  const outcome = (quarantineImpl || receiptStore.quarantineReceipt)(repoRoot, filePath, nonce);
+  if (outcome.ok) {
+    // 디스크에 없으면 소비 경로에도 없다 — 불변식이 이미 성립하므로 조용히 넘어간다.
+    if (!outcome.skipped) {
+      process.stderr.write('[plan-codex-runner] quarantined the mis-sealed receipt → '
+        + outcome.dest + '\n');
+    }
+    return;
   }
+  process.stderr.write('[plan-codex-runner] FATAL: could not quarantine the mis-sealed ' +
+    'receipt at ' + filePath + ' (' + outcome.reason + '). Remove it by hand before ' +
+    're-running — it seals a body that was never reviewed.\n');
 }
 
 function run(opts, deps) {
@@ -588,7 +604,7 @@ function run(opts, deps) {
       process.stderr.write('[plan-codex-runner] FATAL: written receipt plan_hash ' +
         ((result && result.receipt && result.receipt.plan_hash) || '(none)') +
         ' != sealed digest ' + digestNow + '\n');
-      quarantineReceipt(result && result.path, nonce);
+      quarantineReceipt(containmentRoot(cwd), result && result.path, nonce, d.quarantineReceipt);
       // Pass no write result: there is no receipt the caller may act on, so the
       // marker must not advertise a receipt_path that has just been quarantined.
       return finish(EX_BLOCKED, {
@@ -752,5 +768,6 @@ module.exports = {
   defaultDeps: {
     invokeAdversarialReview: codexInvoke.invokeAdversarialReview,
     write: receiptWrite.write,
+    quarantineReceipt: receiptStore.quarantineReceipt,
   },
 };

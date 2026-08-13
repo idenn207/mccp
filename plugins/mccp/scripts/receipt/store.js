@@ -258,6 +258,121 @@ function isPlainFile(filePath) {
   return lst.isFile();
 }
 
+// ── gate-guard-integrity M2 축 C — 승인된 격리(quarantine) helper ────────────
+//
+// `plan-codex-runner.js:248` 이 receipt 를 직접 `fs.renameSync` 로 격리하고 있었고,
+// 그것이 b2-coverage-gate 정적 lint 의 상시 red 2건이었다(axis=write-call-args).
+// 해소 방향은 세 후보 중 **위반 코드를 계약 안으로 옮기는 것**이다 — 승인 목록을
+// 넓히거나 lint 정규식을 좁히는 쪽은 이 PRD 가 복원하려는 것과 정반대다.
+//
+// 격리는 receipt 를 소비 경로에서 **치우는** 동작이므로 승인된 receipt 계층이
+// 소유하는 것이 의미상 옳다. 다만 `store.js` 는 `APPROVED_WRITERS` 원소라
+// **파일 단위로 통째 lint 면제**를 받는다(`b2-coverage-gate.js:324`). 그래서 여기
+// 들어오는 mutating 함수는 `MUTATION_ENTRYPOINTS` 레지스트리에 등록해 그 면제를
+// 레지스트리가 책임지게 한다 — 무검사 구역에 들어간 함수에 대한 유일한 보완 통제다.
+
+// 호출부(`plan-codex-runner.js:55`)에도 같은 형태의 정규식이 있지만, **신뢰 경계는
+// helper 자신이어야 한다** — `store.js` 가 승인 writer 로 다른 호출자에게 노출되는
+// 순간 검증 없는 경로가 열린다. 호출부 검증은 helper 검증을 대체하지 못한다.
+// ASCII 전용이므로 path separator · `..` · NUL · 제어문자 · unicode homoglyph 가
+// 모두 걸러진다(첫 글자가 영숫자여야 하므로 `..` 는 애초에 매칭되지 않는다).
+const SAFE_QUARANTINE_SUFFIX_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+function isUnderBaseByRelative(base, target) {
+  const rel = path.relative(base, target);
+  if (rel === '') return false;                       // base 자기 자신은 대상이 아니다
+  if (path.isAbsolute(rel)) return false;             // 다른 드라이브 → relative 가 절대경로
+  // `..foo` 같은 정당한 이름을 오탐하지 않도록 **세그먼트 단위**로 본다.
+  if (rel.split(/[\\/]/)[0] === '..') return false;
+  return true;
+}
+
+// isWithinReceiptsDir(repoRoot, candidatePath) → boolean
+//
+// 순수 술어로 분리해 export 하는 이유: stub 관측만으로는 `realpath` 로직에 버그가
+// 있어도 잡히지 않는다. 알고리즘 자체를 직접 단언할 수 있어야 한다.
+//
+// 알고리즘은 두 단계다.
+//   (1) 양쪽을 `path.resolve` 로 절대화한 뒤 `path.relative` 가 밖으로 나가지 않는지.
+//   (2) **실재하는 조상까지 `fs.realpathSync` 로 해소한 뒤 (1)을 재검사**. (1)만으로는
+//       `receipts/` 안의 symlink/junction 이 바깥을 가리키는 경우를 통과시킨다.
+//       대상 파일 자신은 rename 대상이라 realpath 를 걸 수 없으므로 조상 기준이다.
+// 문자열 `startsWith` 수준의 구현은 (2)에서 걸러진다.
+//
+// **왜 "부모" 가 아니라 "가장 가까운 실재 조상" 인가.** 부모를 곧장 realpath 하면
+// 아직 만들어지지 않은 gate dir 아래의 정상 경로가 `ENOENT` 로 거부된다 — 순수
+// 술어가 답해야 할 질문("이 경로가 receipts 하위인가")과 다른 질문("그 부모가
+// 지금 존재하는가")에 답하게 되는 것이다. 실재하지 않는 구성요소는 **symlink 일
+// 수 없으므로** 그 구간을 리터럴로 두어도 봉쇄는 약해지지 않는다. 실재하는
+// 구간은 전부 해소되므로 symlink 탈출은 그대로 걸린다.
+function resolveRealishAncestor(absPath) {
+  let cur = absPath;
+  for (;;) {
+    try {
+      const real = fs.realpathSync(cur);
+      return { real: real, rest: path.relative(cur, absPath) };
+    } catch (_e) {
+      const next = path.dirname(cur);
+      if (next === cur) return null;   // 루트까지 올라가도 해소 불가
+      cur = next;
+    }
+  }
+}
+
+function isWithinReceiptsDir(repoRoot, candidatePath) {
+  if (typeof repoRoot !== 'string' || repoRoot === '') return false;
+  if (typeof candidatePath !== 'string' || candidatePath === '') return false;
+  if (repoRoot.indexOf('\0') !== -1 || candidatePath.indexOf('\0') !== -1) return false;
+
+  const base = path.resolve(receiptsDir(repoRoot));
+  const target = path.resolve(candidatePath);
+  if (!isUnderBaseByRelative(base, target)) return false;
+
+  const baseResolved = resolveRealishAncestor(base);
+  const targetResolved = resolveRealishAncestor(target);
+  if (!baseResolved || !targetResolved) return false;   // 해소 불가 → fail-closed
+
+  const baseReal = path.join(baseResolved.real, baseResolved.rest);
+  const targetReal = path.join(targetResolved.real, targetResolved.rest);
+  return isUnderBaseByRelative(baseReal, targetReal);
+}
+
+// quarantineReceipt(repoRoot, receiptFilePath, suffix)
+//   → { ok, skipped, dest, reason }
+//
+// **throw 하지 않는다** — 호출부(runner)의 FATAL stderr 메시지 계약을 보존하기
+// 위해서다. 그 대신 호출부는 반환값을 반드시 검사해야 한다: 무시하면 격리 실패가
+// 조용히 지나가고 lint 는 여전히 통과하는 fail-open drift 가 생긴다.
+function quarantineReceipt(repoRoot, receiptFilePath, suffix) {
+  if (!receiptFilePath) return { ok: true, skipped: true, dest: null, reason: 'no-path' };
+  if (typeof suffix !== 'string' || !SAFE_QUARANTINE_SUFFIX_RE.test(suffix)) {
+    return { ok: false, skipped: false, dest: null, reason: 'unsafe-suffix' };
+  }
+  // 디스크에 없으면 소비 경로에도 없다 — 불변식이 이미 성립하므로 degraded 가
+  // 아니다. 옮길 것이 없으니 봉쇄 검사보다 앞에 두어도 밖으로 나갈 수 없다.
+  if (!fs.existsSync(receiptFilePath)) {
+    return { ok: true, skipped: true, dest: null, reason: 'absent' };
+  }
+  if (!isWithinReceiptsDir(repoRoot, receiptFilePath)) {
+    return { ok: false, skipped: false, dest: null, reason: 'source-outside-receipts-dir' };
+  }
+  const dest = receiptFilePath + '.invalid-' + suffix;
+  // suffix 검증이 destination 을 이미 좁히지만 두 검사는 서로를 대체하지 않는다 —
+  // suffix 가 안전해도 source 가 symlink 면 destination 이 밖으로 나간다.
+  if (!isWithinReceiptsDir(repoRoot, dest)) {
+    return { ok: false, skipped: false, dest: null, reason: 'destination-outside-receipts-dir' };
+  }
+  if (!isPlainFile(receiptFilePath)) {
+    return { ok: false, skipped: false, dest: null, reason: 'source-not-a-plain-file' };
+  }
+  try {
+    fs.renameSync(receiptFilePath, dest);
+  } catch (err) {
+    return { ok: false, skipped: false, dest: null, reason: 'rename-failed: ' + err.message };
+  }
+  return { ok: true, skipped: false, dest: dest, reason: null };
+}
+
 function listReceipts(repoRoot, gateId, opts) {
   opts = opts || {};
   if (gateId) {
@@ -351,4 +466,6 @@ module.exports = {
   listGenericReceipts: listGenericReceipts,
   listUnsafeGateDirs: listUnsafeGateDirs,
   isSafeGateDir: isSafeGateDir,
+  isWithinReceiptsDir: isWithinReceiptsDir,
+  quarantineReceipt: quarantineReceipt,
 };

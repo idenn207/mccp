@@ -2,17 +2,19 @@
 state_version: 1
 task_fingerprint: multi-session-work-loop-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-09T13:31:24.196Z
+updated_at: 2026-08-13T07:52:18.575Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-09T01:17:14.100Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
-chain_aborted: false
+chain_aborted: true
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
+abort_owner: cost
+cost_abort_at: 2026-08-13T07:52:18.566Z
 escalate_pending: true
-escalate_pending_decision_id: multi-session-work-loop
+escalate_pending_decision_id: santa-loop-materialize-m1
 ---
 ## Goal
 MSW M4 (예산 감축) — santa-loop 6라운드 수렴(양 리뷰어 PASS). origin/main(#121) merge + 버전 1.23.7 상향 완료, push 대기.
@@ -73,4 +75,4 @@ A3 값 셀을 plan이 적은 감축률이 아니라 점유율로 렌더했다(D3
 - 버전 충돌이 이번 사이클에만 3회(1.23.5 #120 · 1.23.6 #121) — §3.7 자동화 후보(pre-PR version freshness check)의 근거가 누적됨
 
 ## Last Updated
-2026-08-09T13:31:24.196Z
+2026-08-13T07:52:18.575Z

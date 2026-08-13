@@ -5,6 +5,14 @@
 **Quorum**: 4/3 responses · 4 distinct roles (of 4 fielded) — 통과 실패 사유는 응답 수가 아니라 blocking finding 5건
 **Layers**: L1 converged · L2 divergent (2 fail / 2 pass) · L3 not fired (`MCCP_PLAN_REVIEW_L3=0`)
 
+> 위 머리글은 **round 1** 시점의 값이다. 라운드마다 plan 버전과 판정이 바뀌므로 각 라운드의
+> 값은 해당 `## Round N` 제목에 있다.
+>
+> **총 9라운드로 종료했다** — multi-agent 5(R1~R5) + Codex 4(R6~R9). 최종 plan 버전은
+> `sha256:55b2352d…`이고 **receipt는 발행되지 않았다.** 종료 사유는 라운드 수가 아니라
+> 마지막 네 라운드가 전부 *직전 흡수가 만든 구멍*을 겨눴다는 것이다(patch-chasing).
+> 계측은 아래 "9라운드 측정치" 절, 라운드별 상세는 plan 본문의 `## Codex Adversarial Review`.
+
 ## Round 1
 
 ### Findings
@@ -82,9 +90,80 @@ architect CRITICAL은 **소스로 직접 확인**했다 — `decision.js:244-251
 
 **흡수** — `decision.js` 편입 자체를 포기하고 `santa/ledger.js#deriveSantaDecisionId`가 3단 규칙을 자체 소유(`decision.js`는 상수 export 2줄만, 동작 변경 0) · `--decision`에 `SLUG_RE` + `assertContained` 이중 방어, 전 subcommand 적용 · `raw`는 재직렬화 객체로 명시.
 
+## Round 5 — `sha256:3029f879…` · **divergent** (3 pass / 1 fail)
+
+round 4 이후 흡수된 3건이 반영된 새 plan 버전(`3a7f3182…` → `3029f879…`)에 대한 재심사. 응답 4/4 · 4 distinct roles로 **정족수 자체는 충족**했고, 차단 사유는 blocking finding 2건(`test/HIGH` · `test/FAIL`)이다.
+
+L1 converged(위반 0) · L2 divergent · L3 미발화(`fires.l3=false`).
+
+### Findings
+
+| Perspective | Severity | Claim | Evidence |
+|---|---|---|---|
+| test | **HIGH** | Validation의 산문 캡 제거 검사가 **비단언적**이라 절대 실패하지 않는다 | plan L240 `grep -n "Maximum 3 iterations" … \|\| echo "OK"` — 패턴이 **발견되면** grep이 exit 0이라 `\|\|`가 안 타고 전체가 exit 0. 미발견이면 `echo`가 타서 또 exit 0. 양쪽 다 성공 |
+| test | MEDIUM | Validate가 아직 존재하지 않는 test 파일 2개를 실행 | plan L233-234 ↔ Files to Change L53-54 (CREATE). 현 시점 부재 |
+| test | MEDIUM | DD4 test가 "Step 3 **첫 줄**"이 아니라 "Reviewer A보다 앞"만 단언 | plan L216 "Step 3 첫 줄" ↔ Acceptance L268 위치 비교. Step 3 5번째 줄이어도 통과 |
+| test | MEDIUM | `BRANCH_BASED_COMMANDS` 무변경을 강제하는 자동 검사 부재 | Acceptance L272는 `git diff` 육안 확인. Validation은 회귀 test만 열거 |
+| invariant | MEDIUM | exit code 표(L200-208)에 **lock 획득 실패**가 없다 | plan L198 "예외까지 전부 매핑" ↔ 표에 lock 실패 행 없음. mirror인 `plan-review/cli.js`는 미매핑 예외를 12로 흡수 |
+| invariant | MEDIUM | 캡 순서 test가 텍스트 위치만 봐 **exit code 무시 셸**을 잡지 못한다 | plan L222·L268 — `begin-round` 문자열 위치 단언. 호출은 하되 비영점 exit을 무시하는 구현이 통과 |
+| invariant | MEDIUM | `writeFileAtomic`이 mode 인자 없이 써서 chmod 이전 race window | `evidence-lock.js:241` `fs.writeFileSync(tmp, content, 'utf8')` — DD7이 이미 인정한 한계지만 window 자체는 잔존 |
+| invariant | LOW | `assertContained`의 `expectedParentDir` 인자가 미지정 | plan L110은 호출만 명시. `path-containment.js:29`는 3-arg 시그니처 |
+
+### Refutation attempted
+
+| Perspective | Verdict | What was attacked |
+|---|---|---|
+| architect | pass | 전 인용 대조(`orchestration-runaway.js` 함수 4개 · `evidence-lock.js` API · `decision.js` 상수 · `.gitignore` 선례 · `slugFromBranch`) · ledger/counter 불변식 분리(`rounds.length` SoT) · DD3의 `BRANCH_BASED_COMMANDS` 함정 회피 · 손상 처리 fail-closed · lock 사용과 mode 책임 배치 · envelope의 `raw` 보존 · 캡 배치의 토큰 절약 · path containment 심층 방어 · 별도 CLI 프로세스라 재진입 lock 문제 없음. **반증 실패** |
+| security | pass | `SLUG_RE`의 문자 수준 차단 · `assertContained`의 `fs.realpathSync` symlink 안전성 · 상태 파일 생성 race(evidence-lock 5s lease) · chmod 이전 TOCTOU window · 증거 유출(gitignored·`0o600`·비밀 없음) · JSON injection · regex 우회 · slug fallback 함정 · `--reviewer-file` containment · 상태 손상을 통한 캡 우회(`read()` throw). **반증 실패** |
+| test | **fail** | 산문 캡 검사 명령의 단언성 · 신규 test 파일 부재 · "첫 줄" 요구와 위치 단언의 격차 · `BRANCH_BASED_COMMANDS` 보존의 자동화 공백 · Validate ↔ Acceptance의 자동/수동 경계 |
+| invariant | pass | 캡 배치와 exit code 존중 · lock 실패 매핑 · chmod race · `assertContained` 대상 · 병렬 접근 · 손상 파일 · receipt anchoring(M2 소관) · `--decision` traversal. **게이트가 조용히 열리거나 캡이 fail-open되는 경로는 찾지 못함** |
+
+### 이번 라운드의 성격
+
+round 1~4와 다른 점이 둘 있다. 첫째, **architect·security·invariant 세 관점이 반증에 실패**했다 — round 1(2 fail) · round 2(4 fail) · round 3(3 fail) · round 4(3 fail)에 비해 실질 수렴이다. 둘째, 남은 fail이 round 3·4를 지배하던 "plan에 test 코드가 없다" 부류(REJECT_YAGNI)가 **아니다** — `test/HIGH`는 plan이 **실제로 적어 둔 명령 한 줄**의 결함이고 셸에서 그대로 재현된다:
+
+```
+$ grep -n "Maximum 3 iterations" plugins/mccp/commands/santa-loop.md || echo "OK: prose cap removed"
+148:**Maximum 3 iterations.** …
+--> exit=0
+```
+
+산문 캡이 **제거되지 않은 현 상태에서 검증이 성공을 보고한다.** 이 명령은 어떤 입력에서도 실패할 수 없으므로 Acceptance L279("산문 캡 제거")를 지지하지 못한다. patch-chasing이 아니라 원 산출물의 결함이다.
+
+## Round 6-9 — Codex 단독 (`MCCP_PLAN_REVIEW=codex`)
+
+R5 종료 후 운영자가 리뷰어를 **Codex(GPT-5.4 계열) cross-model로 전환**했다. 라운드별 상세와 흡수 내용은 plan 본문의 `## Codex Adversarial Review`가 소유하고, 여기에는 계측만 남긴다.
+
+| 라운드 | plan 버전 | findings | 겨냥 대상 |
+|---|---|---|---|
+| R6 | `bb4f7f63…` | HIGH 1 · MED 1 | R5 흡수가 넣은 `assertContained` 3-arg 오용 (채택 시 santa-loop 전면 불능) · 사후 chmod 노출 창 |
+| R7 | `54e372f3…` | HIGH 1 | R5 흡수가 Acceptance에 심은 **거짓 단언** (문자열 존재로 제어흐름을 증명하려 함) |
+| R8 | `726e4f5e…` | HIGH 1 | R7 흡수(DD11)가 절반만 닫은 lifecycle — **`record --id A` ×2로 dual-review 우회 가능** |
+| R9 | `b69db7ea…` | HIGH 1 | R8 흡수(DD12)가 빠뜨린 `beginRound` 멱등성 — 재시도만으로 리뷰 없이 캡 소진 |
+
+## 9라운드 측정치 (P1 판정 계약 baseline)
+
+| 축 | 값 |
+|---|---|
+| 총 라운드 | **9** (multi-agent 5 + Codex 4) |
+| 리뷰어 인스턴스 | agent 20인(5라운드 × 4관점) + Codex 4회 |
+| 라운드별 실결함 | 5 → 12 → 5 → 3 → 4 → 2 → 1 → 1 → 1 |
+| 오탐/기각 부류 | R3·R4에 집중(11건, "plan에 test 코드가 없다" 계열) · R5 이후 1건 |
+| 수렴 여부 | **미수렴.** 결함 수는 줄었으나 0에 도달하지 않음 |
+| 패널 토큰 | R1~R4 약 1.38M + R5 351k |
+| receipt | **0건** — 9라운드 전부 미발행 |
+
+**이 데이터가 말하는 것.** 결함 수는 단조 감소했지만(5→12→5→3→4→2→1→1→1) 마지막 네 라운드가 전부 **직전 흡수가 만든 구멍**을 겨눴다. 즉 감소는 수렴이 아니라 *패치 표면이 좁아진 것*이고, 각 패치가 다음 패치의 대상을 생산하는 한 이 수열은 0에 닿지 않는다. PRD Evidence의 "문서상 3라운드, 실사용 15~20"이 여기서 실측으로 재현됐다 — 9라운드에서 **사전 종료 규칙이 없었다면 계속 돌았을 것**이다.
+
+동시에 반대 방향의 사실도 있다: R6·R8이 찾은 것은 사소하지 않았다. 하나는 채택 시 santa-loop이 전면 불능이 되는 결함이었고, 다른 하나는 **dual-review 자체가 기계적으로 우회되는** 경로였다. "라운드를 많이 썼으니 그만"은 여기서 틀린 이유가 된다 — 옳은 이유는 *패치가 패치를 낳는 구조*이지 라운드 수가 아니다.
+
+**cross-model이 실제로 다른 것을 봤다.** R5 패널의 security 관점은 `assertContained` 호출을 "심층 방어 확인"으로 pass시켰고, invariant 관점은 캡 검증 축을 MEDIUM으로 짚고 넘어갔다. R6·R7 Codex는 같은 두 지점에서 각각 전면 불능 결함과 거짓 단언을 HIGH로 찾았다. 패널이 통과시킨 자리를 다른 모델이 뚫은 사례 2건이 P1의 "증거 다양성" 축을 뒷받침한다.
+
+**P1이 이 데이터로 답해야 할 질문.** (1) 종료 조건을 결함 수로 둘 것인가, *결함의 출처*(원 산출물 vs 직전 패치)로 둘 것인가. 이 세션에서는 후자만이 R9를 마지막으로 지목할 수 있었다. (2) severity 축이 "채택 시 전면 불능"(R6-F0)과 "acceptance 문구 부정확"을 같은 HIGH로 묶는 것이 옳은가. (3) 오탐 11건이 R3·R4에 몰린 것은 프롬프트에 artifact-scope 절이 없어서였다 — 리뷰어 계약의 결함이 severity 분포를 왜곡한 실측 사례다.
+
 ---
 
-## 종료 판정과 그 근거
+## 종료 판정과 그 근거 (round 4 시점)
 
 **패널을 round 4에서 멈춘다.** 4라운드 · 리뷰어 16인 · subagent 토큰 약 1.38M을 쓰고도 quorum(3/4)에 도달하지 못했고, 라운드별 실결함은 5 → 12 → 5 → 3으로 줄되 **0으로 수렴하지 않았다**. 더 결정적인 것은 round 4의 security CRITICAL이 **round 3의 수정이 만든 결함**이라는 점이다 — 원 산출물이 아니라 직전 라운드의 패치를 겨눈다.
 

@@ -77,17 +77,23 @@ function stripHtmlBlocks(text) {
 // 같은 규칙이다. 여기서 잘라내지 않으면 두 구조가 서로 다른 마크다운을 가정하게 되고,
 // 그 틈으로 인용된 `INTENT: none`이 살아남아 **없던 합의**를 만든다.
 // 짝이 맞는 블록은 이미 제거됐으므로 여기 남은 여는 태그는 정의상 닫히지 않은 것이다.
-// **줄 선두**에서 시작하는 여는 태그만 블록으로 본다(CommonMark HTML block start
-// condition 미러 — 선행 공백 0~3칸 허용). 문장 중간의 `<code>` 언급은 인라인 HTML이지
-// 블록이 아니며, 그것까지 블록으로 취급하면 "Use the <code> tag here" 같은 평범한
-// 리뷰 문장이 **뒤따르는 진짜 주장을 통째로 잘라낸다**(실측: unclaimed → enforce에서
-// 계약을 지킨 리뷰어가 불응으로 판정됨). 과다 제거가 안전 방향이라는 원칙은 인용을
+// 태그 이름을 열거하는 대신 **규칙**을 구현한다. `pre|code|blockquote`만 알던 목록은
+// `<script>` · `<style>` · `<textarea>` · `<iframe>` 안의 `INTENT:`를 전부 진짜 주장으로
+// 세었다(실측: 넷 다 claimed none). 목록을 늘리는 것은 다음 태그가 나올 때까지만 맞는
+// 답이므로, CommonMark의 HTML 블록 규칙 두 가지를 그대로 쓴다:
+//
+//   type 1 — `pre`/`script`/`style`/`textarea`는 **raw text**라 닫는 태그 또는 문서 끝까지.
+//   type 6 — 그 밖의 줄 선두 태그는 **빈 줄**까지.
+//
+// 어느 쪽이든 **줄 선두**(공백 0~3칸)에서만 연다. 문장 중간의 `<code>` 언급은 인라인
+// HTML이지 블록이 아니며, 그것까지 블록으로 보면 "Use the <code> tag here" 같은 평범한
+// 리뷰 문장이 뒤따르는 진짜 주장을 잘라낸다. 과다 제거가 안전 방향이라는 원칙은 인용을
 // 놓치지 않기 위한 것이지, 인용이 아닌 것을 인용으로 만들라는 뜻이 아니다.
-const UNCLOSED_HTML_RE = /^[ ]{0,3}<(?:pre|code|blockquote)\b/im;
+const HTML_BLOCK_START_RE = /^[ ]{0,3}<\/?([a-zA-Z][a-zA-Z0-9-]*)/;
+const RAW_TEXT_TAGS = ['pre', 'script', 'style', 'textarea'];
 
-function truncateAtUnclosedHtml(text) {
-  const m = text.match(UNCLOSED_HTML_RE);
-  return m ? text.slice(0, m.index) : text;
+function closesRawText(line, tag) {
+  return new RegExp('</' + tag + '\\s*>', 'i').test(line);
 }
 
 // HTML 주석도 인용이다 — 오히려 렌더된 화면에 **보이지도 않는** 인용이라, 그 안의
@@ -131,11 +137,13 @@ function isIndentedCode(line) {
 function stripQuotedStructures(text) {
   // 주석을 먼저 걷어낸다 — 주석 안에 `<pre>` 같은 여는 태그가 있으면 아래 truncate가
   // 주석 밖의 멀쩡한 본문까지 잘라낼 수 있다(과다 제거는 안전 방향이지만 불필요하다).
-  const lines = truncateAtUnclosedHtml(stripHtmlBlocks(stripHtmlComments(text))).split('\n');
+  const lines = stripHtmlBlocks(stripHtmlComments(text)).split('\n');
   const out = [];
   let fenceChar = null;
   let fenceLen = 0;
   let inQuote = false;
+  let rawTextTag = null;   // type-1: open until the closing tag or EOF
+  let inHtmlBlock = false; // type-6: open until a blank line
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -154,6 +162,35 @@ function stripQuotedStructures(text) {
     if (open) {
       fenceChar = open[1][0];
       fenceLen = open[1].length;
+      inQuote = false;
+      out.push('');
+      continue;
+    }
+
+    if (rawTextTag) {
+      if (closesRawText(line, rawTextTag)) rawTextTag = null;
+      out.push('');
+      continue;
+    }
+
+    if (inHtmlBlock) {
+      if (line.trim() === '') {
+        inHtmlBlock = false;
+        out.push(line);
+      } else {
+        out.push('');
+      }
+      continue;
+    }
+
+    const htmlOpen = line.match(HTML_BLOCK_START_RE);
+    if (htmlOpen) {
+      const tag = htmlOpen[1].toLowerCase();
+      if (RAW_TEXT_TAGS.indexOf(tag) !== -1) {
+        if (!closesRawText(line, tag)) rawTextTag = tag;
+      } else {
+        inHtmlBlock = true;
+      }
       inQuote = false;
       out.push('');
       continue;

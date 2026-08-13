@@ -864,3 +864,43 @@ test('M1.5 — `inconclusive` still carries the disagreements it DID observe', f
     assert.strictEqual(r.receipt.meta.intent_reviewer_contract, 'partial');
   });
 });
+
+test('M1.5 — a "disputed" entry whose reason is no answer does not validate', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision(),
+    });
+    // `resolution:'disputed'` is a claim that the author answered, and the oracle
+    // only reaches it when isValidDisputeReason accepted the text. Trusting the
+    // label on its own word let a one-token shrug count as a dispute AND carry
+    // `preserved`, while the same text through the oracle is `mislabel_unresolved`.
+    r.receipt.meta.intent_mislabel_audit = [auditEntry({ dispute_reason: 'no' })];
+    const v = validate(r.receipt);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.errors.join(' ').indexOf('not a valid dispute') !== -1, v.errors.join(' '));
+
+    // …and the carve-out still applies here: a dispute naming code is fine.
+    r.receipt.meta.intent_mislabel_audit = [auditEntry({
+      dispute_reason: 'the reviewer pointed at test scaffolding in bar.ts, not the shipped boundary',
+    })];
+    assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
+  });
+});
+
+test('M1.5 — an unresolved entry is not required to carry a reason', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    // The predicate applies to the `disputed` label only. An unresolved entry is
+    // precisely the one with no valid answer, so requiring one there would make
+    // the blocking case unrepresentable.
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: mislabelDecision({
+        verdict: 'mislabel_unresolved',
+        mislabel_disputes: 0,
+        mislabel_audit: [auditEntry({ resolution: 'unresolved', dispute_reason: null })],
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
+  });
+});

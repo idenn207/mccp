@@ -1,6 +1,10 @@
 'use strict';
 
 const { validateReason } = require('./lib/force-override-reason');
+// One definition, two enforcement points: the oracle decides the verdict, and
+// the schema refuses to seal an entry whose label the oracle would not have
+// produced. Importing rather than restating it is what keeps them from drifting.
+const { isValidDisputeReason } = require('../lib/intent-context');
 
 const SCHEMA_VERSION = 'v1';
 
@@ -1109,6 +1113,20 @@ function validate(receipt) {
               && e.dispute_reason.length <= INTENT_DISPUTE_REASON_CHARS),
             at + '.dispute_reason must be a string ≤' + INTENT_DISPUTE_REASON_CHARS +
             ' chars or null');
+          // `resolution:'disputed'` is a CLAIM that the author answered, and the
+          // oracle only reaches it when isValidDisputeReason accepted the text.
+          // Length-checking alone left the label trusted on its own word: an
+          // entry could seal `dispute_reason:'no'` as `disputed`, count toward
+          // intent_mislabel_disputes, and carry `preserved` — while the same
+          // text through the oracle is no answer at all and yields
+          // `mislabel_unresolved`. Re-run the predicate here so the record
+          // cannot assert a resolution its own evidence does not support.
+          if (e.resolution === 'disputed') {
+            req(isValidDisputeReason(e.dispute_reason),
+              at + '.resolution is "disputed" but .dispute_reason is not a valid ' +
+              'dispute (the oracle would treat it as no answer, making this ' +
+              'finding unresolved)');
+          }
         });
         if (comparable) auditUsable = au;
       }

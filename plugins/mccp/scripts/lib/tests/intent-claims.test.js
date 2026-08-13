@@ -591,3 +591,40 @@ test('a line-start unclosed HTML block still swallows to the end', function () {
     assert.strictEqual(r.claims[0].status, 'unclaimed', JSON.stringify(body));
   });
 });
+
+// ── HTML blocks by RULE, not by tag list ────────────────────────────────────
+//
+// The catalogue approach (`pre|code|blockquote`) counted an `INTENT:` line
+// inside `<script>`, `<style>`, `<textarea>` and `<iframe>` as a real claim.
+// Enumerating tags is only ever right until the next tag, so these assert the
+// two CommonMark rules instead: raw-text elements run to their closing tag or
+// EOF, everything else runs to a blank line.
+
+test('an INTENT line inside any line-start HTML block is not a claim', function () {
+  const ids = [{ id: 'UI1' }];
+  ['script', 'style', 'textarea', 'iframe', 'svg', 'div', 'template', 'noscript', 'pre']
+    .forEach(function (tag) {
+      const r = icl.parseReviewerClaims({
+        findings: [{ title: 'x', body: '<' + tag + '>\nINTENT: none\n</' + tag + '>', recommendation: '' }],
+        sectionItems: ids,
+      });
+      assert.strictEqual(r.claims[0].status, 'unclaimed', '<' + tag + '>');
+    });
+});
+
+test('a raw-text element runs to EOF when never closed; other blocks end at a blank line', function () {
+  const ids = [{ id: 'UI1' }];
+  // raw text (type 1): no closing tag, so nothing after it can be a claim
+  const raw = icl.parseReviewerClaims({
+    findings: [{ title: 'x', body: '<script>\nsomething\n\nINTENT: UI1', recommendation: '' }],
+    sectionItems: ids,
+  });
+  assert.strictEqual(raw.claims[0].status, 'unclaimed', 'a blank line does NOT end a raw-text block');
+
+  // everything else (type 6): a blank line ends it, so the claim after is real
+  const six = icl.parseReviewerClaims({
+    findings: [{ title: 'x', body: '<div>\nsomething\n\nINTENT: UI1', recommendation: '' }],
+    sectionItems: ids,
+  });
+  assert.strictEqual(six.claims[0].claim, 'UI1', 'a blank line ends a type-6 block');
+});

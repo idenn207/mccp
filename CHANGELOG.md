@@ -2,7 +2,31 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.10`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.23.10] — 2026-08-14
+
+**gate-guard-integrity M2 — 신호 신뢰도 (단일 milestone → patch bump)** — "전수 실행 결과가 실행마다 동일한가"를 **말할 수 있게** 만들고, 외부 의존 스모크 테스트가 도달 불가일 때 **참인 사유로** skip하게 한다. 착수 전 실측 4회가 plan의 형태를 바꿨다: PRD·STATE가 지목한 flaky 4건은 **한 번도 발화하지 않았고**, 실제로 갈라진 것은 그 목록에 없던 항목이었다. 즉 고정된 flaky 목록을 수리하는 계획은 성립하지 않으며, "실행마다 동일"이라는 진술은 **관측 없이는 참·거짓을 말할 수 없다**.
+
+**이 milestone은 목표를 달성하지 못했고, 그 사실을 자기 산출물로 측정했다.** 통제된 비교(같은 harness·같은 머신, 각 10회)에서 수정 전 스위트는 **10/10 완전히 동일**했고 수정 후는 **8/10**이다. 유입된 비결정 2건(`dedupe.test.js:123` · `worktrees-source.test.js:344`, 각 ≈10%/run)은 이 변경이 수정한 어느 파일에도 속하지 않으며, 세 차례 재현 시도(16× 동시 · 3배 부하 · 15× 순차)가 **전부 실패**해 메커니즘을 확정하지 못했다. 추정으로 채우지 않고 PRD Open Question으로 승계한다. **PRD Milestone 2는 `complete`로 표시하지 않았다.** `after.tap` 단일 실행은 네 델타 기준을 전부 충족하지만, 8/10의 green을 성공으로 읽는 것이 이 PRD가 지목한 결함 형태 자체다.
+
+닫힌 것은 분명하다 — **축 C**(`b2-coverage-gate` 상시 red 2건)는 10회 전부에서 사라졌고(`alwaysFailing: []`), **축 B**(거짓 skip 사유)는 문자열 A/B로 대체됐다.
+
+### Added
+- `plugins/mccp/scripts/lib/suite-determinism.js` — N회 전수 실행의 실패 집합을 대조하는 결정성 harness. 순수층 `diffRuns(runs)` → `{stable, unionFailing, alwaysFailing, sometimesFailing}` + 실행층(`--runs N --json --repo-root`). **관측만 한다** — 재시도로 green을 만들거나 스위트를 수정하지 않는다. `stable`은 fail-closed다: 1회 관측은 안정성의 근거가 아니고(`insufficient-runs`), 요약 헤더가 없는 잘린 TAP은 "실패 0건"이 아니라 `incomplete-tap`이며, 실패 **이름**이 같아도 pass/fail 카운트가 움직이면 divergence다(조건부 skip이 pass↔skip을 오가는 형태는 이름 집합에 흔적을 남기지 않는다).
+- `plugins/mccp/scripts/lib/perf-scaling.js` — `judgeScaling({small,large,slack})` 순수 오라클. `ratio ≤ linearRatio × slack`(기본 2), **`small.ms=0`은 fail-closed**(`unmeasurable`) — 0으로 나눠 Infinity를 만들거나 "빠르니 통과"로 읽으면 분해능 아래로 내려간 순간 이 축이 조용히 꺼진다. 오라클을 `lib/`가 소유하는 것도 계약이다(`.test.js`가 export하면 소비 경로가 test 실행 부수효과에 묶인다).
+- `plugins/mccp/scripts/lib/codex-reachability.js` — `classify({env, invokeResult, registryProbe})` 도달 가능성 오라클. **precedence는 env policy > classification**: `MCCP_CODEX_DISABLED=1`이면 `invokeResult`가 무엇이든 `{reachable:false, kind:'env-policy'}`다(env가 켜졌다는 것은 companion이 spawn되지 않았다는 뜻이고, 그 판정은 하위 계층의 정직성과 무관하게 성립해야 한다). 표 밖 classification은 **도달 성공으로 읽지 않는다**(fail-closed → `transport`).
+- `plugins/mccp/scripts/receipt/store.js` `quarantineReceipt()` + `isWithinReceiptsDir()` — 승인된 격리 helper와 그 봉쇄 술어. 술어를 따로 export하는 이유는 stub 관측만으로는 `realpath` 로직 버그가 잡히지 않기 때문이다. 봉쇄는 `path.resolve` → `path.relative`(세그먼트 단위 `..` 검사) → **가장 가까운 실재 조상의 `realpathSync`** 재검사이며, source·destination **양쪽**에 적용한다. suffix는 helper **경계에서** 검증한다 — 호출부 검증은 helper 검증을 대체하지 못한다.
+- test: `lib/tests/{suite-determinism,perf-scaling,codex-reachability}.test.js` · `receipt/tests/store-quarantine.test.js` (신규 29건) + 기존 파일에 5건. 부정 케이스를 **스위트 안**에 둔 것이 설계다 — bash 스니펫에만 두면 `node --test` 게이트 밖이라 "자동 탐지"가 "문서화된 의도"로 약해진다.
+
+### Changed
+- `plugins/mccp/scripts/derive/tests/perf-budget.test.js` — 절대 `elapsed < 1000ms`를 **자기 정규화 스케일링 비**로 대체. 옛 단언은 derive의 비용과 **머신 경합**을 함께 재서, 코드가 한 줄도 안 바뀌어도 부하가 높으면 발화했다. 3배 부하 실측이 그것을 확인한다 — **옛 단언 3/3 실패, 새 단언 3/3 통과**이면서 주입된 O(n²)는 여전히 기각(ratio 45.29 > 20). 이 쌍이 함께 있어야 "완화가 아니라 대체"가 증명된다. 주입 스위치 `MCCP_PERF_INJECT_QUADRATIC`의 소비 지점은 **이 파일의 `runDerive` 헬퍼 한 곳뿐**이며 production `derive/`로 새지 않았음을 역방향 grep이 검사한다. 비율 축이 못 보는 상수 배수 폭증에는 경합보다 한참 위의 느슨한 절대 상한(30s)을 **별개 축**으로 뒀다.
+- `plugins/mccp/scripts/lib/tests/a3-instruction-cost.test.js` — `measureA3()` 5개 호출부에 명시 fixture `repoRoot` 전달. 미전달 시 `a3-instruction-cost.js:477`이 `process.cwd()`의 **라이브** `.claude/state/STATE.md`를 읽는다(세션 hook이 갱신하는 가변 파일). A/B: repoRoot 없이 7943B(cwd=repo) vs 111B(cwd=fixture) → 명시 후 111B/111B로 불변. temp CLAUDE.md도 fixture 안으로 옮겼다 — 전수 병렬 실행 중 저장소 트리에 파일을 쓰는 것 자체가 제거 대상 간섭이다.
+- `plugins/mccp/scripts/hooks/session-start.js` — fail-open 계약을 **원인과 무관하게** 강제. 이 hook은 `main().catch(… exitCode = 0)`로 "어떤 실패에도 exit 0"을 선언하지만, **module-scope throw는 그 catch가 구조적으로 못 잡는다** — 실측된 divergence(`exit 1` + stderr 완전 공백)와 형태가 일치한다. module-scope require를 `safeRequire`로 감싸고 `uncaughtException`/`unhandledRejection`/`exit` 3중 가드를 건다(hook 진입점일 때만 등록 — module로 require될 때 남의 프로세스 종료 코드를 건드리지 않는다). **강제는 조용하지 않다**: 고정 marker `FAIL-OPEN-FORCED`를 stderr에 남기고 `runSessionStart`가 그것을 파싱해, 정상 경로 test 6건이 marker **부재**를 단언한다 — 프로덕션에서는 막히지 않고 테스트에서는 그 사건이 계속 보인다(종료 코드 하나에 두 요구를 싣지 않는다).
+- `plugins/mccp/scripts/lib/plan-codex-runner.js` — `:248`의 직접 `fs.renameSync`를 store helper 위임으로 교체. helper는 throw하지 않으므로 **반환값을 반드시 검사**한다(무시하면 격리 실패가 조용히 지나가면서 lint는 통과하는 fail-open drift). `{ok:false}`면 기존 FATAL stderr 메시지를 그대로 낸다. `fs.renameSync(` 호출부 **2 → 1**(남는 1건은 marker atomic write).
+- `plugins/mccp/scripts/lib/msw-metrics/b2-coverage-gate.js` — `MUTATION_ENTRYPOINTS`에 `store.js#quarantineReceipt` **1행 추가만**(diff `+1/-0`). 승인 writer 면제가 파일 단위(`:324`)라 store에 들어간 새 mutating 함수는 축 A·B 어느 쪽으로도 스캔되지 않는다 — 레지스트리 등록이 그 면제를 책임지게 하는 유일한 보완 통제다. `APPROVED_WRITERS` · `APPROVED_PREFIXES` · `WRITE_CALL_RE` · `ANY_WRITE_CALL_RE`는 **무변경**(가드 미약화의 기계적 증거).
+- `plugins/mccp/scripts/lib/tests/codex-companion-smoke.test.js` — `shouldSkip()`을 도달 가능성 오라클로 대체. 이전 판정은 `MCCP_CODEX_DISABLED` 축을 **보지 않아** companion이 호출된 적조차 없는데 "JSON 계약이 non-JSON으로 드리프트했다"고 보고했다. A/B: `real codex --json contract appears to be non-JSON` → `env-policy: MCCP_CODEX_DISABLED=1 — codex-invoke short-circuits before spawn`. 도달 **성공 후** 계약 드리프트 skip은 사유가 이미 참이므로 현행 유지.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.7 → 1.23.10` + renderer footer 2면. plan은 `1.23.8`을 적었으나 그 사이 `origin/main`이 1.23.8을 발행했고 미머지 worktree 2개(`codex-intent-context`·`v1.24.0-multi-session-m5`)가 이미 1.23.9를 선언했다 — §3.7 forward-only + 3자 충돌 회피로 두 칸 상향. 같은 축의 **6번째 실측 재발**이다.
 
 ## [1.23.7] — 2026-08-09
 

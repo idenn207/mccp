@@ -22,6 +22,7 @@ const runner = require('../plan-codex-runner');
 const ic = require('../intent-context');
 const codexInvoke = require('../codex-invoke');
 const receiptWrite = require('../../receipt/write');
+const receiptStore = require('../../receipt/store');
 const codexPayload = require('../codex-review-payload');
 
 const PRD_PLAN = [
@@ -129,6 +130,10 @@ test('(a) default dependencies are the REAL modules, not test doubles', function
     'runner must default to the real codex-invoke');
   assert.strictEqual(runner.defaultDeps.write, receiptWrite.write,
     'runner must default to the real receipt writer');
+  // gate-guard-integrity M2 축 C — 주입된 fake 만 검증하면 "위임했다"가 test 안에서만
+  // 참일 수 있다. 기본 배선이 승인된 store helper 자신임을 함께 고정한다.
+  assert.strictEqual(runner.defaultDeps.quarantineReceipt, receiptStore.quarantineReceipt,
+    'runner must default to the approved store quarantine helper');
 });
 
 test('(a2) the runner requires the receipt writer directly — no CLI shell-out', function () {
@@ -245,7 +250,13 @@ test('DD4-2 — the mis-sealed receipt is quarantined, so markerless recovery ca
   stageAdjudication(s, 'n8q', env);
 
   // A real file on disk: the invariant under test is a rename, not a return value.
-  const receiptPath = path.join(s.dir, 'plan-codex-receipt.json');
+  //
+  // gate-guard-integrity M2 축 C — 경로가 `.claude/receipts/` 안이어야 한다. 격리가
+  // 승인된 store helper 로 옮겨가면서 helper 가 source·destination 양쪽에 봉쇄
+  // 검사를 걸기 때문이다. 이 fixture 는 production 이 실제로 쓰는 형태(write 가
+  // 돌려주는 경로가 곧 receiptsDir 하위)이므로 더 충실해진 것이지 완화가 아니다.
+  const receiptPath = path.join(s.dir, '.claude', 'receipts', 'mccp-plan-codex', 'r.json');
+  fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
   fs.writeFileSync(receiptPath, JSON.stringify({ meta: { intent_run_nonce: 'n8q' } }));
 
   const out = runWith(s, { runNonce: 'n8q' }, env, function () {
@@ -259,6 +270,87 @@ test('DD4-2 — the mis-sealed receipt is quarantined, so markerless recovery ca
     'quarantine must preserve the artifact for diagnosis rather than delete it');
   assert.strictEqual(out.res.receiptPath, null,
     'the marker must not advertise a receipt_path that was just quarantined');
+});
+
+// ── gate-guard-integrity M2 축 C — 위임 관측 ─────────────────────────────────
+//
+// 정적 grep 으로는 대체할 수 없다. `grep … [^)]*receipt` 는 지역 변수명을 `p` 로
+// 바꾸기만 해도 통과하고, 이 파일에는 정당한 fs write 가 여러 곳 더 있어 "fs 호출
+// 0건" 형태의 검사도 성립하지 않는다. 그래서 **호출 자체를 관측**한다 —
+// 변수명·주석·래핑 어느 것으로도 만족시킬 수 없는 형태다.
+
+test('quarantine delegates to the approved store helper with the receipt path and nonce', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ title: 'F1', severity: 'high' }]);
+  stageAdjudication(s, 'n8d', env);
+
+  const receiptPath = path.join(s.dir, '.claude', 'receipts', 'mccp-plan-codex', 'r.json');
+  fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
+  fs.writeFileSync(receiptPath, JSON.stringify({ meta: { intent_run_nonce: 'n8d' } }));
+
+  const calls = [];
+  const res = runner.run({
+    plan: s.planRel, decision: 'r', cwd: s.dir, tmpDir: s.tmpDir, env: {},
+    adjudicationTimeoutMs: 3000, runNonce: 'n8d',
+  }, {
+    invokeAdversarialReview: function () { return env; },
+    write: function () {
+      return { path: receiptPath, receipt: { plan_hash: 'sha256:' + '9'.repeat(64), receipt_hash: 'x' } };
+    },
+    quarantineReceipt: function (repoRoot, filePath, suffix) {
+      calls.push({ repoRoot: repoRoot, filePath: filePath, suffix: suffix });
+      return { ok: true, skipped: false, dest: filePath + '.invalid-' + suffix, reason: null };
+    },
+  });
+
+  assert.strictEqual(res.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(calls.length, 1, 'the runner must delegate exactly once');
+  assert.strictEqual(calls[0].filePath, receiptPath, 'the receipt path must reach the helper');
+  assert.strictEqual(calls[0].suffix, 'n8d', 'the run nonce must reach the helper as the suffix');
+  assert.ok(calls[0].repoRoot, 'a repoRoot must be supplied — containment cannot be derived from the path itself');
+});
+
+test('quarantine failure surfaces as FATAL — the return value is never ignored', function () {
+  // helper 는 throw 하지 않으므로 반환값을 무시해도 "위임했다"는 통과한다. 그러면
+  // 격리 실패가 조용히 지나가면서 lint 도 통과하는 fail-open drift 가 된다. 호출
+  // 여부만 보는 단언은 이 결함을 놓치므로 실패 경로까지 같은 test 군이 고정한다.
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ title: 'F1', severity: 'high' }]);
+  stageAdjudication(s, 'n8f', env);
+
+  const receiptPath = path.join(s.dir, '.claude', 'receipts', 'mccp-plan-codex', 'r.json');
+  fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
+  fs.writeFileSync(receiptPath, JSON.stringify({ meta: { intent_run_nonce: 'n8f' } }));
+
+  const written = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = function (chunk) { written.push(String(chunk)); return true; };
+  let res;
+  try {
+    res = runner.run({
+      plan: s.planRel, decision: 'r', cwd: s.dir, tmpDir: s.tmpDir, env: {},
+      adjudicationTimeoutMs: 3000, runNonce: 'n8f',
+    }, {
+      invokeAdversarialReview: function () { return env; },
+      write: function () {
+        return { path: receiptPath, receipt: { plan_hash: 'sha256:' + '9'.repeat(64), receipt_hash: 'x' } };
+      },
+      quarantineReceipt: function () {
+        return { ok: false, skipped: false, dest: null, reason: 'source-outside-receipts-dir' };
+      },
+    });
+  } finally {
+    process.stderr.write = realWrite;
+  }
+
+  assert.strictEqual(res.exitCode, runner.EX_BLOCKED);
+  const stderr = written.join('');
+  assert.match(stderr, /FATAL: could not quarantine the mis-sealed/,
+    'a failed quarantine must be shouted, not swallowed');
+  assert.match(stderr, /source-outside-receipts-dir/,
+    'the helper\'s reason must travel into the operator-facing message');
+  assert.match(stderr, /Remove it by hand before/,
+    'the pre-existing FATAL message contract must be preserved verbatim');
 });
 
 // The runner is launched detached, so its stderr and exit code never reach the

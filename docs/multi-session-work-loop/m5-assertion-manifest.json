@@ -1,0 +1,402 @@
+{
+  "milestone": "multi-session-work-loop M5",
+  "generated_from": "test() titles in the files listed under Files to Change (+ the PR-Codex absorption suite)",
+  "contract": "each title must match a test() title verbatim; Validation §11 requires absent 0",
+  "assertions": [
+    {
+      "task": "Task 1",
+      "id": "T1-01",
+      "title": "M5 order: schema violation is reject-malformed"
+    },
+    {
+      "task": "Task 1",
+      "id": "T1-02",
+      "title": "M5 order: a record after a tombstone is admit-post-tombstone"
+    },
+    {
+      "task": "Task 1",
+      "id": "T1-03",
+      "title": "M5 order: a seq behind the high-water is admit-superseded"
+    },
+    {
+      "task": "Task 1",
+      "id": "T1-04",
+      "title": "M5 order: a same-seq collision admits the higher session_epoch"
+    },
+    {
+      "task": "Task 1",
+      "id": "T1-05",
+      "title": "M5 order: an in-order record is admit"
+    },
+    {
+      "task": "Task 1",
+      "id": "T1-06",
+      "title": "M5 order: a tombstone beats a newer session_epoch (rule 2 fires before rule 4)"
+    },
+    {
+      "task": "Task 1",
+      "id": "T1-07",
+      "title": "M5 order: an epoch tie breaks deterministically on session_id"
+    },
+    {
+      "task": "Task 1",
+      "id": "T1-08",
+      "title": "M5 order: a concurrent same-seq append keeps the loser in the journal"
+    },
+    {
+      "task": "Task 1",
+      "id": "T1-09",
+      "title": "M5 identity: env precedence matches resolveSessionKey"
+    },
+    {
+      "task": "Task 1",
+      "id": "T1-10",
+      "title": "M5 identity: an absent ledger falls back to the record ts"
+    },
+    {
+      "task": "Task 1",
+      "id": "T1-11",
+      "title": "M5 identity: prev_session_id derives from the journal tail"
+    },
+    {
+      "task": "Task 1",
+      "id": "T1-12",
+      "title": "M5 identity: a nearer ledger session from another worktree does not change prev_session_id"
+    },
+    {
+      "task": "Task 2",
+      "id": "T2-01",
+      "title": "M5 store: genesis bootstrap is idempotent"
+    },
+    {
+      "task": "Task 2",
+      "id": "T2-02",
+      "title": "M5 store: a malformed line does not contaminate the rest"
+    },
+    {
+      "task": "Task 2",
+      "id": "T2-03",
+      "title": "M5 store: three worktrees never cross journal paths"
+    },
+    {
+      "task": "Task 2",
+      "id": "T2-04",
+      "title": "M5 store: completion-ledger entries seed tombstones that close the work unit"
+    },
+    {
+      "task": "Task 2",
+      "id": "T2-05",
+      "title": "M5 store: an absent or unreadable ledger warns and seeds zero without blocking bootstrap"
+    },
+    {
+      "task": "Task 2",
+      "id": "T2-06",
+      "title": "M5 store: a __proto__ key in a journal line cannot pollute Object.prototype"
+    },
+    {
+      "task": "Task 2",
+      "id": "T2-07",
+      "title": "M5 store: a __proto__ key in a completion-ledger entry cannot pollute Object.prototype"
+    },
+    {
+      "task": "Task 2",
+      "id": "T2-08",
+      "title": "M5 store: writeDegradedMarker returns a result and never throws"
+    },
+    {
+      "task": "Task 2",
+      "id": "T2-09",
+      "title": "M5 store: bootstrap refuses to run while the degraded marker is present"
+    },
+    {
+      "task": "Task 6",
+      "id": "T6-01",
+      "title": "M5 cli: journal verify exits non-zero on a content_hash mismatch and isolates the record"
+    },
+    {
+      "task": "Task 6",
+      "id": "T6-02",
+      "title": "M5 cli: journal verify exits non-zero when malformed lines are present"
+    },
+    {
+      "task": "Task 6",
+      "id": "T6-03",
+      "title": "M5 cli: journal query filters by work-unit and surfaces superseded records on demand"
+    },
+    {
+      "task": "Task 6",
+      "id": "T6-04",
+      "title": "M5 cli: journal checkpoint --reseed seals the discarded range into the new genesis"
+    },
+    {
+      "task": "Task 3",
+      "id": "T3-01",
+      "title": "M5 projection: the same patch sequence renders byte-identical before and after M5"
+    },
+    {
+      "task": "Task 3",
+      "id": "T3-02",
+      "title": "M5 projection: each parser reads the pre- and post-M5 output identically"
+    },
+    {
+      "task": "Task 3",
+      "id": "T3-03",
+      "title": "M5 projection: both parsers match pinned expected values, not just each other"
+    },
+    {
+      "task": "Task 3",
+      "id": "T3-04",
+      "title": "M5 projection: the pre-existing next_chunk parser divergence is pinned, not widened"
+    },
+    {
+      "task": "Task 3",
+      "id": "T3-05",
+      "title": "M5 projection: every conditional frontmatter field survives the projection"
+    },
+    {
+      "task": "Task 3",
+      "id": "T3-06",
+      "title": "M5 projection: a multi-line next_chunk survives genesis bootstrap round-trip"
+    },
+    {
+      "task": "Task 3",
+      "id": "T3-07",
+      "title": "M5 projection: degraded mode is sticky across repeated update() calls and recovers only on reseed"
+    },
+    {
+      "task": "Task 3",
+      "id": "T3-08",
+      "title": "M5 projection: degraded stickiness survives a process boundary"
+    },
+    {
+      "task": "Task 3",
+      "id": "T3-09",
+      "title": "M5 projection: project() returns normally with every fs write method stubbed to throw"
+    },
+    {
+      "task": "Task 3",
+      "id": "T3-10",
+      "title": "M5 projection: shadow mode renders the legacy bytes while still growing the journal"
+    },
+    {
+      "task": "Task 4",
+      "id": "T4-01",
+      "title": "M5 replay: a resurrected late record stays in the journal"
+    },
+    {
+      "task": "Task 4",
+      "id": "T4-02",
+      "title": "M5 replay: the resurrected record is marked superseded by the tombstone"
+    },
+    {
+      "task": "Task 4",
+      "id": "T4-03",
+      "title": "M5 replay: the projection is unchanged by the resurrection"
+    },
+    {
+      "task": "Task 4",
+      "id": "T4-04",
+      "title": "M5 replay: STATE.md mtime is untouched when a resurrected record is excluded"
+    },
+    {
+      "task": "Task 4",
+      "id": "T4-05",
+      "title": "M5 replay: the defense still holds after the M3 claim TTL has elapsed"
+    },
+    {
+      "task": "Task 4",
+      "id": "T4-06",
+      "title": "M5 replay: a normal resume is still admitted (the defense does not block legitimate work)"
+    },
+    {
+      "task": "Task 5",
+      "id": "T5-01",
+      "title": "M5 retention: the projection is deep-equal before and after compaction"
+    },
+    {
+      "task": "Task 5",
+      "id": "T5-02",
+      "title": "M5 retention: compaction rotates the active segment instead of deleting it"
+    },
+    {
+      "task": "Task 5",
+      "id": "T5-03",
+      "title": "M5 retention: the checkpoint records the exact range it seals"
+    },
+    {
+      "task": "Task 5",
+      "id": "T5-04",
+      "title": "M5 retention: a crash between checkpoint and rotation loses no tail"
+    },
+    {
+      "task": "Task 5",
+      "id": "T5-05",
+      "title": "M5 retention: each of the three caps can fire on its own"
+    },
+    {
+      "task": "Task 5",
+      "id": "T5-06",
+      "title": "M5 retention: compaction refuses to run in degraded mode"
+    },
+    {
+      "task": "Task 7",
+      "id": "T7-01",
+      "title": "M5 lint: the real repository passes all five axes"
+    },
+    {
+      "task": "Task 7",
+      "id": "T7-02",
+      "title": "M5 lint axis 1: a writeStateAtomic call outside state-writer.js fails"
+    },
+    {
+      "task": "Task 7",
+      "id": "T7-03",
+      "title": "M5 lint axis 2: an edited STATE.md consumer call site fails"
+    },
+    {
+      "task": "Task 7",
+      "id": "T7-04",
+      "title": "M5 lint axis 3b: a process.cwd() literal argument fails"
+    },
+    {
+      "task": "Task 7",
+      "id": "T7-05",
+      "title": "M5 lint axis 3b: a one-hop process.cwd() alias fails"
+    },
+    {
+      "task": "Task 7",
+      "id": "T7-06",
+      "title": "M5 lint axis 3c: a value that never passed through resolveHandoffRoot fails"
+    },
+    {
+      "task": "Task 7",
+      "id": "T7-07",
+      "title": "M5 lint axis 4: handoff-items importing the journal fails"
+    },
+    {
+      "task": "Task 7",
+      "id": "T7-08",
+      "title": "M5 lint axis 5: project.js importing fs fails"
+    },
+    {
+      "task": "Task 7",
+      "id": "T7-09",
+      "title": "M5 lint axis 2 positive: the CL-5 edits in session-start/session-end do not trip it"
+    },
+    {
+      "task": "Task 7",
+      "id": "T7-10",
+      "title": "M5 lint: the assertion manifest is fully covered by real test titles"
+    },
+    {
+      "task": "Task 8",
+      "id": "T8-01",
+      "title": "M5 a4: a single session cannot credit itself"
+    },
+    {
+      "task": "Task 8",
+      "id": "T8-02",
+      "title": "M5 a4: unknown session ids are excluded from boundaries"
+    },
+    {
+      "task": "Task 8",
+      "id": "T8-03",
+      "title": "M5 a4: a genesis-only repository reports insufficient, not zero percent"
+    },
+    {
+      "task": "Task 8",
+      "id": "T8-04",
+      "title": "M5 a4: two real sessions count only the items that actually crossed"
+    },
+    {
+      "task": "Task 8",
+      "id": "T8-05",
+      "title": "M5 a4: the numerator never exceeds the denominator"
+    },
+    {
+      "task": "Task 8",
+      "id": "T8-06",
+      "title": "M5 a4: numerator and denominator are non-negative integers"
+    },
+    {
+      "task": "Task 8",
+      "id": "T8-07",
+      "title": "M5 a4: a computed status always carries a denominator of at least one"
+    },
+    {
+      "task": "Task 8",
+      "id": "T8-08",
+      "title": "M5 a4: the CL-5 fixture runs with cwd different from repoRoot"
+    },
+    {
+      "task": "Task 8",
+      "id": "T8-09",
+      "title": "M5 a4: an empty projectRoot falls back to the walk-up instead of collapsing to cwd"
+    },
+    {
+      "task": "Task 8",
+      "id": "T8-10",
+      "title": "M5 a4: an unresolvable root skips the write and leaves a countable marker"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-01",
+      "title": "M5 C1: the production update() path reads the session ledger for session_epoch"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-02",
+      "title": "M5 C2: a hash-tampered record is quarantined before it can drive the projection"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-03",
+      "title": "M5 C2: a hash-tampered checkpoint degrades instead of silently resetting the state"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-04",
+      "title": "M5 C3: a large next_chunk survives the journal without truncation"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-05",
+      "title": "M5 C3: a growing chain_progress survives the journal without truncation"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-06",
+      "title": "M5 C3: an unrepresentable patch degrades loudly instead of being silently trimmed"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-07",
+      "title": "M5 C3: preparePatch rejects nesting deeper than the journal can carry"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-08",
+      "title": "M5 D1: compaction carries the order index so a delayed record is still rejected"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-09",
+      "title": "M5 D1: a tombstone rotated into a segment still blocks post-compaction records"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-10",
+      "title": "M5 D2: the production update() path actually enforces the retention limits"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-11",
+      "title": "M5 E1: a new work unit starting at seq 1 is not overwritten by an older unit"
+    },
+    {
+      "task": "Task PR-Codex",
+      "id": "TPC-12",
+      "title": "M5 E1: interleaved work units keep last-write-wins across many switches"
+    }
+  ]
+}

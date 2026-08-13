@@ -1,0 +1,162 @@
+'use strict';
+
+// multi-session-work-loop M5 — A4 분자를 저널 경계에서 파생한다 (G5 · UI8·UI9 응답).
+//
+// 설계: docs/multi-session-work-loop/state-truth-source-design.md
+//
+// **왜 경로 수정만으로는 A4가 정직해지지 않는가**: `msw-metrics/index.js`의 기존
+// `computeA4` 주석이 직접 적었듯, 스캐너가 **현재 세션 자신의 sidecar를 포함해**
+// 전부 교차하므로 first session이 자기 handoff를 "복원됨"으로 self-credit한다 —
+// 경계를 하나도 건너지 않은 가짜 100%다. 그래서 필요한 것은 경계 스코프이고,
+// 그 경계가 바로 저널 레코드의 `prev_session_id`다.
+//
+// self-credit은 **구조적으로 불가능**하다: 경계는 `prev !== cur`일 때만 성립하므로
+// 자기 자신과의 교차가 분자에 들어갈 경로가 없다.
+
+const fs = require('fs');
+const path = require('path');
+
+const GENESIS_KINDS = new Set(['genesis', 'reseed']);
+// DD12 마지막 항 — `'unknown'`은 정상 값이지만(hook 밖 수동 CLI 호출 등) **경계에서는
+// 제외**한다. `'unknown'` 둘을 서로 다른 세션으로 세면 self-credit이 뒷문으로
+//돌아온다. 기록은 하되 계상하지 않는다.
+const NON_SESSION_IDS = new Set(['unknown', '']);
+
+function itemKey(item) {
+  if (!item || item.type == null || item.id == null) return null;
+  return String(item.type) + ' ' + String(item.id);
+}
+
+// 저널 레코드에서 세션 경계를 뽑는다 (순수).
+//
+// `prev_session_id`를 ledger가 아니라 저널에서 파생하는 이유(DD12): ledger의
+// "시간상 직전"은 다른 worktree에서 동시에 돈 세션일 수 있고, A4가 물어야 하는
+// 것은 *이 저장소의 상태를 실제로 이어받은* 세션이다. 저널의 직전 레코드는
+// 정의상 이 저장소 상태를 마지막으로 만진 세션이므로 경계가 정확하다.
+function extractBoundaries(records) {
+  const seen = new Set();
+  const boundaries = [];
+  for (const r of records || []) {
+    if (!r || typeof r !== 'object') continue;
+    if (GENESIS_KINDS.has(r.kind)) continue;           // genesis 경계는 분모 제외 (DD10)
+    const prev = typeof r.prev_session_id === 'string' ? r.prev_session_id : '';
+    const cur = typeof r.session_id === 'string' ? r.session_id : '';
+    if (!prev || NON_SESSION_IDS.has(prev) || NON_SESSION_IDS.has(cur)) continue;
+    if (prev === cur) continue;
+    const key = prev + '\u0000' + cur;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    boundaries.push({ prev_session_id: prev, session_id: cur });
+  }
+  return boundaries;
+}
+
+// 순수 판정. sidecars는 `{ [session_id]: [item, ...] }`.
+function deriveA4Boundary(args) {
+  args = args || {};
+  const boundaries = extractBoundaries(args.records || []);
+  const sidecars = args.sidecars || {};
+
+  if (boundaries.length === 0) {
+    // 클론 직후에는 저널에 genesis만 있으므로 경계가 0이다. 그때의 A4는
+    // `computed 0%`가 아니라 `insufficient` — 이전 세션이 없는데 복원율을
+    // 계산하는 것은 self-credit과 같은 종류의 거짓 값이다 (DD10).
+    return {
+      status: 'insufficient',
+      numerator: null,
+      denominator: null,
+      value: null,
+      boundary_count: 0,
+      reason: 'no real session boundary in the journal (genesis-only or unknown sessions)',
+    };
+  }
+
+  const leftKeys = new Set();
+  const carriedKeys = new Set();
+
+  for (const b of boundaries) {
+    const prevItems = Array.isArray(sidecars[b.prev_session_id]) ? sidecars[b.prev_session_id] : [];
+    const curItems = Array.isArray(sidecars[b.session_id]) ? sidecars[b.session_id] : [];
+    const curKeys = new Set();
+    for (const it of curItems) {
+      const k = itemKey(it);
+      if (k) curKeys.add(k);
+    }
+    for (const it of prevItems) {
+      const k = itemKey(it);
+      if (!k) continue;
+      leftKeys.add(k);
+      if (curKeys.has(k)) carriedKeys.add(k);
+    }
+  }
+
+  const denominator = leftKeys.size;
+  const numerator = carriedKeys.size;
+
+  if (denominator < 1) {
+    // 분모 0에 `computed`를 붙이면 0/0을 "측정됐다"로 보고하게 된다.
+    return {
+      status: 'insufficient',
+      numerator: null,
+      denominator: null,
+      value: null,
+      boundary_count: boundaries.length,
+      reason: 'boundaries exist but no prior-session handoff items were recorded',
+    };
+  }
+
+  return {
+    status: 'computed',
+    numerator: numerator,
+    denominator: denominator,
+    value: numerator / denominator,
+    boundary_count: boundaries.length,
+    reason: null,
+  };
+}
+
+// sidecar 수집 (I/O). `<session_id>.handoff-items.json` → { [session_id]: items }.
+function readSidecars(stateDir) {
+  const out = {};
+  let names = [];
+  try {
+    names = fs.readdirSync(stateDir);
+  } catch (_e) {
+    return out;
+  }
+  for (const name of names) {
+    if (!name.endsWith('.handoff-items.json')) continue;
+    const sessionId = name.slice(0, -'.handoff-items.json'.length);
+    try {
+      const data = JSON.parse(fs.readFileSync(path.join(stateDir, name), 'utf8'));
+      if (data && Array.isArray(data.items)) out[sessionId] = data.items;
+    } catch (_e) { /* malformed sidecar는 조용히 건너뛰지 않고 없는 것으로 둔다 */ }
+  }
+  return out;
+}
+
+// repoRoot 기준 스캔. derive source가 부른다.
+function scanA4Boundary(repoRoot, opts) {
+  opts = opts || {};
+  const stateDir = opts.stateDir || path.join(repoRoot, '.claude', 'state');
+  let records = [];
+  try {
+    const store = require('../../state/journal-store');
+    records = store.readRecords({ repoRoot: repoRoot }).records;
+  } catch (_e) {
+    records = [];
+  }
+  const sidecars = readSidecars(stateDir);
+  const derived = deriveA4Boundary({ records: records, sidecars: sidecars });
+  return Object.assign({ journal_record_count: records.length }, derived);
+}
+
+module.exports = {
+  NON_SESSION_IDS: NON_SESSION_IDS,
+  GENESIS_KINDS: GENESIS_KINDS,
+  itemKey: itemKey,
+  extractBoundaries: extractBoundaries,
+  deriveA4Boundary: deriveA4Boundary,
+  readSidecars: readSidecars,
+  scanA4Boundary: scanA4Boundary,
+};

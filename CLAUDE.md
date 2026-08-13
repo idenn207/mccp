@@ -587,9 +587,9 @@ compliance는 `claimed/total`로 **계측**하되 판정은 이분법이다: `fu
 #### M1.5가 주장하지 않는 것
 
 - **오심을 교정하지 않는다.** 저자 라벨을 반증 가능하게 만들 뿐이다. 양쪽이 모두 `none`이면 여전히 탐지되지 않는다 — 다만 그 `none`이 한 당사자의 무검증 라벨이 아니라 독립된 두 당사자의 합의다.
-- **`warn`에서는 UI10이 달성되지 않는다.** 강제되는 명제는 "오심 0"이 아니라 **"기록 없는 수용 0"**이고, 그것도 `enforce`에 한한다.
+- **강제되는 명제는 "오심 0"이 아니라 "기록 없는 수용 0"이고, 그것도 `enforce`에 한한다.** `warn`으로 내리면 그 명제도 성립하지 않는다.
 - **`intent_dispute_reason`은 새 고무도장 통로가 될 수 있다** — M1의 `intent_override_reason`과 동형이며 부정하지 않는다. 남용은 `intent_mislabel_disputes` 비율로 관측되고, 그 비율이 높으면 그것이 M2(심판 분리)의 근거다.
-- **기본값 `warn`은 측정값이 아니다.** 준수율 실측(Task 0)이 Codex 쿼터 소진으로 막혀 DD10 fallback이 적용됐다. `DEFAULT_MISLABEL_MODE` 상수 위 주석이 근거 문서와 측정일을 가리키며, `enforce` flip의 유일한 경로는 [reviewer-contract-compliance.md](docs/codex-intent-context/reviewer-contract-compliance.md)의 절차를 실행하는 것이다. PRD Milestone 1.5를 `complete`로 올리지 않는 이유도 같다.
+- **기본값 `enforce`는 실측값이지만 표본이 좁다.** Task 0이 production 경로로 10회 측정해 50/50 유효 주장·`full` 100%를 얻었고(2026-08-13) 사전 선언 규칙 ≥95%가 값을 정했다 — 그러나 그 10회는 **단일 fixture 반복**이고 심어둔 충돌이 제약 하나씩만 정확히 위반하는 쉬운 표본이다. 실제 plan에서 준수가 떨어지면 비용은 `inconclusive` 차단으로 즉시 나타나며, 그때의 복구는 임계 하향이 아니라 `MCCP_INTENT_MISLABEL=warn` + 실제 plan 재측정이다. 근거·한계는 [reviewer-contract-compliance.md](docs/codex-intent-context/reviewer-contract-compliance.md).
 
 ---
 

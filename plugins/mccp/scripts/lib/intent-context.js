@@ -57,12 +57,14 @@ const MISLABEL_MODES = ['enforce', 'warn', 'off'];
 // Task 0(리뷰어 계약 준수율 실측)이 이 상수에 커밋된다.
 //
 // 근거 문서: docs/codex-intent-context/reviewer-contract-compliance.md
-// 측정일: 2026-08-09 — **미측정**. Codex 계정 쿼터 소진(복구 2026-08-16 06:07)으로
-// production 경로 측정이 spawn 경계에서 막혔다. DD10 fallback에 따라 `warn`으로
-// 두되 이는 측정값이 아니며, UI10은 달성되지 않았고 PRD Milestone 1.5도
-// `complete`로 올리지 않는다. 쿼터 복구 후 그 문서의 절차를 실행해 이 상수를
-// 갱신하는 것이 `enforce` flip의 유일한 경로다.
-const DEFAULT_MISLABEL_MODE = 'warn';
+// 측정일: 2026-08-13 — production 경로(codex-invoke#composeFocus →
+// parseReviewPayload → parseReviewerClaims) 10회. finding 50건 **전부** 유효 주장,
+// 리뷰 단위 `full` 도달률 **100%**. 사전 선언된 결정 규칙(>=95% enforce /
+// 70~95% warn / <70% off)에 따라 `enforce`. 정지 규칙은 5회 만장일치 종료와
+// 경계 10%p 이내 10회 연장이 이 결과에서 충돌하므로 **연장을 수행**해 해소했다.
+// 2026-08-09의 `warn`은 쿼터 소진으로 측정이 막혔을 때의 DD10 fallback이었고,
+// 이 값은 그것을 대체하는 측정값이다.
+const DEFAULT_MISLABEL_MODE = 'enforce';
 
 const ADJUDICATION_VERDICTS = [
   'ACCEPT_NOW',

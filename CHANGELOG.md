@@ -276,7 +276,7 @@ santa-loop 6라운드에서 **20건 흡수 · 7건 기각**했고 회귀 스위�
 
 ### Added
 - `plugins/mccp/scripts/lib/intent-claims.js` — 리뷰어 주장 파서 + 비대칭 대조 순수 오라클(fs/process/clock 없음). finding의 `title`+`body`+`recommendation`을 **하나의 텍스트**로 이어붙여 라인 선두 앵커 `INTENT:`를 스캔하고, 매칭이 **정확히 1건이 아니면** `unclaimed`로 접는다. 인용 구조 5종(백틱/틸드 fence · **4칼럼 이상** 들여쓰기 · blockquote · HTML `<pre>`/`<code>`/`<blockquote>`)은 스캔 **전에** 제거된다 — 들여쓰기는 문자가 아니라 **칼럼**으로 재므로(탭 = 다음 4칼럼 탭스톱) 공백+탭 혼합 선두도 코드로 걸러진다. 대조는 DD3 6분류(`agree-none`/`agree-conflict`/`id-mismatch`/`reviewer-only`/`author-only`/`unclaimed`)이며 blocking 규칙은 단 하나다 — "리뷰어가 지목한 id를 저자가 지목하지 않았다".
-- `docs/codex-intent-context/reviewer-contract-compliance.md` — Task 0 실측 기록(하네스·재현법·차단 사유).
+- `docs/codex-intent-context/reviewer-contract-compliance.md` — Task 0 실측 기록(하네스·회차별 raw·4축 결과·결정 근거·한계·재현 입력 전문). 하니스는 세션 scratchpad에만 존재하므로 fixture 표와 focus 원문을 문서 안에 적어 재건이 전사(transcription)로 끝나게 했다.
 
 ### Changed
 - `plugins/mccp/scripts/lib/intent-context.js` — verdict 2종 추가(`inconclusive` · `mislabel_unresolved`, PASS 집합은 **불변**) · `intent_dispute_reason` 계약(기존 strict `validateReason` 재사용 — 1-token은 **부재로 취급**) · `decideIntentGate`가 신규 `comparison` 옵션을 M1 규칙 **전부 통과 후** 소비 · `deriveIntentGateDecision`에 `advisoryActive` **별개 입력** · `isIntentChainAllowed`의 warn 분기(`classifyIntentMeta` **앞**에 배치 — 뒤에 두면 영영 도달 불가) · `parseMislabelMode` + 명명 상수 `DEFAULT_MISLABEL_MODE`.
@@ -290,10 +290,12 @@ santa-loop 6라운드에서 **20건 흡수 · 7건 기각**했고 회귀 스위�
 ### Notes — 이 milestone이 달성하지 **않은** 것
 
 - **오심을 *교정*하지 않는다.** 저자 라벨을 **반증 가능(falsifiable)** 하게 만들 뿐이다. 양쪽이 모두 `none`이면 여전히 아무것도 탐지되지 않는다 — 다만 그 `none`이 한 당사자의 무검증 라벨이 아니라 독립된 두 당사자의 합의다.
-- **`warn`에서는 UI10이 달성되지 않는다.** 차단이 없으므로 저자는 무시하고 진행할 수 있다. 강제되는 명제는 "오심 0"이 아니라 **"기록 없는 수용 0"**이며, 그것도 `enforce`에 한한다.
-- **기본값은 측정값이 아니다.** Task 0(리뷰어 계약 준수율 production-경로 실측)은 Codex 계정 쿼터 소진으로 **미측정**이며, DD10 fallback에 따라 `DEFAULT_MISLABEL_MODE = 'warn'`으로 ship한다. PRD Milestone 1.5는 `complete`로 올리지 않는다. 쿼터 복구(2026-08-16) 후 `docs/codex-intent-context/reviewer-contract-compliance.md`의 절차를 실행해 상수를 갱신하는 것이 `enforce` flip의 유일한 경로다.
+- **강제되는 명제는 "오심 0"이 아니라 "기록 없는 수용 0"**이며, 그것도 `enforce`에 한한다. `warn`으로 내리면 차단이 없어 저자가 무시하고 진행할 수 있다.
+- **기본값 `enforce`는 실측값이지만 표본이 좁다.** Task 0(리뷰어 계약 준수율 production-경로 실측)을 2026-08-13에 수행했다 — 10회, finding 50건 전부 유효 주장, 리뷰 단위 `full` 도달률 **100%**, 심어둔 충돌 40/40 정확 지목, 날조 0건, `inconclusive` 오탐 0건. 사전 선언 규칙(≥95%)이 `DEFAULT_MISLABEL_MODE = 'enforce'`를 정했고 PRD Milestone 1.5가 `complete`로 올라간다. 정지 규칙의 두 조건(5회 만장일치 종료 · 경계 10%p 이내 10회 연장)이 이 결과에서 충돌하므로 **연장을 실제로 수행**해 해소했다 — 6~10회차에서 하나라도 non-`full`이 나왔다면 90%로 떨어져 `warn`이 유지됐을 것이다. 다만 그 10회는 **단일 fixture 반복**이며 각 결정이 제약 하나씩만 위반하는 쉬운 표본이다 — 실제 plan에서 준수가 떨어지면 비용은 `inconclusive` 차단으로 즉시 나타나고, 그때의 복구는 임계 하향이 아니라 `MCCP_INTENT_MISLABEL=warn` + 실제 plan 재측정이다. 한계 전체는 `docs/codex-intent-context/reviewer-contract-compliance.md`.
+- **쿼터 메시지의 복구 시각은 확정 시각이 아니었다.** 2026-08-09 차단 시 companion이 "try again at Aug 16th"를 반환했으나 실제로는 2026-08-13에 이미 가용했다. 같은 형태로 막히면 인용된 시각을 기다리기 전에 1-token probe로 재확인하는 편이 싸다.
 - `intent_dispute_reason`은 새로운 고무도장 통로가 될 수 있다 — M1의 `intent_override_reason`과 동형이며, 부정하지 않는다. 남용은 `intent_mislabel_disputes` 비율로 관측되고, 그 비율이 높으면 그것이 곧 M2(심판 분리)의 근거다.
 - Plan-Codex · Implement-Codex 모두 `MCCP_CODEX_DISABLED=1`로 **미발화**했다. santa-loop R1~R3(Opus + GPT-5.4)이 22건을 흡수했으나 **cap 이후 수정분(#19~#22 + A 채택 3건)은 어느 리뷰어의 검증도 받지 않았다** — 이는 Codex 승인이 아니다.
+
 ## [1.23.4] — 2026-08-09
 
 **codex-intent-context M1 — 의도 표면화 + 판정 커버리지 + 측정 인프라 (단일 milestone → patch bump)** — `/mccp:plan`의 Plan-Codex 게이트는 리뷰어(out-of-process Codex)에게 **사용자 대화 의도를 전달할 채널이 없었고**, finding 수용 판단이 어디에도 기록되지 않았다. M1은 세 축을 닫는다: **(L1)** plan의 구조화된 `## User Intent` 표를 하드닝해 리뷰어 focus에 주입 · **(L2-A)** 모든 finding이 명시 판정을 받도록 mechanical 완전성 강제 · **(M)** receipt `meta.intent_*` 10 필드로 측정 인프라 확립.

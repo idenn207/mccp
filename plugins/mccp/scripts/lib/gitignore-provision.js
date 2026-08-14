@@ -615,6 +615,14 @@ function rollbackAppend(fd, originalSize, payload, target) {
     const tail = buf.subarray(originalSize);
     if (!tail.equals(mine.subarray(0, tail.length))) return false;
 
+    // KNOWN RESIDUAL, not an oversight: a writer that appends between the
+    // comparison above and this truncate loses those bytes. There is no
+    // compare-and-truncate primitive to close it with — verifying content and
+    // shrinking to a length cannot be made one operation — so the window is as
+    // small as the code can make it (no I/O between the check and the call) and
+    // it is stated rather than implied. It needs a non-cooperating writer to
+    // append during the microseconds after an already-failed write; the same
+    // irreducible class as the rename race documented on the update path.
     fs.ftruncateSync(fd, originalSize);
     return true;
   } catch (_e) { /* best effort */ }

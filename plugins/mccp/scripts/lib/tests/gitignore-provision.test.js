@@ -198,6 +198,21 @@ test('planMerge: missing file -> create, block only', () => {
   assert.ok(plan.nextContent.startsWith(B));
 });
 
+test('block replacement preserves the target file mode (POSIX modes only)', { skip: !POSIX }, () => {
+  // rename() swaps the inode, so the target inherits the tmp's mode. The tmp is
+  // 0600 so it is never world-readable while being written — but if that mode
+  // survives the swap, the user's 0644 .gitignore silently becomes owner-only
+  // and a shared checkout or service account can no longer read it.
+  withTempRepo((dir, target) => {
+    seedStaleBlock(target);
+    fs.chmodSync(target, 0o644);
+    const res = runCli(['provision', '--repo', dir, '--json']);
+    assert.strictEqual(res.status, 0, res.stderr);
+    assert.strictEqual(cliJson(res).action, 'update');
+    assert.strictEqual(fs.statSync(target).mode & 0o777, 0o644, 'the swap changed the target file mode');
+  });
+});
+
 test('buildBlock: the block warns that in-block edits are replaced', () => {
   // `update` rebuilds the whole marker span, so a rule added between the markers
   // does not survive. That is what a managed block IS, but "managed by" alone

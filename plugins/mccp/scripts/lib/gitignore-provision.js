@@ -756,6 +756,18 @@ function applyMerge(target, plan, options) {
     // serializes cooperating writers; this is the last cheap reduction
     // available to a non-cooperating one, and calling it a guarantee would be
     // the dishonest version of the same code.
+    // Carry the target's own mode across the swap. rename() replaces the inode,
+    // so the file inherits the TMP's mode — and the tmp is deliberately 0600 so
+    // it is never world-readable mid-write. Without this the user's 0644
+    // .gitignore silently becomes owner-only, which breaks a shared checkout or
+    // a service account that has to read it. Written at 0600, restored to the
+    // original immediately before the swap: the hardening covers the window it
+    // was for, and nothing outlives it.
+    try {
+      const targetMode = fs.statSync(target).mode & 0o777;
+      fs.chmodSync(tmpPath, targetMode);
+    } catch (_err) { /* best effort — Windows has no POSIX mode to carry */ }
+
     const beforeSwap = readTargetContent(target);
     if (beforeSwap === null || sha256(beforeSwap) !== plan.sourceHash) {
       throw new ProvisionError(

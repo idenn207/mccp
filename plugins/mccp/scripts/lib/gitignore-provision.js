@@ -802,10 +802,27 @@ function applyMerge(target, plan, options) {
     // a service account that has to read it. Written at 0600, restored to the
     // original immediately before the swap: the hardening covers the window it
     // was for, and nothing outlives it.
+    //
+    // What this carries is the rwx mode and nothing else. rename() swaps the
+    // inode, so ownership, group, ACLs, extended attributes and hard-link
+    // identity do NOT survive — an accepted property of write-tmp-then-rename,
+    // which is the same trade every atomic writer makes (git included). The
+    // alternative, rewriting in place, gives those up for a torn file on a
+    // mid-write failure, which is both likelier and worse.
+    //
+    // The failure is announced rather than swallowed: a filesystem that permits
+    // rename but rejects chmod leaves .gitignore owner-only, and silence there
+    // would be the user discovering it from a broken shared checkout instead.
     try {
       const targetMode = fs.statSync(target).mode & 0o777;
       fs.chmodSync(tmpPath, targetMode);
-    } catch (_err) { /* best effort — Windows has no POSIX mode to carry */ }
+    } catch (err) {
+      process.stderr.write(
+        '[mccp:gitignore] WARNING: could not carry the file mode across the swap (' +
+          ((err && err.code) || 'unknown') + '). ' + target +
+          ' may end up owner-only (0600) — check it if this repo is shared.\n'
+      );
+    }
 
     const beforeSwap = readTargetContent(target);
     if (beforeSwap === null || sha256(beforeSwap) !== plan.sourceHash) {

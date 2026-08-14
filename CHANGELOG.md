@@ -2,9 +2,9 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.24.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.26.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
-## [1.24.0] — 2026-08-14
+## [1.26.0] — 2026-08-14
 
 **session-process-reclaim M1+M2 — 세션 프로세스 레지스트리 + SessionEnd 회수 (PRD 전 milestone 완료 → minor bump)** — mccp는 자신을 시작한 명령보다 오래 사는 프로세스를 여럿 띄운다(dashboard 서버, detached plan-codex-runner, handoff `claude` 세션). 누가 그것들을 소유하는지 기록하는 곳이 없었고, 그래서 안전하게 거둘 방법도 없었다. M1이 레지스트리를, M2가 SessionEnd 회수를 추가한다.
 
@@ -21,6 +21,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `dashboard-server.js` · `plan-codex-runner.js` — 부팅 자기등록 + 정상 종료 시 unregister. `session-spawner.js` — win32 handoff 자식을 부모가 등록(자식은 자기등록을 못 한다).
 - `session-end-marker.js` — 마커·observer **뒤에** 회수. 반환값을 읽어 미완료를 stderr로 표면화하고, `output`은 무변경(UI8).
 - `session-start-trace-injector.js` — 종료된 세션의 고아를 보고. live PID는 **세기만** 하고(UI1), 죽은 PID의 레코드 파일만 지운다(PRD `:78` 무한 성장 차단). `.unreclaimed.json`·`.failed.json`은 보존한다 — 처리는 증거 인멸이 아니다.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.7 → 1.26.0` + renderer footer 2면 동기. PRD 전 milestone(M1+M2) 완료이므로 §3.7 기준 **minor**다. 브랜치는 `1.24.0`을 목표했으나 `origin/main`이 그 번호를 **meta-research-command M1**에 발행하고 이어 `1.25.0`까지 소비했으므로 forward-only로 **두 칸 상향**한다 — 이미 발행된 번호는 불가침이고 미머지 브랜치만 민다. 같은 충돌의 **6번째 실측 재발**이다(§3.7).
 
 ### Fixed
 - `dashboard-server.test.js` — `tmpRepo()`가 `os.tmpdir()`의 8.3 단축명(`…\ADMINI~1\…`)을 그대로 써서 `attachWatch`의 `fs.watch`가 libuv assertion(`!_wcsnicmp`, `src/win/fs-event.c`)으로 **test 프로세스 전체를 abort**시키고 있었다. 그 뒤 19개 test가 조용히 실행되지 않고 있었다(선재 결함). realpath 한 줄로 13 → 33 test가 실제로 돈다.
@@ -35,9 +36,16 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - **회수가 env-only 세션 id 게이트 뒤에서 통째로 건너뛰어졌다.** SessionEnd 페이로드에 종료 세션 id가 있는데도 env가 비면 조기 반환해, 그 세션의 프로세스가 영구 등록 상태로 남았다. observer cleanup은 env 키에 묶인 채 두고 회수만 페이로드로 fallback한다.
 - **읽을 수 없는 형제 증거가 가드를 지웠다.** `collectSiblingReuse`가 파싱 실패를 건너뛰어, 살아있는 borrower의 reuse 레코드가 손상되면 소유자가 사용 중인 dashboard를 죽이고 `complete:true`로 보고했다. 판정표에 13번째 행 `sibling_evidence_unreadable`을 `in_use_by_live_session` **앞**에 추가했다. 단, 파싱되는 비-reuse 레코드는 `incomplete`로 치지 않는다 — 그러지 않으면 훗날 스키마 bump 한 번에 회수가 통째로 얼어붙는다.
 
+### Security (santa-loop R8 — 두 리뷰어가 독립적으로 R7의 미봉을 다시 잡았다)
+- **정체 검증이 `node`라는 **낱말**을 인터프리터의 증거로 받아들이고 있었다.** `isExecutedScript`의 `.some()`은 "script 토큰 앞 어딘가에 node 토큰이 있는가"만 물어서, node를 데이터로 언급만 하는 명령줄이 통과했다 — `grep node <exec_path>` · `echo node <exec_path>`. PID 재할당 ∧ 시작시각이 허용치 안이면 `owned_session_scoped`에 도달해 **무관한 프로세스에 SIGTERM**을 보낸다. 실물 재현: 살아 있는 `cmd.exe`(`cmd /c ping -n 20 127.0.0.1 & rem node <exec_path>`)를 실제 pid로 probe하니 옛 규칙이 MATCH를 냈다. **이 결함은 R7이 이미 알고 있었고, 대응은 고치는 대신 코드에 `KNOWN DEFECT` 주석을 다는 것이었다** — 그러면서 같은 커밋의 security review는 이 축을 `PASS — no mis-kill path found`로 적었다.
+- 토큰 규칙으로는 닫히지 않는다. `nohup node <path>`(반드시 매치)와 `grep node <path>`는 **같은 토큰 열**이다. 판별자는 **실행 이미지**뿐이다 — `probeProcess`가 `execImage`를 함께 반환하고(win32 `Win32_Process.ExecutablePath` · Linux `/proc/<pid>/exe` · 그 외 POSIX `ps -o comm=`), `isReclaimableBy`가 **부재 → `identity_unverifiable`**(command line 단독 판정으로 흘러내리지 않는다) · **비-node → `identity_mismatch`**로 가른다. `isExecutedScript`는 토큰 축만 답하도록 분리했다.
+- win32 probe 출력을 **탭 구분 단일 라인**으로 바꿨다. 필드마다 한 줄씩 찍으면 `ExecutablePath`나 `CommandLine`이 빈 경우(access-denied·커널 프로세스에서 실제로 발생) 뒤 필드가 한 줄씩 밀려 **파서가 이미지 자리에서 command line을 읽는다**.
+- 회귀 test가 결함을 실제로 잡는지 확인했다 — HEAD(수정 전) worktree에 새 test를 얹으면 `identity 3g`가 `owned_session_scoped`를, `identity 3h`가 fall-through를 드러내며 fail한다. `identity 3i`(실제 launch shape 6종)는 양쪽에서 pass라 오조임이 아니다.
+
 ### 명시 잔여 (주장하지 않는 것)
 - §D11의 ms 단위 TOCTOU와 §D15의 유계 오살 창(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ command line이 절대경로 전체 포함)은 **단위 test로 재현할 수 없다**. "무관한 프로세스가 죽는 경로는 없다"고 주장하지 않는다.
-- §D15 축 1은 이제 "우리 경로가 **첫 script 토큰이고 node에 넘겨졌는가**"를 묻는다(단순 포함이 아니라 등가 비교). `node other.js <path>` · `tail -f <path>` · `<path>.bak` 는 전부 거부된다. 남은 것은 **상대 경로 기동**이 `identity_mismatch`로 읽히는 것(fail-closed — 회수를 놓칠 뿐이고, mccp의 두 기동 형태는 모두 절대 경로다). 상대 토큰을 재anchor하려면 suffix 매칭을 허용해야 하는데, 그것이 바로 전체경로 규칙이 막으려던 basename 충돌이다.
+- §D15 축 1은 이제 **두 질문**이다: 우리 경로가 첫 script 토큰과 **등가**인가(토큰 축) · 실행 **이미지**가 node 인터프리터인가(이미지 축). `node other.js <path>` · `<path>.bak` 는 토큰 축이, `tail -f <path>` · `grep node <path>` · `echo node <path>` 는 이미지 축이 거부한다. 남은 것은 **상대 경로 기동**이 `identity_mismatch`로 읽히는 것(fail-closed — 회수를 놓칠 뿐이고, mccp의 두 기동 형태는 모두 절대 경로다). 상대 토큰을 재anchor하려면 suffix 매칭을 허용해야 하는데, 그것이 바로 전체경로 규칙이 막으려던 basename 충돌이다. **R2~R7 동안 이 줄은 잔여가 상대 경로 기동 하나뿐이라고 적었으나 그때는 거짓이었다** — 위 R8 항목 참조.
+- **실행 이미지를 주지 않는 플랫폼에서는 회수가 통째로 멈춘다.** `identity_unverifiable`이라 오살 방향은 아니지만, 커버리지가 0이 되는 것을 "안전하다"로 덮지 않는다. win32·Linux는 실측했고 macOS는 `etimes` 부재로 이미 probe가 `null`이라 변화 없다. 그 외 POSIX는 `ps -o comm=`에 의존하며 이 저장소에서 검증되지 않았다.
 - reuse 레코드 증가는 **부분적으로만** 닫혔다. 소유 세션이 죽었음이 증명된 것(같은 호스트 ∧ 정수 `session_pid` ∧ 그 pid 죽음)은 회수되는데, 이는 `isSiblingLive`가 **이미** "사용 중 아님"으로 읽던 집합과 정확히 같아 어떤 회수 판정도 바뀌지 않기 때문이다. `session_pid`가 null이거나 다른 호스트인 레코드는 **남긴다** — 그것을 지우면 "쓰고 있는지 알 수 없다"가 "아무도 안 쓴다"로 바뀌어 kill을 승인하게 된다. 유계 증가보다 그쪽이 비싸다.
 - **`.failed.json` · `.unreclaimed.json`은 영구 보존된다** — 그래서 그 두 종류만 남은 디렉토리는 지워지지 않는다. 감사 표면을 없애는 것이 "다음 SessionStart가 처리한다"를 증거 인멸로 바꾸기 때문에 의도한 선택이고, 따라서 레지스트리는 **실패 건수만큼** 자란다. 무제한 증가를 막았다고 주장하지 않는다.
 - **`MCCP_RECLAIM_BUDGET_MS`는 hard wall-clock cap이 아니라 레코드 단위 granularity의 예산이다.** 루프는 각 레코드 직전에 경과를 보고, probe는 worst case를 예약하고, 형제 스윕은 같은 deadline을 물려받아 초과 시 fail-closed로 끊는다. 루프 진입 전 자기 디렉토리 `list()` 1회는 예산 밖이다(크기가 자기 등록 프로세스 수라 실질 상수). 정확한 경계는 `docs/ENVIRONMENT.md` 참조.

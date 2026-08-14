@@ -122,12 +122,14 @@ isSiblingLive(r) =
 
 **등록 측**: 레코드에 `proc_started_at_ms`를 추가한다. 자기등록은 `Math.round(Date.now() - process.uptime() * 1000)` — **OS 질의 없이** Node가 자기 시작 시각을 안다. handoff 자식(§Task 5)은 spawn 직후 `Date.now()`(오차는 아래 허용치가 흡수).
 
-**회수 측**: `probeProcess(pid)` → `{ startedAtMs, commandLine } | null`.
+**회수 측**: `probeProcess(pid)` → `{ startedAtMs, commandLine, execImage } | null`.
+
+> **R8 갱신 — 축이 셋이 됐다.** 아래 축 1(경로)·축 2(시각)에 **실행 이미지** 축이 추가됐다. 축 1을 "우리 경로가 첫 script 토큰이고 그 앞에 node 토큰이 있는가"로 구현했더니, node를 **데이터로 언급만 하는** 명령줄(`grep node <exec_path>`)이 통과해 재사용 PID에서 오살에 도달했다. `nohup node <path>`와 토큰 열이 같아 토큰 규칙으로는 분리 불가다. 따라서 인터프리터 판별을 command line에서 떼어 **커널이 보고하는 실행 이미지**로 옮겼다 — win32 `Win32_Process.ExecutablePath`, Linux `/proc/<pid>/exe`, 그 외 POSIX `ps -o comm=`. 이미지 **부재 → `identity_unverifiable`**(command line 단독 판정으로 흘러내리지 않는다), **비-node → `identity_mismatch`**. 축 1은 이제 토큰 등가 비교만 담당한다.
 
 두 분기 모두 **epoch ms 정수**를 직접 뱉게 해 locale/DST/시각 포맷 파싱을 아예 없앤다(R4 test 지적 — `lstart`는 locale 의존, CIM `CreationDate`는 JSON 직렬화 형태가 환경마다 다르다):
 
-- win32: `powershell -NoProfile -NonInteractive -Command "$p=Get-CimInstance Win32_Process -Filter 'ProcessId=<pid>'; if($p){[long]($p.CreationDate.ToUniversalTime()-[datetime]'1970-01-01').TotalMilliseconds; $p.CommandLine}"` — 1행 epoch ms, 2행 commandLine
-- POSIX: `ps -o etimes=,args= -p <pid>` — `etimes`는 **경과 초**(locale 무관). `startedAtMs = Date.now() - etimes*1000`. 경과 기반이라 시계 조정·DST에 영향받지 않는다
+- win32: `Get-CimInstance Win32_Process`에서 `CreationDate` · `ExecutablePath` · `CommandLine`을 **탭 구분 단일 라인**으로 뽑는다. (R8 정정: 필드마다 한 줄씩 찍던 이전 판은 `ExecutablePath`나 `CommandLine`이 빈 경우 — access-denied·커널 프로세스에서 실제로 발생 — 뒤 필드가 한 줄씩 밀려 파서가 이미지 자리에서 command line을 읽는다.)
+- POSIX: `ps -o etimes=,comm=,args= -p <pid>` — `etimes`는 **경과 초**(locale 무관). `startedAtMs = Date.now() - etimes*1000`. 경과 기반이라 시계 조정·DST에 영향받지 않는다. `comm`은 이미지이고 공백을 담을 수 있는 `args`보다 **앞**에 둔다. Linux에서는 `/proc/<pid>/exe` readlink가 이를 덮어쓴다 — `comm`은 `prctl`로 바꿀 수 있고 15자에서 잘린다
 
 둘 다 파싱 실패·빈 출력·비-정수는 `null`(→ `identity_unverifiable`)로 접는다.
 

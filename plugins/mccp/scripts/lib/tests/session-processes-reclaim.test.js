@@ -58,8 +58,19 @@ function recorder() {
   };
 }
 
+// The image a healthy mccp-spawned process reports. It is a REQUIRED axis: a
+// probe result without one adjudicates as `identity_unverifiable`, so every
+// stub that means "this really is our process" has to carry it.
+const NODE_IMG = process.platform === 'win32'
+  ? 'C:\\Program Files\\nodejs\\node.exe'
+  : '/usr/bin/node';
+
 function okProbe(repo) {
-  return () => ({ startedAtMs: START_MS, commandLine: 'node "' + execPathFor(repo) + '"' });
+  return () => ({
+    startedAtMs: START_MS,
+    commandLine: 'node "' + execPathFor(repo) + '"',
+    execImage: NODE_IMG,
+  });
 }
 
 function run(repo, over) {
@@ -184,7 +195,12 @@ test('9 — a recycled PID whose start time is far off is NOT killed', () => {
   const repo = tmpRepo();
   seed(repo, SID, { pid: 4242 });
   const { res, killed } = run(repo, {
-    probeProcess: () => ({ startedAtMs: START_MS + 3000, commandLine: 'node "' + execPathFor(repo) + '"' }),
+    // Image and path both correct — the START TIME is the axis under test.
+    probeProcess: () => ({
+      startedAtMs: START_MS + 3000,
+      commandLine: 'node "' + execPathFor(repo) + '"',
+      execImage: NODE_IMG,
+    }),
   });
   assert.deepStrictEqual(killed, []);
   assert.deepStrictEqual(res.skipped, [{ pid: 4242, reason: 'identity_mismatch' }]);
@@ -197,9 +213,11 @@ test('9a — a recycled PID INSIDE the tolerance but matching only the basename 
   seed(repo, SID, { pid: 4242 });
   const delta = process.platform === 'win32' ? 300 : 1200;
   const { res, killed } = run(repo, {
+    // Image and start time both fine — the PATH is the axis under test.
     probeProcess: () => ({
       startedAtMs: START_MS + delta,
       commandLine: 'node /somewhere/else/dashboard-server.js',
+      execImage: NODE_IMG,
     }),
   });
   assert.deepStrictEqual(killed, [], 'time axis alone does not establish identity');
@@ -228,12 +246,18 @@ test('9d — probeProcess against a REAL process, called directly (no injection 
   // Reached through the module export rather than reclaimSession, because
   // reclaimSession has a probe injection point and a mock there would let §D15
   // pass without ever touching the OS.
-  const { probeProcess, normPath, IDENTITY_TOLERANCE_MS, PROBE_TIMEOUT_MS } = require('../session-processes');
+  const {
+    probeProcess, normPath, isNodeInterpreterImage,
+    IDENTITY_TOLERANCE_MS, PROBE_TIMEOUT_MS,
+  } = require('../session-processes');
 
   if (process.platform !== 'win32') {
     let psOk = true;
     try {
-      execFileSync('ps', ['-o', 'etimes=,args=', '-p', String(process.pid)],
+      // The SAME field list the probe uses. Preflighting a shorter one would
+      // green-light a platform where `comm` is unsupported and then fail in the
+      // probe itself.
+      execFileSync('ps', ['-o', 'etimes=,comm=,args=', '-p', String(process.pid)],
         { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
     } catch (_) { psOk = false; }
     if (!psOk) {
@@ -264,6 +288,89 @@ test('9d — probeProcess against a REAL process, called directly (no injection 
     'axis 1 must hold against real OS output — if normalization breaks, reclaim '
     + 'dies out silently and this is the assertion that says so. commandLine='
     + JSON.stringify(p.commandLine));
+
+  // The image axis, against the real OS. Every other test that exercises it
+  // hands the predicate a string; this one gets the value the kernel reports for
+  // a process we KNOW is node — us. If the platform stops supplying it, every
+  // record folds to `identity_unverifiable` and reclaim quietly stops working,
+  // so a null here is a defect rather than an environment quirk.
+  assert.notStrictEqual(p.execImage, null,
+    'the real OS probe must report an executable image on this platform');
+  assert.ok(isNodeInterpreterImage(p.execImage),
+    'the image of THIS process must read as a node interpreter — execImage='
+    + JSON.stringify(p.execImage) + ' execPath=' + JSON.stringify(process.execPath));
+});
+
+// ── 9f/9g — the probe branches this machine never executes (santa-loop R8) ───
+//
+// 9d only ever exercises the branch for the platform it runs on, so on win32 the
+// POSIX parse is dead code at test time and vice versa. Both branches gained a
+// field in R8, and a parse that silently mis-slices produces an `execImage` that
+// is really a command-line fragment — which fails closed but kills reclaim
+// coverage without saying so. `platform`, `execFileSync` and `readlinkSync` are
+// all injectable, so both branches are reachable from either host.
+
+test('9f — the POSIX probe parses THREE fields and lets /proc/<pid>/exe win', () => {
+  const { probeProcess } = require('../session-processes');
+  const args = 'node /repo/plugins/mccp/scripts/lib/dashboard-server.js --port 7333';
+
+  // `comm` alone: what macOS and BSD give us.
+  const viaComm = probeProcess(4242, {
+    platform: 'linux',
+    execFileSync: (bin, argv) => {
+      assert.strictEqual(bin, 'ps');
+      assert.ok(argv.includes('etimes=,comm=,args='),
+        'the field list must match what the parser slices: ' + JSON.stringify(argv));
+      return '  120 node ' + args + '\n';
+    },
+    readlinkSync: () => { throw new Error('ENOENT'); },
+  });
+  assert.strictEqual(viaComm.execImage, 'node', 'comm is the image when there is no procfs');
+  assert.strictEqual(viaComm.commandLine, args,
+    'args must survive intact — a greedy comm capture would eat the first token');
+  assert.ok(Math.abs((Date.now() - 120 * 1000) - viaComm.startedAtMs) < 5000);
+
+  // procfs present: the kernel's answer outranks a `comm` that lies.
+  const viaProc = probeProcess(4242, {
+    platform: 'linux',
+    execFileSync: () => '  120 evil-renamed ' + args + '\n',
+    readlinkSync: (p) => {
+      assert.strictEqual(p, '/proc/4242/exe');
+      return '/usr/bin/node';
+    },
+  });
+  assert.strictEqual(viaProc.execImage, '/usr/bin/node',
+    '/proc/<pid>/exe must override comm — comm is settable via prctl and truncated at 15 chars');
+});
+
+test('9g — an empty win32 ExecutablePath yields a null image, never a shifted field', () => {
+  const { probeProcess } = require('../session-processes');
+  const cmd = 'node "C:\\repo\\x.js" --port 7333';
+
+  // The reason the win32 probe emits one tab-delimited line instead of one field
+  // per line: with line-per-field, an empty ExecutablePath prints nothing and the
+  // command line slides up into the image slot — which would then be tested for
+  // "is this node" and, since the command line starts with `node`, PASS.
+  const empty = probeProcess(4242, {
+    platform: 'win32',
+    execFileSync: () => '1700000000000\t\t' + cmd + '\n',
+  });
+  assert.strictEqual(empty.execImage, null,
+    'an absent image must be null (-> identity_unverifiable), never the command line');
+  assert.strictEqual(empty.commandLine, cmd, 'the command line must still land in its own field');
+
+  const full = probeProcess(4242, {
+    platform: 'win32',
+    execFileSync: () => '1700000000000\tC:\\Program Files\\nodejs\\node.exe\t' + cmd + '\n',
+  });
+  assert.strictEqual(full.execImage, 'C:\\Program Files\\nodejs\\node.exe',
+    'an image containing spaces must not be split');
+  assert.strictEqual(full.commandLine, cmd);
+
+  // A malformed line (missing the second delimiter) is null, not a partial read.
+  assert.strictEqual(probeProcess(4242, {
+    platform: 'win32', execFileSync: () => '1700000000000\tonly-one-tab\n',
+  }), null, 'a short line must fail closed rather than yield a half-parsed record');
 });
 
 // ── 9e — unreadable sibling evidence blocks the kill (santa-loop R3) ────────
@@ -395,7 +502,14 @@ test('11d — a probe is refused, not truncated, when its worst case will not fi
   const { res, killed } = run(repo, {
     budgetMs: 500,
     probeTimeoutMs: 5000,
-    probeProcess: () => { probes += 1; return { startedAtMs: START_MS, commandLine: 'node "' + execPathFor(repo) + '"' }; },
+    probeProcess: () => {
+      probes += 1;
+      return {
+        startedAtMs: START_MS,
+        commandLine: 'node "' + execPathFor(repo) + '"',
+        execImage: NODE_IMG,
+      };
+    },
   });
   assert.strictEqual(probes, 0, 'a probe we cannot afford is never started');
   assert.deepStrictEqual(killed, []);
@@ -417,7 +531,11 @@ test('11e — a repeated pid is probed once (win32 probes cost ~1s of the budget
   run(repo, {
     probeProcess: () => {
       probes += 1;
-      return { startedAtMs: START_MS, commandLine: 'node "' + execPathFor(repo) + '"' };
+      return {
+        startedAtMs: START_MS,
+        commandLine: 'node "' + execPathFor(repo) + '"',
+        execImage: NODE_IMG,
+      };
     },
   });
   assert.strictEqual(probes, 2, 'two distinct pids → two probes, never more');

@@ -26,6 +26,22 @@ const EXEC = process.platform === 'win32'
   ? 'C:\\repo\\plugins\\mccp\\scripts\\lib\\dashboard-server.js'
   : '/repo/plugins/mccp/scripts/lib/dashboard-server.js';
 
+// The executable image a healthy mccp-spawned process reports. Every probe stub
+// carries one, because the image is now a REQUIRED axis: a stub without it
+// adjudicates as `identity_unverifiable`, which is exactly what we want from a
+// platform that will not answer, and exactly what we do NOT want to write by
+// accident in a test that is about something else.
+const NODE_IMG = process.platform === 'win32'
+  ? 'C:\\Program Files\\nodejs\\node.exe'
+  : '/usr/bin/node';
+
+function probeOf(commandLine, over) {
+  return () => Object.assign(
+    { startedAtMs: START_MS, commandLine: commandLine, execImage: NODE_IMG },
+    over || {},
+  );
+}
+
 function rec(over) {
   return Object.assign({
     schema: 1,
@@ -51,7 +67,7 @@ function ctx(over) {
     repoRoot: REPO,
     sessionId: SID,
     isAlive: () => true,
-    probeProcess: () => ({ startedAtMs: START_MS, commandLine: 'node "' + EXEC + '" --flag' }),
+    probeProcess: probeOf('node "' + EXEC + '" --flag'),
     collectSiblingReuse: () => [],
     allowOutlives: false,
     platform: process.platform,
@@ -89,7 +105,7 @@ const BLOCKING_ROWS = [
   ['reuse_not_owner', rec({ role: 'reuse' }), {}],
   ['identity_unverifiable', rec(), { probeProcess: () => null }],
   ['identity_mismatch', rec(), {
-    probeProcess: () => ({ startedAtMs: START_MS + 60000, commandLine: 'node "' + EXEC + '"' }),
+    probeProcess: probeOf('node "' + EXEC + '"', { startedAtMs: START_MS + 60000 }),
   }],
 ];
 
@@ -180,7 +196,7 @@ test('identity 1 — a null probe is unverifiable, and unverifiable never kills'
 
 test('identity 2 — a start time outside the tolerance is a mismatch', () => {
   const v = reasonOf(rec(), {
-    probeProcess: () => ({ startedAtMs: START_MS + 3000, commandLine: 'node "' + EXEC + '"' }),
+    probeProcess: probeOf('node "' + EXEC + '"', { startedAtMs: START_MS + 3000 }),
   });
   assert.strictEqual(v.reason, 'identity_mismatch');
 });
@@ -189,7 +205,7 @@ test('identity 3 — basename present but the full exec_path absent is a MISMATC
   // This is the regression lock for the whole-path rule: a basename-only compare
   // would pass here, because any directory may hold a `dashboard-server.js`.
   const v = reasonOf(rec(), {
-    probeProcess: () => ({ startedAtMs: START_MS, commandLine: 'node /tmp/evil/dashboard-server.js' }),
+    probeProcess: probeOf('node /tmp/evil/dashboard-server.js'),
   });
   assert.strictEqual(v.reason, 'identity_mismatch');
 });
@@ -205,7 +221,7 @@ test('identity 3b — the exec_path inside a LONGER token is a MISMATCH', () => 
     'node /evil' + EXEC,
   ]) {
     const v = reasonOf(rec(), {
-      probeProcess: () => ({ startedAtMs: START_MS, commandLine: cmd }),
+      probeProcess: probeOf(cmd),
     });
     assert.strictEqual(v.reason, 'identity_mismatch',
       'must not match a longer token that merely contains our path: ' + cmd);
@@ -220,7 +236,7 @@ test('identity 3c — the anchoring did NOT break the real launch shapes', () =>
     '"C:/Program Files/nodejs/node.exe" "' + EXEC + '"',
   ]) {
     const v = reasonOf(rec(), {
-      probeProcess: () => ({ startedAtMs: START_MS, commandLine: cmd }),
+      probeProcess: probeOf(cmd),
     });
     assert.strictEqual(v.ok, true, 'a real launch line must still match: ' + cmd);
   }
@@ -230,16 +246,20 @@ test('identity 3d — our path MENTIONED as data by another script is a MISMATCH
   // The mis-kill this closes: a recycled pid whose start time lands inside the
   // tolerance and whose argv merely carries our absolute path. Axis 1 must ask
   // "is this script EXECUTING", not "is this path mentioned".
-  for (const cmd of [
-    'node /repo/other.js ' + EXEC,
-    'node /repo/other.js --input ' + EXEC,
-    'tail -f ' + EXEC,
-  ]) {
-    const v = reasonOf(rec(), {
-      probeProcess: () => ({ startedAtMs: START_MS, commandLine: cmd }),
-    });
+  //
+  // Each case carries the image it would REALLY have, which also pins which of
+  // the two axes rejects it. Handing `tail` a node image (as a shared stub does)
+  // would test a process that cannot exist and would hide the token axis behind
+  // the image axis.
+  const cases = [
+    ['node /repo/other.js ' + EXEC, NODE_IMG, 'token axis: other.js is the first script token'],
+    ['node /repo/other.js --input ' + EXEC, NODE_IMG, 'token axis: same, path is an --input value'],
+    ['tail -f ' + EXEC, '/usr/bin/tail', 'image axis: tail is not an interpreter'],
+  ];
+  for (const [cmd, image, why] of cases) {
+    const v = reasonOf(rec(), { probeProcess: probeOf(cmd, { execImage: image }) });
     assert.strictEqual(v.reason, 'identity_mismatch',
-      'a path named as DATA must never authorize a kill: ' + cmd);
+      'a path named as DATA must never authorize a kill (' + why + '): ' + cmd);
   }
 });
 
@@ -253,7 +273,7 @@ test('identity 3e — interpreter flags do not knock the real script out of firs
     'nohup node "' + EXEC + '" --plan x.md',
   ]) {
     const v = reasonOf(rec(), {
-      probeProcess: () => ({ startedAtMs: START_MS, commandLine: cmd }),
+      probeProcess: probeOf(cmd),
     });
     assert.strictEqual(v.ok, true, 'a flagged but real launch must still match: ' + cmd);
   }
@@ -266,9 +286,83 @@ test('identity 3f — DECLARED RESIDUAL: a RELATIVE launch path reads as mismatc
   // Direction is fail-closed — a missed reclaim, recorded in skipped[] — and
   // neither mccp launch shape is relative.
   const v = reasonOf(rec(), {
-    probeProcess: () => ({ startedAtMs: START_MS, commandLine: 'node scripts/lib/dashboard-server.js' }),
+    probeProcess: probeOf('node scripts/lib/dashboard-server.js'),
   });
   assert.strictEqual(v.reason, 'identity_mismatch');
+});
+
+// ── identity 3g/3h/3i — the executable image (santa-loop R7 critical, R8 fix) ─
+
+test('identity 3g — a NON-node image that merely NAMES node and our path is a MISMATCH', () => {
+  // THE mis-kill both R8 reviewers reported, and the one R7 shipped as an inline
+  // KNOWN DEFECT instead of closing. These command lines put our absolute path
+  // in first-script-token position with a `node` token ahead of it, so every
+  // command-line rule — including the `.some()` this replaced — reads them as
+  // our running script. Reproduced against a live cmd.exe before this test was
+  // written; the pid was real and the old rule adjudicated it as ours.
+  const cases = [
+    ['grep node ' + EXEC, '/usr/bin/grep'],
+    ['echo node ' + EXEC, '/bin/echo'],
+    ['cmd.exe /c ping -n 20 127.0.0.1 & rem node ' + EXEC, 'C:\\WINDOWS\\system32\\cmd.exe'],
+  ];
+  for (const [cmd, image] of cases) {
+    const v = reasonOf(rec(), { probeProcess: probeOf(cmd, { execImage: image }) });
+    assert.strictEqual(v.reason, 'identity_mismatch',
+      'a process whose IMAGE is not node must never authorize a kill, however '
+      + 'its command line reads: image=' + image + ' cmd=' + cmd);
+  }
+});
+
+test('identity 3h — a probe that cannot report an image is UNVERIFIABLE, not a fall-through', () => {
+  // The fail-closed direction for a platform that will not answer. It must not
+  // decay into "then judge it by the command line alone" — that is the very
+  // rule that could not tell `nohup node <path>` from `grep node <path>`.
+  for (const missing of [undefined, null, '']) {
+    const v = reasonOf(rec(), {
+      probeProcess: probeOf('node "' + EXEC + '"', { execImage: missing }),
+    });
+    assert.strictEqual(v.reason, 'identity_unverifiable',
+      'a missing image must be unverifiable, got ' + v.reason
+      + ' for execImage=' + JSON.stringify(missing));
+  }
+});
+
+test('identity 3i — the image axis did NOT break the real launch shapes', () => {
+  // The false-negative guard. `nohup node <path>` is token-identical to the 3g
+  // cases; what separates them is that nohup EXECs node, so the image IS node.
+  // If this ever goes red, reclaim has silently died out for real launches.
+  const shapes = [
+    'node "' + EXEC + '"',
+    'node --enable-source-maps "' + EXEC + '"',
+    'nohup node "' + EXEC + '" --plan x.md',
+  ];
+  const images = process.platform === 'win32'
+    ? ['C:\\Program Files\\nodejs\\node.exe', 'C:\\nvm4w\\nodejs\\node.exe']
+    : ['/usr/bin/node', '/usr/local/bin/nodejs'];
+  for (const cmd of shapes) {
+    for (const image of images) {
+      const v = reasonOf(rec(), { probeProcess: probeOf(cmd, { execImage: image }) });
+      assert.strictEqual(v.ok, true,
+        'a real launch must still match: image=' + image + ' cmd=' + cmd);
+    }
+  }
+});
+
+test('isNodeInterpreterImage reads the IMAGE basename, never a command-line token', () => {
+  for (const img of [
+    '/usr/bin/node', '/usr/local/bin/nodejs', 'node', 'node.exe',
+    'C:\\Program Files\\nodejs\\node.exe', 'C:/nvm4w/nodejs/node.exe',
+  ]) {
+    assert.strictEqual(sp.isNodeInterpreterImage(img), true, 'must accept ' + img);
+  }
+  for (const img of [
+    '/usr/bin/grep', '/bin/echo', 'C:\\WINDOWS\\system32\\cmd.exe',
+    '/usr/bin/tail', '/usr/bin/nodemon', '/opt/node-wrapper',
+    '', null, undefined,
+  ]) {
+    assert.strictEqual(sp.isNodeInterpreterImage(img), false,
+      'must reject ' + JSON.stringify(img));
+  }
 });
 
 test('tokenizeCommandLine keeps quoted paths containing spaces intact', () => {
@@ -301,10 +395,7 @@ test('identity 4 — a command line differing only by separator and case still M
   const v = sp.isReclaimableBy(record, ctx({
     platform: 'win32',
     toleranceMs: sp.IDENTITY_TOLERANCE_WIN32_MS,
-    probeProcess: () => ({
-      startedAtMs: START_MS,
-      commandLine: 'node "c:/repo/scripts/lib/dashboard-server.js" --port 7333',
-    }),
+    probeProcess: probeOf('node "c:/repo/scripts/lib/dashboard-server.js" --port 7333'),
   }));
   assert.strictEqual(v.ok, true, 'separator + case normalization must apply');
 });
@@ -322,10 +413,8 @@ test('identity 5/6 — the tolerance boundary is platform-branched on BOTH sides
     const execPath = platform === 'win32' ? 'C:\\r\\x.js' : '/r/x.js';
     const v = sp.isReclaimableBy(rec({ exec_path: execPath }), ctx({
       platform, toleranceMs: tol,
-      probeProcess: () => ({
-        startedAtMs: START_MS + delta,
-        commandLine: 'node ' + execPath.replace(/\\/g, '/'),
-      }),
+      probeProcess: probeOf('node ' + execPath.replace(/\\/g, '/'),
+        { startedAtMs: START_MS + delta }),
     }));
     assert.strictEqual(v.ok, expectOk,
       platform + ' delta=' + delta + ' vs tolerance=' + tol

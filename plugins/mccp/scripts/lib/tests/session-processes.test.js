@@ -429,7 +429,14 @@ test('(17) an escaped registry root makes reclaim refuse ENTIRELY — no kill, c
   const out = sp.reclaimSession({
     repoRoot: repo, sessionId: 'sess-A', env: {},
     isAlive: () => true,
-    probeProcess: () => ({ startedAtMs: Date.now(), commandLine: 'node "' + __filename + '"' }),
+    // A fully VALID identity — image, start time and path all correct — so the
+    // refusal below can only come from the registry escape. Without the image
+    // this would pass as `identity_unverifiable` and stop testing containment.
+    probeProcess: () => ({
+      startedAtMs: Date.now(),
+      commandLine: 'node "' + __filename + '"',
+      execImage: process.execPath,
+    }),
     kill: (pid) => { killed.push(pid); },
   });
   assert.deepStrictEqual(killed, [],
@@ -482,7 +489,14 @@ test('(23) a session dir linking out of the repo makes reclaim kill nothing and 
   const out = sp.reclaimSession({
     repoRoot: repo, sessionId: 'sess-X', env: {},
     isAlive: () => true,
-    probeProcess: () => ({ startedAtMs: Date.now(), commandLine: 'node "' + __filename + '"' }),
+    // A fully VALID identity — image, start time and path all correct — so the
+    // refusal below can only come from the registry escape. Without the image
+    // this would pass as `identity_unverifiable` and stop testing containment.
+    probeProcess: () => ({
+      startedAtMs: Date.now(),
+      commandLine: 'node "' + __filename + '"',
+      execImage: process.execPath,
+    }),
     collectSiblingReuse: () => [],
     kill: (pid) => { killed.push(pid); },
   });

@@ -202,7 +202,10 @@ nohup node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-codex-runner.js" …
 (3)은 구현 중 test가 잡았다. (1)+(2)만으로는 `tail -f <ourpath>`가 통과한다 — 거기서도 우리 경로가 첫 script 토큰이기 때문이다. 정체 검증에 도달하는 프로세스는 구조상 전부 node 스크립트이므로(비-node인 `handoff-session`은 그 전에 제외됨) 인터프리터를 요구하는 것이 정당하다.
 
 닫힌 것: `node other.js <path>` · `node other.js --input <path>` · `tail -f <path>` · `<path>.bak` · `/evil<path>`.
-새 잔여(더 좁고, 명시): **상대 경로 기동**이 `identity_mismatch`로 읽힌다. 상대 토큰을 재anchor하려면 suffix 매칭을 허용해야 하는데 그것이 바로 전체경로 규칙이 막으려던 basename 충돌이다. 방향은 fail-closed이고 mccp의 두 기동 형태는 모두 절대 경로다. test `identity 3f`가 고정.
+
+> **이 절의 "새 잔여" 서술은 R8에서 거짓으로 판명됐다 — 아래 수정 5로 대체됐다.** 당시 이 절은 잔여가 상대 경로 기동 하나뿐이라고 적었으나, 조건 (3)이 토큰 검사라 `grep node <path>`도 만족시킨다는 사실을 R7이 발견하고도 주석으로만 남겼고 이 절은 갱신되지 않았다. 아래 원문은 기록으로 보존한다.
+
+~~새 잔여(더 좁고, 명시): **상대 경로 기동**이 `identity_mismatch`로 읽힌다.~~ 상대 토큰을 재anchor하려면 suffix 매칭을 허용해야 하는데 그것이 바로 전체경로 규칙이 막으려던 basename 충돌이다. 방향은 fail-closed이고 mccp의 두 기동 형태는 모두 절대 경로다. test `identity 3f`가 고정.
 
 ### 수정 5 — 고아 스윕의 침묵 (B R4)
 
@@ -346,13 +349,39 @@ A가 이번에 유일하게 낸 지적이자 정확한 지적. `collectSiblingRe
 
 167 tests / 166 pass / 0 fail / 1 skip.
 
+## santa-loop Round 8 — 두 리뷰어가 독립적으로 R7의 미봉을 다시 잡았다
+
+R8은 Reviewer A(Opus)와 Reviewer B(Codex gpt-5.4)가 서로를 보지 못한 채 **같은 파일·같은 함수·같은 시나리오**에 수렴했다. 양쪽 다 FAIL.
+
+### 수정 20 — §D15 축 1을 **실행 이미지**로 닫았다 (A critical 1 · B critical 1)
+
+R7의 Reviewer B가 이미 critical로 잡았던 결함인데, R7의 대응은 **고치는 대신 코드에 `KNOWN DEFECT` 주석을 다는 것**이었다. 그 주석은 자신이 §D15가 선언한 잔여보다 **넓다**고 스스로 적었으나, 같은 라운드에 함께 커밋된 security review는 이 축을 `PASS — no mis-kill path found`로 적었고 본 리포트 수정 4와 CHANGELOG의 잔여 절도 갱신되지 않았다. **결함을 아는 상태로 세 산출물이 반대로 말하고 있었다.**
+
+결함: `isExecutedScript`의 `.some()`은 "script 토큰 **앞 어딘가에** node 토큰이 있는가"를 물었다. 그래서 node를 **데이터로 언급만 하는** 명령줄이 통과한다 — `grep node <exec_path>` · `echo node <exec_path>`. PID 재할당 ∧ 시작시각이 허용치 안이면 `owned_session_scoped`에 도달해 **무관한 프로세스에 SIGTERM**을 보낸다.
+
+토큰 규칙으로는 닫을 수 없다. `nohup node <path>`(반드시 매치해야 함, test `identity 3e`)와 `grep node <path>`는 **같은 토큰 열**이다. 판별자는 **실행 이미지**뿐이다.
+
+- `probeProcess`가 `execImage`를 함께 반환한다. win32는 `Win32_Process.ExecutablePath`, POSIX는 `ps -o comm=`이고 Linux에서는 더 정확한 `/proc/<pid>/exe` readlink가 이를 덮어쓴다(`comm`은 `prctl`로 바꿀 수 있고 15자에서 잘린다).
+- win32 출력 형식을 **탭 구분 단일 라인**으로 바꿨다. 필드마다 한 줄씩 찍으면 `ExecutablePath`나 `CommandLine`이 비었을 때(access-denied·커널 프로세스에서 실제로 발생) 뒤 필드가 **한 줄씩 밀려**, 파서가 이미지 자리에서 command line을 읽는다.
+- `isReclaimableBy`가 이미지를 요구한다: **부재 → `identity_unverifiable`**(fail-closed — command line 단독 판정으로 흘러내리지 않는다), **비-node 이미지 → `identity_mismatch`**.
+- `isExecutedScript`는 이제 토큰 축만 답한다(첫 script 토큰 등가 비교). 인터프리터 질문은 이미지 축으로 분리했다. `.some()`을 남겨 둘 이유가 없다 — 이미지가 답한 뒤에는 무용하고, shebang 기동처럼 command line에 node 토큰이 없는 형태를 **false negative로 만들 뿐**이다.
+
+**실물 검증**(mock 아님): 살아 있는 `cmd.exe`를 `cmd /c ping -n 20 127.0.0.1 & rem node <exec_path>`로 띄워 실제 pid를 probe했다. `execImage=C:\WINDOWS\system32\cmd.exe`, command line에는 우리 절대경로가 첫 script 토큰으로 들어간다. **옛 규칙은 MATCH(=이 cmd.exe를 죽인다), 새 규칙은 mismatch.**
+
+**회귀 test가 결함을 실제로 잡는지 확인했다.** HEAD(수정 전) worktree에 새 test 파일을 얹어 실행: `identity 3g`는 `owned_session_scoped`를, `identity 3h`는 fall-through를 그대로 드러내며 **fail**한다. `identity 3i`(실제 launch shape 6종)는 양쪽에서 pass — 오조임으로 회수를 죽이지 않았다는 뜻이다.
+
+### 검증 (R8)
+
+5개 reclaim suite 111 → **115 tests / 114 pass / 0 fail / 1 skip**(신규 4건, 손실 0). 실물 OS test `9d`는 이제 `execImage`가 non-null이고 node 인터프리터로 읽히는지까지 단언하며, POSIX 사전점검의 `ps` 필드 목록을 probe와 **동일하게** 맞췄다(짧은 목록으로 사전점검하면 `comm` 미지원 플랫폼을 green으로 통과시킨 뒤 probe에서 실패한다).
+
 ## 주장하지 않는 것 (명시 잔여)
 
-- **§D11 ms 단위 TOCTOU**와 **§D15 유계 오살 창**(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ command line이 절대경로 전체 포함)은 단위 test로 재현할 수 없다. "무관한 프로세스가 죽는 경로는 없다"고 **주장하지 않는다**.
+- **§D11 ms 단위 TOCTOU**와 **§D15 유계 오살 창**(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ **이미지가 node** ∧ command line의 첫 script 토큰이 우리 절대경로)은 단위 test로 재현할 수 없다. "무관한 프로세스가 죽는 경로는 없다"고 **주장하지 않는다**.
 - ~~POSIX symlink 봉쇄 test 2건은 win32에서 skip된다(권한 의존).~~ **santa-loop R1에서 해소** — junction은 elevation 없이 만들어지고 realpath로 동일하게 해석되므로 두 test 모두 win32에서 실제로 실행된다. 그 전제("symlink는 권한이 필요하다")가 틀렸던 것이 루트 탈출 결함을 가려 준 요인이기도 하다.
 - macOS `ps`는 `etimes`를 지원하지 않아 probe가 `null` → `identity_unverifiable` → 회수 미수행(fail-closed, 오살 아님). test는 사유를 출력하고 skip한다.
 - ~~**cross-model 리뷰 부재**~~ — **santa-loop R1에서 해소**. Implement-Codex 게이트는 EXECUTE **이전**에 돌아 diff가 비어 있었으나(verdict `divergent`로 정직 봉인), 실제 코드에 대한 Codex(gpt-5.4) 심사가 santa-loop R1에서 수행됐고 critical 3건이 흡수됐다. security-reviewer는 여전히 이 세션 정책상 미호출(`security_skipped=true`) — 다만 R1의 R3(보안) 축이 실제 경로 탈출 1건을 잡았다.
-- **§D15 축 1의 남은 잔여는 상대 경로 기동 하나**다(R2에서 독립-인자 언급 케이스는 닫힘). `identity_mismatch`로 읽혀 회수를 놓치는 fail-closed 방향이며 test `identity 3f`가 고정한다.
+- **§D15 축 1의 남은 잔여는 상대 경로 기동 하나**다 — R2에서 독립-인자 언급 케이스가, **R8에서 `grep node <path>` 부류가 실행 이미지 축으로** 닫혔다. `identity_mismatch`로 읽혀 회수를 놓치는 fail-closed 방향이며 test `identity 3f`가 고정한다. (R2~R7 동안 이 줄은 잔여가 상대 경로뿐이라고 적었으나 그때는 거짓이었다 — 수정 20 참조.)
+- **실행 이미지를 주지 않는 플랫폼에서는 회수가 통째로 멈춘다.** `identity_unverifiable`이므로 오살 방향은 아니지만, 회수 커버리지가 0이 되는 것을 "안전하다"는 말로 덮지 않는다. win32(`ExecutablePath`)와 Linux(`/proc/<pid>/exe`)는 실측 확인했고, macOS는 `etimes` 부재로 이미 probe가 `null`이라 변화 없다. 그 외 POSIX는 `ps -o comm=`에 의존하며 이 저장소에서 검증되지 않았다.
 - **오살 0은 목표이지 증명된 절대치가 아니다.** 소유권 축(세션·repo·호스트·reuse·lifetime)은 결정적으로 닫히지만, 프로세스 정체 축에는 유계 잔여가 남는다 — PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ node가 **같은 절대 스크립트 경로**를 실행 중. 단위 test로 재현할 수 없다.
 - **reuse 레코드의 무한 증가**는 미해결이다(backlog). 정리가 곧 kill 허용이 되는 축이라 오살 0 앞에서 보수적으로 남겼다.
 

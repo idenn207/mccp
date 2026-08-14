@@ -5,7 +5,29 @@
 - **Scope**: `git diff 3eabab2...HEAD`, source files only
 - **Base**: `3eabab20227117618c8686a962c52903b4c14a69`
 - **Head**: `52a5f8b` (`test: stop guessing ports in the session-process dashboard tests`)
-- **Verdict**: **PASS** — 0 CRITICAL, 0 HIGH, 0 MEDIUM. Residuals LOW and already documented.
+- **Verdict**: ~~**PASS** — 0 CRITICAL, 0 HIGH, 0 MEDIUM.~~ **SUPERSEDED — see the correction below.**
+
+> ## CORRECTION (santa-loop R8, 2026-08-14)
+>
+> **Axis 1 of this review was wrong when it was written, and this file must not
+> be read as an attestation that the process-identity axis was closed.**
+>
+> This review states below that PID ownership / mis-kill is `PASS` with "no
+> mis-kill path found", and credits the "node-interpreter token required before
+> the script token" rule. That rule was a **token** check, and the very commit
+> that added this file (`72df976`) also added an inline `KNOWN DEFECT` comment to
+> `session-processes.js` saying the same rule admits `grep node <exec_path>` and
+> `echo node <exec_path>` — a reachable mis-kill on a recycled pid. The two
+> statements landed together and contradicted each other.
+>
+> Both santa-loop R8 reviewers — Claude Opus and Codex gpt-5.4, independently —
+> returned FAIL on exactly this. The axis is now closed by an **executable image**
+> check (`Win32_Process.ExecutablePath` / `/proc/<pid>/exe` / `ps -o comm=`), not
+> by a command-line rule; see 수정 20 in the implementation report.
+>
+> **What this episode shows**: two Claude-family security passes read this axis as
+> closed. The model that caught it both times was the cross-family one. That is
+> the case for the dual-reviewer gate, stated by the second reviewer itself.
 
 ## Why this review exists
 
@@ -31,14 +53,19 @@ request on 2026-08-14, which removes it. This file is the resulting attestation.
 
 ## Axis results
 
-### 1. PID ownership / mis-kill — PASS
+### 1. PID ownership / mis-kill — ~~PASS~~ **WRONG WHEN WRITTEN, closed in R8**
 
-No mis-kill path found. Both axes close:
+~~No mis-kill path found.~~ A mis-kill path did exist and was documented in this
+same commit — see the correction at the top of this file. The session-identity
+half below held up; the process-identity half did not.
 
-- **Process identity (§D15)**: full absolute path via `isExecutedScript()`, not
-  `basename`; win32/POSIX separator normalization; node-interpreter token
-  required before the script token; platform-specific time tolerance (500ms
-  win32 / 1500ms POSIX) with **upward-only** env override.
+- **Process identity (§D15)**: ~~node-interpreter **token** required before the
+  script token~~ — this is the defect. A token rule cannot separate `nohup node
+  <path>` from `grep node <path>`. Now decided by the **executable image**:
+  absent → `identity_unverifiable`, non-node → `identity_mismatch`. The rest of
+  this bullet still holds — full absolute path via `isExecutedScript()`, not
+  `basename`; win32/POSIX separator normalization; platform-specific time
+  tolerance (500ms win32 / 1500ms POSIX) with **upward-only** env override.
 - **Session identity**: cross-host blocks with a fail-closed "live" assumption;
   cross-session exact match; cross-repo via `canonicalPath()` realpath
   resolution; sibling reuse guarded by `in_use_by_live_session`.

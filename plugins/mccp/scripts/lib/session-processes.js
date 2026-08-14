@@ -655,39 +655,62 @@ function tokenizeCommandLine(s) {
   return out;
 }
 
-// Every process that reaches identity verification is a node script by
-// construction — both registering kinds pass `execPath: __filename` from inside
-// a node module, and the one non-node kind (`handoff-session`, powershell) is
-// excluded before identity is ever consulted. Requiring the interpreter is what
-// separates `node <ourpath>` from `tail -f <ourpath>`, which are otherwise
-// structurally identical: in both, our path is the first script-shaped token.
-const NODE_EXEC_RE = /(?:^|\/)node(?:\.exe)?$/;
+// §D15 axis 1 is TWO independent questions, and collapsing them into one
+// command-line rule is what produced santa-loop R7's critical finding.
+//
+//   1. Is `wantPath` the script this command line RUNS (not one it mentions)?
+//      -> isExecutedScript, below. A token rule answers this.
+//   2. Is a node interpreter the thing running it?
+//      -> isNodeInterpreterImage. A token rule CANNOT answer this.
+//
+// The old rule asked (2) by testing whether a `node` token appeared anywhere
+// before the script. `grep node <ourpath>` and `echo node <ourpath>` satisfy
+// that while running no script at all, so a recycled pid landing inside the
+// start-time tolerance reached `owned_session_scoped` and SIGTERMed an
+// unrelated process. `nohup node <ourpath>` — which MUST keep matching, locked
+// by test `identity 3e` — is the same token sequence, so no tightening of the
+// token rule separates them. Only the executable image does.
+const NODE_IMAGE_RE = /^node(?:js)?(?:\.exe)?$/i;
+
+// The kernel's answer to "what binary is this pid", never a command-line token.
+// `grep node <path>` has image `grep`. `nohup node <path>` has image `node`,
+// because nohup EXECs node rather than remaining in the process.
+function isNodeInterpreterImage(image) {
+  if (!image) return false;
+  const base = String(image).replace(/\\/g, '/').split('/').pop();
+  return NODE_IMAGE_RE.test(base);
+}
 
 function isExecutedScript(commandLine, wantPath) {
   if (!wantPath || !commandLine) return false;
   const tokens = tokenizeCommandLine(commandLine);
   const scriptIdx = tokens.findIndex((t) => t[0] !== '-' && SCRIPT_EXT_RE.test(t));
-  if (scriptIdx === -1 || tokens[scriptIdx] !== wantPath) return false;
-  // KNOWN DEFECT, NOT A CLOSED AXIS (santa-loop R7 Reviewer B, critical).
-  // `.some()` asks whether a node token appears ANYWHERE before the script, so
-  // a command line that merely NAMES node and our path passes: `grep node
-  // <exec_path>` and `echo node <exec_path>` both adjudicate as our running
-  // script. Combined with a recycled PID whose start time lands inside the
-  // tolerance, that reaches `owned_session_scoped` and SIGTERMs an unrelated
-  // process. This is WIDER than the residual §D15 declares (which assumes node
-  // is actually RUNNING our path).
-  //
-  // It is not fixable from the command line alone: `nohup node <path>` (locked
-  // as a must-match by test `identity 3e`) and `grep node <path>` are the same
-  // token sequence. The discriminator is the executable IMAGE — win32
-  // `Win32_Process.ExecutablePath`, POSIX `comm` / `/proc/<pid>/exe` — which is
-  // the platform work already scoped in codex-findings-backlog.md :81.
-  // Tightening the token rule instead breaks `identity 3e` without closing this.
-  return tokens.slice(0, scriptIdx).some((t) => NODE_EXEC_RE.test(t));
+  return scriptIdx !== -1 && tokens[scriptIdx] === wantPath;
+}
+
+// win32 emits ONE TAB-DELIMITED line rather than one field per line. An empty
+// ExecutablePath or CommandLine (both occur — access-denied and kernel-owned
+// pids) would otherwise print nothing and SHIFT every later field up, handing
+// the parser a command line where it expects an image. Field order is fixed and
+// the command line — the only field that can itself contain a tab — is last.
+function parseWin32ProbeLine(body) {
+  if (!body) return null;
+  const i1 = body.indexOf('\t');
+  if (i1 === -1) return null;
+  const i2 = body.indexOf('\t', i1 + 1);
+  if (i2 === -1) return null;
+  const ms = Number(body.slice(0, i1).trim());
+  if (!Number.isInteger(ms) || ms <= 0) return null;
+  const image = body.slice(i1 + 1, i2).trim();
+  return {
+    startedAtMs: ms,
+    commandLine: body.slice(i2 + 1).trim(),
+    execImage: image || null,
+  };
 }
 
 /**
- * @returns {{startedAtMs: number, commandLine: string}|null}
+ * @returns {{startedAtMs: number, commandLine: string, execImage: string|null}|null}
  *   null on every failure mode — unsupported platform, spawn failure, timeout,
  *   permission denial, empty or non-integer output. The caller reads null as
  *   `identity_unverifiable` and does NOT kill.
@@ -695,12 +718,19 @@ function isExecutedScript(commandLine, wantPath) {
  * Both branches emit an INTEGER epoch-ms directly so no locale-dependent date
  * text is ever parsed (`ps -o lstart` is locale-shaped; CIM `CreationDate`
  * serializes differently per environment).
+ *
+ * `execImage` is the executable image — the binary the kernel is running, not a
+ * token off the command line. It is the only thing that separates `nohup node
+ * <path>` from `grep node <path>` (santa-loop R7/R8, both reviewers). It is
+ * `null` when the platform would not give it up, which the caller reads as
+ * `identity_unverifiable` — never as permission to kill.
  */
 function probeProcess(pid, deps) {
   if (!Number.isInteger(pid) || pid <= 0) return null;
   deps = deps || {};
   const platform = deps.platform || process.platform;
   const run = deps.execFileSync || execFileSync;
+  const readLink = deps.readlinkSync || fs.readlinkSync;
   const opts = {
     encoding: 'utf8',
     timeout: platform === 'win32' ? PROBE_TIMEOUT_WIN32_MS : PROBE_TIMEOUT_POSIX_MS,
@@ -711,26 +741,39 @@ function probeProcess(pid, deps) {
     if (platform === 'win32') {
       const script =
         "$p=Get-CimInstance Win32_Process -Filter 'ProcessId=" + pid + "';" +
-        "if($p){[long]([datetime]$p.CreationDate).ToUniversalTime()" +
-        ".Subtract([datetime]'1970-01-01').TotalMilliseconds; $p.CommandLine}";
+        'if($p){$ms=[long]([datetime]$p.CreationDate).ToUniversalTime()' +
+        ".Subtract([datetime]'1970-01-01').TotalMilliseconds;" +
+        "$i=$p.ExecutablePath; if(-not $i){$i=''};" +
+        "$c=$p.CommandLine; if(-not $c){$c=''};" +
+        '"$ms`t$i`t$c"}';
       const out = run('powershell.exe',
         ['-NoProfile', '-NonInteractive', '-Command', script], opts);
-      const lines = String(out || '').split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length);
-      if (!lines.length) return null;
-      const ms = Number(lines[0]);
-      if (!Number.isInteger(ms) || ms <= 0) return null;
-      return { startedAtMs: ms, commandLine: lines.slice(1).join(' ') };
+      return parseWin32ProbeLine(String(out || '').replace(/\r/g, '')
+        .split('\n').filter((s) => s.trim().length).join(' '));
     }
     // `etimes` is ELAPSED SECONDS — locale-free and immune to wall-clock jumps
-    // and DST, unlike an absolute start timestamp.
-    const out = run('ps', ['-o', 'etimes=,args=', '-p', String(pid)], opts);
+    // and DST, unlike an absolute start timestamp. `comm` carries the image and
+    // sits BEFORE `args` because args is the field that holds spaces.
+    const out = run('ps', ['-o', 'etimes=,comm=,args=', '-p', String(pid)], opts);
     const line = String(out || '').split(/\r?\n/).find((s) => s.trim().length);
     if (!line) return null;
-    const m = /^\s*(\d+)\s+(.*)$/.exec(line);
+    const m = /^\s*(\d+)\s+(\S+)\s+(.*)$/.exec(line);
     if (!m) return null;
     const etimes = Number(m[1]);
     if (!Number.isInteger(etimes) || etimes < 0) return null;
-    return { startedAtMs: Date.now() - etimes * 1000, commandLine: m[2] };
+    // `/proc/<pid>/exe` is the kernel's own answer and outranks `comm`, which a
+    // process can rewrite (prctl PR_SET_NAME) and which Linux truncates to 15
+    // characters. Where there is no procfs (macOS, BSD) `comm` stands.
+    let image = m[2];
+    try {
+      const link = readLink('/proc/' + pid + '/exe');
+      if (link && String(link).trim()) image = String(link).trim();
+    } catch (_) { /* no procfs — comm stands */ }
+    return {
+      startedAtMs: Date.now() - etimes * 1000,
+      commandLine: m[3],
+      execImage: image || null,
+    };
   } catch (_) {
     return null;
   }
@@ -836,6 +879,21 @@ function isReclaimableBy(record, ctx) {
   if (!p || !Number.isFinite(p.startedAtMs)) {
     return { ok: false, reason: 'identity_unverifiable' };
   }
+  // No image means the platform would not say WHAT is running under this pid.
+  // That is "cannot verify", not "not ours" — and it must not fall through to
+  // the command-line rules, which on their own cannot tell `nohup node <path>`
+  // from `grep node <path>`. Falling through is exactly the santa-loop R7
+  // critical; the fail-closed cost is a missed reclaim, recorded in skipped[].
+  if (!p.execImage) {
+    return { ok: false, reason: 'identity_unverifiable' };
+  }
+  // Every process that reaches this gate is a node script by construction: both
+  // registering kinds pass `execPath: __filename` from inside a node module,
+  // and the one non-node kind (`handoff-session`, powershell) is excluded
+  // before identity is ever consulted. So a non-node image is not our process.
+  if (!isNodeInterpreterImage(p.execImage)) {
+    return { ok: false, reason: 'identity_mismatch' };
+  }
   if (Math.abs(p.startedAtMs - record.proc_started_at_ms) > tolerance) {
     return { ok: false, reason: 'identity_mismatch' };
   }
@@ -845,7 +903,7 @@ function isReclaimableBy(record, ctx) {
   // (any directory can hold a `dashboard-server.js`), while the absolute path
   // carries repo_root inside it and cannot collide by accident. And it must be
   // the script being EXECUTED, not merely a path the command line mentions —
-  // see isExecutedScript.
+  // see isExecutedScript. The interpreter question is the image check above.
   if (!isExecutedScript(got, want)) {
     return { ok: false, reason: 'identity_mismatch' };
   }
@@ -1242,6 +1300,7 @@ module.exports = {
   isSafeSessionId,
   tokenizeCommandLine,
   isExecutedScript,
+  isNodeInterpreterImage,
   parseBudgetMs,
   validateRecord,
   register,

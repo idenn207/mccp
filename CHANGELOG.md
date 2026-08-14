@@ -43,7 +43,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - 회귀 test가 결함을 실제로 잡는지 확인했다 — HEAD(수정 전) worktree에 새 test를 얹으면 `identity 3g`가 `owned_session_scoped`를, `identity 3h`가 fall-through를 드러내며 fail한다. `identity 3i`(실제 launch shape 6종)는 양쪽에서 pass라 오조임이 아니다.
 
 ### 명시 잔여 (주장하지 않는 것)
-- §D11의 ms 단위 TOCTOU와 §D15의 유계 오살 창(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ command line이 절대경로 전체 포함)은 **단위 test로 재현할 수 없다**. "무관한 프로세스가 죽는 경로는 없다"고 주장하지 않는다.
+- §D11의 ms 단위 TOCTOU와 §D15의 유계 오살 창(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ **이미지의 basename이 `node`/`nodejs`** ∧ command line의 첫 script 토큰이 우리 절대경로)은 **단위 test로 재현할 수 없다**. "무관한 프로세스가 죽는 경로는 없다"고 주장하지 않는다.
 - §D15 축 1은 이제 **두 질문**이다: 우리 경로가 첫 script 토큰과 **등가**인가(토큰 축) · 실행 **이미지**가 node 인터프리터인가(이미지 축). `node other.js <path>` · `<path>.bak` 는 토큰 축이, `tail -f <path>` · `grep node <path>` · `echo node <path>` 는 이미지 축이 거부한다. 남은 것은 **상대 경로 기동**이 `identity_mismatch`로 읽히는 것(fail-closed — 회수를 놓칠 뿐이고, mccp의 두 기동 형태는 모두 절대 경로다). 상대 토큰을 재anchor하려면 suffix 매칭을 허용해야 하는데, 그것이 바로 전체경로 규칙이 막으려던 basename 충돌이다. **R2~R7 동안 이 줄은 잔여가 상대 경로 기동 하나뿐이라고 적었으나 그때는 거짓이었다** — 위 R8 항목 참조.
 - **실행 이미지를 주지 않는 플랫폼에서는 회수가 통째로 멈춘다.** `identity_unverifiable`이라 오살 방향은 아니지만, 커버리지가 0이 되는 것을 "안전하다"로 덮지 않는다. win32·Linux는 실측했고 macOS는 `etimes` 부재로 이미 probe가 `null`이라 변화 없다. 그 외 POSIX는 `ps -o comm=`에 의존하며 이 저장소에서 검증되지 않았다.
 - reuse 레코드 증가는 **부분적으로만** 닫혔다. 소유 세션이 죽었음이 증명된 것(같은 호스트 ∧ 정수 `session_pid` ∧ 그 pid 죽음)은 회수되는데, 이는 `isSiblingLive`가 **이미** "사용 중 아님"으로 읽던 집합과 정확히 같아 어떤 회수 판정도 바뀌지 않기 때문이다. `session_pid`가 null이거나 다른 호스트인 레코드는 **남긴다** — 그것을 지우면 "쓰고 있는지 알 수 없다"가 "아무도 안 쓴다"로 바뀌어 kill을 승인하게 된다. 유계 증가보다 그쪽이 비싸다.

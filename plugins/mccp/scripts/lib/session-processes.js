@@ -675,6 +675,15 @@ const NODE_IMAGE_RE = /^node(?:js)?(?:\.exe)?$/i;
 // The kernel's answer to "what binary is this pid", never a command-line token.
 // `grep node <path>` has image `grep`. `nohup node <path>` has image `node`,
 // because nohup EXECs node rather than remaining in the process.
+//
+// SCOPE, stated precisely because the residual text used to blur it (santa-loop
+// R10 Reviewer B): this asks whether the image is NAMED node, not whether it IS
+// the Node runtime. `/tmp/node` passes. That does not open a window on its own —
+// the binding condition is still the start-time delta, measured against when OUR
+// process STARTED, so a recycled pid has to appear within the tolerance of that
+// moment. Narrowing it to the real runtime means sealing the spawning
+// `process.execPath` into the record and comparing against it, which is a schema
+// change; it is filed in codex-findings-backlog.md rather than done here.
 function isNodeInterpreterImage(image) {
   if (!image) return false;
   const base = String(image).replace(/\\/g, '/').split('/').pop();

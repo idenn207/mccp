@@ -400,9 +400,32 @@ B는 "식별자 없는 borrower가 reuse 레코드를 못 쓰면 소유자가 �
 
 reclaim 5 suite **117 tests / 116 pass / 0 fail / 1 skip**(구분자 교체 후 재실행). 실물 OS probe가 새 구분자로 정상 동작함을 자기 pid로 확인했다.
 
+## santa-loop Round 10 — 마지막 라운드 (운영자 종료 결정)
+
+운영자가 **R10을 마지막 라운드로 지정**하고 "HIGH 이상만 수정, 나머지는 backlog"를 지시했다. 아래는 그 기준으로 내린 triage이며, **loop이 수렴해서가 아니라 종료 결정으로 끝났다는 사실을 그대로 기록한다.**
+
+Reviewer A(Opus) `PASS` 12/12 · critical 0 · suggestion 0. Reviewer B(Codex gpt-5.4) `FAIL` 6개 축 · critical 1. R9에 이어 **두 라운드 연속으로 두 모델이 갈렸다.**
+
+### Reviewer B critical — MEDIUM으로 판정해 이연
+
+`isNodeInterpreterImage`가 basename만 본다. `/tmp/node`·`C:\temp\node.exe`도 통과한다 — **실측 확인했다.** 재할당된 pid가 그런 이미지로 우리 절대경로를 첫 script 토큰에 두고 뜨면 `owned_session_scoped`에 도달한다.
+
+HIGH로 올리지 않은 근거: **§D15가 이미 선언한 유계 창의 네 조건을 그대로 요구한다.** 결속 조건인 시작시각 델타는 우리 프로세스가 *죽은* 시각이 아니라 *시작한* 시각 기준이므로, 재할당 프로세스가 우리 원본 시작 후 500ms(win32)/1500ms(POSIX) 안에 떠야 한다 — 즉 우리 프로세스가 그 안에 죽고 OS가 즉시 pid를 재활용해야 한다. B의 시나리오도 같은 조건을 전제한다("If the reused PID lands within the time tolerance"). 새 창이 아니라 기존 창의 **세 번째 조건이 문서 표현보다 넓다**는 지적이다.
+
+**다만 그 지적 자체는 옳고, 문서를 고쳤다.** 잔여 문구가 "이미지가 node"라고 적어 "진짜 node"로 읽히게 했다 — 이번 사이클이 R7에서 정확히 그 실패(문서가 코드보다 좁게 말함)를 겪었으므로 표현을 "이미지의 **basename**이 `node`/`nodejs`"로 정정하고 `/tmp/node` 사례를 명시했다. 코드 주석에도 같은 범위를 적었다. 진짜 runtime으로 좁히는 수정(등록 시 `process.execPath` 봉인 후 대조)은 **13번째 필드 = schema 변경 + migration**이라 ship 범위 밖이며 backlog에 수정안까지 적어 이연했다.
+
+### Reviewer B suggestion 4 — MEDIUM, 이연
+
+`node -r ./bootstrap.js <우리경로>` / `node --require ./bootstrap.js <우리경로>`가 `identity_mismatch`가 된다 — 실측 확인. 플래그의 **값**이 첫 script 토큰 자리를 차지하기 때문이다(결합형 `--require=./p.js`는 정상). 방향은 fail-closed이고 mccp의 두 기동 형태는 분리형 플래그를 쓰지 않아 **오늘 영향 0**이다. 수정하려면 값-소비 플래그 화이트리스트가 필요하고 그 목록이 틀리면 반대 방향(과다 skip)으로 오살 위험이 생기므로 backlog.
+
+### 이연 2건은 backlog에 등재됐다
+
+`.claude/plans/codex-findings-backlog.md` 2026-08-14 MEDIUM 2건 — 각각 재현 조건·수정안·test 요구사항까지 적었다. **R7의 실패(이연처가 이미 닫힌 항목이었다)를 반복하지 않도록 실재하는 열린 항목으로 만들었다.**
+
 ## 주장하지 않는 것 (명시 잔여)
 
-- **§D11 ms 단위 TOCTOU**와 **§D15 유계 오살 창**(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ **이미지가 node** ∧ command line의 첫 script 토큰이 우리 절대경로)은 단위 test로 재현할 수 없다. "무관한 프로세스가 죽는 경로는 없다"고 **주장하지 않는다**.
+- **§D11 ms 단위 TOCTOU**와 **§D15 유계 오살 창**(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ **이미지의 basename이 `node`/`nodejs`** ∧ command line의 첫 script 토큰이 우리 절대경로)은 단위 test로 재현할 수 없다. "무관한 프로세스가 죽는 경로는 없다"고 **주장하지 않는다**.
+  - **세 번째 조건은 "진짜 node인가"가 아니라 "이름이 node인가"다**(santa-loop R10 Reviewer B). `/tmp/node`·`C:\temp\node.exe`처럼 basename만 맞는 임의 바이너리도 통과한다 — 실측 확인. 이 문서가 이전에 "이미지가 node"라고 적은 것은 그 구분을 흐렸다. 다만 이것이 새 창을 여는 것은 아니다: 결속 조건인 **시작시각 델타**는 그대로다. 그 델타는 우리 프로세스가 *죽은* 시각이 아니라 *시작한* 시각 기준이므로, 재할당된 프로세스가 우리 원본 시작 후 500ms(win32)/1500ms(POSIX) 안에 떠야 한다. 진짜 node로 좁히려면 등록 시 spawn한 `process.execPath`를 레코드에 봉인해 대조해야 하고 이는 schema 변경이라 backlog로 이연했다.
 - ~~POSIX symlink 봉쇄 test 2건은 win32에서 skip된다(권한 의존).~~ **santa-loop R1에서 해소** — junction은 elevation 없이 만들어지고 realpath로 동일하게 해석되므로 두 test 모두 win32에서 실제로 실행된다. 그 전제("symlink는 권한이 필요하다")가 틀렸던 것이 루트 탈출 결함을 가려 준 요인이기도 하다.
 - macOS `ps`는 `etimes`를 지원하지 않아 probe가 `null` → `identity_unverifiable` → 회수 미수행(fail-closed, 오살 아님). test는 사유를 출력하고 skip한다.
 - ~~**cross-model 리뷰 부재**~~ — **santa-loop R1에서 해소**. Implement-Codex 게이트는 EXECUTE **이전**에 돌아 diff가 비어 있었으나(verdict `divergent`로 정직 봉인), 실제 코드에 대한 Codex(gpt-5.4) 심사가 santa-loop R1에서 수행됐고 critical 3건이 흡수됐다. security-reviewer는 여전히 이 세션 정책상 미호출(`security_skipped=true`) — 다만 R1의 R3(보안) 축이 실제 경로 탈출 1건을 잡았다.

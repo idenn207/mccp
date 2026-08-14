@@ -94,3 +94,19 @@ MEDIUM 3 · LOW 2이고, 그중 신규 실행 항목은 F1 하나다.
 | S5 | LOW | `--review-proof-file`이 임의 JSON 경로를 받는다 | 조치 없음 — proof는 schema 구조 검증 + `receipt_hash` 봉인을 거치고, 정상 경로에서 seal이 내부 생성하므로 2차 우려에 그친다 |
 
 S1 흡수로 seal의 파일 쓰기 **2곳 모두** containment를 갖는다. plan 본문은 hash 바인딩 때문에 수정 불가하므로, 이 결정은 여기와 `seal.js` 헤더 주석에 기록한다.
+
+### D7 — 착지 직전 버전 재번호 (§3.7 forward-only, 8번째 재발)
+
+plan Task 8과 그 `Files to Change` 행은 `plugin.json` `1.23.8 → 1.23.9`를 지정하고 구현도 그대로 냈지만, **PR 직전 origin/main 병합 시점에 두 번호가 모두 무효**임이 드러났다.
+
+- main이 그사이 **다른 축**으로 `1.23.8`(diverse-agent-review M4, 2026-08-09)을 발행해 이 브랜치의 M1 `## [1.23.8]`(2026-08-13)과 CHANGELOG 헤딩이 정면 충돌했다.
+- main이 `1.23.10` · `1.23.11` · `1.24.0` · `1.25.0`까지 나아가, `1.23.9`를 그대로 두면 머지 시 매니페스트가 **역행**한다.
+
+§3.7대로 발행된 번호는 불가침이고 미머지 항목만 위로 민다. PRD는 milestone이 M1·M2 둘뿐이고 M1이 complete이므로 **M2는 PRD 전체 종료 = minor 축**이다:
+
+| 항목 | plan 지정 | 착지 |
+|---|---|---|
+| M1 (선행 커밋) | `1.23.8` | `1.25.1` (patch) |
+| M2 (본 milestone) | `1.23.9` | `1.26.0` (minor — PRD 종료) |
+
+동기 면은 plan이 적은 그대로 4개(`plugin.json` · `html.js:1419` · `markdown.js:163` · CHANGELOG 항목 + `currently` 노트)이고 대상 값만 바뀌었다. **plan 본문은 hash 바인딩이라 수정하지 않았다** — plan Task 8의 `1.23.9`는 이제 stale이며, 정본은 이 표다. 커밋 메시지의 `feat(v1.23.8-m1)` · `feat(v1.23.9-m2)`도 history 재작성을 피해 그대로 두었다(§3.12 — SHA 도달성 보존이 receipt 결속보다 우선한다). PR 제목은 착지 번호를 쓴다.

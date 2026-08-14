@@ -227,9 +227,11 @@ test('append: a failed write is rolled back, leaving the file byte-identical', (
 
     // Simulate a write that lands some bytes and then fails, exactly as a
     // mid-write ENOSPC does.
+    let calls = 0;
     const partial = {
-      writeFileSync: (fd, payload) => {
-        fs.writeSync(fd, String(payload).slice(0, 40));
+      writeSync: (fd, buf, off, len, pos) => {
+        calls += 1;
+        if (calls === 1) return fs.writeSync(fd, buf, off, Math.min(40, len), pos);
         const e = new Error('ENOSPC: no space left on device');
         e.code = 'ENOSPC';
         throw e;

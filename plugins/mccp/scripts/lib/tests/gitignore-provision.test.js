@@ -213,6 +213,38 @@ test('block replacement preserves the target file mode (POSIX modes only)', { sk
   });
 });
 
+test('append: a failed write is rolled back, leaving the file byte-identical', () => {
+  // A partial append leaves an orphan BEGIN marker on disk, and from then on
+  // every run fails `marker-damaged` and needs manual repair — a transient
+  // disk-full becoming a permanently stuck file. The rollback is what makes the
+  // failure a no-op, so "just re-run" is actually true.
+  withTempDir((dir) => {
+    const target = path.join(dir, '.gitignore');
+    const before = 'user-a/\nuser-b/\n';
+    fs.writeFileSync(target, before, 'utf8');
+    const plan = gp.planMerge({ content: before, version: VERSION });
+    assert.strictEqual(plan.action, 'append');
+
+    // Simulate a write that lands some bytes and then fails, exactly as a
+    // mid-write ENOSPC does.
+    const partial = {
+      writeFileSync: (fd, payload) => {
+        fs.writeSync(fd, String(payload).slice(0, 40));
+        const e = new Error('ENOSPC: no space left on device');
+        e.code = 'ENOSPC';
+        throw e;
+      },
+    };
+    assert.throws(
+      () => gp.applyMerge(target, plan, { lockPath: target + '.lock', deps: partial }),
+      (err) => err instanceof gp.ProvisionError && err.reason === gp.REASONS.INTERNAL_ERROR
+    );
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), before, 'partial append was not rolled back');
+    // And the file is still usable: the next run appends cleanly.
+    assert.strictEqual(gp.planMerge({ content: fs.readFileSync(target, 'utf8'), version: VERSION }).action, 'append');
+  });
+});
+
 test('buildBlock: the block warns that in-block edits are replaced', () => {
   // `update` rebuilds the whole marker span, so a rule added between the markers
   // does not survive. That is what a managed block IS, but "managed by" alone

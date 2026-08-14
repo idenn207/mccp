@@ -651,6 +651,14 @@ function applyMerge(target, plan, options) {
       }
       throw new ProvisionError(REASONS.INTERNAL_ERROR, 'cannot append to ' + target + ': ' + err.message, target);
     }
+    // Where the file ended before we touched it. The rollback below needs a
+    // length, not a flag: a failure part-way through leaves real bytes on disk.
+    let originalSize = null;
+    let fdOpen = true;
+    try {
+      originalSize = fs.fstatSync(fd).size;
+    } catch (_err) { /* cannot measure — rollback degrades to best effort */ }
+    const writeAll = (opts.deps && opts.deps.writeFileSync) || fs.writeFileSync;
     try {
       // writeFileSync, not writeSync: a bare writeSync returns a byte count and
       // is not guaranteed to consume the whole buffer, so a short write would
@@ -659,11 +667,39 @@ function applyMerge(target, plan, options) {
       // appendFileSync used to supply that loop for free; taking the descriptor
       // to carry O_NOFOLLOW meant taking the loop back too. Passing an fd here
       // writes it all and leaves closing to the caller.
-      fs.writeFileSync(fd, plan.appendPayload);
+      writeAll(fd, plan.appendPayload);
     } catch (err) {
+      // Roll the file back to where it started. writeFileSync retries short
+      // writes, but a genuine failure part-way (ENOSPC, quota, I/O error) still
+      // leaves the bytes it did manage to write. Those bytes contain an orphan
+      // BEGIN marker, which makes every later run fail `marker-damaged` and
+      // demands manual repair — a transient disk-full turning into a permanently
+      // stuck file. Truncating to the pre-append length makes the failure a
+      // no-op on disk, which is what lets the user simply re-run.
+      //
+      // Descriptor first, path second: ftruncate on an O_APPEND descriptor is
+      // EPERM on Windows (measured), and the path form works there. The fallback
+      // reopens by name, so it is the weaker of the two — but the alternative is
+      // leaving the orphan marker, and the not-a-symlink check already ran.
+      if (originalSize !== null) {
+        let rolledBack = false;
+        try {
+          fs.ftruncateSync(fd, originalSize);
+          rolledBack = true;
+        } catch (_e) { /* fall through to the path form */ }
+        if (!rolledBack) {
+          // Close BEFORE the path truncate, and mark it closed so the finally
+          // does not close a second time — a stale double-close can land on an
+          // unrelated descriptor once the number is reused.
+          try { fs.closeSync(fd); fdOpen = false; } catch (_e) {}
+          try { fs.truncateSync(target, originalSize); } catch (_e) { /* best effort */ }
+        }
+      }
       throw new ProvisionError(REASONS.INTERNAL_ERROR, 'cannot append to ' + target + ': ' + err.message, target);
     } finally {
-      try { fs.closeSync(fd); } catch (_e) {}
+      if (fdOpen) {
+        try { fs.closeSync(fd); } catch (_e) {}
+      }
     }
     // Second safety net, against writers that do not honour our lock.
     const after = readTargetContent(target);

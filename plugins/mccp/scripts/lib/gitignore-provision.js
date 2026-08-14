@@ -163,6 +163,23 @@ function parseEntries(text) {
 
 const MCCP_IGNORE_ENTRIES = Object.freeze(parseEntries(MCCP_IGNORE_BLOCK.join('\n')));
 
+// Segment the text the same way `split(/\r?\n/)` does — same count, same line
+// text — but keep each line's own terminator alongside it. The update splice
+// needs that to put the user's lines back byte-for-byte; a lone \r is NOT a
+// separator here, matching the split the rest of this module uses.
+function splitPreservingEol(text) {
+  const segs = [];
+  const re = /\r?\n/g;
+  let start = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    segs.push({ text: text.slice(start, m.index), eol: m[0] });
+    start = re.lastIndex;
+  }
+  segs.push({ text: text.slice(start), eol: '' });
+  return segs;
+}
+
 // Single adjudicator shared by stripManagedBlock and planMerge (they used to
 // interpret damaged input differently).
 //
@@ -313,11 +330,24 @@ function planMerge(options) {
     };
   }
 
-  const nextLines = lines
-    .slice(0, located.beginIdx)
-    .concat(blockLines)
-    .concat(lines.slice(located.endIdx + 1));
-  const nextContent = nextLines.join(eol);
+  // Spliced on the ORIGINAL text, not rebuilt from a line array. Splitting on
+  // /\r?\n/ and re-joining with one detected `eol` rewrites the terminator of
+  // every line in the file, so a file with mixed endings came back normalized —
+  // including the lines OUTSIDE the managed block, which are the user's bytes.
+  // That was survivable while the rewrite needed an explicit flag; now that
+  // `update` runs on a normal setup it would silently touch user-owned content
+  // on every canonical change, which is exactly what UI2 forbids.
+  //
+  // Each segment keeps the terminator it came with; only the block's own lines
+  // are joined with the detected eol, because those lines are ours.
+  const segs = splitPreservingEol(content);
+  const prefix = segs.slice(0, located.beginIdx).map((s) => s.text + s.eol).join('');
+  const suffix = segs.slice(located.endIdx + 1).map((s) => s.text + s.eol).join('');
+  // The END marker's own terminator carries over. It is '' only when the marker
+  // is the final line with no trailing newline, and in that case the suffix is
+  // empty too — so the file keeps its unterminated last line rather than gaining
+  // a newline the user never wrote.
+  const nextContent = prefix + blockLines.join(eol) + segs[located.endIdx].eol + suffix;
   if (nextContent === content) {
     return { action: 'noop', nextContent: content, addedLines: [], eol, sourceHash };
   }

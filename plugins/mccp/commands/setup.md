@@ -207,6 +207,11 @@ case "$PROVISION_ACTION" in
     ADDED_LINES=$(printf '%s' "$PROVISION_JSON" | node -e 'try{const a=JSON.parse(require("fs").readFileSync(0,"utf8")).addedLines;process.stdout.write(String(Array.isArray(a)?a.length:0))}catch{process.stdout.write("0")}')
     if [ "$PROVISION_DRYRUN" = "1" ]; then
       echo "[mccp:setup] --dry-run: .gitignore에 ${ADDED_LINES}줄을 추가할 예정입니다 (action=$PROVISION_ACTION). 아무것도 쓰지 않았습니다."
+      # Print the lines themselves, not just how many. `update` now applies on a
+      # normal run, so --dry-run is the only way to see what a run would change
+      # before it changes it — a preview that withholds the content is not a
+      # preview. Verbose by design and opt-in: the user asked for it.
+      printf '%s' "$PROVISION_JSON" | node -e 'try{const a=JSON.parse(require("fs").readFileSync(0,"utf8")).addedLines;if(Array.isArray(a))process.stdout.write(a.map(l=>"    "+l).join("\n")+"\n")}catch{}'
       # No pollution report on a dry run. Nothing became newly ignored, so the
       # provisioner deliberately leaves `pollution` null — reporting that as
       # "could not check" would warn about a scan that was never meant to run.

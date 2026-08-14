@@ -198,6 +198,25 @@ test('planMerge: missing file -> create, block only', () => {
   assert.ok(plan.nextContent.startsWith(B));
 });
 
+test('planMerge: an update keeps each outside line\'s OWN terminator (mixed EOL)', () => {
+  // Rebuilding the file from split(/\r?\n/) + join(eol) rewrote the terminator
+  // of every line, so a mixed-ending file came back normalized — including the
+  // user's lines outside the block. Now that `update` runs on a normal setup,
+  // that would silently rewrite user-owned bytes on every canonical change.
+  const stale = gp.planMerge({ content: 'a/\r\nb/\nc/\r\n', version: '0.0.1-stale' });
+  const mixed = stale.nextContent;
+  assert.ok(mixed.startsWith('a/\r\nb/\nc/\r\n'), 'fixture lost its mixed endings before the test began');
+
+  const plan = gp.planMerge({ content: mixed, version: VERSION });
+  assert.strictEqual(plan.action, 'update');
+  assert.ok(
+    plan.nextContent.startsWith('a/\r\nb/\nc/\r\n'),
+    'outside-block terminators were normalized: ' + JSON.stringify(plan.nextContent.slice(0, 20))
+  );
+  assert.ok(plan.nextContent.includes('mccp ' + VERSION), 'the block was not refreshed');
+  assert.strictEqual(gp.planMerge({ content: plan.nextContent, version: VERSION }).action, 'noop');
+});
+
 test('planMerge: an existing empty file lands the same bytes as a missing one', () => {
   // `create` (missing file) and `append` (existing but empty) describe the same
   // end state, so they must agree on the bytes. They used to differ by a leading

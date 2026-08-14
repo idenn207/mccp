@@ -573,14 +573,20 @@ function readTargetContent(target) {
 // it degrades to the lstat alone — and there creating a symlink takes a
 // privilege or Developer Mode in the first place.
 //
-// Deliberately NOT O_APPEND. The bytes go to an explicit end-of-file offset
-// instead, because ftruncate on an O_APPEND descriptor is EPERM on Windows
-// (measured) and the only rollback left would be truncating by PATHNAME — which
-// can shrink a file another process atomically replaced in the meantime, turning
-// a rollback into data loss. Addressing the write by offset keeps the whole
-// failure path on the descriptor we already hold, so no name is ever re-resolved.
+// O_APPEND is load-bearing, and the reason was measured the hard way. Dropping
+// it and writing at a sampled end-of-file offset made `ftruncate` succeed on
+// Windows — but it also meant a non-cooperating writer that appended between the
+// `fstat` and the write had its bytes OVERWRITTEN. That trades corruption on the
+// SUCCESS path for a tidier failure path, which is the wrong direction: O_APPEND
+// makes every chunk land at the real end atomically, so a concurrent append is
+// never clobbered.
+//
+// The cost is that `ftruncate` on an O_APPEND descriptor is EPERM on Windows, so
+// the rollback below can fail there. It is reported rather than worked around —
+// truncating by PATHNAME instead would shrink whatever file the name points at
+// now, which on a concurrent atomic replace is somebody else's.
 const APPEND_FLAGS =
-  fs.constants.O_WRONLY | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW || 0);
+  fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | (fs.constants.O_NOFOLLOW || 0);
 
 // Undo our own append — and ONLY ours. Truncating to originalSize unconditionally
 // would delete whatever a concurrent writer appended after us, turning a rollback
@@ -604,12 +610,15 @@ function rollbackAppend(fd, originalSize, maxOwnBytes) {
 // Explicit write-all at a fixed offset. writeSync may consume less than the
 // whole buffer, and without O_APPEND there is no kernel-side "always at the end"
 // to fall back on, so the loop is the thing that makes the write complete.
-function writeAllAt(fd, text, position, writeSync) {
+function writeAllAppend(fd, text, writeSync) {
   const buf = Buffer.from(text, 'utf8');
   let written = 0;
   while (written < buf.length) {
-    const n = writeSync(fd, buf, written, buf.length - written, position + written);
-    if (!(n > 0)) throw new Error('write made no progress at offset ' + (position + written));
+    // No position argument: O_APPEND is what guarantees each chunk lands at the
+    // current end. Passing a computed offset would reintroduce the stale-offset
+    // overwrite this flag exists to prevent.
+    const n = writeSync(fd, buf, written, buf.length - written);
+    if (!(n > 0)) throw new Error('append write made no progress after ' + written + ' bytes');
     written += n;
   }
 }
@@ -704,7 +713,7 @@ function applyMerge(target, plan, options) {
     const writeSync = (opts.deps && opts.deps.writeSync) || fs.writeSync;
     const ownBytes = Buffer.byteLength(plan.appendPayload, 'utf8');
     try {
-      writeAllAt(fd, plan.appendPayload, originalSize, writeSync);
+      writeAllAppend(fd, plan.appendPayload, writeSync);
       // Recount while the descriptor is STILL OPEN, so a duplicate can be undone
       // instead of merely reported. The old order closed first and then
       // announced permanent damage: a non-locking writer that appended its own
@@ -737,13 +746,25 @@ function applyMerge(target, plan, options) {
       // Entirely on the descriptor. Truncating by PATHNAME would be a second way
       // to reach the file, and a process that atomically replaced .gitignore in
       // the meantime would have its newer file shrunk instead — a rollback that
-      // destroys data. The descriptor still points at the file we actually wrote
-      // to, whatever the name now refers to.
+      // destroys data.
+      //
       // A ProvisionError here already decided what state the file is in (and
       // said so); re-truncating would be a second, unexamined attempt.
       if (err instanceof ProvisionError) throw err;
-      rollbackAppend(fd, originalSize, ownBytes);
-      throw new ProvisionError(REASONS.INTERNAL_ERROR, 'cannot append to ' + target + ': ' + err.message, target);
+      // On Windows this cannot succeed — ftruncate on an O_APPEND descriptor is
+      // EPERM — so the message states which state the file is actually in rather
+      // than implying a rollback that did not happen.
+      const undone = rollbackAppend(fd, originalSize, ownBytes);
+      throw new ProvisionError(
+        REASONS.INTERNAL_ERROR,
+        'cannot append to ' + target + ': ' + err.message +
+          (undone
+            ? ' — the partial append was rolled back and the file is unchanged; re-run.'
+            : ' — the partial append could NOT be rolled back, so ' + target +
+              ' may hold an incomplete managed block. Delete the lines between the ' +
+              'markers by hand and re-run.'),
+        target
+      );
     } finally {
       try { fs.closeSync(fd); } catch (_e) {}
     }

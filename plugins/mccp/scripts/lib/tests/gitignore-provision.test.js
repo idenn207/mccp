@@ -248,16 +248,31 @@ test('append: a duplicate block is rolled back, not left as permanent damage', (
     const theirs = gp.planMerge({ content: 'user-a/\n', version: '0.0.1-other' }).nextContent;
     fs.writeFileSync(target, theirs, 'utf8');
 
+    // Platform-split, because the rollback itself is: `ftruncate` on an O_APPEND
+    // descriptor is EPERM on Windows, and O_APPEND is what keeps a concurrent
+    // append from being overwritten on the SUCCESS path — the more important of
+    // the two. So POSIX undoes the duplicate; Windows reports it precisely
+    // instead of pretending it was cleaned up.
     assert.throws(
       () => gp.applyMerge(target, plan, { lockPath: target + '.lock' }),
-      (err) => err instanceof gp.ProvisionError && err.reason === gp.REASONS.CONCURRENT_MODIFICATION
+      (err) => err instanceof gp.ProvisionError && err.reason === (
+        POSIX ? gp.REASONS.CONCURRENT_MODIFICATION : gp.REASONS.MARKER_DAMAGED
+      )
     );
-    assert.strictEqual(fs.readFileSync(target, 'utf8'), theirs, 'our append was not rolled back');
-    assert.strictEqual(
-      gp.locateManagedBlock(fs.readFileSync(target, 'utf8').split(/\r?\n/)).state,
-      'wellFormed',
-      'the file did not settle back to exactly one well-formed block'
-    );
+    if (POSIX) {
+      assert.strictEqual(fs.readFileSync(target, 'utf8'), theirs, 'our append was not rolled back');
+      assert.strictEqual(
+        gp.locateManagedBlock(fs.readFileSync(target, 'utf8').split(/\r?\n/)).state,
+        'wellFormed',
+        'the file did not settle back to exactly one well-formed block'
+      );
+    } else {
+      assert.strictEqual(
+        gp.locateManagedBlock(fs.readFileSync(target, 'utf8').split(/\r?\n/)).state,
+        'damaged',
+        'the duplicate should still be visible when it cannot be rolled back'
+      );
+    }
   });
 });
 
@@ -285,13 +300,26 @@ test('append: a failed write is rolled back, leaving the file byte-identical', (
         throw e;
       },
     };
+    let caught = null;
     assert.throws(
       () => gp.applyMerge(target, plan, { lockPath: target + '.lock', deps: partial }),
-      (err) => err instanceof gp.ProvisionError && err.reason === gp.REASONS.INTERNAL_ERROR
+      (err) => { caught = err; return err instanceof gp.ProvisionError && err.reason === gp.REASONS.INTERNAL_ERROR; }
     );
-    assert.strictEqual(fs.readFileSync(target, 'utf8'), before, 'partial append was not rolled back');
-    // And the file is still usable: the next run appends cleanly.
-    assert.strictEqual(gp.planMerge({ content: fs.readFileSync(target, 'utf8'), version: VERSION }).action, 'append');
+    if (POSIX) {
+      assert.strictEqual(fs.readFileSync(target, 'utf8'), before, 'partial append was not rolled back');
+      // And the file is still usable: the next run appends cleanly.
+      assert.strictEqual(gp.planMerge({ content: fs.readFileSync(target, 'utf8'), version: VERSION }).action, 'append');
+      assert.match(caught.message, /rolled back and the file is unchanged/);
+    } else {
+      // Windows cannot truncate an O_APPEND descriptor, and reaching for the
+      // pathname instead would shrink whatever the name points at now. The
+      // contract there is to say so, not to imply a rollback that never ran.
+      assert.match(caught.message, /could NOT be rolled back/);
+      assert.ok(
+        fs.readFileSync(target, 'utf8').startsWith(before),
+        'the pre-append content must still be intact even when the tail cannot be removed'
+      );
+    }
   });
 });
 

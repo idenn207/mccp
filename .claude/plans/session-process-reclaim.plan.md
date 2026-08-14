@@ -128,7 +128,7 @@ isSiblingLive(r) =
 
 두 분기 모두 **epoch ms 정수**를 직접 뱉게 해 locale/DST/시각 포맷 파싱을 아예 없앤다(R4 test 지적 — `lstart`는 locale 의존, CIM `CreationDate`는 JSON 직렬화 형태가 환경마다 다르다):
 
-- win32: `Get-CimInstance Win32_Process`에서 `CreationDate` · `ExecutablePath` · `CommandLine`을 **탭 구분 단일 라인**으로 뽑는다. (R8 정정: 필드마다 한 줄씩 찍던 이전 판은 `ExecutablePath`나 `CommandLine`이 빈 경우 — access-denied·커널 프로세스에서 실제로 발생 — 뒤 필드가 한 줄씩 밀려 파서가 이미지 자리에서 command line을 읽는다.)
+- win32: `Get-CimInstance Win32_Process`에서 `CreationDate` · `ExecutablePath` · `CommandLine`을 **`|` 구분 단일 라인**으로 뽑는다. (R8 정정: 필드마다 한 줄씩 찍던 이전 판은 `ExecutablePath`나 `CommandLine`이 빈 경우 — access-denied·커널 프로세스에서 실제로 발생 — 뒤 필드가 한 줄씩 밀려 파서가 이미지 자리에서 command line을 읽는다.)
 - POSIX: `ps -o etimes=,comm=,args= -p <pid>` — `etimes`는 **경과 초**(locale 무관). `startedAtMs = Date.now() - etimes*1000`. 경과 기반이라 시계 조정·DST에 영향받지 않는다. `comm`은 이미지이고 공백을 담을 수 있는 `args`보다 **앞**에 둔다. Linux에서는 `/proc/<pid>/exe` readlink가 이를 덮어쓴다 — `comm`은 `prctl`로 바꿀 수 있고 15자에서 잘린다
 
 둘 다 파싱 실패·빈 출력·비-정수는 `null`(→ `identity_unverifiable`)로 접는다.

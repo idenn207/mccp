@@ -688,16 +688,23 @@ function isExecutedScript(commandLine, wantPath) {
   return scriptIdx !== -1 && tokens[scriptIdx] === wantPath;
 }
 
-// win32 emits ONE TAB-DELIMITED line rather than one field per line. An empty
+// win32 emits ONE DELIMITED line rather than one field per line. An empty
 // ExecutablePath or CommandLine (both occur — access-denied and kernel-owned
 // pids) would otherwise print nothing and SHIFT every later field up, handing
-// the parser a command line where it expects an image. Field order is fixed and
-// the command line — the only field that can itself contain a tab — is last.
+// the parser a command line where it expects an image.
+//
+// The delimiter is `|` because Windows FORBIDS it in a file name, so it cannot
+// appear inside the two fields the parser has to split on (an epoch integer and
+// an executable PATH). A tab would not do: NTFS permits 0x09 in a name, so a
+// binary living under a tabbed directory would split wrong. The command line is
+// last and may contain `|` freely — only the first two delimiters are read.
+const WIN32_PROBE_DELIM = '|';
+
 function parseWin32ProbeLine(body) {
   if (!body) return null;
-  const i1 = body.indexOf('\t');
+  const i1 = body.indexOf(WIN32_PROBE_DELIM);
   if (i1 === -1) return null;
-  const i2 = body.indexOf('\t', i1 + 1);
+  const i2 = body.indexOf(WIN32_PROBE_DELIM, i1 + 1);
   if (i2 === -1) return null;
   const ms = Number(body.slice(0, i1).trim());
   if (!Number.isInteger(ms) || ms <= 0) return null;
@@ -745,7 +752,7 @@ function probeProcess(pid, deps) {
         ".Subtract([datetime]'1970-01-01').TotalMilliseconds;" +
         "$i=$p.ExecutablePath; if(-not $i){$i=''};" +
         "$c=$p.CommandLine; if(-not $c){$c=''};" +
-        '"$ms`t$i`t$c"}';
+        '"$ms|$i|$c"}';
       const out = run('powershell.exe',
         ['-NoProfile', '-NonInteractive', '-Command', script], opts);
       return parseWin32ProbeLine(String(out || '').replace(/\r/g, '')

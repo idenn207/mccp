@@ -353,7 +353,7 @@ test('9g — an empty win32 ExecutablePath yields a null image, never a shifted 
   // "is this node" and, since the command line starts with `node`, PASS.
   const empty = probeProcess(4242, {
     platform: 'win32',
-    execFileSync: () => '1700000000000\t\t' + cmd + '\n',
+    execFileSync: () => '1700000000000||' + cmd + '\n',
   });
   assert.strictEqual(empty.execImage, null,
     'an absent image must be null (-> identity_unverifiable), never the command line');
@@ -361,15 +361,35 @@ test('9g — an empty win32 ExecutablePath yields a null image, never a shifted 
 
   const full = probeProcess(4242, {
     platform: 'win32',
-    execFileSync: () => '1700000000000\tC:\\Program Files\\nodejs\\node.exe\t' + cmd + '\n',
+    execFileSync: () => '1700000000000|C:\\Program Files\\nodejs\\node.exe|' + cmd + '\n',
   });
   assert.strictEqual(full.execImage, 'C:\\Program Files\\nodejs\\node.exe',
     'an image containing spaces must not be split');
   assert.strictEqual(full.commandLine, cmd);
 
+  // The delimiter is `|` and not a tab precisely because NTFS PERMITS 0x09 in a
+  // file name. A binary under a tabbed directory must parse, not split wrong.
+  const tabbed = probeProcess(4242, {
+    platform: 'win32',
+    execFileSync: () => '1700000000000|C:\\odd\tdir\\node.exe|' + cmd + '\n',
+  });
+  assert.strictEqual(tabbed.execImage, 'C:\\odd\tdir\\node.exe',
+    'a tab inside the image path must not act as a delimiter');
+  assert.strictEqual(tabbed.commandLine, cmd);
+
+  // `|` is forbidden in a Windows file name but perfectly legal in a command
+  // line. Only the FIRST two delimiters are read, so the rest must survive.
+  const piped = probeProcess(4242, {
+    platform: 'win32',
+    execFileSync: () => '1700000000000|C:\\nodejs\\node.exe|node x.js --re "a|b|c"\n',
+  });
+  assert.strictEqual(piped.execImage, 'C:\\nodejs\\node.exe');
+  assert.strictEqual(piped.commandLine, 'node x.js --re "a|b|c"',
+    'pipes past the second delimiter belong to the command line, not to the split');
+
   // A malformed line (missing the second delimiter) is null, not a partial read.
   assert.strictEqual(probeProcess(4242, {
-    platform: 'win32', execFileSync: () => '1700000000000\tonly-one-tab\n',
+    platform: 'win32', execFileSync: () => '1700000000000|only-one-delimiter\n',
   }), null, 'a short line must fail closed rather than yield a half-parsed record');
 });
 

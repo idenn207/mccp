@@ -39,7 +39,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 ### Security (santa-loop R8 — 두 리뷰어가 독립적으로 R7의 미봉을 다시 잡았다)
 - **정체 검증이 `node`라는 **낱말**을 인터프리터의 증거로 받아들이고 있었다.** `isExecutedScript`의 `.some()`은 "script 토큰 앞 어딘가에 node 토큰이 있는가"만 물어서, node를 데이터로 언급만 하는 명령줄이 통과했다 — `grep node <exec_path>` · `echo node <exec_path>`. PID 재할당 ∧ 시작시각이 허용치 안이면 `owned_session_scoped`에 도달해 **무관한 프로세스에 SIGTERM**을 보낸다. 실물 재현: 살아 있는 `cmd.exe`(`cmd /c ping -n 20 127.0.0.1 & rem node <exec_path>`)를 실제 pid로 probe하니 옛 규칙이 MATCH를 냈다. **이 결함은 R7이 이미 알고 있었고, 대응은 고치는 대신 코드에 `KNOWN DEFECT` 주석을 다는 것이었다** — 그러면서 같은 커밋의 security review는 이 축을 `PASS — no mis-kill path found`로 적었다.
 - 토큰 규칙으로는 닫히지 않는다. `nohup node <path>`(반드시 매치)와 `grep node <path>`는 **같은 토큰 열**이다. 판별자는 **실행 이미지**뿐이다 — `probeProcess`가 `execImage`를 함께 반환하고(win32 `Win32_Process.ExecutablePath` · Linux `/proc/<pid>/exe` · 그 외 POSIX `ps -o comm=`), `isReclaimableBy`가 **부재 → `identity_unverifiable`**(command line 단독 판정으로 흘러내리지 않는다) · **비-node → `identity_mismatch`**로 가른다. `isExecutedScript`는 토큰 축만 답하도록 분리했다.
-- win32 probe 출력을 **탭 구분 단일 라인**으로 바꿨다. 필드마다 한 줄씩 찍으면 `ExecutablePath`나 `CommandLine`이 빈 경우(access-denied·커널 프로세스에서 실제로 발생) 뒤 필드가 한 줄씩 밀려 **파서가 이미지 자리에서 command line을 읽는다**.
+- win32 probe 출력을 **`|` 구분 단일 라인**으로 바꿨다. 필드마다 한 줄씩 찍으면 `ExecutablePath`나 `CommandLine`이 빈 경우(access-denied·커널 프로세스에서 실제로 발생) 뒤 필드가 한 줄씩 밀려 **파서가 이미지 자리에서 command line을 읽는다**.
 - 회귀 test가 결함을 실제로 잡는지 확인했다 — HEAD(수정 전) worktree에 새 test를 얹으면 `identity 3g`가 `owned_session_scoped`를, `identity 3h`가 fall-through를 드러내며 fail한다. `identity 3i`(실제 launch shape 6종)는 양쪽에서 pass라 오조임이 아니다.
 
 ### 명시 잔여 (주장하지 않는 것)

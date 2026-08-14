@@ -362,7 +362,7 @@ R7의 Reviewer B가 이미 critical로 잡았던 결함인데, R7의 대응은 *
 토큰 규칙으로는 닫을 수 없다. `nohup node <path>`(반드시 매치해야 함, test `identity 3e`)와 `grep node <path>`는 **같은 토큰 열**이다. 판별자는 **실행 이미지**뿐이다.
 
 - `probeProcess`가 `execImage`를 함께 반환한다. win32는 `Win32_Process.ExecutablePath`, POSIX는 `ps -o comm=`이고 Linux에서는 더 정확한 `/proc/<pid>/exe` readlink가 이를 덮어쓴다(`comm`은 `prctl`로 바꿀 수 있고 15자에서 잘린다).
-- win32 출력 형식을 **탭 구분 단일 라인**으로 바꿨다. 필드마다 한 줄씩 찍으면 `ExecutablePath`나 `CommandLine`이 비었을 때(access-denied·커널 프로세스에서 실제로 발생) 뒤 필드가 **한 줄씩 밀려**, 파서가 이미지 자리에서 command line을 읽는다.
+- win32 출력 형식을 **`|` 구분 단일 라인**으로 바꿨다. 필드마다 한 줄씩 찍으면 `ExecutablePath`나 `CommandLine`이 비었을 때(access-denied·커널 프로세스에서 실제로 발생) 뒤 필드가 **한 줄씩 밀려**, 파서가 이미지 자리에서 command line을 읽는다.
 - `isReclaimableBy`가 이미지를 요구한다: **부재 → `identity_unverifiable`**(fail-closed — command line 단독 판정으로 흘러내리지 않는다), **비-node 이미지 → `identity_mismatch`**.
 - `isExecutedScript`는 이제 토큰 축만 답한다(첫 script 토큰 등가 비교). 인터프리터 질문은 이미지 축으로 분리했다. `.some()`을 남겨 둘 이유가 없다 — 이미지가 답한 뒤에는 무용하고, shebang 기동처럼 command line에 node 토큰이 없는 형태를 **false negative로 만들 뿐**이다.
 
@@ -373,6 +373,32 @@ R7의 Reviewer B가 이미 critical로 잡았던 결함인데, R7의 대응은 *
 ### 검증 (R8)
 
 5개 reclaim suite 111 → **115 tests / 114 pass / 0 fail / 1 skip**(신규 4건, 손실 0). 실물 OS test `9d`는 이제 `execImage`가 non-null이고 node 인터프리터로 읽히는지까지 단언하며, POSIX 사전점검의 `ps` 필드 목록을 probe와 **동일하게** 맞췄다(짧은 목록으로 사전점검하면 `comm` 미지원 플랫폼을 green으로 통과시킨 뒤 probe에서 실패한다).
+
+## santa-loop Round 9 — 두 리뷰어가 정반대로 갈렸다
+
+R8과 달리 R9는 **수렴하지 않았다**. Reviewer A(Opus) `PASS` 12/12 · critical 0, Reviewer B(Codex gpt-5.4) `FAIL` 6개 축.
+
+### 합의 — R8이 닫은 축은 양쪽 다 PASS
+
+두 리뷰어 모두 criterion 2(정체 probe)를 PASS로 냈다. B의 문장: *"null/partial probe data becomes `identity_unverifiable`, non-node images become `identity_mismatch`, and argv parsing is designed to avoid **field-shift fallback into 'assume ours'**."* A는 test까지 지목했다 — *"test 3g explicitly tests the R7 critical"*, 그리고 R8에서 고친 mock 문제도 독립 확인했다(*"No mock contains an abstract 'command line' that cannot exist"*).
+
+### 수정 21 — win32 구분자를 탭에서 `|`로 (A suggestion, 실질)
+
+A의 지적: NTFS는 파일명에 탭(0x09)을 **허용**하므로, 탭이 든 디렉토리 아래의 바이너리는 파싱이 어긋난다. 방향은 fail-closed(회수를 놓칠 뿐)이나 공짜로 없앨 수 있는 취약성이었다. `|`는 Windows 파일명 **금지 문자**라 `ExecutablePath`에 구조적으로 나타날 수 없고, command line은 마지막 필드라 그 안의 `|`는 앞의 두 구분자만 읽는 파서에 무해하다. test 9g에 탭 경로·파이프 포함 command line 케이스를 추가했다.
+
+### `MCCP_RECLAIM_OUTLIVES` 축 — B의 critical을 **수용하지 않았다** (운영자 판단)
+
+B는 "식별자 없는 borrower가 reuse 레코드를 못 쓰면 소유자가 사용 중인 dashboard를 SIGTERM한다"를 critical로, 그리고 criterion 7·10·11·12를 FAIL로 냈다. **사실관계는 정확하다.** 수용하지 않은 근거 셋:
+
+1. **성격 규정이 틀렸다.** B는 이것을 `Reachable non-owned kill`이라 불렀으나, 그 dashboard는 세션 A가 **소유한** 프로세스이고 B는 `role:'reuse'` 빌린 쪽이다. 위반되는 성질은 UI2("남의 프로세스를 죽이지 않는다")가 아니라 "사용 중인 것을 죽이지 않는다"이다. R8이 닫은 결함(무관한 `grep`을 죽임)과 층위가 다르다.
+2. **R7의 `KNOWN DEFECT`와 정반대 상태다.** 기본값 0이고, `docs/ENVIRONMENT.md`가 시나리오·합성 id가 왜 불가능한지·PRD OQ1 미해소까지 적었으며, 빌리는 순간 `announceReuseRegistration`이 결과와 복구법을 담아 loud 경고한다. 문서·경고·기본값·코드가 서로를 부정하지 않는다.
+3. **명백한 수정이 없다.** "레코드를 못 쓰면 재사용하지 말고 자기 서버를 띄운다"가 자연스러워 보이지만, `resolveSessionId`가 null이면 **소유자 등록도 불가**하므로(Task 1 단언 (6)) 그 새 서버는 아무도 회수할 수 없는 미등록 프로세스가 된다. 중단 대신 누수를 택하는 트레이드일 뿐이고, 이 축이 PRD OQ1로 열려 있는 이유가 그것이다.
+
+**R9 rubric이 이 FAIL을 부분적으로 유도했다는 점은 기록해 둔다.** criterion 12에 "방치된 known defect는 잔여가 아니라 FAIL"을 넣으면서(R7 재발 방지 목적) 예외 잔여 목록에 이 항목을 열거하지 않았다. B는 지시대로 적용했다. R10 rubric은 이 잔여를 명시 열거해 리뷰어가 catch-all이 아니라 실질로 판정하게 한다.
+
+### 검증 (R9)
+
+reclaim 5 suite **117 tests / 116 pass / 0 fail / 1 skip**(구분자 교체 후 재실행). 실물 OS probe가 새 구분자로 정상 동작함을 자기 pid로 확인했다.
 
 ## 주장하지 않는 것 (명시 잔여)
 

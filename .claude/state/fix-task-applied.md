@@ -1,33 +1,32 @@
 ---
 fix_task_version: 1
-task_fingerprint: dashboard-data-exploration
+task_fingerprint: multi-session-work-loop-m4
 gate_id: stop-review-loop
-decision_id: codex-intent-context-m1
-created_at: 2026-08-05T17:01:52.181Z
-expires_at: 2026-08-12T17:01:52.181Z
+decision_id: meta-research-command-m1
+created_at: 2026-08-13T08:05:04.182Z
+expires_at: 2026-08-20T08:05:04.182Z
 counter: 1
-verdict: codex_divergent
+verdict: codex_critical
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-plan-codex/codex-intent-context-m1.json
-  - .claude/receipts/mccp-implement-codex/codex-intent-context-m1.json
+  - .claude/receipts/mccp-plan-codex/meta-research-command-m1.json
 ---
 ## Title
-Codex divergent — review concerns
+Codex CRITICAL — stop and address
 
 ## Why
-Codex review flagged unresolved concerns. Address them in the next turn before ending the response.
+Codex review hit an Auto-CRITICAL category. Stop and address before proceeding. Do not bypass.
 
 ## Failures
-- codex review: divergent unresolved (rounds >= 3)
+- codex review: CRITICAL finding (test)
 
 ## Next Actions
-1. Re-read the Codex review and address each unresolved concern.
-2. Update the implementation, then end the response so the Stop-loop re-runs.
+1. Re-read the Codex review and identify the CRITICAL category.
+2. Either remove the offending change or address the catalog item directly.
+3. Do not bypass — the Stop-loop will re-fire on next turn.
 
 ## Originating Decisions
-- .claude/receipts/mccp-plan-codex/codex-intent-context-m1.json
-- .claude/receipts/mccp-implement-codex/codex-intent-context-m1.json
+- .claude/receipts/mccp-plan-codex/meta-research-command-m1.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/codex-intent-context-m1>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-plan-codex/meta-research-command-m1>'

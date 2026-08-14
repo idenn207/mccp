@@ -1,14 +1,15 @@
 ---
 fix_task_version: 1
-task_fingerprint: multi-session-work-loop-m4
+task_fingerprint: setup-gitignore-m1
 gate_id: stop-review-loop
 decision_id: setup-gitignore-m1
-created_at: 2026-08-13T08:11:35.246Z
-expires_at: 2026-08-20T08:11:35.246Z
+created_at: 2026-08-14T05:41:33.681Z
+expires_at: 2026-08-21T05:41:33.681Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
+  - .claude/receipts/mccp-pr-codex/setup-gitignore-m1.json
   - .claude/receipts/mccp-implement-codex/setup-gitignore-m1.json
 ---
 ## Title
@@ -25,6 +26,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
+- .claude/receipts/mccp-pr-codex/setup-gitignore-m1.json
 - .claude/receipts/mccp-implement-codex/setup-gitignore-m1.json
 
 ## Dual Reviewer Escalation Required

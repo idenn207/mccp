@@ -23,6 +23,8 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const { checkPlanConsistency } = require('./l1-check');
+const { panelMinRemaining } = require('./budget');
+const { buildReviewRecord, reviewRecordPath } = require('./record');
 const { decideQuorum, parseQuorum, parseRolesMin } = require('./quorum');
 const { decideReview, parseReviewMode, parseL3Enabled } = require('./decide');
 const {
@@ -336,6 +338,13 @@ function cmdEmitWorkflowArgs(args) {
     prdPath: (args.prd && args.prd !== true) ? args.prd : null,
     reviewedPlanHash: reviewedPlanHash,
     fleet: fleet,
+    // The budget gate's only producer. Computed AFTER the --granted cap because
+    // the threshold must describe the panel that will actually launch: budgeting
+    // for four reviewers when the reservation granted two overstates it and skips
+    // a panel the turn can afford. Omitting the key (as every build before M4 did)
+    // makes workflows/plan-review.js read `undefined`, substitute 0, and leave the
+    // gate structurally unreachable.
+    minRemaining: panelMinRemaining(process.env, fleet.length),
     // fleetKeys mirrors fleet[].key so the Workflow receives the granted panel
     // verbatim — plan-review.js degrades to a single reviewer when it is absent.
     fleetKeys: fleet.map(function (f) { return f.key; }),
@@ -413,6 +422,33 @@ function cmdDecide(args) {
     return EX_BLOCK;
   }
 
+  // A panel that was SKIPPED never fired, and the gate must not say otherwise.
+  //
+  // Without this branch a skip reaches decideQuorum as `results: []`, comes back
+  // `responded: 0`, and decideReview reports "L2 fired but no reviewer responded
+  // usably" — a stated cause that is false, attached to the recovery paths 5.2e
+  // prints, none of which can fix a budget shortfall. The workflow already
+  // carries the observed numbers out for exactly this reason; nothing was
+  // reading them. The verdict is unchanged (unavailable, fail-closed) — only the
+  // reason becomes true, which is the whole point of this milestone.
+  const l2raw = l2r.value || {};
+  if (l2raw.skipped === true) {
+    const why = (typeof l2raw.reason === 'string' && l2raw.reason) ? l2raw.reason : 'unknown';
+    let detail = 'L2 panel did not fire (reason: ' + why + ') — the gate cannot ' +
+      'certify a review that never ran';
+    if (why === 'budget' && Number.isFinite(l2raw.remaining) &&
+        Number.isFinite(l2raw.minRemaining)) {
+      detail += '. The turn had ' + l2raw.remaining + ' token(s) remaining and the ' +
+        'panel needs ' + l2raw.minRemaining + '. Recover by raising or removing this ' +
+        "turn's budget target, lowering MCCP_PLAN_REVIEW_BUDGET, or running " +
+        'MCCP_PLAN_REVIEW=codex';
+    }
+    errln('BLOCK: ' + detail);
+    out({ review_verdict: 'unavailable', review_source: 'multi-agent',
+      review_proof: null, block: true, reason: detail, forwardCodexVerdict: false });
+    return EX_BLOCK;
+  }
+
   let l3 = null;
   if (args['l3-file'] && args['l3-file'] !== true) {
     const l3r = readJsonOrBlock(args['l3-file'], '--l3-file');
@@ -423,7 +459,6 @@ function cmdDecide(args) {
 
   // Recompute the quorum here rather than trusting whatever the workflow wrote:
   // the workflow reports reviewer RESULTS, the gate decides what they amount to.
-  const l2raw = l2r.value || {};
   const results = Array.isArray(l2raw.results) ? l2raw.results : [];
   const q = parseQuorum(process.env);
   // `of` is the panel that was FIELDED, which is not always the panel that was
@@ -534,6 +569,116 @@ function cmdVerifyProof(args) {
   return EX_OK;
 }
 
+// ── record ────────────────────────────────────────────────────────────────────
+//
+// M4 axis A. Writes `.claude/reviews/plan-review-<slug>.md` from whatever the
+// REVIEW_DIR holds, and ALWAYS exits 0.
+//
+// The exit contract is deliberate and is the one place in this file that breaks
+// the fail-closed rule above. Every other subcommand answers "may this plan be
+// approved?", where an unreadable input must block. This one answers "what
+// happened?", and a measurement that can block is a measurement that will be
+// removed the first time it misfires. It is called immediately BEFORE the stop
+// blocks at 5.2a/b/c/e/g, so it cannot alter a verdict that is already decided —
+// and on the pass path it runs after 5.2g, equally unable to change anything.
+//
+// Silent is not the same as harmless, though: every degraded axis is named on
+// stderr ([[feedback-loud-fail-open]]). "exit 0" means "I did not block you", not
+// "everything was fine".
+function cmdRecord(args) {
+  const root = (args['repo-root'] && args['repo-root'] !== true) ? args['repo-root'] : repoRoot();
+
+  // --review-dir gets the same containment every other path flag in this file
+  // gets. It is read-only and the production caller is repo-internal, but it was
+  // the one path argument exempt from the rule, and "the caller is trusted" is
+  // the assumption every one of those rules was written to stop relying on.
+  //
+  // A failure here does NOT block: this subcommand's contract is exit 0. Refusing
+  // to READ is the whole remedy — the record is still written, every axis reads
+  // as absent, and the degradation says why. Falling back to the default
+  // directory would be worse than either: it would silently record a different
+  // run than the caller named.
+  let reviewDir = path.join(root, '.claude', 'state', 'plan-review');
+  let reviewDirRejected = null;
+  if (args['review-dir'] && args['review-dir'] !== true) {
+    const dirContained = resolveContained(args['review-dir'], root, '--review-dir');
+    if (dirContained.ok) {
+      reviewDir = dirContained.abs;
+    } else {
+      reviewDirRejected = dirContained.reason + ' — refused to read it, so every ' +
+        'axis below is absent for that reason and not because the run halted early';
+      reviewDir = null;
+    }
+  }
+
+  // Reading is best-effort by construction: absence is the normal case for a run
+  // that halted early, and it is information, not an error.
+  const readIf = function (name) {
+    if (reviewDir === null) return null;
+    try {
+      return JSON.parse(fs.readFileSync(path.join(reviewDir, name), 'utf8'));
+    } catch (_) {
+      return null;
+    }
+  };
+  let startedAtMs = null;
+  if (reviewDir !== null) {
+    try {
+      const raw = fs.readFileSync(path.join(reviewDir, 'started-at'), 'utf8').trim();
+      const n = Number(raw);
+      if (Number.isFinite(n) && n > 0) startedAtMs = n;
+    } catch (_) { /* recorded as a degradation by the oracle */ }
+  }
+
+  const modeArtifact = readIf('mode.json');
+  const slug = (args.slug && args.slug !== true) ? args.slug : 'unknown-decision';
+
+  let built;
+  try {
+    built = buildReviewRecord({
+      slug: slug,
+      planPath: (args.plan && args.plan !== true) ? args.plan : null,
+      mode: modeArtifact && modeArtifact.mode ? modeArtifact.mode : null,
+      l1: readIf('l1.json'),
+      l2: readIf('l2.json'),
+      l3: readIf('l3.json'),
+      decision: readIf('decision.json'),
+      reservation: readIf('reservation.json'),
+      startedAtMs: startedAtMs,
+      nowMs: Date.now(),
+      haltStage: (args['halt-stage'] && args['halt-stage'] !== true) ? args['halt-stage'] : null,
+      extraDegradations: reviewDirRejected ? [reviewDirRejected] : [],
+    });
+  } catch (e) {
+    // buildReviewRecord is written not to throw. If it ever does, that is a bug
+    // in the instrument — report it and still leave the gate alone.
+    errln('record generation failed (' + (e && e.message ? e.message : String(e)) +
+      ') — the gate is unaffected, but this run left no review record');
+    return EX_OK;
+  }
+
+  const rel = reviewRecordPath(slug);
+  const target = path.join(root, rel);
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, built.markdown, 'utf8');
+  } catch (e) {
+    errln('cannot write the review record to ' + rel + ': ' +
+      (e && e.message ? e.message : String(e)) + ' — the gate is unaffected');
+    return EX_OK;
+  }
+
+  built.degradations.forEach(function (d) { errln('record degraded: ' + d); });
+  out({
+    recordPath: rel,
+    verdict: built.measurement.verdict,
+    haltStage: built.measurement.halt_stage,
+    wallClockMs: built.measurement.wall_clock_ms,
+    degradations: built.degradations,
+  });
+  return EX_OK;
+}
+
 function usage() {
   process.stderr.write([
     'usage: plan-review/cli.js <subcommand>',
@@ -544,6 +689,10 @@ function usage() {
     '  decide             --l1-file <p> --l2-file <p> [--l3-file <p>] [--plan <p>]',
     '                     [--mode <m>] [--evidence <repo-rel-path> ...]',
     '  verify-proof       --proof-file <p> [--repo-root <path>]',
+    '  record             --slug <s> [--plan <p>] [--halt-stage <s>]',
+    '                     [--review-dir <path>] [--repo-root <path>]   (always exit 0)',
+    '                     halt-stage ∈ 5.2a|5.2b|5.2c-emit|5.2c-pin|5.2d|5.2e|',
+    '                                 5.2e-proof|5.2f|5.2g  (free-form; recorded verbatim)',
     '',
     'exit: 0 pass · 1 L1 divergent · 2 CLI misuse · 12 block (cannot certify)',
     '',
@@ -559,6 +708,7 @@ function runCli(argv) {
     case 'emit-workflow-args': return cmdEmitWorkflowArgs(args);
     case 'decide': return cmdDecide(args);
     case 'verify-proof': return cmdVerifyProof(args);
+    case 'record': return cmdRecord(args);
     default:
       usage();
       return EX_USAGE;

@@ -54,6 +54,7 @@ const MUTATION_ENTRYPOINTS = [
   { file: 'plugins/mccp/scripts/receipt/store.js', fn: 'writeReceipt' },
   { file: 'plugins/mccp/scripts/receipt/store.js', fn: 'updateReceipt' },
   { file: 'plugins/mccp/scripts/receipt/evidence-lock.js', fn: 'writeFileAtomic' },
+  { file: 'plugins/mccp/scripts/receipt/store.js', fn: 'quarantineReceipt' },
 ];
 
 // 정적 lint의 두 축.

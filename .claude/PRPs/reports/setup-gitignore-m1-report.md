@@ -2,11 +2,11 @@
 
 **Plan**: [.claude/plans/setup-gitignore-m1.plan.md](../../plans/setup-gitignore-m1.plan.md)
 **Source PRD**: [.claude/prds/setup-gitignore.prd.md](../../prds/setup-gitignore.prd.md) — M1이 유일 milestone이므로 PRD 종료
-**Branch**: `setup-gitignore` · **Version**: 1.23.7 → **1.24.0** (§3.7 PRD 전체 완료 = minor)
+**Branch**: `setup-gitignore` · **Version**: 1.24.0 → **1.25.0** (§3.7 PRD 전체 완료 = minor · 병렬 브랜치 충돌 7번째 재발로 forward-only 한 칸 상향 — main이 meta-research-command M1에 `1.24.0`을 먼저 발행)
 
 ## Summary
 
-`/mccp:setup`에 **Phase 5**를 신설해 mccp 런타임 무시 규칙 29줄을 대상 저장소 `.gitignore`에
+`/mccp:setup`에 **Phase 5**를 신설해 mccp 런타임 무시 규칙 30줄을 대상 저장소 `.gitignore`에
 marker 블록으로 멱등 병합한다. ship receipt(`mccp-pr-codex`)는 negation 규칙으로 **추적 대상에 남는다**.
 정본은 `gitignore-provision.js` 상수가 단독 소유하고, 이 repo `.gitignore`와의 양방향 drift lint를
 전용 CI 워크플로가 강제한다.
@@ -73,10 +73,10 @@ Phase 2.5.5c 캡처가 일어나지 않았고 Phase 3.6(clarify/distill/polish) 
 | `plugins/mccp/scripts/lib/tests/gitignore-provision.test.js` | CREATED | 79 tests |
 | `.github/workflows/gitignore-drift.yml` | CREATED | drift 전용 게이트 |
 | `plugins/mccp/commands/setup.md` | UPDATED | Phase 5 신설 + Phase 6 이동 + 플래그/권한 |
-| `plugins/mccp/.claude-plugin/plugin.json` | UPDATED | 1.24.0 |
+| `plugins/mccp/.claude-plugin/plugin.json` | UPDATED | 1.25.0 |
 | `plugins/mccp/scripts/lib/renderer/html.js` | UPDATED | page-foot 버전 |
 | `plugins/mccp/scripts/lib/renderer/markdown.js` | UPDATED | derived 줄 버전 |
-| `CHANGELOG.md` | UPDATED | `## [1.24.0]` + `currently` 정정 |
+| `CHANGELOG.md` | UPDATED | `## [1.25.0]` + `currently` 정정 |
 | `.claude/prds/setup-gitignore.prd.md` | UPDATED | M1 complete + Open Questions 4건 결정 + ROLLOUT-1 |
 
 게이트 산출물(계획 밖, 정상): `.claude/notes/setup-gitignore-m1-implement-review.md` ·
@@ -206,3 +206,29 @@ F1·F3·F4·F6은 **연쇄**다 — F1이 `update`를 기본 경로로 올리면
 ### 이 loop에서 얻은 것
 
 3라운드 내내 A는 R2·R3에서 PASS를 냈지만, 그 PASS의 근거로 든 "symlink 가드가 모든 write 대상을 덮는다"(R2) · "CI paths 필터 완비"(R2) · "Phase 5 bash가 provisioner JSON 계약과 일치"(R3)는 **모두 실측으로 거짓이었다**. B는 8건 중 7건이 사실이었다(오판 1건: `yarn-debug.log*`). 판정을 리뷰어 합의가 아니라 실측에 건 것이 매 라운드 결론을 갈랐고, "리뷰어 두 명이 PASS면 통과"였다면 R2 시점에 append TOCTOU와 dry-run 오보고를 안은 채 ship했을 것이다. 두 라운드에서 리뷰어가 각각 한 번씩 틀린 메커니즘 주장을 냈다(R1: A의 `'wx'`가 symlink를 따른다, R2: A의 "가드 완비"). 판정을 리뷰어 합의가 아니라 실측에 걸어 둔 것이 두 번 다 결론을 갈랐다.
+
+## origin/main 병합 흡수 (PR #136 conflict 해소, 2026-08-14)
+
+PR #136이 `CONFLICTING`(23 ahead / 87 behind)이라 `origin/main`을 merge로 흡수했다. rebase를
+쓰지 않은 것은 §3.12 — 87 커밋 재작성이 evidence receipt가 참조하는 SHA 도달성을 깬다.
+
+충돌 4건과 해소 근거:
+
+| 파일 | 해소 | 근거 |
+|---|---|---|
+| `CHANGELOG.md` | 양쪽 보존 + 버전 상향 | main이 `[1.24.0]`을 meta-research-command M1에 발행. §3.7 forward-only — 발행된 번호는 불가침이고 이 항목은 PRD 전체 완료라 minor 축이므로 한 칸 위는 `1.25.0` |
+| `.claude/state/STATE.md` | ours | 이 worktree의 live 세션 상태. main 쪽은 이미 ship된 MSW M5 세션 기록 |
+| `.claude/state/fix-task-applied.md` | ours | 같음 — 이 브랜치의 live escalation은 `setup-gitignore-m1` |
+| `.claude/plans/codex-findings-backlog.md` | 양쪽 보존 | append-only 로그. 양쪽이 서로 다른 항목을 같은 위치에 추가했을 뿐이라 손실 없이 병치 |
+
+**병합이 정본 drift를 하나 유입시켰고 drift lint가 그것을 잡았다.** main의 MSW M5가 이 repo
+`.gitignore`에 `.claude/state/journal/`을 넣었는데 정본·`REPO_ONLY` 어느 쪽에도 분류가 없어
+"모든 repo 항목은 둘 중 하나로 분류될 것" 등식이 red가 됐다 — DD3이 존재하는 이유 그대로의
+발화다. 저널은 `state-writer.update()`가 모든 mccp 세션에서 만드는 per-session 산출물이므로
+정본에 넣었다(정본 29 → 30). plan 문서의 `29개` 표기는 계획 시점 기록이라 소급 편집하지 않았다.
+
+§3.5.1 삭제 검증: `git diff --diff-filter=D --name-only origin/main` 공집합 · `origin/main`
+트리에 있는데 인덱스에 없는 파일 0건 — 이 머지는 어느 파일도 드롭하지 않았다.
+
+병합 후 실측: `gitignore-provision.test.js` 92 tests / 0 fail (6 skip = win32 symlink 게이트) ·
+`renderer/tests/*` 672 tests / 0 fail.

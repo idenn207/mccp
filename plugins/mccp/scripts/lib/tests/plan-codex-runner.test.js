@@ -22,6 +22,7 @@ const runner = require('../plan-codex-runner');
 const ic = require('../intent-context');
 const codexInvoke = require('../codex-invoke');
 const receiptWrite = require('../../receipt/write');
+const receiptStore = require('../../receipt/store');
 const codexPayload = require('../codex-review-payload');
 
 const PRD_PLAN = [
@@ -53,13 +54,28 @@ function scratch(planBody) {
   return { dir: dir, tmpDir: tmpDir, planRel: planRel, planAbs: path.join(dir, planRel) };
 }
 
-function envelopeWith(findings) {
+// M1.5 — the default mislabel mode is not `off`, so a finding with no `INTENT:`
+// line makes the whole review `inconclusive` by design (DD5). These M1 fixtures
+// are about the M1 axis, so give every finding a compliant `INTENT: none` unless
+// the test wrote its own claim. Tests that want the non-compliant case say so
+// explicitly rather than getting it by accident.
+function withDefaultClaim(f) {
+  const body = typeof f.body === 'string' ? f.body : '';
+  const already = [f.title, body, f.recommendation].some(function (x) {
+    return typeof x === 'string' && /^[ \t]*INTENT:/m.test(x);
+  });
+  return already ? f : Object.assign({}, f, { body: body + '\nINTENT: none' });
+}
+
+function envelopeWith(findings, opts) {
+  const o = opts || {};
+  const list = o.rawFindings === true ? findings : findings.map(withDefaultClaim);
   return {
     ok: true,
     classification: 'ok',
     blocking: false,
     stdout: JSON.stringify({
-      result: { verdict: 'needs-attention', summary: 'No ship', findings: findings },
+      result: { verdict: 'needs-attention', summary: 'No ship', findings: list },
     }),
     stderr: '',
     durationMs: 1,
@@ -129,6 +145,10 @@ test('(a) default dependencies are the REAL modules, not test doubles', function
     'runner must default to the real codex-invoke');
   assert.strictEqual(runner.defaultDeps.write, receiptWrite.write,
     'runner must default to the real receipt writer');
+  // gate-guard-integrity M2 축 C — 주입된 fake 만 검증하면 "위임했다"가 test 안에서만
+  // 참일 수 있다. 기본 배선이 승인된 store helper 자신임을 함께 고정한다.
+  assert.strictEqual(runner.defaultDeps.quarantineReceipt, receiptStore.quarantineReceipt,
+    'runner must default to the approved store quarantine helper');
 });
 
 test('(a2) the runner requires the receipt writer directly — no CLI shell-out', function () {
@@ -245,7 +265,13 @@ test('DD4-2 — the mis-sealed receipt is quarantined, so markerless recovery ca
   stageAdjudication(s, 'n8q', env);
 
   // A real file on disk: the invariant under test is a rename, not a return value.
-  const receiptPath = path.join(s.dir, 'plan-codex-receipt.json');
+  //
+  // gate-guard-integrity M2 축 C — 경로가 `.claude/receipts/` 안이어야 한다. 격리가
+  // 승인된 store helper 로 옮겨가면서 helper 가 source·destination 양쪽에 봉쇄
+  // 검사를 걸기 때문이다. 이 fixture 는 production 이 실제로 쓰는 형태(write 가
+  // 돌려주는 경로가 곧 receiptsDir 하위)이므로 더 충실해진 것이지 완화가 아니다.
+  const receiptPath = path.join(s.dir, '.claude', 'receipts', 'mccp-plan-codex', 'r.json');
+  fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
   fs.writeFileSync(receiptPath, JSON.stringify({ meta: { intent_run_nonce: 'n8q' } }));
 
   const out = runWith(s, { runNonce: 'n8q' }, env, function () {
@@ -259,6 +285,87 @@ test('DD4-2 — the mis-sealed receipt is quarantined, so markerless recovery ca
     'quarantine must preserve the artifact for diagnosis rather than delete it');
   assert.strictEqual(out.res.receiptPath, null,
     'the marker must not advertise a receipt_path that was just quarantined');
+});
+
+// ── gate-guard-integrity M2 축 C — 위임 관측 ─────────────────────────────────
+//
+// 정적 grep 으로는 대체할 수 없다. `grep … [^)]*receipt` 는 지역 변수명을 `p` 로
+// 바꾸기만 해도 통과하고, 이 파일에는 정당한 fs write 가 여러 곳 더 있어 "fs 호출
+// 0건" 형태의 검사도 성립하지 않는다. 그래서 **호출 자체를 관측**한다 —
+// 변수명·주석·래핑 어느 것으로도 만족시킬 수 없는 형태다.
+
+test('quarantine delegates to the approved store helper with the receipt path and nonce', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ title: 'F1', severity: 'high' }]);
+  stageAdjudication(s, 'n8d', env);
+
+  const receiptPath = path.join(s.dir, '.claude', 'receipts', 'mccp-plan-codex', 'r.json');
+  fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
+  fs.writeFileSync(receiptPath, JSON.stringify({ meta: { intent_run_nonce: 'n8d' } }));
+
+  const calls = [];
+  const res = runner.run({
+    plan: s.planRel, decision: 'r', cwd: s.dir, tmpDir: s.tmpDir, env: {},
+    adjudicationTimeoutMs: 3000, runNonce: 'n8d',
+  }, {
+    invokeAdversarialReview: function () { return env; },
+    write: function () {
+      return { path: receiptPath, receipt: { plan_hash: 'sha256:' + '9'.repeat(64), receipt_hash: 'x' } };
+    },
+    quarantineReceipt: function (repoRoot, filePath, suffix) {
+      calls.push({ repoRoot: repoRoot, filePath: filePath, suffix: suffix });
+      return { ok: true, skipped: false, dest: filePath + '.invalid-' + suffix, reason: null };
+    },
+  });
+
+  assert.strictEqual(res.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(calls.length, 1, 'the runner must delegate exactly once');
+  assert.strictEqual(calls[0].filePath, receiptPath, 'the receipt path must reach the helper');
+  assert.strictEqual(calls[0].suffix, 'n8d', 'the run nonce must reach the helper as the suffix');
+  assert.ok(calls[0].repoRoot, 'a repoRoot must be supplied — containment cannot be derived from the path itself');
+});
+
+test('quarantine failure surfaces as FATAL — the return value is never ignored', function () {
+  // helper 는 throw 하지 않으므로 반환값을 무시해도 "위임했다"는 통과한다. 그러면
+  // 격리 실패가 조용히 지나가면서 lint 도 통과하는 fail-open drift 가 된다. 호출
+  // 여부만 보는 단언은 이 결함을 놓치므로 실패 경로까지 같은 test 군이 고정한다.
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ title: 'F1', severity: 'high' }]);
+  stageAdjudication(s, 'n8f', env);
+
+  const receiptPath = path.join(s.dir, '.claude', 'receipts', 'mccp-plan-codex', 'r.json');
+  fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
+  fs.writeFileSync(receiptPath, JSON.stringify({ meta: { intent_run_nonce: 'n8f' } }));
+
+  const written = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = function (chunk) { written.push(String(chunk)); return true; };
+  let res;
+  try {
+    res = runner.run({
+      plan: s.planRel, decision: 'r', cwd: s.dir, tmpDir: s.tmpDir, env: {},
+      adjudicationTimeoutMs: 3000, runNonce: 'n8f',
+    }, {
+      invokeAdversarialReview: function () { return env; },
+      write: function () {
+        return { path: receiptPath, receipt: { plan_hash: 'sha256:' + '9'.repeat(64), receipt_hash: 'x' } };
+      },
+      quarantineReceipt: function () {
+        return { ok: false, skipped: false, dest: null, reason: 'source-outside-receipts-dir' };
+      },
+    });
+  } finally {
+    process.stderr.write = realWrite;
+  }
+
+  assert.strictEqual(res.exitCode, runner.EX_BLOCKED);
+  const stderr = written.join('');
+  assert.match(stderr, /FATAL: could not quarantine the mis-sealed/,
+    'a failed quarantine must be shouted, not swallowed');
+  assert.match(stderr, /source-outside-receipts-dir/,
+    'the helper\'s reason must travel into the operator-facing message');
+  assert.match(stderr, /Remove it by hand before/,
+    'the pre-existing FATAL message contract must be preserved verbatim');
 });
 
 // The runner is launched detached, so its stderr and exit code never reach the
@@ -481,4 +588,499 @@ test('security S5b — decision/run-nonce cannot escape the tmp dir', function (
 
   assert.strictEqual(fs.readFileSync(outside, 'utf8'), 'do not delete me',
     'the lock reclaim path must never be able to unlink a file outside the tmp dir');
+});
+
+// ── M1.5 — mislabel axis wiring (Task 6) ─────────────────────────────────────
+
+const iclaims = require('../intent-claims');
+
+function claimFinding(claim, i) {
+  return {
+    title: 'F' + (i || 0),
+    severity: 'high',
+    body: 'the finding body\nINTENT: ' + claim,
+  };
+}
+
+// Build the adjudication object WITHOUT writing it, so a concurrent helper can
+// drop it in later.
+function adjudicationFor(s, envelope, mutate) {
+  const payload = codexPayload.parseReviewPayload(envelope);
+  const file = {
+    plan_path: s.planRel,
+    round: 1,
+    review_payload_digest: ic.canonicalDigest(payload),
+    adjudications: payload.findings.map(function (f, i) {
+      return {
+        finding_index: i,
+        finding_digest: ic.canonicalDigest(f),
+        intent_conflict: 'none',
+        verdict: 'REJECT_YAGNI',
+        rationale: 'not needed for this milestone',
+        intent_override_reason: null,
+      };
+    }),
+  };
+  if (mutate) mutate(file);
+  return file;
+}
+
+function runMislabel(s, nonce, envelope, mode, mutate) {
+  const p = runner.paths(s.tmpDir, 'r', nonce);
+  fs.writeFileSync(p.adjudication,
+    JSON.stringify(adjudicationFor(s, envelope, mutate), null, 2));
+  return runWith(s, { runNonce: nonce, env: { MCCP_INTENT_MISLABEL: mode } }, envelope);
+}
+
+test('M1.5 — reviewer-only with no dispute blocks the write under enforce', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const out = runMislabel(s, 'm1', env, 'enforce');
+  assert.strictEqual(out.res.verdict, 'mislabel_unresolved');
+  assert.strictEqual(out.res.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(out.captured.length, 0, 'enforce must not write a receipt');
+});
+
+test('M1.5 — warn seals the blocking verdict instead of suppressing it', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const out = runMislabel(s, 'm2', env, 'warn');
+  assert.strictEqual(out.res.exitCode, runner.EX_OK);
+  assert.strictEqual(out.captured.length, 1, 'warn writes a receipt');
+  const d = out.captured[0].intentDecision;
+  assert.strictEqual(d.verdict, 'mislabel_unresolved', 'the real verdict stays sealed');
+  assert.strictEqual(d.mislabel_mode, 'warn');
+  assert.strictEqual(d.force_override, false,
+    'warn passed it, so no override was ever applied (DD12)');
+  assert.strictEqual(d.reviewer_contract, 'full');
+  assert.strictEqual(d.claim_counts.reviewer_only, 1);
+  assert.strictEqual(d.mislabel_disputes, 0);
+});
+
+test('M1.5 — warn consumes the block, so a set override is sealed as never applied', function () {
+  const s = scratch(PRD_PLAN);
+  const envelope = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const p = runner.paths(s.tmpDir, 'r', 'm2b');
+  fs.writeFileSync(p.adjudication,
+    JSON.stringify(adjudicationFor(s, envelope), null, 2));
+  // Both channels are open at once. Order decides: warn is judged first and
+  // passes the run, so the override is never reached.
+  const out = runWith(s, {
+    runNonce: 'm2b',
+    env: {
+      MCCP_INTENT_MISLABEL: 'warn',
+      MCCP_SKIP_INTENT_GATE: 'the reviewer quota is exhausted so this cycle proceeds on warn',
+    },
+  }, envelope);
+
+  assert.strictEqual(out.res.exitCode, runner.EX_OK);
+  const d = out.captured[0].intentDecision;
+  assert.strictEqual(d.verdict, 'mislabel_unresolved');
+  assert.strictEqual(d.force_override, false);
+  // and the reason goes with it: a justification sealed next to a flag that
+  // says the override never applied documents something that did not happen.
+  assert.strictEqual(d.force_override_reason, null,
+    'an unapplied override must not leave its reason behind');
+});
+
+test('M1.5 — a substantive dispute resolves the case and is sealed with its digest', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const out = runMislabel(s, 'm3', env, 'enforce', function (file) {
+    file.adjudications[0].intent_dispute_reason =
+      'the reviewer misread the boundary and this finding never touches that constraint';
+  });
+  assert.strictEqual(out.res.verdict, 'preserved');
+  const d = out.captured[0].intentDecision;
+  assert.strictEqual(d.mislabel_disputes, 1);
+  assert.strictEqual(d.mislabel_audit.length, 1);
+  const entry = d.mislabel_audit[0];
+  assert.strictEqual(entry.classification, 'reviewer-only');
+  assert.strictEqual(entry.resolution, 'disputed');
+  assert.strictEqual(entry.reviewer_claim, 'UI1');
+  assert.strictEqual(entry.author_conflict, 'none');
+  // DD11 — the entry must bind to THIS payload, not merely to a same-shaped one.
+  const payload = codexPayload.parseReviewPayload(env);
+  assert.strictEqual(entry.finding_digest, ic.canonicalDigest(payload.findings[0]));
+  assert.ok(typeof d.claims_digest === 'string' && d.claims_digest.indexOf('sha256:') === 0);
+});
+
+test('M1.5 — a rejected dispute is recorded, not silently dropped', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const out = runMislabel(s, 'm4', env, 'warn', function (file) {
+    file.adjudications[0].intent_dispute_reason = 'no';
+  });
+  const d = out.captured[0].intentDecision;
+  assert.strictEqual(d.verdict, 'mislabel_unresolved');
+  assert.strictEqual(d.mislabel_disputes, 0, 'a one-token dispute does not count');
+  assert.strictEqual(d.mislabel_audit[0].resolution, 'unresolved');
+  assert.strictEqual(d.mislabel_audit[0].dispute_reason, 'no',
+    'the rejected text is still auditable — what was rejected and why is the point');
+});
+
+test('M1.5 — off does not call the claims parser AND does not change the prompt', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const p = runner.paths(s.tmpDir, 'r', 'm5');
+  fs.writeFileSync(p.adjudication, JSON.stringify(adjudicationFor(s, env), null, 2));
+
+  const original = iclaims.parseReviewerClaims;
+  let called = 0;
+  iclaims.parseReviewerClaims = function () { called += 1; return original.apply(null, arguments); };
+  const seenOpts = [];
+  const captured = [];
+  captured.planHash = require('../../receipt/hash').planAwareMarkdownHash(s.planAbs);
+  try {
+    const res = runner.run({
+      plan: s.planRel, decision: 'r', cwd: s.dir, tmpDir: s.tmpDir,
+      runNonce: 'm5', adjudicationTimeoutMs: 3000,
+      env: { MCCP_INTENT_MISLABEL: 'off' },
+    }, {
+      invokeAdversarialReview: function (focus, opts) { seenOpts.push(opts); return env; },
+      write: fakeWrite(captured),
+    });
+    // (1) the oracle path is not entered at all — this is DD5's "경로 미진입",
+    //     not a suppressed verdict.
+    assert.strictEqual(called, 0, 'off must not even parse reviewer claims');
+    // (2) the reviewer prompt is unchanged — without this, `off` is not
+    //     end-to-end M1 equivalent even though the oracle was untouched.
+    assert.strictEqual(seenOpts[0].mislabelContract, false);
+    // (3) and the verdict is the M1 one.
+    assert.strictEqual(res.verdict, 'preserved');
+    assert.strictEqual(captured[0].intentDecision.mislabel_mode, 'off');
+    assert.strictEqual(captured[0].intentDecision.reviewer_contract, null);
+    assert.strictEqual(captured[0].intentDecision.mislabel_audit, null);
+  } finally {
+    iclaims.parseReviewerClaims = original;
+  }
+});
+
+test('M1.5 — non-off modes DO ask for the contract paragraph', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('none', 1)], { rawFindings: true });
+  const p = runner.paths(s.tmpDir, 'r', 'm6');
+  fs.writeFileSync(p.adjudication, JSON.stringify(adjudicationFor(s, env), null, 2));
+  const seenOpts = [];
+  const captured = [];
+  captured.planHash = require('../../receipt/hash').planAwareMarkdownHash(s.planAbs);
+  runner.run({
+    plan: s.planRel, decision: 'r', cwd: s.dir, tmpDir: s.tmpDir,
+    runNonce: 'm6', adjudicationTimeoutMs: 3000,
+    env: { MCCP_INTENT_MISLABEL: 'enforce' },
+  }, {
+    invokeAdversarialReview: function (focus, opts) { seenOpts.push(opts); return env; },
+    write: fakeWrite(captured),
+  });
+  assert.strictEqual(seenOpts[0].mislabelContract, true);
+});
+
+// ── DD2 — the claims come from MEMORY, and a concurrent tamper proves it ─────
+
+test('DD2 — tampering with the awaiting artifact WHILE the runner waits changes nothing', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const p = runner.paths(s.tmpDir, 'r', 'm7');
+
+  // The adjudication is staged in a sidecar; the helper moves it into place only
+  // AFTER rewriting every reviewer_claim in the awaiting file to `none`. If the
+  // runner re-read that file, the comparison would become agree-none and the
+  // verdict would flip to `preserved` — which is exactly the forgery DD2 forbids.
+  const pending = p.adjudication + '.pending';
+  fs.writeFileSync(pending, JSON.stringify(adjudicationFor(s, env), null, 2));
+
+  // The runner's `finally` unlinks the awaiting file, so the helper also keeps a
+  // copy of what it wrote — otherwise "the tamper landed" is unverifiable after
+  // the run and this test could pass while doing nothing.
+  const proof = p.awaiting + '.tampered';
+  const helper = [
+    'const fs=require("fs");',
+    'const [awaiting,pending,target,proof]=process.argv.slice(1);',
+    'const deadline=Date.now()+8000;',
+    '(function loop(){',
+    '  if(fs.existsSync(awaiting)){',
+    '    try{',
+    '      const o=JSON.parse(fs.readFileSync(awaiting,"utf8"));',
+    '      (o.findings||[]).forEach(function(f){f.reviewer_claim="none";f.reviewer_claim_status="claimed";});',
+    '      o.claims_digest="sha256:"+"0".repeat(64);',
+    '      const s=JSON.stringify(o);',
+    '      fs.writeFileSync(awaiting,s);',
+    '      fs.writeFileSync(proof,s);',
+    '    }catch(e){fs.writeFileSync(proof,JSON.stringify({error:String(e)}));}',
+    '    fs.renameSync(pending,target);',
+    '    return;',
+    '  }',
+    '  if(Date.now()<deadline) setTimeout(loop,15);',
+    '})();',
+  ].join('');
+
+  const child = require('child_process').spawn(
+    process.execPath, ['-e', helper, p.awaiting, pending, p.adjudication, proof],
+    { stdio: 'ignore' });
+
+  try {
+    const out = runWith(s, {
+      runNonce: 'm7', env: { MCCP_INTENT_MISLABEL: 'warn' }, adjudicationTimeoutMs: 9000,
+    }, env);
+
+    // The awaiting file really was rewritten to say `none` everywhere...
+    const tampered = JSON.parse(fs.readFileSync(proof, 'utf8'));
+    assert.strictEqual(tampered.findings[0].reviewer_claim, 'none',
+      'the tamper must have actually landed, or this test proves nothing');
+
+    // ...and the decision is unchanged, because the comparison read the local
+    // variable the parser produced, never this file.
+    const d = out.captured[0].intentDecision;
+    assert.strictEqual(d.verdict, 'mislabel_unresolved');
+    assert.strictEqual(d.claim_counts.reviewer_only, 1);
+    assert.strictEqual(d.claim_counts.agree_none, 0);
+    assert.notStrictEqual(d.claims_digest, 'sha256:' + '0'.repeat(64),
+      'the sealed digest is the in-memory one, not the tampered file');
+  } finally {
+    try { child.kill(); } catch (_) { /* already exited */ }
+  }
+});
+
+// ── Task 8 — end-to-end through the REAL receipt writer ─────────────────────
+
+test('e2e — reviewer-only blocks the real write, then a dispute lets it through', function () {
+  const { mkTmpRepo, writeFileSync } = require('../../receipt/tests/helpers');
+  const { validate } = require('../../receipt/schema');
+
+  const repo = mkTmpRepo();
+  writeFileSync(repo, '.claude/plans/e2e.plan.md', PRD_PLAN);
+  const planRel = '.claude/plans/e2e.plan.md';
+  const tmpDir = path.join(repo, '.mccp-tmp');
+  fs.mkdirSync(tmpDir, { recursive: true });
+
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const payload = codexPayload.parseReviewPayload(env);
+  const baseFile = {
+    plan_path: planRel,
+    round: 1,
+    review_payload_digest: ic.canonicalDigest(payload),
+    adjudications: [{
+      finding_index: 0,
+      finding_digest: ic.canonicalDigest(payload.findings[0]),
+      intent_conflict: 'none',            // the reviewer said UI1 — this is the mislabel
+      verdict: 'REJECT_YAGNI',
+      rationale: 'out of scope for this milestone',
+      intent_override_reason: null,
+    }],
+  };
+
+  const runOnce = function (nonce, file) {
+    fs.writeFileSync(runner.paths(tmpDir, 'e2e', nonce).adjudication,
+      JSON.stringify(file, null, 2));
+    return runner.run({
+      plan: planRel, decision: 'e2e', cwd: repo, tmpDir: tmpDir,
+      runNonce: nonce, adjudicationTimeoutMs: 3000,
+      env: { MCCP_INTENT_MISLABEL: 'enforce' },
+    }, { invokeAdversarialReview: function () { return env; } });
+  };
+
+  // The receipt schema requires a UUID for meta.intent_run_nonce, so the e2e
+  // must use the same nonce shape production does.
+  const NONCE_BLOCKED = '11111111-2222-4333-8444-555555555551';
+  const NONCE_PASSED = '11111111-2222-4333-8444-555555555552';
+
+  // 1. No answer to the reviewer's claim → the real writer refuses.
+  const blocked = runOnce(NONCE_BLOCKED, baseFile);
+  assert.strictEqual(blocked.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(blocked.verdict, 'mislabel_unresolved');
+  assert.strictEqual(
+    fs.existsSync(path.join(repo, '.claude/receipts/mccp-plan-codex/e2e.json')), false,
+    'enforce must leave no receipt behind');
+
+  // 2. Same payload, now disputed → the receipt lands and validates.
+  const disputed = JSON.parse(JSON.stringify(baseFile));
+  disputed.adjudications[0].intent_dispute_reason =
+    'the reviewer misread the module boundary and this finding never touches that constraint';
+  const passed = runOnce(NONCE_PASSED, disputed);
+  assert.strictEqual(passed.exitCode, runner.EX_OK, passed.reason);
+  assert.strictEqual(passed.verdict, 'preserved');
+
+  const receipt = JSON.parse(fs.readFileSync(passed.receiptPath, 'utf8'));
+  const v = validate(receipt);
+  assert.strictEqual(v.ok, true, JSON.stringify(v.errors));
+  assert.strictEqual(receipt.meta.intent_gate_verdict, 'preserved');
+  assert.strictEqual(receipt.meta.intent_mislabel_mode, 'enforce');
+  assert.strictEqual(receipt.meta.intent_reviewer_contract, 'full');
+  assert.strictEqual(receipt.meta.intent_mislabel_disputes, 1);
+  assert.strictEqual(receipt.meta.intent_claim_counts.reviewer_only, 1);
+  assert.strictEqual(receipt.meta.intent_mislabel_audit.length, 1);
+  assert.strictEqual(receipt.meta.intent_mislabel_audit[0].resolution, 'disputed');
+  // The audit entry binds to the payload that was actually reviewed.
+  assert.strictEqual(receipt.meta.intent_mislabel_audit[0].finding_digest,
+    ic.canonicalDigest(payload.findings[0]));
+  // And a disputed pass is a real pass — dedupe may rely on it.
+  assert.strictEqual(ic.isIntentApproved(receipt), true);
+});
+
+test('DD2 — the runner never reads the awaiting artifact back', function () {
+  const src = fs.readFileSync(require.resolve('../plan-codex-runner'), 'utf8');
+  const readsAwaiting = /readFileSync\(\s*p\.awaiting/.test(src);
+  assert.strictEqual(readsAwaiting, false,
+    'a read of p.awaiting would make that file the gate — anything able to write ' +
+    'it could forge a passing verdict');
+});
+
+// ── the blocked run keeps its diagnostics ────────────────────────────────────
+//
+// A blocked run writes no receipt and deletes the awaiting/adjudication files in
+// its finally, so the marker is the ONLY surviving artifact. plan.md's recovery
+// text sends the operator there, which is only honest if the detail is actually
+// in it — the derived reason used to overwrite the oracle's message with a
+// generic "intent gate blocking (verdict=X)".
+
+function readMarker(s, nonce) {
+  const p = runner.paths(s.tmpDir, 'r', nonce);
+  return JSON.parse(fs.readFileSync(p.marker, 'utf8'));
+}
+
+test('M1.5 — a blocked mislabel_unresolved marker names the offending finding', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const out = runMislabel(s, 'mk1', env, 'enforce');
+  assert.strictEqual(out.res.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(out.captured.length, 0, 'no receipt is written, so the marker is all there is');
+
+  const m = readMarker(s, 'mk1');
+  assert.strictEqual(m.intent_gate_verdict, 'mislabel_unresolved');
+  assert.ok(/first: index \d+/.test(m.reason),
+    'the operator is told to fix a specific finding, so the marker must say which: ' + m.reason);
+  assert.ok(m.reason.indexOf('reviewer-only') !== -1 || m.reason.indexOf('id-mismatch') !== -1,
+    'and which way the labels disagreed: ' + m.reason);
+  assert.ok(m.reason.indexOf('UI1') !== -1, 'and the id the reviewer named: ' + m.reason);
+});
+
+test('M1.5 — a blocked inconclusive marker carries the claimed/total count', function () {
+  const s = scratch(PRD_PLAN);
+  // Two findings, only one of which carries a claim → compliance is `partial`,
+  // and plan.md tells the operator to read how far off it was from the marker.
+  const env = envelopeWith([
+    claimFinding('UI1', 1),
+    { severity: 'HIGH', title: 'no claim at all', body: 'nothing here', recommendation: 'x' },
+  ], { rawFindings: true });
+  const out = runMislabel(s, 'mk2', env, 'enforce');
+  assert.strictEqual(out.res.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(out.res.verdict, 'inconclusive');
+
+  const m = readMarker(s, 'mk2');
+  assert.ok(/\d+\/\d+ findings/.test(m.reason),
+    'the marker must carry claimed/total — under enforce nothing else survives: ' + m.reason);
+  assert.ok(m.reason.indexOf('compliance=') !== -1, m.reason);
+});
+
+// ── the awaiting artifact must distinguish "off" from "reviewer said nothing" ─
+//
+// Under `off` every `reviewer_claim` is null, and so is every `reviewer_claim`
+// when the reviewer ignored the contract. plan.md tells the author what a null
+// means, so the two cases have to be separable from the file itself — otherwise
+// an `off` run reads as reviewer non-compliance. `reviewer_claim_status` is the
+// discriminator, which is why plan.md 5.5a points at it and not at the value.
+
+function snapshotAwaiting(s, nonce, envelope, mode) {
+  let snap = null;
+  const planHash = require('../../receipt/hash').planAwareMarkdownHash(s.planAbs);
+  const p = runner.paths(s.tmpDir, 'r', nonce);
+  fs.writeFileSync(p.adjudication,
+    JSON.stringify(adjudicationFor(s, envelope), null, 2));
+  const res = runWith(s, { runNonce: nonce, env: { MCCP_INTENT_MISLABEL: mode } }, envelope,
+    function () {
+      // `write` runs after the wait and before the finally that deletes the
+      // artifact — the only point it is still on disk without a subprocess.
+      snap = JSON.parse(fs.readFileSync(p.awaiting, 'utf8'));
+      return {
+        path: '/fake/receipt.json',
+        receipt: { plan_hash: planHash, receipt_hash: 'sha256:' + 'a'.repeat(64), meta: {} },
+      };
+    });
+  return { snap: snap, res: res.res };
+}
+
+test('M1.5 — `off` marks the awaiting artifact as "never asked", not "no answer"', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ severity: 'HIGH', title: 'f', body: 'no claim', recommendation: 'x' }],
+    { rawFindings: true });
+  const got = snapshotAwaiting(s, 'aw1', env, 'off');
+  assert.ok(got.snap, 'the artifact must exist while write runs');
+  assert.strictEqual(got.snap.mislabel_mode, 'off');
+  assert.strictEqual(got.snap.claims_digest, null);
+  assert.strictEqual(got.snap.reviewer_contract, null);
+  got.snap.findings.forEach(function (f) {
+    assert.strictEqual(f.reviewer_claim, null);
+    assert.strictEqual(f.reviewer_claim_status, null,
+      'null status = the axis never ran; it must NOT read as reviewer non-compliance');
+  });
+  assert.strictEqual(got.res.verdict, 'preserved', 'and the verdict is M1\'s, not inconclusive');
+});
+
+test('M1.5 — a live mode marks the same shape as "asked, no usable answer"', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ severity: 'HIGH', title: 'f', body: 'no claim', recommendation: 'x' }],
+    { rawFindings: true });
+  const got = snapshotAwaiting(s, 'aw2', env, 'warn');
+  assert.strictEqual(got.snap.mislabel_mode, 'warn');
+  got.snap.findings.forEach(function (f) {
+    assert.strictEqual(f.reviewer_claim, null, 'the VALUE is identical to the off case...');
+    assert.strictEqual(f.reviewer_claim_status, 'unclaimed', '...only the status separates them');
+  });
+  assert.strictEqual(got.res.verdict, 'inconclusive');
+});
+
+// ── the audited override covers VERDICTS, not operational failure ────────────
+//
+// MCCP_SKIP_INTENT_GATE releases a blocking judgement. It deliberately does not
+// reach the exits that fire before a judgement exists: there is no completed
+// review to seal, so "proceeding" would mean writing a receipt about a review
+// that never happened. Pinning it here keeps that a boundary rather than an
+// accident of statement order.
+
+const VALID_OVERRIDE = 'the reviewer quota is exhausted so this cycle proceeds without it';
+
+test('M1.5 — the override does not rescue a missing adjudication (timeout)', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  // No adjudication staged: the runner waits, then gives up.
+  const out = runWith(s, {
+    runNonce: 'ov1',
+    adjudicationTimeoutMs: 300,
+    env: { MCCP_SKIP_INTENT_GATE: VALID_OVERRIDE },
+  }, env);
+  assert.strictEqual(out.res.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(out.res.verdict, 'incomplete');
+  assert.strictEqual(out.captured.length, 0,
+    'no adjudication ever arrived, so there is no judgement for the override to release');
+});
+
+test('M1.5 — the override does not rescue a malformed adjudication file', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const p = runner.paths(s.tmpDir, 'r', 'ov2');
+  fs.writeFileSync(p.adjudication, '{ this is not json');
+  const out = runWith(s, {
+    runNonce: 'ov2',
+    adjudicationTimeoutMs: 3000,
+    env: { MCCP_SKIP_INTENT_GATE: VALID_OVERRIDE },
+  }, env);
+  assert.strictEqual(out.res.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(out.captured.length, 0);
+});
+
+test('M1.5 — but the override DOES release a blocking judgement', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([claimFinding('UI1', 1)], { rawFindings: true });
+  const p = runner.paths(s.tmpDir, 'r', 'ov3');
+  fs.writeFileSync(p.adjudication,
+    JSON.stringify(adjudicationFor(s, env), null, 2));
+  const out = runWith(s, {
+    runNonce: 'ov3',
+    env: { MCCP_INTENT_MISLABEL: 'enforce', MCCP_SKIP_INTENT_GATE: VALID_OVERRIDE },
+  }, env);
+  assert.strictEqual(out.res.exitCode, runner.EX_OK);
+  assert.strictEqual(out.captured.length, 1, 'a real judgement is what the override releases');
+  const d = out.captured[0].intentDecision;
+  assert.strictEqual(d.verdict, 'mislabel_unresolved', 'sealed, not laundered');
+  assert.strictEqual(d.force_override, true);
 });

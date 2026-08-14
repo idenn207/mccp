@@ -378,12 +378,36 @@ async function main() {
         }
 
         // A4 미완 인계 항목 기록
-        const unfinished = handoffItems.enumerateUnfinishedItems(process.cwd());
-        const writeResult = handoffItems.writeHandoffItems(sid, unfinished);
-        if (!writeResult.ok) {
-          process.stderr.write(`[mccp:handoff-items] WARNING: write failed: ${writeResult.reason} (allow)\n`);
-        } else if (unfinished.length > 0) {
-          log(`[SessionEnd] Recorded ${unfinished.length} unfinished items for handoff`);
+        //
+        // CL-5 **4번째 재발** 수정 (multi-session-work-loop M5, Task 8). 위 12줄의
+        // msw-events 수정(M3)과 session-start.js의 toggle-snapshot 수정(M4)이 같은
+        // 결함 형태를 이미 두 번 닫았는데, 이 블록만 남아 있었다. 재발의 기준은
+        // 파일이 같다는 것이 아니라 **결함 형태가 같다**는 것이다 — 경로 인자를
+        // 넘기지 않아 `stateDir`이 hook 프로세스의 cwd에 종속되는 것.
+        //
+        // 열거(enumerate)와 기록(write) **양쪽 다** 고쳐야 한다. 열거가 먼저
+        // 실행되므로 write만 고치면 *틀린 위치에서 읽은 내용*을 옳은 위치에 쓰게
+        // 되어, 아티팩트는 생기는데 내용이 비거나 교차 오염된다 — G5가 "산출됨"으로
+        // 보이면서 값이 거짓이 되는 최악의 형태다.
+        const handoffRoot = handoffItems.resolveHandoffRoot({
+          projectRoot: ctx.projectRoot,
+          cwd: process.cwd(),
+          sessionId: sid,
+        });
+        if (!handoffRoot.ok) {
+          // resolveHandoffRoot가 이미 마커 + msw-event 2채널로 기록했다. 여기서
+          // 쓸 곳이 없는데 쓰는 것은 더 나쁘다(다음 세션이 분모로 오계상한다).
+          log('[SessionEnd] handoff root unresolved — skipped handoff-items write');
+        } else {
+          const unfinished = handoffItems.enumerateUnfinishedItems(handoffRoot.root);
+          const writeResult = handoffItems.writeHandoffItems(sid, unfinished, {
+            stateDir: path.join(handoffRoot.root, '.claude', 'state'),
+          });
+          if (!writeResult.ok) {
+            process.stderr.write(`[mccp:handoff-items] WARNING: write failed: ${writeResult.reason} (allow)\n`);
+          } else if (unfinished.length > 0) {
+            log(`[SessionEnd] Recorded ${unfinished.length} unfinished items for handoff`);
+          }
         }
       } catch (err) {
         process.stderr.write(`[mccp:msw-events] WARNING: M2 instrumentation threw: ${err && err.message ? err.message : err} (allow)\n`);

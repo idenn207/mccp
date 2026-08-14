@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: setup-gitignore-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-14T01:19:42.955Z
+updated_at: 2026-08-14T02:45:07.261Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-09T01:17:14.100Z
 unsafe_checkpoint: false
@@ -11,8 +11,6 @@ session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
-escalate_pending: true
-escalate_pending_decision_id: setup-gitignore-m1
 ---
 ## Goal
 setup-gitignore M1 — /mccp:setup Phase 5 gitignore 프로비저닝. 구현 + 로컬 code-review 1라운드 흡수 완료, 커밋 대기.
@@ -52,4 +50,4 @@ code-review 흡수 완료. 전체 test 재실행 후 /mccp:prp-commit 진행.
 - PRD가 단일 milestone이라 M1 complete 전환 즉시 /mccp:archive-complete 대상이 된다 — 아카이브 시 ROLLOUT-1은 backlog 쪽으로만 남는다(의도된 설계)
 
 ## Last Updated
-2026-08-14T01:19:42.955Z
+2026-08-14T02:45:07.261Z

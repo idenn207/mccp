@@ -6,7 +6,7 @@
 
 ## Summary
 
-`/mccp:setup`에 Phase 5를 신설해 mccp 런타임 산출물의 무시 규칙을 대상 저장소 `.gitignore`에 멱등 병합한다. 규칙 블록은 marker로 감싸고, marker 바깥의 사용자 줄은 인덱스까지 보존한다. 정본 목록은 `gitignore-provision.js` 상수가 단독 소유하며, 이 repo `.gitignore`와 **양방향 대조하는 drift lint**를 전용 CI 워크플로로 걸어 새 런타임 경로가 정본에 누락되면 red가 된다. 그 red를 **머지 차단으로 만드는 것은 저장소 설정**이며 repo 파일 밖이다 — 본 M1은 자동 실행까지를 보증하고, required check 등록은 명시된 배포 전제(Task 5)로 남긴다.
+`/mccp:setup`에 Phase 5를 신설해 mccp 런타임 산출물의 무시 규칙을 대상 저장소 `.gitignore`에 멱등 병합한다. 규칙 블록은 marker로 감싸고, marker 바깥의 사용자 줄은 인덱스까지 보존한다. 정본 목록은 `gitignore-provision.js` 상수가 단독 소유하며, 이 repo `.gitignore`와 **양방향 대조하는 drift lint**를 전용 CI 워크플로로 걸어 한쪽에만 등록된 항목이 다른 쪽에 분류되지 않으면 red가 된다(양쪽 모두에 없는 경로는 이 대조로 잡히지 않는다 — DD3의 탐지 경계표 참조). 그 red를 **머지 차단으로 만드는 것은 저장소 설정**이며 repo 파일 밖이다 — 본 M1은 자동 실행까지를 보증하고, required check 등록은 명시된 배포 전제(Task 5)로 남긴다.
 
 ## User Intent
 
@@ -59,12 +59,24 @@
 
 ### DD3 — drift의 실제 강제 지점
 
-새 런타임 경로는 **언제나 이 repo에서 먼저 생긴다** — 그 경로를 쓰는 코드가 여기서 개발되고, 여기 `.gitignore`에 등록하지 않으면 이 repo의 `git status`가 즉시 오염되기 때문이다. 따라서 순서 불변식은 항상 `repo .gitignore` 갱신 → 정본 갱신이다. lint가 그 두 번째 단계를 강제한다:
+lint는 **선언된 두 집합 사이의 불일치**를 잡는다:
 
 - `정본 − repo ≠ ∅` → red: 제품이 dogfood되지 않은 규칙을 배포하려 함
 - `repo − 정본 − REPO_ONLY ≠ ∅` → red: 신규 경로가 분류되지 않음 (**PRD의 High risk를 잡는 방향**)
 
-"사람이 기억해야 작동"을 없애기 위해 이 test를 **전용 워크플로 `.github/workflows/gitignore-drift.yml`**로 등록한다(Task 5). 자동 실행이 없으면 lint는 권고에 불과하다.
+**탐지 경계를 정확히 적는다 (Plan-Codex 재실행 R1 HIGH).** 위 두 등식은 집합 *비교*이므로, 어떤 경로가 **양쪽 모두에 없으면** 두 집합이 그대로여서 lint는 초록이다. 즉 이 lint가 강제하는 것은 "한쪽에 들어온 항목이 다른 쪽에도 분류될 것"이지 "코드가 쓰는 모든 런타임 경로가 어딘가에 선언될 것"이 아니다.
+
+초안은 그 빈틈을 **개발자 행동에 대한 가정**으로 메우고 있었다 — "새 경로는 언제나 이 repo에서 먼저 생기고, `.gitignore`에 없으면 `git status`가 즉시 오염되니 저자가 먼저 `.gitignore`를 고친다". 그건 관찰적 압력이지 기계적 불변식이 아니다. 저자가 양쪽 다 건드리지 않으면 아무것도 red가 되지 않고, 게다가 워크플로 `paths` 필터는 **런타임 산출물을 쓰는 코드 일반**을 포함하지 않으므로 그런 PR은 lint를 실행조차 하지 않을 수 있다.
+
+| 실패 시나리오 | 이 lint가 잡나 |
+|---|---|
+| 정본에 있는데 repo `.gitignore`에 없음 | **예** |
+| repo `.gitignore`에 있는데 정본에도 `REPO_ONLY`에도 분류 안 됨 | **예** |
+| 코드가 새 런타임 경로를 쓰는데 **양쪽 모두 미등록** | **아니오** |
+
+세 번째 줄을 닫으려면 "이 코드가 쓰는 런타임 경로" 인벤토리를 producer 쪽에서 선언하게 하고 그 producer 변경을 트리거에 넣어야 한다 — 별도 축이며 **M1 범위 밖으로 명시 이연**한다. M1은 세 번째 줄을 잡는다고 주장하지 않는다.
+
+이 test를 **전용 워크플로 `.github/workflows/gitignore-drift.yml`**로 등록한다(Task 5). 자동 실행이 없으면 lint는 권고에 불과하다. 등록이 없애는 것은 **위 두 등식을 사람이 돌려야 한다는 의존**이며, "런타임 경로를 선언해야 한다는 것 자체를 기억할 의존"은 남는다 — 후자는 아래 탐지 경계표 3행이고 lint의 사거리 밖이다.
 
 **강제는 두 층이고 M1은 그중 하나만 저장소 파일로 보증할 수 있다**(Plan-Codex R1 F2):
 
@@ -96,6 +108,30 @@
 | `plugins/mccp/scripts/lib/renderer/markdown.js` | UPDATE | derived 줄 버전 동기 (동일 단언) |
 | `CHANGELOG.md` | UPDATE | `## [1.24.0]` 항목 + 상단 note의 `currently` 값 |
 | `.claude/prds/setup-gitignore.prd.md` | UPDATE | M1 status `complete`, Plan 셀, Open Questions 4건 결정 기록 |
+| `.gitignore` | UPDATE | 프로비저너 자기 부산물 3줄(`.gitignore.lock`·`.bak`·`*.tmp`) — 정본과 dogfood 동기 |
+
+### 브랜치가 함께 싣는 M1 밖 커밋 (Implement-Codex 재실행 MEDIUM)
+
+위 표는 **M1 구현의 경계**이고, 브랜치 `main...HEAD`의 diff는 그보다 넓다. 차이는 두 무리이며 어느 쪽에도 M1 밖 **코드** 변경은 없다.
+
+**(1) M1 이전의 문서 전용 커밋 `1c5220a`** ("docs: add review-loop meta-analysis and 8 decomposed PRDs", 16 파일). 그중 `.claude/prds/setup-gitignore.prd.md`만 M1 소관이고 나머지는 후속 축의 PRD·메타 분석이다:
+
+- `.claude/_meta/` — review-loop 메타 분석 2건 + README + 기존 `meta/` → `_meta/` 이동 3건
+- `.claude/prds/` — `meta-research-command` · `review-loop-trust` · `santa-adjudication` · `santa-delta-review` · `santa-evidence-diversity` · `santa-loop-materialize` · `session-process-reclaim` (7건, 전부 신규 문서)
+- `.claude/plans/diverse-agent-review-m1.plan.md` · `.claude/prds/diverse-agent-review.prd.md` — 상태 줄 정정
+
+**(2) M1 사이클이 남긴 산출물·기록 8개.** 표는 *구현* 파일만 열거하므로 이들은 표에 없지만 전부 이 사이클의 것이다 — `git diff --name-only origin/main...HEAD`에서 표와 `1c5220a`를 빼면 정확히 다음이 남는다:
+
+| 파일 | 무엇 |
+|---|---|
+| `.claude/plans/setup-gitignore-m1.plan.md` | 이 plan 자신 |
+| `.claude/PRPs/reports/setup-gitignore-m1-report.md` | 구현 보고서 |
+| `.claude/plans/codex-findings-backlog.md` | `DEFER_TO_BACKLOG` 항목 누적 (§1.3의 단일 파일) — **`1c5220a`가 아니라 M1 커밋 `9c02673`이 바꿨다** |
+| `.claude/reviews/plan-review-setup-gitignore.md` · `-m1.md` | plan 승인 패널 기록 |
+| `.claude/notes/setup-gitignore-m1-implement-review.md` | implement 리뷰 노트 |
+| `.claude/state/STATE.md` · `fix-task-applied.md` | 게이트 파이프라인이 남기는 세션 연속성 상태 (§3.2, git-tracked) |
+
+리뷰어가 "plan 경계 밖"을 놀라움으로 만나지 않도록 **선언되지 않은 스코프를 여기서 선언한다**. (1)의 문서들을 M1에서 떼어내려면 브랜치 히스토리 재작성이 필요하고, 순수 문서 추가라 M1 코드의 판정에 영향을 주지 않으므로 **분리하지 않고 명시하는 쪽**을 택했다.
 
 ## 정본 목록 (전수 — 구현자는 이 표를 그대로 옮긴다)
 
@@ -467,7 +503,7 @@
 
 ### Task 5: drift lint를 CI 게이트로 등록 — **전용 워크플로 신설**
 
-기존 `axis-k-m2-cross-platform.yml`에 스텝만 얹는 초안은 **작동하지 않는다**(R6 architect HIGH). 그 워크플로는 `on.pull_request.paths`로 트리거를 좁혀 두었고(L20-27) 필터에 `gitignore-provision.js`·`.gitignore`·새 test 파일이 없다 — 스텝을 추가해도 이 파일들만 바뀐 PR에서는 **워크플로 자체가 실행되지 않아** 스텝이 죽은 코드가 된다. DD3("drift는 사람 기억이 아니라 CI가 강제한다")의 유일한 근거가 무너진다.
+기존 `axis-k-m2-cross-platform.yml`에 스텝만 얹는 초안은 **작동하지 않는다**(R6 architect HIGH). 그 워크플로는 `on.pull_request.paths`로 트리거를 좁혀 두었고(L20-27) 필터에 `gitignore-provision.js`·`.gitignore`·새 test 파일이 없다 — 스텝을 추가해도 이 파일들만 바뀐 PR에서는 **워크플로 자체가 실행되지 않아** 스텝이 죽은 코드가 된다. DD3의 자동 실행 근거가 무너진다(그 자동 실행이 강제하는 범위는 DD3 탐지 경계표가 정하며, 양쪽 모두 미등록인 경로는 그 범위 밖이다).
 
 같은 워크플로에 `paths`만 추가하는 것도 택하지 않는다. 두 가지 이유가 겹친다:
 
@@ -621,7 +657,7 @@ node --test plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js
 | 사용자 `.gitignore` 손상 | Low | `create`/`append`는 전체 교체를 하지 않아 손상 경로가 없다. `--force-update`만 marker 구간을 치환하며 바깥 줄 인덱스 보존을 test로 단언하고 쓰기 전 `.bak`을 남긴다(내용 동일성까지 단언) |
 | **read-plan-write 사이 동시 변경으로 사용자 줄 유실**(lost update) | Low (**High impact**) | **동의 없는 전체 교체 경로를 제거**했다 — `create`는 `'wx'`, `append`는 append-only, `update`는 `--force-update` 없이는 쓰지 않는다(R9 F1). **`<target>.lock` 직렬화는 `create`/`append`/`update` 전 쓰기 경로에 적용**되며(빠지면 병렬 append가 블록을 중복시켜 영구 파손 — R10 F1), `sourceHash` 재검사 + `.bak` + `<target>.<pid>.<rand>.tmp` 전체 교체는 `--force-update` 경로 전용이다. 원자적 rename은 부분 파일만 막고 lost update는 못 막는다(R5 F1) |
 | ship receipt까지 무시돼 증거 corpus 소실 | Low (**Critical**) | 3층으로 단언한다 — (1) receipt 4줄 인덱스 순서 부등식, (2) 무시되어야 하는 경로는 `git check-ignore`, (3) **ship receipt는 `git add` + `git ls-files --stage`로 실제 추적 확인**. (1)만으로는 패턴 문법 오류를 놓치고, (2)만으로는 "무시되지 않음"에 그쳐 PRD의 "tracked 확인"에 미달한다 |
-| 정본이 코드와 드리프트(새 경로 누락) | High | 양방향 drift lint(집합 2 + 교집합) + **전용 CI 워크플로(Task 5) — `paths` 필터가 정본·`.gitignore`·`setup.md`를 포함해 그 변경에서 반드시 실행**. 순서 불변식(repo 먼저, 정본 다음)은 DD3에 명문화 |
+| 정본이 코드와 드리프트(새 경로 누락) | High | **부분 완화 — 잔여 위험 존재.** 양방향 drift lint(집합 2 + 교집합) + 전용 CI 워크플로(Task 5, `paths` 필터가 정본·`.gitignore`·`setup.md`·`.gitattributes` 변경에서 반드시 실행)가 잡는 것은 **한쪽 집합에 들어온 항목이 다른 쪽에 분류되지 않은 경우**뿐이다. 새 런타임 경로가 정본과 repo `.gitignore` **양쪽 모두에 없으면 잡히지 않는다**(DD3 탐지 경계표 3행). 초안은 이 칸을 "repo 먼저, 정본 다음" 순서 불변식으로 메웠으나 그것은 개발자 행동에 대한 관찰적 가정이지 기계적 강제가 아니어서 DD3에서 폐기했다 — 따라서 이 위험은 M1에서 **완전 완화되지 않으며**, producer 쪽 인벤토리는 별도 축으로 이연 |
 | red가 나도 머지돼 drift가 ship됨 (required check 미등록) | **Medium** | repo 파일로 닫을 수 없는 축 — **ROLLOUT-1**로 명시하고 Acceptance에 미완료 항목으로 남긴다. 등록 전까지 DD3 강제는 "실행되지만 차단 안 함"임을 plan이 스스로 기록(Plan-Codex R1 F2) |
 | mccp-runtime ↔ REPO_ONLY 오분류 | Medium | 50개 전수를 plan에서 분류 완료 + `REPO_ONLY`에 사유를 코드로 보존 + **`정본 ∩ REPO_ONLY === ∅`** 교집합 단언이 이중 분류를 중복에 면역인 방식으로 잡음(합계 등식은 R5에서 폐기 — 중복에 취약) |
 | CRLF 환경에서 줄 섞임 | Medium | EOL 감지·보존 + 양쪽 EOL test + **전용 워크플로 matrix에 `windows-latest` 포함**. 기존 `axis-k-m2`는 matrix가 `[ubuntu, macos]`라 Windows를 돌지 않는다(그 파일 L12-13이 제외를 명시) — 그쪽에 얹었다면 이 완화는 거짓 주장이었다 |
@@ -631,7 +667,6 @@ node --test plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js
 
 ## Acceptance
 
-- [x] All tasks complete
 - [x] Validation 7개 블록 전부 통과
 - [x] `--repo A`를 cwd=B에서 실행해도 A에만 쓰임이 test로 확인됨 (`{cwd}` 누락 회귀)
 - [x] `setup.md`의 exit-code 전파 3줄이 CI 계약 lint로 단언됨
@@ -669,7 +704,12 @@ node --test plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js
 - [x] 스텁에 전달된 `env`에 `LC_ALL='C'`가 포함됨이 단언됨 — 번역 stderr에서 판정이 무너지지 않음 (Plan-Codex R1 F1)
 - [x] "CI 필수 게이트" 표현이 plan 전체에서 **실제 보증 범위**(자동 실행 + red)로 정정됨 (Plan-Codex R1 F2)
 - [x] **ROLLOUT-1 미완료로 명시** — `gitignore-drift`를 required check로 등록하는 것은 저장소 설정이며 이 PR의 diff로 검증 불가. 등록 전까지 DD3 강제는 절반만 성립함이 plan에 기록됨
-- [x] Patterns mirrored, not reinvented
+
+> **제거된 기준 2개 (Plan-Codex 재실행 R1 MEDIUM).** `All tasks complete`와
+> `Patterns mirrored, not reinvented`는 관측 가능한 실패 조건이 없는 메타 기준이라
+> 삭제했다. 전자는 위 열거 항목에서 *도출*되는 것이지 그 자신이 기준일 수 없고,
+> 후자의 "mirrored"는 정성 판단이라 동작이 어긋나도 체크된 채 남는다 — 실제 대조는
+> 위 Existing Patterns 표의 각 행이 소유한다.
 
 ### `/mccp:code-review` 흡수 (구현 후 로컬 리뷰 1라운드, HIGH 1 · MEDIUM 8 · LOW 7)
 
@@ -726,7 +766,7 @@ R1 패널(architect / security / test / invariant) 판정 `divergent`, blocking 
 | F2 | invariant | HIGH | 같은 뿌리 — DD1 표가 `applyMerge` vs CLI wrapper 소유를 명시. Patterns 표의 mirror 대상도 역할별로 분리 |
 | F3 | invariant | HIGH | Validation에 **실제 write E2E**(§3·§4) + Task 2 "실제 write E2E" 그룹 + Acceptance 항목 추가 |
 | F4 | test | HIGH | non-git-repo case를 Task 2 skip/오류 그룹 + Validation §4 + Acceptance에 등재 |
-| F5 | architect | HIGH | drift 강제 지점을 **DD3**로 명문화(순서 불변식 + 합계 등식) + **Task 5 CI 등록**으로 "기억 의존" 제거 |
+| F5 | architect | HIGH | drift 강제 지점을 **DD3**로 명문화(순서 불변식 + 합계 등식) + **Task 5 CI 등록**으로 "기억 의존" 제거 — **이후 두 축 모두 폐기됨**: 합계 등식은 J1(R5)에서 중복 취약으로 집합 단언에 자리를 내줬고, 순서 불변식은 Plan-Codex 재실행 R1 HIGH에서 기계적 강제가 아닌 관찰적 가정으로 판정돼 DD3에서 삭제됐다. 이 행은 그때의 판단을 남긴 이력이며 현재 DD3의 서술이 아니다 |
 | F6 | architect | MEDIUM | 정본 29 + REPO_ONLY 21 = 50 **전수를 plan 본문에 열거**(「정본 목록」 절) |
 | F7 | architect | MEDIUM | lint 비-hermetic → `.gitignore` 부재는 red로 명시하고 이 test가 repo 체크아웃 전용임을 계약으로 씀 |
 | F8 | architect | MEDIUM | 경계 규칙 → `REPO_ONLY`를 `[{entry,reason}]`로 코드에 사유 보존 + 합계 등식이 중복·누락을 기계 검출 |

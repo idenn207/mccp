@@ -610,7 +610,14 @@ function applyMerge(target, plan, options) {
       throw new ProvisionError(REASONS.INTERNAL_ERROR, 'cannot append to ' + target + ': ' + err.message, target);
     }
     try {
-      fs.writeSync(fd, plan.appendPayload);
+      // writeFileSync, not writeSync: a bare writeSync returns a byte count and
+      // is not guaranteed to consume the whole buffer, so a short write would
+      // append a TRUNCATED managed block. The marker recount below would catch
+      // it but cannot roll it back — the bytes are already in the user's file.
+      // appendFileSync used to supply that loop for free; taking the descriptor
+      // to carry O_NOFOLLOW meant taking the loop back too. Passing an fd here
+      // writes it all and leaves closing to the caller.
+      fs.writeFileSync(fd, plan.appendPayload);
     } catch (err) {
       throw new ProvisionError(REASONS.INTERNAL_ERROR, 'cannot append to ' + target + ': ' + err.message, target);
     } finally {
@@ -668,14 +675,21 @@ function applyMerge(target, plan, options) {
   // it makes the exclusive create fail rather than follow.
   const backupPath = target + '.bak';
   assertNotSymlink(backupPath);
+  // Staged, then renamed into place. Unlinking the old .bak first and creating
+  // the new one after would destroy the previous recovery copy at exactly the
+  // moment the replacement might fail (ENOSPC, permissions, a scanner holding
+  // the path) — leaving no backup at all. A rename replaces atomically, so the
+  // old copy survives until the new one is complete.
+  //
+  // Rename also can NOT be redirected through a symlink: it replaces the link
+  // itself rather than writing to its target, which is the same protection the
+  // lstat gives, minus the check-to-use window.
+  const backupTmp = backupPath + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
   try {
-    try {
-      fs.unlinkSync(backupPath);
-    } catch (unlinkErr) {
-      if (!unlinkErr || unlinkErr.code !== 'ENOENT') throw unlinkErr;
-    }
-    fs.writeFileSync(backupPath, current, { flag: 'wx', mode: 0o600 });
+    fs.writeFileSync(backupTmp, current, { flag: 'wx', mode: 0o600 });
+    fs.renameSync(backupTmp, backupPath);
   } catch (err) {
+    try { fs.unlinkSync(backupTmp); } catch (_e) {}
     throw new ProvisionError(REASONS.INTERNAL_ERROR, 'cannot write backup ' + backupPath + ': ' + err.message, backupPath);
   }
 

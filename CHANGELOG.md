@@ -12,11 +12,11 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 `git rev-parse` nonzero를 **3갈래로 가른다**: git의 표준 부정 진단에 매칭될 때만 `not-a-git-repo`(정상 skip, exit 0)이고, dubious ownership·저장소 손상·오호출은 `git-error`(exit 1), spawn 실패는 `git-unavailable`(exit 1)이다. 뭉개면 "규칙 미설치인데 성공 보고"라는 fail-open이 된다. stderr 판정이 번역에 깨지지 않도록 spawn 시 `LC_ALL=C`를 고정한다.
 
-정본과 이 repo `.gitignore`의 **양방향 drift lint**를 전용 워크플로 `.github/workflows/gitignore-drift.yml`(matrix에 `windows-latest` 포함 — CRLF 완화가 주장이 아니라 실행이 되는 조건)로 등록한다. **보증 범위는 "대상 파일이 바뀐 PR에서 lint가 실행되고 drift면 red"까지다** — 그 red가 머지를 막는 것은 branch protection 설정이라 repo 파일로 표현할 수 없고, `ROLLOUT-1`로 명시된 미완료 배포 전제로 남는다.
+정본과 이 repo `.gitignore`의 **양방향 drift lint**를 전용 워크플로 `.github/workflows/gitignore-drift.yml`(matrix에 `windows-latest` 포함 — CRLF 완화가 주장이 아니라 실행이 되는 조건)로 등록한다. **보증 범위는 "대상 파일이 바뀐 PR에서 lint가 실행되고 drift면 red"까지다** — 그 red가 머지를 막는 것은 branch protection 설정이라 repo 파일로 표현할 수 없고, `ROLLOUT-1`로 명시된 미완료 배포 전제로 남는다. **탐지 경계도 함께 명시한다**: 두 등식은 집합 *비교*이므로 어떤 경로가 정본과 repo `.gitignore` **양쪽 모두에 없으면** 두 집합이 그대로여서 초록이다. 즉 강제되는 것은 "한쪽에 들어온 항목은 다른 쪽에도 분류될 것"이지 "코드가 쓰는 모든 런타임 경로가 어딘가에 선언될 것"이 아니다 — 후자를 닫으려면 producer 쪽 인벤토리가 필요하고 그건 별도 축으로 이연했다.
 
 ### Added
 - `plugins/mccp/scripts/lib/gitignore-provision.js` — 정본 블록(`MCCP_IGNORE_BLOCK` 29 entries) + `REPO_ONLY`(21, 제외 사유 동봉) + 순수 merge 오라클(`planMerge`) + `locateManagedBlock` 엄격 3-state 판정 + advisory lock + 오염 스캔 + CLI. `reason`은 **폐쇄 enum 8종**이며 비-`ProvisionError` 예외는 전부 `internal-error`로 매핑된다(Implement-Codex F1 흡수 — OS/Node별 메시지가 프로토콜 값으로 새는 것을 차단).
-- `plugins/mccp/scripts/lib/tests/gitignore-provision.test.js` — 84 tests. merge 의미론 · 손상 marker 4케이스 · `spawnSync` 6행 판정표(스텁) · 실제 write E2E · 동시성(중간 편집 주입 · 병렬 writer · lease 만료 · 회수 신원 재검증 · tmp 고유성) · drift lint · `setup.md` 계약 14항목 · 워크플로 트리거 lint의 **단일 소유처**.
+- `plugins/mccp/scripts/lib/tests/gitignore-provision.test.js` — 84 tests. merge 의미론 · 손상 marker 4케이스 · `spawnSync` 6행 판정표(스텁) · 실제 write E2E · 동시성(중간 편집 주입 · 병렬 writer · lease 만료 · 회수 신원 재검증 · tmp 고유성) · drift lint(양방향 4단언) · `setup.md` 계약 16항목 · 워크플로 트리거 lint의 **단일 소유처**.
 - `.github/workflows/gitignore-drift.yml` — drift 전용 게이트. `paths` 필터를 lint의 판정 입력과 같은 집합으로 두어 스텝이 죽은 코드가 되지 않게 한다. matrix의 `windows-latest`가 보증하는 것은 **write/lock/symlink 경로의 플랫폼 동등성**이다 — checkout 바이트가 LF인 것은 `.gitattributes`(`* text=auto eol=lf`)가 이미 정하므로 러너 EOL 설정으로 얻는 보증이 아니다(그 사실 자체를 test가 단언한다).
 
 ### Changed

@@ -46,7 +46,7 @@
 | Level | Status | Notes |
 |---|---|---|
 | 문법 검사 | Pass | `node --check` 4/4 |
-| 신규 unit/CLI test | Pass | 52 tests · 49 pass · **0 fail** · 3 skip(POSIX 전용) |
+| 신규 unit/CLI test | Pass | 54 tests · 51 pass · **0 fail** · 3 skip(POSIX 전용) — code-review H1·H2 회귀 2건 포함 |
 | 회귀 — `receipt/tests` | Pass | 554 tests · 553 pass · 0 fail · 1 skip |
 | 회귀 — `renderer/tests` | Pass | 672 tests · 0 fail (version 4면 동기 검증 포함) |
 | 산문 캡 잔존 0 | Pass | `Maximum 3 iterations` · `ESCALATE ==` 둘 다 0 |
@@ -74,6 +74,48 @@
 **D6 — plan을 `completed/`로 archive하지 않았다.** command body Phase 5는 archive를 지시하지만 CLAUDE.md §3.11 C2가 **PRD 전체 완료 시에만** 이동하라고 규정한다(미완료 PRD의 plan을 옮기면 어느 대시보드 스캔에도 안 잡혀 PRD가 소실된다). 이 PRD는 M2가 pending이므로 이동하지 않았다. 프로젝트 instruction이 generic command body를 override한다.
 
 **D7 — Codex 리뷰 섹션을 plan 본문이 아니라 `.claude/notes/`에 썼다.** 2.5.4가 plan 본문에 섹션을 주입한 직후 2.5.7 read-back이 `stale`로 떨어졌다 — 주입이 상위 `mccp-plan-codex` receipt의 `plan_hash`를 깨뜨렸고, 재진입해도 같은 주입이 반복되므로 **영구 교착**이다. `git show HEAD:<plan>`을 재해싱하니 receipt 봉인값과 **정확히 일치**해 귀책이 100% 게이트임을 실측했다. 2.5.4가 이미 허용하는 대체 목적지(`.claude/notes/<topic>.md`)로 옮겨 해소했다 — plan diff 0 · 체인 무손상 · **bypass 0건**(`MCCP_SKIP_RECEIPT` 미사용). backlog HIGH 등재.
+
+**D8 — `## Output` 섹션이 무변경이 아니다 (Acceptance 미달, 의도적).** Acceptance는 "rubric 표와 Output 섹션은 diff 무변경"이라 적었으나 `Iterations: [N]/3` → `[N]/[cap]` 한 줄을 바꿨다. 캡이 `MCCP_SANTA_ROUND_CAP`으로 설정 가능해진 이상 `3`을 리터럴로 두면 **출력이 거짓을 보고한다**(cap=1로 돌려도 `/3`으로 인쇄). 산문 캡 제거의 목적과 정면으로 충돌하므로 문면을 지키는 대신 값을 고쳤다. rubric 표는 실제로 무변경이다. 해당 acceptance 항목은 **체크하지 않은 채로 둔다**.
+
+**D9 — DD11의 강제 등급이 문면보다 좁다 (code-review MEDIUM, 문서 축).** Acceptance·`santa-loop.md`·`CHANGELOG`·본 보고서가 "거부를 무시하고 리뷰어를 띄워도 원장에 들어가지 못하고 verdict도 안 나온다"라고 적었는데, 이는 **`begin-round`가 연 적 없는 인덱스**에만 성립한다. 캡 도달 후 **마지막(이미 FINAL) 라운드 인덱스를 재사용**하면 `record`·`verdict`가 통과한다(실측: cap=1에서 `record --round 0` exit 0 → `verdict --round 0` NICE, `status`는 `rounds:1`로 과소 보고). 코드 쪽은 의도대로다 — `ledger.js`가 "`record`는 OPEN에서만"을 P1 소유로 명시 이연했다. 따라서 결함은 **문서가 코드보다 강하게 주장하는 쪽**이며, 해당 acceptance 항목은 **체크하지 않은 채로 둔다**. 문안 정정 또는 `verdict !== null` 거부(P1 경계)는 후속 소관.
+
+**D10 — code-review가 HIGH 2건을 잡아 수정했다 (ship 직전).**
+- **H1** `santa-loop.md`의 CLI 경로가 repo-relative(`plugins/mccp/…`)였다. plugin은 `~/.claude/plugins/cache/mccp/mccp/<ver>/`에 설치되고 cwd는 사용자 프로젝트 루트이므로 **이 repo 밖에서는 node가 MODULE_NOT_FOUND(exit 1)로 죽는다**. Step 3의 "비영점 exit → 리뷰어 미발화" 규칙과 맞물려 santa-loop이 **모든 설치 사용자에게 영구히 cap reached로 보이는** 상태였다(exit 1은 문서화된 map 0/12/75/2에도 없어 진단 불가). `${CLAUDE_PLUGIN_ROOT}` 앵커로 수정 + `SANTA=` 대입을 검사하는 회귀 test 신설. **M1의 캡 강제가 dogfood 환경에서만 참이던 것을 실환경으로 넓힌 수정이다.**
+- **H2** `cli.js#requireRound`가 `Number('') === 0`이라 빈/공백 `--round`를 **round 0으로 조용히 해석**했다. 이 값은 가설이 아니라 `santa-loop.md` Step 3의 roundIndex 추출이 파싱 실패 시 내보내는 값(`catch{…("")}`)이다 — begin-round가 죽은 라운드의 리뷰어 출력이 round 0에 적재되고 verdict까지 났다(실측). `Number()` 이전 거부 + 회귀 test 신설.
+
+## M1 완료 판정 (2026-08-14)
+
+PRD `Delivery Milestones` M1 행을 `in-progress` → **`complete`**로 확정했다. 근거는 commit `5384473` + 위 Validation Results 전 항목 Pass다.
+
+**Acceptance 원장: 29항목 중 26 체크 · 3 미체크.** 미체크는 누락이 아니라 **plan 문면 그대로는 미달**이라는 정직한 표시다 — 각각 D2(외부 의존 4개 vs "정확히 3개") · D9(DD11 강제 등급) · D8(`## Output` 무변경). 체크박스 상태는 `hash.js#normalizeCheckboxes`가 정규화하므로 `plan_hash`(`sha256:f5bf1cae…`)는 **불변**이고 receipt 체인은 무손상이다(편집 전후 실측 일치).
+
+**실측 출력 (재현 명령 + 그 자리에서 나온 값).** 아래는 기대치 재진술이 아니라 2026-08-14에 이 워크트리에서 실제로 나온 출력이다 — santa-loop round 0의 Reviewer B가 자기 샌드박스에 `node`가 없어 재현하지 못했고, 그래서 "숫자를 다시 적지 말고 실제 출력을 붙이라"고 요구한 항목이다.
+
+```
+$ node --test .../santa-loop-cap.test.js .../santa-gate.test.js
+tests 54 | pass 51 | fail 0 | skipped 3        (skip 3 = POSIX 전용: 0600 · self-repair · symlink)
+
+$ node --test plugins/mccp/scripts/receipt/tests/*.test.js
+tests 554 | pass 553 | fail 0 | skipped 1
+
+$ node .../instruction-contract/lint.js --claude CLAUDE.md --ledger .../instruction-contract.md
+rows=25 resident=15 on-demand=10 retire=0 routed=2 removed=0 c4=strict@7fe48d92
+  C1 pass · C2 pass · C3 pass · C4 pass                                            (exit 0)
+
+$ grep -n "Maximum 3 iterations" plugins/mccp/commands/santa-loop.md   → no match
+$ git status --short | grep santa-loop                                 → no match (gitignored)
+$ git diff --diff-filter=D --name-only origin/main...HEAD              → (empty)
+
+$ node -e "…planAwareMarkdownHash('.claude/plans/santa-loop-materialize-m1.plan.md')"
+BEFORE  sha256:f5bf1caeb0973f8cb1ecf130abab69295e9b6373660d48946639f3f192edc97d
+AFTER   sha256:f5bf1caeb0973f8cb1ecf130abab69295e9b6373660d48946639f3f192edc97d   (unchanged)
+```
+
+`node --test <dir>/` 형태는 **Node 24에서 동작하지 않는다** — 디렉토리를 모듈로 해석해 `MODULE_NOT_FOUND`로 죽고 `fail 1`처럼 보인다. plan의 Validation 블록이 그 형태로 적혀 있으므로 `<dir>/*.test.js` glob으로 실행해야 한다.
+
+**santa-loop round 0 판정 (2026-08-14).** 이 완료 처리 자체를 `/mccp:santa-loop`에 걸었다. Reviewer A(opus) PASS · Reviewer B(gpt-5.4) FAIL → **NAUGHTY**. B의 critical 3건 중 1건 수용(CHANGELOG가 `## Output` 무변경을 주장 — 실제로는 변경됐고, 같은 문장이 DD11 강제 등급도 코드보다 강하게 적고 있었다. CHANGELOG·`santa-loop.md`·`ENVIRONMENT.md` 3면을 인덱스 경계 기준으로 정정), 1건 부분수용(위 실측 출력 첨부), 1건 기각(`.claude/cache/status.html`이 "커밋된 파생 표면"이라는 전제가 사실과 다름 — untracked이고, 인용된 `계획 중` 행은 PRD 마일스톤 status가 아니라 receipt/게이트 상태 파생이라 PR 단계가 열려 있는 현 상태를 정확히 표시한다). **A는 이 CHANGELOG 모순을 놓쳤고 B만 잡았다** — 모델 다양성이 실제로 값을 낸 지점이다.
+
+**"complete"가 주장하는 것은 M1 행의 Outcome뿐이다** — 라운드를 코드로 세고 캡에서 정지하며 산문 캡 의존이 끝났다는 것. PRD **Success Metrics 1순위의 절반(receipt 봉인)은 여전히 미달**이고 그것은 M2 소유다. M1 행 Outcome 셀이 그 미달을 그대로 싣고 있으며 이 완료 처리가 그것을 지우지 않는다.
 
 ## Issues Encountered
 

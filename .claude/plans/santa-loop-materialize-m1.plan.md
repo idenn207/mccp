@@ -360,34 +360,34 @@ git diff --diff-filter=D --name-only origin/main...HEAD
 ## Acceptance
 
 - [ ] `plugins/mccp/scripts/lib/santa/{ledger,counter,gate,cli}.js` 4개 존재. 외부 의존은 **정확히 3개**만 — `receipt/evidence-lock.js`(DD7) · `receipt/hash.js#gitRepoRoot`(DD3) · `receipt/decision.js`의 `SLUG_RE`/`BRANCH_PREFIX_RE` 상수(DD3). 그 외 mccp 모듈 require 0, npm 의존 0
-- [ ] cap=3에서 4번째 `begin-round`가 exit 12로 거부되고 상태 파일 라운드 수가 3에서 멈춤
-- [ ] **캡 게이트가 리뷰어 발화보다 앞에 배치된다** (DD4) — **test**가 `### Step 3` slice를 먼저 확정하고 그 안에서 `begin-round` < `#### Reviewer A`를 단언. `begin-round`를 Step 2로 옮기면 red. **이 항목이 증명하는 것은 배치뿐이다** — 산문이 exit code를 무시하는 경우는 아래 항목이 담당한다
+- [x] cap=3에서 4번째 `begin-round`가 exit 12로 거부되고 상태 파일 라운드 수가 3에서 멈춤
+- [x] **캡 게이트가 리뷰어 발화보다 앞에 배치된다** (DD4) — **test**가 `### Step 3` slice를 먼저 확정하고 그 안에서 `begin-round` < `#### Reviewer A`를 단언. `begin-round`를 Step 2로 옮기면 red. **이 항목이 증명하는 것은 배치뿐이다** — 산문이 exit code를 무시하는 경우는 아래 항목이 담당한다
 - [ ] **캡이 기록 경계에서 기계적으로 구속된다** (DD11) — `begin-round`가 exit 12로 거부한 라운드 N에 대해 `record --round N`과 `verdict --round N`이 각각 **exit 2**이고 상태 파일 byte 무변경. 즉 산문이 거부를 무시하고 리뷰어를 띄워도 **그 출력은 원장에 들어가지 못하고 verdict도 나오지 않는다**. `begin-round` 없이 `record`를 직접 호출해도 동일. 이 축은 CLI test로 완전히 관측 가능하다
-- [ ] **`begin-round`가 멱등이다** (DD12 규칙 0) — `OPEN` 라운드가 있는 상태에서 `begin-round`를 연속 3회 호출해도 `rounds.length`·`reviewers` 수·잔여 캡이 전부 불변이고 같은 `roundIndex`가 반환됨. 동시 호출 2개도 동일(판정이 lock 안에서 일어나므로). 이 항목이 red면 재시도만으로 리뷰 없이 캡이 소진된다
-- [ ] **판정 lifecycle이 P0에 선반영되지 않음** (DD12 / UI10·UI11) — `cli.js`와 `ledger.js`에 `{A,B}` 완전성 · `id` 중복 · verdict 재판정 검사가 **없다**. `record --id A`를 두 번 넣으면 성공하고 `gate.decideVerdict`의 envelope 0건 → NAUGHTY 경로가 **도달 가능**하다(동작 보존). 이 자리는 P1이 채운다
-- [ ] **M1이 막지 못하는 것을 명시한다** (DD5) — 캡 초과 시 리뷰어가 실제로 발화해 **토큰을 소모하는 것**은 코드가 막지 못한다(리뷰어 기동은 LLM 행위라 셸로 추출할 대상이 없다). M1은 그것을 막았다고 주장하지 않으며, 보고서와 PRD 갱신에 같은 문장이 실려야 한다
-- [ ] **exit code 표가 lock 실패와 catch-all을 포함** — `EVIDENCE_LOCK_UNAVAILABLE`은 75(일시적, 재시도), 미매핑 예외는 2. 12는 `cap_reached` 전용이라 어느 쪽도 12를 쓰지 않음
-- [ ] **`assertContained` 대상이 파일이 아니라 디렉토리** — `fs.realpathSync`가 미존재 대상에 throw하므로 최초 실행에서 정상 경로가 traversal로 오판되지 않음. mkdir 직후 `stateDir`에 3-arg로 호출 (DD3)
-- [ ] **리뷰어 원본이 소실되지 않음** — `record` 후 상태 파일의 `rounds[N].reviewers[i].raw`에 `checks`·`suggestions`가 그대로 남아 P1이 severity 축을 세울 입력이 보존됨 (DD2)
-- [ ] **경로가 git repo root 앵커** — 하위 디렉토리에서 호출해도 같은 원장 파일을 읽고, `--decision <slug>`로 캡을 고정할 수 있음 (DD3)
-- [ ] **`--decision`이 디렉토리를 탈출하지 못함** — `--decision ../../evil` 등 `SLUG_RE` 불통과 값이 전 subcommand에서 exit 2 + 파일 접촉 0 (DD3)
-- [ ] **`decision.js`의 `BRANCH_BASED_COMMANDS`가 무변경** — santa 원장이 `lastImplementReceiptSlug` fallback으로 남의 decision slug 아래 들어가지 않음. **test**가 그 Set을 읽어 `'mccp:santa-loop'` 부재 + 4개 멤버십 유지를 단언(육안 아님). `git diff plugins/mccp/scripts/receipt/decision.js`는 export **1줄**(`BRANCH_PREFIX_RE`) — `SLUG_RE`는 이미 export됨 (DD3)
-- [ ] **reviewer envelope round-trip** — 실제 Step 3 형태 fixture(`{verdict, checks, critical_issues, suggestions}`)를 `record --id --model`로 넣으면 envelope로 변환돼 저장되고, `verdict`가 둘을 받아 판정하며 `failing`이 FAIL한 `id`만 담음 (DD9)
-- [ ] **불량 입력이 원장을 오염시키지 않음** — 불량 verdict · 비배열 `critical_issues` · repo 밖 `--reviewer-file` 각각 exit 2이고 상태 파일 byte 무변경
-- [ ] **손상 상태 파일이 캡을 리셋하지 않음** — 깨진 JSON에서 `read()`가 throw하고 `begin-round`가 라운드 0으로 재출발하지 않음 (DD2)
-- [ ] 원장 mutation 3종이 `evidence-lock#guardedReadModifyWrite` 안에서 실행되고, 정상 종료 후 파일 mode가 `0o600` (DD7·DD2)
-- [ ] **mode self-repair** — 파일을 `0o644`로 바꿔 둔 뒤 임의 진입점을 호출하면 mode가 `0o600`으로 복구되고 동작은 정상 (POSIX 한정, Windows는 skip). rename 직후 크래시로 완화된 mode가 **영구히** 남지 않음 (DD7 / R6 Codex F1). run 내부의 write→chmod 잔여 창은 M1이 닫지 않으며 그렇게 주장하지도 않음
-- [ ] **`assertContained` 3번째 인자가 `null`** — `.claude/state`는 receipts 밖이라 `repoRoot`를 넘기면 `gate dir escapes receipts root`로 전 호출이 exit 2가 된다. 정상 경로 2종이 통과하고 repo 밖 symlink는 여전히 차단됨 (DD3 / R6 Codex F0)
-- [ ] escalate_pending 3분기 전부에서 `decisionId`가 파생 slug이며, drift에서만 `warning`이 non-null이고 `santa-loop.md`가 그 문자열을 stderr로 출력 (DD3)
-- [ ] CLI JSON stdout 필드가 전부 camelCase (`exitReason`·`roundIndex`·`decisionId`) — snake_case 혼용 0 (DD10)
+- [x] **`begin-round`가 멱등이다** (DD12 규칙 0) — `OPEN` 라운드가 있는 상태에서 `begin-round`를 연속 3회 호출해도 `rounds.length`·`reviewers` 수·잔여 캡이 전부 불변이고 같은 `roundIndex`가 반환됨. 동시 호출 2개도 동일(판정이 lock 안에서 일어나므로). 이 항목이 red면 재시도만으로 리뷰 없이 캡이 소진된다
+- [x] **판정 lifecycle이 P0에 선반영되지 않음** (DD12 / UI10·UI11) — `cli.js`와 `ledger.js`에 `{A,B}` 완전성 · `id` 중복 · verdict 재판정 검사가 **없다**. `record --id A`를 두 번 넣으면 성공하고 `gate.decideVerdict`의 envelope 0건 → NAUGHTY 경로가 **도달 가능**하다(동작 보존). 이 자리는 P1이 채운다
+- [x] **M1이 막지 못하는 것을 명시한다** (DD5) — 캡 초과 시 리뷰어가 실제로 발화해 **토큰을 소모하는 것**은 코드가 막지 못한다(리뷰어 기동은 LLM 행위라 셸로 추출할 대상이 없다). M1은 그것을 막았다고 주장하지 않으며, 보고서와 PRD 갱신에 같은 문장이 실려야 한다
+- [x] **exit code 표가 lock 실패와 catch-all을 포함** — `EVIDENCE_LOCK_UNAVAILABLE`은 75(일시적, 재시도), 미매핑 예외는 2. 12는 `cap_reached` 전용이라 어느 쪽도 12를 쓰지 않음
+- [x] **`assertContained` 대상이 파일이 아니라 디렉토리** — `fs.realpathSync`가 미존재 대상에 throw하므로 최초 실행에서 정상 경로가 traversal로 오판되지 않음. mkdir 직후 `stateDir`에 3-arg로 호출 (DD3)
+- [x] **리뷰어 원본이 소실되지 않음** — `record` 후 상태 파일의 `rounds[N].reviewers[i].raw`에 `checks`·`suggestions`가 그대로 남아 P1이 severity 축을 세울 입력이 보존됨 (DD2)
+- [x] **경로가 git repo root 앵커** — 하위 디렉토리에서 호출해도 같은 원장 파일을 읽고, `--decision <slug>`로 캡을 고정할 수 있음 (DD3)
+- [x] **`--decision`이 디렉토리를 탈출하지 못함** — `--decision ../../evil` 등 `SLUG_RE` 불통과 값이 전 subcommand에서 exit 2 + 파일 접촉 0 (DD3)
+- [x] **`decision.js`의 `BRANCH_BASED_COMMANDS`가 무변경** — santa 원장이 `lastImplementReceiptSlug` fallback으로 남의 decision slug 아래 들어가지 않음. **test**가 그 Set을 읽어 `'mccp:santa-loop'` 부재 + 4개 멤버십 유지를 단언(육안 아님). `git diff plugins/mccp/scripts/receipt/decision.js`는 export **1줄**(`BRANCH_PREFIX_RE`) — `SLUG_RE`는 이미 export됨 (DD3)
+- [x] **reviewer envelope round-trip** — 실제 Step 3 형태 fixture(`{verdict, checks, critical_issues, suggestions}`)를 `record --id --model`로 넣으면 envelope로 변환돼 저장되고, `verdict`가 둘을 받아 판정하며 `failing`이 FAIL한 `id`만 담음 (DD9)
+- [x] **불량 입력이 원장을 오염시키지 않음** — 불량 verdict · 비배열 `critical_issues` · repo 밖 `--reviewer-file` 각각 exit 2이고 상태 파일 byte 무변경
+- [x] **손상 상태 파일이 캡을 리셋하지 않음** — 깨진 JSON에서 `read()`가 throw하고 `begin-round`가 라운드 0으로 재출발하지 않음 (DD2)
+- [x] 원장 mutation 3종이 `evidence-lock#guardedReadModifyWrite` 안에서 실행되고, 정상 종료 후 파일 mode가 `0o600` (DD7·DD2)
+- [x] **mode self-repair** — 파일을 `0o644`로 바꿔 둔 뒤 임의 진입점을 호출하면 mode가 `0o600`으로 복구되고 동작은 정상 (POSIX 한정, Windows는 skip). rename 직후 크래시로 완화된 mode가 **영구히** 남지 않음 (DD7 / R6 Codex F1). run 내부의 write→chmod 잔여 창은 M1이 닫지 않으며 그렇게 주장하지도 않음
+- [x] **`assertContained` 3번째 인자가 `null`** — `.claude/state`는 receipts 밖이라 `repoRoot`를 넘기면 `gate dir escapes receipts root`로 전 호출이 exit 2가 된다. 정상 경로 2종이 통과하고 repo 밖 symlink는 여전히 차단됨 (DD3 / R6 Codex F0)
+- [x] escalate_pending 3분기 전부에서 `decisionId`가 파생 slug이며, drift에서만 `warning`이 non-null이고 `santa-loop.md`가 그 문자열을 stderr로 출력 (DD3)
+- [x] CLI JSON stdout 필드가 전부 camelCase (`exitReason`·`roundIndex`·`decisionId`) — snake_case 혼용 0 (DD10)
 - [ ] `santa-loop.md`에 결정 로직 잔존 0 (`Maximum 3 iterations` 산문 캡 · Step 0 3분기 판정 제거), rubric 표와 Output 섹션은 diff 무변경
-- [ ] verdict 4조합이 산문 규칙과 동일 (동작 보존, UI10). `gate.decideVerdict`의 envelope 0건 → NAUGHTY가 **CLI 경유로도 도달 가능**(판정 lifecycle을 P1으로 이관했으므로) — 동작 보존 유지
-- [ ] `.claude/state/santa-loop/`가 gitignored이고 `git status`에 나타나지 않음 (UI9)
-- [ ] `node --test plugins/mccp/scripts/receipt/tests/` 회귀 0
-- [ ] `MCCP_SANTA_ROUND_CAP`이 `docs/ENVIRONMENT.md` §11에 등재
-- [ ] version 3면(plugin.json · html.js · markdown.js) + CHANGELOG 동기
-- [ ] M2 미착수 항목이 코드에 선반영되지 않음 — `mccp-santa-review` GATE_ID · receipt write 경로 부재 (UI11). **그 결과 PRD 1순위 지표의 "receipt 봉인" 절반은 M1에서 미달**이며, 이 미달이 M1 보고서와 PRD M1 행에 명시됨
-- [ ] `git diff --diff-filter=D --name-only origin/main...HEAD`에 의도치 않은 삭제 0 (§3.5.1)
+- [x] verdict 4조합이 산문 규칙과 동일 (동작 보존, UI10). `gate.decideVerdict`의 envelope 0건 → NAUGHTY가 **CLI 경유로도 도달 가능**(판정 lifecycle을 P1으로 이관했으므로) — 동작 보존 유지
+- [x] `.claude/state/santa-loop/`가 gitignored이고 `git status`에 나타나지 않음 (UI9)
+- [x] `node --test plugins/mccp/scripts/receipt/tests/` 회귀 0
+- [x] `MCCP_SANTA_ROUND_CAP`이 `docs/ENVIRONMENT.md` §11에 등재
+- [x] version 3면(plugin.json · html.js · markdown.js) + CHANGELOG 동기
+- [x] M2 미착수 항목이 코드에 선반영되지 않음 — `mccp-santa-review` GATE_ID · receipt write 경로 부재 (UI11). **그 결과 PRD 1순위 지표의 "receipt 봉인" 절반은 M1에서 미달**이며, 이 미달이 M1 보고서와 PRD M1 행에 명시됨
+- [x] `git diff --diff-filter=D --name-only origin/main...HEAD`에 의도치 않은 삭제 0 (§3.5.1)
 
 ## Design Critique
 

@@ -10,7 +10,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 **판정 규칙의 내용은 바꾸지 않는다**(동작 보존). `gate.js`는 현 산문 표(둘 다 PASS → NICE · 하나라도 FAIL → NAUGHTY)를 1:1로 옮겼고, envelope 0건 → NAUGHTY 경로도 CLI 경유로 **도달 가능한 채** 남겼다. severity 축·종료 조건·판정 lifecycle은 전부 P1 소유다.
 
-**강제 등급을 정직하게 적는다.** 캡은 지시가 아니라 **기록 경계**에서 구속된다 — `record`·`verdict`가 `begin-round`를 거치지 않은 라운드를 거부하므로, 산문이 거부를 무시하고 리뷰어를 띄워도 그 출력은 원장에 들어가지 못하고 verdict도 나오지 않는다. 이 축은 CLI test로 완전히 관측 가능하다. **막지 못하는 것은 정확히 하나**: 캡 초과 라운드의 리뷰어가 실제로 발화해 토큰을 소모하는 것(리뷰어 기동은 LLM 행위라 셸로 추출할 대상이 없다). M1은 그것을 막았다고 주장하지 않는다.
+**강제 등급을 정직하게 적는다.** 캡은 지시가 아니라 **기록 경계**에서 구속된다 — `record`·`verdict`가 **`begin-round`가 연 적 없는 인덱스**를 거부하므로(exit 2), 거부를 무시하고 리뷰어를 띄워도 그 출력은 원장에 들어가지 못하고 verdict도 나오지 않는다. 이 축은 CLI test로 관측 가능하다. **막지 못하는 것은 둘이다.** (1) 캡 초과 라운드의 리뷰어가 실제로 발화해 토큰을 소모하는 것 — 리뷰어 기동은 LLM 행위라 셸로 추출할 대상이 없다. (2) **마지막(이미 FINAL) 라운드 인덱스를 재사용**하는 경로 — `record --round <cap-1>`은 여전히 통과한다. `record`를 `OPEN` 라운드로 한정하는 규칙은 판정 lifecycle이라 P1 소유로 이연했고(아래 "의도적으로 열어 둔 구멍"과 같은 축), 그 결과 캡은 **인덱스 경계**에서 구속되지 실행 횟수 전체를 봉인하지는 않는다. M1은 둘 중 어느 것도 막았다고 주장하지 않는다.
 
 **PRD 1순위 지표의 절반은 미달이다.** "라운드 수가 상태 파일에 기록되고 **receipt에 봉인**"에서 앞 절반만 낸다 — 봉인은 `mccp-santa-review` GATE_ID를 신설하는 M2 소유다. 이 미달은 PRD M1 행과 구현 보고서에 그대로 적혀 있다.
 
@@ -24,7 +24,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js` · `santa-gate.test.js` — 54 test(Windows에서 POSIX mode·symlink 3건 skip). 거의 전부 CLI 또는 실제 자식 프로세스를 지난다(순수 oracle만 보면 배선 결함을 놓친다는 이 repo의 실측 교훈).
 
 ### Changed
-- `plugins/mccp/commands/santa-loop.md` — thin caller로 축약. Step 0의 3분기 판정 → `resolve-decision` 1회(산문에는 `warning` 출력만 잔류), Step 3 진입점에 `begin-round`, 리뷰어 응답 → `record`, Step 4 → `verdict`. **rubric 표·Output 섹션·Notes는 무변경** — 산문이 적합한 영역이다. 리뷰어 프롬프트와 출력 JSON 계약도 무변경이며, `id`/`model` 부여와 `critical_issues` → `criticalIssues` 변환은 CLI가 흡수한다.
+- `plugins/mccp/commands/santa-loop.md` — thin caller로 축약. Step 0의 3분기 판정 → `resolve-decision` 1회(산문에는 `warning` 출력만 잔류), Step 3 진입점에 `begin-round`, 리뷰어 응답 → `record`, Step 4 → `verdict`. **rubric 표는 무변경** — 산문이 적합한 영역이다. `## Output`은 한 줄 바꿨다(`Iterations: [N]/3` → `[N]/[cap]`): 캡이 `MCCP_SANTA_ROUND_CAP`으로 설정 가능해진 이상 리터럴 `3`은 cap=1로 돌려도 `/3`을 인쇄해 **출력이 거짓을 보고**한다. Notes에는 강제 등급과 slug 스코프 2줄을 더했다. 리뷰어 프롬프트와 출력 JSON 계약도 무변경이며, `id`/`model` 부여와 `critical_issues` → `criticalIssues` 변환은 CLI가 흡수한다.
 - `plugins/mccp/scripts/receipt/decision.js` — `BRANCH_PREFIX_RE` export **1줄만** 추가(`SLUG_RE`는 이미 export돼 있었다). `BRANCH_BASED_COMMANDS`는 **무변경**이고 test가 그것을 단언한다 — santa를 그 Set에 넣으면 `/mccp:pr` 전용 `lastImplementReceiptSlug` fallback이 딸려 와, receipt를 발행하지 않는 santa에서는 `receiptExistsForSlug`가 항상 false라 원장이 **다른 decision의 slug** 아래로 들어간다.
 - `.gitignore` · `docs/ENVIRONMENT.md` §11 — 원장 디렉토리 무시, `MCCP_SANTA_ROUND_CAP` 등재.
 

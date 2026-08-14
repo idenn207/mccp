@@ -577,6 +577,10 @@ Codex의 **모든 finding**이 명시 adjudication을 받아야 한다. 1건이�
 /mccp:prp-commit <자연어 설명>      # 자연어 파일 타겟팅 커밋
 /mccp:prp-pr                        # 디자인/보안/Codex 게이트 통과 후 PR
 
+# 메타 조사 (v1.24.0) — PRD를 쓰기 전 단계. 게이트 아님(receipt 미발행)
+/mccp:meta-research <주제>          # 조사 골격 5 phase 고정 + .claude/_meta/ 규격 산출물 + README 색인 등재
+node plugins/mccp/scripts/lib/meta-research.js lint --all --json   # 전 산출물 형식/전제/색인 검사
+
 # Receipt 운영
 /mccp:receipt-status                # 현재 receipt chain 상태
 /mccp:receipt-validate <command>    # 특정 게이트의 receipt 유효성 검증

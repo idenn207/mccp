@@ -2,7 +2,33 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.24.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.24.0] — 2026-08-14
+
+**meta-research-command M1 — 메타 조사 커맨드 (PRD 전 milestone 완료 → minor bump)** — `/mccp:*` 21개가 전부 *만들기*와 *점검* 축이라, "이 문제의 근인이 무엇이고 어떤 선택지가 있는가"를 조사해 남기는 축이 비어 있었다. 그 작업은 이미 네 번 반복됐고(`.claude/_meta/` 수작업 산출물 5종), 절차가 문서화돼 있지 않아 산출물의 품질과 형식이 매번 달랐다. 더 나쁜 것은 **전제의 유효기간을 표시할 자리가 없었다**는 점이다 — `diverse-agent-review-analysis.md` §1.3의 4축 경고는 M1 ship으로 무효화됐으나 그 사실이 6일간 문서에 반영되지 않았다.
+
+**보증하는 것은 셋뿐이고 그 이상을 주장하지 않는다** — (1) 조사 골격이 phase로 고정된다 · (2) 산출물이 **무엇을 근거로 어느 시점 코드를 보고** 판정했는지를 기재하고 그 참조 경로의 실존이 기계 검증된다 · (3) 모든 산출물이 색인에서 1홉 도달한다. **조사 품질은 강제하지 않는다** — PRD Risk 1이 이미 인정한 한계이며 커맨드 본문에 명시했다.
+
+### Added
+
+- `plugins/mccp/commands/meta-research.md` — 5 phase 고정(SCAFFOLD → EVIDENCE → PRIOR ART → PRECEDENT → VERDICT+REGISTER). Phase 4의 세 호출은 `lint --pre-register` → `register` → `lint`(전체) **순서가 계약**이며 stop-at-first-failure다. 순서가 뒤집히면 lint 실패 시 색인에 무효 문서를 가리키는 **고아 항목**이 남고 `register`는 원자 치환이라 되돌릴 지점이 없다.
+- `plugins/mccp/scripts/lib/meta-research.js` — `scaffold` / `register` / `lint` 3 subcommand. lint 4검사: **L1** 파일명 · **L2** 필수 구성요소 7개(검사 지점 9개 — 헤더 블록을 1개로 세되 3키 각각 검사) · **L3** 전제 명시(≥1행 · 시점 셀이 sha 또는 ISO 날짜 · 참조 경로 실존 + 저장소 내부) · **L4** 색인 1홉.
+- `plugins/mccp/scripts/lib/tests/meta-research.test.js` — 38건. T0 왕복 · 커맨드 골격 계약 · 부정 27 · 긍정 3 · 컨테인먼트 회귀 2 · 동시성 2 · 면제 1 · 실 repo 회귀 1.
+- `.claude/_meta/README.md` `## 색인` 표 — 기계 앵커 신설 + legacy 5종 백필. 기존 주제별 서술 절은 보존한다(역할이 다르다).
+
+### 설계상 중요한 것
+
+- **scaffold 산출물은 태어날 때 lint red다.** `## Premises` 표가 데이터 행 0개로 생성되어 L3에 걸린다. "빈 전제를 허용하고 나중에 채운다"는 곧 안 채운다는 뜻이므로, red를 기본값으로 두면 Phase 4가 통과할 유일한 길이 전제를 실제로 적는 것이 되고 PRD primary 지표(전제 명시 100%)가 소망이 아니라 기계 조건이 된다.
+- **적용 범위 분기 — L1/L2/L3는 규격 문서에만, L4는 전수.** legacy 5종은 규격 이전에 쓰였고 소급 개작하면 인바운드 링크 6개가 깨진다(그중 3종은 날짜 접두 파일명도 아니라 L1 전수 적용 시 영구 red). 면제 술어는 `**Status**` 헤더 한 축뿐이며, 면제된 문서는 `exempt[]`에 파일명 + 사유로 **열거**된다 — 조용한 면제가 아니다. **L4는 전수로 남으므로 발견 가능성 지표는 무손상**이다.
+- **`repoRoot`는 CLI 표면을 갖지 않는다.** `--repo-root` 플래그가 있으면 이후의 모든 봉쇄가 호출자가 고른 루트에 상대적이 되어 `assertContained`가 지키는 대상 자체를 인자로 옮길 수 있다. 이 모듈은 **파일을 쓰므로**(scaffold가 문서를, register가 README를) 루트가 인자면 범위 이동이 아니라 **쓰기 방향 재지정**이다. `impeccable-detect.js`는 `--repo-root`를 노출하지만 읽기 전용 detector라 선례가 아니다 — 차이는 취향이 아니라 읽기/쓰기다.
+- **register 동시성은 "봉쇄"가 아니라 "완화"다.** lock을 획득한 경로에서만 lost update가 없고, 미획득 경로에서는 경고 후 진행하므로 여전히 가능하다. 색인은 감사 corpus가 아니라 발견 보조물이므로 CLAUDE.md §3.6의 fail-open 쪽에 속한다(fail-closed면 stale lock 하나가 조사 작업을 멈춘다). 유실은 조용하지 않다 — 다음 `lint --all`이 `NOT_INDEXED`로 자기 검출한다.
+- **`aliases.js` 등재는 게이트가 아니다.** `produces: []` · `requires_preceding: []` 빈 spec으로 등재해 hook이 이 커맨드를 명시 인식하게 하되 `GATE_IDS`는 무변경이다. 회귀 test가 등재 사실이 아니라 **빈 배열**을 단언한다 — 등재만 확인하면 나중에 게이트가 실려도 green이기 때문이다.
+
+### Changed
+
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.7 → 1.24.0` + renderer footer 2면 동기. PRD의 유일한 milestone이 완료되므로 §3.7 기준 **minor**다. base는 `1.23.7`이지만 `origin/main`이 이미 `1.23.11`을 소비했으므로 `1.24.0`은 forward-only로 유효하다.
+- `CLAUDE.md` §4 cheat sheet에 `/mccp:meta-research` + `lint --all` 등재.
 
 ## [1.23.7] — 2026-08-09
 

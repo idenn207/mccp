@@ -1,7 +1,7 @@
 # 리뷰 루프 메타 분석 — 운영자 제기 7항목 + GitHub issue #124·#125
 
 > 작성일: 2026-08-12 · 브랜치 `docs/meta-analysis-2026-08` · worktree `.worktrees/meta-analysis`
-> 입력: 운영자 제기 항목 0·1·1.5·2·3·4·5·6 + [#124](https://github.com/skypark207/my-claude-code-plugin/issues/124) · [#125](https://github.com/skypark207/my-claude-code-plugin/issues/125)
+> 입력: 운영자 제기 항목 0·1·1.5·2·3·4·5·6 + [#124](https://github.com/idenn207/mccp/issues/124) · [#125](https://github.com/idenn207/mccp/issues/125)
 > 성격: **메타 분석** — 개별 항목의 해법이 아니라 항목들 사이의 공통 원인·상호 모순·선후 의존을 판정한다.
 > 관련 선행 문서: [`.claude/_meta/` 선행 3문서](./) 3종(diverse-agent-review 분석 · converged 재정의 · verification layer)
 

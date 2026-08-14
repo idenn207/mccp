@@ -96,6 +96,22 @@ test('bare old-repo NAME (no drive-letter path) does NOT trigger', function () {
   assert.equal(res.ok, true, JSON.stringify(res.leaks));
 });
 
+test('a URL carrying the old repo name does NOT trigger (scheme is not a drive letter)', function () {
+  // `[A-Za-z]:` also matches the LAST letter of a URL scheme, so `https://` read
+  // as a drive-letter path and a stale hyperlink blocked the push. That costs as
+  // much as a miss: the only ways past a false positive are rewriting history or
+  // allowlisting a line that was never a leak. Measured against a real link that
+  // did block one.
+  const root = buildRepo([{
+    files: {
+      'prd.md': 'origin report: [#124](https://github.com/skypark207/my-claude-code-plugin/issues/124)\n'
+        + 'and http://example.com/my-claude-code-plugin as well\n',
+    },
+  }]);
+  const res = scan.scanRange({ repoRoot: root, base: 'main' });
+  assert.equal(res.ok, true, JSON.stringify(res.leaks));
+});
+
 test('IF3: plugin cache-path convention does NOT false-positive (not repo-root anchored)', function () {
   const root = buildRepo([{
     files: { 'plugins/cmd.md': 'node C:/Users/someone/.claude/plugins/cache/mccp/mccp/1.22.2/x.js\n' },

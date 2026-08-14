@@ -368,7 +368,7 @@ UI1이 금지하는 것은 kill이지 파일 정리가 아니다. 죽은 PID의 
   - `registerFailure(repoRoot, sid, pid, reason)` → `<pid>.failed.json` (같은 mkdir/mode/원자성).
   - `list(repoRoot, sid)` → `{records, failures, unreclaimed, incomplete}`; 각 record에 `alive` 부착. 파싱 실패는 `failures`에 넣고 `incomplete=true`. throw 없음.
   - `unregister(repoRoot, sid, pid)` → best-effort unlink, 멱등.
-  - `collectSiblingReuse(repoRoot, selfSid)` → 형제 세션 디렉토리의 `role:'reuse'` 레코드 배열. 읽기 전용, 디렉토리 부재/불가독은 빈 배열 + warn.
+  - `collectSiblingReuse(repoRoot, selfSid)` → 형제 세션 디렉토리의 `role:'reuse'` 레코드 배열. 읽기 전용. 디렉토리 **부재**는 빈 배열 + warn이지만, **불가독은 `incomplete`** 다 (santa-loop R6 수정 18 — 이 배열은 kill 증거로 쓰이므로 "못 읽었다"를 "아무도 안 쓴다"로 접으면 회수가 조용히 kill 방향으로 기운다). 형제 디렉토리마다 containment를 검사하고, 거부된 형제는 skip이 아니라 `incomplete`로 센다.
   - 모듈 헤더: 롤백 `rm -rf .claude/state/session-processes/`, `SEMANTICS` 상수(레코드 부재는 회수 완료의 증거가 아니다).
 - **Validate**: `node --test plugins/mccp/scripts/lib/tests/session-processes.test.js`
 
@@ -385,7 +385,9 @@ UI1이 금지하는 것은 kill이지 파일 정리가 아니다. 죽은 PID의 
   **`siblingReuse` 목록을 인자로 받지 않는다.** 대신 `collectSiblingReuse` **함수**를 받아 호출부마다 스스로 부른다(R3 architect HIGH — 목록을 받으면 호출자가 1회 스냅샷을 캐시해 §D11 재평가 보장을 시그니처 위반 없이 무력화할 수 있다). 함수 주입은 캐싱을 구조적으로 불가능하게 만든다.
 - **Validate**: `node --test plugins/mccp/scripts/lib/tests/session-processes-reclaimable.test.js`
 
-  단언: 판정표 **11행 전수**(차단 10행 `record_invalid`·`cross_host`·`cross_repo`·`cross_session`·`already_dead`·`in_use_by_live_session`·`lifetime_outlives_session`·`handoff_never_reclaimed`·`identity_unverifiable`·`identity_mismatch` + 통과 1행 `owned_session_scoped`) 각각 최소 1케이스 + 기대 `reason` 정확 일치 · reuse 시나리오(A owner outlives + B live reuse 같은 pid → `in_use_by_live_session`) · `session_pid:null` reuse → 여전히 차단 · cross-host reuse → 차단 · `allowOutlives:true`가 `lifetime_outlives_session`만 통과시키고 나머지 9행은 **여전히 차단** · symlink 경유 `repo_root`가 `cross_repo`로 오탐되지 않음(POSIX만; win32 skip)
+  단언: 판정표 **13행 전수**(차단 12행 `record_invalid`·`cross_host`·`cross_repo`·`cross_session`·`already_dead`·`in_use_by_live_session`·`lifetime_outlives_session`·`handoff_never_reclaimed`·`identity_unverifiable`·`identity_mismatch`·**`reuse_not_owner`**·**`sibling_evidence_unreadable`** + 통과 1행 `owned_session_scoped`) 각각 최소 1케이스 + 기대 `reason` 정확 일치
+
+  > 계획 최초 판은 11행이었다. 구현에서 `reuse_not_owner`가, santa-loop R3에서 `sibling_evidence_unreadable`이 추가돼 13행이다 — 둘 다 **차단** 행이라 오살 방향으로는 열리지 않는다. 근거는 리포트의 해당 절 참조. · reuse 시나리오(A owner outlives + B live reuse 같은 pid → `in_use_by_live_session`) · `session_pid:null` reuse → 여전히 차단 · cross-host reuse → 차단 · `allowOutlives:true`가 `lifetime_outlives_session`만 통과시키고 나머지 9행은 **여전히 차단** · symlink 경유 `repo_root`가 `cross_repo`로 오탐되지 않음(POSIX만; win32 skip)
 
   **정체 축(§D15) 6케이스** — R6에서 3→6으로 확장:
   1. probe `null` → `identity_unverifiable`

@@ -668,6 +668,21 @@ function isExecutedScript(commandLine, wantPath) {
   const tokens = tokenizeCommandLine(commandLine);
   const scriptIdx = tokens.findIndex((t) => t[0] !== '-' && SCRIPT_EXT_RE.test(t));
   if (scriptIdx === -1 || tokens[scriptIdx] !== wantPath) return false;
+  // KNOWN DEFECT, NOT A CLOSED AXIS (santa-loop R7 Reviewer B, critical).
+  // `.some()` asks whether a node token appears ANYWHERE before the script, so
+  // a command line that merely NAMES node and our path passes: `grep node
+  // <exec_path>` and `echo node <exec_path>` both adjudicate as our running
+  // script. Combined with a recycled PID whose start time lands inside the
+  // tolerance, that reaches `owned_session_scoped` and SIGTERMs an unrelated
+  // process. This is WIDER than the residual §D15 declares (which assumes node
+  // is actually RUNNING our path).
+  //
+  // It is not fixable from the command line alone: `nohup node <path>` (locked
+  // as a must-match by test `identity 3e`) and `grep node <path>` are the same
+  // token sequence. The discriminator is the executable IMAGE — win32
+  // `Win32_Process.ExecutablePath`, POSIX `comm` / `/proc/<pid>/exe` — which is
+  // the platform work already scoped in codex-findings-backlog.md :81.
+  // Tightening the token rule instead breaks `identity 3e` without closing this.
   return tokens.slice(0, scriptIdx).some((t) => NODE_EXEC_RE.test(t));
 }
 
@@ -1045,9 +1060,16 @@ function reclaimSession(opts) {
 
   out.attempted = out.reclaimed.length + out.unreclaimed.length;
 
-  try {
-    if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
-  } catch (_) { /* non-empty or gone — either way the next session reads it */ }
+  // Same containment discipline as every other mutating op (santa-loop R7
+  // Reviewer B). This one only removes an EMPTY directory, so a lost race costs
+  // an empty rmdir rather than a kill — but "most mutating paths are sealed" is
+  // exactly the partial-coverage shape six prior rounds kept finding, and the
+  // invariant is cheaper to hold uniformly than to reason about per site.
+  if (dirStillContained()) {
+    try {
+      if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+    } catch (_) { /* non-empty or gone — either way the next session reads it */ }
+  }
 
   return out;
 }
@@ -1185,7 +1207,12 @@ function scanForeignOrphans(repoRoot, selfSid, deps) {
     // `.unreclaimed.json` / `.failed.json` are deliberately preserved: they are
     // the audit surface that keeps failures loud (UI6). Purging them would turn
     // PRD `:76` "handle it next SessionStart" into evidence destruction.
-    try { if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir); } catch (_) { /* keep */ }
+    // Re-sealed, not carried over from the entry check at the top of this
+    // iteration (santa-loop R7 Reviewer B): the purge loop above ran syscalls in
+    // between, so the earlier result is stale by the time we mutate again.
+    if (isInside(realpathNearest(dir), realReg)) {
+      try { if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir); } catch (_) { /* keep */ }
+    }
   }
   return out;
 }

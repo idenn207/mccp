@@ -10,7 +10,9 @@ Adversarial dual-review convergence loop using the santa-method skill. Two indep
 
 ## Purpose
 
-Run two independent reviewers (Claude Opus + an external model) against the current task output. Both must return NICE before the code is pushed. If either returns NAUGHTY, fix all flagged issues, commit, and re-run fresh reviewers — up to 3 rounds.
+Run two independent reviewers (Claude Opus + an external model) against the current task output. Both must return NICE before the code is pushed. If either returns NAUGHTY, fix all flagged issues, commit, and re-run fresh reviewers.
+
+Round accounting and the round cap are **code**, not prose. `plugins/mccp/scripts/lib/santa/cli.js` owns them: rounds are recorded in a gitignored ledger at `.claude/state/santa-loop/<decision-slug>.json`, and the cap (`MCCP_SANTA_ROUND_CAP`, default 3) is enforced by `begin-round` **before any reviewer is launched**. This file interprets exit codes and prints reports — it does not decide.
 
 ## Usage
 
@@ -20,27 +22,22 @@ Run two independent reviewers (Claude Opus + an external model) against the curr
 
 ## Workflow
 
-### Step 0: Verify Escalation Context (optional, v0.3.2)
-
-If invoked via mccp cross-gate escalation hand-off (receipt-write detected a
-CRITICAL finding, auto-CRITICAL catalog match, or `divergent_unresolved`),
-`.claude/state/STATE.md` has `escalate_pending: true` plus the recorded
-`escalate_pending_decision_id`. Verify alignment before launching the rubric so
-the loop targets the same scope the receipt flagged:
+### Step 0: Resolve Review Scope
 
 ```bash
-ESCALATE=$(grep '^escalate_pending:' .claude/state/STATE.md | awk '{print $2}' 2>/dev/null || true)
-EXPECTED_DEC=$(grep '^escalate_pending_decision_id:' .claude/state/STATE.md | awk '{print $2}' 2>/dev/null || true)
+SANTA="${CLAUDE_PLUGIN_ROOT}/scripts/lib/santa/cli.js"
+SCOPE_JSON=$(node "$SANTA" resolve-decision)
+DECISION=$(echo "$SCOPE_JSON" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).decisionId)')
+WARNING=$(echo "$SCOPE_JSON" | node -e 'const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.warning||"")')
 ```
 
-- `ESCALATE != "true"`: regular `/mccp:santa-loop` call — proceed to Step 1.
-- `ESCALATE == "true"` AND `EXPECTED_DEC` matches the current review scope:
-  recorded escalation — proceed to Step 1 with the rubric focused on the
-  catalog category surfaced in `.claude/state/fix-task.md`.
-- `ESCALATE == "true"` AND `EXPECTED_DEC` does NOT match: log a warning
-  (`fingerprint drift — STATE points at <EXPECTED_DEC>, but reviewing <current>`)
-  and proceed anyway. The flag will be cleared on the next clean receipt for
-  the matching decision_id.
+If `$WARNING` is non-empty, print it to stderr and continue. It is informational: the loop always reviews the **current** scope, never a scope inherited from `STATE.md`.
+
+```bash
+[ -n "$WARNING" ] && echo "[santa] $WARNING" 1>&2
+```
+
+Non-zero exit means the scope could not be resolved (bad `--decision`, no git repo). Stop and surface stderr.
 
 ### Step 1: Identify What to Review
 
@@ -69,6 +66,18 @@ Add domain-specific criteria based on file types (e.g., type safety for TS, memo
 
 ### Step 3: Dual Independent Review
 
+**Open the round first — before launching anything.** A round is opened at the moment reviewers are launched, so the cap must be spent here, not after the tokens are gone:
+
+```bash
+ROUND_JSON=$(node "$SANTA" begin-round --decision "$DECISION")
+BEGIN_EXIT=$?
+ROUND=$(echo "$ROUND_JSON" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).roundIndex))}catch{process.stdout.write("")}')
+```
+
+If `BEGIN_EXIT` is non-zero, **do not launch any reviewer**. Print the ESCALATION block from Step 5 and end. Exit 12 means the cap was reached; exit 75 means the ledger lock was busy (retry shortly); exit 2 means a usage or integrity error (surface stderr).
+
+`begin-round` is idempotent: calling it again while a round is still open returns the same `roundIndex` without consuming cap.
+
 Launch two reviewers **in parallel** using the Agent tool (both in a single message for concurrent execution). Both must complete before proceeding to the verdict gate.
 
 Each reviewer evaluates every rubric criterion as PASS or FAIL, then returns structured JSON:
@@ -84,7 +93,7 @@ Each reviewer evaluates every rubric criterion as PASS or FAIL, then returns str
 }
 ```
 
-The verdict gate (Step 4) maps these to NICE/NAUGHTY: both PASS → NICE, either FAIL → NAUGHTY.
+The verdict gate (Step 4) maps these to NICE/NAUGHTY.
 
 #### Reviewer A: Claude Agent (always runs)
 
@@ -129,10 +138,34 @@ Launch a second Claude Agent (subagent_type: `code-reviewer`, model: `opus`). Lo
 
 In all cases, the reviewer must return the same structured JSON verdict as Reviewer A.
 
+#### Record each reviewer into the ledger
+
+Write each reviewer's **unmodified** JSON to a repo-internal temp file and hand it to the CLI. The reviewer contract above is untouched — `id` and `model` are values the caller already knows, and the CLI does the conversion:
+
+```bash
+TMPDIR_SANTA=".claude/state/santa-loop/tmp"      # gitignored with the ledger
+mkdir -p "$TMPDIR_SANTA"
+
+# Reviewer A (repeat verbatim for B with --id B and its own model string)
+cat > "$TMPDIR_SANTA/reviewer-$ROUND-A.json" << 'EOF'
+... Reviewer A's structured JSON, verbatim ...
+EOF
+node "$SANTA" record --decision "$DECISION" --round "$ROUND" \
+  --id A --model opus --reviewer-file "$TMPDIR_SANTA/reviewer-$ROUND-A.json"
+```
+
+The file must live inside the repo — the CLI refuses paths outside it. Non-zero exit means nothing was appended; surface stderr and stop rather than proceeding to a verdict built on partial evidence.
+
 ### Step 4: Verdict Gate
 
-- **Both PASS** → **NICE** — proceed to Step 6 (push)
-- **Either FAIL** → **NAUGHTY** — merge all critical issues from both reviewers, deduplicate, proceed to Step 5
+```bash
+VERDICT_JSON=$(node "$SANTA" verdict --decision "$DECISION" --round "$ROUND")
+VERDICT=$(echo "$VERDICT_JSON" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).verdict)')
+FAILING=$(echo "$VERDICT_JSON" | node -e 'process.stdout.write((JSON.parse(require("fs").readFileSync(0,"utf8")).failing||[]).join(", "))')
+```
+
+- **NICE** → proceed to Step 6 (push)
+- **NAUGHTY** → `$FAILING` names the reviewers that failed. Merge all critical issues from both reviewers, deduplicate, proceed to Step 5
 
 ### Step 5: Fix Cycle (NAUGHTY path)
 
@@ -142,21 +175,19 @@ In all cases, the reviewer must return the same structured JSON verdict as Revie
    ```
    fix: address santa-loop review findings (round N)
    ```
-4. Re-run Step 3 with **fresh reviewers** (no memory of previous rounds)
-5. Repeat until both return PASS
+4. Return to Step 3 with **fresh reviewers** (no memory of previous rounds). Step 3's `begin-round` decides whether another round may open — this step never makes that call itself.
 
-**Maximum 3 iterations.** If still NAUGHTY after 3 rounds, stop and present remaining issues:
+When `begin-round` refuses, print and stop. Do NOT push.
 
 ```
-SANTA LOOP ESCALATION (exceeded 3 iterations)
+SANTA LOOP ESCALATION (round cap reached)
 
-Remaining issues after 3 rounds:
+Cap: MCCP_SANTA_ROUND_CAP (default 3)
+Remaining issues:
 - [list all unresolved critical issues from both reviewers]
 
 Manual review required before proceeding.
 ```
-
-Do NOT push.
 
 ### Step 6: Push (NICE path)
 
@@ -168,7 +199,7 @@ git push -u origin HEAD
 
 ### Step 7: Final Report
 
-Print the output report (see Output section below).
+Print the output report (see Output section below). `node "$SANTA" status --decision "$DECISION"` reports `{rounds, entries, exitReason}` for the iteration count.
 
 ## Output
 
@@ -183,7 +214,7 @@ Agreement:
   Reviewer A only:   [issues only A caught]
   Reviewer B only:   [issues only B caught]
 
-Iterations: [N]/3
+Iterations: [N]/[cap]
 Result:     [PUSHED / ESCALATED TO USER]
 ```
 
@@ -197,3 +228,5 @@ Result:     [PUSHED / ESCALATED TO USER]
 - The rubric is the most important input. Tighten it if reviewers rubber-stamp or flag subjective style issues.
 - Commits happen on NAUGHTY rounds so fixes are preserved even if the loop is interrupted.
 - Push only happens after NICE — never mid-loop.
+- The cap binds at the **ledger**, not just here: `record` and `verdict` refuse a round that `begin-round` never opened. Ignoring a refusal and launching reviewers anyway still produces no ledger entry and no verdict. What that does **not** prevent is the reviewer tokens being spent — that part is prose compliance, and this file does not claim otherwise.
+- The cap is scoped to the decision slug, which is derived from the branch name. Renaming or switching branches starts a fresh cap (different branch = different review scope). Pass `--decision <slug>` to every subcommand to pin one scope across a rename.

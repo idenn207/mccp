@@ -57,7 +57,7 @@ We'll know we're right when **santa-loop 실행이 라운드 카운터를 상태
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | 모듈 골격 + 캡 강제 | santa-loop이 라운드를 코드로 세고 캡에서 정지한다. 산문 캡 의존 종료 | in-progress | [santa-loop-materialize-m1.plan.md](../plans/santa-loop-materialize-m1.plan.md) |
+| 1 | 모듈 골격 + 캡 강제 | santa-loop이 라운드를 코드로 세고 캡에서 정지한다. 산문 캡 의존 종료. **Success Metrics 1행의 절반은 미달** — 라운드 수가 상태 파일에 기록되는 것까지는 냈으나 **receipt 봉인은 M2 소유**(`mccp-santa-review` GATE_ID 신설)라 M1에 없다. 캡의 강제 등급도 정직하게 좁힌다: `record`·`verdict`가 미개설 라운드를 거부해 캡 초과 라운드는 원장에 들어가지 못하지만, **리뷰어 토큰이 실제로 소모되는 것은 막지 못한다**(리뷰어 기동은 LLM 행위) | in-progress | [santa-loop-materialize-m1.plan.md](../plans/santa-loop-materialize-m1.plan.md) |
 | 2 | receipt 편입 + 소유권 표 산출 | 라운드·원장 집계가 `mccp-santa-review`에 봉인되고, P1·P2·P3가 소유할 파일 경계가 문서로 확정됨 | pending | — |
 
 ## Open Questions

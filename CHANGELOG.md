@@ -2,7 +2,34 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.8`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.23.8] — 2026-08-13
+
+**santa-loop-materialize M1 — 모듈 골격 + 캡 강제 (단일 milestone → patch bump, 1.23.7 → 1.23.8)** — `/mccp:santa-loop`의 결정 로직을 산문에서 코드로 내린다. 이전까지 이 명령은 **백킹 코드가 0**이었다: 라운드 수는 아무도 세지 않았고 캡("Maximum 3 iterations")은 산문 한 줄이 유일한 근거였다. 이제 라운드는 gitignored 원장에 기록되고 캡은 `begin-round`가 **리뷰어 발화 직전**에 판정해 exit 12로 거부한다.
+
+**판정 규칙의 내용은 바꾸지 않는다**(동작 보존). `gate.js`는 현 산문 표(둘 다 PASS → NICE · 하나라도 FAIL → NAUGHTY)를 1:1로 옮겼고, envelope 0건 → NAUGHTY 경로도 CLI 경유로 **도달 가능한 채** 남겼다. severity 축·종료 조건·판정 lifecycle은 전부 P1 소유다.
+
+**강제 등급을 정직하게 적는다.** 캡은 지시가 아니라 **기록 경계**에서 구속된다 — `record`·`verdict`가 `begin-round`를 거치지 않은 라운드를 거부하므로, 산문이 거부를 무시하고 리뷰어를 띄워도 그 출력은 원장에 들어가지 못하고 verdict도 나오지 않는다. 이 축은 CLI test로 완전히 관측 가능하다. **막지 못하는 것은 정확히 하나**: 캡 초과 라운드의 리뷰어가 실제로 발화해 토큰을 소모하는 것(리뷰어 기동은 LLM 행위라 셸로 추출할 대상이 없다). M1은 그것을 막았다고 주장하지 않는다.
+
+**PRD 1순위 지표의 절반은 미달이다.** "라운드 수가 상태 파일에 기록되고 **receipt에 봉인**"에서 앞 절반만 낸다 — 봉인은 `mccp-santa-review` GATE_ID를 신설하는 M2 소유다. 이 미달은 PRD M1 행과 구현 보고서에 그대로 적혀 있다.
+
+**의도적으로 열어 둔 구멍이 하나 있다.** `record --id A`를 두 번 넣으면 A envelope가 2개 쌓이고 둘 다 PASS면 NICE가 나온다 — 리뷰어 하나로 dual-review가 우회 가능하다. 초안은 이것을 라운드 상태 기계로 닫았으나, 봉인 패스 Codex F0이 그 규칙들이 사용자 제약(판정 내용은 P1 소유) 위반임을 지적해 되돌렸다. 현재 M1은 receipt를 발행하지 않아 이 verdict가 어떤 게이트도 통과시키지 않으며, P1이 이 자리를 채우기 전까지 M1 산출물을 실운용에 쓰지 않는 것이 전제다. backlog HIGH + P1 1순위로 등재돼 있다.
+
+### Added
+- `plugins/mccp/scripts/lib/santa/counter.js` — 순수 캡 oracle. `parseCap`(`MCCP_SANTA_ROUND_CAP`, default 3, 허용 1..10, 불량값은 loud fail-open) + `decideRound({roundsSoFar, cap})`. 디스크 미접촉. 거부 시 `roundIndex`를 `null`로 돌려 호출자가 그 값으로 `record`를 시도할 수 없게 한다.
+- `plugins/mccp/scripts/lib/santa/ledger.js` — 라운드 수의 **단일 출처**. 상태 파일 `.claude/state/santa-loop/<decision-slug>.json`(gitignored · `0o600`). mutation 3종은 `receipt/evidence-lock.js#guardedReadModifyWrite`로 감싸 read까지 임계구역 안에 둔다(밖에 두면 lost update가 닫히지 않고, 라운드가 **적게** 세어져 캡이 fail-open된다). `beginRound`는 **멱등** — 마지막 라운드가 OPEN이면 append 없이 그 index를 반환한다(재시도·중복 호출·동시 호출이 리뷰 없이 캡을 태우는 것을 막는다). 손상 JSON·`schema_version` 불일치는 **throw**이지 빈 상태 폴백이 아니다(폴백하면 손상 파일 하나가 캡을 0으로 리셋해 루프가 무제한이 된다).
+- `plugins/mccp/scripts/lib/santa/gate.js` — verdict 판정. 순수 함수 + frozen interface 주석. `round`/`cap`은 받되 P0에서는 쓰지 않는다(P1의 종료 조건 자리를 미리 동결해 시그니처 변경 비용을 없앤다).
+- `plugins/mccp/scripts/lib/santa/cli.js` — subcommand 5종(`resolve-decision`·`begin-round`·`record`·`verdict`·`status`). exit code를 **예외까지 전량 매핑**한다: 0 / 12 `cap_reached` 전용 / 75 `EVIDENCE_LOCK_UNAVAILABLE`(일시적 경합 — 2로 뭉뚱그리면 산문이 영구 실패로 오독한다) / 2 그 외 + catch-all. CLI JSON stdout은 전부 camelCase.
+- `plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js` · `santa-gate.test.js` — 54 test(Windows에서 POSIX mode·symlink 3건 skip). 거의 전부 CLI 또는 실제 자식 프로세스를 지난다(순수 oracle만 보면 배선 결함을 놓친다는 이 repo의 실측 교훈).
+
+### Changed
+- `plugins/mccp/commands/santa-loop.md` — thin caller로 축약. Step 0의 3분기 판정 → `resolve-decision` 1회(산문에는 `warning` 출력만 잔류), Step 3 진입점에 `begin-round`, 리뷰어 응답 → `record`, Step 4 → `verdict`. **rubric 표·Output 섹션·Notes는 무변경** — 산문이 적합한 영역이다. 리뷰어 프롬프트와 출력 JSON 계약도 무변경이며, `id`/`model` 부여와 `critical_issues` → `criticalIssues` 변환은 CLI가 흡수한다.
+- `plugins/mccp/scripts/receipt/decision.js` — `BRANCH_PREFIX_RE` export **1줄만** 추가(`SLUG_RE`는 이미 export돼 있었다). `BRANCH_BASED_COMMANDS`는 **무변경**이고 test가 그것을 단언한다 — santa를 그 Set에 넣으면 `/mccp:pr` 전용 `lastImplementReceiptSlug` fallback이 딸려 와, receipt를 발행하지 않는 santa에서는 `receiptExistsForSlug`가 항상 false라 원장이 **다른 decision의 slug** 아래로 들어간다.
+- `.gitignore` · `docs/ENVIRONMENT.md` §11 — 원장 디렉토리 무시, `MCCP_SANTA_ROUND_CAP` 등재.
+
+### Fixed
+- `santa/ledger.js#canonicalPath` — 구현 중 실측한 이식성 결함. Windows에서 `git rev-parse --show-toplevel`은 긴 경로를 돌려주는데 호출자 경로는 8.3 단축명일 수 있고 **`fs.realpathSync`는 단축명을 확장하지 않아**, 같은 디렉토리가 두 철자를 갖고 `assertContained`의 prefix 비교가 실패한다 — **정상 호출이 traversal로 오판**됐다. `fs.realpathSync.native`로 양쪽을 정규화해 해소하고 회귀 test를 붙였다. 공유 모듈 `path-containment.js`는 손대지 않았다(pr-phase-lock·quarantine migration과 공유하는 표면).
 
 ## [1.23.7] — 2026-08-09
 

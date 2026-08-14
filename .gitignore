@@ -136,3 +136,11 @@ ECC/
 .claude/state/msw-events/
 .claude/state/*.env-snapshot.json
 .claude/state/*.handoff-items.json
+
+# setup-gitignore M1 — gitignore-provision.js 자신의 부산물. advisory lock 과
+# atomic tmp 는 정상 종료 시 사라지지만 크래시하면 남고, `--force-update` 의
+# `.bak` 은 설계상 존속하며 실행 직전 파일의 축자 사본이다. 런타임 산출물을
+# git 밖에 두는 것이 목적인 도구가 자기 산출물만 예외로 둘 수는 없다.
+.gitignore.lock
+.gitignore.bak
+.gitignore.*.tmp

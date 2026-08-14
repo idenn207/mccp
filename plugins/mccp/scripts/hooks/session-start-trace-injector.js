@@ -68,7 +68,14 @@ function compute(event) {
   //    unreadable/purgeFailures counts, because "could not sweep" must never
   //    read as "nothing to sweep".
   try {
+    // safeRequire returns null on a load failure. Left alone that is a SILENT
+    // zero, which contradicts the paragraph above — so the null is named here.
     const sp = safeRequire(path.join(libDir, 'session-processes'));
+    if (!sp) {
+      process.stderr.write('[mccp:session-processes] orphan sweep skipped: '
+        + 'session-processes failed to load — prior-session records are NOT '
+        + 'being reported or pruned this session\n');
+    }
     if (sp) {
       const orphans = sp.scanForeignOrphans(repoRoot, currentSession);
       if (orphans.liveCount || orphans.purgedCount

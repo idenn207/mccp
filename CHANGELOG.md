@@ -30,12 +30,15 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `MCCP_RECLAIM_BUDGET_MS`를 hook timeout 아래로 **clamp**한다(상한 9000ms, 하향은 자유). 넘기면 sweep이 hook timeout에서 중도 사살되고, 그때 사라지는 것이 부분 sweep의 유일한 증거인 `.unreclaimed.json`이다.
 - dashboard **reuse 등록 실패가 조용했다**. reuse 레코드는 소유 세션에게 "다른 세션이 아직 쓰고 있다"고 알리는 유일한 신호이므로, 실패하면 소유자의 `in_use_by_live_session` 가드가 사라지고 `MCCP_RECLAIM_OUTLIVES=1`에서 사용 중인 서버가 SIGTERM된다. 빌리는 쪽에서 복구할 수 없으므로 결과까지 명시해 표면화한다.
 - **읽기/삭제 경로가 session 디렉토리를 봉인하지 않았다.** 회수는 레지스트리 루트만 검사했고, 등록 후 `<registry>/<sid>`가 repo 밖 링크로 바뀌면 그 레코드를 근거로 kill하고 repo 밖 파일을 unlink했다 — 실측 재현. 이제 두 층을 함께 검사하며(`containedSessionDir`), 진입 시 1회가 아니라 **매 write/unlink 직전에 재검증**한다(TOCTOU는 좁혔을 뿐 닫지 않았다 — Node 동기 fs에 fd-상대 API가 없다).
+- **SessionEnd hook에 새 blocking 실패 모드를 만들었다가 되돌렸다.** `reclaimOwnedProcesses`의 `require`가 `try` 밖에 있어, 회수 스택의 모듈 로드 실패가 `run()` 밖으로 throw됐다 — `async:true / timeout:10`으로 non-blocking을 계약한 hook에서. 기존 test는 전부 `deps.reclaimSession`을 주입해 require를 단락시키므로 구조적으로 못 잡았고, 새 test는 실제 로드를 깨뜨린다.
+- **회수가 env-only 세션 id 게이트 뒤에서 통째로 건너뛰어졌다.** SessionEnd 페이로드에 종료 세션 id가 있는데도 env가 비면 조기 반환해, 그 세션의 프로세스가 영구 등록 상태로 남았다. observer cleanup은 env 키에 묶인 채 두고 회수만 페이로드로 fallback한다.
 - **읽을 수 없는 형제 증거가 가드를 지웠다.** `collectSiblingReuse`가 파싱 실패를 건너뛰어, 살아있는 borrower의 reuse 레코드가 손상되면 소유자가 사용 중인 dashboard를 죽이고 `complete:true`로 보고했다. 판정표에 13번째 행 `sibling_evidence_unreadable`을 `in_use_by_live_session` **앞**에 추가했다. 단, 파싱되는 비-reuse 레코드는 `incomplete`로 치지 않는다 — 그러지 않으면 훗날 스키마 bump 한 번에 회수가 통째로 얼어붙는다.
 
 ### 명시 잔여 (주장하지 않는 것)
 - §D11의 ms 단위 TOCTOU와 §D15의 유계 오살 창(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ command line이 절대경로 전체 포함)은 **단위 test로 재현할 수 없다**. "무관한 프로세스가 죽는 경로는 없다"고 주장하지 않는다.
 - §D15 축 1은 이제 "우리 경로가 **첫 script 토큰이고 node에 넘겨졌는가**"를 묻는다(단순 포함이 아니라 등가 비교). `node other.js <path>` · `tail -f <path>` · `<path>.bak` 는 전부 거부된다. 남은 것은 **상대 경로 기동**이 `identity_mismatch`로 읽히는 것(fail-closed — 회수를 놓칠 뿐이고, mccp의 두 기동 형태는 모두 절대 경로다). 상대 토큰을 재anchor하려면 suffix 매칭을 허용해야 하는데, 그것이 바로 전체경로 규칙이 막으려던 basename 충돌이다.
 - reuse 레코드 증가는 **부분적으로만** 닫혔다. 소유 세션이 죽었음이 증명된 것(같은 호스트 ∧ 정수 `session_pid` ∧ 그 pid 죽음)은 회수되는데, 이는 `isSiblingLive`가 **이미** "사용 중 아님"으로 읽던 집합과 정확히 같아 어떤 회수 판정도 바뀌지 않기 때문이다. `session_pid`가 null이거나 다른 호스트인 레코드는 **남긴다** — 그것을 지우면 "쓰고 있는지 알 수 없다"가 "아무도 안 쓴다"로 바뀌어 kill을 승인하게 된다. 유계 증가보다 그쪽이 비싸다.
+- `MCCP_RECLAIM_OUTLIVES=1`에서 **세션 식별자가 없는 borrower는 보호되지 않는다**. reuse 레코드를 쓸 디렉토리를 정할 수 없고, 합성 id로도 우회 불가다 — reuse의 liveness는 `session_pid`가 정하는데 재사용 경로에서 살아있는 주체가 바로 그 식별 불가능한 Claude 세션이기 때문이다. 이는 토글의 의미에 포함된 한계이며 `docs/ENVIRONMENT.md`에 근거까지 적었다. 기본값 0이 오늘의 동작이다.
 - 과거·타 세션의 **live** 고아 프로세스는 감지·보고까지만 한다(kill 없음).
 
 롤백: `rm -rf .claude/state/session-processes/` (gitignored·working-tree 전용).

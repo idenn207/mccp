@@ -22,12 +22,19 @@ function log(message) {
 // value, which must stay byte-identical (UI8: reclaim is not a blocking
 // condition for ending a session).
 function reclaimOwnedProcesses(repoRoot, sessionId, deps) {
-  // Bound under its own name rather than an alias so the Task 9(f) source scan
-  // can see this call site. An alias would make the scan pass vacuously — the
-  // exact failure mode that check exists to prevent.
-  const reclaimSession = (deps && deps.reclaimSession)
-    || require('../lib/session-processes').reclaimSession;
   try {
+    // The require lives INSIDE the try. Outside it — where it started — a
+    // module-load failure anywhere in the reclaim stack throws straight out of
+    // this function and out of run(), which is precisely the blocking SessionEnd
+    // failure UI8 forbids, and it skips the stderr surfacing below that exists
+    // to report exactly this. Verified: with the load stubbed to throw, run()
+    // threw instead of returning.
+    //
+    // Bound under its own name rather than an alias so the Task 9(f) source scan
+    // can see this call site. An alias would make the scan pass vacuously — the
+    // exact failure mode that check exists to prevent.
+    const reclaimSession = (deps && deps.reclaimSession)
+      || require('../lib/session-processes').reclaimSession;
     const r = reclaimSession({ repoRoot, sessionId });
     // The return value is READ, not discarded. §D6 claims "absence of a record
     // is not proof of reclaim"; this line is what makes that claim mean
@@ -93,8 +100,18 @@ function run(rawInput, deps) {
 
   const sessionId = resolveSessionId();
 
+  // The SessionEnd payload carries the ending session id even when the env does
+  // not. Env absence is a reason to skip OBSERVER cleanup — that path is keyed
+  // on the env id in ways this hook does not own — but it is NOT a reason to
+  // leave this session's processes registered forever. Reclaim is the one thing
+  // here that still has everything it needs.
+  const reclaimSid = sessionId || (event && event.session_id) || null;
+
   if (!sessionId) {
     log('No CLAUDE_SESSION_ID available; skipping observer cleanup');
+    if (reclaimSid) {
+      reclaimOwnedProcesses((event && event.cwd) || process.cwd(), reclaimSid, deps);
+    }
     return output;
   }
 
@@ -119,7 +136,7 @@ function run(rawInput, deps) {
   // LAST — after the hook-trace marker and after observer cleanup (UI10). The
   // marker is already on disk, so a reclaim that fails, throws, or runs out of
   // budget can no longer cost us the SessionEnd record.
-  reclaimOwnedProcesses((event && event.cwd) || process.cwd(), sessionId, deps);
+  reclaimOwnedProcesses((event && event.cwd) || process.cwd(), reclaimSid, deps);
 
   return output;
 }

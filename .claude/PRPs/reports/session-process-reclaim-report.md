@@ -255,6 +255,38 @@ R1에서 고친 것은 *쓰는 쪽*(등록 실패 표면화)이었고 *읽는 �
 
 151 tests / 150 pass / 0 fail / 1 skip. 두 재현 스크립트 모두 차단 확인.
 
+## santa-loop Round 4 — 사용자 승인 하의 검증 라운드
+
+A PASS·critical 0, B FAIL·critical 2. 네 라운드 내내 같은 분포다.
+
+### 수정 11 — SessionEnd hook에 **내가 넣은 회귀** (B critical 2)
+
+`reclaimOwnedProcesses`의 `require('../lib/session-processes')`가 `try` **밖**에 있었다. 모듈 로드가 실패하면 `run()` 밖으로 그대로 throw되어, `async:true / timeout:10`으로 **non-blocking을 계약한 hook에 새 blocking 실패 모드**를 만들고, 그것을 보고하려고 쓴 stderr surfacing까지 건너뛴다. 실측: 로드를 throw하게 stub하니 `run()`이 throw했다.
+
+**R1에서 정확히 이 계열을 `dashboard-server.js`와 `plan-codex-runner.js` 두 곳에 고쳐 놓고 hook 한 곳을 빠뜨린 것이다.** 기존 test 전부가 `deps.reclaimSession`을 주입해 require를 단락시키므로 **구조적으로 못 잡는 사각**이었다 — 새 test는 실제 모듈 로드를 깨뜨린다.
+
+### 수정 12 — env-only 세션 id 게이트가 회수를 통째로 건너뛰었다 (B R5)
+
+`run()`은 `event.session_id`를 파싱해 놓고도 회수를 env-only `resolveSessionId()`에 걸어 조기 반환했다. env가 비면 페이로드에 종료 세션 id가 있는데도 그 세션의 프로세스가 **영구 등록 상태로 남는다**. observer cleanup은 env 키에 묶여 있으니 그대로 두고, 회수만 페이로드로 fallback시켰다.
+
+기존 test `(c)`가 "세션 id 없으면 회수 skip"을 단언하면서 **정작 페이로드에는 session_id를 담아 넘기고 있었다** — 구멍을 규칙으로 고정한 test다. `(c)`(양쪽 다 없음)와 `(c2)`(env 없음 + 페이로드 있음)로 쪼갰다.
+
+### 수정 13 — `safeRequire` 침묵 (B R8)
+
+R2에서 "이제 어떤 실패도 조용하지 않다"고 주석을 달아 놓고, 모듈 로드 실패는 `safeRequire`가 `null`을 반환해 조용히 넘어갔다. 내 주석이 거짓이었다. null을 stderr로 명명한다.
+
+### 남은 critical 1건 — 메커니즘으로 닫을 수 없다 (B critical 1)
+
+빌리는 세션이 reuse 레코드를 쓰지 못하면(가장 싸게는 세션 식별자 부재) 소유자의 가드가 사라지고 `MCCP_RECLAIM_OUTLIVES=1`에서 사용 중인 dashboard가 죽는다. R1에서 표면화는 넣었지만 Codex는 "경고만 하고 그대로 진행하니 여전히 fail-open"이라고 지적했고, 그 말이 맞다.
+
+합성 세션 id로 우회하려다 접었다 — **reuse 레코드의 liveness는 `session_pid`가 정하는데, 재사용 경로에서 살아있는 주체는 Claude 세션(`CLAUDE_PID`)이고 그것이 바로 지금 식별 불가능한 대상이다.** 대신 CLI 프로세스의 pid를 쓰면 그 프로세스는 URL을 찍고 즉시 종료하므로 가드가 되지 못한다(오히려 fail-open). `null`을 쓰면 `isSiblingLive`가 영구 true가 되어 dashboard가 영영 회수 불가가 된다.
+
+그래서 이건 결함이 아니라 **토글의 의미**다: `MCCP_RECLAIM_OUTLIVES=1`은 "세션보다 오래 사는 것을 거두겠다"는 선언이고 공유 dashboard가 죽을 수 있다는 뜻을 포함한다(PRD OQ1이 열어둔 제품 질문). 기본값 0이 오늘의 동작이다. `docs/ENVIRONMENT.md`의 토글 설명에 이 한계를 — 왜 우회가 불가능한지까지 — 적었다.
+
+### 검증 (R4 이후)
+
+161 tests / 160 pass / 0 fail / 1 skip.
+
 ## 주장하지 않는 것 (명시 잔여)
 
 - **§D11 ms 단위 TOCTOU**와 **§D15 유계 오살 창**(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ command line이 절대경로 전체 포함)은 단위 test로 재현할 수 없다. "무관한 프로세스가 죽는 경로는 없다"고 **주장하지 않는다**.

@@ -106,14 +106,31 @@ test('(b) order is marker → observer cleanup → reclaim', () => {
 
 // ── (c) no session identity ─────────────────────────────────────────────────
 
-test('(c) with no CLAUDE_SESSION_ID the reclaim is skipped entirely', () => {
+// santa-loop R4 corrected this pair. The original single case asserted that an
+// absent CLAUDE_SESSION_ID skips reclaim "entirely" — while handing the hook a
+// payload that carried the session id all along. It was pinning a gap as if it
+// were a rule: the session's processes stayed registered forever even though the
+// id needed to reclaim them was right there in the event.
+
+test('(c) with NO session id from either source, reclaim is skipped', () => {
   const repo = tmpRepo();
   let called = false;
-  const got = withSessionEnv(null, () => captureStderr(() => marker.run(payload(repo, SID), {
-    reclaimSession: () => { called = true; return OK_RESULT; },
-  })));
-  assert.strictEqual(called, false, 'without a session key there is no directory to reclaim from');
+  const got = withSessionEnv(null, () => captureStderr(() => marker.run(
+    JSON.stringify({ cwd: repo }),          // payload carries no session_id either
+    { reclaimSession: () => { called = true; return OK_RESULT; } })));
+  assert.strictEqual(called, false, 'with no session key at all there is no directory to reclaim from');
   assert.strictEqual(got.err, null);
+});
+
+test('(c2) env id absent but the PAYLOAD carries one — reclaim still runs', () => {
+  const repo = tmpRepo();
+  let seen = null;
+  withSessionEnv(null, () => captureStderr(() => marker.run(payload(repo, SID), {
+    reclaimSession: (opts) => { seen = opts; return OK_RESULT; },
+  })));
+  assert.ok(seen, 'an env-only miss must not strand this session\'s processes: the '
+    + 'SessionEnd payload names the ending session, and reclaim needs nothing else');
+  assert.strictEqual(seen.sessionId, SID);
 });
 
 // ── (d)(e) the return value is actually consumed ────────────────────────────
@@ -149,6 +166,40 @@ test('a fully clean reclaim stays silent', () => {
   })));
   assert.ok(!/session-reclaim/.test(got.text),
     'noise on the happy path is how real warnings stop being read');
+});
+
+// santa-loop R4. The `require` of the reclaim stack sat OUTSIDE the try, so a
+// module-load failure threw straight out of run() — a NEW blocking failure mode
+// in a hook whose contract (hooks.json: async, timeout 10) is non-blocking, and
+// it bypassed the very stderr surfacing written to report it. Every other test
+// here injects `deps.reclaimSession`, which short-circuits the require and so
+// could never have caught this. This one breaks the real module load.
+test('a module-load failure in the reclaim stack cannot break the hook', () => {
+  const repo = tmpRepo();
+  const Module = require('module');
+  const original = Module._load;
+  Module._load = function (request) {
+    if (String(request).includes('session-processes')) {
+      throw new Error('SIMULATED module load failure');
+    }
+    return original.apply(this, arguments);
+  };
+
+  let got;
+  try {
+    got = withSessionEnv(SID, () => captureStderr(() => marker.run(payload(repo, SID))));
+  } finally {
+    Module._load = original;
+  }
+
+  assert.strictEqual(got.err, null,
+    'run() must not throw: a load failure here would be a blocking SessionEnd failure');
+  assert.strictEqual(got.value, payload(repo, SID),
+    'the return value must survive a load failure — UI8 makes reclaim non-blocking');
+  assert.ok(fs.existsSync(endMarkerPath(repo, SID)),
+    'and the end marker must already be on disk');
+  assert.ok(/SIMULATED module load failure/.test(got.text),
+    'and the failure must be NAMED — surviving quietly is the UI6 violation');
 });
 
 test('the default path reaches the real reclaimSession without a stub', () => {

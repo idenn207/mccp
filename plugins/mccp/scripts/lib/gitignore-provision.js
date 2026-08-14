@@ -810,17 +810,34 @@ function applyMerge(target, plan, options) {
     // alternative, rewriting in place, gives those up for a torn file on a
     // mid-write failure, which is both likelier and worse.
     //
-    // The failure is announced rather than swallowed: a filesystem that permits
-    // rename but rejects chmod leaves .gitignore owner-only, and silence there
-    // would be the user discovering it from a broken shared checkout instead.
-    try {
-      const targetMode = fs.statSync(target).mode & 0o777;
-      fs.chmodSync(tmpPath, targetMode);
-    } catch (err) {
-      process.stderr.write(
-        '[mccp:gitignore] WARNING: could not carry the file mode across the swap (' +
-          ((err && err.code) || 'unknown') + '). ' + target +
-          ' may end up owner-only (0600) — check it if this repo is shared.\n'
+    // Verified, and fail-closed when it would REDUCE access. Warning and then
+    // renaming anyway is fail-open: setup reports a successful update while
+    // having made .gitignore owner-only, which is precisely the "reported
+    // success, broke the thing" shape this tool exists to avoid. The check is on
+    // the OUTCOME, not on whether chmod threw — a filesystem can accept the call
+    // and ignore it.
+    //
+    // Only a reduction blocks. If the staged file ends up MORE permissive than
+    // the target (Windows reports synthetic modes, so this is the normal case
+    // there) nothing was taken away and the swap proceeds.
+    let targetMode = null;
+    let tmpMode = null;
+    try { targetMode = fs.statSync(target).mode & 0o777; } catch (_e) { /* reported below */ }
+    const chmodSync = (opts.deps && opts.deps.chmodSync) || fs.chmodSync;
+    if (targetMode !== null) {
+      try { chmodSync(tmpPath, targetMode); } catch (_e) { /* outcome check decides */ }
+    }
+    try { tmpMode = fs.statSync(tmpPath).mode & 0o777; } catch (_e) { /* reported below */ }
+    if (targetMode === null || tmpMode === null || (targetMode & ~tmpMode) !== 0) {
+      throw new ProvisionError(
+        REASONS.INTERNAL_ERROR,
+        'refusing to replace ' + target + ': the staged file could not be given the ' +
+          'target\'s permissions (' +
+          (targetMode === null ? 'target mode unreadable' :
+            tmpMode === null ? 'staged mode unreadable' :
+            'target ' + targetMode.toString(8) + ' vs staged ' + tmpMode.toString(8)) +
+          '). Nothing was written — the swap would have reduced access to the file.',
+        target
       );
     }
 

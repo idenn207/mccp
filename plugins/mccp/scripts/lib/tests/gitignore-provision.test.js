@@ -198,6 +198,26 @@ test('planMerge: missing file -> create, block only', () => {
   assert.ok(plan.nextContent.startsWith(B));
 });
 
+test('block replacement refuses to swap when it would reduce access (POSIX modes only)', { skip: !POSIX }, () => {
+  // A filesystem can accept chmod and ignore it, so the guard checks the OUTCOME.
+  // Warning and renaming anyway would report a successful update while leaving
+  // .gitignore owner-only — reported success over a broken file, which is the
+  // one failure shape this tool exists to avoid.
+  withTempDir((dir) => {
+    const target = path.join(dir, '.gitignore');
+    const before = seedStaleBlock(target);
+    fs.chmodSync(target, 0o644);
+    const plan = gp.planMerge({ content: before, version: VERSION });
+    assert.strictEqual(plan.action, 'update');
+    assert.throws(
+      () => gp.applyMerge(target, plan, { lockPath: target + '.lock', deps: { chmodSync: () => {} } }),
+      (err) => err instanceof gp.ProvisionError && err.reason === gp.REASONS.INTERNAL_ERROR
+    );
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), before, 'the target was replaced despite the refusal');
+    assert.strictEqual(fs.statSync(target).mode & 0o777, 0o644, 'the target mode changed');
+  });
+});
+
 test('block replacement preserves the target file mode (POSIX modes only)', { skip: !POSIX }, () => {
   // rename() swaps the inode, so the target inherits the tmp's mode. The tmp is
   // 0600 so it is never world-readable while being written — but if that mode

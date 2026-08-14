@@ -108,7 +108,7 @@ const MCCP_IGNORE_BLOCK = [
   '.worktrees/',
   '',
   "# This provisioner's own byproducts. The advisory lock and the atomic tmp are",
-  '# transient, but a crash leaves them behind; the --force-update .bak persists by',
+  '# transient, but a crash leaves them behind; the .bak persists by',
   '# design and is a verbatim copy of the pre-run file. A tool whose purpose is to',
   '# keep runtime artifacts out of git must not exempt its own.',
   '.gitignore.lock',
@@ -516,7 +516,7 @@ function readTargetContent(target) {
 }
 
 // Node's fs follows symlinks. If .gitignore is a symlink an attacker pre-placed,
-// append-only ('a') and the force-update rewrite would both act on the link's
+// append-only ('a') and the block-replacing rewrite would both act on the link's
 // target. There is no legitimate shape in which .gitignore is a symlink, so we
 // refuse rather than compute a "safe" boundary — the allow-check would itself be
 // new attack surface.
@@ -636,11 +636,11 @@ function applyMerge(target, plan, options) {
     return { written: true, backupPath: null };
   }
 
-  // Only reachable with explicit --force-update, because this is the one path
-  // that rewrites the whole file. Asserted rather than assumed: an unrecognized
-  // action falling through to a whole-file rewrite is the worst possible default.
-  // (`update-required` is synthesized by provision(), never by planMerge, and so
-  // never reaches here.)
+  // The one path that rewrites the whole file. Asserted rather than assumed: an
+  // unrecognized action falling through into a whole-file rewrite is the worst
+  // possible default. The rewrite carries every line outside the managed block
+  // over unchanged — that is what lets it run without a separate consent flag,
+  // and it is also why the assertion above it has to be exact.
   if (plan.action !== 'update') {
     throw new ProvisionError(
       REASONS.INTERNAL_ERROR,
@@ -777,17 +777,38 @@ function resolveRepoRoot(cwd, deps) {
   return { ok: true, root: String(result.stdout || '').trim() };
 }
 
+// Scoped to the canonical rules ONLY, via a temp exclude file, because the
+// caller presents every result as "newly ignored by this provisioning" and tells
+// the user to `git rm --cached` it. `--exclude-standard` evaluates the
+// repository's whole ignore configuration, so a file already tracked and already
+// ignored by the user's own .gitignore would be reported here and the user would
+// be advised to untrack a file this tool never touched. It also pulled in
+// .git/info/exclude and the global ignore file — the two channels UI4 puts out
+// of scope — through the back door.
 function detectTrackedPollution(root, deps) {
   const run = (deps && deps.spawnSync) || spawnSync;
+  let excludeFile;
+  try {
+    excludeFile = path.join(
+      os.tmpdir(),
+      'mccp-gitignore-scan-' + process.pid + '-' + crypto.randomBytes(6).toString('hex')
+    );
+    fs.writeFileSync(excludeFile, MCCP_IGNORE_BLOCK.join('\n') + '\n', { mode: 0o600 });
+  } catch (_err) {
+    return { ok: false, reason: REASONS.INTERNAL_ERROR, files: [] };
+  }
   let result;
   try {
-    result = run('git', ['ls-files', '-i', '-c', '--exclude-standard'], {
+    // No --exclude-standard: with -X alone the patterns are exactly ours.
+    result = run('git', ['ls-files', '-i', '-c', '-X', excludeFile], {
       cwd: root,
       encoding: 'utf8',
       env: gitEnv(),
     });
   } catch (err) {
     return { ok: false, reason: REASONS.GIT_UNAVAILABLE, files: [] };
+  } finally {
+    try { fs.unlinkSync(excludeFile); } catch (_e) {}
   }
   if (!result || result.error || result.status !== 0) {
     return { ok: false, reason: REASONS.GIT_UNAVAILABLE, files: [] };
@@ -804,7 +825,7 @@ function detectTrackedPollution(root, deps) {
 // ---------------------------------------------------------------------------
 
 // Actions after which newly-installed rules can be shadowing already-tracked
-// files. `noop`/`update-required` install nothing new, and `skip` has no repo.
+// files. `noop` installs nothing new, and `skip` has no repo.
 const POLLUTION_RELEVANT = Object.freeze(['create', 'append', 'update']);
 
 // Runs against repoRoot, not the caller's cwd. Detection scoped to cwd would
@@ -820,7 +841,6 @@ function pollutionFor(action, repoRoot, deps) {
 function provision(options) {
   const opts = options || {};
   const dryRun = Boolean(opts.dryRun);
-  const forceUpdate = Boolean(opts.forceUpdate);
 
   // Repo resolution first: in a non-git directory the version is never needed,
   // and reading it first turned a corrupt plugin.json there into exit 1 instead
@@ -846,9 +866,8 @@ function provision(options) {
     // pollution scan either — nothing became newly ignored.
     assertNotSymlink(target);
     const plan = planMerge({ content: readTargetContent(target), version });
-    const action = plan.action === 'update' && !forceUpdate ? 'update-required' : plan.action;
     return {
-      ok: true, action, reason: null, repoRoot, addedLines: plan.addedLines,
+      ok: true, action: plan.action, reason: null, repoRoot, addedLines: plan.addedLines,
       backupPath: null, dryRun: true, version, pollution: null,
     };
   }
@@ -861,19 +880,22 @@ function provision(options) {
     const content = readTargetContent(target);
     const plan = planMerge({ content, version });
 
-    if (plan.action === 'update' && !forceUpdate) {
-      // No consent, no whole-file rewrite. Report and leave the file alone.
-      result = {
-        ok: true, action: 'update-required', reason: null, repoRoot,
-        addedLines: plan.addedLines, backupPath: null, dryRun: false, version, pollution: null,
-      };
-    } else {
-      const applied = applyMerge(target, plan, { lockPath });
-      result = {
-        ok: true, action: plan.action, reason: null, repoRoot,
-        addedLines: plan.addedLines, backupPath: applied.backupPath, dryRun: false, version, pollution: null,
-      };
-    }
+    // `update` applies without a separate consent flag. The block is TOOL-OWNED
+    // and planMerge replaces only the marker span, so every line outside it is
+    // carried over byte-for-byte (the index-inequality test asserts this) —
+    // there is no user content for consent to protect. Gating it behind
+    // --force-update conflated "replace the tool's own block" with "rewrite the
+    // user's file", and the cost of that conflation was severe: the block
+    // embeds the plugin version, so ANY version bump put every existing install
+    // into a permanent no-write state while setup still reported success. The
+    // feature's own promise — idempotently merge the canonical rules — stopped
+    // holding after the first upgrade. The .bak and the sourceHash re-check stay
+    // as the recovery and lost-update guards.
+    const applied = applyMerge(target, plan, { lockPath });
+    result = {
+      ok: true, action: plan.action, reason: null, repoRoot,
+      addedLines: plan.addedLines, backupPath: applied.backupPath, dryRun: false, version, pollution: null,
+    };
   } finally {
     releaseLock(lockPath, token);
   }
@@ -932,17 +954,16 @@ if (require.main === module) {
     return value;
   };
   const dryRun = args.includes('--dry-run');
-  const forceUpdate = args.includes('--force-update');
   const asJson = args.includes('--json');
   const repo = flag('repo');
 
   if (cmd !== 'provision') {
-    process.stderr.write('usage: gitignore-provision.js provision [--dry-run] [--repo <path>] [--force-update] [--json]\n');
+    process.stderr.write('usage: gitignore-provision.js provision [--dry-run] [--repo <path>] [--json]\n');
     process.exit(2);
   }
 
   try {
-    const result = provision({ dryRun, forceUpdate, repo });
+    const result = provision({ dryRun, repo });
     if (asJson) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     else process.stdout.write((result.action || 'unknown') + (result.reason ? ' (' + result.reason + ')' : '') + '\n');
     process.exit(0);

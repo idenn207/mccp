@@ -157,10 +157,12 @@ Contract:
 - `action:'skip'` (`not-a-git-repo`) is not a failure: report one line and move on
   to Phase 6.
 - `noop` → already current. `create` / `append` → report how many lines were added
-  (no `.bak` — these paths never rewrite the file). `update` (only reachable with
-  `--force-update`) → report the updated line count and the `.bak` path.
-  `update-required` → the canonical list moved on, but nothing was written because
-  a whole-file rewrite needs explicit consent.
+  (no `.bak` — these paths never rewrite the file). `update` → the canonical block
+  moved on and was replaced in place; report the line count and the `.bak` path.
+  The managed block is tool-owned and only its marker span is replaced, so every
+  line outside it is carried over byte-for-byte and no consent flag gates it —
+  otherwise a plugin version bump alone (the version is embedded in the block)
+  would leave every existing install on stale rules while setup reported success.
 - With `--dry-run`, print `addedLines` and write nothing.
 - If already-tracked files are now ignored, list them and **do not untrack them**.
   The provisioner runs that scan itself, against the repository root it resolved,
@@ -195,11 +197,6 @@ fi
 case "$PROVISION_ACTION" in
   skip)   echo "[mccp:setup] git 저장소가 아님 — .gitignore 프로비저닝을 건너뜁니다." ;;
   noop)   echo "[mccp:setup] .gitignore 무시 규칙이 이미 최신입니다." ;;
-  update-required)
-    echo "[mccp:setup] 정본 규칙이 갱신됐습니다. 기존 블록을 갈아끼우려면 명시적으로 재실행하세요:"
-    echo "  node \"${CLAUDE_PLUGIN_ROOT}/scripts/lib/gitignore-provision.js\" provision --force-update"
-    echo "  (동의 없이 .gitignore 전체를 다시 쓰지 않습니다 — UI2)"
-    ;;
   create|append|update)
     # A dry run reaches this branch with the SAME action a real run would report
     # — that is what makes it a preview — so the action alone cannot tell the two
@@ -214,7 +211,7 @@ case "$PROVISION_ACTION" in
       # provisioner deliberately leaves `pollution` null — reporting that as
       # "could not check" would warn about a scan that was never meant to run.
     else
-      # backupPath is non-null only for the --force-update whole-file replace.
+      # backupPath is non-null only for the `update` block-replace path.
       # create/append are append-only, so there is nothing to back up and the
       # value itself distinguishes the paths — one branch cannot misreport.
       echo "[mccp:setup] .gitignore 갱신됨 (action=$PROVISION_ACTION, ${ADDED_LINES}줄 추가). 백업: $(printf '%s' "$PROVISION_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).backupPath||"(none — 전체 교체 없음)")}catch{process.stdout.write("(none)")}')"

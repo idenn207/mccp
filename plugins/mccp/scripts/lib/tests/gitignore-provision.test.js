@@ -435,7 +435,7 @@ test('E2E: git actually tracks the ship receipt and ignores the rest', () => {
 
 test("E2E: the provisioner's own byproducts are ignored, not left in git status", () => {
   // The tool exists to keep runtime artifacts out of git. Its own lock, atomic
-  // tmp, and --force-update .bak are runtime artifacts, and the .bak is a
+  // tmp, and block-replacement .bak are runtime artifacts, and the .bak is a
   // verbatim copy of the user's file that persists by design.
   withTempRepo((dir) => {
     assert.strictEqual(runCli(['provision', '--repo', dir, '--json']).status, 0);
@@ -478,6 +478,35 @@ test('pollution: reported for write actions, scoped to the repo root and not to 
       'root-level pollution missed from a subdirectory invocation: ' + JSON.stringify(j.pollution.files)
     );
     assert.ok(fs.readFileSync(target, 'utf8').includes(gp.BEGIN_MARKER));
+  });
+});
+
+test('pollution: reports only what OUR rules ignore, not what the user already ignored', () => {
+  // The caller presents every reported path as newly ignored by this run and
+  // tells the user to `git rm --cached` it. Scanning with --exclude-standard
+  // evaluated the repo's whole ignore configuration, so a file the user had
+  // already tracked AND already ignored by their own rule would show up here and
+  // the user would be advised to untrack a file this tool never touched.
+  withTempRepo((dir, target) => {
+    fs.writeFileSync(target, 'user-secret-notes/\n', 'utf8');
+    fs.mkdirSync(path.join(dir, 'user-secret-notes'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'user-secret-notes', 'a.txt'), 'mine\n', 'utf8');
+    fs.mkdirSync(path.join(dir, '.claude', 'cache'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.claude', 'cache', 'x.json'), '{}\n', 'utf8');
+    // -f: both are ignored by one rule set or the other, so a plain add is a no-op.
+    const add = spawnSync('git', ['-C', dir, 'add', '-f', 'user-secret-notes/a.txt', '.claude/cache/x.json'], { encoding: 'utf8' });
+    assert.strictEqual(add.status, 0, 'git add failed: ' + (add.stderr || add.error));
+
+    const j = cliJson(runCli(['provision', '--repo', dir, '--json']));
+    assert.strictEqual(j.pollution.ok, true, 'the scan itself failed');
+    assert.ok(
+      j.pollution.files.includes('.claude/cache/x.json'),
+      'a file ignored by OUR canonical rule was not reported: ' + JSON.stringify(j.pollution.files)
+    );
+    assert.ok(
+      !j.pollution.files.includes('user-secret-notes/a.txt'),
+      'reported a file ignored solely by the user\'s own rule: ' + JSON.stringify(j.pollution.files)
+    );
   });
 });
 
@@ -569,7 +598,7 @@ test('E2E: --dry-run writes nothing (UI9)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// update-required / --force-update
+// block replacement (the `update` action)
 // ---------------------------------------------------------------------------
 
 function seedStaleBlock(target, extraBefore) {
@@ -578,26 +607,40 @@ function seedStaleBlock(target, extraBefore) {
   return stale.nextContent;
 }
 
-test('E2E: a stale block does NOT rewrite the file without --force-update (UI2)', () => {
+test('E2E: a stale block IS replaced on a normal run, and lines outside survive (UI1+UI2)', () => {
+  // The block is tool-owned and carries the plugin version, so gating its
+  // replacement behind a consent flag meant every version bump left existing
+  // installs on stale rules while setup still reported success — UI1's
+  // idempotent merge stopped holding after the first upgrade. Replacing it by
+  // default is only safe because the marker span is the ONLY thing that moves;
+  // this test asserts both halves at once.
+  withTempRepo((dir, target) => {
+    const before = seedStaleBlock(target, 'user-head/\nkeep-me/\n');
+    const res = runCli(['provision', '--repo', dir, '--json']);
+    assert.strictEqual(res.status, 0, res.stderr);
+    const j = cliJson(res);
+    assert.strictEqual(j.action, 'update', 'a stale block was not refreshed on a normal run');
+    assert.ok(j.backupPath, 'a block replacement must leave a recovery copy');
+    assert.strictEqual(fs.readFileSync(j.backupPath, 'utf8'), before, '.bak is not the pre-run file');
+
+    const after = fs.readFileSync(target, 'utf8');
+    assert.ok(after.includes('# managed by /mccp:setup (mccp ' + VERSION + ')'), 'block not refreshed');
+    assert.ok(!after.includes('0.0.1-stale'), 'stale block survived');
+    assert.ok(after.startsWith('user-head/\nkeep-me/\n'), 'lines outside the block moved or were lost');
+
+    // And it settles: a second run has nothing left to do.
+    assert.strictEqual(cliJson(runCli(['provision', '--repo', dir, '--json'])).action, 'noop');
+  });
+});
+
+test('E2E: a block replacement leaves a byte-identical .bak', () => {
   withTempRepo((dir, target) => {
     const before = seedStaleBlock(target);
     const res = runCli(['provision', '--repo', dir, '--json']);
     assert.strictEqual(res.status, 0, res.stderr);
-    assert.strictEqual(cliJson(res).action, 'update-required');
-    assert.strictEqual(cliJson(res).backupPath, null);
-    assert.strictEqual(fs.readFileSync(target, 'utf8'), before, 'file changed without consent');
-    assert.ok(!fs.existsSync(target + '.bak'));
-  });
-});
-
-test('E2E: --force-update replaces the block and leaves a byte-identical .bak', () => {
-  withTempRepo((dir, target) => {
-    const before = seedStaleBlock(target);
-    const res = runCli(['provision', '--repo', dir, '--force-update', '--json']);
-    assert.strictEqual(res.status, 0, res.stderr);
     const j = cliJson(res);
     assert.strictEqual(j.action, 'update');
-    assert.ok(j.backupPath, '--force-update must report a backup path');
+    assert.ok(j.backupPath, 'a block replacement must report a backup path');
     assert.strictEqual(fs.readFileSync(j.backupPath, 'utf8'), before, '.bak is not the pre-run file');
 
     const after = fs.readFileSync(target, 'utf8');
@@ -607,10 +650,10 @@ test('E2E: --force-update replaces the block and leaves a byte-identical .bak', 
   });
 });
 
-test('--force-update: .bak is owner-only (POSIX modes only)', { skip: !POSIX }, () => {
+test('block replacement: .bak is owner-only (POSIX modes only)', { skip: !POSIX }, () => {
   withTempRepo((dir, target) => {
     seedStaleBlock(target);
-    const res = runCli(['provision', '--repo', dir, '--force-update', '--json']);
+    const res = runCli(['provision', '--repo', dir, '--json']);
     assert.strictEqual(res.status, 0, res.stderr);
     const mode = fs.statSync(cliJson(res).backupPath).mode & 0o777;
     assert.strictEqual(mode, 0o600, '.bak holds a verbatim copy of the user file');
@@ -754,7 +797,7 @@ test('lock: two concurrent writers both succeed and leave exactly one managed bl
   });
 });
 
-test('--force-update: the tmp file is per-run unique (a fixed name would collide)', () => {
+test('block replacement: the tmp file is per-run unique (a fixed name would collide)', () => {
   withTempDir((dir) => {
     const target = path.join(dir, '.gitignore');
     const seen = new Set();
@@ -762,7 +805,7 @@ test('--force-update: the tmp file is per-run unique (a fixed name would collide
       const before = seedStaleBlock(target);
       const plan = gp.planMerge({ content: before, version: VERSION });
       const applied = gp.applyMerge(target, plan, { lockPath: target + '.lock' });
-      assert.ok(applied.tmpPath, 'force-update must use a tmp file');
+      assert.ok(applied.tmpPath, 'a block replacement must use a tmp file');
       assert.ok(/\.\d+\.[0-9a-f]{12}\.tmp$/.test(applied.tmpPath), 'tmp must carry pid + nonce: ' + applied.tmpPath);
       assert.ok(!seen.has(applied.tmpPath), 'tmp name repeated across runs');
       seen.add(applied.tmpPath);
@@ -792,7 +835,7 @@ test('write refuses a symlinked .gitignore instead of following it', (t) => {
   });
 });
 
-test('--force-update refuses a symlinked .bak instead of writing through it', (t) => {
+test('block replacement refuses a symlinked .bak instead of writing through it', (t) => {
   // The backup path is as deterministic as the target, so it is as pre-placeable.
   // A plain 'w' write follows the link and lands the user's .gitignore — whose
   // lines an attacker with repo-write already controls — on whatever it points at.
@@ -806,7 +849,7 @@ test('--force-update refuses a symlinked .bak instead of writing through it', (t
       t.skip('symlink creation unavailable: ' + err.code);
       return;
     }
-    const res = runCli(['provision', '--repo', dir, '--force-update', '--json']);
+    const res = runCli(['provision', '--repo', dir, '--json']);
     assert.strictEqual(res.status, 1, 'wrote the backup through a symlink');
     assert.strictEqual(cliJson(res).reason, gp.REASONS.SYMLINK_TARGET);
     assert.strictEqual(fs.readFileSync(victim, 'utf8'), 'do-not-touch\n', 'the symlink target was overwritten');
@@ -1110,7 +1153,7 @@ test('setup.md contract lint: Phase 5 exists and its fail-closed wiring is intac
   assert.ok(!md.includes('MCCP_TMP'), 'MCCP_TMP is undefined in setup.md — redirecting to it loses stderr');
   // 10
   assert.ok(md.includes('case "$PROVISION_ACTION" in'), 'action dispatch missing');
-  for (const action of ['skip', 'noop', 'create', 'append', 'update', 'update-required']) {
+  for (const action of ['skip', 'noop', 'create', 'append', 'update']) {
     assert.ok(new RegExp('(^|[^-\\w])' + action + '([^-\\w]|$)', 'm').test(md), 'action branch missing: ' + action);
   }
   // 11

@@ -13,7 +13,7 @@
 | ID | Constraint (user-stated) | Kind |
 |---|---|---|
 | UI1 | `/mccp:setup`이 mccp 런타임 무시 규칙을 대상 저장소 `.gitignore`에 멱등적으로 병합한다 | direction |
-| UI2 | 사용자의 기존 `.gitignore` 줄은 절대 변경하거나 삭제하지 않는다 | constraint |
+| UI2 | marker 블록 바깥의 사용자 `.gitignore` 줄은 절대 변경하거나 삭제하지 않는다. marker 사이는 도구 소유 구간이며 매 실행에서 통째로 교체된다 | constraint |
 | UI3 | 사용자 기존 규칙의 정리나 중복 제거는 하지 않는다 | exclusion |
 | UI4 | `.git/info/exclude`와 global gitignore는 대상이 아니다 | exclusion |
 | UI5 | git 저장소가 아니면 skip하고 보고한다 | constraint |
@@ -22,6 +22,12 @@
 | UI8 | ship receipt `mccp-pr-codex`는 추적 대상으로 남아야 한다 | constraint |
 | UI9 | `--dry-run`은 추가될 줄을 보여주고 파일에 쓰지 않는다 | constraint |
 | UI10 | 산출물의 가치는 다른 프로젝트에 mccp를 설치할 때이며 이 repo 자신이 아니다 | direction |
+
+> **UI2 개정 기록 (PR-Codex R3·R5, 사용자 승인).** 원문은 "사용자의 기존 `.gitignore` 줄은 절대 변경하거나 삭제하지 않는다"였고 **marker 바깥이라는 단서가 없었다**. PR-Codex가 두 라운드에 걸쳐 같은 축을 제기했다: 사용자가 marker 안에 직접 쓴 줄도 문자 그대로 "사용자의 줄"이므로 `update`의 전체 교체는 UI2 위반이다. 구현 쪽 해석("블록 안은 도구 소유")은 **원문에 없는 예외를 끼워 넣은 것**이었고, 그 판정은 옳았다.
+>
+> 사용자 제약이므로 재해석하지 않고 **사용자에게 물어 UI2를 좁혔다**. 근거: managed block은 dotfile 관리자·`ssh` known-hosts 등에서 확립된 계약이고, 임의 in-block 줄을 보존하는 대안은 **정본에서 은퇴시킨 규칙까지 영구히 남긴다**(런타임에 이전 정본을 알 수 없어 사용자 줄과 구분 불가). 가시성과 복구는 블록 안 경고 2줄 + `.bak`이 담당한다.
+>
+> 이 개정은 UI2를 **좁힌다** — 실질 보호 범위가 줄었으므로 숨기지 않고 여기 남긴다.
 
 ## Patterns to Mirror
 

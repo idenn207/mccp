@@ -296,7 +296,13 @@ function planMerge(options) {
 
   if (located.state === 'absent') {
     const trailing = content.length === 0 || content.endsWith('\n') ? '' : eol;
-    const payload = trailing + eol + blockLines.join(eol) + eol;
+    // The blank separator line belongs between the user's content and the
+    // block. An existing-but-empty file has no content to separate from, and
+    // emitting it there made `append` produce a leading blank line while
+    // `create` — the same outcome reached from a missing file — did not. Two
+    // paths that describe the same end state must agree on the bytes.
+    const separator = content.length === 0 ? '' : eol;
+    const payload = trailing + separator + blockLines.join(eol) + eol;
     return {
       action: 'append',
       nextContent: content + payload,
@@ -440,6 +446,13 @@ function resolveWaitMs(optWaitMs) {
 
 function acquireLock(lockPath, options) {
   const opts = options || {};
+  // The exclusive create below already refuses to follow a symlink — O_EXCL
+  // fails with EEXIST on one, even a dangling one, so nothing is ever written
+  // through the link. But EEXIST is this loop's "somebody holds the lock"
+  // signal, so without this check a symlinked lock path spins out the whole
+  // wait and then blames a live writer that does not exist. Naming the real
+  // condition is the fix; the write itself was never the exposure.
+  assertNotSymlink(lockPath);
   const waitMs = resolveWaitMs(opts.waitMs);
   const token = crypto.randomUUID();
   const body = JSON.stringify({ token, pid: process.pid, host: os.hostname(), acquired_at: new Date().toISOString() });
@@ -507,6 +520,12 @@ function readTargetContent(target) {
 // target. There is no legitimate shape in which .gitignore is a symlink, so we
 // refuse rather than compute a "safe" boundary — the allow-check would itself be
 // new attack surface.
+//
+// The same reasoning covers every path this module writes, not just the target:
+// `.gitignore.lock` and `.gitignore.bak` are equally deterministic, so they are
+// equally pre-placeable, and the guard is only worth its name if it is applied
+// uniformly. The tmp path is the one exception — pid + nonce means an attacker
+// cannot name it in advance — and it is written exclusively anyway.
 function assertNotSymlink(target) {
   let st;
   try {
@@ -612,9 +631,22 @@ function applyMerge(target, plan, options) {
   // .bak is a single-rotation backup for this rewrite only; an existing .bak is
   // overwritten. It is a recovery aid, not an archive. 0o600 because it holds a
   // verbatim copy of the user's file.
+  //
+  // The path is deterministic, so it can be pre-placed, and a plain 'w' write
+  // follows a symlink: `.gitignore.bak -> ~/.bashrc` would land the user's
+  // .gitignore — whose lines an attacker with repo-write already controls —
+  // on that file. The lstat names that case with its own reason; unlink + 'wx'
+  // then closes the check-to-write window, because a symlink re-placed inside
+  // it makes the exclusive create fail rather than follow.
   const backupPath = target + '.bak';
+  assertNotSymlink(backupPath);
   try {
-    fs.writeFileSync(backupPath, current, { mode: 0o600 });
+    try {
+      fs.unlinkSync(backupPath);
+    } catch (unlinkErr) {
+      if (!unlinkErr || unlinkErr.code !== 'ENOENT') throw unlinkErr;
+    }
+    fs.writeFileSync(backupPath, current, { flag: 'wx', mode: 0o600 });
   } catch (err) {
     throw new ProvisionError(REASONS.INTERNAL_ERROR, 'cannot write backup ' + backupPath + ': ' + err.message, backupPath);
   }
@@ -624,7 +656,11 @@ function applyMerge(target, plan, options) {
   // is never world-readable even briefly.
   const tmpPath = target + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
   try {
-    fs.writeFileSync(tmpPath, plan.nextContent, { mode: 0o600 });
+    // 'wx' for the same reason the backup uses it: an exclusive create cannot
+    // be redirected through a symlink. The nonce already makes pre-placement
+    // impractical, so this is the cheap half of defence in depth, not the load
+    // -bearing half.
+    fs.writeFileSync(tmpPath, plan.nextContent, { flag: 'wx', mode: 0o600 });
     touchLock(lockPath);
     fs.renameSync(tmpPath, target);
   } catch (err) {

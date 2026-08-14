@@ -16,7 +16,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Added
 - `plugins/mccp/scripts/lib/gitignore-provision.js` — 정본 블록(`MCCP_IGNORE_BLOCK` 29 entries) + `REPO_ONLY`(21, 제외 사유 동봉) + 순수 merge 오라클(`planMerge`) + `locateManagedBlock` 엄격 3-state 판정 + advisory lock + 오염 스캔 + CLI. `reason`은 **폐쇄 enum 8종**이며 비-`ProvisionError` 예외는 전부 `internal-error`로 매핑된다(Implement-Codex F1 흡수 — OS/Node별 메시지가 프로토콜 값으로 새는 것을 차단).
-- `plugins/mccp/scripts/lib/tests/gitignore-provision.test.js` — 79 tests. merge 의미론 · 손상 marker 4케이스 · `spawnSync` 6행 판정표(스텁) · 실제 write E2E · 동시성(중간 편집 주입 · 병렬 writer · lease 만료 · 회수 신원 재검증 · tmp 고유성) · drift lint · `setup.md` 계약 14항목 · 워크플로 트리거 lint의 **단일 소유처**.
+- `plugins/mccp/scripts/lib/tests/gitignore-provision.test.js` — 82 tests. merge 의미론 · 손상 marker 4케이스 · `spawnSync` 6행 판정표(스텁) · 실제 write E2E · 동시성(중간 편집 주입 · 병렬 writer · lease 만료 · 회수 신원 재검증 · tmp 고유성) · drift lint · `setup.md` 계약 14항목 · 워크플로 트리거 lint의 **단일 소유처**.
 - `.github/workflows/gitignore-drift.yml` — drift 전용 게이트. `paths` 필터를 lint의 판정 입력과 같은 집합으로 두어 스텝이 죽은 코드가 되지 않게 한다. matrix의 `windows-latest`가 보증하는 것은 **write/lock/symlink 경로의 플랫폼 동등성**이다 — checkout 바이트가 LF인 것은 `.gitattributes`(`* text=auto eol=lf`)가 이미 정하므로 러너 EOL 설정으로 얻는 보증이 아니다(그 사실 자체를 test가 단언한다).
 
 ### Changed
@@ -31,9 +31,12 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `--repo`가 값 없이(또는 `--repo --json`으로) 주어지면 조용히 cwd로 폴백하거나 `--json`이라는 이름의 디렉토리를 대상으로 삼았다 — 둘 다 **호출자가 지정하지 않은 저장소에 쓰는** 경로다. 이제 usage 오류(exit 2).
 - `plugin.json` 판독이 repo 해석보다 먼저라, non-git 디렉토리에서 manifest가 손상되면 문서화된 skip(exit 0) 대신 exit 1이 났다.
 - `applyMerge`가 미인식 action을 whole-file rewrite 경로로 흘려보낼 수 있던 fallthrough를 명시 거부로 바꿨다(도달 불가였던 `update-required` 분기 제거).
+- **빈 `.gitignore`가 없는 `.gitignore`와 다른 바이트를 만들던 문제.** 파일이 없으면 `create`가 블록으로 시작하는 파일을 쓰지만, 파일이 있고 비어 있으면 `append`가 앞에 빈 줄을 하나 붙였다 — 같은 종료 상태를 서술하는 두 경로가 관리 블록 **바깥에** 아무도 쓰지 않은 줄을 두고 갈렸다. 빈 줄은 사용자 내용과 블록을 띄우기 위한 구분자이므로 띄울 내용이 없을 때는 생성하지 않는다(내용이 있을 때 구분자가 유지되는 것도 함께 단언한다 — 반대 방향 과잉교정 차단).
 
 ### Security
 - `.gitignore` 대상이 **symlink면 거부**한다(`reason:'symlink-target'`, exit 1, 파일 무변경). Node `fs`는 기본적으로 링크를 따르므로 append/force-update가 임의 파일에 쓸 수 있었다. 안전 경계를 계산해 허용하지 않고 거부를 택한 것은 허용 판정 로직 자체가 새 공격면이기 때문(security-reviewer S1).
+- **거부 범위를 결정적 write 경로 전체로 확장했다** — 이전에는 대상 `.gitignore`만 검사해 `.gitignore.bak`이 무방비였다. `.bak`은 경로가 대상만큼 결정적이라 동일하게 사전 배치가 가능하고 기본 `'w'` 쓰기는 링크를 따르므로, `.gitignore.bak -> ~/.bashrc`를 심어두면 `--force-update` 시 사용자의 `.gitignore`(공격자가 repo-write를 가졌다면 그 줄 내용까지 통제 가능)가 그 파일에 얹혔다. 저장소 쓰기 권한이 저장소 **밖 임의 경로에 대한 임의 내용 쓰기**로 확대되는 경로다. 이제 `.bak`도 lstat으로 거부하고, 검사와 쓰기 사이의 창은 unlink + `'wx'` 배타 생성으로 닫는다(그 사이 다시 심긴 링크는 따라가는 대신 생성이 실패한다). tmp도 같은 이유로 `'wx'`로 바꿨다 — pid + nonce라 사전 배치가 비현실적이므로 이쪽은 하중을 받는 절반이 아니라 값싼 절반이다.
+- lock 경로도 symlink면 **명시 거부**한다. 배타 생성이 이미 링크를 따르지 않아(O_EXCL은 링크에서 EEXIST) 쓰기 노출은 애초에 없었지만, EEXIST가 이 루프에서는 "다른 writer가 점유 중"이라는 신호라 가드가 없으면 lease를 다 소진한 뒤 **존재하지 않는 live writer**를 탓하며 실패했다. 고친 것은 오류 계약이지 쓰기 노출이 아니다.
 - lock · tmp · `.bak`을 `0o600`으로 생성한다. `.bak`은 사용자 파일의 축자 사본이고 tmp는 기본 모드에서 world-readable이었다(S2·S3).
 
 ## [1.23.7] — 2026-08-09

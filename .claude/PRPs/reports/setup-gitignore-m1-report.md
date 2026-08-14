@@ -154,3 +154,15 @@ lock/tmp/`.bak` `0o600`(S2) · `.bak` 덮어쓰기 의미 명시(S3). 전부 pla
 3. **선재 결함이 검사 자체를 무력화한 축 (MEDIUM 2)** — Validation 블록 6의 `grep -qF "- '...'"`은 패턴이 `-`로 시작해 grep이 옵션으로 파싱, exit 2로 죽었다. 즉 **블록 6·7이 한 번도 실행된 적이 없다**. 블록 2의 `git diff --exit-code`도 같은 사이클이 `.gitignore`를 정당하게 수정하면 무조건 red라 dry-run의 무해함이 아니라 워킹트리 청결함을 측정하고 있었다. 둘을 고친 뒤 **Validation 7블록 전체가 exit 0**으로 통과함을 확인했다.
 
 lock 계층(회수 경쟁 · busy-wait · `WAIT_MS=0`)과 CLI 파싱(`--repo` 값 검증) 수정은 CHANGELOG `### Fixed`가 소유한다. 리뷰가 지적한 **STATE.md 연속성 불일치**는 `state-writer.js` API로 이 사이클에서 복구했고, **ROLLOUT-1 소실 위험**은 backlog 이중 등재로 닫았다.
+
+## Santa-loop 흡수 (`/mccp:santa-loop` R1, 2026-08-14)
+
+implement receipt가 `codex_divergent`라 escalate된 건을 dual-review로 받았다. Reviewer A = Claude Opus(`code-reviewer`), Reviewer B = codex CLI `gpt-5.4` — 컨텍스트 격리 + 실제 모델 다양성이 성립했다. **양쪽 모두 FAIL**, 루브릭 10축 중 A는 1축(Security), B는 5축을 FAIL로 판정했다.
+
+수렴한 지적은 하나다. **`assertNotSymlink`가 대상 `.gitignore`에만 걸려 있고 `.bak`에는 걸려 있지 않았다.** 이 모듈은 "`.gitignore`가 symlink일 정당한 형태는 없으므로 안전 경계를 계산하지 않고 거부한다"를 명시하는데, 그 논리가 똑같이 결정적이고 똑같이 사전 배치 가능한 `.bak`에는 적용되지 않았다. `.bak`은 기본 `'w'`로 쓰여 링크를 따라가므로, `--force-update` 시 사용자 `.gitignore`가 링크 대상에 얹힌다 — 저장소 쓰기 권한이 저장소 밖 임의 경로 쓰기로 확대되는 경로다. 두 리뷰어가 독립적으로 같은 줄을 지목했다.
+
+**두 리뷰어가 갈린 지점은 실측으로 갈랐다.** A는 lock 경로도 같은 노출이라며 `'wx'`가 심링크를 따른다고 주장했고 B는 lock을 PASS로 봤다. 임시 저장소에서 직접 재현한 결과 `'wx'`는 EEXIST로 **거부**(victim 무손상), `'w'`는 링크를 **따라가 victim을 덮어씀**이었다 — A의 메커니즘 주장은 틀렸고 B의 `.bak` 지적이 맞다. lock 가드는 그래서 쓰기 노출이 아니라 **오류 계약** 때문에 추가했다: EEXIST가 이 루프에서는 "점유 중" 신호라, 가드가 없으면 존재하지 않는 live writer를 탓하며 lease를 소진한다.
+
+B 단독 지적인 **빈 `.gitignore`의 선행 빈 줄**도 실측으로 확인해 흡수했다(없는 파일 → `create`는 블록으로 시작, 빈 파일 → `append`는 `\n`으로 시작). 데이터 유실은 없고 멱등성도 깨지지 않아 B가 매긴 HIGH보다 실질 심각도는 낮지만, 같은 종료 상태를 서술하는 두 경로가 관리 블록 바깥 줄에서 갈리는 것은 실재하는 결함이라 고쳤다.
+
+양쪽이 공통으로 지적한 **테스트 공백**(`.bak`/lock symlink 미검증, 빈 파일 미검증)은 회귀 테스트 3건으로 닫았고, 셋 다 **가드를 제거하면 red가 됨을 변이 검증으로 실측**했다(가드 있음 `pass 1/fail 0` → 제거 후 `pass 0/fail 1`, 3건 모두). 79 → 82 tests, fail 0.

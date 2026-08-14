@@ -198,6 +198,30 @@ test('planMerge: missing file -> create, block only', () => {
   assert.ok(plan.nextContent.startsWith(B));
 });
 
+test('planMerge: an existing empty file lands the same bytes as a missing one', () => {
+  // `create` (missing file) and `append` (existing but empty) describe the same
+  // end state, so they must agree on the bytes. They used to differ by a leading
+  // blank line — a line outside the managed block that no user wrote.
+  const fromMissing = gp.planMerge({ content: null, version: VERSION });
+  const fromEmpty = gp.planMerge({ content: '', version: VERSION });
+  assert.strictEqual(fromEmpty.action, 'append');
+  assert.ok(fromEmpty.nextContent.startsWith(B), 'append prefixed the block with a blank line');
+  assert.strictEqual(fromEmpty.nextContent, fromMissing.nextContent);
+  assert.strictEqual(
+    gp.planMerge({ content: fromEmpty.nextContent, version: VERSION }).action,
+    'noop',
+    'the result of an empty-file append is not already current'
+  );
+
+  // The separator exists to keep the block off the user's last line, so removing
+  // it where there IS content would be the opposite overcorrection.
+  const fromContent = gp.planMerge({ content: 'user/\n', version: VERSION });
+  assert.ok(
+    fromContent.nextContent.startsWith('user/\n\n' + B),
+    'the blank separator after real content was lost'
+  );
+});
+
 test('planMerge: absent markers -> append, existing lines preserved as a prefix (UI2)', () => {
   const content = 'user-a/\nuser-b/\n';
   const plan = gp.planMerge({ content, version: VERSION });
@@ -765,6 +789,55 @@ test('write refuses a symlinked .gitignore instead of following it', (t) => {
     assert.strictEqual(res.status, 1);
     assert.strictEqual(cliJson(res).reason, gp.REASONS.SYMLINK_TARGET);
     assert.strictEqual(fs.readFileSync(victim, 'utf8'), 'do-not-touch\n', 'wrote through the symlink');
+  });
+});
+
+test('--force-update refuses a symlinked .bak instead of writing through it', (t) => {
+  // The backup path is as deterministic as the target, so it is as pre-placeable.
+  // A plain 'w' write follows the link and lands the user's .gitignore — whose
+  // lines an attacker with repo-write already controls — on whatever it points at.
+  withTempRepo((dir, target) => {
+    seedStaleBlock(target);
+    const victim = path.join(dir, 'victim.txt');
+    fs.writeFileSync(victim, 'do-not-touch\n', 'utf8');
+    try {
+      fs.symlinkSync(victim, target + '.bak');
+    } catch (err) {
+      t.skip('symlink creation unavailable: ' + err.code);
+      return;
+    }
+    const res = runCli(['provision', '--repo', dir, '--force-update', '--json']);
+    assert.strictEqual(res.status, 1, 'wrote the backup through a symlink');
+    assert.strictEqual(cliJson(res).reason, gp.REASONS.SYMLINK_TARGET);
+    assert.strictEqual(fs.readFileSync(victim, 'utf8'), 'do-not-touch\n', 'the symlink target was overwritten');
+    assert.ok(
+      fs.readFileSync(target, 'utf8').includes('0.0.1-stale'),
+      'refusing the backup must also leave the target unrewritten'
+    );
+  });
+});
+
+test('acquireLock refuses a symlinked lock path instead of blaming a live writer', (t) => {
+  // The exclusive create never writes through the link (O_EXCL fails on one),
+  // but EEXIST is this loop's "somebody holds the lock" signal — so without the
+  // guard the caller waits out the lease and is then told a writer it cannot
+  // find is holding the file.
+  withTempDir((dir) => {
+    const victim = path.join(dir, 'victim.txt');
+    fs.writeFileSync(victim, 'do-not-touch\n', 'utf8');
+    const lockPath = path.join(dir, '.gitignore.lock');
+    try {
+      fs.symlinkSync(victim, lockPath);
+    } catch (err) {
+      t.skip('symlink creation unavailable: ' + err.code);
+      return;
+    }
+    assert.throws(
+      () => gp.acquireLock(lockPath, { waitMs: 0 }),
+      (err) => err instanceof gp.ProvisionError && err.reason === gp.REASONS.SYMLINK_TARGET,
+      'a symlinked lock path was reported as a busy lock'
+    );
+    assert.strictEqual(fs.readFileSync(victim, 'utf8'), 'do-not-touch\n');
   });
 });
 

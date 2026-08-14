@@ -233,6 +233,34 @@ test('block replacement preserves the target file mode (POSIX modes only)', { sk
   });
 });
 
+test('append: a duplicate block is rolled back, not left as permanent damage', () => {
+  // A non-locking writer lands its own managed block between our plan and our
+  // write. We then append a second one. Detecting that only after closing the
+  // descriptor left the file `damaged` forever — every later run failed and the
+  // user had to repair it by hand. Undoing OUR block puts the file back in the
+  // state that writer left it: one block, valid, and the condition is retryable.
+  withTempDir((dir) => {
+    const target = path.join(dir, '.gitignore');
+    const plan = gp.planMerge({ content: 'user-a/\n', version: VERSION });
+    assert.strictEqual(plan.action, 'append');
+
+    // The other writer got there first — its block is on disk before we measure.
+    const theirs = gp.planMerge({ content: 'user-a/\n', version: '0.0.1-other' }).nextContent;
+    fs.writeFileSync(target, theirs, 'utf8');
+
+    assert.throws(
+      () => gp.applyMerge(target, plan, { lockPath: target + '.lock' }),
+      (err) => err instanceof gp.ProvisionError && err.reason === gp.REASONS.CONCURRENT_MODIFICATION
+    );
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), theirs, 'our append was not rolled back');
+    assert.strictEqual(
+      gp.locateManagedBlock(fs.readFileSync(target, 'utf8').split(/\r?\n/)).state,
+      'wellFormed',
+      'the file did not settle back to exactly one well-formed block'
+    );
+  });
+});
+
 test('append: a failed write is rolled back, leaving the file byte-identical', () => {
   // A partial append leaves an orphan BEGIN marker on disk, and from then on
   // every run fails `marker-damaged` and needs manual repair — a transient

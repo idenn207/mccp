@@ -582,6 +582,25 @@ function readTargetContent(target) {
 const APPEND_FLAGS =
   fs.constants.O_WRONLY | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW || 0);
 
+// Undo our own append — and ONLY ours. Truncating to originalSize unconditionally
+// would delete whatever a concurrent writer appended after us, turning a rollback
+// into the data loss it exists to prevent. The file may only shrink back if every
+// byte past originalSize could have come from our payload; a second managed block
+// is far larger than that, so the arithmetic separates the two cases.
+//
+// Returns whether the rollback happened, because the caller has to say which
+// state the file is actually in rather than assume.
+function rollbackAppend(fd, originalSize, maxOwnBytes) {
+  try {
+    const now = fs.fstatSync(fd).size;
+    if (now > originalSize && now <= originalSize + maxOwnBytes) {
+      fs.ftruncateSync(fd, originalSize);
+      return true;
+    }
+  } catch (_e) { /* best effort */ }
+  return false;
+}
+
 // Explicit write-all at a fixed offset. writeSync may consume less than the
 // whole buffer, and without O_APPEND there is no kernel-side "always at the end"
 // to fall back on, so the loop is the thing that makes the write complete.
@@ -683,8 +702,29 @@ function applyMerge(target, plan, options) {
       throw new ProvisionError(REASONS.INTERNAL_ERROR, 'cannot measure ' + target + ': ' + err.message, target);
     }
     const writeSync = (opts.deps && opts.deps.writeSync) || fs.writeSync;
+    const ownBytes = Buffer.byteLength(plan.appendPayload, 'utf8');
     try {
       writeAllAt(fd, plan.appendPayload, originalSize, writeSync);
+      // Recount while the descriptor is STILL OPEN, so a duplicate can be undone
+      // instead of merely reported. The old order closed first and then
+      // announced permanent damage: a non-locking writer that appended its own
+      // block turned every later run into `marker-damaged` and demanded manual
+      // repair. Rolling our block back leaves the file in the state that writer
+      // left it — one block, valid — and makes this a retryable condition.
+      const written = readTargetContent(target);
+      if (written !== null && countMarkerPairs(written) !== 1) {
+        const undone = rollbackAppend(fd, originalSize, ownBytes);
+        throw new ProvisionError(
+          undone ? REASONS.CONCURRENT_MODIFICATION : REASONS.MARKER_DAMAGED,
+          undone
+            ? target + ' gained another managed block while this one was being appended. ' +
+              'This append was rolled back and the file is unchanged — re-run.'
+            : target + ' now holds more than one managed block (a concurrent writer appended too), ' +
+              'and the file grew beyond what this run wrote, so rolling back would have deleted ' +
+              "that writer's bytes. Delete the duplicate block by hand and re-run.",
+          target
+        );
+      }
     } catch (err) {
       // Roll the file back to where it started. writeFileSync retries short
       // writes, but a genuine failure part-way (ENOSPC, quota, I/O error) still
@@ -699,20 +739,13 @@ function applyMerge(target, plan, options) {
       // the meantime would have its newer file shrunk instead — a rollback that
       // destroys data. The descriptor still points at the file we actually wrote
       // to, whatever the name now refers to.
-      try { fs.ftruncateSync(fd, originalSize); } catch (_e) { /* best effort */ }
+      // A ProvisionError here already decided what state the file is in (and
+      // said so); re-truncating would be a second, unexamined attempt.
+      if (err instanceof ProvisionError) throw err;
+      rollbackAppend(fd, originalSize, ownBytes);
       throw new ProvisionError(REASONS.INTERNAL_ERROR, 'cannot append to ' + target + ': ' + err.message, target);
     } finally {
       try { fs.closeSync(fd); } catch (_e) {}
-    }
-    // Second safety net, against writers that do not honour our lock.
-    const after = readTargetContent(target);
-    if (after !== null && countMarkerPairs(after) !== 1) {
-      throw new ProvisionError(
-        REASONS.MARKER_DAMAGED,
-        target + ' now holds more than one managed block (a concurrent writer appended too). ' +
-          'Delete the duplicate block and re-run.',
-        target
-      );
     }
     return { written: true, backupPath: null };
   }

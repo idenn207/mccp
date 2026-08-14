@@ -62,7 +62,15 @@ function reasonOf(record, context) {
   return sp.isReclaimableBy(record, ctx(context));
 }
 
-// ── the 12 rows ─────────────────────────────────────────────────────────────
+// ── the blocking rows (12) + the one passing row = the 13-row table ─────────
+
+// An array that reports its own evidence as unreadable — the shape
+// collectSiblingReuse returns when it could not read a sibling record.
+function incompleteSiblings() {
+  const a = [];
+  Object.defineProperty(a, 'incomplete', { value: true, enumerable: false });
+  return a;
+}
 
 const BLOCKING_ROWS = [
   ['record_invalid', rec({ schema: 7 }), {}],
@@ -70,6 +78,9 @@ const BLOCKING_ROWS = [
   ['cross_repo', rec({ repo_root: path.resolve('/other-repo') }), {}],
   ['cross_session', rec({ session_id: 'sess-B' }), {}],
   ['already_dead', rec(), { isAlive: () => false }],
+  // Ordered before in_use_by_live_session, as in the code: we cannot ask "is a
+  // sibling holding this" until we know we actually read the sibling evidence.
+  ['sibling_evidence_unreadable', rec(), { collectSiblingReuse: incompleteSiblings }],
   ['in_use_by_live_session', rec(), {
     collectSiblingReuse: () => [rec({ session_id: 'sess-B', role: 'reuse' })],
   }],

@@ -13,7 +13,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 **단, 이것은 목표이지 증명된 절대치가 아니다.** 소유권 축(세션·repo·호스트·reuse·lifetime)은 결정적으로 닫히지만, 프로세스 정체 축에는 유계 잔여가 남는다 — OS가 PID를 재할당했고 ∧ 새 프로세스가 우리 등록 시각의 허용 오차 안에서 시작했고 ∧ 그것이 node로 **같은 절대 스크립트 경로**를 실행 중일 때. 단위 test로 재현할 수 없는 창이므로 "무관한 프로세스가 죽는 경로는 없다"고 주장하지 않는다. 아래 *명시 잔여* 참조.
 
 ### Added
-- `plugins/mccp/scripts/lib/session-processes.js` — 레지스트리(`register`/`registerFailure`/`list`/`unregister`/`collectSiblingReuse`) + 소유권 판정(`isReclaimableBy`, 12행 표) + 정체 probe(`probeProcess`/`normPath`) + 회수(`reclaimSession`) + SessionStart 고아 스윕(`scanForeignOrphans`). 파일당 1 프로세스 레이아웃이라 read-modify-write도 lock도 없다.
+- `plugins/mccp/scripts/lib/session-processes.js` — 레지스트리(`register`/`registerFailure`/`list`/`unregister`/`collectSiblingReuse`) + 소유권 판정(`isReclaimableBy`, 13행 표) + 정체 probe(`probeProcess`/`normPath`) + 회수(`reclaimSession`) + SessionStart 고아 스윕(`scanForeignOrphans`). 파일당 1 프로세스 레이아웃이라 read-modify-write도 lock도 없다.
 - test 4종 — 레지스트리·판정표 전수·오살 0·소스 스캔 회귀(등록 누락 0 · kill 지점 유일 · 반환값 소비 강제).
 - `MCCP_RECLAIM_OUTLIVES` · `MCCP_RECLAIM_BUDGET_MS` · `MCCP_RECLAIM_IDENTITY_TOLERANCE_MS`(상향만) → `docs/ENVIRONMENT.md` §11.
 
@@ -29,6 +29,8 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - **레지스트리 루트를 통한 경로 탈출을 봉인했다.** 봉인이 세션 디렉토리를 레지스트리 루트에 대해서만 검사해, 루트 **자체**가 링크면 그 검사가 공허하게 통과했다. `.claude/state/session-processes`를 외부 디렉토리로 미리 만들어 두면 레코드가 repo 밖에 기록됐고 — 실측 재현됐다. win32에서 디렉토리 **junction**은 elevation이 필요 없어서, "symlink는 권한이 필요하다"는 원 코드의 전제가 이 결함을 가려 주고 있었다. 이제 봉인이 repo 경계까지 올라가고, 회수는 탈출한 레지스트리를 만나면 **전량 거부**한다(`complete:false`, kill 0). 파일을 지우는 고아 스윕도 루트와 세션 디렉토리를 각각 재검사한다.
 - `MCCP_RECLAIM_BUDGET_MS`를 hook timeout 아래로 **clamp**한다(상한 9000ms, 하향은 자유). 넘기면 sweep이 hook timeout에서 중도 사살되고, 그때 사라지는 것이 부분 sweep의 유일한 증거인 `.unreclaimed.json`이다.
 - dashboard **reuse 등록 실패가 조용했다**. reuse 레코드는 소유 세션에게 "다른 세션이 아직 쓰고 있다"고 알리는 유일한 신호이므로, 실패하면 소유자의 `in_use_by_live_session` 가드가 사라지고 `MCCP_RECLAIM_OUTLIVES=1`에서 사용 중인 서버가 SIGTERM된다. 빌리는 쪽에서 복구할 수 없으므로 결과까지 명시해 표면화한다.
+- **읽기/삭제 경로가 session 디렉토리를 봉인하지 않았다.** 회수는 레지스트리 루트만 검사했고, 등록 후 `<registry>/<sid>`가 repo 밖 링크로 바뀌면 그 레코드를 근거로 kill하고 repo 밖 파일을 unlink했다 — 실측 재현. 이제 두 층을 함께 검사하며(`containedSessionDir`), 진입 시 1회가 아니라 **매 write/unlink 직전에 재검증**한다(TOCTOU는 좁혔을 뿐 닫지 않았다 — Node 동기 fs에 fd-상대 API가 없다).
+- **읽을 수 없는 형제 증거가 가드를 지웠다.** `collectSiblingReuse`가 파싱 실패를 건너뛰어, 살아있는 borrower의 reuse 레코드가 손상되면 소유자가 사용 중인 dashboard를 죽이고 `complete:true`로 보고했다. 판정표에 13번째 행 `sibling_evidence_unreadable`을 `in_use_by_live_session` **앞**에 추가했다. 단, 파싱되는 비-reuse 레코드는 `incomplete`로 치지 않는다 — 그러지 않으면 훗날 스키마 bump 한 번에 회수가 통째로 얼어붙는다.
 
 ### 명시 잔여 (주장하지 않는 것)
 - §D11의 ms 단위 TOCTOU와 §D15의 유계 오살 창(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ command line이 절대경로 전체 포함)은 **단위 test로 재현할 수 없다**. "무관한 프로세스가 죽는 경로는 없다"고 주장하지 않는다.

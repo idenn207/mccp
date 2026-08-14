@@ -20,7 +20,7 @@ mccp가 띄운 장수 프로세스(dashboard 서버 · detached plan-codex-runne
 | # | Task | Status | Notes |
 |---|---|---|---|
 | 1 | 레지스트리 코어 | 완료 | `.gitignore`가 실제로 첫 편집 — Validate 단언 (0)이 강제 |
-| 2 | `isReclaimableBy` + `probeProcess` | 완료 | 판정표 **12행**(계획 11행 + 편차 1행, 아래 참조) |
+| 2 | `isReclaimableBy` + `probeProcess` | 완료 | 판정표 **12행**(계획 11행 + 편차 1행, 아래 참조). santa-loop R3에서 `sibling_evidence_unreadable`이 추가돼 현재 **13행** |
 | 3 | dashboard 자기등록 + reuse | 완료 | reuse 등록을 **두 분기 모두**에 배치(계획은 1곳만 지명) |
 | 4 | plan-codex-runner 자기등록 | 완료 | lock 획득 직후 등록, 기존 `finally`에서 unregister |
 | 5 | session-spawner handoff 등록 | 완료 | tmux 분기는 미등록 + 사유 주석 |
@@ -40,6 +40,8 @@ mccp가 띄운 장수 프로세스(dashboard 서버 · detached plan-codex-runne
 | Build | N/A | 순수 Node, 빌드 단계 없음 |
 | Integration | N/A | 통합 서버 없음 (dashboard 실서버 test는 unit suite 안에 있음) |
 | Design Grounding | N/A (no design trigger) | `design_signal=false` · capture 미수행 → Phase 3.6/3.7 no-op |
+
+아래는 **최초 구현 시점(santa-loop 이전)** 의 숫자다. santa-loop R1/R2에서 test가 추가되고 win32 skip 2건이 junction으로 실행 가능해졌으므로 현재 수치와 다르다 — 현재값은 각 santa-loop 절의 "검증" 항목을 보라.
 
 ```
 session-processes.test.js              18 pass / 0 fail (2 skip: win32 mode·symlink)
@@ -120,7 +122,7 @@ command body는 `.claude/PRPs/plans/completed/`로 옮기라고 하지만, CLAUD
 | Test File | Tests | Coverage |
 |---|---|---|
 | `session-processes.test.js` | 20 | 스키마 12필드 · gitignore 선행 · mkdir/mode · symlink 봉쇄 · 강등 · 손상 JSON · 고아 스윕 5축 |
-| `session-processes-reclaimable.test.js` | 24 | 판정표 12행 전수 + 형제 liveness 3케이스 + §D15 정체 7케이스 |
+| `session-processes-reclaimable.test.js` | 24 | 판정표 전수 + 형제 liveness 3케이스 + §D15 정체 7케이스 (santa-loop에서 확장 — 현재 수치는 각 라운드 "검증" 항목 참조) |
 | `session-processes-reclaim.test.js` | 21 | 오살 0 전 축 · 재평가 비-스냅샷 · 예산 · ESRCH/EPERM · **실물 OS probe** |
 | `session-processes-spawn-sites.test.js` | 9 | 등록 누락 0 · `openBrowser` 비등록 · lifetime 리터럴 · kill 유일성 · 반환값 소비 강제 |
 | `session-end-marker-reclaim.test.js` | 7 | 마커 → observer → 회수 순서 · 빈 catch 금지 · `complete:false` 소비 |
@@ -224,6 +226,34 @@ R1의 이연 판단이 틀렸다기보다 **거칠었다** — "이 축은 위�
 ### 검증 (R2 이후)
 
 146 tests / 145 pass / 0 fail / 1 skip.
+
+## santa-loop Round 3 — 상한 도달, 사용자 승인 하에 수정
+
+Reviewer A PASS·critical 0, Reviewer B FAIL·critical 2. **세 라운드 내내 A는 PASS였고 B만 결함을 냈다.** A는 이 코드를 쓴 것과 같은 모델 계열이다 — 이 프로젝트가 cross-model dual review를 강제하는 이유가 그대로 드러난 결과다.
+
+3라운드는 santa-loop의 상한이라 사양대로 push 없이 에스컬레이션했고, 두 결함을 **재현 스크립트로 확정**한 뒤 사용자 승인을 받아 수정 + 4라운드 검증으로 진행했다. (최초 재현 시도는 `node -e`에서 `__filename`이 `[eval]`이라 identity가 인위적으로 어긋나 둘 다 "재현 안 됨"으로 나왔다. 스크립트를 파일로 옮겨 다시 돌리자 둘 다 재현됐다 — 재현 실패를 그대로 믿었다면 실결함 2건을 반증으로 오판할 뻔했다.)
+
+### 수정 9 — 읽기/삭제 경로의 session 디렉토리 봉인 (B critical 2)
+
+`reclaimSession`은 레지스트리 **루트**만 검사하고, 이후 `list`·`dropRecord`·`markUnreclaimed`는 `sessionDir()`를 그대로 썼다. 등록 후 그 디렉토리가 repo 밖 junction으로 바뀌면 실측 결과 **pid를 kill하고 repo 밖 파일을 unlink**했다.
+
+R1에서 `scanForeignOrphans`에는 디렉토리 단위 검사를 넣어 놓고 회수 경로에는 넣지 않은 **내 비일관성**이다. `containedSessionDir`로 두 층(루트 + 세션 디렉토리)을 함께 검사하고, `list`·`reclaimSession` 양쪽에서 쓴다.
+
+TOCTOU는 **좁혔을 뿐 닫지 않았다**: 진입 시 1회가 아니라 **매 write/unlink 직전에 재검증**한다. Node의 동기 fs에는 이 창을 원천 차단할 fd-상대 API가 없으므로, 남는 창은 검사와 syscall 사이다. 실패 방향은 "아무것도 건드리지 않음"이다.
+
+### 수정 10 — 읽을 수 없는 형제 증거가 가드를 지웠다 (B critical 1)
+
+`collectSiblingReuse`가 읽기/파싱 실패를 조용히 건너뛰었다. 살아있는 borrower의 reuse 레코드가 손상되면 `MCCP_RECLAIM_OUTLIVES=1`에서 소유자가 공유 dashboard를 **SIGTERM**하고 `complete:true`로 보고했다.
+
+R1에서 고친 것은 *쓰는 쪽*(등록 실패 표면화)이었고 *읽는 쪽*은 같은 fail-open으로 남아 있었다. 한 축의 양쪽을 다 보지 않은 것이다.
+
+반환 배열에 non-enumerable `incomplete`를 달고(기존 호출부·test는 그대로 배열로 취급), 판정표에 13번째 행 `sibling_evidence_unreadable`을 추가했다 — `in_use_by_live_session` **앞**이다. 형제 증거를 읽었는지 모르는 상태에서 "형제가 안 잡고 있다"를 물을 수 없기 때문이다.
+
+**분할이 요점**: 파싱은 되지만 스키마가 깨진 레코드는 `role`을 여전히 읽을 수 있고, `role !== 'reuse'`인 것은 애초에 가드가 아니므로 무시해도 안전하다. 이 구분이 없으면 훗날 스키마 bump 한 번에 legacy owner 레코드 전부가 `incomplete`가 되어 **회수가 통째로 얼어붙는다**. test (14c)가 두 방향을 고정한다.
+
+### 검증 (R3 이후)
+
+151 tests / 150 pass / 0 fail / 1 skip. 두 재현 스크립트 모두 차단 확인.
 
 ## 주장하지 않는 것 (명시 잔여)
 

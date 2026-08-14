@@ -255,6 +255,51 @@ test('(13) a traversal session id throws and writes nothing outside the registry
   assert.ok(!fs.existsSync(path.join(repo, '.claude', 'state', 'session-processes', '..', 'evil')));
 });
 
+// ── (14b) unreadable sibling evidence is INCOMPLETE, never "absent" ─────────
+//
+// santa-loop R3. A borrower's reuse record is the only thing proving the process
+// is still in use. Dropping an unreadable one silently was fail-OPEN: the guard
+// vanished and the owner killed a live borrower's dashboard, reporting success.
+
+test('(14b) an unreadable sibling record marks the sweep incomplete rather than absent', () => {
+  const repo = tmpRepo();
+  const dir = sp.sessionDir(repo, 'sess-B');
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(dir, '4242.json'), '{ CORRUPT');
+
+  const got = sp.collectSiblingReuse(repo, 'sess-A');
+  assert.deepStrictEqual(Array.from(got), [], 'nothing usable was collected');
+  assert.strictEqual(got.incomplete, true,
+    'but "we could not read it" must not be reported as "it is not there"');
+});
+
+test('(14c) a parseable NON-reuse record that fails schema does NOT block reclaim', () => {
+  // The partition that keeps a future schema bump from freezing reclaim on every
+  // legacy owner record: `role` is still readable, and a record that is
+  // definitively not a reuse record was never a guard.
+  const repo = tmpRepo();
+  const dir = sp.sessionDir(repo, 'sess-B');
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(dir, '4242.json'),
+    JSON.stringify({ role: 'owner', bogus: true }));
+
+  const got = sp.collectSiblingReuse(repo, 'sess-A');
+  assert.strictEqual(got.incomplete, false, 'a non-reuse record is not missing evidence');
+
+  // …but the same file claiming role:'reuse' IS missing evidence.
+  fs.writeFileSync(path.join(dir, '4242.json'),
+    JSON.stringify({ role: 'reuse', bogus: true }));
+  assert.strictEqual(sp.collectSiblingReuse(repo, 'sess-A').incomplete, true);
+});
+
+test('(14d) an empty registry is absence, not incompleteness', () => {
+  const got = sp.collectSiblingReuse(tmpRepo(), 'sess-A');
+  assert.deepStrictEqual(Array.from(got), []);
+  assert.strictEqual(got.incomplete, false,
+    'ENOENT genuinely means no siblings exist — treating it as unreadable would '
+    + 'block every reclaim on a fresh repo');
+});
+
 test('(14) collectSiblingReuse returns sibling reuse records only — not our own, not owners', () => {
   const repo = tmpRepo();
   sp.register(repo, {
@@ -364,6 +409,43 @@ test('(18) an escaped registry root makes the orphan sweep unlink nothing outsid
     'the sweep unlinks; reaching through an escaped root would delete outside the repo');
   assert.deepStrictEqual(out,
     { liveCount: 0, purgedCount: 0, unreadable: 0, purgeFailures: 0 });
+});
+
+// ── (23) the READ/UNLINK path seals the session dir, not just the root ──────
+//
+// santa-loop R3. Sealing only the registry root left the reclaim path following
+// a session dir that links out: reproduced killing the pid named by an
+// out-of-repo record AND unlinking that record. `scanForeignOrphans` already had
+// the per-directory check; the reclaim path was the inconsistency.
+
+test('(23) a session dir linking out of the repo makes reclaim kill nothing and touch nothing', () => {
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-sdir-')));
+  const repo = path.join(base, 'repo');
+  const outside = path.join(base, 'OUTSIDE');
+  fs.mkdirSync(sp.registryDir(repo), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(outside, { recursive: true });
+  const victim = path.join(outside, '4242.json');
+  fs.writeFileSync(victim, JSON.stringify({
+    schema: sp.SCHEMA_VERSION, pid: 4242, host: os.hostname(), session_id: 'sess-X',
+    session_pid: process.pid, started_at: new Date().toISOString(),
+    proc_started_at_ms: Date.now(), exec_path: __filename, repo_root: repo,
+    kind: 'plan-codex-runner', lifetime: 'session', role: 'owner',
+  }));
+  linkDir(outside, sp.sessionDir(repo, 'sess-X'));
+
+  const killed = [];
+  const out = sp.reclaimSession({
+    repoRoot: repo, sessionId: 'sess-X', env: {},
+    isAlive: () => true,
+    probeProcess: () => ({ startedAtMs: Date.now(), commandLine: 'node "' + __filename + '"' }),
+    collectSiblingReuse: () => [],
+    kill: (pid) => { killed.push(pid); },
+  });
+
+  assert.deepStrictEqual(killed, [], 'a record reached through a link out of the repo may not authorize a kill');
+  assert.strictEqual(fs.existsSync(victim), true, 'and may not be unlinked either');
+  assert.strictEqual(out.complete, false, 'the refusal must report itself as unfinished');
+  assert.strictEqual(sp.containedSessionDir(repo, 'sess-X'), null);
 });
 
 // ── PRD :78 — the borrowed-dashboard growth path ────────────────────────────

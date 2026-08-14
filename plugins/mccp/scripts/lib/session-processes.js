@@ -217,6 +217,21 @@ function containedRegistryDir(repoRoot) {
   return reg;
 }
 
+// The WRITE path seals the session dir (sealedSessionDir); the READ/UNLINK path
+// has to seal it too, and originally did not. Sealing only the registry ROOT
+// there was not enough: replace `<registry>/<sid>` with a link out after
+// registration and reclaim would judge records from outside the repo, kill the
+// pid they name, and unlink files on the far side. Reproduced before this guard
+// existed. `scanForeignOrphans` already carried the per-directory check — the
+// reclaim path was the inconsistency.
+function containedSessionDir(repoRoot, sid) {
+  const reg = containedRegistryDir(repoRoot);
+  if (!reg) return null;
+  const dir = sessionDir(repoRoot, sid);
+  if (!isInside(realpathNearest(dir), realpathNearest(reg))) return null;
+  return dir;
+}
+
 function sealedSessionDir(repoRoot, sid) {
   const sealedReg = sealedRegistryDir(repoRoot);
   if (!sealedReg.ok) return sealedReg;
@@ -400,18 +415,18 @@ function list(repoRoot, sid, deps) {
   const isAlive = deps.isAlive || evidenceLock.isPidAlive;
   const out = { records: [], failures: [], unreclaimed: [], incomplete: false };
 
-  // Defense in depth for the escaped-root case. Returning NO records with
+  // Defense in depth for the escaped-path case. Returning NO records with
   // `incomplete: true` is the fail-closed direction: reclaimSession kills
   // nothing and reports itself unfinished. Suppressing only the sibling sweep
   // would have been fail-OPEN — fewer "in use" records means MORE kills.
-  if (!containedRegistryDir(repoRoot)) {
-    warn('list refused: the registry root resolves outside the repo (path_escape)');
+  // The SESSION dir is checked, not just the root: a link at either level puts
+  // the records we are about to judge outside the repo.
+  const dir = containedSessionDir(repoRoot, sid);
+  if (!dir) {
+    warn('list refused: ' + sid + ' resolves outside the registry (path_escape)');
     out.incomplete = true;
     return out;
   }
-
-  let dir;
-  try { dir = sessionDir(repoRoot, sid); } catch (err) { throw err; }
 
   let entries;
   try {
@@ -478,33 +493,61 @@ function collectSiblingReuse(repoRoot, selfSid) {
     warn('collectSiblingReuse refused: registry root resolves outside the repo (path_escape)');
     return [];
   }
+  const out = [];
+  // Non-enumerable so the array still behaves as a plain list of records for
+  // every existing caller and test, while carrying the one bit that decides
+  // whether reclaim may proceed.
+  let incomplete = false;
+  const markIncomplete = (why) => { incomplete = true; warn('collectSiblingReuse ' + why); };
+  const done = () => {
+    Object.defineProperty(out, 'incomplete', {
+      value: incomplete, enumerable: false, writable: true, configurable: true,
+    });
+    return out;
+  };
+
   let sids;
   try {
     sids = fs.readdirSync(reg);
   } catch (err) {
-    if (!err || err.code !== 'ENOENT') {
-      warn('collectSiblingReuse readdir failed: ' + (err && err.message));
-    }
-    return [];
+    // ENOENT is genuinely "no siblings exist". Anything else is "we could not
+    // look", which is a different fact and must not read as absence.
+    if (!err || err.code !== 'ENOENT') markIncomplete('readdir failed: ' + (err && err.message));
+    return done();
   }
-  const out = [];
   for (const sid of sids) {
     if (sid === selfSid) continue;
     if (!isSafeSessionId(sid)) continue;
     let names;
     try { names = fs.readdirSync(path.join(reg, sid)); }
-    catch (err) { warn('collectSiblingReuse skip ' + sid + ': ' + (err && err.message)); continue; }
+    catch (err) { markIncomplete('cannot list ' + sid + ': ' + (err && err.message)); continue; }
     for (const name of names) {
       if (!name.endsWith('.json')) continue;
       if (name.endsWith('.failed.json') || name.endsWith('.unreclaimed.json')) continue;
       let rec;
-      try { rec = readJson(path.join(reg, sid, name)); } catch (_) { continue; }
-      if (!validateRecord(rec).ok) continue;
+      try { rec = readJson(path.join(reg, sid, name)); }
+      catch (err) {
+        // An unreadable file may have been the reuse record that proves a
+        // borrower is still live. Skipping it silently is fail-OPEN: the guard
+        // disappears and the owner kills a process still in use.
+        markIncomplete('cannot read ' + sid + '/' + name + ': ' + (err && err.message));
+        continue;
+      }
+      if (!validateRecord(rec).ok) {
+        // Parseable but untrusted. We can still read `role`, and a record that
+        // is definitively NOT a reuse record was never a guard — ignoring it is
+        // safe, and NOT treating it as incomplete is what keeps a future schema
+        // bump from blocking reclaim on every legacy owner record.
+        if (rec && typeof rec === 'object' && rec.role === 'reuse') {
+          markIncomplete('untrusted reuse record ' + sid + '/' + name);
+        }
+        continue;
+      }
       if (rec.role !== 'reuse') continue;
       out.push(rec);
     }
   }
-  return out;
+  return done();
 }
 
 // ── §D15 process identity ────────────────────────────────────────────────────
@@ -694,6 +737,13 @@ function isReclaimableBy(record, ctx) {
   if (!isAlive(record.pid)) return { ok: false, reason: 'already_dead' };
 
   const siblings = collect(ctx.repoRoot, ctx.sessionId) || [];
+  // The `in_use_by_live_session` row below is only as good as the evidence it
+  // reads. If any of that evidence was unreadable, "no sibling holds this" is
+  // not something we know — it is something we failed to check, and acting on
+  // it kills a process another live session is using.
+  if (siblings.incomplete) {
+    return { ok: false, reason: 'sibling_evidence_unreadable' };
+  }
   const inUse = siblings.some(function (r) {
     return r && r.pid === record.pid && r.host === record.host &&
       canonicalPath(r.repo_root) === canonicalPath(record.repo_root) &&
@@ -805,10 +855,12 @@ function reclaimSession(opts) {
   // Refuse the whole sweep, loudly, rather than relying on `list` returning
   // nothing. A registry reached through a link out of the repo is not a registry
   // we can reason about ownership from, and the correct answer to "I cannot tell
-  // whose these are" is to kill none of them.
-  if (!containedRegistryDir(repoRoot)) {
-    warn('reclaim refused: the registry root resolves outside the repo '
-      + '(path_escape) — nothing is reclaimed');
+  // whose these are" is to kill none of them. Both levels are checked — root AND
+  // this session's directory.
+  const dir = containedSessionDir(repoRoot, sessionId);
+  if (!dir) {
+    warn('reclaim refused: the registry root or session dir resolves outside the '
+      + 'repo (path_escape) — nothing is reclaimed');
     out.complete = false;
     return out;
   }
@@ -816,8 +868,6 @@ function reclaimSession(opts) {
   const started = now();
   const l = list(repoRoot, sessionId, { isAlive: isAlive });
   if (l.incomplete) out.complete = false;
-
-  const dir = sessionDir(repoRoot, sessionId);
   const probeTimeoutMs = Number.isFinite(opts.probeTimeoutMs)
     ? opts.probeTimeoutMs
     : (platform === 'win32' ? PROBE_TIMEOUT_WIN32_MS : PROBE_TIMEOUT_POSIX_MS);
@@ -834,8 +884,24 @@ function reclaimSession(opts) {
     return r;
   }
 
+  // Re-validated immediately before every mutating op, not only once at entry.
+  // A link swapped in mid-sweep would otherwise redirect the write or the
+  // unlink to the far side. This NARROWS the window to the gap between this
+  // check and the syscall — Node's sync fs offers no fd-relative variant that
+  // would close it outright — and the direction on failure is to touch nothing.
+  function dirStillContained() {
+    if (containedSessionDir(repoRoot, sessionId)) return true;
+    warn('registry path stopped resolving inside the repo mid-sweep — refusing '
+      + 'to write or unlink anything further for ' + sessionId);
+    return false;
+  }
+
   function markUnreclaimed(pid, reason) {
     out.unreclaimed.push({ pid: pid, reason: reason });
+    if (!dirStillContained()) {
+      out.writeFailures.push({ pid: pid, op: 'unreclaimed_write', message: 'path_escape' });
+      return;
+    }
     try {
       ensureDirPrivate(dir);
       writePrivate(unreclaimedPath(dir, pid), JSON.stringify({
@@ -850,6 +916,10 @@ function reclaimSession(opts) {
   }
 
   function dropRecord(pid) {
+    if (!dirStillContained()) {
+      out.writeFailures.push({ pid: pid, op: 'unlink', message: 'path_escape' });
+      return;
+    }
     try { fs.unlinkSync(recordPath(dir, pid)); }
     catch (err) {
       if (err && err.code === 'ENOENT') return;
@@ -996,7 +1066,16 @@ function scanForeignOrphans(repoRoot, selfSid, deps) {
   }
   const realReg = realpathNearest(reg);
   let sids;
-  try { sids = fs.readdirSync(reg); } catch (_) { return out; }
+  try { sids = fs.readdirSync(reg); }
+  catch (err) {
+    // ENOENT means there is nothing to sweep. Anything else means we could not
+    // sweep, and folding that into a clean zero is how a registry grows unseen.
+    if (err && err.code !== 'ENOENT') {
+      out.unreadable++;
+      warn('scanForeignOrphans cannot list the registry: ' + err.message);
+    }
+    return out;
+  }
 
   for (const sid of sids) {
     if (sid === selfSid) continue;
@@ -1075,6 +1154,7 @@ module.exports = {
   ORPHAN_STALE_MS,
   registryDir,
   containedRegistryDir,
+  containedSessionDir,
   sessionDir,
   isSafeSessionId,
   tokenizeCommandLine,

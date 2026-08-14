@@ -62,7 +62,11 @@ function compute(event) {
   //                            No process is referenced, so the mis-kill risk is
   //                            zero by definition, and this is what satisfies
   //                            PRD :78 (registry growing without bound).
-  //    Reporting must never break SessionStart, so every failure is a silent 0.
+  //    Reporting must never break SessionStart, so no failure here is fatal —
+  //    but none of them is silent either. A sweep that could not run reports on
+  //    stderr, and a sweep that ran but could not finish reports its
+  //    unreadable/purgeFailures counts, because "could not sweep" must never
+  //    read as "nothing to sweep".
   try {
     const sp = safeRequire(path.join(libDir, 'session-processes'));
     if (sp) {

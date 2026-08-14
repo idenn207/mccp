@@ -266,6 +266,33 @@ test('9d — probeProcess against a REAL process, called directly (no injection 
     + JSON.stringify(p.commandLine));
 });
 
+// ── 9e — unreadable sibling evidence blocks the kill (santa-loop R3) ────────
+//
+// End-to-end companion to the predicate-level cases. The borrowed dashboard is
+// the scenario: session B is still using A's server, B's reuse record is
+// unreadable, and A ends with MCCP_RECLAIM_OUTLIVES=1. Before the fix A killed
+// the shared server and reported complete:true.
+
+test('9e — a corrupt sibling reuse record stops the kill instead of vanishing', () => {
+  const repo = tmpRepo();
+  seed(repo, SID, { pid: 4242, kind: 'dashboard-server', lifetime: 'outlives-session' });
+  const bDir = sp.sessionDir(repo, 'sess-B');
+  fs.mkdirSync(bDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(bDir, '4242.json'), '{ CORRUPT');
+
+  const { res, killed } = run(repo, {
+    env: { MCCP_RECLAIM_OUTLIVES: '1' },
+    collectSiblingReuse: undefined,      // the REAL collector must run
+    probeProcess: okProbe(repo),
+    budgetMs: 60000,
+  });
+
+  assert.deepStrictEqual(killed, [],
+    'the borrowed dashboard must survive: unreadable evidence is not evidence of absence');
+  assert.deepStrictEqual(res.skipped, [{ pid: 4242, reason: 'sibling_evidence_unreadable' }],
+    'and the reason must name what went wrong, not fold into a generic skip');
+});
+
 // ── 10–12: kill outcomes, budget, bookkeeping ───────────────────────────────
 
 test('10 — ESRCH counts as reclaimed, EPERM does NOT (they are not the same outcome)', () => {

@@ -25,7 +25,7 @@ name: gitignore canonical drift gate
 # Scope note: this workflow guarantees the lint RUNS and goes red on drift.
 # Making that red block a merge is a repository setting (branch protection /
 # ruleset) and cannot be expressed in a repo file — see ROLLOUT-1 in
-# .claude/plans/setup-gitignore-m1.plan.md.
+# .claude/PRPs/plans/archived/setup-gitignore-m1.plan.md (archived on PRD close).
 
 on:
   pull_request:

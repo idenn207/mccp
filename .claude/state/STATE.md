@@ -2,27 +2,27 @@
 state_version: 1
 task_fingerprint: setup-gitignore-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-14T05:59:19.915Z
+updated_at: 2026-08-14T06:46:13.378Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-09T01:17:14.100Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
-last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-06-17T05:35:00.000Z
+last_pr_url: https://github.com/idenn207/mccp/pull/136
+dep_check_at: 2026-08-14T06:42:42.961Z
 escalate_pending: true
 escalate_pending_decision_id: setup-gitignore-m1
 ---
 ## Goal
-setup-gitignore M1 — /mccp:setup Phase 5 gitignore 프로비저닝. 구현 + 로컬 code-review 1라운드 흡수 완료, 커밋 대기.
+setup-gitignore M1 — /mccp:setup Phase 5 gitignore 프로비저닝. PR #136 conflict 해소(origin/main merge) + PRD/plan 아카이브 완료, 머지 대기.
 
 ## Plan
-- plan: `.claude/plans/setup-gitignore-m1.plan.md` — Acceptance는 code-review 흡수 절 포함 전항목 체크
-- 보고서: `.claude/PRPs/reports/setup-gitignore-m1-report.md` (Deviations + 구현 후 리뷰 흡수 절)
-- PRD: `.claude/prds/setup-gitignore.prd.md` — M1 complete, Open Questions 4건 결정 기록
-- receipt: mccp-plan-codex + mccp-implement-codex / decision=setup-gitignore-m1 (implement는 codex_divergent → escalate)
-- 버전: plugin.json 1.24.0 (PRD 전 milestone 종료 = minor) + renderer 2면 + CHANGELOG 동기
+- plan(archived): `.claude/PRPs/plans/archived/setup-gitignore-m1.plan.md`
+- PRD(archived): `.claude/prds/archived/setup-gitignore.prd.md` — M1 complete, PRD 종료
+- 보고서: `.claude/PRPs/reports/setup-gitignore-m1-report.md` (Deviations + 리뷰 흡수 + origin/main 병합 흡수 절)
+- receipt: mccp-plan-codex(converged) · mccp-implement-codex(divergent) · mccp-pr-codex(divergent) / decision=setup-gitignore-m1
+- 버전: plugin.json 1.25.0 (§3.7 forward-only — main이 1.24.0을 meta-research-command M1에 선점) + renderer 2면 + CHANGELOG 동기
 
 ## Done
 - 구현: gitignore-provision.js(정본 29 + REPO_ONLY 21) · test 79 · .github/workflows/gitignore-drift.yml · setup.md Phase 5 신설(기존 최종 보고 Phase 6으로)
@@ -37,13 +37,13 @@ setup-gitignore M1 — /mccp:setup Phase 5 gitignore 프로비저닝. 구현 + �
 - backlog: "Broad stderr matching" HIGH 해소 표시(이미 앵커링으로 닫혀 있었음) · ROLLOUT-1 이중 등재
 
 ## In Progress
-code-review 흡수 완료. 전체 test 재실행 후 /mccp:prp-commit 진행.
+PR #136 머지 대기. conflict 해소 push 완료(MERGEABLE), 아카이브 커밋 대기.
 
 ## Next Step
-/mccp:prp-commit → 이후 escalate_pending 해소를 위해 /mccp:santa-loop (implement receipt가 codex_divergent)
+/mccp:prp-commit → push → PR #136 머지. 머지 후 ROLLOUT-1(gitignore-drift를 branch protection required check로 등록).
 
 ## Last Decision
-오염 스캔을 셸에서 provision()으로 옮겼다(계약 lint 3·12번 정의 변경 동반). 셸에 두면 스캔이 호출자 cwd 스코프라, 하위 디렉토리 실행이 부분 결과를 깨끗한 결과와 같은 모양으로 보고한다 — 같은 판정의 구현이 JS와 셸 두 벌로 존재하던 것(JS 쪽은 런타임 미사용)도 함께 해소된다.
+archive-complete를 PR 머지 전에 실행했다(사용자 판단 — 적용 후 바로 머지). 보고서 D1은 머지 후를 권했지만, 곧바로 머지하면 plan 경로 이동이 PR과 함께 착지하므로 receipt 앵커가 다시 문제되는 창이 없다. 이동으로 깨진 상대 링크 7건은 같은 사이클에서 수동 보정했다(도구 결함은 backlog 등재분).
 
 ## Open Questions
 - ROLLOUT-1 (blocking, 저장소 설정): gitignore-drift를 main branch protection의 required check로 등록해야 DD3 강제가 온전해진다. PRD + backlog 이중 등재
@@ -52,4 +52,4 @@ code-review 흡수 완료. 전체 test 재실행 후 /mccp:prp-commit 진행.
 - PRD가 단일 milestone이라 M1 complete 전환 즉시 /mccp:archive-complete 대상이 된다 — 아카이브 시 ROLLOUT-1은 backlog 쪽으로만 남는다(의도된 설계)
 
 ## Last Updated
-2026-08-14T05:59:19.915Z
+2026-08-14T06:46:13.378Z

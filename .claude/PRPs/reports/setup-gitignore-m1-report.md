@@ -1,7 +1,7 @@
 # Implementation Report: `/mccp:setup` gitignore 프로비저닝 (M1)
 
-**Plan**: [.claude/plans/setup-gitignore-m1.plan.md](../../plans/setup-gitignore-m1.plan.md)
-**Source PRD**: [.claude/prds/setup-gitignore.prd.md](../../prds/setup-gitignore.prd.md) — M1이 유일 milestone이므로 PRD 종료
+**Plan**: [.claude/plans/setup-gitignore-m1.plan.md](../plans/archived/setup-gitignore-m1.plan.md)
+**Source PRD**: [.claude/prds/setup-gitignore.prd.md](../../prds/archived/setup-gitignore.prd.md) — M1이 유일 milestone이므로 PRD 종료
 **Branch**: `setup-gitignore` · **Version**: 1.24.0 → **1.25.0** (§3.7 PRD 전체 완료 = minor · 병렬 브랜치 충돌 7번째 재발로 forward-only 한 칸 상향 — main이 meta-research-command M1에 `1.24.0`을 먼저 발행)
 
 ## Summary

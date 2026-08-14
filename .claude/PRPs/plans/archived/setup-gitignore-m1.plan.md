@@ -771,7 +771,7 @@ routing mode: `auto` (implement 단계에서 유효). plan 단계는 렌더된 U
 
 ## Plan Review — R1 흡수 기록
 
-R1 패널(architect / security / test / invariant) 판정 `divergent`, blocking 8건. 전문은 [`.claude/reviews/plan-review-setup-gitignore.md`](../reviews/plan-review-setup-gitignore.md). 흡수 내역:
+R1 패널(architect / security / test / invariant) 판정 `divergent`, blocking 8건. 전문은 [`.claude/reviews/plan-review-setup-gitignore.md`](../../../reviews/plan-review-setup-gitignore.md). 흡수 내역:
 
 | # | Perspective | Severity | 흡수 |
 |---|---|---|---|
@@ -838,7 +838,7 @@ R5에서 `security` 워커가 StructuredOutput을 호출하지 않고 종료해 
 
 ## Plan Review — R6 흡수 기록
 
-R6 패널 판정 `divergent`, blocking 4건(architect HIGH+fail · invariant HIGH+fail). security·test는 **pass**. 전문은 [`.claude/reviews/plan-review-setup-gitignore-m1.md`](../reviews/plan-review-setup-gitignore-m1.md).
+R6 패널 판정 `divergent`, blocking 4건(architect HIGH+fail · invariant HIGH+fail). security·test는 **pass**. 전문은 [`.claude/reviews/plan-review-setup-gitignore-m1.md`](../../../reviews/plan-review-setup-gitignore-m1.md).
 
 R1~R5는 plan **내부 모순**이었으나 R6의 2건은 **plan ↔ 실제 파일의 불일치**다 — plan이 인용한 워크플로와 자매 plan을 실제로 열어 대조해야 보이는 축이다.
 

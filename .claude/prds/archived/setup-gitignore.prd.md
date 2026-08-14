@@ -11,7 +11,7 @@ mccp를 설치하면 hook·게이트·orchestration이 즉시 런타임 산출�
 
 ## Evidence
 
-- [setup.md](../../plugins/mccp/commands/setup.md) 5개 Phase — Detect / codex 설치 / impeccable 설치 / `/codex:setup` 체인 / 보고. **`.gitignore` 축이 어디에도 없다.**
+- [setup.md](../../../plugins/mccp/commands/setup.md) 5개 Phase — Detect / codex 설치 / impeccable 설치 / `/codex:setup` 체인 / 보고. **`.gitignore` 축이 어디에도 없다.**
 - 반면 이 repo의 `.gitignore`(138행)는 mccp 런타임 항목만 **약 20종**을 담고 있다: `.claude/receipts/*` + ship receipt 예외 3줄 · `.claude/state/*.lock` · `loop-counter.json` · `orchestration-runaway.json` · `**/.claude/state/hook-trace/` · `hook-caps.json` · `.claude/cache/` · `.claude/state/dispatches/` · `.claude/state/evidence-claims/` · `.worktrees/` 등.
 - **규칙이 자명하지 않다** — receipt는 `.claude/receipts/*`를 무시하되 `!.claude/receipts/mccp-pr-codex/`를 재포함하고 그 안의 `*.lock`·`*.tmp`만 다시 무시하는 3단 구조다(증거 내구성 계약, CLAUDE.md §3.12). 이걸 사용자가 유추할 방법은 없다.
 - hook-trace는 `**/.claude/state/hook-trace/` 처럼 **root-anchored가 아닌 패턴**이어야 한다는 주석이 `.gitignore`에 붙어 있다 — worktree 하위를 놓치기 때문. 이런 함정은 문서 없이 재현 불가능.
@@ -53,7 +53,7 @@ We'll know we're right when **설치 직후 `git status`에 mccp 런타임 산�
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | gitignore 프로비저닝 Phase | 신규 설치자가 `/mccp:setup` 한 번으로 무시 규칙을 얻고, 첫 커밋이 오염되지 않음 | complete | [setup-gitignore-m1.plan.md](../plans/setup-gitignore-m1.plan.md) |
+| 1 | gitignore 프로비저닝 Phase | 신규 설치자가 `/mccp:setup` 한 번으로 무시 규칙을 얻고, 첫 커밋이 오염되지 않음 | complete | [setup-gitignore-m1.plan.md](../../PRPs/plans/archived/setup-gitignore-m1.plan.md) |
 
 ## Open Questions
 
@@ -66,7 +66,7 @@ We'll know we're right when **설치 직후 `git status`에 mccp 런타임 산�
 
 **미완료 배포 전제 — ROLLOUT-1 (blocking, 저장소 설정)**: `gitignore-drift` check를 main branch protection의 required check로 등록해야 한다. M1이 repo 파일로 보증하는 것은 "대상 파일이 바뀐 PR에서 lint가 **실행되고** drift면 red"까지이고, 그 red가 **머지를 막는 것**은 repo 파일로 표현할 수 없다. 등록 전까지 강제는 절반만 성립한다.
 
-> ROLLOUT-1은 [codex-findings-backlog.md](../plans/codex-findings-backlog.md)에도 **이중 등재**돼 있다. 이 PRD는 milestone이 M1 하나뿐이라 `complete` 전환 즉시 `/mccp:archive-complete`의 archivable 조건(CLAUDE.md §3.11 C3)을 만족하고, 아카이브되면 이 절이 활성 대시보드 스캔에서 빠져 유일한 추적처를 잃는다. 아카이브해도 backlog 쪽이 남는다.
+> ROLLOUT-1은 [codex-findings-backlog.md](../../plans/codex-findings-backlog.md)에도 **이중 등재**돼 있다. 이 PRD는 milestone이 M1 하나뿐이라 `complete` 전환 즉시 `/mccp:archive-complete`의 archivable 조건(CLAUDE.md §3.11 C3)을 만족하고, 아카이브되면 이 절이 활성 대시보드 스캔에서 빠져 유일한 추적처를 잃는다. 아카이브해도 backlog 쪽이 남는다.
 
 ## Risks
 

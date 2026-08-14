@@ -1,0 +1,177 @@
+'use strict';
+
+// gate-guard-integrity M2 축 C — 승인된 격리 helper 의 경계 검증.
+//
+// 핵심은 **stub 없이 직접** 단언하는 것이다. 호출 관측만으로는 `realpath` 로직에
+// 버그가 있어도 통과한다. 그래서 봉쇄 술어 `isWithinReceiptsDir` 를 export 하고
+// 알고리즘 자체를 직접 먹인다 — symlink 케이스가 문자열 비교 구현을 걸러내는
+// 유일한 축이다.
+
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const { isWithinReceiptsDir, quarantineReceipt, receiptsDir } = require('../store');
+
+function scratchRepo() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-quarantine-'));
+  fs.mkdirSync(path.join(root, '.claude', 'receipts', 'mccp-plan-codex'), { recursive: true });
+  return root;
+}
+
+function writeReceiptFile(root, gate, slug, body) {
+  const p = path.join(receiptsDir(root), gate, slug + '.json');
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(body || { meta: {} }), 'utf8');
+  return p;
+}
+
+function rm(root) {
+  try { fs.rmSync(root, { recursive: true, force: true }); } catch (_e) { /* ignore */ }
+}
+
+// ── 봉쇄 술어를 직접 ─────────────────────────────────────────────────────────
+
+test('isWithinReceiptsDir: a normal path under .claude/receipts is inside', () => {
+  const root = scratchRepo();
+  try {
+    assert.strictEqual(
+      isWithinReceiptsDir(root, path.join(receiptsDir(root), 'mccp-plan-codex', 'a.json')), true);
+  } finally { rm(root); }
+});
+
+test('isWithinReceiptsDir: a `..` escape is outside', () => {
+  const root = scratchRepo();
+  try {
+    assert.strictEqual(
+      isWithinReceiptsDir(root, path.join(receiptsDir(root), '..', '..', 'evil.json')), false);
+    assert.strictEqual(isWithinReceiptsDir(root, receiptsDir(root)), false,
+      'the receipts dir itself is not a receipt file');
+  } finally { rm(root); }
+});
+
+test('isWithinReceiptsDir: a symlink inside receipts pointing OUT is outside (parent realpath)', (t) => {
+  // 이 케이스가 `path.relative` 만 쓰는 구현과 부모 realpath 재검사를 구별하는
+  // 유일한 축이다. 문자열 비교 구현은 여기서 통과하지 못한다.
+  const root = scratchRepo();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-quarantine-out-'));
+  try {
+    try {
+      fs.symlinkSync(outside, path.join(receiptsDir(root), 'link'), 'junction');
+    } catch (err) {
+      // 사유를 그 환경 조건으로 명시한다 — skip 사유가 참이어야 하는 것이 이
+      // milestone 의 주제 자체다.
+      t.skip('cannot create a symlink/junction on this machine (' + err.code
+        + ') — elevated permissions are required on Windows');
+      return;
+    }
+    assert.strictEqual(
+      isWithinReceiptsDir(root, path.join(receiptsDir(root), 'link', 'a.json')), false,
+      'a path that resolves outside the receipts dir must not be judged inside');
+  } finally { rm(root); rm(outside); }
+});
+
+test('isWithinReceiptsDir: malformed inputs are fail-closed', () => {
+  const root = scratchRepo();
+  try {
+    assert.strictEqual(isWithinReceiptsDir(root, ''), false);
+    assert.strictEqual(isWithinReceiptsDir('', 'x.json'), false);
+    assert.strictEqual(isWithinReceiptsDir(root, null), false);
+    assert.strictEqual(isWithinReceiptsDir(root, path.join(receiptsDir(root), 'a\0b.json')), false);
+  } finally { rm(root); }
+});
+
+// ── helper 자신 ──────────────────────────────────────────────────────────────
+
+test('quarantineReceipt: happy path moves the file off the consumable path', () => {
+  const root = scratchRepo();
+  try {
+    const p = writeReceiptFile(root, 'mccp-plan-codex', 'd1');
+    const r = quarantineReceipt(root, p, 'n8q');
+    assert.strictEqual(r.ok, true, r.reason);
+    assert.strictEqual(r.skipped, false);
+    assert.strictEqual(fs.existsSync(p), false, 'the original path must be gone');
+    assert.strictEqual(fs.existsSync(p + '.invalid-n8q'), true,
+      'quarantine preserves the artifact for diagnosis rather than deleting it');
+    assert.strictEqual(r.dest, p + '.invalid-n8q');
+  } finally { rm(root); }
+});
+
+test('quarantineReceipt: an absent file is a no-op success, not a degraded outcome', () => {
+  const root = scratchRepo();
+  try {
+    const p = path.join(receiptsDir(root), 'mccp-plan-codex', 'never-written.json');
+    const r = quarantineReceipt(root, p, 'n1');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.skipped, true);
+    assert.strictEqual(r.reason, 'absent');
+    assert.strictEqual(fs.existsSync(p + '.invalid-n1'), false, 'nothing may be created');
+  } finally { rm(root); }
+});
+
+test('quarantineReceipt [NEG-1]: a suffix carrying a path separator is refused, nothing is renamed', () => {
+  const root = scratchRepo();
+  try {
+    for (const bad of ['../escape', 'a/b', 'a\\b', '..', './x']) {
+      const p = writeReceiptFile(root, 'mccp-plan-codex', 'sep');
+      const r = quarantineReceipt(root, p, bad);
+      assert.strictEqual(r.ok, false, 'suffix ' + JSON.stringify(bad) + ' must be refused');
+      assert.strictEqual(r.reason, 'unsafe-suffix');
+      assert.strictEqual(fs.existsSync(p), true, 'the source must stay exactly where it was');
+    }
+  } finally { rm(root); }
+});
+
+test('quarantineReceipt [NEG-2]: NUL and control characters in the suffix are refused', () => {
+  const root = scratchRepo();
+  try {
+    // 제어문자는 escape 리터럴이 아니라 코드포인트로 조립한다. 소스 파일에 실제
+    // 제어 바이트가 들어가면 git이 그 파일을 binary 로 판정해 diff·review 가
+    // 불가능해진다 — 이번 구현에서 실측으로 1회 발생했고(NUL + BEL), 그 사고가
+    // 이 형태를 계약으로 만든 이유다.
+    const CTRL_SUFFIXES = [0, 7, 9, 10, 13, 27].map(function (c) {
+      return 'a' + String.fromCharCode(c) + 'b';
+    });
+    for (const bad of CTRL_SUFFIXES.concat([' ', ''])) {
+      const p = writeReceiptFile(root, 'mccp-plan-codex', 'ctrl');
+      const r = quarantineReceipt(root, p, bad);
+      assert.strictEqual(r.ok, false, 'suffix with a control char must be refused');
+      assert.strictEqual(r.reason, 'unsafe-suffix');
+      assert.strictEqual(fs.existsSync(p), true);
+    }
+    // 비문자열도 마찬가지.
+    const p2 = writeReceiptFile(root, 'mccp-plan-codex', 'ctrl2');
+    assert.strictEqual(quarantineReceipt(root, p2, undefined).ok, false);
+    assert.strictEqual(quarantineReceipt(root, p2, 12).ok, false);
+    assert.strictEqual(fs.existsSync(p2), true);
+  } finally { rm(root); }
+});
+
+test('quarantineReceipt [NEG-3]: a source outside the receipts dir is refused, nothing is renamed', () => {
+  const root = scratchRepo();
+  try {
+    // 존재하는 파일이어야 "부재라서 no-op" 과 구별된다.
+    const outside = path.join(root, 'plan-codex-receipt.json');
+    fs.writeFileSync(outside, '{}', 'utf8');
+    const r = quarantineReceipt(root, outside, 'n2');
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.reason, 'source-outside-receipts-dir');
+    assert.strictEqual(fs.existsSync(outside), true, 'the source must stay exactly where it was');
+    assert.strictEqual(fs.existsSync(outside + '.invalid-n2'), false);
+  } finally { rm(root); }
+});
+
+test('quarantineReceipt: the helper validates at its OWN boundary, not the caller\'s', () => {
+  // `plan-codex-runner.js:58` 에도 같은 형태의 정규식이 있지만, store 가 승인 writer 로
+  // 다른 호출자에게 노출되는 순간 그 검증은 이 경로를 지키지 못한다. 여기서 직접
+  // 부르는 것이 곧 "호출부를 거치지 않은 호출자"의 재현이다.
+  const root = scratchRepo();
+  try {
+    const p = writeReceiptFile(root, 'mccp-plan-codex', 'boundary');
+    const r = quarantineReceipt(root, p, '../../../../etc/passwd');
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(fs.existsSync(p), true);
+  } finally { rm(root); }
+});

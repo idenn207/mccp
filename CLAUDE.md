@@ -536,6 +536,63 @@ Codex의 **모든 finding**이 명시 adjudication을 받아야 한다. 1건이�
 
 ---
 
+### 3.13.1 오심(mislabelling) 탐지 (v1.23.9 — codex-intent-context M1.5)
+
+M1은 **누락**을 닫았다. 그러나 저자가 모든 finding을 `intent_conflict:'none'`으로 찍으면 커버리지 검사는 전부 통과하므로 **오심**은 남았다. M1.5는 리뷰어에게 per-finding 계약을 부과하고 리뷰어 주장과 저자 판정을 **비대칭 대조**한다.
+
+#### 계약과 파싱 — 모호하면 주장이 아니다
+
+companion의 finding 스키마는 **외부 plugin 소유**라 필드를 추가할 수 없다(UI5). 따라서 리뷰어 주장은 finding 본문 안에 `INTENT: none` / `INTENT: UI3` 형태로 실린다. 자유 텍스트를 판정 채널로 쓰는 이상 위조·오인은 파싱 규칙의 정밀도가 아니라 **모호성을 전부 `unclaimed`로 접어서** 막는다([intent-claims.js](plugins/mccp/scripts/lib/intent-claims.js)).
+
+- `title`+`body`+`recommendation`을 `"\n"` 하나로 이어붙인 **단일 텍스트**를 스캔한다(필드별 독립 주장을 허용하면 "정확히 1건" 규칙이 성립하지 않는다). 비문자열 필드는 빈 문자열로 강제.
+- 스캔 **전에** 인용 구조를 제거한다: 백틱/틸드 fence · **4칼럼 이상** 들여쓰기 · blockquote · HTML `<pre>`/`<code>`/`<blockquote>`. 들여쓰기는 문자 수가 아니라 **칼럼**으로 잰다(탭은 다음 4칼럼 탭스톱까지 전진) — 공백과 탭이 섞인 `" \tINTENT: …"`는 문자로 세면 안 걸리지만 마크다운에서는 코드 블록이고, 걸러지지 않으면 인용된 예시가 진짜 주장이 되어 없던 합의를 만든다. **stripper는 완전할 수 없고 그래서 1차 통제가 아니다** — 놓친 인용이 *추가* 매칭을 만들면 "정확히 1건" 규칙이 fail-closed로 끝낸다. stripper가 실제로 막는 유일한 케이스는 진짜 주장이 없는 finding에 인용문 1건만 살아남아 **거짓 주장**이 되는 것이다.
+- 앵커 매칭이 **정확히 1건이 아니면** `unclaimed`(0건=미주장, 2건 이상=첫 줄을 고르지 **않음**). 값은 `none` 또는 **단일** `^UI\d+$` — 콤마 목록·섹션에 없는 id·**64K자**(문자 수 상한이지 바이트 아님 — 앵커 정규식의 스캔 비용은 code unit에 비례하므로, 바이트로 재면 같은 비용이 리뷰어의 언어에 따라 통과·차단으로 갈린다) 초과는 전부 `unclaimed`이며 **절대 `none`으로 접히지 않는다**(접히면 탐지가 조용히 꺼진다).
+
+#### 6분류 · blocking 규칙은 하나
+
+| 분류 | 리뷰어 | 저자 | 처리 |
+|---|---|---|---|
+| `agree-none` / `agree-conflict` | 일치 | 일치 | 통과 |
+| `author-only` | none | UI*n* | 통과 — 과다 라벨은 안전 방향 |
+| `reviewer-only` | UI*n* | none | **명시 응답 필요** |
+| `id-mismatch` | UI*n* | UI*m* (n≠m) | **명시 응답 필요** |
+| `unclaimed` | 미주장/모호 | * | compliance 축 |
+
+blocking 규칙은 단 하나다: **"리뷰어가 지목한 id를 저자가 지목하지 않았다"**. `id-mismatch`를 통과시키면 conflict-vs-none만 탐지하면서 "라벨 비대칭을 탐지한다"고 주장하게 된다.
+
+해소는 ① `intent_conflict`를 리뷰어가 지목한 id로 **정정**(그 순간 M1의 override 규칙 발동)하거나 ② `intent_dispute_reason`에 **리뷰어가 틀린 이유**를 쓰는 것뿐이다. 둘 다 없으면 `mislabel_unresolved`. dispute는 strict `validateReason`을 재사용하되 **코드 어휘 half는 면제**한다(`allowCodeVocabulary`) — `"no"` 류 1-token과 명백한 filler(`lorem`·`asdf`)는 여전히 **부재로 취급**되지만, 반론은 코드를 논하는 산문이라 `test` scaffolding이나 `bar.ts`를 이름으로 부를 수 있어야 한다. 그것까지 막으면 저자의 출구는 validator가 놓아줄 때까지 문장을 고쳐 쓰는 것(게이밍 학습)이거나 포기하고 오심하는 것(게이트가 막으려는 바로 그 실패)뿐이다. override 표면은 면제 대상이 아니다 — opt-in per call이라 전체 목록을 그대로 유지한다.
+
+#### `partial`은 통과 상태가 아니다
+
+compliance는 `claimed/total`로 **계측**하되 판정은 이분법이다: `full`이 아니면 `inconclusive`.
+
+`inconclusive`여도 **관측된 불일치는 그대로 기록된다** — 계약을 지킨 finding에서 리뷰어와 저자가 어긋났다면 그 항목은 `intent_mislabel_audit`에 남고 `intent_mislabel_disputes`에도 계수된다. `inconclusive`는 "불일치가 없었다"가 아니라 "대조의 **완전성**을 인증할 수 없다"는 뜻이므로, 본 것을 지우는 것은 M1.5가 막으려는 바로 그 행위다. 소비처는 옆에 붙은 `intent_reviewer_contract='partial'`로 그 수치가 부분 대조에서 나왔음을 알 수 있다. 따라서 schema는 `inconclusive` + 비어있지 않은 audit을 **거부하지 않는다**(거부하면 정상 producer 출력이 막힌다 — 실측 재현됨). 20건 중 1건만 주장해도 통과시키면 M1의 구멍을 리뷰어 쪽으로 옮긴 것에 지나지 않는다. 임의 임계(80% 등) 대신 이분법을 택한 이유는 **방어할 근거 없는 숫자를 만들지 않기 위해서**이고, 계측값은 별도로 남으므로 1/20과 19/20은 감사에서 구분된다.
+
+#### 3-mode — `off`는 판정 억제가 아니라 경로 미진입
+
+`MCCP_INTENT_MISLABEL=enforce|warn|off`(§4). mode는 runner가 **Codex 호출보다 먼저** 해석하며 `off`면 ① 계약 문단을 프롬프트에 붙이지 않고 ② claims를 파싱하지 않으며 ③ `comparison`을 넘기지 않는다. ①이 빠지면 오라클을 건드리지 않았는데 **리뷰 payload 자체가 달라져** end-to-end M1 등가가 아니게 된다.
+
+등가의 **범위는 리뷰 경로**(프롬프트 · 파싱 · 판정)다. 임시 작업 파일 `$AWAITING`은 등가 대상이 아니며 `off`에서도 `mislabel_mode`와 finding별 `reviewer_claim*` 키를 **null로** 싣는다 — 키를 지우면 그 파일을 읽는 저자가 "축이 꺼졌다"와 "리뷰어가 답을 안 했다"를 구분할 방법이 없어진다. 구분자는 `reviewer_claim_status`다: `'unclaimed'`는 물었는데 못 받은 것(→ `inconclusive`), `null`은 애초에 묻지 않은 것(→ M1.5 규칙 자체가 미적용). `reviewer_claim` **값**만 보면 둘이 똑같이 `null`이므로, plan.md 5.5a는 값이 아니라 status를 읽도록 지시한다.
+
+`warn`은 **자체 sealed 상태**(`intent_mislabel_mode`)를 가지며 `intent_gate_force_override`를 재사용하지 **않는다** — 재사용하면 strict reason을 요구하는 audited-override 표면의 의미가 오염된다. `warn`이 여는 것은 mislabel 축(`inconclusive`/`mislabel_unresolved`) **뿐**이고, M1 축(`incomplete`/`conflict_unresolved`/`skipped-unproven`)에는 절대 열리지 않는다. `isIntentApproved`는 **무변경**이라 `warn`은 dedupe를 열지 않고 PR-Codex가 실제로 발화한다 — warn이 공짜가 아닌 지점이 정확히 여기다.
+
+두 override의 관계는 순서가 정한다: mode가 먼저 판정하고, **여전히 blocking일 때만** `MCCP_SKIP_INTENT_GATE`가 적용된다. 따라서 `warn`이 통과시킨 경우 `intent_gate_force_override`는 `false`다 — 플래그는 *설정 여부*가 아니라 **효력 발휘 여부**를 뜻한다.
+
+#### 감사는 카운트가 아니라 증거다 (present-only 6필드)
+
+`intent_mislabel_mode` · `intent_reviewer_contract` · `intent_claim_counts` · `intent_claims_digest` · `intent_mislabel_disputes` · `intent_mislabel_audit`. `makeSkeleton` 미포함(§3.12 hash 안정성). 집계 수치만으로는 "리뷰어가 UI2를 지목했는데 저자가 무슨 근거로 기각했나"를 사후 대조할 수 없으므로, **명시 응답이 필요했던 finding에 한해** `intent_mislabel_audit`이 `finding_digest`와 함께 리뷰어 주장·저자 라벨·dispute 원문을 봉인한다(기각된 dispute의 원문도 남긴다 — 무엇이 왜 기각됐는지가 감사 대상이다). 통과한 finding의 무결성은 `intent_claims_digest`(전체 claim map)가 맡는다. 배열 상한은 `ADJUDICATION_LIMITS.ITEMS`(1000)와 같아 **truncation 분기가 존재하지 않는다** — 조용한 절삭은 감사 표면을 무력화하므로 선택지가 아니다. `intent_claim_counts`는 예외적으로 **닫힌 키 집합**이며 6분류 분할 불변식을 schema가 검증한다.
+
+**집계는 증거를 이길 수 없다.** 분할 불변식만으로는 부족하다 — `reviewer_only`를 `author_only`로 옮기면 산술은 그대로 맞으면서 요약만 "응답 필요 0건"으로 읽힌다. 그래서 schema는 **분류별 tally 일치**(`reviewer_only`/`id_mismatch` ↔ audit 항목 수) · **audit 삭제 금지**(counts가 응답 필요를 보고하면 배열을 비울 수 없다) · **dispute 수 일치** · `intent_reviewer_contract`의 **counts 파생 가능성**을 함께 검증한다. 한 단계 위에서는 **verdict ↔ 증거**도 대조한다: `preserved`는 `full` 계약 ∧ 미해소 0을 함의하고, `inconclusive`는 non-full을, `mislabel_unresolved`는 미해소 ≥1을 함의하므로, 증거를 그대로 둔 채 위의 verdict만 뒤집은 receipt는 통과하지 못한다. 이는 **위조 방지가 아니다** — 파일 전체를 다시 쓰는 행위자는 모순 없는 거짓(`preserved` + `full` + 빈 audit)을 쓸 수 있고 어떤 대조도 그것을 못 본다. 닫는 것은 *증거를 남긴 채 결론만 바꾼* receipt와 producer drift다. 같은 이유로 `intent_gate_force_override_reason`은 플래그가 `true`일 때만 봉인된다(적용되지 않은 override의 사유를 남기면 일어나지 않은 일을 정당화한 기록이 된다).
+
+#### M1.5가 주장하지 않는 것
+
+- **오심을 교정하지 않는다.** 저자 라벨을 반증 가능하게 만들 뿐이다. 양쪽이 모두 `none`이면 여전히 탐지되지 않는다 — 다만 그 `none`이 한 당사자의 무검증 라벨이 아니라 독립된 두 당사자의 합의다.
+- **강제되는 명제는 "오심 0"이 아니라 "기록 없는 수용 0"이고, 그것도 `enforce`에 한한다.** `warn`으로 내리면 그 명제도 성립하지 않는다.
+- **`intent_dispute_reason`은 새 고무도장 통로가 될 수 있다** — M1의 `intent_override_reason`과 동형이며 부정하지 않는다. 남용은 `intent_mislabel_disputes` 비율로 관측되고, 그 비율이 높으면 그것이 M2(심판 분리)의 근거다.
+- **기본값 `enforce`는 실측값이지만 표본이 좁다.** Task 0이 production 경로로 10회 측정해 50/50 유효 주장·`full` 100%를 얻었고(2026-08-13) 사전 선언 규칙 ≥95%가 값을 정했다 — 그러나 그 10회는 **단일 fixture 반복**이고 심어둔 충돌이 제약 하나씩만 정확히 위반하는 쉬운 표본이다. 실제 plan에서 준수가 떨어지면 비용은 `inconclusive` 차단으로 즉시 나타나며, 그때의 복구는 임계 하향이 아니라 `MCCP_INTENT_MISLABEL=warn` + 실제 plan 재측정이다. 근거·한계는 [reviewer-contract-compliance.md](docs/codex-intent-context/reviewer-contract-compliance.md).
+
+---
+
 ### 3.14 (임시) 리뷰 finding 수용 임계 — HIGH 이상만 흡수
 
 > **임시 규칙이다. 아래 「해제 조건」이 충족되면 이 절을 통째로 삭제한다.**

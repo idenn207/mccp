@@ -32,6 +32,127 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `plugins/mccp/.claude-plugin/plugin.json` `1.23.7 → 1.24.0` + renderer footer 2면 동기. PRD의 유일한 milestone이 완료되므로 §3.7 기준 **minor**다. base는 `1.23.7`이지만 `origin/main`이 이미 `1.23.11`을 소비했으므로 `1.24.0`은 forward-only로 유효하다.
 - `CLAUDE.md` §4 cheat sheet에 `/mccp:meta-research` + `lint --all` 등재.
 
+## [1.23.11] — 2026-08-14
+
+**gate-guard-integrity M2 — 신호 신뢰도 (단일 milestone → patch bump)** — "전수 실행 결과가 실행마다 동일한가"를 **말할 수 있게** 만들고, 외부 의존 스모크 테스트가 도달 불가일 때 **참인 사유로** skip하게 한다. 착수 전 실측 4회가 plan의 형태를 바꿨다: PRD·STATE가 지목한 flaky 4건은 **한 번도 발화하지 않았고**, 실제로 갈라진 것은 그 목록에 없던 항목이었다. 즉 고정된 flaky 목록을 수리하는 계획은 성립하지 않으며, "실행마다 동일"이라는 진술은 **관측 없이는 참·거짓을 말할 수 없다**.
+
+**이 milestone은 목표를 달성하지 못했고, 그 사실을 자기 산출물로 측정했다.** 통제된 비교(같은 harness·같은 머신, 각 10회)에서 수정 전 스위트는 **10/10 완전히 동일**했고 수정 후는 **8/10**이다. 유입된 비결정 2건(`dedupe.test.js:123` · `worktrees-source.test.js:344`, 각 ≈10%/run)은 이 변경이 수정한 어느 파일에도 속하지 않으며, 세 차례 재현 시도(16× 동시 · 3배 부하 · 15× 순차)가 **전부 실패**해 메커니즘을 확정하지 못했다. 추정으로 채우지 않고 PRD Open Question으로 승계한다. **PRD Milestone 2는 지표 충족이 아니라 운영자의 명시적 수용 판정으로 `complete`가 됐다** — PRD Scope가 "비결정적 간섭의 근본 해소"를 범위 밖으로 못박고 "재현 조건 확정까지만"이라 규정했고, 그 확정은 달성됐다. 다만 `after.tap` 단일 실행이 네 델타 기준을 전부 충족한다는 사실을 통과 근거로 삼지 **않았다** — 8/10의 green을 성공으로 읽는 것이 이 PRD가 지목한 결함 형태 자체이기 때문이다.
+
+닫힌 것은 분명하다 — **축 C**(`b2-coverage-gate` 상시 red 2건)는 10회 전부에서 사라졌고(`alwaysFailing: []`), **축 B**(거짓 skip 사유)는 문자열 A/B로 대체됐다.
+
+### Added
+- `plugins/mccp/scripts/lib/suite-determinism.js` — N회 전수 실행의 실패 집합을 대조하는 결정성 harness. 순수층 `diffRuns(runs)` → `{stable, unionFailing, alwaysFailing, sometimesFailing}` + 실행층(`--runs N --json --repo-root`). **관측만 한다** — 재시도로 green을 만들거나 스위트를 수정하지 않는다. `stable`은 fail-closed다: 1회 관측은 안정성의 근거가 아니고(`insufficient-runs`), 요약 헤더가 없는 잘린 TAP은 "실패 0건"이 아니라 `incomplete-tap`이며, 실패 **이름**이 같아도 pass/fail 카운트가 움직이면 divergence다(조건부 skip이 pass↔skip을 오가는 형태는 이름 집합에 흔적을 남기지 않는다).
+- `plugins/mccp/scripts/lib/perf-scaling.js` — `judgeScaling({small,large,slack})` 순수 오라클. `ratio ≤ linearRatio × slack`(기본 2), **`small.ms=0`은 fail-closed**(`unmeasurable`) — 0으로 나눠 Infinity를 만들거나 "빠르니 통과"로 읽으면 분해능 아래로 내려간 순간 이 축이 조용히 꺼진다. 오라클을 `lib/`가 소유하는 것도 계약이다(`.test.js`가 export하면 소비 경로가 test 실행 부수효과에 묶인다).
+- `plugins/mccp/scripts/lib/codex-reachability.js` — `classify({env, invokeResult, registryProbe})` 도달 가능성 오라클. **precedence는 env policy > classification**: `MCCP_CODEX_DISABLED=1`이면 `invokeResult`가 무엇이든 `{reachable:false, kind:'env-policy'}`다(env가 켜졌다는 것은 companion이 spawn되지 않았다는 뜻이고, 그 판정은 하위 계층의 정직성과 무관하게 성립해야 한다). 표 밖 classification은 **도달 성공으로 읽지 않는다**(fail-closed → `transport`).
+- `plugins/mccp/scripts/receipt/store.js` `quarantineReceipt()` + `isWithinReceiptsDir()` — 승인된 격리 helper와 그 봉쇄 술어. 술어를 따로 export하는 이유는 stub 관측만으로는 `realpath` 로직 버그가 잡히지 않기 때문이다. 봉쇄는 `path.resolve` → `path.relative`(세그먼트 단위 `..` 검사) → **가장 가까운 실재 조상의 `realpathSync`** 재검사이며, source·destination **양쪽**에 적용한다. suffix는 helper **경계에서** 검증한다 — 호출부 검증은 helper 검증을 대체하지 못한다.
+- test: `lib/tests/{suite-determinism,perf-scaling,codex-reachability}.test.js` · `receipt/tests/store-quarantine.test.js` (신규 29건) + 기존 파일에 5건. 부정 케이스를 **스위트 안**에 둔 것이 설계다 — bash 스니펫에만 두면 `node --test` 게이트 밖이라 "자동 탐지"가 "문서화된 의도"로 약해진다.
+
+### Changed
+- `plugins/mccp/scripts/derive/tests/perf-budget.test.js` — 절대 `elapsed < 1000ms`를 **자기 정규화 스케일링 비**로 대체. 옛 단언은 derive의 비용과 **머신 경합**을 함께 재서, 코드가 한 줄도 안 바뀌어도 부하가 높으면 발화했다. 3배 부하 실측이 그것을 확인한다 — **옛 단언 3/3 실패, 새 단언 3/3 통과**이면서 주입된 O(n²)는 여전히 기각(ratio 45.29 > 20). 이 쌍이 함께 있어야 "완화가 아니라 대체"가 증명된다. 주입 스위치 `MCCP_PERF_INJECT_QUADRATIC`의 소비 지점은 **이 파일의 `runDerive` 헬퍼 한 곳뿐**이며 production `derive/`로 새지 않았음을 역방향 grep이 검사한다. 비율 축이 못 보는 상수 배수 폭증에는 경합보다 한참 위의 느슨한 절대 상한(30s)을 **별개 축**으로 뒀다.
+- `plugins/mccp/scripts/lib/tests/a3-instruction-cost.test.js` — `measureA3()` 5개 호출부에 명시 fixture `repoRoot` 전달. 미전달 시 `a3-instruction-cost.js:477`이 `process.cwd()`의 **라이브** `.claude/state/STATE.md`를 읽는다(세션 hook이 갱신하는 가변 파일). A/B: repoRoot 없이 7943B(cwd=repo) vs 111B(cwd=fixture) → 명시 후 111B/111B로 불변. temp CLAUDE.md도 fixture 안으로 옮겼다 — 전수 병렬 실행 중 저장소 트리에 파일을 쓰는 것 자체가 제거 대상 간섭이다.
+- `plugins/mccp/scripts/hooks/session-start.js` — fail-open 계약을 **원인과 무관하게** 강제. 이 hook은 `main().catch(… exitCode = 0)`로 "어떤 실패에도 exit 0"을 선언하지만, **module-scope throw는 그 catch가 구조적으로 못 잡는다** — 실측된 divergence(`exit 1` + stderr 완전 공백)와 형태가 일치한다. module-scope require를 `safeRequire`로 감싸고 `uncaughtException`/`unhandledRejection`/`exit` 3중 가드를 건다(hook 진입점일 때만 등록 — module로 require될 때 남의 프로세스 종료 코드를 건드리지 않는다). **강제는 조용하지 않다**: 고정 marker `FAIL-OPEN-FORCED`를 stderr에 남기고 `runSessionStart`가 그것을 파싱해, 정상 경로 test 6건이 marker **부재**를 단언한다 — 프로덕션에서는 막히지 않고 테스트에서는 그 사건이 계속 보인다(종료 코드 하나에 두 요구를 싣지 않는다).
+- `plugins/mccp/scripts/lib/plan-codex-runner.js` — `:248`의 직접 `fs.renameSync`를 store helper 위임으로 교체. helper는 throw하지 않으므로 **반환값을 반드시 검사**한다(무시하면 격리 실패가 조용히 지나가면서 lint는 통과하는 fail-open drift). `{ok:false}`면 기존 FATAL stderr 메시지를 그대로 낸다. `fs.renameSync(` 호출부 **2 → 1**(남는 1건은 marker atomic write).
+- `plugins/mccp/scripts/lib/msw-metrics/b2-coverage-gate.js` — `MUTATION_ENTRYPOINTS`에 `store.js#quarantineReceipt` **1행 추가만**(diff `+1/-0`). 승인 writer 면제가 파일 단위(`:324`)라 store에 들어간 새 mutating 함수는 축 A·B 어느 쪽으로도 스캔되지 않는다 — 레지스트리 등록이 그 면제를 책임지게 하는 유일한 보완 통제다. `APPROVED_WRITERS` · `APPROVED_PREFIXES` · `WRITE_CALL_RE` · `ANY_WRITE_CALL_RE`는 **무변경**(가드 미약화의 기계적 증거).
+- `plugins/mccp/scripts/lib/tests/codex-companion-smoke.test.js` — `shouldSkip()`을 도달 가능성 오라클로 대체. 이전 판정은 `MCCP_CODEX_DISABLED` 축을 **보지 않아** companion이 호출된 적조차 없는데 "JSON 계약이 non-JSON으로 드리프트했다"고 보고했다. A/B: `real codex --json contract appears to be non-JSON` → `env-policy: MCCP_CODEX_DISABLED=1 — codex-invoke short-circuits before spawn`. 도달 **성공 후** 계약 드리프트 skip은 사유가 이미 참이므로 현행 유지.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.7 → 1.23.11` + renderer footer 2면. plan은 `1.23.8`을 적었으나 그 사이 `origin/main`이 1.23.8을 발행했고 미머지 worktree 2개(`codex-intent-context`·`v1.24.0-multi-session-m5`)가 이미 1.23.9를 선언했다 — §3.7 forward-only + 3자 충돌 회피로 두 칸 상향. 같은 축의 **6번째 실측 재발**이다.
+
+## [1.23.10] — 2026-08-14
+
+**multi-session-work-loop M5 — 상태 진실원 이전 (단일 milestone → patch bump)** — 세션 간 진실의 원천을 **되돌릴 수 없는 요약 문서(STATE.md)에서 질의 가능한 append-only 저널로 옮기고**, STATE.md를 그 저널의 **파생 투영물**로 강등한다. GROUND 결과 PRD가 적은 것보다 한 칸 나빴다: `state-writer.update()`는 read-modify-write 전체 덮어쓰기이고 락은 실패 시 **경고만 남기고 그대로 쓴다**(last-writer-wins) — 저널이 없으므로 덮어쓴 내용에는 **복구 경로가 존재하지 않았다**. 게다가 M5가 의존하는 A4의 producer는 프로덕션에서 아티팩트를 **한 건도** 남긴 적이 없었다(`*.handoff-items.json` = main + worktree 6개 전체 0건). 원인은 CL-5 경로 결함의 **4번째 재발**이며 M4의 수정 주석이 같은 `try` 블록 8줄 위에 있었다.
+
+보증 범위는 정확히 다섯이며 그 이상을 주장하지 않는다 — **G1** 정상 모드의 모든 상태 변형이 손실 없이 append됨(degraded 구간은 제외이며 그 제외가 마커·loud stderr·`journal verify` 비영점 exit 세 곳에 동시에 드러남) · **G2** 닫힌 작업 단위는 지연·재생 기록으로 되살아나지 않음(저널이 유실된 뒤에도 — genesis 부트스트랩이 git-tracked `completion-ledger`에서 tombstone을 재수집) · **G3** STATE.md 소비 계약 불변(렌더 **byte-identical** · `mergeState`/`renderState` 재구현 0) · **G4** 이력이 질의 가능하고 압축이 투영을 손상시키지 않음 · **G5** A4 분자가 경계 스코프로 파생됨. **G5의 `computed` 전환은 미확인이다** — 배포(`claude plugin update`) + 새 세션 1회가 필요하고 이 사이클은 수행하지 않았으므로, §G5 조건성이 사전 고정한 미달 처리를 그대로 밟는다(`computed` 주장 금지 · `measurement-instrumentation.md` A4 행 `forward-only` 유지 · PRD M5 status를 순정 `complete`로 적지 않음).
+
+### Added
+- `plugins/mccp/scripts/lib/state-journal/{record,order,project,retention,index,single-writer-lint}.js` — 레코드 스키마(bounded allowlist + `content_hash`) · 재생 방어 판정 오라클(순수, 부작용 0) · 투영 reduce(`fs`/`child_process`/`net`/`os` import 0) · 보존 정책 · facade · 5축 정적 lint.
+- `plugins/mccp/scripts/state/journal-store.js` — `O_APPEND` append · malformed per-line 격리 + 카운트 · 원자 tmp+rename checkpoint · genesis 부트스트랩 · `completion-ledger` tombstone seed.
+- `plugins/mccp/scripts/lib/msw-metrics/a4-boundary-restore.js` + `derive/sources/session-journal.js` — A4 분자를 저널 `prev_session_id` 경계에서 파생. self-credit이 **구조적으로 불가능**하다(경계는 `prev !== cur`일 때만 성립).
+- `state/cli.js journal query|verify|checkpoint [--reseed]` — `verify`는 5축(content_hash 전수 · malformed 라인 · degraded 마커 · 투영↔디스크 일치 · ledger seed 무결성)이며 하나라도 실패하면 비영점 exit.
+- 회귀 **67건** + `docs/multi-session-work-loop/m5-assertion-manifest.json`(단언 ↔ test 제목 기계 대조, absent 0 강제).
+
+### Changed
+- `state-writer.js` — `update()`가 저널 append → 재투영 경유로 재배선. **공개 시그니처·렌더 바이트 불변.** `recordChainProgress`도 같은 임계구역(`applyLocked`)을 거치게 해 `writeStateAtomic` 호출부가 저장소 전체에서 **하나**가 됐다(lint 축 1이 그 사실을 검사).
+- `hooks/session-{start,end}.js` — CL-5 4번째 재발 수정 **3곳**(열거·기록·복원). `resolveHandoffRoot`를 거치므로 `projectRoot=''`가 cwd 상대로 접히는 구멍(M3·M4 수정에도 잠재)이 닫혔고, 해소 실패는 마커 + msw-event **2채널**로 셀 수 있게 남는다.
+- `docs/ENVIRONMENT.md` §11 — 신규 토글 **정확히 1개** `MCCP_STATE_JOURNAL=enforce|shadow|off` 등재(운영 계약 4축: 수동 전용 · 프로세스 수명 · **마커 > 토글** · `shadow`는 쓰기 경로만 되돌림).
+
+### Fixed
+- **`completion-ledger` 엔트리 스키마 오독** — 최초 구현이 top-level `decision_id`를 읽어 실측 32건 전부가 `corrupt`로 계상됐다(실제 스키마는 `{schema_version, entry:{…}}`). 조용히 0건을 seed했다면 G2가 성립한다고 오독됐을 자리이며, **DD11이 요구한 corrupt 카운터가 이 결함을 드러냈다**. 수정 후 27개 distinct 작업 단위가 seed된다.
+- **`created_at` 재파생** — 재투영이 매번 replay 시각으로 `created_at`을 덮어써 "이 상태가 처음 만들어진 시각"이 호출마다 미래로 밀렸다. 레코드의 `ts`를 결정론적 앵커로 고정(기존 회귀 `read-modify-write preserves unspecified fields`가 검출).
+- **`work_unit` 한 칸 밀림** — 해석이 기존 frontmatter만 읽어 작업 단위를 바꾸는 바로 그 변형이 *이전* 단위로 기록됐다. patch를 frontmatter보다 먼저 본다.
+- **lint 인자 추출이 CL-5 형태를 통과** — 순진한 `\(([^)]*)`가 `fn(process.cwd())`의 첫 `)`에서 끊겨 잡아야 할 형태 바로 그것을 놓쳤다. 괄호 균형 스캔으로 교체.
+
+### Fixed (PR-Codex R1 — 첫 cross-model 발화가 잡은 실결함 3건)
+
+이 milestone은 Plan-Codex·Implement-Codex가 `MCCP_CODEX_DISABLED=1`로 미발화했고 L2 패널은 11라운드 divergent라 **cross-model 검증을 한 번도 받지 못한 채** ship 직전까지 왔다(plan 잔여 8이 예고한 상태). `/mccp:pr`에서 env를 해제해 PR-Codex를 실제로 발화시키자 첫 라운드에 HIGH 3건이 나왔고, 셋 다 실결함으로 확인돼 **override 없이 수정**했다. 공통 형태가 같다 — 단위 test가 *강등 분기*나 *작은 입력*만 시험해 통과했고 **프로덕션 경로·권위 경로는 한 번도 확인되지 않았다**.
+
+- **C1 — 프로덕션 레코드가 안정적인 session epoch을 받지 못했다.** `state-writer`가 `ledgerRead` 없이 `journalApply`를 불러 `resolveIdentity`가 언제나 `ts-fallback`으로 떨어졌다 → `session_epoch`이 세션의 `created_at`이 아니라 **그 update의 write 시각**. 판정 ③(같은 seq는 큰 epoch 승리)이 사실상 "나중에 append한 쪽이 승리"가 되어 **되살아난 오래된 세션이 늦게 쓰면 이긴다** — UI5가 M5의 차단 요구사항으로 건 재생 방어가 그 지점에서 뒤집혔다. 기본값을 실제 `session-ledger.readLedger`로 두고(세션당 per-process 메모) test만 주입하게 바꿨다. 회귀는 프로덕션 형태로 단언한다.
+- **C2 — 손상 레코드가 투영을 구동했다.** 해시 검증이 `journal verify`에만 있어, 파싱되는 손상·변조 레코드가 **투영을 구동한 뒤에야** 보고됐다(DD6.3이 명시한 격리가 비어 있었다). 이제 `readRecords`가 read 경로에서 격리하고 `verify`는 그 격리 목록을 읽는다(걸러진 `records`를 재검하면 언제나 0건이라 검사가 무력해진다). **checkpoint는 격리로 해소되지 않으므로**(투영의 base 그 자체 — 버리면 STATE.md가 통째로 리셋된다) 해시 불일치 시 degraded로 강등하고, 부트스트랩이 손상 checkpoint를 *부재*로 착각해 새 genesis로 덮어쓰던 경로(증거 인멸)도 함께 닫았다.
+- **C3 — 큰 patch가 조용히 잘리거나 버려졌다.** patch 문자열 8192자 절단 + 라인 16KiB 초과 시 `patch: null` 치환. enforce 모드에서 투영이 권위이므로 **`update()`가 성공을 반환하면서** `chain_progress`·`next_chunk`를 잃는 경로였다(G1·UI4 동시 위반). patch 절단을 전면 제거하고, 표현 불가능한 경우는 절단이 아니라 **append 실패 → degraded**로 처리한다. 그 구간에서 값은 STATE.md 직접 경로가 온전히 보존한다. 식별자성 스칼라의 256자 상한은 유지(절단이 의미를 바꾸지 않는 축).
+
+회귀 7건 추가(`state-journal-integrity.test.js`) — 전부 프로덕션/권위 경로 형태이며, 되돌리면 실패한다.
+
+### Fixed (최종 라운드 — 리뷰 가능성 blocker) · Known-open (audited override로 ship)
+
+shipping HEAD에 대한 최종 PR-Codex 라운드가 4건을 반환했다(CRITICAL 1 · HIGH 2 · MEDIUM 1). 운영자 결정으로 **`MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE` audited override로 ship**하며, receipt는 실제 `divergent` verdict를 **재작성하지 않고 그대로 봉인**한다(cross-gate dedupe fail-closed 유지 → 다음 `/mccp:pr`에서 PR-Codex 재발화).
+
+**즉시 수정한 것 (MEDIUM, 리뷰 가능성 blocker)** — `order.js`·`index.js`·`a4-boundary-restore.js`에 **리터럴 NUL 바이트**가 들어가 git이 세 파일을 **바이너리로 취급**했다(`git diff --numstat` = `-  -`). 순서 오라클·facade·A4 지표, 즉 리뷰어가 가장 봐야 할 세 파일이 diff에서 보이지 않는 상태였다. 6자 이스케이프로 치환해 소스는 순수 ASCII 텍스트, 런타임 구분자는 그대로 U+0000이다(치환 후 단언). 로직 변경 0.
+
+**미해소 3건 — backlog 이관** (`.claude/plans/codex-findings-backlog.md`, 2026-08-14): ① **CRITICAL** `kind=tombstone`을 쓰는 **프로덕션 writer가 없다** → G2의 tombstone 축이 사실상 test 전용이며, 잔여 1b가 적은 것보다 한 칸 더 나쁘다(저널 수명 *안*의 방어도 decision-slug 축에만 성립) ② **HIGH** A4가 투영이 거부한 레코드(`admit-superseded`/`admit-post-tombstone`, 감사 목적 잔존)를 경계로 계상 → UI9 위반 가능 ③ **HIGH** `journal verify`가 `baseIndex` 없이 재투영해 production과 다른 오라클로 판정.
+
+### Fixed (PR-Codex R3 — CRITICAL: 작업 단위가 바뀌면 옛 patch가 새 상태를 덮어썼다)
+
+R2 흡수 후 3라운드에서 **CRITICAL** 1건. 실측 재현했다: `taskFingerprint`를 바꿔 `A#1 → A#2 → B#1` 순으로 쓰면 STATE.md가 `B#1`이 아니라 **`A#2`** 를 렌더한다 — 최신 write가 더 오래된 것에게 덮인다. 작업 단위가 바뀔 때마다 발생하므로 예외가 아니라 정상 사용 경로다.
+
+원인은 **plan의 두 조항이 서로 모순된 것**이다 — I6은 "`seq`는 work_unit별로 1부터", Task 3은 "`records.filter(admit).sort(by seq).reduce(...)`". seq가 work_unit별인데 전역으로 정렬하면 새 단위의 `seq:1`이 이전 단위의 `seq:2` 앞으로 밀린다. 구현이 후자를 충실히 따랐고, 회귀가 단일 work_unit만 써서 모순을 드러내지 못했다.
+
+**판정(admission) 순서와 재생(replay) 순서를 분리**했다: 판정은 그대로 work_unit별 인덱스를 쓰고, 재생은 **append 순서**(파일 순서 — `O_APPEND`가 보장하는 실제 직렬화 순서)로 접는다. 지연 레코드도 파일 순서대로 처리하면 그 시점 high-water와 대조돼 정확히 `admit-superseded`로 떨어지므로 G2는 무손상이다. 회귀 2건 추가(작업 단위 전환 · 3개 단위 교차). 누적 회귀 **79건**.
+
+### Fixed (PR-Codex R2 — 병합 트리 재발화가 잡은 실결함 2건)
+
+R1 흡수 후 `origin/main`(#131)을 병합한 최종 트리로 PR-Codex를 **다시** 돌렸다. R1의 3건은 재발하지 않았고 **새 축 2건**이 나왔다. 둘 다 실결함이라 역시 override 없이 수정했다. R1과 같은 형태의 사각이 다시 확인된다 — 회귀가 *산출물*(상태)만 대조하고 *메커니즘*(순서 메타·자동 발화)은 대조하지 않았다.
+
+- **D1 (HIGH) — 압축이 재생 방어에 필요한 순서 인덱스를 버렸다.** `compact()`가 상태와 전역 `through_seq`만 봉인하고 활성 세그먼트를 회전시켰는데, 투영 입력은 활성 세그먼트만 읽는다 → 압축 직후 admission 인덱스가 **빈 상태로 시작**한다. 압축 이전 시점의 stale writer가 옛 `(work_unit, seq)`를 append하면 high-water도 tombstone도 없어 그대로 `admit`되어 **닫힌 상태가 되살아난다 — G2가 압축 한 번에 무력해진다.** checkpoint에 `order_index`(work_unit별 high-water + 경계 seq 점유자 + tombstone)를 싣고 `buildOrderIndex`가 그것을 먼저 복원하도록 했다. 회전된 세그먼트의 journal-only tombstone도 살아남는다.
+- **D2 (MEDIUM) — 보존 정책이 export만 되고 한 번도 발화하지 않았다.** `enforceLimits`의 호출부가 **0개**여서 256KB 활성 세그먼트 상한·90일 압축 트리거·64MB 경고가 정상 사용에서 전혀 동작하지 않았다(plan Task 5가 명시한 "상한 초과 시 자동 발화" 축이 통째로 비어 있었다). write 경로에 배선했고, 호출자가 읽은 레코드를 재사용해 hot path 이중 read를 피한다. 압축 실패는 강등이 아니라 loud warn이다 — append는 이미 성공했고 저널은 온전하다.
+
+회귀 3건 추가(압축 후 지연 레코드 거부 · 회전된 tombstone 유효 · CLI 없이 write 경로만으로 상한 발화). 누적 회귀 **77건**.
+
+### Security
+- 사전 `security-reviewer` 실발화 — findings **7건**(CRITICAL 0 · HIGH 3 · MEDIUM 3 · LOW 1) 전건 트리아지. 신규 축 2건 흡수: **프로토타입 오염**(`JSON.parse`가 `__proto__`를 own 속성으로 만들고 `Object.assign` source로 쓰이면 `Object.prototype` setter가 발동 — allowlist 키별 대입 + `sanitizePatch`로 차단, 저널 라인·ledger 엔트리 양쪽 회귀 fixture) · **seq 충돌 잔여 정밀화**(락 fail-open 구간의 동시 append는 결정론적으로 해소되나 **진 쪽의 patch는 투영되지 않는다** — 레코드는 잔존·질의 가능. 즉 그 구간은 "손실 없음"이 아니라 "손실이 기록으로 남음"). 구현 불변식 3건: checkpoint rename **이후에만** 세그먼트 회전(부분 압축 tail 유실 차단) · `--reseed`가 폐기 범위를 새 genesis에 봉인(파괴를 막지는 않되 이력에 남김) · malformed 라인 > 0에서 `verify` 비영점 exit(truncation 은폐 차단). 1건은 사실 오류로 기각(`verify`가 투영↔디스크 일치를 이미 검사), DEFER 0건.
+## [1.23.8] — 2026-08-09
+
+**diverse-agent-review M4 — 통과 경로 실증 + 지표 부채 상환 (patch)** — M1은 계기를 배송했지만 **한 번도 눈금을 읽지 못했다**. 저장소 receipt 40개 중 `review_verdict`를 가진 것은 0건이었고, 원인은 우연이 아니라 구조였다: wall-clock stamp가 `5.6b`의 receipt write 안에만 있고 차단된 실행은 그 앞에서 HALT하므로 **오래 걸린 실행일수록 기록될 확률이 낮았다**(survivorship bias가 계기에 내장). 게다가 plan 게이트 receipt는 `.gitignore:31`상 worktree-only라 §3.8 cleanup마다 소멸한다.
+
+### 축 A — 측정 표면을 옮긴다 (`.claude/reviews/`, git-tracked)
+
+- **`lib/plan-review/record.js` CREATE** — `REVIEW_DIR` 아티팩트에서 리뷰 기록 markdown 전체를 결정적으로 생성하는 순수 오라클. M1의 5.2h 포맷(제목·Verdict·Quorum·Layers·Findings 표·Refutation 표)을 그대로 재현하되 fenced ```json `## Measurement` 블록을 추가한다 — `{verdict, source, layers, quorum, wall_clock_ms, halt_stage, granted, reviewed_plan_hash, plan_path, recorded_at}`. **결손 내성이 설계 요구**다: 차단은 5.2 어느 단계에서든 일어나므로 `l2`/`decision`이 없는 조합이 정상 입력이고, 없는 축은 `null`로 적고 `halt_stage`가 어디서 멈췄는지 말한다. **측정 불가는 `null`이지 `0`이 아니다** — 0은 "게이트가 즉시 끝났다"는 거짓 측정이고, M1 수치를 못 쓰게 만든 침묵의 0과 같은 부류다.
+- **`cli.js record` 서브커맨드** — 아티팩트를 읽어 `.claude/reviews/plan-review-<slug>.md`를 쓰고 **항상 exit 0**. 다른 모든 서브커맨드는 "이 plan을 승인해도 되는가"에 답하므로 미상 입력이 차단이어야 하지만, 이것은 "무슨 일이 있었는가"에 답한다 — 게이트를 막을 수 있는 계측은 처음 오작동하는 순간 삭제되는 계측이다. 대신 모든 degradation은 loud stderr([[feedback-loud-fail-open]]): exit 0은 "막지 않았다"이지 "다 괜찮았다"가 아니다. slug는 파일 경로에 이어붙므로 repo-내부 출처여도 sanitize한다(`../../etc/passwd` → `etc-passwd`).
+- **`commands/plan.md` 5.2 전 HALT를 계측 경유로** — 이전에 5.2h에 도달하는 차단 경로는 **판정 계열뿐**(5.2a exit 1 → 5.2e, 5.2e `DECIDE_EXIT=12`)이었고 **인프라 계열**(5.2b 예약 거부 · 5.2c emit/pin 실패 · 5.2d reconcile 아티팩트 판독 실패 · 5.2e proof 추출 실패 · 5.2f `mode.json` 판독 실패 · 5.2g proof 검증 실패)은 5.2h 이전에 exit해 측정치가 어디에도 남지 않았다. 이제 **9곳 전부** 각 stop 블록 직전 1행 호출이 들어간다. 동시에 5.2h의 **손으로 타이핑하던 markdown이 같은 CLI 호출 1행으로 대체**된다 — 순증 배선이 아니라 치환이고, 결과적으로 이 층의 지시문은 줄어든다.
+  - *자기 리뷰 흡수*: 초안은 5.2d·5.2f 두 stop을 빠뜨린 채 heading이 "every stop"이라 단언했다. 둘 다 **패널이 발화한 뒤**의 stop이라 정확히 이 축이 되찾겠다던 느린 표본이고, 단언이 배선보다 넓으면 이 milestone의 주제 자체가 무너진다. 이제 stage enum(plan.md heading · `cli.js` usage)이 닫힌 9개 집합이고, heading이 "새 stop을 추가하면 여기도 추가하라"고 명시한다.
+
+### 축 A 보강 — 계측이 스스로에 대해서도 정직하게
+
+- **`cell()`이 백슬래시를 파이프보다 먼저 이스케이프한다**(`record.js`) — 파이프만 이스케이프하면 `a\|b`가 `a\\|b`가 되어 마크다운이 백슬래시 1개 + **살아있는 구분자**로 렌더하고 행이 쪼개진다. 이스케이프를 논하는 바로 그 입력에서 깨지는 형태였다. evidence 인용에 Windows 경로·정규식이 들어오므로 이론적 경계가 아니다.
+- **`--review-dir`도 `resolveContained`를 거친다**(`cli.js record`) — 이 파일의 다른 모든 경로 인자가 지키는 규약에서 유일하게 면제돼 있었다. 위반은 **차단하지 않는다**(exit 0 계약 유지): 읽기를 거부하고, 모든 축을 absent로 적고, `### Recording degradations`에 사유를 남긴다. 기본 디렉토리로 조용히 fallback하는 것이 최악이다 — 호출자가 지목하지 않은 실행을 기록하게 된다.
+
+### 축 B — 발화 불가였던 budget 게이트를 살린다
+
+`workflows/plan-review.js:132`가 `input.minRemaining`을 읽고 `:155`가 그것으로 발화를 막는데, 유일한 producer인 `cli.js` payload에 그 키가 **없어서** 값은 항상 0이었고 `budget.remaining() < 0`은 구조적으로 도달 불가였다. 게이트가 실행될 수 없는 소스로 한 milestone을 보냈다.
+
+- **`lib/plan-review/budget.js` CREATE** — `parsePanelBudget`(`MCCP_PLAN_REVIEW_BUDGET`, default 150000, 비정상 → default + loud warn) + `panelMinRemaining`. `plan-fanout/budget.js`의 `parseFanoutMinPerAgent`를 미러한다(라이브 패널이 초안의 `parseRolesMin` 인용을 정정했다 — 그것은 `"MofN"` 문자열 파서다). **fail-open 방향이 유의미하다**: 읽을 수 없는 값은 default로 가고 **절대 0으로 가지 않는다**. 0은 게이트를 완화하는 게 아니라 꺼버린다.
+- `cli.js`가 **fleet을 `--granted`로 상한한 뒤** `minRemaining`을 emit한다(순서가 유의미 — 예약이 2를 줬는데 4인분 예산을 요구하면 감당 가능한 패널을 건너뛴다). workflow의 budget skip 반환은 실측 `remaining`/`minRemaining`을 실어 "예산 부족"과 "패널 크래시"를 구분 가능하게 한다.
+- **`decide`가 skip을 skip이라고 말한다** — *자기 리뷰 흡수*. 초안은 위 숫자를 반환값에만 실었고 소비처가 `record.js`뿐이었다. `cmdDecide`는 `results:[]`만 보고 `decideQuorum` → `responded:0` → **"L2 fired but no reviewer responded usably"**를 발행했다. 오라클은 주어진 입력에 대해 옳았고 세계에 대해 거짓이었다 — 패널은 발화하지 않았다. 게다가 5.2e stop은 그 문구와 함께 복구 경로 3개(codex 강등 · 새 세션 · agent cap 상향)를 출력하는데 **어느 것도 토큰 부족을 못 고친다**. 이 결함이 이제 중요한 이유는 M4가 이 분기를 도달 불가에서 **도달 가능**으로 바꿨기 때문이다. 이제 `cmdDecide`가 `skipped===true`를 먼저 분기해 사유와 관측 `remaining`/`minRemaining`, 그리고 **실제로 듣는 복구 축**(턴 예산 상향 · `MCCP_PLAN_REVIEW_BUDGET` 하향 · `MCCP_PLAN_REVIEW=codex`)을 reason에 싣는다. verdict는 불변(`unavailable`, fail-closed) — 넓힌 것이 아니라 **사유만 참으로** 만들었다. skip은 L1 실패와 마찬가지로 plan 해시 없이 판정 가능하므로 DD13 `--plan` 요구보다 앞에 둔다. plan.md 5.2e는 이제 generic 목록을 **덮어쓰지 말고** `reason`을 그대로 출력하라고 지시한다.
+
+### 축 C — 검증을 실측으로 대체한다
+
+라이브 패널이 이 축의 초안을 반려한 사유가 정확히 **검증 공허함**이었다(`node --check`는 문법만 보는데 acceptance는 런타임 동작을 요구 · 기존 emit test에 `minRemaining` 단언 0건). UI5에 따라 **수정 전 실패를 먼저 실측**했다 — 신규 단언 5건이 fix 전 fail, 후 전량 green(23/23).
+
+- `plan-review-workflow-port.test.js`가 budget 분기를 **실행**한다. 분기가 top-level script body라 `extractFunction`으로 못 뽑으므로 ESM `export` 키워드만 제거하고 스크립트 전체를 `AsyncFunction`으로 돌린다 — `args`/`budget`/`log`/`phase`/`parallel`/`agent`를 Workflow 런타임과 같은 모양의 sandbox global로 주입. `budget.total` 미설정 시 무발화(기존 동작)를 함께 고정한다.
+- `plan-review-record.test.js` CREATE(통과·늦은 차단·이른 차단 3경로 + 표 파괴 방어 + slug 탈출 방어), `plan-review-budget.test.js` CREATE(경계값 전수).
+- `commands/plan.md`의 PRD Artifact Output 템플릿 `## Acceptance`에 **라이브 완주 항목**을 추가한다(UI11). M1의 shipped plan은 소급 편집하지 않는다 — `plan_hash`로 봉인된 이력이고 지나간 milestone의 acceptance를 고쳐도 앞으로에는 아무 힘이 없다. 전방으로 작용하는 자리는 템플릿이다.
+
+> **Task 5(패널 통과 경로 라이브 완주)는 미달로 기록한다.** 플러그인 캐시가 `1.23.4`까지만 있어 M1의 패널 경로와 `review-*` agent 4종이 런타임에 존재하지 않는다. `claude plugin update` 후 **새 세션**이 선행 조건이며(agent 레지스트리는 세션 시작 시 구축), 그 전까지 통과 경로는 관측되지 않았다. UI3에 따라 미산출을 달성으로 적지 않는다.
+
+버전 `1.23.7 → 1.23.8`(§3.7 patch · 병렬 브랜치 충돌 6번째 재발 — main이 1.23.6(gate-guard-integrity M1)·1.23.7(MSW M4)을 선점해 두 칸 상향. PRD 미완료, milestone #5·#1.5·#2·#3 pending).
+
 ## [1.23.7] — 2026-08-09
 
 **multi-session-work-loop M4 — 예산 감축 (단일 milestone → patch bump)** — 작업이 시작되기도 전에 소진되는 컨텍스트(A3)를 절반으로 줄이고, 토글 축(B3)의 분모를 정직하게 만든다. GROUND 결과 PRD가 적은 상황보다 나빴다: **두 축 모두 측정 기판이 죽어 있었다.** A3는 `spawn('python3')` 하드코딩이 이 플랫폼에서 WindowsApps 스텁으로 풀려 항상 `baseline-unavailable`이었고, 그마저 `computeMetrics`가 `measureA3`를 **호출조차 하지 않았다**(import 후 재export만). B3는 `session-start.js`가 스냅샷 경로를 cwd 기준으로 풀어 M2 이후 `*.env-snapshot.json`이 **단 한 건도** 기록되지 않았고, 빈 corpus 위에서 `computed 0%`를 내보내고 있었다.
@@ -259,6 +380,34 @@ santa-loop 6라운드에서 **20건 흡수 · 7건 기각**했고 회귀 스위�
 신규 test 6건은 helper가 아니라 **발행 층(`computeMetrics`)** 에 건다 — Codex가 "현재 test는 helper에서 멈추고 A3/B3를 실제로 발행하는 소비자 경로를 건드리지 않는다"고 지적한 지점이다. 손상·drift가 `invalid`로 뒤집히는지와, **정상 경로가 새 게이트에 걸리지 않는지**를 함께 단언한다.
 
 새 게이트가 seeded acceptance fixture를 깨뜨렸고, 그것이 논점을 그대로 실증했다 — 그 fixture는 R2가 도입한 `snapshot_files_parsed`조차 갖고 있지 않았다. **fixture가 producer의 실제 출력 모양보다 뒤처져 있었는데 소비자 층 test가 없어 아무도 그 격차를 보지 못했다.** 게이트를 느슨하게 푸는 대신 fixture가 대조 결과를 명시하도록 고쳤다.
+
+## [1.23.9] — 2026-08-10
+
+**codex-intent-context M1.5 — 오심(mislabelling) 탐지 (patch — 단일 milestone ship, §3.7)** — M1(1.23.4)은 **누락**을 닫았다: 모든 Codex finding이 명시 판정을 받지 않으면 receipt가 써지지 않는다. 그러나 저자가 모든 finding을 `intent_conflict:'none'`으로 찍으면 커버리지 검사는 전부 통과하므로 M1은 **오심**을 막지 못했고 PRD 1차 지표(UI10)는 동어반복으로 남았다. M1.5는 리뷰어에게 per-finding `INTENT:` 계약을 부과하고 리뷰어 주장과 저자 판정을 **비대칭 대조**한다. 상세 계약은 CLAUDE.md §3.13.
+
+> **버전 주의(§3.7 forward-only)**: plan은 `1.23.5`를 가정했으나 main이 그 사이 `1.23.8`(diverse-agent-review M4)까지 진행해 `1.23.9`로 상향했다. 같은 축의 **7번째 재발**이며, 이 사이클에서만 `1.23.8` → `1.23.9`로 한 번 더 밀렸다(main 기준 rebase 시점). §3.7의 pre-PR version freshness check 자동화 근거가 계속 누적된다. 같은 커밋에서 **중복된 `## [1.23.4]` 헤딩 1건을 제거**했다 — PR #118이 이미 발행한 항목을 다음 세션이 "누락분"으로 오인해 다시 추가한 것으로, main에 있는 항목이 정본이다.
+
+### Added
+- `plugins/mccp/scripts/lib/intent-claims.js` — 리뷰어 주장 파서 + 비대칭 대조 순수 오라클(fs/process/clock 없음). finding의 `title`+`body`+`recommendation`을 **하나의 텍스트**로 이어붙여 라인 선두 앵커 `INTENT:`를 스캔하고, 매칭이 **정확히 1건이 아니면** `unclaimed`로 접는다. 인용 구조 5종(백틱/틸드 fence · **4칼럼 이상** 들여쓰기 · blockquote · HTML `<pre>`/`<code>`/`<blockquote>`)은 스캔 **전에** 제거된다 — 들여쓰기는 문자가 아니라 **칼럼**으로 재므로(탭 = 다음 4칼럼 탭스톱) 공백+탭 혼합 선두도 코드로 걸러진다. 대조는 DD3 6분류(`agree-none`/`agree-conflict`/`id-mismatch`/`reviewer-only`/`author-only`/`unclaimed`)이며 blocking 규칙은 단 하나다 — "리뷰어가 지목한 id를 저자가 지목하지 않았다".
+- `docs/codex-intent-context/reviewer-contract-compliance.md` — Task 0 실측 기록(하네스·회차별 raw·4축 결과·결정 근거·한계·재현 입력 전문). 하니스는 세션 scratchpad에만 존재하므로 fixture 표와 focus 원문을 문서 안에 적어 재건이 전사(transcription)로 끝나게 했다.
+
+### Changed
+- `plugins/mccp/scripts/lib/intent-context.js` — verdict 2종 추가(`inconclusive` · `mislabel_unresolved`, PASS 집합은 **불변**) · `intent_dispute_reason` 계약(기존 strict `validateReason` 재사용 — 1-token은 **부재로 취급**) · `decideIntentGate`가 신규 `comparison` 옵션을 M1 규칙 **전부 통과 후** 소비 · `deriveIntentGateDecision`에 `advisoryActive` **별개 입력** · `isIntentChainAllowed`의 warn 분기(`classifyIntentMeta` **앞**에 배치 — 뒤에 두면 영영 도달 불가) · `parseMislabelMode` + 명명 상수 `DEFAULT_MISLABEL_MODE`.
+- `plugins/mccp/scripts/lib/codex-invoke.js` — `INTENT_MISLABEL_CONTRACT` 문단을 **조건부**로만 부착(`opts.mislabelContract === true`). reference 블록 **뒤에** 놓아 계약 본문의 "위 reference 블록" 지시가 실제로 성립하게 했다. 미요청 시 focus는 v1.23.4와 **byte-identical**.
+- `plugins/mccp/scripts/lib/plan-codex-runner.js` — 순서가 불변식이다: ⓪ mode를 **Codex 호출보다 먼저** 해석 → ① 메모리 payload에서 claims 파싱(지역 변수) → ② awaiting에 투영(**출력 전용**) → ③ adjudication 대기 → ④ **①의 지역 변수**로 대조. awaiting을 다시 읽는 코드는 추가하지 않았다.
+- `plugins/mccp/scripts/receipt/schema.js` · `write.js` — present-only **6필드**(`intent_mislabel_mode` · `intent_reviewer_contract` · `intent_claim_counts` · `intent_claims_digest` · `intent_mislabel_disputes` · `intent_mislabel_audit`). `makeSkeleton` 미포함 — §3.12 tracked ship corpus의 `receipt_hash` 무손상. `intent_claim_counts`는 **닫힌 키 집합 + 분할 불변식**으로 검증하고, audit 배열 상한은 `ADJUDICATION_LIMITS.ITEMS`(1000)와 같아 **truncation 분기가 존재하지 않는다**(조용한 절삭은 감사 표면을 무력화하므로 선택지가 아니다). 그 위에 **집계 ↔ 증거 ↔ verdict 대조**를 얹었다 — 분할 불변식은 `reviewer_only`를 `author_only`로 옮기는 편집을 그대로 통과시키므로, 분류별 tally 일치 · audit 삭제 금지 · dispute 수 일치 · 계약값의 counts 파생 가능성 · verdict 함의(`preserved`⇒full ∧ 미해소 0 / `inconclusive`⇒non-full / `mislabel_unresolved`⇒미해소 ≥1)를 schema가 검증한다. **위조 방지가 아니라**(파일 전체를 다시 쓰면 모순 없는 거짓을 쓸 수 있다) *증거를 남긴 채 결론만 바꾼* receipt와 producer drift를 닫는 것이다. 같은 축으로 `intent_gate_force_override_reason`은 override가 실제 적용됐을 때만 봉인된다(§3.13.1).
+- `plugins/mccp/scripts/receipt/validate-cmd.js` — blocking intent verdict별 **개별 복구 문구**. 이전에는 어떤 verdict든 M1 문구 하나("모든 finding에 명시 판정")만 내보내, 실제 문제가 *리뷰어 불응*일 때 운영자를 엉뚱한 파일로 보냈다.
+- `plugins/mccp/commands/plan.md` — 5.5a에 `intent_dispute_reason` 행 + `reviewer_claim` 대조 지시, 5.4a verdict 분기에 신규 2종 복구 지시.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.8 → 1.23.9` + renderer footer(html/markdown) 동기(§3.7 5면). i18n 단언 2건은 main이 plugin.json 파생으로 전환해 리터럴 편집이 불필요해졌다.
+
+### Notes — 이 milestone이 달성하지 **않은** 것
+
+- **오심을 *교정*하지 않는다.** 저자 라벨을 **반증 가능(falsifiable)** 하게 만들 뿐이다. 양쪽이 모두 `none`이면 여전히 아무것도 탐지되지 않는다 — 다만 그 `none`이 한 당사자의 무검증 라벨이 아니라 독립된 두 당사자의 합의다.
+- **강제되는 명제는 "오심 0"이 아니라 "기록 없는 수용 0"**이며, 그것도 `enforce`에 한한다. `warn`으로 내리면 차단이 없어 저자가 무시하고 진행할 수 있다.
+- **기본값 `enforce`는 실측값이지만 표본이 좁다.** Task 0(리뷰어 계약 준수율 production-경로 실측)을 2026-08-13에 수행했다 — 10회, finding 50건 전부 유효 주장, 리뷰 단위 `full` 도달률 **100%**, 심어둔 충돌 40/40 정확 지목, 날조 0건, `inconclusive` 오탐 0건. 사전 선언 규칙(≥95%)이 `DEFAULT_MISLABEL_MODE = 'enforce'`를 정했고 PRD Milestone 1.5가 `complete`로 올라간다. 정지 규칙의 두 조건(5회 만장일치 종료 · 경계 10%p 이내 10회 연장)이 이 결과에서 충돌하므로 **연장을 실제로 수행**해 해소했다 — 6~10회차에서 하나라도 non-`full`이 나왔다면 90%로 떨어져 `warn`이 유지됐을 것이다. 다만 그 10회는 **단일 fixture 반복**이며 각 결정이 제약 하나씩만 위반하는 쉬운 표본이다 — 실제 plan에서 준수가 떨어지면 비용은 `inconclusive` 차단으로 즉시 나타나고, 그때의 복구는 임계 하향이 아니라 `MCCP_INTENT_MISLABEL=warn` + 실제 plan 재측정이다. 한계 전체는 `docs/codex-intent-context/reviewer-contract-compliance.md`.
+- **쿼터 메시지의 복구 시각은 확정 시각이 아니었다.** 2026-08-09 차단 시 companion이 "try again at Aug 16th"를 반환했으나 실제로는 2026-08-13에 이미 가용했다. 같은 형태로 막히면 인용된 시각을 기다리기 전에 1-token probe로 재확인하는 편이 싸다.
+- `intent_dispute_reason`은 새로운 고무도장 통로가 될 수 있다 — M1의 `intent_override_reason`과 동형이며, 부정하지 않는다. 남용은 `intent_mislabel_disputes` 비율로 관측되고, 그 비율이 높으면 그것이 곧 M2(심판 분리)의 근거다.
+- Plan-Codex · Implement-Codex 모두 `MCCP_CODEX_DISABLED=1`로 **미발화**했다. santa-loop R1~R3(Opus + GPT-5.4)이 22건을 흡수했으나 **cap 이후 수정분(#19~#22 + A 채택 3건)은 어느 리뷰어의 검증도 받지 않았다** — 이는 Codex 승인이 아니다.
 
 ## [1.23.4] — 2026-08-09
 

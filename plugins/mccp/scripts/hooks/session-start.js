@@ -9,6 +9,65 @@
  * sessions and learned skills.
  */
 
+// ── fail-open contract enforcement (gate-guard-integrity M2, Task 2c-A) ───────
+//
+// 이 hook 은 `main().catch(… process.exitCode = 0)` 로 **어떤 실패에도 exit 0** 을
+// 자기 계약으로 선언한다. 그런데 실측(전수 4회 중 1회)에서 이 프로세스가
+// **exit 1 + stderr 완전 공백**으로 죽는 것이 포착됐다. `main().catch` 가 구조적으로
+// 못 잡는 축이 정확히 하나 있다 — **module-scope 에서 던지는 throw**. 아래 requires
+// 중 하나가 실패하면 main 은 호출되지도 않으므로 catch 가 성립하지 않는다.
+//
+// 계약 강제는 **원인 확정을 기다리지 않는다**. fail-open 은 "어떤 경로로든 exit 0"
+// 이라는 전칭 명제이므로, 어느 경로가 깨뜨렸는지 몰라도 강제할 수 있다. M1 의 G1
+// 복원(`hooks/receipt-prompt.js:27-30` 방어 IIFE + `hooks/receipt-skill.js:58-74`
+// loud 라우팅)이 같은 형태다.
+//
+// **강제는 조용하지 않다.** 종료 코드 하나에 "사용자를 막지 않는다"와 "이 사건이
+// 보인다" 두 요구를 함께 실으면 후자가 지워진다 — exit 1 을 0 으로 바꾸는 순간
+// 그 flake 는 harness 의 `sometimesFailing` 에서 사라진다. 그래서 강제 경로는 고정
+// marker 를 stderr 에 남기고, 테스트는 정상 경로에서 그 marker 의 **부재**를
+// 단언한다. 프로덕션에서는 막히지 않고 테스트에서는 계속 보인다.
+const FAIL_OPEN_MARKER = '[mccp:session-start] FAIL-OPEN-FORCED';
+const IS_HOOK_ENTRY = require.main === module;
+
+function forceFailOpen(origin, detail, origExit) {
+  try {
+    process.stderr.write(FAIL_OPEN_MARKER
+      + ' origin=' + origin
+      + ' orig_exit=' + (origExit === undefined || origExit === null ? 'none' : origExit)
+      + ' detail=' + String(detail === undefined ? '' : detail).split('\n')[0].slice(0, 300)
+      + '\n');
+  } catch (_e) { /* stderr itself is gone — there is nothing left to say */ }
+  // 이 파일이 module 로 require 될 때(테스트가 두 헬퍼를 꺼내 쓴다) 남의 프로세스
+  // 종료 코드를 건드리면 안 된다. 강제는 hook 진입점에서만 성립한다.
+  if (IS_HOOK_ENTRY) process.exitCode = 0;
+}
+
+if (IS_HOOK_ENTRY) {
+  process.on('uncaughtException', function (err) {
+    forceFailOpen('uncaughtException', (err && err.message) || err, process.exitCode);
+  });
+  process.on('unhandledRejection', function (reason) {
+    forceFailOpen('unhandledRejection', (reason && reason.message) || reason, process.exitCode);
+  });
+  // 최종 지점. 위 둘이 못 본 어떤 경로가 비영점을 세워도 여기서 되돌린다.
+  process.on('exit', function (code) {
+    if (code !== 0) forceFailOpen('exit', 'terminal guard', code);
+  });
+}
+
+// module-scope require 방어. 실패해도 던지지 않고 빈 객체를 돌려주므로 평가가
+// 계속되고, 실제 사용 지점의 TypeError 는 `main().catch` 가 잡는다. 즉 잡을 수 없는
+// 실패(module-scope throw)를 잡을 수 있는 실패(런타임 throw)로 낮춘다.
+function safeRequire(id) {
+  try {
+    return require(id);
+  } catch (err) {
+    forceFailOpen('module-require', id + ': ' + ((err && err.message) || err));
+    return {};
+  }
+}
+
 const {
   getSessionsDir,
   getSessionSearchDirs,
@@ -19,17 +78,17 @@ const {
   readFile,
   stripAnsi,
   log
-} = require('../lib/utils');
-const { resolveProjectContext, writeSessionLease, resolveSessionId, getHomunculusDir } = require('../lib/observer-sessions');
-const sessionLedger = require('../state/session-ledger');
-const frictionTelemetry = require('../lib/friction-telemetry');
-const mswEvents = require('../state/msw-events');
-const toggleSnapshot = require('../state/toggle-snapshot');
-const handoffItems = require('../state/handoff-items');
+} = safeRequire('../lib/utils');
+const { resolveProjectContext, writeSessionLease, resolveSessionId, getHomunculusDir } = safeRequire('../lib/observer-sessions');
+const sessionLedger = safeRequire('../state/session-ledger');
+const frictionTelemetry = safeRequire('../lib/friction-telemetry');
+const mswEvents = safeRequire('../state/msw-events');
+const toggleSnapshot = safeRequire('../state/toggle-snapshot');
+const handoffItems = safeRequire('../state/handoff-items');
 const { spawnSync } = require('child_process');
-const { getPackageManager, getSelectionPrompt } = require('../lib/package-manager');
-const { listAliases } = require('../lib/session-aliases');
-const { detectProjectType } = require('../lib/project-detect');
+const { getPackageManager, getSelectionPrompt } = safeRequire('../lib/package-manager');
+const { listAliases } = safeRequire('../lib/session-aliases');
+const { detectProjectType } = safeRequire('../lib/project-detect');
 const path = require('path');
 const fs = require('fs');
 
@@ -745,9 +804,29 @@ async function main() {
         }
 
         // A4 인계 항목 복원
-        const restoreResult = handoffItems.restoreAndMatch(observerSessionId);
-        if (restoreResult.ok && restoreResult.restored_count > 0) {
-          log(`[SessionStart] Restored ${restoreResult.restored_count} handoff items from prior session`);
+        //
+        // CL-5 **4번째 재발** 수정 (multi-session-work-loop M5, Task 8). 바로 위
+        // 두 블록(M3 msw-events · M4 toggle-snapshot)이 같은 결함 형태를 이미
+        // 닫았는데 이 호출만 `opts` 없이 남아 `stateDir`/`cwd`가 둘 다 hook
+        // 프로세스의 cwd로 풀렸다. `ctx.projectRoot`를 그대로 쓰지 않고
+        // `resolveHandoffRoot`를 거치는 이유는 그 값이 global 컨텍스트에서 빈
+        // 문자열일 수 있고, 그러면 `path.join('', …)`이 다시 cwd 상대로 접히기
+        // 때문이다(위 두 수정에도 잠재한 구멍).
+        const handoffRoot = handoffItems.resolveHandoffRoot({
+          projectRoot: observerContext.projectRoot,
+          cwd: process.cwd(),
+          sessionId: observerSessionId,
+        });
+        if (handoffRoot.ok) {
+          const restoreResult = handoffItems.restoreAndMatch(observerSessionId, {
+            stateDir: path.join(handoffRoot.root, '.claude', 'state'),
+            cwd: handoffRoot.root,
+          });
+          if (restoreResult.ok && restoreResult.restored_count > 0) {
+            log(`[SessionStart] Restored ${restoreResult.restored_count} handoff items from prior session`);
+          }
+        } else {
+          log('[SessionStart] handoff root unresolved — skipped handoff restore');
         }
       }
     } catch (err) {

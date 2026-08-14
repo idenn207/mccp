@@ -578,6 +578,24 @@ test('M4 [10] mode transition: read-only up then --write starts fresh (no reuse)
 
 const sessionProcesses = require('../session-processes');
 
+// Ask the OS for a free port instead of guessing one from the pid.
+// `7600 + (process.pid % 100)` collided with TCP 7680, which Windows Delivery
+// Optimization holds — the bind failed with EACCES and took a whole full-suite
+// run with it, on roughly 1% of pids. Binding port 0 and reading back what the
+// kernel assigned removes the entire class. The tiny race (another process could
+// claim it between close and re-listen) is far smaller than the odds of landing
+// on a service port, and unlike that case it is not deterministic per machine.
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = require('net').createServer();
+    srv.on('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const port = srv.address().port;
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
 function setSid(sid) {
   const prev = process.env.CLAUDE_CODE_SESSION_ID;
   if (sid === null) delete process.env.CLAUDE_CODE_SESSION_ID;
@@ -588,7 +606,7 @@ function setSid(sid) {
 test('startServer registers itself, records reuse under the reusing session, and unregisters on close', async () => {
   const repo = tmpRepo();
   fs.writeFileSync(srv.statusHtmlPath(repo), '<html><body>X</body></html>', 'utf8');
-  const port = 7600 + (process.pid % 100);
+  const port = await freePort();
   const OWNER = 'sess-dash-owner';
   const REUSER = 'sess-dash-reuser';
   const prev = setSid(OWNER);
@@ -646,7 +664,7 @@ test('startServer registers itself, records reuse under the reusing session, and
 test('a reuse registration that fails is surfaced, not swallowed', async () => {
   const repo = tmpRepo();
   fs.writeFileSync(srv.statusHtmlPath(repo), '<html><body>X</body></html>', 'utf8');
-  const port = 7700 + (process.pid % 100);
+  const port = await freePort();
   const OWNER = 'sess-dash-owner-2';
   const prev = setSid(OWNER);
   const prevMccp = process.env.MCCP_SESSION_ID;

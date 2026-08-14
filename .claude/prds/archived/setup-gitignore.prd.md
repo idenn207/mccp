@@ -11,7 +11,7 @@ mccp를 설치하면 hook·게이트·orchestration이 즉시 런타임 산출�
 
 ## Evidence
 
-- [setup.md](../../plugins/mccp/commands/setup.md) 5개 Phase — Detect / codex 설치 / impeccable 설치 / `/codex:setup` 체인 / 보고. **`.gitignore` 축이 어디에도 없다.**
+- [setup.md](../../../plugins/mccp/commands/setup.md) 5개 Phase — Detect / codex 설치 / impeccable 설치 / `/codex:setup` 체인 / 보고. **`.gitignore` 축이 어디에도 없다.**
 - 반면 이 repo의 `.gitignore`(138행)는 mccp 런타임 항목만 **약 20종**을 담고 있다: `.claude/receipts/*` + ship receipt 예외 3줄 · `.claude/state/*.lock` · `loop-counter.json` · `orchestration-runaway.json` · `**/.claude/state/hook-trace/` · `hook-caps.json` · `.claude/cache/` · `.claude/state/dispatches/` · `.claude/state/evidence-claims/` · `.worktrees/` 등.
 - **규칙이 자명하지 않다** — receipt는 `.claude/receipts/*`를 무시하되 `!.claude/receipts/mccp-pr-codex/`를 재포함하고 그 안의 `*.lock`·`*.tmp`만 다시 무시하는 3단 구조다(증거 내구성 계약, CLAUDE.md §3.12). 이걸 사용자가 유추할 방법은 없다.
 - hook-trace는 `**/.claude/state/hook-trace/` 처럼 **root-anchored가 아닌 패턴**이어야 한다는 주석이 `.gitignore`에 붙어 있다 — worktree 하위를 놓치기 때문. 이런 함정은 문서 없이 재현 불가능.
@@ -53,14 +53,20 @@ We'll know we're right when **설치 직후 `git status`에 mccp 런타임 산�
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | gitignore 프로비저닝 Phase | 신규 설치자가 `/mccp:setup` 한 번으로 무시 규칙을 얻고, 첫 커밋이 오염되지 않음 | pending | — |
+| 1 | gitignore 프로비저닝 Phase | 신규 설치자가 `/mccp:setup` 한 번으로 무시 규칙을 얻고, 첫 커밋이 오염되지 않음 | complete | [setup-gitignore-m1.plan.md](../../PRPs/plans/archived/setup-gitignore-m1.plan.md) |
 
 ## Open Questions
 
-- [ ] **정본 목록의 소유처** — `.gitignore` 블록을 어디서 관리할지. 후보: plugin 내 템플릿 파일 / `dep-check.js` 인접 모듈 / 이 repo의 `.gitignore`에서 마커 구간을 추출. 마지막은 dogfood와 제품이 자동 동기화되나 이 repo 고유 규칙이 새어 나갈 위험.
-- [ ] **기존 오염 감지 범위** — 이미 tracked인 런타임 파일을 감지해 안내할지. 감지는 유용하나 `--dry-run` 없이 실행하면 놀랄 수 있다.
-- [ ] **ship receipt 예외의 조건성** — `mccp-pr-codex` 추적은 증거 내구성 계약(§3.12)의 결정이다. 다른 프로젝트가 이 계약을 원하지 않을 수 있으므로 opt-out을 둘지.
-- [ ] **버전 간 경로 추가 시 재실행 유도** — v1.2.0이 `dispatches/`를 신설했듯 새 경로가 생기면 기존 사용자는 재실행해야 안다. 알릴 채널이 없다.
+4건 모두 M1에서 결정됨 (근거는 plan의 DD2·DD4).
+
+- [x] **정본 목록의 소유처** — **결정: `gitignore-provision.js`의 `MCCP_IGNORE_BLOCK` 상수** (plan DD2). 이 repo `.gitignore`에서 런타임 추출하지 않는다 — repo 고유 규칙이 새어 나갈 위험이 실재하기 때문. 자동 동기화를 포기한 대가는 **양방향 drift lint + 전용 CI 워크플로**(`.github/workflows/gitignore-drift.yml`)가 치른다: `정본 − repo ≠ ∅`이거나 `repo − 정본 − REPO_ONLY ≠ ∅`이면 red.
+- [x] **기존 오염 감지 범위** — **결정: 감지하되 안내만 한다** (plan DD4-Q2). `git ls-files -i -c --exclude-standard` 한 줄이고 자체 로직도 파괴적 동작도 없다. 놀람 문제는 untrack을 하지 않음으로써 해소된다(`git rm --cached` 안내만). 이 명령이 실패하면 **경고 후 계속** — 감지는 부가 정보이지 프로비저닝의 전제가 아니라서 write 실패(halt)와 명시적으로 다르게 취급한다. "검사 실패"가 "오염 없음"으로 접히지 않도록 `POLLUTED_EXIT` 분기를 계약 lint 12번이 고정한다.
+- [x] **ship receipt 예외의 조건성** — **결정: M1에서 opt-out을 두지 않는다** (plan DD4-Q3, YAGNI). marker로 구분돼 있으므로 원치 않는 사용자는 4줄을 지우면 되고, 재실행 시 되살아난다는 점을 `setup.md`에 명시했다. 실수요가 관측되기 전에 토글을 만들면 축만 늘어난다.
+- [x] **버전 간 경로 추가 시 재실행 유도** — **결정: 새 채널을 만들지 않는다** (plan DD4-Q4). 블록 첫 줄 `# managed by /mccp:setup (mccp <version>)`이 갱신 시 diff와 보고에 드러난다. 그 표기가 실제 `plugin.json` 값과 일치함을 test가 단언하므로 근거가 주장에 그치지 않는다.
+
+**미완료 배포 전제 — ROLLOUT-1 (blocking, 저장소 설정)**: `gitignore-drift` check를 main branch protection의 required check로 등록해야 한다. M1이 repo 파일로 보증하는 것은 "대상 파일이 바뀐 PR에서 lint가 **실행되고** drift면 red"까지이고, 그 red가 **머지를 막는 것**은 repo 파일로 표현할 수 없다. 등록 전까지 강제는 절반만 성립한다.
+
+> ROLLOUT-1은 [codex-findings-backlog.md](../../plans/codex-findings-backlog.md)에도 **이중 등재**돼 있다. 이 PRD는 milestone이 M1 하나뿐이라 `complete` 전환 즉시 `/mccp:archive-complete`의 archivable 조건(CLAUDE.md §3.11 C3)을 만족하고, 아카이브되면 이 절이 활성 대시보드 스캔에서 빠져 유일한 추적처를 잃는다. 아카이브해도 backlog 쪽이 남는다.
 
 ## Risks
 

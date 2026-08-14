@@ -4,8 +4,8 @@
 //
 // This file is the SINGLE owner of three checks that live nowhere else:
 //   1. the bidirectional canonical <-> repo .gitignore drift lint (DD3),
-//   2. the setup.md Phase 5 contract lint (12 items defined by the plan's
-//      Task 3 Validate table),
+//   2. the setup.md Phase 5 contract lint (16 items — the plan's Task 3 Validate
+//      table plus the reporting-side items the review rounds added),
 //   3. the gitignore-drift workflow trigger lint.
 // .github/workflows/gitignore-drift.yml registers this file in CI, which is
 // what turns all three from advisory into enforced.
@@ -1076,7 +1076,7 @@ test('drift lint: every REPO_ONLY entry records why it stays behind', () => {
 });
 
 // ---------------------------------------------------------------------------
-// setup.md Phase 5 contract lint — the 12 items (single owner)
+// setup.md Phase 5 contract lint — the 16 items (single owner)
 // ---------------------------------------------------------------------------
 
 test('setup.md contract lint: Phase 5 exists and its fail-closed wiring is intact', () => {
@@ -1133,6 +1133,24 @@ test('setup.md contract lint: Phase 5 exists and its fail-closed wiring is intac
   }
   // 14 — an action outside the closed set must not fall through as success.
   assert.ok(/^\s{2}\*\)/m.test(md), 'case has no default branch — an unknown action would report success');
+  // 15 — the contract promises a line count on create/append/update, so the
+  //      body has to actually read it. Printing only `action` satisfies the
+  //      case statement and none of the contract.
+  // Anchored on the property ACCESS, not the bare word: the bash blocks carry
+  // comments that name these fields, and a lint satisfied by its own comment is
+  // green for a body that reads nothing.
+  assert.ok(
+    /\.addedLines\b/.test(bashBlocks),
+    'setup.md promises to report how many lines were added but never reads addedLines'
+  );
+  // 16 — a dry run reports the same action a real run would, so branching on
+  //      action alone announces a write that did not happen. This is the same
+  //      defect as an unassigned --dry-run flag, arriving from the reporting
+  //      side instead of the invocation side.
+  assert.ok(
+    /\.dryRun\b/.test(bashBlocks),
+    'setup.md never reads dryRun — a detection-only run would be reported as a write'
+  );
 });
 
 // ---------------------------------------------------------------------------

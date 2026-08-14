@@ -690,9 +690,30 @@ function applyMerge(target, plan, options) {
     // -bearing half.
     fs.writeFileSync(tmpPath, plan.nextContent, { flag: 'wx', mode: 0o600 });
     touchLock(lockPath);
+    // Re-verify immediately before the swap. The check above ran before two
+    // file writes, so the window it left is as wide as that I/O; this one
+    // leaves a window a few syscalls wide.
+    //
+    // It NARROWS the race, it does not close it: no portable rename can say
+    // "replace only if unchanged", so a writer that ignores our lock can still
+    // land an edit in the remaining gap. The advisory lock is what actually
+    // serializes cooperating writers; this is the last cheap reduction
+    // available to a non-cooperating one, and calling it a guarantee would be
+    // the dishonest version of the same code.
+    const beforeSwap = readTargetContent(target);
+    if (beforeSwap === null || sha256(beforeSwap) !== plan.sourceHash) {
+      throw new ProvisionError(
+        REASONS.CONCURRENT_MODIFICATION,
+        target + ' changed while the replacement was being staged. Nothing was written — re-run.',
+        target
+      );
+    }
     fs.renameSync(tmpPath, target);
   } catch (err) {
     try { fs.unlinkSync(tmpPath); } catch (_e) {}
+    // A ProvisionError here is already a diagnosis; rewrapping it as
+    // internal-error would erase the reason a consumer branches on.
+    if (err instanceof ProvisionError) throw err;
     throw new ProvisionError(REASONS.INTERNAL_ERROR, 'cannot write ' + target + ': ' + err.message, target);
   }
   return { written: true, backupPath, tmpPath };

@@ -175,4 +175,19 @@ A = PASS, B = FAIL. **어느 한쪽이라도 FAIL이면 NAUGHTY**이므로 R1 �
 2. **`.gitattributes`가 CI `paths`에 없음 (사실)** — 그 파일만 바꾸는 PR이 게이트를 통째로 건너뛰어, LF 보증을 지키는 단언이 실행되지 않은 채 그 보증을 은퇴시킬 수 있었다. 필터 + 트리거 lint 양쪽에 추가했다.
 3. **`yarn-debug.log*`가 stale (거짓)** — 21개 REPO_ONLY 전부가 실제 `.gitignore`에 존재한다(실측 missing = `[]`). B가 `.gitignore` 앞부분만 보고 낸 오판이라 흡수하지 않았다. 다만 그 지적이 드러낸 **역방향 단언 부재**는 실재하므로, 현재 위반 0인 상태를 단언으로 고정했다.
 
-R2 추가분 중 로컬에서 검증 가능한 2건도 변이로 red를 확인했다. **82 → 84 tests, fail 0.** 두 라운드에서 리뷰어가 각각 한 번씩 틀린 메커니즘 주장을 냈다(R1: A의 `'wx'`가 symlink를 따른다, R2: A의 "가드 완비"). 판정을 리뷰어 합의가 아니라 실측에 걸어 둔 것이 두 번 다 결론을 갈랐다.
+R2 추가분 중 로컬에서 검증 가능한 2건도 변이로 red를 확인했다. **82 → 84 tests, fail 0.**
+
+### R3 (3라운드 상한 소진 → 사용자 판단으로 종료)
+
+A = PASS, B = FAIL. 상한에 걸려 loop 규정대로 **push하지 않고** escalate했고, 사용자가 "2건 수정 후 push"를 선택해 리뷰 라운드 없이 흡수했다.
+
+1. **`setup.md` 계약 위반 (사실, 수정)** — dry run은 실제 실행과 같은 action을 반환하므로 action만 보고 분기하면 하지 않은 쓰기를 보고한다. 실측으로 확인했다(빈 저장소 `--dry-run` → `action=create`·`dryRun=true`·`addedLines=59`, 파일 미생성, 본문은 "갱신됨" 출력). 동시에 계약이 요구한 `addedLines` 보고를 본문이 아예 이행하지 않았고, dry run의 `pollution=null`을 "검사 실패" WARNING으로 오인했다. 셋을 `dryRun` 분기 + `addedLines` 소비로 닫고, 계약 lint를 16항목으로 늘려 고정했다.
+2. **`--force-update` rename 경쟁 (사실이나 제거 불가, 축소)** — B는 CRITICAL로 봤지만 "변경되지 않았을 때만 교체"하는 원자적 rename이 portable하게 없으므로 **어떤 구현도 이 창을 닫지 못한다**. B가 제안한 두 번째 barrier도 좁힐 뿐이다. 그 축소는 실질적이라(창이 "파일 쓰기 두 번" → "syscall 몇 개") 채택하되, 주석과 CHANGELOG에 **닫지 못한다는 사실을 명시**했다. 차단 사유로 인정하지 않은 근거다.
+
+lint 항목 16은 처음에 `/dryRun/` 단순 매칭으로 썼다가 **변이가 red가 되지 않아** 결함을 발견했다 — bash fence의 주석이 그 단어를 담고 있어 본문이 아무것도 읽지 않아도 초록이었다. 속성 접근(`\.dryRun\b`)으로 앵커링해 재검증했다. 새 lint 2건 모두 주석을 남긴 채 코드만 지웠을 때 red다.
+
+**최종: 84 tests, pass 81, fail 0, skipped 3**(POSIX mode 2 + O_NOFOLLOW 1, 전부 Windows 한정 skip이며 CI ubuntu가 실증 소유).
+
+### 이 loop에서 얻은 것
+
+3라운드 내내 A는 R2·R3에서 PASS를 냈지만, 그 PASS의 근거로 든 "symlink 가드가 모든 write 대상을 덮는다"(R2) · "CI paths 필터 완비"(R2) · "Phase 5 bash가 provisioner JSON 계약과 일치"(R3)는 **모두 실측으로 거짓이었다**. B는 8건 중 7건이 사실이었다(오판 1건: `yarn-debug.log*`). 판정을 리뷰어 합의가 아니라 실측에 건 것이 매 라운드 결론을 갈랐고, "리뷰어 두 명이 PASS면 통과"였다면 R2 시점에 append TOCTOU와 dry-run 오보고를 안은 채 ship했을 것이다. 두 라운드에서 리뷰어가 각각 한 번씩 틀린 메커니즘 주장을 냈다(R1: A의 `'wx'`가 symlink를 따른다, R2: A의 "가드 완비"). 판정을 리뷰어 합의가 아니라 실측에 걸어 둔 것이 두 번 다 결론을 갈랐다.

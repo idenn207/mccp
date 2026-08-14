@@ -201,26 +201,40 @@ case "$PROVISION_ACTION" in
     echo "  (동의 없이 .gitignore 전체를 다시 쓰지 않습니다 — UI2)"
     ;;
   create|append|update)
-    # backupPath is non-null only for the --force-update whole-file replace.
-    # create/append are append-only, so there is nothing to back up and the
-    # value itself distinguishes the paths — one branch cannot misreport.
-    echo "[mccp:setup] .gitignore 갱신됨 (action=$PROVISION_ACTION). 백업: $(printf '%s' "$PROVISION_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).backupPath||"(none — 전체 교체 없음)")}catch{process.stdout.write("(none)")}')"
-    # Advise about already-tracked files; never untrack them (UI7).
-    #
-    # The scan is `git ls-files -i -c --exclude-standard` run BY THE PROVISIONER,
-    # against the repository root it resolved. Re-running it here would scope it
-    # to the caller's cwd instead: invoked from a subdirectory it lists only that
-    # subtree and reports the partial result in the same shape as a clean one.
-    # POLLUTED_OK distinguishes "checked, clean" from "could not check" — a failed
-    # check must not collapse into "no pollution".
-    POLLUTED_OK=$(printf '%s' "$PROVISION_JSON" | node -e 'try{const p=JSON.parse(require("fs").readFileSync(0,"utf8")).pollution;process.stdout.write(p&&p.ok?"1":"0")}catch{process.stdout.write("0")}')
-    POLLUTED=$(printf '%s' "$PROVISION_JSON" | node -e 'try{const p=JSON.parse(require("fs").readFileSync(0,"utf8")).pollution;process.stdout.write(p&&p.ok?(p.files||[]).join("\n"):"")}catch{process.stdout.write("")}')
-    if [ "$POLLUTED_OK" != "1" ]; then
-      echo "[mccp:setup] WARNING: 오염 파일 검사를 수행하지 못했습니다 (pollution.ok=false). 이미 추적 중인 런타임 파일이 있는지는 확인되지 않았습니다 — 프로비저닝 자체는 완료됐습니다." 1>&2
-    elif [ -n "$POLLUTED" ]; then
-      echo "[mccp:setup] 이미 추적 중인데 이제 무시 대상이 된 파일이 있습니다. 자동으로 untrack하지 않습니다:"
-      printf '%s\n' "$POLLUTED"
-      echo "  제거하려면 직접: git rm --cached <path>"
+    # A dry run reaches this branch with the SAME action a real run would report
+    # — that is what makes it a preview — so the action alone cannot tell the two
+    # apart. Branch on `dryRun` or this line claims a write that never happened,
+    # which is the defect an unassigned ${DRY_RUN:+--dry-run} produced from the
+    # other direction.
+    PROVISION_DRYRUN=$(printf '%s' "$PROVISION_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).dryRun?"1":"0")}catch{process.stdout.write("0")}')
+    ADDED_LINES=$(printf '%s' "$PROVISION_JSON" | node -e 'try{const a=JSON.parse(require("fs").readFileSync(0,"utf8")).addedLines;process.stdout.write(String(Array.isArray(a)?a.length:0))}catch{process.stdout.write("0")}')
+    if [ "$PROVISION_DRYRUN" = "1" ]; then
+      echo "[mccp:setup] --dry-run: .gitignore에 ${ADDED_LINES}줄을 추가할 예정입니다 (action=$PROVISION_ACTION). 아무것도 쓰지 않았습니다."
+      # No pollution report on a dry run. Nothing became newly ignored, so the
+      # provisioner deliberately leaves `pollution` null — reporting that as
+      # "could not check" would warn about a scan that was never meant to run.
+    else
+      # backupPath is non-null only for the --force-update whole-file replace.
+      # create/append are append-only, so there is nothing to back up and the
+      # value itself distinguishes the paths — one branch cannot misreport.
+      echo "[mccp:setup] .gitignore 갱신됨 (action=$PROVISION_ACTION, ${ADDED_LINES}줄 추가). 백업: $(printf '%s' "$PROVISION_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).backupPath||"(none — 전체 교체 없음)")}catch{process.stdout.write("(none)")}')"
+      # Advise about already-tracked files; never untrack them (UI7).
+      #
+      # The scan is `git ls-files -i -c --exclude-standard` run BY THE PROVISIONER,
+      # against the repository root it resolved. Re-running it here would scope it
+      # to the caller's cwd instead: invoked from a subdirectory it lists only that
+      # subtree and reports the partial result in the same shape as a clean one.
+      # POLLUTED_OK distinguishes "checked, clean" from "could not check" — a failed
+      # check must not collapse into "no pollution".
+      POLLUTED_OK=$(printf '%s' "$PROVISION_JSON" | node -e 'try{const p=JSON.parse(require("fs").readFileSync(0,"utf8")).pollution;process.stdout.write(p&&p.ok?"1":"0")}catch{process.stdout.write("0")}')
+      POLLUTED=$(printf '%s' "$PROVISION_JSON" | node -e 'try{const p=JSON.parse(require("fs").readFileSync(0,"utf8")).pollution;process.stdout.write(p&&p.ok?(p.files||[]).join("\n"):"")}catch{process.stdout.write("")}')
+      if [ "$POLLUTED_OK" != "1" ]; then
+        echo "[mccp:setup] WARNING: 오염 파일 검사를 수행하지 못했습니다 (pollution.ok=false). 이미 추적 중인 런타임 파일이 있는지는 확인되지 않았습니다 — 프로비저닝 자체는 완료됐습니다." 1>&2
+      elif [ -n "$POLLUTED" ]; then
+        echo "[mccp:setup] 이미 추적 중인데 이제 무시 대상이 된 파일이 있습니다. 자동으로 untrack하지 않습니다:"
+        printf '%s\n' "$POLLUTED"
+        echo "  제거하려면 직접: git rm --cached <path>"
+      fi
     fi
     ;;
   *)

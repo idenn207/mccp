@@ -57,7 +57,7 @@ We'll know we're right when **다음 조사가 커맨드 한 번으로 시작되
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | `/mccp:meta-research` + 규격 형식 | 조사가 커맨드로 시작되고, 산출물이 전제를 명시해 나중에 재검증 가능 | in-progress | [meta-research-command-m1.plan.md](../plans/meta-research-command-m1.plan.md) |
+| 1 | `/mccp:meta-research` + 규격 형식 | 조사가 커맨드로 시작되고, 산출물이 전제를 명시해 나중에 재검증 가능 | complete | [meta-research-command-m1.plan.md](../plans/meta-research-command-m1.plan.md) |
 
 ## Open Questions
 

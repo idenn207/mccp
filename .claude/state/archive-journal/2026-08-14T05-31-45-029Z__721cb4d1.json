@@ -1,0 +1,33 @@
+{
+  "schema_version": "v1",
+  "id": "2026-08-14T05-31-45-029Z__721cb4d1",
+  "created_at": "2026-08-14T05:31:45.029Z",
+  "session_id": "unknown",
+  "scan_hash": "b5940b2fb9d12b762bb79e7a6d3369d95920d22baade0b8ea18d99270373fb4c",
+  "status_corrections": [
+    {
+      "prd": ".claude/prds/meta-research-command.prd.md",
+      "milestone": "`/mccp:meta-research` + 규격 형식",
+      "new_status": "complete",
+      "reason": "M1은 PR #134(merge c5668a6)로 origin/main에 머지됐고 plan Acceptance 13항목이 전건 충족됐다 — 마지막 미완 항목이 본 status 갱신이었다.",
+      "evidence": "merge c5668a6 (#134) · receipt .claude/receipts/mccp-pr-codex/meta-research-command-m1.json · meta-research.test.js 45 pass + i18n-surface.test.js 10 pass · lint --all --json ok:true (exempt=legacy 5종 정확 일치) · plugin.json 1.24.0 + CHANGELOG [1.24.0] 2026-08-14 · closure .claude/milestone-closures/meta-research-command-m1.md"
+    }
+  ],
+  "archives": [
+    {
+      "prd": ".claude/prds/meta-research-command.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/meta-research-command.prd.md",
+          "to": ".claude/prds/archived/meta-research-command.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/meta-research-command-m1.plan.md",
+          "to": ".claude/PRPs/plans/archived/meta-research-command-m1.plan.md"
+        }
+      ]
+    }
+  ]
+}

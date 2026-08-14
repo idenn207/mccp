@@ -442,4 +442,19 @@ MCCP_BRIEFING_AUTODISABLE_TIER="notice,warning,critical"  # default. MCCP_BRIEFI
 # v1.3.0-m4 Refresh trigger (debounce + render lock — ops debug only)
 MCCP_RENDER_TRIGGER_DEBOUNCE_MS=5000     # default. Content debounce window in ms for `triggerRender`. 짧추면 burst trigger가 render thrash 위험, 길게 두면 STATUS.md가 늦게 따라옴. ─ live (M4)
 MCCP_RENDER_LOCK_LEASE_MS=90000          # default. `.claude/cache/.render.lock` 의 lease 길이. host-aware tri-state reclaim(§3.6) — same-host live PID는 lease 만료해도 NEVER reclaim. 단일 render는 ~200-500ms이므로 90s는 generous safety margin. ─ live (M4)
+
+# v1.24.0 session-process-reclaim (M1 레지스트리 + M2 SessionEnd 회수)
+MCCP_RECLAIM_OUTLIVES=0|1                # default: 0. =1이면 SessionEnd 회수가 `lifetime:'outlives-session'` 레코드(현재 dashboard 서버)까지 대상에 넣는다. 기본이 off인 이유는 "dashboard 서버가 세션보다 오래 살아야 하는가"가 미해소 제품 질문(PRD OQ1)이라 기본값이 오늘의 동작을 보존하기 때문 — 이 토글이 운영자 opt-in이다. **`kind:'handoff-session'`에는 도달하지 않는다**: 세션보다 오래 사는 것이 handoff의 존재 이유라 §D4가 무조건 제외하며 이 토글로 뒤집히지 않는다. 나머지 차단 행(cross-session/cross-host/cross-repo/live-reuse/정체 검증)도 전부 그대로 유효하다. ─ live (M2)
+MCCP_RECLAIM_BUDGET_MS=6000              # default: 6000. SessionEnd 회수 전체의 벽시계 예산. SessionEnd hook timeout이 10s이고 회수는 마커·observer **뒤에** 돌므로 그 안에 여유를 남긴다. 초과분은 조용히 버려지지 않고 `<pid>.unreclaimed.json` + `budgetExceeded=true` + stderr로 표면화된다(UI6). 단일 probe의 worst case를 미리 예약하므로, 예산이 probe 타임아웃보다 작으면 정체 검증이 아예 시작되지 않고 전부 `budget_exceeded`가 된다. **상한 9000ms로 clamp된다** — hook timeout(10s)을 넘는 값을 주면 loud warn 후 9000으로 깎인다. 넘기면 sweep이 hook timeout에서 중도 사살되는데, 그때 사라지는 것이 바로 부분 sweep의 유일한 증거인 `.unreclaimed.json`이라 예산 상향이 감사 가능성을 없앤다. 하향은 자유다(회수가 덜 될 뿐 오살 위험이 없다). ─ live (M2)
+MCCP_RECLAIM_IDENTITY_TOLERANCE_MS=<int> # default: win32 500 / POSIX 1500 (플랫폼 분기). §D15 정체 검증에서 "레코드에 적힌 프로세스 시작 시각"과 "지금 그 PID의 실제 시작 시각"의 허용 오차. **상향만 반영한다** — 하향·비정수는 loud stderr warn 후 무시된다. 하향을 허용하면 POSIX `ps -o etimes=`의 초 단위 양자화만으로 정상 프로세스가 전부 `identity_mismatch`가 되어 회수가 env 한 줄로 조용히 전멸하기 때문이다. 상향은 지원되는 완화 경로다(예: 시계 점프로 오탐이 잦은 환경). ─ live (M2)
 ```
+
+### session-process 레지스트리 롤백
+
+레지스트리는 gitignored·working-tree 전용이라 VCS 롤백이 건드리지 않는다. 지우는 것은 언제나 안전하다:
+
+```bash
+rm -rf .claude/state/session-processes/
+```
+
+레코드 **부재는 회수 완료의 증거가 아니다** — 애초에 기록되지 못했을 수도, 프로세스가 스스로 정리했을 수도 있다. 회수 결과를 말해 주는 것은 `reclaimSession()`의 반환값(`complete` · `unreclaimed` · `writeFailures`)뿐이고, SessionEnd hook이 그것을 stderr로 표면화한다.

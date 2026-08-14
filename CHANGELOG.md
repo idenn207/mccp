@@ -2,7 +2,39 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.24.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.24.0] — 2026-08-14
+
+**session-process-reclaim M1+M2 — 세션 프로세스 레지스트리 + SessionEnd 회수 (PRD 전 milestone 완료 → minor bump)** — mccp는 자신을 시작한 명령보다 오래 사는 프로세스를 여럿 띄운다(dashboard 서버, detached plan-codex-runner, handoff `claude` 세션). 누가 그것들을 소유하는지 기록하는 곳이 없었고, 그래서 안전하게 거둘 방법도 없었다. M1이 레지스트리를, M2가 SessionEnd 회수를 추가한다.
+
+설계를 지배하는 단일 지표는 PRD의 **오살 0**이다 — 다른 세션·다른 repo·다른 호스트·다른 사용자의 프로세스는 절대 죽이지 않는다. 그래서 판정은 전부 fail-closed이고, **주장이 아니라 test**다: 주입한 killer가 받은 pid 집합을 기대 집합과 정확히 일치시킨다.
+
+### Added
+- `plugins/mccp/scripts/lib/session-processes.js` — 레지스트리(`register`/`registerFailure`/`list`/`unregister`/`collectSiblingReuse`) + 소유권 판정(`isReclaimableBy`, 12행 표) + 정체 probe(`probeProcess`/`normPath`) + 회수(`reclaimSession`) + SessionStart 고아 스윕(`scanForeignOrphans`). 파일당 1 프로세스 레이아웃이라 read-modify-write도 lock도 없다.
+- test 4종 — 레지스트리·판정표 전수·오살 0·소스 스캔 회귀(등록 누락 0 · kill 지점 유일 · 반환값 소비 강제).
+- `MCCP_RECLAIM_OUTLIVES` · `MCCP_RECLAIM_BUDGET_MS` · `MCCP_RECLAIM_IDENTITY_TOLERANCE_MS`(상향만) → `docs/ENVIRONMENT.md` §11.
+
+### Changed
+- `dashboard-server.js` · `plan-codex-runner.js` — 부팅 자기등록 + 정상 종료 시 unregister. `session-spawner.js` — win32 handoff 자식을 부모가 등록(자식은 자기등록을 못 한다).
+- `session-end-marker.js` — 마커·observer **뒤에** 회수. 반환값을 읽어 미완료를 stderr로 표면화하고, `output`은 무변경(UI8).
+- `session-start-trace-injector.js` — 종료된 세션의 고아를 보고. live PID는 **세기만** 하고(UI1), 죽은 PID의 레코드 파일만 지운다(PRD `:78` 무한 성장 차단). `.unreclaimed.json`·`.failed.json`은 보존한다 — 처리는 증거 인멸이 아니다.
+
+### Fixed
+- `dashboard-server.test.js` — `tmpRepo()`가 `os.tmpdir()`의 8.3 단축명(`…\ADMINI~1\…`)을 그대로 써서 `attachWatch`의 `fs.watch`가 libuv assertion(`!_wcsnicmp`, `src/win/fs-event.c`)으로 **test 프로세스 전체를 abort**시키고 있었다. 그 뒤 19개 test가 조용히 실행되지 않고 있었다(선재 결함). realpath 한 줄로 13 → 33 test가 실제로 돈다.
+
+### Security (santa-loop R1 — cross-model 심사에서 발견)
+- **레지스트리 루트를 통한 경로 탈출을 봉인했다.** 봉인이 세션 디렉토리를 레지스트리 루트에 대해서만 검사해, 루트 **자체**가 링크면 그 검사가 공허하게 통과했다. `.claude/state/session-processes`를 외부 디렉토리로 미리 만들어 두면 레코드가 repo 밖에 기록됐고 — 실측 재현됐다. win32에서 디렉토리 **junction**은 elevation이 필요 없어서, "symlink는 권한이 필요하다"는 원 코드의 전제가 이 결함을 가려 주고 있었다. 이제 봉인이 repo 경계까지 올라가고, 회수는 탈출한 레지스트리를 만나면 **전량 거부**한다(`complete:false`, kill 0). 파일을 지우는 고아 스윕도 루트와 세션 디렉토리를 각각 재검사한다.
+- `MCCP_RECLAIM_BUDGET_MS`를 hook timeout 아래로 **clamp**한다(상한 9000ms, 하향은 자유). 넘기면 sweep이 hook timeout에서 중도 사살되고, 그때 사라지는 것이 부분 sweep의 유일한 증거인 `.unreclaimed.json`이다.
+- dashboard **reuse 등록 실패가 조용했다**. reuse 레코드는 소유 세션에게 "다른 세션이 아직 쓰고 있다"고 알리는 유일한 신호이므로, 실패하면 소유자의 `in_use_by_live_session` 가드가 사라지고 `MCCP_RECLAIM_OUTLIVES=1`에서 사용 중인 서버가 SIGTERM된다. 빌리는 쪽에서 복구할 수 없으므로 결과까지 명시해 표면화한다.
+
+### 명시 잔여 (주장하지 않는 것)
+- §D11의 ms 단위 TOCTOU와 §D15의 유계 오살 창(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ command line이 절대경로 전체 포함)은 **단위 test로 재현할 수 없다**. "무관한 프로세스가 죽는 경로는 없다"고 주장하지 않는다.
+- §D15 축 1은 명령줄이 스크립트를 **명명**하는지를 볼 뿐 그것이 **실행 중**인지는 모른다. 경계 anchoring으로 좁혔을 뿐 **닫지 않았다** — 닫으려면 flag 뒤 경로를 거부해야 하고 그러면 `node --enable-source-maps <path>`도 거부되어 회수가 조용히 전멸한다.
+- reuse 레코드는 아직 무한히 쌓인다. 정리가 곧 kill 허용이 되는 축이라(fail-closed로 "사용 중"을 읽던 레코드가 사라짐) 보수적으로 남겼다 — backlog.
+- 과거·타 세션의 **live** 고아 프로세스는 감지·보고까지만 한다(kill 없음).
+
+롤백: `rm -rf .claude/state/session-processes/` (gitignored·working-tree 전용).
 
 ## [1.23.7] — 2026-08-09
 

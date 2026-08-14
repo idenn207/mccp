@@ -56,17 +56,23 @@ We'll know we're right when **세션 종료 후 그 세션이 띄운 mccp 자식
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | 세션 프로세스 레지스트리 | mccp가 띄운 detached 자식이 세션 키와 함께 기록되어, 누가 무엇을 띄웠는지 알 수 있음 | in-progress | [.claude/plans/session-process-reclaim.plan.md](../plans/session-process-reclaim.plan.md) |
-| 2 | SessionEnd 회수 + 실패 표면화 | 세션 종료 시 자기 소유 자식이 회수되고, 못 죽인 것은 조용히 넘어가지 않음 | in-progress | [.claude/plans/session-process-reclaim.plan.md](../plans/session-process-reclaim.plan.md) |
+| 1 | 세션 프로세스 레지스트리 | mccp가 띄운 detached 자식이 세션 키와 함께 기록되어, 누가 무엇을 띄웠는지 알 수 있음 | complete | [.claude/plans/session-process-reclaim.plan.md](../plans/session-process-reclaim.plan.md) |
+| 2 | SessionEnd 회수 + 실패 표면화 | 세션 종료 시 자기 소유 자식이 회수되고, 못 죽인 것은 조용히 넘어가지 않음 | complete | [.claude/plans/session-process-reclaim.plan.md](../plans/session-process-reclaim.plan.md) |
 
 ## Open Questions
 
-- [ ] **dashboard 서버는 회수 대상인가** — `/mccp:dashboard`는 사용자가 브라우저로 보라고 띄운 것이다. 세션이 끝나면 죽는 게 맞는지, 명시적 stop까지 살아야 하는지. 후자면 레지스트리에 "장수" 표시가 필요.
-- [ ] **detached codex runner 회수 시점** — 900s 타임아웃 중 세션이 끝나면 죽일지, 완료를 기다릴지. 죽이면 진행 중 리뷰가 유실되고, 두면 15분간 고아다. marker 기반 복구가 있으므로(§3.13) 죽이는 쪽이 가능하나 재실행 비용이 크다.
-- [ ] **`SessionEnd`의 `async: true` + timeout 10s** — 회수가 이 예산 안에 끝나야 한다. graceful → force 2단계를 넣으면 초과 위험.
-- [ ] **레지스트리 저장 위치** — `.claude/state/` 하위가 자연스러우나 gitignore 필요. `hook-caps.json`(per-machine, gitignored) 선례가 가깝다.
-- [ ] **과거 고아 감지를 어디서 보고할지** — SessionStart가 이미 `.end` 마커 누락을 보고한다. 같은 채널에 붙일지.
+5건 전부 plan의 Design Decisions에서 해소됐다(구현 완료 — v1.24.0).
 
+- [x] **dashboard 서버는 회수 대상인가** → §D10. 제품 질문 자체는 열려 있으므로 **정책을 코드에 고정하지 않았다**: `lifetime:'outlives-session'`으로 기본 제외하고, `MCCP_RECLAIM_OUTLIVES=1`을 운영자 opt-in으로 둔다. 기본값이 오늘의 동작을 보존한다.
+- [x] **detached codex runner 회수 시점** → §D13. 회수한다(`lifetime:'session'`). 세션이 없으면 adjudication을 쓸 주체도 없어 대기가 무의미하고, §3.13 marker 복구가 상태를 정직하게 보고한다. 재실행 비용은 수용.
+- [x] **`SessionEnd`의 `async: true` + timeout 10s** → §D9. 회수를 마커·observer **뒤에** 배치하고 `MCCP_RECLAIM_BUDGET_MS`(기본 6000) 예산을 둔다. 초과는 `budget_exceeded`로 기록되고 다음 SessionStart가 본다. force 2단계는 넣지 않았다(§D12).
+- [x] **레지스트리 저장 위치** → §D3. `.claude/state/session-processes/<session_id>/<pid>.json` — 세션별 디렉토리 + 프로세스별 파일이라 read-modify-write도 lock도 없다. `.gitignore` 등재 완료(`hook-caps.json` 선례).
+- [x] **과거 고아 감지를 어디서 보고할지** → §D14. SessionStart의 기존 crash-alert 채널에 한 줄. live PID는 **세기만** 하고 죽은 PID의 레코드만 정리한다.
+
+### 구현 시 갱신된 사실
+
+- **Risks의 'detached spawn 3곳'은 틀렸다** → plan §D1의 실측 집합이 정본이다. PRD가 지목한 `dashboard-server.js:510-514`(`openBrowser`)는 ms 안에 끝나는 브라우저 런처라 **등록 대상이 아니고**(등록하면 재사용된 PID를 회수 대상으로 만든다), PRD 목록에 없던 dashboard **서버 본체**가 등록 대상이다. 양방향으로 틀렸던 목록이라 test가 실측 집합을 고정한다.
+- **Risks `:76`·`:78` 이행**: SessionStart가 죽은 PID 레코드를 unlink해 무한 성장을 막되(`:78`), `.unreclaimed.json`·`.failed.json`은 보존한다(`:76`의 '처리'가 증거 인멸이 되지 않도록).
 ## Risks
 
 | Risk | Likelihood | Impact | Mitigation |

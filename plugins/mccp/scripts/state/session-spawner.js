@@ -153,6 +153,37 @@ function defaultHasTmux() {
   } catch (_) { return false; }
 }
 
+// The handoff child cannot stamp its own start time, so the parent stamps
+// spawn-time. §D15's tolerance absorbs the ms-scale spawn delay; and because
+// handoff records never reach identity verification anyway, an imprecise value
+// can only ever fail closed.
+function registerHandoffChild(root, child) {
+  const pid = child && child.pid;
+  if (!Number.isInteger(pid) || pid <= 0) {
+    process.stderr.write('[mccp:session-spawner] handoff child has no pid — '
+      + 'not registered in the session-process registry\n');
+    return { ok: false, reason: 'no_pid' };
+  }
+  try {
+    return require('../lib/session-processes').register(root, {
+      kind: 'handoff-session',
+      lifetime: 'outlives-session',
+      role: 'owner',
+      pid: pid,
+      // Not a filesystem path — a handoff is `powershell.exe -NoExit -Command
+      // claude`. §D15 axis 1 could not match it, which is consistent because
+      // handoff records are excluded from reclaim before identity is ever
+      // consulted.
+      execPath: 'powershell.exe',
+      procStartedAtMs: Date.now(),
+    });
+  } catch (err) {
+    process.stderr.write('[mccp:session-spawner] session-process register skipped: '
+      + ((err && err.message) || err) + '\n');
+    return { ok: false, reason: 'threw' };
+  }
+}
+
 function platformSpawn(root, hash, deps) {
   const impl = deps.spawnImpl || childProcess.spawn;
   const platform = deps.platform || process.platform;
@@ -161,10 +192,20 @@ function platformSpawn(root, hash, deps) {
     const child = impl('powershell.exe', [
       '-NoExit', '-Command', 'claude',
     ], { cwd: root, detached: true, stdio: 'ignore' });
+    // session-process-reclaim M1 — the ONE site where a parent registers a
+    // child. The child is a fresh `claude` session, not mccp code, so it cannot
+    // self-register. It is recorded so the registry is complete, never so it can
+    // be killed: `kind: 'handoff-session'` is excluded from reclaim
+    // unconditionally (§D4/§D10) — outliving this session is the entire point of
+    // a handoff, and MCCP_RECLAIM_OUTLIVES does not flip that.
+    registerHandoffChild(root, child);
     if (child && typeof child.unref === 'function') child.unref();
     return { ok: true, kind: 'win32-powershell' };
   }
   if (hasTmuxFn()) {
+    // Deliberately NOT registered: this is not a detached child we own — the
+    // tmux server owns the window's lifetime, and killing the pid we get back
+    // would say nothing about the session inside it.
     const child = impl('tmux', [
       'new-window', '-c', root, '-n', 'mccp-' + hash, 'claude',
     ], { stdio: 'ignore' });

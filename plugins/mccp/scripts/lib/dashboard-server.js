@@ -124,6 +124,75 @@ function removeServerPid(repoRoot) {
   try { fs.unlinkSync(pidFilePath(repoRoot)); } catch (_) { /* already gone */ }
 }
 
+// ── session-process-reclaim M1 — registry wiring ──────────────────────────
+//
+// This server is the process the PRD's problem statement is about: it holds the
+// port open after the session that started it is gone. `lifetime` is
+// 'outlives-session' so it is NOT reclaimed by default — UI7 (should a dashboard
+// outlive its session?) is an open PRODUCT question, and the default preserves
+// today's behavior. `MCCP_RECLAIM_OUTLIVES=1` is the operator's opt-in.
+//
+// Registering must never be able to stop the server from booting.
+
+// The require is INSIDE the try, not at module scope. At module scope a load
+// failure anywhere in the reclaim stack would abort dashboard startup before
+// this wrapper could catch anything — which would contradict, in the loader,
+// the very sentence above it. Lazy keeps the claim true.
+function registerServerProcess(repoRoot, opts) {
+  try {
+    return require('./session-processes').register(repoRoot, opts);
+  } catch (err) {
+    process.stderr.write('[mccp:dashboard] session-process register skipped: '
+      + (err && err.message) + '\n');
+    return { ok: false, reason: 'threw' };
+  }
+}
+
+// A reuse record lives in OUR session dir and points at a pid we do NOT own
+// (§D7). It exists so the owning session's SessionEnd can see the server is
+// still in use and leave it alone. We never touch the owner's record, so there
+// is no shared state and no lock.
+function registerServerReuse(repoRoot, pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return { ok: false, reason: 'no_pid' };
+  return registerServerProcess(repoRoot, {
+    kind: 'dashboard-server',
+    lifetime: 'outlives-session',
+    role: 'reuse',
+    pid: pid,
+    execPath: __filename,
+    // We did not start this process, so our own uptime says nothing about it.
+    // Reuse records are never identity-verified (isReclaimableBy stops them at
+    // `reuse_not_owner`), and if that ever changed a registration-time stamp
+    // fails CLOSED rather than authorizing a kill.
+    procStartedAtMs: Date.now(),
+  });
+}
+
+function unregisterServerProcess(repoRoot, pid) {
+  try {
+    const sid = require('../receipt/evidence-lock').resolveSessionId(process.env);
+    if (sid) require('./session-processes').unregister(repoRoot, sid, pid);
+  } catch (_) { /* best-effort — teardown must not throw */ }
+}
+
+// The reuse record is the ONLY thing that tells the owning session "someone else
+// is still using this server". If writing it fails we are not merely missing
+// bookkeeping — the owner's `in_use_by_live_session` guard has nothing to fire
+// on, and under MCCP_RECLAIM_OUTLIVES=1 it will SIGTERM a server this session is
+// actively using. We cannot repair that from here (the owner is another
+// process), so the honest move is to say exactly that, loudly, at the moment the
+// guard goes missing. Discarding this result was the defect.
+function announceReuseRegistration(result, pid) {
+  if (result && result.ok) return result;
+  process.stderr.write('[mccp:dashboard] reuse record NOT written for pid ' + pid
+    + ' (reason=' + ((result && result.reason) || 'unknown') + '). '
+    + 'The owning session cannot see that this session is using its dashboard; '
+    + 'if that session ends with MCCP_RECLAIM_OUTLIVES=1 the server may be '
+    + 'terminated while still in use. Restart the dashboard from this session to '
+    + 'own it outright.\n');
+  return result;
+}
+
 // ── HTML reload-script injection (served on-the-fly; cache file stays pristine) ──
 
 function reloadScript() {
@@ -557,6 +626,7 @@ async function startServer(opts = {}) {
         && path.resolve(ident.statusPath) === statusPath
         && !!ident.writeEnabled === write) {
       const u = urlFor(host, existing.port);
+      announceReuseRegistration(registerServerReuse(repoRoot, existing.pid), existing.pid);
       if (open) openBrowser(u);
       return { server: null, port: existing.port, url: u, host, reused: true, repoRoot, statusPath, writeEnabled: write };
     }
@@ -602,13 +672,28 @@ async function startServer(opts = {}) {
 
   if (bound.reused) {
     const u = urlFor(host, port);
+    // Re-read: `existing` above may have been null or cleared as stale, while
+    // the EADDRINUSE identity probe just proved a live server for this repo.
+    const owner = readServerPid(repoRoot);
+    const ownerPid = owner && owner.pid;
+    announceReuseRegistration(registerServerReuse(repoRoot, ownerPid), ownerPid);
     if (open) openBrowser(u);
     return { server: null, port, url: u, host, reused: true, repoRoot, statusPath, writeEnabled: write };
   }
 
   attachWatch(server);
   writeServerPid(repoRoot, { pid: process.pid, port, statusPath, write });
-  server.on('close', () => removeServerPid(repoRoot));
+  registerServerProcess(repoRoot, {
+    kind: 'dashboard-server',
+    lifetime: 'outlives-session',
+    role: 'owner',
+    pid: process.pid,
+    execPath: __filename,
+  });
+  server.on('close', () => {
+    removeServerPid(repoRoot);
+    unregisterServerProcess(repoRoot, process.pid);
+  });
 
   const u = urlFor(host, port);
   if (open) openBrowser(u);

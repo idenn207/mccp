@@ -18,7 +18,40 @@ function log(message) {
   process.stderr.write(`[SessionEnd] ${message}\n`);
 }
 
-function run(rawInput) {
+// session-process-reclaim M2. Surfacing is stderr — never the hook's return
+// value, which must stay byte-identical (UI8: reclaim is not a blocking
+// condition for ending a session).
+function reclaimOwnedProcesses(repoRoot, sessionId, deps) {
+  // Bound under its own name rather than an alias so the Task 9(f) source scan
+  // can see this call site. An alias would make the scan pass vacuously — the
+  // exact failure mode that check exists to prevent.
+  const reclaimSession = (deps && deps.reclaimSession)
+    || require('../lib/session-processes').reclaimSession;
+  try {
+    const r = reclaimSession({ repoRoot, sessionId });
+    // The return value is READ, not discarded. §D6 claims "absence of a record
+    // is not proof of reclaim"; this line is what makes that claim mean
+    // something, because it is the only place the incompleteness becomes
+    // visible to a human.
+    if (!r.complete || r.unreclaimed.length || r.writeFailures.length || r.budgetExceeded) {
+      process.stderr.write('[mccp:session-reclaim] incomplete — '
+        + `reclaimed=${r.reclaimed.length} unreclaimed=${r.unreclaimed.length} `
+        + `writeFailures=${r.writeFailures.length} budgetExceeded=${r.budgetExceeded} `
+        + `complete=${r.complete} · .claude/state/session-processes/${sessionId}/ 확인\n`);
+    }
+    return r;
+  } catch (err) {
+    // Deliberately not an empty catch: a thrown error is just another shape of
+    // "not finished" (UI6). Swallowing it here would satisfy every assertion
+    // about run() still returning, while hiding the failure completely.
+    process.stderr.write('[mccp:session-reclaim] threw — '
+      + `${err && err.message} · 회수 미완료. `
+      + `.claude/state/session-processes/${sessionId}/ 확인\n`);
+    return null;
+  }
+}
+
+function run(rawInput, deps) {
   const output = rawInput || '';
 
   // v0.2.7 L5 — hook-trace end marker + consolidate. Best-effort, never blocks
@@ -82,6 +115,11 @@ function run(rawInput) {
   } catch (err) {
     log(`Observer cleanup skipped: ${err.message}`);
   }
+
+  // LAST — after the hook-trace marker and after observer cleanup (UI10). The
+  // marker is already on disk, so a reclaim that fails, throws, or runs out of
+  // budget can no longer cost us the SessionEnd record.
+  reclaimOwnedProcesses((event && event.cwd) || process.cwd(), sessionId, deps);
 
   return output;
 }

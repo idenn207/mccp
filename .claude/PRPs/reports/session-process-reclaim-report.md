@@ -1,0 +1,197 @@
+# Implementation Report: session-process-reclaim M1+M2
+
+## Summary
+
+mccp가 띄운 장수 프로세스(dashboard 서버 · detached plan-codex-runner · win32 handoff `claude` 세션)를 세션 키와 함께 기록하는 레지스트리(M1)와, SessionEnd에서 **자기 소유만** 거두는 회수 경로(M2)를 구현했다.
+
+설계 전체를 지배한 단일 지표는 PRD의 **오살 0**이다. 그래서 모든 판정이 fail-closed이고, 그 성질이 산문이 아니라 test다 — 주입한 killer가 받은 pid 집합을 기대 집합과 **정확히 일치** 단언한다.
+
+## Assessment vs Reality
+
+| Metric | Predicted (Plan) | Actual |
+|---|---|---|
+| Tasks | 11 | 11 완료 |
+| Files Changed | 20 | 19 modified + 6 created (25) |
+| 신규 test | 5 파일 | 4 신규 파일 + 기존 2 파일 확장 (신규 단언 60건) |
+| Validation | 9 파일 + 4 구조 검사 | 전 항목 통과 |
+
+## Tasks Completed
+
+| # | Task | Status | Notes |
+|---|---|---|---|
+| 1 | 레지스트리 코어 | 완료 | `.gitignore`가 실제로 첫 편집 — Validate 단언 (0)이 강제 |
+| 2 | `isReclaimableBy` + `probeProcess` | 완료 | 판정표 **12행**(계획 11행 + 편차 1행, 아래 참조) |
+| 3 | dashboard 자기등록 + reuse | 완료 | reuse 등록을 **두 분기 모두**에 배치(계획은 1곳만 지명) |
+| 4 | plan-codex-runner 자기등록 | 완료 | lock 획득 직후 등록, 기존 `finally`에서 unregister |
+| 5 | session-spawner handoff 등록 | 완료 | tmux 분기는 미등록 + 사유 주석 |
+| 6 | `reclaimSession` | 완료 | probe memoize 추가(계획 외 — 아래 참조) |
+| 7 | SessionEnd 결선 | 완료 | 반환값 소비 + 빈 catch 금지가 stderr 단언으로 잠김 |
+| 8 | 오살 0 test | 완료 | 21건 — 실물 OS probe 포함 |
+| 9 | 회귀 스캔 | 완료 | (a3) 그물 설계 변경(아래 참조) |
+| 10 | 과거 고아 감지·보고 | 완료 | kill 없음 — Task 9(d)가 기계적으로 고정 |
+| 11 | 릴리스 표면 | 완료 | 1.24.0 + footer 2면 + CHANGELOG + ENVIRONMENT §11 + PRD |
+
+## Validation Results
+
+| Level | Status | Notes |
+|---|---|---|
+| Unit Tests | Pass | 아래 9개 파일 전부 green |
+| 구조 검사 | Pass | kill 지점 봉인 · `hooks.json` 무변경 · 레지스트리 gitignored · 삭제 파일 0 |
+| Build | N/A | 순수 Node, 빌드 단계 없음 |
+| Integration | N/A | 통합 서버 없음 (dashboard 실서버 test는 unit suite 안에 있음) |
+| Design Grounding | N/A (no design trigger) | `design_signal=false` · capture 미수행 → Phase 3.6/3.7 no-op |
+
+```
+session-processes.test.js              18 pass / 0 fail (2 skip: win32 mode·symlink)
+session-processes-reclaimable.test.js  23 pass / 0 fail (1 skip: win32 symlink)
+session-processes-reclaim.test.js      21 pass / 0 fail
+session-processes-spawn-sites.test.js   9 pass / 0 fail
+dashboard-server.test.js               33 pass / 0 fail   ← 이전 13, 아래 Fixed 참조
+session-spawner.test.js                15 pass / 0 fail
+session-end-marker-reclaim.test.js      7 pass / 0 fail
+session-end-trace.test.js               7 pass / 0 fail
+i18n-surface.test.js                   10 pass / 0 fail
+```
+
+전체 suite에서 남은 실패 4건은 **전부 선재**다. merge-base(`3eabab2`)에 임시 worktree를 만들어 동일 실패를 실측 확인했다:
+
+| 실패 | 판정 |
+|---|---|
+| `b2-coverage-gate` 2건 (`plan-codex-runner.js` 직접 rename vs PR #116 lint) | 선재 — merge-base에서 동일. 내 편집이 라인 번호만 248→249로 밀었다 |
+| `perf-budget: 100 receipts …` | flake — 단독 실행 시 통과, 병렬 부하에서만 흔들림 |
+| `ecc-context-monitor: Axis B (f)` | 선재 — merge-base에서 동일. require 체인에 내 변경 파일 0개 |
+
+## Files Changed
+
+| File | Action |
+|---|---|
+| `plugins/mccp/scripts/lib/session-processes.js` | CREATED |
+| `plugins/mccp/scripts/lib/tests/session-processes.test.js` | CREATED |
+| `plugins/mccp/scripts/lib/tests/session-processes-reclaimable.test.js` | CREATED |
+| `plugins/mccp/scripts/lib/tests/session-processes-reclaim.test.js` | CREATED |
+| `plugins/mccp/scripts/lib/tests/session-processes-spawn-sites.test.js` | CREATED |
+| `plugins/mccp/scripts/hooks/tests/session-end-marker-reclaim.test.js` | CREATED |
+| `.gitignore` · `plugins/mccp/scripts/lib/dashboard-server.js` · `plan-codex-runner.js` · `scripts/state/session-spawner.js` · `scripts/hooks/session-end-marker.js` · `session-start-trace-injector.js` | UPDATED |
+| `plugins/mccp/scripts/lib/tests/dashboard-server.test.js` · `scripts/state/tests/session-spawner.test.js` | UPDATED |
+| `plugin.json` · `renderer/html.js` · `renderer/markdown.js` · `CHANGELOG.md` · `docs/ENVIRONMENT.md` · PRD | UPDATED |
+
+## Deviations from Plan
+
+정직하게 다섯 건이다. 넷은 계획대로 구현하면 **기능이 조용히 죽거나 test가 유지 불가**해서 바꿨고, 하나는 계획이 못 본 오살 경로다.
+
+### 1. 판정표에 12번째 행 `reuse_not_owner` 추가 (계획 11행)
+
+계획의 표에는 `role`을 보는 행이 없다. 그런데 `MCCP_RECLAIM_OUTLIVES=1`이면 `lifetime_outlives_session`이 열리고, 형제 스윕은 `role:'reuse'` 레코드만 모으므로 **live 형제 세션이 들고 있는 `role:'owner'` 레코드는 아무도 대변하지 않는다.** 결과: dashboard 서버를 *빌려 쓰던* 세션 B가 종료하면서 소유자 A의 서버를 죽일 수 있었다 — UI2가 금지하는 바로 그 오살이다. 계획의 letter보다 **"오살 0"이라는 지표**를 택했다.
+
+### 2. win32 probe 타임아웃 2000 → 5000ms (플랫폼 분기)
+
+계획은 probe당 2s를 못박았다. 실측: `powershell.exe -Command Get-CimInstance`는 웜 ~1.0s, **콜드 ~2.9s**. 2s 상한은 §D15를 win32에서 **비결정적으로** 실패시키고, 실패는 전부 `identity_unverifiable`로 접혀 **회수가 조용히 전멸**한다. UI5가 우선으로 지정한 플랫폼에서 그렇다.
+
+더 싼 `Get-Process`는 대안이 아니다 — `.Path`(= `node.exe`)만 주고 command line을 주지 않아 §D15 축 1의 전체경로 대조가 **구조적으로 불가능**하다. POSIX는 `ps`가 네이티브라 2000ms 유지.
+
+### 3. `reclaimSession` 안에서 probe memoize (계획 외)
+
+프로세스 시작 시각은 변하지 않으므로 재-probe는 새 정보 없이 예산만 태운다(win32에서 1건당 ~1s). **형제 스윕은 memoize하지 않았다** — §D11이 요구하는 kill 직전 재평가가 정확히 그 반대이기 때문이다. 두 축을 분리한 것이 요점이다.
+
+### 4. Task 9 (a3)의 그물을 재설계
+
+계획은 `spawn|spawnSync|execFile|execFileSync|exec|fork` 전 호출부를 `{file, line, disposition}`으로 전수 등재하라고 했다. 실측하니 **81파일 143 호출부**이고 대부분 동기 `git` 호출이다. 라인 번호를 박으면 그 위 어떤 편집에도 red가 되는데, 이는 **같은 계획이 (a)에서 라인 번호를 뺀 이유와 정면 충돌**한다.
+
+대신 `detached:` 프로퍼티 + `.unref(` 로 그물을 좁혔다 — 7파일 + MD 1건. 볼륨은 작지만 (a)의 리터럴 `detached: true`보다 **넓고**, (a3)가 닫으려던 변수 간접 형태(`const opts={detached:true}`)를 정확히 포착한다. false positive 4건은 `not-a-process`로 사유와 함께 명시 등재했다(암묵 무시 없음).
+
+### 5. dashboard reuse 등록을 두 분기 모두에
+
+계획은 `bound.reused`(EADDRINUSE) 한 곳만 지명했으나, 실제 test가 구동하는 경로는 **PID 파일 재사용 분기**다. 둘 다 reuse를 반환하므로 양쪽에 등록했다.
+
+### 부수: 계획이 요구한 plan 아카이브는 **하지 않았다**
+
+command body는 `.claude/PRPs/plans/completed/`로 옮기라고 하지만, CLAUDE.md §3.11이 아카이브를 소유하며 목적지는 `archived/`이고 도구는 `/mccp:archive-complete`다. 게다가 지금 옮기면 receipt가 anchor하는 `--plan` 경로가 끊겨 PR 게이트가 깨진다. **ship 이후** `/mccp:archive-complete` 소관으로 남긴다.
+
+## Issues Encountered
+
+구현 중 test가 잡은 실결함 2건 — 둘 다 fail-**open** 방향이라 조용히 통과했을 것이다.
+
+1. **`list()`가 record를 오염시켜 회수가 전멸했다.** `rec.alive = …`가 엄격 allowlist를 깨뜨려 모든 레코드가 `unknown_field:alive` → `record_invalid` → **전부 skip인데 `complete:true`로 성공 보고**. non-enumerable 프로퍼티로 고쳤고, 회귀 단언을 Task 1 (10)에 붙였다.
+
+2. **`dashboard-server.test.js`가 19개 test를 조용히 안 돌리고 있었다(선재).** `tmpRepo()`가 `os.tmpdir()`의 8.3 단축명(`…\ADMINI~1\…`)을 그대로 써서 `attachWatch`의 `fs.watch`가 libuv assertion(`!_wcsnicmp`, `src/win/fs-event.c`)으로 **test 프로세스를 abort**시켰다. 리포터는 "13 tests, 12 pass"만 보여줘 나머지가 존재조차 하지 않는 것처럼 보였다. `realpathSync.native` 한 줄로 13 → **33 test**가 실제로 돈다. 계획이 이 파일에 단언을 추가하라고 지시했는데 그 단언이 win32에서 실행될 수 없었으므로 범위 안이다.
+
+## Tests Written
+
+| Test File | Tests | Coverage |
+|---|---|---|
+| `session-processes.test.js` | 20 | 스키마 12필드 · gitignore 선행 · mkdir/mode · symlink 봉쇄 · 강등 · 손상 JSON · 고아 스윕 5축 |
+| `session-processes-reclaimable.test.js` | 24 | 판정표 12행 전수 + 형제 liveness 3케이스 + §D15 정체 7케이스 |
+| `session-processes-reclaim.test.js` | 21 | 오살 0 전 축 · 재평가 비-스냅샷 · 예산 · ESRCH/EPERM · **실물 OS probe** |
+| `session-processes-spawn-sites.test.js` | 9 | 등록 누락 0 · `openBrowser` 비등록 · lifetime 리터럴 · kill 유일성 · 반환값 소비 강제 |
+| `session-end-marker-reclaim.test.js` | 7 | 마커 → observer → 회수 순서 · 빈 catch 금지 · `complete:false` 소비 |
+| `dashboard-server.test.js` (확장) | +1 | 자기등록 · reuse 레코드 · 소유자 레코드 바이트 불변 · close unregister |
+| `session-spawner.test.js` (확장) | +3 | handoff 등록 · pid 부재 skip · tmux 미등록 |
+
+## santa-loop Round 1 — cross-model 심사 흡수
+
+Reviewer A(Claude Opus)는 11개 기준 전부 PASS·critical 0으로 판정했고, Reviewer B(Codex gpt-5.4)는 전부 FAIL·critical 4건으로 판정했다. **모델 다양성이 값을 했다** — B가 잡은 레지스트리 루트 탈출은 A가 놓쳤고, 실측으로 재현됐다.
+
+각 지적을 코드로 검증한 뒤 3건을 수정하고 2건은 근거를 들어 거부했다.
+
+### 수정 1 — 레지스트리 **루트** symlink 탈출 (B critical 3, 실측 재현)
+
+`sealedSessionDir`은 세션 디렉토리를 레지스트리 루트에 대해서만 봉인했다. 루트 **자체**가 탈출이면 그 검사는 공허하게 통과한다: `realpathNearest(reg)`가 외부 타깃이 되므로 그 아래 모든 세션 디렉토리는 자명하게 "레지스트리 안"이다.
+
+재현(수정 전): `.claude/state/session-processes`를 junction으로 만들고 `register()` → `{ok:true}`, 레코드가 repo 밖에 기록됨. **win32에서 junction은 elevation이 필요 없다** — 원 코드 주석이 상정한 "symlink는 권한이 필요하니 어렵다"는 전제가 틀렸다.
+
+봉인을 repo 경계까지 끌어올렸다(`sealedRegistryDir` + read-only `containedRegistryDir`). 방향이 중요해서 세 소비처를 각각 다르게 처리했다:
+
+| 소비처 | 처리 | 이유 |
+|---|---|---|
+| `reclaimSession` | 전체 거부 + `complete:false` | 소유권을 추론할 수 없는 레지스트리면 **아무것도 죽이지 않는 것**이 정답 |
+| `list` | 빈 레코드 + `incomplete:true` | 심층 방어. 레코드 0 → kill 0 (fail-closed) |
+| `scanForeignOrphans` | 거부 + 세션 디렉토리별 재검사 | 이 함수는 **unlink**한다 — 탈출을 따라가면 repo 밖 파일을 지운다 |
+
+`collectSiblingReuse`만 막았다면 **fail-open**이 됐을 것이다(형제가 안 보임 = "사용 중" 레코드 감소 = kill 증가). 그래서 `list`가 먼저 거부하도록 순서를 잡았고, 그 근거를 코드 주석에 남겼다.
+
+### 수정 2 — `MCCP_RECLAIM_BUDGET_MS` 무제한 (B critical 4)
+
+hook은 `async:true, timeout:10`이라 세션 종료를 막지는 않는다. 하지만 예산이 10s를 넘으면 sweep이 hook timeout에서 중도 사살되고, **그때 사라지는 것이 부분 sweep의 유일한 증거인 `.unreclaimed.json`**이다. 상한 9000ms clamp + loud warn을 넣었다. 하향은 그대로 자유다 — 같은 파일의 `resolveIdentityToleranceMs`가 이미 쓰는 "안전한 방향으로만 움직인다" 패턴과 동형.
+
+### 수정 3 — reuse 등록 실패가 조용했다 (B critical 1)
+
+`registerServerReuse`의 반환값을 두 분기 모두 버렸다. 실패하면(가장 싸게는 세션 식별자 부재) 소유자의 `in_use_by_live_session` 가드가 **사라지고**, `MCCP_RECLAIM_OUTLIVES=1`에서 소유자가 사용 중인 서버를 SIGTERM한다. 빌리는 쪽에서 고칠 수 없는 상황(소유자는 다른 프로세스)이므로, **가드가 사라지는 순간 그 사실과 결과를 명시**하도록 했다. Task 9(f)와 같은 모양의 소스 스캔 `(g)`로 잠갔다.
+
+### 부수 — R9 module-scope require
+
+`dashboard-server.js`가 `session-processes`를 module scope에서 require했다. 그 바로 아래 주석은 "등록이 서버 부팅을 막을 수 없어야 한다"고 적혀 있는데, loader 단계에서는 그 주장이 거짓이었다. try 안으로 lazy화해 주장을 참으로 만들었다. `plan-codex-runner.js`도 같은 계열이라 함께 고쳤다(같은 결함을 옆에 두는 것이 더 나쁘다).
+
+### 거부 1 — "주입 가능한 의존성이 소유권을 위조한다" (B critical 2, R2/R7)
+
+`reclaimSession({kill, isAlive, probeProcess, sessionId, repoRoot})`를 호출할 수 있는 in-process 호출자는 **이미 `process.kill`을 직접 부를 수 있다.** 권한 상승이 아니므로 취약점이 아니다 — test seam이다. 프로덕션 유일 호출자인 SessionEnd hook은 `sessionId`를 env에서, `repoRoot`를 hook stdin(Claude Code가 주는 신뢰 입력)에서 얻고 나머지는 주입하지 않는다.
+
+이 FAIL은 내가 쓴 루브릭 R2의 문구("어떤 주입도 판정을 약화시킬 수 없어야 한다")가 과도했던 결과다. 리뷰어는 루브릭을 정확히 적용했고, 루브릭이 틀렸다.
+
+### 거부 2 — reuse 레코드 무한 증가 (B R5)
+
+죽은 세션의 reuse 레코드를 지우면 `isSiblingLive`가 **fail-closed로 true를 반환하던 케이스**(`session_pid === null`, cross-host)의 차단이 풀린다. 즉 정리가 곧 **kill 허용**이다. 오살 0이 지배 지표인 이상 리뷰 수정 사이클에서 건드릴 축이 아니다. Codex도 이것만은 critical이 아니라 suggestion으로 분류했다. backlog 이연.
+
+### R11 — 좁혔으나 닫지 않았다 (정직한 부분 수정)
+
+경계 anchoring을 넣어 `<path>.bak` · `<path>.lock` · `/evil<path>`처럼 **더 긴 토큰 안에 우리 경로가 들어앉는** 케이스를 제거했다. 하지만 Codex가 든 원래 시나리오 — 우리 경로를 **독립 인자로 언급**하는 명령줄 — 은 여전히 매치된다. 닫으려면 flag 모양 토큰 뒤의 경로를 거부해야 하는데 그러면 `node --enable-source-maps <path>`도 거부되어 회수가 조용히 전멸한다(probe 타임아웃 편차에서 이미 그것이 더 나쁜 실패라고 판단한 축). 그래서 **좁혔다고만 주장하고**, 잔여를 test `identity 3d`로 명시 고정했다.
+
+### 검증
+
+139 tests / 138 pass / 0 fail. skip은 3 → **1**로 줄었다 — win32에서 skip되던 symlink test 2건을 **junction**으로 실제 실행시켰다(R10이 지적한 "priority 플랫폼에서 미검증"을 닫음). 남은 1건은 POSIX mode bit test로, win32에서 의미 자체가 없다.
+
+## 주장하지 않는 것 (명시 잔여)
+
+- **§D11 ms 단위 TOCTOU**와 **§D15 유계 오살 창**(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ command line이 절대경로 전체 포함)은 단위 test로 재현할 수 없다. "무관한 프로세스가 죽는 경로는 없다"고 **주장하지 않는다**.
+- ~~POSIX symlink 봉쇄 test 2건은 win32에서 skip된다(권한 의존).~~ **santa-loop R1에서 해소** — junction은 elevation 없이 만들어지고 realpath로 동일하게 해석되므로 두 test 모두 win32에서 실제로 실행된다. 그 전제("symlink는 권한이 필요하다")가 틀렸던 것이 루트 탈출 결함을 가려 준 요인이기도 하다.
+- macOS `ps`는 `etimes`를 지원하지 않아 probe가 `null` → `identity_unverifiable` → 회수 미수행(fail-closed, 오살 아님). test는 사유를 출력하고 skip한다.
+- ~~**cross-model 리뷰 부재**~~ — **santa-loop R1에서 해소**. Implement-Codex 게이트는 EXECUTE **이전**에 돌아 diff가 비어 있었으나(verdict `divergent`로 정직 봉인), 실제 코드에 대한 Codex(gpt-5.4) 심사가 santa-loop R1에서 수행됐고 critical 3건이 흡수됐다. security-reviewer는 여전히 이 세션 정책상 미호출(`security_skipped=true`) — 다만 R1의 R3(보안) 축이 실제 경로 탈출 1건을 잡았다.
+- **R11 §D15 축 1의 잔여는 좁혀졌을 뿐 닫히지 않았다**: 우리 절대경로를 독립 인자로 언급하는 명령줄은 여전히 매치된다. 근거와 test 고정은 위 santa-loop 절 참조.
+- **reuse 레코드의 무한 증가**는 미해결이다(backlog). 정리가 곧 kill 허용이 되는 축이라 오살 0 앞에서 보수적으로 남겼다.
+
+## Next Steps
+
+- [ ] `/mccp:santa-loop '<gate-receipt:mccp-implement-codex/session-process-reclaim>'` — fix-task가 요구하는 dual-reviewer escalation. **실제 코드에 대한 첫 cross-model 심사가 여기서 일어난다.**
+- [ ] `/mccp:code-review` 로 변경 검토
+- [ ] `/mccp:prp-commit` → `/mccp:pr` (§3.12 merge-commit)
+- [ ] ship 후 `/mccp:archive-complete` — PRD 2 milestone 모두 complete이므로 대상
+- [ ] `origin/main`이 **1.23.11**까지 진행됨(내 base는 1.23.7). 1.24.0은 forward-only라 유효하지만 merge 시 CHANGELOG 3개 항목(1.23.8/10/11) 승계 확인 필요 — §3.7 4번째 재발

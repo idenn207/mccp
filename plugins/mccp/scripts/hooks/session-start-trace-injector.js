@@ -54,6 +54,31 @@ function compute(event) {
   // 4. LRU eviction — active leases are respected by ht.evictLRU.
   try { ht.evictLRU(repoRoot); } catch (_) { /* silent */ }
 
+  // 5. session-process-reclaim §D14 — foreign orphans from sessions that are
+  //    gone. Two DIFFERENT operations, deliberately not conflated:
+  //      kill of a live pid  → never (UI1: we cannot establish ownership of
+  //                            another session's process, so we only COUNT it)
+  //      unlink of a record  → yes, but only for pids that are already dead.
+  //                            No process is referenced, so the mis-kill risk is
+  //                            zero by definition, and this is what satisfies
+  //                            PRD :78 (registry growing without bound).
+  //    Reporting must never break SessionStart, so every failure is a silent 0.
+  try {
+    const sp = safeRequire(path.join(libDir, 'session-processes'));
+    if (sp) {
+      const orphans = sp.scanForeignOrphans(repoRoot, currentSession);
+      if (orphans.liveCount || orphans.purgedCount) {
+        blocks.push('<system-reminder>\n'
+          + '[mccp:session-processes] prior-session processes: '
+          + orphans.liveCount + ' still alive (reported only — not reclaimed), '
+          + orphans.purgedCount + ' dead record(s) purged. '
+          + 'Unreclaimed/failed records are preserved under '
+          + '.claude/state/session-processes/ as the audit surface.\n'
+          + '</system-reminder>');
+      }
+    }
+  } catch (_) { /* silent */ }
+
   return blocks.join('\n\n');
 }
 

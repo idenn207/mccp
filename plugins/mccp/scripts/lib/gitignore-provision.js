@@ -263,7 +263,19 @@ function buildBlock(version) {
   if (typeof version !== 'string' || version.length === 0) {
     throw new ProvisionError(REASONS.INTERNAL_ERROR, 'buildBlock requires a version string');
   }
-  return [BEGIN_MARKER, '# managed by /mccp:setup (mccp ' + version + ')']
+  // The "do not edit here" line ships INSIDE the block on purpose. `update`
+  // rebuilds the whole marker span, so a rule a user adds between the markers is
+  // replaced on the next run. That is the definition of a managed block, not a
+  // defect — preserving arbitrary in-block lines would make the block
+  // unmaintainable — but "managed by" alone does not tell a reader that their
+  // edit will not survive. The warning is the only channel that reaches the
+  // person about to make that mistake, and the .bak is their recovery if they do.
+  return [
+    BEGIN_MARKER,
+    '# managed by /mccp:setup (mccp ' + version + ')',
+    '# Lines between these markers are REPLACED on the next /mccp:setup run.',
+    '# Put your own rules OUTSIDE the markers — everything out there is preserved.',
+  ]
     .concat(MCCP_IGNORE_BLOCK)
     .concat([END_MARKER]);
 }

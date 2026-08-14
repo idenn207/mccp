@@ -206,7 +206,15 @@ case "$PROVISION_ACTION" in
     PROVISION_DRYRUN=$(printf '%s' "$PROVISION_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).dryRun?"1":"0")}catch{process.stdout.write("0")}')
     ADDED_LINES=$(printf '%s' "$PROVISION_JSON" | node -e 'try{const a=JSON.parse(require("fs").readFileSync(0,"utf8")).addedLines;process.stdout.write(String(Array.isArray(a)?a.length:0))}catch{process.stdout.write("0")}')
     if [ "$PROVISION_DRYRUN" = "1" ]; then
-      echo "[mccp:setup] --dry-run: .gitignore에 ${ADDED_LINES}줄을 추가할 예정입니다 (action=$PROVISION_ACTION). 아무것도 쓰지 않았습니다."
+      # `addedLines` is the whole generated block, which for `update` is a
+      # REPLACEMENT — most of those lines already exist and the current block is
+      # discarded. Calling that "N lines will be added" overstates the addition
+      # and hides the removal, so the two actions get different wording.
+      if [ "$PROVISION_ACTION" = "update" ]; then
+        echo "[mccp:setup] --dry-run: 기존 managed 블록을 아래 ${ADDED_LINES}줄로 **교체**할 예정입니다. 블록 바깥 줄은 그대로 유지되고, 교체 전 파일은 .bak에 남습니다. 아무것도 쓰지 않았습니다."
+      else
+        echo "[mccp:setup] --dry-run: .gitignore에 ${ADDED_LINES}줄을 추가할 예정입니다 (action=$PROVISION_ACTION). 아무것도 쓰지 않았습니다."
+      fi
       # Print the lines themselves, not just how many. `update` now applies on a
       # normal run, so --dry-run is the only way to see what a run would change
       # before it changes it — a preview that withholds the content is not a

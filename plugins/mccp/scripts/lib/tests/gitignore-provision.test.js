@@ -198,6 +198,23 @@ test('planMerge: missing file -> create, block only', () => {
   assert.ok(plan.nextContent.startsWith(B));
 });
 
+test('buildBlock: the block warns that in-block edits are replaced', () => {
+  // `update` rebuilds the whole marker span, so a rule added between the markers
+  // does not survive. That is what a managed block IS, but "managed by" alone
+  // does not tell the person about to edit there. This warning is the only
+  // channel that reaches them, so it has to actually be in the shipped bytes.
+  const block = gp.buildBlock(VERSION).join('\n');
+  assert.ok(/REPLACED on the next \/mccp:setup run/.test(block), 'in-block edit warning is missing');
+  assert.ok(/OUTSIDE the markers/.test(block), 'the warning does not say where user rules belong');
+  // It must sit inside the markers, or a reader of the installed file never sees
+  // it next to the lines it is warning about.
+  const lines = gp.buildBlock(VERSION);
+  const begin = lines.indexOf(gp.BEGIN_MARKER);
+  const end = lines.indexOf(gp.END_MARKER);
+  const warnAt = lines.findIndex((l) => /REPLACED on the next/.test(l));
+  assert.ok(begin < warnAt && warnAt < end, 'the warning is outside the managed block');
+});
+
 test('planMerge: an update keeps each outside line\'s OWN terminator (mixed EOL)', () => {
   // Rebuilding the file from split(/\r?\n/) + join(eol) rewrote the terminator
   // of every line, so a mixed-ending file came back normalized — including the

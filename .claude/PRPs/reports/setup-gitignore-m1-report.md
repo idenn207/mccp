@@ -188,6 +188,21 @@ lint 항목 16은 처음에 `/dryRun/` 단순 매칭으로 썼다가 **변이가
 
 **최종: 84 tests, pass 81, fail 0, skipped 3**(POSIX mode 2 + O_NOFOLLOW 1, 전부 Windows 한정 skip이며 CI ubuntu가 실증 소유).
 
+## PR-Codex 게이트 흡수 (`/mccp:pr` Phase 2.5, 2026-08-14)
+
+dedupe는 `skip_safe=false`(residual 120)라 PR-Codex가 실제로 발화했다. 3라운드에 걸쳐 6건.
+
+| # | Severity | Verdict | 처리 |
+|---|---|---|---|
+| F1 | HIGH | ACCEPT_NOW | `--force-update` 동의 게이트 철회 → `update` 기본 적용. 블록에 버전이 박혀 있어 bump마다 전 설치가 낡은 규칙에 고정되고 setup은 성공을 보고했다(UI1 붕괴). 게이트 범위가 어긋나 있었다 — 동의가 보호하려던 건 사용자 줄인데 `update`가 치환하는 건 도구 소유 구간뿐 |
+| F2 | MEDIUM | ACCEPT_NOW | 오염 스캔을 `-X` 임시 exclude 파일로 정본 패턴에 한정. `--exclude-standard`는 사용자 기존 규칙·`info/exclude`·global까지 평가해 무관한 파일의 untrack을 권했다 |
+| F3 | HIGH | ACCEPT_NOW | `update`가 블록 **바깥** 줄의 개행까지 정규화했다(split+join). 원문 오프셋 스플라이스로 각 줄의 원래 terminator 보존. F1로 기본 실행이 되면서 실질 위험이 된 축 |
+| F4 | MEDIUM | ACCEPT_NOW | dry-run이 줄 수만 보고. `update`가 기본이 된 이상 dry-run이 변경 내용을 볼 유일한 수단이라 실제 줄을 출력 |
+| F5 | HIGH | **REJECTED_BY_DESIGN (재확인)** | "블록 안 사용자 줄이 지워진다". 같은 축이 Plan-Codex 이력 F15에서 이미 기각됐다 — marker 구간의 줄은 mccp가 쓴 mccp의 줄이고, 보존하면 관리 블록 개념이 성립하지 않는다. 다만 **F1로 실질 위험이 커진 것은 사실**이라 블록 안에 "이 사이 줄은 다음 실행에서 교체된다 · 사용자 규칙은 marker 바깥에" 경고 2줄을 넣어 실제 피해를 닫았다(`.bak`이 복구 수단) |
+| F6 | MEDIUM | ACCEPT_NOW | `addedLines`는 update에서 *전체 교체 블록*인데 setup.md가 "추가할 예정"으로 보고했다. action별 문구 분리(추가 vs 교체 + `.bak` 안내) |
+
+F1·F3·F4·F6은 **연쇄**다 — F1이 `update`를 기본 경로로 올리면서, 명시 동의 뒤에 숨어 있던 동작(개행 정규화·미흡한 preview·오해를 부르는 문구)이 전부 일반 실행의 표면으로 올라왔다. 라운드가 늘어난 이유이자, 한 번에 다 보이지 않았던 이유다.
+
 ### 이 loop에서 얻은 것
 
 3라운드 내내 A는 R2·R3에서 PASS를 냈지만, 그 PASS의 근거로 든 "symlink 가드가 모든 write 대상을 덮는다"(R2) · "CI paths 필터 완비"(R2) · "Phase 5 bash가 provisioner JSON 계약과 일치"(R3)는 **모두 실측으로 거짓이었다**. B는 8건 중 7건이 사실이었다(오판 1건: `yarn-debug.log*`). 판정을 리뷰어 합의가 아니라 실측에 건 것이 매 라운드 결론을 갈랐고, "리뷰어 두 명이 PASS면 통과"였다면 R2 시점에 append TOCTOU와 dry-run 오보고를 안은 채 ship했을 것이다. 두 라운드에서 리뷰어가 각각 한 번씩 틀린 메커니즘 주장을 냈다(R1: A의 `'wx'`가 symlink를 따른다, R2: A의 "가드 완비"). 판정을 리뷰어 합의가 아니라 실측에 걸어 둔 것이 두 번 다 결론을 갈랐다.

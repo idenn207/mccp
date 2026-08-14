@@ -61,6 +61,16 @@ build/
 # be staged by accident. Directory-level entry also covers the per-slug
 # `<slug>.json.lock` and `<slug>.json.<pid>.<rand>.tmp` siblings.
 .claude/state/evidence-claims/
+# multi-session-work-loop M5 — state truth-source journal (append-only records +
+# rotated segments + checkpoint + degraded marker).
+#
+# Working-tree only, deliberately (명시 잔여 1). STATE.md stays git-tracked so a
+# worktree reset or a pair handoff keeps its context (§3.2), and a fresh clone
+# bootstraps the journal FROM that STATE.md as a genesis checkpoint. Committing
+# the journal instead would make a per-session-append JSONL a conflict surface in
+# every PR — the same judgement §3.12 made when it tracked only ship receipts.
+# The cost is stated, not hidden: what crosses a clone boundary is still a summary.
+.claude/state/journal/
 # Codex stop-loop bridge scratch input — local-only.
 .claude/state/codex-stop-loop-input.txt
 # Dogfood ephemera (fixtures + sandboxes) — never committed.
@@ -142,3 +152,11 @@ ECC/
 .claude/state/msw-events/
 .claude/state/*.env-snapshot.json
 .claude/state/*.handoff-items.json
+
+# setup-gitignore M1 — gitignore-provision.js 자신의 부산물. advisory lock 과
+# atomic tmp 는 정상 종료 시 사라지지만 크래시하면 남고, `--force-update` 의
+# `.bak` 은 설계상 존속하며 실행 직전 파일의 축자 사본이다. 런타임 산출물을
+# git 밖에 두는 것이 목적인 도구가 자기 산출물만 예외로 둘 수는 없다.
+.gitignore.lock
+.gitignore.bak
+.gitignore.*.tmp

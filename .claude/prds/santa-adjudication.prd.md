@@ -2,7 +2,7 @@
 
 > 우산: [review-loop-trust.prd.md](review-loop-trust.prd.md) — 승계 불변식 **I1 · I3 · I4**
 > 선행: [P0 santa-loop 실체화](santa-loop-materialize.prd.md) (모듈 인터페이스 확정 필요)
-> 원 제보: [#124](https://github.com/skypark207/my-claude-code-plugin/issues/124) — 제보자가 PR 제안, 운영자가 수용
+> 원 제보: [#124](https://github.com/idenn207/mccp/issues/124) — 제보자가 PR 제안, 운영자가 수용
 
 ## Problem
 

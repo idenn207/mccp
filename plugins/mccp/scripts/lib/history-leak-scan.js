@@ -85,9 +85,17 @@ function buildLeakPatterns(repoRoot, oldNames) {
   ];
   for (const nm of (oldNames || DEFAULT_OLD_REPO_NAMES)) {
     // drive-letter path (any separator run) that ends in the old repo name.
+    //
+    // The lookbehind is what makes "drive letter" mean a drive letter. Without
+    // it, `[A-Za-z]:` also matches the LAST letter of any URL scheme, so
+    // `https://host/<old-name>` read as a path and the gate blocked a push over
+    // a stale hyperlink — a false positive that costs exactly as much as a miss,
+    // because the only ways out are rewriting history or allowlisting a line
+    // that was never a leak. A real drive letter is never preceded by another
+    // alphanumeric; a scheme's final letter always is.
     patterns.push({
       name: 'old-repo:' + nm,
-      re: new RegExp('[A-Za-z]:[\\\\/][^\\s"\'`]*' + escapeRe(nm), 'i'),
+      re: new RegExp('(?<![A-Za-z0-9])[A-Za-z]:[\\\\/][^\\s"\'`]*' + escapeRe(nm), 'i'),
     });
   }
   return patterns;

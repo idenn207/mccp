@@ -56,12 +56,16 @@ mccp의 `/mccp:plan`(및 `/mccp:pr`) 게이트는 Codex adversarial review에 **
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | 의도 표면화 + 판정 커버리지 + 측정 인프라 | 대화 의도가 plan에 남고 리뷰어 focus에 reference로 전달됨; **모든 finding이 실제 리뷰 payload에 bind된 명시 판정을 받지 않으면 receipt가 써지지 않음**(누락·payload 불일치 차단 + 판정 카운트 측정 개시) | complete | `.claude/plans/codex-intent-context-m1.plan.md` |
-| 1.5 | 오심(mislabelling) 탐지 — **UI10 달성 milestone** | 저자가 충돌을 `none`으로 잘못 표시한 것이 **탐지 가능**해짐(리뷰어 per-finding `INTENT:` 계약과 저자 판정의 비대칭 대조). 이때 비로소 "의도-충돌 finding의 silent-accept 0건"이 실질적으로 성립 | pending | — |
+| 1.5 | 오심(mislabelling) 탐지 — **UI10 달성 milestone** | 저자가 충돌을 `none`으로 잘못 표시한 것이 **탐지 가능**해짐(리뷰어 per-finding `INTENT:` 계약과 저자 판정의 비대칭 대조). 이때 비로소 "의도-충돌 finding의 silent-accept 0건"이 실질적으로 성립 | complete | `.claude/plans/codex-intent-context-m1-5.plan.md` |
 | 2 | arbiter 컨텍스트 분리 + cross-vendor 독립 2차 리뷰어(opt-in) | 심판이 저자 컨텍스트에서 완전 분리(fresh subagent); 중요 plan에 한해 이종 리뷰어 다양성 복원 | pending | — |
 
 > **M1.5 분리 근거 (2026-07-31)**: M1 plan에 대한 santa-loop 3라운드(Opus + GPT-5.4)가 비수렴으로 종료했고, 미해소 지적의 무게중심이 **오심 탐지 축 하나**에 몰려 있었다. 그 축은 리뷰어가 preamble 지시를 자발적으로 따르는지에 의존해 계약(per-finding `INTENT:` 필수)·데이터 바인딩·불응 시 처리(all-absent → block)를 자체 설계 라운드로 다뤄야 한다. M1이 그것까지 안고 가면 **이미 검증된 나머지**(의도 표면화·판정 누락 불가·측정·단일 프로세스 runner)가 함께 묶여 못 나간다. M2(arbiter 분리 + cross-vendor)는 성격이 다른 축이므로 여기 합치지 않고 M1.5로 **별도 명명**한다.
 >
 > **M1이 닫지 않는 것(정직 표기)**: 저자가 모든 finding을 `intent_conflict: 'none'`으로 표시하면 M1의 완전성 검사는 전부 통과한다. 즉 M1은 **누락**을 막고 **오심**은 막지 못한다. 오심 탐지는 M1.5, 심판 분리는 M2가 소유한다.
+
+> **M1.5 `complete` 근거 (2026-08-13, v1.23.9)**: 탐지 축(리뷰어 `INTENT:` 계약 · 비대칭 대조 · 6 감사 필드 · verdict 2종)은 2026-08-10에 배송됐으나, 기본 모드를 정할 **Task 0 실측**이 Codex 쿼터 소진으로 막혀 DD10 fallback(`warn`)으로 ship했고 그 상태에서는 UI10이 성립하지 않아 `in-progress`로 두었다. 승격 조건은 단 하나였다 — [reviewer-contract-compliance.md](../../docs/codex-intent-context/reviewer-contract-compliance.md)의 절차로 준수율을 실측해 `enforce` 임계(≥95%)를 넘는 것. **2026-08-13 그 측정을 수행했다**: production 경로(`composeFocus` → `parseReviewPayload` → `parseReviewerClaims`) 10회, finding 50건 **전부** 유효 주장, 리뷰 단위 `full` 도달률 **100%**, 심어둔 충돌 40/40 정확 지목, 날조 주장 0건, `inconclusive` 오탐 0건(정지 규칙의 만장일치-종료와 경계-연장이 충돌해 연장을 수행한 결과다 — 6~10회차에 non-`full`이 하나라도 있었으면 90%로 `warn`이 유지됐다). 사전 선언 규칙에 따라 `DEFAULT_MISLABEL_MODE = 'enforce'`로 커밋했고, 그 시점에 "기록 없는 수용 0"이 기계적으로 강제되므로 위 지표 행이 성립한다.
+>
+> **이 `complete`가 뜻하지 않는 것**: (a) 측정 표본은 **단일 fixture 10회 반복**이라 실제 plan 전반의 준수율이 아니다 — 한계는 근거 문서에 명시했다. (b) 강제되는 명제는 여전히 "오심 0"이 아니라 **"기록 없는 수용 0"**이다. 양쪽이 모두 `none`이면 탐지되지 않으며 그 축은 M2(심판 분리) 소관이다. (c) status는 이 브랜치의 편집이므로 **PR이 머지되는 시점에 참이 된다** — 코드(`enforce` 상수)와 status가 같은 커밋 범위에 있어 어느 한쪽만 착지하지 않는다.
 
 ## Open Questions
 

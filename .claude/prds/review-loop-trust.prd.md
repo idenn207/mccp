@@ -11,8 +11,8 @@ mccp의 리뷰 루프가 **수렴하지 않고**(문서상 3라운드, 실사용
 
 - **계측 부재 (실측)** — `.claude/receipts/` 전수 149건: `findings[]` 총합 **3** · `resolution.rejected` 총합 **0** · duration 필드 보유 **0** · round 분포 `{1:148, 2:1}`. 기각 판정이 corpus 전체에 1건도 없어 오탐율이 **반증 불가능**하다.
 - **santa-loop은 계측 대상 밖** — `GATE_IDS`에 없어 receipt 미발행. [santa-loop.md](../../plugins/mccp/commands/santa-loop.md) 199행 전부 산문, 백킹 스크립트 0. 라운드 카운터도 상태 파일도 없다.
-- **patch-chasing 실측** ([#124](https://github.com/skypark207/my-claude-code-plugin/issues/124)) — 6라운드 실행에서 라운드 4~6의 지적이 **전부 직전 라운드가 넣은 코드**를 겨눔. 원 산출물 불변식은 라운드 3에서 이미 전부 강제됐음.
-- **증거 격리 실패 실측** ([#125](https://github.com/skypark207/my-claude-code-plugin/issues/125)) — 동일모델 4인스턴스 × 12라운드가 못 찾은 plan⟷PRD 정합 위반을 Reviewer B가 1라운드에 포착. 승인은 모델 차이가 아니라 **저장소 재탐색** 때문.
+- **patch-chasing 실측** ([#124](https://github.com/idenn207/mccp/issues/124)) — 6라운드 실행에서 라운드 4~6의 지적이 **전부 직전 라운드가 넣은 코드**를 겨눔. 원 산출물 불변식은 라운드 3에서 이미 전부 강제됐음.
+- **증거 격리 실패 실측** ([#125](https://github.com/idenn207/mccp/issues/125)) — 동일모델 4인스턴스 × 12라운드가 못 찾은 plan⟷PRD 정합 위반을 Reviewer B가 1라운드에 포착. 승인은 모델 차이가 아니라 **저장소 재탐색** 때문.
 - **문헌 — 오탐 수치는 타당** — 중립 조건 LLM 리뷰어 precision 29.0~42.4%, 즉 오탐 58~71% ([arXiv:2603.18740](https://arxiv.org/html/2603.18740v1)). 운영자 체감 80%는 문헌 범위 안.
 - **문헌 — 그러나 처방은 반대** — 같은 논문: bug-free framing이 탐지율 **16~93%p 붕괴**(GPT-4o-mini 97.2%→3.6%), **FN 편향이 FP 편향의 4~114배**. 리뷰어를 온화하게 만드는 수정은 precision paradox로 귀결.
 

@@ -285,6 +285,53 @@ function computeA4(model) {
   // masquerade an unfixed scanner. Until the scanner is boundary-scoped, A4 is
   // forward-only and excluded from claimed-computable (C1-pattern). items_left is kept
   // as the denominator so the observed backlog is preserved; only the rate is not claimed.
+  // multi-session-work-loop M5 (G5) — 저널이 있으면 **경계 스코프 분자**를 쓴다.
+  //
+  // 위 downgrade의 원인은 producer 부재가 아니라 **계산 오염**이었다. M5는 저널의
+  // `prev_session_id` 경계에서 분자를 파생해 self-credit을 구조적으로 불가능하게
+  // 만든다(genesis 경계는 분모에서 제외 — DD10). 저널이 없으면 기존 forward-only가
+  // 그대로 유지된다 — 코드가 존재한다는 사실은 판정 근거가 아니다(UI9).
+  const journal = model.sources?.session_journal;
+
+  // 무결성 위반(invalid)을 producer 부재(forward-only)보다 **먼저** 판정한다
+  // (msw-metrics 기존 관례, computeA1 거울). degraded 저널에서 뽑은 분자는
+  // "값이 없다"가 아니라 "값을 믿을 수 없다"이므로 두 상태를 섞으면 안 된다.
+  if (journal && journal.ok && journal.journal_present && journal.degraded) {
+    return {
+      id: A4_RESTORE_RATE,
+      numerator: null,
+      denominator: null,
+      value: null,
+      integrity_ok: false,
+      invalid_reason: 'state journal is in degraded mode — boundary derivation is incomplete',
+      status: 'invalid',
+      coverage: journal.producer_coverage || 'state-journal',
+    };
+  }
+
+  if (journal && journal.ok && journal.a4 && journal.a4.status === 'computed') {
+    return {
+      id: A4_RESTORE_RATE,
+      numerator: journal.a4.numerator,
+      denominator: journal.a4.denominator,
+      value: journal.a4.value,
+      integrity_ok: true,
+      invalid_reason: null,
+      status: 'computed',
+      coverage: journal.producer_coverage || 'state-journal',
+      boundary_count: journal.a4.boundary_count,
+    };
+  }
+
+  if (journal && journal.ok && journal.journal_present && journal.a4) {
+    // 저널은 있는데 경계가 0(클론 직후 genesis만) 또는 분모 0. `computed 0%`가
+    // 아니라 `insufficient`가 정직한 표기다.
+    return Object.assign(
+      insufficientMetric(A4_RESTORE_RATE, journal.a4.reason || 'no usable session boundary'),
+      { coverage: journal.producer_coverage || 'state-journal', boundary_count: journal.a4.boundary_count }
+    );
+  }
+
   const handoffItems = model.sources?.handoff_items;
   if (!handoffItems || !handoffItems.ok) {
     return insufficientMetric(A4_RESTORE_RATE, 'handoff_items source unavailable');

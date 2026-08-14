@@ -16,7 +16,7 @@
 숨기지 않고 먼저 적는다. 셋 다 plan이 사전에 명시한 것이며 구현 중 새로 생긴 미달이 아니다.
 
 1. **PRD Success Metrics 1행의 절반 미달.** "라운드 수가 상태 파일에 기록되고 **receipt에 봉인**"에서 앞 절반만 냈다. 봉인은 `mccp-santa-review` GATE_ID를 신설하는 **M2 소유**다. PRD M1 행에 같은 문장을 실었다.
-2. **캡 초과 라운드의 리뷰어 토큰 소모는 막지 못한다.** 캡은 *기록 경계*에서 구속된다 — `record`·`verdict`가 `begin-round`를 거치지 않은 라운드를 거부하므로, 산문이 거부를 무시하고 리뷰어를 띄워도 출력이 원장에 못 들어가고 verdict도 안 나온다. 하지만 리뷰어 기동 자체는 LLM 행위라 셸로 추출할 대상이 없어 **토큰은 실제로 쓰인다**. M1은 그것을 막았다고 주장하지 않는다.
+2. **캡은 *인덱스 경계*에서만 구속되며, 두 가지를 막지 못한다.** `record`·`verdict`는 `begin-round`가 **연 적 없는 인덱스**를 거부하므로 거부를 무시하고 리뷰어를 띄워도 그 인덱스로는 원장에 못 들어가고 verdict도 안 나온다. 막지 못하는 것 (a) **리뷰어 토큰 소모** — 리뷰어 기동은 LLM 행위라 셸로 추출할 대상이 없다. (b) **마지막 FINAL 인덱스 재사용** — `record --round <cap-1>`은 통과한다(D9). M1은 둘 중 어느 것도 막았다고 주장하지 않는다.
 3. **dual-review 우회 경로가 열린 채 남는다.** `record --id A`를 두 번 넣으면 A envelope가 2개 쌓이고 둘 다 PASS면 NICE가 나온다. 초안은 라운드 상태 기계로 이것을 닫았으나 봉인 패스 Codex F0이 그 규칙들이 사용자 제약(판정 내용은 P1 소유) 위반임을 지적해 되돌렸다. **test가 이 사실을 명시적으로 고정**해 두었다(`UI11 — [의도된 미봉]`), 그래서 P1이 닫을 때 조용히 지나칠 수 없다. backlog HIGH + P1 1순위 등재 완료.
 
 ## Assessment vs Reality
@@ -82,6 +82,12 @@
 **D10 — code-review가 HIGH 2건을 잡아 수정했다 (ship 직전).**
 - **H1** `santa-loop.md`의 CLI 경로가 repo-relative(`plugins/mccp/…`)였다. plugin은 `~/.claude/plugins/cache/mccp/mccp/<ver>/`에 설치되고 cwd는 사용자 프로젝트 루트이므로 **이 repo 밖에서는 node가 MODULE_NOT_FOUND(exit 1)로 죽는다**. Step 3의 "비영점 exit → 리뷰어 미발화" 규칙과 맞물려 santa-loop이 **모든 설치 사용자에게 영구히 cap reached로 보이는** 상태였다(exit 1은 문서화된 map 0/12/75/2에도 없어 진단 불가). `${CLAUDE_PLUGIN_ROOT}` 앵커로 수정 + `SANTA=` 대입을 검사하는 회귀 test 신설. **M1의 캡 강제가 dogfood 환경에서만 참이던 것을 실환경으로 넓힌 수정이다.**
 - **H2** `cli.js#requireRound`가 `Number('') === 0`이라 빈/공백 `--round`를 **round 0으로 조용히 해석**했다. 이 값은 가설이 아니라 `santa-loop.md` Step 3의 roundIndex 추출이 파싱 실패 시 내보내는 값(`catch{…("")}`)이다 — begin-round가 죽은 라운드의 리뷰어 출력이 round 0에 적재되고 verdict까지 났다(실측). `Number()` 이전 거부 + 회귀 test 신설.
+
+**D11 — 캡 강제는 `plugins/mccp/` 사본 한정이다. tracked 사본이 하나 더 있고 거기엔 산문 캡이 남아 있다.** santa-loop round 1의 Reviewer B가 잡았다. `.claude/commands/santa-loop.md`(175행, git-tracked)가 별도로 존재하며 `Maximum 3 iterations`(:124)와 `Iterations: [N]/3`(:162)를 그대로 갖는다 — 즉 비-namespace `/santa-loop`은 여전히 백킹 코드 0의 산문 캡으로 돈다. M1의 "산문 캡 잔존 0"은 plan의 `Files to Change`가 지목한 `plugins/mccp/commands/santa-loop.md`만 검증했다(해당 acceptance 항목은 D8 사유로 이미 미체크).
+
+**단, 이것은 santa 고유 결함이 아니라 repo 전역 조건이다.** `.claude/commands/` 7개 전부가 `plugins/mccp/commands/`와 diverged이고 전부 `bc18572 feat: 개발용 ECC Plugin 주입` 한 커밋에 동결돼 있다 — `plan.md` 200행 vs **2067행** · `prp-implement.md` 385 vs 1618 · `code-review.md` 289 vs 484 · `prp-pr.md` 184 vs 49 · `plan-prd.md` 160 vs 396 · `prp-commit.md` 112 vs 114 · `santa-loop.md` 175 vs 232. 즉 M1이 만든 drift가 아니라 M1이 **드러낸** 선재 drift다.
+
+**M1에서 고치지 않는다.** 7개 동기화는 plan 범위 밖이고, 삭제/동기화 중 무엇이 맞는지는 이 사본들을 의도적으로 주입한 운영자의 결정이다(특히 `prp-pr.md`는 `.claude` 쪽이 **더 길어** 단순 stale이 아닐 수 있다). backlog에 등재하고 PRD M1 Outcome에 강제 범위를 명시하는 것으로 닫는다.
 
 ## M1 완료 판정 (2026-08-14)
 

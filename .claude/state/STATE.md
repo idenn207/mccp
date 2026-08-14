@@ -2,17 +2,19 @@
 state_version: 1
 task_fingerprint: multi-session-work-loop-m5
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-13T22:37:36.711Z
+updated_at: 2026-08-14T04:37:45.888Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-09T01:17:14.100Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
-chain_aborted: false
+chain_aborted: true
 last_pr_url: https://github.com/idenn207/mccp/pull/126
 dep_check_at: 2026-06-17T05:35:00.000Z
+abort_owner: cost
+cost_abort_at: 2026-08-14T04:37:29.625Z
 escalate_pending: true
-escalate_pending_decision_id: multi-session-work-loop-m5
+escalate_pending_decision_id: meta-research-command-m1
 ---
 ## Goal
 MSW M5 (상태 진실원 이전) — PR #132 생성 완료(v1.23.10, PR-Codex divergent를 audited override로 ship). 머지 + G5 전환 실측 대기.
@@ -53,4 +55,4 @@ PR-Codex 4라운드 연속 No-ship 상태에서 override로 ship. 근거: 매 �
 - main CHANGELOG의 [1.23.9] 항목이 1.23.5 아래에 잘못 놓임 — main 선재 문제, 이 PR에서 미수정(§3.5.1)
 
 ## Last Updated
-2026-08-13T22:37:36.711Z
+2026-08-14T04:37:45.888Z

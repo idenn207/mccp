@@ -3,7 +3,7 @@
 ## Problem
 mccp의 plan/implement/pr 게이트는 dual-review를 위해 Codex(외부 cross-model) 리뷰에 의존한다. 이 리뷰가 게이트당 **평균 10-15분 blocking**이고 자주 미가용이라, 반복 plan 작성과 연속 milestone ship에서 대기가 누적되고 review 공백이 생긴다. 방치 비용: 운영 속도 저하 + Codex 미인증/companion 실패 시 dual-review 안전망 붕괴(receipt skip).
 
-> 상세 설계 근거는 `.claude/meta/` 3문서 참조: [diverse-agent-review-analysis.md](../meta/diverse-agent-review-analysis.md)(논문+사례+R2 결론) · [converged-redefinition-design.md](../meta/converged-redefinition-design.md)(verdict 재정의 + 소비처 계승) · [verification-layer-design.md](../meta/verification-layer-design.md)(L1/L2/L3 3층 verification).
+> 상세 설계 근거는 `.claude/meta/` 3문서 참조: [diverse-agent-review-analysis.md](../_meta/diverse-agent-review-analysis.md)(논문+사례+R2 결론) · [converged-redefinition-design.md](../_meta/converged-redefinition-design.md)(verdict 재정의 + 소비처 계승) · [verification-layer-design.md](../_meta/verification-layer-design.md)(L1/L2/L3 3층 verification).
 
 ## Evidence
 
@@ -109,10 +109,10 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 | 게이트 배선이 단위 test 사거리 밖(markdown seam)이라 결함이 ship 후에야 드러남 | **High (실증)** | High | M1 실측 28건이 전부 이 층 — #5 오라클 추출이 정면 대응, #4가 라이브 완주를 acceptance로 승격해 "단위 test 통과 = 경로 작동"의 오등식을 차단 |
 | 결함 수정이 새 결함을 만듦 (배선을 고칠 때마다 배선이 늘어남) | **High (실증)** | Medium | santa-loop 20건 중 6건이 이 형태 — #5 이전에는 배선 추가를 최소화하고(#1.5를 뒤로), 수정 시 회귀 test는 **수정 전 실패를 실측**한 것만 인정 |
 | 지표 코퍼스 부재 → "측정했다"는 착각 위에 튜닝 (confidently-wrong) | **High (실증)** | High | 산출 0인 지표는 `forward-only`로 표기 · #2 임계 튜닝은 #4 실측 전 착수 금지 · 선례(MSW B3)를 명시적으로 참조 |
-| same-model L2가 correlated → self-approval (작성자=리뷰어 blind spot 재도입) | Medium (**미실증** — 승인 발급 표본 0) | High | L1 deterministic backbone을 gatekeeper로 앞세움 + `review_proof` fail-closed(역할 다양성·독립 verification 강제) + L3 hybrid 안전판 ([verification-layer §7](../meta/verification-layer-design.md)) |
+| same-model L2가 correlated → self-approval (작성자=리뷰어 blind spot 재도입) | Medium (**미실증** — 승인 발급 표본 0) | High | L1 deterministic backbone을 gatekeeper로 앞세움 + `review_proof` fail-closed(역할 다양성·독립 verification 강제) + L3 hybrid 안전판 ([verification-layer §7](../_meta/verification-layer-design.md)) |
 | panel run에서 intent adjudication이 skip돼 커버리지 후퇴가 상시화 | Medium | Medium | skip은 조용하지 않고 proof와 함께 stamp됨(감사 가능) + #1.5가 소유 · 후퇴가 길어지면 순서 재조정 |
 | L3 자동 트리거 과발동 → 10-15분 지연으로 회귀 | Medium | Medium | #6 실측 확보 후에만 임계 결정 + risk-signal(mechanical, L2 독립)로 트리거 상관 완화 |
-| `converged` 재정의가 dedupe/ship-gate 불변식 손상 | Low | High | `resolveEffectiveVerdict` 단일 helper로 소비처 계승 + 회귀 test ([converged §4](../meta/converged-redefinition-design.md)) |
+| `converged` 재정의가 dedupe/ship-gate 불변식 손상 | Low | High | `resolveEffectiveVerdict` 단일 helper로 소비처 계승 + 회귀 test ([converged §4](../_meta/converged-redefinition-design.md)) |
 | 기존 git-tracked ship corpus의 receipt_hash 변경(재봉인 사고) | Low | High | present-only 필드 + skeleton 미materialize(§3.12 no-rehash) + hash 안정성 test |
 
 ---

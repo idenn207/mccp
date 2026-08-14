@@ -39,8 +39,20 @@ verdict=done.
   milestone이다. 이 closure는 그 override를 사후 승인하지 않는다: PR-Codex 미수렴 사실은 receipt에
   재작성 없이 봉인된 채 남는다.
 
-미달 항목: 없음. plan Acceptance의 마지막 미완 항목이 "PRD M1 status 갱신"이었고, 본 closure
-직후 `/mccp:archive-complete`가 그 정정(in-progress → complete)을 수행한다.
+미달 항목: 하나 있다 — plan Acceptance 13번째 항목 「version 5면 동기 + PRD M1 status 갱신」의
+뒷 절반이다. 앞 절반(version 5면)은 위에서 확인됐지만, **본 closure가 기록되는 시점의 PRD M1
+status는 아직 `in-progress`다.** 이 항목은 구현 미완이 아니라 기록 갱신이며, 본 closure 직후
+`/mccp:archive-complete`가 in-progress → complete로 정정한다 — 그 정정은 `apply.js`가 preflight
+에서 archivable(CLAUDE.md §3.11 C2/C3)을 재검증하는 것과 같은 원자 트랜잭션 안에서 일어난다.
+
+따라서 `Status: done`은 「구현과 검증이 전부 끝났고 남은 것은 이 문서가 촉발하는 기록 갱신
+하나뿐」이라는 뜻이지, 「이 문서가 쓰이는 순간 모든 항목이 이미 체크돼 있었다」는 뜻이 아니다.
+전자를 후자로 적으면 closure가 자기 stamp 시점에 대해 거짓을 말하게 된다.
+
+아카이브 후 경로: PRD는 `.claude/prds/archived/meta-research-command.prd.md`, plan은
+`.claude/PRPs/plans/archived/meta-research-command-m1.plan.md`. 아래 Provenance의 `Plan source`
+와 `Detection signal`은 closure 기록 시점(이동 전)의 관측을 그대로 보존한다 — 지난 관측을
+사후 경로로 고쳐 쓰면 그것은 기록이 아니라 재구성이다.
 
 ## Provenance
 - Lock run_id        : 827c09b9-9e45-4468-941c-611995b9ff30

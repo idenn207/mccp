@@ -66,6 +66,14 @@ build/
 # (Task 1's first edit) so there is no window in which a record lands tracked.
 # Rollback: `rm -rf .claude/state/session-processes/`.
 .claude/state/session-processes/
+# State-journal append log + its replay checkpoint (state-journal/, journal-store.js).
+# Per-session runtime telemetry, not source: `origin/main` does not track it either.
+# It is appended to continuously while a session runs, which also made every
+# `/mccp:pr` PR-phase mutations finalizer report it as
+# `content-changed-during-subphase` — a review-only invariant "breach" that no
+# edit caused. The detector reads `git status --porcelain`, so ignoring the churn
+# at the source is the honest fix rather than widening the guard.
+.claude/state/journal/
 # Codex stop-loop bridge scratch input — local-only.
 .claude/state/codex-stop-loop-input.txt
 # Dogfood ephemera (fixtures + sandboxes) — never committed.

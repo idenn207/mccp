@@ -122,6 +122,25 @@ test('(c) with NO session id from either source, reclaim is skipped', () => {
   assert.strictEqual(got.err, null);
 });
 
+test('(c3) env and payload disagree — the PAYLOAD wins, and the mismatch is named', () => {
+  // santa-loop R6. Round 4 added the payload fallback but put the ENV first, so
+  // a stale or inherited env made reclaim run against a session that was not
+  // ending — killing that session's processes. The payload is Claude Code naming
+  // the session that ended; the env is ambient. The authoritative source has to
+  // be the one that answers the actual question.
+  const repo = tmpRepo();
+  let seen = null;
+  const got = withSessionEnv('sess-STALE-ENV', () => captureStderr(() => marker.run(
+    payload(repo, SID),
+    { reclaimSession: (opts) => { seen = opts; return OK_RESULT; } })));
+
+  assert.ok(seen, 'reclaim must run');
+  assert.strictEqual(seen.sessionId, SID,
+    'reclaiming the env session would terminate processes of a session that is NOT ending');
+  assert.ok(/session id mismatch/.test(got.text),
+    'and a disagreement is either a harness bug or a stale env — never silent');
+});
+
 test('(c2) env id absent but the PAYLOAD carries one — reclaim still runs', () => {
   const repo = tmpRepo();
   let seen = null;

@@ -100,12 +100,26 @@ function run(rawInput, deps) {
 
   const sessionId = resolveSessionId();
 
-  // The SessionEnd payload carries the ending session id even when the env does
-  // not. Env absence is a reason to skip OBSERVER cleanup — that path is keyed
+  // The PAYLOAD wins, not the env. The payload's `session_id` is Claude Code
+  // naming the session that is ending; the env var is ambient and can be stale
+  // or inherited from somewhere else. Preferring the env — as this first did —
+  // means that when the two disagree, reclaim runs against the WRONG session and
+  // kills processes belonging to a session that is not ending. That is the
+  // mis-kill the whole design exists to prevent, so the authoritative source has
+  // to be the one that answers the actual question ("which session ended?").
+  //
+  // A disagreement is never silent: it is either a harness bug or a stale env,
+  // and both are worth knowing about.
+  const payloadSid = (event && event.session_id) || null;
+  if (payloadSid && sessionId && payloadSid !== sessionId) {
+    process.stderr.write('[mccp:session-reclaim] session id mismatch — env='
+      + sessionId + ' payload=' + payloadSid + '. Reclaiming the PAYLOAD session; '
+      + 'the env value is not what SessionEnd is about.\n');
+  }
+  // Env absence alone is a reason to skip OBSERVER cleanup — that path is keyed
   // on the env id in ways this hook does not own — but it is NOT a reason to
-  // leave this session's processes registered forever. Reclaim is the one thing
-  // here that still has everything it needs.
-  const reclaimSid = sessionId || (event && event.session_id) || null;
+  // leave the ending session's processes registered forever.
+  const reclaimSid = payloadSid || sessionId || null;
 
   if (!sessionId) {
     log('No CLAUDE_SESSION_ID available; skipping observer cleanup');

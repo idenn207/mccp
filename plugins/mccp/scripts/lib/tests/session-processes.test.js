@@ -292,6 +292,51 @@ test('(14c) a parseable NON-reuse record that fails schema does NOT block reclai
   assert.strictEqual(sp.collectSiblingReuse(repo, 'sess-A').incomplete, true);
 });
 
+test('(14f) a SIBLING dir linking out of a clean registry is refused, not read', () => {
+  // santa-loop R6, sixth instance of the same pattern: scanForeignOrphans has
+  // carried a per-directory containment check since R1, and this sweep — which
+  // reads records used as KILL EVIDENCE — did not. A clean root does not make
+  // every directory under it clean.
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-sib-')));
+  const repo = path.join(base, 'repo');
+  const outside = path.join(base, 'OUTSIDE');
+  fs.mkdirSync(sp.registryDir(repo), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(outside, { recursive: true });
+  fs.writeFileSync(path.join(outside, '4242.json'), JSON.stringify({
+    schema: sp.SCHEMA_VERSION, pid: 4242, host: os.hostname(), session_id: 'sess-EVIL',
+    session_pid: process.pid, started_at: new Date().toISOString(),
+    proc_started_at_ms: Date.now(), exec_path: __filename, repo_root: repo,
+    kind: 'dashboard-server', lifetime: 'outlives-session', role: 'reuse',
+  }));
+  linkDir(outside, path.join(sp.registryDir(repo), 'sess-EVIL'));
+
+  const got = sp.collectSiblingReuse(repo, 'sess-A');
+  assert.deepStrictEqual(Array.from(got), [],
+    'a record from outside the repo must never become reclaim evidence');
+  assert.strictEqual(got.incomplete, true,
+    'and refusing to read a sibling is "not checked", not "checked and clean"');
+});
+
+test('(14e) EVERY exit carries the incomplete flag — including path_escape', () => {
+  // santa-loop R6. The path_escape exit returned a bare `[]`, so `.incomplete`
+  // read back `undefined` — falsy, i.e. "checked, nobody is using it" — on the
+  // single most safety-relevant exit of this function. Harmless only because
+  // present callers happen to check containment first, which is a property of
+  // the callers rather than of this function.
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-cs-')));
+  const repo = path.join(base, 'repo');
+  const outside = path.join(base, 'OUTSIDE');
+  fs.mkdirSync(path.join(repo, '.claude', 'state'), { recursive: true });
+  fs.mkdirSync(outside, { recursive: true });
+  linkDir(outside, sp.registryDir(repo));
+
+  const got = sp.collectSiblingReuse(repo, 'sess-A');
+  assert.strictEqual(got.incomplete, true,
+    'an escaped registry is "we could not check", never "nothing is there"');
+  assert.notStrictEqual(got.incomplete, undefined,
+    'undefined is falsy and would read as complete — the flag must be SET, not absent');
+});
+
 test('(14d) an empty registry is absence, not incompleteness', () => {
   const got = sp.collectSiblingReuse(tmpRepo(), 'sess-A');
   assert.deepStrictEqual(Array.from(got), []);

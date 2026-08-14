@@ -320,6 +320,32 @@ A PASS·critical 0(다섯 라운드 연속), B FAIL·critical 2. 다만 B의 **R
 
 154 tests / 153 pass / 0 fail / 1 skip (신규 3건: `unregister` 탈출 · 스윕 deadline · 읽을 수 없는 세션 디렉토리).
 
+## santa-loop Round 6 — 같은 패턴의 5·6번째 사례, 그리고 R4가 만든 오살 경로
+
+A PASS·critical 0(여섯 라운드 연속), B FAIL·critical 2. 이 라운드는 리뷰어 지시를 **"각 불변식에 대해 그것을 가져야 할 모든 호출부를 열거하고 하나씩 확인하라"**로 승격했고, 그 지시가 세 건을 찾았다.
+
+### 수정 17 — R4에서 **내가 만든** 오살 경로 (B critical 1)
+
+R4에서 payload 세션 id fallback을 넣으면서 **env를 우선**으로 뒀다: `sessionId || event.session_id`. payload의 `session_id`는 Claude Code가 "지금 끝나는 세션"을 지목한 값이고 env는 ambient라 stale하거나 상속될 수 있다. 둘이 어긋나면 회수가 **끝나지도 않은 세션**을 대상으로 돌아 그 세션의 프로세스를 죽인다.
+
+권위 있는 출처는 실제 질문("어느 세션이 끝났는가")에 답하는 쪽이어야 한다 — payload 우선으로 뒤집고 불일치를 stderr로 명명한다. test `(c3)`이 고정.
+
+### 수정 18 — 형제 스윕에 디렉토리별 containment가 없었다 (B critical 2)
+
+`scanForeignOrphans`는 R1부터 세션 디렉토리마다 containment를 검사해 왔는데, **kill 증거로 쓰이는 레코드를 읽는** 형제 스윕은 안 했다. 루트가 깨끗하다고 그 아래 모든 디렉토리가 깨끗한 것은 아니다. 형제 디렉토리 하나가 repo 밖 링크면 외부 JSON이 회수 증거가 된다.
+
+**같은 패턴의 여섯 번째 사례.** 방향 자체는 fail-closed(가짜 reuse 레코드는 kill을 *막는다*)라 오살로 이어지진 않지만, 봉인 불변식이 뚫린 것이고 `continue`가 아니라 `incomplete`로 처리해야 맞다 — 읽기를 거부한 형제는 *확인하지 않은* 형제다.
+
+### 수정 19 — `incomplete` 플래그를 우회하는 exit (A suggestion)
+
+A가 이번에 유일하게 낸 지적이자 정확한 지적. `collectSiblingReuse`의 path_escape exit이 `done()`을 거치지 않고 bare `[]`를 반환해, **가장 안전에 민감한 exit에서** `.incomplete`가 `undefined`(falsy = "확인했고 아무도 안 쓴다")로 읽혔다. 현재 호출자가 전부 containment를 먼저 검사해서 무해했을 뿐인데, 그건 **이 함수의 성질이 아니라 호출자의 성질**이다.
+
+**같은 패턴의 다섯 번째 사례이고, 그것도 그 패턴을 고치려고 내가 만든 메커니즘 안에서 나왔다.** 모든 exit이 `done()`을 지나도록 scaffolding을 첫 return 앞으로 옮겼다.
+
+### 검증 (R6 이후)
+
+167 tests / 166 pass / 0 fail / 1 skip.
+
 ## 주장하지 않는 것 (명시 잔여)
 
 - **§D11 ms 단위 TOCTOU**와 **§D15 유계 오살 창**(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ command line이 절대경로 전체 포함)은 단위 test로 재현할 수 없다. "무관한 프로세스가 죽는 경로는 없다"고 **주장하지 않는다**.

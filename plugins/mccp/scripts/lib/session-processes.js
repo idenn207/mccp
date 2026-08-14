@@ -508,18 +508,18 @@ function collectSiblingReuse(repoRoot, selfSid, deps) {
   const now = deps.now || Date.now;
   const deadline = Number.isFinite(deps.deadline) ? deps.deadline : Infinity;
   const outOfTime = () => now() > deadline;
-  // Blocking this ALONE would be fail-open (no siblings found ⇒ nothing looks
-  // "in use" ⇒ more kills). It is safe only because `list` refuses the same
-  // condition first, so there is nothing left to kill by the time we get here.
-  const reg = containedRegistryDir(repoRoot);
-  if (!reg) {
-    warn('collectSiblingReuse refused: registry root resolves outside the repo (path_escape)');
-    return [];
-  }
   const out = [];
   // Non-enumerable so the array still behaves as a plain list of records for
   // every existing caller and test, while carrying the one bit that decides
   // whether reclaim may proceed.
+  //
+  // EVERY exit goes through `done()`. The scaffolding is declared before the
+  // first possible return for exactly that reason: this function once returned
+  // a bare `[]` on the path_escape path, so `.incomplete` came back `undefined`
+  // — falsy, i.e. "we checked and nobody is using it" — on the single most
+  // safety-relevant exit. It was harmless only because every present caller
+  // happens to check containment first, which is a property of the callers, not
+  // of this function.
   let incomplete = false;
   const markIncomplete = (why) => { incomplete = true; warn('collectSiblingReuse ' + why); };
   const done = () => {
@@ -528,6 +528,12 @@ function collectSiblingReuse(repoRoot, selfSid, deps) {
     });
     return out;
   };
+
+  const reg = containedRegistryDir(repoRoot);
+  if (!reg) {
+    markIncomplete('refused: registry root resolves outside the repo (path_escape)');
+    return done();
+  }
 
   let sids;
   try {
@@ -538,19 +544,30 @@ function collectSiblingReuse(repoRoot, selfSid, deps) {
     if (!err || err.code !== 'ENOENT') markIncomplete('readdir failed: ' + (err && err.message));
     return done();
   }
+  const realReg = realpathNearest(reg);
   for (const sid of sids) {
     if (outOfTime()) { markIncomplete('ran out of time before scanning ' + sid); break; }
     if (sid === selfSid) continue;
     if (!isSafeSessionId(sid)) continue;
+    const sibDir = path.join(reg, sid);
+    // Per-directory containment, the same check scanForeignOrphans carries. A
+    // clean root does not make every directory under it clean: one sibling dir
+    // replaced by a link out would have this reading attacker-chosen JSON from
+    // outside the repo as reclaim evidence. `incomplete`, not `continue`,
+    // because a sibling we refused to read is a sibling we did not check.
+    if (!isInside(realpathNearest(sibDir), realReg)) {
+      markIncomplete('skipped ' + sid + ': resolves outside the registry (path_escape)');
+      continue;
+    }
     let names;
-    try { names = fs.readdirSync(path.join(reg, sid)); }
+    try { names = fs.readdirSync(sibDir); }
     catch (err) { markIncomplete('cannot list ' + sid + ': ' + (err && err.message)); continue; }
     for (const name of names) {
       if (outOfTime()) { markIncomplete('ran out of time inside ' + sid); break; }
       if (!name.endsWith('.json')) continue;
       if (name.endsWith('.failed.json') || name.endsWith('.unreclaimed.json')) continue;
       let rec;
-      try { rec = readJson(path.join(reg, sid, name)); }
+      try { rec = readJson(path.join(sibDir, name)); }
       catch (err) {
         // An unreadable file may have been the reuse record that proves a
         // borrower is still live. Skipping it silently is fail-OPEN: the guard

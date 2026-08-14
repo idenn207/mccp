@@ -436,6 +436,83 @@ test('register: the tmp name is unique per call', function () {
   assert.match(a, /README\.md\.\d+\.[0-9a-f]{12}\.tmp$/);
 });
 
+// --- README byte preservation + index-range boundary ------------------------
+
+test('register: a mixed-EOL README keeps every untouched line byte-identical', function () {
+  // Regression for santa R1 (Codex, HIGH): split(/\r?\n/) + join(detectedEol)
+  // rewrote the ending of every line, so adding one row silently reformatted
+  // lines this command never touched.
+  const root = mkRepo({ index: false });
+  const readme = M.readmeOf(root);
+  const before = '# x\r\n\r\n## 색인\r\n\r\n| 문서 | 날짜 | 상태 | 한 줄 |\r\n|---|---|---|---|\r\n'
+    + '\r\n## 이력\n\nLF-only line\nanother LF line\n';
+  fs.writeFileSync(readme, before);
+  const rel = writeDoc(root, '2026-08-13-a.md', docBody({ topic: 'T' }));
+
+  M.register({ repoRoot: root, doc: rel });
+  const after = fs.readFileSync(readme, 'utf8');
+
+  const lfOnly = function (s) { return (s.match(/(?<!\r)\n/g) || []).length; };
+  assert.equal(lfOnly(after), lfOnly(before), 'LF-only lines must not be converted to CRLF');
+  // Everything except the single inserted row is unchanged, terminators included.
+  const inserted = after.split(/\r\n|\n/).filter(function (l) { return l.indexOf('[2026-08-13-a.md]') !== -1; });
+  assert.equal(inserted.length, 1);
+  assert.equal(after.replace('| [2026-08-13-a.md](2026-08-13-a.md) | 2026-08-13 | active | T |\r\n', ''), before,
+    'removing just the inserted row must reproduce the original bytes');
+});
+
+test('register: a CRLF-only README stays CRLF', function () {
+  const root = mkRepo({ index: false });
+  const readme = M.readmeOf(root);
+  fs.writeFileSync(readme, '# x\r\n\r\n## 색인\r\n\r\n| 문서 | 날짜 | 상태 | 한 줄 |\r\n|---|---|---|---|\r\n\r\n## 이력\r\n');
+  const rel = writeDoc(root, '2026-08-13-a.md', docBody({ topic: 'T' }));
+  M.register({ repoRoot: root, doc: rel });
+  const after = fs.readFileSync(readme, 'utf8');
+  assert.equal((after.match(/(?<!\r)\n/g) || []).length, 0, 'no bare LF introduced');
+  assert.match(after, /\| \[2026-08-13-a\.md\]\(2026-08-13-a\.md\) \|[^\n]*\r\n/, 'the new row is CRLF-terminated');
+});
+
+test('index range: a second table later in the same section is NOT absorbed', function () {
+  // santa R1 (Codex) claimed the row scan keeps consuming `|` rows past a blank
+  // line and swallows a following table. Measured false — the scan stops at the
+  // first non-`|` line. This pins that boundary so the claimed shape cannot be
+  // introduced later without going red.
+  const lines = [
+    '# x', '',
+    '## 색인', '',
+    '| 문서 | 날짜 | 상태 | 한 줄 |',
+    '|---|---|---|---|',
+    '| [a.md](a.md) | 2026-08-14 | active | first |',
+    '',
+    '산문 문단',
+    '',
+    '| other | table |',
+    '|---|---|',
+    '| [trap.md](trap.md) | x |',
+    '',
+    '## 이력',
+  ];
+  const t = M.locateIndexTable(lines);
+  assert.equal(t.rowStart, 6);
+  assert.equal(t.rowEnd, 7, 'the row range ends at the blank line, not at the next heading');
+  assert.deepStrictEqual(lines.slice(t.rowStart, t.rowEnd), ['| [a.md](a.md) | 2026-08-14 | active | first |']);
+});
+
+test('index range: a trailing table does not leak into L4 reachability', function () {
+  const root = mkRepo({ index: false });
+  fs.writeFileSync(M.readmeOf(root), [
+    '# x', '', '## 색인', '',
+    '| 문서 | 날짜 | 상태 | 한 줄 |', '|---|---|---|---|',
+    '| [a.md](a.md) | 2026-08-14 | active | first |', '',
+    '다른 표:', '',
+    '| other | table |', '|---|---|', '| [trap.md](trap.md) | x |', '',
+    '## 이력', '',
+  ].join('\n'));
+  const targets = M.indexedTargets(root);
+  assert.equal(targets.has('a.md'), true);
+  assert.equal(targets.has('trap.md'), false, 'a row outside the index table must not count as indexed');
+});
+
 // --- exemption + real repo --------------------------------------------------
 
 test('exemption: a legacy-shaped doc is exempt from L1/L2/L3, listed once, and still L4-checked', function () {

@@ -141,6 +141,37 @@ function detectEol(text) {
   return text.indexOf('\r\n') !== -1 ? '\r\n' : '\n';
 }
 
+// Split into content lines while REMEMBERING each line's own terminator.
+//
+// `split(/\r?\n/)` + `join(detectedEol)` would rewrite the ending of every line
+// in the file, so adding one index row to a mixed-EOL README silently reformats
+// lines this command never touched (Codex santa R1 H2 — measured: 4 LF-only
+// lines became 0). Keeping the terminators lets an untouched line stay
+// byte-identical. The final element is the trailing segment after the last
+// terminator (empty when the file ends with a newline), so join round-trips
+// exactly.
+function splitLinesPreservingEol(text) {
+  const lines = [];
+  const eols = [];
+  const re = /\r\n|\n|\r/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    lines.push(text.slice(last, m.index));
+    eols.push(m[0]);
+    last = re.lastIndex;
+  }
+  lines.push(text.slice(last));
+  eols.push('');
+  return { lines: lines, eols: eols };
+}
+
+function joinLinesPreservingEol(lines, eols) {
+  let out = '';
+  for (let i = 0; i < lines.length; i++) out += lines[i] + (eols[i] || '');
+  return out;
+}
+
 // Locate the `## 색인` table. Returns null when the section, its header row, or
 // its separator is absent — register treats null as a hard stop (Task 0 backfill
 // is its precondition), lint treats it as "nothing is indexed".
@@ -178,7 +209,7 @@ function indexedTargets(repoRoot) {
   const readme = readmeOf(repoRoot);
   let text;
   try { text = fs.readFileSync(readme, 'utf8'); } catch (_e) { return new Set(); }
-  const lines = text.split(/\r?\n/);
+  const lines = splitLinesPreservingEol(text).lines;
   const t = locateIndexTable(lines);
   if (!t) return new Set();
   const out = new Set();
@@ -413,7 +444,7 @@ function register(opts) {
   let readmeText;
   try { readmeText = fs.readFileSync(readme, 'utf8'); }
   catch (_e) { throw fail('INDEX_SECTION_MISSING', 'cannot read ' + readme); }
-  if (!locateIndexTable(readmeText.split(/\r?\n/))) {
+  if (!locateIndexTable(splitLinesPreservingEol(readmeText).lines)) {
     throw fail('INDEX_SECTION_MISSING',
       readme + ' has no `## 색인` table with the `| 문서 | 날짜 | 상태 | 한 줄 |` header row');
   }
@@ -422,8 +453,9 @@ function register(opts) {
     // Re-read inside the critical section: the preflight copy above may be
     // stale by the time the lock is held.
     const text = fs.readFileSync(readme, 'utf8');
-    const eol = detectEol(text);
-    const lines = text.split(/\r?\n/);
+    const split = splitLinesPreservingEol(text);
+    const lines = split.lines;
+    const eols = split.eols;
     const t = locateIndexTable(lines);
     if (!t) {
       throw fail('INDEX_SECTION_MISSING', readme + ' lost its `## 색인` table between preflight and write');
@@ -436,10 +468,26 @@ function register(opts) {
     for (let i = t.rowStart; i < t.rowEnd; i++) {
       if (linkTargetOf(lines[i]) === filename) { replacedAt = i; break; }
     }
-    if (replacedAt !== -1) lines[replacedAt] = row;
-    else lines.splice(t.rowEnd, 0, row);
+    if (replacedAt !== -1) {
+      // Replace the content only; the line keeps its own terminator.
+      lines[replacedAt] = row;
+    } else {
+      const at = t.rowEnd;
+      const prevEol = eols[at - 1];
+      if (prevEol === '') {
+        // The line above was the file's final, unterminated line. Terminate it
+        // with the file's dominant style and let the new row end the file.
+        eols[at - 1] = detectEol(text);
+        lines.splice(at, 0, row);
+        eols.splice(at, 0, '');
+      } else {
+        // Adopt the local convention rather than a file-wide guess.
+        lines.splice(at, 0, row);
+        eols.splice(at, 0, prevEol);
+      }
+    }
 
-    writeAtomic(readme, lines.join(eol));
+    writeAtomic(readme, joinLinesPreservingEol(lines, eols));
     return { ok: true, readme: readme, doc: docPath, row: row, updated: replacedAt !== -1 };
   });
 }
@@ -579,6 +627,7 @@ module.exports = {
   headerValue: headerValue,
   locateIndexTable: locateIndexTable,
   indexedTargets: indexedTargets,
+  splitLinesPreservingEol: splitLinesPreservingEol,
   stripRef: stripRef,
   tmpNameFor: tmpNameFor,
   SLUG_RE: SLUG_RE,

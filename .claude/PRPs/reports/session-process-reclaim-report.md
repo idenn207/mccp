@@ -41,11 +41,12 @@ mccp가 띄운 장수 프로세스(dashboard 서버 · detached plan-codex-runne
 | Integration | N/A | 통합 서버 없음 (dashboard 실서버 test는 unit suite 안에 있음) |
 | Design Grounding | N/A (no design trigger) | `design_signal=false` · capture 미수행 → Phase 3.6/3.7 no-op |
 
-아래는 **최초 구현 시점(santa-loop 이전)** 의 숫자다. santa-loop R1/R2에서 test가 추가되고 win32 skip 2건이 junction으로 실행 가능해졌으므로 현재 수치와 다르다 — 현재값은 각 santa-loop 절의 "검증" 항목을 보라.
+**아래 블록은 최초 구현 시점(santa-loop 이전)의 기록이며 현재 상태가 아니다.** 특히 "win32 symlink skip"은 santa-loop R1에서 junction으로 **실제 실행되도록 바뀌어 더 이상 존재하지 않는다**. 현재 수치는 각 santa-loop 절의 "검증" 항목이 소유한다.
 
 ```
-session-processes.test.js              18 pass / 0 fail (2 skip: win32 mode·symlink)
-session-processes-reclaimable.test.js  23 pass / 0 fail (1 skip: win32 symlink)
+[HISTORICAL — santa-loop 이전]
+session-processes.test.js              18 pass / 0 fail (2 skip: win32 mode·symlink)  ← symlink skip은 R1에서 제거됨
+session-processes-reclaimable.test.js  23 pass / 0 fail (1 skip: win32 symlink)       ← R1에서 제거됨
 session-processes-reclaim.test.js      21 pass / 0 fail
 session-processes-spawn-sites.test.js   9 pass / 0 fail
 dashboard-server.test.js               33 pass / 0 fail   ← 이전 13, 아래 Fixed 참조
@@ -54,6 +55,8 @@ session-end-marker-reclaim.test.js      7 pass / 0 fail
 session-end-trace.test.js               7 pass / 0 fail
 i18n-surface.test.js                   10 pass / 0 fail
 ```
+
+현재 남은 skip은 **1건뿐**이다 — `(3) file mode is 0600 …`, win32에서 POSIX mode bit이 의미를 갖지 않기 때문. 그 축의 보안 주장이 win32에서 test로 뒷받침되지 않는다는 지적(R5 suggestion)은 유효하며 backlog로 이연했다.
 
 전체 suite에서 남은 실패 4건은 **전부 선재**다. merge-base(`3eabab2`)에 임시 worktree를 만들어 동일 실패를 실측 확인했다:
 
@@ -286,6 +289,36 @@ R2에서 "이제 어떤 실패도 조용하지 않다"고 주석을 달아 놓�
 ### 검증 (R4 이후)
 
 161 tests / 160 pass / 0 fail / 1 skip.
+
+## santa-loop Round 5 — R1·R2가 처음으로 PASS
+
+A PASS·critical 0(다섯 라운드 연속), B FAIL·critical 2. 다만 B의 **R1(오살 안전성)과 R2(소유권 판정)가 처음으로 PASS**다 — 지배 지표 축은 다섯 라운드 만에 두 모델이 합의했다. 남은 지적은 그 주변(경로 봉인의 마지막 구멍, 예산의 경계, 문서 정확도)이다.
+
+이 라운드부터 리뷰어 지시에 **"한 호출부에 적용한 가드가 같은 종류의 모든 호출부에 적용됐는지 특히 보라 — 이 코드베이스가 반복적으로 보인 실패 모드다"**를 넣었다. 그 지시가 곧바로 값을 했다.
+
+### 수정 14 — `unregister`가 마지막까지 봉인되지 않은 mutating 경로였다 (B critical 1)
+
+`register`는 봉인, `list`도, `reclaimSession`도(매 write 전 재검증까지), `scanForeignOrphans`도 — 그런데 **정상 종료가 지나가는 `unregister`만 무방비**였다. 등록 후 `<registry>/<sid>`가 repo 밖 링크로 바뀌면 dashboard를 닫거나 runner가 끝나는 것만으로 repo 밖 파일이 삭제된다. 두 곳 다 프로덕션 경로다.
+
+**같은 실패 모드의 네 번째 사례다.** 한 축의 모든 호출부를 세지 않는 것.
+
+### 수정 15 — 예산이 묶지 않던 부분 (B critical 2)
+
+예산은 probe만 예약했다. 형제 스윕은 §D11 때문에 memoize가 금지돼 **레코드마다 전 형제 디렉토리를 다시 읽는데**, 루프의 경과 검사는 레코드 **사이**에서만 일어나므로 한 번의 스윕이 혼자 hook timeout을 넘길 수 있었다. 스윕에 deadline을 물렸고, 초과 시 `incomplete` → kill 차단이다(시간이 모자라 "아무도 안 쓴다"를 확인 못 한 것은 죽여도 된다는 뜻이 아니다).
+
+문서도 정정했다: `MCCP_RECLAIM_BUDGET_MS`는 hard wall-clock cap이 **아니라** 레코드 단위 granularity의 예산이고, 루프 진입 전 자기 디렉토리 `list()` 1회는 예산 밖이다. 무엇이 묶이고 무엇이 안 묶이는지 `docs/ENVIRONMENT.md`에 열거했다.
+
+### 수정 16 — teardown 실패의 침묵 (B R4)
+
+`unregisterServerProcess`와 runner의 `finally`가 `unregister` 결과를 버렸다. 남은 레코드는 SessionEnd가 **이미 종료된 프로세스를 대상으로 회수를 시도하게** 만드는데, 운영자가 그 사실을 알 다른 경로가 없다. 둘 다 읽고 표면화한다. `scanForeignOrphans`의 세션 디렉토리 `readdir` 실패도 같은 규칙으로 계상·명명한다(bare `continue`였다).
+
+### 인정 — 레지스트리는 실패 건수만큼 자란다 (B R5)
+
+`.failed.json`·`.unreclaimed.json`은 영구 보존이고, 그 둘만 남은 디렉토리는 지워지지 않는다. 감사 표면을 없애는 것이 "다음 SessionStart가 처리한다"를 증거 인멸로 바꾸기 때문에 **의도한 선택**이다. 다만 그렇다면 "무제한 증가를 막았다"는 주장은 성립하지 않는다 — 그 문장을 CHANGELOG에서 내렸다.
+
+### 검증 (R5 이후)
+
+154 tests / 153 pass / 0 fail / 1 skip (신규 3건: `unregister` 탈출 · 스윕 deadline · 읽을 수 없는 세션 디렉토리).
 
 ## 주장하지 않는 것 (명시 잔여)
 

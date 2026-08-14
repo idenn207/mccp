@@ -448,6 +448,77 @@ test('(23) a session dir linking out of the repo makes reclaim kill nothing and 
   assert.strictEqual(sp.containedSessionDir(repo, 'sess-X'), null);
 });
 
+// ── (24) unregister — the LAST mutating path to get containment ─────────────
+//
+// santa-loop R5, and the fourth instance of one failure mode: a guard applied at
+// some call sites and not at all of them. register sealed, list sealed,
+// reclaimSession sealed, scanForeignOrphans sealed — and clean shutdown went
+// through unregister unguarded, on two production paths (dashboard close, runner
+// finally).
+
+test('(24) unregister refuses to unlink through a session dir that links out of the repo', () => {
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-unreg-')));
+  const repo = path.join(base, 'repo');
+  const outside = path.join(base, 'OUTSIDE');
+  fs.mkdirSync(sp.registryDir(repo), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(outside, { recursive: true });
+  const victim = path.join(outside, '4242.json');
+  fs.writeFileSync(victim, '{}');
+  linkDir(outside, sp.sessionDir(repo, 'sess-X'));
+
+  const r = sp.unregister(repo, 'sess-X', 4242);
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.reason, 'path_escape');
+  assert.strictEqual(fs.existsSync(victim), true,
+    'a normal dashboard close must not be able to delete a file outside the repo');
+});
+
+// ── (25) the sibling sweep is time-bounded, and running out means INCOMPLETE ─
+//
+// §D11 forbids memoizing this sweep, so it re-reads every sibling directory for
+// every record — the one genuinely unbounded piece of the SessionEnd budget.
+
+test('(25) a sibling sweep that runs out of time reports incomplete, not empty', () => {
+  const repo = tmpRepo();
+  const dir = sp.sessionDir(repo, 'sess-B');
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(dir, '4242.json'), JSON.stringify({
+    schema: sp.SCHEMA_VERSION, pid: 4242, host: os.hostname(), session_id: 'sess-B',
+    session_pid: process.pid, started_at: new Date().toISOString(),
+    proc_started_at_ms: Date.now(), exec_path: __filename, repo_root: repo,
+    kind: 'dashboard-server', lifetime: 'outlives-session', role: 'reuse',
+  }));
+
+  const inTime = sp.collectSiblingReuse(repo, 'sess-A');
+  assert.strictEqual(inTime.length, 1, 'sanity: the record IS collectable with time to spare');
+  assert.strictEqual(inTime.incomplete, false);
+
+  const expired = sp.collectSiblingReuse(repo, 'sess-A', { deadline: 0, now: () => 1 });
+  assert.strictEqual(expired.incomplete, true,
+    'out of time to check who is using a process is not permission to kill it');
+});
+
+// ── (26) an unreadable session directory is counted, not skipped ────────────
+
+test('(26) a session dir that cannot be listed is counted as unreadable', () => {
+  const repo = tmpRepo();
+  fs.mkdirSync(sp.registryDir(repo), { recursive: true, mode: 0o700 });
+  // A plain FILE where a session directory is expected: readdirSync gives
+  // ENOTDIR, which the sweep used to swallow with a bare `continue`.
+  fs.writeFileSync(path.join(sp.registryDir(repo), 'sess-BROKEN'), 'not a directory');
+
+  const warnings = [];
+  const realWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (c, ...r) => { warnings.push(String(c)); return realWrite(c, ...r); };
+  let out;
+  try { out = sp.scanForeignOrphans(repo, 'sess-A', { isAlive: () => false }); }
+  finally { process.stderr.write = realWrite; }
+
+  assert.strictEqual(out.unreadable, 1);
+  assert.ok(/cannot list sess-BROKEN/.test(warnings.join('')),
+    'and it must be named — a bare continue makes it indistinguishable from an empty dir');
+});
+
 // ── PRD :78 — the borrowed-dashboard growth path ────────────────────────────
 //
 // Flagged in both santa-loop rounds. One dir accumulates per short session that

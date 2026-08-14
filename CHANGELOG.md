@@ -38,6 +38,8 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - §D11의 ms 단위 TOCTOU와 §D15의 유계 오살 창(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ command line이 절대경로 전체 포함)은 **단위 test로 재현할 수 없다**. "무관한 프로세스가 죽는 경로는 없다"고 주장하지 않는다.
 - §D15 축 1은 이제 "우리 경로가 **첫 script 토큰이고 node에 넘겨졌는가**"를 묻는다(단순 포함이 아니라 등가 비교). `node other.js <path>` · `tail -f <path>` · `<path>.bak` 는 전부 거부된다. 남은 것은 **상대 경로 기동**이 `identity_mismatch`로 읽히는 것(fail-closed — 회수를 놓칠 뿐이고, mccp의 두 기동 형태는 모두 절대 경로다). 상대 토큰을 재anchor하려면 suffix 매칭을 허용해야 하는데, 그것이 바로 전체경로 규칙이 막으려던 basename 충돌이다.
 - reuse 레코드 증가는 **부분적으로만** 닫혔다. 소유 세션이 죽었음이 증명된 것(같은 호스트 ∧ 정수 `session_pid` ∧ 그 pid 죽음)은 회수되는데, 이는 `isSiblingLive`가 **이미** "사용 중 아님"으로 읽던 집합과 정확히 같아 어떤 회수 판정도 바뀌지 않기 때문이다. `session_pid`가 null이거나 다른 호스트인 레코드는 **남긴다** — 그것을 지우면 "쓰고 있는지 알 수 없다"가 "아무도 안 쓴다"로 바뀌어 kill을 승인하게 된다. 유계 증가보다 그쪽이 비싸다.
+- **`.failed.json` · `.unreclaimed.json`은 영구 보존된다** — 그래서 그 두 종류만 남은 디렉토리는 지워지지 않는다. 감사 표면을 없애는 것이 "다음 SessionStart가 처리한다"를 증거 인멸로 바꾸기 때문에 의도한 선택이고, 따라서 레지스트리는 **실패 건수만큼** 자란다. 무제한 증가를 막았다고 주장하지 않는다.
+- **`MCCP_RECLAIM_BUDGET_MS`는 hard wall-clock cap이 아니라 레코드 단위 granularity의 예산이다.** 루프는 각 레코드 직전에 경과를 보고, probe는 worst case를 예약하고, 형제 스윕은 같은 deadline을 물려받아 초과 시 fail-closed로 끊는다. 루프 진입 전 자기 디렉토리 `list()` 1회는 예산 밖이다(크기가 자기 등록 프로세스 수라 실질 상수). 정확한 경계는 `docs/ENVIRONMENT.md` 참조.
 - `MCCP_RECLAIM_OUTLIVES=1`에서 **세션 식별자가 없는 borrower는 보호되지 않는다**. reuse 레코드를 쓸 디렉토리를 정할 수 없고, 합성 id로도 우회 불가다 — reuse의 liveness는 `session_pid`가 정하는데 재사용 경로에서 살아있는 주체가 바로 그 식별 불가능한 Claude 세션이기 때문이다. 이는 토글의 의미에 포함된 한계이며 `docs/ENVIRONMENT.md`에 근거까지 적었다. 기본값 0이 오늘의 동작이다.
 - 과거·타 세션의 **live** 고아 프로세스는 감지·보고까지만 한다(kill 없음).
 

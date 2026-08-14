@@ -586,8 +586,17 @@ function run(opts, deps) {
       const sid = sp.isSafeSessionId(o.sessionId)
         ? o.sessionId
         : require('../receipt/evidence-lock').resolveSessionId(o.env || process.env);
-      if (sid) sp.unregister(cwd, sid, process.pid);
-    } catch (_) {}
+      // Read, not discarded: a record we failed to drop is one SessionEnd will
+      // later try to reclaim for a process that has already exited.
+      const r = sid ? sp.unregister(cwd, sid, process.pid) : null;
+      if (r && !r.ok) {
+        process.stderr.write('[plan-codex-runner] session-process record for pid '
+          + process.pid + ' was NOT removed (reason=' + r.reason + ')\n');
+      }
+    } catch (err) {
+      process.stderr.write('[plan-codex-runner] session-process unregister threw: '
+        + ((err && err.message) || err) + '\n');
+    }
     releaseLock(p.lock, nonce);
   }
 }

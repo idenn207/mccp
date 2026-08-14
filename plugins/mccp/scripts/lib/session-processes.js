@@ -388,9 +388,20 @@ function register(repoRoot, opts) {
   return { ok: true, path: file, record: record };
 }
 
+// This unlinks, so it needs the same containment the other unlink paths have.
+// It was the ONE mutating path left without it — register seals, list seals,
+// reclaimSession seals (and re-seals before every write), scanForeignOrphans
+// seals per directory, and clean shutdown came through here unguarded. Replace
+// `<registry>/<sid>` with a link out after registration and a normal dashboard
+// close or runner exit would delete a file outside the repo.
 function unregister(repoRoot, sid, pid) {
+  const dir = containedSessionDir(repoRoot, sid);
+  if (!dir) {
+    warn('unregister refused: ' + sid + ' resolves outside the registry (path_escape)');
+    return { ok: false, reason: 'path_escape' };
+  }
   try {
-    fs.unlinkSync(recordPath(sessionDir(repoRoot, sid), pid));
+    fs.unlinkSync(recordPath(dir, pid));
     return { ok: true, removed: true };
   } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true, removed: false };
@@ -484,7 +495,19 @@ function list(repoRoot, sid, deps) {
  * The producer of a reuse record is each session itself (§D7); this function is
  * the only runtime COLLECTOR.
  */
-function collectSiblingReuse(repoRoot, selfSid) {
+// `deps.deadline` (absolute ms) bounds the scan. It exists because this is the
+// one genuinely unbounded piece of the SessionEnd sweep: §D11 forbids memoizing
+// it, so it re-reads EVERY sibling directory and file for EVERY record, and the
+// budget loop only checks elapsed time BETWEEN records — a single pass over a
+// large registry could therefore run past the hook's 10s timeout on its own.
+// Hitting the deadline marks the result INCOMPLETE, which blocks the kill.
+// Fail-closed: running out of time to check whether someone else is using a
+// process is not permission to kill it.
+function collectSiblingReuse(repoRoot, selfSid, deps) {
+  deps = deps || {};
+  const now = deps.now || Date.now;
+  const deadline = Number.isFinite(deps.deadline) ? deps.deadline : Infinity;
+  const outOfTime = () => now() > deadline;
   // Blocking this ALONE would be fail-open (no siblings found ⇒ nothing looks
   // "in use" ⇒ more kills). It is safe only because `list` refuses the same
   // condition first, so there is nothing left to kill by the time we get here.
@@ -516,12 +539,14 @@ function collectSiblingReuse(repoRoot, selfSid) {
     return done();
   }
   for (const sid of sids) {
+    if (outOfTime()) { markIncomplete('ran out of time before scanning ' + sid); break; }
     if (sid === selfSid) continue;
     if (!isSafeSessionId(sid)) continue;
     let names;
     try { names = fs.readdirSync(path.join(reg, sid)); }
     catch (err) { markIncomplete('cannot list ' + sid + ': ' + (err && err.message)); continue; }
     for (const name of names) {
+      if (outOfTime()) { markIncomplete('ran out of time inside ' + sid); break; }
       if (!name.endsWith('.json')) continue;
       if (name.endsWith('.failed.json') || name.endsWith('.unreclaimed.json')) continue;
       let rec;
@@ -954,9 +979,16 @@ function reclaimSession(opts) {
     // decision, so each record is judged against the FRESHEST world state. A
     // function (not a list) is injected precisely so a caller cannot cache one
     // snapshot and defeat this.
+    // The sibling sweep inherits the sweep's own deadline. Without it, the one
+    // unbounded scan in this function could blow the hook timeout by itself —
+    // the loop check above only fires BETWEEN records.
+    const collectWithDeadline = function (root, sid) {
+      return collect(root, sid, { deadline: started + budgetMs, now: now });
+    };
+
     const verdict = isReclaimableBy(rec, {
       host: host, repoRoot: repoRoot, sessionId: sessionId, isAlive: isAlive,
-      probeProcess: guardedProbe, collectSiblingReuse: collect,
+      probeProcess: guardedProbe, collectSiblingReuse: collectWithDeadline,
       allowOutlives: allowOutlives, platform: platform, env: env,
       toleranceMs: opts.toleranceMs,
     });
@@ -1088,7 +1120,14 @@ function scanForeignOrphans(repoRoot, selfSid, deps) {
       continue;
     }
     let names;
-    try { names = fs.readdirSync(dir); } catch (_) { continue; }
+    try { names = fs.readdirSync(dir); }
+    catch (err) {
+      // Same rule as everywhere else here: a directory we could not read is not
+      // a directory with nothing in it.
+      out.unreadable++;
+      warn('scanForeignOrphans cannot list ' + sid + ': ' + (err && err.message));
+      continue;
+    }
 
     const recordNames = names.filter((n) => n.endsWith('.json')
       && !n.endsWith('.failed.json') && !n.endsWith('.unreclaimed.json'));

@@ -172,8 +172,21 @@ function registerServerReuse(repoRoot, pid) {
 function unregisterServerProcess(repoRoot, pid) {
   try {
     const sid = require('../receipt/evidence-lock').resolveSessionId(process.env);
-    if (sid) require('./session-processes').unregister(repoRoot, sid, pid);
-  } catch (_) { /* best-effort — teardown must not throw */ }
+    if (!sid) return;
+    // Best-effort in EFFECT (teardown must not throw), but not in silence. A
+    // record left behind is one SessionEnd will try to reclaim for a process
+    // that is already gone, and the operator has no other way to learn that the
+    // teardown half did not happen.
+    const r = require('./session-processes').unregister(repoRoot, sid, pid);
+    if (r && !r.ok) {
+      process.stderr.write('[mccp:dashboard] session-process record for pid ' + pid
+        + ' was NOT removed on close (reason=' + r.reason + '); it will be seen '
+        + 'again at SessionEnd\n');
+    }
+  } catch (err) {
+    process.stderr.write('[mccp:dashboard] session-process unregister threw on close: '
+      + ((err && err.message) || err) + '\n');
+  }
 }
 
 // The reuse record is the ONLY thing that tells the owning session "someone else

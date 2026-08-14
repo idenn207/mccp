@@ -9,9 +9,13 @@
 - Closed by  : /mccp:milestone-close (run_id=827c09b9-9e45-4468-941c-611995b9ff30)
 
 ## Acceptance Condition
-plan `## Acceptance` 13항목 전건 충족 — 테스트 green · `lint --all --json`이 `ok:true`이고 exempt가
-legacy 5종과 정확히 일치 · UI1(`GATE_IDS` 무변경 + `aliases.js` 빈 spec) · version 5면 동기 ·
-PRD M1 status 갱신.
+plan `## Acceptance` 13항목이 **전건 충족될 것** — 테스트 green · `lint --all --json`이 `ok:true`이고
+exempt가 legacy 5종과 정확히 일치 · UI1(`GATE_IDS` 무변경 + `aliases.js` 빈 spec) · version 5면
+동기 · PRD M1 status 갱신.
+
+이 절은 *충족해야 할 조건*을 적는 자리이지 충족됐다는 주장이 아니다(closure README 형식 규약).
+조건별 판정과 그 판정이 선 시점은 아래 `## Goal Loop Result`가 갖는다 — 13번째 항목의 뒷 절반
+(PRD M1 status)은 본 closure의 `Closed at` 시점에 **미충족이었다**.
 
 ## Goal Loop Result
 verdict=done.

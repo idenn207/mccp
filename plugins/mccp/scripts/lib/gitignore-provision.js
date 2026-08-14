@@ -596,13 +596,27 @@ const APPEND_FLAGS =
 //
 // Returns whether the rollback happened, because the caller has to say which
 // state the file is actually in rather than assume.
-function rollbackAppend(fd, originalSize, maxOwnBytes) {
+function rollbackAppend(fd, originalSize, payload, target) {
   try {
+    const mine = Buffer.from(payload, 'utf8');
     const now = fs.fstatSync(fd).size;
-    if (now > originalSize && now <= originalSize + maxOwnBytes) {
-      fs.ftruncateSync(fd, originalSize);
-      return true;
-    }
+    const grew = now - originalSize;
+    if (!(grew > 0) || grew > mine.length) return false;
+
+    // Size alone is not proof. A file that grew by less than our payload could
+    // be our partial write, OR our partial write plus a small foreign append —
+    // and truncating in the second case deletes bytes that were never ours.
+    // Compare the actual tail: only a tail that IS a prefix of our payload can
+    // be removed. Reading by name is safe here precisely because a mismatch is
+    // the refusing answer — if the name now points at a different file, its
+    // tail will not match and nothing is truncated.
+    const buf = fs.readFileSync(target);
+    if (buf.length !== now) return false;
+    const tail = buf.subarray(originalSize);
+    if (!tail.equals(mine.subarray(0, tail.length))) return false;
+
+    fs.ftruncateSync(fd, originalSize);
+    return true;
   } catch (_e) { /* best effort */ }
   return false;
 }
@@ -711,7 +725,6 @@ function applyMerge(target, plan, options) {
       throw new ProvisionError(REASONS.INTERNAL_ERROR, 'cannot measure ' + target + ': ' + err.message, target);
     }
     const writeSync = (opts.deps && opts.deps.writeSync) || fs.writeSync;
-    const ownBytes = Buffer.byteLength(plan.appendPayload, 'utf8');
     try {
       writeAllAppend(fd, plan.appendPayload, writeSync);
       // Recount while the descriptor is STILL OPEN, so a duplicate can be undone
@@ -722,7 +735,7 @@ function applyMerge(target, plan, options) {
       // left it — one block, valid — and makes this a retryable condition.
       const written = readTargetContent(target);
       if (written !== null && countMarkerPairs(written) !== 1) {
-        const undone = rollbackAppend(fd, originalSize, ownBytes);
+        const undone = rollbackAppend(fd, originalSize, plan.appendPayload, target);
         throw new ProvisionError(
           undone ? REASONS.CONCURRENT_MODIFICATION : REASONS.MARKER_DAMAGED,
           undone
@@ -754,7 +767,7 @@ function applyMerge(target, plan, options) {
       // On Windows this cannot succeed — ftruncate on an O_APPEND descriptor is
       // EPERM — so the message states which state the file is actually in rather
       // than implying a rollback that did not happen.
-      const undone = rollbackAppend(fd, originalSize, ownBytes);
+      const undone = rollbackAppend(fd, originalSize, plan.appendPayload, target);
       throw new ProvisionError(
         REASONS.INTERNAL_ERROR,
         'cannot append to ' + target + ': ' + err.message +

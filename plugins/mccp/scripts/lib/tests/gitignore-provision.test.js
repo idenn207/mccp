@@ -233,6 +233,44 @@ test('block replacement preserves the target file mode (POSIX modes only)', { sk
   });
 });
 
+test('append: rollback refuses when a foreign writer also appended', { skip: !POSIX }, () => {
+  // Size alone cannot separate "our partial write" from "our partial write plus
+  // a small foreign append" — both can land under our payload length. Truncating
+  // in the second case deletes bytes that were never ours, which is the data loss
+  // the rollback exists to prevent, so the tail has to be compared, not counted.
+  withTempDir((dir) => {
+    const target = path.join(dir, '.gitignore');
+    const before = 'user-a/\n';
+    fs.writeFileSync(target, before, 'utf8');
+    const plan = gp.planMerge({ content: before, version: VERSION });
+    assert.strictEqual(plan.action, 'append');
+
+    let calls = 0;
+    const partial = {
+      writeSync: (fd, buf, off, len) => {
+        calls += 1;
+        if (calls === 1) {
+          const n = fs.writeSync(fd, buf, off, Math.min(40, len));
+          // Another process slips a rule in before our failure is handled.
+          fs.appendFileSync(target, 'other-writer/\n', 'utf8');
+          return n;
+        }
+        const e = new Error('ENOSPC: no space left on device');
+        e.code = 'ENOSPC';
+        throw e;
+      },
+    };
+    assert.throws(
+      () => gp.applyMerge(target, plan, { lockPath: target + '.lock', deps: partial }),
+      (err) => err instanceof gp.ProvisionError && err.reason === gp.REASONS.INTERNAL_ERROR
+    );
+    assert.ok(
+      fs.readFileSync(target, 'utf8').includes('other-writer/'),
+      "the rollback deleted the other writer's line"
+    );
+  });
+});
+
 test('append: a duplicate block is rolled back, not left as permanent damage', () => {
   // A non-locking writer lands its own managed block between our plan and our
   // write. We then append a second one. Detecting that only after closing the

@@ -362,7 +362,96 @@ test('(18) an escaped registry root makes the orphan sweep unlink nothing outsid
   const out = sp.scanForeignOrphans(repo, 'sess-A', { isAlive: () => false });
   assert.strictEqual(fs.existsSync(victim), true,
     'the sweep unlinks; reaching through an escaped root would delete outside the repo');
-  assert.deepStrictEqual(out, { liveCount: 0, purgedCount: 0 });
+  assert.deepStrictEqual(out,
+    { liveCount: 0, purgedCount: 0, unreadable: 0, purgeFailures: 0 });
+});
+
+// ── PRD :78 — the borrowed-dashboard growth path ────────────────────────────
+//
+// Flagged in both santa-loop rounds. One dir accumulates per short session that
+// borrowed a long-lived dashboard, and it survives for as long as the dashboard
+// runs. The fix is deliberately PARTIAL, and the partition is the point: purge
+// only what isSiblingLive ALREADY reports as not-in-use, so no reclaim decision
+// can change. Degraded records stay, because purging them would convert "cannot
+// tell" into "nobody is using it" — which authorizes a kill.
+
+test('(21) an inert reuse record is purged even though its target pid is alive', () => {
+  const repo = tmpRepo();
+  const dir = sp.sessionDir(repo, 'sess-BORROWER');
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const base = {
+    schema: sp.SCHEMA_VERSION, host: os.hostname(), session_id: 'sess-BORROWER',
+    started_at: new Date().toISOString(), proc_started_at_ms: Date.now(),
+    exec_path: __filename, repo_root: repo, kind: 'dashboard-server',
+    lifetime: 'outlives-session',
+  };
+  // The borrower's session (pid 999998) is gone; the dashboard (pid 4242) lives.
+  fs.writeFileSync(path.join(dir, '4242.json'),
+    JSON.stringify(Object.assign({}, base, { pid: 4242, session_pid: 999998, role: 'reuse' })));
+
+  const out = sp.scanForeignOrphans(repo, 'sess-A', {
+    isAlive: (pid) => pid === 4242,          // the dashboard lives, the session does not
+    host: os.hostname(),
+  });
+  assert.strictEqual(out.purgedCount, 1, 'bookkeeping about a DEAD session is collectable');
+  assert.strictEqual(out.liveCount, 0);
+  assert.strictEqual(fs.existsSync(path.join(dir, '4242.json')), false);
+});
+
+test('(22) a DEGRADED or cross-host reuse record is never purged — it still blocks kills', () => {
+  const mk = (over) => Object.assign({
+    schema: sp.SCHEMA_VERSION, pid: 4242, host: os.hostname(), session_id: 'sess-B',
+    session_pid: 999998, started_at: new Date().toISOString(),
+    proc_started_at_ms: Date.now(), exec_path: __filename,
+    kind: 'dashboard-server', lifetime: 'outlives-session', role: 'reuse',
+  }, over);
+
+  for (const [label, over] of [
+    ['session_pid null (degraded identity)', { session_pid: null }],
+    ['another host (liveness unknowable)', { host: 'some-other-host' }],
+    ['owner, not reuse', { role: 'owner' }],
+  ]) {
+    const repo = tmpRepo();
+    const dir = sp.sessionDir(repo, 'sess-B');
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const rec = mk(Object.assign({ repo_root: repo }, over));
+    fs.writeFileSync(path.join(dir, '4242.json'), JSON.stringify(rec));
+
+    const out = sp.scanForeignOrphans(repo, 'sess-A', {
+      isAlive: (pid) => pid === 4242,
+      host: os.hostname(),
+      now: () => Date.now() + sp.ORPHAN_STALE_MS + 1,   // force the dir to look dead
+    });
+    assert.strictEqual(fs.existsSync(path.join(dir, '4242.json')), true,
+      'must survive — isSiblingLive still honours it fail-closed: ' + label);
+    assert.strictEqual(out.purgedCount, 0, label);
+  }
+});
+
+// A sweep that could not do its job must not look like one that had nothing to
+// do — otherwise a registry quietly growing past PRD :78 reports a clean zero.
+test('(20) an unreadable record is counted and named, not dropped into a clean zero', () => {
+  const repo = tmpRepo();
+  const dir = sp.sessionDir(repo, 'sess-DEAD');
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // A dead-looking session (no parseable record carries a live session_pid) that
+  // also holds one corrupt record.
+  fs.writeFileSync(path.join(dir, '424242.json'), '{ this is not json');
+
+  const warnings = [];
+  const realWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (c, ...r) => { warnings.push(String(c)); return realWrite(c, ...r); };
+  let out;
+  try {
+    out = sp.scanForeignOrphans(repo, 'sess-A', { isAlive: () => false, now: () => Date.now() + sp.ORPHAN_STALE_MS + 1 });
+  } finally {
+    process.stderr.write = realWrite;
+  }
+
+  assert.strictEqual(out.unreadable, 1, 'the unreadable record must be COUNTED');
+  assert.strictEqual(out.purgedCount, 0, 'and must not be reported as purged');
+  assert.ok(/cannot read/.test(warnings.join('')),
+    'and must be NAMED on stderr — a silent drop is indistinguishable from "no orphans"');
 });
 
 // A session dir that is itself a link out, under a CLEAN root — the sweep must
@@ -405,7 +494,8 @@ test('Task 10 (1) our own session directory is never scanned', () => {
   const repo = tmpRepo();
   seedSession(repo, 'sess-SELF', [111]);
   const out = sp.scanForeignOrphans(repo, 'sess-SELF', { isAlive: () => false });
-  assert.deepStrictEqual(out, { liveCount: 0, purgedCount: 0 });
+  assert.deepStrictEqual(out,
+    { liveCount: 0, purgedCount: 0, unreadable: 0, purgeFailures: 0 });
   assert.ok(fs.existsSync(path.join(sp.sessionDir(repo, 'sess-SELF'), '111.json')));
 });
 

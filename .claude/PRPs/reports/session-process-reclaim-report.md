@@ -171,13 +171,59 @@ hook은 `async:true, timeout:10`이라 세션 종료를 막지는 않는다. 하
 
 죽은 세션의 reuse 레코드를 지우면 `isSiblingLive`가 **fail-closed로 true를 반환하던 케이스**(`session_pid === null`, cross-host)의 차단이 풀린다. 즉 정리가 곧 **kill 허용**이다. 오살 0이 지배 지표인 이상 리뷰 수정 사이클에서 건드릴 축이 아니다. Codex도 이것만은 critical이 아니라 suggestion으로 분류했다. backlog 이연.
 
-### R11 — 좁혔으나 닫지 않았다 (정직한 부분 수정)
+### R11 — R1에서 좁히고, R2에서 닫았다
 
-경계 anchoring을 넣어 `<path>.bak` · `<path>.lock` · `/evil<path>`처럼 **더 긴 토큰 안에 우리 경로가 들어앉는** 케이스를 제거했다. 하지만 Codex가 든 원래 시나리오 — 우리 경로를 **독립 인자로 언급**하는 명령줄 — 은 여전히 매치된다. 닫으려면 flag 모양 토큰 뒤의 경로를 거부해야 하는데 그러면 `node --enable-source-maps <path>`도 거부되어 회수가 조용히 전멸한다(probe 타임아웃 편차에서 이미 그것이 더 나쁜 실패라고 판단한 축). 그래서 **좁혔다고만 주장하고**, 잔여를 test `identity 3d`로 명시 고정했다.
-
-### 검증
+R1에서는 경계 anchoring만 넣어 `<path>.bak` 류(**더 긴 토큰 안에 우리 경로가 들어앉는** 케이스)를 제거하고, 독립 인자 언급은 잔여로 선언했다. 근거는 "닫으려면 flag 뒤 경로를 거부해야 하는데 그러면 `node --enable-source-maps <path>`도 거부된다"였다. **그 근거가 틀렸다** — 거부 규칙을 flag 기준으로 세울 필요가 없었다. R2 절 참조.
 
 139 tests / 138 pass / 0 fail. skip은 3 → **1**로 줄었다 — win32에서 skip되던 symlink test 2건을 **junction**으로 실제 실행시켰다(R10이 지적한 "priority 플랫폼에서 미검증"을 닫음). 남은 1건은 POSIX mode bit test로, win32에서 의미 자체가 없다.
+
+## santa-loop Round 2 — 신규 리뷰어 2명
+
+Reviewer A(Claude Opus) PASS·critical 0, Reviewer B(Codex gpt-5.4) FAIL·critical 2. 두 라운드 모두 B만 결함을 냈다. 루브릭의 R2/R7은 위협 모델을 명시하도록 교정했고(주입 가능한 의존성 = test seam), 그 결과 R1에서 나왔던 오탐 FAIL은 재발하지 않았다.
+
+### 수정 4 — §D15 축 1을 실제로 닫았다 (B critical 1, R1/R11/R10)
+
+B의 지적이 정확했다. 그리고 **내가 R1에서 붙인 test `identity 3d`가 그 결함을 "기대 동작"으로 못박고 있었다** — 고치면 red가 되는 test라, suite가 결함을 방어하는 모양이었다. 그 지적도 맞다.
+
+R1의 판단 착오는 규칙의 축을 잘못 잡은 것이다. "flag 뒤 경로를 거부"가 아니라 **"우리 경로가 첫 script 토큰이고 node에 넘겨졌는가"**로 물으면 된다. 실제 기동 형태를 확인하니 둘 다 그 조건을 만족한다:
+
+```
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dashboard-server.js" $ARGUMENTS
+nohup node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-codex-runner.js" …
+```
+
+`containsPathToken`(포함 검사) → `isExecutedScript`(**등가** 비교)로 교체했다. 세 조건: (1) 인용부호를 아는 tokenizer, (2) flag 모양 토큰을 건너뛴 **첫** script 토큰이 우리 경로와 **정확히 같을 것**, (3) 그 앞에 node 인터프리터 토큰이 있을 것.
+
+(3)은 구현 중 test가 잡았다. (1)+(2)만으로는 `tail -f <ourpath>`가 통과한다 — 거기서도 우리 경로가 첫 script 토큰이기 때문이다. 정체 검증에 도달하는 프로세스는 구조상 전부 node 스크립트이므로(비-node인 `handoff-session`은 그 전에 제외됨) 인터프리터를 요구하는 것이 정당하다.
+
+닫힌 것: `node other.js <path>` · `node other.js --input <path>` · `tail -f <path>` · `<path>.bak` · `/evil<path>`.
+새 잔여(더 좁고, 명시): **상대 경로 기동**이 `identity_mismatch`로 읽힌다. 상대 토큰을 재anchor하려면 suffix 매칭을 허용해야 하는데 그것이 바로 전체경로 규칙이 막으려던 basename 충돌이다. 방향은 fail-closed이고 mccp의 두 기동 형태는 모두 절대 경로다. test `identity 3f`가 고정.
+
+### 수정 5 — 고아 스윕의 침묵 (B R4)
+
+`scanForeignOrphans`가 JSON parse 실패와 unlink 실패를 조용히 넘겼고, SessionStart 래퍼는 통째로 silent catch였다. **처리하지 못한 sweep이 처리할 것이 없던 sweep과 구별되지 않았다** — 그런데 그 구별이 정확히 PRD `:78`(무한 증가)이 돌아오는 경로다. 반환값에 `unreadable` · `purgeFailures`를 추가하고 각각 stderr에 이름을 남긴다. SessionStart catch도 stderr로 표면화한다(여전히 non-fatal).
+
+### 수정 6 — tmp 이름 CSPRNG (B R3)
+
+`writePrivate`의 nonce가 `Math.random()`이었다. 접미사의 존재 이유가 "미리 그 경로를 만들어 둘 수 있는 자에게 추측 불가"인데 `Math.random`은 그 주장을 지지하지 않는다. `crypto.randomUUID()`로 교체했다. `dashboard-server.js`의 pid 파일 tmp도 같은 형태라(선재) 함께 고쳤다 — 지적된 항목이고 한 줄이다.
+
+### 수정 7 — 문서가 절대치를 주장했다 (B critical 2, R8)
+
+CHANGELOG가 "다른 세션·…의 프로세스는 **절대** 죽이지 않는다"라고 달성 사실처럼 적어 놓고, 같은 문서 아래에서 유계 오살 창을 인정하고 있었다. 운영자가 회수를 켤 때 근거로 삼을 문장이므로 정정했다: 오살 0은 **목표**이고, 소유권 축은 결정적으로 닫히지만 프로세스 정체 축에 유계 잔여가 있다고 명시한다. PRD 지표 행에도 같은 단서를 달았다.
+
+### 수정 8 — R5(레지스트리 무한 증가)를 안전한 만큼 닫았다
+
+두 라운드 연속 지적된 축이다. R1에서는 "정리가 곧 kill 허용"이라며 통째로 이연했는데, 다시 보니 **안전한 부분집합이 있었다**.
+
+소유 세션이 죽었음이 증명된 reuse 레코드(같은 호스트 ∧ 정수 `session_pid` ∧ 그 pid 죽음)는 `isSiblingLive`가 **이미** false를 반환하는 바로 그 분기다. 따라서 지워도 **어떤 회수 판정도 바뀌지 않는다** — 정책 변경이 아니라 garbage collection이고, 그 등가성이 안전성의 근거 전부다. Codex가 든 시나리오(장수 dashboard를 빌려 쓴 짧은 세션이 디렉토리를 하나씩 남김)가 정확히 이 집합이다.
+
+`session_pid`가 null이거나 다른 호스트인 레코드는 **그대로 둔다**. 그것들이야말로 degraded 환경에서 쌓이는 것들이지만, 지우면 "쓰고 있는지 알 수 없다"가 "아무도 안 쓴다"로 바뀌어 kill을 승인한다. 유계 증가가 그보다 싸다. test (21)/(22)가 두 방향을 각각 고정한다.
+
+R1의 이연 판단이 틀렸다기보다 **거칠었다** — "이 축은 위험하다"에서 멈추고 "위험하지 않은 부분이 있는가"를 묻지 않았다. R11과 같은 종류의 실수다.
+
+### 검증 (R2 이후)
+
+146 tests / 145 pass / 0 fail / 1 skip.
 
 ## 주장하지 않는 것 (명시 잔여)
 
@@ -185,7 +231,8 @@ hook은 `async:true, timeout:10`이라 세션 종료를 막지는 않는다. 하
 - ~~POSIX symlink 봉쇄 test 2건은 win32에서 skip된다(권한 의존).~~ **santa-loop R1에서 해소** — junction은 elevation 없이 만들어지고 realpath로 동일하게 해석되므로 두 test 모두 win32에서 실제로 실행된다. 그 전제("symlink는 권한이 필요하다")가 틀렸던 것이 루트 탈출 결함을 가려 준 요인이기도 하다.
 - macOS `ps`는 `etimes`를 지원하지 않아 probe가 `null` → `identity_unverifiable` → 회수 미수행(fail-closed, 오살 아님). test는 사유를 출력하고 skip한다.
 - ~~**cross-model 리뷰 부재**~~ — **santa-loop R1에서 해소**. Implement-Codex 게이트는 EXECUTE **이전**에 돌아 diff가 비어 있었으나(verdict `divergent`로 정직 봉인), 실제 코드에 대한 Codex(gpt-5.4) 심사가 santa-loop R1에서 수행됐고 critical 3건이 흡수됐다. security-reviewer는 여전히 이 세션 정책상 미호출(`security_skipped=true`) — 다만 R1의 R3(보안) 축이 실제 경로 탈출 1건을 잡았다.
-- **R11 §D15 축 1의 잔여는 좁혀졌을 뿐 닫히지 않았다**: 우리 절대경로를 독립 인자로 언급하는 명령줄은 여전히 매치된다. 근거와 test 고정은 위 santa-loop 절 참조.
+- **§D15 축 1의 남은 잔여는 상대 경로 기동 하나**다(R2에서 독립-인자 언급 케이스는 닫힘). `identity_mismatch`로 읽혀 회수를 놓치는 fail-closed 방향이며 test `identity 3f`가 고정한다.
+- **오살 0은 목표이지 증명된 절대치가 아니다.** 소유권 축(세션·repo·호스트·reuse·lifetime)은 결정적으로 닫히지만, 프로세스 정체 축에는 유계 잔여가 남는다 — PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ node가 **같은 절대 스크립트 경로**를 실행 중. 단위 test로 재현할 수 없다.
 - **reuse 레코드의 무한 증가**는 미해결이다(backlog). 정리가 곧 kill 허용이 되는 축이라 오살 0 앞에서 보수적으로 남겼다.
 
 ## Next Steps

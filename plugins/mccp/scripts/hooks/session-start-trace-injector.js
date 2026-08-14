@@ -67,17 +67,33 @@ function compute(event) {
     const sp = safeRequire(path.join(libDir, 'session-processes'));
     if (sp) {
       const orphans = sp.scanForeignOrphans(repoRoot, currentSession);
-      if (orphans.liveCount || orphans.purgedCount) {
+      if (orphans.liveCount || orphans.purgedCount
+          || orphans.unreadable || orphans.purgeFailures) {
+        // A sweep that COULD NOT do its job must not read as one that had
+        // nothing to do — hence unreadable/purgeFailures are surfaced beside the
+        // successes rather than folded into a clean zero.
+        const trouble = (orphans.unreadable || orphans.purgeFailures)
+          ? ' ' + orphans.unreadable + ' unreadable, ' + orphans.purgeFailures
+            + ' purge failure(s) — the registry may be growing; see stderr.'
+          : '';
         blocks.push('<system-reminder>\n'
           + '[mccp:session-processes] prior-session processes: '
           + orphans.liveCount + ' still alive (reported only — not reclaimed), '
-          + orphans.purgedCount + ' dead record(s) purged. '
+          + orphans.purgedCount + ' dead record(s) purged.' + trouble + ' '
           + 'Unreclaimed/failed records are preserved under '
           + '.claude/state/session-processes/ as the audit surface.\n'
           + '</system-reminder>');
       }
     }
-  } catch (_) { /* silent */ }
+  } catch (err) {
+    // Reporting must never break SessionStart, so this stays non-fatal — but it
+    // does not stay INVISIBLE. A swallowed sweep failure is indistinguishable
+    // from "no orphans", which is the one reading that must never be wrong here.
+    try {
+      process.stderr.write('[mccp:session-processes] SessionStart orphan sweep failed: '
+        + ((err && err.message) || err) + '\n');
+    } catch (_) { /* stderr itself is gone — nothing left to try */ }
+  }
 
   return blocks.join('\n\n');
 }

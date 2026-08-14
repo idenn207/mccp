@@ -80,7 +80,8 @@ function writeServerPid(repoRoot, info) {
   };
   const dir = cacheDir(repoRoot);
   fs.mkdirSync(dir, { recursive: true });
-  const tmp = pidFilePath(repoRoot) + '.' + process.pid + '-' + Math.random().toString(36).slice(2) + '.tmp';
+  // CSPRNG nonce: a guessable tmp path defeats the reason the suffix exists.
+  const tmp = pidFilePath(repoRoot) + '.' + process.pid + '-' + crypto.randomUUID() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(body, null, 2), 'utf8');
   fs.renameSync(tmp, pidFilePath(repoRoot));
   return body;

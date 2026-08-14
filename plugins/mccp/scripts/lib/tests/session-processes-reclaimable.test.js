@@ -215,20 +215,71 @@ test('identity 3c — the anchoring did NOT break the real launch shapes', () =>
   }
 });
 
-test('identity 3d — DECLARED RESIDUAL: a bare-argument mention still matches', () => {
-  // Not a bug report — a lock on the honest boundary. Axis 1 asks "does this
-  // command line NAME this script", not "is this script executing". Closing the
-  // gap would mean rejecting a path preceded by a flag-shaped token, which also
-  // rejects `node --enable-source-maps <path>` and silently disables reclaim.
-  // If someone later narrows this, this test going red is the intended prompt to
-  // re-check that false-negative class rather than a regression to undo.
+test('identity 3d — our path MENTIONED as data by another script is a MISMATCH', () => {
+  // The mis-kill this closes: a recycled pid whose start time lands inside the
+  // tolerance and whose argv merely carries our absolute path. Axis 1 must ask
+  // "is this script EXECUTING", not "is this path mentioned".
+  for (const cmd of [
+    'node /repo/other.js ' + EXEC,
+    'node /repo/other.js --input ' + EXEC,
+    'tail -f ' + EXEC,
+  ]) {
+    const v = reasonOf(rec(), {
+      probeProcess: () => ({ startedAtMs: START_MS, commandLine: cmd }),
+    });
+    assert.strictEqual(v.reason, 'identity_mismatch',
+      'a path named as DATA must never authorize a kill: ' + cmd);
+  }
+});
+
+test('identity 3e — interpreter flags do not knock the real script out of first place', () => {
+  // The false-negative class that ruled out a "reject anything after a flag"
+  // rule. If these stopped matching, reclaim would silently die out for anyone
+  // launching node with flags.
+  for (const cmd of [
+    'node --enable-source-maps "' + EXEC + '"',
+    'node --max-old-space-size=4096 ' + EXEC,
+    'nohup node "' + EXEC + '" --plan x.md',
+  ]) {
+    const v = reasonOf(rec(), {
+      probeProcess: () => ({ startedAtMs: START_MS, commandLine: cmd }),
+    });
+    assert.strictEqual(v.ok, true, 'a flagged but real launch must still match: ' + cmd);
+  }
+});
+
+test('identity 3f — DECLARED RESIDUAL: a RELATIVE launch path reads as mismatch', () => {
+  // Honest lock on the remaining edge. The record holds `__filename` (absolute);
+  // re-anchoring a relative token would mean accepting a suffix match, which
+  // reinstates the basename collision the whole-path rule exists to prevent.
+  // Direction is fail-closed — a missed reclaim, recorded in skipped[] — and
+  // neither mccp launch shape is relative.
   const v = reasonOf(rec(), {
-    probeProcess: () => ({
-      startedAtMs: START_MS, commandLine: 'node /repo/other.js ' + EXEC,
-    }),
+    probeProcess: () => ({ startedAtMs: START_MS, commandLine: 'node scripts/lib/dashboard-server.js' }),
   });
-  assert.strictEqual(v.ok, true,
-    'documented §D15 residual: narrowed by boundary anchoring, not closed');
+  assert.strictEqual(v.reason, 'identity_mismatch');
+});
+
+test('tokenizeCommandLine keeps quoted paths containing spaces intact', () => {
+  assert.deepStrictEqual(
+    sp.tokenizeCommandLine('"C:/Program Files/nodejs/node.exe" "C:/a b/x.js" --p 1'),
+    ['C:/Program Files/nodejs/node.exe', 'C:/a b/x.js', '--p', '1'],
+    'splitting on whitespace alone would shred every path with a space in it');
+  assert.deepStrictEqual(sp.tokenizeCommandLine(''), []);
+  assert.deepStrictEqual(sp.tokenizeCommandLine('   node   a.js  '), ['node', 'a.js']);
+});
+
+test('isExecutedScript demands EQUALITY with the first script-shaped token', () => {
+  assert.strictEqual(sp.isExecutedScript('node /r/x.js', '/r/x.js'), true);
+  assert.strictEqual(sp.isExecutedScript('node /r/x.js.bak', '/r/x.js'), false);
+  assert.strictEqual(sp.isExecutedScript('node /evil/r/x.js', '/r/x.js'), false);
+  assert.strictEqual(sp.isExecutedScript('node a.js /r/x.js', '/r/x.js'), false);
+  assert.strictEqual(sp.isExecutedScript('node --require=./p.js /r/x.js', '/r/x.js'), true,
+    'a flag carrying a .js VALUE is still a flag, not the executed script');
+  assert.strictEqual(sp.isExecutedScript('/usr/bin/node', '/r/x.js'), false,
+    'no script token at all must be a refusal, not a pass');
+  assert.strictEqual(sp.isExecutedScript('', '/r/x.js'), false);
+  assert.strictEqual(sp.isExecutedScript('node /r/x.js', ''), false);
 });
 
 test('identity 4 — a command line differing only by separator and case still MATCHES', () => {

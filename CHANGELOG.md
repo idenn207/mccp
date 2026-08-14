@@ -8,7 +8,9 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 **session-process-reclaim M1+M2 — 세션 프로세스 레지스트리 + SessionEnd 회수 (PRD 전 milestone 완료 → minor bump)** — mccp는 자신을 시작한 명령보다 오래 사는 프로세스를 여럿 띄운다(dashboard 서버, detached plan-codex-runner, handoff `claude` 세션). 누가 그것들을 소유하는지 기록하는 곳이 없었고, 그래서 안전하게 거둘 방법도 없었다. M1이 레지스트리를, M2가 SessionEnd 회수를 추가한다.
 
-설계를 지배하는 단일 지표는 PRD의 **오살 0**이다 — 다른 세션·다른 repo·다른 호스트·다른 사용자의 프로세스는 절대 죽이지 않는다. 그래서 판정은 전부 fail-closed이고, **주장이 아니라 test**다: 주입한 killer가 받은 pid 집합을 기대 집합과 정확히 일치시킨다.
+설계를 지배하는 단일 지표는 PRD의 **오살 0**이다 — 다른 세션·다른 repo·다른 호스트·다른 사용자의 프로세스를 죽이지 않는 것. 그래서 판정은 전부 fail-closed이고, **주장이 아니라 test**다: 주입한 killer가 받은 pid 집합을 기대 집합과 정확히 일치시킨다.
+
+**단, 이것은 목표이지 증명된 절대치가 아니다.** 소유권 축(세션·repo·호스트·reuse·lifetime)은 결정적으로 닫히지만, 프로세스 정체 축에는 유계 잔여가 남는다 — OS가 PID를 재할당했고 ∧ 새 프로세스가 우리 등록 시각의 허용 오차 안에서 시작했고 ∧ 그것이 node로 **같은 절대 스크립트 경로**를 실행 중일 때. 단위 test로 재현할 수 없는 창이므로 "무관한 프로세스가 죽는 경로는 없다"고 주장하지 않는다. 아래 *명시 잔여* 참조.
 
 ### Added
 - `plugins/mccp/scripts/lib/session-processes.js` — 레지스트리(`register`/`registerFailure`/`list`/`unregister`/`collectSiblingReuse`) + 소유권 판정(`isReclaimableBy`, 12행 표) + 정체 probe(`probeProcess`/`normPath`) + 회수(`reclaimSession`) + SessionStart 고아 스윕(`scanForeignOrphans`). 파일당 1 프로세스 레이아웃이라 read-modify-write도 lock도 없다.
@@ -30,8 +32,8 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### 명시 잔여 (주장하지 않는 것)
 - §D11의 ms 단위 TOCTOU와 §D15의 유계 오살 창(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ command line이 절대경로 전체 포함)은 **단위 test로 재현할 수 없다**. "무관한 프로세스가 죽는 경로는 없다"고 주장하지 않는다.
-- §D15 축 1은 명령줄이 스크립트를 **명명**하는지를 볼 뿐 그것이 **실행 중**인지는 모른다. 경계 anchoring으로 좁혔을 뿐 **닫지 않았다** — 닫으려면 flag 뒤 경로를 거부해야 하고 그러면 `node --enable-source-maps <path>`도 거부되어 회수가 조용히 전멸한다.
-- reuse 레코드는 아직 무한히 쌓인다. 정리가 곧 kill 허용이 되는 축이라(fail-closed로 "사용 중"을 읽던 레코드가 사라짐) 보수적으로 남겼다 — backlog.
+- §D15 축 1은 이제 "우리 경로가 **첫 script 토큰이고 node에 넘겨졌는가**"를 묻는다(단순 포함이 아니라 등가 비교). `node other.js <path>` · `tail -f <path>` · `<path>.bak` 는 전부 거부된다. 남은 것은 **상대 경로 기동**이 `identity_mismatch`로 읽히는 것(fail-closed — 회수를 놓칠 뿐이고, mccp의 두 기동 형태는 모두 절대 경로다). 상대 토큰을 재anchor하려면 suffix 매칭을 허용해야 하는데, 그것이 바로 전체경로 규칙이 막으려던 basename 충돌이다.
+- reuse 레코드 증가는 **부분적으로만** 닫혔다. 소유 세션이 죽었음이 증명된 것(같은 호스트 ∧ 정수 `session_pid` ∧ 그 pid 죽음)은 회수되는데, 이는 `isSiblingLive`가 **이미** "사용 중 아님"으로 읽던 집합과 정확히 같아 어떤 회수 판정도 바뀌지 않기 때문이다. `session_pid`가 null이거나 다른 호스트인 레코드는 **남긴다** — 그것을 지우면 "쓰고 있는지 알 수 없다"가 "아무도 안 쓴다"로 바뀌어 kill을 승인하게 된다. 유계 증가보다 그쪽이 비싸다.
 - 과거·타 세션의 **live** 고아 프로세스는 감지·보고까지만 한다(kill 없음).
 
 롤백: `rm -rf .claude/state/session-processes/` (gitignored·working-tree 전용).

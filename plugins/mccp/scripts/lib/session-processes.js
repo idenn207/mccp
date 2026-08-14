@@ -31,6 +31,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const evidenceLock = require('../receipt/evidence-lock');
@@ -175,9 +176,12 @@ function ensureDirPrivate(dir) {
 
 // security — owner-only, atomic-ish, never at a predictable path an attacker
 // could pre-create as a symlink (mirror of plan-codex-runner.js writePrivate).
+// The nonce is CSPRNG, not `Math.random()`: the whole point of the suffix is to
+// be unguessable to whoever might pre-create that path, and Math.random is
+// seeded predictably enough that it does not carry that claim.
 function writePrivate(file, text) {
   const tmp = file + '.' + process.pid + '.' +
-    Math.random().toString(36).slice(2) + '.tmp';
+    crypto.randomUUID() + '.tmp';
   fs.writeFileSync(tmp, text, { mode: FILE_MODE });
   fs.renameSync(tmp, file);
 }
@@ -515,38 +519,71 @@ function normPath(s, platform) {
   return (platform || process.platform) === 'win32' ? t.toLowerCase() : t;
 }
 
-// Bare substring containment lets the registered path match while sitting INSIDE
-// a longer token — `<path>.bak`, `<path>.lock`, `/other<path>` — which is a
-// match on a different file entirely. Anchoring to token boundaries removes that
-// class. It only ever NARROWS what matches, so it moves fail-closed: the cost of
-// being wrong is a missed reclaim, never a mis-kill.
+// Axis 1 has to answer "is this script the one EXECUTING", not the much weaker
+// "does this command line mention this script". Substring containment answers
+// the weak question, and the gap between them is a kill: `node other.js
+// /repo/.../dashboard-server.js` names our path as DATA, and a recycled pid
+// whose start time also lands inside the tolerance would be terminated.
 //
-// WHAT THIS DOES NOT DO — stated because the honest boundary matters more than
-// the appearance of one: a command line that names our path as a genuine
-// separate ARGUMENT (`node other.js /repo/.../dashboard-server.js`) still
-// matches, because axis 1 asks "does this command line name this script", not
-// "is this script the one executing". Distinguishing those would mean rejecting
-// a path preceded by a flag-shaped token, and that rejects `node
-// --enable-source-maps <path>` too — a silent false negative that disables
-// reclaim wholesale, which this design has already judged the worse failure
-// (see the probe-timeout deviation). So the §D15 residual is NARROWED here, not
-// closed, and the remaining window is: a process started within the start-time
-// tolerance that carries our absolute script path as a bare argument.
+// The rule that closes it: our path must be the FIRST script-shaped token on the
+// command line. Both real launch shapes put it there —
+//   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dashboard-server.js" $ARGUMENTS
+//   nohup node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-codex-runner.js" …
+// — while `node other.js <ourpath>` puts `other.js` there instead, and is now
+// refused. Flag-shaped tokens are skipped, so interpreter flags
+// (`node --enable-source-maps <ourpath>`) do not knock the real script out of
+// first place; that false-negative class was the reason a
+// "reject anything preceded by a flag" rule was rejected.
 //
-// `=` is deliberately NOT a boundary — `--input=<path>` names the path as data.
-const TOKEN_BOUNDARY = ['', ' ', '\t', '"', "'"];
+// The compare is EQUALITY, not containment, so `<path>.bak`, `<path>.lock` and
+// `/evil<path>` are all refused as the different files they are.
+//
+// Residual, stated rather than papered over: a RELATIVE launch
+// (`node scripts/lib/x.js` from the repo root) reads as identity_mismatch,
+// because the record holds `__filename` and there is no safe way to re-anchor a
+// relative token — accepting a suffix match would reinstate exactly the
+// basename collision the whole-path rule exists to prevent. That direction is
+// fail-closed (a missed reclaim, recorded in `skipped[]`), and neither mccp
+// launch shape is relative.
+const SCRIPT_EXT_RE = /\.(?:js|mjs|cjs)$/;
 
-function containsPathToken(haystack, needle) {
-  if (!needle || !haystack) return false;
-  for (let from = 0; ;) {
-    const i = haystack.indexOf(needle, from);
-    if (i === -1) return false;
-    const before = i === 0 ? '' : haystack[i - 1];
-    const end = i + needle.length;
-    const after = end >= haystack.length ? '' : haystack[end];
-    if (TOKEN_BOUNDARY.indexOf(before) !== -1 && TOKEN_BOUNDARY.indexOf(after) !== -1) return true;
-    from = i + 1;
+// Quote-aware: a win32 command line is `"C:\…\node.exe" "C:\…\script.js"`, so
+// splitting on whitespace alone would shred any path containing a space.
+function tokenizeCommandLine(s) {
+  const out = [];
+  let cur = '';
+  let quote = null;
+  for (const ch of String(s == null ? '' : s)) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; continue; }
+    if (ch === ' ' || ch === '\t') {
+      if (cur) { out.push(cur); cur = ''; }
+      continue;
+    }
+    cur += ch;
   }
+  if (cur) out.push(cur);
+  return out;
+}
+
+// Every process that reaches identity verification is a node script by
+// construction — both registering kinds pass `execPath: __filename` from inside
+// a node module, and the one non-node kind (`handoff-session`, powershell) is
+// excluded before identity is ever consulted. Requiring the interpreter is what
+// separates `node <ourpath>` from `tail -f <ourpath>`, which are otherwise
+// structurally identical: in both, our path is the first script-shaped token.
+const NODE_EXEC_RE = /(?:^|\/)node(?:\.exe)?$/;
+
+function isExecutedScript(commandLine, wantPath) {
+  if (!wantPath || !commandLine) return false;
+  const tokens = tokenizeCommandLine(commandLine);
+  const scriptIdx = tokens.findIndex((t) => t[0] !== '-' && SCRIPT_EXT_RE.test(t));
+  if (scriptIdx === -1 || tokens[scriptIdx] !== wantPath) return false;
+  return tokens.slice(0, scriptIdx).some((t) => NODE_EXEC_RE.test(t));
 }
 
 /**
@@ -699,9 +736,10 @@ function isReclaimableBy(record, ctx) {
   const got = normPath(p.commandLine, platform);
   // Whole path, never basename: a bare filename is too short to name a process
   // (any directory can hold a `dashboard-server.js`), while the absolute path
-  // carries repo_root inside it and cannot collide by accident. And the match
-  // must land on TOKEN boundaries — see containsPathToken.
-  if (!containsPathToken(got, want)) {
+  // carries repo_root inside it and cannot collide by accident. And it must be
+  // the script being EXECUTED, not merely a path the command line mentions —
+  // see isExecutedScript.
+  if (!isExecutedScript(got, want)) {
     return { ok: false, reason: 'identity_mismatch' };
   }
   return { ok: true, reason: 'owned_session_scoped' };
@@ -918,13 +956,36 @@ function sessionLooksDead(records, dirPath, nowMs, isAlive) {
  * referenced, so the mis-kill risk is zero by definition. That is what makes
  * PRD `:78` (unbounded registry growth) satisfiable without touching UI1.
  *
- * @returns {{liveCount:number, purgedCount:number}} counts scoped to DEAD sessions.
+ * @returns {{liveCount:number, purgedCount:number, unreadable:number, purgeFailures:number}}
+ *   counts scoped to DEAD sessions. `unreadable` and `purgeFailures` exist so a
+ *   sweep that could not do its job is distinguishable from one that had nothing
+ *   to do — without them both report as a clean zero.
  */
+// A reuse record whose OWNING session is provably dead ALREADY reads as
+// "not in use" to isSiblingLive — same host, an integer session_pid, and that
+// pid dead is exactly the branch that returns false there. So deleting it cannot
+// change a single reclaim decision: this is garbage collection, not a policy
+// change, and that equivalence is the whole reason it is safe.
+//
+// The records isSiblingLive still honours FAIL-CLOSED — `session_pid === null`
+// (degraded identity) or another host (liveness unknowable) — are deliberately
+// left alone, even though they are precisely the ones that accumulate in
+// degraded environments. Purging those would silently convert "we cannot tell if
+// anyone is still using this" into "nobody is", which authorizes a kill. Bounded
+// growth is worth less than that.
+function isInertReuseRecord(rec, host, isAlive) {
+  return rec.role === 'reuse'
+    && rec.host === host
+    && Number.isInteger(rec.session_pid)
+    && !isAlive(rec.session_pid);
+}
+
 function scanForeignOrphans(repoRoot, selfSid, deps) {
   deps = deps || {};
   const isAlive = deps.isAlive || evidenceLock.isPidAlive;
+  const host = deps.host || os.hostname();
   const nowMs = (deps.now || Date.now)();
-  const out = { liveCount: 0, purgedCount: 0 };
+  const out = { liveCount: 0, purgedCount: 0, unreadable: 0, purgeFailures: 0 };
 
   // This function UNLINKS. An escaped registry root would make it delete files
   // outside the repo, so containment is a precondition, not a nicety.
@@ -954,15 +1015,37 @@ function scanForeignOrphans(repoRoot, selfSid, deps) {
       && !n.endsWith('.failed.json') && !n.endsWith('.unreclaimed.json'));
     const parsed = [];
     for (const n of recordNames) {
-      try { parsed.push({ name: n, rec: readJson(path.join(dir, n)) }); } catch (_) { /* leave it */ }
+      try { parsed.push({ name: n, rec: readJson(path.join(dir, n)) }); }
+      catch (err) {
+        // Counted and named, not dropped. An unreadable record is a record whose
+        // pid we can no longer account for — the exact state UI6 says must stay
+        // loud rather than look like a clean sweep.
+        out.unreadable++;
+        warn('scanForeignOrphans cannot read ' + sid + '/' + n + ': ' + (err && err.message));
+      }
     }
     if (!sessionLooksDead(parsed.map((p) => p.rec), dir, nowMs, isAlive)) continue;
 
     for (const p of parsed) {
       const rec = p.rec;
       if (!validateRecord(rec).ok) continue;
-      if (isAlive(rec.pid)) { out.liveCount++; continue; }   // count only — never touch (UI1)
-      try { fs.unlinkSync(path.join(dir, p.name)); out.purgedCount++; } catch (_) { /* best-effort */ }
+      // A LIVE pid is never touched (UI1) — unless the record is an inert reuse
+      // marker, where the thing being deleted is bookkeeping about someone
+      // else's dead session, not a claim on the live process itself. That is the
+      // case PRD :78 needs: one dir per short session that borrowed a long-lived
+      // dashboard, otherwise kept for as long as the dashboard runs.
+      if (isAlive(rec.pid) && !isInertReuseRecord(rec, host, isAlive)) {
+        out.liveCount++;
+        continue;
+      }
+      try { fs.unlinkSync(path.join(dir, p.name)); out.purgedCount++; }
+      catch (err) {
+        // Best-effort in EFFECT, but not in silence: a purge that keeps failing
+        // is how PRD :78 (unbounded growth) comes back, and nothing else in the
+        // system would ever say so.
+        out.purgeFailures++;
+        warn('scanForeignOrphans cannot purge ' + sid + '/' + p.name + ': ' + (err && err.message));
+      }
     }
     // `.unreclaimed.json` / `.failed.json` are deliberately preserved: they are
     // the audit surface that keeps failures loud (UI6). Purging them would turn
@@ -994,7 +1077,8 @@ module.exports = {
   containedRegistryDir,
   sessionDir,
   isSafeSessionId,
-  containsPathToken,
+  tokenizeCommandLine,
+  isExecutedScript,
   parseBudgetMs,
   validateRecord,
   register,

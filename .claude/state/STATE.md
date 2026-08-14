@@ -2,15 +2,17 @@
 state_version: 1
 task_fingerprint: session-process-reclaim
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-14T02:16:03.019Z
+updated_at: 2026-08-14T03:35:43.445Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-14T01:07:47.693Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
-chain_aborted: false
+chain_aborted: true
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
+abort_owner: cost
+cost_abort_at: 2026-08-14T03:35:43.438Z
 escalate_pending: true
 escalate_pending_decision_id: session-process-reclaim
 ---
@@ -51,4 +53,4 @@ session-process-reclaim M1+M2 — 구현 완료(v1.24.0). Task 1~11 + Validation
 - 선재 red 유지: b2-coverage-gate 2건(plan-codex-runner 직접 rename vs #116 lint) · ecc-context-monitor Axis B (f) · perf-budget flake
 
 ## Last Updated
-2026-08-14T02:16:03.019Z
+2026-08-14T03:35:43.445Z

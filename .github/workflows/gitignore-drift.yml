@@ -5,9 +5,11 @@ name: gitignore canonical drift gate
 #
 # The paths filter is exactly the lint's decision inputs. Drift can only arise
 # when the canonical list or .gitignore changes, so those two — plus setup.md,
-# which the contract lint reads, plus the test file itself — are necessary and
-# sufficient as triggers. GitHub skips a workflow entirely when no path matches,
-# so a filter that misses an input turns the whole gate into dead code.
+# which the contract lint reads, plus .gitattributes, whose `eol=lf` pin the
+# suite asserts, plus the test file itself — are necessary and sufficient as
+# triggers. GitHub skips a workflow entirely when no path matches, so a filter
+# that misses an input turns the whole gate into dead code: a PR touching only
+# .gitattributes would have retired the LF guarantee without ever running it.
 # plugin.json is read by the tests but is deliberately NOT a trigger: both the
 # block builder and the assertion derive the version from that one file, so it
 # cannot disagree with itself.
@@ -33,6 +35,7 @@ on:
       - 'plugins/mccp/scripts/lib/tests/gitignore-provision.test.js'
       - 'plugins/mccp/commands/setup.md'
       - '.gitignore'
+      - '.gitattributes'
       - '.github/workflows/gitignore-drift.yml'
   workflow_dispatch:
 

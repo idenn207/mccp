@@ -166,3 +166,13 @@ implement receipt가 `codex_divergent`라 escalate된 건을 dual-review로 받�
 B 단독 지적인 **빈 `.gitignore`의 선행 빈 줄**도 실측으로 확인해 흡수했다(없는 파일 → `create`는 블록으로 시작, 빈 파일 → `append`는 `\n`으로 시작). 데이터 유실은 없고 멱등성도 깨지지 않아 B가 매긴 HIGH보다 실질 심각도는 낮지만, 같은 종료 상태를 서술하는 두 경로가 관리 블록 바깥 줄에서 갈리는 것은 실재하는 결함이라 고쳤다.
 
 양쪽이 공통으로 지적한 **테스트 공백**(`.bak`/lock symlink 미검증, 빈 파일 미검증)은 회귀 테스트 3건으로 닫았고, 셋 다 **가드를 제거하면 red가 됨을 변이 검증으로 실측**했다(가드 있음 `pass 1/fail 0` → 제거 후 `pass 0/fail 1`, 3건 모두). 79 → 82 tests, fail 0.
+
+### R2 (fresh reviewer 2쌍, 앵커링 제거)
+
+A = PASS, B = FAIL. **어느 한쪽이라도 FAIL이면 NAUGHTY**이므로 R1 지적의 재발 없음과 무관하게 라운드를 하나 더 돌았다. R2에서 갈린 축은 R1과 반대다 — 이번엔 A가 10축 전부 PASS를 줬고 그중 "symlink 가드가 모든 write 대상을 덮는다"와 "CI paths 필터 완비"는 **둘 다 사실이 아니었다**. B가 낸 3건을 실측으로 갈라 2건을 흡수했다.
+
+1. **append 경로 symlink TOCTOU (사실)** — `assertNotSymlink` 이후 `appendFileSync` 사이에 대상이 교체될 수 있고 `'a'`는 링크를 따른다. `O_NOFOLLOW`를 태운 `openSync`로 open 자체가 거부하게 바꿨다. 단 **이 플랫폼에서는 실증되지 않는다** — win32는 `O_NOFOLLOW`가 `undefined`라 테스트가 skip된다(84 tests 중 skip 3). 실증은 CI `ubuntu-latest`가 소유하며, 그 사실을 테스트의 skip 사유에 적어 두었다.
+2. **`.gitattributes`가 CI `paths`에 없음 (사실)** — 그 파일만 바꾸는 PR이 게이트를 통째로 건너뛰어, LF 보증을 지키는 단언이 실행되지 않은 채 그 보증을 은퇴시킬 수 있었다. 필터 + 트리거 lint 양쪽에 추가했다.
+3. **`yarn-debug.log*`가 stale (거짓)** — 21개 REPO_ONLY 전부가 실제 `.gitignore`에 존재한다(실측 missing = `[]`). B가 `.gitignore` 앞부분만 보고 낸 오판이라 흡수하지 않았다. 다만 그 지적이 드러낸 **역방향 단언 부재**는 실재하므로, 현재 위반 0인 상태를 단언으로 고정했다.
+
+R2 추가분 중 로컬에서 검증 가능한 2건도 변이로 red를 확인했다. **82 → 84 tests, fail 0.** 두 라운드에서 리뷰어가 각각 한 번씩 틀린 메커니즘 주장을 냈다(R1: A의 `'wx'`가 symlink를 따른다, R2: A의 "가드 완비"). 판정을 리뷰어 합의가 아니라 실측에 걸어 둔 것이 두 번 다 결론을 갈랐다.

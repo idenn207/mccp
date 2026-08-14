@@ -817,6 +817,29 @@ test('--force-update refuses a symlinked .bak instead of writing through it', (t
   });
 });
 
+test('append opens with O_NOFOLLOW, so a symlink swapped in after the check is refused', (t) => {
+  // The lstat before the append is a check-then-use: the file can become a
+  // symlink between the two. Only the open itself can refuse atomically, so
+  // assert that the flags the append path uses actually deliver that refusal on
+  // this platform rather than trusting the constant to be spelled right.
+  if (!(fs.constants.O_NOFOLLOW && (gp.APPEND_FLAGS & fs.constants.O_NOFOLLOW))) {
+    t.skip('O_NOFOLLOW unavailable on this platform (' + process.platform + '); the lstat check still applies');
+    return;
+  }
+  withTempDir((dir) => {
+    const victim = path.join(dir, 'victim.txt');
+    fs.writeFileSync(victim, 'do-not-touch\n', 'utf8');
+    const link = path.join(dir, '.gitignore');
+    fs.symlinkSync(victim, link);
+    assert.throws(
+      () => fs.closeSync(fs.openSync(link, gp.APPEND_FLAGS, 0o644)),
+      (err) => err.code === 'ELOOP' || err.code === 'EMLINK',
+      'the append flags followed a symlink'
+    );
+    assert.strictEqual(fs.readFileSync(victim, 'utf8'), 'do-not-touch\n');
+  });
+});
+
 test('acquireLock refuses a symlinked lock path instead of blaming a live writer', (t) => {
   // The exclusive create never writes through the link (O_EXCL fails on one),
   // but EEXIST is this loop's "somebody holds the lock" signal — so without the
@@ -1029,6 +1052,22 @@ test('drift lint: canonical and REPO_ONLY are disjoint', () => {
   assert.deepStrictEqual(both, [], 'entries classified twice: ' + both.join(', '));
 });
 
+test('drift lint: every REPO_ONLY entry is still carried by this repo', () => {
+  // The other direction. REPO_ONLY is documented as "entries this repo carries
+  // that are deliberately NOT shipped", so a row for a line the repo has since
+  // dropped is a claim about a file that no longer says it. Without this the
+  // lint is bidirectional for canonical entries only, and a stale exclusion
+  // stays green forever — it is exactly the class of row that later gets read
+  // as evidence that a decision was made.
+  const gitignorePath = path.join(REPO_ROOT, '.gitignore');
+  const repoEntries = new Set(gp.parseEntries(gp.stripManagedBlock(fs.readFileSync(gitignorePath, 'utf8'))));
+  const phantom = gp.REPO_ONLY.map((r) => r.entry).filter((e) => !repoEntries.has(e));
+  assert.deepStrictEqual(
+    phantom, [],
+    'REPO_ONLY rows for entries this repo no longer carries: ' + phantom.join(', ')
+  );
+});
+
 test('drift lint: every REPO_ONLY entry records why it stays behind', () => {
   for (const row of gp.REPO_ONLY) {
     assert.ok(typeof row.entry === 'string' && row.entry.length > 0);
@@ -1110,6 +1149,10 @@ test('gitignore-drift workflow: exists, is triggered by the lint inputs, and run
     'plugins/mccp/scripts/lib/tests/gitignore-provision.test.js',
     'plugins/mccp/commands/setup.md',
     '.gitignore',
+    // The suite asserts this file's `eol=lf` pin, so it is a decision input like
+    // any other. Without it a PR touching only .gitattributes retires the LF
+    // guarantee without ever running the assertion that guards it.
+    '.gitattributes',
   ]) {
     assert.ok(yml.includes("- '" + p + "'"), 'paths filter is missing ' + p);
   }

@@ -526,6 +526,13 @@ function readTargetContent(target) {
 // equally pre-placeable, and the guard is only worth its name if it is applied
 // uniformly. The tmp path is the one exception — pid + nonce means an attacker
 // cannot name it in advance — and it is written exclusively anyway.
+// The append open carries O_NOFOLLOW so the refusal is atomic with the write
+// rather than a check the write trusts. Windows does not define the flag, where
+// it degrades to the lstat alone — and there creating a symlink takes a
+// privilege or Developer Mode in the first place.
+const APPEND_FLAGS =
+  fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | (fs.constants.O_NOFOLLOW || 0);
+
 function assertNotSymlink(target) {
   let st;
   try {
@@ -581,12 +588,33 @@ function applyMerge(target, plan, options) {
   if (plan.action === 'append') {
     // Append-only: existing bytes are never read back and rewritten, so there is
     // nothing for a concurrent edit to lose (UI2 as a structural property, not a
-    // defended one). The payload always starts with a newline so BEGIN_MARKER
-    // begins its own line even if the file's last line was unterminated.
+    // defended one). Whenever the file has content the payload starts with a
+    // newline, so BEGIN_MARKER begins its own line even if the last line was
+    // unterminated; an empty file has no such line to terminate.
+    //
+    // Opened explicitly rather than handed to appendFileSync so O_NOFOLLOW can
+    // ride along. The lstat above is a check-then-use, and 'a' follows a symlink
+    // swapped in after it; making the open itself refuse is the difference
+    // between closing that window and narrowing it.
+    let fd;
     try {
-      fs.appendFileSync(target, plan.appendPayload, { mode: 0o644 });
+      fd = fs.openSync(target, APPEND_FLAGS, 0o644);
+    } catch (err) {
+      if (err && (err.code === 'ELOOP' || err.code === 'EMLINK')) {
+        throw new ProvisionError(
+          REASONS.SYMLINK_TARGET,
+          target + ' became a symbolic link after it was checked. Refusing to append through it.',
+          target
+        );
+      }
+      throw new ProvisionError(REASONS.INTERNAL_ERROR, 'cannot append to ' + target + ': ' + err.message, target);
+    }
+    try {
+      fs.writeSync(fd, plan.appendPayload);
     } catch (err) {
       throw new ProvisionError(REASONS.INTERNAL_ERROR, 'cannot append to ' + target + ': ' + err.message, target);
+    } finally {
+      try { fs.closeSync(fd); } catch (_e) {}
     }
     // Second safety net, against writers that do not honour our lock.
     const after = readTargetContent(target);
@@ -834,6 +862,7 @@ module.exports = {
   MCCP_IGNORE_ENTRIES,
   REPO_ONLY,
   LOCK_LEASE_MS,
+  APPEND_FLAGS,
   parseEntries,
   locateManagedBlock,
   stripManagedBlock,

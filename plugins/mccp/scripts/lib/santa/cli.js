@@ -35,6 +35,7 @@ const path = require('path');
 const ledger = require('./ledger');
 const counter = require('./counter');
 const gate = require('./gate');
+const seal = require('./seal');
 const { gitRepoRoot } = require('../../receipt/hash');
 const { assertContained } = require('../path-containment');
 
@@ -271,6 +272,15 @@ function cmdStatus(args) {
   return EX_OK;
 }
 
+// santa-loop-materialize M2 — 봉인. 신규 exit code는 만들지 않는다: seal이 던지는
+// `SANTA_*` 코드는 아래 catch-all이 EX_USAGE(2)로, evidence lock 경합은
+// EX_TEMPFAIL(75)로 이미 매핑한다. `12`는 cap 전용이라 재사용하지 않는다.
+function cmdSeal(args) {
+  const opts = baseOpts(args);
+  out(seal.seal(opts));
+  return EX_OK;
+}
+
 function usage() {
   process.stderr.write([
     'usage: santa/cli.js <subcommand> [--decision <slug>] [--cwd <path>]',
@@ -279,6 +289,7 @@ function usage() {
     '  record   --round <N> --id A|B --model <str> --reviewer-file <path>',
     '  verdict  --round <N>',
     '  status',
+    '  seal',
     '',
     'exit: 0 ok · 12 cap reached (begin-round) · 75 lock busy, retry · 2 everything else',
     '',
@@ -295,6 +306,7 @@ function runCli(argv) {
       case 'record': return cmdRecord(args);
       case 'verdict': return cmdVerdict(args);
       case 'status': return cmdStatus(args);
+      case 'seal': return cmdSeal(args);
       default:
         usage();
         return EX_USAGE;

@@ -74,7 +74,28 @@ BEGIN_EXIT=$?
 ROUND=$(echo "$ROUND_JSON" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).roundIndex))}catch{process.stdout.write("")}')
 ```
 
-If `BEGIN_EXIT` is non-zero, **do not launch any reviewer**. Print the ESCALATION block from Step 5 and end. Exit 12 means the cap was reached; exit 75 means the ledger lock was busy (retry shortly); exit 2 means a usage or integrity error (surface stderr).
+If `BEGIN_EXIT` is non-zero, **do not launch any reviewer**. Exit 12 means the cap was reached; exit 75 means the ledger lock was busy (retry shortly); exit 2 means a usage or integrity error (surface stderr).
+
+That branch is **code, not prose** — the termination and the seal call both have to be mechanically present. Cap-reached is one of the two loop endings UI14 requires to be instrumented, and it never reaches Step 5.5 or Step 6, so its seal call lives here:
+
+```bash
+if [ "$BEGIN_EXIT" -ne 0 ]; then
+  if [ "$BEGIN_EXIT" -eq 12 ]; then
+    # Cap reached — a legitimate end of the review loop, so it gets sealed (UI14).
+    # 75 (lock contention) and 2 (usage/integrity) are FAILURES, not endings: they
+    # are not sealed, because there is no settled review outcome to anchor.
+    SEAL_JSON=$(node "$SANTA" seal --decision "$DECISION")
+    SEAL_EXIT=$?
+    if [ "$SEAL_EXIT" -ne 0 ]; then
+      echo "[santa] cap reached, but seal failed (exit $SEAL_EXIT) — escalation stands, audit anchor missing." 1>&2
+    fi
+  fi
+  # Print the Step 5 ESCALATION block (content and format unchanged).
+  exit "$BEGIN_EXIT"
+fi
+```
+
+Two things about that block are load-bearing. `exit "$BEGIN_EXIT"` must be its last statement — without it, execution falls through to the reviewer launch and the push, which voids the entire reason the cap gate exists. And unlike Step 5.5, a seal failure here does **not** change the exit code: there is no push to prevent, and overwriting `$BEGIN_EXIT` would bury the operator's primary diagnosis (cap exhausted) under a secondary one (seal failed).
 
 `begin-round` is idempotent: calling it again while a round is still open returns the same `roundIndex` without consuming cap.
 
@@ -189,9 +210,26 @@ Remaining issues:
 Manual review required before proceeding.
 ```
 
+### Step 5.5: Seal (NICE path, **before** push)
+
+Seal the loop into a `mccp-santa-review` receipt before anything irreversible happens. Everything the seal needs — rounds, aggregate counts, verdict — is settled at Step 4, so moving it ahead of the push costs no information and makes slug rejection and lock contention surface while they are still recoverable.
+
+```bash
+SEAL_JSON=$(node "$SANTA" seal --decision "$DECISION")
+SEAL_EXIT=$?
+if [ "$SEAL_EXIT" -ne 0 ]; then
+  echo "[santa] seal failed (exit $SEAL_EXIT) — NOT pushing. 2=slug/usage, 75=ledger lock busy (retry)." 1>&2
+  exit "$SEAL_EXIT"
+fi
+```
+
+`--decision "$DECISION"` is **required**: without it `seal` re-derives the slug itself and can disagree with the scope Step 0 fixed. The conditional is part of the contract, not decoration — capturing `SEAL_EXIT` without branching on it would let a failed seal be followed by a push, which is exactly the "prose says HALT, code proceeds" defect this repo keeps finding. An unsealed push is a ship with no instrumentation, and UI14 forbids it.
+
+`$SEAL_JSON` carries `reportPath` / `proofPath` / `receiptPath` / `verdict`; Step 7 reports them.
+
 ### Step 6: Push (NICE path)
 
-When both reviewers return PASS:
+When both reviewers return PASS **and** Step 5.5 sealed successfully:
 
 ```bash
 git push -u origin HEAD

@@ -854,27 +854,44 @@ test('UI11 — envelope 0건 verdict가 CLI 경유로 도달 가능하다 (동�
 
 // ── UI4 — receipt 미발행 ─────────────────────────────────────────────────────
 
-test('UI4/UI11 — M2 산출물이 코드에 선반영되지 않았다 (receipt write 경로 부재)', () => {
+// M2(santa-loop-materialize)가 착륙하면서 이 단언의 경계가 이동했다. 원래 문언은
+// "receipt write 경로가 **아예 없다**"였고 그것이 M1의 스코프 표시였다. 이제 그
+// 경로는 존재하지만, 존재해도 되는 곳은 **`seal.js` 하나**다 — M1이 동결한 네
+// 모듈은 여전히 receipt를 모른다. 단언을 지우는 대신 그렇게 좁혔다: 지우면
+// "receipt 배선이 어디에나 퍼져도 아무도 모른다"가 되고, 그건 M1이 이 test로
+// 막으려던 것과 같은 결함이다.
+test('UI4/UI11 — receipt 배선은 seal.js에만 있다 (M1 4개 모듈은 여전히 receipt-free)', () => {
   const santaDir = path.join(__dirname, '..', 'santa');
   const files = fs.readdirSync(santaDir).filter(function (f) { return f.endsWith('.js'); });
-  assert.deepEqual(files.sort(), ['cli.js', 'counter.js', 'gate.js', 'ledger.js']);
+  assert.deepEqual(files.sort(), ['cli.js', 'counter.js', 'gate.js', 'ledger.js', 'seal.js']);
 
-  for (const f of files) {
+  const M1_FROZEN = ['cli.js', 'counter.js', 'gate.js', 'ledger.js'];
+  for (const f of M1_FROZEN) {
     const src = fs.readFileSync(path.join(santaDir, f), 'utf8');
     // 주석의 서술("M2 소유")은 허용하고, 실제 배선만 금지한다.
     assert.equal(/require\([^)]*receipt\/(write|store|cli)/.test(src), false,
-      f + ' wires a receipt write path — that is M2 (UI4: santa는 receipt를 발행하지 않는다)');
+      f + ' wires a receipt write path — that belongs to seal.js alone');
     assert.equal(/mccp-santa-review/.test(src), false,
-      f + ' references the M2 GATE_ID');
+      f + ' references the santa GATE_ID — only seal.js may name it');
   }
+
+  // 그리고 seal.js는 실제로 그 경로를 갖는다 — 위 단언이 "아무 데도 없다"로
+  // 퇴화하지 않았음을 보이는 대조군이다.
+  const sealSrc = fs.readFileSync(path.join(santaDir, 'seal.js'), 'utf8');
+  assert.match(sealSrc, /require\([^)]*receipt\/write/);
+  assert.match(sealSrc, /mccp-santa-review/);
 });
 
-test('Acceptance — 외부 의존이 문서화된 4개뿐이고 npm 의존 0', () => {
+test('Acceptance — 외부 의존이 문서화된 5개뿐이고 npm 의존 0', () => {
   const santaDir = path.join(__dirname, '..', 'santa');
+  // M2가 정확히 둘을 더했다: 내부 `./seal`, 외부 `../../receipt/write`.
+  // 목록을 열거식으로 두는 것이 이 단언의 전부다 — 새 의존이 조용히 들어오면
+  // red가 되고, 들어와야 한다면 여기 한 줄이 그 승인 기록이 된다.
   const allowed = new Set([
-    './counter', './ledger', './gate',                    // 내부
+    './counter', './ledger', './gate', './seal',          // 내부
     '../../receipt/evidence-lock', '../../receipt/hash',
-    '../../receipt/decision', '../path-containment',      // 외부 4
+    '../../receipt/decision', '../path-containment',
+    '../../receipt/write',                                // 외부 5 (M2)
     'fs', 'os', 'path', 'child_process',                  // node builtin
   ]);
   for (const f of fs.readdirSync(santaDir)) {

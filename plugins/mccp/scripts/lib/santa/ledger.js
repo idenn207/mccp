@@ -463,24 +463,46 @@ function appendEntry(entry, opts) {
 
 // readReviewers(round) → envelope 배열. `raw`는 전달하지 않는다 — gate는
 // envelope만 본다(DD9). 미개설 라운드는 여기서도 거부다(DD11).
-function readReviewers(round, opts) {
-  const state = read(opts);
-  assertRoundOpened(state, round, resolveStatePath(opts));
+// santa-loop-materialize M2 (Implement-Codex R1 F1) — 이미 읽은 state에서
+// 파생하는 **순수** 함수. `readReviewers`/`aggregate`는 각자 자기 `read()`를
+// 호출하므로, 봉인처럼 여러 값을 함께 봐야 하는 소비자가 그것들을 나란히 부르면
+// 원장을 N+2회 읽게 되고 읽기에는 lock이 없다. 그 사이 다른 CLI 호출이 mutate하면
+// 라운드 메타·리뷰어·집계가 **동시에 존재한 적 없는** 조합이 되어, 감사 앵커가
+// 실재하지 않은 상태를 영구 봉인한다.
+//
+// 그래서 소비자는 `read()`를 한 번만 부르고 아래 두 함수로 전부 파생한다.
+// raw 소거가 여전히 ledger 모듈 안에서 일어나므로 UI4의 이중 방어도 보존된다.
+// 기존 두 함수는 이것들에 위임만 하므로 시그니처·동작 무변경이다(M1 동결 준수).
+function reviewersFrom(state, round, statePathHint) {
+  assertRoundOpened(state, round, statePathHint);
   return state.rounds[round].reviewers.map(function (r) { return r.envelope; });
+}
+
+function readReviewers(round, opts) {
+  return reviewersFrom(read(opts), round, resolveStatePath(opts));
 }
 
 // aggregate() → { rounds, entries, exitReason } — **집계값만**(UI9).
 // 원장 본문은 gitignored로 두고 M2가 이 세 값을 receipt에 봉인한다.
+// 순수 파생 — cap은 **정수로 받는다**. env 폴백은 호출자 쪽(`aggregate`)에 남겨
+// 두어야, 봉인 경로가 `state.cap`(라운드를 실제로 게이트한 값)을 명시 전달했을 때
+// 그 값이 조용히 env로 대체되지 않는다.
+function aggregateFrom(state, cap) {
+  const counter = require('./counter');
+  const n = Number.isInteger(cap) ? cap : counter.parseCap(process.env);
+  return {
+    rounds: state.rounds.length,
+    entries: state.entries.length,
+    exitReason: state.rounds.length >= n ? counter.REASONS.CAP_REACHED : null,
+  };
+}
+
 function aggregate(opts) {
   opts = opts || {};
   const counter = require('./counter');
   const state = read(opts);
   const cap = Number.isInteger(opts.cap) ? opts.cap : counter.parseCap(opts.env || process.env);
-  return {
-    rounds: state.rounds.length,
-    entries: state.entries.length,
-    exitReason: state.rounds.length >= cap ? counter.REASONS.CAP_REACHED : null,
-  };
+  return aggregateFrom(state, cap);
 }
 
 module.exports = {
@@ -495,6 +517,9 @@ module.exports = {
   readReviewers: readReviewers,
   appendEntry: appendEntry,
   aggregate: aggregate,
+  // M2 — 단일 스냅샷 파생용 순수 함수 2종 (additive; 위 두 함수가 이것에 위임한다)
+  reviewersFrom: reviewersFrom,
+  aggregateFrom: aggregateFrom,
   SantaLedgerError: SantaLedgerError,
   SCHEMA_VERSION: SCHEMA_VERSION,
   STATE_MODE: STATE_MODE,

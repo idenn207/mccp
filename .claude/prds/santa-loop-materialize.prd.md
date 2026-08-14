@@ -58,7 +58,7 @@ We'll know we're right when **santa-loop 실행이 라운드 카운터를 상태
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | 모듈 골격 + 캡 강제 | santa-loop이 라운드를 코드로 세고 캡에서 정지한다. 산문 캡 의존 종료. **Success Metrics 1행의 절반은 미달** — 라운드 수가 상태 파일에 기록되는 것까지는 냈으나 **receipt 봉인은 M2 소유**(`mccp-santa-review` GATE_ID 신설)라 M1에 없다. 캡의 강제 등급도 정직하게 좁힌다: `record`·`verdict`가 **`begin-round`가 연 적 없는 인덱스**를 거부하므로 그 인덱스로는 원장에 못 들어가지만, 두 가지는 막지 못한다 — (a) **리뷰어 토큰 소모**(리뷰어 기동은 LLM 행위), (b) **마지막 FINAL 인덱스 재사용**(`record --round <cap-1>`은 통과 — `record`를 OPEN 라운드로 한정하는 규칙은 판정 lifecycle이라 P1 소유). 또한 이 강제는 **`plugins/mccp/` 사본 한정**이다 — 별도 tracked 사본 `.claude/commands/santa-loop.md`는 여전히 산문 캡이다(D11). **Ship 근거**: commit `5384473` — santa test 54(51 pass·3 POSIX skip·0 fail) · receipt 회귀 554(553 pass·0 fail) · 산문 캡 잔존 0 · 원장 gitignore 확인 | complete | [santa-loop-materialize-m1.plan.md](../plans/santa-loop-materialize-m1.plan.md) |
-| 2 | receipt 편입 + 소유권 표 산출 | 라운드·원장 집계가 `mccp-santa-review`에 봉인되고, P1·P2·P3가 소유할 파일 경계가 문서로 확정됨 | pending | — |
+| 2 | receipt 편입 + 소유권 표 산출 | 라운드·원장 집계가 `mccp-santa-review`에 봉인되고, P1·P2·P3가 소유할 파일 경계가 문서로 확정됨 | in-progress | [santa-loop-materialize-m2.plan.md](../plans/santa-loop-materialize-m2.plan.md) |
 
 ## Open Questions
 
@@ -66,6 +66,7 @@ We'll know we're right when **santa-loop 실행이 라운드 카운터를 상태
 - [ ] **`santa-loop.md` 축약 폭** — 199행 중 어디까지 모듈로 내릴지. 결정 로직은 전부, rubric·출력 포맷은 잔류가 기본선.
 - [ ] **receipt의 `decision_id`** — santa-loop은 plan 없이도 호출된다. decision slug를 무엇으로 삼을지(현 스코프 해시 / 브랜치명 / escalate_pending_decision_id 승계).
 - [ ] **기존 escalate_pending 경로와의 접속** — Step 0이 이미 STATE.md의 `escalate_pending`을 읽는다. 모듈화 시 이 경로를 그대로 둘지 모듈로 흡수할지.
+- [ ] **(M2) `review_proof.layers.l1`에 santa 캡 게이트를 매핑하는 것이 타당한가** — 그 필드의 원래 의미는 plan-review의 기계 lint이고 santa에는 그것이 없다. M2는 M1의 캡·인덱스 가드(리뷰어 발화 **전에** 기계가 라운드를 승인)를 같은 역할로 보고 `'converged'`를 채운다. 과잉 해석으로 판명되면 `seal.js#buildProof` 한 함수만 바뀐다.
 
 ## Risks
 

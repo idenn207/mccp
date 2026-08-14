@@ -1,0 +1,357 @@
+'use strict';
+
+// santa-loop-materialize M2 — 봉인(seal).
+//
+// 원장 집계 → 결정적 리포트 렌더 → review proof 구성 → receipt write.
+// M2의 유일한 신규 모듈이고, 원장을 **변경하지 않는다**(DD5).
+//
+// ── 두 가지 구조적 선택 (둘 다 리뷰에서 유래) ──────────────────────────────
+//
+// 1) 원장은 **한 번만** 읽는다 (Implement-Codex R1 F1, HIGH).
+//    `ledger.readReviewers`/`aggregate`는 각자 내부에서 `read()`를 부르므로,
+//    라운드별로 나란히 부르면 N+2회 읽게 되고 읽기에는 lock이 없다. 그 사이 다른
+//    CLI 호출이 mutate하면 라운드 메타·리뷰어 quorum·집계가 **동시에 존재한 적
+//    없는** 조합이 되어, 감사 앵커가 실재하지 않은 상태를 영구 봉인한다.
+//    그래서 `ledger.read()` 스냅샷 하나에서 `ledger.reviewersFrom` /
+//    `ledger.aggregateFrom`(둘 다 순수)로 전부 파생한다. raw 소거는 여전히
+//    ledger 모듈 안에서 일어나므로 UI4 이중 방어도 보존된다.
+//
+// 2) **파일 쓰기 2곳 모두** containment를 갖는다 (security-reviewer S1, MEDIUM).
+//    plan은 리포트 경로만 `assertContained`로 봉인했다. proof도 같은 방식으로
+//    `.claude/state/santa-loop` 안에 갇힌다 — SLUG_RE가 `.`·`/`를 배제하지만
+//    디렉토리 검증은 2차 방어이고, 한쪽만 거는 것은 근거 없는 비대칭이다.
+//
+// cap의 출처는 **원장 state이지 env가 아니다**. `ledger.aggregateFrom`에
+// `state.cap`을 명시 전달한다 — `aggregate(opts)`의 env 폴백을 타면 라운드를
+// 실제로 게이트한 값과 다른 cap으로 exitReason이 계산돼, receipt가 원장을 오기한다.
+
+const fs = require('fs');
+const path = require('path');
+
+const ledger = require('./ledger');
+const { assertContained } = require('../path-containment');
+const { SLUG_RE } = require('../../receipt/decision');
+const { gitRepoRoot, planAwareMarkdownHash } = require('../../receipt/hash');
+const { write } = require('../../receipt/write');
+
+const GATE_ID = 'mccp-santa-review';
+const REVIEW_SOURCE = 'multi-agent';
+
+// 라운드 표를 몇 행까지 펼칠지. 4행 이상이면 상위 3행 + <details> collapse
+// (design critique H4). cap이 최대 10이라 표가 10행이 될 수 있다.
+const ROUND_TABLE_EXPANDED = 3;
+
+class SantaSealError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'SantaSealError';
+    // `SANTA_` 접두는 우연이 아니다 — cli.js의 catch-all이 그 접두를 보고
+    // EX_USAGE(2)로 매핑한다. 신규 exit code는 만들지 않는다.
+    this.code = code;
+  }
+}
+
+// ── 순수 1: 투영 (raw 소거 경계) ─────────────────────────────────────────────
+//
+// `state.rounds[].reviewers[]`의 원소는 `{envelope, raw}`이고 `raw`에는
+// `checks`·`suggestions` 전문이 들어 있다. `.claude/reviews/`는 git-tracked이므로
+// 그것이 한 번이라도 새면 리뷰어 전문이 영구 커밋된다. 그래서 렌더러에 state를
+// 통째로 넘기지 않고 여기서 먼저 투영한다 — renderReport는 `raw`를 실을 인자가 없다.
+function project(state) {
+  const rounds = (state && Array.isArray(state.rounds)) ? state.rounds : [];
+  return {
+    rounds: rounds.map(function (r, i) {
+      return {
+        index: Number.isInteger(r.index) ? r.index : i,
+        started_at: r.started_at || null,
+        verdict: r.verdict === undefined ? null : r.verdict,
+        reviewers: ledger.reviewersFrom(state, i).map(function (e) {
+          return {
+            id: e.id,
+            model: e.model,
+            verdict: e.verdict,
+            criticalIssueCount: Array.isArray(e.criticalIssues) ? e.criticalIssues.length : 0,
+          };
+        }),
+      };
+    }),
+  };
+}
+
+function distinctIds(round) {
+  const seen = [];
+  ((round && round.reviewers) || []).forEach(function (r) {
+    if (seen.indexOf(r.id) === -1) seen.push(r.id);
+  });
+  return seen;
+}
+
+// ── 판정 ─────────────────────────────────────────────────────────────────────
+//
+// converged는 좁다: FINAL 라운드가 NICE이고, distinct id가 2 이상이고, 그 라운드의
+// 리뷰어가 전원 PASS일 때만이다. 캡 도달은 NICE에 도달하지 못했다는 뜻이므로
+// divergent다. distinct id < 2에서 converged를 막는 것은 P1의 lifecycle 검사를
+// 앞당기는 것이 아니라 — 중복 record를 거부하지도 판정을 바꾸지도 않는다 —
+// **원장이 보여주지 않는 다양성을 receipt가 주장하지 않게** 하는 것뿐이다.
+function deriveVerdict(projection, agg) {
+  const rounds = projection.rounds;
+  if (rounds.length === 0) return 'divergent';
+  if (agg && agg.exitReason === 'cap_reached') return 'divergent';
+  const fin = rounds[rounds.length - 1];
+  if (fin.verdict !== 'NICE') return 'divergent';
+  if (distinctIds(fin).length < 2) return 'divergent';
+  if (!fin.reviewers.every(function (r) { return r.verdict === 'PASS'; })) return 'divergent';
+  return 'converged';
+}
+
+// ── 순수 2: 리포트 렌더 ──────────────────────────────────────────────────────
+//
+// heading depth <= 3 (design critique H1) — `####` 이상을 만들지 않는다.
+// /mccp:prp-implement Phase 3.7의 produced-diff grounding lint가 같은 앵커를
+// 정적으로 걸므로, 여기서 지키지 않으면 implement 단계에서 hard-block된다.
+//
+// **집계 수준만 담는다**(UI4). 리뷰어 raw 본문과 critical issue 텍스트는 담지
+// 않는다 — 담을 인자가 없다. 운영자용 issue 텍스트는 Step 5 ESCALATION 블록이
+// 터미널에 출력한다.
+function renderReport(projection, scalars) {
+  const s = scalars || {};
+  const agg = s.aggregate || {};
+  const L = [];
+
+  L.push('# santa-loop review — ' + s.decisionId);
+  L.push('');
+  L.push('- verdict: `' + s.verdict + '`');
+  L.push('- rounds: ' + (agg.rounds === undefined ? 0 : agg.rounds) +
+    ' / cap ' + (s.cap === null || s.cap === undefined ? '(unset)' : s.cap));
+  L.push('- entries: ' + (agg.entries === undefined ? 0 : agg.entries));
+  L.push('- exit reason: ' + (agg.exitReason ? '`' + agg.exitReason + '`' : '(none)'));
+  L.push('');
+  L.push('> 집계 전용 리포트다. 리뷰어 제출 본문(`checks`/`suggestions`)과 critical');
+  L.push('> issue 텍스트는 원장에만 있고 여기에는 실리지 않는다 (UI4).');
+  L.push('');
+
+  L.push('## Rounds');
+  L.push('');
+  const rows = projection.rounds.map(function (r) {
+    const who = r.reviewers.length === 0
+      ? '(none)'
+      : r.reviewers.map(function (x) {
+        return x.id + '/' + x.model + ' ' + x.verdict + ' (' + x.criticalIssueCount + ' critical)';
+      }).join(' · ');
+    return '| ' + r.index + ' | ' + (r.started_at || '(unknown)') + ' | ' +
+      (r.verdict === null ? 'OPEN' : r.verdict) + ' | ' + who + ' |';
+  });
+
+  const header = ['| # | started | verdict | reviewers |', '|---|---|---|---|'];
+  if (rows.length === 0) {
+    L.push('라운드가 없다 — 원장에 기록된 라운드가 0건이다.');
+  } else if (rows.length <= ROUND_TABLE_EXPANDED) {
+    L.push.apply(L, header.concat(rows));
+  } else {
+    // 상위 3행만 펼치고 나머지는 접는다 (H4). cap 최대 10이라 표가 길어질 수 있다.
+    L.push.apply(L, header.concat(rows.slice(0, ROUND_TABLE_EXPANDED)));
+    L.push('');
+    L.push('<details><summary>+' + (rows.length - ROUND_TABLE_EXPANDED) + ' more</summary>');
+    L.push('');
+    L.push.apply(L, header.concat(rows.slice(ROUND_TABLE_EXPANDED)));
+    L.push('');
+    L.push('</details>');
+  }
+  L.push('');
+  return L.join('\n') + '\n';
+}
+
+// ── 순수 3: proof 구성 ───────────────────────────────────────────────────────
+//
+// DD3 층 매핑. quorum은 **상수가 아니라** FINAL 라운드의 distinct `envelope.id`에서
+// 파생한다 — M1이 판정 lifecycle 검사(`{A,B}` 완전성·id 중복 거부)를 P1으로
+// 이연했으므로 `record --id A`를 두 번 넣은 라운드가 실재할 수 있고, 거기서
+// `{2,2,2,2}`를 그대로 찍으면 receipt가 있지도 않은 모델 다양성을 주장하게 된다.
+//
+// `layers.l1`은 divergent 경로에서 두 값으로 갈린다. l1의 santa 의미는 "M1의
+// 기계 게이트가 이 라운드를 승인했다"이므로, 캡 도달(= begin-round가 거부)에서
+// 'converged'를 찍으면 승인하지 않은 게이트가 승인했다고 주장하는 것이 된다.
+// schema는 converged일 때만 층을 게이트하므로 이 구분은 강제되지 않는 정직성
+// 축이고, 그래서 test가 유일한 강제다.
+function buildProof(input) {
+  const o = input || {};
+  const projection = o.projection || { rounds: [] };
+  const verdict = o.verdict;
+  const capReached = o.exitReason === 'cap_reached';
+  const fin = projection.rounds.length
+    ? projection.rounds[projection.rounds.length - 1]
+    : null;
+
+  const ids = distinctIds(fin);
+  const responded = ids.length;
+  const allPass = !!fin && fin.reviewers.length > 0 &&
+    fin.reviewers.every(function (r) { return r.verdict === 'PASS'; });
+  const passed = verdict === 'converged' && responded >= 2 && allPass;
+
+  return {
+    layers: {
+      l1: capReached || projection.rounds.length === 0 ? 'divergent' : 'converged',
+      l2: verdict === 'converged' ? 'converged' : 'divergent',
+      l3: null,
+    },
+    verification_verdict: verdict,
+    quorum: {
+      passed: passed,
+      required: 2,
+      of: 2,
+      responded: responded,
+      roles: responded,
+    },
+    perspectives: ids.map(function (id) { return { perspective: id }; }),
+    dispatch_evidence: [o.reportRelPath],
+    reviewed_plan_hash: o.reportHash,
+  };
+}
+
+// ── I/O ──────────────────────────────────────────────────────────────────────
+
+function repoRootOrThrow(cwd) {
+  const root = gitRepoRoot(cwd || process.cwd());
+  if (!root) {
+    throw new SantaSealError('SANTA_NO_REPO_ROOT',
+      'could not resolve a git repo root from ' + cwd);
+  }
+  return root;
+}
+
+// tmp + rename. tmp 이름에 pid + nonce를 넣는 이유는 동시 writer가 tmp에서
+// 충돌하지 않게 하기 위해서다(고정 이름이면 서로를 덮어쓴다).
+function writeAtomic(target, text) {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const tmp = target + '.' + process.pid + '.' +
+    Math.floor(Math.random() * 1e9).toString(36) + '.tmp';
+  fs.writeFileSync(tmp, text, 'utf8');
+  fs.renameSync(tmp, target);
+}
+
+// generic slug 2종은 거부하되 **사유가 다르므로 메시지도 다르다**. 뭉뚱그리면
+// 운영자가 받는 진단이 틀린다.
+function rejectGenericSlug(decisionId) {
+  if (decisionId === 'default') {
+    throw new SantaSealError('SANTA_SEAL_GENERIC_SLUG',
+      'decision slug is "default" — that is the fallback ledger.js uses when neither an ' +
+      'explicit --decision nor a branch could be resolved, i.e. the review scope is UNKNOWN. ' +
+      'Sealing an audit anchor in that state would be dishonest. Pass --decision <slug>.');
+  }
+  if (decisionId === 'main') {
+    throw new SantaSealError('SANTA_SEAL_GENERIC_SLUG',
+      'decision slug is "main" — a legitimately derived branch slug, but it collides with the ' +
+      'generic receipt namespace that store.js#listGenericReceipts quarantines ({default, main} ' +
+      'x GATE_IDS). The quarantine marker is gitignored, so a fresh worktree runs the migration ' +
+      'once and this receipt would be renamed aside as .legacy.json. Pass --decision <slug> to ' +
+      'pin the scope. (CLAUDE.md §3.5 already forbids pushing from main, so this is off-policy ' +
+      'anyway — but the flag clears it immediately.)');
+  }
+}
+
+// seal(opts) → { reportPath, proofPath, receiptPath, verdict, aggregate }
+//
+// 순서가 계약이다: slug 검증이 **경로 조립보다 먼저**이고, 리포트 write가 hash보다
+// 먼저이며, receipt write가 마지막이다.
+function seal(opts) {
+  const o = opts || {};
+  const cwd = o.cwd || process.cwd();
+  const decisionId = o.decisionId;
+
+  // (1) slug — 경로 조립 이전.
+  if (typeof decisionId !== 'string' || !SLUG_RE.test(decisionId)) {
+    throw new SantaSealError('SANTA_SEAL_BAD_SLUG',
+      'decision slug must match ' + SLUG_RE + '; got ' + JSON.stringify(decisionId));
+  }
+  rejectGenericSlug(decisionId);
+
+  const repoRoot = repoRootOrThrow(cwd);
+
+  // (2) 원장 스냅샷 **1회**. 이후 모든 파생은 이 객체에서만 나온다.
+  const state = ledger.read(o);
+  const projection = project(state);
+
+  // (3) 집계 — cap은 state에서. env 폴백을 타면 receipt가 원장을 오기한다.
+  const agg = ledger.aggregateFrom(state, state.cap);
+  const verdict = deriveVerdict(projection, agg);
+
+  // (4) 리포트 write (containment 봉인).
+  //     두 방어가 서로 다른 것을 막는다. **파일명**은 SLUG_RE가 이미 안전하게
+  //     만들었다 — `^[a-z0-9][a-z0-9-]{0,80}$`는 `.`과 `/`를 아예 배제하므로
+  //     조립된 이름이 디렉토리를 벗어날 수 없고, 그 검증은 (1)에서 경로 조립보다
+  //     **먼저** 끝났다. `assertContained`가 막는 것은 그게 아니라 **심볼릭 링크
+  //     탈출**이다(모듈 계약: realpath-anchored containment). 그래서 대상은
+  //     파일이 아니라 **디렉토리**이고 gate는 그 부모다 — ledger.js의
+  //     `ensureStateDir`와 동형이다. 파일을 대상으로 삼을 수도 없다:
+  //     `assertContained`는 realpath를 쓰므로 아직 없는 파일에는 걸 수 없다.
+  const reportRel = path.posix.join('.claude', 'reviews', 'santa-review-' + decisionId + '.md');
+  const reviewsDir = path.join(repoRoot, '.claude', 'reviews');
+  fs.mkdirSync(reviewsDir, { recursive: true });
+  assertContained(ledger.canonicalPath(reviewsDir),
+    ledger.canonicalPath(path.join(repoRoot, '.claude')), null);
+  const reportAbs = path.join(reviewsDir, 'santa-review-' + decisionId + '.md');
+  writeAtomic(reportAbs, renderReport(projection, {
+    decisionId: decisionId, cap: state.cap, aggregate: agg, verdict: verdict,
+  }));
+
+  // (5) 리포트 해시 — write.js가 plan_hash를 계산할 때와 **같은 함수, 같은 입력**
+  //     (디스크에서 되읽는다). 메모리 문자열을 따로 해시하면 정규화 경로가 갈릴
+  //     여지가 생기는데, 되읽으면 그 질문 자체가 사라진다.
+  const reportHash = planAwareMarkdownHash(reportAbs);
+
+  // (6) proof write (containment 봉인 — security-reviewer S1).
+  const proofDir = path.join(repoRoot, '.claude', 'state', 'santa-loop');
+  fs.mkdirSync(proofDir, { recursive: true });
+  assertContained(ledger.canonicalPath(proofDir),
+    ledger.canonicalPath(path.join(repoRoot, '.claude', 'state')), null);
+  const proofAbs = path.join(proofDir, decisionId + '.proof.json');
+  const proof = buildProof({
+    reportRelPath: reportRel,
+    reportHash: reportHash,
+    projection: projection,
+    verdict: verdict,
+    exitReason: agg.exitReason,
+  });
+  writeAtomic(proofAbs, JSON.stringify(proof, null, 2) + '\n');
+
+  // (7) receipt. `intentDecision`은 전달하지 않는다 — write.js의
+  //     INTENT_IN_SCOPE_GATES는 mccp-plan-codex뿐이라 out-of-scope로 throw한다.
+  //     경로는 전부 **repoRoot 기준 상대**이고 `cwd: repoRoot`를 함께 넘긴다 —
+  //     write.js는 `args.cwd || process.cwd()`로 해석하므로, cwd를 넘기지 않으면
+  //     프로세스가 어디서 실행됐는지에 따라 같은 인자가 다른 파일을 가리킨다.
+  const proofRel = path.relative(repoRoot, proofAbs).split(path.sep).join('/');
+  const writeArgs = {
+    gate: GATE_ID,
+    decision: decisionId,
+    cwd: repoRoot,
+    plan: reportRel,
+    'review-verdict': verdict,
+    'review-source': REVIEW_SOURCE,
+    'review-proof-file': proofRel,
+    'santa-rounds': agg.rounds,
+    'santa-entries': agg.entries,
+    quiet: true,
+  };
+  if (Number.isInteger(state.cap)) writeArgs['santa-cap'] = state.cap;
+  if (agg.exitReason) writeArgs['santa-exit-reason'] = agg.exitReason;
+
+  const receipt = write(writeArgs);
+
+  return {
+    reportPath: reportRel,
+    proofPath: proofRel,
+    receiptPath: receipt.path || null,
+    verdict: verdict,
+    aggregate: agg,
+  };
+}
+
+module.exports = {
+  project: project,
+  renderReport: renderReport,
+  buildProof: buildProof,
+  deriveVerdict: deriveVerdict,
+  seal: seal,
+  SantaSealError: SantaSealError,
+  GATE_ID: GATE_ID,
+};

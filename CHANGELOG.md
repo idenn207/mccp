@@ -2,7 +2,31 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.8`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.9`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.23.9] — 2026-08-14
+
+**santa-loop-materialize M2 — receipt 편입 + 소유권 표 (단일 milestone → patch bump, 1.23.8 → 1.23.9)** — M1이 원장에 기록만 하던 라운드·집계를 **receipt에 봉인**한다. 새 produces-only GATE_ID `mccp-santa-review`(phase=`review`)가 신설되고, `/mccp:santa-loop`이 종료할 때 `seal`이 집계 리포트를 렌더해 그것을 subject로 receipt를 쓴다. M1까지 santa-loop은 자기가 무엇을 했는지 receipt chain에 한 줄도 남기지 않았다.
+
+**봉인은 두 종료 경로 모두에서 일어난다.** NICE 경로는 새 Step 5.5(push **이전**)에서, 캡 도달 경로는 `begin-round`가 exit 12로 거부하는 분기 안에서 봉인한다. 후자는 Step 5.5·Step 6에 애초에 도달하지 않으므로, 그 분기를 산문에서 **실행 가능한 bash 블록으로 전환**하고 `exit "$BEGIN_EXIT"`를 마지막 문장으로 못박았다. 75(lock 경합)·2(사용 오류)는 종료가 아니라 실패이므로 봉인하지 않는다.
+
+**dual-review는 우회되지 않는다.** santa receipt는 `resolution.review_source='multi-agent'`를 **schema가 gate_id 기준으로 강제**하고(`codex`·`hybrid`·부재 전부 REJECT), `multi-agent`는 `CROSS_MODEL_SOURCES` 밖이라 `isCrossModelCorroborated`가 언제나 false다 — 즉 santa 승인 두 건으로 `/mccp:pr`의 PR-Codex를 skip시킬 수 없다. 이 gate_id 기준 `resolution` 제약은 이 repo에 처음 생기는 형태이고, 검사가 `if (reviewPresent.length > 0)` 가드 **바깥**에 놓여야 review triple이 통째로 없는 receipt도 거부된다.
+
+**리뷰어 본문은 리포트로 새지 않는다.** `.claude/reviews/`는 git-tracked이므로 `seal`이 먼저 투영해 `raw`(`checks`·`suggestions` 전문)를 경계에서 소거하고, `renderReport`는 그것을 실을 인자를 갖지 않는다. canary 문자열 test가 그 경계를 고정한다.
+
+### Added
+
+- `plugins/mccp/scripts/lib/santa/seal.js` — 집계 → 결정적 리포트 렌더 → review proof 구성 → receipt write. 순수 함수 3(`project`/`renderReport`/`buildProof`) + I/O 1. 원장 mutation 0.
+- `mccp-santa-review` GATE_ID + `PHASE_FROM_GATE['mccp-santa-review']='review'`. `ALIAS_MATRIX`는 무변경이라 어떤 command preflight·cross-gate dedupe·PR chain에도 진입하지 않는다.
+- `meta.santa_rounds` / `santa_entries` / `santa_cap` / `santa_exit_reason` — 전부 present-only이며 `makeSkeleton` 미등록이라 미행사 receipt의 canonical hash가 무변동이다.
+- `santa cli seal` subcommand. 신규 exit code 0개 — 기존 catch-all이 `SANTA_*`를 2로, lock 경합을 75로 매핑한다.
+- `docs/santa-loop/ownership.md` — P1·P2·P3 소유 파일 9개(교집합 ∅) + M1 동결 시그니처 + 변경 프로토콜. 공유 표면(`santa-loop.md`·`cli.js`)은 누구에게도 배정하지 않고 조정 대상으로 분리했다.
+- 회귀 test 2파일 17항목 — `santa-review-gate.test.js`(1~7) · `santa-seal.test.js`(8~17). test 이름의 `[N]` 규약을 커버리지 감사가 기계 대조한다.
+
+### Changed
+
+- `ledger.js`에 순수 파생 2종 추가(`reviewersFrom` · `aggregateFrom`). 기존 `readReviewers`/`aggregate`가 이들에 **위임**하므로 시그니처·동작 무변경이다. 봉인이 원장을 **한 번만** 읽게 하려는 것 — 라운드별 재읽기는 lock 없는 N+2회 읽기라 그 사이 mutation이 끼면 동시에 존재한 적 없는 상태가 영구 봉인된다(Implement-Codex R1 F1).
+- `seal`은 `aggregateFrom`에 `state.cap`을 **명시 전달**한다. `aggregate`의 env 폴백을 타면 라운드를 실제로 게이트한 cap이 아니라 봉인 시점 env로 `exitReason`이 계산돼 receipt가 원장을 오기한다.
 
 ## [1.23.8] — 2026-08-13
 

@@ -68,6 +68,10 @@ const PHASE_FROM_GATE = {
   'mccp-pr-codex': 'pr',
   'security-reviewer': 'review',
   'code-reviewer': 'review',
+  // santa-loop-materialize M2 — produces-only 봉인 게이트. ALIAS_MATRIX 무변경
+  // (DD1/UI2). phase='review'는 santa-loop의 실제 위치(push 직전 리뷰)이며,
+  // 'pr'을 고르면 evidence-stage-guard.js가 ship receipt로 오분류한다.
+  'mccp-santa-review': 'review',
 };
 
 function normalizeCommand(cmd) {

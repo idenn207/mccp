@@ -50,11 +50,17 @@ function seed(repo, sid, over) {
   return record;
 }
 
+// Models a process that HONOURS SIGTERM: once signalled, it is gone. `isAlive`
+// belongs to the recorder because the two answers have to agree — a stub that
+// reports "signalled" and "still alive" forever is a process that IGNORES
+// SIGTERM. That is a real case with its own outcome (`termination_timeout`,
+// asserted below), not something a happy-path case should get by accident.
 function recorder() {
   const killed = [];
   return {
     killed,
     kill: (pid) => { killed.push(pid); },
+    isAlive: (pid) => !killed.includes(pid),
   };
 }
 
@@ -80,7 +86,7 @@ function run(repo, over) {
     sessionId: SID,
     env: {},
     kill: k.kill,
-    isAlive: () => true,
+    isAlive: k.isAlive,
     probeProcess: okProbe(repo),
     collectSiblingReuse: () => [],
     budgetMs: 60000,
@@ -490,10 +496,14 @@ test('11b — the budget is honoured against the real wall clock, not a mocked t
   const repo = tmpRepo();
   for (let i = 1; i <= 12; i++) seed(repo, SID, { pid: 100 + i });
   const t0 = Date.now();
+  const k = recorder();
   const res = sp.reclaimSession({
     repoRoot: repo, sessionId: SID, env: {},
-    kill: () => { const end = Date.now() + 200; while (Date.now() < end) { /* burn */ } },
-    isAlive: () => true,
+    // Burns 200ms, then the process is gone. The burn is the KILL cost this
+    // case measures; exit confirmation must not add to it, which is why the
+    // signalled pid stops answering as alive.
+    kill: (pid) => { const end = Date.now() + 200; while (Date.now() < end) { /* burn */ } k.kill(pid); },
+    isAlive: k.isAlive,
     probeProcess: okProbe(repo),
     collectSiblingReuse: () => [],
     budgetMs: 600,
@@ -574,10 +584,14 @@ test('12 — reclaimed records are removed and unreclaimed ones leave an evidenc
   seed(repo, SID, { pid: 100 });
   seed(repo, SID, { pid: 200 });
   const dir = sp.sessionDir(repo, SID);
+  const k = recorder();
   const res = sp.reclaimSession({
     repoRoot: repo, sessionId: SID, env: {},
-    kill: (pid) => { if (pid === 200) { const e = new Error('x'); e.code = 'EPERM'; throw e; } },
-    isAlive: () => true,
+    kill: (pid) => {
+      if (pid === 200) { const e = new Error('x'); e.code = 'EPERM'; throw e; }
+      k.kill(pid);
+    },
+    isAlive: k.isAlive,
     probeProcess: okProbe(repo),
     collectSiblingReuse: () => [],
     budgetMs: 60000,
@@ -603,4 +617,131 @@ test('an empty session directory is removed, a non-empty one is left for the nex
   run(repo2, { probeProcess: okProbe(repo2) });
   assert.ok(fs.existsSync(sp.sessionDir(repo2, SID)),
     'a skipped record must survive so the next SessionStart can see it');
+});
+
+// ── 13: signal delivery is NOT termination (PR-Codex HIGH, 2026-08-14) ───────
+//
+// `process.kill` returns when the signal was DELIVERED. On POSIX a SIGTERM can
+// be caught, ignored, or handled slowly, so the return value says nothing about
+// whether the process is gone. The original implementation pushed the pid onto
+// reclaimed[] and unlinked the record right there — reporting a kill that had
+// not happened and destroying the only evidence a later session could retry
+// from. These cases pin the four outcomes that replaced it.
+
+test('13a — a process that IGNORES SIGTERM is not reported reclaimed and keeps its record', () => {
+  const repo = tmpRepo();
+  seed(repo, SID, { pid: 4242 });
+  const dir = sp.sessionDir(repo, SID);
+  const killed = [];
+  const res = sp.reclaimSession({
+    repoRoot: repo, sessionId: SID, env: {},
+    kill: (pid) => { killed.push(pid); },   // signalled, and still alive after
+    isAlive: () => true,
+    probeProcess: okProbe(repo),
+    collectSiblingReuse: () => [],
+    budgetMs: 60000, probeTimeoutMs: 20, termConfirmMaxMs: 60,
+  });
+
+  assert.deepStrictEqual(killed, [4242], 'the signal IS sent — this is not a skip');
+  assert.deepStrictEqual(res.reclaimed, [],
+    'delivery is not termination: nothing may be reported reclaimed');
+  assert.deepStrictEqual(res.unreclaimed, [{ pid: 4242, reason: 'termination_timeout' }]);
+  assert.ok(fs.existsSync(path.join(dir, '4242.json')),
+    'the record MUST survive — a later session has to be able to retry and diagnose it');
+  const evidence = JSON.parse(fs.readFileSync(path.join(dir, '4242.unreclaimed.json'), 'utf8'));
+  assert.strictEqual(evidence.reason, 'termination_timeout');
+});
+
+test('13b — a process that exits shortly after the signal IS reclaimed (the poll waits)', () => {
+  const repo = tmpRepo();
+  seed(repo, SID, { pid: 4242 });
+  const dir = sp.sessionDir(repo, SID);
+  let aliveChecks = 0;
+  const res = sp.reclaimSession({
+    repoRoot: repo, sessionId: SID, env: {},
+    kill: () => {},
+    // Alive for the reclaimability check and the first few polls, then gone —
+    // a process that handles SIGTERM instead of dying instantly.
+    isAlive: () => { aliveChecks += 1; return aliveChecks < 4; },
+    probeProcess: okProbe(repo),
+    collectSiblingReuse: () => [],
+    budgetMs: 60000, probeTimeoutMs: 20, termConfirmMaxMs: 2000,
+  });
+
+  assert.deepStrictEqual(res.reclaimed, [4242], 'a confirmed exit is a reclaim');
+  assert.deepStrictEqual(res.unreclaimed, []);
+  assert.ok(!fs.existsSync(path.join(dir, '4242.json')), 'confirmed → record dropped');
+});
+
+test('13c — a pid recycled onto another process counts as a confirmed exit, not a timeout', () => {
+  const repo = tmpRepo();
+  seed(repo, SID, { pid: 4242 });
+  const dir = sp.sessionDir(repo, SID);
+  let probes = 0;
+  const res = sp.reclaimSession({
+    repoRoot: repo, sessionId: SID, env: {},
+    kill: () => {},
+    isAlive: () => true,               // the PID answers — but it is not ours any more
+    probeProcess: () => {
+      probes += 1;
+      // First probe is the kill decision (must match, or nothing is signalled).
+      // The confirmation probe sees a different process wearing the same pid.
+      return probes === 1
+        ? { startedAtMs: START_MS, commandLine: 'node "' + execPathFor(repo) + '"', execImage: NODE_IMG }
+        : { startedAtMs: START_MS + 900000, commandLine: 'node "' + execPathFor(repo) + '"', execImage: NODE_IMG };
+    },
+    collectSiblingReuse: () => [],
+    budgetMs: 60000, probeTimeoutMs: 20, termConfirmMaxMs: 60,
+  });
+
+  assert.ok(probes >= 2, 'the confirmation must take a FRESH probe, not the memoised one');
+  assert.deepStrictEqual(res.reclaimed, [4242],
+    'our process is provably gone — the pid answering belongs to someone else');
+  assert.ok(!fs.existsSync(path.join(dir, '4242.json')));
+});
+
+test('13d — an unverifiable identity at the deadline is its own reason, not a timeout', () => {
+  const repo = tmpRepo();
+  seed(repo, SID, { pid: 4242 });
+  const dir = sp.sessionDir(repo, SID);
+  let probes = 0;
+  const res = sp.reclaimSession({
+    repoRoot: repo, sessionId: SID, env: {},
+    kill: () => {},
+    isAlive: () => true,
+    probeProcess: () => {
+      probes += 1;
+      // The platform stops answering WHAT is under the pid. "I failed to check"
+      // is neither "still running" nor "gone", and must not be folded into either.
+      return probes === 1
+        ? { startedAtMs: START_MS, commandLine: 'node "' + execPathFor(repo) + '"', execImage: NODE_IMG }
+        : null;
+    },
+    collectSiblingReuse: () => [],
+    budgetMs: 60000, probeTimeoutMs: 20, termConfirmMaxMs: 60,
+  });
+
+  assert.deepStrictEqual(res.reclaimed, [], 'unverifiable must never read as reclaimed');
+  assert.deepStrictEqual(res.unreclaimed, [{ pid: 4242, reason: 'termination_unverified' }]);
+  assert.ok(fs.existsSync(path.join(dir, '4242.json')), 'record survives');
+});
+
+test('13e — one process that refuses to die cannot starve the rest of the sweep', () => {
+  const repo = tmpRepo();
+  for (let i = 1; i <= 4; i++) seed(repo, SID, { pid: 100 + i });
+  const t0 = Date.now();
+  const res = sp.reclaimSession({
+    repoRoot: repo, sessionId: SID, env: {},
+    kill: () => {},
+    isAlive: () => true,              // every one of them ignores the signal
+    probeProcess: okProbe(repo),
+    collectSiblingReuse: () => [],
+    budgetMs: 60000, probeTimeoutMs: 20, termConfirmMaxMs: 60,
+  });
+  const elapsed = Date.now() - t0;
+
+  assert.strictEqual(res.attempted, 4);
+  assert.strictEqual(res.unreclaimed.length, 4, 'each one is recorded, none silently dropped');
+  assert.ok(elapsed < 2000,
+    'the per-record cap bounds the wait — 4 records took ' + elapsed + 'ms');
 });

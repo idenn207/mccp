@@ -93,6 +93,21 @@ const HOOK_TIMEOUT_MS = 10000;
 const MAX_BUDGET_MS = 9000;          // 1s of headroom for the rest of the hook
 const ORPHAN_STALE_MS = 24 * 60 * 60 * 1000;
 
+// `process.kill` returns when the signal is DELIVERED, not when the process is
+// gone. On POSIX a SIGTERM can be caught, ignored, or handled slowly, so a
+// return value carries no information about termination at all. Treating it as
+// termination is the one failure this module must never have: the record would
+// be unlinked and the pid reported reclaimed while the process is still
+// running, which destroys the only evidence a later session could retry or
+// diagnose from — precisely the recovery guarantee the registry exists for.
+// So exit is CONFIRMED by polling, and the record survives until it is.
+//
+// The per-record cap exists so one process that refuses to die cannot eat the
+// whole sweep and starve the remaining records into `budget_exceeded`; the
+// sweep deadline still bounds it on top of this.
+const TERM_CONFIRM_POLL_MS = 25;
+const TERM_CONFIRM_MAX_MS = 1000;
+
 // Not an enforcement device — the enforcement is Task 7's hook (which reads the
 // return value and surfaces it) and Task 9(e)'s consumer whitelist. This string
 // exists so a reader of the record directory cannot mistake absence for success.
@@ -891,27 +906,39 @@ function isReclaimableBy(record, ctx) {
   // process we registered" from "whatever the OS later handed this pid to", so
   // the process identity axis has to be its own gate — this is the PRD's
   // Critical PID-reuse scenario.
-  const p = probe(record.pid);
-  if (!p || !Number.isFinite(p.startedAtMs)) {
-    return { ok: false, reason: 'identity_unverifiable' };
-  }
+  const verdict = identityVerdict(probe(record.pid), record, {
+    platform: platform, toleranceMs: tolerance,
+  });
+  if (verdict !== 'identity_match') return { ok: false, reason: verdict };
+  return { ok: true, reason: 'owned_session_scoped' };
+}
+
+// Extracted from isReclaimableBy so the post-signal exit confirmation
+// (reclaimSession) asks the PID-reuse question with the SAME rules the kill
+// decision used. Two copies would be free to drift, and a laxer copy on the
+// confirmation side would turn "the OS recycled this pid" into a false
+// "confirmed exit" — the same class of lie this whole path exists to prevent.
+// Returns 'identity_match' | 'identity_mismatch' | 'identity_unverifiable'.
+function identityVerdict(p, record, ctx) {
+  ctx = ctx || {};
+  const platform = ctx.platform || process.platform;
+  const tolerance = Number.isFinite(ctx.toleranceMs)
+    ? ctx.toleranceMs : resolveIdentityToleranceMs(ctx.env, platform);
+
+  if (!p || !Number.isFinite(p.startedAtMs)) return 'identity_unverifiable';
   // No image means the platform would not say WHAT is running under this pid.
   // That is "cannot verify", not "not ours" — and it must not fall through to
   // the command-line rules, which on their own cannot tell `nohup node <path>`
   // from `grep node <path>`. Falling through is exactly the santa-loop R7
   // critical; the fail-closed cost is a missed reclaim, recorded in skipped[].
-  if (!p.execImage) {
-    return { ok: false, reason: 'identity_unverifiable' };
-  }
+  if (!p.execImage) return 'identity_unverifiable';
   // Every process that reaches this gate is a node script by construction: both
   // registering kinds pass `execPath: __filename` from inside a node module,
   // and the one non-node kind (`handoff-session`, powershell) is excluded
   // before identity is ever consulted. So a non-node image is not our process.
-  if (!isNodeInterpreterImage(p.execImage)) {
-    return { ok: false, reason: 'identity_mismatch' };
-  }
+  if (!isNodeInterpreterImage(p.execImage)) return 'identity_mismatch';
   if (Math.abs(p.startedAtMs - record.proc_started_at_ms) > tolerance) {
-    return { ok: false, reason: 'identity_mismatch' };
+    return 'identity_mismatch';
   }
   const want = normPath(record.exec_path, platform);
   const got = normPath(p.commandLine, platform);
@@ -920,13 +947,25 @@ function isReclaimableBy(record, ctx) {
   // carries repo_root inside it and cannot collide by accident. And it must be
   // the script being EXECUTED, not merely a path the command line mentions —
   // see isExecutedScript. The interpreter question is the image check above.
-  if (!isExecutedScript(got, want)) {
-    return { ok: false, reason: 'identity_mismatch' };
-  }
-  return { ok: true, reason: 'owned_session_scoped' };
+  if (!isExecutedScript(got, want)) return 'identity_mismatch';
+  return 'identity_match';
 }
 
 // ── §D9 reclaim ──────────────────────────────────────────────────────────────
+
+// Everything on this path is synchronous (execFileSync probes, sync fs), so the
+// exit-confirmation poll cannot yield to an event loop. Atomics.wait is the
+// repo's sync-sleep idiom (plan-codex-runner.js, session-bridge.js). It throws
+// on the main thread in some older runtimes; a busy-wait fallback keeps the
+// poll bounded rather than letting the sleep failure skip the wait entirely.
+function sleepMs(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch (_err) {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { /* bounded spin */ }
+  }
+}
 
 function parseBudgetMs(env) {
   const n = Number.parseInt(String((env || process.env).MCCP_RECLAIM_BUDGET_MS || ''), 10);
@@ -1059,6 +1098,43 @@ function reclaimSession(opts) {
     }
   }
 
+  // Signal delivery is not termination (see TERM_CONFIRM_* above). Nothing is
+  // reported reclaimed, and no record is unlinked, until this says so.
+  function confirmExit(pid, rec) {
+    const cap = Number.isFinite(opts.termConfirmMaxMs)
+      ? opts.termConfirmMaxMs : TERM_CONFIRM_MAX_MS;
+    const deadline = Math.min(now() + cap, started + budgetMs);
+    while (isAlive(pid)) {
+      if (now() >= deadline) {
+        // "Still alive" is the same answer from two very different worlds: the
+        // process ignored the signal, OR it exited and the OS handed the pid to
+        // something else. Only the second is a confirmed exit, and only a FRESH
+        // probe separates them — probeMemo is bypassed on purpose, since its
+        // entry predates the signal and would just re-assert the old identity.
+        if (now() - started > budgetMs - probeTimeoutMs) {
+          // Same reservation rule as guardedProbe: refuse to start a probe the
+          // budget cannot cover rather than blowing the hook timeout with it.
+          out.budgetExceeded = true;
+          return { exited: false, reason: 'termination_unverified' };
+        }
+        const v = identityVerdict(probe(pid), rec, {
+          platform: platform, toleranceMs: opts.toleranceMs, env: env,
+        });
+        if (v === 'identity_mismatch') return { exited: true, reason: 'pid_recycled' };
+        // 'identity_unverifiable' is NOT folded into either outcome: we failed
+        // to check, which is not the same as "it is still running" and is very
+        // much not "it is gone". Both keep the record, but the reason must say
+        // which one happened or the next session cannot tell them apart.
+        if (v === 'identity_unverifiable') {
+          return { exited: false, reason: 'termination_unverified' };
+        }
+        return { exited: false, reason: 'termination_timeout' };
+      }
+      sleepMs(TERM_CONFIRM_POLL_MS);
+    }
+    return { exited: true, reason: 'exited' };
+  }
+
   for (const rec of l.records) {
     const pid = rec && rec.pid;
     if (now() - started >= budgetMs) {
@@ -1115,8 +1191,17 @@ function reclaimSession(opts) {
 
     try {
       kill(pid, 'SIGTERM');
-      out.reclaimed.push(pid);
-      dropRecord(pid);
+      const exit = confirmExit(pid, rec);
+      if (exit.exited) {
+        out.reclaimed.push(pid);
+        dropRecord(pid);
+      } else {
+        // The record deliberately SURVIVES here. The process is still running,
+        // or we could not prove it is not, and either way the next session must
+        // be able to see it, retry it, and diagnose it. Unlinking now would
+        // report a kill that did not happen and destroy the only evidence of it.
+        markUnreclaimed(pid, exit.reason);
+      }
     } catch (err) {
       const code = err && err.code;
       if (code === 'ESRCH') {

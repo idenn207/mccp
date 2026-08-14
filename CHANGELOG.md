@@ -42,6 +42,13 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - win32 probe 출력을 **`|` 구분 단일 라인**으로 바꿨다. 필드마다 한 줄씩 찍으면 `ExecutablePath`나 `CommandLine`이 빈 경우(access-denied·커널 프로세스에서 실제로 발생) 뒤 필드가 한 줄씩 밀려 **파서가 이미지 자리에서 command line을 읽는다**.
 - 회귀 test가 결함을 실제로 잡는지 확인했다 — HEAD(수정 전) worktree에 새 test를 얹으면 `identity 3g`가 `owned_session_scoped`를, `identity 3h`가 fall-through를 드러내며 fail한다. `identity 3i`(실제 launch shape 6종)는 양쪽에서 pass라 오조임이 아니다.
 
+### Security (PR-Codex — ship gate에서 발견, HIGH)
+- **신호 전달을 종료로 오인하고 있었다.** `reclaimSession`이 `process.kill(pid,'SIGTERM')`이 반환하자마자 pid를 `reclaimed[]`에 넣고 레코드를 unlink했다. 그 반환은 신호가 **전달**됐다는 뜻일 뿐 프로세스가 죽었다는 뜻이 아니다 — POSIX에서 SIGTERM은 catch·ignore 가능하고 종료가 길어질 수도 있다. 신호를 무시한 프로세스는 (a) 레코드가 지워져 **추적 불가**가 되고 (b) hook은 **회수 성공으로 보고**했다. 즉 이 모듈이 존재하는 이유인 회수·관측 보장이 가장 조용한 방식으로 깨졌다. 주변 코드가 오히려 이것이 실수임을 보여준다 — `EPERM`은 성공으로 접지 않고 `ESRCH`는 따로 처리하는데, 유독 성공 경로만 확인 없이 낙관했다.
+- 이제 종료를 **확인한 뒤에만** 보고한다. 신호 후 레코드를 유지한 채 남은 예산 안에서 `isAlive`를 폴링하고, 확인된 경우에만 `dropRecord`한다. 마감 시각까지 살아 있으면 **fresh probe**로 정체를 재검증한다(`probeMemo`는 신호 이전 값이라 의도적으로 우회) — 정체 불일치면 원 프로세스는 사라지고 OS가 pid를 재할당한 것이므로 `pid_recycled`로 **확인된 종료**, 일치하면 `termination_timeout`, 검증 불가면 `termination_unverified`다. 뒤 둘은 레코드를 **보존**한다.
+- 정체 비교는 `identityVerdict`로 추출해 kill 판정과 종료 확인이 **같은 규칙**을 쓰게 했다. 사본이 둘이면 갈라질 수 있고, 확인 쪽이 느슨해지면 "OS가 pid를 재활용했다"가 거짓 "확인된 종료"로 둔갑한다 — 이 경로가 막으려는 거짓말과 같은 부류다.
+- 죽지 않는 프로세스 하나가 sweep 전체를 굶기지 않도록 레코드당 확인 상한(`TERM_CONFIRM_MAX_MS`, 1000ms)을 두고, 그 위에 sweep 예산이 다시 상한을 건다. probe 예약 규칙(worst case를 감당 못 하면 시작하지 않는다)은 확인 probe에도 그대로 적용된다.
+- 회귀 test 5종(`13a`~`13e`). `13a`는 구 코드에서 **반드시 실패한다** — 구 코드는 신호를 무시하는 프로세스를 `reclaimed=[4242]` + 레코드 삭제로 처리했다. 기존 하네스가 이 결함을 구조적으로 못 잡은 이유도 함께 고쳤다: `recorder()`의 `isAlive`가 언제나 `true`였다(= 모든 happy-path 케이스가 사실은 **SIGTERM을 무시하는 프로세스**를 모델링하고 있었다). 이제 signal된 pid는 죽은 것으로 답하고, 무시하는 프로세스는 그것을 의도하는 케이스에서만 나온다.
+
 ### 명시 잔여 (주장하지 않는 것)
 - §D11의 ms 단위 TOCTOU와 §D15의 유계 오살 창(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ **이미지의 basename이 `node`/`nodejs`** ∧ command line의 첫 script 토큰이 우리 절대경로)은 **단위 test로 재현할 수 없다**. "무관한 프로세스가 죽는 경로는 없다"고 주장하지 않는다.
 - §D15 축 1은 이제 **두 질문**이다: 우리 경로가 첫 script 토큰과 **등가**인가(토큰 축) · 실행 **이미지**가 node 인터프리터인가(이미지 축). `node other.js <path>` · `<path>.bak` 는 토큰 축이, `tail -f <path>` · `grep node <path>` · `echo node <path>` 는 이미지 축이 거부한다. 남은 것은 **상대 경로 기동**이 `identity_mismatch`로 읽히는 것(fail-closed — 회수를 놓칠 뿐이고, mccp의 두 기동 형태는 모두 절대 경로다). 상대 토큰을 재anchor하려면 suffix 매칭을 허용해야 하는데, 그것이 바로 전체경로 규칙이 막으려던 basename 충돌이다. **R2~R7 동안 이 줄은 잔여가 상대 경로 기동 하나뿐이라고 적었으나 그때는 거짓이었다** — 위 R8 항목 참조.

@@ -10,6 +10,7 @@ verdict: codex_divergent
 escalate: true
 originating_receipts:
   - .claude/receipts/mccp-pr-codex/setup-gitignore-m1.json
+  - .claude/receipts/mccp-implement-codex/setup-gitignore-m1.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -26,6 +27,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 
 ## Originating Decisions
 - .claude/receipts/mccp-pr-codex/setup-gitignore-m1.json
+- .claude/receipts/mccp-implement-codex/setup-gitignore-m1.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-pr-codex/setup-gitignore-m1>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/setup-gitignore-m1>'

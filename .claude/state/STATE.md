@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: setup-gitignore-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-14T05:41:33.694Z
+updated_at: 2026-08-14T05:59:19.915Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-09T01:17:14.100Z
 unsafe_checkpoint: false
@@ -52,4 +52,4 @@ code-review 흡수 완료. 전체 test 재실행 후 /mccp:prp-commit 진행.
 - PRD가 단일 milestone이라 M1 complete 전환 즉시 /mccp:archive-complete 대상이 된다 — 아카이브 시 ROLLOUT-1은 backlog 쪽으로만 남는다(의도된 설계)
 
 ## Last Updated
-2026-08-14T05:41:33.694Z
+2026-08-14T05:59:19.915Z

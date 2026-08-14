@@ -49,7 +49,7 @@
 | 신규 unit/CLI test | Pass | 54 tests · 51 pass · **0 fail** · 3 skip(POSIX 전용) — code-review H1·H2 회귀 2건 포함 |
 | 회귀 — `receipt/tests` | Pass | 554 tests · 553 pass · 0 fail · 1 skip |
 | 회귀 — `renderer/tests` | Pass | 672 tests · 0 fail (version 4면 동기 검증 포함) |
-| 산문 캡 잔존 0 | Pass | `Maximum 3 iterations` · `ESCALATE ==` 둘 다 0 |
+| 산문 캡 잔존 0 — **`plugins/mccp/` 사본 한정** | Pass (범위 내) | `Maximum 3 iterations` · `ESCALATE ==` 둘 다 0. **repo 전역은 Pass가 아니다** — tracked 사본 `.claude/commands/santa-loop.md:124,162`에 산문 캡이 남아 있다(D11) |
 | instruction-contract lint | Pass | rows=25 · C1~C4 pass |
 | 의도치 않은 삭제 (§3.5.1) | Pass | `git diff --diff-filter=D origin/main...HEAD` → **0건** |
 | plan-conflict detector | 형식상 conflict=1 → **실질 0** | D1 |
@@ -83,7 +83,9 @@
 - **H1** `santa-loop.md`의 CLI 경로가 repo-relative(`plugins/mccp/…`)였다. plugin은 `~/.claude/plugins/cache/mccp/mccp/<ver>/`에 설치되고 cwd는 사용자 프로젝트 루트이므로 **이 repo 밖에서는 node가 MODULE_NOT_FOUND(exit 1)로 죽는다**. Step 3의 "비영점 exit → 리뷰어 미발화" 규칙과 맞물려 santa-loop이 **모든 설치 사용자에게 영구히 cap reached로 보이는** 상태였다(exit 1은 문서화된 map 0/12/75/2에도 없어 진단 불가). `${CLAUDE_PLUGIN_ROOT}` 앵커로 수정 + `SANTA=` 대입을 검사하는 회귀 test 신설. **M1의 캡 강제가 dogfood 환경에서만 참이던 것을 실환경으로 넓힌 수정이다.**
 - **H2** `cli.js#requireRound`가 `Number('') === 0`이라 빈/공백 `--round`를 **round 0으로 조용히 해석**했다. 이 값은 가설이 아니라 `santa-loop.md` Step 3의 roundIndex 추출이 파싱 실패 시 내보내는 값(`catch{…("")}`)이다 — begin-round가 죽은 라운드의 리뷰어 출력이 round 0에 적재되고 verdict까지 났다(실측). `Number()` 이전 거부 + 회귀 test 신설.
 
-**D11 — 캡 강제는 `plugins/mccp/` 사본 한정이다. tracked 사본이 하나 더 있고 거기엔 산문 캡이 남아 있다.** santa-loop round 1의 Reviewer B가 잡았다. `.claude/commands/santa-loop.md`(175행, git-tracked)가 별도로 존재하며 `Maximum 3 iterations`(:124)와 `Iterations: [N]/3`(:162)를 그대로 갖는다 — 즉 비-namespace `/santa-loop`은 여전히 백킹 코드 0의 산문 캡으로 돈다. M1의 "산문 캡 잔존 0"은 plan의 `Files to Change`가 지목한 `plugins/mccp/commands/santa-loop.md`만 검증했다(해당 acceptance 항목은 D8 사유로 이미 미체크).
+**D11 — 캡 강제는 `plugins/mccp/` 사본 한정이다. tracked 사본이 하나 더 있고 거기엔 산문 캡이 남아 있다.** santa-loop round 1의 Reviewer B가 잡았다. `.claude/commands/santa-loop.md`(175행, git-tracked)가 별도로 존재하며 `Maximum 3 iterations`(:124)와 `Iterations: [N]/3`(:162)를 그대로 갖는다 — 즉 비-namespace `/santa-loop`은 여전히 백킹 코드 0의 산문 캡으로 돈다. M1의 "산문 캡 잔존 0"은 plan의 `Files to Change`가 지목한 `plugins/mccp/commands/santa-loop.md`만 검증했다.
+
+**해당 acceptance 항목의 미체크 사유는 둘이다 — D8과 D11.** 그 한 줄이 두 요구를 묶고 있다: "결정 로직 잔존 0"(D11 소관 — plugin 사본에서만 참) + "Output 섹션은 diff 무변경"(D8 소관 — 실제로 변경됨). 앞의 것을 D8로만 귀속하면 stale 사본 문제가 문면상 사라지므로, 두 사유를 함께 적는다. plan 본문의 그 줄 자체는 **고치지 않는다** — 텍스트를 바꾸면 `plan_hash`가 이동해 `mccp-plan-codex` receipt가 stale이 되고 §3.12 체인이 끊긴다(체크박스 상태만 hash-중립이다). 대신 범위 한정어를 PRD Success Metrics 행과 M1 Outcome 셀, 그리고 위 Validation Results 행에 넣었다.
 
 **단, 이것은 santa 고유 결함이 아니라 repo 전역 조건이다.** `.claude/commands/` 7개 전부가 `plugins/mccp/commands/`와 diverged이고 전부 `bc18572 feat: 개발용 ECC Plugin 주입` 한 커밋에 동결돼 있다 — `plan.md` 200행 vs **2067행** · `prp-implement.md` 385 vs 1618 · `code-review.md` 289 vs 484 · `prp-pr.md` 184 vs 49 · `plan-prd.md` 160 vs 396 · `prp-commit.md` 112 vs 114 · `santa-loop.md` 175 vs 232. 즉 M1이 만든 drift가 아니라 M1이 **드러낸** 선재 drift다.
 
@@ -93,7 +95,7 @@
 
 PRD `Delivery Milestones` M1 행을 `in-progress` → **`complete`**로 확정했다. 근거는 commit `5384473` + 위 Validation Results 전 항목 Pass다.
 
-**Acceptance 원장: 29항목 중 26 체크 · 3 미체크.** 미체크는 누락이 아니라 **plan 문면 그대로는 미달**이라는 정직한 표시다 — 각각 D2(외부 의존 4개 vs "정확히 3개") · D9(DD11 강제 등급) · D8(`## Output` 무변경). 체크박스 상태는 `hash.js#normalizeCheckboxes`가 정규화하므로 `plan_hash`(`sha256:f5bf1cae…`)는 **불변**이고 receipt 체인은 무손상이다(편집 전후 실측 일치).
+**Acceptance 원장: 29항목 중 26 체크 · 3 미체크.** 미체크는 누락이 아니라 **plan 문면 그대로는 미달**이라는 정직한 표시다 — 각각 D2(외부 의존 4개 vs "정확히 3개") · D9(DD11 강제 등급) · **D8+D11**(`## Output` 무변경 아님 **그리고** "결정 로직 잔존 0"이 plugin 사본 한정). 체크박스 상태는 `hash.js#normalizeCheckboxes`가 정규화하므로 `plan_hash`(`sha256:f5bf1cae…`)는 **불변**이고 receipt 체인은 무손상이다(편집 전후 실측 일치).
 
 **실측 출력 (재현 명령 + 그 자리에서 나온 값).** 아래는 기대치 재진술이 아니라 2026-08-14에 이 워크트리에서 실제로 나온 출력이다 — santa-loop round 0의 Reviewer B가 자기 샌드박스에 `node`가 없어 재현하지 못했고, 그래서 "숫자를 다시 적지 말고 실제 출력을 붙이라"고 요구한 항목이다.
 
@@ -119,7 +121,19 @@ AFTER   sha256:f5bf1caeb0973f8cb1ecf130abab69295e9b6373660d48946639f3f192edc97d 
 
 `node --test <dir>/` 형태는 **Node 24에서 동작하지 않는다** — 디렉토리를 모듈로 해석해 `MODULE_NOT_FOUND`로 죽고 `fail 1`처럼 보인다. plan의 Validation 블록이 그 형태로 적혀 있으므로 `<dir>/*.test.js` glob으로 실행해야 한다.
 
-**santa-loop round 0 판정 (2026-08-14).** 이 완료 처리 자체를 `/mccp:santa-loop`에 걸었다. Reviewer A(opus) PASS · Reviewer B(gpt-5.4) FAIL → **NAUGHTY**. B의 critical 3건 중 1건 수용(CHANGELOG가 `## Output` 무변경을 주장 — 실제로는 변경됐고, 같은 문장이 DD11 강제 등급도 코드보다 강하게 적고 있었다. CHANGELOG·`santa-loop.md`·`ENVIRONMENT.md` 3면을 인덱스 경계 기준으로 정정), 1건 부분수용(위 실측 출력 첨부), 1건 기각(`.claude/cache/status.html`이 "커밋된 파생 표면"이라는 전제가 사실과 다름 — untracked이고, 인용된 `계획 중` 행은 PRD 마일스톤 status가 아니라 receipt/게이트 상태 파생이라 PR 단계가 열려 있는 현 상태를 정확히 표시한다). **A는 이 CHANGELOG 모순을 놓쳤고 B만 잡았다** — 모델 다양성이 실제로 값을 낸 지점이다.
+**santa-loop 3라운드 판정 (2026-08-14) — 이 완료 처리 자체를 `/mccp:santa-loop`에 걸었다.** 캡(3)이 소진돼 `begin-round`가 exit 12 `cap_reached`로 정지시켰다. 즉 M1이 만든 캡이 **M1 자신의 완료 판정에서 실제로 발화**했다.
+
+| R | A(opus) | B(gpt-5.4) | 흡수 |
+|---|---|---|---|
+| 0 | PASS | FAIL | CHANGELOG가 `## Output` 무변경을 주장(실제 변경) + 같은 문장이 DD11 강제 등급을 코드보다 강하게 서술 → CHANGELOG·`santa-loop.md`·`ENVIRONMENT.md` 3면을 인덱스 경계 기준으로 정정. 실측 출력 첨부(B의 샌드박스에 `node` 부재). `.claude/cache/status.html` 지적은 **기각** — untracked이고 인용된 행은 마일스톤 status가 아니라 receipt/게이트 파생이다 |
+| 1 | PASS | FAIL | PRD M1 Outcome과 보고서 "달성하지 않은 것" 2면에 같은 과장이 남아 있었다 → 정정. **`.claude/commands/santa-loop.md` 발견** — tracked 사본에 산문 캡 잔존, 나아가 `.claude/commands/` 7개 전부가 `bc18572`에 동결된 stale 스냅샷 → D11 + backlog |
+| 2 | **FAIL** | **FAIL** | 양쪽이 같은 결함으로 수렴: acceptance "산문 캡 잔존 0"에 범위 한정어가 없고, Validation 행이 무조건 Pass로 적혀 D11과 직접 모순. **캡 도달로 미해소 상태에서 escalate** |
+
+**A는 R0·R1에서 CHANGELOG 모순과 stale 사본을 둘 다 놓쳤고 B가 잡았다** — 모델 다양성이 값을 낸 지점이다. R2에서는 A가 "미체크 사유가 D8로 잘못 귀속됐다"는 더 정밀한 형태로 같은 결함에 도달했다.
+
+**캡 escalate 후 운영자 결정으로 문안 범위 한정을 택했다**(대안: 사본 삭제 / M1 되돌림). 그에 따른 정정 3건 — PRD Success Metrics 행 · PRD M1 Outcome 셀 · 위 Validation Results 행 — 은 **캡 소진 후 적용됐으므로 리뷰어 재검증을 거치지 않았다**. R2의 두 지적을 그대로 반영한 것이지 새 주장을 넣은 것은 아니다.
+
+**원장 기록 누락 1건.** R2의 Reviewer B envelope는 JSON 추출이 codex 출력에 에코된 프롬프트 템플릿을 집어 실패했고, 그 뒤 라운드가 FINAL이 됐다. 이미 FINAL인 인덱스에 `record`를 다시 넣는 것은 D9가 문서화한 구멍 자체라 **쓰지 않았다** — 원장은 R2에 A만 담고 있다. B의 FAIL은 세션 기록이 근거이며, A가 독립적으로 FAIL했으므로 verdict(NAUGHTY)는 영향받지 않는다. **이 사건 자체가 D9의 실사용 증거다**: 판정 lifecycle 부재가 원장 정확도를 떨어뜨린다는 것을 P1이 닫아야 할 이유로 기록한다.
 
 **"complete"가 주장하는 것은 M1 행의 Outcome뿐이다** — 라운드를 코드로 세고 캡에서 정지하며 산문 캡 의존이 끝났다는 것. PRD **Success Metrics 1순위의 절반(receipt 봉인)은 여전히 미달**이고 그것은 M2 소유다. M1 행 Outcome 셀이 그 미달을 그대로 싣고 있으며 이 완료 처리가 그것을 지우지 않는다.
 

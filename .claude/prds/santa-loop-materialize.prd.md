@@ -38,7 +38,7 @@ We'll know we're right when **santa-loop 실행이 라운드 카운터를 상태
 | **[primary] 라운드 계측** | 실행마다 라운드 수가 상태 파일에 기록되고 receipt에 봉인 | 상태 파일 + `mccp-santa-review` receipt 대조 |
 | 캡 기계적 강제 | 캡 초과 시도가 코드로 정지 (산문 의존 0) | 캡 초과 회귀 test |
 | **파일 소유권 분리** | P1·P2·P3의 예상 변경 파일 교집합 = ∅ | P0 종료 시 산출하는 소유권 표 |
-| `santa-loop.md` 축약 | 결정 로직 잔존 0 (rubric·출력 포맷은 잔류 허용) | 코드 리뷰 |
+| `plugins/mccp/commands/santa-loop.md` 축약 | 결정 로직 잔존 0 (rubric·출력 포맷은 잔류 허용). **범위는 plugin 사본 한정** — 별도 tracked 사본 `.claude/commands/santa-loop.md`는 M1 `Files to Change` 밖이고 산문 캡이 남아 있다(M1 보고서 D11) | 코드 리뷰 |
 | dedupe/ship-gate 회귀 | 0 — multi-agent verdict가 cross-model로 계수되지 않음 | 기존 회귀 test + 신규 negative test |
 
 ## Scope

@@ -95,6 +95,7 @@ node "$M" lint --doc "$DOC" --json                  # (3) 전체 검사 — L4�
 | `REF_OUTSIDE_REPO` | 참조가 저장소 밖을 가리킨다 | repo-relative 경로로 교체 |
 | `MISSING_COMPONENT` | 규격 섹션/헤더 키 누락 | 출력된 이름의 절을 복구 |
 | `NOT_INDEXED` | 색인 미등재 | (2) `register` 실행 |
+| `DUPLICATE_INDEX_ROW` | 같은 문서가 색인에 두 번 이상 있다 | `register` 재실행 — 첫 행을 갱신하고 나머지를 제거한다 |
 
 ## 종료 출력
 

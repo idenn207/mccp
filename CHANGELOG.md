@@ -13,8 +13,8 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 ### Added
 
 - `plugins/mccp/commands/meta-research.md` — 5 phase 고정(SCAFFOLD → EVIDENCE → PRIOR ART → PRECEDENT → VERDICT+REGISTER). Phase 4의 세 호출은 `lint --pre-register` → `register` → `lint`(전체) **순서가 계약**이며 stop-at-first-failure다. 순서가 뒤집히면 lint 실패 시 색인에 무효 문서를 가리키는 **고아 항목**이 남고 `register`는 원자 치환이라 되돌릴 지점이 없다.
-- `plugins/mccp/scripts/lib/meta-research.js` — `scaffold` / `register` / `lint` 3 subcommand. lint 4검사: **L1** 파일명 · **L2** 필수 구성요소 7개(검사 지점 9개 — 헤더 블록을 1개로 세되 3키 각각 검사) · **L3** 전제 명시(≥1행 · 시점 셀이 sha 또는 ISO 날짜 · 참조 경로 실존 + 저장소 내부) · **L4** 색인 1홉.
-- `plugins/mccp/scripts/lib/tests/meta-research.test.js` — 38건. T0 왕복 · 커맨드 골격 계약 · 부정 27 · 긍정 3 · 컨테인먼트 회귀 2 · 동시성 2 · 면제 1 · 실 repo 회귀 1.
+- `plugins/mccp/scripts/lib/meta-research.js` — `scaffold` / `register` / `lint` 3 subcommand. lint 4검사: **L1** 파일명 · **L2** 필수 구성요소 7개(검사 지점 9개 — 헤더 블록을 1개로 세되 3키 각각 검사) · **L3** 전제 명시(≥1행 · 시점 셀이 sha 또는 ISO 날짜 · 참조 경로 실존 + 저장소 내부) · **L4** 색인 1홉 + 중복 행 검출(`DUPLICATE_INDEX_ROW`).
+- `plugins/mccp/scripts/lib/tests/meta-research.test.js` — **45건**. T0 왕복 · 커맨드 골격 계약 · 부정 27 · 긍정 3 · 컨테인먼트 회귀 2 · 동시성 2 · 면제 1 · 실 repo 회귀 1 · EOL 보존 2 · 색인 경계 2 · lone-CR 1 · 색인 중복 2. (표시 수는 `node --test`가 세는 실제 case 수이며 loop 생성 케이스를 포함한다 — Codex santa R2 MEDIUM 흡수: 이전 판은 라운드 1에서 test를 4건 늘리고도 `38`을 그대로 뒀다.)
 - `.claude/_meta/README.md` `## 색인` 표 — 기계 앵커 신설 + legacy 5종 백필. 기존 주제별 서술 절은 보존한다(역할이 다르다).
 
 ### 설계상 중요한 것
@@ -22,6 +22,8 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - **scaffold 산출물은 태어날 때 lint red다.** `## Premises` 표가 데이터 행 0개로 생성되어 L3에 걸린다. "빈 전제를 허용하고 나중에 채운다"는 곧 안 채운다는 뜻이므로, red를 기본값으로 두면 Phase 4가 통과할 유일한 길이 전제를 실제로 적는 것이 되고 PRD primary 지표(전제 명시 100%)가 소망이 아니라 기계 조건이 된다.
 - **적용 범위 분기 — L1/L2/L3는 규격 문서에만, L4는 전수.** legacy 5종은 규격 이전에 쓰였고 소급 개작하면 인바운드 링크 6개가 깨진다(그중 3종은 날짜 접두 파일명도 아니라 L1 전수 적용 시 영구 red). 면제 술어는 `**Status**` 헤더 한 축뿐이며, 면제된 문서는 `exempt[]`에 파일명 + 사유로 **열거**된다 — 조용한 면제가 아니다. **L4는 전수로 남으므로 발견 가능성 지표는 무손상**이다.
 - **`repoRoot`는 CLI 표면을 갖지 않는다.** `--repo-root` 플래그가 있으면 이후의 모든 봉쇄가 호출자가 고른 루트에 상대적이 되어 `assertContained`가 지키는 대상 자체를 인자로 옮길 수 있다. 이 모듈은 **파일을 쓰므로**(scaffold가 문서를, register가 README를) 루트가 인자면 범위 이동이 아니라 **쓰기 방향 재지정**이다. `impeccable-detect.js`는 `--repo-root`를 노출하지만 읽기 전용 detector라 선례가 아니다 — 차이는 취향이 아니라 읽기/쓰기다.
+- **색인 중복 행은 관용이 아니라 복구 대상이다.** `register`가 첫 행만 갱신하던 시절에는, 손으로 편집돼 같은 문서를 두 번 실은 README가 서로 다른 상태/날짜를 주장한 채 남고 L4는 `Set` 위에서 판정하므로 **green으로 보였다**. 이제 `register`가 나머지 행을 제거하고, `lint`는 다중 집합으로 판정해 `DUPLICATE_INDEX_ROW`를 낸다 — 다음 register를 기다리지 않고 드러난다.
+- **문서 파싱은 lone-CR(`\r`)에도 성립한다.** 헤더 파싱은 JS의 multiline `^`/`$`가 CR에 앵커되므로 원래 동작했는데 섹션 검출만 `/\r?\n/`로 갈라, classic-Mac 개행 문서가 **한 줄**로 읽혀 정상 문서가 `MISSING_COMPONENT` 6건 + `PREMISES_EMPTY`로 오탐됐다(실측). 헤더가 통과하고 섹션만 실패했기 때문에 증상이 "규격 미달 문서"로 보여 원인이 가려졌다.
 - **register 동시성은 "봉쇄"가 아니라 "완화"다.** lock을 획득한 경로에서만 lost update가 없고, 미획득 경로에서는 경고 후 진행하므로 여전히 가능하다. 색인은 감사 corpus가 아니라 발견 보조물이므로 CLAUDE.md §3.6의 fail-open 쪽에 속한다(fail-closed면 stale lock 하나가 조사 작업을 멈춘다). 유실은 조용하지 않다 — 다음 `lint --all`이 `NOT_INDEXED`로 자기 검출한다.
 - **`aliases.js` 등재는 게이트가 아니다.** `produces: []` · `requires_preceding: []` 빈 spec으로 등재해 hook이 이 커맨드를 명시 인식하게 하되 `GATE_IDS`는 무변경이다. 회귀 test가 등재 사실이 아니라 **빈 배열**을 단언한다 — 등재만 확인하면 나중에 게이트가 실려도 green이기 때문이다.
 

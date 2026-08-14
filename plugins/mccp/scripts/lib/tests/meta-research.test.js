@@ -472,6 +472,58 @@ test('register: a CRLF-only README stays CRLF', function () {
   assert.match(after, /\| \[2026-08-13-a\.md\]\(2026-08-13-a\.md\) \|[^\n]*\r\n/, 'the new row is CRLF-terminated');
 });
 
+test('lint: a lone-CR document parses like any other', function () {
+  // Regression for santa R2 (Codex, HIGH): section detection split on /\r?\n/,
+  // so a classic-Mac document was one long line and every `##` heading went
+  // undetected. Header parsing was already CR-safe (JS multiline anchors on CR),
+  // which is what made it invisible — the document passed the spec-doc predicate
+  // and then failed every section check. Measured: 7 false violations.
+  const root = mkRepo();
+  const body = docBody({ rows: [premise('src/target.js')] }).replace(/\n/g, '\r');
+  const rel = writeDoc(root, '2026-08-13-cr.md', body);
+  assert.deepStrictEqual(codes(specLint(root, rel)), [],
+    'a valid document must not go red merely for using CR line endings');
+});
+
+test('register: stale duplicate index rows are repaired, not left behind', function () {
+  // Regression for santa R2 (Codex, HIGH): only the first match was updated, so
+  // a hand-edited duplicate survived carrying different values for the same
+  // document while L4 (a Set) still reported it reachable.
+  const root = mkRepo({ index: false });
+  fs.writeFileSync(M.readmeOf(root), [
+    '# x', '', '## 색인', '',
+    '| 문서 | 날짜 | 상태 | 한 줄 |', '|---|---|---|---|',
+    '| [2026-08-13-a.md](2026-08-13-a.md) | 2026-01-01 | active | first |',
+    '| [2026-08-13-a.md](2026-08-13-a.md) | 2026-01-01 | active | STALE DUPLICATE |',
+    '', '## 이력', '',
+  ].join('\n'));
+  const rel = writeDoc(root, '2026-08-13-a.md', docBody({ topic: 'A', status: 'superseded' }));
+
+  const r = M.register({ repoRoot: root, doc: rel });
+  assert.equal(r.duplicatesRemoved, 1);
+  const rows = fs.readFileSync(M.readmeOf(root), 'utf8').split('\n').filter(function (l) { return l.startsWith('| ['); });
+  assert.equal(rows.length, 1, 'the duplicate is removed, not merely skipped');
+  assert.match(rows[0], /superseded/);
+  assert.equal(rows[0].indexOf('STALE DUPLICATE'), -1);
+});
+
+test('L4: a duplicated index row is reported rather than passing as reachable', function () {
+  const root = mkRepo({ index: false });
+  fs.writeFileSync(M.readmeOf(root), [
+    '# x', '', '## 색인', '',
+    '| 문서 | 날짜 | 상태 | 한 줄 |', '|---|---|---|---|',
+    '| [2026-08-13-a.md](2026-08-13-a.md) | 2026-08-13 | active | one |',
+    '| [2026-08-13-a.md](2026-08-13-a.md) | 2026-08-13 | superseded | two |',
+    '', '## 이력', '',
+  ].join('\n'));
+  const rel = writeDoc(root, '2026-08-13-a.md', docBody({ rows: [premise('src/target.js')] }));
+  const r = M.lint({ repoRoot: root, doc: rel });
+  assert.deepStrictEqual(codes(r), ['DUPLICATE_INDEX_ROW'],
+    'reachability alone would read a self-contradicting index as healthy');
+  assert.deepStrictEqual(M.indexRowTargets(root), ['2026-08-13-a.md', '2026-08-13-a.md'],
+    'the multiset is what makes the duplicate visible; a Set collapses it');
+});
+
 test('index range: a second table later in the same section is NOT absorbed', function () {
   // santa R1 (Codex) claimed the row scan keeps consuming `|` rows past a blank
   // line and swallows a following table. Measured false — the scan stops at the

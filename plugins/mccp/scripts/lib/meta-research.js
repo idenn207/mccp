@@ -14,6 +14,7 @@
 //   L3 PREMISES_*         >=1 premise row, parseable timestamp,
 //                         reference path that exists inside repo   spec docs only
 //   L4 NOT_INDEXED        reachable in one hop from README index   ALL docs
+//      DUPLICATE_INDEX_ROW listed more than once in that index      ALL docs
 //
 // APPLICABILITY SPLIT. The legacy `_meta/` documents predate this format and are
 // NOT rewritten (renaming them breaks 6 inbound links). So L1/L2/L3 apply only
@@ -123,7 +124,14 @@ function isSpecDoc(body) {
 }
 
 function sectionOf(body, heading) {
-  const lines = String(body).split(/\r?\n/);
+  // Uses the same splitter as the README rewriter. `split(/\r?\n/)` treated a
+  // lone-CR document as ONE line, so every `##` heading went undetected and a
+  // perfectly valid document reported six MISSING_COMPONENT plus PREMISES_EMPTY
+  // (Codex santa R2 H1 — measured). Header parsing was already CR-safe because
+  // JS multiline `^`/`$` anchor on CR too, which is exactly what made the
+  // inconsistency invisible: the document passed the spec-doc predicate and
+  // then failed every section check.
+  const lines = splitLinesPreservingEol(String(body)).lines;
   const start = lines.findIndex(function (l) {
     return new RegExp('^##\\s+' + heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*$').test(l);
   });
@@ -204,24 +212,37 @@ function linkTargetOf(rowLine) {
   return m ? m[1].trim() : null;
 }
 
-// Read the set of filenames reachable in one hop from the index.
-function indexedTargets(repoRoot) {
+// The index link targets IN ROW ORDER, duplicates included. Callers that only
+// need reachability use the Set below; L4 needs the multiset, because collapsing
+// first would hide a README that lists the same document twice.
+function indexRowTargets(repoRoot) {
   const readme = readmeOf(repoRoot);
   let text;
-  try { text = fs.readFileSync(readme, 'utf8'); } catch (_e) { return new Set(); }
+  try { text = fs.readFileSync(readme, 'utf8'); } catch (_e) { return []; }
   const lines = splitLinesPreservingEol(text).lines;
   const t = locateIndexTable(lines);
-  if (!t) return new Set();
-  const out = new Set();
+  if (!t) return [];
+  const out = [];
   for (let i = t.rowStart; i < t.rowEnd; i++) {
     const target = linkTargetOf(lines[i]);
-    if (target) out.add(target);
+    if (target) out.push(target);
   }
   return out;
 }
 
+// Read the set of filenames reachable in one hop from the index.
+function indexedTargets(repoRoot) {
+  return new Set(indexRowTargets(repoRoot));
+}
+
+function countByTarget(targets) {
+  const counts = new Map();
+  for (const t of targets) counts.set(t, (counts.get(t) || 0) + 1);
+  return counts;
+}
+
 function escapeCell(v) {
-  return String(v).replace(/\r?\n/g, ' ').replace(/\|/g, '\\|').trim();
+  return String(v).replace(/[\r\n]+/g, ' ').replace(/\|/g, '\\|').trim();
 }
 
 // --- lock + atomic write ----------------------------------------------------
@@ -464,13 +485,22 @@ function register(opts) {
     const row = '| [' + escapeCell(filename) + '](' + escapeCell(filename) + ') | '
       + escapeCell(meta.Date) + ' | ' + escapeCell(meta.Status) + ' | ' + escapeCell(meta.Topic) + ' |';
 
-    let replacedAt = -1;
+    const matches = [];
     for (let i = t.rowStart; i < t.rowEnd; i++) {
-      if (linkTargetOf(lines[i]) === filename) { replacedAt = i; break; }
+      if (linkTargetOf(lines[i]) === filename) matches.push(i);
     }
-    if (replacedAt !== -1) {
+    if (matches.length) {
       // Replace the content only; the line keeps its own terminator.
-      lines[replacedAt] = row;
+      lines[matches[0]] = row;
+      // REPAIR, don't tolerate. register never creates a duplicate, but a
+      // hand-edited README can, and updating only the first match left a stale
+      // row claiming different values for the same document while L4 stayed
+      // green (Codex santa R2 H2 — measured). Walk descending so the earlier
+      // indices stay valid.
+      for (let k = matches.length - 1; k >= 1; k--) {
+        lines.splice(matches[k], 1);
+        eols.splice(matches[k], 1);
+      }
     } else {
       const at = t.rowEnd;
       const prevEol = eols[at - 1];
@@ -488,7 +518,11 @@ function register(opts) {
     }
 
     writeAtomic(readme, joinLinesPreservingEol(lines, eols));
-    return { ok: true, readme: readme, doc: docPath, row: row, updated: replacedAt !== -1 };
+    return {
+      ok: true, readme: readme, doc: docPath, row: row,
+      updated: matches.length > 0,
+      duplicatesRemoved: Math.max(0, matches.length - 1),
+    };
   });
 }
 
@@ -549,7 +583,7 @@ function checkPremises(repoRoot, filename, body, violations) {
   }
 }
 
-function lintDoc(repoRoot, docPath, indexed, opts) {
+function lintDoc(repoRoot, docPath, indexed, opts, indexCounts) {
   opts = opts || {};
   const filename = path.basename(docPath);
   const violations = [];
@@ -578,8 +612,22 @@ function lintDoc(repoRoot, docPath, indexed, opts) {
 
   // L4 runs on every document, spec or legacy — that is what keeps the PRD's
   // discoverability metric intact after narrowing L1/L2/L3.
-  if (!opts.preRegister && !indexed.has(filename)) {
-    violations.push({ doc: filename, check: 'L4', code: 'NOT_INDEXED', detail: filename });
+  if (!opts.preRegister) {
+    if (!indexed.has(filename)) {
+      violations.push({ doc: filename, check: 'L4', code: 'NOT_INDEXED', detail: filename });
+    } else {
+      // Reachability alone would read a self-contradicting index as healthy: two
+      // rows for one document can carry different status/date, and a Set hides
+      // that. Surface it here so the corruption does not wait for the next
+      // register to be noticed.
+      const n = indexCounts ? (indexCounts.get(filename) || 0) : 0;
+      if (n > 1) {
+        violations.push({
+          doc: filename, check: 'L4', code: 'DUPLICATE_INDEX_ROW',
+          detail: filename + ' appears in ' + n + ' index rows',
+        });
+      }
+    }
   }
 
   return { spec: spec, violations: violations };
@@ -601,11 +649,13 @@ function lint(opts) {
     docs = [resolveDocArg(repoRoot, opts.doc)];
   }
 
-  const indexed = opts.preRegister ? new Set() : indexedTargets(repoRoot);
+  const rowTargets = opts.preRegister ? [] : indexRowTargets(repoRoot);
+  const indexed = new Set(rowTargets);
+  const indexCounts = countByTarget(rowTargets);
   const violations = [];
   const exempt = [];
   for (const docPath of docs) {
-    const r = lintDoc(repoRoot, docPath, indexed, { preRegister: !!opts.preRegister });
+    const r = lintDoc(repoRoot, docPath, indexed, { preRegister: !!opts.preRegister }, indexCounts);
     for (const v of r.violations) violations.push(v);
     // One entry per exempt document, not one per skipped check — so
     // `exempt.length` reads as a document count.
@@ -627,6 +677,7 @@ module.exports = {
   headerValue: headerValue,
   locateIndexTable: locateIndexTable,
   indexedTargets: indexedTargets,
+  indexRowTargets: indexRowTargets,
   splitLinesPreservingEol: splitLinesPreservingEol,
   stripRef: stripRef,
   tmpNameFor: tmpNameFor,

@@ -40,9 +40,18 @@ function reclaimOwnedProcesses(repoRoot, sessionId, deps) {
     // is not proof of reclaim"; this line is what makes that claim mean
     // something, because it is the only place the incompleteness becomes
     // visible to a human.
-    if (!r.complete || r.unreclaimed.length || r.writeFailures.length || r.budgetExceeded) {
+    // `unverified` counts records left behind because a safety check could NOT
+    // be made (unreadable sibling evidence, unverifiable identity) — a live
+    // owned process is still running and we could not prove it was safe to
+    // touch. Without it in this condition those land in skipped[], which
+    // nothing reads, and the sweep reports as clean. Defaulted rather than
+    // indexed directly so an injected/older reclaimSession cannot throw here.
+    const unverified = (r.unverified || []).length;
+    if (!r.complete || r.unreclaimed.length || r.writeFailures.length
+        || r.budgetExceeded || unverified) {
       process.stderr.write('[mccp:session-reclaim] incomplete — '
         + `reclaimed=${r.reclaimed.length} unreclaimed=${r.unreclaimed.length} `
+        + `unverified=${unverified} `
         + `writeFailures=${r.writeFailures.length} budgetExceeded=${r.budgetExceeded} `
         + `complete=${r.complete} · .claude/state/session-processes/${sessionId}/ 확인\n`);
     }

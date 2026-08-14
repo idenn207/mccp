@@ -571,12 +571,16 @@ test('11e — a repeated pid is probed once (win32 probes cost ~1s of the budget
   assert.strictEqual(probes, 2, 'two distinct pids → two probes, never more');
 });
 
-test('11c — the sibling collector is invoked once per candidate record', () => {
+test('11c — the sibling collector is re-invoked per record, and again before each signal', () => {
   const repo = tmpRepo();
   for (let i = 1; i <= 4; i++) seed(repo, SID, { pid: 300 + i });
   let calls = 0;
   run(repo, { collectSiblingReuse: () => { calls += 1; return []; } });
-  assert.strictEqual(calls, 4, 'one snapshot reused across records would show 1');
+  // TWO per candidate, not one: the reclaimability table sweeps, and then 14a's
+  // re-check sweeps again immediately before the signal — the table's sweep
+  // predates the identity probe, which can burn 5s on win32. A single snapshot
+  // reused across every record would still show 1.
+  assert.strictEqual(calls, 8, 'one snapshot reused across records would show 1');
 });
 
 test('12 — reclaimed records are removed and unreclaimed ones leave an evidence file', () => {
@@ -744,4 +748,86 @@ test('13e — one process that refuses to die cannot starve the rest of the swee
   assert.strictEqual(res.unreclaimed.length, 4, 'each one is recorded, none silently dropped');
   assert.ok(elapsed < 2000,
     'the per-record cap bounds the wait — 4 records took ' + elapsed + 'ms');
+});
+
+// ── 14: the two PR-Codex round-2 findings ────────────────────────────────────
+
+test('14a — a sibling that appears DURING the identity probe still blocks the kill', () => {
+  // The sweep inside isReclaimableBy runs before the probe, and the probe can
+  // burn 5s on win32. A borrower registering inside that window was invisible to
+  // a check made five seconds earlier — and under MCCP_RECLAIM_OUTLIVES=1 that
+  // is a live server killed under a session using it.
+  const repo = tmpRepo();
+  seed(repo, SID, { pid: 4242 });
+  const borrower = {
+    schema: 1, pid: 4242, host: os.hostname(), session_id: 'sess-B', session_pid: 1234,
+    started_at: new Date(START_MS).toISOString(), proc_started_at_ms: START_MS,
+    exec_path: execPathFor(repo), repo_root: repo,
+    kind: 'dashboard-server', lifetime: 'outlives-session', role: 'reuse',
+  };
+  let probed = false;
+  let borrowedYet = false;
+  const killed = [];
+  const res = sp.reclaimSession({
+    repoRoot: repo, sessionId: SID, env: {},
+    kill: (pid) => { killed.push(pid); },
+    isAlive: () => true,
+    // The borrow lands while the probe is in flight — after the table's sweep.
+    probeProcess: () => {
+      probed = true;
+      borrowedYet = true;
+      return { startedAtMs: START_MS, commandLine: 'node "' + execPathFor(repo) + '"', execImage: NODE_IMG };
+    },
+    collectSiblingReuse: () => (borrowedYet ? [borrower] : []),
+    budgetMs: 60000, probeTimeoutMs: 20, termConfirmMaxMs: 60,
+  });
+
+  assert.ok(probed, 'the probe must actually have run — otherwise the window is not exercised');
+  assert.deepStrictEqual(killed, [],
+    'the re-check immediately before the signal must see the borrow the table missed');
+  assert.deepStrictEqual(res.skipped, [{ pid: 4242, reason: 'in_use_by_live_session' }]);
+});
+
+test('14b — a record left because we COULD NOT check is not reported as a clean sweep', () => {
+  const repo = tmpRepo();
+  seed(repo, SID, { pid: 4242 });
+  const res = sp.reclaimSession({
+    repoRoot: repo, sessionId: SID, env: {},
+    kill: () => { throw new Error('must not be reached'); },
+    isAlive: () => true,
+    probeProcess: () => null,          // the platform will not say what this pid is
+    collectSiblingReuse: () => [],
+    budgetMs: 60000, probeTimeoutMs: 20,
+  });
+
+  assert.deepStrictEqual(res.skipped, [{ pid: 4242, reason: 'identity_unverifiable' }]);
+  assert.deepStrictEqual(res.unverified, [{ pid: 4242, reason: 'identity_unverifiable' }],
+    'a live owned process we failed to verify must reach a human, not just skipped[]');
+});
+
+test('14c — expected policy exclusions do NOT raise the unverified alarm', () => {
+  // If routine exclusions tripped the same alarm, the alarm would fire on every
+  // normal session and stop meaning anything.
+  for (const over of [
+    { host: 'some-other-host' },
+    { lifetime: 'outlives-session' },
+    { kind: 'handoff-session', exec_path: 'powershell.exe' },
+  ]) {
+    const repo = tmpRepo();
+    seed(repo, SID, Object.assign({ pid: 4242 }, over));
+    const { res } = run(repo, { probeProcess: okProbe(repo) });
+    assert.strictEqual(res.skipped.length, 1, 'still skipped: ' + JSON.stringify(over));
+    assert.deepStrictEqual(res.unverified, [],
+      'routine policy exclusion must stay quiet: ' + JSON.stringify(over));
+  }
+});
+
+test('14d — unreadable sibling evidence counts as unverified, not as a clean skip', () => {
+  const repo = tmpRepo();
+  seed(repo, SID, { pid: 4242 });
+  const corrupt = [];
+  corrupt.incomplete = true;
+  const { res, killed } = run(repo, { collectSiblingReuse: () => corrupt });
+  assert.deepStrictEqual(killed, []);
+  assert.deepStrictEqual(res.unverified, [{ pid: 4242, reason: 'sibling_evidence_unreadable' }]);
 });

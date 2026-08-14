@@ -108,6 +108,19 @@ const ORPHAN_STALE_MS = 24 * 60 * 60 * 1000;
 const TERM_CONFIRM_POLL_MS = 25;
 const TERM_CONFIRM_MAX_MS = 1000;
 
+// "We could not check" is not "policy says leave it alone", and collapsing the
+// two is how a degraded sweep comes to look like a clean one. A record left
+// because the sibling evidence was unreadable or the identity unverifiable
+// means a LIVE owned process is still running and we could not prove it was
+// safe to touch — precisely the degraded state this registry exists to expose.
+// Policy exclusions (another host, another repo, an outliving lifetime, a
+// handoff) are expected and routine: raising the same alarm for them would
+// train the reader to ignore it, so they stay in skipped[] alone.
+const UNVERIFIED_REASONS = new Set([
+  'identity_unverifiable',
+  'sibling_evidence_unreadable',
+]);
+
 // Not an enforcement device — the enforcement is Task 7's hook (which reads the
 // return value and surfaces it) and Task 9(e)'s consumer whitelist. This string
 // exists so a reader of the record directory cannot mistake absence for success.
@@ -867,20 +880,9 @@ function isReclaimableBy(record, ctx) {
   if (record.session_id !== ctx.sessionId) return { ok: false, reason: 'cross_session' };
   if (!isAlive(record.pid)) return { ok: false, reason: 'already_dead' };
 
-  const siblings = collect(ctx.repoRoot, ctx.sessionId) || [];
-  // The `in_use_by_live_session` row below is only as good as the evidence it
-  // reads. If any of that evidence was unreadable, "no sibling holds this" is
-  // not something we know — it is something we failed to check, and acting on
-  // it kills a process another live session is using.
-  if (siblings.incomplete) {
-    return { ok: false, reason: 'sibling_evidence_unreadable' };
-  }
-  const inUse = siblings.some(function (r) {
-    return r && r.pid === record.pid && r.host === record.host &&
-      canonicalPath(r.repo_root) === canonicalPath(record.repo_root) &&
-      isSiblingLive(r, { host: host, isAlive: isAlive });
-  });
-  if (inUse) return { ok: false, reason: 'in_use_by_live_session' };
+  const hold = siblingHoldReason(record, collect(ctx.repoRoot, ctx.sessionId),
+    { host: host, isAlive: isAlive });
+  if (hold) return { ok: false, reason: hold };
 
   if (record.lifetime === 'outlives-session' && !ctx.allowOutlives) {
     return { ok: false, reason: 'lifetime_outlives_session' };
@@ -911,6 +913,24 @@ function isReclaimableBy(record, ctx) {
   });
   if (verdict !== 'identity_match') return { ok: false, reason: verdict };
   return { ok: true, reason: 'owned_session_scoped' };
+}
+
+// Extracted so the kill-time RE-CHECK (reclaimSession, immediately before the
+// signal) asks this question exactly the way the reclaimability table asked it.
+// Returns a blocking reason string, or null when no live sibling holds it.
+function siblingHoldReason(record, siblings, ctx) {
+  siblings = siblings || [];
+  // This answer is only as good as the evidence it reads. If any of that
+  // evidence was unreadable, "no sibling holds this" is not something we know —
+  // it is something we failed to check, and acting on it kills a process
+  // another live session is using.
+  if (siblings.incomplete) return 'sibling_evidence_unreadable';
+  const inUse = siblings.some(function (r) {
+    return r && r.pid === record.pid && r.host === record.host &&
+      canonicalPath(r.repo_root) === canonicalPath(record.repo_root) &&
+      isSiblingLive(r, { host: ctx.host, isAlive: ctx.isAlive });
+  });
+  return inUse ? 'in_use_by_live_session' : null;
 }
 
 // Extracted from isReclaimableBy so the post-signal exit confirmation
@@ -1015,7 +1035,7 @@ function reclaimSession(opts) {
   const kill = opts.kill || function (pid, signal) { return process.kill(pid, signal); };
 
   const out = {
-    attempted: 0, reclaimed: [], skipped: [], unreclaimed: [],
+    attempted: 0, reclaimed: [], skipped: [], unreclaimed: [], unverified: [],
     writeFailures: [], complete: true, budgetExceeded: false,
   };
   if (!sessionId || !isSafeSessionId(sessionId)) {
@@ -1185,7 +1205,33 @@ function reclaimSession(opts) {
         // is left to scanForeignOrphans so the two paths never race to unlink
         // the same file.
         out.skipped.push({ pid: pid, reason: verdict.reason });
+        // …but a verification FAILURE also has to reach a human. skipped[] is
+        // read by nobody: the SessionEnd consumer gates its warning on
+        // complete/unreclaimed/writeFailures/budgetExceeded, so a live owned
+        // process left behind because we could not check it was being reported
+        // as a clean sweep.
+        if (UNVERIFIED_REASONS.has(verdict.reason)) {
+          out.unverified.push({ pid: pid, reason: verdict.reason });
+        }
       }
+      continue;
+    }
+
+    // §D11, sharpened. The sibling sweep inside isReclaimableBy runs BEFORE the
+    // identity probe, and that probe can burn up to PROBE_TIMEOUT_WIN32_MS (5s).
+    // A session that borrows this process and registers its reuse record inside
+    // that window is invisible to a check made five seconds earlier — and with
+    // MCCP_RECLAIM_OUTLIVES=1 that is a live server killed under a session
+    // actively using it. Re-asking HERE narrows the window from the probe
+    // duration to the gap between this check and the syscall.
+    // This does not close TOCTOU; only a shared lock would. But a 5-second hole
+    // is not a TOCTOU residual, it is wide enough to lose a race in practice,
+    // and the fail-closed direction costs only a missed reclaim.
+    const lateHold = siblingHoldReason(rec, collectWithDeadline(repoRoot, sessionId),
+      { host: host, isAlive: isAlive });
+    if (lateHold) {
+      out.skipped.push({ pid: pid, reason: lateHold });
+      if (UNVERIFIED_REASONS.has(lateHold)) out.unverified.push({ pid: pid, reason: lateHold });
       continue;
     }
 

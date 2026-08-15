@@ -2,7 +2,27 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.11`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.12`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.23.12] — 2026-08-14
+
+**diverse-agent-review M6 — 설치된 런타임에서 패널 실측 (단일 milestone → patch bump)** — 동작을 바꾸는 코드 변경은 **0줄**이다. 이 milestone의 산출물은 문서와 **측정 기록**이며, 코드 diff는 version 리터럴 3건(`plugin.json` · `renderer/html.js` page-foot · `renderer/markdown.js` derived 줄) 동기뿐이다.
+
+M6의 원래 목표는 "패널 승인 경로 1회 완주"였다. 그 목표를 향해 게이트를 **4회 라이브로 완주 시도**했고 결과는 승인이 아니라 **데이터**였다 — PRD의 지표 정직성 규칙(UI3)이 요구하는 대로 관측된 것을 관측된 대로 적는다.
+
+### Observed
+
+- **O1 — 패널은 4회 라이브 실행에서 승인을 0건 발급했다.** 매 라운드 직전 findings를 전량 흡수한 뒤 재제출했고, L1은 4회 모두 `converged`(violations 0)였으므로 막은 것은 mechanical 층이 아니라 L2다. findings 24 → 8 → 7 → 19건, 관점 단위로는 **16회 중 `pass` 2회**. R3→R4에서 findings가 역전했는데 그 사이 변경은 표면을 *줄이려는* 구조 재편이었다 — 재편이 새 표면을 만들었다.
+- **O2 — 차단 경로 wall-clock은 4회 모두 목표(10분) 이내였다.** `307,578` · `342,767` · `321,954` · `280,209` ms(평균 약 313초). 다만 이는 차단 경로 수치이며 통과 경로 지표를 대신하지 않는다(UI10 — 인접 측정을 목표 측정으로 승격하지 않는다). 증거 강도도 균일하지 않아 R4만 파일로 남고 R1–R3은 세션 관측이다.
+- **O3 — 계측 표면이 라운드 축적을 지원하지 않는다(M4 계측의 남은 절반).** 레코드 경로 slug가 PRD 경로에서 파생돼 `cmdRecord`가 무조건 덮어쓰므로 재실행이 이전 기록을 지운다 — 4회를 돌렸고 잔존 레코드는 1건이다. M4가 이것을 못 본 이유는 게이트를 한 번만 돌렸기 때문이다.
+
+### Changed
+
+- `.claude/prds/diverse-agent-review.prd.md` — #6 Outcome을 관측 결과로 재정의하고 `complete`. 통과 경로 지표는 **forward-only 유지**(표본 0), 차단 경로 행에 4회 수치 기입, Evidence에 O1~O3. 미달·신규 축을 **#7**(budget 라이브 발화) · **#8**(quorum 캘리브레이션) · **#9**(계측 재실행 편향, #5 이후)로 신설.
+- `.claude/reviews/plan-review-diverse-agent-review-m6-r4-blocked.md` — O3의 덮어쓰기에서 살아남은 유일한 레코드를 파일명으로 고정(측정 블록은 생성된 그대로 무변경).
+- `.claude/PRPs/reports/diverse-agent-review-m6-report.md` — 근거 · provenance · 승인자 기록.
+
+> **version**: plan은 `1.23.9`를 지정했으나 그 번호는 2026-08-10에 이미 발행됐고 main은 `1.23.11`이다. §3.7 forward-only 상향에 따라 `1.23.12`로 올렸다.
 
 ## [1.23.11] — 2026-08-14
 

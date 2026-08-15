@@ -19,6 +19,15 @@ const ALIAS_MATRIX = {
     requires_preceding: [],
     design_optional: [],
   },
+  'mccp:meta-research': {
+    // Research is not a gate: it writes no receipt and requires none
+    // (GATE_IDS is untouched). Listed here for the same reason as plan-prd —
+    // so hooks recognize the command explicitly rather than falling through to
+    // "unknown command, allow". Empty arrays are the contract, not an oversight.
+    produces: [],
+    requires_preceding: [],
+    design_optional: [],
+  },
   'mccp:plan': {
     produces: ['mccp-plan-codex'],
     requires_preceding: [],

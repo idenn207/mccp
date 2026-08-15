@@ -8,7 +8,8 @@
     "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "100000",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50",
     "MCCP_DISABLED_HOOKS": "pre:bash:gateguard-fact-force,pre:edit-write:gateguard-fact-force",
-    "MCCP_RECEIPT_DEBUG": "1"
+    "MCCP_RECEIPT_DEBUG": "1",
+    "MCCP_GATE_ROUND_CAP": "1"
   },
   "model": "opus",
   "outputStyle": "default",

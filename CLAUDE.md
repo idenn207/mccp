@@ -593,6 +593,30 @@ compliance는 `claimed/total`로 **계측**하되 판정은 이분법이다: `fu
 
 ---
 
+### 3.14 (임시) 리뷰 finding 수용 임계 — HIGH 이상만 흡수
+
+> **임시 규칙이다. 아래 「해제 조건」이 충족되면 이 절을 통째로 삭제한다.**
+> 도입 2026-08-13 · 사유: `quorum.js:175-181` 누수(F6) + 리뷰어 verdict 불안정 실측.
+
+**규칙** — 모든 리뷰 산출물(게이트 패널 · Codex · `/mccp:santa-loop` · 서브에이전트 리뷰)에서
+**CRITICAL·HIGH만 그 자리에서 흡수**한다. MEDIUM·LOW, 그리고 **기각한 HIGH**는 고치지 말고
+[codex-findings-backlog.md](.claude/plans/codex-findings-backlog.md)에 1줄 append한다.
+
+- **기각에는 증거를 붙인다.** 심각도를 낮추거나 기각할 때는 backlog 줄에 *왜*를 file:line으로 남긴다.
+  증거 없는 강등은 이 규칙의 남용이며, 그것을 막는 것이 append 의무의 목적이다.
+- **`/mccp:santa-loop` 우선순위 override** — 커맨드 본문 Step 5는 "flagged 전건 수정"을 요구하지만
+  이 절이 그 위에 선다: HIGH/CRITICAL만 고치고 나머지는 backlog. 라운드 판정도 마찬가지로
+  **미흡수 HIGH/CRITICAL 부재**를 기준으로 하며, 리뷰어가 `verdict=fail`을 내도 그 리뷰어의
+  자기 최고 severity가 MEDIUM 이하이거나 증거로 기각됐다면 수렴으로 본다(그 판단은 backlog에 기록).
+- **바뀌지 않는 것** — receipt 게이트 자체(`MCCP_RECEIPT_GATE_MODE`), fail-closed 불변식,
+  `GATE_IDS`, ship gate verdict 판정. 이 절은 *finding 수용 범위*만 정하고 게이트를 끄지 않는다.
+
+**해제 조건** — `quorum.js`가 bare `verdict='fail'`을 `severity:'FAIL'` blocking finding으로
+합성하지 않게 되면(= 자기 findings의 최고 severity로 재계산하거나 계약 위반을 `malformed`로 분류),
+이 절과 backlog의 해당 항목을 함께 정리한다.
+
+---
+
 ## 4. 자주 쓰는 명령 (Cheat Sheet)
 
 ```bash
@@ -609,6 +633,10 @@ compliance는 `claimed/total`로 **계측**하되 판정은 이분법이다: `fu
 /mccp:code-review                   # 로컬 변경 review (PR 번호 주면 PR mode)
 /mccp:prp-commit <자연어 설명>      # 자연어 파일 타겟팅 커밋
 /mccp:prp-pr                        # 디자인/보안/Codex 게이트 통과 후 PR
+
+# 메타 조사 (v1.24.0) — PRD를 쓰기 전 단계. 게이트 아님(receipt 미발행)
+/mccp:meta-research <주제>          # 조사 골격 5 phase 고정 + .claude/_meta/ 규격 산출물 + README 색인 등재
+node plugins/mccp/scripts/lib/meta-research.js lint --all --json   # 전 산출물 형식/전제/색인 검사
 
 # Receipt 운영
 /mccp:receipt-status                # 현재 receipt chain 상태

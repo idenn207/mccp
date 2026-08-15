@@ -2,9 +2,9 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.23.12`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.25.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
-## [1.23.12] — 2026-08-14
+## [1.25.1] — 2026-08-14
 
 **diverse-agent-review M6 — 설치된 런타임에서 패널 실측 (단일 milestone → patch bump)** — 동작을 바꾸는 코드 변경은 **0줄**이다. 이 milestone의 산출물은 문서와 **측정 기록**이며, 코드 diff는 version 리터럴 3건(`plugin.json` · `renderer/html.js` page-foot · `renderer/markdown.js` derived 줄) 동기뿐이다.
 
@@ -22,7 +22,88 @@ M6의 원래 목표는 "패널 승인 경로 1회 완주"였다. 그 목표를 �
 - `.claude/reviews/plan-review-diverse-agent-review-m6-r4-blocked.md` — O3의 덮어쓰기에서 살아남은 유일한 레코드를 파일명으로 고정(측정 블록은 생성된 그대로 무변경).
 - `.claude/PRPs/reports/diverse-agent-review-m6-report.md` — 근거 · provenance · 승인자 기록.
 
-> **version**: plan은 `1.23.9`를 지정했으나 그 번호는 2026-08-10에 이미 발행됐고 main은 `1.23.11`이다. §3.7 forward-only 상향에 따라 `1.23.12`로 올렸다.
+> **version**: 이 항목은 번호를 두 번 옮겼다. plan이 지정한 `1.23.9`는 2026-08-10에 이미 발행돼 `1.23.12`로 올렸고, 그 뒤 main이 `1.24.0`(meta-research-command M1)과 `1.25.0`(setup-gitignore M1)을 연속 발행하면서 `1.23.12`는 **중복이 아니라 역행**이 됐다 — 그대로 머지하면 `plugin.json`이 내려간다. §3.7 forward-only 상향에 따라 발행된 `1.25.0`에서 한 칸 올린 `1.25.1`이다(단일 milestone ship이므로 patch 축). 앞선 선례들이 전부 같은 번호를 두 브랜치가 주장한 **중복**이었던 것과 달리, 이번은 base가 앞질러 가 이 브랜치의 선언이 **하향**이 된 경우다 — 탐지 신호도 CHANGELOG 헤딩 중복이 아니라 헤딩 **순서 이탈**이었다.
+
+## [1.25.0] — 2026-08-13
+
+**setup-gitignore M1 — `/mccp:setup` gitignore 프로비저닝 (PRD 전 milestone 종료 → minor bump, 1.24.0 → 1.25.0)** — 다른 프로젝트에 mccp를 설치한 사용자가 첫 커밋에서 런타임 산출물(receipt·lock·hook-trace shard·derive cache)을 함께 커밋하던 문제를 닫는다. `/mccp:setup`에 **Phase 5**를 신설해 정본 무시 규칙 30줄을 대상 저장소 `.gitignore`에 marker 블록으로 멱등 병합한다. **정본에는 프로비저너 자신의 부산물(`.gitignore.lock`·`.gitignore.bak`·`.gitignore.*.tmp`)도 포함된다** — 런타임 산출물을 git 밖에 두는 것이 목적인 도구가 자기 산출물만 예외로 두면 `.bak`(실행 직전 파일의 축자 사본)이 `git status`에 영구 잔존한다. **ship receipt(`mccp-pr-codex`)는 negation 규칙으로 추적 대상에 남는다** — §3.12 증거 내구성 계약이 설치 산출물에서도 성립해야 하며, 줄 순서가 뒤바뀌면 negation이 무력화되므로 인덱스 부등식 + `git check-ignore` + **실제 `git add` 후 `ls-files --stage`** 3층으로 단언한다(`check-ignore`는 "무시되지 않음"까지만 증명해 PRD의 "tracked 확인"에 미달).
+
+**marker 바깥 줄을 구조적으로 보존하는 것이 이 milestone의 설계 중심이다.** `create`는 `'wx'` 배타 생성, `append`는 append-only(`'a'`) — 기존 바이트를 읽고 다시 쓰지 않으므로 유실될 대상 자체가 없다(UI2가 방어의 결과가 아니라 구조적 성질). 정본이 바뀌면 `update`가 **marker 구간만** 치환하고 바깥 줄은 `planMerge`가 그대로 옮긴다(`.bak` + `sourceHash` 재검사 + `<target>.<pid>.<rand>.tmp`). `<target>.lock`(60초 lease + PID 생존 tri-state)은 **전 쓰기 경로**를 직렬화한다 — `append`에서 빠지면 병렬 writer가 각자 블록을 붙여 파일이 영구 `damaged`가 된다.
+
+`git rev-parse` nonzero를 **3갈래로 가른다**: git의 표준 부정 진단에 매칭될 때만 `not-a-git-repo`(정상 skip, exit 0)이고, dubious ownership·저장소 손상·오호출은 `git-error`(exit 1), spawn 실패는 `git-unavailable`(exit 1)이다. 뭉개면 "규칙 미설치인데 성공 보고"라는 fail-open이 된다. stderr 판정이 번역에 깨지지 않도록 spawn 시 `LC_ALL=C`를 고정한다.
+
+정본과 이 repo `.gitignore`의 **양방향 drift lint**를 전용 워크플로 `.github/workflows/gitignore-drift.yml`(matrix에 `windows-latest` 포함 — CRLF 완화가 주장이 아니라 실행이 되는 조건)로 등록한다. **보증 범위는 "대상 파일이 바뀐 PR에서 lint가 실행되고 drift면 red"까지다** — 그 red가 머지를 막는 것은 branch protection 설정이라 repo 파일로 표현할 수 없고, `ROLLOUT-1`로 명시된 미완료 배포 전제로 남는다. **탐지 경계도 함께 명시한다**: 두 등식은 집합 *비교*이므로 어떤 경로가 정본과 repo `.gitignore` **양쪽 모두에 없으면** 두 집합이 그대로여서 초록이다. 즉 강제되는 것은 "한쪽에 들어온 항목은 다른 쪽에도 분류될 것"이지 "코드가 쓰는 모든 런타임 경로가 어딘가에 선언될 것"이 아니다 — 후자를 닫으려면 producer 쪽 인벤토리가 필요하고 그건 별도 축으로 이연했다.
+
+### Added
+- `plugins/mccp/scripts/lib/gitignore-provision.js` — 정본 블록(`MCCP_IGNORE_BLOCK` 30 entries) + `REPO_ONLY`(21, 제외 사유 동봉) + 순수 merge 오라클(`planMerge`) + `locateManagedBlock` 엄격 3-state 판정 + advisory lock + 오염 스캔 + CLI. `reason`은 **폐쇄 enum 8종**이며 비-`ProvisionError` 예외는 전부 `internal-error`로 매핑된다(Implement-Codex F1 흡수 — OS/Node별 메시지가 프로토콜 값으로 새는 것을 차단).
+- `plugins/mccp/scripts/lib/tests/gitignore-provision.test.js` — 84 tests. merge 의미론 · 손상 marker 4케이스 · `spawnSync` 6행 판정표(스텁) · 실제 write E2E · 동시성(중간 편집 주입 · 병렬 writer · lease 만료 · 회수 신원 재검증 · tmp 고유성) · drift lint(양방향 4단언) · `setup.md` 계약 16항목 · 워크플로 트리거 lint의 **단일 소유처**.
+- `.github/workflows/gitignore-drift.yml` — drift 전용 게이트. `paths` 필터를 lint의 판정 입력과 같은 집합으로 두어 스텝이 죽은 코드가 되지 않게 한다. matrix의 `windows-latest`가 보증하는 것은 **write/lock/symlink 경로의 플랫폼 동등성**이다 — checkout 바이트가 LF인 것은 `.gitattributes`(`* text=auto eol=lf`)가 이미 정하므로 러너 EOL 설정으로 얻는 보증이 아니다(그 사실 자체를 test가 단언한다).
+
+### Changed
+- `plugins/mccp/commands/setup.md` — Phase 5(gitignore 프로비저닝) 신설, 기존 최종 보고를 Phase 6으로 이동. `--skip-gitignore` 플래그 + `Bash(git:*)` 권한 추가. exit-code 전파와 "exit 0 + 판독 불가 stdout도 실패"가 본문 bash에 코드로 고정된다. **flag는 셸 변수로 명시 대입한다** — 미대입 `${DRY_RUN:+--dry-run}`은 빈 문자열로 전개돼 "탐지 전용" 실행이 실제 write가 되며, 계약 lint 13번이 "bash fence가 보간하는 변수는 같은 파일에서 대입될 것"으로 이 결함군 전체를 고정한다(기존 `MCCP_TMP` 단항 규칙의 일반화).
+- **정본에 `.claude/state/journal/`을 추가했다 (origin/main 병합 중 drift lint가 실측 검출).** main의 multi-session-work-loop M5가 이 repo `.gitignore`에 그 줄을 넣었고, 병합 직후 "모든 repo 항목은 정본 또는 REPO_ONLY로 분류될 것" 등식이 red가 됐다 — 이 lint가 존재하는 이유 그대로의 발화다. M5 저널은 `state-writer.update()`가 **모든** mccp 세션에서 만드는 per-session 산출물이므로 REPO_ONLY(이 repo 사정)가 아니라 정본이며, 이로써 정본은 29 → 30줄이 된다. plan 문서의 `29개` 표기는 계획 시점 기록이라 소급 편집하지 않는다.
+- **오염 스캔의 소유처가 셸에서 프로비저너로 이동했다.** `git ls-files -i -c --exclude-standard`는 이제 `provision()`이 **자신이 해석한 repo root**에 대해 실행하고 결과를 `pollution:{ok,files}`로 반환한다. setup.md가 직접 실행하던 시절엔 스캔이 호출자 cwd 스코프여서, 하위 디렉토리에서 실행하면 그 하위 트리만 훑고 그 부분 결과를 깨끗한 결과와 **같은 모양으로** 보고했다.
+- `plugins/mccp/.claude-plugin/plugin.json` · `renderer/html.js` page-foot · `renderer/markdown.js` derived 줄 — `1.25.0` 동기. 상단 note의 `currently` 값이 `1.23.6`에 멈춰 있던 선재 drift도 함께 정정. **버전은 §3.7 forward-only 상향으로 `1.24.0`에서 한 칸 올렸다** — 이 브랜치는 원래 `1.24.0`을 선언했으나 병렬 브랜치 meta-research-command M1이 먼저 머지되며 main이 그 번호를 발행했다(7번째 재발). 발행된 번호는 불가침이고, 이 항목은 PRD 전 milestone 종료라 patch가 아니라 minor 축이므로 `1.25.0`이 한 칸이다.
+- **`--force-update` 동의 게이트를 철회하고 `update`를 기본 동작으로 바꿨다 (PR-Codex F1, HIGH).** 정본 블록이 바뀌면 이전에는 `action:'update-required'`만 보고하고 쓰지 않았는데, **블록에 plugin version이 박혀 있어** 버전 bump만으로 기존 설치 전부가 영구히 그 상태가 됐다. `/mccp:setup`은 그 플래그를 스스로 주지 않으므로 사용자가 수동으로 CLI를 돌리기 전까지 낡은 규칙에 머물렀고, 그동안 setup은 **성공을 보고**했다 — 즉 "정본 규칙을 멱등 병합한다"는 약속이 첫 업그레이드 이후 조용히 성립하지 않았다. 게이트의 **범위가 어긋나 있었다**: 동의가 보호하려던 것은 *사용자의 줄*인데 `update`가 치환하는 것은 *도구가 소유한 marker 구간*뿐이고 바깥 줄은 구조적으로 보존된다(인덱스 부등식 test가 이미 단언). `--force-update` 플래그와 `update-required` action을 **제거**했다. `.bak`·`sourceHash` 재검사·tmp+rename·lock은 그대로 `update` 경로에 적용된다 — 철회한 것은 동의 요구이지 복구 수단이 아니다.
+- **`update`가 블록 바깥 줄의 개행을 정규화하던 문제 (PR-Codex F3, HIGH).** `planMerge`가 `split(/\r?\n/)` 후 단일 `eol`로 rejoin해, 혼합 개행 파일이 통째로 정규화돼 돌아왔다 — 관리 블록 **바깥**, 즉 사용자 바이트까지. 명시 플래그 뒤에 있을 땐 견딜 만했지만 F1로 기본 실행이 되면서 정본이 바뀔 때마다 조용히 사용자 내용을 건드리게 됐다. 이제 원문에 대해 오프셋 스플라이스를 수행해 바깥 각 줄이 **자신의 terminator를 그대로** 유지하고, END marker의 terminator를 그대로 이어 붙여 미종결 마지막 줄이 없던 개행을 얻지 않는다.
+- **블록 안에 "여기 줄은 교체된다" 경고 2줄을 넣었다 (PR-Codex F5, HIGH — REJECTED_BY_DESIGN + 피해 완화).** marker 사이 줄이 `update`에서 교체되는 것은 관리 블록의 정의이지 결함이 아니며(Plan-Codex 이력 F15에서 이미 같은 축을 기각), 임의 in-block 줄을 보존하면 블록이 유지 불가능해진다. 다만 `--force-update` 철회로 그 교체가 일반 실행에서 일어나게 됐으므로, "managed by"만으로는 편집하려는 사람에게 도달하지 않는다. 경고를 블록 **안에** 실어 그 사람에게 닿게 하고, 이미 편집한 경우의 복구는 `.bak`이 맡는다.
+- **`--dry-run`이 실제 줄을 보여주지 않던 문제 + update 문구 (PR-Codex F4·F6, MEDIUM).** 줄 수만 보고했는데, `update`가 기본 실행이 된 이상 dry-run은 무엇이 바뀌는지 미리 볼 **유일한** 수단이라 내용을 감추면 preview가 아니다. 이제 줄을 출력한다. 또한 `addedLines`는 update에서 *전체 교체 블록*이라 "N줄 추가"는 추가를 과장하고 제거를 감춘다 — action별로 문구를 갈라 update는 "기존 블록을 N줄로 **교체**, 바깥 줄 유지, 교체 전 파일은 `.bak`"으로 보고한다.
+- **블록 교체가 `.gitignore`의 파일 mode를 바꾸던 문제 (PR-Codex F7, MEDIUM).** `rename()`은 inode를 교체하므로 대상이 tmp의 mode를 물려받는데, tmp는 쓰기 중 world-readable이 되지 않도록 의도적으로 `0600`이다. 그 mode가 교체를 넘어 살아남으면 사용자의 `0644` `.gitignore`가 조용히 owner-only가 되어 공유 checkout이나 서비스 계정이 읽지 못한다. 이제 대상의 mode를 읽어 rename 직전에 tmp에 복원한다 — 하드닝은 그것이 필요한 창(쓰기 구간)만 덮고 그 뒤로 남지 않는다.
+- **append 부분 실패가 파일을 영구 파손 상태로 남기던 문제 (PR-Codex F8, HIGH).** `writeFileSync`는 짧은 쓰기를 재시도하지만 도중에 진짜로 실패하면(ENOSPC·quota·I/O) 이미 쓴 바이트는 남는다. 그 바이트에는 orphan BEGIN marker가 들어 있어 **이후 모든 실행이 `marker-damaged`로 죽고** 수동 복구를 요구한다 — 일시적 디스크 부족이 영구히 막힌 파일이 된다. 이제 실패 시 append 이전 길이로 되돌려 실패를 디스크상 no-op으로 만든다(그래야 "다시 실행하세요"가 참이 된다). 롤백은 **전적으로 descriptor 위에서** 이뤄지며, 여기서 플랫폼이 갈린다. 경로 기반 truncate는 close와 truncate 사이에 다른 프로세스가 `.gitignore`를 원자적으로 교체하면 **새 파일을 자르므로** 배제했다. `O_APPEND`를 버리고 명시 오프셋에 쓰면 Windows에서도 fd truncate가 되지만, 그 경우 `fstat`과 write 사이에 끼어든 writer의 바이트를 **덮어쓴다** — 실패 경로를 정리하려고 **성공 경로를 손상시키는** 맞바꿈이라 되돌렸다. 따라서 `O_APPEND`를 유지한다: 모든 chunk가 원자적으로 실제 끝에 붙어 동시 append를 절대 덮어쓰지 않는다. 대가는 `O_APPEND` fd의 `ftruncate`가 Windows에서 EPERM이라 **그 플랫폼에서는 롤백이 불가능**하다는 것이고, 우회하는 대신 오류 메시지가 "롤백되지 않았으니 marker 사이를 직접 지우고 재실행하라"고 정확히 말한다. POSIX는 롤백하고 Windows는 보고한다 — test가 두 계약을 각각 단언한다.
+- **오염 스캔을 정본 규칙 범위로 한정했다 (PR-Codex F2, MEDIUM).** `git ls-files -i -c --exclude-standard`는 저장소의 **전체** ignore 설정을 평가하므로, 사용자의 기존 `.gitignore`나 `.git/info/exclude`·global ignore로 이미 무시되던 tracked 파일까지 "이번 프로비저닝이 새로 무시하게 된 파일"로 보고하고 `git rm --cached`를 권했다 — 이 도구가 건드린 적 없는 파일을 untrack하도록 안내하는 것이며, UI4가 범위 밖으로 뺀 두 채널을 뒷문으로 끌어들였다. 이제 정본 패턴만 담은 임시 exclude 파일을 `-X`로 넘겨(`--exclude-standard` 없이) **우리 규칙이 무시하는 것만** 보고한다.
+
+### Fixed
+- **advisory lock 회수 경쟁** — 두 프로세스가 같은 stale lock을 동시에 회수 가능으로 판정하면, 느린 쪽의 `unlink`가 빠른 쪽이 방금 만든 **신규 lock**을 지워 둘 다 임계구역에 들어갔다. 판정 시점의 신원 `(token, mtimeMs)`을 unlink 직전 재검증한다. heartbeat가 mtime을 갱신하는 것 자체가 "회수하지 말라"는 신호이므로 token 단독 비교로는 부족하다.
+- **lock 대기의 busy-wait** — `while (Date.now() < until) {}`가 대기 전체(기본 10초, env로 상향 가능) 동안 코어 하나를 100% 점유했다. 주석이 근거로 든 "milliseconds long"은 임계구역 길이이지 대기 길이가 아니다. `Atomics.wait` 기반 동기 sleep으로 교체.
+- `MCCP_GITIGNORE_LOCK_WAIT_MS=0`(대기 없이 즉시 실패)이 `|| LOCK_WAIT_MS`에 걸려 10초 기본값으로 되돌아가던 문제. 명시적 지시가 그 반대로 해석됐다.
+- `--repo`가 값 없이(또는 `--repo --json`으로) 주어지면 조용히 cwd로 폴백하거나 `--json`이라는 이름의 디렉토리를 대상으로 삼았다 — 둘 다 **호출자가 지정하지 않은 저장소에 쓰는** 경로다. 이제 usage 오류(exit 2).
+- `plugin.json` 판독이 repo 해석보다 먼저라, non-git 디렉토리에서 manifest가 손상되면 문서화된 skip(exit 0) 대신 exit 1이 났다.
+- `applyMerge`가 미인식 action을 whole-file rewrite 경로로 흘려보낼 수 있던 fallthrough를 명시 거부로 바꿨다(도달 불가였던 `update-required` 분기 제거).
+- **`--dry-run`이 하지 않은 쓰기를 보고하던 문제.** dry run은 실제 실행과 **같은 action**(`create`/`append`)을 반환한다 — 그게 preview의 정의다 — 는데 Phase 5 본문이 action만 보고 분기해 "`.gitignore` 갱신됨"을 출력했다. 실측: 빈 저장소에서 `--dry-run`이 `action=create` · `dryRun=true` · `addedLines=59`를 반환하고 파일은 생성되지 않았는데 본문은 갱신을 보고했다. 게다가 계약이 요구한 "추가된 줄 수 보고"와 "`--dry-run`은 `addedLines`를 출력"을 본문이 **한 번도 이행하지 않았고**(`addedLines`를 읽는 코드가 없음), dry run에서 `pollution`이 null인 것을 "검사 실패"로 오인해 WARNING까지 냈다. `dryRun` 분기 + `addedLines` 소비로 셋을 함께 닫았다. 이는 같은 사이클이 이미 고친 `${DRY_RUN:+--dry-run}` HIGH와 **같은 결함군의 반대편**(호출 측이 아니라 보고 측)이다.
+- **계약 lint를 14 → 16항목으로 확장**해 위 결함군을 기계적으로 고정했다. 두 신규 항목은 **속성 접근(`.addedLines` / `.dryRun`)에 앵커링**한다 — bash fence의 주석이 그 필드명을 언급하므로 단순 단어 매칭은 본문이 아무것도 읽지 않아도 초록이 된다(실측으로 확인 후 정정).
+- **블록 교체의 rename 직전 재검사.** hash 검사와 `renameSync` 사이에 `.bak` 쓰기 + tmp 쓰기가 들어 있어, 창이 **파일 쓰기 두 번**만큼 넓었다. 교체 직전 재검사로 창을 syscall 몇 개 수준으로 줄인다. **경쟁을 닫지는 못한다** — "변경되지 않았을 때만 교체"하는 원자적 rename이 portable하게 존재하지 않으므로, 협조하지 않는 writer는 남은 틈에 여전히 끼어들 수 있다. 직렬화의 본체는 advisory lock이고 이건 비협조 writer에 대해 남아 있던 마지막 값싼 축소다. 첫 검사를 비활성화해도 이 재검사가 같은 시나리오를 잡는 것을 변이로 확인했다(=죽은 코드 아님).
+- **drift 게이트가 `.gitattributes` 변경에 발화하지 않던 문제.** 테스트가 `.gitattributes`의 `* text=auto eol=lf` 고정을 단언하는데 워크플로 `paths` 필터에는 그 파일이 없었다 — 즉 그 파일만 바꾸는 PR은 자신을 지키는 단언을 **한 번도 실행하지 않고** LF 보증을 은퇴시킬 수 있었다. 필터가 "정확히 lint의 판정 입력"이라던 워크플로 자신의 주석과도 어긋난다. `paths`에 추가하고, 트리거 lint가 그 항목을 요구하도록 함께 고정했다.
+- **`REPO_ONLY`의 역방향 단언 부재.** drift lint는 "정본 → repo" 방향만 강제하고 "`REPO_ONLY` 각 행이 실제로 이 repo에 존재하는가"는 검사하지 않았다. `REPO_ONLY`는 "이 repo가 carry하지만 배포하지 않는 항목"으로 문서화돼 있으므로, repo가 그 줄을 버리면 그 행은 **없는 파일에 대한 주장**이 되고 나중에 결정의 증거로 읽힌다. 현재 21행 전부가 실재함을 실측한 뒤(위반 0) 그 상태를 단언으로 고정했다.
+- **빈 `.gitignore`가 없는 `.gitignore`와 다른 바이트를 만들던 문제.** 파일이 없으면 `create`가 블록으로 시작하는 파일을 쓰지만, 파일이 있고 비어 있으면 `append`가 앞에 빈 줄을 하나 붙였다 — 같은 종료 상태를 서술하는 두 경로가 관리 블록 **바깥에** 아무도 쓰지 않은 줄을 두고 갈렸다. 빈 줄은 사용자 내용과 블록을 띄우기 위한 구분자이므로 띄울 내용이 없을 때는 생성하지 않는다(내용이 있을 때 구분자가 유지되는 것도 함께 단언한다 — 반대 방향 과잉교정 차단).
+
+### Security
+- `.gitignore` 대상이 **symlink면 거부**한다(`reason:'symlink-target'`, exit 1, 파일 무변경). Node `fs`는 기본적으로 링크를 따르므로 append와 블록 교체가 임의 파일에 쓸 수 있었다. 안전 경계를 계산해 허용하지 않고 거부를 택한 것은 허용 판정 로직 자체가 새 공격면이기 때문(security-reviewer S1).
+- **거부 범위를 결정적 write 경로 전체로 확장했다** — 이전에는 대상 `.gitignore`만 검사해 `.gitignore.bak`이 무방비였다. `.bak`은 경로가 대상만큼 결정적이라 동일하게 사전 배치가 가능하고 기본 `'w'` 쓰기는 링크를 따르므로, `.gitignore.bak -> ~/.bashrc`를 심어두면 블록 교체 시 사용자의 `.gitignore`(공격자가 repo-write를 가졌다면 그 줄 내용까지 통제 가능)가 그 파일에 얹혔다. 저장소 쓰기 권한이 저장소 **밖 임의 경로에 대한 임의 내용 쓰기**로 확대되는 경로다. 이제 `.bak`도 lstat으로 거부하고, 검사와 쓰기 사이의 창은 unlink + `'wx'` 배타 생성으로 닫는다(그 사이 다시 심긴 링크는 따라가는 대신 생성이 실패한다). tmp도 같은 이유로 `'wx'`로 바꿨다 — pid + nonce라 사전 배치가 비현실적이므로 이쪽은 하중을 받는 절반이 아니라 값싼 절반이다.
+- **append 경로의 symlink TOCTOU를 `O_NOFOLLOW`로 닫았다.** lstat은 check-then-use라 검사와 `appendFileSync` 사이에 대상이 symlink로 교체될 수 있었고, `'a'`는 링크를 따른다. `fs.openSync(target, APPEND_FLAGS)`로 바꿔 **open 자체가 거부**하게 했다(`ELOOP` → `reason:'symlink-target'`) — 창을 좁히는 것과 닫는 것의 차이다. Windows는 이 상수를 정의하지 않아 lstat 단독으로 강등되며(그쪽은 symlink 생성 자체가 권한/개발자 모드를 요구한다), 따라서 이 가드의 실증은 CI의 `ubuntu-latest`가 소유한다.
+- lock 경로도 symlink면 **명시 거부**한다. 배타 생성이 이미 링크를 따르지 않아(O_EXCL은 링크에서 EEXIST) 쓰기 노출은 애초에 없었지만, EEXIST가 이 루프에서는 "다른 writer가 점유 중"이라는 신호라 가드가 없으면 lease를 다 소진한 뒤 **존재하지 않는 live writer**를 탓하며 실패했다. 고친 것은 오류 계약이지 쓰기 노출이 아니다.
+- lock · tmp · `.bak`을 `0o600`으로 생성한다. `.bak`은 사용자 파일의 축자 사본이고 tmp는 기본 모드에서 world-readable이었다(S2·S3).
+
+## [1.24.0] — 2026-08-14
+
+**meta-research-command M1 — 메타 조사 커맨드 (PRD 전 milestone 완료 → minor bump)** — `/mccp:*` 21개가 전부 *만들기*와 *점검* 축이라, "이 문제의 근인이 무엇이고 어떤 선택지가 있는가"를 조사해 남기는 축이 비어 있었다. 그 작업은 이미 네 번 반복됐고(`.claude/_meta/` 수작업 산출물 5종), 절차가 문서화돼 있지 않아 산출물의 품질과 형식이 매번 달랐다. 더 나쁜 것은 **전제의 유효기간을 표시할 자리가 없었다**는 점이다 — `diverse-agent-review-analysis.md` §1.3의 4축 경고는 M1 ship으로 무효화됐으나 그 사실이 6일간 문서에 반영되지 않았다.
+
+**보증하는 것은 셋뿐이고 그 이상을 주장하지 않는다** — (1) 조사 골격이 phase로 고정된다 · (2) 산출물이 **무엇을 근거로 어느 시점 코드를 보고** 판정했는지를 기재하고 그 참조 경로의 실존이 기계 검증된다 · (3) 모든 산출물이 색인에서 1홉 도달한다. **조사 품질은 강제하지 않는다** — PRD Risk 1이 이미 인정한 한계이며 커맨드 본문에 명시했다.
+
+### Added
+
+- `plugins/mccp/commands/meta-research.md` — 5 phase 고정(SCAFFOLD → EVIDENCE → PRIOR ART → PRECEDENT → VERDICT+REGISTER). Phase 4의 세 호출은 `lint --pre-register` → `register` → `lint`(전체) **순서가 계약**이며 stop-at-first-failure다. 순서가 뒤집히면 lint 실패 시 색인에 무효 문서를 가리키는 **고아 항목**이 남고 `register`는 원자 치환이라 되돌릴 지점이 없다.
+- `plugins/mccp/scripts/lib/meta-research.js` — `scaffold` / `register` / `lint` 3 subcommand. lint 4검사: **L1** 파일명 · **L2** 필수 구성요소 7개(검사 지점 9개 — 헤더 블록을 1개로 세되 3키 각각 검사) · **L3** 전제 명시(≥1행 · 시점 셀이 sha 또는 ISO 날짜 · 참조 경로 실존 + 저장소 내부) · **L4** 색인 1홉 + 중복 행 검출(`DUPLICATE_INDEX_ROW`).
+- `plugins/mccp/scripts/lib/tests/meta-research.test.js` — **45건**. T0 왕복 · 커맨드 골격 계약 · 부정 27 · 긍정 3 · 컨테인먼트 회귀 2 · 동시성 2 · 면제 1 · 실 repo 회귀 1 · EOL 보존 2 · 색인 경계 2 · lone-CR 1 · 색인 중복 2. (표시 수는 `node --test`가 세는 실제 case 수이며 loop 생성 케이스를 포함한다 — Codex santa R2 MEDIUM 흡수: 이전 판은 라운드 1에서 test를 4건 늘리고도 `38`을 그대로 뒀다.)
+- `.claude/_meta/README.md` `## 색인` 표 — 기계 앵커 신설 + legacy 5종 백필. 기존 주제별 서술 절은 보존한다(역할이 다르다).
+
+### 설계상 중요한 것
+
+- **scaffold 산출물은 태어날 때 lint red다.** `## Premises` 표가 데이터 행 0개로 생성되어 L3에 걸린다. "빈 전제를 허용하고 나중에 채운다"는 곧 안 채운다는 뜻이므로, red를 기본값으로 두면 Phase 4가 통과할 유일한 길이 전제를 실제로 적는 것이 되고 PRD primary 지표(전제 명시 100%)가 소망이 아니라 기계 조건이 된다.
+- **적용 범위 분기 — L1/L2/L3는 규격 문서에만, L4는 전수.** legacy 5종은 규격 이전에 쓰였고 소급 개작하면 인바운드 링크 6개가 깨진다(그중 3종은 날짜 접두 파일명도 아니라 L1 전수 적용 시 영구 red). 면제 술어는 `**Status**` 헤더 한 축뿐이며, 면제된 문서는 `exempt[]`에 파일명 + 사유로 **열거**된다 — 조용한 면제가 아니다. **L4는 전수로 남으므로 발견 가능성 지표는 무손상**이다.
+- **`repoRoot`는 CLI 표면을 갖지 않는다.** `--repo-root` 플래그가 있으면 이후의 모든 봉쇄가 호출자가 고른 루트에 상대적이 되어 `assertContained`가 지키는 대상 자체를 인자로 옮길 수 있다. 이 모듈은 **파일을 쓰므로**(scaffold가 문서를, register가 README를) 루트가 인자면 범위 이동이 아니라 **쓰기 방향 재지정**이다. `impeccable-detect.js`는 `--repo-root`를 노출하지만 읽기 전용 detector라 선례가 아니다 — 차이는 취향이 아니라 읽기/쓰기다.
+- **색인 중복 행은 관용이 아니라 복구 대상이다.** `register`가 첫 행만 갱신하던 시절에는, 손으로 편집돼 같은 문서를 두 번 실은 README가 서로 다른 상태/날짜를 주장한 채 남고 L4는 `Set` 위에서 판정하므로 **green으로 보였다**. 이제 `register`가 나머지 행을 제거하고, `lint`는 다중 집합으로 판정해 `DUPLICATE_INDEX_ROW`를 낸다 — 다음 register를 기다리지 않고 드러난다.
+- **문서 파싱은 lone-CR(`\r`)에도 성립한다.** 헤더 파싱은 JS의 multiline `^`/`# Changelog
+
+All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+가 CR에 앵커되므로 원래 동작했는데 섹션 검출만 `/\r?\n/`로 갈라, classic-Mac 개행 문서가 **한 줄**로 읽혀 정상 문서가 `MISSING_COMPONENT` 6건 + `PREMISES_EMPTY`로 오탐됐다(실측). 헤더가 통과하고 섹션만 실패했기 때문에 증상이 "규격 미달 문서"로 보여 원인이 가려졌다.
+- **register 동시성은 "봉쇄"가 아니라 "완화"다.** lock을 획득한 경로에서만 lost update가 없고, 미획득 경로에서는 경고 후 진행하므로 여전히 가능하다. 색인은 감사 corpus가 아니라 발견 보조물이므로 CLAUDE.md §3.6의 fail-open 쪽에 속한다(fail-closed면 stale lock 하나가 조사 작업을 멈춘다). 유실은 조용하지 않다 — 다음 `lint --all`이 `NOT_INDEXED`로 자기 검출한다.
+- **`aliases.js` 등재는 게이트가 아니다.** `produces: []` · `requires_preceding: []` 빈 spec으로 등재해 hook이 이 커맨드를 명시 인식하게 하되 `GATE_IDS`는 무변경이다. 회귀 test가 등재 사실이 아니라 **빈 배열**을 단언한다 — 등재만 확인하면 나중에 게이트가 실려도 green이기 때문이다.
+
+### Changed
+
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.7 → 1.24.0` + renderer footer 2면 동기. PRD의 유일한 milestone이 완료되므로 §3.7 기준 **minor**다. base는 `1.23.7`이지만 `origin/main`이 이미 `1.23.11`을 소비했으므로 `1.24.0`은 forward-only로 유효하다.
+- `CLAUDE.md` §4 cheat sheet에 `/mccp:meta-research` + `lint --all` 등재.
 
 ## [1.23.11] — 2026-08-14
 

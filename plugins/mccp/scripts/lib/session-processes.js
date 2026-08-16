@@ -41,6 +41,23 @@ const evidenceLock = require('../receipt/evidence-lock');
 const SCHEMA_VERSION = 1;
 const REGISTRY_DIRNAME = path.join('.claude', 'state', 'session-processes');
 
+// Registry permissions. SCOPE OF THE CLAIM, stated narrowly on purpose (B4):
+// these are POSIX modes applied AT CREATION TIME ONLY. Two limits follow and
+// neither is hedging — they are what the code actually does.
+//
+//   1. Platform. Node maps the mode argument onto the Windows read-only bit and
+//      nothing else; it does not write an ACL. So on that platform these two
+//      constants do NOT produce owner-only access, and the registry inherits
+//      whatever the parent directory grants. The verifying case
+//      (session-processes.test.js `(3)`) skips there for exactly this reason,
+//      so the guarantee is unverified there as well as unimplemented.
+//   2. Time. `mkdirSync`/`writeFileSync` apply a mode only when they CREATE the
+//      entry. A directory that already exists keeps its current permissions —
+//      nothing here chmods it back. Tightening pre-existing directories would be
+//      a behaviour change, so it is deliberately not done here.
+//
+// What is platform-independent is the path containment (realpath + escape
+// rejection below), which is what actually keeps writes inside the registry.
 const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
 
@@ -202,8 +219,11 @@ function ensureDirPrivate(dir) {
   fs.mkdirSync(dir, { recursive: true, mode: DIR_MODE });
 }
 
-// security — owner-only, atomic-ish, never at a predictable path an attacker
-// could pre-create as a symlink (mirror of plan-codex-runner.js writePrivate).
+// security — owner-only WHERE THE PLATFORM HONOURS THE MODE (see FILE_MODE
+// above for the exact scope), atomic-ish, and never at a predictable path an
+// attacker could pre-create as a symlink (mirror of plan-codex-runner.js
+// writePrivate). The unguessable-path property is the part that holds on every
+// platform; the mode is the part that does not.
 // The nonce is CSPRNG, not `Math.random()`: the whole point of the suffix is to
 // be unguessable to whoever might pre-create that path, and Math.random is
 // seeded predictably enough that it does not carry that claim.

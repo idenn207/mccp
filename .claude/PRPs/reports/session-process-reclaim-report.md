@@ -29,7 +29,7 @@ mccp가 띄운 장수 프로세스(dashboard 서버 · detached plan-codex-runne
 | 8 | 오살 0 test | 완료 | 21건 — 실물 OS probe 포함 |
 | 9 | 회귀 스캔 | 완료 | (a3) 그물 설계 변경(아래 참조) |
 | 10 | 과거 고아 감지·보고 | 완료 | kill 없음 — Task 9(d)가 기계적으로 고정 |
-| 11 | 릴리스 표면 | 완료 | 1.24.0 + footer 2면 + CHANGELOG + ENVIRONMENT §11 + PRD |
+| 11 | 릴리스 표면 | 완료 | 버전 상향(당시 목표 번호) + footer 2면 + CHANGELOG + ENVIRONMENT §11 + PRD. 실제 출하 번호는 M3에서 `1.27.0`으로 다시 밀렸다 — §3.7 forward-only |
 
 ## Validation Results
 
@@ -422,6 +422,39 @@ HIGH로 올리지 않은 근거: **§D15가 이미 선언한 유계 창의 네 �
 
 `.claude/plans/codex-findings-backlog.md` 2026-08-14 MEDIUM 2건 — 각각 재현 조건·수정안·test 요구사항까지 적었다. **R7의 실패(이연처가 이미 닫힌 항목이었다)를 반복하지 않도록 실재하는 열린 항목으로 만들었다.**
 
+## PRD 1차 지표 — 회수율 첫 실측 (M3 Task 12, 2026-08-17)
+
+M1+M2의 검증은 **전량 단위 test**였다. 그 test들은 주입한 killer가 받은 pid 집합을 기대 집합과
+대조하므로 *판정 로직*은 증명하지만 *실제로 프로세스가 죽는지*는 증명하지 않는다. 그래서 PRD가
+`[primary]`로 지목한 회수율은 M1+M2 종료 시점까지 **한 번도 관측된 적이 없었다.** 아래가 그 첫 관측이다.
+
+실행: `node plugins/mccp/scripts/lib/tests/manual/session-process-reclaim-smoke.js` (exit 0)
+
+| 항목 | 값 |
+|---|---|
+| 시도 (`attempted`) | 1 |
+| 회수 성공 (`reclaimed`) | 1 |
+| 종료 확인 (`pid_alive_after`) | `false` — bounded poll(50ms 간격, 상한 5s) |
+| 미회수 / skip / unverified | 각 0 |
+| `complete` | `true` (budget 초과 없음) |
+| 플랫폼 | win32 |
+
+**표본 1건의 관측이다.** 1/1이라고 해서 회수율 100%라고 적지 않는다 — 이 값이 말하는 것은
+"회수 경로가 실물 프로세스에 대해 최소 한 번은 끝까지 작동했다"이지 비율이 아니다.
+
+검증은 스크립트의 자기 보고를 믿지 않는다. 관측 줄이 싣는 자식 pid를 Validation 9가 받아
+**스크립트 밖에서** `evidence-lock.js#isPidAlive`로 다시 확인한다 — 아무 일도 하지 않고 기대 JSON만
+찍는 구현은 pid를 싣지 못하거나 살아 있는 pid를 싣게 되고 둘 다 거기서 걸린다.
+
+두 가지를 하네스가 의도적으로 조정했고, 그것이 결과의 해석 범위를 좁힌다:
+
+- 자식을 `node -e`가 아니라 **파일**로 띄운다. `-e`는 `__filename`이 `[eval]`이라 명령줄에 스크립트
+  경로가 없고 §D15 축 1이 인위적으로 어긋난다 — 회수 실패가 구현 결함이 아니라 하네스 결함이 되는
+  형태이며, santa-loop R3 절이 기록한 실측 함정이 정확히 이것이다.
+- `MCCP_RECLAIM_IDENTITY_TOLERANCE_MS`를 `10000`으로 **상향**했다(토글은 상향만 반영). 기본값
+  (win32 500 / POSIX 1500)은 spawn 직후 시각 지터를 흡수하기에 빠듯한데, 이 관측이 재려는 것은
+  그 지터가 아니라 회수 경로다. 따라서 **이 관측은 기본 허용치에서의 정체 판정 정확도를 말하지 않는다.**
+
 ## 주장하지 않는 것 (명시 잔여)
 
 - **§D11 ms 단위 TOCTOU**와 **§D15 유계 오살 창**(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ **이미지의 basename이 `node`/`nodejs`** ∧ command line의 첫 script 토큰이 우리 절대경로)은 단위 test로 재현할 수 없다. "무관한 프로세스가 죽는 경로는 없다"고 **주장하지 않는다**.
@@ -436,8 +469,10 @@ HIGH로 올리지 않은 근거: **§D15가 이미 선언한 유계 창의 네 �
 
 ## Next Steps
 
-- [ ] `/mccp:santa-loop '<gate-receipt:mccp-implement-codex/session-process-reclaim>'` — fix-task가 요구하는 dual-reviewer escalation. **실제 코드에 대한 첫 cross-model 심사가 여기서 일어난다.**
-- [ ] `/mccp:code-review` 로 변경 검토
-- [ ] `/mccp:prp-commit` → `/mccp:pr` (§3.12 merge-commit)
-- [ ] ship 후 `/mccp:archive-complete` — PRD 2 milestone 모두 complete이므로 대상
-- [ ] `origin/main`이 **1.23.11**까지 진행됨(내 base는 1.23.7). 1.24.0은 forward-only라 유효하지만 merge 시 CHANGELOG 3개 항목(1.23.8/10/11) 승계 확인 필요 — §3.7 4번째 재발
+> **2026-08-17 갱신 (M3).** 아래 항목의 소관은 `.claude/plans/session-process-reclaim-followup.plan.md`(M3 — 출하 + 잔여 정리)로 넘어갔다. 완료 표기는 이 문서가 쓰인 뒤 실제로 일어난 것만 붙였다.
+
+- [x] santa-loop — R1~R10 완주. R10은 수렴이 아니라 **운영자 종료 결정**으로 끝났고 근거는 이 문서의 라운드별 절이 갖는다. escalation이 지목했던 대상은 `mccp-implement-codex/session-process-reclaim` 게이트인데, 그 receipt는 (working-tree only · 소실됨) — §3.12상 세션 진단용이라 worktree 정리를 넘겨 살아남지 않으며 손으로 다시 쓰는 것은 증거 복원이 아니라 위조다(§3.13)
+- [ ] 출하 — M3 Task 11이 `/mccp:prp-commit` → `/mccp:pr`로 수행한다 (§3.12 merge-commit, squash 금지)
+- [ ] 이 작업의 cross-model 감사 anchor는 아직 없다 — `ANCHOR-PENDING(Task 11)`. 출하 게이트를 완주해 ship receipt가 실제로 생성되면 그때 이 자리에 그 경로를 기입한다. 그 전에는 경로를 적지 않는다 — 아직 없는 파일을 가리키는 git-tracked 참조를 만들지 않기 위해서다
+- [ ] ship 후 `/mccp:archive-complete` — M3까지 complete가 된 **뒤에야** 대상이다(§3.11 C2: 미완료 PRD의 plan을 옮기면 어느 스캔에도 안 잡혀 소실된다)
+- [x] base drift — M3 Task 1이 `origin/main` 머지(149 커밋)로 닫았다. 머지 도중에도 main이 계속 전진해 버전 target이 또 밀렸고, forward-only로 `1.27.0`에 착지했다 — §3.7 7번째 실측 재발

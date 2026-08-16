@@ -391,14 +391,16 @@ UI1이 금지하는 것은 kill이지 파일 정리가 아니다. 죽은 PID의 
 
   > 계획 최초 판은 11행이었다. 구현에서 `reuse_not_owner`가, santa-loop R3에서 `sibling_evidence_unreadable`이 추가돼 13행이다 — 둘 다 **차단** 행이라 오살 방향으로는 열리지 않는다. 근거는 리포트의 해당 절 참조. · reuse 시나리오(A owner outlives + B live reuse 같은 pid → `in_use_by_live_session`) · `session_pid:null` reuse → 여전히 차단 · cross-host reuse → 차단 · `allowOutlives:true`가 `lifetime_outlives_session`만 통과시키고 나머지 9행은 **여전히 차단** · symlink 경유 `repo_root`가 `cross_repo`로 오탐되지 않음(POSIX만; win32 skip)
 
-  **정체 축(§D15) 6케이스** — R6에서 3→6으로 확장:
-  1. probe `null` → `identity_unverifiable`
-  2. 시작시각 델타가 허용치 **밖** → `identity_mismatch`
-  3. commandLine에 `exec_path` 전체가 **부재**(단 `basename`은 존재) → `identity_mismatch`. **이 케이스가 R6 invariant CRITICAL의 회귀 잠금이다** — `basename` 대조로 구현하면 통과해 버려 test가 red가 된다
-  4. **separator/case만 다른 commandLine**(`C:/a/b/x.js` vs record `C:\A\B\x.js`) → **통과**. 정규화 누락 회귀 — 실측상 이것이 실제 형태다(§D15)
-  5. 허용치 **경계 안**(win32 499ms / POSIX 1499ms) ∧ 경로 일치 → 통과
-  6. 허용치 경계 **밖**(win32 501ms / POSIX 1501ms) → `identity_mismatch`. 상수를 플랫폼 분기로 구현하지 않으면(예: 단일 2000) 5·6 중 하나가 반드시 깨진다
-  7. **`MCCP_RECLAIM_IDENTITY_TOLERANCE_MS` 하향 거부**(R7 invariant LOW): `'0'`·`'100'`·`'-5'`·`'abc'`를 넣어도 유효 허용치가 플랫폼 기본값(win32 500 / POSIX 1500) **미만으로 내려가지 않음**을 단언하고, 상향(`'5000'`)은 반영됨을 단언한다. 하향을 받으면 POSIX에서 `etimes` 초 양자화만으로 정상 프로세스가 전부 `identity_mismatch`가 되어 **회수가 조용히 전멸**한다 — 방향은 fail-closed지만(오살 아님) 기능이 사라지는 것을 env 한 줄로 만들 수 있어선 안 된다. 하향 시도는 loud stderr warn을 남긴다
+  **정체 축(§D15) 7케이스** — R6에서 3→6으로 확장, R7이 7을 추가. 아래 라벨(`identity N`)은 `session-processes-reclaimable.test.js`의 test 이름과 **1:1로 일치**시킨다 — 라벨이 없으면 구현 여부를 grep으로 판정할 수 없다:
+  1. **`identity 1`** — probe `null` → `identity_unverifiable`
+  2. **`identity 2`** — 시작시각 델타가 허용치 **밖** → `identity_mismatch`
+  3. **`identity 3`** — commandLine에 `exec_path` 전체가 **부재**(단 `basename`은 존재) → `identity_mismatch`. **이 케이스가 R6 invariant CRITICAL의 회귀 잠금이다** — `basename` 대조로 구현하면 통과해 버려 test가 red가 된다
+  4. **`identity 4`** — **separator/case만 다른 commandLine**(`C:/a/b/x.js` vs record `C:\A\B\x.js`) → **통과**. 정규화 누락 회귀 — 실측상 이것이 실제 형태다(§D15)
+  5. **`identity 5`** — 허용치 **경계 안**(win32 499ms / POSIX 1499ms) ∧ 경로 일치 → 통과
+  6. **`identity 6`** — 허용치 경계 **밖**(win32 501ms / POSIX 1501ms) → `identity_mismatch`. 상수를 플랫폼 분기로 구현하지 않으면(예: 단일 2000) 5·6 중 하나가 반드시 깨진다
+  7. **`identity 7`** — `MCCP_RECLAIM_IDENTITY_TOLERANCE_MS` **하향 거부 ∧ 상향 반영**(R7 invariant LOW). 두 방향을 **한 라벨 안에서 모두** 단언한다: (a) `'0'`·`'100'`·`'-5'`·`'abc'`를 넣어도 유효 허용치가 플랫폼 기본값(win32 500 / POSIX 1500) **미만으로 내려가지 않음** · (b) 상향(`'5000'`)은 **반영됨**. 하향을 받으면 POSIX에서 `etimes` 초 양자화만으로 정상 프로세스가 전부 `identity_mismatch`가 되어 **회수가 조용히 전멸**한다 — 방향은 fail-closed지만(오살 아님) 기능이 사라지는 것을 env 한 줄로 만들 수 있어선 안 된다. 하향 시도는 loud stderr warn을 남긴다
+
+  > **라벨과 test 이름의 대응**(2026-08-17, M3 Task 5 — B6 해소). 구현 test는 3을 `identity 3`·`3b`~`3i`로, 5·6을 `identity 5/6` 한 test로 묶어 갖는다. 위 목록은 **판정 축**의 열거이고 test 파일은 그 축을 더 잘게 나눈 것이므로 개수가 1:1일 필요는 없다 — 요구되는 것은 **모든 축이 라벨을 갖는 것**이고, `identity 7`이 그 라벨을 갖지 못한 채 산문으로만 존재하던 것이 B6의 실체였다.
 
 ### Task 3: dashboard 서버 자기등록 + reuse 레코드
 

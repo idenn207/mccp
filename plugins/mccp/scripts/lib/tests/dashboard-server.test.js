@@ -152,8 +152,7 @@ test('isReusablePid: dead PID → NOT reusable', () => {
 test('startServer binds 127.0.0.1 and writes PID, reports stable port', async () => {
   const repo = tmpRepo();
   fs.writeFileSync(srv.statusHtmlPath(repo), '<html><body>X</body></html>', 'utf8');
-  // Pick a high port unlikely to collide in CI.
-  const port = 7400 + (process.pid % 100);
+  const port = await freePort();
   const r = await srv.startServer({ repoRoot: repo, port, open: false });
   try {
     assert.equal(r.host, '127.0.0.1');
@@ -170,7 +169,7 @@ test('startServer binds 127.0.0.1 and writes PID, reports stable port', async ()
 test('startServer reuses our running server instead of double-binding', async () => {
   const repo = tmpRepo();
   fs.writeFileSync(srv.statusHtmlPath(repo), '<html><body>X</body></html>', 'utf8');
-  const port = 7500 + (process.pid % 100);
+  const port = await freePort();
   const first = await srv.startServer({ repoRoot: repo, port, open: false });
   try {
     const second = await srv.startServer({ repoRoot: repo, port, open: false });
@@ -554,10 +553,10 @@ test('M4 [14] duplicate-text risks: resolving ordinal-0 id marks ONLY that row',
 
 test('M4 [10] mode transition: read-only up then --write starts fresh (no reuse)', async () => {
   const repo = tmpRepoWithPlan(FIXTURE_PLAN);
-  const ro = await srv.startServer({ repoRoot: repo, port: 7600 + (process.pid % 80), open: false });
+  const ro = await srv.startServer({ repoRoot: repo, port: await freePort(), open: false });
   try {
     // --write request on a DIFFERENT port must not reuse the read-only server.
-    const w = await srv.startServer({ repoRoot: repo, port: 7700 + (process.pid % 80), open: false, write: true });
+    const w = await srv.startServer({ repoRoot: repo, port: await freePort(), open: false, write: true });
     try {
       assert.equal(w.reused, false);
       assert.equal(w.writeEnabled, true);

@@ -62,7 +62,7 @@ We'll know we're right when **문구·스타일 지적이 더 이상 NAUGHTY를 
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | severity contract + 게이트 재배선 | 문구·스타일 지적이 NAUGHTY를 만들지 못하고, blocking은 `failure_scenario`를 쓸 수 있을 때만 성립 | in-progress | [santa-adjudication-m1.plan.md](../plans/santa-adjudication-m1.plan.md) |
+| 1 | severity contract + 게이트 재배선 | 문구·스타일 지적이 NAUGHTY를 만들지 못하고, blocking은 `failure_scenario`를 쓸 수 있을 때만 성립 | complete | [santa-adjudication-m1.plan.md](../plans/santa-adjudication-m1.plan.md) |
 | 2 | 판정 원장 | 기각·흡수가 보존되고 종결 항목이 재계수되지 않음. 항목 3(오탐율)의 없어진 분모가 생김 | pending | — |
 | 3 | patch-chasing terminator + 캡 정책 | 직전 수정만 겨누는 라운드에서 루프가 스스로 종료하고, 종료 사유가 기록됨 | pending | — |
 
@@ -84,6 +84,8 @@ We'll know we're right when **문구·스타일 지적이 더 이상 NAUGHTY를 
   **확인되지 않은 것**: 불일치 표면(`mismatches`)이 한 번도 발화하지 않았다. `fail-without-blocking`은 리뷰어가 **`FAIL`을 내면서** blocking을 하나도 못 내야 성립하는데, 6명 전원이 `PASS`를 냈다.
 
   **이것은 표본 부족이 아니라 구조적 억제로 보인다 — 그리고 그 억제의 원인은 같은 milestone이다.** M1은 게이트(하류)만이 아니라 `santa-loop.md` Step 3의 리뷰어 프롬프트(상류)도 함께 바꿨다. 새 문언이 "서술할 수 없으면 `suggestions`로 보내라"고 지시하므로, 문체 지적만 가진 리뷰어는 애초에 `FAIL`을 내지 않는다. 즉 프롬프트 축이 작동할수록 게이트 축이 완화할 대상이 사라진다 — 두 축이 같은 실패를 양끝에서 막고 있고, 관측하려던 시나리오는 상류가 이미 막은 뒤의 잔여다. Success Metrics의 `severity 게이팅` 행("`critical_issues`가 빈 리뷰어의 FAIL이 PASS로 계수되고 보고서에 불일치가 남음")은 그래서 **상류 프롬프트를 M1 이전 문언으로 되돌린 대조군**에서만 직접 측정 가능하다.
+
+  **소유권 이관(2026-08-16)**: M1은 `/mccp:milestone-close`로 `done` 종료했고, 그 closure가 (a)·(b)를 **본 Open Question으로 명시 이연**했다 — 근거·판정 시점·미달 항목 원문은 [milestone-closures/santa-adjudication-m1.md](../milestone-closures/santa-adjudication-m1.md)가 봉인한다(sha256 stamp는 plan body `## Milestone Closure Provenance`). 이연은 "관측이 불필요하다"가 아니라 **"현 표본으로는 확정할 수 없고 재측정의 소유자가 M1이 아니다"**는 판정이므로, 아래 처방은 미결로 남는다.
 
   **처방(미결)**: (1) 지표를 "불일치 발화 건수"에서 "blocking으로 계수된 finding 대비 강등된 finding 비율"로 바꿀지, (2) 대조군 측정을 별도 축으로 세울지, (3) 상류·하류 중 하나만 배송하는 설계로 되돌릴지. 임계를 낮추는 것은 처방이 아니다. milestone 2가 판정 원장을 들이면 강등 이력이 원장에 남으므로 (1)의 분모가 그때 생긴다. **(1)의 분모는 부분적으로 앞당겨졌다** — code-review L1 흡수로 `cli.js verdict`의 stdout에 `byReviewer{findings, structured, blocking}`가 실리므로 라운드 단위 강등 비율은 지금도 관측된다(원장에 이력으로 **남는** 것은 여전히 milestone 2 소유다).
 

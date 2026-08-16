@@ -110,4 +110,7 @@ closure는 git-tracked이므로 변조 탐지는 git history가 담당한다.
 - Lock owner session : session_017sj1C2BzQ9Bnup43yCmZ6P
 - Plan source        : .claude/plans/gate-guard-integrity-m3.plan.md
 - Detection signal   : {"row":3,"name":"잔여 종료","plan":".claude/plans/gate-guard-integrity-m3.plan.md","status":"in-progress"}
-- mccp version       : 1.25.2
+- mccp version       : 1.26.1 (closure 작성 시점에는 `1.25.2`였다. 직후 `origin/main` 병합에서
+  §3.7 병렬 version 충돌 4번째 재발이 드러났다 — main이 PR #139로 `1.25.2`를 선점하고 `1.26.0`까지
+  올라가 있었다. 발행된 번호는 불가침이므로 미머지인 이쪽을 forward-only로 상향했다. 이 필드는
+  *이 milestone이 실제로 ship되는* 버전을 가리켜야 하므로 갱신하되, 갱신 사실을 숨기지 않는다.)

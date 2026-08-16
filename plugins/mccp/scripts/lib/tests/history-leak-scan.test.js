@@ -187,6 +187,29 @@ test('DEFAULT allowlist suppresses the scanner OWN fixture path, but not a real 
   assert.ok(res.leaks.some(function (l) { return l.path === 'somewhere/else.md'; }), 'a leak in a DIFFERENT file is NOT masked');
 });
 
+test('DEFAULT allowlist suppresses the backlog line that REPORTS this scanner, keyed on the citation not the repo name', function () {
+  const root = initBase();
+  const backlog = '.claude/plans/codex-findings-backlog.md';
+  commit(root, {
+    // The real shape of the offending line: a finding about THIS scanner that
+    // quotes both the drive-letter class it targets and the match string, and
+    // cites the source line. Only the citation makes it allowlisted.
+    [backlog]: [
+      '2026-08-14 | MEDIUM | plugins/mccp/scripts/lib/history-leak-scan.js | old-repo'
+        + ' pattern false-positives. `history-leak-scan.js:90` targets `C:\\_project\\my-claude-code-plugin\\x`'
+        + ' but the match string was `s://github.com/<owner>/my-claude-code-plugin`.',
+      // A LATER backlog line naming the old repo WITHOUT the citation: the
+      // exemption must not extend to it, or the file becomes a blind spot.
+      '2026-09-01 | HIGH | somewhere.js | leaked C:\\_project\\my-claude-code-plugin\\y',
+      '',
+    ].join('\n'),
+  });
+  const res = scan.scanRange({ repoRoot: root, base: 'main' }); // NO explicit allowlist
+  const hits = res.leaks.filter(function (l) { return l.path === backlog; });
+  assert.deepEqual(hits.map(function (l) { return l.line; }), [2],
+    'only the un-cited line 2 leaks; the reporting line 1 is suppressed: ' + JSON.stringify(res.leaks));
+});
+
 test('R5-F3: same blob at an allowlisted path AND a non-allowlisted path → non-allowlisted leak still reported', function () {
   // The masking bug: `git rev-list --objects` annotates a blob with only its
   // FIRST-seen path. If that representative path is allowlisted, the old code

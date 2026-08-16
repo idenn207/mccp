@@ -86,6 +86,13 @@ const MCCP_IGNORE_BLOCK = [
   '.claude/state/journal/',
   '.claude/state/plan-review/',
   '.claude/state/session-ledgers/',
+  // The santa-loop round ledger is the same category: any repo that runs
+  // /mccp:santa-loop grows one file per decision slug, and the ledger is the
+  // round counter's working state, not evidence — the receipt seals what
+  // shipped. Canonical, not REPO_ONLY: this is produced by the plugin wherever
+  // it is installed, so a target repo that only has the REPO_ONLY half would
+  // commit it on first use.
+  '.claude/state/santa-loop/',
   '.claude/state/msw-events/',
   '.claude/state/codex-stop-loop-input.txt',
   '.claude/state/auto-handoff-log.jsonl',

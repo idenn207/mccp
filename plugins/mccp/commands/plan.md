@@ -1711,10 +1711,26 @@ if [ "${SILENT_SKIP:-0}" = "1" ] && [ -z "${IMPECCABLE_FORCE_OVERRIDE_REASON:-}"
   SILENT_SKIP_FORWARD=1     # schema mutex: suppressed when the audited escape is set
 fi
 
+# codex-intent-context M2 (DD5 #1) — the REQUIRED arbiter mode is decided HERE and
+# handed to the runner as an argument. The runner does not read MCCP_INTENT_ARBITER
+# at all: if both processes interpreted the same env independently they could reach
+# different answers, and the value the receipt seals would then be neither one's
+# fact. `subagent` is the default; `author` is how you ask for the M1 behaviour back.
+# The `|| echo` is not decoration. Without it a module-load or node failure leaves
+# ARBITER_MODE empty: the runner still lands on `subagent` (an out-of-enum argument
+# falls back), but 5.5a's routing table has no row for "" and would be left guessing —
+# and a guess of `author` records a separation that never happened. stderr is NOT
+# redirected: parseArbiterMode's warning on a typo is the whole point of it.
+ARBITER_MODE=$(node -e "
+  const a = require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/intent-arbiter');
+  process.stdout.write(a.parseArbiterMode(process.env, function (w) { process.stderr.write(w + '\n'); }));
+" || echo "subagent")
+
 nohup node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-codex-runner.js" \
   --plan "<plan path>" \
   --decision "$DECISION_SLUG" \
   --run-nonce "$RUN_NONCE" \
+  --arbiter-mode "$ARBITER_MODE" \
   --focus "challenge the following plan decisions: <list 1-3 key decisions from the plan>" \
   $IMPECCABLE_FLAG \
   ${IMPECCABLE_SKIPPED_REASON:+--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"} \
@@ -2055,13 +2071,216 @@ Scan for auto-CRITICAL items (per §0 catalog: secret exposure, data loss, irrev
    ```
 3. End the response.
 
-### 5.5a — Write the adjudication file (codex-intent-context M1, L2-A)
+### 5.5a — Adjudicate every finding (codex-intent-context M1 · M2 심판 분리)
 
 **PRD-mode plans only.** If Phase 5.2 launched the runner (i.e. `$RUN_NONCE` is set)
 and the awaiting artifact lists ≥1 finding, the runner is **still alive**, holding the
-review payload in memory and waiting for your adjudication. Every finding must receive
+review payload in memory and waiting for the adjudication. Every finding must receive
 an explicit verdict — a single omission makes the gate `incomplete` and **no receipt is
 written**.
+
+M2 did not change *what* is decided. It changed *who decides*. You wrote the plan, so
+you hold every argument in its favour; that is exactly the party that should not also
+rule on whether it violates the user's constraints. The required mode selects the path.
+
+**Read that mode from `$AWAITING`, not from the `$ARBITER_MODE` shell variable.** 5.2z
+computed it, but shell state does not survive across tool calls and that value is
+recoverable from nowhere else on disk — while the runner holds the authoritative copy
+(it arrived as `--arbiter-mode`) and seals it either way. A lost variable guessed as
+`author` therefore produces the one outcome this milestone exists to prevent: the
+author adjudicates, nothing records a degradation, and the receipt says `subagent`.
+`$AWAITING` is the file you have to read anyway, so key off it:
+
+```bash
+ARBITER_MODE=$(node -e '
+  const fs = require("fs");
+  const a = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  process.stdout.write(typeof a.arbiter_mode === "string" ? a.arbiter_mode : "subagent");
+' "$AWAITING")
+```
+
+| `$ARBITER_MODE` | path |
+|---|---|
+| `subagent` (default) | **5.5a-1** — dispatch `Task(mccp:intent-arbiter)`; fall through to 5.5a-2 **only** when the probe rejects its output |
+| `author` | **5.5a-2** directly, with **no** `arbiter_degraded` key |
+
+#### 5.5a-1 — Dispatch the arbiter (`$ARBITER_MODE = subagent`)
+
+Build the projection and the prompt. The projection is a **whitelist**: it carries the
+payload digest, the user-stated constraints, and the findings, and nothing else — not
+`plan_path`, not any field a future runner adds. The arbiter also has no file-reading
+tool, so the whitelist is the second wall rather than the only one.
+
+```bash
+ARBITER_PROMPT_FILE="$MCCP_TMP/intent-arbiter-prompt-$RUN_NONCE.txt"
+node -e '
+  const fs = require("fs");
+  const a = require(process.argv[1] + "/scripts/lib/intent-arbiter");
+  const awaiting = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  // 0600, same as the awaiting artifact it is derived from: this file carries the
+  // findings and the user constraints, and it is written by this shell rather than by
+  // the runner, so it would otherwise land with the ambient umask. The runner deletes
+  // it in its own `finally` — cleanup in prose is cleanup that gets skipped.
+  fs.writeFileSync(process.argv[4], a.buildArbiterTaskPrompt({
+    projection: a.buildArbiterProjection(awaiting),
+    adjudicationPath: process.argv[3],
+  }), { mode: 0o600 });
+' "${CLAUDE_PLUGIN_ROOT}" "$AWAITING" "$ADJUDICATION" "$ARBITER_PROMPT_FILE"
+```
+
+The path is fixed by `plan-codex-runner.js#paths` (`intent-arbiter-prompt-<nonce>.txt`)
+so the runner can remove it. Renaming it here orphans the file, it does not relocate it.
+
+Read `$ARBITER_PROMPT_FILE` and dispatch its contents **verbatim**:
+
+> `Task(mccp:intent-arbiter, "<contents of $ARBITER_PROMPT_FILE>")`
+
+Add nothing of your own to that prompt — no plan excerpt, no rationale, no summary of
+what you were trying to achieve. Everything you would be tempted to add is the author
+context the separation exists to withhold.
+
+Then publish and **probe**. The probe is a validity check, not an existence check: an
+arbiter that writes syntactically broken JSON passes `[ -f ]`, and the runner would
+then sit until its adjudication timeout before dying as `incomplete` — reinstating the
+exact stall this step removes. The contract is narrow on purpose: `parseAdjudicationFile`
+says `ok` → **exit 0**, anything else → **exit 1**, stdout stays empty, reasons go to
+stderr. Branch on the exit code only. A probe that crashes outright (module gone, node
+gone) also exits non-zero and therefore lands on "invalid", which is the fail-closed
+direction — folding "cannot tell" into "fine" would switch the degradation off silently.
+
+```bash
+if node -e '
+  const fs = require("fs");
+  const ic = require(process.argv[1] + "/scripts/lib/intent-context");
+  const target = process.argv[2];
+  const staged = target + ".tmp";
+  const parse = function (p) {
+    try { return ic.parseAdjudicationFile(fs.readFileSync(p, "utf8")); }
+    catch (e) { return { ok: false, reason: "unreadable (" + e.message + ")" }; }
+  };
+  // The arbiter writes "<path>.tmp" because the runner polls the un-suffixed path
+  // and reads it the instant it appears; a direct write could be read half-done.
+  // Publishing here with rename(2) is atomic, and the arbiter (Write-only) has no
+  // way to rename for itself.
+  //
+  // VALIDATE FIRST, then publish. Moving the staged file across unconditionally
+  // would hand the runner a malformed read instead of letting this step degrade —
+  // the gate would die `incomplete` on the arbiter output rather than falling back.
+  if (fs.existsSync(staged)) {
+    const s = parse(staged);
+    if (!s.ok) {
+      process.stderr.write("[mccp:intent-arbiter] staged output invalid: " + s.reason + "\n");
+      process.exit(1);
+    }
+    fs.renameSync(staged, target);
+  }
+  const t = parse(target);
+  if (!t.ok) {
+    process.stderr.write("[mccp:intent-arbiter] no usable output: " + t.reason + "\n");
+    process.exit(1);
+  }
+' "${CLAUDE_PLUGIN_ROOT}" "$ADJUDICATION"; then
+  ARBITER_DEGRADE_REASON=""
+  echo "[mccp:intent-arbiter] arbiter output accepted — adjudication is separated" 1>&2
+else
+  # Cause is deliberately NOT enumerated. Agent not registered, tool refused, error,
+  # cancellation, returned-but-wrote-nothing, wrote-garbage — all the same branch.
+  # An earlier draft handled only "agent type not found" and every other failure fell
+  # into the runner's timeout.
+  ARBITER_DEGRADE_REASON="unknown-task-failure"
+  echo "[mccp:intent-arbiter] DEGRADING to author adjudication — see stderr above" 1>&2
+fi
+```
+
+**When `$ARBITER_DEGRADE_REASON` is non-empty**, write the adjudication yourself with
+the 5.5a-2 procedure below — with two differences: the file goes to
+`"$ADJUDICATION.degraded.tmp"` instead of `"$ADJUDICATION.tmp"`, and it carries one
+extra top-level key:
+
+```json
+"arbiter_degraded": { "from": "subagent", "to": "author", "reason": "unknown-task-failure" }
+```
+
+Write the **complete** adjudication — every field, every finding, judged by you the way
+M1 always had you judge it. Nothing here reconstructs a judgement programmatically, and
+no helper fills in default verdicts: a degradation that writes its own verdicts is an
+automatic approval, which is the "acceptance with no record" M1 exists to prevent. An
+incomplete degraded file simply dies on the M1 rules — `arbiter_degraded` exempts
+nothing.
+
+Then publish it:
+
+```bash
+node -e '
+  const fs = require("fs");
+  const ic = require(process.argv[1] + "/scripts/lib/intent-context");
+  const target = process.argv[2];
+  const staged = target + ".degraded.tmp";
+  const ok = function (p) {
+    try { return ic.parseAdjudicationFile(fs.readFileSync(p, "utf8")).ok; } catch (_) { return false; }
+  };
+  // Create-EXCLUSIVE, never clobber. A late arbiter can still land a valid file at
+  // the target, and overwriting it would erase a separation that really happened and
+  // record `author` in its place. link(2) is atomic and fails EEXIST instead.
+  let published = false;
+  try { fs.linkSync(staged, target); published = true; }
+  catch (e) {
+    if (e.code !== "EEXIST") {
+      // Hard links are unavailable on some filesystems. "wx" is create-exclusive too;
+      // writing through the fd is not atomic against the runner poll, which is why it
+      // is the fallback and not the primary.
+      try {
+        const fd = fs.openSync(target, "wx");
+        try { fs.writeSync(fd, fs.readFileSync(staged)); } finally { fs.closeSync(fd); }
+        published = true;
+      } catch (e2) { if (e2.code !== "EEXIST") throw e2; }
+    }
+  }
+  if (!published) {
+    // Re-probe and re-decide IN THIS PROCESS. Splitting the check and the write across
+    // two shell steps reopens the window between them.
+    if (ok(target)) {
+      fs.unlinkSync(staged);
+      process.stderr.write("[mccp:intent-arbiter] late arbiter output is valid — degradation CANCELLED\n");
+      process.exit(3);
+    }
+    // Guard before the mutation. Without it a staged file that is malformed, or that
+    // simply lost its `arbiter_degraded` key, dies on a raw SyntaxError/TypeError and
+    // the shell below reports "could not publish" — naming the publish step for a
+    // fault that is entirely in the file you just wrote. Still fail-closed; only the
+    // diagnosis changes, and the diagnosis is what someone acts on at 2am.
+    let body = null;
+    try { body = JSON.parse(fs.readFileSync(staged, "utf8")); } catch (e3) { body = null; }
+    if (!body || typeof body.arbiter_degraded !== "object" || body.arbiter_degraded === null) {
+      process.stderr.write("[mccp:intent-arbiter] the degraded adjudication you staged at " +
+        staged + " is not usable (unparsable, or missing the arbiter_degraded key). " +
+        "Rewrite it per 5.5a-2 including that key, then re-run this publish.\n");
+      process.exit(5);
+    }
+    body.arbiter_degraded.reason = "replaced-invalid-arbiter-output";
+    fs.writeFileSync(staged, JSON.stringify(body, null, 2));
+    fs.renameSync(staged, target);
+    process.stderr.write("[mccp:intent-arbiter] replaced an invalid late arbiter output\n");
+    process.exit(4);
+  }
+  try { fs.unlinkSync(staged); } catch (_) {}
+' "${CLAUDE_PLUGIN_ROOT}" "$ADJUDICATION"
+PUBLISH_EXIT=$?
+# 0 = degraded and published · 3 = cancelled, the arbiter won after all · 4 = replaced
+# an invalid late file. 3 leaves the seal at `subagent`, which is the honest record.
+if [ "$PUBLISH_EXIT" != "0" ] && [ "$PUBLISH_EXIT" != "3" ] && [ "$PUBLISH_EXIT" != "4" ]; then
+  # 5 = the staged file itself was unusable. Anything else = a real publish failure.
+  echo "[MCCP-INTENT-GATE-STOP] degraded adjudication not published (exit $PUBLISH_EXIT) — the stderr above says why." 1>&2
+  exit 1
+fi
+```
+
+The reason is never omitted. `unknown-task-failure` covers "we could not tell why", and
+`replaced-invalid-arbiter-output` covers "a late file was there and it was broken" —
+because an empty reason makes `parseAdjudicationFile` reject the whole degradation, and
+then the file claims nothing at all.
+
+#### 5.5a-2 — Write the adjudication yourself (`$ARBITER_MODE = author`, or after a degradation)
 
 Read `$AWAITING` (written by the runner) and produce one entry per finding. Copy
 `finding_index` and `finding_digest` **verbatim** from that file — they bind your

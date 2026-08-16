@@ -452,6 +452,24 @@ MCCP_SKIP_INTENT_GATE=<사유를 한 문장으로> /mccp:pr
   MCCP_INTENT_ADJUDICATION_TIMEOUT_MS=1800000 # v1.23.1 default: 1800000(30분). plan-codex-runner가 adjudication 파일을 기다리는 bounded 상한. 초과 시 `incomplete`로 종료하고 receipt를 쓰지 않는다(무한 대기 금지). runner는 대기 중 lease lock에 heartbeat를 찍어 동시 runner가 자신을 live로 인식하게 한다.
 ```
 
+### MCCP_INTENT_ARBITER
+
+**종류** `enum` — **값** `subagent` · `author` — **기본값** `subagent`
+
+**한 줄** 판정 주체(심판 분리).
+
+**소비처** `plugins/mccp/scripts/lib/intent-arbiter.js:116`
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_INTENT_ARBITER": "author"
+  }
+}
+```
+
 ### MCCP_DESIGN_CRITIQUE_MAX_RETRY
 
 **종류** `int` — **값** 자유 문자열 — **기본값** `2`

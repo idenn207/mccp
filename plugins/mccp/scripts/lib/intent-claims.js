@@ -92,9 +92,31 @@ function stripHtmlBlocks(text) {
 const HTML_BLOCK_START_RE = /^[ ]{0,3}<\/?([a-zA-Z][a-zA-Z0-9-]*)/;
 const RAW_TEXT_TAGS = ['pre', 'script', 'style', 'textarea'];
 
-function closesRawText(line, tag) {
-  return new RegExp('</' + tag + '\\s*>', 'i').test(line);
+function rawTextCloseRe(tag) {
+  return new RegExp('</' + tag + '\\s*>', 'i');
 }
+
+// 위 두 규칙(type 1 · type 6/7)만으로는 CommonMark의 HTML block start condition
+// 7종 중 셋이 남는다. 남겨 둔 대가는 실측됐다 — `<![CDATA[` · `<!DOCTYPE …` ·
+// `<?php` 안의 `INTENT:` 줄이 전부 **진짜 주장**으로 세어졌다(backlog 2026-08-13
+// HIGH). `HTML_BLOCK_START_RE`가 `<` 다음에 글자를 요구하는데 이 셋은 `<!`·`<?`로
+// 시작하기 때문이고, 태그 목록이 아니라 **규칙**을 구현하기로 한 판단이 여기서만
+// 절반에 그쳐 있었다.
+//
+// 종료 조건은 종별로 다르며 전부 EOF로도 끝난다(닫히지 않은 fence와 같은 규칙).
+// 셋은 서로 배타적이다 — type 5는 `<!` 다음이 `[`라 type 4의 `[a-zA-Z]`에 걸리지
+// 않는다. 그래서 순서는 CommonMark의 번호를 그대로 따른다.
+//
+// type 2(주석)는 이 표에 **없다**. 그 시작 조건은 루프 말미의 위치-무관 스캐너가
+// 소유하며, 그쪽이 줄 선두 규칙의 **진부분집합이 아니라 초집합**이다 — 이유는 그
+// 스캐너 주석 참조.
+const HTML_DECLARATION_BLOCKS = [
+  { open: /^[ ]{0,3}<\?/, close: /\?>/ },           // type 3 — processing instruction
+  { open: /^[ ]{0,3}<![a-zA-Z]/, close: />/ },      // type 4 — declaration
+  { open: /^[ ]{0,3}<!\[CDATA\[/, close: /\]\]>/ }, // type 5 — CDATA
+];
+
+const HTML_COMMENT_CLOSE_RE = /-->/;
 
 // HTML 주석도 인용이다 — 오히려 렌더된 화면에 **보이지도 않는** 인용이라, 그 안의
 // 줄이 주장으로 세어지면 리뷰어가 화면에 아무 주장도 표시하지 않은 채 판정을
@@ -102,14 +124,27 @@ function closesRawText(line, tag) {
 // 이미 매칭되지 않지만, 여러 줄 주석의 둘째 줄은 선두에 오므로 매칭됐다(실측:
 // claimed none → 없던 `agree-none`).
 //
-// 닫히지 않은 주석은 위 두 구조와 같은 규칙으로 문서 끝까지 삼킨다.
-const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
-const UNCLOSED_COMMENT_RE = /<!--/;
-
-function stripHtmlComments(text) {
-  const closed = text.replace(HTML_COMMENT_RE, '\n');
-  const m = closed.match(UNCLOSED_COMMENT_RE);
-  return m ? closed.slice(0, m.index) : closed;
+// **줄 선두에 앵커하지 않는다.** CommonMark의 type 2 시작 조건은 줄 선두이지만,
+// 줄 중간에서 열린 주석도 렌더된 finding을 읽는 사람에게는 그 뒤가 보이지 않는다 —
+// 이 stripper가 지키는 성질이 바로 그것이다. 선두로 좁히면
+// `prose <!--\nINTENT: none`이 **아무에게도 보인 적 없는 주장**을 만들어 내고,
+// 그것은 fail-OPEN 방향이다(과다 제거는 안전하지만 과소 제거는 아니다).
+//
+// 라인 루프 **안으로** 옮긴 것이 고치는 것: 전체-텍스트 선처리로는 fence가 보이지
+// 않아, fenced 예시 안의 `<!--` 하나가 나머지를 통째로 잘라 **뒤따르는 진짜 주장**을
+// 삼켰다(backlog 2026-08-13 MEDIUM — false block). 이 지점에 도달한 줄은 위의 모든
+// 인용 구조를 이미 통과한 줄이므로, 인용된 `<!--`는 여기까지 오지 못한다.
+function consumeComments(line) {
+  let rest = line;
+  let kept = '';
+  for (;;) {
+    const i = rest.indexOf('<!--');
+    if (i === -1) return { text: kept + rest, open: false };
+    kept += rest.slice(0, i);
+    const j = rest.indexOf('-->', i + 4);
+    if (j === -1) return { text: kept, open: true };
+    rest = rest.slice(j + 3);
+  }
 }
 
 const FENCE_OPEN_RE = /^[ ]{0,3}(`{3,}|~{3,})/;
@@ -135,18 +170,40 @@ function isIndentedCode(line) {
 // fence는 상태 기계로 처리한다 — 여는 fence와 **같은 문자**의 같거나 더 긴 fence만
 // 닫는 것으로 인정하며, 닫히지 않은 fence는 문서 끝까지 삼킨다(마크다운 동작).
 function stripQuotedStructures(text) {
-  // 주석을 먼저 걷어낸다 — 주석 안에 `<pre>` 같은 여는 태그가 있으면 아래 truncate가
-  // 주석 밖의 멀쩡한 본문까지 잘라낼 수 있다(과다 제거는 안전 방향이지만 불필요하다).
-  const lines = stripHtmlBlocks(stripHtmlComments(text)).split('\n');
+  // 주석은 더 이상 여기서 선처리하지 않는다 — 루프 안의 상태다(위 consumeComments).
+  // `stripHtmlBlocks`는 남긴다: 짝이 맞는 `<blockquote>` 같은 블록이 **빈 줄을 포함**할
+  // 때 type 6 규칙만으로는 그 빈 줄에서 블록이 끝나 뒤따르는 인용이 살아나기 때문이다
+  // (fail-open 방향). 대가로 이 선처리도 fence를 못 보는 같은 계열의 잔여를 갖지만,
+  // 그쪽 오작동은 false block(안전 방향)이고 DD6이 지목한 두 결함에 속하지 않는다.
+  const lines = stripHtmlBlocks(text).split('\n');
   const out = [];
   let fenceChar = null;
   let fenceLen = 0;
   let inQuote = false;
-  let rawTextTag = null;   // type-1: open until the closing tag or EOF
-  let inHtmlBlock = false; // type-6: open until a blank line
+  // HTML 블록 상태 하나로 type 1~7 + 주석을 함께 든다. `close`가 null이면 빈 줄이
+  // 끝내는 블록(type 6/7), 정규식이면 그 종료 시퀀스가 끝내는 블록이다. 어느 쪽이든
+  // EOF로도 끝난다 — 루프가 그냥 소진되면 나머지가 전부 삼켜진 것과 같다.
+  let htmlState = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    // 열린 HTML 블록/주석이 최우선이다. 그 안에서는 fence도 blockquote도 열리지
+    // 않는다 — raw text와 주석의 내용은 마크다운이 아니다.
+    if (htmlState) {
+      if (htmlState.close === null) {
+        if (line.trim() === '') {
+          htmlState = null;
+          out.push(line);
+        } else {
+          out.push('');
+        }
+      } else {
+        if (htmlState.close.test(line)) htmlState = null;
+        out.push('');
+      }
+      continue;
+    }
 
     if (fenceChar) {
       const close = line.match(FENCE_OPEN_RE);
@@ -167,29 +224,29 @@ function stripQuotedStructures(text) {
       continue;
     }
 
-    if (rawTextTag) {
-      if (closesRawText(line, rawTextTag)) rawTextTag = null;
+    // type 3 · 4 · 5. 종료 시퀀스는 **여는 문자열 뒤에서만** 찾는다 — 줄 앞쪽의
+    // 무관한 `>` 하나가 열린 적 없는 자리에서 블록을 닫아 버리는 것을 막는다.
+    let declarationOpened = false;
+    for (let d = 0; d < HTML_DECLARATION_BLOCKS.length; d++) {
+      const block = HTML_DECLARATION_BLOCKS[d];
+      const m = line.match(block.open);
+      if (!m) continue;
+      if (!block.close.test(line.slice(m[0].length))) htmlState = { close: block.close };
+      inQuote = false;
       out.push('');
-      continue;
+      declarationOpened = true;
+      break;
     }
-
-    if (inHtmlBlock) {
-      if (line.trim() === '') {
-        inHtmlBlock = false;
-        out.push(line);
-      } else {
-        out.push('');
-      }
-      continue;
-    }
+    if (declarationOpened) continue;
 
     const htmlOpen = line.match(HTML_BLOCK_START_RE);
     if (htmlOpen) {
       const tag = htmlOpen[1].toLowerCase();
       if (RAW_TEXT_TAGS.indexOf(tag) !== -1) {
-        if (!closesRawText(line, tag)) rawTextTag = tag;
+        const closeRe = rawTextCloseRe(tag);
+        if (!closeRe.test(line)) htmlState = { close: closeRe };
       } else {
-        inHtmlBlock = true;
+        htmlState = { close: null };
       }
       inQuote = false;
       out.push('');
@@ -220,7 +277,12 @@ function stripQuotedStructures(text) {
       continue;
     }
 
-    out.push(line);
+    // 여기까지 온 줄은 어떤 인용 구조에도 속하지 않는 평범한 산문이다. 주석은 그런
+    // 줄에서만 열릴 수 있다 — fenced/quoted/indented 예시 안의 `<!--`가 이 지점에
+    // 도달하지 못한다는 것이 MEDIUM 결함의 수정 그 자체다.
+    const commented = consumeComments(line);
+    if (commented.open) htmlState = { close: HTML_COMMENT_CLOSE_RE };
+    out.push(commented.text);
   }
 
   return out.join('\n');

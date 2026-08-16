@@ -62,13 +62,32 @@ We'll know we're right when **문구·스타일 지적이 더 이상 NAUGHTY를 
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | severity contract + 게이트 재배선 | 문구·스타일 지적이 NAUGHTY를 만들지 못하고, blocking은 `failure_scenario`를 쓸 수 있을 때만 성립 | pending | — |
+| 1 | severity contract + 게이트 재배선 | 문구·스타일 지적이 NAUGHTY를 만들지 못하고, blocking은 `failure_scenario`를 쓸 수 있을 때만 성립 | in-progress | [santa-adjudication-m1.plan.md](../plans/santa-adjudication-m1.plan.md) |
 | 2 | 판정 원장 | 기각·흡수가 보존되고 종결 항목이 재계수되지 않음. 항목 3(오탐율)의 없어진 분모가 생김 | pending | — |
 | 3 | patch-chasing terminator + 캡 정책 | 직전 수정만 겨누는 라운드에서 루프가 스스로 종료하고, 종료 사유가 기록됨 | pending | — |
 
 ## Open Questions
 
-- [ ] **`failure_scenario` 판정의 주체** — 리뷰어가 스스로 "쓸 수 있다"고 선언하는지, 집계 단계가 서술 존재를 기계적으로 검사하는지. 후자가 위조에 강하나 서술 품질을 판정할 수 없다.
+- [x] **`failure_scenario` 판정의 주체** — 리뷰어가 스스로 "쓸 수 있다"고 선언하는지, 집계 단계가 서술 존재를 기계적으로 검사하는지. 후자가 위조에 강하나 서술 품질을 판정할 수 없다.
+  - **답(M1 DD5)**: 집계 단계가 검사한다. 리뷰어의 자기 선언은 받지 않는다 — "나는 이것을 서술할 수 있다"는 위조 비용이 0이다. 검사는 두 층으로 나뉘어 기록 시점(`cli.js#loadReviewer`)이 타입·길이·열거값을, 판정 시점(`gate.classifyFinding`)이 실질성(`validateReason` strict + allowCodeVocabulary)을 본다. **지적된 한계는 그대로 남는다**: 이 검사는 그럴듯한 거짓 시나리오를 거르지 못하고, 닫는 것은 "서술 없이 blocker라고 부르는 것"뿐이다.
+- [ ] **`MCCP_SANTA_MAX_ROUNDS`(본 PRD 문언, 1~5)와 배송된 `MCCP_SANTA_ROUND_CAP`(1~10)의 이름·범위 불일치** — milestone 3(캡 정책) 소유다. M1은 캡을 건드리지 않으므로 발현하지 않지만, M3 착수 시 PRD를 정정할지 코드를 정정할지 정해야 한다.
+- [ ] **1순위 시나리오(`fail-without-blocking` 불일치)가 실경로 3라운드에서 재현되지 않았다 — M1 Acceptance 4번째 항목 미충족.** 2026-08-17에 이 저장소에서 `/mccp:santa-loop`을 캡이 허용하는 **3라운드 전부** 돌렸다(decision slug `santa-adjudication`, 리뷰어 6명, 모두 opus). 실측:
+
+  | round | verdict | contract | blocking | mismatches | 비고 |
+  |---|---|---|---|---|---|
+  | 0 | NICE | full | 0 | 0 | 리뷰어 A·B 모두 PASS · findings 0 |
+  | 1 | NICE | full | 0 | 0 | B가 MEDIUM 1건(실질 `failure_scenario` 포함) → `structured:1 / blocking:0` |
+  | 2 | NICE | full | 0 | 0 | 리뷰어 A·B 모두 PASS · findings 0 |
+
+  **확인된 것**: severity 게이팅은 실경로에서 작동한다 — 라운드 1에서 리뷰어가 낸 MEDIUM은 실질 시나리오를 갖췄는데도 `blocking:0`으로 계수됐고 라운드는 NICE를 유지했다. `contract`는 3라운드 모두 `full`이라 리뷰어의 구조화 계약 준수는 문제가 아니었다.
+
+  **확인되지 않은 것**: 불일치 표면(`mismatches`)이 한 번도 발화하지 않았다. `fail-without-blocking`은 리뷰어가 **`FAIL`을 내면서** blocking을 하나도 못 내야 성립하는데, 6명 전원이 `PASS`를 냈다.
+
+  **이것은 표본 부족이 아니라 구조적 억제로 보인다 — 그리고 그 억제의 원인은 같은 milestone이다.** M1은 게이트(하류)만이 아니라 `santa-loop.md` Step 3의 리뷰어 프롬프트(상류)도 함께 바꿨다. 새 문언이 "서술할 수 없으면 `suggestions`로 보내라"고 지시하므로, 문체 지적만 가진 리뷰어는 애초에 `FAIL`을 내지 않는다. 즉 프롬프트 축이 작동할수록 게이트 축이 완화할 대상이 사라진다 — 두 축이 같은 실패를 양끝에서 막고 있고, 관측하려던 시나리오는 상류가 이미 막은 뒤의 잔여다. Success Metrics의 `severity 게이팅` 행("`critical_issues`가 빈 리뷰어의 FAIL이 PASS로 계수되고 보고서에 불일치가 남음")은 그래서 **상류 프롬프트를 M1 이전 문언으로 되돌린 대조군**에서만 직접 측정 가능하다.
+
+  **처방(미결)**: (1) 지표를 "불일치 발화 건수"에서 "blocking으로 계수된 finding 대비 강등된 finding 비율"로 바꿀지, (2) 대조군 측정을 별도 축으로 세울지, (3) 상류·하류 중 하나만 배송하는 설계로 되돌릴지. 임계를 낮추는 것은 처방이 아니다. milestone 2가 판정 원장을 들이면 강등 이력이 원장에 남으므로 (1)의 분모가 그때 생긴다. **(1)의 분모는 부분적으로 앞당겨졌다** — code-review L1 흡수로 `cli.js verdict`의 stdout에 `byReviewer{findings, structured, blocking}`가 실리므로 라운드 단위 강등 비율은 지금도 관측된다(원장에 이력으로 **남는** 것은 여전히 milestone 2 소유다).
+
+  **추가 실측(2026-08-17, code-review H1)**: 위 3라운드가 시나리오를 재현했더라도 **Acceptance는 통과하지 못했을 것이다.** `seal.js`의 `deriveVerdict`·`buildProof`가 FINAL 라운드 리뷰어 전원 `PASS`를 계속 요구하고 있었으므로, 게이트가 NICE를 낸 `fail-without-blocking` 라운드는 Step 5.5에서 `divergent`로 봉인되고 `exit 1`로 push가 막혔다(receipt에 divergent + `fix-task.md`에 `divergent_unresolved`). 즉 관측 실패의 원인은 상류 프롬프트의 억제 **하나가 아니라 둘**이었고, 하류 쪽은 같은 사이클에서 닫혔다. 위 표의 해석("상류가 이미 막은 뒤의 잔여")은 유효하지만, 그 결론은 **재측정 뒤에** 확정해야 한다 — 두 번째 원인이 살아 있는 동안 얻은 표본이기 때문이다.
 - [ ] **원장의 재쟁점 허용 문구** — "판정 끝났으니 재보고 금지, 판정 자체가 틀렸다는 논증만 유효"를 어떻게 기계적으로 구분할지. 문구만으로는 강제 불가.
 - [ ] **#125 제안 5와의 접속** — 원장을 집계에 주입할 때 지적 원문을 포함할지 ID·결론만 넘길지. I3가 리뷰어 미주입을 이미 강제하므로 집계 단계에서는 원문 보존이 안전하나, P2와 경계를 맞출 필요.
 - [ ] **흡수 반사실 검증**(#124 제안 6) — 흡수한 지적마다 수정 전/후 검사를 돌려 결과가 뒤집히는지 확인. 비용이 크므로 MVP 포함 여부 미정.

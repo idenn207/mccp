@@ -33,7 +33,7 @@ M1이 원장에 기록만 하던 라운드·집계를 receipt에 봉인했다. p
 | 5 | `santa-loop.md` 배선 | 완료 | 봉인 2지점. `BEGIN_EXIT` 분기를 산문→실행 가능 bash로 전환 |
 | 6 | 회귀 test 확정 + 커버리지 감사 | 완료 | 항목 4·6 추가, `[N]` 규약 + 감사 16/16 |
 | 7 | 소유권 문서 | 완료 | 9경로 교집합 ∅ · 3부 구성 · heading ≤ 3 |
-| 8 | 릴리스 표면 동기 | 완료 | 최종 `1.25.1 → 1.26.0` (plugin.json · html.js · markdown.js · CHANGELOG note). 착지 직전 §3.7 forward-only 상향으로 재번호 — 아래 D7 참조. i18n test는 manifest 파생이라 무변경 |
+| 8 | 릴리스 표면 동기 | 완료 | 최종 `1.25.2 → 1.26.0` (plugin.json · html.js · markdown.js · CHANGELOG note). 착지 직전 §3.7 forward-only 상향으로 재번호 — 아래 D7 참조. PR 직전 main이 `1.25.1`을 M6에 발행해 M1을 `1.25.2`로 한 칸 더 밀었다. i18n test는 manifest 파생이라 무변경 |
 
 ## Validation Results
 

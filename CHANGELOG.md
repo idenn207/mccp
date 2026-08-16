@@ -6,7 +6,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ## [1.26.0] — 2026-08-14
 
-**santa-loop-materialize M2 — receipt 편입 + 소유권 표 (PRD 전 milestone 종료 → minor bump, 1.25.1 → 1.26.0)** — M1이 원장에 기록만 하던 라운드·집계를 **receipt에 봉인**한다. 새 produces-only GATE_ID `mccp-santa-review`(phase=`review`)가 신설되고, `/mccp:santa-loop`이 종료할 때 `seal`이 집계 리포트를 렌더해 그것을 subject로 receipt를 쓴다. M1까지 santa-loop은 자기가 무엇을 했는지 receipt chain에 한 줄도 남기지 않았다.
+**santa-loop-materialize M2 — receipt 편입 + 소유권 표 (PRD 전 milestone 종료 → minor bump, 1.25.2 → 1.26.0)** — M1이 원장에 기록만 하던 라운드·집계를 **receipt에 봉인**한다. 새 produces-only GATE_ID `mccp-santa-review`(phase=`review`)가 신설되고, `/mccp:santa-loop`이 종료할 때 `seal`이 집계 리포트를 렌더해 그것을 subject로 receipt를 쓴다. M1까지 santa-loop은 자기가 무엇을 했는지 receipt chain에 한 줄도 남기지 않았다.
 
 **봉인은 두 종료 경로 모두에서 일어난다.** NICE 경로는 새 Step 5.5(push **이전**)에서, 캡 도달 경로는 `begin-round`가 exit 12로 거부하는 분기 안에서 봉인한다. 후자는 Step 5.5·Step 6에 애초에 도달하지 않으므로, 그 분기를 산문에서 **실행 가능한 bash 블록으로 전환**하고 `exit "$BEGIN_EXIT"`를 마지막 문장으로 못박았다. 75(lock 경합)·2(사용 오류)는 종료가 아니라 실패이므로 봉인하지 않는다.
 
@@ -37,11 +37,11 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - **거부 마커가 판정을 영구 낙인으로 만들던 결함**(code-review H1, HIGH — F1 교정이 도입한 것을 같은 사이클에서 닫는다). 마커는 "거부가 관측됐다"는 사실인데 판정이 필요로 하는 것은 "루프가 수렴 없이 끝났는가"이고, 둘은 갈린다. ① **이미 수렴해 봉인된 slug에 `/mccp:santa-loop`를 재진입**하면 Step 3의 정상 캡 거부가 마커를 써서, 재봉인이 converged receipt를 divergent로 **덮어썼다**. ② 캡을 상향해(`MCCP_SANTA_ROUND_CAP` 1..10, 문서화된 운영 경로) 루프를 재개하면 그 뒤의 수렴까지 종료로 읽혔다. 셋을 함께 닫았다 — `deriveVerdict`는 마커를 **입력으로 받지 않고**(라운드에서만 판정), `beginRound`는 라운드를 열 때 마커를 **지우며**, `aggregateFrom`은 현재 라운드 수에 **결속된** 마커만 종료로 읽는다. 마커의 몫은 판정이 아니라 "왜 끝났는지"이고 그 투영(`수렴 = 캡이 끝낸 것이 아니다`)은 `seal()`이 한다. 구멍이 생기지 않는 근거는 F1과 같다: 진짜 캡 소진은 반드시 non-NICE 최종 라운드로 끝난다(NICE는 루프의 종료 조건이고, 거부는 항상 FINAL 라운드 뒤에만 온다).
 - **거부가 원장의 `cap`을 env 값으로 덮어쓰던 결함**(code-review M1, MEDIUM). 마커 도입으로 거부 분기가 write를 하게 되면서, 다른 세션이 더 낮은 `MCCP_SANTA_ROUND_CAP`으로 진입해 거부만 받아도 원장의 cap이 그 값으로 바뀌고 봉인이 `santa_cap`에 **라운드를 게이트한 적 없는 값**을 실었다 — `seal.js` 머리말이 막는다고 적은 오기 그 자체다. `state.cap` 갱신을 허용 분기로 옮겼다(거부는 항상 라운드 1건 이상 뒤에 오므로 그 시점 cap은 이미 기록돼 있다).
 - 회귀 test 8항목 추가 — `[18]`(마지막 허용 라운드 NICE가 converged를 낸다, 옛 산술 파생에서 실패함을 실증) · `[19]`(수렴 후 재진입 거부가 봉인을 강등하지 않는다) · `[20]`(결속되지 않은 마커는 종료로 읽지 않는다) + 종료 마커 5건(거부가 결속된 마커를 기록한다 · 재거부 멱등 · 라운드 재개 시 clear · 거부가 cap을 안 덮는다 · 손상 마커는 원장 계층에서 잡힌다). 기존 `[15]`는 fixture가 거부를 **명시**하도록, `[16]`은 종료가 라운드 수·env 어느 쪽으로도 만들어지지 않음을 단언하도록 갱신했다.
-- `plugin.json` · `renderer/html.js` page-foot · `renderer/markdown.js` derived 줄 · 상단 note의 `currently` — `1.26.0` 동기. **버전은 §3.7 forward-only 상향으로 두 항목 모두 올렸다**(8번째 재발) — 이 브랜치는 M1에 `1.23.8`, M2에 `1.23.9`를 선언했으나 그 사이 main이 `1.23.8`(diverse-agent-review M4)을 발행하고 `1.25.0`까지 나아갔다. 발행된 번호는 불가침이므로 미머지 항목만 밀어 M1은 patch로 `1.25.1`, M2는 **PRD 전 milestone 종료**라 minor 축인 `1.26.0`이 됐다. 날짜는 작성 시점 그대로 두었다 — version 순서가 정본이다.
+- `plugin.json` · `renderer/html.js` page-foot · `renderer/markdown.js` derived 줄 · 상단 note의 `currently` — `1.26.0` 동기. **버전은 §3.7 forward-only 상향으로 두 항목 모두 올렸고, 그 상향을 두 번 했다**(8·9번째 재발) — 이 브랜치는 M1에 `1.23.8`, M2에 `1.23.9`를 선언했으나 그 사이 main이 `1.23.8`(diverse-agent-review M4)을 발행하고 `1.25.0`까지 나아가 M1을 `1.25.1`, M2를 `1.26.0`으로 밀었다. 그 뒤 PR을 올리기 전에 main이 **같은 `1.25.1`을 diverse-agent-review M6**(PR #138)에 발행해 M1이 다시 중복이 됐고, 발행된 번호는 불가침이므로 미머지 항목인 M1만 한 칸 더 밀어 `1.25.2`가 됐다. M2는 **PRD 전 milestone 종료**라 minor 축이고 `1.26.0`이 여전히 main 최대치(`1.25.1`)보다 앞서므로 무변경이다. 날짜는 작성 시점 그대로 두었다 — version 순서가 정본이다.
 
-## [1.25.1] — 2026-08-13
+## [1.25.2] — 2026-08-13
 
-**santa-loop-materialize M1 — 모듈 골격 + 캡 강제 (단일 milestone → patch bump, 1.25.0 → 1.25.1)** — `/mccp:santa-loop`의 결정 로직을 산문에서 코드로 내린다. 이전까지 이 명령은 **백킹 코드가 0**이었다: 라운드 수는 아무도 세지 않았고 캡("Maximum 3 iterations")은 산문 한 줄이 유일한 근거였다. 이제 라운드는 gitignored 원장에 기록되고 캡은 `begin-round`가 **리뷰어 발화 직전**에 판정해 exit 12로 거부한다.
+**santa-loop-materialize M1 — 모듈 골격 + 캡 강제 (단일 milestone → patch bump, 1.25.1 → 1.25.2)** — `/mccp:santa-loop`의 결정 로직을 산문에서 코드로 내린다. 이전까지 이 명령은 **백킹 코드가 0**이었다: 라운드 수는 아무도 세지 않았고 캡("Maximum 3 iterations")은 산문 한 줄이 유일한 근거였다. 이제 라운드는 gitignored 원장에 기록되고 캡은 `begin-round`가 **리뷰어 발화 직전**에 판정해 exit 12로 거부한다.
 
 **판정 규칙의 내용은 바꾸지 않는다**(동작 보존). `gate.js`는 현 산문 표(둘 다 PASS → NICE · 하나라도 FAIL → NAUGHTY)를 1:1로 옮겼고, envelope 0건 → NAUGHTY 경로도 CLI 경유로 **도달 가능한 채** 남겼다. severity 축·종료 조건·판정 lifecycle은 전부 P1 소유다.
 
@@ -65,6 +65,26 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Fixed
 - `santa/ledger.js#canonicalPath` — 구현 중 실측한 이식성 결함. Windows에서 `git rev-parse --show-toplevel`은 긴 경로를 돌려주는데 호출자 경로는 8.3 단축명일 수 있고 **`fs.realpathSync`는 단축명을 확장하지 않아**, 같은 디렉토리가 두 철자를 갖고 `assertContained`의 prefix 비교가 실패한다 — **정상 호출이 traversal로 오판**됐다. `fs.realpathSync.native`로 양쪽을 정규화해 해소하고 회귀 test를 붙였다. 공유 모듈 `path-containment.js`는 손대지 않았다(pr-phase-lock·quarantine migration과 공유하는 표면).
+## [1.25.1] — 2026-08-14
+
+**diverse-agent-review M6 — 설치된 런타임에서 패널 실측 (단일 milestone → patch bump)** — 동작을 바꾸는 코드 변경은 **0줄**이다. 이 milestone의 산출물은 문서와 **측정 기록**이며, 코드 diff는 version 리터럴 3건(`plugin.json` · `renderer/html.js` page-foot · `renderer/markdown.js` derived 줄) 동기뿐이다.
+
+M6의 원래 목표는 "패널 승인 경로 1회 완주"였다. 그 목표를 향해 게이트를 **4회 라이브로 완주 시도**했고 결과는 승인이 아니라 **데이터**였다 — PRD의 지표 정직성 규칙(UI3)이 요구하는 대로 관측된 것을 관측된 대로 적는다.
+
+### Observed
+
+- **O1 — 패널은 4회 라이브 실행에서 승인을 0건 발급했다.** 매 라운드 직전 findings를 전량 흡수한 뒤 재제출했고, L1은 4회 모두 `converged`(violations 0)였으므로 막은 것은 mechanical 층이 아니라 L2다. findings 24 → 8 → 7 → 19건, 관점 단위로는 **16회 중 `pass` 2회**. R3→R4에서 findings가 역전했는데 그 사이 변경은 표면을 *줄이려는* 구조 재편이었다 — 재편이 새 표면을 만들었다.
+- **O2 — 차단 경로 wall-clock은 4회 모두 목표(10분) 이내였다.** `307,578` · `342,767` · `321,954` · `280,209` ms(평균 약 313초). 다만 이는 차단 경로 수치이며 통과 경로 지표를 대신하지 않는다(UI10 — 인접 측정을 목표 측정으로 승격하지 않는다). 증거 강도도 균일하지 않아 R4만 파일로 남고 R1–R3은 세션 관측이다.
+- **O3 — 계측 표면이 라운드 축적을 지원하지 않는다(M4 계측의 남은 절반).** 레코드 경로 slug가 PRD 경로에서 파생돼 `cmdRecord`가 무조건 덮어쓰므로 재실행이 이전 기록을 지운다 — 4회를 돌렸고 잔존 레코드는 1건이다. M4가 이것을 못 본 이유는 게이트를 한 번만 돌렸기 때문이다.
+
+### Changed
+
+- `.claude/prds/diverse-agent-review.prd.md` — #6 Outcome을 관측 결과로 재정의하고 `complete`. 통과 경로 지표는 **forward-only 유지**(표본 0), 차단 경로 행에 4회 수치 기입, Evidence에 O1~O3. 미달·신규 축을 **#7**(budget 라이브 발화) · **#8**(quorum 캘리브레이션) · **#9**(계측 재실행 편향, #5 이후)로 신설.
+- `.claude/reviews/plan-review-diverse-agent-review-m6-r4-blocked.md` — O3의 덮어쓰기에서 살아남은 유일한 레코드를 파일명으로 고정(측정 블록은 생성된 그대로 무변경).
+- `.claude/PRPs/reports/diverse-agent-review-m6-report.md` — 근거 · provenance · 승인자 기록.
+
+> **version**: 이 항목은 번호를 두 번 옮겼다. plan이 지정한 `1.23.9`는 2026-08-10에 이미 발행돼 `1.23.12`로 올렸고, 그 뒤 main이 `1.24.0`(meta-research-command M1)과 `1.25.0`(setup-gitignore M1)을 연속 발행하면서 `1.23.12`는 **중복이 아니라 역행**이 됐다 — 그대로 머지하면 `plugin.json`이 내려간다. §3.7 forward-only 상향에 따라 발행된 `1.25.0`에서 한 칸 올린 `1.25.1`이다(단일 milestone ship이므로 patch 축). 앞선 선례들이 전부 같은 번호를 두 브랜치가 주장한 **중복**이었던 것과 달리, 이번은 base가 앞질러 가 이 브랜치의 선언이 **하향**이 된 경우다 — 탐지 신호도 CHANGELOG 헤딩 중복이 아니라 헤딩 **순서 이탈**이었다.
+
 ## [1.25.0] — 2026-08-13
 
 **setup-gitignore M1 — `/mccp:setup` gitignore 프로비저닝 (PRD 전 milestone 종료 → minor bump, 1.24.0 → 1.25.0)** — 다른 프로젝트에 mccp를 설치한 사용자가 첫 커밋에서 런타임 산출물(receipt·lock·hook-trace shard·derive cache)을 함께 커밋하던 문제를 닫는다. `/mccp:setup`에 **Phase 5**를 신설해 정본 무시 규칙 30줄을 대상 저장소 `.gitignore`에 marker 블록으로 멱등 병합한다. **정본에는 프로비저너 자신의 부산물(`.gitignore.lock`·`.gitignore.bak`·`.gitignore.*.tmp`)도 포함된다** — 런타임 산출물을 git 밖에 두는 것이 목적인 도구가 자기 산출물만 예외로 두면 `.bak`(실행 직전 파일의 축자 사본)이 `git status`에 영구 잔존한다. **ship receipt(`mccp-pr-codex`)는 negation 규칙으로 추적 대상에 남는다** — §3.12 증거 내구성 계약이 설치 산출물에서도 성립해야 하며, 줄 순서가 뒤바뀌면 negation이 무력화되므로 인덱스 부등식 + `git check-ignore` + **실제 `git add` 후 `ls-files --stage`** 3층으로 단언한다(`check-ignore`는 "무시되지 않음"까지만 증명해 PRD의 "tracked 확인"에 미달).
@@ -133,7 +153,11 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - **적용 범위 분기 — L1/L2/L3는 규격 문서에만, L4는 전수.** legacy 5종은 규격 이전에 쓰였고 소급 개작하면 인바운드 링크 6개가 깨진다(그중 3종은 날짜 접두 파일명도 아니라 L1 전수 적용 시 영구 red). 면제 술어는 `**Status**` 헤더 한 축뿐이며, 면제된 문서는 `exempt[]`에 파일명 + 사유로 **열거**된다 — 조용한 면제가 아니다. **L4는 전수로 남으므로 발견 가능성 지표는 무손상**이다.
 - **`repoRoot`는 CLI 표면을 갖지 않는다.** `--repo-root` 플래그가 있으면 이후의 모든 봉쇄가 호출자가 고른 루트에 상대적이 되어 `assertContained`가 지키는 대상 자체를 인자로 옮길 수 있다. 이 모듈은 **파일을 쓰므로**(scaffold가 문서를, register가 README를) 루트가 인자면 범위 이동이 아니라 **쓰기 방향 재지정**이다. `impeccable-detect.js`는 `--repo-root`를 노출하지만 읽기 전용 detector라 선례가 아니다 — 차이는 취향이 아니라 읽기/쓰기다.
 - **색인 중복 행은 관용이 아니라 복구 대상이다.** `register`가 첫 행만 갱신하던 시절에는, 손으로 편집돼 같은 문서를 두 번 실은 README가 서로 다른 상태/날짜를 주장한 채 남고 L4는 `Set` 위에서 판정하므로 **green으로 보였다**. 이제 `register`가 나머지 행을 제거하고, `lint`는 다중 집합으로 판정해 `DUPLICATE_INDEX_ROW`를 낸다 — 다음 register를 기다리지 않고 드러난다.
-- **문서 파싱은 lone-CR(`\r`)에도 성립한다.** 헤더 파싱은 JS의 multiline `^`/`$`가 CR에 앵커되므로 원래 동작했는데 섹션 검출만 `/\r?\n/`로 갈라, classic-Mac 개행 문서가 **한 줄**로 읽혀 정상 문서가 `MISSING_COMPONENT` 6건 + `PREMISES_EMPTY`로 오탐됐다(실측). 헤더가 통과하고 섹션만 실패했기 때문에 증상이 "규격 미달 문서"로 보여 원인이 가려졌다.
+- **문서 파싱은 lone-CR(`\r`)에도 성립한다.** 헤더 파싱은 JS의 multiline `^`/`# Changelog
+
+All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+가 CR에 앵커되므로 원래 동작했는데 섹션 검출만 `/\r?\n/`로 갈라, classic-Mac 개행 문서가 **한 줄**로 읽혀 정상 문서가 `MISSING_COMPONENT` 6건 + `PREMISES_EMPTY`로 오탐됐다(실측). 헤더가 통과하고 섹션만 실패했기 때문에 증상이 "규격 미달 문서"로 보여 원인이 가려졌다.
 - **register 동시성은 "봉쇄"가 아니라 "완화"다.** lock을 획득한 경로에서만 lost update가 없고, 미획득 경로에서는 경고 후 진행하므로 여전히 가능하다. 색인은 감사 corpus가 아니라 발견 보조물이므로 CLAUDE.md §3.6의 fail-open 쪽에 속한다(fail-closed면 stale lock 하나가 조사 작업을 멈춘다). 유실은 조용하지 않다 — 다음 `lint --all`이 `NOT_INDEXED`로 자기 검출한다.
 - **`aliases.js` 등재는 게이트가 아니다.** `produces: []` · `requires_preceding: []` 빈 spec으로 등재해 hook이 이 커맨드를 명시 인식하게 하되 `GATE_IDS`는 무변경이다. 회귀 test가 등재 사실이 아니라 **빈 배열**을 단언한다 — 등재만 확인하면 나중에 게이트가 실려도 green이기 때문이다.
 

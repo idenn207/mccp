@@ -322,7 +322,7 @@ PR 작성 직전(또는 작성과 함께):
 
 - **감지**: `git merge origin/main` 후 `CHANGELOG.md`에 같은 `## [X.Y.Z]` 헤딩이 둘 생기면 충돌이다. 헤딩 중복은 조용히 넘어가지 말 것 — CHANGELOG가 깨진 상태다.
 - **해소**: 이미 발행된(=main에 있는) 번호는 **불가침**이다. 미머지 브랜치의 항목만 위로 민다. 항목이 여러 개면 각각 한 칸씩(예: 1.23.1→1.23.2, 1.23.2→1.23.3). 서로 다른 축이면 **하나로 합치지 말 것** — CHANGELOG 서사가 뭉개진다.
-- **동기 대상 5면**: `plugin.json` · `renderer/html.js` page-foot · `renderer/markdown.js` derived 줄 · `renderer/tests/i18n-surface.test.js` 단언 2개 · `CHANGELOG.md`의 `currently \`X.Y.Z\`` 노트 + 각 항목 본문의 `A → B` bump 서술. 하나라도 빠지면 surface drift다.
+- **동기 대상 4면**: `plugin.json` · `renderer/html.js` page-foot · `renderer/markdown.js` derived 줄 · `CHANGELOG.md`의 `currently \`X.Y.Z\`` 노트 + 각 항목 본문의 `A → B` bump 서술. 하나라도 빠지면 surface drift다. **`renderer/tests/i18n-surface.test.js`는 동기 대상이 아니라 검증 수단이다** — 기대값을 `require('plugin.json').version`으로 파생하므로(`:94`) 고칠 리터럴이 없고, `plugin.json`만 올리고 footer를 빠뜨리면 그 test가 red로 잡는다. (v1.23.12 정정: 이전에는 "5면 · 단언 2개"로 적혀 있었으나 그 리터럴 pin은 이미 제거된 뒤였다.)
 - **PR title 재확인**: 상향 후 PR 제목의 version이 stale해진다(§3.7 체크리스트 4번). `gh pr edit <N> --title ...`로 맞출 것.
 - **날짜 역전은 정상**: 병렬 브랜치의 작성일을 그대로 두면 version 내림차순과 날짜 순서가 어긋날 수 있다. version 순서가 정본이므로 날짜를 조작하지 말 것.
 

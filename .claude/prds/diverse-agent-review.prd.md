@@ -29,6 +29,12 @@ mccp의 plan/implement/pr 게이트는 dual-review를 위해 Codex(외부 cross-
 - **그 "발화 가능"은 clause 3을 충족하지 않는다 — 판정 확정 (2026-08-13 santa-loop)**: 두 리뷰어가 여기서 갈렸다. Opus는 도달 불가를 도달 가능으로 바꾼 것이 clause의 취지라 보아 충족으로 읽었고, Codex GPT-5.4는 위 문장이 스스로 "라이브 발화는 미관측"이라 적는 이상 시뮬레이션을 "실제로 발화"의 증거로 쓸 수 없다며 미충족으로 읽었다. **운영자가 후자로 판정했다** — clause 3은 라이브 `/mccp:plan`에서의 실제 발화를 요구한다. 이 판정으로 #4의 미충족 clause는 2개가 됐고, 둘 다 같은 선행 조건(설치된 런타임)을 공유한다 — 그래서 둘을 함께 **#6으로 이관**했다(아래 milestone note 참조). 한 번의 라이브 완주가 양쪽을 동시에 관측한다. UI5가 "수정 전 실패를 실측한 것만 회귀로 인정"한다고 적은 것과 같은 종류의 기준을 acceptance에도 적용한 것이다 — **실행 가능함은 실행됨이 아니다.**
 - **UI5(수정 전 실패 실측)를 지켰다**: 신규 단언 5건이 fix **전** 실패(23개 중 5 fail)하는 것을 먼저 관측하고 기록한 뒤 구현했다 — 적용 후 23/23 green. M1의 "공허한 validation" 반려 사유를 같은 형태로 반복하지 않기 위한 절차다.
 
+**M6 실측 (2026-08-14 추가)** — 선행 조건은 해소돼 있었다(캐시 `1.23.8`에 `record.js`·`budget.js` 존재 · `mccp:review-*` 4종 레지스트리 등록 · `cli.js mode` → `multi-agent` quorum 3of4, 전부 실측). **막힌 것은 런타임이 아니라 승인이었다.**
+
+- **O1 — 패널은 4회 라이브 실행에서 승인을 0건 발급했다**: 대상은 M6 plan 자신이며, 매 라운드 직전 findings를 전량 흡수한 뒤 재제출했다. L1은 4회 모두 `converged`(violations 0)였으므로 막은 것은 mechanical 층이 아니라 **L2**다. R1 findings 24건 / 전원 `fail` · R2 8건 / `invariant` **pass**, architect 무응답 · R3 7건 / `invariant` **pass** · R4 19건 / 전원 `fail`. 관점 단위로는 **16회 중 `pass` 2회**. R3→R4에서 findings가 7→19로 **역전**했는데 그 사이 변경은 운영자 수동 절차를 없애려는 구조 재편이었다 — **표면을 줄이려는 재편이 새 표면을 만들었다**(Risks의 "결함 수정이 새 결함을 만듦"이 plan 층에서 재현). 이 수치는 승인 품질(false-approve 비율)에 답하지 않는다. 답하는 것은 그 앞의 질문이다 — **승인이 발급되는가**. 표본 4에서 답은 아니오다(→ #8).
+- **O2 — 차단 경로 wall-clock은 4회 모두 목표(10분) 이내였다**: `307,578` · `342,767` · `321,954` · `280,209` ms, 평균 약 313초(5.2분) · 최대 5.7분. 차단 경로는 패널 4개 발화 + 판정까지를 포함하므로 통과 경로가 이보다 크게 느릴 이유는 없다 — 그러나 **이는 차단 경로의 수치이며 통과 경로 지표를 대신하지 않는다**(UI3·UI10). **증거 강도는 균일하지 않다**: R4(`280,209`)만 [plan-review-diverse-agent-review-m6-r4-blocked.md](../reviews/plan-review-diverse-agent-review-m6-r4-blocked.md)에 파일로 남아 있고 R1–R3은 각 라운드 `cli.js record` stdout의 세션 관측이다. 그 이유가 O3이며, 소급 복구는 원리상 불가능하다.
+- **O3 — 계측 표면은 라운드 축적을 지원하지 않는다 (M4 계측의 남은 절반)**: 레코드 경로는 `.claude/reviews/plan-review-<decision_slug>.md`이고 slug는 **PRD 경로**에서 파생된다(`derive-decision --args .claude/prds/diverse-agent-review.prd.md` → `diverse-agent-review`, 실측). `cmdRecord`는 그 경로에 무조건 덮어쓰므로 **같은 결정에 대한 재실행은 이전 기록을 지운다** — 4회를 돌렸고 디스크에 남은 레코드는 1건이다. M4는 계측을 *통과 경로 편향*에서 구했지만(차단 경로도 기록되게) **재실행 편향**은 남겨뒀다: 한 결정에 대해 마지막 실행만 남으므로 수렴 과정 — 즉 #6이 실제로 생산한 데이터 — 은 축적되지 않는다. M4가 스스로를 검증할 때 이것이 안 보인 이유는 그 milestone이 게이트를 **한 번만** 돌렸기 때문이다. 수정은 배선 변경이라 #6 범위 밖이며 **#9**로 이관한다(UI6).
+
 ## Users
 - **Primary**: mccp를 운영하며 `/mccp:plan`·`/mccp:prp-implement`·`/mccp:pr` 게이트를 매번 통과해야 하는 단일 운영자(skypark207). trigger: 게이트 진입 시 Codex 리뷰 대기.
 - **Not for**: 팀 협업 다중 사용자 시나리오 — 현재 개인용 plugin monorepo.
@@ -40,8 +46,8 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 ## Success Metrics
 | Metric | Target | How measured |
 |---|---|---|
-| plan 게이트 wall-clock (통과 경로) | 실측 1회 이상 ≤ 10분 | **미산출 (forward-only) — #6 소관으로 이관** — 계측 표면은 `.claude/reviews/*.md` `## Measurement`로 이전 완료. 구현 시점 미실행 사유는 캐시가 `1.23.4`(패널 경로·`review-*` agent 미등록)였다는 것이고, 그 사유는 해소됐다(캐시 `1.23.7` + agent 등록). 남은 사유는 installed 트리에 M4의 `record.js`·`budget.js`가 없어 지금 돌리면 M4 계측이 실행되지 않는다는 것 — 이 브랜치 버전 설치 + 새 세션이 선행 조건 |
-| plan 게이트 wall-clock (차단 경로) | 계측 도달 (M1에서 구조적 미계측) | **M4 달성** — `cli.js record`가 5.2의 HALT **9곳 전부**(5.2a·5.2b·5.2c-emit·5.2c-pin·5.2d·5.2e·5.2e-proof·5.2f·5.2g)에서 실행되고, 합성 fixture 실측으로 `halt_stage:"5.2b"` + 정수 `wall_clock_ms`(7841ms) 확인. 표면은 receipt(worktree-only)가 아니라 git-tracked `.claude/reviews/` |
+| plan 게이트 wall-clock (통과 경로) | 실측 1회 이상 ≤ 10분 | **미산출 (forward-only) — #6에서 4회 시도, 승인 0건(O1)** — 표본이 0이므로 달성으로 적지 않는다(UI3). 선행 조건은 해소돼 있었다: 캐시 `1.23.8`에 `record.js`·`budget.js`가 있고 `mccp:review-*` 4종이 세션 레지스트리에 등록돼 있으며 `cli.js mode`가 `multi-agent`(quorum 3of4)를 반환한다(실측). **막은 것은 런타임이 아니라 승인이었다** — 관점 단위 16회 중 `pass` 2회. 승인 경로 관측은 #8의 캘리브레이션 판정에 의존한다 |
+| plan 게이트 wall-clock (차단 경로) | 계측 도달 (M1에서 구조적 미계측) | **M4 달성 · #6에서 4회 실측** — `307,578` · `342,767` · `321,954` · `280,209` ms(평균 약 313초=5.2분, 최대 5.7분)로 4회 모두 통과 경로 목표(10분) 이내. 다만 이는 **차단 경로 수치이며 통과 경로 지표를 대신하지 않는다**(UI3·UI10 — 인접 측정을 목표 측정으로 승격하지 않는다). 증거 강도는 균일하지 않다: R4(`280,209`)만 [plan-review-diverse-agent-review-m6-r4-blocked.md](../reviews/plan-review-diverse-agent-review-m6-r4-blocked.md)에 파일로 남고 R1–R3은 세션 관측이다(사유는 O3, 표기는 DN4). 표면은 receipt(worktree-only)가 아니라 git-tracked `.claude/reviews/` |
 | `converged` 봉인 무결성 | proof 없으면 no-ship, 회귀 0 | dedupe/ship-gate 회귀 test |
 | dual-review 불변식 | 무손상 | 기존 게이트 test suite green |
 | L3(cross-model) 발동 비율 | **forward-only** — M1 미산출, 코퍼스 확보 후 주장 | receipt L3-stamp 집계 |
@@ -54,6 +60,8 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 > **2026-08-13 santa-loop 갱신**: 위 선행 조건은 **여전히 유효하되 내용이 바뀌었다**. 막고 있던 것은 agent 미등록이었고 그것은 해소됐다(캐시 `1.23.7`, agent 4종 등록). 지금 막는 것은 installed 트리에 M4 산출물이 없다는 것이며, 해소는 이 브랜치 버전 설치 + 새 세션으로 가능하다(PR #126 머지 불필요). **stale한 사유로 milestone을 판정하지 않기 위해 사유를 갱신하되 판정은 바꾸지 않는다** — 미산출은 미산출이다.
 >
 > **이관 (같은 날, Outcome 개정)**: 그 선행 조건이 (= 머지된 main)를 요구하는 이상, 이 항목은 머지 전 milestone이 소유할 수 없다. 통과 경로 지표는 **#6 소관**으로 옮겼다. #4는 자기가 실제로 배송한 것(차단 경로 계측 · 계측 표면 이전 · budget 도달 가능 · acceptance 명문화)으로 complete다.
+>
+> **M6 갱신 (2026-08-14)**: 선행 조건은 해소됐고 게이트는 **4회 라이브로 완주 시도**됐다. 그런데도 통과 경로는 여전히 미산출이다 — 이번에는 런타임이 아니라 **승인이 나지 않아서**다(O1). 사유가 세 번째로 바뀌었으나 판정은 바꾸지 않는다: 표본 0은 달성이 아니다. 차단 경로 수치가 4건 확보돼 목표 이내임이 보였지만 그것을 통과 경로 칸으로 옮겨 적지 않는다 — 인접 측정을 목표 측정으로 승격하는 것이 정확히 UI10이 금지하는 형태다. **관측이 미달을 확정하는 것도 milestone의 산출물이다**: #6은 "완주했다"가 아니라 "4회 완주 시도의 결과가 이것이다"를 소유한다.
 
 ## Scope
 **MVP (M1, 배송 완료)** — plan-codex 게이트 하나를 **multi-agent(L1+L2)로 전환**. `review_verdict`/`review_source`/`review_proof` verdict 재정의를 배선하고, 기존 소비처(dedupe·ship-gate·ledger·convergence)를 단일 helper로 계승. L3(Codex)는 **수동 opt-in** + **발동 계측 stamp**. plan은 코드 diff가 없어 L1은 "plan 내부 일관성 mechanical check", 무게중심은 L2(다관점 self-consistency).
@@ -73,8 +81,11 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 |---|---|---|---|---|
 | 1 | plan-codex multi-agent 전환 (MVP) | plan 게이트가 diverse-agent L1+L2로 `converged`를 발급 · Codex 수동 opt-in · dedupe/ship-gate 회귀 0 · 계기 배선(지표 산출은 #4 소관) | complete | `.claude/plans/diverse-agent-review-m1.plan.md` |
 | 4 | 차단 경로 계측 + 지표 부채 상환 | wall-clock이 **차단 경로에서도** 기록돼 survivorship bias 제거 · 계측 표면이 worktree-only receipt에서 git-tracked `.claude/reviews/`로 이전 · budget 게이트가 **구조적 도달 불가**에서 벗어나 런타임 실행으로 확인 · "라이브 완주"가 acceptance 항목으로 명문화 | complete | `.claude/plans/diverse-agent-review-m4.plan.md` |
-| 6 | 설치된 런타임에서 통과 경로 관측 | 패널 승인 경로가 1회 완주해 receipt에 review triple 봉인 + `.claude/reviews/`에 `## Measurement` 산출 · budget 게이트의 **라이브** 발화 관측 · 통과 경로 wall-clock 실측치가 Success Metrics에 기입 | pending | — |
+| 6 | 설치된 런타임에서 패널 실측 | 설치된 런타임에서 패널을 **4회 라이브 실측**하고 그 결과를 milestone 산출물로 확정 — 승인 0건(O1) · 차단 경로 wall-clock 4회 모두 목표 이내(O2) · 계측 표면의 **재실행 편향** 발견(O3) · 미달 축과 신규 축을 #7·#8·#9로 이관 | complete | `.claude/plans/diverse-agent-review-m6.plan.md` |
+| 7 | budget 게이트 라이브 발화 관측 | 라이브 `/mccp:plan`에서 budget 게이트가 실제로 발화해 agent 0개 spawn + 실측 `remaining`/`minRemaining`이 남음 — 시뮬레이션은 라이브 발화의 증거가 아니다(UI10). #4에서 도달 가능해졌고 #6이 관측하지 못한 축 | pending | — |
+| 8 | 패널 quorum 캘리브레이션 재검토 | 관점 단위 16회 중 `pass` 2회(O1)라는 실측 위에서 `3of4` + 고유 역할 K=3이 적정한지 판정 — **승인이 발급되는 경로가 존재하는가**에 먼저 답하고, 그 뒤에야 승인 품질(false-approve 비율)을 물을 수 있다 | pending | — |
 | 5 | 게이트 배선 오라클 추출 | 게이트 승인 배선이 단위 test 사거리 안으로 이동 — seam 결함이 ship 후 리뷰가 아니라 test로 잡힘 | pending | — |
+| 9 | 계측 재실행 편향 해소 | 같은 결정에 대한 재실행이 이전 레코드를 덮어쓰지 않아 수렴 과정이 축적됨(O3) — 레코드 경로 slug가 PRD 경로 파생이라 한 PRD의 모든 milestone·모든 라운드가 한 파일을 공유한다. 배선 변경이므로 **#5의 오라클 추출 뒤에** 착수한다(UI6) | pending | — |
 | 1.5 | 패널 intent adjudication | 패널이 user intent를 입력으로 받고 자기 findings를 그에 대해 판정 · panel run에서 intent gate가 *skip*이 아니라 *satisfied* | pending | — |
 | 2 | L3 자동 트리거 | 불확실성(A: L2 divergent/quorum 경계) ∨ 위험영역(B: auth·API·migration·schema·gate-self·ledger) ∨ ship지점(C: terminal PR) 신호 시 cross-model 자동 발동 · **#6 실측**으로 조건 튜닝 · 과발동↔지연 균형 관측 | pending | — |
 | 3 | implement-verify 3층 확장 | `mccp-implement-verify`를 L1(강한 test/typecheck backbone)+L2+L3로 generalize · 코드 diff 게이트의 verification 가치 극대화 | pending | — |
@@ -88,6 +99,12 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 > **이후 milestone에 적용할 규칙**: acceptance 항목이 *이 브랜치가 머지·배포된 뒤에만* 관측 가능하면 그 항목은 이 milestone의 것이 아니다. "만들었다"와 "설치된 채로 관측했다"는 다른 milestone이 소유한다.
 >
 > **#1.5를 #5 뒤에 둔 이유.** intent 편입은 게이트 배선을 *더 늘리는* 작업이고, M1 실측이 "흡수 20건 중 6건은 앞선 라운드 수정이 만든 것, 3건은 같은 셸-상태 형태"를 보였다. 추출 전에 배선을 늘리면 그 패턴을 그대로 재생산한다. 다만 그동안 panel run의 intent gate는 *skip* 상태로 남는다 — 정직하게 stamp되긴 하나 #118이 세운 커버리지에 대한 후퇴이므로, 이 후퇴를 더 못 기다리겠다고 판단되면 순서를 뒤집을 수 있다.
+>
+> **#7·#8·#9가 생긴 이유 — #6은 목표를 낮춘 것이 아니라 관측을 적었다 (2026-08-14).** #6의 원래 Outcome은 clause 3개(패널 승인 경로 완주 · budget 라이브 발화 · 통과 경로 wall-clock 기입)였고, 게이트를 4회 라이브로 완주 시도한 결과는 **승인이 아니라 데이터**였다(O1~O3). 세 clause 중 어느 것도 "달성"으로 적지 않는다 — 통과 경로는 표본 0이라 forward-only로 남고(UI3), budget 라이브 발화는 **#7**로(UI13), 새로 열린 quorum 캘리브레이션은 **#8**로, 계측 재실행 편향은 **#9**로 간다. #6이 소유하는 것은 **그 셋을 실측으로 확정한 것**이다.
+>
+> 이것은 #4 → #6 이관과 같은 형태이며 같은 규칙을 따른다: **판정을 바꾸지 않고 사유를 갱신한다.** 다만 사유의 종류가 달라졌다 — #4·#6의 이관은 *선행 조건*(머지된 런타임)이 milestone 밖에 있다는 이유였고, 이번은 선행 조건이 해소된 뒤 **실행이 실제로 무엇을 산출했는가**가 이유다. 전자는 acceptance 설계의 정정이고 후자는 관측 결과다. 그래서 #6은 미달을 이관하면서도 `complete`다.
+>
+> **#9를 #5 뒤에 둔 이유**는 #1.5와 같다 — 계측 배선을 늘리는 작업이므로 오라클 추출 전에 착수하면 같은 seam 패턴을 재생산한다(UI6). #7·#8은 배선 추가가 아니라 관측·판정이므로 #5 앞에 둔다.
 
 ## Open Questions
 
@@ -97,11 +114,11 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 - [x] `review_proof` 위조 방지 강도 → all-or-nothing 부분 stamp 거부 + `reviewed_plan_hash` bind(리뷰 후 plan 편집 시 승인 무효, 복구는 재봉인이 아니라 재실행) + evidence 경로 불변식은 verdict와 무관하게 상시 적용.
 
 **미해결**
-- [ ] 목표 10분 달성 실측 — 통과 경로가 아직 한 번도 관측되지 않았다. 차단 경로 wall-clock까지 포함해야 "게이트가 얼마나 걸리는가"에 답이 된다 (#6)
-- [ ] L3 자동 트리거 조건 임계값 — "L2 divergent" 판정 기준, risk-signal 파일 패턴. #6 실측 전까지 근거 없는 임계를 날조하지 않는다 (#2)
+- [ ] 목표 10분 달성 실측 — 통과 경로는 4회 시도에도 관측되지 않았다(O1). 차단 경로는 4회 모두 목표 이내였으나(O2) 그것은 다른 지표다. 승인이 발급되는 경로가 먼저 필요하다 (#8 → 그 뒤 이 질문)
+- [ ] L3 자동 트리거 조건 임계값 — "L2 divergent" 판정 기준, risk-signal 파일 패턴. 근거 없는 임계를 날조하지 않는다. **#6의 실측은 이 질문에 답하지 않았다** — 통과 경로 표본이 0이라 과발동↔지연 균형을 볼 수 없다 (#2)
 - [ ] self-consistency 샘플 수 — M1은 역할 다양성(4역할 × 1샘플)만 diversity 축으로 썼다. 동일 질문 N회 독립 샘플 majority의 비용 대비 값 미확인
-- [ ] 지표 코퍼스의 내구성 — plan 게이트 receipt가 worktree-only라 ship마다 소멸한다. 단발 실측으로 충분한가, 아니면 내구 표면이 필요한가 (#4에서 판단)
-- [ ] 패널 승인의 실제 품질 — 라이브 1회는 `divergent`(반려)였다. 승인을 발급한 경우의 false-approve 비율은 표본 0
+- [ ] 지표 코퍼스의 내구성 — **O3으로 갱신**: worktree-only 소멸에 더해, 레코드 경로 slug가 PRD 경로 파생이라 **재실행이 이전 라운드를 덮어쓴다**. 4회 실행에 잔존 1건이라 수렴 과정 자체가 코퍼스가 되지 못한다. 단발 실측으로 충분한가가 아니라 **누적이 가능한가**가 질문이 됐다 (#9)
+- [ ] 패널 승인의 실제 품질 — **O1로 갱신**: 질문이 한 칸 앞으로 당겨졌다. 4회 라이브에서 승인 0건 · 관점 단위 16회 중 `pass` 2회이므로, false-approve 비율을 묻기 전에 **승인이 발급되는가**에 먼저 답해야 한다. 표본은 여전히 0이다 (#8)
 
 ## Risks
 | Risk | Likelihood | Impact | Mitigation |
@@ -116,5 +133,5 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 | 기존 git-tracked ship corpus의 receipt_hash 변경(재봉인 사고) | Low | High | present-only 필드 + skeleton 미materialize(§3.12 no-rehash) + hash 안정성 test |
 
 ---
-*Status: #1·#4 배송 완료 · #6(설치된 런타임 관측)은 PR #126 머지 후 착수 · 나머지는 요구사항 단계. 구현 계획은 /mccp:plan.*
-*Co-created with user on 2026-08-06. Revised 2026-08-09 (M1 ship 후 실측 반영 — 지표 정직화 + milestone 4건 추가).*
+*Status: #1·#4·#6 배송 완료 · 다음은 #7(budget 라이브 발화) → #8(quorum 캘리브레이션) · 나머지는 요구사항 단계. 구현 계획은 /mccp:plan.*
+*Co-created with user on 2026-08-06. Revised 2026-08-09 (M1 ship 후 실측 반영 — 지표 정직화 + milestone 4건 추가). Revised 2026-08-14 (M6 실측 반영 — Outcome을 관측 결과로 재정의 + #7·#8·#9 신설).*

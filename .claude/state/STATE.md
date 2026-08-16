@@ -13,7 +13,7 @@ last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
-santa-loop-materialize **M2** — 구현·origin/main 병합·§3.7 재번호 착지 완료(push까지). PR은 M3 ship gate가 차단(PR-Codex divergent) — 다음은 finding 2건 수정.
+santa-loop-materialize **M2** — 구현·PR-Codex finding 2건 흡수·아카이브 착지 완료. origin/main 2차 병합 + §3.7 9번째 재번호(M1 → 1.25.2) 해소 후 `/mccp:pr` 재실행이 다음 단계.
 
 ## Plan
 - plan: `.claude/plans/santa-loop-materialize-m2.plan.md` — **본문 확정**. Phase 1~4를 재실행해 재생성하지 말 것(4라운드 흡수분 12건 소실)
@@ -39,13 +39,13 @@ santa-loop-materialize **M2** — 구현·origin/main 병합·§3.7 재번호 �
 - Implement-Codex R1 `needs-attention` HIGH 1건 흡수 — seal이 원장을 lock 없이 N+2회 읽던 것을 `read()` 1회 스냅샷 + 순수 파생 2종(`reviewersFrom`/`aggregateFrom`)으로 교정. security-reviewer CRITICAL/HIGH 0건, MEDIUM 1건(proof 경로 미봉인) 흡수
 
 ## In Progress
-없음 — /mccp:pr이 2.5.7 finalize exit 12로 HALT. PR 미생성, 브랜치 push만 완료.
+`/mccp:pr` 재실행 — Phase 2에서 §3.7 version 충돌(main이 1.25.1을 M6에 발행)로 HALT 후 origin/main 2차 병합 + M1 → 1.25.2 재번호 착지. PR 미생성.
 
 ## Next Step
-`/mccp:prp-implement`로 F1·F2 수정 후 `/mccp:pr` 재실행. ship receipt `.claude/receipts/mccp-pr-codex/santa-loop-materialize-m2.json`은 **커밋 금지** — untracked인 동안만 재실행이 덮어쓸 수 있고(store.js:122-124), 커밋하면 TRACKED_RECEIPT_OVERWRITE로 이 브랜치 재실행이 막혀 새 브랜치 re-ship만 남는다.
+`/mccp:pr` 재실행. `PR_PLAN_PATH=.claude/PRPs/plans/archived/santa-loop-materialize-m2.plan.md` 필수 — plan이 아카이브 이동해 2.5.9 기본 파생 경로가 `stale`로 HALT한다(내용 무변경이라 plan_hash는 일치). ship receipt `.claude/receipts/mccp-pr-codex/santa-loop-materialize-m2.json`은 **커밋 금지** — untracked인 동안만 재실행이 덮어쓸 수 있고(store.js:122-124), 커밋하면 TRACKED_RECEIPT_OVERWRITE로 이 브랜치 재실행이 막혀 새 브랜치 re-ship만 남는다.
 
 ## Last Decision
-머지 시 §3.7 forward-only 재번호(8번째 재발): main이 1.23.8을 다른 축(diverse-agent-review M4)에 이미 발행하고 1.25.0까지 나아가 있어 M1→1.25.1(patch)·M2→1.26.0(minor, PRD 전 milestone 종료)로 상향. plan은 plan_hash 바인딩이라 손대지 않고 이탈을 노트 D7에 기록. ship receipt는 재실행 경로 보존을 위해 의도적으로 untracked 유지.
+§3.7 forward-only 재번호를 두 번 했다. 1차(8번째 재발): main이 1.23.8을 diverse-agent-review M4에 발행하고 1.25.0까지 나아가 M1→1.25.1·M2→1.26.0. 2차(9번째 재발, PR 직전): main이 **같은 1.25.1을 M6**(PR #138, `890f725`)에 발행해 M1만 한 칸 더 밀어 **1.25.2**. M2의 1.26.0은 main 최대치보다 앞서 무변경. CHANGELOG는 M6 항목을 우리 두 항목 아래로 재배치해 내림차순 유지. plan은 plan_hash 바인딩이라 손대지 않고 이탈을 노트 D7에 기록. ship receipt는 재실행 경로 보존을 위해 의도적으로 untracked 유지.
 
 ## Open Questions
 - **PR-Codex F1 (HIGH) — 마지막 허용 라운드의 NICE가 divergent로 오봉인되고 그대로 push된다**: `ledger.js:496`이 `rounds.length >= cap`만으로 `cap_reached`를 세워 캡 *도달*과 다음 `begin-round` *거부*를 뭉갠다. `seal.js:99`가 무조건 divergent로 굳히고 `santa-loop.md:218-222`는 `SEAL_EXIT`에만 분기하며 `$SEAL_JSON.verdict`를 보지 않는다. 수정: 거부 시점 명시 termination 마커에서 `cap_reached` 파생 + Step 5.5가 sealed verdict에 분기 + 마지막 라운드 NICE가 converged를 내는 회귀 test

@@ -55,6 +55,18 @@ const MAX_REVIEWER_ARRAY = 1000;
 // 그 값이 원장에 **들어가지 않게** 한다.
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
+// santa-adjudication M1 (DD4) — 구조화 `critical_issues` 원소의 필드 상한.
+// 초과는 **절삭하지 않고** `structured:false`로 떨어뜨린다: 조용한 절삭은 감사
+// 표면을 무력화하고(§3.13.1), `partial`로 떨어지는 것은 *더 엄격한* 방향이다.
+// 원소 수는 MAX_REVIEWER_ARRAY(1000)가, 전체 크기는 MAX_REVIEWER_BYTES(100KB)가
+// 이미 덮으므로 새 방어를 발명하지 않고 필드 검사만 얹는다.
+const MAX_CLAIM_CHARS = 500;
+const MAX_FAILURE_SCENARIO_CHARS = 2000;
+const MAX_EVIDENCE_CHARS = 500;
+// **대소문자 구분 · 부분 일치 없음.** `cli.js`의 verdict 열거 검사와 같은 규약이고,
+// `gate.SEVERITIES`와 같은 4값이다(양쪽이 갈리면 기록과 판정이 어긋난다).
+const SEVERITY_VALUES = new Set(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
+
 // evidence-lock이 던지는 code 중 **일시적이 아닌** 것들. 전부 mutation 0건이라
 // 2가 맞지만, catch-all에 묻지 않고 명시 분기해 stderr에 code를 실어 둔다
 // (security S5 — 진단 가능성).
@@ -158,6 +170,90 @@ function assertSafeGraph(value, depth) {
   }
 }
 
+// ── critical_issues 원소 → finding (santa-adjudication M1 / DD4) ─────────────
+//
+// 표는 **배열 전체가 아니라 원소 하나**에 적용된다 — 문자열과 객체가 섞인 배열도
+// 원소별로 처리된다. 모든 원소는 종류와 무관하게 finding 한 항목을 만들고
+// `criticalIssues`에 claim 문자열을 하나 넣으므로, 두 배열의 **길이는 언제나 입력
+// 원소 수와 같다**. 그것이 `seal.js#project`의 `criticalIssueCount` 보존 조건이다.
+//
+// **타입 위반은 거부이고 계약 미달은 강등이다** — 이 구분이 fail-open을 막는다.
+// 원소가 문자열·객체 어느 쪽도 아니면(숫자·불리언·배열·null) 여기서 throw이고
+// `cmdRecord`에 도달하지 않으므로 append 0건이다. 반면 구조화 필드가 계약에 못
+// 미치는 것은 `structured:false`로 떨어뜨린다 — 그 결과는 `contract='partial'`이고
+// 그 라운드는 완화를 받지 못한다(DD1). 어느 경로도 조용한 통과를 만들지 않는다.
+//
+// `failure_scenario` **부재만은 예외다**(표 4행). `claim`·`severity`·길이는
+// *구조화의 조건*이지만 `failure_scenario`는 *blocking의 조건*이므로(UI5 · DD6),
+// 생략은 계약 위반이 아니라 "이것을 blocker로 주장하지 않는다"는 선언이다.
+// 반대로 강등하면 LOW 주석 하나에도 30자 시나리오를 요구하게 되어 라운드가 상시
+// `partial`이 되고 게이팅이 도달 불가가 된다. 무게는 `gate.classifyFinding`이
+// `blocking:false`로 뺀다 — severity 문자열만으로 blocking이 되는 경로는 없다.
+//
+// 부재는 **키가 없거나 `null`인 경우로만** 정의한다. `failure_scenario: 42`는
+// 부재가 아니라 계약 위반이라 강등이고, 빈 문자열 `""`도 길이 규약(1자 미만)
+// 위반이라 강등이지 부재가 아니다.
+function deriveFinding(element, index) {
+  if (typeof element === 'string') {
+    // legacy 형태 — 그대로 받고 `structured:false`로 둔다.
+    return {
+      claim: element,
+      severity: null,
+      failureScenario: null,
+      evidence: null,
+      structured: false,
+    };
+  }
+  if (element === null || typeof element !== 'object' || Array.isArray(element)) {
+    throw new SantaCliError('SANTA_REVIEWER_INVALID',
+      'critical_issues[' + index + '] must be a string or an object; got ' +
+      (element === null ? 'null' : (Array.isArray(element) ? 'array' : typeof element)));
+  }
+
+  // JSON.parse 산출물이라 own property만 존재하고 getter가 없다 — 필드 읽기가
+  // 코드를 실행시키지 않는다. `assertSafeGraph`가 파싱 직후 이미 돌아
+  // prototype pollution 키를 거부했으므로 여기서 더하는 것은 필드 타입·열거값·
+  // 길이 검사뿐이다.
+  const claimIsString = typeof element.claim === 'string';
+  const claimOk = claimIsString && element.claim.length >= 1
+    && element.claim.length <= MAX_CLAIM_CHARS;
+
+  const severityOk = typeof element.severity === 'string'
+    && SEVERITY_VALUES.has(element.severity);
+
+  const fs = element.failure_scenario;
+  const fsAbsent = fs === undefined || fs === null;
+  const fsIsString = typeof fs === 'string';
+  const fsOk = fsAbsent
+    || (fsIsString && fs.length >= 1 && fs.length <= MAX_FAILURE_SCENARIO_CHARS);
+
+  // `evidence`는 선택 필드다. 비문자열은 **강등 없이** `null`로 떨어지고(DD4 타입
+  // 규약 표), 문자열이되 상한 초과일 때만 강등한다.
+  const ev = element.evidence;
+  const evIsString = typeof ev === 'string';
+  const evOk = !evIsString || ev.length <= MAX_EVIDENCE_CHARS;
+
+  const structured = claimOk && severityOk && fsOk && evOk;
+
+  return {
+    claim: claimIsString ? element.claim : '',
+    // **강등돼도 어휘 안의 severity는 보존한다**(code-review M2). 이전에는
+    // `structured ? … : null`이라, claim이 상한을 넘긴 CRITICAL이 원장에
+    // `severity:null`로 남아 "리뷰어가 CRITICAL이라 했는데 기록이 계약 미달이었다"와
+    // "리뷰어가 severity를 안 냈다"가 구별되지 않았다 — `failureScenario`를 원문
+    // 보존하는 UI7과 같은 축인데 한쪽만 지우고 있었다. 보존해도 무게는 새지 않는다:
+    // `gate.classifyFinding`이 `structured === true`를 **함께** 요구하므로 강등 행은
+    // severity가 살아 있어도 `unstructured`이고 blocking이 되지 못한다.
+    // 어휘 밖 값(`'BLOCKER'`)은 보존할 열거값이 없으므로 그대로 null이다.
+    severity: severityOk ? element.severity : null,
+    // 강등 행의 `failureScenario`는 **원문 보존**이다(UI7 — 강등된 항목이 사라지지
+    // 않는다). 비문자열은 보존할 문자열이 없으므로 null이다.
+    failureScenario: fsIsString ? fs : null,
+    evidence: evIsString ? ev : null,
+    structured: structured,
+  };
+}
+
 function loadReviewer(args, opts) {
   const file = args['reviewer-file'];
   if (typeof file !== 'string' || file === '') {
@@ -206,12 +302,20 @@ function loadReviewer(args, opts) {
     throw new SantaCliError('SANTA_USAGE', '--model <str> is required and must be non-empty');
   }
 
+  const elements = Array.isArray(parsed.critical_issues) ? parsed.critical_issues : [];
+  const findings = elements.map(deriveFinding);
+
   return {
     envelope: {
       id: id,
       model: model,
       verdict: parsed.verdict,
-      criticalIssues: Array.isArray(parsed.critical_issues) ? parsed.critical_issues : [],
+      // `criticalIssues`는 **claim 문자열 배열로 유지**한다. `seal.js#project`가 그
+      // 길이로 `criticalIssueCount`를 뽑고 `renderReport`가 리포트 셀에 찍으므로,
+      // 이름을 바꾸거나 구조를 갈아치우면 M2 산출물이 조용히 깨진다. `findings`와
+      // 같은 map에서 파생되므로 길이 일치는 구조적으로 보장된다.
+      criticalIssues: findings.map(function (f) { return f.claim; }),
+      findings: findings,
     },
     // 원본 전체를 함께 보관한다(DD2) — envelope는 gate가 쓰는 최소 투영이라
     // `checks`·`suggestions`를 버리는데, P1의 severity 축이 바로 그 `checks`에서
@@ -259,10 +363,30 @@ function cmdVerdict(args) {
   const round = requireRound(args);
   const reviewers = ledger.readReviewers(round, opts);
   const cap = counter.parseCap(opts.env);
-  const decided = gate.decideVerdict({ reviewers: reviewers, round: round, cap: cap });
-  // 라운드를 FINAL로 전이. **완전성·중복·재판정 검사는 넣지 않는다** — P1 소유(DD12).
+  // santa-adjudication M1 — 판정 대상은 `decideAdjudicatedVerdict`다. 동결
+  // `decideVerdict`는 그 함수가 완화 자격을 얻지 못했을 때 **위임**으로만 불린다
+  // (DD3). 여기서 직접 부르면 `{A,B}` 완전성과 blocking 게이트가 통째로 빠진다.
+  const decided = gate.decideAdjudicatedVerdict({
+    reviewers: reviewers,
+    round: round,
+    cap: cap,
+    severityGate: gate.parseSeverityGate(opts.env),
+  });
+  // 라운드를 FINAL로 전이. **완전성·중복·재판정 검사는 넣지 않는다** — 원장 축이라
+  // milestone 2 소유다(DD8 말미).
   ledger.recordVerdict(round, decided.verdict, opts);
-  out({ verdict: decided.verdict, failing: decided.failing, exitReason: decided.exitReason });
+  // `blocking`·`mismatches`·`contract`·`byReviewer`가 M1의 계측 표면이다(DD12 —
+  // 리포트 표면은 건드리지 않는다). `santa-loop.md` Step 4가 이 넷을 터미널에
+  // 출력한다. `byReviewer`는 강등 이력의 분모라 계측 축에 함께 실린다(code-review L1).
+  out({
+    verdict: decided.verdict,
+    failing: decided.failing,
+    exitReason: decided.exitReason,
+    contract: decided.contract,
+    blocking: decided.blocking,
+    mismatches: decided.mismatches,
+    byReviewer: decided.byReviewer,
+  });
   return EX_OK;
 }
 
@@ -356,4 +480,7 @@ module.exports = {
   MAX_REVIEWER_BYTES: MAX_REVIEWER_BYTES,
   MAX_REVIEWER_DEPTH: MAX_REVIEWER_DEPTH,
   MAX_REVIEWER_ARRAY: MAX_REVIEWER_ARRAY,
+  MAX_CLAIM_CHARS: MAX_CLAIM_CHARS,
+  MAX_FAILURE_SCENARIO_CHARS: MAX_FAILURE_SCENARIO_CHARS,
+  MAX_EVIDENCE_CHARS: MAX_EVIDENCE_CHARS,
 };

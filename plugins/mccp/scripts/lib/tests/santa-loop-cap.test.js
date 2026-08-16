@@ -435,16 +435,32 @@ test('DD9 — 실제 Step 3 형태 fixture가 envelope로 변환·저장되고 v
   assert.equal(rb.code, EX_OK);
   assert.equal(json(rb).reviewersInRound, 2);
 
+  // santa-adjudication M1이 envelope에 `findings`를 **더했다**(DD4). `criticalIssues`는
+  // 이름·길이 그대로 남는다 — `seal.js#project`가 그 길이로 criticalIssueCount를
+  // 뽑기 때문이고, 이 deepEqual이 그 보존을 계속 고정한다. legacy 문자열 원소는
+  // `structured:false`로 파생되므로 그 라운드는 `contract='partial'`이다.
   const st = readState(repo, slug);
   assert.deepEqual(st.rounds[0].reviewers[0].envelope,
-    { id: 'A', model: 'opus', verdict: 'PASS', criticalIssues: [] });
+    { id: 'A', model: 'opus', verdict: 'PASS', criticalIssues: [], findings: [] });
   assert.deepEqual(st.rounds[0].reviewers[1].envelope,
     { id: 'B', model: 'gpt-5.4', verdict: 'FAIL',
-      criticalIssues: ['hardcoded token at src/a.js:12'] });
+      criticalIssues: ['hardcoded token at src/a.js:12'],
+      findings: [{ claim: 'hardcoded token at src/a.js:12', severity: null,
+        failureScenario: null, evidence: null, structured: false }] });
 
+  // stdout도 **추가**다(교체가 아니다) — 기존 3필드는 그대로 있고 계측 3필드가 붙는다.
   const vd = cli(['verdict', '--decision', slug, '--cwd', repo, '--round', '0']);
   assert.equal(vd.code, EX_OK);
-  assert.deepEqual(json(vd), { verdict: 'NAUGHTY', failing: ['B'], exitReason: null });
+  assert.deepEqual(json(vd), {
+    verdict: 'NAUGHTY', failing: ['B'], exitReason: null,
+    contract: 'partial', blocking: [], mismatches: [
+      { id: 'B', reviewerVerdict: 'FAIL', blocking: 0, kind: 'fail-without-blocking' },
+    ],
+    byReviewer: {
+      A: { findings: 0, structured: 0, blocking: 0 },
+      B: { findings: 1, structured: 0, blocking: 0 },
+    },
+  });
   assert.equal(readState(repo, slug).rounds[0].verdict, 'NAUGHTY', 'FINAL로 전이해야 한다');
 });
 
@@ -951,7 +967,7 @@ test('exit code가 실제 프로세스에서 전파된다 — 12 / 2 / 0', async
 
 // ── UI11 — 판정 lifecycle이 P0에 선반영되지 않음 ─────────────────────────────
 
-test('UI11 — [의도된 미봉] record --id A 두 번이 성공한다 (판정 lifecycle은 P1 소유)', () => {
+test('UI11 — record --id A 두 번은 여전히 성공하되 그 라운드는 NICE가 되지 못한다 (P1이 닫음)', () => {
   const repo = makeRepo();
   const slug = 'no-lifecycle';
   assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_OK);
@@ -962,11 +978,19 @@ test('UI11 — [의도된 미봉] record --id A 두 번이 성공한다 (판정 
       '--id', 'A', '--model', 'opus', '--reviewer-file', a]);
     assert.equal(r.code, EX_OK, 'M1은 id 중복을 검사하지 않는다(UI11)');
   }
-  // 그 결과 리뷰어 하나로 NICE가 나온다 — dual-review 우회 경로가 열린 채 남는다.
-  // 이것은 backlog HIGH이자 P1의 1순위 항목이다. 여기서 막으면 UI10·UI11 위반이다.
+  // **P1(santa-adjudication M1)이 이 우회를 닫았고, 이 단언은 그 지시대로 갱신됐다.**
+  // 이전 문언은 "리뷰어 하나로 NICE가 나온다 — 여기서 막으면 UI10·UI11 위반"이었고
+  // "P1이 {A,B} 완전성 규칙을 넣으면 이 단언을 함께 갱신하라"를 달고 있었다.
+  //
+  // 닫힌 것은 **판정**이지 record가 아니다: `record --id A`를 두 번 넣는 것은 여전히
+  // 성공한다(id 중복 거부는 라운드 상태 기계라 milestone 2 소유다). 대신
+  // `decideAdjudicatedVerdict`가 distinct id ≥ 2를 요구하므로 그 라운드는 NICE에
+  // 도달하지 못한다 — A×2 우회를 닫는 데 필요한 것은 그 한 규칙뿐이다(DD8).
   const vd = cli(['verdict', '--decision', slug, '--cwd', repo, '--round', '0']);
-  assert.equal(json(vd).verdict, 'NICE',
-    'P1이 {A,B} 완전성·id 중복 규칙을 넣으면 이 단언을 함께 갱신하라');
+  assert.equal(json(vd).verdict, 'NAUGHTY',
+    'distinct id가 1이면 NICE가 아니다 — dual-review 우회 경로가 닫혔다');
+  assert.deepEqual(json(vd).failing, [],
+    '실패한 리뷰어는 없다. 진단은 verdict가 아니라 다양성 부족이 진다');
 });
 
 test('UI11 — envelope 0건 verdict가 CLI 경유로 도달 가능하다 (동작 보존)', () => {
@@ -1008,16 +1032,22 @@ test('UI4/UI11 — receipt 배선은 seal.js에만 있다 (M1 4개 모듈은 여
   assert.match(sealSrc, /mccp-santa-review/);
 });
 
-test('Acceptance — 외부 의존이 문서화된 5개뿐이고 npm 의존 0', () => {
+test('Acceptance — 외부 의존이 문서화된 6개뿐이고 npm 의존 0', () => {
   const santaDir = path.join(__dirname, '..', 'santa');
   // M2가 정확히 둘을 더했다: 내부 `./seal`, 외부 `../../receipt/write`.
   // 목록을 열거식으로 두는 것이 이 단언의 전부다 — 새 의존이 조용히 들어오면
   // red가 되고, 들어와야 한다면 여기 한 줄이 그 승인 기록이 된다.
+  //
+  // santa-adjudication M1이 여섯 번째를 더했다: `gate.js`가 `failure_scenario`의
+  // 실질성 검사에 `force-override-reason#validateReason`을 **재사용**한다. 규칙을
+  // 베껴 적으면 원본이 바뀔 때 두 사본이 갈리고 그 갈림은 어떤 test도 잡지 않으므로
+  // 의존을 지는 쪽이 옳다(Task 1). 이 줄이 그 승인 기록이다.
   const allowed = new Set([
     './counter', './ledger', './gate', './seal',          // 내부
     '../../receipt/evidence-lock', '../../receipt/hash',
     '../../receipt/decision', '../path-containment',
     '../../receipt/write',                                // 외부 5 (M2)
+    '../../receipt/lib/force-override-reason',            // 외부 6 (santa-adjudication M1)
     'fs', 'os', 'path', 'child_process',                  // node builtin
   ]);
   for (const f of fs.readdirSync(santaDir)) {
@@ -1041,6 +1071,42 @@ test('security S2 — 경로 주입은 JS API에만 있고 CLI 플래그로는 �
   assert.equal(typeof ledger.resolveStatePath, 'function');
   const injected = ledger.resolveStatePath({ statePath: '/tmp/x.json' });
   assert.equal(injected, '/tmp/x.json');
+});
+
+// ── Step 4 — verdict exit code 분기 (code-review M3) ─────────────────────────
+//
+// Step 3(record)과 Step 5.5(seal)는 비영점 exit에 분기하는데 Step 4만 없었다. exit
+// 75(원장 lock 경합)면 `$VERDICT_JSON`이 비고 아래 파싱이 전부 throw해서 `$VERDICT`가
+// 빈 문자열이 되는데, 산문의 분기 목록은 NICE와 NAUGHTY 둘뿐이라 **정의된 동작이
+// 없다**. 라운드는 FINAL로 전이되지도 않은 상태다. Step 5.5 test와 같은 이유로
+// 산문 설명이 아니라 이 test가 분기의 존재를 소유한다.
+test('Step 4 — verdict의 비영점 exit에 실제로 분기한다 (파싱 전에 멈춘다)', () => {
+  const md = fs.readFileSync(SANTA_LOOP_MD, 'utf8');
+  const lines = md.split(/\r?\n/);
+
+  let start = -1;
+  let end = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (start === -1 && /^### Step 4\b/.test(lines[i])) { start = i; continue; }
+    if (start !== -1 && /^### /.test(lines[i])) { end = i; break; }
+  }
+  assert.notEqual(start, -1, '`### Step 4` 헤딩을 찾지 못했다');
+  const slice = lines.slice(start, end);
+  const at = (re) => slice.map((l, i) => (re.test(l) ? i + 1 : 0)).filter(Boolean);
+
+  const capture = at(/VERDICT_EXIT=\$\?/);
+  const branch = at(/if \[ "\$VERDICT_EXIT" -ne 0 \]/);
+  const halt = at(/^\s*exit "\$VERDICT_EXIT"$/);
+  const firstParse = at(/^VERDICT=\$\(/);
+
+  assert.ok(capture.length > 0, 'Step 4가 verdict의 exit code를 캡처하지 않는다');
+  assert.ok(branch.length > 0, 'exit code를 캡처만 하고 분기하지 않는다');
+  assert.ok(halt.length > 0, '분기 안에 종료문이 없다');
+  assert.ok(capture[0] < branch[0], '분기가 캡처보다 앞에 있다');
+  assert.ok(branch[0] < halt[0], '종료문이 분기 밖에 있다');
+  assert.ok(firstParse.length > 0 && halt[0] < firstParse[0],
+    'JSON 파싱이 종료문보다 앞에 있다 — 빈 stdout을 파싱하면 그 자리에서 죽고, ' +
+    '분기가 주는 진단(75는 재시도)이 stack trace에 묻힌다');
 });
 
 // ── Step 5.5 — sealed verdict 분기 (PR-Codex F1의 세 번째 축) ────────────────

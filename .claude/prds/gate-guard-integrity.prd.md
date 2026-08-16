@@ -72,7 +72,7 @@ We'll know we're right when **각 가드가 발화해야 하는 조건에서 실
 |---|---|---|---|---|
 | 1 | 가드 복원 | hook이 자기 실패에도 사용자를 막지 않고, terminal 게이트가 plan 변경을 stale로 잡으며, ship-gate 가드가 표준 설치 환경에서도 증거 없는 skip을 막는다 | complete | `.claude/plans/gate-guard-integrity.plan.md` |
 | 2 | 신호 신뢰도 | 전수 실행 결과가 실행마다 동일해지고, 외부 의존 테스트가 도달 불가 시 정직하게 skip된다 | complete | `.claude/plans/gate-guard-integrity-m2.plan.md` |
-| 3 | 잔여 종료 | 이 PRD가 저장소에 남긴 잔여물이 남아 있지 않고, 그 작업이 드러낸 경계된 결함이 닫히며, 범위 밖으로 남는 축은 명시된 이관처를 갖는다 | in-progress | `.claude/plans/gate-guard-integrity-m3.plan.md` |
+| 3 | 잔여 종료 | 이 PRD가 저장소에 남긴 잔여물이 남아 있지 않고, 그 작업이 드러낸 경계된 결함이 닫히며, 범위 밖으로 남는 축은 명시된 이관처를 갖는다 | complete | `.claude/plans/gate-guard-integrity-m3.plan.md` |
 
 ### Milestone 2 완료 판정 (2026-08-14) — **잔여를 명시한 채 운영자 수용**
 

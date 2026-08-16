@@ -60,18 +60,23 @@ test('gate — reviewers 부재/비배열도 NAUGHTY (증거 없음은 통과가
   assert.equal(gate.decideVerdict().verdict, 'NAUGHTY');
 });
 
-// 리뷰어 1명으로 NICE가 나오는 것은 M1이 **의도적으로 남긴** 구멍이다
-// (판정 lifecycle은 P1 소유 — DD12 / backlog HIGH). 이것을 red로 만들면 안 된다:
-// 지금 여기서 막으면 UI11을 어기고 P1의 소유물을 P0가 선반영하는 것이 된다.
-// 대신 **그 구멍이 존재한다는 사실 자체를 고정**해, P1이 닫을 때 이 test가
-// 함께 갱신되도록 한다(조용히 닫히거나 조용히 남는 것을 둘 다 막는다).
-test('gate — [P1 소유 자리] 리뷰어 1명 PASS만으로 NICE가 나온다 (동작 보존, 의도된 미봉)', () => {
+// **이것은 미봉이 아니라 위임 대상 함수의 현행 동작이다** (santa-adjudication M1 /
+// Task 5 · DD3). `{A,B}` 완전성은 M1이 닫았지만 그 규칙은 신규 export
+// `decideAdjudicatedVerdict`에만 들어갔고, 동결 함수 `decideVerdict`는 한 글자도
+// 바뀌지 않았다(ownership.md §변경 프로토콜 2). 두 함수를 하나로 읽으면 M1이 P0의
+// 보존 계약을 깬 것처럼 보이는데, 깨지 않는 이유가 정확히 그 분리다.
+//
+// 그러므로 이 단언을 "이제 닫혔으니 뒤집자"고 고치지 마라 — 이 동작이 바뀌면
+// `severityGate='off'`와 `contract='partial'` 경로가 **함께** 바뀐다(그 둘이 이
+// 함수에 위임한다). `{A,B}` 완전성이 실제로 강제되는지는
+// `santa-adjudication.test.js`의 커버리지 13·22가 잰다.
+test('gate — 리뷰어 1명 PASS만으로 NICE (decideAdjudicatedVerdict의 위임 대상, 동결 동작)', () => {
   const r = gate.decideVerdict({ reviewers: [env('A', 'PASS')] });
   assert.equal(r.verdict, 'NICE',
     'M1은 {A,B} 완전성 검사를 갖지 않는다(UI11). P1이 이 규칙을 넣으면 이 단언을 함께 갱신하라.');
 });
 
-test('gate — round/cap은 받되 판정에 관여하지 않는다 (frozen-but-inert, P1 자리)', () => {
+test('gate — round/cap은 받되 판정에 관여하지 않는다 (frozen-but-inert, 위임 대상)', () => {
   const base = { reviewers: [env('A', 'PASS'), env('B', 'PASS')] };
   const a = gate.decideVerdict(Object.assign({}, base, { round: 0, cap: 3 }));
   const b = gate.decideVerdict(Object.assign({}, base, { round: 99, cap: 1 }));

@@ -2,7 +2,44 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.26.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.26.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.26.2] — 2026-08-17
+
+**santa-adjudication M1 — severity contract + 게이트 재배선 (PRD 3 milestone 중 1 → patch bump, 1.26.1 → 1.26.2)** — `/mccp:santa-loop`의 verdict 게이트는 리뷰어가 낸 `verdict` 문자열 하나만 읽었다. `critical_issues`가 비어 있어도 `FAIL`이면 NAUGHTY였고, 그래서 문구·네이밍 선호가 blocker와 같은 무게로 라운드를 하나 더 태웠다. M1은 판정 입력을 **병합·중복제거된 blocking 건수**로 바꾸고, blocking의 자격을 `failure_scenario`를 실제로 쓸 수 있는가에 못박는다.
+
+> **§3.7 forward-only 상향 (10번째 재발)**: 이 항목은 원래 `1.26.1`로 작성됐으나, 브랜치가 미머지인 사이 main이 같은 번호를 gate-guard-integrity M3(PR #140, `103a940`)에 발행했다. 발행된 번호는 불가침이므로 본 항목만 한 칸 밀어 `1.26.2`가 됐다. 두 항목은 서로 다른 축이라 합치지 않았고, 날짜 역전(1.26.2가 08-17, 1.26.1이 08-16)은 version 순서가 정본이므로 그대로 둔다.
+
+**완화만 넣으면 게이트가 순수하게 약해지므로 같은 milestone에서 `{A,B}` 완전성을 함께 닫는다.** backlog 2026-08-13 HIGH가 "P1의 1순위"로 이관한 우회다 — `record --id A`를 두 번 넣으면 A envelope 2개가 쌓이고 둘 다 PASS면 NICE가 나왔다. 이제 NICE는 distinct id가 2 이상일 때만이며, 이 규칙은 `MCCP_SANTA_SEVERITY_GATE` 값과 무관하게 항상 적용된다. 같은 규칙이 이미 한 층 위(`seal.js#deriveVerdict`)에 있어 게이트가 NICE를 내고 봉인이 divergent를 내던 **불일치**가 있었고, M1이 두 층을 정합시킨다.
+
+**그리고 같은 클래스의 불일치를 다른 축에 새로 열었다가 같은 사이클에서 닫았다**(code-review H1, HIGH). 완화의 정의가 "리뷰어의 `verdict` 문자열을 보지 않는다"인데 `seal.js`의 `deriveVerdict`·`buildProof`는 FINAL 라운드 리뷰어 **전원 PASS**를 계속 요구했다. 그래서 MEDIUM만 낸 `FAIL`이 있는 라운드 — 이 milestone이 통과시키려고 만든 바로 그 라운드 — 는 게이트에서 NICE를 받고 봉인에서 divergent가 됐다. 실측 결과는 Step 5.5의 `exit 1`(push 차단) · git-tracked receipt의 `divergent` · `fix-task.md`의 `divergent_unresolved` 에스컬레이션이었고, `quorum.passed:false` + `verification_verdict:'converged'`라는 자기모순 proof(`review-verdict.js`가 구조적으로 거부하는 조합)까지 함께 나왔다. 즉 M1의 1순위 경로가 end-to-end로 **도달 불가**였다. 두 절을 제거했다 — "더 엄격한 쪽이 이긴다"는 두 층이 **같은 질문**에 답할 때만 미덕이고, 리뷰어의 verdict 문자열은 이제 어느 층에서도 판정 입력이 아니다. 커버리지 25가 `{A,B}` 축만 대조하고 있었던 것이 이 구멍을 통과시킨 이유이며, 같은 항목이 완화 경로 입력을 함께 받도록 확장됐다.
+
+**계약을 지키지 못한 라운드는 완화를 받지 못한다 — 이것이 이 milestone의 유일한 실질 방어다.** 라운드마다 `contract ∈ {full, partial}`을 파생하고 `full`일 때만 완화한다. 규칙은 **대체가 아니라 누적**이다: `full`의 NICE 조건이 `blocking === 0 ∧ distinct ≥ 2`이고 `partial`·`off`는 거기에 `allPass`가 **더** 붙는다. 대체로 두면 비구조화 finding 하나가 다른 리뷰어의 blocking을 지우는 우회가 생긴다(L2 R5 invariant CRITICAL이 잡은 설계 결함 — 초안은 이 지점에서 틀려 있었다).
+
+**동결 함수는 한 글자도 바뀌지 않았다.** `gate.decideVerdict`의 시그니처·반환 3필드·계약 문언은 그대로이고, 판정은 신규 export `decideAdjudicatedVerdict`가 한다 — 완화 자격을 얻지 못하면 그 함수가 동결 함수에 **위임**한다. `docs/santa-loop/ownership.md`의 갱신은 그래서 변경 기록이 아니라 **추가 기록**이다(§변경 프로토콜 2·4).
+
+### Added
+
+- `gate.decideAdjudicatedVerdict` / `analyzeReviewers` / `classifyFinding` / `parseSeverityGate` — 순수 export 4종. 신규 모듈 0개(소유권 표에 없는 경로를 만들지 않기 위해 `gate.js` 안에 둔다).
+- envelope에 `findings[]` 추가 — `{claim, severity, failureScenario, evidence, structured}`. 저장 위치는 **gitignored 원장**(`.claude/state/santa-loop/<slug>.json`)뿐이고 receipt에는 집계 정수 4종만 실린다. receipt schema·`SCHEMA_VERSION` 무변경.
+- `MCCP_SANTA_SEVERITY_GATE=enforce|off` (`docs/ENVIRONMENT.md` §11). **`off`가 `enforce`보다 엄격하다** — 끄는 것은 완화 한 축뿐이고 강화 축 둘은 어느 값에서도 살아 있다.
+- `cli.js verdict`의 stdout JSON에 `contract`·`blocking`·`mismatches`·`byReviewer` 추가(기존 3필드는 유지 — 교체가 아니다). `santa-loop.md` Step 4가 이 넷을 터미널에 출력한다. `byReviewer`는 강등 이력의 분모(`findings - blocking`)이고, PRD Open Question이 미결로 둔 지표의 두 항이 정확히 이것이다 — `analyzeReviewers`가 이미 세고 있었는데 판정 반환에서 떨어져 배송 경로에 소비자가 없었다(code-review L1).
+- 회귀 test 25항목 — `plugins/mccp/scripts/lib/tests/santa-adjudication.test.js`. `[N]` 커버리지 id를 Validation 스크립트가 기계 대조하며, 각 항목에 assert가 하나 이상 있는지까지 검사한다.
+
+### Fixed
+
+- **실질성 하한의 단위를 문자 수에서 표시폭으로** (code-review M1). `validateReason`의 `MIN_LENGTH`(30)는 영어 override 사유용으로 보정된 값이라, 같은 정보량을 한글·CJK로 쓴 시나리오("빈 배열에서 첫 원소를 읽어 크래시한다" = 21자)가 하한 미달로 강등됐다. 방향이 fail-open이라(blocking이 remark가 되고, 완화와 겹치면 CRITICAL을 낸 FAIL 리뷰어가 있는 라운드가 NICE가 된다) 그대로 둘 수 없었다 — 게이트의 엄격도가 리뷰어가 고른 **언어**에 달리는 것은 방어할 근거가 없다. 규칙을 재구현하는 대신 전각 코드포인트를 2로 세어 같은 검증기에 먹인다: 길이 축 하나만 스크립트 중립이 되고 단어 수·1-token 금칙·URL-only·filler는 원본 그대로이며, **순수 ASCII에는 항등**이라 영어 경로의 판정은 한 건도 바뀌지 않는다(항등과 29/30자 경계를 test가 단언한다).
+- **강등된 finding의 `severity`가 지워지던 것** (code-review M2). `failureScenario`는 UI7대로 원문 보존인데 `severity`만 `null`이 되어, claim이 상한을 넘긴 CRITICAL이 원장에서 "severity를 안 낸 finding"과 구별되지 않았다. 어휘 안의 값은 보존한다 — `classifyFinding`이 `structured === true`를 함께 요구하므로 무게는 새지 않는다.
+- **Step 4가 `verdict`의 비영점 exit에 분기하지 않던 것** (code-review M3). exit 75(원장 lock 경합)면 stdout이 비어 파싱이 전부 throw하고 `$VERDICT`가 빈 문자열이 되는데, 산문의 분기는 NICE/NAUGHTY 둘뿐이라 정의된 동작이 없었다 — 라운드가 FINAL로 전이되지도 않은 상태다. Step 3·5.5와 같은 형태의 분기를 넣고, 그 존재(캡처 → 분기 → 종료가 첫 파싱보다 앞)를 test가 강제한다.
+- **병합된 blocking 행이 최초 관측 severity를 유지하던 것** (code-review L2). A가 HIGH, B가 CRITICAL로 같은 지적을 내면 보고서가 HIGH를 보여줬다. 판정은 이 값을 보지 않지만 보고는 본다 — 높은 쪽을 남긴다.
+- **`.claude/state/orchestration-runaway.json.debt/`가 gitignore되지 않던 것** (code-review L3). 카운터의 **형제 디렉토리**(`getDebtDir`가 경로에 `.debt`를 덧붙인다)라 `.claude/state/orchestration-runaway.json` 항목도 `*.lock` glob도 닿지 않았고, `git add -A` 한 번이면 세션 로컬 예약 상태가 커밋됐다. canonical block(`gitignore-provision.js`)과 이 저장소 `.gitignore` **양쪽**에 등재했다 — 한쪽만 고치면 drift 게이트가 red다.
+
+### Changed
+
+- `santa-loop.md` Step 3에 구조화 `critical_issues` 스키마와 severity contract를 싣고, Step 4를 blocking 건수 판정으로, Step 5의 "Fix every flagged issue"를 blocking 전건으로 좁혔다. **FAIL-first 문장("Your job is to find problems, not to approve.")은 무변경**이고 회귀 test가 그 문자열을 파일에서 직접 단언한다 — 추가되는 것은 완화 지시가 아니라 **증명 의무**다.
+- `gate.js` 머리말의 "env를 모른다"를 "판정 함수는 env를 모르고 파서만 안다"로 좁혔다(`counter.js` 동형).
+- `santa-gate.test.js`는 **단언 코드에 diff가 없다.** 리뷰어 1명 PASS가 NICE를 내는 단언은 그대로이며(그 함수가 동결이므로), 바뀐 것은 그것이 "의도된 미봉"이 아니라 "위임 대상 함수의 현행 동작"임을 밝히는 문언뿐이다.
+- `santa-loop-cap.test.js` 3항목 — envelope·stdout deepEqual에 신규 필드를 반영하고, `record --id A` 2회 라운드의 기대 verdict를 NICE → NAUGHTY로 갱신했다(그 단언이 "P1이 이 규칙을 넣으면 함께 갱신하라"고 스스로 지시한 자리다). 의존 allowlist에 `../../receipt/lib/force-override-reason` 1줄을 승인 기록으로 추가 — 실질성 규칙을 베껴 적으면 원본이 바뀔 때 두 사본이 갈리고 그 갈림은 어떤 test도 잡지 않는다.
 
 ## [1.26.1] — 2026-08-16
 

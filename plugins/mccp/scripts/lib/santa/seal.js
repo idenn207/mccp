@@ -98,8 +98,24 @@ function distinctIds(round) {
 
 // ── 판정 ─────────────────────────────────────────────────────────────────────
 //
-// converged는 좁다: FINAL 라운드가 NICE이고, distinct id가 2 이상이고, 그 라운드의
-// 리뷰어가 전원 PASS일 때만이다.
+// converged는 좁다: FINAL 라운드가 NICE이고, distinct id가 2 이상일 때만이다.
+//
+// **전원 PASS 절은 santa-adjudication M1에서 제거됐다**(code-review H1). M1이 판정
+// 입력을 리뷰어의 `verdict` 문자열에서 병합·중복제거된 blocking 건수로 옮겼으므로
+// (`gate.decideAdjudicatedVerdict`의 완화), MEDIUM만 낸 `FAIL`은 라운드를 NICE로
+// 두는 것이 **설계된 결과**다. 그런데 이 함수는 그 리뷰어를 이유로 divergent를 냈다.
+// 실측: 라운드 verdict=NICE인데 봉인이 divergent → Step 5.5가 `exit 1`로 push를
+// 막고, git-tracked receipt에 divergent가 실리고, `fix-task.md`에
+// `divergent_unresolved` 에스컬레이션까지 남았다. M1의 1순위 경로가 end-to-end로
+// 도달 불가였다는 뜻이다.
+//
+// **"더 엄격한 쪽이 이긴다"는 두 층이 같은 질문에 답할 때만 미덕이다.** 리뷰어의
+// `verdict` 문자열은 이제 어느 층에서도 판정 입력이 아니므로, 그것을 다시 게이트하는
+// 봉인은 엄격한 것이 아니라 **다른 질문에 답하면서 게이트를 반박**하는 것이다.
+// 그 축의 판정은 `rounds[fin].verdict`가 이미 담고 있다(그 값이 곧 완화를 포함한
+// 게이트의 결론이다). 남는 `distinctIds >= 2`는 폐기하지 않는다 — 그것은 게이트와
+// **같은 질문**을 독립적으로 한 번 더 세는 교차 검사이고, 두 값이 갈리면 즉시 red가
+// 되는 것이 DD8이 감수한 대가의 대가다.
 //
 // **거부 마커는 여기 입력이 아니다.** 마커는 "거부가 관측됐다"는 사실이고 판정이
 // 필요로 하는 것은 "루프가 수렴 없이 끝났는가"인데, 둘은 갈린다 — 이미 수렴해
@@ -124,7 +140,6 @@ function deriveVerdict(projection) {
   const fin = rounds[rounds.length - 1];
   if (fin.verdict !== 'NICE') return 'divergent';
   if (distinctIds(fin).length < 2) return 'divergent';
-  if (!fin.reviewers.every(function (r) { return r.verdict === 'PASS'; })) return 'divergent';
   return 'converged';
 }
 
@@ -210,9 +225,12 @@ function buildProof(input) {
 
   const ids = distinctIds(fin);
   const responded = ids.length;
-  const allPass = !!fin && fin.reviewers.length > 0 &&
-    fin.reviewers.every(function (r) { return r.verdict === 'PASS'; });
-  const passed = verdict === 'converged' && responded >= 2 && allPass;
+  // `allPass`는 `deriveVerdict`와 **같은 이유로** 빠졌다(code-review H1). 여기서는
+  // 결과가 더 조용했다: `review-verdict.js:126`이 `quorum.passed !== true`인 proof를
+  // 구조적으로 무효로 보므로, 완화로 converged가 된 라운드는 `verdict:'converged'` +
+  // `passed:false`라는 **자기모순 proof**를 만들었다. `passed`가 답해야 하는 질문은
+  // "이 판정이 정족수를 갖췄는가"이지 "리뷰어들이 무슨 문자열을 냈는가"가 아니다.
+  const passed = verdict === 'converged' && responded >= 2;
 
   return {
     layers: {

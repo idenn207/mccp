@@ -70,6 +70,13 @@ const MCCP_IGNORE_BLOCK = [
   '# Session-local counters and advisory locks. STATE.md / fix-task.md stay tracked.',
   '.claude/state/loop-counter.json',
   '.claude/state/orchestration-runaway.json',
+  // The debt markers are a SIBLING DIRECTORY of that counter, not a file inside
+  // it (orchestration-runaway.js#getDebtDir appends '.debt' to the counter path),
+  // so the entry above does not reach them and neither does the *.lock glob. Same
+  // category as the counter itself — session-local reservation state whose whole
+  // meaning is "a controller in THIS session died mid-fan-out"; committing one
+  // would pin phantom headroom in every clone.
+  '.claude/state/orchestration-runaway.json.debt/',
   '.claude/state/*.lock',
   '',
   '# completion-ledger entries ARE tracked; only the per-entry lock/tmp are local.',

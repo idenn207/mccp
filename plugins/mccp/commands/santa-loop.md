@@ -103,16 +103,32 @@ Launch two reviewers **in parallel** using the Agent tool (both in a single mess
 
 Each reviewer evaluates every rubric criterion as PASS or FAIL, then returns structured JSON:
 
-```json
-{
-  "verdict": "PASS" | "FAIL",
-  "checks": [
-    {"criterion": "...", "result": "PASS|FAIL", "detail": "..."}
+```jsonc
+{ "verdict": "PASS" | "FAIL",
+  "checks": [ { "criterion": "…", "result": "PASS|FAIL", "detail": "…" } ],
+  "critical_issues": [
+    // Preferred form — an object per issue.
+    { "claim": "…",                            // required, string, 1..500 chars
+      "severity": "CRITICAL|HIGH|MEDIUM|LOW",  // required, exactly one of these four (case-sensitive)
+      "failure_scenario": "…",                 // required ONLY to claim a blocker. 1..2000 chars
+      "evidence": "path:line or a quote" }     // optional, string, 0..500 chars
+    // A bare string is still accepted (legacy form), but see the severity contract below.
   ],
-  "critical_issues": ["..."],
-  "suggestions": ["..."]
-}
+  "suggestions": ["…"] }
 ```
+
+**Severity contract.** `failure_scenario` is what separates a blocker from a
+remark: write the concrete misbehaviour the issue causes — what breaks, under
+which input or state, and with what wrong result. An issue counts as *blocking*
+only when its `severity` is `CRITICAL` or `HIGH` **and** its `failure_scenario`
+is substantive. Everything else is preserved verbatim and reported, it just
+carries no weight in the gate.
+
+This is not permission to look less hard. It says: if you cannot describe the
+malfunction, the observation belongs in `suggestions`, which already exists for
+exactly that. A round in which any issue omits `severity`/`claim` (or uses a
+value outside the four) is recorded as `contract: partial` and is then judged by
+the **stricter** rule — skipping the structure never buys a looser gate.
 
 The verdict gate (Step 4) maps these to NICE/NAUGHTY.
 
@@ -122,6 +138,7 @@ Launch an Agent (subagent_type: `code-reviewer`, model: `opus`) with the full ru
 - The complete rubric
 - All file contents under review
 - "You are an independent quality reviewer. You have NOT seen any other review. Your job is to find problems, not to approve."
+- The severity contract above, verbatim: every entry in `critical_issues` carries a `claim` and a `severity`, and only an issue whose concrete failure you can write out in `failure_scenario` may be called a blocker
 - Return the structured JSON verdict above
 
 #### Reviewer B: External Model (Claude fallback only if no external CLI installed)
@@ -181,17 +198,72 @@ The file must live inside the repo — the CLI refuses paths outside it. Non-zer
 
 ```bash
 VERDICT_JSON=$(node "$SANTA" verdict --decision "$DECISION" --round "$ROUND")
+VERDICT_EXIT=$?
+if [ "$VERDICT_EXIT" -ne 0 ]; then
+  echo "[santa] verdict failed (exit $VERDICT_EXIT) — the round was NOT transitioned to FINAL." 1>&2
+  echo "[santa] 75=ledger lock busy (retry shortly), 2=usage/ledger error. Do NOT push and do NOT" 1>&2
+  echo "[santa] open another round: neither NICE nor NAUGHTY was decided." 1>&2
+  exit "$VERDICT_EXIT"
+fi
+
 VERDICT=$(echo "$VERDICT_JSON" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).verdict)')
 FAILING=$(echo "$VERDICT_JSON" | node -e 'process.stdout.write((JSON.parse(require("fs").readFileSync(0,"utf8")).failing||[]).join(", "))')
+CONTRACT=$(echo "$VERDICT_JSON" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).contract||"")')
+BLOCKING_N=$(echo "$VERDICT_JSON" | node -e 'process.stdout.write(String((JSON.parse(require("fs").readFileSync(0,"utf8")).blocking||[]).length))')
 ```
 
-- **NICE** → proceed to Step 6 (push)
-- **NAUGHTY** → `$FAILING` names the reviewers that failed. Merge all critical issues from both reviewers, deduplicate, proceed to Step 5
+**The gate reads merged, deduplicated blocking issues — not the reviewer's
+`verdict` string.** A round is NICE only when all three hold: zero blocking
+issues, at least two distinct reviewer ids, and — whenever the round did not
+earn the mitigation — the current all-PASS rule as well. The mitigation (ignoring
+the `verdict` string and looking only at blocking count) applies solely when
+`contract` is `full`; a `partial` round keeps the all-PASS requirement **on top
+of** the other two. Neither the blocking gate nor the two-reviewer requirement
+can be switched off; `MCCP_SANTA_SEVERITY_GATE=off` turns off only the
+mitigation.
+
+The exit-code branch above is load-bearing for the same reason Step 5.5's is: on
+exit 75 (ledger lock busy) `$VERDICT_JSON` is empty, every parse below throws, and
+`$VERDICT` ends up an empty string that matches neither branch — "prose says HALT,
+code proceeds" with no verdict at all.
+
+Print the mismatches and the per-reviewer counts — they are the point of the
+measurement, and nothing else surfaces them:
+
+```bash
+echo "contract=$CONTRACT blocking=$BLOCKING_N"
+echo "$VERDICT_JSON" | node -e '
+  const j=JSON.parse(require("fs").readFileSync(0,"utf8"));
+  Object.keys(j.byReviewer||{}).forEach(function(id){
+    const s=j.byReviewer[id];
+    console.log("[reviewer] "+id+" findings="+s.findings+
+      " structured="+s.structured+" blocking="+s.blocking);
+  });
+  (j.mismatches||[]).forEach(function(m){
+    console.log("[mismatch] "+m.id+" reviewerVerdict="+m.reviewerVerdict+
+      " blocking="+m.blocking+" kind="+m.kind);
+  });'
+```
+
+`[reviewer]` lines carry the downgrade ratio: `findings - blocking` is how much a
+reviewer raised that the gate gave no weight to. A reviewer whose `structured`
+count keeps trailing its `findings` count is not complying with the schema, and a
+reviewer whose `blocking` is always 0 while `findings` climbs is the signal the
+PRD wants measured — neither is fixed by loosening the gate.
+
+A `fail-without-blocking` line is a reviewer who returned `FAIL` while raising
+nothing that qualifies as a blocker; `pass-with-blocking` is the reverse, and
+there the blocking issue wins (the round is NAUGHTY). A `contract` stuck at
+`partial` round after round is not a reason to loosen the threshold — it means
+the reviewer prompt needs rewriting.
+
+- **NICE** → proceed to Step 5.5, then Step 6 (push)
+- **NAUGHTY** → `$FAILING` names the reviewers whose issues blocked (empty when the round failed only for lack of two distinct reviewers). Merge the blocking issues from both reviewers, deduplicate, proceed to Step 5
 
 ### Step 5: Fix Cycle (NAUGHTY path)
 
-1. Display all critical issues from both reviewers
-2. Fix every flagged issue — change only what was flagged, no drive-by refactors
+1. Display all critical issues from both reviewers — blocking ones first, then the rest
+2. Fix every **blocking** issue (`CRITICAL`/`HIGH` with a substantive `failure_scenario`) — change only what was flagged, no drive-by refactors. `MEDIUM`/`LOW` and anything downgraded for a missing failure scenario are **not** fixed here and are **not** discarded either: they stay in the ledger and in the report, and go to `.claude/plans/codex-findings-backlog.md` if they are worth keeping (CLAUDE.md §3.14 sets the same threshold for every review surface in this repo)
 3. Commit all fixes in a single commit:
    ```
    fix: address santa-loop review findings (round N)
@@ -233,7 +305,9 @@ fi
 
 `--decision "$DECISION"` is **required**: without it `seal` re-derives the slug itself and can disagree with the scope Step 0 fixed. The conditional is part of the contract, not decoration — capturing `SEAL_EXIT` without branching on it would let a failed seal be followed by a push, which is exactly the "prose says HALT, code proceeds" defect this repo keeps finding. An unsealed push is a ship with no instrumentation, and UI14 forbids it.
 
-**Both branches are load-bearing, and they check different things.** `SEAL_EXIT` answers "did the seal complete?"; `SEAL_VERDICT` answers "what did it seal?" A seal can succeed (exit 0) while recording `divergent`, and branching on the exit code alone would push under an anchor that says the review did not converge — the same class of defect one layer up. Step 4's NICE is a read of the final round; the sealed verdict is derived from the whole ledger (round count, distinct reviewer ids, per-reviewer PASS, termination marker), so when the two disagree the seal is the stricter and more complete statement.
+**Both branches are load-bearing, and they check different things.** `SEAL_EXIT` answers "did the seal complete?"; `SEAL_VERDICT` answers "what did it seal?" A seal can succeed (exit 0) while recording `divergent`, and branching on the exit code alone would push under an anchor that says the review did not converge — the same class of defect one layer up. Step 4's NICE is a read of the final round; the sealed verdict is derived from the whole ledger (round count, the recorded round verdict, distinct reviewer ids), so a disagreement means the ledger does not support what Step 4 read — an empty ledger, a final round that is not NICE, or fewer than two distinct reviewers.
+
+The seal deliberately does **not** re-gate on the reviewers' `verdict` strings. Those stopped being a judgment input at Step 4 (a `FAIL` raising nothing blocking leaves the round NICE by design), so a seal that still failed on them would not be "stricter" — it would be answering a different question and contradicting the gate, which is exactly what it did before santa-adjudication M1 fixed it. What the seal keeps is the axis it can check independently: two distinct reviewer ids, counted a second time from the ledger.
 
 `$SEAL_JSON` carries `reportPath` / `proofPath` / `receiptPath` / `verdict`; Step 7 reports them.
 

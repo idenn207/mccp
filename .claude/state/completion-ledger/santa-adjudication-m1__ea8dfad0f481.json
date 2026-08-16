@@ -1,0 +1,24 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "santa-adjudication-m1",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.26.2",
+    "completed_at": "2026-08-16T22:09:38.606Z",
+    "commit_sha": "f987e98f29ff63006d0a83021964ff931427913e",
+    "plan_basename": "santa-adjudication-m1.plan.md",
+    "plan_file_hash": "sha256:1f77424e0164f92c172a638ac7e821149ddb3cc6b0f7e4c17033e8964f0fe475",
+    "risks_closed": [
+      "리뷰어가 구조화 계약을 못 지켜 항상 `partial`이 되고 게이팅이 실질 미발동",
+      "severity 게이팅이 실재 결함을 non-blocking으로 강등",
+      "`{A,B}` 완전성이 정상 라운드를 막는다 (리뷰어 B가 CLI 부재로 fallback될 때)",
+      "envelope 확장이 `seal.js`의 `criticalIssueCount`를 바꾼다",
+      "공유 표면(`santa-loop.md`·`cli.js`)에서 P2/P3 편집과 머지 충돌",
+      "`MCCP_SANTA_MAX_ROUNDS`(PRD 문언, 1~5)와 배송된 `MCCP_SANTA_ROUND_CAP`(1~10)의 이름·범위 불일치"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:ea8dfad0f481e53d720cc9d8ea5103333c48f43ebcd07147a5e40528e00b16eb",
+    "verdict_provenance": "codex-verdict"
+  }
+}

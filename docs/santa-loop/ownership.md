@@ -62,6 +62,23 @@ M2가 추가한 순수 파생 2종도 같은 계약에 포함된다. 둘 다 **�
 | `ledger.reviewersFrom` | `(state, round, statePathHint) -> envelope[]` | 여러 값을 함께 봐야 하는 소비자가 라운드마다 재읽기를 하면 원장을 N+2회 읽게 되고 읽기에는 lock이 없다 — 그 사이 mutation이 끼면 동시에 존재한 적 없는 조합이 봉인된다 |
 | `ledger.aggregateFrom` | `(state, cap) -> {rounds, entries, exitReason}` | 같은 이유. `exitReason`은 `beginRound`가 거부 시점에 남긴 `state.terminated` 마커에서만 나오되, **현재 라운드 수에 결속된**(`terminated.rounds === rounds.length`) 마커만 유효하다 — `rounds.length >= cap` 산술은 캡 *도달*과 *거부*를 뭉갰고(PR-Codex F1), 결속 없는 마커는 그 오봉인을 "언젠가 거부가 있었다"는 영구 낙인으로 재현한다(code-review H1). 그래서 `cap`은 동결 시그니처를 지키기 위한 **잔존 인자**이고 파생에 쓰이지 않는다. 제거는 인터페이스 변경이라 UI7대로 P0 재개 사안 |
 
+P1(santa-adjudication M1)이 추가한 순수 export 4종은 **추가 기록**이지 변경 기록이 아니다
+(프로토콜 4). 위 `gate.decideVerdict` 행의 시그니처·반환·계약 문언은 **한 글자도 바뀌지
+않았고**, 그 함수는 아래 `decideAdjudicatedVerdict`가 완화 자격을 얻지 못했을 때의 **위임
+대상**으로 계속 산다 — 즉 프로토콜 2가 허용하는 형태 그대로다.
+
+| 함수 | 시그니처 | 왜 필요한가 |
+|---|---|---|
+| `gate.decideAdjudicatedVerdict` | `({reviewers, round, cap, severityGate}) -> {verdict, failing, exitReason, blocking, mismatches, contract, byReviewer}` | 판정 입력을 리뷰어의 `verdict` 문자열에서 **병합·중복제거된 blocking 건수**로 옮긴다. `noBlocking ∧ bothIds ∧ allPass`의 AND이고, 완화(`severityGate='enforce'` ∧ `contract='full'`)가 면제하는 것은 `allPass` 한 항뿐이다. 나머지 둘은 어느 값에서도 적용된다. `byReviewer`는 판정에 쓰이지 않는 계측 표면이지만 반환에 싣는다 — 강등 이력의 분모(PRD Open Question)라 재고도 버리면 재지 않은 것과 같다 |
+| `gate.analyzeReviewers` | `(reviewers) -> {contract, blocking, byReviewer, distinctIds, mismatches}` | 계측·보고 재료. 전역 함수(어떤 입력에도 던지지 않는다)이고 `contract` 파생의 **단일 주체**다. `findings` 부재 legacy envelope는 여기서 `structured:false`로 흡수된다 |
+| `gate.classifyFinding` | `(finding) -> {structured, blocking, severity, reason}` | blocking 자격을 정하는 **유일한 자리**. `structured ∧ severity ∈ {CRITICAL, HIGH} ∧ 실질 failureScenario`이며 실질성은 `force-override-reason#validateReason`(strict + allowCodeVocabulary)에 위임한다 |
+| `gate.parseSeverityGate` | `(env) -> 'enforce' \| 'off'` | env 파서. 불량값은 loud warn 후 `enforce`. 판정 함수는 env를 모르고 파서만 안다(`counter.parseCap` 동형) |
+
+`ledger.recordReviewer`의 계약도 그대로다 — envelope는 P1이 `findings[]`를 **더한** 형태로
+저장되지만(`{claim, severity, failureScenario, evidence, structured}`), `criticalIssues`는 claim
+문자열 배열로 길이가 보존되므로 `seal.js#project`의 `criticalIssueCount`가 무손상이다. `findings`가
+사는 곳은 gitignored 원장뿐이고 receipt에는 집계 정수 4종만 실린다.
+
 `beginRound`의 계약도 그 결속의 일부다: 라운드를 **열 때** 마커를 지우고(`state.terminated = null`)
 `state.cap`을 갱신하며, **거부할 때**는 마커만 쓰고 `state.cap`은 건드리지 않는다. 전자는 캡 상향으로
 루프를 재개한 뒤의 수렴이 종료로 읽히지 않게 하고, 후자는 거부만 받은 세션의 env cap이 원장을
@@ -70,6 +87,14 @@ M2가 추가한 순수 파생 2종도 같은 계약에 포함된다. 둘 다 **�
 **마커는 판정 입력이 아니다.** `seal.js#deriveVerdict`는 라운드에서만 판정하고, 마커는 수렴하지
 않은 원장에 한해 "왜 끝났는지"로 투영된다 — 이미 수렴해 봉인된 slug에 재진입하면 Step 3의 정상
 캡 거부가 마커를 쓰므로, 마커를 판정에 먹이면 재진입 하나가 converged receipt를 divergent로 덮는다.
+
+**리뷰어의 `verdict` 문자열도 판정 입력이 아니다** (P1 code-review H1이 닫은 축). `deriveVerdict`와
+`buildProof`가 FINAL 라운드 리뷰어 전원 `PASS`를 요구하던 절은 제거됐다 — P1이 게이트를 blocking
+건수로 옮긴 뒤로 그 절은 봉인을 *엄격하게* 만드는 것이 아니라 **게이트를 반박**했다. MEDIUM만 낸
+`FAIL`을 NICE로 두는 것이 설계된 결과인데 봉인이 그 라운드를 divergent로 막아, Step 5.5가 push를
+차단하고 receipt에 divergent가 실렸다(그리고 `quorum.passed:false` + `verdict:'converged'`라는
+자기모순 proof도 만들었다 — `review-verdict.js`가 구조적으로 거부하는 조합이다). 두 층이 갈릴 수
+있는 자리는 이제 **같은 질문을 두 번 세는** `distinctIds >= 2` 하나뿐이고, 그 일치는 test가 잰다.
 
 ### CLI exit code
 

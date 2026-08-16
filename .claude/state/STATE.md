@@ -13,7 +13,7 @@ last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
-santa-loop-materialize **M2** — 구현·PR-Codex finding 2건 흡수·아카이브 착지 완료. origin/main 2차 병합 + §3.7 9번째 재번호(M1 → 1.25.2) 해소 후 `/mccp:pr` 재실행이 다음 단계.
+santa-loop-materialize **PRD 종료** — M1(v1.25.2) + M2(v1.26.0) 동시 배송. **PR #139 생성 완료**(https://github.com/idenn207/mccp/pull/139, MERGEABLE). 남은 것은 CI green 확인 후 머지.
 
 ## Plan
 - plan: `.claude/plans/santa-loop-materialize-m2.plan.md` — **본문 확정**. Phase 1~4를 재실행해 재생성하지 말 것(4라운드 흡수분 12건 소실)
@@ -39,10 +39,10 @@ santa-loop-materialize **M2** — 구현·PR-Codex finding 2건 흡수·아카�
 - Implement-Codex R1 `needs-attention` HIGH 1건 흡수 — seal이 원장을 lock 없이 N+2회 읽던 것을 `read()` 1회 스냅샷 + 순수 파생 2종(`reviewersFrom`/`aggregateFrom`)으로 교정. security-reviewer CRITICAL/HIGH 0건, MEDIUM 1건(proof 경로 미봉인) 흡수
 
 ## In Progress
-`/mccp:pr` 재실행 — Phase 2에서 §3.7 version 충돌(main이 1.25.1을 M6에 발행)로 HALT 후 origin/main 2차 병합 + M1 → 1.25.2 재번호 착지. PR 미생성.
+PR #139 CI 대기(`gitignore canonical drift gate`, ubuntu + windows). 1차 실행은 `.claude/state/santa-loop/` 미분류로 red였고 `317b7ca`로 수정 후 재실행 중.
 
 ## Next Step
-`/mccp:pr` 재실행. `PR_PLAN_PATH=.claude/PRPs/plans/archived/santa-loop-materialize-m2.plan.md` 필수 — plan이 아카이브 이동해 2.5.9 기본 파생 경로가 `stale`로 HALT한다(내용 무변경이라 plan_hash는 일치). ship receipt `.claude/receipts/mccp-pr-codex/santa-loop-materialize-m2.json`은 **커밋 금지** — untracked인 동안만 재실행이 덮어쓸 수 있고(store.js:122-124), 커밋하면 TRACKED_RECEIPT_OVERWRITE로 이 브랜치 재실행이 막혀 새 브랜치 re-ship만 남는다.
+CI green 확인 → 머지(**merge commit**, §3.12 SHA 보존). 머지 후: worktree cleanup(`git worktree remove .worktrees/santa-loop-materialize` + `prune`) · `claude plugin update`로 캐시 `1.26.0` 생성 확인. **이 브랜치에서 `/mccp:pr` 재실행은 불가** — ship receipt가 `caa1398`로 커밋돼 TRACKED_RECEIPT_OVERWRITE가 fail-closed한다(설계대로). 재실행이 필요하면 새 브랜치 re-ship.
 
 ## Last Decision
 §3.7 forward-only 재번호를 두 번 했다. 1차(8번째 재발): main이 1.23.8을 diverse-agent-review M4에 발행하고 1.25.0까지 나아가 M1→1.25.1·M2→1.26.0. 2차(9번째 재발, PR 직전): main이 **같은 1.25.1을 M6**(PR #138, `890f725`)에 발행해 M1만 한 칸 더 밀어 **1.25.2**. M2의 1.26.0은 main 최대치보다 앞서 무변경. CHANGELOG는 M6 항목을 우리 두 항목 아래로 재배치해 내림차순 유지. plan은 plan_hash 바인딩이라 손대지 않고 이탈을 노트 D7에 기록. ship receipt는 재실행 경로 보존을 위해 의도적으로 untracked 유지.

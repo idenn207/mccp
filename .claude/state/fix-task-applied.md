@@ -2,15 +2,14 @@
 fix_task_version: 1
 task_fingerprint: santa-loop-materialize-m2
 gate_id: stop-review-loop
-decision_id: santa-loop-materialize-m1
-created_at: 2026-08-14T06:30:18.657Z
-expires_at: 2026-08-21T06:30:18.657Z
+decision_id: santa-loop-materialize-m2
+created_at: 2026-08-14T09:03:06.478Z
+expires_at: 2026-08-21T09:03:06.478Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-implement-codex/santa-loop-materialize-m2.json
-  - .claude/receipts/mccp-santa-review/santa-loop-materialize-m1.json
+  - .claude/receipts/mccp-pr-codex/santa-loop-materialize-m2.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -26,8 +25,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- .claude/receipts/mccp-implement-codex/santa-loop-materialize-m2.json
-- .claude/receipts/mccp-santa-review/santa-loop-materialize-m1.json
+- .claude/receipts/mccp-pr-codex/santa-loop-materialize-m2.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-santa-review/santa-loop-materialize-m1>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-pr-codex/santa-loop-materialize-m2>'

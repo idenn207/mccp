@@ -131,9 +131,113 @@ plan 본문은 `mccp-plan-codex` receipt의 `plan_hash`에 바인딩돼 있어 �
 2. `santa-loop.md` 배선 검사를 행 순서 비교로 두면 `fi` 바깥의 seal이 통과한다.
    `if`/`fi` 깊이 추적으로 바꾼 뒤 합성 fixture에서 그 우회가 `d=false`로 잡혔다.
 
+## 후속 사이클 — PR-Codex finding 흡수 (2026-08-16)
+
+M2 본 구현 이후 `/mccp:pr`이 M3 ship gate에서 PR-Codex `divergent`로 HALT했고, finding
+2건이 남았다. 본 사이클은 그중 HIGH 1건을 흡수했다.
+
+| Finding | Severity | 처리 | 근거 |
+|---|---|---|---|
+| F1 — 마지막 허용 라운드의 NICE가 divergent로 오봉인되고 그대로 push된다 | HIGH | **흡수** | §3.14 — CRITICAL·HIGH만 그 자리 흡수 |
+| F2 — santa receipt가 원장 집계 없이 유효하다 | MEDIUM | **backlog 이연** | §3.14 — MEDIUM은 backlog 1줄 append |
+
+### F1 — 무엇이 틀렸고 무엇을 고쳤나
+
+`aggregateFrom`이 `rounds.length >= cap` **산술**로 종료를 되짚었다. 그 술어는 캡
+*도달*(마지막 허용 라운드가 열린 상태)과 다음 `begin-round`의 *거부*를 구분하지 못한다.
+그래서 캡을 정확히 채운 라운드가 NICE로 수렴해도 `exitReason='cap_reached'`가 서고,
+`seal.js`가 이를 무조건 `divergent`로 굳혔으며, `santa-loop.md` Step 5.5는 `SEAL_EXIT`
+(=0)만 보므로 그 receipt 위에서 push까지 갔다.
+
+세 축을 함께 닫았다.
+
+1. `ledger.js` — `beginRound` 거부 시 `state.terminated = {reason, at}`을 영속화한다
+   (additive, `schema_version` 1 유지). 같은 사유의 재거부는 멱등이라 최초 거부 시각이
+   보존된다.
+2. `ledger.js#aggregateFrom` — `exitReason`을 그 마커에서만 파생한다. 마커 부재는
+   "거부가 관측된 적 없음"이다. **구멍이 생기지 않는 근거**: 진짜 캡 소진은 반드시
+   non-NICE 최종 라운드로 끝나므로 `deriveVerdict`의 `fin.verdict !== 'NICE'` 절이
+   이미 잡는다.
+3. `santa-loop.md` Step 5.5 — `$SEAL_JSON.verdict != converged`면 `exit 1`. 봉인은
+   exit 0으로 성공하면서 divergent를 기록할 수 있으므로 종료 코드 분기만으로는 부족하다.
+
+### 회귀 test는 반증력을 실증했다
+
+`[18]`(마지막 허용 라운드 NICE → converged)을 **옛 산술 파생으로 되돌려 실행해 실패를
+확인**한 뒤 복원했다. 이 repo에서 "미작성/무반증 test"가 반복 지적된 축이라, 통과만이
+아니라 실패도 관측했다.
+
+| Test | 파일 | 무엇을 강제하나 |
+|---|---|---|
+| `[18]` | `santa-seal.test.js` | 마지막 허용 라운드 NICE가 converged + `l1=converged` + exit reason 부재 |
+| 종료 마커 (2건) | `santa-loop-cap.test.js` | 거부가 마커를 기록한다(라운드는 불변) · 재거부 멱등(`at` 불변, byte 불변) |
+| Step 5.5 배선 | `santa-loop-cap.test.js` | slice 안에서 verdict 파생 → 분기 → 종료문이 존재하고 push보다 앞선다 |
+
+기존 `[15]`는 fixture가 거부를 **명시**하도록, `[16]`은 종료가 라운드 수·env 어느
+쪽으로도 만들어지지 않음을 단언하도록 갱신했다. `[15]`↔`[18]`은 라운드 수·cap이 같고
+**마커 유무와 최종 verdict만** 다른 짝이라, 파생이 산술로 회귀하면 둘이 갈리지 않는다.
+
+### 본 사이클의 Validation
+
+| 검사 | 결과 |
+|---|---|
+| santa 4파일 (`node --test`) | 79 tests · pass 76 · **fail 0** · skip 3 (POSIX 전용) |
+| receipt 스위트 전체 (`receipt/tests/*.test.js`) | 614 tests · pass 613 · **fail 0** · skip 1 |
+| plan 2c 배선 5축 | a~e 전부 true · exit 0 |
+| plan 2d 커버리지 | **16/16** · extra `[17]`·`[18]` |
+| plan 3 receipt corpus 전수 | receipts=51 · **invalid 0** |
+| plan 5 소유권 문서 구조 | heading≤3 · 3부 · 교집합 ∅ 전부 true |
+| plan 4 실 원장 왕복 | **미실행** — 아래 참조 |
+
+### 이번 사이클의 이탈 (의도된 것)
+
+- **plan 4(실 원장 왕복) 미실행**: 원장은 UI4대로 gitignored인데 워크트리가 갱신되며
+  소실됐다. `status`는 `{rounds:0,...}`로 정상 응답한다. 없는 원장에 `seal`을 돌리면
+  이 decision에 divergent를 주장하는 실 receipt가 생기므로 **일부러 돌리지 않았다** —
+  해당 경로는 test `[14]`(missing ledger → empty-but-honest divergent)가 덮는다.
+- **plan 미아카이브**: command Phase 5는 `completed/`로 이동을 지시하지만, 그러면
+  `--plan` 경로가 사라져 `/mccp:pr`의 chain 재해시가 "cannot read plan to re-hash"로
+  stale이 된다. 아카이브는 §3.11대로 PRD 종료 후 `/mccp:archive-complete` 몫이다.
+- **Codex Implementation Review 섹션을 plan이 아니라 `.claude/notes/`에 작성**: plan
+  본문 편집은 `plan_hash`를 바꿔 `mccp-plan-codex` receipt를 stale로 만든다
+  (`validate-cmd.js:365-373`, blocking). command 2.5.4가 허용하는 대체 목적지를 썼다.
+- **version 무변경(`1.26.0`)**: PR이 아직 생성되지 않아 1.26.0은 미출시다. 같은
+  milestone의 미출시 교정이므로 새 번호가 아니라 그 CHANGELOG 항목에 접었다.
+
+### 후속 — `/mccp:code-review` 흡수 (같은 사이클)
+
+F1 교정을 커밋하기 전 로컬 리뷰를 돌렸고, **그 교정이 도입한 결함**을 잡았다. 마커
+기반 파생이 산술 파생의 오봉인을 다른 형태로 재현한 것이라 같은 자리에서 닫았다.
+
+| Finding | Severity | 처리 |
+|---|---|---|
+| H1 — 거부 마커가 판정을 영구 낙인으로 만든다 | HIGH | 흡수 |
+| M1 — 거부가 원장 `cap`을 env 값으로 덮어쓴다 | MEDIUM | 흡수(같은 코드 경로) |
+| M2 — implement 노트가 untracked | MEDIUM | 흡수(커밋 포함) |
+| L1 — `terminated` 미검증 · L2 — 없는 린터 참조 | LOW | 흡수 |
+
+H1의 재현 경로는 둘이고 **둘 다 실측**했다. ① 이미 수렴해 봉인된 slug에
+`/mccp:santa-loop`를 재진입하면 Step 3의 정상 캡 거부가 마커를 써서, 재봉인이
+converged receipt를 divergent로 덮었다(`1차=converged → 2차=divergent`). ② 캡을
+상향해 루프를 재개하면 그 뒤의 수렴까지 종료로 읽혔다. 같은 스크립트를 교정 후
+재실행해 `2차=converged`로 뒤집히는 것을 확인했다.
+
+교정은 세 층이다 — `deriveVerdict`가 마커를 **입력으로 받지 않고**(라운드에서만
+판정), `beginRound`가 라운드를 열 때 마커를 **지우며**, `aggregateFrom`이 현재 라운드
+수에 **결속된** 마커만 종료로 읽는다. 마커의 몫은 판정이 아니라 "왜 끝났는지"이고,
+그 투영(수렴 = 캡이 끝낸 것이 아니다)은 `seal()`이 한다.
+
+MEDIUM 2건을 §3.14의 backlog 이연이 아니라 그 자리에서 고친 이유: M1은 H1과
+**같은 함수·같은 커밋이 만든 결함**이고(거부 분기가 write를 하게 되면서 열렸다),
+M2는 코드가 아니라 커밋 범위 문제다. 새 축을 여는 것이 아니라 이번 교정의 잔해를
+치우는 것이라 backlog로 미루면 부채가 아니라 미완성이 된다.
+
+Validation: santa 3파일 73 tests · pass 70 · **fail 0** · skip 3(POSIX 전용) ·
+santa 연관 receipt 4스위트 121 tests · **fail 0**.
+
 ## Next Steps
 
-- [ ] `/mccp:code-review` 또는 `/mccp:prp-commit` → `/mccp:pr`
+- [ ] `/mccp:prp-commit` → `/mccp:pr` 재실행
 - [ ] PR 시 PR-Codex가 실제로 발화한다 (santa/multi-agent 어느 쪽도 cross-model 미인정)
-- [ ] 잔여: 승인 라운드 MEDIUM 2건(항목 5의 4 sub-case는 구현 완료 · `/mccp:santa-loop`
-      end-to-end test 부재는 미해소) — STATE.md Open Questions 참조
+- [ ] 잔여: F2(MEDIUM)는 backlog 이연 · 승인 라운드 MEDIUM 2건 중
+      `/mccp:santa-loop` end-to-end test 부재는 미해소 — STATE.md Open Questions 참조

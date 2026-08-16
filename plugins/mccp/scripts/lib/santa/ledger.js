@@ -270,6 +270,14 @@ function emptyState(decisionId, cap) {
     cap: Number.isInteger(cap) ? cap : null,
     rounds: [],
     entries: [],          // P1 소유 — P0는 만들기만 하고 손대지 않는다
+    // `beginRound`가 거부된 시점에만 `{reason, at, rounds}`로 채워진다. null은
+    // "거부가 관측된 적 없음"이며, 이 필드가 아예 없는 legacy 원장도 같게 읽힌다
+    // (`parseState`는 요구하지 않는다 — additive라 schema_version은 1 유지).
+    //
+    // `rounds`는 **거부를 관측한 시점의 라운드 수**다. 마커를 그 수에 결속하지
+    // 않으면 "언젠가 거부가 있었다"만 남아, 이후 캡이 상향돼 라운드가 더 열려도
+    // 마커가 그대로 종료를 주장한다. 마커는 상태의 스냅샷이지 영구 낙인이 아니다.
+    terminated: null,
   };
 }
 
@@ -301,7 +309,29 @@ function parseState(raw, decisionId, cap, statePath) {
       'santa ledger `rounds` is not an array at ' + statePath);
   }
   if (!Array.isArray(obj.entries)) obj.entries = [];
+  assertTerminationMarker(obj, statePath);
+  if (obj.terminated === undefined) obj.terminated = null;
   return obj;
+}
+
+// 종료 마커도 `rounds`/`entries`와 같은 계층에서 검증한다. 이것이 없으면 손상된
+// 마커가 `aggregateFrom` → receipt write까지 흘러가 **receipt 스키마**가 거부하고
+// (`SCHEMA_INVALID`), 운영자가 받는 진단이 원장 손상이 아니라 receipt 문제를
+// 가리킨다. fail-closed 방향은 같지만 진단이 틀리면 복구가 엉뚱한 곳을 판다.
+function assertTerminationMarker(obj, statePath) {
+  const t = obj.terminated;
+  if (t === null || t === undefined) return;
+  const counter = require('./counter');
+  const ok = !!t && typeof t === 'object' && !Array.isArray(t) &&
+    t.reason === counter.REASONS.CAP_REACHED &&
+    typeof t.at === 'string' && !Number.isNaN(Date.parse(t.at)) &&
+    Number.isInteger(t.rounds) && t.rounds >= 0;
+  if (!ok) {
+    throw new SantaLedgerError('SANTA_LEDGER_CORRUPT',
+      'santa ledger `terminated` marker is malformed at ' + statePath +
+      ' (found ' + JSON.stringify(t) + '; expected null or ' +
+      '{reason:"' + counter.REASONS.CAP_REACHED + '", at:<ISO>, rounds:<int>})');
+  }
 }
 
 // read(opts) — lock 없는 순수 read. 부재는 빈 상태, 손상은 throw.
@@ -373,8 +403,13 @@ function beginRound(opts) {
 
   return mutate(Object.assign({}, opts, { cap: cap }), function (state) {
     state.decision_id = opts.decisionId || state.decision_id || DEFAULT_DECISION_ID;
-    state.cap = cap;
 
+    // **`state.cap`은 라운드가 실제로 열릴 때만 갱신한다** (아래 허용 분기).
+    // 거부 분기가 마커를 쓰기 시작하면서 여기 두면 env가 원장을 덮어쓴다 —
+    // 다른 세션이 낮은 `MCCP_SANTA_ROUND_CAP`으로 진입해 거부만 받아도 원장의
+    // cap이 그 값으로 바뀌고, 봉인이 `santa_cap`에 **라운드를 게이트한 적 없는
+    // 값**을 싣는다(seal.js 머리말이 막는다고 적은 오기와 같은 것). 거부는 항상
+    // 라운드 1건 이상 뒤에 오므로 그 시점 cap은 이미 기록돼 있다.
     const last = state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null;
     if (last && last.verdict === null) {
       // OPEN — 멱등 반환. append 없음, 캡 소모 없음.
@@ -386,12 +421,42 @@ function beginRound(opts) {
 
     const decision = counter.decideRound({ roundsSoFar: state.rounds.length, cap: cap });
     if (!decision.allowed) {
+      // 거부는 **관측된 사건**이므로 원장에 남긴다. 이전에는 남기지 않고 소비자가
+      // `rounds.length >= cap` 산술로 되짚었는데, 그 술어는 캡 *도달*(마지막 허용
+      // 라운드가 열린 상태)과 다음 begin-round의 *거부*를 구분하지 못한다. 그래서
+      // 마지막 허용 라운드가 NICE로 수렴한 run까지 `cap_reached`로 읽혀 divergent로
+      // 오봉인됐다. 마커만이 그 둘을 가른다 — seal.js의 층 매핑 주석이 이미
+      // `cap_reached`를 "begin-round가 거부"로 정의하고 있으므로, 이 변경은 파생을
+      // 그 문언에 맞추는 것이다.
+      //
+      // 마커는 **관측 시점의 라운드 수에 결속된다**. 그러지 않으면 "언젠가 거부가
+      // 있었다"만 남아, 캡이 상향돼 라운드가 더 열린 뒤에도 마커가 종료를 계속
+      // 주장한다(허용 분기의 clear와 이 결속이 같은 구멍을 양쪽에서 막는다).
+      const already = !!(state.terminated &&
+        state.terminated.reason === decision.exitReason &&
+        state.terminated.rounds === state.rounds.length);
+      if (!already) {
+        state.terminated = {
+          reason: decision.exitReason,
+          at: new Date().toISOString(),
+          rounds: state.rounds.length,
+        };
+      }
       return {
-        write: false,
+        // 멱등이다. 이미 같은 사유로 종료된 원장을 재기록하면 `at`이 호출마다 밀려
+        // **최초 거부 시각**이라는 감사값이 사라진다. beginRound는 프로즈가 여러 번
+        // 부를 수 있으므로(멱등 계약) 이 방향의 보호가 필요하다.
+        write: !already,
+        state: state,
         outcome: { allowed: false, roundIndex: null, exitReason: decision.exitReason },
       };
     }
 
+    // 라운드가 열렸다 = 이전 거부는 더 이상 이 원장의 종료가 아니다. 캡을 상향해
+    // 루프를 재개하는 것은 문서화된 운영 경로(`MCCP_SANTA_ROUND_CAP` 1..10)이고,
+    // 마커를 그대로 두면 그 뒤의 수렴까지 종료로 읽혀 divergent로 봉인된다.
+    state.cap = cap;
+    state.terminated = null;
     state.rounds.push({
       index: decision.roundIndex,
       started_at: new Date().toISOString(),
@@ -484,16 +549,30 @@ function readReviewers(round, opts) {
 
 // aggregate() → { rounds, entries, exitReason } — **집계값만**(UI9).
 // 원장 본문은 gitignored로 두고 M2가 이 세 값을 receipt에 봉인한다.
-// 순수 파생 — cap은 **정수로 받는다**. env 폴백은 호출자 쪽(`aggregate`)에 남겨
-// 두어야, 봉인 경로가 `state.cap`(라운드를 실제로 게이트한 값)을 명시 전달했을 때
-// 그 값이 조용히 env로 대체되지 않는다.
+//
+// `exitReason`은 `beginRound`가 거부 시점에 남긴 termination 마커에서만 나온다.
+// 산술(`rounds.length >= cap`)로 되짚지 않는 이유는 그것이 캡 *도달*과 *거부*를
+// 뭉개기 때문이다 — 마지막 허용 라운드가 NICE로 끝난 run도 도달 조건은 만족한다.
+// 마커 부재는 "거부가 관측된 적 없음"이고, 그것이 legacy 원장의 정직한 읽기다.
+// 그 완화로 구멍이 생기지 않는다: 진짜 캡 소진은 반드시 non-NICE 최종 라운드로
+// 끝나므로 `seal.js#deriveVerdict`의 `fin.verdict !== 'NICE'` 절이 이미 잡는다.
+//
+// **마커는 관측 시점의 라운드 수에 결속돼야만 유효하다.** 결속을 검사하지 않으면
+// 마커가 "언젠가 거부가 있었다"는 영구 낙인이 되어, 이후 캡 상향으로 라운드가 더
+// 열리고 수렴해도 종료를 계속 주장한다 — 산술 파생이 만들던 오봉인을 마커로
+// 재현하는 것이다. `beginRound`가 라운드를 열 때 마커를 지우므로 정상 경로에서는
+// 어긋날 일이 없고, 이 검사는 손으로 편집된 원장에 대한 2차 방어다.
+//
+// `cap`은 M1 동결 시그니처(docs/santa-loop/ownership.md)를 지키기 위해 남긴
+// 잔존 인자다 — 마커 기반 파생에는 쓰이지 않는다. 제거는 인터페이스 변경이라
+// UI7대로 P0 재개 사안이다.
 function aggregateFrom(state, cap) {
-  const counter = require('./counter');
-  const n = Number.isInteger(cap) ? cap : counter.parseCap(process.env);
+  const t = state.terminated;
+  const bound = !!t && typeof t.reason === 'string' && t.rounds === state.rounds.length;
   return {
     rounds: state.rounds.length,
     entries: state.entries.length,
-    exitReason: state.rounds.length >= n ? counter.REASONS.CAP_REACHED : null,
+    exitReason: bound ? t.reason : null,
   };
 }
 

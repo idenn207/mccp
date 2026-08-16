@@ -221,9 +221,19 @@ if [ "$SEAL_EXIT" -ne 0 ]; then
   echo "[santa] seal failed (exit $SEAL_EXIT) — NOT pushing. 2=slug/usage, 75=ledger lock busy (retry)." 1>&2
   exit "$SEAL_EXIT"
 fi
+
+SEAL_VERDICT=$(echo "$SEAL_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).verdict||"")}catch{process.stdout.write("")}')
+if [ "$SEAL_VERDICT" != "converged" ]; then
+  echo "[santa] sealed verdict is '${SEAL_VERDICT:-<unreadable>}', not 'converged' — NOT pushing." 1>&2
+  echo "[santa] Step 4 read NICE but the seal disagreed. The receipt is the audit anchor, so it wins:" 1>&2
+  echo "[santa] pushing here would ship under a receipt that records non-convergence." 1>&2
+  exit 1
+fi
 ```
 
 `--decision "$DECISION"` is **required**: without it `seal` re-derives the slug itself and can disagree with the scope Step 0 fixed. The conditional is part of the contract, not decoration — capturing `SEAL_EXIT` without branching on it would let a failed seal be followed by a push, which is exactly the "prose says HALT, code proceeds" defect this repo keeps finding. An unsealed push is a ship with no instrumentation, and UI14 forbids it.
+
+**Both branches are load-bearing, and they check different things.** `SEAL_EXIT` answers "did the seal complete?"; `SEAL_VERDICT` answers "what did it seal?" A seal can succeed (exit 0) while recording `divergent`, and branching on the exit code alone would push under an anchor that says the review did not converge — the same class of defect one layer up. Step 4's NICE is a read of the final round; the sealed verdict is derived from the whole ledger (round count, distinct reviewer ids, per-reviewer PASS, termination marker), so when the two disagree the seal is the stricter and more complete statement.
 
 `$SEAL_JSON` carries `reportPath` / `proofPath` / `receiptPath` / `verdict`; Step 7 reports them.
 

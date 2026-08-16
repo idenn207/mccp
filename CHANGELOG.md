@@ -26,7 +26,17 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 ### Changed
 
 - `ledger.js`에 순수 파생 2종 추가(`reviewersFrom` · `aggregateFrom`). 기존 `readReviewers`/`aggregate`가 이들에 **위임**하므로 시그니처·동작 무변경이다. 봉인이 원장을 **한 번만** 읽게 하려는 것 — 라운드별 재읽기는 lock 없는 N+2회 읽기라 그 사이 mutation이 끼면 동시에 존재한 적 없는 상태가 영구 봉인된다(Implement-Codex R1 F1).
-- `seal`은 `aggregateFrom`에 `state.cap`을 **명시 전달**한다. `aggregate`의 env 폴백을 타면 라운드를 실제로 게이트한 cap이 아니라 봉인 시점 env로 `exitReason`이 계산돼 receipt가 원장을 오기한다.
+- `seal`은 `aggregateFrom`에 `state.cap`을 **명시 전달**한다. `aggregate`의 env 폴백을 타면 라운드를 실제로 게이트한 cap이 아니라 봉인 시점 env가 `santa_cap`에 실려 receipt가 원장을 오기한다.
+- 원장 state에 `terminated` 마커 추가(additive, `schema_version` 1 유지). `beginRound`가 거부될 때 `{reason, at, rounds}`로 채워지고, 이미 같은 사유·같은 라운드 수로 종료된 원장은 재기록하지 않는다 — `at`이 호출마다 밀리면 **최초 거부 시각**이라는 감사값이 사라진다. `rounds`는 관측 시점의 라운드 수로, 마커를 **그 상태에 결속**한다.
+- `parseState`가 `terminated`도 `rounds`/`entries`와 같은 계층에서 검증한다(`null` 또는 `{reason:'cap_reached', at:<ISO>, rounds:<int>}`). 검증이 없으면 손상된 마커가 receipt write까지 흘러가 `SCHEMA_INVALID`로 터지고, 운영자가 받는 진단이 원장 손상이 아니라 receipt를 가리킨다.
+
+### Fixed
+
+- **마지막 허용 라운드의 수렴이 divergent로 오봉인되고 그대로 push되던 결함**(PR-Codex F1, HIGH). `aggregateFrom`이 `rounds.length >= cap` **산술**로 종료를 되짚었는데, 그 술어는 캡 *도달*(마지막 허용 라운드가 열림)과 다음 `begin-round`의 *거부*를 구분하지 못한다. 그래서 캡을 정확히 채운 라운드가 NICE로 수렴해도 `exitReason='cap_reached'`가 서고 `seal.js`가 이를 무조건 `divergent`로 굳혔다. 이제 `exitReason`은 거부 시점에 기록된 `state.terminated` 마커에서만 나온다 — 마커 부재는 "거부가 관측된 적 없음"이며 그것이 legacy 원장의 정직한 읽기다. 완화로 구멍이 생기지 않는 이유: 진짜 캡 소진은 반드시 non-NICE 최종 라운드로 끝나므로 `deriveVerdict`의 `fin.verdict !== 'NICE'` 절이 이미 잡는다.
+- **`santa-loop.md` Step 5.5가 `SEAL_EXIT`만 보고 sealed verdict를 보지 않던 결함**(같은 F1의 세 번째 축). 봉인은 exit 0으로 성공하면서 `divergent`를 기록할 수 있으므로, 종료 코드에만 분기하면 "수렴하지 않았다"고 적힌 receipt 위에서 push가 일어난다. `$SEAL_JSON.verdict != converged`면 `exit 1`로 push를 막는 분기를 추가했고, 그 분기의 존재를 `santa-loop-cap.test.js`가 slice 단위로 강제한다(plan Validation 2c는 `SEAL_EXIT` 분기 **수**만 세므로 이 축을 보지 않는다).
+- **거부 마커가 판정을 영구 낙인으로 만들던 결함**(code-review H1, HIGH — F1 교정이 도입한 것을 같은 사이클에서 닫는다). 마커는 "거부가 관측됐다"는 사실인데 판정이 필요로 하는 것은 "루프가 수렴 없이 끝났는가"이고, 둘은 갈린다. ① **이미 수렴해 봉인된 slug에 `/mccp:santa-loop`를 재진입**하면 Step 3의 정상 캡 거부가 마커를 써서, 재봉인이 converged receipt를 divergent로 **덮어썼다**. ② 캡을 상향해(`MCCP_SANTA_ROUND_CAP` 1..10, 문서화된 운영 경로) 루프를 재개하면 그 뒤의 수렴까지 종료로 읽혔다. 셋을 함께 닫았다 — `deriveVerdict`는 마커를 **입력으로 받지 않고**(라운드에서만 판정), `beginRound`는 라운드를 열 때 마커를 **지우며**, `aggregateFrom`은 현재 라운드 수에 **결속된** 마커만 종료로 읽는다. 마커의 몫은 판정이 아니라 "왜 끝났는지"이고 그 투영(`수렴 = 캡이 끝낸 것이 아니다`)은 `seal()`이 한다. 구멍이 생기지 않는 근거는 F1과 같다: 진짜 캡 소진은 반드시 non-NICE 최종 라운드로 끝난다(NICE는 루프의 종료 조건이고, 거부는 항상 FINAL 라운드 뒤에만 온다).
+- **거부가 원장의 `cap`을 env 값으로 덮어쓰던 결함**(code-review M1, MEDIUM). 마커 도입으로 거부 분기가 write를 하게 되면서, 다른 세션이 더 낮은 `MCCP_SANTA_ROUND_CAP`으로 진입해 거부만 받아도 원장의 cap이 그 값으로 바뀌고 봉인이 `santa_cap`에 **라운드를 게이트한 적 없는 값**을 실었다 — `seal.js` 머리말이 막는다고 적은 오기 그 자체다. `state.cap` 갱신을 허용 분기로 옮겼다(거부는 항상 라운드 1건 이상 뒤에 오므로 그 시점 cap은 이미 기록돼 있다).
+- 회귀 test 8항목 추가 — `[18]`(마지막 허용 라운드 NICE가 converged를 낸다, 옛 산술 파생에서 실패함을 실증) · `[19]`(수렴 후 재진입 거부가 봉인을 강등하지 않는다) · `[20]`(결속되지 않은 마커는 종료로 읽지 않는다) + 종료 마커 5건(거부가 결속된 마커를 기록한다 · 재거부 멱등 · 라운드 재개 시 clear · 거부가 cap을 안 덮는다 · 손상 마커는 원장 계층에서 잡힌다). 기존 `[15]`는 fixture가 거부를 **명시**하도록, `[16]`은 종료가 라운드 수·env 어느 쪽으로도 만들어지지 않음을 단언하도록 갱신했다.
 - `plugin.json` · `renderer/html.js` page-foot · `renderer/markdown.js` derived 줄 · 상단 note의 `currently` — `1.26.0` 동기. **버전은 §3.7 forward-only 상향으로 두 항목 모두 올렸다**(8번째 재발) — 이 브랜치는 M1에 `1.23.8`, M2에 `1.23.9`를 선언했으나 그 사이 main이 `1.23.8`(diverse-agent-review M4)을 발행하고 `1.25.0`까지 나아갔다. 발행된 번호는 불가침이므로 미머지 항목만 밀어 M1은 patch로 `1.25.1`, M2는 **PRD 전 milestone 종료**라 minor 축인 `1.26.0`이 됐다. 날짜는 작성 시점 그대로 두었다 — version 순서가 정본이다.
 
 ## [1.25.1] — 2026-08-13

@@ -23,7 +23,17 @@
 //
 // cap의 출처는 **원장 state이지 env가 아니다**. `ledger.aggregateFrom`에
 // `state.cap`을 명시 전달한다 — `aggregate(opts)`의 env 폴백을 타면 라운드를
-// 실제로 게이트한 값과 다른 cap으로 exitReason이 계산돼, receipt가 원장을 오기한다.
+// 실제로 게이트한 값과 다른 cap이 `santa_cap`에 실려 receipt가 원장을 오기한다.
+//
+// 종료(`exitReason`)는 cap과 **무관하게** 파생된다: `beginRound`가 거부된 시점에
+// 남긴 마커에서만 나온다. 라운드 수로 되짚던 이전 방식은 캡 *도달*과 *거부*를
+// 뭉개 마지막 허용 라운드의 수렴까지 divergent로 봉인했다(PR-Codex F1).
+//
+// 그리고 **마커는 관측이지 종료가 아니다**. 판정은 마커를 보지 않고 라운드에서만
+// 나오며(`deriveVerdict`), 마커는 수렴하지 않은 원장에 한해 "왜 끝났는지"로
+// 투영된다. 이 구분이 없으면 이미 수렴한 slug에 `/mccp:santa-loop`를 재진입하는
+// 것만으로 — Step 3의 정상 캡 거부가 마커를 쓰므로 — converged receipt가
+// divergent로 덮인다(code-review H1).
 
 const fs = require('fs');
 const path = require('path');
@@ -89,14 +99,28 @@ function distinctIds(round) {
 // ── 판정 ─────────────────────────────────────────────────────────────────────
 //
 // converged는 좁다: FINAL 라운드가 NICE이고, distinct id가 2 이상이고, 그 라운드의
-// 리뷰어가 전원 PASS일 때만이다. 캡 도달은 NICE에 도달하지 못했다는 뜻이므로
-// divergent다. distinct id < 2에서 converged를 막는 것은 P1의 lifecycle 검사를
+// 리뷰어가 전원 PASS일 때만이다.
+//
+// **거부 마커는 여기 입력이 아니다.** 마커는 "거부가 관측됐다"는 사실이고 판정이
+// 필요로 하는 것은 "루프가 수렴 없이 끝났는가"인데, 둘은 갈린다 — 이미 수렴해
+// 봉인된 slug에서 `/mccp:santa-loop`를 다시 돌리면 Step 3의 `begin-round`가 캡에서
+// 정상 거부되고, 그 거부가 마커를 쓴다. 마커를 판정에 먹이면 그 재진입 하나가
+// **이미 converged로 봉인된 receipt를 divergent로 덮어쓴다**(F1이 산술로 만들던
+// 오봉인을 마커로 재현하는 것이다).
+//
+// 마커를 빼도 구멍이 생기지 않는다: 진짜 캡 소진은 반드시 non-NICE 최종 라운드로
+// 끝난다. NICE는 루프의 종료 조건이라 그 뒤로 라운드를 열 일이 없고, 거부는 항상
+// FINAL 라운드 뒤에만 온다(마지막이 OPEN이면 `beginRound`는 멱등 반환이라
+// `decideRound`에 닿지도 않는다). 따라서 종료를 만든 거부는 예외 없이 아래
+// `fin.verdict !== 'NICE'` 절이 잡는다. 마커의 몫은 판정이 아니라 **왜 끝났는지**를
+// receipt에 적는 것이고, 그 투영은 `seal()`이 한다.
+//
+// distinct id < 2에서 converged를 막는 것은 P1의 lifecycle 검사를
 // 앞당기는 것이 아니라 — 중복 record를 거부하지도 판정을 바꾸지도 않는다 —
 // **원장이 보여주지 않는 다양성을 receipt가 주장하지 않게** 하는 것뿐이다.
-function deriveVerdict(projection, agg) {
+function deriveVerdict(projection) {
   const rounds = projection.rounds;
   if (rounds.length === 0) return 'divergent';
-  if (agg && agg.exitReason === 'cap_reached') return 'divergent';
   const fin = rounds[rounds.length - 1];
   if (fin.verdict !== 'NICE') return 'divergent';
   if (distinctIds(fin).length < 2) return 'divergent';
@@ -171,6 +195,8 @@ function renderReport(projection, scalars) {
 // `layers.l1`은 divergent 경로에서 두 값으로 갈린다. l1의 santa 의미는 "M1의
 // 기계 게이트가 이 라운드를 승인했다"이므로, 캡 도달(= begin-round가 거부)에서
 // 'converged'를 찍으면 승인하지 않은 게이트가 승인했다고 주장하는 것이 된다.
+// `exitReason` 인자는 `seal()`이 투영한 **종료 사유**이지 거부 관측 원본이
+// 아니다 — 수렴한 원장에는 null이 오므로 재진입 거부가 l1을 뒤집지 못한다.
 // schema는 converged일 때만 층을 게이트하므로 이 구분은 강제되지 않는 정직성
 // 축이고, 그래서 test가 유일한 강제다.
 function buildProof(input) {
@@ -272,8 +298,16 @@ function seal(opts) {
   const projection = project(state);
 
   // (3) 집계 — cap은 state에서. env 폴백을 타면 receipt가 원장을 오기한다.
-  const agg = ledger.aggregateFrom(state, state.cap);
-  const verdict = deriveVerdict(projection, agg);
+  const rawAgg = ledger.aggregateFrom(state, state.cap);
+  const verdict = deriveVerdict(projection);
+
+  // 거부 관측 → **종료 사유**로의 투영. 수렴한 원장은 캡이 끝낸 것이 아니므로
+  // (수렴 뒤에 온 거부는 닫힌 루프에 대한 재진입이다) 그 사실을 종료로 적지
+  // 않는다. `santa_exit_reason`의 계약이 "루프가 캡에 의해 종료됐다"이고
+  // (`schema.js` — 부재 = 캡이 끝내지 않았다), 관측 원본은 원장이 그대로 갖는다.
+  const agg = Object.assign({}, rawAgg, {
+    exitReason: verdict === 'converged' ? null : rawAgg.exitReason,
+  });
 
   // (4) 리포트 write (containment 봉인).
   //     두 방어가 서로 다른 것을 막는다. **파일명**은 SLUG_RE가 이미 안전하게

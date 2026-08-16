@@ -51,7 +51,7 @@ P1·P2·P3가 전제로 삼는 계약이다. 아래 시그니처는 P0 소유이
 | `ledger.recordReviewer` | `(round, envelope, raw, opts)` | mutation. `{envelope, raw}`로 저장한다 — `raw`는 P1의 severity 축 입력이므로 파기하지 않는다 |
 | `ledger.recordVerdict` | `(round, verdict, opts)` | mutation. 라운드를 FINAL로 전이. 완전성·중복·재판정 검사는 **P1 소유**라 여기 없다 |
 | `ledger.appendEntry` | `(entry, opts)` | mutation. `entries`는 P1 소유이고 P0는 배열을 만들기만 한다 |
-| `ledger.aggregate` | `(opts) -> {rounds, entries, exitReason}` | 집계값만. `opts.cap`이 정수가 아니면 env(`MCCP_SANTA_ROUND_CAP`)로 폴백한다 — 봉인처럼 원장의 회계를 그대로 봐야 하는 소비자는 `state.cap`을 **명시 전달**해야 한다 |
+| `ledger.aggregate` | `(opts) -> {rounds, entries, exitReason}` | 집계값만. `opts.cap`이 정수가 아니면 env(`MCCP_SANTA_ROUND_CAP`)로 폴백한다 — 다만 `exitReason`은 더 이상 cap에서 파생되지 않으므로(아래 `aggregateFrom`) 그 폴백은 현재 어떤 반환값에도 닿지 않는다. 시그니처는 동결이라 유지 |
 | `ledger.readReviewers` | `(round, opts) -> envelope[]` | `raw`를 반환하지 않는다. 이것이 UI4(리뷰어 본문 비유출)의 모듈 경계다 |
 
 M2가 추가한 순수 파생 2종도 같은 계약에 포함된다. 둘 다 **이미 읽은 state**에서 파생하며,
@@ -60,7 +60,16 @@ M2가 추가한 순수 파생 2종도 같은 계약에 포함된다. 둘 다 **�
 | 함수 | 시그니처 | 왜 필요한가 |
 |---|---|---|
 | `ledger.reviewersFrom` | `(state, round, statePathHint) -> envelope[]` | 여러 값을 함께 봐야 하는 소비자가 라운드마다 재읽기를 하면 원장을 N+2회 읽게 되고 읽기에는 lock이 없다 — 그 사이 mutation이 끼면 동시에 존재한 적 없는 조합이 봉인된다 |
-| `ledger.aggregateFrom` | `(state, cap) -> {rounds, entries, exitReason}` | 같은 이유. cap을 **정수로만** 받아, 봉인 경로가 `state.cap`을 넘겼을 때 env로 조용히 대체되지 않는다 |
+| `ledger.aggregateFrom` | `(state, cap) -> {rounds, entries, exitReason}` | 같은 이유. `exitReason`은 `beginRound`가 거부 시점에 남긴 `state.terminated` 마커에서만 나오되, **현재 라운드 수에 결속된**(`terminated.rounds === rounds.length`) 마커만 유효하다 — `rounds.length >= cap` 산술은 캡 *도달*과 *거부*를 뭉갰고(PR-Codex F1), 결속 없는 마커는 그 오봉인을 "언젠가 거부가 있었다"는 영구 낙인으로 재현한다(code-review H1). 그래서 `cap`은 동결 시그니처를 지키기 위한 **잔존 인자**이고 파생에 쓰이지 않는다. 제거는 인터페이스 변경이라 UI7대로 P0 재개 사안 |
+
+`beginRound`의 계약도 그 결속의 일부다: 라운드를 **열 때** 마커를 지우고(`state.terminated = null`)
+`state.cap`을 갱신하며, **거부할 때**는 마커만 쓰고 `state.cap`은 건드리지 않는다. 전자는 캡 상향으로
+루프를 재개한 뒤의 수렴이 종료로 읽히지 않게 하고, 후자는 거부만 받은 세션의 env cap이 원장을
+덮어써 `santa_cap`이 라운드를 게이트한 적 없는 값을 싣는 것을 막는다.
+
+**마커는 판정 입력이 아니다.** `seal.js#deriveVerdict`는 라운드에서만 판정하고, 마커는 수렴하지
+않은 원장에 한해 "왜 끝났는지"로 투영된다 — 이미 수렴해 봉인된 slug에 재진입하면 Step 3의 정상
+캡 거부가 마커를 쓰므로, 마커를 판정에 먹이면 재진입 하나가 converged receipt를 divergent로 덮는다.
 
 ### CLI exit code
 

@@ -197,6 +197,132 @@ test('cap — MCCP_SANTA_ROUND_CAP=1이면 2번째 begin-round가 즉시 거부'
   });
 });
 
+// ── 종료 마커 — 거부는 관측된 사건이므로 기록된다 (PR-Codex F1) ─────────────
+//
+// 캡 *도달*(마지막 허용 라운드가 열림)과 다음 begin-round의 *거부*는 다른 사건이고
+// `rounds.length`만으로는 구분되지 않는다. 봉인(seal)이 그 둘을 갈라야 하므로
+// 거부 시점이 원장에 남아야 한다 — 남지 않으면 마지막 라운드가 NICE로 수렴한 run도
+// cap_reached로 읽혀 divergent로 오봉인된다.
+
+test('종료 마커 — 거부된 begin-round가 terminated를 기록하고 라운드는 늘지 않는다', () => {
+  const repo = makeRepo();
+  const slug = 'term-marker';
+  withCap(1, () => {
+    assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_OK);
+    closeRound(repo, slug, 0);
+
+    // 캡 도달 상태에서는 아직 거부가 없었으므로 마커도 없다.
+    assert.equal(readState(repo, slug).terminated, null,
+      '캡에 도달했을 뿐 거부는 일어나지 않았다 — 마커가 있으면 안 된다');
+
+    assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_CAP);
+
+    const st = readState(repo, slug);
+    assert.equal(st.rounds.length, 1, '거부가 라운드를 append하면 안 된다');
+    assert.equal(st.terminated.reason, counter.REASONS.CAP_REACHED);
+    assert.ok(!Number.isNaN(Date.parse(st.terminated.at)),
+      'terminated.at은 파싱 가능한 ISO 시각이어야 한다');
+    // 마커는 **관측 시점의 라운드 수에 결속**된다. 결속이 없으면 "언젠가 거부가
+    // 있었다"는 영구 낙인이 되어, 캡 상향 후의 수렴까지 종료로 읽힌다.
+    assert.equal(st.terminated.rounds, 1,
+      '마커가 관측 시점의 라운드 수에 결속되지 않았다');
+  });
+});
+
+// ── 마커는 낙인이 아니다 — 라운드가 열리면 지워진다 (code-review H1) ────────
+//
+// 캡 상향(`MCCP_SANTA_ROUND_CAP` 1..10)은 문서화된 운영 경로다. 거부 후 캡을
+// 올려 루프를 재개하면 그 거부는 더 이상 이 원장의 종료가 아니므로, 마커가
+// 남아 있으면 뒤이은 수렴까지 divergent로 봉인된다 — F1이 산술로 만들던
+// 오봉인을 마커로 재현하는 것이다.
+
+test('종료 마커 — 캡 상향으로 라운드가 다시 열리면 마커가 지워진다', () => {
+  const repo = makeRepo();
+  const slug = 'term-clear';
+  withCap(1, () => {
+    assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_OK);
+    closeRound(repo, slug, 0);
+    assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_CAP);
+    assert.equal(readState(repo, slug).terminated.reason, counter.REASONS.CAP_REACHED);
+  });
+  withCap(3, () => {
+    const r = cli(['begin-round', '--decision', slug, '--cwd', repo]);
+    assert.equal(r.code, EX_OK, '캡을 올렸으므로 라운드가 열려야 한다');
+    assert.equal(json(r).roundIndex, 1);
+  });
+  const st = readState(repo, slug);
+  assert.equal(st.terminated, null,
+    '라운드가 열렸는데도 마커가 남았다 — 이후의 수렴이 종료로 오봉인된다');
+  assert.equal(st.cap, 3, '허용 분기는 원장의 cap을 갱신한다');
+});
+
+test('종료 마커 — 거부는 원장의 cap을 env 값으로 덮어쓰지 않는다', () => {
+  const repo = makeRepo();
+  const slug = 'term-cap';
+  withCap(2, () => {
+    for (let i = 0; i < 2; i++) {
+      assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_OK);
+      closeRound(repo, slug, i);
+    }
+  });
+  assert.equal(readState(repo, slug).cap, 2, '라운드 2건을 게이트한 값');
+
+  // 다른 세션이 더 낮은 캡으로 진입해 거부만 받는다. 그 거부가 원장의 cap을
+  // 바꾸면 봉인이 `santa_cap`에 **라운드를 게이트한 적 없는 값**을 싣는다.
+  withCap(1, () => {
+    assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_CAP);
+  });
+  const st = readState(repo, slug);
+  assert.equal(st.cap, 2, '거부가 원장의 cap을 env 값으로 덮어썼다');
+  assert.equal(st.terminated.rounds, 2, '마커는 여전히 기록된다');
+});
+
+test('종료 마커 — 손상된 마커는 원장 계층에서 SANTA_LEDGER_CORRUPT로 잡힌다', () => {
+  const repo = makeRepo();
+  const slug = 'term-corrupt';
+  withCap(2, () => {
+    assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_OK);
+    closeRound(repo, slug, 0);
+  });
+
+  // 검증이 없으면 이 값이 `aggregateFrom` → receipt write까지 흘러가 receipt
+  // 스키마가 거부하고, 운영자가 받는 진단이 원장 손상이 아니라 receipt를 가리킨다.
+  for (const bad of [{ reason: 'nope', at: '2026-08-16T00:00:00.000Z', rounds: 1 },
+    { reason: counter.REASONS.CAP_REACHED, at: 'not-a-date', rounds: 1 },
+    { reason: counter.REASONS.CAP_REACHED, at: '2026-08-16T00:00:00.000Z' }]) {
+    const st = readState(repo, slug);
+    st.terminated = bad;
+    fs.writeFileSync(statePath(repo, slug), JSON.stringify(st, null, 2) + '\n');
+    assert.throws(() => ledger.read({ cwd: repo, decisionId: slug }),
+      (e) => e.code === 'SANTA_LEDGER_CORRUPT',
+      '손상 마커 ' + JSON.stringify(bad) + '가 통과했다');
+  }
+});
+
+test('종료 마커 — 거부 반복이 멱등이다 (최초 거부 시각이 밀리지 않는다)', () => {
+  const repo = makeRepo();
+  const slug = 'term-idem';
+  withCap(1, () => {
+    assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_OK);
+    closeRound(repo, slug, 0);
+    assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_CAP);
+
+    const firstAt = readState(repo, slug).terminated.at;
+    const before = bytes(statePath(repo, slug));
+
+    // 프로즈는 begin-round를 여러 번 부를 수 있다(멱등 계약). 그때마다 `at`을
+    // 갱신하면 **최초 거부 시각**이라는 감사값이 사라진다.
+    for (let i = 0; i < 3; i++) {
+      assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_CAP);
+    }
+
+    assert.equal(readState(repo, slug).terminated.at, firstAt,
+      '재거부가 최초 거부 시각을 덮어썼다');
+    assert.ok(sameBytes(before, bytes(statePath(repo, slug))),
+      '이미 같은 사유로 종료된 원장은 재기록되지 않아야 한다');
+  });
+});
+
 // ── DD11 — 캡이 기록 경계에서 기계적으로 구속된다 ────────────────────────────
 //
 // 이 test가 M1의 핵심이다. 산문이 exit 12를 무시하고 리뷰어를 띄우더라도
@@ -915,4 +1041,46 @@ test('security S2 — 경로 주입은 JS API에만 있고 CLI 플래그로는 �
   assert.equal(typeof ledger.resolveStatePath, 'function');
   const injected = ledger.resolveStatePath({ statePath: '/tmp/x.json' });
   assert.equal(injected, '/tmp/x.json');
+});
+
+// ── Step 5.5 — sealed verdict 분기 (PR-Codex F1의 세 번째 축) ────────────────
+//
+// `SEAL_EXIT`는 "봉인이 끝났는가"만 답한다. 봉인이 exit 0으로 성공하면서
+// `divergent`를 기록할 수 있으므로, exit code에만 분기하면 "리뷰가 수렴하지
+// 않았다"고 적힌 receipt 위에서 push가 일어난다. 그 결함이 F1의 세 번째 축이고,
+// 이 test가 그 분기의 존재를 강제한다 — 산문 설명만으로는 회귀 시 조용히 사라진다.
+//
+// 2c(plan Validation)는 `SEAL_EXIT -ne 0` 분기 **수**를 세므로 이 축을 보지 않는다.
+// plan 본문은 `mccp-plan-codex` receipt에 hash로 결속돼 편집할 수 없어(§3.12),
+// 새 축의 강제는 여기 test가 소유한다.
+test('Step 5.5 — sealed verdict에 실제로 분기한다 (변수 캡처만으로는 부족하다)', () => {
+  const md = fs.readFileSync(SANTA_LOOP_MD, 'utf8');
+  const lines = md.split(/\r?\n/);
+
+  let start = -1;
+  let end = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (start === -1 && /^### Step 5\.5\b/.test(lines[i])) { start = i; continue; }
+    if (start !== -1 && /^### /.test(lines[i])) { end = i; break; }
+  }
+  assert.notEqual(start, -1, '`### Step 5.5` 헤딩을 찾지 못했다');
+  const slice = lines.slice(start, end);
+  const at = (re) => slice.map((l, i) => (re.test(l) ? i + 1 : 0)).filter(Boolean);
+
+  const derive = at(/SEAL_VERDICT=/);
+  const branch = at(/if \[ "\$SEAL_VERDICT" != "converged" \]/);
+  const halt = at(/^\s*exit 1$/);
+
+  assert.ok(derive.length > 0, 'Step 5.5가 sealed verdict를 읽지 않는다');
+  assert.ok(branch.length > 0,
+    'sealed verdict를 캡처만 하고 분기하지 않는다 — "산문은 HALT, 코드는 통과" 결함');
+  assert.ok(derive[0] < branch[0], '분기가 파생보다 앞에 있다');
+  assert.ok(halt.some((h) => h > branch[0]),
+    '분기 안에 종료문이 없다 — divergent 봉인 뒤에도 실행이 push로 흘러간다');
+
+  // 배치: 분기가 push보다 앞이어야 한다. Step 6이 push를 소유하므로 slice 밖이며,
+  // 전역 위치로 비교한다.
+  const pushLine = lines.map((l, i) => (/git push/.test(l) ? i + 1 : 0)).filter(Boolean)[0];
+  assert.ok(pushLine, 'santa-loop.md에서 git push를 찾지 못했다');
+  assert.ok(start + branch[0] < pushLine, 'verdict 분기가 push보다 뒤에 있다');
 });

@@ -80,6 +80,10 @@ function seedLedger(repo, slug, opts) {
     cap: o.cap === undefined ? 3 : o.cap,
     rounds: o.rounds || [],
     entries: o.entries || [],
+    // `beginRound`가 거부된 시점에만 채워진다. fixture가 이것을 **명시**해야 하는
+    // 이유는 그것이 원장의 실제 형태이기 때문이다 — 라운드 수만으로 거부를
+    // 되짚으면 캡 *도달*과 *거부*가 뭉개진다(PR-Codex F1).
+    terminated: o.terminated || null,
   };
   const p = statePath(repo, slug);
   fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -301,15 +305,18 @@ test('[14] a missing ledger seals an empty-but-honest divergent; a corrupt ledge
 test('[15] a cap-reached ledger seals divergent with exit_reason=cap_reached and l1=divergent',
   function () {
     const repo = makeRepo();
-    // cap 2를 정확히 채운 상태. 마지막 라운드가 NICE여도 캡 소진은 divergent다 —
-    // "캡을 다 썼다"는 NICE에 도달하지 못했다는 뜻이 아니라 더 돌 수 없다는 뜻이고,
-    // begin-round가 다음 라운드를 거부한 지점이 바로 이 종료다.
+    // cap 2를 채우고 **다음 begin-round가 실제로 거부된** 상태. 그 거부가 종료이고,
+    // 마커가 그것을 기록한다. 라운드 수(2 >= cap 2)만으로는 이 상태와 "마지막 허용
+    // 라운드가 아직 진행 중"이 구분되지 않으므로 fixture가 마커를 명시한다.
     seedLedger(repo, 'cap-x', {
       cap: 2,
       rounds: [
         round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
         round(1, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
       ],
+      terminated: {
+        reason: counter.REASONS.CAP_REACHED, at: '2026-08-14T09:00:00.000Z', rounds: 2,
+      },
     });
     const r = seal.seal({ cwd: repo, decisionId: 'cap-x' });
 
@@ -357,10 +364,14 @@ test('[16] cap comes from the ledger state, not the environment (deliberate mism
 
     assert.equal(receipt.meta.santa_cap, 2,
       'santa_cap must be the ledger state cap, not the env value');
-    // exitReason도 state.cap 기준이어야 한다. env(5)를 탔다면 2 라운드는 캡
-    // 미달이라 exitReason이 없었을 것이다 — 그 차이가 이 단언의 판별력이다.
-    assert.equal(receipt.meta.santa_exit_reason, 'cap_reached',
-      'exitReason must be computed from state.cap (2 rounds >= cap 2), not env cap 5');
+    // 종료는 **거부가 기록됐을 때만** 성립한다. 이 원장에는 마커가 없으므로 라운드
+    // 수(2)나 env cap(5) 어느 쪽으로도 종료를 만들어낼 수 없다. 이전 구현은
+    // `rounds.length >= cap` 산술을 썼기 때문에 cap의 출처가 exitReason을 좌우했고
+    // 그것이 이 단언의 원래 판별력이었다 — 이제 그 축은 `santa_cap`이 단독으로
+    // 지고, 여기서는 산술 파생이 돌아오지 않았음을 지킨다.
+    assert.equal(receipt.meta.santa_exit_reason, undefined,
+      'no begin-round refusal was recorded, so no exit reason may be sealed — ' +
+      'neither the round count nor the env cap can manufacture one');
   });
 
 // ── [17] 단일 스냅샷 일관성 (plan 16항목 밖 — Implement-Codex R1 F1) ────────
@@ -404,4 +415,117 @@ test('[17] seal derives everything from ONE ledger snapshot (concurrent mutation
     assert.equal(report.indexOf('NAUGHTY'), -1,
       'the report must not mix in a round that appeared after the snapshot was taken');
     assert.equal(r.verdict, 'converged');
+  });
+
+// ── [18] 회귀 — 마지막 허용 라운드의 NICE (plan 16항목 밖, PR-Codex F1) ──────
+
+// F1이 낸 실제 증상: cap을 정확히 채운 마지막 라운드가 NICE로 수렴했는데도
+// divergent로 봉인되고, `santa-loop.md` Step 5.5는 `SEAL_EXIT`(=0)만 보므로
+// 그 상태로 push까지 갔다. 원인은 `aggregateFrom`이 `rounds.length >= cap`
+// 산술로 종료를 되짚은 것 — 그 술어는 캡 *도달*과 begin-round *거부*를 뭉갠다.
+//
+// 이 test가 [15]와 짝이다: 같은 라운드 수·같은 cap이고 **마커 유무와 최종 라운드
+// verdict만** 다르다. 둘이 갈리지 않으면 파생이 다시 산술로 돌아간 것이다.
+test('[18] the last allowed round converging NICE seals converged, not divergent',
+  function () {
+    const repo = makeRepo();
+    seedLedger(repo, 'lastnice-x', {
+      cap: 2,
+      rounds: [
+        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
+        // 마지막 허용 라운드. 여기서 수렴했으므로 begin-round는 다시 불리지 않았고,
+        // 따라서 거부도 없다 — `terminated`는 부재다.
+        round(1, 'NICE', [reviewer('A', 'm-a', 'PASS'), reviewer('B', 'm-b', 'PASS')]),
+      ],
+    });
+
+    const r = seal.seal({ cwd: repo, decisionId: 'lastnice-x' });
+
+    assert.equal(r.verdict, 'converged',
+      'a NICE final round must seal converged even when it is the last one the cap allowed');
+    assert.equal(r.aggregate.exitReason, null,
+      'no refusal happened, so there is no exit reason');
+    assert.equal(r.aggregate.rounds, 2);
+
+    const receipt = readReceipt(repo, 'lastnice-x');
+    assert.equal(receipt.resolution.review_verdict, 'converged');
+    assert.equal(receipt.meta.santa_exit_reason, undefined,
+      'exit reason is present-only and must stay absent when nothing terminated the loop');
+    assert.equal(receipt.meta.santa_rounds, 2);
+    assert.equal(receipt.meta.santa_cap, 2);
+    // l1은 "기계 게이트가 이 라운드를 승인했다"이다. begin-round가 거부한 적이
+    // 없으므로 승인이 맞다 — [15]가 같은 자리에서 'divergent'를 요구하는 것과 대비.
+    assert.equal(receipt.resolution.review_proof.layers.l1, 'converged');
+    assert.equal(validate(receipt).ok, true, JSON.stringify(validate(receipt).errors));
+  });
+
+// ── [19] 회귀 — 수렴 후 재진입 거부가 봉인을 강등하지 않는다 (code-review H1) ──
+
+// 이미 수렴해 봉인된 slug에서 `/mccp:santa-loop`를 다시 돌리면 Step 3의
+// `begin-round`가 캡에서 **정상 거부**되고 그 거부가 마커를 쓴다. 마커를 판정에
+// 먹이면 그 재진입 하나가 converged receipt를 divergent로 덮어쓴다 — F1이 산술로
+// 만들던 오봉인을 마커로 재현하는 것이다. 마커는 관측이지 종료가 아니다.
+//
+// 마커는 **결속돼 있다**(rounds가 현재 라운드 수와 일치) — 즉 이 test는 결속
+// 검사로는 걸러지지 않는 축을 지킨다. 판정이 마커를 다시 보기 시작하면 실패한다.
+test('[19] a refusal observed after the ledger already converged does not downgrade the seal',
+  function () {
+    const repo = makeRepo();
+    seedLedger(repo, 'reentry-x', {
+      cap: 2,
+      rounds: [
+        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
+        round(1, 'NICE', [reviewer('A', 'm-a', 'PASS'), reviewer('B', 'm-b', 'PASS')]),
+      ],
+      // 수렴 뒤 재진입에서 begin-round가 거부되며 쓰인 마커. 현 라운드 수에 결속돼 있다.
+      terminated: {
+        reason: counter.REASONS.CAP_REACHED, at: '2026-08-15T10:00:00.000Z', rounds: 2,
+      },
+    });
+
+    const r = seal.seal({ cwd: repo, decisionId: 'reentry-x' });
+
+    assert.equal(r.verdict, 'converged',
+      'a converged ledger must stay converged — a later refusal is re-entry, not termination');
+    assert.equal(r.aggregate.exitReason, null,
+      'santa_exit_reason means "the cap ended the loop"; convergence ended this one');
+
+    const receipt = readReceipt(repo, 'reentry-x');
+    assert.equal(receipt.resolution.review_verdict, 'converged');
+    assert.equal(receipt.meta.santa_exit_reason, undefined);
+    // l1이 뒤집히면 receipt가 "기계 게이트가 승인하지 않았다"고 주장하면서
+    // 동시에 converged를 주장하는 자기모순이 된다.
+    assert.equal(receipt.resolution.review_proof.layers.l1, 'converged');
+    assert.equal(receipt.resolution.review_proof.layers.l2, 'converged');
+    assert.equal(validate(receipt).ok, true, JSON.stringify(validate(receipt).errors));
+  });
+
+// ── [20] 결속되지 않은 마커는 종료로 읽지 않는다 (code-review H1, 2차 방어) ──
+
+// 정상 경로에서는 `beginRound`가 라운드를 열 때 마커를 지우므로 이 상태가 생기지
+// 않는다. 손으로 편집된 원장에 대한 방어이고, 결속 검사가 사라지면 마커가 다시
+// 영구 낙인이 된다.
+test('[20] a termination marker bound to a stale round count is not read as termination',
+  function () {
+    const repo = makeRepo();
+    seedLedger(repo, 'stale-marker-x', {
+      cap: 3,
+      rounds: [
+        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
+        round(1, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
+      ],
+      // 라운드가 1건이던 시점의 거부. 그 뒤 캡이 올라 라운드가 더 열렸다.
+      terminated: {
+        reason: counter.REASONS.CAP_REACHED, at: '2026-08-15T10:00:00.000Z', rounds: 1,
+      },
+    });
+
+    const r = seal.seal({ cwd: repo, decisionId: 'stale-marker-x' });
+
+    assert.equal(r.aggregate.exitReason, null,
+      'the marker describes a ledger state that no longer exists');
+    // 최종 라운드가 NAUGHTY라 판정 자체는 divergent다 — 이 test가 지키는 것은
+    // **종료 사유**이지 verdict가 아니다. 둘을 한 축으로 묶으면 판별력이 사라진다.
+    assert.equal(r.verdict, 'divergent');
+    assert.equal(readReceipt(repo, 'stale-marker-x').meta.santa_exit_reason, undefined);
   });

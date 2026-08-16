@@ -875,12 +875,46 @@ Bash hook block handling: same as Plan-Codex Phase 7.6 — output `[MCCP-GATE-ST
 ```bash
 # v1.3.1: forward --decision/--plan explicitly so the validator scopes to the
 # correct receipt instead of falling back to decisionId='default' (Codex R1 F1).
-# This is the downstream chain check for /mccp:code-review (PR Review Mode);
-# DECISION_SLUG was derived in 2.5.7 (mccp:pr decisionId reused for the chain).
+# This is the downstream chain check for /mccp:code-review (PR Review Mode).
+#
+# v1.25.2 G2 (gate-guard-integrity M3, C6) — `--plan` is a REAL shell variable
+# here, self-derived exactly as 2.5.9 does. It used to be the literal placeholder
+# `<plan path>`, which made this the one gating validate callsite in this file
+# still depending on the model substituting it. That is not a mechanical gate:
+# substituted wrong it is a bash SYNTAX ERROR (`<` opens a redirection), and
+# dropped entirely it is silent — `validate-cmd.js` keeps the whole staleness
+# check inside `if (opts.planPath)`, so an absent `--plan` skips it with neither
+# error nor warning. The comment at 2.5.9 already asserted that "2.5.8's
+# code-review chain-check also passes `--plan`"; before this fix that sentence
+# described an intent, not the code. All three gating callsites in this file
+# (Phase 1.6 preflight, this one, 2.5.9 ship-gate) now pass a real variable, and
+# `validate-callsite-lint` asserts that mechanically for pr.md. NOTE the labels:
+# the preflight is Phase 1.6, NOT 2.5.7 — 2.5.7 is the finalize-receipt WRITE
+# step, and its `--plan "<plan path or PR title>"` is still a placeholder by
+# design (it names the receipt subject; it is not a validate callsite).
+#
+# DECISION_SLUG is re-derived HERE rather than inherited from 2.5.7 (local
+# review, 2026-08-16). Each fenced block may run as its own shell, so an
+# inherited slug can arrive empty — and now that this callsite passes `--plan`,
+# an empty slug yields `.claude/plans/.plan.md`, which is unreadable, which is
+# `stale`, which is `ok=false`. C6 made staleness reachable here for the first
+# time, so the derivation it depends on must be reachable too. derive-decision
+# is deterministic in (command, args), so re-deriving is a no-op when the slug
+# was already in scope.
+DECISION_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decision \
+  --command mccp:pr \
+  --args "$ARGUMENTS")
+# Same derivation as SHIP_PLAN_PATH below. PR_PLAN_PATH is an OPTIONAL override
+# for a plan whose basename differs from the decision slug: export it before
+# running if Phase 2 DISCOVER found such a plan. No block in this body assigns
+# it (verified 2026-08-16 — zero assignments plugin-wide), so unless an operator
+# sets it the deterministic `.claude/plans/<slug>.plan.md` convention is what
+# actually applies. A path that does not resolve lands in `stale` and blocks.
+CHAIN_PLAN_PATH="${PR_PLAN_PATH:-.claude/plans/${DECISION_SLUG}.plan.md}"
 node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js validate \
   --command mccp:code-review \
   --decision ${DECISION_SLUG} \
-  --plan <plan path>
+  --plan "$CHAIN_PLAN_PATH"
 ```
 
 If exit 0: proceed to Phase 3 (PUSH). The body-file persisted in 2.5.4 (under `<gitdir>/mccp/tmp/`) is the authoritative source for the `## Design Review` and `## Codex Adversarial Review` sections — Phase 4 will read it back instead of re-deriving from memory.
@@ -912,7 +946,9 @@ finalize (2.5.7) is the runtime **primary** ship gate — its exit 12 already HA
 # santa-loop R3 (Reviewer B): this is the ship-verdict locus, but not the only
 # place a stale plan can stop the run — 2.5.8's code-review chain-check also
 # passes `--plan` and can stale-block before Phase 3. Stated as scope, not as
-# uniqueness.
+# uniqueness. (v1.25.2 C6: that claim is now true of the code as well — 2.5.8
+# carried a literal `<plan path>` placeholder until then, so all three gating
+# callsites in this file pass a real shell variable only as of v1.25.2.)
 # santa-loop R3 (Reviewer A) — this uses a real shell variable, NOT the
 # `<plan-path>` placeholder the surrounding command body uses elsewhere. The
 # distinction matters here specifically: an unsubstituted `<plan-path>` is not a
@@ -924,11 +960,23 @@ finalize (2.5.7) is the runtime **primary** ship gate — its exit 12 already HA
 # prp-implement.md's design-grounding gate (shell-state independent, re-derived
 # from a stable input).
 #
-# PR_PLAN_PATH is the escape hatch: Phase 2 DISCOVER sets it when the discovered
-# plan's basename differs from the decision slug. Unset, the deterministic
-# `.claude/plans/<slug>.plan.md` derivation applies, which is /mccp:plan's output
-# convention. Either way this cannot degrade into a syntax error, and a path that
-# does not resolve lands in `stale` and correctly blocks here.
+# PR_PLAN_PATH is an OPTIONAL override for the case where the discovered plan's
+# basename differs from the decision slug — export it before running. Local
+# review (2026-08-16) corrected an earlier claim here that "Phase 2 DISCOVER sets
+# it": no block in this body assigns it (zero assignments plugin-wide), so unless
+# an operator sets it the deterministic `.claude/plans/<slug>.plan.md` derivation
+# is what actually applies, which is /mccp:plan's output convention. Either way
+# this cannot degrade into a syntax error, and a path that does not resolve lands
+# in `stale` and correctly blocks here.
+#
+# DECISION_SLUG is re-derived in this block for the same reason as 2.5.8: each
+# fenced block may run as its own shell, and an empty inherited slug would send
+# the load-bearing ship gate at `.claude/plans/.plan.md` → unreadable → stale →
+# a false HALT. derive-decision is deterministic in (command, args), so this is a
+# no-op when the slug was already in scope.
+DECISION_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decision \
+  --command mccp:pr \
+  --args "$ARGUMENTS")
 # santa-loop R3 (Reviewer B) — same `|| SHIP_GATE_EXIT=$?` guard as Phase 1.6, and
 # for the same reason: `validate` exits 2 on any non-ok result, so under `set -e` a
 # bare capture aborts the shell. R2 hardened 1.6 and left this sibling callsite

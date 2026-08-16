@@ -61,6 +61,15 @@ test('aliases: plan-prd is registered but writes/requires nothing', function () 
   assert.deepStrictEqual(spec.requires_preceding, [], 'PRD has no preceding gate');
 });
 
+test('aliases: meta-research is registered with an empty spec (research is not a gate)', function () {
+  const spec = getCommandSpec('/mccp:meta-research');
+  assert.ok(spec, 'mccp:meta-research must be registered so hooks recognize it explicitly');
+  // Asserting mere registration would stay green if someone later hung a gate on
+  // this command. The EMPTY ARRAYS are what pin "research issues no receipt".
+  assert.deepStrictEqual(spec.produces, [], 'research writes no receipt');
+  assert.deepStrictEqual(spec.requires_preceding, [], 'research has no preceding gate');
+});
+
 test('aliases: prp-pr mirrors pr verbatim (PRP-flow alias)', function () {
   const pr = getCommandSpec('/mccp:pr');
   const prpPr = getCommandSpec('/mccp:prp-pr');

@@ -1,0 +1,40 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "gate-guard-integrity-m2",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.23.11",
+    "completed_at": "2026-08-13T22:53:40.323Z",
+    "commit_sha": "2eade5408fe09e648e78800a8f6245c786d3be7c",
+    "plan_basename": "gate-guard-integrity-m2.plan.md",
+    "plan_file_hash": "sha256:9fd9fd6604403eedcab93666537299de7cc1debd75bddede74f15f0e1d070605",
+    "risks_closed": [
+      "**포착된 1건이 재현되지 않아 원인을 확정할 수 없다**",
+      "harness `--runs 10`이 25% 사건을 놓친다",
+      "**다른 flake가 남아 있는데 N회 관측이 그것을 못 본다**",
+      "Task 2a의 대체 단언이 원래 잡던 회귀를 못 잡는다 → 완화와 구별 불가",
+      "축 C 수정이 lint를 우회하는 형태가 된다(변수명만 바꿔 정규식 회피)",
+      "`store.js`에 함수를 추가해 기존 소비처가 영향받는다",
+      "축 B 수정이 skip 범위를 넓혀 실패를 숨긴다",
+      "version 충돌 (병렬 worktree 4개, 이 저장소에서 4회 재발)",
+      "Task 3에서 흔들린 적 없는 단언을 예방적으로 완화한다",
+      "**이 milestone도 M2 자신의 검증 수단(테스트 스위트)에 의존한다**"
+    ],
+    "oq_closed": [
+      "`lib/tests/plan-codex-runner.test.js:223` — `< 20000ms`",
+      "`migrations/tests/v0.2.8-generic-receipt-quarantine.test.js:433` — `< LEASE_TTL_MS / 2`",
+      "`receipt/tests/receipt-write-concurrency.test.js:176` — `< 3000ms` (셋 중 가장 빡빡함)",
+      "**도달 불가**(env 정책 · 미설치 · 미인증 · transport 실패) → 그 **참인 사유**로 skip.",
+      "**도달 성공 후 계약 드리프트** → 현행 유지(skip + `v0.2.4 followup` 주석). 이 사유는 이미 참이므로 손댈 이유가 없다. 이것을 fail로 승격하는 것은 새 red를 만드는 별개 판단이다.",
+      "`store.js`는 이미 `APPROVED_WRITERS` 원소(`b2-coverage-gate.js:38`)이므로 **lint 계약 무변경**으로 위반이 사라진다 (UI6 준수).",
+      "발화 조건이 정확히 `WRITE_CALL_RE = /(…|renameSync|…)\\s*\\([^)]*receipt/i`이고, runner의 `receiptPath`는 **helper 호출이 아니라 지역 변수명**이다(`plan-codex-runner.js`에 `receiptPath(` 호출 0건 — 실측). 따라서 write 동사와 같은 줄에서 그 이름이 사라지면 축 A가 해제되고, 축 B(`receipt-path-helper`)는 애초에 성립하지 않는다.",
+      "격리는 receipt를 소비 경로에서 **치우는** 동작이다. 그것을 승인된 receipt 계층이 소유하는 것이 의미상 옳다.",
+      "`staticLint`는 승인 writer를 **파일 단위로 통째 면제**한다 — `b2-coverage-gate.js:324` `if (APPROVED_WRITERS.indexOf(rel) !== -1) continue;`. 즉 `store.js`에 들어간 함수는 축 A·B 어느 쪽으로도 스캔되지 않는다. 위반을 그리로 옮기는 것이 축 C의 방법인데, 그 목적지가 무검사 구역이라면 **레지스트리가 그 면제를 책임지게 하는 유일한 보완 통제**다.",
+      "등록은 **탐지 범위를 넓히지 않는다**. `entrypointRegistry`(`:347-359`)는 열거된 `(file, fn)` 쌍의 **존재만** 확인한다 — 파일도 패턴도 늘지 않고, \"이 함수가 계속 존재해야 한다\"는 단언 하나가 붙을 뿐이다. 방향은 강화 일방이다.",
+      "미등록이 실패를 유발하지 않는다는 초안의 실측은 **코드에 대해서는 참**이다(missing만 검사). 그러나 같은 파일 `:52` 주석은 계약을 `목록 밖 = 실패, 목록에 있는데 부재 = 실패`로 **선언**한다. 코드와 선언이 어긋나 있고, 초안은 그 틈을 근거로 삼았다. 선언된 계약을 지키는 쪽이 이 PRD의 목적(\"이미 존재하는 계약이 지켜지지 않는 것을 다룬다\")과 일치한다."
+    ],
+    "receipt_hash": "sha256:1559548cadb741137b4315de71f565f077a503f31945e71bc372d43e99e98d6c",
+    "verdict_provenance": "codex-verdict"
+  }
+}

@@ -21,21 +21,50 @@
 
 const crypto = require('crypto');
 const { parseTableRows } = require('./markdown-table');
+// M1.5 DD4 — dispute 이유는 새 validator를 만들지 않고 repo에 이미 있는 strict
+// validator를 재사용한다. 이 모듈은 순수 함수이며(fs/process/clock 없음) 여기서
+// 가져오는 것도 순수 함수다.
+const { validateReason } = require('../receipt/lib/force-override-reason');
 
 const INTENT_KINDS = ['constraint', 'exception', 'exclusion', 'direction'];
 
 // DD1 — pass set is {preserved, PROVEN skipped}. `skipped-unproven` exists so
 // the audit surface can name WHY an unproven skip was refused rather than
 // silently reclassifying it (mirrors pr-ship-gate.js's blockingVerdict).
+// M1.5 — `inconclusive`(리뷰어가 계약을 따르지 않아 대조 자체가 성립 안 함)와
+// `mislabel_unresolved`(리뷰어가 지목한 id를 저자가 지목하지 않았고 응답도 없음)를
+// 추가한다. PASS 집합은 **불변**이므로 두 값은 차단 방향으로 자동 성립하고,
+// `warn` 완화만 isIntentChainAllowed의 명시 분기가 담당한다(DD8).
 const INTENT_GATE_VERDICTS = [
   'preserved',
   'skipped',
   'skipped-unproven',
   'incomplete',
   'conflict_unresolved',
+  'inconclusive',
+  'mislabel_unresolved',
 ];
 
 const PASS_VERDICTS = ['preserved', 'skipped'];
+
+// M1.5 DD6 — `warn`이 완화하는 축은 M1.5가 새로 만든 두 verdict뿐이다. M1이 만든
+// 차단(`incomplete` / `conflict_unresolved` / `skipped-unproven`)에는 절대 열리지
+// 않는다 — 그러면 warn이 게이트 전체의 kill switch가 된다.
+const MISLABEL_VERDICTS = ['inconclusive', 'mislabel_unresolved'];
+
+const MISLABEL_MODES = ['enforce', 'warn', 'off'];
+
+// Task 0(리뷰어 계약 준수율 실측)이 이 상수에 커밋된다.
+//
+// 근거 문서: docs/codex-intent-context/reviewer-contract-compliance.md
+// 측정일: 2026-08-13 — production 경로(codex-invoke#composeFocus →
+// parseReviewPayload → parseReviewerClaims) 10회. finding 50건 **전부** 유효 주장,
+// 리뷰 단위 `full` 도달률 **100%**. 사전 선언된 결정 규칙(>=95% enforce /
+// 70~95% warn / <70% off)에 따라 `enforce`. 정지 규칙은 5회 만장일치 종료와
+// 경계 10%p 이내 10회 연장이 이 결과에서 충돌하므로 **연장을 수행**해 해소했다.
+// 2026-08-09의 `warn`은 쿼터 소진으로 측정이 막혔을 때의 DD10 fallback이었고,
+// 이 값은 그것을 대체하는 측정값이다.
+const DEFAULT_MISLABEL_MODE = 'enforce';
 
 const ADJUDICATION_VERDICTS = [
   'ACCEPT_NOW',
@@ -64,6 +93,7 @@ const ADJUDICATION_LIMITS = Object.freeze({
   ITEMS: 1000,
   RATIONALE_CHARS: 5000,
   OVERRIDE_REASON_CHARS: 5000,
+  DISPUTE_REASON_CHARS: 5000,
   INTENT_CONFLICT_CHARS: 16,
   PLAN_PATH_CHARS: 4096,
 });
@@ -498,6 +528,15 @@ function parseAdjudicationFile(text) {
         && it.intent_conflict.length > ADJUDICATION_LIMITS.INTENT_CONFLICT_CHARS) {
       return { ok: false, reason: 'intent-conflict-too-long' };
     }
+    // M1.5 — 길이는 파일 구조의 문제라 여기서 막는다(형제 필드들과 동형). 반대로
+    // strict validateReason 위반은 파일을 무효로 만들지 않고 **그 dispute 하나를
+    // 부재로 취급**해야 하므로(DD4 → verdict=mislabel_unresolved) 판정 시점의
+    // isValidDisputeReason이 소유한다. 파서가 필드를 지워버리면 감사 배열이
+    // "무엇이 기각됐는지"를 잃는다.
+    if (typeof it.intent_dispute_reason === 'string'
+        && it.intent_dispute_reason.length > ADJUDICATION_LIMITS.DISPUTE_REASON_CHARS) {
+      return { ok: false, reason: 'dispute-reason-too-long' };
+    }
   }
   return { ok: true, value: parsed };
 }
@@ -549,6 +588,25 @@ function resolveSkipProof(opts) {
     return 'no_codex_findings';
   }
   return null;
+}
+
+// M1.5 DD4 — dispute가 "있다"고 세려면 strict validator를 통과해야 한다. `"no"`나
+// `"because I say so"`류 1-token은 여기서 죽고, 그 dispute는 **부재**로 취급된다.
+//
+// validator가 dispute를 참으로 만들지는 못한다. 저자가 그럴듯한 30자 문장을 주장마다
+// 하나씩 적으면 게이트는 통과한다 — M1의 intent_override_reason과 정확히 같은 성질이며
+// 텍스트 검증으로 닫을 수 있는 종류의 구멍이 아니다. M1.5가 사는 것은 "기록 없는
+// 수용"의 제거이지 "잘못된 수용"의 제거가 아니다(DD9 항목 4).
+// `allowCodeVocabulary` — a dispute is prose about code and must be free to name
+// `test` scaffolding or a `bar.ts`, which the shared placeholder list bans as
+// whole words. Rejecting those is a false block on ordinary repo vocabulary, and
+// the author's way out would be to reword until the validator relents. Length,
+// word count and the one-token banlist still apply; they are what make a reason
+// a sentence rather than a shrug.
+function isValidDisputeReason(text) {
+  if (typeof text !== 'string' || !text.trim()) return false;
+  if (text.length > ADJUDICATION_LIMITS.DISPUTE_REASON_CHARS) return false;
+  return validateReason(text, { strict: true, allowCodeVocabulary: true }).ok === true;
 }
 
 // decideIntentGate → { verdict, skipProof, counts, reason }
@@ -641,6 +699,42 @@ function decideIntentGate(opts) {
     }
   }
 
+  // M1.5 — 여기까지 왔다면 M1 규칙(커버리지 + 충돌 수용 override)은 **전부** 통과했다.
+  // 오심 축은 그 위에 얹힌다: 커버리지가 통과했다는 사실은 저자가 모든 finding에
+  // 라벨을 붙였다는 뜻일 뿐, 그 라벨이 옳다는 뜻이 아니다.
+  //
+  // `comparison` 미공급(구 caller · MCCP_INTENT_MISLABEL=off)이면 이 블록은 통째로
+  // 건너뛰어 M1 판정과 동일해진다(DD5 — off는 판정 억제가 아니라 경로 미진입이며,
+  // 그 경계는 runner가 Codex 호출 **앞**에서 잡는다).
+  const cmp = o.comparison;
+  if (cmp && typeof cmp === 'object') {
+    const counts = summarizeAdjudications({ adjudications: items });
+
+    // DD5 — `partial`은 통과 상태가 아니다. 20건 중 1건만 주장해도 통과시키면
+    // M1의 구멍을 리뷰어 쪽으로 옮긴 것에 지나지 않는다.
+    if (cmp.compliance !== 'full') {
+      return out('inconclusive',
+        'reviewer contract compliance=' + String(cmp.compliance) +
+        ' (' + (cmp.counts ? cmp.counts.claimed : '?') + '/' +
+        (cmp.counts ? cmp.counts.total : '?') + ' findings carried a valid INTENT claim)',
+        { counts: counts });
+    }
+
+    const needs = Array.isArray(cmp.needsResponse) ? cmp.needsResponse : [];
+    const unresolved = needs.filter(function (e) {
+      return !isValidDisputeReason(e && e.dispute_reason);
+    });
+    if (unresolved.length > 0) {
+      const first = unresolved[0];
+      return out('mislabel_unresolved',
+        unresolved.length + ' finding(s) where the reviewer named an id the author did not' +
+        ' (first: index ' + first.finding_index + ', ' + first.classification +
+        ', reviewer=' + String(first.reviewer_claim) +
+        ', author=' + String(first.author_conflict) + ') without a valid intent_dispute_reason',
+        { counts: counts });
+    }
+  }
+
   return out('preserved', 'all ' + findings.length + ' finding(s) explicitly adjudicated', {
     counts: summarizeAdjudications({ adjudications: items }),
   });
@@ -658,7 +752,11 @@ function decideIntentGate(opts) {
 function deriveIntentGateDecision(input, opts) {
   const o = opts || {};
   const i = input || {};
-  const overrideActive = o.forceOverrideActive === true;
+  // M1.5 DD6 — advisory(`warn`)는 audited override와 **별개 입력**이다. 하나로
+  // 합치면 warn receipt가 intent_gate_force_override를 켜게 되고, 그 순간 strict
+  // reason을 요구하는 audited-override 표면의 의미가 오염된다.
+  const overrideRequested = o.forceOverrideActive === true;
+  const advisoryRequested = o.advisoryActive === true;
 
   let verdict = i.verdict;
   if (INTENT_GATE_VERDICTS.indexOf(verdict) === -1) verdict = 'incomplete';
@@ -670,24 +768,45 @@ function deriveIntentGateDecision(input, opts) {
   const rawPass = PASS_VERDICTS.indexOf(verdict) !== -1;
   const blockingVerdict = rawPass ? null : verdict;
 
+  // DD12 — 순서가 결과를 정한다: ① mode가 먼저 판정하고, ② 그 결과가 **여전히
+  // blocking일 때만** override가 적용된다. warn이 이미 통과시킨 경우 override는
+  // 적용된 적이 없으므로 플래그는 false다. 플래그는 *설정 여부*가 아니라 **효력
+  // 발휘 여부**를 나타낸다.
+  const advisoryApplies = !rawPass && advisoryRequested
+    && MISLABEL_VERDICTS.indexOf(verdict) !== -1;
+  const overrideApplies = !rawPass && !advisoryApplies && overrideRequested;
+
+  // decideIntentGate's reason is where the actionable detail lives — which
+  // finding, which ids, how far off the contract was. On a BLOCKED run it is the
+  // only place that detail exists at all: the runner returns before the receipt
+  // write, and deletes the awaiting/adjudication files in its finally, so the
+  // marker is the whole channel. Dropping it here left the operator told to fix
+  // a specific finding with no way to learn which one.
+  const detail = (typeof i.reason === 'string' && i.reason) ? ' — ' + i.reason : '';
+
   let reason;
   if (rawPass) {
     reason = 'intent_gate_verdict=' + verdict + ' authorizes the gate';
-  } else if (overrideActive) {
-    reason = 'intent gate blocking (verdict=' + verdict +
-      ') — proceeding under audited override (verdict sealed unchanged)';
+  } else if (advisoryApplies) {
+    reason = 'intent gate blocking (verdict=' + verdict + ')' + detail +
+      ' — proceeding in MCCP_INTENT_MISLABEL=warn (verdict sealed, dedupe stays closed)';
+  } else if (overrideApplies) {
+    reason = 'intent gate blocking (verdict=' + verdict + ')' + detail +
+      ' — proceeding under audited override (verdict sealed unchanged)';
   } else {
-    reason = 'intent gate blocking (verdict=' + verdict + ')';
+    reason = 'intent gate blocking (verdict=' + verdict + ')' + detail;
   }
 
   return {
     verdict: verdict,
     blockingVerdict: blockingVerdict,
-    runtimeAllowed: rawPass || overrideActive,
-    chainAllowed: rawPass || overrideActive,
-    // Never widened by the override. This is the whole point of the split.
+    runtimeAllowed: rawPass || advisoryApplies || overrideApplies,
+    chainAllowed: rawPass || advisoryApplies || overrideApplies,
+    // Never widened by the override OR by warn. This is the whole point of the
+    // split — warn is not free, and this is exactly where it costs.
     dedupeApproved: rawPass,
-    overrideActive: overrideActive,
+    overrideActive: overrideApplies,
+    advisoryActive: advisoryApplies,
     reason: reason,
   };
 }
@@ -728,6 +847,18 @@ function isIntentApproved(receipt) {
 function isIntentChainAllowed(meta) {
   if (!meta || typeof meta !== 'object') return true;
   if (meta.intent_gate_force_override === true) return true;
+  // M1.5 DD6 — `warn`이 봉인된 receipt는 mislabel 축의 blocking verdict에 한해
+  // chain을 통과시킨다. 이 분기는 classifyIntentMeta **앞**에 있어야 한다 —
+  // classifyIntentMeta는 신규 verdict를 'blocked'로 반환하므로 뒤에 두면 영영
+  // 도달하지 못한다(DD8).
+  //
+  // 화이트리스트가 mislabel 축뿐인 이유: warn은 M1.5가 새로 만든 축만 완화한다.
+  // `incomplete` / `conflict_unresolved` / `skipped-unproven`에 열면 warn이 게이트
+  // 전체의 kill switch가 된다.
+  if (meta.intent_mislabel_mode === 'warn'
+      && MISLABEL_VERDICTS.indexOf(meta.intent_gate_verdict) !== -1) {
+    return true;
+  }
   const c = classifyIntentMeta(meta);
   return c === 'approved' || c === 'unknown';
 }
@@ -739,10 +870,32 @@ function parseIntentGateSkipReason(env) {
   return raw;
 }
 
+// M1.5 DD5 — 3-mode 파서. 미설정·오타는 조용히 최관대값으로 떨어지지 않고 명명
+// 상수 DEFAULT_MISLABEL_MODE로 수렴하며, 오타는 loud warn을 남긴다
+// (design-critique-decide.js#parseRetryCap 미러).
+function parseMislabelMode(env, onWarn) {
+  const e = env || {};
+  const raw = e.MCCP_INTENT_MISLABEL;
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return DEFAULT_MISLABEL_MODE;
+  }
+  const v = String(raw).trim().toLowerCase();
+  if (MISLABEL_MODES.indexOf(v) !== -1) return v;
+  if (typeof onWarn === 'function') {
+    onWarn('[mccp:intent-mislabel] unknown MCCP_INTENT_MISLABEL="' + String(raw) +
+      '" — falling back to ' + DEFAULT_MISLABEL_MODE +
+      ' (allowed: ' + MISLABEL_MODES.join('|') + ')');
+  }
+  return DEFAULT_MISLABEL_MODE;
+}
+
 module.exports = {
   INTENT_KINDS: INTENT_KINDS,
   INTENT_GATE_VERDICTS: INTENT_GATE_VERDICTS,
   PASS_VERDICTS: PASS_VERDICTS,
+  MISLABEL_VERDICTS: MISLABEL_VERDICTS,
+  MISLABEL_MODES: MISLABEL_MODES,
+  DEFAULT_MISLABEL_MODE: DEFAULT_MISLABEL_MODE,
   ADJUDICATION_VERDICTS: ADJUDICATION_VERDICTS,
   SKIP_PROOFS: SKIP_PROOFS,
   ADJUDICATION_LIMITS: ADJUDICATION_LIMITS,
@@ -762,6 +915,8 @@ module.exports = {
   parseAdjudicationFile: parseAdjudicationFile,
   summarizeAdjudications: summarizeAdjudications,
   resolveSkipProof: resolveSkipProof,
+  isValidDisputeReason: isValidDisputeReason,
+  parseMislabelMode: parseMislabelMode,
   decideIntentGate: decideIntentGate,
   deriveIntentGateDecision: deriveIntentGateDecision,
   classifyIntentMeta: classifyIntentMeta,

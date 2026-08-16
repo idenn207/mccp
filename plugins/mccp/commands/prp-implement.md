@@ -1463,14 +1463,49 @@ If this implementation was for a PRD phase:
 1. Update the phase status from `in-progress` to `complete`
 2. Add report path as reference
 
-### Archive Plan
+### Do NOT archive the plan here (v1.25.2 — gate-guard-integrity M3, C2)
+
+**Leave the plan where it is.** Archiving is owned by `/mccp:archive-complete`
+(CLAUDE.md §3.11), which runs as a separate human-gated step **after the whole PRD
+is complete** — not once per milestone implement. This step used to run
+an unconditional `mkdir -p` + `mv "$ARGUMENTS" …` into a `completed/` directory
+under `.claude/PRPs/plans/`, and that instruction
+was wrong on three independent axes:
+
+1. **Data loss (§3.11 C2).** Archiving a single milestone's plan while its PRD is
+   still `in-progress` breaks the invariant that a PRD and *all* its active plans
+   move as one atomic unit. `plans.js` (`PLAN_DIRS`, non-recursive) discovers PRDs
+   only through an active plan's `source_prd`, so moving the last active plan out
+   makes the PRD invisible to every dashboard scan. `archive-complete/apply.js`
+   re-verifies archivability and rolls back on failure; an unconditional `mv` here
+   bypasses that safety net entirely.
+2. **Self-blocking (guard 2).** v1.23.5 restored the staleness guard, and
+   `/mccp:pr` 2.5.8/2.5.9 now forward `--plan`. If this step has already moved the
+   plan, the validator cannot read it to re-hash and returns `stale` → aggregate
+   `ok=false` → **this cycle's own PR is blocked by the guard this repo just
+   restored** (measured: absent path → 2 stale entries).
+3. **Wrong destination.** §3.11, `archive-complete/apply.js` and
+   `renderer/sections/milestone-history.js` all read `archived/`, never
+   `completed/`. A plan moved to `completed/` is picked up by no scan at all.
+
+When the PRD's final milestone lands, archive deliberately and atomically:
 
 ```bash
-mkdir -p .claude/PRPs/plans/completed
-mv "$ARGUMENTS" .claude/PRPs/plans/completed/
+# Only after every milestone row is complete/dropped — the tool refuses otherwise
+# (`scan.js` → archivable:false), which is the mechanical second line of defense.
+#
+# `${CLAUDE_PLUGIN_ROOT}`, not a repo-relative path: this command body runs in the
+# USER's repository, which has no `plugins/mccp/` tree. Every other node call in
+# this file (24 of them) already resolves through the plugin root; a monorepo-
+# internal path here would be `Cannot find module` for every installed user.
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/archive-complete/scan.js" --json
 ```
 
-**CHECKPOINT**: Report created. PRD updated. Plan archived.
+then run `/mccp:archive-complete` (human gate, atomic transaction + operation
+journal). Orphan free-form plans with no active source PRD are archived by hand
+with `git mv` per §3.11.
+
+**CHECKPOINT**: Report created. PRD updated. Plan left in place for `/mccp:pr`.
 
 ---
 
@@ -1481,7 +1516,7 @@ Report to user:
 ```
 ## Implementation Complete
 
-- **Plan**: [plan file path] → archived to completed/
+- **Plan**: [plan file path] → left in place (archiving is `/mccp:archive-complete`'s job, post-PRD)
 - **Branch**: [current branch name]
 - **Status**: [done] All tasks complete
 
@@ -1503,7 +1538,9 @@ Report to user:
 
 ### Artifacts
 - Report: `.claude/PRPs/reports/{name}-report.md`
-- Archived Plan: `.claude/PRPs/plans/completed/{name}.plan.md`
+- Plan (still active): the plan path this run was invoked with — `.claude/plans/`
+  or the legacy `.claude/PRPs/plans/`, whichever it came from. Report it verbatim
+  rather than assuming a directory (§3.11 treats both as active sources).
 
 ### PRD Progress (if applicable)
 | Phase | Status |
@@ -1606,7 +1643,7 @@ This Phase 7 is enabled by default. Opt-out via env:
 - **TESTS_PASS**: All tests green, new tests written
 - **BUILD_PASS**: Build succeeds
 - **REPORT_CREATED**: Implementation report saved
-- **PLAN_ARCHIVED**: Plan moved to `completed/`
+- **PLAN_RETAINED**: Plan left in `.claude/plans/` so `/mccp:pr` can re-hash it (archiving belongs to `/mccp:archive-complete`)
 
 ---
 

@@ -1,6 +1,6 @@
 # 메타 조사 커맨드 (H2)
 
-> 우산: [review-loop-trust.prd.md](review-loop-trust.prd.md) — day 0 병렬. 리뷰 루프 축과 의존 없음.
+> 우산: [review-loop-trust.prd.md](../review-loop-trust.prd.md) — day 0 병렬. 리뷰 루프 축과 의존 없음.
 > 원 제기: 운영자 항목 1
 
 ## Problem
@@ -13,9 +13,9 @@ mccp에는 **조사·판정 결과를 산출하는 커맨드가 없다.** `/mccp
 
 ## Evidence
 
-- `/mccp:*` 커맨드 21개 중 조사·기록 축 **0개**([commands/](../../plugins/mccp/commands/) 전수).
+- `/mccp:*` 커맨드 21개 중 조사·기록 축 **0개**([commands/](../../../plugins/mccp/commands/) 전수).
 - `.claude/_meta/` 수작업 산출물 **5종** — `diverse-agent-review-analysis.md`(2026-08-06) · `converged-redefinition-design.md` · `verification-layer-design.md` · `2026-08-12-review-loop-meta-analysis.md` · `2026-08-12-prd-decomposition-addendum.md`. 4회 이상 반복된 패턴.
-- **전제 무효화 실측** — `diverse-agent-review-analysis.md` §1.3이 "santa-loop을 gate로 봉인하면 깨지는 4축"을 경고했으나, 그 문서 작성 후 ship된 diverse-agent-review M1이 `CROSS_MODEL_SOURCES`로 4축을 전부 봉인했다. [부록 §2](../_meta/2026-08-12-prd-decomposition-addendum.md)가 코드를 다시 읽고서야 발견. **메타 문서는 작성 시점 코드를 전제하는데 그 유효기간을 표시할 자리가 없었다.**
+- **전제 무효화 실측** — `diverse-agent-review-analysis.md` §1.3이 "santa-loop을 gate로 봉인하면 깨지는 4축"을 경고했으나, 그 문서 작성 후 ship된 diverse-agent-review M1이 `CROSS_MODEL_SOURCES`로 4축을 전부 봉인했다. [부록 §2](../../_meta/2026-08-12-prd-decomposition-addendum.md)가 코드를 다시 읽고서야 발견. **메타 문서는 작성 시점 코드를 전제하는데 그 유효기간을 표시할 자리가 없었다.**
 - **디렉토리 분기 실측** — 선행 3문서가 `.claude/meta/`, 신규 지시가 `.claude/_meta/`로 갈렸다. 2026-08-12에 `_meta/`로 통일 완료(운영자 결정) — 이 PRD의 잔여 범위는 **커맨드 신설뿐**이다.
 - **발견 경로 부재** — 대시보드 PRD discovery는 활성 plan의 `source_prd`로만 이뤄지므로(§3.11 C1) `_meta/` 문서는 어느 스캔에도 잡히지 않는다.
 
@@ -57,7 +57,7 @@ We'll know we're right when **다음 조사가 커맨드 한 번으로 시작되
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | `/mccp:meta-research` + 규격 형식 | 조사가 커맨드로 시작되고, 산출물이 전제를 명시해 나중에 재검증 가능 | pending | — |
+| 1 | `/mccp:meta-research` + 규격 형식 | 조사가 커맨드로 시작되고, 산출물이 전제를 명시해 나중에 재검증 가능 | complete | [meta-research-command-m1.plan.md](../../PRPs/plans/archived/meta-research-command-m1.plan.md) |
 
 ## Open Questions
 

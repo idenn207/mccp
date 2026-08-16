@@ -68,11 +68,46 @@ test('schema: rejects unknown gate_id', function () {
   assert.strictEqual(validate(v).ok, false);
 });
 
+// santa-loop-materialize M2 — `mccp-santa-review`는 이 순회의 첫 예외다. gate_id
+// 기준 resolution 제약(review_source === 'multi-agent')이 이 repo에서 처음 생긴
+// 형태라, baseline fixture 하나가 모든 gate에 통하던 전제가 더 이상 참이 아니다.
+// 예외를 두는 대신 fixture를 gate에 맞춰 보강한다 — 순회 자체를 약화시키면
+// "모든 gate가 검증된다"는 이 test의 본래 가치가 사라진다.
+// triple은 all-or-nothing이라 review_source 하나만 넣으면 그 규칙에 걸린다.
+// verdict는 'divergent'로 둔다 — 구조 불변식(isReviewProofStructurallyValid)은
+// converged일 때만 게이트되므로 최소 proof로 충분하고, 이 test의 관심사는
+// gate_id 제약이지 proof 구조가 아니다(그쪽은 santa-review-gate.test.js 소유).
+const GATE_RESOLUTION_EXTRAS = {
+  'mccp-santa-review': {
+    review_verdict: 'divergent',
+    review_source: 'multi-agent',
+    review_proof: {
+      layers: { l1: 'converged', l2: 'divergent', l3: null },
+      verification_verdict: 'divergent',
+      quorum: { passed: false, required: 2, of: 2, responded: 2, roles: 2 },
+      perspectives: [{ perspective: 'A' }, { perspective: 'B' }],
+      dispatch_evidence: ['.claude/reviews/santa-review-feature-x.md'],
+      reviewed_plan_hash: 'sha256:' + '0'.repeat(64),
+    },
+  },
+};
+
 test('schema: every valid gate_id accepted', function () {
   GATE_IDS.forEach(function (g) {
     const v = valid(); v.gate_id = g;
+    const extra = GATE_RESOLUTION_EXTRAS[g];
+    if (extra) Object.assign(v.resolution, extra);
     assert.strictEqual(validate(v).ok, true, 'gate ' + g + ' should validate');
   });
+});
+
+test('schema: mccp-santa-review is REJECTED without its required review_source', function () {
+  // 위 순회가 fixture를 보강해 통과하므로, 보강을 빼면 거부되는지를 여기서
+  // 따로 못박는다. 이것이 없으면 GATE_RESOLUTION_EXTRAS가 불변식을 우회하는
+  // 장치인지 단순한 fixture 보강인지 구분되지 않는다.
+  const v = valid(); v.gate_id = 'mccp-santa-review';
+  assert.strictEqual(validate(v).ok, false,
+    'a santa receipt with no review_source must not validate');
 });
 
 test('schema: rejects unknown phase', function () {

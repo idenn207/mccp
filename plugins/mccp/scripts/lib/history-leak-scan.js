@@ -30,18 +30,34 @@ const { execFileSync } = require('child_process');
 // the rename from `my-claude-code-plugin` to `mccp`).
 const DEFAULT_OLD_REPO_NAMES = Object.freeze(['my-claude-code-plugin']);
 
-// Documented DEFAULT allowlist — the SOLE sanctioned intentional occurrence.
+// Documented DEFAULT allowlist — the sanctioned intentional occurrences.
 // This scanner's OWN test fixture MUST embed a `<drive>…my-claude-code-plugin`
 // literal to prove the gate catches the old-repo path class; the fixture is
-// unavoidable and there is exactly one. The entry is LINE/FIXTURE-specific
-// (exact path + the old-repo marker) — NEVER directory-wide (Codex IF3), so it
-// can never mask a real leak: a current repo-root path, or a leak in any OTHER
-// file, is still caught. Callers may pass additional allowlist entries; they are
-// merged on top of this default.
+// unavoidable and there is exactly one. Entries are LINE/FIXTURE-specific
+// (exact path + a marker the line must contain) — NEVER directory-wide (Codex
+// IF3), so they can never mask a real leak: a current repo-root path, or a leak
+// in any OTHER file, is still caught. Callers may pass additional allowlist
+// entries; they are merged on top of this default.
+//
+// The second entry is the same category one layer up: the backlog line that
+// REPORTS this scanner's URL-scheme false positive quotes both the drive-letter
+// path class it targets and the offending match string verbatim, as its
+// evidence. Suppressing that quotation is not a weakening — a bug report about
+// a detector has to be allowed to name what the detector matches, exactly as
+// the fixture above has to embed what it proves. The marker is a citation
+// unique to that one line (`history-leak-scan.js:90`), NOT the old-repo name:
+// keying on the name would exempt every future backlog line that happens to
+// mention it, and this file accumulates arbitrary findings. If that line is
+// ever rewritten, the exemption lapses and the gate fires again — fail-closed,
+// which is the correct direction for an allowlist to fail.
 const DEFAULT_ALLOWLIST = Object.freeze([
   {
     path: 'plugins/mccp/scripts/lib/tests/history-leak-scan.test.js',
     contains: 'my-claude-code-plugin',
+  },
+  {
+    path: '.claude/plans/codex-findings-backlog.md',
+    contains: 'history-leak-scan.js:90',
   },
 ]);
 
@@ -85,9 +101,17 @@ function buildLeakPatterns(repoRoot, oldNames) {
   ];
   for (const nm of (oldNames || DEFAULT_OLD_REPO_NAMES)) {
     // drive-letter path (any separator run) that ends in the old repo name.
+    //
+    // The lookbehind is what makes "drive letter" mean a drive letter. Without
+    // it, `[A-Za-z]:` also matches the LAST letter of any URL scheme, so
+    // `https://host/<old-name>` read as a path and the gate blocked a push over
+    // a stale hyperlink — a false positive that costs exactly as much as a miss,
+    // because the only ways out are rewriting history or allowlisting a line
+    // that was never a leak. A real drive letter is never preceded by another
+    // alphanumeric; a scheme's final letter always is.
     patterns.push({
       name: 'old-repo:' + nm,
-      re: new RegExp('[A-Za-z]:[\\\\/][^\\s"\'`]*' + escapeRe(nm), 'i'),
+      re: new RegExp('(?<![A-Za-z0-9])[A-Za-z]:[\\\\/][^\\s"\'`]*' + escapeRe(nm), 'i'),
     });
   }
   return patterns;

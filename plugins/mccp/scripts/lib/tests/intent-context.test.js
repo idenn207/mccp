@@ -75,7 +75,11 @@ function decide(payload, adj, planText, meta) {
 test('(a) deriveIntentGateDecision covers every verdict; unknown fails closed', function () {
   assert.deepStrictEqual(ic.INTENT_GATE_VERDICTS, [
     'preserved', 'skipped', 'skipped-unproven', 'incomplete', 'conflict_unresolved',
+    // M1.5 — 확장은 신규 값을 유효화할 뿐이라 기존 receipt를 소급 invalid로 만들지
+    // 않는다. PASS 집합은 아래에서 별도로 고정한다.
+    'inconclusive', 'mislabel_unresolved',
   ]);
+  assert.deepStrictEqual(ic.PASS_VERDICTS, ['preserved', 'skipped']);
 
   const preserved = ic.deriveIntentGateDecision({ verdict: 'preserved' }, {});
   assert.strictEqual(preserved.runtimeAllowed, true);
@@ -163,12 +167,31 @@ test('(c) structural guards collapse the section to present:false', function () 
   const emptyTable = '# Plan\n\n**Source PRD**: `p`\n\n## User Intent\n\n| ID | C | Kind |\n|---|---|---|\n\n## Summary\n';
   assert.strictEqual(ic.extractIntentSection(emptyTable).present, false);
 
-  // Row cap.
+  // Row cap. This REJECTS the section rather than truncating it, and that
+  // distinction carries an invariant worth naming: `buildIntentReference` shows
+  // the reviewer at most MAX_INTENT_ROWS ids, while `intent-claims.js` accepts
+  // ids from `section.items`. If an over-cap section were truncated instead of
+  // rejected, those two sets would diverge and the parser would honour an id the
+  // reviewer was never shown. Rejection keeps them equal by construction.
   const many = [];
   for (let i = 0; i <= ic.MAX_INTENT_ROWS; i++) {
     many.push('| UI' + i + ' | constraint number ' + i + ' here | constraint |');
   }
-  assert.strictEqual(ic.extractIntentSection(planWith(many)).reason, 'too-many-rows');
+  const over = ic.extractIntentSection(planWith(many));
+  assert.strictEqual(over.reason, 'too-many-rows');
+  assert.strictEqual(over.present, false, 'over-cap is absent, never truncated');
+  assert.strictEqual((over.items || []).length, 0,
+    'no item may survive an over-cap section — the accepted-id set can never ' +
+    'exceed what buildIntentReference injected');
+
+  // Exactly at the cap is accepted whole, so the two sets stay equal there too.
+  const atCap = [];
+  for (let i = 1; i <= ic.MAX_INTENT_ROWS; i++) {
+    atCap.push('| UI' + i + ' | constraint number ' + i + ' here | constraint |');
+  }
+  const capped = ic.extractIntentSection(planWith(atCap));
+  assert.strictEqual(capped.present, true);
+  assert.strictEqual(capped.items.length, ic.MAX_INTENT_ROWS);
 });
 
 // ---------------------------------------------------------------------------
@@ -723,4 +746,312 @@ test('DD4-1 — only the LAST gate section is elided, so an older review record 
     'R1 triage: 2 findings, both ACCEPT_NOW.');
   assert.strictEqual(ic.stableBodyDigest(editedGate), ic.stableBodyDigest(base),
     "the gate's own injection into the LAST section must still not move the anchor");
+});
+
+// ---------------------------------------------------------------------------
+// M1.5 — mislabel axis (Task 4)
+// ---------------------------------------------------------------------------
+
+const icl = require('../intent-claims');
+
+const SECTION_ITEMS = ic.extractIntentSection(planWith(GOOD_ROWS)).items;
+
+const GOOD_DISPUTE =
+  'the reviewer misread the module boundary and this finding never touches that constraint';
+
+// claims[i] === null → the finding carries no anchor at all.
+function claimPayload(claims) {
+  const findings = claims.map(function (c, i) {
+    return {
+      severity: 'high',
+      title: 'F' + i,
+      body: c === null ? 'body with no claim line' : ('finding text\nINTENT: ' + c),
+    };
+  });
+  return { verdict: 'needs-attention', summary: 's', findings: findings, rounds: 1 };
+}
+
+function comparisonFor(payload, file) {
+  return icl.compareIntentClaims({
+    claims: icl.parseReviewerClaims({
+      findings: payload.findings,
+      sectionItems: SECTION_ITEMS,
+    }),
+    adjudications: file.adjudications,
+  });
+}
+
+function decideWith(payload, file, opts) {
+  const o = opts || {};
+  return ic.decideIntentGate({
+    planText: planWith(GOOD_ROWS),
+    reviewPayload: payload,
+    adjudications: file,
+    meta: {},
+    comparison: o.withoutComparison ? undefined : comparisonFor(payload, file),
+  });
+}
+
+test('(a) reviewer-only with no dispute is mislabel_unresolved', function () {
+  const p = claimPayload(['UI1']);
+  const f = adjFor(p);                       // author says intent_conflict: none
+  assert.strictEqual(decideWith(p, f).verdict, 'mislabel_unresolved');
+});
+
+test('(b) the same case with a substantive dispute passes', function () {
+  const p = claimPayload(['UI1']);
+  const f = adjFor(p, function (file) {
+    file.adjudications[0].intent_dispute_reason = GOOD_DISPUTE;
+  });
+  assert.strictEqual(decideWith(p, f).verdict, 'preserved');
+});
+
+test('(c) relabelling hands the case back to the M1 override rule', function () {
+  const p = claimPayload(['UI1']);
+  const f = adjFor(p, function (file) {
+    // Author corrects the label to the reviewer's id and still ACCEPTs it — M1's
+    // substantive rule fires BEFORE the mislabel axis is even reached.
+    file.adjudications[0].intent_conflict = 'UI1';
+  });
+  assert.strictEqual(decideWith(p, f).verdict, 'conflict_unresolved');
+});
+
+test('(c) relabelling plus an override reason passes both axes', function () {
+  const p = claimPayload(['UI1']);
+  const f = adjFor(p, function (file) {
+    file.adjudications[0].intent_conflict = 'UI1';
+    file.adjudications[0].intent_override_reason =
+      'accepting this deliberately because the operator relaxed the constraint';
+  });
+  assert.strictEqual(decideWith(p, f).verdict, 'preserved');
+});
+
+test('(d) id-mismatch with no dispute is mislabel_unresolved', function () {
+  const p = claimPayload(['UI1']);
+  const f = adjFor(p, function (file) {
+    file.adjudications[0].intent_conflict = 'UI2';   // reviewer said UI1
+    file.adjudications[0].verdict = 'REJECT_YAGNI';  // keep the M1 override rule out of it
+  });
+  assert.strictEqual(decideWith(p, f).verdict, 'mislabel_unresolved');
+});
+
+test('(e) compliance=absent is inconclusive', function () {
+  const p = claimPayload([null, null]);
+  assert.strictEqual(decideWith(p, adjFor(p)).verdict, 'inconclusive');
+});
+
+test('(f) partial at 1/20 is inconclusive — one claim cannot pass twenty findings', function () {
+  const claims = ['none'];
+  for (let i = 1; i < 20; i++) claims.push(null);
+  const p = claimPayload(claims);
+  const d = decideWith(p, adjFor(p));
+  assert.strictEqual(d.verdict, 'inconclusive');
+  assert.ok(d.reason.indexOf('1/20') !== -1, 'the measurement must survive into the reason');
+});
+
+test('(f) partial at 19/20 is ALSO inconclusive', function () {
+  const claims = [];
+  for (let i = 0; i < 19; i++) claims.push('none');
+  claims.push(null);
+  const p = claimPayload(claims);
+  const d = decideWith(p, adjFor(p));
+  assert.strictEqual(d.verdict, 'inconclusive');
+  assert.ok(d.reason.indexOf('19/20') !== -1);
+});
+
+test('(g) warn opens runtime and chain but never dedupe, and never rewrites the verdict', function () {
+  const d = ic.deriveIntentGateDecision(
+    { verdict: 'mislabel_unresolved' }, { advisoryActive: true });
+  assert.strictEqual(d.runtimeAllowed, true);
+  assert.strictEqual(d.chainAllowed, true);
+  assert.strictEqual(d.dedupeApproved, false);
+  assert.strictEqual(d.verdict, 'mislabel_unresolved');
+  assert.strictEqual(d.blockingVerdict, 'mislabel_unresolved');
+  assert.strictEqual(d.advisoryActive, true);
+});
+
+test('(g) warn does NOT open the M1 axis', function () {
+  const d = ic.deriveIntentGateDecision({ verdict: 'incomplete' }, { advisoryActive: true });
+  assert.strictEqual(d.runtimeAllowed, false);
+  assert.strictEqual(d.chainAllowed, false);
+  assert.strictEqual(d.advisoryActive, false);
+});
+
+test('(h) isIntentChainAllowed: warn opens the mislabel axis only', function () {
+  assert.strictEqual(ic.isIntentChainAllowed({
+    intent_gate_verdict: 'mislabel_unresolved', intent_mislabel_mode: 'warn',
+  }), true);
+  assert.strictEqual(ic.isIntentChainAllowed({
+    intent_gate_verdict: 'inconclusive', intent_mislabel_mode: 'warn',
+  }), true);
+  assert.strictEqual(ic.isIntentChainAllowed({
+    intent_gate_verdict: 'incomplete', intent_mislabel_mode: 'warn',
+  }), false);
+  assert.strictEqual(ic.isIntentChainAllowed({
+    intent_gate_verdict: 'conflict_unresolved', intent_mislabel_mode: 'warn',
+  }), false);
+  assert.strictEqual(ic.isIntentChainAllowed({
+    intent_gate_verdict: 'mislabel_unresolved', intent_mislabel_mode: 'enforce',
+  }), false);
+});
+
+test('(i) a warn receipt is never dedupe-approved', function () {
+  const receipt = {
+    plan_hash: 'sha256:aa',
+    meta: {
+      intent_gate_verdict: 'mislabel_unresolved',
+      intent_mislabel_mode: 'warn',
+      intent_plan_digest: 'sha256:aa',
+    },
+  };
+  assert.strictEqual(ic.isIntentApproved(receipt), false);
+  assert.strictEqual(ic.isIntentChainAllowed(receipt.meta), true);
+});
+
+test('(j)(k) omitting comparison reproduces the M1 verdict exactly', function () {
+  const p = claimPayload(['UI1']);          // would be mislabel_unresolved WITH comparison
+  assert.strictEqual(decideWith(p, adjFor(p)).verdict, 'mislabel_unresolved');
+  assert.strictEqual(decideWith(p, adjFor(p), { withoutComparison: true }).verdict, 'preserved');
+
+  // and the M1 blocking rules still fire without comparison
+  const conflicted = adjFor(p, function (file) { file.adjudications[0].intent_conflict = 'UI1'; });
+  assert.strictEqual(decideWith(p, conflicted, { withoutComparison: true }).verdict,
+    'conflict_unresolved');
+});
+
+test('(l) a receipt with no intent_mislabel_mode key keeps M1 behaviour', function () {
+  assert.strictEqual(ic.isIntentChainAllowed({ intent_gate_verdict: 'incomplete' }), false);
+  assert.strictEqual(ic.isIntentChainAllowed({ intent_gate_verdict: 'mislabel_unresolved' }), false);
+  assert.strictEqual(ic.isIntentChainAllowed({
+    intent_gate_verdict: 'skipped', intent_skip_proof: 'codex_disabled',
+  }), true);
+  // absence is still "unknown", not "approved"
+  assert.strictEqual(ic.isIntentChainAllowed({}), true);
+});
+
+test('(m) a one-token dispute is rejected and reads as absent', function () {
+  const p = claimPayload(['UI1']);
+  const f = adjFor(p, function (file) { file.adjudications[0].intent_dispute_reason = 'no'; });
+  assert.strictEqual(decideWith(p, f).verdict, 'mislabel_unresolved');
+  assert.strictEqual(ic.isValidDisputeReason('no'), false);
+  assert.strictEqual(ic.isValidDisputeReason(''), false);
+  assert.strictEqual(ic.isValidDisputeReason('https://example.com/issue/1'), false);
+  assert.strictEqual(ic.isValidDisputeReason(GOOD_DISPUTE), true);
+});
+
+test('(n) a substantive dispute passes and the case is still counted', function () {
+  const p = claimPayload(['UI1', 'none']);
+  const f = adjFor(p, function (file) {
+    file.adjudications[0].intent_dispute_reason = GOOD_DISPUTE;
+  });
+  assert.strictEqual(decideWith(p, f).verdict, 'preserved');
+  const cmp = comparisonFor(p, f);
+  assert.strictEqual(cmp.needsResponse.length, 1);
+  assert.strictEqual(cmp.compliance, 'full');
+});
+
+test('an oversized dispute reason is a file-level parse rejection', function () {
+  const file = JSON.stringify({
+    plan_path: 'p',
+    adjudications: [{
+      finding_index: 0,
+      intent_dispute_reason: 'x'.repeat(ic.ADJUDICATION_LIMITS.DISPUTE_REASON_CHARS + 1),
+    }],
+  });
+  const parsed = ic.parseAdjudicationFile(file);
+  assert.strictEqual(parsed.ok, false);
+  assert.strictEqual(parsed.reason, 'dispute-reason-too-long');
+});
+
+// DD12 — the three sealed combinations. The flag records whether an override
+// actually took EFFECT, not whether it was set.
+test('DD12: warn passing means the override was never applied', function () {
+  const d = ic.deriveIntentGateDecision({ verdict: 'inconclusive' },
+    { advisoryActive: true, forceOverrideActive: true });
+  assert.strictEqual(d.advisoryActive, true);
+  assert.strictEqual(d.overrideActive, false,
+    'an override that never applied must not be sealed true');
+  assert.strictEqual(d.dedupeApproved, false);
+});
+
+test('DD12: enforce plus override means the override IS what passed it', function () {
+  const d = ic.deriveIntentGateDecision({ verdict: 'mislabel_unresolved' },
+    { forceOverrideActive: true });
+  assert.strictEqual(d.overrideActive, true);
+  assert.strictEqual(d.advisoryActive, false);
+  assert.strictEqual(d.runtimeAllowed, true);
+  assert.strictEqual(d.dedupeApproved, false);
+});
+
+test('DD12: warn plus an M1-axis block still needs the override', function () {
+  const d = ic.deriveIntentGateDecision({ verdict: 'incomplete' },
+    { advisoryActive: true, forceOverrideActive: true });
+  assert.strictEqual(d.advisoryActive, false, 'warn does not reach the M1 axis');
+  assert.strictEqual(d.overrideActive, true);
+  assert.strictEqual(d.runtimeAllowed, true);
+  assert.strictEqual(d.dedupeApproved, false);
+});
+
+test('parseMislabelMode falls back to the named constant and warns on typos', function () {
+  assert.strictEqual(ic.parseMislabelMode({}), ic.DEFAULT_MISLABEL_MODE);
+  assert.strictEqual(ic.parseMislabelMode({ MCCP_INTENT_MISLABEL: '' }), ic.DEFAULT_MISLABEL_MODE);
+  assert.strictEqual(ic.parseMislabelMode({ MCCP_INTENT_MISLABEL: 'ENFORCE' }), 'enforce');
+  assert.strictEqual(ic.parseMislabelMode({ MCCP_INTENT_MISLABEL: ' warn ' }), 'warn');
+  assert.strictEqual(ic.parseMislabelMode({ MCCP_INTENT_MISLABEL: 'off' }), 'off');
+
+  const warns = [];
+  const got = ic.parseMislabelMode({ MCCP_INTENT_MISLABEL: 'enfroce' },
+    function (m) { warns.push(m); });
+  assert.strictEqual(got, ic.DEFAULT_MISLABEL_MODE);
+  assert.strictEqual(warns.length, 1, 'a typo must not fall through silently');
+});
+
+test('the shipped default points at the measurement that justifies it', function () {
+  assert.ok(ic.MISLABEL_MODES.indexOf(ic.DEFAULT_MISLABEL_MODE) !== -1);
+  const src = require('fs').readFileSync(require.resolve('../intent-context'), 'utf8');
+  assert.ok(src.indexOf('reviewer-contract-compliance.md') !== -1,
+    'DEFAULT_MISLABEL_MODE must cite the measurement document');
+});
+
+// ── a dispute is prose about code ───────────────────────────────────────────
+//
+// The shared placeholder list bans `test`, `tmp`, `foo`, `bar` as whole words
+// anywhere in the reason. For an override justification that is right. For a
+// rebuttal it is a false block on ordinary repo vocabulary, and the author's way
+// out would be to reword until the validator relents.
+
+test('M1.5 — a dispute may name test scaffolding and bar.ts', function () {
+  [
+    'the reviewer pointed at test scaffolding in bar.ts, not the shipped module boundary',
+    'this finding concerns the foo helper only and never reaches the public surface here',
+    'the reviewer flagged a TODO comment that predates this milestone entirely and is unrelated',
+  ].forEach(function (r) {
+    assert.strictEqual(ic.isValidDisputeReason(r), true, 'must be accepted: ' + r);
+  });
+});
+
+test('M1.5 — but filler is still filler, and a shrug is still a shrug', function () {
+  [
+    'lorem ipsum dolor sit amet consectetur adipiscing elit sed do',
+    'asdf asdf asdf asdf asdf asdf asdf asdf asdf asdf asdf asdf',
+    'no', 'ok', 'yes',
+    'too short',
+  ].forEach(function (r) {
+    assert.strictEqual(ic.isValidDisputeReason(r), false, 'must be rejected: ' + r);
+  });
+});
+
+test('M1.5 — the override validator is NOT relaxed by the dispute carve-out', function () {
+  // The carve-out is opt-in per call. An audited override reason containing the
+  // same code vocabulary must still be refused, or widening the dispute path
+  // would have quietly widened every override surface with it.
+  const { validateReason } = require('../../receipt/lib/force-override-reason');
+  assert.strictEqual(
+    validateReason('the reviewer pointed at test scaffolding in bar.ts, not the boundary',
+      { strict: true }).ok,
+    false, 'override reasons keep the full placeholder list');
+  assert.strictEqual(
+    validateReason('proceeding under an audited override because the quota is exhausted today',
+      { strict: true }).ok,
+    true);
 });

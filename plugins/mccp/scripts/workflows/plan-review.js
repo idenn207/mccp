@@ -152,12 +152,23 @@ const fleetKeys = fleetKeysProvided ? input.fleetKeys : PERSPECTIVE_ORDER.slice(
 
 const fleet = CATALOG.filter(function (p) { return fleetKeys.indexOf(p.key) !== -1; });
 
-if (budget.total && budget.remaining() < minRemaining) {
-  log('[mccp:plan-review] budget-exhausted: remaining ' + budget.remaining()
+// M4 axis B — this branch could not fire before the payload carried
+// `minRemaining` (cli.js emit-workflow-args now emits it, capped by --granted).
+// `budget.total` unset still means "no target was set for this turn", so an
+// unmetered run is never gated: that is the pre-existing behaviour and it is
+// pinned by test.
+const budgetRemaining = budget.remaining();
+if (budget.total && budgetRemaining < minRemaining) {
+  log('[mccp:plan-review] budget-exhausted: remaining ' + budgetRemaining
     + ' < minRemaining ' + minRemaining + ' — panel not fired');
   return {
     skipped: true, reason: 'budget', coverage: 0, spent: budget.spent(),
     results: [], reviewedPlanHash: reviewedPlanHash,
+    // Carry the OBSERVED numbers out. Without them the caller sees only
+    // "results: []" and `decide` reports "L2 produced no readable result" — the
+    // same message a crashed panel produces. A stop the operator cannot name is
+    // a stop they will route around.
+    remaining: budgetRemaining, minRemaining: minRemaining,
   };
 }
 if (fleet.length === 0) {

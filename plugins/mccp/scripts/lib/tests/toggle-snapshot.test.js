@@ -4,6 +4,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const crypto = require('crypto');
 const toggleSnapshot = require('../../state/toggle-snapshot');
 
 // plugins/mccp/scripts/lib/tests -> five levels up is the repo root. Getting
@@ -58,34 +60,39 @@ test('toggle-snapshot: secret-name redaction', () => {
 });
 
 test('toggle-snapshot: writeSnapshot atomic tmp+rename', async () => {
-  const tmpDir = path.join(__dirname, '..', '..', '.test-toggle-snapshot');
-  if (fs.existsSync(tmpDir)) {
+  // gate-guard-integrity M3 (C1) — fixture는 저장소 트리 밖 `os.tmpdir()` 하위에
+  // 실행별 고유 경로로 잡는다. 이전에는 `<scripts>/.test-toggle-snapshot`이라는
+  // 저장소 안 고정 경로였고 `.gitignore` 밖이라, 전수를 동시에 여러 개 돌리면
+  // 같은 디렉토리에 써서 서로 간섭하고 실행 잔여물이 트리를 오염시켰다.
+  // sessionId도 파일명이 되므로 함께 고유화한다.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-toggle-snapshot-'));
+
+  // finally: 회수가 단언 성공에 의존하면 안 된다. 고정 경로 시절에는 다음 실행이
+  // 같은 자리를 지우고 시작해 누수가 1개로 묶였지만, mkdtemp는 실패할 때마다 새
+  // 디렉토리를 남긴다.
+  try {
+    const sessionId = crypto.randomUUID();
+    const snapshot = {
+      session_id: sessionId,
+      captured_at: new Date().toISOString(),
+      toggles: {
+        MCCP_STOP_LOOP: { is_set: true, value_type: 'string' },
+        MCCP_RECEIPT_GATE_MODE: { is_set: true, value_type: 'string' },
+      },
+    };
+
+    const result = toggleSnapshot.writeSnapshot(sessionId, snapshot, {
+      stateDir: tmpDir,
+    });
+
+    assert.strictEqual(result.ok, true, 'write should succeed');
+    assert.ok(fs.existsSync(result.path), 'file should exist');
+
+    const content = JSON.parse(fs.readFileSync(result.path, 'utf8'));
+    assert.deepStrictEqual(content.toggles, snapshot.toggles);
+  } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
-  fs.mkdirSync(tmpDir, { recursive: true });
-
-  const sessionId = '01234567-89ab-cdef-0123-456789abcdef';
-  const snapshot = {
-    session_id: sessionId,
-    captured_at: new Date().toISOString(),
-    toggles: {
-      MCCP_STOP_LOOP: { is_set: true, value_type: 'string' },
-      MCCP_RECEIPT_GATE_MODE: { is_set: true, value_type: 'string' },
-    },
-  };
-
-  const result = toggleSnapshot.writeSnapshot(sessionId, snapshot, {
-    stateDir: tmpDir,
-  });
-
-  assert.strictEqual(result.ok, true, 'write should succeed');
-  assert.ok(fs.existsSync(result.path), 'file should exist');
-
-  const content = JSON.parse(fs.readFileSync(result.path, 'utf8'));
-  assert.deepStrictEqual(content.toggles, snapshot.toggles);
-
-  // cleanup
-  fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
 test('toggle-snapshot: scanRuntimeSurface denominator approx', () => {

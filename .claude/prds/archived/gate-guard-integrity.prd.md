@@ -20,6 +20,8 @@ mccp는 결함을 사람이 아니라 기계가 잡도록 여러 겹의 가드�
 
 - **가드 2 — terminal 게이트의 staleness 미검출 (1건).** `pr.md:202`(preflight)와 `pr.md:856`(ship-gate read-back)이 validate 호출에 `--plan`을 넘기지 않는다. `validate-cmd.js:296`의 staleness 검사는 `--plan` 존재에 **조건부**다. 즉 `/mccp:pr`의 두 지점에서 plan이 게이트 이후 변경돼도 stale로 잡히지 않는다. 저장소 자체의 lint(`validate-callsite-lint`)가 이 계약을 명문화하고 있으며, 위반자는 **그 계약을 어긴 `pr.md` 자신**이다.
 
+  > **행 인용 각주 (M3/B4, 2026-08-16).** 위 `pr.md:202`·`:856`은 **이 Evidence를 측정한 시점(M1 착수 전)의 실측 위치**이며 그대로 둔다 — 과거 관측 기록을 사후에 덮어쓰지 않는다. 이후 M1·M3 수정이 행을 밀었으므로 **현재 위치는 다음과 같다**: preflight `:235`(`--plan "$PRECHECK_PLAN"` `:238`) · 2.5.8 chain-check `:899`(`--plan "$CHAIN_PLAN_PATH"` `:902`) · 2.5.9 ship-gate `:961`(`--plan "$SHIP_PLAN_PATH"` `:964`). 또한 이 Evidence가 "2곳"이라 적은 것은 그 시점의 관측으로는 옳았으나, **세 번째 callsite(2.5.8)가 리터럴 placeholder로 남아 있었다** — M3의 C6이 그것을 닫았고 `validate-callsite-lint`가 `pr.md` 한정 값 규칙으로 기계화했다.
+
 - **가드 3 — ship-gate 가드 테스트가 표준 설치에서 반전된다 (2건).** 테스트 헬퍼가 앰비언트 `MCCP_CODEX_DISABLED`를 중화하지 않는다. 이 변수가 켜져 있으면 write 경로가 skip 사유를 15자짜리 canonical 값으로 덮어써 길이 검증에 걸리고, 동시에 disabled 표식을 자동 stamp하는데 그 표식이 ship proof marker로 계산된다. 결과적으로 **증거 없는 skip이 증거를 얻어 통과**한다. 변수 하나만 제거하면 **26/26 통과**로 확인했다. 하필 이 변수는 CLAUDE.md §4상 `/mccp:setup` Phase 4가 **자동으로 써 두는 값**이라, 가드가 무력화되는 조건이 기본 설치 절차와 일치한다.
 
 - **본 결함들은 특정 브랜치의 산물이 아니다.** `origin/main`(7fe48d9)에서 새 worktree를 만들어 해당 테스트만 실행하면 `tests 7 / pass 3 / fail 4`로 가드 1·2가 그대로 재현된다.
@@ -69,7 +71,26 @@ We'll know we're right when **각 가드가 발화해야 하는 조건에서 실
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | 가드 복원 | hook이 자기 실패에도 사용자를 막지 않고, terminal 게이트가 plan 변경을 stale로 잡으며, ship-gate 가드가 표준 설치 환경에서도 증거 없는 skip을 막는다 | complete | `.claude/plans/gate-guard-integrity.plan.md` |
-| 2 | 신호 신뢰도 | 전수 실행 결과가 실행마다 동일해지고, 외부 의존 테스트가 도달 불가 시 정직하게 skip된다 | pending | — |
+| 2 | 신호 신뢰도 | 전수 실행 결과가 실행마다 동일해지고, 외부 의존 테스트가 도달 불가 시 정직하게 skip된다 | complete | `.claude/plans/gate-guard-integrity-m2.plan.md` |
+| 3 | 잔여 종료 | 이 PRD가 저장소에 남긴 잔여물이 남아 있지 않고, 그 작업이 드러낸 경계된 결함이 닫히며, 범위 밖으로 남는 축은 명시된 이관처를 갖는다 | complete | `.claude/plans/gate-guard-integrity-m3.plan.md` |
+
+### Milestone 2 완료 판정 (2026-08-14) — **잔여를 명시한 채 운영자 수용**
+
+v1.23.10으로 ship. **Outcome 문장의 전반부("전수 실행 결과가 실행마다 동일")는 달성되지 않았고, 그 사실을 지우지 않는다.** 여기서 `complete`는 지표 충족이 아니라 **운영자의 명시적 수용 판정**이며, 근거는 PRD Scope가 "테스트 병렬 실행 구조 재설계 — 비결정적 간섭의 근본 해소"를 **범위 밖**으로 못박고 "Milestone 2는 **재현 조건 확정까지만** 다룬다"고 규정한 것이다. 재현 조건 확정은 달성됐다 — 그 도구가 없었다면 아래 표의 오른쪽 열을 알 수조차 없었다.
+
+판정 근거는 이 milestone이 만든 harness의 통제된 비교다 — 같은 도구·같은 머신으로 수정 전(`3eabab2`)과 수정 후(`6c23b54`)를 각 10회 돌렸다.
+
+| | 수정 전 | 수정 후 | 판정 |
+|---|---|---|---|
+| `stable` | **true** (10/10 동일) | **false** (8/10) | 목표 미달 — 이 변경이 비결정성을 유입시켰다 |
+| `alwaysFailing` | `b2-coverage-gate` 2건 | **[]** | 축 C 해소 |
+| skip 사유 정직성 | 거짓(`non-JSON`) | 참(`env-policy`) | 축 B 해소 |
+
+닫힌 것: **축 B**(스모크 skip 사유) · **축 C**(`b2-coverage-gate` 상시 red 2건, 10회 전부 미발화). 축 A의 산출물(결정성 harness · 결합 제거 2종 · fail-open 계약 강제)도 전부 착지했고 각각 부정 케이스로 검증됐다 — 특히 3배 부하에서 **옛 `perf-budget` 절대 단언은 3/3 실패, 새 비율 단언은 3/3 통과**하면서 주입된 O(n²)는 여전히 기각한다.
+
+닫히지 않은 것: **"전수 실행 결과가 실행마다 동일"이라는 Outcome 문장 자체.** 유입된 비결정 2건(`receipt/tests/dedupe.test.js:123` · `derive/tests/worktrees-source.test.js:344`, 각 ≈10%/run)의 메커니즘은 세 차례 재현 시도(16× 동시 · 3배 부하 · 15× 순차)에도 확정하지 못했다. 추정으로 채우지 않고 아래 Open Question으로 승계한다.
+
+상세·재현 명령·출력 원문은 `.claude/PRPs/reports/gate-guard-integrity-m2-report.md`.
 
 ### Milestone 1 완료 판정 (2026-08-10)
 
@@ -83,10 +104,16 @@ v1.23.6으로 ship됨 — PR #121, merge commit `69fe06b`. 위 Success Metrics�
 
 ## Open Questions
 
-- [ ] 가드 1을 복원할 때 모듈 부재 시의 올바른 동작은 **ALLOW(fail-open)** 인가, 아니면 이웃 코드가 택한 **보수적 기본값으로 강등**인가? 두 선택은 "설치가 깨졌을 때 사용자를 막지 않는다"와 "검사 없이 통과시키지 않는다" 사이의 트레이드오프다. 테스트는 전자를 기대하지만 그 기대가 지금도 옳은지는 재확인이 필요하다.
-- [ ] 가드 3의 근본 해법이 **테스트가 환경을 중화**하는 것인가, 아니면 **write 경로가 명시 인자와 환경 정책을 구분**하는 것인가? 전자는 테스트만 고치고 끝나지만, 환경이 명시 인자를 덮는 혼선이 프로덕션에 그대로 남는다. 후자는 프로덕션 의미론을 건드리므로 영향 범위 판정이 선행돼야 한다.
-- [ ] 가드 2를 복원하면 지금까지 통과하던 흐름이 stale로 막히기 시작한다 — 이는 의도된 동작이지만, 기존 receipt 중 몇 건이 즉시 stale 판정되는지 사전 측정이 필요하다. 대량이면 이행 경로가 별도로 필요하다.
-- [ ] 비결정적 2건의 간섭 원인이 무엇인가? 전수 병렬에서만 재현되므로 재현 자체가 첫 과제다.
+- [x] 가드 1을 복원할 때 모듈 부재 시의 올바른 동작은 **ALLOW(fail-open)** 인가, 아니면 이웃 코드가 택한 **보수적 기본값으로 강등**인가? 두 선택은 "설치가 깨졌을 때 사용자를 막지 않는다"와 "검사 없이 통과시키지 않는다" 사이의 트레이드오프다. 테스트는 전자를 기대하지만 그 기대가 지금도 옳은지는 재확인이 필요하다.
+  → **판정: ALLOW, 단 loud** (M1, `.claude/plans/gate-guard-integrity.plan.md` `## Open Questions — 판정` OQ1). 근거는 `receipt-prompt.js:11-12`가 파일 자신의 불변식으로 적어 둔 *"a buggy gate is worse than no gate"*. 단서까지 함께 인용한다 — 이웃의 `catch → null` 패턴을 복제하면 `--plan` 전달이 **조용히** 사라져 가드 2의 실패 모드를 hook 안에 재생산하므로, 로드 실패는 null fallback이 아니라 기존 G1 경로(`g1Allow` / systemMessage + exit 0)로 라우팅한다.
+- [x] 가드 3의 근본 해법이 **테스트가 환경을 중화**하는 것인가, 아니면 **write 경로가 명시 인자와 환경 정책을 구분**하는 것인가? 전자는 테스트만 고치고 끝나지만, 환경이 명시 인자를 덮는 혼선이 프로덕션에 그대로 남는다. 후자는 프로덕션 의미론을 건드리므로 영향 범위 판정이 선행돼야 한다.
+  → **판정: 둘 다 아니다 — proof 집합의 축 오염을 제거한다** (M1, 같은 절 OQ2). 결함의 위치는 `plugins/mccp/scripts/lib/pr-ship-gate.js:55-60`이 ambient `meta.codex_disabled`를 ship proof로 승격시킨 것이고, `write.js`의 env-stamp은 **건드리지 않는다**(그것은 정직한 주석 축이다). 수정 A(proof 집합에서 제거)와 C(`finalize-receipt.js#deriveCodexFlags`의 `disabled` 분기가 `--codex-disabled-at-pr`를 forward)는 **단일 커밋 불변식** — A만 착지하면 운영자 ship 경로가 조용히 끊긴다. 계층 규칙: 관찰층(`codex-runner.js:234-238`)은 env 우선이 옳고, 기록층(`write.js`)이 caller 주장을 덮으면 안 된다.
+- [x] 가드 2를 복원하면 지금까지 통과하던 흐름이 stale로 막히기 시작한다 — 이는 의도된 동작이지만, 기존 receipt 중 몇 건이 즉시 stale 판정되는지 사전 측정이 필요하다. 대량이면 이행 경로가 별도로 필요하다.
+  → **판정: 기존 receipt 즉시 stale 0건 — 이행 경로 불필요** (M1, 같은 절 OQ3). `validate-cmd.js`의 `readReceipt(repoRoot, gateId, result.decisionId)`가 **현재 decision 1건만** 조회하므로 과거 ship receipt는 사정거리 밖이다(전 receipt 38건 중 13건이 이미 hash drift였으나 재검증 대상이 아니라는 것이 그 방증). plan 경로는 `markdownHashStructural`이라 체크박스·status 토큰 변동은 정규화된다. 함께 기록된 비대칭: 가드 2의 실질 복원 locus는 2.5.9이고 Phase 1.6은 스코핑 교정만 한다 — **그리고 2.5.8은 M3(C6)에서야 실변수가 됐다**.
+- [x] 비결정적 2건의 간섭 원인이 무엇인가? 전수 병렬에서만 재현되므로 재현 자체가 첫 과제다.
+  → **질문 자체가 반증됐다** (M2, 2026-08-14). 지목된 2건(`hook-caps:206`·`dedupe:306`)은 전수 4회 + harness 10회 + baseline 1회, **총 15회 관측에서 한 번도 발화하지 않았다**. flaky는 **고정 집합이 아니며**, "비결정적 2건"이라는 전제가 틀렸다. 재현 장치(`lib/suite-determinism.js`)는 만들어졌고 그것이 아래 신규 질문을 낳았다.
+- [ ] **M2가 유입시킨 비결정 2건의 메커니즘은 무엇인가?** (2026-08-14 신규) `receipt/tests/dedupe.test.js:123` `parsePlanFiles fails closed when table separator is missing` · `derive/tests/worktrees-source.test.js:344` `scanWorktrees: truncation retains the self worktree (anchor not dropped)`. 각 ≈10%/run. 통제된 10 vs 10 비교에서 **수정 전은 10/10 결정적**이었으므로 귀속은 M2다. 재현 시도 3종(16× 동시 · 3배 부하 · 15× 순차) **전부 실패** — 부하 단조 증가형이 아니다. 두 테스트의 본문 로직은 결정적이고 비결정의 소재는 git 하위 프로세스를 spawn하는 fixture 쪽으로 좁혀지지만, **실패 메시지를 포착하지 못했으므로 원인으로 지목하지 않는다**.
+- [ ] **부하 민감 테스트·고정 경로 fixture를 별도 milestone으로 다룰 것인가?** (2026-08-14 신규) 이번 진단이 드러낸 것: `lib/tests/msw-events.test.js:12-14`의 `getTempDir`가 **저장소 트리 안 고정 경로**(`plugins/mccp/scripts/.test-msw-events/`, `.gitignore` 밖)를 쓰고 `sessionId`도 고정이라 동시 실행 시 서로 충돌한다. 정상 단일 실행에서는 문제가 없으나, 이 클래스(고정 경로 fixture · git-heavy fixture · stress test)가 스위트의 비결정 표면이다. 현 PRD Scope는 "테스트 병렬 실행 구조 재설계"를 **범위 밖**으로 명시하므로 이 축은 M2에서 닫을 수 없다.
 
 ## Risks
 

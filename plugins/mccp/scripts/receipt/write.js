@@ -123,6 +123,25 @@ const INTENT_IN_SCOPE_GATES = ['mccp-plan-codex'];
 // forgery this milestone exists to prevent. parseFlags can only ever produce
 // strings, `true`, or arrays, so requiring a non-null plain OBJECT closes the
 // CLI path structurally rather than by convention.
+// M1.5 — the two direct-write exits below stamp the M1 axis and return without
+// ever reaching the runner, so they have to null the mislabel axis explicitly.
+// Leaving the keys off instead would break the contract the schema states —
+// "absent means this receipt predates the field" — because a receipt written
+// today would also be missing them, and nobody reading it later could tell the
+// two apart.
+//
+// null, not the configured mode: on these paths no reviewer ran and no claim was
+// ever parsed, so there is no mode that this gate executed under. Recording one
+// would assert an execution that did not happen.
+function nullMislabelAxis(meta) {
+  meta.intent_mislabel_mode = null;
+  meta.intent_reviewer_contract = null;
+  meta.intent_claim_counts = null;
+  meta.intent_claims_digest = null;
+  meta.intent_mislabel_disputes = null;
+  meta.intent_mislabel_audit = null;
+}
+
 function stampIntentDecision(receipt, args, gateId, planText) {
   const inScope = INTENT_IN_SCOPE_GATES.indexOf(gateId) !== -1;
   const d = args.intentDecision;
@@ -164,6 +183,7 @@ function stampIntentDecision(receipt, args, gateId, planText) {
       m1.intent_adjudication_counts = null;
       m1.intent_gate_force_override = false;
       m1.intent_gate_force_override_reason = null;
+      nullMislabelAxis(m1);
       return;
     }
 
@@ -202,6 +222,7 @@ function stampIntentDecision(receipt, args, gateId, planText) {
       mp.intent_adjudication_counts = null;
       mp.intent_gate_force_override = false;
       mp.intent_gate_force_override_reason = null;
+      nullMislabelAxis(mp);
       return;
     }
 
@@ -230,6 +251,7 @@ function stampIntentDecision(receipt, args, gateId, planText) {
       m0.intent_adjudication_counts = null;
       m0.intent_gate_force_override = true;
       m0.intent_gate_force_override_reason = overrideReason;
+      nullMislabelAxis(m0);
       process.stderr.write('[mccp:intent-gate] audited override active — receipt seals ' +
         'intent_gate_verdict=incomplete (dedupe stays fail-closed)\n');
       return;
@@ -274,6 +296,30 @@ function stampIntentDecision(receipt, args, gateId, planText) {
   m.intent_gate_force_override_reason =
     (typeof d.force_override_reason === 'string' && d.force_override_reason.length > 0)
       ? d.force_override_reason : null;
+
+  // M1.5 — the mislabel axis. Six present-only fields, stamped from the same
+  // programmatic-only object (there is still no `--intent-*` CLI flag, which is
+  // what keeps a shell caller from minting an approving verdict).
+  //
+  // `mode` is sealed even when the axis produced nothing, because "which path
+  // actually ran" must stay readable after the fact. The rest stay null under
+  // `off`, which reads the same as a direct-write receipt: "no mislabel
+  // judgement was made". What null must NOT be confused with is ABSENCE — every
+  // current in-scope path writes all six keys (the two early exits do it via
+  // nullMislabelAxis), so a missing key is left to mean exactly one thing, which
+  // is what the schema's present-only contract says it means.
+  m.intent_mislabel_mode =
+    (typeof d.mislabel_mode === 'string') ? d.mislabel_mode : null;
+  m.intent_reviewer_contract =
+    (typeof d.reviewer_contract === 'string') ? d.reviewer_contract : null;
+  m.intent_claim_counts =
+    (d.claim_counts && typeof d.claim_counts === 'object' && !Array.isArray(d.claim_counts))
+      ? d.claim_counts : null;
+  m.intent_claims_digest =
+    (typeof d.claims_digest === 'string') ? d.claims_digest : null;
+  m.intent_mislabel_disputes =
+    Number.isInteger(d.mislabel_disputes) ? d.mislabel_disputes : null;
+  m.intent_mislabel_audit = Array.isArray(d.mislabel_audit) ? d.mislabel_audit : null;
 
   // DD6 — the override unblocks the RUN, never the record. The receipt seals
   // the real verdict so cross-gate dedupe stays fail-closed downstream.
@@ -701,6 +747,25 @@ function buildReceipt(args) {
   if (args['review-wall-clock-ms'] !== undefined && args['review-wall-clock-ms'] !== null) {
     const ms = parseInt(args['review-wall-clock-ms'], 10);
     if (Number.isInteger(ms) && ms >= 0) receipt.meta.review_wall_clock_ms = ms;
+  }
+
+  // santa-loop-materialize M2 (DD4) — santa 원장 집계 4종의 조건부 재료화.
+  // 값이 있을 때만 `receipt.meta.X = …`이므로 --santa-* 미전달 receipt는 키 자체를
+  // 갖지 않고 canonical hash 입력이 무변동이다(makeSkeleton 미등록과 한 쌍).
+  // 바로 위 review_l3_invoked 블록이 따라할 선례이고, merged_verify_* 는 아니다.
+  const SANTA_INT_FIELDS = [
+    ['santa-rounds', 'santa_rounds', 0],
+    ['santa-entries', 'santa_entries', 0],
+    ['santa-cap', 'santa_cap', 1],
+  ];
+  SANTA_INT_FIELDS.forEach(function (spec) {
+    const raw = args[spec[0]];
+    if (raw === undefined || raw === null || raw === true) return;
+    const n = parseInt(raw, 10);
+    if (Number.isInteger(n) && n >= spec[2]) receipt.meta[spec[1]] = n;
+  });
+  if (typeof args['santa-exit-reason'] === 'string' && args['santa-exit-reason'].length > 0) {
+    receipt.meta.santa_exit_reason = args['santa-exit-reason'];
   }
 
   if (args['pr-codex-force-override'] === true) {

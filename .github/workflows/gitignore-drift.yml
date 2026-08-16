@@ -1,0 +1,66 @@
+name: gitignore canonical drift gate
+
+# DD3 enforcement point. Goes red when MCCP_IGNORE_BLOCK (the canonical list
+# shipped to every target repo) and this repo's own .gitignore disagree.
+#
+# The paths filter is exactly the lint's decision inputs. Drift can only arise
+# when the canonical list or .gitignore changes, so those two — plus setup.md,
+# which the contract lint reads, plus .gitattributes, whose `eol=lf` pin the
+# suite asserts, plus the test file itself — are necessary and sufficient as
+# triggers. GitHub skips a workflow entirely when no path matches, so a filter
+# that misses an input turns the whole gate into dead code: a PR touching only
+# .gitattributes would have retired the LF guarantee without ever running it.
+# plugin.json is read by the tests but is deliberately NOT a trigger: both the
+# block builder and the assertion derive the version from that one file, so it
+# cannot disagree with itself.
+#
+# This is a dedicated file rather than a step bolted onto
+# axis-k-m2-cross-platform.yml, for two reasons: that workflow's matrix is
+# [ubuntu, macos] by explicit design, and this gate's write/lock/symlink paths
+# are the ones most likely to behave differently on Windows (8.3 short paths,
+# absent POSIX modes, unprivileged symlink creation); and it is the public audit
+# record for a different axis, so mixing triggers would let this gate disappear
+# silently when that one retires.
+#
+# Scope note: this workflow guarantees the lint RUNS and goes red on drift.
+# Making that red block a merge is a repository setting (branch protection /
+# ruleset) and cannot be expressed in a repo file — see ROLLOUT-1 in
+# .claude/PRPs/plans/archived/setup-gitignore-m1.plan.md (archived on PRD close).
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugins/mccp/scripts/lib/gitignore-provision.js'
+      - 'plugins/mccp/scripts/lib/tests/gitignore-provision.test.js'
+      - 'plugins/mccp/commands/setup.md'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.github/workflows/gitignore-drift.yml'
+  workflow_dispatch:
+
+jobs:
+  drift:
+    name: ${{ matrix.os }} — canonical drift + platform parity
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # Checked-out bytes are LF on every runner because the repo's
+      # .gitattributes pins `* text=auto eol=lf`, and an explicit eol attribute
+      # overrides core.autocrlf. There is deliberately no `git config
+      # core.autocrlf` step here: it would have to run BEFORE checkout to affect
+      # anything, and even then .gitattributes would win — a step that reads as a
+      # guarantee while changing nothing is worse than its absence.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run gitignore-provision tests (canonical drift gate)
+        run: node --test plugins/mccp/scripts/lib/tests/gitignore-provision.test.js

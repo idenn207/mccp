@@ -40,6 +40,12 @@ build/
 # (orchestration-runaway.js). Same class as loop-counter.json above; its .lock
 # sibling is caught by the *.lock glob but the .json body needs its own entry.
 .claude/state/orchestration-runaway.json
+# santa-loop-materialize M1 — 라운드 원장 본문 (santa/ledger.js). UI9: 본문은
+# gitignored로 두고 집계값만 receipt에 봉인한다(봉인은 M2 소유). 라운드마다의
+# diff 노이즈 없이 계측 분모는 살아 있다. loop-counter.json ·
+# orchestration-runaway.json과 같은 축이며, 디렉토리 단위 항목이라 형제
+# `<slug>.json.lock` · `<slug>.json.<pid>.<rand>.tmp`도 함께 덮는다.
+.claude/state/santa-loop/
 .claude/state/*.lock
 # dashboard-truthfulness M1 — completion-ledger entries ARE git-tracked, but the
 # per-entry write lock + atomic tmp are local-only ephemera. The single-level
@@ -66,13 +72,20 @@ build/
 # (Task 1's first edit) so there is no window in which a record lands tracked.
 # Rollback: `rm -rf .claude/state/session-processes/`.
 .claude/state/session-processes/
-# State-journal append log + its replay checkpoint (state-journal/, journal-store.js).
-# Per-session runtime telemetry, not source: `origin/main` does not track it either.
-# It is appended to continuously while a session runs, which also made every
-# `/mccp:pr` PR-phase mutations finalizer report it as
-# `content-changed-during-subphase` — a review-only invariant "breach" that no
-# edit caused. The detector reads `git status --porcelain`, so ignoring the churn
-# at the source is the honest fix rather than widening the guard.
+# multi-session-work-loop M5 — state truth-source journal (append-only records +
+# rotated segments + checkpoint + degraded marker).
+#
+# Working-tree only, deliberately (명시 잔여 1). STATE.md stays git-tracked so a
+# worktree reset or a pair handoff keeps its context (§3.2), and a fresh clone
+# bootstraps the journal FROM that STATE.md as a genesis checkpoint. Committing
+# the journal instead would make a per-session-append JSONL a conflict surface in
+# every PR — the same judgement §3.12 made when it tracked only ship receipts.
+# The cost is stated, not hidden: what crosses a clone boundary is still a summary.
+#
+# Ignoring it also stops `/mccp:pr`'s PR-phase mutations finalizer from reporting
+# `content-changed-during-subphase` on every run: the log is appended to while a
+# session runs and the detector reads `git status --porcelain`, so it was flagging
+# a review-only invariant "breach" that no edit caused.
 .claude/state/journal/
 # Codex stop-loop bridge scratch input — local-only.
 .claude/state/codex-stop-loop-input.txt
@@ -155,3 +168,18 @@ ECC/
 .claude/state/msw-events/
 .claude/state/*.env-snapshot.json
 .claude/state/*.handoff-items.json
+
+# setup-gitignore M1 — gitignore-provision.js 자신의 부산물. advisory lock 과
+# atomic tmp 는 정상 종료 시 사라지지만 크래시하면 남고, `--force-update` 의
+# `.bak` 은 설계상 존속하며 실행 직전 파일의 축자 사본이다. 런타임 산출물을
+# git 밖에 두는 것이 목적인 도구가 자기 산출물만 예외로 둘 수는 없다.
+.gitignore.lock
+.gitignore.bak
+.gitignore.*.tmp
+
+# gate-guard-integrity M3 (C1) — 저장소 트리 안 test fixture 재발 안전망.
+# msw-events.test.js / toggle-snapshot.test.js 의 fixture 는 os.tmpdir() 로
+# 이전했으므로 이 패턴은 평시에 아무것도 잡지 않는다. 목적은 같은 형태가 다시
+# 유입될 때 커밋 오염을 막는 것 — 이전 고정 경로 2곳은 .gitignore 밖이라
+# 실행 잔여물이 트리에 남았고 동시 실행 시 서로 간섭했다.
+plugins/mccp/scripts/.test-*/

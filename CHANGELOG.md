@@ -2,8 +2,71 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.25.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.26.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.26.0] — 2026-08-14
+
+**santa-loop-materialize M2 — receipt 편입 + 소유권 표 (PRD 전 milestone 종료 → minor bump, 1.25.2 → 1.26.0)** — M1이 원장에 기록만 하던 라운드·집계를 **receipt에 봉인**한다. 새 produces-only GATE_ID `mccp-santa-review`(phase=`review`)가 신설되고, `/mccp:santa-loop`이 종료할 때 `seal`이 집계 리포트를 렌더해 그것을 subject로 receipt를 쓴다. M1까지 santa-loop은 자기가 무엇을 했는지 receipt chain에 한 줄도 남기지 않았다.
+
+**봉인은 두 종료 경로 모두에서 일어난다.** NICE 경로는 새 Step 5.5(push **이전**)에서, 캡 도달 경로는 `begin-round`가 exit 12로 거부하는 분기 안에서 봉인한다. 후자는 Step 5.5·Step 6에 애초에 도달하지 않으므로, 그 분기를 산문에서 **실행 가능한 bash 블록으로 전환**하고 `exit "$BEGIN_EXIT"`를 마지막 문장으로 못박았다. 75(lock 경합)·2(사용 오류)는 종료가 아니라 실패이므로 봉인하지 않는다.
+
+**dual-review는 우회되지 않는다.** santa receipt는 `resolution.review_source='multi-agent'`를 **schema가 gate_id 기준으로 강제**하고(`codex`·`hybrid`·부재 전부 REJECT), `multi-agent`는 `CROSS_MODEL_SOURCES` 밖이라 `isCrossModelCorroborated`가 언제나 false다 — 즉 santa 승인 두 건으로 `/mccp:pr`의 PR-Codex를 skip시킬 수 없다. 이 gate_id 기준 `resolution` 제약은 이 repo에 처음 생기는 형태이고, 검사가 `if (reviewPresent.length > 0)` 가드 **바깥**에 놓여야 review triple이 통째로 없는 receipt도 거부된다.
+
+**리뷰어 본문은 리포트로 새지 않는다.** `.claude/reviews/`는 git-tracked이므로 `seal`이 먼저 투영해 `raw`(`checks`·`suggestions` 전문)를 경계에서 소거하고, `renderReport`는 그것을 실을 인자를 갖지 않는다. canary 문자열 test가 그 경계를 고정한다.
+
+### Added
+
+- `plugins/mccp/scripts/lib/santa/seal.js` — 집계 → 결정적 리포트 렌더 → review proof 구성 → receipt write. 순수 함수 3(`project`/`renderReport`/`buildProof`) + I/O 1. 원장 mutation 0.
+- `mccp-santa-review` GATE_ID + `PHASE_FROM_GATE['mccp-santa-review']='review'`. `ALIAS_MATRIX`는 무변경이라 어떤 command preflight·cross-gate dedupe·PR chain에도 진입하지 않는다.
+- `meta.santa_rounds` / `santa_entries` / `santa_cap` / `santa_exit_reason` — 전부 present-only이며 `makeSkeleton` 미등록이라 미행사 receipt의 canonical hash가 무변동이다.
+- `santa cli seal` subcommand. 신규 exit code 0개 — 기존 catch-all이 `SANTA_*`를 2로, lock 경합을 75로 매핑한다.
+- `docs/santa-loop/ownership.md` — P1·P2·P3 소유 파일 9개(교집합 ∅) + M1 동결 시그니처 + 변경 프로토콜. 공유 표면(`santa-loop.md`·`cli.js`)은 누구에게도 배정하지 않고 조정 대상으로 분리했다.
+- 회귀 test 2파일 17항목 — `santa-review-gate.test.js`(1~7) · `santa-seal.test.js`(8~17). test 이름의 `[N]` 규약을 커버리지 감사가 기계 대조한다.
+
+### Changed
+
+- `ledger.js`에 순수 파생 2종 추가(`reviewersFrom` · `aggregateFrom`). 기존 `readReviewers`/`aggregate`가 이들에 **위임**하므로 시그니처·동작 무변경이다. 봉인이 원장을 **한 번만** 읽게 하려는 것 — 라운드별 재읽기는 lock 없는 N+2회 읽기라 그 사이 mutation이 끼면 동시에 존재한 적 없는 상태가 영구 봉인된다(Implement-Codex R1 F1).
+- `seal`은 `aggregateFrom`에 `state.cap`을 **명시 전달**한다. `aggregate`의 env 폴백을 타면 라운드를 실제로 게이트한 cap이 아니라 봉인 시점 env가 `santa_cap`에 실려 receipt가 원장을 오기한다.
+- 원장 state에 `terminated` 마커 추가(additive, `schema_version` 1 유지). `beginRound`가 거부될 때 `{reason, at, rounds}`로 채워지고, 이미 같은 사유·같은 라운드 수로 종료된 원장은 재기록하지 않는다 — `at`이 호출마다 밀리면 **최초 거부 시각**이라는 감사값이 사라진다. `rounds`는 관측 시점의 라운드 수로, 마커를 **그 상태에 결속**한다.
+- `parseState`가 `terminated`도 `rounds`/`entries`와 같은 계층에서 검증한다(`null` 또는 `{reason:'cap_reached', at:<ISO>, rounds:<int>}`). 검증이 없으면 손상된 마커가 receipt write까지 흘러가 `SCHEMA_INVALID`로 터지고, 운영자가 받는 진단이 원장 손상이 아니라 receipt를 가리킨다.
+
+### Fixed
+
+- **마지막 허용 라운드의 수렴이 divergent로 오봉인되고 그대로 push되던 결함**(PR-Codex F1, HIGH). `aggregateFrom`이 `rounds.length >= cap` **산술**로 종료를 되짚었는데, 그 술어는 캡 *도달*(마지막 허용 라운드가 열림)과 다음 `begin-round`의 *거부*를 구분하지 못한다. 그래서 캡을 정확히 채운 라운드가 NICE로 수렴해도 `exitReason='cap_reached'`가 서고 `seal.js`가 이를 무조건 `divergent`로 굳혔다. 이제 `exitReason`은 거부 시점에 기록된 `state.terminated` 마커에서만 나온다 — 마커 부재는 "거부가 관측된 적 없음"이며 그것이 legacy 원장의 정직한 읽기다. 완화로 구멍이 생기지 않는 이유: 진짜 캡 소진은 반드시 non-NICE 최종 라운드로 끝나므로 `deriveVerdict`의 `fin.verdict !== 'NICE'` 절이 이미 잡는다.
+- **`santa-loop.md` Step 5.5가 `SEAL_EXIT`만 보고 sealed verdict를 보지 않던 결함**(같은 F1의 세 번째 축). 봉인은 exit 0으로 성공하면서 `divergent`를 기록할 수 있으므로, 종료 코드에만 분기하면 "수렴하지 않았다"고 적힌 receipt 위에서 push가 일어난다. `$SEAL_JSON.verdict != converged`면 `exit 1`로 push를 막는 분기를 추가했고, 그 분기의 존재를 `santa-loop-cap.test.js`가 slice 단위로 강제한다(plan Validation 2c는 `SEAL_EXIT` 분기 **수**만 세므로 이 축을 보지 않는다).
+- **거부 마커가 판정을 영구 낙인으로 만들던 결함**(code-review H1, HIGH — F1 교정이 도입한 것을 같은 사이클에서 닫는다). 마커는 "거부가 관측됐다"는 사실인데 판정이 필요로 하는 것은 "루프가 수렴 없이 끝났는가"이고, 둘은 갈린다. ① **이미 수렴해 봉인된 slug에 `/mccp:santa-loop`를 재진입**하면 Step 3의 정상 캡 거부가 마커를 써서, 재봉인이 converged receipt를 divergent로 **덮어썼다**. ② 캡을 상향해(`MCCP_SANTA_ROUND_CAP` 1..10, 문서화된 운영 경로) 루프를 재개하면 그 뒤의 수렴까지 종료로 읽혔다. 셋을 함께 닫았다 — `deriveVerdict`는 마커를 **입력으로 받지 않고**(라운드에서만 판정), `beginRound`는 라운드를 열 때 마커를 **지우며**, `aggregateFrom`은 현재 라운드 수에 **결속된** 마커만 종료로 읽는다. 마커의 몫은 판정이 아니라 "왜 끝났는지"이고 그 투영(`수렴 = 캡이 끝낸 것이 아니다`)은 `seal()`이 한다. 구멍이 생기지 않는 근거는 F1과 같다: 진짜 캡 소진은 반드시 non-NICE 최종 라운드로 끝난다(NICE는 루프의 종료 조건이고, 거부는 항상 FINAL 라운드 뒤에만 온다).
+- **거부가 원장의 `cap`을 env 값으로 덮어쓰던 결함**(code-review M1, MEDIUM). 마커 도입으로 거부 분기가 write를 하게 되면서, 다른 세션이 더 낮은 `MCCP_SANTA_ROUND_CAP`으로 진입해 거부만 받아도 원장의 cap이 그 값으로 바뀌고 봉인이 `santa_cap`에 **라운드를 게이트한 적 없는 값**을 실었다 — `seal.js` 머리말이 막는다고 적은 오기 그 자체다. `state.cap` 갱신을 허용 분기로 옮겼다(거부는 항상 라운드 1건 이상 뒤에 오므로 그 시점 cap은 이미 기록돼 있다).
+- 회귀 test 8항목 추가 — `[18]`(마지막 허용 라운드 NICE가 converged를 낸다, 옛 산술 파생에서 실패함을 실증) · `[19]`(수렴 후 재진입 거부가 봉인을 강등하지 않는다) · `[20]`(결속되지 않은 마커는 종료로 읽지 않는다) + 종료 마커 5건(거부가 결속된 마커를 기록한다 · 재거부 멱등 · 라운드 재개 시 clear · 거부가 cap을 안 덮는다 · 손상 마커는 원장 계층에서 잡힌다). 기존 `[15]`는 fixture가 거부를 **명시**하도록, `[16]`은 종료가 라운드 수·env 어느 쪽으로도 만들어지지 않음을 단언하도록 갱신했다.
+- **M1이 `.gitignore`에 추가한 `.claude/state/santa-loop/`가 canonical drift lint에 미분류로 남아 CI를 red로 만들던 결함**(PR #139 CI 실측). `gitignore-provision.js`의 drift lint는 저장소 `.gitignore`의 모든 항목이 `MCCP_IGNORE_BLOCK`(대상 저장소로 배송되는 정본) 또는 `REPO_ONLY` 중 하나로 분류될 것을 요구하는데 M1이 어느 쪽에도 넣지 않았다. **canonical로 분류했다** — santa 원장은 `/mccp:santa-loop`이 도는 **모든** 설치 저장소에서 decision slug마다 한 파일씩 자라는 per-session 런타임 상태이고(`plan-review/`·`session-ledgers/`와 같은 범주), 원장은 증거가 아니라 라운드 카운터의 작업 상태다(배송된 것은 receipt가 봉인한다). `REPO_ONLY`로 뒀다면 대상 저장소가 첫 사용에서 원장을 커밋하게 된다.
+- **pre-push history-leak gate가 자기 자신에 대한 버그 리포트를 유출로 오탐해 정당한 push를 막던 결함.** `history-leak-scan.js`의 `DEFAULT_ALLOWLIST`에 `.claude/plans/codex-findings-backlog.md` 항목을 추가했다. 그 파일의 한 줄이 이 스캐너의 URL-scheme 오탐을 **보고하면서 증거로** 드라이브 문자 경로 클래스와 문제의 매치 문자열을 축자 인용하는데, 스캐너가 그 인용을 잡는다. 탐지기에 대한 버그 리포트는 탐지기가 무엇을 매치하는지 이름을 부를 수 있어야 하며, 이는 바로 위 fixture 항목이 존재하는 이유와 같은 범주다(fixture는 게이트가 잡는다는 것을 증명하려고 리터럴을 embed해야 한다). **marker는 old-repo 이름이 아니라 그 줄에만 있는 인용(`history-leak-scan.js:90`)으로 잡았다** — 이름으로 키를 잡으면 그것을 언급하는 미래의 모든 backlog 줄이 면제되고, 이 파일은 임의의 finding이 누적되는 곳이라 통째로 사각지대가 된다. 그 줄이 재작성되면 면제가 소멸해 게이트가 다시 발화한다(allowlist가 실패해야 할 방향). 회귀 test 1건 — 인용이 있는 줄은 억제되고 인용 없이 같은 이름을 담은 뒷줄은 **여전히 잡힌다**를 함께 단언한다. 오탐 자체(URL scheme)는 이미 lookbehind로 닫혀 있었고(실측: 진짜 `https://…` URL은 매치되지 않는다), 남아 있던 것은 리포트의 인용문뿐이다.
+- `plugin.json` · `renderer/html.js` page-foot · `renderer/markdown.js` derived 줄 · 상단 note의 `currently` — `1.26.0` 동기. **버전은 §3.7 forward-only 상향으로 두 항목 모두 올렸고, 그 상향을 두 번 했다**(8·9번째 재발) — 이 브랜치는 M1에 `1.23.8`, M2에 `1.23.9`를 선언했으나 그 사이 main이 `1.23.8`(diverse-agent-review M4)을 발행하고 `1.25.0`까지 나아가 M1을 `1.25.1`, M2를 `1.26.0`으로 밀었다. 그 뒤 PR을 올리기 전에 main이 **같은 `1.25.1`을 diverse-agent-review M6**(PR #138)에 발행해 M1이 다시 중복이 됐고, 발행된 번호는 불가침이므로 미머지 항목인 M1만 한 칸 더 밀어 `1.25.2`가 됐다. M2는 **PRD 전 milestone 종료**라 minor 축이고 `1.26.0`이 여전히 main 최대치(`1.25.1`)보다 앞서므로 무변경이다. 날짜는 작성 시점 그대로 두었다 — version 순서가 정본이다.
+
+## [1.25.2] — 2026-08-13
+
+**santa-loop-materialize M1 — 모듈 골격 + 캡 강제 (단일 milestone → patch bump, 1.25.1 → 1.25.2)** — `/mccp:santa-loop`의 결정 로직을 산문에서 코드로 내린다. 이전까지 이 명령은 **백킹 코드가 0**이었다: 라운드 수는 아무도 세지 않았고 캡("Maximum 3 iterations")은 산문 한 줄이 유일한 근거였다. 이제 라운드는 gitignored 원장에 기록되고 캡은 `begin-round`가 **리뷰어 발화 직전**에 판정해 exit 12로 거부한다.
+
+**판정 규칙의 내용은 바꾸지 않는다**(동작 보존). `gate.js`는 현 산문 표(둘 다 PASS → NICE · 하나라도 FAIL → NAUGHTY)를 1:1로 옮겼고, envelope 0건 → NAUGHTY 경로도 CLI 경유로 **도달 가능한 채** 남겼다. severity 축·종료 조건·판정 lifecycle은 전부 P1 소유다.
+
+**강제 등급을 정직하게 적는다.** 캡은 지시가 아니라 **기록 경계**에서 구속된다 — `record`·`verdict`가 **`begin-round`가 연 적 없는 인덱스**를 거부하므로(exit 2), 거부를 무시하고 리뷰어를 띄워도 그 출력은 원장에 들어가지 못하고 verdict도 나오지 않는다. 이 축은 CLI test로 관측 가능하다. **막지 못하는 것은 둘이다.** (1) 캡 초과 라운드의 리뷰어가 실제로 발화해 토큰을 소모하는 것 — 리뷰어 기동은 LLM 행위라 셸로 추출할 대상이 없다. (2) **마지막(이미 FINAL) 라운드 인덱스를 재사용**하는 경로 — `record --round <cap-1>`은 여전히 통과한다. `record`를 `OPEN` 라운드로 한정하는 규칙은 판정 lifecycle이라 P1 소유로 이연했고(아래 "의도적으로 열어 둔 구멍"과 같은 축), 그 결과 캡은 **인덱스 경계**에서 구속되지 실행 횟수 전체를 봉인하지는 않는다. M1은 둘 중 어느 것도 막았다고 주장하지 않는다.
+
+**PRD 1순위 지표의 절반은 미달이다.** "라운드 수가 상태 파일에 기록되고 **receipt에 봉인**"에서 앞 절반만 낸다 — 봉인은 `mccp-santa-review` GATE_ID를 신설하는 M2 소유다. 이 미달은 PRD M1 행과 구현 보고서에 그대로 적혀 있다.
+
+**의도적으로 열어 둔 구멍이 하나 있다.** `record --id A`를 두 번 넣으면 A envelope가 2개 쌓이고 둘 다 PASS면 NICE가 나온다 — 리뷰어 하나로 dual-review가 우회 가능하다. 초안은 이것을 라운드 상태 기계로 닫았으나, 봉인 패스 Codex F0이 그 규칙들이 사용자 제약(판정 내용은 P1 소유) 위반임을 지적해 되돌렸다. 현재 M1은 receipt를 발행하지 않아 이 verdict가 어떤 게이트도 통과시키지 않으며, P1이 이 자리를 채우기 전까지 M1 산출물을 실운용에 쓰지 않는 것이 전제다. backlog HIGH + P1 1순위로 등재돼 있다.
+
+### Added
+- `plugins/mccp/scripts/lib/santa/counter.js` — 순수 캡 oracle. `parseCap`(`MCCP_SANTA_ROUND_CAP`, default 3, 허용 1..10, 불량값은 loud fail-open) + `decideRound({roundsSoFar, cap})`. 디스크 미접촉. 거부 시 `roundIndex`를 `null`로 돌려 호출자가 그 값으로 `record`를 시도할 수 없게 한다.
+- `plugins/mccp/scripts/lib/santa/ledger.js` — 라운드 수의 **단일 출처**. 상태 파일 `.claude/state/santa-loop/<decision-slug>.json`(gitignored · `0o600`). mutation 3종은 `receipt/evidence-lock.js#guardedReadModifyWrite`로 감싸 read까지 임계구역 안에 둔다(밖에 두면 lost update가 닫히지 않고, 라운드가 **적게** 세어져 캡이 fail-open된다). `beginRound`는 **멱등** — 마지막 라운드가 OPEN이면 append 없이 그 index를 반환한다(재시도·중복 호출·동시 호출이 리뷰 없이 캡을 태우는 것을 막는다). 손상 JSON·`schema_version` 불일치는 **throw**이지 빈 상태 폴백이 아니다(폴백하면 손상 파일 하나가 캡을 0으로 리셋해 루프가 무제한이 된다).
+- `plugins/mccp/scripts/lib/santa/gate.js` — verdict 판정. 순수 함수 + frozen interface 주석. `round`/`cap`은 받되 P0에서는 쓰지 않는다(P1의 종료 조건 자리를 미리 동결해 시그니처 변경 비용을 없앤다).
+- `plugins/mccp/scripts/lib/santa/cli.js` — subcommand 5종(`resolve-decision`·`begin-round`·`record`·`verdict`·`status`). exit code를 **예외까지 전량 매핑**한다: 0 / 12 `cap_reached` 전용 / 75 `EVIDENCE_LOCK_UNAVAILABLE`(일시적 경합 — 2로 뭉뚱그리면 산문이 영구 실패로 오독한다) / 2 그 외 + catch-all. CLI JSON stdout은 전부 camelCase.
+- `plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js` · `santa-gate.test.js` — 54 test(Windows에서 POSIX mode·symlink 3건 skip). 거의 전부 CLI 또는 실제 자식 프로세스를 지난다(순수 oracle만 보면 배선 결함을 놓친다는 이 repo의 실측 교훈).
+
+### Changed
+- `plugins/mccp/commands/santa-loop.md` — thin caller로 축약. Step 0의 3분기 판정 → `resolve-decision` 1회(산문에는 `warning` 출력만 잔류), Step 3 진입점에 `begin-round`, 리뷰어 응답 → `record`, Step 4 → `verdict`. **rubric 표는 무변경** — 산문이 적합한 영역이다. `## Output`은 한 줄 바꿨다(`Iterations: [N]/3` → `[N]/[cap]`): 캡이 `MCCP_SANTA_ROUND_CAP`으로 설정 가능해진 이상 리터럴 `3`은 cap=1로 돌려도 `/3`을 인쇄해 **출력이 거짓을 보고**한다. Notes에는 강제 등급과 slug 스코프 2줄을 더했다. 리뷰어 프롬프트와 출력 JSON 계약도 무변경이며, `id`/`model` 부여와 `critical_issues` → `criticalIssues` 변환은 CLI가 흡수한다.
+- `plugins/mccp/scripts/receipt/decision.js` — `BRANCH_PREFIX_RE` export **1줄만** 추가(`SLUG_RE`는 이미 export돼 있었다). `BRANCH_BASED_COMMANDS`는 **무변경**이고 test가 그것을 단언한다 — santa를 그 Set에 넣으면 `/mccp:pr` 전용 `lastImplementReceiptSlug` fallback이 딸려 와, receipt를 발행하지 않는 santa에서는 `receiptExistsForSlug`가 항상 false라 원장이 **다른 decision의 slug** 아래로 들어간다.
+- `.gitignore` · `docs/ENVIRONMENT.md` §11 — 원장 디렉토리 무시, `MCCP_SANTA_ROUND_CAP` 등재.
+
+### Fixed
+- `santa/ledger.js#canonicalPath` — 구현 중 실측한 이식성 결함. Windows에서 `git rev-parse --show-toplevel`은 긴 경로를 돌려주는데 호출자 경로는 8.3 단축명일 수 있고 **`fs.realpathSync`는 단축명을 확장하지 않아**, 같은 디렉토리가 두 철자를 갖고 `assertContained`의 prefix 비교가 실패한다 — **정상 호출이 traversal로 오판**됐다. `fs.realpathSync.native`로 양쪽을 정규화해 해소하고 회귀 test를 붙였다. 공유 모듈 `path-containment.js`는 손대지 않았다(pr-phase-lock·quarantine migration과 공유하는 표면).
 ## [1.25.1] — 2026-08-14
 
 **diverse-agent-review M6 — 설치된 런타임에서 패널 실측 (단일 milestone → patch bump)** — 동작을 바꾸는 코드 변경은 **0줄**이다. 이 milestone의 산출물은 문서와 **측정 기록**이며, 코드 diff는 version 리터럴 3건(`plugin.json` · `renderer/html.js` page-foot · `renderer/markdown.js` derived 줄) 동기뿐이다.

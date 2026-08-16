@@ -40,6 +40,12 @@ build/
 # (orchestration-runaway.js). Same class as loop-counter.json above; its .lock
 # sibling is caught by the *.lock glob but the .json body needs its own entry.
 .claude/state/orchestration-runaway.json
+# santa-loop-materialize M1 — 라운드 원장 본문 (santa/ledger.js). UI9: 본문은
+# gitignored로 두고 집계값만 receipt에 봉인한다(봉인은 M2 소유). 라운드마다의
+# diff 노이즈 없이 계측 분모는 살아 있다. loop-counter.json ·
+# orchestration-runaway.json과 같은 축이며, 디렉토리 단위 항목이라 형제
+# `<slug>.json.lock` · `<slug>.json.<pid>.<rand>.tmp`도 함께 덮는다.
+.claude/state/santa-loop/
 .claude/state/*.lock
 # dashboard-truthfulness M1 — completion-ledger entries ARE git-tracked, but the
 # per-entry write lock + atomic tmp are local-only ephemera. The single-level

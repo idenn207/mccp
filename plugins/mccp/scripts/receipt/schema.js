@@ -25,6 +25,13 @@ const GATE_IDS = [
   'mccp-pr-codex',
   'security-reviewer',
   'code-reviewer',
+  // santa-loop-materialize M2 — santa-loop 봉인 게이트. produces-only이고
+  // ALIAS_MATRIX에 등재하지 않는다: 어떤 command도 이것을 produces/
+  // requires_preceding에 나열하지 않으므로 command preflight(validate-cmd),
+  // cross-gate dedupe, PR chain-check 어디에도 개입하지 않는다. `mccp-implement-verify`
+  // 와 같은 형태다. phase는 'review' — 'pr'로 두면 evidence-stage-guard가 이것을
+  // ship receipt로 취급하는데, santa receipt는 감사 앵커일 뿐 ship 증거가 아니다 (DD1).
+  'mccp-santa-review',
 ];
 
 const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
@@ -257,6 +264,25 @@ function validate(receipt) {
           '"multi-agent" (contradictory receipt: multi-agent asserts Codex did ' +
           'not issue this approval)');
       }
+    }
+
+    // santa-loop-materialize M2 (DD3) — gate별 review_source 고정 불변식.
+    //
+    // 위치가 계약이다: 이 검사는 위 `if (reviewPresent.length > 0)` 블록의
+    // **형제**이지 자식이 아니다. 가드 안에 넣으면 review triple이 통째로 없는
+    // santa receipt가 검사를 그냥 지나가고, write.js의 `resolution.converged`
+    // 기본값 true를 달고 승인처럼 읽힌다 — 즉 "부재도 REJECT"가 정확히 반대로
+    // 동작한다. 이 파일의 기존 review 검사 5개가 전부 가드 안에 있어 같은 깊이로
+    // 따라 쓰기 쉬운 자리라, 이 주석이 그 실수를 막는 장치다.
+    //
+    // gate_id 기준 resolution 제약은 이 repo에 처음 생기는 형태다 — 기존
+    // `:236-259`는 review_source **값** 기준 분기이지 gate_id 기준이 아니다.
+    if (receipt.gate_id === 'mccp-santa-review') {
+      req(r.review_source === 'multi-agent',
+        'a mccp-santa-review receipt must carry resolution.review_source === "multi-agent" ' +
+        '(I4): santa never invokes a cross-model reviewer, so "codex"/"hybrid" would be a ' +
+        'false claim of cross-model corroboration, and absence would leave the receipt with ' +
+        'no approval record at all (got ' + JSON.stringify(r.review_source) + ')');
     }
   }
 
@@ -855,6 +881,31 @@ function validate(receipt) {
     if (m.review_wall_clock_ms !== null && m.review_wall_clock_ms !== undefined) {
       req(Number.isInteger(m.review_wall_clock_ms) && m.review_wall_clock_ms >= 0,
         'meta.review_wall_clock_ms must be a non-negative integer if present');
+    }
+
+    // santa-loop-materialize M2 (DD4) — santa 원장 집계 4종. 전부 PRESENT-ONLY이며
+    // makeSkeleton에 **넣지 않는다**. 바로 위 merged_verify_* 는 validator 모양의
+    // 참고일 뿐 그 필드군은 makeSkeleton에 등록돼 있으니 그쪽은 따라하지 마라 —
+    // 키를 skeleton에 추가하면 모든 receipt의 canonical hash 입력이 바뀌어
+    // git-tracked ship corpus(§3.12)의 재작성이 TRACKED_RECEIPT_OVERWRITE 가드에
+    // 걸린다. 따라할 선례는 review_l3_invoked(조건부 대입, skeleton 미등록)다.
+    // 값은 ledger.aggregate() 출력에서 그대로 오고 M2는 새 계산을 만들지 않는다.
+    if (m.santa_rounds !== null && m.santa_rounds !== undefined) {
+      req(Number.isInteger(m.santa_rounds) && m.santa_rounds >= 0,
+        'meta.santa_rounds must be a non-negative integer if present');
+    }
+    if (m.santa_entries !== null && m.santa_entries !== undefined) {
+      req(Number.isInteger(m.santa_entries) && m.santa_entries >= 0,
+        'meta.santa_entries must be a non-negative integer if present');
+    }
+    if (m.santa_cap !== null && m.santa_cap !== undefined) {
+      req(Number.isInteger(m.santa_cap) && m.santa_cap >= 1,
+        'meta.santa_cap must be an integer >= 1 if present');
+    }
+    if (m.santa_exit_reason !== null && m.santa_exit_reason !== undefined) {
+      req(m.santa_exit_reason === 'cap_reached',
+        'meta.santa_exit_reason must be "cap_reached" if present (absence means the ' +
+        'loop ended without exhausting the cap)');
     }
 
     // codex-intent-context M1 — intent-gate audit axis. 10 fields, ALL

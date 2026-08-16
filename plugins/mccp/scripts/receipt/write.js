@@ -749,6 +749,25 @@ function buildReceipt(args) {
     if (Number.isInteger(ms) && ms >= 0) receipt.meta.review_wall_clock_ms = ms;
   }
 
+  // santa-loop-materialize M2 (DD4) — santa 원장 집계 4종의 조건부 재료화.
+  // 값이 있을 때만 `receipt.meta.X = …`이므로 --santa-* 미전달 receipt는 키 자체를
+  // 갖지 않고 canonical hash 입력이 무변동이다(makeSkeleton 미등록과 한 쌍).
+  // 바로 위 review_l3_invoked 블록이 따라할 선례이고, merged_verify_* 는 아니다.
+  const SANTA_INT_FIELDS = [
+    ['santa-rounds', 'santa_rounds', 0],
+    ['santa-entries', 'santa_entries', 0],
+    ['santa-cap', 'santa_cap', 1],
+  ];
+  SANTA_INT_FIELDS.forEach(function (spec) {
+    const raw = args[spec[0]];
+    if (raw === undefined || raw === null || raw === true) return;
+    const n = parseInt(raw, 10);
+    if (Number.isInteger(n) && n >= spec[2]) receipt.meta[spec[1]] = n;
+  });
+  if (typeof args['santa-exit-reason'] === 'string' && args['santa-exit-reason'].length > 0) {
+    receipt.meta.santa_exit_reason = args['santa-exit-reason'];
+  }
+
   if (args['pr-codex-force-override'] === true) {
     receipt.meta.pr_codex_force_override = true;
     receipt.meta.pr_codex_force_override_reason =

@@ -138,6 +138,149 @@ test('parsePlanFiles fails closed when table separator is missing', function () 
   }
 });
 
+// gate-guard-integrity M3 (C3). The two cases below are a pair: the first is
+// the tolerance being added, the second is the fail-closed property that must
+// NOT be relaxed along with it. Their names are fixed by the plan body because
+// the plan's Validation greps for them — a free-form name would make that check
+// depend on the implementer's wording.
+test('parsePlanFiles tolerates a prose line between heading and table', function () {
+  const repo = mkTmpRepo();
+  try {
+    const body = [
+      '## Files to Change',
+      '',
+      'The table below lists every file this milestone touches, with the axis',
+      'each change closes.',
+      '',
+      '| File | Action | Why |',
+      '|---|---|---|',
+      '| `src/foo.ts` | UPDATE | close axis A |',
+      '| `src/bar.ts` | CREATE | close axis B |',
+      '',
+    ].join('\n');
+    const planPath = writePlan(repo, body);
+    const result = parsePlanFiles(planPath);
+    // Before the fix the prose line was adopted as the header row and the next
+    // line failed with "table separator missing" — a silent dedupe miss.
+    assert.strictEqual(result.ok, true, 'prose before the table must not break parsing: ' + result.error);
+    assert.strictEqual(result.files.length, 2);
+    assert.ok(result.files.includes('src/foo.ts'));
+    assert.ok(result.files.includes('src/bar.ts'));
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('parsePlanFiles fails closed when the table is absent entirely', function () {
+  const repo = mkTmpRepo();
+  try {
+    const body = [
+      '## Files to Change',
+      '',
+      'This milestone touches no files; the work is entirely operational.',
+      '',
+      '## Validation',
+      '',
+      'nothing to validate',
+      '',
+    ].join('\n');
+    const planPath = writePlan(repo, body);
+    const result = parsePlanFiles(planPath);
+    // Tolerating prose must not degrade into accepting a section with no table.
+    // The scan stops at the next heading and reports empty — never ok:true.
+    assert.strictEqual(result.ok, false, 'a section with prose but no table must stay fail-closed');
+    assert.deepStrictEqual(result.files, []);
+    assert.ok(/empty/i.test(result.error), 'unexpected error text: ' + result.error);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+// Local-review absorption (2026-08-16), same C3 locus. Tolerating prose opened a
+// second question the original pair did not answer: what counts as "the table"
+// when the section also contains FENCED text? These three pin it.
+
+test('parsePlanFiles ignores a fenced example table and adopts the real one', function () {
+  const repo = mkTmpRepo();
+  try {
+    const body = [
+      '## Files to Change',
+      '',
+      'For example, a row looks like this:',
+      '',
+      '```markdown',
+      '| File | Action | Why |',
+      '|---|---|---|',
+      '| `docs/**` | UPDATE | illustrative only |',
+      '```',
+      '',
+      'The actual table:',
+      '',
+      '| File | Action | Why |',
+      '|---|---|---|',
+      '| `src/real.ts` | UPDATE | the only planned file |',
+      '',
+    ].join('\n');
+    const result = parsePlanFiles(writePlan(repo, body));
+    assert.strictEqual(result.ok, true, 'the real table must parse: ' + result.error);
+    // The load-bearing assertion. Adopting the fenced example would yield the
+    // glob `docs/**`, which can swallow the real diff and flip skip_safe to true
+    // — a dual-review bypass, not merely a wrong file list.
+    assert.deepStrictEqual(result.files, ['src/real.ts']);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('parsePlanFiles is not stopped by a `#` comment inside a fenced snippet', function () {
+  const repo = mkTmpRepo();
+  try {
+    const body = [
+      '## Files to Change',
+      '',
+      '```bash',
+      '# regenerate the list with:',
+      'git diff --name-only',
+      '```',
+      '',
+      '| File | Action | Why |',
+      '|---|---|---|',
+      '| `src/foo.ts` | UPDATE | close axis A |',
+      '',
+    ].join('\n');
+    const result = parsePlanFiles(writePlan(repo, body));
+    // HEADING_RE is /^#{1,6}\s+/, so an unskipped fence body would read that
+    // bash comment as the next heading and report the section empty.
+    assert.strictEqual(result.ok, true, 'fenced `#` must not read as a heading: ' + result.error);
+    assert.deepStrictEqual(result.files, ['src/foo.ts']);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('parsePlanFiles fails closed when a fence is never closed', function () {
+  const repo = mkTmpRepo();
+  try {
+    const body = [
+      '## Files to Change',
+      '',
+      '```markdown',
+      '| File | Action | Why |',
+      '|---|---|---|',
+      '| `src/foo.ts` | UPDATE | inside an unterminated fence |',
+      '',
+    ].join('\n');
+    const result = parsePlanFiles(writePlan(repo, body));
+    // Scanning to EOF must report empty, never fall back to adopting the fenced
+    // rows — "we could not find the table" may not degrade into "here is one".
+    assert.strictEqual(result.ok, false, 'an unterminated fence must not yield a table');
+    assert.deepStrictEqual(result.files, []);
+    assert.ok(/empty/i.test(result.error), 'unexpected error text: ' + result.error);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test('parsePlanFiles handles comma-separated paths in a single row cell', function () {
   const repo = mkTmpRepo();
   try {

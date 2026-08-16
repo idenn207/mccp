@@ -180,6 +180,42 @@ const USAGE = [
   'in N runs", never "deterministic".',
 ].join('\n');
 
+// gate-guard-integrity M3 (C4) — per-run reporting projection.
+//
+// Carries the per-run failing NAMES through to the emitted result. `runs`
+// already holds them (they are collected in runCli and `diffRuns` needs them to
+// classify always- vs sometimes-failing), but the old inline mapping kept only
+// the three counts, so the harness could report THAT a name diverged and never
+// WHICH RUN it diverged on. That is the direct reason OQ5's two ~10%/run
+// nondeterminists could not be diagnosed: a 10-run observation would name the
+// flaky test but discard the per-run evidence needed to correlate it with
+// anything (ordering, concurrency, the other flake).
+//
+// Reporting layer only. `diffRuns` is untouched, so stable / alwaysFailing /
+// sometimesFailing are bit-identical before and after — this adds diagnostic
+// information without moving any verdict. Extracted as a pure function so that
+// property is assertable without running a real suite (mirrors the pure/
+// execution split `diffRuns` already establishes).
+// Element guard matches the array guard (local review, 2026-08-16): a reporting
+// projection that throws turns a diagnosable flaky run into no report at all,
+// which is the outcome this function exists to prevent. A hole in `runs` is
+// reported as a run with nothing observed, not as a crash.
+function toPerRun(runs) {
+  return (Array.isArray(runs) ? runs : []).map(function (raw) {
+    const r = (raw && typeof raw === 'object') ? raw : {};
+    return {
+      pass: r.pass,
+      fail: r.fail,
+      skipped: r.skipped,
+      // Normalize to an array: a run that produced no TAP failing list must be
+      // reported as "no names observed", never as absent/undefined — an absent
+      // key reads as "this build has no per-run names" and would re-hide the
+      // very gap this closes.
+      failing: Array.isArray(r.failing) ? r.failing.slice() : [],
+    };
+  });
+}
+
 function runCli(argv) {
   const a = parseArgs(argv);
   if (a.help) { process.stdout.write(USAGE + '\n'); return 0; }
@@ -206,7 +242,7 @@ function runCli(argv) {
     runs_requested: a.runs,
     runs_observed: runs.length,
     broken_runs: broken,
-    per_run: runs.map(function (r) { return { pass: r.pass, fail: r.fail, skipped: r.skipped }; }),
+    per_run: toPerRun(runs),
   }, verdict);
 
   if (a.json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -235,6 +271,7 @@ if (require.main === module) {
 
 module.exports = {
   diffRuns: diffRuns,
+  toPerRun: toPerRun,
   parseTap: parseTap,
   runSuite: runSuite,
   parseArgs: parseArgs,

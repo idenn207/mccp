@@ -442,6 +442,16 @@ design-scope preamble이 a11y를 억제하므로 finding 기반 트리거는 sta
 
 파괴적 변경(파일 이동 + status 편집)의 audit anchor는 operation journal(`.claude/state/archive-journal/<id>.json`, git-tracked — scan hash·승인·evidence·목적지·session 기록)이다. 파일 이동 chore이므로 `mccp-*-codex` 게이트 receipt는 발행하지 않는다(human-gate + git history + journal이 review — cross-model review는 YAGNI).
 
+#### 아카이브 소유권은 이 명령 **단독**이다 (v1.25.2 — gate-guard-integrity M3)
+
+plan을 `archived/`로 옮기는 주체는 `/mccp:archive-complete` 하나뿐이다(orphan plan의 수동 `git mv`는 아래 예외). **다른 어떤 게이트도 plan을 이동하지 않는다** — 특히 `/mccp:prp-implement`는 Phase 5에서 plan을 **그 자리에 둔다**. v1.25.2 이전에는 그 Phase가 milestone마다 무조건 `mv <plan> …/completed/`를 지시했고, 세 축에서 틀렸다:
+
+- **C2 위반** — PRD가 `in-progress`인데 그 plan을 옮기면 C1대로 PRD가 어느 스캔에도 안 잡혀 소실된다. `apply.js`의 재검증·원자성·rollback을 통째로 우회한다.
+- **가드 2 자기차단** — v1.23.5가 staleness 가드를 복원한 뒤 `/mccp:pr` 2.5.8·2.5.9는 `--plan`을 넘긴다. 이미 옮겨졌으면 validator가 re-hash할 파일을 못 읽어 `stale` → `ok=false`가 되어 **그 cycle의 PR이 방금 복원한 가드에 막힌다**(부재 경로 → stale 2건 실측).
+- **목적지 오류** — 이 절·`apply.js`·`milestone-history.js`는 전부 `archived/`만 본다. `completed/`로 옮긴 plan은 어느 스캔에도 안 잡힌다.
+
+즉 milestone 단위 implement는 아카이브 시점이 아니다. 아카이브는 PRD 전체가 끝난 뒤 `scan.js`가 `archivable:true`를 낼 때 사람이 한 번 수행한다.
+
 #### Orphan plan(무-active-PRD)은 수동 아카이브
 
 `/mccp:archive-complete`의 discovery는 **C1대로 활성 PRD의 `source_prd`로만** plan을 찾는다. 따라서 source PRD가 아예 없거나(free-form `/mccp:plan` 산출물) 이미 아카이브된/실재하지 않는 PRD를 가리키는 **orphan 완료 plan**은 tool이 구조적으로 못 옮긴다 — 버그가 아니라 의도된 PRD-driven 설계다. orphan은 드물게(shipped free-form plan마다 1개) 생기므로 **수동 `git mv`**로 은퇴시킨다:

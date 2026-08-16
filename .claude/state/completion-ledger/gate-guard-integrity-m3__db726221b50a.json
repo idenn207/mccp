@@ -1,0 +1,29 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "gate-guard-integrity-m3",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.26.1",
+    "completed_at": "2026-08-16T20:52:35.202Z",
+    "commit_sha": "e124b62ec242fe444b6f64234e3f8e20591df272",
+    "plan_basename": "gate-guard-integrity-m3.plan.md",
+    "plan_file_hash": "sha256:e65be5b8f53ba8c0be7e12e4d8411e6aaf9fad306acdab15961f5e3eb729c8d2",
+    "risks_closed": [
+      "Task 5가 건드리는 함수의 테스트가 OQ5의 flake 당사자라 red의 귀속이 흐려진다",
+      "Task 4가 `plugins/mccp/commands/pr.md`를 고치면서 2.5.8의 `DECISION_SLUG` 가용성을 잘못 가정한다",
+      "Task 4의 lint 확장이 비-게이팅 문맥의 정상 placeholder(`plugins/mccp/commands/plan.md:95`·`:2319`)를 오탐해 무관한 command를 red로 만든다",
+      "Task 2의 경로 이전이 다른 테스트의 암묵적 의존을 깨뜨린다",
+      "Task 3이 명령 본문을 바꿔 실제 `/mccp:prp-implement` 흐름을 깨뜨린다",
+      "Task 10이 실행되지 않아 아카이브가 지연된다",
+      "`archive-complete`가 M3 plan까지 원자 단위로 옮겨 이 cycle의 PR을 막는다",
+      "병렬 worktree 3개가 1.23.12를 선점한다 (§3.7 축의 8번째 재발)",
+      "B2 이동 중 CHANGELOG 본문이 변형된다",
+      "M3이 잔여를 닫았다는 판정을 다시 같은 (미확증) 가드에 의존해 내린다",
+      "cross-model 확증 없이 ship된다"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:db726221b50ac2220201abff45131631de4a2a96d339b81e71ceafc3bb51f941",
+    "verdict_provenance": "codex-verdict"
+  }
+}

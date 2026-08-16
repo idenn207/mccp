@@ -12,7 +12,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { diffRuns, parseTap } = require('../suite-determinism');
+const { diffRuns, parseTap, toPerRun } = require('../suite-determinism');
 
 const sorted = (a) => a.slice().sort();
 
@@ -94,4 +94,76 @@ test('parseTap: a non-integer summary header is not adopted as a count', () => {
   const p = parseTap('# pass abc\n# fail 2\n');
   assert.strictEqual(p.pass, null, 'a non-integer count must stay null, not NaN or 0');
   assert.strictEqual(p.fail, 2);
+});
+
+// ── gate-guard-integrity M3 (C4) — per-run failing names survive reporting ──
+//
+// The harness collected the failing names per run and then discarded them when
+// building `per_run`, so a divergence could be named but never traced to the
+// run it happened on. These cases lock the names into the reported shape and
+// pin the property that makes the change safe: the verdict does not move.
+
+test('toPerRun: per-run failing names are carried through, not dropped', () => {
+  const runs = [
+    { pass: 10, fail: 1, skipped: 0, failing: ['suite: alpha'] },
+    { pass: 11, fail: 0, skipped: 0, failing: [] },
+    { pass: 10, fail: 1, skipped: 0, failing: ['suite: beta'] },
+  ];
+  const perRun = toPerRun(runs);
+
+  assert.strictEqual(perRun.length, 3);
+  perRun.forEach((r, i) => {
+    assert.ok('failing' in r, `run ${i + 1} must carry a failing key`);
+    assert.ok(Array.isArray(r.failing), `run ${i + 1}.failing must be an array`);
+  });
+  // The load-bearing assertion: WHICH run carried WHICH name is recoverable.
+  assert.deepStrictEqual(perRun[0].failing, ['suite: alpha']);
+  assert.deepStrictEqual(perRun[1].failing, []);
+  assert.deepStrictEqual(perRun[2].failing, ['suite: beta']);
+  // Counts are unchanged by the projection.
+  assert.deepStrictEqual(
+    perRun.map((r) => [r.pass, r.fail, r.skipped]),
+    [[10, 1, 0], [11, 0, 0], [10, 1, 0]]
+  );
+});
+
+test('toPerRun: a run with no failing list reports [] — never an absent key', () => {
+  // An absent key reads as "this build does not report per-run names", which is
+  // exactly the blind spot being closed. Missing data must surface as empty.
+  const perRun = toPerRun([{ pass: 5, fail: 0, skipped: 1 }]);
+  assert.ok('failing' in perRun[0], 'failing key must be present even when the run had none');
+  assert.deepStrictEqual(perRun[0].failing, []);
+});
+
+test('toPerRun: the projection copies, so mutating the report cannot corrupt the verdict input', () => {
+  const runs = [{ pass: 1, fail: 1, skipped: 0, failing: ['suite: alpha'] }];
+  const perRun = toPerRun(runs);
+  perRun[0].failing.push('suite: injected');
+  assert.deepStrictEqual(runs[0].failing, ['suite: alpha'], 'source run must be untouched');
+});
+
+test('toPerRun: a hole in runs is reported, not thrown on', () => {
+  // Local-review absorption (2026-08-16). The array guard was already there; the
+  // element deref was not. A reporting projection that throws converts a
+  // diagnosable flaky run into no report at all — the exact outcome C4 exists to
+  // prevent — so a malformed element degrades to "nothing observed".
+  const perRun = toPerRun([null, { pass: 1, fail: 0, skipped: 0, failing: [] }]);
+  assert.strictEqual(perRun.length, 2);
+  assert.deepStrictEqual(perRun[0].failing, []);
+  assert.strictEqual(perRun[0].pass, undefined, 'absent counts stay absent, not invented');
+  assert.deepStrictEqual(perRun[1], { pass: 1, fail: 0, skipped: 0, failing: [] });
+});
+
+test('C4 is diagnostic-only: diffRuns verdict is identical with and without per-run projection', () => {
+  const runs = [
+    { pass: 10, fail: 1, skipped: 0, failing: ['suite: alpha'] },
+    { pass: 10, fail: 1, skipped: 0, failing: ['suite: beta'] },
+  ];
+  const before = diffRuns(runs);
+  toPerRun(runs);           // reporting projection runs
+  const after = diffRuns(runs);
+  assert.deepStrictEqual(after, before, 'verdict must not move when names are also reported');
+  assert.strictEqual(before.stable, false);
+  assert.deepStrictEqual(sorted(before.sometimesFailing), sorted(['suite: alpha', 'suite: beta']));
+  assert.deepStrictEqual(before.alwaysFailing, []);
 });

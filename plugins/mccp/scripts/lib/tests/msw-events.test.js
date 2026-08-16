@@ -4,13 +4,41 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
 const mswEvents = require('../../state/msw-events');
 const sessionLedger = require('../../state/session-ledger');
 const { spawn } = require('child_process');
 
-// 테스트별 임시 디렉토리 사용
+// gate-guard-integrity M3 (C1) — fixture는 저장소 트리 밖 `os.tmpdir()` 하위에
+// 실행별 고유 경로로 잡는다. 이전에는 `<scripts>/.test-msw-events/<testName>`이라는
+// 저장소 안 고정 경로였고 `.gitignore` 밖이라, 전수를 동시에 여러 개 돌리면 같은
+// 파일에 써서 서로 간섭했다(M2 리포트가 concurrent-stress의 반복 실패를 스위트의
+// 성질이 아니라 이 진단 결함으로 귀속시킨 바로 그 지점). mkdtemp가 디렉토리를
+// 함께 만들므로 호출부의 선행 cleanup+mkdir은 불필요해졌다.
+// 각 test 본문 끝의 `cleanup(tempDir)`는 성공 경로에서만 도달하므로, 단언이
+// 실패하면 그 실행의 디렉토리가 tmp에 남는다(고정 경로 시절에는 다음 실행이
+// 같은 자리를 재사용해 누수가 1개로 묶였지만 mkdtemp는 매번 새로 만든다).
+// 생성 지점에서 등록하고 파일 단위 after에서 일괄 회수해, 회수가 개별 test의
+// 성공 여부와 무관해지게 한다. 기존 per-test cleanup은 그대로 둔다 —
+// `cleanup`은 존재 확인 후 삭제라 두 번 불려도 무해하고, 성공 경로에서는
+// 여전히 즉시 회수되는 편이 낫다.
+const TEMP_DIRS = [];
 function getTempDir(testName) {
-  return path.join(__dirname, '..', '..', '.test-msw-events', testName);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `mccp-msw-events-${testName}-`));
+  TEMP_DIRS.push(dir);
+  return dir;
+}
+
+test.after(() => {
+  for (const dir of TEMP_DIRS) cleanup(dir);
+});
+
+// 경로만 옮기고 sessionId를 고정으로 두면 tmp 루트 밖에서 이름이 다시 겹칠 수
+// 있으므로(그리고 sessionId가 곧 파일명이므로) 실행별 접미사를 붙인다.
+const RUN_ID = `${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+function sid(base) {
+  return `${base}-${RUN_ID}`;
 }
 
 function cleanup(dir) {
@@ -21,10 +49,8 @@ function cleanup(dir) {
 
 test('msw-events: basic append', () => {
   const tempDir = getTempDir('basic');
-  cleanup(tempDir);
-  fs.mkdirSync(tempDir, { recursive: true });
 
-  const sessionId = 'test-session-1';
+  const sessionId = sid('test-session-1');
 
   const result = mswEvents.appendEvent(sessionId, {
     kind: 'session_start',
@@ -51,10 +77,8 @@ test('msw-events: basic append', () => {
 
 test('msw-events: field truncation', () => {
   const tempDir = getTempDir('truncation');
-  cleanup(tempDir);
-  fs.mkdirSync(tempDir, { recursive: true });
 
-  const sessionId = 'test-session-2';
+  const sessionId = sid('test-session-2');
   const longValue = 'x'.repeat(300);
 
   const result = mswEvents.appendEvent(sessionId, {
@@ -77,10 +101,8 @@ test('msw-events: field truncation', () => {
 
 test('msw-events: allowlist validation', () => {
   const tempDir = getTempDir('allowlist');
-  cleanup(tempDir);
-  fs.mkdirSync(tempDir, { recursive: true });
 
-  const sessionId = 'test-session-3';
+  const sessionId = sid('test-session-3');
 
   const result = mswEvents.appendEvent(sessionId, {
     kind: 'test',
@@ -104,10 +126,8 @@ test('msw-events: allowlist validation', () => {
 
 test('msw-events: number/boolean fields preserve their type (no String coercion)', () => {
   const tempDir = getTempDir('type-preserve');
-  cleanup(tempDir);
-  fs.mkdirSync(tempDir, { recursive: true });
 
-  const sessionId = 'test-session-types';
+  const sessionId = sid('test-session-types');
   const result = mswEvents.appendEvent(sessionId, {
     kind: 'session_end',
     ended_at: '2026-07-24T10:00:00.000Z',
@@ -136,10 +156,8 @@ test('msw-events: session_end null context_remaining_pct round-trips as explicit
   // numeric sample can never silently reappear in the append-only log. Complements the
   // source-level producer-boundary guard in hooks/tests/session-hooks-no-llm.test.js.
   const tempDir = getTempDir('null-context');
-  cleanup(tempDir);
-  fs.mkdirSync(tempDir, { recursive: true });
 
-  const sessionId = 'test-session-null-context';
+  const sessionId = sid('test-session-null-context');
   const result = mswEvents.appendEvent(sessionId, {
     kind: 'session_end',
     ended_at: '2026-07-26T10:00:00.000Z',
@@ -159,10 +177,8 @@ test('msw-events: session_end null context_remaining_pct round-trips as explicit
 
 test('msw-events: missing kind error', () => {
   const tempDir = getTempDir('missing-kind');
-  cleanup(tempDir);
-  fs.mkdirSync(tempDir, { recursive: true });
 
-  const sessionId = 'test-session-4';
+  const sessionId = sid('test-session-4');
 
   assert.throws(() => {
     mswEvents.appendEvent(sessionId, {
@@ -203,10 +219,8 @@ test('msw-events: session-ledger schema diff = 0', () => {
 
 test('msw-events: malformed line isolation', () => {
   const tempDir = getTempDir('malformed');
-  cleanup(tempDir);
-  fs.mkdirSync(tempDir, { recursive: true });
 
-  const sessionId = 'malformed-test';
+  const sessionId = sid('malformed-test');
   const filePath = path.join(tempDir, `${sessionId}.jsonl`);
 
   mswEvents.appendEvent(sessionId, {
@@ -252,10 +266,8 @@ test('msw-events: malformed line isolation', () => {
 // interleaving detector on the real platform (Windows dogfood).
 test('msw-events: concurrent N-writer O_APPEND atomicity stress', async () => {
   const tempDir = getTempDir('concurrent-stress');
-  cleanup(tempDir);
-  fs.mkdirSync(tempDir, { recursive: true });
 
-  const sessionId = 'stress-session';
+  const sessionId = sid('stress-session');
   const modulePath = path.resolve(__dirname, '..', '..', 'state', 'msw-events.js');
   const N = 4;   // concurrent writer processes
   const M = 25;  // events per writer → 100 same-file appends

@@ -100,8 +100,58 @@ function parsePlanFiles(planPath) {
     };
   }
 
+  // gate-guard-integrity M3 (C3) — advance to the table itself, tolerating
+  // prose between the heading and the first row. This used to skip blank lines
+  // only, so a single explanatory sentence under the heading became the
+  // "header row": parseRow returns a 1-cell array for a pipe-less line, so the
+  // header check passed and the failure surfaced one line later as
+  // `"Files to Change" table separator missing`. Measured A/B: deleting one
+  // description line flipped ok:false → ok:true (files=13). The consequence was
+  // silent — parse failure makes every planned file fall through to residual,
+  // so cross-gate dedupe just never fires (fail-closed, but the optimisation is
+  // lost and the reason is invisible).
+  //
+  // Fail-closed is preserved: the table is still required explicitly. We stop
+  // at the next heading or EOF and fall through to exactly the same errors as
+  // before, and a section with prose but no table now reports "section is
+  // empty" instead of "table separator missing" — a different existing error,
+  // never a pass. Scanning for a line that STARTS with `|` (rather than one
+  // that merely contains `|`) is deliberate: prose containing an inline pipe
+  // would otherwise be adopted as the header and reproduce the original bug.
+  //
+  // Fenced regions are skipped entirely, and that is load-bearing in BOTH
+  // directions (local review, 2026-08-16):
+  //   - Without it, an EXAMPLE table inside a ``` fence placed before the real
+  //     one would be adopted as the table and parse to ok:true with the WRONG
+  //     file list. That is strictly worse than the old error: usually the real
+  //     files then fall to residual (still fail-closed), but an example whose
+  //     first column is a glob can swallow them and yield skip_safe=true — a
+  //     dual-review bypass. The "never a pass" claim above only holds because
+  //     of this skip.
+  //   - Without it, `HEADING_RE` (/^#{1,6}\s+/) also matches a `# comment` line
+  //     inside a bash fence, so a fenced snippet before the table would stop
+  //     the scan and report the section empty.
+  // Indented (4-column) code blocks are deliberately NOT treated as code here:
+  // distinguishing them needs paragraph context, and a leading-indented `|` row
+  // in this section is far more likely to be a real table someone indented than
+  // a code sample. `.trim()` keeps tolerating those.
   i = headingLine + 1;
-  while (i < lines.length && lines[i].trim() === '') i += 1;
+  let fenceChar = null;
+  for (; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    const fence = trimmed.match(/^(`{3,}|~{3,})/);
+    if (fence) {
+      const ch = fence[1].charAt(0);
+      if (fenceChar === null) fenceChar = ch;
+      else if (fenceChar === ch) fenceChar = null;
+      continue;
+    }
+    if (fenceChar !== null) continue;
+    if (HEADING_RE.test(lines[i])) break;
+    if (trimmed.charAt(0) === '|') break;
+  }
+  // An unterminated fence runs the scan to EOF, which the check below reports as
+  // an empty section — fail-closed, not a silent adoption of whatever followed.
 
   if (i >= lines.length || HEADING_RE.test(lines[i])) {
     return {

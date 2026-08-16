@@ -154,3 +154,10 @@ ECC/
 .gitignore.lock
 .gitignore.bak
 .gitignore.*.tmp
+
+# gate-guard-integrity M3 (C1) — 저장소 트리 안 test fixture 재발 안전망.
+# msw-events.test.js / toggle-snapshot.test.js 의 fixture 는 os.tmpdir() 로
+# 이전했으므로 이 패턴은 평시에 아무것도 잡지 않는다. 목적은 같은 형태가 다시
+# 유입될 때 커밋 오염을 막는 것 — 이전 고정 경로 2곳은 .gitignore 밖이라
+# 실행 잔여물이 트리에 남았고 동시 실행 시 서로 간섭했다.
+plugins/mccp/scripts/.test-*/

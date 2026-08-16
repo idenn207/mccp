@@ -145,6 +145,7 @@ const REPO_ONLY = Object.freeze([
   { entry: '.claude/settings.local.json', reason: 'generic Claude Code file — not an mccp runtime artifact' },
   { entry: 'ECC/', reason: "this repo's fork seed checkout — repo-specific" },
   { entry: '.claude/state/dogfood-*/', reason: "this repo's test fixtures/sandboxes — repo-specific" },
+  { entry: 'plugins/mccp/scripts/.test-*/', reason: "this repo's own test-fixture path under plugins/mccp/scripts/ — a regression safety net for gate-guard-integrity M3 (C1), not a path any target repo has" },
 ]);
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,35 @@
+{
+  "schema_version": "v1",
+  "id": "2026-08-16T21-38-36-425Z__e7a354b0",
+  "created_at": "2026-08-16T21:38:36.425Z",
+  "session_id": "unknown",
+  "scan_hash": "b09bc29541eef03acabb460dc18e4b075213fc029775430ba668df24e1ea5fdc",
+  "status_corrections": [],
+  "archives": [
+    {
+      "prd": ".claude/prds/gate-guard-integrity.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/gate-guard-integrity.prd.md",
+          "to": ".claude/prds/archived/gate-guard-integrity.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/gate-guard-integrity.plan.md",
+          "to": ".claude/PRPs/plans/archived/gate-guard-integrity.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/gate-guard-integrity-m2.plan.md",
+          "to": ".claude/PRPs/plans/archived/gate-guard-integrity-m2.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/gate-guard-integrity-m3.plan.md",
+          "to": ".claude/PRPs/plans/archived/gate-guard-integrity-m3.plan.md"
+        }
+      ]
+    }
+  ]
+}

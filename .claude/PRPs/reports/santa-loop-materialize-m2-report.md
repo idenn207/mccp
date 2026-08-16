@@ -1,6 +1,6 @@
 # Implementation Report: santa-loop-materialize M2 — receipt 편입 + 소유권 표
 
-**Plan**: [.claude/plans/santa-loop-materialize-m2.plan.md](../../plans/santa-loop-materialize-m2.plan.md)
+**Plan**: [.claude/PRPs/plans/archived/santa-loop-materialize-m2.plan.md](../plans/archived/santa-loop-materialize-m2.plan.md)
 (`plan_hash=sha256:c0a43a59…`, R9 `converged` 승인)
 **구현 노트**: [.claude/notes/santa-loop-materialize-m2.md](../../notes/santa-loop-materialize-m2.md) — Codex/security 리뷰 기록 + 이탈 6건
 **Branch**: `santa-loop-materialize`

@@ -57,12 +57,12 @@ We'll know we're right when **santa 라운드별 제기/흡수/기각 건수가 
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | **P0 santa-loop 실체화** | santa-loop 결정 로직이 산문에서 모듈로 내려와 캡이 기계적으로 강제되고, 후속 축들이 서로 다른 파일을 소유하게 됨 | pending | [santa-loop-materialize.prd.md](santa-loop-materialize.prd.md) |
+| 1 | **P0 santa-loop 실체화** | santa-loop 결정 로직이 산문에서 모듈로 내려와 캡이 기계적으로 강제되고, 후속 축들이 서로 다른 파일을 소유하게 됨. **자식 PRD 2 milestone 전부 complete** — 단 배송은 **브랜치 착지까지**이고 브랜치 `santa-loop-materialize`가 main에 아직 머지되지 않았다(PR 미생성 → 후속 사이클). 소유권 경계는 [ownership.md](../../docs/santa-loop/ownership.md)로 확정돼 P1·P2·P3는 지금 병렬 착수 가능 | complete | [santa-loop-materialize.prd.md](archived/santa-loop-materialize.prd.md) |
 | 2 | **P1 판정 계약** (#124) | severity 축·판정 원장·종료 조건이 생겨 루프가 실제로 수렴하고 기각이 보존됨 | pending | [santa-adjudication.prd.md](santa-adjudication.prd.md) |
 | 3 | **P2 증거 다양성** (#125) | 리뷰어 최소 1명이 오케스트레이터 번들 대신 디스크를 직접 재유도해 오류 상관이 끊김 | pending | [santa-evidence-diversity.prd.md](santa-evidence-diversity.prd.md) |
 | 4 | **P3 델타 리뷰** | 리뷰 스코프가 라운드마다 축소되어 인지 부하와 소요가 줄되, 이전 판정은 리뷰어에게 노출되지 않음 | pending | [santa-delta-review.prd.md](santa-delta-review.prd.md) |
-| 5 | **H1 setup gitignore** | 신규 설치자가 mccp 런타임 산출물 무시 규칙을 재발명하지 않아도 됨 | pending | [setup-gitignore.prd.md](setup-gitignore.prd.md) |
-| 6 | **H2 메타 조사 커맨드** | 조사·판정 결과가 `_meta/`에 재현 가능한 절차로 누적됨 | pending | [meta-research-command.prd.md](meta-research-command.prd.md) |
+| 5 | **H1 setup gitignore** | 신규 설치자가 mccp 런타임 산출물 무시 규칙을 재발명하지 않아도 됨. main 머지 완료 — PR #136 (`295b628`, v1.25.0) | complete | [setup-gitignore.prd.md](archived/setup-gitignore.prd.md) |
+| 6 | **H2 메타 조사 커맨드** | 조사·판정 결과가 `_meta/`에 재현 가능한 절차로 누적됨. main 머지 완료 — PR #135 (`0ed9b1c`, v1.24.0) | complete | [meta-research-command.prd.md](archived/meta-research-command.prd.md) |
 | 7 | **H3 세션 프로세스 회수** | 세션 종료 시 detached 자식 프로세스가 남지 않음 | pending | [session-process-reclaim.prd.md](session-process-reclaim.prd.md) |
 
 ### 착수 순서 (구속력 있음)
@@ -89,7 +89,7 @@ P1·P2·P3 전부 종료 후: work chain 재배열(항목 1.5) — 별도 PRD
 ## Open Questions
 
 - [ ] **우산 PRD의 대시보드 가시성** — 이 PRD는 자체 plan을 갖지 않는다. [archive-complete C1](../../CLAUDE.md)대로 PRD discovery는 *활성 plan의 `source_prd`*로만 이뤄지므로 **이 우산은 대시보드에 안 잡힌다**. 자식 7개는 각자 plan을 가지므로 정상 노출된다. 선택지: (a) 미노출 감수 — 우산은 사람이 읽는 문서, (b) 우산에 명목상 plan 1개를 물림. 현재 **(a)로 진행**하되 자식이 하나도 안 보이는 상황이 오면 재검토.
-- [ ] **archive 시점** — 자식 7개가 전부 complete가 돼도 우산은 `Delivery Milestones` 행이 전부 complete여야 archivable(C3 등식). 자식 status를 우산에 수동 동기화할지, 아니면 우산은 archive 대상에서 빼둘지.
+- [x] **archive 시점** — 자식 7개가 전부 complete가 돼도 우산은 `Delivery Milestones` 행이 전부 complete여야 archivable(C3 등식). **결정(2026-08-16): 수동 동기화한다.** 우산 행의 `Plan` 셀이 plan이 아니라 자식 PRD를 가리키므로(`plan: null`) `/mccp:archive-complete`의 drift 스캐너에는 대조할 ledger/receipt 증거원이 없고, `/mccp:milestone-close`도 stamp할 plan body와 `in-progress` 행이 없어 구조적으로 적용 불가다(실측: `goal-detect` → `reason=not-started`). 따라서 자식 PRD가 complete/archived로 전이할 때 우산 행을 **사람이** 같은 사이클에 정정한다 — 이 규칙의 첫 적용이 P0·H1·H2 3행이다.
 - [ ] **santa 원장의 git-tracked 여부** — P0가 결정. 권장은 원장 본문 gitignored + 집계값만 receipt에 봉인(부록 §6).
 
 ## Risks

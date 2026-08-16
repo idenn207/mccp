@@ -1,7 +1,7 @@
 # Implementation Report: santa-loop 실체화 — M1 (모듈 골격 + 캡 강제)
 
-- **Plan**: [.claude/plans/santa-loop-materialize-m1.plan.md](../../plans/santa-loop-materialize-m1.plan.md) (**archived 안 함** — 아래 D6)
-- **PRD**: [.claude/prds/santa-loop-materialize.prd.md](../../prds/santa-loop-materialize.prd.md) M1
+- **Plan**: [.claude/PRPs/plans/archived/santa-loop-materialize-m1.plan.md](../plans/archived/santa-loop-materialize-m1.plan.md) (D6은 *구현 시점에* archived 안 함을 기록한 것 — PRD 전 milestone 종료 후 2026-08-16 `/mccp:archive-complete`로 이동됨)
+- **PRD**: [.claude/prds/archived/santa-loop-materialize.prd.md](../../prds/archived/santa-loop-materialize.prd.md) M1
 - **Branch**: `santa-loop-materialize` · **Version**: 1.23.7 → 1.23.8
 - **게이트 기록**: [.claude/notes/santa-loop-materialize-m1-implement-codex.md](../../notes/santa-loop-materialize-m1-implement-codex.md)
 

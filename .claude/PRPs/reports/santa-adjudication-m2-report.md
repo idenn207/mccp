@@ -168,11 +168,17 @@ newBlocking:4}`. 계측 도구는 의도대로 작동했고, 이 사건을 관�
 blocking 4 → 3. 즉 DD13이 막는 우회가 실경로에서 재현됐고, 본 브랜치에서는 같은 시퀀스가
 NAUGHTY로 남는다(커버리지 49 + 실 CLI 왕복 스모크).
 
-실측·처방은 PRD Open Questions에 등재했다. **(B)가 충족되지 않았으므로 PRD Milestone 2 행은
-`complete`로 바꾸지 않는다** — plan Task 7과 Acceptance가 같은 문장으로 요구한 처리다.
+실측·처방은 PRD Open Questions에 등재했다. ~~**(B)가 충족되지 않았으므로 PRD Milestone 2 행은
+`complete`로 바꾸지 않는다**~~ — plan Task 7과 Acceptance가 같은 문장으로 요구한 처리다.
 probe 워크트리와 브랜치는 제거했고, 그 원장은 함께 사라졌다(DD15 — 소멸이 정상 동작).
+
+**운영자 override (2026-08-17)** — 취소선 문장은 이 보고서를 쓴 시점의 판정이다. `/mccp:milestone-close`
+에서 운영자가 (g)를 M3/P2의 식별자 축으로 이연하고 milestone을 종료했다
+([closure](../../milestone-closures/santa-adjudication-m2.md)). **위 실측값은 무변경이고 (g)는 여전히
+미관측이다** — PRD Open Question도 닫히지 않고 열린 채 남는다.
 
 ## Next Steps
 
-- [ ] `/mccp:prp-commit`(잔여 PRD·보고서 변경) → `/mccp:pr`
-- [ ] PRD Milestone 2 행은 (g)가 관측되거나 식별자 축(M3/P2)이 결정된 뒤에만 `complete`로 전환
+- [x] `/mccp:prp-commit`(잔여 PRD·보고서 변경) → `/mccp:pr` — PR **#143** OPEN (`v1.27.1`)
+- [x] PRD Milestone 2 행 — 운영자 override로 `complete` 전환 (위 주석 참조). (g) 관측 자체는
+      M3/P2 소유로 남는다

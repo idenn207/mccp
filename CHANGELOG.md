@@ -2,8 +2,31 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.27.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.27.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.27.1] — 2026-08-17
+
+> **§3.7 forward-only 상향 (11번째 재발)**: 이 항목은 원래 `1.26.3`으로 작성됐으나, 브랜치가 미머지인 사이 main이 `1.27.0`(session-process-reclaim M1+M2+M3 — PRD 전 milestone 완료이므로 minor)을 발행해 브랜치 번호가 main 최대치보다 뒤로 밀렸다. 발행된 번호는 불가침이므로 본 항목만 앞으로 밀어 `1.27.1`이 됐다. 두 항목은 서로 다른 축이라 합치지 않았고, 날짜 역전(1.27.1이 08-17, 1.27.0이 08-14)은 version 순서가 정본이므로 그대로 둔다.
+
+**santa-adjudication M2 — 판정 원장 (PRD 3 milestone 중 2 → patch bump, 1.27.0 → 1.27.1)** — santa-loop은 라운드마다 fresh reviewer를 띄우는데, 초기화되는 것이 산출물만이 아니라 **판정 기록**이었다. 운영자가 라운드 N에서 기각한 지적이 라운드 N+1에 그대로 재등장해 다시 blocker로 계수됐고, 실측으로 receipt 149건의 `resolution.rejected` 총합이 **0**이었다 — 기각이 어디에도 남지 않았다. M2는 P0가 만들어 두고 소비자가 0이던 `ledger.entries`에 판정 행 스키마를 채우고, 그 원장을 **집계 단계에만** 주입한다(리뷰어는 fresh 유지 — 주입 지점은 `cli.js#cmdVerdict` 하나이고, 커버리지 47이 Step 3 블록에 원장 토큰이 없음을 절 경계 단위로 단언한다).
+
+**기각 보존율을 지시가 아니라 능력으로 만든다.** "기각을 원장에 적으세요"를 산문으로 두면 M1 이전과 같은 상태이므로, `begin-round`가 `ledger.beginRound` **이전에** coverage를 검사한다 — 마지막 FINAL 라운드의 effective blocking 전건에 그 라운드의 판정 행이 없으면 `SANTA_ADJUDICATION_INCOMPLETE`(exit 2)로 거부하고, 검사가 mutation보다 앞서므로 **캡이 소모되지 않는다**. 탈출구는 env가 아니라 원장 안에 둔다: `skipped` 한 행이면 라운드가 열리되 그 지적은 계속 blocking이라 회피가 공짜가 아니다.
+
+**억제는 `decideAdjudicatedVerdict`의 optional 입력이고 한 항만 좁힌다.** `resolved`가 부재하면 M1의 7키가 값까지 동일하고 반환에 `suppressed`·`niceBySuppression` 둘만 붙는다(커버리지 33이 M1 7키 값 동일성 + 키 집합 9개를 함께 고정한다). 좁아지는 것은 `noBlocking` 하나뿐이라 강화 축 둘(`distinctIds >= 2` · `allPass`)은 어느 값에서도 그대로다. `byReviewer`는 **원시값 그대로** 남는다 — 억제 이후 값으로 바꾸면 강등 비율의 분모가 사라지기 때문이다.
+
+**판정은 다음 라운드부터 효력을 갖는다(`entry.round < N`).** 이 결속이 없으면 M2가 스스로 우회를 만든다: blocking을 `absorbed`로 기록하고 **같은 라운드**의 `verdict`를 다시 부르면 리뷰 없이 NICE에 도달해 seal·push된다. 라운드 자신의 판정은 자기 자신을 지우지 못하며, 부수 효과로 FINAL 라운드의 재계산이 결정적이 되어 `verdict` 재호출이 mutation 없이 같은 JSON을 돌려준다(갈리면 `SANTA_VERDICT_UNSTABLE`).
+
+**`absorbed` 재등장은 억제하되 가장 크게 표면화한다.** 운영자가 "고쳤다"고 기록했는데 수정이 불충분하면 fresh reviewer가 같은 지적을 다시 내고 M2가 그것을 지운다 — 실재 결함이 통과하는 경로다. 부정하지 않고 셋으로 다룬다: `evidence`가 `validateReason(strict)`를 지나고(`"fixed"`는 거부), 재등장이 `absorbed-rereported`로 분류되어 Step 4가 "당신의 수정이 듣지 않았을 수 있다"를 터미널에 찍으며, `reopened` 한 줄로 되돌아간다. **그럼에도 이것을 "안전하다"고 말하지 않는다** — 수정이 실제로 듣는지는 검증하지 않으며 그 검증은 PRD가 비용을 이유로 미결에 둔 축이다.
+
+**issue 동일성은 정규화 claim이고 그 한계를 지표로 관측한다.** `issueIdOf = sha256(normalizeClaim(claim))[0:12]`이며 라운드 *안*의 dedupe와 **같은 함수**를 쓴다(다르면 "한 라운드에서는 같은 지적인데 다음 라운드에서는 다른 지적"이 성립한다). 이 키는 패러프레이즈에 뚫리는데 fuzzy matcher를 발명하지 않는다 — 임계값에 방어할 근거가 없고 잘못 합쳐진 두 지적은 **실재 결함을 지우는** 방향으로 틀린다. 대신 `carryOver`의 `resolvedAbsent`·`newBlocking` 쌍이 그 패턴을 노출하고(식별은 주장하지 않는다), 커버리지 58이 그 실패 모드를 산문의 경고가 아니라 **고정된 기대값**으로 둔다.
+
+**필드가 사라지면 게이트가 꺼지는 대신 막는다.** `issueId`가 유실되면 `resolved.get(undefined)`가 늘 `undefined`라 억제는 어차피 0건이 되지만, 조용히 0건이 되는 것과 명시적으로 거부하는 것은 다르다 — 전자는 정상 동작과 구별되지 않는다. `coverageOf`는 그 행을 `missing`에 담아 `covered:false`를 내고 `decideAdjudicatedVerdict`는 `effective`에 남기며 loud warn한다(커버리지 56이 생산 지점의 build-time 가드, 60이 runtime 가드 — 둘은 대체재가 아니다).
+
+**M1이 이관한 판정 lifecycle 3종도 함께 착지한다** — `record`는 OPEN 라운드에서만 · 같은 `id` 중복 거부 · 라운드 verdict 1회. 앞 둘은 M2에서 위생을 넘어 **coverage 게이트의 전제**가 된다: FINAL 라운드에 리뷰어가 더 붙으면 판정한 blocking 집합과 검사하는 집합이 갈린다. 셋 다 CLI 수준 검사라 **TOCTOU를 주장하지 않으며**(P0 동결 함수에 술어를 lock 안으로 주입할 자리가 없다) 순차 오용을 막는 위생으로만 주장한다.
+
+**P0 파일은 열지 않았다.** `ledger.js`·`seal.js`·`counter.js` 무접촉이고 Validation이 그것을 기계로 대조한다. `receipt` 스키마도 무변경이다 — `meta.santa_entries`는 P0가 이미 present-only 정수로 봉인했고 M2가 하는 일은 그 값을 처음으로 0이 아니게 만드는 것뿐이다. 판정 내역은 gitignored 원장에만 살며, 그래서 **M2가 주장하는 보존은 "한 리뷰 루프 안에서"다**(워크트리를 지우면 판정도 함께 사라진다 — 세션 간 내구성은 backlog).
+
+env 2종 추가: `MCCP_SANTA_ADJUDICATION_GATE`(coverage 선검사, `off`는 덜 엄격) · `MCCP_SANTA_LEDGER_SUPPRESSION`(억제, `off`는 M1 등가로 **더** 엄격하며 대조군 도구이기도 하다). 커버리지 26~60(35 항목) 신규 · 전량 green.
 ## [1.27.0] — 2026-08-14
 
 **session-process-reclaim M1+M2 — 세션 프로세스 레지스트리 + SessionEnd 회수 (PRD 전 milestone 완료 → minor bump)** — mccp는 자신을 시작한 명령보다 오래 사는 프로세스를 여럿 띄운다(dashboard 서버, detached plan-codex-runner, handoff `claude` 세션). 누가 그것들을 소유하는지 기록하는 곳이 없었고, 그래서 안전하게 거둘 방법도 없었다. M1이 레지스트리를, M2가 SessionEnd 회수를 추가한다.

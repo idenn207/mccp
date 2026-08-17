@@ -1,0 +1,21 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "santa-adjudication-m2",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.27.1",
+    "completed_at": "2026-08-17T09:13:24.300Z",
+    "commit_sha": "965b5fc9fa97c727a596b45599352e40c371de57",
+    "plan_basename": "santa-adjudication-m2.plan.md",
+    "plan_file_hash": "sha256:407a98258c7d6942f9c6b6943bdb86b953cb2643e761cca2cb4a3a85f89ad91b",
+    "risks_closed": [
+      "`issue_id`가 정규화 claim이라 패러프레이즈에 뚫려 suppression이 거의 발화하지 않는다",
+      "M1이 실측한 \"blocking 0건 라운드\"가 M2에서도 재현되어 실경로 (B)가 미관측으로 남는다",
+      "`absorbed` suppression이 실패한 수정을 은폐한다"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:294ba3f465960a602998e2f61a4085537f5ed1496656de5c48e0fac84661091f",
+    "verdict_provenance": "codex-verdict"
+  }
+}

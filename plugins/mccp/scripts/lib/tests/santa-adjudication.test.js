@@ -1,9 +1,11 @@
 'use strict';
 
-// santa-adjudication M1 — severity contract + 게이트 재배선의 회귀 그물.
+// santa-adjudication M1·M2 — severity contract + 게이트 재배선(M1) 및 판정 원장(M2)의
+// 회귀 그물.
 //
 // 이 파일이 **커버리지 계약 전량을 소유한다.** test 이름의 대괄호 id는 plan
-// `.claude/plans/santa-adjudication-m1.plan.md`의 커버리지 표와 1:1이고,
+// (1~25는 `santa-adjudication-m1.plan.md`, 26~60은 `santa-adjudication-m2.plan.md`)의
+// 커버리지 표와 1:1이고,
 // Validation의 스크립트가 그 id의 존재와 각 본문에 assert가 하나 이상 있는지를
 // 기계로 대조한다. 항목이 다루는 대상이 `gate.js`든 `cli.js`든 `santa-loop.md`든
 // receipt든 **test가 사는 곳은 이 파일**이다 — 대상 모듈별로 나누면 스크립트가
@@ -493,9 +495,14 @@ test('[18] cli verdict: stdout JSON에 contract·mismatches·blocking이 실린�
     A: { findings: 1, structured: 1, blocking: 0 },
     B: { findings: 0, structured: 0, blocking: 0 },
   });
+  // santa-adjudication M2가 판정 원장 축 5필드를 **더했다**(Task 3 (2)). M1이 계측
+  // 4필드를 더했을 때와 같은 성격이고, 이 단언의 요점도 그대로다 — 교체가 아니라
+  // 추가이며, 새 키가 조용히 늘어나면 여기서 잡힌다. 값 축의 하위 호환은 커버리지
+  // 33이, 배선 축은 46이 따로 진다.
   assert.deepEqual(Object.keys(j).sort(),
-    ['blocking', 'byReviewer', 'contract', 'exitReason', 'failing', 'mismatches', 'verdict'],
-    '기존 3필드는 유지하고 계측 4필드를 더한다 — 교체가 아니다');
+    ['blocking', 'byReviewer', 'carryOver', 'contract', 'entries', 'exitReason', 'failing',
+      'ledger', 'mismatches', 'niceBySuppression', 'suppressed', 'verdict'],
+    '기존 7키는 유지하고 원장 5필드를 더한다 — 교체가 아니다');
 });
 
 test('[19] cli record: 타입 위반 finding은 exit 2 + append 0건', () => {
@@ -689,4 +696,879 @@ test('[25] gate와 seal이 {A,B} 완전성과 완화 경로 양쪽에서 같은 
   assert.equal(proof.quorum.passed, true);
   assert.equal(proof.quorum.responded, 2);
   assert.equal(proof.layers.l2, 'converged');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// santa-adjudication M2 — 판정 원장 (커버리지 26~60)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// **test 격리 계약** (fan-out이 요구한 항목, plan Task 5):
+//   (1) 원장 상태의 수명은 **한 test**이고 tmpdir과 함께 사라진다.
+//   (2) slug는 test마다 다르게 지어 같은 tmpdir 안에서도 스코프가 겹치지 않는다.
+//   (3) **저장소의 실제 원장(`.claude/state/santa-loop/`)을 읽거나 쓰는 test는
+//       0개다** — 실 경로 검증은 Task 7이 소유하고 여기서는 fixture만 만진다.
+//
+// 라운드를 넘나드는 항목(34~36 · 49 · 55 · 57~58)도 fixture repo 하나 안에서
+// 라운드 두 개를 실제로 열고 닫는다. `node:test`는 test별 setup을 가지므로 M1의
+// 1~25와 같은 파일에 공존해도 fixture가 충돌하지 않는다.
+
+const adjudication = require('../santa/adjudication');
+const ledgerMod = require('../santa/ledger');
+
+const CLAIM = 'the merge step drops the second envelope';
+const PARAPHRASE = 'the second envelope is silently discarded while merging';
+const REASON = 'the reviewer misread the loop bound; the guard runs after the append, not before';
+const PROOF = 'the guard now runs after the append at ledger.js:497, so the envelope survives';
+// 원장에만 있어야 하는 판정 본문 — receipt·리포트로 새는지 감시하는 canary다.
+const EV_CANARY = 'SANTA_EVIDENCE_CANARY_7c31d9 the guard now runs after the append step';
+
+// `over`가 `claim`을 바꾸면 `issue_id`도 따라 파생된다 — 결속이 깨진 행을 만들려면
+// `issue_id`를 **명시적으로** 넘겨야 하고, 그것이 커버리지 31의 한 축이다.
+function entry(over) {
+  const o = Object.assign({}, over || {});
+  const claim = Object.prototype.hasOwnProperty.call(o, 'claim') ? o.claim : CLAIM;
+  return Object.assign({
+    kind: 'adjudication', round: 0, issue_id: gate.issueIdOf(claim), claim: claim,
+    severity: 'HIGH', disposition: 'rejected', evidence: REASON,
+    at: '2026-08-17T00:00:00.000Z',
+  }, o);
+}
+
+function decideR(reviewers, resolved, round) {
+  return gate.decideAdjudicatedVerdict({
+    reviewers: reviewers, cap: 3, severityGate: 'enforce',
+    round: round === undefined ? 1 : round,
+    resolved: resolved,
+  });
+}
+
+// 같은 claim을 낸 두 리뷰어 — 병합 행 하나가 나온다.
+function bothRaise(claim) {
+  return [
+    reviewer('A', 'FAIL', [finding({ claim: claim })]),
+    reviewer('B', 'FAIL', [finding({ claim: claim })]),
+  ];
+}
+
+function withEnv(kv, fn) {
+  const saved = {};
+  Object.keys(kv).forEach(function (k) {
+    saved[k] = process.env[k];
+    if (kv[k] === undefined) delete process.env[k]; else process.env[k] = kv[k];
+  });
+  try { return fn(); } finally {
+    Object.keys(saved).forEach(function (k) {
+      if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    });
+  }
+}
+
+// ── CLI fixture helpers (M1의 것을 라운드 인자로 넓힌다) ─────────────────────
+
+const BLOCKING_JSON = [{ claim: CLAIM, severity: 'HIGH', failure_scenario: SUBSTANTIVE }];
+
+function recordAt(repo, slug, id, round, json) {
+  const file = writeReviewerFile(repo, 'r-' + id + '-' + round + '.json', json);
+  return cli(['record', '--cwd', repo, '--decision', slug, '--round', String(round),
+    '--id', id, '--model', 'model-' + id, '--reviewer-file', file]);
+}
+
+function verdictAt(repo, slug, round) {
+  return cli(['verdict', '--cwd', repo, '--decision', slug, '--round', String(round)]);
+}
+
+function adjudicateCli(repo, slug, round, issue, disposition, evidence) {
+  return cli(['adjudicate', '--cwd', repo, '--decision', slug, '--round', String(round),
+    '--issue', issue, '--disposition', disposition, '--evidence', evidence]);
+}
+
+// 라운드를 열고 blocking 하나를 낸 뒤 FINAL로 닫는다 → verdict JSON을 돌려준다.
+function openBlockingRound(repo, slug, round, issues) {
+  assert.equal(beginRound(repo, slug).code, EX_OK, 'round ' + round + ' should open');
+  const body = { verdict: 'FAIL', critical_issues: issues || BLOCKING_JSON };
+  assert.equal(recordAt(repo, slug, 'A', round, body).code, EX_OK);
+  assert.equal(recordAt(repo, slug, 'B', round, body).code, EX_OK);
+  const vd = verdictAt(repo, slug, round);
+  assert.equal(vd.code, EX_OK, vd.stderr);
+  return JSON.parse(vd.stdout);
+}
+
+// ── 26~29: 순수 모듈의 파서와 행 스키마 ─────────────────────────────────────
+
+test('[26] 두 env 파서: 미설정은 enforce · off는 off · 불량값은 loud warn 후 enforce', () => {
+  const cases = [
+    ['MCCP_SANTA_ADJUDICATION_GATE', adjudication.parseAdjudicationGate],
+    ['MCCP_SANTA_LEDGER_SUPPRESSION', adjudication.parseLedgerSuppression],
+  ];
+  cases.forEach(function (c) {
+    const name = c[0], parse = c[1];
+    assert.equal(parse({}), 'enforce', name + ': 미설정은 default enforce');
+    assert.equal(parse(undefined), 'enforce', name + ': env 자체 부재도 default');
+    const empty = {}; empty[name] = '';
+    assert.equal(parse(empty), 'enforce', name + ': 빈 문자열은 미설정과 같다');
+    const off = {}; off[name] = 'off';
+    assert.equal(parse(off), 'off', name + ': off는 off');
+    const bad = {}; bad[name] = 'ENFORCE';
+    const cap = captureStderr(function () { return parse(bad); });
+    assert.equal(cap.value, 'enforce', name + ': 불량값은 default로 떨어진다');
+    assert.match(cap.stderr, new RegExp(name), name + ': 조용히 떨어지면 안 된다');
+  });
+});
+
+test('[27] issueIdOf: 정규화 등가 claim은 같은 id · 다른 claim은 다른 id · 비문자열도 던지지 않는다', () => {
+  // **`normalizeClaim` 등가성만 잰다.** 같은 결함을 다르게 쓴 문장(패러프레이즈)은
+  // 이 항목의 대상이 아니고 항목 58이 그 실패 모드를 따로 고정한다.
+  const id = gate.issueIdOf(CLAIM);
+  assert.match(id, /^[0-9a-f]{12}$/, '12 hex');
+  assert.equal(gate.issueIdOf('  The Merge   Step   Drops The Second Envelope '), id,
+    '대소문자와 공백만 다른 claim은 같은 지적이다 — 라운드 안의 dedupe 키와 같은 규칙');
+  assert.notEqual(gate.issueIdOf(PARAPHRASE), id, '다른 문장은 다른 id다');
+  assert.doesNotThrow(function () { gate.issueIdOf(null); });
+  assert.doesNotThrow(function () { gate.issueIdOf(undefined); });
+  assert.doesNotThrow(function () { gate.issueIdOf(42); });
+  assert.equal(gate.issueIdOf(null), gate.issueIdOf(''), '비문자열은 빈 claim으로 정규화된다');
+});
+
+test('[28] buildEntry: 정상 입력은 DD2의 8필드 정확히이고 issue_id는 claim에서 파생된다', () => {
+  const e = adjudication.buildEntry({
+    round: 2, claim: CLAIM, severity: 'HIGH', disposition: 'absorbed',
+    evidence: PROOF, at: '2026-08-17T01:02:03.000Z',
+  });
+  assert.deepEqual(Object.keys(e).sort(),
+    ['at', 'claim', 'disposition', 'evidence', 'issue_id', 'kind', 'round', 'severity'],
+    '그 외 키를 더하지 않는다 — 8필드 정확히');
+  assert.equal(e.kind, 'adjudication');
+  assert.equal(e.issue_id, gate.issueIdOf(CLAIM),
+    'id는 인자가 아니라 claim에서 파생된다 — 호출자가 주면 claim과 어긋난 행을 만들 수 있다');
+  assert.equal(e.round, 2);
+  assert.equal(e.evidence, PROOF);
+  // 호출자가 id를 주려 해도 무시된다 — buildEntry가 issue_id를 만드는 유일한 경로다.
+  const forged = adjudication.buildEntry({
+    round: 0, claim: CLAIM, severity: 'HIGH', disposition: 'rejected',
+    evidence: REASON, at: '2026-08-17T00:00:00.000Z', issue_id: 'deadbeefdead',
+  });
+  assert.equal(forged.issue_id, gate.issueIdOf(CLAIM), '주입된 issue_id는 채택되지 않는다');
+});
+
+test('[29] buildEntry: disposition·severity·round·evidence 위반은 각각 throw한다', () => {
+  const base = {
+    round: 0, claim: CLAIM, severity: 'HIGH', disposition: 'rejected',
+    evidence: REASON, at: '2026-08-17T00:00:00.000Z',
+  };
+  const bad = function (over) {
+    return function () { adjudication.buildEntry(Object.assign({}, base, over)); };
+  };
+  assert.throws(bad({ disposition: 'ABSORBED' }), /SANTA_ADJUDICATION_INVALID|disposition/,
+    '대소문자 구분 — 어휘 밖 값은 거부다');
+  assert.throws(bad({ severity: 'MEDIUM' }), /severity/,
+    'MEDIUM은 애초에 blocking이 아니라 판정 대상이 아니다');
+  assert.throws(bad({ round: -1 }), /round/);
+  assert.throws(bad({ evidence: 'fixed' }), /substantive/,
+    '"fixed" 한 단어로는 흡수를 주장할 수 없다 — validateReason strict에 위임한다');
+  assert.throws(bad({ at: 'not-a-date' }), /at must be/);
+  // 실패는 throw이지 부분 반환이 아니다 — code가 catch-all의 exit 2 매핑을 탄다.
+  try { bad({ disposition: 'nope' })(); assert.fail('should throw'); } catch (err) {
+    assert.equal(err.code, 'SANTA_ADJUDICATION_INVALID');
+  }
+});
+
+// ── 30~32: fold ────────────────────────────────────────────────────────────
+
+test('[30] foldEntries: 같은 issue의 뒤 entry가 이기고 라운드가 다르면 byRoundIssue 키가 다르다', () => {
+  const id = gate.issueIdOf(CLAIM);
+  const f = adjudication.foldEntries([
+    entry({ round: 0, disposition: 'rejected' }),
+    entry({ round: 1, disposition: 'absorbed', evidence: PROOF }),
+  ]);
+  assert.equal(f.resolution.get(id).disposition, 'absorbed', 'last-wins');
+  assert.equal(f.history.get(id).length, 2, '이력 전체가 보존된다 — DD13이 라운드별로 다시 고른다');
+  assert.deepEqual([...f.byRoundIssue].sort(), ['0:' + id, '1:' + id],
+    '라운드가 다르면 coverage 키도 다르다 — 판정은 그 라운드의 제기에 대한 것이다');
+  assert.deepEqual(f.counts, { absorbed: 1, rejected: 1, skipped: 0, reopened: 0 });
+  assert.equal(f.duplicates, 0);
+  assert.equal(f.malformed, 0);
+});
+
+test('[31] foldEntries: 손상 행은 malformed로만 계수되고, 남의 행은 그것에도 들어가지 않는다', () => {
+  const id = gate.issueIdOf(CLAIM);
+
+  // (a) 스키마 미달 — 던지지 않고 malformed로 계수된다.
+  const broken = adjudication.foldEntries([
+    entry({ claim: undefined }),
+    entry({ evidence: 'no' }),
+    // 결속이 깨진 행: claim과 issue_id가 어긋난다. 손으로 편집된 원장의 형태이고,
+    // 그대로 두면 실재하지 않는 지적을 "종결"로 만들 수 있다.
+    entry({ issue_id: 'deadbeefdead' }),
+    null,
+  ]);
+  assert.equal(broken.malformed, 4);
+  assert.equal(broken.resolution.size, 0, 'malformed는 resolution에 들어가지 않는다');
+  assert.equal(broken.byRoundIssue.size, 0, 'coverage도 충족시키지 못한다');
+  assert.deepEqual(broken.counts, { absorbed: 0, rejected: 0, skipped: 0, reopened: 0 });
+
+  // (b) 전역 함수 — 비배열·null·undefined에 던지지 않는다.
+  [null, undefined, 42, 'x', {}].forEach(function (v) {
+    const f = adjudication.foldEntries(v);
+    assert.equal(f.malformed, 0);
+    assert.equal(f.history.size, 0);
+  });
+
+  // (c) **남의 행 vs 태그를 빠뜨린 행** — 두 경우를 각각 단언한다.
+  const foreign = adjudication.foldEntries([{ kind: 'evidence-note', anything: true }]);
+  assert.equal(foreign.malformed, 0, '`kind`가 다른 문자열이면 손상이 아니라 무관이다');
+  assert.equal(foreign.history.size, 0);
+
+  const untagged = entry({});
+  delete untagged.kind;
+  const t = adjudication.foldEntries([untagged]);
+  assert.equal(t.malformed, 1,
+    '태그 부재는 검증을 거쳐 malformed다 — 남의 행으로 접으면 writer의 행이 조용히 사라진다');
+  assert.equal(t.byRoundIssue.size, 0);
+  const nonString = adjudication.foldEntries([entry({ kind: 7 })]);
+  assert.equal(nonString.malformed, 1, '비문자열 태그도 같은 취급이다');
+
+  // 어느 쪽도 suppression을 발화시키지 않는다 — 양쪽 모두 fail-closed 방향이다.
+  const r = decideR(bothRaise(CLAIM), broken.history, 1);
+  assert.equal(r.suppressed.length, 0);
+  assert.equal(r.blocking.length, 1);
+  assert.ok(id.length === 12);
+});
+
+test('[32] foldEntries: 같은 (round, issue) 중복 append는 duplicates로 세되 fold는 하나로 수렴한다', () => {
+  const id = gate.issueIdOf(CLAIM);
+  const f = adjudication.foldEntries([
+    entry({ round: 0, disposition: 'rejected' }),
+    entry({ round: 0, disposition: 'absorbed', evidence: PROOF }),
+    entry({ round: 0, disposition: 'skipped', evidence: REASON }),
+  ]);
+  assert.equal(f.duplicates, 2, '두 번째부터가 중복이다');
+  assert.equal(f.byRoundIssue.size, 1, 'coverage 키는 하나로 수렴한다');
+  assert.equal(f.resolution.get(id).disposition, 'skipped', '마지막이 이긴다');
+  assert.equal(f.history.get(id).length, 3, '중복도 이력에는 남는다 — 막지 않고 흡수한다(DD1)');
+});
+
+// ── 33~38: suppression 축 ───────────────────────────────────────────────────
+
+test('[33] 하위 호환 — resolved 부재 시 M1 7키의 값이 그대로이고 키 집합은 정확히 9개다', () => {
+  const rs = [reviewer('A', 'FAIL', [finding({ severity: 'CRITICAL' })]), reviewer('B', 'PASS', [])];
+  const opts = { reviewers: rs, round: 0, cap: 3, severityGate: 'enforce' };
+  const absent = gate.decideAdjudicatedVerdict(opts);
+  const emptyMap = gate.decideAdjudicatedVerdict(Object.assign({}, opts, { resolved: new Map() }));
+  const nullRes = gate.decideAdjudicatedVerdict(Object.assign({}, opts, { resolved: null }));
+
+  const M1_KEYS = ['verdict', 'failing', 'exitReason', 'blocking', 'mismatches',
+    'contract', 'byReviewer'];
+  const pick = function (o) {
+    return M1_KEYS.reduce(function (acc, k) { acc[k] = o[k]; return acc; }, {});
+  };
+  // **반환 전체 deepEqual은 쓰지 않는다** — 같은 Task가 반환에 키 두 개를 더하므로
+  // 그 형태의 단언은 설계상 통과할 수 없다. 정확한 명제는 "기존 키의 값이 하나도
+  // 바뀌지 않는다"이고 그것만 잰다.
+  assert.deepEqual(pick(emptyMap), pick(absent));
+  assert.deepEqual(pick(nullRes), pick(absent));
+  // 값 자체도 M1 의미 그대로임을 고정한다(위 비교가 공허해지지 않게).
+  assert.equal(absent.verdict, 'NAUGHTY');
+  assert.equal(absent.blocking.length, 1);
+  assert.deepEqual(absent.failing, ['A']);
+  assert.equal(absent.contract, 'full');
+
+  assert.deepEqual(absent.suppressed, []);
+  assert.equal(absent.niceBySuppression, false);
+  assert.equal(Object.keys(absent).length, 9,
+    '세 번째 키가 조용히 늘어나면 여기서 잡힌다');
+  assert.deepEqual(Object.keys(absent).sort(),
+    ['blocking', 'byReviewer', 'contract', 'exitReason', 'failing', 'mismatches',
+      'niceBySuppression', 'suppressed', 'verdict']);
+});
+
+test('[34] rejected 종결 항목이 다음 라운드에 재등장하면 blocking에서 빠지고 라운드가 NICE가 된다', () => {
+  const folded = adjudication.foldEntries([entry({ round: 0, disposition: 'rejected' })]);
+  const r = decideR(bothRaise(CLAIM), folded.history, 1);
+  assert.equal(r.blocking.length, 0, '게이트가 세는 수에서 빠진다');
+  assert.equal(r.suppressed.length, 1, '사라지지 않고 suppressed로 보존된다(UI7)');
+  assert.equal(r.suppressed[0].issueId, gate.issueIdOf(CLAIM));
+  assert.equal(r.suppressed[0].kind, 'rejected-rereported');
+  assert.equal(r.suppressed[0].entryRound, 0, '어느 라운드의 판정이 지웠는지 남는다');
+  assert.deepEqual(r.suppressed[0].ids, ['A', 'B'], '누가 냈는지도 보존된다');
+  assert.equal(r.verdict, 'NICE', 'PRD 재보고 차단 — 종결된 지적이 라운드를 다시 태우지 않는다');
+  assert.deepEqual(r.failing, [], '지워진 지적을 낸 리뷰어를 실패자로 부르지 않는다');
+});
+
+test('[35] absorbed 재등장도 suppress되되 absorbed-rereported로 분류된다 (DD8 — 신호가 사라지지 않는다)', () => {
+  const folded = adjudication.foldEntries([
+    entry({ round: 0, disposition: 'absorbed', evidence: PROOF }),
+  ]);
+  const r = decideR(bothRaise(CLAIM), folded.history, 1);
+  assert.equal(r.blocking.length, 0);
+  assert.equal(r.suppressed[0].kind, 'absorbed-rereported',
+    '"당신의 수정이 듣지 않았을 수 있다"는 신호가 분류로 남는다 — 라운드를 태우지 않으면서 도달하는 유일한 경로');
+  assert.equal(r.suppressed[0].disposition, 'absorbed');
+  assert.equal(r.niceBySuppression, true);
+});
+
+test('[36] skipped와 reopened는 suppress하지 않는다 — 같은 입력이 NAUGHTY로 남는다', () => {
+  ['skipped', 'reopened'].forEach(function (d) {
+    const folded = adjudication.foldEntries([entry({ round: 0, disposition: d })]);
+    const r = decideR(bothRaise(CLAIM), folded.history, 1);
+    assert.equal(r.suppressed.length, 0, d + '는 종결이 아니다');
+    assert.equal(r.blocking.length, 1, d + ' 뒤에도 그 지적은 blocking이다');
+    assert.equal(r.verdict, 'NAUGHTY',
+      d + ': 판정 의무는 면제하되 회피가 공짜가 아니다');
+  });
+});
+
+test('[37] suppression은 byReviewer의 원시 분모를 바꾸지 않는다 (강등 비율 보존 — UI8)', () => {
+  const rs = bothRaise(CLAIM);
+  const folded = adjudication.foldEntries([entry({ round: 0, disposition: 'rejected' })]);
+  const raw = decideR(rs, null, 1);
+  const sup = decideR(rs, folded.history, 1);
+  assert.equal(sup.blocking.length, 0, 'suppression이 실제로 발화한 경로여야 의미가 있다');
+  assert.deepEqual(sup.byReviewer, raw.byReviewer,
+    'byReviewer는 원시값 그대로다 — suppression 이후 값으로 바꾸면 강등 비율의 분모가 사라진다');
+  assert.equal(sup.byReviewer.A.blocking, 1);
+  assert.equal(sup.byReviewer.B.blocking, 1);
+});
+
+test('[38] MCCP_SANTA_LEDGER_SUPPRESSION=off면 종결 항목도 blocking으로 남는다 (M1 등가 · 대조군)', () => {
+  const repo = makeRepo();
+  const slug = 'suppression-off';
+  const v0 = openBlockingRound(repo, slug, 0);
+  const id = v0.blocking[0].issueId;
+  assert.equal(adjudicateCli(repo, slug, 0, id, 'rejected', REASON).code, EX_OK);
+  assert.equal(beginRound(repo, slug).code, EX_OK);
+  const body = { verdict: 'FAIL', critical_issues: BLOCKING_JSON };
+  assert.equal(recordAt(repo, slug, 'A', 1, body).code, EX_OK);
+  assert.equal(recordAt(repo, slug, 'B', 1, body).code, EX_OK);
+
+  const off = withEnv({ MCCP_SANTA_LEDGER_SUPPRESSION: 'off' }, function () {
+    return JSON.parse(verdictAt(repo, slug, 1).stdout);
+  });
+  assert.equal(off.blocking.length, 1, 'off는 suppression 경로를 아예 타지 않는다');
+  assert.equal(off.suppressed.length, 0);
+  assert.equal(off.verdict, 'NAUGHTY',
+    '같은 원장에 대해 켠 판정과 끈 판정을 비교하면 M2의 효과가 한 라운드 안에서 관측된다');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+// ── 39~40: coverage ────────────────────────────────────────────────────────
+
+test('[39] coverageOf: 라운드 결속 — round === N인 entry만 그 라운드의 판정을 충족시킨다', () => {
+  const id = gate.issueIdOf(CLAIM);
+  const row = { issueId: id, claim: CLAIM, severity: 'HIGH', ids: ['A'] };
+
+  const other = adjudication.foldEntries([entry({ round: 0 })]);
+  const miss = adjudication.coverageOf({ effectiveBlocking: [row], round: 1, folded: other });
+  assert.equal(miss.covered, false,
+    '라운드 0의 판정이 라운드 1의 제기를 면제하면 reopened가 자기 자신을 면제하는 고리가 된다');
+  assert.deepEqual(miss.missing, [{ issueId: id, claim: CLAIM, severity: 'HIGH' }]);
+
+  const same = adjudication.foldEntries([entry({ round: 1 })]);
+  assert.deepEqual(adjudication.coverageOf({ effectiveBlocking: [row], round: 1, folded: same }),
+    { covered: true, missing: [] });
+
+  // blocking 0건은 공허 참이고, round를 모르면 아무것도 증명되지 않는다.
+  assert.equal(adjudication.coverageOf({ effectiveBlocking: [], round: 1, folded: same }).covered, true);
+  assert.equal(adjudication.coverageOf({ effectiveBlocking: [row], round: null, folded: same }).covered,
+    false, '라운드를 모르면 키를 만들 수 없다 → 증명 실패 쪽으로 떨어진다');
+});
+
+test('[40] coverageOf: suppressed 항목은 missing에 들어가지 않는다', () => {
+  const folded = adjudication.foldEntries([entry({ round: 0, disposition: 'rejected' })]);
+  const r = decideR(bothRaise(CLAIM), folded.history, 1);
+  assert.equal(r.suppressed.length, 1);
+  // 게이트가 넘기는 것은 **effective**뿐이다. 그렇지 않으면 종결 항목이 매 라운드
+  // 재판정을 요구해 suppression의 목적이 사라진다.
+  const cov = adjudication.coverageOf({
+    effectiveBlocking: r.blocking, round: 1, folded: folded,
+  });
+  assert.equal(cov.covered, true);
+  assert.deepEqual(cov.missing, []);
+});
+
+// ── 41~46 · 52~55: CLI 배선 ─────────────────────────────────────────────────
+
+test('[41] cli adjudicate: 정상 append 후 entries가 1 늘고 저장된 claim은 원장 blocking 행의 원문이다', () => {
+  const repo = makeRepo();
+  const slug = 'adj-ok';
+  const v0 = openBlockingRound(repo, slug, 0);
+  const id = v0.blocking[0].issueId;
+  assert.equal(readState(repo, slug).entries.length, 0);
+
+  const r = adjudicateCli(repo, slug, 0, id, 'absorbed', PROOF);
+  assert.equal(r.code, EX_OK, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout),
+    { appended: true, round: 0, issueId: id, disposition: 'absorbed', entries: 1 });
+
+  const stored = readState(repo, slug).entries;
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].claim, CLAIM,
+    'claim은 인자가 아니라 원장 행에서 온다 — 호출자가 타이핑하면 원문과 어긋난 행이 저장된다');
+  assert.equal(stored[0].severity, 'HIGH', 'severity도 마찬가지다');
+  assert.equal(stored[0].issue_id, gate.issueIdOf(CLAIM));
+  assert.equal(stored[0].kind, 'adjudication');
+  assert.ok(!Number.isNaN(Date.parse(stored[0].at)), 'at은 CLI가 stamp한다');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('[42] cli adjudicate: 미개설 라운드 · 없는 issue · 미인식 disposition은 각각 exit 2 + append 0건', () => {
+  const repo = makeRepo();
+  const slug = 'adj-reject';
+  const v0 = openBlockingRound(repo, slug, 0);
+  const id = v0.blocking[0].issueId;
+
+  const noRound = adjudicateCli(repo, slug, 7, id, 'rejected', REASON);
+  assert.equal(noRound.code, EX_USAGE);
+  assert.match(noRound.stderr, /SANTA_ROUND_NOT_OPEN/);
+  assert.equal(readState(repo, slug).entries.length, 0, 'append 0건');
+
+  const noIssue = adjudicateCli(repo, slug, 0, 'deadbeefdead', 'rejected', REASON);
+  assert.equal(noIssue.code, EX_USAGE);
+  assert.match(noIssue.stderr, /SANTA_ADJUDICATION_UNKNOWN_ISSUE/);
+  assert.equal(readState(repo, slug).entries.length, 0,
+    '제기된 적 없는 지적에 대한 판정은 원장을 오염시킨다');
+
+  const badDisp = adjudicateCli(repo, slug, 0, id, 'ABSORBED', REASON);
+  assert.equal(badDisp.code, EX_USAGE);
+  assert.match(badDisp.stderr, /SANTA_ADJUDICATION_INVALID/);
+  assert.equal(readState(repo, slug).entries.length, 0);
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('[43] cli begin-round: 미판정 blocking이 남으면 exit 2이고 라운드가 열리지 않는다 (캡 미소모)', () => {
+  const repo = makeRepo();
+  const slug = 'cov-refuse';
+  openBlockingRound(repo, slug, 0);
+  const before = readState(repo, slug).rounds.length;
+
+  const r = beginRound(repo, slug);
+  assert.equal(r.code, EX_USAGE);
+  assert.match(r.stderr, /SANTA_ADJUDICATION_INCOMPLETE/);
+  assert.match(r.stderr, new RegExp(gate.issueIdOf(CLAIM)),
+    '무엇을 판정해야 하는지 말하지 않으면 운영자는 원장 JSON을 손으로 읽어야 하고 게이트는 우회 대상이 된다');
+  assert.equal(readState(repo, slug).rounds.length, before,
+    '거부는 ledger.beginRound 이전이라 캡이 소모되지 않는다');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('[44] cli begin-round: 전건 판정 후 같은 호출이 라운드를 연다 (43과 쌍)', () => {
+  const repo = makeRepo();
+  const slug = 'cov-open';
+  const v0 = openBlockingRound(repo, slug, 0);
+  assert.equal(beginRound(repo, slug).code, EX_USAGE, '먼저 거부되는 것이 이 쌍의 전제다');
+
+  assert.equal(adjudicateCli(repo, slug, 0, v0.blocking[0].issueId, 'skipped', REASON).code, EX_OK);
+  const opened = beginRound(repo, slug);
+  assert.equal(opened.code, EX_OK, opened.stderr);
+  assert.equal(JSON.parse(opened.stdout).roundIndex, 1);
+  assert.equal(readState(repo, slug).rounds.length, 2);
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('[45] cli begin-round: MCCP_SANTA_ADJUDICATION_GATE=off면 loud warn 후 라운드가 열린다', () => {
+  const repo = makeRepo();
+  const slug = 'cov-off';
+  openBlockingRound(repo, slug, 0);
+  const r = withEnv({ MCCP_SANTA_ADJUDICATION_GATE: 'off' }, function () {
+    return beginRound(repo, slug);
+  });
+  assert.equal(r.code, EX_OK);
+  assert.match(r.stderr, /MCCP_SANTA_ADJUDICATION_GATE=off/,
+    '검사를 끈 것은 조용히 일어나지 않는다 — 그 구간이 귀납의 예외이기 때문이다');
+  assert.equal(readState(repo, slug).rounds.length, 2);
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('[46] cli verdict: M2 키가 실리고 기존 7키가 유지되며 ledger.read는 1회만 호출된다 (DD10)', () => {
+  const repo = makeRepo();
+  const slug = 'verdict-keys';
+  const v0 = openBlockingRound(repo, slug, 0);
+  assert.equal(adjudicateCli(repo, slug, 0, v0.blocking[0].issueId, 'rejected', REASON).code, EX_OK);
+  assert.equal(beginRound(repo, slug).code, EX_OK);
+  const body = { verdict: 'FAIL', critical_issues: BLOCKING_JSON };
+  assert.equal(recordAt(repo, slug, 'A', 1, body).code, EX_OK);
+  assert.equal(recordAt(repo, slug, 'B', 1, body).code, EX_OK);
+
+  // spy — `carryOver`가 직전 라운드를 보는데도 읽기가 1회임을 같은 spy로 고정한다.
+  // 최종 JSON만 보면 읽기 횟수가 보이지 않는다.
+  const origRead = ledgerMod.read;
+  const origReadReviewers = ledgerMod.readReviewers;
+  let reads = 0, legacyReads = 0;
+  ledgerMod.read = function (o) { reads += 1; return origRead(o); };
+  ledgerMod.readReviewers = function (a, b) { legacyReads += 1; return origReadReviewers(a, b); };
+  let vd;
+  try { vd = verdictAt(repo, slug, 1); } finally {
+    ledgerMod.read = origRead;
+    ledgerMod.readReviewers = origReadReviewers;
+  }
+  assert.equal(vd.code, EX_OK, vd.stderr);
+  assert.equal(reads, 1, '읽기가 2회면 그 사이 mutation이 끼어 동시에 존재한 적 없는 조합이 봉인된다');
+  assert.equal(legacyReads, 0,
+    '옛 경로(readReviewers)를 그대로 쓰면 spy는 여전히 1을 세므로, 리팩터 자체를 따로 잰다');
+
+  const j = JSON.parse(vd.stdout);
+  ['verdict', 'failing', 'exitReason', 'contract', 'blocking', 'mismatches', 'byReviewer']
+    .forEach(function (k) { assert.ok(k in j, '기존 7키 유지: ' + k); });
+  ['suppressed', 'niceBySuppression', 'entries', 'ledger', 'carryOver']
+    .forEach(function (k) { assert.ok(k in j, 'M2 키: ' + k); });
+  assert.equal(j.entries, 1);
+  assert.deepEqual(Object.keys(j.ledger).sort(), ['counts', 'duplicates', 'malformed']);
+  assert.deepEqual(Object.keys(j.carryOver).sort(),
+    ['newBlocking', 'resolvedAbsent', 'suppressed']);
+  assert.equal(j.suppressed.length, 1);
+  assert.equal(j.carryOver.suppressed, 1);
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('[47] santa-loop.md: Step 3 블록에 원장 토큰이 부재하고 M1 문언이 그 블록 안에 있다', () => {
+  const md = fs.readFileSync(SANTA_LOOP_MD, 'utf8');
+  const start = md.indexOf('### Step 3:');
+  const end = md.indexOf('### Step 4:');
+  assert.ok(start !== -1 && end > start, 'Step 3 블록 경계를 찾지 못하면 이 항목은 아무것도 재지 않는다');
+  const step3 = md.slice(start, end);
+
+  // **부재** — 원장은 리뷰어에게 가지 않는다(I3 · DD9). 주입 지점은 `cli.js#cmdVerdict`
+  // 하나이고 리뷰어 프롬프트를 만드는 것은 이 절이다.
+  //
+  // 대소문자를 구분한다: `SANTA_ADJUDICATION_INCOMPLETE`는 **exit 진단 코드**이지
+  // 원장 내용이 아니므로 이 단언의 대상이 아니다. 그 구분을 여기 적어 두는 이유는,
+  // 적지 않으면 다음 편집자가 상수 이름을 소문자로 바꿔 이 test를 우연히 깨거나
+  // 반대로 원장 요약을 대문자로 써서 우회하기 때문이다.
+  ['adjudicate', 'entries', 'suppressed'].forEach(function (t) {
+    assert.equal(step3.indexOf(t), -1,
+      'Step 3에 "' + t + '"가 있으면 원장이 리뷰어 프롬프트로 새는 가장 직접적인 형태다');
+  });
+
+  // **존재** — 같은 블록 **안에** 있어야 한다. 항목 14·20은 파일 전역을 보므로
+  // "지워졌다"만 잡고 "옮겨졌다"는 놓친다. 절 경계를 파싱하는 이 단언이 둘을 덮는다.
+  assert.ok(step3.indexOf('You are an independent quality reviewer. You have NOT seen any ' +
+    'other review. Your job is to find problems, not to approve.') !== -1,
+    'FAIL-first 문장이 Step 3 밖으로 옮겨지면 리뷰어 프롬프트가 그것을 잃는다');
+  assert.ok(step3.indexOf('failure_scenario') !== -1,
+    'severity 계약의 blocking 조건이 Step 3 안에 있어야 리뷰어가 읽는다');
+
+  // Step 5는 반대로 판정 기록 단계를 **가져야** 한다.
+  const step5 = md.slice(md.indexOf('### Step 5: Fix Cycle'), md.indexOf('### Step 5.5:'));
+  assert.match(step5, /adjudicate --decision/, 'NAUGHTY 경로에 판정 기록 단계가 있어야 한다');
+  assert.match(step5, /SANTA_ADJUDICATION_INCOMPLETE/,
+    '건너뛰면 다음 begin-round가 거부한다는 것을 산문이 예고해야 운영자가 거부를 버그로 오해하지 않는다');
+});
+
+test('[48] receipt에 santa_entries가 정수로 봉인되고 판정 본문은 원장에만 있다', () => {
+  const repo = makeRepo();
+  const slug = 'sealed-entries';
+  const v0 = openBlockingRound(repo, slug, 0);
+  assert.equal(adjudicateCli(repo, slug, 0, v0.blocking[0].issueId, 'absorbed', EV_CANARY).code,
+    EX_OK);
+
+  // 다음 라운드는 재등장 없이 깨끗하게 수렴한다 → NICE → seal.
+  assert.equal(beginRound(repo, slug).code, EX_OK);
+  assert.equal(recordAt(repo, slug, 'A', 1, { verdict: 'PASS', critical_issues: [] }).code, EX_OK);
+  assert.equal(recordAt(repo, slug, 'B', 1, { verdict: 'PASS', critical_issues: [] }).code, EX_OK);
+  assert.equal(verdictAt(repo, slug, 1).code, EX_OK);
+  assert.equal(cli(['seal', '--cwd', repo, '--decision', slug]).code, EX_OK);
+
+  const state = readState(repo, slug);
+  assert.equal(state.entries.length, 1);
+  assert.ok(JSON.stringify(state).indexOf(EV_CANARY) !== -1, '원장에는 판정 본문이 있다');
+
+  const receiptText = fs.readFileSync(
+    path.join(repo, '.claude', 'receipts', 'mccp-santa-review', slug + '.json'), 'utf8');
+  const receipt = JSON.parse(receiptText);
+  assert.ok(Number.isInteger(receipt.meta.santa_entries));
+  assert.equal(receipt.meta.santa_entries, state.entries.length,
+    '타입만 보면 원장 0건에 receipt 5가 실려도 통과한다 — 값 일치까지 잰다');
+  // 두 단언이 함께 있어야 "원장에는 있고 receipt에는 없다"가 검사된다.
+  assert.equal(receiptText.indexOf(EV_CANARY), -1,
+    '판정 사유 본문이 git-tracked receipt로 새면 안 된다');
+  assert.equal(receiptText.indexOf(CLAIM), -1, 'claim 본문도 마찬가지다');
+  const reportText = fs.readFileSync(
+    path.join(repo, '.claude', 'reviews', 'santa-review-' + slug + '.md'), 'utf8');
+  assert.equal(reportText.indexOf(EV_CANARY), -1, '집계 리포트도 git-tracked이다');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('[49] DD13 — 같은 라운드의 판정은 자기 자신을 지우지 못한다 (판정만으로 루프를 끝내는 우회 차단)', () => {
+  const repo = makeRepo();
+  const slug = 'self-suppress';
+  const v0 = openBlockingRound(repo, slug, 0);
+  const id = v0.blocking[0].issueId;
+  assert.equal(v0.verdict, 'NAUGHTY');
+
+  assert.equal(adjudicateCli(repo, slug, 0, id, 'absorbed', PROOF).code, EX_OK);
+  const again = JSON.parse(verdictAt(repo, slug, 0).stdout);
+  assert.equal(again.verdict, 'NAUGHTY',
+    '판정 → 같은 라운드 verdict 재호출 → NICE → seal → push는 리뷰가 한 번도 다시 돌지 않는 경로다');
+  assert.equal(again.suppressed.length, 0);
+  assert.equal(again.blocking.length, 1);
+
+  // 라운드 N+1에 같은 claim이 재등장했을 때만 suppress된다.
+  assert.equal(beginRound(repo, slug).code, EX_OK);
+  const body = { verdict: 'FAIL', critical_issues: BLOCKING_JSON };
+  assert.equal(recordAt(repo, slug, 'A', 1, body).code, EX_OK);
+  assert.equal(recordAt(repo, slug, 'B', 1, body).code, EX_OK);
+  const v1 = JSON.parse(verdictAt(repo, slug, 1).stdout);
+  assert.equal(v1.suppressed.length, 1);
+  assert.equal(v1.verdict, 'NICE');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('[50] resolved가 비어 있지 않은데 round가 정수가 아니면 suppression 0건 + loud warn', () => {
+  const folded = adjudication.foldEntries([entry({ round: 0, disposition: 'rejected' })]);
+  // `decideR`을 쓰지 않는다 — 그 helper는 `round` 미지정을 1로 채우므로 `undefined`
+  // 케이스가 정수 경로로 새어 이 항목이 아무것도 재지 못한다.
+  const withRound = function (bad) {
+    return gate.decideAdjudicatedVerdict({
+      reviewers: bothRaise(CLAIM), cap: 3, severityGate: 'enforce',
+      round: bad, resolved: folded.history,
+    });
+  };
+  [null, undefined, '1', 1.5, NaN].forEach(function (bad) {
+    const cap = captureStderr(function () { return withRound(bad); });
+    assert.equal(cap.value.suppressed.length, 0,
+      '라운드를 모르면 자기-suppression을 막을 수 없으므로 안전한 기본값은 M1 동작이다');
+    assert.equal(cap.value.blocking.length, 1);
+    assert.match(cap.stderr, /round is not an integer/);
+  });
+  // 비-Map `resolved`도 같은 방향으로 떨어진다.
+  const cap2 = captureStderr(function () { return decideR(bothRaise(CLAIM), { a: 1 }, 1); });
+  assert.equal(cap2.value.suppressed.length, 0);
+  assert.match(cap2.stderr, /must be a Map/);
+});
+
+test('[51] niceBySuppression: suppression 덕분에 NICE인 라운드에서만 true다 (세 경우)', () => {
+  const folded = adjudication.foldEntries([entry({ round: 0, disposition: 'rejected' })]);
+
+  const bySup = decideR(bothRaise(CLAIM), folded.history, 1);
+  assert.equal(bySup.verdict, 'NICE');
+  assert.equal(bySup.niceBySuppression, true, '원장이 루프를 끝낸 사건은 눈에 보여야 한다');
+
+  const cleanNice = decideR([reviewer('A', 'PASS', []), reviewer('B', 'PASS', [])], folded.history, 1);
+  assert.equal(cleanNice.verdict, 'NICE');
+  assert.equal(cleanNice.niceBySuppression, false, 'suppression 없이 NICE면 false다');
+
+  const naughty = decideR(bothRaise(PARAPHRASE), folded.history, 1);
+  assert.equal(naughty.verdict, 'NAUGHTY');
+  assert.equal(naughty.niceBySuppression, false, 'blocking이 남아 NAUGHTY면 false다');
+});
+
+test('[52] cli record: FINAL 라운드에 기록하면 exit 2 + append 0건 (DD14)', () => {
+  const repo = makeRepo();
+  const slug = 'record-final';
+  openBlockingRound(repo, slug, 0);
+  const before = readState(repo, slug).rounds[0].reviewers.length;
+
+  const r = recordAt(repo, slug, 'A', 0, { verdict: 'PASS', critical_issues: [] });
+  assert.equal(r.code, EX_USAGE);
+  assert.match(r.stderr, /SANTA_ROUND_NOT_OPEN/);
+  assert.match(r.stderr, /already FINAL/);
+  assert.equal(readState(repo, slug).rounds[0].reviewers.length, before,
+    'FINAL 라운드에 리뷰어가 더 붙으면 판정한 blocking 집합과 검사하는 집합이 갈린다');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('[53] cli record: 같은 라운드에 같은 id를 다시 기록하면 exit 2 + append 0건 (DD14)', () => {
+  const repo = makeRepo();
+  const slug = 'record-dup';
+  assert.equal(beginRound(repo, slug).code, EX_OK);
+  const body = { verdict: 'FAIL', critical_issues: BLOCKING_JSON };
+  assert.equal(recordAt(repo, slug, 'A', 0, body).code, EX_OK);
+
+  const dup = recordAt(repo, slug, 'A', 0, body);
+  assert.equal(dup.code, EX_USAGE);
+  assert.match(dup.stderr, /SANTA_REVIEWER_DUPLICATE_ID/);
+  assert.equal(readState(repo, slug).rounds[0].reviewers.length, 1,
+    '한 리뷰어를 둘로 세면 blocking[].ids와 byReviewer가 갈리고 판정 대상 목록이 부정확해진다');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('[54] cli verdict: FINAL 재호출은 mutation 없이 같은 JSON을 내고, 갈리면 SANTA_VERDICT_UNSTABLE이다', () => {
+  const repo = makeRepo();
+  const slug = 'verdict-once';
+  const first = openBlockingRound(repo, slug, 0);
+  const before = bytes(statePath(repo, slug));
+
+  const again = verdictAt(repo, slug, 0);
+  assert.equal(again.code, EX_OK);
+  assert.deepEqual(JSON.parse(again.stdout), first, '재계산이 결정적이므로 같은 JSON이다(DD13)');
+  assert.ok(before.equals(bytes(statePath(repo, slug))), '원장 바이트가 불변이다 — mutation 0건');
+
+  // 저장 verdict와 재계산이 갈리는 fixture — 손으로 편집된 원장의 형태다.
+  const st = readState(repo, slug);
+  st.rounds[0].verdict = 'NICE';
+  fs.writeFileSync(statePath(repo, slug), JSON.stringify(st, null, 2) + '\n');
+  const unstable = verdictAt(repo, slug, 0);
+  assert.equal(unstable.code, EX_USAGE);
+  assert.match(unstable.stderr, /SANTA_VERDICT_UNSTABLE/);
+  assert.equal(readState(repo, slug).rounds[0].verdict, 'NICE',
+    '봉인된 verdict를 조용히 덮어쓰지 않는다 — 불일치 자체가 진단이다');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('[55] cli adjudicate: 이미 suppress된 issue도 reopened로 되돌릴 수 있다 (존재 검사가 합집합이다)', () => {
+  const repo = makeRepo();
+  const slug = 'reopen';
+  const v0 = openBlockingRound(repo, slug, 0);
+  const id = v0.blocking[0].issueId;
+  assert.equal(adjudicateCli(repo, slug, 0, id, 'rejected', REASON).code, EX_OK);
+
+  assert.equal(beginRound(repo, slug).code, EX_OK);
+  const body = { verdict: 'FAIL', critical_issues: BLOCKING_JSON };
+  assert.equal(recordAt(repo, slug, 'A', 1, body).code, EX_OK);
+  assert.equal(recordAt(repo, slug, 'B', 1, body).code, EX_OK);
+  const v1 = JSON.parse(verdictAt(repo, slug, 1).stdout);
+  assert.equal(v1.blocking.length, 0, '라운드 1에서 그 지적은 effective에 없다');
+  assert.equal(v1.suppressed.length, 1);
+
+  // effective만 보면 이 호출이 불가능해진다 — 탈출구를 만들어 놓고 문을 잠그는 셈이다.
+  const re = adjudicateCli(repo, slug, 1, id, 'reopened', REASON);
+  assert.equal(re.code, EX_OK, re.stderr);
+
+  assert.equal(beginRound(repo, slug).code, EX_OK);
+  assert.equal(recordAt(repo, slug, 'A', 2, body).code, EX_OK);
+  assert.equal(recordAt(repo, slug, 'B', 2, body).code, EX_OK);
+  const v2 = JSON.parse(verdictAt(repo, slug, 2).stdout);
+  assert.equal(v2.blocking.length, 1, 'reopened 이후 그 지적은 다시 blocking으로 계수된다');
+  assert.equal(v2.suppressed.length, 0);
+  assert.equal(v2.verdict, 'NAUGHTY');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+// ── 56~60: 생산 지점 · 관측 · runtime 가드 ──────────────────────────────────
+
+test('[56] analyzeReviewers: 병합 blocking 행마다 issueId가 있고 issueIdOf(그 행의 claim)과 같다', () => {
+  const a = gate.analyzeReviewers(bothRaise(CLAIM));
+  assert.equal(a.blocking.length, 1, '같은 claim을 낸 두 리뷰어는 한 행으로 합쳐진다');
+  assert.equal(typeof a.blocking[0].issueId, 'string');
+  assert.equal(a.blocking[0].issueId, gate.issueIdOf(a.blocking[0].claim),
+    '이 필드가 빠지면 coverage·suppression·adjudicate 조회가 전부 undefined 키로 조용히 통과한다');
+  assert.deepEqual(a.blocking[0].ids, ['A', 'B'], '병합돼도 id는 하나다');
+
+  // 서로 다른 두 지적은 서로 다른 id를 갖는다 — 전건에 대해 성립해야 한다.
+  const two = gate.analyzeReviewers([
+    reviewer('A', 'FAIL', [finding({ claim: CLAIM }), finding({ claim: PARAPHRASE })]),
+    reviewer('B', 'PASS', []),
+  ]);
+  assert.equal(two.blocking.length, 2);
+  two.blocking.forEach(function (b) {
+    assert.equal(b.issueId, gate.issueIdOf(b.claim));
+  });
+  assert.notEqual(two.blocking[0].issueId, two.blocking[1].issueId);
+});
+
+test('[57] carryOverOf: 정확 재보고는 suppressed로 잡히고 라운드 0의 newBlocking은 raw 전체다', () => {
+  const folded = adjudication.foldEntries([entry({ round: 0, disposition: 'rejected' })]);
+  const id = gate.issueIdOf(CLAIM);
+
+  const c1 = adjudication.carryOverOf({
+    rawBlockingIds: [id], prevBlockingIds: [id], folded: folded, round: 1,
+  });
+  assert.deepEqual(c1, { suppressed: 1, resolvedAbsent: 0, newBlocking: 0 });
+
+  // 라운드 0 — 비교할 직전 라운드가 없다. 그것을 "새 지적이 없다"와 같은 0으로
+  // 보고하면 첫 라운드가 영원히 조용해진다.
+  const c0 = adjudication.carryOverOf({
+    rawBlockingIds: [id, gate.issueIdOf(PARAPHRASE)], prevBlockingIds: null,
+    folded: folded, round: 0,
+  });
+  assert.equal(c0.newBlocking, 2);
+  assert.equal(c0.suppressed, 0, '라운드 0에는 round < 0인 판정이 없다');
+
+  // 전부 집합 연산이고 임계가 없다 — 입력 형태(Set/배열)에 무관하다.
+  const asSet = adjudication.carryOverOf({
+    rawBlockingIds: new Set([id]), prevBlockingIds: new Set(), folded: folded, round: 1,
+  });
+  assert.equal(asSet.newBlocking, 1);
+});
+
+test('[58] 패러프레이즈는 suppress되지 않고 그 사건이 resolvedAbsent·newBlocking 쌍으로 관측된다', () => {
+  const folded = adjudication.foldEntries([entry({ round: 0, disposition: 'rejected' })]);
+  const r = decideR(bothRaise(PARAPHRASE), folded.history, 1);
+  assert.equal(r.suppressed.length, 0,
+    '같은 결함을 다르게 쓰면 id가 갈려 suppression이 발화하지 않는다 — DD5가 인정한 한계다');
+  assert.equal(r.blocking.length, 1);
+  assert.equal(r.verdict, 'NAUGHTY');
+
+  const c = adjudication.carryOverOf({
+    rawBlockingIds: [gate.issueIdOf(PARAPHRASE)],
+    prevBlockingIds: [gate.issueIdOf(CLAIM)],
+    folded: folded, round: 1,
+  });
+  assert.ok(c.resolvedAbsent >= 1, '종결한 지적이 사라진 것처럼 보인다');
+  assert.ok(c.newBlocking >= 1, '동시에 새 지적이 같은 속도로 늘어난다');
+  // **이 쌍은 패러프레이즈를 식별하지 않는다. 그 패턴을 노출할 뿐이다.** 훗날
+  // 누군가 fuzzy matcher를 넣으면 위 `suppressed.length === 0`이 red가 되어 설계
+  // 변경이 명시적으로 드러난다.
+  assert.equal(c.suppressed, 0);
+});
+
+test('[59] lastBefore: append 순서로 마지막을 고르고 부재·비정수 round는 던지지 않는다 (네 경우)', () => {
+  const id = gate.issueIdOf(CLAIM);
+
+  // (1) 라운드 1 rejected → 라운드 2 reopened → 라운드 3의 판정은 reopened를 본다.
+  const reopened = adjudication.foldEntries([
+    entry({ round: 1, disposition: 'rejected' }),
+    entry({ round: 2, disposition: 'reopened' }),
+  ]);
+  assert.equal(decideR(bothRaise(CLAIM), reopened.history, 3).suppressed.length, 0,
+    '가장 최근 판정이 reopened면 suppress하지 않는다');
+
+  // (2) 같은 라운드에 두 판정이 append되면 **뒤**가 이긴다(round 정렬이 아니다).
+  const sameRound = adjudication.foldEntries([
+    entry({ round: 2, disposition: 'reopened' }),
+    entry({ round: 2, disposition: 'rejected' }),
+  ]);
+  assert.equal(decideR(bothRaise(CLAIM), sameRound.history, 3).suppressed.length, 1,
+    'append 순서가 시간 순서다(DD1) — 정렬로 바꾸면 같은 라운드 안의 순서 정보가 사라진다');
+  assert.equal(gate.lastBefore(sameRound.history.get(id), 3).disposition, 'rejected');
+
+  // (3) 이력 부재는 정상 입력이다 — 판정된 적 없는 issue다.
+  assert.equal(gate.lastBefore(undefined, 3), null);
+  assert.equal(gate.lastBefore(null, 3), null);
+  assert.doesNotThrow(function () { decideR(bothRaise(CLAIM), new Map([['zzz', []]]), 3); });
+
+  // (4) round가 정수가 아닌 행만 있으면 suppress 0건이고 던지지 않는다.
+  const corrupt = new Map([[id, [{ round: '2', disposition: 'rejected' }]]]);
+  assert.equal(gate.lastBefore(corrupt.get(id), 3), null,
+    '손상 행이 suppression을 발화시키면 읽을 수 없는 판정이 blocking을 지운다');
+  assert.equal(decideR(bothRaise(CLAIM), corrupt, 3).suppressed.length, 0);
+});
+
+test('[60] issueId 유실 시 runtime fail-closed — coverage는 막고 suppression은 거부한다', () => {
+  const id = gate.issueIdOf(CLAIM);
+  const folded = adjudication.foldEntries([entry({ round: 0, disposition: 'rejected' })]);
+
+  // (a) coverageOf — 필드가 없는 행은 `<round>:undefined` 키를 만들지 않고 missing에
+  //     담긴다. 이 규칙이 없으면 coverage가 **늘 통과**한다.
+  [undefined, null, '', 42].forEach(function (broken) {
+    const row = { claim: CLAIM, severity: 'HIGH', ids: ['A'] };
+    if (broken !== undefined) row.issueId = broken;
+    const cov = adjudication.coverageOf({ effectiveBlocking: [row], round: 0, folded: folded });
+    assert.equal(cov.covered, false, JSON.stringify(broken) + ': 증명되지 않은 행은 uncovered다');
+    assert.equal(cov.missing[0].issueId, null);
+    assert.equal(cov.missing[0].claim, CLAIM);
+  });
+
+  // (b) decideAdjudicatedVerdict — 그 행을 절대 suppress하지 않고 effective에 남기며
+  //     loud warn한다. 정상 경로의 `analyzeReviewers`는 이 필드를 항상 채우므로,
+  //     가드에 도달하려면 생산 지점을 stub해야 한다(그 seam이 gate.js에 문서화돼 있다).
+  const orig = gate.analyzeReviewers;
+  const stubbed = function (reviewers) {
+    const a = orig(reviewers);
+    a.blocking.forEach(function (b) { delete b.issueId; });
+    return a;
+  };
+  let r;
+  let cap;
+  gate.analyzeReviewers = stubbed;
+  try {
+    cap = captureStderr(function () { return decideR(bothRaise(CLAIM), folded.history, 1); });
+    r = cap.value;
+  } finally { gate.analyzeReviewers = orig; }
+
+  assert.equal(r.suppressed.length, 0, '필드가 없으면 절대 suppress하지 않는다');
+  assert.equal(r.blocking.length, 1, '그 행은 effective에 남는다 — 게이트가 막는 쪽이다');
+  assert.equal(r.verdict, 'NAUGHTY');
+  assert.match(cap.stderr, /no issueId/,
+    '조용히 0건이 되는 것과 명시적으로 거부하고 warn하는 것은 다르다 — 전자는 정상 동작과 구별되지 않는다');
+  assert.equal(id.length, 12);
 });

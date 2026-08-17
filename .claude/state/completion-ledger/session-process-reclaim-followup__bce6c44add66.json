@@ -1,0 +1,25 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "session-process-reclaim-followup",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.27.0",
+    "completed_at": "2026-08-17T06:18:43.868Z",
+    "commit_sha": "99c8be8784747b6bc4d8e703d997fd6fd50c7757",
+    "plan_basename": "session-process-reclaim-followup.plan.md",
+    "plan_file_hash": "sha256:b9776fac873b61da8913bc5835f47d1dba13b71e0964f0504863af3dab8b893a",
+    "risks_closed": [
+      "**머지가 main 신규 파일 102개 중 일부를 조용히 삭제**",
+      "머지 후 전체 suite에 main발 실패가 섞여 회귀 판정이 흐려짐",
+      "상향한 target이 ship 전에 main에 또 선점됨",
+      "`escalate_pending` 해제가 실제로는 미완료 escalation을 지우는 것",
+      "Task 7의 문서 정정이 실제 보호를 약화한 것으로 오독됨",
+      "PR 게이트의 Codex 경로가 환경에 따라 갈린다",
+      "receipt로 anchor되지 않은 cross-model 심사를 근거로 삼음"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:bce6c44add66a99d6e79a5373e43b420c2620177b711eb8469026b8d3c0d279b",
+    "verdict_provenance": "codex-verdict"
+  }
+}

@@ -74,6 +74,59 @@ P1(santa-adjudication M1)이 추가한 순수 export 4종은 **추가 기록**�
 | `gate.classifyFinding` | `(finding) -> {structured, blocking, severity, reason}` | blocking 자격을 정하는 **유일한 자리**. `structured ∧ severity ∈ {CRITICAL, HIGH} ∧ 실질 failureScenario`이며 실질성은 `force-override-reason#validateReason`(strict + allowCodeVocabulary)에 위임한다 |
 | `gate.parseSeverityGate` | `(env) -> 'enforce' \| 'off'` | env 파서. 불량값은 loud warn 후 `enforce`. 판정 함수는 env를 모르고 파서만 안다(`counter.parseCap` 동형) |
 
+P1(santa-adjudication **M2**)이 더한 것도 같은 성격의 **추가 기록**이다(프로토콜 4). 위
+`gate.decideVerdict` 행은 여전히 무변경이고, `decideAdjudicatedVerdict`에 대한 변경은
+**optional 인자 추가 + 반환 필드 추가**라 기존 호출자가 관측하는 동작이 불변이다 —
+`resolved`가 부재하거나 비면 M1의 7키가 값까지 동일하다.
+
+| 함수 | 시그니처 | 왜 필요한가 |
+|---|---|---|
+| `gate.decideAdjudicatedVerdict` | `({reviewers, round, cap, severityGate, resolved?}) -> {… M1 7키 …, suppressed, niceBySuppression}` | `resolved: Map<issue_id, entry[]> \| null`. 종결된 지적의 재등장을 `blocking`에서 빼고 `suppressed[]`로 옮긴다. **좁아지는 것은 `noBlocking` 한 항뿐**이고 강화 축 둘(`distinctIds >= 2` · `allPass`)은 어느 값에서도 그대로다. `round`가 M1까지 "받되 쓰지 않는" 파라미터였던 자리가 여기서 처음 쓰인다 — 억제는 `entry.round < N`인 이력만 보므로 라운드 자신의 판정은 자기 자신을 지우지 못한다 |
+| `gate.issueIdOf` | `(claim) -> string(12 hex)` | 라운드 *사이*의 issue 동일성. `normalizeClaim`을 **재사용**하는 것이 요점이다 — 라운드 안의 병합과 다른 규칙을 쓰면 "한 라운드에서는 같은 지적인데 다음 라운드에서는 다른 지적"이 성립한다. 비문자열은 빈 claim으로 정규화하고 던지지 않는다 |
+| `gate.widthNormalized` | `(text) -> string` | M1이 내부에 두었던 표시폭 투영의 export. `adjudication.buildEntry`가 `evidence` 실질성 검사에 **같은 투영**을 먹인다 — 하한이 두 곳에서 다르게 걸리면 "blocking으로 인정된 시나리오를 사유로 붙여넣었는데 기각 사유로는 거부된다"가 성립한다 |
+| `gate.lastBefore` | `(history, round) -> entry \| null` | 이력 선택 규칙. **append 순서로** 마지막을 고르며 `round` 값으로 정렬하지 않는다(DD1이 append 순서를 시간 순서로 정의했다). `adjudication.carryOverOf`가 같은 규칙을 써야 하므로 export한다 — `adjudication.js`에 두면 gate ← adjudication 순환 import가 되고, 양쪽에 베끼면 두 사본이 갈린다 |
+| `gate.DISPOSITIONS` · `gate.SUPPRESSING` | `string[4]` · `Set<string>` | 판정 어휘의 정본. 같은 순환 회피 이유로 gate가 소유하고 `adjudication.js`가 재사용한다 |
+
+신규 모듈 `plugins/mccp/scripts/lib/santa/adjudication.js`(소유권 표에 이미 P1으로 배정)의
+export 6종이다. 전부 순수이고 디스크·시각을 모른다 — env는 파서 2종만 읽고, `at`은 CLI가 준다.
+
+| 함수 | 시그니처 | 계약 |
+|---|---|---|
+| `buildEntry` | `({round, claim, severity, disposition, evidence, at}) -> entry` | `entries` 행을 만드는 **유일한 경로**. 반환은 아래 8필드 정확히이고 `issue_id`는 인자가 아니라 `gate.issueIdOf(claim)`으로 파생된다(호출자가 id를 주면 claim과 어긋난 행이 만들어져, 어떤 재등장도 suppress하지 못하면서 coverage만 충족시킨다). 검증 실패는 `SANTA_ADJUDICATION_INVALID` throw |
+| `foldEntries` | `(entries) -> {history, resolution, byRoundIssue, counts, duplicates, malformed}` | **전역 함수** — 비배열·null에 던지지 않는다. `kind`가 다른 문자열인 행은 남의 행이라 조용히 건너뛰고, 부재·비문자열은 검증을 거쳐 `malformed`다. 손상 행은 suppression에도 coverage에도 기여하지 않는다(양쪽 모두 fail-closed) |
+| `coverageOf` | `({effectiveBlocking, round, folded}) -> {covered, missing}` | `issueId`가 비문자열·빈 문자열인 행은 `<round>:undefined` 키를 만들지 않고 `missing`에 담긴다 — 그 규칙이 없으면 필드 유실 시 coverage가 **늘 통과**한다 |
+| `carryOverOf` | `({rawBlockingIds, prevBlockingIds, folded, round}) -> {suppressed, resolvedAbsent, newBlocking}` | 전부 집합 연산이고 **임계가 없다**. `prevBlockingIds === null`(라운드 0)이면 `newBlocking`은 raw 전체 크기다 |
+| `parseAdjudicationGate` · `parseLedgerSuppression` | `(env) -> 'enforce' \| 'off'` | 불량값은 loud warn 후 `enforce`. 판정 함수는 env를 모르고 파서만 안다 |
+
+`ledger.entries` 행 스키마(P0가 배열만 만들고 P1이 형태를 정한다 — 위 `appendEntry` 행의
+시그니처·계약 문언은 **무변경**):
+
+```jsonc
+{ "kind": "adjudication",       // 태그. 훗날 다른 행 종류가 생겨도 fold가 자기 것만 읽는다
+  "round": 2,                   // 지적이 **제기된** 라운드. coverage 키의 절반
+  "issue_id": "a3f19c2b7e40",   // gate.issueIdOf(claim) — 12 hex, claim에서 파생
+  "claim": "…",                 // 원문 그대로 (1..500자)
+  "severity": "CRITICAL|HIGH",  // blocking만 판정 대상이다
+  "disposition": "absorbed|rejected|skipped|reopened",   // 앞 둘만 suppress한다
+  "evidence": "…",              // absorbed면 proof, rejected면 reason. ≤2000자 + 실질성 검증
+  "at": "2026-08-17T…Z" }       // ISO. 호출자가 준다 — 모듈은 시각을 모른다
+```
+
+**원장은 append-only 관측 기록이고 판정은 fold의 결과다.** 같은 issue에 대한 판정이 두 번
+들어와도 지우지 않는다 — `appendEntry`가 P0 동결 시그니처라 술어를 lock **안에서** 판정할
+자리가 없고, 검사를 lock 밖에 두면 동시 append 둘이 나란히 통과하는 TOCTOU이기 때문이다.
+막지 않고 흡수한다: fold가 하나로 수렴시키고(`같은 issue_id는 배열 뒤쪽이 이긴다`)
+`duplicates`가 발생 횟수를 남긴다.
+
+`cli.js`의 M2 추가분은 subcommand `adjudicate` 하나와 기존 셋의 선검사다 — `begin-round`가
+`ledger.beginRound` 이전에 coverage를 보고(거부 시 캡 미소모), `record`가 OPEN 라운드·id 중복을
+보며(DD14의 앞 둘), `verdict`가 `ledger.read` **1회** 스냅샷에서 리뷰어와 `entries`를 함께
+파생하고 FINAL 라운드에서는 재계산 일치 검사만 한다. 셋 다 CLI 수준 검사라 **TOCTOU를
+주장하지 않는다** — P0 동결 함수에 술어를 lock 안으로 주입할 자리가 없으므로 순차 오용을 막는
+위생으로만 주장한다. 신규 exit code는 없고 `SANTA_ADJUDICATION_INCOMPLETE` ·
+`SANTA_ADJUDICATION_INVALID` · `SANTA_ADJUDICATION_UNKNOWN_ISSUE` · `SANTA_REVIEWER_DUPLICATE_ID` ·
+`SANTA_VERDICT_UNSTABLE`이 기존 `SANTA_*` → exit 2 매핑을 탄다.
+
 `ledger.recordReviewer`의 계약도 그대로다 — envelope는 P1이 `findings[]`를 **더한** 형태로
 저장되지만(`{claim, severity, failureScenario, evidence, structured}`), `criticalIssues`는 claim
 문자열 배열로 길이가 보존되므로 `seal.js#project`의 `criticalIssueCount`가 무손상이다. `findings`가

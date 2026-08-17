@@ -63,7 +63,7 @@ We'll know we're right when **문구·스타일 지적이 더 이상 NAUGHTY를 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | severity contract + 게이트 재배선 | 문구·스타일 지적이 NAUGHTY를 만들지 못하고, blocking은 `failure_scenario`를 쓸 수 있을 때만 성립 | complete | [santa-adjudication-m1.plan.md](../plans/santa-adjudication-m1.plan.md) |
-| 2 | 판정 원장 | 기각·흡수가 보존되고 종결 항목이 재계수되지 않음. 항목 3(오탐율)의 없어진 분모가 생김 | pending | — |
+| 2 | 판정 원장 | 기각·흡수가 보존되고 종결 항목이 재계수되지 않음. 항목 3(오탐율)의 없어진 분모가 생김 | in-progress | [santa-adjudication-m2.plan.md](../plans/santa-adjudication-m2.plan.md) |
 | 3 | patch-chasing terminator + 캡 정책 | 직전 수정만 겨누는 라운드에서 루프가 스스로 종료하고, 종료 사유가 기록됨 | pending | — |
 
 ## Open Questions
@@ -94,6 +94,7 @@ We'll know we're right when **문구·스타일 지적이 더 이상 NAUGHTY를 
 - [ ] **#125 제안 5와의 접속** — 원장을 집계에 주입할 때 지적 원문을 포함할지 ID·결론만 넘길지. I3가 리뷰어 미주입을 이미 강제하므로 집계 단계에서는 원문 보존이 안전하나, P2와 경계를 맞출 필요.
 - [ ] **흡수 반사실 검증**(#124 제안 6) — 흡수한 지적마다 수정 전/후 검사를 돌려 결과가 뒤집히는지 확인. 비용이 크므로 MVP 포함 여부 미정.
 - [ ] **Reviewer A 로테이션** — 라운드마다 전용 에이전트를 갈아 끼우는 정책. 별도 축으로 이연했으나 라운드 수 자체를 줄이므로 비용 효과가 큼.
+- [ ] **P2가 P1 원장을 소비한다면 그 접속 표면은 무엇인가 (M2 DD15가 등재)** — M2가 정의하는 접속은 **하나뿐이다**: 경로는 `ledger.deriveSantaDecisionId(...)` → `.claude/state/santa-loop/<slug>.json`으로 파생하고, 읽기는 `ledger.read(opts)` 스냅샷 1회 + 순수 파생이며(`entries`를 직접 `JSON.parse`하는 경로는 계약이 아니다), 유효 범위는 **같은 워크트리·같은 루프**다. 그 밖에서 파일 부재는 오류가 아니라 "그 리뷰 스코프가 끝났다"는 뜻이고 소비자는 부재를 정상 상태로 처리해야 한다. **M2가 정의하지 않는 것**: 루프를 건너는 지속성 · 워크트리 간 조회 · slug discovery("어떤 slug들이 존재하는가"를 묻는 API는 없다). P2 착수 시 그 셋 중 무엇이 실제로 필요한지 **먼저 판정**하고, 필요하면 그것은 P2의 설계 항목이거나 P0 재개 사유다 — M2가 조용히 채워 둘 자리가 아니다. 이 미정의를 문서에 남기지 않으면 다음 milestone이 그것을 있는 것으로 전제하고 경로를 스스로 발명하며, 그 발명이 P0의 저장 계층 가정을 깨도 어떤 test도 잡지 않는다.
 
 ## Risks
 

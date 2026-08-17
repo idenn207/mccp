@@ -66,6 +66,17 @@ build/
 # be staged by accident. Directory-level entry also covers the per-slug
 # `<slug>.json.lock` and `<slug>.json.<pid>.<rand>.tmp` siblings.
 .claude/state/evidence-claims/
+# session-process-reclaim M1+M2 — long-lived process registry (session-processes.js).
+# Working-tree only by construction: a record binds {pid, host, session_id,
+# proc_started_at_ms} of a LIVE process on THIS machine, so committing one would
+# hand every clone a stale PID that the SessionEnd reclaim path would then treat
+# as a kill candidate. Records also carry `exec_path` as an ABSOLUTE path (§D15
+# identity matching needs the full string — normalizing it would make the compare
+# structurally always fail), so this entry is the control that keeps worktree
+# paths out of the tracked corpus. Registered BEFORE the registry can exist
+# (Task 1's first edit) so there is no window in which a record lands tracked.
+# Rollback: `rm -rf .claude/state/session-processes/`.
+.claude/state/session-processes/
 # multi-session-work-loop M5 — state truth-source journal (append-only records +
 # rotated segments + checkpoint + degraded marker).
 #
@@ -75,6 +86,11 @@ build/
 # the journal instead would make a per-session-append JSONL a conflict surface in
 # every PR — the same judgement §3.12 made when it tracked only ship receipts.
 # The cost is stated, not hidden: what crosses a clone boundary is still a summary.
+#
+# Ignoring it also stops `/mccp:pr`'s PR-phase mutations finalizer from reporting
+# `content-changed-during-subphase` on every run: the log is appended to while a
+# session runs and the detector reads `git status --porcelain`, so it was flagging
+# a review-only invariant "breach" that no edit caused.
 .claude/state/journal/
 # Codex stop-loop bridge scratch input — local-only.
 .claude/state/codex-stop-loop-input.txt

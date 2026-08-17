@@ -29,7 +29,7 @@ lifecycle 3종이 함께 붙었다.
 | 3 | `cli.js` — `adjudicate` · verdict 배선 · 선검사 | 완료 | subcommand 1 + 기존 3에 선검사 |
 | 4 | `santa-loop.md` — 판정 기록 단계 | 완료 | Step 3 거부 분기 · Step 4 출력 · Step 5 신설 |
 | 5 | 회귀 test 26~60 | 완료 | 60/60 green |
-| 6 | 문서 · 버전 · PRD | 완료 | ownership · ENVIRONMENT · 1.26.3 · CHANGELOG · PRD Open Question |
+| 6 | 문서 · 버전 · PRD | 완료 | ownership · ENVIRONMENT · 1.27.1 · CHANGELOG · PRD Open Question |
 | 7 | 실 경로 1회 완주 | (A) 완료 · (B) **부분** | 아래 「Task 7 실측」 |
 
 ## Validation Results
@@ -41,7 +41,7 @@ lifecycle 3종이 함께 붙었다.
 | 동결 함수 + export | Pass | `decideVerdict` 반환 3필드 유지 · gate 6 + adjudication 6 export |
 | 소유권 교집합 ∅ | Pass | `ledger.js`·`seal.js`·`counter.js` 무접촉 |
 | §3.5.1 삭제 검증 | Pass | `--diff-filter=D` 0건 |
-| version surface 동기 | Pass | `plugin.json`·html footer·markdown footer·CHANGELOG = 1.26.3, `i18n-surface` 10/10 |
+| version surface 동기 | Pass | `plugin.json`·html footer·markdown footer·CHANGELOG = 1.27.1, `i18n-surface` 10/10 |
 
 ### Design Grounding (v1.18.22)
 
@@ -60,7 +60,7 @@ Phase 2.5.5c capture와 Phase 3.7 verify는 전부 no-op이다.
 | `plugins/mccp/scripts/lib/tests/santa-adjudication.test.js` | UPDATED | 26~60 신규 + 항목 18 키 집합 확장 |
 | `plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js` | UPDATED | **이탈 1** — 아래 |
 | `docs/santa-loop/ownership.md` · `docs/ENVIRONMENT.md` | UPDATED | 추가 기록 · env 2종 등재 |
-| `plugin.json` · `CHANGELOG.md` · `renderer/{html,markdown}.js` | UPDATED | 1.26.2 → 1.26.3 (4면 동기) |
+| `plugin.json` · `CHANGELOG.md` · `renderer/{html,markdown}.js` | UPDATED | 1.27.0 → 1.27.1 (4면 동기). 구현 시점에는 1.26.3이었으나 origin/main 머지에서 §3.7 forward-only로 상향했다(11번째 재발) — plan `Files to Change`의 `1.26.2 → 1.26.3`은 plan_hash 바인딩이라 손대지 않는다 |
 | `.claude/prds/santa-adjudication.prd.md` | UPDATED | DD15 P2 접속 계약 Open Question 신설 |
 | `.claude/plans/codex-findings-backlog.md` | UPDATED | security-reviewer MEDIUM/LOW 2건 |
 | `.claude/notes/santa-adjudication-m2-implement-gate.md` | CREATED | Implement-Codex 게이트 기록 |

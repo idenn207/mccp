@@ -230,3 +230,92 @@ test('taskHash: deterministic + different tier produces different hash', () => {
   assert.notStrictEqual(a, c);
   assert.strictEqual(a.length, 8);
 });
+
+// ── session-process-reclaim M1 — handoff child registration (Task 5) ─────────
+
+const sessionProcesses = require('../../lib/session-processes');
+
+function withSid(sid, fn) {
+  const prev = process.env.CLAUDE_CODE_SESSION_ID;
+  process.env.CLAUDE_CODE_SESSION_ID = sid;
+  try { return fn(); }
+  finally {
+    if (prev === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
+    else process.env.CLAUDE_CODE_SESSION_ID = prev;
+  }
+}
+
+// The recorder above returns a bare `{unref}` with no pid; this one carries the
+// child pid the parent has to record on the child's behalf.
+function mkSpawnRecorderWithPid(pid) {
+  const calls = [];
+  return {
+    impl: function (cmd, args, opts) {
+      calls.push({ cmd: cmd, args: args, opts: opts });
+      return { pid: pid, unref: function () {} };
+    },
+    calls: calls,
+  };
+}
+
+test('win32 handoff child is registered as an outlives-session handoff', () => {
+  const root = mkRoot();
+  const rec = mkSpawnRecorderWithPid(4242);
+  const sid = 'sess-spawner-A';
+
+  const r = withSid(sid, () => spawner.spawn({
+    root: root, tier: 'critical', currentTask: 'taskReg', mode: 'spawn',
+    spawnImpl: rec.impl,
+    claudeAvailable: () => true,
+    platform: 'win32',
+    env: SPAWN_OPT_IN,
+  }));
+  assert.strictEqual(r.mode, 'spawn');
+
+  const listed = sessionProcesses.list(root, sid, { isAlive: () => true });
+  assert.strictEqual(listed.records.length, 1, 'the child must not be spawned untracked');
+  const record = listed.records[0];
+  assert.strictEqual(record.pid, 4242);
+  assert.strictEqual(record.kind, 'handoff-session');
+  // Outliving this session is the point of a handoff, and `handoff-session` is
+  // excluded from reclaim unconditionally — the record exists for completeness
+  // and diagnosis, never as a kill target.
+  assert.strictEqual(record.lifetime, 'outlives-session');
+  assert.strictEqual(record.role, 'owner');
+  assert.strictEqual(record.exec_path, 'powershell.exe');
+  assert.strictEqual(sessionProcesses.validateRecord(record).ok, true);
+});
+
+test('a handoff child without a pid is skipped rather than recorded as a guess', () => {
+  const root = mkRoot();
+  const rec = mkSpawnRecorder();          // returns {unref} with no pid
+  const sid = 'sess-spawner-B';
+
+  const r = withSid(sid, () => spawner.spawn({
+    root: root, tier: 'critical', currentTask: 'taskNoPid', mode: 'spawn',
+    spawnImpl: rec.impl,
+    claudeAvailable: () => true,
+    platform: 'win32',
+    env: SPAWN_OPT_IN,
+  }));
+  assert.strictEqual(r.mode, 'spawn', 'the handoff itself still succeeds');
+  assert.strictEqual(sessionProcesses.list(root, sid, { isAlive: () => true }).records.length, 0);
+});
+
+test('the tmux branch stays unregistered — tmux owns that window\'s lifetime', () => {
+  const root = mkRoot();
+  const rec = mkSpawnRecorderWithPid(5555);
+  const sid = 'sess-spawner-C';
+
+  withSid(sid, () => spawner.spawn({
+    root: root, tier: 'critical', currentTask: 'taskTmux', mode: 'spawn',
+    spawnImpl: rec.impl,
+    claudeAvailable: () => true,
+    platform: 'linux',
+    hasTmux: () => true,
+    env: SPAWN_OPT_IN,
+  }));
+  assert.strictEqual(rec.calls[0].cmd, 'tmux');
+  assert.strictEqual(sessionProcesses.list(root, sid, { isAlive: () => true }).records.length, 0,
+    'the pid tmux hands back says nothing about the claude session inside the window');
+});

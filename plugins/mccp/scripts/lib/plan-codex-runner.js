@@ -330,6 +330,28 @@ function run(opts, deps) {
     return { exitCode: EX_BLOCKED, error: lock.reason };
   }
 
+  // session-process-reclaim M1 — self-registration. This runner is launched
+  // DETACHED (`nohup node …` from plan.md), so a spawn-site wrapper structurally
+  // cannot see it; the process registers itself instead. `lifetime: 'session'`
+  // makes it a default reclaim target (§D13): at SessionEnd it is blocked
+  // waiting on an $ADJUDICATION file that the departed session will now never
+  // write, so leaving it alive buys a guaranteed 900s of nothing.
+  // Registry problems must never abort a review that already holds the lock —
+  // which is why the require lives INSIDE the try. At module scope a load
+  // failure in the registry stack would kill the runner before this guard ran.
+  try {
+    require('./session-processes').register(cwd, {
+      kind: 'plan-codex-runner',
+      lifetime: 'session',
+      role: 'owner',
+      pid: process.pid,
+      execPath: __filename,
+    });
+  } catch (err) {
+    process.stderr.write('[plan-codex-runner] session-process register skipped: '
+      + ((err && err.message) || err) + '\n');
+  }
+
   try {
     const planAbs = path.resolve(cwd, planPath);
     const planText = fs.readFileSync(planAbs, 'utf8');
@@ -665,6 +687,25 @@ function run(opts, deps) {
     // fully consumed — the decision was derived from it before this block runs.
     try { if (fs.existsSync(p.awaiting)) fs.unlinkSync(p.awaiting); } catch (_) {}
     try { if (fs.existsSync(p.adjudication)) fs.unlinkSync(p.adjudication); } catch (_) {}
+    // Clean exit — drop our own registry record so SessionEnd has nothing to
+    // reclaim. Sits beside releaseLock because it is the same "this run is over"
+    // teardown.
+    try {
+      const sp = require('./session-processes');
+      const sid = sp.isSafeSessionId(o.sessionId)
+        ? o.sessionId
+        : require('../receipt/evidence-lock').resolveSessionId(o.env || process.env);
+      // Read, not discarded: a record we failed to drop is one SessionEnd will
+      // later try to reclaim for a process that has already exited.
+      const r = sid ? sp.unregister(cwd, sid, process.pid) : null;
+      if (r && !r.ok) {
+        process.stderr.write('[plan-codex-runner] session-process record for pid '
+          + process.pid + ' was NOT removed (reason=' + r.reason + ')\n');
+      }
+    } catch (err) {
+      process.stderr.write('[plan-codex-runner] session-process unregister threw: '
+        + ((err && err.message) || err) + '\n');
+    }
     releaseLock(p.lock, nonce);
   }
 }

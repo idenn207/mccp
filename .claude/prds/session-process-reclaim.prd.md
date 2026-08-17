@@ -58,9 +58,11 @@ We'll know we're right when **세션 종료 후 그 세션이 띄운 mccp 자식
 |---|---|---|---|---|
 | 1 | 세션 프로세스 레지스트리 | mccp가 띄운 detached 자식이 세션 키와 함께 기록되어, 누가 무엇을 띄웠는지 알 수 있음 | complete | [.claude/plans/session-process-reclaim.plan.md](../plans/session-process-reclaim.plan.md) |
 | 2 | SessionEnd 회수 + 실패 표면화 | 세션 종료 시 자기 소유 자식이 회수되고, 못 죽인 것은 조용히 넘어가지 않음 | complete | [.claude/plans/session-process-reclaim.plan.md](../plans/session-process-reclaim.plan.md) |
-| 3 | 출하 + 잔여 정리 | M1·M2 코드가 `main`에 도달하고, 이 작업이 낳은 backlog 중 코드 구조를 건드리지 않고 닫히는 것이 닫힘 | in-progress | [.claude/plans/session-process-reclaim-followup.plan.md](../plans/session-process-reclaim-followup.plan.md) |
+| 3 | 출하 + 잔여 정리 | M1·M2 코드가 `main`에 도달하고, 이 작업이 낳은 backlog 중 코드 구조를 건드리지 않고 닫히는 것이 닫힘 | complete | [.claude/plans/session-process-reclaim-followup.plan.md](../plans/session-process-reclaim-followup.plan.md) |
 
 > **M1·M2의 `complete`는 *구현* 완료를 뜻한다.** 2026-08-16 실측: `origin/main`에 `session-processes.js`가 없고 이 브랜치의 PR은 0건이다. PRD의 Hypothesis는 main에 없는 코드로는 검증될 수 없으므로, 출하를 M3로 분리해 그때까지 이 PRD를 열어 둔다(§3.11 아카이브도 그 이후 소관).
+
+> **M3의 `complete`는 Outcome 충족이 아니라 운영자 종료 결정이다.** 2026-08-17 실측: PR #142는 `OPEN`(`MERGEABLE`/`CLEAN`, 체크 2건 SUCCESS)이고 `origin/main`(tip `767a2c7`)에 `session-processes.js`가 **없다**. 즉 M3 Outcome의 앞 절("M1·M2 코드가 `main`에 도달")은 이 행을 닫는 시점에 성립하지 않았다. 운영자가 그 사실을 고지받은 뒤 머지를 기다리지 않고 종료를 선택했고, 그에 따라 PRD를 아카이브했다. 종료 근거와 미충족 조건은 [.claude/milestone-closures/session-process-reclaim-m3.md](../milestone-closures/session-process-reclaim-m3.md)가 소유한다. PRD Hypothesis의 실환경 검증은 이 종료로 달성되지 **않았다** — 머지 후 main에서 reclaim suite를 재실행하는 일이 남아 있다.
 
 ## Open Questions
 

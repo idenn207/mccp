@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: session-process-reclaim
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-17T06:33:49.497Z
+updated_at: 2026-08-17T07:24:00.000Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-17T06:33:49.497Z
 unsafe_checkpoint: false
@@ -17,7 +17,7 @@ session-process-reclaim M1+M2 출하 + M3 잔여 정리 — PR #142 열림(v1.27
 santa-loop은 R1~R10을 완주했고 R10은 수렴이 아니라 운영자 종료 결정으로 끝났다 — 승인 도장은 없다.
 
 ## Plan
-- plan: `.claude/plans/session-process-reclaim-followup.plan.md` (M3) · 선행: `.claude/plans/session-process-reclaim.plan.md` (M1+M2) · PRD: `.claude/prds/session-process-reclaim.prd.md` (M3 행 in-progress)
+- **아카이브됨(2026-08-17)** — plan: `.claude/PRPs/plans/archived/session-process-reclaim-followup.plan.md` (M3) · 선행: `.claude/PRPs/plans/archived/session-process-reclaim.plan.md` (M1+M2) · PRD: `.claude/prds/archived/session-process-reclaim.prd.md` (3행 전부 complete). 활성 스캔 표면에는 더 이상 없다 — 완료 이력은 타임라인이 갖는다
 - 리뷰 기록: `.claude/reviews/plan-review-session-process-reclaim-followup-rounds.md` — L2 패널 R1~R14 전 라운드 divergent(4관점 동시 pass 0회), R14에서 정밀도 붕괴(100→50→23%)로 운영자 종료 · `.claude/reviews/santa-review-session-process-reclaim.md` — santa-loop 산출
 - receipt(진단용 — working-tree only · 소실됨이 정상, §3.12): `mccp-plan-codex/session-process-reclaim-followup.json`(intent_gate_verdict=incomplete · intent_gate_force_override=true) · `mccp-implement-codex/session-process-reclaim-followup.json`(codex_verdict=skipped · security_skipped=true). 감사 corpus가 아니므로 worktree 정리를 넘겨 살아남지 않는다
 - 이전 decision `session-process-reclaim`의 같은 두 게이트 기록은 이미 사라졌다 — 당시 기록에 따르면 findings 5건 원본 severity 봉인 · codex_verdict=skipped였다고 하나 파일이 없어 대조 불가
@@ -31,15 +31,21 @@ santa-loop은 R1~R10을 완주했고 R10은 수렴이 아니라 운영자 종료
 - M3 Task 1 — origin/main 머지(149 커밋). 충돌 8건 파일 단위 해소, main 파일 소실 0 · 브랜치 삭제 0을 사전 캡처 대조로 기계 확인
 - M3 Task 2 — 버전 forward-only 1.27.0(main이 머지 중 1.26.1까지 밀어 §3.7 7번째 재발). 4면 동기 + i18n-surface 10/10
 - M3 게이트 — plan-codex는 `MCCP_SKIP_INTENT_GATE` audited override(verdict=incomplete 봉인), implement-codex는 codex_verdict=skipped + security_skipped=true. 게이트 기록은 `.claude/notes/session-process-reclaim-followup-implement-gate.md`(plan 본문 편집 시 plan_hash self-stale 회피)
+- M3 종료(2026-08-17) — closure `.claude/milestone-closures/session-process-reclaim-m3.md`. verdict=done이나 **acceptance 2건 미충족**(머지 후 재검증 · main 도달)을 명시 기록. plan-body sha256 stamp는 backlog 2026-08-16 HIGH의 plan_hash self-stale 사유로 미탑재
+- 아카이브(2026-08-17) — `/mccp:archive-complete`가 PRD 1 + plan 2를 원자 이동(moved 3 · abort 0 · rollback 0). derive 14 source 전부 degraded=false, 활성 표면 소실 0. journal `.claude/state/archive-journal/2026-08-17T07-20-37-755Z__9b317b11.json`. status 정정은 0건(live-activation M2는 관찰 행 미기입 근거로 keep)
 
 ## In Progress
-PR #142 OPEN — Task 1~12 전부 완료. 머지 후 검증 2건만 남음
+PR #142 OPEN(MERGEABLE/CLEAN, 체크 2건 SUCCESS). M3는 **Outcome 미충족 상태에서 운영자 판정으로 종료**됐고 PRD는 아카이브됐다 — 남은 것은 머지와 그 뒤의 재검증뿐이다
 
 ## Next Step
-머지 후 main에서 reclaim 5 suite 1회 재실행(파일 존재는 동작 확인이 아니다) → PRD M3 complete 전환 → /mccp:archive-complete
+1. PR #142 머지 — 이 브랜치는 origin/main(767a2c7) 대비 30 커밋 앞·0 뒤. **추가 push가 필요하면 `/mccp:pr` 재진입이 선행돼야 한다**: ship receipt가 `99c8be8`을 anchor하는데 그 위에 커밋이 쌓여 `validate --check-ship-verdict`가 `ship-gate-stale-head`로 push를 막는다
+2. 머지 후 main에서 reclaim 5 suite 1회 재실행 — plan acceptance 4, **미수행**. 파일 존재는 동작 확인이 아니다
+3. `git ls-tree origin/main -- plugins/mccp/scripts/lib/session-processes.js` 비어있지 않음 확인 — acceptance 7, 종료 시점 **미충족**(빈 출력 실측)
 
 ## Last Decision
-출하했다. ship gate는 우회가 아니라 통과다 — pr_codex_force_override 키가 없고 codex_verdict=skipped의 증명은 codex_disabled_at_pr=true(env 정책)다. 즉 receipt가 봉인한 것은 심사가 아니라 심사 부재이며, 그 사실을 PR 본문에 명시했다. security 심사는 2회 수행해 CRITICAL/HIGH 0을 받았으나 same-model이라 cross-model 심사를 대신하지 않는다.
+**M3를 Outcome 미충족 상태로 닫았다.** 머지를 기다리지 않고 complete로 기록하는 것은 운영자 결정이며(사전 고지 후 선택), 미충족 2건과 그 실측 근거는 closure가 소유한다. 이어서 PRD+plan 3건을 아카이브했다. 종료가 남긴 것: PRD Hypothesis는 여전히 미검증이고(코드가 main에 없다), cross-model 심사는 0회다.
+
+이전 결정(보존): 출하했다. ship gate는 우회가 아니라 통과다 — pr_codex_force_override 키가 없고 codex_verdict=skipped의 증명은 codex_disabled_at_pr=true(env 정책)다. 즉 receipt가 봉인한 것은 심사가 아니라 심사 부재이며, 그 사실을 PR 본문에 명시했다. security 심사는 2회 수행해 CRITICAL/HIGH 0을 받았으나 same-model이라 cross-model 심사를 대신하지 않는다.
 
 ## Open Questions
 - [해소 · M3] win32 회수 처리량 한계 — probe를 sweep당 1회 배치 호출로 바꿔 천장을 없앴다(`probeProcesses`). 재측정: 자식 3개 → 3 회수·0 누수(3842ms), 6개 → 6 회수·0 누수(4055ms). 이전에는 기본 예산에서 1개, 상한 9000에서도 2개가 천장이었다. 배치화가 유일한 해법이었던 근거는 측정이다 — CommandLine을 주는 경로(`Get-CimInstance` 3.3s · `Get-WmiObject` 3.1s · DCOM 3.3s · `wmic` 3.0s)가 전부 같은 자리이고 유일하게 빠른 `Get-Process`(0.6s)는 PS 5.1에서 CommandLine을 주지 않는다. 회귀 잠금은 `15f`(수정을 끄면 그것만 붉어짐을 실측 확인)

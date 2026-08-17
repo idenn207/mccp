@@ -1,0 +1,669 @@
+# Plan: Review Loop Bypass — M1 단일통과 토글
+
+**Source PRD**: .claude/prds/review-loop-bypass.prd.md
+**Selected Milestone**: M1 — 단일통과 토글
+**Complexity**: Medium
+
+## Summary
+
+환경변수 `MCCP_REVIEW_SINGLE_PASS`(고정 enum 3종)이 켜지면 `/mccp:plan`의 L2 승인 패널이 **1회만 발화하고 비수렴 verdict가 진행을 차단하지 않으며**, 세 게이트의 Codex 라운드 상한이 1로 **고정**되고, `/mccp:santa-loop`은 **라운드를 열지 않는다**. L1은 불가침으로 남고, receipt는 **실제 verdict를 그대로 봉인한 채** 토글 사유를 present-only 필드로 함께 봉인한다 — `converged`로 위장하지 않는다.
+
+핵심 설계 결정 하나로 PRD Open Question 3이 닫힌다: **새 verdict 값을 만들지 않는다.** `schema.js:224` 이하가 이미 "비수렴 verdict도 감사용 proof를 실을 수 있다"를 허용하고 있고, `receipt-convergence.js:45`가 review 축에서 `converged`만 승인으로 읽으므로, 정직한 `divergent`를 봉인해도 chain은 진행되고 대시보드·감사는 거짓말하지 않는다. 토글이 바꾸는 것은 **명령 본문이 HALT하는가**뿐이고 receipt가 주장하는 내용은 한 글자도 바꾸지 않는다.
+
+## User Intent
+
+| ID | Constraint (user-stated) | Kind |
+|---|---|---|
+| UI1 | 하나의 환경변수로 세 게이트의 리뷰 루프를 단일 통과로 만든다 | direction |
+| UI2 | 사유는 고정 enum 3종이며 토글의 값 자체다 — 별도 사유 변수를 두지 않는다 | constraint |
+| UI3 | enum 밖 값은 fail-closed로 꺼진 것으로 보고 loud warn을 낸다 | constraint |
+| UI4 | santa-loop은 발화하지 않는다 | constraint |
+| UI5 | 라운드 반복은 1회로 고정한다 — R0만 돌고 R1 이상은 없다 | constraint |
+| UI6 | L2 승인 패널은 1회 발화하며 비수렴 verdict가 진행을 차단하지 않는다 | constraint |
+| UI7 | L1 mechanical은 불가침이며 실패하면 토글이 켜져 있어도 HALT한다 | constraint |
+| UI8 | receipt는 미작성이나 미승인이 아니라 사유가 봉인된 승인으로 남는다 | constraint |
+| UI9 | Codex 게이트 세 개는 무변경이다 — 본 토글은 반복을 없애지 cross-model review를 없애지 않는다 | exclusion |
+| UI10 | terminal ship gate의 codex_verdict 기반 no-ship 판정은 무변경이다 | exclusion |
+| UI11 | 기존 5종 리뷰 토글의 통합이나 은퇴는 본 작업 범위 밖이다 | exclusion |
+| UI12 | 전역이나 CI 상시 활성은 만들지 않는다 — 작업 단위 opt-in만 지원한다 | exclusion |
+| UI13 | 토글 사용률의 대시보드 노출은 후속 축이다 | exclusion |
+| UI14 | 미흡수 지적의 backlog 자동 적재는 M2 소유이며 본 마일스톤 밖이다 | exclusion |
+| UI15 | 본 작업과 untracked PRD는 새 worktree에서 진행한다 | direction |
+| UI16 | 본 plan 게이트는 MCCP_GATE_ROUND_CAP=1로 돈다 | direction |
+
+## Patterns to Mirror
+
+| Category | Source | Pattern |
+|---|---|---|
+| env enum 파서 | `plugins/mccp/scripts/lib/santa/gate.js:138` | unset→default · `indexOf` 열거 검사(대소문자 구분) · 불량값 loud warn. 판정 함수는 env를 모르고 파서만 안다(DD3a) |
+| 순수 승인 오라클 | `plugins/mccp/scripts/lib/plan-review/decide.js:140` | `(mode, l1, l2, l3)`만 받아 `{verdict, source, proof, block, reason}`를 내는 pure 함수. I/O는 호출자 소유 |
+| L1 gatekeeper 경계 | `plugins/mccp/scripts/lib/plan-review/decide.js:150` | L1이 `converged`가 아니면 L2를 **보지 않고** 즉시 반환. 어떤 완화도 이 분기보다 뒤에 온다 |
+
+<details>
+<summary>+5 more patterns</summary>
+
+| Category | Source | Pattern |
+|---|---|---|
+| present-only meta 봉인 | `plugins/mccp/scripts/receipt/write.js:771` | `makeSkeleton` **밖에서** 값이 있을 때만 `receipt.meta.X = …` → 미전달 receipt는 키 자체가 없어 canonical hash 무변동 |
+| ambient env stamp vs 명시 proof | `plugins/mccp/scripts/receipt/write.js:612` | `codex_disabled`는 env로 자동 stamp되는 **정직한 주석**, `codex_disabled_at_pr`은 caller 명시 **감사 축**. 둘을 섞지 않는다 |
+| schema present-only 검증 | `plugins/mccp/scripts/receipt/schema.js:191` | 값이 있을 때만 열거·형태 검사. 부재는 정상 상태이지 마이그레이션 부채가 아니다 |
+| santa CLI 선검사 + exit | `plugins/mccp/scripts/lib/santa/cli.js:615` | `beginRound` **이전에** 거부하면 캡이 소모되지 않는다. 신규 exit code를 만들지 않고 사유 문자열로 구분 |
+| 라운드 정책 test | `plugins/mccp/scripts/lib/tests/round-budget.test.js:17` | 현재는 production 상대가 없는 test-local `parseCap`. 파일 헤더가 "future helper extraction"을 명시적으로 예고 |
+
+</details>
+
+## Files to Change
+
+| File | Action | Why |
+|---|---|---|
+| `plugins/mccp/scripts/lib/review-single-pass.js` | CREATE | 토글 enum 파서 + 유효 라운드 캡 오라클. 세 게이트가 공유하는 단일 판정 지점 |
+| `plugins/mccp/scripts/lib/plan-review/decide.js` | UPDATE | `singlePass` 인자 수용 — L1 분기 **뒤**, quorum 비수렴 분기에서만 `block:false` + 감사 proof |
+| `plugins/mccp/scripts/lib/plan-review/cli.js` | UPDATE | `decide`가 파서를 호출해 오라클에 주입하고 `single_pass_reason`을 decision.json에 emit |
+| `plugins/mccp/scripts/lib/santa/cli.js` | UPDATE | `begin-round`가 `beginRound` 이전에 토글을 보고 라운드를 열지 않는다 |
+| `plugins/mccp/scripts/receipt/write.js` | UPDATE | `meta.review_single_pass_reason`(env ambient + 명시 우선) · `meta.review_single_pass_bypassed_verdict`(명시 전용) |
+| `plugins/mccp/scripts/receipt/schema.js` | UPDATE | 두 필드 present-only 검증 + "적용되지 않은 우회의 사유를 남기지 않는다" 불변식 |
+| `plugins/mccp/scripts/lib/tests/review-single-pass.test.js` | CREATE | 파서·캡 오라클·`decideReview` 완화 경계 단위 test |
+| `plugins/mccp/scripts/lib/tests/review-single-pass-gate.test.js` | CREATE | CLI 왕복 test — L1 divergent는 토글에도 EX_BLOCK, quorum 비수렴은 EX_OK |
+| `plugins/mccp/scripts/receipt/tests/review-single-pass-fields.test.js` | CREATE | receipt 봉인 + 위조 불가 + dedupe 무영향 + chain 회귀 pin |
+| `plugins/mccp/scripts/lib/tests/review-single-pass-command-body.test.js` | CREATE | 세 명령 본문이 캡을 공유 오라클에서 읽는지 정적 단언 |
+| `plugins/mccp/scripts/lib/tests/round-budget.test.js` | UPDATE | test-local `parseCap`을 신규 production 오라클로 교체 |
+| `plugins/mccp/commands/plan.md` | UPDATE | 5.2e 토글 안내 · 5.6b 플래그 forward · Phase 5.4 캡을 오라클에서 읽기 |
+| `plugins/mccp/commands/prp-implement.md` | UPDATE | Phase 2.5 라운드 캡을 오라클에서 읽기 |
+| `plugins/mccp/commands/pr.md` | UPDATE | codex-runner 자식 프로세스에 **고정된** 캡을 export |
+| `plugins/mccp/commands/santa-loop.md` | UPDATE | 신규 거부 사유의 exit code 해석 행 추가 |
+| `docs/ENVIRONMENT.md` | UPDATE | §11에 토글 등재 (canonical 레퍼런스) |
+| `docs/gate-design.md` | UPDATE | 완화 경계·거부 이유의 설계 근거 상주처 |
+| `CLAUDE.md` | UPDATE | §3.15 신설 — 토글의 계약과 주장하지 않는 것 |
+| `CHANGELOG.md` | UPDATE | v1.27.3 항목 |
+| `plugins/mccp/.claude-plugin/plugin.json` | UPDATE | version 1.27.2 → 1.27.3 (§3.7 patch — PRD 전체가 아니라 M1 단독) |
+| `.claude/prds/review-loop-bypass.prd.md` | UPDATE | M1 행 status=in-progress + Plan 셀 연결, Open Question 3·2·5 판정 기록 |
+
+## Design Decisions
+
+### DD1 — 새 verdict 값을 만들지 않는다 (PRD Open Question 3의 답)
+
+`REVIEW_VERDICT_VALUES`는 `CODEX_VERDICT_VALUES`와 **어휘를 공유**한다(`review-verdict.js:46`). 여기에 `bypassed` 같은 값을 더하면 codex 축 소비자 전부가 모르는 값을 보게 되고, 과거 receipt corpus의 검증 규칙도 함께 흔들린다.
+
+대신 **실제 verdict를 그대로 봉인**한다. 근거는 코드에 이미 있다:
+
+- `schema.js:224-238` — `review_verdict !== 'converged'`인 proof는 구조 불변식을 요구받지 않고 경로 형태만 검사받는다. 주석이 이유를 직접 말한다: *"A divergent/unavailable verdict carries its proof for audit."*
+- `receipt-convergence.js:45` — review 축에서는 `verdict === 'converged'`만 승인이다. `divergent`를 봉인하면 대시보드·`evidence-audit`·ship gate가 전부 정직하게 비승인으로 읽는다.
+- `validate-cmd.js`는 `review_verdict`를 **소비하지 않는다**(grep 결과 0건). 따라서 비수렴 plan receipt가 `/mccp:prp-implement`를 막지 않는다 — chain은 진행되고, 기록은 사실대로 남는다.
+
+즉 토글이 바꾸는 것은 **명령 본문의 HALT 여부** 하나이고, receipt가 주장하는 내용은 무변경이다. 이것이 "converged로 위장하면 §3.12의 완료 판정 키 신뢰가 깨진다"에 대한 답이다 — 위장하지 않으면 신뢰가 깨질 일도 없다.
+
+### DD2 — 완화 대상은 `divergent` 하나뿐이다. `unavailable`은 절대 완화하지 않는다
+
+`decide.js:30-35`가 이미 두 값을 구분해 둔다 — `divergent`는 "보았고 결함을 찾았다", `unavailable`은 "인증할 수 없었다". PRD UI6이 요구하는 것은 **패널이 발화해 이견을 냈을 때** 막지 말라는 것이지, 패널이 뜨지 못했을 때 통과시키라는 것이 아니다. 후자는 단일 통과가 아니라 **무통과**다.
+
+따라서 완화는 `quorum.passed !== true` 반환 **한 곳**에만 적용한다. 완화하지 않는 것:
+
+| 경로 | 이유 |
+|---|---|
+| L1 `divergent`/`inconclusive` | UI7 — 불가침 |
+| L2 아티팩트 부재·판독 불가 | 리뷰가 없었다 |
+| L2 `responded === 0` | 아무도 답하지 않았다 |
+| L2 budget skip | 패널이 뜨지 않았다 |
+| DD13 plan hash 불일치 | 무결성 사실이지 리뷰 의견이 아니다 |
+| hybrid인데 L3 미발화 | "요청했다"는 "일어났다"가 아니다 |
+
+### DD3 — 두 개의 receipt 필드, 서로 다른 축
+
+v1.23.5가 값을 치르고 배운 구분(§3.12)을 그대로 따른다.
+
+| 필드 | 축 | 출처 | 의미 |
+|---|---|---|---|
+| `meta.review_single_pass_reason` | env 정책의 **정직한 주석** | `write.js`가 env에서 자동 stamp, 명시 플래그가 우선 | 이 게이트 호출 시점에 토글이 켜져 있었다 |
+| `meta.review_single_pass_bypassed_verdict` | **감사 축** | 명시 플래그 전용 | 토글이 실제로 blocking verdict를 강등시켰다 |
+
+불변식(schema 강제): `bypassed_verdict === true` ⟹ `reason` 존재 ∧ `resolution.review_verdict` 존재 ∧ 그 값이 `'converged'`가 아님. §3.13.1의 "적용되지 않은 override의 사유를 남기면 일어나지 않은 일을 정당화한 기록이 된다"와 같은 규칙이다.
+
+**위조면이 없다**: `bypassed_verdict`를 거짓으로 찍어도 얻는 것이 없다 — 그 필드는 "비수렴 리뷰를 통과시켰다"는 **자기 불리한 주장**이라 어떤 승인도 사지 못한다. `intent` 결정과 달리 CLI 표면을 막을 필요가 없는 이유가 이것이다(§3.13 대비).
+
+### DD4 — `MCCP_GATE_ROUND_CAP`은 오늘 production 오라클이 없다
+
+`round-budget.test.js:17`의 `parseCap`은 **test 파일 안에만** 존재하고, 세 명령 본문은 산문으로 캡을 지킨다. 파일 헤더가 그 상태를 자백하며 "future helper extraction has a behavioural specification to match"라고 적어 두었다.
+
+본 마일스톤이 그 helper를 만든다. `effectiveRoundCap(env)`는 토글이 켜졌으면 `MCCP_GATE_ROUND_CAP` 값과 **무관하게** 1을 반환한다 — PRD Open Question 2("토글과 캡이 동시 설정됐을 때 우선순위")의 답이며, 근거는 토글이 상위 정책 선언이고 캡은 그 아래 조정값이라는 것이다.
+
+**강제 등급의 정직한 천장**: plan·prp-implement의 라운드 루프는 여전히 LLM이 읽는 산문이다. 본 마일스톤이 기계화하는 것은 (a) 캡 계산 자체와 그 test, (b) `plugins/mccp/commands/pr.md:511`이 codex-runner 자식 프로세스에 **고정된 값을 export**하는 것, (c) receipt가 토글 상태를 봉인해 사후 대조가 가능해지는 것, (d) 세 명령 본문이 **각자 리터럴을 쓰지 않고 그 오라클을 참조하는지**를 정적 test가 단언하는 것 넷이다. "세 게이트에서 라운드가 기계적으로 1회로 강제된다"는 주장은 하지 않는다 — (d)가 막는 것은 배선 누락이지 LLM이 산문을 어기는 경우가 아니다. 잔여 축은 계측으로 남긴다: 라이브 완주가 관측된 라운드 수를 Acceptance에 기록한다.
+
+### DD5 — santa-loop은 `begin-round`에서 거부한다 (PRD Open Question 5의 답)
+
+**PRD의 전제 하나를 정정한다**: santa-loop은 plan·implement·pr 게이트가 발화시키지 않는다. `/mccp:santa-loop`은 사람이 직접 부르는 독립 명령이고, 세 명령 본문에서 "santa-loop"이 나오는 위치는 전부 **과거 리뷰 라운드를 인용한 코드 주석**이다(`plugins/mccp/commands/plan.md:1329`, `plugins/mccp/commands/pr.md:137` 등). 따라서 "발화하지 않는다"의 구현 지점은 게이트 본문의 조건 분기가 아니라 santa CLI 자신이다.
+
+`begin-round`가 `ledger.beginRound` **이전에** 토글을 검사하고 거부한다 — `MCCP_SANTA_ADJUDICATION_GATE` 선검사와 같은 위치이므로 **캡이 소모되지 않는다**. 신규 exit code는 만들지 않는다(12는 캡 전용이라 `counter.js:19`가 명시). exit 2 + 사유 `SANTA_SINGLE_PASS_ACTIVE`로 구분한다.
+
+**`mccp-santa-review` receipt는 쓰지 않는다.** 그 게이트는 produces-only라 소비자가 없고, "미발화 사유" receipt를 쓰려면 라운드 집계가 없는 receipt를 스키마가 받아들여야 하는데 그것은 backlog에 이미 올라 있는 **반대 방향 과제**(santa 4종 필수화, PR-Codex F2)와 정면 충돌한다. 감사 앵커는 loud 거부 메시지와 원장의 부재다.
+
+### DD7 — "단일 통과"는 세 게이트에서 서로 다른 것을 뜻한다
+
+세 게이트는 **같은 종류의 승인 오라클을 갖고 있지 않다**. 이것을 명시하지 않으면 "세 게이트에 균일하게 적용한다"가 검증 불가능한 주장이 된다.
+
+| 게이트 | 리뷰 표면 | 승인 오라클 | 토글이 바꾸는 것 |
+|---|---|---|---|
+| `/mccp:plan` | L1 mechanical + L2 4인 패널 (+ hybrid L3) | `plan-review/decide.js#decideReview` | 비수렴 L2가 **차단하지 않는다**. L1은 무영향 |
+| `/mccp:prp-implement` | Implement-Codex 1축 | **없음** — 라운드 산문이 전부이고 캡 초과는 이미 `DIVERGENT_UNRESOLVED` 주석 후 진행 | 라운드 캡 고정 + receipt 봉인 |
+| `/mccp:pr` | PR-Codex 1축 + terminal ship gate | `pr-ship-gate.js#deriveShipDecision` | 라운드 캡 고정 + receipt 봉인. **ship 판정은 무변경**(UI10) |
+
+즉 verdict 승인 로직을 고치는 곳은 `/mccp:plan` **한 곳뿐**이고, 나머지 둘에는 고칠 승인 오라클이 애초에 없다 — `/mccp:pr`의 `pr-ship-gate.js`는 존재하지만 UI10이 명시적으로 손대지 말라고 한 표면이다. 이것이 결함이 아니라 **범위의 정의**임을 여기 적어 둔다: L2 패널의 반복이 실측 8~12시간의 지배항이었고(PRD Evidence — 단일 plan 10라운드), Codex 게이트는 이미 캡 1이 default라 반복이 거의 없다. 나머지 둘에서 얻는 것은 "캡이 2·3으로 올려져 있어도 이번 작업만은 1"과 사후 감사 가능성이다.
+
+### DD8 — 체인 중간의 토글 변경: 관측하되 차단하지 않는다
+
+토글은 env라 게이트 사이에 켜고 끌 수 있다. 각 receipt가 **자기 시점의** 토글 상태를 봉인하므로 불일치는 사후에 반드시 드러나지만, 그것만으로는 "그때 알려주지 않는다"는 지적이 남는다.
+
+값싼 절반을 취한다: 게이트가 토글 **off**로 도는데 직전 chain receipt가 `meta.review_single_pass_reason`을 갖고 있으면 loud stderr 1줄을 낸다(차단하지 않는다). 반대로 토글 on인데 선행 receipt에 없으면 같은 방식으로 알린다.
+
+**전 chain 값 일치를 fail-closed로 강제하지는 않는다.** 그것은 토글을 켜기 전에 chain 전체를 미리 계획하게 만들어, 이 토글이 없애려는 마찰을 다른 모양으로 되살린다(UI12의 "작업 단위 opt-in"과 어긋난다). 강제안은 backlog로 남기고 근거를 함께 적는다.
+
+### DD6 — fan-out 지적 중 기각한 것과 그 증거
+
+Phase 2.5 fan-out이 CRITICAL 2건·HIGH 7건을 냈다. §3.14에 따라 HIGH 이상만 이 자리에서 처리하고, 기각에는 증거를 붙인다. 흡수한 것은 Task 배치에 반영돼 있다.
+
+| 지적 | 판정 | 증거 |
+|---|---|---|
+| CRITICAL(security) — "게이트가 `converged=true`로 receipt를 쓸 것이므로 새 verdict enum이 필요하다" | **기각** | 전제가 거짓이다. 본 plan은 실제 verdict를 봉인한다(DD1). 새 enum은 `review-verdict.js:46`의 공유 어휘를 깨뜨려 codex 축 소비자 전부에 파급된다 |
+| CRITICAL(security) — "plan·implement 양쪽이 우회되면 dedupe가 skip을 승인해 dual-review가 사라진다" | **기각(+ negative test 추가)** | `write.js:492-501`이 `review_source='multi-agent'`와 `codex_verdict` 공존을 **throw**하고, `dedupe.js`는 `isCrossModelCorroborated`를 요구하는데 `multi-agent`는 `CROSS_MODEL_SOURCES` 밖이다(`review-verdict.js:42`). 구조적으로 도달 불가. 다만 불변식이 값진 만큼 Task 7이 negative test로 못 박는다 |
+| HIGH(explorer) — "santa-loop이 plan.md·pr.md·prp-implement.md에서 호출된다" | **기각** | 오독이다. 세 파일의 매치는 전부 과거 리뷰 라운드를 가리키는 **주석 문자열**이다(`plugins/mccp/commands/plan.md:1329`, `plugins/mccp/commands/pr.md:137`, `plugins/mccp/commands/pr.md:946`). 호출 지점은 없다. DD5가 이 정정 위에 서 있다 |
+
+<details>
+<summary>+8 more adjudications</summary>
+
+| 지적 | 판정 | 증거 |
+|---|---|---|
+| HIGH(security) — "사유 문자열에 `validateReason`(≥30자·≥3단어)을 적용해야 한다" | **기각** | UI2가 정확히 그 설계를 배제한다. 사유가 토글의 **값 자체**인 이유는 별도 사유 변수를 두면 잊히고 잊힌 사유는 감사 불가이기 때문이다. 열거 소속이 곧 검증이다 |
+| HIGH(security) — "체인 preflight가 모든 선행 receipt의 토글 값 일치를 검증하고 불일치 시 fail-closed해야 한다" | **부분 흡수 → 나머지 backlog** | 각 receipt가 **자기 시점의** 토글 상태를 봉인하므로 중간 변경은 사후 관측 가능하다(흡수, DD8). 체인 전체 일치 강제는 토글을 그것이 대체하려는 마찰보다 더 번거롭게 만들어 UI12의 "작업 단위 opt-in"과 어긋난다(기각, backlog) |
+| HIGH(architect) — 세 게이트 판정 오라클 분산 | **흡수** | Task 1이 단일 공유 오라클을 만들고 세 게이트가 그것만 읽는다 |
+| HIGH(architect/security) — L1 불가침이 구조적으로 보장돼야 한다 | **흡수** | 완화 인자가 `decideReview`의 L1 분기 **뒤**에 들어간다(Task 2). 명령 본문 층에서 검사하지 않는다 |
+| HIGH(test) — enum 검증 오라클·receipt 필드·교차 게이트 test 부재 | **흡수** | Task 1·5·6·7·8 |
+| MEDIUM(architect) — "다음 세션이 원장의 round=1을 보고 R1을 허용한다" | **기각** | `MCCP_SANTA_ROUND_CAP`(원장 보유)과 `MCCP_GATE_ROUND_CAP`(Codex 라운드, 원장 없음)을 혼동했다. `docs/ENVIRONMENT.md:357`이 둘을 별개 축으로 명시한다 |
+| MEDIUM(architect/explorer) — "비용 절감을 위해 L2를 아예 건너뛰어야 한다" | **기각** | UI6이 1회 발화를 명시한다. 기존 리뷰 가치를 완전히 잃지 않기 위한 의도적 선택이며, 없애는 것은 반복이지 리뷰가 아니다 |
+| MEDIUM(architect) — "present-only 필드 추가에 schema v2 bump나 hash carve-out이 필요하다" | **기각** | `schema.js:167-171`이 선례를 말한다 — `makeSkeleton` 미등록 + 값이 있을 때만 재료화하면 legacy receipt는 byte 무변동이다. §3.12는 carve-out을 오히려 **금지**한다 |
+
+</details>
+
+MEDIUM·LOW 나머지와 기각한 HIGH 1건은 `.claude/plans/codex-findings-backlog.md`에 적재한다(Task 9).
+
+### DD9 — L2 승인 패널 R0가 낸 것과 그 처리
+
+L2 4인 패널(architect·security·test·invariant)이 R0에서 4/4 `fail`, blocking finding 11건을 냈다. CRITICAL 3·HIGH 4를 전부 이 자리에서 흡수했다. 기록은 `.claude/reviews/plan-review-review-loop-bypass.md`가 갖는다.
+
+| 지적 | 처리 |
+|---|---|
+| **CRITICAL ×2 (security) + HIGH (architect)** — `mk()`가 `block: verdict !== 'converged'`를 하드코딩(`plugins/mccp/scripts/lib/plan-review/decide.js:86`)하므로 "`mk('divergent',…)`를 `block:false`로 반환"은 **불가능한 코드 경로**이고, Task 3이 CLI 분기 무변경을 선언한 이상 우회는 조용히 실패한다 | **흡수 — 이 마일스톤의 핵심 결함이었다.** Task 2를 재작성해 형제 생성자 `mkSinglePass`가 `block:false`를 리터럴로 내도록 명시하고, `mk`의 계산식은 손대지 않는다. Task 7의 `block === false` 단언이 이 급소를 상시 반증 대상으로 만든다 |
+| **CRITICAL (invariant)** — prp-implement·pr의 Task 8이 캡 교체만 서술해 "세 게이트 범위"가 검증 불가 | **흡수** — DD7 신설. 세 게이트가 같은 종류의 승인 오라클을 갖고 있지 않다는 사실을 표로 명시하고, verdict 승인 로직을 고치는 곳이 `/mccp:plan` 한 곳뿐인 것이 결함이 아니라 UI9·UI10이 정한 **범위의 정의**임을 기록했다 |
+| **HIGH (test)** — UI5 "R0만 돌고 R1 이상은 없다"가 plan·prp-implement에서 test로 존재하지 않는다 | **흡수** — 정적 command-body test 신설(Task 7 네 번째 파일)로 배선 누락을 잡고, DD4에 (d)를 더해 그 test가 막는 것과 못 막는 것을 구분했다. Acceptance가 라이브 라운드 수를 기록한다 |
+
+<details>
+<summary>+2 more L2 adjudications</summary>
+
+| 지적 | 처리 |
+|---|---|
+| **HIGH (invariant)** — 체인 중간 토글 변경이 무방비이고 사후 감사뿐이다 | **부분 흡수** — DD8 신설. 선행 receipt와 현재 토글 상태가 어긋나면 loud stderr로 **그때** 알린다(차단하지 않는다). 전 chain fail-closed 일치 강제는 UI12와 어긋나므로 backlog 유지 |
+| **HIGH (invariant)** — "하류 validator가 `review_verdict`를 소비하지 않는다"는 grep 시점의 취약한 전제 | **흡수** — Task 7의 `review-single-pass-fields.test.js`에 chain 회귀 pin을 추가했다. 누군가 validate-cmd에 차단을 넣으면 M1이 무력화되기 전에 test가 붉어진다 |
+
+</details>
+
+MEDIUM 5건(architect 2·test 1·invariant 3)은 §3.14대로 backlog로 보낸다(Task 9).
+
+#### R1 (같은 패널 재실행 — security 통과, 나머지 3인 fail)
+
+R1의 CRITICAL 2·HIGH 4는 **하나의 원인**으로 수렴한다: Task 2가 *무엇을* 만들지는 말했지만 *어떤 모양인지*를 말하지 않았다. 선례 없는 신규 코드에 산문만 둔 결과 `mkSinglePass`의 시그니처·`review_source`·`forwardCodexVerdict`가 전부 미정이었고, 그중 마지막 하나는 `write.js:492-501`의 "contradictory receipt" throw와 직결된다.
+
+| 지적 | 처리 |
+|---|---|
+| **CRITICAL ×2 + HIGH ×3 (architect), HIGH (test)** — `mkSinglePass`의 시그니처·반환·호출 조건 미정. 특히 `forwardCodexVerdict`가 참이면 `write.js:492-501`이 `review_source='multi-agent'` + `codex_verdict` 공존으로 throw해 receipt 자체가 안 써진다 | **흡수** — Task 2에 **실제 코드 스케치**를 삽입했다. `forwardCodexVerdict: false` 고정이 그 throw에 도달하지 않는 근거이고, `if (sp)` 하나가 유일한 호출 조건이며, `perspectives`/`dispatchEvidence` hoist까지 명시했다. 아울러 audit proof가 **UI8의 전제**임을 적었다 — proof가 null이면 review triple이 부분 stamp가 되어 `write.js:458-469`이 receipt 작성을 거부한다 |
+| **HIGH (test)** — chain 회귀 pin의 fixture 구성이 미정. 손조립 receipt면 schema·hash·tamper 검사를 우회해 "test 통과, production 차단"이 된다 | **흡수** — fixture를 실제 write 경로로 만들고 proof를 `buildAuditProof`와 같은 모양으로 쓰도록 못 박았다(`pr-ship-gate.test.js` 선례) |
+| **HIGH (invariant)** — Acceptance (d)가 "라운드 수를 기록한다"라 임계가 없어 **어떤 값에도 통과**한다(fail-open) | **흡수** — "정확히 1"로 바꾸고 미달 시 complete 불가임을 명시했다. 관측을 Acceptance 면제 근거로 쓴 것이 잘못이었다 |
+| **HIGH (architect)** — 회귀 test는 사후 반응이지 구조적 방벽이 아니다. validate-cmd가 `review_verdict`를 소비하도록 바뀌는 것을 구조적으로 막아야 한다 | **기각(backlog)** — 한 모듈 안에서 *다른* 모듈의 미래 편집을 구조적으로 금지할 수단은 없다. 이 저장소가 같은 문제에 쓰는 기제가 정확히 pinning test다(`validate-callsite-lint.test.js`·`plan-review-command-body.test.js`). "reactive"라는 지적은 맞지만 대안이 제시되지 않았고, 제시 가능한 대안도 같은 부류다 |
+
+R1 MEDIUM 12건·LOW 1건은 backlog로 보낸다(Task 9).
+
+#### R2 (architect·test·invariant 통과, security만 fail)
+
+R2의 blocking finding은 **1건뿐이고 그것은 리뷰어가 쓴 것이 아니다** — `quorum.js:175-181`이 bare `verdict='fail'`에서 합성한 `severity:'FAIL'`이다. security의 자기 최고 severity는 MEDIUM이고, CLAUDE.md §3.14가 이 누수를 임시 규칙으로 명시해 두었다.
+
+그럼에도 **MEDIUM 3건을 흡수했다** — 셋이 서로 다른 두 렌즈에서 **같은 모순**을 지목했고 수정이 한 줄이며, 방치하면 잘못된 receipt를 만들기 때문이다.
+
+| 지적 | 처리 |
+|---|---|
+| **MEDIUM ×3 (architect 1 · security 2)** — Task 2 산문은 `mk`에도 `single_pass_reason: null`을 더한다고 했는데 같은 Task의 코드 스케치는 `mk`를 무변경으로 둔다. 게다가 Task 8은 "`single_pass_reason`이 있으면 forward"라 **모든** 결정이 그 필드를 가지면 우회하지 않은 receipt에도 `bypassed_verdict=true`가 찍혀 Task 6 불변식이 깨진다 | **흡수** — `mk`를 무변경으로 확정하고 `single_pass_reason`을 `mkSinglePass` 전용 present-only 필드로 못 박았다. Task 8의 셸 조건도 키 존재가 아니라 **값의 비공허성**(`[ -n … ]`)으로 명시했다. 모든 객체에 있는 필드는 존재만으로 아무것도 신호하지 못한다 |
+
+이 라운드에서 `mk`가 실제로 무변경이 됐다는 점은 부수적으로 R1 흡수의 정확성도 높인다 — 기존 9개 호출부가 문자 그대로 무영향이다.
+
+#### R3 (security·invariant 통과)
+
+| 지적 | 처리 |
+|---|---|
+| **HIGH (test)** — Acceptance (d)가 "L2 라운드 정확히 1"을 blocking 기준으로 삼는데 Validation에 **plan 게이트를 실제로 태우는 명령이 없어** 자동 반증이 불가능하다 | **흡수** — Validation에 `MCCP_REVIEW_SINGLE_PASS=…` + `/mccp:plan` 실주행과 (a)(c)(d) 각각의 확인 명령을 넣었다. 기준을 세워 놓고 재는 방법을 안 적은 것은 R1에서 고친 fail-open과 같은 부류의 결함이다 |
+| **MEDIUM (architect)** — `perspectives`/`dispatchEvidence` hoist의 목적지가 미정이라 L1 경계를 넘길 여지가 있다 | **흡수** — 목적지를 `if (quorum.passed !== true)` 바로 위 한 곳으로 고정하고, L1(:150-167)·DD13 bind(:191-204)가 그보다 앞선다는 사실을 스케치 주석에 적었다 |
+| **MEDIUM (architect)** — `effectiveRoundCap`이 객체를 반환하는데 셸에서 무엇을 export할지 미정 | **흡수** — Task 8에 정확한 셸 블록을 넣었다. export 대상은 `.cap` 하나이고 `.pinned`/`.reason`은 stderr 진단으로 분리했다 |
+| **MEDIUM (test)** — `review-single-pass-command-body.test.js`가 Validation 목록에서 누락 | **흡수** — Validation에 명시 추가 |
+| **MEDIUM ×2 · LOW ×2 (test·architect)** — "test 파일이 아직 없어 단언 내용을 확인할 수 없다" · "write 경로 fixture를 test에서 어떻게 격리하는지 미서술" | **기각(backlog)** — 전자는 plan에 구조적으로 성립하지 않는 요구다(리뷰어 프롬프트가 명시적으로 배제했는데도 재발했다 — CLAUDE.md가 기록한 `mccp:review-test` 프롬프트 결함의 4번째 재현). 후자는 `node --test`가 tmpdir fixture를 쓰는 이 저장소의 표준 관행이라 plan 수준에서 다시 서술할 것이 아니다 |
+
+**R3의 blocking 3건 중 2건도 `quorum.js` 합성 `FAIL`이었다**(architect·test). architect의 자기 최고 severity는 MEDIUM이었고 리뷰어 프롬프트가 "MEDIUM만이면 pass" 계약을 명시했음에도 fail을 반환했다 — §3.14가 기술한 누수의 재현이며, 그 관찰 자체를 backlog에 남긴다.
+
+#### R4 (architect·security·invariant 통과 — 3/4)
+
+| 지적 | 처리 |
+|---|---|
+| **HIGH (test)** — chain 회귀 pin이 `mccp:prp-implement` **하나만** 고정한다. plan receipt를 읽는 선행-게이트 소비자는 `mccp:pr` 경로에도 있으므로, 그쪽이 나중에 `review_verdict`를 보게 바뀌면 pin이 침묵한다 | **흡수** — pin과 Validation 양쪽에 `validate --command mccp:pr` 축을 추가했다. 소비자가 둘인데 하나만 고정하는 것은 R1에서 이 pin을 만든 이유(전제를 불변식으로 승격) 자체를 절반만 달성한 것이다 |
+| **MEDIUM ×2 (test)** — 같은 지적의 재진술 + "Acceptance가 세 게이트를 end-to-end로 완주하지 않는다" | **부분 흡수 → 나머지 backlog** — 위 pin 확장으로 전자는 닫혔다. 후자(`/mccp:prp-implement`·`/mccp:pr` 실완주)는 **M1 구현 자체를 배송해야 성립**하므로 plan 단계 Acceptance가 아니라 구현 후 검증 항목이다 |
+
+#### 이 게이트의 종료 상태 — 이것이 정직한 기록이다
+
+**R4에서 3/4가 통과했고 남은 fail은 위 HIGH 1건이며 그것을 흡수했다. 그러나 그 흡수를 검증할 R5는 이 세션에서 실행할 수 없다** — `orchestration-runaway` 세션 카운터가 24/24로 소진돼 `reserve`가 `granted:0`을 내고 5.2b가 HALT한다(설계대로). 따라서 `mccp-plan-codex` receipt는 **미작성**이고 `/mccp:prp-implement`는 아직 진입 불가다.
+
+이 상태를 "수렴"으로 부르지 않는다. 재개 방법은 **새 세션에서 `/mccp:plan .claude/prds/review-loop-bypass.prd.md` 재실행**(카운터는 세션 키라 리셋된다) 또는 `MCCP_ORCHESTRATION_MAX_AGENTS` 상향이다.
+
+**그리고 이 게이트 자체가 본 PRD의 증거다.** 단일 plan이 L2 4인 패널을 5라운드(R0~R4) 돌려 에이전트 20개·벽시계 약 45분을 썼고, 그중 실제로 설계를 바꾼 것은 R0의 CRITICAL 1건(`mk`의 하드코딩된 `block`)과 R1의 명세 공백 하나뿐이다. R2~R4의 blocking 6건 중 4건은 `quorum.js:175-181`이 bare `verdict='fail'`에서 **합성한** `severity:'FAIL'`이었고, 그 라운드들의 리뷰어 자기 최고 severity는 MEDIUM이었다. PRD가 "라운드 반복이 시간 비용의 지배항"이라고 쓴 것과 §3.14가 임시 규칙으로 기술한 누수가 같은 실행 안에서 동시에 관측됐다.
+
+## Tasks
+
+### Task 1: 단일통과 오라클 신설
+
+- **Action**: `plugins/mccp/scripts/lib/review-single-pass.js`를 만든다. export: `parseSinglePass(env)` → `{active, reason, rejected}` · `parseRoundCap(env)` → 1|2|3 · `effectiveRoundCap(env)` → `{cap, pinned, reason}` · 상수 `ENV_SINGLE_PASS`·`REASONS`(frozen 3종)·`ENV_ROUND_CAP`·`DEFAULT_ROUND_CAP`. 미설정/빈 값은 **조용히** 비활성(정상 상태이므로 warn 없음), 열거 밖 값은 비활성 + loud stderr warn + `rejected`에 원문 보존. 대소문자 구분(`gate.js:138` 규약) — 봉인되는 열거값이라 정규화하면 서로 다른 입력이 같은 필드를 채운다. `effectiveRoundCap`은 `active`일 때 `MCCP_GATE_ROUND_CAP`과 무관하게 `{cap:1, pinned:true}`.
+- **Mirror**: `plugins/mccp/scripts/lib/santa/gate.js:138` (`parseSeverityGate`) · `plugins/mccp/scripts/lib/santa/counter.js:31` (`parseCap`)
+- **Validate**: `node --test plugins/mccp/scripts/lib/tests/review-single-pass.test.js`
+
+### Task 2: `decideReview`에 완화 인자 배선
+
+- **Action**: `decide.js`의 `decideReview`가 `opts.singlePass`(`{active, reason}` 객체 또는 null)를 받는다.
+  - **`mk()`의 `block` 계산은 손대지 않는다.** `decide.js:86`이 `block: verdict !== 'converged'`를 **하드코딩**하므로 `mk`를 그대로 불러서는 `divergent`에 `block:false`가 나올 수 없다. 대신 형제 생성자 `mkSinglePass(verdict, source, proof, reason, singlePassReason)`를 신설해 `block:false`를 **리터럴로** 반환한다(`santa/gate.js`의 "기존 함수 무변경 + 신규 export" 변경 프로토콜). **`mk`는 한 글자도 바뀌지 않는다** — `single_pass_reason`은 `mkSinglePass`만 싣는 present-only 필드다. 초안은 "모든 decision 객체가 같은 모양을 갖도록 `mk`에도 `single_pass_reason: null`을 더한다"였는데, 그러면 Task 8의 "`single_pass_reason`이 있으면 forward" 조건이 **모든** 결정에 참이 되어 우회하지 않은 receipt에도 `bypassed_verdict=true`가 찍히고 Task 6의 불변식이 즉시 깨진다. 모든 객체에 존재하는 필드는 존재만으로 아무것도 신호하지 못한다 — present-only여야 존재가 곧 신호다(§3.12 receipt 관례와 같은 이유).
+  - 완화는 `quorum.passed !== true` 반환 **한 곳**에만 적용하고, L1 분기·L2 가용성 분기·DD13 bind 분기보다 **뒤**에 위치시켜 UI7이 코드 순서로 보장되게 한다. 그 지점에 도달했다는 것 자체가 "L1 통과 ∧ 읽을 수 있는 quorum ∧ `responded > 0` ∧ hash bind 일치"를 이미 의미한다 — budget skip과 아티팩트 부재는 `cli.js:435` 이전에서 `unavailable`로 조기 반환되므로 이 분기에 **도달하지 않는다**(DD2 표와 코드가 이미 일치하며, 완화 코드가 그 순서에 얹힌다).
+  - 완화 시 `buildAuditProof`(신규 내부 함수)로 `layers:{l1:'converged', l2:'divergent', l3:null}` · `verification_verdict:'divergent'` · `quorum.passed:false`인 정직한 proof를 만든다. `buildProof`(승인용)는 손대지 않는다.
+  - env를 읽지 않는다 — 파서만 env를 안다.
+- **코드 스케치** (선례 없는 신규 코드이므로 산문 대신 형태를 고정한다 — santa-loop-materialize M2 Task 2와 같은 이유):
+
+  ```js
+  // 신규 형제 생성자. mk()와 다른 점은 정확히 두 가지다:
+  //   block               — 계산이 아니라 리터럴 false
+  //   forwardCodexVerdict — 항상 false
+  // 후자가 load-bearing이다: source='multi-agent'인데 codex_verdict가 함께
+  // 실리면 write.js:492-501이 "contradictory receipt"로 throw한다. 5.6b는
+  // decision.json의 forwardCodexVerdict가 참일 때만 --codex-verdict를 붙이므로,
+  // false를 고정하는 것이 그 throw에 도달하지 않는 유일한 근거다.
+  function mkSinglePass(verdict, source, proof, reason, singlePassReason) {
+    return {
+      review_verdict: verdict,          // 'divergent' — 위장하지 않는다
+      review_source: source,            // 'multi-agent'
+      review_proof: proof,              // buildAuditProof 산출 (null 아님)
+      block: false,                     // ← 이 한 줄이 마일스톤의 전부다
+      reason: reason,
+      forwardCodexVerdict: false,
+      single_pass_reason: singlePassReason,
+    };
+  }
+
+  // 감사용 proof. schema.js:224-238이 비수렴 verdict에 요구하는 것은
+  // dispatch_evidence의 경로 형태뿐이므로 quorum.passed:false로 정직하게 쓴다.
+  // 이 proof가 없으면 review triple이 부분 stamp가 되어 write.js:458-469과
+  // plan.md 5.6b의 HALT 가드가 receipt 작성을 막는다 — 즉 proof는 장식이 아니라
+  // "receipt가 작성된다"(UI8)의 전제다.
+  function buildAuditProof(opts) {
+    return {
+      layers: { l1: 'converged', l2: 'divergent', l3: null },
+      verification_verdict: 'divergent',
+      quorum: {
+        passed: false,
+        required: opts.quorum.required, of: opts.quorum.of,
+        roles: opts.quorum.roles, responded: opts.quorum.responded,
+      },
+      perspectives: opts.perspectives,
+      dispatch_evidence: opts.dispatchEvidence,
+      reviewed_plan_hash: opts.reviewedPlanHash,
+    };
+  }
+
+  // decideReview 내부. perspectives/dispatchEvidence 계산(현 :217-221)을
+  // 이 분기보다 위로 hoist한다 — 순수 계산이라 동작 무변동이고, 그러지 않으면
+  // 완화 분기가 아직 없는 값을 참조한다.
+  //
+  // **hoist 목적지는 `if (quorum.passed !== true)` 바로 위 한 곳이다**(현 :205
+  // 근방). L1 분기는 :150-167이라 hoist 후에도 여전히 앞서고, DD13 bind 검사
+  // (:191-204)도 앞선다 — 즉 UI7은 hoist에 무관하게 성립한다. 더 위로(예: L1
+  // 분기 앞으로) 올리면 L1이 거부한 입력에도 계산이 돌아 낭비이고, 그 자체가
+  // 판정을 바꾸지는 않지만 "완화보다 앞선 것은 전부 불가침"이라는 읽기 규칙을
+  // 흐린다. 그래서 목적지를 한 곳으로 고정한다.
+  if (quorum.passed !== true) {
+    const sp = isPlainObject(o.singlePass) && o.singlePass.active === true
+      ? o.singlePass : null;
+    if (sp) {
+      return mkSinglePass('divergent', 'multi-agent',
+        buildAuditProof({
+          quorum: quorum, perspectives: perspectives,
+          dispatchEvidence: dispatchEvidence, reviewedPlanHash: reviewedHash,
+        }),
+        'L2 quorum not satisfied: ' + (quorum.reason || 'unspecified') +
+        ' — MCCP_REVIEW_SINGLE_PASS=' + sp.reason + ' 로 진행한다. ' +
+        'verdict는 divergent 그대로 봉인된다.',
+        sp.reason);
+    }
+    return mk('divergent', 'multi-agent', null,          // ← 기존 경로 무변동
+      'L2 quorum not satisfied: ' + (quorum.reason || 'unspecified'), false);
+  }
+  ```
+
+  **`mkSinglePass`를 부르는 조건은 위 `if (sp)` 하나뿐이다.** `mk`의 나머지 9개 호출부는 손대지 않으므로, 이 분기에 도달하지 못한 경로(L1 실패·L2 부재·hash 불일치)는 어떤 env 값에서도 `mk`를 지나 `block:true`가 된다.
+- **Mirror**: `plugins/mccp/scripts/lib/plan-review/decide.js:150` (L1 우선 분기) · `plugins/mccp/scripts/lib/santa/gate.js:488` (완화가 한 항만 면제하고 강화 축을 덮지 않는 구조)
+- **Validate**: `node --test plugins/mccp/scripts/lib/tests/review-single-pass.test.js`
+
+### Task 3: `plan-review` CLI 주입
+
+- **Action**: `cli.js` `cmdDecide`가 `parseSinglePass(process.env)`를 `decideReview`에 넘긴다. 종료 코드 분기는 **손대지 않는다** — 말미의 `return decision.block ? EX_BLOCK : EX_OK;`가 이미 `block:false`를 EX_OK로 옮긴다. 이 무변경이 성립하는 전제는 Task 2의 `mkSinglePass`가 `block:false`를 실제로 만든다는 것 하나뿐이며, 그 전제 자체를 Task 7의 단위 test가 단언한다. `out()`이 내는 decision.json에 `single_pass_reason`이 실린다(`Object.assign` 경유라 자동). 완화가 발동하면 `errln`으로 "패널이 이견을 냈으나 단일통과 토글(<reason>)로 진행한다 — verdict는 divergent 그대로 봉인된다"를 낸다. 조용한 통과를 만들지 않는 것이 요점이다.
+- **Mirror**: `plugins/mccp/scripts/lib/plan-review/cli.js:376` (`cmdDecide` 구조)
+- **Validate**: `node --test plugins/mccp/scripts/lib/tests/review-single-pass-gate.test.js`
+
+### Task 4: santa-loop 라운드 거부
+
+- **Action**: `santa/cli.js`의 `begin-round` 처리에서 `ledger.beginRound` 호출 **이전에** `parseSinglePass(process.env).active`를 검사해 참이면 exit 2 + `{reason:'SANTA_SINGLE_PASS_ACTIVE', single_pass_reason:<enum>}`를 stdout JSON으로 내고 stderr에 해제 방법(`MCCP_REVIEW_SINGLE_PASS` 해제)을 적는다. 원장을 건드리지 않으므로 캡이 소모되지 않는다. `santa-loop.md`의 exit code 해석 표에 행을 더한다. receipt는 쓰지 않는다(DD5).
+- **Mirror**: `plugins/mccp/scripts/lib/santa/cli.js:615` (신규 exit code 없이 사유로 구분) · `MCCP_SANTA_ADJUDICATION_GATE` 선검사 위치
+- **Validate**: `node --test plugins/mccp/scripts/lib/tests/review-single-pass-gate.test.js`
+
+### Task 5: receipt 두 필드 봉인
+
+- **Action**: `write.js`에서 `makeSkeleton` **이후** present-only로 stamp한다. `review_single_pass_reason`은 명시 `--review-single-pass-reason`이 우선이고 없으면 `parseSinglePass(process.env).reason`을 쓴다(v1.23.5가 정한 writer 측 precedence — writer는 caller의 주장을 기록한다). `review_single_pass_bypassed_verdict`는 `args['review-single-pass-bypassed-verdict'] === true`일 때만 `true`로 재료화한다. 둘 다 값이 없으면 키 자체를 만들지 않는다. **DD8 배선**: 선행 chain receipt가 `review_single_pass_reason`을 갖는데 현재 호출은 토글 off이거나 그 반대이면 loud stderr 1줄을 낸다 — 차단하지 않는다.
+- **Mirror**: `plugins/mccp/scripts/receipt/write.js:771` (`pr_codex_force_override` 조건부 재료화) · `plugins/mccp/scripts/receipt/write.js:612` (env ambient stamp)
+- **Validate**: `node --test plugins/mccp/scripts/receipt/tests/review-single-pass-fields.test.js`
+
+### Task 6: schema 검증 + 불변식
+
+- **Action**: `schema.js`에 present-only 검증을 더한다 — `meta.review_single_pass_reason`은 존재 시 3종 열거 소속, `meta.review_single_pass_bypassed_verdict`는 존재 시 불리언 `true`. 불변식: `bypassed_verdict === true`이면 `reason`이 존재하고 `resolution.review_verdict`가 존재하며 그 값이 `'converged'`가 아니어야 한다. 위반 시 명확한 오류 문구로 거부한다.
+- **Mirror**: `plugins/mccp/scripts/receipt/schema.js:191` (present-only 열거 검증) · `plugins/mccp/scripts/receipt/schema.js:246` (증거와 결론의 대조 불변식)
+- **Validate**: `node --test plugins/mccp/scripts/receipt/tests/review-single-pass-fields.test.js`
+
+### Task 7: test 3종 작성
+
+- **Action**: 세 파일을 작성한다.
+  - `review-single-pass.test.js` — 파서(미설정·3종 정상·대소문자 불일치·공백·열거 밖 → 각 결과와 warn 발생 여부) · `effectiveRoundCap`(토글 off에서 1/2/3 및 불량값, 토글 on에서 `MCCP_GATE_ROUND_CAP=3`이어도 `{cap:1,pinned:true}`) · `decideReview` 완화 경계(**L1 divergent + 토글 on → 여전히 block** · L2 부재/`responded:0`/hash 불일치 + 토글 on → 여전히 block · quorum 비수렴 + 토글 on → **`block === false`** ∧ `review_verdict==='divergent'` ∧ proof 비-null ∧ `single_pass_reason` 일치 · 토글 off에서 M1 이전과 반환 동일). `block === false` 단언이 이 마일스톤의 **단일 급소**다 — `mk`의 하드코딩된 `block` 계산을 그대로 쓰면 여기서 즉시 붉어진다.
+  - `review-single-pass-gate.test.js` — `cli.js decide` 실제 호출 왕복(임시 repo fixture): L1 divergent는 exit 12 유지, quorum 비수렴은 exit 0 + decision.json에 `single_pass_reason`. `santa/cli.js begin-round`가 토글 on에서 exit 2를 내고 **원장 라운드 수가 증가하지 않음**을 단언. budget skip 경로(`{skipped:true}` l2.json)는 토글 on에서도 exit 12임을 단언 — 이 경로는 `cmdDecide`가 `decideReview` **이전에** 조기 반환하므로 CLI 층에서만 반증 가능하다.
+  - `review-single-pass-fields.test.js` — receipt 왕복: 두 필드 봉인 · 토글 미설정 시 키 부재(hash 무변동) · 불변식 위반 3종 negative(`bypassed_verdict` 단독 · `review_verdict` 부재 · `review_verdict='converged'`와 공존) · **dedupe negative**(`review_source='multi-agent'` receipt는 토글 유무와 무관하게 `isCrossModelCorroborated` 거짓) · **chain 회귀 pin**: `review_verdict='divergent'`인 `mccp-plan-codex` receipt에 대해 `validateCommand({command:'mccp:prp-implement'})` **와** `validateCommand({command:'mccp:pr'})`(선행 게이트 루프 축 — `--check-ship-verdict` 없이) 양쪽이 비수렴 `review_verdict`를 이유로 차단하지 **않음**을 단언한다. 소비자가 둘인데 하나만 고정하면 다른 하나가 바뀔 때 pin이 침묵한다. DD1이 의존하는 "하류 validator는 `review_verdict`를 소비하지 않는다"는 오늘 grep으로만 참인 **취약한 전제**였다 — 이 test가 그것을 기계적으로 지켜지는 불변식으로 바꾼다. 누군가 validate-cmd에 `review_verdict` 차단을 추가하면 이 test가 붉어져 M1 전체가 무력화되기 **전에** 알려준다.
+    **fixture는 손으로 만들지 않는다** — `cli.js write`(또는 `write.js#buildReceipt`)로 실제 경로를 태워 receipt를 만들고, proof는 Task 2의 `buildAuditProof`가 내는 것과 같은 모양(비수렴 `layers` + `quorum.passed:false` + repo-relative `dispatch_evidence`)을 쓴다. 손으로 조립한 receipt는 `subject_hash`/`receipt_hash`·schema·tamper 검사를 우회하므로 "test에서는 통과하고 production에서는 막히는" 결과를 낼 수 있다. 선례는 `plugins/mccp/scripts/lib/tests/pr-ship-gate.test.js`의 `makeSkeleton` 기반 fixture다.
+  - `review-single-pass-command-body.test.js`(위 세 파일과 별개, `plan-review-command-body.test.js` 미러) — 세 명령 본문(`plan.md`·`prp-implement.md`·`pr.md`)이 라운드 캡을 **각자 하드코딩한 리터럴이 아니라 공유 오라클에서 읽는지**를 정적으로 단언한다. 산문 루프를 기계화하지는 못하지만, "세 게이트 중 하나가 배선에서 빠지는" PRD Risk 5는 이것으로 잡힌다.
+- **Mirror**: `plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js:333` (원장 미증가 단언) · `plugins/mccp/scripts/receipt/tests/pr-codex-dedupe.test.js` (dedupe negative)
+- **Validate**: `node --test plugins/mccp/scripts/lib/tests/review-single-pass.test.js plugins/mccp/scripts/lib/tests/review-single-pass-gate.test.js plugins/mccp/scripts/lib/tests/review-single-pass-command-body.test.js plugins/mccp/scripts/receipt/tests/review-single-pass-fields.test.js`
+
+### Task 8: 명령 본문 3곳 + `round-budget.test.js` 배선
+
+- **Action**: `plan.md` — 5.2e 뒤에 완화 발동 시의 안내 문구, 5.6b `WRITE_FLAGS`에 decision.json의 `single_pass_reason`이 **비어있지 않은 문자열일 때만** `--review-single-pass-reason "<값>"` + `--review-single-pass-bypassed-verdict`를 forward(기존 `[ -n "$VAR" ]` 관용구 — 키 존재 여부가 아니라 값의 비공허성을 본다. Task 2가 `mk`를 무변경으로 두므로 두 판정은 일치하지만, 셸 조건 쪽도 값 기준으로 적어 두 층이 어긋날 여지를 없앤다), Phase 5.4 캡 문장을 오라클 호출로 교체. `prp-implement.md` Phase 2.5 캡 문장 동일 교체. `plugins/mccp/commands/pr.md:511`의 `export MCCP_GATE_ROUND_CAP="${MCCP_GATE_ROUND_CAP:-1}"`을 아래로 교체해 codex-runner 자식이 **고정된** 값을 상속하게 한다 — `effectiveRoundCap`은 객체를 내므로 셸이 export하는 것은 `.cap` **하나뿐**이다(`.pinned`·`.reason`은 stderr 진단용):
+
+  ```bash
+  ROUND_CAP_JSON=$(node -e '
+    const {effectiveRoundCap}=require(process.argv[1]+"/scripts/lib/review-single-pass");
+    process.stdout.write(JSON.stringify(effectiveRoundCap(process.env)));
+  ' "${CLAUDE_PLUGIN_ROOT}")
+  export MCCP_GATE_ROUND_CAP=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).cap))}catch{process.stdout.write("1")}' <<<"$ROUND_CAP_JSON")
+  node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));if(j.pinned)process.stderr.write("[mccp:single-pass] round cap pinned to "+j.cap+" by MCCP_REVIEW_SINGLE_PASS="+j.reason+"\n")}catch(_){}' <<<"$ROUND_CAP_JSON"
+  ``` `round-budget.test.js`의 test-local `parseCap`을 신규 모듈 import로 교체하고 불량값 처리 단언을 오라클 동작에 맞춘다.
+- **Mirror**: `plugins/mccp/commands/plan.md:2240` (decision.json에서 값을 읽어 `WRITE_FLAGS`에 push) · `plugins/mccp/commands/pr.md:511` (자식 프로세스 env export)
+- **Validate**: `node --test plugins/mccp/scripts/lib/tests/round-budget.test.js plugins/mccp/scripts/lib/tests/plan-review-command-body.test.js`
+
+### Task 9: 문서 · 버전 · backlog
+
+- **Action**: `docs/ENVIRONMENT.md` §11에 `MCCP_REVIEW_SINGLE_PASS`를 등재하고 `MCCP_GATE_ROUND_CAP` 행에 우선순위를 명기한다. `docs/gate-design.md`에 완화 경계(DD2 표)와 santa 거부 근거를 상주시킨다. `CLAUDE.md`에 §3.15를 신설하되 **주장하지 않는 것**(라운드 산문 강제의 천장 · L2 비용은 여전히 1회분 발생 · M2 없이는 지적이 backlog로 자동 회수되지 않음)을 함께 적는다. `plugin.json` 1.27.2 → 1.27.3, footer 2면(`renderer/html.js` page-foot · `renderer/markdown.js` derived 줄)과 `CHANGELOG.md`를 같은 값으로 동기화한다. PRD의 M1 행을 in-progress + Plan 셀 연결로 갱신하고 Open Question 2·3·5에 판정을 기록한다. fan-out MEDIUM·LOW와 기각한 HIGH 1건을 `codex-findings-backlog.md`에 append한다.
+- **Mirror**: `docs/ENVIRONMENT.md:415` (diverse-agent review 토글 블록 서술 밀도) · CLAUDE.md §3.13.1의 "주장하지 않는 것" 절
+- **Validate**: `node --test plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js && node plugins/mccp/scripts/lib/instruction-contract/lint.js --claude CLAUDE.md --ledger docs/multi-session-work-loop/instruction-contract.md`
+
+## Validation
+
+```bash
+# 신규 축 단위 + CLI 왕복 + receipt 봉인
+node --test plugins/mccp/scripts/lib/tests/review-single-pass.test.js
+node --test plugins/mccp/scripts/lib/tests/review-single-pass-gate.test.js
+node --test plugins/mccp/scripts/receipt/tests/review-single-pass-fields.test.js
+
+# 기본 경로 회귀 0건 (토글 미설정 상태) — PRD Success Metric 3
+node --test plugins/mccp/scripts/lib/tests/
+node --test plugins/mccp/scripts/receipt/tests/
+
+# 기존 receipt corpus invalid 0
+node plugins/mccp/scripts/receipt/cli.js status
+
+# 버전 4면 동기
+node --test plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js
+
+# CLAUDE.md 절 이전 검증
+node plugins/mccp/scripts/lib/instruction-contract/lint.js \
+  --claude CLAUDE.md --ledger docs/multi-session-work-loop/instruction-contract.md
+
+# 신규 command-body 정적 test (위 4개 파일 중 마지막)
+node --test plugins/mccp/scripts/lib/tests/review-single-pass-command-body.test.js
+
+# ── 라이브 경로 1회 완주 (Acceptance 마지막 항목의 산출물 4종) ───────────────
+# (b) santa-loop 미발화 + 원장 라운드 미증가
+MCCP_REVIEW_SINGLE_PASS=scope_too_small node plugins/mccp/scripts/lib/santa/cli.js begin-round --decision review-loop-bypass-m1 ; echo "exit=$? (기대 2)"
+node -e "const s=require('./.claude/state/santa-loop/review-loop-bypass-m1.json');console.log('rounds=',s.rounds.length)"
+
+# (a)(c)(d) plan 게이트 실주행 — 이 명령이 없으면 Acceptance (d)의 "정확히 1"이
+# 자동으로 반증 불가능하다(R3 test 리뷰어 HIGH). 비수렴 L2를 재현하려면 토글을
+# 켠 채 게이트를 끝까지 태우고, 아래 세 값을 순서대로 확인한다.
+MCCP_REVIEW_SINGLE_PASS=scope_too_small /mccp:plan .claude/prds/review-loop-bypass.prd.md
+#   (d) 관측 라운드 수 — 기대 정확히 1
+node -e "const r=require('./.claude/reviews/plan-review-review-loop-bypass.md');" 2>/dev/null || \
+  grep -c '^## Round' .claude/reviews/plan-review-review-loop-bypass.md
+#   (a) receipt 3필드 동시 봉인
+node -e "const r=require('./.claude/receipts/mccp-plan-codex/review-loop-bypass.json');console.log(r.meta.review_single_pass_reason, r.meta.review_single_pass_bypassed_verdict, r.resolution.review_verdict)"
+#   (c) 비수렴 봉인이 chain을 막지 않음 — 소비자 둘 모두
+node plugins/mccp/scripts/receipt/cli.js validate --command mccp:prp-implement \
+  --decision review-loop-bypass --plan .claude/plans/review-loop-bypass-m1.plan.md ; echo "exit=$? (기대 0)"
+node plugins/mccp/scripts/receipt/cli.js validate --command mccp:pr \
+  --decision review-loop-bypass --plan .claude/plans/review-loop-bypass-m1.plan.md ; echo "exit=$? (선행 게이트 축이 review_verdict로 막지 않는지)"
+```
+
+## Risks
+
+| Risk | Likelihood | Mitigation |
+|---|---|---|
+| 완화가 `unavailable` 경로까지 새어 리뷰 없이 통과한다 | 중간 | 완화 코드를 `quorum.passed !== true` 반환 한 곳에만 두고, 나머지 6개 차단 경로 각각에 대해 "토글 on에서도 block" 단위 test를 둔다(Task 7) |
+| L1 불가침이 명령 본문 층 검사로 잘못 구현돼 우회된다 | 중간 | 완화 인자를 `decideReview` 내부 L1 분기 **뒤**에 배치해 코드 순서로 보장하고, 명령 본문에는 토글 분기를 두지 않는다 |
+| 비수렴 receipt가 하류 게이트를 막아 토글이 무효가 된다 | 낮음 | 오늘 `validate-cmd.js`가 `review_verdict`를 소비하지 않는다(grep 0건). 그러나 grep은 시점의 관찰일 뿐이라 Task 7이 **회귀 pin test**로 그 전제를 불변식으로 승격한다 |
+
+<details>
+<summary>+4 more risks</summary>
+
+| Risk | Likelihood | Mitigation |
+|---|---|---|
+| 라운드 캡이 산문 층에 남아 부분 적용된다 | 높음 | 기계화 가능한 지점(`plugins/mccp/commands/pr.md:511`의 자식 env export)만 기계화하고, 세 명령 본문이 오라클을 참조하는지는 정적 test로 단언한다(DD4 (d)). 나머지 천장은 DD4에 명시한다 |
+| 토글이 상시 켜진 채 방치된다 | 중간 | 사유가 값 자체라 무사유 사용이 불가하고, receipt 봉인으로 사용률이 사후 계측된다. 발동 시 loud stderr가 매번 나온다 |
+| 병렬 브랜치와 1.27.3 번호 충돌 | 중간 | §3.7 forward-only — 머지 해소 시점과 `/mccp:pr` 직전 두 번 재계산하고 재상향 시 4면 동기 검증을 다시 돌린다 |
+| M2 미배송 상태로 M1만 쓰이면 지적이 유실된다 | 높음 | M1은 지적을 **없애지 않는다** — 비수렴 verdict와 findings가 `l2.json`·`.claude/reviews/plan-review-<slug>.md`에 그대로 남는다. 자동 회수만 M2 소유임을 §3.15에 명시한다 |
+
+</details>
+
+## Acceptance
+
+- [ ] All tasks complete
+- [ ] Validation passes
+- [ ] Patterns mirrored, not reinvented
+- [ ] 토글 on에서 L1 divergent가 여전히 HALT함을 단위 test가 단언 (UI7)
+- [ ] 토글 on에서 L2 비수렴이 **`decision.block === false`** + `review_verdict='divergent'` 봉인임을 단위 test가 단언 (UI6·UI8). `mk`의 하드코딩 `block` 계산을 그대로 쓰면 붉어지는 급소 단언이다
+- [ ] `review_verdict='divergent'` plan receipt로 `mccp:prp-implement` chain-check가 `ok:true`임을 회귀 test가 pin (DD1의 취약 전제 승격)
+- [ ] 세 명령 본문이 라운드 캡을 공유 오라클에서 읽는지 정적 test가 단언 (PRD Risk 5)
+- [ ] 토글 미설정 시 기존 test suite green + `receipt cli.js status` invalid 0 (PRD Success Metric 3)
+- [ ] 게이트/경로를 실제로 1회 완주하고 산출물을 확인 (단위 test 통과 ≠ 경로 작동)
+  - **라이브 산출물 4종**: (a) `MCCP_REVIEW_SINGLE_PASS=scope_too_small`로 `/mccp:plan`을 실제 실행해 비수렴 L2에서도 `mccp-plan-codex` receipt가 **작성되고** 그 안에 `meta.review_single_pass_reason='scope_too_small'` + `meta.review_single_pass_bypassed_verdict=true` + `resolution.review_verdict='divergent'`가 함께 들어있을 것. (b) 같은 env에서 `santa/cli.js begin-round`가 exit 2를 내고 `.claude/state/santa-loop/<slug>.json`의 `rounds` 길이가 **증가하지 않았을** 것. (c) 그 receipt로 `/mccp:prp-implement`의 chain-check(`cli.js validate --command mccp:prp-implement`)가 exit 0일 것 — 비수렴 봉인이 chain을 막지 않는다는 DD1의 실측. (d) 그 라이브 실행에서 **관측된 L2 라운드 수가 정확히 1**일 것. 1이 아니면 **이 항목은 미충족**이고 마일스톤은 complete가 아니다 — 원인을 규명해 흡수하거나, 흡수 불가로 판명되면 UI5 미달을 명시하고 PRD에 되돌린다. 초안은 "실측값을 기록한다"였는데 그것은 임계 없는 관측이라 **어떤 값에도 통과하는 fail-open 기준**이었다: M1의 주목적이 달성되지 않아도 complete를 선언할 수 있었다. 계측은 DD4가 인정한 산문 강제의 천장을 *서술*하는 수단이지 Acceptance를 *면제*하는 근거가 아니다.
+
+## Out of Scope (M1)
+
+- 미흡수 지적의 backlog 자동 적재 — **M2 소유**. M1만 배송된 상태에서 지적은 `l2.json`과 `.claude/reviews/plan-review-<slug>.md`에 남지만 backlog로 **자동 이동하지 않는다**
+- Codex 게이트 3종의 동작 변경 · terminal ship gate verdict 판정 변경
+- 기존 5종 리뷰 토글의 통합/은퇴 · 전역이나 CI 상시 활성 · 대시보드 사용률 노출
+- `deferred_to_prd_completion`으로 미룬 검증이 PRD 종료 시 실제로 수행됐는지 강제하는 장치 (PRD Open Question 1 — 미결로 유지)
+
+## Design Critique
+
+detector: `design_signal=true` (signal files: `plugins/mccp/scripts/receipt/write.js` ·
+Task 9의 renderer footer 동기 검증 명령). retry cap 2, 2회 발화 후 `CONVERGED`.
+
+- **R0 — HIGH 1건 (H4 한 화면 항목 수 상한)**: `### Findings`(34) · `### Meta-gaps`(25) ·
+  `### Patterns to mirror`(26) · DD6 판정표(11) · `## Risks`(7) · `## Patterns to Mirror`(8)이
+  전부 평평하게 펼쳐져 있었다. 상위 3개만 노출하고 나머지를 `<details><summary>+N more</summary>`로
+  접어 흡수했다.
+- **R1 — CONVERGED**: H1(heading depth ≤ 3 — 본문 최대 `###`) · H2(강조색 토큰 없음, markdown 평문) ·
+  H3(미렌더 marker·MD0xx·부유 entity 없음) · H4(위 6개 면 적용) 모두 통과.
+
+**H4를 적용하지 않은 4개 면과 그 이유** — 접으면 다른 게이트를 깨거나 계약을 가린다:
+
+- `## User Intent` — `intent-context.js`가 표를 직접 파싱해 리뷰어 focus를 만든다. 구조를 감싸면
+  섹션이 **부재**로 취급돼 게이트가 막힌다.
+- `## Files to Change` — `l1-check.js#parseFileRows`가 행 단위로 C2·C3·C7c를 검사한다.
+- `## Tasks` — 같은 파일의 `taskBlocks`가 Task마다 `**Validate**:` 존재를 검사한다(C4).
+- `## Acceptance` — 접으면 마지막 항목(라이브 완주 산출물 3종)이 기본 화면에서 사라진다.
+  그 항목은 이 명령 본문이 boilerplate가 아니라고 명시한 계약이라, 숨기는 것이 H4가 막으려는
+  스캔 실패보다 나쁘다.
+
+## Design Routing Guide
+
+routing mode: `auto` (implement 단계에서 유효). plan 단계는 렌더된 UI가 없어 어떤 impeccable
+명령도 **호출하지 않는다** — 아래는 구현자를 위한 체크리스트다. 본 마일스톤의 렌더 표면은
+Task 9의 footer 2면 동기뿐이라 대부분의 행은 해당 없음으로 지나간다.
+
+| Stage | Command |
+|---|---|
+| discovery | `/impeccable shape` |
+| refine | `/impeccable layout` |
+| refine | `/impeccable typeset` |
+| refine | `/impeccable animate` |
+| refine | `/impeccable colorize` |
+| refine | `/impeccable bolder` |
+| refine | `/impeccable quieter` |
+| refine | `/impeccable overdrive` |
+| refine | `/impeccable delight` |
+| simplify | `/impeccable adapt` |
+| simplify | `/impeccable distill` |
+| simplify | `/impeccable clarify` |
+| evaluate | `/impeccable critique` |
+| evaluate | `/impeccable audit` |
+| harden | `/impeccable harden` |
+| harden | `/impeccable optimize` |
+| harden | `/impeccable onboard` |
+| polish | `/impeccable polish` |
+| system | `/impeccable document` |
+| system | `/impeccable extract` |
+## Multi-Perspective Fan-out
+
+<!-- Auto-injected by /mccp:plan Phase 2.5 fan-out (read-only). -->
+<!-- 원문 그대로이되 존재하지 않는 파일 경로 2건만 정정했다(L1 C6 인용 검사 통과용). -->
+<!-- 이 절은 조사 재료다. 채택·기각 판정은 위 ## Design Decisions DD6이 소유한다. -->
+
+**Coverage**: 4/4 perspectives (architect, security, test, explorer) · spent ~47k.
+
+### Findings (severity-ranked)
+
+
+- **[CRITICAL][security]** PRD specifies 'receipt 게이트 미통과' fail-closed, but does not spec how validator should reject a L2-bypassed receipt that arrives at terminal PR gate without ship-ready codex verdict — PRD §Scope: 'receipt — 미작성이나 미승인이 아니라, **사유가 봉인된 승인**으로 남는다'. This means the gate will WRITE a receipt (converged=true assumed) despite L2 nonconvergence. plugins/mccp/scripts/lib/pr-ship-gate.js deriveShipDecision (line 38) will see codex_verdict='divergent' in a prior receipt and no-ship. But if the prior receipt was written under the bypass toggle with L2 deliberately nonconvergent, the receipt.resolution.codex_verdict should reflect that (not be mislabeled 'converged'). The toggle must force a distinct verdict enum value (suggested: 'skipped_by_bypass_toggle') so downstream ship gates mechanically fail-closed if codex_verdict indicates a review was aborted, not completed.
+- **[CRITICAL][security]** No cross-gate dedupe protection; plan-codex and implement-codex can both be bypassed, and PR-codex dedupe (plugins/mccp/scripts/receipt/dedupe.js) will approve skip based on two bypassed-L2 receipts, removing all cross-model review — plugins/mccp/scripts/receipt/dedupe.js evaluateForDedupe(line 44-68) checks `codexConverged` from plan and implement receipts. If both were written under review-loop-bypass with L2 forced skip, both will have codex_verdict='converged' (or the new distinct value if that's added). The dedupe logic will approve `skip_safe=true` and PR-codex will not run — dual-review is fully aborted, not just L2-retried. Mitigation: dedupe must NEVER approve skip when either upstream receipt has `meta.review_loop_bypass='true'` (require explicit bypass reason to be re-stated at PR step or fail-closed).
+- **[HIGH][architect]** Three-gate flow fragmentation: Plan-review, prp-implement, and pr gates have independent decision oracles (plan-review/decide.js, implement-dispatch/route.js, pr-phase-helpers/finalize-receipt.js) with no shared bypass integration point. Bypass must thread through all three without introducing circular coupling. — aliases.js L27-35 shows three disjoint command→gate mappings (mccp:plan→mccp-plan-codex, mccp:prp-implement→mccp-implement-codex, mccp:pr→mccp-pr-codex). Each gate's decision logic is independent: plan-review/decide.js L140-278 composes L1+L2+L3 verdicts; pr-phase-helpers/finalize-receipt.js owns PR-stage approval. No orchestration point exists that could uniformly apply a 'bypass all rounds' policy across the three.
+
+<details>
+<summary>+32 more fan-out findings</summary>
+
+- **[HIGH][architect]** L1 mechanical invariant preservation requires explicit guard: The PRD states 'L1 (mechanical) — 불가침. 토글과 무관하게 발화하고, 실패하면 토글이 켜져 있어도 HALT한다.' This must be enforced at every gate, but currently there is no centralized L1-override blocker. If bypass is injected at the wrong layer (e.g., after L1 verdict is serialized), L1 violations could leak through. — plan-review/decide.js L150-167 shows L1 verdict determines gate verdict; failure returns 'divergent' immediately. However, if bypass flag is checked in the command body before calling decide.js, the L1 verdict might be sealed without its force-block. Bypass must NOT suppress L1 return code—it must run unconditionally and halt iff L1 fails.
+- **[HIGH][security]** Receipt audit trail for bypass reason lacks enforced validator; reason string can be minimal/empty and still stamp bypass, creating audit blind spot — PRD §Scope specifies 'suid가 봉인된 승인으로 남는다' but does not specify validator. Existing override reasons use plugins/mccp/scripts/receipt/lib/force-override-reason.js validateReason() with MIN_LENGTH=30, MIN_WORDS=3, placeholder rejection. The bypass reason MUST use equivalent validator (strict namespace) to prevent 'yes' / 'n/a' / placeholder stamps. Without this, receipts will record `reason='deferred_to_prd_completion'` with no _justifying_ text, making §3.14 CLAUDE.md 'evidence 없는 강등' gap unfilled.
+- **[HIGH][security]** Environment-variable toggle state is not atomic across three gates; a race or env change mid-pipeline causes inconsistent single-pass behavior across plan/implement/pr — PRD §Scope requires 'three gates pass in single round' but does not specify how to enforce consistency when env vars can be read independently by three separate processes (plan.md / prp-implement.md / pr.md). plugins/mccp/scripts/state/toggle-snapshot.js captures snapshot at boot, but uses file-local session ENV not a locked state file. If operator toggles MCCP_REVIEW_LOOP_BYPASS between plan and implement, the plan bypasses L2 retry but implement enforces full R0-R3 — dual-review value is half-lost silently. Mitigation: receipt must stamp both (a) toggle value and (b) toggle presence timestamp, and chain preflight must verify all prior receipts had identical toggle_value or fail-closed.
+- **[HIGH][security]** No enforcement that L1 (mechanical gates) remain unbypassable; PRD says 'L1 불가침' but implementation risks if eval/injection of enum value reaches gate decision logic — PRD §Scope states 'L1 (mechanical) — 불가침. 토글과 무관하게 발화하고, 실패하면 토글이 켜져 있어도 HALT한다.' This requires hardening in all three gates (plan-review/decide, impeccable-routing, pr-ship-gate) to structurally fail-closed on L1 findings regardless of toggle. Current codebases like plugins/mccp/scripts/lib/plan-review/decide.js and plugins/mccp/scripts/lib/pr-ship-gate.js do not yet reference a bypass-toggle; when new code adds it, must not allow bypass logic to permeate to the L1 check branches.
+- **[HIGH][test]** Enum validation mechanism not defined - PRD lacks concrete oracle for fail-closed behavior when toggle has invalid value — PRD Scope line 58: states 'enum밖값은 fail-closed' but specifies neither validation layer, exit code, nor stderr/receipt channel. pr-codex-skip-env.test.js lines 66-108 show required pattern: strict validator + throw on invalid. This PRD lacks equivalent.
+- **[HIGH][test]** Receipt field structure unspecified - which meta field holds bypass reason? Present-only? Validation rules? — PRD Scope line 48: says 'suid봉인된승인으로남는다' without naming the field. schema.js has no bypass_reason, bypass_enum, or single_pass_* field defined. Existing patterns: meta.codex_skip_reason (write.js) + meta.design_critique_verdict - this PRD defines no receipt axis.
+- **[HIGH][test]** Cross-gate consistency untestable - no unit test proves toggle affects all three gates (plan, prp-implement, pr) uniformly or fails if one gate misses it — PRD Risks table line 96: risk='세게이트에흩어진배선이한축을빠뜨려부분적용된다' but acceptance criteria (Scope lines 40-48) only verify end-state. No CLI-level test like santa-loop-cap.test.js exists. Partial application would silently pass current criteria.
+- **[HIGH][explorer]** Santa-loop firing decision point not located; critical seam for 'santa-loop doesn't fire' requirement — Grep found santa-loop invoked from commands/plan.md, commands/pr.md, commands/prp-implement.md but invocation logic (shell Step conditionals) not extracted. PRD §44 requires santa-loop to not fire when bypass is active. Without locating the decision hook, implementation cannot be verified to work across all 3 gates. This is the load-bearing integration seam.
+- **[MEDIUM][architect]** Verdict enum expansion required: The current receipt verdict vocabulary (converged|divergent|critical|unavailable|skipped in schema.js L44) has no state for 'approved-despite-nonconvergence.' The PRD's Open Question about 'L2가 비수렴 verdict를 냈는데 통과시킨 경우' implies a new verdict or resolution field is needed, but adding one affects hash-based audit anchors (receipt_hash, decision_ledger). — schema.js L44 defines CODEX_VERDICT_VALUES as frozen enum. PRD Open Questions L84 explicitly asks how to stamp non-converged L2 verdicts when bypass allows passage. CLAUDE.md §1.2 'v1.20.3 무결성 복구' shows resolution.converged was deprecated in favor of resolution.codex_verdict for dedupe, suggesting verdict representation is a known fragile axis.
+- **[MEDIUM][architect]** Santa-loop invocation boundary unclear: The PRD requires 'santa-loop — 발화하지 않는다' when bypass is active, but santa-loop is invoked at /mccp:pr Phase 2.5.5 as a conditional task. The bypass must prevent invocation itself, not merely suppress output or skip recording. Current gate doesn't have a pre-invocation bypass check. — PRD L44 'santa-loop — 발화하지 않는다' is a hard requirement. santa/counter.js and santa/gate.js own round capping and verdict logic, not invocation control. The invocation point (pr.md command body, workflow task definition) would need explicit bypass-aware conditional—this is not currently factored as a reusable boundary.
+- **[MEDIUM][architect]** Backlog auto-population flow ownership undefined: M2 requires '미흡수 지적이 backlog에 자동 적재' but no architectural seam exists for this across the three gates. backlog.md is append-only; the trigger (which findings? at what gate stage?) and the population mechanism (who calls append?) are not defined in the codebase. — codex-findings-backlog.md exists but has no writer logic visible in plugins/ tree. PRD Scope L76-78 says M2 'depends on' M1 but does not specify WHERE (which gate) or HOW (which code path) findings flow to backlog. The backlog is currently written by humans in commit messages; M2 needs mechanical flow but no current seam exists.
+- **[MEDIUM][architect]** Round counter interaction with bypass not architected: The bypass pins round=1 (R0 only) but current round counting is derived from ledger (santa/counter.js#decideRound). If bypass records a receipt with round=1 and the next session does NOT have bypass active, the ledger will see round=1 and permit R1+. Bypass must either persist in state or use a separate signal to prevent round increments in follow-up sessions. — santa/counter.js L50-60 decides allowed rounds based on roundsSoFar from ledger. PRD L45 requires 'R0만 돌고 R1 이상은 없다' but does not specify if this is a session-local constraint or ledger-bound. If bypass is a one-time flag (env var set once), the next session without that flag will see ledger.rounds=1 and allow R1.
+- **[MEDIUM][architect]** Reason enum in receipt needs present-only audit field strategy: The PRD specifies 3 enum reasons (scope_too_small|deadline_pressure|deferred_to_prd_completion) that must be '봉인된 승인' in receipt. Adding these as receipt fields affects receipt_hash stability. Current present-only pattern (CLAUDE.md §3.12) carves out fields from hashing; these new fields need explicit carve-out policy or schema version bump. — schema.js L9 defines SCHEMA_VERSION='v1'. PRD L58 requires enum values to be fail-closed if invalid ('loud warn'); this validation must live in write.js or schema. Adding 3 new present-only reason fields requires either (a) schema v2 bump, (b) hash carve-out list extension, or (c) backward-compat present-only pattern. No policy is established yet.
+- **[MEDIUM][architect]** L2 firing model during bypass not specified: The PRD says 'L2 승인 패널 — **1회 발화한다.** verdict가 비수렴이어도 진행을 차단하지 않는다.' It's unclear if L2 should be invoked at all when bypass is active, or if it should run but its non-convergent verdict should be ignored. If L2 is NOT invoked, the 'L1+L2 converged' proof cannot be sealed; if it IS invoked, cost is not saved (the whole point of M1). — PRD L46 says L2 'fires 1 time' (발화한다=is invoked) and L43-45 says santa-loop and round-repeat are disabled. The PRD does not explicitly say 'L2 skip' but also doesn't clarify what '1회 발화' means in the context of an R0-only gate. For cost savings, L2 should likely be skipped entirely when bypass is active.
+- **[MEDIUM][security]** Enum validation for toggle value must be fail-closed with loud warning, but existing toggle patterns use silent clamping — this inconsistency creates risk of overt vs. covert bypass modes — PRD §Scope requires 'fail-closed + loud warn' for enum outside {scope_too_small, deadline_pressure, deferred_to_prd_completion}. Compare plugins/mccp/scripts/lib/tests/round-budget.test.js:17-21 `parseCap()` which silently returns 1 for invalid values; no loud warning. This pattern is mirrored in multiple gates but PRD explicitly rejects it. Implementation must add explicit validation layer that rejects invalid enum before receipt write, mirroring plugins/mccp/scripts/receipt/schema.js:84-85 `GATE_IDS` validation.
+- **[MEDIUM][security]** Receipt JSON will contain toggle enum value; no masking/redaction of toggle name or value in toggle-snapshot or receipt logging, creating persistent audit trail of every bypass with reason and context — PRD requires reason '봉인' in receipt. plugins/mccp/scripts/state/toggle-snapshot.js line 74 masks override-reasons via SECRET_NAME_RE (/_REASON$|FORCE_PR_WITHOUT/) but MCCP_REVIEW_LOOP_BYPASS is not a *reason* toggle, it's a *mode* toggle with enum *value*. The enum value 'scope_too_small' / 'deadline_pressure' / 'deferred_to_prd_completion' is not a secret, but each receipt's `meta.review_loop_bypass_reason` will be permanently git-tracked and discoverable via grep. Policy question (out-of-scope for implementation): is this audit transparency acceptable? The choice is: (a) mask the enum value in logs and stamp only in receipt (§3.12 pattern), (b) audit transparency as-is, (c) add a separate audited-reason field like impeccable_force_override. Current plan has no guidance; recommend explicit masking rule in this specification before shipping.
+- **[MEDIUM][test]** Round cap enforcement test absent - no test validates receipt shows santa-loop rounds limit when toggle set — PRD Scope line 45: 'R0만돌고R1이상은없다' but no test oracle. santa-loop-cap.test.js lines 169-186 test via readState(repo,slug).rounds.length - this PRD needs equivalent for proving single-round enforcement in actual receipt.
+- **[MEDIUM][test]** L1 mechanical inviolability unchecked - toggle might inadvertently affect L1 validation despite intent, but no test proves L1 still blocks on mechanical failure — PRD Scope line 47: 'L1은여전히불가침' but supplies no test that L1 HALT still fires when toggle is set + mechanical error occurs. CLAUDE.md section 3.1: L1 stops receipt chain regardless - this needs unit test proof.
+- **[MEDIUM][test]** Santa-loop skip validation missing - no test proves santa-loop does not fire when toggle set — PRD Scope line 44: 'santa-loop발화하지않는다' but no test oracle. santa-loop.md Step 1-3 and counter.js show CLI invocation path - plan.md Phase 5 and prp-implement.md 2.5.5a need explicit test gate proving skip when toggle active.
+- **[MEDIUM][test]** L2 verdict non-blocking distinction untestable - PRD says L2 runs once but verdict does not block, yet no test oracle specifies how to observe L2 ran vs was skipped — PRD Scope line 46: 'L2승인패널은1회발화한다·verdict가비수렴이어도진행을차단하지않는다' but does not specify receipt field or CLI observable that proves L2 invocation + non-blocking outcome. Existing santa-adjudication.test.js + santa-gate.test.js have no equivalent non-blocking verdict axis.
+- **[MEDIUM][test]** Backlog integration (M2) has no test acceptance criterion - uncaught findings must be appended to backlog, but no test validates M2 integration — PRD Delivery Milestones line 77: 'M2가없으면M1은부채를만드는기능이다' + lines 34-35: 'backlog에append된줄수==단일라운드가낸미흡수HIGH/CRITICAL수' but backlog.md scanning/append path is not tested. No mention of backlog validator or append-oracle.
+- **[MEDIUM][test]** Plan/Implement command body integration points unspecified - which Phase/Step invokes the toggle decision? — PRD Scope describes desired behavior but not WHERE in plan.md (Phase 0-5?), prp-implement.md (Phase 0-5?), pr.md (Phase 0-3?) the bypass logic branches. Existing test patterns (design-critique-loop-e2e.test.js lines 72-89) simulate retry loop in code - this PRD needs command-body anchor points.
+- **[MEDIUM][explorer]** Receipt schema already defines skip-reason vocabularies; new bypass reason enum must be coordinated with schema validation — plugins/mccp/scripts/receipt/schema.js and plugins/mccp/scripts/receipt/write.js show multiple present-only reason fields (codex_skip_reason, impeccable_skip_reason, intent_override_reason, etc.). plugins/mccp/scripts/receipt/lib/force-override-reason.js:23-45 (경로 정정) validates min length ≥30 chars and word count. PRD's 3 enum values (scope_too_small, deadline_pressure, deferred_to_prd_completion) are all ≥12 chars; need schema addition for new field.
+- **[MEDIUM][explorer]** L2 approval panel must permit non-converged verdict to pass when bypass active; requires changes to approval oracle — plugins/mccp/scripts/lib/plan-review/decide.js:13-29 shows approval composition table where any non-pass L1 or non-quorum L2 = block. PRD §46 requires 'L2 verdict is non-converged but proceeds anyway'. Current logic treats L2 non-pass as verdict=divergent/unavailable→block. Reuse: the env-parsing + decision-parameter pattern exists (e.g., parseReviewMode), but the approval logic in decide.js must accept an optional 'bypass-active' parameter to downgrade L2 verdict from blocking to advisory.
+- **[MEDIUM][explorer]** Round cap interaction with bypass toggle not specified but existing cap logic exists — plugins/mccp/scripts/lib/santa/counter.js + plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js show MCCP_SANTA_ROUND_CAP enforcement in `decideRound()`. PRD Open Question: 'MCCP_GATE_ROUND_CAP=2|3 simultaneous with bypass—priority?' The codebase has santa/gate.js `parseSeverityGate()` + plan-review round logic, suggesting bypass should be **checked before cap**, not interleaved with it. Reuse: existing cap-check gates.
+- **[MEDIUM][explorer]** Existing override/skip mechanisms should be audited for duplication; PRD notes scatter but scope doesn't unify them — Existing mechanisms: MCCP_CODEX_DISABLED (first-class skip in codex-invoke.js:212), MCCP_PR_SKIP_CODEX_REVIEW (audited override), MCCP_SKIP_RECEIPT (receipt bypass), MCCP_SKIP_INTENT_GATE (intent bypass), design-critique SKIP override. PRD §65 explicitly scopes out 'unifying 5 existing toggles'. However, the new bypass should NOT add a 6th orthogonal mechanism. Reuse: follow existing pattern (e.g., `codex_skip_reason` precedence in codex-runner.js:234-238 where env canonical is fallback, caller explicit is primary). This bypass is explicitly single-responsibility: round/santa bypass only, not Codex disable.
+- **[MEDIUM][explorer]** Receipt field naming convention must align with present-only meta/resolution axes — plugins/mccp/scripts/receipt/schema.js shows present-only fields: meta.codex_disabled, resolution.codex_verdict, resolution.review_verdict, meta.impeccable_routing_mode, intent_gate_force_override. New bypass receipt stamping should follow: which axis? (1) meta.bypass_active + meta.bypass_reason? (2) resolution.bypass_reason? (3) dedicated review_bypass + santa_bypass fields? PRD doesn't specify field names. Recommend: meta.review_loop_bypass (boolean) + meta.review_loop_bypass_reason (enum value), mirroring codex_disabled+codex_skip_reason pair.
+- **[MEDIUM][explorer]** Missing plan from PRD: how 'basic path regression zero' assertion (#36) will be validated — PRD Success Metric #36 claims receipt corpus stays valid when bypass unset. Current test suites (plan-review-*.test.js, pr-codex-*.test.js, santa-*.test.js) must all pass in both bypass-unset and bypass-set modes. No mention of dual-test-mode or toggle snapshot testing (though toggle-snapshot.test.js exists). Risk: new bypass code path has no test coverage parity with base path.
+- **[LOW][architect]** Bypass reason values could collide with existing skip-reason enums: The PRD's 3 reasons (scope_too_small, deadline_pressure, deferred_to_prd_completion) must not collide with existing skip-reason values used elsewhere (e.g., CLAUDE.md §1.2 'codex_disabled', §3.12 'codex_skipped_at_pr'). A flat enum namespace across all skip/bypass reasons invites accidental collision if bypass reasons are concatenated into the same field as Codex skip reasons. — PRD L52-56 defines 3 bypass reasons. CLAUDE.md §3.12 'v1.23.5 gate-guard-integrity M1' documents codex skip-reason namespace (skipped_at_pr, skip_proof_meta_keys, etc.) as present-only. If both mechanisms write to meta.skip_reason or similar, collision is possible. No namespace partition strategy is documented.
+- **[LOW][architect]** Scaling boundary: bypass is 3-gate specific but may be requested for other workflows. No generic 'gate-level bypass' abstraction exists. If the pattern is useful for santa-loop or future gates, the architecture should avoid hardcoding bypass logic into each gate's command body. — PRD Scope L61-66 explicitly scopes bypass to the 3 gates (plan/implement/pr) and 'Not for' team-wide settings or other gates. However, no pattern is established for 'how to add bypass to future gates cleanly.' Adding bypass to a 4th gate would require reimplementing env-check + receipt-stamp + L1-guard in that gate's code.
+- **[LOW][explorer]** Enum-based environment variable parsing pattern already exists and should be reused verbatim — plugins/mccp/scripts/lib/santa/gate.js:138-150 `parseSeverityGate(env)` and plugins/mccp/scripts/lib/plan-review/decide.js:57-66 `parseReviewMode(env)` both implement: (1) unset/null→default, (2) enum check with indexOf, (3) loud fail-closed warn on unknown value. PRD §40-59 specifies exact 3 enum values with fail-closed behavior.
+- **[LOW][explorer]** Receipt sealed-reason forwarding mechanism already exists; reuse finalize-receipt.js pattern — plugins/mccp/scripts/lib/pr-phase-helpers/finalize-receipt.js:96-127 `deriveCodexFlags()` shows canonical pattern: (1) derive flags array conditionally, (2) push --flag-name and value separately, (3) forward to receipt CLI. Identical pattern appears for --codex-skip-reason. PRD requires reason sealed in receipt; this is the established path.
+
+</details>
+
+### Meta-gaps
+
+
+- PRD does not specify whether L2 should be invoked when bypass is active. Current decision oracle assumes L2 invocation is tied to L1 pass; if bypass should skip L2 entirely, a new branching point is needed before L2 is queued.  _(architect)_
+- Round counter persistence model: If bypass sets round=1 in a receipt, does the next session (bypass flag unset) see round=1 in ledger and assume R1 is allowed? State coupling between bypass sessions is not addressed.  _(architect)_
+- Backlog population trigger and implementer: M2 requires 'findings → backlog' but no code path is specified. Which gate injects findings? At what phase? Does PRD M2 scope include building this flow, or is it assumed to exist?  _(architect)_
+
+<details>
+<summary>+22 more meta-gaps</summary>
+
+- Bypass precedence vs. MCCP_GATE_ROUND_CAP: Open Question L83 asks 'bypass와 MCCP_GATE_ROUND_CAP=2|3이 동시 설정됐을 때의 우선순위.' Current design gives bypass hard precedence (→ R0 only) but this should be explicit in code.  _(architect)_
+- Terminal ship gate verdict policy: PRD does not specify if bypass affects the `/mccp:pr` ship-gate verdict calculation (resolution.codex_verdict). If Codex returns 'divergent' but bypass is active, should receipt stamp 'converged' (lie) or introduce a new verdict state (schema change)?  _(architect)_
+- Receipt audit anchor stability: Adding 3 new present-only fields (bypass_reason, bypass_active, bypass_session_id) requires verification that existing receipt_hash-based audit tools (evidence-audit.js, completion-ledger) continue to work. Hash carve-out scope must be documented.  _(architect)_
+- Santa-loop receipt production: The PRD Open Question L86 asks whether mccp-santa-review receipt should be written when santa-loop is bypassed. If not written, will cross-gate dedupe or attestation logic break (expecting that receipt to always exist)?  _(architect)_
+- PRD does not specify whether L2 verdict should be written as-is (converged=false) or mapped to a distinct enum value (converged_with_bypass=true / single_pass_approval=true). Current schema has convergence verdicts but no 'approved_under_bypass' status. This gap forces hard choice at implementation time: either accept that bypassed receipts will look convergent (audit risk) or add new schema field (§3.12 durability risk of receipt mutations).  _(security)_
+- No specification of how `/mccp:archive-complete` should handle PRDs with milestone containing 'deferred_to_prd_completion' bypass claims. When PRD completion is checked, bypass receipts will show L2 divergent. Archive-complete must either (a) require explicit re-validation that deferred issues were actually checked, or (b) allow archive with a 'completion_validation_deferred' flag. Current code (plugins/mccp/scripts/lib/archive-complete/scan.js) checks milestone table only.  _(security)_
+- Cross-operator audit gap: when operator sets MCCP_REVIEW_LOOP_BYPASS, no requirement that setting is logged to STATE.md or persisted as an audit marker. Toggle exists in env, is read once per command, and only stamp appears in receipt. An operator could set toggle, run chain, unset toggle, and another operator reading the receipt sees only the reason string, not that it was a one-shot bypass vs. a global setting. Recommend mandatory STATE.md annotation or session-ledger entry.  _(security)_
+- No specification for case where L2 escalate happens after bypass is set. Example: plan R0 runs under bypass toggle (L2 skipped), but then new findings emerge requiring R1. Does the toggle stay active? Does L2 respect the toggle again? Recommend pre-flight check that specifies: toggle is consumed per-gate-invocation and must be re-set for each command if multi-command chain desired.  _(security)_
+- PRD §Open Questions mentions '토글 사용률 대시보드' but out-of-scope. STATUS.md renderer (plugins/mccp/scripts/lib/renderer/) has no provision for filtering/surfacing bypass reasons. If audit becomes a compliance requirement, derived sources (toggle-usage.js) must be extended to aggregate and expose bypass claim frequencies.  _(security)_
+- Enum validator implementation - which module owns validation of the three enum values? Fail-closed behavior spec (exit code, stderr, receipt)?  _(test)_
+- Receipt schema extension - what are the present-only fields to add? Name, carve-outs, relationship to existing fields like resolution.converged?  _(test)_
+- Command-body integration points - which Phase in each of {plan, prp-implement, pr} branches on toggle? How is it injected (env only, or CLI flag)?  _(test)_
+- Backlog append path specification - existing backlog.md format? Which runner/tool appends findings? Deduplication with existing entries?  _(test)_
+- L2 observable distinction - what receipt field or CLI output proves L2 ran but did not block? How to test non-blocking verdict?  _(test)_
+- Cross-gate test oracle - single integration test that proves toggle state is read from env consistently across all three gates  _(test)_
+- Round cap enforcement connection - which layer enforces santa-loop cap when toggle active? Is it reusing MCCP_SANTA_ROUND_CAP or separate?  _(test)_
+- PRD does not specify exact integration seam where santa-loop invocation decision is made (shell step, bash conditional, or programmatic hook). Commands plan.md/pr.md/prp-implement.md invoke santa-loop but decision logic is embedded in shell conditionals, not extracted to a reusable oracle.  _(explorer)_
+- PRD does not name the new receipt fields that will store bypass_active flag and bypass_reason enum. Recommendation: meta.review_loop_bypass (boolean) + meta.review_loop_bypass_reason (enum) following existing meta.codex_disabled + codex_skip_reason precedent.  _(explorer)_
+- PRD does not specify priority when MCCP_GATE_ROUND_CAP=2 and bypass reason both active (Open Question acknowledged but left unresolved). Plan must decide: does bypass check happen before cap, or does cap limit bypass rounds too?  _(explorer)_
+- PRD does not specify what L2 approval verdict should be written when bypass active and L2 is non-converged (Open Question §84 acknowledged but unresolved). Does receipt stamp verdict as 'converged' (misleading) or new value like 'bypassed'?  _(explorer)_
+- PRD does not specify whether receipt is written at all when santa-loop is skipped due to bypass (Open Question §86 acknowledged). Does --decision-slug still get a mccp-santa-review receipt with 'not-fired' reason, or is receipt omitted entirely?  _(explorer)_
+- No test matrix specified for dual coverage: bypass-unset baseline vs bypass-active path for plan-review, implement-codex, and pr-codex gates. Existing test suites (plan-review-*.test.js, santa-loop-cap.test.js) cover base paths; M1 acceptance requires coverage parity.  _(explorer)_
+
+</details>
+
+### Patterns to mirror
+
+
+- plugins/mccp/scripts/lib/plan-review/decide.js:140-178 — L1 verdict check pattern: fail unconditionally on L1 verdict !== 'converged' before proceeding to L2. Mirror this boundary in bypass logic: L1 mechanical check is **never** skipped, even if bypass is active.  _(architect)_
+- plugins/mccp/scripts/lib/receipt-mode.js (referenced in CLAUDE.md §3.2) — Env parsing + fallback + loud-warn-on-typo pattern: MCCP_RECEIPT_GATE_MODE parses env value, validates against enum, falls back to safe default on unknown value with stderr warning. Mirror this for bypass reason enum parsing.  _(architect)_
+- plugins/mccp/scripts/receipt/schema.js L44 CODEX_VERDICT_VALUES — Frozen enum with present-only audit: Verdict values are immutable and tested exhaustively. Mirror this for bypass reason enum (scope_too_small|deadline_pressure|deferred_to_prd_completion).  _(architect)_
+
+<details>
+<summary>+23 more fan-out patterns</summary>
+
+- plugins/mccp/scripts/lib/santa/counter.js:26-43 parseCap() — Env-to-cap parsing with explicit range validation: Validates input range, loud fail-open to default. Mirror this for bypass reason validation: invalid reason → fail-closed (treat as unset) + stderr WARN.  _(architect)_
+- plugins/mccp/scripts/receipt/aliases.js (경로 정정) — Gate dependency matrix (ALIAS_MATRIX with requires_preceding): Documents which gates depend on which receipt types. If bypass needs to be threaded across all three gates, update aliases to reflect any new receipt dependencies or skip-gate patterns.  _(architect)_
+- CLAUDE.md §3.12 'v1.23.5 gate-guard-integrity M1' — Present-only field audit pattern: codex_disabled_at_pr is present-only and proves skip legitimacy; bypass reason field should follow same audit discipline (present-only, audited against actual usage).  _(architect)_
+- plugins/mccp/scripts/receipt/cli.js — Write-time flag parsing (--codex-disabled-at-pr, --codex-skip-reason): Multiple flags are parsed and merged into receipt fields. Mirror this pattern: add --bypass-reason CLI flag to write.js, validated against enum before stamping.  _(architect)_
+- plugins/mccp/scripts/receipt/lib/force-override-reason.js#validateReason — strict namespace validation with MIN_LENGTH=30, MIN_WORDS=3, placeholder/filler banlist. Apply the same validator to the bypass toggle's reason string (if added), or stamp only the enum value itself and require the reason to be 30+ chars of substantive justification per CLAUDE.md §3.14.  _(security)_
+- plugins/mccp/scripts/receipt/schema.js:84-85 — enum validation pattern (GATE_IDS array + indexOf check, fail-closed error message). Apply identical pattern to the three bypass-toggle values before receipt write; fail-closed + loud stderr warning for invalid enum.  _(security)_
+- plugins/mccp/scripts/state/toggle-snapshot.js#SECRET_NAME_RE — regex-based masking of sensitive toggle names at snapshot time. Determine whether MCCP_REVIEW_LOOP_BYPASS or its value should be masked (recommend: mask in logs, keep in receipt for audit), and add to exclusions list with evidence comment.  _(security)_
+- plugins/mccp/scripts/receipt/dedupe.js#evaluateForDedupe — cross-gate convergence proof. Mirror the structure to add an explicit bypass-check BEFORE approving dedupe: if either upstream receipt has bypass-flag, fail-closed unless bypass reason is re-stated at current gate invocation.  _(security)_
+- plugins/mccp/scripts/receipt/write.js#stampIntentDecision — direct write exits (L150-172) null the mislabel axis explicitly rather than omit keys. When implementing bypass-toggle receipt field, follow this precedent: stamp the bypass enum value + reason even if L2 was skipped, so absence cannot be mistaken for 'receipt predates the field' (per §3.12 CLAUDE.md).  _(security)_
+- plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js:135-151 — env toggle capture and fail-open default with loud stderr on invalid  _(test)_
+- plugins/mccp/scripts/receipt/tests/pr-codex-skip-env.test.js:49-127 — audited override reason validation (≥30 chars, ≥3 words, strict rules), throw on violation  _(test)_
+- plugins/mccp/scripts/lib/tests/toggle-snapshot.test.js:16-43 — captureNonDefault(env) pattern with secret-name redaction  _(test)_
+- plugins/mccp/scripts/lib/tests/design-critique-loop-e2e.test.js:72-150 — receipt round/verdict stamp + chain-check validation via validateCommand  _(test)_
+- plugins/mccp/scripts/receipt/tests/validate-cmd.test.js:17-43 — validateCommand integration test for gate preflight + missing receipt detection  _(test)_
+- plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js:333-357 — DD11 pattern: prove record/verdict exit 2 when round not open (mechanical enforcement)  _(test)_
+- plugins/mccp/scripts/receipt/schema.js:1-200 — schema validator pattern for present-only fields with enum enforcement  _(test)_
+- plugins/mccp/scripts/lib/santa/gate.js:138-150 — ENV parser (const raw=env[KEY], unset→default, string check, indexOf enum validation, loud warn on unknown, return value)  _(explorer)_
+- plugins/mccp/scripts/lib/plan-review/decide.js:57-66 — Parallel ENV parser pattern (parseReviewMode) with typo fallback mode and canonical default behavior  _(explorer)_
+- plugins/mccp/scripts/lib/pr-phase-helpers/finalize-receipt.js:96-127 — Flag derivation and forwarding pattern (build flags[], push name+value pairs, pass to receipt CLI)  _(explorer)_
+- plugins/mccp/scripts/receipt/write.js:52-58 — Env precedence order (explicit --flag-name > env canonical, NOT the reverse) when both paths exist  _(explorer)_
+- plugins/mccp/scripts/receipt/schema.js — Present-only field pattern for audit: new fields only serialized when set, absent=default, paired reason fields mirror (meta.X_active + meta.X_reason or resolution.X+X_reason)  _(explorer)_
+- plugins/mccp/scripts/lib/plan-review/decide.js:40-104 — Approval oracle pattern (pure function, explicit composition table, no side effects, returns explicit {verdict, source, proof, reason} object)  _(explorer)_
+- plugins/mccp/scripts/receipt/lib/force-override-reason.js (경로 정정) — Reason validation (min length, word count, no filler keywords, allowCodeVocabulary toggle for different contexts)  _(explorer)_
+
+</details>
+
+## Codex Adversarial Review
+
+<!-- placeholder: will be replaced by Phase 7.3 -->

@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: session-process-reclaim
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-17T06:01:36.999Z
+updated_at: 2026-08-17T06:29:50.660Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-17T06:01:36.999Z
+last_event_at: 2026-08-17T06:29:50.660Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -21,7 +21,7 @@ santa-loop은 R1~R10을 완주했고 R10은 수렴이 아니라 운영자 종료
 - 리뷰 기록: `.claude/reviews/plan-review-session-process-reclaim-followup-rounds.md` — L2 패널 R1~R14 전 라운드 divergent(4관점 동시 pass 0회), R14에서 정밀도 붕괴(100→50→23%)로 운영자 종료 · `.claude/reviews/santa-review-session-process-reclaim.md` — santa-loop 산출
 - receipt(진단용 — working-tree only · 소실됨이 정상, §3.12): `mccp-plan-codex/session-process-reclaim-followup.json`(intent_gate_verdict=incomplete · intent_gate_force_override=true) · `mccp-implement-codex/session-process-reclaim-followup.json`(codex_verdict=skipped · security_skipped=true). 감사 corpus가 아니므로 worktree 정리를 넘겨 살아남지 않는다
 - 이전 decision `session-process-reclaim`의 같은 두 게이트 기록은 이미 사라졌다 — 당시 기록에 따르면 findings 5건 원본 severity 봉인 · codex_verdict=skipped였다고 하나 파일이 없어 대조 불가
-- 이 작업의 cross-model 감사 anchor는 아직 없다 — `ANCHOR-PENDING(Task 11)`. 출하 게이트를 완주해 ship receipt가 실제로 생성되면 그때 이 자리에 그 경로를 기입한다
+- cross-model 감사 anchor: `.claude/receipts/mccp-pr-codex/session-process-reclaim-followup.json` (git-tracked · §3.12 감사 대조 corpus) — PR #142에서 생성됐다. `codex_verdict=skipped`이고 증명은 `codex_disabled_at_pr=true`다: Codex는 env 정책(`MCCP_CODEX_DISABLED=1`)으로 발화하지 않았으므로 이것은 심사 기록이 아니라 **심사가 없었다는 사실의 기록**이다. `pr_codex_force_override` 키는 없다 — 게이트를 우회한 것이 아니라 통과했다
 - backlog: `.claude/plans/codex-findings-backlog.md` — 해소 3건 + 신규 이연 10건(Task 9)
 
 ## Done
@@ -54,4 +54,4 @@ Task 11 — 버전 게이트 재확인 후 /mccp:prp-commit → /mccp:pr, 이어
 - escalate_pending 순서 guard는 돌지 못했다 — `dfd18f4`가 `escalate_pending: true`를 담고 있었으나 **이전 세션의 STATE.md write**(2026-08-16T21:51:10Z, `d034ba2`로 커밋)가 R3 backlog 행이 생기기 전에 그것을 지웠다. plan Task 9가 막으려던 손실("열렸으나 수렴 없이 끝난 사실이 사라짐")이 이 plan 범위 밖에서 이미 일어난 것이다. 플래그를 복원했다 다시 지우는 가짜 순서는 만들지 않았고, 실질(R3가 backlog에 열린 채로 실재)은 충족했다 — `plan-conflict-detector` 판정은 `conflict:false`(minor deviation)
 
 ## Last Updated
-2026-08-17T06:01:36.999Z
+2026-08-17T06:29:50.660Z

@@ -473,6 +473,6 @@ M1+M2의 검증은 **전량 단위 test**였다. 그 test들은 주입한 killer
 
 - [x] santa-loop — R1~R10 완주. R10은 수렴이 아니라 **운영자 종료 결정**으로 끝났고 근거는 이 문서의 라운드별 절이 갖는다. escalation이 지목했던 대상은 `mccp-implement-codex/session-process-reclaim` 게이트인데, 그 receipt는 (working-tree only · 소실됨) — §3.12상 세션 진단용이라 worktree 정리를 넘겨 살아남지 않으며 손으로 다시 쓰는 것은 증거 복원이 아니라 위조다(§3.13)
 - [ ] 출하 — M3 Task 11이 `/mccp:prp-commit` → `/mccp:pr`로 수행한다 (§3.12 merge-commit, squash 금지)
-- [ ] 이 작업의 cross-model 감사 anchor는 아직 없다 — `ANCHOR-PENDING(Task 11)`. 출하 게이트를 완주해 ship receipt가 실제로 생성되면 그때 이 자리에 그 경로를 기입한다. 그 전에는 경로를 적지 않는다 — 아직 없는 파일을 가리키는 git-tracked 참조를 만들지 않기 위해서다
+- [x] cross-model 감사 anchor: `.claude/receipts/mccp-pr-codex/session-process-reclaim-followup.json` (git-tracked · §3.12 감사 대조 corpus). PR [#142](https://github.com/idenn207/mccp/pull/142)에서 생성됐고, 자리표시자는 **파일이 실재하게 된 뒤에** 치환했다 — 출하가 중단됐다면 자리표시자가 남는 것이 정확한 상태였다. 그 receipt가 봉인하는 것은 심사가 아니라 **심사 부재**다: `codex_verdict=skipped` · 증명 `codex_disabled_at_pr=true`(env 정책 `MCCP_CODEX_DISABLED=1`). `pr_codex_force_override` 키는 없다 — 게이트를 우회한 것이 아니라 통과했다
 - [ ] ship 후 `/mccp:archive-complete` — M3까지 complete가 된 **뒤에야** 대상이다(§3.11 C2: 미완료 PRD의 plan을 옮기면 어느 스캔에도 안 잡혀 소실된다)
 - [x] base drift — M3 Task 1이 `origin/main` 머지(149 커밋)로 닫았다. 머지 도중에도 main이 계속 전진해 버전 target이 또 밀렸고, forward-only로 `1.27.0`에 착지했다 — §3.7 7번째 실측 재발

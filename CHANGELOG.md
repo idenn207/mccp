@@ -66,6 +66,16 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 롤백: `rm -rf .claude/state/session-processes/` (gitignored·working-tree 전용).
 
+### M3 — 출하 + 잔여 정리 (같은 minor에 포함)
+
+M1+M2는 **구현이 끝났고 출하되지 않았다.** `origin/main`에 `session-processes.js`가 없었고 PR도 0건이었으므로, PRD의 Hypothesis는 main에 없는 코드로는 검증될 수 없었다. M3는 그 출하를 막던 것들을 닫는다.
+
+- **PRD 1차 지표를 처음으로 관측했다.** M1+M2의 검증은 전량 단위 test였는데, 그것들은 주입한 killer가 받은 pid 집합을 대조하므로 *판정 로직*은 증명하지만 *프로세스가 실제로 죽는지*는 증명하지 않는다. 신규 `tests/manual/session-process-reclaim-smoke.js`가 실물 자식을 띄우고 실제 `reclaimSession`을 부른 뒤 `isPidAlive(pid) === false`를 bounded poll로 확인한다. **표본 1건이며 비율로 옮겨 적지 않는다.** `tests/manual/` 하위인 것이 곧 CI 상시 suite 미편입 보장이다(글롭 `tests/*.test.js`가 디렉토리 구분자를 넘지 않는다). 하네스 조정 2건이 해석 범위를 좁힌다 — 자식을 `node -e`가 아니라 파일로 띄우고(`-e`는 `__filename`이 `[eval]`이라 §D15 축 1이 인위적으로 어긋난다), `MCCP_RECLAIM_IDENTITY_TOLERANCE_MS`를 상향했다. 따라서 이 관측은 **기본 허용치에서의 정체 판정 정확도를 말하지 않는다**.
+- **`.claude/state/session-processes/`를 `MCCP_IGNORE_BLOCK`에 canonical로 등재했다.** M1+M2가 이 저장소 `.gitignore`에만 넣고 provisioner 목록에는 넣지 않아, main의 setup-gitignore drift lint가 이번 머지에서 처음 만나 red가 됐다. `REPO_ONLY`가 아닌 이유는 `santa-loop/`와 같다 — 플러그인이 설치된 어느 저장소에서나 자라므로 대상 저장소가 첫 사용에 커밋한다. 그리고 이 레코드는 **살아 있는 PID + 절대 `exec_path`**를 담아, 커밋되면 모든 clone에 stale PID가 배포되고 SessionEnd 회수 경로가 그것을 kill 후보로 평가한다 — 노이즈가 아니라 오살 벡터다.
+- **이 코드가 받은 첫 security 심사.** `Task(security-reviewer)` 결과 CRITICAL/HIGH/MEDIUM 0건, LOW 1건(`writePrivate`의 rename 실패 시 tmp 잔존)이고 그 LOW는 코드로 무해함을 확인했다 — 레지스트리를 읽는 세 지점 전부(`list` · `collectSiblingReuse` · `scanForeignOrphans`)가 `.json` 접미사로 필터하는데 tmp는 `.tmp`라 회수 판정에 구조적으로 도달할 수 없다.
+- 잔여 정리: 정체 축 7케이스 전부 `identity N` 라벨화(구현 test 이름과 1:1) · `dashboard-server.test.js`의 pid 산술 포트 4줄을 `freePort()`로(그 backlog 행은 2줄이 이미 전환됐다고 적었으나 실측은 4줄 전부 미전환) · `DIR_MODE`/`FILE_MODE`의 owner-only 주장을 "POSIX 한정 · 생성 시에만"으로 좁힘(**동작 무변경**) · backlog에 해소 3건 + 신규 이연 10건 등재.
+- **cross-model 심사는 여전히 0회다.** plan-codex는 L2 패널 R1~R14가 전 라운드 divergent로 끝나 `MCCP_SKIP_INTENT_GATE` audited override로 진입했고(verdict `incomplete`를 봉인 — 세탁하지 않으므로 cross-gate dedupe는 fail-closed로 남고 PR-Codex가 반드시 발화한다), implement-codex는 `MCCP_CODEX_DISABLED=1` env 정책으로 `skipped`다. 감사 대조가 가능한 유일한 cross-model 기록은 ship receipt다.
+
 ## [1.26.2] — 2026-08-17
 
 **santa-adjudication M1 — severity contract + 게이트 재배선 (PRD 3 milestone 중 1 → patch bump, 1.26.1 → 1.26.2)** — `/mccp:santa-loop`의 verdict 게이트는 리뷰어가 낸 `verdict` 문자열 하나만 읽었다. `critical_issues`가 비어 있어도 `FAIL`이면 NAUGHTY였고, 그래서 문구·네이밍 선호가 blocker와 같은 무게로 라운드를 하나 더 태웠다. M1은 판정 입력을 **병합·중복제거된 blocking 건수**로 바꾸고, blocking의 자격을 `failure_scenario`를 실제로 쓸 수 있는가에 못박는다.

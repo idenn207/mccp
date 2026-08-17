@@ -31,15 +31,28 @@ Codex에 넘긴 focus는 아래 5건이었고, 전부 **심사받지 않은 채*
 
 ### Security Reviewer
 
-> security-reviewer unavailable, skipped (auto-fallback): the Task/Agent tool is not invocable under this
-> session's agent policy, so the security-reviewer subagent could not be dispatched.
+**수행됨** — `Task(security-reviewer)`, 2026-08-17. 사용자가 명시 허가한 뒤 실행했다(세션 agent 정책상
+기본은 미호출이며, 최초 `security_skipped=true` receipt는 그 상태를 정직하게 봉인하고 `/mccp:pr`를 막고
+있었다). **이 코드가 받은 첫 security 심사다** — M1+M2는 출하된 적이 없어 지금까지 어떤 security 리뷰도
+받지 않았으므로, 리뷰 범위를 M3 델타가 아니라 **`origin/main...HEAD` 전체**로 잡았다.
 
-`security_skipped=true`가 receipt에 실린다 — `/mccp:pr` validator가 이를 **blocking**으로 읽는 것이 의도된
-fail-closed 동작이다. 이 사이클에서 security 관점의 심사는 **0회**이며, 그 사실을 승인으로 바꾸지 않는다.
+판정: **CRITICAL 0 · HIGH 0 · MEDIUM 0 · LOW 1.**
 
-관련 축은 이미 backlog가 소유한다 — L2 패널 R2가 제기한 하드닝 5건 중 4건이 security 관점이고
-(`.unreclaimed.json` mode 런타임 단언 · `assertSafeSessionId` 전 경로 호출 강제 · `probeProcess` 파싱 견고성 ·
-realpath 폴백 symlink 봉쇄), Task 9가 열린 채로 등재한다.
+| Finding | Severity | Verdict | Why |
+|---|---|---|---|
+| `writePrivate`(`:230-234`) — `writeFileSync` 성공 후 `renameSync`가 실패하면 tmp 파일이 남는다 | LOW | REJECT_YAGNI | **코드로 확인함**: 레지스트리를 읽는 세 지점 전부(`list :501` · `collectSiblingReuse :615` · `scanForeignOrphans :1396`)가 `name.endsWith('.json')`으로 필터하는데 tmp 접미사는 `.tmp`다. 즉 누출된 tmp는 어떤 회수 판정에도 **구조적으로 도달할 수 없다** — 레코드로 오독될 경로가 없다. 디렉토리도 gitignored working-tree 전용이라 corpus 오염도 아니다. 리뷰어 자신도 "mitigation not required"로 적었다 |
+
+리뷰어가 확인한 방어(요지): 소유권 6축 + 정체 3축이 각각 통과해야 kill에 도달하고 전 축이 fail-closed ·
+containment가 `realpathSync.native` + `isInside`로 mkdir 전후에 걸쳐 검사되어 symlink/junction 탈출을
+막음 · 명령줄 토큰화가 basename이나 substring이 아니라 **전체 경로 등가**로 대조 · `process.kill`이
+`reclaimSession` 안 `isReclaimableBy` 뒤에만 존재함을 소스 스캔 test가 기계적으로 강제.
+
+**심사가 넓힌 것도, 좁힌 것도 없다.** 이미 backlog가 소유한 축(L2 패널 R2의 하드닝 5건 중 security 관점
+4건 — `unreclaimed.json mode` 런타임 단언 · `assertSafeSessionId` 전 경로 호출 강제 ·
+`probeProcess` 파싱 견고성 · `realpath` 폴백 symlink 봉쇄)은 리뷰어도 별도 취약점으로 올리지 않았고,
+Task 9가 열린 채로 등재해 둔 상태 그대로다. 기존 명시 잔여(§D11 TOCTOU · §D15 유계 오살 창 ·
+`isNodeInterpreterImage` basename 축)도 리뷰어가 "acknowledged residual"로 확인했을 뿐 등급을 올리지
+않았다 — 따라서 이 심사는 "주장하지 않는 것" 목록을 **줄이지 않는다**.
 
 ### Design Review
 

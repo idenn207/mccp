@@ -47,6 +47,20 @@ containment가 `realpathSync.native` + `isInside`로 mkdir 전후에 걸쳐 검�
 막음 · 명령줄 토큰화가 basename이나 substring이 아니라 **전체 경로 등가**로 대조 · `process.kill`이
 `reclaimSession` 안 `isReclaimableBy` 뒤에만 존재함을 소스 스캔 test가 기계적으로 강제.
 
+#### 2차 심사 — probe 배치화 델타 (`b27b9a9`)
+
+1차 심사 뒤 **kill 경로를 건드리는 변경**(probe 배치화)이 착지했으므로 그 델타만 다시 심사했다. 미심사
+상태로 내보내지 않기 위해서다. 공격 축 6개를 지정해 넘겼고 전부 통과했다 — **CRITICAL 0 · HIGH 0**.
+
+| 축 | 판정 | 요지 |
+|---|---|---|
+| cross-attribution | PASS | 행의 pid는 OS 출력에서 뽑아 요청 집합과 대조(`outMap.has`)하므로 A의 행이 B의 키에 들어갈 수 없다. 미요청 pid는 드롭(`15e`) |
+| WQL/명령 주입 | PASS | 필터에 들어가는 것은 `Number.isInteger(p) && p > 0`을 통과한 정수뿐. POSIX `-p`도 동일 |
+| fail-closed | PASS | 요청 pid는 전부 키로 선seed되어 부재가 불가능하고, 파싱 실패·예외·타임아웃이 전부 `null` → kill 차단 |
+| probe→kill 창 | PASS | 선반입 대상이 살아 있는 pid에 대해 불변인 정체값뿐이고, liveness·형제 reuse는 여전히 레코드마다 kill 직전 재검사(§D11 무영향) |
+| 주입 seam | PASS | `opts.probeProcess`가 함수면 배치가 비활성화되어 기존 계약 보존(`15g`) |
+| 파서 공유 | PASS | 배치는 pid 접두만 떼고 같은 파서에 넘긴다. `\|`를 포함한 command line도 앞의 두 구분자만 소비하는 규칙 덕에 동일 처리 |
+
 **심사가 넓힌 것도, 좁힌 것도 없다.** 이미 backlog가 소유한 축(L2 패널 R2의 하드닝 5건 중 security 관점
 4건 — `unreclaimed.json mode` 런타임 단언 · `assertSafeSessionId` 전 경로 호출 강제 ·
 `probeProcess` 파싱 견고성 · `realpath` 폴백 symlink 봉쇄)은 리뷰어도 별도 취약점으로 올리지 않았고,

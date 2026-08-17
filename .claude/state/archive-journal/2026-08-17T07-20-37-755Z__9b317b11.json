@@ -1,0 +1,30 @@
+{
+  "schema_version": "v1",
+  "id": "2026-08-17T07-20-37-755Z__9b317b11",
+  "created_at": "2026-08-17T07:20:37.755Z",
+  "session_id": "unknown",
+  "scan_hash": "b102f92701222d6e45c58debd1153ae1de3b8f8517800d52ad7aab153e5701ad",
+  "status_corrections": [],
+  "archives": [
+    {
+      "prd": ".claude/prds/session-process-reclaim.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/session-process-reclaim.prd.md",
+          "to": ".claude/prds/archived/session-process-reclaim.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/session-process-reclaim-followup.plan.md",
+          "to": ".claude/PRPs/plans/archived/session-process-reclaim-followup.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/session-process-reclaim.plan.md",
+          "to": ".claude/PRPs/plans/archived/session-process-reclaim.plan.md"
+        }
+      ]
+    }
+  ]
+}

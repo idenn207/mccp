@@ -2,7 +2,80 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.26.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.27.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.27.0] — 2026-08-14
+
+**session-process-reclaim M1+M2 — 세션 프로세스 레지스트리 + SessionEnd 회수 (PRD 전 milestone 완료 → minor bump)** — mccp는 자신을 시작한 명령보다 오래 사는 프로세스를 여럿 띄운다(dashboard 서버, detached plan-codex-runner, handoff `claude` 세션). 누가 그것들을 소유하는지 기록하는 곳이 없었고, 그래서 안전하게 거둘 방법도 없었다. M1이 레지스트리를, M2가 SessionEnd 회수를 추가한다.
+
+설계를 지배하는 단일 지표는 PRD의 **오살 0**이다 — 다른 세션·다른 repo·다른 호스트·다른 사용자의 프로세스를 죽이지 않는 것. 그래서 판정은 전부 fail-closed이고, **주장이 아니라 test**다: 주입한 killer가 받은 pid 집합을 기대 집합과 정확히 일치시킨다.
+
+**단, 이것은 목표이지 증명된 절대치가 아니다.** 소유권 축(세션·repo·호스트·reuse·lifetime)은 결정적으로 닫히지만, 프로세스 정체 축에는 유계 잔여가 남는다 — OS가 PID를 재할당했고 ∧ 새 프로세스가 우리 등록 시각의 허용 오차 안에서 시작했고 ∧ 그것이 node로 **같은 절대 스크립트 경로**를 실행 중일 때. 단위 test로 재현할 수 없는 창이므로 "무관한 프로세스가 죽는 경로는 없다"고 주장하지 않는다. 아래 *명시 잔여* 참조.
+
+### Added
+- `plugins/mccp/scripts/lib/session-processes.js` — 레지스트리(`register`/`registerFailure`/`list`/`unregister`/`collectSiblingReuse`) + 소유권 판정(`isReclaimableBy`, 13행 표) + 정체 probe(`probeProcess`/`normPath`) + 회수(`reclaimSession`) + SessionStart 고아 스윕(`scanForeignOrphans`). 파일당 1 프로세스 레이아웃이라 read-modify-write도 lock도 없다.
+- test 4종 — 레지스트리·판정표 전수·오살 0·소스 스캔 회귀(등록 누락 0 · kill 지점 유일 · 반환값 소비 강제).
+- `MCCP_RECLAIM_OUTLIVES` · `MCCP_RECLAIM_BUDGET_MS` · `MCCP_RECLAIM_IDENTITY_TOLERANCE_MS`(상향만) → `docs/ENVIRONMENT.md` §11.
+
+### Changed
+- `dashboard-server.js` · `plan-codex-runner.js` — 부팅 자기등록 + 정상 종료 시 unregister. `session-spawner.js` — win32 handoff 자식을 부모가 등록(자식은 자기등록을 못 한다).
+- `session-end-marker.js` — 마커·observer **뒤에** 회수. 반환값을 읽어 미완료를 stderr로 표면화하고, `output`은 무변경(UI8).
+- `session-start-trace-injector.js` — 종료된 세션의 고아를 보고. live PID는 **세기만** 하고(UI1), 죽은 PID의 레코드 파일만 지운다(PRD `:78` 무한 성장 차단). `.unreclaimed.json`·`.failed.json`은 보존한다 — 처리는 증거 인멸이 아니다.
+- `plugins/mccp/.claude-plugin/plugin.json` `1.23.7 → 1.27.0` + renderer footer 2면 동기. PRD 전 milestone(M1+M2) 완료이므로 §3.7 기준 **minor**다. 브랜치는 `1.24.0`을 목표했으나 `origin/main`이 그 번호를 **meta-research-command M1**에 발행한 뒤 `1.25.x`·`1.26.0`(santa-loop-materialize M2)·`1.26.1`(gate-guard-integrity M3)까지 연달아 소비했으므로 forward-only로 계속 밀어 **minor 한 칸 위**인 `1.27.0`에 착지한다 — 이미 발행된 번호는 불가침이고 미머지 브랜치만 민다. 같은 충돌의 **7번째 실측 재발**이며, 이번엔 M3 base 머지 도중에 또 한 칸(1.26.0 → 1.26.1) 밀린 것이 관측됐다(§3.7).
+
+### Fixed
+- `dashboard-server.test.js` — `tmpRepo()`가 `os.tmpdir()`의 8.3 단축명(`…\ADMINI~1\…`)을 그대로 써서 `attachWatch`의 `fs.watch`가 libuv assertion(`!_wcsnicmp`, `src/win/fs-event.c`)으로 **test 프로세스 전체를 abort**시키고 있었다. 그 뒤 19개 test가 조용히 실행되지 않고 있었다(선재 결함). realpath 한 줄로 13 → 33 test가 실제로 돈다.
+
+### Security (santa-loop R1 — cross-model 심사에서 발견)
+- **레지스트리 루트를 통한 경로 탈출을 봉인했다.** 봉인이 세션 디렉토리를 레지스트리 루트에 대해서만 검사해, 루트 **자체**가 링크면 그 검사가 공허하게 통과했다. `.claude/state/session-processes`를 외부 디렉토리로 미리 만들어 두면 레코드가 repo 밖에 기록됐고 — 실측 재현됐다. win32에서 디렉토리 **junction**은 elevation이 필요 없어서, "symlink는 권한이 필요하다"는 원 코드의 전제가 이 결함을 가려 주고 있었다. 이제 봉인이 repo 경계까지 올라가고, 회수는 탈출한 레지스트리를 만나면 **전량 거부**한다(`complete:false`, kill 0). 파일을 지우는 고아 스윕도 루트와 세션 디렉토리를 각각 재검사한다.
+- `MCCP_RECLAIM_BUDGET_MS`를 hook timeout 아래로 **clamp**한다(상한 9000ms, 하향은 자유). 넘기면 sweep이 hook timeout에서 중도 사살되고, 그때 사라지는 것이 부분 sweep의 유일한 증거인 `.unreclaimed.json`이다.
+- dashboard **reuse 등록 실패가 조용했다**. reuse 레코드는 소유 세션에게 "다른 세션이 아직 쓰고 있다"고 알리는 유일한 신호이므로, 실패하면 소유자의 `in_use_by_live_session` 가드가 사라지고 `MCCP_RECLAIM_OUTLIVES=1`에서 사용 중인 서버가 SIGTERM된다. 빌리는 쪽에서 복구할 수 없으므로 결과까지 명시해 표면화한다.
+- **읽기/삭제 경로가 session 디렉토리를 봉인하지 않았다.** 회수는 레지스트리 루트만 검사했고, 등록 후 `<registry>/<sid>`가 repo 밖 링크로 바뀌면 그 레코드를 근거로 kill하고 repo 밖 파일을 unlink했다 — 실측 재현. 이제 두 층을 함께 검사하며(`containedSessionDir`), 진입 시 1회가 아니라 **매 write/unlink 직전에 재검증**한다(TOCTOU는 좁혔을 뿐 닫지 않았다 — Node 동기 fs에 fd-상대 API가 없다).
+- **SessionEnd hook에 새 blocking 실패 모드를 만들었다가 되돌렸다.** `reclaimOwnedProcesses`의 `require`가 `try` 밖에 있어, 회수 스택의 모듈 로드 실패가 `run()` 밖으로 throw됐다 — `async:true / timeout:10`으로 non-blocking을 계약한 hook에서. 기존 test는 전부 `deps.reclaimSession`을 주입해 require를 단락시키므로 구조적으로 못 잡았고, 새 test는 실제 로드를 깨뜨린다.
+- **SessionEnd가 env 세션 id를 payload보다 우선했다.** payload의 `session_id`는 Claude Code가 "지금 끝나는 세션"을 지목한 값이고 env는 ambient라 stale하거나 다른 곳에서 상속될 수 있다. 둘이 어긋나면 회수가 **끝나지도 않은 세션**을 대상으로 돌아 그 세션의 프로세스를 죽인다 — 이 설계 전체가 막으려는 오살이다. payload 우선으로 뒤집고, 불일치는 stderr로 명명한다.
+- **회수가 env-only 세션 id 게이트 뒤에서 통째로 건너뛰어졌다.** SessionEnd 페이로드에 종료 세션 id가 있는데도 env가 비면 조기 반환해, 그 세션의 프로세스가 영구 등록 상태로 남았다. observer cleanup은 env 키에 묶인 채 두고 회수만 페이로드로 fallback한다.
+- **읽을 수 없는 형제 증거가 가드를 지웠다.** `collectSiblingReuse`가 파싱 실패를 건너뛰어, 살아있는 borrower의 reuse 레코드가 손상되면 소유자가 사용 중인 dashboard를 죽이고 `complete:true`로 보고했다. 판정표에 13번째 행 `sibling_evidence_unreadable`을 `in_use_by_live_session` **앞**에 추가했다. 단, 파싱되는 비-reuse 레코드는 `incomplete`로 치지 않는다 — 그러지 않으면 훗날 스키마 bump 한 번에 회수가 통째로 얼어붙는다.
+
+### Security (santa-loop R8 — 두 리뷰어가 독립적으로 R7의 미봉을 다시 잡았다)
+- **정체 검증이 `node`라는 **낱말**을 인터프리터의 증거로 받아들이고 있었다.** `isExecutedScript`의 `.some()`은 "script 토큰 앞 어딘가에 node 토큰이 있는가"만 물어서, node를 데이터로 언급만 하는 명령줄이 통과했다 — `grep node <exec_path>` · `echo node <exec_path>`. PID 재할당 ∧ 시작시각이 허용치 안이면 `owned_session_scoped`에 도달해 **무관한 프로세스에 SIGTERM**을 보낸다. 실물 재현: 살아 있는 `cmd.exe`(`cmd /c ping -n 20 127.0.0.1 & rem node <exec_path>`)를 실제 pid로 probe하니 옛 규칙이 MATCH를 냈다. **이 결함은 R7이 이미 알고 있었고, 대응은 고치는 대신 코드에 `KNOWN DEFECT` 주석을 다는 것이었다** — 그러면서 같은 커밋의 security review는 이 축을 `PASS — no mis-kill path found`로 적었다.
+- 토큰 규칙으로는 닫히지 않는다. `nohup node <path>`(반드시 매치)와 `grep node <path>`는 **같은 토큰 열**이다. 판별자는 **실행 이미지**뿐이다 — `probeProcess`가 `execImage`를 함께 반환하고(win32 `Win32_Process.ExecutablePath` · Linux `/proc/<pid>/exe` · 그 외 POSIX `ps -o comm=`), `isReclaimableBy`가 **부재 → `identity_unverifiable`**(command line 단독 판정으로 흘러내리지 않는다) · **비-node → `identity_mismatch`**로 가른다. `isExecutedScript`는 토큰 축만 답하도록 분리했다.
+- win32 probe 출력을 **`|` 구분 단일 라인**으로 바꿨다. 필드마다 한 줄씩 찍으면 `ExecutablePath`나 `CommandLine`이 빈 경우(access-denied·커널 프로세스에서 실제로 발생) 뒤 필드가 한 줄씩 밀려 **파서가 이미지 자리에서 command line을 읽는다**.
+- 회귀 test가 결함을 실제로 잡는지 확인했다 — HEAD(수정 전) worktree에 새 test를 얹으면 `identity 3g`가 `owned_session_scoped`를, `identity 3h`가 fall-through를 드러내며 fail한다. `identity 3i`(실제 launch shape 6종)는 양쪽에서 pass라 오조임이 아니다.
+
+### Security (PR-Codex — ship gate에서 발견, HIGH)
+- **신호 전달을 종료로 오인하고 있었다.** `reclaimSession`이 `process.kill(pid,'SIGTERM')`이 반환하자마자 pid를 `reclaimed[]`에 넣고 레코드를 unlink했다. 그 반환은 신호가 **전달**됐다는 뜻일 뿐 프로세스가 죽었다는 뜻이 아니다 — POSIX에서 SIGTERM은 catch·ignore 가능하고 종료가 길어질 수도 있다. 신호를 무시한 프로세스는 (a) 레코드가 지워져 **추적 불가**가 되고 (b) hook은 **회수 성공으로 보고**했다. 즉 이 모듈이 존재하는 이유인 회수·관측 보장이 가장 조용한 방식으로 깨졌다. 주변 코드가 오히려 이것이 실수임을 보여준다 — `EPERM`은 성공으로 접지 않고 `ESRCH`는 따로 처리하는데, 유독 성공 경로만 확인 없이 낙관했다.
+- 이제 종료를 **확인한 뒤에만** 보고한다. 신호 후 레코드를 유지한 채 남은 예산 안에서 `isAlive`를 폴링하고, 확인된 경우에만 `dropRecord`한다. 마감 시각까지 살아 있으면 **fresh probe**로 정체를 재검증한다(`probeMemo`는 신호 이전 값이라 의도적으로 우회) — 정체 불일치면 원 프로세스는 사라지고 OS가 pid를 재할당한 것이므로 `pid_recycled`로 **확인된 종료**, 일치하면 `termination_timeout`, 검증 불가면 `termination_unverified`다. 뒤 둘은 레코드를 **보존**한다.
+- 정체 비교는 `identityVerdict`로 추출해 kill 판정과 종료 확인이 **같은 규칙**을 쓰게 했다. 사본이 둘이면 갈라질 수 있고, 확인 쪽이 느슨해지면 "OS가 pid를 재활용했다"가 거짓 "확인된 종료"로 둔갑한다 — 이 경로가 막으려는 거짓말과 같은 부류다.
+- 죽지 않는 프로세스 하나가 sweep 전체를 굶기지 않도록 레코드당 확인 상한(`TERM_CONFIRM_MAX_MS`, 1000ms)을 두고, 그 위에 sweep 예산이 다시 상한을 건다. probe 예약 규칙(worst case를 감당 못 하면 시작하지 않는다)은 확인 probe에도 그대로 적용된다.
+- 회귀 test 5종(`13a`~`13e`). `13a`는 구 코드에서 **반드시 실패한다** — 구 코드는 신호를 무시하는 프로세스를 `reclaimed=[4242]` + 레코드 삭제로 처리했다. 기존 하네스가 이 결함을 구조적으로 못 잡은 이유도 함께 고쳤다: `recorder()`의 `isAlive`가 언제나 `true`였다(= 모든 happy-path 케이스가 사실은 **SIGTERM을 무시하는 프로세스**를 모델링하고 있었다). 이제 signal된 pid는 죽은 것으로 답하고, 무시하는 프로세스는 그것을 의도하는 케이스에서만 나온다.
+
+### Security (PR-Codex R2 — 첫 수정 뒤 재실행에서 두 건이 더 나왔다)
+- **reuse 가드에 check-to-kill 경쟁이 있었다 (HIGH).** 형제 sweep은 `isReclaimableBy` 안에서 **정체 probe보다 먼저** 돈다. 그 probe는 win32에서 최대 5초를 태운다. 그 사이에 다른 세션이 dashboard를 빌려 reuse 레코드를 등록하면, **5초 전에 만든 판단**으로 SIGTERM이 나간다 — `MCCP_RECLAIM_OUTLIVES=1`에서 사용 중인 서버가 죽는다. 코드 주석은 sweep이 "immediately before the kill decision … FRESHEST world state"라고 적고 있었는데, 실제로는 kill이 아니라 **probe** 직전이었다. 이제 신호 **직전에** 다시 묻는다(`siblingHoldReason`으로 추출해 판정표와 재검사가 같은 규칙을 쓴다). TOCTOU를 닫지는 않는다 — 그건 공유 lock이라야 한다 — 그러나 5초 구멍은 TOCTOU 잔여가 아니라 실제로 질 수 있는 경주였다. sweep 호출은 후보당 1회 → 2회가 되고, 예산이 그 위에 상한을 건다.
+- **검사에 실패해서 남긴 레코드가 '깨끗한 sweep'으로 보고됐다 (MEDIUM).** `identity_unverifiable`·`sibling_evidence_unreadable`은 `skipped[]`에만 들어갔고 `complete`는 `true`로 남았다. 그런데 SessionEnd 소비자는 `complete`/`unreclaimed`/`writeFailures`/`budgetExceeded`만 보므로 **`skipped[]`는 아무도 읽지 않는다** — 살아 있는 detached runner가 남았는데 hook은 성공을 보고했다. 이 레지스트리가 드러내려던 바로 그 degraded 상태가 가장 조용히 숨겨진 것이다. `unverified[]`를 신설해 "확인 실패"만 담고(정책 제외 — 다른 호스트·다른 repo·outlives·handoff — 는 제외한다: 매 세션 울리는 경보는 곧 무시되는 경보다) hook 경고 조건에 넣었다.
+- 회귀 test 4종(`14a`~`14d`). `14a`는 probe가 도는 **동안** 빌림이 발생하도록 stub을 짜 실제 창을 재현한다. `11c`는 계약 변경(후보당 sweep 1회 → 2회)을 반영해 갱신했다 — 원래 의도인 "스냅샷 캐싱 금지"는 그대로다(캐싱하면 여전히 1이 나온다).
+
+### 명시 잔여 (주장하지 않는 것)
+- §D11의 ms 단위 TOCTOU와 §D15의 유계 오살 창(PID 재할당 ∧ 시작시각 델타 < 허용치 ∧ **이미지의 basename이 `node`/`nodejs`** ∧ command line의 첫 script 토큰이 우리 절대경로)은 **단위 test로 재현할 수 없다**. "무관한 프로세스가 죽는 경로는 없다"고 주장하지 않는다.
+- §D15 축 1은 이제 **두 질문**이다: 우리 경로가 첫 script 토큰과 **등가**인가(토큰 축) · 실행 **이미지**가 node 인터프리터인가(이미지 축). `node other.js <path>` · `<path>.bak` 는 토큰 축이, `tail -f <path>` · `grep node <path>` · `echo node <path>` 는 이미지 축이 거부한다. 남은 것은 **상대 경로 기동**이 `identity_mismatch`로 읽히는 것(fail-closed — 회수를 놓칠 뿐이고, mccp의 두 기동 형태는 모두 절대 경로다). 상대 토큰을 재anchor하려면 suffix 매칭을 허용해야 하는데, 그것이 바로 전체경로 규칙이 막으려던 basename 충돌이다. **R2~R7 동안 이 줄은 잔여가 상대 경로 기동 하나뿐이라고 적었으나 그때는 거짓이었다** — 위 R8 항목 참조.
+- **실행 이미지를 주지 않는 플랫폼에서는 회수가 통째로 멈춘다.** `identity_unverifiable`이라 오살 방향은 아니지만, 커버리지가 0이 되는 것을 "안전하다"로 덮지 않는다. win32·Linux는 실측했고 macOS는 `etimes` 부재로 이미 probe가 `null`이라 변화 없다. 그 외 POSIX는 `ps -o comm=`에 의존하며 이 저장소에서 검증되지 않았다.
+- reuse 레코드 증가는 **부분적으로만** 닫혔다. 소유 세션이 죽었음이 증명된 것(같은 호스트 ∧ 정수 `session_pid` ∧ 그 pid 죽음)은 회수되는데, 이는 `isSiblingLive`가 **이미** "사용 중 아님"으로 읽던 집합과 정확히 같아 어떤 회수 판정도 바뀌지 않기 때문이다. `session_pid`가 null이거나 다른 호스트인 레코드는 **남긴다** — 그것을 지우면 "쓰고 있는지 알 수 없다"가 "아무도 안 쓴다"로 바뀌어 kill을 승인하게 된다. 유계 증가보다 그쪽이 비싸다.
+- **`.failed.json` · `.unreclaimed.json`은 영구 보존된다** — 그래서 그 두 종류만 남은 디렉토리는 지워지지 않는다. 감사 표면을 없애는 것이 "다음 SessionStart가 처리한다"를 증거 인멸로 바꾸기 때문에 의도한 선택이고, 따라서 레지스트리는 **실패 건수만큼** 자란다. 무제한 증가를 막았다고 주장하지 않는다.
+- **`MCCP_RECLAIM_BUDGET_MS`는 hard wall-clock cap이 아니라 레코드 단위 granularity의 예산이다.** 루프는 각 레코드 직전에 경과를 보고, probe는 worst case를 예약하고, 형제 스윕은 같은 deadline을 물려받아 초과 시 fail-closed로 끊는다. 루프 진입 전 자기 디렉토리 `list()` 1회는 예산 밖이다(크기가 자기 등록 프로세스 수라 실질 상수). 정확한 경계는 `docs/ENVIRONMENT.md` 참조.
+- `MCCP_RECLAIM_OUTLIVES=1`에서 **세션 식별자가 없는 borrower는 보호되지 않는다**. reuse 레코드를 쓸 디렉토리를 정할 수 없고, 합성 id로도 우회 불가다 — reuse의 liveness는 `session_pid`가 정하는데 재사용 경로에서 살아있는 주체가 바로 그 식별 불가능한 Claude 세션이기 때문이다. 이는 토글의 의미에 포함된 한계이며 `docs/ENVIRONMENT.md`에 근거까지 적었다. 기본값 0이 오늘의 동작이다.
+- 과거·타 세션의 **live** 고아 프로세스는 감지·보고까지만 한다(kill 없음).
+
+롤백: `rm -rf .claude/state/session-processes/` (gitignored·working-tree 전용).
+
+### M3 — 출하 + 잔여 정리 (같은 minor에 포함)
+
+M1+M2는 **구현이 끝났고 출하되지 않았다.** `origin/main`에 `session-processes.js`가 없었고 PR도 0건이었으므로, PRD의 Hypothesis는 main에 없는 코드로는 검증될 수 없었다. M3는 그 출하를 막던 것들을 닫는다.
+
+- **PRD 1차 지표를 처음으로 관측했다.** M1+M2의 검증은 전량 단위 test였는데, 그것들은 주입한 killer가 받은 pid 집합을 대조하므로 *판정 로직*은 증명하지만 *프로세스가 실제로 죽는지*는 증명하지 않는다. 신규 `tests/manual/session-process-reclaim-smoke.js`가 실물 자식을 띄우고 실제 `reclaimSession`을 부른 뒤 `isPidAlive(pid) === false`를 bounded poll로 확인한다. **표본 1건이며 비율로 옮겨 적지 않는다.** `tests/manual/` 하위인 것이 곧 CI 상시 suite 미편입 보장이다(글롭 `tests/*.test.js`가 디렉토리 구분자를 넘지 않는다). 하네스 조정 2건이 해석 범위를 좁힌다 — 자식을 `node -e`가 아니라 파일로 띄우고(`-e`는 `__filename`이 `[eval]`이라 §D15 축 1이 인위적으로 어긋난다), `MCCP_RECLAIM_IDENTITY_TOLERANCE_MS`를 상향했다. 따라서 이 관측은 **기본 허용치에서의 정체 판정 정확도를 말하지 않는다**.
+- **회수 처리량 천장을 없앴다 — 지표를 재고 나서야 보인 결함.** win32 probe는 `powershell.exe`로 `Get-CimInstance Win32_Process`를 **레코드마다 동기 호출**했고, 유휴 머신에서도 3.2~3.7s가 걸린다(측정). `guardedProbe`는 감당 못 할 probe를 시작하지 않으므로(`elapsed > budgetMs − probeTimeoutMs`) 기본값에서 probe 시작 창이 `6000 − 5000 = 1000ms`뿐이었고, **두 번째 레코드부터 굶었다** — 자식 3개 등록 시 1개만 회수하고 2개 누수(`budget_exceeded`), 문서화된 상한 `MCCP_RECLAIM_BUDGET_MS=9000`으로 올려도 2개가 천장이었다. PRD가 겨냥한 대상(dashboard · plan-codex-runner · handoff)은 흔히 2개 이상이므로 Hypothesis가 win32에서 절반만 성립하고 있었던 것이다. **비용이 pid 수가 아니라 호출 횟수에 붙는다**는 측정(1 pid 3.4s · 3 pid 3.9s)에 따라 신규 `probeProcesses`가 sweep당 **1회** 호출로 전 pid를 조회하고 `reclaimSession`이 그것으로 memo를 채운다. 같은 조건 재측정: 3개 → 3개 회수·0 누수, 6개 → 6개 회수·0 누수(4.1s). 대안은 전부 막혀 있었다 — `Get-WmiObject`(3.1s) · DCOM `CimSession`(3.3s) · `wmic`(3.0s)이 모두 같은 자리이고, 유일하게 빠른 `Get-Process`(0.6s)는 Windows PowerShell 5.1에서 CommandLine을 주지 않는데 그것이 §D15 축 1의 재료다. **주입 seam은 보존된다** — `probeProcess`를 주입한 호출자는 배치를 타지 않으므로 기존 stub 계약이 그대로다. §D11 freshness도 무영향이다(배치가 선반입하는 것은 살아 있는 pid에 대해 변하지 않는 정체값이고, liveness·형제 reuse는 여전히 레코드마다 kill 직전에 다시 읽는다).
+- **`.claude/state/session-processes/`를 `MCCP_IGNORE_BLOCK`에 canonical로 등재했다.** M1+M2가 이 저장소 `.gitignore`에만 넣고 provisioner 목록에는 넣지 않아, main의 setup-gitignore drift lint가 이번 머지에서 처음 만나 red가 됐다. `REPO_ONLY`가 아닌 이유는 `santa-loop/`와 같다 — 플러그인이 설치된 어느 저장소에서나 자라므로 대상 저장소가 첫 사용에 커밋한다. 그리고 이 레코드는 **살아 있는 PID + 절대 `exec_path`**를 담아, 커밋되면 모든 clone에 stale PID가 배포되고 SessionEnd 회수 경로가 그것을 kill 후보로 평가한다 — 노이즈가 아니라 오살 벡터다.
+- **이 코드가 받은 첫 security 심사.** `Task(security-reviewer)` 결과 CRITICAL/HIGH/MEDIUM 0건, LOW 1건(`writePrivate`의 rename 실패 시 tmp 잔존)이고 그 LOW는 코드로 무해함을 확인했다 — 레지스트리를 읽는 세 지점 전부(`list` · `collectSiblingReuse` · `scanForeignOrphans`)가 `.json` 접미사로 필터하는데 tmp는 `.tmp`라 회수 판정에 구조적으로 도달할 수 없다.
+- 잔여 정리: 정체 축 7케이스 전부 `identity N` 라벨화(구현 test 이름과 1:1) · `dashboard-server.test.js`의 pid 산술 포트 4줄을 `freePort()`로(그 backlog 행은 2줄이 이미 전환됐다고 적었으나 실측은 4줄 전부 미전환) · `DIR_MODE`/`FILE_MODE`의 owner-only 주장을 "POSIX 한정 · 생성 시에만"으로 좁힘(**동작 무변경**) · backlog에 해소 3건 + 신규 이연 10건 등재.
+- **cross-model 심사는 여전히 0회다.** plan-codex는 L2 패널 R1~R14가 전 라운드 divergent로 끝나 `MCCP_SKIP_INTENT_GATE` audited override로 진입했고(verdict `incomplete`를 봉인 — 세탁하지 않으므로 cross-gate dedupe는 fail-closed로 남고 PR-Codex가 반드시 발화한다), implement-codex는 `MCCP_CODEX_DISABLED=1` env 정책으로 `skipped`다. 감사 대조가 가능한 유일한 cross-model 기록은 ship receipt다.
 
 ## [1.26.2] — 2026-08-17
 

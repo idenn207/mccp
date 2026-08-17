@@ -318,7 +318,9 @@ PR 작성 직전(또는 작성과 함께):
 
 같은 base에서 갈라진 두 브랜치가 **같은 version 번호를 각기 다른 작업에 선언**하는 일이 반복된다. 먼저 머지된 쪽이 그 번호를 가져가므로, 나중 브랜치는 base를 병합할 때 번호를 **한 칸씩 올려야** 한다.
 
-선례 3건: `#94 audit P5`가 1.20.9를 선점 → 후속 브랜치가 1.20.10으로 상향(§1.4) · MSW M3 노트 CL-3이 sibling worktree `feat/codex-intent-context`의 1.23.1 중복을 사전 경고 · PR #117이 goal-detect에 1.23.1을 쓰는 사이 main이 MSW M3에 1.23.1을 발행(merge-commit `71491f8`, goal-detect→1.23.2 · red-test-suite→1.23.3으로 상향 해소).
+선례 4건: `#94 audit P5`가 1.20.9를 선점 → 후속 브랜치가 1.20.10으로 상향(§1.4) · MSW M3 노트 CL-3이 sibling worktree `feat/codex-intent-context`의 1.23.1 중복을 사전 경고 · PR #117이 goal-detect에 1.23.1을 쓰는 사이 main이 MSW M3에 1.23.1을 발행(merge-commit `71491f8`, goal-detect→1.23.2 · red-test-suite→1.23.3으로 상향 해소) · session-process-reclaim M3이 base를 머지하는 **도중에** main이 1.26.0 → 1.26.1을 발행해 target이 한 칸 더 밀림(1.27.0에 착지).
+
+마지막 사례가 보여주는 것: **번호를 미리 정해 두면 안 된다.** 충돌은 브랜치를 딴 시점이 아니라 머지·PR 사이에도 열려 있으므로, target은 (a) 머지 해소 시점과 (b) `/mccp:pr` 진입 직전 두 번 재계산해야 한다. 재상향은 `plugin.json`을 바꾸므로 footer 2면과 CHANGELOG 헤딩이 다시 어긋나고 `i18n-surface.test.js`가 붉어진다 — 재상향 뒤에는 동기 4면 검증을 **전부 다시** 돌릴 것.
 
 - **감지**: `git merge origin/main` 후 `CHANGELOG.md`에 같은 `## [X.Y.Z]` 헤딩이 둘 생기면 충돌이다. 헤딩 중복은 조용히 넘어가지 말 것 — CHANGELOG가 깨진 상태다.
 - **해소**: 이미 발행된(=main에 있는) 번호는 **불가침**이다. 미머지 브랜치의 항목만 위로 민다. 항목이 여러 개면 각각 한 칸씩(예: 1.23.1→1.23.2, 1.23.2→1.23.3). 서로 다른 축이면 **하나로 합치지 말 것** — CHANGELOG 서사가 뭉개진다.

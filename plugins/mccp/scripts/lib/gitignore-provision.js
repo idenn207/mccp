@@ -100,6 +100,15 @@ const MCCP_IGNORE_BLOCK = [
   // it is installed, so a target repo that only has the REPO_ONLY half would
   // commit it on first use.
   '.claude/state/santa-loop/',
+  // The long-lived process registry is canonical for the same reason, and its
+  // cost of being wrong is higher than the others in this block. A record binds
+  // {pid, host, session_id, proc_started_at_ms} of a LIVE process on ONE machine
+  // and carries an ABSOLUTE exec_path. Committed, it would hand every clone a
+  // stale PID that the SessionEnd reclaim path then evaluates as a kill
+  // candidate — a mis-kill vector, not just noise. Any repo the plugin runs in
+  // grows this directory, so REPO_ONLY would leave target repos committing it on
+  // first use.
+  '.claude/state/session-processes/',
   '.claude/state/msw-events/',
   '.claude/state/codex-stop-loop-input.txt',
   '.claude/state/auto-handoff-log.jsonl',

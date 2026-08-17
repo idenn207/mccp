@@ -63,7 +63,7 @@ We'll know we're right when **문구·스타일 지적이 더 이상 NAUGHTY를 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | severity contract + 게이트 재배선 | 문구·스타일 지적이 NAUGHTY를 만들지 못하고, blocking은 `failure_scenario`를 쓸 수 있을 때만 성립 | complete | [santa-adjudication-m1.plan.md](../plans/santa-adjudication-m1.plan.md) |
-| 2 | 판정 원장 | 기각·흡수가 보존되고 종결 항목이 재계수되지 않음. 항목 3(오탐율)의 없어진 분모가 생김 | pending | — |
+| 2 | 판정 원장 | 기각·흡수가 보존되고 종결 항목이 재계수되지 않음. 항목 3(오탐율)의 없어진 분모가 생김 | complete | [santa-adjudication-m2.plan.md](../plans/santa-adjudication-m2.plan.md) |
 | 3 | patch-chasing terminator + 캡 정책 | 직전 수정만 겨누는 라운드에서 루프가 스스로 종료하고, 종료 사유가 기록됨 | pending | — |
 
 ## Open Questions
@@ -94,6 +94,44 @@ We'll know we're right when **문구·스타일 지적이 더 이상 NAUGHTY를 
 - [ ] **#125 제안 5와의 접속** — 원장을 집계에 주입할 때 지적 원문을 포함할지 ID·결론만 넘길지. I3가 리뷰어 미주입을 이미 강제하므로 집계 단계에서는 원문 보존이 안전하나, P2와 경계를 맞출 필요.
 - [ ] **흡수 반사실 검증**(#124 제안 6) — 흡수한 지적마다 수정 전/후 검사를 돌려 결과가 뒤집히는지 확인. 비용이 크므로 MVP 포함 여부 미정.
 - [ ] **Reviewer A 로테이션** — 라운드마다 전용 에이전트를 갈아 끼우는 정책. 별도 축으로 이연했으나 라운드 수 자체를 줄이므로 비용 효과가 큼.
+- [ ] **M2 Acceptance (B) 미충족 — 재보고 억제가 실경로에서 관측되지 않았다. 원인은 표본이 아니라 패러프레이즈이고, 실측으로 확인됐다.** M2 Task 7의 종자 결함 probe를 2026-08-17에 완주했다(별도 워크트리 `santa-m2-probe`, DD13 라운드 결속 `entry.round < N` → `<= N` 되돌림, decision slug `santa-adjudication-m2-probe`, 리뷰어 4명 전원 opus). 앞 두 축은 관측됐다:
+
+  | 검증 | 결과 |
+  |---|---|
+  | (e) 미판정 blocking → `begin-round` 거부 | exit 2 · `rounds 1 → 1`(캡 미소모) · stderr가 4건을 id·severity·claim으로 전량 열거 |
+  | (f) 전건 판정 후 재호출 | `entries: 4` → `{"allowed":true,"roundIndex":1}` |
+  | (g) 다음 라운드 같은 claim 억제 | **미관측** — `suppressed: 0` |
+
+  **(g)가 실패한 이유는 리뷰어가 결함을 못 찾아서가 아니다.** round 0과 round 1의 fresh 리뷰어 4명은
+  같은 결함을 **4/4 전건** 다시 찾았고, 4건 모두 **다른 문장으로** 썼다 — 예: `"Self-suppression
+  vulnerability: judgment in round N can now suppress findings in round N"`(round 0 A) vs
+  `"Self-suppression vulnerability: same-round judgment can now suppress same-round blocking issue"`
+  (round 1 A). `issue_id`가 정규화 claim이므로 넷 다 새 id를 얻었고 억제는 0건이었다. **DD5가
+  High로 예측한 패러프레이즈 한계가 실측으로 확인된 것이고, 재보고율이 아니라 재보고의
+  문안 안정성이 병목이다.**
+
+  `carryOver`는 DD5가 정의한 서명을 정확히 냈다 — round 1에서 `{suppressed:0, resolvedAbsent:4,
+  newBlocking:4}`. 즉 계측 도구는 의도대로 작동하며 이 사건을 **관측 가능하게** 만들었다.
+  억제 메커니즘 자체는 고장이 아니다: fixture repo를 지나는 커버리지 34·41~46·49·55와 실 CLI
+  왕복 스모크가 정확 재보고 경로를 덮고, probe에서도 (종자가 라운드 결속을 지웠으므로) round 1의
+  판정이 **같은 라운드**의 그 지적을 실제로 지웠다(`kind: absorbed-rereported`, `entryRound: 1`,
+  blocking 4 → 3) — 즉 우회가 실경로에서 재현됐고, 본 브랜치에서는 같은 시퀀스가 NAUGHTY로 남는다.
+
+  **처방(미결)**: (1) 리뷰어 프롬프트가 지적마다 안정적 식별자(파일:라인 또는 규칙 id)를 함께
+  요구하고 `issue_id`를 claim이 아니라 그 식별자에서 파생할지 — 이는 M3 또는 P2의 축이다.
+  (2) 임계 기반 fuzzy matching은 **처방이 아니다**(DD5: 잘못 합쳐진 두 지적은 실재 결함을 지우는
+  방향으로 틀린다). (3) 그때까지 M2가 실제로 억제하는 것은 "운영자가 같은 문장으로 다시 만나는
+  경우"뿐이며, 그 범위를 넘는 주장을 하지 않는다. ~~**Acceptance (B)가 충족되지 않았으므로 Milestone 2
+  행은 `complete`로 바꾸지 않는다.**~~
+
+  **운영자 override (2026-08-17, `/mccp:milestone-close`)** — 취소선 문장은 기록 시점의 판정이고,
+  운영자가 그것을 명시적으로 뒤집었다. Milestone 2 행은 `complete`로 전환됐다
+  ([closure](../milestone-closures/santa-adjudication-m2.md), `Status: done`). **위 실측값은
+  하나도 바뀌지 않았고 `(g)`는 여전히 미관측이다** — 바뀐 것은 그 미관측을 M2의 미완료로 셀지
+  이연 축으로 셀지에 대한 운영자 판정이다. 근거는 위 처방 (1)이 이미 적은 대로 **병목이 M2가
+  가진 축이 아니라는 것**이며(식별자 파생은 M3 또는 P2 소유), 그래서 이 Open Question은 **닫히지
+  않고 열린 채로 남는다.** M3 착수 시 이 항목은 캡 정책과 함께 판정 대상이다.
+- [ ] **P2가 P1 원장을 소비한다면 그 접속 표면은 무엇인가 (M2 DD15가 등재)** — M2가 정의하는 접속은 **하나뿐이다**: 경로는 `ledger.deriveSantaDecisionId(...)` → `.claude/state/santa-loop/<slug>.json`으로 파생하고, 읽기는 `ledger.read(opts)` 스냅샷 1회 + 순수 파생이며(`entries`를 직접 `JSON.parse`하는 경로는 계약이 아니다), 유효 범위는 **같은 워크트리·같은 루프**다. 그 밖에서 파일 부재는 오류가 아니라 "그 리뷰 스코프가 끝났다"는 뜻이고 소비자는 부재를 정상 상태로 처리해야 한다. **M2가 정의하지 않는 것**: 루프를 건너는 지속성 · 워크트리 간 조회 · slug discovery("어떤 slug들이 존재하는가"를 묻는 API는 없다). P2 착수 시 그 셋 중 무엇이 실제로 필요한지 **먼저 판정**하고, 필요하면 그것은 P2의 설계 항목이거나 P0 재개 사유다 — M2가 조용히 채워 둘 자리가 아니다. 이 미정의를 문서에 남기지 않으면 다음 milestone이 그것을 있는 것으로 전제하고 경로를 스스로 발명하며, 그 발명이 P0의 저장 계층 가정을 깨도 어떤 test도 잡지 않는다.
 
 ## Risks
 

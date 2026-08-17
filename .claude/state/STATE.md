@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: santa-loop-materialize-m2
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-16T09:03:02.565Z
+updated_at: 2026-08-17T09:19:41.368Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-16T09:03:02.565Z
+last_event_at: 2026-08-17T09:19:41.368Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -13,45 +13,53 @@ last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-06-17T05:35:00.000Z
 ---
 ## Goal
-gate-guard-integrity M3 (잔여 종료) — 구현 착지 + closure 완료(v1.26.1). PR 생성 + 머지 후 Task 10(worktree 정리 + /mccp:archive-complete) 대기.
+santa-loop-materialize **PRD 종료** — M1(v1.25.2) + M2(v1.26.0) 동시 배송. **PR #139 생성 완료**(https://github.com/idenn207/mccp/pull/139, MERGEABLE). 남은 것은 CI green 확인 후 머지.
 
 ## Plan
-- plan: .claude/plans/gate-guard-integrity-m3.plan.md — 잔여 15행 중 13행 유효(A2·B5는 Task 0에서 해소 확인 후 제거)
-- PRD: .claude/prds/gate-guard-integrity.prd.md — M3 행 complete 전환 완료. scan.js archivable:true(머지 후 archive-complete 대상)
-- closure: .claude/milestone-closures/gate-guard-integrity-m3.md — verdict done, 14항목 중 12충족·2부분(D4·D8 전제 오류)
-- 보고서: .claude/PRPs/reports/gate-guard-integrity-m3-report.md — D1~D8 + 주장하지 않는 것 5건
-- 게이트 기록: .claude/notes/gate-guard-integrity-m3-implement-gate.md (plan 본문 아님 — 2.5.4 self-stale 회피, backlog 기등재 후보 (b))
-- receipt: plan/implement 모두 codex_verdict=skipped (MCCP_CODEX_DISABLED=1 전역)
+- plan: `.claude/plans/santa-loop-materialize-m2.plan.md` — **본문 확정**. Phase 1~4를 재실행해 재생성하지 말 것(4라운드 흡수분 12건 소실)
+- 리뷰 기록: `.claude/reviews/plan-review-santa-loop-materialize.md` (git-tracked, R0~R3 이력 + 라운드별 흡수 내역 + 기각 판단 근거)
+- PRD: `.claude/prds/santa-loop-materialize.prd.md` — M2 행 status=in-progress + Plan 셀 연결 완료. M2 관련 Open Question 1건 추가(layers.l1 매핑)
+- receipt: **없음**. `mccp-plan-codex` 미작성 → `/mccp:prp-implement` 진입 불가. 이것이 유일한 미결
+- 리뷰 모드: `MCCP_PLAN_REVIEW` unset → `multi-agent`(L1 + L2 4인 패널, quorum 3-of-4). `codex` 모드는 Codex 사용량 한도(2026-08-16 복구)로 불가
+- M2 설계 축: produces-only GATE_ID `mccp-santa-review`(phase=review, ALIAS_MATRIX 미등재) · subject=`.claude/reviews/santa-review-<slug>.md` · `review_source=multi-agent` 고정 · `meta.santa_*` 4종 present-only
 
 ## Done
-- C6 — pr.md 2.5.8의 리터럴 --plan <plan path>를 CHAIN_PLAN_PATH 실변수로. 세 게이팅 callsite 전부 실변수(callsite 3 · non-variable 0)
-- C6 회귀 — validate-callsite-lint에 pr.md 한정 값 규칙(rule 2) 추가. A/B: 수정 전 pr.md에서 rule 1은 통과·rule 2만 :879에서 실패(공백 직접 재현)
-- C2 — prp-implement Phase 5의 무조건 mv를 /mccp:archive-complete 위임으로. 보고 문구 3곳 정정 + CLAUDE.md §3.11 소유권 명문화. [G2-OK] 실측
-- C3 — parsePlanFiles가 제목-표 사이 프로즈줄 내성. fail-closed 불변. 신규 2케이스 A/B red 확인 + 격리 15/15
-- C1 — msw-events·toggle-snapshot fixture를 os.tmpdir mkdtemp + 실행별 sessionId로. 동시 3개 9/9×3, 트리 오염 0. .gitignore 안전망
-- C4 — suite-determinism per_run이 실패 이름 보존(toPerRun 순수 분리). 판정(diffRuns) 불변 단언 + CLI 실출력 확인
-- B1~B4 — PRD OQ1~3을 M1 판정 인용과 함께 [x] · CHANGELOG 1.23.9 무손실 이동(sha256 동일) · test env 2종 등재 · Evidence 행 각주
-- C5·backlog — b2-coverage-gate RESOLVED 표기(staticLint ok:true, 23/23) + C2·C3 흡수 + 신규 4행. 98→102행 소실 0
-- A1 — M2 completion-ledger 엔트리 커밋. state≠inconsistent ∧ hash_bound===comparable(16===16) 전후 성립
-- 전수 4328: pass 4316 · fail 0 · skipped 12. 알려진 비결정 2건 미발화, 신규 red 0
-- /mccp:milestone-close — closure 문서 작성 + PRD M3 complete 전환. plan-body 스탬프는 상위 receipt를 stale로 만들어 되돌림(backlog HIGH 등재)
-- origin/main 병합(21커밋) + §3.7 forward-only 상향 1.25.2 → 1.26.1 (4면 동기: plugin.json · html.js · markdown.js · CHANGELOG)
+- M2 plan 작성 + 4라운드 다관점 반증 패널(L1 + read-only 4인, 에이전트 16/24 · 예약 open 0 정합 종료)
+- R0 CRITICAL 흡수: DD3이 I4 문언(`review_source=multi-agent`)을 부재로 대체하고 UI3을 escalation 없이 뒤집던 것 → review triple 적재 + gate별 schema 강제로 전면 개정
+- R1 HIGH 흡수: `main`을 fallback으로 오진(실제로는 정당한 브랜치 slug) → `default`/`main`을 서로 다른 사유·메시지로 분리. seal을 push **이전** Step 5.5로 이동
+- R2 HIGH 흡수: `buildProof`가 A 한 명뿐인 라운드에서 `roles:2`를 주장 가능(우회 경로) → distinct id 파생 + fail-closed. `renderReport`의 `raw` 누출면 → seal 투영 경계로 구조적 차단
+- R2 흡수: Task 2 Mirror 오인용(gate별 resolution 제약은 선례 없는 신규 코드) 명시 + 코드 스케치 삽입. Task 6을 14항목 커버리지 계약으로 재작성
+- R3 HIGH 흡수: Task 5 셸 블록이 `SEAL_EXIT=$?`를 캡처만 하고 분기 없음("산문은 HALT, 코드는 통과" 결함) → 조건 분기 삽입 + Validate에 분기 존재 단언 추가
+- R3 흡수: `makeSkeleton` 인용 함정(merged_verify는 등록됨/review_l3_invoked는 아님) 명시 · Task 2·3 Validate가 Task 6 산출물을 가리키던 순환을 TDD 소유 표로 해소
+- design critique R0 CONVERGED(cap 2) — H1 heading depth ≤ 3 · H4 상위 3행 collapse를 DD2·DD7에 흡수
+- R4~R9 6라운드 다관점 반증 패널 재실행 → **R9에서 4/4 pass `converged` 승인**. `mccp-plan-codex/santa-loop-materialize-m2.json` 작성(review triple 봉인, `plan_hash=sha256:c0a43a59…`)
+- 흡수: UI14 캡 도달 경로 seal 미배선(HIGH ×2 독립 지적) · `seal`의 cap 출처 env 폴백(HIGH ×3) · schema gate-id 검사가 `reviewPresent` 가드 안(실질 큼) · Task 2·3 Action의 test 생성 미서술 · 커버리지 미강제 → `[N]` 규약 + Validation 2d 신설 · 2c를 if/fi 깊이 추적으로 교체 · divergent `layers.l1` 2값 분기 · 항목 11 mutate 스파이
+- 기각(근거 기록): 범주 오류 3건("미작성 test는 반증 불가") · 리뷰어 자기부인 1건 · proof/리포트 지속성 오독 1건
+- M2 구현 완료 (Task 1~8). `seal.js` 신설 + `mccp-santa-review` GATE_ID + `meta.santa_*` 4종 + 봉인 2지점 배선 + 소유권 문서 + 1.23.9 bump. test 22건 신규(항목 1~17), receipt corpus 48건 invalid 0, 실 원장(m1, 캡 도달) 왕복 통과
+- Implement-Codex R1 `needs-attention` HIGH 1건 흡수 — seal이 원장을 lock 없이 N+2회 읽던 것을 `read()` 1회 스냅샷 + 순수 파생 2종(`reviewersFrom`/`aggregateFrom`)으로 교정. security-reviewer CRITICAL/HIGH 0건, MEDIUM 1건(proof 경로 미봉인) 흡수
 
 ## In Progress
-/mccp:pr — Phase 2.5 PR-Codex 게이트
+PR #139 CI 대기(`gitignore canonical drift gate`, ubuntu + windows). 1차 실행은 `.claude/state/santa-loop/` 미분류로 red였고 `317b7ca`로 수정 후 재실행 중.
 
 ## Next Step
-PR 생성 → 머지 → scan.js archivable:true 재확인 → /mccp:archive-complete 로 PRD 1 + plan 3 아카이브 → git worktree remove .worktrees/gate-guard-integrity
+CI green 확인 → 머지(**merge commit**, §3.12 SHA 보존). 머지 후: worktree cleanup(`git worktree remove .worktrees/santa-loop-materialize` + `prune`) · `claude plugin update`로 캐시 `1.26.0` 생성 확인. **이 브랜치에서 `/mccp:pr` 재실행은 불가** — ship receipt가 `caa1398`로 커밋돼 TRACKED_RECEIPT_OVERWRITE가 fail-closed한다(설계대로). 재실행이 필요하면 새 브랜치 re-ship.
 
 ## Last Decision
-§3.7 병렬 version 충돌 4번째 재발 — main이 PR #139(santa-loop-materialize)로 1.25.2를 선점하고 1.26.0까지 올라가 있었다. 발행된 번호는 불가침이므로 미머지인 이쪽을 1.26.1로 상향하고 CHANGELOG 헤딩을 1.26.1 > 1.26.0 > 1.25.2 순으로 재배치했다(중복 0 · 내림차순 단조). 병합 충돌 6건은 전부 파일 단위로 해소했고 backlog는 union(main 114 + 신규 5 = 119, 소실 0), STATE.md는 누적 원장이 아니므로 최신(HEAD) 취함.
+§3.7 forward-only 재번호를 두 번 했다. 1차(8번째 재발): main이 1.23.8을 diverse-agent-review M4에 발행하고 1.25.0까지 나아가 M1→1.25.1·M2→1.26.0. 2차(9번째 재발, PR 직전): main이 **같은 1.25.1을 M6**(PR #138, `890f725`)에 발행해 M1만 한 칸 더 밀어 **1.25.2**. M2의 1.26.0은 main 최대치보다 앞서 무변경. CHANGELOG는 M6 항목을 우리 두 항목 아래로 재배치해 내림차순 유지. plan은 plan_hash 바인딩이라 손대지 않고 이탈을 노트 D7에 기록. ship receipt는 재실행 경로 보존을 위해 의도적으로 untracked 유지.
 
 ## Open Questions
-- OQ5 — M2 유입 비결정 2건의 메커니즘 미규명. M3은 관측 수단(C4 per-run 실패 이름)만 만들었고 원인을 지목하지 않는다
-- validate-cmd.js 조건부 staleness — --plan 인자 부재 시 무음 skip. C6이 닫은 것은 치환 의존 callsite까지 (backlog 이관)
-- Task 10(worktree 정리 + 아카이브)은 post-merge 인간 행위이며 강제 게이트가 없다 — 탐지는 scan.js archivable:true 오라클
-- CHANGELOG 선재 붕괴 3건(역전 2 + 1.9.0 중복) 미수정 — 전부 main 선재, 2026-06대 이력 (backlog 이관)
-- cross-model 미확증 — plan/implement 두 게이트 모두 codex_verdict=skipped (MCCP_CODEX_DISABLED=1 전역 설정)
+- **PR-Codex F1 (HIGH) — 마지막 허용 라운드의 NICE가 divergent로 오봉인되고 그대로 push된다**: `ledger.js:496`이 `rounds.length >= cap`만으로 `cap_reached`를 세워 캡 *도달*과 다음 `begin-round` *거부*를 뭉갠다. `seal.js:99`가 무조건 divergent로 굳히고 `santa-loop.md:218-222`는 `SEAL_EXIT`에만 분기하며 `$SEAL_JSON.verdict`를 보지 않는다. 수정: 거부 시점 명시 termination 마커에서 `cap_reached` 파생 + Step 5.5가 sealed verdict에 분기 + 마지막 라운드 NICE가 converged를 내는 회귀 test
+- **PR-Codex F2 (MEDIUM) — santa receipt가 원장 집계 없이 유효하다**: `schema.js`의 santa 4종이 전부 present-only 가드이고 gate 강제는 `review_source===multi-agent` 하나뿐이라 `santa_rounds`/`santa_entries`를 빼도 통과 → PRD UI1(봉인) 미강제. 수정: `gate_id===mccp-santa-review`에 한해 두 필드 정수 필수화(비-santa/과거 receipt는 present-only 유지) + 누락별 negative test
+- (선재, 이 PR 밖) footer 대비가 양 테마 WCAG AA 미달 — 저장소 오라클 실측 `--faint` on `--bg`가 dark 3.00:1 · light 3.54:1이고 footer는 0.74rem이라 large-text 예외 미해당
+- (선재, 이 PR 밖) `a11y-contrast.test.js` 토큰 표가 헤더의 must-match 단언과 달리 shipped 토큰과 어긋남(dark bg 0.18 vs 0.152 · dark ink 0.92 vs 0.975 · light muted 0.45 vs 0.49 · test C=0.005 vs shipped C=0) + `--faint`는 미검사 — a11y 게이트가 배송 안 되는 값을 재고 있다
+- **승인 라운드 잔여 MEDIUM 2건 — 구현 시 처리**: (a) Validation 2d는 `[N]` 존재만 세므로 항목 5의 4개 sub-case를 다 써야 한다(특히 triple 전부 부재 — Task 2 위치 계약의 유일한 강제). (b) 2c는 bash를 파싱만 하고 실행하지 않으며 `/mccp:santa-loop` end-to-end test가 없다
+- `mccp:review-test` 판정 기준 축 — 미작성 test는 반증 불가가 R3·R6·R8 세 번 재발. plan 결함이 아니라 에이전트 프롬프트 문제이므로 별도 backlog 후보. R7의 security·test는 MEDIUM만 내고 fail을 반환해 프롬프트 계약과 어긋났다
+- `review_proof.layers.l1`에 santa 캡 게이트를 매핑하는 것이 타당한가 — PRD Open Questions 등재. 과잉 해석 판명 시 `seal.js#buildProof` 한 함수만 바뀐다
+- M1 escalate_pending(`santa-loop-materialize-m1`) 미해소 — santa-loop 통과 시 자동 clear
+- (main 승계) PR #117·#118 ship receipt는 verdict=skipped(codex_disabled proof)로 Codex 승인 아님 — 한도 복구 후 재판정 여부 결정
+- (main 승계) pre-existing red: renderer verdict-label.test.js · CHANGELOG `## [1.23.4]` 헤딩 중복 · b2-coverage-gate 2건
+- (main 승계) worktree cleanup `git worktree remove .worktrees/codex-intent-context` + prune · `claude plugin update`로 캐시 버전 확인
+- multi-session-work-loop PRD의 M1·M2·M3 status가 in-progress로 남아 있으나 셋 다 실제 ship됨 — PRD status drift
 
 ## Last Updated
-2026-08-16T09:03:02.565Z
+2026-08-17T09:19:41.368Z

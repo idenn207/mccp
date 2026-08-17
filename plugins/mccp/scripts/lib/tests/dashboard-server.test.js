@@ -15,7 +15,12 @@ const http = require('http');
 const srv = require('../dashboard-server');
 
 function tmpRepo() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-dash-'));
+  // realpath is load-bearing on Windows, not tidiness. os.tmpdir() returns the
+  // 8.3 short form (…\ADMINI~1\…); attachWatch's fs.watch then trips a libuv
+  // assertion (`!_wcsnicmp(filename, dir, dirlen)`, src/win/fs-event.c) and
+  // aborts the whole test PROCESS — which silently took the 19 cases after the
+  // reuse test with it.
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-dash-')));
   fs.mkdirSync(path.join(dir, '.claude', 'cache'), { recursive: true });
   return dir;
 }
@@ -147,8 +152,7 @@ test('isReusablePid: dead PID → NOT reusable', () => {
 test('startServer binds 127.0.0.1 and writes PID, reports stable port', async () => {
   const repo = tmpRepo();
   fs.writeFileSync(srv.statusHtmlPath(repo), '<html><body>X</body></html>', 'utf8');
-  // Pick a high port unlikely to collide in CI.
-  const port = 7400 + (process.pid % 100);
+  const port = await freePort();
   const r = await srv.startServer({ repoRoot: repo, port, open: false });
   try {
     assert.equal(r.host, '127.0.0.1');
@@ -165,7 +169,7 @@ test('startServer binds 127.0.0.1 and writes PID, reports stable port', async ()
 test('startServer reuses our running server instead of double-binding', async () => {
   const repo = tmpRepo();
   fs.writeFileSync(srv.statusHtmlPath(repo), '<html><body>X</body></html>', 'utf8');
-  const port = 7500 + (process.pid % 100);
+  const port = await freePort();
   const first = await srv.startServer({ repoRoot: repo, port, open: false });
   try {
     const second = await srv.startServer({ repoRoot: repo, port, open: false });
@@ -549,10 +553,10 @@ test('M4 [14] duplicate-text risks: resolving ordinal-0 id marks ONLY that row',
 
 test('M4 [10] mode transition: read-only up then --write starts fresh (no reuse)', async () => {
   const repo = tmpRepoWithPlan(FIXTURE_PLAN);
-  const ro = await srv.startServer({ repoRoot: repo, port: 7600 + (process.pid % 80), open: false });
+  const ro = await srv.startServer({ repoRoot: repo, port: await freePort(), open: false });
   try {
     // --write request on a DIFFERENT port must not reuse the read-only server.
-    const w = await srv.startServer({ repoRoot: repo, port: 7700 + (process.pid % 80), open: false, write: true });
+    const w = await srv.startServer({ repoRoot: repo, port: await freePort(), open: false, write: true });
     try {
       assert.equal(w.reused, false);
       assert.equal(w.writeEnabled, true);
@@ -561,5 +565,147 @@ test('M4 [10] mode transition: read-only up then --write starts fresh (no reuse)
     }
   } finally {
     if (ro.server) await close(ro.server);
+  }
+});
+
+// ── session-process-reclaim M1 — registry wiring (Task 3) ───────────────────
+//
+// The reuse branch is driven the same way the existing
+// 'startServer reuses our running server instead of double-binding' case drives
+// it — two startServer calls on one repo and port — with the only addition
+// being a different session id on the second call. No new injection seam.
+
+const sessionProcesses = require('../session-processes');
+
+// Ask the OS for a free port instead of guessing one from the pid.
+// `7600 + (process.pid % 100)` collided with TCP 7680, which Windows Delivery
+// Optimization holds — the bind failed with EACCES and took a whole full-suite
+// run with it, on roughly 1% of pids. Binding port 0 and reading back what the
+// kernel assigned removes the entire class. The tiny race (another process could
+// claim it between close and re-listen) is far smaller than the odds of landing
+// on a service port, and unlike that case it is not deterministic per machine.
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = require('net').createServer();
+    srv.on('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const port = srv.address().port;
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+function setSid(sid) {
+  const prev = process.env.CLAUDE_CODE_SESSION_ID;
+  if (sid === null) delete process.env.CLAUDE_CODE_SESSION_ID;
+  else process.env.CLAUDE_CODE_SESSION_ID = sid;
+  return prev;
+}
+
+test('startServer registers itself, records reuse under the reusing session, and unregisters on close', async () => {
+  const repo = tmpRepo();
+  fs.writeFileSync(srv.statusHtmlPath(repo), '<html><body>X</body></html>', 'utf8');
+  const port = await freePort();
+  const OWNER = 'sess-dash-owner';
+  const REUSER = 'sess-dash-reuser';
+  const prev = setSid(OWNER);
+
+  let first = null;
+  try {
+    first = await srv.startServer({ repoRoot: repo, port, open: false });
+    assert.equal(first.reused, false);
+
+    // (a) the booting server owns its own record.
+    const owned = sessionProcesses.list(repo, OWNER, { isAlive: () => true }).records;
+    assert.equal(owned.length, 1);
+    assert.equal(owned[0].pid, process.pid);
+    assert.equal(owned[0].kind, 'dashboard-server');
+    assert.equal(owned[0].role, 'owner');
+    // Not reclaimed by default: whether a dashboard should outlive its session
+    // is an open product question, so the default preserves today's behavior.
+    assert.equal(owned[0].lifetime, 'outlives-session');
+
+    const ownerFile = path.join(sessionProcesses.sessionDir(repo, OWNER), process.pid + '.json');
+    const ownerBytesBefore = fs.readFileSync(ownerFile);
+
+    // (b) a second session reusing the server writes a reuse record of its own.
+    setSid(REUSER);
+    const second = await srv.startServer({ repoRoot: repo, port, open: false });
+    assert.equal(second.reused, true);
+
+    const reuse = sessionProcesses.list(repo, REUSER, { isAlive: () => true }).records;
+    assert.equal(reuse.length, 1);
+    assert.equal(reuse[0].pid, process.pid);
+    assert.equal(reuse[0].role, 'reuse');
+    assert.deepEqual(fs.readFileSync(ownerFile), ownerBytesBefore,
+      'the owner record is never touched by the reusing session — there is no shared '
+      + 'mutable state and therefore no write race');
+  } finally {
+    setSid(OWNER);
+    if (first && first.server) await close(first.server);
+    setSid(prev === undefined ? null : prev);
+  }
+
+  // (c) a clean shutdown leaves nothing for SessionEnd to reclaim.
+  assert.equal(sessionProcesses.list(repo, OWNER, { isAlive: () => true }).records.length, 0);
+});
+
+// ── round-1 santa-loop finding: a FAILED reuse registration must be loud ─────
+//
+// The reuse record is the only thing that tells the owning session "someone else
+// is still using this". Both call sites discarded the result, so a reusing
+// session with no resolvable session identity silently deleted the owner's
+// `in_use_by_live_session` guard — and under MCCP_RECLAIM_OUTLIVES=1 the owner
+// would then SIGTERM a server actively in use. We cannot repair that from the
+// borrower (the owner is another process), so the requirement is that the
+// missing guard is announced at the moment it goes missing.
+
+test('a reuse registration that fails is surfaced, not swallowed', async () => {
+  const repo = tmpRepo();
+  fs.writeFileSync(srv.statusHtmlPath(repo), '<html><body>X</body></html>', 'utf8');
+  const port = await freePort();
+  const OWNER = 'sess-dash-owner-2';
+  const prev = setSid(OWNER);
+  const prevMccp = process.env.MCCP_SESSION_ID;
+  const prevClaude = process.env.CLAUDE_SESSION_ID;
+
+  const written = [];
+  const realWrite = process.stderr.write.bind(process.stderr);
+
+  let first = null;
+  try {
+    first = await srv.startServer({ repoRoot: repo, port, open: false });
+    assert.equal(first.reused, false);
+
+    // A reusing session with NO resolvable identity anywhere: register() bails
+    // at `no_session_identity`, which is the cheapest real way to lose the guard.
+    setSid(null);
+    delete process.env.MCCP_SESSION_ID;
+    delete process.env.CLAUDE_SESSION_ID;
+
+    process.stderr.write = (chunk, ...rest) => { written.push(String(chunk)); return realWrite(chunk, ...rest); };
+    let second;
+    try {
+      second = await srv.startServer({ repoRoot: repo, port, open: false });
+    } finally {
+      process.stderr.write = realWrite;
+    }
+    assert.equal(second.reused, true, 'reuse itself must still work — the dashboard is not broken by this');
+
+    const announced = written.join('');
+    assert.ok(/reuse record NOT written/.test(announced),
+      'the failure must name itself; discarding the result was the defect');
+    assert.ok(/MCCP_RECLAIM_OUTLIVES/.test(announced),
+      'and it must name the CONSEQUENCE — an operator who does not know which '
+      + 'toggle turns this into a kill cannot act on the warning');
+  } finally {
+    process.stderr.write = realWrite;
+    setSid(OWNER);
+    if (first && first.server) await close(first.server);
+    setSid(prev === undefined ? null : prev);
+    if (prevMccp === undefined) delete process.env.MCCP_SESSION_ID;
+    else process.env.MCCP_SESSION_ID = prevMccp;
+    if (prevClaude === undefined) delete process.env.CLAUDE_SESSION_ID;
+    else process.env.CLAUDE_SESSION_ID = prevClaude;
   }
 });

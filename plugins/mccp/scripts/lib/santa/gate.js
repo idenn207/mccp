@@ -38,6 +38,7 @@
 // `{ claim, severity, failureScenario, evidence, structured }`이고 `criticalIssues`는
 // 길이 보존을 위해 그대로 남는다(`seal.js#project`가 그 길이를 쓴다 — DD4).
 
+const crypto = require('crypto');
 const { validateReason } = require('../../receipt/lib/force-override-reason');
 
 function decideVerdict(opts) {
@@ -213,6 +214,62 @@ function normalizeClaim(claim) {
   return (typeof claim === 'string' ? claim : '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
+// ── 판정 원장 축 (santa-adjudication M2) ─────────────────────────────────────
+//
+// 아래 넷은 **신규 export**이고 `decideVerdict`는 여전히 한 글자도 바뀌지 않았다
+// (ownership.md §변경 프로토콜 2). `adjudication.js`가 이 모듈을 import하는 방향은
+// 하나뿐이므로(순환 금지) 어휘와 이력 선택 규칙의 **정본을 여기 둔다** — 저쪽에
+// 두면 gate ← adjudication 순환이 되고, 양쪽에 베끼면 원본이 바뀔 때 두 사본이
+// 갈린다.
+
+// issueIdOf(claim) — 라운드 사이의 issue 동일성. **`normalizeClaim`을 재사용하는
+// 것이 요점이다**: 라운드 *안*의 병합(위 `analyzeReviewers`의 dedupe 키)과 라운드
+// *사이*의 동일성이 서로 다른 규칙을 쓰면 "한 라운드에서는 같은 지적인데 다음
+// 라운드에서는 다른 지적"이 성립한다. 쓰는 쪽과 읽는 쪽이 같은 함수를 부르지
+// 않으면 suppression은 조용히 아무것도 하지 않는다.
+//
+// **이 키는 패러프레이즈에 뚫린다**(DD5). fresh reviewer는 같은 결함을 매번 다르게
+// 쓸 개연성이 높고, 그러면 id가 갈려 suppression이 발화하지 않는다. 여기서 fuzzy
+// matcher로 메우지 않는다 — 임계값을 발명하면 방어할 근거가 없는 숫자가 생기고,
+// 잘못 합쳐진 두 지적은 **실재 결함을 지우는** 방향으로 틀린다. 대신 관측 가능하게
+// 둔다(`adjudication.carryOverOf`의 세 수).
+//
+// 12 hex = 48비트. 한 리뷰 루프의 지적 수(수십 건)에서 충돌 확률은 무시할 수 있고,
+// 충돌이 나더라도 방향은 "다른 지적이 하나로 합쳐진다"라 fuzzy matching과 같은
+// 위험을 갖는다 — 그래서 폭을 넓히는 것이 값싼 개선이지만, 넓히면 기존 원장의 id가
+// 전부 갈리므로 P1 안에서는 12로 고정한다.
+function issueIdOf(claim) {
+  return crypto.createHash('sha256').update(normalizeClaim(claim)).digest('hex').slice(0, 12);
+}
+
+// disposition 4종 (DD3). **대소문자 구분**이며 부분 일치도 하지 않는다 —
+// `SEVERITIES`와 같은 규약이다.
+const DISPOSITIONS = ['absorbed', 'rejected', 'skipped', 'reopened'];
+
+// 그중 blocking을 **지우는** 둘. `skipped`·`reopened`는 coverage는 충족시키되
+// suppress하지 않는다 — `skipped`가 존재하는 이유가 정확히 그것이다(탈출구를 env가
+// 아니라 원장 안에 두되, 회피가 공짜가 아니게 한다).
+const SUPPRESSING = new Set(['absorbed', 'rejected']);
+
+// lastBefore(history, round) → entry | null
+//
+// **"마지막"은 append 순서이고 `round` 값으로 정렬하지 않는다**(DD1이 append 순서를
+// 시간 순서로 정의했다). 같은 issue를 라운드 1에서 `rejected`했다가 라운드 2에서
+// `reopened`한 뒤 다시 라운드 2에서 `rejected`하면 마지막 `rejected`가 이긴다.
+// 정렬로 바꾸면 같은 라운드 안의 순서 정보가 사라진다.
+//
+// `history` 부재는 **정상 입력이다**(판정 이력이 없는 issue) — 던지지 않는다.
+// `round`가 정수가 아닌 행은 건너뛴다: 손상 행이 suppression을 발화시키면 읽을 수
+// 없는 판정이 blocking을 지우게 되고, 그것은 DD1이 정한 방향의 반대다.
+function lastBefore(history, round) {
+  if (!Array.isArray(history) || !Number.isInteger(round)) return null;
+  let hit = null;
+  for (const e of history) {
+    if (e && Number.isInteger(e.round) && e.round < round) hit = e;
+  }
+  return hit;
+}
+
 // legacy envelope 흡수 — 원장에 이미 쌓인 envelope에는 `findings`가 없다.
 // `criticalIssues`에서 `{claim, structured:false}`를 파생한다 → `contract='partial'`
 // → 현행 규칙. 크래시도, 조용한 완화도 없다(DD4).
@@ -286,12 +343,21 @@ function analyzeReviewers(reviewers) {
       if (!c.blocking) return;
       stat.blocking += 1;
       blockingHere += 1;
-      const key = normalizeClaim(isRecord(f) ? f.claim : '');
+      const claimStr = (isRecord(f) && typeof f.claim === 'string') ? f.claim : '';
+      const key = normalizeClaim(claimStr);
       let merged = blockingByClaim.get(key);
       if (!merged) {
         merged = {
-          claim: (isRecord(f) && typeof f.claim === 'string') ? f.claim : '',
+          claim: claimStr,
           severity: c.severity,
+          // santa-adjudication M2 — 판정 원장의 결속 키. **이 한 줄이 세 소비자를
+          // 먹인다**: `adjudicate`의 `--issue` 조회 · `coverageOf`의
+          // `<round>:<issue_id>` 키 · suppression의 이력 조회. 빠지면 셋 다
+          // `undefined`를 키로 쓰고, 증상은 크래시가 아니라 **"coverage가 늘
+          // 통과하고 suppression이 늘 0건"이라는 조용한 fail-open**이다.
+          // 커버리지 56이 이 생산 지점을 직접 단언하고, 커버리지 60이 필드가
+          // 유실됐을 때의 runtime 거부를 단언한다.
+          issueId: issueIdOf(claimStr),
           ids: [],
         };
         blockingByClaim.set(key, merged);
@@ -344,7 +410,13 @@ function analyzeReviewers(reviewers) {
 function decideAdjudicatedVerdict(opts) {
   const o = opts || {};
   const reviewers = Array.isArray(o.reviewers) ? o.reviewers : [];
-  const a = analyzeReviewers(reviewers);
+  // **`module.exports` 경유 자기 호출은 의도된 seam이다.** 아래 suppression 분기는
+  // `issueId`가 유실됐을 때 fail-closed로 떨어지는 runtime 가드를 갖는데, 정상
+  // 경로의 `analyzeReviewers`는 그 필드를 **항상** 채우므로 직접 호출로 두면 그
+  // 가드는 어떤 test로도 도달할 수 없다 — 즉 반증 불가능한 방어 코드가 된다.
+  // 이 한 줄이 커버리지 60 (b)가 그 가드를 실제로 재는 통로다(M1 항목 21이
+  // `cli.js` → `gate.decideVerdict` 호출을 모듈 객체 경유로 spy한 것과 같은 형태).
+  const a = module.exports.analyzeReviewers(reviewers);
 
   // 증거 0건 → 즉시 NAUGHTY (DD11). fail-closed 방향이고, `bothIds`도 같은 결론을
   // 내므로 두 규칙이 서로를 가리지 않는다.
@@ -352,11 +424,69 @@ function decideAdjudicatedVerdict(opts) {
     return {
       verdict: 'NAUGHTY', failing: [], exitReason: null,
       blocking: [], mismatches: [], contract: a.contract, byReviewer: a.byReviewer,
+      suppressed: [], niceBySuppression: false,
     };
   }
 
+  // ── suppression (santa-adjudication M2 / DD4) ──────────────────────────────
+  //
+  // `resolved`가 부재하거나 비면 **M1의 7키가 값까지 동일**하고, 반환에 더해지는
+  // 것은 `suppressed: []`와 `niceBySuppression: false` 둘뿐이다(커버리지 33).
+  // suppression은 `noBlocking` **한 항의 입력을 좁힐 뿐**이고 강화 축 둘
+  // (`bothIds` · `allPass`)은 건드리지 않는다 — 즉 `contract='partial'` 라운드는
+  // 종결 항목을 지워도 전원 PASS가 아니면 NAUGHTY다(커버리지 36·38).
+  const resolved = o.resolved;
+  const hasResolved = resolved !== null && resolved !== undefined;
+  if (hasResolved && !(resolved instanceof Map)) {
+    warn('resolved must be a Map<issue_id, entry[]> (got ' + typeof resolved +
+      '); suppressing nothing this round.');
+  }
+  const resolvedMap = resolved instanceof Map ? resolved : null;
+  // **DD13 — `round`가 여기서 처음으로 쓰인다.** 라운드를 모르면 자기-suppression을
+  // 막을 수 없고, 그 경우 안전한 기본값은 M1 동작(suppression 0건)이다.
+  if (resolvedMap && resolvedMap.size > 0 && !Number.isInteger(o.round)) {
+    warn('round is not an integer (' + JSON.stringify(o.round) + ') but a resolution ' +
+      'history was supplied; suppressing nothing — a round-less rule cannot prevent ' +
+      'a judgement from suppressing its own round.');
+  }
+  const canSuppress = !!resolvedMap && resolvedMap.size > 0 && Number.isInteger(o.round);
+
+  const effective = [];
+  const suppressed = [];
+  let warnedMissingId = false;
+  a.blocking.forEach(function (b) {
+    // **`issueId`가 없으면 절대 suppress하지 않는다.** 이 필드가 유실되면
+    // `resolved.get(undefined)`가 늘 `undefined`라 suppression은 어차피 0건이
+    // 되지만, 조용히 0건이 되는 것과 **명시적으로 거부하고 warn하는 것**은 다르다 —
+    // 전자는 정상 동작과 구별되지 않는다. `coverageOf`의 같은 규칙과 짝이며, 둘이
+    // 함께 있어야 필드 유실이 "게이트가 꺼졌다"가 아니라 "게이트가 막는다"로
+    // 나타난다(커버리지 60).
+    const hasId = typeof b.issueId === 'string' && b.issueId.length > 0;
+    if (!hasId) {
+      if (!warnedMissingId) {
+        warn('a blocking row carries no issueId — refusing to suppress it. The ledger ' +
+          'axis cannot bind a judgement to an issue without that field.');
+        warnedMissingId = true;
+      }
+      effective.push(b);
+      return;
+    }
+    const e = canSuppress ? lastBefore(resolvedMap.get(b.issueId), o.round) : null;
+    if (e && SUPPRESSING.has(e.disposition)) {
+      suppressed.push({
+        issueId: b.issueId, claim: b.claim, severity: b.severity, ids: b.ids,
+        disposition: e.disposition, entryRound: e.round,
+        // `absorbed` 재등장은 "당신의 수정이 듣지 않았을 수 있다"는 신호다(DD8) —
+        // 라운드를 태우지 않으면서 운영자에게 도달하는 유일한 경로라 분류를 남긴다.
+        kind: e.disposition + '-rereported',
+      });
+    } else {
+      effective.push(b);
+    }
+  });
+
   const mitigated = o.severityGate === 'enforce' && a.contract === 'full';
-  const noBlocking = a.blocking.length === 0;
+  const noBlocking = effective.length === 0;   // ← M2가 바꾸는 유일한 한 곳
   const bothIds = a.distinctIds.length >= 2;
   const delegated = mitigated
     ? null
@@ -370,7 +500,9 @@ function decideAdjudicatedVerdict(opts) {
   // 라운드에서 누군가를 `failing`에 넣는 것이 더 나쁜 거짓이다.
   const failing = [];
   if (verdict !== 'NICE') {
-    a.blocking.forEach(function (b) {
+    // **`effective`를 순회한다** — 지워진 지적을 낸 리뷰어를 실패자로 부르면 그
+    // 라운드에서 아무도 실패하지 않았는데 이름이 남는다.
+    effective.forEach(function (b) {
       b.ids.forEach(function (id) { if (failing.indexOf(id) === -1) failing.push(id); });
     });
     if (delegated) {
@@ -384,7 +516,12 @@ function decideAdjudicatedVerdict(opts) {
     verdict: verdict,
     failing: failing,
     exitReason: delegated ? delegated.exitReason : null,
-    blocking: a.blocking,
+    // **`blocking`의 의미가 M2에서 좁아진다**: *게이트가 실제로 센 것*(= effective)
+    // 이고 지워진 행은 `suppressed`에 담긴다. entries가 0건인 원장에서는 두 정의가
+    // 같은 배열이므로 기존 소비자(`santa-loop.md`의 `BLOCKING_N`)는 무변경이다.
+    // 그럼에도 이름이 같은 채 의미가 좁아지는 것은 드리프트 위험이라, 같은 커밋의
+    // Step 4 산문이 `raw = blocking + suppressed`를 나란히 출력한다(DD4).
+    blocking: effective,
     mismatches: a.mismatches,
     contract: a.contract,
     // 강등 이력의 분모다 (code-review L1). PRD Open Question이 "지표를 불일치 발화
@@ -392,7 +529,14 @@ function decideAdjudicatedVerdict(opts) {
     // 미결로 두었는데, 그 비율의 두 항이 정확히 `blocking`과 `findings - blocking`
     // 이다. `analyzeReviewers`가 이미 세고 있었는데 판정 반환에서 떨어뜨려 배송
     // 경로에 소비자가 없었다 — 재는 값을 버리면 재지 않은 것과 같다.
+    // **원시값 그대로다**(DD4 (b)). suppression 이후 값으로 바꾸면 강등 비율의
+    // 분모가 사라진다 — 그 분모는 M1이 일부러 배송 경로에 실은 값이다(UI8).
     byReviewer: a.byReviewer,
+    suppressed: suppressed,
+    // 이 라운드가 **suppression 덕분에** NICE가 됐는가. 판정에 쓰이지 않는
+    // 관측값이고, Step 4가 이 값이 참일 때 경고를 찍는다 — 원장이 루프를 끝낸
+    // 사건은 눈에 보여야 한다.
+    niceBySuppression: verdict === 'NICE' && suppressed.length > 0,
   };
 }
 
@@ -402,6 +546,11 @@ module.exports = {
   analyzeReviewers: analyzeReviewers,
   classifyFinding: classifyFinding,
   parseSeverityGate: parseSeverityGate,
+  issueIdOf: issueIdOf,
+  widthNormalized: widthNormalized,
+  lastBefore: lastBefore,
+  DISPOSITIONS: DISPOSITIONS,
+  SUPPRESSING: SUPPRESSING,
   ENV_SEVERITY_GATE: ENV_SEVERITY_GATE,
   SEVERITY_GATE_DEFAULT: SEVERITY_GATE_DEFAULT,
   SEVERITY_GATE_VALUES: SEVERITY_GATE_VALUES,

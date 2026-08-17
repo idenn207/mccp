@@ -35,6 +35,7 @@ const path = require('path');
 const ledger = require('./ledger');
 const counter = require('./counter');
 const gate = require('./gate');
+const adjudication = require('./adjudication');
 const seal = require('./seal');
 const { gitRepoRoot } = require('../../receipt/hash');
 const { assertContained } = require('../path-containment');
@@ -342,17 +343,193 @@ function cmdResolveDecision(args) {
   return EX_OK;
 }
 
+// ── 판정 축 공통 파생 (santa-adjudication M2) ────────────────────────────────
+//
+// 세 subcommand가 같은 스냅샷에서 같은 값을 파생한다. 여기 모아 두는 이유는
+// DD10과 같다 — 각자 `read()`를 부르면 읽기가 늘고 읽기에는 lock이 없다.
+
+// 마지막 FINAL 라운드. OPEN 라운드는 마지막에만 존재할 수 있으므로 뒤에서
+// 스캔하면 첫 hit가 답이다. 없으면 `null`(= 아직 판정할 라운드가 없다).
+function lastFinalRound(state) {
+  for (let i = state.rounds.length - 1; i >= 0; i--) {
+    if (state.rounds[i] && state.rounds[i].verdict !== null) return i;
+  }
+  return null;
+}
+
+// 그 라운드의 **raw** blocking id 집합(suppression 이전). `carryOver`의 입력이다.
+function rawBlockingIds(reviewers) {
+  const ids = new Set();
+  gate.analyzeReviewers(reviewers).blocking.forEach(function (b) {
+    if (typeof b.issueId === 'string' && b.issueId) ids.add(b.issueId);
+  });
+  return ids;
+}
+
+function decideFor(state, round, opts, folded) {
+  return gate.decideAdjudicatedVerdict({
+    reviewers: ledger.reviewersFrom(state, round, ledger.resolveStatePath(opts)),
+    round: round,
+    cap: counter.parseCap(opts.env),
+    severityGate: gate.parseSeverityGate(opts.env),
+    // `off`는 suppression **경로를 타지 않는다**(사후에 되돌리는 것이 아니다).
+    resolved: adjudication.parseLedgerSuppression(opts.env) === 'off'
+      ? null : folded.history,
+  });
+}
+
+// begin-round coverage 선검사 (DD6) — 기각 보존율을 지시가 아니라 **능력**으로
+// 만드는 자리다. "기각을 원장에 적으세요"를 산문으로 두면 M1 이전과 같은 상태이고
+// 그 실측 보존율은 0%였다.
+//
+// **`ledger.beginRound` 이전에** 부른다. 그 순서 덕분에 거부 시 캡이 소모되지
+// 않는다(라운드가 열리지 않으므로). `ledger.js`는 P0 소유라 손대지 않는다.
+//
+// **마지막 FINAL 라운드만 본다.** 그 이전 라운드는 자기 후속 라운드가 열릴 때 이미
+// 같은 검사를 통과했으므로 귀납적으로 덮인다. 예외는 아래 env로 검사를 끈 구간이며
+// 그 구멍은 닫지 않는다 — 전 라운드를 매번 재검사하면 한 번의 audited skip이 그
+// slug의 루프를 영구히 막는다.
+function assertAdjudicationCoverage(opts) {
+  if (adjudication.parseAdjudicationGate(opts.env) === 'off') {
+    errln(adjudication.ENV_ADJUDICATION_GATE + '=off — begin-round coverage precheck skipped. ' +
+      'Unadjudicated blocking issues from the last FINAL round will NOT stop this round.');
+    return;
+  }
+  const state = ledger.read(opts);
+  const round = lastFinalRound(state);
+  if (round === null) return;   // FINAL 라운드가 없다 → 공허 참으로 통과
+
+  const folded = adjudication.foldEntries(state.entries);
+  const decided = decideFor(state, round, opts, folded);
+  const cov = adjudication.coverageOf({
+    // **suppressed 항목은 재판정 대상이 아니다** — 이미 종결된 지적이 재등장한
+    // 것은 blocking이 아니므로 coverage 대상이 아니고, 아니라면 종결 항목이 매
+    // 라운드 판정을 재요구해 suppression의 목적이 사라진다.
+    effectiveBlocking: decided.blocking,
+    round: round,
+    folded: folded,
+  });
+  if (cov.covered) return;
+
+  // **빠진 것을 전부 열거한다.** 판정을 요구하면서 무엇을 판정해야 하는지 말하지
+  // 않으면 운영자는 원장 JSON을 손으로 읽어야 하고, 그 순간 이 게이트는 우회
+  // 대상이 된다.
+  const lines = cov.missing.map(function (m) {
+    return '    - ' + (m.issueId === null ? '(no issue id)' : m.issueId) +
+      '  [' + (m.severity || '?') + ']  ' + String(m.claim).slice(0, 80);
+  });
+  throw new SantaCliError('SANTA_ADJUDICATION_INCOMPLETE',
+    'round ' + round + ' has ' + cov.missing.length + ' blocking issue(s) with no ' +
+    'adjudication entry for that round — the next round is NOT opened and the cap was ' +
+    'NOT consumed.\n' + lines.join('\n') +
+    '\n  Record a judgement for each of them:\n' +
+    '    santa/cli.js adjudicate --round ' + round + ' --issue <id> ' +
+    '--disposition absorbed|rejected|skipped|reopened --evidence "<proof or reason>"\n' +
+    '  `skipped` is the in-ledger escape: it satisfies coverage without suppressing, so ' +
+    'the issue stays blocking in the next round.\n' +
+    '  (' + adjudication.ENV_ADJUDICATION_GATE + '=off disables this precheck entirely.)');
+}
+
 function cmdBeginRound(args) {
   const opts = baseOpts(args);
+  assertAdjudicationCoverage(opts);
   const r = ledger.beginRound(opts);
   out({ allowed: r.allowed, roundIndex: r.roundIndex, exitReason: r.exitReason });
   return r.allowed ? EX_OK : EX_CAP;
+}
+
+// adjudicate — `entries`에 판정 행을 쓰는 **유일한 writer** (DD2 · DD3).
+//
+// `--claim`/`--severity`는 인자가 아니라 **원장의 blocking 행에서 가져온다**.
+// 호출자가 타이핑하면 원문과 어긋난 claim이 저장되고 그 행의 `issue_id`가 실제
+// 지적과 갈린다 — 그 행은 어떤 재등장도 suppress하지 못하면서 coverage만
+// 충족시킨다.
+function cmdAdjudicate(args) {
+  const opts = baseOpts(args);
+  const round = requireRound(args);
+  const issue = typeof args.issue === 'string' ? args.issue : null;
+  if (!issue) {
+    throw new SantaCliError('SANTA_USAGE', '--issue <id> is required (12-hex issue id from ' +
+      'the verdict stdout `blocking[].issueId` / `suppressed[].issueId`)');
+  }
+
+  const state = ledger.read(opts);
+  const folded = adjudication.foldEntries(state.entries);
+  const decided = decideFor(state, round, opts, folded);
+
+  // **effective가 아니라 합집합이다.** 이미 suppress된 지적을 `reopened`로 되돌리는
+  // 경로가 필요한데(DD3), effective만 보면 그 지적은 목록에 없어 재개가 구조적으로
+  // 불가능해진다 — 탈출구를 만들어 놓고 문을 잠그는 셈이다. 두 배열은 raw blocking의
+  // 분할이므로 합집합이 곧 그 라운드가 실제로 낸 blocking 전체다.
+  const rows = decided.blocking.concat(decided.suppressed);
+  let hit = null;
+  for (const b of rows) { if (b.issueId === issue) { hit = b; break; } }
+  if (!hit) {
+    throw new SantaCliError('SANTA_ADJUDICATION_UNKNOWN_ISSUE',
+      'issue "' + issue + '" is not among round ' + round + '\'s blocking issues (' +
+      rows.length + ' candidate(s)). Adjudicating an issue that was never raised would ' +
+      'pollute the ledger with a judgement that suppresses nothing and covers nothing.');
+  }
+
+  const entry = adjudication.buildEntry({
+    round: round,
+    claim: hit.claim,
+    severity: hit.severity,
+    disposition: args.disposition,
+    evidence: args.evidence,
+    // 모듈은 시각을 모른다 — CLI가 stamp한다(DD2의 순수성 경계).
+    at: new Date().toISOString(),
+  });
+  const r = ledger.appendEntry(entry, opts);
+  out({
+    appended: true, round: round, issueId: entry.issue_id,
+    disposition: entry.disposition, entries: r.entries,
+  });
+  return EX_OK;
+}
+
+// 판정 lifecycle 2종 (DD14) — M1 DD8이 "라운드 상태 기계라 원장 축이고 milestone
+// 2가 소유한다"로 이관한 셋 중 앞의 둘이다. M1은 그것들을 **위생**이라 불렀는데
+// (dual-review 우회 자체는 `distinctIds >= 2`가 이미 닫았으므로 맞다), M2에서는
+// 둘 다 **coverage 게이트의 전제**가 된다: FINAL 라운드에 리뷰어가 더 붙으면
+// blocking 집합이 커지는데 coverage는 판정 당시의 집합을 검사하므로, 판정을 마치고
+// 라운드를 연 뒤에 새 blocking이 생긴다.
+//
+// **TOCTOU를 주장하지 않는다.** 두 검사 모두 `ledger.read()` 후 CLI 수준에서
+// 판정하므로 동시 호출 둘이 나란히 통과할 수 있다. `ledger.recordReviewer`는 P0
+// 동결 시그니처라 술어를 lock 안으로 주입할 자리가 없다. 실질 방어는 여전히 판정
+// 계층의 `distinctIds >= 2`와 `seal.deriveVerdict`이고, 이 둘은 **순차 호출에서의
+// 오용을 막는 위생**이다.
+function assertRecordable(state, round, envelopeId, opts) {
+  if (!Number.isInteger(round) || round < 0 || round >= state.rounds.length) {
+    throw new SantaCliError('SANTA_ROUND_NOT_OPEN',
+      'round ' + round + ' was never opened by begin-round (ledger has ' +
+      state.rounds.length + ' round(s)) at ' + ledger.resolveStatePath(opts));
+  }
+  const r = state.rounds[round];
+  if (r.verdict !== null) {
+    throw new SantaCliError('SANTA_ROUND_NOT_OPEN',
+      'round ' + round + ' is already FINAL (verdict ' + JSON.stringify(r.verdict) +
+      ') — reviewers cannot be added after the verdict. The adjudication coverage gate ' +
+      'checks the blocking set as it stood at verdict time; a late reviewer would raise ' +
+      'blocking issues that no judgement is required to cover.');
+  }
+  const dup = r.reviewers.some(function (x) {
+    return x && x.envelope && x.envelope.id === envelopeId;
+  });
+  if (dup) {
+    throw new SantaCliError('SANTA_REVIEWER_DUPLICATE_ID',
+      'reviewer id ' + JSON.stringify(envelopeId) + ' is already recorded in round ' + round +
+      '. Recording it twice would count one reviewer as two in byReviewer and in ' +
+      'blocking[].ids, which is the accuracy the adjudication target list depends on.');
+  }
 }
 
 function cmdRecord(args) {
   const opts = baseOpts(args);
   const round = requireRound(args);
   const loaded = loadReviewer(args, opts);
+  assertRecordable(ledger.read(opts), round, loaded.envelope.id, opts);
   const r = ledger.recordReviewer(round, loaded.envelope, loaded.raw, opts);
   out({ recorded: true, round: r.round, id: r.id, reviewersInRound: r.reviewersInRound });
   return EX_OK;
@@ -361,23 +538,53 @@ function cmdRecord(args) {
 function cmdVerdict(args) {
   const opts = baseOpts(args);
   const round = requireRound(args);
-  const reviewers = ledger.readReviewers(round, opts);
-  const cap = counter.parseCap(opts.env);
+  // **원장을 한 번만 읽는다** (santa-adjudication M2 / DD10). M2는 같은 호출에서
+  // 리뷰어와 `entries` 둘 다 필요한데, `readReviewers`가 내부에서 `read()`를 하므로
+  // entries를 위해 `ledger.read()`를 또 부르면 읽기가 2회가 되고 **읽기에는 lock이
+  // 없다** — 그 사이 다른 CLI 호출이 mutate하면 리뷰어와 판정이 동시에 존재한 적
+  // 없는 조합이 되고, 그 조합으로 라운드가 FINAL로 봉인된다. `seal.js:314`가 같은
+  // 문제를 이미 이 형태로 해결했다.
+  const state = ledger.read(opts);
+  const reviewers = ledger.reviewersFrom(state, round, ledger.resolveStatePath(opts));
+  const folded = adjudication.foldEntries(state.entries);
   // santa-adjudication M1 — 판정 대상은 `decideAdjudicatedVerdict`다. 동결
   // `decideVerdict`는 그 함수가 완화 자격을 얻지 못했을 때 **위임**으로만 불린다
   // (DD3). 여기서 직접 부르면 `{A,B}` 완전성과 blocking 게이트가 통째로 빠진다.
-  const decided = gate.decideAdjudicatedVerdict({
-    reviewers: reviewers,
+  const decided = decideFor(state, round, opts, folded);
+
+  // `carryOver`의 직전 라운드 raw blocking은 **같은 스냅샷**에서 파생한다 — 이 값을
+  // 위해 원장을 다시 여는 순간 DD10이 닫은 창이 그대로 다시 열린다. 라운드 0에서는
+  // `null`을 넘긴다("비교 대상이 없다"와 "새 지적이 없다"는 다르다).
+  const carryOver = adjudication.carryOverOf({
+    rawBlockingIds: rawBlockingIds(reviewers),
+    prevBlockingIds: round > 0
+      ? rawBlockingIds(ledger.reviewersFrom(state, round - 1, ledger.resolveStatePath(opts)))
+      : null,
+    folded: folded,
     round: round,
-    cap: cap,
-    severityGate: gate.parseSeverityGate(opts.env),
   });
-  // 라운드를 FINAL로 전이. **완전성·중복·재판정 검사는 넣지 않는다** — 원장 축이라
-  // milestone 2 소유다(DD8 말미).
-  ledger.recordVerdict(round, decided.verdict, opts);
+
+  // **라운드 verdict 1회** (DD14 3행). 단순 거부가 아니라 **재계산 일치 검사**로
+  // 두는 이유는 조회 경로를 죽이지 않기 위해서다 — 운영자와 Task 7의 Validate가
+  // 이미 FINAL 라운드에 `verdict`를 부르고 있고, DD13(자기-suppression 차단) 덕분에
+  // 그 재계산은 결정적이다. 일치하면 mutation 없이 같은 JSON을 돌려주고, 갈리면
+  // 그 사실 자체가 진단이다(그 사이 무언가가 바뀌었다는 뜻이고 조용히 덮어쓰면 안 된다).
+  const stored = state.rounds[round].verdict;
+  if (stored === null) {
+    ledger.recordVerdict(round, decided.verdict, opts);
+  } else if (stored !== decided.verdict) {
+    throw new SantaCliError('SANTA_VERDICT_UNSTABLE',
+      'round ' + round + ' was sealed as ' + JSON.stringify(stored) + ' but recomputes to ' +
+      JSON.stringify(decided.verdict) + '. A FINAL round\'s verdict is deterministic ' +
+      '(judgements of round N never enter round N\'s own decision — DD13), so a mismatch ' +
+      'means the ledger changed underneath it. Refusing to overwrite the sealed verdict.');
+  }
+
   // `blocking`·`mismatches`·`contract`·`byReviewer`가 M1의 계측 표면이다(DD12 —
   // 리포트 표면은 건드리지 않는다). `santa-loop.md` Step 4가 이 넷을 터미널에
   // 출력한다. `byReviewer`는 강등 이력의 분모라 계측 축에 함께 실린다(code-review L1).
+  // M2가 더하는 넷은 판정 원장 축이고 **기존 7키는 이름·의미 모두 유지된다**
+  // (`blocking`의 의미만 raw → effective로 좁아지며, entries 0건에서는 같은 값이다).
   out({
     verdict: decided.verdict,
     failing: decided.failing,
@@ -386,6 +593,15 @@ function cmdVerdict(args) {
     blocking: decided.blocking,
     mismatches: decided.mismatches,
     byReviewer: decided.byReviewer,
+    suppressed: decided.suppressed,
+    niceBySuppression: decided.niceBySuppression,
+    entries: state.entries.length,
+    ledger: {
+      counts: folded.counts,
+      duplicates: folded.duplicates,
+      malformed: folded.malformed,
+    },
+    carryOver: carryOver,
   });
   return EX_OK;
 }
@@ -412,6 +628,8 @@ function usage() {
     '  begin-round',
     '  record   --round <N> --id A|B --model <str> --reviewer-file <path>',
     '  verdict  --round <N>',
+    '  adjudicate --round <N> --issue <id> --disposition absorbed|rejected|skipped|reopened',
+    '             --evidence <text>   (claim/severity come from the ledger, not from flags)',
     '  status',
     '  seal',
     '',
@@ -429,6 +647,7 @@ function runCli(argv) {
       case 'begin-round': return cmdBeginRound(args);
       case 'record': return cmdRecord(args);
       case 'verdict': return cmdVerdict(args);
+      case 'adjudicate': return cmdAdjudicate(args);
       case 'status': return cmdStatus(args);
       case 'seal': return cmdSeal(args);
       default:

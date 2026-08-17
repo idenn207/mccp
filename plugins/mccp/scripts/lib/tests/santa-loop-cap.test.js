@@ -451,6 +451,11 @@ test('DD9 — 실제 Step 3 형태 fixture가 envelope로 변환·저장되고 v
   // stdout도 **추가**다(교체가 아니다) — 기존 3필드는 그대로 있고 계측 3필드가 붙는다.
   const vd = cli(['verdict', '--decision', slug, '--cwd', repo, '--round', '0']);
   assert.equal(vd.code, EX_OK);
+  // santa-adjudication M2가 판정 원장 축 5필드를 **더했다**(Task 3 (2)). 위 M1
+  // 갱신과 같은 성격이다 — 교체가 아니라 추가이고, 기존 7키는 이름·값 모두 그대로다.
+  // `blocking`의 의미만 raw → effective로 좁아지는데 이 fixture는 entries 0건이라
+  // 두 정의가 같은 배열이다(DD4가 그 하위 호환을 주장하는 지점이고, 이 deepEqual이
+  // 그 주장을 고정한다).
   assert.deepEqual(json(vd), {
     verdict: 'NAUGHTY', failing: ['B'], exitReason: null,
     contract: 'partial', blocking: [], mismatches: [
@@ -460,6 +465,12 @@ test('DD9 — 실제 Step 3 형태 fixture가 envelope로 변환·저장되고 v
       A: { findings: 0, structured: 0, blocking: 0 },
       B: { findings: 1, structured: 0, blocking: 0 },
     },
+    suppressed: [], niceBySuppression: false, entries: 0,
+    ledger: {
+      counts: { absorbed: 0, rejected: 0, skipped: 0, reopened: 0 },
+      duplicates: 0, malformed: 0,
+    },
+    carryOver: { suppressed: 0, resolvedAbsent: 0, newBlocking: 0 },
   });
   assert.equal(readState(repo, slug).rounds[0].verdict, 'NAUGHTY', 'FINAL로 전이해야 한다');
 });
@@ -973,19 +984,25 @@ test('UI11 — record --id A 두 번은 여전히 성공하되 그 라운드는 
   assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_OK);
   const a = writeReviewer(repo, 'a.json', FIXTURE_PASS);
 
-  for (let i = 0; i < 2; i++) {
-    const r = cli(['record', '--decision', slug, '--cwd', repo, '--round', '0',
-      '--id', 'A', '--model', 'opus', '--reviewer-file', a]);
-    assert.equal(r.code, EX_OK, 'M1은 id 중복을 검사하지 않는다(UI11)');
-  }
-  // **P1(santa-adjudication M1)이 이 우회를 닫았고, 이 단언은 그 지시대로 갱신됐다.**
-  // 이전 문언은 "리뷰어 하나로 NICE가 나온다 — 여기서 막으면 UI10·UI11 위반"이었고
-  // "P1이 {A,B} 완전성 규칙을 넣으면 이 단언을 함께 갱신하라"를 달고 있었다.
-  //
-  // 닫힌 것은 **판정**이지 record가 아니다: `record --id A`를 두 번 넣는 것은 여전히
-  // 성공한다(id 중복 거부는 라운드 상태 기계라 milestone 2 소유다). 대신
-  // `decideAdjudicatedVerdict`가 distinct id ≥ 2를 요구하므로 그 라운드는 NICE에
-  // 도달하지 못한다 — A×2 우회를 닫는 데 필요한 것은 그 한 규칙뿐이다(DD8).
+  const first = cli(['record', '--decision', slug, '--cwd', repo, '--round', '0',
+    '--id', 'A', '--model', 'opus', '--reviewer-file', a]);
+  assert.equal(first.code, EX_OK);
+
+  // **santa-adjudication M2가 record 축까지 닫았다.** 위 문단이 예고한 그대로다 —
+  // "id 중복 거부는 라운드 상태 기계라 milestone 2 소유"였고, M2 DD14가 그 셋 중
+  // 둘(OPEN 라운드에서만 · id 중복 거부)을 `cmdRecord`에 넣었다. 그 둘은 M2에서
+  // 위생을 넘어 **coverage 게이트의 전제**가 된다: 한 리뷰어가 둘로 세어지면
+  // `blocking[].ids`와 `byReviewer`가 갈리고, 판정 대상 목록의 정확성이 무너진다.
+  const second = cli(['record', '--decision', slug, '--cwd', repo, '--round', '0',
+    '--id', 'A', '--model', 'opus', '--reviewer-file', a]);
+  assert.equal(second.code, EX_USAGE, 'M2는 같은 라운드의 id 중복을 거부한다(DD14)');
+  assert.match(second.stderr, /SANTA_REVIEWER_DUPLICATE_ID/);
+  assert.equal(readState(repo, slug).rounds[0].reviewers.length, 1,
+    '거부는 append 0건이다 — 부분 기록으로 원장을 오염시키지 않는다');
+
+  // 판정 축은 M1이 이미 닫아 두었고 그 규칙은 무변경이다: `decideAdjudicatedVerdict`가
+  // distinct id ≥ 2를 요구하므로 리뷰어 하나짜리 라운드는 NICE에 도달하지 못한다(DD8).
+  // 두 층이 같은 우회를 각각 막는다 — record는 기록을, 판정은 결론을 막는다.
   const vd = cli(['verdict', '--decision', slug, '--cwd', repo, '--round', '0']);
   assert.equal(json(vd).verdict, 'NAUGHTY',
     'distinct id가 1이면 NICE가 아니다 — dual-review 우회 경로가 닫혔다');
@@ -1013,10 +1030,15 @@ test('UI11 — envelope 0건 verdict가 CLI 경유로 도달 가능하다 (동�
 test('UI4/UI11 — receipt 배선은 seal.js에만 있다 (M1 4개 모듈은 여전히 receipt-free)', () => {
   const santaDir = path.join(__dirname, '..', 'santa');
   const files = fs.readdirSync(santaDir).filter(function (f) { return f.endsWith('.js'); });
-  assert.deepEqual(files.sort(), ['cli.js', 'counter.js', 'gate.js', 'ledger.js', 'seal.js']);
+  // santa-adjudication M2가 `adjudication.js`를 더했다(소유권 표에 이미 배정된 P1
+  // 신규 파일). 목록을 열거식으로 두는 것이 이 단언의 요점이므로 새 모듈은 여기
+  // 한 줄로 승인되고, **동시에 아래 receipt-free 목록에도 들어간다** — 판정 원장은
+  // gitignored 원장에만 살고 receipt에는 집계 정수만 실린다(DD12).
+  assert.deepEqual(files.sort(),
+    ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'ledger.js', 'seal.js']);
 
-  const M1_FROZEN = ['cli.js', 'counter.js', 'gate.js', 'ledger.js'];
-  for (const f of M1_FROZEN) {
+  const RECEIPT_FREE = ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'ledger.js'];
+  for (const f of RECEIPT_FREE) {
     const src = fs.readFileSync(path.join(santaDir, f), 'utf8');
     // 주석의 서술("M2 소유")은 허용하고, 실제 배선만 금지한다.
     assert.equal(/require\([^)]*receipt\/(write|store|cli)/.test(src), false,
@@ -1042,13 +1064,21 @@ test('Acceptance — 외부 의존이 문서화된 6개뿐이고 npm 의존 0', 
   // 실질성 검사에 `force-override-reason#validateReason`을 **재사용**한다. 규칙을
   // 베껴 적으면 원본이 바뀔 때 두 사본이 갈리고 그 갈림은 어떤 test도 잡지 않으므로
   // 의존을 지는 쪽이 옳다(Task 1). 이 줄이 그 승인 기록이다.
+  //
+  // santa-adjudication M2가 내부 하나(`./adjudication` — 소유권 표의 P1 신규 파일)와
+  // builtin 하나(`crypto` — `gate.issueIdOf`의 sha256)를 더했다. `crypto`를 쓰지 않고
+  // `receipt/hash#sha256`을 빌려올 수도 있었으나 그쪽은 `gitRepoRoot`가 `child_process`를
+  // 지고 있어, **순수 판정 모듈에 프로세스 실행 의존을 끌어들이는** 대가가 builtin
+  // 하나보다 크다. 이 두 줄이 그 승인 기록이다.
   const allowed = new Set([
     './counter', './ledger', './gate', './seal',          // 내부
+    './adjudication',                                     // 내부 (santa-adjudication M2)
     '../../receipt/evidence-lock', '../../receipt/hash',
     '../../receipt/decision', '../path-containment',
     '../../receipt/write',                                // 외부 5 (M2)
     '../../receipt/lib/force-override-reason',            // 외부 6 (santa-adjudication M1)
     'fs', 'os', 'path', 'child_process',                  // node builtin
+    'crypto',                                             // node builtin (santa-adjudication M2)
   ]);
   for (const f of fs.readdirSync(santaDir)) {
     if (!f.endsWith('.js')) continue;

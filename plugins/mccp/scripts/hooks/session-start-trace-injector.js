@@ -54,6 +54,58 @@ function compute(event) {
   // 4. LRU eviction — active leases are respected by ht.evictLRU.
   try { ht.evictLRU(repoRoot); } catch (_) { /* silent */ }
 
+  // 5. session-process-reclaim §D14 — foreign orphans from sessions that are
+  //    gone. Two DIFFERENT operations, deliberately not conflated:
+  //      kill of a live pid  → never (UI1: we cannot establish ownership of
+  //                            another session's process, so we only COUNT it)
+  //      unlink of a record  → yes, but only for pids that are already dead.
+  //                            No process is referenced, so the mis-kill risk is
+  //                            zero by definition, and this is what satisfies
+  //                            PRD :78 (registry growing without bound).
+  //    Reporting must never break SessionStart, so no failure here is fatal —
+  //    but none of them is silent either. A sweep that could not run reports on
+  //    stderr, and a sweep that ran but could not finish reports its
+  //    unreadable/purgeFailures counts, because "could not sweep" must never
+  //    read as "nothing to sweep".
+  try {
+    // safeRequire returns null on a load failure. Left alone that is a SILENT
+    // zero, which contradicts the paragraph above — so the null is named here.
+    const sp = safeRequire(path.join(libDir, 'session-processes'));
+    if (!sp) {
+      process.stderr.write('[mccp:session-processes] orphan sweep skipped: '
+        + 'session-processes failed to load — prior-session records are NOT '
+        + 'being reported or pruned this session\n');
+    }
+    if (sp) {
+      const orphans = sp.scanForeignOrphans(repoRoot, currentSession);
+      if (orphans.liveCount || orphans.purgedCount
+          || orphans.unreadable || orphans.purgeFailures) {
+        // A sweep that COULD NOT do its job must not read as one that had
+        // nothing to do — hence unreadable/purgeFailures are surfaced beside the
+        // successes rather than folded into a clean zero.
+        const trouble = (orphans.unreadable || orphans.purgeFailures)
+          ? ' ' + orphans.unreadable + ' unreadable, ' + orphans.purgeFailures
+            + ' purge failure(s) — the registry may be growing; see stderr.'
+          : '';
+        blocks.push('<system-reminder>\n'
+          + '[mccp:session-processes] prior-session processes: '
+          + orphans.liveCount + ' still alive (reported only — not reclaimed), '
+          + orphans.purgedCount + ' dead record(s) purged.' + trouble + ' '
+          + 'Unreclaimed/failed records are preserved under '
+          + '.claude/state/session-processes/ as the audit surface.\n'
+          + '</system-reminder>');
+      }
+    }
+  } catch (err) {
+    // Reporting must never break SessionStart, so this stays non-fatal — but it
+    // does not stay INVISIBLE. A swallowed sweep failure is indistinguishable
+    // from "no orphans", which is the one reading that must never be wrong here.
+    try {
+      process.stderr.write('[mccp:session-processes] SessionStart orphan sweep failed: '
+        + ((err && err.message) || err) + '\n');
+    } catch (_) { /* stderr itself is gone — nothing left to try */ }
+  }
+
   return blocks.join('\n\n');
 }
 

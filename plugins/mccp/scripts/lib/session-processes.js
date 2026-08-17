@@ -823,23 +823,116 @@ function probeProcess(pid, deps) {
     if (!line) return null;
     const m = /^\s*(\d+)\s+(\S+)\s+(.*)$/.exec(line);
     if (!m) return null;
-    const etimes = Number(m[1]);
-    if (!Number.isInteger(etimes) || etimes < 0) return null;
-    // `/proc/<pid>/exe` is the kernel's own answer and outranks `comm`, which a
-    // process can rewrite (prctl PR_SET_NAME) and which Linux truncates to 15
-    // characters. Where there is no procfs (macOS, BSD) `comm` stands.
-    let image = m[2];
-    try {
-      const link = readLink('/proc/' + pid + '/exe');
-      if (link && String(link).trim()) image = String(link).trim();
-    } catch (_) { /* no procfs — comm stands */ }
-    return {
-      startedAtMs: Date.now() - etimes * 1000,
-      commandLine: m[3],
-      execImage: image || null,
-    };
+    return buildPosixProbeRecord(m[1], m[2], m[3], pid, readLink);
   } catch (_) {
     return null;
+  }
+}
+
+// The POSIX field semantics, in ONE place. `probeProcess` and `probeProcesses`
+// slice their lines differently (the batch line carries a leading pid) but must
+// agree on what the fields MEAN, so both land here.
+function buildPosixProbeRecord(etimesRaw, comm, args, pid, readLink) {
+  const etimes = Number(etimesRaw);
+  if (!Number.isInteger(etimes) || etimes < 0) return null;
+  // `/proc/<pid>/exe` is the kernel's own answer and outranks `comm`, which a
+  // process can rewrite (prctl PR_SET_NAME) and which Linux truncates to 15
+  // characters. Where there is no procfs (macOS, BSD) `comm` stands.
+  let image = comm;
+  try {
+    const link = readLink('/proc/' + pid + '/exe');
+    if (link && String(link).trim()) image = String(link).trim();
+  } catch (_) { /* no procfs — comm stands */ }
+  return {
+    startedAtMs: Date.now() - etimes * 1000,
+    commandLine: args,
+    execImage: image || null,
+  };
+}
+
+/**
+ * Probe MANY pids in ONE call. Returns Map<pid, record|null>; every requested
+ * pid is present, and anything not resolved stays `null` so the caller reads it
+ * as `identity_unverifiable` (never as permission to kill).
+ *
+ * Why this exists: the win32 probe's cost is per-INVOCATION, not per-pid.
+ * Measured on an idle machine — `powershell.exe` startup 229ms, the same call
+ * carrying `Get-CimInstance Win32_Process` 3.3s for ONE pid and 3.9s for three.
+ * The WMI/CIM subsystem is the floor: `Get-WmiObject` (3.1s), a DCOM CimSession
+ * (3.3s) and `wmic` (3.0s) all land in the same place, and the only fast option
+ * (`Get-Process`, 0.6s) cannot report a command line on Windows PowerShell 5.1,
+ * which is the field §D15 axis 1 is built on.
+ *
+ * So probing per record made a sweep cost N × 3.4s against a 6s budget, and
+ * `guardedProbe`'s reservation rule then refused every probe after the first —
+ * measured: three registered children reclaimed ONE and leaked two. Folding N
+ * probes into one call is what lifts that ceiling.
+ */
+function probeProcesses(pids, deps) {
+  const outMap = new Map();
+  if (!Array.isArray(pids)) return outMap;
+  const wanted = [];
+  for (const p of pids) {
+    if (Number.isInteger(p) && p > 0 && wanted.indexOf(p) === -1) wanted.push(p);
+  }
+  // Seed every requested pid as unresolved FIRST. A caller must never be able to
+  // tell "we did not look" apart from "we looked and found nothing" by key
+  // absence — both are `null`, and both fail closed.
+  for (const p of wanted) outMap.set(p, null);
+  if (!wanted.length) return outMap;
+
+  deps = deps || {};
+  const platform = deps.platform || process.platform;
+  const run = deps.execFileSync || execFileSync;
+  const readLink = deps.readlinkSync || fs.readlinkSync;
+  const opts = {
+    encoding: 'utf8',
+    timeout: platform === 'win32' ? PROBE_TIMEOUT_WIN32_MS : PROBE_TIMEOUT_POSIX_MS,
+    stdio: ['ignore', 'pipe', 'ignore'],
+    windowsHide: true,
+  };
+
+  try {
+    if (platform === 'win32') {
+      const filter = wanted.map((p) => 'ProcessId=' + p).join(' or ');
+      const script =
+        "$ps=@(Get-CimInstance Win32_Process -Filter '" + filter + "');" +
+        'foreach($p in $ps){$ms=[long]([datetime]$p.CreationDate).ToUniversalTime()' +
+        ".Subtract([datetime]'1970-01-01').TotalMilliseconds;" +
+        "$i=$p.ExecutablePath; if(-not $i){$i=''};" +
+        "$c=$p.CommandLine; if(-not $c){$c=''};" +
+        '"$($p.ProcessId)|$ms|$i|$c"}';
+      const out = run('powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-Command', script], opts);
+      for (const raw of String(out || '').replace(/\r/g, '').split('\n')) {
+        const line = raw.trim();
+        if (!line) continue;
+        const i = line.indexOf(WIN32_PROBE_DELIM);
+        if (i === -1) continue;
+        const pid = Number(line.slice(0, i).trim());
+        // An unrequested pid is dropped rather than added: the filter is ours,
+        // but a row we did not ask about has no record to be judged against.
+        if (!Number.isInteger(pid) || !outMap.has(pid)) continue;
+        // Everything after the pid is the exact body the single-pid path parses.
+        outMap.set(pid, parseWin32ProbeLine(line.slice(i + 1)));
+      }
+      return outMap;
+    }
+    const out = run('ps', ['-o', 'pid=,etimes=,comm=,args=', '-p', wanted.join(',')], opts);
+    for (const raw of String(out || '').split(/\r?\n/)) {
+      if (!raw.trim().length) continue;
+      const m = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(raw);
+      if (!m) continue;
+      const pid = Number(m[1]);
+      if (!Number.isInteger(pid) || !outMap.has(pid)) continue;
+      outMap.set(pid, buildPosixProbeRecord(m[2], m[3], m[4], pid, readLink));
+    }
+    return outMap;
+  } catch (_) {
+    // A blown timeout or a missing binary leaves EVERY entry null. One failed
+    // batch therefore degrades exactly like N failed single probes did — no
+    // reclaim, no kill.
+    return outMap;
   }
 }
 
@@ -1175,6 +1268,48 @@ function reclaimSession(opts) {
     return { exited: true, reason: 'exited' };
   }
 
+  // ── batch prefetch (§D15 throughput) ──────────────────────────────────────
+  //
+  // Fold every candidate pid into ONE probe call before the loop, and seed the
+  // memo with it. `guardedProbe` always allows an already-probed pid, so with
+  // the memo warm no record can be starved by the reservation rule.
+  //
+  // Only when the REAL probe is in play. A caller that injected `probeProcess`
+  // is holding a stub that answers instantly, so batching buys nothing there and
+  // would silently route around the seam those callers rely on. The batch has
+  // its own seam (`opts.probeProcesses`) for exercising this path directly.
+  //
+  // The freshness rule (§D11) is untouched: this prefetches IDENTITY, which is
+  // start-time + image and cannot change for a live pid. Liveness and sibling
+  // reuse are still re-read per record immediately before the kill decision.
+  const probeBatch = opts.probeProcesses
+    || (typeof opts.probeProcess === 'function' ? null : probeProcesses);
+  if (probeBatch) {
+    const prefetch = [];
+    for (const rec of l.records) {
+      const p = rec && rec.pid;
+      if (Number.isInteger(p) && p > 0 && prefetch.indexOf(p) === -1) prefetch.push(p);
+    }
+    // Same reservation rule as guardedProbe, applied once instead of per record.
+    if (prefetch.length && now() - started <= budgetMs - probeTimeoutMs) {
+      let batched = null;
+      try {
+        batched = probeBatch(prefetch, {
+          platform: platform,
+          execFileSync: opts.execFileSync,
+          readlinkSync: opts.readlinkSync,
+        });
+      } catch (_) {
+        // Fall through with an empty memo: every record then takes the ordinary
+        // per-record path and the reservation rule decides, exactly as before.
+        batched = null;
+      }
+      if (batched && typeof batched.forEach === 'function') {
+        batched.forEach((rec, p) => { if (!probeMemo.has(p)) probeMemo.set(p, rec); });
+      }
+    }
+  }
+
   for (const rec of l.records) {
     const pid = rec && rec.pid;
     if (now() - started >= budgetMs) {
@@ -1477,6 +1612,7 @@ module.exports = {
   collectSiblingReuse,
   normPath,
   probeProcess,
+  probeProcesses,
   resolveIdentityToleranceMs,
   isReclaimableBy,
   reclaimSession,

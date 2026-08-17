@@ -55,7 +55,7 @@ M1+M2가 남긴 잔여를 닫고 출하 준비를 완료했다. 실질은 셋이
 | V3 버전 표면 | 통과 | `i18n-surface` 10/10 (manifest 파생 단언) |
 | V4 머지 사고 검증 | 통과 | 두 머지 모두 dropped 0 · deleted 0 |
 | V5 CHANGELOG | 통과 | `[1.27.0]`·`[1.26.2]` 각 1건, 양측 본문 생존 |
-| V6 전체 suite 기준선 대조 | **미통과 — 신규 실패 1건** | 아래 별도 절 |
+| V6 전체 suite 기준선 대조 | 통과 (조건 명시) | 동시성 6에서 **0 failing**(절대값). 무제한 동시성에서는 `9d` 1건 — 아래 절 |
 | V7 이연 실재·개방 | 통과 | 10 키워드 전건 실재 + 미해소, 개수 10 |
 | V8 환경 정책 기록 | 기록 | `MCCP_CODEX_DISABLED=1` |
 | V9 회수율 실측 | 통과 | 관측 줄 + 스크립트 밖 독립 pid 확인 |
@@ -94,11 +94,18 @@ plan의 검증 블록은 `grep -E '^not ok '`로 실패를 센다. node 24의 �
 정확히 그렇게 나왔다 — `after 0 / baseline 0 / delta 0`. `--test-reporter=tap`으로 재실행하자 실제 상태는
 다음이었다.
 
-| 측정 | 결과 |
-|---|---|
-| 기준선 (`origin/main` 임시 worktree) | **0 failing** — 직전 사이클의 선재 red 4건은 main에서 이미 해소됨 |
-| 브랜치 1차 | **2 failing** |
-| 브랜치 2차 (drift lint 수정 후) | **1 failing** |
+| 측정 | 동시성 | 결과 |
+|---|---|---|
+| 기준선 (`origin/main` 임시 worktree) | 무제한(20) | **0 failing** — 직전 사이클의 선재 red 4건은 main에서 이미 해소됨 |
+| 브랜치 1차 | 무제한(20) | **2 failing** |
+| 브랜치 2차 (drift lint 수정 후) | 무제한(20) | **1 failing** (`9d`) |
+| 브랜치 최종 (배치화 후) | **6** | **0 failing** — 절대값이므로 기준선 대조가 불필요하다 |
+
+**무제한 동시성에서 `9d`가 붉다는 사실을 숨기지 않는다.** 20코어에서 306개 test 파일이 동시에 도는
+동안 win32 CIM probe가 5000ms cap을 넘는다(2회 재현). SessionEnd는 그런 조건에서 돌지 않으므로 이는
+코드가 아니라 **측정 하네스의 포화**이며, 동시성을 6으로 제한하면 0 failing이다. 두 수치를 함께
+남기는 이유는, 여유가 1.5배뿐이라는 사실 자체가 정보이기 때문이다 — 배치화로 sweep당 probe가 1회가
+됐으므로 그 여유를 소모하는 빈도는 N배 줄었지만 **단일 probe의 여유 자체는 그대로다**.
 
 ### 해소 — gitignore drift lint (실결함)
 
@@ -137,6 +144,48 @@ probe는 `powershell.exe`로 `Get-CimInstance Win32_Process`를 **레코드마�
 
 **상한까지 올려도 win32 천장은 세션당 2개다.** `MAX_BUDGET_MS=9000`은 SessionEnd hook의 10s timeout
 때문에 존재하므로 그냥 올릴 수 없다.
+
+### 고쳤다 — probe 배치화 (사용자 결정: 설계 수정 후 출하)
+
+측정이 먼저였다. `powershell.exe` 기동은 **229ms**로 비용이 아니고, `Get-CimInstance Win32_Process`가
+**3.1s**를 쓴다. 그리고 결정적으로 **비용이 pid 수가 아니라 호출 횟수에 붙는다** — 1 pid 3379ms,
+3 pid 3897ms. 더 빠른 단일 경로는 없다:
+
+| 경로 | median | CommandLine |
+|---|---|---|
+| `Get-CimInstance` (기존) | 3285ms | 준다 |
+| `Get-WmiObject` | 3140ms | 준다 |
+| DCOM `CimSession` | 3303ms | 준다 |
+| `wmic process where` | 3048ms | 준다 |
+| `Get-Process` | **562ms** | **안 준다** (PS 5.1) |
+
+`Get-Process`만 빠른데 CommandLine이 없고 그것이 §D15 축 1의 재료다. 따라서 단일 probe를 빠르게 만들
+길은 없고 **배치화가 유일한 해법**이다.
+
+신규 `probeProcesses(pids, deps)`가 sweep당 1회 호출로 전 pid를 조회하고, `reclaimSession`이 루프
+**전에** 그것으로 `probeMemo`를 채운다. `guardedProbe`는 이미 "memo에 있는 pid는 언제나 허용"이므로
+예약 규칙이 더는 굶기지 못한다.
+
+| 조건 (유휴, 자식 N개, 기본 예산) | 이전 | 이후 |
+|---|---|---|
+| N=3 | 1 회수 / 2 누수 · `budget_exceeded` | **3 회수 / 0 누수** · 3842ms |
+| N=6 | — | **6 회수 / 0 누수** · 4055ms |
+
+설계상 지킨 것 셋:
+
+- **주입 seam 보존.** `probeProcess`를 주입한 호출자는 배치를 타지 않는다(`opts.probeProcess`가 있으면
+  배치 비활성). 기존 reclaim test 전건이 무수정 통과했고, 배치 자체는 `opts.probeProcesses`라는 자기
+  seam으로 검증한다.
+- **파서 단일화.** 배치는 pid 접두만 떼고 나머지를 단일 경로와 **같은** 파서에 넘긴다
+  (`parseWin32ProbeLine`, 신규 `buildPosixProbeRecord`). 두 벌 파서가 갈라질 여지를 없앴다.
+- **fail-closed 유지.** 요청한 pid는 전부 키로 존재하고 미해결은 `null`이라 "안 봤다"와 "봐도 없다"가
+  구별되지 않는다 — 둘 다 `identity_unverifiable`. 배치가 통째로 실패하면 전 항목이 `null`이 되어
+  이전의 "N개 single probe 실패"와 동일하게 degrade한다.
+- **§D11 freshness 무영향.** 선반입하는 것은 살아 있는 pid에 대해 **변하지 않는** 정체값(시작시각 +
+  이미지)이고, liveness와 형제 reuse는 여전히 레코드마다 kill 직전에 다시 읽는다.
+
+회귀 test 7건을 신설했다(`15a`~`15g`). `15f`가 천장 잠금이며, 수정을 끄면 정확히 그것만 붉어진다
+(배치 호출 0회, 실측 확인) — 단언이 구현과 무관하게 통과하는 형태가 아님을 확인했다.
 
 정확히 무엇을 주장하고 무엇을 주장하지 않는지 적는다:
 

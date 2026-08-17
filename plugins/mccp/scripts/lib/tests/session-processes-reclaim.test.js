@@ -831,3 +831,130 @@ test('14d — unreadable sibling evidence counts as unverified, not as a clean s
   assert.deepStrictEqual(killed, []);
   assert.deepStrictEqual(res.unverified, [{ pid: 4242, reason: 'sibling_evidence_unreadable' }]);
 });
+
+// ── 15: batched identity probe (§D15 throughput) ─────────────────────────────
+//
+// Probing per record cost N × ~3.4s on win32 against a 6s budget, so
+// `guardedProbe`'s reservation rule starved every record after the first —
+// measured before this change: three registered children reclaimed ONE and
+// leaked two, with `budget_exceeded: true`. The cost is per-INVOCATION, not
+// per-pid, so one call covers the whole sweep. These cases lock BOTH halves:
+// the batch parses what the OS actually returns, and the sweep uses it.
+
+test('15a — the win32 batch maps every returned row onto its own pid', () => {
+  const calls = [];
+  const m = sp.probeProcesses([11, 22], {
+    platform: 'win32',
+    execFileSync: (bin, argv) => {
+      calls.push({ bin: bin, script: argv[argv.length - 1] });
+      return '11|1700000000000|C:\\node.exe|node "C:\\a.js"\r\n'
+           + '22|1700000001000|C:\\node.exe|node "C:\\b.js"\r\n';
+    },
+  });
+  assert.strictEqual(calls.length, 1, 'ONE invocation covers every pid — that is the fix');
+  assert.match(calls[0].script, /ProcessId=11 or ProcessId=22/,
+    'both pids must reach the WQL filter: ' + calls[0].script);
+  assert.strictEqual(m.get(11).commandLine, 'node "C:\\a.js"');
+  assert.strictEqual(m.get(22).startedAtMs, 1700000001000);
+  assert.strictEqual(m.get(22).execImage, 'C:\\node.exe');
+});
+
+test('15b — a requested pid the OS did not report stays null, not absent', () => {
+  // The distinction matters downstream: `identity_unverifiable` must be reachable
+  // for a pid we asked about and did not get, and a missing KEY would instead
+  // read as "we never looked".
+  const m = sp.probeProcesses([11, 99], {
+    platform: 'win32',
+    execFileSync: () => '11|1700000000000|C:\\node.exe|node "C:\\a.js"\n',
+  });
+  assert.ok(m.has(99), 'the pid must be present as a key');
+  assert.strictEqual(m.get(99), null);
+  assert.strictEqual(m.get(11).startedAtMs, 1700000000000);
+});
+
+test('15c — a blown batch leaves EVERY entry null (fail-closed)', () => {
+  const m = sp.probeProcesses([11, 22], {
+    platform: 'win32',
+    execFileSync: () => { const e = new Error('ETIMEDOUT'); throw e; },
+  });
+  assert.deepStrictEqual([m.get(11), m.get(22)], [null, null],
+    'one failed batch must degrade exactly like N failed single probes did');
+});
+
+test('15d — the POSIX batch slices the leading pid and still lets /proc win', () => {
+  const m = sp.probeProcesses([11, 22], {
+    platform: 'linux',
+    execFileSync: (bin, argv) => {
+      assert.strictEqual(bin, 'ps');
+      assert.ok(argv.includes('pid=,etimes=,comm=,args='),
+        'the batch field list must lead with pid: ' + JSON.stringify(argv));
+      assert.ok(argv.includes('11,22'), 'both pids in one -p list: ' + JSON.stringify(argv));
+      return '   11   120 node /repo/a.js --x\n   22    60 evil /repo/b.js\n';
+    },
+    readlinkSync: (p) => (p === '/proc/22/exe' ? '/usr/bin/node' : (() => { throw new Error('ENOENT'); })()),
+  });
+  assert.strictEqual(m.get(11).commandLine, '/repo/a.js --x');
+  assert.strictEqual(m.get(11).execImage, 'node', 'comm stands where there is no procfs');
+  assert.strictEqual(m.get(22).execImage, '/usr/bin/node', 'the kernel outranks a lying comm');
+  assert.ok(Math.abs((Date.now() - 120 * 1000) - m.get(11).startedAtMs) < 5000);
+});
+
+test('15e — a row for a pid we never asked about is dropped', () => {
+  const m = sp.probeProcesses([11], {
+    platform: 'win32',
+    execFileSync: () => '11|1700000000000|C:\\node.exe|node "C:\\a.js"\n'
+                      + '77|1700000000000|C:\\node.exe|node "C:\\evil.js"\n',
+  });
+  assert.strictEqual(m.size, 1, 'only the requested pid has an entry');
+  assert.strictEqual(m.has(77), false);
+});
+
+test('15f — the sweep probes ONCE for all records and reclaims every one', () => {
+  // The ceiling regression lock. With a budget that only affords a single probe
+  // reservation, a per-record probe would starve records 2 and 3.
+  const repo = tmpRepo();
+  for (const pid of [4242, 4243, 4244]) seed(repo, SID, { pid: pid });
+  const batchCalls = [];
+  const k = recorder();
+  const res = sp.reclaimSession({
+    repoRoot: repo,
+    sessionId: SID,
+    env: {},
+    kill: k.kill,
+    isAlive: k.isAlive,
+    collectSiblingReuse: () => [],
+    budgetMs: 6000,
+    probeTimeoutMs: 5000,
+    probeProcesses: (pids) => {
+      batchCalls.push(pids.slice());
+      const m = new Map();
+      for (const p of pids) {
+        m.set(p, {
+          startedAtMs: START_MS,
+          commandLine: 'node "' + execPathFor(repo) + '"',
+          execImage: NODE_IMG,
+        });
+      }
+      return m;
+    },
+  });
+  assert.strictEqual(batchCalls.length, 1, 'exactly one probe call for the whole sweep');
+  assert.deepStrictEqual(batchCalls[0].sort(), [4242, 4243, 4244]);
+  assert.deepStrictEqual(res.reclaimed.slice().sort(), [4242, 4243, 4244]);
+  assert.deepStrictEqual(res.unreclaimed, [], 'no record may be starved of a probe');
+  assert.strictEqual(res.budgetExceeded, false);
+});
+
+test('15g — injecting probeProcess keeps the per-record seam (no batching)', () => {
+  // Callers that hand in a stub probe rely on it being consulted. Batching must
+  // not silently route around that seam.
+  const repo = tmpRepo();
+  seed(repo, SID, { pid: 4242 });
+  let singleCalls = 0;
+  const { res, killed } = run(repo, {
+    probeProcess: (pid) => { singleCalls++; return okProbe(repo)(pid); },
+  });
+  assert.ok(singleCalls >= 1, 'the injected single probe must still be used');
+  assert.deepStrictEqual(killed, [4242]);
+  assert.deepStrictEqual(res.reclaimed, [4242]);
+});

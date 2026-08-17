@@ -19,6 +19,14 @@
 const METRICS_ORDER = ['A1', 'A2', 'A3', 'A4', 'B1', 'B2', 'B3', 'C1'];
 const FORWARD_ONLY = new Set(['C2', 'C3']);
 const TOP_EXPANDED = 3;
+// M6 — B1 drift 상세의 표시 상한(제약 4). 초과분은 같은 줄 끝에 `(+N건)` 으로 병기해
+// 절삭이 항상 보이게 한다.
+const DRIFT_TOP_N = 3;
+
+// derive 産 prose(H10 em-dash + H16 인라인 마커)를 렌더하는 단일 진입점. B1 drift
+// 상세의 milestone 이름이 PRD 표 셀에서 그대로 오고 그 셀은 볼드 마커를 포함하므로,
+// esc() 만 거치면 `**` 가 HTML 표면에 리터럴로 누출된다.
+const { renderProseHtml, renderProseMd } = require('../format-utils');
 
 // 지표 metadata (id → {한국어 이름, 설명, 카테고리})
 const METRICS_META = {
@@ -159,6 +167,22 @@ function formatValue(metric) {
       && typeof metric.denominator === 'number') {
     return metric.numerator + '/' + metric.denominator;
   }
+  // M6 — B1 은 **건수**다. 계약(UI4)이 불일치 건수의 절대값을 요구하고 목표는 0건이라,
+  // 백분율로 내면 분모가 큰 저장소에서 drift 가 작아 보이는 왜곡이 생긴다.
+  //
+  // 커버리지 단서를 값 옆에 붙이는 것은 이 지표에 한해 단일-수치 규칙(F3)보다 우선한다:
+  // 맨 `0건` 은 "drift 없음" 으로 읽히지만 실제로는 "대조한 범위에서 0건" 이고, 증거가
+  // 미확정인 행이 분모에 남아 있는 한 그 둘은 다른 진술이다. 대조 못 한 것을 감추면
+  // 커버리지 구멍이 성적으로 보인다.
+  if (metric.id === 'B1' && typeof metric.numerator === 'number') {
+    const undetermined = typeof metric.undetermined_evidence_count === 'number'
+      ? metric.undetermined_evidence_count : 0;
+    if (undetermined > 0 && typeof metric.denominator === 'number') {
+      return metric.numerator + '건 (대조 ' + (metric.denominator - undetermined)
+        + '/' + metric.denominator + ')';
+    }
+    return metric.numerator + '건';
+  }
   // Percentile 값(A2 등): value={p50,p95}면 잔여%를 직접 표시한다. num/den(=coverage)로
   // 렌더하면 모든 세션이 5% 잔여로 끝나도 100%(기록률)로 보여 고갈을 은폐한다(PR-Codex R2-F2).
   if (metric.value && typeof metric.value === 'object' && metric.value.p50 != null) {
@@ -227,6 +251,43 @@ function coReportDetails(metrics) {
         (b3.operation_branch_method ? ' (' + b3.operation_branch_method + ')' : ''));
     }
     lines.push(parts.join(' · '));
+  }
+
+  // M6 — B1 상세. **새 collapse 를 열지 않는다.** 이 렌더러에는 이미 단일 공유
+  // collapse(`<details class="msw-metrics-extra">`)가 있고, decisionPriority 상
+  // B1 이 computed ∧ numerator===0 이면 우선순위 2라 extraRows 로 밀린다 — 그 안에서
+  // 또 collapse 를 열면 2단 중첩 disclosure 가 되어 제약 4 와 PRODUCT.md 원칙 3
+  // ("quiet by default, loud on demand")이 둘 다 거부하는 형태가 된다. 따라서 A3·B3 와
+  // **동일 계층**(이 배열의 한 원소)에 두고 상위 3건 + `(+N건)` 절삭으로 상한을 지킨다.
+  // 절삭분은 항상 보이므로 조용한 절삭이 아니다.
+  //
+  // 신규 문자열은 em-dash 대신 `·` 와 괄호만 쓴다(M3 F4 카피 규칙). milestone 이름은
+  // PRD 표 셀에서 그대로 오고 그 셀은 관례상 볼드 마커를 포함하므로, HTML 면의
+  // 마커 누출은 renderProseHtml(H10+H16 정규화)이 닫는다.
+  const b1 = metrics.B1;
+  if (b1 && Array.isArray(b1.drift_items) && b1.drift_items.length > 0) {
+    const shown = b1.drift_items.slice(0, DRIFT_TOP_N);
+    const parts = ['B1 상세: drift ' + b1.drift_items.length + '건'];
+    shown.forEach((d) => {
+      parts.push(String(d.milestone || '(이름 없음)')
+        + ' (문서 ' + (d.doc_status || '?') + ' · 증거 ' + (d.evidence_verdict || '?') + ')');
+    });
+    const truncated = b1.drift_items.length - shown.length;
+    lines.push(parts.join(' · ') + (truncated > 0 ? ' (+' + truncated + '건)' : ''));
+  }
+
+  // 커버리지 병기 — B3 의 `raw_surface_count` 미러. 제외분과 대조 못 한 행을 값 옆에
+  // 두지 못하는 분량이므로 여기서 낸다. 이것이 없으면 `0건` 이 "완벽" 으로 읽힌다.
+  if (b1 && typeof b1.raw_row_count === 'number' && typeof b1.denominator === 'number') {
+    const undetermined = b1.undetermined_evidence_count || 0;
+    lines.push([
+      'B1 커버리지: 대조 ' + (b1.denominator - undetermined) + '/' + b1.denominator + ' 행',
+      '증거 미확정 ' + undetermined + '건',
+      '비정규 status ' + (b1.noncanonical_status_count || 0) + '건 (분모 제외)',
+      'plan 미연결 ' + (b1.no_plan_count || 0) + '건',
+      '원시 행 ' + b1.raw_row_count + '개',
+      '아카이브 PRD 제외 ' + (b1.archived_excluded_count || 0) + '개',
+    ].join(' · '));
   }
 
   const prevented = preventedDetail(metrics);
@@ -316,7 +377,9 @@ function renderMetricsMarkdown(metrics) {
       md += extraLines.join('\n');
     }
     if (detailLines.length > 0) {
-      md += (extraIds.length > 0 ? '\n\n' : '') + detailLines.join('\n\n');
+      // markdown 면은 H10(em-dash)만 정규화한다 — 백틱/볼드/링크 마커는 markdown 에서
+      // 정당하므로 H16 은 HTML 전용이다(format-utils renderProseMd 계약).
+      md += (extraIds.length > 0 ? '\n\n' : '') + detailLines.map(renderProseMd).join('\n\n');
     }
     md += '\n\n</details>';
   }
@@ -401,9 +464,14 @@ function renderMetricsHtml(metrics, formatUtils) {
         + extraRows.join('')
         + '</tbody></table>';
     }
-    // 중립 톤 — 신규 색 클래스를 추가하지 않는다(제약 2).
+    // 중립 톤 — 신규 색 클래스를 추가하지 않는다(제약 2). drift 상태 전용 accent 를
+    // 신설하면 같은 viewport 에 2번째 강조가 생겨 B2·A3 행의 위계가 무너진다.
+    //
+    // esc() 가 아니라 renderProseHtml 을 쓴다 — B1 상세는 PRD 표 셀에서 온 prose 를
+    // 담으므로 esc() 만 거치면 `**볼드**` 가 리터럴로 남아 제약 3(raw markdown marker
+    // 금지)을 위반한다. 나머지 줄은 마커가 없어 동작이 같다.
     detailLines.forEach((line) => {
-      html += '<p class="muted">' + esc(line) + '</p>';
+      html += '<p class="muted">' + renderProseHtml(line, formatUtils) + '</p>';
     });
     html += '</details>';
   }

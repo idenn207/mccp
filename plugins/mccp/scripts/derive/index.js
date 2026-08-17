@@ -22,6 +22,7 @@ const { scanToggleUsage } = require('./sources/toggle-usage');
 const { scanInstructionCost } = require('./sources/instruction-cost');
 const { scanHandoffItems } = require('./sources/handoff-items');
 const { scanSessionJournal } = require('./sources/session-journal');
+const { scanMilestoneEvidence } = require('./sources/milestone-evidence');
 
 const SOURCE_SCANNERS = {
   plans: (root, opts) => scanPlans(root, opts),
@@ -45,6 +46,8 @@ const SOURCE_SCANNERS = {
   // M5 — 상태 진실원 저널. A4의 경계 스코프 분자가 여기로 실려 computeA4에
   // 도달한다(그 전까지 A4는 저널을 볼 수 없어 forward-only에 머물렀다).
   session_journal: (root) => scanSessionJournal(root),
+  // M6 — 문서 status ↔ 독립 증거 대조. 미등록이면 computeB1 이 영구 `insufficient` 다.
+  milestone_evidence: (root, opts) => scanMilestoneEvidence(root, opts),
 };
 
 function pushWarning(model, severity, source, message) {

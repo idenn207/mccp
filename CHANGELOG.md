@@ -2,7 +2,57 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.26.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.26.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.26.3] — 2026-08-17
+
+**multi-session-work-loop M6 — 진행 상태 기계 판정 (B1) (PRD 8 milestone 중 1 → patch bump, 1.26.2 → 1.26.3)** — `computeB1`은 M2 이래 `insufficient('independent evidence source unavailable')` 상수를 반환해 왔고, 그래서 이 PRD는 **자기 자신의 status drift를 보지 못했다**(M2 행이 `complete`인데 지표 산출은 0건이었고 사람이 손으로 찾아야 했다). M6은 문서 status와 **문서에서 파생되지 않은** 증거를 대조하는 판정 오라클을 배송해 B1을 `computed`로 뒤집고, 대시보드와 `/mccp:archive-complete`가 **같은 오라클**을 공유하게 만든다. 실측 전환: `insufficient` → `computed` **drift 1건 / 분모 39** (원시 41 · 비정규 2 분모 제외 · 증거 미확정 30 · 실제 대조 9행).
+
+> **§3.7 forward-only 상향 (11번째 재발)**: plan은 `1.23.11`을 지정했으나 착수 시점에 main이 이미 `1.26.2`였다(브랜치가 102 커밋 뒤처져 있었다). 발행된 번호는 불가침이므로 `1.26.3`으로 상향했고, 그 편차는 plan Risks 표가 사전 승인한 항목이다. 브랜치명(`v1.24.0-…`)과 version이 어긋나는 것도 같은 이유이며 §3.7이 규칙(단일 milestone = patch)이므로 규칙을 따랐다.
+
+**문서를 증거의 투영으로 만들어 닫지 않는다 — 그것이 이 milestone의 유일한 설계 결정이다.** status를 자동으로 증거에 맞춰 써 넣으면 두 소스가 의존 관계가 되어 drift가 구조적으로 0이 되고, 계약의 무결성 검사(`동일 소스 파생이면 그 주기의 B1은 무효`)에 의해 지표 자체가 무효가 된다. 0이 된 숫자는 개선이 아니라 측정의 파괴다. M6이 만드는 것은 판정과 가시화이며 교정은 사람이 승인하는 기존 명령에 남는다.
+
+**독립성의 1차 통제는 lint가 아니라 타입 경계다.** 오라클(`b1-status-drift.js`)은 문서 status를 **받지 않고** 자체 I/O도 **하지 않는다** — receipt 판독·git 조회는 전부 주입된 5필드 `evidence` 객체로만 들어온다. 그래서 "몰래 PRD를 다시 읽는" 구현이 애초에 존재할 수 없다. 정적 lint 4축은 그 경계를 지키는 **2차** 통제이고, 간접 의존(별칭 require·동적 require·이름 바꾼 status 전달)은 잡지 못한다 — 이 순서를 뒤집어 읽으면 없는 보증을 믿게 되므로 설계 문서 비보증 절에 명시했다.
+
+**오라클은 주입값의 출처를 볼 수 없으므로 생산자를 하나로 만들었다.** `fs.existsSync`도 `git cat-file`도 똑같이 boolean 하나를 낸다. 런타임 검증이 원리상 불가능하므로 증거 구성 I/O를 `b1-evidence-builder.js` 단일 모듈로 뽑고, derive source와 `archive-complete/scan.js`가 **둘 다 그것만** 호출한다. lint 축 (iv)가 `receiptPresent`의 생성이 builder 밖 0건임을, 그리고 builder가 `cat-file`을 **쓰고** `existsSync`/`ls-files`를 **쓰지 않음**을 정적으로 고정한다. test는 출력을, lint는 수단을 본다.
+
+**`shipped`는 "PR이 났는가"이지 "Codex가 승인했는가"가 아니다.** mccp는 audited override로 divergent인 채 ship하는 경로를 정식으로 가지며 직전 M5가 그 경로로 ship됐다. `codex_verdict`를 ship 전제로 걸면 정상 ship이 drift로 오계상되므로 판정식에서 빼고 병기 필드로 강등했다. ship의 기계적 증거는 receipt의 **존재 그 자체**다 — terminal `/mccp:pr`의 ship gate가 no-ship 시 finalize `exit 12`로 receipt를 쓰지 않기 때문이다.
+
+**`receiptPresent`는 커밋 도달성이다.** `git ls-files --error-unmatch`는 index를 보므로 `git add`만 한 파일에도 exit 0을 낸다(실측 확인). staged-only receipt는 worktree 삭제와 함께 사라져 §3.12의 내구성 계약을 만족하지 못하므로 `git cat-file -e HEAD:<path>`만 쓴다. `HEAD`를 쓰는 이유는 묻는 것이 *"증거가 내구적인가"*이지 *"머지됐는가"*가 아니기 때문이고, plan 파일 도달성이 default-ref를 쓰는 것은 **질문이 다르기** 때문이다.
+
+### Added
+
+- `plugins/mccp/scripts/lib/msw-metrics/b1-status-drift.js` — 순수 판정 오라클. `adjudicateMilestone` · `decisionFromBasename` · `isDrift`. verdict 3종(`shipped`/`not-shipped`/`undetermined`)이고 **부재를 판정으로 바꾸지 않는다**(`evidence-audit.js` E1의 동형).
+- `plugins/mccp/scripts/lib/msw-metrics/b1-evidence-builder.js` — 증거 구성의 **유일한 I/O 지점**. `fs`를 require하지 않아 워킹트리 상태가 판정에 새어들 수 없다. default-ref는 `origin/HEAD` → `origin/main` → **조회 실패**이며 로컬 `HEAD`로 폴백하지 않는다(폴백하면 미머지 브랜치가 default branch로 오판돼 `not-shipped` 방향 drift가 통째로 증발한다).
+- `plugins/mccp/scripts/lib/msw-metrics/b1-independence-lint.js` — 독립성 정적 lint 4축 + CLI. 주석은 스캔하지 않는다(금지 패턴을 *설명하는* 주석에 걸리면 lint가 문서화를 벌한다).
+- `plugins/mccp/scripts/derive/sources/milestone-evidence.js` — 활성 PRD 행 열거 + 분모 규약 + 행별 판정 전수(`adjudications`). `derive/index.js`에 `milestone_evidence`로 등록.
+- `plugins/mccp/scripts/lib/msw-metrics/assertion-manifest-check.js` + `docs/multi-session-work-loop/m6-assertion-manifest.json` — 단언 ↔ test 기계 대조. `REQUIRED_IDS` **28종**(초판 21 + local review 흡수 7)을 대조기에 하드코딩해 "manifest에서 id를 빼면 통과"를 막고, `missing-from-manifest`와 `absent-in-tests`를 서로 다른 실패로 열거한다. 실재 판정은 **`test()` 호출 앵커** 기준이다. 대조기 자신도 test된다(`echo ok && exit 0`짜리 대조기가 나머지 전부를 무력화하는 것이 이 축의 급소다).
+- `docs/multi-session-work-loop/status-adjudication-design.md` — 보증 G1~G4 · 위협 모델 · **비보증 13항**.
+- `docs/multi-session-work-loop/m6-before.json` · `m6-after.json` · `m6-audit-sample.json` — 전환 전후 스냅샷(동일 스키마·동일 앵커)과 UI14 감사 표본.
+- 신규 회귀 test 56건 — `b1-status-drift.test.js`(8) · `b1-independence-lint.test.js`(10) · `milestone-evidence.test.js`(13) · `assertion-manifest-check.test.js`(8) + `scan.test.js`(9)·`msw-metrics.test.js`(5)·`msw-metrics-render.test.js`(3) 증분.
+
+### Changed
+
+- `computeB1` — 상수 `insufficient` 반환을 source 소비로 교체. 사다리는 `computeA4` 미러(무결성 위반을 producer 부재보다 **먼저** 판정): `degraded || !independence_ok` → `invalid` · `denominator === 0` → `insufficient` · 그 외 → `computed`. **`value`는 언제나 `null`이고 `numerator`에 건수가 실린다**(UI4 — 비율을 넣으면 분모가 큰 저장소에서 drift가 작아 보이는 왜곡이 생긴다).
+- `renderer/sections/msw-metrics.js` — B1을 `1건 (대조 9/39)` 형태로 렌더한다. 맨 `0건`은 "drift 없음"으로 읽히지만 실제로는 "대조한 범위에서 0건"이라 커버리지 단서가 값 옆에 붙는다. drift 상세는 **기존** 공유 collapse 안의 `<p class="muted">` 한 줄이며 **새 collapse를 열지 않는다** — B1은 `computed ∧ numerator===0`일 때 `extraRows`로 밀리므로 그 안에서 또 collapse를 열면 2단 중첩 disclosure가 된다. 상위 3건 + `(+N건)` 절삭 병기(절삭은 항상 보인다). milestone 이름의 볼드 마커 누출은 `renderProseHtml`(H10+H16)이 닫는다.
+- `archive-complete/scan.js` — `collectDriftEvidence`의 **판정 축**을 공유 오라클로 교체. ledger는 판정에서 내려오고 `ledger(ref only):` 참고 인용으로만 병기된다(UI3). 오라클 실패는 **fail-closed** — 이전 `catch`는 `driftSuspect:false`를 돌려 예외가 "drift 없음"으로 읽혔고, 이제 `undetermined` + `warnings` → `degraded:true`가 된다. `isArchivable`(C2·C3·C4)과 `classifyMilestones`는 **무변경**이다.
+- `docs/multi-session-work-loop/measurement-instrumentation.md` — B1 행을 producer 명시 + 전환 조건으로 갱신.
+
+### Fixed
+
+- **Plan 셀이 `.plan.md`가 아닌 행이 `not-shipped`로 오계상되던 결함** (구현 중 실측 발견, 위양성 3건). `plan-body.js#extractPlanPath`는 렌더러용이라 `.plan.md` 링크를 못 찾으면 *괄호 안 아무 것이나* 돌려준다(`:85-86`). `review-loop-trust.prd.md`의 세 행이 자식 **PRD** 링크(`archived/santa-loop-materialize.prd.md`)를 물고 들어와 있지도 않은 receipt를 조회한 뒤 drift로 잡혔다. join key 가드(`.plan.md` 접미사 ∧ repo-root 앵커)를 추가해 확정 불가를 `undetermined`로 둔다 — 확정 불가를 판정으로 접는 것이 E1 위반이다.
+- **plan이 아카이브로 이동하면 `not-shipped`로 오계상되던 결함**. 정확 경로 조회가 빗나가면 basename으로 한 번 더 본다 — 아카이브 chore(§3.11)가 지나간 모든 milestone이 drift로 잡히는 것은 측정하려는 drift가 아니라 링크의 낡음이다.
+- **PRD 기준 상대 링크를 거부해 커버리지를 조용히 깎던 결함** (위 join key 가드의 과잉 교정). 이 repo의 PRD는 두 관례를 섞어 쓴다 — 백틱 셀은 repo-root 기준이고 마크다운 링크는 **PRD 파일 기준 상대**(`../plans/x.plan.md`)다. `..`를 무조건 거부하니 5행이 대조에서 빠졌고 **하필 `multi-session-work-loop` PRD 자신의 milestone들**이 그 대상이었다(B1이 존재하는 이유가 정확히 그 PRD의 자기 drift를 보는 것이라 가장 나쁜 자리다). PRD 디렉토리 기준으로 정규화한 뒤 `.claude/` 앵커를 재검사한다. **대조 6행 → 9행**, drift는 1건 그대로.
+
+#### local review 흡수 (HIGH 2 · MEDIUM 3 · LOW 1)
+
+- **오라클을 공유해도 *입력*을 공유하지 않으면 두 표면은 같은 질문에 다른 답을 낸다** (HIGH). 초판은 판정 오라클과 증거 builder만 공유하고 join key 정규화는 derive source 안에만 두었다. `archive-complete/scan.js`는 `classifyMilestones`의 원문 plan 셀을 그대로 넘겨, 실측으로 **같은 39행 중 5행에서 판정이 갈렸다** — 자식 PRD 링크를 문 4행이 여기서 `not-shipped`로 확정됐고(derive는 `undetermined`), 상대 경로 1행은 `../plans/…`가 그대로 git pathspec이 되어 조회가 깨졌다. `resolvePlanReference`를 builder로 올려 단일 소유로 만들고, 그 위에 **builder 백스톱**(미정규 입력은 git 조회 전 `readError` → `undetermined`)을 두었다. 호출자가 규율을 잊어도 *적극적 오판*은 구조적으로 나올 수 없다 — 규율은 기계 장치가 아니다. **실측 divergence 5건 → 0건**(비교 25행).
+- **`duplicateKey: false` 하드코딩으로 충돌 검출이 이 경로에서만 무력했다** (MEDIUM). derive source는 활성 PRD 전체를 가로질러 중복 `decision_id`를 검출해 충돌 행 **전부**를 강등하는데, `scan.js`는 상수 `false`를 넘겨 같은 receipt를 가리키는 두 행에 모두 `shipped`를 냈다. "첫 행/마지막 행 채택 금지" 규칙이 우회되던 자리다. 전역 2-pass 검출로 교체.
+- **git 배관을 행마다 재구축하던 성능 회귀** (MEDIUM). `resolveDefaultRef`(rev-parse)와 `buildPlanIndex`(전체 `ls-tree`)가 행마다 재실행돼 `scan()`이 **862ms → 3,201ms**로 3.7배 느려졌다. builder는 처음부터 두 값을 주입받는 seam을 갖고 있었고 derive source는 그것을 쓰고 있었다 — 이 호출자만 쓰지 않았다. 스캔당 1회로 hoist하되 **lazy**라 판정할 행이 없으면 git을 아예 부르지 않는다. **481ms**(기준선보다도 빠르다 — 행별 `git log` 약증거 조회가 함께 줄었다).
+- **단언 대조기를 주석 한 줄로 우회할 수 있었다** (MEDIUM). `body.indexOf(title)`는 파일 어디든 그 문자열이 있으면 통과이므로 **주석만으로 필수 단언 전부를 "존재"** 하게 만들 수 있었다 — 이 모듈 서문이 지목한 급소가 한 층 아래에 남아 있던 셈이다. `test()`/`it()` 호출 앵커로 교체했다. 여전히 *그 test가 무엇을 단언하는지*는 보지 않으며 그 한계는 비보증 절이 소유한다.
+- **lint의 주석 제거기가 정규식 리터럴에 눈멀 수 있었다** (LOW). 초판은 정규식을 추적하지 않으면서 "대상 4파일에 `//`·`/*`를 담은 정규식이 없다"는 관측에 기댔는데, 그것은 대상 파일이 바뀌면 **조용히 깨지는** 전제다 — 오라클에 `/https?:\/\//` 하나만 추가되면 그 줄부터가 주석으로 접혀 축 (ii)·(iii)가 통째로 눈이 먼다. **감사자가 눈머는 실패는 통과처럼 보인다.** 직전 토큰 휴리스틱으로 정규식을 추적하되 애매한 자리는 나눗셈으로 접는다(보수적 방향).
+- **`.claude/reviews/plan-review-multi-session-work-loop.md`가 덮어써져 M5 round-9 기록이 소실됐다** (HIGH). 9라운드 추이표·운영자 종료 결정(2026-08-12)·round-8 findings 전문을 담은 169줄이 M6 판본 53줄로 대체됐다. `-m5.md`는 **다른 초기 런**이라 대체본이 아니다. 복원했고 M6 리뷰는 `-m6.md`에 둔다 — 그쪽이 `m6-audit-sample.json`의 `plan_file_hash` 앵커와 일치하는 정본이다.
+- 흡수로 닫힌 축 7개를 단언 매니페스트에 등재했다(`REQUIRED_IDS` 21 → 28). `REQUIRED_IDS`는 하한이지 상한이 아니므로 구현 중 닫힌 축은 게이트가 된다.
 
 ## [1.26.2] — 2026-08-17
 

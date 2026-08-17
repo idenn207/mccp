@@ -1,0 +1,175 @@
+{
+  "milestone": "multi-session-work-loop-m6",
+  "contract": "docs/multi-session-work-loop/status-adjudication-design.md",
+  "note": "test_title is the contract — assertion-manifest-check.js searches each test_file for that literal string. Test titles must therefore be written exactly as recorded here, prefixed with their own id. REQUIRED_IDS in the checker is a floor, not a ceiling.",
+  "assertions": [
+    {
+      "id": "B1-EQ-BASENAME",
+      "assertion": "오라클의 decisionFromBasename 재구현이 archive-complete/scan.js#decisionFromBasename 과 동일 입력에서 동일 출력을 낸다",
+      "test_file": "plugins/mccp/scripts/lib/tests/b1-status-drift.test.js",
+      "test_title": "B1-EQ-BASENAME: decisionFromBasename equivalence"
+    },
+    {
+      "id": "B1-EVIDENCE-SCHEMA",
+      "assertion": "여분 키 주입 ∧ 필수 5필드 각각의 누락이 전부 undetermined + evidence-schema-invalid 로 거부된다",
+      "test_file": "plugins/mccp/scripts/lib/tests/b1-status-drift.test.js",
+      "test_title": "B1-EVIDENCE-SCHEMA: extra key and each missing field are both rejected"
+    },
+    {
+      "id": "B1-SHIPPED-ON-DIVERGENT",
+      "assertion": "receiptVerdict='divergent' ∧ receiptPresent=true 이면 shipped — codex_verdict 는 병기일 뿐 ship 판정식에 없다",
+      "test_file": "plugins/mccp/scripts/lib/tests/b1-status-drift.test.js",
+      "test_title": "B1-SHIPPED-ON-DIVERGENT: a divergent ship receipt still adjudicates as shipped"
+    },
+    {
+      "id": "B1-MUTATION-EVIDENCE",
+      "assertion": "문서 status 를 프로그램적으로 뒤집어도 (decision_id, evidence_verdict) 쌍의 집합이 불변이다 (실 PRD ∧ 합성 fixture 양쪽)",
+      "test_file": "plugins/mccp/scripts/lib/tests/b1-status-drift.test.js",
+      "test_title": "B1-MUTATION-EVIDENCE: evidence verdicts are invariant under status mutation"
+    },
+    {
+      "id": "B1-MUTATION-DRIFT",
+      "assertion": "같은 변조에서 drift_count/drift_items 는 반드시 반전된다 — 없으면 상수 반환 오라클도 증거층 단언을 통과한다",
+      "test_file": "plugins/mccp/scripts/lib/tests/b1-status-drift.test.js",
+      "test_title": "B1-MUTATION-DRIFT: the drift verdict DOES change under status mutation"
+    },
+    {
+      "id": "B1-FIXTURE-SANITY",
+      "assertion": "판정층 단언에 쓰는 합성 fixture 가 실제로 ≥1 drift 반전을 갖는다 (공허한 통과 차단)",
+      "test_file": "plugins/mccp/scripts/lib/tests/b1-status-drift.test.js",
+      "test_title": "B1-FIXTURE-SANITY: the synthetic fixture actually reverses at least one drift row"
+    },
+    {
+      "id": "B1-GIT-TRACKED",
+      "assertion": "워킹트리에 receipt 가 존재해도 untracked stub 에서는 receiptPresent=false (fs.existsSync 구현 배제)",
+      "test_file": "plugins/mccp/scripts/derive/tests/milestone-evidence.test.js",
+      "test_title": "B1-GIT-TRACKED: an untracked receipt on disk still yields receiptPresent=false"
+    },
+    {
+      "id": "B1-RECEIPT-COMMITTED",
+      "assertion": "staged-but-uncommitted stub 에서 receiptPresent=false — index 확인과 커밋 도달성을 가르는 유일 케이스 (git ls-files 구현 배제)",
+      "test_file": "plugins/mccp/scripts/derive/tests/milestone-evidence.test.js",
+      "test_title": "B1-RECEIPT-COMMITTED: a staged-but-uncommitted receipt yields receiptPresent=false"
+    },
+    {
+      "id": "B1-GIT-FALLBACK",
+      "assertion": "default-ref 는 origin/HEAD → origin/main → undetermined 순이며 로컬 HEAD 로 폴백하지 않는다 (호출 인자로 확인)",
+      "test_file": "plugins/mccp/scripts/derive/tests/milestone-evidence.test.js",
+      "test_title": "B1-GIT-FALLBACK: origin/HEAD then origin/main then undetermined, never local HEAD"
+    },
+    {
+      "id": "B1-DUP-DECISION",
+      "assertion": "활성 PRD 전역에서 decision_id 가 중복되면 공유한 행 전부가 undetermined 로 강등되고 warning 이 실린다",
+      "test_file": "plugins/mccp/scripts/derive/tests/milestone-evidence.test.js",
+      "test_title": "B1-DUP-DECISION: a decision_id shared across PRDs downgrades every sharing row"
+    },
+    {
+      "id": "B1-LINT-NEG-LEDGER",
+      "assertion": "판정 경로에 completion-ledger require 를 심으면 lint 가 비영점 exit 한다",
+      "test_file": "plugins/mccp/scripts/lib/tests/b1-independence-lint.test.js",
+      "test_title": "B1-LINT-NEG-LEDGER: a completion-ledger require on the adjudication path fails the lint"
+    },
+    {
+      "id": "B1-LINT-NEG-FS",
+      "assertion": "오라클 모듈에 fs require 를 심으면 lint 가 비영점 exit 하고, builder 는 이 축의 대상이 아니다",
+      "test_file": "plugins/mccp/scripts/lib/tests/b1-independence-lint.test.js",
+      "test_title": "B1-LINT-NEG-FS: an fs require inside the oracle fails the lint"
+    },
+    {
+      "id": "B1-LINT-NEG-STATUS",
+      "assertion": "오라클 모듈에 문서 status 리터럴을 심으면 lint 가 비영점 exit 한다",
+      "test_file": "plugins/mccp/scripts/lib/tests/b1-independence-lint.test.js",
+      "test_title": "B1-LINT-NEG-STATUS: a document status literal inside the oracle fails the lint"
+    },
+    {
+      "id": "B1-LINT-NEG-EVIDENCE-SOURCE",
+      "assertion": "b1-evidence-builder.js 밖에서 receiptPresent 를 생성하면 lint 가 비영점 exit 한다 (생산자 유일성)",
+      "test_file": "plugins/mccp/scripts/lib/tests/b1-independence-lint.test.js",
+      "test_title": "B1-LINT-NEG-EVIDENCE-SOURCE: creating receiptPresent outside the builder fails the lint"
+    },
+    {
+      "id": "B1-LADDER-DEGRADED",
+      "assertion": "source degraded → invalid (insufficient 가 아니다 — 무결성 위반이 producer 부재보다 먼저 판정된다)",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-metrics.test.js",
+      "test_title": "B1-LADDER-DEGRADED: a degraded source yields invalid, not insufficient"
+    },
+    {
+      "id": "B1-LADDER-INDEPENDENCE",
+      "assertion": "independence_ok=false → invalid. degraded 와 별개 단언이다 (OR 로 묶여 있어 하나만 test 하면 나머지가 미검증)",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-metrics.test.js",
+      "test_title": "B1-LADDER-INDEPENDENCE: independence_ok=false yields invalid on its own axis"
+    },
+    {
+      "id": "B1-LADDER-EMPTY",
+      "assertion": "denominator 0 → insufficient (모순이 아니라 데이터의 부재)",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-metrics.test.js",
+      "test_title": "B1-LADDER-EMPTY: a zero denominator yields insufficient, not invalid"
+    },
+    {
+      "id": "B1-LADDER-COMPUTED",
+      "assertion": "정상 → computed ∧ value===null (건수이지 비율이 아니다) ∧ 병기 7필드 존재",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-metrics.test.js",
+      "test_title": "B1-LADDER-COMPUTED: a healthy source computes a COUNT with all co-reported fields"
+    },
+    {
+      "id": "B1-ARCHIVE-DEGRADED",
+      "assertion": "archive-complete 에서 오라클이 throw 하면 driftSuspect:false 가 아니라 undetermined + warnings ≥1 + degraded:true (fail-closed)",
+      "test_file": "plugins/mccp/scripts/lib/archive-complete/tests/scan.test.js",
+      "test_title": "B1-ARCHIVE-DEGRADED: 오라클 throw → degraded:true + warnings ≥1 (fail-closed)"
+    },
+    {
+      "id": "B1-ARCHIVE-INVARIANT",
+      "assertion": "ledger 를 판정 축에서 강등한 뒤에도 archivable 판정(C2·C3·C4)이 변경 전후 동일하다",
+      "test_file": "plugins/mccp/scripts/lib/archive-complete/tests/scan.test.js",
+      "test_title": "B1-ARCHIVE-INVARIANT: ledger 강등 후에도 archivable 판정(C2·C3·C4)이 불변"
+    },
+    {
+      "id": "B1-RENDER-CONSTRAINTS",
+      "assertion": "B1 은 건수로 렌더되고, 신규 h4+ 0 · 신규 accent 클래스 0 · 인라인 마커 0 ∧ 신규 em-dash 0 · 신규 collapse 0(개수 ∧ 배치 ∧ 유사 위젯) ∧ 상위 3건 + (+N건) 절삭 병기",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-metrics-render.test.js",
+      "test_title": "B1-RENDER-CONSTRAINTS: count not ratio, no new heading/accent/marker/collapse, top-3 with (+N건)"
+    },
+    {
+      "id": "B1-JOINKEY-RESOLVE",
+      "assertion": "join key 해석은 백틱 셀(repo-root 기준)과 마크다운 링크(PRD 기준 상대)를 같은 경로로 접고, 자식 PRD 링크·repo 밖·`.claude/` 앵커 밖·빈 셀은 전부 거부한다(거부는 not-shipped 가 아니라 판정 불가다)",
+      "test_file": "plugins/mccp/scripts/derive/tests/milestone-evidence.test.js",
+      "test_title": "B1-JOINKEY-RESOLVE: 두 경로 관례를 같은 repo-root 경로로 접고 나머지는 거부한다"
+    },
+    {
+      "id": "B1-BUILDER-GUARD",
+      "assertion": "정규화를 거치지 않은 입력이 builder 에 들어오면 git 조회 없이 readError 로 접힌다 — 호출자가 규율을 잊어도 적극적 오판(not-shipped)은 구조적으로 나올 수 없다",
+      "test_file": "plugins/mccp/scripts/derive/tests/milestone-evidence.test.js",
+      "test_title": "B1-BUILDER-GUARD: 정규화되지 않은 입력은 조회 없이 readError 로 접힌다"
+    },
+    {
+      "id": "B1-ARCHIVE-JOINKEY",
+      "assertion": "archive-complete 경로에서도 plan 셀이 .plan.md 가 아니면 undetermined 다(이전에는 not-shipped 로 오판해 derive source 와 답이 갈렸다)",
+      "test_file": "plugins/mccp/scripts/lib/archive-complete/tests/scan.test.js",
+      "test_title": "B1-ARCHIVE-JOINKEY: plan 셀이 .plan.md 가 아니면 not-shipped 가 아니라 undetermined"
+    },
+    {
+      "id": "B1-ARCHIVE-JOINKEY-REL",
+      "assertion": "archive-complete 경로가 PRD 기준 상대 링크를 repo-root 로 정규화한 뒤 receipt 경로를 파생한다(정규화 없이는 git pathspec 이 깨져 조회가 무력해진다)",
+      "test_file": "plugins/mccp/scripts/lib/archive-complete/tests/scan.test.js",
+      "test_title": "B1-ARCHIVE-JOINKEY-REL: PRD 기준 상대 링크도 repo-root 로 정규화해 판정한다"
+    },
+    {
+      "id": "B1-ARCHIVE-DUPKEY",
+      "assertion": "decision_id 충돌 검출이 활성 PRD 전체를 가로질러 이뤄지고 충돌한 행은 receipt 도달 여부와 무관하게 전부 강등된다(임의 채택 금지가 이 경로에서도 성립)",
+      "test_file": "plugins/mccp/scripts/lib/archive-complete/tests/scan.test.js",
+      "test_title": "B1-ARCHIVE-DUPKEY: 서로 다른 PRD 가 같은 decision_id 를 선언하면 양쪽 다 강등된다"
+    },
+    {
+      "id": "B1-ARCHIVE-PLUMBING",
+      "assertion": "default ref 해석과 plan index 구축이 스캔당 각 1회다(행마다 재실행하면 실측 862ms → 3,201ms 로 악화한다)",
+      "test_file": "plugins/mccp/scripts/lib/archive-complete/tests/scan.test.js",
+      "test_title": "B1-ARCHIVE-PLUMBING: default ref 와 plan index 는 스캔당 한 번만 세운다"
+    },
+    {
+      "id": "B1-ARCHIVE-NOGIT",
+      "assertion": "판정 대상 행이 없으면 git 을 한 번도 부르지 않는다(배관 hoisting 이 무조건 spawn 으로 바뀌지 않았음을 고정)",
+      "test_file": "plugins/mccp/scripts/lib/archive-complete/tests/scan.test.js",
+      "test_title": "B1-ARCHIVE-NOGIT: 판정할 행이 없으면 git 을 아예 부르지 않는다 (lazy 배관)"
+    }
+  ]
+}

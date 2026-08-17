@@ -902,10 +902,14 @@ function validate(receipt) {
       req(Number.isInteger(m.santa_cap) && m.santa_cap >= 1,
         'meta.santa_cap must be an integer >= 1 if present');
     }
+    // santa-adjudication M3 — 열거를 2종으로 넓힌다(additive-permissive). 기존 값은
+    // 계속 유효하므로 봉인된 receipt corpus가 무손상이고 마이그레이션이 없다.
+    // `cap_reached`는 begin-round가 캡에서 거부한 사건, `patch_chasing`은 살아남은
+    // blocking이 전부 직전 패치를 겨눠 terminator가 끝낸 사건이다.
     if (m.santa_exit_reason !== null && m.santa_exit_reason !== undefined) {
-      req(m.santa_exit_reason === 'cap_reached',
-        'meta.santa_exit_reason must be "cap_reached" if present (absence means the ' +
-        'loop ended without exhausting the cap)');
+      req(m.santa_exit_reason === 'cap_reached' || m.santa_exit_reason === 'patch_chasing',
+        'meta.santa_exit_reason must be one of ["cap_reached","patch_chasing"] if present ' +
+        '(absence means the loop ended without a recorded termination)');
     }
 
     // codex-intent-context M1 — intent-gate audit axis. 10 fields, ALL

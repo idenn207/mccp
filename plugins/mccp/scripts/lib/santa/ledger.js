@@ -40,6 +40,24 @@ const { gitRepoRoot } = require('../../receipt/hash');
 const { SLUG_RE, BRANCH_PREFIX_RE } = require('../../receipt/decision');
 const { assertContained } = require('../path-containment');
 
+// santa-adjudication M3 — 종료 사유 어휘의 **단일 집합**. 읽기(`assertTerminationMarker`)와
+// 쓰기(`terminate`)가 같은 것을 본다.
+//
+// 쓰기 쪽 열거만 넓히면 마커를 쓴 직후의 첫 `read()`가 `SANTA_LEDGER_CORRUPT`로 던져
+// **그 slug의 원장이 통째로 읽히지 않는다**(seal도, status도, begin-round도). 그것은
+// 이 milestone을 배송 불가로 만드는 절반짜리 변경이라, 두 곳을 한 상수에서 파생한다.
+//
+// `SCHEMA_VERSION`은 **올리지 않는다**: 올리면 M2가 쓴 기존 원장 전부가 즉시 읽기
+// 불가가 되어 진행 중인 루프가 배송 시점에 전멸한다. 반대 방향(M3이 쓴 원장을 M2
+// 코드가 읽으면 throw)은 fail-closed의 정상 동작이고 원장이 gitignored라 노출 창이
+// "같은 워크트리에서 plugin cache를 되돌린 경우" 하나뿐이다.
+const counterModule = require('./counter');
+const terminator = require('./terminator');
+const TERMINATION_REASONS = Object.freeze([
+  counterModule.REASONS.CAP_REACHED,
+  terminator.EXIT_REASON.PATCH_CHASING,
+]);
+
 const SCHEMA_VERSION = 1;
 const STATE_MODE = 0o600;
 const DEFAULT_DECISION_ID = 'default';
@@ -321,16 +339,18 @@ function parseState(raw, decisionId, cap, statePath) {
 function assertTerminationMarker(obj, statePath) {
   const t = obj.terminated;
   if (t === null || t === undefined) return;
-  const counter = require('./counter');
+  // santa-adjudication M3 — 읽기 쪽 열거는 `TERMINATION_REASONS` 멤버십이다. 쓰기와
+  // 같은 집합을 보지 않으면 `patch_chasing` 마커가 쓰인 원장이 다음 read에서
+  // 통째로 거부된다(그 상수의 주석이 근거를 갖는다). 나머지 검사는 무변경이다.
   const ok = !!t && typeof t === 'object' && !Array.isArray(t) &&
-    t.reason === counter.REASONS.CAP_REACHED &&
+    TERMINATION_REASONS.indexOf(t.reason) !== -1 &&
     typeof t.at === 'string' && !Number.isNaN(Date.parse(t.at)) &&
     Number.isInteger(t.rounds) && t.rounds >= 0;
   if (!ok) {
     throw new SantaLedgerError('SANTA_LEDGER_CORRUPT',
       'santa ledger `terminated` marker is malformed at ' + statePath +
       ' (found ' + JSON.stringify(t) + '; expected null or ' +
-      '{reason:"' + counter.REASONS.CAP_REACHED + '", at:<ISO>, rounds:<int>})');
+      '{reason:"' + TERMINATION_REASONS.join('"|"') + '", at:<ISO>, rounds:<int>})');
   }
 }
 
@@ -515,6 +535,52 @@ function recordVerdict(round, verdict, opts) {
   });
 }
 
+// terminate({reason}, opts) — santa-adjudication M3 신규 export (프로토콜 2 — 추가는
+// 동결 위반이 아니다. 기존 8종은 한 글자도 바뀌지 않는다).
+//
+// **종료의 소재는 `state.terminated` 마커 하나다**(DD1). 두 번째 채널을 만들면
+// 소비자(`seal`·리포트·receipt·`status`)마다 어느 쪽을 볼지 골라야 하고, 고르는
+// 순간 갈린다. 그래서 `patch_chasing`은 같은 마커에 다른 reason으로 들어가고
+// **결속 규칙도 멱등 규칙도 `beginRound` 거부 분기에서 그대로 상속한다**.
+//
+// `state.cap`은 건드리지 않는다 — 거부 분기와 같은 이유다(캡을 게이트한 적 없는
+// 값이 봉인에 실리는 것을 막는다).
+//
+// 열거 검사가 `mutate` **밖**인 것이 의도다: 불량 reason에 lock을 잡을 이유가 없다.
+function terminate(input, opts) {
+  const reason = (input !== null && typeof input === 'object' && typeof input.reason === 'string')
+    ? input.reason : null;
+  if (TERMINATION_REASONS.indexOf(reason) === -1) {
+    throw new SantaLedgerError('SANTA_TERMINATION_INVALID',
+      'termination reason must be one of [' + TERMINATION_REASONS.join('|') + ']; got ' +
+      JSON.stringify(reason) + '. Nothing was written and no lock was taken.');
+  }
+  return mutate(opts || {}, function (state) {
+    const t = state.terminated;
+    // **먼저 관측된 종료가 실제 종료다.** 이미 이 라운드 수에 결속된 마커가 있으면
+    // reason이 같든 다르든 덮어쓰지 않는다 — 같으면 멱등(재기록하면 `at`이 호출마다
+    // 밀려 **최초 종료 시각**이라는 감사값이 사라진다)이고, 다르면 나중 판정이 앞선
+    // 관측을 지우는 것이라 종료 사유가 거짓이 된다.
+    if (t && t.rounds === state.rounds.length) {
+      return {
+        write: false,
+        outcome: {
+          terminated: false, reason: t.reason, rounds: t.rounds, at: t.at, already: true,
+        },
+      };
+    }
+    const at = new Date().toISOString();
+    state.terminated = { reason: reason, at: at, rounds: state.rounds.length };
+    return {
+      write: true,
+      state: state,
+      outcome: {
+        terminated: true, reason: reason, rounds: state.rounds.length, at: at, already: false,
+      },
+    };
+  });
+}
+
 // appendEntry — **P1 소유 자리**. finding row 스키마는 P1이 정의하고 P0는
 // 시그니처만 동결한다. P0의 CLI에는 이 subcommand가 없다(호출자 0).
 function appendEntry(entry, opts) {
@@ -595,12 +661,17 @@ module.exports = {
   recordVerdict: recordVerdict,
   readReviewers: readReviewers,
   appendEntry: appendEntry,
+  // M3 — patch-chasing 종료 마커 writer (프로토콜 2 추가 기록). 짝이 되는
+  // `clearTermination`은 **없다**: `beginRound`의 허용 분기가 이미
+  // `state.terminated = null`을 수행하므로 재개 경로에 새 코드가 필요 없다.
+  terminate: terminate,
   aggregate: aggregate,
   // M2 — 단일 스냅샷 파생용 순수 함수 2종 (additive; 위 두 함수가 이것에 위임한다)
   reviewersFrom: reviewersFrom,
   aggregateFrom: aggregateFrom,
   SantaLedgerError: SantaLedgerError,
   SCHEMA_VERSION: SCHEMA_VERSION,
+  TERMINATION_REASONS: TERMINATION_REASONS,
   STATE_MODE: STATE_MODE,
   DEFAULT_DECISION_ID: DEFAULT_DECISION_ID,
 };

@@ -64,13 +64,15 @@ We'll know we're right when **문구·스타일 지적이 더 이상 NAUGHTY를 
 |---|---|---|---|---|
 | 1 | severity contract + 게이트 재배선 | 문구·스타일 지적이 NAUGHTY를 만들지 못하고, blocking은 `failure_scenario`를 쓸 수 있을 때만 성립 | complete | [santa-adjudication-m1.plan.md](../plans/santa-adjudication-m1.plan.md) |
 | 2 | 판정 원장 | 기각·흡수가 보존되고 종결 항목이 재계수되지 않음. 항목 3(오탐율)의 없어진 분모가 생김 | complete | [santa-adjudication-m2.plan.md](../plans/santa-adjudication-m2.plan.md) |
-| 3 | patch-chasing terminator + 캡 정책 | 직전 수정만 겨누는 라운드에서 루프가 스스로 종료하고, 종료 사유가 기록됨 | pending | — |
+| 3 | patch-chasing terminator + 캡 정책 | 직전 수정만 겨누는 라운드에서 루프가 스스로 종료하고, 종료 사유가 기록됨 | in-progress | [santa-adjudication-m3.plan.md](../plans/santa-adjudication-m3.plan.md) |
 
 ## Open Questions
 
 - [x] **`failure_scenario` 판정의 주체** — 리뷰어가 스스로 "쓸 수 있다"고 선언하는지, 집계 단계가 서술 존재를 기계적으로 검사하는지. 후자가 위조에 강하나 서술 품질을 판정할 수 없다.
   - **답(M1 DD5)**: 집계 단계가 검사한다. 리뷰어의 자기 선언은 받지 않는다 — "나는 이것을 서술할 수 있다"는 위조 비용이 0이다. 검사는 두 층으로 나뉘어 기록 시점(`cli.js#loadReviewer`)이 타입·길이·열거값을, 판정 시점(`gate.classifyFinding`)이 실질성(`validateReason` strict + allowCodeVocabulary)을 본다. **지적된 한계는 그대로 남는다**: 이 검사는 그럴듯한 거짓 시나리오를 거르지 못하고, 닫는 것은 "서술 없이 blocker라고 부르는 것"뿐이다.
-- [ ] **`MCCP_SANTA_MAX_ROUNDS`(본 PRD 문언, 1~5)와 배송된 `MCCP_SANTA_ROUND_CAP`(1~10)의 이름·범위 불일치** — milestone 3(캡 정책) 소유다. M1은 캡을 건드리지 않으므로 발현하지 않지만, M3 착수 시 PRD를 정정할지 코드를 정정할지 정해야 한다.
+- [x] **`MCCP_SANTA_MAX_ROUNDS`(본 PRD 문언, 1~5)와 배송된 `MCCP_SANTA_ROUND_CAP`(1~10)의 이름·범위 불일치** — milestone 3(캡 정책) 소유다. M1은 캡을 건드리지 않으므로 발현하지 않지만, M3 착수 시 PRD를 정정할지 코드를 정정할지 정해야 한다.
+  - **답(M3 DD8): 코드가 정본이다 — `MCCP_SANTA_ROUND_CAP`, 1~10, default 3.** 위 PRD 문언(`MCCP_SANTA_MAX_ROUNDS`, 1~5)은 **폐기**한다. 코드 변경은 0이고 근거는 셋이다. (1) `MCCP_SANTA_ROUND_CAP`은 v1.23.8에 배송돼 `docs/ENVIRONMENT.md` §11의 canonical 항목이고 `counter.ENV_CAP` 상수이며 receipt `meta.santa_cap`으로 봉인된 값의 출처다 — 이름을 바꾸면 운영자 `settings.json`이 조용히 무시되고(구 이름은 파서가 모르므로 default 3으로 fail-open) 그 사고는 로그에 **아무것도 남기지 않는다**. (2) 범위를 1~5로 좁히면 6~10을 쓰던 기존 설정이 무효화돼 loud warn 후 default 3으로 떨어지는데, 캡이 낮아지는 방향이라 진행 중인 루프가 즉시 종료된다. (3) 넓은 상한의 비용이 M3에서 사라진다 — PRD가 1~5를 적은 취지는 "캡이 무한 상향으로 남용되지 않게"인데, M3 이후 캡은 **안전망**이고 1차 종료 조건은 terminator다. 상한 10은 terminator가 실패했을 때의 천장이고 그 도달은 `exit_reason='cap_reached'`로 관측된다. **뒤집을 수 있게 근거를 남긴다** — UI15가 요구한 것은 "어느 쪽을 고칠지 정하라"이지 특정 방향이 아니었다.
+- [ ] **`issue_id`를 `locations`에서 파생할지** — M2 Open Question의 처방 (1)("리뷰어에게 안정적 식별자를 요구하고 `issue_id`를 claim이 아니라 거기서 파생할지")이 M3 또는 P2의 축으로 남겼고, **M3은 그 축을 취하지 않았다**(DD3 말미). 파생을 바꾸면 기존 원장의 모든 id가 갈려 M2가 배송한 suppression이 그 시점에 전멸하고, `locations`가 선택 필드인 이상 절반의 지적은 id를 얻지 못한다. M3이 그 축을 **가능하게** 만든 것은 사실이므로(리뷰어가 실제로 `locations`를 채우는지가 이제 `targetsBreakdown`으로 관측된다), 판단은 실측값을 본 뒤에 한다 — 판정의 입력은 아래 M3 실경로 관측의 `unknown` 비율이다.
 - [ ] **1순위 시나리오(`fail-without-blocking` 불일치)가 실경로 3라운드에서 재현되지 않았다 — M1 Acceptance 4번째 항목 미충족.** 2026-08-17에 이 저장소에서 `/mccp:santa-loop`을 캡이 허용하는 **3라운드 전부** 돌렸다(decision slug `santa-adjudication`, 리뷰어 6명, 모두 opus). 실측:
 
   | round | verdict | contract | blocking | mismatches | 비고 |

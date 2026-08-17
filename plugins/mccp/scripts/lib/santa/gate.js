@@ -40,6 +40,10 @@
 
 const crypto = require('crypto');
 const { validateReason } = require('../../receipt/lib/force-override-reason');
+// santa-adjudication M3 — `locations` 정규화의 정본. 방향은 gate → terminator
+// 하나뿐이다(terminator는 아무것도 require하지 않는 순수 oracle이라 순환이 없다).
+// 여기서 베끼면 상한·타입 규약이 두 곳에서 갈리고, 그 갈림은 어떤 test도 잡지 않는다.
+const terminator = require('./terminator');
 
 function decideVerdict(opts) {
   opts = opts || {};
@@ -316,6 +320,10 @@ function analyzeReviewers(reviewers) {
   const mismatches = [];
   const blocking = [];
   const blockingByClaim = new Map();
+  // santa-adjudication M3 — 병합 행별 `locations` 중복제거 키 집합. 병합 객체에
+  // 얹지 않고 옆에 두는 이유는 반환 행의 키 집합을 늘리지 않기 위해서다(소비자가
+  // 보는 것은 `locations` 배열 하나다).
+  const locationKeysByClaim = new Map();
   let contractFull = true;
 
   list.forEach(function (entry) {
@@ -359,11 +367,28 @@ function analyzeReviewers(reviewers) {
           // 유실됐을 때의 runtime 거부를 단언한다.
           issueId: issueIdOf(claimStr),
           ids: [],
+          // santa-adjudication M3 — terminator의 대조 입력(DD3). **판정이 아니라
+          // 리뷰어가 준 사실**이고, blocking 자격에는 어떤 영향도 주지 않는다
+          // (`classifyFinding`은 이 필드를 보지 않는다 — 항목 67).
+          locations: [],
         };
         blockingByClaim.set(key, merged);
+        locationKeysByClaim.set(key, new Set());
         blocking.push(merged);
       }
       if (merged.ids.indexOf(id) === -1) merged.ids.push(id);
+      // **합집합이다.** 두 리뷰어가 같은 지적을 서로 다른 라인 표기로 내면 어느
+      // 한쪽을 버리는 규칙이 필요한데, 버리는 쪽이 patch 안이면 분류가
+      // `preexisting`으로 바뀌어 **버림이 판정을 바꾼다**. 합집합은 그 선택을
+      // 없애고, 전량 조건(DD5) 아래에서 항상 더 보수적이다 — location이 늘수록
+      // `round_n_patch`가 되기 어렵다.
+      const seenLocs = locationKeysByClaim.get(key);
+      terminator.normalizeLocations(isRecord(f) ? f.locations : null).forEach(function (loc) {
+        const lk = JSON.stringify([loc.file, loc.line]);
+        if (seenLocs.has(lk)) return;
+        seenLocs.add(lk);
+        merged.locations.push(loc);
+      });
       // 같은 지적을 두 리뷰어가 **다른 무게로** 낼 수 있다. 병합 행이 최초 관측값을
       // 유지하면 A의 HIGH가 B의 CRITICAL을 가려 보고서가 실제보다 가벼운 severity를
       // 보여준다. 판정은 이 값을 보지 않지만(무게는 `blocking` 불리언이 이미 정했다)

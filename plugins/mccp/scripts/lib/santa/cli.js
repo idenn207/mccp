@@ -31,11 +31,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const ledger = require('./ledger');
 const counter = require('./counter');
 const gate = require('./gate');
 const adjudication = require('./adjudication');
+const terminator = require('./terminator');
 const seal = require('./seal');
 const { gitRepoRoot } = require('../../receipt/hash');
 const { assertContained } = require('../path-containment');
@@ -202,6 +204,9 @@ function deriveFinding(element, index) {
       severity: null,
       failureScenario: null,
       evidence: null,
+      // santa-adjudication M3 — legacy 문자열 형태는 위치를 낼 자리가 없다.
+      // 빈 배열이므로 terminator는 그 지적을 `unknown`으로 보고 발화하지 않는다.
+      locations: [],
       structured: false,
     };
   }
@@ -251,6 +256,13 @@ function deriveFinding(element, index) {
     // 않는다). 비문자열은 보존할 문자열이 없으므로 null이다.
     failureScenario: fsIsString ? fs : null,
     evidence: evIsString ? ev : null,
+    // santa-adjudication M3 — `locations`는 선택 필드이고 **타입 위반은 강등이
+    // 아니라 빈 배열이다**(DD3, `evidence`의 선례 그대로). 강등하면 위치 표기
+    // 오류 하나가 `structured:false`를 만들어 **실재 blocking을 지운다** —
+    // terminator를 붙이려다 게이트를 뚫는 것이다. 빈 배열로 떨어지면 그 지적은
+    // `unknown`이 되고, `unknown`이 하나라도 있으면 terminator는 발화하지 않는다.
+    // `structured` 계산식(위)은 이 필드를 보지 않는다.
+    locations: terminator.normalizeLocations(element.locations),
     structured: structured,
   };
 }
@@ -430,9 +442,216 @@ function assertAdjudicationCoverage(opts) {
     '  (' + adjudication.ENV_ADJUDICATION_GATE + '=off disables this precheck entirely.)');
 }
 
+// ── patch-chasing terminator (santa-adjudication M3) ─────────────────────────
+//
+// **git 호출은 원장 lock 밖에서 일어난다**(DD4). `ledger.mutate`는
+// `guardedReadModifyWrite` 임계구역 안에서 콜백을 돌리므로, 그 안에서 `git show`를
+// 부르면 프로세스 spawn 시간만큼 lock을 잡는다. 순서를 고정한다:
+// **git → 분류 → 판정 → (발화 시에만) `ledger.terminate`**.
+
+// rev는 원장 옆 gitignored 파일에서 온 **외부 입력**이다. 형식 검사를 먼저
+// 통과시키는 이유는 주입이 아니라 진단이다 — 인자 배열이라 셸 해석이 없고 `--`
+// 종결자가 붙지만, `--upstream` 같은 문자열이 git 자신의 플래그로 해석되는 것은
+// 막아야 한다.
+const REV_RE = /^[0-9a-f]{7,40}$/;
+
+// `git show`의 출력 상한. 기본 buffer(1MB)를 넘기면 `execFileSync`가 **throw**하고
+// 그 throw가 `check-termination` 전체를 죽인다 — 큰 커밋 하나가 루프의 종료 판정을
+// 오류로 바꾸는 것은 이 축의 기본 자세("모르면 종료하지 않는다")와 어긋난다.
+// 상한을 명시하고 초과는 아래 catch가 빈 집합으로 흡수한다.
+const GIT_SHOW_MAX_BUFFER = 32 * 1024 * 1024;
+
+// unified diff 파일/hunk 헤더. **줄 단위로** 적용한다 — 한 정규식으로 전체 출력을
+// 훑으면 백트래킹 면이 출력 크기에 비례한다.
+//
+// `+++ /dev/null`(삭제된 파일)은 `b/` prefix가 없으므로 이 앵커에 걸리지 않고, 그
+// 파일은 patch 집합에 **열리지 않는다**.
+const DIFF_FILE_RE = /^\+\+\+ b\/(.+)$/;
+// `,d` 생략은 `d=1`이다(unified diff 규약).
+const DIFF_HUNK_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
+
+// patchRangesFrom(rev, opts) → { [file]: Array<[start, end]> }
+//
+// **부재·불량은 오류가 아니라 빈 집합이다**(DD4). 파일이 없거나, rev가 형식을
+// 벗어나거나, `git show`가 비영점이거나, 출력에 hunk가 없으면 patch 범위는 빈
+// 집합이고 모든 지적이 `unknown`이 되어 terminator는 발화하지 않는다. 루프는 캡이
+// 끝낸다 — 모르면 종료하지 않는다.
+//
+// **개별 hunk가 형태에 맞지 않으면 그 줄만 건너뛴다.** 파일 전체나 결과 전체를
+// 버리지 않는 이유는 방향이 안전한 쪽이기 때문이다: 범위를 덜 모으면 그 위치의
+// 지적이 `preexisting`이 되어 terminator가 **덜** 발화한다. 반대로 전체를 버리면
+// 결과는 같은 미발화지만 한 줄의 형식 이탈이 정상 hunk 전부를 지워 진단이 나빠진다.
+//
+// 반환은 `Object.create(null)`이다 — 경로가 `__proto__`인 파일이 own property를
+// 잃고 **조용히 사라지는** 것을 막는다(오염이 아니라 소실이 여기서의 실패 모드다).
+function patchRangesFrom(rev, opts) {
+  const empty = Object.create(null);
+  // 셸이 쓴 파일에는 trailing newline이 붙는다 — trim 없이는 정상 rev가 전부
+  // 불량으로 떨어져 terminator가 영원히 미발화한다(security-reviewer 권고 1).
+  const clean = typeof rev === 'string' ? rev.trim() : '';
+  if (clean === '') return empty;
+  if (!REV_RE.test(clean)) {
+    errln('--prev-fix-rev ' + JSON.stringify(rev) + ' is not a 7..40 hex object name; ' +
+      'patch ranges are empty, every location falls to `unknown`, and the terminator ' +
+      'will not fire. The loop ends at the cap instead.');
+    return empty;
+  }
+
+  let stdout;
+  try {
+    stdout = execFileSync('git',
+      ['show', '--unified=0', '--no-color', '--format=', clean, '--'], {
+        cwd: (opts && opts.cwd) || process.cwd(),
+        encoding: 'utf8',
+        maxBuffer: GIT_SHOW_MAX_BUFFER,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+  } catch (_err) {
+    errln('git show ' + clean + ' failed or exceeded the output limit; patch ranges are ' +
+      'empty and the terminator will not fire.');
+    return empty;
+  }
+
+  const ranges = Object.create(null);
+  let current = null;
+  const lines = String(stdout).split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const fileHit = DIFF_FILE_RE.exec(line);
+    if (fileHit) {
+      current = fileHit[1];
+      if (!Object.prototype.hasOwnProperty.call(ranges, current)) ranges[current] = [];
+      continue;
+    }
+    if (current === null) continue;
+    const hunkHit = DIFF_HUNK_RE.exec(line);
+    if (!hunkHit) continue;
+    const start = Number(hunkHit[1]);
+    const count = hunkHit[2] === undefined ? 1 : Number(hunkHit[2]);
+    if (!Number.isInteger(start) || !Number.isInteger(count)) continue;
+    // **추가·수정 라인만 patch 범위다**(DD11). `d === 0`인 삭제 전용 hunk는 파일을
+    // 집합에 넣되(위에서 이미 열렸다) 라인 범위를 만들지 않는다 — 지워진 라인을
+    // 겨누는 지적은 존재할 수 없고, 그 파일에 대한 라인 지정 지적은 `preexisting`이
+    // 된다(안전한 쪽).
+    if (count <= 0) continue;
+    ranges[current].push([start, start + count - 1]);
+  }
+  return ranges;
+}
+
+// assertNotTerminated(opts) — `begin-round`의 기계적 재확인(DD7의 두 번째 배선).
+//
+// **여기에 git이 필요 없다는 것이 요점이다** — 마커가 이미 기록이므로 재판정이
+// 아니라 **조회**다. 판정 함수는 `terminator.decideTermination` 하나이고 이 함수는
+// 그것을 부르지 않는다. 같은 계산을 두 곳에서 하지 않으므로 갈릴 자리가 없다.
+//
+// 커맨드 본문 산문은 절 하나가 건너뛰어질 수 있고 "prose says HALT, code proceeds"가
+// 이 저장소에서 세 번 잡혔다. Step 4.5를 건너뛴 루프도 다음 라운드를 열지 못한다.
+function assertNotTerminated(opts) {
+  // **첫 줄이 kill-switch다.** `off`면 검사를 건너뛰므로 `ledger.beginRound`가 그대로
+  // 실행되고, **그 함수의 기존 허용 분기가 이미 `state.terminated = null`을
+  // 수행한다**(ledger.js — 캡 상향으로 루프를 재개할 때의 마커 clear). 즉 마커 삭제
+  // 코드는 새로 만들지 않는다. 이것이 DD7의 재개 경로를 성립시키는 유일한 코드다.
+  if (terminator.parseTerminator(opts.env) === 'off') {
+    errln(terminator.ENV_TERMINATOR + '=off — begin-round termination precheck skipped. ' +
+      'A recorded patch_chasing marker will NOT stop this round, and ledger.beginRound ' +
+      'clears it when the round opens.');
+    return;
+  }
+  const state = ledger.read(opts);
+  const t = state.terminated;
+  if (!t || t.reason !== terminator.EXIT_REASON.PATCH_CHASING) return;
+  // **결속되지 않은 마커는 종료가 아니다.** 그러지 않으면 "언젠가 종료했다"는 영구
+  // 낙인이 되어, 캡이 상향돼 라운드가 더 열린 뒤에도 마커가 종료를 계속 주장한다.
+  if (t.rounds !== state.rounds.length) return;
+  throw new SantaCliError('SANTA_TERMINATED',
+    'the loop was terminated as `' + terminator.EXIT_REASON.PATCH_CHASING + '` after round ' +
+    (t.rounds - 1) + ' (marker bound to ' + t.rounds + ' round(s), recorded at ' + t.at + ').\n' +
+    '  Every surviving blocking issue of that round targeted the previous round\'s patch, ' +
+    'so another round would chase the patch rather than the artifact.\n' +
+    '  No round was opened and the cap was NOT consumed.\n' +
+    '  If you disagree with that judgement, re-run with ' + terminator.ENV_TERMINATOR +
+    '=off — begin-round then opens the round and clears the marker.');
+}
+
+// cmdCheckTermination — Step 4.5. 라운드 N의 verdict 직후, Step 5 수정 사이클
+// **이전**에 판정한다. 여기서 발화하면 운영자는 헛수고를 한 번 덜 한다.
+//
+// **exit은 항상 0이다** — 이 명령은 판정을 *보고*하는 것이고, 커맨드 본문이 stdout의
+// `terminate` 불리언에 분기한다. 비영점을 쓰면 "종료됨"이 오류로 읽혀 Step 4.5의
+// 다른 실패와 구별되지 않는다.
+function cmdCheckTermination(args) {
+  const opts = baseOpts(args);
+  // 원장을 **한 번만** 읽는다(M2 DD10과 같은 이유 — 읽기에는 lock이 없다).
+  const state = ledger.read(opts);
+  const round = lastFinalRound(state);
+  const mode = terminator.parseTerminator(opts.env);
+
+  if (round === null) {
+    // 판정할 FINAL 라운드가 없다. `decideTermination`의 `round < minRound` 항과 같은
+    // 미발화이지만 사유를 구별해 둔다 — 입력이 아예 없는 것과 라운드가 이른 것은
+    // 운영자에게 다른 뜻이다.
+    out({
+      terminate: false, exitReason: null, reason: 'no-final-round', round: null,
+      targetsBreakdown: { round_n_patch: 0, preexisting: 0, unknown: 0 },
+      classified: [], unresolved: [],
+    });
+    return EX_OK;
+  }
+
+  const folded = adjudication.foldEntries(state.entries);
+  const decided = decideFor(state, round, opts, folded);
+  // 캡이 이미 끝낼 run을 terminator가 자기 공으로 가져가지 않는다(DD5의 정직성 항).
+  const capAllows = counter.decideRound({
+    roundsSoFar: state.rounds.length, cap: state.cap,
+  }).allowed;
+
+  const patchRanges = patchRangesFrom(args['prev-fix-rev'], opts);
+  const decision = terminator.decideTermination({
+    mode: mode,
+    round: round,
+    minRound: terminator.MIN_ROUND,
+    effectiveBlocking: decided.blocking,
+    patchRanges: patchRanges,
+    capAllowsAnotherRound: capAllows,
+  });
+
+  // **미발화 원인을 진단으로 남긴다.** `locations`가 선택 필드인 이상 미발화가
+  // *설계상 정상 경로*와 *리뷰어 미준수* 둘 다에서 나오는데, 그 둘을 구별하지 못하면
+  // 종료가 관측되지 않은 이유가 사후에 진단 불가가 된다. 카운트는 판정을 바꾸지
+  // 않는 계측이고(DD5의 AND는 무변경), 바꾸는 것은 그 이유가 기록에 남는다는 것뿐이다.
+  //
+  // **부분 `unknown`에서는 침묵한다** — 그것은 정상 미발화다.
+  if (decided.blocking.length > 0 &&
+      decision.targetsBreakdown.unknown === decided.blocking.length) {
+    errln('all ' + decided.blocking.length + ' effective blocking issue(s) of round ' + round +
+      ' classified `unknown` — the terminator had nothing to compare. Either the reviewers ' +
+      'emitted no `locations`, or --prev-fix-rev produced no patch ranges. This is NOT the ' +
+      'same as "the loop has not converged yet": the judgement never ran.');
+  }
+
+  if (decision.terminate) {
+    ledger.terminate({ reason: decision.exitReason }, opts);
+  }
+
+  out({
+    terminate: decision.terminate,
+    exitReason: decision.exitReason,
+    reason: decision.reason,
+    round: round,
+    targetsBreakdown: decision.targetsBreakdown,
+    classified: decision.classified,
+    unresolved: decision.unresolved,
+  });
+  return EX_OK;
+}
+
 function cmdBeginRound(args) {
   const opts = baseOpts(args);
   assertAdjudicationCoverage(opts);
+  // **`assertAdjudicationCoverage` 뒤, `ledger.beginRound` 이전이다**(DD7). 순서가
+  // 뒤가 아니라 앞이면 판정 미완료 루프가 종료 메시지를 받아 진단이 틀린다.
+  assertNotTerminated(opts);
   const r = ledger.beginRound(opts);
   out({ allowed: r.allowed, roundIndex: r.roundIndex, exitReason: r.exitReason });
   return r.allowed ? EX_OK : EX_CAP;
@@ -630,6 +849,8 @@ function usage() {
     '  verdict  --round <N>',
     '  adjudicate --round <N> --issue <id> --disposition absorbed|rejected|skipped|reopened',
     '             --evidence <text>   (claim/severity come from the ledger, not from flags)',
+    '  check-termination [--prev-fix-rev <rev>]',
+    '             (always exits 0 — branch on stdout `terminate`, not on the exit code)',
     '  status',
     '  seal',
     '',
@@ -648,6 +869,7 @@ function runCli(argv) {
       case 'record': return cmdRecord(args);
       case 'verdict': return cmdVerdict(args);
       case 'adjudicate': return cmdAdjudicate(args);
+      case 'check-termination': return cmdCheckTermination(args);
       case 'status': return cmdStatus(args);
       case 'seal': return cmdSeal(args);
       default:
@@ -692,6 +914,10 @@ if (require.main === module) {
 
 module.exports = {
   runCli: runCli,
+  // santa-adjudication M3 — hunk 추출은 CLI 계층에 산다(순수 oracle은 git을 모른다).
+  // export하는 이유는 항목 68이 **진짜 `git show` 출력**으로 이 파서를 재기 때문이다 —
+  // 합성 diff 문자열은 내가 쓴 파서를 내가 쓴 입력으로 재는 것이다.
+  patchRangesFrom: patchRangesFrom,
   EX_OK: EX_OK,
   EX_USAGE: EX_USAGE,
   EX_CAP: EX_CAP,

@@ -1572,3 +1572,870 @@ test('[60] issueId 유실 시 runtime fail-closed — coverage는 막고 suppres
     '조용히 0건이 되는 것과 명시적으로 거부하고 warn하는 것은 다르다 — 전자는 정상 동작과 구별되지 않는다');
   assert.equal(id.length, 12);
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// santa-adjudication M3 — patch-chasing terminator + 캡 정책 (커버리지 61~87)
+//
+// 1~60은 무변경이고 같은 파일이 계약 전량을 계속 소유한다(머리말의 규약).
+// CLI를 겨눈 항목(68·73~76·81·82·84·85·86)은 tmpdir `git init` 진짜 repo fixture
+// 위에서 in-process `runCli`를 지난다 — 특히 68은 진짜 `git show` 출력을 파싱해야
+// 의미가 있다(합성 diff 문자열은 내가 쓴 파서를 내가 쓴 입력으로 재는 것이다).
+// ══════════════════════════════════════════════════════════════════════════════
+
+const terminator = require('../santa/terminator');
+// `ledgerMod`는 M2 블록(위)이 이미 require했다 — 같은 모듈 객체를 그대로 쓴다.
+const { patchRangesFrom } = require('../santa/cli');
+const { validate: validateReceipt } = require('../../receipt/schema');
+
+const SANTA_LOOP_MD_REL = ['..', '..', '..', 'commands', 'santa-loop.md'];
+
+// 원장 fixture — CLI 경로 검증이 목적인 항목은 라운드를 8회 CLI로 쌓는 대신
+// 원장을 직접 만든다(항목 73의 문언: "fixture가 locations를 채운 원장을 직접
+// 만드므로 리뷰어 행동에 의존하지 않는다"). 검증 대상인 `runCli`·`ledger.read`·
+// `git show`는 전부 진짜다.
+function ledgerFixture(slug, over) {
+  return Object.assign({
+    schema_version: ledgerMod.SCHEMA_VERSION,
+    decision_id: slug,
+    cap: 3,
+    rounds: [],
+    entries: [],
+    terminated: null,
+  }, over || {});
+}
+
+function roundFixture(index, verdict, reviewers) {
+  return {
+    index: index,
+    started_at: '2026-08-17T00:00:00.000Z',
+    reviewers: (reviewers || []).map(function (r) { return { envelope: r, raw: null }; }),
+    verdict: verdict === undefined ? null : verdict,
+  };
+}
+
+function writeLedger(repo, slug, state) {
+  const p = statePath(repo, slug);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(state, null, 2) + '\n', 'utf8');
+  return p;
+}
+
+// blocking 자격을 갖춘 finding + `locations`.
+function locFinding(claim, locations) {
+  return finding({ claim: claim, locations: locations === undefined ? [] : locations });
+}
+
+// M1/M2 형태 envelope — `findings` 키 자체가 없고 `locations`도 없다(항목 82).
+function legacyEnvelope(id, verdict, claims) {
+  return legacyReviewer(id, verdict, claims || []);
+}
+
+function withEnv(patch, fn) {
+  const saved = {};
+  Object.keys(patch).forEach(function (k) {
+    saved[k] = Object.prototype.hasOwnProperty.call(process.env, k) ? process.env[k] : undefined;
+    if (patch[k] === undefined) delete process.env[k];
+    else process.env[k] = patch[k];
+  });
+  try { return fn(); } finally {
+    Object.keys(saved).forEach(function (k) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    });
+  }
+}
+
+// ── env 파서 ─────────────────────────────────────────────────────────────────
+
+test('[61] parseTerminator: 미설정·enforce·off·불량값 4경우 — 불량값은 enforce + loud warn', () => {
+  assert.equal(terminator.parseTerminator({}), 'enforce', '미설정은 default enforce');
+  assert.equal(terminator.parseTerminator(undefined), 'enforce', 'env 자체 부재도 default');
+  assert.equal(terminator.parseTerminator({ MCCP_SANTA_TERMINATOR: '' }), 'enforce');
+  assert.equal(terminator.parseTerminator({ MCCP_SANTA_TERMINATOR: ' enforce ' }), 'enforce');
+  assert.equal(terminator.parseTerminator({ MCCP_SANTA_TERMINATOR: 'off' }), 'off');
+
+  const bad = captureStderr(function () {
+    return terminator.parseTerminator({ MCCP_SANTA_TERMINATOR: 'OFF' });
+  });
+  assert.equal(bad.value, 'enforce', '열거 밖은 default로 떨어진다 (대소문자 구분)');
+  assert.match(bad.stderr, /MCCP_SANTA_TERMINATOR/,
+    '조용한 fallback은 오타를 감춘다 — 끄려는 의도가 반영되지 않았음을 warn이 알린다');
+  assert.equal(terminator.ENV_TERMINATOR, 'MCCP_SANTA_TERMINATOR');
+});
+
+// ── normalizeLocations ───────────────────────────────────────────────────────
+
+test('[62] normalizeLocations: 비배열·null·원소 타입 위반이 전부 던지지 않고 정규화된다', () => {
+  [undefined, null, 0, '', {}, 'x', 42, true].forEach(function (bad) {
+    assert.doesNotThrow(function () { terminator.normalizeLocations(bad); },
+      JSON.stringify(bad) + ': 전역 함수는 어떤 입력에도 던지지 않는다');
+    assert.deepEqual(terminator.normalizeLocations(bad), [],
+      '비배열은 빈 배열이다 — 던지면 위치 표기 오류 하나가 실재 blocking을 지운다');
+  });
+
+  // 원소별 위반: 객체 아님 · file 비문자열 · file 빈 문자열 · file 상한 초과
+  const dropped = terminator.normalizeLocations([
+    'a.js', null, 42, [], { file: 7 }, { file: '' },
+    { file: 'x'.repeat(terminator.MAX_FILE_CHARS + 1) }, { line: 3 },
+  ]);
+  assert.deepEqual(dropped, [], '유효한 file이 없는 원소는 전부 떨어진다');
+
+  // `line`은 양의 정수일 때만 보존되고, 아니면 null이다 — 원소 자체는 살아남는다
+  // (파일 단위 일치는 여전히 가능하므로 원소를 버리면 정보가 준다).
+  const lines = terminator.normalizeLocations([
+    { file: 'a.js', line: 0 }, { file: 'b.js', line: -3 }, { file: 'c.js', line: 1.5 },
+    { file: 'd.js', line: '7' }, { file: 'e.js' }, { file: 'f.js', line: 12 },
+  ]);
+  assert.deepEqual(lines.map(function (l) { return l.line; }), [null, null, null, null, null, 12]);
+  assert.deepEqual(lines.map(function (l) { return l.file; }),
+    ['a.js', 'b.js', 'c.js', 'd.js', 'e.js', 'f.js']);
+  lines.forEach(function (l) {
+    assert.deepEqual(Object.keys(l).sort(), ['file', 'line'],
+      '반환 원소는 2키 고정이다 — 소비자가 키 부재와 null을 구별할 필요가 없다');
+  });
+});
+
+test('[63] normalizeLocations: 21개가 20개로 절삭되고 입력 배열이 변형되지 않는다', () => {
+  const input = [];
+  for (let i = 0; i < 21; i++) input.push({ file: 'f' + i + '.js', line: i + 1 });
+  const snapshot = JSON.stringify(input);
+
+  const out = terminator.normalizeLocations(input);
+  assert.equal(out.length, terminator.MAX_LOCATIONS, '상한은 20이다');
+  assert.equal(out.length, 20);
+  assert.equal(out[19].file, 'f19.js', '앞에서부터 취한다');
+  assert.equal(JSON.stringify(input), snapshot,
+    '입력을 변형하면 호출자가 보는 원장 envelope가 조용히 바뀐다');
+  // 절삭 사실은 반환에 남지 않는다 — 정규화이지 판정이 아니다. 남기면 위치 표기
+  // 개수가 판정에 영향을 주기 시작한다.
+  out.forEach(function (l) { assert.deepEqual(Object.keys(l).sort(), ['file', 'line']); });
+});
+
+// ── classifyTarget ───────────────────────────────────────────────────────────
+
+test('[64] classifyTarget: DD11 표 4행 전수 + patchRanges 빈 집합은 unknown', () => {
+  const ranges = { 'src/a.js': [[10, 20]], 'src/b.js': [[1, 3]] };
+
+  assert.equal(terminator.classifyTarget({ locations: [], patchRanges: ranges }),
+    'unknown', 'locations 빈 배열은 대조할 것이 없다');
+  assert.equal(terminator.classifyTarget({ locations: null, patchRanges: ranges }),
+    'unknown', 'locations 부재도 같다');
+  assert.equal(terminator.classifyTarget({
+    locations: [{ file: 'src/a.js', line: 12 }], patchRanges: {},
+  }), 'unknown', 'patchRanges 빈 집합 — git이 실패했거나 hunk가 0건이다');
+  assert.equal(terminator.classifyTarget({
+    locations: [{ file: 'src/a.js', line: 12 }, { file: 'src/b.js', line: 2 }],
+    patchRanges: ranges,
+  }), 'round_n_patch', '모든 location이 patch 안이다');
+  assert.equal(terminator.classifyTarget({
+    locations: [{ file: 'src/a.js', line: 12 }, { file: 'src/z.js', line: 2 }],
+    patchRanges: ranges,
+  }), 'preexisting', '파일 하나가 patch 밖이면 전체가 preexisting이다');
+  assert.equal(terminator.classifyTarget({
+    locations: [{ file: 'src/a.js', line: 99 }], patchRanges: ranges,
+  }), 'preexisting', '파일은 맞지만 라인이 hunk 밖이다');
+
+  // 전역 함수 — 어떤 입력에도 던지지 않는다.
+  [undefined, null, 0, '', [], 'x'].forEach(function (bad) {
+    assert.doesNotThrow(function () {
+      terminator.classifyTarget({ locations: bad, patchRanges: bad });
+    });
+    assert.doesNotThrow(function () { terminator.classifyTarget(bad); });
+  });
+});
+
+test('[65] classifyTarget: line 부재는 파일 단위 일치, 삭제 전용 파일에 line 지정은 preexisting', () => {
+  // 삭제 전용 hunk(`d === 0`)는 파일을 집합에 넣되 라인 범위를 만들지 않는다.
+  const ranges = { 'src/added.js': [[1, 5]], 'src/deleted-only.js': [] };
+
+  assert.equal(terminator.classifyTarget({
+    locations: [{ file: 'src/added.js', line: null }], patchRanges: ranges,
+  }), 'round_n_patch', 'line이 없으면 파일 단위 일치로 충분하다 — 라인을 요구하면 대부분이 unknown이 되어 terminator가 사실상 죽는다');
+  assert.equal(terminator.classifyTarget({
+    locations: [{ file: 'src/deleted-only.js' }], patchRanges: ranges,
+  }), 'round_n_patch', '삭제 전용 파일도 파일 단위로는 patch가 손댄 파일이다');
+  assert.equal(terminator.classifyTarget({
+    locations: [{ file: 'src/deleted-only.js', line: 3 }], patchRanges: ranges,
+  }), 'preexisting', '지워진 라인을 겨누는 지적은 존재할 수 없으므로 안전한 쪽으로 떨어진다');
+});
+
+// ── gate.analyzeReviewers의 locations union ──────────────────────────────────
+
+test('[66] analyzeReviewers: 병합 blocking 행의 locations가 두 리뷰어 입력의 합집합이고 중복이 제거된다', () => {
+  const CLAIM = 'the merge step loses one element';
+  const a = reviewer('A', 'FAIL', [locFinding(CLAIM, [
+    { file: 'src/merge.js', line: 12 }, { file: 'src/merge.js', line: 12 },
+  ])]);
+  const b = reviewer('B', 'FAIL', [locFinding(CLAIM, [
+    { file: 'src/merge.js', line: 12 }, { file: 'src/merge.js', line: 40 },
+    { file: 'src/other.js' },
+  ])]);
+
+  const an = gate.analyzeReviewers([a, b]);
+  assert.equal(an.blocking.length, 1, '같은 정규화 claim은 한 행으로 병합된다');
+  const locs = an.blocking[0].locations;
+  assert.deepEqual(locs, [
+    { file: 'src/merge.js', line: 12 },
+    { file: 'src/merge.js', line: 40 },
+    { file: 'src/other.js', line: null },
+  ], '합집합이고 (file, line) 쌍으로 중복 제거된다');
+  // 합집합인 이유: 어느 한쪽을 버리는 규칙을 두면 버림이 판정을 바꾼다(버리는 쪽이
+  // patch 안이면 분류가 preexisting으로 뒤집힌다). 합집합은 그 선택을 없앤다.
+  assert.deepEqual(an.blocking[0].ids, ['A', 'B']);
+});
+
+test('[67] analyzeReviewers: locations 부재·불량이 blocking 자격을 바꾸지 않는다 (M1 기대값 동일)', () => {
+  const CLAIM = 'the merge step loses one element';
+  const base = [reviewer('A', 'FAIL', [finding({ claim: CLAIM })]),
+    reviewer('B', 'FAIL', [finding({ claim: CLAIM })])];
+  const expected = gate.analyzeReviewers(base);
+
+  [undefined, null, 'not-an-array', 42, {}, [{ nope: 1 }], [{ file: 7 }]].forEach(function (bad) {
+    const rs = [
+      reviewer('A', 'FAIL', [locFinding(CLAIM, bad)]),
+      reviewer('B', 'FAIL', [locFinding(CLAIM, bad)]),
+    ];
+    const an = gate.analyzeReviewers(rs);
+    assert.equal(an.contract, expected.contract,
+      JSON.stringify(bad) + ': locations는 계약 축이 아니다 — 강등하면 위치 표기 오류가 실재 blocking을 지운다');
+    assert.equal(an.blocking.length, expected.blocking.length);
+    assert.equal(an.blocking[0].severity, expected.blocking[0].severity);
+    assert.equal(an.blocking[0].issueId, expected.blocking[0].issueId);
+    assert.deepEqual(an.blocking[0].locations, [], '불량은 강등 없이 빈 배열이다');
+    // classifyFinding 자체도 이 필드를 보지 않는다.
+    assert.equal(gate.classifyFinding(locFinding(CLAIM, bad)).blocking, true);
+  });
+});
+
+// ── patchRangesFrom (진짜 git) ───────────────────────────────────────────────
+
+test('[68] patchRangesFrom: 진짜 git show 출력에서 추가·수정·삭제전용·신규파일 4종을 파싱한다', () => {
+  const repo = makeRepo();
+  const run = function (args) {
+    return execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+  };
+  fs.writeFileSync(path.join(repo, 'keep.txt'), 'k1\nk2\nk3\n');
+  fs.writeFileSync(path.join(repo, 'mod.txt'), 'm1\nm2\nm3\nm4\nm5\n');
+  fs.writeFileSync(path.join(repo, 'shrink.txt'), 's1\ns2\ns3\ns4\ns5\n');
+  execFileSync('git', ['add', '-A'], { cwd: repo, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-qm', 'base'], { cwd: repo, stdio: 'ignore' });
+
+  fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'src', 'new.js'), 'n1\nn2\nn3\n');   // 신규 파일
+  fs.writeFileSync(path.join(repo, 'mod.txt'), 'm1\nm2\nCHANGED\nm4\nm5\n'); // 수정
+  fs.writeFileSync(path.join(repo, 'shrink.txt'), 's1\ns4\ns5\n');      // 삭제 전용
+  execFileSync('git', ['add', '-A'], { cwd: repo, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-qm', 'fix round 0'], { cwd: repo, stdio: 'ignore' });
+  const rev = run(['rev-parse', 'HEAD']).trim();
+
+  const ranges = patchRangesFrom(rev, { cwd: repo });
+
+  assert.ok(Object.prototype.hasOwnProperty.call(ranges, 'src/new.js'),
+    '신규 파일은 patch 집합에 들어간다');
+  assert.deepEqual(ranges['src/new.js'], [[1, 3]], '신규 파일은 전체가 추가 범위다');
+  assert.deepEqual(ranges['mod.txt'], [[3, 3]], '수정은 새 파일 기준 라인 하나다');
+  assert.ok(Object.prototype.hasOwnProperty.call(ranges, 'shrink.txt'),
+    '삭제 전용 파일도 집합에는 들어간다');
+  assert.deepEqual(ranges['shrink.txt'], [],
+    '추가 라인이 없으므로 범위는 만들지 않는다 — 그 파일의 라인 지정 지적은 preexisting이다');
+  assert.equal(Object.prototype.hasOwnProperty.call(ranges, 'keep.txt'), false,
+    '손대지 않은 파일은 집합에 없다');
+
+  // 반환은 `Object.create(null)`이다 — 경로가 `__proto__`인 파일이 own property를
+  // 잃고 조용히 사라지는 것을 막는다. 그래서 빈 집합 판정은 `deepEqual({})`이
+  // 아니라 키 수로 한다(deepStrictEqual은 prototype까지 본다).
+  const isEmpty = function (v) { return Object.keys(v).length === 0; };
+
+  // 부재·불량·존재하지 않는 rev는 전부 빈 집합이다(오류가 아니라 unknown 쪽).
+  assert.ok(isEmpty(patchRangesFrom(undefined, { cwd: repo })));
+  assert.ok(isEmpty(patchRangesFrom('  ', { cwd: repo })));
+  const bad = captureStderr(function () { return patchRangesFrom('--upstream', { cwd: repo }); });
+  assert.ok(isEmpty(bad.value), '플래그처럼 보이는 문자열은 형식 검사에서 걸린다');
+  assert.match(bad.stderr, /prev-fix-rev/);
+  const gone = captureStderr(function () {
+    return patchRangesFrom('0123456789abcdef0123456789abcdef01234567', { cwd: repo });
+  });
+  assert.ok(isEmpty(gone.value), '존재하지 않는 rev는 비영점 exit이고 빈 집합으로 흡수된다');
+
+  // trailing newline은 셸이 쓴 앵커 파일의 정상 형태다 — trim이 없으면 정상 rev가
+  // 전부 불량으로 떨어져 terminator가 영원히 미발화한다.
+  assert.deepEqual(patchRangesFrom(rev + '\n', { cwd: repo }), ranges);
+});
+
+// ── decideTermination ────────────────────────────────────────────────────────
+
+function fireInput(over) {
+  const base = {
+    mode: 'enforce',
+    round: 1,
+    minRound: terminator.MIN_ROUND,
+    effectiveBlocking: [
+      { issueId: 'aaaaaaaaaaaa', claim: 'c1', severity: 'HIGH', locations: [{ file: 'src/a.js', line: 4 }] },
+    ],
+    patchRanges: { 'src/a.js': [[1, 9]] },
+    capAllowsAnotherRound: true,
+  };
+  return Object.assign(base, over || {});
+}
+
+test('[69] decideTermination: 5항 AND의 각 항을 하나씩 거짓으로 만든 5경우가 전부 미발화하고 reason이 그 항을 지목한다', () => {
+  assert.equal(terminator.decideTermination(fireInput()).terminate, true, '기준선은 발화한다');
+
+  const cases = [
+    [{ mode: 'off' }, 'env-off'],
+    [{ round: 0 }, 'round-below-min'],
+    [{ effectiveBlocking: [] }, 'no-effective-blocking'],
+    [{ patchRanges: { 'src/other.js': [[1, 9]] } }, 'not-all-round-n-patch'],
+    [{ capAllowsAnotherRound: false }, 'cap-would-end-this-run'],
+  ];
+  cases.forEach(function (pair) {
+    const d = terminator.decideTermination(fireInput(pair[0]));
+    assert.equal(d.terminate, false, JSON.stringify(pair[0]) + ': 한 항이 거짓이면 발화하지 않는다');
+    assert.equal(d.reason, pair[1], 'reason은 어느 항이 막았는지를 지목한다');
+    assert.equal(d.exitReason, null, '미발화에는 종료 사유가 없다');
+  });
+
+  const fired = terminator.decideTermination(fireInput());
+  assert.equal(fired.reason, null);
+  assert.equal(fired.exitReason, 'patch_chasing');
+  assert.equal(fired.exitReason, terminator.EXIT_REASON.PATCH_CHASING);
+});
+
+test('[70] decideTermination: effectiveBlocking이 빈 배열이면 every가 참이어도 미발화한다', () => {
+  // 빈 배열에 `every`가 참이 되는 것이 이 AND에서 유일하게 위험한 자리라 조건을
+  // 따로 세운다. blocking 0건 라운드는 NICE이고 루프의 정상 종료는 이미 그쪽이다 —
+  // 그 라운드를 patch_chasing으로 봉인하면 수렴을 종료로 오기록한다.
+  const d = terminator.decideTermination(fireInput({ effectiveBlocking: [] }));
+  assert.equal(d.terminate, false);
+  assert.equal(d.reason, 'no-effective-blocking');
+  assert.deepEqual(d.classified, []);
+  assert.deepEqual(d.unresolved, []);
+  assert.deepEqual(d.targetsBreakdown, { round_n_patch: 0, preexisting: 0, unknown: 0 });
+  // 비배열도 같다(전역 함수).
+  assert.equal(terminator.decideTermination(fireInput({ effectiveBlocking: null })).terminate, false);
+});
+
+test('[71] decideTermination: capAllowsAnotherRound=false면 미발화 — 캡이 끝낼 run을 terminator가 주장하지 않는다', () => {
+  const d = terminator.decideTermination(fireInput({ capAllowsAnotherRound: false }));
+  assert.equal(d.terminate, false);
+  assert.equal(d.reason, 'cap-would-end-this-run');
+  // 이 항은 안전이 아니라 정직성이다: 두 종료 사유가 배타로 유지돼야 "자연 종료
+  // 비율"이 의미를 갖는다.
+  assert.equal(terminator.decideTermination(fireInput({ capAllowsAnotherRound: undefined })).terminate,
+    false, '불리언 true가 아니면 전부 미발화 쪽이다');
+  assert.equal(terminator.decideTermination(fireInput({ capAllowsAnotherRound: 'yes' })).terminate, false);
+});
+
+test('[72] decideTermination: 발화 시 unresolved가 전건을 담고 classified가 분류를 담되 입력 행은 변형되지 않는다', () => {
+  const rows = [
+    { issueId: 'aaaaaaaaaaaa', claim: 'c1', severity: 'HIGH', locations: [{ file: 'src/a.js', line: 4 }] },
+    { issueId: 'bbbbbbbbbbbb', claim: 'c2', severity: 'CRITICAL', locations: [{ file: 'src/a.js', line: 8 }] },
+  ];
+  const snapshot = JSON.stringify(rows);
+  const d = terminator.decideTermination(fireInput({ effectiveBlocking: rows }));
+
+  assert.equal(d.terminate, true);
+  assert.deepEqual(d.classified, [
+    { issueId: 'aaaaaaaaaaaa', target: 'round_n_patch' },
+    { issueId: 'bbbbbbbbbbbb', target: 'round_n_patch' },
+  ], 'classified는 {issueId, target} 2키다');
+  assert.deepEqual(d.unresolved, [
+    { issueId: 'aaaaaaaaaaaa', severity: 'HIGH', claim: 'c1', targets: 'round_n_patch' },
+    { issueId: 'bbbbbbbbbbbb', severity: 'CRITICAL', claim: 'c2', targets: 'round_n_patch' },
+  ], 'unresolved는 effective blocking 전건을 담는다');
+
+  // **입력 행에 target/targets 키가 생기지 않는다** — DD3의 분리(리뷰어 입력
+  // locations ↔ 집계 판정 targets)가 코드에서 유지되는지를 재는 자리다. 집계가
+  // 입력 행을 되짚어 쓰면 그 분리가 이름만 남는다.
+  assert.equal(JSON.stringify(rows), snapshot, '입력 비변형');
+  rows.forEach(function (r) {
+    assert.equal(Object.prototype.hasOwnProperty.call(r, 'target'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(r, 'targets'), false);
+  });
+});
+
+// ── check-termination (CLI) ──────────────────────────────────────────────────
+
+// 라운드 0의 수정 커밋 + 라운드 1의 지적이 그 커밋을 겨누는 원장을 만든다.
+function chasingRepo(slug) {
+  const repo = makeRepo();
+  fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'src', 'fix.js'), 'l1\nl2\nl3\nl4\n');
+  execFileSync('git', ['add', '-A'], { cwd: repo, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-qm', 'fix: address santa-loop review findings (round 0)'],
+    { cwd: repo, stdio: 'ignore' });
+  const rev = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
+
+  const chasing = 'the round-0 fix left the guard unreachable';
+  const state = ledgerFixture(slug, {
+    rounds: [
+      roundFixture(0, 'NAUGHTY', [
+        reviewer('A', 'FAIL', [finding({ claim: 'original defect' })]),
+        reviewer('B', 'FAIL', [finding({ claim: 'original defect' })]),
+      ]),
+      roundFixture(1, 'NAUGHTY', [
+        reviewer('A', 'FAIL', [locFinding(chasing, [{ file: 'src/fix.js', line: 2 }])]),
+        reviewer('B', 'FAIL', [locFinding(chasing, [{ file: 'src/fix.js', line: 3 }])]),
+      ]),
+    ],
+  });
+  writeLedger(repo, slug, state);
+  return { repo: repo, rev: rev, slug: slug, claim: chasing };
+}
+
+test('[73] check-termination(CLI): 발화 시 exit 0 + terminate:true + 원장에 결속된 patch_chasing 마커', () => {
+  const f = chasingRepo('m3-fire');
+  const r = cli(['check-termination', '--cwd', f.repo, '--decision', f.slug,
+    '--prev-fix-rev', f.rev]);
+
+  assert.equal(r.code, EX_OK,
+    'exit은 항상 0이다 — 비영점을 쓰면 "종료됨"이 Step 4.5의 다른 실패와 구별되지 않는다');
+  const j = JSON.parse(r.stdout);
+  assert.equal(j.terminate, true);
+  assert.equal(j.exitReason, 'patch_chasing');
+  assert.equal(j.reason, null);
+  assert.equal(j.round, 1);
+  assert.deepEqual(j.targetsBreakdown, { round_n_patch: 1, preexisting: 0, unknown: 0 });
+  assert.equal(j.unresolved.length, 1);
+  assert.equal(j.unresolved[0].targets, 'round_n_patch');
+
+  const state = readState(f.repo, f.slug);
+  assert.equal(state.terminated.reason, 'patch_chasing');
+  assert.equal(state.terminated.rounds, 2, '마커는 관측 시점의 라운드 수에 결속된다');
+  assert.ok(!Number.isNaN(Date.parse(state.terminated.at)));
+  assert.equal(state.cap, 3, 'terminate는 state.cap을 건드리지 않는다');
+});
+
+test('[74] check-termination(CLI): --prev-fix-rev 부재·불량·존재하지 않는 rev 3경우가 전부 미발화 + exit 0', () => {
+  [null, '--upstream', '0123456789abcdef0123456789abcdef01234567'].forEach(function (rev) {
+    const f = chasingRepo('m3-norev');
+    const argv = ['check-termination', '--cwd', f.repo, '--decision', f.slug];
+    if (rev !== null) argv.push('--prev-fix-rev', rev);
+    const r = cli(argv);
+
+    assert.equal(r.code, EX_OK, String(rev) + ': 판정 실패는 오류가 아니다');
+    const j = JSON.parse(r.stdout);
+    assert.equal(j.terminate, false, String(rev) + ': 모르면 종료하지 않는다');
+    assert.equal(j.reason, 'not-all-round-n-patch');
+    assert.equal(j.targetsBreakdown.unknown, 1, 'patch 범위가 빈 집합이면 전량 unknown이다');
+    assert.equal(readState(f.repo, f.slug).terminated, null, '미발화는 마커를 쓰지 않는다');
+  });
+});
+
+test('[75] begin-round: 결속된 patch_chasing 마커에서 exit 2 · 라운드 미개설 · 캡 미소모', () => {
+  const f = chasingRepo('m3-block');
+  cli(['check-termination', '--cwd', f.repo, '--decision', f.slug, '--prev-fix-rev', f.rev]);
+  const before = readState(f.repo, f.slug);
+  assert.equal(before.terminated.reason, 'patch_chasing');
+
+  const r = withEnv({ MCCP_SANTA_ADJUDICATION_GATE: 'off' }, function () {
+    return cli(['begin-round', '--cwd', f.repo, '--decision', f.slug]);
+  });
+  assert.equal(r.code, EX_USAGE, 'SANTA_TERMINATED는 기존 SANTA_* → exit 2 매핑을 탄다 (신규 code 없음)');
+  assert.match(r.stderr, /SANTA_TERMINATED/);
+
+  const after = readState(f.repo, f.slug);
+  assert.equal(after.rounds.length, before.rounds.length, '라운드가 열리지 않았다');
+  assert.equal(after.terminated.at, before.terminated.at, '마커도 그대로다 — 캡이 소모되지 않는다');
+});
+
+test('[76] begin-round: MCCP_SANTA_TERMINATOR=off면 마커가 있어도 라운드가 열리고 마커가 지워진다 (재개 경로)', () => {
+  const f = chasingRepo('m3-resume');
+  cli(['check-termination', '--cwd', f.repo, '--decision', f.slug, '--prev-fix-rev', f.rev]);
+  assert.equal(readState(f.repo, f.slug).terminated.reason, 'patch_chasing');
+
+  const r = withEnv({ MCCP_SANTA_TERMINATOR: 'off', MCCP_SANTA_ADJUDICATION_GATE: 'off' },
+    function () { return cli(['begin-round', '--cwd', f.repo, '--decision', f.slug]); });
+
+  assert.equal(r.code, EX_OK);
+  assert.match(r.stderr, /MCCP_SANTA_TERMINATOR=off/, '건너뛴 사실은 loud하다');
+  const after = readState(f.repo, f.slug);
+  assert.equal(after.rounds.length, 3, '라운드가 열렸다');
+  // **마커 삭제 코드는 새로 만들지 않는다** — `beginRound`의 기존 허용 분기가
+  // 이미 `state.terminated = null`을 수행한다. 그것이 `ledger.terminate`에 짝이
+  // 되는 `clearTermination`이 없는 이유다.
+  assert.equal(after.terminated, null);
+});
+
+// ── 커맨드 본문 회귀 ─────────────────────────────────────────────────────────
+
+test('[77] santa-loop.md 문구 회귀: Step 4.5가 존재하고 terminate 분기·seal·exit이 조건문 안에 있다', () => {
+  const md = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'commands', 'santa-loop.md'), 'utf8');
+  const start = md.indexOf('### Step 4.5');
+  assert.notEqual(start, -1, 'Step 4.5가 산문으로도 존재하지 않으면 나머지는 볼 것이 없다');
+  const end = md.indexOf('### Step 5:', start);
+  assert.ok(end > start, 'Step 4.5는 Step 5 앞에 있다 (소수점 삽입 — 기존 번호는 그대로다)');
+  const sec = md.slice(start, end);
+  assert.match(sec, /check-termination/);
+
+  // **분기 존재 자체**를 if/fi 깊이로 단언한다. 토큰이 있는지만 보면 M2 R3이 잡은
+  // "셸이 exit code를 캡처만 하고 분기하지 않는다"의 재발을 못 잡는다.
+  let depth = 0;
+  let branchDepth = -1;
+  let sealDepth = -1;
+  let exitDepth = -1;
+  sec.split(/\r?\n/).forEach(function (raw) {
+    const line = raw.trim();
+    if (/^if\s/.test(line)) depth += 1;
+    if (/^fi\b/.test(line)) depth -= 1;
+    if (/^if\s+\[\s*"\$TERMINATE"\s*=\s*"1"\s*\]/.test(line)) branchDepth = depth;
+    if (/seal\s+--decision/.test(line) && sealDepth === -1) sealDepth = depth;
+    if (/^exit\s+1\b/.test(line) && exitDepth === -1) exitDepth = depth;
+  });
+  assert.equal(depth, 0, 'if/fi가 짝을 이룬다');
+  assert.equal(branchDepth, 1, 'terminate 분기는 최상위 조건문이다');
+  assert.ok(sealDepth >= 1, 'seal 호출이 조건문 밖에 있으면 미발화 라운드마다 봉인이 돈다');
+  assert.ok(exitDepth >= 1, 'exit이 조건문 밖이면 Step 5로 내려가지 않는 것이 아니라 항상 멈춘다');
+  assert.match(sec, /SEAL_EXIT/, 'seal 실패는 캡처되고 진단된다');
+  assert.match(sec, /CHECK_EXIT/);
+});
+
+// ── ledger.terminate ─────────────────────────────────────────────────────────
+
+test('[78] ledger.terminate: 결속·멱등·다른 reason 비덮어쓰기·열거 밖 throw·state.cap 무변경', () => {
+  const repo = makeRepo();
+  const slug = 'm3-terminate';
+  writeLedger(repo, slug, ledgerFixture(slug, {
+    rounds: [roundFixture(0, 'NAUGHTY', []), roundFixture(1, 'NAUGHTY', [])],
+  }));
+  const opts = { cwd: repo, decisionId: slug, env: process.env };
+
+  // (1) 결속 — 마커는 관측 시점의 라운드 수를 담는다.
+  const first = ledgerMod.terminate({ reason: 'patch_chasing' }, opts);
+  assert.equal(first.terminated, true);
+  const s1 = readState(repo, slug);
+  assert.equal(s1.terminated.reason, 'patch_chasing');
+  assert.equal(s1.terminated.rounds, 2);
+  assert.equal(s1.cap, 3, 'state.cap은 건드리지 않는다');
+
+  // (2) 멱등 — 같은 사유·같은 결속이면 재기록하지 않는다. 재기록하면 `at`이
+  //     호출마다 밀려 **최초 종료 시각**이라는 감사값이 사라진다.
+  const second = ledgerMod.terminate({ reason: 'patch_chasing' }, opts);
+  assert.equal(second.already, true);
+  assert.equal(readState(repo, slug).terminated.at, s1.terminated.at);
+
+  // (3) 다른 reason이어도 덮어쓰지 않는다 — 먼저 관측된 종료가 실제 종료다.
+  const third = ledgerMod.terminate({ reason: 'cap_reached' }, opts);
+  assert.equal(third.already, true);
+  assert.equal(third.reason, 'patch_chasing');
+  assert.equal(readState(repo, slug).terminated.reason, 'patch_chasing');
+
+  // (4) 열거 밖은 throw이고 **lock을 잡지 않는다**(검사가 mutate 밖이다).
+  [undefined, null, '', 'terminated', 42, { reason: 7 }].forEach(function (bad) {
+    assert.throws(function () {
+      ledgerMod.terminate(bad && bad.reason !== undefined ? bad : { reason: bad }, opts);
+    }, /SANTA_TERMINATION_INVALID|termination reason/);
+  });
+  assert.equal(readState(repo, slug).terminated.reason, 'patch_chasing', '거부는 원장을 바꾸지 않는다');
+
+  // (5) 결속을 잃은 마커는 새 종료로 덮인다 — 영구 낙인이 되지 않는다.
+  const stale = readState(repo, slug);
+  stale.rounds.push(roundFixture(2, 'NAUGHTY', []));
+  writeLedger(repo, slug, stale);
+  const fourth = ledgerMod.terminate({ reason: 'cap_reached' }, opts);
+  assert.equal(fourth.already, false);
+  assert.equal(readState(repo, slug).terminated.rounds, 3);
+});
+
+// ── seal 술어 일반화 ─────────────────────────────────────────────────────────
+
+test('[79] seal: cap_reached 회귀 대조군 · patch_chasing 종료 · converged 투영 3경우', () => {
+  const nice = function (index) {
+    return roundFixture(index, 'NICE', [
+      reviewer('A', 'PASS', []), reviewer('B', 'PASS', []),
+    ]);
+  };
+  const naughty = function (index) {
+    return roundFixture(index, 'NAUGHTY', [
+      reviewer('A', 'FAIL', [finding({})]), reviewer('B', 'FAIL', [finding({})]),
+    ]);
+  };
+
+  // (a) **회귀 대조군.** 술어를 `exitReason !== null`로 일반화한 뒤에도 캡 경로의
+  //     봉인이 그대로여야 한다. 1~60에 캡 경로 seal test가 하나도 없어서, 술어를
+  //     `rounds.length` 같은 다른 축으로 잘못 일반화한 변이가 (b)·(c)만으로는
+  //     green을 유지하면서 캡 경로를 조용히 깬다.
+  const capRepo = makeRepo();
+  writeLedger(capRepo, 'm3-cap', ledgerFixture('m3-cap', {
+    cap: 1,
+    rounds: [naughty(0)],
+    terminated: { reason: 'cap_reached', at: '2026-08-17T00:00:00.000Z', rounds: 1 },
+  }));
+  const capSeal = JSON.parse(cli(['seal', '--cwd', capRepo, '--decision', 'm3-cap']).stdout);
+  assert.equal(capSeal.verdict, 'divergent');
+  const capProof = JSON.parse(fs.readFileSync(path.join(capRepo, capSeal.proofPath), 'utf8'));
+  assert.equal(capProof.layers.l1, 'divergent');
+  const capReceipt = JSON.parse(fs.readFileSync(path.resolve(capRepo, capSeal.receiptPath), 'utf8'));
+  assert.equal(capReceipt.meta.santa_exit_reason, 'cap_reached');
+
+  // (b) patch_chasing 종료도 같은 층 매핑을 받는다. 일반화하지 않으면 여기서
+  //     l1='converged'가 되어 **승인하지 않은 게이트가 승인했다고 receipt가 적는다**.
+  const pcRepo = makeRepo();
+  writeLedger(pcRepo, 'm3-pc', ledgerFixture('m3-pc', {
+    rounds: [naughty(0), naughty(1)],
+    terminated: { reason: 'patch_chasing', at: '2026-08-17T00:00:00.000Z', rounds: 2 },
+  }));
+  const pcSeal = JSON.parse(cli(['seal', '--cwd', pcRepo, '--decision', 'm3-pc']).stdout);
+  assert.equal(pcSeal.verdict, 'divergent');
+  const pcProof = JSON.parse(fs.readFileSync(path.join(pcRepo, pcSeal.proofPath), 'utf8'));
+  assert.equal(pcProof.layers.l1, 'divergent');
+  const pcReceipt = JSON.parse(fs.readFileSync(path.resolve(pcRepo, pcSeal.receiptPath), 'utf8'));
+  assert.equal(pcReceipt.meta.santa_exit_reason, 'patch_chasing');
+  assert.equal(validateReceipt(pcReceipt).ok, true, 'schema가 새 값을 받는다');
+  // 리포트에 exit reason 줄이 남는다 — Acceptance (B)의 파일 증명이 이 줄을 읽는다.
+  const pcReport = fs.readFileSync(path.join(pcRepo, pcSeal.reportPath), 'utf8');
+  assert.match(pcReport, /^- exit reason: `patch_chasing`$/m);
+
+  // (c) converged 원장에서는 exitReason이 null로 투영된다(기존 규칙, 무변경).
+  const okRepo = makeRepo();
+  writeLedger(okRepo, 'm3-ok', ledgerFixture('m3-ok', {
+    rounds: [naughty(0), nice(1)],
+    terminated: { reason: 'patch_chasing', at: '2026-08-17T00:00:00.000Z', rounds: 2 },
+  }));
+  const okSeal = JSON.parse(cli(['seal', '--cwd', okRepo, '--decision', 'm3-ok']).stdout);
+  assert.equal(okSeal.verdict, 'converged');
+  const okProof = JSON.parse(fs.readFileSync(path.join(okRepo, okSeal.proofPath), 'utf8'));
+  assert.equal(okProof.layers.l1, 'converged', '수렴한 원장에는 종료 사유가 투영되지 않는다');
+  const okReceipt = JSON.parse(fs.readFileSync(path.resolve(okRepo, okSeal.receiptPath), 'utf8'));
+  assert.equal(okReceipt.meta.santa_exit_reason, undefined);
+});
+
+// ── receipt schema ───────────────────────────────────────────────────────────
+
+test('[80] schema: santa_exit_reason이 2종을 받고 그 밖은 invalid하며 필드 부재는 여전히 valid', () => {
+  const repo = makeRepo();
+  writeLedger(repo, 'm3-schema', ledgerFixture('m3-schema', {
+    rounds: [roundFixture(0, 'NAUGHTY', [
+      reviewer('A', 'FAIL', [finding({})]), reviewer('B', 'FAIL', [finding({})]),
+    ])],
+    terminated: { reason: 'patch_chasing', at: '2026-08-17T00:00:00.000Z', rounds: 1 },
+  }));
+  const sealed = JSON.parse(cli(['seal', '--cwd', repo, '--decision', 'm3-schema']).stdout);
+  const receipt = JSON.parse(fs.readFileSync(path.resolve(repo, sealed.receiptPath), 'utf8'));
+
+  ['cap_reached', 'patch_chasing'].forEach(function (v) {
+    receipt.meta.santa_exit_reason = v;
+    assert.equal(validateReceipt(receipt).ok, true, v + '는 열거 안이다');
+  });
+  ['', 'terminated', 'CAP_REACHED', 42, true, [], {}].forEach(function (v) {
+    receipt.meta.santa_exit_reason = v;
+    assert.equal(validateReceipt(receipt).ok, false,
+      JSON.stringify(v) + ': 열거는 닫혀 있다 (additive-permissive는 2종까지다)');
+  });
+  delete receipt.meta.santa_exit_reason;
+  assert.equal(validateReceipt(receipt).ok, true,
+    '부재는 "종료가 기록되지 않았다"이고 과거 receipt가 그 형태다');
+});
+
+// ── 읽기·쓰기 열거 동기 ──────────────────────────────────────────────────────
+
+test('[81] 읽기·쓰기 열거 동기: patch_chasing 마커가 쓰인 원장을 ledger.read가 던지지 않고 읽는다', () => {
+  // **이 항목이 DD2의 한 커밋 불변식 전부다.** `assertTerminationMarker`를 넓히지
+  // 않으면 마커를 쓴 직후의 첫 read()가 SANTA_LEDGER_CORRUPT로 던져 그 slug의
+  // 원장이 통째로 읽히지 않는다 — seal도, status도, begin-round도.
+  const repo = makeRepo();
+  const slug = 'm3-sync';
+  writeLedger(repo, slug, ledgerFixture(slug, {
+    rounds: [roundFixture(0, 'NAUGHTY', [])],
+    terminated: { reason: 'patch_chasing', at: '2026-08-17T00:00:00.000Z', rounds: 1 },
+  }));
+  const opts = { cwd: repo, decisionId: slug, env: process.env };
+
+  let state;
+  assert.doesNotThrow(function () { state = ledgerMod.read(opts); });
+  assert.equal(state.terminated.reason, 'patch_chasing');
+  assert.deepEqual(ledgerMod.TERMINATION_REASONS.slice().sort(),
+    ['cap_reached', 'patch_chasing'], '읽기와 쓰기가 같은 집합을 본다');
+
+  // status(= aggregateFrom)까지 그대로 흐른다.
+  const st = cli(['status', '--cwd', repo, '--decision', slug]);
+  assert.equal(st.code, EX_OK);
+  assert.equal(JSON.parse(st.stdout).exitReason, 'patch_chasing');
+
+  // 열거 밖 reason은 여전히 손상이다 — 넓힌 것은 2종이지 아무 문자열이 아니다.
+  writeLedger(repo, slug, ledgerFixture(slug, {
+    rounds: [roundFixture(0, 'NAUGHTY', [])],
+    terminated: { reason: 'whatever', at: '2026-08-17T00:00:00.000Z', rounds: 1 },
+  }));
+  assert.throws(function () { ledgerMod.read(opts); },
+    function (err) { return err.code === 'SANTA_LEDGER_CORRUPT'; },
+    '열거 밖 reason은 여전히 손상이다 — 넓힌 것은 2종이지 아무 문자열이 아니다');
+});
+
+test('[82] legacy 원장 전방 호환: locations 없는 M1/M2 envelope에서 terminator가 던지지 않고 전량 unknown → 미발화', () => {
+  const repo = makeRepo();
+  const slug = 'm3-legacy';
+  const CLAIM = 'the merge step loses one element';
+  writeLedger(repo, slug, ledgerFixture(slug, {
+    rounds: [
+      roundFixture(0, 'NAUGHTY', [legacyEnvelope('A', 'FAIL', [CLAIM]),
+        legacyEnvelope('B', 'FAIL', [CLAIM])]),
+      // M1 형태(findings는 있고 locations 키가 없다)
+      roundFixture(1, 'NAUGHTY', [
+        { id: 'A', model: 'm', verdict: 'FAIL', criticalIssues: [CLAIM], findings: [finding({ claim: CLAIM })] },
+        { id: 'B', model: 'm', verdict: 'FAIL', criticalIssues: [CLAIM], findings: [finding({ claim: CLAIM })] },
+      ]),
+    ],
+  }));
+
+  const r = cli(['check-termination', '--cwd', repo, '--decision', slug]);
+  assert.equal(r.code, EX_OK, 'legacy 원장에서 죽지 않는다');
+  const j = JSON.parse(r.stdout);
+  assert.equal(j.terminate, false);
+  assert.equal(j.targetsBreakdown.unknown, j.classified.length);
+  assert.ok(j.classified.length > 0, 'blocking은 정상적으로 계산된다');
+  assert.equal(readState(repo, slug).terminated, null);
+});
+
+test('[83] I1·I3 회귀: Step 3에 종료 판정 토큰이 부재하고 M1 severity 계약 문언이 무변경이다', () => {
+  const md = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'commands', 'santa-loop.md'), 'utf8');
+  const s3 = md.indexOf('### Step 3: Dual Independent Review');
+  const s4 = md.indexOf('### Step 4: Verdict Gate');
+  assert.ok(s3 !== -1 && s4 > s3);
+  const step3 = md.slice(s3, s4);
+
+  // I1 — 리뷰어는 위치만 말하고 판정은 하지 않는다. 종료 어휘가 Step 3에 새면
+  // 리뷰어가 그 판정을 자기 것으로 삼는다.
+  ['patch_chasing', 'check-termination', 'terminate'].forEach(function (tok) {
+    assert.equal(step3.includes(tok), false,
+      'Step 3에 종료 판정 토큰 "' + tok + '"이 있다 — 리뷰어를 판정 주체로 만든다');
+  });
+
+  // I3 — M1 severity 계약 문언은 한 글자도 바뀌지 않는다(UI1: 리뷰어를 온화하게
+  // 만들지 말 것). 공백만 정규화해 대조한다.
+  const flat = step3.replace(/\s+/g, ' ');
+  assert.ok(flat.includes('An issue counts as *blocking* only when its `severity` is `CRITICAL` or `HIGH` **and** its `failure_scenario` is substantive.'),
+    'M1 severity 계약 문언이 바뀌었다');
+  assert.ok(flat.includes('This is not permission to look less hard.'),
+    'FAIL-first 프레이밍이 사라졌다');
+
+  // 반면 `locations` **계약 문언**은 Step 3에 있어야 한다 — 절 경계와 토큰을 나눠
+  // 단언하는 것이 이 항목의 요점이다.
+  assert.ok(step3.includes('"locations"'), 'Step 3의 리뷰어 JSON에 locations가 없다');
+  assert.ok(flat.includes('**Location contract.**'), 'locations 계약 문단이 없다');
+});
+
+test('[84] 미발화 원인 진단: 전량 unknown이면 stderr가 발화하고 부분 unknown에서는 침묵한다', () => {
+  // `locations`가 선택 필드인 이상 미발화가 **설계상 정상 경로**와 **리뷰어
+  // 미준수** 둘 다에서 나온다. 그 둘을 구별하지 못하면 종료가 관측되지 않은 이유가
+  // 사후에 진단 불가가 된다.
+  const all = chasingRepo('m3-allunknown');
+  const allState = readState(all.repo, all.slug);
+  allState.rounds[1].reviewers.forEach(function (r) {
+    r.envelope.findings.forEach(function (f) { f.locations = []; });
+  });
+  writeLedger(all.repo, all.slug, allState);
+  const rAll = cli(['check-termination', '--cwd', all.repo, '--decision', all.slug,
+    '--prev-fix-rev', all.rev]);
+  const jAll = JSON.parse(rAll.stdout);
+  assert.equal(jAll.targetsBreakdown.unknown, jAll.classified.length);
+  assert.ok(jAll.classified.length > 0);
+  assert.match(rAll.stderr, /classified `unknown`/,
+    '전량 unknown은 "리뷰어가 재료를 내지 않았다"이고 그것이 기록에 남아야 한다');
+
+  // 부분 unknown(1건만)은 정상 미발화다 — 침묵한다.
+  const part = chasingRepo('m3-partunknown');
+  const partState = readState(part.repo, part.slug);
+  partState.rounds[1].reviewers[0].envelope.findings.push(
+    finding({ claim: 'a second issue with no location', locations: [] }));
+  partState.rounds[1].reviewers[1].envelope.findings.push(
+    finding({ claim: 'a second issue with no location', locations: [] }));
+  writeLedger(part.repo, part.slug, partState);
+  const rPart = cli(['check-termination', '--cwd', part.repo, '--decision', part.slug,
+    '--prev-fix-rev', part.rev]);
+  const jPart = JSON.parse(rPart.stdout);
+  assert.equal(jPart.classified.length, 2);
+  assert.equal(jPart.targetsBreakdown.unknown, 1);
+  assert.equal(jPart.terminate, false, 'unknown이 하나라도 있으면 발화하지 않는다');
+  assert.equal(/classified `unknown`/.test(rPart.stderr), false,
+    '부분 unknown은 정상 미발화라 침묵한다 — 여기서 떠들면 신호가 노이즈가 된다');
+});
+
+test('[85] kill-switch 두 자리: off에서 check-termination이 env-off를 내고 마커를 쓰지 않는다', () => {
+  const f = chasingRepo('m3-killswitch');
+  const r = withEnv({ MCCP_SANTA_TERMINATOR: 'off' }, function () {
+    return cli(['check-termination', '--cwd', f.repo, '--decision', f.slug,
+      '--prev-fix-rev', f.rev]);
+  });
+  assert.equal(r.code, EX_OK);
+  const j = JSON.parse(r.stdout);
+  assert.equal(j.terminate, false);
+  // 셋째 자리(커맨드 본문 셸 `if`)가 생기면 이 값이 `env-off`가 아니게 된다 —
+  // 커맨드 본문은 `terminate` 불리언에만 분기하므로 off에서도 코드 경로가 같고
+  // `reason`이 그 이유를 터미널에 남긴다.
+  assert.equal(j.reason, 'env-off');
+  assert.equal(readState(f.repo, f.slug).terminated, null, 'off는 마커를 쓰지 않는다');
+
+  // 같은 env로 켰을 때는 발화한다 — off가 판정을 억제한 것이 맞다는 대조군.
+  const on = cli(['check-termination', '--cwd', f.repo, '--decision', f.slug,
+    '--prev-fix-rev', f.rev]);
+  assert.equal(JSON.parse(on.stdout).terminate, true);
+});
+
+test('[86] tmp 앵커 파일의 slug 격리: 두 slug가 같은 라운드 번호에서 서로의 rev를 덮지 않는다', () => {
+  // slug 없는 경로(`round-<N>-fix-rev.txt`)로 되돌리면 나중 write가 앞의 rev를
+  // 덮고, terminator가 **다른 루프의 패치 범위**로 대조해 오분류한다.
+  const one = chasingRepo('m3-iso-one');
+  // 같은 repo에 두 번째 slug — 다른 파일을 손댄 두 번째 커밋을 앵커로 갖는다.
+  fs.writeFileSync(path.join(one.repo, 'src', 'other.js'), 'o1\no2\no3\n');
+  execFileSync('git', ['add', '-A'], { cwd: one.repo, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-qm', 'other loop fix'], { cwd: one.repo, stdio: 'ignore' });
+  const otherRev = execFileSync('git', ['rev-parse', 'HEAD'],
+    { cwd: one.repo, encoding: 'utf8' }).trim();
+
+  const tmpFor = function (slug, round) {
+    return path.join(one.repo, '.claude', 'state', 'santa-loop', 'tmp', slug,
+      'round-' + round + '-fix-rev.txt');
+  };
+  [['m3-iso-one', one.rev], ['m3-iso-two', otherRev]].forEach(function (pair) {
+    const p = tmpFor(pair[0], 0);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, pair[1] + '\n', 'utf8');
+  });
+
+  // 두 앵커가 같은 라운드 번호를 쓰고도 서로 다른 값을 유지한다(교차 read 0건).
+  assert.equal(fs.readFileSync(tmpFor('m3-iso-one', 0), 'utf8').trim(), one.rev);
+  assert.equal(fs.readFileSync(tmpFor('m3-iso-two', 0), 'utf8').trim(), otherRev);
+  assert.notEqual(one.rev, otherRev);
+
+  // 자기 slug의 rev로 판정하면 발화하고(src/fix.js를 겨눈 지적), 다른 루프의
+  // rev를 넣으면 그 범위에 없으므로 발화하지 않는다 — 덮어쓰기가 일어났다면
+  // 첫 단언이 무너진다.
+  const mine = cli(['check-termination', '--cwd', one.repo, '--decision', one.slug,
+    '--prev-fix-rev', fs.readFileSync(tmpFor('m3-iso-one', 0), 'utf8').trim()]);
+  assert.equal(JSON.parse(mine.stdout).terminate, true);
+
+  const crossed = cli(['check-termination', '--cwd', one.repo, '--decision', one.slug,
+    '--prev-fix-rev', fs.readFileSync(tmpFor('m3-iso-two', 0), 'utf8').trim()]);
+  assert.equal(JSON.parse(crossed.stdout).terminate, false,
+    '남의 패치 범위로 대조하면 preexisting이다 — 교차오염이 오분류를 만든다는 증거');
+});
+
+test('[87] 라운드 대응: Step 4.5가 round-$((ROUND-1))을 읽고 ROUND=0에서는 --prev-fix-rev를 넘기지 않는다', () => {
+  const md = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'commands', 'santa-loop.md'), 'utf8');
+  const start = md.indexOf('### Step 4.5');
+  const sec = md.slice(start, md.indexOf('### Step 5:', start));
+
+  // 라운드 N은 **직전 라운드가 쓴** 앵커를 읽는다. N을 잘못 고르면 파일이 없어
+  // patchRanges가 빈 집합이 되고 전량 unknown으로 떨어져 terminator가 예외도
+  // 로그도 없이 영원히 미발화한다 — 그 상태는 정상 미발화와 구별되지 않는다.
+  assert.match(sec, /round-\$\(\(ROUND-1\)\)-fix-rev\.txt/,
+    'Step 4.5가 N-1의 앵커를 읽지 않는다');
+  assert.match(sec, /\$DECISION/, '앵커 경로에 slug 성분이 없으면 병렬 루프가 교차오염된다');
+
+  // Step 5는 **자기** 라운드 번호로 쓴다(N ↔ N-1 대응의 다른 절반).
+  const s5 = md.indexOf('### Step 5:');
+  const step5 = md.slice(s5, md.indexOf('### Step 5.5:', s5));
+  assert.match(step5, /round-\$ROUND-fix-rev\.txt/, 'Step 5가 자기 라운드로 앵커를 쓰지 않는다');
+  assert.match(step5, /git rev-parse HEAD/);
+
+  // ROUND=0에서는 플래그를 **아예 넘기지 않는다** — 빈 문자열을 넘기면 같은
+  // 미발화로 가더라도 사유가 "불량 rev"로 잘못 기록되어, 항목 84가 가르려는
+  // "정상 미발화 vs 입력 이상"의 구분이 무너진다.
+  const calls = sec.split(/\r?\n/).filter(function (l) { return /check-termination/.test(l) && /node /.test(l); });
+  assert.equal(calls.length, 2, 'check-termination 호출은 rev 있음/없음 두 분기다');
+  assert.equal(calls.filter(function (l) { return /--prev-fix-rev/.test(l); }).length, 1);
+  assert.equal(calls.filter(function (l) { return !/--prev-fix-rev/.test(l); }).length, 1);
+  assert.equal(/--prev-fix-rev\s*""/.test(sec), false, '빈 문자열을 넘기지 않는다');
+  assert.match(sec, /if \[ -n "\$PREV_REV" \]/, '분기 조건이 rev 존재 여부다');
+});

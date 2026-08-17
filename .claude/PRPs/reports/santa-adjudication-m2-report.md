@@ -30,7 +30,7 @@ lifecycle 3종이 함께 붙었다.
 | 4 | `santa-loop.md` — 판정 기록 단계 | 완료 | Step 3 거부 분기 · Step 4 출력 · Step 5 신설 |
 | 5 | 회귀 test 26~60 | 완료 | 60/60 green |
 | 6 | 문서 · 버전 · PRD | 완료 | ownership · ENVIRONMENT · 1.26.3 · CHANGELOG · PRD Open Question |
-| 7 | 실 경로 1회 완주 | **미착수** | 아래 「미완료」 |
+| 7 | 실 경로 1회 완주 | (A) 완료 · (B) **부분** | 아래 「Task 7 실측」 |
 
 ## Validation Results
 
@@ -121,25 +121,58 @@ milestone 2 소유"라고 적고 있다(DD14), (c) santa 디렉토리 파일 목
 |---|---|---|
 | `santa-adjudication.test.js` | 35 신규 (26~60) | 파서 2 · 행 스키마 4 · fold 3 · suppression 6 · coverage 2 · CLI 배선 10 · 문서 1 · receipt 1 · 관측 3 · runtime 가드 3 |
 
-## 미완료 — Task 7 (실 경로 1회 완주)
+## Task 7 실측 (2026-08-17) — (A) 충족 · (B) 부분 충족
 
-Acceptance (A)·(B)가 이 Task에 달려 있고 **아직 돌리지 않았다**. 두 부분 모두 실제
-`/mccp:santa-loop` 실행이 필요하다(합성 리뷰어 JSON 금지 — 종자는 리뷰 *대상*에 두고 리뷰어
-출력은 실물을 쓴다).
+합성 리뷰어 JSON은 쓰지 않았다. 리뷰어 6명 전원 실제 에이전트이고, 종자는 *리뷰 대상*에만 있다.
+Reviewer B는 `codex` CLI가 설치돼 있으나 **사용량 한도**(`try again at Aug 20th`)에 걸려
+`santa-loop.md`가 명시한 Claude Agent fallback을 썼다 — 모델 다양성 미달성, 컨텍스트 격리만 강제
+(M1과 같은 상황).
 
-- **(A)** 이 저장소에서 santa-loop 1회 완주 → `begin-round` coverage 선검사 통과 · `verdict`
-  stdout에 M2 키 · seal receipt `meta.santa_entries` = 원장 `entries` 길이
-- **(B)** 별도 워크트리 scratch 브랜치에서 DD13 라운드 결속을 **되돌린** 종자 결함을 실제
-  리뷰어에게 보이고(`--decision santa-adjudication-m2-probe`), 거부 → 판정 → 재개 → 억제를 관측
+### (A) — 충족. slug는 `santa-adjudication-m2`로 핀했다
 
-메커니즘 자체는 fixture repo를 지나는 커버리지 41~46·49·55가 이미 덮고, 실제 CLI 왕복 스모크도
-통과했다(coverage 거부 시 캡 미소모 · DD13 자기-suppression 차단 · 다음 라운드 억제 → NICE ·
-FINAL 재계산 바이트 불변). 남은 것은 **"실경로에서도 관측됐다"는 사실 하나**이고, plan과
-Acceptance가 같은 문장으로 "(B)가 체크되지 않으면 milestone은 `complete`가 아니며 PRD
-Milestone 2 행을 `complete`로 바꾸지 않는다"고 못박았다 — 그래서 PRD는 `in-progress`로 둔다.
+브랜치 slug(`santa-adjudication`)의 원장은 M1이 캡 3라운드를 이미 소진해 `begin-round`가 exit 12를
+낸다. plan의 Validate가 `resolve-decision` 값을 쓰라고 한 것은 하드코딩으로 엉뚱한 원장을 검사하는
+것을 막기 위함인데, 여기서는 그 값이 **소진된 M1 원장**을 가리키므로 명시 핀이 그 취지에 맞다.
+
+| 검증 | 결과 |
+|---|---|
+| (a) 라운드 기록 | `rounds=1 entries=0` |
+| (b) verdict stdout M2 키 | `suppressed`·`entries`·`ledger`·`carryOver` 전부 존재 |
+| (c) 집계 리포트 | `.claude/reviews/santa-review-santa-adjudication-m2.md` 산출 |
+| (d) receipt ↔ 원장 일치 | `santa_entries=0` = 원장 `entries` 길이, `rounds=1`, `verdict=converged` |
+
+round 0은 양 리뷰어 PASS · blocking 0 · distinct id 2 → **NICE**, seal `converged`.
+`begin-round`의 coverage 선검사는 FINAL 라운드가 없어 공허 참으로 통과했고, 그 통과 자체가 검사가
+도는 증거다.
+
+### (B) — (e)·(f) 충족, **(g) 미충족**. 원인은 표본이 아니라 패러프레이즈다
+
+별도 워크트리 `santa-m2-probe`(브랜치 동명, HEAD `7e7dc8b`)에서 DD13 라운드 결속을
+`e.round < round` → `<= round`로 되돌리고 정수 가드를 제거했다 — **2줄 uncommitted diff**.
+그 상태에서 커버리지 49·57이 red가 되므로 종자는 실재 결함이다(본 브랜치는 60/60 green).
+
+| 검증 | 결과 |
+|---|---|
+| round 0 판정 | **NAUGHTY**, blocking 4 (CRITICAL 2 · HIGH 2) — 리뷰어 2명이 독립적으로 종자를 짚었다. MEDIUM 1건은 정확히 비계수 |
+| (e) 미판정 → 거부 | exit 2 · `rounds 1 → 1`(**캡 미소모**) · stderr가 4건을 id·severity·claim으로 전량 열거 |
+| (f) 판정 후 재개 | `entries: 4` → `{"allowed":true,"roundIndex":1}` |
+| (g) 재등장 억제 | **미관측** — `suppressed: 0` |
+
+**(g)가 실패한 이유는 리뷰어가 결함을 놓쳐서가 아니다.** round 1의 fresh 리뷰어 2명도 같은 결함을
+전건 다시 찾았고, **4/4 전부 다른 문장**으로 썼다. `issue_id`가 정규화 claim이므로 넷 다 새 id를
+얻었다. `carryOver`는 DD5가 정의한 서명을 정확히 냈다 — `{suppressed:0, resolvedAbsent:4,
+newBlocking:4}`. 계측 도구는 의도대로 작동했고, 이 사건을 관측 가능하게 만든 것이 그 도구의 목적이다.
+
+**억제 메커니즘 자체는 고장이 아니다.** probe에서 round 1의 판정이 (종자가 결속을 지웠으므로)
+**같은 라운드**의 그 지적을 실제로 지웠다 — `kind: absorbed-rereported`, `entryRound: 1`,
+blocking 4 → 3. 즉 DD13이 막는 우회가 실경로에서 재현됐고, 본 브랜치에서는 같은 시퀀스가
+NAUGHTY로 남는다(커버리지 49 + 실 CLI 왕복 스모크).
+
+실측·처방은 PRD Open Questions에 등재했다. **(B)가 충족되지 않았으므로 PRD Milestone 2 행은
+`complete`로 바꾸지 않는다** — plan Task 7과 Acceptance가 같은 문장으로 요구한 처리다.
+probe 워크트리와 브랜치는 제거했고, 그 원장은 함께 사라졌다(DD15 — 소멸이 정상 동작).
 
 ## Next Steps
 
-- [ ] Task 7 (A)·(B) — `/mccp:santa-loop` 실 경로 완주 + probe
-- [ ] `/mccp:prp-commit` → `/mccp:pr`
-- [ ] PRD Milestone 2 행은 Task 7 (B) 관측 이후에만 `complete`로 전환
+- [ ] `/mccp:prp-commit`(잔여 PRD·보고서 변경) → `/mccp:pr`
+- [ ] PRD Milestone 2 행은 (g)가 관측되거나 식별자 축(M3/P2)이 결정된 뒤에만 `complete`로 전환

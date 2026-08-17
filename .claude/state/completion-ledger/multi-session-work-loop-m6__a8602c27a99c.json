@@ -1,0 +1,31 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "multi-session-work-loop-m6",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.27.2",
+    "completed_at": "2026-08-17T12:02:28.719Z",
+    "commit_sha": "b30755792540f3d23900e2102ef120f7f85dfe9d",
+    "plan_basename": "multi-session-work-loop-m6.plan.md",
+    "plan_file_hash": "sha256:e2338ca5430b930739ecd3fd7e9d808c5bc29bf72bc1c9419903f6233061765a",
+    "risks_closed": [
+      "**join key를 통한 독립성 누수** — 증거 조회에 필요한 decision slug가 PRD 행의 Plan 셀에서 오므로 \"문서 파생\"이라는 반론이 가능하다",
+      "**basename 중복이 verdict를 조용히 복제** — 두 milestone 행이 같은 plan basename을 선언하면 `decision_id`가 충돌해 같은 receipt를 가리킨다",
+      "**정적 lint가 간접 의존을 못 잡아 없는 보증을 믿게 됨** — 별칭 require·동적 require·호출자가 status를 다른 이름으로 전달하는 경로는 소스 스캔으로 안 잡힌다",
+      "**오라클 예외가 `archive-complete`에서 \"drift 없음\"으로 읽힘** — 현행 `collectDriftEvidence`의 `catch`가 `driftSuspect:false`를 반환한다",
+      "**감사 표본은 자동 강제가 불가능** — 분자가 사람의 판단이라 게이트로 만들 수 없다",
+      "**비정규 status 행의 처리가 지표를 왜곡** — drift로 세면 정직한 주석이 벌받고, 조용히 빼면 커버리지 구멍이 숨는다",
+      "**receipt 유실 구간이 `not-shipped`로 오판정** — receipt는 과거에 git 미추적이었고 §3.12 이전 작업 단위는 증거가 없다",
+      "**`archive-complete` 회귀** — ledger 강등이 archivable 판정을 바꾸면 아카이브 도구가 오작동",
+      "**renderer 변경이 design critique loop을 발화** — §3.9 트리거로 사이클 비용이 늘어난다",
+      "**브랜치명 `v1.24.0`과 §3.7 patch 규칙(`1.23.11`)의 불일치**",
+      "**사전 존재 red 상속** — `b2-coverage-gate` 2건(#118 소관) · `perf-budget` 병렬 flake",
+      "**`drift_count > 0`을 실패로 오독**",
+      "**활성 PRD가 1개뿐이라 분모가 작다**"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:a8602c27a99c828395b2613821942e91a4c1ab3b3acc6a41f0e0e090d5b01e9e",
+    "verdict_provenance": "codex-verdict"
+  }
+}

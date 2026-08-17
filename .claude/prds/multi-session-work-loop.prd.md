@@ -154,7 +154,7 @@ We believe **세션 스코프 상태 모델 + 증거 기반 진행 판정 + 검�
 | 3 | **증거 충돌 소거** | 게이트 증거가 세션 간에 덮이지 않는다. 같은 작업을 두 세션이 잡는 상황이 구조적으로 불가능해진다. **상태 진실원 이전(M5)보다 앞선다** — 덮어쓰기가 가능한 상태로 진실원을 옮기면 손상이 그대로 이전되기 때문 (B2) | complete | [multi-session-work-loop-m3.plan.md](../plans/multi-session-work-loop-m3.plan.md) |
 | 4 | **예산 감축** | 작업 시작 전 소진되던 컨텍스트가 절반 이하로 줄고, 토글 분모가 정직해져 축 감축의 출발점이 확정된다. **감축 전 "반드시 남겨야 할 최소 지시 계약"을 먼저 확정**하고, 감축 후 지시 준수 회귀 검사를 통과해야 인정된다 (A3 · B3 분모) | complete (인정 조건 미충족: B1·C1 회귀 검사 산출 불가) | [multi-session-work-loop-m4.plan.md](../plans/multi-session-work-loop-m4.plan.md) |
 | 5 | **상태 진실원 이전** | 세션 기록이 되돌릴 수 없는 요약이 아니라 질의 가능한 이력이 된다. 요약 문서는 파생 표시물로 강등된다. 크래시·재개 세션의 지연·재생 기록이 이미 닫힌 작업을 되살리지 못한다 (A4) | complete (인정 조건 미충족: A4 전환 미확인) | [multi-session-work-loop-m5.plan.md](../plans/multi-session-work-loop-m5.plan.md) |
-| 6 | **진행 상태 기계 판정** | milestone 완료 여부를 사람이 아니라 증거가 판정한다. drift 교정 명령이 상시 필요하지 않게 된다 (B1) | in-progress | [multi-session-work-loop-m6.plan.md](../plans/multi-session-work-loop-m6.plan.md) |
+| 6 | **진행 상태 기계 판정** | milestone 완료 여부를 사람이 아니라 증거가 판정한다. drift 교정 명령이 상시 필요하지 않게 된다 (B1) | complete | [multi-session-work-loop-m6.plan.md](../plans/multi-session-work-loop-m6.plan.md) |
 | 7 | **세션 경계 피드백 루프** | 한 세션에서 발견된 실수가 다음 세션의 작업 목록에 자동으로 올라온다. 발견과 해소 사이의 유실이 사라진다 (C1) | pending | — |
 | 8 | **측정 부채 상환** | M2가 배송했으나 프로덕션에서 산출하지 못하는 지표의 producer가 실제로 배선된다 — A1 완주 신호(`task_completed` KIND 발화), A2 세션 바인딩 컨텍스트, B3 numerator 커버리지(`TOGGLE_DEFAULTS` ↔ 분모 정합), C2·C3 귀속 스캐폴드(`gate_decision_id → finding_id → remediation_pr`). **지표가 `computed`로 뒤집히는 것이 완료 판정이며, 코드 존재는 판정 근거가 아니다**(M3 B2 coverage gate 선례). 이 milestone이 끝나야 A1 기반 반증 조건 판정이 기계화되고, 축 은퇴(M4에서 이연)의 근거 데이터가 생긴다 | pending | — |
 

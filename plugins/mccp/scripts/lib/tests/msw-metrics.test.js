@@ -673,3 +673,88 @@ test('A3: a stale artifact carries the staleness forward, not just "insufficient
   assert.match(a3.stale_reason, /CLAUDE\.md changed/);
   assert.strictEqual(a3.value, null, 'a stale measurement must not be served as a current value');
 });
+
+// --- B1 사다리 (multi-session-work-loop M6) ---------------------------------
+//
+// 4분기를 **각각** 단언한다. `degraded` 와 `independence_ok` 는 코드에서 OR 로 묶여
+// 있으므로 하나만 test 하면 나머지 분기가 미검증으로 남는다.
+
+function b1Source(over) {
+  return Object.assign({
+    ok: true,
+    degraded: false,
+    error: null,
+    independence_ok: true,
+    producer_coverage: 'milestone-evidence',
+    denominator: 10,
+    drift_count: 2,
+    drift_items: [{ prd: 'p.prd.md', milestone: 'M1', doc_status: 'pending', evidence_verdict: 'shipped', evidence_ref: 'r.json' }],
+    adjudications: [],
+    undetermined_evidence_count: 3,
+    noncanonical_status_count: 1,
+    no_plan_count: 2,
+    archived_excluded_count: 4,
+    raw_row_count: 11,
+    warnings: [],
+  }, over || {});
+}
+
+function b1(over) {
+  return computeMetrics({ sources: { milestone_evidence: b1Source(over) } })[B1_STATUS_DRIFT];
+}
+
+test('B1-LADDER-DEGRADED: a degraded source yields invalid, not insufficient', () => {
+  // 무결성 위반(invalid)을 producer 부재(insufficient)보다 **먼저** 판정한다.
+  // degraded 한 증거에서 뽑은 건수는 "값이 없다" 가 아니라 "값을 믿을 수 없다" 다.
+  const m = b1({ degraded: true, error: 'row identity violated' });
+  assert.strictEqual(m.status, 'invalid');
+  assert.strictEqual(m.integrity_ok, false);
+  assert.strictEqual(m.numerator, null);
+  assert.strictEqual(m.denominator, null);
+  assert.match(m.invalid_reason, /row identity violated/);
+});
+
+test('B1-LADDER-INDEPENDENCE: independence_ok=false yields invalid on its own axis', () => {
+  // degraded 와 별개 단언이다 — 둘이 OR 로 묶여 있어 하나만 test 하면 나머지가 미검증.
+  const m = b1({ degraded: false, independence_ok: false });
+  assert.strictEqual(m.status, 'invalid');
+  assert.strictEqual(m.integrity_ok, false);
+  assert.match(m.invalid_reason, /independence/i);
+});
+
+test('B1-LADDER-EMPTY: a zero denominator yields insufficient, not invalid', () => {
+  // 대조할 정규 status 행이 없는 것은 모순이 아니라 데이터의 부재다.
+  // 두 상태를 가르는 것은 `status` 다 — `integrity_ok` 는 이 파일의 기존 관례상
+  // insufficientMetric 도 false 로 두므로(A1·B2·B3 전부 동일) 구분자가 아니다.
+  const m = b1({ denominator: 0, drift_count: 0 });
+  assert.strictEqual(m.status, 'insufficient');
+  assert.notStrictEqual(m.status, 'invalid');
+  assert.strictEqual(m.coverage, 'milestone-evidence', 'coverage must survive the insufficient branch');
+  assert.strictEqual(m.raw_row_count, 11, 'co-report must survive the insufficient branch');
+});
+
+test('B1-LADDER-COMPUTED: a healthy source computes a COUNT with all co-reported fields', () => {
+  const m = b1({});
+  assert.strictEqual(m.status, 'computed');
+  assert.strictEqual(m.integrity_ok, true);
+  assert.strictEqual(m.numerator, 2, 'numerator is the absolute drift COUNT');
+  assert.strictEqual(m.denominator, 10);
+  // UI4 — 계약은 건수이지 비율이 아니다. 비율을 실으면 분모가 큰 저장소에서 drift 가
+  // 작아 보이는 왜곡이 생긴다.
+  assert.strictEqual(m.value, null, 'B1 must never carry a ratio');
+  // 병기 7필드
+  assert.strictEqual(m.undetermined_evidence_count, 3);
+  assert.strictEqual(m.noncanonical_status_count, 1);
+  assert.strictEqual(m.no_plan_count, 2);
+  assert.strictEqual(m.archived_excluded_count, 4);
+  assert.strictEqual(m.raw_row_count, 11);
+  assert.strictEqual(m.evidence_source, 'milestone-evidence');
+  assert.strictEqual(m.independence_ok, true);
+  assert.ok(Array.isArray(m.drift_items) && m.drift_items.length === 1);
+});
+
+test('B1: source 부재는 insufficient (invalid 가 아니다)', () => {
+  assert.strictEqual(computeMetrics({ sources: {} })[B1_STATUS_DRIFT].status, 'insufficient');
+  const notOk = computeMetrics({ sources: { milestone_evidence: b1Source({ ok: false }) } })[B1_STATUS_DRIFT];
+  assert.strictEqual(notOk.status, 'insufficient');
+});

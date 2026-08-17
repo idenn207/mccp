@@ -351,9 +351,74 @@ function computeA4(model) {
 }
 
 function computeB1(model) {
-  // B1 status drift: documents vs independent evidence (partial)
-  // Currently no independent evidence source available (ledger marked as unreliable)
-  return insufficientMetric(B1_STATUS_DRIFT, 'independent evidence source unavailable');
+  // B1 status drift — 문서 status ↔ **문서에서 파생되지 않은** 증거의 대조.
+  // multi-session-work-loop M6 이 `insufficient` 상수 반환을 source 소비로 교체한다.
+  //
+  // 값은 **건수**이지 비율이 아니다(UI4: 불일치 건수의 절대값이 계약이고 목표는 0건).
+  // 그래서 `value` 는 언제나 null 이고 `numerator` 에 drift 건수가 실린다 — 여기에
+  // 비율을 넣으면 분모가 큰 저장소에서 drift 가 "작아 보이는" 왜곡이 생긴다.
+  //
+  // 사다리는 computeA4 를 미러한다: **무결성 위반(invalid)을 producer 부재보다 먼저**
+  // 판정한다. degraded 한 증거에서 뽑은 건수는 "값이 없다" 가 아니라 "값을 믿을 수
+  // 없다" 이므로 두 상태를 섞으면 안 된다.
+  const src = model.sources?.milestone_evidence;
+  if (!src || !src.ok) {
+    return insufficientMetric(B1_STATUS_DRIFT, 'milestone_evidence source unavailable');
+  }
+
+  // 계약: "두 소스의 독립성을 지표 산출 시점에 검증하고 동일 소스에서 파생된 것으로
+  // 확인되면 그 주기의 B1 은 **무효**" (UI5). 무효는 부재가 아니므로 `insufficient` 가
+  // 아니라 `invalid` 다.
+  if (src.degraded || src.independence_ok !== true) {
+    return {
+      id: B1_STATUS_DRIFT,
+      numerator: null,
+      denominator: null,
+      value: null,
+      integrity_ok: false,
+      invalid_reason: src.independence_ok !== true
+        ? 'two-source independence could not be asserted — evidence did not come from the single builder'
+        : (src.error || 'milestone_evidence source is degraded — adjudication is incomplete'),
+      status: 'invalid',
+      coverage: src.producer_coverage || 'unknown',
+    };
+  }
+
+  // 분모 0 = 대조할 정규 status 행이 없다. 모순이 아니라 데이터의 부재이므로
+  // `invalid` 가 아니라 `insufficient` 다(computeB2 분모 0 분기와 같은 규칙).
+  if (!src.denominator) {
+    return Object.assign(
+      insufficientMetric(B1_STATUS_DRIFT, 'no canonical-status milestone rows to adjudicate'),
+      { coverage: src.producer_coverage || 'unknown' },
+      b1CoReport(src)
+    );
+  }
+
+  return Object.assign({
+    id: B1_STATUS_DRIFT,
+    numerator: src.drift_count || 0,
+    denominator: src.denominator,
+    value: null,
+    integrity_ok: true,
+    invalid_reason: null,
+    status: 'computed',
+    coverage: src.producer_coverage || 'unknown',
+  }, b1CoReport(src));
+}
+
+// 병기 필드(B3 coReport 미러). 제외분과 커버리지 구멍이 값 옆에서 항상 보이게 해
+// "명시 제외" 가 "감축" 으로, "0건" 이 "완벽" 으로 읽히지 않게 한다.
+function b1CoReport(src) {
+  return {
+    undetermined_evidence_count: src.undetermined_evidence_count || 0,
+    noncanonical_status_count: src.noncanonical_status_count || 0,
+    no_plan_count: src.no_plan_count || 0,
+    archived_excluded_count: src.archived_excluded_count || 0,
+    raw_row_count: src.raw_row_count || 0,
+    evidence_source: src.producer_coverage || 'unknown',
+    independence_ok: src.independence_ok === true,
+    drift_items: Array.isArray(src.drift_items) ? src.drift_items : [],
+  };
 }
 
 function computeB2(model) {

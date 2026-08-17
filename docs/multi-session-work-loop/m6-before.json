@@ -1,0 +1,92 @@
+{
+  "metrics": {
+    "A1": {
+      "id": "A1",
+      "status": "forward-only",
+      "numerator": null,
+      "denominator": 0,
+      "value": null,
+      "invalid_reason": "no live completion producer wired (task_completed events not emitted under current hook lifecycle)"
+    },
+    "A2": {
+      "id": "A2",
+      "status": "forward-only",
+      "numerator": null,
+      "denominator": 3,
+      "value": null,
+      "invalid_reason": "context% not session-bound/freshness-verified (session-end reads latest-wins context-current.json)"
+    },
+    "A3": {
+      "id": "A3",
+      "status": "insufficient",
+      "numerator": null,
+      "denominator": null,
+      "value": null,
+      "invalid_reason": "CLAUDE.md changed since the A3 measurement (re-run: msw-metrics/cli.js a3 --emit-after)"
+    },
+    "A4": {
+      "id": "A4",
+      "status": "forward-only",
+      "numerator": null,
+      "denominator": 0,
+      "value": null,
+      "invalid_reason": "restore rate not boundary-scoped (scanner self-credits current-session handoff items)"
+    },
+    "B1": {
+      "id": "B1",
+      "status": "insufficient",
+      "numerator": null,
+      "denominator": null,
+      "value": null,
+      "invalid_reason": "independent evidence source unavailable"
+    },
+    "B2": {
+      "id": "B2",
+      "status": "forward-only",
+      "numerator": null,
+      "denominator": 0,
+      "value": null,
+      "invalid_reason": "b2 coverage gate not passed (runtime mutation audit missing or found uncovered writes)"
+    },
+    "B3": {
+      "id": "B3",
+      "status": "forward-only",
+      "numerator": null,
+      "denominator": 110,
+      "value": null,
+      "invalid_reason": "no env-snapshot corpus yet (toggle usage history is forward-only from M4 Task 6)"
+    },
+    "C1": {
+      "id": "C1",
+      "status": "forward-only",
+      "numerator": null,
+      "denominator": null,
+      "value": null,
+      "invalid_reason": "no live findings derive source wired"
+    },
+    "C2": {
+      "id": "C2",
+      "status": "forward-only",
+      "numerator": null,
+      "denominator": null,
+      "value": null,
+      "invalid_reason": null
+    },
+    "C3": {
+      "id": "C3",
+      "status": "forward-only",
+      "numerator": null,
+      "denominator": null,
+      "value": null,
+      "invalid_reason": null
+    }
+  },
+  "anchor": {
+    "commit_sha": "767a2c7b29b73b40d53554e03a28aed0b622d077",
+    "plan_file_hash": "e2338ca5430b930739ecd3fd7e9d808c5bc29bf72bc1c9419903f6233061765a",
+    "measured_at": "2026-08-17T05:24:20.928Z",
+    "plugin_version": "1.26.2",
+    "tracked_receipt_count": 53,
+    "prd_milestone_rows": 41
+  }
+}

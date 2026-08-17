@@ -374,3 +374,120 @@ test('msw-metrics: a stale metric is surfaced even with nothing computed', async
   assert.notStrictEqual(result, null,
     'a measurement that exists but went stale must reach the operator');
 });
+
+// --- B1 렌더 제약 (multi-session-work-loop M6) --------------------------------
+//
+// detector 에 의존하지 않는 단언이다. impeccable detector 미설치 환경에서 advisory
+// skip 만 남기면 이 Task 의 디자인 검사가 **전부** 사라지므로, 4개 Output Constraint 를
+// 렌더 산출 문자열에 대해 직접 고정한다. detector 는 이 위에 얹는 추가 관측이다.
+
+function b1Model(over) {
+  const b1 = Object.assign({
+    id: 'B1',
+    numerator: 5,
+    denominator: 39,
+    value: null,
+    status: 'computed',
+    integrity_ok: true,
+    coverage: 'milestone-evidence',
+    undetermined_evidence_count: 33,
+    noncanonical_status_count: 2,
+    no_plan_count: 31,
+    archived_excluded_count: 29,
+    raw_row_count: 41,
+    evidence_source: 'milestone-evidence',
+    independence_ok: true,
+    drift_items: [
+      // PRD 표 셀은 이 repo 관례상 볼드 마커를 포함한다 — 그대로 흘리면 렌더 표면에
+      // `**` 가 누출된다(제약 3). em-dash 도 데이터 쪽에서 들어올 수 있다.
+      { prd: 'p.prd.md', milestone: '**P0 santa-loop 실체화**', doc_status: 'complete', evidence_verdict: 'not-shipped', evidence_ref: 'a.json' },
+      { prd: 'p.prd.md', milestone: 'H1 setup — gitignore', doc_status: 'complete', evidence_verdict: 'not-shipped', evidence_ref: 'b.json' },
+      { prd: 'p.prd.md', milestone: '`H2` 메타 조사', doc_status: 'complete', evidence_verdict: 'not-shipped', evidence_ref: 'c.json' },
+      { prd: 'q.prd.md', milestone: 'live 완주 검증', doc_status: 'in-progress', evidence_verdict: 'shipped', evidence_ref: 'd.json' },
+      { prd: 'q.prd.md', milestone: '발견 gap 보완', doc_status: 'pending', evidence_verdict: 'shipped', evidence_ref: 'e.json' },
+    ],
+  }, over || {});
+  return { metrics: { B1: b1 } };
+}
+
+test('B1-RENDER-CONSTRAINTS: count not ratio, no new heading/accent/marker/collapse, top-3 with (+N건)', () => {
+  const model = b1Model();
+  const result = renderMswMetrics(model, mockFormatUtils);
+  assert.notStrictEqual(result, null);
+  const html = result.html;
+  const md = result.md;
+
+  // --- 값은 건수다 (UI4) ---------------------------------------------------
+  assert.ok(/5건 \(대조 6\/39\)/.test(md), 'B1 must render as a COUNT with a coverage cue; got: ' + md);
+  assert.ok(!/\|\s*\d+%\s*\|/.test(md), 'B1 must never render as a percentage: ' + md);
+
+  // --- (i) H15: 신규 h4+ / CommonMark #### 이상 0건 -------------------------
+  assert.equal((html.match(/<h[4-9][\s>]/gi) || []).length, 0, 'no h4+ headings in the metrics section');
+  assert.equal((md.match(/^#{4,6}\s/gm) || []).length, 0, 'no deep CommonMark headings in the metrics section');
+
+  // --- (ii) 강조색 1개: 신규 accent 클래스 미도입 ---------------------------
+  // 행 상태는 기존 STATUS_META 클래스(ok/warn/bad/muted)만 쓴다. drift 전용 뱃지를
+  // 새로 칠하면 같은 viewport 에 2번째 강조가 생긴다.
+  const classes = (html.match(/class="([^"]+)"/g) || [])
+    .map((c) => c.slice(7, -1)).join(' ').split(/\s+/).filter(Boolean);
+  const allowed = new Set(['ok', 'warn', 'bad', 'muted', 'msw-metrics', 'msw-metrics-extra', 'mono']);
+  const unexpected = Array.from(new Set(classes)).filter((c) => !allowed.has(c));
+  assert.deepEqual(unexpected, [], 'no new accent/style class may be introduced: ' + unexpected.join(', '));
+
+  // --- (iii) 인라인 마커 0건 ∧ 신규 문자열 em-dash 0건 ----------------------
+  // H16 은 HTML 전용이다(markdown 은 자기 마커가 정당하고 표의 `**B1**` 이 그 예).
+  // <code> 안은 렌더된 코드 스팬이므로 H16 과 동일하게 제외한다.
+  const visible = html.replace(/<code>[\s\S]*?<\/code>/g, '');
+  assert.equal((visible.match(/\*\*/g) || []).length, 0, 'no raw bold marker may reach the HTML surface');
+  assert.equal((visible.match(/`/g) || []).length, 0, 'no raw backtick may reach the HTML surface');
+  // 볼드는 사라지는 게 아니라 **렌더된다** — 마커만 없어야 한다.
+  assert.ok(/<strong>P0 santa-loop 실체화<\/strong>/.test(html), 'bold must render, not vanish: ' + html);
+  const b1Lines = (html.match(/<p class="muted">B1[^<]*<\/p>/g) || []).join('');
+  assert.equal((b1Lines.match(/[—–]/g) || []).length, 0, 'B1 detail lines must not carry an em-dash');
+  const b1Md = md.split('\n').filter((l) => l.indexOf('B1 상세') === 0 || l.indexOf('B1 커버리지') === 0).join('');
+  assert.equal((b1Md.match(/[—–]/g) || []).length, 0, 'markdown B1 detail must be em-dash free too');
+
+  // --- (iv) 신규 collapse 0건 — 개수 ∧ 배치 --------------------------------
+  // (iv-a) 개수 불변: B1 배선 전후로 동일해야 한다.
+  const withoutB1 = renderMswMetrics(b1Model({ drift_items: [] }), mockFormatUtils);
+  assert.equal((html.match(/<details/g) || []).length, 1, 'exactly the one pre-existing shared collapse');
+  assert.equal((html.match(/<details/g) || []).length,
+    (withoutB1.html.match(/<details/g) || []).length,
+    'drift detail must not add a collapse');
+
+  // (iv-b) 배치: drift 줄은 **기존** msw-metrics-extra 안의 <p class="muted"> 여야 한다.
+  const extra = html.slice(html.indexOf('<details class="msw-metrics-extra">'));
+  assert.ok(extra.indexOf('<p class="muted">B1 상세:') !== -1,
+    'the drift line must live inside the existing shared collapse');
+  assert.ok(html.indexOf('<p class="muted">B1 상세:') > html.indexOf('<details class="msw-metrics-extra">'),
+    'the drift line must not sit above the collapse');
+
+  // (iv-c) collapse 유사 위젯 신규 0건 — 개수만 세면 <div>+CSS 로 우회된다.
+  assert.equal((html.match(/display\s*:\s*none/gi) || []).length, 0);
+  assert.equal((html.match(/\shidden(?=[\s=>])/gi) || []).length, 0);
+  assert.equal((html.match(/aria-expanded/gi) || []).length, 0);
+  assert.equal((html.match(/class="[^"]*(collapse|accordion|toggle)[^"]*"/gi) || []).length, 0);
+
+  // --- 항목 수 상한: 상위 3건 + (+N건) 절삭 병기 ---------------------------
+  assert.ok(/B1 상세: drift 5건/.test(md), 'the full drift count must be stated: ' + md);
+  assert.ok(/\(\+2건\)/.test(md), 'truncation must always be visible, never silent: ' + md);
+  const detailLine = md.split('\n').find((l) => l.indexOf('B1 상세:') === 0);
+  assert.ok(detailLine.indexOf('live 완주 검증') === -1,
+    'only the top 3 drift items are listed inline');
+});
+
+test('B1 렌더 — drift 0건이어도 커버리지 줄은 남는다 (0건 ≠ drift 없음)', () => {
+  const result = renderMswMetrics(b1Model({ numerator: 0, drift_items: [] }), mockFormatUtils);
+  assert.notStrictEqual(result, null);
+  assert.ok(/0건 \(대조 6\/39\)/.test(result.md), 'zero must still disclose the compared range');
+  assert.ok(/B1 커버리지: 대조 6\/39 행/.test(result.md));
+  // drift 가 없으면 상세 줄도 없다 — 빈 목록을 그리지 않는다.
+  assert.ok(result.md.indexOf('B1 상세:') === -1);
+});
+
+test('B1 렌더 — 증거가 전부 확정이면 커버리지 단서 없이 건수만 낸다', () => {
+  const result = renderMswMetrics(b1Model({ numerator: 1, undetermined_evidence_count: 0, drift_items: [
+    { prd: 'p.prd.md', milestone: 'M1', doc_status: 'complete', evidence_verdict: 'not-shipped', evidence_ref: 'a.json' },
+  ] }), mockFormatUtils);
+  assert.ok(/\|\s*1건\s*\|/.test(result.md), 'no cue needed when nothing is undetermined: ' + result.md);
+});

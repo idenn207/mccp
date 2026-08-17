@@ -1,0 +1,33 @@
+{
+  "milestone": "multi-session-work-loop-m6",
+  "purpose": "UI14 — 자동 산출값을 사람이 직접 receipt/git 과 대조해 반증 가능하게 한다. 표본 크기는 min(3, drift_count); drift 0 이면 표본 0 이 정상이다.",
+  "method": "각 표본에 대해 (a) PRD 표의 문서 status 원문 · (b) git-tracked ship receipt 의 HEAD 도달성(git cat-file -e) · (c) 커밋된 receipt 본문의 decision_id · (d) 같은 PRD 안 대조군 행을 각각 독립적으로 확인했다. 자동 산출값을 보고 따라 적지 않고 원자료에서 판정한 뒤 대조했다.",
+  "anchor": {
+    "commit_sha": "767a2c7b29b73b40d53554e03a28aed0b622d077",
+    "plan_file_hash": "e2338ca5430b930739ecd3fd7e9d808c5bc29bf72bc1c9419903f6233061765a",
+    "measured_at": "2026-08-17T00:00:00.000Z",
+    "plugin_version": "1.26.3",
+    "prd_milestone_rows": 41
+  },
+  "drift_count": 1,
+  "sampled_count": 1,
+  "agreed_count": 1,
+  "samples": [
+    {
+      "decision_id": "workflow-orchestration-live-activation-m2",
+      "prd": ".claude/prds/workflow-orchestration-live-activation.prd.md",
+      "milestone": "live 완주 검증 (복수 cycle)",
+      "doc_status": "in-progress",
+      "automated_verdict": "drift (doc=in-progress ↔ evidence=shipped)",
+      "human_verdict": "drift (doc=in-progress ↔ evidence=shipped)",
+      "agreed": true,
+      "note": "확인한 원자료: (a) PRD 표 2행의 Status 셀이 문자 그대로 `in-progress`. (b) `git cat-file -e HEAD:.claude/receipts/mccp-pr-codex/workflow-orchestration-live-activation-m2.json` → exit 0, 즉 ship receipt 가 커밋에 도달한다. (c) 커밋된 본문의 `decision_id` 가 `workflow-orchestration-live-activation-m2` 로 행의 plan basename 에서 파생한 키와 일치하며 `resolution.codex_verdict='converged'`. (d) 대조군: 같은 PRD 의 M1·M3 행은 문서가 `complete` 이고 receipt 도 커밋돼 있어 일치로 판정됐다(drift 아님) — 즉 오라클이 이 PRD 의 모든 행을 무차별로 drift 로 만들지 않는다. 결론: 문서가 진행 중이라고 말하는 작업 단위가 실제로는 ship 됐다. 자동 판정과 일치한다.",
+      "codex_verdict": "converged"
+    }
+  ],
+  "notes": [
+    "감사 표본의 **수행 자체**는 기계적으로 강제되지 않는다. 강제되는 것은 (i) 기록 없이 완료를 주장하지 못함, (ii) 기록된 불일치가 게이트를 통과하지 못함 두 가지뿐이다. 표본을 성의 없이 고르는 것은 막지 못하며 그 한계는 status-adjudication-design.md 비보증 절이 소유한다.",
+    "이번 주기의 분자는 1건이라 표본이 전수와 같다. 분자가 커지면 min(3, drift_count) 만 대조하므로 표본은 더 이상 전수가 아니다.",
+    "구현 중 실측으로 위양성 3건을 발견해 제거했다(Plan 셀이 자식 PRD 링크인 행이 not-shipped 로 오계상). 그 3건이 남아 있었다면 이 감사에서 agreed:false 가 나왔을 것이고, 그것이 UI14 가 존재하는 이유다."
+  ]
+}

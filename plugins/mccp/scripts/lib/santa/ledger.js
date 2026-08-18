@@ -535,7 +535,18 @@ function recordVerdict(round, verdict, opts) {
   });
 }
 
-// terminate({reason}, opts) — santa-adjudication M3 신규 export (프로토콜 2 — 추가는
+// lastFinalRound — 마지막 FINAL 라운드의 index(없으면 null). `terminate`의 좌표
+// 검증과 `cli.js`의 판정 대상 선택이 **같은 술어**를 봐야 하므로 여기가 정본이다.
+// 둘이 갈리면 검증이 통과시키는 상태와 판정이 고른 라운드가 어긋난다.
+function lastFinalRound(state) {
+  for (let i = state.rounds.length - 1; i >= 0; i--) {
+    if (state.rounds[i] && state.rounds[i].verdict !== null) return i;
+  }
+  return null;
+}
+
+// terminate({reason, expectedRounds, expectedRound}, opts) — santa-adjudication M3 신규
+// export (프로토콜 2 — 추가는
 // 동결 위반이 아니다. 기존 8종은 한 글자도 바뀌지 않는다).
 //
 // **종료의 소재는 `state.terminated` 마커 하나다**(DD1). 두 번째 채널을 만들면
@@ -555,7 +566,38 @@ function terminate(input, opts) {
       'termination reason must be one of [' + TERMINATION_REASONS.join('|') + ']; got ' +
       JSON.stringify(reason) + '. Nothing was written and no lock was taken.');
   }
+  // **판정 좌표는 필수다** (PR-Codex R1 F1 흡수). 호출자는 lock 없이 읽어 판정하므로
+  // (`read()`에는 lock이 없다 — M2 DD10), 판정과 이 write 사이에 다른 프로세스가
+  // `begin-round`로 라운드를 열 수 있다. 좌표 없이 쓰면 아래 결속이 그 시점의
+  // `rounds.length`를 담아 **평가된 적 없는 라운드**에 종료를 봉인하고, 이후
+  // `begin-round`가 그 마커에 막힌다 — 봉인된 사유가 거짓이 되고 미평가 작업이 잘린다.
+  // 기본값을 두지 않는 이유는 그것이 옛 호출자를 조용히 옛 경로로 보내기 때문이다.
+  const expectedRounds = (input === null || typeof input !== 'object') ? null : input.expectedRounds;
+  const expectedRound = (input === null || typeof input !== 'object') ? null : input.expectedRound;
+  if (!Number.isInteger(expectedRounds) || expectedRounds < 1 ||
+      !Number.isInteger(expectedRound) || expectedRound < 0 || expectedRound >= expectedRounds) {
+    throw new SantaLedgerError('SANTA_TERMINATION_INVALID',
+      'termination requires the coordinates the decision was computed from: ' +
+      '{expectedRounds: integer >= 1, expectedRound: integer in [0, expectedRounds)}; got ' +
+      JSON.stringify({ expectedRounds: expectedRounds, expectedRound: expectedRound }) +
+      '. Nothing was written and no lock was taken.');
+  }
   return mutate(opts || {}, function (state) {
+    // **좌표가 어긋나면 쓰지 않는다.** 원장이 판정 이후 움직였다는 뜻이므로 이 종료는
+    // 지금의 원장에 대한 판정이 아니다. 오류가 아니라 거부다 — 루프는 계속되고 다음
+    // 라운드의 판정이 새 상태로 다시 돈다. 멱등 검사보다 **앞**이어야 한다: stale한
+    // 호출이 `already`를 받아 가면 호출자가 남의 종료를 자기 것으로 보고한다.
+    const seenFinal = lastFinalRound(state);
+    if (state.rounds.length !== expectedRounds || seenFinal !== expectedRound) {
+      return {
+        write: false,
+        outcome: {
+          terminated: false, stale: true, already: false, reason: null,
+          rounds: state.rounds.length, lastFinalRound: seenFinal,
+          expectedRounds: expectedRounds, expectedRound: expectedRound,
+        },
+      };
+    }
     const t = state.terminated;
     // **먼저 관측된 종료가 실제 종료다.** 이미 이 라운드 수에 결속된 마커가 있으면
     // reason이 같든 다르든 덮어쓰지 않는다 — 같으면 멱등(재기록하면 `at`이 호출마다
@@ -665,6 +707,8 @@ module.exports = {
   // `clearTermination`은 **없다**: `beginRound`의 허용 분기가 이미
   // `state.terminated = null`을 수행하므로 재개 경로에 새 코드가 필요 없다.
   terminate: terminate,
+  // M3 follow-up — `cli.js`가 판정 대상 선택에 위임한다(술어 단일 정본).
+  lastFinalRound: lastFinalRound,
   aggregate: aggregate,
   // M2 — 단일 스냅샷 파생용 순수 함수 2종 (additive; 위 두 함수가 이것에 위임한다)
   reviewersFrom: reviewersFrom,

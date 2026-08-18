@@ -362,11 +362,10 @@ function cmdResolveDecision(args) {
 
 // 마지막 FINAL 라운드. OPEN 라운드는 마지막에만 존재할 수 있으므로 뒤에서
 // 스캔하면 첫 hit가 답이다. 없으면 `null`(= 아직 판정할 라운드가 없다).
+// 정본은 `ledger.lastFinalRound`다 — `terminate`의 좌표 검증이 같은 술어를 쓰므로,
+// 여기서 다시 구현하면 검증이 통과시키는 상태와 판정이 고른 라운드가 갈릴 수 있다.
 function lastFinalRound(state) {
-  for (let i = state.rounds.length - 1; i >= 0; i--) {
-    if (state.rounds[i] && state.rounds[i].verdict !== null) return i;
-  }
-  return null;
+  return ledger.lastFinalRound(state);
 }
 
 // 그 라운드의 **raw** blocking id 집합(suppression 이전). `carryOver`의 입력이다.
@@ -630,14 +629,33 @@ function cmdCheckTermination(args) {
       'same as "the loop has not converged yet": the judgement never ran.');
   }
 
+  // **판정에 쓴 좌표를 함께 넘긴다** (PR-Codex R1 F1 흡수). 위 `read()`에는 lock이
+  // 없으므로 판정과 봉인 사이에 다른 프로세스가 `begin-round`로 라운드를 열 수 있고,
+  // 좌표가 없으면 마커가 **평가된 적 없는** 라운드에 결속된다. `terminate`는 lock
+  // 안에서 좌표를 재확인하고 어긋나면 쓰지 않는다.
+  let staleDecision = false;
   if (decision.terminate) {
-    ledger.terminate({ reason: decision.exitReason }, opts);
+    const sealed = ledger.terminate({
+      reason: decision.exitReason,
+      expectedRounds: state.rounds.length,
+      expectedRound: round,
+    }, opts);
+    // 거부됐는데 stdout이 `terminate:true`를 그대로 실으면 커맨드 본문이 **일어나지
+    // 않은 종료**를 escalate하고 seal을 돌린다. 그래서 보고는 실제 write를 따른다.
+    if (sealed && sealed.stale) {
+      staleDecision = true;
+      errln('termination NOT sealed: the decision was computed from round ' + round +
+        ' of ' + state.rounds.length + ' round(s), but under the lock the ledger showed ' +
+        'last-final=' + sealed.lastFinalRound + ' of ' + sealed.rounds + ' — it moved in ' +
+        'between. Nothing was written and the loop continues; the next round re-judges ' +
+        'on the current state.');
+    }
   }
 
   out({
-    terminate: decision.terminate,
-    exitReason: decision.exitReason,
-    reason: decision.reason,
+    terminate: decision.terminate && !staleDecision,
+    exitReason: staleDecision ? null : decision.exitReason,
+    reason: staleDecision ? 'stale-decision' : decision.reason,
     round: round,
     targetsBreakdown: decision.targetsBreakdown,
     classified: decision.classified,

@@ -2106,7 +2106,8 @@ test('[78] ledger.terminate: 결속·멱등·다른 reason 비덮어쓰기·열�
   const opts = { cwd: repo, decisionId: slug, env: process.env };
 
   // (1) 결속 — 마커는 관측 시점의 라운드 수를 담는다.
-  const first = ledgerMod.terminate({ reason: 'patch_chasing' }, opts);
+  const at2 = { expectedRounds: 2, expectedRound: 1 };
+  const first = ledgerMod.terminate(Object.assign({ reason: 'patch_chasing' }, at2), opts);
   assert.equal(first.terminated, true);
   const s1 = readState(repo, slug);
   assert.equal(s1.terminated.reason, 'patch_chasing');
@@ -2115,12 +2116,12 @@ test('[78] ledger.terminate: 결속·멱등·다른 reason 비덮어쓰기·열�
 
   // (2) 멱등 — 같은 사유·같은 결속이면 재기록하지 않는다. 재기록하면 `at`이
   //     호출마다 밀려 **최초 종료 시각**이라는 감사값이 사라진다.
-  const second = ledgerMod.terminate({ reason: 'patch_chasing' }, opts);
+  const second = ledgerMod.terminate(Object.assign({ reason: 'patch_chasing' }, at2), opts);
   assert.equal(second.already, true);
   assert.equal(readState(repo, slug).terminated.at, s1.terminated.at);
 
   // (3) 다른 reason이어도 덮어쓰지 않는다 — 먼저 관측된 종료가 실제 종료다.
-  const third = ledgerMod.terminate({ reason: 'cap_reached' }, opts);
+  const third = ledgerMod.terminate(Object.assign({ reason: 'cap_reached' }, at2), opts);
   assert.equal(third.already, true);
   assert.equal(third.reason, 'patch_chasing');
   assert.equal(readState(repo, slug).terminated.reason, 'patch_chasing');
@@ -2128,7 +2129,8 @@ test('[78] ledger.terminate: 결속·멱등·다른 reason 비덮어쓰기·열�
   // (4) 열거 밖은 throw이고 **lock을 잡지 않는다**(검사가 mutate 밖이다).
   [undefined, null, '', 'terminated', 42, { reason: 7 }].forEach(function (bad) {
     assert.throws(function () {
-      ledgerMod.terminate(bad && bad.reason !== undefined ? bad : { reason: bad }, opts);
+      ledgerMod.terminate(Object.assign(
+        bad && bad.reason !== undefined ? bad : { reason: bad }, at2), opts);
     }, /SANTA_TERMINATION_INVALID|termination reason/);
   });
   assert.equal(readState(repo, slug).terminated.reason, 'patch_chasing', '거부는 원장을 바꾸지 않는다');
@@ -2137,9 +2139,87 @@ test('[78] ledger.terminate: 결속·멱등·다른 reason 비덮어쓰기·열�
   const stale = readState(repo, slug);
   stale.rounds.push(roundFixture(2, 'NAUGHTY', []));
   writeLedger(repo, slug, stale);
-  const fourth = ledgerMod.terminate({ reason: 'cap_reached' }, opts);
+  const fourth = ledgerMod.terminate(
+    { reason: 'cap_reached', expectedRounds: 3, expectedRound: 2 }, opts);
   assert.equal(fourth.already, false);
   assert.equal(readState(repo, slug).terminated.rounds, 3);
+});
+
+// ── 판정 좌표 (santa-adjudication M3 follow-up · PR-Codex R1 F1) ─────────────
+
+test('[89] terminate 좌표: 판정 이후 원장이 움직이면 봉인하지 않는다 · 좌표 부재는 throw · cli 배선', () => {
+  const repo = makeRepo();
+  const slug = 'm3-terminate-stale';
+  writeLedger(repo, slug, ledgerFixture(slug, {
+    rounds: [roundFixture(0, 'NAUGHTY', []), roundFixture(1, 'NAUGHTY', [])],
+  }));
+  const opts = { cwd: repo, decisionId: slug, env: process.env };
+
+  // (1) 좌표 부재·불량은 lock을 잡기 전에 throw다. 기본값을 두면 옛 호출자가 조용히
+  //     옛(취약) 경로를 타므로 fail-closed가 유일한 안전한 선택이다.
+  [
+    { reason: 'patch_chasing' },
+    { reason: 'patch_chasing', expectedRounds: 2 },
+    { reason: 'patch_chasing', expectedRound: 1 },
+    { reason: 'patch_chasing', expectedRounds: 2, expectedRound: 2 },
+    { reason: 'patch_chasing', expectedRounds: 0, expectedRound: 0 },
+    { reason: 'patch_chasing', expectedRounds: '2', expectedRound: '1' },
+  ].forEach(function (bad) {
+    assert.throws(function () { ledgerMod.terminate(bad, opts); },
+      /SANTA_TERMINATION_INVALID|coordinates/);
+  });
+  assert.equal(readState(repo, slug).terminated, null, '거부는 원장을 바꾸지 않는다');
+
+  // (2) TOCTOU 본체 — 판정은 라운드 1(전체 2)에서 났는데 봉인 전에 다른 프로세스가
+  //     라운드 2를 연다. 가드가 없으면 마커가 **평가된 적 없는** 라운드 수에 결속되고
+  //     이후 `begin-round`가 그것에 막혀 미평가 작업이 잘린다.
+  const raced = readState(repo, slug);
+  raced.rounds.push(roundFixture(2, null, []));
+  writeLedger(repo, slug, raced);
+
+  const stale = ledgerMod.terminate(
+    { reason: 'patch_chasing', expectedRounds: 2, expectedRound: 1 }, opts);
+  assert.equal(stale.stale, true);
+  assert.equal(stale.terminated, false);
+  assert.equal(stale.already, false,
+    'stale은 멱등과 구별된다 — 남의 종료를 자기 종료로 보고하지 않는다');
+  assert.equal(stale.rounds, 3);
+  assert.equal(stale.lastFinalRound, 1);
+  assert.equal(readState(repo, slug).terminated, null, '마커가 쓰이지 않았다');
+
+  // (3) 같은 축의 두 번째 형태 — 라운드 **수**는 그대로인데 뒤 라운드가 FINAL이 됐다.
+  //     길이만 비교하면 통과하므로 last-final도 함께 봐야 한다.
+  const finalized = readState(repo, slug);
+  finalized.rounds[2] = roundFixture(2, 'NAUGHTY', []);
+  writeLedger(repo, slug, finalized);
+  const stale2 = ledgerMod.terminate(
+    { reason: 'patch_chasing', expectedRounds: 3, expectedRound: 1 }, opts);
+  assert.equal(stale2.stale, true);
+  assert.equal(readState(repo, slug).terminated, null);
+
+  // (4) 좌표가 맞으면 평소대로 봉인한다 — 가드가 정상 경로를 막지 않는다.
+  const ok = ledgerMod.terminate(
+    { reason: 'patch_chasing', expectedRounds: 3, expectedRound: 2 }, opts);
+  assert.equal(ok.terminated, true);
+  assert.equal(readState(repo, slug).terminated.rounds, 3);
+
+  // (5) 배선 — `cmdCheckTermination`이 좌표를 전달하고, 봉인되지 않았으면 stdout이
+  //     종료를 **주장하지 않는다**. 여기가 끊기면 (2)의 가드가 있어도 커맨드 본문은
+  //     일어나지 않은 종료를 escalate하고 seal을 돌린다.
+  const cliSrc = fs.readFileSync(path.join(__dirname, '..', 'santa', 'cli.js'), 'utf8');
+  const from = cliSrc.indexOf('function cmdCheckTermination');
+  assert.ok(from > 0, 'cmdCheckTermination을 찾지 못하면 이 검사는 아무것도 증명하지 않는다');
+  const rest = cliSrc.slice(from + 1);
+  const nextFn = rest.indexOf(String.fromCharCode(10) + 'function ');
+  const body = rest.slice(0, nextFn > 0 ? nextFn : rest.length);
+  // 정규식 대신 원문 일치다 — 이 네 줄은 배선의 *형태*가 아니라 **바로 그 표현**을
+  // 요구한다. 느슨하게 쓰면 좌표를 다른 값으로 바꿔도 통과한다.
+  assert.ok(body.includes('expectedRounds: state.rounds.length'),
+    '판정에 쓴 라운드 수를 그대로 넘긴다');
+  assert.ok(body.includes('expectedRound: round'), '판정 대상 라운드를 그대로 넘긴다');
+  assert.ok(body.includes('sealed && sealed.stale'), '거부를 읽는다');
+  assert.ok(body.includes('terminate: decision.terminate && !staleDecision'),
+    '봉인되지 않았으면 stdout이 종료를 주장하지 않는다');
 });
 
 // ── seal 술어 일반화 ─────────────────────────────────────────────────────────

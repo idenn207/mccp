@@ -145,3 +145,41 @@ gitignored이거나 working-tree only다). Acceptance (B) 검증 스크립트 gr
 patch-chasing의 정의이므로 판정은 옳다. 남는 질문은 보수성의 대가이고 PRD Open Questions에
 신규 항목으로 등재했다(처방 후보 (b) = Step 3 프롬프트가 "고치려면 바꿔야 할 정확한 줄"을
 요구 — 라운드 2·3에서 시도해 라운드 3의 `preexisting` 0을 얻었으나 **인과는 미확정, 표본 1**).
+
+## PR-Codex R1 — 판정과 봉인 사이의 TOCTOU 흡수 (2026-08-18)
+
+verdict `needs-attention` · finding 1건(HIGH) · **전량 흡수**. 이 라운드는 M3 구현이
+끝난 뒤 `/mccp:pr` 게이트에서 실발화했다(dedupe는 implement verdict가 `divergent`라
+fail-closed로 닫혀 있었다).
+
+**지적** — `cmdCheckTermination`이 lock 없이 읽어 판정한 뒤(`cli.js:586`) 별도 호출로
+`ledger.terminate`를 부르는데(`:634`), `terminate`는 평가된 라운드를 인자로 받지 않고
+lock 안에서 그 시점의 `state.rounds.length`에 결속한다(`ledger.js:573`). 그 사이 다른
+프로세스가 `begin-round`로 N+1을 열면 마커가 **평가된 적 없는** 라운드에 붙고, 이후
+`begin-round`는 `assertNotTerminated`에 막힌다(`cli.js:654`) — 봉인된 종료 사유가
+거짓이 되고 미평가 작업이 잘린다.
+
+**판정 — 실재한다.** 기존 멱등 가드(`ledger.js:564`)는 *이미 있는 마커*만 보고 라운드
+일치를 검증하지 않으므로 비어 있는 축이 맞다. DD11이 근거를 붙여 기각한 file-only 축과
+달리 이것은 **plan이 검토한 적 없다** — DD4와 커버리지 86이 재는 것은 `경로 격리`이지
+동시 접근이 아니고, 2026-08-17 backlog 행이 그 구분을 이미 적어 두었다. 폭발 반경은
+DD11 축과 같은 계열(한 라운드 이른 종료 + `off` 재개)이지만, §3.14는 HIGH를 그 자리에서
+흡수하라고 규정하고 수정이 M3 자신의 표면 안에서 닫히므로 기각할 근거가 없다.
+
+**흡수** — `terminate`가 판정 좌표(`expectedRounds` · `expectedRound`)를 **필수**로 받고
+lock 안에서 재확인한다. 어긋나면 write 없이 `{stale:true}`를 돌려주고,
+`cmdCheckTermination`은 종료를 **주장하지 않는다**(stdout `terminate:false` ·
+`reason:'stale-decision'` + stderr 진단). 기본값을 두지 않은 이유는 그것이 옛 호출자를
+조용히 옛(취약) 경로로 보내기 때문이다. 좌표 검사는 멱등 검사보다 **앞**이다 — stale한
+호출이 `already`를 받아 가면 호출자가 남의 종료를 자기 것으로 보고한다.
+
+`terminate`는 M3이 신규 추가한 export라(ownership.md:182 "동결 표에 있는가: 아니오")
+인자 추가가 변경 프로토콜 1 위반이 아니다. 프로덕션 호출자는 `cli.js:634` 1곳뿐이다.
+
+**술어 단일 정본** — `lastFinalRound`를 `ledger.js`로 옮기고 `cli.js`가 위임한다. 좌표
+검증과 판정 대상 선택이 갈리면 가드가 통과시키는 상태와 실제로 판정한 라운드가 어긋난다.
+
+**커버리지 89 신설** — 좌표 부재·범위 밖·타입 불량 6종 throw(원장 무변경) · 봉인 전
+라운드가 열린 경우 미봉인 · **라운드 수는 같은데 뒤 라운드가 FINAL이 된** 두 번째 형태 ·
+정상 경로 무손상 · cli 배선 원문 일치 4건. 전량 green: santa-adjudication 89/89 ·
+santa-loop-cap 48 · santa-gate 10 · santa-seal 13 · santa-review-gate 12.

@@ -439,6 +439,15 @@ test('DD9 — 실제 Step 3 형태 fixture가 envelope로 변환·저장되고 v
   // 이름·길이 그대로 남는다 — `seal.js#project`가 그 길이로 criticalIssueCount를
   // 뽑기 때문이고, 이 deepEqual이 그 보존을 계속 고정한다. legacy 문자열 원소는
   // `structured:false`로 파생되므로 그 라운드는 `contract='partial'`이다.
+  //
+  // santa-adjudication M3이 finding에 `locations`를 **더했다**(Task 3). 이 fixture는
+  // legacy 문자열 원소라 리뷰어가 위치를 준 적이 없고, 따라서 값은 빈 배열이다 —
+  // `normalizeLocations`의 전역 함수 규약대로 부재가 `[]`로 떨어진다. 정규화가
+  // **모든** finding에 붙는 것이 맞다: `gate.analyzeReviewers`가 병합 blocking 행의
+  // `locations`를 구성 findings의 **합집합**으로 만들려면(Task 2) 그 입력이 행마다
+  // 존재해야 하고, blocking 행에만 붙이면 병합 이전 단계에 읽을 것이 없다. 빈 배열은
+  // `classifyTarget`에서 `unknown`이 되어 미발화 쪽이므로 이 추가는 판정을 넓히지
+  // 않는다(커버리지 82의 legacy 전방 호환과 같은 성질).
   const st = readState(repo, slug);
   assert.deepEqual(st.rounds[0].reviewers[0].envelope,
     { id: 'A', model: 'opus', verdict: 'PASS', criticalIssues: [], findings: [] });
@@ -446,7 +455,7 @@ test('DD9 — 실제 Step 3 형태 fixture가 envelope로 변환·저장되고 v
     { id: 'B', model: 'gpt-5.4', verdict: 'FAIL',
       criticalIssues: ['hardcoded token at src/a.js:12'],
       findings: [{ claim: 'hardcoded token at src/a.js:12', severity: null,
-        failureScenario: null, evidence: null, structured: false }] });
+        failureScenario: null, evidence: null, structured: false, locations: [] }] });
 
   // stdout도 **추가**다(교체가 아니다) — 기존 3필드는 그대로 있고 계측 3필드가 붙는다.
   const vd = cli(['verdict', '--decision', slug, '--cwd', repo, '--round', '0']);
@@ -1034,10 +1043,18 @@ test('UI4/UI11 — receipt 배선은 seal.js에만 있다 (M1 4개 모듈은 여
   // 신규 파일). 목록을 열거식으로 두는 것이 이 단언의 요점이므로 새 모듈은 여기
   // 한 줄로 승인되고, **동시에 아래 receipt-free 목록에도 들어간다** — 판정 원장은
   // gitignored 원장에만 살고 receipt에는 집계 정수만 실린다(DD12).
+  //
+  // santa-adjudication M3이 `terminator.js`를 더했다(같은 소유권 표의 P1 신규 파일).
+  // 같은 규약으로 승인한다 — 목록에 한 줄, receipt-free 목록에도 한 줄. 종료 **사유**는
+  // receipt `meta.santa_exit_reason`에 실리지만 그 봉인은 `seal.js`가 하고
+  // `terminator.js`는 순수 oracle이라 receipt를 모른다(DD7). 목록을 넓히는 대신
+  // 지우면 M1이 이 test로 막으려던 결함이 그대로 돌아온다.
   assert.deepEqual(files.sort(),
-    ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'ledger.js', 'seal.js']);
+    ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'ledger.js', 'seal.js',
+      'terminator.js']);
 
-  const RECEIPT_FREE = ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'ledger.js'];
+  const RECEIPT_FREE = ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'ledger.js',
+    'terminator.js'];
   for (const f of RECEIPT_FREE) {
     const src = fs.readFileSync(path.join(santaDir, f), 'utf8');
     // 주석의 서술("M2 소유")은 허용하고, 실제 배선만 금지한다.
@@ -1070,9 +1087,17 @@ test('Acceptance — 외부 의존이 문서화된 6개뿐이고 npm 의존 0', 
   // `receipt/hash#sha256`을 빌려올 수도 있었으나 그쪽은 `gitRepoRoot`가 `child_process`를
   // 지고 있어, **순수 판정 모듈에 프로세스 실행 의존을 끌어들이는** 대가가 builtin
   // 하나보다 크다. 이 두 줄이 그 승인 기록이다.
+  //
+  // santa-adjudication M3이 내부 하나(`./terminator` — 소유권 표의 P1 신규 파일)를
+  // 더했다. **외부 의존은 0건 추가**다: `terminator.js`는 아무것도 require하지 않는
+  // 순수 oracle이고, git 호출·파일 읽기는 전부 `cli.js`가 이미 지고 있는
+  // `child_process`/`fs`로 처리된다(DD7 — 판정과 I/O의 분리). 소비처는 `cli.js`와
+  // `ledger.js` 둘이며 후자는 지연 require다(로드 그래프 무변경). 이 줄이 그 승인
+  // 기록이고, 제목의 "6개"는 여전히 **외부** 의존 수를 가리킨다.
   const allowed = new Set([
     './counter', './ledger', './gate', './seal',          // 내부
     './adjudication',                                     // 내부 (santa-adjudication M2)
+    './terminator',                                       // 내부 (santa-adjudication M3)
     '../../receipt/evidence-lock', '../../receipt/hash',
     '../../receipt/decision', '../path-containment',
     '../../receipt/write',                                // 외부 5 (M2)

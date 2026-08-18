@@ -1,0 +1,35 @@
+{
+  "schema_version": "v1",
+  "id": "2026-08-18T04-10-16-753Z__5f7da1b7",
+  "created_at": "2026-08-18T04:10:16.753Z",
+  "session_id": "unknown",
+  "scan_hash": "cc6fc7ee0d38d0e85a5376cc488d5e2820cc5361b32f7289d78f42a8a486fde3",
+  "status_corrections": [],
+  "archives": [
+    {
+      "prd": ".claude/prds/santa-adjudication.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/santa-adjudication.prd.md",
+          "to": ".claude/prds/archived/santa-adjudication.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/santa-adjudication-m1.plan.md",
+          "to": ".claude/PRPs/plans/archived/santa-adjudication-m1.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/santa-adjudication-m2.plan.md",
+          "to": ".claude/PRPs/plans/archived/santa-adjudication-m2.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/santa-adjudication-m3.plan.md",
+          "to": ".claude/PRPs/plans/archived/santa-adjudication-m3.plan.md"
+        }
+      ]
+    }
+  ]
+}

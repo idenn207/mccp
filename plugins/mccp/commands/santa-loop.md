@@ -121,11 +121,27 @@ Each reviewer evaluates every rubric criterion as PASS or FAIL, then returns str
     { "claim": "…",                            // required, string, 1..500 chars
       "severity": "CRITICAL|HIGH|MEDIUM|LOW",  // required, exactly one of these four (case-sensitive)
       "failure_scenario": "…",                 // required ONLY to claim a blocker. 1..2000 chars
-      "evidence": "path:line or a quote" }     // optional, string, 0..500 chars
+      "evidence": "path:line or a quote",      // optional, string, 0..500 chars
+      "locations": [                           // optional, ≤20 items — where the issue lives
+        { "file": "repo/relative/path.js",     //   required per entry, 1..300 chars
+          "line": 212 } ] }                    //   optional per entry, positive integer
     // A bare string is still accepted (legacy form), but see the severity contract below.
   ],
   "suggestions": ["…"] }
 ```
+
+**Location contract.** `locations` says **where** the issue is, and nothing more.
+Give the repo-relative path, plus a line number when you have one. Do not
+characterise the code you are pointing at — whether it is new, whether someone
+else wrote it, whether it came from an earlier round — and do not draw any
+conclusion from the location. Those judgements are made downstream by the
+aggregation step, which compares your paths against the repository itself; a
+reviewer's own assertion about them would be unverifiable and is ignored.
+
+Omitting `locations` is allowed and costs your issue nothing: a bad type or a
+malformed entry is dropped without downgrading the issue, and an issue with no
+usable location is simply treated as unclassifiable. But an unclassifiable issue
+carries no information for the aggregation step, so give the field when you can.
 
 **Severity contract.** `failure_scenario` is what separates a blocker from a
 remark: write the concrete misbehaviour the issue causes — what breaks, under
@@ -304,7 +320,114 @@ there the blocking issue wins (the round is NAUGHTY). A `contract` stuck at
 the reviewer prompt needs rewriting.
 
 - **NICE** → proceed to Step 5.5, then Step 6 (push)
-- **NAUGHTY** → `$FAILING` names the reviewers whose issues blocked (empty when the round failed only for lack of two distinct reviewers). Merge the blocking issues from both reviewers, deduplicate, proceed to Step 5
+- **NAUGHTY** → `$FAILING` names the reviewers whose issues blocked (empty when the round failed only for lack of two distinct reviewers). Merge the blocking issues from both reviewers, deduplicate, proceed to Step 4.5
+
+### Step 4.5: Termination Check (NAUGHTY path, **before** the fix cycle)
+
+Round N's fix becomes round N+1's first-class target, and a loop in that state
+does not end on its own — it ends at the cap, which is a truncation, not a
+convergence. This step asks one question of round `$ROUND`: did **every**
+surviving blocking issue point at the patch the previous round committed? If so
+the loop is chasing its own patch and stops here.
+
+The judgement is mechanical and it is not the reviewers'. `check-termination`
+compares each issue's `locations` against the previous round's fix commit, and
+the comparison has **two tiers**: an entry that carries a `line` must fall inside
+one of that file's hunk ranges, while an entry with only a `file` matches on the
+file alone. An issue with no usable location at all — or one naming a file the
+patch never touched — falls to `unknown` or `preexisting`, and a single
+`unknown` or `preexisting` leaves the loop running. It also refuses to claim a
+run the cap was about to end anyway, so the two exit reasons stay mutually
+exclusive.
+
+The file-only tier is a deliberate trade-off, not an oversight, and it is the
+weakest link in this step: requiring a line would drop most issues to `unknown`
+and the terminator would never fire, but matching on the file alone means a
+genuine pre-existing defect that happens to live in a file the last patch touched
+is read as patch-chasing. The all-issues condition bounds it — one issue pointing
+elsewhere keeps the loop running — and a wrong termination costs a round, not an
+approval: the seal records `divergent`, the unresolved issues are printed below,
+and `MCCP_SANTA_TERMINATOR=off` reopens the loop. Give a `line` when you have one
+and the tier never applies to your issue.
+
+It runs **before** Step 5, not after: judging after the fix cycle would make the
+operator fix, commit and adjudicate a whole round before hearing that the loop
+had already ended.
+
+```bash
+SANTA_TMP=".claude/state/santa-loop/tmp/$DECISION"
+PREV_REV_FILE="$SANTA_TMP/round-$((ROUND-1))-fix-rev.txt"
+PREV_REV=""
+if [ "$ROUND" -ge 1 ] && [ -s "$PREV_REV_FILE" ]; then
+  PREV_REV=$(cat "$PREV_REV_FILE")
+fi
+
+# Round N reads the anchor round N-1 wrote (Step 5 below writes it). Round 0 has
+# no previous patch, so the flag is **not passed at all** — passing an empty
+# string instead would be recorded as a malformed rev and would misreport a
+# normal round-0 non-firing as an input error.
+if [ -n "$PREV_REV" ]; then
+  CHECK_JSON=$(node "$SANTA" check-termination --decision "$DECISION" --prev-fix-rev "$PREV_REV")
+else
+  CHECK_JSON=$(node "$SANTA" check-termination --decision "$DECISION")
+fi
+CHECK_EXIT=$?
+if [ "$CHECK_EXIT" -ne 0 ]; then
+  echo "[santa] check-termination failed (exit $CHECK_EXIT) — no judgement was made." 1>&2
+  echo "[santa] The loop is NOT terminated; continue to Step 5 and let the cap bound it." 1>&2
+fi
+
+TERMINATE=$(echo "$CHECK_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).terminate?"1":"0")}catch{process.stdout.write("0")}')
+CHECK_REASON=$(echo "$CHECK_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"fired")}catch{process.stdout.write("unreadable")}')
+echo "$CHECK_JSON" | node -e '
+  const j=JSON.parse(require("fs").readFileSync(0,"utf8"));
+  const b=j.targetsBreakdown||{};
+  console.log("[termination] terminate="+j.terminate+" reason="+(j.reason||"fired")+
+    " targets: round_n_patch="+(b.round_n_patch||0)+" preexisting="+(b.preexisting||0)+
+    " unknown="+(b.unknown||0));' 2>/dev/null || echo "[termination] reason=$CHECK_REASON"
+
+if [ "$TERMINATE" = "1" ]; then
+  echo ""
+  echo "SANTA LOOP ESCALATION (patch-chasing terminated)"
+  echo ""
+  echo "Every surviving blocking issue of round $ROUND targeted the patch the previous"
+  echo "round committed. Another round would review the fix, not the artifact."
+  echo ""
+  echo "Unresolved issues:"
+  echo "$CHECK_JSON" | node -e '
+    const j=JSON.parse(require("fs").readFileSync(0,"utf8"));
+    (j.unresolved||[]).forEach(function(u){
+      console.log("- ["+(u.severity||"?")+"] "+(u.issueId||"(no id)")+" ("+u.targets+") :: "+
+        String(u.claim).slice(0,120));
+    });'
+  echo ""
+  echo "Manual review required before proceeding. To disagree and resume, see the"
+  echo "terminator toggle in docs/ENVIRONMENT.md §11 — begin-round then reopens the"
+  echo "round and clears the marker."
+
+  SEAL_JSON=$(node "$SANTA" seal --decision "$DECISION")
+  SEAL_EXIT=$?
+  if [ "$SEAL_EXIT" -ne 0 ]; then
+    echo "[santa] terminated, but seal failed (exit $SEAL_EXIT) — escalation stands, audit anchor missing." 1>&2
+  fi
+  exit 1
+fi
+```
+
+Three things in that block are load-bearing. `exit 1` must be the last statement
+of the firing branch — without it execution falls through to Step 5 and the loop
+keeps going after announcing it had stopped. The seal call lives **inside** the
+branch, because a patch-chasing exit is one of the loop's real endings and an
+unsealed ending is an ending with no instrumentation. And `$SEAL_EXIT` must not
+overwrite the exit status: a failed seal is a secondary diagnosis and burying the
+primary one (the loop terminated) under it hands the operator the wrong problem —
+the same rule the cap-reached block in Step 3 follows.
+
+The shell never reads the terminator's own toggle. `check-termination` resolves
+it internally and reports `{terminate:false, reason:"env-off"}` when it is off,
+so the code path here is identical either way and `$CHECK_REASON` says why on
+screen. A second reading in this file would be a third judgement site, and
+judgements that live in two places drift.
 
 ### Step 5: Fix Cycle (NAUGHTY path)
 
@@ -313,6 +436,18 @@ the reviewer prompt needs rewriting.
 3. Commit all fixes in a single commit:
    ```
    fix: address santa-loop review findings (round N)
+   ```
+
+   Then record the commit as this round's fix anchor. The next round's Step 4.5
+   reads it to learn which hunks its issues may be chasing; guessing the anchor
+   (`HEAD` at judgement time, or grepping the commit message) breaks silently the
+   moment an unrelated commit, an amend or a squash lands in between. `$ROUND` is
+   this round's 0-based index, and the `$DECISION` component keeps two parallel
+   loops from overwriting each other's anchor at the same round number:
+
+   ```bash
+   mkdir -p ".claude/state/santa-loop/tmp/$DECISION"
+   git rev-parse HEAD > ".claude/state/santa-loop/tmp/$DECISION/round-$ROUND-fix-rev.txt"
    ```
 4. **Record a judgement for every blocking issue of this round.** This is not optional bookkeeping: the next `begin-round` refuses to open while any of them is unjudged (`SANTA_ADJUDICATION_INCOMPLETE`, exit 2, cap untouched), so skipping it stops the loop rather than speeding it up. Take the ids from the `blocking[].issueId` values Step 4 printed:
 
@@ -415,4 +550,6 @@ Result:     [PUSHED / ESCALATED TO USER]
 - Commits happen on NAUGHTY rounds so fixes are preserved even if the loop is interrupted.
 - Push only happens after NICE — never mid-loop.
 - The cap binds at the **ledger index**, not just here: `record` and `verdict` refuse an index `begin-round` never opened, so ignoring a refusal and launching reviewers produces no ledger entry and no verdict *at that index*. Two things it does **not** prevent, and this file claims neither: the reviewer tokens being spent (launching a reviewer is an LLM act, with nothing for a shell to intercept), and reuse of the last already-FINAL index — `record --round <cap-1>` still succeeds, because restricting `record` to `OPEN` rounds is judgement lifecycle and belongs to P1.
+- The loop's **first** ending condition is Step 4.5, not the cap: a round whose surviving blocking issues all point at the previous round's patch ends there, and the ledger records that ending with its own reason so the two endings can be told apart afterwards. The cap is the safety net underneath it, and reaching it is itself recorded as an ending.
+- The terminator's kill switch is `MCCP_SANTA_TERMINATOR`, registered in docs/ENVIRONMENT.md §11 alongside the other santa toggles. It turns off both wiring points together — the Step 4.5 judgement and the `begin-round` marker precheck — and that document owns its values, defaults and failure mode.
 - The cap is scoped to the decision slug, which is derived from the branch name. Renaming or switching branches starts a fresh cap (different branch = different review scope). Pass `--decision <slug>` to every subcommand to pin one scope across a rename.

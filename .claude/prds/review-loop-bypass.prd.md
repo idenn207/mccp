@@ -13,6 +13,8 @@
 - **실측 (2026-08-16~17, santa-loop-materialize M2)**: 단일 plan이 R0~R3에 이어 R4~R9까지 **총 10라운드**를 돌았다. 흡수 12건 · 기각 5건 · 리뷰 에이전트 누적 16~24개. 라운드 재실행이 시간 비용의 지배항임을 보여준다.
 - **운영자 자기 보고**: "작업 한번에 8~12시간씩 걸려서 실무 개발을 진행하는데 일이 계속 밀리고 있어."
 - **기존 회피 경로가 이미 사용되고 있음**: `MCCP_PR_SKIP_CODEX_REVIEW` audited escape가 P1 PR #86에서 dedupe 불발 우회에 실제로 사용됐다. 즉 "게이트를 건너뛰어야 하는 상황"은 이미 발생하고 있고, 지금은 축마다 별개의 임시 escape로 처리된다.
+- **실측 (2026-08-18, 본 PRD의 M1 plan 게이트 자체)**: 단일 plan이 L2 4인 패널 **12라운드**(에이전트 48개)를 돌고도 receipt를 얻지 못했고, Codex 축으로 전환해 **15라운드** 더 돌아 통과했다. 그 27라운드가 찾은 실재 결함은 **17건**인데 그중 **15건이 저자의 직전 수정이 만든 것**이었고, R7~R14 여덟 라운드는 전부 plan 문서의 검증 줄을 다듬는 것이었다(설계 결함이 아니라 문서). 즉 **라운드 반복이 소비한 것의 대부분은 리뷰 대상의 결함이 아니라 저자의 수정을 쫓는 것**이었다.
+- **저자 자율 정지가 실패한다는 실측**: 같은 실행에서 저자가 R13에 "R14가 마지막"이라 선언하고 R14에서 예외를 뒀다. 매 건의 판단은 개별적으로 옳았고(실재 결함) 누적으로는 비용이었다 — "이 건은 고칠 가치가 있다"가 거의 항상 참이기 때문이다. **기계적 상한이 필요한 직접 근거**이며, 본 PRD의 토글이 라운드 1회를 기계적으로 고정하는 설계를 지지한다.
 - **부분 통제만 존재함**: `MCCP_GATE_ROUND_CAP=1`이 default지만, 이는 *추가 라운드의 상한*일 뿐 santa-loop 발화나 L2 verdict의 차단력에는 닿지 않는다.
 
 ## Users
@@ -72,7 +74,7 @@ We'll know we're right when **토글을 켠 작업의 게이트 통과 시간이
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | 단일통과 토글 | 운영자가 사유 enum 하나를 env로 선언하면 세 게이트가 단일 라운드로 통과하고, 그 사유가 receipt에 봉인돼 사후 감사가 가능하다 | in-progress | [.claude/plans/review-loop-bypass-m1.plan.md](../plans/review-loop-bypass-m1.plan.md) |
+| 1 | 단일통과 토글 | 운영자가 사유 enum 하나를 env로 선언하면 세 게이트가 단일 라운드로 통과하고, 그 사유가 receipt에 봉인돼 사후 감사가 가능하다 | in-progress (plan 게이트 통과 — `mccp-plan-codex` converged) | [.claude/plans/review-loop-bypass-m1.plan.md](../plans/review-loop-bypass-m1.plan.md) |
 | 2 | 미흡수 지적 회수 | 단일 라운드가 낸 미흡수 지적이 backlog에 자동 적재되어, 기존 fix-task 생성 경로가 그것을 그대로 집어간다 | pending | — |
 
 M2가 없으면 M1은 **부채를 만드는 기능**이다 — 지적이 사라지므로. M1이 없으면 M2는 대상이 없다. 두 마일스톤이 함께 있어야 "나중에 한 번에 고친다"가 성립한다.
@@ -80,10 +82,10 @@ M2가 없으면 M1은 **부채를 만드는 기능**이다 — 지적이 사라�
 ## Open Questions
 
 - [ ] `deferred_to_prd_completion`으로 건너뛴 마일스톤들이 PRD 종료 시 **실제로** 검증됐는지 강제하는 장치가 없다. 현재는 명예 시스템 — 강제 장치가 필요한지, 필요하다면 PRD 종료 판정(`/mccp:archive-complete` 축)에 붙일지.
-- [ ] 토글과 `MCCP_GATE_ROUND_CAP=2|3`이 동시에 설정됐을 때의 우선순위. 토글이 이기는 것이 직관적이나, 명시적으로 정해야 한다.
-- [ ] L2가 1회 발화해 **비수렴** verdict를 냈는데 통과시킨 경우, 그 verdict를 receipt에 어떻게 남길지. `converged`로 위장하면 §3.12의 "완료 판정 키" 신뢰가 깨진다. 별도 상태값이 필요할 가능성.
+- [x] **판정됨 (M1 plan DD4)** — 토글이 이긴다. `effectiveRoundCap(env)`는 토글이 켜지면 `MCCP_GATE_ROUND_CAP` 값과 무관하게 `{cap:1, pinned:true}`를 반환한다. 근거: 토글은 상위 정책 선언이고 캡은 그 아래 조정값이다.
+- [x] **판정됨 (M1 plan DD1)** — 새 verdict 값을 만들지 않고 **실제 verdict를 그대로 봉인**한다. `schema.js:224-238`이 비수렴 verdict의 감사용 proof를 이미 허용하고, `receipt-convergence.js:45`가 review 축에서 `converged`만 승인으로 읽으므로 정직한 `divergent` 봉인이 대시보드·감사·ship gate 어디서도 거짓말하지 않는다. 토글이 바꾸는 것은 **명령 본문의 HALT 여부** 하나이고 receipt가 주장하는 내용은 무변경이다. 별도 상태값은 `review-verdict.js:46`의 공유 어휘를 깨뜨려 codex 축 소비자 전부에 파급되므로 채택하지 않았다.
 - [ ] 토글 사용률이 높아지면 그 자체가 신호다 — 몇 %부터 "게이트 설계가 과하다"로 읽을지, 관측 표면을 어디에 둘지.
-- [ ] santa-loop 미발화 시 `mccp-santa-review` receipt를 아예 안 쓸지, "미발화 사유 봉인" receipt를 쓸지. 후자가 감사에 유리하나 gate 스키마 변경을 부른다.
+- [x] **판정됨 (M1 plan DD5)** — 쓰지 않는다. 그 게이트는 produces-only라 소비자가 없고, "미발화 사유" receipt는 라운드 집계 없는 receipt를 스키마가 받아들여야 하는데 그것은 backlog에 이미 올라 있는 **반대 방향 과제**(santa 4종 필수화, PR-Codex F2)와 정면 충돌한다. 감사 앵커는 loud 거부 메시지와 원장의 부재다. **잔여 한계**: Plan-Codex R1 F2가 지적한 대로 부재는 "거부됐다"와 "시도하지 않았다"를 구분하지 못한다 — durable 거부 기록은 별건으로 backlog에 있다.
 
 ## Risks
 

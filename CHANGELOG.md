@@ -2,11 +2,17 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.27.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.28.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
-## [1.27.3] — 2026-08-18
+> **§3.7 forward-only 상향 (13번째 재발)**: 이 항목은 원래 `1.27.3`이었다. milestone-close를
+> 진행하는 사이 main이 `1.27.2` → `1.28.0`을 발행해 `1.27.3`이 main 최대치보다 뒤로 밀렸으므로,
+> 발행된 번호는 불가침이라는 원칙대로 미머지인 이쪽을 `1.28.1`로 올렸다. 동기 4면(plugin.json ·
+> renderer/html.js page-foot · renderer/markdown.js derived 줄 · 본 CHANGELOG의 `currently` 노트와
+> 이 항목의 bump 서술)을 함께 갱신하고 `i18n-surface.test.js`로 재검증했다.
 
-**review-loop-bypass M1 — 단일통과 토글 (PRD 첫 milestone → patch bump, 1.27.2 → 1.27.3)** — `MCCP_REVIEW_SINGLE_PASS`(고정 enum 3종: `scope_too_small` · `deadline_pressure` · `deferred_to_prd_completion`)가 켜지면 `/mccp:plan`의 L2 승인 패널이 1회만 발화하고 quorum 비수렴이 진행을 차단하지 않으며, 세 게이트의 Codex 라운드 캡이 `MCCP_GATE_ROUND_CAP`과 무관하게 1로 고정되고, `/mccp:santa-loop`은 라운드를 열지 않는다. **리뷰를 없애는 것이 아니라 반복을 없앤다** — 지적은 `l2.json`과 `.claude/reviews/plan-review-<slug>.md`에 그대로 남는다.
+## [1.28.1] — 2026-08-18
+
+**review-loop-bypass M1 — 단일통과 토글 (PRD 첫 milestone → patch bump, 1.28.0 → 1.28.1)** — `MCCP_REVIEW_SINGLE_PASS`(고정 enum 3종: `scope_too_small` · `deadline_pressure` · `deferred_to_prd_completion`)가 켜지면 `/mccp:plan`의 L2 승인 패널이 1회만 발화하고 quorum 비수렴이 진행을 차단하지 않으며, 세 게이트의 Codex 라운드 캡이 `MCCP_GATE_ROUND_CAP`과 무관하게 1로 고정되고, `/mccp:santa-loop`은 라운드를 열지 않는다. **리뷰를 없애는 것이 아니라 반복을 없앤다** — 지적은 `l2.json`과 `.claude/reviews/plan-review-<slug>.md`에 그대로 남는다.
 
 - **새 verdict 값을 만들지 않았다** (PRD Open Question 3의 답). `resolution.review_verdict`는 실제 `divergent`를 그대로 봉인하므로 대시보드 · `evidence-audit` · ship gate가 전부 정직하게 비승인으로 읽고 cross-gate dedupe도 열리지 않는다. 토글이 바꾸는 것은 **명령 본문이 HALT하는가** 하나이고 receipt가 주장하는 내용은 무변경이다. `converged`로 위장하면 §3.12의 완료 판정 키 신뢰가 깨지므로, 위장하지 않는 것이 그 문제에 대한 답이다.
 - **완화되는 경로는 정확히 하나** — `decideReview`의 `quorum.passed !== true` 반환. L1 실패 · L2 부재/판독 불가 · `responded=0` · budget skip · DD13 plan hash 불일치 · hybrid인데 L3 미수렴은 토글이 켜져 있어도 전부 HALT한다(`divergent`=보고 결함을 찾았다 / `unavailable`=인증할 수 없었다). 이 보장은 검사 목록이 아니라 **코드 순서**로 성립한다 — 완화 분기가 나머지 차단 분기보다 뒤에 있다. hybrid는 그 순서로 보장되지 않아(hybrid 블록이 quorum 통과 경로에만 있다) 완화 자격에 L3 수렴 전제를 직접 싣는다.
@@ -17,6 +23,31 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - **UI5 관측 표면** — `.claude/state/plan-review/dispatch-log-<slug>.jsonl`(순수 append-only, purge 대상 아님)에 L2 발화마다 한 줄이 쌓이고 `review-single-pass.js assert-single-round`가 "현재 plan hash 항목 1건 ∧ `round_index` 0 ∧ `halt_stage` null"을 단언한다. `halt_stage`는 마지막 실행 상태만 담아 재발화를 구분하지 못하므로 로그가 그 구분을 준다. 진입 purge를 두면 재발화가 자기 흔적을 지워 측정이 fail-open이 되므로 두지 않았다.
 - **강제 등급의 정직한 천장** — 기계화된 것은 캡 계산과 그 test, `pr.md`가 codex-runner 자식에 export하는 **고정된** 캡, receipt 봉인, 그리고 세 명령 본문이 리터럴이 아니라 공유 오라클을 읽는지의 정적 test 넷이다. 마지막 것이 막는 것은 **배선 누락**(PRD Risk 5)이지 LLM이 산문을 어기는 경우가 아니다. L2 비용은 여전히 1회분 발생하고, 미흡수 지적의 backlog 자동 회수는 M2 소유다.
 
+## [1.28.0] — 2026-08-18
+
+> **§3.7 forward-only 점검 (12번째 재발, 이번엔 상향 불필요)**: 이 항목을 쓰는 사이 main이
+> `1.27.2`를 발행했다. minor bump가 준 여유 덕에 `1.28.0`이 여전히 main 최대치보다 앞서므로
+> 번호를 밀지 않았다 — 상향이 필요 없었던 첫 사례다. 병합 후 CHANGELOG는 `1.28.0` → `1.27.2`
+> → `1.27.1` 순으로 내림차순을 유지한다. 그럼에도 `/mccp:pr` 직전에 **다시** 재계산한다
+> (§3.7이 요구하는 두 시점 중 두 번째).
+
+**santa-adjudication M3 — patch-chasing terminator + 캡 정책 (PRD 3 milestone 전부 완료 → minor bump, 1.27.2 → 1.28.0)** — santa-loop은 스스로 끝나지 않았다. 라운드 N의 수정이 라운드 N+1의 1급 표적이 되는 구조라, #124의 6라운드 실측에서 **라운드 4~6은 전부 직전 라운드가 넣은 코드**를 겨눴고 원 산출물의 불변식은 라운드 3에서 이미 전부 강제된 뒤였다. M1이 severity 축을, M2가 판정 원장을 놓았으므로 남은 축은 루프가 스스로 끝나는 조건 하나다. M3은 라운드 2 이후(0-based index ≥ 1) 살아남은 blocking이 **전부** 직전 라운드의 패치를 겨눌 때 종료하고, 그 사유를 원장과 receipt 양쪽에 봉인한다.
+
+**종료의 소재는 마커 하나다 — 두 번째 채널을 만들지 않았다.** P0는 이미 "루프가 왜 끝났는가"를 담는 자리를 갖고 있었다(`beginRound`가 캡 거부 시점에 쓰는 `{reason, at, rounds}`). `patch_chasing`은 **같은 마커에 다른 reason으로** 들어가며 결속 규칙·멱등 규칙·라운드 개설 시 삭제 규칙을 전부 상속한다. 종료가 두 곳에 살면 소비자(`seal`·리포트·receipt·`status`)마다 어느 쪽을 볼지 골라야 하고 고르는 순간 갈린다. `exit_reason`은 이제 정확히 3값이다 — 부재(자연 수렴 또는 진행 중) · `cap_reached` · `patch_chasing` — 이고 앞 둘의 배타는 발화 조건의 `capAllowsAnotherRound` 항이 유지한다(캡이 이미 끝낼 run을 terminator가 주장하지 않는다). 따라서 PRD의 "자연 종료 비율"은 `cap_reached` 대 나머지로 읽힌다.
+
+**대상 판정은 리뷰어의 자기 선언이 아니라 집계 단계의 파일·라인 대조다.** 리뷰어가 선택 필드 `locations`를 채우면 집계 단계가 그것을 `git show --unified=0 <직전 패치 rev>`의 hunk 범위와 대조해 `round_n_patch` / `preexisting` / `unknown` 셋 중 하나를 **계산**한다. 입력(`locations`)과 계산 결과(`targets`)를 이름부터 가르는 것이 요점이고, 대조할 수 없는 항목은 전부 `unknown` → 미발화 쪽으로 떨어진다. **직전 패치의 앵커는 추측하지 않고 호출자가 준다** — 커맨드 본문 Step 5가 자기 라운드로 `round-$ROUND-fix-rev.txt`를 쓰고 Step 4.5가 `round-$((ROUND-1))`을 읽으며, 경로에 decision slug가 들어가 병렬 루프의 교차오염을 구조적으로 막는다. 라운드 0에서는 플래그를 **아예 넘기지 않는다**(빈 문자열도 아니다) — 빈 문자열은 같은 미발화로 가더라도 사유가 "불량 rev"로 잘못 기록돼 "정상 미발화 vs 입력 이상"의 구분이 무너진다.
+
+**이 분류가 완벽하지 않다는 것을 지표로 관측하되 임계로 덮지 않는다.** 직전 라운드가 손댄 파일에서 리뷰어가 **처음으로** 발견한 실재 결함은 `round_n_patch`로 분류된다 — patch-chasing의 정의와 겹치기 때문이고, PRD Risks 행이 Medium/High로 사전 등재한 오분류다. 특히 `locations`에 `line`이 없으면 파일 단위 일치만으로 성립하는데, 라인을 **요구**하면 대부분의 지적이 `unknown`이 되어 terminator가 사실상 죽으므로 그 반전은 채택하지 않았다(implement 게이트에서 Codex가 같은 축을 HIGH로 지적했고, 기전은 정확하나 처방은 근거를 붙여 기각했다 — 대신 그가 함께 권고한 end-to-end negative test를 받았다). 남는 방어는 셋이다: **전량 조건**(하나라도 다른 파일을 겨누면 미발화) · 미해결 항목의 터미널·리포트 열거 · `off` 재개. 오발화의 대가가 승인이 아니라 **한 라운드 이른 종료 + 사람이 읽는 목록**이라는 점이 이 선택의 근거다 — santa verdict는 게이트 승인이 아니다(PRD UI3).
+
+**읽기와 쓰기가 같은 상수에서 파생된다 — 절반짜리 변경은 배송 불가였다.** 종료 사유 열거를 쓰기 쪽만 넓히면 마커 직후의 첫 `read()`가 `SANTA_LEDGER_CORRUPT`로 던져 원장이 통째로 안 읽힌다. `assertTerminationMarker`와 신규 `ledger.terminate`가 `TERMINATION_REASONS` 하나를 공유하고, 그 상수는 `counter.REASONS.CAP_REACHED` + `terminator.EXIT_REASON.PATCH_CHASING`의 합이다. 같은 축으로 `seal.js#buildProof`의 `capReached` 술어를 종료 일반으로 일반화했다 — 하지 않으면 `patch_chasing` 종료가 `layers.l1='converged'`로 봉인돼 **receipt가 승인하지 않은 게이트의 승인을 주장**한다. 세 파일(ledger·seal·schema)의 정합은 산문 약속이 아니라 Validation의 정적 검사가 잰다.
+
+**판정과 봉인 사이가 원자적이지 않았다 — PR 게이트가 잡았고 그 자리에서 닫았다.** `check-termination`은 lock 없이 읽어 판정한 뒤 별도 호출로 마커를 쓰는데, `terminate`가 평가된 라운드를 인자로 받지 않아 lock 안에서 *그 시점의* `rounds.length`에 결속했다. 그 사이 다른 프로세스가 `begin-round`로 라운드를 열면 종료가 **평가된 적 없는** 라운드에 봉인되고 이후 라운드 개설이 그 마커에 막힌다 — 사유가 거짓이 되고 미평가 작업이 잘린다. 이제 호출자가 판정 좌표(`expectedRounds`·`expectedRound`)를 **필수로** 넘기고 `terminate`가 lock 안에서 재확인해, 어긋나면 쓰지 않고 stdout도 종료를 주장하지 않는다(`reason='stale-decision'`). 기본값을 두지 않은 것이 요점이다 — 두면 옛 호출자가 조용히 옛(취약) 경로를 탄다. 같은 축으로 `lastFinalRound`를 `ledger.js`로 올려 좌표 검증과 판정 대상 선택이 한 술어를 보게 했다. 커버리지 89 신설. 같은 게이트의 두 번째 라운드는 **절단된 증거**를 잡았다: `normalizeLocations`가 상한 20에서 순회를 멈추므로 잘려 나간 뒤쪽의 patch 밖 location이 보이지 않게 되고, 오차의 방향이 발화 쪽 한 방향이라 전량 조건이 막아야 할 것을 통과시켰다. 판정 층이 상한 초과를 `unknown`으로 읽는다(정규화는 무변경 — 항목 63의 경계 유지). 커버리지 90 신설.
+
+**판정은 한 oracle, 배선은 두 지점.** 판정은 순수 모듈 `terminator.js`(디스크·git·시각을 모르고 env는 파서 1종만 읽는다), I/O는 `cli.js`, 배선은 `check-termination`(Step 4.5)과 `begin-round` 선검사 둘뿐이다. 후자는 마커 **조회**라 git이 필요 없다. `MCCP_SANTA_TERMINATOR=off`는 그 두 자리를 함께 끄고 이미 결속된 마커를 지나 라운드를 열어 준다(재개 경로) — 셋째 판정 자리가 생기지 않도록 커맨드 본문이 env **값을 해석하는 것**을 Validation이 정적으로 금지한다(이름 언급은 허용). `begin-round`의 거부는 `ledger.beginRound` **이전**이라 **캡이 소모되지 않는다**.
+
+**PRD의 캡 이름·범위 불일치를 닫았다 — 코드가 정본이다.** `MCCP_SANTA_ROUND_CAP`(1~10, default 3)을 유지하고 PRD 문언 `MCCP_SANTA_MAX_ROUNDS`(1~5)를 폐기했다. 코드 변경은 0이고 근거는 셋이다: (1) 이름을 바꾸면 기존 `settings.json`이 조용히 무시된 채 default 3으로 fail-open하고 그 사고는 로그에 **아무것도 남기지 않는다**, (2) 범위를 좁히면 6~10을 쓰던 설정이 캡이 **낮아지는** 방향으로 무효화돼 진행 중인 루프가 즉시 종료된다, (3) 넓은 상한의 비용이 M3에서 사라진다 — 캡은 이제 안전망이고 1차 종료 조건은 terminator이며 상한 도달은 `exit_reason='cap_reached'`로 관측된다.
+
+env 1종 추가: `MCCP_SANTA_TERMINATOR`(default `enforce`). **이 축은 default가 덜 엄격한 쪽**이라는 점이 M1·M2의 두 토글과 다르다 — `off`가 라운드를 더 돌리므로 리뷰를 더 받는다. 그럼에도 `enforce`가 default인 것은 M3이 닫는 결함이 "루프가 끝나지 않는다"이고 오타가 그 결함을 되살리면 안 되기 때문이다. 커버리지 61~87(27 항목) 신규 + implement 게이트 흡수분 88 · 전량 green.
 ## [1.27.2] — 2026-08-17
 
 **multi-session-work-loop M6 — 진행 상태 기계 판정 (B1) (PRD 8 milestone 중 1 → patch bump, 1.27.1 → 1.27.2)** — `computeB1`은 M2 이래 `insufficient('independent evidence source unavailable')` 상수를 반환해 왔고, 그래서 이 PRD는 **자기 자신의 status drift를 보지 못했다**(M2 행이 `complete`인데 지표 산출은 0건이었고 사람이 손으로 찾아야 했다). M6은 문서 status와 **문서에서 파생되지 않은** 증거를 대조하는 판정 오라클을 배송해 B1을 `computed`로 뒤집고, 대시보드와 `/mccp:archive-complete`가 **같은 오라클**을 공유하게 만든다. 실측 전환: `insufficient` → `computed` **drift 1건 / 분모 39** (원시 41 · 비정규 2 분모 제외 · 증거 미확정 30 · 실제 대조 9행).

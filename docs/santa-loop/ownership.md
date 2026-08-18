@@ -149,6 +149,50 @@ export 6종이다. 전부 순수이고 디스크·시각을 모른다 — env는
 자기모순 proof도 만들었다 — `review-verdict.js`가 구조적으로 거부하는 조합이다). 두 층이 갈릴 수
 있는 자리는 이제 **같은 질문을 두 번 세는** `distinctIds >= 2` 하나뿐이고, 그 일치는 test가 잰다.
 
+P1(santa-adjudication **M3**)이 더한 것도 같은 성격의 **추가 기록**이다(프로토콜 4). 위
+`gate.decideVerdict`·`decideAdjudicatedVerdict` 행은 여전히 무변경이고, M3은 판정 자체를
+건드리지 않는다 — 종료 조건을 **판정 바깥에** 새로 놓는다. 신규 모듈
+`plugins/mccp/scripts/lib/santa/terminator.js`(소유권 표에 이미 P1으로 배정)의 export이며,
+전부 순수이고 디스크·git·시각을 모른다(env는 파서 1종만 읽는다).
+
+| 함수 | 시그니처 | 계약 |
+|---|---|---|
+| `parseTerminator` | `(env) -> 'enforce' \| 'off'` | env 파서. 불량값은 loud warn 후 `enforce`. **이 축은 default가 덜 엄격한 쪽이다** — `off`가 라운드를 더 돌리므로 리뷰를 더 받는다. 그럼에도 `enforce`가 default인 것은 M3이 닫는 결함이 "루프가 끝나지 않는다"라 오타가 그 결함을 되살리면 안 되기 때문이다 |
+| `normalizeLocations` | `(raw) -> [{file, line}]` | **전역 함수**. 비배열·null → `[]`. 원소별로 `file` 문자열(1..300자) 검사, `line`은 양의 정수일 때만 보존하고 그 외는 `null`. ≤20개로 절삭하되 절삭 사실을 반환에 남기지 않는다 — 입력 정규화이지 판정이 아니다. 입력 배열을 변형하지 않는다 |
+| `classifyTarget` | `({locations, patchRanges}) -> 'round_n_patch' \| 'preexisting' \| 'unknown'` | **전역 함수**. DD11의 표. `patchRanges[file]`이 **빈 배열**인 것은 "파일은 손댔지만 추가 라인이 없다"(삭제 전용 hunk)를 뜻하고 그 파일에 라인을 지정한 지적은 `preexisting`이다. 파일 집합과 범위를 두 자료구조로 나누지 않는 이유가 그 구분이다 |
+| `decideTermination` | `({mode, round, minRound, effectiveBlocking, patchRanges, capAllowsAnotherRound}) -> {terminate, exitReason, reason, classified, targetsBreakdown, unresolved}` | AND 5항 — `mode==='enforce'` · `round >= minRound` · `effectiveBlocking.length > 0` · 전량 `round_n_patch` · `capAllowsAnotherRound`. 첫 항은 kill switch 축이고 나머지 넷이 판정 축이라, 문서가 "4항"이라 세면 `terminator.js`의 열거·plan 커버리지 69와 어긋난다. `exitReason`은 `'patch_chasing'` 또는 `null`. `reason`은 **어느 항이 막았는지**를 지목하는 **고정 토큰 5종**(`NO_FIRE` — `env-off` · `round-below-min` · `no-effective-blocking` · `not-all-round-n-patch` · `cap-would-end-this-run`)이다. 자유 문장이 아니다 — Task 3의 kill-switch 계약이 `off`에서 정확히 `'env-off'`를 요구하고 커버리지 85가 그 리터럴을 단언하므로, 문구를 다듬는 것 자체가 계약 위반이다. 미발화가 정상인지 입력 이상인지를 가르는 유일한 표면이다. `targetsBreakdown`은 분류 3종의 집계이고 **반환 계약의 일부다** — `cli.js`가 stdout JSON에 싣고 `santa-loop.md` Step 4.5 셸이 읽어 운영자 출력에 쓴다. `capAllowsAnotherRound` 항이 캡과의 배타를 만든다: 캡이 이미 끝낼 run에서는 terminator가 발화하지 않으므로 한 루프의 `exit_reason`은 두 값 중 하나만 갖는다 |
+| `EXIT_REASON` · `TARGETS` · `ENV_TERMINATOR` · `MIN_ROUND` | 상수 | 어휘의 정본. `cli.js`·test가 리터럴을 베끼지 않는다 |
+
+`gate.analyzeReviewers`의 반환은 **키가 하나 늘었다**(시그니처 무변경): 병합된 blocking 행이
+`locations`를 갖고, 값은 같은 정규화 claim으로 병합된 findings의 `locations` **합집합**을
+`(file, line)` 쌍으로 중복 제거한 것이다. `classifyFinding`은 건드리지 않았다 — `locations`는
+blocking 자격에 어떤 영향도 주지 않는다. 합집합인 이유는 어느 한쪽을 버리는 규칙을 두면
+**버림이 판정을 바꾸기** 때문이고(버리는 쪽이 patch 안이면 분류가 뒤집힌다), 전량 조건 아래에서
+합집합은 항상 더 보수적이다(location이 늘수록 `round_n_patch`가 되기 어렵다). `recordReviewer`가
+저장하는 envelope의 `findings[]` 원소도 `locations`를 갖는다(부재는 `[]`) — 병합 이전 단계에
+읽을 것이 있어야 union이 성립하기 때문이며, 빈 배열은 `unknown` → 미발화 쪽이라 legacy 원장의
+판정을 넓히지 않는다.
+
+**DD2 — P0 파일 접촉 3곳.** M3은 P0 소유 파일 셋을 연다. 프로토콜 1·2에 비추어 각각이 왜
+허용되는지를 여기 명시한다. 선언하지 않은 P0 파일의 변경은 plan Validation의 정적 검사가 red로
+잡는다.
+
+| P0 파일 | 무엇을 | 동결 표에 있는가 | 왜 허용인가 |
+|---|---|---|---|
+| `ledger.js` | `terminate(opts)` **신규 export** | 아니오 (신규) | 프로토콜 2 — 기존 시그니처 전부 무변경이고 추가만이다. 종료 마커를 **두 번째 채널로 만들지 않기 위해** P0의 기존 `state.terminated` 자리에 다른 `reason`으로 쓴다: 결속 규칙(`terminated.rounds === rounds.length`) · `beginRound`가 라운드를 열 때 마커를 지우는 규칙 · 멱등 규칙을 전부 상속한다. 짝이 되는 `clearTermination`이 없는 것은 `beginRound`의 기존 허용 분기가 이미 그 일을 하기 때문이다 |
+| `ledger.js` | `assertTerminationMarker`의 허용 `reason` 집합 확장 | 예 (읽기 경로) | **한 커밋 불변식**. 쓰기만 넓히면 마커 직후의 첫 `read()`가 `SANTA_LEDGER_CORRUPT`로 던져 원장이 통째로 안 읽힌다 — 배송 불가가 되는 절반짜리 변경이다. 읽기·쓰기가 `TERMINATION_REASONS` **같은 상수**에서 파생되며, 그 상수는 `counter.REASONS.CAP_REACHED` + `terminator.EXIT_REASON.PATCH_CHASING`의 합이다 |
+| `seal.js` | `buildProof`의 `capReached` 술어를 종료 일반으로 일반화 | 아니오 (`buildProof`는 동결 표에 없다) | 술어 1개이고 상수 import를 더하지 않는다(더하면 P0 접촉면이 넓어져 DD2가 그은 선을 넘는다). 일반화하지 않으면 `patch_chasing` 종료가 `layers.l1='converged'`로 봉인돼 **receipt가 승인하지 않은 게이트의 승인을 주장**한다 |
+| `receipt/schema.js` | `meta.santa_exit_reason` 열거를 1종 → 2종 | 아니오 (santa 소유 필드) | additive-permissive라 기존 receipt corpus가 계속 valid다(Validation이 `receipt status`로 대조). 넓히지 않으면 `seal`이 쓴 receipt가 자기 schema에 거부당한다 |
+
+`cli.js`의 M3 추가분은 subcommand `check-termination` 하나와 `begin-round`의 종료 선검사다.
+후자는 마커 **조회**라 git이 필요 없다 — 판정은 `terminator.js`(순수) · I/O는 `cli.js` · 배선은
+**정확히 두 지점**이고(`cmdCheckTermination` · `assertNotTerminated`), 각 함수가
+`parseTerminator`를 1회씩 부른다. 셋째 자리(커맨드 본문 셸이 env 값을 직접 읽는 것)가 생기면
+kill switch가 갈리므로 plan Validation이 그것을 정적으로 금지한다 — `santa-loop.md`는 env
+**이름을 언급**할 수는 있어도 **값을 해석**하지 않는다. hunk 범위는 `git show --unified=0`의
+`@@ -a,b +c,d @@`에서 `d > 0`인 것만 취하며, `--unified=0`이라 context 라인이 범위에 섞이지
+않는다. 신규 exit code는 없고 `SANTA_TERMINATED`가 기존 `SANTA_*` → exit 2 매핑을 탄다.
+
 ### CLI exit code
 
 `plugins/mccp/scripts/lib/santa/cli.js`가 소유한다. 자식 PRD는 **신규 code를 만들지 않는다** —
@@ -157,7 +201,7 @@ export 6종이다. 전부 순수이고 디스크·시각을 모른다 — env는
 | Code | 의미 |
 |---|---|
 | `0` | 성공 |
-| `2` | 사용/무결성 오류. `SANTA_*` 계열 error code 전부가 여기로 매핑된다 |
+| `2` | 사용/무결성 오류. `SANTA_*` 계열 error code 전부가 여기로 매핑된다 — santa-adjudication M3의 `SANTA_TERMINATED`(`begin-round`가 결속된 `patch_chasing` 마커에서 거부)도 신규 code 없이 여기를 탄다. **`12`와 구별되는 것이 요점이다**: 12는 캡 도달이고 2는 terminator 종료라, 두 종료 사유가 exit code에서도 갈린다 |
 | `12` | 캡 도달. **`begin-round` 전용**이며 재사용 금지 |
 | `75` | 원장 lock 경합. 재시도하면 해소된다(EX_TEMPFAIL) |
 

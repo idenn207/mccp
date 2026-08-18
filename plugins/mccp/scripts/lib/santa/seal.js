@@ -218,7 +218,13 @@ function buildProof(input) {
   const o = input || {};
   const projection = o.projection || { rounds: [] };
   const verdict = o.verdict;
-  const capReached = o.exitReason === 'cap_reached';
+  // santa-adjudication M3 — 술어 일반화. **의미 변경이 아니라 부족한 인코딩의
+  // 교정이다.** 종료 사유가 `cap_reached` 하나뿐이던 동안 `=== 'cap_reached'`와
+  // `!== null`은 같은 술어였고, M3의 `patch_chasing`이 그 둘을 처음으로 가른다.
+  // 일반화하지 않으면 patch-chasing 종료가 `l1: 'converged'`로 봉인된다 — 최종
+  // 라운드가 NAUGHTY인데 M1 게이트가 그 라운드를 승인했다고 receipt가 적는 것이고,
+  // 바로 아래 주석이 막겠다고 쓴 상태다.
+  const terminatedWithoutConvergence = o.exitReason !== null && o.exitReason !== undefined;
   const fin = projection.rounds.length
     ? projection.rounds[projection.rounds.length - 1]
     : null;
@@ -234,7 +240,7 @@ function buildProof(input) {
 
   return {
     layers: {
-      l1: capReached || projection.rounds.length === 0 ? 'divergent' : 'converged',
+      l1: terminatedWithoutConvergence || projection.rounds.length === 0 ? 'divergent' : 'converged',
       l2: verdict === 'converged' ? 'converged' : 'divergent',
       l3: null,
     },

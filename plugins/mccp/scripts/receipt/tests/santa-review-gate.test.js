@@ -266,3 +266,80 @@ test('[7] meta.santa_* and review_proof are inside receipt_hash (tamper is detec
         'review_proof must NOT be carved out of receipt_hash');
     });
   });
+
+// ── [M1] 레인 커버리지 정수 2종 (santa-evidence-diversity) ────────────────────
+
+test('[M1] santa_blind_* round-trips, and 0 is a VALID observed value', function () {
+  withRepo(function (repo, reportRel, proofRel) {
+    const r = writeSanta(reportRel, proofRel, {
+      'santa-rounds': 2, 'santa-blind-records': 2, 'santa-blind-rounds': 2,
+    });
+    assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
+    assert.strictEqual(r.receipt.meta.santa_blind_records, 2);
+    assert.strictEqual(r.receipt.meta.santa_blind_rounds, 2);
+
+    // `off` 실행의 형태. 0은 "관측했고 블라인드가 0건이었다"이고 schema가 그것을
+    // 받아야 한다 — 거부하면 정상 producer 출력(DD8이 약속한 off stamp)이 막힌다.
+    const z = writeSanta(reportRel, proofRel, {
+      'santa-rounds': 1, 'santa-blind-records': 0, 'santa-blind-rounds': 0,
+    });
+    assert.strictEqual(validate(z.receipt).ok, true, JSON.stringify(validate(z.receipt).errors));
+    assert.strictEqual(z.receipt.meta.santa_blind_records, 0);
+    assert.strictEqual(z.receipt.meta.santa_blind_rounds, 0);
+  });
+});
+
+test('[M1] santa_blind_* rejects negatives and non-integers', function () {
+  withRepo(function (repo, reportRel, proofRel) {
+    const r = writeSanta(reportRel, proofRel, {
+      'santa-rounds': 1, 'santa-blind-records': 1, 'santa-blind-rounds': 1,
+    });
+    assert.strictEqual(validate(r.receipt).ok, true);
+
+    [-1, 1.5, '2', null === undefined ? 0 : NaN].forEach(function (bad) {
+      const c = JSON.parse(JSON.stringify(r.receipt));
+      c.meta.santa_blind_records = bad;
+      assert.strictEqual(validate(c).ok, false,
+        'santa_blind_records accepted ' + JSON.stringify(bad));
+    });
+    [-3, 0.5, 'x'].forEach(function (bad) {
+      const c = JSON.parse(JSON.stringify(r.receipt));
+      c.meta.santa_blind_rounds = bad;
+      assert.strictEqual(validate(c).ok, false,
+        'santa_blind_rounds accepted ' + JSON.stringify(bad));
+    });
+  });
+});
+
+test('[M1] omitting the lane flags leaves both keys ABSENT (present-only)', function () {
+  withRepo(function (repo, reportRel, proofRel) {
+    // 부재 = "레인 축이 없던 시절에 쓰였다(모름)". 0과 구별돼야 하고, makeSkeleton에
+    // 넣지 않았다는 것이 곧 §3.12 ship corpus의 hash 안정성이다.
+    const r = writeSanta(reportRel, proofRel, { 'santa-rounds': 1 });
+    assert.strictEqual(validate(r.receipt).ok, true);
+    ['santa_blind_records', 'santa_blind_rounds'].forEach(function (k) {
+      assert.ok(!(k in r.receipt.meta),
+        'meta.' + k + ' must be absent when the flag is not supplied');
+    });
+  });
+});
+
+test('[M1] santa_blind_* is NOT carved out of receipt_hash', function () {
+  // `validate()`는 hash를 검사하지 않는다 — 봉인 검사는 [7]과 동일하게
+  // `receiptHash()` 재계산 비교로 한다. 이 두 필드가 carve-out되면 stamp를 고쳐도
+  // 봉인이 그대로여서 "관측된 커버리지"가 사후 변조 가능해진다.
+  withRepo(function (repo, reportRel, proofRel) {
+    const r = writeSanta(reportRel, proofRel, {
+      'santa-rounds': 1, 'santa-blind-records': 1, 'santa-blind-rounds': 1,
+    });
+    const sealed = receiptHash(r.receipt);
+    assert.strictEqual(sealed, r.receipt.receipt_hash);
+
+    [['santa_blind_records', 99], ['santa_blind_rounds', 7]].forEach(function (pair) {
+      const bumped = JSON.parse(JSON.stringify(r.receipt));
+      bumped.meta[pair[0]] = pair[1];
+      assert.notStrictEqual(receiptHash(bumped), sealed,
+        'meta.' + pair[0] + ' must NOT be carved out of receipt_hash');
+    });
+  });
+});

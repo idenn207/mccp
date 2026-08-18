@@ -38,6 +38,7 @@ const counter = require('./counter');
 const gate = require('./gate');
 const adjudication = require('./adjudication');
 const terminator = require('./terminator');
+const lanes = require('./lanes');
 const seal = require('./seal');
 const { gitRepoRoot } = require('../../receipt/hash');
 const { assertContained } = require('../path-containment');
@@ -315,6 +316,35 @@ function loadReviewer(args, opts) {
     throw new SantaCliError('SANTA_USAGE', '--model <str> is required and must be non-empty');
   }
 
+  // santa-evidence-diversity M1 — `--lane`은 **필수**이고 oracle 배정과 대조된다.
+  //
+  // 검증하는 것: 커맨드 본문이 oracle을 거치지 않고 레인을 즉흥적으로 정하는 경로가
+  // 막힌다. 검증하지 **않는** 것: 블라인드로 선언된 리뷰어의 프롬프트에 실제로 번들이
+  // 없었는지 — 셸에서 LLM이 무엇을 받았는지 확인할 방법이 없다(DD4). M1은 위조 방지를
+  // 주장하지 않으며, PRD는 그것을 알고 검증을 **결과 분포**에 맡겼다(UI7).
+  //
+  // mode는 여기서 **파서를 경유해** 얻는다. `cmdLanes`가 쓰는 것과 **같은 두 줄**이라
+  // 두 곳이 다른 방법으로 mode를 얻어 갈리는 일이 없다. `parseBlindLane`은 던지지
+  // 않으므로(불량값 → loud warn + default) "mode를 못 읽어서 검증을 건너뛴다"는 분기가
+  // 존재하지 않는다 — 대조는 **항상** 수행된다.
+  const lane = args.lane;
+  if (lane !== lanes.LANES.BLIND && lane !== lanes.LANES.BUNDLED) {
+    throw new SantaCliError('SANTA_USAGE',
+      '--lane must be "' + lanes.LANES.BLIND + '" or "' + lanes.LANES.BUNDLED +
+      '"; got ' + JSON.stringify(lane));
+  }
+  const expectedLane = lanes.assignLanes({
+    mode: lanes.parseBlindLane(opts.env), ids: [id],
+  })[id];
+  if (lane !== expectedLane) {
+    throw new SantaCliError('SANTA_LANE_MISMATCH',
+      'reviewer ' + id + ' declared --lane ' + lane + ' but ' + lanes.ENV_BLIND_LANE +
+      ' assigns ' + expectedLane + '. The round stays open; re-record with the assigned ' +
+      'lane, or fix the caller so it takes the lane from `santa/cli.js lanes`. ' +
+      '(Changing ' + lanes.ENV_BLIND_LANE + ' mid-loop produces this too — change it at ' +
+      'a round boundary instead.)');
+  }
+
   const elements = Array.isArray(parsed.critical_issues) ? parsed.critical_issues : [];
   const findings = elements.map(deriveFinding);
 
@@ -329,12 +359,64 @@ function loadReviewer(args, opts) {
       // 같은 map에서 파생되므로 길이 일치는 구조적으로 보장된다.
       criticalIssues: findings.map(function (f) { return f.claim; }),
       findings: findings,
+      // santa-evidence-diversity M1 — 증거 레인. `seal.js#project`가 이 값을 투영하고
+      // `lanes.laneCoverageFrom`이 집계해 receipt에 정수 2종으로 봉인한다.
+      lane: lane,
     },
     // 원본 전체를 함께 보관한다(DD2) — envelope는 gate가 쓰는 최소 투영이라
     // `checks`·`suggestions`를 버리는데, P1의 severity 축이 바로 그 `checks`에서
     // 나온다. envelope만 저장하면 P0가 P1의 입력을 파기하는 셈이다.
     raw: parsed,
   };
+}
+
+// readJsonStringArray — `--paths-file` 전용 로더.
+//
+// `loadReviewer`와 **같은 방어를 같은 순서로** 건다: repo 안 containment →
+// 크기 상한 → JSON 파싱 → 형태 검사. 경로 목록도 리뷰 파이프라인 입력이므로
+// 리뷰어 JSON보다 느슨할 이유가 없다.
+//
+// 실패는 전부 typed error → exit 2이고, 이 함수는 **아무것도 stdout에 쓰지 않는다**
+// (호출자 `cmdLanes`가 전 검증 통과 후 1회만 out()한다).
+function readJsonStringArray(file, opts, flagName) {
+  assertContained(ledger.canonicalPath(file),
+    ledger.canonicalPath(repoRootOrThrow(opts.cwd)), null);
+
+  let stat;
+  try {
+    stat = fs.statSync(file);
+  } catch (err) {
+    throw new SantaCliError('SANTA_USAGE',
+      flagName + ' does not exist: ' + file + ' (' + err.code + ')');
+  }
+  if (stat.size > MAX_REVIEWER_BYTES) {
+    throw new SantaCliError('SANTA_USAGE',
+      flagName + ' is ' + stat.size + ' bytes (max ' + MAX_REVIEWER_BYTES + ')');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    throw new SantaCliError('SANTA_USAGE',
+      flagName + ' is not valid JSON: ' + err.message);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new SantaCliError('SANTA_USAGE',
+      flagName + ' must be a JSON array of strings; got ' +
+      (parsed === null ? 'null' : typeof parsed));
+  }
+  if (parsed.length > MAX_REVIEWER_ARRAY) {
+    throw new SantaCliError('SANTA_USAGE',
+      flagName + ' has ' + parsed.length + ' entries (max ' + MAX_REVIEWER_ARRAY + ')');
+  }
+  parsed.forEach(function (v, i) {
+    if (typeof v !== 'string' || v === '') {
+      throw new SantaCliError('SANTA_USAGE',
+        flagName + '[' + i + '] must be a non-empty string; got ' + JSON.stringify(v));
+    }
+  });
+  return parsed;
 }
 
 function repoRootOrThrow(cwd) {
@@ -843,6 +925,76 @@ function cmdVerdict(args) {
   return EX_OK;
 }
 
+// cmdLanes — Step 3 진입 직전. 레인을 배정하고 블라인드 프롬프트를 조립한다.
+//
+// **프롬프트 조립을 CLI가 하는 이유는 위조 비용 때문이다**(DD4). 커맨드 본문이
+// 조립하면 정직한 경로와 위조 경로의 비용이 같아진다 — 여기서 내주면 정직한 경로가
+// 가장 싼 경로가 된다.
+//
+// 스코프는 **정하지 않고 받는다**(DD11). `--paths-file`을 만드는 주체는
+// `santa-loop.md` Step 1이다. CLI가 정하기 시작하면 M2의 상시 스코프와 결정 지점이
+// 둘이 된다.
+//
+// **어떤 실패에서도 stdout에 부분 JSON을 내지 않는다** — 호출자가 그것을 파싱하면
+// 절반만 성립한 배정으로 리뷰어를 띄우게 된다. 그래서 out()은 전 검증 통과 후 1회다.
+function cmdLanes(args) {
+  const opts = baseOpts(args);
+  const repoRoot = repoRootOrThrow(opts.cwd);
+
+  // --paths-file 은 **필수**다. 선택으로 두면 부재 시 targetPaths=[] 인 프롬프트가
+  // 나가고, 그것은 "저장소 루트만 알고 대상은 모르는" 리뷰어 — UI4가 주라고 한 것을
+  // 주지 않은 상태이고 PRD Risk 1(스코프를 못 찾아 헛돈다)이 그 자리에서 발화한다.
+  const pathsFile = args['paths-file'];
+  if (typeof pathsFile !== 'string' || pathsFile === '') {
+    throw new SantaCliError('SANTA_USAGE',
+      '--paths-file <path> is required (JSON array of repo-relative paths, written by ' +
+      'santa-loop.md Step 1). A blind reviewer without target paths violates UI4.');
+  }
+  const targetPaths = readJsonStringArray(pathsFile, opts, '--paths-file');
+  if (targetPaths.length === 0) {
+    throw new SantaCliError('SANTA_USAGE',
+      '--paths-file resolved to an empty array — there is nothing to review. ' +
+      'A blind prompt with no target paths is not a reduced scope, it is a broken one.');
+  }
+
+  let rubric = null;
+  const rubricFile = args['rubric-file'];
+  if (typeof rubricFile === 'string' && rubricFile !== '') {
+    assertContained(ledger.canonicalPath(rubricFile), ledger.canonicalPath(repoRoot), null);
+    const st = fs.statSync(rubricFile);
+    if (st.size > MAX_REVIEWER_BYTES) {
+      throw new SantaCliError('SANTA_USAGE',
+        '--rubric-file is ' + st.size + ' bytes (max ' + MAX_REVIEWER_BYTES + ')');
+    }
+    rubric = fs.readFileSync(rubricFile, 'utf8');
+  }
+
+  const mode = lanes.parseBlindLane(opts.env);
+  const assignment = lanes.assignLanes({ mode: mode, ids: undefined });
+  const blindIds = lanes.blindIdsFrom(assignment);
+
+  // DD2가 블라인드 ≤ 1을 보장하므로 "유일한 id"가 성립한다. 2개가 나오면 그것은
+  // oracle 결함이고, 그 상태로 진행하면 UI6이 경계한 전원 블라인드에 도달한다.
+  if (blindIds.length > 1) {
+    throw new SantaCliError('SANTA_LANE_MISMATCH',
+      'assignLanes returned ' + blindIds.length + ' blind ids (' + blindIds.join(',') +
+      ') for mode "' + mode + '" — DD2 guarantees at most one. This is an oracle defect; ' +
+      'refusing to emit an assignment that would put every reviewer on the blind lane.');
+  }
+
+  // `off`에는 블라인드가 없으므로 blindId는 **빈 문자열**이다(null이 아니다) —
+  // 커맨드 본문이 문자열 비교를 하므로 타입이 갈리면 비교가 조용히 어긋난다.
+  // prompt도 같은 이유로 빈 문자열이다: 배정된 블라인드가 없는데 프롬프트를 내면
+  // 호출자가 그것을 쓸 자리가 생긴다.
+  const blindId = blindIds.length === 1 ? blindIds[0] : '';
+  const prompt = blindId === '' ? '' : lanes.buildBlindPrompt({
+    repoRoot: repoRoot, targetPaths: targetPaths, rubric: rubric,
+  });
+
+  out({ assignment: assignment, blindId: blindId, prompt: prompt });
+  return EX_OK;
+}
+
 function cmdStatus(args) {
   const opts = baseOpts(args);
   out(ledger.aggregate(opts));
@@ -864,9 +1016,12 @@ function usage() {
     '  resolve-decision',
     '  begin-round',
     '  record   --round <N> --id A|B --model <str> --reviewer-file <path>',
+    '           --lane blind|bundled   (required; must match the `lanes` assignment)',
     '  verdict  --round <N>',
     '  adjudicate --round <N> --issue <id> --disposition absorbed|rejected|skipped|reopened',
     '             --evidence <text>   (claim/severity come from the ledger, not from flags)',
+    '  lanes    --paths-file <path> [--rubric-file <path>]',
+    '             (assignment/blindId/prompt on stdout; blindId is "" when lane=off)',
     '  check-termination [--prev-fix-rev <rev>]',
     '             (always exits 0 — branch on stdout `terminate`, not on the exit code)',
     '  status',
@@ -887,6 +1042,7 @@ function runCli(argv) {
       case 'record': return cmdRecord(args);
       case 'verdict': return cmdVerdict(args);
       case 'adjudicate': return cmdAdjudicate(args);
+      case 'lanes': return cmdLanes(args);
       case 'check-termination': return cmdCheckTermination(args);
       case 'status': return cmdStatus(args);
       case 'seal': return cmdSeal(args);

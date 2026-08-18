@@ -757,6 +757,10 @@ function buildReceipt(args) {
     ['santa-rounds', 'santa_rounds', 0],
     ['santa-entries', 'santa_entries', 0],
     ['santa-cap', 'santa_cap', 1],
+    // santa-evidence-diversity M1 — 레인 커버리지 2종. 같은 조건부 재료화 규약이라
+    // --santa-blind-* 미전달 receipt는 키 자체를 갖지 않고 canonical hash가 무변동이다.
+    ['santa-blind-records', 'santa_blind_records', 0],
+    ['santa-blind-rounds', 'santa_blind_rounds', 0],
   ];
   SANTA_INT_FIELDS.forEach(function (spec) {
     const raw = args[spec[0]];

@@ -49,6 +49,25 @@ git diff --name-only HEAD
 
 Read all changed files to build the full review context. If `$ARGUMENTS` specifies a path, file, or description, use that as the scope instead.
 
+**Fix the scope as a machine-readable value.** Step 3 hands this list to the blind
+lane, and the judgement of *what* is in scope stays here — the CLI receives the list,
+it never derives one (DD11). Without a single variable the two steps would each
+answer "what is under review?", and that is the seam where they can disagree.
+
+```bash
+# The single source of scope. If $ARGUMENTS named paths or globs, build the array
+# from those instead — the decision is the same prose as above; the only change is
+# that the result is pinned to one value that Step 3 passes as --paths-file.
+SCOPE_PATHS_JSON=$(git diff --name-only HEAD | node -e '
+  const lines=require("fs").readFileSync(0,"utf8").split(/\r?\n/).filter(Boolean);
+  process.stdout.write(JSON.stringify(lines));')
+```
+
+An empty array means nothing changed; `lanes` rejects it in Step 3 and no round opens.
+A run with nothing to review should not launch reviewers. **M2's always-on scope
+(plan/PRD files regardless of diff) lands by adding to this variable** — that is what
+keeps the join point single.
+
 ### Step 2: Build the Rubric
 
 Construct a rubric appropriate to the file types under review. Every criterion must have an objective PASS/FAIL condition. Include at minimum:
@@ -109,6 +128,61 @@ Two things about that block are load-bearing. `exit "$BEGIN_EXIT"` must be its l
 
 `begin-round` is idempotent: calling it again while a round is still open returns the same `roundIndex` without consuming cap.
 
+#### Resolve the evidence lanes (santa-evidence-diversity M1)
+
+Before launching, ask the oracle which reviewer runs **blind** — pointer only, no file
+bundle and no pre-summary (UI3/UI4). A failure of this axis does not look like an
+error: it looks like an ordinary run, identical to one from before M1 existed. So no
+layer here proceeds on partial success.
+
+```bash
+mkdir -p "$TMPDIR_SANTA"
+# $SCOPE_PATHS_JSON comes from Step 1. If this file ever loses that definition the
+# printf writes an empty file, cmdLanes rejects the empty array, and the round stops —
+# fail-closed, though the cause then surfaces one step away from its origin.
+printf '%s' "$SCOPE_PATHS_JSON" > "$TMPDIR_SANTA/lane-paths-$ROUND.json"
+
+LANES_JSON=$(node "$SANTA" lanes --decision "$DECISION" \
+  --paths-file "$TMPDIR_SANTA/lane-paths-$ROUND.json")
+LANES_EXIT=$?
+if [ "$LANES_EXIT" -ne 0 ]; then
+  echo "[santa] lanes failed (exit $LANES_EXIT) — no lane assignment." 1>&2
+  echo "[santa] NOT launching reviewers: without an assignment a zero-blind round" 1>&2
+  echo "[santa] would succeed silently, and record would reject it at exit 2 anyway," 1>&2
+  echo "[santa] throwing away the round's tokens." 1>&2
+  exit "$LANES_EXIT"
+fi
+
+# Ask whether the output PARSED before reading blindId. Pulling blindId first makes
+# `off` (normal) and a parse failure (broken) both yield an empty string — the
+# discriminator is the presence of `assignment`, and this check is it. The order is
+# the contract: placing it after blindId re-opens the gap it closes.
+HAS_ASSIGNMENT=$(echo "$LANES_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j&&typeof j.assignment==="object"&&j.assignment!==null?"1":"0")}catch{process.stdout.write("0")}')
+if [ "$HAS_ASSIGNMENT" != "1" ]; then
+  echo "[santa] lanes exited 0 but emitted no assignment — the lane map could not be read." 1>&2
+  echo "[santa] NOT launching reviewers. Reading this as off would disguise a failure" 1>&2
+  echo "[santa] as a normal zero-blind run (DD11)." 1>&2
+  exit 1
+fi
+# From here an empty $BLIND_ID means exactly one thing: mode=off.
+BLIND_ID=$(echo "$LANES_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).blindId||"")}catch{process.stdout.write("")}')
+BLIND_PROMPT=$(echo "$LANES_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).prompt||"")}catch{process.stdout.write("")}')
+```
+
+**Both reviewer sections below branch on `$BLIND_ID` and nothing else.** Each uses the
+same sentence: *if this reviewer's id equals `$BLIND_ID`, send `$BLIND_PROMPT` in place
+of the file bundle; otherwise keep the current bundled prompt.* Asking "am I the blind
+one?" separately inside each section would let mode `a`/`b` be interpreted twice, and
+two interpretations that disagree produce zero or two blind lanes. When `$BLIND_ID` is
+empty both take the bundled path — that is `off`, and it is the only legitimate route
+to a zero-blind round.
+
+The two sections stay **symmetric**: `codex`'s `-C "$(pwd)"` and the model selection are
+unchanged (UI10). The only thing that varies is whether file contents ride in the prompt.
+
+The blind prompt is **not assembled here** (DD4). The CLI emits it, so the honest path
+is also the cheapest one.
+
 Launch two reviewers **in parallel** using the Agent tool (both in a single message for concurrent execution). Both must complete before proceeding to the verdict gate.
 
 Each reviewer evaluates every rubric criterion as PASS or FAIL, then returns structured JSON:
@@ -167,6 +241,10 @@ Launch an Agent (subagent_type: `code-reviewer`, model: `opus`) with the full ru
 - The severity contract above, verbatim: every entry in `critical_issues` carries a `claim` and a `severity`, and only an issue whose concrete failure you can write out in `failure_scenario` may be called a blocker
 - Return the structured JSON verdict above
 
+**Lane branch (M1).** If `A` equals `$BLIND_ID`, do **not** include the file contents:
+send `$BLIND_PROMPT` in place of the bundle, keeping the rubric and the severity
+contract. Otherwise use the bundled prompt exactly as described above.
+
 #### Reviewer B: External Model (Claude fallback only if no external CLI installed)
 
 First, detect which CLIs are available:
@@ -200,6 +278,10 @@ rm -f "$PROMPT_FILE"
 **Claude Agent fallback** (only if neither `codex` nor `gemini` is installed)
 Launch a second Claude Agent (subagent_type: `code-reviewer`, model: `opus`). Log a warning that both reviewers share the same model family — true model diversity was not achieved but context isolation is still enforced.
 
+**Lane branch (M1).** Same single sentence as Reviewer A: if `B` equals `$BLIND_ID`,
+`$BLIND_PROMPT` replaces the file contents in `$PROMPT_FILE`; otherwise the bundle
+stays. The CLI invocation, sandbox flags, and model selection do not change (UI10).
+
 In all cases, the reviewer must return the same structured JSON verdict as Reviewer A.
 
 #### Record each reviewer into the ledger
@@ -210,13 +292,32 @@ Write each reviewer's **unmodified** JSON to a repo-internal temp file and hand 
 TMPDIR_SANTA=".claude/state/santa-loop/tmp"      # gitignored with the ledger
 mkdir -p "$TMPDIR_SANTA"
 
-# Reviewer A (repeat verbatim for B with --id B and its own model string)
+# Reviewer A
 cat > "$TMPDIR_SANTA/reviewer-$ROUND-A.json" << 'EOF'
 ... Reviewer A's structured JSON, verbatim ...
 EOF
 node "$SANTA" record --decision "$DECISION" --round "$ROUND" \
-  --id A --model opus --reviewer-file "$TMPDIR_SANTA/reviewer-$ROUND-A.json"
+  --id A --model opus --reviewer-file "$TMPDIR_SANTA/reviewer-$ROUND-A.json" \
+  --lane "$(echo "$LANES_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).assignment.A||"")}catch{process.stdout.write("")}')"
+
+# Reviewer B — identical shape; the lane comes from the same assignment, never typed
+# by hand. Both are shown because mode `b` inverts them, and one example gives no
+# form to copy for the other.
+cat > "$TMPDIR_SANTA/reviewer-$ROUND-B.json" << 'EOF'
+... Reviewer B's structured JSON, verbatim ...
+EOF
+node "$SANTA" record --decision "$DECISION" --round "$ROUND" \
+  --id B --model "<reviewer B model string>" --reviewer-file "$TMPDIR_SANTA/reviewer-$ROUND-B.json" \
+  --lane "$(echo "$LANES_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).assignment.B||"")}catch{process.stdout.write("")}')"
 ```
+
+`--lane` is **required** and is re-derived by the CLI from `MCCP_SANTA_BLIND_LANE`; a
+value that disagrees with the assignment is rejected at exit 2 and the round stays open
+for a re-record. What this checks is that the command body cannot improvise a lane
+outside the oracle. What it does **not** check is whether the reviewer declared blind
+actually received no bundle — nothing in a shell can observe what reached the model, and
+M1 claims no forgery prevention (DD4); verification of that is left to outcome
+distribution (UI7).
 
 The file must live inside the repo — the CLI refuses paths outside it. Non-zero exit means nothing was appended; surface stderr and stop rather than proceeding to a verdict built on partial evidence.
 
@@ -552,4 +653,6 @@ Result:     [PUSHED / ESCALATED TO USER]
 - The cap binds at the **ledger index**, not just here: `record` and `verdict` refuse an index `begin-round` never opened, so ignoring a refusal and launching reviewers produces no ledger entry and no verdict *at that index*. Two things it does **not** prevent, and this file claims neither: the reviewer tokens being spent (launching a reviewer is an LLM act, with nothing for a shell to intercept), and reuse of the last already-FINAL index — `record --round <cap-1>` still succeeds, because restricting `record` to `OPEN` rounds is judgement lifecycle and belongs to P1.
 - The loop's **first** ending condition is Step 4.5, not the cap: a round whose surviving blocking issues all point at the previous round's patch ends there, and the ledger records that ending with its own reason so the two endings can be told apart afterwards. The cap is the safety net underneath it, and reaching it is itself recorded as an ending.
 - The terminator's kill switch is `MCCP_SANTA_TERMINATOR`, registered in docs/ENVIRONMENT.md §11 alongside the other santa toggles. It turns off both wiring points together — the Step 4.5 judgement and the `begin-round` marker precheck — and that document owns its values, defaults and failure mode.
+- Exactly one reviewer runs on the **blind evidence lane** each round: repository root plus target paths, no file bundle and no pre-summary, with a fixed instruction not to treat any handed narrative as fact. The assignment is decided by `santa/lanes.js` and re-checked by `record --lane`, so the command body cannot pick a lane on its own. What that check establishes is that the lane came from the oracle; it does **not** establish that the blind reviewer's prompt truly carried no bundle — no shell can observe what reached a model. Verification of *that* is by outcome distribution (the two lanes' co-missed rate), not by the stamp. Coverage is sealed into the receipt as two present-only integers, `meta.santa_blind_records` and `meta.santa_blind_rounds`; `santa_blind_rounds === santa_rounds` is the mechanical reading of "every round had at least one reviewer that received no bundle".
+- The lane kill switch is `MCCP_SANTA_BLIND_LANE` (`a` default / `b` / `off`), registered in docs/ENVIRONMENT.md §11 with the other santa toggles. `off` is the **less strict** direction — it puts both reviewers on the bundled path, which is the pre-M1 behaviour — so the default is the firing side and a malformed value falls back to firing, not to off. An `off` run is still recorded, as `santa_blind_rounds=0`; absence of the field means "written before the lane axis existed", which is a different state from an observed zero. Nothing in M1 *blocks* a zero-blind round: M1 creates and records lanes, and no milestone currently owns enforcement (see the PRD's open question).
 - The cap is scoped to the decision slug, which is derived from the branch name. Renaming or switching branches starts a fresh cap (different branch = different review scope). Pass `--decision <slug>` to every subcommand to pin one scope across a rename.

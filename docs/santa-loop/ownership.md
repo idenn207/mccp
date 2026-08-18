@@ -205,6 +205,36 @@ kill switch가 갈리므로 plan Validation이 그것을 정적으로 금지한�
 | `12` | 캡 도달. **`begin-round` 전용**이며 재사용 금지 |
 | `75` | 원장 lock 경합. 재시도하면 해소된다(EX_TEMPFAIL) |
 
+P2(santa-evidence-diversity **M1**)가 더한 것도 같은 성격의 **추가 기록**이다(프로토콜 4).
+위 동결 시그니처는 한 글자도 바뀌지 않았고, 신규 모듈 `santa/lanes.js`의 export 5종이
+아래에 더해질 뿐이다.
+
+| export | 시그니처 | 계약 |
+|---|---|---|
+| `parseBlindLane` | `(env) → 'a'\|'b'\|'off'` | 미설정·불량값은 loud stderr warn 후 default `a`. 던지지 않는다 |
+| `assignLanes` | `({mode, ids}) → {[id]: 'blind'\|'bundled'}` | DD2 표 3행이 전체 명세. 표에 없는 id는 `bundled`. 어떤 입력에도 던지지 않는다. 출력 키 수 == 입력 리뷰어 수(I5) |
+| `blindIdsFrom` | `(assignment) → string[]` | 값이 `blind`인 id 전부. 2개 이상은 oracle 결함이라 `cmdLanes`가 exit 2로 거부한다 |
+| `buildBlindPrompt` | `({repoRoot, targetPaths, rubric}) → string` | **파일 내용을 실을 인자가 없다**(DD3). UI5 문구 고정 포함, `MAX_TARGET_PATHS`(200) 초과 시 절삭 사실을 본문에 명시 |
+| `laneCoverageFrom` | `(projection) → {blindRecords, blindRounds, rounds}` | 순수 집계. legacy 투영(레인 부재)에서 0. 어떤 입력에도 던지지 않는다 |
+
+### P2 M1이 연 P0 파일과 근거
+
+M1의 [primary] 지표가 "receipt stamp"라 봉인 경로를 지나지 않고는 성공 조건 자체가 관측
+불가다. 프로토콜 2대로 **추가만** 했고 기존 함수의 시그니처·반환 계약은 무변경이다.
+
+| 파일 | 연 부분 | 열지 않은 경계 |
+|---|---|---|
+| `santa/seal.js` | `project`에 `lane` 1필드 · 라운드 표에 열 1개 · `writeArgs`에 조건부 키 2개 | `deriveVerdict` — 봉인 판정에 레인 항을 더하는 것은 **차단**이고 M1 소관이 아니다 |
+| `receipt/schema.js` | present-only 검증 2블록 | `makeSkeleton` — 키를 넣으면 전 receipt의 canonical hash 입력이 바뀐다(§3.12) |
+| `receipt/write.js` | `SANTA_INT_FIELDS`에 2행 | 없음(기존 조건부 재료화 규약 그대로) |
+| `santa/cli.js` | `lanes` subcommand + `record --lane` 검증 | 신규 exit code 0건 — `SANTA_LANE_MISMATCH`는 기존 `SANTA_*` → exit 2 매핑을 탄다 |
+
+**`gate.js`는 열지 않았다.** 레인 커버리지 부족을 라운드 판정에 넣으면 그 파일을 열어야
+하고 그것은 P1 행이다. M1은 레인을 **만들고 기록**하며 "블라인드가 없으면 막는다"를
+주장하지 않는다. 그 강제의 소유자는 현재 미정이며 PRD Open Question이 소유한다 — M3의
+Scope는 Reviewer B 부재 fallback이라 `MCCP_SANTA_BLIND_LANE=off`로 레인 자체가 꺼진 경우를
+다루지 않는다.
+
 ## 변경 프로토콜
 
 1. **동결 시그니처는 자식 PRD가 바꾸지 않는다.** 위 표의 시그니처를 바꿔야 한다면 P0를

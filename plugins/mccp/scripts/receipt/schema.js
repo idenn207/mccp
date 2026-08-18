@@ -902,6 +902,20 @@ function validate(receipt) {
       req(Number.isInteger(m.santa_cap) && m.santa_cap >= 1,
         'meta.santa_cap must be an integer >= 1 if present');
     }
+    // santa-evidence-diversity M1 — 레인 커버리지 2종. 위 3종과 동일하게 PRESENT-ONLY
+    // 이며 makeSkeleton에 **넣지 않는다**(§3.12 git-tracked ship corpus의 hash 안정성).
+    //
+    // **0은 유효한 값이다.** 부재는 "레인 축이 없던 시절"이고 0은 "관측했고 블라인드가
+    // 0건이었다"(= `MCCP_SANTA_BLIND_LANE=off` 실행)로 서로 다른 상태다. 둘을 뭉개면
+    // M3이 degrade를 판정할 입력을 잃는다.
+    if (m.santa_blind_records !== null && m.santa_blind_records !== undefined) {
+      req(Number.isInteger(m.santa_blind_records) && m.santa_blind_records >= 0,
+        'meta.santa_blind_records must be a non-negative integer if present');
+    }
+    if (m.santa_blind_rounds !== null && m.santa_blind_rounds !== undefined) {
+      req(Number.isInteger(m.santa_blind_rounds) && m.santa_blind_rounds >= 0,
+        'meta.santa_blind_rounds must be a non-negative integer if present');
+    }
     // santa-adjudication M3 — 열거를 2종으로 넓힌다(additive-permissive). 기존 값은
     // 계속 유효하므로 봉인된 receipt corpus가 무손상이고 마이그레이션이 없다.
     // `cap_reached`는 begin-round가 캡에서 거부한 사건, `patch_chasing`은 살아남은

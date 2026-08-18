@@ -629,6 +629,51 @@ compliance는 `claimed/total`로 **계측**하되 판정은 이분법이다: `fu
 
 ---
 
+---
+
+### 3.15 리뷰는 1라운드가 기본이다 — plan 완성도보다 적용 후 결과 (2026-08-18)
+
+**모든 게이트 리뷰는 1라운드를 기본으로 하고, 그 라운드를 triage한 뒤 receipt를 쓰고
+다음 단계로 진행한다.** 리뷰어가 finding을 계속 내더라도 라운드를 늘려 plan을 다듬지
+않는다. §3.14가 정한 수용 임계(HIGH/CRITICAL만 흡수)는 그대로 적용하되, **그 흡수도
+1라운드 안에서** 처리하고 남는 것은 이연한다.
+
+#### 왜
+
+**계획을 오류 없이 만들어도 다른 마일스톤·PRD가 진행되면 어차피 수정된다.** plan을
+다듬는 비용은 사이클마다 반복 지불되는데, 적용해 보고 실제 결과로 판단하는 것은 한 번에
+진짜 정보를 준다. 우선순위는 배포다.
+
+실측 근거 — 2026-08-18 santa-evidence-diversity M1의 plan 한 건에 **8시간 가까이**
+소모됐다. plan-review 패널 **6라운드** + Plan-Codex **2라운드**를 돌았고 라운드별 성격은
+이렇다: R1 열거 공백(실재) → R2 범주 오류(기각) → R3 이음매 공백(실재) → R4 **R3 회귀** →
+R5 계약 위반 2건 + 정지 → R6 새 축 0건 → Plan-Codex R1 실재 1건 → **R2는 R1에서 더
+정직하게 고친 문장을 겨냥**. 즉 *수정이 다음 라운드의 표적이 되는 전이*가 동일모델
+패널과 cross-model 양쪽에서 재현됐다. `plan-review/decide.js`에는 라운드 개념 자체가
+없어 "직전 라운드가 이미 답한 항목"을 식별할 수단이 구조적으로 없다.
+
+#### 어떻게
+
+- 라운드 캡은 `MCCP_GATE_ROUND_CAP=1`(프로젝트 기본, 이미 `.claude/settings.json`에 설정).
+- 1라운드 결과를 §3.14로 triage → receipt 작성 → 진행.
+- 게이트가 막으면 **문서화된 감사 우회**(`MCCP_SKIP_RECEIPT` · `MCCP_SKIP_INTENT_GATE` ·
+  `MCCP_ALLOW_CODEX_UNAVAILABLE` · `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE`)를 쓰되
+  **사유를 반드시 남긴다.** 요지는 게이트를 끄는 것이 아니라 **라운드를 늘리지 않는 것**이다.
+- 미해소 항목은 [codex-findings-backlog.md](.claude/plans/codex-findings-backlog.md) ·
+  `.claude/state/fix-task.md` · 신규 PRD 중 하나로 **명시 이연**한다. 조용히 버리지 않는다.
+- plan 본문을 고쳐 리뷰를 다시 돌리는 것은 **기본 선택지가 아니다**. 고쳐야 할 것이
+  실재하면 고치되, 그 다음은 재리뷰가 아니라 진행이다.
+
+#### 그래도 하지 않는 것
+
+- **리뷰어 프롬프트 완화 금지.** 통과시키려고 리뷰어에게 "fail 대신 pass" 취지의 조항을
+  붙이지 않는다. CLI가 조립한 프롬프트(`emit-workflow-args` 등)는 verbatim 전달한다 —
+  봉인되는 `reviewed_plan_hash`는 plan만 묶으므로 프롬프트 변조는 어디에도 안 남는다.
+  오탐은 판정 하류(triage·backlog·adjudication)에서 거른다.
+- **receipt 위조 금지.** 슬러그가 안 맞는다고 파일명을 바꾸지 않는다 — `decision_id`는
+  해시된 본문 안에 있고 §3.12 no-rehash 불변식이 이를 금지한다. 우회가 필요하면 우회를
+  쓰고 사유를 남긴다.
+
 ## 4. 자주 쓰는 명령 (Cheat Sheet)
 
 ```bash

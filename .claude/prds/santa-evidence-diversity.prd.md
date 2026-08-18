@@ -61,7 +61,7 @@ We'll know we're right when **#125가 보고한 계획⟷PRD 정합 위반 유�
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | 블라인드 레인 | 리뷰어 1명이 오케스트레이터 서술을 사실로 받지 않고 디스크에서 재유도한다. codex가 우연히 하던 일이 계약이 됨 | pending | — |
+| 1 | 블라인드 레인 | 리뷰어 1명이 오케스트레이터 서술을 사실로 받지 않고 디스크에서 재유도한다. codex가 우연히 하던 일이 계약이 됨 | complete | [santa-evidence-diversity-m1.plan.md](../plans/santa-evidence-diversity-m1.plan.md) |
 | 2 | 상시 스코프 + 정합 rubric | plan·PRD 계열이 diff 여부와 무관하게 검토 대상이 되고, 워킹트리 PRD와의 불일치가 즉시 NAUGHTY | pending | — |
 | 3 | degrade 차단 | 동일모델 앙상블의 NICE가 이종 조합의 NICE와 구분되어 사람 승인을 요구함 | pending | — |
 
@@ -71,6 +71,7 @@ We'll know we're right when **#125가 보고한 계획⟷PRD 정합 위반 유�
 - [ ] **P3 델타와의 경계** — 본 PRD는 "plan·PRD를 항상 넣어라", P3는 "라운드마다 스코프를 줄여라". 상시 포함 대상이 델타 축소에서 **면제**되는지 결정 필요. 권장: 상시 스코프는 델타 면제(관계 불변식은 매 라운드 재확인 대상).
 - [ ] **`degraded` 판정의 하류 취급** — santa receipt는 게이트를 통과시키지 않으므로(I4) `degraded`가 무엇을 막는지 정의 필요. 보고서 표기 + 사람 승인 요구가 기본선.
 - [ ] **블라인드 레인의 토큰 비용** — 저장소 재탐색은 번들 소비보다 비싸다. 실측 후 스코프 힌트 수준을 조정.
+- [ ] **`off` 모드의 UI3 미충족을 무엇이 막는가** — M1 계획의 DD7이 당초 "차단은 M3 소유"라고 적었으나, M3의 Outcome/Scope는 **Reviewer B 부재 fallback**을 다루지 `MCCP_SANTA_BLIND_LANE=off`로 블라인드 레인 자체가 꺼진 경우를 다루지 않는다. 두 축이 겹치지 않으므로 이 상태는 **현재 어느 milestone도 소유하지 않는다**. M1은 완료 조건(live run의 `santa_blind_records >= 1`)으로 `off` 실행을 complete에서 배제할 뿐, 상시 `off` 운용을 막지 않는다. 소유자 후보: M3 범위 확장 vs 신규 milestone. (Plan-Codex R1 F2 지적으로 등재, 2026-08-18)
 - [ ] **상시 스코프가 무관한 PRD까지 끌어오는가** — `.claude/prds/**` 전체는 넓다. 현재 decision 관련분으로 좁힐지, 전체를 넣고 rubric이 걸러내게 할지.
 
 ## Risks

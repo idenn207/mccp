@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: santa-adjudication-m3
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-18T05:39:23.978Z
+updated_at: 2026-08-18T08:02:07.492Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-18T05:39:23.977Z
+last_event_at: 2026-08-18T08:02:07.492Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -12,9 +12,9 @@ chain_aborted: true
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-08-18T03:44:26.285Z
 abort_owner: cost
-cost_abort_at: 2026-08-18T05:39:23.809Z
+cost_abort_at: 2026-08-18T06:45:26.246Z
 escalate_pending: true
-escalate_pending_decision_id: santa-adjudication-m3
+escalate_pending_decision_id: santa-evidence-diversity-m1
 ---
 ## Goal
 santa-adjudication PRD 종료 — M3(patch-chasing terminator + 캡 정책) 구현 완료. 다음은 /mccp:pr.
@@ -56,4 +56,4 @@ Implement-Codex의 단독 HIGH(file-only location이 hunk 대조 없이 round_n_
 - (main 승계) worktree cleanup `.worktrees/review-loop-bypass-m1` 잔존
 
 ## Last Updated
-2026-08-18T05:39:23.978Z
+2026-08-18T08:02:07.492Z

@@ -48,12 +48,14 @@ function makeRepo() {
   return dir;
 }
 
-function reviewer(id, model, verdict, criticalIssues) {
+function reviewer(id, model, verdict, criticalIssues, lane) {
   return {
-    envelope: {
+    envelope: Object.assign({
       id: id, model: model, verdict: verdict,
       criticalIssues: criticalIssues || [],
-    },
+    // lane은 **선택**이다 — 미지정이 곧 legacy envelope(레인 축 이전의 기록)이고,
+    // 기존 fixture 전부가 그 상태로 남아 legacy 무해성을 상시 검사한다.
+    }, lane === undefined ? {} : { lane: lane }),
     // raw는 원장에만 있고 리포트에 실리면 안 된다(UI4). canary가 그 감시자다.
     raw: { verdict: verdict, checks: [CANARY], suggestions: [CANARY] },
   };
@@ -529,3 +531,90 @@ test('[20] a termination marker bound to a stale round count is not read as term
     assert.equal(r.verdict, 'divergent');
     assert.equal(readReceipt(repo, 'stale-marker-x').meta.santa_exit_reason, undefined);
   });
+
+// ── [M1] 증거 레인 — 투영 · 리포트 열 · stamp · legacy 무해성 ────────────────
+
+test('[M1] lane 투영과 stamp — blind 1건인 라운드 2개가 정수 2종으로 봉인된다',
+  function () {
+    const repo = makeRepo();
+    seedLedger(repo, 'lane-x', {
+      cap: 3,
+      rounds: [
+        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL', null, 'blind'),
+          reviewer('B', 'm-b', 'PASS', null, 'bundled')]),
+        round(1, 'NICE', [reviewer('A', 'm-a', 'PASS', null, 'blind'),
+          reviewer('B', 'm-b', 'PASS', null, 'bundled')]),
+      ],
+    });
+    seal.seal({ cwd: repo, decisionId: 'lane-x' });
+    const receipt = readReceipt(repo, 'lane-x');
+    assert.equal(receipt.meta.santa_blind_records, 2);
+    assert.equal(receipt.meta.santa_blind_rounds, 2);
+    // [primary] 지표의 기계적 표현 — 매 라운드에 블라인드가 1명 이상 있었다.
+    assert.equal(receipt.meta.santa_blind_rounds, receipt.meta.santa_rounds);
+    assert.equal(validate(receipt).ok, true, JSON.stringify(validate(receipt).errors));
+  });
+
+test('[M1] off 실행의 stamp는 0으로 실린다 — 생략되지 않는다',
+  function () {
+    // 부재는 "레인 축이 없던 시절(모름)"이고 0은 "관측했고 블라인드가 0건이었다"로
+    // 서로 다른 상태다. 0을 생략하면 DD8의 "off 실행도 stamp에 남는다"가 깨지고
+    // M3이 degrade를 판정할 입력이 사라진다.
+    const repo = makeRepo();
+    seedLedger(repo, 'lane-off', {
+      cap: 3,
+      rounds: [round(0, 'NICE', [reviewer('A', 'm-a', 'PASS', null, 'bundled'),
+        reviewer('B', 'm-b', 'PASS', null, 'bundled')])],
+    });
+    seal.seal({ cwd: repo, decisionId: 'lane-off' });
+    const receipt = readReceipt(repo, 'lane-off');
+    assert.ok(Object.prototype.hasOwnProperty.call(receipt.meta, 'santa_blind_records'),
+      'off run omitted santa_blind_records — absence means "unknown", not "observed zero"');
+    assert.equal(receipt.meta.santa_blind_records, 0);
+    assert.equal(receipt.meta.santa_blind_rounds, 0);
+    assert.equal(validate(receipt).ok, true, JSON.stringify(validate(receipt).errors));
+  });
+
+test('[M1] legacy envelope(레인 부재)는 무해하다 — 0을 내고 던지지 않는다',
+  function () {
+    const repo = makeRepo();
+    seedLedger(repo, 'lane-legacy', {
+      cap: 3,
+      rounds: [round(0, 'NICE', [reviewer('A', 'm-a', 'PASS'),
+        reviewer('B', 'm-b', 'PASS')])],
+    });
+    assert.doesNotThrow(function () { seal.seal({ cwd: repo, decisionId: 'lane-legacy' }); });
+    const receipt = readReceipt(repo, 'lane-legacy');
+    assert.equal(receipt.meta.santa_blind_records, 0);
+    assert.equal(receipt.meta.santa_blind_rounds, 0);
+    assert.equal(validate(receipt).ok, true, JSON.stringify(validate(receipt).errors));
+  });
+
+test('[M1] 라운드 0건 원장은 두 키를 함께 생략한다 (관측 자체가 없었다)',
+  function () {
+    const repo = makeRepo();
+    seedLedger(repo, 'lane-empty', { cap: 3, rounds: [] });
+    seal.seal({ cwd: repo, decisionId: 'lane-empty' });
+    const receipt = readReceipt(repo, 'lane-empty');
+    assert.equal(Object.prototype.hasOwnProperty.call(receipt.meta, 'santa_blind_records'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(receipt.meta, 'santa_blind_rounds'), false);
+  });
+
+test('[M1] 리포트 라운드 표에 레인 열이 있고 legacy는 ? 로 찍힌다', function () {
+  const repo = makeRepo();
+  seedLedger(repo, 'lane-report', {
+    cap: 3,
+    rounds: [
+      round(0, 'NICE', [reviewer('A', 'm-a', 'PASS', null, 'blind'),
+        reviewer('B', 'm-b', 'PASS', null, 'bundled')]),
+      round(1, 'NICE', [reviewer('A', 'm-a', 'PASS')]),
+    ],
+  });
+  const r = seal.seal({ cwd: repo, decisionId: 'lane-report' });
+  const report = fs.readFileSync(path.join(repo, r.reportPath), 'utf8');
+  assert.match(report, /\| # \| started \| verdict \| reviewers \| lanes \|/);
+  assert.match(report, /A:blind · B:bundled/);
+  assert.match(report, /A:\?/, 'legacy lane must render as ? — distinct from an observed value');
+  // UI4 canary는 여전히 새지 않는다.
+  assert.equal(report.includes(CANARY), false);
+});

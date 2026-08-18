@@ -2,7 +2,47 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.28.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.28.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.28.2] — 2026-08-18
+
+> **§3.7 forward-only 상향 (13번째 재발, 이번엔 실제 상향)**: plan은 `1.28.0 → 1.28.1`을
+> 적었으나 `/mccp:pr` 직전 재계산에서 main이 이미 `1.28.1`을 발행한 것이 확인됐다. 발행된
+> 번호는 불가침이므로 한 칸 올려 `1.28.2`에 착지한다. 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄다.
+
+### Added — santa 증거 다양성 M1: 블라인드 레인
+
+- `plugins/mccp/scripts/lib/santa/lanes.js` — P2 소유 신규 순수 oracle. `parseBlindLane`
+  (env 1종, default `a`, 불량값 loud warn 후 발화 쪽 fail-open) · `assignLanes`(DD2 배정
+  표 3행 — `a`는 A blind, `b`는 B blind, `off`는 전원 bundled) · `buildBlindPrompt`
+  (**파일 내용을 실을 인자가 없다** — 번들 누출을 사후 검사가 아니라 인자 부재로 막는다) ·
+  `laneCoverageFrom`(집계, 어떤 입력에도 미throw) · `blindIdsFrom`.
+- `santa/cli.js` — `lanes` subcommand 추가(`--paths-file` **필수**, 빈 배열도 거부. 실패 시
+  stdout에 부분 JSON을 내지 않는다) + `record --lane blind|bundled` **필수**화. 선언값은
+  `parseBlindLane`→`assignLanes`로 재도출해 대조하고 불일치는 exit 2(`SANTA_LANE_MISMATCH`).
+- `santa/seal.js` — `project`에 lane 투영(legacy envelope는 `null`), 라운드 표에 레인 열,
+  라운드 ≥ 1이면 집계 정수 2종을 stamp. **값이 0이어도 생략하지 않는다** — 부재는 "레인 축
+  이전(모름)"이고 0은 "관측된 0"이라 서로 다른 상태다.
+- `receipt/write.js` · `receipt/schema.js` — `meta.santa_blind_records` ·
+  `meta.santa_blind_rounds` present-only 비음 정수 2종. `makeSkeleton` **미등록**이라
+  git-tracked ship corpus(§3.12)의 canonical hash가 무변동이다.
+- `commands/santa-loop.md` — Step 1이 스코프를 `$SCOPE_PATHS_JSON`으로 고정(M2 상시 스코프의
+  단일 접속점), Step 3이 `lanes`를 호출해 `$BLIND_ID` **하나로** 분기한다. 호출 실패·파싱
+  실패는 리뷰어를 띄우지 않는다 — 이 축의 고장은 M1 이전과 똑같아 보이는 정상 실행으로
+  위장되기 때문이다.
+- 회귀 test: `santa-lanes.test.js` 신규 23건 + `santa-loop-cap.test.js`(모듈 집합 ·
+  receipt-free · require allowlist · envelope golden 확장) + `santa-seal.test.js` 5건 +
+  `santa-review-gate.test.js` 4건.
+
+### Known limits
+
+- `--lane`은 **선언이지 관측이 아니다**(DD4). 커맨드 본문이 블라인드라 적고 번들을 건네도
+  셸이 그것을 볼 수 없다. M1은 위조 방지를 주장하지 않으며, 검증은 PRD가 정한 결과 분포
+  (두 레인이 동시에 놓친 항목 비율)가 맡는다.
+- `MCCP_SANTA_BLIND_LANE=off`로 블라인드 0건 라운드가 무기한 성립하는 것을 **어느 milestone도
+  막지 않는다**. M3의 Scope는 Reviewer B 부재 fallback이라 이 경우를 다루지 않는다 — PRD
+  Open Question으로 등재했고 소유자 결정은 M1 밖이다.
 
 ## [1.28.0] — 2026-08-18
 

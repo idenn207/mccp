@@ -144,10 +144,19 @@ function writeReviewerFile(repo, name, obj) {
   return p;
 }
 
+// santa-evidence-diversity M1 — `--lane`은 필수이고 oracle 배정과 대조된다.
+// 이 파일의 관심사는 레인이 아니므로 값을 리터럴로 박지 않고 배정에서 뽑는다.
+const lanesOracle = require('../santa/lanes');
+function laneFor(id) {
+  return lanesOracle.assignLanes({
+    mode: lanesOracle.parseBlindLane(process.env), ids: [id],
+  })[id];
+}
+
 function record(repo, slug, id, reviewerJson) {
   const file = writeReviewerFile(repo, 'reviewer-' + id + '.json', reviewerJson);
   return cli(['record', '--cwd', repo, '--decision', slug, '--round', '0',
-    '--id', id, '--model', 'model-' + id, '--reviewer-file', file]);
+    '--id', id, '--lane', laneFor(id), '--model', 'model-' + id, '--reviewer-file', file]);
 }
 
 function beginRound(repo, slug) {
@@ -772,7 +781,7 @@ const BLOCKING_JSON = [{ claim: CLAIM, severity: 'HIGH', failure_scenario: SUBST
 function recordAt(repo, slug, id, round, json) {
   const file = writeReviewerFile(repo, 'r-' + id + '-' + round + '.json', json);
   return cli(['record', '--cwd', repo, '--decision', slug, '--round', String(round),
-    '--id', id, '--model', 'model-' + id, '--reviewer-file', file]);
+    '--id', id, '--lane', laneFor(id), '--model', 'model-' + id, '--reviewer-file', file]);
 }
 
 function verdictAt(repo, slug, round) {

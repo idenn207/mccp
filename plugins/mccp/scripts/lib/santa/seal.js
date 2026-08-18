@@ -39,6 +39,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ledger = require('./ledger');
+const lanes = require('./lanes');
 const { assertContained } = require('../path-containment');
 const { SLUG_RE } = require('../../receipt/decision');
 const { gitRepoRoot, planAwareMarkdownHash } = require('../../receipt/hash');
@@ -81,6 +82,12 @@ function project(state) {
             model: e.model,
             verdict: e.verdict,
             criticalIssueCount: Array.isArray(e.criticalIssues) ? e.criticalIssues.length : 0,
+            // santa-evidence-diversity M1 — 증거 레인. legacy envelope(레인 필드가
+            // 없던 시절의 기록)는 `null`로 투영되고 `laneCoverageFrom`이 0을 낸다.
+            // 열거 밖 값도 `null`로 접는다 — 모르는 값을 그대로 실으면 리포트가
+            // 그것을 레인처럼 보여주고 집계는 세지 않아 두 표면이 갈린다.
+            lane: (e.lane === lanes.LANES.BLIND || e.lane === lanes.LANES.BUNDLED)
+              ? e.lane : null,
           };
         }),
       };
@@ -177,11 +184,19 @@ function renderReport(projection, scalars) {
       : r.reviewers.map(function (x) {
         return x.id + '/' + x.model + ' ' + x.verdict + ' (' + x.criticalIssueCount + ' critical)';
       }).join(' · ');
+    // santa-evidence-diversity M1 — 레인 열. 사람이 읽는 유일한 라운드별 표면이라
+    // "이 라운드에 블라인드가 있었는가"가 receipt 정수를 열지 않고도 보인다.
+    // 레인 부재(legacy)는 `?`로 찍는다 — 0과 구별되어야 한다.
+    const laneCell = r.reviewers.length === 0
+      ? '(none)'
+      : r.reviewers.map(function (x) {
+        return x.id + ':' + (x.lane === null || x.lane === undefined ? '?' : x.lane);
+      }).join(' · ');
     return '| ' + r.index + ' | ' + (r.started_at || '(unknown)') + ' | ' +
-      (r.verdict === null ? 'OPEN' : r.verdict) + ' | ' + who + ' |';
+      (r.verdict === null ? 'OPEN' : r.verdict) + ' | ' + who + ' | ' + laneCell + ' |';
   });
 
-  const header = ['| # | started | verdict | reviewers |', '|---|---|---|---|'];
+  const header = ['| # | started | verdict | reviewers | lanes |', '|---|---|---|---|---|'];
   if (rows.length === 0) {
     L.push('라운드가 없다 — 원장에 기록된 라운드가 0건이다.');
   } else if (rows.length <= ROUND_TABLE_EXPANDED) {
@@ -390,6 +405,19 @@ function seal(opts) {
     'santa-entries': agg.entries,
     quiet: true,
   };
+  // santa-evidence-diversity M1 — 레인 커버리지 집계 2종.
+  //
+  // **조건은 "라운드 >= 1"이고 값이 0인 것은 생략 사유가 아니다.** present-only
+  // 의미론에서 **부재는 "이 필드가 없던 시절에 쓰였다(모름)"이고 `0`은 "관측했고
+  // 0이었다"** — 서로 다른 상태다. `MCCP_SANTA_BLIND_LANE=off` 실행은 반드시 후자로
+  // 남아야 하고(DD8이 "off 실행도 stamp에 남는다"고 약속한 지점), 0을 생략하면 그
+  // 약속이 깨지고 M3이 소비할 입력도 사라진다. 라운드가 0건인 원장에서만 함께
+  // 생략한다 — 그때는 관측 자체가 없었다.
+  const laneCoverage = lanes.laneCoverageFrom(projection);
+  if (laneCoverage.rounds >= 1) {
+    writeArgs['santa-blind-records'] = laneCoverage.blindRecords;
+    writeArgs['santa-blind-rounds'] = laneCoverage.blindRounds;
+  }
   if (Number.isInteger(state.cap)) writeArgs['santa-cap'] = state.cap;
   if (agg.exitReason) writeArgs['santa-exit-reason'] = agg.exitReason;
 

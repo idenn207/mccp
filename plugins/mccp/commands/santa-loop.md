@@ -331,11 +331,24 @@ surviving blocking issue point at the patch the previous round committed? If so
 the loop is chasing its own patch and stops here.
 
 The judgement is mechanical and it is not the reviewers'. `check-termination`
-compares each issue's `locations` against the hunk ranges of the previous
-round's fix commit; anything it cannot compare falls to `unknown`, and a single
+compares each issue's `locations` against the previous round's fix commit, and
+the comparison has **two tiers**: an entry that carries a `line` must fall inside
+one of that file's hunk ranges, while an entry with only a `file` matches on the
+file alone. An issue with no usable location at all — or one naming a file the
+patch never touched — falls to `unknown` or `preexisting`, and a single
 `unknown` or `preexisting` leaves the loop running. It also refuses to claim a
 run the cap was about to end anyway, so the two exit reasons stay mutually
 exclusive.
+
+The file-only tier is a deliberate trade-off, not an oversight, and it is the
+weakest link in this step: requiring a line would drop most issues to `unknown`
+and the terminator would never fire, but matching on the file alone means a
+genuine pre-existing defect that happens to live in a file the last patch touched
+is read as patch-chasing. The all-issues condition bounds it — one issue pointing
+elsewhere keeps the loop running — and a wrong termination costs a round, not an
+approval: the seal records `divergent`, the unresolved issues are printed below,
+and `MCCP_SANTA_TERMINATOR=off` reopens the loop. Give a `line` when you have one
+and the tier never applies to your issue.
 
 It runs **before** Step 5, not after: judging after the fix cycle would make the
 operator fix, commit and adjudicate a whole round before hearing that the loop

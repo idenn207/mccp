@@ -7,16 +7,42 @@
 
 ## Codex Implementation Review
 
-> Codex skipped per MCCP_CODEX_DISABLED=1 (env-level policy, first-class skip)
+> **정정(2026-08-18)**: 이 절의 이전 판은 `MCCP_CODEX_DISABLED=1` 정책 하에 작성돼
+> "Codex skipped"를 기록했다. 그 env는 이후 두 설정 계층 어디에도 없고(user·project
+> `settings.json` 양쪽 확인), 재진입한 implement 게이트에서 **Codex가 실제로 발화**했다.
+> 아래는 그 실측 R1이다.
 
-- 호출: `node .../scripts/lib/codex-invoke.js adversarial-review` → `classification=disabled`,
-  `blocking=false`, `durationMs=0`. spawn 직전 short-circuit이므로 리뷰가 실패한 것이 아니라
-  **정책상 발화하지 않았다**. receipt는 `resolution.codex_verdict='skipped'`로 봉인되며
-  승인을 주장하지 않는다 — cross-gate dedupe는 fail-closed를 유지하므로 PR-Codex가 ship
-  시점에 실제로 발화한다.
-- 라운드 수: 0 (호출 없음)
-- 합치 결론: n/a — 이 milestone의 적대적 검토는 plan 단계의 L2 반증 패널 11라운드(R0~R10)가
-  수행했고 그 흡수 내역이 본문 편집 자리마다 인용돼 있다.
+- 호출: `node .../scripts/lib/codex-invoke.js adversarial-review --impeccable-available`
+  → `classification=ok` · `blocking=false` · `durationMs=102372` · base `main`
+- 라운드 수: 1 (`MCCP_GATE_ROUND_CAP=1`. escalate 조건 미충족 — 아래 참조)
+- **구조화 verdict: `needs-attention` → `resolution.codex_verdict='divergent'`**
+  (`codex-review-payload#deriveGateVerdict`, `source=structured`). free-text 스캔이 아니다.
+  divergent이므로 cross-gate dedupe는 **fail-closed**를 유지하고 PR-Codex가 ship 시점에
+  실제로 발화한다.
+- 합치 결론: **미수렴.** Codex가 HIGH 1건을 냈고 그 지적의 **기전은 정확하다.** 다만 그것은
+  구현 결함이 아니라 plan이 DD11에서 명시적으로 선택하고 PRD Risks 2행이 Medium/High로
+  사전 등재한 **설계상 수용된 오분류**다. 처방을 절반만 받는다(아래 triage) — 설계 반전은
+  근거를 붙여 기각하고, 같은 finding이 함께 권고한 end-to-end negative test는 수용한다.
+- Codex session 참조: `threadId=01a0126b-2946-7380-8338-ce899182d25c`
+
+### YAGNI Triage (R1)
+
+| Finding | Severity | Verdict | Why |
+|---|---|---|---|
+| F1-a `classifyTarget`의 file-only 일치를 `unknown`으로 바꿔라(설계 반전) | HIGH | REJECT_YAGNI | DD11이 정확히 이 선택지를 검토하고 기각했다 — 라인을 요구하면 대부분이 `unknown`이 되어 terminator가 사실상 죽는다. 근거 file:line은 backlog 행에 |
+| F1-b file-only 오분류에 대한 end-to-end negative test 부재 | HIGH | ACCEPT_NOW | 같은 finding의 둘째 권고. 항목 64가 oracle 층에서만 재던 경계(“touched 파일 + 미변경 라인 → `preexisting`”)를 실 git + 실 CLI 경로로 올린다. 항목 88 신설 |
+
+- Deferred to backlog: 1 (F1-a 기각 근거) → `.claude/plans/codex-findings-backlog.md`
+- Open Questions: 없음 (§0 auto-CRITICAL 카탈로그 해당 없음 — security boundary·atomic
+  state·schema breakage 어디에도 걸리지 않는다)
+
+**escalate 하지 않은 이유**: Phase 2.5.4의 조건은 (a) ACCEPT_NOW ∧ severity ∈ {CRITICAL,
+HIGH} **그리고** (b) R1 흡수가 그것을 완전히 해소하지 못함, 둘 다다. F1-b는 항목 88로 R1
+안에서 완전히 해소되므로 (b)가 거짓이다. `MCCP_GATE_ROUND_CAP=1`이기도 하다.
+
+**F1이 실재로 닫지 못하는 것을 적는다**: 항목 88은 *경계가 유지됨*을 증명하지 파일 단위
+일치의 오분류율을 재지 않는다. 그 비율은 실측 표본이 필요하고, 그것을 얻는 자리는
+Task 8 (B)의 `targetsBreakdown` 관측이다. M3은 오분류율에 대해 어떤 수치도 주장하지 않는다.
 
 ### 구현 시점 결정 (plan이 미리 정하지 않은 것)
 
@@ -34,6 +60,12 @@
 `Task(security-reviewer)` — proposed implementation 검토(5축: 인자 주입 · 경로 traversal ·
 비신뢰 입력 정규화 · 자원 고갈 · git 실패 흡수의 오용).
 
+**재진입 시 재호출하지 않았다(2026-08-18).** 아래 판정의 대상은 `terminator.js`의 git 호출 ·
+경로 · 비신뢰 입력 정규화이고, 재진입 delta(legacy test 기대값 확장 · 문서 3면 · 실경로 probe ·
+항목 88)는 **그 표면을 넓히지 않는다** — 새 입력 경로도 새 인자 조립도 없다. 따라서
+`security_skipped`는 receipt에 **세우지 않는다**: 리뷰는 건너뛴 것이 아니라 이미 수행됐고,
+없는 skip을 기록하면 `/mccp:pr` validator가 참인 fail-closed 신호를 거짓으로 받는다.
+
 **CRITICAL 0건 · HIGH 0건.** 5축 전부 SAFE 판정이고 (d) 자원 고갈만 MEDIUM("설계상 수용" —
 git 고유 동작이며 rev는 이미 커밋된 것이라 push 권한이 전제). 권고 2건(rev `.trim()` · 줄 단위
 hunk 파싱)은 위 I2·I3으로 흡수했고 MEDIUM 1건은 I4로 흡수했다.
@@ -48,3 +80,68 @@ hunk 파싱)은 위 I2·I3으로 흡수했고 MEDIUM 1건은 I4로 흡수했다.
 
 - Deferred to backlog: 0
 - Open Questions: 없음 (auto-CRITICAL 카탈로그 해당 없음)
+
+---
+
+## Task 8 — 실 경로 완주 실측 (2026-08-18)
+
+두 부분 모두 **무조건부**로 수행했고 둘 다 충족됐다. 합성 리뷰어 JSON은 쓰지 않았다 —
+전 라운드가 실제 리뷰어 2인(Claude opus + Codex `gpt-5.4` CLI, 진짜 model diversity)의
+출력이 실제 CLI를 지나 실제 원장에 들어간 결과다.
+
+### (A) 미발화 경로 — 이 저장소, slug `santa-adjudication`
+
+라운드 0에서 Step 4.5가 실제로 실행됐다. `terminate=false` · `reason=round-below-min`
+(DD6의 `round < 1`을 지목) · `--prev-fix-rev`는 **넘기지 않았다**(빈 문자열도 아니다).
+루프는 M2까지의 동작과 동일하게 NAUGHTY로 진행했고 회귀는 없다. 라운드 0 판정:
+`contract=full` · blocking 1건(Codex의 HIGH) · `targetsBreakdown={0,0,1}`.
+
+`unknown` 전량이므로 항목 84의 진단 stderr가 발화했다. **관측된 잡음 1건**: 라운드 0은
+직전 패치가 정의상 없어 `patchRanges`가 항상 비고 따라서 전량 `unknown`이 **항상** 성립한다
+— 그래서 이 진단은 모든 라운드 0에서 예외 없이 찍히며, 그 자리에서는 "리뷰어 미준수"와
+"정상 미발화"를 가르지 못한다(항목 84가 그 구분을 주장하는 것은 라운드 ≥ 1에서다).
+severity LOW(문구 잡음, 판정 무영향)이라 §3.14대로 backlog 행이다.
+
+### (B) 발화 경로 — 별도 워크트리 probe, slug `santa-adjudication-m3-probe`
+
+`.worktrees/santa-m3-probe`(브랜치 `santa-m3-probe`, 로컬 전용·미push)에 종자 패치를
+심고 5라운드를 돌렸다. 리뷰 대상은 `src/path-guard.js` 한 파일(경로 containment guard)이고,
+각 라운드의 "수정"은 직전 라운드 지적을 **불완전하게** 흡수했다.
+
+| round | verdict | blocking | targetsBreakdown | Step 4.5 |
+|---|---|---|---|---|
+| 0 | NAUGHTY | 4 | `{0, 0, 4}` | `round-below-min` (미발화) |
+| 1 | NAUGHTY | 7 | `{6, 1, 0}` | `not-all-round-n-patch` (미발화) |
+| 2 | NAUGHTY | 5 | `{4, 1, 0}` | `not-all-round-n-patch` (미발화) |
+| 3 | NAUGHTY | 1 | `{1, 0, 0}` | **`terminate=true` · `patch_chasing`** |
+
+(B) 1~5 전건 충족:
+
+1. `check-termination`이 `terminate:true` + `exitReason:'patch_chasing'`.
+2. 원장 `state.terminated = {reason:'patch_chasing', at:'2026-08-18T01:59:14.541Z', rounds:4}`
+   — 관측 시점 라운드 수에 결속.
+3. `begin-round`가 `SANTA_TERMINATED` + exit 2 · `rounds.length` 4 무변경 · `cap` 5 무변경.
+   **관측된 순서**: M2의 coverage 선검사가 M3의 종료 선검사보다 **앞서므로**, 미판정
+   blocking이 남아 있으면 `SANTA_ADJUDICATION_INCOMPLETE`가 먼저 뜬다. 둘 다 exit 2 ·
+   라운드 미개설 · 캡 미소모라 결과는 같지만, `SANTA_TERMINATED`를 보려면 판정을 먼저
+   마쳐야 한다. 결함이 아니라 순서다 — 판정 원장이 완결돼야 루프 종료를 선언한다.
+4. `seal`이 `resolution.review_verdict='divergent'` · `review_proof.layers.l1='divergent'` ·
+   `meta.santa_exit_reason='patch_chasing'` · `review_source='multi-agent'` ·
+   `santa_rounds=4`/`santa_entries=17`/`santa_cap=5`로 봉인하고 receipt가 schema를 통과
+   (`{ok:true, errors:[]}`). **`resolution.converged`는 `true`였다** — §3.12가 신뢰 불가
+   필드로 지목한 그 값이고, 실제 판정은 `review_verdict`에 있다. 실측으로 재확인됐다.
+5. `MCCP_SANTA_TERMINATOR=off` + `begin-round` → 라운드 4가 열리고(`rounds` 4→5)
+   마커가 `null`로 지워짐 + loud stderr.
+
+증거는 `.claude/reviews/santa-review-santa-adjudication-m3-probe.md` 1개 파일만 M3
+브랜치로 가져왔다(§3.8 워크트리 정리를 넘어 살아남는 유일한 표면 — 원장·receipt는
+gitignored이거나 working-tree only다). Acceptance (B) 검증 스크립트 green.
+
+### (B)가 실제로 가르쳐 준 것 — 전량 조건은 장식이 아니다
+
+라운드 1·2는 **단 한 건의 `preexisting`** 때문에 미발화했고, 두 번 다 원인은 리뷰어가
+결함의 소재를 미변경 줄(시그니처 줄 `:5`, 미변경 return `:21`)로 지목한 것이었다. 오발화는
+**0건**이다. 종료는 직전 라운드가 모듈 **전체를 재작성한 뒤에야** 성립했는데, 그것이 바로
+patch-chasing의 정의이므로 판정은 옳다. 남는 질문은 보수성의 대가이고 PRD Open Questions에
+신규 항목으로 등재했다(처방 후보 (b) = Step 3 프롬프트가 "고치려면 바꿔야 할 정확한 줄"을
+요구 — 라운드 2·3에서 시도해 라운드 3의 `preexisting` 0을 얻었으나 **인과는 미확정, 표본 1**).

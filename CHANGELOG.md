@@ -4,6 +4,30 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.28.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.28.0] — 2026-08-18
+
+> **§3.7 forward-only 점검 (12번째 재발, 이번엔 상향 불필요)**: 이 항목을 쓰는 사이 main이
+> `1.27.2`를 발행했다. minor bump가 준 여유 덕에 `1.28.0`이 여전히 main 최대치보다 앞서므로
+> 번호를 밀지 않았다 — 상향이 필요 없었던 첫 사례다. 병합 후 CHANGELOG는 `1.28.0` → `1.27.2`
+> → `1.27.1` 순으로 내림차순을 유지한다. 그럼에도 `/mccp:pr` 직전에 **다시** 재계산한다
+> (§3.7이 요구하는 두 시점 중 두 번째).
+
+**santa-adjudication M3 — patch-chasing terminator + 캡 정책 (PRD 3 milestone 전부 완료 → minor bump, 1.27.1 → 1.28.0)** — santa-loop은 스스로 끝나지 않았다. 라운드 N의 수정이 라운드 N+1의 1급 표적이 되는 구조라, #124의 6라운드 실측에서 **라운드 4~6은 전부 직전 라운드가 넣은 코드**를 겨눴고 원 산출물의 불변식은 라운드 3에서 이미 전부 강제된 뒤였다. M1이 severity 축을, M2가 판정 원장을 놓았으므로 남은 축은 루프가 스스로 끝나는 조건 하나다. M3은 라운드 2 이후(0-based index ≥ 1) 살아남은 blocking이 **전부** 직전 라운드의 패치를 겨눌 때 종료하고, 그 사유를 원장과 receipt 양쪽에 봉인한다.
+
+**종료의 소재는 마커 하나다 — 두 번째 채널을 만들지 않았다.** P0는 이미 "루프가 왜 끝났는가"를 담는 자리를 갖고 있었다(`beginRound`가 캡 거부 시점에 쓰는 `{reason, at, rounds}`). `patch_chasing`은 **같은 마커에 다른 reason으로** 들어가며 결속 규칙·멱등 규칙·라운드 개설 시 삭제 규칙을 전부 상속한다. 종료가 두 곳에 살면 소비자(`seal`·리포트·receipt·`status`)마다 어느 쪽을 볼지 골라야 하고 고르는 순간 갈린다. `exit_reason`은 이제 정확히 3값이다 — 부재(자연 수렴 또는 진행 중) · `cap_reached` · `patch_chasing` — 이고 앞 둘의 배타는 발화 조건의 `capAllowsAnotherRound` 항이 유지한다(캡이 이미 끝낼 run을 terminator가 주장하지 않는다). 따라서 PRD의 "자연 종료 비율"은 `cap_reached` 대 나머지로 읽힌다.
+
+**대상 판정은 리뷰어의 자기 선언이 아니라 집계 단계의 파일·라인 대조다.** 리뷰어가 선택 필드 `locations`를 채우면 집계 단계가 그것을 `git show --unified=0 <직전 패치 rev>`의 hunk 범위와 대조해 `round_n_patch` / `preexisting` / `unknown` 셋 중 하나를 **계산**한다. 입력(`locations`)과 계산 결과(`targets`)를 이름부터 가르는 것이 요점이고, 대조할 수 없는 항목은 전부 `unknown` → 미발화 쪽으로 떨어진다. **직전 패치의 앵커는 추측하지 않고 호출자가 준다** — 커맨드 본문 Step 5가 자기 라운드로 `round-$ROUND-fix-rev.txt`를 쓰고 Step 4.5가 `round-$((ROUND-1))`을 읽으며, 경로에 decision slug가 들어가 병렬 루프의 교차오염을 구조적으로 막는다. 라운드 0에서는 플래그를 **아예 넘기지 않는다**(빈 문자열도 아니다) — 빈 문자열은 같은 미발화로 가더라도 사유가 "불량 rev"로 잘못 기록돼 "정상 미발화 vs 입력 이상"의 구분이 무너진다.
+
+**이 분류가 완벽하지 않다는 것을 지표로 관측하되 임계로 덮지 않는다.** 직전 라운드가 손댄 파일에서 리뷰어가 **처음으로** 발견한 실재 결함은 `round_n_patch`로 분류된다 — patch-chasing의 정의와 겹치기 때문이고, PRD Risks 행이 Medium/High로 사전 등재한 오분류다. 특히 `locations`에 `line`이 없으면 파일 단위 일치만으로 성립하는데, 라인을 **요구**하면 대부분의 지적이 `unknown`이 되어 terminator가 사실상 죽으므로 그 반전은 채택하지 않았다(implement 게이트에서 Codex가 같은 축을 HIGH로 지적했고, 기전은 정확하나 처방은 근거를 붙여 기각했다 — 대신 그가 함께 권고한 end-to-end negative test를 받았다). 남는 방어는 셋이다: **전량 조건**(하나라도 다른 파일을 겨누면 미발화) · 미해결 항목의 터미널·리포트 열거 · `off` 재개. 오발화의 대가가 승인이 아니라 **한 라운드 이른 종료 + 사람이 읽는 목록**이라는 점이 이 선택의 근거다 — santa verdict는 게이트 승인이 아니다(PRD UI3).
+
+**읽기와 쓰기가 같은 상수에서 파생된다 — 절반짜리 변경은 배송 불가였다.** 종료 사유 열거를 쓰기 쪽만 넓히면 마커 직후의 첫 `read()`가 `SANTA_LEDGER_CORRUPT`로 던져 원장이 통째로 안 읽힌다. `assertTerminationMarker`와 신규 `ledger.terminate`가 `TERMINATION_REASONS` 하나를 공유하고, 그 상수는 `counter.REASONS.CAP_REACHED` + `terminator.EXIT_REASON.PATCH_CHASING`의 합이다. 같은 축으로 `seal.js#buildProof`의 `capReached` 술어를 종료 일반으로 일반화했다 — 하지 않으면 `patch_chasing` 종료가 `layers.l1='converged'`로 봉인돼 **receipt가 승인하지 않은 게이트의 승인을 주장**한다. 세 파일(ledger·seal·schema)의 정합은 산문 약속이 아니라 Validation의 정적 검사가 잰다.
+
+**판정은 한 oracle, 배선은 두 지점.** 판정은 순수 모듈 `terminator.js`(디스크·git·시각을 모르고 env는 파서 1종만 읽는다), I/O는 `cli.js`, 배선은 `check-termination`(Step 4.5)과 `begin-round` 선검사 둘뿐이다. 후자는 마커 **조회**라 git이 필요 없다. `MCCP_SANTA_TERMINATOR=off`는 그 두 자리를 함께 끄고 이미 결속된 마커를 지나 라운드를 열어 준다(재개 경로) — 셋째 판정 자리가 생기지 않도록 커맨드 본문이 env **값을 해석하는 것**을 Validation이 정적으로 금지한다(이름 언급은 허용). `begin-round`의 거부는 `ledger.beginRound` **이전**이라 **캡이 소모되지 않는다**.
+
+**PRD의 캡 이름·범위 불일치를 닫았다 — 코드가 정본이다.** `MCCP_SANTA_ROUND_CAP`(1~10, default 3)을 유지하고 PRD 문언 `MCCP_SANTA_MAX_ROUNDS`(1~5)를 폐기했다. 코드 변경은 0이고 근거는 셋이다: (1) 이름을 바꾸면 기존 `settings.json`이 조용히 무시된 채 default 3으로 fail-open하고 그 사고는 로그에 **아무것도 남기지 않는다**, (2) 범위를 좁히면 6~10을 쓰던 설정이 캡이 **낮아지는** 방향으로 무효화돼 진행 중인 루프가 즉시 종료된다, (3) 넓은 상한의 비용이 M3에서 사라진다 — 캡은 이제 안전망이고 1차 종료 조건은 terminator이며 상한 도달은 `exit_reason='cap_reached'`로 관측된다.
+
+env 1종 추가: `MCCP_SANTA_TERMINATOR`(default `enforce`). **이 축은 default가 덜 엄격한 쪽**이라는 점이 M1·M2의 두 토글과 다르다 — `off`가 라운드를 더 돌리므로 리뷰를 더 받는다. 그럼에도 `enforce`가 default인 것은 M3이 닫는 결함이 "루프가 끝나지 않는다"이고 오타가 그 결함을 되살리면 안 되기 때문이다. 커버리지 61~87(27 항목) 신규 + implement 게이트 흡수분 88 · 전량 green.
+
 ## [1.27.1] — 2026-08-17
 
 > **§3.7 forward-only 상향 (11번째 재발)**: 이 항목은 원래 `1.26.3`으로 작성됐으나, 브랜치가 미머지인 사이 main이 `1.27.0`(session-process-reclaim M1+M2+M3 — PRD 전 milestone 완료이므로 minor)을 발행해 브랜치 번호가 main 최대치보다 뒤로 밀렸다. 발행된 번호는 불가침이므로 본 항목만 앞으로 밀어 `1.27.1`이 됐다. 두 항목은 서로 다른 축이라 합치지 않았고, 날짜 역전(1.27.1이 08-17, 1.27.0이 08-14)은 version 순서가 정본이므로 그대로 둔다.

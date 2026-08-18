@@ -37,6 +37,21 @@ const SUBSTANTIVE = 'recordReviewer drops the second envelope, so a one-reviewer
 // 원장에만 있어야 하는 문자열 — receipt·리포트에 새는지 감시하는 canary다.
 const CANARY = 'SANTA_FINDING_CANARY_4b17c2';
 
+// ── 주변 env 정규화 ──────────────────────────────────────────────────────────
+//
+// `cli()`는 `runCli`를 in-process로 부르고 `cli.js`가 `env: process.env`를 그대로
+// 넘기므로, **이 파일의 CLI test는 실행한 사람의 셸을 읽는다.** santa 토글은 전부
+// 문서화된 운영 축이라 실제로 켜져 있을 수 있고(특히 `MCCP_SANTA_TERMINATOR=off`는
+// ENVIRONMENT.md가 "종료된 루프를 되살리는 유일한 수단"으로 안내한다), 그 설정 하나로
+// 발화 경로 단언(`terminate:true`)이 전부 red가 된다. 더 나쁜 것은 **미발화를 재는
+// 항목들은 그대로 green**이라 실패가 편향돼 보인다는 점이다.
+//
+// 그래서 default를 test가 소유한다 — 여기서 지우면 각 파서가 자기 default를 쓴다.
+// 비-default가 필요한 항목은 `withEnv`로 자기 범위 안에서만 설정하고 복원한다.
+for (const k of Object.keys(process.env)) {
+  if (k.indexOf('MCCP_SANTA_') === 0) delete process.env[k];
+}
+
 // ── fixture helpers ──────────────────────────────────────────────────────────
 
 function finding(over) {
@@ -748,19 +763,6 @@ function bothRaise(claim) {
     reviewer('A', 'FAIL', [finding({ claim: claim })]),
     reviewer('B', 'FAIL', [finding({ claim: claim })]),
   ];
-}
-
-function withEnv(kv, fn) {
-  const saved = {};
-  Object.keys(kv).forEach(function (k) {
-    saved[k] = process.env[k];
-    if (kv[k] === undefined) delete process.env[k]; else process.env[k] = kv[k];
-  });
-  try { return fn(); } finally {
-    Object.keys(saved).forEach(function (k) {
-      if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
-    });
-  }
 }
 
 // ── CLI fixture helpers (M1의 것을 라운드 인자로 넓힌다) ─────────────────────
@@ -1630,6 +1632,9 @@ function legacyEnvelope(id, verdict, claims) {
   return legacyReviewer(id, verdict, claims || []);
 }
 
+// 이 파일의 **단일** `withEnv` 정의다(이전에 같은 이름이 위쪽에도 있었고, 함수 선언은
+// 호이스팅되므로 뒤의 것이 파일 전체에서 이겨 앞의 것은 죽은 코드였다 — 그 판을 고치는
+// 변경은 아무 효과 없이 green이 된다). 이 정의보다 위에 있는 호출부도 호이스팅으로 이것을 쓴다.
 function withEnv(patch, fn) {
   const saved = {};
   Object.keys(patch).forEach(function (k) {
@@ -2438,4 +2443,112 @@ test('[87] 라운드 대응: Step 4.5가 round-$((ROUND-1))을 읽고 ROUND=0에
   assert.equal(calls.filter(function (l) { return !/--prev-fix-rev/.test(l); }).length, 1);
   assert.equal(/--prev-fix-rev\s*""/.test(sec), false, '빈 문자열을 넘기지 않는다');
   assert.match(sec, /if \[ -n "\$PREV_REV" \]/, '분기 조건이 rev 존재 여부다');
+});
+
+// ── Implement-Codex R1 F1-b 흡수 (2026-08-18) ────────────────────────────────
+//
+// 항목 88은 plan의 커버리지 표(61~87) 밖이다. Codex가 implement 게이트에서 낸
+// 단독 HIGH의 **수용한 절반**이고, plan 본문은 `mccp-plan-codex`가 `plan_hash`로
+// 봉인한 대상이라 표를 늘리지 않는다(표를 고치면 그 receipt가 stale이 되어 이번
+// cycle의 PR이 막힌다 — §3.11 guard 2). 커버리지 스크립트는 1..MAX의 **존재**만
+// 보므로 MAX 밖의 추가 항목은 계약을 깨지 않는다.
+//
+// Codex의 지적: "`line` 없는 location은 파일 존재만으로 `round_n_patch`가 되므로,
+// 직전 패치가 큰 파일의 한 줄만 건드려도 그 파일 어디의 선재 결함이든 patch-chasing이
+// 되어 조기 종료가 봉인된다." **기전은 정확하고 그것은 DD11이 명시적으로 수용한
+// trade-off다**(plan:405-418 · PRD Risks:143이 Medium/High로 사전 등재). 설계 반전
+// (라인 교집합 강제)은 근거를 붙여 기각했다 — backlog 2026-08-18 행.
+//
+// 이 항목이 **실제로 증명하는 것**은 그 수용의 경계가 유지된다는 것뿐이다: 리뷰어가
+// 라인을 준 경우, 같은 파일이어도 미변경 라인은 `preexisting`으로 떨어져 발화하지
+// 않는다. 항목 64가 oracle 층에서 재던 그 경계를 **실 git + 실 CLI**로 올린다
+// (Codex가 함께 권고한 "end-to-end negative test"가 이것이다).
+//
+// **증명하지 않는 것**: 파일 단위 일치의 실제 오분류율. 그 표본은 Task 8 (B)의
+// `targetsBreakdown` 실측이 소유하고 M3은 어떤 수치도 주장하지 않는다.
+
+// 큰 파일의 좁은 영역만 고치는 fixture — `--unified=0`이므로 hunk 범위는 정확히
+// 바뀐 줄(2..3)이고 context는 범위에 들어오지 않는다.
+function partialFixRepo(slug, loc) {
+  const repo = makeRepo();
+  fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+  const wide = [];
+  for (let i = 1; i <= 60; i++) wide.push('line ' + i);
+  fs.writeFileSync(path.join(repo, 'src', 'wide.js'), wide.join('\n') + '\n');
+  execFileSync('git', ['add', '-A'], { cwd: repo, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-qm', 'seed: wide file'], { cwd: repo, stdio: 'ignore' });
+
+  wide[1] = 'line 2 // round-0 fix';
+  wide[2] = 'line 3 // round-0 fix';
+  fs.writeFileSync(path.join(repo, 'src', 'wide.js'), wide.join('\n') + '\n');
+  execFileSync('git', ['add', '-A'], { cwd: repo, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-qm', 'fix: narrow region only'], { cwd: repo, stdio: 'ignore' });
+  const rev = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
+
+  const claim = 'the surviving guard is still unreachable';
+  writeLedger(repo, slug, ledgerFixture(slug, {
+    rounds: [
+      roundFixture(0, 'NAUGHTY', [
+        reviewer('A', 'FAIL', [finding({ claim: 'original defect' })]),
+        reviewer('B', 'FAIL', [finding({ claim: 'original defect' })]),
+      ]),
+      roundFixture(1, 'NAUGHTY', [
+        reviewer('A', 'FAIL', [locFinding(claim, [loc])]),
+        reviewer('B', 'FAIL', [locFinding(claim, [loc])]),
+      ]),
+    ],
+  }));
+  return { repo: repo, rev: rev, slug: slug };
+}
+
+test('[88] check-termination(CLI, 실 git): 손댄 파일이어도 미변경 라인을 겨눈 blocking은 preexisting이라 미발화한다', () => {
+  // (a) 음성 대조군 — Codex가 요구한 negative test. 직전 패치는 src/wide.js의
+  //     2..3만 건드렸고 blocking은 같은 파일 40행을 겨눈다. 파일은 일치하지만
+  //     라인이 hunk 밖이므로 `preexisting`이고, 전량 조건이 깨져 미발화다.
+  const neg = partialFixRepo('m3-partial-neg', { file: 'src/wide.js', line: 40 });
+  const rn = cli(['check-termination', '--cwd', neg.repo, '--decision', neg.slug,
+    '--prev-fix-rev', neg.rev]);
+  assert.equal(rn.code, EX_OK);
+  const jn = JSON.parse(rn.stdout);
+  assert.equal(jn.terminate, false,
+    '손댄 파일이라는 사실만으로 종료가 봉인되면 안 된다 — 라인이 주어졌으면 라인이 판정한다');
+  assert.equal(jn.reason, 'not-all-round-n-patch');
+  assert.deepEqual(jn.targetsBreakdown, { round_n_patch: 0, preexisting: 1, unknown: 0 });
+  assert.equal(readState(neg.repo, neg.slug).terminated, null,
+    '미발화는 마커를 쓰지 않는다 — 다음 라운드가 정상으로 열린다');
+
+  // (b) 양성 대조군 — 같은 repo 형태, 같은 파일, blocking의 라인만 hunk 안(2행)으로
+  //     옮긴다. 이것이 red면 (a)의 green은 "판정이 늘 false"라는 뜻이라 무의미하다.
+  const pos = partialFixRepo('m3-partial-pos', { file: 'src/wide.js', line: 2 });
+  const rp = cli(['check-termination', '--cwd', pos.repo, '--decision', pos.slug,
+    '--prev-fix-rev', pos.rev]);
+  assert.equal(rp.code, EX_OK);
+  const jp = JSON.parse(rp.stdout);
+  assert.equal(jp.terminate, true, '같은 파일의 변경된 라인을 겨누면 발화한다');
+  assert.equal(jp.exitReason, 'patch_chasing');
+  assert.deepEqual(jp.targetsBreakdown, { round_n_patch: 1, preexisting: 0, unknown: 0 });
+
+  // (c) **수용된 trade-off를 기대값으로 못박는다.** 같은 repo에서 라인을 아예
+  //     주지 않으면 파일 단위 일치로 발화한다 — Codex가 지적한 그 경로이고,
+  //     DD11이 의도한 동작이다. 여기 적어 두는 이유는 이것이 사고가 아니라
+  //     **선택**임을 회귀로 고정하기 위해서다. 누군가 이 동작을 바꾸면 그것은
+  //     DD11의 재검토를 요구하는 변경이지 조용한 버그 수정이 아니다.
+  const fileOnly = partialFixRepo('m3-partial-fileonly', { file: 'src/wide.js' });
+  const rf = cli(['check-termination', '--cwd', fileOnly.repo, '--decision', fileOnly.slug,
+    '--prev-fix-rev', fileOnly.rev]);
+  assert.equal(rf.code, EX_OK);
+  const jf = JSON.parse(rf.stdout);
+  assert.equal(jf.terminate, true,
+    'line 부재는 파일 단위 일치로 충분하다 (DD11) — 라인을 요구하면 terminator가 사실상 죽는다');
+  assert.equal(jf.exitReason, 'patch_chasing');
+
+  // (d) 그 trade-off의 **경계**: 파일 자체가 patch 밖이면 라인 유무와 무관하게
+  //     preexisting이다. 파일 단위 일치가 "아무 파일이나"로 넓어지지 않았음을 잰다.
+  const other = partialFixRepo('m3-partial-other', { file: 'src/untouched.js' });
+  const ro = cli(['check-termination', '--cwd', other.repo, '--decision', other.slug,
+    '--prev-fix-rev', other.rev]);
+  assert.equal(ro.code, EX_OK);
+  const jo = JSON.parse(ro.stdout);
+  assert.equal(jo.terminate, false);
+  assert.deepEqual(jo.targetsBreakdown, { round_n_patch: 0, preexisting: 1, unknown: 0 });
 });

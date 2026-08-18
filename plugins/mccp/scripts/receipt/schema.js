@@ -5,6 +5,7 @@ const { validateReason } = require('./lib/force-override-reason');
 // the schema refuses to seal an entry whose label the oracle would not have
 // produced. Importing rather than restating it is what keeps them from drifting.
 const { isValidDisputeReason } = require('../lib/intent-context');
+const { REASONS: SINGLE_PASS_REASONS } = require('../lib/review-single-pass');
 
 const SCHEMA_VERSION = 'v1';
 
@@ -394,6 +395,135 @@ function validate(receipt) {
         err('meta.pr_codex_force_override_reason rejected (' + v.reason + '): ' +
           'MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE requires substantive reason ' +
           '≥30 chars + ≥3 words, no placeholder/URL-only/banlist token');
+      }
+    }
+
+    // ── review-loop-bypass M1 (Task 6) — 단일통과 토글의 두 필드 ───────────────
+    //
+    // present-only. 부재는 정상 상태이지 마이그레이션 부채가 아니다 — 기존 corpus는
+    // 무변경으로 통과한다(§3.12 hash 안정성).
+    if (m.review_single_pass_reason !== undefined && m.review_single_pass_reason !== null) {
+      req(typeof m.review_single_pass_reason === 'string'
+        && SINGLE_PASS_REASONS.indexOf(m.review_single_pass_reason) !== -1,
+        'meta.review_single_pass_reason must be one of: ' +
+        SINGLE_PASS_REASONS.join(', ') + ' (or absent)');
+    }
+    if (m.review_single_pass_bypassed_verdict !== undefined
+        && m.review_single_pass_bypassed_verdict !== null) {
+      req(m.review_single_pass_bypassed_verdict === true,
+        'meta.review_single_pass_bypassed_verdict must be true if present — the field ' +
+        'records that a bypass HAPPENED, so `false` would assert an event that did not ' +
+        'occur. "No bypass" is spelled by the key being absent.');
+    }
+
+    const spRes = isPlainObject(receipt.resolution) ? receipt.resolution : null;
+    const spVerdict = spRes ? spRes.review_verdict : undefined;
+
+    // **The eligible verdict is `divergent`, not "anything but converged."**
+    //
+    // DD2 draws the line at divergent ("we looked and found a defect") versus
+    // unavailable ("we could not certify"), and relaxes only the first. Reading
+    // the invariants as non-converged therefore breaks in both directions at
+    // once: an honest `unavailable` panel receipt would be REQUIRED to claim a
+    // bypass that DD2 says can never happen, and a bypass claim sitting beside
+    // an `unavailable` verdict would be ACCEPTED. Both are the same mistake —
+    // treating "not approved" as "relaxed" — and it is the shape this milestone
+    // spent a review round removing from the reverse discriminator already.
+    const spDivergent = spVerdict === 'divergent';
+
+    // (정) 우회를 주장하면 그 우회가 무엇을 통과시켰는지가 receipt 안에 있어야 한다.
+    // §3.13.1의 "적용되지 않은 override의 사유를 남기면 일어나지 않은 일을 정당화한
+    // 기록이 된다"와 같은 규칙이다.
+    if (m.review_single_pass_bypassed_verdict === true) {
+      req(typeof m.review_single_pass_reason === 'string'
+        && m.review_single_pass_reason.length > 0,
+        'meta.review_single_pass_bypassed_verdict=true requires ' +
+        'meta.review_single_pass_reason — a bypass without its stated reason is an ' +
+        'unattributable one');
+      req(typeof spVerdict === 'string' && spVerdict.length > 0,
+        'meta.review_single_pass_bypassed_verdict=true requires ' +
+        'resolution.review_verdict — the flag claims a verdict was downgraded, so the ' +
+        'verdict it downgraded must be sealed beside it');
+      req(spDivergent,
+        'meta.review_single_pass_bypassed_verdict=true requires ' +
+        'resolution.review_verdict="divergent"; got ' + JSON.stringify(spVerdict) + '. ' +
+        '"converged" had nothing to bypass, and "unavailable"/"skipped" are verdicts DD2 ' +
+        'never relaxes — a bypass claim beside one of those asserts an event the gate ' +
+        'cannot produce');
+    }
+
+    // (역) 판별자는 ambient 상태도 source 이름도 아니라 **proof 구조**다.
+    //
+    // `reason`을 조건으로 삼으면 안 된다 — 그것은 `write.js`가 env에서 자동 stamp하는
+    // ambient 정책 주석이고, ambient에서 적용 사실을 추론하는 것이 §3.12의
+    // `codex_disabled` 선례가 값을 치르고 배운 실패다. 토글이 켜진 채 완화를 **타지
+    // 않은** 경로가 비수렴 verdict를 정직하게 봉인하려 할 때, 그 초안은 receipt를
+    // 거부하거나 caller가 일어나지 않은 우회를 주장하게 만든다.
+    //
+    // source 이름도 판별자가 못 된다 — 같은 이유의 한 단계 약한 판이다. 두 source
+    // 모두 `review_proof.layers`가 지닌 **사실**에 결속하며, 각 축은 자기가 가진
+    // 층만 본다(multi-agent는 L2 하나, hybrid는 L2+L3). 각 분기는 완화 형태에
+    // 플래그를 **요구**하고 그 밖의 형태에는 **금지**한다 — 요구만 있고 금지가
+    // 없으면 정직한 비완화 기록이 우회로 위장되고, 금지만 있고 요구가 없으면
+    // 진짜 우회가 표시 없이 통과한다.
+    if (receipt.gate_id === 'mccp-plan-codex' && spDivergent) {
+      const spSource = spRes.review_source;
+      const spLayers = isPlainObject(spRes.review_proof) ? spRes.review_proof.layers : null;
+      const spL2 = isPlainObject(spLayers) ? spLayers.l2 : null;
+      const spL3 = isPlainObject(spLayers) ? spLayers.l3 : null;
+
+      if (spSource === 'multi-agent') {
+        // **두 source가 같은 규칙을 쓴다: 판별자는 proof 구조다.**
+        //
+        // 이전 판은 여기서 source만 보고 플래그를 **무조건 요구**했다. 완화 경로가
+        // 유일한 생산자인 동안은 참이지만, 그 근거는 "5.2e가 HALT한다"는 *명령 본문
+        // 산문*이지 receipt가 지닌 사실이 아니다. schema는 산문을 볼 수 없으므로,
+        // 그 요구는 L1 divergent를 정직하게 기록하려는 수동 복구(§3.3)에도 똑같이
+        // 걸려 **일어나지 않은 우회를 주장하게** 만든다 — 바로 위 (정)방향 주석이
+        // `unavailable`에 대해 거부한 그 형태를, 축만 바꿔 되살린 것이다.
+        //
+        // 그래서 hybrid와 같은 결속으로 통일한다. 완화의 proof는 `buildAuditProof`가
+        // 만들고 그 `layers.l2`는 항상 비수렴이므로, 진짜 완화는 여전히 전부 잡힌다.
+        // 반대로 L1이 무너진 기록(`layers.l2`가 null이거나 converged)은 플래그 없이
+        // 통과하되 플래그를 **붙일 수도 없다**. multi-agent 축에는 L3가 없으므로
+        // 조건은 L2 한 항이다.
+        const relaxable = typeof spL2 === 'string' && spL2 !== 'converged';
+        if (relaxable) {
+          req(m.review_single_pass_bypassed_verdict === true,
+            'a review_source="multi-agent" mccp-plan-codex receipt whose proof shows ' +
+            'layers.l2 non-converged beside a DIVERGENT verdict is the single-pass ' +
+            'relaxation shape — with the toggle off 5.2e halts and no such receipt is ' +
+            'written — so it must carry meta.review_single_pass_bypassed_verdict=true ' +
+            '(got ' + JSON.stringify(m.review_single_pass_bypassed_verdict) + '). This ' +
+            'does NOT apply to "unavailable": that verdict is never relaxed.');
+        } else {
+          req(m.review_single_pass_bypassed_verdict !== true,
+            'meta.review_single_pass_bypassed_verdict=true on a review_source="multi-agent" ' +
+            'receipt requires the relaxation shape (review_proof.layers.l2 non-converged); ' +
+            'got l2=' + JSON.stringify(spL2) + ' — a panel that did not dissent had ' +
+            'nothing to bypass, so the flag would seal an event that never happened');
+        }
+      } else if (spSource === 'hybrid') {
+        // hybrid는 **proof 구조에 결속한다**. 완화는 L2가 비수렴이고 L3가 converged일
+        // 때**만** 허용되므로(DD2 · Task 2), 그 구조를 그대로 판별자로 쓴다.
+        const relaxable = (typeof spL2 === 'string' && spL2 !== 'converged')
+          && spL3 === 'converged';
+        if (relaxable) {
+          req(m.review_single_pass_bypassed_verdict === true,
+            'a review_source="hybrid" receipt whose proof shows layers.l2 non-converged ' +
+            'and layers.l3="converged" is the single-pass relaxation shape, so it must ' +
+            'carry meta.review_single_pass_bypassed_verdict=true');
+        } else {
+          // 위조면을 닫는다: `source:'hybrid'` + L2 converged + L3 divergent는 DD2가
+          // 완화 금지로 명시한 **정직한 비완화** 조합이다. 거기 임의의 enum reason과
+          // 이 플래그를 붙이면 L3 이견이 감사 기록상 진짜 우회처럼 봉인된다.
+          req(m.review_single_pass_bypassed_verdict !== true,
+            'meta.review_single_pass_bypassed_verdict=true on a review_source="hybrid" ' +
+            'receipt requires the relaxation shape (review_proof.layers.l2 non-converged ' +
+            'AND layers.l3="converged"); got l2=' + JSON.stringify(spL2) + ' l3=' +
+            JSON.stringify(spL3) + ' — DD2 forbids relaxing that combination, so the ' +
+            'flag would seal a bypass that never happened');
+        }
       }
     }
 

@@ -27,6 +27,15 @@
 // cross-gate dedupe read cross-model corroboration that does not exist (DD2), so
 // the verdict fails closed and the source honestly says multi-agent.
 //
+// One row is conditional on the single-pass toggle (review-loop-bypass M1):
+//
+//   any/hybrid| pass         | quorum not met        | (see below) | divergent   | as-is       | no
+//
+// with `singlePass.active` the quorum-not-met row returns block:false instead of
+// block:true. Nothing else moves — the verdict stays divergent, the proof says
+// the panel dissented, and every other row is unreachable from the relaxation.
+// In hybrid mode the row additionally requires L3 to have run and converged.
+//
 // Two distinctions the oracle is careful about:
 //   divergent    = we looked and found a defect
 //   unavailable  = we could not certify (could not look, or the evidence does
@@ -89,6 +98,38 @@ function mk(verdict, source, proof, reason, forwardCodexVerdict) {
   };
 }
 
+// The single-pass sibling of mk(). It differs in exactly two fields:
+//
+//   block               — a literal false, not a computation
+//   forwardCodexVerdict — always false
+//
+// The literal is the point. mk() hardcodes `block: verdict !== 'converged'`
+// (decide.js:86), so calling it can never yield block:false for a divergent
+// verdict; a milestone that relaxes the panel has to say so in its own
+// constructor rather than loosening the one every other path shares.
+//
+// The second field is load-bearing: source='multi-agent' shipped together with a
+// codex_verdict makes write.js:492-501 throw on a contradictory receipt. 5.6b
+// only appends --codex-verdict when decision.forwardCodexVerdict is true, so
+// pinning it false here is the reason that throw is unreachable from this path.
+//
+// `single_pass_reason` is present-only: mk() does NOT gain a null-valued twin.
+// A field that exists on every decision signals nothing by existing, and 5.6b
+// keys the receipt's audit flags off exactly that presence — giving mk() the key
+// would stamp bypassed_verdict=true on receipts that never bypassed anything,
+// which Task 6's invariant then rejects.
+function mkSinglePass(verdict, source, proof, reason, singlePassReason) {
+  return {
+    review_verdict: verdict,
+    review_source: source,
+    review_proof: proof,
+    block: false,
+    reason: reason,
+    forwardCodexVerdict: false,
+    single_pass_reason: singlePassReason,
+  };
+}
+
 // A result with no review axis at all — the `codex` rollback mode. Nothing about
 // L1/L2 is stamped, which is what makes MCCP_PLAN_REVIEW=codex a byte-exact
 // restoration of the pre-M1 gate rather than "the new gate with fields blanked".
@@ -131,8 +172,64 @@ function buildProof(opts) {
   };
 }
 
+// The audit proof for a single-pass relaxation. buildProof() is the APPROVAL
+// record and stays untouched; this one records a review that dissented and was
+// proceeded past anyway, so every field says so honestly — layers.l2 divergent,
+// verification_verdict divergent, quorum.passed false.
+//
+// `opts.l3` is 'converged' on the hybrid relaxation and null otherwise. Dropping
+// it would put Task 6's hybrid reverse-invariant and Task 7's forged-hybrid
+// tests permanently out of reach of any production artifact, and there would be
+// no way to check after the fact whether DD2's L3 precondition was met.
+//
+// schema.js:224-238 asks a non-converged verdict's proof only for the path shape
+// of dispatch_evidence, which is why quorum.passed:false can be stated plainly.
+// The proof is not decoration: without it the review triple is a partial stamp,
+// and write.js:458-469 plus plan.md 5.6b refuse to write the receipt at all —
+// so it is the precondition of UI8 ("the receipt gets written").
+function buildAuditProof(opts) {
+  return {
+    layers: {
+      l1: 'converged',
+      l2: 'divergent',
+      l3: opts.l3 || null,
+    },
+    verification_verdict: 'divergent',
+    quorum: {
+      passed: false,
+      required: opts.quorum.required,
+      of: opts.quorum.of,
+      roles: opts.quorum.roles,
+      responded: opts.quorum.responded,
+    },
+    perspectives: opts.perspectives,
+    dispatch_evidence: opts.dispatchEvidence,
+    reviewed_plan_hash: opts.reviewedPlanHash,
+  };
+}
+
+// Did L3 actually run and converge? Only consulted on the hybrid relaxation.
+//
+// The hybrid block below (`mode === 'hybrid'`) runs only on the quorum.passed
+// === true path, so a relaxation placed in the quorum-failure branch would never
+// reach its guard. Without this predicate, mode='hybrid' + L1 pass + quorum fail
+// + L3 never fired would relax to block:false — and this code would then violate
+// DD2's own table row that forbids exactly that ("requested" is not "happened",
+// the rule decide.js already applies at :238).
+function l3Corroborated(o) {
+  const l3 = isPlainObject(o.l3) ? o.l3 : null;
+  return !!l3 && l3.invoked === true &&
+    typeof l3.verdict === 'string' &&
+    REVIEW_VERDICT_VALUES.indexOf(l3.verdict) !== -1 &&
+    l3.verdict === 'converged';
+}
+
 // decideReview({mode, l1, l2, l3, dispatchEvidence, reviewedPlanHash,
-//               currentPlanHash, rounds})
+//               currentPlanHash, rounds, singlePass})
+//
+//   singlePass : { active: boolean, reason: <enum> } | null
+//                Supplied by the caller (parseSinglePass); this oracle never
+//                reads env. Only the quorum-failure return honours it.
 //
 //   l1 : { verdict: 'converged'|'divergent'|'inconclusive', violations: [...] }
 //   l2 : { quorum: <decideQuorum result>, results: [<reviewer results>] } | null
@@ -203,22 +300,58 @@ function decideReview(opts) {
       false);
   }
 
-  if (quorum.passed !== true) {
-    return mk('divergent', 'multi-agent', null,
-      'L2 quorum not satisfied: ' + (quorum.reason || 'unspecified'),
-      false);
-  }
-
-  // ── Proof assembly (only reachable once L1+L2 both hold) ────────────────────
+  // ── Proof assembly (only reachable once L1 holds and L2 is readable) ────────
   // Filtered by the SAME predicate decideQuorum counted with. A looser filter
   // here (any object carrying a `perspective` string) admitted results the
   // quorum had rejected as malformed, so perspectives.length could exceed
   // `responded` and the sealed proof failed its own self-consistency check.
+  //
+  // Hoisted above the quorum verdict (it used to sit below) so the single-pass
+  // branch can build its audit proof from the same values. Pure computation, so
+  // the approval paths are byte-identical. The hoist destination is exactly one
+  // place — here, directly above the quorum check. The L1 branch (:150-167) and
+  // the DD13 bind (:191-204) both still precede it, so UI7 holds regardless of
+  // this move; hoisting any higher would compute over inputs L1 already rejected
+  // and would blur the rule that everything above the relaxation is inviolable.
   const perspectives = (Array.isArray(l2.results) ? l2.results : [])
     .filter(isUsableResult)
     .map(function (r) { return { perspective: r.perspective, verdict: r.verdict }; });
 
   const dispatchEvidence = Array.isArray(o.dispatchEvidence) ? o.dispatchEvidence : [];
+
+  if (quorum.passed !== true) {
+    // Reaching this line already means: L1 converged, the quorum was readable,
+    // responded > 0, and the reviewed hash binds to the current plan. Budget
+    // skips and missing artifacts never get here — cli.js:435 returns
+    // `unavailable` for them earlier. That ordering is what makes the relaxation
+    // safe to place here and nowhere else (DD2).
+    const spRaw = isPlainObject(o.singlePass) && o.singlePass.active === true
+      ? o.singlePass : null;
+    // In hybrid mode a converged L3 is an ADDITIONAL precondition of relaxing.
+    const sp = (spRaw && (mode !== 'hybrid' || l3Corroborated(o))) ? spRaw : null;
+    if (sp) {
+      // Seal the fact that L3 corroborated, when it did. Flattening source to
+      // multi-agent and layers.l3 to null would make Task 6's hybrid reverse
+      // invariant unreachable from any real artifact. Dedupe stays shut anyway:
+      // isCrossModelCorroborated demands verdict === 'converged' first, and this
+      // receipt is divergent.
+      const spSource = (mode === 'hybrid') ? 'hybrid' : 'multi-agent';
+      const spL3 = (mode === 'hybrid') ? 'converged' : null;
+      return mkSinglePass('divergent', spSource,
+        buildAuditProof({
+          quorum: quorum, perspectives: perspectives,
+          dispatchEvidence: dispatchEvidence, reviewedPlanHash: reviewedHash,
+          l3: spL3,
+        }),
+        'L2 quorum not satisfied: ' + (quorum.reason || 'unspecified') +
+        ' — MCCP_REVIEW_SINGLE_PASS=' + sp.reason + ' 로 진행한다. ' +
+        'verdict는 divergent 그대로 봉인된다.',
+        sp.reason);
+    }
+    return mk('divergent', 'multi-agent', null,
+      'L2 quorum not satisfied: ' + (quorum.reason || 'unspecified'),
+      false);
+  }
 
   // ── L3 (hybrid only) ────────────────────────────────────────────────────────
   if (mode === 'hybrid') {
@@ -279,6 +412,7 @@ function decideReview(opts) {
 
 module.exports = {
   decideReview: decideReview,
+  buildAuditProof: buildAuditProof,
   parseReviewMode: parseReviewMode,
   parseL3Enabled: parseL3Enabled,
   MODES: MODES,

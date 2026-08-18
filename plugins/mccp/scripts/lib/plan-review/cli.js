@@ -27,6 +27,7 @@ const { panelMinRemaining } = require('./budget');
 const { buildReviewRecord, reviewRecordPath } = require('./record');
 const { decideQuorum, parseQuorum, parseRolesMin } = require('./quorum');
 const { decideReview, parseReviewMode, parseL3Enabled } = require('./decide');
+const { parseSinglePass } = require('../review-single-pass');
 const {
   REVIEW_PERSPECTIVES,
   REVIEW_SCHEMA,
@@ -518,6 +519,10 @@ function cmdDecide(args) {
       'not pass as a satisfied one');
   }
 
+  // review-loop-bypass M1 — the CLI is the only layer that reads env for this
+  // axis; decideReview stays pure. Only the quorum-failure return honours it,
+  // and every earlier block (L1, unreadable L2, budget skip, DD13 bind) has
+  // already returned above, so the toggle cannot reach them.
   const decision = decideReview({
     mode: mode,
     l1: l1r.value,
@@ -526,7 +531,17 @@ function cmdDecide(args) {
     dispatchEvidence: args.evidence,
     reviewedPlanHash: l2raw.reviewedPlanHash || null,
     currentPlanHash: currentPlanHash,
+    singlePass: parseSinglePass(process.env),
   });
+
+  // A relaxation must never be quiet. The exit code below is unchanged — it is
+  // decision.block that moved — so without this line the only trace of a
+  // bypassed panel would be a receipt field nobody is looking at yet.
+  if (typeof decision.single_pass_reason === 'string' && decision.single_pass_reason) {
+    errln('SINGLE-PASS: 패널이 이견을 냈으나 단일통과 토글(' +
+      decision.single_pass_reason + ')로 진행한다 — verdict는 divergent 그대로 ' +
+      '봉인된다. findings는 l2.json과 리뷰 기록에 남는다.');
+  }
 
   out(Object.assign({}, decision, { quorum: quorum }));
   return decision.block ? EX_BLOCK : EX_OK;

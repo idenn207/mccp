@@ -11,6 +11,11 @@
 //   75  lock 획득 실패 (일시적, 재시도)        stdout: —   (mutation 0건)
 //   2   그 외 전부                             stdout: —
 //
+// 2에는 stdout을 내는 예외가 **하나** 있다 — 단일통과 거부(review-loop-bypass M1):
+//   {allowed:false, refused:true, reason:"SANTA_SINGLE_PASS_ACTIVE", single_pass_reason:<enum>}
+// 신규 코드를 만들지 않은 이유는 12가 `cap_reached` 전용이기 때문이고(아래),
+// 그래도 호출자가 "거부"와 "입력 오류"를 구분할 수 있어야 해서 사유를 싣는다.
+//
 // **75가 따로 있는 이유**: lock 실패만은 입력 오류가 아니라 *일시적 경합*이다.
 // 5s lease가 만료되면 다음 시도가 성공하므로 호출자에게 "잠시 후 재시도"를
 // 알려야 하고, 2로 뭉뚱그리면 산문이 영구 실패로 오독해 라운드를 포기한다.
@@ -39,6 +44,7 @@ const adjudication = require('./adjudication');
 const seal = require('./seal');
 const { gitRepoRoot } = require('../../receipt/hash');
 const { assertContained } = require('../path-containment');
+const { parseSinglePass, ENV_SINGLE_PASS } = require('../review-single-pass');
 
 const EX_OK = 0;
 const EX_USAGE = 2;
@@ -432,6 +438,31 @@ function assertAdjudicationCoverage(opts) {
 
 function cmdBeginRound(args) {
   const opts = baseOpts(args);
+
+  // 단일통과 토글 (review-loop-bypass M1 / DD5) — `ledger.beginRound` **이전에**
+  // 거부하므로 원장을 건드리지 않고 캡도 소모되지 않는다. coverage 선검사보다도
+  // 앞이다: 토글이 어차피 거부할 라운드에 대해 판정 누락을 먼저 요구하면,
+  // 운영자는 열리지도 않을 라운드를 위해 원장을 채워야 한다.
+  //
+  // **신규 exit code를 만들지 않는다.** 12는 `cap_reached` 전용이라(파일 머리)
+  // 여기 쓰면 캡 도달로 오독된다. 사유 문자열이 구분자다.
+  //
+  // receipt는 쓰지 않는다 — santa 리뷰 게이트는 produces-only라 소비자가 없고,
+  // "미발화 사유" receipt를 받으려면 라운드 집계가 없는 receipt를 스키마가
+  // 허용해야 하는데 그것은 backlog에 이미 올라 있는 반대 방향 과제와 충돌한다.
+  // 감사 앵커는 아래 loud 거부와 원장의 부재다. (그 gate id를 이름으로 부르는 것은
+  // seal.js의 몫이라 여기서는 부르지 않는다 — UI4/UI11 단언.)
+  const sp = parseSinglePass(opts.env);
+  if (sp.active) {
+    errln('begin-round refused: ' + ENV_SINGLE_PASS + '=' + sp.reason +
+      ' — 단일통과 구간에서는 santa-loop이 라운드를 열지 않는다. 원장은 변경되지 ' +
+      '않았고 캡도 소모되지 않았다.\n' +
+      '  해제: ' + ENV_SINGLE_PASS + ' 를 unset 하고 다시 실행한다.');
+    out({ allowed: false, roundIndex: null, refused: true,
+      reason: 'SANTA_SINGLE_PASS_ACTIVE', single_pass_reason: sp.reason });
+    return EX_USAGE;
+  }
+
   assertAdjudicationCoverage(opts);
   const r = ledger.beginRound(opts);
   out({ allowed: r.allowed, roundIndex: r.roundIndex, exitReason: r.exitReason });

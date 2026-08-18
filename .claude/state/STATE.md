@@ -2,20 +2,22 @@
 state_version: 1
 task_fingerprint: review-loop-bypass-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-18T03:05:58.564Z
+updated_at: 2026-08-18T04:28:21.983Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-18T03:05:58.564Z
+last_event_at: 2026-08-18T04:28:21.983Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: true
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-18T00:49:32.077Z
+dep_check_at: 2026-08-18T03:31:28.709Z
 abort_owner: cost
 cost_abort_at: 2026-08-18T03:05:58.433Z
+escalate_pending: true
+escalate_pending_decision_id: review-loop-bypass
 ---
 ## Goal
-review-loop-bypass **M1 — 단일통과 토글**. plan 게이트 **통과**(`mccp-plan-codex` converged, stale 없음). 다음은 `/mccp:prp-implement`로 Task 1~9 구현.
+review-loop-bypass **M1 — 단일통과 토글**. Task 1~9 구현 완료 · v1.27.3. 남은 것은 Acceptance 마지막 항목(라이브 1회 완주)과 그 뒤의 커밋/PR.
 
 ## Plan
 - plan: `.claude/plans/review-loop-bypass-m1.plan.md` — **확정·봉인됨**. Phase 1~4를 재실행해 재생성하지 말 것
@@ -31,19 +33,18 @@ review-loop-bypass **M1 — 단일통과 토글**. plan 게이트 **통과**(`mc
 - PRD Evidence에 이 게이트 자체의 실측 2건 등재 — 27라운드 중 결함 17건의 **15건이 저자 수정이 만든 것**
 
 ## In Progress
-없음 — plan 게이트 종료. 커밋 미실행(변경 5개: plan · PRD · backlog · 리뷰 기록 · STATE.md; receipt는 working-tree only).
+없음 — 구현·검증·게이트 종료. 커밋 미실행(28개 변경: 코드 6 · 명령 본문 4 · test 7 · 문서 6 · 버전 4면 · 산출물).
 
 ## Next Step
-`/mccp:prp-implement .claude/plans/review-loop-bypass-m1.plan.md` — Task 1~9(오라클 신설 → decideReview 완화 → CLI 주입 → santa 거부 → receipt 2필드 → schema 양방향 불변식 → test 4종 → 명령 본문 3곳 → 문서·버전 1.27.3). 구현 전 커밋 여부를 사용자에게 확인할 것.
+사람이 `MCCP_REVIEW_SINGLE_PASS=scope_too_small /mccp:plan .claude/prds/review-loop-bypass.prd.md` 를 1회 실행 → plan Validation 블록 2(freshness 게이트 + 산출물 (a)(b)(c)(d) 단언) → 커밋 → /mccp:pr. PR은 현재 implement receipt의 security_skipped=true + codex_verdict=divergent로 fail-closed.
 
 ## Last Decision
-L2 패널이 12라운드로 수렴하지 못하자 `MCCP_PLAN_REVIEW=codex`로 전환했고 그것이 옳았다 — 패널이 못 찾은 설계 구멍(hybrid L3 우회)을 Codex가 1라운드에 찾았다. 다만 R7~R14 여덟 라운드는 plan 문서의 검증 줄을 다듬는 데 썼고 매 라운드가 직전 수정의 결과였다. 교훈: 리뷰 지적은 **한 건이 아니라 부류로** 훑고, 검증 줄을 쓰면 **실패 경로를 태워** 확인하며, 정지는 판단이 아니라 기계적 상한이 정해야 한다.
+Implement-Codex R1의 HIGH 1건을 흡수해 단일통과 자격 verdict를 divergent 하나로 좁혔다 — 역불변식이 unavailable에도 발동해 DD2가 완화 금지로 명시한 verdict에 대해 일어나지 않은 우회를 주장하도록 강요하고 있었고, 정방향은 그 거짓 주장을 수용했다. 저자가 Task 6 구현 중 같은 의문을 품고도 plan 문언을 따르기로 하고 넘어간 지점을 Codex가 독립적으로 짚었다.
 
 ## Open Questions
-- PRD OQ 1 — `deferred_to_prd_completion`으로 미룬 검증의 PRD 종료 시 강제 장치(미결)
-- PRD OQ 4 — 토글 사용률의 관측 표면과 임계(미결)
-- 구현 시 처리: Task 9의 `plugin.json` 1.27.2 → 1.27.3 + footer 2면 + CHANGELOG **4면 동기**. §3.7 forward-only — 머지 해소 시점과 `/mccp:pr` 직전 두 번 재계산
-- (선재) multi-session-work-loop PRD의 M1·M2·M3 status가 in-progress로 남았으나 셋 다 ship됨 — PRD status drift
+- Acceptance 미충족 1건 — 라이브 1회 완주 미수행이므로 M1은 complete가 아니다
+- chain_aborted=true는 abort_owner=cost(03:05 선재 marker)라 이번 구현과 무관 — auto-chain이 exit 13으로 커밋 체인을 막고 있다
+- PRD OQ 1 · 4는 미결 유지
 
 ## Last Updated
-2026-08-18T03:05:58.564Z
+2026-08-18T04:28:21.983Z

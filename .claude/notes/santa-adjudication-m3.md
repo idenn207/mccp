@@ -183,3 +183,23 @@ lock 안에서 재확인한다. 어긋나면 write 없이 `{stale:true}`를 돌�
 라운드가 열린 경우 미봉인 · **라운드 수는 같은데 뒤 라운드가 FINAL이 된** 두 번째 형태 ·
 정상 경로 무손상 · cli 배선 원문 일치 4건. 전량 green: santa-adjudication 89/89 ·
 santa-loop-cap 48 · santa-gate 10 · santa-seal 13 · santa-review-gate 12.
+
+## PR-Codex R2 — 증거 절단 흡수 · file-only 재보고 기각 (2026-08-18)
+
+verdict `needs-attention` · finding 2건(HIGH×2) · **1건 흡수 · 1건 기각**.
+
+**F2 (흡수) — 절단된 증거가 발화 쪽으로만 틀린다.** `normalizeLocations`는 상한 20에서
+순회를 멈추는데(`terminator.js:112`), 잘려 나간 뒤쪽에 patch 밖 location이 하나라도 있으면
+그 지적은 `preexisting`이어야 했다. 절단은 그것을 보이지 않게 만들 뿐이고 오차의 방향이
+**한 방향**이라, 전량 조건(DD5)이 막아야 할 것을 조용히 통과시킨다 — fail-closed 설계
+안의 fail-open이다. 판정 층인 `classifyTarget`이 상한 초과를 `unknown`으로 읽게 했다.
+항목 63이 그은 경계(정규화는 판정이 아니다)는 그대로다 — `normalizeLocations`는 무변경이고
+개수를 보는 것은 판정이 한다. 유효 원소 수가 아니라 raw 길이로 재는 것은 전수 스캔을
+되살리지 않기 위해서이고, 그 보수성은 **미발화 쪽으로만** 틀린다. 커버리지 90 신설.
+
+**F1 (기각) — file-only 일치, 2회째 재보고.** 같은 사이클 안에서 Implement-Codex R1에
+이어 두 번째다. 처방("file-only를 `unknown`으로")은 DD11이 검토·기각한 그 선택지이고,
+인용된 UI4는 `direction`이라 라인 정밀도를 규정하지 않는다(정밀도 축은 UI10이고 그 부분
+이탈은 PRD Risks가 사전 등재한 수용된 trade-off다). 근거는 backlog 2026-08-18 행에
+file:line으로 남겼다. **F2와 F1은 같은 함수를 지목하지만 다른 축이다** — F1은 "약한 증거를
+받아들이는 것"(설계 선택)이고 F2는 "받아들인 증거를 조용히 버리는 것"(결함)이다.

@@ -2222,6 +2222,53 @@ test('[89] terminate 좌표: 판정 이후 원장이 움직이면 봉인하지 �
     '봉인되지 않았으면 stdout이 종료를 주장하지 않는다');
 });
 
+// ── 증거 절단 (santa-adjudication M3 follow-up · PR-Codex R2 F2) ─────────────
+
+test('[90] classifyTarget: 상한을 넘긴 locations는 대조 불가다 — 절단이 발화 쪽으로 틀리지 않는다', () => {
+  const ranges = { 'src/a.js': [[1, 100]] };
+  const inside = function (n) {
+    const out = [];
+    for (let i = 0; i < n; i++) out.push({ file: 'src/a.js', line: i + 1 });
+    return out;
+  };
+
+  // (1) 경계는 그대로다 — 상한 이하는 평소대로 판정한다.
+  assert.equal(terminator.classifyTarget({ locations: inside(20), patchRanges: ranges }),
+    terminator.TARGETS.ROUND_N_PATCH, '20건은 절단되지 않았으므로 대조가 완전하다');
+
+  // (2) 상한 초과는 `unknown`이다. 전부 patch 안이어도 그렇다 — 판단 근거는 '밖이
+  //     있었나'가 아니라 '전부 봤나'이고, 절단된 입력에서는 후자를 말할 수 없다.
+  assert.equal(terminator.classifyTarget({ locations: inside(21), patchRanges: ranges }),
+    terminator.TARGETS.UNKNOWN);
+
+  // (3) Codex가 지목한 바로 그 시나리오 — 잘려 나간 21번째가 patch **밖**이다.
+  //     가드가 없으면 앞 20건만 보고 `round_n_patch`가 되어, `preexisting`이어야 할
+  //     지적이 전량 조건을 통과시킨다. 절단의 오차는 발화 쪽 한 방향이라 위험하다.
+  const hidden = inside(20).concat([{ file: 'src/untouched.js', line: 3 }]);
+  assert.equal(terminator.classifyTarget({ locations: hidden, patchRanges: ranges }),
+    terminator.TARGETS.UNKNOWN, '증거가 잘렸으면 종료를 만들지 않는다');
+
+  // (4) 정규화 자체는 무변경이다 — 항목 63이 그은 경계(정규화는 판정이 아니다)를
+  //     이 수정이 옮기지 않았음을 여기서 고정한다.
+  assert.equal(terminator.normalizeLocations(inside(21)).length, terminator.MAX_LOCATIONS);
+
+  // (5) end-to-end — 상한 초과 지적 하나가 있으면 전량 조건이 성립하지 않아 미발화다.
+  const d = terminator.decideTermination({
+    mode: 'enforce',
+    round: 1,
+    minRound: terminator.MIN_ROUND,
+    effectiveBlocking: [
+      { issueId: 'aaaaaaaaaaaa', claim: 'c1', severity: 'HIGH', locations: hidden },
+    ],
+    patchRanges: ranges,
+    capAllowsAnotherRound: true,
+  });
+  assert.equal(d.terminate, false);
+  assert.equal(d.reason, 'not-all-round-n-patch');
+  assert.equal(d.targetsBreakdown.unknown, 1);
+  assert.equal(d.targetsBreakdown.round_n_patch, 0);
+});
+
 // ── seal 술어 일반화 ─────────────────────────────────────────────────────────
 
 test('[79] seal: cap_reached 회귀 대조군 · patch_chasing 종료 · converged 투영 3경우', () => {

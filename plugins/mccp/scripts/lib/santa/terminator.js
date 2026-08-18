@@ -144,6 +144,21 @@ function normalizeLocations(raw) {
 // 쪽이다. 그 구분을 읽기 위해 파일 집합과 범위를 두 자료구조로 나누지 않는다.
 function classifyTarget(input) {
   const o = isRecord(input) ? input : {};
+  // **절단된 증거로는 종료를 만들지 않는다** (PR-Codex R2 F2 흡수).
+  //
+  // `normalizeLocations`는 상한에서 순회를 멈춘다(항목 63 — 정규화는 판정이 아니므로
+  // 절삭 사실을 반환에 남기지 않는다). 그런데 잘려 나간 뒤쪽에 patch 밖 location이
+  // 하나라도 있으면 그 지적은 `preexisting`이어야 했고, 절단은 그것을 보이지 않게
+  // 만들 뿐이다. 오차의 방향이 **발화 쪽 한 방향**이라 전량 조건(DD5)이 막아야 할
+  // 것을 조용히 통과시킨다 — fail-closed 설계 안의 fail-open이다. 그래서 판정 층인
+  // 여기서 상한 초과를 대조 불가로 읽는다(항목 63이 그은 경계 그대로: 정규화는
+  // 그대로 두고 개수를 보는 것은 판정이 한다).
+  //
+  // 유효 원소 수가 아니라 raw 길이로 재는 것은 의도다 — 전수 스캔을 되살리지 않고
+  // (항목 63이 지킨 비용 성질), 틀리더라도 **미발화 쪽으로만** 틀린다.
+  if (Array.isArray(o.locations) && o.locations.length > MAX_LOCATIONS) {
+    return TARGETS.UNKNOWN;
+  }
   const locations = normalizeLocations(o.locations);
   if (locations.length === 0) return TARGETS.UNKNOWN;
 

@@ -313,7 +313,22 @@ After R1's YAGNI triage table is written, escalate ONLY if BOTH:
   (a) ≥1 finding is `verdict=ACCEPT_NOW` AND `severity ∈ {CRITICAL, HIGH}`
   (b) The R1 absorption could not fully resolve it (Claude self-attests in plan body)
 If escalate triggers, run R2 with focus restricted to the unresolved item(s).
-Repeat up to `MCCP_GATE_ROUND_CAP` (default `1`, allowed `1`/`2`/`3`). Beyond the cap,
+
+Read the cap from the shared oracle — do NOT hardcode a literal here. This gate
+has no child-process export point (unlike `pr.md`, which hands the value to
+codex-runner), so the value lands in `$ROUND_CAP` and the round loop's entry
+condition reads it (review-loop-bypass M1):
+
+```bash
+ROUND_CAP_JSON=$(node -e '
+  const {effectiveRoundCap}=require(process.argv[1]+"/scripts/lib/review-single-pass");
+  process.stdout.write(JSON.stringify(effectiveRoundCap(process.env)));
+' "${CLAUDE_PLUGIN_ROOT}")
+ROUND_CAP=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).cap))}catch{process.stdout.write("1")}' <<<"$ROUND_CAP_JSON")
+node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));if(j.pinned)process.stderr.write("[mccp:single-pass] round cap pinned to "+j.cap+" by MCCP_REVIEW_SINGLE_PASS="+j.reason+"\n")}catch(_){}' <<<"$ROUND_CAP_JSON"
+```
+
+Repeat up to `$ROUND_CAP` rounds (default `1`, allowed `1`/`2`/`3`). Beyond the cap,
 annotate as `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
 
 If no `ACCEPT_NOW` HIGH/CRITICAL remains, stop at R1.

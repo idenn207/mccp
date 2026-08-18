@@ -508,7 +508,23 @@ node -e '
 
 CODEX_RESULT_FILE="$MCCP_TMP/codex-result.json"
 # v0.2.9 — codex-runner.js inherits env into the codex-invoke child process. No code change in the helper needed.
-export MCCP_GATE_ROUND_CAP="${MCCP_GATE_ROUND_CAP:-1}"
+#
+# review-loop-bypass M1 — the cap the child inherits comes from the shared oracle,
+# not from a literal here. This is the one place in the three gates where the round
+# budget is enforced MECHANICALLY rather than by prose: the child process cannot
+# read past what it is handed. `effectiveRoundCap` pins the value to 1 whenever
+# MCCP_REVIEW_SINGLE_PASS carries a valid reason, regardless of what
+# MCCP_GATE_ROUND_CAP says — the toggle is the policy declaration and the cap is a
+# knob underneath it, so the knob does not overturn it.
+#
+# The oracle returns an object; only `.cap` is exported. `.pinned`/`.reason` exist
+# so the reason a cap is 1 does not vanish from the logs.
+ROUND_CAP_JSON=$(node -e '
+  const {effectiveRoundCap}=require(process.argv[1]+"/scripts/lib/review-single-pass");
+  process.stdout.write(JSON.stringify(effectiveRoundCap(process.env)));
+' "${CLAUDE_PLUGIN_ROOT}")
+export MCCP_GATE_ROUND_CAP=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).cap))}catch{process.stdout.write("1")}' <<<"$ROUND_CAP_JSON")
+node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));if(j.pinned)process.stderr.write("[mccp:single-pass] round cap pinned to "+j.cap+" by MCCP_REVIEW_SINGLE_PASS="+j.reason+"\n")}catch(_){}' <<<"$ROUND_CAP_JSON"
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/codex-runner.js" "${RUNNER_FLAGS[@]}" > "$CODEX_RESULT_FILE"
 CODEX_RUNNER_EXIT=$?
 if [ "$CODEX_RUNNER_EXIT" != "0" ]; then

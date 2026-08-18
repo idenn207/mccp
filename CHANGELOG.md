@@ -2,7 +2,26 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.28.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.28.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+> **§3.7 forward-only 상향 (13번째 재발)**: 이 항목은 원래 `1.27.3`이었다. milestone-close를
+> 진행하는 사이 main이 `1.27.2` → `1.28.0`을 발행해 `1.27.3`이 main 최대치보다 뒤로 밀렸으므로,
+> 발행된 번호는 불가침이라는 원칙대로 미머지인 이쪽을 `1.28.1`로 올렸다. 동기 4면(plugin.json ·
+> renderer/html.js page-foot · renderer/markdown.js derived 줄 · 본 CHANGELOG의 `currently` 노트와
+> 이 항목의 bump 서술)을 함께 갱신하고 `i18n-surface.test.js`로 재검증했다.
+
+## [1.28.1] — 2026-08-18
+
+**review-loop-bypass M1 — 단일통과 토글 (PRD 첫 milestone → patch bump, 1.28.0 → 1.28.1)** — `MCCP_REVIEW_SINGLE_PASS`(고정 enum 3종: `scope_too_small` · `deadline_pressure` · `deferred_to_prd_completion`)가 켜지면 `/mccp:plan`의 L2 승인 패널이 1회만 발화하고 quorum 비수렴이 진행을 차단하지 않으며, 세 게이트의 Codex 라운드 캡이 `MCCP_GATE_ROUND_CAP`과 무관하게 1로 고정되고, `/mccp:santa-loop`은 라운드를 열지 않는다. **리뷰를 없애는 것이 아니라 반복을 없앤다** — 지적은 `l2.json`과 `.claude/reviews/plan-review-<slug>.md`에 그대로 남는다.
+
+- **새 verdict 값을 만들지 않았다** (PRD Open Question 3의 답). `resolution.review_verdict`는 실제 `divergent`를 그대로 봉인하므로 대시보드 · `evidence-audit` · ship gate가 전부 정직하게 비승인으로 읽고 cross-gate dedupe도 열리지 않는다. 토글이 바꾸는 것은 **명령 본문이 HALT하는가** 하나이고 receipt가 주장하는 내용은 무변경이다. `converged`로 위장하면 §3.12의 완료 판정 키 신뢰가 깨지므로, 위장하지 않는 것이 그 문제에 대한 답이다.
+- **완화되는 경로는 정확히 하나** — `decideReview`의 `quorum.passed !== true` 반환. L1 실패 · L2 부재/판독 불가 · `responded=0` · budget skip · DD13 plan hash 불일치 · hybrid인데 L3 미수렴은 토글이 켜져 있어도 전부 HALT한다(`divergent`=보고 결함을 찾았다 / `unavailable`=인증할 수 없었다). 이 보장은 검사 목록이 아니라 **코드 순서**로 성립한다 — 완화 분기가 나머지 차단 분기보다 뒤에 있다. hybrid는 그 순서로 보장되지 않아(hybrid 블록이 quorum 통과 경로에만 있다) 완화 자격에 L3 수렴 전제를 직접 싣는다.
+- **receipt 2필드는 서로 다른 축이다** — `meta.review_single_pass_reason`(토글이 *설정*됐다는 env ambient 주석, 명시 우선) 대 `meta.review_single_pass_bypassed_verdict`(실제로 *적용*됐다는 명시 전용 감사 축). §3.12의 `codex_disabled` 대 `codex_disabled_at_pr`과 같은 구분이며, ambient에서 적용 사실을 추론하면 위조 탐지 분기가 구조적으로 도달 불가가 된다. schema가 양방향으로 강제한다 — 정방향의 자격 verdict는 비수렴 전체가 아니라 `divergent` 하나이고, 역방향의 판별자는 source 이름이 아니라 **proof 구조**다(`multi-agent`는 `layers.l2` 비수렴, `hybrid`는 거기에 `layers.l3='converged'`). 두 축 모두 완화 형태에 플래그를 요구하고 그 밖에는 금지한다: 요구만 두면 DD2가 완화 금지로 명시한 L3 이견이 진짜 우회처럼 봉인되고, source 이름에 결속하면 L1이 무너진 정직한 기록(§3.3 수동 복구)조차 일어나지 않은 우회를 주장해야 한다 — 후자는 command-body 산문을 schema가 볼 수 있다고 가정한 결과였다.
+- **UI5 측정의 해시 축을 봉인했다** — dispatch 로그는 `hash-plan`(신규 subcommand = `planAwareMarkdownHash`)으로 keying한다. 이전에는 `hash-markdown`(raw)으로 적었는데 대조 상대인 Measurement 블록은 plan 축의 **structural** 해시를 담고 있어, 두 값은 모든 구조 정규화가 no-op인 동안만 우연히 일치했다. Acceptance 체크박스가 한 번 체크되는 순간 R0 항목만 매칭돼 **재발화 2회가 단일 라운드로 통과**한다(실측 재현). 회귀 test는 두 해시가 갈리는 fixture로 그 fail-open 자체를 고정하고, CLI 표면(`hash-plan` ≡ `planAwareMarkdownHash`)까지 대조한다.
+- **`MCCP_GATE_ROUND_CAP`의 production 오라클이 처음 생겼다** — `round-budget.test.js`의 test-local `parseCap`이 유일한 구현이던 상태를 끝내고 `lib/review-single-pass.js#effectiveRoundCap`으로 추출했다(그 test 파일 헤더가 예고하던 extraction). 토글이 켜지면 캡 값과 무관하게 1을 반환한다(PRD Open Question 2의 답 — 토글이 상위 정책, 캡은 그 아래 조정값).
+- **santa-loop은 `begin-round`에서 거부한다** (PRD Open Question 5의 답). PRD의 전제 하나를 정정했다 — santa-loop은 세 게이트가 발화시키는 것이 아니라 사람이 직접 부르는 독립 명령이므로 구현 지점은 게이트 본문이 아니라 santa CLI다. `ledger.beginRound` **이전**에 거부해 원장 미변경 · 캡 미소모이고, 신규 exit code 없이 exit 2 + `SANTA_SINGLE_PASS_ACTIVE`로 구분한다(12는 `cap_reached` 전용).
+- **UI5 관측 표면** — `.claude/state/plan-review/dispatch-log-<slug>.jsonl`(순수 append-only, purge 대상 아님)에 L2 발화마다 한 줄이 쌓이고 `review-single-pass.js assert-single-round`가 "현재 plan hash 항목 1건 ∧ `round_index` 0 ∧ `halt_stage` null"을 단언한다. `halt_stage`는 마지막 실행 상태만 담아 재발화를 구분하지 못하므로 로그가 그 구분을 준다. 진입 purge를 두면 재발화가 자기 흔적을 지워 측정이 fail-open이 되므로 두지 않았다.
+- **강제 등급의 정직한 천장** — 기계화된 것은 캡 계산과 그 test, `pr.md`가 codex-runner 자식에 export하는 **고정된** 캡, receipt 봉인, 그리고 세 명령 본문이 리터럴이 아니라 공유 오라클을 읽는지의 정적 test 넷이다. 마지막 것이 막는 것은 **배선 누락**(PRD Risk 5)이지 LLM이 산문을 어기는 경우가 아니다. L2 비용은 여전히 1회분 발생하고, 미흡수 지적의 backlog 자동 회수는 M2 소유다.
 
 ## [1.28.0] — 2026-08-18
 

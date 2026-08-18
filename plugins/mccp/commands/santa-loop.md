@@ -76,6 +76,8 @@ ROUND=$(echo "$ROUND_JSON" | node -e 'try{process.stdout.write(String(JSON.parse
 
 If `BEGIN_EXIT` is non-zero, **do not launch any reviewer**. Exit 12 means the cap was reached; exit 75 means the ledger lock was busy (retry shortly); exit 2 means a usage or integrity error (surface stderr).
 
+Exit 2 has one case that is **not a failure at all**: when stdout carries `reason:"SANTA_SINGLE_PASS_ACTIVE"`, `MCCP_REVIEW_SINGLE_PASS` is set to one of its three reasons and santa-loop deliberately does not open a round in a single-pass window (review-loop-bypass M1 / DD5). The refusal happens **before** `beginRound`, so the ledger is untouched and the cap is not consumed — running the loop later costs nothing. No receipt is written either: `mccp-santa-review` is produces-only, and a "did not fire" receipt would need a schema that accepts a receipt with no round tally. The audit anchor is the loud refusal plus the absence of a ledger entry. To run the loop, unset `MCCP_REVIEW_SINGLE_PASS`.
+
 Exit 2 has one case with a **recovery procedure**, and it is worth separating from the rest: when stderr names `SANTA_ADJUDICATION_INCOMPLETE`, the last FINAL round still carries blocking issues that were never judged for that round. Nothing was written and the cap was **not** consumed — the round simply did not open. Unlike cap-reached this is not a termination, so it is **not sealed**: return to Step 5, record a judgement for every issue stderr lists (it lists all of them, with ids), then call `begin-round` again. Every other exit-2 code is a usage or integrity error with no such procedure.
 
 That branch is **code, not prose** — the termination and the seal call both have to be mechanically present. Cap-reached is one of the two loop endings UI14 requires to be instrumented, and it never reaches Step 5.5 or Step 6, so its seal call lives here:
@@ -99,6 +101,9 @@ if [ "$BEGIN_EXIT" -ne 0 ]; then
     echo "[santa] begin-round refused (exit 2) — no round opened, no cap consumed, nothing sealed." 1>&2
     echo "[santa] If the stderr above names SANTA_ADJUDICATION_INCOMPLETE, the loop is recoverable:" 1>&2
     echo "[santa] return to Step 5, record a judgement for every issue it lists, then run Step 3 again." 1>&2
+    echo "[santa] If it names SANTA_SINGLE_PASS_ACTIVE, this is not an error at all:" 1>&2
+    echo "[santa] MCCP_REVIEW_SINGLE_PASS is set, and santa-loop does not open rounds in a" 1>&2
+    echo "[santa] single-pass window (review-loop-bypass M1). Unset that variable to run the loop." 1>&2
     echo "[santa] Any other SANTA_* code is a usage or integrity error with no such procedure." 1>&2
   fi
   exit "$BEGIN_EXIT"

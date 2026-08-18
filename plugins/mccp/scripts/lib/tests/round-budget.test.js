@@ -2,23 +2,32 @@
 
 // v0.2.9 Task 8 — Round budget policy oracle test.
 //
-// The severity-gated re-rerun policy currently lives in command-body markdown
-// (plan.md Phase 5.4, prp-implement.md Phase 2.5.4, pr.md Phase 2.5.4). There
-// is no production helper for it (v0.2.9 is a spec-level patch — no new helper
-// per the plan's Out of scope). This test encodes the policy as a pure
-// function so the decision tree has mechanical coverage and a future helper
-// extraction has a behavioural specification to match.
+// The severity-gated re-rerun policy still lives in command-body markdown
+// (plan.md Phase 5.4, prp-implement.md Phase 2.5.4, pr.md Phase 2.5.4), and
+// `decide` below remains the test-local encoding of that decision tree.
+//
+// **The cap parser is no longer test-local.** This file's header used to
+// announce that "a future helper extraction has a behavioural specification to
+// match"; review-loop-bypass M1 performed that extraction, so the local
+// `parseCap` has been replaced by the production oracle. Keeping a private copy
+// after the real one exists is how two implementations drift apart with nothing
+// to notice — the very failure this file was written to pre-empt.
 
 const test = require('node:test');
 const assert = require('node:assert');
 
+const { parseRoundCap } = require('../review-single-pass');
+
 const SEVERITY = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
 
-function parseCap(env) {
-  const raw = (env && env.MCCP_GATE_ROUND_CAP) || '1';
-  const n = parseInt(raw, 10);
-  if (!Number.isFinite(n) || n < 1 || n > 3) return 1;
-  return n;
+// Run `fn` with stderr captured, so a test can assert on the loud-warn contract
+// without printing it into the runner's output.
+function withCapturedStderr(fn) {
+  const original = process.stderr.write;
+  let captured = '';
+  process.stderr.write = function (chunk) { captured += String(chunk); return true; };
+  try { return { value: fn(), stderr: captured }; }
+  finally { process.stderr.write = original; }
 }
 
 // Pure policy oracle. Given the YAGNI-triaged findings at the end of round
@@ -40,7 +49,7 @@ function decide({ findings, round, cap, anyAbsorptionFailure }) {
 }
 
 test('cap=1 + no ACCEPT_NOW HIGH/CRITICAL → stop at R1 (no escalate)', () => {
-  const cap = parseCap({}); // env unset → default 1
+  const cap = parseRoundCap({}); // env unset → default 1
   const findings = [
     { id: 'F1', severity: 'MEDIUM', verdict: 'ACCEPT_NOW' },
     { id: 'F2', severity: 'LOW', verdict: 'DEFER_TO_BACKLOG' },
@@ -52,7 +61,7 @@ test('cap=1 + no ACCEPT_NOW HIGH/CRITICAL → stop at R1 (no escalate)', () => {
 });
 
 test('cap=1 + unresolved ACCEPT_NOW HIGH → escalate would trigger but cap reached → DIVERGENT', () => {
-  const cap = parseCap({}); // default 1
+  const cap = parseRoundCap({}); // default 1
   const findings = [
     { id: 'F1', severity: 'HIGH', verdict: 'ACCEPT_NOW' },
     { id: 'F2', severity: 'LOW', verdict: 'REJECT_YAGNI' },
@@ -63,7 +72,7 @@ test('cap=1 + unresolved ACCEPT_NOW HIGH → escalate would trigger but cap reac
 });
 
 test('cap=3 + persistent divergence across R1/R2/R3 → DIVERGENT_UNRESOLVED at R3', () => {
-  const cap = parseCap({ MCCP_GATE_ROUND_CAP: '3' });
+  const cap = parseRoundCap({ MCCP_GATE_ROUND_CAP: '3' });
   const findings = [
     { id: 'F1', severity: 'CRITICAL', verdict: 'ACCEPT_NOW' },
   ];
@@ -76,11 +85,26 @@ test('cap=3 + persistent divergence across R1/R2/R3 → DIVERGENT_UNRESOLVED at 
     'DIVERGENT_UNRESOLVED');
 });
 
-// Forward-compat guard: env var with invalid value silently clamps to 1.
-test('invalid MCCP_GATE_ROUND_CAP value clamps to 1', () => {
-  assert.strictEqual(parseCap({ MCCP_GATE_ROUND_CAP: '0' }), 1);
-  assert.strictEqual(parseCap({ MCCP_GATE_ROUND_CAP: '7' }), 1);
-  assert.strictEqual(parseCap({ MCCP_GATE_ROUND_CAP: 'NaN' }), 1);
+// Invalid values fall back to 1 — and say so. The fallback direction is
+// fail-OPEN on purpose (a typo must not open unbounded rounds), which is only
+// safe because it is loud: a silent clamp would let a mistyped cap look like a
+// deliberate one. This is the mirror of santa/counter.js#parseCap.
+test('invalid MCCP_GATE_ROUND_CAP value falls back to 1 with a loud warn', () => {
+  ['0', '7', 'NaN', '2.5'].forEach(function (bad) {
+    const r = withCapturedStderr(function () {
+      return parseRoundCap({ MCCP_GATE_ROUND_CAP: bad });
+    });
+    assert.strictEqual(r.value, 1, 'cap for ' + JSON.stringify(bad));
+    assert.match(r.stderr, /MCCP_GATE_ROUND_CAP must be an integer/,
+      'a bad cap must warn, not clamp silently (' + JSON.stringify(bad) + ')');
+  });
+});
+
+// Unset is NOT an error — it is the normal state, so it must stay quiet.
+test('unset MCCP_GATE_ROUND_CAP defaults to 1 without warning', () => {
+  const r = withCapturedStderr(function () { return parseRoundCap({}); });
+  assert.strictEqual(r.value, 1);
+  assert.strictEqual(r.stderr, '');
 });
 
 // Spec coverage: SEVERITY ordering map matches the markdown convention used

@@ -75,7 +75,7 @@ We'll know we're right when **토글을 켠 작업의 게이트 통과 시간이
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | 단일통과 토글 | 운영자가 사유 enum 하나를 env로 선언하면 세 게이트가 단일 라운드로 통과하고, 그 사유가 receipt에 봉인돼 사후 감사가 가능하다. **라이브 완주 검증(acceptance a)은 다음 plan 게이트로 이월** — 구현 착지 후에는 L1 `C3_CREATE_EXISTS`가 그 게이트를 다시 태우지 못한다(2026-08-18 실측). 운영자가 이월을 수용하고 종료: [closure](../milestone-closures/review-loop-bypass-m1.md) | complete | [.claude/plans/review-loop-bypass-m1.plan.md](../plans/review-loop-bypass-m1.plan.md) |
-| 2 | 미흡수 지적 회수 | 단일 라운드가 낸 미흡수 지적이 backlog에 자동 적재되어, 기존 fix-task 생성 경로가 그것을 그대로 집어간다 | pending | — |
+| 2 | 미흡수 지적 회수 | 단일 라운드가 낸 미흡수 지적이 backlog에 자동 적재되어, 기존 fix-task 생성 경로가 그것을 그대로 집어간다 | in-progress | [.claude/plans/review-loop-bypass-m2.plan.md](../plans/review-loop-bypass-m2.plan.md) |
 
 M2가 없으면 M1은 **부채를 만드는 기능**이다 — 지적이 사라지므로. M1이 없으면 M2는 대상이 없다. 두 마일스톤이 함께 있어야 "나중에 한 번에 고친다"가 성립한다.
 

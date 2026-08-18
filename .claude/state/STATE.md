@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: review-loop-bypass-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-18T07:50:27.108Z
+updated_at: 2026-08-18T08:57:33.612Z
 last_event: stop_loop_pass
 last_event_at: 2026-08-18T07:50:27.108Z
 unsafe_checkpoint: false
@@ -13,6 +13,8 @@ last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-08-18T05:26:00.707Z
 abort_owner: cost
 cost_abort_at: 2026-08-18T07:50:26.915Z
+escalate_pending: true
+escalate_pending_decision_id: review-loop-bypass
 ---
 ## Goal
 review-loop-bypass **M1 — 단일통과 토글**. 구현·병합·게이트 재봉인 완료 · **v1.28.1**. 남은 것은 `/mccp:pr` 하나.
@@ -45,4 +47,4 @@ review-loop-bypass **M1 — 단일통과 토글**. 구현·병합·게이트 재
 - `chain_aborted=true` / `abort_owner=cost` — auto-chain이 exit 13으로 막을 수 있으니 `/mccp:pr`은 직접 호출
 
 ## Last Updated
-2026-08-18T07:50:27.108Z
+2026-08-18T08:57:33.612Z

@@ -670,8 +670,12 @@ node --test plugins/mccp/scripts/lib/tests/review-single-pass-gate.test.js
 node --test plugins/mccp/scripts/receipt/tests/review-single-pass-fields.test.js
 
 # 기본 경로 회귀 0건 (토글 미설정 상태) — PRD Success Metric 3
-node --test plugins/mccp/scripts/lib/tests/
-node --test plugins/mccp/scripts/receipt/tests/
+# 디렉토리 인자가 아니라 **glob**이다. Node v24.19.0은 디렉토리를 모듈로 해석해
+# `MODULE_NOT_FOUND`로 즉사한다(실측: `tests 1 · fail 1 · 103ms`). `set -eu` 아래라 블록이
+# 그 줄에서 중단되므로, 초안 문언으로는 "Validation passes"가 이 환경에서 성립할 수 없었다
+# — 두 줄이 한 번도 통과한 적 없다는 뜻이다(milestone-close 시점 발견).
+node --test "plugins/mccp/scripts/lib/tests/*.test.js"
+node --test "plugins/mccp/scripts/receipt/tests/*.test.js"
 
 # 기존 receipt corpus invalid 0
 # `cli.js status`는 읽기/검증 오류를 summary에 담고도 **항상 exit 0**이다(실행으로 확인).
@@ -755,10 +759,20 @@ case "$AFTER" in ''|*[!0-9]*) echo "FAIL (b): AFTER='$AFTER' — 원장 길이�
 # 켠 채 게이트를 끝까지 태우고, 아래 세 값을 순서대로 확인한다.
 
 # freshness 토큰 저장 — 블록 2가 이 값과 달라졌는지로 라이브 실행 여부를 판정한다.
-# receipt가 아직 없으면 빈 문자열이 저장되고, 블록 2의 "$NONCE_NOW 비어있음" 단언이 처리한다.
-FRESH_BEFORE="$(git rev-parse --git-path mccp/tmp)/live-run-nonce-before"
+# receipt가 아직 없으면 빈 문자열이 저장되고, 블록 2의 "$STAMP_NOW 비어있음" 단언이 처리한다.
+#
+# 토큰은 `meta.created_at`이다. 초안은 `meta.intent_run_nonce`였는데, 그 필드는 **이 검증이
+# 요구하는 모드에서 구조적으로 존재하지 않는다.** nonce는 `plan-codex-runner.js`가 receipt를
+# 쓰는 `mode=codex` 경로에서만 생기고(plan.md 5.6 "mode=codex ONLY"), 그 모드는 `review_*`
+# 필드를 아예 stamp하지 않는다(docs/ENVIRONMENT.md:417). 반대로 (a)가 요구하는
+# `resolution.review_verdict`는 패널 모드에서만 생기며 그 경로의 writer(5.6b)는 `run_nonce`를
+# 넘기지 않아 nonce가 null이다(write.js:293). 즉 초안의 freshness 게이트와 (a)는 **상호
+# 배타**라 블록 2가 어떤 모드에서도 첫 단언에서 멈췄다 — 통과할 수 없는 기준은 fail-open의
+# 거울상이며 둘 다 검증을 무력화한다. `meta.created_at`은 write.js:544가 모드와 무관하게
+# 매 write마다 찍으므로 두 요구를 동시에 만족한다(milestone-close 시점 발견).
+FRESH_BEFORE="$(git rev-parse --git-path mccp/tmp)/live-run-stamp-before"
 mkdir -p "$(dirname "$FRESH_BEFORE")"
-node -e 'try{const r=require("./.claude/receipts/mccp-plan-codex/review-loop-bypass.json");process.stdout.write(String((r.meta&&r.meta.intent_run_nonce)||""))}catch(e){process.stdout.write("")}' > "$FRESH_BEFORE"
+node -e 'try{const r=require("./.claude/receipts/mccp-plan-codex/review-loop-bypass.json");process.stdout.write(String((r.meta&&r.meta.created_at)||""))}catch(e){process.stdout.write("")}' > "$FRESH_BEFORE"
 echo "freshness token 저장: $FRESH_BEFORE (블록 2가 이 값과의 차이를 단언한다)"
 ```
 
@@ -775,7 +789,7 @@ MCCP_REVIEW_SINGLE_PASS=scope_too_small /mccp:plan .claude/prds/review-loop-bypa
 ```
 
 **블록 2는 블록 1과 위 명령 이후에 생성된 산출물만 소비한다.** 블록 1 말미가 receipt의
-`meta.intent_run_nonce`를 freshness 토큰으로 저장하고, 블록 2 첫머리가 현재 값이 그것과
+`meta.created_at`을 freshness 토큰으로 저장하고, 블록 2 첫머리가 현재 값이 그것과
 다른지를 **먼저 단언한 뒤에만** 의미 단언으로 넘어간다 — 토큰이 같거나 없으면 라이브 게이트가
 실행되지 않았거나 실패한 것이므로 그 자리에서 멈춘다. 직전 판은 여기에 "실패하면 두 단언이
 nonzero로 끝난다"고 **서술만** 했는데, 두 단언은 고정 경로의 값만 보므로 낡은 산출물로도
@@ -792,12 +806,12 @@ set -eu
 # 경로를 **재계산한다** — 블록 1의 셸 변수는 수동 경계를 넘지 못한다(Codex R14 HIGH: 이 줄이
 # `set -u` 아래 unbound variable로 즉시 죽어 검증 절차 전체가 실행 불가였다). 두 블록이 같은
 # 고정 경로를 각자 독립적으로 얻게 한다.
-FRESH_BEFORE="$(git rev-parse --git-path mccp/tmp)/live-run-nonce-before"
+FRESH_BEFORE="$(git rev-parse --git-path mccp/tmp)/live-run-stamp-before"
 [ -f "$FRESH_BEFORE" ] || { echo "FAIL: $FRESH_BEFORE 가 없다 — 블록 1을 먼저 실행해야 한다"; exit 1; }
-NONCE_NOW=$(node -e 'try{const r=require("./.claude/receipts/mccp-plan-codex/review-loop-bypass.json");process.stdout.write(String((r.meta&&r.meta.intent_run_nonce)||""))}catch(e){process.stdout.write("")}')
-NONCE_BEFORE=$(cat "$FRESH_BEFORE")
-[ -n "$NONCE_NOW" ] || { echo "FAIL: receipt에 intent_run_nonce가 없다 — 라이브 게이트가 receipt를 쓰지 않았다"; exit 1; }
-[ "$NONCE_NOW" != "$NONCE_BEFORE" ] || { echo "FAIL: receipt의 run_nonce가 수동 경계 이전과 같다($NONCE_NOW) — 라이브 게이트가 실행되지 않았거나 실패했고, 아래 단언은 낡은 산출물을 검사하게 된다"; exit 1; }
+STAMP_NOW=$(node -e 'try{const r=require("./.claude/receipts/mccp-plan-codex/review-loop-bypass.json");process.stdout.write(String((r.meta&&r.meta.created_at)||""))}catch(e){process.stdout.write("")}')
+STAMP_BEFORE=$(cat "$FRESH_BEFORE")
+[ -n "$STAMP_NOW" ] || { echo "FAIL: receipt에 meta.created_at이 없다 — 라이브 게이트가 receipt를 쓰지 않았다"; exit 1; }
+[ "$STAMP_NOW" != "$STAMP_BEFORE" ] || { echo "FAIL: receipt의 created_at이 수동 경계 이전과 같다($STAMP_NOW) — 라이브 게이트가 실행되지 않았거나 실패했고, 아래 단언은 낡은 산출물을 검사하게 된다"; exit 1; }
 
 
 #   (d) L2 라운드 수 - 기대 정확히 1. **관측이 아니라 단언이다: 어긋나면 exit 1.**
@@ -846,9 +860,33 @@ node -e '
 node plugins/mccp/scripts/receipt/cli.js validate --command mccp:prp-implement \
   --decision review-loop-bypass --plan .claude/plans/review-loop-bypass-m1.plan.md \
   || { echo "FAIL (c): mccp:prp-implement chain-check가 비수렴 receipt를 차단했다 — DD1 위반"; exit 1; }
-node plugins/mccp/scripts/receipt/cli.js validate --command mccp:pr \
-  --decision review-loop-bypass --plan .claude/plans/review-loop-bypass-m1.plan.md \
-  || { echo "FAIL (c): mccp:pr 선행 게이트 축이 review_verdict로 차단했다 — DD1 회귀 pin의 라이브 대응물"; exit 1; }
+#   pr 축은 **exit 0을 요구하지 않는다.** `validate --command mccp:pr`은 선행 게이트의 모든
+#   차단 축을 합산하므로, 이 milestone과 무관한 선재 차단 하나가 DD1 단언을 붉게 만든다
+#   (실측: `mccp-implement-codex`의 `meta.security_skipped=true`로 exit 2 — review 축과 무관).
+#   단언할 명제는 "pr 축이 **review_verdict 때문에** 막지 않는다"이므로 차단 목록에서 그 축
+#   기인 항목이 0건인지를 본다. **이 단언은 pr 게이트가 통과한다고 주장하지 않는다** — 측정보다
+#   넓은 주장을 두지 않는 것은 (d)에서 이미 두 번 적용한 규칙이다(milestone-close 시점 정정).
+PR_OUT="$(git rev-parse --git-path mccp/tmp)/pr-validate-out.json"
+mkdir -p "$(dirname "$PR_OUT")"
+if node plugins/mccp/scripts/receipt/cli.js validate --command mccp:pr --decision review-loop-bypass --plan .claude/plans/review-loop-bypass-m1.plan.md > "$PR_OUT" 2>/dev/null; then :; fi
+node -e '
+  const fs = require("fs");
+  let j;
+  try { j = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); }
+  catch (e) { console.error("FAIL (c): pr validate 출력이 JSON이 아니다 — 명령이 실행되지 않았을 수 있다"); process.exit(1); }
+  if (j.command !== "mccp:pr" || j.decisionId !== "review-loop-bypass") {
+    console.error("FAIL (c): pr validate 출력이 다른 대상을 가리킨다 — " + JSON.stringify({ command: j.command, decision: j.decisionId }));
+    process.exit(1);
+  }
+  const rows = [].concat(j.blocking || [], j.stale || []);
+  const hit = rows.filter(function (b) { return JSON.stringify(b).indexOf("review_verdict") !== -1; });
+  if (hit.length) {
+    console.error("FAIL (c): pr 선행 게이트 축이 review_verdict로 차단했다 — DD1 위반");
+    console.error(JSON.stringify(hit, null, 2));
+    process.exit(1);
+  }
+  console.log("OK (c): pr 축 차단 " + rows.length + "건 중 review_verdict 기인 0건 (게이트 통과 주장 아님)");
+' "$PR_OUT" || exit 1
 ```
 
 ## Risks
@@ -883,7 +921,7 @@ node plugins/mccp/scripts/receipt/cli.js validate --command mccp:pr \
 - [ ] **`/mccp:prp-implement`·`/mccp:pr`의 캡 배선이 검증되는 범위를 명시한다** (R8 invariant HIGH 흡수). 위 정적 test가 닫는 것은 **세 파일 모두가 오라클을 참조한다**는 배선 사실이고, 그 두 게이트를 실제로 완주해 라운드 수를 재는 것은 M1 구현이 배송된 뒤에만 성립하므로 **M1 Acceptance가 아니라 배송 후 검증 항목**이다(R4에서 이미 이연). 따라서 이 항목은 "두 게이트가 작동함"을 주장하지 않는다 — **주장하는 것은 배선 누락이 없다는 것뿐**이며, 그 구분을 여기 적어 두는 이유는 Acceptance가 자신이 재지 않은 것을 통과시킨 것처럼 읽히지 않게 하기 위해서다
 - [ ] 토글 미설정 시 기존 test suite green + `receipt cli.js status` invalid 0 (PRD Success Metric 3)
 - [ ] 게이트/경로를 실제로 1회 완주하고 산출물을 확인 (단위 test 통과 ≠ 경로 작동)
-  - **라이브 산출물 4종**: (a) `MCCP_REVIEW_SINGLE_PASS=scope_too_small`로 `/mccp:plan`을 실제 실행해 비수렴 L2에서도 `mccp-plan-codex` receipt가 **작성되고** 그 안에 `meta.review_single_pass_reason='scope_too_small'` + `meta.review_single_pass_bypassed_verdict=true` + `resolution.review_verdict='divergent'`가 함께 들어있을 것. (b) 같은 env에서 `santa/cli.js begin-round`가 exit 2를 내고 `.claude/state/santa-loop/<slug>.json`의 `rounds` 길이가 **증가하지 않았을** 것. (c) 그 receipt로 `/mccp:prp-implement`의 chain-check(`cli.js validate --command mccp:prp-implement`)가 exit 0일 것 — 비수렴 봉인이 chain을 막지 않는다는 DD1의 실측. (d) 그 라이브 실행에서 **L2 dispatch가 정확히 1회(round_index 0)이고 게이트가 재발화를 요구하지 않았을** 것 — 기계 판정 형태로는 `review-single-pass.js assert-single-round`가 exit 0일 것(dispatch 로그 1건 ∧ `halt_stage` null). **문언을 "L2 라운드가 정확히 1회"에서 이것으로 좁힌다**(R8 invariant HIGH 흡수): `halt_stage`는 마지막 실행의 상태만 담고 리뷰 기록은 매 실행 덮어쓰기되므로, block:false인 실행이 N번 있어도 null이다. 즉 그 단언은 호출 **횟수**를 세지 않는다. Validation 블록은 이 한계를 이미 정확히 적고 있었는데 Acceptance 문언만 "정확히 1회"로 넓게 남아 있었다 — 측정보다 넓은 주장을 Acceptance에 두는 것은 R1·R5에서 두 번 고친 fail-open과 같은 부류라, 이번엔 주장을 측정에 맞춘다. 어긋나면 **이 항목은 미충족**이고 마일스톤은 complete가 아니다 — 원인을 규명해 흡수하거나, 흡수 불가로 판명되면 UI5 미달을 명시하고 PRD에 되돌린다. 초안은 "실측값을 기록한다"였는데 그것은 임계 없는 관측이라 **어떤 값에도 통과하는 fail-open 기준**이었다: M1의 주목적이 달성되지 않아도 complete를 선언할 수 있었다. 계측은 DD4가 인정한 산문 강제의 천장을 *서술*하는 수단이지 Acceptance를 *면제*하는 근거가 아니다.
+  - **라이브 산출물 4종**: (a) **다음으로 실행되는 plan 게이트 1회로 이월한다(2026-08-18 판정 — 미충족).** 원래 문언은 `MCCP_REVIEW_SINGLE_PASS=scope_too_small`로 이 PRD의 `/mccp:plan`을 실제 실행해 비수렴 L2에서도 `mccp-plan-codex` receipt가 **작성되고** 그 안에 `meta.review_single_pass_reason='scope_too_small'` + `meta.review_single_pass_bypassed_verdict=true` + `resolution.review_verdict='divergent'`가 함께 들어있을 것이었다. **그것은 구현이 착지한 뒤에는 구조적으로 불가능하다** — 이 plan의 `Files to Change`가 CREATE로 선언한 5개 파일이 이제 존재하므로 L1이 `C3_CREATE_EXISTS` 5건으로 차단하고(실측 2026-08-18), DD2대로 토글은 L1을 완화하지 않으므로 L2가 발화조차 못 한다. L2가 안 돌면 완화 분기에 도달할 경로가 없고 receipt도 없다. 즉 이 항목은 **평가 시점에 성립할 수 없는 기준**이었다 — F1(freshness 토큰 상호 배타) · F2(pr 축 과대 요구)와 같은 부류이며, 셋 다 문서를 읽어서는 알 수 없고 실행해야만 드러났다. 판정을 CREATE→UPDATE 편집으로 통과시키지 않는다: 그것은 이 plan이 자신이 무엇을 했는지에 대해 거짓을 말하게 만든다. 대신 **다음으로 실행되는 아무 plan 게이트**(M2 plan이든 다른 작업이든)를 토글을 켜고 완주해 같은 3필드를 확인하는 것으로 이월하며, 이 항목은 **미충족으로 남는다.** 다만 M1의 종료 판정은 이 항목의 충족이 아니라 **운영자의 이월 수용**으로 내려졌다(2026-08-18 — PRD M1 행 `complete`, [closure](../milestone-closures/review-loop-bypass-m1.md)). 즉 그 `complete`는 «검증됐다»가 아니라 «검증을 다음 게이트로 미룬 채 마감하기로 했다»를 뜻한다. 그 구분을 지우지 않는 것이 이 문단의 목적이다. (b) 같은 env에서 `santa/cli.js begin-round`가 exit 2를 내고 `.claude/state/santa-loop/<slug>.json`의 `rounds` 길이가 **증가하지 않았을** 것. (c) 그 receipt로 `/mccp:prp-implement`의 chain-check(`cli.js validate --command mccp:prp-implement`)가 exit 0일 것 — 비수렴 봉인이 chain을 막지 않는다는 DD1의 실측. (d) 그 라이브 실행에서 **L2 dispatch가 정확히 1회(round_index 0)이고 게이트가 재발화를 요구하지 않았을** 것 — 기계 판정 형태로는 `review-single-pass.js assert-single-round`가 exit 0일 것(dispatch 로그 1건 ∧ `halt_stage` null). **문언을 "L2 라운드가 정확히 1회"에서 이것으로 좁힌다**(R8 invariant HIGH 흡수): `halt_stage`는 마지막 실행의 상태만 담고 리뷰 기록은 매 실행 덮어쓰기되므로, block:false인 실행이 N번 있어도 null이다. 즉 그 단언은 호출 **횟수**를 세지 않는다. Validation 블록은 이 한계를 이미 정확히 적고 있었는데 Acceptance 문언만 "정확히 1회"로 넓게 남아 있었다 — 측정보다 넓은 주장을 Acceptance에 두는 것은 R1·R5에서 두 번 고친 fail-open과 같은 부류라, 이번엔 주장을 측정에 맞춘다. 어긋나면 **이 항목은 미충족**이고 마일스톤은 complete가 아니다 — 원인을 규명해 흡수하거나, 흡수 불가로 판명되면 UI5 미달을 명시하고 PRD에 되돌린다. 초안은 "실측값을 기록한다"였는데 그것은 임계 없는 관측이라 **어떤 값에도 통과하는 fail-open 기준**이었다: M1의 주목적이 달성되지 않아도 complete를 선언할 수 있었다. 계측은 DD4가 인정한 산문 강제의 천장을 *서술*하는 수단이지 Acceptance를 *면제*하는 근거가 아니다.
 
 ## Out of Scope (M1)
 
@@ -1120,3 +1158,11 @@ Task 9의 footer 2면 동기뿐이라 대부분의 행은 해당 없음으로 �
 - **10건 중 9건이 저자의 직전 흡수가 만들었거나 저자가 쓴 줄에 있던 결함이었다.** 그중 **여섯**이 같은 부류다 — *관측을 통과 근거로 쓰는 fail-open*(임계 없는 관측 · 존재하지 않는 헤딩을 세던 grep · Acceptance 문언 축소 · dispatch 로그 purge · `console.log`/`; echo` · 그 수정이 빠뜨린 (b)). 같은 실수가 여섯 번 반복된 원인은 부주의가 아니라 **검증 줄을 쓰면서 그 실패 경로를 태워 보지 않은 것**이고, R8부터 실행 검증을 흡수의 일부로 삼고, R10에서는 지적된 한 건이 아니라 **부류 전체를 전수 감사**해 교정했다 — 그 감사가 리뷰어가 지적한 1건이 아니라 3건을 찾았다. R7~R10 네 라운드가 같은 부류를 한 건씩 쫓았고 R11이 마침내 그 **뿌리**(블록에 `set -e`가 없음)를 짚었다. 처음부터 부류로 훑고 뿌리를 물었다면 네 라운드를 아꼈다 — 이 게이트에서 라운드 반복이 실제로 소비한 것의 상당 부분이 그것이다. 이 관측은 PRD에도 값이 있다 — 이 게이트에서 라운드 반복의 절반 이상은 리뷰 대상의 결함이 아니라 **저자의 수정이 만든 결함**을 쫓고 있었다. 형태가 매번 같다 — *검증을 강화하려 넣은 장치가 자기 전제를 검증하지 않아 fail-open이 된다*. 이것은 PRD가 "라운드 반복이 시간 비용의 지배항"이라고 쓴 것에 한 겹을 더한다: 반복의 비용은 시간만이 아니라 **자기 수정이 만드는 새 결함**이고, 따라서 M1의 "단일 라운드"는 품질을 포기하는 선택이 아니라 이 되먹임을 끊는 선택이기도 하다
 - 판정 라벨 — R1·R2·R4에서 리뷰어가 지목한 `UI<n>`을 저자가 `intent_conflict: "none"`으로 둔 건이 5건이고 전부 `intent_dispute_reason`으로 근거를 봉인했다(`id_mismatch` 0건). 사유는 동일하다: `intent_conflict`는 *finding이 제약과 충돌해 무릅쓰고 수용한다*를 뜻하는데(`intent-context.js:689-696`), 이들은 수용이 곧 제약의 **집행**이다. 그 dispute 비율(15건 중 7건) 자체가 §3.13.1이 M2 심판 분리의 근거로 지목한 신호이므로 backlog에 관측으로 남겼다
 - receipt: `.claude/receipts/mccp-plan-codex/review-loop-bypass.json`
+
+## Milestone Closure Provenance
+
+- Milestone : review-loop-bypass-m1
+- Verdict   : done (운영자 종료 판정 — acceptance (a)는 미충족 상태로 다음 plan 게이트에 이월)
+- Closure   : .claude/milestone-closures/review-loop-bypass-m1.md
+- sha256    : sha256:43199ca434379373607cd81596e556e0e1dacfd1b53f27a9cdc282896de73ebb
+- Stamped at: 2026-08-18T07:12:48.708Z

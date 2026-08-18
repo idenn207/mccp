@@ -1,37 +1,20 @@
 # Plan Review Panel — review-loop-bypass
 
-**Plan**: `.claude/plans/review-loop-bypass-m1.plan.md` · **Plan version**: `sha256:4fb44cc0a4f3f892037b534c22fdc4724807945f6b899c37fb7e8ee0828d684c`
+**Plan**: `.claude/plans/review-loop-bypass-m1.plan.md` · **Plan version**: `(none)`
 **Verdict**: `divergent` via `multi-agent`
-**Quorum**: 4/3 responses · 4 distinct roles (of 4 fielded) · passed=false
-**Layers**: L1 converged · L2 divergent · L3 not fired
+**Quorum**: (no panel result recorded)
+**Layers**: L1 divergent · L2 not run · L3 not fired
 **Halted at**: `5.2e`
 
-> Reason: L2 quorum not satisfied: 13 blocking finding(s): architect/HIGH, architect/HIGH, architect/FAIL, test/CRITICAL
+> Reason: L1 found 5 violation(s): C3_CREATE_EXISTS — CREATE target already exists: plugins/mccp/scripts/lib/review-single-pass.js (line 59). L2 was not fired.
 
 ## Findings
 
-| Perspective | Severity | Claim | Evidence |
-|---|---|---|---|
-| architect | HIGH | Task 8 specifies how all three command bodies (plan.md, prp-implement.md, pr.md) will read the round cap from the shared oracle, but the actual implementation code is shown only for pr.md, leaving prp-implement.md underspecified. | Task 8 (line 543) states: '`prp-implement.md` Phase 2.5 캡 문장 동일 교체' (replace Phase 2.5 cap sentence 'in the same way'), but does not show the actual bash code. By contrast, plan.md is described as 'Phase 5.4 캡 문장을 오라클 호출로 교체' and pr.md has explicit bash block (lines 545-551). For prp-implement.md, it only says to replace 'the same way' but does not clarify: (a) whether the same bash block applies or a different mechanism is needed, (b) where Phase 2.5.5b or 2.5.5c invokes this cap, (c) whether the cap is actually enforced (not just mentioned in prose at line 316). This ambiguity means the implementation could silently miss wiring the cap in the prp-implement gate. |
-| architect | MEDIUM | Task 7's static test `review-single-pass-command-body.test.js` catches missing wiring for all three commands | Task 7 (line 537) describes the test as 'statically assert that three command bodies read the cap from shared oracle, not hardcoded literals' and claims 'PRD Risk 5 (one gate missing wiring) is caught by this.' However, Risk 5 (line 650) depends on 'three commands read from oracle' being actually wired. If prp-implement.md's actual shell code never calls the oracle (due to Task 8 underspecification), the static test can grep for a statement like `effectiveRoundCap` but cannot guarantee it is in an executable code path that actually controls the loop. The test is defensive-in-kind but cannot close a gap in the plan that doesn't specify the executable path. |
-| architect | HIGH | All three gates have their round cap enforcement exactly specified | plan.md Phase 5.4 (per Task 8) and pr.md Phase 2.5.3→codex-runner (lines 546-551) show explicit oracle calls with bash code. prp-implement.md Phase 2.5 cap sentence location (line 316 in actual file shows prose '`Repeat up to MCCP_GATE_ROUND_CAP`') is mentioned to be replaced, but: (1) The actual shell phase in prp-implement where the cap is used/enforced is not cited by line number in Task 8. (2) The cap is mentioned only in prose at line 316, which explains YAGNI triage loop behavior, not the actual code block that implements the loop. (3) Without seeing prp-implement's equivalent to plan.md's Phase 5.4 shell block, it's unclear whether the replacement will actually enforce a cap in that gate's repeat loop. |
-| test | CRITICAL | Validation section can verify the core claim that L2 divergent verdicts will pass (block=false) when toggle is active | Plan Validation lines 566-585 reference 4 test files: review-single-pass.test.js, review-single-pass-gate.test.js, review-single-pass-fields.test.js, review-single-pass-command-body.test.js. None of these files exist. Globbed: <repo-root>/plugins/mccp/scripts/lib/tests/ contains no review-single-pass*.test.js. Plan Acceptance line 662 states this assertion is 'the single critical assertion' (단일 급소) yet has no test to contain it. |
-| test | CRITICAL | Task 1 oracle module will exist to be called by commands and tests | Task 1 deliverable: 'CREATE plugins/mccp/scripts/lib/review-single-pass.js'. Globbed: file does not exist. Validation line 420 specifies: 'node --test plugins/mccp/scripts/lib/tests/review-single-pass.test.js' and line 620 specifies 'node plugins/mccp/scripts/lib/review-single-pass.js assert-single-round', but the oracle module file does not exist. |
-| test | CRITICAL | Validate lines will execute actual test paths that exercise the implementation changes | Plan §1 'Validate, do not approve': 'Validate lines: does every task name a command that actually exercises what the task changed?'. Task 7 Validate line 539 references 4 test files that do not exist. None of the shell commands in Validation section (lines 566-632) can be executed as written because test files are missing. The plan provides no way to verify block=false, no way to verify receipt fields are stamped, no way to verify parser behavior. |
-| test | HIGH | The plan's core load-bearing claim is falsifiable | Plan lens instruction: 'Every load-bearing claim should be falsifiable by something. When a plan asserts "this delegation preserves existing behaviour", find the test that would fail if the assertion were false. If there is none, that is the finding.' The plan claims in line 445-446 and line 662: when toggle is on + L2 divergent, the result should be block=false. This claim has no test file to falsify it. Grep of existing test corpus shows no tests for 'block.*false' in the context of single-pass logic. |
-| test | HIGH | Task 2 code sketch correctly implements mkSinglePass creation and ensures block=false | Plan lines 431-451 provide a code sketch for mkSinglePass with block=false hardcoded (line 446). However, without a test file containing the assertion 'block === false' (which Acceptance line 662 says is the crucial test), there is no way to verify this will actually work. The sketch itself is unverified architecture. Task 2 Validate line 504 references the non-existent review-single-pass.test.js. |
-| invariant | CRITICAL | Task 8 requires forwarding `--review-single-pass-reason` and `--review-single-pass-bypassed-verdict` flags from decision.json through plan.md 5.6b to write.js, but the plan provides no actual code location, line numbers, or bash implementation for this critical audit flow. | Task 8 description states '5.6b `WRITE_FLAGS`에 decision.json의 `single_pass_reason`이 비어있지 않은 문자열일 때만 `--review-single-pass-reason"<값>" + `--review-single-pass-bypassed-verdict`를 forward' but provides no code snippet. Grep of entire plan.md for 'single_pass' returns 0 matches. The 5.6b code block (lines 2235-2280) contains no logic to extract or forward these fields from decision.json to WRITE_FLAGS. This leaves the critical audit stamp forwarding path completely underspecified. |
-| invariant | HIGH | Receipt stamping of `meta.review_single_pass_reason` and `meta.review_single_pass_bypassed_verdict` is guaranteed only if the flags are forwarded, but Task 7's test suite (review-single-pass-command-body.test.js) only verifies round-cap forwarding, not single-pass flag forwarding, creating a gap where the implementation could silently omit the flags and pass all tests. | Task 7 describes review-single-pass-command-body.test.js as testing 'whether command bodies read cap from oracle', not whether single-pass flags are forwarded. The test file description shows it checks '라운드 캡을 **각자 하드코딩한 리터럴이 아니라 공유 오라클에서 읽는지**' (cap forwarding only). Grep of plan.md finds zero references to the single-pass flags in any test validation output. Task 7 provides no assertion that `WRITE_FLAGS` actually contains `--review-single-pass-reason` or `--review-single-pass-bypassed-verdict`. |
-| invariant | CRITICAL | If the single-pass flags are not forwarded from 5.6b to write.js, the receipt will be written without audit proof stamps (`meta.review_single_pass_reason` and `meta.review_single_pass_bypassed_verdict` absent), causing audit trail corruption while the gate appears to succeed — a fail-open erosion of the invariant that 'every usage of single-pass is sealed into the receipt'. | DD3 states the two fields are 'audit axis' that must be stamped when single-pass is used. If the CLI flags never reach write.js, write.js will not stamp them (both are present-only fields). Schema validation (Task 6) only checks these fields when present, so a missing field passes validation. This creates a silent audit failure: the gate would mark a decision as single-passed in decision.json but fail to record it in the receipt, letting auditors miss that a divergent verdict was allowed through. |
+None recorded — the panel produced no readable results (halted at `5.2e`).
 
 ## Refutation attempted
 
-| Perspective | Verdict | What was attacked |
-|---|---|---|
-| architect | fail | Verified core design claims: (1) DD1 — divergent verdict sealed without lie, receipt-convergence.js reads only converged as approval ✓ (2) DD2 — complete to quorum.passed block is downstream of L1 and bind checks, so mitigation code ordering is sound ✓ (3) mkSinglePass w/ forwardCodexVerdict:false avoids write.js contradiction throw at line 492 ✓ (4) L1 divergent is inviolable (returns before reaching line 206 mitigation) ✓ (5) single-pass receipts cannot trigger dedupe skip (verdict='divergent' fails isCrossModelCorroborated at line 247) ✓ (6) Task 2 code sketch structurally sound. Attacked: (a) scope of Task 8 command changes — found plan shows explicit bash for plan.md and pr.md but only says prp-implement.md is replaced "the same way" without code; (b) whether all three gates actually wire the oracle into their execution path — plan cites Phase numbers but does not show prp-implement shell code that calls oracle or enforces cap; (c) whether Task 7 static test can detect absent wiring if the prose was written but code path never materialized. Defect: Task 8 incompletely specifies prp-implement.md implementation, leaving Acceptance (d) claim 'three commands read oracle' unverifiable without guessing the actual shell changes.</refutationAttempted> |
-| security | pass | Attacked the plan's core claim (DD1) that sealing divergent verdicts with block:false is safe: searched for any code reading receipt.block (0 matches), verified receipt writers don't read CLI block field, confirmed isConvergedVerdict() reads review_verdict not block, tested decision.json corruption scenarios (Task 6 reverse invariant catches them, fails before writeReceipt). Traced complete flow: decision object → CLI exit code, separate path → receipt verdict storage. Verified validation order (schema checks before disk write). Confirmed no divergent receipt can be misinterpreted as approved by downstream consumers (receipt-convergence.js, dedupe.js, pr-ship-gate.js all read review_verdict via isConvergedVerdict). Tested L1 bypass claim - found only quorum.passed !== true branch calls mkSinglePass, L1 failures remain unreachable (line 483 is after L1 gatekeeper at :150-167). Found no trust boundary leakage or escalation paths. |
-| test | fail | I read the plan's Validation section lines 562-632 and its Tasks 1-7. I checked for the existence of: 1) review-single-pass.js oracle module (Task 1 CREATE deliverable) — does not exist; 2) review-single-pass.test.js — does not exist; 3) review-single-pass-gate.test.js — does not exist; 4) review-single-pass-fields.test.js — does not exist; 5) review-single-pass-command-body.test.js — does not exist. I verified using Glob against the repository that none of these files are present. I checked existing decide.js (line 86) which shows block is calculated as 'verdict !== converged' — the plan claims Task 2 will modify this to allow divergent to have block=false, but without the test files, there is no falsifiable assertion. I examined the plan's own acceptance criteria (line 662) which names the 'block === false assertion' as the critical unit test requirement, yet provides no test file to contain it. The Validation section (lines 539, 566-585) explicitly names these 4 test files as input to commands that cannot execute. |
-| invariant | fail | Attacked the audit proof stamping path by tracing: (1) Task 2 mkSinglePass decision object structure → (2) cli.js output to decision.json → (3) plan.md 5.2e proof extraction → (4) plan.md 5.6b WRITE_FLAGS assembly → (5) write.js receipt stamping. Found that Task 8's description of flag forwarding is entirely absent from the actual plan.md code blocks. Verified no code location, line number, or bash snippet exists for the critical step that reads single_pass_reason from decision.json and forwards it as a CLI flag. Confirmed test suite has no assertion verifying flag forwarding. This breaks DD3's requirement that audit proof is mechanically stamped on every single-pass usage." |
+No reviewer result reached this record.
 
 ## Measurement
 
@@ -44,22 +27,20 @@
   "verdict": "divergent",
   "source": "multi-agent",
   "layers": {
-    "l1": "converged",
-    "l2": "divergent",
+    "l1": "divergent",
+    "l2": null,
     "l3": "not fired"
   },
-  "quorum": {
-    "responded": 4,
-    "required": 3,
-    "roles": 4,
-    "of": 4,
-    "passed": false
-  },
-  "wall_clock_ms": 240158,
+  "quorum": null,
+  "wall_clock_ms": 128087,
   "halt_stage": "5.2e",
-  "granted": 4,
-  "reviewed_plan_hash": "sha256:4fb44cc0a4f3f892037b534c22fdc4724807945f6b899c37fb7e8ee0828d684c",
+  "granted": null,
+  "reviewed_plan_hash": null,
   "plan_path": ".claude/plans/review-loop-bypass-m1.plan.md",
-  "recorded_at": "2026-08-18T01:55:44.609Z"
+  "recorded_at": "2026-08-18T06:42:59.137Z"
 }
 ```
+
+### Recording degradations
+
+- l2.json absent or unreadable — no panel findings to record

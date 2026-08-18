@@ -28,9 +28,28 @@ const {
 } = require('../renderer/parsers/plan-body');
 const { scanPlans } = require('../../derive/sources/plans');
 const { readLedger } = require('../completion-ledger/store');
+// M6 — drift 판정은 대시보드(computeB1)와 **같은 오라클**을 쓴다. 두 표면이 서로 다른
+// 오라클로 같은 질문에 답하던 상태를 닫는다(UI3·UI11).
+const {
+  adjudicateMilestone,
+  VERDICT_SHIPPED,
+  VERDICT_UNDETERMINED,
+} = require('../msw-metrics/b1-status-drift');
+// 증거 구성 + **join key 정규화**를 둘 다 builder 에서 가져온다. 오라클만 공유하고
+// 입력 정규화를 각자 구현하면 두 표면이 여전히 다른 답을 낸다(local review H2 — 실측
+// 39행 중 5행이 갈렸다: 자식 PRD 링크 행이 여기서 `not-shipped` 로, PRD-상대 경로 행이
+// git 오류로 각각 오판됐다).
+const {
+  buildEvidence,
+  buildPlanIndex,
+  resolveDefaultRef,
+  resolvePlanReference,
+  defaultGitQuery,
+} = require('../msw-metrics/b1-evidence-builder');
 
 const PRD_DIR = path.join('.claude', 'prds');
-const RECEIPT_PR_GATE_DIR = path.join('.claude', 'receipts', 'mccp-pr-codex');
+// receipt 경로 상수는 M6 에서 b1-evidence-builder.js 로 이전됐다 — 증거 구성 지점이
+// 하나뿐이어야 출처가 구조적으로 보장되기 때문이다(위 drift 증거 구간 주석 참조).
 const CANONICAL_STATUSES = new Set(['complete', 'pending', 'in-progress', 'dropped']);
 
 function warn(msg) { process.stderr.write('[mccp:archive-complete:scan] ' + msg + '\n'); }
@@ -147,7 +166,27 @@ function isArchivable(c) {
   return { archivable: false, reason: 'not all rows complete/dropped (' + blockers.join(', ') + ')' };
 }
 
-// --- drift 증거(2차 cross-check, advisory·fail-open) --------------------------
+// --- drift 증거(2차 cross-check, advisory) ------------------------------------
+//
+// b1-independence:region-start (drift evidence)
+//
+// multi-session-work-loop M6 — 이 구간의 **판정 축**은 공유 오라클
+// (msw-metrics/b1-status-drift.js)이 소유하고, 증거 구성 I/O 는 단일 builder
+// (msw-metrics/b1-evidence-builder.js)만 수행한다. 이전에는 이 구간이 ledger 를
+// 강증거로 먼저 보고 `fs.existsSync` 로 receipt 존재를 판정했는데, 두 가지가 계약과
+// 어긋났다:
+//   - 계약(UI3)이 ledger 를 **판정 소스에서 배제**했다. 대시보드와 이 명령이 서로
+//     다른 오라클로 같은 질문에 답하는 상태였다. 이제 ledger 는 **참고 인용**으로만
+//     병기되고 `driftSuspect` 를 결정하지 않는다.
+//   - `fs.existsSync` 는 untracked 사본도 통과시킨다. 오라클은 순수 함수라 주입된
+//     boolean 의 **출처를 볼 수 없으므로**, 여기서 evidence 를 직접 만들면 §3.12
+//     git-tracked 불변식이 이 경로로 조용히 무효가 된다. 그래서 이 구간은 evidence 를
+//     만들지 않고 builder 를 호출한다 — b1-independence-lint.js 축 (iv)가
+//     `receiptPresent` 의 생성이 builder 밖에 0건임을 정적으로 고정한다.
+//
+// 실패는 **fail-closed** 다. 이전 구현은 catch 에서 `driftSuspect:false` 를 돌려
+// 오라클 예외가 "drift 없음" 으로 읽혔다. 이제 `evidence_verdict:'undetermined'` 를
+// 싣고 scan() 이 warnings → degraded:true 로 올린다.
 
 function decisionFromBasename(planBasename) {
   return String(planBasename || '').replace(/\.plan\.md$/i, '');
@@ -162,43 +201,93 @@ function gitLastCommit(relPath, repoRoot) {
   } catch (_) { return null; }
 }
 
-// pending/in-progress milestone 이 실제로 shipped 됐다는 증거를 ledger > receipt > git
-// 순으로 조회. 강증거(ledger/receipt) 발견 시 driftSuspect. git 은 약증거(마지막 커밋).
-function collectDriftEvidence(milestone, ledgerEntries, repoRoot) {
-  const out = { driftSuspect: false, evidence: null };
+// ledger 참고 인용 — 판정에 쓰이지 않는다. 병기 전용.
+function ledgerCitation(milestone, ledgerEntries) {
   const basename = milestone && milestone.planBasename;
-  if (!basename) return out;
+  if (!basename) return null;
   const decision = decisionFromBasename(basename);
-  try {
-    // 1) completion-ledger (강증거)
-    for (const e of ledgerEntries || []) {
-      if (!e) continue;
-      if (e.plan_basename === basename || (decision && e.decision_id === decision)) {
-        out.driftSuspect = true;
-        out.evidence = 'ledger: decision=' + e.decision_id + ' verdict=' + e.verdict + ' at ' + e.completed_at;
-        return out;
-      }
+  for (const e of ledgerEntries || []) {
+    if (!e) continue;
+    if (e.plan_basename === basename || (decision && e.decision_id === decision)) {
+      return 'ledger(ref only): decision=' + e.decision_id + ' verdict=' + e.verdict + ' at ' + e.completed_at;
     }
-    // 2) mccp-pr-codex receipt (강증거)
-    if (decision) {
-      const receiptPath = path.join(repoRoot, RECEIPT_PR_GATE_DIR, decision + '.json');
-      if (fs.existsSync(receiptPath)) {
-        out.driftSuspect = true;
-        out.evidence = 'receipt: ' + path.join(RECEIPT_PR_GATE_DIR, decision + '.json').split(path.sep).join('/');
-        return out;
-      }
-    }
-    // 3) git log (약증거 — driftSuspect 는 올리지 않고 참고용 인용만)
-    if (milestone.planPath) {
-      const commit = gitLastCommit(milestone.planPath, repoRoot);
-      if (commit) out.evidence = 'git: last commit ' + commit;
-    }
-  } catch (e) {
-    // advisory — 증거 조회 실패는 판정을 막지 않는다.
-    out.evidence = out.evidence || null;
   }
+  return null;
+}
+
+// pending/in-progress milestone 이 실제로 shipped 됐다는 증거를 **공유 오라클**로 판정.
+// 반환: { driftSuspect, evidence, evidence_verdict, error }
+function collectDriftEvidence(milestone, ledgerEntries, repoRoot, opts) {
+  const o = opts || {};
+  const out = { driftSuspect: false, evidence: null, evidence_verdict: null, error: null };
+  if (!milestone) return out;
+
+  const cite = ledgerCitation(milestone, ledgerEntries);
+
+  // join key 를 derive source 와 **같은 함수**로 해석한다. 해석 불가는 `not-shipped`
+  // 가 아니라 `undetermined` 다 — 부재를 판정으로 바꾸지 않는다(E1). 이전 구현은 원문
+  // 셀을 그대로 넘겨, 자식 PRD 링크를 문 행에 `not-shipped` 라는 적극적 주장을 냈다.
+  const ref = resolvePlanReference(milestone.planPath, o.prdRelPath);
+  if (!ref.ok) {
+    out.evidence_verdict = VERDICT_UNDETERMINED;
+    out.evidence = ['adjudication: ' + ref.reason].concat(cite ? [cite] : []).join(' · ');
+    return out;
+  }
+
+  // decision_id 충돌 — 호출부가 활성 PRD **전체**를 가로질러 계산해 넘긴다. 충돌한 행은
+  // 전부 강등된다(임의 채택 금지, b1-status-drift.js:108-114). 이전 구현은 이 자리에
+  // `false` 를 하드코딩해, 같은 receipt 를 가리키는 두 행에 모두 `shipped` 를 냈다.
+  const decisionId = decisionFromBasename(ref.basename);
+  const duplicateKey = !!(o.duplicateDecisions && o.duplicateDecisions.has(decisionId));
+
+  // 오라클 주입 seam — 프로덕션 기본값은 실제 오라클이다. 존재 이유는 단 하나,
+  // **fail-closed 분기를 회귀로 고정**하기 위함이다(오라클 예외가 "drift 없음" 으로
+  // 읽히던 이전 동작이 이 축의 결함이었다). CLI 에서는 도달할 수 없다.
+  const adjudicate = typeof o.adjudicate === 'function' ? o.adjudicate : adjudicateMilestone;
+
+  let adjudication;
+  try {
+    const evidence = buildEvidence({
+      repoRoot: repoRoot,
+      planPath: ref.path,
+      planBasename: ref.basename,
+      duplicateKey: duplicateKey,
+      gitQuery: o.gitQuery,
+      defaultRef: o.defaultRef,
+      planIndex: o.planIndex,
+    });
+    adjudication = adjudicate({
+      planBasename: ref.basename,
+      planPath: ref.path,
+      evidence: evidence,
+    });
+  } catch (e) {
+    out.evidence_verdict = VERDICT_UNDETERMINED;
+    out.evidence = 'oracle failed: ' + ((e && e.message) || String(e));
+    out.error = out.evidence;
+    return out;
+  }
+
+  out.evidence_verdict = adjudication.verdict;
+  // 이 구간의 좌변은 언제나 pending/in-progress(호출부가 그 행만 넘긴다)이므로
+  // 문서는 "아직 ship 되지 않았다" 를 주장한다. 증거가 shipped 면 그것이 drift 다.
+  out.driftSuspect = adjudication.verdict === VERDICT_SHIPPED;
+
+  const parts = [];
+  if (adjudication.evidence_ref) parts.push(adjudication.source + ': ' + adjudication.evidence_ref);
+  else parts.push('adjudication: ' + adjudication.reason);
+  if (adjudication.codex_verdict) parts.push('codex_verdict=' + adjudication.codex_verdict);
+  if (cite) parts.push(cite);
+  if (!adjudication.evidence_ref) {
+    // 약증거 인용도 **해석된** 경로로 조회한다 — 원문 셀을 쓰면 PRD-상대 경로가 git 에
+    // 그대로 들어가 조용히 빈 결과를 낸다.
+    const commit = gitLastCommit(ref.path, repoRoot);
+    if (commit) parts.push('git: last commit ' + commit);
+  }
+  out.evidence = parts.join(' · ');
   return out;
 }
+// b1-independence:region-end
 
 // --- plan↔PRD index ----------------------------------------------------------
 
@@ -245,14 +334,55 @@ function scan(opts) {
   const prds = [];
   let scanned = 0;
 
+  // --- 1단계: 전역 열거 (증거 조회 **이전**) ----------------------------------
+  // decision_id 에는 PRD 성분이 없으므로 서로 다른 두 PRD 가 같은 basename 을 선언하면
+  // 같은 receipt 를 가리킨다. 따라서 중복 집계는 **활성 PRD 전체를 가로질러** 한 번에
+  // 한다(derive/sources/milestone-evidence.js 와 동일 규칙 — 두 표면이 같은 답을 내려면
+  // 충돌 판정도 같은 범위에서 나와야 한다).
+  const parsed = [];
   for (const abs of listPrds(prdAbsDir)) {
     scanned += 1;
     const rel = path.relative(repoRoot, abs).split(path.sep).join('/');
     let body;
     try { body = fsRead(abs); }
     catch (e) { pushWarn(warnings, 'prd read failed ' + rel + ': ' + e.message); continue; }
+    parsed.push({ abs, rel, body, cls: classifyMilestones(body) });
+  }
 
-    const cls = classifyMilestones(body);
+  const decisionCounts = new Map();
+  for (const p of parsed) {
+    for (const m of p.cls.milestones) {
+      if (!CANONICAL_STATUSES.has(m.status)) continue;   // 비교할 좌변이 없는 행은 제외
+      const ref = resolvePlanReference(m.planPath, p.rel);
+      if (!ref.ok) continue;
+      const id = decisionFromBasename(ref.basename);
+      if (!id) continue;
+      decisionCounts.set(id, (decisionCounts.get(id) || 0) + 1);
+    }
+  }
+  const duplicateDecisions = new Set();
+  decisionCounts.forEach((n, id) => { if (n > 1) duplicateDecisions.add(id); });
+
+  // git 배관은 **스캔당 한 번**만 세운다. 이전 구현은 행마다 `resolveDefaultRef`(rev-parse)
+  // 와 `buildPlanIndex`(ls-tree 전체)를 재실행해 실측 862ms → 3,201ms 로 3.7배 느려졌다.
+  // builder 는 처음부터 두 값을 주입받는 seam 을 갖고 있었고 derive source 는 그것을
+  // 쓰고 있었다 — 이 호출자만 쓰지 않았다. lazy 로 두어 pending/in-progress 행이 하나도
+  // 없으면 git 을 아예 부르지 않던 성질도 보존한다.
+  let plumbing = null;
+  const gitPlumbing = () => {
+    if (plumbing) return plumbing;
+    const gq = typeof opts.gitQuery === 'function' ? opts.gitQuery : defaultGitQuery(repoRoot);
+    const resolved = resolveDefaultRef(gq);
+    plumbing = {
+      gitQuery: gq,
+      defaultRef: resolved.ref,
+      planIndex: opts.planIndex || (resolved.ref ? buildPlanIndex(gq, resolved.ref) : null),
+    };
+    return plumbing;
+  };
+
+  // --- 2단계: PRD 별 판정 ------------------------------------------------------
+  for (const { abs, rel, body, cls } of parsed) {
     const verdict = isArchivable(cls);
     const name = extractPrdLabel(body, abs);
     const prdBasename = path.basename(abs);
@@ -266,12 +396,26 @@ function scan(opts) {
     const milestones = cls.milestones.map((m) => {
       let driftSuspect = false;
       let evidence = null;
+      let evidenceVerdict = null;
       if (m.status === 'pending' || m.status === 'in-progress') {
-        const d = collectDriftEvidence(m, ledgerEntries, repoRoot);
+        const g = gitPlumbing();
+        const d = collectDriftEvidence(m, ledgerEntries, repoRoot, {
+          prdRelPath: rel,
+          duplicateDecisions: duplicateDecisions,
+          gitQuery: g.gitQuery,
+          defaultRef: g.defaultRef,
+          planIndex: g.planIndex,
+          adjudicate: opts.adjudicate,
+        });
         driftSuspect = d.driftSuspect;
         evidence = d.evidence;
+        evidenceVerdict = d.evidence_verdict;
+        // fail-closed — 오라클 실패를 "drift 없음" 으로 읽지 않는다. warnings 에 올리면
+        // scan() 이 degraded:true 가 되고, /mccp:archive-complete command body 는
+        // degraded PRD 에 대해 이미 보수적으로 동작한다.
+        if (d.error) pushWarn(warnings, 'drift oracle failed for ' + rel + ' / ' + m.name + ': ' + d.error);
       }
-      return { name: m.name, status: m.status, driftSuspect, evidence };
+      return { name: m.name, status: m.status, driftSuspect, evidence, evidence_verdict: evidenceVerdict };
     });
 
     prds.push({
@@ -315,4 +459,7 @@ module.exports = {
   normalizeStatus,
   collectDriftEvidence,
   sourcePrdPathOf,
+  // M6 — 오라클이 같은 규칙을 재구현하므로(순수성 유지를 위해 이 모듈을 import 하지
+  // 않는다) 두 구현의 동치를 test 가 고정한다. 그 test 의 대조 상대가 이 export 다.
+  decisionFromBasename,
 };

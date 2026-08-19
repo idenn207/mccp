@@ -75,7 +75,7 @@ We'll know we're right when **토글을 켠 작업의 게이트 통과 시간이
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | 단일통과 토글 | 운영자가 사유 enum 하나를 env로 선언하면 세 게이트가 단일 라운드로 통과하고, 그 사유가 receipt에 봉인돼 사후 감사가 가능하다. **라이브 완주 검증(acceptance a)은 다음 plan 게이트로 이월** — 구현 착지 후에는 L1 `C3_CREATE_EXISTS`가 그 게이트를 다시 태우지 못한다(2026-08-18 실측). 운영자가 이월을 수용하고 종료: [closure](../milestone-closures/review-loop-bypass-m1.md) | complete | [.claude/plans/review-loop-bypass-m1.plan.md](../plans/review-loop-bypass-m1.plan.md) |
-| 2 | 미흡수 지적 회수 | 단일 라운드가 낸 미흡수 지적이 backlog에 자동 적재되고, 그 적재가 완화의 **전제조건**이라 적재 불가 시 완화가 진행되지 않는다. **소비처 문구 정정(2026-08-19 실측)**: 원 Outcome은 "기존 fix-task 생성 경로가 그것을 그대로 집어간다"였으나 `scripts/state/fix-task.js`는 backlog를 읽지 않는다 — backlog를 기계적으로 읽는 것은 `derive/sources/backlog.js`와 대시보드이고, M2는 그 소비 경로에 얹는다 | in-progress | [.claude/plans/review-loop-bypass-m2.plan.md](../plans/review-loop-bypass-m2.plan.md) |
+| 2 | 미흡수 지적 회수 | 단일 라운드가 낸 미흡수 지적이 backlog에 자동 적재되고, 그 적재가 완화의 **전제조건**이라 적재 불가 시 완화가 진행되지 않는다. **소비처 문구 정정(2026-08-19 실측)**: 원 Outcome은 "기존 fix-task 생성 경로가 그것을 그대로 집어간다"였으나 `scripts/state/fix-task.js`는 backlog를 읽지 않는다 — backlog를 기계적으로 읽는 것은 `derive/sources/backlog.js`와 대시보드이고, M2는 그 소비 경로에 얹는다. **v1.29.0 · PR #147 MERGED로 착지**했고 라이브 적재 10행(digest 10개 고유)과 Measurement `backlog_appended=10`이 git-tracked 증거로 남았다. 단 **M1 이월 acceptance (a)는 여기서도 소진되지 않고 두 번째로 이월**됐다 — plan/implement receipt가 유실 후 수동 3.3 재구성본이라 `review_*` 세 필드가 ABSENT다: [closure](../milestone-closures/review-loop-bypass-m2.md) | complete | [.claude/plans/review-loop-bypass-m2.plan.md](../plans/review-loop-bypass-m2.plan.md) |
 
 M2가 없으면 M1은 **부채를 만드는 기능**이다 — 지적이 사라지므로. M1이 없으면 M2는 대상이 없다. 두 마일스톤이 함께 있어야 "나중에 한 번에 고친다"가 성립한다.
 

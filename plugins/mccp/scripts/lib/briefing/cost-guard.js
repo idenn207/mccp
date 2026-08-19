@@ -16,6 +16,7 @@ const path = require('path');
 const costState = require('../cost-state');
 const subscription = require('../subscription');
 const contextState = require('../context-state');
+const envValue = require('../env-contract/value');
 
 const REASONS = Object.freeze({
   OK_RUN: 'ok-run',
@@ -75,7 +76,7 @@ function shouldSkipBriefing(opts) {
   if (env.MCCP_BRIEFING === 'off') {
     return { skip: true, reason: REASONS.ENV_OFF, tier: null };
   }
-  if (env.MCCP_CODEX_DISABLED === '1') {
+  if (envValue.parseBool(env, 'MCCP_CODEX_DISABLED')) {
     return { skip: true, reason: REASONS.ENV_CODEX_DISABLED, tier: null };
   }
   if (lockProbe(repoRoot)) {

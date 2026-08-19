@@ -259,12 +259,34 @@ test('parseUsdBomb: unknown non-empty → false + LOUD warn (never silent)', fun
   process.stderr.write = function (s) { seen.push(String(s)); return true; };
   try {
     assert.equal(parseUsdBomb({ MCCP_ORCHESTRATION_USD_BOMB: 'ture' }), false);
-    assert.equal(parseUsdBomb({ MCCP_ORCHESTRATION_USD_BOMB: 'enabled' }), false);
+    assert.equal(parseUsdBomb({ MCCP_ORCHESTRATION_USD_BOMB: 'yes please' }), false);
   } finally {
     process.stderr.write = orig;
   }
   assert.equal(seen.length, 2, 'a typo on the rollback switch must be surfaced, not swallowed');
   assert.ok(/MCCP_ORCHESTRATION_USD_BOMB/.test(seen[0]));
+});
+
+// v1.29.1 — 이 토글은 이제 공유 규약(env-contract/value.js)을 지난다. 로컬 별칭 두
+// Set이 사라진 자리에서 수용 집합이 무엇인지를 여기서 못 박는다. `enabled`는 예전에는
+// 불량값이었지만 지금은 ON이며, 그 방향은 «은퇴한 차단을 되살린다»라 안전하다.
+test('parseUsdBomb: 공유 별칭 집합을 그대로 받는다 (DD1)', function () {
+  const orig = process.stderr.write;
+  const seen = [];
+  process.stderr.write = function (s) { seen.push(String(s)); return true; };
+  try {
+    ['1', 'on', 'true', 'yes', 'enabled', 'ON', ' On '].forEach(function (v) {
+      assert.equal(parseUsdBomb({ MCCP_ORCHESTRATION_USD_BOMB: v }), true, 'ON: ' + v);
+    });
+    ['0', 'off', 'false', 'no', 'disabled', 'OFF'].forEach(function (v) {
+      assert.equal(parseUsdBomb({ MCCP_ORCHESTRATION_USD_BOMB: v }), false, 'OFF: ' + v);
+    });
+    assert.equal(parseUsdBomb({ MCCP_ORCHESTRATION_USD_BOMB: '' }), false, 'empty is unset');
+    assert.equal(parseUsdBomb({}), false, 'unset defaults OFF');
+  } finally {
+    process.stderr.write = orig;
+  }
+  assert.equal(seen.length, 0, 'canonical vocabulary must not warn');
 });
 
 // ── M3 Codex F1 — parseCatastrophicUsd (the replacement bomb ceiling) ─────────

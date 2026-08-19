@@ -31,6 +31,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const envValue = require('./env-contract/value');
 
 const REGISTRY_PATH_DEFAULT = path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json');
 const PLUGIN_KEY = 'codex@openai-codex';
@@ -165,7 +166,7 @@ function verifyCompanionInterface(installPath) {
 }
 
 function makeFail(env, t0, classification, stderr) {
-  const advisoryAllowed = (env && env.MCCP_ALLOW_CODEX_UNAVAILABLE === '1');
+  const advisoryAllowed = envValue.parseBool(env || {}, 'MCCP_ALLOW_CODEX_UNAVAILABLE');
   return {
     ok: false,
     stdout: '',
@@ -209,7 +210,7 @@ function invokeAdversarialReview(focus, opts) {
   // (independent of MCCP_ALLOW_CODEX_UNAVAILABLE) — disabled is intentional,
   // not a failure mode. Caller (codex-runner / receipt write) maps to
   // verdict='skipped' + reason='codex_disabled' for receipt audit.
-  if ((env.MCCP_CODEX_DISABLED || '') === '1') {
+  if (envValue.parseBool(env, 'MCCP_CODEX_DISABLED')) {
     return {
       ok: true,
       stdout: '',
@@ -364,7 +365,7 @@ function runCli(argv) {
   try {
     result = invokeAdversarialReview(focus, opts);
   } catch (err) {
-    const advisoryAllowed = process.env.MCCP_ALLOW_CODEX_UNAVAILABLE === '1';
+    const advisoryAllowed = envValue.parseBool(process.env, 'MCCP_ALLOW_CODEX_UNAVAILABLE');
     result = {
       ok: false,
       stdout: '',

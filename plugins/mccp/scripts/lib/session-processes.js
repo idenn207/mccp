@@ -35,6 +35,7 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const evidenceLock = require('../receipt/evidence-lock');
+const envValue = require('./env-contract/value');
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -1115,7 +1116,7 @@ function parseBudgetMs(env) {
 }
 
 function parseAllowOutlives(env) {
-  return String((env || process.env).MCCP_RECLAIM_OUTLIVES || '').trim() === '1';
+  return envValue.parseBool(env || process.env, 'MCCP_RECLAIM_OUTLIVES');
 }
 
 /**

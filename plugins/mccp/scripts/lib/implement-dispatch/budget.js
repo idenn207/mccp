@@ -65,6 +65,7 @@
 // block below.
 
 const subscription = require('../subscription');
+const envValue = require('../env-contract/value');
 
 const REASONS = Object.freeze({
   OK_RUN: 'ok-run',
@@ -129,8 +130,9 @@ function warn(line) {
 // opt-OUT). A case-insensitive 'off' or '0' turns it off; anything else (incl.
 // unset) is on.
 function parseParallelMode(env) {
-  const raw = String((env && env[ENV_MODE]) || '').trim().toLowerCase();
-  return (raw === 'off' || raw === '0') ? 'off' : 'on';
+  // 극성(default ON)은 레지스트리가 선언하고 parseBool이 읽는다 — 여기에
+  // default를 다시 적으면 같은 토글이 두 파일에서 다른 default를 갖게 된다.
+  return envValue.parseBool(env || {}, ENV_MODE) ? 'on' : 'off';
 }
 
 function parsePositiveInt(env, key, def) {

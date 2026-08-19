@@ -6,6 +6,7 @@ const path = require('path');
 const { MODEL_VERSION } = require('./model');
 const { derive } = require('./index');
 const { renderStatus } = require('../lib/renderer');
+const envValue = require('../lib/env-contract/value');
 
 function showHelp() {
   process.stdout.write([
@@ -346,7 +347,7 @@ async function cmdA3Measurement(rest) {
 
   try {
     const result = await measureA3({
-      readUserMemory: !!process.env.MCCP_A3_READ_USER_MEMORY,
+      readUserMemory: envValue.parseBool(process.env, 'MCCP_A3_READ_USER_MEMORY'),
     });
 
     if (rest.json || true) { // always JSON for now

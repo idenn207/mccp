@@ -12,13 +12,20 @@ function silent(fn) {
   try { return fn(); } finally { process.stderr.write = orig; }
 }
 
-test('isSubscriptionMode — 1/on (ci) true; else false', () => {
-  for (const v of ['1', 'on', 'ON', 'On', ' on ']) {
-    assert.equal(sub.isSubscriptionMode({ MCCP_SUBSCRIPTION: v }), true, String(v));
+// v1.29.1 — 공유 규약(env-contract/value.js)으로 이관하면서 수용 집합이 넓어졌다.
+// `yes`/`true`/`enabled`는 예전에는 무시됐지만 지금은 ON이다. 이 토글은 리뷰 게이트를
+// 약화하는 축이 아니라 비용 모델 전환이라 `bool` kind이고, DD1의 별칭 집합을 그대로
+// 받는다. 예전 동작을 여기서 그대로 두면 test가 구 어휘를 고정해 이관을 되돌리게 된다.
+test('isSubscriptionMode — DD1 별칭 집합 전량 true; off 계열과 미설정은 false', () => {
+  const wrapped = (v) => silent(() => sub.isSubscriptionMode({ MCCP_SUBSCRIPTION: v }));
+  for (const v of ['1', 'on', 'ON', 'On', ' on ', 'true', 'yes', 'enabled', 'TRUE']) {
+    assert.equal(wrapped(v), true, String(v));
   }
-  for (const v of ['', '0', 'off', 'yes', 'true', undefined]) {
-    assert.equal(sub.isSubscriptionMode({ MCCP_SUBSCRIPTION: v }), false, String(v));
+  for (const v of ['', '0', 'off', 'false', 'no', 'disabled', 'OFF', undefined]) {
+    assert.equal(wrapped(v), false, String(v));
   }
+  // 열거 밖 값은 레지스트리 default(off)로 되돌아간다 — 오타가 비용 모델을 바꾸지 않는다.
+  assert.equal(wrapped('onn'), false, 'typo falls back to the registry default');
   assert.equal(sub.isSubscriptionMode({}), false);
   assert.equal(sub.isSubscriptionMode(undefined), false);
 });

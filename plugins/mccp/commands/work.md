@@ -234,7 +234,8 @@ if [ "$ISOLATE" != "0" ] && [ "$PARALLEL_LC" != "0" ] && [ "$PARALLEL_LC" != "of
       const runaway=require(process.argv[1]+"/scripts/lib/orchestration-runaway");
       // live-activation M1 — cost fail-open (default true) + cost-state-independent
       // runaway backstop. =0 restores the old fail-closed COST_STATE_UNKNOWN skip.
-      const costFailOpen=String(process.env.MCCP_ORCHESTRATION_COST_FAIL_OPEN||"").trim()!=="0";
+      const costFailOpen=require(root + "/scripts/lib/env-contract/value")
+    .parseBool(process.env, "MCCP_ORCHESTRATION_COST_FAIL_OPEN");
       // live-activation M3 — operational USD ($50/$80/$100 + hard_ceiling) no longer
       // blocks firing; usdBomb restores that M1 block, catastrophicUsd is the
       // replacement bomb detector far above it (Codex F1/F4).

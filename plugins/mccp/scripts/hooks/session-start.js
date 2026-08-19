@@ -91,6 +91,7 @@ const { listAliases } = safeRequire('../lib/session-aliases');
 const { detectProjectType } = safeRequire('../lib/project-detect');
 const path = require('path');
 const fs = require('fs');
+const envValue = require('../lib/env-contract/value');
 
 const INSTINCT_CONFIDENCE_THRESHOLD = 0.7;
 const MAX_INJECTED_INSTINCTS = 6;
@@ -1059,7 +1060,7 @@ async function main() {
   // dep-check: warn once per 24h when codex plugin or impeccable CLI is
   // missing. Silenced entirely when MCCP_CODEX_DISABLED=1 (user has opted
   // into the no-Codex path; nothing to install).
-  if (process.env.MCCP_CODEX_DISABLED !== '1') {
+  if (!envValue.parseBool(process.env, 'MCCP_CODEX_DISABLED')) {
     try {
       const depCheck = require('../lib/dep-check');
       const stateWriter = require('../state/state-writer');

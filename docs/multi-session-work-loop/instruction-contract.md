@@ -72,7 +72,7 @@
 | S3.15 | 3.15 단일통과 토글 (v1.27.3 — review-loop-bypass M1) | on-demand | - | - | - | (b) 불성립 — 파서·완화 자격·양방향 schema 불변식이 전부 기계 판정이고, 세 게이트가 공유 오라클을 읽는지도 정적 test가 단언한다. 산문으로 남는 라운드 루프는 절이 상주해도 강제되지 않는다(절 자신이 그렇게 적고 있다). 이번 주기 미이전(분류만) |
 | S4 | 4. 자주 쓰는 명령 (Cheat Sheet) | resident | - | - | - | (c) 명령 이름을 고르기 전에 필요한 색인. 이전 후에는 색인과 포인터만 남는다 |
 | S4.1 | Generic-receipt quarantine runbook (v0.2.8 Task 2.6.5) | on-demand | - | - | - | (c) 불성립 — quarantine 실패가 발생한 뒤 따라가는 런북이다. 이번 주기 미이전(분류만) |
-| S4.2 | 운영 토글 (환경 변수) | on-demand | docs/ENVIRONMENT.md | 11. 운영 토글 레퍼런스 (canonical) | docs/ENVIRONMENT.md | (b) 불성립 — 각 토글은 자기 소비처 오라클이 parse·검증한다. 44,462B(28.0%)이며 docs/ENVIRONMENT.md와 **중복**이다(PRD Evidence가 지목한 그 중복). **이번 주기 이전** |
+| S4.2 | 운영 토글 (환경 변수) | on-demand | docs/ENVIRONMENT.md | 3. 운영 토글 색인 (canonical) | docs/ENVIRONMENT.md | (b) 불성립 — 각 토글은 자기 소비처 오라클이 parse·검증한다. 44,462B(28.0%)이며 docs/ENVIRONMENT.md와 **중복**이다(PRD Evidence가 지목한 그 중복). **이번 주기 이전** |
 | S5 | 5. 모르거나 막힐 때 | resident | - | - | - | (c) 막혔을 때 어디를 볼지의 포인터 색인. 1.3%로 저렴 |
 
 ## 4. 이 계약이 보증하지 **않는** 것

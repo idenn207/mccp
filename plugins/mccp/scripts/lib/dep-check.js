@@ -12,6 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const envValue = require('./env-contract/value');
 
 const INSTALLED_PLUGINS_PATH = path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json');
 const CODEX_PLUGIN_KEY = 'codex@openai-codex';
@@ -72,7 +73,7 @@ function checkAll(options) {
   return {
     codex_plugin: checkCodexPlugin(options),
     impeccable_cli: checkImpeccableCli(options),
-    codex_disabled: process.env.MCCP_CODEX_DISABLED === '1',
+    codex_disabled: envValue.parseBool(process.env, 'MCCP_CODEX_DISABLED'),
     checked_at: new Date().toISOString(),
   };
 }

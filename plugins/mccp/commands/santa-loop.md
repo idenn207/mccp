@@ -136,6 +136,11 @@ error: it looks like an ordinary run, identical to one from before M1 existed. S
 layer here proceeds on partial success.
 
 ```bash
+# First use of the temp dir in this file, so it is defined here rather than in the
+# record block below — the lane block runs first, and a name defined after its use
+# expands to empty, which would put the paths file outside the repo and stop the
+# round at containment instead of at the thing that was actually wrong.
+TMPDIR_SANTA=".claude/state/santa-loop/tmp"      # gitignored with the ledger
 mkdir -p "$TMPDIR_SANTA"
 # $SCOPE_PATHS_JSON comes from Step 1. If this file ever loses that definition the
 # printf writes an empty file, cmdLanes rejects the empty array, and the round stops —
@@ -289,7 +294,7 @@ In all cases, the reviewer must return the same structured JSON verdict as Revie
 Write each reviewer's **unmodified** JSON to a repo-internal temp file and hand it to the CLI. The reviewer contract above is untouched — `id` and `model` are values the caller already knows, and the CLI does the conversion:
 
 ```bash
-TMPDIR_SANTA=".claude/state/santa-loop/tmp"      # gitignored with the ledger
+# $TMPDIR_SANTA was defined in the lane block above; mkdir stays for idempotence.
 mkdir -p "$TMPDIR_SANTA"
 
 # Reviewer A

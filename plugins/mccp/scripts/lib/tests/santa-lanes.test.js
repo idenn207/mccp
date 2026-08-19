@@ -247,6 +247,19 @@ test('cmdLanes: 실패 계약 — 각 경우 exit 2이고 stdout이 비어 있�
   });
 });
 
+test('cmdLanes: --rubric-file은 프롬프트에 실린다', () => {
+  const dir = repoFixture();
+  const pf = path.join(dir, 'paths.json');
+  fs.writeFileSync(pf, JSON.stringify(['CLAUDE.md']));
+  const rf = path.join(dir, 'rubric.md');
+  fs.writeFileSync(rf, '- criterion: every export has a test');
+  const r = runCli(dir, ['lanes', '--decision', 'fixture', '--paths-file', pf,
+    '--rubric-file', rf]);
+  assert.strictEqual(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.ok(j.prompt.includes('every export has a test'));
+});
+
 // ── record --lane 대조 ───────────────────────────────────────────────────────
 
 function reviewerFile(dir, name) {

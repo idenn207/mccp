@@ -2,14 +2,14 @@
 state_version: 1
 task_fingerprint: review-loop-bypass-m2-closure
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-19T05:23:31.566Z
-last_event: receipt_write
-last_event_at: 2026-08-19T05:23:31.566Z
+updated_at: 2026-08-19T05:27:00.623Z
+last_event: pr_created
+last_event_at: 2026-08-19T05:27:00.623Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: true
-last_pr_url: https://github.com/idenn207/mccp/pull/147
+last_pr_url: https://github.com/idenn207/mccp/pull/148
 dep_check_at: 2026-08-18T05:26:00.707Z
 abort_owner: cost
 cost_abort_at: 2026-08-19T03:35:49.289Z
@@ -36,7 +36,7 @@ review-loop-bypass **M2 종료 처리**. 구현·병합(PR #147, v1.29.0)·closu
 없음.
 
 ## Next Step
-closure 커밋(`8fbfd48`)을 PR로 올린다. `/mccp:pr`은 같은 decision slug에 tracked ship receipt가 이미 있어 §3.12 덮어쓰기 가드에 막히므로, docs-only PR은 `gh pr create` 직접 경로를 쓰고 게이트 미실행을 PR 본문에 명시한다. 머지 후 worktree 정리(§3.8).
+PR #148(closure) 리뷰·머지 대기. 머지 후 worktree 정리(§3.8). `/mccp:archive-complete`는 PRD OQ 1을 닫기 전까지 보류 — archivable:true는 «검증됐다»가 아니다.
 
 ## Last Decision
 plan-body 스탬프를 남기지 않았다. 명령 본문 Phase 4 step 4가 지시하지만 그 스탬프의 설계 기능은 「다음 /mccp:pr의 plan_hash anchor에 포함되는 것」인데 PR #147이 이미 머지돼 얻는 custody가 0이고, 반대로 clean chain(ok:true · stale 0)을 receipt 3건 stale로 만드는 것이 사본 실측으로 확인됐다. 선례 gate-guard-integrity-m3가 정확히 그 방식으로 다음 PR을 차단했고 review-loop-bypass-m1 closure도 같은 이유로 생략했다. step을 편의로 건너뛴 것이 아니라 step의 전제가 성립하지 않는 시점에 호출된 것이며, 본문이 그 전제를 검사하지 않는다는 점을 backlog에 남겼다.
@@ -49,4 +49,4 @@ plan-body 스탬프를 남기지 않았다. 명령 본문 Phase 4 step 4가 지�
 - PRD OQ 4(토글 사용률 관측 표면)는 미결 유지
 
 ## Last Updated
-2026-08-19T05:23:31.566Z
+2026-08-19T05:27:00.623Z

@@ -2,7 +2,103 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.28.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.29.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.29.1] — 2026-08-19
+
+> **§3.7**: `1.28.2 → 1.29.1` (patch — PRD 3 milestone 중 두 번째 ship). 4면
+> (plugin.json · html.js page-foot · markdown.js derived 줄 · 이 파일의 `currently`
+> 노트) + `docs/ENVIRONMENT.md`의 토글 라벨을 함께 맞췄다.
+>
+> **재계산 이력**: 당초 `1.28.3`으로 적었으나 `/mccp:prp-commit` 직전 재계산에서
+> origin/main이 이미 `1.29.0`(review-loop-bypass M2, `1fc8657`)까지 나간 것이
+> 확인됐다 — 그대로 두면 머지 시 plugin.json이 **뒤로 가고** `claude plugin update`의
+> 캐시 디렉토리가 설치본보다 낮아져 §3.7이 bump을 강제하는 이유 자체가 무효화된다.
+> forward-only로 `1.29.1`에 착지. M1의 `1.28.2`는 main과 충돌하지 않고 머지 후에도
+> version 내림차순(`1.29.1 > 1.29.0 > 1.28.2 > 1.28.1`)이 성립하므로 그대로 뒀다.
+> **`/mccp:pr` 진입 직전에 한 번 더 재계산할 것**(§3.7의 두 번째 시점).
+
+### Added — santa 증거 다양성 M2: 상시 스코프 + 정합 rubric
+
+- `plugins/mccp/scripts/lib/santa/scope-always.js` — P2 소유 신규 순수 oracle.
+  `parseAlwaysScope`(env 1종, default `enforce`, 불량값 loud warn 후 발화 쪽 fail-open) ·
+  `sourcePrdFrom`(plan이 **스스로 선언한** Source PRD를 링크/평문 두 형태로 추출하고 plan
+  상대 표기를 repo 상대로 환원) · `mergeScope`(diff 순서 보존 + 상시 항목 append + 정규화
+  posix 경로 기준 중복 제거 + `MAX_ALWAYS_PATHS`(40) 초과 시 `truncated` 수 산출) ·
+  `CONSISTENCY_RUBRIC`(UI4·UI5 고정 문구 — `DO_NOT_TRUST_NARRATIVE`와 같은 취급). 외부
+  require는 builtin `path` 하나뿐이라 santa 모듈군의 외부 의존 목록은 **0건 증가**다.
+- `santa/cli.js` — `scope-always` subcommand 추가(`--paths-file` **필수**. 전 검증 통과 후
+  1회만 `out()`하므로 실패 시 stdout에 부분 JSON을 내지 않는다). 발견 단계(`pairs` ·
+  `unresolved`)는 CLI가 소유한다 — oracle은 `fs`를 모른다(DD2).
+- `commands/santa-loop.md` — Step 1이 `scope-always`를 호출해 `$SCOPE_PATHS_JSON`을
+  **교체**하고(생산자는 여전히 Step 1 하나 — M1 DD11) `added`·`pairs`·`unresolved`·
+  `truncated`를 stderr로 표면화한다. Step 2가 `$CONSISTENCY_RUBRIC_ROW`를 verbatim 덧붙이고,
+  Step 3이 rubric 전문을 파일로 써 `lanes --rubric-file`로 넘긴다 — M1이 만들어 두고
+  호출자가 쓰지 않던 자리이며 **블라인드 리뷰어가 정합 행을 받는 유일한 경로**다.
+  `TMPDIR_SANTA` 정의를 최초 사용처(Step 1)로 올리고 Step 3·record 블록의 주석을 맞췄다.
+- 회귀 test: `santa-lanes.test.js` M2 블록 23건 신규(총 47건) — env 방향 · Source PRD 추출
+  · **보안 경계** · 병합 순서/중복/절삭 · 고정 rubric 어구 · CLI 7키 계약 · #125 회귀 2건.
+  `santa-loop-cap.test.js`는 모듈 집합 · receipt-free · require allowlist 3목록을 넓혔다
+  (단언 삭제 0건).
+
+### Fixed — `/mccp:code-review` Local Mode 흡수 (HIGH 2 · MEDIUM 4 · LOW 2)
+
+- **정합 rubric 행이 조용히 미전달될 수 있었다**(HIGH). Step 3의 heredoc이 quoted라
+  파라미터 전개가 꺼져 있는데 지시문은 "`$CONSISTENCY_RUBRIC_ROW`를 verbatim 복사"였다 —
+  산문이 요구하는 동작을 그 자리의 메커니즘이 수행할 수 없다. 실측: 변수명이 리터럴로 남은
+  rubric도 `lanes`가 exit 0으로 통과시키고 `## Rubric` 섹션까지 정상이라, DD5가 "한 축"이라
+  못 박은 그 축의 **절반이 미전달인데 어떤 기계적 신호로도 구분되지 않았다**. 이제 셸이
+  `printf`로 행을 덧붙이고 `grep -qF 'working tree'`로 착지를 확인한 뒤에만 리뷰어를 띄운다.
+- **`$TMPDIR_SANTA`를 Step 3이 스스로 선언하지 않았다**(MEDIUM). `mkdir -p`가 덮는 것은
+  디렉토리 부재이지 빈 변수가 아니다 — 실측상 `mkdir -p ""`는 실패하지만 상태가 가려지고
+  paths 파일이 파일시스템 루트에 떨어진다(M1이 이미 흡수한 결함의 방향만 뒤집힌 재발).
+  idempotent 상수라 두 번 치르는 비용이 0이므로 Step 3에 재선언했다.
+- **후보 상한이 경로 상한과 같아 `pairs`가 스코프 밖 파일을 가리킬 수 있었다**(MEDIUM).
+  후보 1개가 경로 2개를 내므로 40 후보 → 최대 80 경로 → `mergeScope`가 40으로 절삭한다.
+  실측 30쌍 입력에서 `pairs=30 added=40 truncated=20`이 나왔고 10쌍이 스코프 밖이었다 —
+  rubric은 "target paths에 열거된 쌍"을 대조하라 지시하므로 그 쌍은 **검토되지 않은 채
+  개수만 보고된다**. `MAX_ALWAYS_CANDIDATES`를 `MAX_ALWAYS_PATHS`의 절반으로 내려 CLI
+  경로에서 절삭이 구조적으로 발생하지 않게 했다.
+- **`off` + 빈 diff가 파싱 실패로 오진됐다**(MEDIUM). `paths` 부재(생산자 고장)와 빈 배열
+  (Step 1이 이미 정상으로 규정한 "변경 없음")은 다른 사실인데 한 분기가 둘을 삼켜, 정지가
+  두 단계 앞으로 오고 일어나지 않은 파싱 실패를 보고했다. `absent`/`empty`/`ok` 3상태로
+  분리하고 `empty`는 exit 0으로 조용히 끝낸다.
+- **`off`와 `enforce`가 서로 다른 스코프를 냈다**(MEDIUM). `off`가 `diffPaths`를 날것으로
+  통과시켜, 이탈 형태를 접는 `enforce`와 갈렸다 — kill switch가 *무엇이 검토되는가*를
+  아무도 선언하지 않은 방향으로 바꾼다. 이제 두 모드가 같은 병합을 태우고 차이는 "상시
+  항목이 붙는가" 하나다. 정규화로 사라진 경로는 `mergeScope`가 `dropped`로 내고 CLI가
+  stderr로 표면화한다(JSON 7키 계약은 무변경 — 이것은 정상 수치가 아니라 입력 오류 신호다).
+- **`pairs[].plan`과 `paths`의 표기가 갈릴 수 있었다**(LOW). 후보 수집이 백슬래시만 바꿔
+  `./x.plan.md`를 살려 뒀다. `toRepoRelative`를 export해 발견 단계가 oracle과 같은 규칙으로
+  접는다(export 8 → 9).
+- PRD Open Questions의 리스트가 빈 줄 하나로 두 블록으로 쪼개져 있었다(LOW).
+
+### Changed
+
+- `.claude/prds/santa-evidence-diversity.prd.md` — Scope MVP (2)의 네 글롭
+  (`.claude/PRPs/**` · `.claude/prds/**` · `*plan*.md` · `*PRD*.md`)을 **decision 범위의
+  관계 폐포**로 정정했다. 결정을 내린 것은 논증이 아니라 실측이다: 이 저장소에서 그 글롭은
+  `.claude/PRPs/**` 267 파일 / 6997 KB · repo 전역 `*plan*.md` 191 파일이고, 번들 리뷰어가
+  받는 것은 경로가 아니라 **내용**이라 7 MB를 넣으면 Risk 2가 즉시 발화한다 — 결과는 "더
+  많이 보게 했더니 아무것도 못 보게 됐다"다. 폐포는 약 70 KB이고 #125 회귀가 요구하는 최소
+  집합과 일치한다. Open Question 2건(무관 PRD 유입 · P3 델타 경계)에 해소 표시를 달았다.
+- `docs/santa-loop/ownership.md` — P2 M2 export 계약 표 + 연 파일 근거(변경 프로토콜 4) +
+  **P3가 소비할 계약**(상시 대상은 델타 축소에서 면제 — DD6/UI8) 한 문단.
+
+### Known limits
+
+- **receipt는 이 축을 봉인하지 않는다**(DD7). 상시 스코프는 라운드 단위 사실인데
+  `ledger.beginRound`의 라운드 형태는 P0 동결 시그니처라 필드 추가가 P0 재개 사유이고,
+  리뷰어 envelope로 우회하면 값이 **호출자 선언**이 되는데 `--lane`과 달리 CLI가 Step 1의
+  판단을 재현할 수 없어 검증 불가능한 필수 플래그가 된다. 그래서 관측 표면은 Step 1의
+  stderr 출력 · 블라인드 프롬프트 본문 · 회귀 test 셋뿐이고, **상시 축이 조용히 0건을 낸
+  실행은 receipt만 봐서는 M1 시절 실행과 구분되지 않는다**. PRD Open Question으로 등재했다.
+- **회귀 fixture가 증명하는 것은 스코프이지 포착이 아니다.** 리뷰어가 "plan은 4개라 하는데
+  PRD는 7개"라는 불일치를 실제로 잡는지는 LLM 행위라 셸로 단언할 대상이 없다. test가 닫는
+  것은 그 앞 단계 — 관계의 한쪽만 스코프에 드는 구조적 불가능 상태다. test 이름과 주석에
+  그 구분을 명시했다.
+- **폐포가 좁아 놓치는 변종**(형제 milestone plan 간 불일치 등)이 있을 수 있다. 그것이
+  나오면 넓힘의 근거가 되는 실측이지 지금 넓힐 근거가 아니다 — 반대 방향의 실측이 7 MB다.
 
 ## [1.28.2] — 2026-08-18
 

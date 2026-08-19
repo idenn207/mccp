@@ -175,7 +175,10 @@ function repoFixture() {
 function runCli(dir, args, env) {
   const res = require('child_process').spawnSync(process.execPath, [CLI].concat(args), {
     cwd: dir, encoding: 'utf8',
-    env: Object.assign({}, process.env, { MCCP_SANTA_BLIND_LANE: undefined }, env || {}),
+    // M2: 상시 스코프 토글도 주변 env에서 끊는다. 두 축 모두 default가 발화 쪽이라
+    // 주변 셸이 켜 두면 test가 그 값을 물려받아 비결정적이 된다.
+    env: Object.assign({}, process.env,
+      { MCCP_SANTA_BLIND_LANE: undefined, MCCP_SANTA_ALWAYS_SCOPE: undefined }, env || {}),
   });
   return { status: res.status, stdout: res.stdout || '', stderr: res.stderr || '' };
 }
@@ -294,4 +297,370 @@ test('record: 열거 밖 --lane 값은 exit 2', () => {
   const r = runCli(dir, ['record', '--decision', 'fixture', '--round', '0',
     '--id', 'A', '--model', 'opus', '--reviewer-file', rf, '--lane', 'sneaky']);
   assert.strictEqual(r.status, 2, r.stderr);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// santa-evidence-diversity M2 — 상시 스코프 oracle + `scope-always` CLI.
+//
+// 이 블록이 지키는 것: env 방향(발화가 default) · Source PRD 추출의 **보안 경계**
+// (문자열 단계 이탈 거부) · 병합의 순서/중복/절삭 · 고정 rubric 문구 · CLI 7키 계약 ·
+// 그리고 #125 회귀(관계의 한쪽만 스코프에 드는 일이 없다).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const scopeAlways = require('../santa/scope-always');
+
+// ── env 파서 ─────────────────────────────────────────────────────────────────
+
+test('parseAlwaysScope: 2 값 + 미설정 default', () => {
+  assert.strictEqual(scopeAlways.parseAlwaysScope({}), 'enforce');
+  assert.strictEqual(scopeAlways.parseAlwaysScope({ MCCP_SANTA_ALWAYS_SCOPE: 'enforce' }), 'enforce');
+  assert.strictEqual(scopeAlways.parseAlwaysScope({ MCCP_SANTA_ALWAYS_SCOPE: 'off' }), 'off');
+});
+
+test('parseAlwaysScope: 대소문자/공백 정규화', () => {
+  assert.strictEqual(scopeAlways.parseAlwaysScope({ MCCP_SANTA_ALWAYS_SCOPE: ' OFF ' }), 'off');
+  assert.strictEqual(scopeAlways.parseAlwaysScope({ MCCP_SANTA_ALWAYS_SCOPE: 'Enforce' }), 'enforce');
+});
+
+test('parseAlwaysScope: 불량값은 발화 쪽(default enforce)으로 fail-open', () => {
+  // DD8. default가 `off`였다면 오타 하나가 kill switch를 켜고 그 실행은 M2 이전과
+  // 구별되지 않는다 — 방향이 뒤집히면 이 단언이 먼저 붉어진다.
+  assert.strictEqual(scopeAlways.parseAlwaysScope({ MCCP_SANTA_ALWAYS_SCOPE: 'on' }), 'enforce');
+  assert.strictEqual(scopeAlways.parseAlwaysScope({ MCCP_SANTA_ALWAYS_SCOPE: 'yes' }), 'enforce');
+  assert.strictEqual(scopeAlways.parseAlwaysScope({ MCCP_SANTA_ALWAYS_SCOPE: '' }), 'enforce');
+  assert.strictEqual(scopeAlways.parseAlwaysScope({ MCCP_SANTA_ALWAYS_SCOPE: null }), 'enforce');
+});
+
+// ── Source PRD 추출 ──────────────────────────────────────────────────────────
+
+test('sourcePrdFrom: 백틱 평문 형태', () => {
+  const t = '# Plan\n\n**Source PRD**: `.claude/prds/x.prd.md`\n';
+  assert.strictEqual(scopeAlways.sourcePrdFrom(t, { planPath: '.claude/plans/a.plan.md' }),
+    '.claude/prds/x.prd.md');
+});
+
+test('sourcePrdFrom: 마크다운 링크 형태 — plan 상대경로를 repo 상대로 환원한다', () => {
+  const t = '**Source PRD**: [x](../prds/x.prd.md)\n';
+  assert.strictEqual(scopeAlways.sourcePrdFrom(t, { planPath: '.claude/plans/a.plan.md' }),
+    '.claude/prds/x.prd.md');
+});
+
+test('sourcePrdFrom: 링크 형태가 평문보다 우선한다', () => {
+  const t = '**Source PRD**: [label](.claude/prds/link.prd.md)\n';
+  assert.strictEqual(scopeAlways.sourcePrdFrom(t, { planPath: '.claude/plans/a.plan.md' }),
+    '.claude/prds/link.prd.md');
+});
+
+test('sourcePrdFrom: 미선언 · free-form 표기 · 비문자열은 null (던지지 않는다)', () => {
+  // free-form plan은 정상 입력이다(DD4). 여기서 던지면 드롭이 라운드를 막는다.
+  assert.strictEqual(scopeAlways.sourcePrdFrom('# Plan\n\nno declaration\n', {}), null);
+  assert.strictEqual(scopeAlways.sourcePrdFrom('**Source PRD**: (없음 — free-form 입력)\n', {}), null);
+  assert.strictEqual(scopeAlways.sourcePrdFrom(null, {}), null);
+  assert.strictEqual(scopeAlways.sourcePrdFrom(123, {}), null);
+  assert.strictEqual(scopeAlways.sourcePrdFrom('', {}), null);
+});
+
+test('sourcePrdFrom: 보안 경계 — 정규화 후 저장소를 벗어나는 형태는 전부 null', () => {
+  // implement-gate security review CRITICAL 1. `sourcePrdFrom`은 fs를 모르는 순수
+  // 함수라 realpath로 방어할 수 없고, `path.posix.normalize('../../etc/x')`는 그대로
+  // `../../etc/x`이므로 정규화만으로는 아무것도 막히지 않는다. 도달했을 때의 폭발
+  // 반경은 "임의 파일 내용이 블라인드 리뷰어 프롬프트에 실린다"이다.
+  const P = { planPath: '.claude/plans/a.plan.md' };
+  // 1) 상위 이탈 — 직접 표기와 접힌 뒤에야 드러나는 형태 둘 다
+  assert.strictEqual(scopeAlways.sourcePrdFrom('**Source PRD**: `../../../../etc/passwd.prd.md`\n', P), null);
+  assert.strictEqual(scopeAlways.sourcePrdFrom('**Source PRD**: [x](../../../../../../etc/passwd.prd.md)\n', P), null);
+  assert.strictEqual(scopeAlways.sourcePrdFrom('**Source PRD**: `a/../../../etc/passwd.prd.md`\n', P), null);
+  // 2) 절대경로 3형태 — posix 루트 · UNC · 드라이브 문자
+  assert.strictEqual(scopeAlways.sourcePrdFrom('**Source PRD**: `/etc/passwd.prd.md`\n', P), null);
+  assert.strictEqual(scopeAlways.sourcePrdFrom('**Source PRD**: `\\\\host\\share\\x.prd.md`\n', P), null);
+  assert.strictEqual(scopeAlways.sourcePrdFrom('**Source PRD**: `C:/Windows/x.prd.md`\n', P), null);
+  // 3) NUL — 파일시스템 계층에서 절단을 일으킬 수 있고 경로 성분으로 정당한 쓰임이 없다
+  assert.strictEqual(scopeAlways.sourcePrdFrom('**Source PRD**: `.claude/prds/x.prd.md\u0000.txt`\n', P), null);
+});
+
+test('sourcePrdFrom: plan 상대 표기인데 planPath가 없으면 null (추측하지 않는다)', () => {
+  // 기준점 없이 저장소 루트로 추측하면 존재하지 않는 포인터를 만들어 낸다.
+  assert.strictEqual(scopeAlways.sourcePrdFrom('**Source PRD**: [x](../prds/x.prd.md)\n', {}), null);
+});
+
+// ── 병합 ─────────────────────────────────────────────────────────────────────
+
+test('mergeScope: diff 순서 보존 + 상시 항목은 뒤에 append', () => {
+  const r = scopeAlways.mergeScope({
+    diffPaths: ['src/b.js', 'src/a.js'],
+    alwaysPaths: ['.claude/plans/x.plan.md'],
+  });
+  assert.deepStrictEqual(r.paths, ['src/b.js', 'src/a.js', '.claude/plans/x.plan.md']);
+  assert.deepStrictEqual(r.added, ['.claude/plans/x.plan.md']);
+  assert.strictEqual(r.truncated, 0);
+});
+
+test('mergeScope: 이미 diff에 있는 상시 항목은 added에 들어가지 않는다', () => {
+  const r = scopeAlways.mergeScope({
+    diffPaths: ['.claude/plans/x.plan.md', 'src/a.js'],
+    alwaysPaths: ['./.claude/plans/x.plan.md', '.claude\\plans\\x.plan.md'],
+  });
+  assert.deepStrictEqual(r.paths, ['.claude/plans/x.plan.md', 'src/a.js']);
+  assert.deepStrictEqual(r.added, []);
+});
+
+test('mergeScope: 상한 초과를 조용히 자르지 않는다 (truncated 수를 낸다)', () => {
+  const many = [];
+  for (let i = 0; i < scopeAlways.MAX_ALWAYS_PATHS + 5; i += 1) many.push('.claude/plans/p' + i + '.plan.md');
+  const r = scopeAlways.mergeScope({ diffPaths: ['src/a.js'], alwaysPaths: many });
+  assert.strictEqual(r.added.length, scopeAlways.MAX_ALWAYS_PATHS);
+  assert.strictEqual(r.truncated, 5);
+  assert.strictEqual(r.paths.length, 1 + scopeAlways.MAX_ALWAYS_PATHS);
+});
+
+test('mergeScope: 이탈 형태는 어느 쪽 입력에서도 스코프에 들어가지 않는다', () => {
+  const r = scopeAlways.mergeScope({
+    diffPaths: ['../outside.js', '/etc/passwd', 'src/a.js'],
+    alwaysPaths: ['../../x.prd.md'],
+  });
+  assert.deepStrictEqual(r.paths, ['src/a.js']);
+  assert.deepStrictEqual(r.added, []);
+});
+
+test('mergeScope: 드롭도 조용히 하지 않는다 — 원본 문자열을 dropped로 낸다', () => {
+  // code-review M4. 변경된 파일이 검토 대상에서 빠지는 것은 절삭보다 나쁘고, 예전에는
+  // 그 일이 아무 신호 없이 일어났다. 중복으로 사라진 것은 담지 않는다 — 손실이 아니다.
+  const r = scopeAlways.mergeScope({
+    diffPaths: ['../outside.js', '/etc/passwd', 'src/a.js', 'src/a.js'],
+    alwaysPaths: ['../../x.prd.md'],
+  });
+  assert.deepStrictEqual(r.dropped, ['../outside.js', '/etc/passwd', '../../x.prd.md']);
+  assert.deepStrictEqual(r.paths, ['src/a.js']);
+});
+
+test('mergeScope: 정상 입력의 dropped는 빈 배열이다 (키는 항상 존재한다)', () => {
+  const r = scopeAlways.mergeScope({ diffPaths: ['src/a.js'], alwaysPaths: ['p.plan.md'] });
+  assert.deepStrictEqual(r.dropped, []);
+});
+
+test('toRepoRelative: export돼 있고 CLI가 쓰는 정규화 규칙 그 자체다', () => {
+  // code-review L2 — 발견 단계가 같은 함수를 쓰지 않으면 `pairs`와 `paths`의 표기가 갈린다.
+  assert.strictEqual(typeof scopeAlways.toRepoRelative, 'function');
+  assert.strictEqual(scopeAlways.toRepoRelative('./a/b.md'), 'a/b.md');
+  assert.strictEqual(scopeAlways.toRepoRelative('a\\b.md'), 'a/b.md');
+  assert.strictEqual(scopeAlways.toRepoRelative('../a.md'), null);
+  assert.strictEqual(scopeAlways.toRepoRelative('/a.md'), null);
+  assert.strictEqual(scopeAlways.toRepoRelative('C:/a.md'), null);
+});
+
+test('mergeScope: 어떤 입력에도 던지지 않는다 (전역 함수 규약)', () => {
+  [undefined, null, {}, { diffPaths: 'x' }, { alwaysPaths: 5 }, { diffPaths: [1, null] }]
+    .forEach((bad) => { assert.doesNotThrow(() => scopeAlways.mergeScope(bad)); });
+});
+
+// ── 고정 rubric ──────────────────────────────────────────────────────────────
+
+test('CONSISTENCY_RUBRIC: 고정 문자열이고 UI4/UI5 핵심 어구를 포함한다', () => {
+  // 문구가 호출마다 흔들리면 "무엇을 지시했는가"가 사후 재현 불가가 된다
+  // (`DO_NOT_TRUST_NARRATIVE`와 같은 취급). 여기서 pin하는 것은 어구이지 전문이
+  // 아니다 — 전문을 통째로 복사하면 이 단언이 오탈자 검사가 된다.
+  const r = scopeAlways.CONSISTENCY_RUBRIC;
+  assert.strictEqual(typeof r, 'string');
+  assert.ok(r.length > 100);
+  assert.match(r, /working tree/);                // UI4 — 지금 워킹트리의 PRD와 대조
+  assert.match(r, /milestone/);                   // UI5 — 마일스톤 식별자/수
+  assert.match(r, /CRITICAL/);                    // UI5 — 불일치는 즉시 NAUGHTY
+  assert.match(r, /locations/);                   // UI5 — 두 파일을 모두 적는다
+  assert.match(r, /Do NOT rely on any summary/);  // plan의 PRD 요약을 근거로 삼지 말 것
+});
+
+// ── CLI 계약 ─────────────────────────────────────────────────────────────────
+
+// plan/PRD 쌍을 갖춘 fixture. 두 파일이 서로 다른 마일스톤 수를 단언하게 둘 수 있어야
+// #125 시나리오가 만들어진다.
+function planPrdFixture(dir, slug, planMilestones, prdMilestones) {
+  fs.mkdirSync(path.join(dir, '.claude', 'plans'), { recursive: true });
+  fs.mkdirSync(path.join(dir, '.claude', 'prds'), { recursive: true });
+  const prdRel = '.claude/prds/' + slug + '.prd.md';
+  fs.writeFileSync(path.join(dir, '.claude', 'plans', slug + '.plan.md'),
+    '# Plan: ' + slug + '\n\n**Source PRD**: `' + prdRel + '`\n\n'
+    + 'This plan asserts the PRD has ' + planMilestones + ' milestones.\n');
+  const rows = [];
+  for (let i = 1; i <= prdMilestones; i += 1) rows.push('| ' + i + ' | m' + i + ' | pending |');
+  fs.writeFileSync(path.join(dir, '.claude', 'prds', slug + '.prd.md'),
+    '# PRD: ' + slug + '\n\n' + rows.join('\n') + '\n');
+  return { planRel: '.claude/plans/' + slug + '.plan.md', prdRel: prdRel };
+}
+
+test('cmdScopeAlways: --paths-file 부재는 exit 2이고 stdout이 비어 있다', () => {
+  const dir = repoFixture();
+  const r = runCli(dir, ['scope-always', '--decision', 'fixture']);
+  assert.strictEqual(r.status, 2);
+  assert.strictEqual(r.stdout, '');
+  assert.match(r.stderr, /--paths-file/);
+});
+
+test('cmdScopeAlways: repo 밖 --paths-file은 거부된다', () => {
+  const dir = repoFixture();
+  const outside = path.join(os.tmpdir(), 'santa-outside-' + process.pid + '.json');
+  fs.writeFileSync(outside, JSON.stringify(['a.js']));
+  const r = runCli(dir, ['scope-always', '--decision', 'fixture', '--paths-file', outside]);
+  assert.strictEqual(r.status, 2);
+  assert.strictEqual(r.stdout, '');
+});
+
+test('cmdScopeAlways: 정상 입력에서 정확히 7키를 낸다', () => {
+  const dir = repoFixture();
+  const fx = planPrdFixture(dir, 'fixture', 4, 4);
+  const pf = path.join(dir, 'paths.json');
+  fs.writeFileSync(pf, JSON.stringify(['src/a.js']));
+  const r = runCli(dir, ['scope-always', '--decision', 'fixture', '--paths-file', pf]);
+  assert.strictEqual(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.deepStrictEqual(Object.keys(j).sort(),
+    ['added', 'mode', 'pairs', 'paths', 'rubricRow', 'truncated', 'unresolved']);
+  assert.strictEqual(j.mode, 'enforce');
+  assert.deepStrictEqual(j.pairs, [{ plan: fx.planRel, prd: fx.prdRel }]);
+  assert.strictEqual(j.rubricRow, scopeAlways.CONSISTENCY_RUBRIC);
+});
+
+test('cmdScopeAlways: off는 diff 스코프를 그대로 통과시키고 plan을 열지 않는다', () => {
+  // "디스크 미접촉"을 관측 가능한 결과로 단언한다: enforce였다면 반드시 잡혔을
+  // plan/PRD 쌍이 하나도 나타나지 않는다. rubricRow까지 함께 비는 것이 DD5의
+  // "한 축이므로 스위치도 하나"다.
+  const dir = repoFixture();
+  planPrdFixture(dir, 'fixture', 4, 7);
+  const pf = path.join(dir, 'paths.json');
+  fs.writeFileSync(pf, JSON.stringify(['src/a.js', 'src/b.js']));
+  const r = runCli(dir, ['scope-always', '--decision', 'fixture', '--paths-file', pf],
+    { MCCP_SANTA_ALWAYS_SCOPE: 'off' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.strictEqual(j.mode, 'off');
+  assert.deepStrictEqual(j.paths, ['src/a.js', 'src/b.js']);
+  assert.deepStrictEqual(j.added, []);
+  assert.deepStrictEqual(j.pairs, []);
+  assert.deepStrictEqual(j.unresolved, []);
+  assert.strictEqual(j.rubricRow, '');
+  assert.strictEqual(j.truncated, 0);
+});
+
+test('cmdScopeAlways: off도 diff 스코프를 enforce와 같은 규칙으로 정규화한다', () => {
+  // code-review M4. 예전에는 `off`가 diffPaths를 날것으로 통과시켜, 이탈 형태를 접는
+  // enforce와 서로 다른 스코프를 냈다 — kill switch가 *무엇이 검토되는가*를 아무도
+  // 선언하지 않은 방향으로 바꾸는 셈이다. 두 모드의 차이는 상시 항목 하나여야 한다.
+  const dir = repoFixture();
+  const pf = path.join(dir, 'paths.json');
+  fs.writeFileSync(pf, JSON.stringify(['./src/a.js', '../outside.js', 'src\\b.js']));
+  const off = runCli(dir, ['scope-always', '--decision', 'fixture', '--paths-file', pf],
+    { MCCP_SANTA_ALWAYS_SCOPE: 'off' });
+  const on = runCli(dir, ['scope-always', '--decision', 'fixture', '--paths-file', pf]);
+  assert.strictEqual(off.status, 0, off.stderr);
+  assert.strictEqual(on.status, 0, on.stderr);
+  const jOff = JSON.parse(off.stdout);
+  const jOn = JSON.parse(on.stdout);
+  assert.deepStrictEqual(jOff.paths, ['src/a.js', 'src/b.js']);
+  assert.deepStrictEqual(jOn.paths, jOff.paths, 'no plan exists, so the two modes must agree');
+  // 드롭은 stdout 계약(7키)이 아니라 stderr로 표면화된다.
+  assert.deepStrictEqual(Object.keys(jOff).sort(),
+    ['added', 'mode', 'pairs', 'paths', 'rubricRow', 'truncated', 'unresolved']);
+  [off, on].forEach((r) => { assert.match(r.stderr, /dropped 1 path\(s\)/); });
+});
+
+test('cmdScopeAlways: 후보 상한이 경로 상한의 절반이라 pairs가 스코프 밖을 가리키지 않는다', () => {
+  // code-review M2. 후보 1개가 경로 2개를 내므로 두 상한이 같으면 절삭이 일어나고,
+  // `pairs`에는 있는데 `paths`에는 없는 쌍이 생긴다 — rubric은 "target paths에 열거된
+  // 쌍"을 대조하라 지시하므로 그 쌍은 검토되지 않은 채 개수만 보고된다.
+  const dir = repoFixture();
+  const N = scopeAlways.MAX_ALWAYS_PATHS + 5;
+  for (let i = 0; i < N; i += 1) planPrdFixture(dir, 'fixture-' + String(i).padStart(3, '0'), 1, 1);
+  const pf = path.join(dir, 'paths.json');
+  fs.writeFileSync(pf, JSON.stringify(['src/a.js']));
+  const r = runCli(dir, ['scope-always', '--decision', 'fixture', '--paths-file', pf]);
+  assert.strictEqual(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.strictEqual(j.truncated, 0, 'the candidate cap must make merge truncation unreachable');
+  const inScope = new Set(j.paths);
+  j.pairs.forEach((p) => {
+    assert.ok(inScope.has(p.plan), 'pair plan must be in scope: ' + p.plan);
+    assert.ok(inScope.has(p.prd), 'pair PRD must be in scope: ' + p.prd);
+  });
+  // 상한에 걸린 후보는 조용히 사라지지 않는다.
+  assert.ok(j.unresolved.some((u) => /candidate cap reached/.test(u.reason)),
+    'candidates beyond the cap must be named in unresolved');
+});
+
+test('cmdScopeAlways: 해소 불가 Source PRD는 unresolved로 가고 paths에는 없다', () => {
+  // DD4 — 드롭하되 조용히 하지 않는다. 존재하지 않는 경로를 스코프에 넣으면
+  // 블라인드 리뷰어에게 깨진 포인터를 주게 된다(PRD Risk 1).
+  const dir = repoFixture();
+  fs.mkdirSync(path.join(dir, '.claude', 'plans'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.claude', 'plans', 'fixture.plan.md'),
+    '# Plan\n\n**Source PRD**: `.claude/prds/gone.prd.md`\n');
+  const pf = path.join(dir, 'paths.json');
+  fs.writeFileSync(pf, JSON.stringify(['src/a.js']));
+  const r = runCli(dir, ['scope-always', '--decision', 'fixture', '--paths-file', pf]);
+  assert.strictEqual(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.deepStrictEqual(j.pairs, []);
+  assert.strictEqual(j.unresolved.length, 1);
+  assert.strictEqual(j.unresolved[0].prd, '.claude/prds/gone.prd.md');
+  assert.ok(!j.paths.includes('.claude/prds/gone.prd.md'),
+    'an unresolvable pointer must never reach the scope handed to a reviewer');
+  // plan 자체는 해소됐으므로 스코프에 남는다 — free-form plan도 검토 대상이다.
+  assert.ok(j.paths.includes('.claude/plans/fixture.plan.md'));
+});
+
+test('cmdScopeAlways: 선언이 저장소를 벗어나면 스코프에도 pairs에도 들어가지 않는다', () => {
+  const dir = repoFixture();
+  fs.mkdirSync(path.join(dir, '.claude', 'plans'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.claude', 'plans', 'fixture.plan.md'),
+    '# Plan\n\n**Source PRD**: `../../../../etc/passwd.prd.md`\n');
+  const pf = path.join(dir, 'paths.json');
+  fs.writeFileSync(pf, JSON.stringify(['src/a.js']));
+  const r = runCli(dir, ['scope-always', '--decision', 'fixture', '--paths-file', pf]);
+  assert.strictEqual(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.deepStrictEqual(j.pairs, []);
+  assert.ok(j.paths.every((p) => p.indexOf('passwd') === -1));
+  assert.ok(j.paths.every((p) => p.indexOf('..') === -1));
+});
+
+test('#125 회귀: diff에 없는 plan·PRD가 상시 스코프로 들어온다 (스코프이지 포착이 아니다)', () => {
+  // **이 test가 증명하는 것은 스코프이지 포착이 아니다.** 리뷰어가 "plan은 4개라
+  // 하는데 PRD는 7개"라는 불일치를 실제로 잡는지는 LLM 행위라 셸로 단언할 대상이
+  // 없다. 여기서 닫는 것은 그 앞 단계 — 관계의 한쪽만 스코프에 드는 구조적 불가능
+  // 상태다. #125는 정확히 그 상태에서 12라운드를 돌고도 결함을 못 찾았다.
+  const dir = repoFixture();
+  const fx = planPrdFixture(dir, 'fx-m2', 4, 7);
+  const pf = path.join(dir, 'paths.json');
+  // diff 스코프에는 코드 파일만 있다 — plan도 PRD도 없다.
+  fs.writeFileSync(pf, JSON.stringify(['src/unrelated.js']));
+  const r = runCli(dir, ['scope-always', '--decision', 'fx-m2', '--paths-file', pf]);
+  assert.strictEqual(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.ok(j.added.includes(fx.planRel), 'plan must enter scope regardless of the diff');
+  assert.ok(j.added.includes(fx.prdRel), 'its declared Source PRD must enter with it');
+  assert.deepStrictEqual(j.pairs, [{ plan: fx.planRel, prd: fx.prdRel }]);
+  assert.strictEqual(j.paths[0], 'src/unrelated.js', 'diff order is preserved ahead of additions');
+});
+
+test('#125 회귀: 상시 경로가 실제로 블라인드 프롬프트 본문에 실린다', () => {
+  // 스코프에 넣는 것과 리뷰어에게 전달되는 것은 다른 사실이다. 이 단언이 그 이음매다
+  // (Acceptance의 최소 조건 — `lanes`가 낸 프롬프트 본문에 두 경로가 있을 것).
+  const dir = repoFixture();
+  const fx = planPrdFixture(dir, 'fx-m2', 4, 7);
+  const pf = path.join(dir, 'paths.json');
+  fs.writeFileSync(pf, JSON.stringify(['src/unrelated.js']));
+  const s = runCli(dir, ['scope-always', '--decision', 'fx-m2', '--paths-file', pf]);
+  assert.strictEqual(s.status, 0, s.stderr);
+  const merged = JSON.parse(s.stdout);
+
+  const lanePf = path.join(dir, 'lane-paths.json');
+  fs.writeFileSync(lanePf, JSON.stringify(merged.paths));
+  const rubricFile = path.join(dir, 'rubric.md');
+  fs.writeFileSync(rubricFile, '| Plan/PRD consistency | ' + merged.rubricRow + ' |');
+  const l = runCli(dir, ['lanes', '--decision', 'fx-m2', '--paths-file', lanePf,
+    '--rubric-file', rubricFile]);
+  assert.strictEqual(l.status, 0, l.stderr);
+  const prompt = JSON.parse(l.stdout).prompt;
+  assert.ok(prompt.includes(fx.planRel), 'blind prompt must name the plan');
+  assert.ok(prompt.includes(fx.prdRel), 'blind prompt must name the Source PRD');
+  assert.ok(prompt.includes('## Rubric'), 'the rubric section must reach the blind lane');
+  assert.ok(prompt.includes('working tree'), 'the consistency row must reach the blind lane');
 });

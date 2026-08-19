@@ -68,6 +68,88 @@ A run with nothing to review should not launch reviewers. **M2's always-on scope
 (plan/PRD files regardless of diff) lands by adding to this variable** — that is what
 keeps the join point single.
 
+**Always-on scope (M2).** The relationship between a plan and the PRD it declares is an
+invariant, and an invariant whose two halves are never in scope together cannot be
+checked — that is exactly what #125 measured. `scope-always` derives the closure
+(this decision's plans plus the Source PRD each one declares) and this step merges it
+in. The CLI *offers* candidates; the merge happens here, so `SCOPE_PATHS_JSON` keeps a
+single producer (M1 DD11).
+
+```bash
+# First use of the temp dir in this file. The lane block in Step 3 reuses the name, so
+# a definition placed there would expand to empty here — the paths file would land
+# outside the repo and the round would stop at containment instead of at the thing
+# that was actually wrong.
+TMPDIR_SANTA=".claude/state/santa-loop/tmp"      # gitignored with the ledger
+mkdir -p "$TMPDIR_SANTA"
+printf '%s' "$SCOPE_PATHS_JSON" > "$TMPDIR_SANTA/scope-diff.json"
+
+ALWAYS_JSON=$(node "$SANTA" scope-always --decision "$DECISION" \
+  --paths-file "$TMPDIR_SANTA/scope-diff.json")
+ALWAYS_EXIT=$?
+if [ "$ALWAYS_EXIT" -ne 0 ]; then
+  echo "[santa] scope-always failed (exit $ALWAYS_EXIT) — NOT launching reviewers." 1>&2
+  echo "[santa] A round with no always-on scope looks identical to a pre-M2 run," 1>&2
+  echo "[santa] so this axis does not degrade to the diff-only scope (DD3)." 1>&2
+  exit "$ALWAYS_EXIT"
+fi
+```
+
+**Ask whether the output PARSED before reading anything out of it.** `paths` missing and
+`paths` empty are different facts, and pulling the array first collapses them: a parse
+failure would yield the same empty value as a legitimately unchanged scope, and the
+round would proceed on the diff-only scope while looking exactly like a normal M2 run.
+This is the same check, for the same reason, as `HAS_ASSIGNMENT` in Step 3 — and the
+order is the contract.
+
+**Those two facts also need different exits.** `paths` *absent* is a broken producer and
+stops the round here. `paths` *present but empty* is the ordinary "nothing changed" case
+this step already described above — it belongs to Step 3, where `lanes` rejects the empty
+array and says so in those terms. Collapsing them into one error moves the stop two steps
+early and reports a parse failure that did not happen.
+
+```bash
+PATHS_STATE=$(echo "$ALWAYS_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(!Array.isArray(j.paths)?"absent":(j.paths.length>0?"ok":"empty"))}catch{process.stdout.write("absent")}')
+if [ "$PATHS_STATE" = "absent" ]; then
+  echo "[santa] scope-always exited 0 but emitted no usable paths array." 1>&2
+  echo "[santa] NOT launching reviewers: reading this as \"nothing to add\" would" 1>&2
+  echo "[santa] disguise a parse failure as a normal zero-addition run (DD3)." 1>&2
+  exit 1
+fi
+if [ "$PATHS_STATE" = "empty" ]; then
+  echo "[santa] nothing to review: the diff is empty and the always-on axis added" 1>&2
+  echo "[santa] nothing (mode=off, or no plan resolved). No round opens." 1>&2
+  exit 0
+fi
+
+# From here the fields are known to be present. Replacing SCOPE_PATHS_JSON is the merge.
+SCOPE_PATHS_JSON=$(echo "$ALWAYS_JSON" | node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(0,"utf8")).paths))')
+CONSISTENCY_RUBRIC_ROW=$(echo "$ALWAYS_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).rubricRow||"")}catch{process.stdout.write("")}')
+```
+
+Surface what the axis did on every run. This is M2's observation surface (a) — the
+receipt does **not** seal it (DD7), so a round that added nothing is only distinguishable
+from a pre-M2 round here, in the terminal:
+
+```bash
+echo "$ALWAYS_JSON" | node -e '
+  const j=JSON.parse(require("fs").readFileSync(0,"utf8"));
+  const e=process.stderr;
+  e.write("[santa] always-on scope: mode="+j.mode+" added="+j.added.length+
+          " pairs="+j.pairs.length+" unresolved="+j.unresolved.length+
+          " truncated="+j.truncated+"\n");
+  j.added.forEach(function(p){ e.write("[santa]   + "+p+"\n"); });
+  j.pairs.forEach(function(p){ e.write("[santa]   pair "+p.plan+" -> "+p.prd+"\n"); });
+  j.unresolved.forEach(function(u){ e.write("[santa]   unresolved "+u.plan+": "+u.reason+"\n"); });
+'
+```
+
+An `unresolved` entry is **not** a failure. A free-form plan with no `**Source PRD**`
+declaration, or one pointing at a PRD that has since been archived, is ordinary input —
+it is dropped from scope and named here rather than handed to a reviewer as a broken
+pointer (DD4). `mode=off` means the axis is switched off entirely: `added` is empty,
+`CONSISTENCY_RUBRIC_ROW` is empty, and no plan file was opened.
+
 ### Step 2: Build the Rubric
 
 Construct a rubric appropriate to the file types under review. Every criterion must have an objective PASS/FAIL condition. Include at minimum:
@@ -82,6 +164,28 @@ Construct a rubric appropriate to the file types under review. Every criterion m
 | No regressions | Changes don't break existing behavior |
 
 Add domain-specific criteria based on file types (e.g., type safety for TS, memory safety for Rust, migration safety for SQL).
+
+**The always-on consistency row is appended by the shell, not written by you (M2).** The
+whole of this axis is that one paragraph, and a criterion whose text drifts between rounds
+cannot be replayed: "what was actually asked of the reviewer?" stops having an answer. It
+is a constant in `scope-always.js` (`CONSISTENCY_RUBRIC`) for the same reason
+`DO_NOT_TRUST_NARRATIVE` is one in `lanes.js` — so **do not retype it, do not summarize
+it, and do not put the criterion in the rubric you author.** Step 3 appends
+`$CONSISTENCY_RUBRIC_ROW` to the rubric file mechanically and then verifies it landed.
+
+Author the rest of the rubric as usual; the consistency row will be added below it:
+
+| Criterion | Pass Condition |
+|-----------|---------------|
+| Plan/PRD consistency | *(appended verbatim by Step 3 from `$CONSISTENCY_RUBRIC_ROW` — do not author this cell)* |
+
+An empty `$CONSISTENCY_RUBRIC_ROW` means `MCCP_SANTA_ALWAYS_SCOPE=off`, and then the row
+is omitted — scope additions and the rubric row ride the same switch (DD5). Instructing a
+reviewer to cross-check a PRD that is not in scope is not a stricter review; it asks for a
+FAIL that cannot be grounded in anything the reviewer was given.
+
+Keep the full rubric text in one place: Step 3 writes it to a file and passes it to
+`lanes --rubric-file`, which is the only path by which the **blind** reviewer receives it.
 
 ### Step 3: Dual Independent Review
 
@@ -136,10 +240,13 @@ error: it looks like an ordinary run, identical to one from before M1 existed. S
 layer here proceeds on partial success.
 
 ```bash
-# First use of the temp dir in this file, so it is defined here rather than in the
-# record block below — the lane block runs first, and a name defined after its use
-# expands to empty, which would put the paths file outside the repo and stop the
-# round at containment instead of at the thing that was actually wrong.
+# Re-assert the constant rather than inheriting it. Step 1 defines the same value, but
+# `mkdir -p` only covers a MISSING DIRECTORY — it does not cover an EMPTY VARIABLE, and
+# those are different failures. If this block ever runs without Step 1's assignment in
+# scope, `mkdir -p ""` fails while the pipeline masks its status and the printf below
+# lands at the filesystem root; the round then stops at containment, one step away from
+# what was actually wrong. The assignment is an idempotent constant, so paying for it
+# twice costs nothing and removes the dependency.
 TMPDIR_SANTA=".claude/state/santa-loop/tmp"      # gitignored with the ledger
 mkdir -p "$TMPDIR_SANTA"
 # $SCOPE_PATHS_JSON comes from Step 1. If this file ever loses that definition the
@@ -147,8 +254,38 @@ mkdir -p "$TMPDIR_SANTA"
 # fail-closed, though the cause then surfaces one step away from its origin.
 printf '%s' "$SCOPE_PATHS_JSON" > "$TMPDIR_SANTA/lane-paths-$ROUND.json"
 
+# The rubric built in Step 2, written out in full. `--rubric-file` is the ONLY path by
+# which the blind reviewer receives the rubric: it gets no file bundle by design, so a
+# rubric that lives only in the bundled reviewer's context is a rubric half the panel
+# never saw. Omit the flag entirely when the rubric is empty.
+#
+# The heredoc is quoted, so NOTHING inside it expands — write the criteria you authored
+# in Step 2 and STOP THERE. The consistency row is appended by the block below.
+cat > "$TMPDIR_SANTA/rubric-$ROUND.md" << 'EOF'
+<the full rubric from Step 2 — criteria table and all, WITHOUT the consistency row>
+EOF
+
+# Append the always-on consistency row mechanically. Writing it by hand is the one way
+# this axis can go missing while every mechanical signal still reads green: `lanes` does
+# not inspect rubric content, so a row that says "$CONSISTENCY_RUBRIC_ROW" literally —
+# which is exactly what the quoted heredoc above would preserve — reaches the reviewer as
+# an unusable criterion, at exit 0, with `## Rubric` present. Half of M2 (DD5: scope and
+# rubric are one axis) would be undelivered and indistinguishable from a good round. So
+# the shell appends it, and then proves it landed.
+if [ -n "$CONSISTENCY_RUBRIC_ROW" ]; then
+  printf '\n| Plan/PRD consistency | %s |\n' "$CONSISTENCY_RUBRIC_ROW" \
+    >> "$TMPDIR_SANTA/rubric-$ROUND.md"
+  if ! grep -qF 'working tree' "$TMPDIR_SANTA/rubric-$ROUND.md"; then
+    echo "[santa] the consistency row did not land in the rubric file." 1>&2
+    echo "[santa] NOT launching reviewers: a blind reviewer given a rubric without it" 1>&2
+    echo "[santa] cannot check the plan/PRD relation, and the round would look normal." 1>&2
+    exit 1
+  fi
+fi
+
 LANES_JSON=$(node "$SANTA" lanes --decision "$DECISION" \
-  --paths-file "$TMPDIR_SANTA/lane-paths-$ROUND.json")
+  --paths-file "$TMPDIR_SANTA/lane-paths-$ROUND.json" \
+  --rubric-file "$TMPDIR_SANTA/rubric-$ROUND.md")
 LANES_EXIT=$?
 if [ "$LANES_EXIT" -ne 0 ]; then
   echo "[santa] lanes failed (exit $LANES_EXIT) — no lane assignment." 1>&2
@@ -294,7 +431,7 @@ In all cases, the reviewer must return the same structured JSON verdict as Revie
 Write each reviewer's **unmodified** JSON to a repo-internal temp file and hand it to the CLI. The reviewer contract above is untouched — `id` and `model` are values the caller already knows, and the CLI does the conversion:
 
 ```bash
-# $TMPDIR_SANTA was defined in the lane block above; mkdir stays for idempotence.
+# $TMPDIR_SANTA was defined in Step 1 (M2); mkdir stays for idempotence.
 mkdir -p "$TMPDIR_SANTA"
 
 # Reviewer A

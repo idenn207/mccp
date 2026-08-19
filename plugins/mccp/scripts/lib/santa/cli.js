@@ -39,6 +39,7 @@ const gate = require('./gate');
 const adjudication = require('./adjudication');
 const terminator = require('./terminator');
 const lanes = require('./lanes');
+const scopeAlways = require('./scope-always');
 const seal = require('./seal');
 const { gitRepoRoot } = require('../../receipt/hash');
 const { assertContained } = require('../path-containment');
@@ -54,6 +55,17 @@ const EX_TEMPFAIL = 75;
 const MAX_REVIEWER_BYTES = 100 * 1024;
 const MAX_REVIEWER_DEPTH = 32;
 const MAX_REVIEWER_ARRAY = 1000;
+// santa-evidence-diversity M2 — 상시 후보로 **여는 파일** 수의 상한.
+//
+// **`MAX_ALWAYS_PATHS`의 절반이다**(code-review M2). 후보 하나가 최대 2개 경로(plan +
+// 선언된 PRD)를 내므로 후보 상한을 경로 상한과 같은 값으로 두면 최대 80 경로가 나와
+// `mergeScope`가 40으로 자른다 — 그러면 `pairs`에는 있는데 `paths`에는 없는 쌍이 생기고,
+// rubric이 "target paths에 열거된 쌍"을 대조하라 지시하므로 그 쌍은 검토되지 않은 채
+// 개수만 보고된다(실측: 30쌍 입력 → `pairs=30 added=40 truncated=20`, 10쌍이 스코프 밖).
+// 절반으로 두면 CLI 경로에서 절삭이 **구조적으로 발생하지 않는다**. `mergeScope`의 상한은
+// 직접 호출자를 위한 방어로 그대로 남는다. 상한에 걸린 후보는 조용히 사라지지 않고
+// `unresolved`에 이유와 함께 남는다.
+const MAX_ALWAYS_CANDIDATES = Math.ceil(scopeAlways.MAX_ALWAYS_PATHS / 2);
 // prototype pollution — `JSON.parse`는 `__proto__` 키를 **own property로** 만들고,
 // 하류(P1)가 spread/Object.assign을 쓰는 순간 오염이 성립한다. 파싱 시점에 거부해
 // 그 값이 원장에 **들어가지 않게** 한다.
@@ -995,6 +1007,211 @@ function cmdLanes(args) {
   return EX_OK;
 }
 
+// santa-evidence-diversity M2 — 상시 스코프 발견.
+//
+// **발견은 여기가 소유한다**(implement-gate 2.5.2 결정 3). `scope-always.js`는 fs를
+// 모르는 순수 oracle이라 `mergeScope`가 내는 것은 `{paths, added, truncated}` 3키뿐이고,
+// `pairs`·`unresolved`·`mode`·`rubricRow`를 붙여 7키 출력을 만드는 자리는 CLI다.
+//
+// **도출된 경로에는 `assertContained`를 쓰지 않는다.** 그 함수는 `fs.realpathSync`
+// 실패를 전부 `PATH_ESCAPES_GATE`로 던지므로(path-containment.js:30-36), 단순 부재도
+// exit 2가 되어 "해소 불가 포인터는 드롭하되 라운드를 막지 않는다"(DD4)와 정면으로
+// 충돌한다. 대신 두 방어를 나눠 건다:
+//   1. 문자열 이탈 거부 — oracle의 `toRepoRelative`가 `..`·절대경로·NUL을 이미 접었다
+//   2. 심볼릭 링크 이탈 + 존재 확인 — 아래 `resolveInRepo`가 **던지지 않고** 판정한다
+// 필수 입력(`--paths-file`)은 기존 `assertContained`를 그대로 쓴다 — 그쪽은 부재가 곧
+// 오류다.
+function resolveInRepo(repoRoot, rel) {
+  const abs = path.resolve(repoRoot, rel);
+  let real;
+  try {
+    real = fs.realpathSync(abs);
+  } catch (err) {
+    return { ok: false, reason: 'not-found (' + (err && err.code ? err.code : 'ERR') + ')' };
+  }
+  // realpath 후에 판정한다 — 링크가 저장소 밖을 가리키면 여기서만 드러난다. 이 경로는
+  // 블라인드 리뷰어가 자기 도구로 읽을 대상이 되므로, 통과시키면 저장소 밖 파일 내용이
+  // 프롬프트 대상이 된다.
+  const realRoot = (function () {
+    try { return fs.realpathSync(repoRoot); } catch (_) { return repoRoot; }
+  }());
+  if (real !== realRoot && real.indexOf(realRoot + path.sep) !== 0) {
+    return { ok: false, reason: 'resolves outside the repository' };
+  }
+  let st;
+  try { st = fs.statSync(real); } catch (_) { return { ok: false, reason: 'not-found' }; }
+  if (!st.isFile()) return { ok: false, reason: 'not a regular file' };
+  return { ok: true, size: st.size };
+}
+
+// `<slug>*.plan.md` 후보를 비재귀로 연다. `archived/` 는 디렉토리라 `.plan.md` 접미사
+// 필터에서 자연히 빠진다(CLAUDE.md §3.11 — 아카이브된 plan은 활성 검토 대상이 아니다).
+//
+// glob 라이브러리를 쓰지 않는다. slug은 `SLUG_RE`(`/^[a-z0-9][a-z0-9-]{0,80}$/`)를 이미
+// 통과했으므로 메타문자가 없지만, `readdirSync` + 리터럴 `startsWith`는 주입 클래스를
+// **설계로** 없앤다 — 검증에 의존하지 않는 쪽이 싸다(implement-gate security review 4).
+const ALWAYS_PLAN_DIRS = [
+  path.join('.claude', 'plans'),
+  path.join('.claude', 'PRPs', 'plans'),
+];
+
+function discoverSlugPlans(repoRoot, slug) {
+  const found = [];
+  ALWAYS_PLAN_DIRS.forEach(function (rel) {
+    let names;
+    try { names = fs.readdirSync(path.resolve(repoRoot, rel)); } catch (_) { return; }
+    names.sort();
+    names.forEach(function (name) {
+      if (name.indexOf(slug) !== 0) return;
+      if (name.slice(-'.plan.md'.length) !== '.plan.md') return;
+      found.push(rel.split(path.sep).join('/') + '/' + name);
+    });
+  });
+  return found;
+}
+
+// 정규화에 실패해 스코프에서 빠진 입력 경로를 stderr로 표면화한다(code-review M4).
+//
+// JSON 계약(7키)은 건드리지 않는다 — 이것은 `truncated`처럼 정상 운용에서 나오는 수치가
+// 아니라 **호출자 입력이 잘못됐다는 신호**이고, 그 자리는 stdout이 아니라 stderr다.
+// 던지지 않는 이유는 `--paths-file`이 이미 형태 검사를 통과했고(비어있지 않은 문자열 배열),
+// 남은 실패는 "저장소 밖을 가리킨다" 뿐이라 드롭이 곧 올바른 처리이기 때문이다.
+function warnDroppedDiffPaths(dropped) {
+  if (!Array.isArray(dropped) || dropped.length === 0) return;
+  errln('scope-always dropped ' + dropped.length + ' path(s) that do not normalize to a ' +
+    'repo-relative location — they are NOT in the review scope:');
+  dropped.forEach(function (p) { errln('  dropped ' + JSON.stringify(p)); });
+}
+
+function cmdScopeAlways(args) {
+  const opts = baseOpts(args);
+  const repoRoot = repoRootOrThrow(opts.cwd);
+
+  // `--paths-file` 은 **필수**다(`cmdLanes` 동형). 선택으로 두면 diff 스코프 없이
+  // 상시 항목만 낸 출력이 나오고, 호출자가 그것으로 `SCOPE_PATHS_JSON`을 교체하면
+  // 변경 파일이 통째로 스코프에서 사라진다.
+  const pathsFile = args['paths-file'];
+  if (typeof pathsFile !== 'string' || pathsFile === '') {
+    throw new SantaCliError('SANTA_USAGE',
+      '--paths-file <path> is required (JSON array of repo-relative paths, the diff ' +
+      'scope written by santa-loop.md Step 1). Always-on scope is a merge, not a ' +
+      'replacement — without the diff scope there is nothing to merge into.');
+  }
+  const diffPaths = readJsonStringArray(pathsFile, opts, '--paths-file');
+
+  const mode = scopeAlways.parseAlwaysScope(opts.env);
+
+  // `off`는 스코프 추가와 rubric 행을 **함께** 끈다(DD5 — 한 축이므로 스위치도 하나다).
+  // 여기서 즉시 반환하므로 plan 열거도 파일 읽기도 일어나지 않는다: kill switch가
+  // 비용까지 끄지 못하면 그것은 절반만 꺼진 것이다.
+  //
+  // **다만 diff 스코프는 `off`에서도 같은 정규화를 거친다**(code-review M4). 예전에는
+  // `diffPaths`를 날것으로 통과시켜, 이탈 형태를 접는 `enforce`와 그대로 두는 `off`가
+  // 서로 다른 스코프를 냈다 — kill switch가 *무엇이 검토되는가*를 아무도 선언하지 않은
+  // 방향으로 바꾸는 셈이다. `alwaysPaths: []`로 같은 병합을 태우면 두 모드의 차이는
+  // 정확히 "상시 항목이 붙는가" 하나로 좁혀진다.
+  if (mode === 'off') {
+    const passthrough = scopeAlways.mergeScope({ diffPaths: diffPaths, alwaysPaths: [] });
+    warnDroppedDiffPaths(passthrough.dropped);
+    out({
+      mode: mode, paths: passthrough.paths, added: [], pairs: [], unresolved: [],
+      rubricRow: '', truncated: 0,
+    });
+    return EX_OK;
+  }
+
+  // 후보 plan = (1) diff 스코프에 이미 있는 `*.plan.md` + (2) `<slug>*.plan.md` 열거.
+  // 순서는 diff 우선이고 중복은 뒤에서 제거된다.
+  const candidates = [];
+  const seenPlan = Object.create(null);
+  // **oracle과 같은 규칙으로 접는다**(code-review L2). 예전에는 백슬래시만 바꿔서
+  // `./x.plan.md` 같은 표기가 후보로 살아남았고, 그 문자열이 그대로 `pairs[].plan`이
+  // 되는데 `paths`·`added`는 `mergeScope`가 정규화한 `x.plan.md`를 담아 같은 파일이 두
+  // 표기로 갈렸다. 여기서 접으면 두 필드가 항상 같은 문자열을 쓴다. `null`(이탈 형태)은
+  // 애초에 유효한 후보가 아니므로 조용히 버려도 손실이 아니다 — 그 경로가 diff에서
+  // 왔다면 `mergeScope`의 `dropped`가 같은 입력을 이미 보고한다.
+  function pushPlan(p) {
+    const n = scopeAlways.toRepoRelative(p);
+    if (n === null) return;
+    if (n.slice(-'.plan.md'.length) !== '.plan.md') return;
+    if (seenPlan[n]) return;
+    seenPlan[n] = true;
+    candidates.push(n);
+  }
+  diffPaths.forEach(pushPlan);
+  discoverSlugPlans(repoRoot, opts.decisionId).forEach(pushPlan);
+
+  const pairs = [];
+  const unresolved = [];
+  const alwaysPaths = [];
+
+  // 후보 자체도 상한을 넘기지 않는다 — 여기서 자르지 않으면 병리적 열거가 파일 읽기
+  // 횟수로 그대로 번진다. 잘린 사실은 아래 `truncated`가 아니라 이 목록의 길이로
+  // 드러나므로, 상한에 걸린 후보는 `unresolved`에 이유와 함께 남긴다.
+  candidates.slice(MAX_ALWAYS_CANDIDATES).forEach(function (planPath) {
+    unresolved.push({ plan: planPath, prd: null, reason: 'candidate cap reached (max ' + MAX_ALWAYS_CANDIDATES + ')' });
+  });
+
+  candidates.slice(0, MAX_ALWAYS_CANDIDATES).forEach(function (planPath) {
+    const planHit = resolveInRepo(repoRoot, planPath);
+    if (!planHit.ok) {
+      unresolved.push({ plan: planPath, prd: null, reason: 'plan ' + planHit.reason });
+      return;
+    }
+    if (planHit.size > MAX_REVIEWER_BYTES) {
+      // 상한 **전에** 읽지 않는다. 이 상한이 Source PRD 정규식이 보는 입력 크기를
+      // 묶어 주는 자리이기도 하다(implement-gate security review 3).
+      unresolved.push({
+        plan: planPath, prd: null,
+        reason: 'plan is ' + planHit.size + ' bytes (max ' + MAX_REVIEWER_BYTES + ')',
+      });
+      return;
+    }
+    let text;
+    try {
+      text = fs.readFileSync(path.resolve(repoRoot, planPath), 'utf8');
+    } catch (err) {
+      unresolved.push({
+        plan: planPath, prd: null,
+        reason: 'plan unreadable (' + (err && err.code ? err.code : 'ERR') + ')',
+      });
+      return;
+    }
+
+    // plan 자체는 해소됐으므로 스코프에 넣는다 — Source PRD가 없어도 plan은 검토
+    // 대상이다(free-form plan은 정상 입력이다, DD4).
+    alwaysPaths.push(planPath);
+
+    const prdPath = scopeAlways.sourcePrdFrom(text, { planPath: planPath });
+    if (prdPath === null) {
+      unresolved.push({ plan: planPath, prd: null, reason: 'no usable **Source PRD** declaration' });
+      return;
+    }
+    const prdHit = resolveInRepo(repoRoot, prdPath);
+    if (!prdHit.ok) {
+      unresolved.push({ plan: planPath, prd: prdPath, reason: 'Source PRD ' + prdHit.reason });
+      return;
+    }
+    alwaysPaths.push(prdPath);
+    pairs.push({ plan: planPath, prd: prdPath });
+  });
+
+  const merged = scopeAlways.mergeScope({ diffPaths: diffPaths, alwaysPaths: alwaysPaths });
+  warnDroppedDiffPaths(merged.dropped);
+
+  // 전 검증 통과 후 1회만 out() — 부분 JSON을 stdout에 내지 않는다(`cmdLanes` 동형).
+  out({
+    mode: mode,
+    paths: merged.paths,
+    added: merged.added,
+    pairs: pairs,
+    unresolved: unresolved,
+    rubricRow: scopeAlways.CONSISTENCY_RUBRIC,
+    truncated: merged.truncated,
+  });
+  return EX_OK;
+}
+
 function cmdStatus(args) {
   const opts = baseOpts(args);
   out(ledger.aggregate(opts));
@@ -1022,6 +1239,9 @@ function usage() {
     '             --evidence <text>   (claim/severity come from the ledger, not from flags)',
     '  lanes    --paths-file <path> [--rubric-file <path>]',
     '             (assignment/blindId/prompt on stdout; blindId is "" when lane=off)',
+    '  scope-always --paths-file <path>',
+    '             (mode/paths/added/pairs/unresolved/rubricRow/truncated on stdout;',
+    '              `off` passes the diff scope through and reads no plan file)',
     '  check-termination [--prev-fix-rev <rev>]',
     '             (always exits 0 — branch on stdout `terminate`, not on the exit code)',
     '  status',
@@ -1043,6 +1263,7 @@ function runCli(argv) {
       case 'verdict': return cmdVerdict(args);
       case 'adjudicate': return cmdAdjudicate(args);
       case 'lanes': return cmdLanes(args);
+      case 'scope-always': return cmdScopeAlways(args);
       case 'check-termination': return cmdCheckTermination(args);
       case 'status': return cmdStatus(args);
       case 'seal': return cmdSeal(args);

@@ -1059,12 +1059,20 @@ test('UI4/UI11 — receipt 배선은 seal.js에만 있다 (M1 4개 모듈은 여
   // 같은 규약으로 승인한다 — 목록에 한 줄, receipt-free 목록에도 한 줄. 레인 커버리지
   // **집계 정수 2종**은 receipt `meta.santa_blind_{records,rounds}`에 실리지만 그 봉인은
   // `seal.js`가 하고 `lanes.js`는 순수 oracle이라 receipt를 모른다(DD6·DD7과 동형).
+  //
+  // santa-evidence-diversity M2가 `scope-always.js`를 더했다(같은 소유권 표의 P2 신규
+  // 파일). 같은 규약으로 승인한다 — 목록에 한 줄, receipt-free 목록에도 한 줄. 이쪽은
+  // 앞의 넷보다 **강한** 형태로 receipt-free다: M2는 상시 스코프를 receipt에 봉인하지
+  // 않기로 명시했고(DD7 — 라운드 형태는 P0 동결 시그니처이고, envelope로 우회하면 CLI가
+  // 재현할 수 없는 **검증 불가능한 필수 플래그**가 된다), 그래서 집계 정수조차 없다.
+  // 관측 표면은 Step 1의 터미널 출력과 이 test 셋뿐이다. 목록을 넓히는 대신 지우면
+  // M1이 이 test로 막으려던 결함이 그대로 돌아온다.
   assert.deepEqual(files.sort(),
     ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'lanes.js', 'ledger.js',
-      'seal.js', 'terminator.js']);
+      'scope-always.js', 'seal.js', 'terminator.js']);
 
   const RECEIPT_FREE = ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'lanes.js',
-    'ledger.js', 'terminator.js'];
+    'ledger.js', 'scope-always.js', 'terminator.js'];
   for (const f of RECEIPT_FREE) {
     const src = fs.readFileSync(path.join(santaDir, f), 'utf8');
     // 주석의 서술("M2 소유")은 허용하고, 실제 배선만 금지한다.
@@ -1109,11 +1117,21 @@ test('Acceptance — 외부 의존이 문서화된 6개뿐이고 npm 의존 0', 
   // 더했다. **외부 의존은 0건 추가**다: `lanes.js`는 아무것도 require하지 않는 순수
   // oracle이고, `--paths-file` 읽기와 containment는 `cli.js`가 이미 지고 있는
   // `fs`/`../path-containment`가 처리한다. 소비처는 `cli.js`와 `seal.js` 둘이다.
+  //
+  // santa-evidence-diversity M2가 내부 하나(`./scope-always` — 같은 소유권 표의 P2 신규
+  // 파일)를 더했다. **외부 의존은 0건 추가**다: `scope-always.js`가 require하는 것은
+  // builtin `path` 하나뿐이고(경로 정규화 전용 — 파일시스템 접근 없음) 그 builtin은 이미
+  // allowlist에 있다. plan 열거·파일 읽기·존재 확인은 전부 `cli.js`가 이미 지고 있는
+  // `fs`가 처리한다(DD2 — 발견은 CLI, 판정은 oracle). `derive/sources/plans.js`를
+  // 재사용하지 **않은** 이유가 정확히 이 줄을 지키기 위해서다: 그것을 require하면 순수
+  // oracle이 `fs`와 `PLAN_DIRS`를 끌어오고 이 목록이 늘어나는데, 가져올 것은 정규식
+  // 2개와 8줄짜리 헬퍼뿐이라 미러가 싸다. 소비처는 `cli.js` 하나다.
   const allowed = new Set([
     './counter', './ledger', './gate', './seal',          // 내부
     './adjudication',                                     // 내부 (santa-adjudication M2)
     './terminator',                                       // 내부 (santa-adjudication M3)
     './lanes',                                            // 내부 (santa-evidence-diversity M1)
+    './scope-always',                                     // 내부 (santa-evidence-diversity M2)
     '../../receipt/evidence-lock', '../../receipt/hash',
     '../../receipt/decision', '../path-containment',
     '../../receipt/write',                                // 외부 5 (M2)
@@ -1220,4 +1238,95 @@ test('Step 5.5 — sealed verdict에 실제로 분기한다 (변수 캡처만으
   const pushLine = lines.map((l, i) => (/git push/.test(l) ? i + 1 : 0)).filter(Boolean)[0];
   assert.ok(pushLine, 'santa-loop.md에서 git push를 찾지 못했다');
   assert.ok(start + branch[0] < pushLine, 'verdict 분기가 push보다 뒤에 있다');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// santa-evidence-diversity M2 — `/mccp:code-review` Local Mode 흡수분의 커맨드 본문 축.
+//
+// 셋 다 "degrade한 라운드가 정상 라운드와 똑같아 보인다"는 같은 실패 유형이고, 산문이
+// 아니라 이 test들이 분기의 존재를 소유한다(Step 4 · Step 5.5 test와 같은 규약).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function santaLoopStepSlice(heading) {
+  const lines = fs.readFileSync(SANTA_LOOP_MD, 'utf8').split(/\r?\n/);
+  const head = new RegExp('^### ' + heading + '[:\\s]');
+  let start = -1;
+  let end = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (start === -1 && head.test(lines[i])) { start = i; continue; }
+    if (start !== -1 && /^### /.test(lines[i])) { end = i; break; }
+  }
+  assert.notEqual(start, -1, '`### ' + heading + '` 헤딩을 찾지 못했다');
+  return lines.slice(start, end);
+}
+
+const linesMatching = (slice, re) =>
+  slice.map((l, i) => (re.test(l) ? i + 1 : 0)).filter(Boolean);
+
+test('M2 code-review H2 — 정합 rubric 행을 셸이 덧붙이고 착지를 확인한다', () => {
+  // Step 3의 heredoc은 quoted라 파라미터 전개가 꺼져 있다. 산문이 "verbatim 복사"를
+  // 요구하면 그 지시를 그 자리의 메커니즘이 수행할 수 없고, 변수명이 리터럴로 남은
+  // rubric도 `lanes`가 exit 0으로 통과시킨다(rubric 내용 검증이 없다) — DD5가 "한 축"
+  // 이라 못 박은 그 축의 절반이 미전달인데 어떤 기계적 신호로도 구분되지 않는다.
+  const slice = santaLoopStepSlice('Step 3');
+  const at = (re) => linesMatching(slice, re);
+
+  const heredoc = at(/^cat > "\$TMPDIR_SANTA\/rubric-\$ROUND\.md" << 'EOF'$/);
+  const append = at(/printf .*Plan\/PRD consistency.*"\$CONSISTENCY_RUBRIC_ROW"/);
+  const proof = at(/grep -qF 'working tree' "\$TMPDIR_SANTA\/rubric-\$ROUND\.md"/);
+  const halt = at(/^\s+exit 1$/);
+  const lanesCall = at(/--rubric-file "\$TMPDIR_SANTA\/rubric-\$ROUND\.md"/);
+
+  assert.ok(heredoc.length > 0, 'rubric 파일을 쓰는 heredoc이 없다');
+  assert.ok(append.length > 0,
+    '정합 행을 셸이 덧붙이지 않는다 — quoted heredoc 안에서는 변수가 전개되지 않으므로 ' +
+    '"verbatim 복사하라"는 산문 지시만으로는 행이 리터럴로 남을 수 있다');
+  assert.ok(proof.length > 0, '덧붙인 행이 실제로 착지했는지 확인하지 않는다');
+  assert.ok(heredoc[0] < append[0], '덧붙이기가 heredoc보다 앞에 있다 (덮어써진다)');
+  assert.ok(append[0] < proof[0], '확인이 덧붙이기보다 앞에 있다');
+  assert.ok(halt.some((n) => n > proof[0]), '확인 실패에 종료문이 없다');
+  assert.ok(lanesCall.length > 0 && proof[0] < lanesCall[0],
+    '리뷰어 기동이 rubric 착지 확인보다 앞에 있다');
+
+  // heredoc 본문이 정합 행을 저자에게 다시 시키면 경로가 둘이 되어 중복/드리프트가 난다.
+  const body = slice.slice(heredoc[0] - 1, append[0] - 1).join('\n');
+  assert.match(body, /WITHOUT the consistency row/,
+    'heredoc 자리표시자가 정합 행을 저자에게 맡기는 것으로 읽힌다');
+});
+
+test('M2 code-review M1 — Step 3가 $TMPDIR_SANTA를 스스로 선언한다', () => {
+  // `mkdir -p`가 덮는 것은 디렉토리 부재이지 빈 변수가 아니다. 빈 값이면 `mkdir -p ""`가
+  // 실패하는데 파이프라인이 상태를 가리고 paths 파일이 파일시스템 루트에 떨어진다 —
+  // 라운드는 containment에서 멈추고 실제 원인은 한 단계 떨어진 자리에 표시된다.
+  const slice = santaLoopStepSlice('Step 3');
+  const assign = linesMatching(slice, /^TMPDIR_SANTA="\.claude\/state\/santa-loop\/tmp"/);
+  const firstUse = linesMatching(slice, /"\$TMPDIR_SANTA/);
+
+  assert.ok(assign.length > 0,
+    'Step 3이 $TMPDIR_SANTA를 재선언하지 않는다 — idempotent 상수라 두 번 치르는 비용은 ' +
+    '0이고, Step 1의 정의가 스코프에 없을 때의 실패를 그 한 줄이 막는다');
+  assert.ok(firstUse.length > 0, 'Step 3이 $TMPDIR_SANTA를 쓰지 않는다');
+  assert.ok(assign[0] < firstUse[0], '선언이 최초 사용보다 뒤에 있다 (빈 값으로 전개된다)');
+});
+
+test('M2 code-review M3 — Step 1이 paths 부재와 빈 배열을 다른 exit로 가른다', () => {
+  // 부재는 생산자 고장(정지)이고 빈 배열은 Step 1이 이미 정상으로 규정한 "변경 없음"이다.
+  // 한 분기가 둘을 삼키면 정지가 두 단계 앞으로 오고 일어나지 않은 파싱 실패를 보고한다.
+  const slice = santaLoopStepSlice('Step 1');
+  const joined = slice.join('\n');
+
+  assert.match(joined, /PATHS_STATE=\$\(/, 'paths 상태를 3상태로 판정하지 않는다');
+  assert.match(joined, /Array\.isArray\(j\.paths\)/,
+    '배열 여부(파싱 성립)를 길이보다 먼저 묻지 않는다');
+
+  const absent = linesMatching(slice, /if \[ "\$PATHS_STATE" = "absent" \]/);
+  const empty = linesMatching(slice, /if \[ "\$PATHS_STATE" = "empty" \]/);
+  assert.ok(absent.length > 0 && empty.length > 0, '두 상태에 각각 분기하지 않는다');
+  assert.ok(absent[0] < empty[0], '부재 판정이 빈 배열 판정보다 앞에 있어야 한다');
+
+  const absentBlock = slice.slice(absent[0] - 1, empty[0] - 1).join('\n');
+  const emptyBlock = slice.slice(empty[0] - 1, empty[0] + 5).join('\n');
+  assert.match(absentBlock, /exit 1/, '부재가 비영점으로 끝나지 않는다');
+  assert.match(emptyBlock, /exit 0/,
+    '빈 배열이 오류로 끝난다 — 그것은 Step 1 산문이 정상으로 규정한 경로다');
 });

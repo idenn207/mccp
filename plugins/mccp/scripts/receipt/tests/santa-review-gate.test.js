@@ -343,3 +343,219 @@ test('[M1] santa_blind_* is NOT carved out of receipt_hash', function () {
     });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// santa-evidence-diversity M3 — degrade 축 receipt 5필드.
+//
+// 지키는 것은 셋이다: 5필드의 present-only 검증 · ack ↔ ack_reason 양방향 불변식 ·
+// **DD2 사영 회귀**(degraded 봉인이 receipt/proof 어휘를 오염시키지 않는다).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test('[M3] the five degrade fields round-trip and validate', function () {
+  withRepo(function (repo, reportRel, proofRel) {
+    const r = writeSanta(reportRel, proofRel, {
+      'santa-rounds': 1,
+      'santa-model-families': 1,
+      'santa-model-degraded': true,
+      'santa-degrade-reason': 'same_family',
+      'santa-degrade-ack': true,
+      'santa-degrade-ack-reason':
+        'codex is not installed on this build machine so reviewer B fell back to Claude',
+    });
+    assert.strictEqual(validate(r.receipt).ok, true,
+      JSON.stringify(validate(r.receipt).errors));
+    assert.strictEqual(r.receipt.meta.santa_model_families, 1);
+    assert.strictEqual(r.receipt.meta.santa_model_degraded, true);
+    assert.strictEqual(r.receipt.meta.santa_degrade_reason, 'same_family');
+    assert.strictEqual(r.receipt.meta.santa_degrade_ack, true);
+    assert.match(r.receipt.meta.santa_degrade_ack_reason, /codex is not installed/);
+  });
+});
+
+test('[M3] omitting the degrade flags leaves all five keys ABSENT (present-only)', function () {
+  withRepo(function (repo, reportRel, proofRel) {
+    // 부재 = "이 축이 없던 시절에 쓰였다(모름)". makeSkeleton에 넣지 않았다는 것이
+    // 곧 §3.12 git-tracked ship corpus의 hash 안정성이다.
+    const r = writeSanta(reportRel, proofRel, { 'santa-rounds': 1 });
+    assert.strictEqual(validate(r.receipt).ok, true);
+    ['santa_model_families', 'santa_model_degraded', 'santa_degrade_reason',
+      'santa_degrade_ack', 'santa_degrade_ack_reason'].forEach(function (k) {
+      assert.ok(!(k in r.receipt.meta),
+        'meta.' + k + ' must be absent when the flag is not supplied');
+    });
+  });
+});
+
+test('[M3] santa_model_families accepts 0 and rejects non-integers', function () {
+  withRepo(function (repo, reportRel, proofRel) {
+    // 0은 유효한 값이다 — 계열이 하나도 식별되지 않은 라운드(전원 unknown)이고,
+    // 부재와 다른 상태다.
+    const zero = writeSanta(reportRel, proofRel, {
+      'santa-rounds': 1, 'santa-model-families': 0,
+    });
+    assert.strictEqual(zero.receipt.meta.santa_model_families, 0);
+    assert.strictEqual(validate(zero.receipt).ok, true);
+
+    [-1, 0.5, 'x', true].forEach(function (bad) {
+      const c = JSON.parse(JSON.stringify(zero.receipt));
+      c.meta.santa_model_families = bad;
+      assert.strictEqual(validate(c).ok, false,
+        'santa_model_families accepted ' + JSON.stringify(bad));
+    });
+  });
+});
+
+test('[M3] the two degrade booleans accept only true (false === absence)', function () {
+  withRepo(function (repo, reportRel, proofRel) {
+    const r = writeSanta(reportRel, proofRel, {
+      'santa-rounds': 1, 'santa-model-degraded': true, 'santa-degrade-reason': 'same_family',
+    });
+    // writer 쪽: `false`를 넘겨도 키가 생기지 않는다.
+    const off = writeSanta(reportRel, proofRel, {
+      'santa-rounds': 1, 'santa-model-degraded': false,
+    });
+    assert.ok(!('santa_model_degraded' in off.receipt.meta),
+      'false must be stored as absence, not as an explicit false');
+
+    // schema 쪽: 명시 false는 거부된다 — 부재와 뜻이 겹치는 순간 present-only 의미론이
+    // 무너진다.
+    [false, 'true', 1, null].forEach(function (bad) {
+      if (bad === null) return;   // null은 부재로 취급되는 것이 계약이다
+      ['santa_model_degraded', 'santa_degrade_ack'].forEach(function (k) {
+        const c = JSON.parse(JSON.stringify(r.receipt));
+        c.meta[k] = bad;
+        if (k === 'santa_degrade_ack') c.meta.santa_degrade_ack_reason = 'a reason long enough to pass';
+        assert.strictEqual(validate(c).ok, false,
+          k + ' accepted ' + JSON.stringify(bad));
+      });
+    });
+  });
+});
+
+test('[M3] santa_degrade_reason is a closed 2-value enum', function () {
+  withRepo(function (repo, reportRel, proofRel) {
+    ['same_family', 'unknown_model'].forEach(function (ok) {
+      const r = writeSanta(reportRel, proofRel, {
+        'santa-rounds': 1, 'santa-degrade-reason': ok,
+      });
+      assert.strictEqual(validate(r.receipt).ok, true, ok + ' must be accepted');
+    });
+    const base = writeSanta(reportRel, proofRel, {
+      'santa-rounds': 1, 'santa-degrade-reason': 'same_family',
+    });
+    // 열거 밖은 거부된다. 특히 `codex_disabled`처럼 그럴듯한 값이 거부되는 것이 요점이다 —
+    // 봉인되는 사유는 projection에서 파생 가능한 두 값뿐이고, 의도적 비활성 대 미가용의
+    // 구분은 Step 5.5의 안내 메시지 소관이다(DD7).
+    ['codex_disabled', 'unavailable', '', 'SAME_FAMILY', 42].forEach(function (bad) {
+      const c = JSON.parse(JSON.stringify(base.receipt));
+      c.meta.santa_degrade_reason = bad;
+      assert.strictEqual(validate(c).ok, false,
+        'santa_degrade_reason accepted ' + JSON.stringify(bad));
+    });
+  });
+});
+
+test('[M3] ack and ack_reason are bound in BOTH directions', function () {
+  withRepo(function (repo, reportRel, proofRel) {
+    const REASON = 'codex is absent on this host so reviewer B ran as a second Claude';
+
+    // 한쪽만 넘긴 호출은 **write 시점에** 거부된다 — `write()`가 schema를 돌리고
+    // SCHEMA_INVALID로 던지므로 깨진 receipt가 디스크에 닿지 않는다.
+    assert.throws(function () {
+      writeSanta(reportRel, proofRel, { 'santa-rounds': 1, 'santa-degrade-ack': true });
+    }, /both be present or both absent/,
+    'an approval with no recorded reason must be rejected');
+
+    assert.throws(function () {
+      writeSanta(reportRel, proofRel, { 'santa-rounds': 1, 'santa-degrade-ack-reason': REASON });
+    }, /both be present or both absent/,
+    'a reason for an approval that was never applied must be rejected');
+
+    const both = writeSanta(reportRel, proofRel, {
+      'santa-rounds': 1, 'santa-degrade-ack': true, 'santa-degrade-ack-reason': REASON,
+    });
+    assert.strictEqual(validate(both.receipt).ok, true,
+      JSON.stringify(validate(both.receipt).errors));
+
+    // 사후 삭제도 같은 불변식에 걸린다.
+    const stripped = JSON.parse(JSON.stringify(both.receipt));
+    delete stripped.meta.santa_degrade_ack_reason;
+    assert.strictEqual(validate(stripped).ok, false,
+      'deleting the reason from a sealed ack must not validate');
+
+    // **security-reviewer F3의 정확한 실패 모양**: 사유 부재 시 `null`을 명시 저장하는
+    // `pr_codex_force_override` 블록(write.js)을 복사하면 이 receipt가 나온다. `null`은
+    // 이 축의 부재 판정 기준(`!== null && !== undefined`)에 걸려 여전히 거부되어야
+    // 한다 — 그렇지 않으면 "사유 없는 승인"이 null을 쓰고 통과한다.
+    const nulled = JSON.parse(JSON.stringify(both.receipt));
+    nulled.meta.santa_degrade_ack_reason = null;
+    assert.strictEqual(validate(nulled).ok, false,
+      'the pr_codex_force_override null-reason shape must be rejected here');
+  });
+});
+
+test('[M3] DD2 projection — a degraded seal never leaks the word into receipt or proof',
+  function () {
+    // 이것이 M3의 지표가 요구하는 "구분"의 기계적 표현이다: 같은 receipt에서
+    // `review_verdict='divergent'`(비승인)와 `santa_model_degraded=true`(왜 비승인인가)가
+    // **함께** 읽히고, `degraded`라는 이름은 receipt·proof 어느 필드에도 없다.
+    withRepo(function (repo, reportRel, proofRel) {
+      const r = writeSanta(reportRel, proofRel, {
+        'santa-rounds': 1,
+        'review-verdict': 'divergent',              // seal()의 사영 결과
+        'santa-model-families': 1,
+        'santa-model-degraded': true,
+        'santa-degrade-reason': 'same_family',
+      });
+      assert.strictEqual(validate(r.receipt).ok, true,
+        JSON.stringify(validate(r.receipt).errors));
+      assert.strictEqual(r.receipt.resolution.review_verdict, 'divergent');
+      assert.strictEqual(r.receipt.meta.santa_model_degraded, true);
+      assert.strictEqual(r.receipt.meta.santa_degrade_reason, 'same_family');
+
+      // `degraded`가 receipt 어디에도 값으로 실리지 않는다. 문자열 전수 검사로 두는
+      // 이유는 필드를 하나씩 열거하면 신규 필드가 조용히 새기 때문이다.
+      const flat = JSON.stringify(r.receipt);
+      assert.equal(/"degraded"/.test(flat), false,
+        'the token "degraded" must not appear as a value anywhere in the receipt');
+    });
+  });
+
+test('[M3] review-verdict vocabulary is untouched — "degraded" is not a receipt value',
+  function () {
+    // DD2가 주장하는 "어휘 무접촉"의 기계적 확인. 이 배열은 `receipt/schema.js`의
+    // CODEX_VERDICT_VALUES와 공유되므로, 여기에 degraded가 들어가면 santa와 무관한
+    // codex 축·pr-ship-gate·dedupe·대시보드가 전부 새 값을 만난다.
+    const { REVIEW_VERDICT_VALUES } = require('../../lib/review-verdict');
+    assert.equal(REVIEW_VERDICT_VALUES.indexOf('degraded'), -1,
+      'degraded leaked into the shared review/codex verdict vocabulary');
+
+    withRepo(function (repo, reportRel, proofRel) {
+      assert.throws(function () {
+        writeSanta(reportRel, proofRel, { 'santa-rounds': 1, 'review-verdict': 'degraded' });
+      }, /schema|verdict/i, 'writing review_verdict=degraded must be rejected');
+    });
+  });
+
+test('[M3] the degrade fields are NOT carved out of receipt_hash', function () {
+  // carve-out되면 stamp를 고쳐도 봉인이 그대로여서 "관측된 degrade"가 사후 변조
+  // 가능해진다. [M1]의 santa_blind_* 단언과 같은 규약이다.
+  withRepo(function (repo, reportRel, proofRel) {
+    const r = writeSanta(reportRel, proofRel, {
+      'santa-rounds': 1,
+      'santa-model-families': 1,
+      'santa-model-degraded': true,
+      'santa-degrade-reason': 'same_family',
+    });
+    const sealed = receiptHash(r.receipt);
+    assert.strictEqual(sealed, r.receipt.receipt_hash);
+
+    [['santa_model_families', 2], ['santa_model_degraded', false],
+      ['santa_degrade_reason', 'unknown_model']].forEach(function (pair) {
+      const bumped = JSON.parse(JSON.stringify(r.receipt));
+      bumped.meta[pair[0]] = pair[1];
+      assert.notStrictEqual(receiptHash(bumped), sealed,
+        'meta.' + pair[0] + ' must NOT be carved out of receipt_hash');
+    });
+  });
+});

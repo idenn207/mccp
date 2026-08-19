@@ -664,3 +664,230 @@ test('#125 회귀: 상시 경로가 실제로 블라인드 프롬프트 본문�
   assert.ok(prompt.includes('## Rubric'), 'the rubric section must reach the blind lane');
   assert.ok(prompt.includes('working tree'), 'the consistency row must reach the blind lane');
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// santa-evidence-diversity M3 — 모델 계열 degrade.
+//
+// 소유권 표가 degrade 강등 회귀를 이 파일에 배정했다. 지키는 것은 넷이다:
+// DD3의 판정 2줄과 그 **순서** · 다중매치가 계열을 사지 못한다는 것 ·
+// `deriveVerdict`의 우선순위(divergent > degraded > converged) ·
+// 미설치 CLI 계열 선언이 라운드를 열지 못한다는 것.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const md = require('../santa/model-diversity');
+const seal = require('../santa/seal');
+
+// ── familyOf ─────────────────────────────────────────────────────────────────
+
+test('M3 familyOf: 4계열 대표값', () => {
+  assert.strictEqual(md.familyOf('opus'), 'anthropic');
+  assert.strictEqual(md.familyOf('claude-opus-5'), 'anthropic');
+  assert.strictEqual(md.familyOf('gpt-5.4'), 'openai');
+  assert.strictEqual(md.familyOf('gemini-2.5-pro'), 'google');
+  assert.strictEqual(md.familyOf('llama-3-70b'), 'unknown');
+});
+
+test('M3 familyOf: 대소문자/공백 정규화', () => {
+  assert.strictEqual(md.familyOf('  OPUS  '), 'anthropic');
+  assert.strictEqual(md.familyOf('GPT-5.4'), 'openai');
+});
+
+test('M3 familyOf: 비문자열·빈 문자열은 unknown이고 코어션을 하지 않는다', () => {
+  // `String(model)`을 먼저 부르면 아래 toString이 계열을 산다. 그 입력은 `--model`
+  // 검사를 거치지 않는 경로 — `seal.project()`가 원장에서 읽어 넘기는 `e.model` — 로
+  // 도달 가능하다(security-reviewer F4).
+  [null, undefined, 42, '', '   ', [], {}].forEach((v) => {
+    assert.strictEqual(md.familyOf(v), 'unknown', JSON.stringify(v) + ' must fold to unknown');
+  });
+  assert.strictEqual(md.familyOf({ toString() { return 'gpt-5.4'; } }), 'unknown',
+    'toString()이 호출되면 임의 객체가 계열을 산다');
+});
+
+test('M3 familyOf: 두 카탈로그에 동시에 걸리면 unknown이다 (precedence 아님)', () => {
+  // precedence 표를 두면 `claude-gpt-bridge`가 *어떤 계열이든 하나*를 얻고, 그 하나가
+  // 상대 리뷰어와 다르면 곧바로 이종 판정을 산다. DD3의 원칙은 "모르겠다가 승인을 사지
+  // 못하게 한다"이고 동시에 걸리는 문자열은 모르는 것이다(security-reviewer F1).
+  assert.strictEqual(md.familyOf('claude-gpt-bridge'), 'unknown');
+  assert.strictEqual(md.familyOf('gemini-codex-hybrid'), 'unknown');
+  assert.strictEqual(md.familyOf('opus-google-tuned'), 'unknown');
+});
+
+// ── env 파서 ─────────────────────────────────────────────────────────────────
+
+test('M3 parseDegradeGate: 미설정·불량값은 발화 쪽(enforce)으로 fail-open', () => {
+  assert.strictEqual(md.parseDegradeGate({}), 'enforce');
+  assert.strictEqual(md.parseDegradeGate({ MCCP_SANTA_DEGRADE_GATE: '' }), 'enforce');
+  assert.strictEqual(md.parseDegradeGate({ MCCP_SANTA_DEGRADE_GATE: 'yes' }), 'enforce');
+  assert.strictEqual(md.parseDegradeGate({ MCCP_SANTA_DEGRADE_GATE: ' OFF ' }), 'off');
+  assert.strictEqual(md.parseDegradeGate({ MCCP_SANTA_DEGRADE_GATE: 'enforce' }), 'enforce');
+});
+
+test('M3 parseDegradeAck: strict validateReason에 위임하고 부재와 거부를 구분한다', () => {
+  const absent = md.parseDegradeAck({});
+  assert.strictEqual(absent.ok, false);
+  assert.strictEqual(absent.rejectedBecause, 'absent');
+
+  const short = md.parseDegradeAck({ MCCP_SANTA_DEGRADE_ACK: 'no' });
+  assert.strictEqual(short.ok, false);
+  assert.notStrictEqual(short.rejectedBecause, 'absent',
+    '거부와 부재가 같은 사유를 내면 호출자가 다른 안내를 할 수 없다');
+
+  const good = md.parseDegradeAck({
+    MCCP_SANTA_DEGRADE_ACK: 'codex is not installed on this build machine so reviewer B fell back',
+  });
+  assert.strictEqual(good.ok, true);
+  assert.match(good.reason, /codex is not installed/);
+});
+
+// ── diversityFrom ────────────────────────────────────────────────────────────
+
+const projOf = (models) => ({
+  rounds: [{
+    index: 0,
+    verdict: 'NICE',
+    reviewers: models.map((m, i) => ({ id: 'AB'[i], model: m })),
+  }],
+});
+
+test('M3 diversityFrom: 이종 2계열은 degraded가 아니다', () => {
+  const d = md.diversityFrom(projOf(['opus', 'gpt-5.4']));
+  assert.strictEqual(d.degraded, false);
+  assert.strictEqual(d.reason, null);
+  assert.strictEqual(d.distinctFamilies, 2);
+});
+
+test('M3 diversityFrom: 동일 계열 2인은 same_family', () => {
+  const d = md.diversityFrom(projOf(['opus', 'claude-opus-5']));
+  assert.strictEqual(d.degraded, true);
+  assert.strictEqual(d.reason, 'same_family');
+  assert.strictEqual(d.distinctFamilies, 1);
+});
+
+test('M3 diversityFrom: unknown은 same_family보다 우선한다 (DD3의 순서)', () => {
+  // 반대로 두면 오탈자 하나나 신규 모델명 하나가 곧바로 이종 판정을 얻는다 — 닫으려는
+  // 결함을 이름만 바꿔 되살리는 것이다.
+  const d = md.diversityFrom(projOf(['opus', 'llama-3']));
+  assert.strictEqual(d.reason, 'unknown_model',
+    'unknown이 섞이면 distinct=1이어도 same_family가 아니라 unknown_model이다');
+  assert.strictEqual(d.unknownCount, 1);
+});
+
+test('M3 diversityFrom: 라운드 0건·legacy 투영은 던지지 않고 unknown_model로 접힌다', () => {
+  const empty = md.diversityFrom({ rounds: [] });
+  assert.strictEqual(empty.degraded, true);
+  assert.strictEqual(empty.reason, 'unknown_model');
+  assert.strictEqual(empty.finalIndex, null);
+
+  const legacy = md.diversityFrom({ rounds: [{ index: 0, reviewers: [{ id: 'A' }, { id: 'B' }] }] });
+  assert.strictEqual(legacy.degraded, true);
+  assert.strictEqual(legacy.reason, 'unknown_model');
+
+  // 전역 함수 규약 — 어떤 입력에도 던지지 않는다.
+  [null, undefined, 42, 'x', [], {}].forEach((v) => {
+    assert.doesNotThrow(() => md.diversityFrom(v), JSON.stringify(v));
+  });
+});
+
+test('M3 diversityFrom: FINAL 라운드 하나만 본다', () => {
+  // `deriveVerdict`가 같은 라운드에서 판정하므로 두 함수가 다른 라운드를 보면 봉인이
+  // 자기모순이 된다.
+  const d = md.diversityFrom({
+    rounds: [
+      { index: 0, reviewers: [{ id: 'A', model: 'opus' }, { id: 'B', model: 'opus' }] },
+      { index: 1, reviewers: [{ id: 'A', model: 'opus' }, { id: 'B', model: 'gpt-5.4' }] },
+    ],
+  });
+  assert.strictEqual(d.finalIndex, 1);
+  assert.strictEqual(d.degraded, false, '중간 라운드의 동일 계열이 최종 판정을 오염시킨다');
+});
+
+// ── deriveVerdict 우선순위 ───────────────────────────────────────────────────
+
+const m3Round = (verdict, models) => ({
+  rounds: [{
+    index: 0,
+    verdict: verdict,
+    reviewers: models.map((m, i) => ({ id: 'AB'[i], model: m })),
+  }],
+});
+
+test('M3 deriveVerdict: NICE + 이종 → converged', () => {
+  assert.strictEqual(seal.deriveVerdict(m3Round('NICE', ['opus', 'gpt-5.4']), { env: {} }),
+    'converged');
+});
+
+test('M3 deriveVerdict: NICE + 동일 계열 → degraded', () => {
+  assert.strictEqual(seal.deriveVerdict(m3Round('NICE', ['opus', 'opus']), { env: {} }),
+    'degraded');
+});
+
+test('M3 deriveVerdict: NAUGHTY + 동일 계열 → divergent (degraded가 아니다)', () => {
+  // 우선순위 divergent > degraded > converged. 뒤집으면 비수렴 라운드가 degraded가 되고,
+  // degraded에는 ack라는 사람 승인 경로가 있으므로 그 뒤집기는 **비수렴 라운드에 push
+  // 경로를 여는 것**이 된다.
+  assert.strictEqual(seal.deriveVerdict(m3Round('NAUGHTY', ['opus', 'opus']), { env: {} }),
+    'divergent');
+});
+
+test('M3 deriveVerdict: distinct id 1 + 이종 → divergent', () => {
+  const p = {
+    rounds: [{
+      index: 0,
+      verdict: 'NICE',
+      reviewers: [{ id: 'A', model: 'opus' }, { id: 'A', model: 'gpt-5.4' }],
+    }],
+  };
+  assert.strictEqual(seal.deriveVerdict(p, { env: {} }), 'divergent');
+});
+
+test('M3 deriveVerdict: GATE=off는 강등만 끈다', () => {
+  assert.strictEqual(
+    seal.deriveVerdict(m3Round('NICE', ['opus', 'opus']),
+      { env: { MCCP_SANTA_DEGRADE_GATE: 'off' } }),
+    'converged');
+  // 그러나 관측은 그대로다 — `off` 실행이 M3 이전 실행과 구분되지 않으면 그것이
+  // 정확히 이 milestone이 닫으려는 결함의 모양이다(DD4). 봉인 쪽 회귀는
+  // santa-seal/santa-review-gate가 맡고 여기서는 파생이 gate와 무관함만 본다.
+  assert.strictEqual(md.diversityFrom(m3Round('NICE', ['opus', 'opus'])).degraded, true);
+});
+
+// ── CLI record — 미설치 CLI 계열 선언 거부 ───────────────────────────────────
+
+test('M3 record: 미설치 CLI 계열 선언은 exit 2이고 라운드가 열린 채 남는다', () => {
+  // `gemini`는 이 저장소의 개발 머신에 설치돼 있지 않다. 설치된 머신에서도 결정적이게
+  // 하려고 PATH를 좁히지는 않는다 — `gitRepoRoot`가 `git`을 spawn하므로 PATH를 비우면
+  // 이 test가 다른 이유로 실패한다.
+  const dir = repoFixture();
+  const rf = reviewerFile(dir, 'rev.json');
+  const r = runCli(dir, ['record', '--decision', 'fixture', '--round', '0',
+    '--id', 'B', '--model', 'gemini-2.5-pro', '--reviewer-file', rf, '--lane', 'bundled']);
+  assert.strictEqual(r.status, 2, r.stderr);
+  assert.match(r.stderr, /SANTA_MODEL_UNAVAILABLE|not on PATH/);
+
+  // 라운드는 열린 채라 재기록 가능하다 — 원장에 아무것도 append되지 않았다.
+  const ledgerPath = path.join(dir, '.claude', 'state', 'santa-loop', 'fixture.json');
+  if (fs.existsSync(ledgerPath)) {
+    const state = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
+    const r0 = (state.rounds || [])[0];
+    assert.ok(!r0 || (r0.reviewers || []).length === 0,
+      '거부된 record가 원장에 리뷰어를 남겼다');
+  }
+});
+
+test('M3 record: anthropic과 unknown은 PATH 대조 대상이 아니다', () => {
+  // Claude fallback은 정상 입력이고, unknown은 oracle이 이미 degraded로 처리한다.
+  // 여기서 또 막으면 미등재 모델이 라운드를 아예 못 열게 되어 처방이 "카탈로그 1줄 PR"
+  // 에서 "루프 중단"으로 바뀐다.
+  const dir = repoFixture();
+  ['opus', 'llama-3-70b'].forEach((model, i) => {
+    const rf = reviewerFile(dir, 'rev-' + i + '.json');
+    // 라운드를 실제로 연다. 위 거부 test는 `loadReviewer`가 `assertRecordable`보다
+    // **먼저** 돌기 때문에 begin-round 없이도 성립하지만(그 순서 자체가 "라운드가 열린
+    // 채 남는다"의 근거다), 통과 경로는 열린 라운드가 있어야 append까지 간다.
+    const b = runCli(dir, ['begin-round', '--decision', 'fx' + i]);
+    assert.strictEqual(b.status, 0, 'begin-round failed: ' + b.stderr);
+    const r = runCli(dir, ['record', '--decision', 'fx' + i, '--round', '0',
+      '--id', 'A', '--model', model, '--reviewer-file', rf, '--lane', 'blind']);
+    assert.strictEqual(r.status, 0, model + ' must be recordable: ' + r.stderr);
+  });
+});

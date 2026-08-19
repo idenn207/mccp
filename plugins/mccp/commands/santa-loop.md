@@ -420,6 +420,14 @@ rm -f "$PROMPT_FILE"
 **Claude Agent fallback** (only if neither `codex` nor `gemini` is installed)
 Launch a second Claude Agent (subagent_type: `code-reviewer`, model: `opus`). Log a warning that both reviewers share the same model family — true model diversity was not achieved but context isolation is still enforced.
 
+**That warning now changes the sealed verdict (M3).** Record the fallback model as what it
+actually is (`opus`); the seal reads the ledger's `model` strings, classifies them into
+families, and narrows `converged` to `degraded` when the final round has fewer than two
+distinct families. Nothing to do differently here — the judgement lives in the seal layer, so
+this step gains no new instruction. Declaring `gpt-5.4` for a Claude fallback does not buy
+diversity either: `record` re-derives whether `codex` is on `PATH` and refuses at exit 2 when
+it is not.
+
 **Lane branch (M1).** Same single sentence as Reviewer A: if `B` equals `$BLIND_ID`,
 `$BLIND_PROMPT` replaces the file contents in `$PROMPT_FILE`; otherwise the bundle
 stays. The CLI invocation, sandbox flags, and model selection do not change (UI10).
@@ -737,7 +745,38 @@ if [ "$SEAL_EXIT" -ne 0 ]; then
 fi
 
 SEAL_VERDICT=$(echo "$SEAL_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).verdict||"")}catch{process.stdout.write("")}')
-if [ "$SEAL_VERDICT" != "converged" ]; then
+DEGRADE_ACK=$(echo "$SEAL_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).degradeAck?"1":"0")}catch{process.stdout.write("0")}')
+DEGRADE_REASON=$(echo "$SEAL_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).degradeReason||"")}catch{process.stdout.write("")}')
+
+# santa-evidence-diversity M3 — degraded를 **먼저** 검사한다. `!= converged` 절이 앞서면
+# degraded가 divergent 메시지로 흡수되어, 운영자가 "리뷰가 수렴하지 않았다"는 잘못된
+# 진단을 받고 처방(codex 설치)이 사라진다.
+if [ "$SEAL_VERDICT" = "degraded" ]; then
+  if [ "$DEGRADE_ACK" != "1" ]; then
+    echo "[santa] sealed verdict is 'degraded' (reason=${DEGRADE_REASON:-<unreadable>}) — NOT pushing." 1>&2
+    echo "[santa] Both reviewers resolved to the same model family (or an unrecognised one), so" 1>&2
+    echo "[santa] this NICE is not distinguishable from a heterogeneous one. That is what the" 1>&2
+    echo "[santa] degraded verdict names." 1>&2
+    # The two lines below are OPERATOR GUIDANCE, not a sealed claim. They are read HERE, at
+    # push time, and may disagree with what was true when the reviewers actually ran — which
+    # is exactly why the receipt's `santa_degrade_reason` carries only the two values derivable
+    # from the ledger projection (`same_family` / `unknown_model`) and never this distinction.
+    if [ "${MCCP_CODEX_DISABLED:-0}" = "1" ]; then
+      echo "[santa] Deliberate: MCCP_CODEX_DISABLED=1 is set, so Reviewer B could not use codex." 1>&2
+    elif command -v codex >/dev/null 2>&1; then
+      echo "[santa] codex IS on PATH — Reviewer B fell back for another reason. Re-run it on codex." 1>&2
+    else
+      echo "[santa] Unavailable: codex is not on PATH. Install it, or accept the run below." 1>&2
+    fi
+    echo "[santa] To ship anyway, set MCCP_SANTA_DEGRADE_ACK=\"<substantive reason>\" and re-run" 1>&2
+    echo "[santa] Step 5.5. The ack opens the push; it does NOT rewrite the sealed verdict." 1>&2
+    exit 1
+  fi
+  echo "[santa] sealed verdict is 'degraded' (reason=${DEGRADE_REASON:-<unreadable>}) but" 1>&2
+  echo "[santa] MCCP_SANTA_DEGRADE_ACK is set and substantive — pushing under an audited ack." 1>&2
+  echo "[santa] The receipt still records review_verdict='divergent' + santa_model_degraded=true;" 1>&2
+  echo "[santa] the ack opens the push, it does not rewrite what was sealed." 1>&2
+elif [ "$SEAL_VERDICT" != "converged" ]; then
   echo "[santa] sealed verdict is '${SEAL_VERDICT:-<unreadable>}', not 'converged' — NOT pushing." 1>&2
   echo "[santa] Step 4 read NICE but the seal disagreed. The receipt is the audit anchor, so it wins:" 1>&2
   echo "[santa] pushing here would ship under a receipt that records non-convergence." 1>&2
@@ -751,7 +790,11 @@ fi
 
 The seal deliberately does **not** re-gate on the reviewers' `verdict` strings. Those stopped being a judgment input at Step 4 (a `FAIL` raising nothing blocking leaves the round NICE by design), so a seal that still failed on them would not be "stricter" — it would be answering a different question and contradicting the gate, which is exactly what it did before santa-adjudication M1 fixed it. What the seal keeps is the axis it can check independently: two distinct reviewer ids, counted a second time from the ledger.
 
-`$SEAL_JSON` carries `reportPath` / `proofPath` / `receiptPath` / `verdict`; Step 7 reports them.
+**The `degraded` branch is checked first, and the order is load-bearing (M3).** `degraded` and `divergent` are both non-approving, so a `!= converged` test alone would still block the push — but it would print the *divergent* diagnosis, and the two have different prescriptions. Divergence says the reviewers did not agree; degradation says they agreed while being the same model, and its fix is to install `codex` (or to acknowledge the run), not to review again. Folding one into the other loses the prescription while keeping the block, which reads as the gate working.
+
+**The ack opens the push; it does not rewrite the verdict.** `MCCP_SANTA_DEGRADE_ACK` is judged in exactly one place — `seal` — and this step only reads the `degradeAck` boolean it returned. Re-reading the env here would give two interpretations of one variable, and this repo has repeatedly found that shape of defect (it is why `--lane` is re-derived at a single CLI point). The sealed verdict stays `degraded`, the receipt keeps `review_verdict='divergent'` alongside `meta.santa_model_degraded=true`, and the ack itself is recorded as `santa_degrade_ack` + `santa_degrade_ack_reason`. That matters on a machine with no external CLI, where *every* run degrades and the ack ends up living in `settings.json`: if the ack flipped the verdict, the count of degraded runs would be permanently zero and the metric would lose the thing it measures. Left as-is, the ratio keeps being counted, and that ratio is the measured case for installing `codex` here.
+
+`$SEAL_JSON` carries `reportPath` / `proofPath` / `receiptPath` / `verdict` / `degraded` / `degradeReason` / `degradeAck`; Step 7 reports them.
 
 ### Step 6: Push (NICE path)
 
@@ -768,10 +811,10 @@ Print the output report (see Output section below). `node "$SANTA" status --deci
 ## Output
 
 ```
-SANTA VERDICT: [NICE / NAUGHTY (escalated)]
+SANTA VERDICT: [NICE / NICE but degraded / NICE but degraded (acked) / NAUGHTY (escalated)]
 
-Reviewer A (Claude Opus):   [PASS/FAIL]
-Reviewer B ([model used]):  [PASS/FAIL]
+Reviewer A (Claude Opus, anthropic):        [PASS/FAIL]
+Reviewer B ([model used], [model family]):  [PASS/FAIL]
 
 Agreement:
   Both flagged:      [issues caught by both]
@@ -779,8 +822,10 @@ Agreement:
   Reviewer B only:   [issues only B caught]
 
 Iterations: [N]/[cap]
-Result:     [PUSHED / ESCALATED TO USER]
+Result:     [PUSHED / PUSHED UNDER DEGRADE ACK / BLOCKED (degraded) / ESCALATED TO USER]
 ```
+
+`degraded` on the verdict line is the seal's word, not the round's: Step 4 still read NICE. Print it whenever `$SEAL_VERDICT` is `degraded`, with `(acked)` only when the push actually went ahead — that pair is what lets a later reader tell "blocked and fixed" from "shipped under an audited ack".
 
 ## Notes
 
@@ -797,4 +842,9 @@ Result:     [PUSHED / ESCALATED TO USER]
 - The terminator's kill switch is `MCCP_SANTA_TERMINATOR`, registered in docs/ENVIRONMENT.md §11 alongside the other santa toggles. It turns off both wiring points together — the Step 4.5 judgement and the `begin-round` marker precheck — and that document owns its values, defaults and failure mode.
 - Exactly one reviewer runs on the **blind evidence lane** each round: repository root plus target paths, no file bundle and no pre-summary, with a fixed instruction not to treat any handed narrative as fact. The assignment is decided by `santa/lanes.js` and re-checked by `record --lane`, so the command body cannot pick a lane on its own. What that check establishes is that the lane came from the oracle; it does **not** establish that the blind reviewer's prompt truly carried no bundle — no shell can observe what reached a model. Verification of *that* is by outcome distribution (the two lanes' co-missed rate), not by the stamp. Coverage is sealed into the receipt as two present-only integers, `meta.santa_blind_records` and `meta.santa_blind_rounds`; `santa_blind_rounds === santa_rounds` is the mechanical reading of "every round had at least one reviewer that received no bundle".
 - The lane kill switch is `MCCP_SANTA_BLIND_LANE` (`a` default / `b` / `off`), registered in docs/ENVIRONMENT.md §11 with the other santa toggles. `off` is the **less strict** direction — it puts both reviewers on the bundled path, which is the pre-M1 behaviour — so the default is the firing side and a malformed value falls back to firing, not to off. An `off` run is still recorded, as `santa_blind_rounds=0`; absence of the field means "written before the lane axis existed", which is a different state from an observed zero. Nothing in M1 *blocks* a zero-blind round: M1 creates and records lanes, and no milestone currently owns enforcement (see the PRD's open question).
+- A round whose reviewers all resolve to the **same model family** — or to an unrecognised one — seals as `degraded` rather than `converged`, and `degraded` does not push. That is the whole of the axis: the round verdict is untouched (it is still NICE, and `gate.js` never sees this), and what changes is only *which name the seal gives that NICE*. Families come from `santa/model-diversity.js` classifying the `model` strings already in the ledger, so it costs no extra reviewer and no extra round. A model string that matches two catalogs at once, or none, is `unknown`, and `unknown` degrades — an unrecognised name must not be able to buy a diversity verdict, and the fix for a legitimately new model is one line added to the catalog, not a looser gate.
+- What is sealed is `meta.santa_model_families` (distinct family count), `meta.santa_model_degraded`, and `meta.santa_degrade_reason` (`same_family` / `unknown_model`) — all three present-only, and all three written **regardless of the kill switch**, because absence of the field means "written before this axis existed" and is a different state from an observed degradation. The reason enum is deliberately narrow: it holds only what the ledger projection can derive. Whether Reviewer B fell back because `codex` was *deliberately disabled* or because it was *not installed* is a distinction Step 5.5 explains at push time by reading the environment there — it is guidance for the operator, never a sealed claim, because a fact re-observed at seal time can disagree with what was true when the reviewers ran.
+- The degrade kill switch is `MCCP_SANTA_DEGRADE_GATE` (`enforce` default / `off`), registered in docs/ENVIRONMENT.md §11 with the other santa toggles. `off` turns off **the verdict narrowing only** — the three observation fields are still stamped, so an `off` run stays distinguishable from a pre-M3 one. As with the other santa toggles the default is the firing side and a malformed value falls back to firing, because a typo that silently reverts a run to pre-M3 behaviour is the exact defect shape this axis exists to close.
+- `MCCP_SANTA_DEGRADE_ACK="<substantive reason>"` lets a degraded run push. It is judged once, inside `seal`, against the same strict reason validator the other audited overrides use, and it **does not rewrite the sealed verdict** — the receipt still says `review_verdict='divergent'` with `santa_model_degraded=true`, plus `santa_degrade_ack` and `santa_degrade_ack_reason`. On a machine with no external CLI every run degrades and the ack tends to become a resident setting; leaving the verdict alone is what keeps the degraded ratio countable under a resident ack, and that ratio is the measured case for installing `codex`.
+- `record --model` is re-derived against `PATH`: declaring an `openai`/`google` family model while `codex`/`gemini` is absent exits 2 with the round left open. What that establishes is that a model name for an uninstalled CLI cannot be typed in to buy diversity. What it does **not** establish is that the declared model is the one that answered — `codex` being installed does not prove it ran. Same ceiling as `--lane`, claimed no wider, and verified the same way: by outcome distribution, not by the stamp.
 - The cap is scoped to the decision slug, which is derived from the branch name. Renaming or switching branches starts a fresh cap (different branch = different review scope). Pass `--decision <slug>` to every subcommand to pin one scope across a rename.

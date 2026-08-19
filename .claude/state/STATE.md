@@ -1,10 +1,10 @@
 ---
 state_version: 1
-task_fingerprint: santa-evidence-diversity-m2
+task_fingerprint: santa-adjudication-m3
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-19T05:05:00.000Z
-last_event: code_review_absorbed
-last_event_at: 2026-08-19T05:05:00.000Z
+updated_at: 2026-08-19T08:36:26.397Z
+last_event: stop_loop_pass
+last_event_at: 2026-08-19T08:36:26.397Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -13,56 +13,43 @@ last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-08-18T03:44:26.285Z
 ---
 ## Goal
-santa-evidence-diversity M2(상시 스코프 + 정합 rubric) 구현 + 로컬 code-review 흡수 완료.
-다음은 /mccp:prp-commit → /mccp:pr.
+santa-evidence-diversity M3(degrade 차단) 구현 완료. 다음은 /mccp:prp-commit → /mccp:pr.
 
 ## Plan
-- plan: `.claude/plans/santa-evidence-diversity-m2.plan.md` — `plan_hash` sha256:f1bc8593…로
-  봉인. **편집 금지**(편집하면 stale → PR이 §3.11 guard 2에 막힌다). 따라서 plan이
-  적은 `1.28.3`·"export 6종"은 그대로 두고 차이는 report·CHANGELOG가 소유한다
-- 게이트 산출물 + Task 6 실측: `.claude/notes/santa-evidence-diversity-m2.md`
+- plan: `.claude/plans/santa-evidence-diversity-m2.plan.md` — 본문 확정, plan_hash sha256:f1bc8593…로 mccp-plan-codex가 봉인. **편집 금지**(편집하면 stale → PR이 §3.11 guard 2에 막힌다)
+- 게이트 산출물 + Task 6 실측: `.claude/notes/santa-evidence-diversity-m2.md` (plan 본문 대신 이 자리 — M1·santa-adjudication M1~M3 선례)
 - report: `.claude/PRPs/reports/santa-evidence-diversity-m2-report.md`
-- receipt: mccp-plan-codex/santa-evidence-diversity-m2 (review_verdict=divergent, single-pass 봉인)
-  · mccp-implement-codex/santa-evidence-diversity-m2 (codex_verdict=skipped)
-- **version 1.29.1** — §3.7 재계산으로 `1.28.3`에서 상향했다. 4면 + ENVIRONMENT 라벨 동기 완료
+- receipt: mccp-plan-codex/santa-evidence-diversity-m2 (review_verdict=divergent, single-pass 봉인) · mccp-implement-codex/santa-evidence-diversity-m2 (codex_verdict=skipped)
+- version 1.28.3 (patch — PRD 3 milestone 중 2번째). 4면 동기 완료
 
 ## Done
-- 구현 Task 1~7 전량 (상세는 report). Task 6 실측 4건 성립
-- **/mccp:code-review Local Mode 흡수 — HIGH 2 · MEDIUM 4 · LOW 2 전건**(사용자 지시로 이연 0):
-  - H1 version 역행 — origin/main이 이미 `1.29.0`(`1fc8657`)까지 나가 `1.28.3` 머지 시
-    plugin.json이 뒤로 간다. forward-only `1.29.1` 상향. M1의 `1.28.2`는 순서가
-    성립(`1.29.1 > 1.29.0 > 1.28.2 > 1.28.1`)해 그대로 두었다
-  - H2 rubric 조용한 미전달 — quoted heredoc은 `$CONSISTENCY_RUBRIC_ROW`를 전개할 수
-    없는데 산문은 verbatim 복사를 요구했고, 리터럴로 남은 rubric도 exit 0으로
-    통과된다(실측). 셀 `printf` 배선 + `grep -qF` 착지 확인 후에만 리뷰어 기동
-  - M1 `$TMPDIR_SANTA` Step 3 재선언 · M2 후보 상한 반감 · M3 `PATHS_STATE` 3상태 ·
-    M4 off/enforce 정규화 등가 + `dropped` stderr · L1 PRD 빈 줄 · L2 `toRepoRelative` export
-- 회귀 test 신규 8건(oracle 5 + 커맨드 본문 구조 3). **224 tests / 221 pass / 0 fail**
-  (skip 3 = Windows POSIX mode). 실측 재확인: pairs 전건 스코프 내 · off/enforce 일관
+- Implement-Codex 게이트 — MCCP_CODEX_DISABLED=1 first-class skip(codex_verdict=skipped). security-reviewer 발화: CRITICAL 1 흡수 · CRITICAL 1 기각(리뷰어 자기 결론) · HIGH 2 흡수 · MEDIUM 3 무조치
+- Task 1 model-diversity.js — 순수 oracle export 11종. familyOf는 plan보다 엄격: 다중매치도 unknown(precedence 표 미채택)
+- Task 2 seal.js — deriveVerdict 제3값 degraded, 사영 1지점(degraded→divergent), exitReason 술어 !==divergent로 일반화
+- Task 3 receipt 5필드 + 양방향 불변식 — write 시점에 발화(예상보다 이른 지점)
+- Task 4 cli.js — isOnPath + --model 계열 재도출. 신규 exit code·플래그 0건
+- Task 5 santa-loop.md — Step 3 · Step 5.5 3갈래(degraded 선검사) · Output · Notes 5항목
+- Task 6 회귀 test 33건 신규(lanes 23 · review-gate 8 · cap 2). 단언 삭제 0건
+- Task 7 실측 5건 전부 성립 + 계획 외 1건. probe 누출 0
+- Task 8 문서 — ENVIRONMENT 2행 · ownership 3절 + 표 1행 · PRD status/OQ 3건 · CHANGELOG 1.30.0 + 4면 동기
+- Validation 1~6 전량 통과. santa 269건 중 266 pass · 0 fail · 3 skipped(선재)
 
 ## In Progress
 
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. **PR 진입 직전 §3.7 version 재계산을 한 번 더** — 이번
-상향으로 `1.29.1`이지만 main이 또 나갈 수 있고, 그것이 §3.7이 시점을 둘로 둔 이유다.
-merge 후 CHANGELOG 헤딩 충돌 확인(이 브랜치엔 `## [1.28.1]`이 없다) · worktree cleanup ·
-claude plugin update.
+/mccp:prp-commit → /mccp:pr. **PR 진입 직전 §3.7 version 재계산 필수**(두 번째 시점). 현재 1.30.0이 origin/main(1.29.0)·브랜치(1.29.1) 양쪽보다 앞선다. merge 후 worktree cleanup + claude plugin update.
 
 ## Last Decision
-code-review 지적을 전건 수용했다. §3.14는 MEDIUM/LOW를 backlog로 이연하라 하지만
-사용자가 명시적으로 전건 수용을 지시했으므로 그 자리에서 닫고 backlog에는 *흡수* 기록으로
-남겼다(이연 0). 두 HIGH는 성격이 다르다 — H1은 외부 상태 변화(main이 앞서 나감)라
-재계산만이 답이고, H2는 산문과 메커니즘의 불일치라 산문을 고치는 대신 메커니즘에
-배선했다. plan 본문은 끝까지 무편집 — 봉인 유지가 산문 정합보다 우선이다.
+security-reviewer의 CRITICAL F1(familyOf 순서 미명세) 처방을 그대로 쓰지 않았다 — precedence 표는 모호한 모델명에 어떤 계열이든 하나를 줘서 이종 판정을 살 수 있고, 그것은 DD3의 "모르겠다가 승인을 사지 못하게 한다"와 반대 방향이다. 매치된 계열이 정확히 1이 아니면 unknown으로 접어 precedence보다 엄격하게 만들었다. 반대로 F2(PATH TOCTOU)는 리뷰어 자신이 "DD6이 천장으로 명시, 코드 변경 불필요"로 결론해 근거를 붙여 backlog에 등재했다.
 
 ## Open Questions
-- 상시 축의 조용한 미발화가 receipt로 관측 불가 — DD7이 명시 채택한 한계. PRD OQ 등재
-- 포착률 미측정 — fixture가 증명하는 것은 스코프이지 포착이 아니다
-- 폐포가 좁아 놓치는 변종 — 나오면 넓힘의 근거가 되는 실측이지 지금 넓힐 근거가 아니다
-- plan :192의 export 산문 off-by-one(실제 7 + 상한 1 = 8, code-review 후 9) — plan 봉인으로 미수정
-- (main 승계) pre-existing red: renderer verdict-label.test.js · b2-coverage-gate 2건
+- --model은 여전히 선언이라 위조 가능 — PATH 대조가 막는 것은 미설치 CLI 참칭뿐. Task 7의 1번과 3번은 codex 설치 상태에서 구분되지 않는다. PRD Open Question 신규 등재
+- 포착률 미측정 — probe가 증명하는 것은 강등 배선이지 degrade가 놓친 결함과 상관하는지가 아니다. PRD 지표 5는 P1 종료 후
+- off 레인의 UI3 미충족은 여전히 무주 — M3이 넓히지 않기로 해 남은 후보는 신규 milestone 하나
+- design detector 시점 gap — version bump이 whitelist 파일을 건드리지만 detector는 게이트 진입 시점(빈 diff)을 본다. plan의 Design Critique 절이 이미 CONVERGED로 판정
+- (main 승계) 선재 red: renderer verdict-label.test.js · b2-coverage-gate 2건
 - (main 승계) worktree cleanup .worktrees/review-loop-bypass-m2 잔존
 
 ## Last Updated
-2026-08-19T05:05:00.000Z
+2026-08-19T08:36:26.397Z

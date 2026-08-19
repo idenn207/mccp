@@ -2,7 +2,100 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.29.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.30.0] — 2026-08-19
+
+> **§3.7**: `1.29.1 → 1.30.0` (**minor** — M3은 santa-evidence-diversity PRD의 마지막
+> milestone이라 PRD 전체 완료 축이다). 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄다. 진입 시점
+> 재계산에서 origin/main은 `1.29.0`이고 이 브랜치가 `1.29.1`이므로 `1.30.0`이
+> 양쪽보다 앞선다. **`/mccp:pr` 진입 직전에 한 번 더 재계산할 것**(§3.7의 두 번째 시점).
+
+---
+
+### Added — santa 증거 다양성 M3: degrade 차단
+
+`codex`도 `gemini`도 없는 머신에서 Reviewer B는 두 번째 Claude Opus로 떨어진다. 그 조합의
+NICE는 이종 조합의 NICE와 **어느 표면에서도 구분되지 않았다** — 라운드 판정도, 봉인
+verdict도, receipt도 같은 값을 냈다. M3은 원장에 이미 있는 리뷰어 `model` 문자열에서
+계열을 분류하고 봉인 층에서 `converged`를 `degraded`로 좁혀 push를 막되, 감사되는 사람
+승인 경로를 남긴다. **리뷰어 수는 늘지 않고**(I5) 라운드 판정(`gate.js`, P1 소유·동결)은
+무접촉이다 — 바뀌는 것은 *같은 NICE가 어떤 이름으로 봉인되는가* 하나다.
+
+- `plugins/mccp/scripts/lib/santa/model-diversity.js` — P2 소유 신규 순수 oracle.
+  `familyOf`(4값 — `anthropic`/`openai`/`google`/`unknown`) · `parseDegradeGate`(env 1종,
+  default `enforce`, 불량값 loud warn 후 발화 쪽 fail-open) ·
+  `parseDegradeAck`(strict `validateReason`에 위임, 부재와 거부를 `rejectedBecause`로 구분) ·
+  `diversityFrom`(FINAL 라운드 하나만 보는 순수 집계). 외부 require는
+  `receipt/lib/force-override-reason` 하나이고 그것은 `gate.js`가 이미 지고 있어 santa
+  모듈군의 외부 의존 목록은 **0건 증가**다.
+- **`familyOf`는 매치된 계열이 정확히 1이 아니면 `unknown`을 낸다** — 0건도, 2건 이상도.
+  security-reviewer가 제안한 precedence 표는 채택하지 않았다: precedence는
+  `claude-gpt-bridge` 같은 다중매치 문자열에 *어떤 계열이든 하나를* 주고, 그 하나가 상대
+  리뷰어와 다르면 곧바로 이종 판정을 산다. "모르겠다가 승인을 사지 못하게 한다"가 이
+  축의 원칙이므로 모호함은 unknown으로 접힌다. 미등재 모델의 처방은 게이트 완화가 아니라
+  카탈로그 1줄 추가다.
+- `santa/seal.js` — `deriveVerdict`가 제3값 `degraded`를 낸다(우선순위 `divergent` >
+  `degraded` > `converged` — 기존 두 절은 무변경이고 그 **아래에** 절을 더한다).
+  `renderReport`에 계열 1줄, `seal()` 반환에 `degraded`·`degradeReason`·`degradeAck` 3키
+  추가. `exitReason` 투영 술어를 `=== 'converged'`에서 `!== 'divergent'`로 일반화했다 —
+  verdict가 2값이던 동안 두 술어는 같았고 `degraded`가 처음으로 그 둘을 가른다(degraded
+  라운드는 **수렴했다**).
+- **`degraded`는 receipt 어휘에 들어가지 않는다.** `REVIEW_VERDICT_VALUES`는
+  `receipt/schema.js`의 `CODEX_VERDICT_VALUES`와 공유되므로 거기에 값을 더하면 santa와
+  무관한 codex 축·`pr-ship-gate`·dedupe·대시보드가 전부 새 값을 만난다. 대신 `seal()` 안
+  **한 곳**에서 `divergent`로 사영하고(둘 다 비승인이라 사영이 넓히지 않는다) degrade라는
+  사실은 present-only 필드가 진다. `degraded`라는 이름은 `seal` stdout ·
+  `.claude/reviews/` 리포트 · Step 5.5 정지 메시지에만 나타난다.
+- `receipt/write.js` + `receipt/schema.js` — present-only 5필드
+  (`santa_model_families` 비음 정수 · `santa_model_degraded`/`santa_degrade_ack` **`true`만** ·
+  `santa_degrade_reason` 2값 열거 · `santa_degrade_ack_reason` 비어있지 않은 문자열) +
+  **ack ↔ ack_reason 양방향 불변식**. `makeSkeleton` 미등록이라 이 축을 쓰지 않는 receipt의
+  canonical hash는 무변동이다(§3.12).
+- `santa/cli.js` — `record --model`의 PATH 재도출 대조. `openai`/`google` 계열을 선언했는데
+  `codex`/`gemini`가 PATH에 없으면 `SANTA_MODEL_UNAVAILABLE`로 exit 2이고 라운드는 열린 채
+  남는다(신규 exit code 0건). 외부 프로세스를 띄우지 않고 `PATH` 분해 + `statSync().isFile()`
+  로 확인하며 Windows는 `PATHEXT`를 함께 시도한다.
+- `commands/santa-loop.md` — Step 3 Reviewer B fallback 문단에 "그 경고가 이제 봉인
+  verdict를 바꾼다" 한 문단, Step 5.5의 `SEAL_VERDICT` 분기를 3갈래로(**`degraded`를 먼저
+  검사** — `!= converged`가 앞서면 degraded가 divergent 메시지로 흡수되어 처방이 사라진다),
+  Output 블록의 verdict/Result 줄, Notes 5항목.
+
+### 이 milestone이 주장하지 않는 것
+
+- **위조 방지가 아니다.** PATH 대조가 막는 것은 *설치되지 않은 CLI의 모델명을 참칭하는*
+  경로뿐이다. codex가 설치돼 있는데 Claude fallback을 쓰고 `gpt-5.4`라고 적는 것은 막지
+  못한다 — 셸에서 어느 모델이 응답했는지 확인할 방법이 없다. M1이 `--lane`에 대해 적은
+  것과 **같은 천장**이고 검증은 결과 분포에 맡긴다(PRD 지표 5).
+- **ack는 verdict를 재작성하지 않는다.** `MCCP_SANTA_DEGRADE_ACK`(strict 사유)는 push를
+  열 뿐이고 봉인은 `degraded` 그대로다. codex 미설치 머신에서는 모든 실행이 degraded라
+  ack가 상주 설정이 되는데, ack가 verdict를 바꾸면 degraded 실행 수가 영구히 0이 되어
+  "degrade 가시화" 지표가 측정 대상을 잃는다. 그대로 두면 상주 ack 아래에서도 비율이
+  계속 세어지고, 그 비율이 곧 "이 머신에 codex를 설치할 이유"의 실측이다.
+- **의도적 비활성과 미가용의 구분은 봉인되지 않는다.** 봉인되는 `santa_degrade_reason`은
+  projection에서 파생 가능한 두 값(`same_family`/`unknown_model`)뿐이다. 봉인 시점에 PATH를
+  다시 훑은 값은 리뷰어가 실제로 돈 시점과 어긋날 수 있고, receipt는 그것을 라운드의
+  사실처럼 보여준다. 그 구분은 Step 5.5의 **정지 메시지**가 운영자 안내로만 설명한다.
+- **블라인드 레인 `off`의 UI3 미충족은 M3 범위가 아니다.** 처방이 다르기 때문이다(모델
+  degrade는 "codex를 설치하라", 레인 degrade는 "`off`를 그만 쓰라"). 한 verdict에 묶으면
+  운영자가 받은 정지 메시지가 어느 처방을 가리키는지 흐려진다. PRD Open Question의 남은
+  후보는 신규 milestone 하나로 좁혔다.
+
+### Changed
+
+- `docs/ENVIRONMENT.md` §11 — `MCCP_SANTA_DEGRADE_GATE`(`enforce` default / `off`) ·
+  `MCCP_SANTA_DEGRADE_ACK` 등재. `off`는 **verdict 강등만** 끄고 관측 3필드는 그대로
+  stamp된다 — 부재("이 축이 없던 시절")와 관측된 0/false는 다른 상태이므로 kill switch가
+  관측까지 끄면 `off` 실행이 M3 이전 실행과 구분되지 않는다.
+- `docs/santa-loop/ownership.md` — 소유권 표 신규 행 + P2 M3 export 계약 + "P2 M3이 연 P0
+  파일과 근거" 표(열지 **않은** 경계 포함).
+- 회귀 test: `santa-lanes.test.js` M3 블록 23건 신규(총 70건) ·
+  `santa-review-gate.test.js` 8건 신규(총 25건) · `santa-loop-cap.test.js` 2건 신규(총 56건,
+  모듈 집합 · receipt-free · require allowlist 3목록 확장). **단언 삭제 0건.**
+  `santa-seal.test.js`의 fixture 모델명을 `m-a`/`m-b`(플레이스홀더 → `unknown` → degrade)에서
+  `opus`/`gpt-5.4`로 정직하게 바꿨다 — 그 test들이 애초에 말하려던 상태가 "두 **이종**
+  리뷰어"이고, 단언을 지우거나 게이트를 끄는 대신 fixture를 실재에 맞추는 쪽이다.
 
 ## [1.29.1] — 2026-08-19
 

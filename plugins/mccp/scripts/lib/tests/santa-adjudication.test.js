@@ -64,10 +64,30 @@ function finding(over) {
   }, over || {});
 }
 
+// santa-evidence-diversity M3 — envelope fixture의 모델명은 **실재 계열이어야 한다**.
+//
+// M3 이전에는 `model-A`/`model-B` 플레이스홀더로 충분했다. 이제 `seal.deriveVerdict`가
+// `model-diversity.familyOf`로 계열을 분류하고 정확히 1개 계열에 매치되지 않으면
+// `unknown`(→ degraded)이므로, 플레이스홀더 2인 라운드를 `converged`로 단언하는 P1의
+// 교차층 test([25]·[79])가 붉어진다. **단언을 지우거나 게이트를 끄는 대신 fixture를
+// 정직하게** 만든다 — 실제 실행의 Reviewer A는 `opus`, Reviewer B는 `gpt-5.4`이므로 이
+// fixture는 이제 "두 리뷰어"가 아니라 "두 **이종** 리뷰어"를 뜻하고, 그것이 애초에
+// `{A,B}` 완전성 단언이 말하려던 상태다.
+//
+// **`record` 경로(`--model`)에는 이 값을 쓰지 않는다.** 그쪽은 CLI가 `openai`/`google`
+// 계열 선언에 대해 PATH를 재도출하므로 `gpt-5.4`를 넘기면 test가 이 머신에 codex가
+// 설치됐는지에 따라 갈린다. 거기서는 `model-<id>`(→ unknown, PATH 대조 면제)를 그대로
+// 둔다 — 그 test들은 봉인 verdict를 단언하지 않는다.
+function modelFor(id) {
+  if (id === 'A') return 'opus';        // anthropic
+  if (id === 'B') return 'gpt-5.4';     // openai
+  return 'model-' + id;                 // 그 외는 unknown — 계열을 주장하지 않는다
+}
+
 function reviewer(id, verdict, findings) {
   return {
     id: id,
-    model: 'model-' + id,
+    model: modelFor(id),
     verdict: verdict,
     criticalIssues: (findings || []).map(function (f) { return f.claim; }),
     findings: findings || [],
@@ -76,7 +96,7 @@ function reviewer(id, verdict, findings) {
 
 // legacy envelope — `findings` 키 자체가 없다(M1 이전에 원장에 쌓인 형태).
 function legacyReviewer(id, verdict, criticalIssues) {
-  return { id: id, model: 'model-' + id, verdict: verdict, criticalIssues: criticalIssues || [] };
+  return { id: id, model: modelFor(id), verdict: verdict, criticalIssues: criticalIssues || [] };
 }
 
 function decide(reviewers, severityGate) {

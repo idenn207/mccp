@@ -40,6 +40,7 @@ const adjudication = require('./adjudication');
 const terminator = require('./terminator');
 const lanes = require('./lanes');
 const scopeAlways = require('./scope-always');
+const modelDiversity = require('./model-diversity');
 const seal = require('./seal');
 const { gitRepoRoot } = require('../../receipt/hash');
 const { assertContained } = require('../path-containment');
@@ -280,6 +281,51 @@ function deriveFinding(element, index) {
   };
 }
 
+// isOnPath(bin) → boolean  (santa-evidence-diversity M3)
+//
+// **외부 프로세스를 띄우지 않는다.** `record`는 라운드마다 2회 도는 경로이고,
+// `command -v`를 spawn하면 그 자리에 프로세스 실행 의존이 들어온다(`terminator.js`가
+// 순수 oracle을 유지한 것과 같은 이유 — 이 파일은 이미 `child_process`를 지고 있지만,
+// 지고 있다는 것이 아무 데나 써도 된다는 뜻은 아니다).
+//
+// 이 함수의 판정은 **탐지이지 실행 보장이 아니다**. `existsSync` 대신 `statSync` +
+// `isFile()`을 쓰는 것은 `PATH`에 `codex`라는 **디렉토리**가 있을 때 존재를 가용으로
+// 오독하지 않기 위해서다. POSIX 실행 비트까지는 보지 않는다 — 그 검사는 "이 파일이
+// 지금 실행 가능한가"를 답하는데, 우리가 묻는 것은 "이 CLI가 이 머신에 설치돼
+// 있는가"이고 둘은 다르다(권한 문제로 실패하는 설치본은 **설치돼 있다**).
+//
+// Windows: `PATHEXT`를 함께 시도한다. 확장자 없는 `codex`만 보면 `codex.exe` 설치본이
+// 미설치로 오독되고, 그 오판은 **정당한 이종 실행을 degraded로 만든다**
+// (security-reviewer F6). 인용부호로 감싼 PATH 항목(`"C:\Program Files\x"`)은
+// Windows에서 정상 형태이므로 벗겨낸다. 빈 항목은 건너뛴다 — Windows에서 빈 항목은
+// 현재 디렉토리를 뜻하는데, cwd에 놓인 파일을 "설치된 CLI"로 인정하는 것은
+// 이 함수가 답하려는 질문의 답이 아니다.
+//
+// 순회 길이의 상한은 `PATH` 자신의 길이다. 임의의 캡을 두지 않는 이유는 방어할 근거가
+// 없기 때문이고(정상 PATH는 수십 항목), 이 입력은 리뷰어가 아니라 **운영자**가
+// 소유한다 — 리뷰어 JSON에 상한을 둔 것과 신뢰 경계가 다르다.
+function isOnPath(bin) {
+  const raw = process.env.PATH;
+  if (typeof raw !== 'string' || raw === '') return false;
+
+  const exts = process.platform === 'win32'
+    ? [''].concat(String(process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
+      .split(';').map(function (e) { return e.trim(); }).filter(Boolean))
+    : [''];
+
+  return raw.split(path.delimiter).some(function (entry) {
+    const dir = entry.trim().replace(/^"(.*)"$/, '$1');
+    if (dir === '') return false;
+    return exts.some(function (ext) {
+      try {
+        return fs.statSync(path.join(dir, bin + ext)).isFile();
+      } catch (_) {
+        return false;   // ENOENT · ENOTDIR · EACCES — 어느 쪽이든 "여기엔 없다"다
+      }
+    });
+  });
+}
+
 function loadReviewer(args, opts) {
   const file = args['reviewer-file'];
   if (typeof file !== 'string' || file === '') {
@@ -326,6 +372,37 @@ function loadReviewer(args, opts) {
   const model = args.model;
   if (typeof model !== 'string' || model.trim() === '') {
     throw new SantaCliError('SANTA_USAGE', '--model <str> is required and must be non-empty');
+  }
+
+  // santa-evidence-diversity M3 — 선언 모델의 PATH 재도출 대조.
+  //
+  // `--model`은 커맨드 본문이 **타이핑하는 선언**이고, M2 DD7이 "검증되지 않는 값을
+  // 봉인하면 receipt가 사실이 아닌 것을 사실처럼 기록한다"고 적은 기준이 여기에도
+  // 적용된다. `--lane`과 달리 이 축에는 CLI가 **부분적으로 재도출할 수 있는 사실**이
+  // 하나 있다: 외부 CLI가 `PATH`에 있는가.
+  //
+  // **막는 것**: 설치되지도 않은 CLI의 모델명을 적어 이종 판정을 얻는 경로.
+  // **막지 못하는 것**: codex가 설치돼 있는데 Claude fallback을 쓰고 `gpt-5.4`라고
+  // 적는 것 — 셸에서 어느 모델이 실제로 응답했는지 확인할 방법이 없다. M1이 `--lane`에
+  // 대해 적은 것과 **같은 천장**이고 M3도 위조 방지를 주장하지 않는다. 이것은
+  // 예방이 아니라 **탐지**이며 검증은 결과 분포에 맡긴다(PRD 지표 5).
+  //
+  // `anthropic`·`unknown`은 대조 대상이 **아니다**. Claude fallback은 정상 입력이고,
+  // unknown은 `model-diversity`가 이미 degraded로 처리한다 — 여기서 또 막으면 미등재
+  // 모델이 라운드를 아예 못 열게 되어 처방이 "카탈로그 1줄 PR"에서 "루프 중단"으로
+  // 바뀐다.
+  const REQUIRED_CLI = { openai: 'codex', google: 'gemini' };
+  const declaredFamily = modelDiversity.familyOf(model);
+  const requiredBin = REQUIRED_CLI[declaredFamily];
+  if (requiredBin && !isOnPath(requiredBin)) {
+    throw new SantaCliError('SANTA_MODEL_UNAVAILABLE',
+      'reviewer ' + id + ' declared --model ' + JSON.stringify(model) + ' (family ' +
+      declaredFamily + ') but "' + requiredBin + '" is not on PATH, so that model cannot ' +
+      'have produced this review. The round stays open; re-record with the model you ' +
+      'actually ran (a Claude fallback is a legitimate input — record it as such and the ' +
+      'seal will mark the run degraded rather than claiming diversity it did not have). ' +
+      'If the CLI is installed but outside PATH, put it on PATH for the loop rather than ' +
+      'declaring around it.');
   }
 
   // santa-evidence-diversity M1 — `--lane`은 **필수**이고 oracle 배정과 대조된다.

@@ -48,6 +48,16 @@ function makeRepo() {
   return dir;
 }
 
+// santa-evidence-diversity M3 — fixture 모델명은 **실재 계열이어야 한다**.
+//
+// M3 이전에는 `'m-a'`/`'m-b'` 같은 플레이스홀더로 충분했다. 이제 `deriveVerdict`가
+// `model-diversity.familyOf`로 계열을 분류하고 **정확히 1개 계열에 매치되지 않으면
+// `unknown`**(DD3)이므로, 플레이스홀더 2인 라운드는 `unknown_model`로 강등돼
+// `converged`를 단언하는 기존 test 전부가 붉어진다. 단언을 지우거나 게이트를 끄는
+// 대신 fixture를 **정직하게** 만든다 — 실제 실행의 Reviewer A는 `opus`이고 Reviewer B는
+// `gpt-5.4`이므로, 이 fixture는 이제 "두 리뷰어가 있다"가 아니라 "두 **이종** 리뷰어가
+// 있다"를 뜻하고 그것이 애초에 그 test들이 말하려던 상태다. 강등 자체의 회귀는
+// `santa-lanes.test.js`의 M3 블록이 자기 fixture로 따로 검사한다.
 function reviewer(id, model, verdict, criticalIssues, lane) {
   return {
     envelope: Object.assign({
@@ -97,7 +107,7 @@ function seedLedger(repo, slug, opts) {
 function seedNice(repo, slug, cap) {
   return seedLedger(repo, slug, {
     cap: cap === undefined ? 3 : cap,
-    rounds: [round(0, 'NICE', [reviewer('A', 'm-a', 'PASS'), reviewer('B', 'm-b', 'PASS')])],
+    rounds: [round(0, 'NICE', [reviewer('A', 'opus', 'PASS'), reviewer('B', 'gpt-5.4', 'PASS')])],
   });
 }
 
@@ -153,7 +163,7 @@ test('[9] a round where the same id recorded twice yields roles=1, passed=false,
       cap: 3,
       // M1은 판정 lifecycle 검사(id 중복 거부)를 P1으로 이연했으므로 이 라운드는
       // **실재할 수 있다**. receipt가 있지도 않은 모델 다양성을 주장하면 안 된다.
-      rounds: [round(0, 'NICE', [reviewer('A', 'm-a', 'PASS'), reviewer('A', 'm-a', 'PASS')])],
+      rounds: [round(0, 'NICE', [reviewer('A', 'opus', 'PASS'), reviewer('A', 'opus', 'PASS')])],
     });
     const r = seal.seal({ cwd: repo, decisionId: 'a-twice' });
 
@@ -233,7 +243,7 @@ test('[12] a NAUGHTY final round seals divergent with l1=converged and repo-rela
     const repo = makeRepo();
     seedLedger(repo, 'naughty-x', {
       cap: 3,
-      rounds: [round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'PASS'), reviewer('B', 'm-b', 'FAIL')])],
+      rounds: [round(0, 'NAUGHTY', [reviewer('A', 'opus', 'PASS'), reviewer('B', 'gpt-5.4', 'FAIL')])],
     });
     const r = seal.seal({ cwd: repo, decisionId: 'naughty-x' });
     assert.equal(r.verdict, 'divergent');
@@ -313,8 +323,8 @@ test('[15] a cap-reached ledger seals divergent with exit_reason=cap_reached and
     seedLedger(repo, 'cap-x', {
       cap: 2,
       rounds: [
-        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
-        round(1, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
+        round(0, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
+        round(1, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
       ],
       terminated: {
         reason: counter.REASONS.CAP_REACHED, at: '2026-08-14T09:00:00.000Z', rounds: 2,
@@ -346,8 +356,8 @@ test('[16] cap comes from the ledger state, not the environment (deliberate mism
     seedLedger(repo, 'capsrc-x', {
       cap: 2,
       rounds: [
-        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
-        round(1, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
+        round(0, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
+        round(1, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
       ],
     });
 
@@ -395,7 +405,7 @@ test('[17] seal derives everything from ONE ledger snapshot (concurrent mutation
         // 동시 CLI 호출이 라운드를 하나 더 append한 상황.
         const mutated = JSON.parse(fs.readFileSync(sp, 'utf8'));
         mutated.rounds.push(round(1, 'NAUGHTY',
-          [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'FAIL')]));
+          [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'FAIL')]));
         fs.writeFileSync(sp, JSON.stringify(mutated, null, 2) + '\n');
       }
       return state;
@@ -434,10 +444,10 @@ test('[18] the last allowed round converging NICE seals converged, not divergent
     seedLedger(repo, 'lastnice-x', {
       cap: 2,
       rounds: [
-        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
+        round(0, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
         // 마지막 허용 라운드. 여기서 수렴했으므로 begin-round는 다시 불리지 않았고,
         // 따라서 거부도 없다 — `terminated`는 부재다.
-        round(1, 'NICE', [reviewer('A', 'm-a', 'PASS'), reviewer('B', 'm-b', 'PASS')]),
+        round(1, 'NICE', [reviewer('A', 'opus', 'PASS'), reviewer('B', 'gpt-5.4', 'PASS')]),
       ],
     });
 
@@ -476,8 +486,8 @@ test('[19] a refusal observed after the ledger already converged does not downgr
     seedLedger(repo, 'reentry-x', {
       cap: 2,
       rounds: [
-        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
-        round(1, 'NICE', [reviewer('A', 'm-a', 'PASS'), reviewer('B', 'm-b', 'PASS')]),
+        round(0, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
+        round(1, 'NICE', [reviewer('A', 'opus', 'PASS'), reviewer('B', 'gpt-5.4', 'PASS')]),
       ],
       // 수렴 뒤 재진입에서 begin-round가 거부되며 쓰인 마커. 현 라운드 수에 결속돼 있다.
       terminated: {
@@ -513,8 +523,8 @@ test('[20] a termination marker bound to a stale round count is not read as term
     seedLedger(repo, 'stale-marker-x', {
       cap: 3,
       rounds: [
-        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
-        round(1, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
+        round(0, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
+        round(1, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
       ],
       // 라운드가 1건이던 시점의 거부. 그 뒤 캡이 올라 라운드가 더 열렸다.
       terminated: {
@@ -540,10 +550,10 @@ test('[M1] lane 투영과 stamp — blind 1건인 라운드 2개가 정수 2종�
     seedLedger(repo, 'lane-x', {
       cap: 3,
       rounds: [
-        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL', null, 'blind'),
-          reviewer('B', 'm-b', 'PASS', null, 'bundled')]),
-        round(1, 'NICE', [reviewer('A', 'm-a', 'PASS', null, 'blind'),
-          reviewer('B', 'm-b', 'PASS', null, 'bundled')]),
+        round(0, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL', null, 'blind'),
+          reviewer('B', 'gpt-5.4', 'PASS', null, 'bundled')]),
+        round(1, 'NICE', [reviewer('A', 'opus', 'PASS', null, 'blind'),
+          reviewer('B', 'gpt-5.4', 'PASS', null, 'bundled')]),
       ],
     });
     seal.seal({ cwd: repo, decisionId: 'lane-x' });
@@ -563,8 +573,8 @@ test('[M1] off 실행의 stamp는 0으로 실린다 — 생략되지 않는다',
     const repo = makeRepo();
     seedLedger(repo, 'lane-off', {
       cap: 3,
-      rounds: [round(0, 'NICE', [reviewer('A', 'm-a', 'PASS', null, 'bundled'),
-        reviewer('B', 'm-b', 'PASS', null, 'bundled')])],
+      rounds: [round(0, 'NICE', [reviewer('A', 'opus', 'PASS', null, 'bundled'),
+        reviewer('B', 'gpt-5.4', 'PASS', null, 'bundled')])],
     });
     seal.seal({ cwd: repo, decisionId: 'lane-off' });
     const receipt = readReceipt(repo, 'lane-off');
@@ -580,8 +590,8 @@ test('[M1] legacy envelope(레인 부재)는 무해하다 — 0을 내고 던지
     const repo = makeRepo();
     seedLedger(repo, 'lane-legacy', {
       cap: 3,
-      rounds: [round(0, 'NICE', [reviewer('A', 'm-a', 'PASS'),
-        reviewer('B', 'm-b', 'PASS')])],
+      rounds: [round(0, 'NICE', [reviewer('A', 'opus', 'PASS'),
+        reviewer('B', 'gpt-5.4', 'PASS')])],
     });
     assert.doesNotThrow(function () { seal.seal({ cwd: repo, decisionId: 'lane-legacy' }); });
     const receipt = readReceipt(repo, 'lane-legacy');
@@ -605,9 +615,9 @@ test('[M1] 리포트 라운드 표에 레인 열이 있고 legacy는 ? 로 찍�
   seedLedger(repo, 'lane-report', {
     cap: 3,
     rounds: [
-      round(0, 'NICE', [reviewer('A', 'm-a', 'PASS', null, 'blind'),
-        reviewer('B', 'm-b', 'PASS', null, 'bundled')]),
-      round(1, 'NICE', [reviewer('A', 'm-a', 'PASS')]),
+      round(0, 'NICE', [reviewer('A', 'opus', 'PASS', null, 'blind'),
+        reviewer('B', 'gpt-5.4', 'PASS', null, 'bundled')]),
+      round(1, 'NICE', [reviewer('A', 'opus', 'PASS')]),
     ],
   });
   const r = seal.seal({ cwd: repo, decisionId: 'lane-report' });

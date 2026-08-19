@@ -1067,12 +1067,20 @@ test('UI4/UI11 — receipt 배선은 seal.js에만 있다 (M1 4개 모듈은 여
   // 재현할 수 없는 **검증 불가능한 필수 플래그**가 된다), 그래서 집계 정수조차 없다.
   // 관측 표면은 Step 1의 터미널 출력과 이 test 셋뿐이다. 목록을 넓히는 대신 지우면
   // M1이 이 test로 막으려던 결함이 그대로 돌아온다.
+  //
+  // santa-evidence-diversity M3이 `model-diversity.js`를 더했다(같은 소유권 표의 P2 신규
+  // 파일). 같은 규약으로 승인한다 — 목록에 한 줄, receipt-free 목록에도 한 줄. degrade
+  // 관측 3종은 receipt `meta.santa_model_{families,degraded}` + `santa_degrade_reason`에
+  // 실리지만 그 봉인은 `seal.js`가 하고 `model-diversity.js`는 순수 oracle이라 receipt를
+  // 모른다(`lanes.js`·`terminator.js`와 동형). ack 2종도 마찬가지로 여기서 **판정만**
+  // 하고 stamp는 `seal.js` 소관이다. 목록을 넓히는 대신 지우면 M1이 이 test로 막으려던
+  // 결함이 그대로 돌아온다.
   assert.deepEqual(files.sort(),
     ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'lanes.js', 'ledger.js',
-      'scope-always.js', 'seal.js', 'terminator.js']);
+      'model-diversity.js', 'scope-always.js', 'seal.js', 'terminator.js']);
 
   const RECEIPT_FREE = ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'lanes.js',
-    'ledger.js', 'scope-always.js', 'terminator.js'];
+    'ledger.js', 'model-diversity.js', 'scope-always.js', 'terminator.js'];
   for (const f of RECEIPT_FREE) {
     const src = fs.readFileSync(path.join(santaDir, f), 'utf8');
     // 주석의 서술("M2 소유")은 허용하고, 실제 배선만 금지한다.
@@ -1126,12 +1134,21 @@ test('Acceptance — 외부 의존이 문서화된 6개뿐이고 npm 의존 0', 
   // 재사용하지 **않은** 이유가 정확히 이 줄을 지키기 위해서다: 그것을 require하면 순수
   // oracle이 `fs`와 `PLAN_DIRS`를 끌어오고 이 목록이 늘어나는데, 가져올 것은 정규식
   // 2개와 8줄짜리 헬퍼뿐이라 미러가 싸다. 소비처는 `cli.js` 하나다.
+  //
+  // santa-evidence-diversity M3이 내부 하나(`./model-diversity` — 같은 소유권 표의 P2 신규
+  // 파일)를 더했다. **외부 의존은 0건 추가**다: `model-diversity.js`가 require하는 것은
+  // `../../receipt/lib/force-override-reason` 하나뿐이고 그것은 이미 이 allowlist에 있다
+  // (`gate.js`가 santa-adjudication M1에서 여섯 번째 외부 의존으로 등재한 그 항목이다).
+  // 규칙을 베끼는 대신 의존을 지는 쪽이 옳다는 근거도 그때와 같다 — override 사유
+  // 판정 규칙을 복사하면 원본이 바뀔 때 두 사본이 갈리고 그 갈림은 어떤 test도 잡지
+  // 않는다. 소비처는 `cli.js`와 `seal.js` 둘이다.
   const allowed = new Set([
     './counter', './ledger', './gate', './seal',          // 내부
     './adjudication',                                     // 내부 (santa-adjudication M2)
     './terminator',                                       // 내부 (santa-adjudication M3)
     './lanes',                                            // 내부 (santa-evidence-diversity M1)
     './scope-always',                                     // 내부 (santa-evidence-diversity M2)
+    './model-diversity',                                  // 내부 (santa-evidence-diversity M3)
     '../../receipt/evidence-lock', '../../receipt/hash',
     '../../receipt/decision', '../path-containment',
     '../../receipt/write',                                // 외부 5 (M2)
@@ -1329,4 +1346,59 @@ test('M2 code-review M3 — Step 1이 paths 부재와 빈 배열을 다른 exit�
   assert.match(absentBlock, /exit 1/, '부재가 비영점으로 끝나지 않는다');
   assert.match(emptyBlock, /exit 0/,
     '빈 배열이 오류로 끝난다 — 그것은 Step 1 산문이 정상으로 규정한 경로다');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// santa-evidence-diversity M3 — Step 5.5 degrade 분기의 커맨드 본문 축.
+//
+// plan-review 패널(invariant)이 "Step 5.5의 순서가 산문으로만 있다"를 네 번째로
+// 재보고했고, 그 재보고의 **실질 잔여물**이 이것이다: 순서를 강제하는 것은 plan에 적힌
+// bash가 아니라 test다. Step 4 · Step 5.5 test와 같은 규약으로 이 절이 그 순서를 소유한다.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test('M3 — Step 5.5가 degraded를 `!= converged`보다 먼저 검사한다', () => {
+  // 순서가 뒤집히면 degraded가 divergent 메시지로 흡수된다. 차단은 그대로라 게이트가
+  // 작동하는 것처럼 보이지만 운영자가 받는 처방이 사라진다 — 두 verdict의 처방이
+  // 다르기 때문이다(divergent=다시 리뷰 / degraded=codex 설치 또는 ack).
+  const slice = santaLoopStepSlice('Step 5\.5');
+  const at = (re) => linesMatching(slice, re);
+
+  const degraded = at(/if \[ "\$SEAL_VERDICT" = "degraded" \]/);
+  const notConverged = at(/if \[ "\$SEAL_VERDICT" != "converged" \]|elif \[ "\$SEAL_VERDICT" != "converged" \]/);
+
+  assert.ok(degraded.length > 0, 'Step 5.5에 degraded 분기가 없다');
+  assert.ok(notConverged.length > 0, 'Step 5.5의 기존 non-converged 분기가 사라졌다');
+  assert.ok(degraded[0] < notConverged[0],
+    'degraded 검사가 `!= converged`보다 뒤에 있다 — degraded가 divergent 메시지에 흡수된다');
+});
+
+test('M3 — degraded는 ack 없이 push를 막고, ack는 seal 반환값으로만 판정된다', () => {
+  const slice = santaLoopStepSlice('Step 5\.5');
+  const joined = slice.join('\n');
+  const at = (re) => linesMatching(slice, re);
+
+  // ack는 `seal`이 반환한 `degradeAck`에서 온다. 여기서 env를 다시 읽으면 한 변수에
+  // 두 해석이 생기고, 그 형태의 결함은 이 저장소가 이미 여러 번 잡았다(DD5).
+  assert.match(joined, /DEGRADE_ACK=\$\(.*degradeAck/,
+    'ack를 seal 반환값에서 읽지 않는다');
+  assert.equal(/MCCP_SANTA_DEGRADE_ACK[^"]*\}/.test(joined), false,
+    'Step 5.5가 MCCP_SANTA_DEGRADE_ACK를 셸에서 다시 전개한다 — 판정 주체는 CLI 한 곳이다');
+
+  // ack 부재 경로에 종료문이 있어야 한다. 없으면 degraded가 그대로 push로 흘러간다.
+  const ackBranch = at(/if \[ "\$DEGRADE_ACK" != "1" \]/);
+  assert.ok(ackBranch.length > 0, 'ack 부재 분기가 없다');
+  const halts = at(/^\s*exit 1$/);
+  assert.ok(halts.some((h) => h > ackBranch[0]),
+    'ack 부재 분기 안에 종료문이 없다 — 승인 없는 degraded가 push된다');
+
+  // DD5: ack는 push를 열 뿐 verdict를 재작성하지 않는다. 그 사실이 본문에 남아야 한다 —
+  // 상주 ack 아래에서도 degraded 비율이 계속 세어진다는 것이 이 축의 측정 근거다.
+  assert.match(joined, /does not rewrite|does NOT rewrite/,
+    'ack가 verdict를 재작성하지 않는다는 사실이 본문에 없다');
+
+  // DD7: 의도적 비활성 대 미가용의 구분은 **안내**이지 봉인되는 주장이 아니다.
+  assert.match(joined, /MCCP_CODEX_DISABLED/, '의도적 비활성 구분이 없다');
+  assert.match(joined, /command -v codex/, '미가용 구분이 없다');
+  assert.match(joined, /OPERATOR GUIDANCE, not a sealed claim/,
+    '그 두 줄이 봉인되는 주장이 아니라는 표시가 없다 — 없으면 다음 독자가 receipt로 옮긴다');
 });

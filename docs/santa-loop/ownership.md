@@ -20,11 +20,12 @@ P0가 동결한 함수 시그니처를 계약으로 고정한다.
 | P1 | `plugins/mccp/scripts/lib/tests/santa-adjudication.test.js` | (신규) 위 셋의 회귀 test |
 | P2 | `plugins/mccp/scripts/lib/santa/lanes.js` | (신규) 블라인드 레인 — Reviewer A 인스턴스 1명에게 파일 번들·사전 요약 대신 루트 + 경로 포인터만 전달 — santa-evidence-diversity PRD Scope MVP (1) |
 | P2 | `plugins/mccp/scripts/lib/santa/scope-always.js` | (신규) 상시 스코프. diff 무관하게 **현재 decision의 plan + 그 plan이 선언한 Source PRD**를 changed-files에 포함 — 같은 Scope MVP (2). M2 DD1이 Scope 문언의 4개 글롭(이 저장소 실측 7 MB)을 이 폐포(실측 약 70 KB)로 좁혔고 PRD 본문도 같은 PR에서 정정했다(프로토콜 4) |
+| P2 | `plugins/mccp/scripts/lib/santa/model-diversity.js` | (신규) 모델 계열 다양성 oracle. 원장의 리뷰어 `model` 문자열에서 계열을 분류해 봉인 층이 `converged`를 `degraded`로 좁힐 근거를 낸다 — 같은 Scope MVP (3). 리뷰어 수는 늘지 않는다(I5) |
 | P2 | `plugins/mccp/scripts/lib/tests/santa-lanes.test.js` | (신규) 레인 분기 + 상시 스코프 + degrade 강등 회귀 test |
 | P3 | `plugins/mccp/scripts/lib/santa/delta-scope.js` | (신규) 라운드 2 이후 리뷰 스코프를 직전 라운드 diff의 hunk 범위로 좁히는 계산 — santa-delta-review PRD Scope MVP |
 | P3 | `plugins/mccp/scripts/lib/tests/santa-delta-scope.test.js` | (신규) 델타 범위 계산 + 인식론적 단언 금지 회귀 test |
 
-교집합은 ∅다. 위 9개 경로에 중복이 없다는 것이 그 주장의 전부이고, 기계적으로 검증
+교집합은 ∅다. 위 10개 경로에 중복이 없다는 것이 그 주장의 전부이고, 기계적으로 검증
 가능하다 — M2 plan의 Validation 5번 스크립트가 이 표를 파싱해 P1·P2·P3 경로 집합의
 교집합이 비었는지 확인하고, 비지 않으면 비영점으로 종료한다.
 
@@ -298,6 +299,74 @@ PRD UI8). 근거는 축의 목적 자체다 — 관계 불변식은 계획이 �
 라운드 재확인 대상이고, 델타가 그것을 잘라내면 M2는 라운드 1에서만 살아 있는 축이 된다.
 M2는 `delta-scope.js`를 건드리지 않으므로(UI11) 이 줄이 그 계약의 전부이며, P3 착수 시
 이 문단이 근거다.
+
+### P2 M3 export 계약 (`santa/model-diversity.js`)
+
+P2(santa-evidence-diversity **M3**)도 프로토콜 2의 **추가**다. 동결 시그니처는 한 글자도
+바뀌지 않았고 신규 모듈의 export 11종이 아래에 더해질 뿐이다.
+
+| export | 시그니처 | 계약 |
+|---|---|---|
+| `ENV_DEGRADE_GATE` | `'MCCP_SANTA_DEGRADE_GATE'` | env 이름 상수 |
+| `DEGRADE_GATE_DEFAULT` | `'enforce'` | **발화가 default**. `off`가 default면 오타 하나가 kill switch를 켜고 그 실행이 M3 이전과 똑같아 보인다(DD8) |
+| `DEGRADE_GATE_VALUES` | `['enforce','off']` | 열거 |
+| `ENV_DEGRADE_ACK` | `'MCCP_SANTA_DEGRADE_ACK'` | env 이름 상수. **default 없음** — 부재가 곧 "승인 없음"이다 |
+| `FAMILIES` | `['anthropic','openai','google']` | 계열 카탈로그. 넓히는 것은 1줄 PR이고, 그 비용이 낮다는 사실이 `unknown` fail-closed를 감당 가능하게 만든다 |
+| `FAMILY_UNKNOWN` | `'unknown'` | 제4값. 카탈로그 밖 · 비문자열 · 빈 문자열 · **다중매치** 전부가 여기로 접힌다 |
+| `DEGRADE_REASONS` | `['same_family','unknown_model']` | 봉인되는 사유. projection에서 파생 가능한 두 값뿐이다(DD7) |
+| `familyOf` | `(model) → 'anthropic'\|'openai'\|'google'\|'unknown'` | `typeof` 가드가 **어떤 코어션보다 먼저**다 — `String(model)`을 먼저 부르면 `toString()` 오버라이드가 계열을 사고, 그 입력은 `--model` 검사를 거치지 않는 경로(`seal.project()`의 `e.model`)로 도달 가능하다. **매치된 계열이 정확히 1이 아니면 `unknown`** — 0건도 2건 이상도. precedence 표를 쓰지 않는 이유는 다중매치 문자열에 *어떤 계열이든 하나를* 주면 그 하나가 상대와 달라 곧바로 이종 판정을 사기 때문이다. 어떤 입력에도 던지지 않는다 |
+| `parseDegradeGate` | `(env) → 'enforce'\|'off'` | 미설정·불량값은 loud stderr warn 후 default `enforce`. 던지지 않는다 — "gate를 못 읽어서 강등을 건너뛴다"는 분기가 존재하지 않는다 |
+| `parseDegradeAck` | `(env) → {ok, reason, rejectedBecause}` | strict `validateReason`에 **위임**한다(재구현 금지 — `gate.js`가 같은 근거로 import한다). `allowCodeVocabulary`는 넘기지 않는다: push 게이트를 여는 override 표면이고 §3.13.1이 면제 대상에서 명시적으로 제외한 쪽이다. 미설정(`'absent'`)과 거부(validator 코드)를 `rejectedBecause`로 구분한다 — 호출자가 다른 안내를 해야 한다 |
+| `diversityFrom` | `(projection) → {finalIndex, models, families, distinctFamilies, unknownCount, degraded, reason}` | **FINAL 라운드 하나만** 본다 — `deriveVerdict`가 같은 라운드에서 판정하므로 두 함수가 다른 라운드를 보면 봉인이 자기모순이 된다. 판정은 2줄이고 **순서가 전부**다: unknown이 하나라도 있으면 `unknown_model`, 아니면서 distinct < 2면 `same_family`. 반대로 두면 오탈자 하나가 곧바로 이종 판정을 얻는다. 라운드 0건·리뷰어 0건·legacy 투영(`model` 부재)은 전부 `degraded:true`/`unknown_model`로 접히고 어떤 입력에도 던지지 않는다 |
+
+**이 모듈은 `fs`도 `child_process`도 모른다.** 외부 require는
+`receipt/lib/force-override-reason` 하나이고 그것은 `gate.js`가 이미 지고 있어 santa 모듈군의
+외부 의존 목록이 **0건 증가**한다. PATH 확인 같은 I/O는 전부 `cli.js`가 진다(`lanes.js`·
+`terminator.js`와 같은 경계 — 판정 함수는 인자만 본다).
+
+**강등의 적용은 이 모듈이 아니라 `seal.deriveVerdict`가 한다.** 여기는 "이 라운드가 실제로
+이종이었는가"만 답하고, 그 답을 verdict로 바꿀지는 env와 함께 봉인 층이 정한다. 관측
+(`diversityFrom`)과 강제(`deriveVerdict`)를 가른 것이 DD4가 말하는 "관측은 항상, 강제는
+토글"의 구현이다 — `off`에서도 관측 3필드는 그대로 stamp된다.
+
+### P2 M3이 연 P0 파일과 근거
+
+| 파일 | 연 부분 | 열지 않은 경계 |
+|---|---|---|
+| `santa/seal.js` | `deriveVerdict`의 값 집합에 `degraded` 추가(선택 2번째 인자 `{env}`) · `renderReport` 계열 1줄 · `seal()` writeArgs 조건부 5키 · 반환 3키 · `exitReason` 술어 일반화 | `project()`의 투영 형태 **무변경**(`model`은 M2 이전부터 실려 있었다) · `buildProof`의 구조 무변경(**사영된** verdict를 인자로 받을 뿐) |
+| `santa/cli.js` | `loadReviewer`의 `--model` 검사 직후 PATH 대조 1건 + 모듈 로컬 헬퍼 `isOnPath` | 신규 exit code 0건 — `SANTA_MODEL_UNAVAILABLE`은 기존 `SANTA_*` → exit 2 매핑을 탄다. 신규 CLI 플래그 0건 |
+| `receipt/write.js` | `SANTA_INT_FIELDS` 1행 + 조건부 stamp 4블록 | `makeSkeleton` **무접촉** — 키를 넣으면 전 receipt의 canonical hash 입력이 바뀐다(§3.12) |
+| `receipt/schema.js` | santa 블록 끝에 present-only 검증 5종 + 양방향 불변식 1개 | `REVIEW_VERDICT_VALUES`/`CODEX_VERDICT_VALUES` **무접촉** — 아래 참조 |
+| `commands/santa-loop.md` | Step 3 Reviewer B fallback 1문단 · Step 5.5 degrade 분기 · Output 2행 · Notes 5항목 | 다른 PRD의 절 — UI15대로 P2가 쓴 자리와 P2가 여는 새 자리만 편집했다 |
+
+**`gate.js`는 열지 않았다.** "동일모델이면 NICE를 주지 않는다"를 라운드 판정에 넣는 경로는
+두 가지를 동시에 위반한다: `gate.decideVerdict`의 `'NICE'|'NAUGHTY'`는 P0 **동결
+시그니처**(프로토콜 1의 P0 재개 사유)이고, `gate.js`는 소유권 표의 **P1 행**이다. 봉인 층은
+두 조건 모두 열려 있다 — `seal.deriveVerdict`는 동결 표에 없고(선례: santa-adjudication M3이
+같은 근거로 `seal.buildProof`를 열었다), 봉인 verdict는 **이미 push를 막는 자리**라 강등에
+새 차단 배선이 필요하지 않다.
+
+**`review-verdict.js`도 열지 않았다.** `REVIEW_VERDICT_VALUES`는 `receipt/schema.js`의
+`CODEX_VERDICT_VALUES`와 **공유**되므로 거기에 `degraded`를 더하면 santa와 무관한 codex
+축에서도 그 값이 표현 가능해지고 `pr-ship-gate.js`·`receipt-convergence.js`·dedupe·대시보드가
+전부 새 값을 만난다 — 닫으려는 결함은 santa 한 축인데 폭발 반경이 receipt 계층 전체가 된다.
+대신 어휘 경계에서 **좁히는 방향으로 사영**한다: `degraded`는 receipt와 proof에 `'divergent'`로
+실리고(둘 다 비승인이라 사영이 넓히지 않는다) degrade라는 사실은 present-only 5필드가 진다.
+사영 지점은 `seal()` 안 **한 곳**이며, 두 소비처(writeArgs · buildProof)가 같은 변수를 받는다 —
+각자 사영하면 두 사영이 갈릴 수 있고 그때 새는 쪽은 조용하다.
+
+**`ledger.js`도 열지 않았다.** M3의 입력은 원장에 **이미 있는** `model` 문자열이라 라운드
+형태에 필드를 더할 이유가 없다. M2가 DD7에서 "라운드 형태는 P0 동결 시그니처"라 적은 그
+경계를 M3도 그대로 지킨다 — 그리고 그 덕분에 M3은 M2가 감수해야 했던 "검증 불가능한 필수
+플래그" 문제를 아예 만나지 않는다(파생원이 이미 원장 안에 있다).
+
+### P3가 소비할 계약 — degrade 판정은 FINAL 라운드에서만 나온다
+
+santa-delta-review(P3)가 라운드 2 이후 스코프를 좁힐 때 **`diversityFrom`은 영향받지
+않는다** — 그 함수의 입력은 리뷰 스코프가 아니라 리뷰어 `model` 문자열이고, 판정은 FINAL
+라운드 하나에서만 나온다. 델타 축소가 무엇을 잘라내든 그 라운드에 리뷰어 2명이 기록되는 한
+계열 판정은 동일하다. M3은 `delta-scope.js`를 건드리지 않으므로(UI10) 이 줄이 그 계약의
+전부다.
 
 ## 변경 프로토콜
 

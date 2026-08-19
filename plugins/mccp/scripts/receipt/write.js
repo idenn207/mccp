@@ -761,6 +761,10 @@ function buildReceipt(args) {
     // --santa-blind-* 미전달 receipt는 키 자체를 갖지 않고 canonical hash가 무변동이다.
     ['santa-blind-records', 'santa_blind_records', 0],
     ['santa-blind-rounds', 'santa_blind_rounds', 0],
+    // santa-evidence-diversity M3 — FINAL 라운드의 distinct 모델 계열 수. 같은 조건부
+    // 재료화 규약이고 0은 유효한 값이다(계열이 하나도 식별되지 않은 라운드 = 전원
+    // unknown). 부재만이 "이 필드가 없던 시절"을 뜻한다.
+    ['santa-model-families', 'santa_model_families', 0],
   ];
   SANTA_INT_FIELDS.forEach(function (spec) {
     const raw = args[spec[0]];
@@ -770,6 +774,31 @@ function buildReceipt(args) {
   });
   if (typeof args['santa-exit-reason'] === 'string' && args['santa-exit-reason'].length > 0) {
     receipt.meta.santa_exit_reason = args['santa-exit-reason'];
+  }
+
+  // santa-evidence-diversity M3 — degrade 축 4종 (불리언 2 + 문자열 2).
+  //
+  // **미러 대상은 바로 위 `santa_exit_reason`과 `review_l3_invoked`이지 아래
+  // `pr_codex_force_override`가 아니다** (security-reviewer F3). 그쪽 블록은 사유가
+  // 없을 때 `null`을 **명시 저장**하는데, 그 모양을 복사하면
+  // `santa_degrade_ack=true` + `santa_degrade_ack_reason=null`이 나와 schema.js가
+  // 거는 양방향 불변식이 write 시점에 깨진다. 여기서는 두 키가 각자 자기 조건을
+  // 갖고, 값이 없으면 **키 자체가 없다**.
+  //
+  // 불리언 2종은 `=== true`일 때만 stamp한다 — `false`를 명시 저장하면 부재와 뜻이
+  // 겹치고, 그 겹침이 present-only 의미론의 전부를 무너뜨린다.
+  if (args['santa-model-degraded'] === true) {
+    receipt.meta.santa_model_degraded = true;
+  }
+  if (typeof args['santa-degrade-reason'] === 'string' && args['santa-degrade-reason'].length > 0) {
+    receipt.meta.santa_degrade_reason = args['santa-degrade-reason'];
+  }
+  if (args['santa-degrade-ack'] === true) {
+    receipt.meta.santa_degrade_ack = true;
+  }
+  if (typeof args['santa-degrade-ack-reason'] === 'string'
+      && args['santa-degrade-ack-reason'].length > 0) {
+    receipt.meta.santa_degrade_ack_reason = args['santa-degrade-ack-reason'];
   }
 
   if (args['pr-codex-force-override'] === true) {

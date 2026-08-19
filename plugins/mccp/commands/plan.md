@@ -890,7 +890,7 @@ mkdir -p "$REVIEW_DIR"
 rm -f "$REVIEW_DIR/codex-verdict" "$REVIEW_DIR/codex-class" "$REVIEW_DIR/decision.json" "$REVIEW_DIR/proof.json" \
       "$REVIEW_DIR/l1.json" "$REVIEW_DIR/l2.json" "$REVIEW_DIR/l3.json" \
       "$REVIEW_DIR/reservation.json" "$REVIEW_DIR/workflow-args.json" \
-      "$REVIEW_DIR/started-at"
+      "$REVIEW_DIR/backlog.json" "$REVIEW_DIR/started-at"
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" mode > "$REVIEW_DIR/mode.json"
 REVIEW_MODE=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mode)}catch{process.stdout.write("codex")}' "$REVIEW_DIR/mode.json")
 echo "[mccp:plan-review] mode=$REVIEW_MODE" 1>&2
@@ -899,8 +899,11 @@ echo "[mccp:plan-review] mode=$REVIEW_MODE" 1>&2
 | `$REVIEW_MODE` | Branch |
 |---|---|
 | `codex` | **5.2z** below — the pre-M1 Codex path, unchanged. Skip 5.2a–5.2h entirely and stamp NO `review_*` fields. |
-| `multi-agent` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2e → 5.2g → 5.2h (L3 is not fired) |
-| `hybrid` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2f → 5.2e → 5.2g → 5.2h — **5.2f only when `mode.json` `fires.l3` is true** (see below) |
+| `multi-agent` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2e → 5.2g → 5.2g2 → 5.2h (L3 is not fired) |
+| `hybrid` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2f → 5.2e → 5.2g → 5.2g2 → 5.2h — **5.2f only when `mode.json` `fires.l3` is true** (see below) |
+
+`5.2g2` is a no-op unless the single-pass toggle actually relaxed this run — see its
+section for why the capture is a precondition of that relaxation.
 
 `MCCP_PLAN_REVIEW` unset means `multi-agent`; an unreadable value falls back to
 `codex` with a loud warn (DD7 — an unreadable mode must not silently change who
@@ -974,7 +977,7 @@ DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decisio
   --command mccp:plan --args "$ARGUMENTS")
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
   --slug "$DECISION_SLUG" --plan "<plan path>" \
-  --halt-stage "<5.2a|5.2b|5.2c-emit|5.2c-pin|5.2d|5.2e|5.2e-proof|5.2f|5.2g>"
+  --halt-stage "<5.2a|5.2b|5.2c-emit|5.2c-pin|5.2d|5.2e|5.2e-proof|5.2f|5.2g|5.2g2>"
 ```
 
 **That stage list is the complete set of HALTs in 5.2.** An earlier revision
@@ -990,7 +993,7 @@ depends on you following an instruction:
 
 | Enforcement | Stages |
 |---|---|
-| Shell — the block records, then exits | 5.2a · 5.2b · 5.2c-emit · 5.2c-pin · 5.2d · 5.2e · 5.2e-proof · 5.2f · 5.2g |
+| Shell — the block records, then exits | 5.2a · 5.2b · 5.2c-emit · 5.2c-pin · 5.2d · 5.2e · 5.2e-proof · 5.2f · 5.2g · 5.2g2 |
 
 5.2e was the last holdout, and the argument for leaving it to prose turned out to
 be circular. It read: 5.2e already routes through 5.2h, so recording inline would
@@ -1508,9 +1511,10 @@ as on any passing path — but understand precisely what has and has not happene
   laundered into `converged`, so the dashboard, `evidence-audit`, and the ship
   gate all keep reading it as non-approving.
 - The findings are **not discarded**. They stay in `l2.json` and in
-  `.claude/reviews/plan-review-<slug>.md`. What the toggle removes is the repeat
-  round, not the review. Automatic backlog capture is M2's, not M1's — if you
-  want them tracked, append them yourself.
+  `.claude/reviews/plan-review-<slug>.md`, and since M2 they are also appended to
+  `.claude/plans/codex-findings-backlog.md` by 5.2g2 — mechanically, and as a
+  *precondition* of the relaxation rather than a side effect of it. What the toggle
+  removes is the repeat round, not the review.
 - Only this one branch relaxes. An L1 divergence, an unreadable or skipped L2, a
   zero-response panel, and a DD13 hash mismatch all still HALT with the toggle on
   — each of them returned above this point, before the toggle was ever consulted.
@@ -1550,6 +1554,65 @@ pass — 5.2h and 5.6b would then run against the same `proof.json`, and the rec
 writer checks the proof's hash, not whether the evidence it names exists. Every
 halt in 5.2 ends in an explicit `exit` for this reason; a recorder must never be
 the last statement on a failure path.
+
+#### 5.2g2 — Capture the relaxed findings into the backlog (review-loop-bypass M2)
+
+M1's toggle relaxes exactly one branch, and the moment it returns `block:false` the
+`quorum.blockingFindings` array goes nowhere. It survives in `l2.json` and in the
+review record, but both are overwritten on the next run and both leave with the
+worktree. This step moves that set into the append-only ledger
+`.claude/plans/codex-findings-backlog.md`, where `derive/sources/backlog.js` already
+reads it and the dashboard already surfaces it as a carried-over finding.
+
+**The capture is a precondition of the relaxation, not a side effect of it.** If the
+findings cannot be recorded, the run does not proceed — a silent failure here leaves
+exactly the debt M1 created (the objection disappears while the receipt records a
+pass), and closing that is why M2 exists. This is the same line DD2 drew: `divergent`
+("we looked and found a defect") may be relaxed, `unavailable` ("we could not
+certify") may not, and "we could not write the defect down" is the second kind.
+
+**The way out is turning the toggle off, not a new env.** With the toggle off the run
+returns to the ordinary non-convergence HALT and the author absorbs the findings from
+the review record — loss stays at zero. The worst failure mode is "the toggle does not
+help here", never "the findings vanished".
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:plan --args "$ARGUMENTS")
+
+# Gate on the APPLIED relaxation, never on the env. `single_pass_reason` is
+# present-only and only `mkSinglePass` writes it, so its presence in decision.json
+# means the bypass actually happened — the env only says the toggle was SET.
+SINGLE_PASS_REASON=$(node -e 'try{const d=require(process.argv[1]);const r=d.single_pass_reason;process.stdout.write(typeof r==="string"?r:"")}catch(e){process.stdout.write("")}' \
+  "$REVIEW_DIR/decision.json")
+
+if [ -n "$SINGLE_PASS_REASON" ]; then
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" backlog-append \
+    --review-dir "$REVIEW_DIR" --plan "<plan path>" --slug "$DECISION_SLUG"
+  APPEND_EXIT=$?
+  if [ "$APPEND_EXIT" -ne 0 ]; then
+    node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+      --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2g2 1>/dev/null || true
+    echo "[MCCP-GATE-STOP] backlog capture failed (exit $APPEND_EXIT) — the single-pass relaxation may not proceed while the findings it drops cannot be recorded."
+    echo "  Recovery: unset MCCP_REVIEW_SINGLE_PASS and re-run the gate. The panel's objection then HALTs as it always did, and the findings stay in .claude/reviews/plan-review-$DECISION_SLUG.md for you to absorb."
+    exit 12
+  fi
+fi
+```
+
+A run with the toggle off never enters the branch, so the default path is byte-identical
+to M1 — no row is appended and `backlog_appended` is recorded as `null`, not `0`.
+
+The stop **exits the block** for the same reason 5.2g's does: the recorder is
+deliberately non-blocking (`|| true`), so leaving it as the last statement on the
+failure path would let the block exit 0 and a failed capture would read as a pass.
+
+**Position is part of the contract.** This runs after 5.2g and before 5.2h. After
+5.2g, because writing the findings of a run whose proof did not verify would enter an
+unverified review into the ledger. Before 5.2h, because the record must carry the
+capture result in its `## Measurement` block — that is the anchor
+`assert-backlog-parity` reads, exactly as `assert-single-round` reads `halt_stage`.
 
 #### 5.2h — Write the review record (sibling artifact, NOT the plan)
 

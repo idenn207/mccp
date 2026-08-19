@@ -267,7 +267,44 @@ to the codex-runner child, which cannot read past what it inherits, (c) the rece
 sealing the toggle state for after-the-fact audit, and (d) a static test asserting all
 three bodies read the shared oracle instead of their own literal. (d) catches a gate left
 out of the wiring; it does not catch an LLM disregarding prose. The L2 cost is still paid
-once, and unabsorbed findings are not automatically moved to the backlog — that is M2's.
+once.
+
+### Backlog capture is a precondition of the relaxation (M2)
+
+The findings the toggle drops are appended to `.claude/plans/codex-findings-backlog.md` by
+`5.2g2`, between the proof verification (`5.2g`) and the review record (`5.2h`). Both
+neighbours are load-bearing: appending *before* `5.2g` would enter the findings of a run
+whose proof never verified into the ledger, and appending *after* `5.2h` would leave the
+record unable to carry `backlog_appended` — the anchor `assert-backlog-parity` reads,
+exactly as `assert-single-round` reads `halt_stage`.
+
+**A failed capture blocks (`EX_BLOCK`).** This is the same line DD2 already drew, not a new
+one: `divergent` ("we looked and found a defect") may be relaxed and `unavailable` ("we
+could not certify") may not, and "we could not write the defect down" belongs to the
+second kind. Making the capture a side effect instead would leave exactly the debt M1
+created — the objection disappears while the receipt records a pass.
+
+The recovery is **turning the toggle off**, not a new escape hatch. M2 adds no environment
+variable at all: a switch that disables capture is a switch that enables loss. With the
+toggle off the run returns to the ordinary non-convergence HALT and the author absorbs the
+findings from the review record, so the worst failure mode is "the toggle does not help
+here" rather than "the findings vanished".
+
+**What is appended is `quorum.blockingFindings`, exactly.** That array is what the toggle
+drops, so capture set and relaxation set must be the same set for "no loss" to hold as
+arithmetic. `l2.json` is never an append source — a second input for the same fact leaves
+the oracle unable to say which is canonical — though it is read for the *count* of
+non-blocking findings, recorded as `null` rather than `0` when unreadable. `UNKNOWN` and
+synthesized `FAIL` rows are appended with the rest: capture is not adjudication, and
+filtering them would be M2 quietly redoing the severity judgement §3.14 owns.
+
+**The table stays four columns.** `derive/sources/backlog.js` pins that header literally,
+so a fifth column would make the parser miss the table entirely and every existing row
+would disappear at once. The path reference and the idempotency tag therefore live inside
+the Finding cell, and everything entering a cell is escaped first — pipes to a numeric
+character reference (markdown renders it as a pipe; the parser does not split on it),
+whitespace folded, and truncation applied to the raw text *before* escaping so no partial
+entity can survive.
 
 ## References
 

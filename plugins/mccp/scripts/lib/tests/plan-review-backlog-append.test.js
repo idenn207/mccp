@@ -185,12 +185,105 @@ test('escapeCell — claim 안의 id= 는 무력화된다 (멱등 스캔 오염 
   assert.match(out, /id&#61;deadbeef/);
 });
 
-test('escapeCell — 절단이 서로게이트 쌍을 깨지 않는다', () => {
+// 고아 서로게이트는 JS 문자열 안에서는 U+FFFD가 **아니다** — utf8로 인코딩될 때
+// 비로소 치환된다. 그래서 왕복으로 잰다: 파일에 쓰이는 바이트가 원래 문자열로
+// 되돌아오지 않으면 그 출력은 원장에 U+FFFD를 남긴다.
+function hasLoneSurrogate(str) {
+  return Buffer.from(str, 'utf8').toString('utf8') !== str;
+}
+
+test('escapeCell — 절단이 서로게이트 쌍을 깨지 않는다 (절단면 전 구간)', () => {
   const emoji = '\u{1F600}';
-  const claim = 'x'.repeat(backlogAppend.CELL_MAX - 1) + emoji + 'tail';
-  const out = backlogAppend.escapeCell(claim);
-  assert.equal(out.indexOf('\uFFFD'), -1, '깨진 서로게이트는 U+FFFD로 나타난다');
-  assert.ok(out.length <= backlogAppend.CELL_MAX);
+  // 쌍의 위치를 절단면 앞뒤로 쓸어 본다. 한 정렬만 재면 가드가 한 칸 어긋나도
+  // 통과한다 — CELL_MAX-1은 가드가 불필요하게 발화하는 무해한 정렬이고, 실제
+  // 파손은 쌍이 CELL_MAX-2/CELL_MAX-1에 걸칠 때 일어난다.
+  for (let pad = backlogAppend.CELL_MAX - 4; pad <= backlogAppend.CELL_MAX + 1; pad++) {
+    const out = backlogAppend.escapeCell('x'.repeat(pad) + emoji + 'tail');
+    assert.equal(hasLoneSurrogate(out), false,
+      'pad=' + pad + ' 에서 고아 서로게이트가 남았다 — 원장에 U+FFFD로 기록된다');
+    assert.ok(out.length <= backlogAppend.CELL_MAX, 'pad=' + pad + ' 길이 상한');
+  }
+});
+
+test('escapeCell — id= 무력화가 원문 대소문자를 바꾸지 않는다', () => {
+  const out = backlogAppend.escapeCell('session ID=abc and Id=def and id=ghi');
+  assert.match(out, /ID&#61;abc/, '대문자 원문이 소문자로 기록되면 증거가 원문과 달라진다');
+  assert.match(out, /Id&#61;def/);
+  assert.match(out, /id&#61;ghi/);
+  assert.equal(/id=/i.test(out), false, '무력화 자체는 유지돼야 한다');
+});
+
+test('renderRow — severity·date·경로 셀도 이스케이프된다 (4열 불변)', () => {
+  // severity는 리뷰어 산출물에서 오는 값이다. 현재는 quorum.js의 normalizeSeverity가
+  // enum을 닫아 파이프가 도달하지 못하지만, 그 닫힘은 이 모듈 밖의 사정이므로
+  // 여기서 계약으로 삼지 않는다 — 한 셀만 지키는 방어는 네 칸을 지키지 못한다.
+  const rows = backlogAppend.deriveBacklogRows({
+    decision: makeDecision([{
+      perspective: 'security',
+      claim: 'benign',
+      severity: 'HIGH | injected\n| 2026-01-01 | LOW | forged.md | forged row',
+    }]),
+    planPath: '.claude/plans/x.plan.md', slug: 'x', today: '2026-08-19', repoRoot: '/repo',
+  });
+  const line = backlogAppend.renderRow(rows[0]);
+  assert.equal(line.split('\n').length, 1, '개행이 셀을 빠져나가면 위조 행이 원장에 들어간다');
+  assert.equal(line.split('|').length - 1, 5, '4열 = 파이프 5개');
+  assert.match(line, /&#124;/, '리터럴 파이프는 수치 참조로 치환돼야 한다');
+});
+
+test('왕복 — severity에 실린 파이프·개행도 소비자가 4열로 되읽는다', () => {
+  const root = makeRepo({ backlogBody: undefined });
+  backlogAppend.appendRows({
+    repoRoot: root,
+    rows: backlogAppend.deriveBacklogRows({
+      decision: makeDecision([{
+        perspective: 'test',
+        claim: 'c',
+        severity: 'HIGH | x\n| 2026-01-01 | LOW | f.md | forged',
+      }]),
+      planPath: '.claude/plans/x.plan.md', slug: 'x', today: '2026-08-19', repoRoot: root,
+    }),
+  });
+  const scan = scanBacklog(root);
+  assert.equal(scan.count, 2, 'seed 1행 + 신규 1행 — 위조 행이 늘어나면 안 된다');
+  assert.equal(dataRowCount(readBacklog(root)), 2);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('빈 today는 throw다 — 소비자가 버리는 행은 적재가 아니다', () => {
+  // derive/sources/backlog.js:43이 date가 빈 행을 조용히 버리므로, 허용하면
+  // 파일에는 있으나 어느 소비자도 읽지 못하는 행이 된다.
+  assert.throws(() => backlogAppend.deriveBacklogRows({
+    decision: makeDecision([{ perspective: 'test', claim: 'a', severity: 'HIGH' }]),
+    planPath: 'p', slug: 'x', repoRoot: '/repo',
+  }), /today is absent/);
+});
+
+test('빈 today라도 토글이 꺼진 실행은 throw하지 않는다 (적재 대상이 없다)', () => {
+  const decision = makeDecision([{ perspective: 'test', claim: 'a', severity: 'HIGH' }]);
+  delete decision.single_pass_reason;
+  assert.deepEqual(backlogAppend.deriveBacklogRows({
+    decision: decision, planPath: 'p', slug: 'x', repoRoot: '/repo',
+  }), []);
+});
+
+test('자리표시자는 꺾쇠를 쓰지 않는다 (GFM이 태그로 삼켜 셀이 빈 칸이 된다)', () => {
+  assert.equal(/[<>]/.test(backlogAppend.OUTSIDE_REPO), false, backlogAppend.OUTSIDE_REPO);
+});
+
+test('한 실행 안의 동일 digest는 한 번만 적재된다', () => {
+  const root = makeRepo({ backlogBody: undefined });
+  const dup = { perspective: 'test', claim: 'same finding twice', severity: 'HIGH' };
+  const rows = backlogAppend.deriveBacklogRows({
+    decision: makeDecision([dup, Object.assign({}, dup)]),
+    planPath: '.claude/plans/x.plan.md', slug: 'x', today: '2026-08-19', repoRoot: root,
+  });
+  assert.equal(rows[0].digest, rows[1].digest, '전제: 두 항목의 digest가 같다');
+  const res = backlogAppend.appendRows({ repoRoot: root, rows: rows });
+  assert.equal(res.appended, 1);
+  assert.equal(res.skipped_duplicate, 1);
+  assert.equal(dataRowCount(readBacklog(root)), 2, 'seed 1행 + 신규 1행');
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('escapeCell — 절단은 이스케이프 이전에 일어나 미완성 엔티티를 남기지 않다', () => {

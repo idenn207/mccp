@@ -46,7 +46,11 @@ const CELL_MAX = 200;
 
 // repo 밖 경로의 자리표시자. write.js:45-52 `normalizeReceiptCwd`가 E7
 // (절대경로가 git-tracked 증거로 커밋되는 사고)을 닫을 때 쓴 규약과 같다.
-const OUTSIDE_REPO = '<outside-repo>';
+//
+// 꺾쇠를 쓰지 않는다 — GFM은 꺾쇠로 감싼 토큰을 raw HTML 태그로 파싱하므로 셀이
+// 화면에서 빈 칸으로 렌더된다. derive 파서는 리터럴 텍스트를 읽어 무영향이지만,
+// 사람이 읽는 표에서 출처가 사라지는 것 자체가 감사 표면의 손실이다.
+const OUTSIDE_REPO = '(outside-repo)';
 
 const DIGEST_HEX = 8;
 
@@ -112,16 +116,21 @@ function escapeCell(text) {
   let cut = flat;
   if (cut.length > CELL_MAX) {
     let end = CELL_MAX - 1;
-    const code = cut.charCodeAt(end);
-    // high surrogate에서 자르면 짝이 깨져 파일에 U+FFFD가 남는다.
-    if (code >= 0xd800 && code <= 0xdbff) end -= 1;
+    // 검사 대상은 **보존되는 마지막 문자**(`end - 1`)다. `slice(0, end)`는 `end`를
+    // 버리므로 그 자리를 보면 이미 통째로 빠질 쌍을 재는 셈이고, 정작 쌍이
+    // `end-1`/`end`에 걸친 실제 파손 케이스를 놓친다 — 그때 고아 high surrogate가
+    // 남아 git-tracked 원장에 U+FFFD로 기록된다.
+    const last = cut.charCodeAt(end - 1);
+    if (last >= 0xd800 && last <= 0xdbff) end -= 1;
     cut = cut.slice(0, end) + '…';
   }
 
   return cut
     .replace(/&/g, '&amp;')
     .replace(/\|/g, '&#124;')
-    .replace(/id=/gi, 'id&#61;');
+    // 대체 문자열을 소문자로 고정하면 원문의 `ID=`가 기록에서 `id=`로 바뀐다.
+    // 무력화는 `=`만 건드리면 충분하고, 증거 텍스트는 원문 그대로여야 한다.
+    .replace(/id=/gi, function (m) { return m.slice(0, 2) + '&#61;'; });
 }
 
 // ── 멱등 digest (DD3) ─────────────────────────────────────────────────────────
@@ -147,10 +156,18 @@ function rowDigest(parts) {
 // 출력 계약은 정확히 4열이다. 경로 참조와 멱등 태그는 5번째 열이 아니라
 // Finding 셀 **안에** 들어간다(DD4). 뒤 두 조각도 같은 셀이므로 이스케이프를
 // 거친 값이거나(경로) 생성된 안전한 문자열(태그)이어야 한다.
+// `finding_cell`은 deriveBacklogRows가 **이미** escapeCell을 거쳤다 — 여기서 다시
+// 씌우면 방금 만든 `&#124;`의 `&`가 이중 이스케이프된다. 나머지 넷은 원문이므로
+// 여기서 씌운다: `severity`는 리뷰어 산출물에서 온 값이고(현재는 quorum.js의
+// normalizeSeverity가 enum을 닫아 파이프가 도달하지 못하지만, 그 닫힘은 이 모듈
+// 밖의 사정이라 계약이 아니다), 경로와 날짜도 파서에게는 똑같이 파이프로 갈리는
+// 셀이다. 한 셀만 지키는 방어는 네 칸을 지키지 못한다.
 function renderRow(row) {
   const o = isPlainObject(row) ? row : {};
-  const finding = o.finding_cell + ' · 원문 ' + o.review_path + ' · id=' + o.digest;
-  return '| ' + o.date + ' | ' + o.severity + ' | ' + o.plan_path + ' | ' + finding + ' |';
+  const finding = o.finding_cell + ' · 원문 ' + escapeCell(o.review_path) +
+    ' · id=' + o.digest;
+  return '| ' + escapeCell(o.date) + ' | ' + escapeCell(o.severity) + ' | ' +
+    escapeCell(o.plan_path) + ' | ' + finding + ' |';
 }
 
 // ── 행 파생 (순수) ────────────────────────────────────────────────────────────
@@ -198,7 +215,17 @@ function deriveBacklogRows(opts) {
   const repoRoot = typeof o.repoRoot === 'string' ? o.repoRoot : '';
   const planPath = normalizeRepoPath(o.planPath, repoRoot);
   const reviewPath = normalizeRepoPath(reviewRecordPath(o.slug), repoRoot);
+  // 빈 date 셀은 소비자에게 **행이 없는 것과 같다** — derive/sources/backlog.js:43이
+  // date가 빈 행을 조용히 버리므로, 허용하면 파일에는 있으나 어느 소비자도 읽지
+  // 못하는 행이 된다. 그것은 적재가 아니라 유실이고, 헤더 부재를 실패로 다루는
+  // 것과 같은 이유로 여기서 멈춘다. 추론하지 않는 이유도 같다: 순수 오라클이
+  // `new Date()`를 읽으면 같은 입력이 실행 시각마다 다른 행을 낸다.
   const today = (typeof o.today === 'string' && o.today.trim()) ? o.today.trim() : '';
+  if (today === '') {
+    throw new Error('deriveBacklogRows: opts.today is absent — an empty date cell is ' +
+      'dropped by derive/sources/backlog.js:43, so the row would be written to the file ' +
+      'and be invisible to every consumer');
+  }
 
   return findings.map(function (f) {
     const item = isPlainObject(f) ? f : {};
@@ -277,10 +304,14 @@ function appendRows(opts) {
       'invisible to every consumer');
   }
 
+  // `body`는 append 이전 스냅샷이므로 그것만 보면 **같은 실행 안의** 동일 digest
+  // 2건이 둘 다 통과하고, 이후 재실행은 둘 다 duplicate로 건너뛰어 중복 쌍이
+  // 영구화된다. 이번 batch에서 이미 채택한 digest도 함께 본다.
   const fresh = [];
+  const takenThisRun = Object.create(null);
   let skippedDuplicate = 0;
   rows.forEach(function (r) {
-    if (hasDigest(body, r.digest)) {
+    if (hasDigest(body, r.digest) || takenThisRun[r.digest]) {
       skippedDuplicate += 1;
       // 조용한 skip은 digest 충돌과 정상 멱등을 구분할 수 없게 만든다.
       process.stderr.write('[mccp:backlog-append] skip duplicate id=' + r.digest +
@@ -288,6 +319,7 @@ function appendRows(opts) {
         'digest 충돌이다\n');
       return;
     }
+    takenThisRun[r.digest] = true;
     fresh.push(r);
   });
 

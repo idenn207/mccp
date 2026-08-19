@@ -87,6 +87,8 @@ severity `UNKNOWN`(판독 불가)과 `FAIL`(bare verdict 합성)도 `blockingFin
 
 행마다 `id=<digest8>`을 싣는다. digest는 `reviewed_plan_hash` · `perspective` · `severity` · raw claim을 NUL로 이어 붙인 sha256이고, append 전에 backlog 본문에서 그 태그를 찾아 이미 있으면 건너뛴다.
 
+**`reviewed_plan_hash`의 출처는 `decision.review_proof.reviewed_plan_hash` 하나다.** 다른 어떤 경로로도 재계산하지 않는다 — plan을 다시 해싱하면 리뷰어가 읽은 본문이 아니라 *지금 디스크에 있는* 본문의 해시가 되어, DD13이 봉인한 바인딩과 다른 값으로 digest를 키잉하게 된다. 그 필드는 적재 시점에 **존재가 보장**된다: 5.2g2는 `decision.single_pass_reason`이 있을 때만 실행되고, 그 값을 싣는 유일한 생성자가 `plugins/mccp/scripts/lib/plan-review/decide.js:121`의 `mkSinglePass`이며, 같은 호출이 `plugins/mccp/scripts/lib/plan-review/decide.js:341`에서 `buildAuditProof`가 만든 non-null proof를 함께 싣기 때문이다. 그럼에도 부재하면 `EX_BLOCK`이다(추론하지 않는다).
+
 `reviewed_plan_hash`로 keying하는 이유는 M1의 dispatch 로그와 같다: 같은 본문에 대한 재실행은 같은 digest라 중복되지 않고, 흡수로 본문이 바뀐 뒤의 새 실행은 새 digest 그룹이라 정직하게 새 행이 쌓인다. **어떤 경로에서도 기존 행을 지우거나 고치지 않는다** — backlog는 append-only 원장이고, 과거 행에는 이미 사람이 단 흡수 주석이 붙어 있다.
 
 ### DD4 — 소비자 파서 계약을 깨지 않는다
@@ -94,6 +96,12 @@ severity `UNKNOWN`(판독 불가)과 `FAIL`(bare verdict 합성)도 `blockingFin
 `plugins/mccp/scripts/derive/sources/backlog.js:39`는 셀을 파이프로 분할하므로 finding 텍스트 안의 파이프는 표를 찢는다. 그래서 셀에 넣기 전에 파이프를 HTML 수치 참조로 치환한다 — 마크다운은 그것을 파이프로 렌더하고 파서는 분할하지 않는다. 개행은 `plugins/mccp/scripts/state/fix-task.js:52`와 같은 규약으로 접고, 200자에서 절단한다.
 
 절단은 정보를 잃지만 원문은 `.claude/reviews/plan-review-<slug>.md`에 남으므로, 각 행이 그 경로를 함께 싣는다. 표 셀을 무제한으로 두면 대시보드 rail이 읽지 못하는 폭이 된다.
+
+**열은 정확히 4개를 유지하고 경로 참조는 Finding 셀 안에 넣는다** — `| Date | Severity | Source plan | Finding |`. 5번째 열을 만들면 안 된다: `plugins/mccp/scripts/derive/sources/backlog.js:6`의 헤더 정규식이 그 4열을 리터럴로 고정하고 있어, 헤더를 늘리는 순간 파서가 표 전체를 찾지 못해 기존 20여 행이 **한꺼번에** 사라진다. `renderRow`의 출력 계약은 따라서 `| <today> | <severity> | <planPath> | <escapeCell(claim)> · 원문 <reviewPath> · id=<digest8> |` 한 줄이고, 뒤 두 조각도 같은 셀 안에서 `escapeCell`을 거친 뒤 이어 붙인다.
+
+**셀에 들어가는 두 경로(`planPath` · `reviewPath`)는 repo-relative로 정규화한 뒤에만 싣는다.** backlog는 git-tracked이므로 절대경로를 쓰면 작업트리 경로 — 그리고 오래된 worktree에서는 이전 저장소 이름까지 — 가 커밋된다. 이것은 가정이 아니라 이 저장소가 이미 겪은 사고다: `plugins/mccp/scripts/receipt/write.js:45-52`의 `normalizeReceiptCwd`가 정확히 그 유출(E7)을 닫으려고 durable-evidence-substrate Task A3에서 도입됐다. 같은 헬퍼의 규약을 따른다 — `path.relative(repoRoot, abs)` 후 구분자를 `/`로 통일하고, 저장소 밖 경로는 절대경로를 싣는 대신 placeholder로 떨어뜨린다. 현재 backlog 22행이 전부 repo-relative인 것은 **관례일 뿐 강제가 아니므로**(실측 절대경로 0건) 오라클이 강제해야 한다. Task 1의 필수 test에 절대경로 입력이 repo-relative로 정규화되는 케이스를 포함한다.
+
+경로 참조가 끊긴 링크가 되지 않는 근거는 `.claude/reviews/`가 **git-tracked**라는 점이다 — `plugins/mccp/commands/plan.md:1593`이 "the record outlives the §3.8 worktree cleanup"으로 명시하고 `.gitignore:148`이 "the DURABLE record"로 지칭한다. backlog 행과 그 참조 대상이 같은 내구성 등급에 있으므로 감사 대조가 worktree 삭제 후에도 성립한다.
 
 ### DD5 — 새 환경변수를 만들지 않는다
 
@@ -107,15 +115,17 @@ M2는 토글을 하나도 추가하지 않는다. PRD가 문제로 지목한 것
 
 ### Task 1: backlog-append 오라클 신설
 
-- **Action**: 순수 함수 `deriveBacklogRows({decision, l2, planPath, slug, today})`가 완화 여부(`decision.single_pass_reason` 존재)를 보고 `quorum.blockingFindings`에서 행 배열을 만든다. `escapeCell`(파이프 치환, 개행 접기, 200자 절단), `rowDigest`, `renderRow`를 함께 노출한다. I/O는 `appendRows({repoRoot, rows})` 하나에만 두고, 기존 본문에서 `id=<digest8>` 존재 여부로 멱등 처리한다. 표 헤더가 없으면 **append하지 않고 실패**한다 — 파서가 못 읽을 위치에 쓰는 것은 적재가 아니다.
+- **Action**: 순수 함수 `deriveBacklogRows({decision, planPath, slug, today})`가 완화 여부(`decision.single_pass_reason` 존재)를 보고 `decision.quorum.blockingFindings`에서 행 배열을 만든다. **유일한 입력원은 그 배열이고 `l2.json`은 읽지 않는다** — `plugins/mccp/scripts/lib/plan-review/quorum.js:159-182`가 원소마다 `{perspective, claim, severity}`를 이미 채우고 DD3의 digest 키도 정확히 그 셋만 쓰므로, 원시 리뷰어 결과를 두 번째 입력으로 받으면 같은 사실의 출처가 둘이 되어 어느 쪽이 정본인지 오라클이 답할 수 없다. `escapeCell`(파이프 치환, 개행 접기, 200자 절단), `rowDigest`, `renderRow`를 함께 노출한다. I/O는 `appendRows({repoRoot, rows})` 하나에만 두고, 기존 본문에서 `id=<digest8>` 존재 여부로 멱등 처리한다. 표 헤더가 없으면 **append하지 않고 실패**한다 — 파서가 못 읽을 위치에 쓰는 것은 적재가 아니다.
+- **Test 필수 케이스**(Validate 줄이 가리키는 test 파일이 반드시 담아야 하는 것): (1) **이스케이프 왕복** — claim에 리터럴 `|`와 개행을 담아 임시 repoRoot에 append한 뒤 `scanBacklog`로 되읽어, 셀이 4개로 유지되고 finding 셀이 원문으로 복원되는지 단언한다. `plugins/mccp/scripts/derive/sources/backlog.js:36-40`은 셀 수가 모자란 행을 `continue`로 **조용히 버리므로**, `s.ok`만 보는 검사는 깨진 행을 통과로 읽는다. (2) **멱등** — 동일 `decision` 픽스처로 `appendRows`를 연속 2회 호출해 2회차 `appended=0` · 본문 행 수 불변을 단언한다. (3) 헤더 없는 본문에서 실패한다. (4) 토글 미설정 `decision`에서 행 0개를 낸다.
 - **Mirror**: `plugins/mccp/scripts/lib/plan-review/decide.js:229`의 순수 오라클 경계 · `plugins/mccp/scripts/state/fix-task.js:52`의 한 줄 정규화
 - **Validate**: `node --test plugins/mccp/scripts/lib/tests/plan-review-backlog-append.test.js`
 
 ### Task 2: CLI subcommand 두 개 배선
 
-- **Action**: `backlog-append --review-dir <d> --plan <p> --slug <s>`가 적재 후 `$REVIEW_DIR/backlog.json`에 `{appended, skipped_duplicate, skipped_nonblocking, rows}`를 기록하고 실패를 `EX_BLOCK`으로 낸다. `assert-backlog-parity --record <md>`가 기록의 Measurement와 backlog 실제 행 수를 대조하며, 불량 입력은 전부 비영점으로 끝난다. usage의 halt-stage 열거에 `5.2g2`를 등재한다.
+- **Action**: `backlog-append --review-dir <d> --plan <p> --slug <s>`가 적재 후 `$REVIEW_DIR/backlog.json`에 `{appended, skipped_duplicate, skipped_nonblocking, rows}`를 기록하고 실패를 `EX_BLOCK`으로 낸다. **데이터 경로는 명시적으로 하나다**: CLI가 `--review-dir`에서 `decision.json`을 읽어 그 `quorum.blockingFindings`를 `deriveBacklogRows`에 넘긴다. `--l2` 계열 플래그는 **두지 않는다** — Task 1이 `l2`를 입력으로 받지 않으므로 넘길 것이 없고, 플래그를 만들면 셸 호출자가 임의 배열을 적재원으로 주입할 수 있게 되어 "적재 대상 = 완화 대상"(DD2)이 호출자 재량으로 바뀐다. `decision.json` 부재·판독 불가·`quorum.blockingFindings` 비배열은 전부 `EX_BLOCK`이다(빈 배열은 정상 입력이며 `appended=0`). `assert-backlog-parity --record <md>`가 기록의 Measurement와 backlog 실제 행 수를 대조하며, 불량 입력은 전부 비영점으로 끝난다. usage의 halt-stage 열거에 `5.2g2`를 등재한다.
+- **Test 필수 케이스**(CLI 계층을 **실제로 실행**하는 것 — 순수 함수 단위 test가 CLI 배선의 정확성을 말해 주지 않는다): 같은 test 파일에 `child_process.spawnSync`로 `cli.js backlog-append`를 픽스처 `--review-dir`에 대고 돌리는 케이스를 넣는다. (1) blockingFindings 2건짜리 `decision.json` + `single_pass_reason` 픽스처 → exit 0 · `backlog.json`의 `appended=2` · backlog 본문에 신규 2행. (2) 같은 픽스처 재실행 → exit 0 · `appended=0` · `skipped_duplicate=2` · 행 수 불변. (3) 헤더를 지운 backlog → **exit 12** · 본문 무변경. (4) `decision.json` 부재 → exit 12. (5) `single_pass_reason` 없는 `decision.json` → exit 0 · `appended=0`. `assert-backlog-parity`도 일치/불일치 픽스처 각 1건으로 exit 0 / 비영점을 확인한다.
 - **Mirror**: `plugins/mccp/scripts/lib/plan-review/cli.js:40`의 종료코드 규약 · `plugins/mccp/scripts/lib/review-single-pass.js:151`의 fail-open 금지
-- **Validate**: `node plugins/mccp/scripts/lib/plan-review/cli.js 2>&1 | grep -q backlog-append && echo WIRED`
+- **Validate**: `node --test plugins/mccp/scripts/lib/tests/plan-review-backlog-append.test.js` — help 텍스트 `grep`은 Validate가 아니다. 부분문자열 존재는 명령이 존재한다는 것조차 증명하지 않으며(usage 문자열은 배선 없이도 쓸 수 있다), Task 2가 약속한 동작 — `decision.json`을 읽고 · 행을 파생하고 · `backlog.json`을 쓰고 · 정확한 종료코드를 내는 것 — 중 어느 것도 확인하지 않는다
 
 ### Task 3: record.js Measurement 2축 확장
 
@@ -132,6 +142,7 @@ M2는 토글을 하나도 추가하지 않는다. PRD가 문제로 지목한 것
 ### Task 5: command-body 정적 단언 확장
 
 - **Action**: 기존 command-body test에 세 단언을 추가한다. 첫째, plan.md에 `backlog-append`를 호출하는 블록이 존재한다. 둘째, 그 블록이 `single_pass_reason`을 읽어 게이팅한다. 셋째, 그 블록의 실패 분기가 `--halt-stage 5.2g2`와 `exit`를 함께 갖는다.
+- **이 test가 증명하는 것과 못 하는 것**(범위를 명시한다 — 정적 단언을 배선 정확성의 증거로 파는 것이 M1이 남긴 부채다): plan.md는 실행 파일이 아니라 산문이므로 이 단언들은 **배선 누락과 drift만** 잡는다. 셸 인용 실수, 종료코드 미검사, 호출은 하되 결과를 무시하는 블록은 **전부 통과한다**. 실행 축은 두 곳이 나눠 덮는다 — CLI의 동작은 Task 2의 `spawnSync` 케이스가, 게이트가 실제로 멈추는지는 Acceptance의 "실패 경로를 실제로 발화시킨다" 항목이 담당한다. 세 축이 모두 있어야 DD1의 HALT가 증명되며, 어느 하나도 나머지를 대신하지 않는다.
 - **Mirror**: `plugins/mccp/scripts/lib/tests/review-single-pass-command-body.test.js:102`의 dispatch-log 배선 단언
 - **Validate**: `node --test plugins/mccp/scripts/lib/tests/review-single-pass-command-body.test.js`
 
@@ -153,8 +164,22 @@ node --test plugins/mccp/scripts/lib/tests/review-single-pass-gate.test.js
 # 2. version 4면 동기 (§3.7 검증 수단)
 node --test plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js
 
-# 3. 소비자 왕복 — 적재한 행을 derive가 실제로 읽는가
-node -e "const s=require('./plugins/mccp/scripts/derive/sources/backlog').scanBacklog(process.cwd()); if(!s.ok){throw new Error(s.error);} console.log('backlog rows:', s.count);"
+# 3. 소비자 왕복 — 적재한 행을 derive가 "몇 건" 읽는지가 아니라 "전부" 읽는지
+#    scanBacklog는 셀 수가 모자란 행을 조용히 continue로 버린다(plugins/mccp/scripts/derive/sources/backlog.js:36-40).
+#    따라서 s.ok / s.count만 보는 검사는 이스케이프가 깨진 행을 통과로 읽는다.
+#    헤더 아래 데이터 행 수와 파싱된 항목 수가 같은지를 단언해야 유실이 드러난다.
+node -e "
+const fs=require('fs');
+const {scanBacklog}=require('./plugins/mccp/scripts/derive/sources/backlog');
+const s=scanBacklog(process.cwd());
+if(!s.ok) throw new Error(s.error);
+const lines=fs.readFileSync('.claude/plans/codex-findings-backlog.md','utf8').split(/\r?\n/);
+const h=lines.findIndex(l=>/^\|\s*Date\s*\|\s*Severity\s*\|\s*Source plan\s*\|\s*Finding\s*\|\s*\$/.test(l));
+if(h===-1) throw new Error('backlog header missing');
+const raw=lines.slice(h+1).filter(l=>l.trim().startsWith('|')&&!/^\|\s*-+\s*\|/.test(l)).length;
+if(raw!==s.count) throw new Error('parser dropped '+(raw-s.count)+' row(s): raw='+raw+' parsed='+s.count);
+console.log('backlog roundtrip ok: raw=parsed='+s.count);
+"
 
 # 4. 전수 회귀 — 토글 unset 기본 경로
 #    (Node v24에서 `--test <dir>/` 는 MODULE_NOT_FOUND 이므로 glob으로 넘긴다)
@@ -216,6 +241,7 @@ footer version 동기 + `status-grid.js`·`backlog.js` 인용). retry cap 2, 2�
 - [ ] 게이트/경로를 실제로 1회 완주하고 산출물을 확인 (단위 test 통과 ≠ 경로 작동)
 - [ ] **라이브 완주 산출물**: 토글을 켠 plan 게이트 1회 실행이 (a) `.claude/plans/codex-findings-backlog.md`에 `id=` 태그를 가진 신규 행 N개를 남기고 (b) `.claude/reviews/plan-review-<slug>.md`의 Measurement가 `backlog_appended`를 N으로 싣고 (c) `assert-backlog-parity`가 exit 0을 낸다. N은 그 실행의 blockingFindings 길이와 같다
 - [ ] **멱등 확인**: 같은 본문으로 게이트를 재실행하면 backlog 행 수가 변하지 않는다
+- [ ] **실패 경로를 실제로 발화시킨다**: 헤더를 지운 backlog 사본을 가리켜 `backlog-append`를 호출해 exit 12를 확인하고, 이어서 5.2g2 블록을 그 조건으로 태워 게이트가 **실제로 멈추는지**(record에 `halt_stage=5.2g2`가 남고 receipt가 미작성) 확인한다. Task 5의 정적 단언은 plan.md에 코드가 *있는지*만 보므로 셸 인용 실수나 exit-code 미검사를 잡지 못한다 — DD1의 HALT는 텍스트가 아니라 실행으로 증명돼야 한다
 - [ ] **기본 경로 무변경**: 토글 unset으로 게이트를 완주하면 backlog에 신규 행이 0개이고 Measurement의 `backlog_appended`가 null이다
 - [ ] **M1 이월 acceptance (a) 소진**: 본 M2 plan 게이트 자체를 `MCCP_REVIEW_SINGLE_PASS=deadline_pressure`로 완주해, 그 receipt에서 `resolution.review_verdict`가 `divergent`이고 `meta.review_single_pass_reason`이 `deadline_pressure`이며 `meta.review_single_pass_bypassed_verdict`가 true인 세 필드를 직접 확인한다
 

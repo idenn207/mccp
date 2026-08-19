@@ -25,9 +25,12 @@ const { execFileSync } = require('child_process');
 const { checkPlanConsistency } = require('./l1-check');
 const { panelMinRemaining } = require('./budget');
 const { buildReviewRecord, reviewRecordPath } = require('./record');
-const { decideQuorum, parseQuorum, parseRolesMin } = require('./quorum');
+const {
+  decideQuorum, parseQuorum, parseRolesMin, isUsableResult, DEFAULT_BLOCK_SEVERITY,
+} = require('./quorum');
 const { decideReview, parseReviewMode, parseL3Enabled } = require('./decide');
-const { parseSinglePass } = require('../review-single-pass');
+const { parseSinglePass, extractMeasurement } = require('../review-single-pass');
+const { deriveBacklogRows, appendRows, backlogPath } = require('./backlog-append');
 const {
   REVIEW_PERSPECTIVES,
   REVIEW_SCHEMA,
@@ -659,6 +662,7 @@ function cmdRecord(args) {
       l3: readIf('l3.json'),
       decision: readIf('decision.json'),
       reservation: readIf('reservation.json'),
+      backlog: readIf('backlog.json'),
       startedAtMs: startedAtMs,
       nowMs: Date.now(),
       haltStage: (args['halt-stage'] && args['halt-stage'] !== true) ? args['halt-stage'] : null,
@@ -694,6 +698,243 @@ function cmdRecord(args) {
   return EX_OK;
 }
 
+// ── backlog-append (review-loop-bypass M2) ────────────────────────────────────
+//
+// 단일통과 토글이 떨어뜨린 blockingFindings를 backlog 원장에 적재한다. 5.2g와
+// 5.2h 사이에서 돌며, 실패는 EX_BLOCK이다 — 적재는 완화의 부수효과가 아니라
+// **전제조건**이기 때문이다(DD1). 부수효과로 두면 조용히 실패했을 때 남는 것이
+// 정확히 M1이 만든 부채(지적은 사라지고 receipt는 통과를 기록)다.
+//
+// 이 subcommand는 `record`와 실패 정책이 **반대**다. record는 "무슨 일이
+// 있었나"에 답하므로 판독 불가가 exit 0이고, 이쪽은 "지적을 안전하게 옮겼나"에
+// 답하므로 판독 불가가 EX_BLOCK이다.
+//
+// **데이터 경로는 하나다**: `--review-dir`의 `decision.json` → 그
+// `quorum.blockingFindings`. `--l2` 계열 플래그는 두지 않는다 — 만들면 셸
+// 호출자가 임의 배열을 적재원으로 주입할 수 있어 "적재 대상 = 완화 대상"(DD2)이
+// 호출자 재량으로 바뀐다. l2.json은 non-blocking **카운트**로만 읽으며, 그것은
+// 적재원이 아니라 관측값이다(읽을 수 없으면 0이 아니라 null).
+function cmdBacklogAppend(args) {
+  const rootRaw = (args['repo-root'] && args['repo-root'] !== true) ? args['repo-root'] : repoRoot();
+  // `resolveContained`는 양쪽을 realpath로 비교하므로 정규화된 abs를 돌려준다.
+  // root를 정규화하지 않으면 Windows 8.3 short name(`SKYPAR~1`)이나 심볼릭 링크
+  // 아래에서 `path.relative(root, abs)`가 `..`로 시작해, 저장소 안의 plan이
+  // `<outside-repo>`로 떨어진다.
+  let root = rootRaw;
+  try { root = fs.realpathSync(rootRaw); } catch (_) { /* 미존재 root는 아래에서 드러난다 */ }
+
+  let reviewDir = path.join(root, '.claude', 'state', 'plan-review');
+  if (args['review-dir'] && args['review-dir'] !== true) {
+    const dirContained = resolveContained(args['review-dir'], root, '--review-dir');
+    if (!dirContained.ok) {
+      errln(dirContained.reason + ' — refusing to read the relaxed findings from ' +
+        'outside the repository');
+      return EX_BLOCK;
+    }
+    reviewDir = dirContained.abs;
+  }
+
+  const decisionFile = path.join(reviewDir, 'decision.json');
+  let decision;
+  try {
+    decision = JSON.parse(fs.readFileSync(decisionFile, 'utf8'));
+  } catch (e) {
+    errln('cannot read ' + decisionFile + ' (' + (e && e.code ? e.code : String(e)) +
+      ') — without the decision we cannot know WHICH findings the toggle dropped, ' +
+      'and appending a guess is worse than not appending');
+    return EX_BLOCK;
+  }
+
+  // `--plan`은 **여기서** 검증하고 정규화한다. 오라클이 아니라 CLI가 그 일을
+  // 하는 이유는 셸 호출자가 우회할 수 없는 지점이 하나여야 하기 때문이다:
+  // 절대경로가 정규화되지 않은 채 escapeCell을 거쳐 git-tracked backlog로
+  // 흘러가는 것이 E7 재현 경로다.
+  const planArg = (args.plan && args.plan !== true) ? args.plan : null;
+  if (!planArg) {
+    errln('backlog-append requires --plan: the appended row names the source plan, ' +
+      'and a row that cannot say what it came from is not an audit record');
+    return EX_BLOCK;
+  }
+  const planContained = resolveContained(planArg, root, '--plan');
+  if (!planContained.ok) {
+    errln(planContained.reason + ' — the backlog is git-tracked, so an out-of-repo ' +
+      'path would commit a worktree location into the evidence corpus (E7)');
+    return EX_BLOCK;
+  }
+
+  const slug = (args.slug && args.slug !== true) ? args.slug : null;
+  if (!slug) {
+    errln('backlog-append requires --slug: the row cites the review record by slug');
+    return EX_BLOCK;
+  }
+
+  let rows;
+  try {
+    rows = deriveBacklogRows({
+      decision: decision,
+      planPath: planContained.abs,
+      slug: slug,
+      today: new Date().toISOString().slice(0, 10),
+      repoRoot: root,
+    });
+  } catch (e) {
+    errln('cannot derive the backlog rows (' + (e && e.message ? e.message : String(e)) + ')');
+    return EX_BLOCK;
+  }
+
+  let appendResult;
+  try {
+    appendResult = appendRows({ repoRoot: root, rows: rows });
+  } catch (e) {
+    errln('cannot append to the backlog (' + (e && e.message ? e.message : String(e)) +
+      ') — the relaxation must NOT proceed: the recovery is to turn the toggle OFF, ' +
+      'which restores the ordinary non-convergence HALT and leaves the findings for ' +
+      'the author to absorb (DD1)');
+    return EX_BLOCK;
+  }
+
+  // 관측값 — 적재원이 아니다. DD2는 MEDIUM/LOW를 적재하지 않되 "몇 건을 그렇게
+  // 두었는지는 명시적으로 센다"고 정했다. 읽을 수 없으면 0이 아니라 null이다:
+  // 부재와 0은 다른 사실이고, 0으로 적으면 세지 않은 것이 "없었다"로 읽힌다.
+  let skippedNonblocking = null;
+  try {
+    const l2 = JSON.parse(fs.readFileSync(path.join(reviewDir, 'l2.json'), 'utf8'));
+    const results = Array.isArray(l2.results) ? l2.results : [];
+    let n = 0;
+    results.filter(isUsableResult).forEach(function (r) {
+      (Array.isArray(r.findings) ? r.findings : []).forEach(function (f) {
+        if (f === null || typeof f !== 'object' || Array.isArray(f)) return;
+        const sev = typeof f.severity === 'string' ? f.severity.trim().toUpperCase() : null;
+        // blockingFindings에 들어가지 않은 것 = 판독 가능하면서 차단 등급이 아닌 것.
+        if (sev !== null && DEFAULT_BLOCK_SEVERITY.indexOf(sev) === -1) n += 1;
+      });
+    });
+    skippedNonblocking = n;
+  } catch (_) {
+    errln('l2.json unreadable — skipped_nonblocking recorded as null, NOT as zero ' +
+      '(an uncounted axis must not read as an empty one)');
+  }
+
+  const artifact = {
+    appended: appendResult.appended,
+    skipped_duplicate: appendResult.skipped_duplicate,
+    skipped_nonblocking: skippedNonblocking,
+    rows: appendResult.rows,
+  };
+  try {
+    fs.mkdirSync(reviewDir, { recursive: true });
+    fs.writeFileSync(path.join(reviewDir, 'backlog.json'),
+      JSON.stringify(artifact, null, 2) + '\n', 'utf8');
+  } catch (e) {
+    errln('appended ' + appendResult.appended + ' row(s) but cannot write backlog.json (' +
+      (e && e.message ? e.message : String(e)) + ') — the parity assertion has no anchor');
+    return EX_BLOCK;
+  }
+
+  out(artifact);
+  return EX_OK;
+}
+
+// ── assert-backlog-parity (review-loop-bypass M2) ─────────────────────────────
+//
+// M1의 `assert-single-round`와 같은 방식으로 성립한다: 리뷰 기록의 Measurement를
+// 읽어 단언하고, **불량 입력에 fail-open하지 않는다**. exit 0에 도달하는 경로는
+// 하나뿐이고 그 밖의 모든 입력은 구분되는 진단과 함께 비영점이다.
+function cmdAssertBacklogParity(args) {
+  const fail = function (line) {
+    process.stderr.write('[mccp:backlog-parity] assert-backlog-parity FAIL — ' + line + '\n');
+    return 1;
+  };
+
+  const recordArg = (args.record && args.record !== true) ? args.record : null;
+  if (!recordArg) {
+    return fail('usage: plan-review/cli.js assert-backlog-parity --record <review-record.md>');
+  }
+  const recordAbs = path.resolve(recordArg);
+
+  let markdown;
+  try {
+    markdown = fs.readFileSync(recordAbs, 'utf8');
+  } catch (e) {
+    return fail('cannot read the review record at ' + recordAbs + ' (' +
+      (e && e.code ? e.code : String(e)) + ') — 기록이 없으면 적재 건수를 알 수 없다');
+  }
+
+  const mx = extractMeasurement(markdown);
+  if (!mx.ok) return fail(mx.reason + ' in ' + recordAbs);
+  const measurement = mx.measurement;
+
+  // 키 **부재**와 명시적 null은 다르다. 부재는 기록기가 그 축을 아예 쓰지
+  // 않았다는 뜻이라 판독 실패이고, null이 "적재가 돌지 않았다"는 관측이다.
+  if (!Object.prototype.hasOwnProperty.call(measurement, 'backlog_appended')) {
+    return fail('Measurement block has no `backlog_appended` key — 판독할 수 없는 기록이다 ' +
+      '(record.js가 그 축을 쓰지 않았다)');
+  }
+
+  // 기록은 `<root>/.claude/reviews/plan-review-<slug>.md`이므로 root는 두 단계 위다.
+  const root = path.resolve(path.dirname(recordAbs), '..', '..');
+  const artifactPath = path.join(root, '.claude', 'state', 'plan-review', 'backlog.json');
+
+  let artifact = null;
+  let artifactErr = null;
+  try {
+    artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
+  } catch (e) {
+    artifactErr = (e && e.code ? e.code : String(e));
+  }
+
+  if (measurement.backlog_appended === null) {
+    if (artifact !== null) {
+      return fail('Measurement says backlog_appended=null (적재가 돌지 않았다) but ' +
+        artifactPath + ' exists with appended=' + JSON.stringify(artifact.appended) +
+        ' — 기록과 아티팩트가 서로 다른 실행을 가리킨다');
+    }
+    process.stdout.write('[mccp:backlog-parity] OK — no append ran (backlog_appended=null, ' +
+      'no backlog.json). 토글이 꺼진 실행의 정상 상태다.\n');
+    return EX_OK;
+  }
+
+  if (!Number.isInteger(measurement.backlog_appended) || measurement.backlog_appended < 0) {
+    return fail('backlog_appended = ' + JSON.stringify(measurement.backlog_appended) +
+      ' is not a non-negative integer');
+  }
+  if (artifact === null) {
+    return fail('Measurement says backlog_appended=' + measurement.backlog_appended +
+      ' but ' + artifactPath + ' is unreadable (' + artifactErr + ') — 적재를 주장하는 ' +
+      '기록에 대조할 아티팩트가 없다');
+  }
+  if (artifact.appended !== measurement.backlog_appended) {
+    return fail('backlog_appended mismatch: record says ' + measurement.backlog_appended +
+      ', backlog.json says ' + JSON.stringify(artifact.appended));
+  }
+
+  // 건수 일치만으로는 부족하다 — 행이 실제로 원장에 있어야 적재다.
+  let body;
+  try {
+    body = fs.readFileSync(backlogPath(root), 'utf8');
+  } catch (e) {
+    return fail('cannot read the backlog at ' + backlogPath(root) + ' (' +
+      (e && e.code ? e.code : String(e)) + ')');
+  }
+  const rows = Array.isArray(artifact.rows) ? artifact.rows : [];
+  if (rows.length !== artifact.appended) {
+    return fail('backlog.json claims appended=' + artifact.appended + ' but carries ' +
+      rows.length + ' row digest(s) — 자기모순이다');
+  }
+  const missing = rows.filter(function (r) {
+    return !(r && typeof r.digest === 'string') ||
+      body.indexOf('id=' + r.digest) === -1;
+  });
+  if (missing.length > 0) {
+    return fail(missing.length + ' of ' + rows.length + ' appended row(s) are absent from ' +
+      'the backlog body — 적재됐다고 기록된 지적이 원장에 없다');
+  }
+
+  process.stdout.write('[mccp:backlog-parity] OK — ' + artifact.appended +
+    ' row(s) recorded and present in the backlog.\n');
+  return EX_OK;
+}
+
 function usage() {
   process.stderr.write([
     'usage: plan-review/cli.js <subcommand>',
@@ -707,7 +948,11 @@ function usage() {
     '  record             --slug <s> [--plan <p>] [--halt-stage <s>]',
     '                     [--review-dir <path>] [--repo-root <path>]   (always exit 0)',
     '                     halt-stage ∈ 5.2a|5.2b|5.2c-emit|5.2c-pin|5.2d|5.2e|',
-    '                                 5.2e-proof|5.2f|5.2g  (free-form; recorded verbatim)',
+    '                                 5.2e-proof|5.2f|5.2g|5.2g2  (free-form; recorded verbatim)',
+    '  backlog-append     --plan <p> --slug <s> [--review-dir <path>] [--repo-root <path>]',
+    '                     appends the single-pass-dropped blockingFindings to the backlog',
+    '                     (5.2g2 — failure is EX_BLOCK: the relaxation must not proceed)',
+    '  assert-backlog-parity --record <review-record.md>   (exit 0 only on parity)',
     '',
     'exit: 0 pass · 1 L1 divergent · 2 CLI misuse · 12 block (cannot certify)',
     '',
@@ -724,6 +969,8 @@ function runCli(argv) {
     case 'decide': return cmdDecide(args);
     case 'verify-proof': return cmdVerifyProof(args);
     case 'record': return cmdRecord(args);
+    case 'backlog-append': return cmdBacklogAppend(args);
+    case 'assert-backlog-parity': return cmdAssertBacklogParity(args);
     default:
       usage();
       return EX_USAGE;

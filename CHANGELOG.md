@@ -2,7 +2,23 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.28.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.29.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.29.0] — 2026-08-19
+
+**review-loop-bypass M2 — 미흡수 지적 회수 (PRD 최종 milestone → minor bump, 1.28.1 → 1.29.0)** — M1의 단일통과 토글이 떨어뜨리는 `quorum.blockingFindings`가 이제 `.claude/plans/codex-findings-backlog.md`에 **기계적으로 적재**된다. 그리고 그 적재는 완화의 부수효과가 아니라 **전제조건**이다 — 적재할 수 없으면 완화하지 않는다(`5.2g2` → `EX_BLOCK`). 부수효과로 두면 조용히 실패했을 때 남는 것이 정확히 M1이 만든 부채(지적은 사라지고 receipt는 통과를 기록)이고, 그것을 막는 것이 M2의 존재 이유다.
+
+- **소비 경로를 새로 만들지 않았다.** `derive/sources/backlog.js:7`이 이미 이 표를 파싱하고 `renderer/sections/status-grid.js:179`가 '이월 finding'으로 표면화한다. M2가 채운 것은 그 파이프의 **비어 있던 입구**다 — 이 파일에 쓰는 코드는 저장소 전체에 0건이었고 지금까지 전부 LLM이 산문 지시에 따라 손으로 append했다.
+- **적재 대상은 `blockingFindings` 정확히 그 집합이다.** 토글이 실제로 떨어뜨리는 것이 그 배열이므로 적재 대상과 완화 대상이 같아야 "유실 0"이 산술로 성립한다. `l2.json`은 **적재원으로 읽지 않는다**(같은 사실의 출처가 둘이 되면 어느 쪽이 정본인지 오라클이 답할 수 없다) — non-blocking **카운트**로만 읽고, 읽을 수 없으면 0이 아니라 `null`이다. severity `UNKNOWN`·`FAIL`도 함께 적재한다: **적재는 판정이 아니다.**
+- **HALT는 UI6과 충돌하지 않는다.** M1의 DD2가 그은 선과 같은 선이다 — 완화 대상은 `divergent`(보았고 결함을 찾았다) 하나이고 `unavailable`(인증할 수 없었다)은 완화하지 않는다. "결함을 기록할 수 없었다"는 후자다. **퇴로는 새 env가 아니라 토글을 끄는 것**이며(M2는 토글을 하나도 추가하지 않았다 — 적재를 끄는 스위치는 곧 유실을 켜는 스위치다), 그 경우 원래의 비수렴 HALT로 돌아가 저자가 리뷰 기록에서 흡수한다. 최악의 실패 모드가 "토글이 도움이 안 된다"이지 "지적이 사라진다"가 아니다.
+- **소비자 파서 계약을 깨지 않는다.** 열은 정확히 4개다 — `backlog.js:6`의 헤더 정규식이 그 4열을 리터럴로 고정하므로 5번째 열을 만들면 파서가 표 전체를 못 찾아 기존 40여 행이 **한꺼번에** 사라진다. 파이프는 HTML 수치 참조로 치환하고(마크다운은 파이프로 렌더하고 파서는 분할하지 않는다), 절단은 **이스케이프 이전** raw 텍스트에 적용해 미완성 엔티티를 남기지 않으며 UTF-16 서로게이트 경계를 깨지 않는다. 왕복 test는 `s.ok`가 아니라 **원시 데이터 행 수 = 파싱된 항목 수**를 단언한다 — 파서가 셀 수 미달 행을 조용히 `continue`로 버리기 때문에 `s.ok`만 보는 검사는 깨진 행을 통과로 읽는다.
+- **경로는 오라클이 강제한다.** 기존 22행이 전부 repo-relative였던 것은 관례일 뿐 강제가 아니었다. `deriveBacklogRows`가 `repoRoot`를 받아(plan의 원래 서명에 없던 인자 — L2 security가 지목한 자기모순: `appendRows`는 받는데 렌더링하는 쪽이 못 받았다) `path.relative` + 구분자 `/` 통일을 적용하고, 저장소 밖 경로는 절대경로 대신 자리표시자로 떨어뜨린다. `write.js#normalizeReceiptCwd`가 E7을 닫을 때 쓴 규약 그대로다.
+- **전체 rewrite를 하지 않는다.** 중복 스캔은 read지만 쓰기는 `appendFileSync` **단일 호출**이다 — append-only 원장이라 read-modify-write가 애초에 불필요하고, 하지 않으면 동시 writer가 서로의 append를 덮어쓸 창 자체가 없다. 남는 중복 1행 가능성은 유실이 아니며 loud stderr로 관측된다. 멱등 키는 `reviewed_plan_hash`·perspective·severity·raw claim의 sha256이고 **`review_proof.reviewed_plan_hash` 하나에서만** 온다: plan을 다시 해싱하면 리뷰어가 읽은 본문이 아니라 지금 디스크에 있는 본문의 해시가 되어 DD13이 봉인한 바인딩과 다른 값으로 키잉된다. 부재하면 추론하지 않고 `EX_BLOCK`이다.
+- **강제 등급의 정직한 천장** — 세 축이 나눠 덮으며 어느 하나도 나머지를 대신하지 않는다. 순수 오라클(행 파생·이스케이프·digest)은 단위 test가, CLI 배선(`decision.json`을 읽고 · 행을 파생하고 · `backlog.json`을 쓰고 · 정확한 종료코드를 내는 것)은 **`spawnSync`로 프로세스를 실제로 띄우는** test가, 게이트가 실제로 멈추는지는 라이브 발화가 담당한다. plan.md 정적 단언이 잡는 것은 **배선 누락과 위치 drift뿐**이다 — 셸 인용 실수·종료코드 미검사·결과를 무시하는 호출은 전부 통과한다. help 텍스트 grep은 명령이 존재한다는 것조차 증명하지 않으므로 Validate로 쓰지 않았다.
+
+- **자기 코드리뷰 6건을 같은 버전 안에서 흡수했다** — 미출시 상태라 별도 patch로 미루지 않았다. 모두 한 계열이다: **작성자가 스스로 선언한 파서 계약보다 느슨했던 자리들**. (1) 절단면의 서로게이트 가드가 보존되는 마지막 문자(`end - 1`)가 아니라 **버려지는** 문자를 검사해, 쌍이 절단면에 걸치면 고아 high surrogate가 남아 원장에 U+FFFD로 기록됐다. 기존 test는 쌍을 가드가 불필요하게 발화하는 무해한 정렬에 두었고 검사도 JS 문자열의 U+FFFD를 봤는데 고아 서로게이트는 utf8 인코딩 시점에야 치환되므로, 파손된 출력에도 통과했다 — 이제 절단면 전후 6개 정렬을 쓸며 **바이트 왕복**으로 잰다. (2) 4셀 중 `finding_cell` 하나만 이스케이프해 `severity`·`date`·경로 셀은 원문이 그대로 실렸다. `severity`는 리뷰어 산출물에서 오므로 파이프는 열을 밀고 개행은 **위조 행을 통째로 삽입**한다(현재는 `quorum.js#normalizeSeverity`가 enum을 닫아 도달하지 못하지만, 그 닫힘은 이 모듈 밖의 사정이라 계약이 아니다). (3) 빈 date 셀을 허용해, `backlog.js:43`이 그 행을 조용히 버리므로 **파일에는 있으나 어느 소비자도 못 읽는** 행이 만들어질 수 있었다 — M2가 닫으려는 유실과 같은 형태라 헤더 부재와 같은 강도로 throw한다. (4) 중복 스캔이 append 이전 스냅샷만 봐서 **같은 실행 안의** 동일 digest 2건이 둘 다 실렸고, 이후 재실행이 둘 다 건너뛰어 중복 쌍이 영구화됐다. (5) repo 밖 자리표시자가 꺾쇠 토큰이라 GFM이 raw HTML 태그로 삼켜 출처 셀이 화면에서 빈 칸으로 렌더됐다. (6) `id=` 무력화의 대체 문자열이 소문자 고정이라 원문 `ID=`가 기록에서 대소문자가 바뀌었다. 여섯 건 모두 회귀 test를 동반하며, 그 test들은 수정 이전 모듈에 대고 **7건이 붉어지는 것으로** 실효를 확인했다.
+
+> **§3.7 forward-only 점검 (14번째)**: main이 `1.28.1`(M1)에 머물러 있어 `1.29.0`이 여전히 앞서므로 상향이 필요 없었다. 동기 4면(`plugin.json` · `renderer/html.js` page-foot · `renderer/markdown.js` derived 줄 · 본 CHANGELOG의 `currently` 노트)을 함께 갱신하고 `i18n-surface.test.js`로 재검증했다.
 
 > **§3.7 forward-only 상향 (13번째 재발)**: 이 항목은 원래 `1.27.3`이었다. milestone-close를
 > 진행하는 사이 main이 `1.27.2` → `1.28.0`을 발행해 `1.27.3`이 main 최대치보다 뒤로 밀렸으므로,

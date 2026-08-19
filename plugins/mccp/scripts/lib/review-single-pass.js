@@ -255,6 +255,10 @@ module.exports = {
   parseRoundCap: parseRoundCap,
   effectiveRoundCap: effectiveRoundCap,
   assertSingleRound: assertSingleRound,
+  // M2 — `assert-backlog-parity`가 같은 Measurement 블록을 읽는다. 두 번째
+  // 파서를 쓰면 한쪽이 읽는 형식을 다른 쪽이 못 읽는 순간 두 단언이 서로 다른
+  // 기록을 검사하게 된다.
+  extractMeasurement: extractMeasurement,
   ENV_SINGLE_PASS: ENV_SINGLE_PASS,
   ENV_ROUND_CAP: ENV_ROUND_CAP,
   REASONS: REASONS,

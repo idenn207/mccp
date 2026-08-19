@@ -75,7 +75,7 @@ We'll know we're right when **토글을 켠 작업의 게이트 통과 시간이
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | 단일통과 토글 | 운영자가 사유 enum 하나를 env로 선언하면 세 게이트가 단일 라운드로 통과하고, 그 사유가 receipt에 봉인돼 사후 감사가 가능하다. **라이브 완주 검증(acceptance a)은 다음 plan 게이트로 이월** — 구현 착지 후에는 L1 `C3_CREATE_EXISTS`가 그 게이트를 다시 태우지 못한다(2026-08-18 실측). 운영자가 이월을 수용하고 종료: [closure](../milestone-closures/review-loop-bypass-m1.md) | complete | [.claude/plans/review-loop-bypass-m1.plan.md](../plans/review-loop-bypass-m1.plan.md) |
-| 2 | 미흡수 지적 회수 | 단일 라운드가 낸 미흡수 지적이 backlog에 자동 적재되어, 기존 fix-task 생성 경로가 그것을 그대로 집어간다 | pending | — |
+| 2 | 미흡수 지적 회수 | 단일 라운드가 낸 미흡수 지적이 backlog에 자동 적재되고, 그 적재가 완화의 **전제조건**이라 적재 불가 시 완화가 진행되지 않는다. **소비처 문구 정정(2026-08-19 실측)**: 원 Outcome은 "기존 fix-task 생성 경로가 그것을 그대로 집어간다"였으나 `scripts/state/fix-task.js`는 backlog를 읽지 않는다 — backlog를 기계적으로 읽는 것은 `derive/sources/backlog.js`와 대시보드이고, M2는 그 소비 경로에 얹는다 | in-progress | [.claude/plans/review-loop-bypass-m2.plan.md](../plans/review-loop-bypass-m2.plan.md) |
 
 M2가 없으면 M1은 **부채를 만드는 기능**이다 — 지적이 사라지므로. M1이 없으면 M2는 대상이 없다. 두 마일스톤이 함께 있어야 "나중에 한 번에 고친다"가 성립한다.
 
@@ -92,7 +92,7 @@ M2가 없으면 M1은 **부채를 만드는 기능**이다 — 지적이 사라�
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | 토글이 상시 켜진 채 방치돼 dual-review 가치가 0이 된다 | 높음 | 높음 | 사유가 토글 값 자체라 무사유 사용이 구조적으로 불가. receipt 봉인으로 사용률이 사후 계측 가능 — 높으면 그것이 게이트 재설계의 근거가 된다 |
-| backlog에 적재만 되고 실제로는 안 고쳐져 부채가 누적된다 | 중간 | 높음 | M2가 기존 fix-task 생성 경로의 원천인 backlog로 보내므로, 회수 경로를 새로 만들지 않고 이미 도는 것에 얹는다 |
+| backlog에 적재만 되고 실제로는 안 고쳐져 부채가 누적된다 | 중간 | 높음 | M2가 이미 도는 소비 경로(`derive/sources/backlog.js` → 대시보드 '이월 finding' rail)에 얹으므로 회수 경로를 새로 만들지 않는다. **fix-task 연결은 하지 않는다**(2026-08-19 운영자 판정): backlog는 "나중에 한 번에 고친다"는 원장이고 fix-task는 "다음 턴에 즉시 고쳐라"는 Stop-loop 품질 실패 채널이라 성격이 정면으로 다르다 |
 | 오타난 사유가 조용히 토글을 켜거나 끈다 | 중간 | 중간 | enum 밖 값은 fail-closed(꺼짐) + loud warn. 조용한 우회 경로를 만들지 않는다 |
 | 단일 라운드가 통과시킨 잘못된 plan이 그대로 구현으로 흘러간다 | 중간 | 중간 | L1은 여전히 불가침이고 Codex 게이트도 유지된다. 토글이 없애는 것은 *반복*이지 리뷰 전부가 아니다 |
 | 세 게이트에 흩어진 배선이 한 축을 빠뜨려 부분 적용된다 | 중간 | 중간 | "단일 라운드 통과"를 세 게이트 각각에서 검증하는 것을 acceptance 조건으로 둔다. 부분 적용은 8~12시간을 그대로 남기므로 가치가 0이다 |

@@ -660,11 +660,23 @@ receipt는 미작성도 미승인도 아니라 **사유가 봉인된 기록**이
 **요구**하고 그 밖의 형태에는 **금지**한다. 요구만 두면 DD2가 완화 금지로 명시한 L3 이견이 진짜 우회처럼
 봉인되고, source 이름에 결속하면 L1이 무너진 정직한 기록조차 일어나지 않은 우회를 주장해야 한다.
 
+**미흡수 지적은 자동 회수된다 (v1.29.0 — M2).** 토글이 떨어뜨리는 `quorum.blockingFindings`는 `plan.md`
+5.2g2가 `.claude/plans/codex-findings-backlog.md`에 기계적으로 적재하며, 그 적재는 완화의 부수효과가 아니라
+**전제조건**이다 — 적재할 수 없으면 `EX_BLOCK`이고 완화는 진행되지 않는다. 이는 위와 같은 선이다:
+"결함을 기록할 수 없었다"는 `unavailable` 쪽이다. 퇴로는 새 env가 아니라 **토글을 끄는 것**이고(M2는 토글을
+하나도 추가하지 않는다 — 적재를 끄는 스위치는 곧 유실을 켜는 스위치다), 그때는 원래의 비수렴 HALT로 돌아가
+저자가 리뷰 기록에서 흡수하므로 유실은 여전히 0이다. 실행 위치는 5.2g **뒤** · 5.2h **앞**으로 고정된다
+(앞이면 미검증 proof의 지적이 원장에 들어가고, 뒤면 record가 `backlog_appended`를 못 실어
+`assert-backlog-parity`의 앵커가 사라진다). 적재 대상은 `blockingFindings` **정확히 그 집합**이며 `l2.json`은
+적재원이 아니다(non-blocking 카운트로만 읽고, 판독 불가는 0이 아니라 null). 표는 **4열 고정**이다 —
+`derive/sources/backlog.js`가 헤더를 리터럴로 고정하므로 5번째 열은 기존 행 전부를 파서에서 사라지게 한다.
+
 **주장하지 않는 것**: plan·prp-implement의 라운드 루프는 여전히 LLM이 읽는 산문이라 기계화된 것은 캡 계산과
 `pr.md`의 자식 프로세스 export, receipt 봉인, 그리고 세 본문이 공유 오라클을 읽는지의 정적 test뿐이다 —
-마지막 것이 막는 것은 **배선 누락**이지 산문 불이행이 아니다. L2 비용은 여전히 1회분 발생하고, 미흡수 지적의
-backlog 자동 회수는 **M2 소유**다(지적은 `l2.json`과 `.claude/reviews/plan-review-<slug>.md`에 남지만 자동
-이동하지 않는다). 배경: [상세](docs/gate-design.md#single-pass-review-toggle)
+마지막 것이 막는 것은 **배선 누락**이지 산문 불이행이 아니다. L2 비용은 여전히 1회분 발생한다. M2의 정적
+단언도 같은 천장을 갖는다(배선 누락과 위치 drift만 잡고 셸 인용 실수·종료코드 미검사는 통과) — 실행 축은
+CLI를 실제로 spawn하는 test와 라이브 발화가 나눠 덮는다.
+배경: [상세](docs/gate-design.md#single-pass-review-toggle)
 
 ---
 

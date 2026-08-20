@@ -45,6 +45,7 @@ const { filterDesignFindings, computeDroppedDigest } = require('../codex-result-
 // to own a private copy; plan.md and prp-implement.md had no access to it and
 // fell back to a free-text keyword scan that mis-read this cycle's own review.
 const { parseReviewPayload, APPROVING_VERDICTS } = require('../codex-review-payload');
+const envValue = require('../env-contract/value');
 
 const NODE = process.execPath;
 
@@ -239,7 +240,7 @@ function runMain(args) {
   // which is wrong — the canonical signal here is "policy says don't call".
   let codexOutcome = 'invoked';
   let codexSkipReason = null;
-  if (process.env.MCCP_CODEX_DISABLED === '1') {
+  if (envValue.parseBool(process.env, 'MCCP_CODEX_DISABLED')) {
     codexOutcome = 'disabled';
     codexSkipReason = 'codex_disabled';
   } else if (args['skip-reason'] && args['skip-reason'] !== true) {
@@ -272,7 +273,7 @@ function runMain(args) {
   // calling it here keeps the wrapper invocation, output filter, and audit
   // emit all keyed off the same truth. MCCP_CODEX_DESIGN_SCOPE_HONOR=0 kill
   // switch overrides detection to false (debug-only opt-out).
-  const honorScope = process.env.MCCP_CODEX_DESIGN_SCOPE_HONOR !== '0';
+  const honorScope = envValue.parseBool(process.env, 'MCCP_CODEX_DESIGN_SCOPE_HONOR');
   const impeccableAvailable = honorScope && impeccableDetect.probeSkillAvailable({});
 
   // 4. Invoke Codex (or short-circuit).

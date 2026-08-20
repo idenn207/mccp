@@ -34,6 +34,7 @@ const cost = require('./cost-state');
 const subscription = require('./subscription');
 const contextState = require('./context-state');
 const runaway = require('./orchestration-runaway');
+const envValue = require('./env-contract/value');
 
 const ABORT_EXIT = 13;
 // v0.2.8 Task 2.6.5a A3 R2 F2 + R3 absorption — tempfail exit mirrors
@@ -45,10 +46,10 @@ const COST_STALE_MS = 3600 * 1000; // R3#3 fix — older than 1h ⇒ stale
 
 const ADVISORY_REJECTED_STEPS = new Set(['pr']);
 
+// 로컬 별칭 집합을 두지 않는다 — 공유 규약이 하나여야 같은 값이 어디서나
+// 같게 읽힌다. 극성과 default는 레지스트리가 선언한다.
 function envBool(env, name) {
-  const v = env[name];
-  if (!v) return false;
-  return v === '1' || /^(true|yes|on)$/i.test(String(v));
+  return envValue.parseBool(env || {}, name);
 }
 
 function findRepoRoot(cwd) {
@@ -226,7 +227,7 @@ function preflightStep(step, opts) {
   opts = opts || {};
   const env = opts.env || process.env;
   // R2#2: terminal `pr` step refuses advisory env unconditionally.
-  if (ADVISORY_REJECTED_STEPS.has(step) && env.MCCP_ALLOW_CODEX_UNAVAILABLE === '1') {
+  if (ADVISORY_REJECTED_STEPS.has(step) && envValue.parseBool(env, 'MCCP_ALLOW_CODEX_UNAVAILABLE')) {
     return {
       ok: false,
       reason: 'advisory-env-rejected',

@@ -73,7 +73,7 @@
 | S3.16 | 3.16 리뷰는 1라운드가 기본이다 — plan 완성도보다 적용 후 결과 (2026-08-18) | resident | - | - | - | (a) 성립 — 라운드를 늘리는 비용이 사이클마다 반복 지불되고, 실측(santa-evidence-diversity M1 plan 1건에 8시간·패널 6라운드 + Plan-Codex 2라운드)에서 *수정이 다음 라운드의 표적이 되는 전이*가 재현됐다 · (b) `MCCP_GATE_ROUND_CAP=1`이 Codex 캡만 강제하고 패널 라운드·재리뷰 판단은 강제기 없음 · (c) 리뷰 결과를 triage하는 시점에 알아야 함 |
 | S4 | 4. 자주 쓰는 명령 (Cheat Sheet) | resident | - | - | - | (c) 명령 이름을 고르기 전에 필요한 색인. 이전 후에는 색인과 포인터만 남는다 |
 | S4.1 | Generic-receipt quarantine runbook (v0.2.8 Task 2.6.5) | on-demand | - | - | - | (c) 불성립 — quarantine 실패가 발생한 뒤 따라가는 런북이다. 이번 주기 미이전(분류만) |
-| S4.2 | 운영 토글 (환경 변수) | on-demand | docs/ENVIRONMENT.md | 11. 운영 토글 레퍼런스 (canonical) | docs/ENVIRONMENT.md | (b) 불성립 — 각 토글은 자기 소비처 오라클이 parse·검증한다. 44,462B(28.0%)이며 docs/ENVIRONMENT.md와 **중복**이다(PRD Evidence가 지목한 그 중복). **이번 주기 이전** |
+| S4.2 | 운영 토글 (환경 변수) | on-demand | docs/ENVIRONMENT.md | 3. 운영 토글 색인 (canonical) | docs/ENVIRONMENT.md | (b) 불성립 — 각 토글은 자기 소비처 오라클이 parse·검증한다. 44,462B(28.0%)이며 docs/ENVIRONMENT.md와 **중복**이다(PRD Evidence가 지목한 그 중복). **이번 주기 이전** |
 | S5 | 5. 모르거나 막힐 때 | resident | - | - | - | (c) 막혔을 때 어디를 볼지의 포인터 색인. 1.3%로 저렴 |
 
 ## 4. 이 계약이 보증하지 **않는** 것

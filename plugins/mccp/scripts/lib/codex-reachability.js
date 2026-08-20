@@ -1,4 +1,5 @@
 'use strict';
+const envValue = require('./env-contract/value');
 
 // gate-guard-integrity M2 축 B — codex companion 도달 가능성 판정 오라클.
 //
@@ -78,7 +79,7 @@ function classify(input) {
   const env = i.env || {};
 
   // 1. env policy — 무조건 최우선.
-  if (env.MCCP_CODEX_DISABLED === '1') {
+  if (envValue.parseBool(env, 'MCCP_CODEX_DISABLED')) {
     return { reachable: false, kind: 'env-policy', reason: reasonFor('env-policy') };
   }
 

@@ -212,7 +212,8 @@ FANOUT_JSON=$(node -e '
   const runaway = require(root + "/scripts/lib/orchestration-runaway");
   // live-activation M1 — cost fail-open (default true). MCCP_ORCHESTRATION_COST_FAIL_OPEN=0
   // restores the old fail-closed COST_STATE_UNKNOWN skip.
-  const costFailOpen = String(process.env.MCCP_ORCHESTRATION_COST_FAIL_OPEN || "").trim() !== "0";
+  const costFailOpen = require(root + "/scripts/lib/env-contract/value")
+    .parseBool(process.env, "MCCP_ORCHESTRATION_COST_FAIL_OPEN");
   // live-activation M3 — operational USD ($50/$80/$100 + hard_ceiling) no longer
   // blocks the fan-out; usdBomb restores that M1 block, catastrophicUsd is the
   // replacement bomb detector far above it (Codex F1/F4). The cost-state-independent
@@ -1680,10 +1681,11 @@ mkdir -p "$MCCP_TMP"
 # security/correctness/performance. The kill switch MCCP_CODEX_DESIGN_SCOPE_HONOR=0
 # restores the v0.3.5 behaviour (no preamble, no output filter).
 IMPECCABLE_FLAG=$(node -e "
-const honored = process.env.MCCP_CODEX_DESIGN_SCOPE_HONOR !== '0';
+const honored = require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/env-contract/value')
+  .parseBool(process.env, 'MCCP_CODEX_DESIGN_SCOPE_HONOR');
 const detect = require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect');
 process.stdout.write(honored && detect.probeSkillAvailable({}) ? '--impeccable-available' : '');
-" 2> /dev/null || echo "")
+" || echo "")
 # codex-intent-context M1 — the review now runs inside plan-codex-runner.js, which
 # ALSO writes the receipt. One process holds the review payload in memory from
 # invocation through decision to write, so no on-disk artifact is ever a decision

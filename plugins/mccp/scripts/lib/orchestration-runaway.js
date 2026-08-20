@@ -96,6 +96,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const envValue = require('./env-contract/value');
 
 const ENV_MAX_AGENTS = 'MCCP_ORCHESTRATION_MAX_AGENTS';
 const DEFAULT_MAX_AGENTS = 24;
@@ -162,13 +163,9 @@ function parseMaxAgents(env) {
 // is OFF + a LOUD warn: this is the rollback switch, so "I set it but it did
 // nothing" must never be silent.
 function parseUsdBomb(env) {
-  const raw = String((env && env[ENV_USD_BOMB]) || '').trim().toLowerCase();
-  if (raw === '') return false;
-  if (USD_BOMB_TRUE.has(raw)) return true;
-  if (USD_BOMB_FALSE.has(raw)) return false;
-  warn(ENV_USD_BOMB + ' expects 1|true|yes|on (restore the M1 USD bomb-detector) or ' +
-    '0|false|no|off; got "' + raw + '". Treating as OFF — the USD bomb-detector stays retired.');
-  return false;
+  // 로컬 별칭 두 Set을 공유 규약으로 대체했다. 불량값 loud warn은 parseBool이
+  // 낸다 — "설정했는데 아무 일도 안 났다"가 조용하면 안 되는 축은 그대로다.
+  return envValue.parseBool(env || {}, ENV_USD_BOMB);
 }
 
 // parseReservationLease(env) → positive ms (M3 follow-up R1 F3). Loud fail-open to

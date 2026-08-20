@@ -45,6 +45,7 @@
 
 const { SOURCES, REVIEW_VERDICT_VALUES } = require('../review-verdict');
 const { isUsableResult } = require('./quorum');
+const envValue = require('../env-contract/value');
 
 const MODES = Object.freeze(['codex', 'multi-agent', 'hybrid']);
 const ENV_MODE = 'MCCP_PLAN_REVIEW';
@@ -77,10 +78,7 @@ function parseReviewMode(env) {
 // parseL3Enabled(env) → boolean. Default off. Separate axis from mode so Codex
 // quota exhaustion can disable L3 without touching the mode.
 function parseL3Enabled(env) {
-  const raw = env && env[ENV_L3];
-  if (raw === undefined || raw === null || raw === '') return false;
-  const v = String(raw).trim().toLowerCase();
-  return v === '1' || v === 'on' || v === 'true' || v === 'yes';
+  return envValue.parseBool(env || {}, ENV_L3);
 }
 
 function isPlainObject(v) {

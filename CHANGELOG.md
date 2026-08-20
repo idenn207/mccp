@@ -6,11 +6,14 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ## [1.30.0] — 2026-08-19
 
-> **§3.7**: `1.29.1 → 1.30.0` (**minor** — M3은 santa-evidence-diversity PRD의 마지막
+> **§3.7**: `1.29.2 → 1.30.0` (**minor** — M3은 santa-evidence-diversity PRD의 마지막
 > milestone이라 PRD 전체 완료 축이다). 4면(plugin.json · html.js page-foot ·
 > markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄다. 진입 시점
 > 재계산에서 origin/main은 `1.29.0`이고 이 브랜치가 `1.29.1`이므로 `1.30.0`이
-> 양쪽보다 앞선다. **`/mccp:pr` 진입 직전에 한 번 더 재계산할 것**(§3.7의 두 번째 시점).
+> 양쪽보다 앞섰다. **2026-08-20 재동기 확인**: main이 `1.29.1`을 발행(#149)하고
+> 이 브랜치의 M2 항목이 `1.29.2`로 밀린 뒤에도 `1.30.0`은 여전히 양쪽보다 앞서므로
+> **이 번호는 상향하지 않는다**. 4면(plugin.json · footer 2면 · 이 파일의 `currently`
+> 노트)은 `1.30.0`으로 유지되며 `i18n-surface.test.js`가 재검증한다.
 
 ---
 
@@ -97,9 +100,9 @@ verdict도, receipt도 같은 값을 냈다. M3은 원장에 이미 있는 리�
   `opus`/`gpt-5.4`로 정직하게 바꿨다 — 그 test들이 애초에 말하려던 상태가 "두 **이종**
   리뷰어"이고, 단언을 지우거나 게이트를 끄는 대신 fixture를 실재에 맞추는 쪽이다.
 
-## [1.29.1] — 2026-08-19
+## [1.29.2] — 2026-08-19
 
-> **§3.7**: `1.28.2 → 1.29.1` (patch — PRD 3 milestone 중 두 번째 ship). 4면
+> **§3.7**: `1.28.2 → 1.29.2` (patch — PRD 3 milestone 중 두 번째 ship). 4면
 > (plugin.json · html.js page-foot · markdown.js derived 줄 · 이 파일의 `currently`
 > 노트) + `docs/ENVIRONMENT.md`의 토글 라벨을 함께 맞췄다.
 >
@@ -108,8 +111,14 @@ verdict도, receipt도 같은 값을 냈다. M3은 원장에 이미 있는 리�
 > 확인됐다 — 그대로 두면 머지 시 plugin.json이 **뒤로 가고** `claude plugin update`의
 > 캐시 디렉토리가 설치본보다 낮아져 §3.7이 bump을 강제하는 이유 자체가 무효화된다.
 > forward-only로 `1.29.1`에 착지. M1의 `1.28.2`는 main과 충돌하지 않고 머지 후에도
-> version 내림차순(`1.29.1 > 1.29.0 > 1.28.2 > 1.28.1`)이 성립하므로 그대로 뒀다.
-> **`/mccp:pr` 진입 직전에 한 번 더 재계산할 것**(§3.7의 두 번째 시점).
+> version 내림차순이 성립하므로 그대로 뒀다.
+>
+> **재상향 (2026-08-20, PR #150 오픈 후 main 재동기)**: `1.29.1`은 결국 main이
+> 가져갔다 — PR #149(environment-doc-uniformity)가 같은 번호로 먼저 발행됐다
+> (`8d3e9cf`). §3.7 forward-only대로 **이미 발행된 번호는 불가침**이므로 미머지
+> 쪽인 이 항목을 `1.29.2`로 한 칸 밀었다. 두 항목은 서로 다른 축이라 합치지 않는다.
+> 이것이 §3.7이 기록한 **네 번째 병렬 브랜치 version 충돌**이며, 충돌이 브랜치를 딴
+> 시점이 아니라 **PR을 연 뒤에도 열려 있다**는 실측이다(PR #150은 이미 오픈 상태였다).
 
 ### Added — santa 증거 다양성 M2: 상시 스코프 + 정합 rubric
 
@@ -192,6 +201,16 @@ verdict도, receipt도 같은 값을 냈다. M3은 원장에 이미 있는 리�
   그 구분을 명시했다.
 - **폐포가 좁아 놓치는 변종**(형제 milestone plan 간 불일치 등)이 있을 수 있다. 그것이
   나오면 넓힘의 근거가 되는 실측이지 지금 넓힐 근거가 아니다 — 반대 방향의 실측이 7 MB다.
+## [1.29.1] — 2026-08-19
+
+**환경변수 문서 최신화 + 값 규약 통일 (단일 plan ship → patch bump, 1.29.0 → 1.29.1)** — `docs/ENVIRONMENT.md`는 두 가지가 동시에 낡아 있었다. 문서가 코드를 따라가지 못했고(실 토글 117개 중 22개 미등재, 문서에만 있는 이름 10개, ship된 축 둘이 `🚧 예정`), 값의 어휘가 토글마다 달랐다(production 코드에 boolean 파싱 규약 **8종** 공존 — 같은 저장소에서 `MCCP_SUBSCRIPTION=true`는 무시되고 `MCCP_ORCHESTRATION_USD_BOMB=true`는 켜졌다). 문서만 고치면 문서가 거짓말을 하므로 두 축을 한 단위로 닫았다.
+
+- **선언을 하나로 만들었다.** [env-contract/registry.js](plugins/mccp/scripts/lib/env-contract/registry.js)가 157개 이름의 kind·values·default·polarity·status·domain·evidence를 단일 선언한다. `state/toggle-snapshot.js`의 `TOGGLE_DEFAULTS` 리터럴(56개)은 이 표에서 **파생**으로 바뀌어 세 번째 진실원이 사라졌고, 실측되던 `defaults_conflicts` 1건이 그 자리에서 해소됐다.
+- **규약은 둘이고 그 경계에 검사 가능한 기준이 있다.** `bool`은 `on`/`off`를 가르치고 `1`·`true`·`yes`·`enabled`를 함께 받는다. `bypass-flag`는 `MCCP_SKIP_RECEIPT`·`MCCP_CODEX_DISABLED`·`MCCP_ALLOW_CODEX_UNAVAILABLE` **정확히 3개**이며 수용 집합이 이전과 **바이트 단위로 동일**하다 — 잠들어 있던 `=true`는 이 milestone 이후에도 여전히 무시된다. 소속 기준은 «활성화가 리뷰 게이트를 약화하는가»이지 이름에 `DISABLE`이 들어가는지가 아니다.
+- **문서는 레지스트리의 투영이 됐다.** 색인 1장(99,040 B → 27,297 B) + 도메인 상세 8장. 상세의 모든 토글 앵커는 `settings.json`에 그대로 붙여 넣을 수 있는 사용 예시를 갖고, 그 JSON은 실제로 파싱되며 값이 레지스트리 어휘에 속하는지까지 검사된다.
+- **삭제가 아니라 이전이다.** 축약 이전 문서에서 토글을 언급하는 실질 줄 150개가 전부 목적지 문서에 줄 단위로 보존되며, 그 사실을 정규화 대조가 기계로 확인한다(고아 0).
+- **9개 fail-closed 검사.** [env-contract/lint.js](plugins/mccp/scripts/lib/env-contract/lint.js)가 레지스트리 ↔ 런타임 ↔ 색인의 삼각 정합, 상세 링크의 **앵커까지** 해석, 은퇴 이름의 런타임 부재, 사용 예시 3검사, `evidence`의 어휘 검사(절대경로·`..` 거부)를 fs 실재 확인보다 **먼저** 수행하는 순서, 그리고 `env-contract/` 밖의 raw boolean 비교 **0건**을 강제한다. 마지막 검사는 이관 누락과 새 우회 경로를 같은 축으로 닫으며, 직접 비교뿐 아니라 load-time 별칭 포획과 구조분해까지 본다.
+- **동작 변경이 0인 곳과 아닌 곳을 나눠 적는다.** `bypass-flag` 3개는 변경 0이다. `bool`로 넓어진 토글에서는 이전에 무시되던 `yes`·`true`·`enabled`가 이제 유효하다 — 예컨대 `MCCP_SUBSCRIPTION=yes`나 `MCCP_ORCHESTRATION_USD_BOMB=enabled`가 그렇다. 어느 것도 리뷰 게이트를 열지 않지만, 그런 값이 이미 설정돼 있던 환경에서는 동작이 달라진다.
 
 ## [1.29.0] — 2026-08-19
 

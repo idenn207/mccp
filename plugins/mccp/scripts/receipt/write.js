@@ -21,6 +21,7 @@ const escalateDetector = require('../lib/escalate-detector');
 const fixTask = require('../state/fix-task');
 const stateWriter = require('../state/state-writer');
 const briefing = require('../lib/briefing');
+const envValue = require('../lib/env-contract/value');
 
 function asArray(v) {
   if (v === undefined || v === null) return [];
@@ -72,7 +73,7 @@ function detectDispatchContext(args, cwd) {
   const envelopePathStr = (typeof envelopePathArg === 'string' && envelopePathArg.length > 0)
     ? envelopePathArg : null;
 
-  const markerByEnv = process.env.MCCP_DISPATCH_CONTEXT === '1';
+  const markerByEnv = envValue.parseBool(process.env, 'MCCP_DISPATCH_CONTEXT');
   let markerByFile = false;
   if (envelopePathStr) {
     const envAbs = path.resolve(cwd, envelopePathStr);
@@ -523,7 +524,7 @@ function buildReceipt(args) {
     round = existing.round + 1;
   }
 
-  const skipBypass = process.env.MCCP_SKIP_RECEIPT === '1';
+  const skipBypass = envValue.parseBool(process.env, 'MCCP_SKIP_RECEIPT');
   const skipped = args.skipped === true || skipBypass;
   let skipReason = args['skip-reason'] || null;
   if (skipBypass && !skipReason) skipReason = 'MCCP_SKIP_RECEIPT=1';
@@ -593,7 +594,7 @@ function buildReceipt(args) {
         // parses to boolean true, which would fail schema's string|null check.
         const explicit = args['codex-skip-reason'];
         if (typeof explicit === 'string' && explicit.length > 0) return explicit;
-        if (args['codex-disabled'] === true || process.env.MCCP_CODEX_DISABLED === '1') {
+        if (args['codex-disabled'] === true || envValue.parseBool(process.env, 'MCCP_CODEX_DISABLED')) {
           return 'codex_disabled';
         }
         return null;
@@ -610,7 +611,7 @@ function buildReceipt(args) {
       // stamps both codex_disabled=true. The --codex-disabled-at-pr flag is
       // explicit per-call opt-in (terminal /mccp:pr Phase 3.5 sets it after
       // codex-runner returns codex_outcome='disabled').
-      codex_disabled: args['codex-disabled'] === true || process.env.MCCP_CODEX_DISABLED === '1',
+      codex_disabled: args['codex-disabled'] === true || envValue.parseBool(process.env, 'MCCP_CODEX_DISABLED'),
       codex_disabled_at_pr: args['codex-disabled-at-pr'] === true,
       // v0.2.9 Task 5 — YAGNI triage DEFER_TO_BACKLOG counter. Additive, no schema bump.
       deferred_findings_count: (function () {

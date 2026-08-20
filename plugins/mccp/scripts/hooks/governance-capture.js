@@ -19,6 +19,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const envValue = require('../lib/env-contract/value');
 
 const MAX_STDIN = 1024 * 1024;
 
@@ -252,7 +253,7 @@ function analyzeForGovernanceEvents(input, context = {}) {
  */
 function run(rawInput, options = {}) {
   // Gate on feature flag
-  if (String(process.env.MCCP_GOVERNANCE_CAPTURE || '').toLowerCase() !== '1') {
+  if (!envValue.parseBool(process.env, 'MCCP_GOVERNANCE_CAPTURE')) {
     return rawInput;
   }
 

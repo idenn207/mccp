@@ -38,6 +38,7 @@
 // atomic reserve could not record the launch) skips with LOCK_EXHAUSTED.
 
 const subscription = require('../subscription');
+const envValue = require('../env-contract/value');
 
 const REASONS = Object.freeze({
   OK_RUN: 'ok-run',
@@ -92,8 +93,8 @@ function warn(line) {
 // opt-OUT). A case-insensitive 'off' or '0' turns it off; anything else (incl.
 // unset) is on.
 function parseFanoutMode(env) {
-  const raw = String((env && env[ENV_MODE]) || '').trim().toLowerCase();
-  return (raw === 'off' || raw === '0') ? 'off' : 'on';
+  // 극성(default ON)은 레지스트리 선언이고 여기서 다시 적지 않는다.
+  return envValue.parseBool(env || {}, ENV_MODE) ? 'on' : 'off';
 }
 
 // parseFanoutMinPerAgent(env) → positive integer token estimate per perspective.

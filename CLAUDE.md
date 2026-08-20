@@ -122,7 +122,7 @@ v0.1의 receipt chain은 *"adversarial review가 일어났는가"* 만 검증하
 | 비용·발화 | cost-state time-based decay · orchestration live-activation · firing-preview + 관찰 프로토콜 · operational-USD firing-block 은퇴 |
 | 기타 | cwd-mask + branch-validation polish |
 
-자동 게이트는 환경 변수로 토글합니다 — [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) §11 참조.
+자동 게이트는 환경 변수로 토글합니다 — [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) §3 "운영 토글 색인 (canonical)" 참조.
 
 > **이 파일을 줄일 때**: 무엇이 상주해야 하는지는 [docs/multi-session-work-loop/instruction-contract.md](docs/multi-session-work-loop/instruction-contract.md)가 소유하고, 절을 옮기면 `node plugins/mccp/scripts/lib/instruction-contract/lint.js --claude CLAUDE.md --ledger docs/multi-session-work-loop/instruction-contract.md`가 목적지·anchor·상주 포인터·무목적지 소실을 fail-closed로 검증합니다. ledger에 없는 절이 사라지면 실패합니다 — 이전과 삭제를 가르는 유일한 기계 장치입니다.
 
@@ -829,7 +829,7 @@ v0.2.8부터 validate-cmd가 generic decision_id(`default`/`main`) + `--plan` �
 
 ### 운영 토글 (환경 변수)
 
-**canonical 레퍼런스는 [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) §11 "운영 토글 레퍼런스"입니다.** 토글 이름·기본값·판정 순서·흡수 이력이 전부 거기 있습니다. 기본값을 여기 옮겨 적으면 두 문서가 곧 어긋나므로 이 절에는 값을 적지 않습니다.
+**canonical 레퍼런스는 [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) §3 "운영 토글 색인 (canonical)"입니다.** 토글 이름·종류·값·기본값이 그 색인에 있고, 판정 순서·흡수 이력·사용 예시는 색인이 가리키는 `docs/environment/*.md` 상세 8장에 있습니다. 기본값을 여기 옮겨 적으면 두 문서가 곧 어긋나므로 이 절에는 값을 적지 않습니다.
 
 설정 위치는 `.claude/settings.json`의 `env` 블록 또는 셸입니다. 게이트가 막혔을 때 가장 먼저 보는 축은 `MCCP_RECEIPT_GATE_MODE`(receipt 게이트 강도) · `MCCP_CODEX_DISABLED`(Codex 호출 skip) · `MCCP_SKIP_RECEIPT`(1회 bypass) 셋이며, 정확한 값과 실패 모드는 위 문서를 보세요.
 

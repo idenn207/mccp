@@ -22,6 +22,7 @@ const stateWriter = require('../../state/state-writer');
 const { listReceipts, readReceipt } = require('../../receipt/store');
 const mask = require('../mask');
 const { isConvergedVerdict } = require('../../lib/receipt-convergence');
+const envValue = require('../../lib/env-contract/value');
 
 const SCAN_TIMEOUT_MS = 3000;
 const DEFAULT_CAP = 20;
@@ -313,9 +314,15 @@ function scanWorktrees(repoRoot, opts) {
   opts = opts || {};
   const root = path.resolve(repoRoot);
 
-  const envScan = process.env.MCCP_MULTI_SESSION_SCAN;
-  const killSwitch = envScan === '0';
-  const optIn = opts.worktreeScan === true || envScan === '1';
+  // 이 토글은 3상태다: 명시 off = kill switch · 명시 on = opt-in · 미설정 =
+  // 둘 다 아님(호출자의 opts로 결정). parseBool 하나로는 미설정과 off를 구분할 수
+  // 없으므로 존재 여부를 따로 본다 — 값 비교가 아니라 길이 검사로 하는 것은
+  // lint L9가 "raw 비교"로 오인하지 않게 하기 위함이다.
+  const rawScan = process.env.MCCP_MULTI_SESSION_SCAN;
+  const envScanSet = rawScan !== undefined && rawScan !== null && String(rawScan).trim().length > 0;
+  const envScanOn = envScanSet && envValue.parseBool(process.env, 'MCCP_MULTI_SESSION_SCAN');
+  const killSwitch = envScanSet && !envScanOn;
+  const optIn = opts.worktreeScan === true || envScanOn;
 
   if (killSwitch && opts.worktreeScan === true) {
     process.stderr.write('[mccp:worktrees] MCCP_MULTI_SESSION_SCAN=0 kill-switch '

@@ -9,65 +9,29 @@
 const fs = require('fs');
 const path = require('path');
 
-// 기본값 표 (CLAUDE.md §4 cheat sheet 기반)
-const TOGGLE_DEFAULTS = Object.freeze({
-  MCCP_STOP_LOOP: 'observe',
-  MCCP_STOP_LOOP_CODEX: '0',
-  MCCP_RECEIPT_GATE_MODE: 'hard',
-  MCCP_SKIP_RECEIPT: undefined,
-  MCCP_RECEIPT_DEBUG: undefined,
-  MCCP_ALLOW_CODEX_UNAVAILABLE: undefined,
-  MCCP_CODEX_DISABLED: undefined,
-  MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER: undefined,
-  MCCP_FORCE_PR_WITHOUT_IMPECCABLE: undefined,
-  MCCP_PR_SKIP_CODEX_REVIEW: undefined,
-  CODEX_DEDUPE_AT_PR: undefined,
-  MCCP_GATE_ROUND_CAP: '1',
-  MCCP_CODEX_DESIGN_SCOPE_HONOR: '1',
-  MCCP_DESIGN_CRITIQUE_MAX_RETRY: '2',
-  MCCP_DESIGN_INTENT_REASON: undefined,
-  MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN: undefined,
-  MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL: undefined,
-  MCCP_DESIGN_GROUNDING: 'enforce',
-  MCCP_IMPECCABLE_ROUTING_MODE: 'auto',
-  MCCP_IMPECCABLE_INTENT_COMMANDS: undefined,
-  MCCP_A11Y_AUTO_INVOKE: '1',
-  MCCP_RENDER_TRIGGER_DEBOUNCE_MS: '5000',
-  MCCP_RENDER_LOCK_LEASE_MS: '90000',
-  MCCP_RECEIPT_DEBUG_LEGACY_INLINE: undefined,
-  MCCP_AUTO_CHAIN_DISABLE: undefined,
-  MCCP_AUTO_CHAIN_SKIP_PR: undefined,
-  MCCP_WORK_ISOLATE_IMPLEMENT: '1',
-  MCCP_WORK_IMPLEMENT_WORKFLOW: '0',
-  MCCP_WORK_IMPLEMENT_PARALLEL: 'on',
-  MCCP_WORK_MERGE_STRATEGY: 'worktree-merge',
-  MCCP_WORK_PARALLEL_MAX: '4',
-  MCCP_WORK_PARALLEL_BUDGET: '150000',
-  MCCP_WORK_PARALLEL_AUTODISABLE_TIER: '',
-  MCCP_WORK_MERGED_VERIFY: 'enforce',
-  MCCP_PLAN_FANOUT: 'on',
-  MCCP_PLAN_FANOUT_BUDGET: '150000',
-  MCCP_PLAN_FANOUT_AUTODISABLE_TIER: '',
-  MCCP_ORCHESTRATION_COST_FAIL_OPEN: '1',
-  MCCP_ORCHESTRATION_MAX_AGENTS: '24',
-  MCCP_ORCHESTRATION_RESERVATION_LEASE_MS: '600000',
-  MCCP_ORCHESTRATION_CATASTROPHIC_USD: '500',
-  MCCP_ORCHESTRATION_USD_BOMB: undefined,
-  MCCP_AUTO_HANDOFF: 'notify',
-  MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN: undefined,
-  MCCP_HANDOFF_THRESHOLDS_USD: '50,80,100',
-  MCCP_ORCHESTRATOR_POLL_MS: '500',
-  MCCP_DISPATCH_CONTEXT: '0',
-  MCCP_BRIEFING: 'auto',
-  MCCP_BRIEFING_AUTODISABLE_TIER: 'notice,warning,critical',
-  MCCP_SESSION_RETENTION_DAYS: undefined,
-  MCCP_SUBSCRIPTION: undefined,
-  MCCP_SUBSCRIPTION_OVERFLOW_CONTEXT_WARN_PCT: '35',
-  MCCP_SUBSCRIPTION_OVERFLOW_CONTEXT_CRITICAL_PCT: '25',
-  MCCP_SUBSCRIPTION_OVERFLOW_TOOL_WARN: '0',
-  MCCP_SUBSCRIPTION_OVERFLOW_TOOL_CRITICAL: '0',
-  MCCP_COST_STATE_DECAY_HOURS: '6',
-});
+// 기본값 표 — `lib/env-contract/registry.js`에서 **파생**된다.
+//
+// 이전에는 여기에 56개짜리 리터럴이 있었고, 그것이 코드의 파싱 리터럴·문서 표와
+// 나란히 놓인 세 번째 진실원이었다. 셋은 서로를 모르므로 조용히 갈라졌다 —
+// 실측된 `defaults_conflicts` 1건(`MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL`이 제외
+// 목록과 이 표에 동시 등장)이 그 증상이다. 이제 선언은 레지스트리 하나이고
+// 이 표는 그 투영이라, 같은 종류의 모순이 구조적으로 생길 수 없다.
+//
+// 파생 규칙: 제외 분류에 속하는 항목(`status: 'test-only'`)과 mccp가 정의하지
+// 않는 외부 이름(`domain: 'external'`), 그리고 은퇴·부재·스캔 오탐(`domain:
+// 'retired'`)은 분자에서 뺀다. 남는 것은 «지금 살아 있고 mccp가 소유하는 토글»이며
+// 그것이 이 표가 계측하려던 집합이다.
+//
+// 값의 어휘도 레지스트리를 따른다: boolean은 `'on'`/`'off'`, 그 외는 선언된
+// default 문자열, 정적 default가 없으면 `undefined`(= 미설정이 기본).
+const envRegistry = require('../lib/env-contract/registry');
+
+const TOGGLE_DEFAULTS = Object.freeze(envRegistry.ENTRIES.reduce((acc, e) => {
+  if (e.status === 'test-only') return acc;
+  if (e.domain === 'external' || e.domain === 'retired') return acc;
+  acc[e.name] = e.default === null ? undefined : e.default;
+  return acc;
+}, {}));
 
 // secret 패턴 감지 (derive/mask.js 거울, CLAUDE.md §4 cheat sheet 기반)
 // reason toggles + force override toggles (likely to contain secrets/paths)
@@ -334,6 +298,11 @@ function scanRuntimeSurface(repoRoot, opts) {
   );
 
   for (const file of jsFiles) {
+    // env-contract/ 는 **선언** 표면이지 사용 표면이 아니다. 레지스트리는 은퇴한
+    // 이름까지 이름으로 적으므로, 여기를 세면 선언이 곧 사용으로 집계되어 분모가
+    // 부풀고 은퇴 항목이 되살아난다(자기참조). 같은 이유로 lint의 walkSurfaces도
+    // 이 디렉토리를 뺀다 — 두 스캐너의 제외 이유가 같아야 한다.
+    if (file.split(path.sep).join('/').indexOf('/env-contract/') !== -1) continue;
     try {
       const content = fs.readFileSync(file, 'utf8');
       let match;

@@ -39,6 +39,7 @@ const codexBridge = require(path.join(PLUGIN_ROOT, 'scripts', 'lib', 'codex-brid
 const qualityRunner = require(path.join(PLUGIN_ROOT, 'scripts', 'quality', 'runner'));
 const qualityDetect = require(path.join(PLUGIN_ROOT, 'scripts', 'quality', 'detect'));
 const stateWriter = require(path.join(PLUGIN_ROOT, 'scripts', 'state', 'state-writer'));
+const envValue = require('../lib/env-contract/value');
 
 const MAX_STDIN_BYTES = 1024 * 1024;
 const CODEX_INPUT_REL = path.join('.claude', 'state', 'codex-stop-loop-input.txt');
@@ -50,7 +51,7 @@ function modeFromEnv(env) {
 }
 
 function codexOptIn(env) {
-  return String((env || {}).MCCP_STOP_LOOP_CODEX || '').trim() === '1';
+  return envValue.parseBool(env || {}, 'MCCP_STOP_LOOP_CODEX');
 }
 
 function debug(stderr, line) {

@@ -1,4 +1,5 @@
 'use strict';
+const envValue = require('../env-contract/value');
 
 // workflow-orchestration live-activation M1 Task 4b — /mccp:work Step 3 route
 // oracle (Codex F3 absorption).
@@ -72,8 +73,7 @@ const ENV_WORKFLOW = 'MCCP_WORK_IMPLEMENT_WORKFLOW';
 // case-insensitive '1' or 'on' enables. Mirror of budget.js#parseParallelMode
 // (pre-flip polarity: this axis is NOT flipped by live-activation M1 — Codex F1).
 function parseWorkflowMode(env) {
-  const raw = String((env && env[ENV_WORKFLOW]) || '').trim().toLowerCase();
-  return (raw === '1' || raw === 'on') ? 'on' : 'off';
+  return envValue.parseBool(env || {}, ENV_WORKFLOW) ? 'on' : 'off';
 }
 
 // resolveWorkRoute({ env, isolate, hasFleetArgs, hasPrepare, hasWorkflowArgs,

@@ -41,6 +41,7 @@ const stateWriter = require('./state-writer');
 const fixTask = require('./fix-task');
 const prPhaseLock = require('../lib/pr-phase-lock');
 const { assertContained } = require('../lib/path-containment');
+const envValue = require('../lib/env-contract/value');
 
 const LOCK_DIRNAME = path.join('.claude', 'state');
 const LOCK_PREFIX = 'handoff-lock-';
@@ -279,7 +280,7 @@ function spawn(opts) {
     let fallbackReason = null;
 
     if (requestedMode === 'spawn') {
-      if (env.MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN !== '1') {
+      if (!envValue.parseBool(env, 'MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN')) {
         effectiveMode = 'notify';
         fallbackReason = FALLBACK.SPAWN_EXPERIMENTAL_FLAG_MISSING;
         loudStderr('spawn mode is experimental in v1.1.0+ — set MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN=1 to opt in. Degrading spawn → notify.');

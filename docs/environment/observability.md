@@ -106,6 +106,8 @@
   MCCP_STATE_JOURNAL=enforce|shadow|off  # v1.23.10 default: enforce. STATE.md를 append-only 저널의 **파생 투영물**로 두는 축. enforce = `state-writer.update()`가 레코드 append → 재투영 → 기존 `renderState` 경로로 STATE.md를 쓴다(렌더 바이트·공개 시그니처 불변) / shadow = 저널 append는 **계속하되** STATE.md 쓰기만 M5 이전 직접 경로로 되돌린다(회귀 진단 데이터를 남기는 것이 이 값의 목적 — 회귀 test가 "shadow 산출 == M5 이전 산출 byte-identical" ∧ "저널 레코드 수 == enforce" 두 축을 단언한다) / off = 저널 비활성 + loud warn. 미지정·오타 → enforce + loud warn. **운영 계약**: ① 발동은 **수동 전용**(자동 강등 경로 없음 — 그쪽은 `.degraded` 마커의 일이고 append 실패라는 관측 사실에 매인다) ② 지속은 **프로세스 수명**(env를 지우면 다음 프로세스는 enforce로 복귀, 상태 파일에 기록하지 않으므로 sticky하지 않다) ③ 우선순위는 **마커 > 토글**(`.degraded`가 있으면 enforce여도 직접 경로이며, 토글은 마커를 지우지 못한다 — 지우는 것은 `journal checkpoint --reseed` 하나뿐) ④ `shadow`가 되돌리는 것은 STATE.md **쓰기 경로만**이다. 이 토글이 M5가 추가하는 **유일한** 신규 축이다(UI11 — 보존 기간·용량 상한·세그먼트 회전 임계는 전부 상수이고 test 주입만 허용). 진단: `node plugins/mccp/scripts/state/cli.js journal verify --json`(content_hash 전수 · 투영↔디스크 일치 · degraded 마커 · malformed 라인 · ledger seed 무결성 5축, 하나라도 실패 시 비영점 exit).
 ```
 
+> 위 원문 보존 블록은 원 숫자(U+2460 계열)를 v1.23.10 문서 그대로 둔다 — Validation 3의 고아 대조가 정규화 없이 일치를 요구한다. 그 글자는 터미널에서 빈 칸으로 보이므로 운영 계약 4항을 평문으로 적는다: (1) 발동은 수동 전용 (2) 지속은 프로세스 수명 (3) 우선순위는 마커 > 토글 (4) `shadow`가 되돌리는 것은 STATE.md 쓰기 경로뿐.
+
 ### MCCP_EVIDENCE_CONFLICT_GUARD
 
 **종류** `enum` — **값** `enforce` · `warn` · `off` — **기본값** `enforce`

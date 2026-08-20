@@ -425,6 +425,8 @@ IMPECCABLE_CONTEXT_DIR=<사유를 한 문장으로> /mccp:pr
   | `IMPECCABLE_CONTEXT_DIR` | absolute or cwd-relative path | unset | `PRODUCT.md` / `DESIGN.md` 검색 폴백 디렉토리. 검색 순서: ① cwd ② `.agents/context/`·`docs/` ③ 이 변수 ④ cwd 빈 default. "power-user escape hatch"라 주석. `context.mjs:51`. |
 ```
 
+> 위 원문 보존 블록은 원 숫자(U+2460 계열)를 v1.29.0 문서 그대로 둔다 — Validation 3의 고아 대조가 정규화 없이 일치를 요구한다. 그 글자는 터미널에서 빈 칸으로 보이므로 검색 순서를 평문으로 적는다: (1) cwd (2) `.agents/context/`·`docs/` (3) 이 변수 (4) cwd 빈 default.
+
 ### IMPECCABLE_CRITIQUE_META
 
 **종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
@@ -488,6 +490,8 @@ IMPECCABLE_LIVE_CONFIG=<사유를 한 문장으로> /mccp:pr
 ```text
   | `IMPECCABLE_LIVE_CONFIG` | absolute or cwd-relative path | unset | live mode 설정 파일 경로 override. 미설정 시 ① `<cwd>/.impeccable/live/config.json` ② legacy `<scriptsDir>/config.json` 순으로 fallback. [impeccable-paths.mjs:43](../.claude/skills/impeccable/scripts/impeccable-paths.mjs). |
 ```
+
+> 위 원문 보존 블록은 원 숫자(U+2460 계열)를 v1.29.0 문서 그대로 둔다 — Validation 3의 고아 대조가 정규화 없이 일치를 요구한다. 그 글자는 터미널에서 빈 칸으로 보이므로 순서를 평문으로 적는다: (1) `<cwd>/.impeccable/live/config.json` (2) legacy `<scriptsDir>/config.json`.
 
 ### IMPECCABLE_LIVE_DEBUG_EVENTS
 

@@ -82,7 +82,7 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 | 1 | plan-codex multi-agent 전환 (MVP) | plan 게이트가 diverse-agent L1+L2로 `converged`를 발급 · Codex 수동 opt-in · dedupe/ship-gate 회귀 0 · 계기 배선(지표 산출은 #4 소관) | complete | `.claude/plans/diverse-agent-review-m1.plan.md` |
 | 4 | 차단 경로 계측 + 지표 부채 상환 | wall-clock이 **차단 경로에서도** 기록돼 survivorship bias 제거 · 계측 표면이 worktree-only receipt에서 git-tracked `.claude/reviews/`로 이전 · budget 게이트가 **구조적 도달 불가**에서 벗어나 런타임 실행으로 확인 · "라이브 완주"가 acceptance 항목으로 명문화 | complete | `.claude/plans/diverse-agent-review-m4.plan.md` |
 | 6 | 설치된 런타임에서 패널 실측 | 설치된 런타임에서 패널을 **4회 라이브 실측**하고 그 결과를 milestone 산출물로 확정 — 승인 0건(O1) · 차단 경로 wall-clock 4회 모두 목표 이내(O2) · 계측 표면의 **재실행 편향** 발견(O3) · 미달 축과 신규 축을 #7·#8·#9로 이관 | complete | `.claude/plans/diverse-agent-review-m6.plan.md` |
-| 7 | budget 게이트 라이브 발화 관측 | 라이브 `/mccp:plan`에서 budget 게이트가 실제로 발화해 agent 0개 spawn + 실측 `remaining`/`minRemaining`이 남음 — 시뮬레이션은 라이브 발화의 증거가 아니다(UI10). #4에서 도달 가능해졌고 #6이 관측하지 못한 축 | pending | — |
+| 7 | budget 게이트 라이브 발화 관측 | 라이브 `/mccp:plan`에서 budget 게이트가 실제로 발화해 agent 0개 spawn + 실측 `remaining`/`minRemaining`이 남음 — 시뮬레이션은 라이브 발화의 증거가 아니다(UI10). #4에서 도달 가능해졌고 #6이 관측하지 못한 축 | in-progress | `.claude/plans/diverse-agent-review-m7.plan.md` |
 | 8 | 패널 quorum 캘리브레이션 재검토 | 관점 단위 16회 중 `pass` 2회(O1)라는 실측 위에서 `3of4` + 고유 역할 K=3이 적정한지 판정 — **승인이 발급되는 경로가 존재하는가**에 먼저 답하고, 그 뒤에야 승인 품질(false-approve 비율)을 물을 수 있다 | pending | — |
 | 5 | 게이트 배선 오라클 추출 | 게이트 승인 배선이 단위 test 사거리 안으로 이동 — seam 결함이 ship 후 리뷰가 아니라 test로 잡힘 | pending | — |
 | 9 | 계측 재실행 편향 해소 | 같은 결정에 대한 재실행이 이전 레코드를 덮어쓰지 않아 수렴 과정이 축적됨(O3) — 레코드 경로 slug가 PRD 경로 파생이라 한 PRD의 모든 milestone·모든 라운드가 한 파일을 공유한다. 배선 변경이므로 **#5의 오라클 추출 뒤에** 착수한다(UI6) | pending | — |

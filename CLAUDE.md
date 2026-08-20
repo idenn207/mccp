@@ -629,9 +629,58 @@ compliance는 `claimed/total`로 **계측**하되 판정은 이분법이다: `fu
 
 ---
 
+### 3.15 단일통과 토글 (v1.27.3 — review-loop-bypass M1)
+
+`MCCP_REVIEW_SINGLE_PASS`는 작업 단위 opt-in으로 **리뷰 루프의 반복을 없앤다 — 리뷰를 없애지 않는다.**
+값이 곧 사유이고 고정 enum 3종이다: `scope_too_small` · `deadline_pressure` · `deferred_to_prd_completion`.
+별도 사유 변수를 두지 않은 이유는 잊을 수 있고 잊힌 사유는 감사 불가이기 때문이다 — 토글을 켜는 행위와
+사유를 대는 행위가 같은 동작이어야 한다. 열거 밖 값은 **fail-closed**(꺼진 것으로 보고 loud warn)이며
+대소문자를 구분한다(값이 receipt에 그대로 봉인되므로 정규화하면 서로 다른 입력이 같은 감사 필드를 채운다).
+
+켜지면 셋이 함께 일어난다: `/mccp:plan`의 L2 패널이 1회만 발화하고 quorum 비수렴이 진행을 차단하지 않으며,
+세 게이트의 Codex 라운드 캡이 `MCCP_GATE_ROUND_CAP`과 무관하게 1로 고정되고(토글이 상위 정책, 캡은 그 아래
+조정값), `/mccp:santa-loop`의 `begin-round`가 라운드를 열지 않는다(exit 2 + `SANTA_SINGLE_PASS_ACTIVE`,
+원장 미변경 → 캡 미소모, receipt 미작성).
+
+**완화되는 경로는 정확히 하나다.** L1 실패 · L2 부재/판독 불가 · `responded=0` · budget skip ·
+DD13 plan hash 불일치 · hybrid인데 L3 미수렴은 토글이 켜져 있어도 전부 HALT한다. 기준은
+`divergent`(보았고 결함을 찾았다) 대 `unavailable`(인증할 수 없었다)의 구분이며, 후자를 통과시키는 것은
+단일 통과가 아니라 **무통과**다. 이 보장은 코드 순서로 성립한다 — 완화 분기가 나머지 차단 분기보다 **뒤**에
+있어, 그 지점에 도달했다는 것 자체가 앞의 조건을 전부 통과했다는 뜻이다.
+
+receipt는 미작성도 미승인도 아니라 **사유가 봉인된 기록**이다. `resolution.review_verdict`는 실제
+`divergent` 그대로 봉인되므로(converged 위장 없음) 대시보드·`evidence-audit`·ship gate가 전부 정직하게
+비승인으로 읽고 cross-gate dedupe도 열리지 않는다. present-only 2필드는 **서로 다른 축**이다(§3.12의
+`codex_disabled` 대 `codex_disabled_at_pr`과 같은 구분): `meta.review_single_pass_reason`은 토글이
+*설정됐다*는 env ambient 주석(명시 플래그 우선), `meta.review_single_pass_bypassed_verdict`는 실제로
+*적용됐다*는 명시 전용 감사 축이다. schema가 양방향으로 강제하되 정방향의 자격 verdict는 `divergent`
+하나이고(비수렴 전체가 아니다 — `unavailable`은 완화 대상이 아니므로 우회 주장이 붙으면 거부된다),
+역방향의 판별자는 source 이름이 아니라 **proof 구조**다: `multi-agent`는 `layers.l2` 비수렴,
+`hybrid`는 거기에 `layers.l3='converged'`가 더해진 형태가 완화이며, 각 축은 그 형태에 플래그를
+**요구**하고 그 밖의 형태에는 **금지**한다. 요구만 두면 DD2가 완화 금지로 명시한 L3 이견이 진짜 우회처럼
+봉인되고, source 이름에 결속하면 L1이 무너진 정직한 기록조차 일어나지 않은 우회를 주장해야 한다.
+
+**미흡수 지적은 자동 회수된다 (v1.29.0 — M2).** 토글이 떨어뜨리는 `quorum.blockingFindings`는 `plan.md`
+5.2g2가 `.claude/plans/codex-findings-backlog.md`에 기계적으로 적재하며, 그 적재는 완화의 부수효과가 아니라
+**전제조건**이다 — 적재할 수 없으면 `EX_BLOCK`이고 완화는 진행되지 않는다. 이는 위와 같은 선이다:
+"결함을 기록할 수 없었다"는 `unavailable` 쪽이다. 퇴로는 새 env가 아니라 **토글을 끄는 것**이고(M2는 토글을
+하나도 추가하지 않는다 — 적재를 끄는 스위치는 곧 유실을 켜는 스위치다), 그때는 원래의 비수렴 HALT로 돌아가
+저자가 리뷰 기록에서 흡수하므로 유실은 여전히 0이다. 실행 위치는 5.2g **뒤** · 5.2h **앞**으로 고정된다
+(앞이면 미검증 proof의 지적이 원장에 들어가고, 뒤면 record가 `backlog_appended`를 못 실어
+`assert-backlog-parity`의 앵커가 사라진다). 적재 대상은 `blockingFindings` **정확히 그 집합**이며 `l2.json`은
+적재원이 아니다(non-blocking 카운트로만 읽고, 판독 불가는 0이 아니라 null). 표는 **4열 고정**이다 —
+`derive/sources/backlog.js`가 헤더를 리터럴로 고정하므로 5번째 열은 기존 행 전부를 파서에서 사라지게 한다.
+
+**주장하지 않는 것**: plan·prp-implement의 라운드 루프는 여전히 LLM이 읽는 산문이라 기계화된 것은 캡 계산과
+`pr.md`의 자식 프로세스 export, receipt 봉인, 그리고 세 본문이 공유 오라클을 읽는지의 정적 test뿐이다 —
+마지막 것이 막는 것은 **배선 누락**이지 산문 불이행이 아니다. L2 비용은 여전히 1회분 발생한다. M2의 정적
+단언도 같은 천장을 갖는다(배선 누락과 위치 drift만 잡고 셸 인용 실수·종료코드 미검사는 통과) — 실행 축은
+CLI를 실제로 spawn하는 test와 라이브 발화가 나눠 덮는다.
+배경: [상세](docs/gate-design.md#single-pass-review-toggle)
+
 ---
 
-### 3.15 리뷰는 1라운드가 기본이다 — plan 완성도보다 적용 후 결과 (2026-08-18)
+### 3.16 리뷰는 1라운드가 기본이다 — plan 완성도보다 적용 후 결과 (2026-08-18)
 
 **모든 게이트 리뷰는 1라운드를 기본으로 하고, 그 라운드를 triage한 뒤 receipt를 쓰고
 다음 단계로 진행한다.** 리뷰어가 finding을 계속 내더라도 라운드를 늘려 plan을 다듬지
@@ -673,6 +722,8 @@ R5 계약 위반 2건 + 정지 → R6 새 축 0건 → Plan-Codex R1 실재 1건
 - **receipt 위조 금지.** 슬러그가 안 맞는다고 파일명을 바꾸지 않는다 — `decision_id`는
   해시된 본문 안에 있고 §3.12 no-rehash 불변식이 이를 금지한다. 우회가 필요하면 우회를
   쓰고 사유를 남긴다.
+
+---
 
 ## 4. 자주 쓰는 명령 (Cheat Sheet)
 

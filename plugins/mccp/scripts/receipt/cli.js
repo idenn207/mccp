@@ -13,12 +13,14 @@ function showHelp() {
     '  version                       Print version and exit',
     '  schema-version                Print receipt schema version',
     '  hash-markdown <file>          Print SHA-256 of canonicalized markdown',
+    '  hash-plan <file>              Print SHA-256 the PLAN axis binds to (plan-aware:',
+    '                                structural canonicalization under .claude/plans/*.plan.md)',
     '  canonicalize-markdown <file>  Print canonical form (debug)',
     '  canonicalize-json [<file>]    Print RFC 8785 JCS canonical form (stdin if no file)',
     '  git-refs [<base-ref>]         Print {baseSha, headSha, baseRef} as JSON',
     '',
     'Receipt core subcommands:',
-    '  write            --gate <id> --decision <slug> --plan <path> [--design-doc <p>] [--findings-file <p>] [--resolution-file <p>] [--codex-verdict converged|divergent|critical|unavailable|skipped] [--auto-round] [--codex-skipped] [--codex-disabled] [--codex-disabled-at-pr] [--advisory] [--security-skipped] [--security-skip-reason <text>] [--security-force-override] [--security-force-override-reason <text>] [--impeccable-skipped] [--impeccable-skip-reason <text>] [--impeccable-silent-skip] [--impeccable-silent-skip-reason <text>] [--impeccable-force-override] [--impeccable-force-override-reason <text>] [--deferred-findings <N>] [--codex-design-scope-excluded] [--design-findings-dropped <N>] [--a11y-routed-to-impeccable] [--dropped-findings-digest sha256:<hex>] [--plan-conflict-escalated] [--pr-phase-lock-stale-reclaimed-at-hook] [--dispatched-by-controller-session <uuid>] [--worker-dispatch-id <uuid>] [--ipc-envelope-path <path>] [--design-critique-rounds <N>] [--design-critique-verdict converged|divergent|skipped] [--design-intent-reason <text>] [--pr-design-chain-skip-reason <text>] [--impeccable-routing-mode auto|hybrid|recommend] [--impeccable-commands-routed-file <path>] [--design-grounding-captured] [--design-grounding-verdict grounded|anchor_clean|inconclusive|violations|skipped] [--merged-verify-verdict converged|divergent|critical|unavailable|skipped] [--merged-verify-rounds <N>] [--review-mode codex|multi-agent|hybrid] [--review-verdict converged|divergent|critical|unavailable|skipped] [--review-source codex|multi-agent|hybrid] [--review-proof-file <path>] [--review-l3-invoked] [--review-l3-reason <text>] [--review-wall-clock-ms <N>] [--pr-codex-force-override] [--pr-codex-force-override-reason <text>] [--quiet]',
+    '  write            --gate <id> --decision <slug> --plan <path> [--design-doc <p>] [--findings-file <p>] [--resolution-file <p>] [--codex-verdict converged|divergent|critical|unavailable|skipped] [--auto-round] [--codex-skipped] [--codex-disabled] [--codex-disabled-at-pr] [--advisory] [--security-skipped] [--security-skip-reason <text>] [--security-force-override] [--security-force-override-reason <text>] [--impeccable-skipped] [--impeccable-skip-reason <text>] [--impeccable-silent-skip] [--impeccable-silent-skip-reason <text>] [--impeccable-force-override] [--impeccable-force-override-reason <text>] [--deferred-findings <N>] [--codex-design-scope-excluded] [--design-findings-dropped <N>] [--a11y-routed-to-impeccable] [--dropped-findings-digest sha256:<hex>] [--plan-conflict-escalated] [--pr-phase-lock-stale-reclaimed-at-hook] [--dispatched-by-controller-session <uuid>] [--worker-dispatch-id <uuid>] [--ipc-envelope-path <path>] [--design-critique-rounds <N>] [--design-critique-verdict converged|divergent|skipped] [--design-intent-reason <text>] [--pr-design-chain-skip-reason <text>] [--impeccable-routing-mode auto|hybrid|recommend] [--impeccable-commands-routed-file <path>] [--design-grounding-captured] [--design-grounding-verdict grounded|anchor_clean|inconclusive|violations|skipped] [--merged-verify-verdict converged|divergent|critical|unavailable|skipped] [--merged-verify-rounds <N>] [--review-mode codex|multi-agent|hybrid] [--review-verdict converged|divergent|critical|unavailable|skipped] [--review-source codex|multi-agent|hybrid] [--review-proof-file <path>] [--review-l3-invoked] [--review-l3-reason <text>] [--review-wall-clock-ms <N>] [--review-single-pass-reason scope_too_small|deadline_pressure|deferred_to_prd_completion] [--review-single-pass-bypassed-verdict] [--pr-codex-force-override] [--pr-codex-force-override-reason <text>] [--quiet]',
     '  restamp-grounding --gate <id> --decision <slug> --design-grounding-verdict <enum> [--cwd <path>] [--quiet]',
     '  validate         --command <slug> [--decision <slug>] [--plan <path>] [--check-ship-verdict] [--expected-receipt-hash <hex>]',
     '  preflight        --command <slug> [--decision <slug>] [--plan <path>]',
@@ -91,6 +93,33 @@ function cmdHashMarkdown(rest) {
     return 0;
   } catch (err) {
     process.stderr.write('mccp-receipt hash-markdown: ' + err.message + '\n');
+    return 1;
+  }
+}
+
+// The PLAN axis's hash, not markdown's. `hash-markdown` above is the raw
+// canonicalization; for anything under `.claude/plans/*.plan.md` the plan axis
+// binds to the STRUCTURAL one instead (frontmatter keys stripped, `[x]`→`[ ]`,
+// `PR #N` and table status tokens normalized — hash.js#canonicalizeMarkdownStructural).
+//
+// The two agree only while every structural normalization happens to be a no-op,
+// which is why a caller that means "the hash this plan is reviewed under" and
+// reaches for `hash-markdown` gets a value that silently diverges the first time
+// an Acceptance checkbox is ticked. Every producer of a plan-bound hash
+// (plan-review/cli.js, receipt/write.js) already calls planAwareMarkdownHash;
+// this subcommand is that same function for shell callers.
+function cmdHashPlan(rest) {
+  const { planAwareMarkdownHash } = require('./hash');
+  const file = rest._[0];
+  if (!file) {
+    process.stderr.write('mccp-receipt hash-plan: <file> argument required\n');
+    return 1;
+  }
+  try {
+    process.stdout.write(planAwareMarkdownHash(file) + '\n');
+    return 0;
+  } catch (err) {
+    process.stderr.write('mccp-receipt hash-plan: ' + err.message + '\n');
     return 1;
   }
 }
@@ -402,6 +431,8 @@ async function main(argv) {
       return cmdSchemaVersion();
     case 'hash-markdown':
       return cmdHashMarkdown(rest);
+    case 'hash-plan':
+      return cmdHashPlan(rest);
     case 'canonicalize-markdown':
       return cmdCanonicalizeMarkdown(rest);
     case 'canonicalize-json':

@@ -186,7 +186,7 @@ function refutationRows(l2) {
 // ── the record ────────────────────────────────────────────────────────────────
 //
 // buildReviewRecord({slug, planPath, mode, l1, l2, l3, decision, reservation,
-//                    startedAtMs, nowMs, haltStage})
+//                    startedAtMs, nowMs, haltStage, backlog})
 //   → { markdown, measurement, degradations }
 //
 // `degradations` names every axis that could not be read. The caller prints them
@@ -258,6 +258,42 @@ function buildReviewRecord(opts) {
   const haltStage = (typeof o.haltStage === 'string' && o.haltStage.trim())
     ? o.haltStage.trim() : null;
 
+  // ── backlog 적재 (review-loop-bypass M2) ───────────────────────────────────
+  //
+  // `assert-backlog-parity`의 판독 앵커다. **부재는 0이 아니라 null**이다: 0으로
+  // 적으면 "적재가 아예 안 돌았다"가 "적재할 것이 없었다"는 통과 기록으로
+  // 읽힌다. 그 둘은 다른 사실이고, 구분하지 못하는 계측은 M2가 닫으려는 유실을
+  // 그대로 재현한다. 토글이 꺼진 실행에서 이 축이 null인 것은 정상이며,
+  // 그 사실 자체가 "기본 경로 무변경"의 관측 근거다.
+  // 부재가 **결손인지**는 완화가 일어났는지가 정한다. `single_pass_reason`이
+  // 있는 실행에서 아티팩트가 없으면 5.2g2가 돌았어야 하는데 안 돈 것이라 결손이고,
+  // 토글이 꺼진 실행에서는 5.2g2 자체가 no-op이라 부재가 정상이다. 조건 없이
+  // 결손으로 적으면 기본 경로의 모든 실행이 degraded로 읽혀, 진짜 결손이 그
+  // 노이즈에 묻힌다.
+  const backlog = isObj(o.backlog) ? o.backlog : null;
+  const relaxed = !!(decision && typeof decision.single_pass_reason === 'string' &&
+    decision.single_pass_reason.trim());
+  let backlogAppended = null;
+  let backlogSkippedNonblocking = null;
+  if (!backlog) {
+    if (relaxed) {
+      note('backlog.json absent or unreadable on a run the single-pass toggle RELAXED — ' +
+        'backlog_appended recorded as null, NOT as zero (적재가 돌지 않은 실행과 적재할 것이 ' +
+        '없던 실행은 다른 사실이다). 5.2g2가 실행되지 않았거나 산출물을 잃었다');
+    }
+  } else {
+    backlogAppended = Number.isInteger(backlog.appended) ? backlog.appended : null;
+    if (backlogAppended === null) {
+      note('backlog.json is present but `appended` is not an integer — recorded as null');
+    }
+    backlogSkippedNonblocking = Number.isInteger(backlog.skipped_nonblocking)
+      ? backlog.skipped_nonblocking : null;
+    if (backlogSkippedNonblocking === null) {
+      note('backlog.json carries no readable `skipped_nonblocking` — recorded as null ' +
+        '(l2.json이 판독 불가였거나 적재가 그 축을 세지 않았다)');
+    }
+  }
+
   const measurement = {
     verdict: verdict,
     source: source,
@@ -271,6 +307,8 @@ function buildReviewRecord(opts) {
     } : null,
     wall_clock_ms: wallClockMs,
     halt_stage: haltStage,
+    backlog_appended: backlogAppended,
+    backlog_skipped_nonblocking: backlogSkippedNonblocking,
     granted: (reservation && Number.isFinite(reservation.granted)) ? reservation.granted : null,
     reviewed_plan_hash: reviewedPlanHash,
     plan_path: (typeof o.planPath === 'string' && o.planPath) ? o.planPath : null,

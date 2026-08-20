@@ -14,6 +14,7 @@ const {
 const { validate, makeSkeleton, GATE_IDS } = require('./schema');
 const { validateReason } = require('./lib/force-override-reason');
 const { parseIntentGateSkipReason, isPrdModePlan } = require('../lib/intent-context');
+const { parseSinglePass, REASONS: SINGLE_PASS_REASONS } = require('../lib/review-single-pass');
 const { phaseFromGate } = require('./aliases');
 const { writeReceipt, readReceipt, updateReceipt } = require('./store');
 const escalateDetector = require('../lib/escalate-detector');
@@ -809,6 +810,52 @@ function buildReceipt(args) {
         ? args['pr-codex-force-override-reason'] : null;
   }
 
+  // ── review-loop-bypass M1 (Task 5) — 단일통과 토글의 두 축 ───────────────────
+  //
+  // 두 필드는 **서로 다른 축**이다(DD3 — §3.12의 `codex_disabled` 대
+  // `codex_disabled_at_pr` 선례를 그대로 따른다):
+  //
+  //   review_single_pass_reason           env 정책의 **정직한 주석**. 이 게이트를
+  //                                       부른 시점에 토글이 켜져 있었다.
+  //   review_single_pass_bypassed_verdict **감사 축**. 토글이 실제로 blocking
+  //                                       verdict를 강등시켰다. 명시 플래그 전용.
+  //
+  // 전자를 후자의 증거로 쓰면 안 된다. 토글이 켜진 채 완화를 **타지 않은** 경로도
+  // 전자를 갖기 때문이고, ambient에서 적용 사실을 추론하는 것이 v1.23.5가 값을
+  // 치르고 배운 바로 그 실패다.
+  //
+  // precedence는 **명시 > env**다(같은 v1.23.5 규약). writer는 caller가 *주장한*
+  // 것을 기록하므로 그 주장을 env로 덮으면 안 된다 — 관찰자(runner)만 env를
+  // canonical로 삼는다.
+  //
+  // 둘 다 present-only다: 값이 없으면 키 자체를 만들지 않는다. 그래야 기존 receipt
+  // corpus의 canonical hash가 무변동이고, 키의 **존재**가 곧 신호가 된다.
+  //
+  // 명시 값은 여기서 enum을 검사한다. schema도 같은 검사를 하므로 안전성은 이미
+  // 있었지만, 거기까지 가면 진단이 일반 SCHEMA_INVALID로 뭉개진다 — env 경로는
+  // `parseSinglePass`가 "must be one of [...]"를 바로 말해 주는데 명시 경로만
+  // 그러지 못하는 비대칭이었다. 검사 자체가 아니라 **어느 층이 먼저 말하는가**의
+  // 문제이고, 값을 대는 사람에게 가까운 층이 말하는 편이 낫다.
+  const singlePassExplicit = (typeof args['review-single-pass-reason'] === 'string'
+    && args['review-single-pass-reason'].length > 0)
+    ? args['review-single-pass-reason'] : null;
+  if (singlePassExplicit !== null && SINGLE_PASS_REASONS.indexOf(singlePassExplicit) === -1) {
+    const err = new Error(
+      '--review-single-pass-reason must be one of: ' + SINGLE_PASS_REASONS.join(', ') +
+      '; got ' + JSON.stringify(singlePassExplicit) + '. The value IS the reason, so an ' +
+      'unrecognised one is not a typo to normalise — it is an unauditable claim.');
+    err.code = 'REVIEW_STAMP_INVALID';
+    throw err;
+  }
+  const singlePassReason = singlePassExplicit || parseSinglePass(process.env).reason;
+  if (singlePassReason) {
+    receipt.meta.review_single_pass_reason = singlePassReason;
+  }
+  if (args['review-single-pass-bypassed-verdict'] === true) {
+    receipt.meta.review_single_pass_bypassed_verdict = true;
+  }
+  warnSinglePassChainDrift(repoRoot, gateId, receipt.decision_id, singlePassReason);
+
   stampIntentDecision(receipt, args, gateId, planText);
 
   receipt.subject_hash = subjectHash(receipt);
@@ -823,6 +870,45 @@ function buildReceipt(args) {
   }
 
   return { repoRoot: repoRoot, receipt: receipt };
+}
+
+// DD8 — 체인 중간의 토글 변경은 **관측하되 차단하지 않는다**.
+//
+// 토글은 env라 게이트 사이에 켜고 끌 수 있다. 각 receipt가 자기 시점의 상태를
+// 봉인하므로 불일치는 사후에 반드시 드러나지만, 그것만으로는 그때 알려주지 않는다.
+// 값싼 절반을 취한다 — 선행 chain receipt와 어긋나면 loud stderr 한 줄.
+//
+// **전 chain 일치를 fail-closed로 강제하지 않는다.** 그러면 토글을 켜기 전에 chain
+// 전체를 미리 계획하게 만들어, 이 토글이 없애려는 마찰을 다른 모양으로 되살린다
+// (UI12의 "작업 단위 opt-in"과 어긋난다). 강제안은 backlog 소유다.
+const REVIEW_CHAIN_ORDER = ['mccp-plan-codex', 'mccp-implement-codex', 'mccp-pr-codex'];
+
+function warnSinglePassChainDrift(repoRoot, gateId, decisionId, currentReason) {
+  const idx = REVIEW_CHAIN_ORDER.indexOf(gateId);
+  if (idx <= 0) return;               // 선행 게이트가 없으면 대조 대상이 없다
+  if (!repoRoot || !decisionId) return;
+
+  let prior = null;
+  for (let i = idx - 1; i >= 0 && !prior; i--) {
+    let r = null;
+    try { r = readReceipt(repoRoot, REVIEW_CHAIN_ORDER[i], decisionId); } catch (_) { r = null; }
+    if (r && typeof r === 'object') prior = { gate: REVIEW_CHAIN_ORDER[i], receipt: r };
+  }
+  if (!prior) return;                 // 선행 receipt가 아직 없다 — 정상 상태
+
+  const priorMeta = prior.receipt.meta;
+  const priorReason = (priorMeta && typeof priorMeta.review_single_pass_reason === 'string')
+    ? priorMeta.review_single_pass_reason : null;
+
+  if (!currentReason && priorReason) {
+    process.stderr.write('[mccp:single-pass] chain drift — 이 게이트는 토글 OFF로 도는데 ' +
+      '선행 ' + prior.gate + ' receipt는 review_single_pass_reason=' + priorReason +
+      ' 을 갖고 있다. 차단하지 않는다(DD8) — 각 receipt는 자기 시점의 상태를 봉인한다.\n');
+  } else if (currentReason && !priorReason) {
+    process.stderr.write('[mccp:single-pass] chain drift — 이 게이트는 토글 ON(' +
+      currentReason + ')인데 선행 ' + prior.gate + ' receipt에는 그 필드가 없다. ' +
+      '차단하지 않는다(DD8).\n');
+  }
 }
 
 // v0.3.2 / S12 — derive a short escalation summary from the detector result.

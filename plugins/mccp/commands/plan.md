@@ -881,10 +881,16 @@ mkdir -p "$REVIEW_DIR"
 # stamped into a fresh receipt, a stale `decision.json` would answer for a panel
 # that never fired. Every one of them is rewritten below on the paths that own it;
 # absence is what each consumer already fails closed on.
+# NOT purged: `dispatch-log-<slug>.jsonl` (review-loop-bypass M1). It is the one
+# artifact in this directory that is a LEDGER rather than IPC — its whole job is
+# to survive across invocations so a re-fire cannot hide. Purging it would let R1
+# erase R0's line and present two rounds as one. Its staleness problem is solved
+# differently: entries are keyed by plan hash, so an old body's lines never answer
+# for a new one.
 rm -f "$REVIEW_DIR/codex-verdict" "$REVIEW_DIR/codex-class" "$REVIEW_DIR/decision.json" "$REVIEW_DIR/proof.json" \
       "$REVIEW_DIR/l1.json" "$REVIEW_DIR/l2.json" "$REVIEW_DIR/l3.json" \
       "$REVIEW_DIR/reservation.json" "$REVIEW_DIR/workflow-args.json" \
-      "$REVIEW_DIR/started-at"
+      "$REVIEW_DIR/backlog.json" "$REVIEW_DIR/started-at"
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" mode > "$REVIEW_DIR/mode.json"
 REVIEW_MODE=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mode)}catch{process.stdout.write("codex")}' "$REVIEW_DIR/mode.json")
 echo "[mccp:plan-review] mode=$REVIEW_MODE" 1>&2
@@ -893,8 +899,11 @@ echo "[mccp:plan-review] mode=$REVIEW_MODE" 1>&2
 | `$REVIEW_MODE` | Branch |
 |---|---|
 | `codex` | **5.2z** below — the pre-M1 Codex path, unchanged. Skip 5.2a–5.2h entirely and stamp NO `review_*` fields. |
-| `multi-agent` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2e → 5.2g → 5.2h (L3 is not fired) |
-| `hybrid` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2f → 5.2e → 5.2g → 5.2h — **5.2f only when `mode.json` `fires.l3` is true** (see below) |
+| `multi-agent` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2e → 5.2g → 5.2g2 → 5.2h (L3 is not fired) |
+| `hybrid` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2f → 5.2e → 5.2g → 5.2g2 → 5.2h — **5.2f only when `mode.json` `fires.l3` is true** (see below) |
+
+`5.2g2` is a no-op unless the single-pass toggle actually relaxed this run — see its
+section for why the capture is a precondition of that relaxation.
 
 `MCCP_PLAN_REVIEW` unset means `multi-agent`; an unreadable value falls back to
 `codex` with a loud warn (DD7 — an unreadable mode must not silently change who
@@ -968,7 +977,7 @@ DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decisio
   --command mccp:plan --args "$ARGUMENTS")
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
   --slug "$DECISION_SLUG" --plan "<plan path>" \
-  --halt-stage "<5.2a|5.2b|5.2c-emit|5.2c-pin|5.2d|5.2e|5.2e-proof|5.2f|5.2g>"
+  --halt-stage "<5.2a|5.2b|5.2c-emit|5.2c-pin|5.2d|5.2e|5.2e-proof|5.2f|5.2g|5.2g2>"
 ```
 
 **That stage list is the complete set of HALTs in 5.2.** An earlier revision
@@ -984,7 +993,7 @@ depends on you following an instruction:
 
 | Enforcement | Stages |
 |---|---|
-| Shell — the block records, then exits | 5.2a · 5.2b · 5.2c-emit · 5.2c-pin · 5.2d · 5.2e · 5.2e-proof · 5.2f · 5.2g |
+| Shell — the block records, then exits | 5.2a · 5.2b · 5.2c-emit · 5.2c-pin · 5.2d · 5.2e · 5.2e-proof · 5.2f · 5.2g · 5.2g2 |
 
 5.2e was the last holdout, and the argument for leaving it to prose turned out to
 be circular. It read: 5.2e already routes through 5.2h, so recording inline would
@@ -1159,6 +1168,65 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/orchestration-runaway.js" mark-debt \
   --reservation "$PIN_ID" --n "$PIN_N" 1>/dev/null 2>&1 \
   || { PIN_HALT; echo "[MCCP-GATE-STOP] debt marker write failed — an unrecordable launch is not permitted."; exit 1; }
 echo "[mccp:plan-review] reservation $PIN_ID pinned (debt marker, n=$PIN_N) before the Workflow call." 1>&2
+
+# ── L2 dispatch log (review-loop-bypass M1 — the UI5 observation surface) ──────
+# One line per panel dispatch, appended at the launch point. `halt_stage` alone
+# cannot see a re-fire: it holds only the LAST run's state and the review record
+# is overwritten every run, so two dispatches that both proceed are
+# indistinguishable from one. This log is what makes that falsifiable.
+#
+# **Purely append-only — it is deliberately NOT in 5.2's purge list.** Purging on
+# entry would let a re-fire erase its own trace: R0 halts, R1 runs, purge drops
+# R0's line, and the surviving single `round_index:0` entry plus a null
+# halt_stage reads as a clean single round. That turns the measurement into
+# fail-open, which is what it exists to prevent.
+#
+# `round_index` counts existing entries **with the same plan hash**, not the log
+# length. Counting the whole log would give a fresh plan body's FIRST dispatch
+# round_index:1 as soon as one entry from any other version survives — failing a
+# perfectly normal attempt. Keying by hash also gives the two cases for free: a
+# re-fire against the same body accumulates in one group (and the assertion must
+# fail), while a new body after absorption starts a new group at 0.
+#
+# **`hash-plan`, NOT `hash-markdown`.** The two are different functions and the
+# difference is invisible until it bites: for `.claude/plans/*.plan.md` the plan
+# axis binds to the STRUCTURAL hash (`planAwareMarkdownHash`), which additionally
+# normalizes `[x]`→`[ ]`, `PR #N`, and table status tokens. The Measurement block
+# this log is compared against carries that structural hash (record.js ← the L2
+# emit at plan-review/cli.js). Writing the raw hash here makes the two agree only
+# while every normalization happens to be a no-op — and the first ticked
+# Acceptance checkbox between two dispatches then produces the exact fail-OPEN
+# this log exists to prevent: R0's entry still matches the structural hash, R1's
+# does not, and `assert-single-round` reports two rounds as one.
+DISPATCH_LOG="$REVIEW_DIR/dispatch-log-$DECISION_SLUG.jsonl"
+DISPATCH_HASH=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" hash-plan "<plan path>") \
+  || { PIN_HALT; echo "[MCCP-GATE-STOP] could not hash the plan for the dispatch log — an unmeasurable launch is not permitted."; exit 1; }
+# An empty hash is not a hash. Command substitution swallows a non-zero exit if
+# the guard above is ever restructured, and `reviewed_plan_hash: ""` would sit in
+# the ledger looking like a record while matching nothing.
+if [ -z "$DISPATCH_HASH" ]; then
+  PIN_HALT
+  echo "[MCCP-GATE-STOP] plan hash came back empty — refusing to launch a panel whose dispatch cannot be keyed."; exit 1
+fi
+node -e '
+  const fs = require("fs");
+  const logPath = process.argv[1], decision = process.argv[2], hash = process.argv[3];
+  let n = 0;
+  try {
+    fs.readFileSync(logPath, "utf8").split(/\r?\n/).forEach(function (l) {
+      if (!l.trim()) return;
+      try { if (JSON.parse(l).reviewed_plan_hash === hash) n += 1; } catch (_) {}
+    });
+  } catch (_) { /* first dispatch — no log yet */ }
+  fs.appendFileSync(logPath, JSON.stringify({
+    decision: decision,
+    round_index: n,
+    at: new Date().toISOString(),
+    reviewed_plan_hash: hash,
+  }) + "\n");
+' "$DISPATCH_LOG" "$DECISION_SLUG" "$DISPATCH_HASH" \
+  || { PIN_HALT; echo "[MCCP-GATE-STOP] dispatch-log append failed — the panel would fire with no trace, which is the one thing this ledger exists to make impossible."; exit 1; }
+echo "[mccp:plan-review] L2 dispatch logged for $DISPATCH_HASH → $DISPATCH_LOG" 1>&2
 ```
 
 **Pin failure means do not launch.** The fan-out answers the same failure by
@@ -1433,6 +1501,28 @@ whether `--codex-verdict` is forwarded at 5.6. Do NOT re-derive it in shell from
 the mode and the L3 result — that AND is precisely the shape that produced the
 v1.22.3 M3 round-4 defect. 5.6 reads it from the artifact for the same reason.
 
+**Single-pass relaxation (`MCCP_REVIEW_SINGLE_PASS`, review-loop-bypass M1).**
+When the toggle carries one of its three reasons and the panel dissented on the
+quorum, `decide` exits **0** with `block:false`, prints a `SINGLE-PASS:` line on
+stderr, and puts `single_pass_reason` in `decision.json`. Continue to 5.2g/5.2h/5.6b
+as on any passing path — but understand precisely what has and has not happened:
+
+- The verdict is **still `divergent`** and is sealed that way. Nothing is
+  laundered into `converged`, so the dashboard, `evidence-audit`, and the ship
+  gate all keep reading it as non-approving.
+- The findings are **not discarded**. They stay in `l2.json` and in
+  `.claude/reviews/plan-review-<slug>.md`, and since M2 they are also appended to
+  `.claude/plans/codex-findings-backlog.md` by 5.2g2 — mechanically, and as a
+  *precondition* of the relaxation rather than a side effect of it. What the toggle
+  removes is the repeat round, not the review.
+- Only this one branch relaxes. An L1 divergence, an unreadable or skipped L2, a
+  zero-response panel, and a DD13 hash mismatch all still HALT with the toggle on
+  — each of them returned above this point, before the toggle was ever consulted.
+
+`decide` exits 12 exactly as before whenever the toggle is unset, misspelled (a
+typo fails closed to OFF with a loud warn), or the stop came from any of those
+earlier branches.
+
 #### 5.2g — Verify the proof's evidence exists
 
 ```bash
@@ -1464,6 +1554,65 @@ pass — 5.2h and 5.6b would then run against the same `proof.json`, and the rec
 writer checks the proof's hash, not whether the evidence it names exists. Every
 halt in 5.2 ends in an explicit `exit` for this reason; a recorder must never be
 the last statement on a failure path.
+
+#### 5.2g2 — Capture the relaxed findings into the backlog (review-loop-bypass M2)
+
+M1's toggle relaxes exactly one branch, and the moment it returns `block:false` the
+`quorum.blockingFindings` array goes nowhere. It survives in `l2.json` and in the
+review record, but both are overwritten on the next run and both leave with the
+worktree. This step moves that set into the append-only ledger
+`.claude/plans/codex-findings-backlog.md`, where `derive/sources/backlog.js` already
+reads it and the dashboard already surfaces it as a carried-over finding.
+
+**The capture is a precondition of the relaxation, not a side effect of it.** If the
+findings cannot be recorded, the run does not proceed — a silent failure here leaves
+exactly the debt M1 created (the objection disappears while the receipt records a
+pass), and closing that is why M2 exists. This is the same line DD2 drew: `divergent`
+("we looked and found a defect") may be relaxed, `unavailable` ("we could not
+certify") may not, and "we could not write the defect down" is the second kind.
+
+**The way out is turning the toggle off, not a new env.** With the toggle off the run
+returns to the ordinary non-convergence HALT and the author absorbs the findings from
+the review record — loss stays at zero. The worst failure mode is "the toggle does not
+help here", never "the findings vanished".
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+  --command mccp:plan --args "$ARGUMENTS")
+
+# Gate on the APPLIED relaxation, never on the env. `single_pass_reason` is
+# present-only and only `mkSinglePass` writes it, so its presence in decision.json
+# means the bypass actually happened — the env only says the toggle was SET.
+SINGLE_PASS_REASON=$(node -e 'try{const d=require(process.argv[1]);const r=d.single_pass_reason;process.stdout.write(typeof r==="string"?r:"")}catch(e){process.stdout.write("")}' \
+  "$REVIEW_DIR/decision.json")
+
+if [ -n "$SINGLE_PASS_REASON" ]; then
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" backlog-append \
+    --review-dir "$REVIEW_DIR" --plan "<plan path>" --slug "$DECISION_SLUG"
+  APPEND_EXIT=$?
+  if [ "$APPEND_EXIT" -ne 0 ]; then
+    node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+      --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2g2 1>/dev/null || true
+    echo "[MCCP-GATE-STOP] backlog capture failed (exit $APPEND_EXIT) — the single-pass relaxation may not proceed while the findings it drops cannot be recorded."
+    echo "  Recovery: unset MCCP_REVIEW_SINGLE_PASS and re-run the gate. The panel's objection then HALTs as it always did, and the findings stay in .claude/reviews/plan-review-$DECISION_SLUG.md for you to absorb."
+    exit 12
+  fi
+fi
+```
+
+A run with the toggle off never enters the branch, so the default path is byte-identical
+to M1 — no row is appended and `backlog_appended` is recorded as `null`, not `0`.
+
+The stop **exits the block** for the same reason 5.2g's does: the recorder is
+deliberately non-blocking (`|| true`), so leaving it as the last statement on the
+failure path would let the block exit 0 and a failed capture would read as a pass.
+
+**Position is part of the contract.** This runs after 5.2g and before 5.2h. After
+5.2g, because writing the findings of a run whose proof did not verify would enter an
+unverified review into the ledger. Before 5.2h, because the record must carry the
+capture result in its `## Measurement` block — that is the anchor
+`assert-backlog-parity` reads, exactly as `assert-single-round` reads `halt_stage`.
 
 #### 5.2h — Write the review record (sibling artifact, NOT the plan)
 
@@ -1815,7 +1964,22 @@ After R1's YAGNI triage table (5.3) is written, escalate ONLY if BOTH:
   (a) ≥1 finding is `verdict=ACCEPT_NOW` AND `severity ∈ {CRITICAL, HIGH}`
   (b) The R1 absorption could not fully resolve it (Claude self-attests in plan body)
 If escalate triggers, run R2 with focus restricted to the unresolved item(s).
-Repeat up to `MCCP_GATE_ROUND_CAP` (default `1`, allowed `1`/`2`/`3`). Beyond the cap,
+
+Read the cap from the shared oracle — do NOT hardcode a literal here. It is the
+one source the three gates agree on, and it pins the cap to 1 whenever
+`MCCP_REVIEW_SINGLE_PASS` carries a valid reason, whatever `MCCP_GATE_ROUND_CAP`
+holds (review-loop-bypass M1):
+
+```bash
+ROUND_CAP_JSON=$(node -e '
+  const {effectiveRoundCap}=require(process.argv[1]+"/scripts/lib/review-single-pass");
+  process.stdout.write(JSON.stringify(effectiveRoundCap(process.env)));
+' "${CLAUDE_PLUGIN_ROOT}")
+ROUND_CAP=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).cap))}catch{process.stdout.write("1")}' <<<"$ROUND_CAP_JSON")
+node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));if(j.pinned)process.stderr.write("[mccp:single-pass] round cap pinned to "+j.cap+" by MCCP_REVIEW_SINGLE_PASS="+j.reason+"\n")}catch(_){}' <<<"$ROUND_CAP_JSON"
+```
+
+Repeat up to `$ROUND_CAP` rounds (default `1`, allowed `1`/`2`/`3`). Beyond the cap,
 annotate as `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
 
 If no `ACCEPT_NOW` HIGH/CRITICAL remains, stop at R1.
@@ -2267,6 +2431,31 @@ if { [ "$REVIEW_MODE_EFF" = "multi-agent" ] || [ "$REVIEW_MODE_EFF" = "hybrid" ]
   echo "[MCCP-GATE-STOP] mode=$REVIEW_MODE_EFF but the review triple is incomplete (verdict='$REVIEW_VERDICT' source='$REVIEW_SOURCE' proof=$([ -f "$REVIEW_DIR/proof.json" ] && echo present || echo absent))."
   echo "A panel receipt with no approval record would read as CONVERGED. Re-run 5.2c-5.2e; do not write a receipt for a review whose outcome is unknown."
   exit 12
+fi
+# review-loop-bypass M1 — the single-pass audit stamp. Read from decision.json,
+# never re-derived from env: the env says the toggle was SET, `single_pass_reason`
+# says the relaxation was APPLIED, and only the second one may claim a bypass.
+# `decide` puts the key on the relaxed decision alone (mk() has no null twin), so
+# its presence is the signal.
+#
+# The two flags go together or not at all. Forwarding one without the other is
+# not a quiet audit gap — schema.js's bidirectional invariant rejects it and the
+# receipt is not written, which is the loud failure we want here.
+#
+# Tested for a non-empty VALUE rather than key presence, matching the `[ -n … ]`
+# idiom used throughout this block. Both readings agree today; keeping the shell
+# on the value side removes any chance of the two layers drifting apart.
+#
+# The valueless flag goes FIRST. `parseFlags` reads `--foo` as boolean `true` only
+# when the next argv element starts with `--`; otherwise it consumes that element
+# as the flag's value and `write.js`'s `=== true` test then silently declines to
+# stamp. Ordering the pair this way makes the boolean's neighbour a `--` flag
+# inside the pair itself, so the append is correct wherever it lands in
+# WRITE_FLAGS rather than by luck of what a later block happens to append.
+SINGLE_PASS_REASON=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).single_pass_reason||""))}catch{process.stdout.write("")}' "$REVIEW_DIR/decision.json")
+if [ -n "$SINGLE_PASS_REASON" ]; then
+  WRITE_FLAGS+=(--review-single-pass-bypassed-verdict
+                --review-single-pass-reason "$SINGLE_PASS_REASON")
 fi
 # L3 instrumentation + gate wall-clock (Acceptance: the ≤10-minute target is
 # measured, not asserted). 5.2a wrote started-at as a FILE for exactly this hop.

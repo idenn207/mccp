@@ -1,6 +1,6 @@
 ---
 state_version: 1
-task_fingerprint: santa-adjudication-m3
+task_fingerprint: review-loop-bypass-m2-closure
 created_at: 2026-06-03T18:51:31.328Z
 updated_at: 2026-08-20T01:09:09.745Z
 last_event: stop_loop_pass

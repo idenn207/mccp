@@ -1097,7 +1097,7 @@ test('UI4/UI11 — receipt 배선은 seal.js에만 있다 (M1 4개 모듈은 여
   assert.match(sealSrc, /mccp-santa-review/);
 });
 
-test('Acceptance — 외부 의존이 문서화된 6개뿐이고 npm 의존 0', () => {
+test('Acceptance — 외부 의존이 문서화된 7개뿐이고 npm 의존 0', () => {
   const santaDir = path.join(__dirname, '..', 'santa');
   // M2가 정확히 둘을 더했다: 내부 `./seal`, 외부 `../../receipt/write`.
   // 목록을 열거식으로 두는 것이 이 단언의 전부다 — 새 의존이 조용히 들어오면
@@ -1142,6 +1142,12 @@ test('Acceptance — 외부 의존이 문서화된 6개뿐이고 npm 의존 0', 
   // 규칙을 베끼는 대신 의존을 지는 쪽이 옳다는 근거도 그때와 같다 — override 사유
   // 판정 규칙을 복사하면 원본이 바뀔 때 두 사본이 갈리고 그 갈림은 어떤 test도 잡지
   // 않는다. 소비처는 `cli.js`와 `seal.js` 둘이다.
+  // review-loop-bypass M1이 일곱 번째를 더했다: `cli.js`의 `begin-round`가
+  // `review-single-pass#parseSinglePass`로 단일통과 구간을 판정해 라운드를 열지
+  // 않는다(DD5). 그 파서를 여기 다시 구현하면 세 게이트와 santa가 서로 다른 enum을
+  // 갖게 되고, 그 갈림은 어떤 test도 잡지 않는다 — 그래서 의존을 지는 쪽이 옳다.
+  // 이 줄이 그 승인 기록이다. (파서는 fs/path 외 의존이 없는 순수 모듈이라
+  // 프로세스 실행 의존을 끌어들이지 않는다.)
   const allowed = new Set([
     './counter', './ledger', './gate', './seal',          // 내부
     './adjudication',                                     // 내부 (santa-adjudication M2)
@@ -1153,6 +1159,7 @@ test('Acceptance — 외부 의존이 문서화된 6개뿐이고 npm 의존 0', 
     '../../receipt/decision', '../path-containment',
     '../../receipt/write',                                // 외부 5 (M2)
     '../../receipt/lib/force-override-reason',            // 외부 6 (santa-adjudication M1)
+    '../review-single-pass',                              // 외부 7 (review-loop-bypass M1)
     'fs', 'os', 'path', 'child_process',                  // node builtin
     'crypto',                                             // node builtin (santa-adjudication M2)
   ]);

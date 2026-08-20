@@ -170,6 +170,142 @@ The original ECC rule text covered several concepts mccp does not own:
 - **Tier-2 receipt schema fields** (status, reason, rounds_completed, last_error,
   blocking:true) — deferred for a later mccp release if needed.
 
+## Single-pass review toggle
+
+`MCCP_REVIEW_SINGLE_PASS` (v1.27.3, review-loop-bypass M1) is a per-task opt-in that
+removes the **repetition** in the review loop without removing the review. Its value is
+its reason — one of `scope_too_small` / `deadline_pressure` / `deferred_to_prd_completion`
+— because a separate reason variable can be forgotten, and a forgotten reason cannot be
+audited. Anything outside that set fails closed to OFF with a loud warn.
+
+The parser and the effective-cap oracle live in
+[`lib/review-single-pass.js`](../plugins/mccp/scripts/lib/review-single-pass.js). The
+decision oracle never reads env; the CLI injects the parsed result.
+
+### The relaxation boundary
+
+Exactly one return in `decideReview` changes behaviour: the `quorum.passed !== true`
+branch returns `block:false` instead of `block:true`. Everything else is untouched, and
+the reason is structural rather than a list of checks — the relaxation sits *below* every
+other blocking return, so the toggle is never even consulted on those paths.
+
+| Path | Relaxed? | Why |
+|---|---|---|
+| L1 `divergent` / `inconclusive` | No | L1 is inviolable (UI7). Its branch returns above the relaxation. |
+| L2 artifact missing / unreadable | No | There was no review to be single-passed. |
+| L2 `responded === 0` | No | Nobody answered. |
+| L2 budget skip | No | The panel never fired. Returned in `cmdDecide` before the oracle is called at all. |
+| DD13 plan-hash mismatch | No | An integrity fact, not a review opinion. |
+| hybrid without a converged L3 | No | "Requested" is not "happened" — the eligibility test carries this precondition itself. |
+| L2 quorum not satisfied | **Yes** | The panel looked and objected. That objection is recorded, not erased. |
+
+The distinction the table turns on is `divergent` ("we looked and found a defect") versus
+`unavailable` ("we could not certify"). Passing the second would not be a single pass; it
+would be no pass.
+
+The hybrid row needs its own guard because `decide.js`'s hybrid block runs only on the
+quorum-PASSED path. A relaxation placed in the failure branch would never reach it, so the
+eligibility predicate re-states the precondition inline (`mode !== 'hybrid' ||
+l3Corroborated(o)`).
+
+### What the receipt says
+
+Nothing is laundered. `resolution.review_verdict` seals the real `divergent`, so the
+dashboard, `evidence-audit`, and the ship gate all keep reading it as non-approving, and
+cross-gate dedupe stays shut (`isCrossModelCorroborated` demands `converged` first).
+Two present-only meta fields carry the audit trail, and they are **different axes** —
+the same split §3.12 paid for with `codex_disabled` vs `codex_disabled_at_pr`:
+
+- `meta.review_single_pass_reason` — the toggle was SET (env ambient; an explicit flag wins).
+- `meta.review_single_pass_bypassed_verdict` — a bypass was APPLIED (explicit flag only).
+
+The schema enforces both directions.
+
+**Forward**: a bypass claim requires a reason and a sealed `divergent` verdict —
+`divergent` specifically, not "anything but converged". `converged` had nothing to bypass,
+and `unavailable`/`skipped` are verdicts DD2 never relaxes, so a bypass claim beside one of
+those asserts an event the gate cannot produce.
+
+**Reverse**: on a `mccp-plan-codex` receipt with a `divergent` verdict and a panel source,
+the discriminator is the **proof shape**, not the source name. Both sources read
+`review_proof.layers`, each looking at the layers its own axis has — `multi-agent` at L2
+alone, `hybrid` at L2 and L3:
+
+| source | relaxation shape | flag |
+|---|---|---|
+| `multi-agent` | `layers.l2` non-converged | required |
+| `multi-agent` | anything else (L1 collapsed, so L2 is null or converged) | forbidden |
+| `hybrid` | `layers.l2` non-converged AND `layers.l3 === 'converged'` | required |
+| `hybrid` | anything else (notably a dissenting L3) | forbidden |
+
+Each branch both requires the flag on the relaxation shape and forbids it elsewhere.
+Requiring without forbidding lets a dissenting L3 — which DD2 explicitly refuses to relax —
+be dressed up as a genuine bypass; forbidding without requiring lets a real relaxation ship
+unmarked. Binding to the source name alone fails the same way one step earlier: it would
+force an honest record of an L1 collapse to claim a bypass that never happened, since the
+only thing making that receipt otherwise impossible is command-body prose the schema cannot
+see. An `unavailable` panel receipt is outside all of this and is recorded honestly with no
+bypass claim.
+
+### Why santa-loop refuses instead of capping
+
+`/mccp:santa-loop` is invoked by a person, not fired by the three gates, so "does not
+fire" has to be implemented in the santa CLI itself. `begin-round` checks the toggle
+**before** `ledger.beginRound`, which is why the refusal leaves the ledger untouched and
+consumes no cap. It reuses exit 2 with `reason:"SANTA_SINGLE_PASS_ACTIVE"` rather than
+minting a code, since 12 is reserved for `cap_reached` and would be misread as an
+exhausted loop. No receipt is written: `mccp-santa-review` is produces-only, and a
+"did not fire" receipt would require the schema to accept a receipt with no round tally —
+the opposite of a change already queued in the backlog. The audit anchor is the loud
+refusal plus the absence of a ledger entry.
+
+### What this does NOT claim
+
+The round loops in `plan.md` and `prp-implement.md` are still prose an LLM follows. What
+is mechanical is (a) the cap computation and its tests, (b) `pr.md` exporting a pinned cap
+to the codex-runner child, which cannot read past what it inherits, (c) the receipt
+sealing the toggle state for after-the-fact audit, and (d) a static test asserting all
+three bodies read the shared oracle instead of their own literal. (d) catches a gate left
+out of the wiring; it does not catch an LLM disregarding prose. The L2 cost is still paid
+once.
+
+### Backlog capture is a precondition of the relaxation (M2)
+
+The findings the toggle drops are appended to `.claude/plans/codex-findings-backlog.md` by
+`5.2g2`, between the proof verification (`5.2g`) and the review record (`5.2h`). Both
+neighbours are load-bearing: appending *before* `5.2g` would enter the findings of a run
+whose proof never verified into the ledger, and appending *after* `5.2h` would leave the
+record unable to carry `backlog_appended` — the anchor `assert-backlog-parity` reads,
+exactly as `assert-single-round` reads `halt_stage`.
+
+**A failed capture blocks (`EX_BLOCK`).** This is the same line DD2 already drew, not a new
+one: `divergent` ("we looked and found a defect") may be relaxed and `unavailable` ("we
+could not certify") may not, and "we could not write the defect down" belongs to the
+second kind. Making the capture a side effect instead would leave exactly the debt M1
+created — the objection disappears while the receipt records a pass.
+
+The recovery is **turning the toggle off**, not a new escape hatch. M2 adds no environment
+variable at all: a switch that disables capture is a switch that enables loss. With the
+toggle off the run returns to the ordinary non-convergence HALT and the author absorbs the
+findings from the review record, so the worst failure mode is "the toggle does not help
+here" rather than "the findings vanished".
+
+**What is appended is `quorum.blockingFindings`, exactly.** That array is what the toggle
+drops, so capture set and relaxation set must be the same set for "no loss" to hold as
+arithmetic. `l2.json` is never an append source — a second input for the same fact leaves
+the oracle unable to say which is canonical — though it is read for the *count* of
+non-blocking findings, recorded as `null` rather than `0` when unreadable. `UNKNOWN` and
+synthesized `FAIL` rows are appended with the rest: capture is not adjudication, and
+filtering them would be M2 quietly redoing the severity judgement §3.14 owns.
+
+**The table stays four columns.** `derive/sources/backlog.js` pins that header literally,
+so a fifth column would make the parser miss the table entirely and every existing row
+would disappear at once. The path reference and the idempotency tag therefore live inside
+the Finding cell, and everything entering a cell is escaped first — pipes to a numeric
+character reference (markdown renders it as a pipe; the parser does not split on it),
+whitespace folded, and truncation applied to the raw text *before* escaping so no partial
+entity can survive.
+
 ## References
 
 - Receipt CLI source: `plugins/mccp/scripts/receipt/`

@@ -191,12 +191,23 @@ test('the relaxation itself survives: a non-converged proof with clean paths is 
   // Guards against over-correcting the fix into "non-converged proofs must be
   // structurally perfect", which would block the honest failed-review record
   // the relaxation exists to permit. A failed quorum is the POINT here.
+  //
+  // review-loop-bypass M1 added the two single-pass flags to this fixture, and
+  // they are not decoration. With the toggle off, 5.2e HALTs on a dissenting
+  // panel and no receipt is written at all — so a `mccp-plan-codex` receipt that
+  // carries a panel source AND a non-converged verdict can only exist because the
+  // toggle let the gate proceed. The schema's reverse invariant says exactly
+  // that, which makes this fixture a single-pass record by construction; naming
+  // it as one is what keeps the fixture honest. The assertion below is unchanged
+  // and still owns its original subject: an unsatisfied quorum stays recordable.
   const proofPath = tmpFile('clean-divergent-proof.json', JSON.stringify(
     leakyProof(planAwareMarkdownHash(PLAN_ABS), ['.claude/state/plan-review/l2.json'])));
   const r = buildReceiptObj(baseArgs({
     'review-verdict': 'divergent',
     'review-source': 'multi-agent',
     'review-proof-file': proofPath,
+    'review-single-pass-reason': 'scope_too_small',
+    'review-single-pass-bypassed-verdict': true,
   }));
   assert.equal(r.resolution.review_verdict, 'divergent');
   assert.equal(r.resolution.review_proof.quorum.passed, false,

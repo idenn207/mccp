@@ -1,4 +1,5 @@
 'use strict';
+const envValue = require('./env-contract/value');
 
 // Codex bridge — parse `Skill(codex:adversarial-review)` results into a
 // stable verdict shape the Stop-loop hook can act on.
@@ -132,7 +133,7 @@ function deriveSummary(text, focus) {
 }
 
 function isDisabled() {
-  return process.env.MCCP_CODEX_DISABLED === '1';
+  return envValue.parseBool(process.env, 'MCCP_CODEX_DISABLED');
 }
 
 function parseCodexResult(rawText, focus) {

@@ -12,6 +12,7 @@
 // allow the command through. A buggy gate is worse than no gate.
 
 const path = require('path');
+const envValue = require('../lib/env-contract/value');
 
 // Resolve the receipt CLI root. Prefer Claude-injected ${CLAUDE_PLUGIN_ROOT};
 // fall back to the file-location-relative path when invoked outside the plugin
@@ -66,7 +67,7 @@ function loadDecisionModule() {
 }
 
 function debug(msg) {
-  if (process.env.MCCP_RECEIPT_DEBUG === '1') {
+  if (envValue.parseBool(process.env, 'MCCP_RECEIPT_DEBUG')) {
     process.stderr.write('[mccp-receipt-prompt] ' + msg + '\n');
   }
 }
@@ -121,8 +122,8 @@ function allow() { return 0; }
 // orthogonally inside block() — this function only fires on ALLOW path.
 // Advanced opt-out: MCCP_RECEIPT_DEBUG_LEGACY_INLINE=0 (legacy-only mode).
 function allowWithMessage(commandName, decisionId) {
-  if (process.env.MCCP_RECEIPT_DEBUG !== '1') return 0;
-  if (process.env.MCCP_RECEIPT_DEBUG_LEGACY_INLINE === '0') return 0;
+  if (!envValue.parseBool(process.env, 'MCCP_RECEIPT_DEBUG')) return 0;
+  if (!envValue.parseBool(process.env, 'MCCP_RECEIPT_DEBUG_LEGACY_INLINE')) return 0;
   try {
     process.stdout.write(JSON.stringify({
       systemMessage: '[mccp] receipt-gate ALLOW ' + commandName +
@@ -212,7 +213,7 @@ function block(commandName, decisionId, result) {
     for (const l of blockFormat.tamperGuidanceLines(result)) lines.push(l);
   }
 
-  if (process.env.MCCP_RECEIPT_DEBUG === '1') {
+  if (envValue.parseBool(process.env, 'MCCP_RECEIPT_DEBUG')) {
     lines.push('');
     lines.push('[DEBUG] mode=' + (process.env.MCCP_RECEIPT_GATE_MODE || 'hard') + ' decision="' + decisionId + '"');
     lines.push('[DEBUG] hook stderr is not surfaced in UserPromptExpansion block payload; debug inlined here.');
@@ -257,7 +258,7 @@ async function main() {
     return allow();
   }
 
-  if (process.env.MCCP_SKIP_RECEIPT === '1') {
+  if (envValue.parseBool(process.env, 'MCCP_SKIP_RECEIPT')) {
     debug('MCCP_SKIP_RECEIPT=1 bypass');
     return allow();
   }

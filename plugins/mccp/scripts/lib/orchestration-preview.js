@@ -50,6 +50,7 @@ const partition = require('./implement-dispatch/partition');
 // mutating counter APIs are never imported/called here (the read-only invariant; a
 // comment-stripped static scan of this file must find no mutating import/call path).
 const runaway = require('./orchestration-runaway');
+const envValue = require('./env-contract/value');
 
 function warn(line) {
   process.stderr.write('[mccp:orchestration-preview] ' + line + '\n');
@@ -58,7 +59,7 @@ function warn(line) {
 // costFailOpen mirror of work.md Step 3 — default true; only an explicit '=0'
 // restores the legacy fail-closed COST_STATE_UNKNOWN skip.
 function parseCostFailOpen(env) {
-  return String((env && env.MCCP_ORCHESTRATION_COST_FAIL_OPEN) || '').trim() !== '0';
+  return envValue.parseBool(env || process.env, 'MCCP_ORCHESTRATION_COST_FAIL_OPEN');
 }
 
 // mergeStrategy — explicit opt wins; else env MCCP_WORK_MERGE_STRATEGY default
@@ -75,9 +76,7 @@ function resolveMergeStrategy(opts, env) {
 // isolate — mirror of work.md `ISOLATE="${MCCP_WORK_ISOLATE_IMPLEMENT:-1}"` then
 // `[ "$ISOLATE" != "0" ]`.
 function resolveIsolate(env) {
-  const raw = (env && env.MCCP_WORK_ISOLATE_IMPLEMENT != null)
-    ? String(env.MCCP_WORK_ISOLATE_IMPLEMENT) : '1';
-  return raw !== '0';
+  return envValue.parseBool(env || process.env, 'MCCP_WORK_ISOLATE_IMPLEMENT');
 }
 
 // previewFiring(opts) → structured firing snapshot. PURE — every disk touch is an

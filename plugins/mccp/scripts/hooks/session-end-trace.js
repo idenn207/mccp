@@ -11,6 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const envValue = require('../lib/env-contract/value');
 
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..', '..');
 const LIB_DIR = path.join(PLUGIN_ROOT, 'scripts', 'lib');
@@ -43,7 +44,7 @@ function readStdin() {
 }
 
 function debug(msg) {
-  if (process.env.MCCP_RECEIPT_DEBUG === '1') {
+  if (envValue.parseBool(process.env, 'MCCP_RECEIPT_DEBUG')) {
     process.stderr.write('[mccp:session-end-trace] ' + msg + '\n');
   }
 }

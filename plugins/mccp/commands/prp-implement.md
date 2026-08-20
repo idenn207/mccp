@@ -218,10 +218,11 @@ mkdir -p "$GITDIR/mccp/tmp"
 # detected AND MCCP_CODEX_DESIGN_SCOPE_HONOR != 0. Wrapper then prepends
 # DESIGN_SCOPE_PREAMBLE so Codex stays scoped to security/correctness/perf.
 IMPECCABLE_FLAG=$(node -e "
-const honored = process.env.MCCP_CODEX_DESIGN_SCOPE_HONOR !== '0';
+const honored = require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/env-contract/value')
+  .parseBool(process.env, 'MCCP_CODEX_DESIGN_SCOPE_HONOR');
 const detect = require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect');
 process.stdout.write(honored && detect.probeSkillAvailable({}) ? '--impeccable-available' : '');
-" 2> /dev/null || echo "")
+" || echo "")
 CODEX_STDOUT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js" adversarial-review \
   --focus "challenge the following implement-time decisions: <bullet list from 2.5.2>" \
   --timeout-ms 900000 \

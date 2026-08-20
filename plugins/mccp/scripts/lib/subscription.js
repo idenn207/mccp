@@ -1,4 +1,5 @@
 'use strict';
+const envValue = require('./env-contract/value');
 
 // cost-model-subscription M1 — subscription opt-in oracle.
 //
@@ -47,8 +48,7 @@ function warn(line) {
 // isSubscriptionMode(env) → boolean. Default OFF (explicit opt-in). Mirror of
 // implement-dispatch/budget.js#parseParallelMode ('1' or 'on', case-insensitive).
 function isSubscriptionMode(env) {
-  const raw = String((env && env[ENV_MODE]) || '').trim().toLowerCase();
-  return raw === '1' || raw === 'on';
+  return envValue.parseBool(env || {}, ENV_MODE);
 }
 
 function numEnv(env, key) {

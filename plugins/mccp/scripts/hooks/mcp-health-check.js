@@ -18,6 +18,7 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const { spawn, spawnSync } = require('child_process');
+const envValue = require('../lib/env-contract/value');
 
 const MAX_STDIN = 1024 * 1024;
 const DEFAULT_TTL_MS = 2 * 60 * 1000;
@@ -555,7 +556,7 @@ function attemptReconnect(serverName) {
 }
 
 function shouldFailOpen() {
-  return /^(1|true|yes)$/i.test(String(process.env.MCCP_MCP_HEALTH_FAIL_OPEN || ''));
+  return envValue.parseBool(process.env, 'MCCP_MCP_HEALTH_FAIL_OPEN');
 }
 
 function emitLogs(logs) {

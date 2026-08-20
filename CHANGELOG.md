@@ -2,7 +2,18 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.29.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.29.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.29.1] — 2026-08-19
+
+**환경변수 문서 최신화 + 값 규약 통일 (단일 plan ship → patch bump, 1.29.0 → 1.29.1)** — `docs/ENVIRONMENT.md`는 두 가지가 동시에 낡아 있었다. 문서가 코드를 따라가지 못했고(실 토글 117개 중 22개 미등재, 문서에만 있는 이름 10개, ship된 축 둘이 `🚧 예정`), 값의 어휘가 토글마다 달랐다(production 코드에 boolean 파싱 규약 **8종** 공존 — 같은 저장소에서 `MCCP_SUBSCRIPTION=true`는 무시되고 `MCCP_ORCHESTRATION_USD_BOMB=true`는 켜졌다). 문서만 고치면 문서가 거짓말을 하므로 두 축을 한 단위로 닫았다.
+
+- **선언을 하나로 만들었다.** [env-contract/registry.js](plugins/mccp/scripts/lib/env-contract/registry.js)가 157개 이름의 kind·values·default·polarity·status·domain·evidence를 단일 선언한다. `state/toggle-snapshot.js`의 `TOGGLE_DEFAULTS` 리터럴(56개)은 이 표에서 **파생**으로 바뀌어 세 번째 진실원이 사라졌고, 실측되던 `defaults_conflicts` 1건이 그 자리에서 해소됐다.
+- **규약은 둘이고 그 경계에 검사 가능한 기준이 있다.** `bool`은 `on`/`off`를 가르치고 `1`·`true`·`yes`·`enabled`를 함께 받는다. `bypass-flag`는 `MCCP_SKIP_RECEIPT`·`MCCP_CODEX_DISABLED`·`MCCP_ALLOW_CODEX_UNAVAILABLE` **정확히 3개**이며 수용 집합이 이전과 **바이트 단위로 동일**하다 — 잠들어 있던 `=true`는 이 milestone 이후에도 여전히 무시된다. 소속 기준은 «활성화가 리뷰 게이트를 약화하는가»이지 이름에 `DISABLE`이 들어가는지가 아니다.
+- **문서는 레지스트리의 투영이 됐다.** 색인 1장(99,040 B → 27,297 B) + 도메인 상세 8장. 상세의 모든 토글 앵커는 `settings.json`에 그대로 붙여 넣을 수 있는 사용 예시를 갖고, 그 JSON은 실제로 파싱되며 값이 레지스트리 어휘에 속하는지까지 검사된다.
+- **삭제가 아니라 이전이다.** 축약 이전 문서에서 토글을 언급하는 실질 줄 150개가 전부 목적지 문서에 줄 단위로 보존되며, 그 사실을 정규화 대조가 기계로 확인한다(고아 0).
+- **9개 fail-closed 검사.** [env-contract/lint.js](plugins/mccp/scripts/lib/env-contract/lint.js)가 레지스트리 ↔ 런타임 ↔ 색인의 삼각 정합, 상세 링크의 **앵커까지** 해석, 은퇴 이름의 런타임 부재, 사용 예시 3검사, `evidence`의 어휘 검사(절대경로·`..` 거부)를 fs 실재 확인보다 **먼저** 수행하는 순서, 그리고 `env-contract/` 밖의 raw boolean 비교 **0건**을 강제한다. 마지막 검사는 이관 누락과 새 우회 경로를 같은 축으로 닫으며, 직접 비교뿐 아니라 load-time 별칭 포획과 구조분해까지 본다.
+- **동작 변경이 0인 곳과 아닌 곳을 나눠 적는다.** `bypass-flag` 3개는 변경 0이다. `bool`로 넓어진 토글에서는 이전에 무시되던 `yes`·`true`·`enabled`가 이제 유효하다 — 예컨대 `MCCP_SUBSCRIPTION=yes`나 `MCCP_ORCHESTRATION_USD_BOMB=enabled`가 그렇다. 어느 것도 리뷰 게이트를 열지 않지만, 그런 값이 이미 설정돼 있던 환경에서는 동작이 달라진다.
 
 ## [1.29.0] — 2026-08-19
 

@@ -2,6 +2,7 @@
 
 const { validateCommand } = require('./validate-cmd');
 const blockFormat = require('./block-format');
+const envValue = require('../lib/env-contract/value');
 
 // v0.2.8 Task 2.6.5a A3 R2 F2 absorption — shared classifier. Load
 // optimistically; fall back to old `result.ok` gating on load failure.
@@ -68,7 +69,7 @@ function preflight(args, io) {
     return 1;
   }
 
-  if (env.MCCP_SKIP_RECEIPT === '1') {
+  if (envValue.parseBool(env, 'MCCP_SKIP_RECEIPT')) {
     stderr.write(GATE_TAG + ' BYPASS: MCCP_SKIP_RECEIPT=1 (logged)\n');
     stdout.write(JSON.stringify({
       ok: true,
@@ -106,7 +107,7 @@ function preflight(args, io) {
     return 2;
   }
 
-  if (env.MCCP_RECEIPT_DEBUG === '1') {
+  if (envValue.parseBool(env, 'MCCP_RECEIPT_DEBUG')) {
     stderr.write(GATE_TAG + ' OK ' + result.command + ' (decision="' + result.decisionId + '")\n');
   }
   stdout.write(JSON.stringify(result, null, 2) + '\n');

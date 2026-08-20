@@ -15,6 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const envValue = require('../lib/env-contract/value');
 
 const MAX_STDIN = 1024 * 1024;
 let raw = '';
@@ -139,7 +140,7 @@ function run(inputOrRaw, options = {}) {
 module.exports = { run };
 
 // Stdin fallback for spawnSync execution
-let truncated = /^(1|true|yes)$/i.test(String(process.env.MCCP_HOOK_INPUT_TRUNCATED || ''));
+let truncated = envValue.parseBool(process.env, 'MCCP_HOOK_INPUT_TRUNCATED');
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => {
   if (raw.length < MAX_STDIN) {

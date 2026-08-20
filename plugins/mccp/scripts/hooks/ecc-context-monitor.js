@@ -15,6 +15,7 @@ const os = require('os');
 const path = require('path');
 const { sanitizeSessionId, readBridge, renameWithRetry } = require('../lib/session-bridge');
 const { getHandoffCostThresholds } = require('../lib/cost-thresholds');
+const envValue = require('../lib/env-contract/value');
 
 const CONTEXT_WARNING_PCT = 35;
 const CONTEXT_CRITICAL_PCT = 25;
@@ -49,7 +50,7 @@ function isEnabledEnv(value, defaultValue = true) {
 }
 
 function costWarningsEnabled(env = process.env) {
-  return isEnabledEnv(env.MCCP_CONTEXT_MONITOR_COST_WARNINGS, true);
+  return envValue.parseBool(env, 'MCCP_CONTEXT_MONITOR_COST_WARNINGS');
 }
 
 // Notify-only mode strips the imperative tail from cost messages so the

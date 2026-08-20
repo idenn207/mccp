@@ -39,6 +39,8 @@ const fs = require('fs');
 const path = require('path');
 
 const ledger = require('./ledger');
+const lanes = require('./lanes');
+const modelDiversity = require('./model-diversity');
 const { assertContained } = require('../path-containment');
 const { SLUG_RE } = require('../../receipt/decision');
 const { gitRepoRoot, planAwareMarkdownHash } = require('../../receipt/hash');
@@ -81,6 +83,12 @@ function project(state) {
             model: e.model,
             verdict: e.verdict,
             criticalIssueCount: Array.isArray(e.criticalIssues) ? e.criticalIssues.length : 0,
+            // santa-evidence-diversity M1 — 증거 레인. legacy envelope(레인 필드가
+            // 없던 시절의 기록)는 `null`로 투영되고 `laneCoverageFrom`이 0을 낸다.
+            // 열거 밖 값도 `null`로 접는다 — 모르는 값을 그대로 실으면 리포트가
+            // 그것을 레인처럼 보여주고 집계는 세지 않아 두 표면이 갈린다.
+            lane: (e.lane === lanes.LANES.BLIND || e.lane === lanes.LANES.BUNDLED)
+              ? e.lane : null,
           };
         }),
       };
@@ -134,12 +142,36 @@ function distinctIds(round) {
 // distinct id < 2에서 converged를 막는 것은 P1의 lifecycle 검사를
 // 앞당기는 것이 아니라 — 중복 record를 거부하지도 판정을 바꾸지도 않는다 —
 // **원장이 보여주지 않는 다양성을 receipt가 주장하지 않게** 하는 것뿐이다.
-function deriveVerdict(projection) {
+//
+// ── santa-evidence-diversity M3 — 제3값 `degraded` (DD1) ─────────────────────
+//
+// 값 집합이 `'NICE'|'NAUGHTY'`인 `gate.decideVerdict`와 달리 이 함수는 **P0 동결
+// 시그니처 표에 없다**. 그래서 강등을 라운드 판정이 아니라 여기에 놓는다 — 라운드
+// 판정에 넣는 경로는 동결 위반과 P1 소유권 침범을 동시에 저지른다. 게다가 봉인
+// verdict는 **이미 push를 막는 자리**라(`santa-loop.md` Step 5.5가 `converged`가
+// 아니면 exit 1) 강등에 새 차단 배선이 필요하지 않다.
+//
+// **판정 우선순위는 `divergent` > `degraded` > `converged`다.** 기존 두 절을 그대로
+// 두고 그 **아래에** degrade 절을 더하는 것이 그 우선순위의 구현이다: divergent가
+// 이미 비승인이므로 degraded는 converged를 **좁히는 것**이지 divergent를 완화하는
+// 것이 아니다. 순서를 뒤집으면 NAUGHTY + 동일 계열이 divergent 대신 degraded가 되고,
+// degraded에는 ack라는 사람 승인 경로가 있으므로 그 뒤집기는 **비수렴 라운드에
+// push 경로를 여는 것**이 된다.
+//
+// `opts.env`는 선택이다(미전달 시 `process.env`). 테스트가 env를 주입할 수 있어야
+// 하고, 그 주입 지점이 없으면 강등 회귀 test가 주변 셸에 의존하게 된다.
+function deriveVerdict(projection, opts) {
   const rounds = projection.rounds;
   if (rounds.length === 0) return 'divergent';
   const fin = rounds[rounds.length - 1];
   if (fin.verdict !== 'NICE') return 'divergent';
   if (distinctIds(fin).length < 2) return 'divergent';
+
+  const env = (opts && opts.env) ? opts.env : process.env;
+  if (modelDiversity.parseDegradeGate(env) === 'enforce' &&
+      modelDiversity.diversityFrom(projection).degraded) {
+    return 'degraded';
+  }
   return 'converged';
 }
 
@@ -177,11 +209,19 @@ function renderReport(projection, scalars) {
       : r.reviewers.map(function (x) {
         return x.id + '/' + x.model + ' ' + x.verdict + ' (' + x.criticalIssueCount + ' critical)';
       }).join(' · ');
+    // santa-evidence-diversity M1 — 레인 열. 사람이 읽는 유일한 라운드별 표면이라
+    // "이 라운드에 블라인드가 있었는가"가 receipt 정수를 열지 않고도 보인다.
+    // 레인 부재(legacy)는 `?`로 찍는다 — 0과 구별되어야 한다.
+    const laneCell = r.reviewers.length === 0
+      ? '(none)'
+      : r.reviewers.map(function (x) {
+        return x.id + ':' + (x.lane === null || x.lane === undefined ? '?' : x.lane);
+      }).join(' · ');
     return '| ' + r.index + ' | ' + (r.started_at || '(unknown)') + ' | ' +
-      (r.verdict === null ? 'OPEN' : r.verdict) + ' | ' + who + ' |';
+      (r.verdict === null ? 'OPEN' : r.verdict) + ' | ' + who + ' | ' + laneCell + ' |';
   });
 
-  const header = ['| # | started | verdict | reviewers |', '|---|---|---|---|'];
+  const header = ['| # | started | verdict | reviewers | lanes |', '|---|---|---|---|---|'];
   if (rows.length === 0) {
     L.push('라운드가 없다 — 원장에 기록된 라운드가 0건이다.');
   } else if (rows.length <= ROUND_TABLE_EXPANDED) {
@@ -197,6 +237,25 @@ function renderReport(projection, scalars) {
     L.push('</details>');
   }
   L.push('');
+
+  // santa-evidence-diversity M3 — 계열 1줄. `project()`가 이미 `model`을 싣고 있으므로
+  // **투영 변경은 0건**이다. 라운드 표가 리뷰어별 모델을 이미 찍지만 그것은 문자열일
+  // 뿐이라, 사람이 "이 실행이 실제로 이종이었는가"를 읽으려면 계열로 접힌 줄이 따로
+  // 있어야 한다(레인 열이 같은 이유로 존재한다). heading을 만들지 않는다 — 리포트의
+  // heading depth <= 3 앵커는 Phase 3.7 grounding lint가 정적으로 건다.
+  const div = modelDiversity.diversityFrom(projection);
+  if (div.finalIndex !== null) {
+    const fin = projection.rounds[div.finalIndex];
+    const cells = (fin.reviewers || []).map(function (r, i) {
+      return r.id + '=' + (div.models[i] === null ? '(none)' : div.models[i]) +
+        '(' + div.families[i] + ')';
+    });
+    L.push('- models: ' + (cells.length === 0 ? '(none)' : cells.join(' ')) +
+      ' · distinct=' + div.distinctFamilies +
+      ' · degraded=' + div.degraded +
+      ' reason=' + (div.reason === null ? '(none)' : div.reason));
+    L.push('');
+  }
   return L.join('\n') + '\n';
 }
 
@@ -323,14 +382,44 @@ function seal(opts) {
 
   // (3) 집계 — cap은 state에서. env 폴백을 타면 receipt가 원장을 오기한다.
   const rawAgg = ledger.aggregateFrom(state, state.cap);
-  const verdict = deriveVerdict(projection);
+  const env = o.env || process.env;
+  const verdict = deriveVerdict(projection, { env: env });
+
+  // santa-evidence-diversity M3 — **어휘 경계의 사영, 단 한 곳** (DD2).
+  //
+  // `resolution.review_verdict`의 열거는 `review-verdict.js:46`의
+  // `REVIEW_VERDICT_VALUES`이고 그 배열은 `receipt/schema.js`의 `CODEX_VERDICT_VALUES`와
+  // **공유**된다. 거기에 `degraded`를 더하면 santa와 무관한 codex 축에서도 그 값이
+  // 표현 가능해지고 `pr-ship-gate.js`·`receipt-convergence.js`·dedupe·대시보드가 전부
+  // 새 값을 만난다 — 닫으려는 결함은 santa 한 축인데 폭발 반경이 receipt 계층 전체가
+  // 된다. 그래서 **좁히는 방향으로** 사영한다: 둘 다 비승인이므로 사영이 넓히지 않는다.
+  //
+  // 사영 지점이 여기 **하나뿐인 것이 계약이다**. receipt(`writeArgs`)와
+  // proof(`buildProof`) 둘 다 이 변수를 받는다 — 두 소비처가 각자 사영하면 두 사영이
+  // 갈릴 수 있고, 그때 새는 쪽은 조용하다. `degraded`라는 이름 자체는 santa 자신의
+  // 표면(`seal` stdout · `.claude/reviews/` 리포트 · Step 5.5 정지 메시지)에만 남는다.
+  const sealedVerdict = verdict === 'degraded' ? 'divergent' : verdict;
+
+  // degrade 관측 3종은 **gate 값과 무관하게** 파생한다(DD4 — 관측은 항상, 강제는 토글).
+  // `off`가 관측까지 끄면 그 실행이 M3 이전 실행과 구분되지 않고, 그것이 정확히 이
+  // milestone이 닫으려는 모양의 결함이다. 원장에 이미 있는 `model` 문자열에서 나오므로
+  // 끌 비용 자체가 없다.
+  const diversity = modelDiversity.diversityFrom(projection);
+  const ack = modelDiversity.parseDegradeAck(env);
 
   // 거부 관측 → **종료 사유**로의 투영. 수렴한 원장은 캡이 끝낸 것이 아니므로
   // (수렴 뒤에 온 거부는 닫힌 루프에 대한 재진입이다) 그 사실을 종료로 적지
   // 않는다. `santa_exit_reason`의 계약이 "루프가 캡에 의해 종료됐다"이고
   // (`schema.js` — 부재 = 캡이 끝내지 않았다), 관측 원본은 원장이 그대로 갖는다.
+  //
+  // M3: 술어가 `=== 'converged'`에서 `!== 'divergent'`로 **일반화**된다. verdict가
+  // 2값이던 동안 두 술어는 같았고, `degraded`가 그 둘을 처음으로 가른다. 여기서
+  // 답해야 하는 질문은 "**라운드가** 수렴 없이 끝났는가"이고 degraded 라운드는
+  // 수렴했다(위 `fin.verdict !== 'NICE'` 절을 이미 통과했다) — 좁힌 것은 봉인이지
+  // 라운드가 아니다. `=== 'converged'`를 두면 degraded 실행이 재진입 거부 마커를
+  // 종료 사유로 실어 `santa_exit_reason`이 "캡이 끝냈다"를 거짓으로 주장한다.
   const agg = Object.assign({}, rawAgg, {
-    exitReason: verdict === 'converged' ? null : rawAgg.exitReason,
+    exitReason: verdict !== 'divergent' ? null : rawAgg.exitReason,
   });
 
   // (4) 리포트 write (containment 봉인).
@@ -367,7 +456,10 @@ function seal(opts) {
     reportRelPath: reportRel,
     reportHash: reportHash,
     projection: projection,
-    verdict: verdict,
+    // **사영된 값**을 넘긴다 (M3 / DD2). `verification_verdict`는 proof의 판정 필드이고
+    // 그 어휘는 receipt와 같아야 한다 — 여기에 `degraded`가 들어가면 santa 외부의
+    // proof 소비처(`review-verdict.js`)가 모르는 값을 만난다.
+    verdict: sealedVerdict,
     exitReason: agg.exitReason,
   });
   writeAtomic(proofAbs, JSON.stringify(proof, null, 2) + '\n');
@@ -383,13 +475,48 @@ function seal(opts) {
     decision: decisionId,
     cwd: repoRoot,
     plan: reportRel,
-    'review-verdict': verdict,
+    'review-verdict': sealedVerdict,
     'review-source': REVIEW_SOURCE,
     'review-proof-file': proofRel,
     'santa-rounds': agg.rounds,
     'santa-entries': agg.entries,
     quiet: true,
   };
+  // santa-evidence-diversity M1 — 레인 커버리지 집계 2종.
+  //
+  // **조건은 "라운드 >= 1"이고 값이 0인 것은 생략 사유가 아니다.** present-only
+  // 의미론에서 **부재는 "이 필드가 없던 시절에 쓰였다(모름)"이고 `0`은 "관측했고
+  // 0이었다"** — 서로 다른 상태다. `MCCP_SANTA_BLIND_LANE=off` 실행은 반드시 후자로
+  // 남아야 하고(DD8이 "off 실행도 stamp에 남는다"고 약속한 지점), 0을 생략하면 그
+  // 약속이 깨지고 M3이 소비할 입력도 사라진다. 라운드가 0건인 원장에서만 함께
+  // 생략한다 — 그때는 관측 자체가 없었다.
+  const laneCoverage = lanes.laneCoverageFrom(projection);
+  if (laneCoverage.rounds >= 1) {
+    writeArgs['santa-blind-records'] = laneCoverage.blindRecords;
+    writeArgs['santa-blind-rounds'] = laneCoverage.blindRounds;
+  }
+  // santa-evidence-diversity M3 — degrade 관측 3종 + ack 2종.
+  //
+  // **관측 3종은 라운드가 1 이상이면 gate 값과 무관하게 싣는다**(DD4). 레인 커버리지와
+  // 같은 present-only 규약이다: 부재는 "이 필드가 없던 시절에 쓰였다(모름)"이고 값은
+  // "관측했다"라 서로 다른 상태이므로, `MCCP_SANTA_DEGRADE_GATE=off` 실행은 반드시
+  // 후자로 남아야 한다. 라운드가 0건인 원장에서만 함께 생략한다 — 그때는 관측 자체가
+  // 없었다.
+  if (projection.rounds.length >= 1) {
+    writeArgs['santa-model-families'] = diversity.distinctFamilies;
+    if (diversity.degraded === true) writeArgs['santa-model-degraded'] = true;
+    if (diversity.reason) writeArgs['santa-degrade-reason'] = diversity.reason;
+  }
+  // **ack는 실제로 효력을 발휘했을 때만 봉인한다** — 강등이 일어나지 않은 실행에서
+  // 상주 env를 이유로 `santa_degrade_ack=true`를 남기면 일어나지 않은 승인의 기록이
+  // 된다(§3.13.1의 `intent_gate_force_override` 선례 — 플래그는 *설정 여부*가 아니라
+  // *효력 발휘 여부*를 뜻한다). 두 키는 **항상 함께** 실린다: schema가 양방향
+  // 불변식을 걸고, 한쪽만 있는 receipt는 "사유 없는 승인" 또는 "적용되지 않은
+  // override의 사유"라는 두 나쁜 모양 중 하나다.
+  if (verdict === 'degraded' && ack.ok === true) {
+    writeArgs['santa-degrade-ack'] = true;
+    writeArgs['santa-degrade-ack-reason'] = ack.reason;
+  }
   if (Number.isInteger(state.cap)) writeArgs['santa-cap'] = state.cap;
   if (agg.exitReason) writeArgs['santa-exit-reason'] = agg.exitReason;
 
@@ -399,7 +526,16 @@ function seal(opts) {
     reportPath: reportRel,
     proofPath: proofRel,
     receiptPath: receipt.path || null,
+    // **사영하지 않는다** — `seal` stdout은 santa 자신의 표면이고, Step 5.5가 3갈래
+    // 분기를 하려면 `degraded`를 그대로 봐야 한다. 사영은 receipt/proof 경계에서만
+    // 일어난다(위 `sealedVerdict`).
     verdict: verdict,
+    degraded: diversity.degraded,
+    degradeReason: diversity.reason,
+    // Step 5.5는 이 값을 읽을 뿐 env를 **다시 읽지 않는다**(DD5). 두 곳이 각자
+    // 해석하면 두 해석이 갈릴 수 있고, 그 형태의 결함은 이 저장소가 이미 여러 번
+    // 잡았다(`--lane` 재도출을 CLI 단일 지점에 둔 것과 같은 이유).
+    degradeAck: verdict === 'degraded' && ack.ok === true,
     aggregate: agg,
   };
 }

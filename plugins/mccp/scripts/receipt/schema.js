@@ -1032,6 +1032,20 @@ function validate(receipt) {
       req(Number.isInteger(m.santa_cap) && m.santa_cap >= 1,
         'meta.santa_cap must be an integer >= 1 if present');
     }
+    // santa-evidence-diversity M1 — 레인 커버리지 2종. 위 3종과 동일하게 PRESENT-ONLY
+    // 이며 makeSkeleton에 **넣지 않는다**(§3.12 git-tracked ship corpus의 hash 안정성).
+    //
+    // **0은 유효한 값이다.** 부재는 "레인 축이 없던 시절"이고 0은 "관측했고 블라인드가
+    // 0건이었다"(= `MCCP_SANTA_BLIND_LANE=off` 실행)로 서로 다른 상태다. 둘을 뭉개면
+    // M3이 degrade를 판정할 입력을 잃는다.
+    if (m.santa_blind_records !== null && m.santa_blind_records !== undefined) {
+      req(Number.isInteger(m.santa_blind_records) && m.santa_blind_records >= 0,
+        'meta.santa_blind_records must be a non-negative integer if present');
+    }
+    if (m.santa_blind_rounds !== null && m.santa_blind_rounds !== undefined) {
+      req(Number.isInteger(m.santa_blind_rounds) && m.santa_blind_rounds >= 0,
+        'meta.santa_blind_rounds must be a non-negative integer if present');
+    }
     // santa-adjudication M3 — 열거를 2종으로 넓힌다(additive-permissive). 기존 값은
     // 계속 유효하므로 봉인된 receipt corpus가 무손상이고 마이그레이션이 없다.
     // `cap_reached`는 begin-round가 캡에서 거부한 사건, `patch_chasing`은 살아남은
@@ -1041,6 +1055,51 @@ function validate(receipt) {
         'meta.santa_exit_reason must be one of ["cap_reached","patch_chasing"] if present ' +
         '(absence means the loop ended without a recorded termination)');
     }
+
+    // santa-evidence-diversity M3 — 모델 계열 degrade 축 5종. 위 santa 필드들과 동일하게
+    // 전부 PRESENT-ONLY이며 makeSkeleton에 **넣지 않는다**(§3.12 git-tracked ship corpus의
+    // hash 안정성).
+    //
+    // `santa_model_families`의 0은 유효한 값이다 — 계열이 하나도 식별되지 않은 라운드
+    // (전원 unknown)이고, 부재("이 축이 없던 시절")와 다른 상태다.
+    if (m.santa_model_families !== null && m.santa_model_families !== undefined) {
+      req(Number.isInteger(m.santa_model_families) && m.santa_model_families >= 0,
+        'meta.santa_model_families must be a non-negative integer if present');
+    }
+    // 불리언 2종은 `true`만 허용한다. `false`를 명시 저장하면 부재와 뜻이 겹치고,
+    // 겹치는 순간 present-only 의미론("부재 = 모름, 값 = 관측")이 무너진다.
+    if (m.santa_model_degraded !== null && m.santa_model_degraded !== undefined) {
+      req(m.santa_model_degraded === true,
+        'meta.santa_model_degraded must be true if present (false is stored as absence)');
+    }
+    if (m.santa_degrade_ack !== null && m.santa_degrade_ack !== undefined) {
+      req(m.santa_degrade_ack === true,
+        'meta.santa_degrade_ack must be true if present (false is stored as absence)');
+    }
+    if (m.santa_degrade_reason !== null && m.santa_degrade_reason !== undefined) {
+      req(m.santa_degrade_reason === 'same_family' || m.santa_degrade_reason === 'unknown_model',
+        'meta.santa_degrade_reason must be one of ["same_family","unknown_model"] if present');
+    }
+    if (m.santa_degrade_ack_reason !== null && m.santa_degrade_ack_reason !== undefined) {
+      req(typeof m.santa_degrade_ack_reason === 'string' && m.santa_degrade_ack_reason.length > 0,
+        'meta.santa_degrade_ack_reason must be a non-empty string if present');
+    }
+    // **양방향 불변식** — ack와 그 사유는 함께 있거나 함께 없다. 한쪽만 있는 두 모양이
+    // 각각 나쁘다: 사유 없는 승인(무엇을 근거로 push를 열었는지 알 수 없다)과,
+    // 적용되지 않은 override의 사유(일어나지 않은 일을 정당화한 기록 — §3.13.1이
+    // `intent_gate_force_override_reason`에 같은 규칙을 건 이유다).
+    //
+    // 판정 기준은 **키의 존재**이지 진위값이 아니다. present-only 의미론에서
+    // truthiness 검사(`!m.santa_degrade_ack_reason`)를 쓰면 빈 문자열·`0`·`false`가
+    // "부재"로 접히는데, 그 값들은 위 절이 이미 각각 거부한 **잘못된 값**이지 부재가
+    // 아니다 — 두 실패를 한 메시지로 뭉개면 진단이 틀린다.
+    const hasAck = m.santa_degrade_ack !== null && m.santa_degrade_ack !== undefined;
+    const hasAckReason =
+      m.santa_degrade_ack_reason !== null && m.santa_degrade_ack_reason !== undefined;
+    req(hasAck === hasAckReason,
+      'meta.santa_degrade_ack and meta.santa_degrade_ack_reason must both be present or ' +
+      'both absent (an approval with no recorded reason, and a reason for an approval that ' +
+      'was never applied, are each rejected)');
 
     // codex-intent-context M1 — intent-gate audit axis. 10 fields, ALL
     // PRESENT-ONLY: they are not materialized in makeSkeleton, so a receipt that

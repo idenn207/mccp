@@ -49,6 +49,107 @@ git diff --name-only HEAD
 
 Read all changed files to build the full review context. If `$ARGUMENTS` specifies a path, file, or description, use that as the scope instead.
 
+**Fix the scope as a machine-readable value.** Step 3 hands this list to the blind
+lane, and the judgement of *what* is in scope stays here — the CLI receives the list,
+it never derives one (DD11). Without a single variable the two steps would each
+answer "what is under review?", and that is the seam where they can disagree.
+
+```bash
+# The single source of scope. If $ARGUMENTS named paths or globs, build the array
+# from those instead — the decision is the same prose as above; the only change is
+# that the result is pinned to one value that Step 3 passes as --paths-file.
+SCOPE_PATHS_JSON=$(git diff --name-only HEAD | node -e '
+  const lines=require("fs").readFileSync(0,"utf8").split(/\r?\n/).filter(Boolean);
+  process.stdout.write(JSON.stringify(lines));')
+```
+
+An empty array means nothing changed; `lanes` rejects it in Step 3 and no round opens.
+A run with nothing to review should not launch reviewers. **M2's always-on scope
+(plan/PRD files regardless of diff) lands by adding to this variable** — that is what
+keeps the join point single.
+
+**Always-on scope (M2).** The relationship between a plan and the PRD it declares is an
+invariant, and an invariant whose two halves are never in scope together cannot be
+checked — that is exactly what #125 measured. `scope-always` derives the closure
+(this decision's plans plus the Source PRD each one declares) and this step merges it
+in. The CLI *offers* candidates; the merge happens here, so `SCOPE_PATHS_JSON` keeps a
+single producer (M1 DD11).
+
+```bash
+# First use of the temp dir in this file. The lane block in Step 3 reuses the name, so
+# a definition placed there would expand to empty here — the paths file would land
+# outside the repo and the round would stop at containment instead of at the thing
+# that was actually wrong.
+TMPDIR_SANTA=".claude/state/santa-loop/tmp"      # gitignored with the ledger
+mkdir -p "$TMPDIR_SANTA"
+printf '%s' "$SCOPE_PATHS_JSON" > "$TMPDIR_SANTA/scope-diff.json"
+
+ALWAYS_JSON=$(node "$SANTA" scope-always --decision "$DECISION" \
+  --paths-file "$TMPDIR_SANTA/scope-diff.json")
+ALWAYS_EXIT=$?
+if [ "$ALWAYS_EXIT" -ne 0 ]; then
+  echo "[santa] scope-always failed (exit $ALWAYS_EXIT) — NOT launching reviewers." 1>&2
+  echo "[santa] A round with no always-on scope looks identical to a pre-M2 run," 1>&2
+  echo "[santa] so this axis does not degrade to the diff-only scope (DD3)." 1>&2
+  exit "$ALWAYS_EXIT"
+fi
+```
+
+**Ask whether the output PARSED before reading anything out of it.** `paths` missing and
+`paths` empty are different facts, and pulling the array first collapses them: a parse
+failure would yield the same empty value as a legitimately unchanged scope, and the
+round would proceed on the diff-only scope while looking exactly like a normal M2 run.
+This is the same check, for the same reason, as `HAS_ASSIGNMENT` in Step 3 — and the
+order is the contract.
+
+**Those two facts also need different exits.** `paths` *absent* is a broken producer and
+stops the round here. `paths` *present but empty* is the ordinary "nothing changed" case
+this step already described above — it belongs to Step 3, where `lanes` rejects the empty
+array and says so in those terms. Collapsing them into one error moves the stop two steps
+early and reports a parse failure that did not happen.
+
+```bash
+PATHS_STATE=$(echo "$ALWAYS_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(!Array.isArray(j.paths)?"absent":(j.paths.length>0?"ok":"empty"))}catch{process.stdout.write("absent")}')
+if [ "$PATHS_STATE" = "absent" ]; then
+  echo "[santa] scope-always exited 0 but emitted no usable paths array." 1>&2
+  echo "[santa] NOT launching reviewers: reading this as \"nothing to add\" would" 1>&2
+  echo "[santa] disguise a parse failure as a normal zero-addition run (DD3)." 1>&2
+  exit 1
+fi
+if [ "$PATHS_STATE" = "empty" ]; then
+  echo "[santa] nothing to review: the diff is empty and the always-on axis added" 1>&2
+  echo "[santa] nothing (mode=off, or no plan resolved). No round opens." 1>&2
+  exit 0
+fi
+
+# From here the fields are known to be present. Replacing SCOPE_PATHS_JSON is the merge.
+SCOPE_PATHS_JSON=$(echo "$ALWAYS_JSON" | node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(0,"utf8")).paths))')
+CONSISTENCY_RUBRIC_ROW=$(echo "$ALWAYS_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).rubricRow||"")}catch{process.stdout.write("")}')
+```
+
+Surface what the axis did on every run. This is M2's observation surface (a) — the
+receipt does **not** seal it (DD7), so a round that added nothing is only distinguishable
+from a pre-M2 round here, in the terminal:
+
+```bash
+echo "$ALWAYS_JSON" | node -e '
+  const j=JSON.parse(require("fs").readFileSync(0,"utf8"));
+  const e=process.stderr;
+  e.write("[santa] always-on scope: mode="+j.mode+" added="+j.added.length+
+          " pairs="+j.pairs.length+" unresolved="+j.unresolved.length+
+          " truncated="+j.truncated+"\n");
+  j.added.forEach(function(p){ e.write("[santa]   + "+p+"\n"); });
+  j.pairs.forEach(function(p){ e.write("[santa]   pair "+p.plan+" -> "+p.prd+"\n"); });
+  j.unresolved.forEach(function(u){ e.write("[santa]   unresolved "+u.plan+": "+u.reason+"\n"); });
+'
+```
+
+An `unresolved` entry is **not** a failure. A free-form plan with no `**Source PRD**`
+declaration, or one pointing at a PRD that has since been archived, is ordinary input —
+it is dropped from scope and named here rather than handed to a reviewer as a broken
+pointer (DD4). `mode=off` means the axis is switched off entirely: `added` is empty,
+`CONSISTENCY_RUBRIC_ROW` is empty, and no plan file was opened.
+
 ### Step 2: Build the Rubric
 
 Construct a rubric appropriate to the file types under review. Every criterion must have an objective PASS/FAIL condition. Include at minimum:
@@ -63,6 +164,28 @@ Construct a rubric appropriate to the file types under review. Every criterion m
 | No regressions | Changes don't break existing behavior |
 
 Add domain-specific criteria based on file types (e.g., type safety for TS, memory safety for Rust, migration safety for SQL).
+
+**The always-on consistency row is appended by the shell, not written by you (M2).** The
+whole of this axis is that one paragraph, and a criterion whose text drifts between rounds
+cannot be replayed: "what was actually asked of the reviewer?" stops having an answer. It
+is a constant in `scope-always.js` (`CONSISTENCY_RUBRIC`) for the same reason
+`DO_NOT_TRUST_NARRATIVE` is one in `lanes.js` — so **do not retype it, do not summarize
+it, and do not put the criterion in the rubric you author.** Step 3 appends
+`$CONSISTENCY_RUBRIC_ROW` to the rubric file mechanically and then verifies it landed.
+
+Author the rest of the rubric as usual; the consistency row will be added below it:
+
+| Criterion | Pass Condition |
+|-----------|---------------|
+| Plan/PRD consistency | *(appended verbatim by Step 3 from `$CONSISTENCY_RUBRIC_ROW` — do not author this cell)* |
+
+An empty `$CONSISTENCY_RUBRIC_ROW` means `MCCP_SANTA_ALWAYS_SCOPE=off`, and then the row
+is omitted — scope additions and the rubric row ride the same switch (DD5). Instructing a
+reviewer to cross-check a PRD that is not in scope is not a stricter review; it asks for a
+FAIL that cannot be grounded in anything the reviewer was given.
+
+Keep the full rubric text in one place: Step 3 writes it to a file and passes it to
+`lanes --rubric-file`, which is the only path by which the **blind** reviewer receives it.
 
 ### Step 3: Dual Independent Review
 
@@ -113,6 +236,99 @@ fi
 Two things about that block are load-bearing. `exit "$BEGIN_EXIT"` must be its last statement — without it, execution falls through to the reviewer launch and the push, which voids the entire reason the cap gate exists. And unlike Step 5.5, a seal failure here does **not** change the exit code: there is no push to prevent, and overwriting `$BEGIN_EXIT` would bury the operator's primary diagnosis (cap exhausted) under a secondary one (seal failed).
 
 `begin-round` is idempotent: calling it again while a round is still open returns the same `roundIndex` without consuming cap.
+
+#### Resolve the evidence lanes (santa-evidence-diversity M1)
+
+Before launching, ask the oracle which reviewer runs **blind** — pointer only, no file
+bundle and no pre-summary (UI3/UI4). A failure of this axis does not look like an
+error: it looks like an ordinary run, identical to one from before M1 existed. So no
+layer here proceeds on partial success.
+
+```bash
+# Re-assert the constant rather than inheriting it. Step 1 defines the same value, but
+# `mkdir -p` only covers a MISSING DIRECTORY — it does not cover an EMPTY VARIABLE, and
+# those are different failures. If this block ever runs without Step 1's assignment in
+# scope, `mkdir -p ""` fails while the pipeline masks its status and the printf below
+# lands at the filesystem root; the round then stops at containment, one step away from
+# what was actually wrong. The assignment is an idempotent constant, so paying for it
+# twice costs nothing and removes the dependency.
+TMPDIR_SANTA=".claude/state/santa-loop/tmp"      # gitignored with the ledger
+mkdir -p "$TMPDIR_SANTA"
+# $SCOPE_PATHS_JSON comes from Step 1. If this file ever loses that definition the
+# printf writes an empty file, cmdLanes rejects the empty array, and the round stops —
+# fail-closed, though the cause then surfaces one step away from its origin.
+printf '%s' "$SCOPE_PATHS_JSON" > "$TMPDIR_SANTA/lane-paths-$ROUND.json"
+
+# The rubric built in Step 2, written out in full. `--rubric-file` is the ONLY path by
+# which the blind reviewer receives the rubric: it gets no file bundle by design, so a
+# rubric that lives only in the bundled reviewer's context is a rubric half the panel
+# never saw. Omit the flag entirely when the rubric is empty.
+#
+# The heredoc is quoted, so NOTHING inside it expands — write the criteria you authored
+# in Step 2 and STOP THERE. The consistency row is appended by the block below.
+cat > "$TMPDIR_SANTA/rubric-$ROUND.md" << 'EOF'
+<the full rubric from Step 2 — criteria table and all, WITHOUT the consistency row>
+EOF
+
+# Append the always-on consistency row mechanically. Writing it by hand is the one way
+# this axis can go missing while every mechanical signal still reads green: `lanes` does
+# not inspect rubric content, so a row that says "$CONSISTENCY_RUBRIC_ROW" literally —
+# which is exactly what the quoted heredoc above would preserve — reaches the reviewer as
+# an unusable criterion, at exit 0, with `## Rubric` present. Half of M2 (DD5: scope and
+# rubric are one axis) would be undelivered and indistinguishable from a good round. So
+# the shell appends it, and then proves it landed.
+if [ -n "$CONSISTENCY_RUBRIC_ROW" ]; then
+  printf '\n| Plan/PRD consistency | %s |\n' "$CONSISTENCY_RUBRIC_ROW" \
+    >> "$TMPDIR_SANTA/rubric-$ROUND.md"
+  if ! grep -qF 'working tree' "$TMPDIR_SANTA/rubric-$ROUND.md"; then
+    echo "[santa] the consistency row did not land in the rubric file." 1>&2
+    echo "[santa] NOT launching reviewers: a blind reviewer given a rubric without it" 1>&2
+    echo "[santa] cannot check the plan/PRD relation, and the round would look normal." 1>&2
+    exit 1
+  fi
+fi
+
+LANES_JSON=$(node "$SANTA" lanes --decision "$DECISION" \
+  --paths-file "$TMPDIR_SANTA/lane-paths-$ROUND.json" \
+  --rubric-file "$TMPDIR_SANTA/rubric-$ROUND.md")
+LANES_EXIT=$?
+if [ "$LANES_EXIT" -ne 0 ]; then
+  echo "[santa] lanes failed (exit $LANES_EXIT) — no lane assignment." 1>&2
+  echo "[santa] NOT launching reviewers: without an assignment a zero-blind round" 1>&2
+  echo "[santa] would succeed silently, and record would reject it at exit 2 anyway," 1>&2
+  echo "[santa] throwing away the round's tokens." 1>&2
+  exit "$LANES_EXIT"
+fi
+
+# Ask whether the output PARSED before reading blindId. Pulling blindId first makes
+# `off` (normal) and a parse failure (broken) both yield an empty string — the
+# discriminator is the presence of `assignment`, and this check is it. The order is
+# the contract: placing it after blindId re-opens the gap it closes.
+HAS_ASSIGNMENT=$(echo "$LANES_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j&&typeof j.assignment==="object"&&j.assignment!==null?"1":"0")}catch{process.stdout.write("0")}')
+if [ "$HAS_ASSIGNMENT" != "1" ]; then
+  echo "[santa] lanes exited 0 but emitted no assignment — the lane map could not be read." 1>&2
+  echo "[santa] NOT launching reviewers. Reading this as off would disguise a failure" 1>&2
+  echo "[santa] as a normal zero-blind run (DD11)." 1>&2
+  exit 1
+fi
+# From here an empty $BLIND_ID means exactly one thing: mode=off.
+BLIND_ID=$(echo "$LANES_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).blindId||"")}catch{process.stdout.write("")}')
+BLIND_PROMPT=$(echo "$LANES_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).prompt||"")}catch{process.stdout.write("")}')
+```
+
+**Both reviewer sections below branch on `$BLIND_ID` and nothing else.** Each uses the
+same sentence: *if this reviewer's id equals `$BLIND_ID`, send `$BLIND_PROMPT` in place
+of the file bundle; otherwise keep the current bundled prompt.* Asking "am I the blind
+one?" separately inside each section would let mode `a`/`b` be interpreted twice, and
+two interpretations that disagree produce zero or two blind lanes. When `$BLIND_ID` is
+empty both take the bundled path — that is `off`, and it is the only legitimate route
+to a zero-blind round.
+
+The two sections stay **symmetric**: `codex`'s `-C "$(pwd)"` and the model selection are
+unchanged (UI10). The only thing that varies is whether file contents ride in the prompt.
+
+The blind prompt is **not assembled here** (DD4). The CLI emits it, so the honest path
+is also the cheapest one.
 
 Launch two reviewers **in parallel** using the Agent tool (both in a single message for concurrent execution). Both must complete before proceeding to the verdict gate.
 
@@ -172,6 +388,10 @@ Launch an Agent (subagent_type: `code-reviewer`, model: `opus`) with the full ru
 - The severity contract above, verbatim: every entry in `critical_issues` carries a `claim` and a `severity`, and only an issue whose concrete failure you can write out in `failure_scenario` may be called a blocker
 - Return the structured JSON verdict above
 
+**Lane branch (M1).** If `A` equals `$BLIND_ID`, do **not** include the file contents:
+send `$BLIND_PROMPT` in place of the bundle, keeping the rubric and the severity
+contract. Otherwise use the bundled prompt exactly as described above.
+
 #### Reviewer B: External Model (Claude fallback only if no external CLI installed)
 
 First, detect which CLIs are available:
@@ -205,6 +425,18 @@ rm -f "$PROMPT_FILE"
 **Claude Agent fallback** (only if neither `codex` nor `gemini` is installed)
 Launch a second Claude Agent (subagent_type: `code-reviewer`, model: `opus`). Log a warning that both reviewers share the same model family — true model diversity was not achieved but context isolation is still enforced.
 
+**That warning now changes the sealed verdict (M3).** Record the fallback model as what it
+actually is (`opus`); the seal reads the ledger's `model` strings, classifies them into
+families, and narrows `converged` to `degraded` when the final round has fewer than two
+distinct families. Nothing to do differently here — the judgement lives in the seal layer, so
+this step gains no new instruction. Declaring `gpt-5.4` for a Claude fallback does not buy
+diversity either: `record` re-derives whether `codex` is on `PATH` and refuses at exit 2 when
+it is not.
+
+**Lane branch (M1).** Same single sentence as Reviewer A: if `B` equals `$BLIND_ID`,
+`$BLIND_PROMPT` replaces the file contents in `$PROMPT_FILE`; otherwise the bundle
+stays. The CLI invocation, sandbox flags, and model selection do not change (UI10).
+
 In all cases, the reviewer must return the same structured JSON verdict as Reviewer A.
 
 #### Record each reviewer into the ledger
@@ -212,16 +444,35 @@ In all cases, the reviewer must return the same structured JSON verdict as Revie
 Write each reviewer's **unmodified** JSON to a repo-internal temp file and hand it to the CLI. The reviewer contract above is untouched — `id` and `model` are values the caller already knows, and the CLI does the conversion:
 
 ```bash
-TMPDIR_SANTA=".claude/state/santa-loop/tmp"      # gitignored with the ledger
+# $TMPDIR_SANTA was defined in Step 1 (M2); mkdir stays for idempotence.
 mkdir -p "$TMPDIR_SANTA"
 
-# Reviewer A (repeat verbatim for B with --id B and its own model string)
+# Reviewer A
 cat > "$TMPDIR_SANTA/reviewer-$ROUND-A.json" << 'EOF'
 ... Reviewer A's structured JSON, verbatim ...
 EOF
 node "$SANTA" record --decision "$DECISION" --round "$ROUND" \
-  --id A --model opus --reviewer-file "$TMPDIR_SANTA/reviewer-$ROUND-A.json"
+  --id A --model opus --reviewer-file "$TMPDIR_SANTA/reviewer-$ROUND-A.json" \
+  --lane "$(echo "$LANES_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).assignment.A||"")}catch{process.stdout.write("")}')"
+
+# Reviewer B — identical shape; the lane comes from the same assignment, never typed
+# by hand. Both are shown because mode `b` inverts them, and one example gives no
+# form to copy for the other.
+cat > "$TMPDIR_SANTA/reviewer-$ROUND-B.json" << 'EOF'
+... Reviewer B's structured JSON, verbatim ...
+EOF
+node "$SANTA" record --decision "$DECISION" --round "$ROUND" \
+  --id B --model "<reviewer B model string>" --reviewer-file "$TMPDIR_SANTA/reviewer-$ROUND-B.json" \
+  --lane "$(echo "$LANES_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).assignment.B||"")}catch{process.stdout.write("")}')"
 ```
+
+`--lane` is **required** and is re-derived by the CLI from `MCCP_SANTA_BLIND_LANE`; a
+value that disagrees with the assignment is rejected at exit 2 and the round stays open
+for a re-record. What this checks is that the command body cannot improvise a lane
+outside the oracle. What it does **not** check is whether the reviewer declared blind
+actually received no bundle — nothing in a shell can observe what reached the model, and
+M1 claims no forgery prevention (DD4); verification of that is left to outcome
+distribution (UI7).
 
 The file must live inside the repo — the CLI refuses paths outside it. Non-zero exit means nothing was appended; surface stderr and stop rather than proceeding to a verdict built on partial evidence.
 
@@ -499,7 +750,38 @@ if [ "$SEAL_EXIT" -ne 0 ]; then
 fi
 
 SEAL_VERDICT=$(echo "$SEAL_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).verdict||"")}catch{process.stdout.write("")}')
-if [ "$SEAL_VERDICT" != "converged" ]; then
+DEGRADE_ACK=$(echo "$SEAL_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).degradeAck?"1":"0")}catch{process.stdout.write("0")}')
+DEGRADE_REASON=$(echo "$SEAL_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).degradeReason||"")}catch{process.stdout.write("")}')
+
+# santa-evidence-diversity M3 — degraded를 **먼저** 검사한다. `!= converged` 절이 앞서면
+# degraded가 divergent 메시지로 흡수되어, 운영자가 "리뷰가 수렴하지 않았다"는 잘못된
+# 진단을 받고 처방(codex 설치)이 사라진다.
+if [ "$SEAL_VERDICT" = "degraded" ]; then
+  if [ "$DEGRADE_ACK" != "1" ]; then
+    echo "[santa] sealed verdict is 'degraded' (reason=${DEGRADE_REASON:-<unreadable>}) — NOT pushing." 1>&2
+    echo "[santa] Both reviewers resolved to the same model family (or an unrecognised one), so" 1>&2
+    echo "[santa] this NICE is not distinguishable from a heterogeneous one. That is what the" 1>&2
+    echo "[santa] degraded verdict names." 1>&2
+    # The two lines below are OPERATOR GUIDANCE, not a sealed claim. They are read HERE, at
+    # push time, and may disagree with what was true when the reviewers actually ran — which
+    # is exactly why the receipt's `santa_degrade_reason` carries only the two values derivable
+    # from the ledger projection (`same_family` / `unknown_model`) and never this distinction.
+    if [ "${MCCP_CODEX_DISABLED:-0}" = "1" ]; then
+      echo "[santa] Deliberate: MCCP_CODEX_DISABLED=1 is set, so Reviewer B could not use codex." 1>&2
+    elif command -v codex >/dev/null 2>&1; then
+      echo "[santa] codex IS on PATH — Reviewer B fell back for another reason. Re-run it on codex." 1>&2
+    else
+      echo "[santa] Unavailable: codex is not on PATH. Install it, or accept the run below." 1>&2
+    fi
+    echo "[santa] To ship anyway, set MCCP_SANTA_DEGRADE_ACK=\"<substantive reason>\" and re-run" 1>&2
+    echo "[santa] Step 5.5. The ack opens the push; it does NOT rewrite the sealed verdict." 1>&2
+    exit 1
+  fi
+  echo "[santa] sealed verdict is 'degraded' (reason=${DEGRADE_REASON:-<unreadable>}) but" 1>&2
+  echo "[santa] MCCP_SANTA_DEGRADE_ACK is set and substantive — pushing under an audited ack." 1>&2
+  echo "[santa] The receipt still records review_verdict='divergent' + santa_model_degraded=true;" 1>&2
+  echo "[santa] the ack opens the push, it does not rewrite what was sealed." 1>&2
+elif [ "$SEAL_VERDICT" != "converged" ]; then
   echo "[santa] sealed verdict is '${SEAL_VERDICT:-<unreadable>}', not 'converged' — NOT pushing." 1>&2
   echo "[santa] Step 4 read NICE but the seal disagreed. The receipt is the audit anchor, so it wins:" 1>&2
   echo "[santa] pushing here would ship under a receipt that records non-convergence." 1>&2
@@ -513,7 +795,11 @@ fi
 
 The seal deliberately does **not** re-gate on the reviewers' `verdict` strings. Those stopped being a judgment input at Step 4 (a `FAIL` raising nothing blocking leaves the round NICE by design), so a seal that still failed on them would not be "stricter" — it would be answering a different question and contradicting the gate, which is exactly what it did before santa-adjudication M1 fixed it. What the seal keeps is the axis it can check independently: two distinct reviewer ids, counted a second time from the ledger.
 
-`$SEAL_JSON` carries `reportPath` / `proofPath` / `receiptPath` / `verdict`; Step 7 reports them.
+**The `degraded` branch is checked first, and the order is load-bearing (M3).** `degraded` and `divergent` are both non-approving, so a `!= converged` test alone would still block the push — but it would print the *divergent* diagnosis, and the two have different prescriptions. Divergence says the reviewers did not agree; degradation says they agreed while being the same model, and its fix is to install `codex` (or to acknowledge the run), not to review again. Folding one into the other loses the prescription while keeping the block, which reads as the gate working.
+
+**The ack opens the push; it does not rewrite the verdict.** `MCCP_SANTA_DEGRADE_ACK` is judged in exactly one place — `seal` — and this step only reads the `degradeAck` boolean it returned. Re-reading the env here would give two interpretations of one variable, and this repo has repeatedly found that shape of defect (it is why `--lane` is re-derived at a single CLI point). The sealed verdict stays `degraded`, the receipt keeps `review_verdict='divergent'` alongside `meta.santa_model_degraded=true`, and the ack itself is recorded as `santa_degrade_ack` + `santa_degrade_ack_reason`. That matters on a machine with no external CLI, where *every* run degrades and the ack ends up living in `settings.json`: if the ack flipped the verdict, the count of degraded runs would be permanently zero and the metric would lose the thing it measures. Left as-is, the ratio keeps being counted, and that ratio is the measured case for installing `codex` here.
+
+`$SEAL_JSON` carries `reportPath` / `proofPath` / `receiptPath` / `verdict` / `degraded` / `degradeReason` / `degradeAck`; Step 7 reports them.
 
 ### Step 6: Push (NICE path)
 
@@ -530,10 +816,10 @@ Print the output report (see Output section below). `node "$SANTA" status --deci
 ## Output
 
 ```
-SANTA VERDICT: [NICE / NAUGHTY (escalated)]
+SANTA VERDICT: [NICE / NICE but degraded / NICE but degraded (acked) / NAUGHTY (escalated)]
 
-Reviewer A (Claude Opus):   [PASS/FAIL]
-Reviewer B ([model used]):  [PASS/FAIL]
+Reviewer A (Claude Opus, anthropic):        [PASS/FAIL]
+Reviewer B ([model used], [model family]):  [PASS/FAIL]
 
 Agreement:
   Both flagged:      [issues caught by both]
@@ -541,8 +827,10 @@ Agreement:
   Reviewer B only:   [issues only B caught]
 
 Iterations: [N]/[cap]
-Result:     [PUSHED / ESCALATED TO USER]
+Result:     [PUSHED / PUSHED UNDER DEGRADE ACK / BLOCKED (degraded) / ESCALATED TO USER]
 ```
+
+`degraded` on the verdict line is the seal's word, not the round's: Step 4 still read NICE. Print it whenever `$SEAL_VERDICT` is `degraded`, with `(acked)` only when the push actually went ahead — that pair is what lets a later reader tell "blocked and fixed" from "shipped under an audited ack".
 
 ## Notes
 
@@ -557,4 +845,11 @@ Result:     [PUSHED / ESCALATED TO USER]
 - The cap binds at the **ledger index**, not just here: `record` and `verdict` refuse an index `begin-round` never opened, so ignoring a refusal and launching reviewers produces no ledger entry and no verdict *at that index*. Two things it does **not** prevent, and this file claims neither: the reviewer tokens being spent (launching a reviewer is an LLM act, with nothing for a shell to intercept), and reuse of the last already-FINAL index — `record --round <cap-1>` still succeeds, because restricting `record` to `OPEN` rounds is judgement lifecycle and belongs to P1.
 - The loop's **first** ending condition is Step 4.5, not the cap: a round whose surviving blocking issues all point at the previous round's patch ends there, and the ledger records that ending with its own reason so the two endings can be told apart afterwards. The cap is the safety net underneath it, and reaching it is itself recorded as an ending.
 - The terminator's kill switch is `MCCP_SANTA_TERMINATOR`, registered in docs/ENVIRONMENT.md §11 alongside the other santa toggles. It turns off both wiring points together — the Step 4.5 judgement and the `begin-round` marker precheck — and that document owns its values, defaults and failure mode.
+- Exactly one reviewer runs on the **blind evidence lane** each round: repository root plus target paths, no file bundle and no pre-summary, with a fixed instruction not to treat any handed narrative as fact. The assignment is decided by `santa/lanes.js` and re-checked by `record --lane`, so the command body cannot pick a lane on its own. What that check establishes is that the lane came from the oracle; it does **not** establish that the blind reviewer's prompt truly carried no bundle — no shell can observe what reached a model. Verification of *that* is by outcome distribution (the two lanes' co-missed rate), not by the stamp. Coverage is sealed into the receipt as two present-only integers, `meta.santa_blind_records` and `meta.santa_blind_rounds`; `santa_blind_rounds === santa_rounds` is the mechanical reading of "every round had at least one reviewer that received no bundle".
+- The lane kill switch is `MCCP_SANTA_BLIND_LANE` (`a` default / `b` / `off`), registered in docs/ENVIRONMENT.md §11 with the other santa toggles. `off` is the **less strict** direction — it puts both reviewers on the bundled path, which is the pre-M1 behaviour — so the default is the firing side and a malformed value falls back to firing, not to off. An `off` run is still recorded, as `santa_blind_rounds=0`; absence of the field means "written before the lane axis existed", which is a different state from an observed zero. Nothing in M1 *blocks* a zero-blind round: M1 creates and records lanes, and no milestone currently owns enforcement (see the PRD's open question).
+- A round whose reviewers all resolve to the **same model family** — or to an unrecognised one — seals as `degraded` rather than `converged`, and `degraded` does not push. That is the whole of the axis: the round verdict is untouched (it is still NICE, and `gate.js` never sees this), and what changes is only *which name the seal gives that NICE*. Families come from `santa/model-diversity.js` classifying the `model` strings already in the ledger, so it costs no extra reviewer and no extra round. A model string that matches two catalogs at once, or none, is `unknown`, and `unknown` degrades — an unrecognised name must not be able to buy a diversity verdict, and the fix for a legitimately new model is one line added to the catalog, not a looser gate.
+- What is sealed is `meta.santa_model_families` (distinct family count), `meta.santa_model_degraded`, and `meta.santa_degrade_reason` (`same_family` / `unknown_model`) — all three present-only, and all three written **regardless of the kill switch**, because absence of the field means "written before this axis existed" and is a different state from an observed degradation. The reason enum is deliberately narrow: it holds only what the ledger projection can derive. Whether Reviewer B fell back because `codex` was *deliberately disabled* or because it was *not installed* is a distinction Step 5.5 explains at push time by reading the environment there — it is guidance for the operator, never a sealed claim, because a fact re-observed at seal time can disagree with what was true when the reviewers ran.
+- The degrade kill switch is `MCCP_SANTA_DEGRADE_GATE` (`enforce` default / `off`), registered in docs/ENVIRONMENT.md §11 with the other santa toggles. `off` turns off **the verdict narrowing only** — the three observation fields are still stamped, so an `off` run stays distinguishable from a pre-M3 one. As with the other santa toggles the default is the firing side and a malformed value falls back to firing, because a typo that silently reverts a run to pre-M3 behaviour is the exact defect shape this axis exists to close.
+- `MCCP_SANTA_DEGRADE_ACK="<substantive reason>"` lets a degraded run push. It is judged once, inside `seal`, against the same strict reason validator the other audited overrides use, and it **does not rewrite the sealed verdict** — the receipt still says `review_verdict='divergent'` with `santa_model_degraded=true`, plus `santa_degrade_ack` and `santa_degrade_ack_reason`. On a machine with no external CLI every run degrades and the ack tends to become a resident setting; leaving the verdict alone is what keeps the degraded ratio countable under a resident ack, and that ratio is the measured case for installing `codex`.
+- `record --model` is re-derived against `PATH`: declaring an `openai`/`google` family model while `codex`/`gemini` is absent exits 2 with the round left open. What that establishes is that a model name for an uninstalled CLI cannot be typed in to buy diversity. What it does **not** establish is that the declared model is the one that answered — `codex` being installed does not prove it ran. Same ceiling as `--lane`, claimed no wider, and verified the same way: by outcome distribution, not by the stamp.
 - The cap is scoped to the decision slug, which is derived from the branch name. Renaming or switching branches starts a fresh cap (different branch = different review scope). Pass `--decision <slug>` to every subcommand to pin one scope across a rename.

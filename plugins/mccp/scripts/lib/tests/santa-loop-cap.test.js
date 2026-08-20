@@ -344,7 +344,7 @@ test('DD11 — 캡 거부된 라운드에 record/verdict가 각각 exit 2 + 상�
     const rv = writeReviewer(repo, 'rv.json', FIXTURE_PASS);
 
     const rec = cli(['record', '--decision', slug, '--cwd', repo, '--round', '3',
-      '--id', 'A', '--model', 'opus', '--reviewer-file', rv]);
+      '--id', 'A', '--lane', 'blind', '--model', 'opus', '--reviewer-file', rv]);
     assert.equal(rec.code, EX_USAGE);
     assert.match(rec.stderr, /SANTA_ROUND_NOT_OPEN/);
     assert.ok(sameBytes(before, bytes(statePath(repo, slug))), 'record가 원장을 건드렸다');
@@ -361,7 +361,7 @@ test('DD11 — begin-round 없이 record --round 0을 직접 불러도 exit 2 + 
   const slug = 'dd11-never-opened';
   const rv = writeReviewer(repo, 'rv.json', FIXTURE_PASS);
   const rec = cli(['record', '--decision', slug, '--cwd', repo, '--round', '0',
-    '--id', 'A', '--model', 'opus', '--reviewer-file', rv]);
+    '--id', 'A', '--lane', 'blind', '--model', 'opus', '--reviewer-file', rv]);
   assert.equal(rec.code, EX_USAGE);
   assert.match(rec.stderr, /SANTA_ROUND_NOT_OPEN/);
   assert.equal(fs.existsSync(statePath(repo, slug)), false);
@@ -426,12 +426,12 @@ test('DD9 — 실제 Step 3 형태 fixture가 envelope로 변환·저장되고 v
   const b = writeReviewer(repo, 'b.json', FIXTURE_FAIL);
 
   const ra = cli(['record', '--decision', slug, '--cwd', repo, '--round', '0',
-    '--id', 'A', '--model', 'opus', '--reviewer-file', a]);
+    '--id', 'A', '--lane', 'blind', '--model', 'opus', '--reviewer-file', a]);
   assert.equal(ra.code, EX_OK);
   assert.deepEqual(json(ra), { recorded: true, round: 0, id: 'A', reviewersInRound: 1 });
 
   const rb = cli(['record', '--decision', slug, '--cwd', repo, '--round', '0',
-    '--id', 'B', '--model', 'gpt-5.4', '--reviewer-file', b]);
+    '--id', 'B', '--lane', 'bundled', '--model', 'gpt-5.4', '--reviewer-file', b]);
   assert.equal(rb.code, EX_OK);
   assert.equal(json(rb).reviewersInRound, 2);
 
@@ -448,14 +448,20 @@ test('DD9 — 실제 Step 3 형태 fixture가 envelope로 변환·저장되고 v
   // 존재해야 하고, blocking 행에만 붙이면 병합 이전 단계에 읽을 것이 없다. 빈 배열은
   // `classifyTarget`에서 `unknown`이 되어 미발화 쪽이므로 이 추가는 판정을 넓히지
   // 않는다(커버리지 82의 legacy 전방 호환과 같은 성질).
+  // santa-evidence-diversity M1이 envelope에 `lane`을 더했다. golden을 **넓히되
+  // 지우지 않는다** — deepEqual을 유지하는 것이 요점이라 필드가 조용히 하나 더 붙는
+  // 변경은 여전히 여기서 red가 된다. 값은 default mode `a`의 배정(A→blind, B→bundled)
+  // 이고, 그것을 여기 적어 두면 배정이 뒤집히는 회귀도 이 단언이 잡는다.
   const st = readState(repo, slug);
   assert.deepEqual(st.rounds[0].reviewers[0].envelope,
-    { id: 'A', model: 'opus', verdict: 'PASS', criticalIssues: [], findings: [] });
+    { id: 'A', model: 'opus', verdict: 'PASS', criticalIssues: [], findings: [],
+      lane: 'blind' });
   assert.deepEqual(st.rounds[0].reviewers[1].envelope,
     { id: 'B', model: 'gpt-5.4', verdict: 'FAIL',
       criticalIssues: ['hardcoded token at src/a.js:12'],
       findings: [{ claim: 'hardcoded token at src/a.js:12', severity: null,
-        failureScenario: null, evidence: null, structured: false, locations: [] }] });
+        failureScenario: null, evidence: null, structured: false, locations: [] }],
+      lane: 'bundled' });
 
   // stdout도 **추가**다(교체가 아니다) — 기존 3필드는 그대로 있고 계측 3필드가 붙는다.
   const vd = cli(['verdict', '--decision', slug, '--cwd', repo, '--round', '0']);
@@ -490,7 +496,7 @@ test('DD2 — 리뷰어 원본이 소실되지 않는다 (raw에 checks·suggest
   assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_OK);
   const a = writeReviewer(repo, 'a.json', FIXTURE_PASS);
   assert.equal(cli(['record', '--decision', slug, '--cwd', repo, '--round', '0',
-    '--id', 'A', '--model', 'opus', '--reviewer-file', a]).code, EX_OK);
+    '--id', 'A', '--lane', 'blind', '--model', 'opus', '--reviewer-file', a]).code, EX_OK);
 
   const raw = readState(repo, slug).rounds[0].reviewers[0].raw;
   // envelope는 checks·suggestions를 버린다. P1의 severity 축 입력이 바로 그
@@ -528,7 +534,7 @@ test('불량 입력이 원장을 오염시키지 않는다 — 각각 exit 2 + b
 
   for (const [label, file] of cases) {
     const r = cli(['record', '--decision', slug, '--cwd', repo, '--round', '0',
-      '--id', 'A', '--model', 'opus', '--reviewer-file', file]);
+      '--id', 'A', '--lane', 'blind', '--model', 'opus', '--reviewer-file', file]);
     assert.equal(r.code, EX_USAGE, label + ' should exit 2 (got ' + r.code + ')');
     assert.ok(sameBytes(before, bytes(statePath(repo, slug))), label + ' mutated the ledger');
   }
@@ -546,7 +552,7 @@ test('repo 밖 --reviewer-file은 exit 2 + byte 무변경 (임의 경로 읽기 
   fs.writeFileSync(outside, JSON.stringify(FIXTURE_PASS));
 
   const r = cli(['record', '--decision', slug, '--cwd', repo, '--round', '0',
-    '--id', 'A', '--model', 'opus', '--reviewer-file', outside]);
+    '--id', 'A', '--lane', 'blind', '--model', 'opus', '--reviewer-file', outside]);
   assert.equal(r.code, EX_USAGE);
   assert.match(r.stderr, /PATH_ESCAPES_GATE/);
   assert.ok(sameBytes(before, bytes(statePath(repo, slug))));
@@ -560,11 +566,11 @@ test('--id / --model / --round 누락·불량은 exit 2', () => {
   const base = ['record', '--decision', slug, '--cwd', repo, '--round', '0'];
 
   assert.equal(cli(base.concat(['--id', 'C', '--model', 'opus', '--reviewer-file', rv])).code, EX_USAGE);
-  assert.equal(cli(base.concat(['--id', 'A', '--model', '  ', '--reviewer-file', rv])).code, EX_USAGE);
+  assert.equal(cli(base.concat(['--id', 'A', '--lane', 'blind', '--model', '  ', '--reviewer-file', rv])).code, EX_USAGE);
   assert.equal(cli(['record', '--decision', slug, '--cwd', repo,
-    '--id', 'A', '--model', 'opus', '--reviewer-file', rv]).code, EX_USAGE, '--round 누락');
+    '--id', 'A', '--lane', 'blind', '--model', 'opus', '--reviewer-file', rv]).code, EX_USAGE, '--round 누락');
   assert.equal(cli(['record', '--decision', slug, '--cwd', repo, '--round', '-1',
-    '--id', 'A', '--model', 'opus', '--reviewer-file', rv]).code, EX_USAGE);
+    '--id', 'A', '--lane', 'blind', '--model', 'opus', '--reviewer-file', rv]).code, EX_USAGE);
   assert.equal(cli(['no-such-subcommand']).code, EX_USAGE);
 });
 
@@ -581,7 +587,7 @@ test('빈/공백 --round는 round 0이 아니라 exit 2 (Number("")===0 회귀)'
 
   for (const bad of ['', '   ']) {
     const rec = cli(['record', '--decision', slug, '--cwd', repo, '--round', bad,
-      '--id', 'A', '--model', 'opus', '--reviewer-file', rv]);
+      '--id', 'A', '--lane', 'blind', '--model', 'opus', '--reviewer-file', rv]);
     assert.equal(rec.code, EX_USAGE, 'record --round ' + JSON.stringify(bad) + ' should exit 2');
     assert.ok(sameBytes(before, bytes(statePath(repo, slug))),
       '빈 --round가 round 0에 기록됐다');
@@ -634,7 +640,7 @@ test('이식성 — repo 경로 철자가 git과 달라도 repo 내부 --reviewe
   assert.equal(cli(['begin-round', '--decision', slug, '--cwd', repo]).code, EX_OK);
   const rv = writeReviewer(repo, 'rv.json', FIXTURE_PASS);
   const r = cli(['record', '--decision', slug, '--cwd', repo, '--round', '0',
-    '--id', 'A', '--model', 'opus', '--reviewer-file', rv]);
+    '--id', 'A', '--lane', 'blind', '--model', 'opus', '--reviewer-file', rv]);
   assert.equal(r.code, EX_OK,
     'repo 내부 파일이 거부됐다 — 경로 철자 정규화가 빠졌다: ' + r.stderr);
 });
@@ -873,7 +879,7 @@ test('DD10 — CLI JSON stdout 필드가 전부 camelCase (snake_case 혼용 0)'
   outs.push(json(cli(['resolve-decision', '--cwd', repo, '--decision', slug])));
   outs.push(json(cli(['begin-round', '--decision', slug, '--cwd', repo])));
   outs.push(json(cli(['record', '--decision', slug, '--cwd', repo, '--round', '0',
-    '--id', 'A', '--model', 'opus', '--reviewer-file', rv])));
+    '--id', 'A', '--lane', 'blind', '--model', 'opus', '--reviewer-file', rv])));
   outs.push(json(cli(['verdict', '--decision', slug, '--cwd', repo, '--round', '0'])));
   outs.push(json(cli(['status', '--decision', slug, '--cwd', repo])));
 
@@ -994,7 +1000,7 @@ test('UI11 — record --id A 두 번은 여전히 성공하되 그 라운드는 
   const a = writeReviewer(repo, 'a.json', FIXTURE_PASS);
 
   const first = cli(['record', '--decision', slug, '--cwd', repo, '--round', '0',
-    '--id', 'A', '--model', 'opus', '--reviewer-file', a]);
+    '--id', 'A', '--lane', 'blind', '--model', 'opus', '--reviewer-file', a]);
   assert.equal(first.code, EX_OK);
 
   // **santa-adjudication M2가 record 축까지 닫았다.** 위 문단이 예고한 그대로다 —
@@ -1003,7 +1009,7 @@ test('UI11 — record --id A 두 번은 여전히 성공하되 그 라운드는 
   // 위생을 넘어 **coverage 게이트의 전제**가 된다: 한 리뷰어가 둘로 세어지면
   // `blocking[].ids`와 `byReviewer`가 갈리고, 판정 대상 목록의 정확성이 무너진다.
   const second = cli(['record', '--decision', slug, '--cwd', repo, '--round', '0',
-    '--id', 'A', '--model', 'opus', '--reviewer-file', a]);
+    '--id', 'A', '--lane', 'blind', '--model', 'opus', '--reviewer-file', a]);
   assert.equal(second.code, EX_USAGE, 'M2는 같은 라운드의 id 중복을 거부한다(DD14)');
   assert.match(second.stderr, /SANTA_REVIEWER_DUPLICATE_ID/);
   assert.equal(readState(repo, slug).rounds[0].reviewers.length, 1,
@@ -1049,12 +1055,32 @@ test('UI4/UI11 — receipt 배선은 seal.js에만 있다 (M1 4개 모듈은 여
   // receipt `meta.santa_exit_reason`에 실리지만 그 봉인은 `seal.js`가 하고
   // `terminator.js`는 순수 oracle이라 receipt를 모른다(DD7). 목록을 넓히는 대신
   // 지우면 M1이 이 test로 막으려던 결함이 그대로 돌아온다.
+  // santa-evidence-diversity M1이 `lanes.js`를 더했다(소유권 표의 P2 신규 파일).
+  // 같은 규약으로 승인한다 — 목록에 한 줄, receipt-free 목록에도 한 줄. 레인 커버리지
+  // **집계 정수 2종**은 receipt `meta.santa_blind_{records,rounds}`에 실리지만 그 봉인은
+  // `seal.js`가 하고 `lanes.js`는 순수 oracle이라 receipt를 모른다(DD6·DD7과 동형).
+  //
+  // santa-evidence-diversity M2가 `scope-always.js`를 더했다(같은 소유권 표의 P2 신규
+  // 파일). 같은 규약으로 승인한다 — 목록에 한 줄, receipt-free 목록에도 한 줄. 이쪽은
+  // 앞의 넷보다 **강한** 형태로 receipt-free다: M2는 상시 스코프를 receipt에 봉인하지
+  // 않기로 명시했고(DD7 — 라운드 형태는 P0 동결 시그니처이고, envelope로 우회하면 CLI가
+  // 재현할 수 없는 **검증 불가능한 필수 플래그**가 된다), 그래서 집계 정수조차 없다.
+  // 관측 표면은 Step 1의 터미널 출력과 이 test 셋뿐이다. 목록을 넓히는 대신 지우면
+  // M1이 이 test로 막으려던 결함이 그대로 돌아온다.
+  //
+  // santa-evidence-diversity M3이 `model-diversity.js`를 더했다(같은 소유권 표의 P2 신규
+  // 파일). 같은 규약으로 승인한다 — 목록에 한 줄, receipt-free 목록에도 한 줄. degrade
+  // 관측 3종은 receipt `meta.santa_model_{families,degraded}` + `santa_degrade_reason`에
+  // 실리지만 그 봉인은 `seal.js`가 하고 `model-diversity.js`는 순수 oracle이라 receipt를
+  // 모른다(`lanes.js`·`terminator.js`와 동형). ack 2종도 마찬가지로 여기서 **판정만**
+  // 하고 stamp는 `seal.js` 소관이다. 목록을 넓히는 대신 지우면 M1이 이 test로 막으려던
+  // 결함이 그대로 돌아온다.
   assert.deepEqual(files.sort(),
-    ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'ledger.js', 'seal.js',
-      'terminator.js']);
+    ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'lanes.js', 'ledger.js',
+      'model-diversity.js', 'scope-always.js', 'seal.js', 'terminator.js']);
 
-  const RECEIPT_FREE = ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'ledger.js',
-    'terminator.js'];
+  const RECEIPT_FREE = ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'lanes.js',
+    'ledger.js', 'model-diversity.js', 'scope-always.js', 'terminator.js'];
   for (const f of RECEIPT_FREE) {
     const src = fs.readFileSync(path.join(santaDir, f), 'utf8');
     // 주석의 서술("M2 소유")은 허용하고, 실제 배선만 금지한다.
@@ -1095,6 +1121,27 @@ test('Acceptance — 외부 의존이 문서화된 7개뿐이고 npm 의존 0', 
   // `ledger.js` 둘이며 후자는 지연 require다(로드 그래프 무변경). 이 줄이 그 승인
   // 기록이고, 제목의 "6개"는 여전히 **외부** 의존 수를 가리킨다.
   //
+  // santa-evidence-diversity M1이 내부 하나(`./lanes` — 소유권 표의 P2 신규 파일)를
+  // 더했다. **외부 의존은 0건 추가**다: `lanes.js`는 아무것도 require하지 않는 순수
+  // oracle이고, `--paths-file` 읽기와 containment는 `cli.js`가 이미 지고 있는
+  // `fs`/`../path-containment`가 처리한다. 소비처는 `cli.js`와 `seal.js` 둘이다.
+  //
+  // santa-evidence-diversity M2가 내부 하나(`./scope-always` — 같은 소유권 표의 P2 신규
+  // 파일)를 더했다. **외부 의존은 0건 추가**다: `scope-always.js`가 require하는 것은
+  // builtin `path` 하나뿐이고(경로 정규화 전용 — 파일시스템 접근 없음) 그 builtin은 이미
+  // allowlist에 있다. plan 열거·파일 읽기·존재 확인은 전부 `cli.js`가 이미 지고 있는
+  // `fs`가 처리한다(DD2 — 발견은 CLI, 판정은 oracle). `derive/sources/plans.js`를
+  // 재사용하지 **않은** 이유가 정확히 이 줄을 지키기 위해서다: 그것을 require하면 순수
+  // oracle이 `fs`와 `PLAN_DIRS`를 끌어오고 이 목록이 늘어나는데, 가져올 것은 정규식
+  // 2개와 8줄짜리 헬퍼뿐이라 미러가 싸다. 소비처는 `cli.js` 하나다.
+  //
+  // santa-evidence-diversity M3이 내부 하나(`./model-diversity` — 같은 소유권 표의 P2 신규
+  // 파일)를 더했다. **외부 의존은 0건 추가**다: `model-diversity.js`가 require하는 것은
+  // `../../receipt/lib/force-override-reason` 하나뿐이고 그것은 이미 이 allowlist에 있다
+  // (`gate.js`가 santa-adjudication M1에서 여섯 번째 외부 의존으로 등재한 그 항목이다).
+  // 규칙을 베끼는 대신 의존을 지는 쪽이 옳다는 근거도 그때와 같다 — override 사유
+  // 판정 규칙을 복사하면 원본이 바뀔 때 두 사본이 갈리고 그 갈림은 어떤 test도 잡지
+  // 않는다. 소비처는 `cli.js`와 `seal.js` 둘이다.
   // review-loop-bypass M1이 일곱 번째를 더했다: `cli.js`의 `begin-round`가
   // `review-single-pass#parseSinglePass`로 단일통과 구간을 판정해 라운드를 열지
   // 않는다(DD5). 그 파서를 여기 다시 구현하면 세 게이트와 santa가 서로 다른 enum을
@@ -1105,6 +1152,9 @@ test('Acceptance — 외부 의존이 문서화된 7개뿐이고 npm 의존 0', 
     './counter', './ledger', './gate', './seal',          // 내부
     './adjudication',                                     // 내부 (santa-adjudication M2)
     './terminator',                                       // 내부 (santa-adjudication M3)
+    './lanes',                                            // 내부 (santa-evidence-diversity M1)
+    './scope-always',                                     // 내부 (santa-evidence-diversity M2)
+    './model-diversity',                                  // 내부 (santa-evidence-diversity M3)
     '../../receipt/evidence-lock', '../../receipt/hash',
     '../../receipt/decision', '../path-containment',
     '../../receipt/write',                                // 외부 5 (M2)
@@ -1212,4 +1262,150 @@ test('Step 5.5 — sealed verdict에 실제로 분기한다 (변수 캡처만으
   const pushLine = lines.map((l, i) => (/git push/.test(l) ? i + 1 : 0)).filter(Boolean)[0];
   assert.ok(pushLine, 'santa-loop.md에서 git push를 찾지 못했다');
   assert.ok(start + branch[0] < pushLine, 'verdict 분기가 push보다 뒤에 있다');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// santa-evidence-diversity M2 — `/mccp:code-review` Local Mode 흡수분의 커맨드 본문 축.
+//
+// 셋 다 "degrade한 라운드가 정상 라운드와 똑같아 보인다"는 같은 실패 유형이고, 산문이
+// 아니라 이 test들이 분기의 존재를 소유한다(Step 4 · Step 5.5 test와 같은 규약).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function santaLoopStepSlice(heading) {
+  const lines = fs.readFileSync(SANTA_LOOP_MD, 'utf8').split(/\r?\n/);
+  const head = new RegExp('^### ' + heading + '[:\\s]');
+  let start = -1;
+  let end = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (start === -1 && head.test(lines[i])) { start = i; continue; }
+    if (start !== -1 && /^### /.test(lines[i])) { end = i; break; }
+  }
+  assert.notEqual(start, -1, '`### ' + heading + '` 헤딩을 찾지 못했다');
+  return lines.slice(start, end);
+}
+
+const linesMatching = (slice, re) =>
+  slice.map((l, i) => (re.test(l) ? i + 1 : 0)).filter(Boolean);
+
+test('M2 code-review H2 — 정합 rubric 행을 셸이 덧붙이고 착지를 확인한다', () => {
+  // Step 3의 heredoc은 quoted라 파라미터 전개가 꺼져 있다. 산문이 "verbatim 복사"를
+  // 요구하면 그 지시를 그 자리의 메커니즘이 수행할 수 없고, 변수명이 리터럴로 남은
+  // rubric도 `lanes`가 exit 0으로 통과시킨다(rubric 내용 검증이 없다) — DD5가 "한 축"
+  // 이라 못 박은 그 축의 절반이 미전달인데 어떤 기계적 신호로도 구분되지 않는다.
+  const slice = santaLoopStepSlice('Step 3');
+  const at = (re) => linesMatching(slice, re);
+
+  const heredoc = at(/^cat > "\$TMPDIR_SANTA\/rubric-\$ROUND\.md" << 'EOF'$/);
+  const append = at(/printf .*Plan\/PRD consistency.*"\$CONSISTENCY_RUBRIC_ROW"/);
+  const proof = at(/grep -qF 'working tree' "\$TMPDIR_SANTA\/rubric-\$ROUND\.md"/);
+  const halt = at(/^\s+exit 1$/);
+  const lanesCall = at(/--rubric-file "\$TMPDIR_SANTA\/rubric-\$ROUND\.md"/);
+
+  assert.ok(heredoc.length > 0, 'rubric 파일을 쓰는 heredoc이 없다');
+  assert.ok(append.length > 0,
+    '정합 행을 셸이 덧붙이지 않는다 — quoted heredoc 안에서는 변수가 전개되지 않으므로 ' +
+    '"verbatim 복사하라"는 산문 지시만으로는 행이 리터럴로 남을 수 있다');
+  assert.ok(proof.length > 0, '덧붙인 행이 실제로 착지했는지 확인하지 않는다');
+  assert.ok(heredoc[0] < append[0], '덧붙이기가 heredoc보다 앞에 있다 (덮어써진다)');
+  assert.ok(append[0] < proof[0], '확인이 덧붙이기보다 앞에 있다');
+  assert.ok(halt.some((n) => n > proof[0]), '확인 실패에 종료문이 없다');
+  assert.ok(lanesCall.length > 0 && proof[0] < lanesCall[0],
+    '리뷰어 기동이 rubric 착지 확인보다 앞에 있다');
+
+  // heredoc 본문이 정합 행을 저자에게 다시 시키면 경로가 둘이 되어 중복/드리프트가 난다.
+  const body = slice.slice(heredoc[0] - 1, append[0] - 1).join('\n');
+  assert.match(body, /WITHOUT the consistency row/,
+    'heredoc 자리표시자가 정합 행을 저자에게 맡기는 것으로 읽힌다');
+});
+
+test('M2 code-review M1 — Step 3가 $TMPDIR_SANTA를 스스로 선언한다', () => {
+  // `mkdir -p`가 덮는 것은 디렉토리 부재이지 빈 변수가 아니다. 빈 값이면 `mkdir -p ""`가
+  // 실패하는데 파이프라인이 상태를 가리고 paths 파일이 파일시스템 루트에 떨어진다 —
+  // 라운드는 containment에서 멈추고 실제 원인은 한 단계 떨어진 자리에 표시된다.
+  const slice = santaLoopStepSlice('Step 3');
+  const assign = linesMatching(slice, /^TMPDIR_SANTA="\.claude\/state\/santa-loop\/tmp"/);
+  const firstUse = linesMatching(slice, /"\$TMPDIR_SANTA/);
+
+  assert.ok(assign.length > 0,
+    'Step 3이 $TMPDIR_SANTA를 재선언하지 않는다 — idempotent 상수라 두 번 치르는 비용은 ' +
+    '0이고, Step 1의 정의가 스코프에 없을 때의 실패를 그 한 줄이 막는다');
+  assert.ok(firstUse.length > 0, 'Step 3이 $TMPDIR_SANTA를 쓰지 않는다');
+  assert.ok(assign[0] < firstUse[0], '선언이 최초 사용보다 뒤에 있다 (빈 값으로 전개된다)');
+});
+
+test('M2 code-review M3 — Step 1이 paths 부재와 빈 배열을 다른 exit로 가른다', () => {
+  // 부재는 생산자 고장(정지)이고 빈 배열은 Step 1이 이미 정상으로 규정한 "변경 없음"이다.
+  // 한 분기가 둘을 삼키면 정지가 두 단계 앞으로 오고 일어나지 않은 파싱 실패를 보고한다.
+  const slice = santaLoopStepSlice('Step 1');
+  const joined = slice.join('\n');
+
+  assert.match(joined, /PATHS_STATE=\$\(/, 'paths 상태를 3상태로 판정하지 않는다');
+  assert.match(joined, /Array\.isArray\(j\.paths\)/,
+    '배열 여부(파싱 성립)를 길이보다 먼저 묻지 않는다');
+
+  const absent = linesMatching(slice, /if \[ "\$PATHS_STATE" = "absent" \]/);
+  const empty = linesMatching(slice, /if \[ "\$PATHS_STATE" = "empty" \]/);
+  assert.ok(absent.length > 0 && empty.length > 0, '두 상태에 각각 분기하지 않는다');
+  assert.ok(absent[0] < empty[0], '부재 판정이 빈 배열 판정보다 앞에 있어야 한다');
+
+  const absentBlock = slice.slice(absent[0] - 1, empty[0] - 1).join('\n');
+  const emptyBlock = slice.slice(empty[0] - 1, empty[0] + 5).join('\n');
+  assert.match(absentBlock, /exit 1/, '부재가 비영점으로 끝나지 않는다');
+  assert.match(emptyBlock, /exit 0/,
+    '빈 배열이 오류로 끝난다 — 그것은 Step 1 산문이 정상으로 규정한 경로다');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// santa-evidence-diversity M3 — Step 5.5 degrade 분기의 커맨드 본문 축.
+//
+// plan-review 패널(invariant)이 "Step 5.5의 순서가 산문으로만 있다"를 네 번째로
+// 재보고했고, 그 재보고의 **실질 잔여물**이 이것이다: 순서를 강제하는 것은 plan에 적힌
+// bash가 아니라 test다. Step 4 · Step 5.5 test와 같은 규약으로 이 절이 그 순서를 소유한다.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test('M3 — Step 5.5가 degraded를 `!= converged`보다 먼저 검사한다', () => {
+  // 순서가 뒤집히면 degraded가 divergent 메시지로 흡수된다. 차단은 그대로라 게이트가
+  // 작동하는 것처럼 보이지만 운영자가 받는 처방이 사라진다 — 두 verdict의 처방이
+  // 다르기 때문이다(divergent=다시 리뷰 / degraded=codex 설치 또는 ack).
+  const slice = santaLoopStepSlice('Step 5\.5');
+  const at = (re) => linesMatching(slice, re);
+
+  const degraded = at(/if \[ "\$SEAL_VERDICT" = "degraded" \]/);
+  const notConverged = at(/if \[ "\$SEAL_VERDICT" != "converged" \]|elif \[ "\$SEAL_VERDICT" != "converged" \]/);
+
+  assert.ok(degraded.length > 0, 'Step 5.5에 degraded 분기가 없다');
+  assert.ok(notConverged.length > 0, 'Step 5.5의 기존 non-converged 분기가 사라졌다');
+  assert.ok(degraded[0] < notConverged[0],
+    'degraded 검사가 `!= converged`보다 뒤에 있다 — degraded가 divergent 메시지에 흡수된다');
+});
+
+test('M3 — degraded는 ack 없이 push를 막고, ack는 seal 반환값으로만 판정된다', () => {
+  const slice = santaLoopStepSlice('Step 5\.5');
+  const joined = slice.join('\n');
+  const at = (re) => linesMatching(slice, re);
+
+  // ack는 `seal`이 반환한 `degradeAck`에서 온다. 여기서 env를 다시 읽으면 한 변수에
+  // 두 해석이 생기고, 그 형태의 결함은 이 저장소가 이미 여러 번 잡았다(DD5).
+  assert.match(joined, /DEGRADE_ACK=\$\(.*degradeAck/,
+    'ack를 seal 반환값에서 읽지 않는다');
+  assert.equal(/MCCP_SANTA_DEGRADE_ACK[^"]*\}/.test(joined), false,
+    'Step 5.5가 MCCP_SANTA_DEGRADE_ACK를 셸에서 다시 전개한다 — 판정 주체는 CLI 한 곳이다');
+
+  // ack 부재 경로에 종료문이 있어야 한다. 없으면 degraded가 그대로 push로 흘러간다.
+  const ackBranch = at(/if \[ "\$DEGRADE_ACK" != "1" \]/);
+  assert.ok(ackBranch.length > 0, 'ack 부재 분기가 없다');
+  const halts = at(/^\s*exit 1$/);
+  assert.ok(halts.some((h) => h > ackBranch[0]),
+    'ack 부재 분기 안에 종료문이 없다 — 승인 없는 degraded가 push된다');
+
+  // DD5: ack는 push를 열 뿐 verdict를 재작성하지 않는다. 그 사실이 본문에 남아야 한다 —
+  // 상주 ack 아래에서도 degraded 비율이 계속 세어진다는 것이 이 축의 측정 근거다.
+  assert.match(joined, /does not rewrite|does NOT rewrite/,
+    'ack가 verdict를 재작성하지 않는다는 사실이 본문에 없다');
+
+  // DD7: 의도적 비활성 대 미가용의 구분은 **안내**이지 봉인되는 주장이 아니다.
+  assert.match(joined, /MCCP_CODEX_DISABLED/, '의도적 비활성 구분이 없다');
+  assert.match(joined, /command -v codex/, '미가용 구분이 없다');
+  assert.match(joined, /OPERATOR GUIDANCE, not a sealed claim/,
+    '그 두 줄이 봉인되는 주장이 아니라는 표시가 없다 — 없으면 다음 독자가 receipt로 옮긴다');
 });

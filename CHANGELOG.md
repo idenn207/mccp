@@ -2,8 +2,205 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.29.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.30.0] — 2026-08-19
+
+> **§3.7**: `1.29.2 → 1.30.0` (**minor** — M3은 santa-evidence-diversity PRD의 마지막
+> milestone이라 PRD 전체 완료 축이다). 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄다. 진입 시점
+> 재계산에서 origin/main은 `1.29.0`이고 이 브랜치가 `1.29.1`이므로 `1.30.0`이
+> 양쪽보다 앞섰다. **2026-08-20 재동기 확인**: main이 `1.29.1`을 발행(#149)하고
+> 이 브랜치의 M2 항목이 `1.29.2`로 밀린 뒤에도 `1.30.0`은 여전히 양쪽보다 앞서므로
+> **이 번호는 상향하지 않는다**. 4면(plugin.json · footer 2면 · 이 파일의 `currently`
+> 노트)은 `1.30.0`으로 유지되며 `i18n-surface.test.js`가 재검증한다.
+
+---
+
+### Added — santa 증거 다양성 M3: degrade 차단
+
+`codex`도 `gemini`도 없는 머신에서 Reviewer B는 두 번째 Claude Opus로 떨어진다. 그 조합의
+NICE는 이종 조합의 NICE와 **어느 표면에서도 구분되지 않았다** — 라운드 판정도, 봉인
+verdict도, receipt도 같은 값을 냈다. M3은 원장에 이미 있는 리뷰어 `model` 문자열에서
+계열을 분류하고 봉인 층에서 `converged`를 `degraded`로 좁혀 push를 막되, 감사되는 사람
+승인 경로를 남긴다. **리뷰어 수는 늘지 않고**(I5) 라운드 판정(`gate.js`, P1 소유·동결)은
+무접촉이다 — 바뀌는 것은 *같은 NICE가 어떤 이름으로 봉인되는가* 하나다.
+
+- `plugins/mccp/scripts/lib/santa/model-diversity.js` — P2 소유 신규 순수 oracle.
+  `familyOf`(4값 — `anthropic`/`openai`/`google`/`unknown`) · `parseDegradeGate`(env 1종,
+  default `enforce`, 불량값 loud warn 후 발화 쪽 fail-open) ·
+  `parseDegradeAck`(strict `validateReason`에 위임, 부재와 거부를 `rejectedBecause`로 구분) ·
+  `diversityFrom`(FINAL 라운드 하나만 보는 순수 집계). 외부 require는
+  `receipt/lib/force-override-reason` 하나이고 그것은 `gate.js`가 이미 지고 있어 santa
+  모듈군의 외부 의존 목록은 **0건 증가**다.
+- **`familyOf`는 매치된 계열이 정확히 1이 아니면 `unknown`을 낸다** — 0건도, 2건 이상도.
+  security-reviewer가 제안한 precedence 표는 채택하지 않았다: precedence는
+  `claude-gpt-bridge` 같은 다중매치 문자열에 *어떤 계열이든 하나를* 주고, 그 하나가 상대
+  리뷰어와 다르면 곧바로 이종 판정을 산다. "모르겠다가 승인을 사지 못하게 한다"가 이
+  축의 원칙이므로 모호함은 unknown으로 접힌다. 미등재 모델의 처방은 게이트 완화가 아니라
+  카탈로그 1줄 추가다.
+- `santa/seal.js` — `deriveVerdict`가 제3값 `degraded`를 낸다(우선순위 `divergent` >
+  `degraded` > `converged` — 기존 두 절은 무변경이고 그 **아래에** 절을 더한다).
+  `renderReport`에 계열 1줄, `seal()` 반환에 `degraded`·`degradeReason`·`degradeAck` 3키
+  추가. `exitReason` 투영 술어를 `=== 'converged'`에서 `!== 'divergent'`로 일반화했다 —
+  verdict가 2값이던 동안 두 술어는 같았고 `degraded`가 처음으로 그 둘을 가른다(degraded
+  라운드는 **수렴했다**).
+- **`degraded`는 receipt 어휘에 들어가지 않는다.** `REVIEW_VERDICT_VALUES`는
+  `receipt/schema.js`의 `CODEX_VERDICT_VALUES`와 공유되므로 거기에 값을 더하면 santa와
+  무관한 codex 축·`pr-ship-gate`·dedupe·대시보드가 전부 새 값을 만난다. 대신 `seal()` 안
+  **한 곳**에서 `divergent`로 사영하고(둘 다 비승인이라 사영이 넓히지 않는다) degrade라는
+  사실은 present-only 필드가 진다. `degraded`라는 이름은 `seal` stdout ·
+  `.claude/reviews/` 리포트 · Step 5.5 정지 메시지에만 나타난다.
+- `receipt/write.js` + `receipt/schema.js` — present-only 5필드
+  (`santa_model_families` 비음 정수 · `santa_model_degraded`/`santa_degrade_ack` **`true`만** ·
+  `santa_degrade_reason` 2값 열거 · `santa_degrade_ack_reason` 비어있지 않은 문자열) +
+  **ack ↔ ack_reason 양방향 불변식**. `makeSkeleton` 미등록이라 이 축을 쓰지 않는 receipt의
+  canonical hash는 무변동이다(§3.12).
+- `santa/cli.js` — `record --model`의 PATH 재도출 대조. `openai`/`google` 계열을 선언했는데
+  `codex`/`gemini`가 PATH에 없으면 `SANTA_MODEL_UNAVAILABLE`로 exit 2이고 라운드는 열린 채
+  남는다(신규 exit code 0건). 외부 프로세스를 띄우지 않고 `PATH` 분해 + `statSync().isFile()`
+  로 확인하며 Windows는 `PATHEXT`를 함께 시도한다.
+- `commands/santa-loop.md` — Step 3 Reviewer B fallback 문단에 "그 경고가 이제 봉인
+  verdict를 바꾼다" 한 문단, Step 5.5의 `SEAL_VERDICT` 분기를 3갈래로(**`degraded`를 먼저
+  검사** — `!= converged`가 앞서면 degraded가 divergent 메시지로 흡수되어 처방이 사라진다),
+  Output 블록의 verdict/Result 줄, Notes 5항목.
+
+### 이 milestone이 주장하지 않는 것
+
+- **위조 방지가 아니다.** PATH 대조가 막는 것은 *설치되지 않은 CLI의 모델명을 참칭하는*
+  경로뿐이다. codex가 설치돼 있는데 Claude fallback을 쓰고 `gpt-5.4`라고 적는 것은 막지
+  못한다 — 셸에서 어느 모델이 응답했는지 확인할 방법이 없다. M1이 `--lane`에 대해 적은
+  것과 **같은 천장**이고 검증은 결과 분포에 맡긴다(PRD 지표 5).
+- **ack는 verdict를 재작성하지 않는다.** `MCCP_SANTA_DEGRADE_ACK`(strict 사유)는 push를
+  열 뿐이고 봉인은 `degraded` 그대로다. codex 미설치 머신에서는 모든 실행이 degraded라
+  ack가 상주 설정이 되는데, ack가 verdict를 바꾸면 degraded 실행 수가 영구히 0이 되어
+  "degrade 가시화" 지표가 측정 대상을 잃는다. 그대로 두면 상주 ack 아래에서도 비율이
+  계속 세어지고, 그 비율이 곧 "이 머신에 codex를 설치할 이유"의 실측이다.
+- **의도적 비활성과 미가용의 구분은 봉인되지 않는다.** 봉인되는 `santa_degrade_reason`은
+  projection에서 파생 가능한 두 값(`same_family`/`unknown_model`)뿐이다. 봉인 시점에 PATH를
+  다시 훑은 값은 리뷰어가 실제로 돈 시점과 어긋날 수 있고, receipt는 그것을 라운드의
+  사실처럼 보여준다. 그 구분은 Step 5.5의 **정지 메시지**가 운영자 안내로만 설명한다.
+- **블라인드 레인 `off`의 UI3 미충족은 M3 범위가 아니다.** 처방이 다르기 때문이다(모델
+  degrade는 "codex를 설치하라", 레인 degrade는 "`off`를 그만 쓰라"). 한 verdict에 묶으면
+  운영자가 받은 정지 메시지가 어느 처방을 가리키는지 흐려진다. PRD Open Question의 남은
+  후보는 신규 milestone 하나로 좁혔다.
+
+### Changed
+
+- `docs/ENVIRONMENT.md` §11 — `MCCP_SANTA_DEGRADE_GATE`(`enforce` default / `off`) ·
+  `MCCP_SANTA_DEGRADE_ACK` 등재. `off`는 **verdict 강등만** 끄고 관측 3필드는 그대로
+  stamp된다 — 부재("이 축이 없던 시절")와 관측된 0/false는 다른 상태이므로 kill switch가
+  관측까지 끄면 `off` 실행이 M3 이전 실행과 구분되지 않는다.
+- `docs/santa-loop/ownership.md` — 소유권 표 신규 행 + P2 M3 export 계약 + "P2 M3이 연 P0
+  파일과 근거" 표(열지 **않은** 경계 포함).
+- 회귀 test: `santa-lanes.test.js` M3 블록 23건 신규(총 70건) ·
+  `santa-review-gate.test.js` 8건 신규(총 25건) · `santa-loop-cap.test.js` 2건 신규(총 56건,
+  모듈 집합 · receipt-free · require allowlist 3목록 확장). **단언 삭제 0건.**
+  `santa-seal.test.js`의 fixture 모델명을 `m-a`/`m-b`(플레이스홀더 → `unknown` → degrade)에서
+  `opus`/`gpt-5.4`로 정직하게 바꿨다 — 그 test들이 애초에 말하려던 상태가 "두 **이종**
+  리뷰어"이고, 단언을 지우거나 게이트를 끄는 대신 fixture를 실재에 맞추는 쪽이다.
+
+## [1.29.2] — 2026-08-19
+
+> **§3.7**: `1.28.2 → 1.29.2` (patch — PRD 3 milestone 중 두 번째 ship). 4면
+> (plugin.json · html.js page-foot · markdown.js derived 줄 · 이 파일의 `currently`
+> 노트) + `docs/ENVIRONMENT.md`의 토글 라벨을 함께 맞췄다.
+>
+> **재계산 이력**: 당초 `1.28.3`으로 적었으나 `/mccp:prp-commit` 직전 재계산에서
+> origin/main이 이미 `1.29.0`(review-loop-bypass M2, `1fc8657`)까지 나간 것이
+> 확인됐다 — 그대로 두면 머지 시 plugin.json이 **뒤로 가고** `claude plugin update`의
+> 캐시 디렉토리가 설치본보다 낮아져 §3.7이 bump을 강제하는 이유 자체가 무효화된다.
+> forward-only로 `1.29.1`에 착지. M1의 `1.28.2`는 main과 충돌하지 않고 머지 후에도
+> version 내림차순이 성립하므로 그대로 뒀다.
+>
+> **재상향 (2026-08-20, PR #150 오픈 후 main 재동기)**: `1.29.1`은 결국 main이
+> 가져갔다 — PR #149(environment-doc-uniformity)가 같은 번호로 먼저 발행됐다
+> (`8d3e9cf`). §3.7 forward-only대로 **이미 발행된 번호는 불가침**이므로 미머지
+> 쪽인 이 항목을 `1.29.2`로 한 칸 밀었다. 두 항목은 서로 다른 축이라 합치지 않는다.
+> 이것이 §3.7이 기록한 **네 번째 병렬 브랜치 version 충돌**이며, 충돌이 브랜치를 딴
+> 시점이 아니라 **PR을 연 뒤에도 열려 있다**는 실측이다(PR #150은 이미 오픈 상태였다).
+
+### Added — santa 증거 다양성 M2: 상시 스코프 + 정합 rubric
+
+- `plugins/mccp/scripts/lib/santa/scope-always.js` — P2 소유 신규 순수 oracle.
+  `parseAlwaysScope`(env 1종, default `enforce`, 불량값 loud warn 후 발화 쪽 fail-open) ·
+  `sourcePrdFrom`(plan이 **스스로 선언한** Source PRD를 링크/평문 두 형태로 추출하고 plan
+  상대 표기를 repo 상대로 환원) · `mergeScope`(diff 순서 보존 + 상시 항목 append + 정규화
+  posix 경로 기준 중복 제거 + `MAX_ALWAYS_PATHS`(40) 초과 시 `truncated` 수 산출) ·
+  `CONSISTENCY_RUBRIC`(UI4·UI5 고정 문구 — `DO_NOT_TRUST_NARRATIVE`와 같은 취급). 외부
+  require는 builtin `path` 하나뿐이라 santa 모듈군의 외부 의존 목록은 **0건 증가**다.
+- `santa/cli.js` — `scope-always` subcommand 추가(`--paths-file` **필수**. 전 검증 통과 후
+  1회만 `out()`하므로 실패 시 stdout에 부분 JSON을 내지 않는다). 발견 단계(`pairs` ·
+  `unresolved`)는 CLI가 소유한다 — oracle은 `fs`를 모른다(DD2).
+- `commands/santa-loop.md` — Step 1이 `scope-always`를 호출해 `$SCOPE_PATHS_JSON`을
+  **교체**하고(생산자는 여전히 Step 1 하나 — M1 DD11) `added`·`pairs`·`unresolved`·
+  `truncated`를 stderr로 표면화한다. Step 2가 `$CONSISTENCY_RUBRIC_ROW`를 verbatim 덧붙이고,
+  Step 3이 rubric 전문을 파일로 써 `lanes --rubric-file`로 넘긴다 — M1이 만들어 두고
+  호출자가 쓰지 않던 자리이며 **블라인드 리뷰어가 정합 행을 받는 유일한 경로**다.
+  `TMPDIR_SANTA` 정의를 최초 사용처(Step 1)로 올리고 Step 3·record 블록의 주석을 맞췄다.
+- 회귀 test: `santa-lanes.test.js` M2 블록 23건 신규(총 47건) — env 방향 · Source PRD 추출
+  · **보안 경계** · 병합 순서/중복/절삭 · 고정 rubric 어구 · CLI 7키 계약 · #125 회귀 2건.
+  `santa-loop-cap.test.js`는 모듈 집합 · receipt-free · require allowlist 3목록을 넓혔다
+  (단언 삭제 0건).
+
+### Fixed — `/mccp:code-review` Local Mode 흡수 (HIGH 2 · MEDIUM 4 · LOW 2)
+
+- **정합 rubric 행이 조용히 미전달될 수 있었다**(HIGH). Step 3의 heredoc이 quoted라
+  파라미터 전개가 꺼져 있는데 지시문은 "`$CONSISTENCY_RUBRIC_ROW`를 verbatim 복사"였다 —
+  산문이 요구하는 동작을 그 자리의 메커니즘이 수행할 수 없다. 실측: 변수명이 리터럴로 남은
+  rubric도 `lanes`가 exit 0으로 통과시키고 `## Rubric` 섹션까지 정상이라, DD5가 "한 축"이라
+  못 박은 그 축의 **절반이 미전달인데 어떤 기계적 신호로도 구분되지 않았다**. 이제 셸이
+  `printf`로 행을 덧붙이고 `grep -qF 'working tree'`로 착지를 확인한 뒤에만 리뷰어를 띄운다.
+- **`$TMPDIR_SANTA`를 Step 3이 스스로 선언하지 않았다**(MEDIUM). `mkdir -p`가 덮는 것은
+  디렉토리 부재이지 빈 변수가 아니다 — 실측상 `mkdir -p ""`는 실패하지만 상태가 가려지고
+  paths 파일이 파일시스템 루트에 떨어진다(M1이 이미 흡수한 결함의 방향만 뒤집힌 재발).
+  idempotent 상수라 두 번 치르는 비용이 0이므로 Step 3에 재선언했다.
+- **후보 상한이 경로 상한과 같아 `pairs`가 스코프 밖 파일을 가리킬 수 있었다**(MEDIUM).
+  후보 1개가 경로 2개를 내므로 40 후보 → 최대 80 경로 → `mergeScope`가 40으로 절삭한다.
+  실측 30쌍 입력에서 `pairs=30 added=40 truncated=20`이 나왔고 10쌍이 스코프 밖이었다 —
+  rubric은 "target paths에 열거된 쌍"을 대조하라 지시하므로 그 쌍은 **검토되지 않은 채
+  개수만 보고된다**. `MAX_ALWAYS_CANDIDATES`를 `MAX_ALWAYS_PATHS`의 절반으로 내려 CLI
+  경로에서 절삭이 구조적으로 발생하지 않게 했다.
+- **`off` + 빈 diff가 파싱 실패로 오진됐다**(MEDIUM). `paths` 부재(생산자 고장)와 빈 배열
+  (Step 1이 이미 정상으로 규정한 "변경 없음")은 다른 사실인데 한 분기가 둘을 삼켜, 정지가
+  두 단계 앞으로 오고 일어나지 않은 파싱 실패를 보고했다. `absent`/`empty`/`ok` 3상태로
+  분리하고 `empty`는 exit 0으로 조용히 끝낸다.
+- **`off`와 `enforce`가 서로 다른 스코프를 냈다**(MEDIUM). `off`가 `diffPaths`를 날것으로
+  통과시켜, 이탈 형태를 접는 `enforce`와 갈렸다 — kill switch가 *무엇이 검토되는가*를
+  아무도 선언하지 않은 방향으로 바꾼다. 이제 두 모드가 같은 병합을 태우고 차이는 "상시
+  항목이 붙는가" 하나다. 정규화로 사라진 경로는 `mergeScope`가 `dropped`로 내고 CLI가
+  stderr로 표면화한다(JSON 7키 계약은 무변경 — 이것은 정상 수치가 아니라 입력 오류 신호다).
+- **`pairs[].plan`과 `paths`의 표기가 갈릴 수 있었다**(LOW). 후보 수집이 백슬래시만 바꿔
+  `./x.plan.md`를 살려 뒀다. `toRepoRelative`를 export해 발견 단계가 oracle과 같은 규칙으로
+  접는다(export 8 → 9).
+- PRD Open Questions의 리스트가 빈 줄 하나로 두 블록으로 쪼개져 있었다(LOW).
+
+### Changed
+
+- `.claude/prds/santa-evidence-diversity.prd.md` — Scope MVP (2)의 네 글롭
+  (`.claude/PRPs/**` · `.claude/prds/**` · `*plan*.md` · `*PRD*.md`)을 **decision 범위의
+  관계 폐포**로 정정했다. 결정을 내린 것은 논증이 아니라 실측이다: 이 저장소에서 그 글롭은
+  `.claude/PRPs/**` 267 파일 / 6997 KB · repo 전역 `*plan*.md` 191 파일이고, 번들 리뷰어가
+  받는 것은 경로가 아니라 **내용**이라 7 MB를 넣으면 Risk 2가 즉시 발화한다 — 결과는 "더
+  많이 보게 했더니 아무것도 못 보게 됐다"다. 폐포는 약 70 KB이고 #125 회귀가 요구하는 최소
+  집합과 일치한다. Open Question 2건(무관 PRD 유입 · P3 델타 경계)에 해소 표시를 달았다.
+- `docs/santa-loop/ownership.md` — P2 M2 export 계약 표 + 연 파일 근거(변경 프로토콜 4) +
+  **P3가 소비할 계약**(상시 대상은 델타 축소에서 면제 — DD6/UI8) 한 문단.
+
+### Known limits
+
+- **receipt는 이 축을 봉인하지 않는다**(DD7). 상시 스코프는 라운드 단위 사실인데
+  `ledger.beginRound`의 라운드 형태는 P0 동결 시그니처라 필드 추가가 P0 재개 사유이고,
+  리뷰어 envelope로 우회하면 값이 **호출자 선언**이 되는데 `--lane`과 달리 CLI가 Step 1의
+  판단을 재현할 수 없어 검증 불가능한 필수 플래그가 된다. 그래서 관측 표면은 Step 1의
+  stderr 출력 · 블라인드 프롬프트 본문 · 회귀 test 셋뿐이고, **상시 축이 조용히 0건을 낸
+  실행은 receipt만 봐서는 M1 시절 실행과 구분되지 않는다**. PRD Open Question으로 등재했다.
+- **회귀 fixture가 증명하는 것은 스코프이지 포착이 아니다.** 리뷰어가 "plan은 4개라 하는데
+  PRD는 7개"라는 불일치를 실제로 잡는지는 LLM 행위라 셸로 단언할 대상이 없다. test가 닫는
+  것은 그 앞 단계 — 관계의 한쪽만 스코프에 드는 구조적 불가능 상태다. test 이름과 주석에
+  그 구분을 명시했다.
+- **폐포가 좁아 놓치는 변종**(형제 milestone plan 간 불일치 등)이 있을 수 있다. 그것이
+  나오면 넓힘의 근거가 되는 실측이지 지금 넓힐 근거가 아니다 — 반대 방향의 실측이 7 MB다.
 ## [1.29.1] — 2026-08-19
 
 **환경변수 문서 최신화 + 값 규약 통일 (단일 plan ship → patch bump, 1.29.0 → 1.29.1)** — `docs/ENVIRONMENT.md`는 두 가지가 동시에 낡아 있었다. 문서가 코드를 따라가지 못했고(실 토글 117개 중 22개 미등재, 문서에만 있는 이름 10개, ship된 축 둘이 `🚧 예정`), 값의 어휘가 토글마다 달랐다(production 코드에 boolean 파싱 규약 **8종** 공존 — 같은 저장소에서 `MCCP_SUBSCRIPTION=true`는 무시되고 `MCCP_ORCHESTRATION_USD_BOMB=true`는 켜졌다). 문서만 고치면 문서가 거짓말을 하므로 두 축을 한 단위로 닫았다.
@@ -36,6 +233,46 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 > 발행된 번호는 불가침이라는 원칙대로 미머지인 이쪽을 `1.28.1`로 올렸다. 동기 4면(plugin.json ·
 > renderer/html.js page-foot · renderer/markdown.js derived 줄 · 본 CHANGELOG의 `currently` 노트와
 > 이 항목의 bump 서술)을 함께 갱신하고 `i18n-surface.test.js`로 재검증했다.
+
+## [1.28.2] — 2026-08-18
+
+> **§3.7 forward-only 상향 (13번째 재발, 이번엔 실제 상향)**: plan은 `1.28.0 → 1.28.1`을
+> 적었으나 `/mccp:pr` 직전 재계산에서 main이 이미 `1.28.1`을 발행한 것이 확인됐다. 발행된
+> 번호는 불가침이므로 한 칸 올려 `1.28.2`에 착지한다. 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄다.
+
+### Added — santa 증거 다양성 M1: 블라인드 레인
+
+- `plugins/mccp/scripts/lib/santa/lanes.js` — P2 소유 신규 순수 oracle. `parseBlindLane`
+  (env 1종, default `a`, 불량값 loud warn 후 발화 쪽 fail-open) · `assignLanes`(DD2 배정
+  표 3행 — `a`는 A blind, `b`는 B blind, `off`는 전원 bundled) · `buildBlindPrompt`
+  (**파일 내용을 실을 인자가 없다** — 번들 누출을 사후 검사가 아니라 인자 부재로 막는다) ·
+  `laneCoverageFrom`(집계, 어떤 입력에도 미throw) · `blindIdsFrom`.
+- `santa/cli.js` — `lanes` subcommand 추가(`--paths-file` **필수**, 빈 배열도 거부. 실패 시
+  stdout에 부분 JSON을 내지 않는다) + `record --lane blind|bundled` **필수**화. 선언값은
+  `parseBlindLane`→`assignLanes`로 재도출해 대조하고 불일치는 exit 2(`SANTA_LANE_MISMATCH`).
+- `santa/seal.js` — `project`에 lane 투영(legacy envelope는 `null`), 라운드 표에 레인 열,
+  라운드 ≥ 1이면 집계 정수 2종을 stamp. **값이 0이어도 생략하지 않는다** — 부재는 "레인 축
+  이전(모름)"이고 0은 "관측된 0"이라 서로 다른 상태다.
+- `receipt/write.js` · `receipt/schema.js` — `meta.santa_blind_records` ·
+  `meta.santa_blind_rounds` present-only 비음 정수 2종. `makeSkeleton` **미등록**이라
+  git-tracked ship corpus(§3.12)의 canonical hash가 무변동이다.
+- `commands/santa-loop.md` — Step 1이 스코프를 `$SCOPE_PATHS_JSON`으로 고정(M2 상시 스코프의
+  단일 접속점), Step 3이 `lanes`를 호출해 `$BLIND_ID` **하나로** 분기한다. 호출 실패·파싱
+  실패는 리뷰어를 띄우지 않는다 — 이 축의 고장은 M1 이전과 똑같아 보이는 정상 실행으로
+  위장되기 때문이다.
+- 회귀 test: `santa-lanes.test.js` 신규 23건 + `santa-loop-cap.test.js`(모듈 집합 ·
+  receipt-free · require allowlist · envelope golden 확장) + `santa-seal.test.js` 5건 +
+  `santa-review-gate.test.js` 4건.
+
+### Known limits
+
+- `--lane`은 **선언이지 관측이 아니다**(DD4). 커맨드 본문이 블라인드라 적고 번들을 건네도
+  셸이 그것을 볼 수 없다. M1은 위조 방지를 주장하지 않으며, 검증은 PRD가 정한 결과 분포
+  (두 레인이 동시에 놓친 항목 비율)가 맡는다.
+- `MCCP_SANTA_BLIND_LANE=off`로 블라인드 0건 라운드가 무기한 성립하는 것을 **어느 milestone도
+  막지 않는다**. M3의 Scope는 Reviewer B 부재 fallback이라 이 경우를 다루지 않는다 — PRD
+  Open Question으로 등재했고 소유자 결정은 M1 밖이다.
 
 ## [1.28.1] — 2026-08-18
 

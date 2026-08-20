@@ -48,12 +48,24 @@ function makeRepo() {
   return dir;
 }
 
-function reviewer(id, model, verdict, criticalIssues) {
+// santa-evidence-diversity M3 — fixture 모델명은 **실재 계열이어야 한다**.
+//
+// M3 이전에는 `'m-a'`/`'m-b'` 같은 플레이스홀더로 충분했다. 이제 `deriveVerdict`가
+// `model-diversity.familyOf`로 계열을 분류하고 **정확히 1개 계열에 매치되지 않으면
+// `unknown`**(DD3)이므로, 플레이스홀더 2인 라운드는 `unknown_model`로 강등돼
+// `converged`를 단언하는 기존 test 전부가 붉어진다. 단언을 지우거나 게이트를 끄는
+// 대신 fixture를 **정직하게** 만든다 — 실제 실행의 Reviewer A는 `opus`이고 Reviewer B는
+// `gpt-5.4`이므로, 이 fixture는 이제 "두 리뷰어가 있다"가 아니라 "두 **이종** 리뷰어가
+// 있다"를 뜻하고 그것이 애초에 그 test들이 말하려던 상태다. 강등 자체의 회귀는
+// `santa-lanes.test.js`의 M3 블록이 자기 fixture로 따로 검사한다.
+function reviewer(id, model, verdict, criticalIssues, lane) {
   return {
-    envelope: {
+    envelope: Object.assign({
       id: id, model: model, verdict: verdict,
       criticalIssues: criticalIssues || [],
-    },
+    // lane은 **선택**이다 — 미지정이 곧 legacy envelope(레인 축 이전의 기록)이고,
+    // 기존 fixture 전부가 그 상태로 남아 legacy 무해성을 상시 검사한다.
+    }, lane === undefined ? {} : { lane: lane }),
     // raw는 원장에만 있고 리포트에 실리면 안 된다(UI4). canary가 그 감시자다.
     raw: { verdict: verdict, checks: [CANARY], suggestions: [CANARY] },
   };
@@ -95,7 +107,7 @@ function seedLedger(repo, slug, opts) {
 function seedNice(repo, slug, cap) {
   return seedLedger(repo, slug, {
     cap: cap === undefined ? 3 : cap,
-    rounds: [round(0, 'NICE', [reviewer('A', 'm-a', 'PASS'), reviewer('B', 'm-b', 'PASS')])],
+    rounds: [round(0, 'NICE', [reviewer('A', 'opus', 'PASS'), reviewer('B', 'gpt-5.4', 'PASS')])],
   });
 }
 
@@ -151,7 +163,7 @@ test('[9] a round where the same id recorded twice yields roles=1, passed=false,
       cap: 3,
       // M1은 판정 lifecycle 검사(id 중복 거부)를 P1으로 이연했으므로 이 라운드는
       // **실재할 수 있다**. receipt가 있지도 않은 모델 다양성을 주장하면 안 된다.
-      rounds: [round(0, 'NICE', [reviewer('A', 'm-a', 'PASS'), reviewer('A', 'm-a', 'PASS')])],
+      rounds: [round(0, 'NICE', [reviewer('A', 'opus', 'PASS'), reviewer('A', 'opus', 'PASS')])],
     });
     const r = seal.seal({ cwd: repo, decisionId: 'a-twice' });
 
@@ -231,7 +243,7 @@ test('[12] a NAUGHTY final round seals divergent with l1=converged and repo-rela
     const repo = makeRepo();
     seedLedger(repo, 'naughty-x', {
       cap: 3,
-      rounds: [round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'PASS'), reviewer('B', 'm-b', 'FAIL')])],
+      rounds: [round(0, 'NAUGHTY', [reviewer('A', 'opus', 'PASS'), reviewer('B', 'gpt-5.4', 'FAIL')])],
     });
     const r = seal.seal({ cwd: repo, decisionId: 'naughty-x' });
     assert.equal(r.verdict, 'divergent');
@@ -311,8 +323,8 @@ test('[15] a cap-reached ledger seals divergent with exit_reason=cap_reached and
     seedLedger(repo, 'cap-x', {
       cap: 2,
       rounds: [
-        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
-        round(1, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
+        round(0, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
+        round(1, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
       ],
       terminated: {
         reason: counter.REASONS.CAP_REACHED, at: '2026-08-14T09:00:00.000Z', rounds: 2,
@@ -344,8 +356,8 @@ test('[16] cap comes from the ledger state, not the environment (deliberate mism
     seedLedger(repo, 'capsrc-x', {
       cap: 2,
       rounds: [
-        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
-        round(1, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
+        round(0, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
+        round(1, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
       ],
     });
 
@@ -393,7 +405,7 @@ test('[17] seal derives everything from ONE ledger snapshot (concurrent mutation
         // 동시 CLI 호출이 라운드를 하나 더 append한 상황.
         const mutated = JSON.parse(fs.readFileSync(sp, 'utf8'));
         mutated.rounds.push(round(1, 'NAUGHTY',
-          [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'FAIL')]));
+          [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'FAIL')]));
         fs.writeFileSync(sp, JSON.stringify(mutated, null, 2) + '\n');
       }
       return state;
@@ -432,10 +444,10 @@ test('[18] the last allowed round converging NICE seals converged, not divergent
     seedLedger(repo, 'lastnice-x', {
       cap: 2,
       rounds: [
-        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
+        round(0, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
         // 마지막 허용 라운드. 여기서 수렴했으므로 begin-round는 다시 불리지 않았고,
         // 따라서 거부도 없다 — `terminated`는 부재다.
-        round(1, 'NICE', [reviewer('A', 'm-a', 'PASS'), reviewer('B', 'm-b', 'PASS')]),
+        round(1, 'NICE', [reviewer('A', 'opus', 'PASS'), reviewer('B', 'gpt-5.4', 'PASS')]),
       ],
     });
 
@@ -474,8 +486,8 @@ test('[19] a refusal observed after the ledger already converged does not downgr
     seedLedger(repo, 'reentry-x', {
       cap: 2,
       rounds: [
-        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
-        round(1, 'NICE', [reviewer('A', 'm-a', 'PASS'), reviewer('B', 'm-b', 'PASS')]),
+        round(0, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
+        round(1, 'NICE', [reviewer('A', 'opus', 'PASS'), reviewer('B', 'gpt-5.4', 'PASS')]),
       ],
       // 수렴 뒤 재진입에서 begin-round가 거부되며 쓰인 마커. 현 라운드 수에 결속돼 있다.
       terminated: {
@@ -511,8 +523,8 @@ test('[20] a termination marker bound to a stale round count is not read as term
     seedLedger(repo, 'stale-marker-x', {
       cap: 3,
       rounds: [
-        round(0, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
-        round(1, 'NAUGHTY', [reviewer('A', 'm-a', 'FAIL'), reviewer('B', 'm-b', 'PASS')]),
+        round(0, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
+        round(1, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL'), reviewer('B', 'gpt-5.4', 'PASS')]),
       ],
       // 라운드가 1건이던 시점의 거부. 그 뒤 캡이 올라 라운드가 더 열렸다.
       terminated: {
@@ -529,3 +541,90 @@ test('[20] a termination marker bound to a stale round count is not read as term
     assert.equal(r.verdict, 'divergent');
     assert.equal(readReceipt(repo, 'stale-marker-x').meta.santa_exit_reason, undefined);
   });
+
+// ── [M1] 증거 레인 — 투영 · 리포트 열 · stamp · legacy 무해성 ────────────────
+
+test('[M1] lane 투영과 stamp — blind 1건인 라운드 2개가 정수 2종으로 봉인된다',
+  function () {
+    const repo = makeRepo();
+    seedLedger(repo, 'lane-x', {
+      cap: 3,
+      rounds: [
+        round(0, 'NAUGHTY', [reviewer('A', 'opus', 'FAIL', null, 'blind'),
+          reviewer('B', 'gpt-5.4', 'PASS', null, 'bundled')]),
+        round(1, 'NICE', [reviewer('A', 'opus', 'PASS', null, 'blind'),
+          reviewer('B', 'gpt-5.4', 'PASS', null, 'bundled')]),
+      ],
+    });
+    seal.seal({ cwd: repo, decisionId: 'lane-x' });
+    const receipt = readReceipt(repo, 'lane-x');
+    assert.equal(receipt.meta.santa_blind_records, 2);
+    assert.equal(receipt.meta.santa_blind_rounds, 2);
+    // [primary] 지표의 기계적 표현 — 매 라운드에 블라인드가 1명 이상 있었다.
+    assert.equal(receipt.meta.santa_blind_rounds, receipt.meta.santa_rounds);
+    assert.equal(validate(receipt).ok, true, JSON.stringify(validate(receipt).errors));
+  });
+
+test('[M1] off 실행의 stamp는 0으로 실린다 — 생략되지 않는다',
+  function () {
+    // 부재는 "레인 축이 없던 시절(모름)"이고 0은 "관측했고 블라인드가 0건이었다"로
+    // 서로 다른 상태다. 0을 생략하면 DD8의 "off 실행도 stamp에 남는다"가 깨지고
+    // M3이 degrade를 판정할 입력이 사라진다.
+    const repo = makeRepo();
+    seedLedger(repo, 'lane-off', {
+      cap: 3,
+      rounds: [round(0, 'NICE', [reviewer('A', 'opus', 'PASS', null, 'bundled'),
+        reviewer('B', 'gpt-5.4', 'PASS', null, 'bundled')])],
+    });
+    seal.seal({ cwd: repo, decisionId: 'lane-off' });
+    const receipt = readReceipt(repo, 'lane-off');
+    assert.ok(Object.prototype.hasOwnProperty.call(receipt.meta, 'santa_blind_records'),
+      'off run omitted santa_blind_records — absence means "unknown", not "observed zero"');
+    assert.equal(receipt.meta.santa_blind_records, 0);
+    assert.equal(receipt.meta.santa_blind_rounds, 0);
+    assert.equal(validate(receipt).ok, true, JSON.stringify(validate(receipt).errors));
+  });
+
+test('[M1] legacy envelope(레인 부재)는 무해하다 — 0을 내고 던지지 않는다',
+  function () {
+    const repo = makeRepo();
+    seedLedger(repo, 'lane-legacy', {
+      cap: 3,
+      rounds: [round(0, 'NICE', [reviewer('A', 'opus', 'PASS'),
+        reviewer('B', 'gpt-5.4', 'PASS')])],
+    });
+    assert.doesNotThrow(function () { seal.seal({ cwd: repo, decisionId: 'lane-legacy' }); });
+    const receipt = readReceipt(repo, 'lane-legacy');
+    assert.equal(receipt.meta.santa_blind_records, 0);
+    assert.equal(receipt.meta.santa_blind_rounds, 0);
+    assert.equal(validate(receipt).ok, true, JSON.stringify(validate(receipt).errors));
+  });
+
+test('[M1] 라운드 0건 원장은 두 키를 함께 생략한다 (관측 자체가 없었다)',
+  function () {
+    const repo = makeRepo();
+    seedLedger(repo, 'lane-empty', { cap: 3, rounds: [] });
+    seal.seal({ cwd: repo, decisionId: 'lane-empty' });
+    const receipt = readReceipt(repo, 'lane-empty');
+    assert.equal(Object.prototype.hasOwnProperty.call(receipt.meta, 'santa_blind_records'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(receipt.meta, 'santa_blind_rounds'), false);
+  });
+
+test('[M1] 리포트 라운드 표에 레인 열이 있고 legacy는 ? 로 찍힌다', function () {
+  const repo = makeRepo();
+  seedLedger(repo, 'lane-report', {
+    cap: 3,
+    rounds: [
+      round(0, 'NICE', [reviewer('A', 'opus', 'PASS', null, 'blind'),
+        reviewer('B', 'gpt-5.4', 'PASS', null, 'bundled')]),
+      round(1, 'NICE', [reviewer('A', 'opus', 'PASS')]),
+    ],
+  });
+  const r = seal.seal({ cwd: repo, decisionId: 'lane-report' });
+  const report = fs.readFileSync(path.join(repo, r.reportPath), 'utf8');
+  assert.match(report, /\| # \| started \| verdict \| reviewers \| lanes \|/);
+  assert.match(report, /A:blind · B:bundled/);
+  assert.match(report, /A:\?/, 'legacy lane must render as ? — distinct from an observed value');
+  // UI4 canary는 여전히 새지 않는다.
+  assert.equal(report.includes(CANARY), false);
+});

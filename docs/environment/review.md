@@ -290,6 +290,94 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
   MCCP_SANTA_LEDGER_SUPPRESSION=enforce|off # v1.27.1 santa-adjudication M2. default: enforce. **종결된 항목의 blocking 면제 하나**를 토글한다 — 라운드 `< N`에서 `absorbed`/`rejected`로 종결된 issue가 라운드 N에 **같은 id로** 재등장하면 `blocking`에서 빠져 `suppressed[]`로 옮겨진다(`skipped`·`reopened`는 종결이 아니라 면제하지 않는다). `off`의 방향은 **더 엄격**(M1 등가)이고, 불량값이 `enforce`로 떨어지는 것은 완화 쪽이지만 그 완화의 대상이 M1 동작 자체라 위 SEVERITY_GATE의 3항 근거가 필요 없다. **의미 주의**: `off`는 "사후에 suppression을 되돌린다"가 아니라 **"suppression 경로를 아예 타지 않는다"**이다 — `cmdVerdict`가 `resolved`를 넘기지 않으므로 판정은 M1과 같은 계산을 하고 반환의 `blocking`은 raw와 effective가 같은 배열이 된다. 이 축은 **대조군 도구**이기도 하다: 같은 원장에 대해 켠 판정과 끈 판정을 비교하면 M2의 효과가 한 라운드 안에서 관측된다(PRD가 미결로 남긴 "대조군 측정을 별도 축으로 세울지"가 요구하는 것이 정확히 이 스위치다). 축을 SANTA_ADJUDICATION_GATE와 합치지 않는 이유: 둘은 서로 다른 실패에 대응한다 — 전자는 "판정을 강요당하는 것이 지금 곤란하다"이고 후자는 "이 원장의 판정을 믿지 못하겠다"라, 하나로 묶으면 앞을 끄려는 운영자가 뒤까지 끄게 된다.
 ```
 
+### MCCP_SANTA_BLIND_LANE
+
+**종류** `enum` — **값** `a` · `b` · `off` — **기본값** `a`
+
+**한 줄** santa 증거 레인 배정.
+
+**소비처** `plugins/mccp/scripts/lib/santa/lanes.js:26`
+
+**상태** `active` — v1.28.2 santa-evidence-diversity M1에서 도입.
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_SANTA_BLIND_LANE": "off"
+  }
+}
+```
+
+**서사** `a`는 Reviewer A가 블라인드(B는 번들), `b`는 그 반대, `off`는 전원 번들(M1 이전 동작)이다. 블라인드 레인은 파일 번들과 사전 요약을 **받지 않고** 저장소 루트 + 대상 경로 포인터 + "주어진 서술을 사실로 취급하지 말 것" 지시만 받는다. 리뷰어 컨텍스트가 전부 오케스트레이터 한 곳에서 나오면 인스턴스를 몇을 띄우든 라운드를 몇을 돌든 그 번들 밖의 사실이 구조적으로 발견 불가능하기 때문이다(#125 실측). **`both`(전원 블라인드)는 없다** — 오케스트레이터가 스코프를 정하는 의미가 사라진다. 불량값은 loud stderr warn 후 `a`로 fail-open. **비대칭 주의 — `off`가 덜 엄격하다**: 그럼에도 default를 발화 쪽에 두는 이유는 `off`가 default면 오타 하나가 kill switch를 켜고 **그 실행이 M1 이전과 똑같아 보이기** 때문이다. **천장** — `--lane`은 선언이지 관측이 아니다: 대조가 막는 것은 커맨드 본문이 oracle을 우회하는 경로이고, 블라인드로 선언된 리뷰어의 프롬프트에 실제로 번들이 없었는지는 막지 못한다. 커버리지는 receipt `meta.santa_blind_records` · `meta.santa_blind_rounds`로 봉인된다.
+
+### MCCP_SANTA_ALWAYS_SCOPE
+
+**종류** `enum` — **값** `enforce` · `off` — **기본값** `enforce`
+
+**한 줄** santa 상시 스코프 + 정합 rubric.
+
+**소비처** `plugins/mccp/scripts/lib/santa/scope-always.js:27`
+
+**상태** `active` — v1.29.2 santa-evidence-diversity M2에서 도입.
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_SANTA_ALWAYS_SCOPE": "off"
+  }
+}
+```
+
+**서사** `enforce`면 Step 1이 "현재 decision의 plan + 그 plan이 `**Source PRD**:`로 스스로 선언한 PRD"를 diff 여부와 무관하게 스코프에 합치고, 고정 rubric 1행이 그 쌍을 **지금 워킹트리 기준으로** 대조하라고 지시한다. 두 문서의 *관계*인 불변식은 PRD가 diff에 없으면 리뷰어가 몇 명이든 구조적으로 검증 불가이기 때문이다(#125 실측). **스코프는 코퍼스가 아니라 폐포다**(M2 DD1) — 글롭을 문자 그대로 취하면 이 저장소에서 7 MB이고 그것은 "더 많이 보게 했더니 아무것도 못 보게 됐다"가 되므로 비재귀 + `archived/` 제외로 좁혔다(실측 약 70 KB). `MAX_ALWAYS_PATHS`(40)가 상한이고 절삭은 `truncated` 수로 표면화된다. **`off`는 스코프 추가와 rubric 행을 함께 끈다**(DD5) — PRD가 스코프에 없는데 대조하라고만 지시하면 근거를 댈 수 없는 FAIL을 유도하는 소음이 된다. 불량값은 loud warn 후 `enforce`. **관측의 한계**(DD7): 라운드 형태가 P0 동결 시그니처라 receipt는 이 축을 봉인하지 않는다 — 표면은 Step 1의 stderr · 블라인드 프롬프트 본문 · 회귀 test 셋뿐이다.
+
+### MCCP_SANTA_DEGRADE_GATE
+
+**종류** `enum` — **값** `enforce` · `off` — **기본값** `enforce`
+
+**한 줄** santa 모델 계열 degrade 강등.
+
+**소비처** `plugins/mccp/scripts/lib/santa/model-diversity.js:28`
+
+**상태** `active` — v1.30.0 santa-evidence-diversity M3에서 도입.
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_SANTA_DEGRADE_GATE": "off"
+  }
+}
+```
+
+**서사** `enforce`면 `seal.deriveVerdict`가 FINAL 라운드 리뷰어들의 `model` 문자열을 `model-diversity.js#familyOf`로 계열 분류해, distinct 계열이 2 미만이거나 `unknown`이 하나라도 섞이면 `converged`를 **`degraded`로 좁힌다**. `codex`도 `gemini`도 없는 머신에서 Reviewer B가 두 번째 Claude Opus로 떨어지는데 그 조합의 NICE가 이종 조합의 NICE와 어느 표면에서도 구분되지 않았기 때문이다. **강등은 봉인 층에서만 한다** — 라운드 판정(`gate.decideVerdict`)은 P0 동결 시그니처이고 봉인 verdict는 이미 push를 막는 자리다. 우선순위는 `divergent` > `degraded` > `converged`이고 degraded는 converged를 **좁히는 것**이지 divergent를 완화하는 것이 아니다. **`familyOf`는 다중매치도 unknown이다** — precedence로 하나를 주면 그 하나가 상대와 달라 곧바로 이종 판정을 사므로, 매치된 계열이 정확히 1이 아니면 unknown으로 접는다. 불량값은 loud warn 후 `enforce`. **`off`는 verdict 강등만 끄고 관측은 끄지 않는다** — `meta.santa_model_families` · `meta.santa_model_degraded`는 `off`에서도 stamp된다(키 부재는 "모름", 값은 "관측했다"라 서로 다른 상태이고, 관측이 원장의 기존 문자열에서 파생되므로 끌 비용 자체가 없다). 봉인되는 사유는 `same_family` · `unknown_model` 2값뿐이다.
+
+### MCCP_SANTA_DEGRADE_ACK
+
+**종류** `string` — **값** 자유 문자열(strict 사유 검증) — **기본값** 없음 (미설정이 기본)
+
+**한 줄** santa degrade audited override 사유.
+
+**소비처** `plugins/mccp/scripts/lib/santa/model-diversity.js:33`
+
+**상태** `active` — v1.30.0 santa-evidence-diversity M3 audited override. **default 없음** — 부재가 곧 "승인 없음"이고 그것이 안전한 쪽이다.
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_SANTA_DEGRADE_ACK": "codex 미설치 머신이라 Reviewer B가 동일 계열로 떨어진다. 교차 검증은 PR 단계 Codex 게이트가 맡는다."
+  }
+}
+```
+
+**서사** 봉인된 verdict가 `degraded`일 때 `/mccp:santa-loop` Step 5.5의 push 차단을 여는 유일한 수단이다. 사유는 strict `validateReason`(`receipt/lib/force-override-reason`)에 **위임**한다 — 30자 이상 · 3단어 이상 · 1-token 금칙 · filler 거부이고 `allowCodeVocabulary`는 넘기지 않는다(CLAUDE.md §3.13.1이 override 표면을 면제에서 제외한다). **verdict를 재작성하지 않는다** — 봉인은 `degraded` 그대로이고 receipt에는 `review_verdict='divergent'`(어휘 사영) + `meta.santa_model_degraded=true` + `meta.santa_degrade_ack=true` + `meta.santa_degrade_ack_reason`이 함께 남는다. 이것이 없으면 축이 장식이 된다: codex 미설치 머신에서는 모든 실행이 degraded라 ack가 상주하게 되는데, ack가 verdict를 바꾸면 그 순간부터 degraded 실행 수가 영구히 0이 되어 지표가 측정 대상을 잃는다. **ack와 사유는 receipt에서 양방향으로 결속된다** — `schema.js`가 둘 중 하나만 있는 receipt를 거부한다. 효력을 발휘하지 않은 ack는 stamp되지 않는다(플래그는 *설정 여부*가 아니라 *효력 발휘 여부*를 뜻한다).
+
 ### MCCP_INTENT_MISLABEL
 
 **종류** `enum` — **값** `enforce` · `warn` · `off` — **기본값** `enforce`

@@ -41,7 +41,7 @@
 도메인 8개. 첫 화면에서 목차만 보고 원하는 표로 내려간다.
 
 - [gates](environment/gates.md) — 게이트 · receipt · Codex (21개)
-- [review](environment/review.md) — 리뷰 · 승인 · 디자인 critique (22개)
+- [review](environment/review.md) — 리뷰 · 승인 · 디자인 critique (26개)
 - [orchestration](environment/orchestration.md) — 오케스트레이션 · 병렬 · 핸드오프 (21개)
 - [cost](environment/cost.md) — 비용 · 구독 · briefing (11개)
 - [hooks](environment/hooks.md) — hook · 세션 · MCP · 설치 (25개)
@@ -90,6 +90,10 @@
 |`MCCP_SANTA_TERMINATOR`|enum|off/on|—|santa 종료 판정기.|[→](environment/review.md#mccp_santa_terminator)|
 |`MCCP_SANTA_ADJUDICATION_GATE`|enum|off/warn/enforce|—|santa 심판 게이트 모드.|[→](environment/review.md#mccp_santa_adjudication_gate)|
 |`MCCP_SANTA_LEDGER_SUPPRESSION`|enum|off/on|—|santa 원장 억제.|[→](environment/review.md#mccp_santa_ledger_suppression)|
+|`MCCP_SANTA_BLIND_LANE`|enum|a/b/off|a|santa 증거 레인 배정.|[→](environment/review.md#mccp_santa_blind_lane)|
+|`MCCP_SANTA_ALWAYS_SCOPE`|enum|enforce/off|enforce|santa 상시 스코프 + 정합 rubric.|[→](environment/review.md#mccp_santa_always_scope)|
+|`MCCP_SANTA_DEGRADE_GATE`|enum|enforce/off|enforce|santa 모델 계열 degrade 강등.|[→](environment/review.md#mccp_santa_degrade_gate)|
+|`MCCP_SANTA_DEGRADE_ACK`|string|—|—|santa degrade audited override 사유.|[→](environment/review.md#mccp_santa_degrade_ack)|
 |`MCCP_INTENT_MISLABEL`|enum|enforce/warn/off|enforce|오심 대조 모드.|[→](environment/review.md#mccp_intent_mislabel)|
 |`MCCP_SKIP_INTENT_GATE`|string|—|—|intent 게이트 override.|[→](environment/review.md#mccp_skip_intent_gate)|
 |`MCCP_INTENT_ADJUDICATION_TIMEOUT_MS`|int|—|—|판정 대기 상한.|[→](environment/review.md#mccp_intent_adjudication_timeout_ms)|

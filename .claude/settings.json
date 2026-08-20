@@ -9,11 +9,11 @@
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50",
     "MCCP_DISABLED_HOOKS": "pre:bash:gateguard-fact-force,pre:edit-write:gateguard-fact-force",
     "MCCP_RECEIPT_DEBUG": "1",
-    "MCCP_GATE_ROUND_CAP": "1"
+    "MCCP_GATE_ROUND_CAP": "1",
+    "MCCP_REVIEW_SINGLE_PASS": "deadline_pressure"
   },
   "model": "opus",
   "outputStyle": "default",
   "effortLevel": "xhigh",
   "autoUpdatesChannel": "latest"
 }
-

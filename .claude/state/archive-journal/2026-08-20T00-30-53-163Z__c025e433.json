@@ -1,0 +1,35 @@
+{
+  "schema_version": "v1",
+  "id": "2026-08-20T00-30-53-163Z__c025e433",
+  "created_at": "2026-08-20T00:30:53.163Z",
+  "session_id": "unknown",
+  "scan_hash": "0415b92da6a1cb299f3ffcc426827a1c040ef9ddc45b18136d62f162508783d2",
+  "status_corrections": [],
+  "archives": [
+    {
+      "prd": ".claude/prds/santa-evidence-diversity.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/santa-evidence-diversity.prd.md",
+          "to": ".claude/prds/archived/santa-evidence-diversity.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/santa-evidence-diversity-m1.plan.md",
+          "to": ".claude/PRPs/plans/archived/santa-evidence-diversity-m1.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/santa-evidence-diversity-m2.plan.md",
+          "to": ".claude/PRPs/plans/archived/santa-evidence-diversity-m2.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/santa-evidence-diversity-m3.plan.md",
+          "to": ".claude/PRPs/plans/archived/santa-evidence-diversity-m3.plan.md"
+        }
+      ]
+    }
+  ]
+}

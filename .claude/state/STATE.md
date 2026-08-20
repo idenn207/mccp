@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: santa-adjudication-m3
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-20T02:45:37.429Z
+updated_at: 2026-08-20T05:02:14.895Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-20T02:45:37.428Z
+last_event_at: 2026-08-20T05:02:14.895Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -12,7 +12,7 @@ chain_aborted: true
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-08-18T03:44:26.285Z
 abort_owner: cost
-cost_abort_at: 2026-08-20T02:45:37.293Z
+cost_abort_at: 2026-08-20T05:02:14.783Z
 ---
 ## Goal
 santa-evidence-diversity PRD(M1~M3) PR #150 생성 완료 — 리뷰/머지 대기.
@@ -54,4 +54,4 @@ security-reviewer의 CRITICAL F1(familyOf 순서 미명세) 처방을 그대로 
 - (main 승계) worktree cleanup .worktrees/review-loop-bypass-m2 잔존
 
 ## Last Updated
-2026-08-20T02:45:37.429Z
+2026-08-20T05:02:14.895Z

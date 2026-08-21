@@ -23,6 +23,12 @@
 // counter.js:33 `parseCap`(열거/범위 검사 후 loud fail-open) ·
 // seal.js:70 `project()`(실어서는 안 되는 것은 **인자를 없앤다**).
 
+// santa-delta-review M1 — 범위 렌더와 상태 단언 검사는 `scope-delta`가 소유한다.
+// 이 모듈은 그 두 함수를 **호출**할 뿐 자기 안에 서술을 만들 자리를 갖지 않는다
+// (DD3 — 사후 검사가 아니라 자리 제거). `scope-delta`는 `lanes`를 require하지 않으므로
+// 순환이 없다.
+const scopeDelta = require('./scope-delta');
+
 const ENV_BLIND_LANE = 'MCCP_SANTA_BLIND_LANE';
 const BLIND_LANE_DEFAULT = 'a';
 const BLIND_LANE_VALUES = ['a', 'b', 'off'];
@@ -137,7 +143,7 @@ function blindIdsFrom(assignment) {
 
 // ── 블라인드 프롬프트 조립 ───────────────────────────────────────────────────
 //
-// buildBlindPrompt({ repoRoot, targetPaths, rubric }) → string
+// buildBlindPrompt({ repoRoot, targetPaths, rubric, ranges }) → string
 //
 // **파일 내용을 실을 인자가 없다**(DD3). 번들이 새는지 사후에 검사하는 대신 새로 넣을
 // 자리를 없앤다 — `seal.js#project`가 리뷰어 `raw` 전문을 리포트에서 막을 때 쓴 것과
@@ -145,6 +151,19 @@ function blindIdsFrom(assignment) {
 //
 // 이 함수의 전부는 "내용이 아니라 경로만 받는다"이고, 그것이 UI4가 허용한 것과 UI3이
 // 금지한 것의 경계다.
+//
+// ── santa-delta-review M1 — `ranges` (선택) ──────────────────────────────────
+//
+// `{path: [[start,end], ...]}`를 받아 대상 경로 줄을 `- path:12-40, 88-95`로 렌더한다.
+// **더해진 것은 범위 하나이고 서술 인자는 없다** — 리뷰어에게 가는 것은 *어디를 보라*
+// 이지 *이전 라운드가 어떻게 끝났다*가 아니다(UI2 / DD3). 부재는 정상이고 그때 출력은
+// M1 이전과 바이트 단위로 같다.
+//
+// **범위가 하나라도 있으면(= 델타 라운드) 조립 직후 `PRIOR_ROUND_PATTERNS`를 프롬프트
+// 전체에 건다.** rubric은 caller가 쓰므로 이 검사가 UI2를 caller-authored 텍스트까지
+// 덮는 유일한 통제다(DD4). 검사를 델타 라운드로 한정하는 것은 DD5 — 오탐의 폭발 반경을
+// 묶는다. 위반은 던진다: 상태 단언이 실린 프롬프트를 내보내느니 라운드를 세우는 편이
+// 낫고, 그 자리에서 `cmdLanes`가 exit 2로 거부한다.
 function buildBlindPrompt(opts) {
   const o = isRecord(opts) ? opts : {};
   const repoRoot = (typeof o.repoRoot === 'string' && o.repoRoot !== '') ? o.repoRoot : '.';
@@ -164,7 +183,10 @@ function buildBlindPrompt(opts) {
   L.push('');
   L.push('## Target paths');
   L.push('');
-  shown.forEach(function (p) { L.push('- ' + p); });
+  const ranges = (o.ranges !== null && typeof o.ranges === 'object' && !Array.isArray(o.ranges))
+    ? o.ranges : null;
+  scopeDelta.renderScopeLines({ paths: shown, ranges: ranges || {} })
+    .forEach(function (line) { L.push(line); });
   if (truncated > 0) {
     // 절삭을 본문에 명시한다 — 이것이 없으면 리뷰어가 목록을 스코프 전체로 읽는다.
     L.push('');
@@ -179,7 +201,20 @@ function buildBlindPrompt(opts) {
     L.push(o.rubric.trim());
   }
   L.push('');
-  return L.join('\n');
+  const prompt = L.join('\n');
+
+  // DD4 + DD5 — 델타 라운드에서만, 조립된 **전체**(rubric 포함)에 건다.
+  // `shown`에 실제로 범위가 실린 경로가 하나라도 있어야 델타 라운드다: `ranges`가
+  // 넘어왔더라도 절삭 뒤 남은 경로에 범위가 없으면 이 프롬프트는 M1 이전과 같은
+  // 모양이고, 그런 라운드에 오탐 위험을 지울 이유가 없다.
+  const delta = ranges !== null && shown.some(function (p) {
+    return Object.prototype.hasOwnProperty.call(ranges, p) &&
+      Array.isArray(ranges[p]) && ranges[p].length > 0;
+  });
+  if (delta) {
+    scopeDelta.assertNoStatusAssertion(prompt, scopeDelta.PRIOR_ROUND_PATTERNS);
+  }
+  return prompt;
 }
 
 // ── 커버리지 집계 ────────────────────────────────────────────────────────────

@@ -40,6 +40,7 @@ const path = require('path');
 
 const ledger = require('./ledger');
 const lanes = require('./lanes');
+const scopeDelta = require('./scope-delta');
 const modelDiversity = require('./model-diversity');
 const { assertContained } = require('../path-containment');
 const { SLUG_RE } = require('../../receipt/decision');
@@ -69,6 +70,21 @@ class SantaSealError extends Error {
 // `checks`·`suggestions` 전문이 들어 있다. `.claude/reviews/`는 git-tracked이므로
 // 그것이 한 번이라도 새면 리뷰어 전문이 영구 커밋된다. 그래서 렌더러에 state를
 // 통째로 넘기지 않고 여기서 먼저 투영한다 — renderReport는 `raw`를 실을 인자가 없다.
+// santa-delta-review M1 — 라운드 레코드의 `scope` 투영 (Task 4.3).
+//
+// 형태 판정은 **베끼지 않고** `scope-delta.isValidScopeRecord`를 부른다. 같은 규칙의
+// 사본을 여기 두면 그 사본과 집계가 갈릴 수 있고, 그 갈림은 "리포트에는 없는데 집계에는
+// 있다"로 나타나 어떤 단위 test도 잡지 않는다 — 이 fold가 애초에 막으려는 실패 모드다.
+function projectScope(scope) {
+  if (!scopeDelta.isValidScopeRecord(scope)) return null;
+  return {
+    applied: scope.applied,
+    reason: scope.reason === undefined ? null : scope.reason,
+    before: scope.before,
+    after: scope.after,
+  };
+}
+
 function project(state) {
   const rounds = (state && Array.isArray(state.rounds)) ? state.rounds : [];
   return {
@@ -77,6 +93,11 @@ function project(state) {
         index: Number.isInteger(r.index) ? r.index : i,
         started_at: r.started_at || null,
         verdict: r.verdict === undefined ? null : r.verdict,
+        // santa-delta-review M1 — 델타 관측. 델타 필드가 없던 시절의 라운드는 `null`로
+        // 투영되고 `deltaCoverageFrom`이 0을 낸다. **형태가 어긋나면 `null`로 접는다** —
+        // 바로 아래 `lane` fold와 같은 이유다: 모르는 값을 리포트가 보여주고 집계는 세지
+        // 않으면 두 표면이 갈린다.
+        scope: projectScope(r.scope),
         reviewers: ledger.reviewersFrom(state, i).map(function (e) {
           return {
             id: e.id,
@@ -494,6 +515,21 @@ function seal(opts) {
   if (laneCoverage.rounds >= 1) {
     writeArgs['santa-blind-records'] = laneCoverage.blindRecords;
     writeArgs['santa-blind-rounds'] = laneCoverage.blindRounds;
+  }
+  // santa-delta-review M1 — 델타 계측 2종 (DD10 · DD12).
+  //
+  // **kill switch와 무관하게 stamp한다.** `MCCP_SANTA_DELTA_SCOPE=off` 실행도
+  // `santa_delta_rounds=0`을 남긴다 — 위 레인 커버리지와 같은 present-only 규약이고,
+  // 부재는 "이 필드가 없던 시절(M1 이전)"이라 관측된 0과 **다른 상태**다. 이것이 없으면
+  // `off` 실행이 M1 이전 실행과 구별되지 않고, 그것이 정확히 DD10이 닫으려는 결함이다
+  // (default가 `off`인 축에서 "아무도 켜지 않아 영구 비활성"이 조용할 수 없게 만드는
+  // 유일한 장치가 이 두 필드다).
+  //
+  // 라운드가 0건인 원장에서만 함께 생략한다 — 그때는 관측 자체가 없었다.
+  const deltaCoverage = scopeDelta.deltaCoverageFrom(projection);
+  if (deltaCoverage.rounds >= 1) {
+    writeArgs['santa-delta-rounds'] = deltaCoverage.deltaRounds;
+    writeArgs['santa-delta-paths-dropped'] = deltaCoverage.pathsDropped;
   }
   // santa-evidence-diversity M3 — degrade 관측 3종 + ack 2종.
   //

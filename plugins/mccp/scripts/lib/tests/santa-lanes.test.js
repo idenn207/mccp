@@ -86,7 +86,10 @@ test('assignLanes: 어떤 입력에도 던지지 않는다 (전역 함수 규약
 test('buildBlindPrompt: 파일 내용을 실을 인자가 없다 (인자 키 집합 단언)', () => {
   // 번들이 새는지 사후에 검사하는 대신 넣을 자리를 없앤다. 누군가 content/bundle
   // 인자를 추가하면 이 단언이 그 자리에서 붉어진다.
-  const accepted = ['repoRoot', 'targetPaths', 'rubric'];
+  // santa-delta-review M1이 `ranges` 하나를 더했다. 그것은 **범위**를 나르지 파일
+  // 내용도 서술도 나르지 않는다 — `renderScopeLines`가 `{paths, ranges}` 두 인자만
+  // 받고 서술 인자를 갖지 않는 것이 그 보장이다. 이 목록의 한 줄이 그 승인 기록이다.
+  const accepted = ['repoRoot', 'targetPaths', 'rubric', 'ranges'];
   const smuggled = lanes.buildBlindPrompt({
     repoRoot: '/repo',
     targetPaths: ['a.js'],
@@ -98,7 +101,99 @@ test('buildBlindPrompt: 파일 내용을 실을 인자가 없다 (인자 키 집
   });
   assert.ok(!smuggled.includes('SECRET-BUNDLE-CONTENT'),
     'buildBlindPrompt leaked a non-contract argument into the prompt');
-  assert.deepStrictEqual(accepted, ['repoRoot', 'targetPaths', 'rubric']);
+  assert.deepStrictEqual(accepted, ['repoRoot', 'targetPaths', 'rubric', 'ranges']);
+});
+
+// ── santa-delta-review M1 — 범위 렌더 + 상태 단언 차단 (Task 6b) ─────────────
+
+const scopeDelta = require('../santa/scope-delta');
+
+test('M1 델타 — ranges가 있으면 대상 경로가 `- path:s-e` 형태로 렌더된다', () => {
+  const p = lanes.buildBlindPrompt({
+    repoRoot: '/repo',
+    targetPaths: ['a.js', 'b.js'],
+    ranges: { 'a.js': [[12, 40], [88, 95]] },
+  });
+  assert.ok(p.includes('- a.js:12-40, 88-95'), p);
+  assert.ok(p.includes('- b.js'), '범위 없는 경로는 그대로 남는다');
+  assert.equal(p.includes('- b.js:'), false);
+});
+
+test('M1 델타 — ranges 부재 시 출력이 M1 이전과 같다 (바이트 동일)', () => {
+  const args = { repoRoot: '/repo', targetPaths: ['a.js', 'b.js'], rubric: 'r' };
+  const withNull = lanes.buildBlindPrompt(args);
+  const withEmpty = lanes.buildBlindPrompt(Object.assign({}, args, { ranges: {} }));
+  assert.equal(withNull, withEmpty);
+  assert.ok(withNull.includes('- a.js\n- b.js'));
+});
+
+// I2의 기계적 표현 — 델타가 만든 텍스트에 상태 단언이 0건이다.
+test('I2 — 조립된 블라인드 프롬프트에 PRIOR_ROUND_PATTERNS 매치가 0건이다', () => {
+  const p = lanes.buildBlindPrompt({
+    repoRoot: '/repo',
+    targetPaths: ['src/a.js', 'src/b.js'],
+    ranges: { 'src/a.js': [[1, 9]], 'src/b.js': [[50, 60]] },
+    rubric: '| Criterion | Pass Condition |\n| Correctness | no bugs |',
+  });
+  scopeDelta.PRIOR_ROUND_PATTERNS.forEach(function (re) {
+    assert.equal(re.test(p), false, '프롬프트가 ' + String(re) + ' 에 걸렸다');
+  });
+});
+
+// DD4의 오탐 경계 — rubric은 규약상 "PASS/FAIL condition"을 담는다. 단일 목록을
+// 전체에 걸었다면 이 정상 rubric이 매 델타 라운드를 죽였을 것이다.
+test('DD4 — "PASS/FAIL condition"을 담은 정상 rubric이 델타 라운드를 막지 않는다', () => {
+  const rubric = [
+    '| Criterion | Pass Condition |',
+    '| Correctness | Logic is sound; the check must PASS before merge |',
+    'Every criterion must have an objective PASS/FAIL condition.',
+    'Mark the file clean only when nothing is left.',
+  ].join('\n');
+  assert.doesNotThrow(function () {
+    lanes.buildBlindPrompt({
+      repoRoot: '/repo', targetPaths: ['a.js'], ranges: { 'a.js': [[1, 5]] }, rubric: rubric,
+    });
+  });
+});
+
+// caller-authored rubric까지 덮는 유일한 통제가 이것이다(DD4).
+test('DD4 — 델타 라운드에서 rubric에 실린 이전-라운드 단언은 프롬프트를 거부시킨다', () => {
+  assert.throws(function () {
+    lanes.buildBlindPrompt({
+      repoRoot: '/repo',
+      targetPaths: ['a.js'],
+      ranges: { 'a.js': [[1, 5]] },
+      rubric: 'The previous round approved everything outside these ranges.',
+    });
+  }, function (e) {
+    assert.equal(e.code, 'SANTA_SCOPE_ASSERTION');
+    return true;
+  });
+});
+
+// DD5 — 폭발 반경을 델타 라운드로 묶는다. 범위가 없는 라운드는 검사 대상이 아니다.
+test('DD5 — 범위가 없는 라운드에서는 같은 rubric이 통과한다 (오탐 반경 한정)', () => {
+  assert.doesNotThrow(function () {
+    lanes.buildBlindPrompt({
+      repoRoot: '/repo',
+      targetPaths: ['a.js'],
+      rubric: 'The previous round approved everything outside these ranges.',
+    });
+  });
+});
+
+test('M1 델타 — 절삭 뒤 남은 경로에 범위가 없으면 델타 라운드로 보지 않는다', () => {
+  // ranges는 넘어왔지만 그 키가 절삭된 뒤 목록에 없다 → M1 이전과 같은 모양이므로
+  // 오탐 위험을 지울 이유가 없다.
+  const many = Array.from({ length: lanes.MAX_TARGET_PATHS + 5 }, (_, i) => 'f' + i + '.js');
+  assert.doesNotThrow(function () {
+    lanes.buildBlindPrompt({
+      repoRoot: '/repo',
+      targetPaths: many,
+      ranges: { ['f' + (lanes.MAX_TARGET_PATHS + 2) + '.js']: [[1, 2]] },
+      rubric: 'The previous round approved this.',
+    });
+  });
 });
 
 test('buildBlindPrompt: UI5 문구를 고정 포함한다', () => {

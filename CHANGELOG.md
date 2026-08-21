@@ -2,7 +2,55 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.30.1] — 2026-08-20
+
+> **§3.7**: `1.30.0 → 1.30.1` (**patch** — M1은 santa-delta-review PRD 2 milestone
+> 중 첫째라 PRD 전체 완료 축이 아니다). 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞추고
+> `i18n-surface.test.js`가 재검증한다. 진입 시점 재계산에서 origin/main과
+> 이 브랜치가 둘 다 `1.30.0`(PR #150 머지 직후)이므로 `1.30.1`이 양쪽보다
+> 앞선다. **`/mccp:pr` 진입 직전에 한 번 더 재계산한다**(§3.7 실측 4회 재발).
+
+---
+
+### Added — santa 델타 리뷰 M1: 델타 스코프 계산 + 상태 단언 금지 가드
+
+- **`plugins/mccp/scripts/lib/santa/scope-delta.js`** (신규 순수 oracle) — `parseDeltaScope`
+  (`MCCP_SANTA_DELTA_SCOPE`, enum `enforce`/`off`, **default `off`**) · `narrowScope` ·
+  `expandRanges`(±20줄 문맥 + 병합) · `renderScopeLines` · `assertNoStatusAssertion` ·
+  닫힌 사유 enum `NO_NARROW` 4종 · 금지 패턴 2목록 · `deltaCoverageFrom` ·
+  공유 술어 `isValidScopeRecord`. fs·git·시각을 모르고 외부 의존 0건.
+- **`cli.js` 하위명령 `scope-delta`** — anchor를 호출자에게 받지 않고
+  `.claude/state/santa-loop/tmp/<decision>/round-<r>-fix-rev.txt`를 자체 열거한다.
+  **`--round`가 없다** — anchor 집합이 이미 라운드의 답이므로 UI3(라운드 1
+  미적용)이 별도 검사가 아니라 `no-anchor` passthrough로 성립한다.
+- **`lanes --ranges-file`** — 대상 경로 줄이 `- path:12-40, 88-95`로 렌더된다.
+  데이터는 JSON 객체라 `assertSafeGraph` + 크기 상한 + 키 `toRepoRelative` 정규화를
+  거친다(implement-gate security CRITICAL-1 · HIGH-2 · HIGH-3 흡수).
+- **`begin-round --scope-*` 스칼라 4종** — 계측을 JSON 파일로 받지 **않는다**.
+  원장에 durable하게 앜는 값이라 prototype pollution 경로를 설계로 제거한다.
+- **receipt 계측 2종** — `meta.santa_delta_rounds` · `meta.santa_delta_paths_dropped`
+  (present-only 비음 정수). **kill switch와 무관하게** stamp하므로 `off` 실행도
+  `0`을 남기고, 필드 부재(M1 이전)와 관측된 0이 구별된다.
+
+### Changed
+
+- `santa-loop.md` Step 1이 `scope-delta`를 **`scope-always` 앞에** 호출한다 — UI4의
+  상시 스코프 면제가 조건 분기가 아니라 **순서**로 성립한다.
+- `scope-always`는 이제 좁혀진 스코프(`scope-narrowed.json`)를 받는다.
+
+### Known limits (주장하지 않는 것)
+
+- **탐지율 보존을 주장하지 않는다.** M1은 *스코프가 얼마나 줄었는가*를 재고,
+  *줄여도 결함을 놓치지 않는가*는 재지 않는다 — 후자는 M2 소유다.
+- 계측 2종은 **위조 저항을 주장하지 않는다**(DD11) — 값은 호출자 선언이고 CLI가
+  git으로 재도출하지 않는다. 근거는 이 필드를 읽는 게이트가 없다는 것이다.
+- 패턴 denylist는 **완결성을 주장하지 않는다**. 1차 통제는 `renderScopeLines`에
+  서술 인자가 없다는 구조 분리다.
+
+---
 
 ## [1.30.0] — 2026-08-19
 

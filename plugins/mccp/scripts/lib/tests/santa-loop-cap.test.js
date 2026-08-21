@@ -1075,12 +1075,18 @@ test('UI4/UI11 — receipt 배선은 seal.js에만 있다 (M1 4개 모듈은 여
   // 모른다(`lanes.js`·`terminator.js`와 동형). ack 2종도 마찬가지로 여기서 **판정만**
   // 하고 stamp는 `seal.js` 소관이다. 목록을 넓히는 대신 지우면 M1이 이 test로 막으려던
   // 결함이 그대로 돌아온다.
+  // santa-delta-review M1이 `scope-delta.js`를 더했다(소유권 표의 P1 신규 파일). 같은
+  // 규약으로 승인한다 — 목록에 한 줄, receipt-free 목록에도 한 줄. 계측 정수 2종은
+  // receipt `meta.santa_delta_{rounds,paths_dropped}`에 실리지만 그 봉인은 `seal.js`가
+  // 하고 `scope-delta.js`는 순수 oracle이라 receipt를 모른다(`lanes.js`·`terminator.js`·
+  // `model-diversity.js`와 동형). 목록을 넓히는 대신 지우면 M1이 이 test로 막으려던
+  // 결함이 그대로 돌아온다.
   assert.deepEqual(files.sort(),
     ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'lanes.js', 'ledger.js',
-      'model-diversity.js', 'scope-always.js', 'seal.js', 'terminator.js']);
+      'model-diversity.js', 'scope-always.js', 'scope-delta.js', 'seal.js', 'terminator.js']);
 
   const RECEIPT_FREE = ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'lanes.js',
-    'ledger.js', 'model-diversity.js', 'scope-always.js', 'terminator.js'];
+    'ledger.js', 'model-diversity.js', 'scope-always.js', 'scope-delta.js', 'terminator.js'];
   for (const f of RECEIPT_FREE) {
     const src = fs.readFileSync(path.join(santaDir, f), 'utf8');
     // 주석의 서술("M2 소유")은 허용하고, 실제 배선만 금지한다.
@@ -1148,6 +1154,16 @@ test('Acceptance — 외부 의존이 문서화된 7개뿐이고 npm 의존 0', 
   // 갖게 되고, 그 갈림은 어떤 test도 잡지 않는다 — 그래서 의존을 지는 쪽이 옳다.
   // 이 줄이 그 승인 기록이다. (파서는 fs/path 외 의존이 없는 순수 모듈이라
   // 프로세스 실행 의존을 끌어들이지 않는다.)
+  //
+  // santa-delta-review M1이 내부 하나(`./scope-delta` — 소유권 표의 P1 신규 파일)를
+  // 더했다. **외부 의존은 0건 추가**다: `scope-delta.js`는 아무것도 require하지 않는
+  // 순수 oracle이고(형제 `lanes.js`·`terminator.js`와 같은 형태 — `scope-always.js`가
+  // builtin `path`를 지는 것보다도 가볍다), anchor 열거·`git show`·파일 읽기는 전부
+  // `cli.js`가 이미 지고 있는 `fs`/`child_process`가 처리한다(DD2와 같은 분리).
+  // 소비처는 셋이다: `cli.js`(하위명령) · `lanes.js`(범위 렌더 + 상태 단언 검사) ·
+  // `seal.js`(집계). `lanes.js`가 `scope-delta`를 지는 것이 이 milestone에서 유일하게
+  // 새로 생긴 **oracle 간** 내부 의존인데, 렌더 규칙을 `lanes.js`에 베껴 적으면 금지
+  // 패턴 목록의 사본이 둘이 되고 그 갈림은 어떤 test도 잡지 않는다.
   const allowed = new Set([
     './counter', './ledger', './gate', './seal',          // 내부
     './adjudication',                                     // 내부 (santa-adjudication M2)
@@ -1155,6 +1171,7 @@ test('Acceptance — 외부 의존이 문서화된 7개뿐이고 npm 의존 0', 
     './lanes',                                            // 내부 (santa-evidence-diversity M1)
     './scope-always',                                     // 내부 (santa-evidence-diversity M2)
     './model-diversity',                                  // 내부 (santa-evidence-diversity M3)
+    './scope-delta',                                      // 내부 (santa-delta-review M1)
     '../../receipt/evidence-lock', '../../receipt/hash',
     '../../receipt/decision', '../path-containment',
     '../../receipt/write',                                // 외부 5 (M2)

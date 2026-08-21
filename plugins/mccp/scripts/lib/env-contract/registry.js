@@ -123,6 +123,7 @@ const RAW = [
   ['MCCP_INTENT_MISLABEL', 'enum', ['enforce', 'warn', 'off'], 'enforce', null, 'active', 'review', 'plugins/mccp/scripts/lib/intent-context.js:878', '오심 대조 모드.'],
   ['MCCP_SKIP_INTENT_GATE', 'string', null, null, null, 'active', 'review', 'plugins/mccp/scripts/lib/intent-context.js:868', 'intent 게이트 override.'],
   ['MCCP_INTENT_ADJUDICATION_TIMEOUT_MS', 'int', null, null, null, 'undocumented-default', 'review', 'plugins/mccp/scripts/lib/plan-codex-runner.js:471', '판정 대기 상한.'],
+  ['MCCP_INTENT_ARBITER', 'enum', ['subagent', 'author'], 'subagent', null, 'active', 'review', 'plugins/mccp/scripts/lib/intent-arbiter.js:116', '판정 주체(심판 분리).'],
   ['MCCP_DESIGN_CRITIQUE_MAX_RETRY', 'int', null, '2', null, 'active', 'review', 'plugins/mccp/scripts/lib/design-critique-decide.js:26', 'critique 재시도 상한.'],
   ['MCCP_DESIGN_GROUNDING', 'enum', ['enforce', 'warn', 'off'], 'enforce', null, 'active', 'review', 'plugins/mccp/scripts/lib/design-grounding.js:31', 'grounding lint 모드.'],
   ['MCCP_DESIGN_INTENT_REASON', 'string', null, null, null, 'active', 'review', 'plugins/mccp/commands/plan-prd.md:187', 'critique 강제 override.'],

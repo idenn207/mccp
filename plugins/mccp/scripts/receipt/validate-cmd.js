@@ -101,7 +101,20 @@ function intentVerdictRecovery(meta) {
         'which resolves all of them.';
       break;
   }
-  return head + tail;
+  // M2 — a run that fell back to the author adjudicated with the very context the
+  // separation exists to withhold, and every verdict above reads differently in
+  // that light: `incomplete` after a fallback usually means the author's hand
+  // written entries are short, not that the reviewer misbehaved. This is an extra
+  // SENTENCE, not an extra verdict — inventing `degraded_*` variants of five
+  // verdicts would double the enum to say one thing that is true of all of them.
+  const degradedNote = (meta && meta.intent_arbiter === 'author'
+    && typeof meta.intent_arbiter_degraded_reason === 'string'
+    && meta.intent_arbiter_degraded_reason.length > 0)
+    ? ' NOTE: this run degraded to author adjudication (' +
+      meta.intent_arbiter_degraded_reason + '), so the judgement above was made ' +
+      'with the author\'s own context in scope.'
+    : '';
+  return head + tail + degradedNote;
 }
 
 function validateCommand(command, opts) {

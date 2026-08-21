@@ -46,6 +46,7 @@ const { planAwareMarkdownHash, gitRepoRoot } = require('../receipt/hash');
 // 격리 위임 대상. `store.js` 는 APPROVED_WRITERS 원소이므로 receipt 를 옮기는
 // 동작이 승인된 계층 안에서 일어난다(gate-guard-integrity M2 축 C).
 const receiptStore = require('../receipt/store');
+const findingsRegistry = require('../state/findings-registry');
 
 // Exit codes. 12 mirrors codex-invoke's BLOCKING_EXIT so callers branch on one
 // vocabulary; 11 is distinct so "another run owns this decision" never reads as
@@ -428,6 +429,12 @@ function run(opts, deps) {
       }
     }
 
+    // multi-session-work-loop M7 Task 4 (emit point 2/3) — Codex 가 낸 finding 은
+    // **스킵 판정보다 먼저** 기록한다. `free_form_plan` 은 의도 게이트가 적용되지
+    // 않는다는 뜻이지 리뷰어가 아무것도 못 봤다는 뜻이 아니므로, 스킵 뒤에 두면
+    // 실재하는 finding 이 분모에서 사라진다.
+    emitCodexFindings(cwd, decisionId, payload);
+
     // Does the gate even apply? free-form plan / codex disabled / zero findings
     // are legitimate skips, each mechanically corroborated (DD1).
     const skipProof = ic.resolveSkipProof({ planText: planText, reviewPayload: payload, meta: meta });
@@ -572,6 +579,11 @@ function run(opts, deps) {
           meta: meta,
           comparison: comparison,
         });
+
+        // M7 Task 4 — 판정 → 종결. **M1 바인딩이 통과한 뒤에만** 기록한다: 거부된
+        // adjudication 파일은 *다른 리뷰에 대한 판정*이므로, 그것으로 이 리뷰의
+        // finding 을 종결하면 레지스트리가 자기가 설명하지 않는 판정을 담게 된다.
+        emitAdjudicationOutcomes(cwd, decisionId, payload, parsed.value);
       }
     }
 
@@ -777,6 +789,102 @@ function run(opts, deps) {
         + ((err && err.message) || err) + '\n');
     }
     releaseLock(p.lock, nonce);
+  }
+}
+
+// ── multi-session-work-loop M7 Task 4 — finding 레지스트리 emit (2/3) ────────
+//
+// fail-open이 계약이다(DD8): 어떤 실패도 이 게이트의 exit code를 바꾸지 않는다.
+// 대신 조용하지 않다 — 유실은 `seq` 구멍이 드러내고 사유는 stderr + `.degraded`
+// 마커에 남는다. 계측이 게이트를 막으면 그것이 바로 이 milestone이 없애려는
+// 실패 모드다.
+
+// finding 하나 → 레지스트리 이벤트 하나. Codex finding의 필드명은 companion 소유라
+// 확장할 수 없으므로(UI5), 있는 것만 읽는다.
+function codexFindingEvent(f) {
+  const claim = (f && typeof f.title === 'string' && f.title) ||
+    (f && typeof f.claim === 'string' && f.claim) || '';
+  if (!claim) return null;
+  const body = [f && f.body, f && f.evidence, f && f.recommendation]
+    .filter(function (x) { return typeof x === 'string'; }).join(' ');
+  return {
+    kind: 'finding_opened',
+    gate_id: 'mccp-plan-codex',
+    // 리뷰어 축이 하나뿐인 out-of-process 리뷰다. 패널의 perspective와 같은
+    // 이름공간을 쓰지 않는 것이 요점 — 두 축이 섞이면 2차 매칭 키가 무의미해진다.
+    perspective: 'codex',
+    severity: (f && typeof f.severity === 'string') ? f.severity.toUpperCase() : null,
+    claim: claim,
+    claim_digest: findingsRegistry.claimDigestOf(claim),
+    cited_path: (f && typeof f.file === 'string' && f.file)
+      || findingsRegistry.extractCitedPath(body + ' ' + claim),
+    // **`round`를 싣지 않는다** (local review M2). 이전에는 호출자가 넘긴 finding의
+    // 배열 첨자가 여기 들어갔다 — `seal.js`가 같은 필드에 진짜 라운드 번호를 싣고
+    // reader는 둘을 구분하지 않으므로, 재작성 불가한 감사 corpus(DD4)에 뜻이 다른
+    // 값이 같은 이름으로 쌓였다. Plan-Codex 게이트는 단일 라운드라 실을 값 자체가
+    // 없으므로 키를 비운다(allowlist는 `key in event`로만 싣는다).
+  };
+}
+
+function emitCodexFindings(cwd, decisionId, payload) {
+  try {
+    const findings = (payload && Array.isArray(payload.findings)) ? payload.findings : [];
+    const events = [];
+    findings.forEach(function (f, i) {
+      const e = codexFindingEvent(f);
+      if (e) events.push(e);
+    });
+    if (events.length === 0) return;
+    const r = findingsRegistry.appendFindings(decisionId, events, { cwd: cwd });
+    if (!r.ok) {
+      process.stderr.write('[plan-codex-runner] findings registry emit failed (' +
+        r.reason + ') — the gate is unaffected; C1 will show the loss as a seq gap\n');
+    }
+  } catch (err) {
+    process.stderr.write('[plan-codex-runner] findings registry emit threw: ' +
+      ((err && err.message) || err) + '\n');
+  }
+}
+
+// 판정 → 종결. **DD7: 이 함수는 `CLOSURE_FROM_ADJUDICATION`을 조회할 뿐 자체 분기를
+// 갖지 않는다.** 상이 `null`(= `ACCEPT_NOW`)이면 종결이 아니라 `finding_adjudicated`를
+// 남긴다 — 수용 의사는 해소가 아니고(DD2), 그럼에도 **판정을 받은 finding이 아무
+// 이벤트도 남기지 않는 경로는 없다**. `null`은 "종결이 없다"이지 "이벤트가 없다"가
+// 아니며, 그 구분을 흐리면 레지스트리가 "판정 대기"와 "수용됨(저자가 고치기로
+// 약속했다)"을 구별하지 못한다.
+function emitAdjudicationOutcomes(cwd, decisionId, payload, parsedValue) {
+  try {
+    const items = (parsedValue && Array.isArray(parsedValue.adjudications))
+      ? parsedValue.adjudications : [];
+    const findings = (payload && Array.isArray(payload.findings)) ? payload.findings : [];
+    const events = [];
+    items.forEach(function (it) {
+      const f = findings[it && it.finding_index];
+      const base = codexFindingEvent(f);
+      if (!base) return;
+      const findingId = findingsRegistry.deriveFindingId({
+        work_unit: decisionId,
+        gate_id: base.gate_id,
+        perspective: base.perspective,
+        severity: base.severity,
+        claim: base.claim,
+      });
+      const closure = findingsRegistry.CLOSURE_FROM_ADJUDICATION[it.verdict];
+      if (closure) {
+        events.push({ kind: 'finding_closed', finding_id: findingId, closure_type: closure });
+      } else {
+        events.push({ kind: 'finding_adjudicated', finding_id: findingId, state: 'accepted' });
+      }
+    });
+    if (events.length === 0) return;
+    const r = findingsRegistry.appendFindings(decisionId, events, { cwd: cwd });
+    if (!r.ok) {
+      process.stderr.write('[plan-codex-runner] findings adjudication emit failed (' +
+        r.reason + ') — the gate is unaffected\n');
+    }
+  } catch (err) {
+    process.stderr.write('[plan-codex-runner] findings adjudication emit threw: ' +
+      ((err && err.message) || err) + '\n');
   }
 }
 

@@ -39,6 +39,7 @@ const {
 } = require('./perspectives');
 const { isRepoRelativeEvidencePath } = require('../review-verdict');
 const { planAwareMarkdownHash } = require('../../receipt/hash');
+const findingsRegistry = require('../../state/findings-registry');
 
 const EX_OK = 0;
 const EX_L1_DIVERGENT = 1;
@@ -603,6 +604,48 @@ function cmdVerifyProof(args) {
 // Silent is not the same as harmless, though: every degraded axis is named on
 // stderr ([[feedback-loud-fail-open]]). "exit 0" means "I did not block you", not
 // "everything was fine".
+// 패널 결과 → `finding_opened` 배치 1건. 실패해도 호출자 exit code 를 바꾸지
+// 않는다(fail-open) — 유실은 `seq` 구멍과 `.degraded` 마커가 드러낸다(DD8).
+// **모든 finding 을 낸다**: severity 로 거르지 않는다. 분모는 "발견된 finding
+// 전수"이고, 여기서 걸러내면 그 걸러냄이 곧 분모 축소가 되어 폐쇄율을 부풀린다.
+// 승격 임계(DD1)는 표면 쪽 관심사이지 기록 쪽 관심사가 아니다.
+function emitPanelFindings(root, slug, l2) {
+  try {
+    if (!l2 || !Array.isArray(l2.results)) return;
+    const events = [];
+    l2.results.forEach(function (r) {
+      if (!r || typeof r.perspective !== 'string') return;
+      const findings = Array.isArray(r.findings) ? r.findings : [];
+      findings.forEach(function (f) {
+        if (!f || typeof f !== 'object') return;
+        const claim = typeof f.claim === 'string' ? f.claim : '';
+        if (!claim) return;
+        events.push({
+          kind: 'finding_opened',
+          gate_id: 'mccp-plan-codex',
+          perspective: r.perspective,
+          severity: typeof f.severity === 'string' ? f.severity.toUpperCase() : null,
+          claim: claim,
+          claim_digest: findingsRegistry.claimDigestOf(claim),
+          // 리뷰어가 **주장한** 경로다. 레지스트리는 이것을 열지도 실행하지도
+          // 해석하지도 않는다 — 정규화는 레지스트리 안에서 일어난다(DD4).
+          cited_path: findingsRegistry.extractCitedPath(
+            (typeof f.evidence === 'string' ? f.evidence : '') + ' ' + claim),
+        });
+      });
+    });
+    if (events.length === 0) return;
+    const r = findingsRegistry.appendFindings(slug, events, { repoRoot: root });
+    if (!r.ok) {
+      errln('findings registry emit failed (' + r.reason + ') — the gate is unaffected, ' +
+        'but C1 will show the loss as a seq gap');
+    }
+  } catch (e) {
+    errln('findings registry emit threw (' + (e && e.message ? e.message : String(e)) +
+      ') — the gate is unaffected');
+  }
+}
+
 function cmdRecord(args) {
   const root = (args['repo-root'] && args['repo-root'] !== true) ? args['repo-root'] : repoRoot();
 
@@ -649,6 +692,7 @@ function cmdRecord(args) {
   }
 
   const modeArtifact = readIf('mode.json');
+  const l2Artifact = readIf('l2.json');
   const slug = (args.slug && args.slug !== true) ? args.slug : 'unknown-decision';
 
   let built;
@@ -658,7 +702,7 @@ function cmdRecord(args) {
       planPath: (args.plan && args.plan !== true) ? args.plan : null,
       mode: modeArtifact && modeArtifact.mode ? modeArtifact.mode : null,
       l1: readIf('l1.json'),
-      l2: readIf('l2.json'),
+      l2: l2Artifact,
       l3: readIf('l3.json'),
       decision: readIf('decision.json'),
       reservation: readIf('reservation.json'),
@@ -675,6 +719,14 @@ function cmdRecord(args) {
       ') — the gate is unaffected, but this run left no review record');
     return EX_OK;
   }
+
+  // multi-session-work-loop M7 Task 4 (emit point 1/3) — 패널 finding 을 레지스트리에
+  // 기록한다. **DD6: `record.js` 가 아니라 여기다.** 그 모듈은 스스로를 "Pure and
+  // dep-free" 로 선언하고 실제로 `fs` import 가 0건이며, 계측을 거기 넣으면 순수
+  // 계약이 깨지고 그 계약의 목적("측정이 승인을 막을 수 없게 한다")도 함께 무너진다.
+  // 이 write 경계는 `record` 서브커맨드의 일부이므로 pass·halt 모든 exit path 에서
+  // 실행된다는 성질을 그대로 상속한다.
+  emitPanelFindings(root, slug, l2Artifact);
 
   const rel = reviewRecordPath(slug);
   const target = path.join(root, rel);

@@ -151,6 +151,8 @@ DD3의 `(perspective, cited_path)` 2차 키가 Risks 표에만 있으면 구현�
 
 이 경계는 저장소가 이미 한 번 닫아 둔 것이므로 새로 발명하지 않고 승계한다 — §3.13의 `<user_intent_reference>` 주입이 정확히 같은 문제(리뷰어·저자가 쓴 텍스트를 리뷰어 프롬프트에 싣는다)를 풀었다. Task 5는 `intent-context.js`의 파이프라인을 그대로 재사용한다: 유한 엔티티 **1회 비재귀** 디코드(`decodeBoundedEntities`) → **역슬래시 우선** 이스케이프(`escapeReferenceText`) → 길이 상한 + 홀수 trailing 역슬래시 제거(`trimDanglingEscape`), 그리고 토큰 내 mixed-script(`anyTokenMixedScript`)와 지시문 형태(`looksDirective`)는 항목을 **주입에서 제외**한다(레지스트리 기록 자체는 남긴다 — 관측을 지우지 않는 것이 DD8과 같은 원칙이다). `cited_path`는 산문이 아니라 **데이터로 렌더한다**(백틱 코드 스팬) — 문장 안에 벌거벗은 경로로 두면 그 줄이 지시로 읽힐 여지가 생긴다.
 
+**그 재사용은 지금 그대로는 불가능하고, 그것을 여는 것도 Task 5의 작업이다.** 네 함수 중 `escapeReferenceText`(`:423`) · `trimDanglingEscape`(`:437`) · `anyTokenMixedScript`(`:265`) · `looksDirective`(`:273`)는 `intent-context.js` 안에 정의만 되어 있고 `module.exports`(`:892-926`)에 **없다** — 실측상 그 목록이 내보내는 관련 함수는 `decodeBoundedEntities` 하나뿐이다(`hasMixedScript`는 이름이 비슷하나 토큰 단위 판정이 아닌 별개 함수라 `anyTokenMixedScript`의 대체가 아니다). 따라서 "호출해 승계한다"를 적어 두기만 하면 구현자는 import에서 막히고, 그 순간 남는 선택지는 **새 sanitizer를 쓰는 것**(이 DD가 금지하는 바로 그것)이거나 **경계를 건너뛰는 것**이다. Task 5는 네 함수를 `module.exports`에 추가한다 — 순수 함수의 export 확대이므로 §3.13 게이트의 동작은 무변경이고, 기존 소비자도 영향받지 않는다.
+
 **리뷰어의 "privilege escalation" 프레이밍은 채택하지 않고 기각한다.** 그 논거는 "Codex 출력이 다음 세션의 작업 목록에 들어갈 파일을 정한다"인데, Codex 출력이 신뢰 불가라는 전제를 받아들이면 M7이 아니라 **plan-codex 게이트 자체**가 훨씬 직접적으로 무너진다 — 그 게이트의 finding은 이미 저자가 읽고 5.5a에서 판정해 계획을 고치는 입력이다. M7의 레지스트리는 그 텍스트의 **사본을 하나 더** 만들 뿐 새 권한도 새 신뢰도 부여하지 않으므로, 이것을 M7이 도입한 상승으로 계상하면 기존 게이트의 신뢰 근거를 이 milestone에 잘못 청구하는 것이다. 실제로 새로운 것은 위 문단의 **주입 표면 도달**뿐이고, 그것이 이 흡수가 닫는 것이다.
 
 ### DD10 — Task 2·3의 동시 착지는 산문이 아니라 정적 검사로 강제한다
@@ -173,6 +175,7 @@ Task 7의 coverage gate가 **정적 co-presence 검사**를 함께 소유한다:
 | `plugins/mccp/scripts/lib/santa/seal.js` | UPDATE | santa 라운드 finding emit + 라운드 간 비재발 종결 (DD3) |
 | `plugins/mccp/scripts/state/handoff-items.js` | UPDATE | `enumerateUnfinishedItems`에 `finding` 유형 추가 (승격 경로) |
 | `plugins/mccp/scripts/state/state-injector.js` | UPDATE | 승격된 finding을 주입 블록으로 표면화 (상한 있음) |
+| `plugins/mccp/scripts/lib/intent-context.js` | UPDATE | sanitizer 4종(`escapeReferenceText` · `trimDanglingEscape` · `anyTokenMixedScript` · `looksDirective`)을 `module.exports`에 추가 — DD9의 "재사용"이 실행 가능해지는 전제. 판정 로직 무변경 |
 | `plugins/mccp/scripts/derive/sources/handoff-items.js` | UPDATE | `by_type` 분해 보고 — 승격이 A4 분모 구성을 바꾸는 것을 관측 가능하게 |
 | `plugins/mccp/scripts/lib/renderer/sections/msw-metrics.js` | UPDATE | C1 행에 폐쇄율과 이연률을 분리 표기 (UI8) |
 | `plugins/mccp/scripts/lib/msw-metrics/assertion-manifest-check.js` | UPDATE | `REQUIRED_IDS`에 C1 계열 추가 (`## Assertion Roster`와 1:1) |
@@ -217,14 +220,14 @@ Task 7의 coverage gate가 **정적 co-presence 검사**를 함께 소유한다:
 
 - **Task 1** (8) — `C1-REGISTRY-APPEND` · `C1-REGISTRY-ALLOWLIST` · `C1-REGISTRY-TRACKED` · `C1-ID-SECONDARY-KEY` · `C1-REGISTRY-PATH-NORMALIZED` · `C1-DEGRADED-MARKER` · `C1-BATCH-ATOMIC` · `C1-MERGE-UNION`
 - **Task 2** (4) — `C1-TYPE-SEPARATION-CONTRACT` · `C1-TYPE-COLLAPSE-REJECTED` · `C1-DEFER-NOT-CLOSURE` · `C1-SOURCE-REGISTERED-COPRESENT`
-- **Task 3** (1) — `C1-SOURCE-WIRED`
+- **Task 3** (2) — `C1-SOURCE-WIRED` · `C1-TYPE-SEPARATION-DERIVED`
 - **Task 4** (5) — `C1-EMIT-PLAN-REVIEW` · `C1-EMIT-PLAN-CODEX` · `C1-EMIT-SANTA` · `C1-EMIT-FAILOPEN` · `C1-EMIT-LOSS-VISIBLE`
 - **Task 5** (5) — `C1-PROMOTE-THRESHOLD` · `C1-PROMOTE-CONSTANT` · `C1-PROMOTE-BOUNDED` · `C1-A4-DENOMINATOR-REPORTED` · `C1-PROMOTE-SANITIZED`
 - **Task 6** (1) — `C1-RENDER-SPLIT`
 - **Task 7** (6) — `C1-COVERAGE-STATIC` · `C1-COVERAGE-REGISTRY-WRITER` · `C1-ACCEPTANCE-MECHANIZED` · `C1-COVERAGE-RUNTIME` · `C1-CONTRACT-COPRESENT` · `C1-GATE-MERGE-UNION`
 - **Task 8** (1) — `C1-ACCEPTANCE-PROMOTED`
 
-합 **31**. 라운드가 흡수를 더하면 이 수는 늘고, 그때 갱신 대상은 이 절 · manifest · `REQUIRED_IDS` 셋이다(Task 8 소관). 숫자를 Acceptance 체크박스에 리터럴로 적지 않는 이유는 그 두 곳이 어긋나기 때문이며, 대조 권한은 `assertion-manifest-check.js`에 있다.
+합 **32**. 라운드가 흡수를 더하면 이 수는 늘고, 그때 갱신 대상은 이 절 · manifest · `REQUIRED_IDS` 셋이다(Task 8 소관). 숫자를 Acceptance 체크박스에 리터럴로 적지 않는 이유는 그 두 곳이 어긋나기 때문이며, 대조 권한은 `assertion-manifest-check.js`에 있다.
 
 ## Tasks
 
@@ -244,9 +247,9 @@ Task 7의 coverage gate가 **정적 co-presence 검사**를 함께 소유한다:
 
 ### Task 3: derive source 배선
 
-- **Action**: `plugins/mccp/scripts/derive/sources/findings.js` 신설 — 레지스트리 전 샤드를 스캔해 `{ ok, count, closed_count, deferred_count, downgraded_count, rejected_count, open_count, type_separation: true, producer_coverage: 'findings-registry', degraded, invalid_count, error }`를 반환한다. `plugins/mccp/scripts/derive/index.js:28` 의 `SOURCE_SCANNERS`에 `findings` 키로 등록한다.
+- **Action**: `plugins/mccp/scripts/derive/sources/findings.js` 신설 — 레지스트리 전 샤드를 스캔해 `{ ok, count, closed_count, deferred_count, downgraded_count, rejected_count, open_count, type_separation, producer_coverage: 'findings-registry', degraded, invalid_count, error }`를 반환한다. **`type_separation`은 리터럴 `true`가 아니라 스캔 결과에서 파생한다** — 종결된 항목이 전부 5종 enum 안의 `closure_type`을 가질 때만 `true`이고, enum 밖 값이나 `closure_type` 없는 종결이 하나라도 있으면 `false`다(DD5 말미). 하드코딩하면 Task 2의 계약 검사가 findings 소스에 대해 항진명제가 되어 손상 샤드·구 포맷 유입을 영원히 통과시키므로, 그것은 DD5가 정정하려던 상태를 방향만 바꿔 재도입하는 것이다. `plugins/mccp/scripts/derive/index.js:28` 의 `SOURCE_SCANNERS`에 `findings` 키로 등록한다.
 - **Mirror**: `plugins/mccp/scripts/derive/sources/handoff-items.js:68` 의 per-source degraded fail-open. 샤드 1개의 파싱 실패는 `invalid_count++`이고 전체 스캔을 중단하지 않는다.
-- **Validate**: `node --test plugins/mccp/scripts/lib/tests/c1-feedback-loop.test.js plugins/mccp/scripts/lib/tests/msw-derive-sources.test.js` — `findings`가 `SOURCE_SCANNERS`에 실재하고 실 derive가 C1을 `computed`로 반환하며, **서로 다른 두 work_unit 샤드를 놓았을 때 양쪽이 합산**된다(`C1-SOURCE-WIRED` — DD4의 orphan 보존 성질이 "현재 slug만 읽기"로 조용히 좁혀지면 이 단언이 붉어진다).
+- **Validate**: `node --test plugins/mccp/scripts/lib/tests/c1-feedback-loop.test.js plugins/mccp/scripts/lib/tests/msw-derive-sources.test.js` — `findings`가 `SOURCE_SCANNERS`에 실재하고 실 derive가 C1을 `computed`로 반환하며, **서로 다른 두 work_unit 샤드를 놓았을 때 양쪽이 합산**된다(`C1-SOURCE-WIRED` — DD4의 orphan 보존 성질이 "현재 slug만 읽기"로 조용히 좁혀지면 이 단언이 붉어진다) · `closure_type` 없는 종결 또는 enum 밖 값이 섞인 샤드에서 `type_separation`이 `false`로 뒤집힌다(`C1-TYPE-SEPARATION-DERIVED` — 리터럴 `true` 반환으로는 통과할 수 없는 형태로 단언한다).
 
 ### Task 4: emit 배선 3지점
 
@@ -258,8 +261,8 @@ Task 7의 coverage gate가 **정적 co-presence 검사**를 함께 소유한다:
 
 - **Action**: `plugins/mccp/scripts/state/handoff-items.js:125` 의 `enumerateUnfinishedItems`에 4번째 유형 `finding`을 추가한다. 열거 대상은 severity가 `PROMOTE_MIN_SEVERITY`(상수 `HIGH`) 이상이고 open인 finding이며, 상한 `PROMOTE_MAX_ITEMS`(상수)로 절단하고 절단 건수를 함께 보고한다. `plugins/mccp/scripts/state/state-injector.js:169` 의 `inject`에 `## Open Findings` 블록을 추가한다 — 상위 항목만 펼치고 나머지는 건수로만 적어 A3 점유를 방어한다. `plugins/mccp/scripts/derive/sources/handoff-items.js` 에 `by_type` 분해를 추가해 승격이 A4 분모 구성을 바꾸는 것이 관측되게 한다.
   **주입 텍스트는 DD9의 신뢰 경계 처리를 거친다.** 블록에 실리는 리뷰어 문자열(`cited_path` + 항목 문면)은 `intent-context.js`의 함수를 **재사용**한다 — `decodeBoundedEntities` → `escapeReferenceText` → 길이 상한 + `trimDanglingEscape`, 그리고 `anyTokenMixedScript` 또는 `looksDirective`에 걸리는 항목은 주입에서 제외하고 제외 건수만 적는다(레지스트리 기록은 그대로 남는다). 새 sanitizer를 쓰지 않는 것이 요점이다 — 두 벌을 두면 §3.13이 이미 닫은 경계가 이쪽에서만 조용히 열린다. `cited_path`는 백틱 코드 스팬으로 렌더해 데이터임을 표시한다.
-- **Mirror**: `plugins/mccp/scripts/state/handoff-items.js:247` 의 `restoreAndMatch` 중복 계상 방지 — `seen` Set으로 같은 항목이 여러 handoff 파일에 있어도 한 번만 센다. finding 유형도 같은 규칙을 받는다. 주입 텍스트 처리는 `plugins/mccp/scripts/lib/intent-context.js:423`(`escapeReferenceText` — 역슬래시 우선)과 `:437`(`trimDanglingEscape`)을 **호출**해 승계한다.
-- **Validate**: `node --test plugins/mccp/scripts/lib/tests/c1-feedback-loop.test.js` — MEDIUM 미승격(`C1-PROMOTE-THRESHOLD`) · 임계가 env로 열려 있지 않음(`C1-PROMOTE-CONSTANT`) · 주입 블록 상한 준수(`C1-PROMOTE-BOUNDED`) · A4 분모의 `by_type` 보고(`C1-A4-DENOMINATOR-REPORTED`) · 주입 경계 처리(`C1-PROMOTE-SANITIZED` — 지시문 형태 finding이 주입 블록에서 **제외**되되 레지스트리에는 남고, 엔티티 인코딩된 `&lt;`가 1회 디코드 후 이스케이프되어 원문 마커로 복원되지 않으며, 상한 절단이 홀수 trailing 역슬래시를 남기지 않음을 단언한다. 단언 대상은 `intent-context.js` 함수의 재구현이 아니라 **호출 여부와 그 귀결**이다).
+- **Mirror**: `plugins/mccp/scripts/state/handoff-items.js:247` 의 `restoreAndMatch` 중복 계상 방지 — `seen` Set으로 같은 항목이 여러 handoff 파일에 있어도 한 번만 센다. finding 유형도 같은 규칙을 받는다. 주입 텍스트 처리는 `plugins/mccp/scripts/lib/intent-context.js:423`(`escapeReferenceText` — 역슬래시 우선)과 `:437`(`trimDanglingEscape`)을 **호출**해 승계한다. **그 전제로 이 Task가 `intent-context.js`의 `module.exports`에 `escapeReferenceText` · `trimDanglingEscape` · `anyTokenMixedScript` · `looksDirective` 네 함수를 추가한다** — 현재 그 목록에는 `decodeBoundedEntities`만 있어 나머지는 import 불가이고(DD9 말미 실측), export 없이는 이 Mirror가 실행 불가능한 문장으로 남는다.
+- **Validate**: `node --test plugins/mccp/scripts/lib/tests/c1-feedback-loop.test.js` — MEDIUM 미승격(`C1-PROMOTE-THRESHOLD`) · 임계가 env로 열려 있지 않음(`C1-PROMOTE-CONSTANT`) · 주입 블록 상한 준수(`C1-PROMOTE-BOUNDED`) · A4 분모의 `by_type` 보고(`C1-A4-DENOMINATOR-REPORTED`) · 주입 경계 처리(`C1-PROMOTE-SANITIZED` — 지시문 형태 finding이 주입 블록에서 **제외**되되 레지스트리에는 남고, 엔티티 인코딩된 `&lt;`가 1회 디코드 후 이스케이프되어 원문 마커로 복원되지 않으며, 상한 절단이 홀수 trailing 역슬래시를 남기지 않음을 단언한다. 단언 대상은 `intent-context.js` 함수의 재구현이 아니라 **호출 여부와 그 귀결**이며, 그 전제로 네 함수가 `require('.../intent-context')`에서 실제로 꺼내지는지를 함께 단언한다 — export가 빠지면 "재사용"이 조용히 재구현으로 대체되므로 이 축이 없으면 DD9가 문장으로만 남는다).
 
 ### Task 6: 대시보드 표면
 
@@ -358,7 +361,7 @@ node plugins/mccp/scripts/lib/evidence-audit.js --json
 | coverage gate가 정적 lint만으로 완결됐다고 주장 | 중 | B2 선례대로 런타임 falsifier를 primary로 두고, 정적 lint가 못 보는 범위(동적 경로 · 셸 writer · repo 밖)를 위협 모델에 명시 |
 | C1이 `computed`가 되었으나 값이 신뢰 불가 | 중 | UI11 감사 표본 5건을 수용 조건에 포함. 불일치 시 지표를 다음 주기까지 무효 처리하는 규약을 그대로 적용 |
 | 병렬 브랜치 version 충돌 (§3.7 실측 4회 재발) | 중 | target을 미리 확정하지 않고 base 병합 시점과 `/mccp:pr` 진입 직전 두 번 재계산. 재상향 후 4면 동기 검증 재실행 |
-| **승격 표면이 미검증 리뷰어 텍스트를 다음 세션 프롬프트에 싣는다** — 승격 대상이 CRITICAL·HIGH로 좁고 건수가 잘린다는 것은 분량의 방어일 뿐 내용의 방어가 아니다 | 중 | DD9의 신뢰 경계 처리를 Task 5가 이행하고 `C1-PROMOTE-SANITIZED`가 단언한다(R11 security HIGH 흡수). sanitizer는 새로 쓰지 않고 §3.13이 같은 문제로 이미 배송한 `intent-context.js` 함수를 호출한다 — 두 벌을 두면 한쪽만 조용히 뒤처진다. 리뷰어가 붙인 "privilege escalation" 프레이밍은 근거와 함께 기각했다(DD9 말미) |
+| **승격 표면이 미검증 리뷰어 텍스트를 다음 세션 프롬프트에 싣는다** — 승격 대상이 CRITICAL·HIGH로 좁고 건수가 잘린다는 것은 분량의 방어일 뿐 내용의 방어가 아니다 | 중 | DD9의 신뢰 경계 처리를 Task 5가 이행하고 `C1-PROMOTE-SANITIZED`가 단언한다(R11 security HIGH 흡수). sanitizer는 새로 쓰지 않고 §3.13이 같은 문제로 이미 배송한 `intent-context.js` 함수를 호출한다 — 두 벌을 두면 한쪽만 조용히 뒤처진다. 리뷰어가 붙인 "privilege escalation" 프레이밍은 근거와 함께 기각했다(DD9 말미). 그 호출이 성립하려면 네 함수의 export가 먼저 열려야 하며, 그것도 Task 5 범위다(R13 security HIGH 흡수) |
 
 </details>
 

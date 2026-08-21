@@ -68,10 +68,27 @@ const { buildSeededModel } = require('../msw-metrics/fixture');
 // producer and gates the compute path on `snapshot_corpus_present`, so LIVE B3
 // reads forward-only until one session has run under the fix. The fixture below
 // injects the presence flag to prove the compute path, exactly as B2 does.
+//
+// multi-session-work-loop M7 — C1 joins the claimed set. Same sanctioned path as
+// B2's M3 and A3's M4 promotion: edit this list deliberately, with the argument.
+//
+// C1 was forward-only because `SOURCE_SCANNERS` carried no `findings` entry, so
+// `computeC1` returned 'no live findings derive source wired' — fixture-only
+// findings would have been a masquerade. M7 builds that producer: three gate emit
+// points write an append-only registry, a derive source scans every shard, and the
+// anti-gaming contract (`type_separation`) is DERIVED from the scan rather than
+// hardcoded, so a corrupt shard flips it to false instead of passing forever.
+//
+// The promotion is falsifiable rather than convenient: `c1-coverage-gate.js`
+// fails on an unapproved writer to either surface, on a split Task 2/3 landing,
+// on a lost `merge=union` declaration, and on a review record that lists more
+// findings than the registry holds. Its own falsifiability is pinned by negative
+// fixtures in lib/tests/c1-coverage-gate.test.js.
 const CLAIMED_COMPUTABLE = [
   A3_INSTRUCTION_COST,
   B2_CONCURRENT_CONFLICTS,
   B3_TOGGLE_AXES,
+  C1_FEEDBACK_CLOSURE,
 ];
 // Downgraded metrics: present in the seeded fixture but must resolve to forward-only,
 // so they can never be silently promoted back into the claimed-computable enumeration.
@@ -190,7 +207,11 @@ test('msw-metrics-acceptance: forward-only ids must have forward-only status', a
 
   const metrics = computeMetrics(seedModel);
 
-  // C1 joins C2/C3 as forward-only when no live findings source is wired (R2-F3).
+  // M7 — C1 left this list when its producer landed. It stays forward-only on an
+  // EMPTY model (that is what this seed is), which is the honest reading of
+  // "no source": absence of a findings source is still 'no live findings derive
+  // source wired'. What changed is that a wired source now exists, so C1 is
+  // claimed-computable above and `C1-ACCEPTANCE-PROMOTED` asserts both halves.
   const forwardOnlyIds = [C1_FEEDBACK_CLOSURE, C2_GATE_FALSE_POSITIVE, C3_LEAKED_DEFECTS];
   for (const id of forwardOnlyIds) {
     const metric = metrics[id];
@@ -218,4 +239,27 @@ test('msw-metrics-acceptance: all computed metrics have truthy numerator/denomin
       `${id}: must have coverage marker (got ${metric.coverage})`
     );
   }
+});
+
+// multi-session-work-loop M7 Task 8 — C1 승격의 양면을 함께 단언한다.
+test('C1-ACCEPTANCE-PROMOTED: C1 is claimed-computable and no longer forward-only', () => {
+  assert(
+    CLAIMED_COMPUTABLE.indexOf(C1_FEEDBACK_CLOSURE) !== -1,
+    'C1 must be enumerated as claimed-computable now that its producer is wired',
+  );
+  assert(
+    DOWNGRADED_FORWARD_ONLY.indexOf(C1_FEEDBACK_CLOSURE) === -1,
+    'C1 must not also sit in the downgraded list — the two are disjoint by construction',
+  );
+
+  // 승격이 리스트 편집만이 아니라 **실제 산출**을 동반하는지 본다.
+  const metrics = computeMetrics(buildSeededModel());
+  const c1 = metrics[C1_FEEDBACK_CLOSURE];
+  assert.strictEqual(c1.status, 'computed');
+  assert(c1.numerator !== null && c1.numerator !== undefined);
+  assert(c1.denominator !== null && c1.denominator !== undefined);
+  assert.strictEqual(c1.integrity_ok, true);
+  // 이연률이 함께 보고된다 — 단일 폐쇄율만으로는 UI5 의 유형 분리가 표면에서 무너진다.
+  assert.strictEqual(typeof c1.deferred_rate, 'number');
+  assert.strictEqual(typeof c1.open_count, 'number');
 });

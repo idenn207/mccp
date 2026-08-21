@@ -16,7 +16,13 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const { check, REQUIRED_IDS, UsageError } = require('../msw-metrics/assertion-manifest-check');
+const { check, REQUIRED_IDS_BY_MILESTONE, UsageError } =
+  require('../msw-metrics/assertion-manifest-check');
+
+// M7 — 하한이 milestone 별로 나뉘었다(평면 목록이면 milestone 이 둘 이상일 때 서로를
+// 영구히 붉힌다). 이 self-test 는 계속 M6 manifest 를 대상으로 삼되 그 milestone 의
+// 하한을 읽는다.
+const REQUIRED_IDS = REQUIRED_IDS_BY_MILESTONE['multi-session-work-loop-m6'];
 
 const CLI = path.resolve(__dirname, '..', 'msw-metrics', 'assertion-manifest-check.js');
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
@@ -56,10 +62,30 @@ test('대조기 — 정상 manifest 는 exit 0 이고 검사한 수를 낸다 (�
 });
 
 test('대조기 — REQUIRED_IDS 에 중복이 없고 manifest 와 동치다', () => {
-  assert.equal(new Set(REQUIRED_IDS).size, REQUIRED_IDS.length);
-  // manifest 의 id 집합과 REQUIRED_IDS 가 일치해야 한다(하한이자 현재는 동치).
+  // 모든 milestone 하한에 대해 중복이 없어야 한다 — 하나만 검사하면 신규 계열의
+  // 중복이 조용히 통과한다.
+  Object.keys(REQUIRED_IDS_BY_MILESTONE).forEach((ms) => {
+    const floor = REQUIRED_IDS_BY_MILESTONE[ms];
+    assert.equal(new Set(floor).size, floor.length, ms + ' floor has a duplicate id');
+  });
+  // manifest 의 id 집합과 그 milestone 의 하한이 일치해야 한다(하한이자 현재는 동치).
   const ids = realManifest().assertions.map((a) => a.id).sort();
   assert.deepEqual(ids, REQUIRED_IDS.slice().sort());
+
+  // M7 manifest 도 같은 동치를 만족한다.
+  const m7 = JSON.parse(fs.readFileSync(
+    path.join(REPO_ROOT, 'docs/multi-session-work-loop/m7-assertion-manifest.json'), 'utf8'));
+  assert.deepEqual(m7.assertions.map((a) => a.id).sort(),
+    REQUIRED_IDS_BY_MILESTONE['multi-session-work-loop-m7'].slice().sort());
+});
+
+test('대조기 — 하한이 등록되지 않은 milestone 은 fail-closed 다', () => {
+  // 빈 하한으로 통과시키면 floor 를 등록하지 않은 manifest 가 곧 무검사 통과가 된다.
+  const dir = mkTmp();
+  const m = realManifest();
+  m.milestone = 'a-milestone-nobody-registered';
+  assert.throws(() => check({ manifest: writeManifest(dir, m), repoRoot: REPO_ROOT }),
+    (e) => e instanceof UsageError && /no REQUIRED_IDS floor registered/.test(e.message));
 });
 
 // --- (i) 필수 id 하나를 뺀 manifest → exit 1 ---------------------------------

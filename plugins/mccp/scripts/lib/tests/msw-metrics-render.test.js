@@ -491,3 +491,78 @@ test('B1 렌더 — 증거가 전부 확정이면 커버리지 단서 없이 건
   ] }), mockFormatUtils);
   assert.ok(/\|\s*1건\s*\|/.test(result.md), 'no cue needed when nothing is undetermined: ' + result.md);
 });
+
+// ── multi-session-work-loop M7 Task 6 — C1 렌더 분리 표기 ────────────────────
+
+function c1Model(overrides) {
+  return {
+    metrics: {
+      C1: Object.assign({
+        id: 'C1',
+        numerator: 6,
+        denominator: 10,
+        value: 0.6,
+        deferred_count: 2,
+        downgraded_count: 1,
+        rejected_count: 1,
+        open_count: 0,
+        deferred_rate: 0.2,
+        integrity_ok: true,
+        status: 'computed',
+        coverage: 'findings-registry',
+      }, overrides || {}),
+    },
+  };
+}
+
+test('C1-RENDER-SPLIT: closure and deferral render as two distinct figures', () => {
+  const out = renderMswMetrics(c1Model(), mockFormatUtils);
+  assert.ok(out, 'a computed C1 renders the section');
+
+  // 단일 값으로 접히지 않는다 — 이연으로 100% 를 만드는 경로가 보여야 한다.
+  assert.match(out.md, /60%\s*\(이연 20%\)/,
+    'the C1 value cell carries both rates: ' + out.md);
+  assert.match(out.html, /60%\s*\(이연 20%\)/);
+
+  // 유형 분해가 상세로 함께 나온다.
+  assert.match(out.md, /C1 유형 분해: 해소 6\/10건 · 이연 2건 · 강등 1건 · 기각 1건/);
+});
+
+test('C1-RENDER-SPLIT: a unit that deferred everything does not read as 100%', () => {
+  const out = renderMswMetrics(c1Model({
+    numerator: 0, denominator: 8, value: 0,
+    deferred_count: 8, downgraded_count: 0, rejected_count: 0, open_count: 0,
+    deferred_rate: 1,
+  }), mockFormatUtils);
+  assert.match(out.md, /0%\s*\(이연 100%\)/,
+    'deferring everything closes nothing, and the surface must say so');
+});
+
+test('C1-RENDER-SPLIT: degraded coverage is named, not hidden behind the value', () => {
+  const out = renderMswMetrics(c1Model({
+    coverage: 'findings-registry-degraded',
+  }), mockFormatUtils);
+  assert.match(out.md, /계측 유실 있음 \(하한값\)/,
+    'a lossy measurement cycle may not present as a clean number');
+});
+
+test('C1-RENDER-SPLIT: the C1 row keeps the section design constraints', () => {
+  const out = renderMswMetrics(c1Model(), mockFormatUtils);
+  // (1) heading depth ≤ 3
+  assert.ok(!/^#{4,}\s/m.test(out.md), 'no heading deeper than h3');
+  assert.ok(!/<h[4-9]/i.test(out.html), 'no html heading deeper than h3');
+  // (3) raw markdown marker 금지 — 렌더 문자열에 미렌더 볼드 마커가 없다.
+  assert.ok(out.html.indexOf('**') === -1, 'no raw markdown marker leaks into html');
+  // (4) 신규 collapse 를 열지 않는다 — 공유 collapse 하나뿐이다.
+  const opens = (out.html.match(/<details/g) || []).length;
+  assert.ok(opens <= 1, 'C1 detail rides the shared collapse, it does not open a new one');
+});
+
+test('C1-RENDER-SPLIT: an absent deferred_rate degrades to the closure rate alone', () => {
+  // 구 derive 산출물(필드 부재)이 들어와도 렌더가 깨지지 않는다.
+  const model = c1Model();
+  delete model.metrics.C1.deferred_rate;
+  const out = renderMswMetrics(model, mockFormatUtils);
+  assert.match(out.md, /\| 60% \| /, 'falls back to the single rate rather than NaN');
+  assert.ok(out.md.indexOf('이연 NaN') === -1);
+});

@@ -2,7 +2,49 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.30.1] — 2026-08-16
+
+> **§3.7**: `1.30.0 → 1.30.1` (**patch** — M2는 codex-intent-context PRD의 단일
+> milestone ship이다). 원래 `1.23.10`으로 작성했으나 main이 그 번호를
+> multi-session-work-loop M5(#132)에 이미 발행했기에 **forward-only 상향**으로
+> 재동기했다 — 발행된 번호는 불가침이고 미머지 브랜치의 항목만 위로 민다. 4면
+> (plugin.json · html.js page-foot · markdown.js derived 줄 · 이 파일의 `currently`
+> 노트)을 `1.30.1`로 함께 맞췄고, `i18n-surface.test.js`는 manifest에서 파생하므로
+> 리터럴 동기가 필요 없다. 날짜(2026-08-16)는 작성일 그대로 둔다 — version 순서가
+> 정본이다(§3.7 "날짜 역전은 정상").
+
+**codex-intent-context M2 — 심판 컨텍스트 분리 (patch, `1.30.0 → 1.30.1`)** — M1은 판정 **누락**을 닫았고 M1.5는 **오심**을 반증 가능하게 만들었다. 둘 다 남긴 것이 하나 있다: **심판이 여전히 저자였다.** `commands/plan.md` 5.5a에서 adjudication을 쓰는 것은 plan을 작성한 바로 그 세션이고, 그 세션은 자기 설계 근거를 전부 들고 있다. M2는 그 판정을 저자 컨텍스트를 상속하지 않는 fresh subagent로 옮긴다.
+
+### 분리는 "안 알려준다"가 아니라 "열 수 없다"다
+
+- **`agents/intent-arbiter.md` CREATE** — `tools: [Write]` **단독**. 초안은 arbiter에게 `Read`를 주고 awaiting 파일 하나만 읽게 하면 저자 정당화에 도달할 경로가 없다고 적었는데 **거짓이었다**: `plan-codex-runner.js`가 그 아티팩트에 `plan_path`를 이미 싣고 있어, `Read`를 가진 arbiter는 거기서 경로를 꺼내 plan의 `## Design Decisions`를 그대로 읽는다. 필드 하나를 지워 막는 것도 부족하다 — 경로를 몰라도 추측이 가능하고, runner에 새 필드가 추가될 때마다 같은 누출이 다시 열린다. 그래서 **능력을 제거**한다.
+- **`lib/intent-arbiter.js` CREATE** — 순수 오라클 4종(fs/process/clock 없음). `buildArbiterProjection`이 `ARBITER_PROJECTION_KEYS` **whitelist**로만 투영한다(blacklist가 아니라 whitelist인 것이 핵심 — runner에 새 필드가 생겨도 자동으로 새어 들어오지 않는다). 항목 안쪽(`findings[]` · `intent_items[]`)도 같은 규칙으로 좁힌다: 최상위만 검사하면 구현이 awaiting 항목을 통째로 복사해도 통과한다. `buildArbiterTaskPrompt`는 **awaiting 경로도 plan 경로도 인자로 받지 않으며**, frozen 템플릿이 plan의 섹션명을 문구로도 부르지 않는다 — 정규식 test는 최종 문자열만 보므로, 템플릿이 구조를 이름으로 부르면 test는 통과하면서 anchoring 힌트가 새어 나간다.
+- **대가를 정직하게 적는다**: 데이터가 저자 세션을 경유하므로 저자가 투영을 조작할 수 있다. 그러나 finding 조작은 M1의 `finding_digest` 대조에서 죽고, `intent_items` 조작은 새 구멍이 아니다(`## User Intent` 표는 애초에 저자가 쓴다). M2가 겨냥하는 것은 적대적 저자가 아니라 **anchoring과 sycophancy**다.
+
+### 강등은 채널을 갖고, 그 채널은 실패 원인을 가리지 않는다
+
+- **요구 모드는 명령 본문이 정하고 runner는 인자로만 받는다** — `MCCP_INTENT_ARBITER`는 `plan.md` 5.2z에서만 읽히고 `--arbiter-mode`로 전달된다. 두 프로세스가 각자 env를 해석하면 서로 다른 답을 낼 수 있고, 그때 봉인값은 어느 쪽 사실도 아니게 된다. `plan-codex-runner.js` 소스에 그 변수 **이름이 0회 등장**함을 e2e가 스캔으로 단언한다.
+- **그 모드는 runner를 통해 다시 내려온다** — 모드를 정하는 5.2z와 그것으로 분기하는 5.5a 사이에는 Codex 호출과 triage가 있고 셸 상태는 도구 호출을 건너 살아남지 않는다. `$ARBITER_MODE`만은 **디스크 어디에서도 복구되지 않아**(`$AWAITING`·`$RUN_NONCE`는 nonce-named 파일이 실재한다) 잃어버린 본문의 추정이 `author`로 떨어지면 강등 기록 없이 저자가 판정하고 runner는 `subagent`를 봉인한다 — 일어나지 않은 분리를 주장하는 receipt다. 그래서 runner가 자신이 해석한 값을 `$AWAITING`의 `arbiter_mode`로 싣고 5.5a가 거기서 읽으며, 5.2z 계산에는 `|| echo "subagent"` fallback을 둔다. 그 필드는 **arbiter에게 도달하지 않는다**(whitelist 미포함) — blacklist였다면 배제 목록도 함께 고쳐야 했을 자리다.
+- **arbiter 프롬프트 파일은 `0600`으로 쓰이고 runner가 지운다** — awaiting과 같은 findings·constraints를 담는데 명령 본문이 쓰므로 ambient umask로 떨어지고, 정리를 산문에 맡기면 건너뛰어진다. 경로는 `paths()`가 소유한다(`intent-arbiter-prompt-<nonce>.txt`).
+- **판정은 존재 검사가 아니라 유효성 probe다** — `[ -f ]`는 문법이 깨진 JSON을 통과시키고, 그러면 runner가 기본 30분 타임아웃을 다 쓰고서야 `incomplete`로 죽는다. probe는 `parseAdjudicationFile`을 돌려 exit 0/1만 내며(stdout 비움, 사유는 stderr), probe 자체가 죽어도 비영점이라 자동으로 "무효"로 떨어진다 — "판정 불가"를 "유효"로 접으면 강등이 조용히 꺼진다. **검증이 publish보다 먼저** 온다: staged 파일을 무조건 옮기면 runner에게 파손된 읽기를 건네게 되어 강등 대신 `incomplete`로 죽는다.
+- **강등 원인을 열거하지 않는다** — 에이전트 미등록·도구 거부·에러·취소·성공 반환 후 산출 부재·파손이 전부 같은 분기다. 초안은 `agent type not found` 하나만 다뤄 나머지가 전부 타임아웃으로 떨어졌다.
+- **강등 쓰기는 create-exclusive** — `link(2)`(원자적 + `EEXIST`)를 우선하고 `openSync(…, 'wx')`를 이식성 fallback으로 둔다. `EEXIST`면 **재-probe**해 늦게 도착한 arbiter 산출이 유효하면 강등을 **취소**한다(무조건 덮어쓰면 실제로 일어난 분리를 지우고 `author`로 기록한다). 재-probe와 조건부 쓰기는 **한 프로세스** 안에서 이뤄진다 — 셸 두 단계로 나누면 그 사이가 다시 창이 된다.
+- **강등에 신규 재구성 함수는 0개** — 판정 내용은 M1과 동일하게 저자 LLM이 기존 5.5a 절차로 작성한다. default verdict를 채우는 코드를 두면 강등이 곧 **자동 승인**이 되어 M1이 막은 "기록 없는 수용"이 부활한다. 불완전한 강등 산출은 M1 규칙이 그대로 `incomplete`로 죽인다.
+
+### 봉인 2필드 — 증명이 아니라 기록
+
+`meta.intent_arbiter`(`subagent|author`|null) + `meta.intent_arbiter_degraded_reason`. present-only(`makeSkeleton` 미포함 — tracked ship corpus hash 무손상)이고 **carve-out을 만들지 않는다**: hash 밖의 감사 필드는 서명되지 않은 필드이고 `validate-cmd`의 receipt-tamper 검사가 그 편집을 지나친다. runner는 파일을 누가 썼는지 관측할 수 없으므로 봉인되는 값은 "subagent가 썼다"가 아니라 **"이 실행이 요구한 심판 모드와 관측된 강등"** 이다. 페어링(사유는 강등이 **적용됐을 때만**)은 `schema.js` 검증 함수 안에서 강제한다 — test에만 있으면 런타임 수용 경로가 스키마상 불가능한 receipt를 그대로 받는다. `author`인데 강등 기록이 실려 오면 **모순**(강등할 것이 없다)이라 `incomplete`로 죽는다.
+
+### 반입 결함 2건 — 같은 함수, 같은 커밋
+
+`intent-claims.js#stripQuotedStructures`가 CommonMark HTML block start condition 7종 중 셋(`<?`·`<!LETTER`·`<![CDATA[`)을 놓쳐 그 안의 `INTENT:` 줄을 진짜 주장으로 셌고(fail-open, backlog HIGH), `stripHtmlComments`가 라인 상태 기계 **밖의** 전체-텍스트 선처리라 fence 안의 `<!--` 예시가 **뒤따르는 진짜 주장**을 삼켰다(false block, backlog MEDIUM). 방향이 반대인 두 결함이지만 원인은 하나 — 인용 판정이 한 상태 기계 안에 있지 않았다. 주석을 fence·blockquote와 같은 루프 안으로 옮기고 남은 종류를 한 번에 구현했다. 주석만은 **줄 선두에 앵커하지 않는다**(CommonMark와 의도적 불일치): 줄 중간에서 열린 주석도 렌더된 화면에서는 뒤가 보이지 않으므로, 선두로 좁히면 아무에게도 보인 적 없는 주장이 만들어진다.
+
+### 잔여 (부정하지 않는다)
+
+- **기본 모드에서 intent 축은 여전히 skip된다.** `MCCP_PLAN_REVIEW` 미설정 → `multi-agent` → `write.js`의 패널 carve-out이 intent 게이트를 *만족*이 아니라 *skip*으로 처리한다. 이 milestone의 게이트 실행이 그 사실을 실증했다. 귀속이 diverse-agent-review PRD이고 수정 방향이 또 하나의 대형 축이라 M3 후보로 남긴다. 잔여의 안전 논증은 intent 축에 기대지 않는다 — 패널 승인은 cross-gate dedupe를 만족하지 못하므로 terminal `/mccp:pr`에서 PR-Codex가 반드시 발화한다.
+- **심판 판단의 품질은 이번 사이클에서 반증 불가다.** 배선(투영 · runner↔receipt 관통 · 본문 분기)은 test로 고정했지만 실제 subagent의 판정 품질은 머지 후 라이브 완주로 이연한다.
 
 ## [1.30.0] — 2026-08-19
 
@@ -813,7 +855,6 @@ R1 흡수 후 `origin/main`(#131)을 병합한 최종 트리로 PR-Codex를 **�
 - **쿼터 메시지의 복구 시각은 확정 시각이 아니었다.** 2026-08-09 차단 시 companion이 "try again at Aug 16th"를 반환했으나 실제로는 2026-08-13에 이미 가용했다. 같은 형태로 막히면 인용된 시각을 기다리기 전에 1-token probe로 재확인하는 편이 싸다.
 - `intent_dispute_reason`은 새로운 고무도장 통로가 될 수 있다 — M1의 `intent_override_reason`과 동형이며, 부정하지 않는다. 남용은 `intent_mislabel_disputes` 비율로 관측되고, 그 비율이 높으면 그것이 곧 M2(심판 분리)의 근거다.
 - Plan-Codex · Implement-Codex 모두 `MCCP_CODEX_DISABLED=1`로 **미발화**했다. santa-loop R1~R3(Opus + GPT-5.4)이 22건을 흡수했으나 **cap 이후 수정분(#19~#22 + A 채택 3건)은 어느 리뷰어의 검증도 받지 않았다** — 이는 Codex 승인이 아니다.
-
 ## [1.23.8] — 2026-08-09
 
 **diverse-agent-review M4 — 통과 경로 실증 + 지표 부채 상환 (patch)** — M1은 계기를 배송했지만 **한 번도 눈금을 읽지 못했다**. 저장소 receipt 40개 중 `review_verdict`를 가진 것은 0건이었고, 원인은 우연이 아니라 구조였다: wall-clock stamp가 `5.6b`의 receipt write 안에만 있고 차단된 실행은 그 앞에서 HALT하므로 **오래 걸린 실행일수록 기록될 확률이 낮았다**(survivorship bias가 계기에 내장). 게다가 plan 게이트 receipt는 `.gitignore:31`상 worktree-only라 §3.8 cleanup마다 소멸한다.

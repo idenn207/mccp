@@ -142,6 +142,12 @@ function nullMislabelAxis(meta) {
   meta.intent_claims_digest = null;
   meta.intent_mislabel_disputes = null;
   meta.intent_mislabel_audit = null;
+  // M2 — same reasoning one axis over: these two exits never reach the runner, so
+  // no arbiter of any kind adjudicated anything. Writing the requested mode here
+  // would claim a judgement that was never asked for; leaving the keys OFF would
+  // make a receipt written today indistinguishable from one that predates M2.
+  meta.intent_arbiter = null;
+  meta.intent_arbiter_degraded_reason = null;
 }
 
 function stampIntentDecision(receipt, args, gateId, planText) {
@@ -322,6 +328,16 @@ function stampIntentDecision(receipt, args, gateId, planText) {
   m.intent_mislabel_disputes =
     Number.isInteger(d.mislabel_disputes) ? d.mislabel_disputes : null;
   m.intent_mislabel_audit = Array.isArray(d.mislabel_audit) ? d.mislabel_audit : null;
+
+  // M2 — the arbiter axis. The runner resolves both values through the single
+  // resolveArbiterSeal oracle, so this really is a stamp: there is no branch here
+  // that could disagree with what that oracle decided. The reason is pairwise
+  // constrained by schema.js, which is what stops a caller from sealing a
+  // justification for a fallback that never applied.
+  m.intent_arbiter = (typeof d.arbiter === 'string') ? d.arbiter : null;
+  m.intent_arbiter_degraded_reason =
+    (typeof d.arbiter_degraded_reason === 'string' && d.arbiter_degraded_reason.length > 0)
+      ? d.arbiter_degraded_reason : null;
 
   // DD6 — the override unblocks the RUN, never the record. The receipt seals
   // the real verdict so cross-gate dedupe stays fail-closed downstream.

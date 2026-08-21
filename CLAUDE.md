@@ -605,6 +605,41 @@ compliance는 `claimed/total`로 **계측**하되 판정은 이분법이다: `fu
 
 ---
 
+### 3.13.2 심판 컨텍스트 분리 (v1.30.1 — codex-intent-context M2)
+
+M1은 **누락**을, M1.5는 **오심**을 닫았다. 둘 다 남긴 것이 하나 있다 — **심판이 여전히 저자였다.** 5.5a에서 adjudication을 쓰는 것은 plan을 작성한 그 세션이고, 그 세션은 자기 설계 근거를 전부 들고 있다. M2는 판정을 fresh subagent(`mccp:intent-arbiter`)로 옮긴다.
+
+**강제되는 명제는 하나다: 정상 운용에서 저자가 심판을 겸하지 않는다.** 심판이 옳아진다는 뜻도, 위조를 막는다는 뜻도 아니다.
+
+#### 분리는 "안 알려준다"가 아니라 "열 수 없다"다
+
+초안은 arbiter에게 `Read`를 주고 awaiting 파일만 읽게 하면 저자 정당화에 도달할 경로가 없다고 적었다 — **거짓이었다.** `plan-codex-runner.js`가 그 아티팩트에 `plan_path`를 이미 싣는다. 필드를 지워 막는 것도 부족하다: 경로를 몰라도 추측이 가능하고, 새 필드가 추가될 때마다 같은 누출이 다시 열린다. 그래서 **능력을 제거**한다.
+
+- [intent-arbiter.md](plugins/mccp/agents/intent-arbiter.md)의 `tools`는 **`[Write]` 하나**다. 파일을 여는 수단이 없으므로 경로를 알든 모르든 plan에 도달하지 못한다(`review-architect.md`의 read-only 보장과 같은 형태, 방향만 반대).
+- 판정에 필요한 것은 [intent-arbiter.js](plugins/mccp/scripts/lib/intent-arbiter.js) `buildArbiterProjection`이 **whitelist**로 뽑아 프롬프트에 인라인한다. blacklist가 아니라 whitelist인 것이 핵심 — runner에 새 필드가 생겨도 자동으로 새어 들어오지 않는다. whitelist는 최상위뿐 아니라 **항목 안쪽**에도 걸린다(최상위만 검사하면 구현이 awaiting 항목을 통째로 복사해도 통과한다). 프롬프트 빌더는 **awaiting 경로도 plan 경로도 인자로 받지 않으며**, frozen 템플릿이 plan의 섹션명을 문구로도 부르지 않는다.
+- **인정하는 잔여 2건**: `finding` 본문은 판정 대상이라 필터하지 않고, 데이터가 저자 세션을 경유하므로 저자가 투영을 조작할 수 있다. 후자는 finding digest 대조와 "표는 원래 저자가 쓴다"로 대부분 무해하며, 남는 것은 단일 신뢰 사용자 위협모델 밖이다.
+
+#### 봉인 2필드는 증명이 아니라 기록이다
+
+`intent_arbiter`(`subagent|author`|null) · `intent_arbiter_degraded_reason`. runner는 파일을 **누가** 썼는지 관측할 수 없으므로 봉인값은 "subagent가 썼다"가 아니라 **"이 실행이 요구한 심판 모드와 관측된 강등"** 이다(`intent_mislabel_mode`와 같은 성질). present-only(`makeSkeleton` 미포함 — §3.12 tracked ship corpus hash 안정성)이되 **carve-out은 만들지 않는다**: hash 밖의 감사 필드는 서명되지 않은 필드이고 `validate-cmd`의 receipt-tamper 검사가 그 편집을 지나친다. 페어링(사유는 강등이 **적용됐을 때만**)은 test가 아니라 `schema.js` 검증 함수 안에서 강제한다 — test에만 있으면 런타임 수용 경로가 스키마상 불가능한 receipt를 그대로 받는다.
+
+#### 강등은 채널을 갖고 원인을 가리지 않는다
+
+`MCCP_INTENT_ARBITER`는 **`/mccp:plan` 5.2z에서만** 읽혀 `--arbiter-mode`로 전달되고, runner 소스에는 그 이름이 **0회** 등장한다(두 프로세스가 각자 해석하면 봉인값이 어느 쪽 사실도 아니게 되므로, e2e가 스캔으로 부재를 단언한다). 대신 runner가 **자신이 해석한** 값을 `$AWAITING`의 `arbiter_mode`로 되돌려 5.5a가 셸 변수가 아니라 그 필드로 분기한다 — 셸 상태는 도구 호출을 건너 살아남지 않는데 이 값만은 디스크 어디에서도 복구되지 않아(`$AWAITING`·`$RUN_NONCE`는 파일이 실재한다), 추정이 `author`로 떨어지면 저자가 강등 기록 없이 판정하고 receipt는 `subagent`를 봉인한다. 그 필드는 whitelist에 없어 **arbiter에게는 도달하지 않는다**. 판정은 **존재 검사가 아니라 유효성 probe**다 — `[ -f ]`는 파손 JSON을 통과시키고 그러면 runner가 30분 타임아웃을 다 쓰고서야 죽는다. probe는 exit 0/1만 내며(stdout 비움) probe 자체가 죽어도 비영점이라 "무효"로 떨어진다. **검증이 publish보다 먼저** 온다: arbiter는 rename할 수 없어 `$ADJUDICATION.tmp`에 쓰고 명령 본문이 원자적으로 publish하는데, 검증 없이 옮기면 runner에게 파손된 읽기를 건네게 된다.
+
+강등 원인은 **열거하지 않는다**(에이전트 미등록·도구 거부·에러·취소·산출 부재·파손이 전부 같은 분기). 강등 쓰기는 create-exclusive(`link(2)` 우선, `wx` fallback)라 늦게 도착한 유효 산출을 덮지 않고 **강등을 취소**하며, 재-probe와 조건부 쓰기는 한 프로세스 안에서 이뤄진다. **신규 재구성 함수는 0개** — 판정 내용은 M1과 동일하게 저자 LLM이 쓴다. default verdict를 채우는 코드가 있으면 강등이 곧 자동 승인이 되어 M1이 막은 "기록 없는 수용"이 부활한다. 사유는 절대 비지 않는다(`unknown-task-failure` · `replaced-invalid-arbiter-output`) — 빈 사유는 강등 기록 전체를 무효로 만든다.
+
+#### M2가 주장하지 않는 것
+
+- **심판이 옳아지지 않는다.** 저자의 근거를 볼 수 없게 될 뿐이다.
+- **위조 방지가 아니다.** 같은 권한으로 Node를 실행할 수 있는 주체는 receipt를 직접 봉인할 수 있다.
+- **기본 모드에서 intent 축은 여전히 skip된다** — `MCCP_PLAN_REVIEW` 미설정 → `multi-agent` → 패널 carve-out. 이 milestone의 게이트 실행이 실증했다. 귀속이 diverse-agent-review PRD라 M3 후보로 남긴다. 잔여의 안전 논증은 intent 축에 기대지 않는다(패널 승인은 dedupe를 만족하지 못하므로 terminal `/mccp:pr`에서 PR-Codex가 반드시 발화한다).
+- **심판 판단의 품질은 이번 사이클에서 반증 불가다.** 배선은 test로 고정했고 품질은 머지 후 라이브 완주로 이연한다.
+
+배경: [상세](docs/codex-intent-context/arbiter-separation.md)
+
+---
+
 ### 3.14 (임시) 리뷰 finding 수용 임계 — HIGH 이상만 흡수
 
 > **임시 규칙이다. 아래 「해제 조건」이 충족되면 이 절을 통째로 삭제한다.**
@@ -832,6 +867,8 @@ v0.2.8부터 validate-cmd가 generic decision_id(`default`/`main`) + `--plan` �
 **canonical 레퍼런스는 [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) §3 "운영 토글 색인 (canonical)"입니다.** 토글 이름·종류·값·기본값이 그 색인에 있고, 판정 순서·흡수 이력·사용 예시는 색인이 가리키는 `docs/environment/*.md` 상세 8장에 있습니다. 기본값을 여기 옮겨 적으면 두 문서가 곧 어긋나므로 이 절에는 값을 적지 않습니다.
 
 설정 위치는 `.claude/settings.json`의 `env` 블록 또는 셸입니다. 게이트가 막혔을 때 가장 먼저 보는 축은 `MCCP_RECEIPT_GATE_MODE`(receipt 게이트 강도) · `MCCP_CODEX_DISABLED`(Codex 호출 skip) · `MCCP_SKIP_RECEIPT`(1회 bypass) 셋이며, 정확한 값과 실패 모드는 위 문서를 보세요.
+
+`/mccp:plan`의 intent 축에는 토글이 셋 더 있습니다 — `MCCP_INTENT_MISLABEL`(오심 탐지 강도, §3.13.1) · `MCCP_INTENT_ARBITER`(심판이 subagent인가 저자인가, §3.13.2) · `MCCP_SKIP_INTENT_GATE`(audited override). 셋 다 값과 판정 순서는 위 문서가 소유합니다.
 
 ---
 

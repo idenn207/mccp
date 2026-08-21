@@ -38,6 +38,7 @@ const { execFileSync } = require('child_process');
 
 const ic = require('./intent-context');
 const iclaims = require('./intent-claims');
+const iarb = require('./intent-arbiter');
 const codexInvoke = require('./codex-invoke');
 const codexPayload = require('./codex-review-payload');
 const receiptWrite = require('../receipt/write');
@@ -94,6 +95,12 @@ function paths(tmpDir, decisionId, nonce) {
     adjudication: path.join(tmpDir, 'intent-adjudication-' + nonce + '.json'),
     marker: path.join(tmpDir, 'intent-marker-' + nonce + '.json'),
     envelope: path.join(tmpDir, 'intent-envelope-' + nonce + '.json'),
+    // M2 — the command body writes the arbiter prompt here (plan.md 5.5a-1). It is
+    // named by this module so the `finally` below can remove it: it carries the same
+    // findings + constraints the awaiting artifact does, and leaving it behind would
+    // keep that content on disk after the run, under the caller's umask rather than
+    // the 0600 `writePrivate` uses for everything this process writes itself.
+    arbiterPrompt: path.join(tmpDir, 'intent-arbiter-prompt-' + nonce + '.txt'),
   };
 }
 
@@ -375,6 +382,16 @@ function run(opts, deps) {
     });
     const mislabelActive = mislabelMode !== 'off';
 
+    // M2 DD5 1번 — 이 축의 env는 여기서 **읽지 않는다**. 요구 모드는 명령 본문이
+    // `parseArbiterMode(env)`로 정해 `--arbiter-mode`로 넘겨준다. 두 프로세스가 각자
+    // env를 해석하면 서로 다른 답을 낼 수 있고, 그때 봉인값은 어느 쪽 사실도 아니게
+    // 된다. 그 축의 환경변수 **이름조차 이 파일에 등장하지 않는다**는 것을 e2e가
+    // 스캔으로 단언한다 — 나중에 누가 "편의상" fallback을 넣는 회귀를 사람 리뷰가
+    // 아니라 test가 잡게 하기 위해서다(이름을 주석에 적으면 그 스캔이 자기 주석에
+    // 걸려 무력해진다).
+    const arbiterMode = iarb.ARBITER_MODES.indexOf(o.arbiterMode) !== -1
+      ? o.arbiterMode : iarb.DEFAULT_ARBITER_MODE;
+
     const envelope = invoke(o.focus || '', {
       env: env,
       timeoutMs: o.codexTimeoutMs,
@@ -418,6 +435,10 @@ function run(opts, deps) {
     let decision;
     let comparison = null;
     let claims = null;
+    // M2 — 강등 판정 결과. skip 경로에서는 adjudication 자체가 없으므로 null로 남고,
+    // receipt에도 null이 실린다: 심판이 붙은 적 없는 실행에 `subagent`를 찍으면
+    // 일어나지 않은 분리를 주장하게 된다.
+    let arbiterSeal = null;
     if (skipProof) {
       decision = { verdict: 'skipped', skipProof: skipProof, counts: null,
         reason: 'gate does not apply (' + skipProof + ')' };
@@ -448,6 +469,22 @@ function run(opts, deps) {
         // (DD11 — awaiting은 아래 finally가 삭제하는 임시 파일이라 그 안의 digest는
         // 증거가 될 수 없다).
         mislabel_mode: mislabelMode,
+        // M2 — 요구 심판 모드를 여기 싣는다. 5.2z가 계산한 `$ARBITER_MODE` 셸 변수는
+        // 도구 호출을 건너 살아남지 않고 **디스크 어디에서도 복구되지 않는데**, 5.5a의
+        // 분기가 그 값을 키로 쓴다. 잃어버린 본문이 `author`로 추정하면 강등 기록 없이
+        // 저자가 판정하고, argv로 진짜 값을 쥔 이 프로세스는 `subagent`를 봉인한다 —
+        // 일어나지 않은 분리를 주장하는 receipt다. 그래서 권위 있는 값을 본문이 어차피
+        // 읽는 파일에 둔다(`mislabel_mode`와 같은 이유·같은 자리).
+        //
+        // arbiter에게는 새어 가지 않는다: `ARBITER_PROJECTION_KEYS` whitelist에 없기
+        // 때문이며, 그것이 blacklist가 아닌 whitelist를 고른 값을 치르는 지점이다.
+        arbiter_mode: arbiterMode,
+        // M2 — arbiter projection의 원천이자 author 경로의 대조 자료. `plan_path`는
+        // 위에 그대로 둔다: awaiting은 저자 경로가 계속 쓰는 파일이고, arbiter 격리는
+        // 필드 삭제가 아니라 whitelist projection + 도구 부재가 맡는다(DD1). 여기서
+        // 지워 봐야 `Read`를 가진 주체는 경로를 추측할 수 있고, 다음에 추가되는
+        // 필드가 같은 누출을 다시 연다.
+        intent_items: Array.isArray(section.items) ? section.items : [],
         claims_digest: claims ? ic.canonicalDigest(claims.claims) : null,
         reviewer_contract: claims
           ? iclaims.compareIntentClaims({ claims: claims, adjudications: [] }).compliance
@@ -476,6 +513,27 @@ function run(opts, deps) {
       if (!parsed.ok) {
         return finish(EX_BLOCKED, { verdict: 'incomplete',
           reason: 'adjudication file rejected: ' + parsed.reason });
+      }
+
+      // M2 DD5 8·9번. 봉인되는 것은 "subagent가 이 파일을 썼다"는 증명이 아니라
+      // **이 실행이 요구한 심판 모드와 관측된 강등**이다 — 이 프로세스는 파일을 누가
+      // 썼는지 관측할 수 없다(DD4). 모순 조합만 여기서 죽인다: `author`를 요구했는데
+      // 강등 기록이 실려 오면 강등할 것이 없었다는 뜻이고, 조용히 무시하면 파일이
+      // 주장하는 이력과 봉인값이 어긋난 채 통과한다.
+      arbiterSeal = iarb.resolveArbiterSeal({
+        requiredMode: arbiterMode,
+        degraded: parsed.value.arbiter_degraded || null,
+      });
+      if (arbiterSeal.conflict) {
+        return finish(EX_BLOCKED, { verdict: 'incomplete',
+          // 이 사유 문구는 그 env 변수의 **이름을 적지 않는다**. e2e의 count-0 스캔이
+          // 접근 형태(process.env.X · env["X"])가 아니라 이름 자체를 보기 때문이고,
+          // 그 무딤이 의도다 — 이름이 이 파일에 있으면 다음 유지보수자가 "이미 알고
+          // 있으니 여기서 읽자"로 간다. 토글 이름은 docs/ENVIRONMENT.md가 소유한다.
+          reason: 'adjudication carries arbiter_degraded but this run required ' +
+            '--arbiter-mode author — there was nothing to degrade from. Re-run ' +
+            '/mccp:plan with the default (separated) arbiter mode, or drop the ' +
+            'arbiter_degraded key from the adjudication file.' });
       }
       // ④ 대조는 ①의 **지역 변수**를 읽는다. awaiting을 다시 읽는 코드는 없다.
       //
@@ -614,6 +672,13 @@ function run(opts, deps) {
         claims_digest: claims ? ic.canonicalDigest(claims.claims) : null,
         mislabel_disputes: comparison ? countValidDisputes(comparison) : null,
         mislabel_audit: buildMislabelAudit(comparison, payload),
+        // M2 — 심판 축. 사유는 **강등이 실제로 적용됐을 때만** 봉인한다(write.js:569의
+        // 페어링 선례). 적용되지 않은 값의 사유를 남기면 일어나지 않은 일을 정당화한
+        // 기록이 되고, schema가 그 조합을 거부한다.
+        arbiter: arbiterSeal ? arbiterSeal.arbiter : null,
+        arbiter_degraded_reason:
+          (arbiterSeal && arbiterSeal.arbiter === 'author' && arbiterSeal.reason)
+            ? arbiterSeal.reason : null,
       },
     }));
 
@@ -687,6 +752,11 @@ function run(opts, deps) {
     // fully consumed — the decision was derived from it before this block runs.
     try { if (fs.existsSync(p.awaiting)) fs.unlinkSync(p.awaiting); } catch (_) {}
     try { if (fs.existsSync(p.adjudication)) fs.unlinkSync(p.adjudication); } catch (_) {}
+    // M2 — the arbiter prompt is the same class of scratch: caller-authored (so it
+    // lands with the ambient umask, not this module's 0600) and holding the same
+    // findings the awaiting artifact does. It is cleaned here rather than by the
+    // command body because a cleanup step in prose is a step that can be skipped.
+    try { if (fs.existsSync(p.arbiterPrompt)) fs.unlinkSync(p.arbiterPrompt); } catch (_) {}
     // Clean exit — drop our own registry record so SessionEnd has nothing to
     // reclaim. Sits beside releaseLock because it is the same "this run is over"
     // teardown.
@@ -770,6 +840,9 @@ function parseArgs(argv) {
     if (a === '--adjudication-timeout-ms' && i + 1 < argv.length) {
       o.adjudicationTimeoutMs = parseInt(argv[++i], 10); continue;
     }
+    // M2 DD5 1번 — 요구 심판 모드는 **인자로만** 들어온다. 이 파일이 env를 다시
+    // 해석하지 않는다는 것이 봉인값이 명령 본문의 결정과 일치한다는 유일한 근거다.
+    if (a === '--arbiter-mode' && i + 1 < argv.length) { o.arbiterMode = argv[++i]; continue; }
     // Audit pass-through for flags the command body used to hand to cli.js
     // write. NOTE: there is deliberately NO `--intent-*` flag here — the intent
     // decision is programmatic-only (Implement-Codex R1 F2).

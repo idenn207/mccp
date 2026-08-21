@@ -947,3 +947,120 @@ test('M1.5 — a mislabel verdict cannot claim the axis was off', function () {
     assert.ok(v.errors.join(' ').indexOf('only when it ran') !== -1, v.errors.join(' '));
   });
 });
+
+// ── M2 — arbiter axis receipt surface ────────────────────────────────────────
+//
+// Two present-only fields with one pairing rule between them. The rule lives in
+// schema.js, not only here: a rule that exists only in a test leaves the runtime
+// acceptance path taking receipts the schema says are impossible.
+
+const ARBITER_KEYS = ['intent_arbiter', 'intent_arbiter_degraded_reason'];
+
+test('M2 — the arbiter fields are present-only, so pre-M2 receipts are untouched', function () {
+  withRepo(FREE_FORM_PLAN, function (repo, planRel) {
+    const r = write({ gate: 'mccp-implement-codex', decision: 'ig-x', plan: planRel });
+    assert.strictEqual(validate(r.receipt).ok, true);
+    ARBITER_KEYS.forEach(function (k) {
+      assert.strictEqual(Object.prototype.hasOwnProperty.call(r.receipt.meta, k), false,
+        k + ' must not be materialized on an out-of-scope receipt');
+    });
+  });
+});
+
+test('M2 — an in-scope run stamps both keys, and a separated run stamps no reason', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: goodDecision({ arbiter: 'subagent' }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
+    assert.strictEqual(r.receipt.meta.intent_arbiter, 'subagent');
+    assert.strictEqual(r.receipt.meta.intent_arbiter_degraded_reason, null);
+  });
+});
+
+test('M2 — a degraded run seals the fallback AND its reason', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: goodDecision({
+        arbiter: 'author', arbiter_degraded_reason: 'unknown-task-failure',
+      }),
+    });
+    assert.strictEqual(validate(r.receipt).ok, true, JSON.stringify(validate(r.receipt).errors));
+    assert.strictEqual(r.receipt.meta.intent_arbiter, 'author');
+    assert.strictEqual(r.receipt.meta.intent_arbiter_degraded_reason, 'unknown-task-failure');
+  });
+});
+
+test('M2 — the pairing is enforced by the SCHEMA, not merely by the writer', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: goodDecision({ arbiter: 'subagent' }),
+    });
+    // Hand the validator the shape the writer refuses to produce. If the rule
+    // lived only in write.js, this receipt would be accepted on the read side —
+    // and the read side is where an operator's evidence comes from.
+    ['subagent', null].forEach(function (arbiter) {
+      const forged = JSON.parse(JSON.stringify(r.receipt));
+      forged.meta.intent_arbiter = arbiter;
+      forged.meta.intent_arbiter_degraded_reason = 'unknown-task-failure';
+      const v = validate(forged);
+      assert.strictEqual(v.ok, false, 'arbiter=' + JSON.stringify(arbiter));
+      assert.match(v.errors.join(' '), /degradation reason without a degradation/);
+    });
+  });
+});
+
+test('M2 — an out-of-enum arbiter value is rejected', function () {
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: goodDecision({ arbiter: 'subagent' }),
+    });
+    const forged = JSON.parse(JSON.stringify(r.receipt));
+    forged.meta.intent_arbiter = 'somebody-else';
+    assert.strictEqual(validate(forged).ok, false);
+  });
+});
+
+test('M2 — both fields are inside receipt_hash: there is no carve-out', function () {
+  const { receiptHash } = require('../hash');
+  withRepo(PRD_PLAN, function (repo, planRel) {
+    const r = write({
+      gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel,
+      intentDecision: goodDecision({
+        arbiter: 'author', arbiter_degraded_reason: 'unknown-task-failure',
+      }),
+    });
+    assert.strictEqual(receiptHash(r.receipt), r.receipt.receipt_hash, 'baseline');
+
+    // An audit field outside the hash is an unsigned field, and validate-cmd's
+    // receipt-tamper check would pass straight over an edit to it.
+    const flipped = JSON.parse(JSON.stringify(r.receipt));
+    flipped.meta.intent_arbiter = 'subagent';
+    flipped.meta.intent_arbiter_degraded_reason = null;
+    assert.notStrictEqual(receiptHash(flipped), r.receipt.receipt_hash);
+
+    const reworded = JSON.parse(JSON.stringify(r.receipt));
+    reworded.meta.intent_arbiter_degraded_reason = 'replaced-invalid-arbiter-output';
+    assert.notStrictEqual(receiptHash(reworded), r.receipt.receipt_hash);
+  });
+});
+
+test('M2 — the direct-write carve-outs null the arbiter axis explicitly, not by omission', function () {
+  // Same reasoning as the mislabel axis one milestone earlier: leaving the keys
+  // OFF would make a receipt written today indistinguishable from one that
+  // predates M2, and the schema's present-only contract says absence means the
+  // latter.
+  withRepo(FREE_FORM_PLAN, function (repo, planRel) {
+    const r = write({ gate: 'mccp-plan-codex', decision: 'ig-x', plan: planRel });
+    assert.strictEqual(r.receipt.meta.intent_gate_verdict, 'skipped');
+    ARBITER_KEYS.forEach(function (k) {
+      assert.strictEqual(Object.prototype.hasOwnProperty.call(r.receipt.meta, k), true,
+        k + ' must be written as null on the free-form carve-out');
+      assert.strictEqual(r.receipt.meta[k], null);
+    });
+  });
+});

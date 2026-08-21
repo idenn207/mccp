@@ -628,3 +628,127 @@ test('a raw-text element runs to EOF when never closed; other blocks end at a bl
   });
   assert.strictEqual(six.claims[0].claim, 'UI1', 'a blank line ends a type-6 block');
 });
+
+// ── M2 Task 2 — the two imported backlog defects (2026-08-13 HIGH + MEDIUM) ──
+//
+// Both live in stripQuotedStructures and both are STRUCTURAL: quoting was not
+// decided in one place. The HIGH direction is fail-open (three CommonMark start
+// conditions were never implemented, so a quoted `INTENT:` counted as a real
+// claim); the MEDIUM direction is fail-closed (the comment stripper ran as a
+// whole-text pre-pass that could not see fences, so a `<!--` inside a fenced
+// EXAMPLE truncated the rest and swallowed the real claim after it). Opposite
+// directions, one cause — which is why they close in one change.
+
+test('(a) an INTENT line inside a type 3/4/5 HTML block is not a claim', function () {
+  const ids = [{ id: 'UI1' }];
+  [
+    ['type 5 CDATA', '<![CDATA[\nINTENT: none\n]]>'],
+    ['type 3 processing instruction', '<?php\nINTENT: none\n?>'],
+    // The declaration's end condition is a line containing `>`, so the INTENT
+    // line has to sit BEFORE that terminator to be inside the block at all.
+    ['type 4 declaration', '<!DOCTYPE\nINTENT: none\nhtml>'],
+  ].forEach(function (pair) {
+    const r = icl.parseReviewerClaims({
+      findings: [{ title: 'x', body: pair[1], recommendation: '' }],
+      sectionItems: ids,
+    });
+    assert.strictEqual(r.claims[0].status, 'unclaimed', pair[0]);
+  });
+});
+
+test('(a) a one-line declaration ends on its own line and does not swallow the next', function () {
+  // Deliberate boundary, not an oversight. CommonMark ends a type-4 block at the
+  // line containing `>`, so in `<!DOCTYPE html>` the block is that line alone and
+  // the next line renders as ordinary visible text. Extending the block to the
+  // next blank line would be over-stripping of the kind round 13 already had to
+  // undo (the inline `<code>` false block). A realistic quoted HTML document is
+  // still covered: what actually follows `<!DOCTYPE html>` is `<html>`, which is
+  // a type-6 block and swallows to the blank line.
+  const ids = [{ id: 'UI1' }];
+  const bare = icl.parseReviewerClaims({
+    findings: [{ title: 'x', body: '<!DOCTYPE html>\nINTENT: UI1', recommendation: '' }],
+    sectionItems: ids,
+  });
+  assert.strictEqual(bare.claims[0].claim, 'UI1', 'the declaration ended on its own line');
+
+  const document = icl.parseReviewerClaims({
+    findings: [{ title: 'x', body: '<!DOCTYPE html>\n<html>\nINTENT: none\n</html>', recommendation: '' }],
+    sectionItems: ids,
+  });
+  assert.strictEqual(document.claims[0].status, 'unclaimed',
+    'a real quoted document continues into a type-6 block, which does swallow it');
+});
+
+test('(b) the second line of a multi-line comment is still inside the comment', function () {
+  // The anchor requires line start, so a single-line `<!-- INTENT: none -->` was
+  // never matched. Line 2 of a multi-line comment IS at line start.
+  const r = icl.parseReviewerClaims({
+    findings: [{ title: 'x', body: 'prose\n<!--\nINTENT: none\nINTENT: UI1\n-->', recommendation: '' }],
+    sectionItems: [{ id: 'UI1' }],
+  });
+  assert.strictEqual(r.claims[0].status, 'unclaimed');
+  assert.strictEqual(r.claims[0].reason, 'no-anchor',
+    'both commented lines are gone, so this is no-anchor and not multiple-anchors');
+});
+
+test('(c) a standalone complete tag opens a block (type 7 shares the type 6 rule)', function () {
+  // Lock-in, not a fix: HTML_BLOCK_START_RE already matches any line-start tag,
+  // so type 7 was covered by the same superset that covers type 6. Asserting it
+  // keeps a future narrowing of that regex to a type-6 tag CATALOGUE from
+  // silently reopening the fail-open direction.
+  const r = icl.parseReviewerClaims({
+    findings: [{ title: 'x', body: '<custom-el></custom-el>\nINTENT: none', recommendation: '' }],
+    sectionItems: [{ id: 'UI1' }],
+  });
+  assert.strictEqual(r.claims[0].status, 'unclaimed');
+});
+
+test('(d) a fenced example containing <!-- does not swallow the real claim after it', function () {
+  // The MEDIUM defect verbatim. As a whole-text pre-pass the comment stripper cut
+  // from the first `<!--` to EOF wherever it appeared, so a reviewer who QUOTED a
+  // comment lost its own claim and read as non-compliant — under `enforce` that
+  // blocks the author for honouring the contract.
+  const r = icl.parseReviewerClaims({
+    findings: [{ title: 'x', body: '```html\n<!--\n```\n\nINTENT: UI1', recommendation: '' }],
+    sectionItems: [{ id: 'UI1' }],
+  });
+  assert.strictEqual(r.claims[0].claim, 'UI1');
+});
+
+test('(e) a blockquoted <!-- does not swallow the real claim after it either', function () {
+  const r = icl.parseReviewerClaims({
+    findings: [{ title: 'x', body: '> quoting an earlier note:\n> <!--\n\nINTENT: UI1', recommendation: '' }],
+    sectionItems: [{ id: 'UI1' }],
+  });
+  assert.strictEqual(r.claims[0].claim, 'UI1');
+});
+
+test('(f) a mid-line comment start is still honoured, and keeps the visible prefix', function () {
+  // Intentional divergence from CommonMark, which anchors the type-2 start
+  // condition to line start. A comment opened mid-line still hides everything
+  // after it from anyone reading the rendered finding, and that — not block
+  // structure — is what this stripper defends. Narrowing to line start would be a
+  // fail-OPEN change, so this test exists to make that narrowing fail loudly.
+  const r = icl.parseReviewerClaims({
+    findings: [{ title: 'x', body: 'INTENT: UI1 <!-- hidden from here on\nINTENT: none', recommendation: '' }],
+    sectionItems: [{ id: 'UI1' }],
+  });
+  assert.strictEqual(r.claims[0].claim, 'UI1',
+    'the visible prefix is a real claim; the hidden second line must not make it ambiguous');
+});
+
+test('(g) an unclosed comment runs to EOF, unless it was quoted in the first place', function () {
+  const ids = [{ id: 'UI1' }];
+  const unquoted = icl.parseReviewerClaims({
+    findings: [{ title: 'x', body: 'prose\n<!--\nINTENT: UI1', recommendation: '' }],
+    sectionItems: ids,
+  });
+  assert.strictEqual(unquoted.claims[0].status, 'unclaimed', 'unclosed comment swallows to EOF');
+
+  const quoted = icl.parseReviewerClaims({
+    findings: [{ title: 'x', body: '    <!--\n\nINTENT: UI1', recommendation: '' }],
+    sectionItems: ids,
+  });
+  assert.strictEqual(quoted.claims[0].claim, 'UI1',
+    'an indented-code `<!--` is an example, so it never opens a comment at all');
+});

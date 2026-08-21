@@ -97,6 +97,7 @@
 |`MCCP_INTENT_MISLABEL`|enum|enforce/warn/off|enforce|오심 대조 모드.|[→](environment/review.md#mccp_intent_mislabel)|
 |`MCCP_SKIP_INTENT_GATE`|string|—|—|intent 게이트 override.|[→](environment/review.md#mccp_skip_intent_gate)|
 |`MCCP_INTENT_ADJUDICATION_TIMEOUT_MS`|int|—|—|판정 대기 상한.|[→](environment/review.md#mccp_intent_adjudication_timeout_ms)|
+|`MCCP_INTENT_ARBITER`|enum|subagent/author|subagent|판정 주체(심판 분리).|[→](environment/review.md#mccp_intent_arbiter)|
 |`MCCP_DESIGN_CRITIQUE_MAX_RETRY`|int|—|2|critique 재시도 상한.|[→](environment/review.md#mccp_design_critique_max_retry)|
 |`MCCP_DESIGN_GROUNDING`|enum|enforce/warn/off|enforce|grounding lint 모드.|[→](environment/review.md#mccp_design_grounding)|
 |`MCCP_DESIGN_INTENT_REASON`|string|—|—|critique 강제 override.|[→](environment/review.md#mccp_design_intent_reason)|

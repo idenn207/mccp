@@ -321,3 +321,70 @@ test('(R) the M1.5 verdicts get their own guidance, not the incomplete text', fu
     'mislabel_unresolved has two concrete resolutions and must name them: ' + b);
   assert.notStrictEqual(a, b, 'the two M1.5 verdicts must not share one message');
 });
+
+// ── M2 — the degradation fact rides along with the blocking recovery text ─────
+//
+// An extra SENTENCE, not an extra verdict. Minting `degraded_incomplete`,
+// `degraded_inconclusive` and so on would double the verdict enum to say one
+// thing that is equally true of all of them, and every consumer that switches on
+// the verdict would need the new arms.
+
+// NOT named `blockingReason` — that name is already taken above by a helper that
+// takes a repo. A second declaration would hoist over it and silently hand every
+// earlier test the wrong argument.
+function blockingReasonOf(res) {
+  const hit = res.blocking.filter(function (b) { return b.kind === 'intent_gate_incomplete'; })[0];
+  assert.ok(hit, 'expected a blocking intent verdict, got ' + JSON.stringify(blockingKinds(res)));
+  return hit.reason;
+}
+
+test('M2 — a blocking verdict reached after a degradation says so', function () {
+  const repo = makeRepo();
+  seedPlanReceipt(repo, {
+    intent_gate_verdict: 'incomplete',
+    intent_plan_digest: planAwareMarkdownHash(repo.planAbs),
+    intent_arbiter: 'author',
+    intent_arbiter_degraded_reason: 'unknown-task-failure',
+  });
+  const reason = blockingReasonOf(validateImplement(repo));
+  assert.match(reason, /degraded to author adjudication \(unknown-task-failure\)/,
+    'the operator reads this verdict differently once the author was the judge');
+  assert.match(reason, /every finding was adjudicated/,
+    'and the verdict-specific guidance must still be there — the note is additive');
+});
+
+test('M2 — a separated run adds nothing to the recovery text', function () {
+  const repo = makeRepo();
+  seedPlanReceipt(repo, {
+    intent_gate_verdict: 'incomplete',
+    intent_plan_digest: planAwareMarkdownHash(repo.planAbs),
+    intent_arbiter: 'subagent',
+    intent_arbiter_degraded_reason: null,
+  });
+  const reason = blockingReasonOf(validateImplement(repo));
+  assert.doesNotMatch(reason, /degraded to author/);
+});
+
+test('M2 — a run that ASKED for the author is not reported as a degradation', function () {
+  // `author` alone is a choice, not a fallback. Reporting it as a degradation
+  // would tell the operator something failed when nothing did.
+  const repo = makeRepo();
+  seedPlanReceipt(repo, {
+    intent_gate_verdict: 'incomplete',
+    intent_plan_digest: planAwareMarkdownHash(repo.planAbs),
+    intent_arbiter: 'author',
+    intent_arbiter_degraded_reason: null,
+  });
+  assert.doesNotMatch(blockingReasonOf(validateImplement(repo)), /degraded to author/);
+});
+
+test('M2 — a legacy receipt with no arbiter keys keeps its M1 recovery text verbatim', function () {
+  const repo = makeRepo();
+  seedPlanReceipt(repo, {
+    intent_gate_verdict: 'incomplete',
+    intent_plan_digest: planAwareMarkdownHash(repo.planAbs),
+  });
+  const reason = blockingReasonOf(validateImplement(repo));
+  assert.doesNotMatch(reason, /degraded/);
+  assert.match(reason, /INTEGRITY: do NOT hand-write this receipt/);
+});

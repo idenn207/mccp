@@ -2,7 +2,57 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.31.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.31.0] — 2026-08-21
+
+> **§3.7**: `1.30.1 → 1.31.0` (**minor** — M3는 codex-intent-context PRD의 **최종
+> milestone**이고, 이로써 PRD 전 milestone(M1 · M1.5 · M2 · M3)이 적용·종료된다).
+> 병렬 브랜치 충돌 점검: 미머지 `diverse-agent-review-m7`이 `1.30.2`를 선점하고 있어
+> patch 자리는 이미 좁다 — minor 자리는 충돌하지 않는다. 4면(plugin.json ·
+> html.js page-foot · markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께
+> 맞췄고, `i18n-surface.test.js`는 manifest에서 파생하므로 리터럴 동기가 필요 없다.
+> **target은 `/mccp:pr` 직전에 한 번 더 재계산한다**(§3.7 실측 4회 재발).
+
+**codex-intent-context M3 — hybrid L3 배선 복구 (minor, `1.30.1 → 1.31.0`)** — `MCCP_PLAN_REVIEW=hybrid`는 오라클(`decide.js`)·스키마·receipt 필드가 M1에 전부 실렸는데도 **실행 경로가 죽어 있었다.** M3는 배선만 고친다 — 발화 대상의 자동 판정은 `diverse-agent-review` PRD 소관으로 남긴다.
+
+### 무엇이 죽어 있었나
+
+`plan.md` 5.2f Step 1은 "5.2z의 Codex 블록을 *verbatim* 실행하라"고 지시했다. 그런데 그 블록이 띄우는 것은 `plan-codex-runner.js`이고, 그것의 임무는 `mccp-plan-codex` receipt를 쓰는 것이다 — 그리고 패널 경로에서는 5.6b가 같은 receipt를 쓴다. 결과는 둘 중 하나였고 어느 쪽도 hybrid가 아니었다: runner가 경합에서 이겨 L1/L2 proof가 생기기 전에 receipt를 봉인하거나, `$CODEX_STDOUT`이 애초에 설정되지 않아(hybrid는 그것이 대입되는 5.2z 블록에 진입하지 않는다) 5.2f가 `invoked:false`를 쓰고 `decide`가 `unavailable`로 접는 — 즉 **항상 HALT하는 모드**.
+
+### 이중 writer는 순서가 아니라 부재로 닫혔다
+
+순서를 보장하려면 hybrid에서도 runner를 띄운 뒤 완료를 기다려야 하고, 그러면 receipt writer가 둘인 상태 자체는 유지된다. L3를 receipt를 쓰지 않는 전용 서브커맨드 `plan-review/cli.js l3`로 분리하면 hybrid에서 runner가 **존재하지 않으므로** 순서 요건이 사라진다. 남는 것은 "5.2f의 fenced bash에 `plan-codex-runner`가 0회 등장한다"는 정적 단언 하나이고, 그것은 test 하나에 걸린 방어가 아니라 구조다.
+
+`l3`는 receipt·adjudication·lock을 갖지 않는다. `invoked:false`도 exit 0이고, **아티팩트를 쓰지 못한 경우에만** exit 12다 — 그 경우 `decide`는 어차피 fail-closed지만 사유를 "L3가 안 돌았다"로 잘못 말하게 되므로, 정확한 원인을 그 자리에서 올린다. 차단 권한은 `decide` 단독이다.
+
+### 레코드를 셸이 조립하지 못하게 했다
+
+옛 Step 2는 `printf '{"invoked":true,"verdict":"%s"...}' "$L3_VERDICT"`로 JSON을 만들었다. fence를 넘은 셸 변수는 비어 있는 것이 정상이므로 `"verdict":""`가 그대로 파일에 실렸다 — `REVIEW_VERDICT_VALUES`가 금지하는 값이고, `decide.js`가 하류에서 방어해야 했던 바로 그 값이다. 신규 순수 오라클 `buildL3Record`는 그것을 **구성할 수 없다**: `classification==='ok' ∧ blocking≠true ∧ exit===0`일 때만 verdict를 뽑고, enum 밖이면 `verdict` 키 **없이** `invoked:false`로 접는다.
+
+`verdict:'unavailable'`도 쓰지 않는다. 둘 다 fail-closed지만 후자는 "Codex가 말했고 그 말이 unavailable이었다"를 주장한다 — companion의 어휘는 `approve` | `needs-attention`뿐이라 그런 발화는 없었다. 판독 불가한 payload도 같은 이유로 `invoked:false`로 접힌다.
+
+### 아티팩트 4종 · nonce · 조기 HALT
+
+- **순서가 계약이다.** `codex-verdict` → `codex-class` → `l3-findings.json` → `l3.json` 순으로 쓰고 poll은 `l3.json` 하나만 본다. 네 번의 tmp+rename은 네 번의 원자 연산이지 한 번이 아니므로, 마지막에 쓰인 파일의 존재가 나머지 셋의 존재를 함의하게 만드는 것이 유일하게 얻을 수 있는 보장이다. 하나라도 실패하면 exit 12이고 `l3.json`은 남지 않는다(회귀 test가 `codex-class` 자리에 디렉토리를 놓아 실제로 재현한다). bridge 2종은 hybrid에서 **읽는 쪽이 없다**(5.6b가 `l3.json`에서 읽고 `mode=codex`는 이 서브커맨드를 부르지 않는다) — 유지 사유는 DD5의 파일명 계약과 평문 trace이고, all-or-nothing이 지키는 것은 소비자가 아니라 `l3.json`이 완주를 뜻한다는 사실이다.
+- **stale 판별은 레코드 안의 `run_nonce`**다. `l3.json`의 이름은 고정이라(5.2z와 달리 이 커맨드는 자기 파일명을 소유하지 않는다) 판별자가 본문에 실려야 한다. nonce·deadline·pid는 전부 아티팩트로 남는다 — poll은 나중 fence의 블록이고, 자기 deadline을 재도출하는 poll은 재진입마다 시계를 되감아 영원히 timeout하지 못한다.
+- **`MCCP_PLAN_REVIEW=hybrid` 단독 설정이 에이전트 0개로 멈춘다.** `MCCP_PLAN_REVIEW_L3` 기본값이 `off`라 mode만 켠 운영자는 매번 확정된 HALT에 도달했고, M3 이전에는 L2 패널을 전부 지불한 **뒤에** 도달했다. 신규 5.2a-0이 `mode.json`의 `hybrid_without_l3`를 읽어 5.2b(예약) **앞에서** 멈춘다. 새 정책이 아니라 이미 결정된 결과를 앞당기는 것이라 예약 반환도 없다.
+- **승격 사실 봉인은 신규 필드 없이** `meta.review_l3_reason`으로 한다. `write.js`가 이미 받는데 5.6b가 forward하지 않아, 모든 hybrid receipt가 "L3가 발화했다"만 기록하고 무엇을 보았는지는 기록하지 않았다 — boolean 하나로는 structured `approve`와 free-text fallback을 구분할 수 없다.
+
+### ship 직전 code-review 흡수 (2026-08-21)
+
+- **`--invoke-module`이 Codex 없이 `converged`를 주조했다 (HIGH).** L3 test seam이 production 게이트 바이너리에 그대로 열려 있었고, `{classification:'ok', stdout:'{"result":{"verdict":"approve"}}'}`를 돌려주는 대역 하나면 `verdict-source=structured`인 `converged`가 나온다 — 진짜 Codex 승인과 바이트 동일하고, hybrid는 `CROSS_MODEL_SOURCES` 원소라 그 값이 `/mccp:pr`의 cross-gate dedupe를 연다. 주석은 이것을 *"a TEST SEAM, not a policy seam"* 이라 적고 있었고 근거로 든 enum 검사는 **어휘만** 제약한다(누가 말했는지는 아니다). test 이름도 *"cannot approve what the real one could not"* 였는데 실제로는 enum 밖 값 하나만 넣고 있었다. → `MCCP_PLAN_REVIEW_TEST_INVOKE=1` 없이는 `EX_BLOCK`, 주석을 사실로 정정, test는 **양쪽을 다 단언**한다(대역이 실제로 `converged`를 만든다는 것 + 게이트가 그것을 막는다는 것). §3.13.2대로 이것이 위조를 불가능하게 만들지는 않는다 — 없앤 것은 *표식 없는* 주조 경로다.
+- **5.6b가 poll의 nonce 판정을 물려받고 있었다.** `l3.json`은 이름이 고정이고 poll은 앞선 fence의 블록이라, 그 사이 세 번째 실행이 레코드를 갈아치울 수 있다. verdict와 `review_l3_reason` 양쪽 read가 **직접 재대조**한다(불일치·부재 → 빈 값 → flag drop, fail-closed). 이전 문언의 "by construction"은 과장이었고 3면에서 정정했다.
+- **poll의 TOCTOU가 완주한 실행을 `died-without-record`로 오판할 수 있었다.** 자식은 `l3.json`을 rename한 **뒤** 종료하므로 그 사이에 떨어진 probe는 파일도 프로세스도 못 본다. `kill -0` 실패 분기가 결론 전에 파일을 다시 확인한다 — 창은 마이크로초지만 대가는 끝난 900s Codex 호출의 폐기다.
+- **문서 정정 3건** — (a) `plan.md` 5.2f Step 1이 *"5.6b is unchanged — it still reads `codex-verdict`"* 라고 적어 같은 파일 5.6b의 F1 흡수와 정면으로 모순됐다. (b) bridge 2종은 hybrid에서 읽는 쪽이 **없는데** all-or-exit-12 규칙과 순서 계약의 근거가 그 소비 관계를 인용하고 있었다 — 근거를 `l3.json`의 완주 의미 쪽으로 다시 세웠다. (c) 출하 4면(CLAUDE.md · gate-design.md · CHANGELOG · cli.js 주석 + test 이름)이 "아티팩트 3종"이라 적는데 코드는 4종을 쓴다(`l3-findings.json`이 라이브 실행 후 추가되며 내부 산출물만 갱신됐다).
+- **`writePrivate`가 EEXIST에서 자기가 만들지 않은 파일을 unlink**했다 — `'wx'`를 넣은 취지의 정반대다. 그 경우만 정리를 건너뛴다.
+- **이연 2건** — `parseArgs`가 `--`로 시작하는 값을 플래그로 오인하는 것(전역 파서라 blast radius가 이 diff 밖) · `santa-loop-cap.test.js`가 프로젝트 자신의 `MCCP_REVIEW_SINGLE_PASS` 설정 아래에서 27건 red인 것(변경 목록 밖). 둘 다 [backlog](.claude/plans/codex-findings-backlog.md) 등재.
+
+### 주장하지 않는 것
+
+- **어떤 plan이 L3를 받을지는 여전히 사람이 env로 정한다.** 신호 기반 자동 판정 오라클은 만들지 않았다(UI2·UI3).
+- **Codex를 다른 벤더로 교체하지 않았고**, 리뷰어 독립성은 완화까지만이다(UI7).
+- **라이브 완주 상태는 PRD와 report에 그대로 적는다** — 초록 test를 완주로 바꿔 부르지 않는다.
 
 ## [1.30.2] — 2026-08-21
 

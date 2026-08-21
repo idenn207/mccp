@@ -31,17 +31,17 @@ M4는 budget 게이트를 **구조적 도달 불가**에서 벗어나게 했고(
 | UI11 | Gemini 등 다른 외부 모델을 도입하지 않는다 | exclusion |
 | UI12 | budget 게이트가 라이브로 발화해 agent 0개 spawn과 실측 잔량이 남아야 한다 | direction |
 
-## Preconditions — 이번에는 런타임이 막지 않는다 (실측 2026-08-16)
+## Preconditions — 이번에는 런타임이 막지 않는다 (재실측 2026-08-21)
 
 #4·#6의 이관 사유는 매번 "설치된 런타임에 그 코드가 없다"였다(UI8). 이번에는 그렇지 않다 — 아래는 이 저장소·이 머신에서 실측한 것이다.
 
 | 축 | 실측값 |
 |---|---|
-| installed plugin | `1.25.1` (`installed_plugins.json`, `lastUpdated` 2026-08-16) |
-| 설치 트리 ↔ 워크트리 | `workflows/plan-review.js` · `plan-review/budget.js` · `plan-review/record.js` **바이트 동일** (`diff -q` 3건 무출력) |
+| installed plugin | `1.30.0` (`installed_plugins.json`) — 이 워크트리 `plugin.json`과 동일 |
+| 설치 트리 ↔ 워크트리 | `workflows/plan-review.js` · `plan-review/{budget,record,cli,decide}.js` **바이트 동일** (`diff -q` 5건 무출력) |
 | `cli.js mode` | `mode=multi-agent` · `fires.l1/l2=true`, `l3=false` · `quorum 3of4` · `roles_min=3` · `fleet_keys=[architect, security, test, invariant]` |
 | `derive-decision` | `--command mccp:plan --args .claude/prds/diverse-agent-review.prd.md` → `diverse-agent-review` |
-| env | `MCCP_CODEX_DISABLED=1` · `MCCP_PLAN_REVIEW` 미설정(→ multi-agent) · `MCCP_PLAN_REVIEW_BUDGET` 미설정(→ 기본 150000) |
+| env | `MCCP_CODEX_DISABLED=1` · `MCCP_PLAN_REVIEW=multi-agent` · `MCCP_PLAN_REVIEW_BUDGET` 미설정(→ 기본 150000) · `MCCP_REVIEW_SINGLE_PASS=deadline_pressure` · `MCCP_PLAN_REVIEW_ROLES_MIN=5`는 열거 밖 값이라 loud warn 후 3으로 fail-open(실측) |
 
 즉 **UI8의 순환은 이 milestone에 없다**. 관측 대상 코드가 이미 설치돼 있으므로 머지 전에 관측이 성립한다.
 
@@ -79,6 +79,16 @@ M4는 budget 게이트를 **구조적 도달 불가**에서 벗어나게 했고(
 
 **DN6 — 예산 목표를 낮추는 것은 시뮬레이션이 아니다.** UI5가 금지하는 것은 **실행 경로의 대체**다(test harness가 워크플로 소스를 추출해 실행하는 것). 예산 목표는 이 게이트가 존재 이유로 삼는 바로 그 입력이며, 그것을 실제로 낮춘 turn에서 프로덕션 경로가 그대로 실행된다. 무엇을 어떤 값으로 설정했는지는 보고서가 축자로 남긴다 — 조건을 숨기고 발화만 보고하는 것이 부정직이지, 조건을 밝히고 발화시키는 것은 아니다. **`MCCP_PLAN_REVIEW_BUDGET`은 기본값 그대로 둔다**: 게이트 자신의 임계를 건드리지 않고 turn 쪽 조건만 만족시키는 편이 관측으로서 더 강하다.
 
+**DN9 — 예산 목표의 전달 경로는 harness 계약이며 저장소에 없다. 그래서 여기 적는다.**
+`budget`은 `Workflow` primitive가 workflow 스크립트에 주입하는 전역이고, `budget.total`은 **그 turn의 사용자 프롬프트에 실린 `+Nk` 형태의 토큰 목표**다 — 목표가 없으면 `null`이다(harness 계약, `plan-review.js:160`이 `budget.remaining()`을 호출하는 지점의 입력). 따라서 관측 절차의 입력은 다음 하나다:
+
+> 운영자가 새 turn의 **프롬프트 본문에 `+200k`를 포함**시킨 채 `/mccp:plan .claude/prds/diverse-agent-review.prd.md`를 실행한다.
+
+env 변수가 아니고(`MCCP_PLAN_REVIEW_BUDGET`은 *리뷰어당 임계*이지 turn 목표가 아니다), 커맨드 플래그도 아니며, 저장소 코드가 만들 수 있는 값도 아니다 — 그래서 DN1이 이 절차를 자동화하지 않고 규정만 한다. **round 0 패널이 이 gap을 정확히 지목했다**(test/CRITICAL: "no part of the plan's text documents how the operator supplies this budget goal") — 지적은 실재했고 메커니즘은 존재했으며, 빠져 있던 것은 그 메커니즘의 기술이었다. 같은 라운드의 "integration test가 없다"(test/HIGH)는 흡수하지 않는다: UI6·UI9가 신규 test 파일을 금하고, 이 milestone의 증거는 test가 아니라 **라이브 실행 자체**다(UI5의 대칭 — 시뮬레이션이 라이브의 증거가 아니듯, 라이브 관측에 시뮬레이션 test를 요구하는 것도 축이 다르다). 근거는 backlog에 남긴다.
+
+**DN10 — 이 plan의 CREATE 행은 정확히 한 번만 유효하다. 그것은 L1이 작동하는 모습이다.**
+`Files to Change`의 두 CREATE 행은 Task 2·4가 만드는 파일이므로, **구현이 끝난 뒤** 이 본문으로 게이트를 다시 돌리면 L1이 `C3_CREATE_EXISTS`를 낸다(`l1-check.js:333`). 이것은 결함이 아니라 L1의 계약이며 M4가 자기 plan을 사후 검사했을 때 같은 형태로 실측됐다(PRD: "L1이 제 일을 한 것이다"). 이 저장소의 모든 plan이 같은 성질을 갖는다 — 게이트는 구현 **전에** 한 번 돌고, 그 시점에 산출물은 아직 없다(DN4가 Task 순서로 그것을 보장한다). **round 0 패널은 이를 "재실행 시 영구 무효"(architect/HIGH x2)로 읽었고, 절반만 맞다**: 재실행이 막히는 것은 사실이고 그 사실이 문서에 없던 것도 사실이라 여기 적는다. 그러나 "DN4가 규정한 순서를 plan 자신이 위반한다"는 두 번째 주장은 성립하지 않는다 — DN4는 CREATE 행이 존재하기 **때문에** 순서를 규정한 것이므로 둘은 모순이 아니라 원인과 대책이다. 멱등 cleanup을 넣지 않는 이유도 같다: 산출물을 지우는 절차는 관측 기록을 지우는 절차이고, 그것이 O3이 이미 실측한 손실 형태다.
+
 **DN7 — 이 plan이 게이트 승인을 못 받을 수 있다(M6 실측).** #6은 4회 라이브에서 승인 0건이었고 관점 단위로 16회 중 pass 2회였다. 승인이 나지 않으면 receipt가 없어 `/mccp:prp-implement`가 시작되지 않는다. 그때의 경로는 M6 DN2와 같다 — `MCCP_PLAN_REVIEW=codex` 폴백이며, 현 환경의 `MCCP_CODEX_DISABLED=1` 때문에 `codex_verdict='skipped'`가 봉인된다. `skipped`는 `converged`가 아니므로 cross-gate dedupe는 fail-closed로 남고 terminal `/mccp:pr`에서 PR-Codex가 발화한다 — cross-model 검증은 제거되는 것이 아니라 ship 지점으로 이동한다. **어느 경로를 탔든 보고서 `## 승인자 기록`이 그것을 적는다.**
 
 **DN8 — 통과 경로 지표는 이 milestone이 주장하지 않되, 관측되면 숨기지도 않는다.** PRD Success Metrics의 통과 경로 행은 현재 forward-only이고 그 관측은 #8에 의존한다. 만약 **이 plan 자신의 게이트**가 승인으로 끝났다면 그 순간 통과 경로가 1회 관측된 것이므로 Task 3이 실측치를 기입한다(UI3은 미관측을 달성으로 적는 것을 금할 뿐, 관측된 것을 지우라고 하지 않는다). 승인이 나지 않았다면 행은 forward-only 그대로 두고 사유를 갱신한다. **어느 쪽이든 #8은 닫히지 않는다** — 1회 승인은 캘리브레이션이 아니다.
@@ -90,10 +100,10 @@ M4는 budget 게이트를 **구조적 도달 불가**에서 벗어나게 했고(
 | `.claude/reviews/plan-review-diverse-agent-review-m7-budget.md` | CREATE | budget 발화 관측 레코드를 slug 공유 덮어쓰기(O3)에서 분리해 고정 |
 | `.claude/PRPs/reports/diverse-agent-review-m7-report.md` | CREATE | B1~B3의 근거 · 관측 조건 축자 · provenance · 승인자 기록 |
 | `.claude/prds/diverse-agent-review.prd.md` | UPDATE | #7 status + Outcome 확정 · Evidence에 "M7 실측" · Success Metrics 갱신 · Open Questions |
-| `plugins/mccp/.claude-plugin/plugin.json` | UPDATE | `1.25.1 → 1.25.2` (§3.7 patch — PRD 전체는 미완료) |
+| `plugins/mccp/.claude-plugin/plugin.json` | UPDATE | `1.30.0 → 1.30.1` (§3.7 patch — PRD 전체는 미완료) |
 | `plugins/mccp/scripts/lib/renderer/html.js` | UPDATE | page-foot version 동기 |
 | `plugins/mccp/scripts/lib/renderer/markdown.js` | UPDATE | derived 줄 version 동기 |
-| `CHANGELOG.md` | UPDATE | `[1.25.2]` 항목 + versioning note의 `currently` 갱신 |
+| `CHANGELOG.md` | UPDATE | `[1.30.1]` 항목 + versioning note의 `currently` 갱신 |
 
 > 이 plan 파일 자신은 표에 없다 — L1이 CREATE 행을 실존으로 검사하므로(DN4) 이미 존재하는 파일을 CREATE로 적으면 게이트가 자기 plan을 반려한다. `plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js`도 없다: 기대 version을 `plugin.json`에서 파생하므로 수정 대상이 아니라 검증 수단이다(M6 D5). `plugins/mccp/commands/` · `plugins/mccp/scripts/lib/plan-review/` · `plugins/mccp/scripts/workflows/`는 **한 줄도 바꾸지 않는다**(UI6) — 신규 test 파일도 만들지 않는다. 이 milestone은 동작을 바꾸지 않으므로 새 test는 수정 전 실패를 가질 수 없고, UI9가 그런 test를 회귀로 인정하지 않는다. 필요한 기계 검증은 Validate 블록의 인라인 단언이 수행한다.
 
@@ -103,7 +113,7 @@ M4는 budget 게이트를 **구조적 도달 불가**에서 벗어나게 했고(
 
 O3 때문에 `.claude/reviews/plan-review-diverse-agent-review.md`는 이 PRD의 모든 실행이 공유하며 무조건 덮어써진다. 관측 turn이 그 파일을 지우기 전에 저장소 **밖** 스크래치로 복사한다 — 저장소에 파일을 만들면 Task 2의 L1이 `C3_CREATE_EXISTS`로 막힌다(DN4).
 
-- **Action**: `.claude/reviews/plan-review-diverse-agent-review.md`(이번 `/mccp:plan` 실행이 남긴 레코드)를 `$(git rev-parse --git-path mccp/tmp)/m7-gate-record.md`로 복사하고, 그 `## Measurement` JSON을 콘솔에 전사해 세션에 남긴다. 파일이 없으면(mode=codex 폴백으로 진입한 경우) 그 사실 자체를 기록하고 넘어간다 — 없는 레코드를 만들지 않는다.
+- **Action**: `.claude/reviews/plan-review-diverse-agent-review.md`(이번 `/mccp:plan` 실행이 남긴 레코드)를 `$(git rev-parse --git-path mccp/tmp)/m7-gate-record.md`로 복사하고, 그 `## Measurement` JSON을 콘솔에 전사해 세션에 남긴다. 파일이 없으면(mode=codex 폴백으로 진입한 경우) 같은 디렉토리에 `m7-gate-record.absent` 마커를 쓰고 그 사유를 한 줄 담는다 — 없는 레코드를 만들지 않되, **"패널이 승인하지 않았다"와 "Task 1이 돌지 않았다"가 구분되게** 남긴다. 이 구분이 없으면 Task 3의 DN8 양방향 단언이 한쪽으로 공허해진다(round 0 security/HIGH가 지목한 형태).
 - **Mirror**: `.claude/reviews/plan-review-diverse-agent-review-m6-r4-blocked.md`의 고정 동기(O3, M6 DN3)
 - **Validate**:
 
@@ -113,9 +123,12 @@ const fs=require('fs'), cp=require('child_process');
 const dir=cp.execSync('git rev-parse --git-path mccp/tmp').toString().trim();
 const S=dir+'/m7-gate-record.md';
 const live='.claude/reviews/plan-review-diverse-agent-review.md';
+const ABS=S+'.absent';
+if(fs.existsSync(S) && fs.existsSync(ABS)) throw new Error('both capture and absent-marker exist — approval state is ambiguous');
 if(!fs.existsSync(S)){
   if(fs.existsSync(live)) throw new Error('live record exists but was not captured to '+S);
-  console.log('no gate record produced (codex-mode fallback) — recorded as absent, not fabricated');
+  if(!fs.existsSync(ABS)) throw new Error('no capture and no absent-marker at '+ABS+' — Task 1 did not run; approval state is unknown, not false');
+  console.log('no gate record produced (codex-mode fallback) — marked absent at '+ABS+', not fabricated');
   process.exit(0);
 }
 const md=fs.readFileSync(S,'utf8');
@@ -133,9 +146,9 @@ console.log('captured gate record: verdict='+j.verdict+' halt_stage='+j.halt_sta
 이 milestone의 본체다. **저장소 산출물을 하나도 만들기 전에** 실행한다(DN4).
 
 - **Action**: 네 단계로 나뉜다.
-  1. **관측 전 고정** — 이 plan의 sha256을 계산해 기록하고, 본문 사본을 `$(git rev-parse --git-path mccp/tmp)/m7-plan-before.md`에 둔다(DN3).
-  2. **운영자 turn 발행** — 운영자가 **예산 목표 `+200k`를 실은 새 turn**에서 `/mccp:plan .claude/prds/diverse-agent-review.prd.md`를 실행한다. `MCCP_PLAN_REVIEW_BUDGET`은 건드리지 않는다(DN6). 기대 결과는 5.2e HALT이며 stop 메시지가 `remaining`/`minRemaining`을 이름으로 부른다.
-  3. **캡처** — 그 turn이 남긴 `.claude/state/plan-review/l2.json` · `decision.json`과 `.claude/reviews/plan-review-diverse-agent-review.md`를 읽어 `l2.json` 전문을 보고서용으로 보존하고, 레코드를 `.claude/reviews/plan-review-diverse-agent-review-m7-budget.md`로 고정한다. H1을 파일명에 맞추고 provenance 주석에 `plan_sha256_before: <hex>`와 관측 조건(예산 목표 값 · `MCCP_PLAN_REVIEW_BUDGET` 미설정)을 적되 **`## Measurement` 블록은 바이트 무변경**으로 둔다(M6 D3).
+  1. **관측 전 고정** — 이 plan의 sha256과 **그 시점의 UTC ISO 시각**(`observed_after`)을 기록하고, 본문 사본을 `$(git rev-parse --git-path mccp/tmp)/m7-plan-before.md`에 둔다(DN3). `observed_after`가 시간 앵커다 — 이것 없이는 이전 실행의 레코드를 복사해 놓아도 모든 단언이 통과한다(round 0 invariant/HIGH).
+  2. **운영자 turn 발행** — 운영자가 **예산 목표 `+200k`를 실은 새 turn**에서 `/mccp:plan .claude/prds/diverse-agent-review.prd.md`를 실행한다. **전달 경로는 DN9가 규정한다 — env도 플래그도 아니고 turn 프롬프트 본문의 `+200k` 토큰이다.** `MCCP_PLAN_REVIEW_BUDGET`은 건드리지 않는다(DN6). 기대 결과는 5.2e HALT이며 stop 메시지가 `remaining`/`minRemaining`을 이름으로 부른다.
+  3. **캡처** — 그 turn이 남긴 `.claude/state/plan-review/l2.json` · `decision.json`과 `.claude/reviews/plan-review-diverse-agent-review.md`를 읽어 `l2.json` 전문을 보고서용으로 보존하고, 레코드를 `.claude/reviews/plan-review-diverse-agent-review-m7-budget.md`로 고정한다. H1을 파일명에 맞추고 provenance 주석에 `plan_sha256_before: <hex>` · `observed_after: <ISO>` · 관측 조건(예산 목표 값 · `MCCP_PLAN_REVIEW_BUDGET` 미설정)을 적되 **`## Measurement` 블록은 바이트 무변경**으로 둔다(M6 D3). `record.js`가 그 블록에 쓰는 `recorded_at`이 `observed_after`보다 **엄격히 뒤**여야 하며, 그것이 이 레코드가 이번 관측의 산물임을 만드는 유일한 근거다.
   4. **되돌림** — 1단계 사본으로 plan 본문을 복원하고 sha256이 일치하는지 확인한다.
 - **Mirror**: `.claude/reviews/plan-review-diverse-agent-review-m6-r4-blocked.md` (고정 + provenance 주석 + 측정 블록 무변경)
 - **Validate**:
@@ -176,7 +189,15 @@ if(!want) throw new Error('pinned record carries no plan_sha256_before');
 const got=crypto.createHash('sha256').update(fs.readFileSync(P)).digest('hex');
 if(got!==want) throw new Error('plan body not restored: '+got+' != '+want);
 
-console.log('live budget firing: remaining '+rem+' < minRemaining '+min+' · halted 5.2e in '+j.wall_clock_ms+'ms · plan restored');
+// (d) 이 레코드가 이번 관측의 산물이다 — 이전 실행 사본이 아니다 (round 0 invariant/HIGH)
+const after=(md.match(/observed_after:\s*(\S+)/)||[])[1];
+if(!after) throw new Error('pinned record carries no observed_after — a stale copy would pass every check above');
+const t0=Date.parse(after), t1=Date.parse(j.recorded_at);
+if(!Number.isFinite(t0)) throw new Error('observed_after is not a parsable timestamp: '+after);
+if(!Number.isFinite(t1)) throw new Error('Measurement.recorded_at is not a parsable timestamp: '+j.recorded_at);
+if(!(t1>t0)) throw new Error('recorded_at '+j.recorded_at+' is not after observed_after '+after+' — this record predates the observation, so it is not its evidence');
+
+console.log('live budget firing: remaining '+rem+' < minRemaining '+min+' · halted 5.2e in '+j.wall_clock_ms+'ms · plan restored · recorded '+j.recorded_at+' > '+after);
 "
 ```
 
@@ -206,8 +227,23 @@ for(const n of [8,5,9]) if(!/pending/.test(rowOf(n)||'')) throw new Error('#'+n+
 // DN8 — 통과 경로 행은 관측과 일치해야 한다. 둘 다 강제한다.
 const pass=lines.find(l=>l.includes('plan 게이트 wall-clock (통과 경로)'));
 if(!pass) throw new Error('Success Metrics pass-path row not found');
-const rec='.claude/reviews/plan-review-diverse-agent-review-m7-gate.md';
-const approved=fs.existsSync(rec) && /\"verdict\": \"converged\"/.test(fs.readFileSync(rec,'utf8'));
+// 승인 여부의 출처는 Task 1이 캡처한 **이 게이트 자신의** 레코드다. 이전 판본은
+// 어떤 Task도 만들지 않는 `-m7-gate.md`를 봤고, 그래서 approved가 항상 false라
+// 양방향 단언의 한쪽이 공허했다(round 0 security/HIGH). 부재는 false가 아니라
+// **판독 불가**이며 그때는 멈춘다 — Task 1의 absent 마커만이 false를 뜻한다.
+const tmp=require('child_process').execSync('git rev-parse --git-path mccp/tmp').toString().trim();
+const rec=tmp+'/m7-gate-record.md';
+let approved;
+if(fs.existsSync(rec)){
+  const g=fs.readFileSync(rec,'utf8');
+  const gm=g.slice(g.indexOf('Measurement')).match(/[\`]{3}json\r?\n([\s\S]*?)\r?\n[\`]{3}/);
+  if(!gm) throw new Error('captured gate record has no measurement fence: '+rec);
+  approved=JSON.parse(gm[1]).verdict==='converged';
+} else if(fs.existsSync(rec+'.absent')){
+  approved=false;   // codex-mode 폴백 — 패널 통과 경로는 정의상 미관측
+} else {
+  throw new Error('no captured gate record and no absent-marker at '+rec+' — approval state is unknown; run Task 1 before Task 3');
+}
 const hasNum=/[0-9][0-9,]*\s*(ms|초|분)/.test(pass);
 if(approved && !hasNum) throw new Error('a pass path WAS observed — the row must carry it (DN8)');
 if(!approved && hasNum) throw new Error('no pass path observed — the row must stay forward-only (UI3)');
@@ -218,7 +254,7 @@ console.log('PRD updated: #7 complete · pass-path row consistent with observati
 
 ### Task 4: 보고서에 조건과 증거와 승인자를 기록한다
 
-- **Action**: `.claude/PRPs/reports/diverse-agent-review-m7-report.md`에 필수 절을 둔다 — `## Summary` · `## 선행 조건`(installed `1.25.1` · `diff -q` 3건 · `cli.js mode` 출력 전사 — UI8의 순환이 이번엔 없다는 근거) · `## 관측 조건`(발행한 예산 목표 값과 `MCCP_PLAN_REVIEW_BUDGET`을 건드리지 않았다는 사실을 **축자로**, DN6) · `## B1`·`## B2`·`## B3` · `## agent 0 spawn 증명`(DN5의 3층과 **그 한계**) · `## 승인자 기록`(이 plan이 패널 승인으로 구현됐는지 codex 폴백이었는지, DN7) · `## 한계` · `## Acceptance 대조`. Task 2가 보존한 `l2.json` 전문을 fenced JSON으로 싣는다.
+- **Action**: `.claude/PRPs/reports/diverse-agent-review-m7-report.md`에 필수 절을 둔다 — `## Summary` · `## 선행 조건`(installed `1.30.0` · `diff -q` 5건 · `cli.js mode` 출력 전사 — UI8의 순환이 이번엔 없다는 근거) · `## 관측 조건`(발행한 예산 목표 값과 `MCCP_PLAN_REVIEW_BUDGET`을 건드리지 않았다는 사실을 **축자로**, DN6) · `## B1`·`## B2`·`## B3` · `## agent 0 spawn 증명`(DN5의 3층과 **그 한계**) · `## 승인자 기록`(이 plan이 패널 승인으로 구현됐는지 codex 폴백이었는지, DN7) · `## 한계` · `## Acceptance 대조`. Task 2가 보존한 `l2.json` 전문을 fenced JSON으로 싣는다.
 - **Mirror**: `.claude/PRPs/reports/diverse-agent-review-m6-report.md` 구조 (Assessment vs Reality + provenance 구분 + Acceptance 대조 표)
 - **Validate**:
 
@@ -239,7 +275,7 @@ console.log('report OK');
 
 ### Task 5: version과 CHANGELOG를 동기한다
 
-- **Action**: `plugin.json`을 `1.25.2`로 올리고 `html.js` page-foot·`markdown.js` derived 줄을 같은 값으로 맞춘 뒤 CHANGELOG에 `[1.25.2]` 항목과 versioning note의 `currently` 값을 갱신한다. 항목 본문은 **동작 코드 0줄에 관측·기록 milestone**임을 밝히고 관측 조건을 한 줄로 남긴다. 병렬 브랜치가 `1.25.2`를 선점했으면 §3.7 forward-only로 한 칸 올리고 5면을 다시 맞춘다.
+- **Action**: `plugin.json`을 `1.30.1`로 올리고 `html.js` page-foot·`markdown.js` derived 줄을 같은 값으로 맞춘 뒤 CHANGELOG에 `[1.30.1]` 항목과 versioning note의 `currently` 값을 갱신한다. 항목 본문은 **동작 코드 0줄에 관측·기록 milestone**임을 밝히고 관측 조건을 한 줄로 남긴다. **target은 두 번 재계산한다**(§3.7 — 병렬 브랜치 충돌은 브랜치를 딴 시점이 아니라 머지·PR 사이에도 열려 있다): base 머지 해소 시점과 `/mccp:pr` 진입 직전. 선점됐으면 forward-only로 한 칸 올리고 **동기 4면**(`plugin.json` · `html.js` page-foot · `markdown.js` derived 줄 · CHANGELOG heading + `currently`)을 다시 맞춘다 — `i18n-surface.test.js`는 기대값을 `plugin.json`에서 파생하므로 동기 대상이 아니라 검증 수단이다.
 - **Mirror**: `CLAUDE.md` §3.7 version 동기 + forward-only 상향
 - **Validate**:
 
@@ -248,7 +284,10 @@ node --test "plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js"
 node -e "
 const fs=require('fs');
 const v=require('./plugins/mccp/.claude-plugin/plugin.json').version;
-if(!/^1\.25\.[2-9][0-9]*$/.test(v)) throw new Error('plugin.json not bumped past 1.25.1: '+v);
+const cmp=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);
+  for(let i=0;i<3;i++){if((x[i]|0)!==(y[i]|0)) return (x[i]|0)<(y[i]|0)?-1:1;} return 0;};
+if(!/^\d+\.\d+\.\d+$/.test(v)) throw new Error('plugin.json version is not semver: '+v);
+if(cmp(v,'1.30.0')<=0) throw new Error('plugin.json not bumped past the installed baseline 1.30.0: '+v);
 for(const f of ['plugins/mccp/scripts/lib/renderer/html.js','plugins/mccp/scripts/lib/renderer/markdown.js'])
   if(!fs.readFileSync(f,'utf8').includes('v'+v)) throw new Error(f+' footer version stale (want v'+v+')');
 const cl=fs.readFileSync('CHANGELOG.md','utf8');
@@ -296,7 +335,7 @@ node --test "plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js"
 | "agent 0개 spawn"을 증명보다 강하게 주장한다 | Medium | DN5 — 3층 증명과 그 한계를 함께 적고, Task 4 Validate가 한계 문장의 부재를 실패로 처리한다 |
 | 관측 레코드가 다음 실행에 덮어써진다 (O3) | **High (실측 — 4회 중 3건 소멸)** | Task 2가 캡처 직후 고정한다. 고정 파일명이 실행 성격(`-m7-budget`)을 밝힌다 |
 | 이 plan이 패널 승인을 받지 못한다 | **High (M6 실측 — 16회 중 pass 2회)** | DN7 — `MCCP_PLAN_REVIEW=codex` 폴백이 문서화된 복구 경로이며 아무것도 세탁하지 않는다. 보고서 `## 승인자 기록`이 실제 경로를 남긴다 |
-| 병렬 브랜치가 `1.25.2`를 선점한다 | **Medium (7회 재발)** | §3.7 forward-only 상향 · Task 5 Validate가 heading 중복과 5면 drift를 검출 |
+| 병렬 브랜치가 `1.30.1`을 선점한다 | **Medium (7회 재발)** | §3.7 forward-only 상향 · target을 머지 해소 시점과 `/mccp:pr` 진입 직전 두 번 재계산 · Task 5 Validate가 heading 중복과 4면 drift를 검출 |
 | 통과 경로 지표를 이 milestone이 슬쩍 주장한다 | Medium | DN8 — Task 3 Validate가 관측 여부와 행 내용의 **양방향** 일치를 강제한다(관측했는데 안 적어도, 관측 못 했는데 적어도 실패) |
 
 ## Acceptance
@@ -306,23 +345,24 @@ node --test "plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js"
 - [ ] Patterns mirrored, not reinvented
 - [ ] 게이트/경로를 실제로 1회 완주하고 산출물을 확인 (단위 test 통과 ≠ 경로 작동) — **본 milestone은 라이브 `/mccp:plan` turn에서 budget 게이트가 발화해 `.claude/reviews/…-m7-budget.md`가 `layers.l2 = "skipped (budget: remaining R < M)"`를 담는 것으로 이를 충족한다**
 - [ ] 고정 레코드가 `verdict: "unavailable"` ∧ `halt_stage: "5.2e"` ∧ 정수 `wall_clock_ms` ∧ `remaining < minRemaining`을 담고, `minRemaining`이 도출된 집합 {450000, 600000} 안에 있다
+- [ ] 고정 레코드의 `recorded_at`이 관측 전 고정한 `observed_after`보다 **엄격히 뒤**다 — 이전 실행 레코드의 사본은 이 단언에서 실패한다 (round 0 invariant/HIGH 흡수)
 - [ ] 배송된 `plugins/mccp/scripts/workflows/plan-review.js`에서 budget 조기 반환이 `phase('Refute')`와 모든 `agent(` 호출보다 앞선다는 것이 인덱스로 검증됐다 (DN5b)
 - [ ] 관측 후 `.claude/plans/diverse-agent-review-m7.plan.md`의 sha256이 관측 전 값과 일치한다 (DN3)
 - [ ] 보고서 `## 관측 조건`이 발행한 예산 목표와 `MCCP_PLAN_REVIEW_BUDGET` 미변경을 축자로 담는다 (DN6)
 - [ ] 보고서 `## agent 0 spawn 증명`이 3층 근거와 **그 한계**를 함께 담는다 (DN5)
 - [ ] 보고서 `## 승인자 기록`이 이 plan이 실제로 어떤 경로로 구현됐는지 적는다 (DN7)
 - [ ] PRD Evidence가 B1·B2·B3을 각각 근거와 함께 담고, milestone #7이 `complete`이며 #8·#5·#9는 `pending`으로 남는다
-- [ ] PRD Success Metrics 통과 경로 행이 실제 관측과 일치한다 — 승인이 관측됐으면 수치를, 아니면 forward-only를 담는다 (DN8, UI3)
+- [ ] PRD Success Metrics 통과 경로 행이 실제 관측과 일치한다 — 승인이 관측됐으면 수치를, 아니면 forward-only를 담는다 (DN8, UI3). 승인 여부의 출처는 **Task 1이 캡처한 이 게이트 자신의 레코드**이며, 캡처도 absent 마커도 없으면 판독 불가로 **실패한다**(false로 접지 않는다 — round 0 security/HIGH 흡수)
 - [ ] `plugins/mccp/commands/` · `plugins/mccp/scripts/lib/plan-review/` · `plugins/mccp/scripts/workflows/` 변경 0줄, 신규 test 파일 0건 (UI6, UI9)
 - [ ] receipt schema · `receipt_hash` · git-tracked ship corpus 무변경 (UI4)
-- [ ] `plugin.json` `1.25.2` + `html.js`/`markdown.js` footer 동기, `i18n-surface.test.js` green
+- [ ] `plugin.json`이 `1.30.0`(installed baseline)보다 앞선 값 + `html.js`/`markdown.js` footer 동기 + CHANGELOG heading·`currently` 동기, `i18n-surface.test.js` green
 
 ## Design Critique
 
 - 트리거: `impeccable-detect --mode plan` → `design_signal=true` (axis a) · `skill_available=true` · `signal_files=[plugins/mccp/scripts/lib/renderer/html.js, plugins/mccp/scripts/lib/renderer/markdown.js, plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js]`
 - SKILL first-step: `plugins/mccp/skills/frontend-design-direction/SKILL.md` `## Output Constraints` Read 완료
-- 라운드: 1 (`MCCP_DESIGN_CRITIQUE_MAX_RETRY` 기본 2 — R0에서 종료) · verdict **CONVERGED** (`decideCritique({findings: [], round: 0, cap: 2})` 실측)
-- Assessment A — 이 plan이 도입하는 렌더 표면 변경은 footer version 리터럴 2건뿐이다 (`plugins/mccp/scripts/lib/renderer/html.js:1419` page-foot · `plugins/mccp/scripts/lib/renderer/markdown.js:163` derived 줄). 세 번째 signal 파일은 기대값을 `plugin.json`에서 파생하므로 수정 대상이 아니다.
+- 라운드: 1 (`MCCP_DESIGN_CRITIQUE_MAX_RETRY` 기본 2 — R0에서 종료) · verdict **CONVERGED** (`decideCritique({findings: [], round: 0, cap: 2})` 실측 · 2026-08-21 재실행에서 동일)
+- Assessment A — 이 plan이 도입하는 렌더 표면 변경은 footer version 리터럴 2건뿐이다 (`plugins/mccp/scripts/lib/renderer/html.js:1419` page-foot · `plugins/mccp/scripts/lib/renderer/markdown.js:163` derived 줄). 세 번째 signal 파일은 기대값을 `plugin.json`에서 파생하므로 수정 대상이 아니다. **2026-08-21 재실행**: round 0 흡수로 바뀐 것은 그 리터럴의 *값*(`1.25.2` → `1.30.1`)뿐이며 표면의 수·위치·구조는 무변경이므로 아래 네 판정이 그대로 성립한다.
   - 정보 위계 3단계(H15): heading 미변경 → PASS
   - 강조색 화면당 1개: 색·토큰 미변경 → PASS
   - raw markdown marker 금지: `markdown.js`의 `_derived from …_`은 markdown 표면 자신의 문법이고 `html.js`는 `<code lang="en">`로 정상 마크업 → PASS

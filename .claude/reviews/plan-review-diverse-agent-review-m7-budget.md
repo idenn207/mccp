@@ -1,4 +1,32 @@
-# Plan Review Panel — diverse-agent-review
+# Plan Review Panel — diverse-agent-review (M7 budget 관측 turn · 게이트 미발화)
+
+<!--
+  고정 사유 (O3) — 이 레코드의 slug는 PRD 경로 파생이라 이 PRD의 모든 실행이
+  `.claude/reviews/plan-review-diverse-agent-review.md` 한 파일을 공유하며 무조건
+  덮어써진다. M7 Task 2의 budget 관측 turn이 남긴 판을 그 덮어쓰기에서 분리해 고정한다.
+
+  plan_sha256_before: 8bdd6510a8f8806c462a77894eba7dcecaca4de2a28bfe855610c52e44c9634e
+  observed_after: 2026-08-21T01:30:23.108Z
+
+  관측 조건 (축자):
+    - 예산 목표: turn 프롬프트 본문에 `+200k`를 실었다 (DN9가 규정한 전달 경로).
+    - MCCP_PLAN_REVIEW_BUDGET: **설정하지 않았다** — 기본값 150000 그대로 두었다 (DN6).
+      게이트 자신의 임계를 건드리지 않고 turn 쪽 조건만 만족시키는 편이 관측으로서 강하다.
+    - MCCP_PLAN_REVIEW=multi-agent · MCCP_REVIEW_SINGLE_PASS=deadline_pressure ·
+      MCCP_CODEX_DISABLED=1 · MCCP_GATE_ROUND_CAP=3 (전부 기존 환경, 이번에 바꾸지 않았다).
+    - emit-workflow-args가 emit한 minRemaining = 600000 (기본 150000 x granted fleet 4).
+
+  관측 결과: **budget 게이트는 발화하지 않았다.**
+    - l2.json: skipped=false · coverage=4 · budget-skip 반환에만 실리는
+      remaining/minRemaining 키 부재. 패널이 agent 4개를 실제로 spawn했다(412,349 tokens).
+    - 0-agent 프로브 직접 실측: budget.total = null (typeof object · truthy false) ·
+      spent() = 102789 · remaining() = Infinity → plan-review.js:161 표현식 false.
+    - 즉 turn 프롬프트의 `+200k`가 harness의 토큰 목표로 등록되지 않았다. DN9가
+      "harness 계약"으로 단언한 전달 경로가 이 invocation 형태에서 성립하지 않는다.
+
+  아래 측정 블록은 record.js가 쓴 그대로 **바이트 무변경**이다 (M6 D3).
+  recorded_at 이 observed_after 보다 뒤인 것이 이 레코드가 이번 관측의 산물이라는 근거다.
+-->
 
 **Plan**: `.claude/plans/diverse-agent-review-m7.plan.md` · **Plan version**: `sha256:bce85ab6ad9faf5719edd759f67b79773e8e1a6f9c457ea3ec79be5c9492fcae`
 **Verdict**: `divergent` via `multi-agent`

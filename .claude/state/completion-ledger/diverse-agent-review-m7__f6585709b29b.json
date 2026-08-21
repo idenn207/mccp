@@ -1,0 +1,28 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "diverse-agent-review-m7",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.30.2",
+    "completed_at": "2026-08-21T05:27:59.774Z",
+    "commit_sha": "c9e941c35c005af4ac9b0c82d7b460375a52d042",
+    "plan_basename": "diverse-agent-review-m7.plan.md",
+    "plan_file_hash": "sha256:bce85ab6ad9faf5719edd759f67b79773e8e1a6f9c457ea3ec79be5c9492fcae",
+    "risks_closed": [
+      "관측 turn이 L1에서 막혀 L2가 발화하지 않고 budget 축이 미관측으로 끝난다",
+      "관측 turn이 이 plan 본문을 덮어써 `mccp-plan-codex` receipt가 stale이 된다",
+      "예산 목표가 없는 turn에서 관측을 시도해 게이트가 발화하지 않는다",
+      "예약이 3으로 degrade해 minRemaining이 450000이 되어 부등식이 달라진다",
+      "조건을 밝히지 않고 발화만 보고해 관측이 조작으로 읽힌다",
+      "\"agent 0개 spawn\"을 증명보다 강하게 주장한다",
+      "관측 레코드가 다음 실행에 덮어써진다 (O3)",
+      "이 plan이 패널 승인을 받지 못한다",
+      "병렬 브랜치가 `1.30.1`을 선점한다",
+      "통과 경로 지표를 이 milestone이 슬쩍 주장한다"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:f6585709b29b3fb10f2e4e066a309cdc688b43ffd4c52d9dc96f67f0c1429547",
+    "verdict_provenance": "codex-verdict"
+  }
+}

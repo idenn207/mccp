@@ -2,7 +2,76 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.30.2] — 2026-08-21
+
+> **§3.7**: `1.30.0 → 1.30.2` (**patch** — diverse-agent-review PRD의 단일 milestone #7이며
+> PRD 전체는 미완료다). **한 칸이 아니라 두 칸 올린 이유**: 진입 시점 재계산에서 `1.30.1`을
+> 미머지 형제 워크트리 **3개**(`codex-intent-context-m2` · `multi-session-work-loop-m7` ·
+> `santa-delta-review`)가 이미 선점하고 있었다(origin/main은 `1.30.0`). §3.7의 forward-only
+> 상향에 따라 현재 아무도 주장하지 않는 번호를 잡는다. **이 번호는 `/mccp:pr` 진입 직전 다시
+> 재계산해야 한다** — 위 3개 중 둘 이상이 먼저 머지되면 `1.30.2`도 밀린다. 4면(plugin.json ·
+> html.js page-foot · markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄고
+> `i18n-surface.test.js`가 재검증한다.
+
+---
+
+### Changed — diverse-agent-review #7: budget 게이트 라이브 발화 **관측(음성)**
+
+**동작 코드는 0줄 바꿨다.** 이 milestone이 소유하는 것은 관측과 그 기록이다.
+
+#4는 budget 게이트를 *구조적 도달 불가*에서 벗어나게 했고 #6은 그것을 관측하지 못했다. #7은
+라이브 발화를 관측하려 했고 — **관측하지 못했다.** 얻은 것은 발화가 아니라 **발화 불가의 원인**이다.
+
+- **B1 (실측)** — agent를 하나도 쓰지 않는 프로브로 `Workflow` primitive가 주입하는 값을 직접
+  읽었다: `budget.total = null` · `spent() = 102789` · `remaining() = **Infinity**`.
+  `plan-review.js:161`의 `budget.total && remaining < minRemaining`은 따라서 `false`다.
+  **`remaining()`이 `0`이 아니라 `Infinity`로 퇴화한다**는 것이 핵심이다 — 좌항 단락평가를
+  걷어내도 부등식이 거짓이므로 `MCCP_PLAN_REVIEW_BUDGET`을 포함한 **threshold 쪽 어떤 값으로도
+  이 게이트를 발화시킬 수 없다**.
+- **B2 (실측)** — 운영자가 turn 프롬프트 본문에 `+200k`를 실은 채 `/mccp:plan`을 실행했으나
+  `budget.total`은 `null`이었다. 패널은 정상 발화해 agent 4개를 spawn했고(`412,349` tokens)
+  `l2.json`은 `skipped:false` · `coverage:4`이며 budget-skip 반환에만 실리는
+  `remaining`/`minRemaining` 키가 **없다**. 배선 결손이 아니다(`fleetKeys` 4개 반영 확인 →
+  args가 객체로 파싱됐고 형제 키 `minRemaining=600000`도 도달). plan DN9가 "harness 계약"으로
+  단언한 전달 경로를 **실측이 반증했다**.
+- **B3** — 게이트↔fan-out 비대칭은 **미관측**. 부족 상황 자체가 성립하지 않아 어느 쪽도 budget
+  분기에 들어가지 않았다(UI10 — 인접 측정을 목표 측정으로 승격하지 않는다).
+
+같은 turn의 L2 패널이 이 결함을 **먼저 지목했다** — `test/HIGH`: *"there is no test in this
+repository that verifies the Workflow harness actually extracts `+200k` from the prompt and sets
+`budget.total`."* 라이브 실행이 그 지적을 실측으로 확인했다.
+
+### 산출물
+
+- `.claude/reviews/plan-review-diverse-agent-review-m7-budget.md` — 관측 레코드 고정(O3의 slug
+  공유 덮어쓰기에서 분리). provenance 주석에 `plan_sha256_before`·`observed_after`·관측 조건을
+  축자로 남기고 `## Measurement` 블록은 **바이트 무변경**(M6 D3).
+- `.claude/PRPs/reports/diverse-agent-review-m7-report.md` — B1~B3 근거 · 관측 조건 축자 ·
+  agent 0 spawn 증명의 3층과 **그 한계** · 승인자 기록 · `l2.json` 전문 · Acceptance 대조.
+- `.claude/prds/diverse-agent-review.prd.md` — Evidence `M7 실측` 절 · `#7 complete` ·
+  **`#10` 신설**(라이브 발화 축 이관) · Success Metrics 통과 경로 행 forward-only 유지 ·
+  Open Questions 2건 추가.
+
+### 정직성 노트
+
+- **`#7`은 미달을 이관하면서도 `complete`다** — #6과 같은 규칙(판정을 바꾸지 않고 사유를
+  갱신한다). 소유하는 것은 "발화시켰다"가 아니라 **"실측으로 확정했다"**이다. 다만 사유의 종류가
+  세 번째로 달라졌다: #4·#6은 선행 조건이 milestone 밖(머지된 런타임)이라 **시간이 해소했고**,
+  #7은 전달 경로가 **저장소 밖**이라 시간이 해소하지 않는다. 그래서 #10의 Outcome은
+  "발화시킨다"가 아니라 **"전달 경로가 존재하는지 먼저 확정한다"**이다.
+- **통과 경로 지표는 이번에도 미산출**이다(네 번째 사유). 이 turn의 패널도 승인하지 않았고
+  (`divergent`, 관점 4 중 pass 2) 진행은 단일통과 토글이 냈다 — **토글이 낸 진행은 승인이
+  아니므로** wall-clock `482,116 ms`는 차단 경로 표본이다.
+- **plan Validate 3건이 이 결과로는 충족 불가**이며(Task 2(a) · Task 3 DN8 · Task 4의
+  `"reason":"budget"` 축자 요구) 문구를 조정해 통과시키지 않았다. 그중 Task 3 DN8은 **선재
+  결함**이다 — `hasNum` 정규식이 "How measured" 셀이 아니라 행 전체를 스캔해 Target 열의
+  `"10분"`을 관측치로 오인하며, HEAD 시점 PRD에서도 그렇다(실측). 상세는 보고서 Acceptance 대조.
+- 미흡수 blocking findings는 유실되지 않았다 — 5.2g2가 `codex-findings-backlog.md`에 신규 3건
+  (CRITICAL 1 · HIGH 2)을 기계 적재했다(중복 2건 skip).
+
+---
 
 ## [1.30.1] — 2026-08-16
 

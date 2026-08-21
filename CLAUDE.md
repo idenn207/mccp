@@ -640,6 +640,59 @@ M1은 **누락**을, M1.5는 **오심**을 닫았다. 둘 다 남긴 것이 하�
 
 ---
 
+### 3.13.3 hybrid L3 배선 (v1.31.0 — codex-intent-context M3)
+
+`MCCP_PLAN_REVIEW=hybrid`는 오라클·스키마·receipt 필드가 M1에 전부 실렸는데도 **실행 경로가
+죽어 있었다.** `plan.md` 5.2f가 "5.2z의 Codex 블록을 verbatim 실행하라"고 지시했고, 그 블록은
+receipt writer(`plan-codex-runner.js`)를 띄운다 — 5.6b가 같은 receipt를 쓰는 경로에서 writer가
+둘이 된다. M3는 **배선만** 고친다. 발화 대상 자동 판정은 여전히 없고 `diverse-agent-review` PRD 소관이다.
+
+**이중 writer는 순서가 아니라 부재로 닫힌다.** 순서를 보장해도 writer는 여전히 둘이다. L3를
+receipt를 쓰지 않는 전용 서브커맨드([`plan-review/cli.js l3`](plugins/mccp/scripts/lib/plan-review/cli.js))로
+분리하면 hybrid에서 runner가 **존재하지 않으므로** 순서 요건이 사라진다. 남는 것은 "5.2f에
+`plan-codex-runner`가 0회 등장한다"는 정적 단언 하나다. `l3`는 receipt·adjudication·lock을 갖지
+않으므로(`invoked:false`도 exit 0, 아티팩트를 못 쓴 경우만 exit 12) 차단 권한은 `decide` 단독이다.
+
+**레코드는 셸이 아니라 Node가 만든다.** 옛 5.2f는 `printf`로 JSON을 조립했고, fence를 넘은
+셸 변수는 비어 있는 것이 정상이라 `"verdict":""`가 그대로 실렸다 — 오라클 자신의 enum이 금지하는
+값이다. [`buildL3Record`](plugins/mccp/scripts/lib/plan-review/l3.js)는 그 값을 **구성할 수 없다**.
+Codex가 말하지 못한 모든 경우는 `{invoked:false, reason}`으로 접히고 `verdict:'unavailable'`을
+쓰지 않는다 — 둘 다 fail-closed지만 후자는 "Codex가 말했고 그 말이 unavailable이었다"를 주장한다.
+
+**아티팩트 4종은 원자적이지 않으므로 순서로 닫는다.** `codex-verdict` → `codex-class` →
+`l3-findings.json` → `l3.json` 순으로 쓰고, poll은 `l3.json` **하나만** 본다: 마지막에
+쓰이므로 그 존재가 나머지 셋의 존재를 함의한다. 하나라도 못 쓰면 exit 12이고 `l3.json`은
+남지 않는다. 파일명은 무변경이라 `mode=codex` 경로는 사거리 밖이다 — 다만 **5.6b는 hybrid에서
+바뀌었다**(아래 nonce 항). 그래서 bridge 2종은 hybrid에서 읽는 쪽이 없고, 유지 사유는 5.2z와의
+파일명 계약과 평문 trace다. 순서 규칙이 지키는 것은 소비자가 아니라 `l3.json`의 **의미**다.
+
+**stale 판별은 경로가 아니라 레코드 안의 `run_nonce`다.** `l3.json`의 이름은 고정이고
+(`decide`와 5.6b가 그 이름으로 읽는다) 5.2z처럼 파일명을 소유하지 않으므로 판별자가 본문에
+실려야 한다. nonce·deadline·pid는 전부 아티팩트다 — poll은 나중 fence의 블록이고, 자기 deadline을
+재도출하는 poll은 재진입마다 시계를 되감아 **영원히 timeout하지 못한다**.
+
+**가르는 것은 stale이지 동시 실행이 아니다.** `l3-run-nonce`도 이름이 고정이라 두 번째
+launch가 덮어쓰므로, 한 worktree에서 `/mccp:plan` 둘을 겹쳐 돌리면 첫 실행의 poll이 둘째의
+nonce를 기대하게 된다. 이는 L3 결함이 아니라 `REVIEW_DIR` 전체의 성질이다 — `l1.json` ·
+`l2.json` · `decision.json` · `proof.json` · `reservation.json` · `mode.json`이 똑같이 충돌하고,
+그래서 5.2 진입이 그 집합을 통째로 purge한다. 동시 게이트는 worktree를 나눠 돌린다(§3.8).
+hybrid에서 5.6b는 codex verdict(와 `review_l3_reason`)를 bridge 파일이 아니라 `l3.json`에서
+읽되, poll의 판정을 **물려받지 않고 nonce를 다시 대조한다** — poll은 앞선 fence의 블록이고 그
+사이 세 번째 실행이 레코드를 갈아치울 수 있으므로, 재대조가 있어야 "봉인된 verdict와 수용된
+레코드가 같은 실행"이 실제로 성립한다. 불일치·부재는 빈 값이라 `--codex-verdict`가 빠지고
+dedupe는 닫힌 채로 남는다.
+
+**hybrid는 env 2개를 함께 요구하고, 하나만 켜면 에이전트 0개로 멈춘다.**
+`MCCP_PLAN_REVIEW_L3` 기본값이 `off`라 mode만 켠 운영자는 매번 확정된 HALT에 도달했다 — M3
+이전에는 L2 패널을 전부 지불한 **뒤에**. 5.2a-0이 `hybrid_without_l3`를 읽어 5.2b(예약)
+**앞에서** 멈춘다. 새 정책이 아니라 이미 정해진 결과를 앞당기는 것이고, 그래서 예약 반환도 없다.
+
+**주장하지 않는 것**: 어떤 plan이 L3를 받을지는 여전히 사람이 env로 정한다(UI2·UI3).
+Codex를 다른 벤더로 교체하지 않았고, 리뷰어 독립성은 완화까지만이다(UI7).
+배경: [상세](docs/gate-design.md#hybrid-l3-wiring)
+
+---
+
 ### 3.14 (임시) 리뷰 finding 수용 임계 — HIGH 이상만 흡수
 
 > **임시 규칙이다. 아래 「해제 조건」이 충족되면 이 절을 통째로 삭제한다.**

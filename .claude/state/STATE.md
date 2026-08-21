@@ -2,56 +2,55 @@
 state_version: 1
 task_fingerprint: santa-adjudication-m3
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-20T05:19:10.948Z
+updated_at: 2026-08-21T05:53:21.248Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-20T05:19:10.948Z
+last_event_at: 2026-08-21T05:53:21.248Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
-chain_aborted: true
+chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-08-18T03:44:26.285Z
-abort_owner: cost
-cost_abort_at: 2026-08-20T05:19:10.818Z
 ---
 ## Goal
-santa-evidence-diversity PRD(M1~M3) PR #150 생성 완료 — 리뷰/머지 대기.
+codex-intent-context M3 — hybrid L3 배선 복구. 구현 완료, commit/PR 대기.
 
 ## Plan
-- plan: `.claude/plans/santa-evidence-diversity-m2.plan.md` — 본문 확정, plan_hash sha256:f1bc8593…로 mccp-plan-codex가 봉인. **편집 금지**(편집하면 stale → PR이 §3.11 guard 2에 막힌다)
-- 게이트 산출물 + Task 6 실측: `.claude/notes/santa-evidence-diversity-m2.md` (plan 본문 대신 이 자리 — M1·santa-adjudication M1~M3 선례)
-- report: `.claude/PRPs/reports/santa-evidence-diversity-m2-report.md`
-- receipt: mccp-plan-codex/santa-evidence-diversity-m2 (review_verdict=divergent, single-pass 봉인) · mccp-implement-codex/santa-evidence-diversity-m2 (codex_verdict=skipped)
-- version 1.28.3 (patch — PRD 3 milestone 중 2번째). 4면 동기 완료
+- plan: `.claude/plans/codex-intent-context-m3.plan.md` — 봉인됨(plan_hash sha256:3e2e85a4…). **편집 금지**(편집하면 stale → /mccp:pr guard 2에 막힌다)
+- 게이트 산출물 + Task 8 라이브 실측: `.claude/notes/codex-intent-context-m3.md` (plan 본문 대신 이 자리 — M1·M2 선례)
+- report: `.claude/PRPs/reports/codex-intent-context-m3-report.md`
+- receipt: mccp-plan-codex/codex-intent-context-m3 (review_verdict=divergent, single-pass 봉인) · mccp-implement-codex/codex-intent-context-m3 (codex_verdict=skipped, impeccable_silent_skip=no-signal)
+- version 1.31.0 (minor — PRD 최종 milestone). 4면 동기 완료. branch codex-intent-context-m3 (worktree 디렉토리명은 -m2 그대로)
 
 ## Done
-- Implement-Codex 게이트 — MCCP_CODEX_DISABLED=1 first-class skip(codex_verdict=skipped). security-reviewer 발화: CRITICAL 1 흡수 · CRITICAL 1 기각(리뷰어 자기 결론) · HIGH 2 흡수 · MEDIUM 3 무조치
-- Task 1 model-diversity.js — 순수 oracle export 11종. familyOf는 plan보다 엄격: 다중매치도 unknown(precedence 표 미채택)
-- Task 2 seal.js — deriveVerdict 제3값 degraded, 사영 1지점(degraded→divergent), exitReason 술어 !==divergent로 일반화
-- Task 3 receipt 5필드 + 양방향 불변식 — write 시점에 발화(예상보다 이른 지점)
-- Task 4 cli.js — isOnPath + --model 계열 재도출. 신규 exit code·플래그 0건
-- Task 5 santa-loop.md — Step 3 · Step 5.5 3갈래(degraded 선검사) · Output · Notes 5항목
-- Task 6 회귀 test 33건 신규(lanes 23 · review-gate 8 · cap 2). 단언 삭제 0건
-- Task 7 실측 5건 전부 성립 + 계획 외 1건. probe 누출 0
-- Task 8 문서 — ENVIRONMENT 2행 · ownership 3절 + 표 1행 · PRD status/OQ 3건 · CHANGELOG 1.30.0 + 4면 동기
-- Validation 1~6 전량 통과. santa 269건 중 266 pass · 0 fail · 3 skipped(선재)
+- Task 1 l3.js — buildL3Record 순수 오라클. 모든 non-answer를 invoked:false로 접고 verdict:unavailable을 쓰지 않는다(DD4)
+- Task 2 cli.js l3 — contain→mkdir→재-contain · 아티팩트 4종 all-or-exit-12 · receipt/lock 없음
+- Task 3 5.2a-0 — hybrid 단독 설정이 5.2b(예약) 앞에서 HALT. 에이전트 0개
+- Task 4 5.2f 재작성 — 5.2z 위임 제거, detached spawn + nonce-in-record poll, 상태 6종
+- Task 5 5.6b — --review-l3-reason forward + hybrid verdict를 l3.json에서 읽기(L3-Codex F1 흡수)
+- Task 6 정적 배선 단언 8건(요구 3 + 확장 5)
+- Task 7 test 34건(33 pass · 1 skip — Windows mode 비트)
+- Task 8 라이브 — L3 층 2회 완주(invoked:true + enum verdict). receipt 축(Acceptance 2·3)은 미달, 사유 기록
+- Task 9 문서 — gate-design ## Hybrid L3 wiring · review.md · CLAUDE.md §3.13.3 + ledger row · CHANGELOG · 4면 version
+- Task 10 PRD M3 complete + 미주장 5항목
+- 게이트: Codex disabled(first-class skip) · security-reviewer 발화(CRITICAL 1 부분흡수 · MEDIUM 2 · LOW 2) · design detector silent-skip
+- Validation: plan-review 292건(291 pass · 1 skip) · plan.md 린트 9 suite 151건 전량 · instruction-contract C1~C4 · plan-conflict false
 
 ## In Progress
 
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. **PR 진입 직전 §3.7 version 재계산 필수**(두 번째 시점). 현재 1.30.0이 origin/main(1.29.0)·브랜치(1.29.1) 양쪽보다 앞선다. merge 후 worktree cleanup + claude plugin update.
+/mccp:prp-commit → /mccp:pr. **PR 진입 직전 §3.7 version 재계산 필수**(두 번째 시점) — 미머지 diverse-agent-review-m7이 1.30.2 보유. merge 후 worktree cleanup + claude plugin update.
 
 ## Last Decision
-security-reviewer의 CRITICAL F1(familyOf 순서 미명세) 처방을 그대로 쓰지 않았다 — precedence 표는 모호한 모델명에 어떤 계열이든 하나를 줘서 이종 판정을 살 수 있고, 그것은 DD3의 "모르겠다가 승인을 사지 못하게 한다"와 반대 방향이다. 매치된 계열이 정확히 1이 아니면 unknown으로 접어 precedence보다 엄격하게 만들었다. 반대로 F2(PATH TOCTOU)는 리뷰어 자신이 "DD6이 천장으로 명시, 코드 변경 불필요"로 결론해 근거를 붙여 backlog에 등재했다.
+라이브 L3-Codex의 HIGH 2건 중 F1(동시 writer가 다른 run의 브리지 아티팩트와 짝지어진 유효 l3.json)은 흡수하고 F2(nonce가 공유 가변 상태)는 증거를 붙여 기각했다. F2 기각 근거는 REVIEW_DIR이 l1/l2/decision/proof/reservation/mode.json을 전부 공유하는 singleton이라 동시 실행이 L3 이전에 이미 비정합이라는 것이다(5.2 진입 purge 목록이 증거). 다만 F2가 옳게 지적한 것 하나 — nonce가 "동시 실행을 가른다"는 주장이 과했다 — 는 3면에서 정정했다. 없는 보장에 기대는 사람이 없게 하는 것이 기각의 조건이다.
 
 ## Open Questions
-- --model은 여전히 선언이라 위조 가능 — PATH 대조가 막는 것은 미설치 CLI 참칭뿐. Task 7의 1번과 3번은 codex 설치 상태에서 구분되지 않는다. PRD Open Question 신규 등재
-- 포착률 미측정 — probe가 증명하는 것은 강등 배선이지 degrade가 놓친 결함과 상관하는지가 아니다. PRD 지표 5는 P1 종료 후
-- off 레인의 UI3 미충족은 여전히 무주 — M3이 넓히지 않기로 해 남은 후보는 신규 milestone 하나
-- design detector 시점 gap — version bump이 whitelist 파일을 건드리지만 detector는 게이트 진입 시점(빈 diff)을 본다. plan의 Design Critique 절이 이미 CONVERGED로 판정
-- (main 승계) 선재 red: renderer verdict-label.test.js · b2-coverage-gate 2건
+- Acceptance 2·3(hybrid receipt) 미달 — L2 패널이 이 plan에 divergent라 전체 완주해도 converged hybrid receipt는 안 나오고, 재실행은 이 사이클이 쓴 receipt를 덮는다. 머지 후 다른 plan으로 확인
+- record.js#readL3가 l3-findings.json을 안 읽어 5.2h 리뷰 레코드는 여전히 verdict 한 단어 — backlog 등재(Files to Change 밖)
+- 동시 /mccp:plan 안전성은 REVIEW_DIR 전체 축이라 미해소 — 5.2 전체 lock 또는 nonce-scoped staging이 필요, 별도 milestone
+- (main 승계) 선재 red: receipt/tests/review-single-pass-fields.test.js:162 schema↔test 문구 drift
 - (main 승계) worktree cleanup .worktrees/review-loop-bypass-m2 잔존
 
 ## Last Updated
-2026-08-20T05:19:10.948Z
+2026-08-21T05:53:21.248Z

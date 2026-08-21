@@ -306,6 +306,113 @@ character reference (markdown renders it as a pipe; the parser does not split on
 whitespace folded, and truncation applied to the raw text *before* escaping so no partial
 entity can survive.
 
+## Hybrid L3 wiring
+
+`MCCP_PLAN_REVIEW=hybrid` (v1.31.0, codex-intent-context M3) adds a Codex layer on
+top of the L1+L2 panel. Every piece of it — the composition oracle
+([`decide.js`](../plugins/mccp/scripts/lib/plan-review/decide.js)), the schema
+fields, `review_source: 'hybrid'` in `CROSS_MODEL_SOURCES` — shipped with M1. The
+execution path did not, and M3 is the wiring alone. Firing-target selection (which
+plans deserve L3) stays with `diverse-agent-review.prd.md`.
+
+### What was broken
+
+`plan.md` 5.2f Step 1 told the operator to run 5.2z's Codex block *verbatim*. That
+block launches [`plan-codex-runner.js`](../plugins/mccp/scripts/lib/plan-codex-runner.js),
+whose job is to write the `mccp-plan-codex` receipt — and on the panel paths 5.6b
+writes that receipt. So the instruction produced one of two outcomes, neither of
+them hybrid:
+
+- the runner won the race and sealed a receipt before L1/L2 proof existed, or
+- nothing set `$CODEX_STDOUT` (hybrid never enters 5.2z's block, where it is
+  assigned), 5.2f wrote `invoked:false`, and `decide` fell to `unavailable` —
+  a mode that always HALTs.
+
+### What M3 changed
+
+L3 got its own subcommand, `plan-review/cli.js l3`, which writes the L3 inputs and
+nothing else: no receipt, no adjudication, no lock. Blocking authority stays with
+`decide`, so there is exactly one place a reader looks to find what stopped a gate.
+
+The double-writer problem is closed by **subtraction, not sequencing**. Ordering
+the two writers would have kept two writers; not launching the runner means the
+ordering requirement does not exist. What remains is a static assertion —
+`plan-codex-runner` appears zero times in 5.2f — pinned by
+[`plan-review-command-body.test.js`](../plugins/mccp/scripts/lib/tests/plan-review-command-body.test.js).
+
+| Piece | Before | After |
+|---|---|---|
+| L3 invocation | "run 5.2z verbatim" (launches the receipt writer) | `cli.js l3`, detached |
+| Record production | `printf` from a shell variable | `buildL3Record` in Node |
+| Staleness guard | none | `run_nonce` **inside the record**, compared by the poll |
+| Bridge artifacts | 5.2z only | `l3` (hybrid) or 5.2z (codex) — same filenames, 5.6b unchanged |
+| hybrid without L3 | full panel, then a determined HALT | 5.2a-0 halts first, **zero agents** |
+
+`run_nonce` lives in the record rather than the filename because `l3.json`'s name
+is fixed — both `decide` and 5.6b read it by that name — so unlike 5.2z, which
+owns its artifact names, the discriminator has to travel in the body.
+
+**It discriminates staleness, not concurrency.** A record left by an earlier,
+finished run is rejected; two *overlapping* `/mccp:plan` runs in one worktree are
+not made safe by it, because `l3-run-nonce` has a fixed name too and the second
+launch overwrites it. That is a `REVIEW_DIR`-wide property rather than an L3 one —
+`l1.json`, `l2.json`, `decision.json`, `proof.json`, `reservation.json` and
+`mode.json` all collide the same way, which is why Phase 5.2 purges the whole set
+at entry. Run concurrent gates in separate worktrees (§3.8). Making one worktree
+safe for overlapping gates would need a lock over the whole of 5.2, or
+nonce-scoped staging with an atomically published manifest; both are tracked in
+the backlog and neither is L3-specific.
+
+On the hybrid path 5.6b reads the Codex verdict — and the `review_l3_reason` that
+annotates it — out of `l3.json` rather than the `codex-verdict` bridge file, and it
+**re-checks `run_nonce` itself instead of inheriting the poll's check**. The poll is
+an earlier fenced block and `l3.json`'s name is fixed, so without a second check a
+third overlapping run could swap the record in between; with it, the verdict the
+receipt seals and the record the poll accepted genuinely cannot come from different
+runs. A mismatched or absent nonce yields an empty value, which drops the flag —
+fail-closed, dedupe stays shut. The `mode=codex` path still reads the bridge file:
+5.2z is its only producer there.
+
+The record is built in Node because the shell version emitted `"verdict":""` from
+an empty variable, and after a fenced-block boundary an empty variable is the
+normal case. `REVIEW_VERDICT_VALUES` forbids that value; `decide.js` had to defend
+against it downstream. `buildL3Record` cannot construct it.
+
+### Poll states
+
+`l3` writes four artifacts — `codex-verdict`, `codex-class`, `l3-findings.json`,
+then `l3.json` **last**, so its presence implies the other three landed. That is
+what makes polling for one file sufficient. Four tmp+renames are four atomic
+operations, and ordering is the only guarantee available; a failed write of any of
+them is `exit 12` with no `l3.json` at all.
+
+The two bridge files have **no reader on the hybrid path** — 5.6b takes the verdict
+from `l3.json` (above) and `mode=codex` never runs this subcommand. They are kept
+because DD5 made the filenames a shared contract with 5.2z, and because they are the
+plain-text trace of the same record. The all-or-nothing rule is therefore not about
+a missing reader: it is that `l3.json` is the completeness signal, so a directory
+that could not take all four must not be left holding one that claims otherwise.
+
+| State | Meaning | Result |
+|---|---|---|
+| `succeeded` | `l3.json` present, `run_nonce` matches | continue to 5.2e |
+| `still-running` | 540s block window elapsed, deadline not reached | re-run the poll block |
+| `nonce-mismatch` | the record belongs to another run | HALT (`--halt-stage 5.2f`) |
+| `died-without-record` | the process is gone and wrote nothing | HALT |
+| `timeout` | 1000s deadline passed | HALT |
+| `not-launched` | Step 1 never ran | HALT |
+
+The deadline and the nonce are artifacts, not variables: the poll is a later
+fenced block, and a poll that re-derived its own deadline would restart the clock
+on every re-entry and could never time out.
+
+### Recovery
+
+Both variables are required. `MCCP_PLAN_REVIEW=hybrid` alone stops at 5.2a-0 with
+the two ways out named: set `MCCP_PLAN_REVIEW_L3=1` to actually run hybrid, or
+`MCCP_PLAN_REVIEW=multi-agent` to drop the layer. A HALT inside 5.2f names its
+state; recovery is to re-run Phase 5.2, never to hand-write `l3.json`.
+
 ## References
 
 - Receipt CLI source: `plugins/mccp/scripts/receipt/`

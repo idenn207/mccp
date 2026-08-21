@@ -34,7 +34,7 @@ UI4의 면제가 조건 분기가 아니라 **호출 순서**로 성립한다(DD
 | 6 | 회귀 test | 완료 | 신규 3파일 + `santa-lanes.test.js` 확장 |
 | 7 | env 3면 등재 | 완료 | `env-contract/lint.js` L1~L9 전량 통과 |
 | 8 | PRD 갱신 | 완료 | OQ 1·2·3·5 해소, 4는 M2 소유로 명시 |
-| 9 | version 4면 동기 | 완료 | `1.30.0 → 1.30.1` (patch) |
+| 9 | version 4면 동기 | 완료 | `1.30.1 → 1.30.2` (patch — main이 1.30.1을 선점해 M2 사이클에서 forward-only 상향) |
 | 10 | 라이브 완주 | 완료(범위 명시) | 아래 "Acceptance" 참조 |
 
 ## Validation Results

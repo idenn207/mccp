@@ -1081,12 +1081,22 @@ test('UI4/UI11 — receipt 배선은 seal.js에만 있다 (M1 4개 모듈은 여
   // 하고 `scope-delta.js`는 순수 oracle이라 receipt를 모른다(`lanes.js`·`terminator.js`·
   // `model-diversity.js`와 동형). 목록을 넓히는 대신 지우면 M1이 이 test로 막으려던
   // 결함이 그대로 돌아온다.
+  //
+  // santa-delta-review M2가 `detection-corpus.js`를 더했다(같은 소유권 표의 P3 신규
+  // 파일). 같은 규약으로 승인한다 — 목록에 한 줄, receipt-free 목록에도 한 줄. 이쪽은
+  // `scope-always.js`와 같은 **강한** 형태로 receipt-free다: M2는 측정 결과를 receipt에
+  // 전혀 봉인하지 않는다(측정은 1회성 검증이지 런타임 기능이 아니라는 M2 DD6 — 새 env도
+  // 새 CLI 하위명령도 만들지 않는다). 관측 표면은 회귀 test와
+  // `.claude/notes/santa-delta-review-m2.md` 둘뿐이다. 목록을 넓히는 대신 지우면 M1이
+  // 이 test로 막으려던 결함이 그대로 돌아온다.
   assert.deepEqual(files.sort(),
-    ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'lanes.js', 'ledger.js',
-      'model-diversity.js', 'scope-always.js', 'scope-delta.js', 'seal.js', 'terminator.js']);
+    ['adjudication.js', 'cli.js', 'counter.js', 'detection-corpus.js', 'gate.js',
+      'lanes.js', 'ledger.js', 'model-diversity.js', 'scope-always.js', 'scope-delta.js',
+      'seal.js', 'terminator.js']);
 
-  const RECEIPT_FREE = ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'lanes.js',
-    'ledger.js', 'model-diversity.js', 'scope-always.js', 'scope-delta.js', 'terminator.js'];
+  const RECEIPT_FREE = ['adjudication.js', 'cli.js', 'counter.js', 'detection-corpus.js',
+    'gate.js', 'lanes.js', 'ledger.js', 'model-diversity.js', 'scope-always.js',
+    'scope-delta.js', 'terminator.js'];
   for (const f of RECEIPT_FREE) {
     const src = fs.readFileSync(path.join(santaDir, f), 'utf8');
     // 주석의 서술("M2 소유")은 허용하고, 실제 배선만 금지한다.

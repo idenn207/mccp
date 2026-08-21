@@ -342,7 +342,7 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 
 **소비처** `plugins/mccp/scripts/lib/santa/scope-delta.js:19`
 
-**상태** `active` — v1.30.1 santa-delta-review M1에서 도입.
+**상태** `active` — v1.30.2 santa-delta-review M1에서 도입. M2(탐지율 보존 검증)가 default를 재검토했고 `off`로 유지했다 — 아래 **M2 판정** 참조.
 
 **사용 예시**
 
@@ -356,7 +356,11 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 
 **서사** `enforce`면 라운드 2부터 리뷰 스코프가 직전 라운드들이 커밋한 fix hunk 범위로 좁혀진다. 리뷰어에게 가는 것은 **범위 지정뿐**이다 — `renderScopeLines`가 `{paths, ranges}` 두 인자만 받고 서술 인자를 갖지 않으므로 "이전은 통과했다"류 상태 단언은 실을 자리가 구조적으로 없고(UI2 / DD3), 그 위에 얹은 패턴 denylist는 벨트이지 1차 통제가 아니며 **완결성을 주장하지 않는다**. 라운드 1은 항상 전체 스코프다: 델타는 디스크에 존재하는 fix anchor로 만들어지고 라운드 0에는 anchor가 0개라, "라운드 1 미적용"(UI3)이 별도 검사가 아니라 `no-anchor` passthrough로 성립한다. 상시 스코프(plan/PRD)는 축소에서 **면제**되는데 그 면제는 호출 순서(`diff → scope-delta → scope-always`)이지 조건 분기가 아니다 — 특례는 잊을 수 있고 순서는 아니다(DD2). 축소는 **누적**이다(DD6): 마지막 anchor가 아니라 존재하는 anchor 전부의 합집합이다. 모르면 좁히지 않는다(DD8) — anchor 부재·rev 형식 이탈·`git show` 실패·hunk 0건·결과 빈 집합은 전부 전체 스코프 passthrough이고 `NO_NARROW` 사유 토큰(`env-off`·`no-anchor`·`no-ranges`·`empty-result`)이 붙는다.
 
-**비대칭 주의 — 이 토글만 default가 `off`다.** 형제 4종(`MCCP_SANTA_BLIND_LANE` · `MCCP_SANTA_ALWAYS_SCOPE` · `MCCP_SANTA_TERMINATOR` · `MCCP_SANTA_DEGRADE_GATE`)은 전부 발화를 default에 두고 그 근거는 "오타가 kill switch를 켜면 그 실행이 도입 이전과 똑같아 보인다"이다. 델타는 방향이 반대다 — 발화가 **더 느슨한** 쪽이고(파일을 검토 대상에서 뺀다), 틀렸을 때의 대가가 PRD가 인용한 16~93%p 탐지율 하락이며, 그 하락 여부를 재는 것이 아직 배송되지 않은 **M2**다. 검증 전에 발화를 기본으로 두는 것은 PRD Risk 1을 그대로 실행하는 것이다. M2가 fixture 비교로 하락 부재를 보이면 그때 default를 `enforce`로 뒤집는다. **M1은 탐지율 보존을 주장하지 않는다.**
+**비대칭 주의 — 이 토글만 default가 `off`다.** 형제 4종(`MCCP_SANTA_BLIND_LANE` · `MCCP_SANTA_ALWAYS_SCOPE` · `MCCP_SANTA_TERMINATOR` · `MCCP_SANTA_DEGRADE_GATE`)은 전부 발화를 default에 두고 그 근거는 "오타가 kill switch를 켜면 그 실행이 도입 이전과 똑같아 보인다"이다. 델타는 방향이 반대다 — 발화가 **더 느슨한** 쪽이고(파일을 검토 대상에서 뺀다), 틀렸을 때의 대가가 PRD가 인용한 16~93%p 탐지율 하락이다. 검증 전에 발화를 기본으로 두는 것은 PRD Risk 1을 그대로 실행하는 것이다.
+
+**M2 판정 — default는 `off`로 유지된다.** M2는 사전 등록 규칙(plan DD3 — `detection-corpus.js#DECISION_RULE`에 축자 동결)을 측정 결과에 기계적으로 적용한다. 규칙의 전건은 "델타의 **Layer 2**(라이브 리뷰어) 발견 수가 full과 같거나 크다"인데, M2가 배송한 것은 **Layer 1**(결정적 containment)뿐이라 전건이 거짓이 아니라 *미상*이고 미상은 flip 근거가 아니다 — `decideDefaultFlip({layer2: null})`이 `layer2-absent`를 낸다. 이 정합은 산문이 아니라 회귀 test가 잡는다(`santa-detection-coverage.test.js` — Layer 2 증거 없이 default를 `enforce`로 바꾸면 붉어진다).
+
+**M2가 실제로 잰 것.** 합성 corpus(N=1, 계층당 결함 1건)를 실제 git fixture에 심고 실제 CLI를 `off`·`enforce` 두 모드로 호출한 결과, 델타의 containment 손실은 **Class C 하나**(fix가 건드리지 않은 파일 — 경로째 드롭이라 산술적으로 스코프 밖)로 국소화된다. **Class B**(같은 파일 안이지만 `CONTEXT_LINES` 밖)는 경로가 남으므로 containment가 보존된다 — 범위가 절단이 아니라 포인터라는 위 설계가 그 계층에서 성립한다는 뜻이다. **Class D**(plan/PRD)는 두 모드 모두 스코프 안이다(상시 스코프 면제). 계층 합산 `full=4 · delta=3 · lost=1`. **이것은 탐지율이 아니라 containment다** — "리뷰어에게 보일 기회가 있는가"를 재고 "리뷰어가 찾는가"는 재지 않는다. 후자는 Layer 2 소유이고 미실행이다. 근거·한계·재현: [.claude/notes/santa-delta-review-m2.md](../../.claude/notes/santa-delta-review-m2.md).
 
 **dark ship 관측** default가 `off`이므로 "아무도 켜지 않아 영구 비활성"이 위험인데, receipt `meta.santa_delta_rounds` · `meta.santa_delta_paths_dropped`가 그것을 조용할 수 없게 만든다(DD12) — 두 필드는 **kill switch와 무관하게** 실리므로 `off` 실행도 `santa_delta_rounds=0`을 남기고, 필드 *부재*("M1 이전")와 관측된 *0*("`off`로 돌았다")이 다른 상태로 구별된다. 이것이 발화를 보장하지는 않는다.
 

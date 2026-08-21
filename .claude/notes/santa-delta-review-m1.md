@@ -4,7 +4,7 @@
 > `meta.santa_delta_rounds` · `meta.santa_delta_paths_dropped`는 남는다.
 
 - 일자: 2026-08-20
-- 대상 버전: `1.30.1`
+- 대상 버전: `1.30.2` (원래 `1.30.1`; main이 codex-intent-context M2에 그 번호를 발행해 §3.7 forward-only 상향)
 - 드라이버: 실제 CLI 하위명령만 사용(내부 함수 직접 호출 0건). 실제 git repo ·
   실제 fix 커밋 · 실제 `git show` hunk · 실제 seal · 실제 receipt.
 

@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: santa-adjudication-m3
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-21T01:07:26.234Z
+updated_at: 2026-08-21T05:23:44.747Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-21T01:07:26.234Z
+last_event_at: 2026-08-21T05:23:44.747Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -13,46 +13,42 @@ last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-08-18T03:44:26.285Z
 ---
 ## Goal
-santa-delta-review M1 구현 완료 — 커밋/PR 대기.
+santa-delta-review M2 구현 완료 (Layer 1 착지 · Layer 2 미실행) — 커밋/PR 대기.
 
 ## Plan
-- plan: `.claude/plans/santa-delta-review-m1.plan.md` — 본문 확정, plan_hash sha256:523d272c…로 mccp-plan-codex가 봉인. **편집 금지**(편집하면 stale → PR이 §3.11 guard 2에 막힌다)
-- 게이트 산출물: `.claude/notes/santa-delta-review-m1-implement-codex.md` (plan 본문 대신 이 자리 — 선례)
-- Task 10 실측: `.claude/notes/santa-delta-review-m1.md`
-- report: `.claude/PRPs/reports/santa-delta-review-m1-report.md`
-- receipt: mccp-plan-codex/**santa-delta-review** (review_verdict=divergent, single-pass 봉인) · mccp-implement-codex/**santa-delta-review** (codex_verdict=skipped)
-- **decision slug은 `santa-delta-review`다** (`-m1` 아님). plan basename 축이 아니라 PRD/브랜치 축 — /mccp:plan이 그 slug로 썼고 /mccp:pr도 브랜치에서 같은 값을 파생한다
-- version 1.30.1 (patch — PRD 2 milestone 중 1번째). 4면 동기 완료
+- plan: `.claude/plans/santa-delta-review-m2.plan.md` — `plan_hash` sha256:60931158…로 mccp-plan-codex가 봉인. **편집 금지**(편집하면 stale → PR이 §3.11 guard 2에 막힌다)
+- 게이트 산출물: `.claude/notes/santa-delta-review-m2-implement-codex.md` (plan 본문 대신 이 자리 — M1 선례)
+- Layer 1 실측: `.claude/notes/santa-delta-review-m2.md` · report: `.claude/PRPs/reports/santa-delta-review-m2-report.md`
+- receipt: mccp-plan-codex/**santa-delta-review**(review_verdict=divergent, single-pass 봉인) · mccp-implement-codex/**santa-delta-review**(codex_verdict=skipped)
+- **decision slug은 `santa-delta-review`다**(`-m2` 아님). hook이 plan basename 축으로 파생해 receipt 없음을 보고했으나 봉인 해시가 M2 plan과 일치 — 위조 없이 --decision override로 해소
+- **version 1.30.3** (patch — PRD 미완료라 minor 아님). §3.7 충돌 해소: main이 1.30.1을 codex-intent-context M2에 선점 → M1을 1.30.2로, M2가 1.30.3. 4면 동기 완료
 
 ## Done
-- 게이트 진입 slug 불일치 해소 — receipt 위조 없이 명시 --decision override(precedence 1위). plan_hash가 receipt와 정확히 일치함을 확인
-- Task 1 scope-delta.js — 순수 oracle export 14종. 외부 의존 0건
-- Task 2 cli.js — scope-delta 하위명령(--round 0건, anchor 자체 열거) + --ranges-file 안전 로더 + begin-round 스칼라 4종. dispatch↔usage 동기
-- Task 3 lanes.js — ranges 인자 1개 추가(서술 인자 0건) + 델타 라운드 한정 PRIOR_ROUND_PATTERNS 검사
-- Task 4 계측 4층 — 원장 additive scope · CLI 스칼라 · deltaCoverageFrom · receipt 2필드. SCHEMA_VERSION 무변경
-- Task 5 santa-loop.md — 델타가 상시 스코프 앞(DD2), scope-always는 좁혀진 파일을 받는다, Notes 5항목
-- Task 6 회귀 test 85건 신규(oracle 33 · 계측/CLI 29 · 본문 15 · lanes +8). 단언 삭제 0건
-- Task 7~9 env 3면 · PRD OQ 4건 해소 · version 4면 1.30.1
-- Task 10 라이브 완주 — 실제 CLI 경로로 라운드 2개. before 5→1, 프롬프트 `- src/a.js:80-120`, 단언 0건, receipt santa_delta_rounds=1 paths_dropped=4
-- security-reviewer 발화: CRITICAL 2 + HIGH 2 흡수 · HIGH 1 증거 기각(ReDoS 실측 반박) · MEDIUM 3 backlog
-- Validation 363 tests · 360 pass · 0 fail · 3 skipped(선재). env/instruction lint 통과
+- Task 1 detection-corpus.js — 4계층 닫힌 enum · anchor 역산 좌표 · 미던지는 판정 3종(coverageOf/compareCoverage/decideDefaultFlip). 외부 의존 0건
+- Task 2 santa-detection-coverage.test.js — 신규 21건. 실제 git fixture + 실제 scope-delta/scope-always CLI를 off·enforce 두 모드로 통과
+- Task 4 판정 적용 — Layer 2 부재 → decideDefaultFlip이 `layer2-absent` → default `off` 유지. 규칙 미수정(축자 일치 test가 동결)
+- Task 5 문서 — review.md · santa-loop.md의 DD7 미래 시제 2자리를 실측으로 교체. PRD M2를 in-progress + OQ 해소 1 · 신규 1
+- Task 6 version 4면 1.30.3 + M1 항목 1.30.2 상향 · Task 7 report
+- Layer 1 실측: before 3→1 · full=4 delta=3 lost=1 · 손실은 Class C 하나 · Class B는 containment 보존 · Class D는 두 모드 모두 스코프 안
+- backlog 4건 등재(Layer 2 미실행 HIGH · detect 사전실행 MEDIUM · single-pass가 test 가림 HIGH · plan-conflict 두 점 diff MEDIUM)
+- 검증: 신규 21/21 · 델타 축 6 suite green · env lint L1~L9 · instruction lint C1~C4 · i18n-surface 10/10
 
 ## In Progress
-
+전체 스위트 최종 실행(렌더러 포함) 확인 중
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. **PR 진입 직전 §3.7 version 재계산 필수**(두 번째 시점). 현재 origin/main·브랜치 모두 1.30.0이고 이 작업이 1.30.1. merge 후 worktree cleanup + claude plugin update.
+/mccp:prp-commit → /mccp:pr. **PR 진입 직전 §3.7 version 재계산 필수**(이번 사이클에 이미 1회 충돌 실측). 브랜치가 origin/main보다 뒤처져 있으므로 머지 시 §3.5.1 삭제 검증도 필수.
 
 ## Last Decision
-plan 문언이 renderScopeLines의 denylist를 원시 출력 전체에 걸라고 했으나 그대로 하면 평범한 저장소 경로가 라운드를 죽인다(review-loop-bypass-m1.plan.md가 /pass/에, refactor-cleaner.md가 /clean/에 실측 매치). 데이터에 denylist를 거는 것은 fail-closed가 아니라 오작동이므로 검사를 스캐폴딩(줄에서 경로를 뺀 나머지)으로 한정하고 대신 더 강한 구조 검사(범위 표기 고정 형태 + 개행/NUL 거부)를 얹었다. 회귀 test가 이 이탈을 고정한다.
+plan Task 6은 minor(1.31.0)를 지시했으나 그 전제(PRD 전 milestone 완료)가 성립하지 않는다 — Layer 2 미실행이라 PRD M2를 complete로 적을 수 없고, complete가 아니면 §3.7상 patch다. 동시에 main이 1.30.1을 다른 축에 선점한 것이 확인돼 forward-only 상향으로 M1을 1.30.2, M2를 1.30.3에 착지시켰다.
 
 ## Open Questions
-- plan-conflict-detector의 file-expansion 축이 이 저장소에서 구조적으로 항상 발화한다 — normalizePath가 백틱을 안 벗겨 isInPlan이 항상 false. 백틱 제거 후 재대조하면 실제 unplanned는 santa-loop-cap.test.js 1건뿐. HIGH로 backlog 등재, 검출기 수정은 별도 축
-- 탐지율 보존 미측정 — M1이 재는 것은 스코프가 얼마나 줄었는가이지 줄여도 결함을 놓치지 않는가가 아니다. M2 소유이고 합성 fixture조차 아직 없다
-- default가 off라 dark ship 위험이 남는다 — santa_delta_rounds가 그것을 관측 가능하게 만들 뿐 발화를 보장하지 않는다. M2가 default를 뒤집는 것이 인계
-- Phase 2.5 하위 단계 순서 이탈 — 리뷰는 구현 전에 일어났으나 리뷰 섹션 주입·receipt write는 구현 이후였다. notes에 기록
+- Layer 2(라이브 리뷰어 비교) 미실행 — 세션 지시가 서브에이전트 발화를 금지. PRD Open Question으로 이연했고 default off를 묶는 것이 정확히 이 부재다
+- 탐지율 보존은 여전히 미주장 — 배송된 Layer 1은 containment(보일 기회)를 재고 detection(찾는가)을 재지 않는다
+- 이 저장소 settings의 MCCP_REVIEW_SINGLE_PASS가 전체 스위트를 상시 53 red로 만든다(제거 시 대부분 통과). 상시 red는 새 red를 묻는다 — backlog HIGH
+- plan-conflict-detector 호출부가 두 점 diff를 써서 발산 브랜치에서 항상 오발화(74 unplanned, 실제 집합으로는 conflict:false) — backlog MEDIUM
 - (main 승계) 선재 red: renderer verdict-label.test.js · b2-coverage-gate 2건
 - (main 승계) worktree cleanup .worktrees/review-loop-bypass-m2 잔존
 
 ## Last Updated
-2026-08-21T01:07:26.234Z
+2026-08-21T05:23:44.747Z

@@ -3,8 +3,8 @@ fix_task_version: 1
 task_fingerprint: santa-adjudication-m3
 gate_id: stop-review-loop
 decision_id: santa-delta-review
-created_at: 2026-08-20T05:49:47.029Z
-expires_at: 2026-08-27T05:49:47.029Z
+created_at: 2026-08-21T04:08:30.569Z
+expires_at: 2026-08-28T04:08:30.569Z
 counter: 1
 verdict: codex_divergent
 escalate: true

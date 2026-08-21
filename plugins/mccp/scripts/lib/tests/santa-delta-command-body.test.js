@@ -148,7 +148,7 @@ test('c — 번들 레인 지시가 범위만 말하고 이전 라운드 상태�
   assert.match(BODY, /hands out a \*scope\*, never a \*status\*/);
 });
 
-test('c — Notes에 델타 축 5항목이 있다 (천장 서술 포함)', () => {
+test('c — Notes에 델타 축 6항목이 있다 (천장 서술 + M2 판정 포함)', () => {
   assert.match(BODY, /santa\/scope-delta\.js/);
   assert.match(BODY, /MCCP_SANTA_DELTA_SCOPE/);
   assert.match(BODY, /meta\.santa_delta_rounds/);
@@ -157,8 +157,18 @@ test('c — Notes에 델타 축 5항목이 있다 (천장 서술 포함)', () =>
   assert.match(BODY, /not forgery-resistant/);
   // DD1 — default 비대칭의 근거.
   assert.match(BODY, /opposite of every other santa toggle/);
-  // M1이 탐지율 보존을 주장하지 않는다는 것이 본문에 남아야 한다(UI9).
-  assert.match(BODY, /does \*\*not\*\* claim detection is preserved/);
+
+  // M2 DD7 — 이 자리에는 M1의 "does **not** claim detection is preserved"가 있었다.
+  // 그 문장의 짝인 "M2 owns that measurement and flips the default if it holds"가 같은
+  // 항목에 있었으므로, M2가 착지한 뒤 그 둘을 남겨 두면 본문이 **이미 지나간 미래**를
+  // 가리킨다. 그래서 M2는 두 문장을 실측 결과로 교체했고 이 단언도 함께 옮긴다.
+  //
+  // **완화가 아니라 이동이다.** M1이 이 자리에서 막으려던 것은 "본문이 탐지율 보존을
+  // 주장하는 것"이고, 아래 두 단언은 같은 것을 더 강하게 막는다 — 본문이 (1) default를
+  // `off`로 두었다고 명시하고 (2) 잰 것이 **도달 범위이지 발견이 아님**을 명시해야
+  // 통과한다. 어느 쪽이든 "탐지율이 보존됐다"는 문장은 이 단언들을 만족시키지 못한다.
+  assert.match(BODY, /left the default at/);
+  assert.match(BODY, /where the delta loses reach, not whether reviewers still find things/);
 });
 
 // ── 소유권 경계 ──────────────────────────────────────────────────────────────

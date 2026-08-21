@@ -18,13 +18,26 @@
 
 const ENV_DELTA_SCOPE = 'MCCP_SANTA_DELTA_SCOPE';
 
-// **default가 형제 santa 토글 4종과 반대 방향(`off`)인 것은 의도다**(DD1).
+// **default가 형제 santa 토글 4종과 반대 방향(`off`)인 것은 의도다**(M1 DD1).
 // `BLIND_LANE`·`ALWAYS_SCOPE`·`TERMINATOR`·`DEGRADE_GATE`는 전부 발화를 default에 두고
 // 그 근거는 "오타가 kill switch를 켜면 그 실행이 도입 이전과 똑같아 보인다"이다. 델타는
 // 방향이 반대다 — 발화가 **더 느슨한** 쪽이고(스코프를 줄인다), 틀렸을 때의 대가가
-// PRD가 인용한 16~93%p 탐지율 하락이며, 그 하락 여부를 재는 것이 아직 배송되지 않은
-// M2다. 검증 전에 발화를 기본으로 두는 것은 Risk 1을 그대로 실행하는 것이다.
-// 그 대신 "조용한 영구 비활성"은 DD12의 무조건 stamp가 관측 가능하게 만든다.
+// PRD가 인용한 16~93%p 탐지율 하락이다.
+// 그 대신 "조용한 영구 비활성"은 M1 DD12의 무조건 stamp가 관측 가능하게 만든다.
+//
+// **M2가 이 값을 재검토했고 `off`로 유지한다.** M2는 사전 등록 규칙(M2 DD3 —
+// `detection-corpus.js#DECISION_RULE`에 축자 동결)을 측정 결과에 기계적으로 적용한다.
+// 그 규칙의 전건은 "델타의 **Layer 2**(라이브 리뷰어) 발견 수가 full과 같거나 크다"인데,
+// M2가 배송한 것은 **Layer 1**(결정적 containment)뿐이라 전건이 거짓이 아니라 *미상*이고
+// 미상은 flip 근거가 아니다 — `decideDefaultFlip({layer2: null})`이 `layer2-absent`를
+// 낸다. 이 정합은 산문이 아니라 test가 잡는다(`santa-detection-coverage.test.js`의
+// "배송된 default는 이 저장소가 기록한 Layer 2 증거와 정합한다").
+//
+// Layer 1이 실제로 잰 것: corpus 4계층에서 델타가 잃는 것은 **Class C 하나**다
+// (fix가 건드리지 않은 파일 — 경로째 드롭이라 산술적으로 스코프 밖). Class B(같은 파일
+// 범위 밖)는 경로가 남으므로 containment가 보존된다 — 범위가 절단이 아니라 포인터라는
+// 위 설계가 그 계층에서는 성립한다는 뜻이다. 다만 그것이 *리뷰어가 범위 밖을 실제로
+// 본다*를 뜻하지는 않는다(그 질문은 Layer 2 소유). 배경: `.claude/notes/santa-delta-review-m2.md`.
 const DELTA_SCOPE_DEFAULT = 'off';
 const DELTA_SCOPE_VALUES = ['enforce', 'off'];
 

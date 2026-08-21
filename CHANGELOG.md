@@ -2,16 +2,80 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
-## [1.30.1] — 2026-08-20
+## [1.30.3] — 2026-08-21
 
-> **§3.7**: `1.30.0 → 1.30.1` (**patch** — M1은 santa-delta-review PRD 2 milestone
+> **§3.7**: `1.30.2 → 1.30.3` (**patch** — M2는 santa-delta-review PRD의 둘째
+> milestone이고, **PRD 전체 완료가 아니라서 minor가 아니다**. M2는 Layer 1만
+> 배송했고 Layer 2가 미실행이라 PRD의 M2 행이 `in-progress`로 남는다 — plan
+> Task 6이 "PRD 전 milestone 완료이므로 minor"라고 적은 전제가 성립하지 않으므로
+> §3.7의 보수적 default인 patch를 취한다). 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞추고
+> `i18n-surface.test.js`가 재검증한다.
+>
+> **병렬 브랜치 충돌 해소(§3.7 실측 5회째)**: 진입 시점 재계산에서 `origin/main`이
+> 이미 `1.30.1`을 **다른 축**(codex-intent-context M2, `9c6c836`)에 발행한 것이
+> 확인됐다. 발행된 번호는 불가침이므로 이 브랜치의 미머지 항목을 각각 한 칸씩
+> 밀었다 — M1 `1.30.1 → 1.30.2`, M2가 `1.30.3`. 두 항목은 서로 다른 축이므로
+> 합치지 않는다. M1 커밋 메시지(`feat(v1.30.1)`)는 이미 기록된 history라 그대로
+> 두고, 정본은 이 파일과 manifest다. **`/mccp:pr` 진입 직전에 한 번 더
+> 재계산한다** — 이 충돌이 정확히 그 재계산이 잡아낸 것이다.
+
+---
+
+### Added — santa 델타 리뷰 M2: 탐지율 보존 검증 (Layer 1)
+
+- **`plugins/mccp/scripts/lib/santa/detection-corpus.js`** (신규 순수 oracle) —
+  계층화 결함 corpus와 커버리지 판정. `DEFECT_CLASSES`는 결함을 **위치로** 4계층
+  (`A_IN_FIX` · `B_SAME_FILE_OUT_OF_RANGE` · `C_DROPPED_PATH` · `D_ALWAYS_SCOPE`)으로
+  닫고, `buildCorpus()`가 파일 내용과 결함 좌표를 **데이터로** 낸다(fs·git·시각·env
+  미접촉). 좌표는 anchor 문자열로 역산하므로 줄이 밀려도 조용히 어긋나지 않는다.
+  `coverageOf` / `compareCoverage`는 어떤 입력에도 던지지 않는다 — 던지는 측정
+  도구는 측정을 중단시키고, 중단된 측정은 "하락 없음"과 구별되지 않는다.
+- **`decideDefaultFlip`** — 사전 등록 규칙(`DECISION_RULE`, plan DD3 축자 동결)의
+  기계적 적용. **Layer 2 증거 부재는 거짓이 아니라 미상이고 미상은 flip 근거가
+  아니다**(`layer2-absent`). `layer2-degraded`와 별도 토큰이라 "재봤더니 하락"과
+  "안 재봤다"가 사후에 구별된다.
+- **`plugins/mccp/scripts/lib/tests/santa-detection-coverage.test.js`** (신규 21건) —
+  실제 git fixture + 실제 `scope-delta`/`scope-always` CLI를 `off`·`enforce` 두 모드로
+  지나는 Layer 1 회귀. 사전 등록 기대치를 동결한다: 델타는 A를 범위로 지목하고, B는
+  경로를 유지한 채 범위 밖이며, C는 경로째 드롭되고, D는 두 모드 모두 스코프 안이다
+  (상시 스코프 면제). 계층 합산 `full=4 · delta=3 · lost=1`.
+- **default 판정은 코드에 묶인다** — "배송된 default는 이 저장소가 기록한 Layer 2
+  증거와 정합한다" test가 `LAYER2_EVIDENCE`와 실제 `DELTA_SCOPE_DEFAULT`를
+  `decideDefaultFlip`으로 대조하므로, 측정 없이 default를 뒤집으면 스위트가 붉어진다
+  (plan 승인 패널 L2 id=6116eeb8 · 5fb50bd9 흡수).
+
+### Changed
+
+- **`MCCP_SANTA_DELTA_SCOPE`의 default는 `off`로 유지된다** — 규칙을 그대로 적용한
+  결과이지 판단이 아니다. `scope-delta.js` · `docs/environment/review.md` ·
+  `plugins/mccp/commands/santa-loop.md`의 "M2가 뒤집는다"류 미래 시제를 실측 결과로
+  교체했다(plan DD7).
+- **PRD `santa-delta-review` M2 행은 `in-progress`** — Layer 2(라이브 리뷰어 비교)가
+  미실행이라 milestone Outcome인 "탐지율 비교"가 아직 성립하지 않는다. `complete`로
+  적는 것은 과대 주장이다(UI5). Open Question "탐지율 fixture를 어디서 얻는가"는
+  해소(합성 + 계층화)하고, Layer 2 완주를 신규 Open Question으로 남겼다.
+
+### Notes
+
+- **이 milestone은 탐지율 보존을 주장하지 않는다.** 배송된 Layer 1이 인증하는 명제는
+  "리뷰어에게 보일 기회가 있다"(containment)이고 "리뷰어가 찾는다"(detection)가
+  아니다. fixture는 합성 N=1이며 계층당 결함 1건이다. 한계와 재현 절차:
+  `.claude/notes/santa-delta-review-m2.md`.
+
+---
+
+## [1.30.2] — 2026-08-20
+
+> **§3.7**: `1.30.1 → 1.30.2` (**patch** — M1은 santa-delta-review PRD 2 milestone
 > 중 첫째라 PRD 전체 완료 축이 아니다). 4면(plugin.json · html.js page-foot ·
 > markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞추고
-> `i18n-surface.test.js`가 재검증한다. 진입 시점 재계산에서 origin/main과
-> 이 브랜치가 둘 다 `1.30.0`(PR #150 머지 직후)이므로 `1.30.1`이 양쪽보다
-> 앞선다. **`/mccp:pr` 진입 직전에 한 번 더 재계산한다**(§3.7 실측 4회 재발).
+> `i18n-surface.test.js`가 재검증한다. **원래 `1.30.1`로 작성했으나 `origin/main`이
+> 그 번호를 codex-intent-context M2(`9c6c836`)에 먼저 발행했기에 forward-only
+> 상향으로 재동기했다** — 발행된 번호는 불가침이고 미머지 브랜치의 항목만 위로
+> 민다(§3.7). 상향 시점은 M2 사이클의 `/mccp:prp-implement` Task 6 재계산이다.
 
 ---
 

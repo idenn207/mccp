@@ -45,7 +45,7 @@ We'll know we're right when **실제 `/mccp:work` cycle에서 fan-out·병렬·v
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | 발화 조건 반전 + 검증 harness | 병렬/fan-out이 default 발화(단일은 opt-out)로, cost-state 부재에서도 발화. catastrophic-runaway hard cap만 안전판으로 유지. `mccp:fanout-*` agent·worktree seed·envelope 흐름이 실제 설치 환경에서 끊김 없이 동작. 저비용 배선 검증 harness 확보 | complete | `.claude/plans/workflow-orchestration-live-activation-m1.plan.md` |
-| 2 | live 완주 검증 (복수 cycle) | 실제 `/mccp:work` cycle을 단일 vs 병렬/fan-out on/off로 복수 회 완주. fan-out·병렬·verify가 실제 LLM으로 발화하고 dual-review·receipt chain 무손상 확인. 중간수정·milestone 변경·품질 관찰 기록 | in-progress | `.claude/plans/workflow-orchestration-live-activation-m2.plan.md` |
+| 2 | live 완주 검증 (복수 cycle) | 실제 `/mccp:work` cycle을 단일 vs 병렬/fan-out on/off로 복수 회 완주. fan-out·병렬·verify가 실제 LLM으로 발화하고 dual-review·receipt chain 무손상 확인. 중간수정·milestone 변경·품질 관찰 기록 | complete | `.claude/plans/workflow-orchestration-live-activation-m2.plan.md` |
 | 3 | 발견 gap 보완 | milestone 1·2 검증에서 드러난 버그·부족분(발화 실패 지점, 배선 끊김, agent 미해결, 관찰된 회귀) 수정 | complete | `.claude/plans/workflow-orchestration-live-activation-m3.plan.md` |
 
 ## Open Questions

@@ -1,6 +1,6 @@
 'use strict';
 
-// lint.test.js — 9개 검사가 **각각 실제로 붉어지는지**를 확인한다.
+// lint.test.js — 10개 검사가 **각각 실제로 붉어지는지**를 확인한다.
 //
 // exit 0만 보는 검사는 «빈 JSON을 뱉고 정상 종료하는 lint»도 통과시킨다. 그래서 여기서는
 // 검사마다 그것 하나만 위반하는 fixture를 만들고, 그 fixture에서 **그 검사만** 실패하는지
@@ -23,6 +23,7 @@ const path = require('node:path');
 const lint = require('../lint');
 const scan = require('../scan');
 const registry = require('../registry');
+const vocabularyMod = require('../vocabulary');
 
 // tests → env-contract → lib → scripts → mccp → plugins → repo root (6단계).
 const REPO_ROOT = path.resolve(__dirname, '../../../../../..');
@@ -71,8 +72,52 @@ function makeRepo() {
   fs.writeFileSync(path.join(root, 'plugins/mccp/scripts/state/toggle-snapshot.js'), STUB_SNAPSHOT);
   fs.writeFileSync(path.join(root, 'plugins/mccp/scripts/lib/probe.js'), CLEAN_JS);
   fs.writeFileSync(path.join(root, 'plugins/mccp/commands/probe.md'), CLEAN_MD);
+  materializeVocabulary(root);
   materializeEvidence(root);
   return root;
+}
+
+
+// L10은 어휘 ref가 가리키는 **소스 파일**을 이 root 기준으로 읽는다. 합성 repo에 그
+// 파일들이 없으면 L10이 어느 fixture에서나 붉어져서 `only()`가 무의미해진다. 그래서
+// 실제 저장소에서 읽어 낸 값을 담은 최소 파일을 만들어 둔다 — 내용 전체가 아니라
+// «그 상수가 그 값을 갖는가»가 L10의 검사 대상이다.
+//
+// 실제 소스를 복사하지 않는 이유: 그 파일들은 raw 비교와 등록된 토글 이름을 담고
+// 있어 L4·L9의 baseline을 오염시킨다. 합성하면 L10만 만족시키고 나머지는 건드리지 않는다.
+function materializeVocabulary(root) {
+  const written = new Set();
+  const put = function (rel, constant, values) {
+    const key = rel + '#' + constant;
+    if (written.has(key)) return;
+    written.add(key);
+    const abs = path.join(root, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    const decl = 'const ' + constant + ' = ' + JSON.stringify(values) + ';\n';
+    let existing = '';
+    try { existing = fs.readFileSync(abs, 'utf8'); } catch (_) { existing = ''; }
+    fs.writeFileSync(abs, existing + decl, 'utf8');
+  };
+
+  registry.ENTRIES.forEach((e) => {
+    if (e.kind !== 'enum' && e.kind !== 'list') return;
+    if (typeof e.vocabulary !== 'string') return;
+    const hash = e.vocabulary.indexOf('#');
+    const rel = e.vocabulary.slice(0, hash);
+    const constant = e.vocabulary.slice(hash + 1);
+    const real = vocabularyMod.extractConstant(REPO_ROOT, e.vocabulary);
+    assert.equal(real.ok, true, 'fixture needs the real vocabulary for ' + e.name + ': ' + real.reason);
+    put(rel, constant, real.values);
+  });
+
+  // hook-ids 파생자의 두 소스. list라 값 자체는 판정에 쓰이지 않지만, 해석되지 않으면
+  // fail-closed로 붉어진다.
+  const disp = path.join(root, 'plugins/mccp/scripts/hooks/bash-hook-dispatcher.js');
+  fs.mkdirSync(path.dirname(disp), { recursive: true });
+  fs.appendFileSync(disp, "const HANDLERS = [{ id: 'pre:bash:fixture' }];\n", 'utf8');
+  const hj = path.join(root, 'plugins/mccp/hooks/hooks.json');
+  fs.mkdirSync(path.dirname(hj), { recursive: true });
+  fs.writeFileSync(hj, JSON.stringify({ cmd: 'run-with-flags.js stop:fixture' }), 'utf8');
 }
 
 // L8은 evidence 경로를 **이 root 기준으로** 실재 확인한다. 합성 repo에 그 파일들이 없으면
@@ -113,16 +158,34 @@ function only(result, check) {
     'fixture must break exactly ' + check + ', got [' + failed.join(', ') + ']');
 }
 
+
+// 어휘 상수 한 줄만 갈아끼운다. 이 경로들은 L8의 evidence 대상이기도 해서 파일을
+// 통째로 덮어쓰면 줄 수가 줄어 L8까지 붉어지고, 그러면 fixture가 «L10만 깨뜨린다»를
+// 증명하지 못한다.
+function rewriteVocabLine(root, name, replacement) {
+  const e = registry.get(name);
+  const hash = e.vocabulary.indexOf('#');
+  const rel = e.vocabulary.slice(0, hash);
+  const constant = e.vocabulary.slice(hash + 1);
+  const abs = path.join(root, rel);
+  const lines = fs.readFileSync(abs, 'utf8').split(/\r?\n/);
+  const idx = lines.findIndex((l) => l.indexOf('const ' + constant + ' =') === 0);
+  assert.ok(idx !== -1, 'fixture expected a synthesized `const ' + constant + '` in ' + rel);
+  lines[idx] = replacement(constant);
+  fs.writeFileSync(abs, lines.join('\n'), 'utf8');
+  return { rel, constant, entry: e };
+}
+
 let negativeFixtures = 0;
 let fixtureJs = 0;
 let fixtureMd = 0;
 
-test('baseline — 손대지 않은 fixture repo에서는 9개가 전부 통과한다', () => {
+test('baseline — 손대지 않은 fixture repo에서는 10개가 전부 통과한다', () => {
   const root = makeRepo();
   const r = lint.run(root);
   const failed = Object.keys(r.checks).filter((k) => !r.checks[k].ok);
   assert.deepEqual(failed, [], 'baseline이 붉으면 아래 fixture들이 무엇을 증명하는지 알 수 없다');
-  assert.equal(Object.keys(r.checks).length, 9);
+  assert.equal(Object.keys(r.checks).length, 10);
 });
 
 test('L1 — 레지스트리에 없는 런타임 토글', () => {
@@ -258,6 +321,59 @@ test('L9 — load-time 별칭 포획과 구조분해도 잡는다', () => {
   only(lint.run(destrRoot), 'L9');
 });
 
+test('L10 — 격리되지 않은 값 불일치', () => {
+  const root = makeRepo();
+  // 격리표에 없는 토글의 코드 어휘를 바꾼다. 레지스트리는 그대로이므로 집합이 어긋난다.
+  rewriteVocabLine(root, 'MCCP_REVIEW_SINGLE_PASS', (c) => 'const ' + c + " = ['drifted'];");
+  const r = lint.run(root);
+  only(r, 'L10');
+  assert.match(r.checks.L10.problems.join('\n'), /MCCP_REVIEW_SINGLE_PASS: documented values do not match/);
+  negativeFixtures++;
+});
+
+test('L10 — 격리는 배수된다: 수리된 항목이 남아 있으면 붉어진다 (DD3-ii)', () => {
+  // 이 분기가 없으면 격리표는 영구 면죄부가 되어 M2가 고쳐도 아무도 지우지 않는다.
+  // Acceptance의 수동 1회 확인과 **같은 명제**를 fixture로 고정한다 — 수동 확인만
+  // 남기면 다음 변경에서 이 규칙이 깨져도 알 길이 없다.
+  const root = makeRepo();
+  const q = vocabularyMod.QUARANTINE[0];
+  // 코드 어휘를 레지스트리와 «일치»시킨다 = 어긋남이 수리된 상태.
+  rewriteVocabLine(root, q.name, (c) => 'const ' + c + ' = ' + JSON.stringify(registry.get(q.name).values) + ';');
+  const r = lint.run(root);
+  only(r, 'L10');
+  assert.match(r.checks.L10.problems.join('\n'),
+    new RegExp(q.name + ': quarantined but the mismatch is gone'));
+});
+
+test('L10 — 격리에 적어 둔 어긋남과 관측된 어긋남이 다르면 붉어진다', () => {
+  // 격리가 «지금도 어긋난다»만 보고 «같은 어긋남인가»를 안 보면, 형태가 바뀐 다른
+  // 결함을 옛 격리가 덮는다.
+  const root = makeRepo();
+  const q = vocabularyMod.QUARANTINE[0];
+  rewriteVocabLine(root, q.name, (c) => 'const ' + c + " = ['something-else-entirely'];");
+  const r = lint.run(root);
+  only(r, 'L10');
+  assert.match(r.checks.L10.problems.join('\n'),
+    /the observed mismatch differs from the recorded one/);
+});
+
+test('L10 — 해석 불가한 ref는 통과가 아니라 problem이다 (fail-closed)', () => {
+  // 파일을 지우면 L8도 함께 붉어져 격리 여부를 말할 수 없다. 선언만 없앤다.
+  const root = makeRepo();
+  rewriteVocabLine(root, 'MCCP_REVIEW_SINGLE_PASS', () => '// declaration removed by fixture');
+  const r = lint.run(root);
+  only(r, 'L10');
+  assert.match(r.checks.L10.problems.join('\n'), /cannot resolve vocabulary/);
+});
+
+test('L10 — vocabularyGap은 통과시키되 기록한다 (UI5)', () => {
+  const root = makeRepo();
+  const r = lint.run(root);
+  assert.equal(r.checks.L10.ok, true);
+  const gaps = r.checks.L10.notes.filter((n) => /vocabularyGap/.test(n));
+  assert.ok(gaps.length > 0, '읽을 수 없는 항목은 조용한 통과가 아니라 명시 열거여야 한다');
+});
+
 test('L9가 scan.walkSurfaces를 실제로 호출한다 (spy)', () => {
   const root = makeRepo();
   const original = scan.walkSurfaces;
@@ -294,7 +410,7 @@ test('읽기 실패는 통과가 아니라 drift로 보고된다', () => {
 test('마커 — 7c가 대조할 fixture 수와 확장자 분포를 찍는다', () => {
   process.stdout.write('LINT negative-fixtures=' + negativeFixtures
     + ' js=' + fixtureJs + ' md=' + fixtureMd + '\n');
-  assert.equal(negativeFixtures, 9, 'L1..L9 각각에 붉어지는 fixture가 하나씩 있어야 한다');
+  assert.equal(negativeFixtures, 10, 'L1..L10 각각에 붉어지는 fixture가 하나씩 있어야 한다');
   assert.ok(fixtureJs >= 1);
   assert.ok(fixtureMd >= 1);
   cleanup();

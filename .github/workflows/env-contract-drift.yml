@@ -1,0 +1,90 @@
+name: env-contract drift gate
+
+# L10 enforcement point. Goes red when the registry's documented `values` and the
+# code vocabulary they claim to describe disagree, and when any of L1..L9 drift.
+#
+# WHY THIS FILE EXISTS AT ALL: `lint.js` had zero callers — no hook, no CI, no
+# settings entry. Adding L10 without a runner would have changed nothing except
+# for people who happen to type the command; the check would be true and unread.
+# This workflow is what makes "landing is blocked" a claim about the repository
+# rather than about one operator's habits.
+#
+# THE PATHS FILTER IS BROAD ON PURPOSE. The mirror (gitignore-drift.yml) narrows
+# its filter to the lint's decision inputs, and the same rule applied here comes
+# out wide: L10 resolves each `vocabulary` ref by reading the SOURCE FILE it
+# names, and those files are scattered across the whole scripts tree (20 distinct
+# files today, and the set moves whenever the registry does). L1/L4/L9 were
+# already this broad — `scan.js#walkSurfaces` walks every `scripts/**/*.js` and
+# `commands/*.md`. A filter listing only `env-contract/` would skip the workflow
+# for a PR that edits `plan-review/decide.js#MODES`, which is exactly the drift
+# L10 exists to catch: GitHub skips a workflow entirely when no path matches, so
+# a filter that misses an input turns the gate into dead code.
+#
+# `plugins/mccp/hooks/hooks.json` is listed separately because it is not under
+# `scripts/` but IS a decision input — the `hook-ids` deriver reads it as one of
+# its two halves.
+#
+# Scope note: this workflow guarantees the lint RUNS and goes red on drift.
+# Making that red block a merge is a repository setting (branch protection /
+# ruleset) and cannot be expressed in a repo file.
+#
+# Not a receipt gate: this is CI, and the mccp receipt chain does not read it.
+# `doctor` is likewise a diagnostic and is deliberately NOT run here (DD6/UI13) —
+# it reports on an operator's machine-local settings, which a CI runner does not
+# have, so running it here would either be vacuous or fail for the wrong reason.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugins/mccp/scripts/**'
+      - 'plugins/mccp/commands/**'
+      - 'plugins/mccp/hooks/hooks.json'
+      - 'docs/ENVIRONMENT.md'
+      - 'docs/environment/**'
+      - '.github/workflows/env-contract-drift.yml'
+  workflow_dispatch:
+
+jobs:
+  drift:
+    name: ${{ matrix.os }} — registry/vocabulary drift
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Two commands, in this order, because they fail differently and both
+      # failures matter. The lint answers "does the contract hold right now?"
+      # against the real tree; the unit tests answer "does each check still go
+      # red when it should?" against synthetic fixtures. A suite that only ran
+      # the lint would stay green if L10 were quietly reduced to a no-op.
+      - name: env-contract lint (L1..L10)
+        run: node plugins/mccp/scripts/lib/env-contract/lint.js
+
+      # 셸이 펼치는 glob이다. 세 형태 중 이것만 Node 20에서 산다:
+      #
+      #   `--test <dir>/`      Node 24가 디렉토리 인자를 test 디렉토리가 아니라
+      #                        **모듈 경로**로 해석해 `Cannot find module …/tests`로 죽는다.
+      #   `--test "<glob>"`    node 자신의 glob 해석은 **22.6.0에서 추가**됐다. 위
+      #                        `node-version: '20'`에서는 인용된 패턴이 리터럴 경로가 되어
+      #                        `Could not find '…\*.test.js'` + exit 1 — 매 실행 red다.
+      #   `--test <glob>`      셸이 펼치므로 node 버전과 무관하다. ← 이것.
+      #
+      # `shell: bash`가 load-bearing이다. windows 러너의 기본 셸 pwsh는 네이티브 명령의
+      # 인자에 glob을 펼치지 않아 인용 여부와 상관없이 같은 실패로 간다. 러너 양쪽에
+      # bash가 있으므로 두 OS가 같은 인자 목록을 node에 넘기게 고정한다.
+      #
+      # node-version을 22+로 올려 인용 glob을 쓰는 선택지도 있었으나, 이 저장소가
+      # 표방하는 하한이 Node 20(CLAUDE.md §3.4)이라 그 하한에서 도는 것이 CI의 일이다.
+      - name: env-contract unit tests
+        shell: bash
+        run: node --test plugins/mccp/scripts/lib/env-contract/tests/*.test.js

@@ -2,7 +2,7 @@
 
 // env-contract/lint.js — 레지스트리 · 런타임 스캔 · 색인 표의 삼각 정합 검사 (v1.29.1).
 //
-// 9개 검사는 전부 fail-closed다. 읽기 실패는 «통과»가 아니라 drift로 보고한다 —
+// 10개 검사는 전부 fail-closed다. 읽기 실패는 «통과»가 아니라 drift로 보고한다 —
 // `state/toggle-snapshot.js:184` `crossCheckExclusions`가 확립한 규약이고, 그 반대
 // (읽을 수 없으면 조용히 넘어감)는 문서가 낡았는지 아는 유일한 장치를 꺼 버린다.
 //
@@ -15,6 +15,7 @@
 //   L7  사용 예시 3검사 — 존재 · JSON.parse 실행 · 레지스트리 values 정합
 //   L8  evidence의 형식과 실재 — **어휘 검사를 fs 호출보다 먼저**
 //   L9  등록된 boolean 토글의 raw 비교가 `env-contract/` 밖에 0건인가
+//   L10 레지스트리 `values`가 코드의 어휘 상수와 집합으로 같은가 (격리는 양방향)
 //
 // **L8의 순서는 load-bearing이다.** 실재를 먼저 보면 디스크에 존재하는 절대경로가
 // 통과해 CLAUDE.md §3.12가 닫은 누출 경로가 다시 열린다. `lib/instruction-contract/lint.js:41`이
@@ -34,6 +35,7 @@ const fs = require('fs');
 const path = require('path');
 
 const registry = require('./registry');
+const vocabulary = require('./vocabulary');
 const scan = require('./scan');
 
 const INDEX_REL = 'docs/ENVIRONMENT.md';
@@ -413,6 +415,116 @@ function run(repoRoot) {
     });
     checks.L9 = fail('no raw boolean comparisons outside env-contract/', problems);
     checks.L9.filesScanned = files.length;
+  }
+
+  // L10 — `values`와 코드 어휘의 집합 대조
+  //
+  // L1~L9는 전부 계약 **내부**(레지스트리 ↔ 색인 ↔ 상세)의 정합만 본다. 셋이 서로를
+  // 베끼므로, 존재하지 않는 값이 레지스트리에 들어가면 세 표면에 일관되게 복제된 뒤
+  // green으로 보고된다. L10은 그 바깥과 결속하는 유일한 검사다.
+  //
+  // 판정은 kind마다 다르다(DD9). enum은 `values`와 코드 어휘가 **집합 동일**해야 하고,
+  // list는 `values`가 오늘 전부 null이므로 «어휘가 지정됐고 해석되는가»까지만 본다 —
+  // 여기서 동일성을 요구하면 M1이 M2의 문서화 작업을 강제로 끌어온다.
+  {
+    const problems = [];
+    const notes = [];
+    const quarantine = vocabulary.quarantineByName();
+    const seenQuarantine = new Set();
+    const targets = registry.byKind('enum').concat(registry.byKind('list'));
+    if (targets.length === 0) {
+      problems.push('no enum/list entries — the vocabulary check would pass vacuously');
+    }
+
+    quarantine.forEach(function (q, name) {
+      if (!byName.has(name)) {
+        problems.push('quarantine names ' + name + ', which is not in the registry');
+      }
+    });
+
+    targets.forEach(function (e) {
+      const resolved = vocabulary.resolveVocabulary(root, e);
+      const q = quarantine.get(e.name);
+      if (q) seenQuarantine.add(e.name);
+
+      if (!resolved.ok) {
+        // 'gap'은 «읽을 수 없음»의 명시 열거라 통과시키되 기록한다(UI5). 그 밖의
+        // 실패(ref가 안 풀린다 · 파생자가 없다 · 형태가 틀렸다)는 fail-closed다 —
+        // 읽기 실패를 통과로 치면 문서가 낡았는지 아는 장치를 끄는 일이다.
+        if (resolved.form === 'gap') {
+          notes.push(e.name + ': vocabularyGap — ' + resolved.reason);
+          if (q) {
+            problems.push(e.name + ': quarantined but its vocabulary is a declared gap — '
+              + 'a gap is not a mismatch, so the quarantine entry is meaningless');
+          }
+          return;
+        }
+        problems.push(e.name + ': cannot resolve vocabulary (' + resolved.form + ') — ' + resolved.reason);
+        return;
+      }
+
+      if (e.kind === 'list') {
+        // DD9 — list의 `values`는 오늘 전부 null이다. 지정과 해석까지가 M1의 요구다.
+        //
+        // 그래서 list는 **격리 대상이 될 수 없다.** 비교할 `values`가 없으면 «지금도
+        // 어긋나는가»를 물을 수 없고, 물을 수 없으면 DD3-ii의 배수(수리되면 붉어진다)도
+        // 성립하지 않는다 — 이 분기가 아래 동일성 검사보다 먼저 return하므로, 막지 않으면
+        // list 격리 항목만 검사 없이 통과하는 영구 면죄부가 된다.
+        if (q) {
+          problems.push(e.name + ': quarantined but it is a list entry — a list has no documented '
+            + '`values` to compare, so the quarantine could never be drained (DD3-ii). '
+            + 'Quarantine is for enum entries only.');
+        }
+        notes.push(e.name + ': list vocabulary resolves (' + resolved.values.length + ' members via ' + resolved.source + ')');
+        return;
+      }
+
+      const declared = (e.values || []).slice().sort();
+      const actual = resolved.values.slice().sort();
+      const same = declared.length === actual.length
+        && declared.every(function (v, i) { return v === actual[i]; });
+
+      if (same) {
+        // DD3-ii — 격리는 배수된다. 수리된 항목이 격리표에 남아 있으면 실패한다.
+        // 이 분기가 없으면 격리표는 영구 면죄부가 되어 M2가 고쳐도 아무도 지우지 않는다.
+        if (q) {
+          problems.push(e.name + ': quarantined but the mismatch is gone — remove the entry from '
+            + 'vocabulary.js QUARANTINE (owner was ' + q.owner + ')');
+        }
+        return;
+      }
+
+      const detail = 'registry=[' + declared.join(',') + '] code=[' + actual.join(',')
+        + '] via ' + resolved.source;
+      if (!q) {
+        problems.push(e.name + ': documented values do not match the code vocabulary — ' + detail);
+        return;
+      }
+      // 격리 항목은 «지금도 실제로 어긋나는가»만이 아니라 «적어 둔 어긋남과 같은가»도
+      // 봐야 한다. 형태가 달라졌는데 통과시키면 격리가 다른 결함을 덮는다.
+      const qExpected = (q.expected || []).slice().sort();
+      const qActual = (q.actual || []).slice().sort();
+      const sameShape = qExpected.length === declared.length
+        && qExpected.every(function (v, i) { return v === declared[i]; })
+        && qActual.length === actual.length
+        && qActual.every(function (v, i) { return v === actual[i]; });
+      if (!sameShape) {
+        problems.push(e.name + ': quarantined, but the observed mismatch differs from the recorded one — '
+          + 'recorded expected=[' + qExpected.join(',') + '] actual=[' + qActual.join(',') + '], observed ' + detail);
+        return;
+      }
+      notes.push(e.name + ': quarantined mismatch (owner ' + q.owner + ') — ' + detail);
+    });
+
+    quarantine.forEach(function (q, name) {
+      if (byName.has(name) && !seenQuarantine.has(name)) {
+        problems.push('quarantine names ' + name + ', which is not an enum/list entry and can never mismatch');
+      }
+    });
+
+    checks.L10 = fail('registry values are bound to the code vocabulary', problems);
+    checks.L10.notes = notes;
+    checks.L10.quarantined = Array.from(seenQuarantine).sort();
   }
 
   const ok = Object.keys(checks).every(function (k) { return checks[k].ok; });

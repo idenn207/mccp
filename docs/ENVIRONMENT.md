@@ -269,6 +269,38 @@
 - 병렬 implement 끄기 — [orchestration.md#mccp_work_implement_parallel](environment/orchestration.md#mccp_work_implement_parallel)
 - 비용 임계 조정 — [cost.md#mccp_handoff_thresholds_usd](environment/cost.md#mccp_handoff_thresholds_usd)
 
+### 이 표를 CLI로 조회하기 (v1.30.2)
+
+```bash
+# 레지스트리 열거. 필터 값은 레지스트리 상수로 검증되며 오탈자는 exit 2다.
+node plugins/mccp/scripts/lib/env-contract/cli.js list --domain gates
+node plugins/mccp/scripts/lib/env-contract/cli.js list --kind enum --json
+
+# 한 토글의 kind · values · default · 소비처 evidence · settings.json 예시.
+# 계약 격리 대상이면 «코드가 실제로 받는 값»을 함께 보여 주고 exit 1.
+node plugins/mccp/scripts/lib/env-contract/cli.js explain MCCP_PLAN_REVIEW
+
+# 3계층 settings(user · project · local)가 **선언한 값**과 프로세스가 **실제로 받은 값**을
+# 나란히 놓는다. --all 은 이 계약이 소유하지 않는 이름을 이름만 덧붙인다(값 미표시).
+node plugins/mccp/scripts/lib/env-contract/cli.js doctor
+node plugins/mccp/scripts/lib/env-contract/cli.js doctor --json
+```
+
+**`doctor`는 진단이며 게이트가 아니다.** hook 등록 0건, receipt 0건이고 어떤 게이트도 이
+종료코드를 읽지 않는다. `0`(error 0건) / `1`(error 1건 이상) / `2`(오용)는 사람과 스크립트를
+위한 것이지 자동 차단을 위한 것이 아니다.
+
+주장 범위도 좁다 — `doctor`는 **자기 프로세스가 받은 env**를 인증할 뿐, dispatch worker ·
+detached runner · Workflow agent가 받는 env는 인증하지 않는다.
+
+계약 자체의 정합은 lint가 본다. `values`가 코드의 어휘와 어긋나면 L10이 붉어지고, 알려진
+어긋남은 [vocabulary.js](../plugins/mccp/scripts/lib/env-contract/vocabulary.js)의 격리표에
+근거와 담당 마일스톤을 달아 명시 열거한다 — 격리는 **수리되면 붉어지므로** 쌓이지 않는다.
+
+```bash
+node plugins/mccp/scripts/lib/env-contract/lint.js
+```
+
 ## 6. 변경 이력 관리 규칙
 
 손대는 곳은 **레지스트리 하나**다. 나머지는 투영이고, 어긋나면 lint가 fail-closed로 막는다.

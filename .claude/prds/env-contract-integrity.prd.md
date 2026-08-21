@@ -73,7 +73,7 @@ We'll know we're right when **운영자가 명령 하나로 자신의 설정이 
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | 계약 대조 + 설정 진단 | 계약이 코드와 어긋나면 착지가 막힌다. 운영자가 명령 하나로 자기 설정이 선언대로 도달했는지 안다 | pending | — |
+| 1 | 계약 대조 + 설정 진단 | 계약이 코드와 어긋나면 착지가 막힌다. 운영자가 명령 하나로 자기 설정이 선언대로 도달했는지 안다 | complete | .claude/plans/env-contract-integrity-m1.plan.md |
 | 2 | 어긋난 값 수리 + 값 의미·멤버 어휘 문서화 | 문서가 가르치는 값이 전부 실제로 동작하고, 각 값이 무엇을 켜고 끄는지 읽을 수 있다 | pending | — |
 | 3 | 라운드 캡 기계 강제 | 단일통과 토글을 켜면 실제로 1라운드에서 멈춘다 | pending | — |
 | 4 | 문서 생성 자동화 + 착지 게이트 | 토글을 추가하면 문서가 생성된다. 갱신을 잊으면 착지가 막힌다 | pending | — |
@@ -82,10 +82,11 @@ We'll know we're right when **운영자가 명령 하나로 자신의 설정이 
 
 ## Open Questions
 
-- [ ] Claude Code의 설정 계층 병합이 `env` 키에서 **얕은 대체**인가 **깊은 병합**인가. 얕은 대체라면 프로젝트에 `env` 블록이 있는 순간 전역 `env`가 통째로 사라지며, 그것이 실사용 Codex 사례의 유력 설명이다. 반증 방법: 전역에만 있는 더미 키를 넣고 프로젝트 `env`가 존재하는 상태로 세션을 재시작해 프로세스 도달 여부를 확인한다. **M1의 진단 설계가 이 답에 의존한다.**
-- [ ] 프로세스 경계를 넘는 env 전달이 명시 allowlist로 제한된다. 경계가 여럿(dispatch worker · detached 리뷰 러너 · Workflow agent · worktree worker)인데 각 경계의 allowlist가 서로 같은지, 그리고 새 토글이 추가될 때 누가 그것을 갱신하는지가 정해져 있지 않다.
-- [ ] 계약이 선언한 어휘를 코드에서 읽어 오는 방법. 대부분의 파서가 어휘를 모듈 상수로 갖지만 일부는 인라인 비교다. 모듈을 실행해 읽으면 부작용 위험이 있고, 소스 텍스트에서 추출하면 표현식으로 만든 집합을 못 읽는다. 못 읽는 항목을 명시적으로 열거하는 편이 정직하다.
-- [ ] 미상 멤버의 처리 방향이 파서마다 다르다. 하나는 토큰 하나로 설정 전체를 무효화하고(경고 있음), 다른 하나는 토큰 단위로 조용히 수용한다. 통일할 것인지, 통일한다면 어느 방향인지.
+- [x] ~~Claude Code의 설정 계층 병합이 `env` 키에서 **얕은 대체**인가 **깊은 병합**인가.~~ **답: 깊은 병합이다** (M1 실측, 2026-08-21 — `.claude/plans/env-contract-integrity-m1.plan.md` §Grounding G1). 키 단위 합집합이고 충돌 시 프로젝트가 이긴다. 사용자 전용 키 4개와 프로젝트 전용 키 다수가 **양쪽 다** 프로세스에 도달했고, 양쪽에 있는 `MCCP_RECEIPT_DEBUG`는 프로젝트 값이 이겼다. 따라서 «얕은 대체» 가설은 **반증됐고**, 그것을 «실사용 Codex 사례의 유력 설명»으로 삼은 이 PRD의 서술도 함께 틀렸다 — 그 세션에서 `MCCP_CODEX_DISABLED=1`은 실제로 도달해 있었다. 근인은 다른 곳이며, 그것을 지목할 장치가 없다는 사실이 `doctor`의 존재 이유다. 측정 범위: 1회 관측 · Windows · 사용자+프로젝트 2계층(`settings.local.json` 부재). `doctor`의 **탐지**는 이 답에 의존하지 않는다(M1 DD7) — 병합 규칙이 바뀌면 내놓는 *설명*이 낡을 뿐이다.
+- [ ] 프로세스 경계를 넘는 env 전달이 명시 allowlist로 제한된다. 경계가 여럿(dispatch worker · detached 리뷰 러너 · Workflow agent · worktree worker · **test harness가 spawn하는 CLI**)인데 각 경계의 allowlist가 서로 같은지, 그리고 새 토글이 추가될 때 누가 그것을 갱신하는지가 정해져 있지 않다. **실증 사례(M1 사이클 중 실측, 2026-08-21)**: 이 저장소의 `.claude/settings.json`에 있는 `MCCP_REVIEW_SINGLE_PASS=deadline_pressure`가 test 프로세스에 상속돼 santa test가 spawn하는 CLI의 `begin-round`를 §3.15대로 exit 2로 만들고, 그 결과 회귀 스위트가 붉어진다 — `santa-loop-cap.test.js` 단독 대조로 토글 켬 **28 fail** / `env -u`로 끔 **0 fail**. 운영자의 정당한 설정이 test 경계를 넘어 동작을 바꾸는데 그 사실이 어디에도 표면화되지 않는다. **`doctor`는 이 건을 잡지 못한다** — 값이 유효하고 선언도 정상이라 진단 대상이 아니다. 즉 이 질문은 M1이 닫은 축(선언 ↔ 프로세스 대조)과 **다른 축**이며, 경계별 allowlist를 다루는 후속 마일스톤이 필요하다.
+- [x] ~~계약이 선언한 어휘를 코드에서 읽어 오는 방법.~~ **답: 소스 텍스트 정적 추출 + 명시 열거** (M1 DD1·DD2). 모듈을 `require`하지 않는다 — 소비처 다수가 load 시점에 env를 포획하고 stderr에 쓰며 일부는 fs를 만져, 감사 대상을 부팅하는 lint는 자기가 감사하는 상태를 바꾼다. 3형태로 갈랐고 **실측 분포는 ref 22 · 파생자 1 · gap 13**이다(대상 36 = enum 27 + list 9). 못 읽는 13건은 `vocabularyGap` 사유와 함께 열거되며 사유 없는 `null`은 `build()`가 throw한다. 남은 축: gap 13건을 상수로 승격해 검사 표면을 넓히는 것은 M2 문서화 축이다.
+- [ ] 미상 멤버의 처리 방향이 파서마다 다르다. 하나는 토큰 하나로 설정 전체를 무효화하고(경고 있음), 다른 하나는 토큰 단위로 조용히 수용한다. 통일할 것인지, 통일한다면 어느 방향인지. **M1은 통일하지 않고 보고한다**(DD8) — `doctor`의 `list-member-unknown`이 각 list 토글에 어느 처리가 적용되는지 한 줄로 알려 주므로 운영자는 결과를 알고 값을 고른다. 실측 확인: `parseTierOverride` 3종은 토큰 하나로 override 전체를 무효화하고(`plan-fanout/budget.js:121-125`), `getDisabledHookIds`는 검증 없이 수용하며(`hook-flags.js:23-33`), `parseIntentCommands`는 열거 밖 토큰을 조용히 버린다(`impeccable-routing.js:127-132`). **통일 여부는 여전히 미결**이다.
+- [ ] 라운드 캡이 **기계 강제가 아니다** (M1 사이클 중 실측, 2026-08-21). `resolution.rounds: 1` + `review_single_pass_reason: "deadline_pressure"`로 봉인된 receipt의 plan 본문이 R13 종료를 기록했다 — 캡이 1로 고정된 상태에서 루프가 13바퀴 돌았고 receipt는 그 수를 봉인하지 않았다. 같은 receipt에서 `codex_verdict: converged`와 대기 fix-task의 `divergent unresolved`가 상충했다. CLAUDE.md §3.15가 "주장하지 않는 것"에 적어 둔 천장(라운드 루프는 명령 본문의 산문)이 확인된 것이며, **M3(라운드 캡 기계 강제)의 직접 근거**다. 후보 축: `rounds`를 dispatch 원장에서 파생시켜 저자 서술과 분리 · Implement-Codex에도 동형 원장 도입 · write 시 원장 그룹 크기와의 불일치를 fail-closed 검증.
 - [ ] 온보딩 계층에서 `advanced`와 `never`를 누가 판정하는가. 기계적 초기값으로 절반은 덮이지만 나머지는 판단이며, 판정 전에 검사를 켜면 즉시 실패한다.
 - [ ] 안내 명령의 완주율이 미측정이다. 주요 설정 9개여도 대화형 질문 상한 때문에 최소 3회 호출이며, 완주하지 않으면 목적(기억 형성)이 달성되지 않는다. 낮을 경우 대응이 항목 축소인지 질문 묶음 재설계인지 정해지지 않았다.
 

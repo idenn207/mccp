@@ -746,6 +746,12 @@ R5 계약 위반 2건 + 정지 → R6 새 축 0건 → Plan-Codex R1 실재 1건
 /mccp:meta-research <주제>          # 조사 골격 5 phase 고정 + .claude/_meta/ 규격 산출물 + README 색인 등재
 node plugins/mccp/scripts/lib/meta-research.js lint --all --json   # 전 산출물 형식/전제/색인 검사
 
+# 환경변수 계약 (v1.30.2) — 레지스트리의 CLI 투영. doctor는 진단이며 게이트가 아니다
+node plugins/mccp/scripts/lib/env-contract/cli.js list --domain gates
+node plugins/mccp/scripts/lib/env-contract/cli.js explain MCCP_PLAN_REVIEW   # 격리 시 exit 1
+node plugins/mccp/scripts/lib/env-contract/cli.js doctor [--all] [--json]    # 선언값 vs 프로세스값
+node plugins/mccp/scripts/lib/env-contract/lint.js                           # L1~L10 계약 정합
+
 # Receipt 운영
 /mccp:receipt-status                # 현재 receipt chain 상태
 /mccp:receipt-validate <command>    # 특정 게이트의 receipt 유효성 검증

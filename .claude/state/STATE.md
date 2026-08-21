@@ -1,57 +1,49 @@
 ---
 state_version: 1
-task_fingerprint: santa-adjudication-m3
+task_fingerprint: env-contract-integrity-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-20T05:19:10.948Z
+updated_at: 2026-08-21T06:45:42.276Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-20T05:19:10.948Z
+last_event_at: 2026-08-21T06:45:42.276Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
-chain_aborted: true
+chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-08-18T03:44:26.285Z
-abort_owner: cost
-cost_abort_at: 2026-08-20T05:19:10.818Z
 ---
 ## Goal
-santa-evidence-diversity PRD(M1~M3) PR #150 생성 완료 — 리뷰/머지 대기.
+env-contract-integrity PRD M1 (어휘 결속 + 설정 진단) 구현 완료 — 커밋 후 /mccp:pr 대기.
 
 ## Plan
-- plan: `.claude/plans/santa-evidence-diversity-m2.plan.md` — 본문 확정, plan_hash sha256:f1bc8593…로 mccp-plan-codex가 봉인. **편집 금지**(편집하면 stale → PR이 §3.11 guard 2에 막힌다)
-- 게이트 산출물 + Task 6 실측: `.claude/notes/santa-evidence-diversity-m2.md` (plan 본문 대신 이 자리 — M1·santa-adjudication M1~M3 선례)
-- report: `.claude/PRPs/reports/santa-evidence-diversity-m2-report.md`
-- receipt: mccp-plan-codex/santa-evidence-diversity-m2 (review_verdict=divergent, single-pass 봉인) · mccp-implement-codex/santa-evidence-diversity-m2 (codex_verdict=skipped)
-- version 1.28.3 (patch — PRD 3 milestone 중 2번째). 4면 동기 완료
+- plan: `.claude/plans/env-contract-integrity-m1.plan.md` — 편집 금지(편집하면 stale → PR이 §3.11 guard 2에 막힌다)
+- report: `.claude/PRPs/reports/env-contract-integrity-m1-report.md`
+- version 1.30.2 (patch — PRD M1~M6 중 첫째). §3.7 재발 5회차로 1.30.1 → 1.30.2 한 칸 상향, 4면 동기 완료
 
 ## Done
-- Implement-Codex 게이트 — MCCP_CODEX_DISABLED=1 first-class skip(codex_verdict=skipped). security-reviewer 발화: CRITICAL 1 흡수 · CRITICAL 1 기각(리뷰어 자기 결론) · HIGH 2 흡수 · MEDIUM 3 무조치
-- Task 1 model-diversity.js — 순수 oracle export 11종. familyOf는 plan보다 엄격: 다중매치도 unknown(precedence 표 미채택)
-- Task 2 seal.js — deriveVerdict 제3값 degraded, 사영 1지점(degraded→divergent), exitReason 술어 !==divergent로 일반화
-- Task 3 receipt 5필드 + 양방향 불변식 — write 시점에 발화(예상보다 이른 지점)
-- Task 4 cli.js — isOnPath + --model 계열 재도출. 신규 exit code·플래그 0건
-- Task 5 santa-loop.md — Step 3 · Step 5.5 3갈래(degraded 선검사) · Output · Notes 5항목
-- Task 6 회귀 test 33건 신규(lanes 23 · review-gate 8 · cap 2). 단언 삭제 0건
-- Task 7 실측 5건 전부 성립 + 계획 외 1건. probe 누출 0
-- Task 8 문서 — ENVIRONMENT 2행 · ownership 3절 + 표 1행 · PRD status/OQ 3건 · CHANGELOG 1.30.0 + 4면 동기
-- Validation 1~6 전량 통과. santa 269건 중 266 pass · 0 fail · 3 skipped(선재)
+- L10 어휘 결속 — 레지스트리 `values` ↔ 코드 어휘 상수 집합 대조. 격리 8건 전부 enum, 배수 규칙(수리되면 붉어진다) 포함
+- vocabulary.js — 정적 배열 리터럴 추출 + `hook-ids` 파생자 + ref 어휘 스크린(fs보다 먼저)
+- cli.js / doctor.js / settings-layers.js — list · explain · doctor 3서브커맨드, 3계층 settings 읽기, 순수 판정 오라클
+- CI `.github/workflows/env-contract-drift.yml` — lint L1~L10 + 단위 test, ubuntu·windows 매트릭스
+- /mccp:code-review 흡수 8건 (HIGH 3 · MEDIUM 2 · LOW 3) — CHANGELOG `### Fixed` 절에 각 근거 기록
+- 검증: lint L1~L10 green(node 20·24) · env-contract test 101/101 · i18n-surface 10/10 · toggle-snapshot 16/16
 
 ## In Progress
 
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. **PR 진입 직전 §3.7 version 재계산 필수**(두 번째 시점). 현재 1.30.0이 origin/main(1.29.0)·브랜치(1.29.1) 양쪽보다 앞선다. merge 후 worktree cleanup + claude plugin update.
+/mccp:pr. **진입 직전 §3.7 version 재계산 필수**(두 번째 시점) — origin/main이 1.30.1을 이미 발행했고 그 사이 또 밀릴 수 있다. merge 후 worktree cleanup + claude plugin update.
 
 ## Last Decision
-security-reviewer의 CRITICAL F1(familyOf 순서 미명세) 처방을 그대로 쓰지 않았다 — precedence 표는 모호한 모델명에 어떤 계열이든 하나를 줘서 이종 판정을 살 수 있고, 그것은 DD3의 "모르겠다가 승인을 사지 못하게 한다"와 반대 방향이다. 매치된 계열이 정확히 1이 아니면 unknown으로 접어 precedence보다 엄격하게 만들었다. 반대로 F2(PATH TOCTOU)는 리뷰어 자신이 "DD6이 천장으로 명시, 코드 변경 불필요"로 결론해 근거를 붙여 backlog에 등재했다.
+코드리뷰 HIGH 3건을 전부 흡수했다. CI test step은 Node 20에 인용 glob을 넘겨 매 실행 죽던 것을(glob 지원은 22.6.0부터) `shell: bash` + 비인용 glob으로 고쳤다 — node-version 상향 대신 이 길을 고른 이유는 저장소 하한이 Node 20이라 그 하한에서 도는 것이 CI의 일이기 때문. `MCCP_PLAN_REVIEW_ROLES_MIN`은 무기록 완화(실효 3 → 1)라 3으로 되돌렸다. `doctor`는 하네스 밖에서 error 21건을 내던 것을 info 1건으로 묶되 기본값은 harness:true로 두었다 — 낮추는 쪽이 기본이 되면 진짜 미도달이 조용히 접힌다.
 
 ## Open Questions
-- --model은 여전히 선언이라 위조 가능 — PATH 대조가 막는 것은 미설치 CLI 참칭뿐. Task 7의 1번과 3번은 codex 설치 상태에서 구분되지 않는다. PRD Open Question 신규 등재
-- 포착률 미측정 — probe가 증명하는 것은 강등 배선이지 degrade가 놓친 결함과 상관하는지가 아니다. PRD 지표 5는 P1 종료 후
-- off 레인의 UI3 미충족은 여전히 무주 — M3이 넓히지 않기로 해 남은 후보는 신규 milestone 하나
-- design detector 시점 gap — version bump이 whitelist 파일을 건드리지만 detector는 게이트 진입 시점(빈 diff)을 본다. plan의 Design Critique 절이 이미 CONVERGED로 판정
+- M2 소관 — 격리 8건의 값 수리(`MCCP_PLAN_REVIEW`의 `off` 제거 · santa 4종 · `MCCP_HOOK_PROFILE` 양방향 · `MCCP_STATE_JOURNAL` · `MCCP_SESSION_LEDGER_SCOPE` 정본 확정)
+- L10의 list-격리 분기는 QUARANTINE·kind가 둘 다 모듈 상수라 fixture 발화 불가 — 직접 test 없음. 강제되는 것은 vocabulary.test.js의 enum 단언
+- `doctor`는 자기 프로세스가 받은 env만 인증한다 — dispatch worker · detached runner · Workflow agent의 env는 여전히 무주. 프로세스 경계 축은 후속 milestone
+- CI red가 머지를 막는 것은 branch protection이라 저장소 파일로 표현 불가 — 설정 필요
 - (main 승계) 선재 red: renderer verdict-label.test.js · b2-coverage-gate 2건
 - (main 승계) worktree cleanup .worktrees/review-loop-bypass-m2 잔존
 
 ## Last Updated
-2026-08-20T05:19:10.948Z
+2026-08-21T06:45:42.276Z

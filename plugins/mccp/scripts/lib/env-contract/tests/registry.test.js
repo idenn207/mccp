@@ -133,3 +133,47 @@ test('마커 — 7c가 대조할 수치를 stdout에 찍는다', () => {
   assert.ok(entries >= 100, 'registry가 전 표면을 덮어야 한다');
   assert.equal(boolnull, 0);
 });
+
+// ── M1 어휘 열 ──────────────────────────────────────────────────────────────
+
+test('values가 의미를 갖는 kind는 전부 3형태 중 하나를 갖는다', () => {
+  // `build()`가 이미 throw로 막지만, 그 throw는 «채우지 않은 신규 항목»만 잡는다.
+  // 여기서는 오늘의 36개가 실제로 어떤 형태로 채워졌는지를 고정한다 — 형태 분포가
+  // 조용히 gap 쪽으로 기울면 L10이 검사하는 표면이 줄어든 것이다.
+  const targets = registry.byKind('enum').concat(registry.byKind('list'));
+  assert.equal(targets.length, 36, '어휘 결속 대상 수가 바뀌었다면 분포도 다시 봐야 한다');
+
+  let refForm = 0;
+  let deriveForm = 0;
+  let gapForm = 0;
+  targets.forEach((e) => {
+    if (typeof e.vocabulary === 'string') {
+      refForm += 1;
+      assert.match(e.vocabulary, /^[^#]+#[A-Za-z_$][A-Za-z0-9_$]*$/, e.name + ': ref must be "path#CONST"');
+      assert.equal(e.vocabularyGap, null, e.name + ': a ref and a gap cannot coexist');
+      return;
+    }
+    if (e.vocabulary && typeof e.vocabulary === 'object') {
+      deriveForm += 1;
+      assert.equal(typeof e.vocabulary.derive, 'string', e.name);
+      return;
+    }
+    gapForm += 1;
+    assert.equal(e.vocabulary, null, e.name);
+    assert.ok(typeof e.vocabularyGap === 'string' && e.vocabularyGap.trim().length >= 10,
+      e.name + ': a null vocabulary needs a substantive gap reason');
+  });
+
+  process.stdout.write('REGISTRY vocab ref=' + refForm + ' derive=' + deriveForm + ' gap=' + gapForm + '\n');
+  assert.equal(refForm + deriveForm + gapForm, targets.length);
+  // 파생자는 M1에 정확히 하나다(DD2) — 늘리려면 «왜 상수로 승격할 수 없는가»를 논증해야 한다.
+  assert.equal(deriveForm, 1, 'M1의 파생자는 hook-ids 하나뿐이다');
+});
+
+test('그 밖의 kind에는 어휘 열이 붙지 않는다 (가산적 변경)', () => {
+  registry.ENTRIES.forEach((e) => {
+    if (e.kind === 'enum' || e.kind === 'list') return;
+    assert.equal(e.vocabulary, null, e.name + ': bool/bypass-flag/int/string은 values가 어휘를 갖지 않는다');
+    assert.equal(e.vocabularyGap, null, e.name);
+  });
+});

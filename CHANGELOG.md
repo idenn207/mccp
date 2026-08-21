@@ -2,7 +2,127 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.30.2] — 2026-08-21
+
+> **§3.7**: `1.30.0 → 1.30.2` (**patch** — env-contract-integrity PRD의 M1 하나이고
+> PRD에는 M2~M6이 남아 있다). 4면(plugin.json · html.js page-foot · markdown.js
+> derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄고 `i18n-surface.test.js`가
+> 재검증한다.
+>
+> **한 칸 상향 — §3.7 "forward-only 상향"의 5번째 재발.** 이 항목은 처음에
+> `1.30.1`로 적혔고 그때의 근거는 "origin/main과 이 브랜치가 모두 `1.30.0`"이었다.
+> 그 사이 main이 `9c6c836 feat(v1.30.1): codex-intent-context M2 (#151)`로
+> `1.30.1`을 **먼저 발행**했다(CHANGELOG `## [1.30.1] — 2026-08-16`). 발행된 번호는
+> 불가침이므로 미머지인 이쪽이 `1.30.2`로 밀렸다. §3.7이 재계산 시점을 (a) 머지 해소
+> 때와 (b) `/mccp:pr` 진입 직전 **두 번**으로 규정한 이유가 이것이다 — 충돌 창은
+> 브랜치를 딴 시점이 아니라 머지와 PR 사이에도 열려 있다. 상향 후 4면 + PR title을
+> 다시 맞췄다.
+
+---
+
+### Added — 환경변수 계약 무결성 M1: 계약 대조 + 설정 진단
+
+lint L1~L9는 전부 green이면서 «문서가 가르치는 값이 코드에 없는» 어긋남을 하나도
+보지 못했다. 아홉 검사가 계약 **내부**(레지스트리 ↔ 색인 ↔ 상세)의 정합만 보고,
+레지스트리의 `values`가 코드의 수용 집합과 결속돼 있지 않았기 때문이다. 결속이 없으니
+존재하지 않는 값이 레지스트리에 들어가면 세 표면에 **일관되고 권위 있게** 복제된 뒤
+green으로 보고됐다.
+
+- **L10 — 어휘 결속** ([lint.js](plugins/mccp/scripts/lib/env-contract/lint.js)).
+  enum은 `values`와 코드 어휘가 집합 동일해야 하고, list는 어휘가 지정·해석되는지까지
+  본다(DD9 — 여기서 동일성을 요구하면 M1이 M2의 문서화 작업을 끌어온다). 켠 첫 실행에서
+  **8건이 실제로 붉어졌다**.
+- **정적 추출 + 파생자 + 격리표**
+  ([vocabulary.js](plugins/mccp/scripts/lib/env-contract/vocabulary.js)). 어휘는 소스
+  텍스트에서 읽고 `require`하지 않는다(DD1 — 감사 대상을 부팅하는 lint는 자기가 감사하는
+  상태를 바꾼다). 3형태: `'path#CONST'` 정적 추출 22건 · `{derive}` 파생자 1건
+  (`hook-ids` — `MCCP_DISABLED_HOOKS`의 어휘는 dispatcher와 `hooks.json` 두 소스의
+  합집합이라 한 상수로 표현할 수 없다) · `null` + `vocabularyGap` 명시 열거 13건.
+  **빈 배열을 성공으로 돌려주지 않는다** — 빈 집합은 집합 비교에서 "모든 값이 불일치"가
+  되어 조용한 red를 만든다.
+- **격리는 배수된다(DD3-ii)**. L10은 격리되지 않은 불일치뿐 아니라 **격리 항목이 더 이상
+  어긋나지 않아도** 실패한다. 후자가 없으면 격리표는 영구 면죄부가 되어 M2가 수리해도
+  아무도 지우지 않는다. 관측된 어긋남이 적어 둔 것과 다를 때도 실패한다 — 옛 격리가 형태가
+  바뀐 다른 결함을 덮지 못하게.
+- **`env-contract` CLI** — `list` · `explain` · `doctor`
+  ([cli.js](plugins/mccp/scripts/lib/env-contract/cli.js)). 셋 다 호출 시점에 레지스트리에서
+  파생하며 자체 표를 갖지 않는다(새 선언원 0개). `doctor`는 3계층 settings가 **선언한 값**과
+  프로세스가 **실제로 받은 값**을 나란히 놓는다
+  ([settings-layers.js](plugins/mccp/scripts/lib/env-contract/settings-layers.js) +
+  순수 오라클 [doctor.js](plugins/mccp/scripts/lib/env-contract/doctor.js)).
+- **CI 착지 게이트** ([env-contract-drift.yml](.github/workflows/env-contract-drift.yml)).
+  `lint.js`는 그전까지 hook·CI·settings 어디에서도 호출되지 않았다(호출처 0건, 실측).
+  L10을 추가하는 것만으로는 아무것도 차단되지 않으므로, `gitignore-drift.yml`을 mirror한
+  PR 워크플로를 함께 놓았다. paths 필터가 넓은 것은 의도다 — L10의 결정 입력은 어휘 ref가
+  가리키는 소스 파일 전체이고, 좁히면 GitHub이 워크플로를 건너뛰어 게이트가 dead code가 된다.
+
+**격리된 8건** (전부 M2 소관): `MCCP_PLAN_REVIEW`의 `off`(코드에 없어 `codex`로
+fallback — 리뷰 없음을 기대한 운영자가 정반대를 받는다) · santa 4종
+(`SEVERITY_GATE`·`TERMINATOR`·`ADJUDICATION_GATE`·`LEDGER_SUPPRESSION` — 코드는 전부
+`enforce|off` 2상태인데 문서가 다른 어휘를 가르친다. 이 저장소의 `.claude/settings.json`이
+실제로 무효값 `MCCP_SANTA_SEVERITY_GATE=high`를 쓰고 있다) · `MCCP_HOOK_PROFILE`(겹치는
+값이 `minimal` 하나뿐이고 코드의 실제 기본값 `standard`는 문서에 없다) ·
+`MCCP_STATE_JOURNAL`(3상태를 boolean으로 축약) · `MCCP_SESSION_LEDGER_SCOPE`(`host` ↔
+`hybrid`).
+
+**PRD의 차단성 Open Question이 답해졌다**: 설정 병합은 **깊은 병합**이고 충돌 시 프로젝트가
+이긴다(1회 실측 — Windows · 2계층). PRD가 "실사용 3번째 사례의 유력 설명"으로 적었던 «얕은
+대체» 가설은 **반증됐다**. `doctor`의 *탐지*는 이 답에 의존하지 않도록 설계했다(DD7) —
+병합 규칙이 바뀌면 내놓는 *설명*이 낡을 뿐 탐지는 유효하다.
+
+**주장하지 않는 것**: `doctor`는 게이트가 아니다(DD6·UI13 — hook 등록 0건, receipt 0건,
+어떤 게이트도 이 종료코드를 읽지 않는다). CI 워크플로가 보장하는 것은 «lint가 돌고 drift에서
+붉어진다»까지이고, 그 red가 머지를 막는 것은 branch protection이라 저장소 파일로 표현할 수
+없다. 어긋난 값 자체의 수리는 M2, 라운드 캡의 기계 강제는 M3다.
+
+### Fixed — ship 직전 `/mccp:code-review` 흡수 (HIGH 3 · MEDIUM 2 · LOW 3)
+
+- **CI의 test step이 고정된 Node 20에서 반드시 실패했다.** `node --test`의 glob 해석은
+  **22.6.0에서 추가**됐는데 워크플로는 `node-version: '20'`을 고정하면서 인용된 glob을
+  넘겼다 — 로컬 Node 20.11.0으로 재현: `Could not find '…\*.test.js'` + exit 1. 같은
+  Node 20에서 셸이 펼친 경로를 주면 test는 전부 통과하므로 코드가 아니라 인용이
+  문제였다. 이 파일의 존재 이유가 "lint만 돌면 L10이 no-op이 돼도 green"을 막는
+  것인데 그 절반이 매 실행 죽었다. → `shell: bash` + 비인용 glob. windows 러너의 기본
+  셸 pwsh는 네이티브 명령에 glob을 펼치지 않으므로 인용을 벗기는 것만으로는 부족하고,
+  `shell: bash`가 두 OS를 같은 인자 목록으로 고정한다. node-version 상향 대신 이 길을
+  고른 이유는 저장소가 표방하는 하한이 Node 20(§3.4)이라 그 하한에서 도는 것이 CI의
+  일이기 때문이다.
+- **version 충돌** — 위 §3.7 노트 참조. `1.30.1 → 1.30.2` 한 칸 상향.
+- **`.claude/settings.json`의 리뷰 게이트 완화가 무기록이었다.**
+  `MCCP_PLAN_REVIEW_ROLES_MIN`이 `5 → 1`로 바뀌었는데 plan·PRD·CHANGELOG·report·STATE.md
+  어디에도 언급이 없었고, 이 PRD(환경변수 계약 무결성)의 범위 밖 정책 변경이다. 이전 값
+  `5`는 `quorum.js:97`의 `n > MAX_OF(4)` 분기에 걸려 loud warn 후 기본값 `3`으로
+  떨어지던 **무효값**이었으므로 실효 변화는 3 → 1, 즉 승인 패널이 단일 관점 하나로
+  수렴할 수 있는 상태였다. → 무효값을 고치되 실효 동작을 보존하는 `3`으로 되돌렸다.
+- **`doctor`가 하네스 밖에서 정상 저장소를 고장난 것으로 보고했다.** `settings.json`의
+  `env`는 Claude Code가 spawn한 프로세스에만 주입되므로, 평범한 터미널에서 돌리면
+  선언된 토글 **전부**가 `not-received` error가 되어 error 21건 + exit 1이 나왔다(실측).
+  CLAUDE.md 치트시트와 `docs/ENVIRONMENT.md`가 둘 다 평범한 셸 명령으로 제시하는
+  도구이므로 첫 사용자가 그 오탐을 먼저 만난다. → `detectHarness`(`CLAUDECODE` ·
+  `CLAUDE_CODE_ENTRYPOINT`)로 맥락을 읽어, 표지가 없으면 N건의 error 대신
+  `env-delivery-unverifiable` **info 1건**으로 묶고 이유를 말한다. 미지정 기본값은
+  `harness:true`다 — 낮추는 쪽이 기본이 되면 진짜 미도달이 조용히 접힌다. 판정하는
+  이름(`MCCP_*`)을 표지로 쓰지 않는 것은 자기 입력으로 자기 엄격도를 고르지 않기 위함.
+- **L10의 격리 배수(DD3-ii)가 `list` kind에 적용되지 않았다.** `e.kind === 'list'` 분기가
+  «불일치가 사라졌는가»·«기록된 형태와 같은가» 두 검사보다 **먼저** return하는데
+  `seenQuarantine`에는 이미 등재된 뒤라, list 토글을 격리하면 검사 없이 통과하는 영구
+  면죄부가 됐다. `vocabulary.test.js`는 list 격리를 명시 허용하고 있어 test와 lint가
+  서로 어긋나 있었다(오늘 8건이 전부 enum이라 잠재 상태). → 격리는 **enum 전용**임을
+  양쪽에서 강제한다. list는 `values`가 null이라 비교할 문서 어휘가 없고, 비교할 수
+  없으면 배수도 성립하지 않는다.
+- **LOW 3건** — `parseFlags`가 명령마다 안 받는 플래그(`list --all`)와 잉여 위치 인자를
+  조용히 무시했다(오탈자를 exit 2로 되돌리는 `validateChoice`의 태도와 불일치) →
+  `COMMAND_FLAGS` 화이트리스트 + 위치 인자 수 검사. · `hook-ids` 파생자의 `\bid:`가
+  앵커 없이 주석·타 객체의 `id:`까지 잡아 어휘가 상위 집합이 될 수 있었다(상위 집합은
+  진짜 오타에 경고를 안 내는 fail-open) → 줄머리 앵커 `/^[ \t]*id:/gm`, 실측 26건 불변
+  (dispatcher 8 + hooks.json 18). · `doctor`가 사용자 홈 절대경로를 stdout에 실었다 →
+  `~/`·`./`로 접는다(§3.12가 receipt `meta.cwd`에서 막은 것과 같은 형태의 누출).
+
+**이 수정이 남긴 커버리지 공백**: L10의 list-격리 분기는 `QUARANTINE`과 `kind`가 둘 다
+모듈 상수라 fixture로 발화시킬 수 없어 직접 test가 없다. 기계적으로 강제되는 것은
+`vocabulary.test.js`의 enum 단언이고, lint 쪽 분기는 그 위의 두 번째 벨트다.
 
 ## [1.30.0] — 2026-08-19
 

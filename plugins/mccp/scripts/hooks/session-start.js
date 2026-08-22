@@ -1057,9 +1057,9 @@ async function main() {
     log(`[SessionStart] state-injector skipped: ${err.message}`);
   }
 
-  // dep-check: warn once per 24h when codex plugin or impeccable CLI is
-  // missing. Silenced entirely when MCCP_CODEX_DISABLED=1 (user has opted
-  // into the no-Codex path; nothing to install).
+  // dep-check: warn once per 24h when the codex plugin or the impeccable
+  // skill is missing. Silenced entirely when MCCP_CODEX_DISABLED=1 (user has
+  // opted into the no-Codex path; nothing to install).
   if (!envValue.parseBool(process.env, 'MCCP_CODEX_DISABLED')) {
     try {
       const depCheck = require('../lib/dep-check');

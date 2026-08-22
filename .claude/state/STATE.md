@@ -1,58 +1,55 @@
 ---
 state_version: 1
-task_fingerprint: santa-adjudication-m3
+task_fingerprint: impeccable-detection-contract-m2
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-22T13:34:20.604Z
+updated_at: 2026-08-22T13:57:43.242Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-22T13:34:20.604Z
+last_event_at: 2026-08-22T13:57:43.242Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-22T13:34:20.533Z
+dep_check_at: 2026-08-22T13:57:42.752Z
 escalate_pending: true
 escalate_pending_decision_id: impeccable-detection-contract-m2
 ---
 ## Goal
-codex-intent-context M3 — hybrid L3 배선 복구. 구현 완료, commit/PR 대기.
+impeccable-detection-contract M2 — setup·경고 정합. 구현 완료(v1.31.2), escalation 해소 후 commit/PR 대기.
 
 ## Plan
-- plan: `.claude/plans/codex-intent-context-m3.plan.md` — 봉인됨(plan_hash sha256:3e2e85a4…). **편집 금지**(편집하면 stale → /mccp:pr guard 2에 막힌다)
-- 게이트 산출물 + Task 8 라이브 실측: `.claude/notes/codex-intent-context-m3.md` (plan 본문 대신 이 자리 — M1·M2 선례)
-- report: `.claude/PRPs/reports/codex-intent-context-m3-report.md`
-- receipt: mccp-plan-codex/codex-intent-context-m3 (review_verdict=divergent, single-pass 봉인) · mccp-implement-codex/codex-intent-context-m3 (codex_verdict=skipped, impeccable_silent_skip=no-signal)
-- version 1.31.0 (minor — PRD 최종 milestone). 4면 동기 완료. branch codex-intent-context-m3 (worktree 디렉토리명은 -m2 그대로)
+- PRD: `.claude/prds/impeccable-detection-contract.prd.md` — M1·M2 complete, M3(섀도잉 해소)·M4(게이트 발화 정합)·M5(문서 드리프트) pending
+- plan: `.claude/plans/impeccable-detection-contract-{m1,m2}.plan.md` — 둘 다 봉인됨(plan_hash). **편집 금지**
+- 게이트 산출물·라이브 증거: `.claude/notes/impeccable-detection-contract-{m1,m2}.md` (plan 본문 대신 이 자리)
+- receipt: mccp-plan-codex/{impeccable-detection-contract,-m1,-m2} · mccp-implement-codex/{-m1,-m2}
+- version 1.31.2 (patch — PRD 내 단일 milestone). 4면 동기 완료. branch impeccable-detection-contract
 
 ## Done
-- Task 1 l3.js — buildL3Record 순수 오라클. 모든 non-answer를 invoked:false로 접고 verdict:unavailable을 쓰지 않는다(DD4)
-- Task 2 cli.js l3 — contain→mkdir→재-contain · 아티팩트 4종 all-or-exit-12 · receipt/lock 없음
-- Task 3 5.2a-0 — hybrid 단독 설정이 5.2b(예약) 앞에서 HALT. 에이전트 0개
-- Task 4 5.2f 재작성 — 5.2z 위임 제거, detached spawn + nonce-in-record poll, 상태 6종
-- Task 5 5.6b — --review-l3-reason forward + hybrid verdict를 l3.json에서 읽기(L3-Codex F1 흡수)
-- Task 6 정적 배선 단언 8건(요구 3 + 확장 5)
-- Task 7 test 34건(33 pass · 1 skip — Windows mode 비트)
-- Task 8 라이브 — L3 층 2회 완주(invoked:true + enum verdict). receipt 축(Acceptance 2·3)은 미달, 사유 기록
-- Task 9 문서 — gate-design ## Hybrid L3 wiring · review.md · CLAUDE.md §3.13.3 + ledger row · CHANGELOG · 4면 version
-- Task 10 PRD M3 complete + 미주장 5항목
-- 게이트: Codex disabled(first-class skip) · security-reviewer 발화(CRITICAL 1 부분흡수 · MEDIUM 2 · LOW 2) · design detector silent-skip
-- Validation: plan-review 292건(291 pass · 1 skip) · plan.md 린트 9 suite 151건 전량 · instruction-contract C1~C4 · plan-conflict false
+- M1 (3d38358, v1.31.1) 정직한 탐지 — resolveImpeccable() 오라클이 4개 설치원을 전부 열거하고 실제로 열릴 본문 하나를 지목. detect()는 기존 키 의미를 보존한 엄격한 상위집합(6필드 추가)이라 게이트 분기 무변경
+- M1 — 모호하면 답하지 않는다: bare 소스가 둘이면 shadowed:true + source·path·version 전부 null. 이름(invocation)만 남음
+- M2 (87c6acb, v1.31.2) 판정 권한을 available 하나로 — checkImpeccable()이 dep-check.js에서 오라클을 지연 require(순환 회피), checkAll()은 기존 4키 보존 상위집합
+- M2 — SessionStart 배너 술어를 impeccable_cli.installed → impeccable.available로 교체. CLI probe는 telemetry로 강등(어느 게이트도 읽지 않음)
+- M2 — 지연 require를 try/catch로 감싸 fail-closed sentinel 반환(security S2). 렌더 경계에 화이트리스트+길이 상한(S1). `Bash(npx:*)` → `Bash(npx impeccable:*)` 축소(S3)
+- M2 — `.impeccable/` 무시 규칙 극성 확정: config.json=commit · design.json=생성물. 근거는 impeccable v4.1.1 자신의 reference/hooks.md(비밀·동의 값은 gitignored config.local.json에 거주)
+- M2 — /mccp:setup Phase 3 설치 분기에 재-dep-check + Phase 1 표 갱신(C2). env override 없는 hook-spawn test 추가(C1)
+- 문서: CLAUDE.md §3.17 · docs/gate-design.md ## impeccable-detection · CHANGELOG · 4면 version 동기
+- 리뷰 산출: Implement-Codex R1 divergent(HIGH 2 흡수 · CRITICAL 1 등 3건 증거 기각) · security-reviewer 8건 전건 처리 · backlog 6건 이연
 
 ## In Progress
 
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. **PR 진입 직전 §3.7 version 재계산 필수**(두 번째 시점) — 미머지 diverse-agent-review-m7이 1.30.2 보유. merge 후 worktree cleanup + claude plugin update.
+escalate_pending(impeccable-detection-contract-m2) 해소 — /mccp:santa-loop 통과 후 /mccp:prp-commit → /mccp:pr. **PR 진입 직전 §3.7 version 재계산 필수**(두 번째 시점).
 
 ## Last Decision
-라이브 L3-Codex의 HIGH 2건 중 F1(동시 writer가 다른 run의 브리지 아티팩트와 짝지어진 유효 l3.json)은 흡수하고 F2(nonce가 공유 가변 상태)는 증거를 붙여 기각했다. F2 기각 근거는 REVIEW_DIR이 l1/l2/decision/proof/reservation/mode.json을 전부 공유하는 singleton이라 동시 실행이 L3 이전에 이미 비정합이라는 것이다(5.2 진입 purge 목록이 증거). 다만 F2가 옳게 지적한 것 하나 — nonce가 "동시 실행을 가른다"는 주장이 과했다 — 는 3면에서 정정했다. 없는 보장에 기대는 사람이 없게 하는 것이 기각의 조건이다.
+code-review 3건을 전건 수용했다. dep_check_missing:impeccable은 worktree 코드가 아니라 stale plugin cache v1.31.0(pre-M2 술어 impeccable_cli.installed)이 쓴 거짓 신호였다 — worktree 오라클과 dep-check는 둘 다 available을 보고한다. M2가 없애려던 오탐이 git-tracked 상태 파일에 고정되는 것을 막기 위해, 하드 편집이 아니라 state-writer API로 실제 checkAll() 결과를 다시 썼다. 배너는 사용자가 claude plugin update로 1.31.2를 설치할 때까지 계속 뜬다(cache 목록이 1.31.0에서 끊겨 있음).
 
 ## Open Questions
-- Acceptance 2·3(hybrid receipt) 미달 — L2 패널이 이 plan에 divergent라 전체 완주해도 converged hybrid receipt는 안 나오고, 재실행은 이 사이클이 쓴 receipt를 덮는다. 머지 후 다른 plan으로 확인
-- record.js#readL3가 l3-findings.json을 안 읽어 5.2h 리뷰 레코드는 여전히 verdict 한 단어 — backlog 등재(Files to Change 밖)
-- 동시 /mccp:plan 안전성은 REVIEW_DIR 전체 축이라 미해소 — 5.2 전체 lock 또는 nonce-scoped staging이 필요, 별도 milestone
+- STATE.md last_pr_url이 pull/71로 오래됐다 — 현재 task에 PR이 없어 값을 지어내지 않고 그대로 뒀다. M2 PR 생성 시 자동 갱신될 것
+- 설치된 plugin cache가 1.31.0에 멈춰 있어 이 세션의 hook은 pre-M2 술어로 동작한다. `claude plugin update` 필요(Bash에서 claude 바이너리 ENOENT — 사용자 직접 실행)
+- PRD M3(섀도잉 해소)가 이 저장소의 project-local 사본 v3.5.0을 지운다 — §3.17대로 **지우기 전에 bare Skill(impeccable, ...) 호출부 4곳을 재배선**해야 한다
 - (main 승계) 선재 red: receipt/tests/review-single-pass-fields.test.js:162 schema↔test 문구 drift
 - (main 승계) worktree cleanup .worktrees/review-loop-bypass-m2 잔존
 
 ## Last Updated
-2026-08-22T13:34:20.604Z
+2026-08-22T13:57:43.242Z

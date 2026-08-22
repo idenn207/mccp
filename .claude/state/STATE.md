@@ -2,15 +2,18 @@
 state_version: 1
 task_fingerprint: santa-adjudication-m3
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-21T05:53:21.248Z
+updated_at: 2026-08-22T08:33:23.642Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-21T05:53:21.248Z
+last_event_at: 2026-08-22T08:33:23.642Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-18T03:44:26.285Z
+dep_check_at: 2026-08-22T08:14:28.859Z
+dep_check_missing: impeccable
+escalate_pending: true
+escalate_pending_decision_id: impeccable-detection-contract-m1
 ---
 ## Goal
 codex-intent-context M3 — hybrid L3 배선 복구. 구현 완료, commit/PR 대기.
@@ -53,4 +56,4 @@ codex-intent-context M3 — hybrid L3 배선 복구. 구현 완료, commit/PR �
 - (main 승계) worktree cleanup .worktrees/review-loop-bypass-m2 잔존
 
 ## Last Updated
-2026-08-21T05:53:21.248Z
+2026-08-22T08:33:23.642Z

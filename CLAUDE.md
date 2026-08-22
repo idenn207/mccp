@@ -813,6 +813,31 @@ R5 계약 위반 2건 + 정지 → R6 새 축 0건 → Plan-Codex R1 실재 1건
 
 ---
 
+### 3.17 impeccable 탐지 계약 (v1.31.1 — impeccable-detection-contract M1)
+
+`probeSkillAvailable`의 boolean은 [resolveImpeccable()](plugins/mccp/scripts/lib/impeccable-detect.js)의
+`available` 필드로 남고, 오라클이 설치원을 전부 열거해 **실제로 열릴 본문 하나**를 지목한다.
+`detect()`는 기존 키의 의미를 그대로 둔 채 6개 필드를 얹는 엄격한 상위집합이라 게이트 분기는
+한 줄도 바뀌지 않는다 — M1은 **분기의 입력만** 참으로 만든다. 상주해야 할 것은 둘뿐이다.
+
+**plugin 채널은 bare 이름으로 해소되지 않는다.** plugin skill은 `<pluginName>:<skillDirName>`으로
+등록되므로 plugin 단독 설치의 invocation은 `impeccable:impeccable`인데, mccp 명령 본문 4곳은
+전부 bare `Skill(impeccable, ...)`를 부른다. 레지스트리 키(`impeccable@impeccable`)는
+`<pluginName>@<marketplaceName>`이라 **키 전체가 이름이 아니다**(반례: `codex@openai-codex` →
+`codex:setup`). 따라서 **M3가 project-local 사본을 지우기 전에 호출부를 재배선해야 한다** —
+지우기만 하면 bare 소스가 사라져 모든 게이트의 impeccable 호출이 `unknown_skill`로 떨어진다.
+`impeccable-resolve.test.js`의 "bare invocation equals the literal name mccp command bodies call"이
+그 순간 red가 되므로 조용히 일어나지는 않는다.
+
+**모호하면 답하지 않는다.** bare 소스가 둘이면(project + user) 어느 본문이 해소되는지는 측정된
+바 없으므로 `shadowed:true` + `source`·`path`·`version` 전부 `null`이다. 추정하지 않는 것이
+계약이고, 이름(`invocation`)만은 양쪽이 공유하므로 남는다.
+
+진단은 `node plugins/mccp/scripts/lib/impeccable-detect.js resolve [--json]`이다.
+배경(4소스 표·해소 규칙·경로 정규화·방어·주장하지 않는 것): [상세](docs/gate-design.md#impeccable-detection)
+
+---
+
 ## 4. 자주 쓰는 명령 (Cheat Sheet)
 
 ```bash

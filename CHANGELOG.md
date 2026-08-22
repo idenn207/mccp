@@ -2,7 +2,72 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.31.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.31.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.31.1] — 2026-08-22
+
+> **§3.7**: `1.31.0 → 1.31.1` (**patch** — M1은 impeccable-detection-contract PRD의
+> 첫 milestone이고 PRD는 아직 in-progress다). 병렬 브랜치 충돌 점검: `origin/main`이
+> `1.31.0`이고 미머지 `diverse-agent-review-m7`은 `1.30.2`라 patch 자리가 비어 있다.
+> 4면(plugin.json · html.js page-foot · markdown.js derived 줄 · 이 파일의 `currently`
+> 노트)을 함께 맞췄고, `i18n-surface.test.js`는 manifest에서 파생하므로 리터럴 동기가
+> 필요 없다. **target은 `/mccp:pr` 직전에 한 번 더 재계산한다**(§3.7 실측 4회 재발).
+
+**impeccable-detection-contract M1 — 정직한 탐지 (patch, `1.31.0 → 1.31.1`)** — `probeSkillAvailable`가 돌려주던 boolean 하나를 `resolveImpeccable()` 오라클로 대체한다. 설치원을 전부 열거하고, 각 설치원의 `version`을 SKILL.md frontmatter에서 실제로 판독하고, **`Skill(...)` 호출이 실제로 열게 될 본문 하나**를 지목한다.
+
+### 무엇이 틀려 있었나
+
+세 가지가 동시에 틀려 있었고, 셋 다 같은 방향으로 틀렸다 — 탐지가 실재를 못 보는 쪽으로.
+
+- **하드코딩 키 불일치.** `IMPECCABLE_PLUGIN_KEY = 'impeccable@anthropics'`인데 default 설치의 실측 키는 `impeccable@impeccable`이다. 레지스트리 키는 `<pluginName>@<marketplaceName>` 규약이라 marketplace 절반이 다르면 통째로 빗나간다. **완전히 설치된 plugin 4.1.1이 모든 게이트에서 보이지 않았다.**
+- **project 채널 부재.** `<repoRoot>/.claude/skills/impeccable/`은 조회 대상이 아니었다. 이 저장소가 3.5.0 사본을 그 자리에 두고 있는데도 탐지는 없다고 답했다.
+- **빈 디렉토리를 설치로 계수.** `~/.claude/skills/impeccable`은 디렉토리 존재만 확인했다 — 열릴 본문이 없는데 있다고 답하는 것이다.
+
+이 결함은 이번 사이클 자신의 게이트에서 세 번 재현됐다(PRD Design Direction · plan-codex · implement-codex 전부 `skill-missing`).
+
+### boolean이 답할 수 없던 질문
+
+mccp 명령 본문은 전부 bare `Skill(impeccable, ...)`를 부르는데 plugin 채널의 skill은 `<pluginName>:<skillDirName>`으로 등록된다. "설치돼 있다"와 "우리가 부르는 이름이 해소된다"는 다른 사실이고, 전자만 답하면 탐지가 true인데 호출이 `unknown_skill`로 떨어지는 상태를 만들 수 있다. 그래서 `invocation`이 1급 반환값이다.
+
+### 모호하면 답하지 않는다
+
+bare 소스가 둘이면(project + user) 어느 본문이 해소되는지는 측정된 바 없다. 그때 `shadowed:true`로 두고 `source` · `path` · `version`을 **전부** `null`로 답한다. 이 오라클의 약속이 "실제로 열릴 본문 하나를 지목한다"이므로 둘 중 하나를 고르는 것은 오라클이 할 수 있는 가장 해로운 일이다. 이름(`invocation`)만은 양쪽이 공유하므로 남는다. Implement-Codex F3가 초안의 공백(`source`·`path`를 정하지 않고 남김)을 지적해 흡수했다.
+
+### Added
+
+- `plugins/mccp/scripts/lib/impeccable-detect.js` — `resolveImpeccable()` 오라클(4소스 열거 · 접두어 매칭 · frontmatter version 유계 판독 · 모호성 처리), `readFrontmatterVersion()`, `resolve` CLI 서브커맨드(`--json`).
+- `plugins/mccp/scripts/lib/tests/impeccable-resolve.test.js` — 채널 조합 매트릭스 22건.
+
+### Changed
+
+- `detect()`는 기존 키의 의미를 그대로 둔 채 6필드(`impeccable_invocation` · `_source` · `_version` · `_path` · `_sources` · `_shadowed`)를 얹는 **엄격한 상위집합**이다. 게이트 본문의 분기는 한 줄도 바뀌지 않는다 — M1은 분기의 **입력만** 참으로 만든다.
+- `probeSkillAvailable`는 `resolveImpeccable().available`을 돌려주는 얇은 래퍼로 남아 호출부 4곳이 무변경이다.
+- **동작 변경**: project·user 채널이 디렉토리가 아니라 `SKILL.md` 존재를 요구한다. plan 게이트는 lenient라 무영향이고 implement·pr에서만 막히며, 탈출구는 `MCCP_IMPECCABLE_SKILL=available`이다.
+- `plugins/mccp/scripts/lib/tests/impeccable-detect.test.js` — fixture를 실측 키 `impeccable@impeccable` + 실재 install tree로 교정하고, 신설 project 채널이 개발자의 실제 checkout을 읽지 않도록 `repoRoot`·`projectSkillDir`을 주입해 격리했다(2건은 그 누출 덕에 통과하고 있었다).
+- `plugins/mccp/scripts/lib/env-contract/registry.js` — `MCCP_IMPECCABLE_SKILL` consumer 앵커 `:135 → :301`.
+
+### Security
+
+- 디스크에서 읽은 skill 디렉토리 이름은 `^[A-Za-z0-9_-]+$`를 통과해야만 `path.join`과 `invocation`에 쓰인다.
+- skill 디렉토리는 `lstat`으로 심볼릭 링크를 거부한다(열거와 판독 사이 재지정 창).
+- `SKILL.md`는 `isFile()`을 통과해야만 열린다 — FIFO가 놓이면 판독이 영원히 블록되고 게이트가 원인 불명 timeout으로 죽는다.
+- 보고되는 `path`는 repo 내부면 repo-relative, 밖이면 홈 축약이다(§3.12 E7과 같은 이유 — M2·M3가 이 값을 receipt로 올린다).
+
+### code-review 흡수
+
+`/mccp:code-review`가 낸 MEDIUM 2 · LOW 4를 같은 사이클에서 전부 닫았다.
+
+- **거부된 `--plan` 경로가 상위집합 계약을 깨고 있었다.** `detect()`는 세 곳에서 반환하는데 path-traversal 조기 반환만 6필드를 빠뜨렸다 — 바로 위에서 "엄격한 상위집합"이라 선언한 것이 그 분기에서 거짓이었다는 뜻이다. 거기서는 소비자가 `impeccable_source`의 `null`(측정했고 모른다)과 `undefined`(묻지도 않았다)를 구분할 수 없는데, 이 저장소는 다른 곳에서 그 구분에 의미를 싣는다(§3.13 "키 부재 = 모름"). 세 반환이 이제 `resolutionFields()` 하나를 거치므로, 나중에 분기가 늘어도 목록을 베껴 옮기다 빠뜨릴 자리가 없다.
+- **그 6필드에 test가 0건이었고**, 그래서 위 누락이 리뷰까지 살아남았다. 분기별 필드 존재와 오라클 값 일치를 단언하는 2건을 추가했다. 헬퍼를 되돌리면 `path-traversal branch (reason=path-traversal) is missing impeccable_invocation`으로 실제 red가 된다.
+- `IMPECCABLE_PLUGIN_KEY`가 코드에서 쓰이지 않으면서 export만 남아 있었다. 값이 실측과 다른 `impeccable@anthropics`라 외부 소비자를 오도할 수 있어 제거했다.
+- `MCCP_IMPECCABLE_SKILL`에 `available`/`missing` 밖의 값이 오면 조용히 무시했다. 오타를 낸 운영자는 의도한 것의 반대를 얻고도 읽을 것이 없었다 — 이제 loud warn 후 실제 소스를 probe한다.
+- `impeccable-resolve.test.js` 1B의 `skip` 표현식이 양쪽 다 falsy라 **아무것도 skip하지 않으면서 skip하는 것처럼 읽혔다.** 제거했고, 플랫폼 차이는 symlink 호출 자리에서 이미 처리된다.
+- `.claude/settings.json`에서 `MCCP_REVIEW_SINGLE_PASS`를 제거했다. §3.15가 정한 것은 **작업 단위** opt-in인데 프로젝트 설정에 상주시키면 상시가 된다. 대가는 실측됐다 — 그 값이 살아 있는 세션에서는 `review-single-pass-fields.test.js` 2건이 붉고 `env -u` 후에는 25건 전량 통과한다. 즉 그 토글은 receipt에 주석을 남기는 데 그치지 않고 **test 판정을 뒤집는다**. 파일에서 지워도 **이미 뜬 세션의 `process.env`에서는 사라지지 않으므로**, 이 사이클의 커밋·PR은 `env -u`로 감싸 실행했다.
+
+### 주장하지 않는 것
+
+- **호출부를 고치지 않는다.** plugin 단독 설치에서 `available:true`가 나와도 명령 본문은 여전히 bare 이름을 부른다. 결과는 M1 전후가 같다(양쪽 다 `impeccable_skipped`로 귀결) — 재배선은 M3가 project-local 사본을 지울 때 반드시 함께 해야 하는 전제이고, `impeccable-resolve.test.js`가 그 순간 red가 된다.
+- **다중 bare 소스 우선순위는 여전히 미측정이다.** 위 규칙은 그 질문을 회피하는 것이지 답하는 것이 아니다.
 
 ## [1.31.0] — 2026-08-21
 

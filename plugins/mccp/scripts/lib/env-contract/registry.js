@@ -129,7 +129,7 @@ const RAW = [
   ['MCCP_DESIGN_INTENT_REASON', 'string', null, null, null, 'active', 'review', 'plugins/mccp/commands/plan-prd.md:187', 'critique 강제 override.'],
   ['MCCP_IMPECCABLE_ROUTING_MODE', 'enum', ['auto', 'hybrid', 'recommend'], 'auto', null, 'active', 'review', 'plugins/mccp/scripts/lib/impeccable-routing.js:118', 'impeccable 라우팅 모드.'],
   ['MCCP_IMPECCABLE_INTENT_COMMANDS', 'list', null, null, null, 'undocumented-default', 'review', 'plugins/mccp/scripts/lib/impeccable-routing.js:127', '추가 라우팅 명령 목록.'],
-  ['MCCP_IMPECCABLE_SKILL', 'string', null, null, null, 'active', 'review', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', 'impeccable skill 이름.'],
+  ['MCCP_IMPECCABLE_SKILL', 'string', null, null, null, 'active', 'review', 'plugins/mccp/scripts/lib/impeccable-detect.js:301', 'impeccable skill 이름.'],
   ['MCCP_A11Y_AUTO_INVOKE', 'bool', B, 'on', ON, 'active', 'review', 'plugins/mccp/commands/pr.md:759', 'PR에서 a11y 자동 호출.'],
   ['MCCP_DEEP_RESEARCH_SKILL', 'string', null, null, null, 'active', 'review', 'plugins/mccp/scripts/lib/deep-research-detect.js:45', 'deep-research skill 이름.'],
 

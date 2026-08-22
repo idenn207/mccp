@@ -770,3 +770,100 @@ plugin.json `1.13.0 → 1.16.0` — main(1.15.0, PR #53 dashboard chart)과 forw
 
 ---
 
+
+### impeccable-detection
+
+CLAUDE.md §3.17의 배경이다. 절 자체는 불변식 둘만 상주시키고, 4소스 표·해소
+규칙·모호성 처리·주장하지 않는 것은 여기가 소유한다.
+
+#### 왜 boolean이 틀린 답이었나
+
+v1.31.1 이전의 `probeSkillAvailable`는 "impeccable이 설치돼 있는가"에 boolean으로
+답했다. 그 질문 자체가 틀렸다 — mccp 명령 본문은 전부 `Skill(impeccable, ...)`를
+부르는데, plugin 채널의 skill은 `<pluginName>:<skillDirName>`으로 등록된다.
+"설치돼 있다"와 "우리가 부르는 이름이 해소된다"는 **다른 사실**이고, 전자만 답하면
+탐지가 true인데 호출이 `unknown_skill`로 떨어지는 상태를 만들 수 있다.
+
+같은 함수가 반대 방향으로도 틀렸다. 하드코딩 키가 `impeccable@anthropics`였는데
+default 설치의 실측 키는 `impeccable@impeccable`이라, **완전히 설치된 plugin이 모든
+게이트에서 보이지 않았다**. 그리고 `~/.claude/skills/impeccable`은 디렉토리 존재만
+확인해 `SKILL.md`가 없는 빈 디렉토리도 설치로 셌다 — 열릴 본문이 없는데 있다고
+답하는 것이다.
+
+`resolveImpeccable()`은 두 번째 질문에 답하고, 본 소스를 전부 열거해서 호출자가
+추정할 필요를 없앤다. 절대 throw하지 않고, 모든 파일시스템 경로를 주입 가능하게 둔다.
+
+#### 4소스
+
+| # | 소스 | 위치 | invocation | version |
+|---|---|---|---|---|
+| 1 | `env` | `MCCP_IMPECCABLE_SKILL` = `available` / `missing` | `impeccable` (주장) | `null` |
+| 2 | `plugin` | `installed_plugins.json` 키를 `/^impeccable@/` 접두어 매칭 + legacy bare `impeccable` | `<pluginName>:<skillDirName>` | manifest `version` 우선, 없으면 frontmatter |
+| 3 | `project` | `<repoRoot>/.claude/skills/impeccable/SKILL.md` | `impeccable` | frontmatter |
+| 4 | `user` | `~/.claude/skills/impeccable/SKILL.md` | `impeccable` | frontmatter |
+
+레지스트리 키는 `<pluginName>@<marketplaceName>`이므로 **키 전체가 plugin 이름이
+아니다.** `@` 앞부분만 이름이고, 독립 반례로 codex는 키가 `codex@openai-codex`인데
+namespace는 `codex:setup`이다. 접두어 매칭을 쓰는 이유는 marketplace 절반이 바뀌어도
+탐지가 다시 깨지지 않게 하기 위해서다 — `@`가 `impeccable` 바로 뒤에 와야 하므로
+무관한 `impeccable-foo@x`는 잡히지 않는다.
+
+#### 해소 규칙 넷
+
+- **`env`가 최우선**이고 `missing`이면 즉시 `available:false`로 끝낸다. 이때
+  `sources`는 **비운다** — 무시하라고 지시받은 소스를 열거하면 호출자에게 override를
+  건너뛸 통로를 알려주는 셈이다.
+- **plugin 엔트리는 `installPath`가 디스크에 실재하고 그 안에 `skills/<name>/SKILL.md`가
+  있을 때만 센다.** stale installPath는 `codex-invoke.js`가 `install-path-stale`로
+  이미 거부하는 실패이고, 여기서 세면 "지목한 본문이 열리지 않는" 상태를 우리가 직접
+  만든다. `<name>`은 디렉토리를 **읽어서** 정하고 `impeccable`이라고 가정하지 않는다.
+- **project와 user는 디렉토리가 아니라 `SKILL.md` 존재를 요구한다.** 의도된 동작
+  변경이다. plan 게이트는 lenient라 무영향이고 implement·pr에서만 막히며, 탈출구는
+  `MCCP_IMPECCABLE_SKILL=available`이다.
+- **승자는 bare 소스가 정한다.** mccp 본문이 부르는 이름이 bare이므로 bare 소스가
+  하나라도 있으면 그것이 이기고, 없으면 plugin이다. plugin과 bare는 **경쟁하지
+  않는다** — 이름이 다르므로 shadow 관계가 성립하지 않는다.
+
+#### 모호하면 답하지 않는다
+
+bare 소스가 둘이면(project + user) `Skill(impeccable, ...)`가 어느 본문을 여는지는
+**측정된 바 없다**. 그때 `shadowed:true`로 두고 `source` · `path` · `version`을 전부
+`null`로 답한다. 이 오라클의 약속이 "실제로 열릴 본문 하나를 지목한다"이므로, 둘 중
+하나를 고르는 것은 이 오라클이 할 수 있는 가장 해로운 일이다. **이름은 여전히
+안다** — 양쪽 다 `impeccable`에 답하므로 `invocation`은 남는다.
+
+이것이 "다중 bare 소스의 우선순위가 무엇인가"라는 질문을 **답하지 않고 닫는**
+방법이다. 정확도가 그 답에 의존하지 않게 된다.
+
+#### 경로와 방어
+
+보고되는 `path`는 repo 내부면 repo-relative, repo 밖이면 홈 축약이다. M1 자신은
+`path`를 receipt에 쓰지 않지만 M2·M3가 이 오라클을 소비하므로, 절대경로를 내보내면
+다음 milestone에 이미 만들어진 누출을 건네는 셈이다(§3.12 E7이 `meta.cwd`를
+정규화하는 것과 같은 이유).
+
+디스크에서 읽은 디렉토리 이름은 `invocation` 문자열과 `path.join` 양쪽으로 흐르므로
+`^[A-Za-z0-9_-]+$`를 통과해야만 쓰인다. skill 디렉토리는 `lstat`으로 심볼릭 링크를
+거부하고(열거와 판독 사이에 링크가 재지정되는 창을 닫는다), `SKILL.md`는 `isFile()`을
+통과해야만 열린다 — FIFO가 놓여 있으면 판독이 영원히 블록되고 게이트는 원인 불명
+timeout으로 죽는다. `installPath` 자체는 재검증하지 않는다: 그 값은
+`dep-check.js`가 소유하는 레지스트리에서 오고, 그 파일을 편집할 수 있는 주체는 이미
+더 직접적인 수단을 갖는다.
+
+frontmatter는 선두 8KB만 읽는다. 실측 2종(4.1.1 · 3.5.0)이 `version`을 선두 300바이트
+안에 두고, 그 창을 넘긴 값은 추정하지 않고 `null`로 답한다.
+
+#### 주장하지 않는 것
+
+- **호출부를 고치지 않는다.** plugin 단독 설치에서 `available:true`가 나와도 명령
+  본문 4곳은 여전히 bare `Skill(impeccable, ...)`를 부른다. M1은 `invocation`을 1급
+  반환값으로 실어 그 사실을 표면화하는 데까지만 책임진다. 결과는 M1 전후가 같다 —
+  전에는 `available:false`로, 후에는 `unknown_skill` fallback으로 똑같이
+  `impeccable_skipped`에 도달한다. 재배선은 M3가 project-local 사본을 지울 때
+  **반드시** 함께 해야 하는 전제다.
+- **다중 bare 우선순위를 측정하지 않았다.** 위 규칙은 그 질문을 회피하는 것이지
+  답하는 것이 아니다.
+- **`setup`·SessionStart 배너·`checkImpeccableCli` 다채널화는 M2**, 섀도잉의 사용자
+  표면화와 사본 정리는 **M3** 소유다.
+
+---

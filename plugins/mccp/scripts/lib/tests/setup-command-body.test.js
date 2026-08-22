@@ -113,10 +113,15 @@ test('setup.md: Phase 3 skips entirely when the skill already resolves', () => {
   );
 });
 
-// Plugin-first is the operator's choice (UI6) and it does not make the gate
-// fire. Setup has to say so at install time rather than let the user discover
-// it at the next gate.
-test('setup.md: the plugin channel install states the invocation gap', () => {
+// Plugin-first is the operator's choice (UI6), and setup has to say what that
+// choice means at install time rather than let the user discover it at the next
+// gate. Until v1.31.3 the meaning was a GAP -- the gates hardcoded the bare name,
+// so a plugin-only install reached unknown_skill -- and this test pinned that
+// consequence. M3 rewired the call sites, so the same sentence would now be a
+// lie. The assertion flips with the fact rather than being deleted: setup must
+// still name the namespaced invocation, must now say the gates resolve it at run
+// time, and must NOT keep claiming a failure that no longer happens.
+test('setup.md: the plugin channel install states what that channel now means', () => {
   const text = body();
   const phase3 = text.slice(text.indexOf('## Phase 3'), text.indexOf('## Phase 4'));
   assert.ok(
@@ -124,8 +129,12 @@ test('setup.md: the plugin channel install states the invocation gap', () => {
     'Phase 3 must name the namespaced invocation a plugin install actually registers'
   );
   assert.ok(
-    /unknown_skill|impeccable_skipped/.test(phase3),
-    'Phase 3 must name the consequence, not just the name mismatch'
+    /resolved name at run time/.test(phase3),
+    'Phase 3 must say the gates resolve the call form at run time (v1.31.3 M3)'
+  );
+  assert.ok(
+    !/unknown_skill/.test(phase3),
+    'Phase 3 must not keep promising unknown_skill for a plugin install -- the rewiring closed it'
   );
 });
 

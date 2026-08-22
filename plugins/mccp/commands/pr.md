@@ -360,6 +360,21 @@ DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
   --base "origin/<base>" \
   --json)
 SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
+# v1.31.3 M3 — the call form is RESOLVED, never hardcoded. The plugin channel
+# registers the skill as <pluginName>:<skillDirName>, so a hardcoded bare name
+# reaches unknown_skill for every plugin-only install; the oracle already knows
+# which body opens, so ask it.
+#
+# The carrier the LLM reads is the stderr LINE below, not this shell variable:
+# shell state does not survive a tool-call boundary, so a prompt that said
+# "use $IMPECCABLE_INVOCATION" would be read as an empty name.
+#
+# Exactly one line, exactly this shape. Its absence is meaningful — see the
+# call-form rule in the prose below.
+IMPECCABLE_INVOCATION=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.impeccable_invocation||"")}catch{process.stdout.write("")}')
+if [ -n "$IMPECCABLE_INVOCATION" ]; then
+  echo "[mccp:impeccable] call-form: Skill($IMPECCABLE_INVOCATION, ...)" 1>&2
+fi
 SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
 DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
 # v1.3.0 M1 — silent-skip surface. detect() now emits silent_skip (SKILL_AVAIL=1
@@ -376,7 +391,26 @@ Decision tree (v1.3.0 M1 — silent-skip is no longer silent):
 |---|---|---|
 | 0 | * | Record `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` in the in-memory `## Design Review` section. **Export** `IMPECCABLE_SKIPPED_REASON="$DETECT_REASON"` so 2.5.7 forwards it. Then check `MCCP_FORCE_PR_WITHOUT_IMPECCABLE` (see 2.5.5c). |
 | 1 | 0 | Detector found no design surface on this PR. Emit a loud stderr warn (`[mccp:impeccable] silent-skip reason=$SILENT_SKIP_REASON · PR declares no design surface (whitelist hit 0)`) and forward `--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON"` to 2.5.7 — UNLESS `IMPECCABLE_FORCE_OVERRIDE_REASON` is set, in which case the silent_skip forward is suppressed (schema mutex). M1 records silent_skip as informational warning at every gate; M2 will promote to blocking once SKILL first-step + critique loop are wired (Codex F2 deferred). |
-| 1 | 1 | Invoke `Skill(impeccable, "critique <PR title or branch name>")` and `Skill(impeccable, "audit <PR title or branch name>")` (critique+audit both since `29ded48`, 2026-06-03 Sprint 3). Capture highlights — Phase 4 injects them into PR body as `## Design Review`. **`audit` is advisory** — review-only, it surfaces in `## Design Review` but never blocks this gate; only the Phase 1.6 critique chain-check blocks (framing parallel to `code-review.md` 2.5.2). If Skill returns `unknown_skill` / `not found`, fall back to the skipped path (set `IMPECCABLE_SKIPPED_REASON="skill-missing"`). |
+| 1 | 1 | Invoke the resolved call form (see the call-form rule below) twice — with `critique <PR title or branch name>` and with `audit <PR title or branch name>` (critique+audit both since `29ded48`, 2026-06-03 Sprint 3). Capture highlights — Phase 4 injects them into PR body as `## Design Review`. **`audit` is advisory** — review-only, it surfaces in `## Design Review` but never blocks this gate; only the Phase 1.6 critique chain-check blocks (framing parallel to `code-review.md` 2.5.2). If the call-form line is absent, or the resolved call still returns `unknown_skill` / `not found`, fall back to the skipped path (set `IMPECCABLE_SKIPPED_REASON="skill-missing"`). |
+
+**Call-form rule (v1.31.3 M3) — do NOT type a literal skill name.** The detect
+block above printed exactly one line:
+
+```
+[mccp:impeccable] call-form: Skill(<invocation>, ...)
+```
+
+Invoke the name that line carries between `Skill(` and the comma. That is the
+body the oracle established will actually open — `impeccable` for a bare
+install, `impeccable:impeccable` for a plugin-only one. Read it off the line,
+not off `$IMPECCABLE_INVOCATION`: shell state does not survive a tool-call
+boundary, so the variable is empty by the time this instruction is acted on.
+
+**An absent line means the skill did not resolve** — take the skipped path (`IMPECCABLE_SKIPPED_REASON="skill-missing"`).
+Never guess a name, and in particular never fall back to the bare name
+`impeccable` as a hardcoded call: from v1.31.3 this repository ships no bare
+copy, so a guessed bare call reaches `unknown_skill` and records a skip the
+gate did not have to take.
 
 Loud stderr warn for the SKILL_AVAIL=1 SIGNAL=0 row (M1 Task 3):
 

@@ -65,7 +65,7 @@ mccp는 impeccable이 설치됐는지를 **하나의 boolean**으로 판정하�
 |---|---|---|---|---|
 | 1 | 정직한 탐지 | 어느 공식 채널로 설치했든 mccp가 "설치됨"으로 인식하고, **버전과 설치원과 실제로 열릴 본문**을 함께 보고한다 | complete | .claude/plans/impeccable-detection-contract-m1.plan.md |
 | 2 | setup·경고 정합 | `/mccp:setup`이 공식 명령을 권하고, 설치된 사용자에게 더 이상 설치를 권하지 않으며, 저장소에 심는 무시 규칙이 공식 계약과 일치한다 | complete | .claude/plans/impeccable-detection-contract-m2.plan.md |
-| 3 | 섀도잉 해소 | 같은 skill의 다중 사본이 사용자에게 **보이고**, setup이 승인을 받아 정리를 제안하며, 이 저장소의 구버전 사본이 사라진다 | pending | — |
+| 3 | 섀도잉 해소 | 같은 skill의 다중 사본이 사용자에게 **보이고**, setup이 승인을 받아 정리를 제안하며, 이 저장소의 구버전 사본이 사라진다 | complete | .claude/plans/impeccable-detection-contract-m3.plan.md |
 | 4 | 게이트 발화 정합 | auto 모드가 발화하는 명령이 비대화형 게이트에서 실제로 완주하고, 발화가 0인 라이프사이클 단계가 없다 | pending | — |
 | 5 | 문서·계약 드리프트 정리 | 환경변수 계약과 프로젝트 문서가 실제 코드·공식 채널과 일치한다 | pending | — |
 
@@ -73,8 +73,29 @@ M1~M3이 MVP다. M4·M5는 MVP 착지 후 재평가한다 — M4는 탐지가 �
 
 ## Open Questions
 
-- [ ] **프로젝트 로컬 skill이 해소 순서 어디에 끼는가.** 사용자 레벨이 plugin을 이긴다는 것은 실측됐으나, 공식 CLI의 기본 설치 위치인 프로젝트 로컬은 미확인이다. **M1의 정확도를 직접 좌우한다.**
-- [ ] **impeccable 4.x SKILL이 plugin 설치 환경에서 도구 권한을 통과하는가.** SKILL이 선언한 도구 경로와 plugin의 실제 base가 다르다. 권한 프롬프트가 실제로 뜨면 **탐지를 고쳐도 비대화형 게이트에서 멎는다** — MVP 성공 여부를 뒤집을 수 있는 유일한 항목이다.
+- [x] **프로젝트 로컬 skill이 해소 순서 어디에 끼는가.** 사용자 레벨이 plugin을 이긴다는 것은 실측됐으나, 공식 CLI의 기본 설치 위치인 프로젝트 로컬은 미확인이었다.
+  → **M3 실측(2026-08-23): 두 채널은 애초에 경쟁하지 않는다.** project 3.5.0과 plugin 4.1.1이
+  공존하는 상태에서 `Skill(impeccable:impeccable, ...)` 를 1회 호출했더니 런타임이 보고한 base
+  directory가 `~/.claude/plugins/cache/impeccable/impeccable/4.1.1/skills/impeccable` 였다 — 즉
+  namespaced 이름은 project 사본이 있어도 plugin 본문을 연다. bare 이름과 namespaced 이름이
+  **서로 다른 두 질문**이라는 오라클의 규칙이 라이브에서 확인됐고, "우선순위"라는 질문 자체가
+  잘못된 틀이었다. 남는 미측정은 bare 소스가 **둘**일 때(project + user)의 순서뿐이며, 오라클은
+  그 경우 답하지 않는다(`shadowed:true`). 증거: `.claude/notes/impeccable-detection-contract-m3.md`
+  Task 0 (a).
+- [~] **impeccable 4.x SKILL이 plugin 설치 환경에서 도구 권한을 통과하는가.** SKILL이 선언한 도구 경로와 plugin의 실제 base가 다르다.
+  → **M3 부분 실측(2026-08-23) — 전제는 참이나 영향은 없다.** 4.1.1의 `allowed-tools`가
+  `Bash(node .claude/skills/impeccable/scripts/*)` 라는 **project 상대 glob**을 선언하는 것은
+  확인됐고(3.5.0은 그 glob 자체가 없다), plugin base는 cache 절대경로라 매치하지 않는다. 그러나
+  `node <cache-abs>/scripts/context.mjs` 는 exit 0으로 완주했다. **이 관측만으로는 판정할 수
+  없다** — 측정 세션이 bypass-permissions 모드라 프롬프트가 뜰 자리가 없었다.
+  대신 ambient 권한을 직접 대조해 공백을 좁혔다: `~/.claude/settings.json` allow에는 ECC receipt
+  CLI 2행뿐이고 프로젝트 `.claude/settings.json` 에는 `permissions` 키가 없다. 즉 이 공백은
+  **impeccable 고유가 아니라 mccp 게이트 전체가 공유하는 baseline**이며(`node ${CLAUDE_PLUGIN_ROOT}/scripts/*`
+  도 덮이지 않는다), impeccable 경로만 골라 권한 축을 추가하면 나머지 게이트가 같은 공백에 있는
+  채로 한 축만 특별대우하게 된다. UI10의 발동 조건("권한 때문에 게이트가 멎으면")이 성립하지
+  않아 M3는 권한 축을 추가하지 않았다. **남는 잔여: 비-bypass 모드에서의 실측.** 그 측정을
+  하려면 권한 모드를 바꾼 세션이 필요하다. 증거:
+  `.claude/notes/impeccable-detection-contract-m3.md` Task 0 (b).
 - [ ] **hook 이중 등록의 실제 영향.** CLI와 plugin이 각각 별도 경로로 같은 hook을 등록한다. 양쪽 설치 시 편집마다 2회 도는지, 그리고 impeccable의 세션 종료 hook이 mccp Stop-loop과 어떻게 상호작용하는지 미측정이다.
 - [ ] **Node 하한 불일치를 어느 쪽에 맞출 것인가.** impeccable hook은 22+를 요구하고 mccp는 20+를 명시한다. 하한을 올릴지, hook 미동작을 정상 degraded로 문서화할지.
 - [ ] **`impeccable@anthropics`라는 리터럴은 어디서 왔는가.** 과거 실재한 채널인지 추정값인지에 따라 하위 호환 부담이 달라진다.

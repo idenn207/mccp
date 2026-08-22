@@ -2,7 +2,116 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.31.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.31.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.31.3] — 2026-08-23
+
+> **§3.7**: `1.31.2 → 1.31.3` (**patch** — M3는 impeccable-detection-contract PRD의
+> 세 번째 milestone이고 PRD는 M4·M5가 남아 여전히 in-progress다). 병렬 브랜치 충돌 점검:
+> `origin/main`이 `1.31.0`, 이 브랜치의 미머지 항목이 `1.31.1`(M1)·`1.31.2`(M2)라
+> `1.31.3` 자리가 비어 있다. 4면(plugin.json · html.js page-foot · markdown.js derived 줄 ·
+> 이 파일의 `currently` 노트)을 함께 맞췄고, `i18n-surface.test.js`는 manifest에서
+> 파생하므로 고칠 리터럴이 없다.
+> **target은 `/mccp:pr` 직전에 한 번 더 재계산한다**(§3.7 실측 4회 재발).
+
+**impeccable-detection-contract M3 — 섀도잉 해소 (patch, `1.31.2 → 1.31.3`)** — M1은 오라클을
+만들고 M2는 소비처를 배선했다. 둘 다 **다중 사본이 공존할 때 무엇이 실제로 열리는가**를
+사용자에게 말하지 않았다. M3는 승자가 아닌 소스를 1급 사실로 보고하고, 호출부를 재배선하고,
+이 저장소의 구버전 사본을 없앤다.
+
+### Added
+
+- `plugins/mccp/scripts/lib/impeccable-detect.js` — `resolveImpeccable()` 반환에 `eclipsed`
+  배열이 생겼다. 정의는 하나다: *승자가 정해졌을 때, 열거된 소스 중 승자 행이 아닌 전부.*
+  승자는 **그것을 고른 분기에서 객체 identity로 포착**해 제외한다 — `source`+`invocation`+`path`
+  3-필드 비교가 아니다. 같은 트리를 가리키는 레지스트리 항목 둘은 그 삼중값이 동일하므로
+  필드 비교는 **양쪽 다** 승자로 보고 `eclipsed`를 비운다(두 본문이 있는데 가려진 것이 없다고
+  말하는 셈). `shadowed:true`면 `eclipsed`는 **빈 배열**이고, 그것은 "정리할 것이 없다"가
+  아니라 **"무엇이 정리 대상인지 판정할 수 없다"** 는 뜻이다. 버전은 비교하지 않는다(UI6).
+- `plugins/mccp/scripts/lib/impeccable-cleanup.js` (신규) — `plan`(읽기 전용) /
+  `apply --source <project|user> --confirm`. 거부 규칙 여덟이 **전부 코드에** 있고 닫힌
+  `REASONS` enum으로 답한다. 경로 봉쇄는 **앵커와 대상 사이의 조상만** 검사한다 — 앵커 자신이
+  심볼릭 링크인 것은 거부하지 않는다(macOS `/tmp`, Windows junction 개발 드라이브 같은 정상
+  설치를 전부 막으면서 아무것도 얻지 못한다: 기대 부모와 대상이 같은 링크를 통과해 동일하게
+  해소되므로 봉쇄가 유지된다). `git rm`은 `execFileSync` + `--` 구분자로만 부르고 셸을
+  경유하지 않는다. 성공 판정은 명령의 종료코드가 아니라 **재-resolve로 증명한 부재**다.
+- `plugins/mccp/scripts/lib/dep-check.js` — `impeccableEclipsedNotice()` ·
+  `impeccableEclipsedRows()` · `safePath()`. 배너 문장이 hook이 아니라 여기 사는 이유는 hook에
+  자체 test가 없고 이 모듈에는 있기 때문이다. `safeLabel`은 경로에 쓸 수 없어(구분자·틸드·64자
+  상한) 경로 전용 규칙을 따로 뒀다 — 제어문자를 제거하고 길이를 제한하되 나머지는 그대로 둔다.
+- `plugins/mccp/commands/setup.md` Phase 3.5 — 다른 사본을 보고하고, **실제로 가능할 때만**
+  정리를 제안한다. `shadowed`면 제거 선택지를 아예 보이지 않는다(규칙 6이 거부할 행동을 권하는
+  화면이 된다).
+
+### Changed
+
+- **호출부 재배선 (4개 본문 + alias 2개).** `plan.md` · `prp-implement.md` · `pr.md` ·
+  `code-review.md`가 더 이상 이름을 하드코딩하지 않는다. detect 블록이 `impeccable_invocation`을
+  뽑아 `[mccp:impeccable] call-form:` **한 줄**을 stderr로 내고, 본문은 그 줄이 나르는 이름을
+  부른다. 셸 변수가 아니라 그 줄이 carrier인 이유는 셸 상태가 도구 호출 경계를 넘지 못하기
+  때문이다. **그 줄이 없으면 이름을 추정하지 않고** 기존 `SKILL_AVAIL=0` 행으로 간다.
+  이로써 plugin 채널 설치도 env 우회 없이 디자인 게이트를 발화시킨다(UI1).
+- **`.claude/skills/impeccable/` (79 파일) 제거 — 재배선과 동일 커밋.** 지우기만 하면 bare
+  소스가 사라져 전 게이트가 `unknown_skill`로 떨어진다. `impeccable-guard.test.js`의 짝 단언이
+  *사본 존재*와 *본문의 bare 리터럴 존재*를 하나의 등식으로 묶어 반쪽 착지를 붉힌다.
+- `docs/environment/external.md` — 사라진 사본을 가리키던 링크 앵커 5곳을 코드 텍스트로 풀고,
+  IMPECCABLE_\* 구간 머리에 측정 기준을 한 줄 적었다. plugin cache 경로로 다시 링크하지
+  **않는다** — 머신과 버전에 묶인 경로라 다음 사용자에게 거짓이 된다.
+
+### Fixed
+
+- `impeccable-resolve.test.js`의 "bare invocation equals the literal name mccp command bodies
+  call"이 **배선이 아니라 산문을 검사하고 있었다.** 재배선으로 모든 리터럴이 사라져도
+  `plan-prd.md`의 문장 하나(impeccable을 부르지 **않는다**고 적은 줄) 때문에 green으로
+  남았을 것이다. 이제 오라클이 내는 **필드 이름**과 본문이 읽는 필드 이름을 양쪽에서 단언한다.
+
+### Known limitations
+
+- **`removable`은 어떤 구성에서도 빈다 — 삭제 경로는 현재 도달 불가다.** bare 소스가 항상
+  이기므로 bare 사본은 승자(규칙 1)이거나 둘 중 하나(규칙 6)이고, 남는 eclipsed 행은
+  plugin뿐인데 규칙 2가 그것을 거부하며, env override는 승자를 판정 불가로 만든다(규칙 7).
+  규칙을 완화하지 않았고 — 각각 안전 근거가 있다 — 대신 setup 화면이 그 사실에 정직하며
+  `no configuration this oracle can produce makes a copy removable` test가 이 성질을 고정한다.
+  그래서 rule 3·4·5·8과 사후 검증은 end-to-end로 도달할 수 없다: 봉쇄 술어는 `_internals`로
+  직접 단언하고, 나머지는 오라클의 해소 순서가 바뀌어 도달 가능해지는 날 위 test가 red로
+  알리면 그때 end-to-end 커버를 되살린다.
+- **`impeccable-guard.test.js`는 어떤 CI도 돌리지 않는다.** `.github/workflows/`에 등재된
+  test는 셋뿐이다. 짝 단언의 실제 강제 지점은 이 사이클의 `## Validation`이 돌리는 로컬
+  test이며, "커밋 시점 강제"가 아니다. CI 등재는 backlog.
+- **check↔delete TOCTOU 창은 좁혔을 뿐 닫지 않았다.** 삭제 직전 realpath 재확인이 있지만
+  마지막 확인과 syscall 사이는 열려 있다(Windows에 `O_NOFOLLOW` 상당이 없다). 규칙 7 이후
+  이 창에 도달하는 경로가 없다는 점이 완화지, 창이 닫힌 것은 아니다.
+
+### Fixed — 로컬 code-review 흡수 (같은 사이클)
+
+- **HIGH · env override가 rule 1을 무력화해 실제로 열리는 본문을 삭제했다** —
+  `impeccable-cleanup.js`. `MCCP_IMPECCABLE_SKILL=available`이 만드는 승자는 `path:null`이라
+  어느 사본이 답하는지 주장하지 않는데, rule 1은 `winner.source === source` 비교뿐이라
+  `'env' !== 'project'`로 통과했다. 그 결과 bare 사본이 `removable`에 올라 실제로 삭제됐고
+  (임시 저장소에서 재현), 사후 검증조차 그것을 잡지 못했다 — 같은 override가 본문이 사라진
+  뒤에도 `available:true`를 보고하기 때문이다. rule 7(승자가 디스크 본문을 지목하지 않으면
+  거부)을 추가했다. rule 6이 `shadowed`에 대해 내린 판단과 같은 상태를 같은 방식으로 닫는다.
+- **MEDIUM · SessionStart의 eclipsed 배너가 사실상 1회성이었다** — `session-start.js`.
+  게이트가 `!within24h` 단독인데 `dep_check_at`은 dep-check가 도는 **모든** 세션에서 갱신되므로,
+  하루 안에 세션을 한 번이라도 열면 시계가 리셋돼 배너가 다시 뜨지 않았고 사본이 늘거나 줄어도
+  반응하지 않았다. 자체 축 `dep_check_eclipsed`(present-only)를 두고 missing 배너와 같은
+  `(키 동일 ∧ 24h 이내)` 규칙으로 바꿨다 — `dep_check_missing`을 공유하지 않는 이유는 그것이
+  eclipsed 상태를 "누락 의존성"으로 읽히게 만들기 때문이다.
+- **MEDIUM · shadowed 배너가 plugin 사본까지 "같은 이름에 답하는 사본"으로 셌다** —
+  `dep-check.js`. plugin은 `<pluginName>:<skillDirName>`으로 등록돼 다른 이름에 답하므로
+  모호성의 당사자가 아니다. `bareSourceCount()`로 bare 행만 센다(3-copy 설치에서 3 → 2).
+- **MEDIUM · rule 4 주석이 코드·test와 정반대를 서술했다** — 주석은 "`--confirm`을 빠뜨리면
+  `--dry-run`이어도 거부된다"고 했으나 코드는 dry-run을 먼저 답하고 test도 그렇게 단언한다.
+  동작이 아니라 주석을 고쳤다(dry-run은 아무것도 지우지 않으므로 승인할 대상이 없다).
+- **MEDIUM · plan이 지목한 경로와 apply가 지우는 경로가 갈라질 수 있었다** —
+  `applyCleanup`은 삭제 대상을 앵커에서 파생하는데 `planCleanup`은 설정된 skill 디렉터리를
+  읽는다. 출하된 호출자는 override를 넘기지 않아 실제 도달은 불가였지만, 파괴적 함수에서 둘이
+  갈라질 수 있는 구조를 rule 8로 닫았다.
+- **MEDIUM · dep-check 주석 블록이 잘못된 함수 위에 있었다** — notice 설명 문단이
+  `impeccableEclipsedRows` 위에 붙고 정작 `impeccableEclipsedNotice`는 무주석이었다.
+- **LOW** · `code-review.md`의 "call-form rule below"가 실제로는 위였다 ·
+  `assertReachableWithoutLinks`가 루프에서 이미 얻은 `lstat`을 버리고 재호출해, 그 찰나의
+  경합이 닫힌 `REASONS` 대신 raw ENOENT로 샜다.
 
 ## [1.31.2] — 2026-08-22
 

@@ -296,6 +296,24 @@ function readPluginSkillSources(installedPluginsPath, repoRoot) {
   return found;
 }
 
+// Every enumerated source that is NOT the winning row.
+//
+// The winner is passed by REFERENCE, captured in the branch that chose it, and
+// excluded by object identity -- never by comparing source+invocation+path.
+// Two rows can legitimately carry the same triple (a registry listing the same
+// installPath twice, or two plugin entries resolving to one skills/ tree), and
+// a field comparison would then drop BOTH, reporting nothing eclipsed while
+// more than one body exists. That is the exact failure this field exists to
+// prevent (Implement-Codex R1 F5).
+//
+// No version comparison happens here or anywhere downstream: a version may be
+// null or not semver, and deciding which copy is 'newer' is a judgement this
+// oracle does not make. It enumerates; the human reads (UI6).
+function eclipsedFrom(sources, winnerRow) {
+  if (!winnerRow) return [];
+  return sources.filter(function (row) { return row !== winnerRow; });
+}
+
 function resolveImpeccable(options) {
   const opts = options || {};
   const forced = process.env.MCCP_IMPECCABLE_SKILL;
@@ -322,6 +340,7 @@ function resolveImpeccable(options) {
       path: null,
       sources: [],
       shadowed: false,
+      eclipsed: [],
     };
   }
 
@@ -334,15 +353,19 @@ function resolveImpeccable(options) {
     : path.join(os.homedir(), '.claude', 'skills', IMPECCABLE_SKILL_DIRNAME);
 
   const sources = [];
+  // Held by reference so the return below excludes exactly this row rather
+  // than any row that happens to look like it.
+  let envRow = null;
   if (forced === 'available') {
     // No path and no version: the override asserts that the call will resolve,
     // and asserts nothing about which body answers it.
-    sources.push({
+    envRow = {
       source: 'env',
       invocation: IMPECCABLE_SKILL_DIRNAME,
       version: null,
       path: null,
-    });
+    };
+    sources.push(envRow);
   }
   readPluginSkillSources(opts.installedPluginsPath, repoRoot).forEach(function (row) {
     sources.push(row);
@@ -362,6 +385,7 @@ function resolveImpeccable(options) {
       path: null,
       sources: sources,
       shadowed: false,
+      eclipsed: eclipsedFrom(sources, envRow),
     };
   }
 
@@ -387,6 +411,13 @@ function resolveImpeccable(options) {
       path: null,
       sources: sources,
       shadowed: true,
+      // Empty here does NOT mean 'nothing to clean up' -- it means 'which rows
+      // are eclipsed cannot be determined', because naming the eclipsed set
+      // requires naming the winner and no winner was established. Saying
+      // otherwise would be the same guess this branch exists to refuse (UI6).
+      // impeccable-cleanup rule (6) is what keeps the two readings apart for
+      // consumers: an ambiguous winner refuses every removal outright.
+      eclipsed: [],
     };
   }
 
@@ -400,6 +431,7 @@ function resolveImpeccable(options) {
       path: bare[0].path,
       sources: sources,
       shadowed: false,
+      eclipsed: eclipsedFrom(sources, bare[0]),
     };
   }
 
@@ -423,6 +455,7 @@ function resolveImpeccable(options) {
       path: winner.path,
       sources: sources,
       shadowed: false,
+      eclipsed: eclipsedFrom(sources, winner),
     };
   }
 
@@ -435,10 +468,11 @@ function resolveImpeccable(options) {
     path: null,
     sources: sources,
     shadowed: false,
+    eclipsed: [],
   };
 }
 
-// The six reporting fields, assembled in ONE place. detect() returns from three
+// The seven reporting fields, assembled in ONE place. detect() returns from three
 // branches, and the early return for a rejected --plan path used to omit them —
 // which quietly falsified the strict-superset contract CLAUDE.md §3.17 states.
 // A fourth branch added later cannot repeat that by forgetting to copy a list.
@@ -450,6 +484,7 @@ function resolutionFields(resolved) {
     impeccable_path: resolved.path,
     impeccable_sources: resolved.sources,
     impeccable_shadowed: resolved.shadowed,
+    impeccable_eclipsed: resolved.eclipsed,
   };
 }
 
@@ -688,12 +723,23 @@ if (require.main === module) {
     if (args.json) {
       process.stdout.write(JSON.stringify(r) + '\n');
     } else {
+      // Winner marking is identity-based for the same reason eclipsedFrom is:
+      // a source+invocation+path comparison marks every duplicate row as the
+      // winner, so a table meant to show which body opens would show two.
+      // A row is the winner exactly when a winner exists and it was not
+      // eclipsed -- under shadowed:true no row is marked, which is the point.
+      const eclipsedSet = new Set(r.eclipsed || []);
+      const hasWinner = r.source !== null;
       const rows = (r.sources || []).map(function (src) {
-        const won = (src.source === r.source)
-          && (src.invocation === r.invocation) && (src.path === r.path);
+        const won = hasWinner && !eclipsedSet.has(src);
         return '  ' + (won ? '*' : ' ') + ' ' + src.source.padEnd(8)
           + ' ' + String(src.invocation).padEnd(22)
           + ' ' + String(src.version || '<unknown>').padEnd(10)
+          + ' ' + String(src.path || '<none>');
+      });
+      const eclipsedRows = (r.eclipsed || []).map(function (src) {
+        return '    - ' + src.source + ' ' + String(src.invocation)
+          + ' v' + String(src.version || '<unknown>')
           + ' ' + String(src.path || '<none>');
       });
       process.stdout.write(
@@ -703,6 +749,9 @@ if (require.main === module) {
         + '  source     : ' + (r.source || '<ambiguous-or-none>') + '\n'
         + '  version    : ' + (r.version || '<unknown>') + '\n'
         + '  shadowed   : ' + r.shadowed + '\n'
+        + '  eclipsed   : ' + eclipsedRows.length
+          + (r.shadowed ? '  (undeterminable -- no winner established)' : '')
+          + (eclipsedRows.length ? '\n' + eclipsedRows.join('\n') : '') + '\n'
         + '  sources    :' + (rows.length ? '\n' + rows.join('\n') : ' <none>') + '\n'
       );
     }

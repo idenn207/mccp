@@ -78,12 +78,71 @@ test('no canonical command leaks another command\'s --mode (mode-bleed regressio
   }
 });
 
-test('Skill(impeccable, ...) invocation appears in every canonical command', () => {
-  for (const [mode, file] of Object.entries(CANONICAL_BY_MODE)) {
+// The four bodies that actually invoke impeccable. plan-prd.md is canonical by
+// mode but calls nothing — it is covered by the detect-reference test above and
+// by the negative assertion below, not by the call-form assertions.
+const CALLING = ['plan.md', 'prp-implement.md', 'pr.md', 'code-review.md'].map(
+  (f) => path.join(PLUGIN_ROOT, 'commands', f));
+
+const BARE_CALL_LITERAL = 'Skill(impeccable';
+const REPO_ROOT = path.resolve(PLUGIN_ROOT, '..', '..');
+const BARE_SKILL_MD = path.join(REPO_ROOT, '.claude', 'skills', 'impeccable', 'SKILL.md');
+
+test('each calling command resolves its call form instead of hardcoding one', () => {
+  // Replaces the pre-v1.31.3 assertion that a bare Skill(impeccable literal
+  // appeared in every canonical command. That assertion, left in place, would
+  // have FORBIDDEN the rewiring it was written to protect.
+  for (const file of CALLING) {
     const src = readSource(file);
-    assert.ok(/Skill\(impeccable/.test(src),
-      `${path.basename(file)} (mode=${mode}): must contain Skill(impeccable invocation`);
+    assert.ok(src.includes('IMPECCABLE_INVOCATION=$('),
+      `${path.basename(file)}: must extract the resolved invocation from the detect JSON`);
+    assert.ok(src.includes('impeccable_invocation'),
+      `${path.basename(file)}: must read the oracle's impeccable_invocation field`);
+    assert.ok(src.includes('[mccp:impeccable] call-form:'),
+      `${path.basename(file)}: must print the one stderr line the LLM reads`);
+    assert.ok(src.includes('Call-form rule'),
+      `${path.basename(file)}: must carry the call-form rule, including the absent-line branch`);
   }
+});
+
+test('no command body hardcodes a bare impeccable call literal', () => {
+  // Deliberately a whole-file check rather than an attempt to tell a live
+  // instruction from a sentence about one. Markdown carries no syntax that
+  // separates the two, so a guard that tried would be guessing — and a guard
+  // that fires on documentation is worse than none (Implement-Codex R1 F4b).
+  // Absence is the only version of this assertion that means what it says, so
+  // prose which needs to discuss the old form describes it instead of quoting it.
+  for (const file of ALL_FILES) {
+    const src = readSource(file);
+    assert.ok(!src.includes(BARE_CALL_LITERAL),
+      `${path.basename(file)}: still hardcodes ${BARE_CALL_LITERAL} — the call form must come from the oracle`);
+  }
+});
+
+test('single-commit invariant: the bare copy and the bare literal live and die together', () => {
+  // The dangerous half is copy-removed-but-bodies-still-bare: every design gate
+  // would reach unknown_skill at once. The other half (rewired but the copy is
+  // still here) is harmless in itself — a bare source would simply still win —
+  // but the two are asserted as ONE equality because that is the only form that
+  // cannot be satisfied by landing half of the change.
+  //
+  // A red here is not ambiguous: read which side is true.
+  const bareCopyPresent = fs.existsSync(BARE_SKILL_MD);
+  const bareLiteralPresent = ALL_FILES.some((f) => readSource(f).includes(BARE_CALL_LITERAL));
+  assert.strictEqual(bareLiteralPresent, bareCopyPresent,
+    `bare copy on disk = ${bareCopyPresent}, bare literal in a command body = ${bareLiteralPresent}. `
+    + 'These must match. copy=false + literal=true is the dangerous order: the bodies call a name '
+    + 'nothing answers, so every design gate records unknown_skill. copy=true + literal=false is '
+    + 'harmless but still means the removal half of this change has not landed.');
+});
+
+test('setup.md carries the Phase 3.5 cleanup surface', () => {
+  const src = readSource(path.join(PLUGIN_ROOT, 'commands', 'setup.md'));
+  assert.ok(/^### 3\.5 /m.test(src), 'setup.md must declare a Phase 3.5 section');
+  assert.ok(src.includes('impeccable-cleanup.js'),
+    'setup.md Phase 3.5 must call the cleanup oracle, not reason about paths itself');
+  assert.ok(src.includes('plan --json'), 'Phase 3.5 must read the plan before offering anything');
+  assert.ok(src.includes('--confirm'), 'the apply step must pass an explicit confirmation');
 });
 
 test('fallback note "impeccable unavailable, skipped" appears in every file (canonical + aliases)', () => {

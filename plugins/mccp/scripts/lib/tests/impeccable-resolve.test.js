@@ -436,32 +436,41 @@ test('a source inside the repo is reported repo-relative, not as an absolute pat
 
 // === The contract that actually matters (plan Success Metric 2) ===
 
-test('the bare invocation equals the literal name mccp command bodies call', () => {
+test('the oracle emits the exact field name the command bodies read', () => {
   withTempDir((dir) => {
     const projectDir = path.join(dir, '.claude', 'skills', 'impeccable');
     writeSkill(projectDir, '3.5.0');
     withEnv(NO_ENV, () => {
       const r = resolveIn(dir, { projectSkillDir: projectDir });
-      // Detection is only worth anything if the name it reports is the name the
-      // gates actually invoke. Read that name off the command bodies rather
-      // than restating it here, so the two cannot drift apart silently.
-      const commandsDir = path.join(__dirname, '..', '..', '..', 'commands');
-      const bodies = fs.readdirSync(commandsDir).filter((f) => f.endsWith('.md'));
-      const called = new Set();
-      bodies.forEach((f) => {
-        const src = fs.readFileSync(path.join(commandsDir, f), 'utf8');
-        const matches = src.match(/Skill\(\s*([A-Za-z0-9_:-]+)\s*[,)]/g) || [];
-        matches.forEach((m) => {
-          const name = m.replace(/Skill\(\s*/, '').replace(/\s*[,)]$/, '');
-          if (name.indexOf('impeccable') !== -1) called.add(name);
-        });
+      assert.strictEqual(r.invocation, 'impeccable', 'a bare source still answers to the bare name');
+
+      // Until v1.31.3 this test read the literal call names out of the command
+      // bodies and asserted the resolved name was among them. The rewiring
+      // removed every literal, and the assertion would then have passed on the
+      // strength of ONE sentence in plan-prd.md — a body that never calls
+      // impeccable at all. It was not checking wiring; it was checking prose.
+      //
+      // What matters now is the seam that replaced the literal: the bodies read
+      // a named field out of this oracle's JSON. Assert THAT name, from both
+      // sides, so the two cannot drift apart silently.
+      const fields = detector.detect({
+        mode: 'implement',
+        repoRoot: dir,
+        installedPluginsPath: absent(dir, 'manifest.json'),
+        projectSkillDir: projectDir,
+        userSkillDir: absent(dir, 'user'),
       });
-      assert.ok(called.size > 0, 'command bodies must invoke impeccable somewhere');
-      assert.ok(
-        called.has(r.invocation),
-        'resolved invocation "' + r.invocation + '" is not among the names the command '
-          + 'bodies call: ' + Array.from(called).join(', ')
-      );
+      assert.ok(Object.prototype.hasOwnProperty.call(fields, 'impeccable_invocation'),
+        'detect() must expose impeccable_invocation');
+      assert.strictEqual(fields.impeccable_invocation, r.invocation);
+
+      const commandsDir = path.join(__dirname, '..', '..', '..', 'commands');
+      const callers = ['plan.md', 'prp-implement.md', 'pr.md', 'code-review.md'];
+      callers.forEach((f) => {
+        const src = fs.readFileSync(path.join(commandsDir, f), 'utf8');
+        assert.ok(src.includes('impeccable_invocation'),
+          f + ' must read the invocation from the oracle rather than hardcode one');
+      });
     });
   });
 });
@@ -485,6 +494,144 @@ test('probeSkillAvailable returns exactly resolveImpeccable().available', () => 
         detector.probeSkillAvailable(opts),
         detector.resolveImpeccable(opts).available
       );
+    });
+  });
+});
+
+// === eclipsed: the non-winning sources, named (M3 Task 1) ===
+
+test('eclipsed (i): with one winner, it is exactly the non-winner rows', () => {
+  withTempDir((dir) => {
+    const projectDir = path.join(dir, '.claude', 'skills', 'impeccable');
+    writeSkill(projectDir, '3.5.0');
+    const pluginBase = path.join(dir, 'plugin-a');
+    writePluginTree(pluginBase, 'impeccable', '4.1.1');
+    const manifest = writePluginsManifest(dir, [
+      { key: 'impeccable@impeccable', version: '4.1.1', installPath: pluginBase },
+    ]);
+    withEnv(NO_ENV, () => {
+      const r = resolveIn(dir, { projectSkillDir: projectDir, installedPluginsPath: manifest });
+      assert.strictEqual(r.source, 'project', 'bare source decides the winner');
+      assert.strictEqual(r.sources.length, 2);
+      assert.strictEqual(r.eclipsed.length, 1);
+      assert.strictEqual(r.eclipsed[0].source, 'plugin');
+      assert.strictEqual(r.eclipsed[0].invocation, 'impeccable:impeccable');
+      // Set equality with "every enumerated row that is not the winner", by identity.
+      const winner = r.sources.filter((s) => s.source === 'project')[0];
+      const expected = r.sources.filter((s) => s !== winner);
+      assert.deepStrictEqual(r.eclipsed, expected);
+      assert.ok(!r.eclipsed.includes(winner), 'winner must not appear in its own eclipsed list');
+    });
+  });
+});
+
+test('eclipsed (i-dup): duplicate rows sharing source+invocation+path exclude only the winner', () => {
+  // Regression for Implement-Codex R1 F5. Two registry keys pointing at ONE
+  // install tree produce two rows with an identical (source, invocation, path)
+  // triple. A field comparison would mark both as the winner and report zero
+  // eclipsed while two bodies are enumerated; identity exclusion drops exactly
+  // one. pluginNameFromRegistryKey returns the literal name "impeccable" for
+  // every key the matcher admits, so the two invocations really are identical.
+  withTempDir((dir) => {
+    const pluginBase = path.join(dir, 'plugin-shared');
+    writePluginTree(pluginBase, 'impeccable', '4.1.1');
+    const manifest = writePluginsManifest(dir, [
+      { key: 'impeccable@impeccable', version: '4.1.1', installPath: pluginBase },
+      { key: 'impeccable@mirror', version: '4.1.1', installPath: pluginBase },
+    ]);
+    withEnv(NO_ENV, () => {
+      const r = resolveIn(dir, { installedPluginsPath: manifest });
+      assert.strictEqual(r.sources.length, 2, 'both registry entries enumerate');
+      assert.strictEqual(r.sources[0].invocation, r.sources[1].invocation,
+        'fixture precondition: the two rows share an invocation');
+      assert.strictEqual(r.sources[0].path, r.sources[1].path,
+        'fixture precondition: the two rows share a path');
+      assert.strictEqual(r.eclipsed.length, 1,
+        'identity exclusion drops exactly one row, not both and not neither');
+      const eclipsedIsAnEnumeratedRow = r.sources.indexOf(r.eclipsed[0]) !== -1;
+      assert.ok(eclipsedIsAnEnumeratedRow, 'the eclipsed row is one of the enumerated objects');
+    });
+  });
+});
+
+test('eclipsed (ii): shadowed:true reports an EMPTY list even with two sources', () => {
+  withTempDir((dir) => {
+    const projectDir = path.join(dir, '.claude', 'skills', 'impeccable');
+    const userDir = path.join(dir, 'home', '.claude', 'skills', 'impeccable');
+    writeSkill(projectDir, '3.5.0');
+    writeSkill(userDir, '4.0.0');
+    withEnv(NO_ENV, () => {
+      const r = resolveIn(dir, { projectSkillDir: projectDir, userSkillDir: userDir });
+      assert.strictEqual(r.shadowed, true);
+      assert.strictEqual(r.source, null, 'no winner is named');
+      assert.strictEqual(r.sources.length, 2, 'both bodies are still enumerated');
+      assert.deepStrictEqual(r.eclipsed, [],
+        'naming the eclipsed set requires naming the winner; refuse instead of guessing');
+    });
+  });
+});
+
+test('eclipsed (iii): one-or-zero sources, and available:false, are all empty', () => {
+  withTempDir((dir) => {
+    const projectDir = path.join(dir, '.claude', 'skills', 'impeccable');
+    writeSkill(projectDir, '3.5.0');
+    withEnv(NO_ENV, () => {
+      const one = resolveIn(dir, { projectSkillDir: projectDir });
+      assert.strictEqual(one.sources.length, 1);
+      assert.deepStrictEqual(one.eclipsed, [], 'a lone winner eclipses nothing');
+
+      const none = resolveIn(dir);
+      assert.strictEqual(none.available, false);
+      assert.deepStrictEqual(none.eclipsed, []);
+    });
+    withEnv({ MCCP_IMPECCABLE_SKILL: 'missing' }, () => {
+      const forced = resolveIn(dir, { projectSkillDir: projectDir });
+      assert.strictEqual(forced.available, false);
+      assert.deepStrictEqual(forced.sources, [], 'forced-missing enumerates nothing');
+      assert.deepStrictEqual(forced.eclipsed, []);
+    });
+    withEnv({ MCCP_IMPECCABLE_SKILL: 'available' }, () => {
+      const forced = resolveIn(dir, { projectSkillDir: projectDir });
+      assert.strictEqual(forced.source, 'env');
+      // The env row wins outright, so the real project copy it overrode is
+      // eclipsed BY it. That is the honest reading: the body on disk exists and
+      // is not what the override says will answer.
+      assert.strictEqual(forced.eclipsed.length, 1);
+      assert.strictEqual(forced.eclipsed[0].source, 'project');
+    });
+  });
+});
+
+test('eclipsed (iv): every detect() return branch carries impeccable_eclipsed', () => {
+  withTempDir((dir) => {
+    const projectDir = path.join(dir, '.claude', 'skills', 'impeccable');
+    writeSkill(projectDir, '3.5.0');
+    const base = {
+      repoRoot: dir,
+      installedPluginsPath: absent(dir, 'manifest.json'),
+      projectSkillDir: projectDir,
+      userSkillDir: absent(dir, 'user'),
+    };
+    withEnv(NO_ENV, () => {
+      // The three places detect() returns from. The M1 regression this guards
+      // was a return that omitted the reporting fields entirely, so the check
+      // is PRESENCE of the key, not a truthy value.
+      const branches = [
+        ['mode-mismatch', detector.detect(Object.assign({}, base))],
+        ['unsafe-plan-path', detector.detect(Object.assign({ mode: 'plan', planPath: '../escape.md' }, base))],
+        ['normal', detector.detect(Object.assign({ mode: 'implement' }, base))],
+      ];
+      branches.forEach((pair) => {
+        const label = pair[0];
+        const result = pair[1];
+        assert.ok(
+          Object.prototype.hasOwnProperty.call(result, 'impeccable_eclipsed'),
+          label + ': detect() must carry impeccable_eclipsed'
+        );
+        assert.ok(Array.isArray(result.impeccable_eclipsed), label + ': must be an array');
+      });
+      assert.notStrictEqual(branches[1][1].reason, 'ok',
+        'fixture precondition: the plan path was actually rejected');
     });
   });
 });

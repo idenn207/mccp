@@ -1036,6 +1036,11 @@ async function main() {
   let injectorFixTaskPushed = false;
   let injectorModule = null;
   let depCheckNotice = '';
+  // Separate from depCheckNotice on purpose: shadowing is not a missing
+  // dependency, and folding it into that string would put it behind the
+  // `missing.length > 0` gate, where a fully-resolved-but-shadowed install
+  // would never be reported at all.
+  let eclipsedNotice = '';
   try {
     injectorModule = require('../state/state-injector');
     const { execFileSync } = require('child_process');
@@ -1081,11 +1086,13 @@ async function main() {
 
       let priorAt = null;
       let priorMissingKey = null;
+      let priorEclipsedKey = null;
       try {
         if (injectorRepoRoot) {
           const existing = stateWriter.readState(injectorRepoRoot);
           priorAt = existing.frontmatter.dep_check_at || null;
           priorMissingKey = existing.frontmatter.dep_check_missing || null;
+          priorEclipsedKey = existing.frontmatter.dep_check_eclipsed || null;
         }
       } catch (_e) {
         // best-effort; treat as no prior dedupe state
@@ -1102,10 +1109,30 @@ async function main() {
         log(depCheckNotice);
       }
 
+      // Eclipsed / shadowed copies (M3 Task 3). Built from the dep-check result
+      // already in hand -- no second probe -- and rate-limited the same way the
+      // missing-deps banner is: same 24h clock, but keyed on its own axis so a
+      // change of state speaks up immediately.
+      //
+      // The key cannot be `dep_check_missing` (an eclipsed copy is not an absent
+      // dependency, and sharing the field would make a shadowed install read as
+      // a missing one everywhere else), and the 24h clock ALONE is not a
+      // rate-limit here: dep_check_at is re-stamped on every session that runs
+      // dep-check, so an operator who opens a session daily would see this once
+      // and never again -- and a copy appearing or disappearing would not bring
+      // it back. Hence dep_check_eclipsed, its own present-only field.
+      const notice = depCheck.impeccableEclipsedNotice(result.impeccable);
+      const eclipsedKey = depCheck.impeccableEclipsedKey(result.impeccable);
+      const sameEclipsed = eclipsedKey === priorEclipsedKey;
+      if (notice && !(sameEclipsed && within24h)) {
+        eclipsedNotice = notice;
+        log(eclipsedNotice);
+      }
+
       if (injectorRepoRoot) {
         try {
           stateWriter.update(injectorRepoRoot, {
-            depCheck: { checkedAt: result.checked_at, missing: missing },
+            depCheck: { checkedAt: result.checked_at, missing: missing, eclipsed: eclipsedKey },
           });
         } catch (e) {
           log(`[SessionStart] dep-check state update skipped: ${e.message}`);
@@ -1118,6 +1145,10 @@ async function main() {
 
   if (depCheckNotice && shouldInjectContext) {
     additionalContextParts.push(depCheckNotice);
+  }
+
+  if (eclipsedNotice && shouldInjectContext) {
+    additionalContextParts.push(eclipsedNotice);
   }
 
   const additionalContext = shouldInjectContext

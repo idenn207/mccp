@@ -813,25 +813,64 @@ R5 계약 위반 2건 + 정지 → R6 새 축 0건 → Plan-Codex R1 실재 1건
 
 ---
 
-### 3.17 impeccable 탐지 계약 (v1.31.1 M1 · v1.31.2 M2 — impeccable-detection-contract)
+### 3.17 impeccable 탐지 계약 (v1.31.1 M1 · v1.31.2 M2 · v1.31.3 M3 — impeccable-detection-contract)
 
 `probeSkillAvailable`의 boolean은 [resolveImpeccable()](plugins/mccp/scripts/lib/impeccable-detect.js)의
 `available` 필드로 남고, 오라클이 설치원을 전부 열거해 **실제로 열릴 본문 하나**를 지목한다.
-`detect()`는 기존 키의 의미를 그대로 둔 채 6개 필드를 얹는 엄격한 상위집합이라 게이트 분기는
-한 줄도 바뀌지 않는다 — M1은 **분기의 입력만** 참으로 만든다. 상주해야 할 것은 둘뿐이다.
+`detect()`는 기존 키의 의미를 그대로 둔 채 7개 필드를 얹는 엄격한 상위집합이라 게이트 분기는
+한 줄도 바뀌지 않는다 — M1은 **분기의 입력만** 참으로 만들었고, M3가 그 입력을 실제로 부르는
+이름으로 바꿨다.
 
-**plugin 채널은 bare 이름으로 해소되지 않는다.** plugin skill은 `<pluginName>:<skillDirName>`으로
-등록되므로 plugin 단독 설치의 invocation은 `impeccable:impeccable`인데, mccp 명령 본문 4곳은
-전부 bare `Skill(impeccable, ...)`를 부른다. 레지스트리 키(`impeccable@impeccable`)는
-`<pluginName>@<marketplaceName>`이라 **키 전체가 이름이 아니다**(반례: `codex@openai-codex` →
-`codex:setup`). 따라서 **M3가 project-local 사본을 지우기 전에 호출부를 재배선해야 한다** —
-지우기만 하면 bare 소스가 사라져 모든 게이트의 impeccable 호출이 `unknown_skill`로 떨어진다.
-`impeccable-resolve.test.js`의 "bare invocation equals the literal name mccp command bodies call"이
-그 순간 red가 되므로 조용히 일어나지는 않는다.
+**부르는 이름은 오라클이 정한다** (v1.31.3 M3). plugin skill은 `<pluginName>:<skillDirName>`으로
+등록되므로 plugin 단독 설치의 invocation은 `impeccable:impeccable`이다. 레지스트리 키
+(`impeccable@impeccable`)는 `<pluginName>@<marketplaceName>`이라 **키 전체가 이름이 아니다**
+(반례: `codex@openai-codex` → `codex:setup`). M3 이전에는 명령 본문 4곳이 bare
+리터럴을 하드코딩해 plugin 단독 설치가 항상 `unknown_skill`에 도달했다. 이제 detect 블록이
+`impeccable_invocation`을 뽑아 **`[mccp:impeccable] call-form:` 한 줄**을 stderr로 내고 본문은
+그 줄이 나르는 이름을 부른다. 셸 변수가 아니라 그 줄이 carrier인 이유는 셸 상태가 도구 호출
+경계를 넘지 못하기 때문이고, **그 줄이 없으면 이름을 추정하지 않고** `SKILL_AVAIL=0` 행으로
+간다. 같은 커밋에서 project-local 사본(79 파일)이 사라졌다 — 재배선 없이 지웠다면 모든 게이트가
+동시에 `unknown_skill`이 됐을 것이다.
+
+**그 단일 커밋을 지키는 것은 `impeccable-guard.test.js`의 짝 단언**이다: *사본이 디스크에 있다*와
+*본문이 bare 리터럴을 갖는다*가 **같은 값**이어야 한다. M3 이전 이 자리에 적혀 있던 안전망
+(`impeccable-resolve.test.js`의 "bare invocation equals the literal name…")은 **실재하지 않았다** —
+그 test는 `commands/*.md` 전문을 훑어 리터럴을 모으므로, 재배선이 진짜 호출을 전부 걷어내도
+impeccable을 **부르지 않는다**고 적은 `plan-prd.md`의 산문 한 줄이 남아 green을 유지했을 것이다.
+배선이 아니라 산문을 검사하고 있었다. 그 test는 이제 오라클이 내는 **필드 이름**과 본문이 읽는
+필드 이름을 대조한다. 두 단언 모두 **어떤 CI도 돌리지 않으므로**(`.github/workflows/`에 등재된
+test는 셋뿐) 강제 지점은 사이클의 `## Validation`이 돌리는 로컬 test다 — 커밋 훅이 아니다.
 
 **모호하면 답하지 않는다.** bare 소스가 둘이면(project + user) 어느 본문이 해소되는지는 측정된
 바 없으므로 `shadowed:true` + `source`·`path`·`version` 전부 `null`이다. 추정하지 않는 것이
 계약이고, 이름(`invocation`)만은 양쪽이 공유하므로 남는다.
+
+**승자가 아닌 소스는 `eclipsed`로 보고하되, 넷을 지킨다** (v1.31.3 M3 — 여기 상주하는 불변식).
+
+1. **열거만 하고 버전을 비교하지 않는다.** 어느 사본이 최신인지 판정하지 않고 `version`을
+   그대로 실어 사람이 읽는다 — semver가 아닐 수도, `null`일 수도 있다(UI6).
+2. **정리는 승자와 plugin 소스를 절대 건드리지 않는다.** 승자를 지우면 게이트가 죽고, plugin
+   cache 삭제는 레지스트리와 디스크를 어긋나게 한다(`claude plugin uninstall`의 일이다).
+3. **`shadowed:true`면 정리 대상이 0이다.** 이때 `eclipsed`가 비는 것은 "정리할 것이 없다"가
+   아니라 **"무엇이 정리 대상인지 판정할 수 없다"** 는 뜻이다. 승자가 `null`이면 규칙 2의
+   "승자를 지우지 않는다"가 판정 불가이므로 [impeccable-cleanup.js](plugins/mccp/scripts/lib/impeccable-cleanup.js)는
+   어떤 `--source`도 거부하고, `/mccp:setup` Phase 3.5는 그 화면에 제거 선택지를 **아예 보이지
+   않는다**.
+4. **승자가 디스크의 본문을 지목하지 않으면 같은 이유로 거부한다.** `MCCP_IMPECCABLE_SKILL=available`이
+   만드는 승자가 그렇다 — 그 override는 *이름이 해소된다*만 주장하고 *어느 사본이 답하는지*는
+   주장하지 않으므로(오라클이 그 분기에 그렇게 적었다) `path`가 `null`이다. 규칙 2의
+   "승자를 지우지 않는다"는 승자와 대상을 비교해야 성립하는데, 비교 대상이 없으면 그 비교는
+   **언제나 거짓**이 된다. 규칙 4 이전에는 그래서 env override 하에서 **실제로 열리는 유일한
+   본문**이 제거 대상으로 올라왔고, 사후 검증도 그것을 잡지 못했다 — 같은 override가 본문이
+   사라진 뒤에도 `available:true`를 계속 보고하기 때문이다. 판정 기준은 `source==='env'`가 아니라
+   `path`의 부재이며, 그래야 이름만 해소하고 본문을 못 찾는 미래의 분기에도 규칙이 유효하다.
+
+규칙 2·3·4가 함께 걸리면 `removable`은 **어떤 구성에서도 빈다** — bare가 항상 이기므로 bare
+사본은 승자이거나(규칙 2) 둘 중 하나이고(규칙 3), 남는 eclipsed 행은 plugin뿐이며(규칙 2), env
+override는 승자를 아예 판정 불가로 만든다(규칙 4). 즉 **삭제 경로는 현재 도달 불가**이고, 그
+사실 자체를 test가 고정한다(`no configuration this oracle can produce makes a copy removable`) —
+오라클의 해소 순서가 바뀌어 도달 가능해지는 날 그 test가 red로 알린다. 정리 도구는 그때까지
+보고만 하며 setup 화면이 그 사실을 그대로 말한다 — 없는 행동을 권하지 않는다.
 
 **판정 권한은 `available` 하나다** (v1.31.2 M2 — 소비처 배선). `checkImpeccable()`이
 [dep-check.js](plugins/mccp/scripts/lib/dep-check.js)에서 오라클을 지연 require로 감싸고
@@ -853,7 +892,7 @@ telemetry**다 — SessionStart 배너도 `/mccp:setup` Phase 3 분기도 그것
 
 진단은 `node plugins/mccp/scripts/lib/impeccable-detect.js resolve [--json]`이고, 소비처 상태는
 `node plugins/mccp/scripts/lib/dep-check.js`가 `impeccable skill` 행으로 보고한다.
-배경(4소스 표·해소 규칙·경로 정규화·방어·M2 채널 표·주장하지 않는 것): [상세](docs/gate-design.md#impeccable-detection)
+배경(4소스 표·해소 규칙·경로 정규화·방어·M2 채널 표·M3 재배선과 거부 규칙·주장하지 않는 것): [상세](docs/gate-design.md#impeccable-detection)
 
 ---
 

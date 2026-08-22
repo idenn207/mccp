@@ -238,6 +238,12 @@ CLV2_HOMUNCULUS_DIR=<사유를 한 문장으로> /mccp:pr
   | `CLV2_HOMUNCULUS_DIR` | absolute path | `$XDG_DATA_HOME/clv2/homunculus` 또는 `~/.local/share/clv2/homunculus` | continuous-learning v2 observer가 사용하는 homunculus(작업기억) 디렉토리. `observer-sessions.js`가 read. |
 ```
 
+> **아래 IMPECCABLE_\* 항목의 파일명과 행 번호는 impeccable 3.5.0 본문을 기준으로
+> 측정됐다.** v1.31.3부터 이 저장소는 impeccable 본문을 벤더하지 않으므로 그 경로로
+> 가는 링크가 없다. 값을 확인하려면 자신이 설치한 채널의 본문을 보라 — 어느 본문이
+> 열리는지는 `node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 경로째로
+> 알려준다. 설치 위치는 사용자·버전마다 다르므로 여기에 절대경로를 적지 않는다.
+
 ### IMPECCABLE_FORCE_OVERRIDE_REASON
 
 **종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
@@ -456,7 +462,7 @@ IMPECCABLE_CRITIQUE_META=<사유를 한 문장으로> /mccp:pr
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
 ```text
-  | `IMPECCABLE_CRITIQUE_META` | JSON 문자열 | unset | critique snapshot의 frontmatter에 들어갈 메타데이터. 키 예: `{"target":"<text>","total_score":<n>,"p0_count":<n>,"p1_count":<n>}`. 내부 계산 `timestamp`·`slug`는 caller 값을 덮어쓰므로 파일명과 frontmatter가 어긋날 일 없음. parse 실패 시 silent ignore. [critique-storage.mjs:200](../.claude/skills/impeccable/scripts/critique-storage.mjs). |
+  | `IMPECCABLE_CRITIQUE_META` | JSON 문자열 | unset | critique snapshot의 frontmatter에 들어갈 메타데이터. 키 예: `{"target":"<text>","total_score":<n>,"p0_count":<n>,"p1_count":<n>}`. 내부 계산 `timestamp`·`slug`는 caller 값을 덮어쓰므로 파일명과 frontmatter가 어긋날 일 없음. parse 실패 시 silent ignore. `critique-storage.mjs:200`. |
 ```
 
 ### IMPECCABLE_LIVE_CONFIG
@@ -488,7 +494,7 @@ IMPECCABLE_LIVE_CONFIG=<사유를 한 문장으로> /mccp:pr
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
 ```text
-  | `IMPECCABLE_LIVE_CONFIG` | absolute or cwd-relative path | unset | live mode 설정 파일 경로 override. 미설정 시 ① `<cwd>/.impeccable/live/config.json` ② legacy `<scriptsDir>/config.json` 순으로 fallback. [impeccable-paths.mjs:43](../.claude/skills/impeccable/scripts/impeccable-paths.mjs). |
+  | `IMPECCABLE_LIVE_CONFIG` | absolute or cwd-relative path | unset | live mode 설정 파일 경로 override. 미설정 시 ① `<cwd>/.impeccable/live/config.json` ② legacy `<scriptsDir>/config.json` 순으로 fallback. `impeccable-paths.mjs:43`. |
 ```
 
 > 위 원문 보존 블록은 원 숫자(U+2460 계열)를 v1.29.0 문서 그대로 둔다 — Validation 3의 고아 대조가 정규화 없이 일치를 요구한다. 그 글자는 터미널에서 빈 칸으로 보이므로 순서를 평문으로 적는다: (1) `<cwd>/.impeccable/live/config.json` (2) legacy `<scriptsDir>/config.json`.
@@ -596,7 +602,7 @@ IMPECCABLE_LIVE_CONFIG=<사유를 한 문장으로> /mccp:pr
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
 ```text
-  | `IMPECCABLE_LIVE_MANUAL_EDIT_REPAIR_ATTEMPTS` | int | `DEFAULT_REPAIR_ATTEMPTS` (소스 상수) | manual-edit 흐름에서 copy-edit agent 실패 시 재시도 횟수. [live-commit-manual-edits.mjs:172](../.claude/skills/impeccable/scripts/live-commit-manual-edits.mjs). |
+  | `IMPECCABLE_LIVE_MANUAL_EDIT_REPAIR_ATTEMPTS` | int | `DEFAULT_REPAIR_ATTEMPTS` (소스 상수) | manual-edit 흐름에서 copy-edit agent 실패 시 재시도 횟수. `live-commit-manual-edits.mjs:172`. |
 ```
 
 ### IMPECCABLE_LIVE_COPY_AGENT
@@ -628,7 +634,7 @@ IMPECCABLE_LIVE_COPY_AGENT=<사유를 한 문장으로> /mccp:pr
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
 ```text
-  | `IMPECCABLE_LIVE_COPY_AGENT` | `auto` \| `codex` \| `claude` \| `chat` \| `mock` \| `off` (`0`/`false`/`none`) | `auto` | copy-edit agent 선택 모드. `auto`=codex→claude→chat 순 fallback, `mock`=테스트용 가짜 결과, `off`=agent 사용 안 함. [live-copy-edit-agent.mjs:435](../.claude/skills/impeccable/scripts/live-copy-edit-agent.mjs). |
+  | `IMPECCABLE_LIVE_COPY_AGENT` | `auto` \| `codex` \| `claude` \| `chat` \| `mock` \| `off` (`0`/`false`/`none`) | `auto` | copy-edit agent 선택 모드. `auto`=codex→claude→chat 순 fallback, `mock`=테스트용 가짜 결과, `off`=agent 사용 안 함. `live-copy-edit-agent.mjs:435`. |
 ```
 
 ### IMPECCABLE_LIVE_COPY_AGENT_MODEL
@@ -840,6 +846,6 @@ IMPECCABLE_PALETTE_SEED=<사유를 한 문장으로> /mccp:pr
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
 ```text
-  | `IMPECCABLE_PALETTE_SEED` | string | unset | palette generation seed. 명시 `--from` 인자보다 우선순위 낮음. set 시 `hashUnit(value)`로 deterministic seed, unset이면 `Math.random()`. [palette.mjs:472](../.claude/skills/impeccable/scripts/palette.mjs). |
+  | `IMPECCABLE_PALETTE_SEED` | string | unset | palette generation seed. 명시 `--from` 인자보다 우선순위 낮음. set 시 `hashUnit(value)`로 deterministic seed, unset이면 `Math.random()`. `palette.mjs:472`. |
 ```
 

@@ -22,7 +22,7 @@
 | P12 | `plugins/mccp/commands/plan.md:1461` | b111dca | Codex design-scope 분할 플래그(`--impeccable-available`)가 `probeSkillAvailable({})` 반환값에 직결된다 (`prp-implement.md:223` · `plan.md:1861` 동일 패턴) |
 | P13 | `plugins/mccp/scripts/lib/codex-invoke.js:197` | b111dca | `opts.impeccableAvailable === true`일 때만 `DESIGN_SCOPE_PREAMBLE`이 focus 앞에 붙는다 |
 | P14 | `plugins/mccp/scripts/lib/codex-invoke.js:41` | b111dca | 그 preamble이 Codex에게 visual/color/typography/motion/spacing/brand 및 a11y finding을 emit하지 말라고 지시한다 |
-| P15 | `.claude/skills/impeccable/SKILL.md` | b111dca | 이 저장소에 impeccable 3.5.0 skill 본문이 실재하며 git-tracked다 (디렉토리 전체 79 파일) |
+| P15 | `CHANGELOG.md` | 2026-08-23 | 이 저장소에 impeccable 3.5.0 skill 본문이 `.claude/skills/impeccable/`에 79 파일로 git-tracked**였다** (조사 시점 `b111dca` 실측). **v1.31.3 M3에서 호출부 재배선과 동일 커밋으로 제거됐다** — 이 조사가 141행에서 "제거 결정에 딸려오는 비용"으로 예고한 그 항목이다. 참조를 CHANGELOG로 옮긴 이유는 L3가 현재 트리에서 해소되는 경로를 요구하기 때문이며, 원래 경로는 더 이상 존재하지 않는다 |
 | P16 | `plugins/mccp/scripts/lib/tests/impeccable-detect.test.js:38` | b111dca | 탐지 test fixture가 manifest 키를 `'impeccable@anthropics'`로 고정해, 잘못된 키가 회귀 test에 의해 보존된다 |
 | P17 | `plugins/mccp/scripts/lib/impeccable-routing.js:63` | b111dca | `PLAN_GUIDE`가 라우팅하는 명령 카탈로그 20종이 열거돼 있다 |
 | P18 | `plugins/mccp/commands/pr.md:759` | b111dca | a11y-architect auto-invoke의 트리거는 `codex-result.json`의 `rendering_surface`이며 impeccable probe와 무관하다 |

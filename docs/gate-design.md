@@ -927,4 +927,97 @@ per-developer override와 설치 동의 값(`hook.consent`)은 **gitignored**
 수동 untrack하면 팀원의 체크아웃에서 파일이 사라지므로, 그 유도를 하지 않는 것이 계약의
 목적이다.
 
+
+#### 섀도잉 해소 (M3)
+
+M1은 오라클을 만들고, M2는 소비처를 배선했다. 둘 다 **다중 사본이 공존할 때 무엇이 실제로
+열리는가**를 사용자에게 말하지 않았고, 무엇보다 mccp 자신이 그 답을 쓰지 않았다 — 명령 본문
+4곳이 여전히 bare 이름을 하드코딩했다. M3는 그 셋을 닫는다.
+
+##### `eclipsed` — 승자가 아닌 소스
+
+정의는 하나다: *승자가 정해졌을 때, 열거된 소스 중 승자 행이 아닌 전부.* 규칙 셋은 CLAUDE.md
+§3.17이 상주시키고, 여기는 **왜 identity로 제외하는가**를 소유한다.
+
+승자 행은 **그것을 고른 분기에서 객체 참조로 포착**해 제외한다. `source`+`invocation`+`path`
+3-필드 비교는 틀린다 — 같은 install 트리를 가리키는 레지스트리 항목이 둘이면 그 삼중값이
+바이트 단위로 동일하므로 비교가 **양쪽 다** 승자로 판정하고 `eclipsed`를 비운다. 두 본문이
+열거돼 있는데 가려진 것이 없다고 답하는 셈이고, 그것은 이 필드의 존재 이유 자체를 지운다.
+`pluginNameFromRegistryKey`가 매처가 받아들이는 모든 키에 대해 리터럴 `impeccable`을 내므로
+그 중복은 가설이 아니라 실제로 구성 가능한 상태다 — `impeccable-resolve.test.js`의
+`eclipsed (i-dup)` fixture가 그 상태를 만든다.
+
+resolve CLI의 승자 표시(`*`)도 같은 이유로 identity를 쓴다. 3-필드 비교로 표를 그리면 중복
+행에서 별표가 둘 찍혀, "어느 본문이 열리는가"를 보여주려는 표가 정확히 그 질문에 두 답을 낸다.
+
+##### 재배선 — 부르는 이름을 하드코딩하지 않는다
+
+detect 블록이 `impeccable_invocation`을 뽑아 **정확히 한 줄**을 stderr로 낸다:
+
+```
+[mccp:impeccable] call-form: Skill(<invocation>, ...)
+```
+
+본문은 그 줄이 `Skill(`와 쉼표 사이에 나르는 이름을 부른다. **셸 변수가 carrier가 아닌 이유**는
+셸 상태가 도구 호출 경계를 넘어 살아남지 못하기 때문이다 — `$IMPECCABLE_INVOCATION`을 쓰라고
+적으면 그 지시가 읽히는 시점에 값은 비어 있다. 같은 이유로 **그 줄의 부재가 의미를 갖는다**:
+이름을 추정하지 않고 `SKILL_AVAIL=0` 행(fallback note + skip)으로 간다. 이 두 규칙이 없으면
+재배선은 "이름을 어디선가 알아내라"는 지시가 되고, 모델은 사라진 bare 이름으로 되돌아간다.
+
+`plan-prd.md`는 impeccable을 **호출하지 않으므로** 재배선 대상이 아니다. 그 파일이 M3 이전
+guard를 통과하던 근거는 impeccable을 부르지 않는다고 적은 산문 한 줄이었다 — 단언이 애초에
+참을 검사하고 있지 않았다.
+
+##### 단일 커밋 불변식과 그 실제 강제 지점
+
+`impeccable-guard.test.js`의 짝 단언은 *사본이 디스크에 있다*와 *본문이 bare 리터럴을 갖는다*를
+**하나의 등식**으로 묶는다. 위험한 것은 한 방향뿐이다 — 사본만 지우면 전 게이트가 동시에
+`unknown_skill`이 되고, 재배선만 착지하면 bare 소스가 여전히 승자라 동작이 전날과 같다. 그런데도
+등식을 쓰는 이유는, 반쪽만 착지시켜서는 만족시킬 수 없는 형태가 그것뿐이기 때문이다.
+
+bare 리터럴 쪽 검사는 명령 본문 **전문**을 훑어 `Skill(impeccable` 이 0건임을 요구한다. 살아
+있는 지시와 그것을 설명하는 문장을 구분하려는 시도는 하지 않는다 — 마크다운에 그 둘을 가르는
+문법이 없어 구분하려는 guard는 추측을 하게 되고, 문서에 반응하는 guard는 없느니만 못하다.
+대신 옛 형태를 논해야 하는 산문이 그것을 **인용하지 않고 서술**한다.
+
+**강제 지점은 CI가 아니다.** `.github/workflows/`에 등재된 test는
+`pr-phase-guard` · `pr-phase-lock-f11` · `gitignore-provision` 셋뿐이라 이 guard는 어떤 워크플로도
+돌리지 않는다. 실제 강제는 각 사이클의 `## Validation`이 로컬에서 돌리는 `node --test`이며,
+"커밋 시점에 잡힌다"는 서술은 정확하지 않다. CI 등재는 별도 축으로 backlog에 있다.
+
+##### 정리 오라클 — 거부가 본체다
+
+[impeccable-cleanup.js](../plugins/mccp/scripts/lib/impeccable-cleanup.js)는 디렉토리를 지우므로,
+**무엇을 지울 수 있는가를 정하는 규칙이 전부 코드에** 있고 닫힌 `REASONS` enum으로 답한다.
+호출하는 명령 본문(`/mccp:setup` Phase 3.5)은 화면을 그리고 선택을 전달할 뿐 경로를 판단하지
+않는다 — 판단했다면 그것은 규칙의 두 번째, 더 약한 사본이 됐을 것이다.
+
+경로 봉쇄에서 갈리는 지점 하나: **앵커(repo root · home) 자신이 심볼릭 링크인 것은 거부하지
+않는다.** 거부하면 심볼릭 경로 아래 사는 정상 저장소(macOS `/tmp`, Windows junction 개발
+드라이브)를 전부 막으면서 아무것도 얻지 못한다 — 기대 부모와 대상이 **같은 링크를 통과해**
+동일하게 해소되므로 봉쇄가 유지되기 때문이다. 거부하는 것은 **앵커와 대상 사이**의 링크다.
+거기서는 두 쪽이 더 이상 일치하지 않는다: `.claude/skills` 가 junction이면 어휘적 경로는 그대로
+맞는데 실제 디렉토리는 다른 곳이다. Node가 Windows junction을 심볼릭 링크로 보고하므로 `lstat`
+한 번이 두 reparse point 종류를 함께 덮는다.
+
+`git rm`은 `execFileSync` + `--` 구분자로만 부른다(셸 미경유 + `-`로 시작하는 경로가 옵션으로
+읽히지 않게). 성공 판정은 명령의 종료코드가 아니라 **재-resolve로 증명한 부재**다 — `git rm`은
+tracked 파일에서 멈추므로 untracked 내용이 남은 디렉토리는 여전히 `SKILL.md`를 들고 있을 수 있다.
+
+##### 주장하지 않는 것
+
+- **정리 도구는 실사용 구성에서 아무것도 지우지 않는다.** 규칙 1(승자 불가침)과 2(plugin 불가침)가
+  함께 걸리면 `removable`이 구조적으로 빈다 — bare 소스가 항상 이기므로 bare 사본은 승자이거나
+  둘 중 하나이고, 남는 eclipsed 행은 plugin뿐이다. `MCCP_IMPECCABLE_SKILL=available`로 env 행이
+  승자가 되는 구성만 예외다. 규칙을 넓히지 않았고, setup 화면이 그 사실을 그대로 말한다.
+  `impeccable-cleanup.test.js`의 `rules 1+2 jointly`가 이 성질을 고정하므로, 나중에 bare 사본을
+  제거 가능하게 만들려는 milestone은 그 test를 의도적으로 붉히면서 규칙을 바꿔야 한다.
+- **check↔delete TOCTOU 창을 닫지 않았다.** 삭제 직전 realpath 재확인이 창을 좁히지만 마지막
+  확인과 syscall 사이는 열려 있다. Windows에 `O_NOFOLLOW` 상당이 없어 포터블한 원자적 대안이
+  없고, 닫으려면 디렉토리 핸들을 유지하는 플랫폼별 경로가 필요하다.
+- **비-bypass 권한 모드에서의 게이트 완주는 측정되지 않았다.** M3의 라이브 측정은 bypass 모드
+  세션에서 이뤄져 권한 프롬프트 축을 관측할 수 없었다. 다만 ambient allow 목록이
+  `node ${CLAUDE_PLUGIN_ROOT}/scripts/*` 도 덮지 않으므로 그 공백은 impeccable 고유가 아니라
+  mccp 게이트 전체가 공유하는 baseline이다.
+
 ---

@@ -159,3 +159,59 @@ test('SessionStart: with no channel at all the banner still names impeccable', (
     );
   });
 });
+
+// --- eclipsed / shadowed banner (v1.31.3, code-review absorption) --------------
+//
+// The banner had no hook-level test, and that is why its rate-limit could be
+// wrong without anything going red: it was gated on `!within24h` alone, while
+// `dep_check_at` is re-stamped on EVERY session that runs dep-check. An
+// operator opening a session daily would have seen it once, ever -- and a copy
+// appearing or disappearing would not have brought it back. What follows pins
+// the two halves that matter: it does not repeat unchanged, and it does repeat
+// when the state changes.
+
+function eclipsedBannerFired(output) {
+  return output.split(/\r?\n/).some((l) =>
+    l.includes('copies answer the same name') || l.includes('NOT opened'));
+}
+
+function writePluginChannel(home, version) {
+  const installPath = path.join(home, 'plugin-install');
+  writeSkill(path.join(installPath, 'skills', 'impeccable'), version);
+  const pluginsDir = path.join(home, '.claude', 'plugins');
+  fs.mkdirSync(pluginsDir, { recursive: true });
+  fs.writeFileSync(path.join(pluginsDir, 'installed_plugins.json'), JSON.stringify({
+    plugins: { 'impeccable@impeccable': [{ installPath: installPath, version: version }] },
+  }), 'utf8');
+}
+
+test('SessionStart: the eclipsed banner repeats only when the state changes', () => {
+  withTempDir((dir) => {
+    const repo = path.join(dir, 'repo');
+    initRepo(repo);
+    const home = path.join(dir, 'home');
+    fs.mkdirSync(home, { recursive: true });
+    // A bare project copy wins; the plugin copy is present and eclipsed.
+    writeSkill(path.join(repo, '.claude', 'skills', 'impeccable'), '3.5.0');
+    writePluginChannel(home, '4.1.1');
+    const env = { HOME: home, USERPROFILE: home, MCCP_IMPECCABLE_SKILL: undefined };
+
+    const first = runHook(repo, env);
+    assert.ok(eclipsedBannerFired(first),
+      'the first session must report the eclipsed copy:\n' + first.slice(0, 2000));
+
+    const second = runHook(repo, env);
+    assert.ok(!eclipsedBannerFired(second),
+      'an unchanged state inside 24h must not repeat the banner:\n' + second.slice(0, 2000));
+
+    // State changes: a second bare copy appears, so the install goes from
+    // resolved-with-a-spare to ambiguous. The 24h clock has not moved -- only
+    // the key has -- which is exactly the case the old gate stayed silent for.
+    writeSkill(path.join(home, '.claude', 'skills', 'impeccable'), '4.0.0');
+    const third = runHook(repo, env);
+    assert.ok(eclipsedBannerFired(third),
+      'a changed state must speak up even inside 24h:\n' + third.slice(0, 2000));
+    assert.ok(third.includes('cannot tell which one opens'),
+      'and it must be the shadowed sentence now:\n' + third.slice(0, 2000));
+  });
+});

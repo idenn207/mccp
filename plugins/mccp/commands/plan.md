@@ -683,6 +683,21 @@ DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
   --plan "<plan-path>" \
   --json)
 SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
+# v1.31.3 M3 — the call form is RESOLVED, never hardcoded. The plugin channel
+# registers the skill as <pluginName>:<skillDirName>, so a hardcoded bare name
+# reaches unknown_skill for every plugin-only install; the oracle already knows
+# which body opens, so ask it.
+#
+# The carrier the LLM reads is the stderr LINE below, not this shell variable:
+# shell state does not survive a tool-call boundary, so a prompt that said
+# "use $IMPECCABLE_INVOCATION" would be read as an empty name.
+#
+# Exactly one line, exactly this shape. Its absence is meaningful — see the
+# call-form rule in the prose below.
+IMPECCABLE_INVOCATION=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.impeccable_invocation||"")}catch{process.stdout.write("")}')
+if [ -n "$IMPECCABLE_INVOCATION" ]; then
+  echo "[mccp:impeccable] call-form: Skill($IMPECCABLE_INVOCATION, ...)" 1>&2
+fi
 SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
 DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
 # v1.3.0 M1 — silent-skip surface. detect() now emits silent_skip (SKILL_AVAIL=1
@@ -760,7 +775,8 @@ VERDICT=""
 FORCE_FAIL="${MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL:-0}"
 
 while [ "$ROUND" -le "$CAP" ]; do
-  # 1. Invoke Skill(impeccable, "critique <plan slug>") OR mock when
+  # 1. Invoke the RESOLVED call form (see the call-form rule below) with the
+  #    argument "critique <plan slug>", OR mock when
   #    FORCE_FAIL=1 (returns [{severity:'HIGH', title:'forced-fail mock'}]).
   # 2. Parse critique findings as a JSON array under the body's actionable
   #    instructions. Critique invariant: each finding MUST name the plan
@@ -805,8 +821,27 @@ esac
 DESIGN_CRITIQUE_ROUNDS=$((ROUND + 1))  # ROUND is 0-indexed; receipt counts invocations
 ```
 
-If `Skill(impeccable, ...)` returns `unknown_skill` / `not found` at any
-iteration, fall back to the SKILL_AVAIL=0 row above (treat as skipped).
+**Call-form rule (v1.31.3 M3) — do NOT type a literal skill name.** The detect
+block above printed exactly one line:
+
+```
+[mccp:impeccable] call-form: Skill(<invocation>, ...)
+```
+
+Invoke the name that line carries between `Skill(` and the comma. That is the
+body the oracle established will actually open — `impeccable` for a bare
+install, `impeccable:impeccable` for a plugin-only one. Read it off the line,
+not off `$IMPECCABLE_INVOCATION`: shell state does not survive a tool-call
+boundary, so the variable is empty by the time this instruction is acted on.
+
+**An absent line means the skill did not resolve** — take the `SKILL_AVAIL=0` row above (record the fallback note and treat as skipped).
+Never guess a name, and in particular never fall back to the bare name
+`impeccable` as a hardcoded call: from v1.31.3 this repository ships no bare
+copy, so a guessed bare call reaches `unknown_skill` and records a skip the
+gate did not have to take.
+
+If the resolved call form still returns `unknown_skill` / `not found` at any
+iteration, fall back to the same `SKILL_AVAIL=0` row (treat as skipped).
 
 Loud stderr warn pattern for the SKILL_AVAIL=1 SIGNAL=0 row (Task 3):
 

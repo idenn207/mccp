@@ -380,6 +380,21 @@ DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
   --mode implement \
   --json)
 SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
+# v1.31.3 M3 — the call form is RESOLVED, never hardcoded. The plugin channel
+# registers the skill as <pluginName>:<skillDirName>, so a hardcoded bare name
+# reaches unknown_skill for every plugin-only install; the oracle already knows
+# which body opens, so ask it.
+#
+# The carrier the LLM reads is the stderr LINE below, not this shell variable:
+# shell state does not survive a tool-call boundary, so a prompt that said
+# "use $IMPECCABLE_INVOCATION" would be read as an empty name.
+#
+# Exactly one line, exactly this shape. Its absence is meaningful — see the
+# call-form rule in the prose below.
+IMPECCABLE_INVOCATION=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.impeccable_invocation||"")}catch{process.stdout.write("")}')
+if [ -n "$IMPECCABLE_INVOCATION" ]; then
+  echo "[mccp:impeccable] call-form: Skill($IMPECCABLE_INVOCATION, ...)" 1>&2
+fi
 SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
 DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
 # v1.3.0 M1 — silent-skip surface. detect() now emits silent_skip
@@ -485,8 +500,8 @@ For each command in `ROUTE_JSON.commands` **except `critique`**, process by `cal
 
 | callForm | Action | status on success | status on failure |
 |---|---|---|---|
-| `invoke` | `Skill(impeccable, "<command> <slug>")` against the produced code/diff | `invoked` | `failed` (or `unknown-skill` if Skill not found) |
-| `background` | best-effort background Agent for `<command>`; if background unavailable in this gate, fall back to foreground `Skill(impeccable, "<command> <slug>")` and set call_form=`foreground-fallback` + loud stderr | `invoked` | `failed` |
+| `invoke` | the resolved call form (see the call-form rule below) with `<command> <slug>`, against the produced code/diff | `invoked` | `failed` (or `unknown-skill` if the call-form line is absent or the Skill is not found) |
+| `background` | best-effort background Agent for `<command>`; if background unavailable in this gate, fall back to the foreground resolved call form with `<command> <slug>` and set call_form=`foreground-fallback` + loud stderr | `invoked` | `failed` |
 | `recommend` | emit stderr `[mccp:impeccable-routing] recommend: /impeccable <command> <slug>` (no invoke) | `recommended` | n/a |
 
 > **System stage (v1.13.0 M3)**: `document` (generate DESIGN.md) and `extract` (pull reusable tokens/components) route with stage `system` and a `recommend`-only base in every gate — heavyweight generative actions that should be a deliberate operator step, not an auto-invoke. They surface here exactly like the harden-group recommend rows. a11y-architect auto-invoke is **not** part of implement-gate routing; it is PR-gate-only (review-only invariant) — see `pr.md` Phase 2.5.6c.
@@ -523,7 +538,7 @@ ROUND=0
 VERDICT=""
 FORCE_FAIL="${MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL:-0}"
 # (Same loop body as plan.md Task 7 — see plan.md Phase 5.0 for the full
-# Skill(impeccable, ...) invocation + decideCritique evaluation + Edit
+# resolved call-form invocation + decideCritique evaluation + Edit
 # instruction. The only difference is Edit target: code/diff, not plan body.)
 case "$VERDICT" in
   CONVERGED)             RECEIPT_VERDICT="converged" ;;
@@ -532,6 +547,25 @@ case "$VERDICT" in
 esac
 DESIGN_CRITIQUE_ROUNDS=$((ROUND + 1))
 ```
+
+**Call-form rule (v1.31.3 M3) — do NOT type a literal skill name.** The detect
+block above printed exactly one line:
+
+```
+[mccp:impeccable] call-form: Skill(<invocation>, ...)
+```
+
+Invoke the name that line carries between `Skill(` and the comma. That is the
+body the oracle established will actually open — `impeccable` for a bare
+install, `impeccable:impeccable` for a plugin-only one. Read it off the line,
+not off `$IMPECCABLE_INVOCATION`: shell state does not survive a tool-call
+boundary, so the variable is empty by the time this instruction is acted on.
+
+**An absent line means the skill did not resolve** — take the `SKILL_AVAIL=0` row (record the fallback note and skip).
+Never guess a name, and in particular never fall back to the bare name
+`impeccable` as a hardcoded call: from v1.31.3 this repository ships no bare
+copy, so a guessed bare call reaches `unknown_skill` and records a skip the
+gate did not have to take.
 
 Loud stderr warn for the SKILL_AVAIL=1 SIGNAL=0 row (M1 Task 3):
 
@@ -1145,9 +1179,11 @@ echo "[mccp:design-finish] skip (trigger or surface or mode gate not met) — no
 
 For the produced diff, invoke each once (mirror of 2.5.5b's produced-code Skill pattern). Order is simplify-then-verify — `polish` runs **last** as the final design pass over the finished implementation:
 
-- `Skill(impeccable, "clarify <slug>")`
-- `Skill(impeccable, "distill <slug>")`
-- `Skill(impeccable, "polish <slug>")` — final implementation verification
+Each is the **resolved call form** (call-form rule in 2.5.5b), invoked once with:
+
+- `clarify <slug>`
+- `distill <slug>`
+- `polish <slug>` — final implementation verification
 
 `<slug>` is the same decision-slug used for the receipt (`$DECISION_SLUG`). If a Skill returns `unknown_skill` / `not found`, emit a loud stderr skip line and continue (fail-open — this phase never blocks):
 

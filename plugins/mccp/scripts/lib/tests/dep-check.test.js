@@ -251,7 +251,7 @@ test('checkImpeccable: hostile options still return the sentinel shape with avai
     assert.doesNotThrow(() => { r = depCheck.checkImpeccable({ repoRoot: 123 }); });
     assert.strictEqual(typeof r, 'object');
     assert.strictEqual(r.available, false);
-    const keys = ['reason', 'invocation', 'source', 'version', 'path', 'sources', 'shadowed'];
+    const keys = ['reason', 'invocation', 'source', 'version', 'path', 'sources', 'shadowed', 'eclipsed'];
     keys.forEach(function (k) {
       assert.ok(Object.prototype.hasOwnProperty.call(r, k), 'sentinel is missing key: ' + k);
     });
@@ -296,4 +296,161 @@ test('safeLabel: control characters and escapes never reach the terminal', () =>
   assert.strictEqual(depCheck.safeLabel('1.0\n2.0'), '?');
   assert.strictEqual(depCheck.safeLabel('x'.repeat(65)), '?');
   assert.strictEqual(depCheck.safeLabel(null), '?');
+});
+
+// === eclipsed surface: label, printer rows, banner sentence (M3 Tasks 2-3) ===
+
+function resolvedWith(over) {
+  return Object.assign({
+    available: true,
+    reason: 'ok',
+    invocation: 'impeccable',
+    source: 'project',
+    version: '3.5.0',
+    path: '.claude/skills/impeccable/SKILL.md',
+    sources: [],
+    shadowed: false,
+    eclipsed: [],
+  }, over || {});
+}
+
+const PLUGIN_ROW = {
+  source: 'plugin',
+  invocation: 'impeccable:impeccable',
+  version: '4.1.1',
+  path: '~/.claude/plugins/cache/impeccable/impeccable/4.1.1/skills/impeccable/SKILL.md',
+};
+
+test('impeccableLabel: an eclipsed copy is counted as a suffix, not a status change', () => {
+  const plain = depCheck.impeccableLabel(resolvedWith());
+  assert.strictEqual(plain, 'available (project v3.5.0, impeccable)');
+
+  const withEclipsed = depCheck.impeccableLabel(resolvedWith({ eclipsed: [PLUGIN_ROW] }));
+  assert.ok(withEclipsed.startsWith('available (project v3.5.0, impeccable)'),
+    'the resolved part is unchanged -- shadowing is not a missing dependency');
+  assert.ok(/\+1 eclipsed/.test(withEclipsed), 'the count is appended: ' + withEclipsed);
+});
+
+test('impeccableEclipsedRows: values from an installed SKILL.md are sanitized', () => {
+  const ESC = String.fromCharCode(27);
+  const BEL = String.fromCharCode(7);
+  const hostile = {
+    source: 'plugin',
+    invocation: 'impeccable:evil' + ESC + '[31m',
+    version: '1.0',
+    path: '/tmp/a' + ESC + '[2J' + BEL + 'b/SKILL.md',
+  };
+  const rows = depCheck.impeccableEclipsedRows(resolvedWith({ eclipsed: [hostile] }));
+  assert.strictEqual(rows.length, 1);
+  const row = rows[0];
+  assert.strictEqual(row.indexOf(ESC), -1, 'no escape byte reaches the terminal');
+  assert.strictEqual(row.indexOf(BEL), -1, 'no BEL reaches the terminal');
+  // invocation and version fail SAFE_LABEL_RE outright and collapse to ?;
+  // the path keeps its shape because safePath strips controls instead.
+  assert.ok(row.indexOf('?') !== -1, 'unsafe label values collapse to ?');
+  assert.ok(row.indexOf('/tmp/a[2Jb/SKILL.md') !== -1, 'path survives minus the control bytes: ' + row);
+});
+
+test('impeccableEclipsedRows: nothing eclipsed renders no rows', () => {
+  assert.deepStrictEqual(depCheck.impeccableEclipsedRows(resolvedWith()), []);
+  assert.deepStrictEqual(depCheck.impeccableEclipsedRows(null), []);
+});
+
+test('safePath: empty, control-only, and over-long values', () => {
+  assert.strictEqual(depCheck.safePath(''), '?');
+  assert.strictEqual(depCheck.safePath(null), '?');
+  assert.strictEqual(depCheck.safePath(String.fromCharCode(7) + String.fromCharCode(27)), '?', 'a control-only value has nothing left to show');
+  const long = '/' + 'x'.repeat(400);
+  const out = depCheck.safePath(long);
+  assert.ok(out.length < long.length, 'over-long paths are bounded');
+  assert.ok(out.endsWith('(truncated)'), 'and say so: ' + out.slice(-20));
+});
+
+test('impeccableEclipsedNotice: names what opens and what does not', () => {
+  const notice = depCheck.impeccableEclipsedNotice(resolvedWith({ eclipsed: [PLUGIN_ROW] }));
+  assert.ok(notice.startsWith('[mccp] '), 'banner prefix matches the missing-deps banner');
+  assert.ok(notice.indexOf('project v3.5.0') !== -1, 'says which body opens');
+  assert.ok(notice.indexOf('plugin v4.1.1') !== -1, 'says which body does not');
+  assert.ok(notice.indexOf('/mccp:setup') !== -1, 'points at the command that can act');
+  assert.ok(notice.toLowerCase().indexOf('missing') === -1,
+    'must NOT read as a missing dependency -- that is the false banner v1.31.2 closed');
+});
+
+test('impeccableEclipsedNotice: a shadowed install is reported, not silently dropped', () => {
+  // Under shadowed:true the eclipsed list is empty BY CONTRACT, so a banner
+  // keyed only on eclipsed.length would go mute on the one state that actually
+  // needs a human decision.
+  const shadowed = resolvedWith({
+    shadowed: true,
+    source: null,
+    version: null,
+    path: null,
+    sources: [PLUGIN_ROW, PLUGIN_ROW],
+    eclipsed: [],
+  });
+  const notice = depCheck.impeccableEclipsedNotice(shadowed);
+  assert.notStrictEqual(notice, '', 'shadowed must still produce a banner sentence');
+  assert.ok(notice.indexOf('cannot tell which one opens') !== -1, notice);
+  assert.ok(notice.indexOf('/mccp:setup') !== -1);
+});
+
+test('impeccableEclipsedNotice: silent when there is nothing to report', () => {
+  assert.strictEqual(depCheck.impeccableEclipsedNotice(resolvedWith()), '',
+    'a lone resolved copy says nothing');
+  assert.strictEqual(depCheck.impeccableEclipsedNotice({ available: false, eclipsed: [] }), '',
+    'an unavailable skill is the missing-deps banner’s business, not this one');
+  assert.strictEqual(depCheck.impeccableEclipsedNotice(null), '');
+});
+
+// --- v1.31.3 code-review absorption -------------------------------------------
+
+test('the shadowed sentence counts BARE copies, not every enumerated source', () => {
+  // A plugin registers as <pluginName>:<skillDirName>, so it answers a
+  // different name and is never part of the ambiguity. Counting sources.length
+  // told a two-channel operator that three copies were fighting over one name.
+  const shadowed = {
+    available: true,
+    shadowed: true,
+    sources: [{ source: 'project' }, { source: 'user' }, { source: 'plugin' }],
+    eclipsed: [],
+  };
+  assert.strictEqual(depCheck.bareSourceCount(shadowed), 2);
+  assert.match(depCheck.impeccableEclipsedNotice(shadowed), /\b2 copies answer the same name/);
+});
+
+test('impeccableEclipsedKey: its own axis, stable, and free of frontmatter separators', () => {
+  // The key is serialised into STATE.md as `dep_check_eclipsed: <value>`, so a
+  // colon in the value would break the line it is written on.
+  const shadowed = {
+    available: true, shadowed: true,
+    sources: [{ source: 'project' }, { source: 'user' }], eclipsed: [],
+  };
+  const eclipsed = {
+    available: true, shadowed: false, source: 'project', version: '3.5.0',
+    invocation: 'impeccable', sources: [],
+    eclipsed: [{ source: 'plugin', version: '4.1.1', invocation: 'impeccable:impeccable', path: '/x' }],
+  };
+  assert.strictEqual(depCheck.impeccableEclipsedKey(shadowed), 'shadowed-2');
+  assert.strictEqual(depCheck.impeccableEclipsedKey(eclipsed), 'eclipsed-plugin@4.1.1');
+  // Distinct states must not collide, or a change of state reads as unchanged.
+  assert.notStrictEqual(
+    depCheck.impeccableEclipsedKey(shadowed), depCheck.impeccableEclipsedKey(eclipsed));
+  [shadowed, eclipsed].forEach((r) => {
+    assert.ok(depCheck.impeccableEclipsedKey(r).indexOf(':') === -1, 'no colon in the key');
+  });
+  // Nothing to say -> no key, so the banner's dedupe field stays clear.
+  assert.strictEqual(depCheck.impeccableEclipsedKey({ available: true, shadowed: false, eclipsed: [] }), null);
+  assert.strictEqual(depCheck.impeccableEclipsedKey({ available: false }), null);
+  assert.strictEqual(depCheck.impeccableEclipsedKey(null), null);
+});
+
+test('impeccableEclipsedKey: a hostile version string cannot break the frontmatter line', () => {
+  const nasty = {
+    available: true, shadowed: false, source: 'project', version: '1.0',
+    invocation: 'impeccable', sources: [],
+    eclipsed: [{ source: 'plugin', version: 'v1: rm -rf /\nkey: injected', invocation: 'x', path: '/x' }],
+  };
+  const key = depCheck.impeccableEclipsedKey(nasty);
+  assert.ok(key.indexOf(':') === -1 && key.indexOf('\n') === -1,
+    'safeLabel must have reduced it to a placeholder: ' + key);
 });

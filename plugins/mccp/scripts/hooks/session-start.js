@@ -1064,10 +1064,20 @@ async function main() {
     try {
       const depCheck = require('../lib/dep-check');
       const stateWriter = require('../state/state-writer');
-      const result = depCheck.checkAll();
+      // repoRoot reaches the impeccable oracle so the project channel
+      // (.claude/skills/impeccable/) is visible from a hook whose cwd is not
+      // the repo root. `|| undefined` rather than the raw value: the block
+      // above leaves injectorRepoRoot null when it throws, and folding null to
+      // undefined is what lets resolveImpeccable's own default apply instead of
+      // relying on `opts.repoRoot || process.cwd()` happening to agree.
+      const result = depCheck.checkAll({ repoRoot: injectorRepoRoot || undefined });
       const missing = [];
       if (!result.codex_plugin.installed) missing.push('codex@openai-codex');
-      if (!result.impeccable_cli.installed) missing.push('impeccable');
+      // The banner reads the SKILL resolution, not the PATH probe: an npm-less
+      // install (plugin, project, or user channel) resolves the name our gates
+      // call while leaving no `impeccable` binary on PATH, and the old
+      // predicate reported that correct install as a missing dependency.
+      if (!result.impeccable.available) missing.push('impeccable');
 
       let priorAt = null;
       let priorMissingKey = null;

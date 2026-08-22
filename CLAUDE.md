@@ -813,7 +813,7 @@ R5 계약 위반 2건 + 정지 → R6 새 축 0건 → Plan-Codex R1 실재 1건
 
 ---
 
-### 3.17 impeccable 탐지 계약 (v1.31.1 — impeccable-detection-contract M1)
+### 3.17 impeccable 탐지 계약 (v1.31.1 M1 · v1.31.2 M2 — impeccable-detection-contract)
 
 `probeSkillAvailable`의 boolean은 [resolveImpeccable()](plugins/mccp/scripts/lib/impeccable-detect.js)의
 `available` 필드로 남고, 오라클이 설치원을 전부 열거해 **실제로 열릴 본문 하나**를 지목한다.
@@ -833,8 +833,27 @@ R5 계약 위반 2건 + 정지 → R6 새 축 0건 → Plan-Codex R1 실재 1건
 바 없으므로 `shadowed:true` + `source`·`path`·`version` 전부 `null`이다. 추정하지 않는 것이
 계약이고, 이름(`invocation`)만은 양쪽이 공유하므로 남는다.
 
-진단은 `node plugins/mccp/scripts/lib/impeccable-detect.js resolve [--json]`이다.
-배경(4소스 표·해소 규칙·경로 정규화·방어·주장하지 않는 것): [상세](docs/gate-design.md#impeccable-detection)
+**판정 권한은 `available` 하나다** (v1.31.2 M2 — 소비처 배선). `checkImpeccable()`이
+[dep-check.js](plugins/mccp/scripts/lib/dep-check.js)에서 오라클을 지연 require로 감싸고
+(`impeccable-detect` → `dep-check` 순환 때문), `checkAll()`은 기존 4키를 그대로 둔 채
+`impeccable` 키를 얹는 엄격한 상위집합이다. `checkImpeccableCli`(PATH probe)는 **남지만
+telemetry**다 — SessionStart 배너도 `/mccp:setup` Phase 3 분기도 그것을 읽지 않는다. 두
+사실을 한 필드로 뭉치지 않는 것이 v1.0.0-baseline F-W1-2의 처방이었고, 그 처방은 "두 필드"이지
+"CLI 필드 삭제"가 아니다. 지연 require는 `dep-check` 헤더가 선언한 "Never throws" 계약에
+따라 try/catch로 감싸 **fail-closed sentinel**(`available:false`)을 돌려준다 — 관대한 방향으로
+실패하면 깨진 require가 조용한 디자인 리뷰 skip이 된다.
+
+**`.impeccable/` 무시 규칙의 canonical 극성은 `config.json`=commit · `design.json`=생성물이다.**
+이 블록은 `gitignore-provision.js`가 **모든 사용자 저장소에** 심으므로 오답이 전파되는 유일한
+표면이라 여기 상주한다. 근거는 impeccable 자신의 `reference/hooks.md` — per-developer override와
+설치 동의 값은 **gitignored** `config.local.json`에 살고 `config.json`은 팀 공유 커밋 대상이다.
+예외를 한 파일에만 두므로 `config.local.json`·`live/config.json`은 되살아나지 않는다. 이 저장소의
+`design.json`은 tracked로 남으므로(UI7) provisioner가 pollution 1건을 계속 보고하며, 그것은
+결함이 아니라 규칙과 이력의 불일치에 대한 정직한 관측이다 — 자동 untrack은 하지 않는다.
+
+진단은 `node plugins/mccp/scripts/lib/impeccable-detect.js resolve [--json]`이고, 소비처 상태는
+`node plugins/mccp/scripts/lib/dep-check.js`가 `impeccable skill` 행으로 보고한다.
+배경(4소스 표·해소 규칙·경로 정규화·방어·M2 채널 표·주장하지 않는 것): [상세](docs/gate-design.md#impeccable-detection)
 
 ---
 
@@ -842,7 +861,7 @@ R5 계약 위반 2건 + 정지 → R6 새 축 0건 → Plan-Codex R1 실재 1건
 
 ```bash
 # 부트스트랩 (fresh install)
-/mccp:setup                         # codex plugin + impeccable CLI 자동 설치 + /codex:setup 체인 (idempotent)
+/mccp:setup                         # codex plugin 설치 + impeccable skill 해소(채널 중립) + /codex:setup 체인 (idempotent)
 /mccp:setup --dry-run               # 설치 없이 검출만
 
 # 게이트 파이프라인

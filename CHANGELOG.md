@@ -2,7 +2,76 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.31.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.31.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.31.2] — 2026-08-22
+
+> **§3.7**: `1.31.1 → 1.31.2` (**patch** — M2는 impeccable-detection-contract PRD의
+> 두 번째 milestone이고 PRD는 아직 in-progress다). 병렬 브랜치 충돌 점검: `origin/main`이
+> `1.31.0`, 미머지 `santa-delta-review`·`multi-session-work-loop-m7`이 `1.30.3`,
+> `diverse-agent-review-m7`이 `1.30.2`라 `1.31.2` 자리가 비어 있다. 4면(plugin.json ·
+> html.js page-foot · markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄고,
+> `i18n-surface.test.js`는 manifest에서 파생하므로 고칠 리터럴이 없다.
+> **target은 `/mccp:pr` 직전에 한 번 더 재계산한다**(§3.7 실측 4회 재발).
+
+**impeccable-detection-contract M2 — setup·경고 정합 (patch, `1.31.1 → 1.31.2`)** — M1이 만든
+`resolveImpeccable()` 오라클을 소비처 셋에 실제로 연결한다. M1은 오라클을 만들고 아무도 부르지
+않게 뒀고, M2는 그 자리를 채운다.
+
+### Added
+
+- `plugins/mccp/scripts/lib/dep-check.js` — `checkImpeccable(options)`. 본문 **안에서**
+  `require('./impeccable-detect')`를 부른다(`impeccable-detect`가 `dep-check`를 top-level로
+  require하므로 순환이다). `dep-check` 헤더가 선언한 "Never throws" 계약에 따라 그 require를
+  try/catch로 감싸 **fail-closed sentinel**(`available:false`)을 돌려준다 — 관대한 방향으로
+  실패하면 깨진 require가 조용한 디자인 리뷰 skip이 된다. `checkAll()`은 기존 4키를 그대로 둔
+  채 `impeccable` 키를 얹는 엄격한 상위집합이 되고 `repoRoot`를 전달한다. CLI printer에
+  `impeccable skill` 행이 생기고, 그 행에 들어가는 version·source·invocation은 화이트리스트로
+  소독된다(SKILL.md frontmatter는 사용자가 설치한 파일이고 이 값은 터미널에 도달한다).
+- `plugins/mccp/scripts/lib/tests/setup-command-body.test.js` — 삭제된 설치 명령이 산문으로
+  되돌아오는 것과 Phase 3이 다시 PATH probe를 읽는 것을 리터럴로 고정한다.
+- `plugins/mccp/scripts/hooks/tests/session-start-dep-check.test.js` — hook을 실제로 spawn한다.
+  env 축(`MCCP_IMPECCABLE_SKILL`) 양방향은 배선을 싸게 확인하고, **env 없이** 중첩 cwd +
+  redirect된 HOME으로 도는 케이스가 `repoRoot` 전달 자체를 검증한다(그 전달을 제거하면 red가
+  되는 것을 변이 검사로 확인했다).
+
+### Changed
+
+- `plugins/mccp/scripts/hooks/session-start.js` — missing 배너의 판정이
+  `impeccable_cli.installed`에서 `impeccable.available`로 옮겨졌고 `checkAll`에
+  `{ repoRoot: injectorRepoRoot || undefined }`를 전달한다. npm이 아닌 채널로 설치한 사용자를
+  24시간마다 "미설치"로 부르던 오탐이 닫힌다.
+- `plugins/mccp/commands/setup.md` — Phase 3 전면 재작성. `checkImpeccable().available === true`면
+  Phase 전체를 skip하고(설치된 사용자에게 다시 묻지 않는다), 미해소일 때만 3선택지를 한 번 묻는다.
+  설치 명령은 Task 0에서 **실측한** 형태다(`claude plugin marketplace add pbakaus/impeccable` →
+  `claude plugin install impeccable@impeccable`, 그리고 `npx impeccable install`). 설치 직후
+  재-`dep-check`와 Phase 1 표 갱신이 의무이고, plugin 채널이 `impeccable:impeccable`로 등록되는
+  반면 mccp가 bare 이름을 부른다는 사실을 그 자리에서 출력한다. frontmatter는
+  `Bash(npx:*)`가 아니라 `Bash(npx impeccable:*)`로 좁혔다.
+- `plugins/mccp/scripts/lib/gitignore-provision.js` + `.gitignore` — `.impeccable/` 극성 교체
+  (`!design.json` → `!config.json`). 근거는 impeccable 자신의 `reference/hooks.md`다:
+  per-developer override와 설치 동의 값은 **gitignored** `config.local.json`에 살고 `config.json`은
+  팀 공유 커밋 대상이다. drift lint가 양방향이라 두 파일이 한 단위로 움직인다.
+- 문서 4면(`docs/gate-design.md` · `README.md` · `NOTICE` · `CLAUDE.md`) — 삭제된 설치 명령
+  서술을 채널 중립으로 교체. `docs/gate-design.md`에 `#### setup·경고 정합 (M2)` 절이 생겨
+  4채널 표와 그 채널이 오늘 발화하지 않는 이유, pollution 보고가 정상인 이유를 소유한다.
+
+### Fixed
+
+- `setup.md` Phase 6이 "impeccable missing → `/mccp:impeccable` will refuse"라고 적고 있었다.
+  그 명령은 존재하지 않는다(이 plugin은 22개 명령을 배포하고 그 중에 없다). 실제 귀결로 교체:
+  plan은 lenient라 통과하고 implement·pr은 `impeccable_skipped`로 차단되며 탈출은
+  `MCCP_FORCE_PR_WITHOUT_IMPECCABLE`이다.
+
+### 주장하지 않는 것
+
+- **호출부를 재배선하지 않는다.** plugin 단독 설치는 여전히 `unknown_skill`로 떨어진다. M2가
+  바꾸는 것은 그 사실을 **말하는지 여부**이지 사실 자체가 아니다 — 재배선은 M3가 project-local
+  사본 제거와 단일 커밋으로 수행한다.
+- **섀도잉을 사용자에게 표면화하지 않는다.** `shadowed`는 dep-check JSON과 CLI printer에
+  나타나지만 배너도 setup 분기도 그것으로 행동을 바꾸지 않는다.
+- **PRD Success Metric 1을 M2가 달성한다고 주장하지 않는다.** 이 저장소에서는 project 사본 덕에
+  이미 참이지만, plugin 단독 설치자에게는 M3까지 거짓이다.
 
 ## [1.31.1] — 2026-08-22
 

@@ -87,12 +87,21 @@ The receipt field is the same shape (`codex_skipped: true`), but `reason` distin
 `/mccp:setup` is the idempotent entry point for installing mccp's external dependencies.
 
 1. **Detect** — `node scripts/lib/dep-check.js --json` reads
-   `~/.claude/plugins/installed_plugins.json` and runs the platform-appropriate `where` /
-   `which impeccable` to determine what is missing.
+   `~/.claude/plugins/installed_plugins.json` for the codex plugin, resolves the
+   impeccable skill through `checkImpeccable()` (every install channel — see
+   [impeccable-detection](#impeccable-detection)), and additionally runs the
+   platform-appropriate `where` / `which impeccable` as **telemetry only**: that PATH
+   probe answers a different question and no gate branch reads it.
 2. **Install codex plugin** (if missing) — `claude plugin install codex@openai-codex`
    under user scope.
-3. **Install impeccable CLI** (if missing) — `npm install -g impeccable` followed by
-   `impeccable skills install` which deploys SKILL files to `~/.claude/skills/`.
+3. **Resolve the impeccable skill** (only when `checkImpeccable().available === false`) —
+   the operator picks a channel. Plugin-first is the recommendation:
+   `claude plugin marketplace add pbakaus/impeccable` then
+   `claude plugin install impeccable@impeccable`; the CLI channel is
+   `npx impeccable install`. The two are not interchangeable for gate firing —
+   the plugin channel registers the skill as `impeccable:impeccable` while mccp's
+   command bodies call the bare name, so setup states that consequence explicitly
+   at install time (§3.17, and `#### setup·경고 정합 (M2)` below).
 4. **Chain `/codex:setup`** — invoked as `Skill(codex:setup)`. If Codex is installed but
    not authenticated, the user picks among `!codex login`, set `MCCP_CODEX_DISABLED=1`
    permanently, or skip.
@@ -863,7 +872,59 @@ frontmatter는 선두 8KB만 읽는다. 실측 2종(4.1.1 · 3.5.0)이 `version`
   **반드시** 함께 해야 하는 전제다.
 - **다중 bare 우선순위를 측정하지 않았다.** 위 규칙은 그 질문을 회피하는 것이지
   답하는 것이 아니다.
-- **`setup`·SessionStart 배너·`checkImpeccableCli` 다채널화는 M2**, 섀도잉의 사용자
-  표면화와 사본 정리는 **M3** 소유다.
+- **`setup`·SessionStart 배너의 다채널화는 M2**(아래 절에서 소진), 섀도잉의 사용자
+  표면화와 사본 정리는 **M3** 소유다. `checkImpeccableCli`는 M2에서 **제거되지 않았다** —
+  다채널화의 답은 그 함수를 고치는 것이 아니라 판정 권한을 뺏는 것이었다.
+
+#### setup·경고 정합 (M2)
+
+M1은 오라클을 만들고 아무도 부르지 않게 뒀다. M2는 소비처 셋을 배선한다 —
+`dep-check`·SessionStart 배너·`/mccp:setup` Phase 3 — 그리고 같은 사이클에
+`.impeccable/` 무시 규칙의 극성을 공식 계약에 맞춘다.
+
+**판정 권한은 `available` 하나다.** `checkImpeccable()`이 `resolveImpeccable`을
+지연 require로 감싸 `dep-check`에 합류시키고, `checkAll()`은 기존 4키를 그대로 둔 채
+`impeccable` 키를 얹는 엄격한 상위집합이 된다. `checkImpeccableCli`는 남지만
+**telemetry**다 — 배너도 setup 분기도 그것을 읽지 않는다. 두 사실을 한 필드로 뭉치지
+않는 것이 v1.0.0-baseline F-W1-2의 자체 처방이었고, 그 처방은 "두 필드"였지
+"CLI 필드 삭제"가 아니었다.
+
+지연 require는 순환(`impeccable-detect` → `dep-check`) 때문이고, `dep-check`의 헤더가
+선언한 "Never throws" 계약 때문에 그 require는 try/catch로 감싸 **fail-closed sentinel**
+(`available:false`, `reason:'detect-load-error'`)을 돌려준다. 관대한 방향으로 실패하면
+깨진 require가 조용한 디자인 리뷰 skip이 된다.
+
+**4채널과 그 귀결** (M2 Task 0 실측, 2026-08-22):
+
+| 채널 | 설치 형태 | 등록 invocation | 게이트가 오늘 발화하는가 |
+|---|---|---|---|
+| plugin | `claude plugin marketplace add pbakaus/impeccable` → `claude plugin install impeccable@impeccable` | `impeccable:impeccable` | **아니오** — 호출부가 bare |
+| CLI | `npx impeccable install` | `impeccable` (bare) | 예 |
+| project | `.claude/skills/impeccable/` | `impeccable` (bare) | 예 |
+| user | `~/.claude/skills/impeccable/` | `impeccable` (bare) | 예 |
+
+plugin을 기본 권장으로 두는 것은 운영자 결정(UI6)이고, 그 선택이 오늘 게이트를
+발화시키지 않는다는 것도 사실이다. M2는 그 사실을 **숨기지 않고 설치 시점에 출력한다** —
+setup Phase 3.4가 등록 이름과 호출 이름의 불일치를 그 자리에서 말하고 bare 채널 대안을
+병기한다. 측정 근거: 리터럴 `Skill(impeccable` **16건 / 7개 명령 본문**(표·산문 언급 포함한
+grep 전수), `Skill(impeccable:` **0건**, 그리고 `impeccable-guard.test.js`가 canonical 5개
+명령 전부에 bare 호출 존재를 단언한다. 재배선은 M3가 project 사본 제거와 단일 커밋으로 한다.
+
+**`.impeccable/` 극성 — `config.json`은 commit, `design.json`은 생성물.** 이 블록은
+`gitignore-provision.js`가 **모든 사용자 저장소에** 심으므로 오답이 전파되는 유일한
+표면이고, 그래서 근거가 상주해야 한다. 근거는 impeccable 자신의 레퍼런스다:
+per-developer override와 설치 동의 값(`hook.consent`)은 **gitignored**
+`.impeccable/config.local.json`에 살고, `config.json`은 팀이 공유하는 커밋 대상이다
+(`reference/hooks.md`). 따라서 예외를 정확히 한 파일에만 두는 새 블록
+(`.impeccable/*` + `!.impeccable/config.json`)은 `config.local.json`도
+`live/config.json`도 되살리지 않는다 — git은 제외된 디렉토리 내부를 되살릴 수 없고,
+파일 예외는 이름이 정확히 일치하는 하나만 되살린다.
+
+**pollution 보고 1건은 정상 동작이다.** 이 저장소의 `.impeccable/design.json`은 tracked로
+남는다(UI7). 새 규칙에서 그 파일은 무시 대상이므로 provisioner의 pollution 스캔이 매번
+1건을 보고한다. provisioner는 자동 untrack하지 않는다는 기존 계약 그대로이며, 보고는
+결함이 아니라 "규칙과 이력이 어긋나 있다"는 정직한 관측이다. 사용자가 그것을 없애려고
+수동 untrack하면 팀원의 체크아웃에서 파일이 사라지므로, 그 유도를 하지 않는 것이 계약의
+목적이다.
 
 ---

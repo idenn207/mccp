@@ -64,7 +64,7 @@ mccp는 impeccable이 설치됐는지를 **하나의 boolean**으로 판정하�
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | 정직한 탐지 | 어느 공식 채널로 설치했든 mccp가 "설치됨"으로 인식하고, **버전과 설치원과 실제로 열릴 본문**을 함께 보고한다 | complete | .claude/plans/impeccable-detection-contract-m1.plan.md |
-| 2 | setup·경고 정합 | `/mccp:setup`이 공식 명령을 권하고, 설치된 사용자에게 더 이상 설치를 권하지 않으며, 저장소에 심는 무시 규칙이 공식 계약과 일치한다 | pending | — |
+| 2 | setup·경고 정합 | `/mccp:setup`이 공식 명령을 권하고, 설치된 사용자에게 더 이상 설치를 권하지 않으며, 저장소에 심는 무시 규칙이 공식 계약과 일치한다 | complete | .claude/plans/impeccable-detection-contract-m2.plan.md |
 | 3 | 섀도잉 해소 | 같은 skill의 다중 사본이 사용자에게 **보이고**, setup이 승인을 받아 정리를 제안하며, 이 저장소의 구버전 사본이 사라진다 | pending | — |
 | 4 | 게이트 발화 정합 | auto 모드가 발화하는 명령이 비대화형 게이트에서 실제로 완주하고, 발화가 0인 라이프사이클 단계가 없다 | pending | — |
 | 5 | 문서·계약 드리프트 정리 | 환경변수 계약과 프로젝트 문서가 실제 코드·공식 채널과 일치한다 | pending | — |
@@ -78,7 +78,14 @@ M1~M3이 MVP다. M4·M5는 MVP 착지 후 재평가한다 — M4는 탐지가 �
 - [ ] **hook 이중 등록의 실제 영향.** CLI와 plugin이 각각 별도 경로로 같은 hook을 등록한다. 양쪽 설치 시 편집마다 2회 도는지, 그리고 impeccable의 세션 종료 hook이 mccp Stop-loop과 어떻게 상호작용하는지 미측정이다.
 - [ ] **Node 하한 불일치를 어느 쪽에 맞출 것인가.** impeccable hook은 22+를 요구하고 mccp는 20+를 명시한다. 하한을 올릴지, hook 미동작을 정상 degraded로 문서화할지.
 - [ ] **`impeccable@anthropics`라는 리터럴은 어디서 왔는가.** 과거 실재한 채널인지 추정값인지에 따라 하위 호환 부담이 달라진다.
-- [ ] **이미 커밋된 `.impeccable/design.json`을 어떻게 할 것인가.** 규칙을 바꿔도 기존 추적 파일은 남는다. untrack 여부는 사용자 결정 영역이다.
+- [x] **이미 커밋된 `.impeccable/design.json`을 어떻게 할 것인가.** 규칙을 바꿔도 기존 추적 파일은 남는다. untrack 여부는 사용자 결정 영역이다.
+  → **M2 결정: tracked로 남긴다(UI7). untrack하지 않는다.** 근거는 셋이다. (1) provisioner는
+  자동 untrack하지 않는다는 기존 계약이 있고 `setup.md` Phase 5가 그것을 명시한다. (2) untrack
+  커밋은 팀원의 체크아웃에서 파일을 삭제하므로 사용자 결정 영역이라는 이 질문의 전제 그대로다.
+  (3) 그 결과 provisioner의 pollution 스캔이 이 파일 1건을 매번 보고하게 되는데, 그것은 결함이
+  아니라 "규칙과 이력이 어긋나 있다"는 정직한 관측이다. 반복 보고의 노이즈를 줄이는 축(예외
+  목록 또는 grandfathered 표기)은 `codex-findings-backlog.md`로 이연했다. 상세는
+  `docs/gate-design.md#impeccable-detection`의 `#### setup·경고 정합 (M2)`.
 
 ## Risks
 

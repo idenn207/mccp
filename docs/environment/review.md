@@ -562,7 +562,7 @@ MCCP_DESIGN_INTENT_REASON=<사유를 한 문장으로> /mccp:pr
 
 **한 줄** impeccable 라우팅 모드.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-routing.js:118`
+**소비처** `plugins/mccp/scripts/lib/impeccable-routing.js:164`
 
 **사용 예시**
 
@@ -586,7 +586,7 @@ MCCP_DESIGN_INTENT_REASON=<사유를 한 문장으로> /mccp:pr
 
 **한 줄** 추가 라우팅 명령 목록.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-routing.js:127`
+**소비처** `plugins/mccp/scripts/lib/impeccable-routing.js:173`
 
 **상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
 
@@ -608,18 +608,29 @@ MCCP_DESIGN_INTENT_REASON=<사유를 한 문장으로> /mccp:pr
 
 ### MCCP_IMPECCABLE_SKILL
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `enum` — **값** `available` · `missing` — **기본값** 없음 (미설정이 기본)
 
-**한 줄** impeccable skill 이름.
+**한 줄** impeccable 탐지 결과 강제 override.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:319`
+
+값은 **skill 이름이 아니다.** `impeccable-detect.js:322-330`이 `available`/`missing` 밖의 값을
+stderr WARNING과 함께 **버리고** 실제 소스를 다시 probe하므로, 이름을 넣으라던 옛 설명대로 쓰면
+아무 일도 일어나지 않는다. `missing`은 즉시 답을 끝내고, `available`은 이름이 해소된다고만 주장할 뿐
+**어느 사본이 답하는지는 주장하지 않는다**(그래서 `path`가 `null`이고, 그 상태에서는 정리 도구가
+어떤 `--source`도 거부한다 — CLAUDE.md §3.17 규칙 4).
+
+**이 override는 외부에 따로 설치한 경우를 위한 장치다.** 공식 채널(plugin · CLI · project · user)로
+설치했다면 오라클이 스스로 찾으므로 설정할 필요가 없다 — 공식 채널 설치자에게 env 설정을 요구하는
+것은 의도된 사용법이 아니라 결함이다. 현재 상태는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 답한다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "MCCP_IMPECCABLE_SKILL": "<사유를 한 문장으로>"
+    "MCCP_IMPECCABLE_SKILL": "available"
   }
 }
 ```
@@ -627,7 +638,37 @@ MCCP_DESIGN_INTENT_REASON=<사유를 한 문장으로> /mccp:pr
 한 호출에만 적용하려면 셸에서 앞에 붙인다:
 
 ```bash
-MCCP_IMPECCABLE_SKILL=<사유를 한 문장으로> /mccp:pr
+MCCP_IMPECCABLE_SKILL=missing /mccp:prp-implement
+```
+
+### MCCP_PLAN_REVIEW_TEST_INVOKE
+
+**종류** `bypass-flag` — **값** `1` — **기본값** `off`
+
+**한 줄** test 전용 — `--invoke-module` 허용.
+
+**소비처** `plugins/mccp/scripts/lib/plan-review/cli.js:542`
+
+**극성** 미설정이면 **꺼져 있다**. 활성화 리터럴은 정확히 `1` 하나이고 그 밖은 전부 미설정과 같다.
+
+**상태** `test-only` — `plan-review/cli.js`의 `--invoke-module`은 임의 모듈을 로드하므로 게이트
+실행 경로에서는 **거부**된다. 이 플래그는 그 거부를 test 스위트에서만 푼다. 게이트 실행은 이 값을
+설정하지 않으며, 설정된 채로 게이트를 돌리는 것은 지원 대상이 아니다.
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_PLAN_REVIEW_TEST_INVOKE": "1"
+  }
+}
+```
+
+한 호출에만 적용하려면 셸에서 앞에 붙인다:
+
+```bash
+MCCP_PLAN_REVIEW_TEST_INVOKE=1 node --test plugins/mccp/scripts/lib/tests/plan-review-l3.test.js
 ```
 
 ### MCCP_A11Y_AUTO_INVOKE

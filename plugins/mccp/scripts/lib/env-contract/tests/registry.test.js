@@ -14,7 +14,20 @@ const registry = require('../registry');
 
 // DD1이 이름까지 못 박은 집합. 여기를 늘리는 것은 «리뷰 게이트를 약화하는 토글을
 // 하나 더 만든다»는 뜻이고, 그 판단은 사람이 한다.
-const WANT_BYPASS = ['MCCP_ALLOW_CODEX_UNAVAILABLE', 'MCCP_CODEX_DISABLED', 'MCCP_SKIP_RECEIPT'].sort();
+//
+// M5(v1.32.0)가 네 번째를 더했다: `MCCP_PLAN_REVIEW_TEST_INVOKE`. 이것은 **게이트를
+// 약화하지 않는다** — 반대로 `plan-review/cli.js:542`가 `--invoke-module`(임의 모듈을
+// Codex wrapper 자리에 끼워 넣어 «Codex 없이 converged»를 만들 수 있는 플래그)을
+// 게이트 실행 경로에서 **거부**하기 위해 요구하는 test 전용 스위치다. 이 이름이
+// registry에 없어서 L1이 붉었고(origin/main `b111dca`에서 상속), 등재하지 않으면
+// M5는 자기가 확장하는 lint를 green으로 검증할 수 없었다. 셋과 넷의 차이는 개수가
+// 아니라 방향이다 — 앞의 셋은 게이트를 열고, 이것은 게이트가 닫혀 있음을 강제한다.
+const WANT_BYPASS = [
+  'MCCP_ALLOW_CODEX_UNAVAILABLE',
+  'MCCP_CODEX_DISABLED',
+  'MCCP_SKIP_RECEIPT',
+  'MCCP_PLAN_REVIEW_TEST_INVOKE',
+].sort();
 
 test('export 표면이 계획서 산문과 일치한다', () => {
   ['ENTRIES', 'names', 'get', 'byKind', 'byDomain'].forEach((k) => {

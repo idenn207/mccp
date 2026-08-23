@@ -51,10 +51,10 @@ guard가 위에 얹혀 briefing 실패가 receipt write를 절대 오염시키�
 | 원본             | 라이선스    | 가져온 부분                                              | 위치                                            |
 | ---------------- | ----------- | -------------------------------------------------------- | ----------------------------------------------- |
 | **ECC**          | MIT         | Phase 게이트 enforcement, hook 구조, 47개 skill          | `plugins/mccp/` (fork + namespace 이전)         |
-| **impeccable**   | Apache-2.0  | 디자인 critique skill (`Skill(impeccable, ...)` 호출 패턴 보존) | **번들 안 함 — 사용자가 별도 plugin 설치** (버전 분리 + namespace 충돌 회피) |
+| **impeccable**   | Apache-2.0  | 디자인 critique skill (호출 이름은 탐지 오라클이 정한다 — §3.17) | **번들 안 함 — 사용자가 별도 plugin 설치** (버전 분리 + namespace 충돌 회피) |
 | **codex plugin** | (별도 설치) | adversarial review용 외부 model 호출                     | 런타임 의존성 (아래 §1.2 참조)                  |
 
-mccp는 ECC를 단순 의존하는 게 아니라 **fork 후 self-contained 패키지로 재구성**했습니다. `~/.claude/rules/`, `~/.claude/hooks/` 같은 ECC 원본의 user-level scatter 의존성은 모두 plugin 내부로 흡수됨. impeccable은 의도적으로 번들 제외 — mccp 본문이 `Skill(impeccable, ...)`을 그대로 호출하므로, mccp 안에 vendor하면 namespace가 `mccp:impeccable`로 바뀌어 호출이 깨집니다 (commit `2116c43`에서 제거 결정). 자세한 attribution은 [NOTICE](NOTICE) 참조.
+mccp는 ECC를 단순 의존하는 게 아니라 **fork 후 self-contained 패키지로 재구성**했습니다. `~/.claude/rules/`, `~/.claude/hooks/` 같은 ECC 원본의 user-level scatter 의존성은 모두 plugin 내부로 흡수됨. impeccable은 의도적으로 번들 제외입니다. **v1.32.0 정정**: 이 자리에는 "mccp 본문이 `Skill(impeccable, ...)`을 그대로 호출하므로"라고 적혀 있었는데 v1.31.3(M3) 이후 거짓입니다 — 명령 본문의 bare 리터럴은 전부 제거됐고, 실측하면 `plugins/mccp/`의 `Skill(impeccable` 7건은 전부 주석과 test이며 **명령 본문 0건**입니다. 결론(번들하지 않는다)은 그대로지만 근거가 다릅니다: mccp 안에 vendor하면 namespace가 `mccp:impeccable`이 되어 **사용자가 설치한 채널과 다른 본문**을 열게 되고, M3가 세운 "탐지가 지목한 본문과 실제로 열리는 본문이 일치한다"는 계약이 깨집니다 (제거 결정은 commit `2116c43`). 자세한 attribution은 [NOTICE](NOTICE) 참조.
 
 ### 1.2 핵심 가치: Multi-Model Dual Reviewer
 
@@ -903,8 +903,20 @@ telemetry**다 — SessionStart 배너도 `/mccp:setup` Phase 3 분기도 그것
 `design.json`은 tracked로 남으므로(UI7) provisioner가 pollution 1건을 계속 보고하며, 그것은
 결함이 아니라 규칙과 이력의 불일치에 대한 정직한 관측이다 — 자동 untrack은 하지 않는다.
 
+**계약을 적어 둔 곳도 계약의 일부다** (v1.32.0 M5 — 문서·계약 드리프트 정리). `IMPECCABLE_*`
+19종은 mccp가 **읽지 않는** 서드파티 변수라 registry의 `evidence`(= "이 토글을 실제로 읽는
+지점")를 만족시킬 방법이 없었고, 그래서 과거에 무관한 한 줄이 19번 적혔다. 새 status
+`not-consumed`가 그 사실을 말할 수 있게 하고 evidence는 read site 대신 문서 앵커를 가리킨다.
+같은 드리프트가 다시 조용히 생기지 않도록 lint에 **L10**이 생겼다 — 정방향(evidence 행 ±2 안에
+그 이름이 있는가) · 역방향(`not-consumed`이면 런타임 표면에 그 이름이 **없어야** 한다) ·
+래칫(`evidence-debt.js`의 **열거된** 이름만 면제하며, 고쳐졌는데 목록에 남아도 붉다).
+L8이 형식과 실재만 보므로 이 축은 L8을 통과하면서 거짓일 수 있었다. 남는 비-impeccable 29건은
+지우지 않고 이름과 소유 축째로 열거해 각 축이 갚도록 남긴다.
+
 진단은 `node plugins/mccp/scripts/lib/impeccable-detect.js resolve [--json]`이고, 소비처 상태는
 `node plugins/mccp/scripts/lib/dep-check.js`가 `impeccable skill` 행으로 보고한다.
+환경변수 계약은 `node plugins/mccp/scripts/lib/env-contract/lint.js`(L1~L10)와
+`node plugins/mccp/scripts/lib/env-contract/measure-evidence.js --json`(A/B/C 재측정)이 검사한다.
 배경(4소스 표·해소 규칙·경로 정규화·방어·M2 채널 표·M3 재배선과 거부 규칙·주장하지 않는 것): [상세](docs/gate-design.md#impeccable-detection)
 
 ---

@@ -103,7 +103,8 @@
 |`MCCP_DESIGN_INTENT_REASON`|string|—|—|critique 강제 override.|[→](environment/review.md#mccp_design_intent_reason)|
 |`MCCP_IMPECCABLE_ROUTING_MODE`|enum|auto/hybrid/recommend|auto|impeccable 라우팅 모드.|[→](environment/review.md#mccp_impeccable_routing_mode)|
 |`MCCP_IMPECCABLE_INTENT_COMMANDS`|list|—|—|추가 라우팅 명령 목록.|[→](environment/review.md#mccp_impeccable_intent_commands)|
-|`MCCP_IMPECCABLE_SKILL`|string|—|—|impeccable skill 이름.|[→](environment/review.md#mccp_impeccable_skill)|
+|`MCCP_IMPECCABLE_SKILL`|enum|available/missing|—|impeccable 탐지 결과 강제 override.|[→](environment/review.md#mccp_impeccable_skill)|
+|`MCCP_PLAN_REVIEW_TEST_INVOKE`|bypass-flag|1|off|test 전용 — `--invoke-module` 허용.|[→](environment/review.md#mccp_plan_review_test_invoke)|
 |`MCCP_A11Y_AUTO_INVOKE`|bool|on/off|on|PR에서 a11y 자동 호출.|[→](environment/review.md#mccp_a11y_auto_invoke)|
 |`MCCP_DEEP_RESEARCH_SKILL`|string|—|—|deep-research skill 이름.|[→](environment/review.md#mccp_deep_research_skill)|
 

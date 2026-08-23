@@ -1,6 +1,6 @@
 'use strict';
 
-// lint.test.js — 9개 검사가 **각각 실제로 붉어지는지**를 확인한다.
+// lint.test.js — 10개 검사가 **각각 실제로 붉어지는지**를 확인한다.
 //
 // exit 0만 보는 검사는 «빈 JSON을 뱉고 정상 종료하는 lint»도 통과시킨다. 그래서 여기서는
 // 검사마다 그것 하나만 위반하는 fixture를 만들고, 그 fixture에서 **그 검사만** 실패하는지
@@ -23,6 +23,7 @@ const path = require('node:path');
 const lint = require('../lint');
 const scan = require('../scan');
 const registry = require('../registry');
+const DEBT_NAMES = new Set(require('../evidence-debt').names());
 
 // tests → env-contract → lib → scripts → mccp → plugins → repo root (6단계).
 const REPO_ROOT = path.resolve(__dirname, '../../../../../..');
@@ -77,26 +78,60 @@ function makeRepo() {
 
 // L8은 evidence 경로를 **이 root 기준으로** 실재 확인한다. 합성 repo에 그 파일들이 없으면
 // L8이 어느 fixture에서나 붉어져서 `only()`가 «정확히 이 검사만 깨진다»를 확인하지 못한다.
-// 그래서 baseline에서 evidence가 가리키는 파일을 필요한 줄 수만큼 만들어 둔다 — 내용이
-// 아니라 «그 줄이 존재하는가»가 L8의 검사 대상이다. 등록된 이름을 본문에 쓰지 않는 것이
-// 중요하다: 쓰면 L4(은퇴 이름 부재)와 L9(raw 비교)의 baseline을 오염시킨다.
+// 그래서 baseline에서 evidence가 가리키는 파일을 필요한 줄 수만큼 만들어 둔다.
+//
+// M5(v1.32.0)부터 «그 줄이 존재하는가»만으로는 부족하다 — L10이 **그 줄이 그 이름을
+// 말하는가**를 묻기 때문이다. 그래서 evidence가 가리키는 정확한 줄에 그 이름을 적되,
+// **주석으로** 적는다. 형태가 load-bearing이다:
+//   - L9는 `isCommentLine`으로 주석을 건너뛰므로 raw 비교 baseline이 오염되지 않는다.
+//   - L4는 주석 예외가 없는 순수 `indexOf`이지만, status `retired` 7종은 전부 evidence가
+//     `docs/environment/retired.md:1`(walkSurfaces 밖 · 이미 복사된 실파일)이라 이 함수가
+//     애초에 그 이름을 쓰지 않는다. 그 사실이 깨지면 아래 단언이 먼저 붉어진다.
 function materializeEvidence(root) {
-  const need = new Map();
+  const need = new Map();     // rel -> { max: number, names: Map<line, string[]> }
   registry.ENTRIES.forEach((e) => {
     const m = /^(.*):(\d+)$/.exec(String(e.evidence).trim());
     if (!m) return;
     const rel = m[1];
     const line = Number.parseInt(m[2], 10);
-    need.set(rel, Math.max(need.get(rel) || 0, line));
+    if (!need.has(rel)) need.set(rel, { max: 0, names: new Map() });
+    const slot = need.get(rel);
+    slot.max = Math.max(slot.max, line);
+    if (e.status === 'retired') return;   // L4 보호 — 아래 단언이 이 전제를 검사한다
+    // 면제 목록에 오른 이름은 **일부러 이름을 심지 않는다.** 심으면 fixture에서 그
+    // 항목들이 통과해 버려서 L10의 역방향 래칫이 «목록에서 지워라»로 붉어진다 —
+    // 그것은 fixture가 실제 트리와 다른 상태를 만들어 낸 것이지 결함이 아니다.
+    // 목록이 설명하는 것은 이 저장소의 실제 드리프트이므로, fixture도 그 모양을 따른다.
+    if (DEBT_NAMES.has(e.name)) return;
+    if (!slot.names.has(line)) slot.names.set(line, []);
+    slot.names.get(line).push(e.name);
   });
-  need.forEach((lines, rel) => {
+
+  // 전제 검사: 은퇴 이름을 런타임 표면 파일에 쓰려 하고 있으면 L4 baseline이 조용히
+  // 오염된다. 조용히 통과시키느니 여기서 멈춘다.
+  registry.ENTRIES.forEach((e) => {
+    if (e.status !== 'retired') return;
+    const rel = String(e.evidence).split(':')[0];
+    assert.ok(rel.startsWith('docs/'),
+      'retired ' + e.name + ' now has a runtime-surface evidence path (' + rel + '); '
+      + 'materializeEvidence would write its name there and break the L4 baseline');
+  });
+
+  need.forEach((slot, rel) => {
     const abs = path.join(root, rel);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
-    let existing = 0;
-    try { existing = fs.readFileSync(abs, 'utf8').split(/\r?\n/).length; } catch (_) { existing = 0; }
-    if (existing >= lines) return;
-    const filler = new Array(lines - existing).fill('// evidence placeholder').join('\n');
-    fs.appendFileSync(abs, (existing ? '\n' : '') + filler + '\n');
+    let lines = [];
+    try { lines = fs.readFileSync(abs, 'utf8').split(/\r?\n/); } catch (_) { lines = []; }
+    const originalLength = lines.length;
+    while (lines.length < slot.max) lines.push('// evidence placeholder');
+    slot.names.forEach((names, line) => {
+      // 원본 내용(STUB_SNAPSHOT · 복사된 실파일)은 덮지 않는다 — 덮으면 그 파일을 쓰는
+      // 다른 검사의 fixture가 무너진다. placeholder 영역만 이름을 싣는다.
+      if (line <= originalLength) return;
+      lines[line - 1] = '// evidence placeholder ' + names.join(' ');
+    });
+    if (lines.length === originalLength && slot.names.size === 0) return;
+    fs.writeFileSync(abs, lines.join('\n') + '\n');
   });
 }
 
@@ -117,12 +152,15 @@ let negativeFixtures = 0;
 let fixtureJs = 0;
 let fixtureMd = 0;
 
-test('baseline — 손대지 않은 fixture repo에서는 9개가 전부 통과한다', () => {
+test('baseline — 손대지 않은 fixture repo에서는 10개가 전부 통과한다', () => {
   const root = makeRepo();
   const r = lint.run(root);
   const failed = Object.keys(r.checks).filter((k) => !r.checks[k].ok);
-  assert.deepEqual(failed, [], 'baseline이 붉으면 아래 fixture들이 무엇을 증명하는지 알 수 없다');
-  assert.equal(Object.keys(r.checks).length, 9);
+  // 실패하면 «무엇이» 붉은지까지 말한다 — 검사 이름만으로는 fixture를 고칠 수 없다.
+  const why = failed.map((k) => k + ': ' + r.checks[k].problems.slice(0, 4).join(' | ')).join('\n');
+  assert.deepEqual(failed, [],
+    'baseline이 붉으면 아래 fixture들이 무엇을 증명하는지 알 수 없다\n' + why);
+  assert.equal(Object.keys(r.checks).length, 10);
 });
 
 test('L1 — 레지스트리에 없는 런타임 토글', () => {
@@ -258,6 +296,42 @@ test('L9 — load-time 별칭 포획과 구조분해도 잡는다', () => {
   only(lint.run(destrRoot), 'L9');
 });
 
+// L10은 순수 코어(`evidence-name.js`)가 `evidence-debt.test.js`에서 전수 단위 test되지만,
+// 그 코어가 `run()` 안에서 **실제로 배선돼 있는지**는 별개 사실이다. 아래 둘이 그것을 잡는다.
+test('L10 — evidence가 그 이름을 말하지 않으면 붉다', () => {
+  const root = makeRepo();
+  const victim = registry.ENTRIES.find((e) => e.status !== 'not-consumed'
+    && e.status !== 'retired'
+    && !DEBT_NAMES.has(e.name)
+    && String(e.evidence).indexOf('plugins/mccp/scripts/') === 0);
+  assert.ok(victim, 'need one non-exempt entry whose evidence lives on the script surface');
+  const [rel, lineNo] = String(victim.evidence).split(':');
+  const abs = path.join(root, rel);
+  const lines = fs.readFileSync(abs, 'utf8').split(/\r?\n/);
+  // 그 줄에서 이름만 지운다 — 파일도 줄 수도 그대로이므로 L8은 여전히 통과한다.
+  // 즉 이 fixture가 증명하는 것은 «L10이 L8이 못 보는 것을 본다»이다.
+  lines[Number(lineNo) - 1] = '// evidence placeholder';
+  fs.writeFileSync(abs, lines.join('\n'));
+  const r = lint.run(root);
+  assert.equal(r.checks.L8.ok, true, 'L8은 형식과 실재만 보므로 여전히 통과해야 한다');
+  only(r, 'L10');
+  assert.match(r.checks.L10.problems.join('\n'), new RegExp(victim.name + ': evidence'));
+  negativeFixtures++;
+});
+
+test('L10 — 면제 목록을 읽을 수 없으면 아무것도 면제되지 않는다', () => {
+  const problems = lint.evidenceNameProblems({
+    entries: [{ name: 'MCCP_SKIP_OBSERVE', status: 'retired', evidence: 'a.js:1' }],
+    debt: null,
+    debtError: 'boom',
+    readLines: () => ['nothing'],
+    surfaces: [{ rel: 's.js', text: '' }],
+  });
+  assert.ok(problems.some((p) => /evidence-debt is unusable/.test(p)));
+  assert.ok(problems.some((p) => /MCCP_SKIP_OBSERVE: evidence/.test(p)),
+    'a listed name must lose its exemption when the list cannot be read');
+});
+
 test('L9가 scan.walkSurfaces를 실제로 호출한다 (spy)', () => {
   const root = makeRepo();
   const original = scan.walkSurfaces;
@@ -294,7 +368,10 @@ test('읽기 실패는 통과가 아니라 drift로 보고된다', () => {
 test('마커 — 7c가 대조할 fixture 수와 확장자 분포를 찍는다', () => {
   process.stdout.write('LINT negative-fixtures=' + negativeFixtures
     + ' js=' + fixtureJs + ' md=' + fixtureMd + '\n');
-  assert.equal(negativeFixtures, 9, 'L1..L9 각각에 붉어지는 fixture가 하나씩 있어야 한다');
+  // M5(v1.32.0): L10이 추가되며 9 → 10. 이 수는 «검사 개수»가 아니라 «붉어지는 fixture를
+  // 실제로 가진 검사의 수»다 — L8은 fixture가 아니라 순서 전용 test로 덮이므로 세지 않고,
+  // 대신 L9가 `.js`·`.md` 두 개를 갖는다. 늘릴 때는 그 짝을 함께 확인해야 한다.
+  assert.equal(negativeFixtures, 10, 'L1..L7 · L9 · L10 각각에 붉어지는 fixture가 있어야 한다');
   assert.ok(fixtureJs >= 1);
   assert.ok(fixtureMd >= 1);
   cleanup();

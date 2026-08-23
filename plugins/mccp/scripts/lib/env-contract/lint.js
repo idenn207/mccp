@@ -15,6 +15,13 @@
 //   L7  사용 예시 3검사 — 존재 · JSON.parse 실행 · 레지스트리 values 정합
 //   L8  evidence의 형식과 실재 — **어휘 검사를 fs 호출보다 먼저**
 //   L9  등록된 boolean 토글의 raw 비교가 `env-contract/` 밖에 0건인가
+//   L10 evidence가 **실제로 그 이름을 가리키는가** (+ `not-consumed` 역방향 + 래칫)
+//
+// **L10이 L8과 다른 질문을 한다.** L8은 형식과 실재만 본다 — 파일이 있고 행이 범위
+// 안이면 통과이므로, 무관한 줄을 가리켜도 `ok`다(실측 M5: `impeccable-detect.js:135`를
+// 19번 적은 항목들이 전부 L8을 통과했고 그 줄은 `isDesignSurfacePath()` 내부였다).
+// 판정 자체는 `evidence-name.js`가 순수 함수로 소유하고 이 파일은 fs와 범위만 대며,
+// 그 분리가 fixture registry로 래칫 양방향을 단위 test할 수 있게 하는 유일한 지점이다.
 //
 // **L8의 순서는 load-bearing이다.** 실재를 먼저 보면 디스크에 존재하는 절대경로가
 // 통과해 CLAUDE.md §3.12가 닫은 누출 경로가 다시 열린다. `lib/instruction-contract/lint.js:41`이
@@ -35,6 +42,7 @@ const path = require('path');
 
 const registry = require('./registry');
 const scan = require('./scan');
+const evidenceName = require('./evidence-name');
 
 const INDEX_REL = 'docs/ENVIRONMENT.md';
 const DETAIL_DIR_REL = 'docs/environment';
@@ -415,11 +423,70 @@ function run(repoRoot) {
     checks.L9.filesScanned = files.length;
   }
 
+  // L10 — evidence가 실제로 그 이름을 가리키는가 (+ not-consumed 역방향 + 래칫)
+  {
+    // 래칫 로더는 fail-closed다. 모듈이 없거나 throw하거나 모양이 틀리면 면제 집합이
+    // **빈 집합**이 되고 정방향 검사가 전부 그대로 판정된다 — 관대한 방향으로 실패하면
+    // 목록이 조용히 «전체 면제»가 된다(Implement-Codex R1 F1). `assertShape`를 로드
+    // 성공 뒤에 한 번 더 부르는 것은 모듈이 자기 검증을 지운 채로 배포되는 경우까지
+    // lint 쪽에서 잡기 위해서다.
+    // 목록은 **이 모듈 옆**에서 읽는다 — `root` 밑이 아니다. `run()`이 이미 registry를
+    // 그렇게 쓰고 있고(`entries = registry.ENTRIES`), 둘은 같은 선언 집합을 설명하므로
+    // 출처가 갈리면 fixture repo에서 «남의 registry를 이 repo의 목록으로 판정»하게 된다.
+    let debt = null;
+    let debtError = null;
+    try {
+      const mod = require('./evidence-debt');
+      debt = mod.EVIDENCE_DEBT;
+      mod.assertShape(debt);
+    } catch (e) {
+      debt = null;
+      debtError = e.message;
+    }
+
+    const lineCache = new Map();
+    const readLines = function (rel) {
+      if (!lineCache.has(rel)) {
+        const r = readFile(path.join(root, rel));
+        lineCache.set(rel, r.ok ? r.text.split(/\r?\n/) : null);
+      }
+      return lineCache.get(rel);
+    };
+
+    // 범위는 `scan.walkSurfaces`가 소유한다 — 자체 walk를 갖지 않는 L4·L9와 같은 계약.
+    const surfaces = [];
+    scan.walkSurfaces(root).forEach(function (rel) {
+      const r = readFile(path.join(root, rel));
+      if (r.ok) surfaces.push({ rel: rel, text: r.text });
+    });
+
+    const problems = evidenceName.evidenceNameProblems({
+      entries: entries,
+      debt: debt,
+      debtError: debtError,
+      readLines: readLines,
+      surfaces: surfaces,
+      lexicalProblem: evidenceLexicalProblem,
+    });
+    checks.L10 = fail('registry evidence names the toggle it points at', problems);
+    checks.L10.debtSize = debt ? debt.length : null;
+  }
+
   const ok = Object.keys(checks).every(function (k) { return checks[k].ok; });
   return { ok: ok, checks: checks };
 }
 
-module.exports = { run: run, evidenceLexicalProblem: evidenceLexicalProblem, rawComparisonHits: rawComparisonHits };
+module.exports = {
+  run: run,
+  evidenceLexicalProblem: evidenceLexicalProblem,
+  rawComparisonHits: rawComparisonHits,
+  // L10의 판정 코어는 `evidence-name.js`가 소유한다. 여기서 re-export하는 것은
+  // 소비처가 «lint의 검사»로 부를 수 있게 하기 위해서이고, 구현이 둘이 되지 않도록
+  // 정의는 한 곳에만 둔다.
+  evidenceNameProblems: evidenceName.evidenceNameProblems,
+  nameAppears: evidenceName.nameAppears,
+  EVIDENCE_WINDOW: evidenceName.EVIDENCE_WINDOW,
+};
 
 if (require.main === module) {
   const json = process.argv.indexOf('--json') !== -1;

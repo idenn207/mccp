@@ -2,7 +2,78 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.31.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.32.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.32.0] — 2026-08-23
+
+> **§3.7**: `1.31.4 → 1.32.0` (**minor** — M5는 impeccable-detection-contract PRD의
+> **마지막** milestone이고 M1~M4가 이미 ship됐으므로 PRD 전체가 종료된다. 같은 PRD의
+> patch 누적(`1.31.1`~`1.31.4`)이 여기서 다음 minor로 정리된다). 병렬 브랜치 충돌 점검:
+> `origin/main`이 `1.31.0`이고, 유일한 sibling worktree `env-contract-integrity`는
+> `1.30.0`에 머문 문서 전용 브랜치(`.claude/_meta/` · PRD 4파일)라 `1.32.0` 자리가 비어
+> 있고 파일 겹침도 없다. 4면(plugin.json · html.js page-foot · markdown.js derived 줄 ·
+> 이 파일의 `currently` 노트)을 함께 맞췄고, `i18n-surface.test.js`는 manifest에서
+> 기대값을 파생하므로 고칠 리터럴이 없다. **PR 진입 직전 재계산 필수.**
+
+**impeccable-detection-contract M5 — 문서·계약 드리프트 정리 (minor, `1.31.4 → 1.32.0`)** —
+M1~M4가 탐지·판정·이름·발화를 고쳤다면, M5는 **그 사실들을 적어 둔 곳**을 고친다. 그리고
+같은 드리프트가 다시 조용히 생길 수 없게 그 질문을 lint에 넣는다.
+
+### Added
+
+- `env-contract/evidence-name.js` — L10의 순수 판정 코어. 정방향(evidence 행 ±2 창 안에 그
+  이름이 있는가) · 역방향(`not-consumed`이면 런타임 표면에 그 이름이 **없어야** 한다) ·
+  래칫(열거된 이름만 면제하되 고쳐졌는데 남아 있어도 붉다)을 한 순수 함수로 판정한다.
+  `lint.run()`에 주입 지점이 없어 fixture registry로 래칫을 단위 test할 수 없었기 때문에
+  분리했다 — `evidenceLexicalProblem`·`rawComparisonHits`가 이미 같은 이유로 export돼 있다.
+- `env-contract/evidence-debt.js` — 비-impeccable 잔여 **29건**의 이름 + 소유 축. 숫자 상한이
+  아니라 이름 목록인 이유는 숫자가 신원을 감추기 때문이다(하나 고치고 하나 깨뜨리면 숫자는
+  그대로다). **로드 시점에 자기 검증하고 위반이면 throw한다** — 배열 아님 · 형식 오류 · 중복 ·
+  registry 미등재 · `^(MCCP_)?IMPECCABLE_` 매칭. 이 저장소의 test는 어떤 CI도 돌리지 않으므로
+  test에만 있는 불변식은 커밋을 막지 못한다.
+- `env-contract/measure-evidence.js` — A/B/C 재측정 스크립트(read-only, `--json`). 노트의
+  수치가 문서 안의 숫자가 아니라 재현 가능한 출력이 되게 한다. **경계 일치**를 써서
+  `MCCP_PLAN_REVIEW_L3`가 적힌 행이 `MCCP_PLAN_REVIEW`를 인증하는 접두사 충돌을 배제한다.
+- `env-contract/lint.js` **L10** — 위 코어를 `run()`에 배선. 래칫 로더는 fail-closed이고,
+  실패 시 면제 집합이 빈 집합이 되어 정방향 검사가 전부 그대로 판정된다.
+- `env-contract/tests/evidence-debt.test.js` — 래칫 양방향 · `not-consumed` 역방향 ·
+  로더 실패 · vacuous 가드 · 접두사 충돌 12 test. `lint.test.js`에 L10 음성 fixture 2건 추가
+  (하나는 **L8이 통과하는 상태에서** L10만 붉어지는 것을 보여 두 검사의 차이를 고정한다).
+
+### Changed
+
+- `env-contract/registry.js` — status에 `not-consumed` 추가. `IMPECCABLE_*` 19종이 그 status로
+  가고 evidence는 read site 대신 `docs/environment/external.md`의 자기 절을 가리킨다. 근인은
+  부주의가 아니라 **만족 불가능한 스키마**였다: evidence 계약이 read site를 요구하는데 이
+  부류에는 read site가 존재하지 않아(M3가 벤더 사본을 지웠으므로 impeccable 본문도 가리킬 수
+  없다) 무관한 한 줄이 19번 적혔다. `L7`은 status로 분기하지 않으므로 이 19종은 **여전히**
+  사용 예시를 요구받는다 — 조용히 검사 밖으로 나가지 않게 하려는 명시적 결정이다.
+- `env-contract/registry.js` — B-class 4건의 evidence를 실제 read site로
+  (`impeccable-routing.js` 118→164 · 127→173 · `impeccable-detect.js` 301→319 ·
+  `prp-implement.md` 224→702). `MCCP_IMPECCABLE_SKILL`은 `string` → **`enum`**
+  (`available` · `missing`) — `impeccable-detect.js:322-330`이 그 둘 밖의 값을 WARNING과 함께
+  버리므로, "impeccable skill 이름"이라는 옛 설명대로 쓰면 아무 일도 일어나지 않았다.
+- `docs/environment/external.md` — 19개 절의 자기모순 해소(헤더가 "기본값 없음"이라 적으면서
+  같은 절의 보존 표는 구체값을 적고 있었다 → 이제 **벤더 관측**임을 명시하고 원문과 같은 값을
+  싣는다) · `<사유를 한 문장으로>` 템플릿 오염을 실값으로 · **거짓 셸 예시 제거**(그 변수는
+  impeccable 프로세스가 읽으므로 `/mccp:*` 앞에 붙여도 아무 일도 일어나지 않는다) ·
+  `IMPECCABLE_VERSION`의 거짓 주장에 **정정 줄**을 덧붙임(보존 원문은 지우지 않는다 — 고쳐
+  쓰면 아카이브가 아니게 된다).
+- `docs/environment/review.md` · `docs/ENVIRONMENT.md` — `MCCP_IMPECCABLE_SKILL`을 enum으로
+  동기하고, 이 override가 **외부에 따로 설치한 경우를 위한 장치**임을 명시. 공식 채널
+  설치자에게 env 설정을 요구하는 것은 의도된 사용법이 아니라 결함이다.
+- `CLAUDE.md` §1.1 — impeccable을 번들하지 않는 **근거**를 정정. "mccp 본문이
+  `Skill(impeccable, ...)`을 그대로 호출하므로"는 v1.31.3(M3) 이후 거짓이다(실측: 그 리터럴
+  7건은 전부 주석·test이며 명령 본문 0건). 결론은 유지하되 근거는 "vendor하면 사용자가 설치한
+  채널과 **다른 본문**을 열게 되어 M3의 계약이 깨진다"로 바꿨다.
+
+### Fixed
+
+- `plan-review/cli.js` — `MCCP_PLAN_REVIEW_TEST_INVOKE`를 registry에 등재하자(origin/main
+  `b111dca`에서 상속된 L1 red) 그 이름이 L9의 boolean 집합에 들어가 raw 비교 한 줄이 붉어졌다.
+  `parseBool`로 옮겼고 bypass-flag 분기가 `raw === '1'`이라 **바이트 단위로 동일**하다.
+  plan은 "1행 등재 · 런타임 무변경"을 예상했으나 실제로는 한 줄이 더 필요했고, 그 사실을
+  숨기지 않는다.
 
 ## [1.31.4] — 2026-08-23
 

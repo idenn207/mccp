@@ -34,6 +34,7 @@ const {
   buildL3Record, buildFindingsRecord, bridgeArtifacts, L3_ARTIFACTS,
 } = require('./l3');
 const { parseSinglePass, extractMeasurement } = require('../review-single-pass');
+const { parseBool } = require('../env-contract/value');
 const { deriveBacklogRows, appendRows, backlogPath } = require('./backlog-append');
 const {
   REVIEW_PERSPECTIVES,
@@ -535,7 +536,10 @@ function cmdL3(args) {
   let codexInvoke;
   const injectedModule = (args['invoke-module'] && args['invoke-module'] !== true)
     ? String(args['invoke-module']) : null;
-  if (injectedModule && process.env.MCCP_PLAN_REVIEW_TEST_INVOKE !== '1') {
+  // M5: 등재된 bypass-flag를 raw로 비교하면 lint L9가 붉어진다 — 그것이 L9의 존재 이유다.
+  // `parseBool`의 bypass-flag 분기는 `raw === '1'`이라 이 교체는 **바이트 단위로 동일**하다
+  // (trim도 대소문자 접기도 하지 않는다 — `env-contract/value.js:91-95`).
+  if (injectedModule && !parseBool(process.env, 'MCCP_PLAN_REVIEW_TEST_INVOKE')) {
     errln('BLOCK: --invoke-module substitutes the Codex wrapper and can therefore ' +
       'produce verdict=converged without Codex ever running. It requires ' +
       'MCCP_PLAN_REVIEW_TEST_INVOKE=1, which the suite sets and a gate run never does.');

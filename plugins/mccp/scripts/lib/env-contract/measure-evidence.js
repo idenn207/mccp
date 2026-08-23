@@ -1,0 +1,138 @@
+'use strict';
+
+// env-contract/measure-evidence.js — evidence 드리프트의 재현 가능한 실측 (v1.32.0).
+//
+// M5의 노트에 적힌 A/B/C 수치는 손으로 센 것이 아니라 이 스크립트의 출력이다. 그것이
+// 요점이다 — 드리프트를 "고쳤다"고 주장하려면 **고치기 전과 후를 같은 자로 재야** 하고,
+// 그 자가 문서 안의 숫자로만 존재하면 다음 사이클은 그것을 재현할 수 없다.
+//
+// 분류는 셋이고 성질이 다르다:
+//   A  evidence 행 ±2 창 안에 이름이 있다 — 계약이 요구하는 상태.
+//   B  같은 파일 안에 있지만 창 밖이다 — **낡았다**(코드가 움직였고 행 번호가 안 따라왔다).
+//   C  그 파일에 이름이 아예 없다 — **거짓이다**(가리키는 곳이 애초에 그 토글이 아니다).
+// 여기에 status `not-consumed`가 네 번째 자리를 갖는다: mccp가 읽지 않는 서드파티
+// 변수라 read site가 **존재하지 않으므로** A/B/C 축으로 잴 대상이 아니다(DD1).
+//
+// **경계 일치를 쓴다.** 이름은 `/^[A-Z][A-Z0-9_]*$/`라 부분 문자열 일치를 쓰면
+// `MCCP_PLAN_REVIEW_L3`가 적힌 행이 `MCCP_PLAN_REVIEW`를 인증한다 — 접두사 충돌이
+// 드리프트를 감춘다. 그래서 앞뒤로 `[A-Za-z0-9_]`가 오지 않는 것을 요구한다.
+// 부작용을 숨기지 않는다: status `scan-artifact`인 `MCCP_PLAN_REVIEW_`(끝이 밑줄인
+// 접두사 오탐)는 경계 일치로는 **절대 A가 될 수 없다**. 그것이 오분류가 아니라
+// 그 항목의 성질이며, 그래서 `EVIDENCE_DEBT`에 이름째 들어간다.
+//
+// mirror: `lint.js`의 `evidenceLexicalProblem` 재사용 — 경로 검사는 이 파일이 새로
+//         만들지 않는다. 두 번째 구현이 생기면 그 둘이 갈라진다.
+
+const fs = require('fs');
+const path = require('path');
+
+const registry = require('./registry');
+const lint = require('./lint');
+
+const WINDOW = 2;
+const IMPECCABLE_AXIS_RE = /^(MCCP_)?IMPECCABLE_/;
+
+/**
+ * 이름을 토큰 경계로 찾는다. 접두사 충돌을 구조적으로 배제하는 유일한 지점.
+ * @param {string} text
+ * @param {string} name — registry.NAME_RE를 통과한 이름이므로 정규식 메타문자가 없다.
+ * @returns {boolean}
+ */
+function hasName(text, name) {
+  return new RegExp('(?<![A-Za-z0-9_])' + name + '(?![A-Za-z0-9_])').test(text);
+}
+
+function makeLineReader(root) {
+  const cache = new Map();
+  return function readLines(rel) {
+    if (!cache.has(rel)) {
+      let lines = null;
+      try {
+        lines = fs.readFileSync(path.join(root, rel), 'utf8').split(/\r?\n/);
+      } catch (_) {
+        lines = null;
+      }
+      cache.set(rel, lines);
+    }
+    return cache.get(rel);
+  };
+}
+
+/**
+ * @param {string} repoRoot
+ * @returns {{classes: Object, entries: Array, counts: Object, impeccable: Object}}
+ */
+function measure(repoRoot) {
+  const root = repoRoot || process.cwd();
+  const readLines = makeLineReader(root);
+  const rows = [];
+
+  registry.ENTRIES.forEach(function (e) {
+    const row = { name: e.name, status: e.status, domain: e.domain, evidence: e.evidence, class: null, note: null };
+
+    if (e.status === 'not-consumed') {
+      row.class = 'not-consumed';
+      rows.push(row);
+      return;
+    }
+
+    // 어휘 스크린이 먼저다 — lint L8과 같은 순서. fs를 부르기 전에 형식을 거른다.
+    const lex = lint.evidenceLexicalProblem(e.evidence);
+    if (lex) {
+      row.class = 'malformed';
+      row.note = lex;
+      rows.push(row);
+      return;
+    }
+
+    const m = /^(.*):(\d+)$/.exec(String(e.evidence).trim());
+    const rel = m[1];
+    const lineNo = Number.parseInt(m[2], 10);
+    const lines = readLines(rel);
+    if (!lines) {
+      row.class = 'unreadable';
+      row.note = 'cannot read ' + rel;
+      rows.push(row);
+      return;
+    }
+
+    const from = Math.max(0, lineNo - 1 - WINDOW);
+    const to = Math.min(lines.length, lineNo + WINDOW);
+    if (hasName(lines.slice(from, to).join('\n'), e.name)) row.class = 'A';
+    else if (hasName(lines.join('\n'), e.name)) row.class = 'B';
+    else row.class = 'C';
+    rows.push(row);
+  });
+
+  const counts = {};
+  rows.forEach(function (r) { counts[r.class] = (counts[r.class] || 0) + 1; });
+
+  const axis = rows.filter(function (r) { return IMPECCABLE_AXIS_RE.test(r.name); });
+  const axisCounts = {};
+  axis.forEach(function (r) { axisCounts[r.class] = (axisCounts[r.class] || 0) + 1; });
+
+  return {
+    total: rows.length,
+    window: WINDOW,
+    counts: counts,
+    impeccable: { total: axis.length, counts: axisCounts, entries: axis },
+    entries: rows,
+  };
+}
+
+module.exports = { measure: measure, hasName: hasName, WINDOW: WINDOW, IMPECCABLE_AXIS_RE: IMPECCABLE_AXIS_RE };
+
+if (require.main === module) {
+  const result = measure(process.cwd());
+  if (process.argv.indexOf('--json') !== -1) {
+    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+  } else {
+    const c = result.counts;
+    process.stdout.write('total ' + result.total + ' (window +/-' + result.window + ')\n');
+    Object.keys(c).sort().forEach(function (k) { process.stdout.write('  ' + k + ' ' + c[k] + '\n'); });
+    process.stdout.write('impeccable axis: ' + result.impeccable.total + ' — '
+      + JSON.stringify(result.impeccable.counts) + '\n');
+    result.entries.filter(function (r) { return r.class === 'B' || r.class === 'C'; })
+      .forEach(function (r) { process.stdout.write('  ' + r.class + ' ' + r.name + ' -> ' + r.evidence + '\n'); });
+  }
+}

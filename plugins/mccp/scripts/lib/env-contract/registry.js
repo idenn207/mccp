@@ -26,6 +26,26 @@
 //             오늘의 상태가 재생산된다.
 //   status    'active' | 'internal' | 'test-only' | 'undocumented-default'
 //             | 'retired' | 'absent-by-design' | 'scan-artifact' | 'comment-only'
+//             | 'not-consumed'
+//
+//             `not-consumed` — **mccp가 읽지 않는 서드파티 변수.** impeccable 자신의
+//             스크립트가 읽고 이 저장소에는 read site가 존재하지 않는다. 그래서 위
+//             `evidence` 계약이 이 부류에 대해 **만족 불가능**하다: read site를 가리키라
+//             요구하는데 가리킬 곳이 없고, v1.31.3부터 벤더 사본도 없어 impeccable
+//             본문을 가리킬 수도 없다. 필드를 비울 수 없으니 과거에는 무관한 한 줄
+//             (`impeccable-detect.js:135`)을 19번 적었다 — 부주의가 아니라 **표현할 수 없는
+//             사실을 표현하라고 요구한 스키마**가 만든 결과다. 이 status는 그 사실을 말할
+//             수 있게 하고, `evidence`는 read site 대신 **그 계약을 문서화한 앵커**
+//             (`docs/environment/*.md`)를 가리킨다. 선례: 아래 `MCCP_PLAN_REVIEW_L1`의
+//             `absent-by-design` + `retired.md:1`.
+//
+//             lint L10이 이 status를 **역방향으로** 검사한다 — 런타임 표면에 그 이름이
+//             나타나면 red다. 주장이 «읽지 않는다»이므로 읽기 시작하면 붉어야 한다.
+//
+//             **L7(사용 예시) 대상에서는 빠지지 않는다.** L7은 status로 분기하지 않고
+//             `docs/environment/*.md`의 `### NAME` 앵커를 전수 순회하므로 이 19종은
+//             여전히 실행 가능한 사용 예시를 요구받는다. 조용히 검사 밖으로 나가지
+//             않게 하려는 **명시적 결정**이다(M5 Task 2).
 //   domain    상세 문서 8장 중 하나의 이름.
 //   evidence  이 토글을 실제로 읽는 지점의 `path:line`. **default 리터럴이 아니라
 //             read site**를 가리킨다 — read site는 모든 토글에 존재하지만 default
@@ -47,6 +67,7 @@ const POLARITIES = Object.freeze(['enable-by-default', 'disable-by-default']);
 const STATUSES = Object.freeze([
   'active', 'internal', 'test-only', 'undocumented-default',
   'retired', 'absent-by-design', 'scan-artifact', 'comment-only',
+  'not-consumed',
 ]);
 const DOMAINS = Object.freeze([
   'gates', 'review', 'orchestration', 'cost', 'hooks', 'observability', 'external', 'retired',
@@ -127,9 +148,12 @@ const RAW = [
   ['MCCP_DESIGN_CRITIQUE_MAX_RETRY', 'int', null, '2', null, 'active', 'review', 'plugins/mccp/scripts/lib/design-critique-decide.js:26', 'critique 재시도 상한.'],
   ['MCCP_DESIGN_GROUNDING', 'enum', ['enforce', 'warn', 'off'], 'enforce', null, 'active', 'review', 'plugins/mccp/scripts/lib/design-grounding.js:31', 'grounding lint 모드.'],
   ['MCCP_DESIGN_INTENT_REASON', 'string', null, null, null, 'active', 'review', 'plugins/mccp/commands/plan-prd.md:187', 'critique 강제 override.'],
-  ['MCCP_IMPECCABLE_ROUTING_MODE', 'enum', ['auto', 'hybrid', 'recommend'], 'auto', null, 'active', 'review', 'plugins/mccp/scripts/lib/impeccable-routing.js:118', 'impeccable 라우팅 모드.'],
-  ['MCCP_IMPECCABLE_INTENT_COMMANDS', 'list', null, null, null, 'undocumented-default', 'review', 'plugins/mccp/scripts/lib/impeccable-routing.js:127', '추가 라우팅 명령 목록.'],
-  ['MCCP_IMPECCABLE_SKILL', 'string', null, null, null, 'active', 'review', 'plugins/mccp/scripts/lib/impeccable-detect.js:301', 'impeccable skill 이름.'],
+  ['MCCP_IMPECCABLE_ROUTING_MODE', 'enum', ['auto', 'hybrid', 'recommend'], 'auto', null, 'active', 'review', 'plugins/mccp/scripts/lib/impeccable-routing.js:164', 'impeccable 라우팅 모드.'],
+  ['MCCP_IMPECCABLE_INTENT_COMMANDS', 'list', null, null, null, 'undocumented-default', 'review', 'plugins/mccp/scripts/lib/impeccable-routing.js:173', '추가 라우팅 명령 목록.'],
+  // 값은 «skill 이름»이 아니라 **탐지 결과 강제 override**다. `impeccable-detect.js:322-330`이
+  // `available`/`missing` 밖의 값을 stderr WARNING과 함께 버리므로, 이름을 넣으라는 옛
+  // 설명대로 쓰면 아무 일도 일어나지 않는다.
+  ['MCCP_IMPECCABLE_SKILL', 'enum', ['available', 'missing'], null, null, 'active', 'review', 'plugins/mccp/scripts/lib/impeccable-detect.js:319', 'impeccable 탐지 결과 강제 override.'],
   ['MCCP_A11Y_AUTO_INVOKE', 'bool', B, 'on', ON, 'active', 'review', 'plugins/mccp/commands/pr.md:759', 'PR에서 a11y 자동 호출.'],
   ['MCCP_DEEP_RESEARCH_SKILL', 'string', null, null, null, 'active', 'review', 'plugins/mccp/scripts/lib/deep-research-detect.js:45', 'deep-research skill 이름.'],
 
@@ -219,26 +243,26 @@ const RAW = [
   ['GITHUB_TOKEN', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/github-discussions.js:38', 'gh 인증 토큰.'],
   ['ECC_DISABLED_MCPS', 'list', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/hooks/mcp-health-check.js:55', 'ECC 비활성 MCP 목록.'],
   ['CLV2_HOMUNCULUS_DIR', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/hooks/observe-runner.js:73', 'CLv2 instinct 디렉토리.'],
-  ['IMPECCABLE_FORCE_OVERRIDE_REASON', 'string', null, null, null, 'active', 'external', 'plugins/mccp/commands/prp-implement.md:224', 'impeccable 게이트 override.'],
-  ['IMPECCABLE_VERSION', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', 'impeccable 버전 문자열.'],
-  ['IMPECCABLE_NO_UPDATE_CHECK', 'bool', B, 'off', OFF, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', '업데이트 확인 끔.'],
-  ['IMPECCABLE_UPDATE_HOST', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', '업데이트 확인 호스트.'],
-  ['IMPECCABLE_UPDATE_CACHE', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', '업데이트 캐시 경로.'],
-  ['IMPECCABLE_CONTEXT_DIR', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', '컨텍스트 해석 디렉토리.'],
-  ['IMPECCABLE_CRITIQUE_META', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', 'critique 메타 경로.'],
-  ['IMPECCABLE_LIVE_CONFIG', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', 'live mode 설정 경로.'],
-  ['IMPECCABLE_LIVE_DEBUG_EVENTS', 'bool', B, 'off', OFF, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', 'live 이벤트 디버그.'],
-  ['IMPECCABLE_LIVE_APPLY_EVENT_SOFT_DEADLINE_MS', 'int', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', 'apply soft deadline.'],
-  ['IMPECCABLE_LIVE_APPLY_EVENT_HARD_TIMEOUT_MS', 'int', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', 'apply hard timeout.'],
-  ['IMPECCABLE_LIVE_MANUAL_EDIT_REPAIR_ATTEMPTS', 'int', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', '수동 편집 복구 횟수.'],
-  ['IMPECCABLE_LIVE_COPY_AGENT', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', 'copy-edit agent 이름.'],
-  ['IMPECCABLE_LIVE_COPY_AGENT_MODEL', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', 'copy-edit agent 모델.'],
-  ['IMPECCABLE_LIVE_COPY_AGENT_EFFORT', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', 'copy-edit agent effort.'],
-  ['IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS', 'int', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', 'copy-edit agent 상한.'],
-  ['IMPECCABLE_LIVE_COPY_AGENT_MOCK_RESULT', 'string', null, null, null, 'test-only', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:256', 'agent 결과 mock.'],
-  ['IMPECCABLE_LIVE_COPY_AGENT_MOCK_WRITES', 'string', null, null, null, 'test-only', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:256', 'agent write mock.'],
-  ['IMPECCABLE_LIVE_COPY_AGENT_MOCK_DELAY_MS', 'int', null, null, null, 'test-only', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:256', 'agent mock 지연.'],
-  ['IMPECCABLE_PALETTE_SEED', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/impeccable-detect.js:135', '팔레트 생성 시드.'],
+  ['IMPECCABLE_FORCE_OVERRIDE_REASON', 'string', null, null, null, 'active', 'external', 'plugins/mccp/commands/prp-implement.md:702', 'impeccable 게이트 override.'],
+  ['IMPECCABLE_VERSION', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:277', 'impeccable 버전 문자열.'],
+  ['IMPECCABLE_NO_UPDATE_CHECK', 'bool', B, 'off', OFF, 'not-consumed', 'external', 'docs/environment/external.md:315', '업데이트 확인 끔.'],
+  ['IMPECCABLE_UPDATE_HOST', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:345', '업데이트 확인 호스트.'],
+  ['IMPECCABLE_UPDATE_CACHE', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:376', '업데이트 캐시 경로.'],
+  ['IMPECCABLE_CONTEXT_DIR', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:407', '컨텍스트 해석 디렉토리.'],
+  ['IMPECCABLE_CRITIQUE_META', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:440', 'critique 메타 경로.'],
+  ['IMPECCABLE_LIVE_CONFIG', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:471', 'live mode 설정 경로.'],
+  ['IMPECCABLE_LIVE_DEBUG_EVENTS', 'bool', B, 'off', OFF, 'not-consumed', 'external', 'docs/environment/external.md:504', 'live 이벤트 디버그.'],
+  ['IMPECCABLE_LIVE_APPLY_EVENT_SOFT_DEADLINE_MS', 'int', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:534', 'apply soft deadline.'],
+  ['IMPECCABLE_LIVE_APPLY_EVENT_HARD_TIMEOUT_MS', 'int', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:562', 'apply hard timeout.'],
+  ['IMPECCABLE_LIVE_MANUAL_EDIT_REPAIR_ATTEMPTS', 'int', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:590', '수동 편집 복구 횟수.'],
+  ['IMPECCABLE_LIVE_COPY_AGENT', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:618', 'copy-edit agent 이름.'],
+  ['IMPECCABLE_LIVE_COPY_AGENT_MODEL', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:649', 'copy-edit agent 모델.'],
+  ['IMPECCABLE_LIVE_COPY_AGENT_EFFORT', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:680', 'copy-edit agent effort.'],
+  ['IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS', 'int', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:711', 'copy-edit agent 상한.'],
+  ['IMPECCABLE_LIVE_COPY_AGENT_MOCK_RESULT', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:739', 'agent 결과 mock.'],
+  ['IMPECCABLE_LIVE_COPY_AGENT_MOCK_WRITES', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:770', 'agent write mock.'],
+  ['IMPECCABLE_LIVE_COPY_AGENT_MOCK_DELAY_MS', 'int', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:801', 'agent mock 지연.'],
+  ['IMPECCABLE_PALETTE_SEED', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:829', '팔레트 생성 시드.'],
 
   // ── retired · 부재 · scan artifact — 전부 retired.md가 소유하고 예시가 면제된다 ─
   ['MCCP_SKIP_OBSERVE', 'string', null, null, null, 'retired', 'retired', 'docs/environment/retired.md:1', '은퇴 — MCCP_DISABLED_HOOKS로.'],
@@ -248,6 +272,10 @@ const RAW = [
   ['MCCP_SANTA_MAX_ROUNDS', 'string', null, null, null, 'retired', 'retired', 'docs/environment/retired.md:1', '은퇴 — ROUND_CAP으로 개명.'],
   ['MCCP_COST_HARD_CEILING_HIT', 'string', null, null, null, 'retired', 'retired', 'docs/environment/retired.md:1', '은퇴 — chain_aborted로.'],
   ['MCCP_ORCHESTRATION_DEBT_DECAY_HOURS', 'string', null, null, null, 'retired', 'retired', 'docs/environment/retired.md:1', '은퇴 — COST_STATE_DECAY로.'],
+  // 축 밖 1행(M5 Task 3.3): origin/main `b111dca`(codex-intent-context M3)가 도입했으나
+  // 미등재라 L1이 red였다. 런타임 동작 변경 0이며, 이 줄이 없으면 M5는 자기가 확장하는
+  // lint를 green으로 검증할 수 없다.
+  ['MCCP_PLAN_REVIEW_TEST_INVOKE', 'bypass-flag', BY, 'off', OFF, 'test-only', 'review', 'plugins/mccp/scripts/lib/plan-review/cli.js:542', 'test 전용 — `--invoke-module` 허용.'],
   ['MCCP_PLAN_REVIEW_L1', 'string', null, null, null, 'absent-by-design', 'retired', 'docs/environment/retired.md:1', '의도적 부재 — 끌 수 없다.'],
   ['MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL', 'bool', B, 'off', OFF, 'test-only', 'retired', 'plugins/mccp/commands/plan.md:687', 'test 전용 — critique 강제 실패.'],
   ['MCCP_PERF_INJECT_QUADRATIC', 'string', null, null, null, 'test-only', 'retired', 'docs/environment/retired.md:1', 'test 전용, 표면 밖.'],

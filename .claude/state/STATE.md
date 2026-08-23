@@ -1,22 +1,22 @@
 ---
 state_version: 1
-task_fingerprint: impeccable-detection-contract-m4
+task_fingerprint: impeccable-detection-contract-m5
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-23T07:48:47.029Z
+updated_at: 2026-08-23T10:33:25.618Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-23T07:48:47.029Z
+last_event_at: 2026-08-23T10:33:25.618Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-23T07:48:46.957Z
+dep_check_at: 2026-08-23T09:38:09.736Z
 dep_check_missing: impeccable
 escalate_pending: true
-escalate_pending_decision_id: impeccable-detection-contract-m4
+escalate_pending_decision_id: impeccable-detection-contract-m5
 ---
 ## Goal
-impeccable-detection-contract M4 — 게이트 발화 정합. 구현 완료(v1.31.4), commit/PR 대기.
+impeccable-detection-contract M5 — 문서·계약 드리프트 정리. 구현 완료(v1.32.0), commit/PR 대기. PRD 전체 종료.
 
 ## Plan
 - PRD: `.claude/prds/impeccable-detection-contract.prd.md` — M1·M2·M3·**M4 complete**, M5(문서 드리프트) pending
@@ -43,18 +43,16 @@ impeccable-detection-contract M4 — 게이트 발화 정합. 구현 완료(v1.3
 
 
 ## Next Step
-`/mccp:prp-commit` (scratch 파일 0건 확인) → `/mccp:pr`. PR 진입 직전 §3.7 version 재계산 필수(origin/main 1.31.0, 로컬 1.31.4). PR 진입 시 슬러그 분리 결정 필요 — Open Questions 1번.
+/mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 version 재계산 필수(origin/main 1.31.0, 로컬 1.32.0 minor=PRD 종료).
 
 ## Last Decision
-plan-codex receipt가 base 슬러그에 실려 있어(`/mccp:plan`이 PRD 경로로 호출된 결과) implement가 도출한 `-m4`에서 missing이었다. plan 본문 해시가 receipt의 `reviewed_plan_hash`와 동일함을 실측 확인해 "게이트는 이 본문에 실제로 돌았다"를 입증한 뒤, 사용자 승인 하에 §3.16의 감사 우회로 진행했다 — 재실행은 동일 본문·동일 리뷰어라 새 정보 없이 파일명만 얻고 약 16분을 재지불한다. receipt 파일명 변경은 §3.12 no-rehash·§3.16 위조 금지라 하지 않았다. 사유는 notes 첫 절에 감사 앵커로 기록.
+Codex R1 HIGH(래칫 로더 fail-closed 미명시)와 plan L2 CRITICAL이 같은 축이라 R1에서 전건 흡수 — evidence-debt.js 로드 시점 throw + lint try/catch 2겹. MEDIUM 2건은 §3.14대로 backlog 이연. §3.16대로 1라운드로 끝내고 divergent를 정직하게 봉인.
 
 ## Open Questions
-- **[PR 차단 예상] chain이 슬러그로 갈려 있다.** `-m4`에는 implement-codex만, base에는 plan-codex만 있어 두 receipt가 공존하는 슬러그가 없다. `/mccp:pr`은 인자 없이 base를 도출하므로 implement-codex missing으로 본다(실측 exit 2). 선택지: (a) 감사 우회 + 사유 기록, (b) base 슬러그에 implement-codex 추가 발행(중복이지 위조는 아니나 감사 표면이 흐려짐), (c) `/mccp:plan`을 plan 경로로 재실행(패널 약 16분). **사용자 결정 사항.**
-- 설치된 plugin cache가 1.31.0(pre-M1)이라 `${CLAUDE_PLUGIN_ROOT}` 경유 호출은 옛 술어로 돈다. 이번 사이클의 `restamp-routed`는 그 cache에 없어 **실제로 3회 실패**했고(fail-open 경로가 설계대로 복구), STATE.md의 `dep_check_missing: impeccable`도 그 옛 술어가 남긴 stale 값이었다(현재 측정으로 정정). 머지 후 `claude plugin update` 필요
-- 디자인 게이트 트리거는 EXECUTE 이전에 평가되므로, 디자인 화이트리스트 파일을 편집하는 milestone은 자기 pre-EXECUTE 트리거를 구조적으로 켤 수 없다(2.5.5b false → EXECUTE 후 true). §3.9가 인정한 성질의 같은 계열이며 M4가 만든 것이 아니다
-- `receipt/tests/`가 `write()` 1회당 60초(briefing LLM 타임아웃 소진, 실측 61,036ms). 신규 test는 `MCCP_BRIEFING=off`로 11초. 기존 test는 그대로 — backlog 기록
-- (main 승계 red 54건) santa-loop-cap 28 · santa-adjudication 22 · review-single-pass-fields 2 · santa-lanes 1 · session-processes-reclaim 1. **M4가 만든 red는 0**
-- (cleanup) `.worktrees/m3-baseline` · `.worktrees/review-loop-bypass-m2` 잔존
+- EVIDENCE_DEBT 29건(plan 예상 28)은 각 축의 부채 — 경계 일치가 MCCP_PLAN_REVIEW_(scan-artifact)를 C로 분류한 차이
+- L10 역방향은 walkSurfaces 범위 부재만 증명 — env-contract/ 디렉토리 전체 제외(backlog)
+- 설치 plugin cache가 1.31.0(pre-M1) — 머지 후 claude plugin update 필요
+- sibling worktree env-contract-integrity가 같은 subsystem PRD 보유(1.30.0, 문서 전용) — 충돌 없음
 
 ## Last Updated
-2026-08-23T07:48:47.029Z
+2026-08-23T10:33:25.618Z

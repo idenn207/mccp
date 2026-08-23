@@ -250,7 +250,7 @@ CLV2_HOMUNCULUS_DIR=<사유를 한 문장으로> /mccp:pr
 
 **한 줄** impeccable 게이트 override.
 
-**소비처** `plugins/mccp/commands/prp-implement.md:224`
+**소비처** `plugins/mccp/commands/prp-implement.md:702`
 
 **사용 예시**
 
@@ -276,29 +276,34 @@ IMPECCABLE_FORCE_OVERRIDE_REASON=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_VERSION
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `string` — **값** semver 문자열 — **기본값** 미설정 (원문도 unset)
 
 **한 줄** impeccable 버전 문자열.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_VERSION": "<사유를 한 문장으로>"
+    "IMPECCABLE_VERSION": "4.1.1"
   }
 }
 ```
 
-한 호출에만 적용하려면 셸에서 앞에 붙인다:
+이 변수는 impeccable 프로세스가 읽는다 — `/mccp:*` 명령 앞에 붙여도 아무 일도 일어나지 않는다.
+impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설정한다.
 
-```bash
-IMPECCABLE_VERSION=<사유를 한 문장으로> /mccp:pr
-```
+> **정정 (v1.32.0)**: 아래 보존 원문의 «mccp의 `/mccp:setup` dep-check가 CLI 미설치 환경에서
+> fallback hint로 honor» 서술은 **거짓이다**. 실측(2026-08-23): `plugins/mccp/scripts/` 전체에서
+> 이 이름을 읽는 코드는 **0건**이고 레지스트리 등재 행뿐이다. 링크된 plan도 그 자리에 없다 —
+> `.claude/PRPs/plans/archived/mccp-setup-command.plan.md`로 이동했다. 아카이브를 고쳐 쓰면
+> 아카이브가 아니게 되므로 원문은 그대로 두고 정정만 덧붙인다(DD4).
 
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
@@ -309,15 +314,17 @@ IMPECCABLE_VERSION=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_NO_UPDATE_CHECK
 
-**종류** `bool` — **값** `on` · `off` — **기본값** `off`
+**종류** `bool` — **값** `on` · `off` — impeccable 본문은 `1` 등 truthy를 본다 — **기본값** 미설정 (원문도 unset)
 
 **한 줄** 업데이트 확인 끔.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
 **극성** 미설정이면 **꺼져 있다**. 극성은 레지스트리가 선언하고 파서는 읽기만 한다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
@@ -337,29 +344,28 @@ IMPECCABLE_VERSION=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_UPDATE_HOST
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `string` — **값** URL (trailing `/`는 자동 strip) — **기본값** 미설정 (mccp 기본값 없음 — 읽지 않는다) · impeccable 3.5.0 관측 `https://impeccable.style`
 
 **한 줄** 업데이트 확인 호스트.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_UPDATE_HOST": "<사유를 한 문장으로>"
+    "IMPECCABLE_UPDATE_HOST": "https://impeccable.style"
   }
 }
 ```
 
-한 호출에만 적용하려면 셸에서 앞에 붙인다:
-
-```bash
-IMPECCABLE_UPDATE_HOST=<사유를 한 문장으로> /mccp:pr
-```
+이 변수는 impeccable 프로세스가 읽는다 — `/mccp:*` 명령 앞에 붙여도 아무 일도 일어나지 않는다.
+impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설정한다.
 
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
@@ -369,29 +375,28 @@ IMPECCABLE_UPDATE_HOST=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_UPDATE_CACHE
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `string` — **값** 절대 경로 — **기본값** 미설정 (mccp 기본값 없음 — 읽지 않는다) · impeccable 3.5.0 관측 `~/.impeccable/update-check.json`
 
 **한 줄** 업데이트 캐시 경로.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_UPDATE_CACHE": "<사유를 한 문장으로>"
+    "IMPECCABLE_UPDATE_CACHE": "~/.impeccable/update-check.json"
   }
 }
 ```
 
-한 호출에만 적용하려면 셸에서 앞에 붙인다:
-
-```bash
-IMPECCABLE_UPDATE_CACHE=<사유를 한 문장으로> /mccp:pr
-```
+이 변수는 impeccable 프로세스가 읽는다 — `/mccp:*` 명령 앞에 붙여도 아무 일도 일어나지 않는다.
+impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설정한다.
 
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
@@ -401,29 +406,28 @@ IMPECCABLE_UPDATE_CACHE=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_CONTEXT_DIR
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `string` — **값** 절대 또는 cwd 상대 경로 — **기본값** 미설정 (원문도 unset)
 
 **한 줄** 컨텍스트 해석 디렉토리.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_CONTEXT_DIR": "<사유를 한 문장으로>"
+    "IMPECCABLE_CONTEXT_DIR": ".agents/context"
   }
 }
 ```
 
-한 호출에만 적용하려면 셸에서 앞에 붙인다:
-
-```bash
-IMPECCABLE_CONTEXT_DIR=<사유를 한 문장으로> /mccp:pr
-```
+이 변수는 impeccable 프로세스가 읽는다 — `/mccp:*` 명령 앞에 붙여도 아무 일도 일어나지 않는다.
+impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설정한다.
 
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
@@ -435,29 +439,28 @@ IMPECCABLE_CONTEXT_DIR=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_CRITIQUE_META
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `string` — **값** JSON 문자열 — **기본값** 미설정 (원문도 unset)
 
 **한 줄** critique 메타 경로.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_CRITIQUE_META": "<사유를 한 문장으로>"
+    "IMPECCABLE_CRITIQUE_META": "{\"target\":\"dashboard\",\"total_score\":82,\"p0_count\":0,\"p1_count\":3}"
   }
 }
 ```
 
-한 호출에만 적용하려면 셸에서 앞에 붙인다:
-
-```bash
-IMPECCABLE_CRITIQUE_META=<사유를 한 문장으로> /mccp:pr
-```
+이 변수는 impeccable 프로세스가 읽는다 — `/mccp:*` 명령 앞에 붙여도 아무 일도 일어나지 않는다.
+impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설정한다.
 
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
@@ -467,29 +470,28 @@ IMPECCABLE_CRITIQUE_META=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_LIVE_CONFIG
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `string` — **값** 절대 또는 cwd 상대 경로 — **기본값** 미설정 (원문도 unset)
 
 **한 줄** live mode 설정 경로.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_LIVE_CONFIG": "<사유를 한 문장으로>"
+    "IMPECCABLE_LIVE_CONFIG": ".impeccable/live/config.json"
   }
 }
 ```
 
-한 호출에만 적용하려면 셸에서 앞에 붙인다:
-
-```bash
-IMPECCABLE_LIVE_CONFIG=<사유를 한 문장으로> /mccp:pr
-```
+이 변수는 impeccable 프로세스가 읽는다 — `/mccp:*` 명령 앞에 붙여도 아무 일도 일어나지 않는다.
+impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설정한다.
 
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
@@ -501,15 +503,17 @@ IMPECCABLE_LIVE_CONFIG=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_LIVE_DEBUG_EVENTS
 
-**종류** `bool` — **값** `on` · `off` — **기본값** `off`
+**종류** `bool` — **값** `on` · `off` — impeccable 본문은 `1`/`true`/`yes`를 본다 — **기본값** 미설정 (원문도 unset)
 
 **한 줄** live 이벤트 디버그.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
 **극성** 미설정이면 **꺼져 있다**. 극성은 레지스트리가 선언하고 파서는 읽기만 한다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
@@ -529,20 +533,22 @@ IMPECCABLE_LIVE_CONFIG=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_LIVE_APPLY_EVENT_SOFT_DEADLINE_MS
 
-**종류** `int` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `int` — **값** 정수 (ms) — **기본값** 미설정 (mccp 기본값 없음 — 읽지 않는다) · impeccable 3.5.0 관측 `120000`
 
 **한 줄** apply soft deadline.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_LIVE_APPLY_EVENT_SOFT_DEADLINE_MS": "1"
+    "IMPECCABLE_LIVE_APPLY_EVENT_SOFT_DEADLINE_MS": "120000"
   }
 }
 ```
@@ -555,20 +561,22 @@ IMPECCABLE_LIVE_CONFIG=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_LIVE_APPLY_EVENT_HARD_TIMEOUT_MS
 
-**종류** `int` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `int` — **값** 정수 (ms) — **기본값** 미설정 (mccp 기본값 없음 — 읽지 않는다) · impeccable 3.5.0 관측 `150000`
 
 **한 줄** apply hard timeout.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_LIVE_APPLY_EVENT_HARD_TIMEOUT_MS": "1"
+    "IMPECCABLE_LIVE_APPLY_EVENT_HARD_TIMEOUT_MS": "150000"
   }
 }
 ```
@@ -581,20 +589,22 @@ IMPECCABLE_LIVE_CONFIG=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_LIVE_MANUAL_EDIT_REPAIR_ATTEMPTS
 
-**종류** `int` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `int` — **값** 정수 (재시도 횟수) — **기본값** 미설정 (mccp 기본값 없음 — 읽지 않는다) · impeccable 3.5.0 관측 소스 상수 `DEFAULT_REPAIR_ATTEMPTS`
 
 **한 줄** 수동 편집 복구 횟수.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_LIVE_MANUAL_EDIT_REPAIR_ATTEMPTS": "1"
+    "IMPECCABLE_LIVE_MANUAL_EDIT_REPAIR_ATTEMPTS": "3"
   }
 }
 ```
@@ -607,29 +617,28 @@ IMPECCABLE_LIVE_CONFIG=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_LIVE_COPY_AGENT
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `string` — **값** `auto` · `codex` · `claude` · `chat` · `mock` · `off` — **기본값** 미설정 (mccp 기본값 없음 — 읽지 않는다) · impeccable 3.5.0 관측 `auto`
 
 **한 줄** copy-edit agent 이름.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_LIVE_COPY_AGENT": "<사유를 한 문장으로>"
+    "IMPECCABLE_LIVE_COPY_AGENT": "auto"
   }
 }
 ```
 
-한 호출에만 적용하려면 셸에서 앞에 붙인다:
-
-```bash
-IMPECCABLE_LIVE_COPY_AGENT=<사유를 한 문장으로> /mccp:pr
-```
+이 변수는 impeccable 프로세스가 읽는다 — `/mccp:*` 명령 앞에 붙여도 아무 일도 일어나지 않는다.
+impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설정한다.
 
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
@@ -639,29 +648,28 @@ IMPECCABLE_LIVE_COPY_AGENT=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_LIVE_COPY_AGENT_MODEL
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `string` — **값** 모델 이름 (그대로 `--model <name>`로 전달) — **기본값** 미설정 (원문도 unset)
 
 **한 줄** copy-edit agent 모델.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_LIVE_COPY_AGENT_MODEL": "<사유를 한 문장으로>"
+    "IMPECCABLE_LIVE_COPY_AGENT_MODEL": "gpt-5-codex"
   }
 }
 ```
 
-한 호출에만 적용하려면 셸에서 앞에 붙인다:
-
-```bash
-IMPECCABLE_LIVE_COPY_AGENT_MODEL=<사유를 한 문장으로> /mccp:pr
-```
+이 변수는 impeccable 프로세스가 읽는다 — `/mccp:*` 명령 앞에 붙여도 아무 일도 일어나지 않는다.
+impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설정한다.
 
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
@@ -671,29 +679,28 @@ IMPECCABLE_LIVE_COPY_AGENT_MODEL=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_LIVE_COPY_AGENT_EFFORT
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `string` — **값** `low` · `medium` · `high` — **기본값** 미설정 (mccp 기본값 없음 — 읽지 않는다) · impeccable 3.5.0 관측 `low`
 
 **한 줄** copy-edit agent effort.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_LIVE_COPY_AGENT_EFFORT": "<사유를 한 문장으로>"
+    "IMPECCABLE_LIVE_COPY_AGENT_EFFORT": "medium"
   }
 }
 ```
 
-한 호출에만 적용하려면 셸에서 앞에 붙인다:
-
-```bash
-IMPECCABLE_LIVE_COPY_AGENT_EFFORT=<사유를 한 문장으로> /mccp:pr
-```
+이 변수는 impeccable 프로세스가 읽는다 — `/mccp:*` 명령 앞에 붙여도 아무 일도 일어나지 않는다.
+impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설정한다.
 
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
@@ -703,20 +710,22 @@ IMPECCABLE_LIVE_COPY_AGENT_EFFORT=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS
 
-**종류** `int` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `int` — **값** 정수 (ms) — **기본값** 미설정 (mccp 기본값 없음 — 읽지 않는다) · impeccable 3.5.0 관측 `120000`
 
 **한 줄** copy-edit agent 상한.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS": "1"
+    "IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS": "120000"
   }
 }
 ```
@@ -729,29 +738,28 @@ IMPECCABLE_LIVE_COPY_AGENT_EFFORT=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_LIVE_COPY_AGENT_MOCK_RESULT
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `string` — **값** JSON 문자열 — **기본값** 미설정 (원문도 unset)
 
 **한 줄** agent 결과 mock.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:256`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `test-only` — test 전용이다. 운영 환경에서 설정하지 않는다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_LIVE_COPY_AGENT_MOCK_RESULT": "<사유를 한 문장으로>"
+    "IMPECCABLE_LIVE_COPY_AGENT_MOCK_RESULT": "{\"status\":\"done\",\"applied\":[\"entry-1\"]}"
   }
 }
 ```
 
-한 호출에만 적용하려면 셸에서 앞에 붙인다:
-
-```bash
-IMPECCABLE_LIVE_COPY_AGENT_MOCK_RESULT=<사유를 한 문장으로> /mccp:pr
-```
+이 변수는 impeccable 프로세스가 읽는다 — `/mccp:*` 명령 앞에 붙여도 아무 일도 일어나지 않는다.
+impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설정한다.
 
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
@@ -761,29 +769,28 @@ IMPECCABLE_LIVE_COPY_AGENT_MOCK_RESULT=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_LIVE_COPY_AGENT_MOCK_WRITES
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `string` — **값** JSON `{ "rel/path": "content" }` — **기본값** 미설정 (원문도 unset)
 
 **한 줄** agent write mock.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:256`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `test-only` — test 전용이다. 운영 환경에서 설정하지 않는다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_LIVE_COPY_AGENT_MOCK_WRITES": "<사유를 한 문장으로>"
+    "IMPECCABLE_LIVE_COPY_AGENT_MOCK_WRITES": "{\"src/App.tsx\":\"export default null;\n\"}"
   }
 }
 ```
 
-한 호출에만 적용하려면 셸에서 앞에 붙인다:
-
-```bash
-IMPECCABLE_LIVE_COPY_AGENT_MOCK_WRITES=<사유를 한 문장으로> /mccp:pr
-```
+이 변수는 impeccable 프로세스가 읽는다 — `/mccp:*` 명령 앞에 붙여도 아무 일도 일어나지 않는다.
+impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설정한다.
 
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
@@ -793,20 +800,22 @@ IMPECCABLE_LIVE_COPY_AGENT_MOCK_WRITES=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_LIVE_COPY_AGENT_MOCK_DELAY_MS
 
-**종류** `int` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `int` — **값** 정수 (ms) — **기본값** 미설정 (mccp 기본값 없음 — 읽지 않는다) · impeccable 3.5.0 관측 `0`
 
 **한 줄** agent mock 지연.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:256`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `test-only` — test 전용이다. 운영 환경에서 설정하지 않는다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_LIVE_COPY_AGENT_MOCK_DELAY_MS": "1"
+    "IMPECCABLE_LIVE_COPY_AGENT_MOCK_DELAY_MS": "250"
   }
 }
 ```
@@ -819,29 +828,28 @@ IMPECCABLE_LIVE_COPY_AGENT_MOCK_WRITES=<사유를 한 문장으로> /mccp:pr
 
 ### IMPECCABLE_PALETTE_SEED
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `string` — **값** 문자열 시드 (`hashUnit(value)`로 결정적 seed) — **기본값** 미설정 (원문도 unset)
 
 **한 줄** 팔레트 생성 시드.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** mccp는 이 변수를 **읽지 않는다** — impeccable 본문이 읽는다. 어느 본문이 열리는지는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 설치원·버전·경로째로 알려준다.
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**상태** `not-consumed` — 이 저장소에 read site가 **존재하지 않는다**. 레지스트리의 `evidence`는
+read site 대신 이 절을 가리킨다(M5 DD1). 아래 기본값은 mccp의 기본값이 아니라 **벤더 관측**이다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "IMPECCABLE_PALETTE_SEED": "<사유를 한 문장으로>"
+    "IMPECCABLE_PALETTE_SEED": "ocean-2026"
   }
 }
 ```
 
-한 호출에만 적용하려면 셸에서 앞에 붙인다:
-
-```bash
-IMPECCABLE_PALETTE_SEED=<사유를 한 문장으로> /mccp:pr
-```
+이 변수는 impeccable 프로세스가 읽는다 — `/mccp:*` 명령 앞에 붙여도 아무 일도 일어나지 않는다.
+impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설정한다.
 
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 

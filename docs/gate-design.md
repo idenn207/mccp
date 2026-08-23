@@ -1152,3 +1152,94 @@ tracked 파일에서 멈추므로 untracked 내용이 남은 디렉토리는 여
   mccp 게이트 전체가 공유하는 baseline이다.
 
 ---
+
+#### 문서·계약 드리프트 정리 (M5)
+
+M1~M4는 탐지를 정직하게 만들고(M1), 판정 권한을 일원화하고(M2), 이름을 바로잡고(M3),
+발화를 정합화했다(M4). M5가 다루는 것은 **그 사실들을 적어 둔 곳**이다.
+
+##### 근인은 부주의가 아니라 만족 불가능한 스키마다 (DD1)
+
+`registry.js`는 `evidence`를 "이 토글을 **실제로 읽는 지점**의 `path:line`"으로 정의한다.
+그런데 `IMPECCABLE_VERSION` · `IMPECCABLE_UPDATE_HOST` 등 19종은 impeccable 자신의
+스크립트가 읽는 변수이고 이 저장소에는 read site가 **존재하지 않는다** — M3가 벤더 사본을
+지웠으므로 impeccable 본문을 가리킬 수도 없다. 필드를 비울 수 없으니 과거에 무관한 한 줄
+(`impeccable-detect.js:135`, 실제로는 `isDesignSurfacePath()` 내부)이 19번 적혔다.
+
+그래서 고침은 "옳은 행을 찾는 것"이 아니다 — **옳은 행이 없다.** 새 status
+`not-consumed`가 그 사실을 말할 수 있게 하고, `evidence`는 read site 대신 그 계약을
+문서화한 앵커(`docs/environment/*.md`)를 가리킨다. 선례가 이미 있었다:
+`MCCP_PLAN_REVIEW_L1`의 `absent-by-design` + `retired.md:1`.
+
+##### 실측 A/B/C (2026-08-23, `measure-evidence.js`)
+
+착수 시점 162개 항목: **A 110**(evidence 행 ±2 안에 이름 있음) · **B 28**(같은 파일 다른
+행 — *낡았다*) · **C 24**(그 파일에 이름 없음 — *거짓이다*). impeccable 축의 몫은 C 19 +
+B 4 = **23건**이고 전부 L8을 `ok`로 통과했다. 착지 후 그 23건은 A 4 + `not-consumed` 19다.
+
+수치는 문서 안의 숫자가 아니라 스크립트의 출력이다 —
+`node plugins/mccp/scripts/lib/env-contract/measure-evidence.js --json`이 언제든 재현한다.
+그 스크립트는 **경계 일치**를 쓴다: 이름이 `[A-Z][A-Z0-9_]*`라 부분 문자열 일치를 쓰면
+`MCCP_PLAN_REVIEW_L3`가 적힌 행이 `MCCP_PLAN_REVIEW`를 인증한다. 부작용을 숨기지 않는다 —
+`scan-artifact`인 `MCCP_PLAN_REVIEW_`(끝이 밑줄인 접두사 오탐)는 경계 일치로는 **원리상**
+A가 될 수 없고, 그것이 오분류가 아니라 그 항목의 성질이다.
+
+##### L10 — 이름이 그 행에 있는가 (DD2)
+
+L8은 evidence가 repo-relative이고 파일이 있고 행이 범위 안인지만 본다. 셋을 전부 통과하면서
+무관한 줄을 가리킬 수 있다. L10은 한 질문만 더한다: **그 행 근처에 그 이름이 있는가.**
+
+- **정방향** — `not-consumed`이 아닌 모든 항목: evidence 행 **±2 창** 안에 이름이 있어야
+  한다. 창을 두는 이유는 명령 본문(markdown)에서 이름이 코드 펜스 바로 위 산문에 있는 정상
+  사례가 있기 때문이다. 창이 좁아 정상 항목이 붉어지면 **창을 넓히지 말고 evidence를 고친다.**
+- **역방향** — `not-consumed` 항목: evidence는 `docs/environment/*.md`의 **그 변수 자신의 절**을
+  가리켜야 하고, 런타임 표면에 그 이름이 **없어야** 한다. 주장이 "mccp는 읽지 않는다"이므로
+  읽기 시작하면 붉어야 한다. 두 방향이 함께 있어야 status가 도피처가 되지 않는다.
+- **범위는 주장보다 좁고, 그 사실을 적는다.** 역방향은 `scan.walkSurfaces`로 부재를 단언하는데
+  `scan.js`의 `isExcluded`가 `env-contract`를 경로 substring으로 **디렉토리째** 제외한다
+  (registry 선언 행이 자기 자신을 트리거하는 것을 막으려면 필요하다). 즉 이 검사가 증명하는
+  것은 "어디에도 없다"가 아니라 **"walkSurfaces 범위에 없다"** 이다. 좁히는 2차 검사는
+  backlog에 있다(Implement-Codex R1 F2).
+- **L7은 건드리지 않는다.** L7은 status로 분기하지 않고 `docs/environment/*.md`의 `### NAME`
+  앵커를 전수 순회하므로, `not-consumed` 19종은 여전히 실행 가능한 사용 예시를 요구받는다.
+  조용히 검사 밖으로 나가지 않게 하려는 **명시적 결정**이며 registry 헤더에 적혀 있다.
+
+##### 래칫은 숫자가 아니라 이름이고, 로더는 fail-closed다 (DD3)
+
+repo 전체에 L10을 걸면 impeccable 축을 다 고쳐도 **29건**이 붉다. 그것들은 다른 축의 부채이고
+이 사이클이 대신 갚으면 M5는 자기가 검증할 수 없는 파일들을 만지게 된다. 그렇다고 L10을 보고
+전용으로 내리면 §3.16이 경계하는 "막을 수 없는 계측"이 된다. 그래서 **열거된 `EVIDENCE_DEBT`**
+를 둔다 — 29개 이름과 소유 축을 적고 목록에 있는 것만 통과시킨다.
+
+- **숫자가 아니라 이름인 이유**: 상한을 숫자로 두면 하나 고치고 하나 깨뜨려도 그대로다.
+  숫자는 신원을 감춘다.
+- **양방향이다**: 목록에 있는데 실제로는 통과하는 이름도 실패다("지워라"). 래칫은 줄어들기만
+  한다. registry에서 사라진 이름이 목록에 남아도 붉다 — 화석 방지.
+- **로더가 fail-closed다**: 모듈이 없거나 throw하거나 모양이 틀리면 면제 집합이 **빈 집합**이
+  되고 정방향 검사가 전부 그대로 판정된다. 관대한 방향으로 실패하면 목록이 조용히 "전체 면제"가
+  된다. 이 축은 Implement-Codex R1이 HIGH로, plan 게이트 L2 invariant가 CRITICAL로 각각
+  독립 지목했다. 방어는 `evidence-debt.js`의 **로드 시점 throw**와 lint 쪽 try/catch 둘 다에
+  있다 — 이 저장소의 test는 어떤 CI도 돌리지 않으므로 test에만 두는 불변식은 커밋을 못 막는다.
+- **축을 밀어 넣을 수 없다**: 목록에 `^(MCCP_)?IMPECCABLE_` 이름이 있으면 로드가 throw한다.
+
+##### 보존된 원문은 지우지 않고 정정을 붙인다 (DD4)
+
+`docs/environment/external.md`의 "v1.29.0 원문" 블록은 색인 축약 이전 서술의 아카이브다. 그 안의
+`IMPECCABLE_VERSION`이 "`/mccp:setup` dep-check가 fallback hint로 honor"한다는 문장은 거짓이다
+(실측: `plugins/mccp/scripts/` 전체에서 그 이름을 읽는 코드 0건). 아카이브를 고쳐 쓰면 아카이브가
+아니게 되므로 위에 정정 줄을 붙였다 — CLAUDE.md §3.7의 "v1.23.12 정정:"과 같은 형태다.
+
+같은 사이클에서 19개 절의 자기모순도 닫혔다: 헤더가 "기본값 없음"이라 적으면서 같은 절의 보존
+표는 `https://impeccable.style` 같은 구체값을 적고 있었다. 이제 헤더는 **mccp의 기본값이 아니라
+벤더 관측**임을 명시하며 원문과 같은 값을 싣는다. 거짓 셸 예시(`IMPECCABLE_X=... /mccp:pr`)도
+지웠다 — 그 변수는 impeccable 프로세스가 읽으므로 mccp 명령 앞에 붙여도 아무 일도 일어나지 않는다.
+
+##### 주장하지 않는 것
+
+- **다른 축의 29건을 고치지 않는다.** 이름과 소유 축을 적어 각 축이 갚게 할 뿐이다.
+- **역방향이 "mccp가 이 변수를 절대 읽지 않는다"를 증명하지 않는다.** 위의 범위 한계 그대로다.
+- **`MCCP_PLAN_REVIEW_TEST_INVOKE` 등재는 이 축이 아니다.** origin/main에서 상속된 L1 red이고,
+  이 한 줄이 없으면 M5는 자기가 확장하는 lint를 green으로 검증할 수 없었다. 등재가 그 이름을
+  L9의 boolean 집합에 넣으므로 `plan-review/cli.js`의 raw 비교 한 줄도 `parseBool`로 옮겼다 —
+  bypass-flag 분기가 `raw === '1'`이라 **바이트 단위로 동일**하다. "런타임 무변경 1행"이라는
+  plan의 예상보다 한 줄 넓어졌고, 그 사실을 여기 적는다.

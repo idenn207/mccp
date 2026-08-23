@@ -2,7 +2,130 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.31.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.31.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.31.4] — 2026-08-23
+
+> **§3.7**: `1.31.3 → 1.31.4` (**patch** — M4는 impeccable-detection-contract PRD의
+> 네 번째 milestone이고 PRD는 M5가 남아 여전히 in-progress다). 병렬 브랜치 충돌 점검:
+> `origin/main`이 `1.31.0`, 이 브랜치의 미머지 항목이 `1.31.1`(M1)·`1.31.2`(M2)·
+> `1.31.3`(M3)이라 `1.31.4` 자리가 비어 있다. 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄고,
+> `i18n-surface.test.js`는 manifest에서 기대값을 파생하므로 고칠 리터럴이 없다.
+> **PR 진입 직전 재계산 필수** — 병렬 브랜치가 그 사이 자리를 가져갈 수 있다.
+
+**impeccable-detection-contract M4 — 게이트 발화 정합 (patch, `1.31.3 → 1.31.4`)** —
+M1~M3이 탐지를 정직하게 만들고 이름을 바로잡았다면, M4는 **그 이름으로 무엇을 부르는가**를
+다룬다. 세 축을 닫는다: 완주 불가능한 발화를 빼고, 발화가 0인 단계에 자리를 주고, 오라클 밖에서
+일어나던 발화를 오라클 안으로 들여 기록되게 한다.
+
+### Changed
+
+- `impeccable-routing.js` — implement 게이트의 `shape`가 `background` → `recommend`로 강등된다.
+  벤더가 자기 메타데이터(`command-metadata.json`)에 "Runs a **required** multi-round discovery
+  interview"라 적었고, `context.mjs:1121`의 `BUILD_INIT_REQUIRED`는 비대화형 실행에서 "structured
+  simulated user"로 인터뷰를 대신하라고 한다 — 즉 게이트가 조용히 실패하는 것이 아니라 **제품
+  진실을 지어내어 사용자 저장소에 PRODUCT.md를 쓴다**. 카탈로그에서 빼지 않고(UI5) call form만
+  내렸다. 부작용을 숨기지 않는다: 이후 `resolveCallForm`은 `background`를 **절대 반환하지 않는다**.
+  `schema.js`의 enum과 명령 본문 표는 **남긴다**(좁히면 과거 receipt 해석이 바뀌고, `background`는
+  정당한 미래 base다) — 대신 test가 전수 조합에서 도달 불가를 단언해, 다시 도달 가능해지는 날
+  붉어지게 한다.
+- `impeccable-routing.js` — 테이블에 `phase` 축(`pre`/`finish`)이 생긴다. `clarify`·`distill`이
+  `recommend`/pre에서 `invoke`/finish로 옮겨가고, `polish`·`harden`·`optimize`가 finish 엔트리로
+  신설된다(implement 16 → 19, pre 14 + finish 5). **새 callForm이 아니라 phase인 이유**: `'finish'`
+  callForm을 만들면 `resolveCallForm`·`selectByDiffSignals`·receipt schema의 닫힌 enum이 전부 따라
+  움직인다. phase는 기존 내부 메타(`signal`)의 형제라 공개 반환에서 strip되고 **schema를 한 줄도
+  건드리지 않는다**. plan·prd·pr 테이블은 전 엔트리가 `pre`이므로 세 게이트 출력은 바이트 동일하다.
+- `prp-implement.md` Phase 3.6 — 하드코딩된 `clarify`/`distill`/`polish` 나열을 오라클 호출
+  (`phase:"finish"`)로 교체하고, 산출 diff로 `renderingSurface`·`diffSignals`를 재계산한 뒤
+  2.5.5b와 동일한 callForm 처리표로 `{command, call_form, status}`를 누적한다. 2.5.5b는
+  `phase:"pre"`를 명시한다. **duplicate-call 불변식이 산문에서 필터로 옮겨졌다** — 엔트리는 정확히
+  한 phase에만 속하므로 두 패스가 같은 명령을 부를 수 없고, test가 두 집합의 교집합이 공집합임을
+  단언한다. 이전에는 두 목록을 손으로 맞췄고 이미 어긋나 있었다(Phase 3.6이 `polish`를 불렀는데
+  implement 테이블에는 그 엔트리가 아예 없었다).
+- `CLAUDE.md` §3.10 — 라우팅되는 것처럼 읽히던 stage→command 나열을 걷어내고(그 표는 오라클이
+  소유한다) M4 문단으로 대체. 상세는 `docs/gate-design.md`가 소유한다.
+
+### Added
+
+- `receipt/write.js` `restampRoutedCommands` + `receipt/cli.js restamp-routed` — finish 패스는
+  2.5.6 receipt write **이후**에 도는데 유일한 사후 restamp(`restampGroundingVerdict`)가 grounding
+  한 키만 건드려서, 실제 발화가 receipt에 **기록될 경로가 구조적으로 없었다**. 이 restamp가 그
+  경로다. `restampGroundingVerdict`를 미러한 field-preserving 형태이고 **schema 변경은 0**이다.
+  - **restamp 간 append-only, dedupe 없음** — duplicate-call 불변식이 깨져 한 명령이 양쪽 패스에서
+    발화하면 receipt에 두 번 보이는 것이 그 drift 신호다. 합치면 이 필드의 존재 이유가 사라진다.
+  - **한 restamp 안에서는 멱등**(Codex Implement-R1 F1) — 같은 restamp의 **재시도**가 두 번째
+    이력을 위조하면 안 된다. 판별자는 canonical 항목형 tail match이고, 판정은 `updateReceipt`의
+    **임계구역 안**에서 이뤄진다(락 밖이면 검사와 쓰기 사이에 꼬리가 바뀔 수 있다 — §3.12가 막는
+    lost-update와 같은 부류). 불확실하면 append한다: 중복은 보이고 복구 가능하지만 진짜 두 번째
+    패스를 삼키면 기록이 사라진다.
+  - **게이트는 `mccp-implement-codex` 하나로 제한**한다. `store.js#assertNoTrackedOverwrite`가
+    이미 tracked ship receipt 재봉인을 거부하므로 §3.12 불변식은 이 제한 없이도 지켜졌지만, 락
+    안에서 시도한 뒤 거부하는 형태였다 — 문 앞에서 이름을 대는 편이 낫다.
+  - **항목 키가 정확히 셋이 아니면 거부**한다. `schema.js`는 세 필수 필드를 검증하되 여분 키를
+    금지하지 않으므로 writer가 막는다. 조용히 정규화하지 않는다 — 예상 밖 키는 producer와
+    consumer가 어긋났다는 뜻이고, 버리면 caller가 믿는 것과 다른 receipt가 봉인된다.
+- `impeccable-routing.js` `INTERVIEW_REQUIRED_COMMANDS` — 벤더가 인터뷰로 막는 명령 집합
+  (`shape`/`init`/`teach`). `teach`는 4.1.1 `command-metadata.json`의 23개 카탈로그에 **없지만**
+  `context.mjs`의 차단 문장은 부른다(벤더 측 불일치). 그래도 집합에 두는 이유는 목적이 "미래에
+  카탈로그가 넓어질 때 인터뷰형 명령이 조용히 발화하지 않게 막는 것"이기 때문이다. mccp 카탈로그와의
+  **오늘 교집합은 `shape` 하나**.
+- test — `impeccable-routing.test.js`에 전수 조합(gate × mode × renderingSurface × phase ×
+  designIntentActive × intentCommands = 128) 위의 M4 metric(인터뷰형 명령 발화 0) · `background`
+  도달 불가 · phase 필터 무해성(plan/prd/pr 명시 배열 pin) · 0-발화 단계 tally가 정확히
+  `{discovery, system}` · phase 미유출 · 미지 phase가 빈 목록임을 추가. `restamp-routed.test.js`
+  신설(14건 — append/멱등/인접 필드 보존/digest 재봉인/키 거부/게이트 거부). `impeccable-guard.test.js`에
+  **짝 단언** 추가: 본문이 `phase:"finish"`를 부르는 것과 `restamp-routed`를 부르는 것이 **같은 값**
+  이어야 한다(반쪽 착지 차단, M3 선례).
+
+### Fixed
+
+- Phase 3.6의 발화가 receipt에 기록되지 않던 결함. `impeccable_commands_routed`는 pre 패스만 담고
+  있었고, 오라클은 `clarify`/`distill`을 `recommend`로 답하며 `polish`는 아예 미등재였다 — receipt가
+  실제 발화를 **덜** 보고했다.
+- 발화가 0이던 `harden` 단계. `harden`·`optimize`는 산출된 코드를 손보는 성질이라 finish 자리를 준다.
+  `onboard`은 "없던 표면을 새로 짓는" 명령이라 **제외**하고 recommend로 남긴다 — 이 구분이 단계를
+  열되 scope 확장은 막는 선이다.
+
+**`/mccp:code-review` 흡수 9건** (같은 사이클, ship 전) — 위 배선이 처음 착지했을 때 **실행되지
+않는 상태**였다. 리뷰가 그것을 잡았고 전건 흡수했다.
+
+- Phase 3.6.5의 두 `node` 호출이 여는 따옴표 없이 `cli.js"`로 닫혀 있었다. `bash -n`이 두 블록
+  모두 `unexpected EOF`로 거부하므로 restamp는 **한 번도 실행될 수 없었고**, 그 사이클의 발화는
+  다시 기록되지 못했다 — M4가 닫으려던 바로 그 갭이다. 라이브에서 관측된 "restamp 3회 실패"는
+  plugin cache가 pre-M4(1.31.0)라는 것만으로 귀속돼 있었으나, 이 결함은 cache를 갱신해도 남는다.
+- Phase 3.6.2가 `$SIGNAL`·`$DESIGN_INTENT_ACTIVE`를 2.5.5b에서 **셸 변수로 물려받으려** 했다.
+  두 갈래로 틀린다: 셸 상태는 도구 호출 경계를 넘지 못해 빈 문자열이 되고(그러면 오라클이
+  `skipped:true`로 **아무것도 라우팅하지 않은 채 정상 종료**한다), 설령 살아남아도 `SIGNAL`은
+  sub-phase 3.5.0의 ultracode probe가 **이미 덮어쓴** 값이다. 같은 파일이 Phase 3.7에서 이미
+  self-derive로 닫아 둔 함정이라, 그 패턴을 그대로 따라 `FINISH_*` 이름으로 재도출한다.
+- 3.6.1의 잔존 조건("rendering surface가 있을 때만")이 3.6.2의 서술과 모순됐다. `renderingSurface`는
+  게이트 조건이 아니라 **오라클 입력**이다 — control-plane-only diff에서는 finish 행이 `recommend`로
+  강등되고 그 사실이 기록되는데, 게이트로 쓰면 그 기록마저 사라진다.
+- `restamp-routed`가 빈 entries 배열에서 receipt 존재를 확인하지 않고 exit 0을 냈다. 호출부는 exit 0을
+  "기록됨"으로 읽으므로 **대상이 아예 없는 restamp가 성공으로 보고**됐다. 이제 부재는 `RECEIPT_NOT_FOUND`이고,
+  두 no-op(`no-entries` · `already-recorded`)은 `reason`으로 갈라져 로그에서 구분된다.
+- `ROUTING_PHASES`가 소비처 0이었다. 오타난 phase는 두 패스 모두에서 필터링돼 그 명령이 **조용히
+  사라지므로**(런타임에 아무것도 던지지 않는다) 테이블 전수 검증으로 그 실패를 가시화한다.
+- 나머지: `--git-dir` → `--git-path`(파일 내 worktree-safe 관례와 통일) · `background` 행이 현재
+  도달 불가임을 표에 명시 · Phase 3.6/3.7 사이 `---` 복원.
+- **그물 보강** — 위 첫 항목은 기존 짝 단언(리터럴 존재 검사)을 그대로 통과했다. grep 형태의 가드가
+  구조적으로 못 보는 부류라, `prp-implement.md`의 모든 self-contained bash fence를 `bash -n`으로
+  파싱하는 test를 추가한다(플레이스홀더 `<...>` fence는 제외 — 문서 관례이지 결함이 아니다).
+  결함을 재주입해 red가 나는 것까지 확인했다.
+
+### Known limitations
+
+- **UI12를 문자 그대로 달성하지 않는다.** discovery(벤더 인터뷰 요구)와 system(v1.13.0 M3의
+  deliberate-operator 결정)은 발화 0으로 남는다. M4는 UI12를 "모든 단계가 발화하거나, 발화 0인
+  단계는 증거와 함께 기록되고 test로 고정된다"로 읽고 그렇게 착지했다.
+- **restamp 실패는 receipt만으로 탐지할 수 없다.** fail-open을 유지하되(advisory phase의 성질을
+  M4가 바꾸지 않는다) 재시도 3회 · entries 산출물 보존 + 복구 명령 출력 · `fix-task.md` 인계 ·
+  REPORT 기록으로 **시끄럽고 복구 가능한** 소실로 만든다. 검증기가 요구할 수 있는 receipt 내 상태를
+  만들려면 present-only meta 필드가 필요하고 그것은 "schema 변경 0" 제약 밖이다(Codex Implement-R1 F2).
+- **finish 5종의 발화 비용은 실제로 는다**(3종 → 5종). 전부 advisory·fail-open이고 3.6.1의 3중
+  gate가 그대로 걸린다. 비용이 문제면 `MCCP_IMPECCABLE_ROUTING_MODE=hybrid`가 evaluate만 남긴다 —
+  **새 토글을 추가하지 않는다**.
 
 ## [1.31.3] — 2026-08-23
 

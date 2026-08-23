@@ -777,6 +777,137 @@ M3은 PRD의 마지막 두 축을 닫습니다.
 
 plugin.json `1.13.0 → 1.16.0` — main(1.15.0, PR #53 dashboard chart)과 forward-only reconcile per §3.7(plan은 1.14.0 가정이었으나 main 이동으로 상향).
 
+#### 게이트 발화 정합 (v1.31.4 — impeccable-detection-contract M4)
+
+M1~M3은 탐지를 정직하게 만들고(오라클) 이름을 바로잡았다(재배선). M4는 **그 이름으로
+무엇을 부르는가**를 다룬다. 셋을 닫는다: 완주 불가능한 발화를 빼고, 발화가 0인 단계에
+자리를 주고, 오라클 밖에서 일어나던 발화를 오라클 안으로 들여 기록되게 한다.
+
+##### 벤더 계약이 `shape`를 막는다 — 추정이 아니라 인용
+
+`INTERVIEW_REQUIRED_COMMANDS = ['shape', 'init', 'teach']`의 근거는 impeccable이 **함께
+배포하는** 두 파일이다(4.1.1 실측):
+
+- `skills/impeccable/scripts/command-metadata.json` — `shape.description` = "Plan UX and UI
+  before code. **Runs a required multi-round discovery interview**, uses visual probes when
+  available, and produces a user-confirmed design brief for implementation." **조건이 없다** —
+  PRODUCT.md 유무와 무관하다. 카탈로그 23개 중 `interview`를 서술에 담은 것은 `shape`(무조건)와
+  `init`(조건부) 둘뿐이다.
+- `skills/impeccable/scripts/context.mjs:1116`·`:1132` — "For `init`, `teach`, `shape`, … create
+  PRODUCT.md with the user first" · `:1121` `BUILD_INIT_REQUIRED`: "init must capture PRODUCT.md
+  with the human **or structured simulated user**."
+
+두 번째 인용이 왜 결정적인가: 비대화형 게이트가 이 분기에 들어가면 (a) 질문하며 멎거나
+(b) "structured simulated-user interview"로 **제품 진실을 지어내어 사용자 저장소에 PRODUCT.md를
+쓴다**. 후자가 더 나쁘다 — 게이트가 조용히 실패하는 것이 아니라 조용히 **거짓을 커밋**한다.
+
+`teach`는 벤더 측 불일치다: `context.mjs`의 차단 문장은 부르는데 `command-metadata.json`의 23개
+카탈로그에는 **없다**. 그래도 집합에 두는 이유는 이 집합의 목적이 "미래에 카탈로그가 넓어질 때
+인터뷰형 명령이 조용히 발화하지 않게 막는 것"이고 `teach`가 정확히 그 후보이기 때문이다.
+mccp 라우팅 카탈로그에는 추가하지 않는다(UI5). **오늘 교집합은 `shape` 하나다.**
+
+##### `background`는 은퇴가 아니라 도달 불가다
+
+`shape`가 오라클 전체에서 유일한 `background` base였으므로, 강등 후 `resolveCallForm`은
+`background`를 **절대 반환하지 않는다**. 그런데 `schema.js`의 `ROUTING_CALL_FORM_VALUES`와
+`prp-implement.md`의 callForm 표는 **남긴다**:
+
+- enum을 좁히는 것은 **과거 receipt의 해석을 바꾸는 일**이다. 이미 `background`로 봉인된 항목이
+  있고(M4 이전 pre 패스), 그것을 invalid로 만들 이유가 없다.
+- `background`는 정당한 **미래** base다. 오늘 아무도 쓰지 않는다는 사실과 앞으로 쓸 수 없다는
+  주장은 다르다.
+
+대신 `impeccable-routing.test.js` (M4-2)가 전수 조합(128)에서 `background` 0건을 단언한다.
+다시 도달 가능해지는 날 그 test가 붉어져, 그것이 의도된 결정이었음을 증명하게 만든다.
+M3의 `impeccable-cleanup.test.js` `rules 1+2 jointly`와 같은 형태다.
+
+##### 왜 새 callForm이 아니라 `phase`인가
+
+finish 패스에 자리를 주는 방법은 둘이었다. `'finish'`라는 **새 callForm**을 만들면
+`resolveCallForm`·`selectByDiffSignals`·`schema.js`의 **닫힌 enum**이 전부 따라 움직이고,
+receipt schema가 바뀌면 과거 receipt 해석이 흔들린다. `phase`는 이미 존재하는 **테이블 메타** 축
+(`signal`)의 형제다 — 공개 반환에서 strip되고, 소비처 코드도 receipt schema도 **한 줄도**
+건드리지 않는다. **schema 변경 0**이 M4의 제약이었고 이 선택이 그것을 지킨다.
+
+필터는 callForm 해소 **이전**에 건다. 다른 패스의 엔트리가 mood upgrade나 content narrowing에
+영향을 주지 못하게 하려는 것이다. plan·prd·pr 테이블은 전 엔트리가 `pre`이므로 세 게이트의
+출력은 **바이트 동일**하고, test M4-3a/M4-3b가 그것을 명시 배열로 pin한다.
+
+모르는 phase는 **빈 목록**이지 `pre` fallback이 아니다. 오타로 인한 조용한 pre 재실행은 finish
+패스가 통째로 사라지는 것보다 나쁘다 — 그 경우 pre 명령이 EXECUTE 이후에 한 번 더 발화해
+duplicate-call 불변식을 깬다.
+
+##### `onboard`을 제외한 선
+
+`harden`("error handling, i18n, text overflow, edge case management")과 `optimize`("Diagnoses and
+**fixes** UI performance")는 **산출된 코드를 손보는** 성질이라 이미 발화하는
+`polish`·`clarify`·`distill`과 같은 부류다. `onboard`은 다르다 — "welcome screens, account setup,
+progressive disclosure"는 기존 코드를 고치는 것이 아니라 **없던 표면을 새로 짓는다**. implement
+게이트에서 자동 발화시키면 plan이 요구하지 않은 surface를 만든다. 이 구분이 harden 단계를 열되
+scope 확장은 막는 선이다.
+
+##### 남는 0-발화 단계는 둘이고 각각 근거가 다르다
+
+UI12("발화가 0인 라이프사이클 단계가 없어야 한다")를 **문자 그대로** 달성하는 것은 UI11과
+충돌한다. M4는 UI12를 "모든 단계가 발화하거나, 발화 0인 단계는 증거와 함께 기록되고 test로
+고정된다"로 읽고 그렇게 착지한다.
+
+| stage | 왜 0인가 |
+|---|---|
+| `discovery` | 유일한 명령 `shape`가 벤더 계약상 인터뷰를 요구한다. UI11을 지키는 한 영구히 0 |
+| `system` | `document`/`extract`는 v1.13.0 M3이 "heavyweight generative actions that should be a deliberate operator step"로 확정했다. M4가 뒤집을 근거가 없다 |
+
+test M4-4가 이 집합이 **정확히** `{discovery, system}`임을 전수 조합 위에서 단언한다. 이 test는
+"발화 0인 단계가 없다"를 억지로 만들지 않고 **남은 0을 봉인**한다 — 집합이 늘면 어떤 단계가
+목소리를 잃은 것이고, 줄면 정당화됐던 침묵이 열린 것이라 어느 쪽이든 근거를 여기 적어야 한다.
+
+##### restamp — 두 축이 다르다
+
+`restampRoutedCommands`(`write.js`)는 `restampGroundingVerdict`의 형제다. 존재 이유가 같다:
+finish 패스는 2.5.6 receipt write **이후**에 도는데, 유일한 사후 restamp가 grounding 한 키만
+건드려서 실제 발화가 receipt에 **기록될 경로가 구조적으로 없었다**.
+
+- **restamp 간에는 append-only, dedupe 없음.** duplicate-call 불변식이 깨져 한 명령이 양쪽
+  패스에서 발화하면, receipt에 **두 번 보이는 것이 그 drift 신호**다. 조용히 합치면 이 필드가
+  존재하는 이유 자체가 사라진다.
+- **한 restamp 안에서는 멱등.** 같은 restamp의 **재시도**가 두 번째 이력을 위조하면 안 된다
+  (Codex Implement-R1 F1). 재시도는 두 번째 패스가 아니다. 판별자는 canonical 항목형에 대한
+  **tail match**이고, 판정은 `updateReceipt`의 **임계구역 안**에서 이뤄진다 — 락 밖이면 검사와
+  쓰기 사이에 다른 writer가 꼬리를 바꿀 수 있고, 그것이 §3.12가 막는 lost-update와 같은 부류다.
+  불확실하면 **append**한다: 중복은 보이고 복구 가능하지만, 진짜 두 번째 패스를 삼키면 기록이
+  사라진다.
+- **게이트는 `mccp-implement-codex` 하나로 제한**한다. `store.js#assertNoTrackedOverwrite`가
+  이미 git-tracked ship receipt의 재봉인을 거부하므로 §3.12 불변식은 이 제한 **없이도** 지켜졌다
+  — 다만 락 안에서, 시도한 **뒤에** 거부하는 형태였다. 문 앞에서 이름을 대는 편이 낫다.
+- **항목의 키가 정확히 셋이 아니면 거부**한다. `schema.js`는 세 필수 필드를 검증하되 여분 키를
+  금지하지 않으므로, writer가 막는다. 조용히 정규화하지 않는 이유: 예상 밖 키는 producer와
+  consumer가 어긋났다는 뜻이고, 말없이 버리면 caller가 기록됐다고 믿는 것과 다른 receipt가 봉인된다.
+
+##### fail-open을 유지하되 소실을 시끄럽게 만든다
+
+Phase 3.6은 advisory이고 M4가 그 성질을 바꾸지 않는다 — receipt 기록 실패가 이미 성공한 구현을
+막으면 안 된다. 그러나 "덜 기록"이 정확히 M4가 고치려는 실패이므로(Codex Implement-R1 F2), 셋을 더한다:
+**bounded 재시도 3회**(현실적 실패 원인은 락 경합) · **entries tempfile 보존 + 복구 명령 출력** ·
+`.claude/state/fix-task.md` **인계** + Phase 5 REPORT 기록.
+
+> **주장하지 않는 것**: 이것은 receipt만 보고 소실을 탐지할 수 있게 만들지 **못한다**. 검증기가
+> 요구할 수 있는 receipt 내 상태를 만들려면 present-only meta 필드가 필요하고, 그것은 M4가
+> "schema 변경 0"으로 못 박은 축이다. 이 잔여는 범위 결정의 결과이지 놓친 것이 아니라서 여기
+> 명시하고 backlog로 넘기지 않는다.
+
+##### M4가 주장하지 않는 것
+
+- **`shape`를 고치지 않았다.** 비대화형 게이트에서 완주할 수 없다는 사실을 인정하고 뺐을 뿐이다.
+- **UI12를 문자 그대로 달성하지 않았다.** 남은 0이 둘이고, 각각의 근거를 test가 봉인한다.
+- **finish 5종의 발화 비용은 실제로 는다** (3종 → 5종). 전부 advisory·fail-open이고 3.6.1의
+  3중 gate가 그대로 걸린다. 비용이 문제면 `MCCP_IMPECCABLE_ROUTING_MODE=hybrid`가 evaluate만
+  남긴다 — **새 토글을 추가하지 않는다**.
+- **라우팅 카탈로그에 명령을 더하거나 빼지 않았다**(UI5). 바뀐 것은 call form과 phase 배치뿐이다.
+
+---
+
+
+
 ---
 
 

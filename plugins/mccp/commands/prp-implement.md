@@ -442,10 +442,11 @@ Decision tree (mirror of plan.md 5.0, v1.3.0-m2 3-axis):
 
 When the trigger fires (SKILL_AVAIL=1 & (SIGNAL=1 OR DESIGN_INTENT_ACTIVE=1)), route stage-appropriate impeccable commands via the routing oracle. **`critique` is NOT routed here** — it stays owned by the critique retry loop below so `decideCritique`/`design_critique_verdict` blocking is preserved (Codex Plan-Codex R1 F2).
 
-**Pre/post timing framing (v1.18.21 M3)** — this routing pass runs **before** Phase 3 EXECUTE (first code change), so it can only act on the design direction, not on produced code:
+**Pre/post timing framing (v1.18.21 M3 · phase axis v1.31.4 M4)** — this routing pass runs **before** Phase 3 EXECUTE (first code change), so it can only act on the design direction, not on produced code. It asks the oracle for `phase:"pre"`; Phase 3.6 asks the same oracle for `phase:"finish"`:
 
 - **`layout` leads (선행)** — routed `invoke` at the head of the refine stage. Because this gate precedes Phase 3 EXECUTE, `layout` shapes the design direction *before* implementation begins. This is its correct timing.
-- **`clarify` / `distill` / `polish` are NOT invoked in this pass** — produced code does not exist yet (Phase 3 has not run), so invoking them here would be a no-op against an empty diff. `clarify`/`distill` stay `recommend`/deferred in the routing oracle; `polish` is not routed in implement at all. All three are invoked exactly once in the new **Phase 3.6 — DESIGN FINISH (simplify + polish)** (post-EXECUTE, against the produced diff), where `polish` is the final implementation verification. This split keeps duplicate calls at zero: this pass defers, Phase 3.6 invokes — never both.
+- **The finish commands are not in this pass at all (v1.31.4 M4)** — `clarify`, `distill`, `polish`, `harden` and `optimize` act on produced code, which does not exist yet, so they carry `phase:"finish"` in the routing table and this pass (`phase:"pre"`) does not return them. Phase 3.6 asks the same oracle for `phase:"finish"` after EXECUTE. **The duplicate-call invariant is enforced by that filter, not by this paragraph**: an entry belongs to exactly one phase, so no command can be routed by both passes (pinned by `impeccable-routing.test.js` M4-3c). Before M4 the two lists were kept disjoint by hand and had already drifted — Phase 3.6 invoked `polish`, which the implement table did not carry at all, so the receipt could not record it.
+- **`shape` no longer fires here (v1.31.4 M4)** — it is demoted to `recommend` because the vendor makes it an interview command (`command-metadata.json`: "Runs a required multi-round discovery interview"), and an interview cannot complete in a non-interactive gate. It stays in the catalogue as a guide row.
 - **`audit` is advisory** — an evaluate-stage Skill whose findings are recorded present-only via `impeccable_commands_routed` (no gate block).
 - **`critique` alone blocks** — the retry loop (§3.9) owns divergent gate-blocking, reaffirmed above.
 
@@ -477,7 +478,7 @@ ROUTE_JSON=$(node -e '
   let text = sh("git diff HEAD");
   const MAX = 64 * 1024;
   untracked.filter(isSurface).forEach((f) => { try { text += "\n" + fs.readFileSync(f, "utf8").slice(0, MAX); } catch (_) {} });
-  const opts = { gate:"implement", mode, designSignal, designIntentActive, renderingSurface };
+  const opts = { gate:"implement", phase:"pre", mode, designSignal, designIntentActive, renderingSurface };
   if (renderingSurface) {
     const sig = r.extractDiffSignals(text);
     if (Object.keys(sig).some((k) => sig[k])) opts.diffSignals = sig;  // else omit → fail-open
@@ -1142,64 +1143,175 @@ Phase 7 AUTO-CHAIN automatically detects `STATE.md.chain_aborted=true` via [auto
 
 ---
 
-## Phase 3.6 — DESIGN FINISH: SIMPLIFY + POLISH (v1.18.21, post-EXECUTE, advisory)
+## Phase 3.6 — DESIGN FINISH: post-EXECUTE routing pass (v1.18.21 · rewired v1.31.4 M4, advisory)
 
-This is the **post-implementation** complement to the pre-implementation `layout` lead in 2.5.5b. `clarify`, `distill` (simplify) and `polish` (final verification) act on *produced* code, so they run here — after Phase 3 EXECUTE has actually written the diff — not in the pre-EXECUTE routing pass. `polish` is the **final design pass over the implementation**: it had no real home before (it is absent from the implement routing table and only recommend-only in the review-only `pr` gate, where it can never be applied), so the produced diff never got a finishing pass. This step closes that gap. **Duplicate-call invariant**: `clarify` / `distill` / `polish` are invoked **only** in this finish step; 2.5.5b leaves `clarify`/`distill` deferred-recommend and never routes `polish` at all (never invoked there). The two steps never invoke the same command in one cycle.
+This is the **post-implementation** complement to the pre-implementation `layout` lead in 2.5.5b. Commands that act on *produced* code run here — after Phase 3 EXECUTE has actually written the diff — not in the pre-EXECUTE pass.
+
+**M4 rewired what chooses them.** Until v1.31.4 this step invoked a hardcoded list (`clarify`/`distill`/`polish`) that never reached the routing oracle. Two things followed from that, and both were wrong: the oracle answered `recommend` for two of those commands and did not carry `polish` at all, so the receipt's `impeccable_commands_routed` **disagreed with what actually fired**; and `harden`/`optimize` — commands the vendor describes as *fixing* produced code — had no gate anywhere. Now both passes read the same table, split by a `phase` axis: 2.5.5b asks for `phase:"pre"`, this step asks for `phase:"finish"`.
+
+**Duplicate-call invariant is now mechanical, not prose.** The two passes are disjoint *by table construction* — `routeCommands` filters on `phase`, so a command can only be in one of them, and `impeccable-routing.test.js` (M4-3c) asserts the two sets never intersect. The previous wording ("this pass defers, Phase 3.6 invokes — never both") asked a reader to maintain the invariant by hand.
 
 ### 3.6.1 — Gate
 
 Run this step ONLY when ALL hold:
 
-1. The 2.5.5b design trigger fired this cycle — `SKILL_AVAIL=1` AND (`SIGNAL=1` OR `DESIGN_INTENT_ACTIVE=1`). Reuse the trigger state computed in 2.5.5b; do NOT add a new detector.
-2. The **post-EXECUTE** diff has a rendering surface. Recalculate (the diff changed since 2.5.5b) over the tracked diff (`git diff HEAD`) ∪ untracked (`git ls-files --others --exclude-standard`), surface = UI ext (`.tsx/.jsx/.vue/.svelte/.astro/.css/.scss/.html`) or `.claude/cache/{STATUS.md,status.html}`:
+1. The design trigger holds — `SKILL_AVAIL=1` AND (`SIGNAL=1` OR `DESIGN_INTENT_ACTIVE=1`), evaluated on values **re-derived in 3.6.2**. 2.5.5b's variables cannot reach this phase (that block explains why); it is the same detector and the same rule, not a second one.
+2. `MCCP_IMPECCABLE_ROUTING_MODE` is not `recommend` (recommend mode = advisory-only, no invoke). The oracle degrades every row in that mode too, so the two layers agree; this check just avoids the work.
 
-   ```bash
-   FINISH_SURFACE=$(node -e '
-     const { execSync } = require("child_process");
-     const ui = /\.(tsx|jsx|vue|svelte|astro|css|scss|html)$/i;
-     const cache = /\.claude\/cache\/(STATUS\.md|status\.html)$/;
-     const isSurface = (f) => ui.test(f) || cache.test(f);
-     const sh = (c) => { try { return execSync(c, {encoding:"utf8", stdio:["ignore","pipe","ignore"]}); } catch (_) { return ""; } };
-     const tracked = sh("git diff --name-only HEAD").split(/\r?\n/).filter(Boolean);
-     const untracked = sh("git ls-files --others --exclude-standard").split(/\r?\n/).filter(Boolean);
-     const files = Array.from(new Set(tracked.concat(untracked))).filter(isSurface);
-     process.stdout.write(files.length > 0 ? "1" : "0");
-   ')
-   ```
+**`renderingSurface` is deliberately NOT a gate condition here.** It is an *input* to the oracle (3.6.2): on a control-plane-only diff the finish rows degrade to `recommend`, which is the honest answer and still gets recorded. Gating on it would discard that record instead — the same evidence loss M4 exists to close.
 
-3. `MCCP_IMPECCABLE_ROUTING_MODE` is not `recommend` (recommend mode = advisory-only, no invoke).
-
-If any condition fails (trigger not fired / `FINISH_SURFACE=0` / routing mode `recommend`), skip this phase with a single stderr line and proceed to Phase 4:
+If the trigger does not hold or the mode is `recommend`, skip this phase with a single stderr line and proceed to Phase 3.7:
 
 ```bash
-echo "[mccp:design-finish] skip (trigger or surface or mode gate not met) — no clarify/distill/polish invoke" 1>&2
+echo "[mccp:design-finish] skip (trigger or mode gate not met) — finish pass not routed" 1>&2
 ```
 
-### 3.6.2 — Invoke clarify + distill + polish (advisory, against produced diff)
+### 3.6.2 — Route the finish phase through the oracle
 
-For the produced diff, invoke each once (mirror of 2.5.5b's produced-code Skill pattern). Order is simplify-then-verify — `polish` runs **last** as the final design pass over the finished implementation:
-
-Each is the **resolved call form** (call-form rule in 2.5.5b), invoked once with:
-
-- `clarify <slug>`
-- `distill <slug>`
-- `polish <slug>` — final implementation verification
-
-`<slug>` is the same decision-slug used for the receipt (`$DECISION_SLUG`). If a Skill returns `unknown_skill` / `not found`, emit a loud stderr skip line and continue (fail-open — this phase never blocks):
+Same shape as the 2.5.5b `ROUTE_JSON` block, with two differences: `phase:"finish"`, and the surface/signal inputs are recomputed over the **post-EXECUTE** diff. `renderingSurface=0` is not a skip condition here — it is an input; the oracle degrades the finish rows to `recommend` on a control-plane-only diff, which is the honest answer and still gets recorded.
 
 ```bash
-echo "[mccp:design-finish] Skill unavailable (clarify|distill|polish) — skipped (fail-open advisory)" 1>&2
+# 2.5.5b's SKILL_AVAIL / SIGNAL / DESIGN_INTENT_ACTIVE cannot be carried here,
+# so they are re-derived from the SAME detector under names that cannot collide.
+# Two independent reasons, either one fatal:
+#   - shell state does not survive the tool-call boundary between Phase 2.5 and
+#     this phase, so reading $SIGNAL here yields an empty string — and an empty
+#     string routes NOTHING while looking like a clean run;
+#   - `SIGNAL` is REASSIGNED by sub-phase 3.5.0 (the ultracode probe), so if the
+#     state DID survive, this phase would route on an unrelated fact.
+# Same detector, same trigger rule as 2.5.5b — not a second detector. Phase 3.7
+# self-derives for exactly this reason; this block mirrors it.
+FINISH_DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
+  --mode implement \
+  --json)
+FINISH_SKILL_AVAIL=$(echo "$FINISH_DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
+FINISH_SIGNAL=$(echo "$FINISH_DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
+# Carrier rule, same as 2.5.5b — the LLM reads the invocation NAME off this
+# stderr line, never off a shell variable. Its absence means "do not guess".
+FINISH_INVOCATION=$(echo "$FINISH_DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.impeccable_invocation||"")}catch{process.stdout.write("")}')
+if [ -n "$FINISH_INVOCATION" ]; then
+  echo "[mccp:impeccable] call-form: Skill($FINISH_INVOCATION, ...)" 1>&2
+fi
+FINISH_INTENT_ACTIVE=0
+if [ -n "${MCCP_DESIGN_INTENT_REASON:-}" ]; then
+  FINISH_REASON_OK=$(node -e "
+    const { validateReason } = require('${CLAUDE_PLUGIN_ROOT}/scripts/receipt/lib/force-override-reason');
+    const r = validateReason(process.env.MCCP_DESIGN_INTENT_REASON, { strict: true });
+    process.stdout.write(r.ok ? '1' : '0');
+  " 2>/dev/null)
+  if [ "$FINISH_REASON_OK" = "1" ]; then FINISH_INTENT_ACTIVE=1; fi
+fi
+# 3.6.1 condition 1, evaluated on the values just derived.
+if [ "$FINISH_SKILL_AVAIL" != "1" ] || { [ "$FINISH_SIGNAL" != "1" ] && [ "$FINISH_INTENT_ACTIVE" != "1" ]; }; then
+  echo "[mccp:design-finish] skip (trigger not met) — finish pass not routed" 1>&2
+fi
+
+MODE=$(node -e "console.log(require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-routing').parseRoutingMode(process.env))")
+ROUTE_FINISH_JSON=$(node -e '
+  const { execSync } = require("child_process");
+  const fs = require("fs");
+  const r = require(process.argv[1] + "/scripts/lib/impeccable-routing");
+  const mode = process.argv[2];
+  const designSignal = process.argv[3] === "1";
+  const designIntentActive = process.argv[4] === "1";
+  const ui = /\.(tsx|jsx|vue|svelte|astro|css|scss|html)$/i;
+  const cache = /\.claude\/cache\/(STATUS\.md|status\.html)$/;
+  const isSurface = (f) => ui.test(f) || cache.test(f);
+  const sh = (c) => { try { return execSync(c, {encoding:"utf8", stdio:["ignore","pipe","ignore"]}); } catch (_) { return ""; } };
+  const tracked = sh("git diff --name-only HEAD").split(/\r?\n/).filter(Boolean);
+  const untracked = sh("git ls-files --others --exclude-standard").split(/\r?\n/).filter(Boolean);
+  const surfaceFiles = Array.from(new Set(tracked.concat(untracked))).filter(isSurface);
+  const renderingSurface = surfaceFiles.length > 0;
+  let text = sh("git diff HEAD");
+  const MAX = 64 * 1024;
+  untracked.filter(isSurface).forEach((f) => { try { text += "\n" + fs.readFileSync(f, "utf8").slice(0, MAX); } catch (_) {} });
+  const opts = { gate:"implement", phase:"finish", mode, designSignal, designIntentActive, renderingSurface };
+  if (renderingSurface) {
+    const sig = r.extractDiffSignals(text);
+    if (Object.keys(sig).some((k) => sig[k])) opts.diffSignals = sig;  // else omit → fail-open
+  }
+  if (designIntentActive) {
+    const ic = r.parseIntentCommands(process.env);
+    if (ic.length) opts.intentCommands = ic;
+  }
+  const out = r.routeCommands(opts);
+  out._renderingSurface = renderingSurface;
+  process.stdout.write(JSON.stringify(out));
+' "${CLAUDE_PLUGIN_ROOT}" "$MODE" "$FINISH_SIGNAL" "$FINISH_INTENT_ACTIVE")
+FINISH_SURFACE=$(echo "$ROUTE_FINISH_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8"))._renderingSurface?"1":"0")}catch{process.stdout.write("0")}')
+echo "[mccp:impeccable-routing] phase=finish mode=$MODE renderingSurface=$FINISH_SURFACE → $(echo "$ROUTE_FINISH_JSON" | node -e 'const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write((j.commands||[]).map(c=>c.command+":"+c.callForm).join(" ")||"(none)")')" 1>&2
 ```
 
-### 3.6.3 — Apply advisory findings (bounded)
+### 3.6.3 — Process each routed command and accumulate outcomes
 
-Findings are **advisory**, not gate-blocking (parallel to `audit` and to the Phase 6 routing recommend rows). prp-implement is an editable gate (not review-only), so you MAY apply cleanup — but bounded:
+For each command in `ROUTE_FINISH_JSON.commands`, process by `callForm` with the **same table as 2.5.5b** and record `{command, call_form, status}`. The call form is resolved by the **Call-form rule** in 2.5.5b — read the name off the `[mccp:impeccable] call-form:` stderr line; never type a literal skill name.
+
+| callForm | Action | status on success | status on failure |
+|---|---|---|---|
+| `invoke` | invoke `<command> <slug>` against the produced diff | `invoked` | `failed` (or `unknown-skill` if the name does not resolve) |
+| `background` | best-effort background agent; on unavailability fall back to foreground and set call_form=`foreground-fallback` + loud stderr | `invoked` | `failed` |
+| `recommend` | emit stderr `[mccp:impeccable-routing] recommend: /impeccable <command> <slug>` (no invoke) | `recommended` | n/a |
+
+> The `background` row is **currently unreachable**: `(M4-2)` in `impeccable-routing.test.js` pins that no oracle configuration resolves to it, because the only `background` base was `shape` — demoted in M4. It stays in this table because `background` remains a legitimate future base and the receipt enum still carries it; that test goes red the day it becomes reachable again, which is the day this row starts mattering.
+
+`<slug>` is the decision-slug used for the receipt. Record `failed` / `unknown-skill` honestly — this phase is fail-open and a dropped outcome is exactly the evidence loss M4 exists to close.
+
+Order is simplify → harden → verify, so `polish` (when routed) runs last as the final pass over the finished implementation.
+
+### 3.6.4 — Apply advisory findings (bounded)
+
+Findings are **advisory**, not gate-blocking (parallel to `audit` and to the Phase 6 routing recommend rows). prp-implement is an editable gate (not review-only), so you MAY apply cleanup — but bounded, and the bound now covers all five finish commands, `harden`/`optimize` included:
 
 - Apply only **trivial / safe** cleanups in this same cycle, then re-run Phase 4 VALIDATE so the change is regression-guarded.
-- Defer any larger restructuring to a separate `/mccp:prp-implement` cycle (do not expand scope here).
-- Surface every finding (applied or deferred) into the Phase 5 REPORT under a `### Design Finish (simplify + polish)` subheading.
+- Defer any larger restructuring to a separate `/mccp:prp-implement` cycle (do not expand scope here). `harden` and `optimize` can propose broad rewrites; those are deferrals, not this cycle's work.
+- Surface every finding (applied or deferred) into the Phase 5 REPORT under a `### Design Finish` subheading.
 
-**CHECKPOINT**: Design-finish ran (or skipped at the gate). clarify/distill/polish findings recorded for the REPORT. Phase 4 VALIDATE re-passed if any cleanup applied.
+### 3.6.5 — Restamp the outcomes onto the implement receipt
+
+The receipt was sealed at 2.5.6, before any of this ran. Without this step the finish pass leaves no machine-readable trace — the gap M4 closes.
+
+Write the accumulated array to a tempfile and restamp. The slug is re-derived from the command input, never a carried shell variable.
+
+```bash
+FINISH_TMPDIR=$(git rev-parse --git-path mccp/tmp)   # F1 worktree-safe gitdir
+mkdir -p "$FINISH_TMPDIR"
+DECISION_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decision \
+  --command mccp:prp-implement --args "$ARGUMENTS")
+ROUTED_FINISH_FILE="$FINISH_TMPDIR/impeccable-routed-finish--$DECISION_SLUG.json"
+# The LLM writes the accumulated [{command, call_form, status}, ...] array here.
+# Exactly those three keys — restamp-routed refuses an entry carrying any other.
+
+RESTAMP_OK=0
+for attempt in 1 2 3; do
+  if node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" restamp-routed \
+       --gate mccp-implement-codex \
+       --decision "$DECISION_SLUG" \
+       --impeccable-commands-routed-file "$ROUTED_FINISH_FILE" \
+       --quiet; then
+    RESTAMP_OK=1
+    break
+  fi
+  echo "[mccp:design-finish] restamp attempt $attempt failed — retrying" 1>&2
+done
+```
+
+Replaying this restamp is safe: `restamp-routed` suppresses an append whose entries are already the tail of the receipt's array, so a retry cannot forge a second history. Two *different* finish records still both append — a command appearing twice is a real drift signal and is kept.
+
+**On final failure — fail-open, but loudly and recoverably.** This phase is advisory and M4 does not change that: a receipt-write failure must not block an implementation that already succeeded. But "덜 기록" is the failure M4 exists to fix, so the evidence must survive the receipt not getting it (Codex Implement-R1 F2):
+
+```bash
+if [ "$RESTAMP_OK" != "1" ]; then
+  echo "[MCCP-DESIGN-FINISH-RESTAMP-FAILED] the finish pass ran but its outcomes are NOT in the receipt." 1>&2
+  echo "  outcomes preserved at: $ROUTED_FINISH_FILE (do NOT delete)" 1>&2
+  echo "  recover with: node \"\${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js\" restamp-routed --gate mccp-implement-codex --decision $DECISION_SLUG --impeccable-commands-routed-file $ROUTED_FINISH_FILE" 1>&2
+fi
+```
+
+and, in the same failure branch, append one line to `.claude/state/fix-task.md` naming the artifact path, and record the failure in the Phase 5 REPORT.
+
+> **What this does not achieve.** The receipt alone still cannot prove the loss happened — detecting it from the receipt would need a present-only meta field, and M4 is explicitly a zero-schema-change milestone. The residual is named here rather than deferred: a validator cannot require what was never stamped. What the retry + preserved artifact + fix-task line buy is that the loss is loud and recoverable instead of silent.
+
+**CHECKPOINT**: Finish pass routed through the oracle (or skipped at the gate). Outcomes restamped onto the implement receipt, or the failure surfaced with the artifact preserved. Phase 4 VALIDATE re-passed if any cleanup applied.
 
 ---
 

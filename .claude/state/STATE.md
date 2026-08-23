@@ -1,61 +1,60 @@
 ---
 state_version: 1
-task_fingerprint: impeccable-detection-contract-m2
+task_fingerprint: impeccable-detection-contract-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-22T16:35:00.481Z
+updated_at: 2026-08-23T07:48:47.029Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-22T16:35:00.481Z
+last_event_at: 2026-08-23T07:48:47.029Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-22T16:34:57.858Z
+dep_check_at: 2026-08-23T07:48:46.957Z
 dep_check_missing: impeccable
 escalate_pending: true
-escalate_pending_decision_id: impeccable-detection-contract-m3
+escalate_pending_decision_id: impeccable-detection-contract-m4
 ---
 ## Goal
-impeccable-detection-contract M3 — 섀도잉 해소. 구현 완료(v1.31.3), commit/PR 대기.
+impeccable-detection-contract M4 — 게이트 발화 정합. 구현 완료(v1.31.4), commit/PR 대기.
 
 ## Plan
-- PRD: `.claude/prds/impeccable-detection-contract.prd.md` — M1·M2·**M3 complete**, M4(게이트 발화 정합)·M5(문서 드리프트) pending
-- plan: `.claude/plans/impeccable-detection-contract-{m1,m2,m3}.plan.md` — 셋 다 봉인됨(plan_hash). **편집 금지**
-- 게이트 산출물·라이브 증거: `.claude/notes/impeccable-detection-contract-{m1,m2,m3}.md`
-- 구현 보고: `.claude/PRPs/reports/impeccable-detection-contract-m3-report.md`
-- receipt: mccp-plan-codex/{impeccable-detection-contract,-m1,-m2,-m3} · mccp-implement-codex/{-m1,-m2,-m3}
-- version 1.31.3 (patch — PRD 내 단일 milestone). 4면 동기 완료. branch impeccable-detection-contract
+- PRD: `.claude/prds/impeccable-detection-contract.prd.md` — M1·M2·M3·**M4 complete**, M5(문서 드리프트) pending
+- plan: `.claude/plans/impeccable-detection-contract-{m1,m2,m3,m4}.plan.md` — 넷 다 봉인됨(plan_hash). **편집 금지**
+- 게이트 산출물·라이브 증거: `.claude/notes/impeccable-detection-contract-{m1,m2,m3,m4}.md`
+- 구현 보고: `.claude/PRPs/reports/impeccable-detection-contract-m4-report.md`
+- version 1.31.4 (patch — PRD 내 단일 milestone). 4면 동기 완료. branch impeccable-detection-contract
 
 ## Done
-- M1 (3d38358, v1.31.1) 정직한 탐지 — resolveImpeccable() 오라클이 설치원을 전부 열거하고 실제로 열릴 본문 하나를 지목
-- M2 (87c6acb·0433538, v1.31.2) 판정 권한을 available 하나로 — dep-check·SessionStart 배너·setup Phase 3 배선
-- **M3 (미커밋, v1.31.3) 섀도잉 해소** — 아래 9 task 전부 착지
-- M3/T1 오라클 `eclipsed` — 승자를 **객체 identity**로 제외(3-way 필드 비교는 중복 행에서 양쪽 다 승자로 판정해 eclipsed를 비운다). shadowed면 빈 배열이고 그것은 "판정 불가"라는 뜻
-- M3/T2·T3 dep-check 라벨 `- +N eclipsed` + printer 행(경로는 신규 `safePath`, 라벨은 safeLabel) · SessionStart 정보성 1행(missing 배열과 분리, 같은 24h 시계, 새 probe 0)
-- M3/T4 `impeccable-cleanup.js` 신규 — 거부 규칙 6 + 닫힌 REASONS enum. 봉쇄는 **앵커와 대상 사이 조상만** 검사(앵커 자신이 링크인 것은 허용 — 정상 저장소를 막으면서 아무것도 못 얻는다). git rm은 execFileSync + `--`. 성공은 재-resolve로 증명
-- M3/T5 setup Phase 3.5 — 3분기. shadowed면 제거 선택지를 아예 안 보인다
-- M3/T6·T7 **재배선 + 사본 제거를 같은 커밋으로 대기** — 명령 본문 bare 리터럴 0건, `.claude/skills/impeccable/` 79 파일 git rm. guard test 짝 단언이 반쪽 착지를 붉힌다
-- M3/T8 CLAUDE.md §3.17(불변식 3) · gate-design `#### 섀도잉 해소 (M3)` · CHANGELOG 1.31.3 · PRD milestone 3 complete + OQ 1·2 종결 · instruction-contract ledger S3.17
-- M3/T9 라이브: env 우회 없이 `detect(design_signal:true) → call-form: Skill(impeccable:impeccable, ...) → 실제 호출` 연결 확인
-- 리뷰 산출: Implement-Codex R1 divergent(HIGH 3·MEDIUM 2 전건 흡수) · security-reviewer 10건 처리(HIGH 2 증거 기각) · backlog 4건 이연
+- M1 (3d38358, v1.31.1) 정직한 탐지 / M2 (87c6acb·0433538, v1.31.2) 판정 권한 일원화 / M3 (66aaa19, v1.31.3) 섀도잉 해소
+- **M4 (미커밋, v1.31.4) 게이트 발화 정합** — 8 task 전부 착지
+- M4/T1 UI10 재확인 실측 — `shape`는 벤더 메타데이터상 **조건 없이** required interview. **정정**: `teach`는 4.1.1의 23개 카탈로그에 없다(차단 프로즈만 부름) — 집합 유지 근거는 미래 카탈로그 확장 방어
+- M4/T2 `INTERVIEW_REQUIRED_COMMANDS` 신설 + implement `shape` background→recommend. `background`는 오라클 전체 **도달 불가**가 됐으나 enum 유지(과거 receipt 해석 보존) — test가 전수 128조합에서 고정
+- M4/T3 테이블 `phase` 축(pre/finish). implement 16→19(pre 14 + finish 5). `clarify`/`distill` finish 이동 + `polish`/`harden`/`optimize` 신설. `onboard`은 "없던 표면을 새로 짓는" 성질이라 제외. plan/prd/pr 출력 바이트 동일
+- M4/T4 `restampRoutedCommands` + `cli.js restamp-routed` — append-only(중복=drift 신호) ∧ **restamp 내 멱등**(tail match, 락 **안**). 게이트 `mccp-implement-codex` 한정, 여분 키 거부, 경로 resolve
+- M4/T5 prp-implement 재배선 — 2.5.5b `phase:"pre"` 명시 · Phase 3.6 전면 교체(오라클 구동 → 처리 → restamp) · 낡은 문단 정정. **duplicate-call 불변식이 산문에서 phase 필터로 이동**
+- M4/T6 test — routing +11(전수 128조합) · restamp-routed 14 신규 · guard 짝 단언 4(`phase:"finish"` ⟺ `restamp-routed`)
+- M4/T7 gate-design `#### 게이트 발화 정합` · CLAUDE.md §3.10(낡은 stage→command 나열 제거) · CHANGELOG 1.31.4 · 4면 동기 · PRD milestone 4 complete · backlog 5건 이연
+- M4/T8 라이브 — finish 오라클 5종 `invoke` → `impeccable:impeccable`로 전부 완주(어느 것도 멎지 않음) → restamp 착지. receipt에 finish 5건, `shape` non-recommend 0건, 재생 시 `noop:true`
+- 검증: V1 37/37 · V2 14/14 · V3 16/16 · V4 81/81 · **V5 682(681 pass·0 fail)** · V6 10/10 · V7 C1~C4 pass · V8 매트릭스 일치
+- 리뷰 산출: Codex R1 divergent(HIGH 2건 전건 흡수) · security-reviewer 4건 흡수 + 2건 PASS 독립 확인(F3 HIGH→MEDIUM 증거 정정) · backlog 5건 이연
 
 ## In Progress
 
 
 ## Next Step
-`/mccp:prp-commit` — **T6 재배선과 T7 사본 제거는 반드시 같은 커밋**. 이어서 `/mccp:pr`. **PR 진입 직전 §3.7 version 재계산 필수**(두 번째 시점 — 현재 origin/main은 1.31.0).
+`/mccp:prp-commit` (scratch 파일 0건 확인) → `/mccp:pr`. PR 진입 직전 §3.7 version 재계산 필수(origin/main 1.31.0, 로컬 1.31.4). PR 진입 시 슬러그 분리 결정 필요 — Open Questions 1번.
 
 ## Last Decision
-Task 5의 제거 선택지 조건을 plan의 `eclipsed.length > 0` 에서 `removable.length > 0` 으로 좁혔다. Task 4의 규칙 1(승자 불가침)과 2(plugin 불가침)가 함께 걸리면 실사용 구성에서 removable이 구조적으로 빈다 — bare가 항상 이기므로 bare 사본은 승자이거나 shadowed이고 남는 eclipsed 행은 plugin뿐이다. plan 문구를 그대로 쓰면 오라클이 반드시 거부할 행동을 권하는 화면이 된다. 규칙은 손대지 않고(각각 안전 근거가 있다) 화면만 정직하게 만들었으며, `rules 1+2 jointly` test가 이 성질을 고정해 나중에 넓히려는 milestone이 조용히 지나갈 수 없게 했다.
+plan-codex receipt가 base 슬러그에 실려 있어(`/mccp:plan`이 PRD 경로로 호출된 결과) implement가 도출한 `-m4`에서 missing이었다. plan 본문 해시가 receipt의 `reviewed_plan_hash`와 동일함을 실측 확인해 "게이트는 이 본문에 실제로 돌았다"를 입증한 뒤, 사용자 승인 하에 §3.16의 감사 우회로 진행했다 — 재실행은 동일 본문·동일 리뷰어라 새 정보 없이 파일명만 얻고 약 16분을 재지불한다. receipt 파일명 변경은 §3.12 no-rehash·§3.16 위조 금지라 하지 않았다. 사유는 notes 첫 절에 감사 앵커로 기록.
 
 ## Open Questions
-- M3/T9 잔여 — 디자인 축이 발화한 채 봉인된 게이트 receipt는 아직 없다. prp-implement의 디자인 게이트는 EXECUTE 이전에 돌아 그 시점 diff에 신호가 없었다(구조적). 그 receipt는 이 사이클의 /mccp:pr(mode=pr)이 만든다
-- 설치된 plugin cache가 1.31.0(pre-M1)이라 이 세션 밖 hook과 ${CLAUDE_PLUGIN_ROOT} 경유 호출은 여전히 옛 술어로 돈다. `claude plugin update` 필요(Bash에서 claude 바이너리 ENOENT — 사용자 직접 실행)
-- PRD OQ2 잔여 — 비-bypass 권한 모드에서의 게이트 완주는 이 세션이 측정할 수 없다(프롬프트가 뜰 자리가 없다). ambient allow 목록이 mccp 게이트 전체를 덮지 않는 것은 확인됨
-- 이 milestone의 test 중 어느 것도 CI에 등재돼 있지 않다(.github/workflows는 셋만 돌린다). 강제 지점은 사이클의 ## Validation — backlog 이연
-- (main 승계 red 54건, HEAD 기준선 대조로 확정) santa-loop-cap 28 · santa-adjudication 22 · review-single-pass-fields 2 · santa-lanes 1 · session-processes-reclaim 1. M3가 만든 red는 0. santa-* 51건은 이전 STATE.md에 기록이 없던 항목
-- (cleanup) .worktrees/m3-baseline 디렉토리가 핸들 점유로 삭제되지 않았다. worktree 등록은 prune됨, gitignored라 커밋 무영향. 다음 세션에서 `rm -rf .worktrees/m3-baseline`
-- (main 승계) worktree cleanup .worktrees/review-loop-bypass-m2 잔존
+- **[PR 차단 예상] chain이 슬러그로 갈려 있다.** `-m4`에는 implement-codex만, base에는 plan-codex만 있어 두 receipt가 공존하는 슬러그가 없다. `/mccp:pr`은 인자 없이 base를 도출하므로 implement-codex missing으로 본다(실측 exit 2). 선택지: (a) 감사 우회 + 사유 기록, (b) base 슬러그에 implement-codex 추가 발행(중복이지 위조는 아니나 감사 표면이 흐려짐), (c) `/mccp:plan`을 plan 경로로 재실행(패널 약 16분). **사용자 결정 사항.**
+- 설치된 plugin cache가 1.31.0(pre-M1)이라 `${CLAUDE_PLUGIN_ROOT}` 경유 호출은 옛 술어로 돈다. 이번 사이클의 `restamp-routed`는 그 cache에 없어 **실제로 3회 실패**했고(fail-open 경로가 설계대로 복구), STATE.md의 `dep_check_missing: impeccable`도 그 옛 술어가 남긴 stale 값이었다(현재 측정으로 정정). 머지 후 `claude plugin update` 필요
+- 디자인 게이트 트리거는 EXECUTE 이전에 평가되므로, 디자인 화이트리스트 파일을 편집하는 milestone은 자기 pre-EXECUTE 트리거를 구조적으로 켤 수 없다(2.5.5b false → EXECUTE 후 true). §3.9가 인정한 성질의 같은 계열이며 M4가 만든 것이 아니다
+- `receipt/tests/`가 `write()` 1회당 60초(briefing LLM 타임아웃 소진, 실측 61,036ms). 신규 test는 `MCCP_BRIEFING=off`로 11초. 기존 test는 그대로 — backlog 기록
+- (main 승계 red 54건) santa-loop-cap 28 · santa-adjudication 22 · review-single-pass-fields 2 · santa-lanes 1 · session-processes-reclaim 1. **M4가 만든 red는 0**
+- (cleanup) `.worktrees/m3-baseline` · `.worktrees/review-loop-bypass-m2` 잔존
 
 ## Last Updated
-2026-08-22T16:35:00.481Z
+2026-08-23T07:48:47.029Z

@@ -21,7 +21,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const PLUGIN_ROOT = path.resolve(__dirname, '..', '..', '..');
 
@@ -185,4 +187,120 @@ test('synthetic offender — file with wrong mode triggers mode-bleed guard', ()
     'impeccable-detect[\\s\\S]{0,200}--mode pr\\b'
   );
   assert.ok(!re.test(src), 'control: synthetic file without --mode pr passes the pr-mode-bleed guard');
+});
+
+// ── v1.31.4 M4 — finish-pass wiring ───────────────────────────────────────
+//
+// M3 taught this file a lesson the hard way: the assertion that used to sit
+// here checked PROSE (a literal that a sentence *about* the old call form would
+// satisfy) instead of WIRING. These check wiring — what the body calls, not
+// what it says about itself.
+
+const IMPLEMENT_MD = CANONICAL_BY_MODE.implement;
+
+// The three commands Phase 3.6 used to name inline. Their absence is what
+// proves the step now asks the oracle instead of carrying its own list.
+const HARDCODED_FINISH_LITERALS = ['`clarify <slug>`', '`distill <slug>`', '`polish <slug>`'];
+
+test('M4 pair: routing the finish phase and restamping its outcomes live and die together', () => {
+  // Half-landings are the danger, in both directions:
+  //   route-but-no-restamp — the finish commands fire and the receipt still
+  //     under-reports, which is the exact gap M4 exists to close;
+  //   restamp-but-no-route — the restamp has nothing real to stamp, so it
+  //     either no-ops forever or seals a hand-written list, and the receipt
+  //     then claims invocations the oracle never authorised.
+  // Asserting ONE equality is the only form neither half can satisfy alone.
+  const src = readSource(IMPLEMENT_MD);
+  const routesFinish = src.includes('phase:"finish"');
+  const restampsRouted = src.includes('restamp-routed');
+  assert.strictEqual(routesFinish, restampsRouted,
+    `routes finish phase = ${routesFinish}, calls restamp-routed = ${restampsRouted}. `
+    + 'These must match: routing without restamping leaves the receipt under-reporting the '
+    + 'invocations that actually happened, and restamping without routing means the outcomes '
+    + 'being sealed did not come from the oracle.');
+});
+
+test('M4: the pre pass names its phase explicitly', () => {
+  // Same value as the default, so this is not a behaviour assertion — it is a
+  // readability one. With two passes reading one table, a call site that omits
+  // the axis leaves the next editor to infer which pass they are looking at.
+  const src = readSource(IMPLEMENT_MD);
+  assert.ok(src.includes('phase:"pre"'),
+    'prp-implement.md 2.5.5b must pass phase:"pre" explicitly now that a finish pass exists');
+});
+
+test('M4: Phase 3.6 no longer carries its own command list', () => {
+  const src = readSource(IMPLEMENT_MD);
+  for (const literal of HARDCODED_FINISH_LITERALS) {
+    assert.ok(!src.includes(literal),
+      `prp-implement.md still hardcodes ${literal} — the finish commands must come from `
+      + 'routeCommands({phase:"finish"}), otherwise the receipt records a list nobody routed.');
+  }
+});
+
+test('M4: the routing oracle actually carries a finish phase for implement', () => {
+  // Guards the other side of the pair from the command body's point of view:
+  // a body asking for phase:"finish" against a table that has no finish rows
+  // would route zero commands and restamp an empty array, silently.
+  const routing = require('../impeccable-routing');
+  const finish = routing.routeCommands({
+    gate: 'implement', mode: 'auto', designSignal: true, renderingSurface: true, phase: 'finish',
+  });
+  assert.ok(finish.commands.length > 0,
+    'implement/finish routed nothing — the command body would restamp an empty array');
+  assert.strictEqual(finish.skipped, false);
+});
+
+// code-review L4 — the M4 pair test above proves the wiring literals are
+// PRESENT. It cannot tell whether the shell carrying them parses, and it did
+// not: Phase 3.6.5 shipped with an unbalanced quote (`cli.js"` with no opener),
+// which made every command in that block a syntax error while every literal
+// assertion stayed green. A grep-shaped guard cannot see that class of defect;
+// only a parser can. This runs one over the whole file, not just M4's blocks.
+//
+// Fences containing `<placeholder>` text are excluded. The repo documents
+// operator-substituted arguments as `<plan path>`, which bash reads as a
+// redirection — a documentation convention, not a defect.
+const BASH_PLACEHOLDER = /<[A-Za-z][^>\n]*>/;
+
+function bashFences(mdPath) {
+  const lines = fs.readFileSync(mdPath, 'utf8').split(/\r?\n/);
+  const fences = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!/^```bash\s*$/.test(lines[i])) continue;
+    const start = i + 1;
+    let j = start;
+    while (j < lines.length && !/^```\s*$/.test(lines[j])) j += 1;
+    fences.push({ line: start + 1, body: lines.slice(start, j).join('\n') });
+    i = j;
+  }
+  return fences;
+}
+
+test('M4: every self-contained bash fence in prp-implement.md parses', (t) => {
+  if (spawnSync('bash', ['-c', 'exit 0']).error) {
+    t.skip('bash unavailable on this platform — the parser check cannot run here');
+    return;
+  }
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-fence-'));
+  const failures = [];
+  let checked = 0;
+  try {
+    for (const fence of bashFences(IMPLEMENT_MD)) {
+      if (BASH_PLACEHOLDER.test(fence.body)) continue;
+      const scratch = path.join(tmpDir, 'fence-' + fence.line + '.sh');
+      fs.writeFileSync(scratch, fence.body);
+      const r = spawnSync('bash', ['-n', scratch], { encoding: 'utf8' });
+      checked += 1;
+      if (r.status !== 0) {
+        failures.push('prp-implement.md:' + fence.line + ' — '
+          + String(r.stderr || '').trim().split('\n')[0]);
+      }
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+  assert.ok(checked > 0, 'no checkable bash fences found — the extractor drifted');
+  assert.deepStrictEqual(failures, [],
+    'bash fences that do not parse:\n  ' + failures.join('\n  '));
 });

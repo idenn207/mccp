@@ -405,8 +405,8 @@ anchor로 닫는다 — critique의 divergent-block과 중복이 아니라 그 �
 
 디자인 단계에 impeccable 명령군을 매핑하는 routing oracle([impeccable-routing.js](plugins/mccp/scripts/lib/impeccable-routing.js)).
 `critique`은 **여기서 라우팅하지 않는다** — §3.9 retry loop 전용이라 divergent blocking이 보존된다.
-stage → command: discovery `shape` · refine `layout`/`typeset` · evaluate `critique`/`audit` ·
-harden `harden` · polish `polish`. `craft`·`live`는 비대화형 게이트와 부적합으로 **제외**한다.
+`craft`·`live`는 비대화형 게이트와 부적합으로 **제외**한다. 단계별 명령 배치는 오라클 테이블이
+소유하며(아래 M4), 이 절은 그 표를 복제하지 않는다.
 
 `MCCP_IMPECCABLE_ROUTING_MODE`: `auto`(default — callForm 그대로 실제 호출) · `hybrid`(evaluate만 invoke,
 나머지 recommend 강등) · `recommend`(전부 권장만). 게이트별로 plan/plan-prd는 recommend-only,
@@ -414,13 +414,26 @@ prp-implement는 실제 라우팅(`renderingSurface=0`이면 refine/discovery �
 recommend-only(review-only invariant)다. receipt에 `meta.impeccable_routing_mode` +
 `meta.impeccable_commands_routed`(per-command outcome)를 present-only stamp한다.
 
-M1의 6개(shape/layout/typeset/critique/audit + harden/polish)에 Extended 카탈로그 10개를 추가하고, auto 모드 fan-out 비용을 **content 기반 선별**로 제어합니다.
+M1의 6개에 Extended 카탈로그 10개를 추가하고, auto 모드 fan-out 비용을 **content 기반 선별**로 제어합니다.
 
 **Axis B — a11y-architect routing-only → 실제 auto-invoke**: 기존엔 `codex-result-filter.js`가 a11y finding을 drop하고 `a11yRoutedCount`만 셀 뿐 a11y-architect를 호출하지 않았다. M3은 PR 게이트에서 실제 `Task(mccp:a11y-architect)`를 review-only로 auto-invoke한다.
 
 a11y-architect 트리거는 `rendering_surface`(PR diff에 UI ext 존재)이지 Codex finding 유무가 **아니다** —
 design-scope preamble이 a11y를 억제하므로 finding 기반 트리거는 starve된다. kill switch는
 `MCCP_A11Y_AUTO_INVOKE=0`(default 1)이고 `rendering_surface=false`면 어느 값이든 skip한다.
+
+**게이트 발화 정합 (v1.31.4 M4)** — `shape`는 implement에서 더는 발화하지 않는다. 벤더가 자기
+메타데이터에 "Runs a **required** multi-round discovery interview"라 적었고, 비대화형 게이트가 그
+분기에 들어가면 질문하며 멎거나 제품 진실을 **지어내어 PRODUCT.md를 쓴다**. 카탈로그에서 빼지 않고
+call form만 `recommend`로 내렸다(UI5). 그 결과 `background`는 오라클 전체에서 **도달 불가**가 되지만
+enum은 남긴다 — 좁히면 과거 receipt 해석이 바뀐다. 테이블에 `phase` 축이 생겨 `clarify`·`distill`·
+`polish`·`harden`·`optimize`가 **finish**(post-EXECUTE)로 모이고, Phase 3.6이 같은 오라클을
+`phase:"finish"`로 부른 뒤 `cli.js restamp-routed`로 receipt에 append한다 — 이전에는 그 3종이
+오라클을 거치지 않아 실제 발화가 **기록될 경로가 없었다**. duplicate-call 불변식은 이제 산문이 아니라
+phase 필터가 보장한다. 남는 0-발화 단계는 정확히 `{discovery, system}`이고 각각 근거가 다르며
+test가 그 집합을 봉인한다. **schema 변경 0**이고, restamp 실패는 fail-open을 유지하되 재시도·산출물
+보존·fix-task 인계로 시끄럽게 만든다.
+
 배경: [상세](docs/gate-design.md#impeccable-routing)
 
 ---

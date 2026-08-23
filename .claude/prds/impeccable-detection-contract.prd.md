@@ -66,7 +66,7 @@ mccp는 impeccable이 설치됐는지를 **하나의 boolean**으로 판정하�
 | 1 | 정직한 탐지 | 어느 공식 채널로 설치했든 mccp가 "설치됨"으로 인식하고, **버전과 설치원과 실제로 열릴 본문**을 함께 보고한다 | complete | .claude/plans/impeccable-detection-contract-m1.plan.md |
 | 2 | setup·경고 정합 | `/mccp:setup`이 공식 명령을 권하고, 설치된 사용자에게 더 이상 설치를 권하지 않으며, 저장소에 심는 무시 규칙이 공식 계약과 일치한다 | complete | .claude/plans/impeccable-detection-contract-m2.plan.md |
 | 3 | 섀도잉 해소 | 같은 skill의 다중 사본이 사용자에게 **보이고**, setup이 승인을 받아 정리를 제안하며, 이 저장소의 구버전 사본이 사라진다 | complete | .claude/plans/impeccable-detection-contract-m3.plan.md |
-| 4 | 게이트 발화 정합 | auto 모드가 발화하는 명령이 비대화형 게이트에서 실제로 완주하고, 발화가 0인 라이프사이클 단계가 없다 | pending | — |
+| 4 | 게이트 발화 정합 | auto 모드가 발화하는 명령이 비대화형 게이트에서 실제로 완주하고, 발화가 0인 라이프사이클 단계는 `{discovery, system}` 둘뿐이며 각각 근거가 기록·test 봉인된다 | complete | .claude/plans/impeccable-detection-contract-m4.plan.md |
 | 5 | 문서·계약 드리프트 정리 | 환경변수 계약과 프로젝트 문서가 실제 코드·공식 채널과 일치한다 | pending | — |
 
 M1~M3이 MVP다. M4·M5는 MVP 착지 후 재평가한다 — M4는 탐지가 고쳐져야 라이브로 관측 가능하고, M5는 게이트를 막지 않는다.

@@ -44,6 +44,55 @@ const registry = require('./registry');
 const scan = require('./scan');
 const evidenceName = require('./evidence-name');
 
+// v1.32.1 M6 — L10 **역방향**(status=not-consumed 이름이 런타임 표면에 나타나면 그 주장이
+// 거짓이다) 전용 표면 정책. `scan.walkSurfaces`는 env-contract/ 전체를 제외하는데(그
+// 디렉토리가 raw 비교의 정당한 자리이므로 L1·L9에는 맞는 제외다) 그 결과 역방향이 자기
+// 구현 디렉토리를 보지 못하는 사각지대가 생긴다.
+//
+// **근거를 실측대로 적는다.** plan은 `value.js`를 «이 디렉토리에서 유일하게 런타임에 env를
+// 읽는 파일»이라 불렀는데, 문자 그대로는 참이 아니다 — 실측하면 이 디렉토리의 어느 파일도
+// `process.env`를 직접 읽지 않고(그 이름이 등장하는 3곳은 전부 **주석**이다), `value.js`는
+// 호출자가 건네는 `env` 객체를 **해석하는 계층**이다. 포함시키는 진짜 이유는 그것이다:
+// mccp가 언젠가 `IMPECCABLE_*`를 실제로 소비하기 시작하면 그 이름이 **리터럴로 처음 나타날**
+// 자리가 값 해석 계층이고, 그 순간 «mccp는 읽지 않는다»가 거짓이 된다. 오늘 그 파일의
+// `IMPECCABLE_` 리터럴은 0건이라 위양성 없이 들어온다.
+//
+// 나머지는 **이름으로 열거하고 각각 사유를 적는다** — mirror: `state/toggle-snapshot.js`의
+// `TOGGLE_EXCLUSIONS`(제외는 정규식이 아니라 이름이고, 각 이름에 실파일 근거가 붙는다).
+// 이 표는 장식이 아니라 강제된다: 아래 L10이 디렉토리를 열거해 **분류되지 않은 새 파일**을
+// problem으로 보고하므로, 미래에 여기 파일이 생기면 침묵으로 넘어가지 못한다.
+const L10_REVERSE_SURFACE_POLICY = Object.freeze([
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/value.js', include: true,
+    why: '값 해석 계층 — IMPECCABLE_* 이름이 리터럴로 처음 나타날 자리다(오늘 0건).',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/registry.js', include: false,
+    why: '계약 표 자체 — 모든 토글 이름이 데이터로 실려 있어 포함하면 전 not-consumed 이름이 즉시 위양성이 된다.',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/lint.js', include: false,
+    why: '검사기 자신 — 이 정책 표와 problem 메시지가 이름을 인용하므로 같은 위양성을 낳는다.',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/evidence-name.js', include: false,
+    why: '판정 코어 — 이름을 인자로 받아 메시지에 싣는다. 소비가 아니라 판정이다.',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/evidence-debt.js', include: false,
+    why: '면제 목록 — 이름이 데이터로 실려 있다. 포함하면 목록에 오른 이름이 자기 때문에 붉어진다.',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/measure-evidence.js', include: false,
+    why: '계측기 — registry를 읽어 이름을 다루기만 하고 토글로 소비하지 않는다.',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/scan.js', include: false,
+    why: '파일 열거기 — env 값을 해석하지 않으므로 런타임 표면이 아니다.',
+  }),
+]);
+const ENV_CONTRACT_DIR_REL = 'plugins/mccp/scripts/lib/env-contract';
+
 const INDEX_REL = 'docs/ENVIRONMENT.md';
 const DETAIL_DIR_REL = 'docs/environment';
 // 은퇴 항목에 사용법을 다는 것은 모순이므로 L7에서 제외한다.
@@ -453,6 +502,8 @@ function run(repoRoot) {
       return lineCache.get(rel);
     };
 
+    const problemsExtra = [];
+
     // 범위는 `scan.walkSurfaces`가 소유한다 — 자체 walk를 갖지 않는 L4·L9와 같은 계약.
     const surfaces = [];
     scan.walkSurfaces(root).forEach(function (rel) {
@@ -460,14 +511,70 @@ function run(repoRoot) {
       if (r.ok) surfaces.push({ rel: rel, text: r.text });
     });
 
-    const problems = evidenceName.evidenceNameProblems({
+    // v1.32.1 M6 — 역방향에만 더한다. L1(:283)·L9(:413)의 입력은 **바꾸지 않는다**: 그들의
+    // 범위를 넓히면 이 milestone이 검증하지 않은 축이 붉어진다. surfaces는
+    // `evidence-name.js`의 not-consumed 분기에서만 소비되므로(그 파일의 역방향 루프가
+    // 유일한 독자다) 이 추가는 정방향 판정에 도달하지 않는다.
+    //
+    // **디렉토리 부재는 problem이 아니다.** 이 정책의 대상은 *이 저장소의 구현 디렉토리*이고,
+    // 그것이 없는 root(합성 fixture · 이 계약을 벤더링하지 않은 저장소)에는 인증할 env-contract
+    // 파일이 애초에 없다. 그런 root에서 옳은 동작은 M6 이전과 같다 — walkSurfaces가 준 표면만
+    // 쓴다. 부재를 붉히면 «대상이 없다»를 «검사에 실패했다»로 보고하게 되고, 그 거짓 신호가
+    // 다른 검사의 fixture까지 오염시킨다(실측: lint.test.js의 «이 검사만 붉다» 단언이 전부
+    // 무너졌다). 디렉토리가 **있는데** 선언된 파일이 안 읽히거나 미분류 파일이 있으면 그때는
+    // 진짜 드리프트이므로 problem이다.
+    const classified = new Set(L10_REVERSE_SURFACE_POLICY.map(function (p) { return p.rel; }));
+    let dirEntries = null;
+    try {
+      dirEntries = fs.readdirSync(path.join(root, ENV_CONTRACT_DIR_REL), { withFileTypes: true });
+    } catch (_) {
+      dirEntries = null;
+    }
+    if (dirEntries) {
+      L10_REVERSE_SURFACE_POLICY.filter(function (p) { return p.include; }).forEach(function (p) {
+        const r = readFile(path.join(root, p.rel));
+        if (r.ok) surfaces.push({ rel: p.rel, text: r.text });
+        else problemsExtra.push('L10 reverse surface ' + p.rel + ' is declared but unreadable — '
+          + 'absence cannot be certified against a file that was not read');
+      });
+
+      // 표가 화석이 되지 않게 한다: 이 디렉토리에 분류되지 않은 .js가 생기면 침묵이 아니라
+      // problem이다. 그것이 «미래의 조용한 면제를 막는다»는 이 태스크의 유일한 실질이다.
+      const onDisk = new Set();
+      dirEntries.forEach(function (e) {
+        if (!e.isFile() || !/\.js$/.test(e.name)) return;
+        const rel = ENV_CONTRACT_DIR_REL + '/' + e.name;
+        onDisk.add(rel);
+        if (!classified.has(rel)) {
+          problemsExtra.push(rel + ': new file in env-contract/ is not classified in '
+            + 'L10_REVERSE_SURFACE_POLICY — declare include:true (it interprets env values) or '
+            + 'include:false with a reason');
+        }
+      });
+
+      // v1.32.1 code-review L1 — 화석 방지는 **양방향**이어야 한다. 위 루프는 새 파일만
+      // 잡는다: 표에 열거된 `include:false` 파일은 읽지 않으므로 디스크에서 사라져도
+      // 아무것도 붉지 않고, 표는 존재하지 않는 파일에 사유를 다는 문서로 남는다. 그것은
+      // 이 milestone이 `EVIDENCE_DEBT`에서 지적한 비대칭(«고쳐졌는데 목록에 남는다»)과
+      // 같은 형태다. `include:true` 항목은 위에서 읽기 실패로 이미 붉으므로 여기서는
+      // 중복을 피해 나머지만 본다.
+      L10_REVERSE_SURFACE_POLICY.forEach(function (p) {
+        if (p.include) return;
+        if (!onDisk.has(p.rel)) {
+          problemsExtra.push(p.rel + ': listed in L10_REVERSE_SURFACE_POLICY but absent from '
+            + 'env-contract/ — delete the row (the table only describes files that exist)');
+        }
+      });
+    }
+
+    const problems = problemsExtra.concat(evidenceName.evidenceNameProblems({
       entries: entries,
       debt: debt,
       debtError: debtError,
       readLines: readLines,
       surfaces: surfaces,
       lexicalProblem: evidenceLexicalProblem,
-    });
+    }));
     checks.L10 = fail('registry evidence names the toggle it points at', problems);
     checks.L10.debtSize = debt ? debt.length : null;
   }

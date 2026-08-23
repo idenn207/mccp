@@ -376,3 +376,102 @@ test('마커 — 7c가 대조할 fixture 수와 확장자 분포를 찍는다', 
   assert.ok(fixtureMd >= 1);
   cleanup();
 });
+
+// ── v1.32.1 M6 — L10 역방향 표면 확장 · 제외 앵커 ────────────────────────────
+//
+// `scan.walkSurfaces`는 env-contract/ 전체를 제외하므로(L1·L9에는 옳은 제외다) 역방향
+// 부재 주장이 자기 구현 디렉토리를 보지 못했다. M6은 그 디렉토리에서 **값 해석 계층**
+// 하나만 역방향에 더한다 — 다른 소비처(L1·L4·L9)의 입력은 바꾸지 않는다.
+
+const ENV_CONTRACT_REL = 'plugins/mccp/scripts/lib/env-contract';
+const ENV_CONTRACT_SIBLINGS = [
+  'registry.js', 'lint.js', 'evidence-name.js',
+  'evidence-debt.js', 'measure-evidence.js', 'scan.js',
+];
+
+// 정책표가 분류한 파일을 전부 실재하게 만든다. 하나라도 빠지면 «미분류» 검사가 아니라
+// «표에 있는데 디스크에 없다»가 관측돼 test가 다른 것을 재게 된다.
+function materializeEnvContractDir(root, valueJsText) {
+  const dir = path.join(root, ENV_CONTRACT_REL);
+  fs.mkdirSync(dir, { recursive: true });
+  ENV_CONTRACT_SIBLINGS.forEach((n) => fs.writeFileSync(path.join(dir, n), "'use strict';\n"));
+  fs.writeFileSync(path.join(dir, 'value.js'), valueJsText);
+  return dir;
+}
+
+test('M6 L10 역방향: value.js에 심은 not-consumed 이름이 붉어진다', () => {
+  const root = makeRepo();
+  materializeEnvContractDir(root, "'use strict';\n// IMPECCABLE_PALETTE_SEED\n");
+  const r = lint.run(root);
+  assert.equal(r.checks.L10.ok, false,
+    'value.js가 역방향 표면에 들어가지 않았다 — 부재 주장이 자기 구현 디렉토리를 못 본다');
+  assert.ok(
+    r.checks.L10.problems.some((p) => p.includes('IMPECCABLE_PALETTE_SEED') && p.includes('value.js')),
+    '기대한 역방향 problem이 없다: ' + JSON.stringify(r.checks.L10.problems),
+  );
+});
+
+test('M6 L10 역방향: 이름이 없으면 통과한다 (대조군 — 확장이 상시 붉히지 않는다)', () => {
+  const root = makeRepo();
+  materializeEnvContractDir(root, "'use strict';\n// nothing to see here\n");
+  const r = lint.run(root);
+  assert.equal(r.checks.L10.ok, true,
+    '깨끗한 value.js에서 붉어졌다: ' + JSON.stringify(r.checks.L10.problems));
+});
+
+test('M6 L10 정책표: env-contract/의 미분류 .js는 침묵이 아니라 problem이다', () => {
+  const root = makeRepo();
+  const dir = materializeEnvContractDir(root, "'use strict';\n");
+  fs.writeFileSync(path.join(dir, 'newcomer.js'), "'use strict';\n");
+  const r = lint.run(root);
+  assert.equal(r.checks.L10.ok, false, '분류되지 않은 새 파일이 조용히 통과했다');
+  assert.ok(
+    r.checks.L10.problems.some((p) => p.includes('newcomer.js') && p.includes('not classified')),
+    '미분류 problem이 없다: ' + JSON.stringify(r.checks.L10.problems),
+  );
+});
+
+test('M6 L10 정책표: 구현 디렉토리가 없는 root에서는 정책이 적용 대상 없음이다', () => {
+  // makeRepo()는 env-contract/를 만들지 않는다. 부재를 «검사 실패»로 보고하면 그 거짓
+  // 신호가 다른 검사의 fixture까지 오염시킨다 — 실제로 그렇게 무너진 적이 있다.
+  const root = makeRepo();
+  const r = lint.run(root);
+  assert.equal(r.checks.L10.ok, true,
+    '구현 디렉토리 부재가 problem으로 보고됐다: ' + JSON.stringify(r.checks.L10.problems));
+});
+
+test('M6 제외 앵커: 디렉토리 밖의 env-contract substring 경로는 더는 면제되지 않는다', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-envanchor-'));
+  tmpRoots.push(root);
+  fs.mkdirSync(path.join(root, ENV_CONTRACT_REL), { recursive: true });
+  fs.writeFileSync(path.join(root, ENV_CONTRACT_REL, 'value.js'), CLEAN_JS);
+  fs.writeFileSync(path.join(root, 'plugins/mccp/scripts/lib/env-contract-bridge.js'), CLEAN_JS);
+
+  const files = scan.walkSurfaces(root);
+  assert.ok(files.includes('plugins/mccp/scripts/lib/env-contract-bridge.js'),
+    'substring 제외가 남아 있다 — 디렉토리 밖 파일이 이름만으로 조용히 면제된다');
+  assert.ok(!files.includes(ENV_CONTRACT_REL + '/value.js'),
+    '구현 디렉토리가 더는 제외되지 않는다 — 그 디렉토리는 raw 비교의 정당한 자리다');
+});
+
+test('L1(code-review): 표에 있는데 디스크에 없는 파일은 problem이다 (화석 방지 역방향)', () => {
+  const root = makeRepo();
+  const dir = materializeEnvContractDir(root, "'use strict';\n");
+  // include:false로 분류된 파일 하나를 지운다. 이전에는 그 항목을 읽지 않으므로
+  // 아무것도 붉지 않았고, 표는 존재하지 않는 파일에 사유를 다는 문서로 남았다.
+  fs.unlinkSync(path.join(dir, 'measure-evidence.js'));
+  const r = lint.run(root);
+  assert.equal(r.checks.L10.ok, false, '표의 화석 항목이 조용히 통과했다');
+  assert.ok(
+    r.checks.L10.problems.some((p) => p.includes('measure-evidence.js') && p.includes('absent from')),
+    '부재 problem이 없다: ' + JSON.stringify(r.checks.L10.problems),
+  );
+});
+
+test('L1(code-review): 표와 디스크가 일치하면 통과한다 (대조군)', () => {
+  const root = makeRepo();
+  materializeEnvContractDir(root, "'use strict';\n");
+  const r = lint.run(root);
+  assert.equal(r.checks.L10.ok, true,
+    '일치하는데 붉어졌다: ' + JSON.stringify(r.checks.L10.problems));
+});

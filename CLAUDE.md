@@ -913,6 +913,16 @@ telemetry**다 — SessionStart 배너도 `/mccp:setup` Phase 3 분기도 그것
 L8이 형식과 실재만 보므로 이 축은 L8을 통과하면서 거짓일 수 있었다. 남는 비-impeccable 29건은
 지우지 않고 이름과 소유 축째로 열거해 각 축이 갚도록 남긴다.
 
+**래칫의 두 방향은 강제 수단이 다르다** (v1.32.1 M6 — 이연 정리와 질문 종결). *축소*는 기계다 —
+목록에 있는데 실제로는 통과하는 이름을 래칫이 실패로 보고하므로 고쳐진 항목은 화석으로 남지
+못한다. *증가*는 기계가 아니다: `assertShape`가 거부하는 것은 impeccable 축 이름뿐이라 다른 축은
+한 줄 append로 늘어났다. M6은 그것을 금지하지 않고 **가시화**한다 — `EVIDENCE_DEBT_CEILING`이
+로드 시점에 `length <= CEILING`을 throw로 강제하고 test가 `CEILING === length`를 짝으로 단언해,
+이름을 늘리려면 **상수를 올리는 별도 편집**이 필요하고 그 사실이 diff에 숫자로 남는다. 숫자는
+**상한이지 정원이 아니다**. 같은 milestone에서 L10 역방향의 범위가 경로 substring 제외에서
+**디렉토리 앵커**로 좁아지고 `env-contract/value.js`가 역방향에**만** 더해졌다(L1·L4·L9의 입력은
+불변 — 넓히면 검증하지 않은 축이 붉어진다).
+
 진단은 `node plugins/mccp/scripts/lib/impeccable-detect.js resolve [--json]`이고, 소비처 상태는
 `node plugins/mccp/scripts/lib/dep-check.js`가 `impeccable skill` 행으로 보고한다.
 환경변수 계약은 `node plugins/mccp/scripts/lib/env-contract/lint.js`(L1~L10)와

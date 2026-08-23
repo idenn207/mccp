@@ -17,11 +17,22 @@
 // `MCCP_PLAN_REVIEW_L3`가 적힌 행이 `MCCP_PLAN_REVIEW`를 인증한다 — 접두사 충돌이
 // 드리프트를 감춘다. 그래서 앞뒤로 `[A-Za-z0-9_]`가 오지 않는 것을 요구한다.
 // 부작용을 숨기지 않는다: status `scan-artifact`인 `MCCP_PLAN_REVIEW_`(끝이 밑줄인
-// 접두사 오탐)는 경계 일치로는 **절대 A가 될 수 없다**. 그것이 오분류가 아니라
-// 그 항목의 성질이며, 그래서 `EVIDENCE_DEBT`에 이름째 들어간다.
+// 접두사 오탐)에 대해 여기에는 «경계 일치로는 **절대** A가 될 수 없다»고 적혀 있었으나
+// **거짓이다(v1.32.1 M6 정정)**. 경계 일치가 막는 것은 뒤에 word 문자가 오는 경우뿐이고
+// 공백·문장부호는 그대로 매치한다 — 실측: `nameAppears('MCCP_PLAN_REVIEW_ 뒤에 공백',
+// 'MCCP_PLAN_REVIEW_')`는 `true`다. 참인 문장은 이렇다: 그 이름은 실제 코드에서 **항상
+// 다른 이름의 접두사로만** 나타나므로 표면에서 A가 되지 않으며, 그것은 정규식의 원리가
+// 아니라 **관측된 성질**이다. 그래서 `EVIDENCE_DEBT`에 이름째 들어가되, 코드가 그 이름을
+// 단독으로 쓰기 시작하면 A가 될 수 있고 그때는 목록에서 지워야 한다.
 //
 // mirror: `lint.js`의 `evidenceLexicalProblem` 재사용 — 경로 검사는 이 파일이 새로
-//         만들지 않는다. 두 번째 구현이 생기면 그 둘이 갈라진다.
+//         만들지 않는다. «두 번째 구현이 생기면 그 둘이 갈라진다»고 적어 두고 정작
+//         **창과 매처는 두 벌로 두었다**(로컬 `WINDOW`/`hasName`). v1.32.1 M6이
+//         그것을 통합했다: 창도 매처도 `evidence-name.js`가 소유하고 이 파일은
+//         `lint`가 re-export하는 `EVIDENCE_WINDOW`/`nameAppears`를 쓴다. 갈라 두면
+//         창을 넓히는 사람이 한 쪽만 고쳐도 어떤 test도 붉지 않고, 그 순간 **재는 자와
+//         강제하는 자가 다른 답을 낸다** — 이 파일이 스스로 존재 이유로 적은 «고치기 전과
+//         후를 같은 자로 재야 한다»가 성립하지 않게 된다.
 
 const fs = require('fs');
 const path = require('path');
@@ -29,18 +40,7 @@ const path = require('path');
 const registry = require('./registry');
 const lint = require('./lint');
 
-const WINDOW = 2;
 const IMPECCABLE_AXIS_RE = /^(MCCP_)?IMPECCABLE_/;
-
-/**
- * 이름을 토큰 경계로 찾는다. 접두사 충돌을 구조적으로 배제하는 유일한 지점.
- * @param {string} text
- * @param {string} name — registry.NAME_RE를 통과한 이름이므로 정규식 메타문자가 없다.
- * @returns {boolean}
- */
-function hasName(text, name) {
-  return new RegExp('(?<![A-Za-z0-9_])' + name + '(?![A-Za-z0-9_])').test(text);
-}
 
 function makeLineReader(root) {
   const cache = new Map();
@@ -96,10 +96,10 @@ function measure(repoRoot) {
       return;
     }
 
-    const from = Math.max(0, lineNo - 1 - WINDOW);
-    const to = Math.min(lines.length, lineNo + WINDOW);
-    if (hasName(lines.slice(from, to).join('\n'), e.name)) row.class = 'A';
-    else if (hasName(lines.join('\n'), e.name)) row.class = 'B';
+    const from = Math.max(0, lineNo - 1 - lint.EVIDENCE_WINDOW);
+    const to = Math.min(lines.length, lineNo + lint.EVIDENCE_WINDOW);
+    if (lint.nameAppears(lines.slice(from, to).join('\n'), e.name)) row.class = 'A';
+    else if (lint.nameAppears(lines.join('\n'), e.name)) row.class = 'B';
     else row.class = 'C';
     rows.push(row);
   });
@@ -113,14 +113,21 @@ function measure(repoRoot) {
 
   return {
     total: rows.length,
-    window: WINDOW,
+    window: lint.EVIDENCE_WINDOW,
     counts: counts,
     impeccable: { total: axis.length, counts: axisCounts, entries: axis },
     entries: rows,
   };
 }
 
-module.exports = { measure: measure, hasName: hasName, WINDOW: WINDOW, IMPECCABLE_AXIS_RE: IMPECCABLE_AXIS_RE };
+// 이름은 그대로 두되 구현은 소유자 하나를 가리킨다 — 기존 호출자가 있다면 계속 동작하고,
+// 그러면서도 이 파일 안에 두 번째 구현은 존재하지 않는다.
+module.exports = {
+  measure: measure,
+  hasName: lint.nameAppears,
+  WINDOW: lint.EVIDENCE_WINDOW,
+  IMPECCABLE_AXIS_RE: IMPECCABLE_AXIS_RE,
+};
 
 if (require.main === module) {
   const result = measure(process.cwd());

@@ -68,8 +68,11 @@ mccp는 impeccable이 설치됐는지를 **하나의 boolean**으로 판정하�
 | 3 | 섀도잉 해소 | 같은 skill의 다중 사본이 사용자에게 **보이고**, setup이 승인을 받아 정리를 제안하며, 이 저장소의 구버전 사본이 사라진다 | complete | .claude/plans/impeccable-detection-contract-m3.plan.md |
 | 4 | 게이트 발화 정합 | auto 모드가 발화하는 명령이 비대화형 게이트에서 실제로 완주하고, 발화가 0인 라이프사이클 단계는 `{discovery, system}` 둘뿐이며 각각 근거가 기록·test 봉인된다 | complete | .claude/plans/impeccable-detection-contract-m4.plan.md |
 | 5 | 문서·계약 드리프트 정리 | 환경변수 계약과 프로젝트 문서가 실제 코드·공식 채널과 일치한다 | complete | .claude/plans/impeccable-detection-contract-m5.plan.md |
+| 6 | 이연 정리와 질문 종결 | 이 축이 스스로 남긴 이연 항목이 닫히고, PRD가 연 채로 둔 질문 3건이 측정으로 답을 얻는다 | complete | .claude/plans/impeccable-detection-contract-m6.plan.md |
 
 M1~M3이 MVP다. M4·M5는 MVP 착지 후 재평가한다 — M4는 탐지가 고쳐져야 라이브로 관측 가능하고, M5는 게이트를 막지 않는다.
+
+**v1.32.1 정정 — M6이 추가되며 PRD가 다시 열렸다.** 1.32.0의 CHANGELOG 노트는 «M5가 마지막 milestone이고 PRD 전체가 종료된다»고 적었고 그것이 그 시점의 사실이었다. M6은 새 능력을 추가하지 않고 M1~M5가 **자기 축에 남긴** 이연분과 이 PRD가 연 질문 3건만 닫으므로, 범위 확장이 아니라 종결의 완성이다. 다른 축으로 라우팅된 이연분(`env-contract` · `environment-doc-uniformity` · 비-impeccable `EVIDENCE_DEBT` 29건)은 M6에 **들어오지 않는다** — 그것들은 sibling PRD `env-contract-integrity`와 각 축이 소유한다.
 
 ## Open Questions
 
@@ -96,9 +99,34 @@ M1~M3이 MVP다. M4·M5는 MVP 착지 후 재평가한다 — M4는 탐지가 �
   않아 M3는 권한 축을 추가하지 않았다. **남는 잔여: 비-bypass 모드에서의 실측.** 그 측정을
   하려면 권한 모드를 바꾼 세션이 필요하다. 증거:
   `.claude/notes/impeccable-detection-contract-m3.md` Task 0 (b).
-- [ ] **hook 이중 등록의 실제 영향.** CLI와 plugin이 각각 별도 경로로 같은 hook을 등록한다. 양쪽 설치 시 편집마다 2회 도는지, 그리고 impeccable의 세션 종료 hook이 mccp Stop-loop과 어떻게 상호작용하는지 미측정이다.
-- [ ] **Node 하한 불일치를 어느 쪽에 맞출 것인가.** impeccable hook은 22+를 요구하고 mccp는 20+를 명시한다. 하한을 올릴지, hook 미동작을 정상 degraded로 문서화할지.
-- [ ] **`impeccable@anthropics`라는 리터럴은 어디서 왔는가.** 과거 실재한 채널인지 추정값인지에 따라 하위 호환 부담이 달라진다.
+- [x] **hook 이중 등록의 실제 영향.** CLI와 plugin이 각각 별도 경로로 같은 hook을 등록한다. 양쪽 설치 시 편집마다 2회 도는지, 그리고 impeccable의 세션 종료 hook이 mccp Stop-loop과 어떻게 상호작용하는지 미측정이다.
+  → **M6 구성 판정(2026-08-23): 현재 구성에서 이중 발화는 없고, Stop 상호작용은 가산적이다.**
+  세 표면의 선언을 각각 읽었다 — plugin 4.1.1은 `PostToolUse`(matcher `Edit|Write`)와 `Stop`에
+  등록하고, 사용자 `~/.claude/settings.json`의 impeccable 항목 둘은 `PreToolUse`(`Write|Edit|MultiEdit`)와
+  `PostToolUse`(matcher **`Skill`**)이라 **어느 것도 같은 이벤트+matcher를 공유하지 않는다**.
+  PRD가 우려한 이중 등록은 plugin과 npm CLI가 **동시에** 설치된 경우에만 성립하는데 CLI는 미설치다.
+  Stop 축은 mccp 7그룹 + impeccable 1그룹이며, mccp Stop-loop은 자기 상태 파일로만 판정하므로 교차
+  오염이 없고 남는 영향은 지연뿐이다. **잔여: CLI 동시 설치 환경의 라이브 이중 발화 관측.** 그
+  측정은 M3가 닫은 섀도잉을 되살려야 해서 하지 않았다(DD7) — 위는 라이브 측정이 아니라 구성
+  판정이다. 증거: `.claude/notes/impeccable-detection-contract-m6.md` Task 9 (a).
+- [x] **Node 하한 불일치를 어느 쪽에 맞출 것인가.** impeccable hook은 22+를 요구하고 mccp는 20+를 명시한다. 하한을 올릴지, hook 미동작을 정상 degraded로 문서화할지.
+  → **M6 결정(2026-08-23): 올리지 않는다 — 벤더가 이미 degraded를 설계했다.** 4.1.1의 hook
+  command는 본문 실행 **전에** `process.versions.node` major가 22 미만이면 hook을 돌리지 않고
+  `exit 0`한 뒤 `~/.impeccable/node-unsupported` marker를 한 번만 만들고 systemMessage를 한 번만
+  낸다. 실패가 아니라 **자기 비활성화**다. 하한을 올리면 mccp 전 사용자가 선택적 의존 하나 때문에
+  런타임을 올려야 하고 §1.1의 "번들하지 않는 선택적 의존" 계약과 어긋난다. 정상 degraded로
+  문서화한다(`docs/environment/external.md` impeccable 절). 이 머신은 Node v24.11.1이라 hook이
+  실제로 돌고 marker는 부재다. 증거: `.claude/notes/impeccable-detection-contract-m6.md` Task 9 (b).
+- [x] **`impeccable@anthropics`라는 리터럴은 어디서 왔는가.** 과거 실재한 채널인지 추정값인지에 따라 하위 호환 부담이 달라진다.
+  → **M6 판정(2026-08-23): mccp 자신이 쓴 추정값이다. 하위 호환 부담 0.** `git log -S`가 도입
+  커밋을 `6da66bc feat(v0.2.6): Milestone 1 — impeccable design-review wiring`으로 지목하고, 그
+  커밋은 `impeccable-detect.js`를 신규 생성하면서 `const IMPECCABLE_PLUGIN_KEY = 'impeccable@anthropics'`를
+  처음 썼다 — 어떤 레지스트리에서 관측된 값이 아니다. 실제 키는 `impeccable@impeccable`이며 그
+  하드코드는 아무것도 매치하지 못해 설치된 plugin을 모든 게이트에서 보이지 않게 만들었다(M1이
+  반증). 과거에 실재한 채널이 아니므로 그 키로 설치된 사용자는 존재할 수 없다. **그럼에도 M6은
+  리터럴을 제거하지 않는다** — `impeccable-resolve.test.js`가 legacy 정확 일치 케이스로 봉인하고
+  있고 탐지 동작 변경은 M1 계약의 재개봉이다. 판정만 기록한다. 증거:
+  `.claude/notes/impeccable-detection-contract-m6.md` Task 9 (c).
 - [x] **이미 커밋된 `.impeccable/design.json`을 어떻게 할 것인가.** 규칙을 바꿔도 기존 추적 파일은 남는다. untrack 여부는 사용자 결정 영역이다.
   → **M2 결정: tracked로 남긴다(UI7). untrack하지 않는다.** 근거는 셋이다. (1) provisioner는
   자동 untrack하지 않는다는 기존 계약이 있고 `setup.md` Phase 5가 그것을 명시한다. (2) untrack

@@ -1,6 +1,6 @@
 ---
 fix_task_version: 1
-task_fingerprint: impeccable-detection-contract-m4
+task_fingerprint: impeccable-detection-contract-m5
 gate_id: stop-review-loop
 decision_id: impeccable-detection-contract-m5
 created_at: 2026-08-23T09:52:54.691Z

@@ -2,10 +2,119 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.32.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.32.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.32.1] — 2026-08-24
+
+> **§3.7**: `1.32.0 → 1.32.1` (**patch** — PRD 안의 단일 milestone(M6) ship이다. minor가
+> 아닌 이유는 새 기능이 아니라 기존 표면의 개선이기 때문이고, `1.32.0`이 «PRD 종료»라
+> 적었던 것은 위 정정대로 사실이 되지 못했다). 병렬 브랜치 충돌 점검(착수 시점):
+> `origin/main`이 `1.31.0`이고 sibling worktree `env-contract-integrity`는 `1.30.0`에 머문
+> 문서 전용 브랜치라 `1.32.1` 자리가 비어 있다. 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄다.
+> **PR 진입 직전 재계산 필수.**
+
+**impeccable-detection-contract M6 — 이연 정리와 질문 종결 (patch, `1.32.0 → 1.32.1`)** —
+새 능력은 없다. 게이트가 발화하는 대상도 판정 결과도 바뀌지 않고, 바뀌는 것은 **잘못된 입력을
+거부하는 자리**와 **거짓으로 적혀 있던 주장**뿐이다.
+
+### Added
+
+- `EVIDENCE_DEBT_CEILING` (`env-contract/evidence-debt.js`) — 래칫의 **증가** 방향을 가시화한다.
+  로드 시점에 `length <= CEILING`을 throw로 강제하고 test가 `CEILING === length`를 짝으로
+  단언하므로, 이름을 늘리려면 상수를 올리는 별도 편집이 필요하고 그 사실이 diff에 숫자로 남는다.
+  금지가 아니라 가시화다 — 숫자는 상한이지 정원이 아니고 신원은 여전히 이름 목록이 갖는다.
+- `L10_REVERSE_SURFACE_POLICY` (`env-contract/lint.js`) — L10 역방향 전용 표면 정책.
+  `env-contract/value.js`를 역방향에**만** 더하고 나머지 6개 파일을 **이름과 사유로** 열거한다
+  (mirror: `toggle-snapshot.js`의 `TOGGLE_EXCLUSIONS`). 표는 강제된다 — 그 디렉토리에 분류되지
+  않은 `.js`가 생기면 L10이 붉다. 단 디렉토리 자체가 없는 root는 «적용 대상 없음»이지 실패가
+  아니다.
+
+### Changed
+
+- `receipt/schema.js` — `meta.impeccable_commands_routed[]` 항목이 정확히
+  `command`/`call_form`/`status` 셋만 갖도록 강제한다. 여분 키는 producer와 consumer가 어긋난
+  신호이므로 정규화하지 않고 **거부**한다. present-only 계약은 유지(`null`/`undefined` 무검사).
+  legacy 예외는 두지 않는다 — 착수 전 실측이 저장소 전체에서 비정규 키 0건을 봉인했고, 예외가
+  곧 위조된 entries 파일의 통로다.
+- `receipt/write.js` — 최초 write 경로가 `--impeccable-commands-routed-file`을
+  `path.resolve(cwd, ...)`로 정규화한 뒤 읽고, 각 항목을 `canonicalRoutedEntry`로 통과시켜
+  `null`이면 throw한다(restamp 경로 `:1223-1231`과 같은 문형). **부재는 여전히 조용하다** —
+  파일이 없으면 `null`("기록하지 않음")이고, *있는데 형식이 틀린* 경우만 막는다.
+- `commands/prp-implement.md` — `isSurface`의 죽은 `.claude/cache/` 항을 두 곳(2.5.5b ·
+  Phase 3.6)에서 제거하고 왜 지웠는지·무엇이 남는지를 그 자리에 적었다. 그 분기는 파일 집합이
+  tracked diff ∪ non-ignored untracked이고 `.gitignore:131`이 그 경로를 양쪽에서 배제하므로
+  참이 될 수 없었다.
+- `env-contract/measure-evidence.js` — 로컬 `WINDOW`/`hasName`을 지우고 `lint`가 re-export하는
+  `EVIDENCE_WINDOW`/`nameAppears`를 쓴다. **재는 자와 강제하는 자가 하나**여야 창을 넓히는
+  변경이 한 쪽만 고쳐지지 않는다. export 이름은 유지해 기존 호출자 계약을 깨지 않는다.
+  통합 전후 A/B/C 동일(A 115 · B 24 · C 5 · not-consumed 19).
+- `env-contract/scan.js` — `isExcluded`가 경로 substring(`indexOf('env-contract') !== -1`)
+  대신 실제 디렉토리 앵커를 쓴다. 오늘 이 변경이 고치는 파일은 **0건**이고(디렉토리 밖에 그
+  substring을 가진 파일이 없다) 막는 것은 미래의 조용한 면제다.
+- `docs/environment/external.md` — `IMPECCABLE_NO_UPDATE_CHECK`와
+  `IMPECCABLE_LIVE_DEBUG_EVENTS`의 «기본값» 표기가 색인(`off`)과 상세(«미설정»)에서 달라
+  보였는데, **둘은 다른 질문에 답한 것**이었다. registry의 DD2가 `bool`/`bypass-flag`의
+  `default`와 `polarity`를 «같은 사실의 두 표기»로 못박으므로 색인의 `off`는 벤더가 설정하는
+  값이 아니라 **극성**(미설정 시 동작)이다. 그래서 색인·registry는 그대로 두고 상세 쪽 문구를
+  «`off` (= 미설정 시 동작. 벤더는 설정하지 않으므로 원문도 unset)»으로 명확히 했다.
+  처음에는 반대 방향으로(색인을 `—`로) 고쳤다가 `registry.test.js`의 DD2 단언이 그것을
+  붉혀 방향을 바로잡았다 — 그 test가 이 축의 정답을 알고 있었다.
+
+### Fixed
+
+- **거짓 주석 3면.** `MCCP_PLAN_REVIEW_`(끝이 밑줄)가 «경계 일치로는 원리상/절대 A가 될 수
+  없다»는 주장이 `measure-evidence.js` · `evidence-debt.js` · `docs/gate-design.md`에 있었고
+  실행이 반증한다(`nameAppears('MCCP_PLAN_REVIEW_ 뒤에 공백', ...)` → `true`). 참인 문장으로
+  바꿨다: 그 이름은 코드에서 **항상 다른 이름의 접두사로만** 나타나므로 표면에서 A가 되지
+  않으며, 그것은 정규식의 원리가 아니라 **관측된 성질**이다.
+- **`.claude/state/fix-task-applied.md`의 fingerprint 드리프트** — `task_fingerprint`가
+  `…-m4`인데 `decision_id`와 originating receipt는 `…-m5`였다.
+- **Task 3의 부작용 1건** — `prp-implement.md`에 주석을 넣으며 행이 밀려
+  `IMPECCABLE_FORCE_OVERRIDE_REASON`의 registry evidence(`:702`)가 창 밖으로 나갔다. 실제 read
+  site(`:713`)로 옮겼다. impeccable 축 이름이라 면제 목록에 넣을 수 없고(그것이 M5의 설계다)
+  옮기는 것이 유일한 해소다.
+- **`/mccp:code-review` 지적 7건 전건 흡수 (ship 직전).** §3.14는 HIGH만 즉시 흡수하도록
+  정하지만 사용자 판단으로 MEDIUM·LOW까지 함께 닫았다.
+  - **HIGH — `evidence-name.js` 헤더가 M6이 바꾼 자기 동작을 부정하고 있었다.** 그 파일은 L10의
+    판정 코어인데 헤더는 «substring 제외» · «그 디렉토리를 영원히 못 본다» · «2차 검사는
+    backlog에 있다»를 유지했다 — 셋 다 Task 6 이후 거짓이고, 마지막 것은 backlog가 같은 축을
+    `[해소 v1.32.1 M6 — Task 6]`으로 표시한 것과 정면 충돌한다. 「거짓 주석 3면 정정」을 내건
+    milestone이 **네 번째 면**을 자기 코어에 남겼다. 잔여(그 디렉토리의 *다른* 파일이 장래에
+    env를 읽는 경우)도 함께 명시했다.
+  - **MEDIUM — 두 벌 키 목록에 일치 단언이 없었다.** `write.js`(producer)와 `schema.js`
+    (validator)의 `ROUTED_ENTRY_KEYS`는 require 순환 때문에 복제가 정당하지만, **단언 없는**
+    복제는 Task 5가 `measure-evidence.js`에서 지운 결함과 같은 형태다. 양쪽이 상수를 export하고
+    test가 대조한다.
+  - **MEDIUM — backlog 표가 빈 줄로 두 조각이었다.** M6이 등재한 이연 4건이 헤더 없는 표가 되어
+    렌더에서 표 밖으로 나갔다(`derive/sources/backlog.js`는 빈 줄을 건너뛰므로 파싱 292건은
+    무영향 — 렌더만 깨졌다). 같은 파일에서 자기 셀에 리터럴 파이프를 담아 **스스로 잘리던** 행도
+    HTML 엔티티로 고쳤다(파서 원인은 여전히 미해소 — 그 행이 기술하는 그대로다).
+  - **MEDIUM — 주석의 예시가 검사 범위 밖이었다.** `scan.js`·`gate-design.md`가 substring 제외의
+    예로 `docs/env-contract-notes.md`를 들었으나 `walkSurfaces`는 `scripts/`·`commands/`만 걷는다.
+    범위 안의 예시로 바꿨다.
+  - **LOW — 정책표 화석 방지가 한 방향뿐이었다.** `L10_REVERSE_SURFACE_POLICY`는 *새* 파일만
+    붉혔고, 열거된 `include:false` 파일이 디스크에서 사라져도 조용했다(읽지 않으므로). 이제
+    부재도 problem이다 — `EVIDENCE_DEBT`의 축소 래칫과 같은 형태.
+  - **LOW — CHANGELOG 헤딩 날짜**를 실제 ship 일자로 맞췄다.
+
+### Docs
+
+- `docs/gate-design.md#impeccable-detection` — M6 절 추가, 래칫 두 방향의 강제 수단 정정,
+  L10 범위 문단 갱신, A/B/C 절의 «원리상» 주장 정정.
+- `CLAUDE.md` §3.17 — 상주 불변식 한 문단(래칫 두 방향 + L10 범위). 나머지는 gate-design.
+- `.claude/prds/impeccable-detection-contract.prd.md` — Open Questions 3건을 근거와 함께 닫고,
+  잔여가 있는 항목은 잔여를 명시했다(hook 이중 등록의 **라이브** 관측은 CLI 동시 설치 환경이
+  필요해 남긴다 — 위 판정은 구성 판정이지 라이브 측정이 아니다).
+- `.claude/notes/impeccable-detection-contract-m6.md` — 착수 전 실측 5건과 Open Questions
+  측정의 **방법 · 관측 · 판정할 수 없는 것**.
 
 ## [1.32.0] — 2026-08-23
 
+> **v1.32.1 정정**: 아래 «M5가 마지막 milestone이고 PRD 전체가 종료된다»는 서술은 그 시점의
+> 계획이었고 사실이 되지 못했다. M1~M5가 자기 축의 이연을 backlog에 쌓아 두었고 PRD가 연 채로
+> 둔 질문이 3건 남아 있어, 그것들을 닫는 M6이 `1.32.1`로 추가됐다. 원문은 그대로 둔다.
+>
 > **§3.7**: `1.31.4 → 1.32.0` (**minor** — M5는 impeccable-detection-contract PRD의
 > **마지막** milestone이고 M1~M4가 이미 ship됐으므로 PRD 전체가 종료된다. 같은 PRD의
 > patch 누적(`1.31.1`~`1.31.4`)이 여기서 다음 minor로 정리된다). 병렬 브랜치 충돌 점검:

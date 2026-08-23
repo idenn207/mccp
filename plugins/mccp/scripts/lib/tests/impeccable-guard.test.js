@@ -304,3 +304,24 @@ test('M4: every self-contained bash fence in prp-implement.md parses', (t) => {
   assert.deepStrictEqual(failures, [],
     'bash fences that do not parse:\n  ' + failures.join('\n  '));
 });
+
+// ── v1.32.1 M6 — 죽은 `.claude/cache/` 분기의 부재를 짝으로 고정한다 ─────────
+//
+// 짝인 이유: «리터럴이 없다»만 단언하면 누가 isSurface 블록을 통째로 지워도 초록이다.
+// 두 단언이 함께 있어야 «그 자리는 남아 있고, 죽은 항만 없다»가 관측된다.
+test('M6: prp-implement.md의 isSurface에 .claude/cache/ 항이 없다 (짝 단언)', () => {
+  const src = fs.readFileSync(CANONICAL_BY_MODE.implement, 'utf8');
+
+  const surfaceLines = src.split('\n').filter((l) => l.includes('const isSurface ='));
+  assert.strictEqual(surfaceLines.length, 2,
+    'isSurface 정의가 2곳이 아니다 (2.5.5b · Phase 3.6). 블록이 사라졌다면 위 부재 단언은 공허하다');
+
+  surfaceLines.forEach((l) => {
+    assert.ok(!l.includes('cache.test('),
+      'isSurface가 여전히 cache.test(를 부른다: ' + l.trim());
+  });
+
+  assert.strictEqual(src.split('const cache = ').length - 1, 0,
+    '죽은 cache 정규식이 되살아났다. 파일 집합이 tracked diff ∪ non-ignored untracked이고 '
+    + '.gitignore:131이 .claude/cache/를 양쪽에서 배제하므로 그 분기는 참이 될 수 없다');
+});

@@ -314,7 +314,7 @@ impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설�
 
 ### IMPECCABLE_NO_UPDATE_CHECK
 
-**종류** `bool` — **값** `on` · `off` — impeccable 본문은 `1` 등 truthy를 본다 — **기본값** 미설정 (원문도 unset)
+**종류** `bool` — **값** `on` · `off` — impeccable 본문은 `1` 등 truthy를 본다 — **기본값** `off` (= 미설정 시 동작. 벤더는 이 변수를 **설정하지 않으므로** 원문도 unset이고, truthy일 때만 켜진다. v1.32.1 M6 정정: 이 자리에 «미설정»이라고만 적혀 색인의 `off`와 어긋나 보였는데, 둘은 다른 질문에 답한 것이다 — 색인의 `off`는 벤더가 설정하는 값이 아니라 **극성**이다)
 
 **한 줄** 업데이트 확인 끔.
 
@@ -503,7 +503,7 @@ impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설�
 
 ### IMPECCABLE_LIVE_DEBUG_EVENTS
 
-**종류** `bool` — **값** `on` · `off` — impeccable 본문은 `1`/`true`/`yes`를 본다 — **기본값** 미설정 (원문도 unset)
+**종류** `bool` — **값** `on` · `off` — impeccable 본문은 `1`/`true`/`yes`를 본다 — **기본값** `off` (= 미설정 시 동작. 벤더는 이 변수를 **설정하지 않으므로** 원문도 unset이고, truthy일 때만 켜진다. v1.32.1 M6 정정: 위 `IMPECCABLE_NO_UPDATE_CHECK`와 같은 축이다)
 
 **한 줄** live 이벤트 디버그.
 
@@ -857,3 +857,19 @@ impeccable을 실행하는 환경(셸 · `settings.json`의 `env` · CI)에 설�
   | `IMPECCABLE_PALETTE_SEED` | string | unset | palette generation seed. 명시 `--from` 인자보다 우선순위 낮음. set 시 `hashUnit(value)`로 deterministic seed, unset이면 `Math.random()`. `palette.mjs:472`. |
 ```
 
+
+---
+
+## impeccable hook과 Node 하한 — 정상 degraded (v1.32.1 M6)
+
+impeccable plugin 4.1.1은 `PostToolUse`(matcher `Edit|Write`)와 `Stop`에 디자인 hook을 등록하고,
+두 hook 모두 본문을 실행하기 **전에** 스스로를 게이트한다 — `process.versions.node`의 major가
+**22 미만이면 hook을 돌리지 않고 `exit 0`** 한 뒤 `~/.impeccable/node-unsupported` marker를 한 번만
+만들고 systemMessage를 한 번만 낸다. 실패가 아니라 **자기 비활성화**다.
+
+**mccp는 자신의 Node 하한 20+를 올리지 않는다.** 하한을 올리면 mccp 전 사용자가 **선택적 의존**
+하나 때문에 런타임을 올려야 하고, 그것은 CLAUDE.md §1.1이 세운 "impeccable은 번들하지 않는
+선택적 의존" 계약과 어긋난다. Node 20~21 환경에서 impeccable hook이 돌지 않는 것은 **지원되는
+degraded 상태**이며, 그 환경에서도 mccp 게이트는 전부 정상 동작한다 — 디자인 hook만 조용히 쉰다.
+
+이 판정의 근거와 측정 방법은 `.claude/notes/impeccable-detection-contract-m6.md` Task 9 (b).

@@ -710,8 +710,30 @@ function buildReceipt(args) {
       impeccable_commands_routed: (function () {
         const p = args['impeccable-commands-routed-file'];
         if (typeof p !== 'string' || p.length === 0) return null;
-        const arr = readJsonIfPresent(p, null);
-        return Array.isArray(arr) ? arr : null;
+        // v1.32.1 M6 — resolve against cwd BEFORE reading, mirroring how
+        // --review-proof-file is read (:494) and what the restamp path already
+        // does (:1211). Without this the argument is interpreted against
+        // whatever the process happens to have as its working directory, which
+        // is not necessarily the repo this write targets — so the same relative
+        // path meant two different files depending on which entry point ran.
+        const arr = readJsonIfPresent(path.resolve(cwd, p), null);
+        if (!Array.isArray(arr)) return null;
+        // Then hold the writer to the same canonical form the restamp path
+        // enforces (:1223-1231). The asymmetry is deliberate: an ABSENT or
+        // unreadable file still yields null ("not recorded" — the caller simply
+        // did not route anything), whereas a file that IS present but malformed
+        // is a disagreement between producer and consumer and must not reach
+        // disk. Throwing is what the restamp path does for the identical input.
+        return arr.map(function (e, i) {
+          const c = canonicalRoutedEntry(e);
+          if (c === null) {
+            throw new Error('--impeccable-commands-routed-file entries[' + i +
+              '] must be an object with exactly ' + ROUTED_ENTRY_KEYS.join('/') +
+              ' (got: ' + (e && typeof e === 'object' && !Array.isArray(e)
+                ? Object.keys(e).join(',') : typeof e) + ')');
+          }
+          return c;
+        });
       })(),
       // v1.18.21 design-grounding — gate-time captured boolean + (optionally,
       // at write-time) verdict. The verdict is normally null at the initial
@@ -1142,6 +1164,13 @@ function restampGroundingVerdict(args) {
 // from the mutator as "no write" (store.js:236), so a suppressed retry does not
 // even re-seal the hashes.
 const RESTAMP_ROUTED_ALLOWED_GATES = ['mccp-implement-codex'];
+// v1.32.1 code-review M2 — schema.js owns an identical list and this file cannot
+// import it as the single source, because `validate` is called from inside the
+// hot path here and the reverse import would close a require cycle. So the copy
+// stays, but both sides now EXPORT it and a test asserts they are equal. An
+// unasserted copy is exactly what M6 Task 5 deleted from measure-evidence.js:
+// widen one side and nothing turns red until a receipt is refused by the half
+// that was not widened.
 const ROUTED_ENTRY_KEYS = ['command', 'call_form', 'status'];
 
 // Canonical entry form: exactly the three schema-validated keys, in a fixed
@@ -1308,5 +1337,7 @@ module.exports = {
   deriveEscalateSummary: deriveEscalateSummary,
   restampGroundingVerdict: restampGroundingVerdict,
   restampRoutedCommands: restampRoutedCommands,
+  // Exported only so the tests can hold this list against schema.js's copy.
+  ROUTED_ENTRY_KEYS: ROUTED_ENTRY_KEYS,
   normalizeReceiptCwd: normalizeReceiptCwd, // Task A3 — tested in cwd-normalization.test.js
 };

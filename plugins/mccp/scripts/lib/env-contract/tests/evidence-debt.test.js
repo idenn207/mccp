@@ -235,3 +235,28 @@ test('this repository passes L10 with every debt row still load-bearing', () => 
     assert.ok(registry.get(r.name), r.name + ' must still be a registry entry');
   });
 });
+
+// ── v1.32.1 M6 — 증가 방향의 가시화 ──────────────────────────────────────────
+//
+// 목록은 원래 **줄어드는 쪽만** 기계였다(evidence-name.js의 래칫). 늘어나는 쪽은 한 줄
+// append로 끝났고 아무것도 붉지 않았다. ceiling은 그것을 금지하지 않는다 — **두 곳을 함께
+// 고치게** 만들 뿐이고, 그래서 래칫이 느슨해진 사건이 diff에 숫자로 남는다.
+
+test('M6 ceiling: 상수와 목록 길이는 짝이다 — 둘 중 하나만 고치면 붉다', function () {
+  assert.strictEqual(debtMod.EVIDENCE_DEBT_CEILING, debtMod.EVIDENCE_DEBT.length,
+    'EVIDENCE_DEBT_CEILING(' + debtMod.EVIDENCE_DEBT_CEILING + ')과 목록 길이('
+    + debtMod.EVIDENCE_DEBT.length + ')가 다르다. 이름을 추가했다면 상수도 함께 올려라 — '
+    + '그 편집이 래칫이 느슨해졌다는 기록이다. 이름을 갚았다면 상수를 내려라.');
+});
+
+test('M6 ceiling: 상한을 넘는 목록은 로드 시점 검사에서 throw한다', function () {
+  const over = debtMod.EVIDENCE_DEBT.concat([
+    { name: 'MCCP_SKIP_RECEIPT', axis: 'gates', klass: 'B' },
+  ]);
+  assert.throws(function () { debtMod.assertShape(over); }, /EVIDENCE_DEBT_CEILING/,
+    '상한을 넘겼는데 통과했다 — 목록은 다시 한 줄 append로 늘어난다');
+});
+
+test('M6 ceiling: 상한 이하는 통과한다 (대조군 — 검사가 공허하지 않다)', function () {
+  assert.doesNotThrow(function () { debtMod.assertShape(debtMod.EVIDENCE_DEBT.slice(0, 3)); });
+});

@@ -468,8 +468,19 @@ ROUTE_JSON=$(node -e '
   const designSignal = process.argv[3] === "1";
   const designIntentActive = process.argv[4] === "1";
   const ui = /\.(tsx|jsx|vue|svelte|astro|css|scss|html)$/i;
-  const cache = /\.claude\/cache\/(STATUS\.md|status\.html)$/;
-  const isSurface = (f) => ui.test(f) || cache.test(f);
+  // v1.32.1 M6 — the .claude/cache/(STATUS.md|status.html) arm was removed
+  // because it could never be true. This file set is the tracked diff
+  // (git diff --name-only HEAD) UNION non-ignored untracked files
+  // (git ls-files --others --exclude-standard), and .gitignore:131 excludes
+  // .claude/cache/ from BOTH halves, so no input ever reached that branch.
+  // What remains is the honest current state: a dashboard-only change reports
+  // renderingSurface=0. Reviving it was considered and rejected (DD3 of
+  // .claude/plans/impeccable-detection-contract-m6.plan.md): probing the two
+  // files directly would make renderingSurface always 1 in any repo that has
+  // ever rendered them, and the real signal is the renderer .js source, which
+  // the ui regex does not match and which widening would re-open the firing
+  // scope M4 just settled.
+  const isSurface = (f) => ui.test(f);
   const sh = (c) => { try { return execSync(c, {encoding:"utf8", stdio:["ignore","pipe","ignore"]}); } catch (_) { return ""; } };
   const tracked = sh("git diff --name-only HEAD").split(/\r?\n/).filter(Boolean);
   const untracked = sh("git ls-files --others --exclude-standard").split(/\r?\n/).filter(Boolean);
@@ -1215,8 +1226,19 @@ ROUTE_FINISH_JSON=$(node -e '
   const designSignal = process.argv[3] === "1";
   const designIntentActive = process.argv[4] === "1";
   const ui = /\.(tsx|jsx|vue|svelte|astro|css|scss|html)$/i;
-  const cache = /\.claude\/cache\/(STATUS\.md|status\.html)$/;
-  const isSurface = (f) => ui.test(f) || cache.test(f);
+  // v1.32.1 M6 — the .claude/cache/(STATUS.md|status.html) arm was removed
+  // because it could never be true. This file set is the tracked diff
+  // (git diff --name-only HEAD) UNION non-ignored untracked files
+  // (git ls-files --others --exclude-standard), and .gitignore:131 excludes
+  // .claude/cache/ from BOTH halves, so no input ever reached that branch.
+  // What remains is the honest current state: a dashboard-only change reports
+  // renderingSurface=0. Reviving it was considered and rejected (DD3 of
+  // .claude/plans/impeccable-detection-contract-m6.plan.md): probing the two
+  // files directly would make renderingSurface always 1 in any repo that has
+  // ever rendered them, and the real signal is the renderer .js source, which
+  // the ui regex does not match and which widening would re-open the firing
+  // scope M4 just settled.
+  const isSurface = (f) => ui.test(f);
   const sh = (c) => { try { return execSync(c, {encoding:"utf8", stdio:["ignore","pipe","ignore"]}); } catch (_) { return ""; } };
   const tracked = sh("git diff --name-only HEAD").split(/\r?\n/).filter(Boolean);
   const untracked = sh("git ls-files --others --exclude-standard").split(/\r?\n/).filter(Boolean);

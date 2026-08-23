@@ -1181,8 +1181,12 @@ B 4 = **23건**이고 전부 L8을 `ok`로 통과했다. 착지 후 그 23건은
 `node plugins/mccp/scripts/lib/env-contract/measure-evidence.js --json`이 언제든 재현한다.
 그 스크립트는 **경계 일치**를 쓴다: 이름이 `[A-Z][A-Z0-9_]*`라 부분 문자열 일치를 쓰면
 `MCCP_PLAN_REVIEW_L3`가 적힌 행이 `MCCP_PLAN_REVIEW`를 인증한다. 부작용을 숨기지 않는다 —
-`scan-artifact`인 `MCCP_PLAN_REVIEW_`(끝이 밑줄인 접두사 오탐)는 경계 일치로는 **원리상**
-A가 될 수 없고, 그것이 오분류가 아니라 그 항목의 성질이다.
+`scan-artifact`인 `MCCP_PLAN_REVIEW_`(끝이 밑줄인 접두사 오탐)에 대해 여기에는 «경계 일치로는
+**원리상** A가 될 수 없다»고 적혀 있었으나 **거짓이다(v1.32.1 M6 정정)**. 경계 일치가 막는 것은
+뒤에 word 문자가 오는 경우뿐이고 공백·문장부호는 그대로 매치한다 — 실측:
+`nameAppears('MCCP_PLAN_REVIEW_ 뒤에 공백', 'MCCP_PLAN_REVIEW_')`는 `true`다. 참인 문장은
+이렇다: 그 이름은 실제 코드에서 **항상 다른 이름의 접두사로만** 나타나므로 표면에서 A가 되지
+않으며, 그것은 정규식의 원리가 아니라 **관측된 성질**이다.
 
 ##### L10 — 이름이 그 행에 있는가 (DD2)
 
@@ -1196,10 +1200,27 @@ L8은 evidence가 repo-relative이고 파일이 있고 행이 범위 안인지�
   가리켜야 하고, 런타임 표면에 그 이름이 **없어야** 한다. 주장이 "mccp는 읽지 않는다"이므로
   읽기 시작하면 붉어야 한다. 두 방향이 함께 있어야 status가 도피처가 되지 않는다.
 - **범위는 주장보다 좁고, 그 사실을 적는다.** 역방향은 `scan.walkSurfaces`로 부재를 단언하는데
-  `scan.js`의 `isExcluded`가 `env-contract`를 경로 substring으로 **디렉토리째** 제외한다
-  (registry 선언 행이 자기 자신을 트리거하는 것을 막으려면 필요하다). 즉 이 검사가 증명하는
-  것은 "어디에도 없다"가 아니라 **"walkSurfaces 범위에 없다"** 이다. 좁히는 2차 검사는
-  backlog에 있다(Implement-Codex R1 F2).
+  `scan.js`의 `isExcluded`가 env-contract 구현 디렉토리를 통째로 제외한다(registry 선언 행이
+  자기 자신을 트리거하는 것을 막으려면 필요하다). 즉 이 검사가 증명하는 것은 "어디에도 없다"가
+  아니라 **"walkSurfaces 범위 + L10 전용 추가분에 없다"** 이다.
+  - **v1.32.1 M6 — 제외가 경로 substring에서 디렉토리 앵커가 됐다.** 이전에는
+    `rel.indexOf('env-contract') !== -1`이라 디렉토리 밖의 미래
+    `lib/gates/env-contract-bridge.js`나 `commands/env-contract-audit.md`도 이름만으로 조용히
+    면제됐다(**예시는 걷는 범위 안에서 든다** — v1.32.1 code-review 정정: 여기에는
+    `docs/env-contract-notes.md`가 예로 적혀 있었으나 `walkSurfaces`는 `scripts/`와
+    `commands/`만 걷고 `docs/` 하위는 애초에 열거하지 않는다). 오늘 그런 파일은
+    **0건**이므로 이 변경이 고치는 파일도 0건이다 — 막는 것은 **미래의 조용한 면제**다.
+  - **v1.32.1 M6 — 역방향에만 `env-contract/value.js`를 더한다.** 그 디렉토리에서 값 해석
+    계층이고, mccp가 `IMPECCABLE_*`를 실제로 소비하기 시작하면 그 이름이 리터럴로 처음 나타날
+    자리다(오늘 0건이라 위양성 없이 들어온다). plan은 그것을 «유일하게 런타임에 env를 읽는
+    파일»이라 불렀지만 문자 그대로는 참이 아니다 — 실측하면 이 디렉토리의 어느 파일도
+    `process.env`를 직접 읽지 않는다(그 이름이 나오는 3곳은 전부 주석이다).
+    **L1·L4·L9의 입력은 바꾸지 않는다**: 그들의 범위를 넓히면 이 milestone이 검증하지 않은
+    축이 붉어진다. 나머지 제외분은 `lint.js`의 `L10_REVERSE_SURFACE_POLICY`가 **이름과 사유로**
+    열거하며(mirror: `toggle-snapshot.js`의 `TOGGLE_EXCLUSIONS`), 그 표는 장식이 아니라
+    강제된다 — 디렉토리에 분류되지 않은 `.js`가 생기면 L10이 붉다. 단 **디렉토리 자체가 없는
+    root는 «적용 대상 없음»이지 실패가 아니다**(합성 fixture에서 부재를 붉히면 그 거짓 신호가
+    다른 검사의 fixture까지 오염시킨다 — 실측으로 재현됐다).
 - **L7은 건드리지 않는다.** L7은 status로 분기하지 않고 `docs/environment/*.md`의 `### NAME`
   앵커를 전수 순회하므로, `not-consumed` 19종은 여전히 실행 가능한 사용 예시를 요구받는다.
   조용히 검사 밖으로 나가지 않게 하려는 **명시적 결정**이며 registry 헤더에 적혀 있다.
@@ -1213,8 +1234,16 @@ repo 전체에 L10을 걸면 impeccable 축을 다 고쳐도 **29건**이 붉다
 
 - **숫자가 아니라 이름인 이유**: 상한을 숫자로 두면 하나 고치고 하나 깨뜨려도 그대로다.
   숫자는 신원을 감춘다.
-- **양방향이다**: 목록에 있는데 실제로는 통과하는 이름도 실패다("지워라"). 래칫은 줄어들기만
-  한다. registry에서 사라진 이름이 목록에 남아도 붉다 — 화석 방지.
+- **두 방향의 강제 수단이 다르다(v1.32.1 M6 정정).** 여기에는 «양방향이다 … 래칫은 줄어들기만
+  한다»고 적혀 있었는데 절반만 참이었다. *축소* 방향은 기계다: 목록에 있는데 실제로는 통과하는
+  이름도 실패이고("지워라"), registry에서 사라진 이름이 목록에 남아도 붉다(화석 방지).
+  *증가* 방향은 기계가 아니었다 — `assertShape`가 거부하는 것은 `AXIS_FORBIDDEN_RE`가 잡는
+  impeccable 축 이름뿐이라, 다른 축 이름은 L10이 붉을 때 한 줄 append하면 초록이 됐다.
+  M6은 그것을 금지하지 않고 **가시화**한다: `EVIDENCE_DEBT_CEILING`을 두고 로드 시점에
+  `length <= CEILING`을 throw로 강제하므로 이름을 늘리려면 **상수를 올리는 별도 편집**이
+  필요하고, test가 `CEILING === length`를 짝으로 단언하므로 둘 중 하나만 고치면 붉다.
+  그래서 래칫이 느슨해진 사건은 언제나 diff에 숫자로 남는다. 숫자는 **상한이지 정원이 아니며**
+  신원은 여전히 이름 목록이 갖는다.
 - **로더가 fail-closed다**: 모듈이 없거나 throw하거나 모양이 틀리면 면제 집합이 **빈 집합**이
   되고 정방향 검사가 전부 그대로 판정된다. 관대한 방향으로 실패하면 목록이 조용히 "전체 면제"가
   된다. 이 축은 Implement-Codex R1이 HIGH로, plan 게이트 L2 invariant가 CRITICAL로 각각
@@ -1228,6 +1257,39 @@ repo 전체에 L10을 걸면 impeccable 축을 다 고쳐도 **29건**이 붉다
 `IMPECCABLE_VERSION`이 "`/mccp:setup` dep-check가 fallback hint로 honor"한다는 문장은 거짓이다
 (실측: `plugins/mccp/scripts/` 전체에서 그 이름을 읽는 코드 0건). 아카이브를 고쳐 쓰면 아카이브가
 아니게 되므로 위에 정정 줄을 붙였다 — CLAUDE.md §3.7의 "v1.23.12 정정:"과 같은 형태다.
+
+#### M6 — 이연 정리와 질문 종결 (v1.32.1)
+
+M1~M5는 탐지·판정·이름·발화·문서를 고쳤고 그 과정에서 **자기 축의** 이연을 backlog에 쌓았다.
+M6은 그중 이 PRD가 소유한 것만 닫는다. **새 능력은 없다** — 게이트가 발화하는 대상도 판정
+결과도 바뀌지 않고, 바뀌는 것은 *잘못된 입력을 거부하는 자리*와 *거짓으로 적혀 있던 주장*뿐이다.
+
+- **여분 키를 두 겹으로 거부한다.** `schema.js`가 `impeccable_commands_routed[]` 항목의 키를
+  정확히 `command`/`call_form`/`status` 셋으로 제한하고, `write.js`의 **최초** write 경로도
+  restamp 경로와 같은 `canonicalRoutedEntry` 규율을 쓴다(위반은 throw). 한 겹만 두면 나머지
+  경로로 들어온 여분 키가 조용히 봉인되어, producer가 기록했다고 믿는 것과 다른 receipt가
+  남는다. 소급 거부 위험은 착수 전 실측이 0건으로 봉인했으므로 legacy 예외를 두지 않는다 —
+  예외가 곧 위조된 entries 파일의 통로다.
+- **최초 write 경로가 `cwd`로 정규화한다.** `--review-proof-file`(:494)과 restamp(:1211)는
+  이미 `path.resolve(cwd, ...)`를 거치는데 최초 경로만 빠져 있었다. 같은 상대 경로가 진입점에
+  따라 다른 파일을 뜻했다.
+- **죽은 `.claude/cache/` 분기를 지운다.** `prp-implement.md`의 `isSurface`가 그 경로를
+  표면으로 인정했지만, 파일 집합이 tracked diff ∪ non-ignored untracked이고 `.gitignore:131`이
+  그 경로를 **양쪽에서** 배제하므로 어떤 입력으로도 참이 될 수 없었다. 되살리는 두 선택지는
+  기각했다 — 두 파일을 직접 probe하면 렌더한 적 있는 모든 저장소에서 `renderingSurface`가 항상
+  1이 되고, 진짜 신호인 렌더러 `.js` 소스는 `ui` 정규식 밖이라 넣으려면 M4가 정합화한 발화
+  대상 자체를 넓혀야 한다. 남는 공백은 그대로 적는다: **오늘 대시보드 작업은
+  `renderingSurface=0`이며 그것이 정직한 현재 상태다.**
+- **재는 자와 강제하는 자를 하나로 만든다.** `measure-evidence.js`의 창/매처가
+  `evidence-name.js`의 것과 별도 구현이었다. 갈라 두면 창을 넓히는 사람이 한 쪽만 고쳐도 아무
+  test가 붉지 않고, 그 순간 계측이 강제를 감사하지 못한다. 통합 후 A/B/C가 기준선과 동일함을
+  확인했다(A 115 · B 24 · C 5 · not-consumed 19).
+- **거짓 주석 3면을 정정한다.** `MCCP_PLAN_REVIEW_`가 «원리상 A가 될 수 없다»는 주장이
+  `measure-evidence.js` · `evidence-debt.js` · 이 문서에 있었고 실행이 반증한다.
+
+Open Questions 3건(hook 이중 등록 · Node 하한 · `impeccable@anthropics` 출처)은 측정으로 닫았고,
+각 판정의 방법·관측·**판정할 수 없는 것**은 `.claude/notes/impeccable-detection-contract-m6.md`
+Task 9가 소유한다.
 
 같은 사이클에서 19개 절의 자기모순도 닫혔다: 헤더가 "기본값 없음"이라 적으면서 같은 절의 보존
 표는 `https://impeccable.style` 같은 구체값을 적고 있었다. 이제 헤더는 **mccp의 기본값이 아니라

@@ -243,7 +243,7 @@ const RAW = [
   ['GITHUB_TOKEN', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/github-discussions.js:38', 'gh 인증 토큰.'],
   ['ECC_DISABLED_MCPS', 'list', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/hooks/mcp-health-check.js:55', 'ECC 비활성 MCP 목록.'],
   ['CLV2_HOMUNCULUS_DIR', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/hooks/observe-runner.js:73', 'CLv2 instinct 디렉토리.'],
-  ['IMPECCABLE_FORCE_OVERRIDE_REASON', 'string', null, null, null, 'active', 'external', 'plugins/mccp/commands/prp-implement.md:702', 'impeccable 게이트 override.'],
+  ['IMPECCABLE_FORCE_OVERRIDE_REASON', 'string', null, null, null, 'active', 'external', 'plugins/mccp/commands/prp-implement.md:713', 'impeccable 게이트 override.'],
   ['IMPECCABLE_VERSION', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:277', 'impeccable 버전 문자열.'],
   ['IMPECCABLE_NO_UPDATE_CHECK', 'bool', B, 'off', OFF, 'not-consumed', 'external', 'docs/environment/external.md:315', '업데이트 확인 끔.'],
   ['IMPECCABLE_UPDATE_HOST', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:345', '업데이트 확인 호스트.'],

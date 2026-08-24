@@ -20,6 +20,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const { checkPlanConsistency } = require('./l1-check');
@@ -29,7 +30,11 @@ const {
   decideQuorum, parseQuorum, parseRolesMin, isUsableResult, DEFAULT_BLOCK_SEVERITY,
 } = require('./quorum');
 const { decideReview, parseReviewMode, parseL3Enabled } = require('./decide');
+const {
+  buildL3Record, buildFindingsRecord, bridgeArtifacts, L3_ARTIFACTS,
+} = require('./l3');
 const { parseSinglePass, extractMeasurement } = require('../review-single-pass');
+const { parseBool } = require('../env-contract/value');
 const { deriveBacklogRows, appendRows, backlogPath } = require('./backlog-append');
 const {
   REVIEW_PERSPECTIVES,
@@ -97,6 +102,38 @@ function tmpDir() {
     return abs;
   } catch (_) {
     return process.cwd();
+  }
+}
+
+// writePrivate — owner-only, atomic-at-the-destination, unpredictable temp name.
+// Mirrors plan-codex-runner.js#writePrivate with one addition: `flag: 'wx'` on
+// the temp write. The temp name already carries pid + 6 random bytes, so
+// pre-creation is not a practical attack, but 'wx' turns "someone got there
+// first" from a silent overwrite into an error, and this function's callers
+// treat any error as a BLOCK.
+//
+// The rename is what makes the destination safe: rename(2) replaces a symlink at
+// the target rather than following it, so a pre-planted `l3.json -> /etc/passwd`
+// is destroyed, not written through.
+// A failed rename leaves the temp file behind. REVIEW_DIR is purged by an
+// explicit filename list at Phase 5.2 entry, not a glob, so an orphan named
+// `l3.json.4711.a3f2….tmp` would never be swept and would accumulate one per
+// failure. Clean it up here rather than growing the purge list a wildcard.
+function writePrivate(file, text) {
+  const tmp = file + '.' + process.pid + '.' +
+    crypto.randomBytes(6).toString('hex') + '.tmp';
+  try {
+    fs.writeFileSync(tmp, text, { mode: 0o600, flag: 'wx' });
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    // Clean up only a temp WE created. EEXIST means the name was already taken,
+    // which is the one case 'wx' exists to detect — and unlinking someone else's
+    // file there would be the exact opposite of what the flag is for. Every other
+    // failure (ENOSPC, EACCES, a failed rename) leaves our own orphan behind.
+    if (!e || e.code !== 'EEXIST') {
+      try { fs.unlinkSync(tmp); } catch (_) { /* never mask the original failure */ }
+    }
+    throw e;
   }
 }
 
@@ -374,6 +411,220 @@ function cmdEmitWorkflowArgs(args) {
 
   out({ argsPath: target, reviewedPlanHash: reviewedPlanHash,
     fleetKeys: fleet.map(function (f) { return f.key; }) });
+  return EX_OK;
+}
+
+// ── l3 (hybrid only) ──────────────────────────────────────────────────────────
+//
+// The dedicated Codex call for the hybrid mode's third layer. It replaces the
+// old arrangement, where 5.2f told the operator to run 5.2z's wrapper block
+// "verbatim" — a block whose real job is to launch plan-codex-runner.js, which
+// WRITES THE RECEIPT. On the hybrid path that made two receipt writers for one
+// receipt with no ordering between them (PRD design input (b)).
+//
+// This subcommand closes that by SUBTRACTION rather than by sequencing: it
+// produces the L3 inputs and nothing else, so on the hybrid path the runner is
+// never launched and the ordering requirement does not exist to be violated
+// (DD1). What remains is one static assertion — no runner call inside 5.2f —
+// which plan-review-command-body.test.js pins.
+//
+// It therefore has NO receipt, NO adjudication and NO lock (DD2). Blocking
+// authority stays with `decide`, which is the single place a reader can look to
+// find out what stopped a gate. Consequently `invoked:false` is exit 0: "Codex
+// declined to speak" is a legitimate outcome that `decide` fails closed on. Only
+// an unwritten artifact is exit 12 — there `decide` would still fail closed, but
+// it would report "L3 did not run" when the truth is "L3 ran and we could not
+// record it", so the accurate cause has to be raised here.
+function cmdL3(args) {
+  const root = (args['repo-root'] && args['repo-root'] !== true)
+    ? args['repo-root'] : repoRoot();
+
+  const required = [
+    ['review-dir', args['review-dir']],
+    ['plan', args.plan],
+    ['focus', args.focus],
+    ['run-nonce', args['run-nonce']],
+  ];
+  for (let i = 0; i < required.length; i++) {
+    const v = required[i][1];
+    if (!v || v === true) {
+      errln('l3 requires --' + required[i][0] + ' <value>');
+      usage();
+      return EX_USAGE;
+    }
+  }
+
+  // The nonce is a staleness discriminator that gets written verbatim into
+  // l3.json and compared by 5.2f's poll. Constrain its shape for the same reason
+  // plan-codex-runner.js does (SAFE_TOKEN_RE): an unconstrained argv value ends
+  // up inside a JSON document and inside an operator-facing message.
+  const runNonce = String(args['run-nonce']);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(runNonce)) {
+    errln('--run-nonce must match [A-Za-z0-9][A-Za-z0-9._-]{0,127} (got ' +
+      JSON.stringify(runNonce.slice(0, 32)) + ')');
+    return EX_USAGE;
+  }
+
+  // ── containment ────────────────────────────────────────────────────────────
+  // --review-dir is different in kind from --plan: we WRITE into it, and we
+  // create it if absent. resolveContained's realpath comparison silently
+  // degrades to the lexical check when the path does not exist yet (that
+  // tolerance is deliberate there — a plan that does not exist yet must fail on
+  // read, not as an escape). Writing under that degraded answer would accept a
+  // dangling symlink whose target lands outside the repo, so we contain, create,
+  // and then contain AGAIN — the second call runs against a path that now
+  // exists, so realpath actually resolves.
+  const dirFirst = resolveContained(args['review-dir'], root, '--review-dir');
+  if (!dirFirst.ok) {
+    errln('BLOCK: ' + dirFirst.reason + ' — L3 writes its artifacts into this ' +
+      'directory, so it may only be a path inside the repository');
+    return EX_BLOCK;
+  }
+  try {
+    fs.mkdirSync(dirFirst.abs, { recursive: true });
+  } catch (e) {
+    errln('BLOCK: cannot create --review-dir ' + dirFirst.abs + ': ' +
+      (e && e.message ? e.message : String(e)));
+    return EX_BLOCK;
+  }
+  const dirContained = resolveContained(dirFirst.abs, root, '--review-dir');
+  if (!dirContained.ok) {
+    errln('BLOCK: ' + dirContained.reason + ' — re-checked after creation, when ' +
+      'realpath can actually resolve; a symlinked review dir is not a place we ' +
+      'write gate evidence into');
+    return EX_BLOCK;
+  }
+  const reviewDir = dirContained.abs;
+
+  // --plan is read-only here, but checking it BEFORE the call is what keeps a
+  // typo from costing a 900-second Codex invocation.
+  const planContained = resolveContained(args.plan, root, '--plan');
+  if (!planContained.ok) {
+    errln('BLOCK: ' + planContained.reason);
+    return EX_BLOCK;
+  }
+  if (!fs.existsSync(planContained.abs)) {
+    errln('BLOCK: plan does not exist: ' + args.plan);
+    return EX_BLOCK;
+  }
+  if (args.prd && args.prd !== true) {
+    const prdContained = resolveContained(args.prd, root, '--prd');
+    if (!prdContained.ok) {
+      errln('BLOCK: ' + prdContained.reason);
+      return EX_BLOCK;
+    }
+  }
+
+  // ── the call ───────────────────────────────────────────────────────────────
+  // `--invoke-module` exists so the suite can exercise every classification row
+  // without a network call or a codex installation.
+  //
+  // IT IS A POLICY SEAM AND IT IS GATED FOR THAT REASON. An earlier revision of
+  // this comment claimed the opposite — "whatever it returns is still put through
+  // buildL3Record, whose enum check is the thing that decides what may be sealed"
+  // — and that is true only about VOCABULARY. A double returning
+  // `{classification:'ok', stdout:'{"result":{"verdict":"approve"}}'}` yields
+  // `verdict:'converged'` with `verdict-source=structured`, which is byte-identical
+  // to a real Codex approval; on the hybrid path 5.6b seals it as
+  // resolution.codex_verdict, `hybrid` is a CROSS_MODEL_SOURCES member, and
+  // cross-gate dedupe at /mccp:pr then skips PR-Codex. The enum check constrains
+  // WHICH WORDS may be sealed, never WHO SAID THEM.
+  //
+  // The env gate does not make forgery impossible — §3.13.2 already concedes that
+  // anyone who can run node at this privilege can seal a receipt directly. What it
+  // removes is a flag on the production gate binary that mints a cross-model
+  // approval with no marker distinguishing it from one Codex actually uttered.
+  let codexInvoke;
+  const injectedModule = (args['invoke-module'] && args['invoke-module'] !== true)
+    ? String(args['invoke-module']) : null;
+  // M5: 등재된 bypass-flag를 raw로 비교하면 lint L9가 붉어진다 — 그것이 L9의 존재 이유다.
+  // `parseBool`의 bypass-flag 분기는 `raw === '1'`이라 이 교체는 **바이트 단위로 동일**하다
+  // (trim도 대소문자 접기도 하지 않는다 — `env-contract/value.js:91-95`).
+  if (injectedModule && !parseBool(process.env, 'MCCP_PLAN_REVIEW_TEST_INVOKE')) {
+    errln('BLOCK: --invoke-module substitutes the Codex wrapper and can therefore ' +
+      'produce verdict=converged without Codex ever running. It requires ' +
+      'MCCP_PLAN_REVIEW_TEST_INVOKE=1, which the suite sets and a gate run never does.');
+    return EX_BLOCK;
+  }
+  try {
+    codexInvoke = injectedModule
+      ? require(path.resolve(injectedModule))
+      : require('../codex-invoke');
+  } catch (e) {
+    errln('BLOCK: cannot load the codex-invoke module: ' +
+      (e && e.message ? e.message : String(e)));
+    return EX_BLOCK;
+  }
+
+  let envelope;
+  try {
+    envelope = codexInvoke.invokeAdversarialReview(String(args.focus), {
+      json: true,
+      impeccableAvailable: args['impeccable-available'] === true,
+    });
+  } catch (e) {
+    // A throw out of the wrapper is not an approval and not a crash of this
+    // command: it is one more way for Codex not to have spoken, so it takes the
+    // same shape every other non-answer takes.
+    envelope = {
+      ok: false, stdout: '', stderr: String((e && e.message) || e),
+      classification: 'spawn-enoent', blocking: true, advisory: false,
+    };
+  }
+  envelope = (envelope && typeof envelope === 'object') ? envelope : {};
+
+  const record = buildL3Record({
+    classification: envelope.classification,
+    // The wrapper reports failure through `ok`/`blocking`/`classification`
+    // rather than a process exit code, so the exit axis is 0 whenever it
+    // returned at all. Passing envelope.ok through it keeps buildL3Record's
+    // three-condition guard meaningful for both callers.
+    exitCode: envelope.ok === false ? 1 : 0,
+    blocking: envelope.blocking,
+    envelope: envelope,
+    freeText: typeof envelope.stdout === 'string' ? envelope.stdout : '',
+    runNonce: runNonce,
+  });
+
+  // ── the artifacts ──────────────────────────────────────────────────────────
+  // Order is load-bearing (l3.js ARTIFACT_ORDER_RATIONALE): l3.json last, so the
+  // poll's "the file is there" and "the run is complete" are one fact.
+  const bridge = bridgeArtifacts(record);
+  const findings = buildFindingsRecord({ record: record, envelope: envelope });
+  const payloads = [
+    ['codex-verdict', bridge['codex-verdict']],
+    ['codex-class', bridge['codex-class']],
+    ['l3-findings.json', JSON.stringify(findings, null, 2) + '\n'],
+    ['l3.json', JSON.stringify(record, null, 2) + '\n'],
+  ];
+  for (let i = 0; i < payloads.length; i++) {
+    const name = payloads[i][0];
+    try {
+      writePrivate(path.join(reviewDir, name), payloads[i][1]);
+    } catch (e) {
+      // All four are required, and NOT because a reader would miss one. After
+      // the F1 absorption 5.6b takes the hybrid verdict from l3.json, so on this
+      // path the two bridge files have no reader at all (see l3.js#bridgeArtifacts
+      // for why they are still produced). The rule is about l3.json's meaning: its
+      // presence is the poll's completeness signal, so a directory that could not
+      // take all four is a directory whose l3.json must not be left behind
+      // claiming a complete run.
+      errln('BLOCK: cannot write ' + name + ' into ' + reviewDir + ': ' +
+        (e && e.message ? e.message : String(e)) +
+        ' — all ' + L3_ARTIFACTS.length + ' L3 artifacts must land or none of ' +
+        'them may be trusted');
+      return EX_BLOCK;
+    }
+  }
+
+  out({
+    invoked: record.invoked,
+    verdict: record.verdict === undefined ? null : record.verdict,
+    reason: record.reason,
+    run_nonce: record.run_nonce,
+    findings_count: Array.isArray(findings.findings) ? findings.findings.length : 0,
+    artifacts: L3_ARTIFACTS.map(function (f) { return path.join(reviewDir, f); }),
+  });
   return EX_OK;
 }
 
@@ -994,12 +1245,19 @@ function usage() {
     '  l1                 --plan <path> [--repo-root <path>]',
     '  emit-workflow-args --plan <path> [--prd <path>] [--fleet-keys a,b]',
     '                     [--granted <n>] [--out <path>]',
+    '  l3                 --review-dir <path> --plan <p> --focus <text> --run-nonce <n>',
+    '                     [--prd <p>] [--impeccable-available] [--repo-root <path>]',
+    '                     hybrid only. Calls Codex and writes codex-verdict,',
+    '                     codex-class, then l3.json (last — its presence implies',
+    '                     the other two). Writes NO receipt and holds NO lock.',
+    '                     exit 0 even when invoked:false; exit 12 only when an',
+    '                     artifact could not be written.',
     '  decide             --l1-file <p> --l2-file <p> [--l3-file <p>] [--plan <p>]',
     '                     [--mode <m>] [--evidence <repo-rel-path> ...]',
     '  verify-proof       --proof-file <p> [--repo-root <path>]',
     '  record             --slug <s> [--plan <p>] [--halt-stage <s>]',
     '                     [--review-dir <path>] [--repo-root <path>]   (always exit 0)',
-    '                     halt-stage ∈ 5.2a|5.2b|5.2c-emit|5.2c-pin|5.2d|5.2e|',
+    '                     halt-stage ∈ 5.2a-0|5.2a|5.2b|5.2c-emit|5.2c-pin|5.2d|5.2e|',
     '                                 5.2e-proof|5.2f|5.2g|5.2g2  (free-form; recorded verbatim)',
     '  backlog-append     --plan <p> --slug <s> [--review-dir <path>] [--repo-root <path>]',
     '                     appends the single-pass-dropped blockingFindings to the backlog',
@@ -1018,6 +1276,7 @@ function runCli(argv) {
     case 'mode': return cmdMode(args);
     case 'l1': return cmdL1(args);
     case 'emit-workflow-args': return cmdEmitWorkflowArgs(args);
+    case 'l3': return cmdL3(args);
     case 'decide': return cmdDecide(args);
     case 'verify-proof': return cmdVerifyProof(args);
     case 'record': return cmdRecord(args);

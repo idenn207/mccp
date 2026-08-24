@@ -1,55 +1,58 @@
 ---
 state_version: 1
-task_fingerprint: santa-adjudication-m3
+task_fingerprint: impeccable-detection-contract-m5
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-21T03:37:45.194Z
+updated_at: 2026-08-23T10:33:25.618Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-21T03:37:45.194Z
+last_event_at: 2026-08-23T10:33:25.618Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-18T03:44:26.285Z
+dep_check_at: 2026-08-23T09:38:09.736Z
+dep_check_missing: impeccable
+escalate_pending: true
+escalate_pending_decision_id: impeccable-detection-contract-m5
 ---
 ## Goal
-multi-session-work-loop M7 — 세션 경계 피드백 루프 구현 완료. C1이 forward-only → computed. 커밋/PR 대기.
+impeccable-detection-contract M5 — 문서·계약 드리프트 정리. 구현 완료(v1.32.0), commit/PR 대기. PRD 전체 종료.
 
 ## Plan
-- plan: `.claude/plans/santa-evidence-diversity-m2.plan.md` — 본문 확정, plan_hash sha256:f1bc8593…로 mccp-plan-codex가 봉인. **편집 금지**(편집하면 stale → PR이 §3.11 guard 2에 막힌다)
-- 게이트 산출물 + Task 6 실측: `.claude/notes/santa-evidence-diversity-m2.md` (plan 본문 대신 이 자리 — M1·santa-adjudication M1~M3 선례)
-- report: `.claude/PRPs/reports/santa-evidence-diversity-m2-report.md`
-- receipt: mccp-plan-codex/santa-evidence-diversity-m2 (review_verdict=divergent, single-pass 봉인) · mccp-implement-codex/santa-evidence-diversity-m2 (codex_verdict=skipped)
-- version 1.28.3 (patch — PRD 3 milestone 중 2번째). 4면 동기 완료
+- PRD: `.claude/prds/impeccable-detection-contract.prd.md` — M1·M2·M3·**M4 complete**, M5(문서 드리프트) pending
+- plan: `.claude/plans/impeccable-detection-contract-{m1,m2,m3,m4}.plan.md` — 넷 다 봉인됨(plan_hash). **편집 금지**
+- 게이트 산출물·라이브 증거: `.claude/notes/impeccable-detection-contract-{m1,m2,m3,m4}.md`
+- 구현 보고: `.claude/PRPs/reports/impeccable-detection-contract-m4-report.md`
+- version 1.31.4 (patch — PRD 내 단일 milestone). 4면 동기 완료. branch impeccable-detection-contract
 
 ## Done
-- Implement-Codex 게이트 — MCCP_CODEX_DISABLED=1 first-class skip(codex_verdict=skipped). security-reviewer 발화: CRITICAL 1 흡수 · CRITICAL 1 기각(리뷰어 자기 결론) · HIGH 2 흡수 · MEDIUM 3 무조치
-- Task 1 model-diversity.js — 순수 oracle export 11종. familyOf는 plan보다 엄격: 다중매치도 unknown(precedence 표 미채택)
-- Task 2 seal.js — deriveVerdict 제3값 degraded, 사영 1지점(degraded→divergent), exitReason 술어 !==divergent로 일반화
-- Task 3 receipt 5필드 + 양방향 불변식 — write 시점에 발화(예상보다 이른 지점)
-- Task 4 cli.js — isOnPath + --model 계열 재도출. 신규 exit code·플래그 0건
-- Task 5 santa-loop.md — Step 3 · Step 5.5 3갈래(degraded 선검사) · Output · Notes 5항목
-- Task 6 회귀 test 33건 신규(lanes 23 · review-gate 8 · cap 2). 단언 삭제 0건
-- Task 7 실측 5건 전부 성립 + 계획 외 1건. probe 누출 0
-- Task 8 문서 — ENVIRONMENT 2행 · ownership 3절 + 표 1행 · PRD status/OQ 3건 · CHANGELOG 1.30.0 + 4면 동기
-- Validation 1~6 전량 통과. santa 269건 중 266 pass · 0 fail · 3 skipped(선재)
+- M1 (3d38358, v1.31.1) 정직한 탐지 / M2 (87c6acb·0433538, v1.31.2) 판정 권한 일원화 / M3 (66aaa19, v1.31.3) 섀도잉 해소
+- **M4 (미커밋, v1.31.4) 게이트 발화 정합** — 8 task 전부 착지
+- M4/T1 UI10 재확인 실측 — `shape`는 벤더 메타데이터상 **조건 없이** required interview. **정정**: `teach`는 4.1.1의 23개 카탈로그에 없다(차단 프로즈만 부름) — 집합 유지 근거는 미래 카탈로그 확장 방어
+- M4/T2 `INTERVIEW_REQUIRED_COMMANDS` 신설 + implement `shape` background→recommend. `background`는 오라클 전체 **도달 불가**가 됐으나 enum 유지(과거 receipt 해석 보존) — test가 전수 128조합에서 고정
+- M4/T3 테이블 `phase` 축(pre/finish). implement 16→19(pre 14 + finish 5). `clarify`/`distill` finish 이동 + `polish`/`harden`/`optimize` 신설. `onboard`은 "없던 표면을 새로 짓는" 성질이라 제외. plan/prd/pr 출력 바이트 동일
+- M4/T4 `restampRoutedCommands` + `cli.js restamp-routed` — append-only(중복=drift 신호) ∧ **restamp 내 멱등**(tail match, 락 **안**). 게이트 `mccp-implement-codex` 한정, 여분 키 거부, 경로 resolve
+- M4/T5 prp-implement 재배선 — 2.5.5b `phase:"pre"` 명시 · Phase 3.6 전면 교체(오라클 구동 → 처리 → restamp) · 낡은 문단 정정. **duplicate-call 불변식이 산문에서 phase 필터로 이동**
+- M4/T6 test — routing +11(전수 128조합) · restamp-routed 14 신규 · guard 짝 단언 4(`phase:"finish"` ⟺ `restamp-routed`)
+- M4/T7 gate-design `#### 게이트 발화 정합` · CLAUDE.md §3.10(낡은 stage→command 나열 제거) · CHANGELOG 1.31.4 · 4면 동기 · PRD milestone 4 complete · backlog 5건 이연
+- M4/T8 라이브 — finish 오라클 5종 `invoke` → `impeccable:impeccable`로 전부 완주(어느 것도 멎지 않음) → restamp 착지. receipt에 finish 5건, `shape` non-recommend 0건, 재생 시 `noop:true`
+- 검증: V1 37/37 · V2 14/14 · V3 16/16 · V4 81/81 · **V5 682(681 pass·0 fail)** · V6 10/10 · V7 C1~C4 pass · V8 매트릭스 일치
+- 리뷰 산출: Codex R1 divergent(HIGH 2건 전건 흡수) · security-reviewer 4건 흡수 + 2건 PASS 독립 확인(F3 HIGH→MEDIUM 증거 정정) · backlog 5건 이연
 
 ## In Progress
 
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. **PR 진입 직전 §3.7 version 재계산 필수**(두 번째 시점). 현재 1.30.0이 origin/main(1.29.0)·브랜치(1.29.1) 양쪽보다 앞선다. merge 후 worktree cleanup + claude plugin update.
+/mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 version 재계산 필수(origin/main 1.31.0, 로컬 1.32.0 minor=PRD 종료).
 
 ## Last Decision
-security-reviewer의 CRITICAL F1(familyOf 순서 미명세) 처방을 그대로 쓰지 않았다 — precedence 표는 모호한 모델명에 어떤 계열이든 하나를 줘서 이종 판정을 살 수 있고, 그것은 DD3의 "모르겠다가 승인을 사지 못하게 한다"와 반대 방향이다. 매치된 계열이 정확히 1이 아니면 unknown으로 접어 precedence보다 엄격하게 만들었다. 반대로 F2(PATH TOCTOU)는 리뷰어 자신이 "DD6이 천장으로 명시, 코드 변경 불필요"로 결론해 근거를 붙여 backlog에 등재했다.
+Codex R1 HIGH(래칫 로더 fail-closed 미명시)와 plan L2 CRITICAL이 같은 축이라 R1에서 전건 흡수 — evidence-debt.js 로드 시점 throw + lint try/catch 2겹. MEDIUM 2건은 §3.14대로 backlog 이연. §3.16대로 1라운드로 끝내고 divergent를 정직하게 봉인.
 
 ## Open Questions
-- model은 여전히 선언이라 위조 가능 — PATH 대조가 막는 것은 미설치 CLI 참칭뿐. Task 7의 1번과 3번은 codex 설치 상태에서 구분되지 않는다. PRD Open Question 신규 등재
-- 포착률 미측정 — probe가 증명하는 것은 강등 배선이지 degrade가 놓친 결함과 상관하는지가 아니다. PRD 지표 5는 P1 종료 후
-- off 레인의 UI3 미충족은 여전히 무주 — M3이 넓히지 않기로 해 남은 후보는 신규 milestone 하나
-- design detector 시점 gap — version bump이 whitelist 파일을 건드리지만 detector는 게이트 진입 시점(빈 diff)을 본다. plan의 Design Critique 절이 이미 CONVERGED로 판정
-- (main 승계) 선재 red: renderer verdict-label.test.js · b2-coverage-gate 2건
-- (main 승계) worktree cleanup .worktrees/review-loop-bypass-m2 잔존
+- EVIDENCE_DEBT 29건(plan 예상 28)은 각 축의 부채 — 경계 일치가 MCCP_PLAN_REVIEW_(scan-artifact)를 C로 분류한 차이
+- L10 역방향은 walkSurfaces 범위 부재만 증명 — env-contract/ 디렉토리 전체 제외(backlog)
+- 설치 plugin cache가 1.31.0(pre-M1) — 머지 후 claude plugin update 필요
+- sibling worktree env-contract-integrity가 같은 subsystem PRD 보유(1.30.0, 문서 전용) — 충돌 없음
 
 ## Last Updated
-2026-08-21T03:37:45.194Z
+2026-08-23T10:33:25.618Z

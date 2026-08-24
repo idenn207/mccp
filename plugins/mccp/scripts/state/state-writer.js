@@ -133,6 +133,11 @@ function emptyState() {
       // v0.2.3 — dep-check dedupe state (24h re-warn threshold)
       dep_check_at: null,
       dep_check_missing: null,
+      // v1.31.3 — the eclipsed/shadowed banner's own dedupe key. Separate from
+      // dep_check_missing because an eclipsed copy is not a missing dependency:
+      // sharing that key would make a shadowed install read as an absent one to
+      // every consumer of the field. Present-only (dep_check_missing mirror).
+      dep_check_eclipsed: null,
       // v0.3.2 — dual-reviewer escalate flag (set by receipt-write when an
       // escalate trigger fires; cleared on next clean receipt for the same
       // decision_id). Conditional emit — only rendered when escalate_pending=true.
@@ -311,6 +316,7 @@ function renderFrontmatter(fm) {
   // v0.2.3 — dep-check dedupe state (only rendered when set)
   if (fm.dep_check_at) out.push('dep_check_at: ' + fm.dep_check_at);
   if (fm.dep_check_missing) out.push('dep_check_missing: ' + fm.dep_check_missing);
+  if (fm.dep_check_eclipsed) out.push('dep_check_eclipsed: ' + fm.dep_check_eclipsed);
   // cost-model-subscription M3 (Axis 2, F3) — chain_aborted provenance (present-only,
   // dep_check_at mirror). Emitted only when the flag was set by a channel.
   if (fm.abort_owner) out.push('abort_owner: ' + fm.abort_owner);
@@ -395,6 +401,10 @@ function mergeState(existing, patch) {
     merged.frontmatter.dep_check_at = dc.checkedAt || now;
     const missing = Array.isArray(dc.missing) ? dc.missing.filter(Boolean) : [];
     merged.frontmatter.dep_check_missing = missing.length > 0 ? missing.join(',') : null;
+    // Only written when the caller supplies it, so a channel that updates
+    // dep-check state without knowing about the eclipsed axis cannot silently
+    // clear it.
+    if (dc.eclipsed !== undefined) merged.frontmatter.dep_check_eclipsed = dc.eclipsed || null;
   }
 
   // v0.2.2 Task 8 — auto-chain + cost ceiling fields

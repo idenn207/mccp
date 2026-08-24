@@ -40,7 +40,7 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 
 **종류** `bool` — **값** `on` · `off` — **기본값** `off`
 
-**한 줄** hybrid에서 L3 요구.
+**한 줄** hybrid에서 L3 요구. **`MCCP_PLAN_REVIEW=hybrid`와 반드시 함께 설정한다** — 하나만 켜면 `/mccp:plan` 5.2a-0이 에이전트 0개로 조기 HALT한다(v1.31.0).
 
 **소비처** `plugins/mccp/scripts/lib/plan-review/decide.js:51`
 
@@ -61,6 +61,25 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 ```text
   MCCP_PLAN_REVIEW_L3=0|1                    # v1.23.1 M1 default: 0. `hybrid` 모드에서 L3(Codex) 발화 여부의 kill switch. mode와 별 축인 이유는 Codex 사용량 소진 시 mode를 건드리지 않고 L3만 끌 수 있어야 하기 때문. `mode=hybrid ∧ L3 미발화`는 `hybrid`가 **아니므로** verdict `unavailable`(HALT) + source는 정직하게 `multi-agent`이며 `codex_verdict`를 forward하지 않는다 — "요청했다"와 "일어났다"를 구분하지 않으면 dedupe가 없는 cross-model 확증을 인정한다.
 ```
+
+**v1.31.0 갱신 (codex-intent-context M3)** — hybrid는 **환경 변수 두 개를 함께**
+요구한다. 이 토글의 기본값이 `off`이므로 `MCCP_PLAN_REVIEW=hybrid`만 설정한 운영자는
+L3가 발화하지 않는 조합에 놓이고, 그 조합의 결말은 환경을 읽는 순간 이미 정해져 있다
+(`decide`의 `!ran` 분기 → `unavailable` + source `multi-agent` → HALT).
+
+M3 이전에는 그 확정된 HALT에 **L2 패널을 전부 지불한 뒤에** 도달했다. 이제
+`plan.md` **5.2a-0**이 `mode.json`의 `hybrid_without_l3`를 읽어 5.2b(예약) **앞에서**
+멈춘다 — 에이전트 0개, 예약 0건. 새 정책이 아니라 이미 결정된 결과를 앞당기는 것이다.
+복구 두 갈래는 메시지가 명시한다: `MCCP_PLAN_REVIEW_L3=1`로 실제 hybrid를 돌리거나,
+`MCCP_PLAN_REVIEW=multi-agent`로 L3 층을 내린다.
+
+L3가 켜져 있을 때의 실행 경로도 M3에서 바뀌었다. 5.2f는 더 이상 5.2z의 Codex 블록을
+verbatim 실행하지 않고(그 블록은 receipt writer인 `plan-codex-runner.js`를 띄운다 —
+5.6b가 같은 receipt를 쓰는 경로에서 writer가 둘이 된다) **전용 서브커맨드
+`plan-review/cli.js l3`**를 detached로 띄운 뒤 `l3.json`을 poll한다. 레코드에 실린
+`run_nonce`가 이번 실행의 것과 일치할 때만 수용하며, 불일치·무기록 종료·1000s 초과는
+모두 `--halt-stage 5.2f` 기록 후 HALT다. 상태표와 배경은
+[gate-design.md `## Hybrid L3 wiring`](../gate-design.md#hybrid-l3-wiring).
 
 ### MCCP_PLAN_REVIEW_BUDGET
 
@@ -543,7 +562,7 @@ MCCP_DESIGN_INTENT_REASON=<사유를 한 문장으로> /mccp:pr
 
 **한 줄** impeccable 라우팅 모드.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-routing.js:118`
+**소비처** `plugins/mccp/scripts/lib/impeccable-routing.js:164`
 
 **사용 예시**
 
@@ -567,7 +586,7 @@ MCCP_DESIGN_INTENT_REASON=<사유를 한 문장으로> /mccp:pr
 
 **한 줄** 추가 라우팅 명령 목록.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-routing.js:127`
+**소비처** `plugins/mccp/scripts/lib/impeccable-routing.js:173`
 
 **상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
 
@@ -589,18 +608,29 @@ MCCP_DESIGN_INTENT_REASON=<사유를 한 문장으로> /mccp:pr
 
 ### MCCP_IMPECCABLE_SKILL
 
-**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `enum` — **값** `available` · `missing` — **기본값** 없음 (미설정이 기본)
 
-**한 줄** impeccable skill 이름.
+**한 줄** impeccable 탐지 결과 강제 override.
 
-**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:135`
+**소비처** `plugins/mccp/scripts/lib/impeccable-detect.js:319`
+
+값은 **skill 이름이 아니다.** `impeccable-detect.js:322-330`이 `available`/`missing` 밖의 값을
+stderr WARNING과 함께 **버리고** 실제 소스를 다시 probe하므로, 이름을 넣으라던 옛 설명대로 쓰면
+아무 일도 일어나지 않는다. `missing`은 즉시 답을 끝내고, `available`은 이름이 해소된다고만 주장할 뿐
+**어느 사본이 답하는지는 주장하지 않는다**(그래서 `path`가 `null`이고, 그 상태에서는 정리 도구가
+어떤 `--source`도 거부한다 — CLAUDE.md §3.17 규칙 4).
+
+**이 override는 외부에 따로 설치한 경우를 위한 장치다.** 공식 채널(plugin · CLI · project · user)로
+설치했다면 오라클이 스스로 찾으므로 설정할 필요가 없다 — 공식 채널 설치자에게 env 설정을 요구하는
+것은 의도된 사용법이 아니라 결함이다. 현재 상태는
+`node plugins/mccp/scripts/lib/impeccable-detect.js resolve`가 답한다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "MCCP_IMPECCABLE_SKILL": "<사유를 한 문장으로>"
+    "MCCP_IMPECCABLE_SKILL": "available"
   }
 }
 ```
@@ -608,7 +638,37 @@ MCCP_DESIGN_INTENT_REASON=<사유를 한 문장으로> /mccp:pr
 한 호출에만 적용하려면 셸에서 앞에 붙인다:
 
 ```bash
-MCCP_IMPECCABLE_SKILL=<사유를 한 문장으로> /mccp:pr
+MCCP_IMPECCABLE_SKILL=missing /mccp:prp-implement
+```
+
+### MCCP_PLAN_REVIEW_TEST_INVOKE
+
+**종류** `bypass-flag` — **값** `1` — **기본값** `off`
+
+**한 줄** test 전용 — `--invoke-module` 허용.
+
+**소비처** `plugins/mccp/scripts/lib/plan-review/cli.js:542`
+
+**극성** 미설정이면 **꺼져 있다**. 활성화 리터럴은 정확히 `1` 하나이고 그 밖은 전부 미설정과 같다.
+
+**상태** `test-only` — `plan-review/cli.js`의 `--invoke-module`은 임의 모듈을 로드하므로 게이트
+실행 경로에서는 **거부**된다. 이 플래그는 그 거부를 test 스위트에서만 푼다. 게이트 실행은 이 값을
+설정하지 않으며, 설정된 채로 게이트를 돌리는 것은 지원 대상이 아니다.
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_PLAN_REVIEW_TEST_INVOKE": "1"
+  }
+}
+```
+
+한 호출에만 적용하려면 셸에서 앞에 붙인다:
+
+```bash
+MCCP_PLAN_REVIEW_TEST_INVOKE=1 node --test plugins/mccp/scripts/lib/tests/plan-review-l3.test.js
 ```
 
 ### MCCP_A11Y_AUTO_INVOKE

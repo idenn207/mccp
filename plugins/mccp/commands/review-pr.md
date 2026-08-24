@@ -22,7 +22,7 @@ Receipt `gate_id` is still `code-reviewer` regardless of which alias the user ty
 
 ## Impeccable design gate (v0.2.6 Milestone 1)
 
-Inherited verbatim from `/mccp:code-review` Phase 2.5.2 (reuse-first). The pre-flight helper invocation `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect --mode review --base "origin/<base>" --json` runs identically. The `code-reviewer` gate is **lenient** — `meta.impeccable_skipped=true` surfaces as warning, not blocking. PR body's `## Design Review` section is reused when present to avoid double-paying impeccable cost in the same PR cycle. `Skill(impeccable, "critique PR #<N>")` only fires when reuse misses. When Skill unavailable, the fallback note `> impeccable unavailable, skipped (auto-fallback): skill-missing` is recorded in Phase 6 REPORT.
+Inherited verbatim from `/mccp:code-review` Phase 2.5.2 (reuse-first). The pre-flight helper invocation `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect --mode review --base "origin/<base>" --json` runs identically. The `code-reviewer` gate is **lenient** — `meta.impeccable_skipped=true` surfaces as warning, not blocking. PR body's `## Design Review` section is reused when present to avoid double-paying impeccable cost in the same PR cycle. The impeccable critique only fires when reuse misses, and since v1.31.3 it uses the resolved call form the parent prints on its `[mccp:impeccable] call-form:` stderr line rather than a hardcoded name. When that line is absent or the resolved call is unavailable, the fallback note `> impeccable unavailable, skipped (auto-fallback): skill-missing` is recorded in Phase 6 REPORT.
 
 ## Standalone mode
 

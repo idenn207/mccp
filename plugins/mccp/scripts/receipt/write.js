@@ -16,7 +16,7 @@ const { validateReason } = require('./lib/force-override-reason');
 const { parseIntentGateSkipReason, isPrdModePlan } = require('../lib/intent-context');
 const { parseSinglePass, REASONS: SINGLE_PASS_REASONS } = require('../lib/review-single-pass');
 const { phaseFromGate } = require('./aliases');
-const { writeReceipt, readReceipt, updateReceipt } = require('./store');
+const { writeReceipt, readReceipt, updateReceipt, receiptPath } = require('./store');
 const escalateDetector = require('../lib/escalate-detector');
 const fixTask = require('../state/fix-task');
 const stateWriter = require('../state/state-writer');
@@ -710,8 +710,30 @@ function buildReceipt(args) {
       impeccable_commands_routed: (function () {
         const p = args['impeccable-commands-routed-file'];
         if (typeof p !== 'string' || p.length === 0) return null;
-        const arr = readJsonIfPresent(p, null);
-        return Array.isArray(arr) ? arr : null;
+        // v1.32.1 M6 — resolve against cwd BEFORE reading, mirroring how
+        // --review-proof-file is read (:494) and what the restamp path already
+        // does (:1211). Without this the argument is interpreted against
+        // whatever the process happens to have as its working directory, which
+        // is not necessarily the repo this write targets — so the same relative
+        // path meant two different files depending on which entry point ran.
+        const arr = readJsonIfPresent(path.resolve(cwd, p), null);
+        if (!Array.isArray(arr)) return null;
+        // Then hold the writer to the same canonical form the restamp path
+        // enforces (:1223-1231). The asymmetry is deliberate: an ABSENT or
+        // unreadable file still yields null ("not recorded" — the caller simply
+        // did not route anything), whereas a file that IS present but malformed
+        // is a disagreement between producer and consumer and must not reach
+        // disk. Throwing is what the restamp path does for the identical input.
+        return arr.map(function (e, i) {
+          const c = canonicalRoutedEntry(e);
+          if (c === null) {
+            throw new Error('--impeccable-commands-routed-file entries[' + i +
+              '] must be an object with exactly ' + ROUTED_ENTRY_KEYS.join('/') +
+              ' (got: ' + (e && typeof e === 'object' && !Array.isArray(e)
+                ? Object.keys(e).join(',') : typeof e) + ')');
+          }
+          return c;
+        });
       })(),
       // v1.18.21 design-grounding — gate-time captured boolean + (optionally,
       // at write-time) verdict. The verdict is normally null at the initial
@@ -1114,6 +1136,198 @@ function restampGroundingVerdict(args) {
   return { path: out.path, receipt: out.receipt };
 }
 
+
+// v1.31.4 M4 — field-preserving restamp of POST-EXECUTE routed-command outcomes.
+//
+// Sibling of restampGroundingVerdict above, same reason it exists: the finish
+// pass (Phase 3.6) runs AFTER the 2.5.6 receipt write, so its outcomes have no
+// way into the receipt. Before M4 those commands were invoked from a hardcoded
+// list that never touched the routing oracle, and the only post-write restamp
+// mutated a single grounding key — so real invocations had no path to the
+// receipt at all. This closes that path.
+//
+// It APPENDS rather than replaces: the pre-pass entries written at 2.5.6 are
+// evidence in their own right and the finish pass is a second, later fact about
+// the same cycle.
+//
+// Deliberately NOT deduped across entries. If the duplicate-call invariant ever
+// breaks (a command firing in both passes), seeing it twice in the array IS the
+// drift signal — silently merging would erase exactly the evidence this field
+// exists to carry.
+//
+// It IS idempotent per restamp, which is a different axis (Codex Implement-R1
+// F1): a retry of the SAME restamp must not forge a second history. The check is
+// a tail match on the canonical entry form, and it lives INSIDE the updateReceipt
+// critical section (security review F4) — outside the lock, a concurrent writer
+// could change the tail between the check and the write, which is the same
+// lost-update class §3.12 protects against. updateReceipt treats a null return
+// from the mutator as "no write" (store.js:236), so a suppressed retry does not
+// even re-seal the hashes.
+const RESTAMP_ROUTED_ALLOWED_GATES = ['mccp-implement-codex'];
+// v1.32.1 code-review M2 — schema.js owns an identical list and this file cannot
+// import it as the single source, because `validate` is called from inside the
+// hot path here and the reverse import would close a require cycle. So the copy
+// stays, but both sides now EXPORT it and a test asserts they are equal. An
+// unasserted copy is exactly what M6 Task 5 deleted from measure-evidence.js:
+// widen one side and nothing turns red until a receipt is refused by the half
+// that was not widened.
+const ROUTED_ENTRY_KEYS = ['command', 'call_form', 'status'];
+
+// Canonical entry form: exactly the three schema-validated keys, in a fixed
+// order so JSON comparison is stable. Returns null when the entry carries
+// anything else — the caller then refuses to suppress rather than guessing.
+function canonicalRoutedEntry(entry) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  const keys = Object.keys(entry);
+  if (keys.length !== ROUTED_ENTRY_KEYS.length) return null;
+  for (let i = 0; i < keys.length; i += 1) {
+    if (ROUTED_ENTRY_KEYS.indexOf(keys[i]) === -1) return null;
+  }
+  return {
+    command: entry.command,
+    call_form: entry.call_form,
+    status: entry.status,
+  };
+}
+
+// True only when `entries` is already the exact tail of `current`. Uncertainty
+// resolves to false — appending a duplicate is recoverable and visible, whereas
+// suppressing a real second pass loses the record M4 exists to keep.
+function isRoutedTailMatch(current, entries) {
+  if (!Array.isArray(current) || current.length < entries.length) return false;
+  const tail = current.slice(current.length - entries.length);
+  for (let i = 0; i < entries.length; i += 1) {
+    const a = canonicalRoutedEntry(tail[i]);
+    if (a === null) return false;
+    if (JSON.stringify(a) !== JSON.stringify(entries[i])) return false;
+  }
+  return true;
+}
+
+function restampRoutedCommands(args) {
+  const gateId = args.gate || args['gate-id'];
+  const decisionId = args.decision || args['decision-id'];
+  const entriesFile = args['impeccable-commands-routed-file'] || args['entries-file'];
+
+  if (!gateId) throw new Error('--gate is required');
+  if (!decisionId) throw new Error('--decision is required');
+  if (GATE_IDS.indexOf(gateId) === -1) {
+    throw new Error('invalid --gate "' + gateId + '"; must be one of: ' + GATE_IDS.join(', '));
+  }
+  // Fail fast, and say why. store.js#assertNoTrackedOverwrite already refuses to
+  // re-seal a git-tracked ship receipt with a different hash, so the §3.12
+  // no-rehash invariant held without this check — but it held by rejecting the
+  // write from inside the lock, after the attempt. Naming the one eligible gate
+  // makes the code state what the milestone decided instead of relying on a
+  // downstream guard to notice.
+  if (RESTAMP_ROUTED_ALLOWED_GATES.indexOf(gateId) === -1) {
+    throw new Error('--gate "' + gateId + '" is not eligible for restamp-routed. '
+      + 'Only ' + RESTAMP_ROUTED_ALLOWED_GATES.join(', ') + ' may be restamped: git-tracked '
+      + 'ship receipts (mccp-pr-codex) are audit-binding anchors and re-sealing one snaps '
+      + 'the completion-ledger binding (CLAUDE.md §3.12).');
+  }
+  if (typeof entriesFile !== 'string' || entriesFile.length === 0) {
+    throw new Error('--impeccable-commands-routed-file is required');
+  }
+
+  const cwd = args.cwd || process.cwd();
+  const repoRoot = gitRepoRoot(cwd);
+
+  // Resolve against cwd rather than trusting the raw argument, mirroring how
+  // --review-proof-file is read. Without this the path is interpreted against
+  // whatever the process happens to have as its working directory, which is not
+  // necessarily the repo this restamp targets.
+  const entriesPath = path.resolve(cwd, entriesFile);
+  const raw = readJsonIfPresent(entriesPath, null);
+  if (!Array.isArray(raw)) {
+    throw new Error('entries file must contain a JSON array of routed-command outcomes: '
+      + entriesPath);
+  }
+
+  // Reject unknown keys here rather than relying on schema.js, which validates
+  // the three required fields but does not forbid extras (security review F1).
+  // Refusing is better than silently normalizing: an unexpected key means the
+  // producer and this consumer disagree, and quietly dropping it would seal a
+  // receipt that does not match what the caller believed it was recording.
+  const entries = raw.map(function (e, i) {
+    const c = canonicalRoutedEntry(e);
+    if (c === null) {
+      throw new Error('entries[' + i + '] must be an object with exactly '
+        + ROUTED_ENTRY_KEYS.join('/') + ' (got: '
+        + (e && typeof e === 'object' && !Array.isArray(e) ? Object.keys(e).join(',') : typeof e) + ')');
+    }
+    return c;
+  });
+
+  if (entries.length === 0) {
+    // A finish pass that processed nothing is not an error, but there is also
+    // nothing to seal. Say so instead of re-hashing the receipt for a no-change.
+    //
+    // The receipt is still checked for existence (code-review M2). Without this
+    // the shortcut reports success for a restamp that had no target at all,
+    // which in a log is indistinguishable from one that landed — and the caller
+    // at Phase 3.6.5 treats exit 0 as "recorded". readReceipt returns null for
+    // an absent file and throws on an unsafe gate dir / non-regular file, so
+    // both failure shapes surface here instead of being swallowed.
+    if (readReceipt(repoRoot, gateId, decisionId) === null) {
+      const err = new Error('no existing receipt for ' + gateId + '/' + decisionId
+        + ' — nothing to restamp');
+      err.code = 'RECEIPT_NOT_FOUND';
+      throw err;
+    }
+    return {
+      path: receiptPath(repoRoot, gateId, decisionId),
+      receipt: null,
+      noop: true,
+      appended: 0,
+      reason: 'no-entries',
+    };
+  }
+
+  // Distinguishes the two no-op shapes for the caller. "Nothing to record" and
+  // "already recorded" are different facts about a cycle, and collapsing them
+  // into one message hid which had happened (code-review M2).
+  let suppressed = false;
+  const out = updateReceipt(repoRoot, gateId, decisionId, function (existing) {
+    existing.meta = existing.meta || {};
+    const current = Array.isArray(existing.meta.impeccable_commands_routed)
+      ? existing.meta.impeccable_commands_routed
+      : [];
+
+    if (isRoutedTailMatch(current, entries)) {
+      suppressed = true;
+      return null; // retry — no write, no re-seal
+    }
+
+    existing.meta.impeccable_commands_routed = current.concat(entries);
+
+    // subject_hash excludes meta (hash.js SUBJECT_FIELDS) so it is unchanged;
+    // recompute defensively. receipt_hash DOES cover this field — it is not in
+    // hash.js's carve-out list — so recomputing seals the appended outcomes and
+    // keeps them tamper-evident.
+    existing.subject_hash = subjectHash(existing);
+    existing.receipt_hash = receiptHash(existing);
+
+    const result = validate(existing);
+    if (!result.ok) {
+      const err = new Error('restamp routed commands validation failed:\n  - '
+        + result.errors.join('\n  - '));
+      err.code = 'SCHEMA_INVALID';
+      err.errors = result.errors;
+      throw err;
+    }
+    return existing;
+  });
+
+  return {
+    path: out.path,
+    receipt: out.receipt,
+    noop: out.receipt === null,
+    appended: out.receipt === null ? 0 : entries.length,
+    reason: out.receipt === null ? (suppressed ? 'already-recorded' : 'no-write') : null,
+  };
+}
+
 module.exports = {
   write: write,
   buildReceipt: buildReceipt,
@@ -1122,5 +1336,8 @@ module.exports = {
   triggerEscalateIfNeeded: triggerEscalateIfNeeded,
   deriveEscalateSummary: deriveEscalateSummary,
   restampGroundingVerdict: restampGroundingVerdict,
+  restampRoutedCommands: restampRoutedCommands,
+  // Exported only so the tests can hold this list against schema.js's copy.
+  ROUTED_ENTRY_KEYS: ROUTED_ENTRY_KEYS,
   normalizeReceiptCwd: normalizeReceiptCwd, // Task A3 — tested in cwd-normalization.test.js
 };

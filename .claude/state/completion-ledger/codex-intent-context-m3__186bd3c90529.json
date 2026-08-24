@@ -1,0 +1,24 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "codex-intent-context-m3",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.31.0",
+    "completed_at": "2026-08-21T07:19:13.895Z",
+    "commit_sha": "7d553d9304da8fd96d65f5f8bf43161c8aec1712",
+    "plan_basename": "codex-intent-context-m3.plan.md",
+    "plan_file_hash": "sha256:3e2e85a4043b306ab82b28e4a667f67e0b47ae31104e7311edf2aebc65375283",
+    "risks_closed": [
+      "`l3` 전용 호출이 codex 900s를 넘겨 Bash 600s에 잘림",
+      "브리지 아티팩트 생산자 이동으로 codex 경로가 회귀",
+      "hybrid 라이브 완주가 Codex 인증/쿼터로 막힘",
+      "`hybrid_without_l3` 조기 HALT가 정상 hybrid를 막음",
+      "병렬 브랜치 version 충돌 (§3.7 실측 4회 재발)",
+      "`.worktrees/codex-intent-context-m2`는 이미 머지된 branch의 worktree"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:186bd3c90529710f4fc4f85f66c16bb1d34d75504dc56770a6afbcecaeafbd10",
+    "verdict_provenance": "codex-verdict"
+  }
+}

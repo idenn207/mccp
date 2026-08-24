@@ -29,13 +29,27 @@ const path = require('path');
 const SCRIPTS_REL = 'plugins/mccp/scripts';
 const COMMANDS_REL = 'plugins/mccp/commands';
 
+// v1.32.1 M6 — 제외는 **실제 디렉토리**여야 한다. 아래 `isExcluded`는 원래
+// `rel.indexOf('env-contract') !== -1`, 즉 경로 **substring**을 봤다. 그러면 이 디렉토리
+// 밖에 있는 미래의 `lib/gates/env-contract-bridge.js`나 `commands/env-contract-audit.md`도
+// 이름만으로 조용히 면제된다. **예시는 걷는 범위 안에서 든다**(v1.32.1 code-review M3
+// 정정): 여기에는 `docs/env-contract-notes.md`가 예로 적혀 있었으나 `walkSurfaces`는
+// `scripts/`와 `commands/`만 걷고 `docs/` 하위는 애초에 열거하지 않으므로, 그 예시로는
+// «면제된다»가 성립하지 않는다. 오늘 그런 파일은 **0건**이므로(실측:
+// `git ls-files | grep env-contract`가 이 디렉토리 밖에서 아무것도 내지 않는다) 이 변경이
+// 고치는 파일도 0건이다 — 얻는 것은 **미래의 조용한 면제를 막는 것**뿐이고, 그것이 이
+// 태스크의 정직한 크기다.
+const ENV_CONTRACT_DIR_REL = 'plugins/mccp/scripts/lib/env-contract/';
+
 function toPosix(p) {
   return p.split(path.sep).join('/');
 }
 
 function isExcluded(rel) {
   if (rel.endsWith('.test.js')) return true;
-  if (rel.indexOf('env-contract') !== -1) return true;
+  // `rel`은 모든 호출 지점에서 `toPosix()`를 이미 거쳐 오므로 이 앵커는 백슬래시를
+  // 다룰 필요가 없다(Windows에서도 구분자는 '/'다).
+  if (rel.indexOf(ENV_CONTRACT_DIR_REL) === 0) return true;
   if (rel.indexOf('/tests/') !== -1) return true;
   return false;
 }

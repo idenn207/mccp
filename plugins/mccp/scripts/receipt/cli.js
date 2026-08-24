@@ -22,6 +22,7 @@ function showHelp() {
     'Receipt core subcommands:',
     '  write            --gate <id> --decision <slug> --plan <path> [--design-doc <p>] [--findings-file <p>] [--resolution-file <p>] [--codex-verdict converged|divergent|critical|unavailable|skipped] [--auto-round] [--codex-skipped] [--codex-disabled] [--codex-disabled-at-pr] [--advisory] [--security-skipped] [--security-skip-reason <text>] [--security-force-override] [--security-force-override-reason <text>] [--impeccable-skipped] [--impeccable-skip-reason <text>] [--impeccable-silent-skip] [--impeccable-silent-skip-reason <text>] [--impeccable-force-override] [--impeccable-force-override-reason <text>] [--deferred-findings <N>] [--codex-design-scope-excluded] [--design-findings-dropped <N>] [--a11y-routed-to-impeccable] [--dropped-findings-digest sha256:<hex>] [--plan-conflict-escalated] [--pr-phase-lock-stale-reclaimed-at-hook] [--dispatched-by-controller-session <uuid>] [--worker-dispatch-id <uuid>] [--ipc-envelope-path <path>] [--design-critique-rounds <N>] [--design-critique-verdict converged|divergent|skipped] [--design-intent-reason <text>] [--pr-design-chain-skip-reason <text>] [--impeccable-routing-mode auto|hybrid|recommend] [--impeccable-commands-routed-file <path>] [--design-grounding-captured] [--design-grounding-verdict grounded|anchor_clean|inconclusive|violations|skipped] [--merged-verify-verdict converged|divergent|critical|unavailable|skipped] [--merged-verify-rounds <N>] [--review-mode codex|multi-agent|hybrid] [--review-verdict converged|divergent|critical|unavailable|skipped] [--review-source codex|multi-agent|hybrid] [--review-proof-file <path>] [--review-l3-invoked] [--review-l3-reason <text>] [--review-wall-clock-ms <N>] [--review-single-pass-reason scope_too_small|deadline_pressure|deferred_to_prd_completion] [--review-single-pass-bypassed-verdict] [--pr-codex-force-override] [--pr-codex-force-override-reason <text>] [--quiet]',
     '  restamp-grounding --gate <id> --decision <slug> --design-grounding-verdict <enum> [--cwd <path>] [--quiet]',
+    '  restamp-routed    --gate mccp-implement-codex --decision <slug> --impeccable-commands-routed-file <path> [--cwd <path>] [--quiet]',
     '  validate         --command <slug> [--decision <slug>] [--plan <path>] [--check-ship-verdict] [--expected-receipt-hash <hex>]',
     '  preflight        --command <slug> [--decision <slug>] [--plan <path>]',
     '  status           [--gate <id>] [--json]',
@@ -249,6 +250,46 @@ function cmdRestampGrounding(args) {
   }
 }
 
+// v1.31.4 M4 — append POST-EXECUTE routed-command outcomes onto an existing
+// implement receipt. Field-preserving like restamp-grounding above; append-only
+// across restamps and idempotent within one (see write.js#restampRoutedCommands
+// for why those are two different axes).
+function cmdRestampRouted(args) {
+  const { restampRoutedCommands } = require('./write');
+  try {
+    const result = restampRoutedCommands(args);
+    if (args.quiet) {
+      // A suppressed retry still prints the path. Callers redirect this into a
+      // log, where a silent success reads exactly like a silent failure.
+      // The two no-op shapes are named apart: a replay of an already-recorded
+      // pass and a pass that produced no outcomes are different facts about the
+      // cycle, and one message for both hid which had happened (code-review M2).
+      const noopNote = result.reason === 'no-entries'
+        ? ' (no-op: finish pass produced no outcomes)'
+        : ' (no-op: already recorded)';
+      process.stdout.write(result.path + (result.noop ? noopNote : '') + '\n');
+    } else {
+      process.stdout.write(JSON.stringify({
+        path: result.path,
+        noop: result.noop,
+        reason: result.reason,
+        appended: result.appended,
+        gate_id: result.receipt ? result.receipt.gate_id : (args.gate || null),
+        decision_id: result.receipt ? result.receipt.decision_id : (args.decision || null),
+        impeccable_commands_routed: result.receipt
+          ? result.receipt.meta.impeccable_commands_routed
+          : null,
+        receipt_hash: result.receipt ? result.receipt.receipt_hash : null,
+      }, null, 2) + '\n');
+    }
+    return 0;
+  } catch (err) {
+    process.stderr.write('mccp-receipt restamp-routed: ' + err.message + '\n');
+    if (err.code === 'SCHEMA_INVALID') return 2;
+    return 1;
+  }
+}
+
 function cmdValidate(args) {
   const { validateCommand } = require('./validate-cmd');
   // v0.2.8 Task 2.6.5a A3 R2 F2 absorption — shared classifier. tempfail
@@ -443,6 +484,8 @@ async function main(argv) {
       return cmdWrite(rest);
     case 'restamp-grounding':
       return cmdRestampGrounding(rest);
+    case 'restamp-routed':
+      return cmdRestampRouted(rest);
     case 'validate':
       return cmdValidate(rest);
     case 'preflight':

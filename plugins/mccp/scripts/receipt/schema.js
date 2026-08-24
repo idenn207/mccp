@@ -67,6 +67,14 @@ const ISO8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENVELOPE_PATH_RE = /^\.claude\/state\/dispatches\/[0-9a-f-]{36}\.envelope\.json$/;
 
+// v1.32.1 code-review M2 — the canonical `meta.impeccable_commands_routed[]`
+// entry shape. It lives at module scope (not inside `validate`) purely so it can
+// be exported: `write.js` owns an identical list and cannot import this one
+// without closing a require cycle (write.js -> schema.js already exists), so the
+// two are held together by an assertion in the tests rather than by a shared
+// module. Exported on both sides is what makes that assertion possible.
+const MODULE_ROUTED_ENTRY_KEYS = Object.freeze(['command', 'call_form', 'status']);
+
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -908,6 +916,15 @@ function validate(receipt) {
     const ROUTING_MODE_VALUES = ['auto', 'hybrid', 'recommend'];
     const ROUTING_CALL_FORM_VALUES = ['invoke', 'background', 'foreground-fallback', 'recommend'];
     const ROUTING_STATUS_VALUES = ['invoked', 'recommended', 'failed', 'unknown-skill', 'skipped'];
+    // v1.32.1 M6 — the canonical entry shape, kept in step with
+    // write.js#ROUTED_ENTRY_KEYS. Duplicated rather than imported because
+    // schema.js is required BY write.js; importing back would close the cycle.
+    // v1.32.1 code-review M2 — the duplication is now EXPORTED from both sides
+    // and a test asserts the two lists are identical. Duplicating without that
+    // assertion is the same defect M6 Task 5 removed from measure-evidence.js:
+    // split the list and one side can be widened while nothing turns red, at
+    // which point producer and validator disagree about what a valid entry is.
+    const ROUTED_ENTRY_KEYS = MODULE_ROUTED_ENTRY_KEYS;
     if (m.impeccable_routing_mode !== null && m.impeccable_routing_mode !== undefined) {
       req(typeof m.impeccable_routing_mode === 'string' &&
         ROUTING_MODE_VALUES.indexOf(m.impeccable_routing_mode) !== -1,
@@ -924,6 +941,21 @@ function validate(receipt) {
             err(at + ' must be an object');
             return;
           }
+          // v1.32.1 M6 — an unknown key is a producer/consumer disagreement,
+          // not noise. write.js#canonicalRoutedEntry already refuses one on the
+          // restamp path (:1223-1231); without the same rule HERE a receipt
+          // carrying an extra key validates, so the two sides of the same field
+          // disagree about what a valid entry is. Refuse rather than normalize:
+          // silently dropping the key would seal a receipt that does not match
+          // what the caller believed it recorded. No legacy carve-out — the
+          // corpus was measured at 0 non-canonical entries (M6 Task 0(b)), and
+          // an exception is precisely the door a forged entries file uses.
+          const extraKeys = Object.keys(entry).filter(function (k) {
+            return ROUTED_ENTRY_KEYS.indexOf(k) === -1;
+          });
+          req(extraKeys.length === 0,
+            at + ' must have exactly ' + ROUTED_ENTRY_KEYS.join('/') +
+            ' (unexpected key(s): ' + extraKeys.join(', ') + ')');
           req(typeof entry.command === 'string' && entry.command.length > 0,
             at + '.command must be a non-empty string');
           req(typeof entry.call_form === 'string' &&
@@ -1755,6 +1787,7 @@ module.exports = {
   DECISION_ID_RE: DECISION_ID_RE,
   UUID_V4_RE: UUID_V4_RE,
   ENVELOPE_PATH_RE: ENVELOPE_PATH_RE,
+  ROUTED_ENTRY_KEYS: MODULE_ROUTED_ENTRY_KEYS,
   validate: validate,
   makeSkeleton: makeSkeleton,
 };

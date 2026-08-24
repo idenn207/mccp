@@ -392,5 +392,5 @@ Next step: /mccp:plan .claude/prds/{name}.prd.md
 
 - Writing the `.prd.md` artifact before the user has answered Phase 1-3 questions.
 - Auto-filling Problem/Users/Hypothesis with assistant-generated content while the user is silent.
-- Invoking Codex / Skill(impeccable) / any review skill — those start at `/mccp:plan`.
+- Invoking Codex / the impeccable design skill / any review skill — those start at `/mccp:plan`.
 - Writing a receipt JSON — PRD stage has no gate.

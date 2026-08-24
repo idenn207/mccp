@@ -1439,3 +1439,70 @@ test('.gitattributes pins LF, which is what actually makes checkout bytes stable
   const attrs = fs.readFileSync(path.join(REPO_ROOT, '.gitattributes'), 'utf8');
   assert.ok(/^\*\s+text=auto\s+eol=lf\s*$/m.test(attrs), '.gitattributes no longer pins eol=lf');
 });
+
+// ---------------------------------------------------------------------------
+// .impeccable/ polarity (impeccable-detection-contract M2)
+//
+// This block is provisioned into EVERY user repository, so a wrong polarity is
+// the one mistake here that propagates. The basis is impeccable's own
+// reference/hooks.md: per-developer overrides and the install consent decision
+// live in the gitignored config.local.json, so config.json is the shared,
+// committed file and design.json is a generated sidecar like the rest.
+// ---------------------------------------------------------------------------
+
+test('impeccable polarity: canonical exempts config.json and no longer exempts design.json', () => {
+  const entries = gp.MCCP_IGNORE_ENTRIES;
+  assert.ok(entries.includes('.impeccable/*'), 'the directory itself must still be ignored');
+  assert.ok(
+    entries.includes('!.impeccable/config.json'),
+    'config.json is the shared committed config and must be exempted'
+  );
+  assert.ok(
+    !entries.includes('!.impeccable/design.json'),
+    'design.json is a generated sidecar — the old exemption must be gone'
+  );
+});
+
+// The entry list is not the behaviour. git resolves exemptions positionally and
+// cannot re-include a file inside an excluded DIRECTORY, so the only honest
+// check is to provision a real repo and ask git.
+//
+// --no-index because the polarity is a property of the RULES. In this
+// repository design.json is tracked (UI7), and check-ignore consults the index
+// by default, so a tracked file reports "not ignored" no matter what the rules
+// say — which would silently invert this assertion.
+test('impeccable polarity: a provisioned repo ignores design.json and keeps config.json visible', () => {
+  withTempRepo((dir) => {
+    // `repo`, NOT `repoRoot`. provision() resolves from process.cwd() when the
+    // key is unrecognised, so a typo here silently provisions THIS repository's
+    // .gitignore instead of the fixture — measured once, during this milestone.
+    const res = gp.provision({ repo: dir });
+    assert.ok(res.ok, 'provision failed: ' + JSON.stringify(res));
+    assert.ok(samePath(res.repoRoot, dir), 'provision escaped the fixture: ' + res.repoRoot);
+
+    const impDir = path.join(dir, '.impeccable');
+    fs.mkdirSync(path.join(impDir, 'live'), { recursive: true });
+    ['design.json', 'config.json', 'config.local.json'].forEach(function (name) {
+      fs.writeFileSync(path.join(impDir, name), '{}', 'utf8');
+    });
+    fs.writeFileSync(path.join(impDir, 'live', 'config.json'), '{}', 'utf8');
+
+    const ignored = (rel) => {
+      const r = spawnSync('git', ['-C', dir, 'check-ignore', '--no-index', '-q', rel], { encoding: 'utf8' });
+      return r.status === 0;
+    };
+
+    assert.strictEqual(ignored('.impeccable/design.json'), true, 'design.json must be ignored');
+    assert.strictEqual(ignored('.impeccable/config.json'), false, 'config.json must NOT be ignored');
+    // The exemption names exactly one file. Anything carrying local or secret
+    // values has to stay behind it.
+    assert.strictEqual(
+      ignored('.impeccable/config.local.json'), true,
+      'config.local.json holds per-developer values and consent — it must stay ignored'
+    );
+    assert.strictEqual(
+      ignored('.impeccable/live/config.json'), true,
+      'a nested config.json must not be re-included by a top-level file exemption'
+    );
+  });
+});

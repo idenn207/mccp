@@ -47,9 +47,36 @@ const MOOD_COMMANDS = Object.freeze(['bolder', 'quieter', 'overdrive', 'delight'
 const SYSTEM_COMMANDS = Object.freeze(['document', 'extract']);
 // Diff-signal kinds a content command can require.
 const SIGNAL_KINDS = Object.freeze(['motion', 'color', 'typography', 'responsive']);
+// M4 — commands the VENDOR blocks on a multi-round interview. They cannot
+// complete in a non-interactive gate: they either stop to ask, or run a
+// "structured simulated-user interview" and write invented product truth into
+// the user's repo. Evidence, impeccable 4.1.1:
+//   scripts/command-metadata.json shape.description — "Runs a required
+//     multi-round discovery interview" (unconditional; not PRODUCT.md-dependent)
+//   scripts/context.mjs:1116,1132 — "For `init`, `teach`, `shape`, … create
+//     PRODUCT.md with the user first"; :1121 BUILD_INIT_REQUIRED
+// `init` and `teach` are NOT in the mccp routing catalogue and M4 does not add
+// them (UI5). `teach` is not even in 4.1.1's own 23-command metadata — the
+// vendor's blocking prose names it while the catalogue does not. The set is
+// kept wider than today's intersection ({shape}) precisely so a future
+// catalogue widening cannot fire an interview command silently.
+const INTERVIEW_REQUIRED_COMMANDS = Object.freeze(['shape', 'init', 'teach']);
+// M4 — table phase axis. `pre` entries route BEFORE Phase 3 EXECUTE (they can
+// only shape direction); `finish` entries route AFTER it, against produced code.
+// This is a sibling of the existing internal `signal` metadata, not a new call
+// form: a `finish` callForm would drag resolveCallForm, selectByDiffSignals and
+// the receipt schema's closed enum along with it. Both are stripped from the
+// public return, so consumers see the M1 shape unchanged.
+const ROUTING_PHASES = Object.freeze(['pre', 'finish']);
 
-function entry(command, stage, callForm, signal) {
-  return Object.freeze({ command: command, stage: stage, callForm: callForm, signal: signal || null });
+function entry(command, stage, callForm, signal, phase) {
+  return Object.freeze({
+    command: command,
+    stage: stage,
+    callForm: callForm,
+    signal: signal || null,
+    phase: phase || 'pre',
+  });
 }
 
 // gate → ordered routing entries. `callForm` is the AUTO-mode base intent;
@@ -82,7 +109,11 @@ const PLAN_GUIDE = Object.freeze([
 
 const STAGE_ROUTING = Object.freeze({
   implement: Object.freeze([
-    entry('shape', 'discovery', 'background', null),
+    // M4 — demoted background → recommend: the vendor makes `shape` an
+    // interview command (INTERVIEW_REQUIRED_COMMANDS above), so it could never
+    // complete here. The catalogue entry stays (UI5 forbids removals); only the
+    // call form moves, in the module's existing downgrade-only direction.
+    entry('shape', 'discovery', 'recommend', null),
     entry('layout', 'refine', 'invoke', null),
     entry('typeset', 'refine', 'invoke', 'typography'),
     entry('animate', 'refine', 'invoke', 'motion'),
@@ -92,12 +123,27 @@ const STAGE_ROUTING = Object.freeze({
     entry('overdrive', 'refine', 'recommend', null),
     entry('delight', 'refine', 'recommend', null),
     entry('adapt', 'simplify', 'invoke', 'responsive'),
-    entry('distill', 'simplify', 'recommend', null),
-    entry('clarify', 'simplify', 'recommend', null),
     entry('critique', 'evaluate', 'invoke', null),
     entry('audit', 'evaluate', 'invoke', null),
     entry('document', 'system', 'recommend', null),
     entry('extract', 'system', 'recommend', null),
+
+    // ── finish phase (post-EXECUTE, against produced code) ──────────────
+    // Before M4 these ran from a hardcoded list in prp-implement.md Phase 3.6,
+    // bypassing this oracle entirely — so the receipt could not record them.
+    // Giving them table rows is what makes them routable AND recordable.
+    // `harden` and `optimize` earn a seat because the vendor describes them as
+    // FIXING produced code ("error handling, i18n, text overflow" / "Diagnoses
+    // and fixes UI performance"), the same kind as polish/clarify/distill.
+    // `onboard` does NOT: it builds surfaces that were never asked for
+    // ("welcome screens, account setup, progressive disclosure"), so it stays
+    // recommend-only in the guide tables. That line is what opens the harden
+    // stage without letting scope widen.
+    entry('clarify', 'simplify', 'invoke', null, 'finish'),
+    entry('distill', 'simplify', 'invoke', null, 'finish'),
+    entry('harden', 'harden', 'invoke', null, 'finish'),
+    entry('optimize', 'harden', 'invoke', null, 'finish'),
+    entry('polish', 'polish', 'invoke', null, 'finish'),
   ]),
   pr: Object.freeze([
     entry('polish', 'polish', 'recommend', null),
@@ -186,11 +232,17 @@ function selectByDiffSignals(commands, diffSignals) {
 }
 
 // routeCommands({gate, mode, designSignal, designIntentActive, renderingSurface,
-//                diffSignals, intentCommands})
+//                diffSignals, intentCommands, phase})
 //   → { commands: [{command, stage, callForm, signal}], mode, skipped }
 //
 // skipped=true when the gate is unknown OR neither designSignal nor
 // designIntentActive is set (strict gate, mirrors impeccable-detect).
+//
+// `phase` (M4, default 'pre') selects the table slice. An UNKNOWN phase yields
+// an empty command list with skipped=false — deliberately NOT a fallback to
+// 'pre', because a typo that silently re-ran the pre pass after EXECUTE would
+// fire those commands twice and break the duplicate-call invariant. An empty
+// route is the loud-by-absence failure; a silent re-run is not.
 //
 // Apply order: resolveCallForm (mode/renderingSurface) → mood-intent upgrade
 // (4-AND audited) → selectByDiffSignals (content narrow). All downgrade-only
@@ -204,6 +256,7 @@ function routeCommands(opts) {
   const renderingSurface = opts.renderingSurface === true;
   const diffSignals = opts.diffSignals;
   const intentCommands = Array.isArray(opts.intentCommands) ? opts.intentCommands : [];
+  const phase = opts.phase === undefined || opts.phase === null ? 'pre' : opts.phase;
 
   const table = STAGE_ROUTING[gate];
   if (!table) return { commands: [], mode: mode, skipped: true };
@@ -213,7 +266,13 @@ function routeCommands(opts) {
     return { commands: [], mode: mode, skipped: true };
   }
 
-  let commands = table.map(function (e) {
+  // M4 — phase narrowing happens BEFORE call-form resolution so an entry that
+  // belongs to another pass cannot influence anything downstream (mood upgrade,
+  // content narrowing, the public list). plan/prd/pr tables are entirely 'pre',
+  // so their output is byte-identical to pre-M4 (pinned by test M4-3a/M4-3b).
+  let commands = table.filter(function (e) {
+    return e.phase === phase;
+  }).map(function (e) {
     let callForm = resolveCallForm(e, mode, renderingSurface);
     // M2 F3 — mood-intent upgrade. The single upgrade path in the oracle,
     // gated by a 4-AND: auto mode, rendered surface, audited design intent,
@@ -236,6 +295,9 @@ function routeCommands(opts) {
   // internal `signal` metadata so consumers see exactly {command, stage,
   // callForm} (M1 shape). selectByDiffSignals already consumed `signal` above;
   // it stays a standalone signal-aware helper for unit testing.
+  // M4 — `phase` is stripped the same way and for the same reason: it is table
+  // metadata consumed by the filter above, and leaking it would change the
+  // shape every consumer (and the receipt entry builder) reads.
   const out = commands.map(function (c) {
     return { command: c.command, stage: c.stage, callForm: c.callForm };
   });
@@ -249,6 +311,8 @@ module.exports = {
   MOOD_COMMANDS,
   SYSTEM_COMMANDS,
   SIGNAL_KINDS,
+  INTERVIEW_REQUIRED_COMMANDS,
+  ROUTING_PHASES,
   STAGE_ROUTING,
   parseRoutingMode,
   parseIntentCommands,

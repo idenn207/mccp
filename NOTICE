@@ -38,11 +38,12 @@ Copyright (c) impeccable contributors
 Project page: https://impeccable.style/
 
 Note: impeccable itself is NOT bundled in mccp. mccp's design philosophy
-references impeccable's anti-SLOP discipline. impeccable is currently
-distributed as an npm CLI (`npm install -g impeccable`) whose
-`impeccable skills install` subcommand deploys SKILL files into
-`~/.claude/skills/`. mccp's `/mccp:setup` automates this install step;
-it is also covered as a manual fallback in the README.
+references impeccable's anti-SLOP discipline. impeccable is distributed
+through several channels — a Claude Code plugin from the `pbakaus/impeccable`
+marketplace, and a CLI installer (`npx impeccable install`) that deploys the
+skill under the bare name. mccp's `/mccp:setup` detects whichever channel is
+present and offers the missing ones; the manual equivalents are covered in
+the README.
 
 This NOTICE is provided for attribution clarity. See the LICENSE file
 for the complete Apache License 2.0 terms governing mccp.

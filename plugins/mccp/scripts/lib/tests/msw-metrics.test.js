@@ -423,6 +423,11 @@ test('C1: feedback closure separates resolve types', (t) => {
         deferred_count: 4,
         downgraded_count: 2,
         rejected_count: 2,
+        open_count: 0,
+        // M7 Task 2 — 유형 분리는 소스가 **계약으로 선언**해야 한다. 이전 판본은
+        // 이 키가 없었고, 그때의 검사는 "비해소가 존재해야 한다"였으므로 통과했다.
+        // 정정된 검사는 선언을 요구하므로 fixture 도 선언한다.
+        type_separation: true,
         producer_coverage: 'findings',
       },
     },

@@ -23,6 +23,7 @@ const { scanInstructionCost } = require('./sources/instruction-cost');
 const { scanHandoffItems } = require('./sources/handoff-items');
 const { scanSessionJournal } = require('./sources/session-journal');
 const { scanMilestoneEvidence } = require('./sources/milestone-evidence');
+const { scanFindings } = require('./sources/findings');
 
 const SOURCE_SCANNERS = {
   plans: (root, opts) => scanPlans(root, opts),
@@ -48,6 +49,11 @@ const SOURCE_SCANNERS = {
   session_journal: (root) => scanSessionJournal(root),
   // M6 — 문서 status ↔ 독립 증거 대조. 미등록이면 computeB1 이 영구 `insufficient` 다.
   milestone_evidence: (root, opts) => scanMilestoneEvidence(root, opts),
+  // M7 — finding 레지스트리. 미등록이면 computeC1 이 영구 `forward-only` 다
+  // ('no live findings derive source wired'). 이 키의 실재가 C1 승격의 전제이며,
+  // Task 2 의 `C1-SOURCE-REGISTERED-COPRESENT` 가 pre-commit 축으로, Task 7 의
+  // co-presence 검사가 트리 상태 축으로 각각 그것을 강제한다(DD10).
+  findings: (root) => scanFindings(root),
 };
 
 function pushWarning(model, severity, source, message) {
@@ -179,4 +185,8 @@ function derive(repoRoot, opts) {
 
 module.exports = {
   derive,
+  // M7 — 등록 여부가 C1 승격의 전제이므로 레지스트리를 읽을 수 있게 노출한다.
+  // Task 2 의 pre-commit 단언과 Task 7 의 co-presence 게이트가 같은 객체를 본다
+  // (소스 텍스트 grep 이 아니라 실제 등록 상태를 묻기 위해서다).
+  SOURCE_SCANNERS,
 };

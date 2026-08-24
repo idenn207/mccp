@@ -938,6 +938,14 @@ module.exports = {
   decodeBoundedEntities: decodeBoundedEntities,
   normalizeForDirectiveCheck: normalizeForDirectiveCheck,
   hasMixedScript: hasMixedScript,
+  // multi-session-work-loop M7 DD9 — 승격 표면(state-injector 의 `## Open Findings`)
+  // 이 같은 신뢰 경계 문제를 풀어야 하므로 이 네 함수를 **재사용**한다. 두 벌을
+  // 두면 §3.13 이 이미 닫은 경계가 그쪽에서만 조용히 뒤처진다. 순수 함수의 export
+  // 확대일 뿐 판정 로직은 무변경이고, 기존 소비자도 영향받지 않는다.
+  escapeReferenceText: escapeReferenceText,
+  trimDanglingEscape: trimDanglingEscape,
+  anyTokenMixedScript: anyTokenMixedScript,
+  looksDirective: looksDirective,
   isPrdModePlan: isPrdModePlan,
   extractIntentSection: extractIntentSection,
   buildIntentReference: buildIntentReference,

@@ -2,7 +2,109 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.32.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.32.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.32.2] — 2026-08-21
+
+> **§3.7**: `1.32.1 → 1.32.2` (**patch** — M7은 multi-session-work-loop PRD의 단일
+> milestone이고 M8이 아직 pending이라 PRD 종료 축이 아니다). **번호를 세 번 상향했다**:
+> 구현 시점에는 origin/main·브랜치가 모두 `1.30.0`이라 `1.30.1`을 잡았고, `/mccp:pr`
+> 진입 직전 재계산에서 origin/main이 이미 `1.30.1`(codex-intent-context M2)과
+> `1.30.2`(diverse-agent-review M7)를 발행해 `1.30.3`으로 밀었다. PR #154가 열린 뒤
+> origin/main이 `1.31.0`(codex-intent-context M3)부터 `1.32.1`(impeccable-detection-contract
+> M1~M6)까지 발행해, base를 머지하는 이번이 **세 번째 재계산**이다. 발행된 번호는 불가침으로
+> 두고 미머지 브랜치 쪽만 밀어 `1.32.2`에 착지한다. 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄고
+> `i18n-surface.test.js`가 재검증한다. 날짜는 작성일 그대로 둔다 — §3.7대로 version 순서가
+> 정본이고 날짜 역전은 정상이다.
+
+### Added
+
+- **multi-session-work-loop M7 — 세션 경계 피드백 루프** (C1이 `forward-only` →
+  `computed`). 한 세션에서 제기된 finding이 세션 경계를 넘지 못하고 사라지는 통로를
+  닫는다. 게이트를 추가하지 않고 LLM 호출도 늘리지 않으며(UI3), 새로 만든 것은
+  관측·전달 층뿐이다.
+- `plugins/mccp/scripts/state/findings-registry.js` — append-only finding 레지스트리.
+  git-tracked(`.claude/state/findings/<work_unit>.jsonl`)이라 worktree 정리 뒤에도
+  살아남고, `merge=union` 선언으로 병렬 worktree 병합이 한쪽 append를 조용히 버리지
+  않는다. **batch가 1급 API**이고 순차 append 공개 경로를 두지 않는다 — 두면
+  "말미 k개 유실"이 되돌아온다.
+- `plugins/mccp/scripts/derive/sources/findings.js` + `SOURCE_SCANNERS.findings` —
+  C1의 producer. 전 샤드를 스캔하며 `type_separation` 계약을 **스캔 결과에서 파생**한다
+  (하드코딩하면 계약 검사가 항진명제가 된다).
+- `plugins/mccp/scripts/lib/msw-metrics/c1-coverage-gate.js` — 두 표면(`.claude/reviews/` ·
+  `.claude/state/findings/`)에 **서로 다른 승인 writer 집합**을 건 정적 lint + 런타임
+  falsifier + DD10 co-presence + `merge=union` 적용 검사, 그리고 수용 조건 5축을
+  재판정하는 opt-in `--acceptance` 모드.
+- 승격 경로 — `handoff-items.js`가 미해소 CRITICAL·HIGH를 4번째 항목 유형 `finding`으로
+  열거하고, `state-injector.js`가 `## Open Findings` 블록으로 표면화한다. 임계는
+  상수이고 env 토글이 아니다(UI7).
+
+### Changed
+
+- `computeC1`의 유형 분리 무결성 검사 정정 — 이전 추론 `(deferred + downgraded +
+  rejected) > 0`은 **모든 finding이 실제로 고쳐진 작업 단위를 `invalid`로 판정**했다.
+  즉 M7이 성공할수록 C1이 무효가 되는 구조였다. 이제 소스의 `type_separation` 계약을
+  검사하며, 미선언(`type_separation_undeclared`)과 합 초과(`type_separation_violated`)를
+  서로 다른 사유로 구분한다. `open_count`·`deferred_rate`를 함께 보고한다.
+- `intent-context.js` — sanitizer 4종(`escapeReferenceText` · `trimDanglingEscape` ·
+  `anyTokenMixedScript` · `looksDirective`)을 `module.exports`에 추가. 승격 표면이
+  §3.13이 이미 배송한 주입 경계를 **재사용**하기 위한 전제이며 판정 로직은 무변경이다.
+- 대시보드 C1 행이 폐쇄율과 이연률을 **분리 표기**한다. 단일 폐쇄율만 보이면 이연으로
+  100%를 만드는 경로가 표면에서 사라져 UI5의 유형 분리가 렌더 층에서 무너진다.
+- `assertion-manifest-check.js`의 `REQUIRED_IDS`가 **milestone별로 분리**됐다. 평면
+  목록이면 M6 manifest는 C1 id가 없어서, M7 manifest는 B1 id가 없어서 서로를 영구히
+  붉힌다. 미등록 milestone은 fail-closed다.
+
+### Fixed (`/mccp:code-review` local review 흡수 — HIGH 4 · MEDIUM 4 · LOW 3)
+
+커밋 전 로컬 리뷰가 낸 11건을 전량 흡수했다. HIGH 셋은 **이 milestone의 자기 방어 논리가
+실제로는 반대 방향으로 작동하거나 정상 입력에서 오탐**하던 것이고, 넷째는 무관한 게이트
+약화가 diff에 섞여 있던 것이다. 각 항목은 실측으로 재현한 뒤 회귀 단언을 붙였다.
+manifest 하한(32)은 넓히지 않았다 — 하한은 상한이 아니고, plan의 `## Assertion Roster`는
+`plan_hash`로 봉인돼 있어 편집하면 §3.11 가드 2가 그 사이클의 PR을 막는다.
+
+- **`.claude/settings.json`의 `MCCP_PLAN_REVIEW_ROLES_MIN` 변경을 되돌렸다.** `5 → 1`이
+  들어가 있었는데, `5`는 `MAX_OF(4)` 초과라 loud warn 후 기본값 `3`으로 폴백하던 값이므로
+  **실효 하한이 3에서 1로** 떨어져 L2 패널 quorum이 단일 역할로 충족 가능해지는 변경이었다.
+  plan의 `Files to Change`·CHANGELOG·설계 문서 어디에도 선언이 없고 M7 범위와도 무관하다.
+  게이트 강도 조정은 별도 축이며 근거와 함께 선언되어야 한다.
+  **rebase 후 정정(2026-08-21)**: origin/main이 `v1.30.2`(diverse-agent-review M7,
+  커밋 `c9e941c`)에서 같은 `5 → 1`을 **의도적으로 발행**했다. 본 브랜치를 그 위로
+  rebase하면서 트리의 값은 main의 `1`이다 — 재-revert하지 **않는다**(머지가 다른 PR의
+  결정을 조용히 되돌리는 것이 정확히 §3.5.1이 금지하는 바다). 따라서 이 항목이 소유하는
+  것은 “선언 없는 게이트 약화를 이 diff에서 걸러냈다”이고, 현재 값의 근거는 main의 `v1.30.2`다.
+- **DD3 비재발 종결의 오차 방향을 정정했다.** 매칭 실패는 분모만 늘리는 것이 아니라
+  prior를 `fixed`로 **닫는다**(분자 +1). 즉 2차 키를 *끄는* 세 제약이 C1을 **부풀리는**
+  방향으로 작동했고, 그것은 UI5가 조작 경로로 지목한 방향이다(실측: 참값 `0/1`이 `1/2`로
+  보고). 이제 같은 리뷰어 축과 대조가 성립할 때만 종결하고, 대조 불가는 **판정을 보류**한다.
+  통상 경로(빈 수렴 라운드)는 그대로 종결하므로 지표는 죽지 않는다.
+- **coverage gate 런타임 falsifier의 오탐을 닫았다.** 표면(`record.js`)과 emit
+  (`plan-review/cli.js`)의 포함 조건이 달라, claim 없는 리뷰어 출력이나 내용이 같은 중복
+  행에서 유실이 없는데도 *"events were lost"* 로 **오진하며 차단**했다(실측: 행 3 · 이벤트
+  2 · fold 1 → exit 1). 표면 쪽도 emit 술어와 `finding_id` fold를 따르게 했다. 반대 방향
+  사각(다른 게이트의 finding이 패널 유실을 가림)도 같은 줄에서 닫았다.
+- **`appendFindings`가 `kind` 검증을 `seq` 할당보다 먼저 한다.** 뒤에 있어서 호출자 버그가
+  번호를 소진한 뒤 아무것도 쓰지 않아, 디스크 실패와 구분되지 않는 구멍을 마커 없이 남기고
+  그 샤드를 **영구히** `degraded`로 만들었다(evict·재작성 금지 계약상 비가역 → `--acceptance`
+  영구 실패).
+- `findings-registry.js`의 리터럴 NUL 바이트 2개를 `\0` 이스케이프로 바꿨다. 해시 구분자는
+  그대로 U+0000이라 committed 샤드의 `finding_id`는 불변이고, `file(1)`·grep·ripgrep이
+  이 모듈을 binary로 건너뛰던 것이 해소됐다(이 저장소는 grep 기반 감사에 의존한다).
+- Plan-Codex emit이 finding 배열 첨자를 `round`로 싣던 것을 제거했다. `seal.js`는 같은
+  필드에 진짜 라운드 번호를 싣고 reader는 둘을 구분하지 않는다.
+- **test 4종이 주변 `MCCP_REVIEW_SINGLE_PASS`를 중화한다.** 저장소 자신의 tracked
+  settings 때문에 **기본 개발 환경에서** `santa-loop-cap` 28건 · `santa-adjudication` 22건 ·
+  `santa-lanes` 1건 · `receipt/tests/review-single-pass-fields` 2건이 붉어져, 실제 회귀와
+  env 잡음을 구분할 수 없었다(각 파일 단독 `env -u` 실행은 0 fail 로 격리 확인). 마지막
+  파일은 **토글이 꺼져 있을 때**를 단언하는 test 를 갖고 있어 ambient 값이 새면 그 단언이
+  기본 환경에서 성립할 수 없었다. 축을 켜서 보는 test 는 스스로 값을 설정했다가 되돌린다.
+- `codex-findings-backlog.md`에서 선행 `|`가 빠져 4열 파서(`derive/sources/backlog.js`)에
+  잡히지 않던 행 1건을 정정했다(§3.15 "4열 고정" 계약). 정정 후 137행 · `invalid_count: 0`.
+- 승격 블록의 `source` 경로도 코드 스팬으로 감싼다(`cited_path`만 감싸면 방어가 반쪽) ·
+  `normalizeCitedPath`가 `repoRoot` 부재 시 트리 밖 상대경로도 placeholder로 접는다 ·
+  `eventToJsonLine`의 상한 초과 분기가 `truncated` 키만 더해 줄을 **키우던** 것을 실제
+  절삭으로 고쳤다(필드 캡 때문에 여전히 도달 불가한 분기이나, 도달 시의 계약을 맞춘다).
 
 ## [1.32.1] — 2026-08-24
 
@@ -599,7 +701,6 @@ bare 소스가 둘이면(project + user) 어느 본문이 해소되는지는 측
 - **어떤 plan이 L3를 받을지는 여전히 사람이 env로 정한다.** 신호 기반 자동 판정 오라클은 만들지 않았다(UI2·UI3).
 - **Codex를 다른 벤더로 교체하지 않았고**, 리뷰어 독립성은 완화까지만이다(UI7).
 - **라이브 완주 상태는 PRD와 report에 그대로 적는다** — 초록 test를 완주로 바꿔 부르지 않는다.
-
 ## [1.30.2] — 2026-08-21
 
 > **§3.7**: `1.30.0 → 1.30.2` (**patch** — diverse-agent-review PRD의 단일 milestone #7이며

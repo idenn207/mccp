@@ -834,7 +834,7 @@ async function main() {
       process.stderr.write(`[mccp:msw-events] WARNING: M2 instrumentation threw: ${err && err.message ? err.message : err} (allow)\n`);
     }
   } else {
-    log('[SessionStart] No CLAUDE_SESSION_ID available; skipping observer lease registration');
+    log('[SessionStart] No session id available (MCCP_SESSION_ID / CLAUDE_CODE_SESSION_ID / CLAUDE_SESSION_ID all absent); skipping observer lease registration');
   }
 
   if (explicitContextDisabled) {
@@ -866,9 +866,7 @@ async function main() {
         const { listClaims } = require('../state/evidence-claim');
         // Same identity source the claim writer uses (evidence-lock#resolveSessionId),
         // so "mine" vs "theirs" cannot disagree between the advisory and the fence.
-        const selfId = process.env.MCCP_SESSION_ID
-          || process.env.CLAUDE_CODE_SESSION_ID
-          || process.env.CLAUDE_SESSION_ID
+        const selfId = require('../lib/session-identity').resolveRawSessionId(process.env)
           || observerSessionId;
         const held = listClaims({ repoRoot: observerContext.projectRoot })
           .filter((c) => c.live && c.session_id && c.session_id !== selfId);

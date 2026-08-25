@@ -33,6 +33,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+const { SLUG_RE } = require('../receipt/decision');
+
 const FINDINGS_DIRNAME = path.join('.claude', 'state', 'findings');
 const FIELD_MAX_CHARS = 256;
 const MAX_LINE_BYTES = 8192;
@@ -87,7 +89,36 @@ const ALLOWED_FIELDS = new Set([
   'seq',
   'event_id',
   'batch_expected',
+  // multi-session-work-loop M8 Task 7 (DD8) — C2/C3 귀속 삼각.
+  //
+  // 삼각은 `gate_decision_id` → `finding_id` → `remediation_pr`이고 M7까지
+  // 가운데 하나만 존재했다. 여기 더하는 것은 **기록뿐**이다 — C2·C3의 status는
+  // `forward-only`에 머물고 값·목표를 만들지 않는다(UI8). label-protocol §2.2/§4.2가
+  // 계약층이고 산출은 그 문서의 개정을 거쳐야 하며 M8의 권한 밖이다.
+  //
+  // 값 제약(security review R1 F6): `gate_decision_id`는 canonical `SLUG_RE`,
+  // `remediation_pr`은 부호없는 정수 문자열. `sanitizeField`는 길이만 자르므로
+  // 형태 검증은 `validateAttributionFields`가 따로 한다.
+  'gate_decision_id',
+  'remediation_pr',
 ]);
+
+// M8 Task 7 — 귀속 필드의 형태 계약. 위반은 **거절**이지 조용한 절삭이 아니다:
+// 이 값들은 사후 대조의 키라 형태가 무너지면 대조 자체가 성립하지 않는다.
+function validateAttributionFields(event) {
+  if (!event) return null;
+  if (event.gate_decision_id !== undefined && event.gate_decision_id !== null) {
+    if (!SLUG_RE.test(String(event.gate_decision_id))) {
+      return 'invalid_gate_decision_id: ' + String(event.gate_decision_id);
+    }
+  }
+  if (event.remediation_pr !== undefined && event.remediation_pr !== null) {
+    if (!/^[0-9]+$/.test(String(event.remediation_pr))) {
+      return 'invalid_remediation_pr: ' + String(event.remediation_pr);
+    }
+  }
+  return null;
+}
 
 class FindingsRegistryError extends Error {
   constructor(code, message) {
@@ -179,6 +210,11 @@ function deriveFindingId(parts) {
   return crypto.createHash('sha256').update(material, 'utf8').digest('hex').slice(0, 16);
 }
 
+// `deriveFindingId`의 산출 형태. 리터럴을 소비처에 복제하지 않기 위해 여기서
+// 내보낸다 — 조인 키의 형태가 두 곳에 적히면 그 둘이 갈리는 날 귀속이 조용히
+// 끊긴다(local review M1이 `SLUG_RE`에서 지적한 것과 같은 축).
+const FINDING_ID_RE = /^[0-9a-f]{16}$/;
+
 function claimDigestOf(claim) {
   return crypto.createHash('sha256')
     .update(normalizeClaim(claim), 'utf8').digest('hex').slice(0, 16);
@@ -253,6 +289,9 @@ function markerPath(dir, workUnit) {
 // `seq` 축이 유실을 잡으므로 이것이 없어도 탐지는 성립한다. 실패 사유(errno·경로)를
 // 담아 진단을 돕는 것이 역할이다.
 function writeDegradedMarker(dir, workUnit, detail) {
+  // 공개 export이므로 `appendFindings`의 초크 포인트를 우회하는 직접 호출이
+  // 가능하다. best-effort 함수라 거절은 throw가 아니라 false다.
+  if (!workUnit || typeof workUnit !== 'string' || !SLUG_RE.test(workUnit)) return false;
   try {
     fs.mkdirSync(dir, { recursive: true });
     const body = {
@@ -350,7 +389,14 @@ function allocateSeqBase(dir, workUnit, n) {
 // exit code는 바뀌지 않는다.
 function appendFindings(workUnit, events, opts) {
   opts = opts || {};
-  if (!workUnit || typeof workUnit !== 'string') {
+  // work_unit은 `shardPath`/`markerPath`에서 **파일명 성분**이 되므로 타입
+  // 검사만으로는 부족하다 — `'../../x'`는 non-empty 문자열이고 그대로
+  // `path.join`에 닿으면 레지스트리 디렉토리를 탈출한다. 현재 호출자들이
+  // `deriveDecisionId` 산출값을 넘겨 안전한 것은 **호출자의 성질**이지 이 공개
+  // API의 성질이 아니고, M8이 새 호출자(Task 7 귀속 레코드)를 더한다. 그래서
+  // 검증을 초크 포인트로 내린다 — `santa/ledger.js:91`이 같은 이유로 같은
+  // 정규식을 쓴다(`SLUG_RE`는 `.`과 `/`를 아예 배제한다).
+  if (!workUnit || typeof workUnit !== 'string' || !SLUG_RE.test(workUnit)) {
     return { ok: false, reason: 'invalid_work_unit', written: 0 };
   }
   const list = Array.isArray(events) ? events : [];
@@ -379,6 +425,13 @@ function appendFindings(workUnit, events, opts) {
     const kind = (list[i] || {}).kind;
     if (KINDS.indexOf(kind) === -1) {
       return { ok: false, reason: 'invalid_kind: ' + String(kind), written: 0 };
+    }
+    // M8 Task 7 — 귀속 필드 형태도 seq 할당 **전에** 본다. 위 주석의 근거가
+    // 그대로 적용된다: 호출자 쪽 잘못된 값이 번호를 소진하면 디스크 write
+    // 실패와 구분되지 않는 구멍이 남는다.
+    const attrErr = validateAttributionFields(list[i]);
+    if (attrErr) {
+      return { ok: false, reason: attrErr, written: 0 };
     }
   }
 
@@ -750,6 +803,7 @@ module.exports = {
   PER_FILE_MAX_BYTES: PER_FILE_MAX_BYTES,
   OUTSIDE_REPO: OUTSIDE_REPO,
   KINDS: KINDS,
+  FINDING_ID_RE: FINDING_ID_RE,
   CLOSURE_TYPES: CLOSURE_TYPES,
   RESOLVING_CLOSURE_TYPES: RESOLVING_CLOSURE_TYPES,
   CLOSURE_FROM_ADJUDICATION: CLOSURE_FROM_ADJUDICATION,

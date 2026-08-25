@@ -1,0 +1,49 @@
+{
+  "milestone": "multi-session-work-loop M8",
+  "phase": "before",
+  "measured_at": "2026-08-25",
+  "measured_how": "plan Producer Preflight — 트리 전체(main + worktree 4개) msw-events 파일 13개 · 이벤트 116건 전수 집계 + derive/cli.js run --json",
+  "note": "M8 착수 시점의 상태를 그대로 박제한다. 이 표의 목적은 전환을 주장하는 것이 아니라 전환의 출발점을 반증 가능하게 고정하는 것이다.",
+
+  "root_cause": {
+    "what": "observer-sessions.resolveSessionId()가 이 하네스에 존재하지 않는 CLAUDE_SESSION_ID만 읽어 빈 문자열을 반환했다",
+    "effect": "그 falsy 값이 session-start.js / session-end.js의 M2 계측 블록 전체를 실행되지 않게 했다 — A1 착수 · A2 종료 · B3 사용이력 producer가 같은 한 줄 때문에 전부 죽어 있었다",
+    "runtime_read_sites": 12,
+    "divergent_resolvers": 4
+  },
+
+  "event_corpus": {
+    "msw_events_files": 13,
+    "msw_events_total": 116,
+    "kinds_observed": ["evidence_guard_active"],
+    "kinds_absent": ["session_start", "session_end", "task_started", "task_completed", "task_ship_sealed"],
+    "env_snapshot_files": 0
+  },
+
+  "metrics": {
+    "A1": { "status": "forward-only", "numerator": null, "denominator": null, "why": "task_completed KIND을 emit하는 호출자 0건. 분모도 계약 위반 — session_start를 가진 세션 수를 셌다(계약은 작업 단위 전수)" },
+    "A2": { "status": "forward-only", "numerator": null, "denominator": null, "why": "session-end.js:359가 contextRemainingPct = null을 하드코딩(m2-honesty-downgrade). 스냅샷 스키마에 session_id가 없어 귀속 검증 수단이 부재" },
+    "B3": { "status": "forward-only", "numerator": null, "denominator": 123, "why": "*.env-snapshot.json 트리 전체 0건. 분모 123과 분자 우주(TOGGLE_DEFAULTS) 117이 불일치" },
+    "C2": { "status": "forward-only", "numerator": null, "denominator": null, "why": "gate_decision_id가 findings-registry allowlist에 없음. 귀속 삼각 중 finding_id만 존재" },
+    "C3": { "status": "forward-only", "numerator": null, "denominator": null, "why": "C2와 동일" }
+  },
+
+  "b3_set_mismatch": {
+    "denominator": 123,
+    "numerator_universe": 117,
+    "denominator_only": [
+      "MCCP_DISABLE_VALUES",
+      "MCCP_EXPLORE_CONTROL_PLACEMENT",
+      "MCCP_IGNORE_BLOCK",
+      "MCCP_IGNORE_ENTRIES",
+      "MCCP_JOURNAL_DEGRADED_UNRECORDED",
+      "MCCP_PLAN_REVIEW_",
+      "MCCP_PLAN_REVIEW_TEST_INVOKE"
+    ],
+    "numerator_only": ["CODEX_DEDUPE_AT_PR"],
+    "equal": false
+  },
+
+  "claimed_computable": ["A3", "B2", "B3", "C1"],
+  "claimed_computable_drift": "derive/cli.js는 3개(A3·B2·B3)만 갖고 있었다 — M7이 test 파일에만 C1을 넣어 lockstep이 이미 깨져 있었다"
+}

@@ -931,6 +931,29 @@ L8이 형식과 실재만 보므로 이 축은 L8을 통과하면서 거짓일 �
 
 ---
 
+### 3.18 세션 식별은 단일 체인이다 (v1.33.0 — multi-session-work-loop M8 DD1)
+
+세션 id는 [session-identity.js](plugins/mccp/scripts/lib/session-identity.js)의
+`resolveRawSessionId(env)` **하나**로만 해소한다: `MCCP_SESSION_ID` →
+`CLAUDE_CODE_SESSION_ID` → `CLAUDE_SESSION_ID`. **`process.env.CLAUDE_SESSION_ID`를
+직접 읽지 마라** — 그 이름은 이 하네스의 CLI가 설정하지 않으므로 단독 read는 항상
+빈 값이고, 그 falsy 값이 M2 계측 블록 전체를 죽여 A1·A2·B3 producer가 한 줄 때문에
+전부 침묵했다. 런타임 표면에 그 이름이 0회 등장함을 `session-identity.test.js` (a)가
+스캔으로 단언한다(`env-contract/lint.js` L10 역방향과 같은 형태).
+
+**옮긴 것은 체인뿐이고 정규화는 각 소비처에 남는다.** `evidence-lock`은 `null`,
+`observer-sessions`는 빈 문자열, `orchestration-runaway`는 `'unknown'`을 반환하며
+호출자들이 그 차이에 의존한다 — 반환 계약을 통일하려 들면 M3 증거 락과 섞인다.
+변환 패턴은 기본값 표현식 교체 한 줄이라 arity·호출 형태·반환값이 전부 불변이다.
+
+**`resolveRawSessionId`는 sanitize하지 않는다.** 그 값이 파일명이나 `path.join`에
+닿으면 경로 주입이므로, 파일명을 만드는 지점은 반드시 `utils.sanitizeSessionId`를
+거친다. 세션 id가 실제로 파일명이 되는 두 초크 포인트(`msw-events.appendEvent`의
+`SESSION_ID_RE`, `observer-sessions`의 sanitize)는 탈출 입력을 **동작으로** 거절하며
+그 사실을 test가 호출로 확인한다. 이것은 구조적 보장이 아니라 test 보장이다.
+
+---
+
 ## 4. 자주 쓰는 명령 (Cheat Sheet)
 
 ```bash

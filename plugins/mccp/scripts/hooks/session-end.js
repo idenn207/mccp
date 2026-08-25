@@ -350,14 +350,24 @@ async function main() {
         const ledger = sessionLedger.readLedger({ sessionId: sid, projectContext: ctx });
         const endedAt = ledger && ledger.ended_at ? ledger.ended_at : new Date().toISOString();
 
-        // A2 context% — PF3 (msw-m2-measurement-honesty-downgrade): contextState.readState()
-        // reads a latest-wins context-current.json with NO session-id/freshness binding, so a
-        // concurrent or stale sample would be attributed to THIS ending session. Until a
-        // session-bound freshness path exists, emit null rather than stamp an unverified value
-        // into the append-only event log. A2 is forward-only downstream, so no honest consumer
-        // relies on this field today; recording a contaminated number would only mislead a
-        // future scanner. When session-bound context is implemented, restore the read here.
-        const contextRemainingPct = null;
+        // A2 context% — M8 Task 6 (DD6). PF3(msw-m2-measurement-honesty-downgrade)이
+        // 이 read를 `null` 하드코딩으로 막았던 이유는 `contextState.readState()`가
+        // 세션 귀속도 신선도도 없는 latest-wins 스냅샷이라 동시/낡은 샘플이 **이**
+        // 종료 세션에 잘못 귀속될 수 있었기 때문이다. 그 주석이 남긴 복원 조건은
+        // "session-bound context가 구현되면"이었고, M8이 정확히 그것을 했다:
+        // `ecc-context-monitor`가 이미 갖고 있던 `input.session_id`를 스냅샷에
+        // 실어 보존하고(`context-state.writeState`), 여기서는 그 귀속과 신선도를
+        // **둘 다** 통과한 값만 stamp한다. 하나라도 아니면 결과는 여전히 `null`이다 —
+        // 강등을 되돌린 것이 아니라 강등이 요구한 조건을 충족시킨 것이다.
+        let contextRemainingPct = null;
+        try {
+          const contextState = require('../lib/context-state');
+          contextRemainingPct = contextState.resolveSessionBoundPct(sid);
+        } catch (_ctxErr) {
+          // fail-open: 귀속 판정 실패는 세션 종료를 막지 않는다. null은 정확히
+          // 강등 시절과 같은 값이므로 회귀가 아니라 원상태다.
+          contextRemainingPct = null;
+        }
 
         // A2 종료 이벤트 (task_completed는 always false for SessionEnd hook; 실제는 derive가 판정)
         // CL-5 — repoRoot을 명시 전달(session-start.js와 동형). 전달 전에는

@@ -30,10 +30,15 @@ function buildSeededModel() {
         ok: true,
         task_startups_count: 5,
         task_completions_count: 3,
-        // A1 completions_producer_present is intentionally NOT injected (re-R3 F0):
-        // A1 is a downgraded, non-claimed metric, so forcing it to compute here would
-        // reintroduce a masquerade flag into the shared gate fixture. A1's compute path
-        // is proven by its own unit test (msw-metrics.test.js). A1 → forward-only here.
+        // multi-session-work-loop M8 — A1 producer가 배선되면서 두 flag를 주입한다.
+        //
+        // re-R3 F0이 주입을 금지했던 이유는 "live producer가 없는데 fixture만
+        // compute 경로를 켜면 masquerade"였다. 그 전제가 사라졌다: 착수는
+        // `hooks/receipt-prompt.js`가, 완주는 `/mccp:pr` Phase 5가 실제로 emit한다.
+        // flag는 여전히 live-derivable이라(실 corpus에서 이벤트 관측 시 flip)
+        // fixture 주입이 production 계약을 앞지르지 않는다.
+        startups_producer_present: true,
+        completions_producer_present: true,
         sessions: [
           { session_id: 'sid-1', context_remaining_pct: 45, task_completed: true },
           { session_id: 'sid-2', context_remaining_pct: 62, task_completed: true },

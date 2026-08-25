@@ -156,7 +156,7 @@ We believe **세션 스코프 상태 모델 + 증거 기반 진행 판정 + 검�
 | 5 | **상태 진실원 이전** | 세션 기록이 되돌릴 수 없는 요약이 아니라 질의 가능한 이력이 된다. 요약 문서는 파생 표시물로 강등된다. 크래시·재개 세션의 지연·재생 기록이 이미 닫힌 작업을 되살리지 못한다 (A4) | complete (인정 조건 미충족: A4 전환 미확인) | [multi-session-work-loop-m5.plan.md](../plans/multi-session-work-loop-m5.plan.md) |
 | 6 | **진행 상태 기계 판정** | milestone 완료 여부를 사람이 아니라 증거가 판정한다. drift 교정 명령이 상시 필요하지 않게 된다 (B1) | complete | [multi-session-work-loop-m6.plan.md](../plans/multi-session-work-loop-m6.plan.md) |
 | 7 | **세션 경계 피드백 루프** | 한 세션에서 발견된 실수가 다음 세션의 작업 목록에 자동으로 올라온다. 발견과 해소 사이의 유실이 사라진다 (C1) | complete | [multi-session-work-loop-m7.plan.md](../plans/multi-session-work-loop-m7.plan.md) |
-| 8 | **측정 부채 상환** | M2가 배송했으나 프로덕션에서 산출하지 못하는 지표의 producer가 실제로 배선된다 — A1 완주 신호(`task_completed` KIND 발화), A2 세션 바인딩 컨텍스트, B3 numerator 커버리지(`TOGGLE_DEFAULTS` ↔ 분모 정합), C2·C3 귀속 스캐폴드(`gate_decision_id → finding_id → remediation_pr`). **지표가 `computed`로 뒤집히는 것이 완료 판정이며, 코드 존재는 판정 근거가 아니다**(M3 B2 coverage gate 선례). 이 milestone이 끝나야 A1 기반 반증 조건 판정이 기계화되고, 축 은퇴(M4에서 이연)의 근거 데이터가 생긴다 | pending | — |
+| 8 | **측정 부채 상환** | M2가 배송했으나 프로덕션에서 산출하지 못하는 지표의 producer가 실제로 배선된다 — A1 완주 신호(`task_completed` KIND 발화), A2 세션 바인딩 컨텍스트, B3 numerator 커버리지(`TOGGLE_DEFAULTS` ↔ 분모 정합), C2·C3 귀속 스캐폴드(`gate_decision_id → finding_id → remediation_pr`). **지표가 `computed`로 뒤집히는 것이 완료 판정이며, 코드 존재는 판정 근거가 아니다**(M3 B2 coverage gate 선례). 이 milestone이 끝나야 A1 기반 반증 조건 판정이 기계화되고, 축 은퇴(M4에서 이연)의 근거 데이터가 생긴다 | complete (인정 조건 부분 미충족: B3만 computed 전환 · A1은 이 PR 이후 전환 · A2는 상류 텔레메트리 부재) | [multi-session-work-loop-m8.plan.md](../plans/multi-session-work-loop-m8.plan.md) |
 
 ### 순서의 근거
 

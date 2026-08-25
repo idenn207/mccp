@@ -1,10 +1,10 @@
 ---
 state_version: 1
-task_fingerprint: impeccable-detection-contract-m5
+task_fingerprint: multi-session-work-loop-m8
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-23T10:33:25.618Z
+updated_at: 2026-08-25T10:14:37.272Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-23T10:33:25.618Z
+last_event_at: 2026-08-25T10:14:37.272Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -13,46 +13,44 @@ last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-08-23T09:38:09.736Z
 dep_check_missing: impeccable
 escalate_pending: true
-escalate_pending_decision_id: impeccable-detection-contract-m5
+escalate_pending_decision_id: multi-session-work-loop
 ---
 ## Goal
-impeccable-detection-contract M5 — 문서·계약 드리프트 정리. 구현 완료(v1.32.0), commit/PR 대기. PRD 전체 종료.
+multi-session-work-loop M8 — 측정 부채 상환 (v1.33.0). 구현 + 로컬 리뷰 흡수 완료, commit/PR 대기. PRD 전체 8 milestone 종료.
 
 ## Plan
-- PRD: `.claude/prds/impeccable-detection-contract.prd.md` — M1·M2·M3·**M4 complete**, M5(문서 드리프트) pending
-- plan: `.claude/plans/impeccable-detection-contract-{m1,m2,m3,m4}.plan.md` — 넷 다 봉인됨(plan_hash). **편집 금지**
-- 게이트 산출물·라이브 증거: `.claude/notes/impeccable-detection-contract-{m1,m2,m3,m4}.md`
-- 구현 보고: `.claude/PRPs/reports/impeccable-detection-contract-m4-report.md`
-- version 1.31.4 (patch — PRD 내 단일 milestone). 4면 동기 완료. branch impeccable-detection-contract
+- PRD: `.claude/prds/multi-session-work-loop.prd.md` — M1~M8 전부 complete (M8이 마지막 milestone)
+- plan: `.claude/plans/multi-session-work-loop-m8.plan.md` — 봉인됨(plan_hash). **편집 금지**
+- 게이트 산출물·라이브 증거: `.claude/notes/multi-session-work-loop-m8.md`
+- 구현 보고: `.claude/PRPs/reports/multi-session-work-loop-m8-report.md`
+- 전후 스냅샷: `docs/multi-session-work-loop/m8-{before,after,assertion-manifest,audit-sample}.json`
+- version 1.33.0 (minor — PRD 전체 종료). 4면 동기 완료. branch multi-session-work-loop-m8
 
 ## Done
-- M1 (3d38358, v1.31.1) 정직한 탐지 / M2 (87c6acb·0433538, v1.31.2) 판정 권한 일원화 / M3 (66aaa19, v1.31.3) 섀도잉 해소
-- **M4 (미커밋, v1.31.4) 게이트 발화 정합** — 8 task 전부 착지
-- M4/T1 UI10 재확인 실측 — `shape`는 벤더 메타데이터상 **조건 없이** required interview. **정정**: `teach`는 4.1.1의 23개 카탈로그에 없다(차단 프로즈만 부름) — 집합 유지 근거는 미래 카탈로그 확장 방어
-- M4/T2 `INTERVIEW_REQUIRED_COMMANDS` 신설 + implement `shape` background→recommend. `background`는 오라클 전체 **도달 불가**가 됐으나 enum 유지(과거 receipt 해석 보존) — test가 전수 128조합에서 고정
-- M4/T3 테이블 `phase` 축(pre/finish). implement 16→19(pre 14 + finish 5). `clarify`/`distill` finish 이동 + `polish`/`harden`/`optimize` 신설. `onboard`은 "없던 표면을 새로 짓는" 성질이라 제외. plan/prd/pr 출력 바이트 동일
-- M4/T4 `restampRoutedCommands` + `cli.js restamp-routed` — append-only(중복=drift 신호) ∧ **restamp 내 멱등**(tail match, 락 **안**). 게이트 `mccp-implement-codex` 한정, 여분 키 거부, 경로 resolve
-- M4/T5 prp-implement 재배선 — 2.5.5b `phase:"pre"` 명시 · Phase 3.6 전면 교체(오라클 구동 → 처리 → restamp) · 낡은 문단 정정. **duplicate-call 불변식이 산문에서 phase 필터로 이동**
-- M4/T6 test — routing +11(전수 128조합) · restamp-routed 14 신규 · guard 짝 단언 4(`phase:"finish"` ⟺ `restamp-routed`)
-- M4/T7 gate-design `#### 게이트 발화 정합` · CLAUDE.md §3.10(낡은 stage→command 나열 제거) · CHANGELOG 1.31.4 · 4면 동기 · PRD milestone 4 complete · backlog 5건 이연
-- M4/T8 라이브 — finish 오라클 5종 `invoke` → `impeccable:impeccable`로 전부 완주(어느 것도 멎지 않음) → restamp 착지. receipt에 finish 5건, `shape` non-recommend 0건, 재생 시 `noop:true`
-- 검증: V1 37/37 · V2 14/14 · V3 16/16 · V4 81/81 · **V5 682(681 pass·0 fail)** · V6 10/10 · V7 C1~C4 pass · V8 매트릭스 일치
-- 리뷰 산출: Codex R1 divergent(HIGH 2건 전건 흡수) · security-reviewer 4건 흡수 + 2건 PASS 독립 확인(F3 HIGH→MEDIUM 증거 정정) · backlog 5건 이연
+- 뿌리 단일화 — `lib/session-identity.js` 신설. `CLAUDE_SESSION_ID` 단독 read 12곳이 빈 값을 받아 M2 계측 블록 전체가 죽어 있던 것을 체인(MCCP_SESSION_ID → CLAUDE_CODE_SESSION_ID → CLAUDE_SESSION_ID)으로 닫음. 체인만 옮기고 정규화는 각 소비처에 존치(DD1)
+- A1 — 분모를 세션 수에서 distinct work_unit으로 시정(DD3, 계약 위반의 시정). 착수는 `receipt-prompt` hook, 완주는 `/mccp:pr` Phase 5.1(DD4). `sealed_without_completion` 병기(DD5)
+- A2 — `context-state` 스냅샷에 session_id 보존 + `resolveSessionBoundPct`가 귀속·신선도 통과분만 stamp(DD6). 미충족 시 여전히 null
+- B3 — forward-only → **computed** 전환(20/116). 분모·분자 우주 양방향 차집합 공집합. 제외 7건 명시 추가, 은퇴 0건(UI6·UI14)
+- C2/C3 — 값 미산출 유지(DD8·UI8), 귀속 삼각 기록 경로만 수립
+- coverage gate `m8-coverage-gate.js` — 승인 emit 지점 7 + 정적 lint + `--acceptance` opt-in
+- 리뷰 흡수 H1/H2 — `pr.md` 5.1이 DECISION_SLUG·PR_NUMBER를 자기 블록에서 재도출. fenced block은 각자의 셸이라 상속이 성립하지 않아 A1 분자가 매 사이클 **결정적으로** skip되고 있었다
+- 리뷰 흡수 H3 — `with_remediation_pr`에 producer가 0개였다. msw-events allowlist에 `finding_id` 추가 + CLI가 remediation_pr에 필수 요구 + `findings.js` reader가 조인
+- 리뷰 흡수 M1~M3·L1~L3 — SLUG_RE 복제 제거 · 가드를 수신자 무관 `.readState(`로 확대 · `mccp:plan-prd` 분모 제외 · 길이 상한 근거 명시 · 낡은 주석 4곳 정정 · L3는 증거와 함께 backlog 기각
+- 검증: 전 suite 5250 tests / 5233 pass / 1 fail(셸 env 토글 의존, 기존 이연) · m8-coverage-gate ok · assertion-manifest 22/22 · env-contract L1~L10 · instruction-contract C1~C4 · metrics-assert exit 0
 
 ## In Progress
 
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 version 재계산 필수(origin/main 1.31.0, 로컬 1.32.0 minor=PRD 종료).
+/mccp:pr. 진입 직전 §3.7 version 재계산 필수(origin/main 1.32.2, 로컬 1.33.0). PR 생성 후 A1 완주 이벤트가 최초 발화하므로 derive를 재실행해 A1 전환을 note에 기록할 것.
 
 ## Last Decision
-Codex R1 HIGH(래칫 로더 fail-closed 미명시)와 plan L2 CRITICAL이 같은 축이라 R1에서 전건 흡수 — evidence-debt.js 로드 시점 throw + lint try/catch 2겹. MEDIUM 2건은 §3.14대로 backlog 이연. §3.16대로 1라운드로 끝내고 divergent를 정직하게 봉인.
+H3 삼각 우변을 reader 확장으로 닫았다 — registry에 finding_closed를 새로 쓰면 closure_type enum을 통과해 C1 해소 계상을 오염시키므로, 우변은 msw-events에 남기고 finding_id로 조인한다. 조인 키 없는 레코드는 CLI가 애초에 거부한다.
 
 ## Open Questions
-- EVIDENCE_DEBT 29건(plan 예상 28)은 각 축의 부채 — 경계 일치가 MCCP_PLAN_REVIEW_(scan-artifact)를 C로 분류한 차이
-- L10 역방향은 walkSurfaces 범위 부재만 증명 — env-contract/ 디렉토리 전체 제외(backlog)
-- 설치 plugin cache가 1.31.0(pre-M1) — 머지 후 claude plugin update 필요
-- sibling worktree env-contract-integrity가 같은 subsystem PRD 보유(1.30.0, 문서 전용) — 충돌 없음
+- 설치 캐시가 1.30.0이고 워크트리는 1.33.0 — 실 세션 hook 자동 발화는 머지 + `claude plugin update` 이후에만 참(DD10)
+- A2는 상류 텔레메트리(session-bridge context_remaining_pct)가 null이라 표본 0건. 전역 context-current.json의 out-of-order 가드도 별도 축(backlog 등재)
+- 병렬 동시성 8에서 git init 실패·lock/tmp 경합으로 6종 flake — 동시성 4에서 전부 소실. test isolation 축은 backlog
 
 ## Last Updated
-2026-08-23T10:33:25.618Z
+2026-08-25T10:14:37.272Z

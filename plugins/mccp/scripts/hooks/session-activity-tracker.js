@@ -11,6 +11,7 @@
 const crypto = require('crypto');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { resolveRawSessionId } = require('../lib/session-identity');
 const {
   appendFile,
   getClaudeDir,
@@ -567,7 +568,7 @@ function buildActivityRow(input, env = process.env) {
   }
 
   const toolName = String(input?.tool_name || '').trim();
-  const sessionId = String(env.MCCP_SESSION_ID || env.CLAUDE_SESSION_ID || '').trim();
+  const sessionId = resolveRawSessionId(env);
   if (!toolName || !sessionId) {
     return null;
   }

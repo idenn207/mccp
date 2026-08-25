@@ -2,7 +2,96 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.32.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.33.0] — 2026-08-25
+
+> **§3.7**: `1.32.2 → 1.33.0` (**minor** — M8은 multi-session-work-loop PRD의 **마지막
+> milestone**이라 PRD 전체 종료 축이다). 4면 동기: `plugin.json` · `renderer/html.js`
+> page-foot · `renderer/markdown.js` derived 줄 · 이 파일의 `currently` 노트.
+> `renderer/tests/i18n-surface.test.js`는 기대값을 `plugin.json`에서 파생하므로
+> 동기 대상이 아니라 검증 수단이다(green 확인).
+>
+> **설치 캐시 지연**: 실 세션의 hook은 `~/.claude/plugins/cache/mccp/mccp/<version>/`
+> 에서 돌고 현재 캐시 최고 버전은 `1.30.0`이다. 이 릴리스의 producer가 실제 세션에서
+> 자동 발화하려면 머지 후 `claude plugin update`가 필요하다(DD10).
+
+### multi-session-work-loop M8 — 측정 부채 상환
+
+**뿌리는 한 줄이었다.** `observer-sessions.resolveSessionId()`가 이 하네스에 존재하지
+않는 `CLAUDE_SESSION_ID`만 읽어 빈 문자열을 반환했고, 그 falsy 값이
+`session-start.js`/`session-end.js`의 M2 계측 블록 **전체**를 실행되지 않게 했다.
+A1 착수 · A2 종료 · B3 사용이력 producer가 같은 이유로 전부 죽어 있었다.
+
+#### Added
+- `plugins/mccp/scripts/lib/session-identity.js` — 세션 id 우선순위 체인
+  (`MCCP_SESSION_ID` → `CLAUDE_CODE_SESSION_ID` → `CLAUDE_SESSION_ID`)의 단일 진실원.
+  **체인만 옮기고 정규화는 각 소비처에 남긴다**(DD1) — `evidence-lock`은 `null`,
+  `observer-sessions`는 빈 문자열, `orchestration-runaway`는 `'unknown'`을 반환하며
+  호출자들이 그 차이에 의존한다.
+- `plugins/mccp/scripts/lib/msw-metrics/m8-coverage-gate.js` — 승인 emit 지점
+  레지스트리(**7개**) + 정적 lint + `--acceptance` opt-in 판정.
+- `mccp-state msw-event emit` 서브커맨드 — `--kind`를 `task_completed | remediation_pr`
+  **두 종으로 고정**하고 `--work-unit`/`--gate-decision-id`를 canonical `SLUG_RE`,
+  `--finding-id`를 16자 hex(`FINDING_ID_RE`), `--pr-number`를 부호없는 정수로
+  검증한다. `remediation_pr`은 `--pr-number`와 `--finding-id`를 **둘 다 요구한다**.
+  착수(`task_started`)와 세션 수명 이벤트는 이 셸 경로로 쓸 수 없다 — A1의
+  **분모**는 hook만 쓴다.
+- `docs/multi-session-work-loop/m8-{before,after,assertion-manifest,audit-sample}.json`.
+
+### Fixed
+- **A1 분모의 계약 위반 시정**(DD3): `measurement-design.md` §A1(FROZEN)은 분모를
+  "착수 이벤트가 기록된 **작업 단위** 전수"로 고정했는데 코드는 `session_start`를 가진
+  **세션 수**를 세고 있었다. 계약 변경이 아니라 코드가 계약을 어기고 있던 것의 시정이다.
+- **A2 세션 바인딩**(DD6): `context-state` 스냅샷이 `session_id`를 보존하고,
+  `session-end.js`는 그 귀속과 신선도를 **둘 다** 통과한 값만 stamp한다. M2 정직성
+  강등이 명시했던 복원 조건을 충족시킨 것이지 강등을 되돌린 것이 아니다.
+- **B3 집합 등식**(DD7): 분모 집합과 분자 우주(`TOGGLE_DEFAULTS`)의 양방향 차집합이
+  공집합이 됐다(116 = 116). 분모에만 있던 7개는 `TOGGLE_EXCLUSIONS`와 규범 문서에
+  **명시로** 추가했고(자동 파생 아님 — UI7), 분자에만 있던 `CODEX_DEDUPE_AT_PR`은
+  `MCCP_` 접두 규약으로 제외했다. **은퇴 0건**(UI6 · UI14).
+- **claimed-computable lockstep 복구**: `derive/cli.js`의 목록에 M7이 승격한 C1이
+  빠져 있어 산문 계약이 이미 깨져 있었다. 두 목록의 집합 동일성을 test로 단언해
+  lockstep을 산문에서 기계로 옮겼다.
+- **경로 주입 방어**(security review R1 흡수): `findings-registry.appendFindings`와
+  `writeDegradedMarker`가 `workUnit`을 canonical `SLUG_RE`로, `msw-events.appendEvent`가
+  `sessionId`를 파일명 안전 토큰으로 검증한다. 셋 다 타입 검사만 하고 그 값을
+  `path.join`에 넘기고 있었다.
+
+### Changed
+- `mccp-implement-codex` receipt에 `pr_number` · `gate_decision_id` allowlist 추가.
+- 대시보드 병기 축 3줄 추가(`A1 커버리지:` · `A2 상세:` · `C2/C3 귀속:`) — 값 셀과
+  상태 컬럼은 **무변경**이고 신규 collapse·색 클래스는 0개다(DD11). collapse 줄
+  순서가 **지표 id 순**으로 결정적이 됐다.
+
+### 로컬 리뷰 흡수 (`/mccp:code-review`, 커밋 전)
+- **A1 완주 emit이 셸 경계에서 죽어 있었다**(H1·H2): `pr.md` Phase 5.1이
+  `DECISION_SLUG`을 상속에 기댔는데 fenced block은 각자의 셸이라 그 값은 항상
+  비어 있었다 — `-n` 가드가 걸려 A1 분자가 **매 사이클 결정적으로 skip**됐다.
+  같은 파일 2.5.8 · 2.5.9 · Phase 3이 이미 재도출하고 있었고 5.1만 빠져 있었다.
+  이제 `DECISION_SLUG`·`PR_NUMBER`를 그 블록 안에서 뽑고, 귀속 emit도 같은 블록에
+  넣어 앞 블록 변수 상속을 없앴다.
+- **C2/C3 귀속 삼각의 우변이 writer만 있고 reader가 없었다**(H3):
+  `derive/sources/findings.js`는 findings-registry 이벤트에서 `remediation_pr`을
+  찾는데 그 필드를 쓰는 producer가 **0개**였고, `pr.md`가 쓰는 msw-event
+  `remediation_pr`은 `finding_id`가 없어 어떤 finding에도 결속되지 않았다 —
+  대시보드의 `해소 PR 연결 N건`이 **어떤 주기로도 0을 벗어날 수 없는** 상태였다.
+  msw-events allowlist에 `finding_id`를 더하고 reader가 그 레코드를 조인한다.
+  레지스트리에 `finding_closed`로 쓰는 대안은 `closure_type` enum을 통과해 C1의
+  해소 계상을 오염시키므로 배제했다.
+- **A1 분모의 granularity 혼입**(M3): `mccp:plan-prd`는 PRD basename을 슬러그로
+  내는데 PRD는 작업 단위가 아니라 그 상위다(UI1). 착수로 세면 완주 기록을 영영
+  못 받는 유령 work_unit이 분모에 남는다 — `NON_WORK_UNIT_COMMANDS`로 제외했다.
+- `SLUG_RE` 리터럴 복제 제거(M1) · `session-hooks-no-llm` 가드를 수신자 무관
+  `.readState(` 로 확대(M2) · `CLAUDE_SESSION_ID`를 가리키던 낡은 주석·로그 정정(L2).
+
+### 인정 조건 (정직한 미달)
+- **A1은 이 주기 안에 `computed`에 도달하지 못한다.** 완주 신호는 이 milestone
+  자신의 `/mccp:pr`에서 처음 발화한다(구조적 순환). 소급 backfill은 §A1이 금지한다.
+- **A2는 표본 0건이다.** 원인은 M8 밖이다 — session-bridge의 `context_remaining_pct`
+  자체가 `null`이고, 전역 `context-current.json`은 11일 전 다른 세션의 `tool_count`라
+  out-of-order 가드가 write를 건너뛴다. 표본을 지어내지 않았다.
+- **B3만 `forward-only → computed`로 전환됐다**(20/116).
 
 ## [1.32.2] — 2026-08-21
 

@@ -25,6 +25,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { resolveRawSessionId } = require('../lib/session-identity');
 const {
   extractCommandSubstitutions,
   extractSubshellGroups,
@@ -456,8 +457,14 @@ function hashSessionKey(prefix, value) {
   return `${prefix}-${crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 24)}`;
 }
 
+// M8 — env 후보를 canonical 체인으로 대체한다. **우선순위가 바뀐다는 점을 적어
+// 둔다** (local review L3): 이전에는 `CLAUDE_SESSION_ID`가 `MCCP_SESSION_ID`보다
+// 앞이었는데 체인은 명시 override(`MCCP_SESSION_ID`)를 먼저 본다. 둘 다 설정된
+// 환경에서만 이 hook의 세션 키가 달라지고, 그 방향은 저장소의 canonical 순서와
+// 일치하므로 정합화다. 키는 해시된 per-session 상태 버킷이라 값이 바뀌면 그
+// 세션이 새 버킷에서 시작할 뿐 계약은 불변이다.
 function resolveSessionKey(data) {
-  const directCandidates = [data && data.session_id, data && data.sessionId, data && data.session && data.session.id, process.env.CLAUDE_SESSION_ID, process.env.MCCP_SESSION_ID];
+  const directCandidates = [data && data.session_id, data && data.sessionId, data && data.session && data.session.id, resolveRawSessionId(process.env)];
 
   for (const candidate of directCandidates) {
     const sanitized = sanitizeSessionKey(candidate);

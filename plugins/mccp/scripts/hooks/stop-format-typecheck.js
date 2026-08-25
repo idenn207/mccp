@@ -21,6 +21,7 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { resolveRawSessionId } = require('../lib/session-identity');
 
 const { findProjectRoot, detectFormatter, resolveFormatterBin } = require('../lib/resolve-formatter');
 
@@ -39,7 +40,7 @@ function parseAccumulator(raw) {
 
 function getAccumFile() {
   const raw =
-    process.env.CLAUDE_SESSION_ID ||
+    resolveRawSessionId(process.env) ||
     crypto.createHash('sha1').update(process.cwd()).digest('hex').slice(0, 12);
   const sessionId = raw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
   return path.join(os.tmpdir(), `ecc-edited-${sessionId}.txt`);

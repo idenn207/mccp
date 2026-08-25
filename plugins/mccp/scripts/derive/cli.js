@@ -6,6 +6,25 @@ const path = require('path');
 const { MODEL_VERSION } = require('./model');
 const { derive } = require('./index');
 const { renderStatus } = require('../lib/renderer');
+
+// ── claimed-computable 집합 (multi-session-work-loop M8) ─────────────────────
+//
+// 모듈 스코프 + export인 이유: 이 목록은 `lib/tests/msw-metrics-acceptance.test.js`의
+// `CLAIMED_COMPUTABLE`과 **집합이 같아야 한다**는 계약을 갖는데, 함수 안의 지역
+// 상수로 두면 그 계약을 검사할 방법이 산문뿐이다. M7이 test 쪽에만 C1을 넣고 이쪽을
+// 빠뜨려 실제로 어긋났던 것이 그 산문의 한계를 실증한다. 이제 test가 두 목록을
+// 직접 대조한다.
+const CLAIMED_COMPUTABLE_IDS = (function () {
+  const ids = require('../lib/msw-metrics');
+  return [
+    ids.A1_WORK_COMPLETION_RATE,
+    ids.A2_CONTEXT_REMAINING,
+    ids.A3_INSTRUCTION_COST,
+    ids.B2_CONCURRENT_CONFLICTS,
+    ids.B3_TOGGLE_AXES,
+    ids.C1_FEEDBACK_CLOSURE,
+  ];
+})();
 const envValue = require('../lib/env-contract/value');
 
 function showHelp() {
@@ -199,8 +218,6 @@ function cmdMetricsAssert(rest) {
   const {
     computeMetrics,
     METRIC_IDS,
-    A3_INSTRUCTION_COST,
-    B2_CONCURRENT_CONFLICTS,
     B3_TOGGLE_AXES,
   } = require('../lib/msw-metrics');
   const { buildSeededModel } = require('../lib/msw-metrics/fixture');
@@ -243,11 +260,19 @@ function cmdMetricsAssert(rest) {
   // Kept in lockstep with CLAIMED_COMPUTABLE in
   // lib/tests/msw-metrics-acceptance.test.js — editing one without the other is
   // the silent-promotion path this list exists to block.
-  const claimedComputable = [
-    A3_INSTRUCTION_COST,
-    B2_CONCURRENT_CONFLICTS,
-    B3_TOGGLE_AXES,
-  ];
+  // multi-session-work-loop M8: **A1·A2가 합류하고, 빠져 있던 C1을 함께 닫는다.**
+  //
+  // 위 문단이 A1의 복귀 조건을 이미 적어 두었다 — "producer가 배선되면 A1을 다시
+  // 목록에 넣을 수 있다". M8이 그 producer를 배선했다(`receipt-prompt`의
+  // `task_started` + `/mccp:pr` Phase 5의 `task_completed`). A2도 같다: 강등
+  // 주석이 명시한 복원 조건(session-bound + freshness)을 M8 Task 6이 충족시켰다.
+  //
+  // C1은 **이미 깨져 있던 lockstep의 정정**이다. 바로 위 주석이 "editing one
+  // without the other is the silent-promotion path this list exists to block"이라
+  // 적어 두었는데, M7이 test 파일 쪽에만 C1을 넣고 여기를 빠뜨려 그 계약이 이미
+  // 어긋나 있었다. 산문으로 남겨 두면 같은 일이 반복되므로 M8은 두 목록의 집합
+  // 동일성을 test로 단언해 lockstep을 기계로 옮긴다.
+  const claimedComputable = CLAIMED_COMPUTABLE_IDS.slice();
 
   // --fixtures: run the gate against the shared seeded fixture so it exercises
   // the compute path deterministically (baseline data accumulates over time, so
@@ -429,4 +454,4 @@ if (require.main === module) {
   main(process.argv).then(code => process.exit(code));
 }
 
-module.exports = { main };
+module.exports = { main, CLAIMED_COMPUTABLE_IDS };

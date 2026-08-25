@@ -15,6 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { resolveRawSessionId } = require('../lib/session-identity');
 const {
   getTempDir,
   writeFile,
@@ -34,7 +35,7 @@ async function resolveSessionId() {
   } catch {
     /* fall through to env */
   }
-  return process.env.CLAUDE_SESSION_ID || 'default';
+  return resolveRawSessionId(process.env) || 'default';
 }
 
 async function main() {

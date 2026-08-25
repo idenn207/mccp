@@ -41,6 +41,7 @@ const fs = require('fs');
 const path = require('path');
 const { ensureDir, appendFile, getClaudeDir } = require('../lib/utils');
 const { sanitizeSessionId } = require('../lib/session-bridge');
+const { resolveRawSessionId } = require('../lib/session-identity');
 // M2 Task 3 — the inline readHarnessCost was extracted verbatim to
 // ../lib/harness-cost (single validator, F4). Behavior is byte-identical:
 // same tmpdir path string, same finite/non-negative + [0, maxAge] age checks,
@@ -127,8 +128,7 @@ process.stdin.on('end', () => {
 
     const sessionId =
       sanitizeSessionId(input.session_id) ||
-      sanitizeSessionId(process.env.MCCP_SESSION_ID) ||
-      sanitizeSessionId(process.env.CLAUDE_SESSION_ID) ||
+      sanitizeSessionId(resolveRawSessionId(process.env)) ||
       'default';
 
     let usageTotals = null;

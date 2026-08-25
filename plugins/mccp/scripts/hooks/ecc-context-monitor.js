@@ -15,6 +15,7 @@ const os = require('os');
 const path = require('path');
 const { sanitizeSessionId, readBridge, renameWithRetry } = require('../lib/session-bridge');
 const { getHandoffCostThresholds } = require('../lib/cost-thresholds');
+const { resolveRawSessionId } = require('../lib/session-identity');
 const envValue = require('../lib/env-contract/value');
 
 const CONTEXT_WARNING_PCT = 35;
@@ -285,7 +286,7 @@ function run(rawInput) {
   try {
     const input = rawInput.trim() ? JSON.parse(rawInput) : {};
 
-    const sessionId = sanitizeSessionId(input.session_id) || sanitizeSessionId(process.env.MCCP_SESSION_ID) || sanitizeSessionId(process.env.CLAUDE_SESSION_ID);
+    const sessionId = sanitizeSessionId(input.session_id) || sanitizeSessionId(resolveRawSessionId(process.env));
 
     if (!sessionId) return rawInput;
 
@@ -333,6 +334,9 @@ function run(rawInput) {
         contextState.writeState({
           contextRemainingPct: bridge.context_remaining_pct,
           toolCount: bridge.tool_count,
+          // M8 (DD6) — 이 hook은 이 값을 이미 갖고 있었고 writer가 버리고 있었다.
+          // 실어 보내야 `session-end.js`가 스냅샷의 주인을 알 수 있다.
+          sessionId: sessionId,
         });
       } catch (_ctxErr) { /* swallow context telemetry write errors */ }
 

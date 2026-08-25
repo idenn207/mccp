@@ -22,6 +22,10 @@ function showHelp() {
     '  mccp-state journal query      [--work-unit <slug>] [--session <id>] [--since <iso>] [--kind <k>] [--include-superseded] [--json]',
     '  mccp-state journal verify     [--reproject] [--json]',
     '  mccp-state journal checkpoint [--reseed [--reason <text>]] [--json]',
+    '  mccp-state msw-event emit --kind <task_completed|remediation_pr> --work-unit <slug>',
+    '                            [--pr-number <n>] [--gate-decision-id <slug>] [--finding-id <hex16>]',
+    '                            [--session <id>] [--cwd <path>] [--json]',
+    '                            (remediation_pr requires --pr-number AND --finding-id)',
     '',
   ].join('\n'));
 }
@@ -324,6 +328,146 @@ function cmdJournalCheckpoint(flags) {
   return out.ok ? 0 : 1;
 }
 
+// ── msw-event emit (multi-session-work-loop M8 Task 4 · DD4) ────────────────
+//
+// 왜 CLI가 필요한가: 완주(`task_completed`)는 **PR 번호가 있어야 성립**하고 그
+// 번호는 `gh pr create` 이후에만 존재한다. 그 뒤에 도는 코드가 없으므로
+// `/mccp:pr` Phase 5(명령 본문)가 이 경로로 emit한다. 착수를 hook이 기록하고
+// 완주를 명령 본문이 기록하는 비대칭은 의도적이다.
+//
+// 이 서브커맨드는 **shell 도달 가능한 쓰기 경로**다(security review R1 F3).
+// 그래서 세 축을 좁힌다:
+//
+//   1. **kind 열거를 고정한다.** 임의 kind를 허용하면 셸 호출자가
+//      `task_started`나 `session_start`를 위조해 A1의 **분모**와 세션 수명 축을
+//      직접 조작할 수 있다. 분모는 hook만 쓴다(그쪽은 사용자가 실제로 명령을
+//      발화해야 돈다). 여기서 쓸 수 있는 것은 분자 쪽 둘뿐이다.
+//      분자 위조가 여전히 가능하다는 점은 숨기지 않는다 — DD4가 산문 의존을
+//      이미 인정했고, DD5의 `sealed_without_completion`이 그 간극을 수치로
+//      드러낸다. 좁힐 수 있는 것을 좁히고, 못 좁히는 것은 관측한다.
+//   2. **값 형태를 검증한다.** work_unit·gate_decision_id는 canonical `SLUG_RE`,
+//      pr_number는 부호없는 정수. 검증 없이 통과시키면 파일명 성분과 집계 키가
+//      임의 문자열이 된다.
+//   3. **모르는 플래그를 거부한다.** allowlist 밖 키를 조용히 무시하면 오타 하나가
+//      "기록됐다"는 착각을 만든다 — `eventToJsonLine`이 이미 조용히 버리므로
+//      여기서 시끄럽게 막는 것이 유일한 방어다.
+const MSW_EMITTABLE_KINDS = ['task_completed', 'remediation_pr'];
+const MSW_EMIT_FLAGS = ['kind', 'work-unit', 'pr-number', 'gate-decision-id', 'finding-id', 'session', 'cwd', 'json'];
+
+function cmdMswEventEmit(flags) {
+  const { SLUG_RE } = require('../receipt/decision');
+  const { FINDING_ID_RE } = require('./findings-registry');
+  const mswEvents = require('./msw-events');
+  const { resolveRawSessionId } = require('../lib/session-identity');
+  const { sanitizeSessionId } = require('../lib/utils');
+
+  const unknown = Object.keys(flags).filter(function (k) {
+    return k !== '_' && MSW_EMIT_FLAGS.indexOf(k) === -1;
+  });
+  if (unknown.length) {
+    process.stderr.write('mccp-state msw-event emit: unknown flag(s): --' + unknown.join(' --') + '\n');
+    return 1;
+  }
+
+  const kind = typeof flags.kind === 'string' ? flags.kind : '';
+  if (MSW_EMITTABLE_KINDS.indexOf(kind) === -1) {
+    process.stderr.write('mccp-state msw-event emit: --kind must be one of '
+      + MSW_EMITTABLE_KINDS.join(' | ') + ' (got ' + JSON.stringify(kind) + ')\n');
+    return 1;
+  }
+
+  const workUnit = typeof flags['work-unit'] === 'string' ? flags['work-unit'] : '';
+  if (!SLUG_RE.test(workUnit)) {
+    process.stderr.write('mccp-state msw-event emit: --work-unit must match '
+      + String(SLUG_RE) + ' (got ' + JSON.stringify(workUnit) + ')\n');
+    return 1;
+  }
+
+  const event = { kind: kind, work_unit: workUnit, producer: 'state-cli' };
+
+  if (flags['pr-number'] !== undefined) {
+    const raw = String(flags['pr-number']);
+    if (!/^[0-9]+$/.test(raw)) {
+      process.stderr.write('mccp-state msw-event emit: --pr-number must be an unsigned integer (got '
+        + JSON.stringify(raw) + ')\n');
+      return 1;
+    }
+    event.pr_number = raw;
+  }
+
+  if (flags['gate-decision-id'] !== undefined) {
+    const gid = String(flags['gate-decision-id']);
+    if (!SLUG_RE.test(gid)) {
+      process.stderr.write('mccp-state msw-event emit: --gate-decision-id must match '
+        + String(SLUG_RE) + ' (got ' + JSON.stringify(gid) + ')\n');
+      return 1;
+    }
+    event.gate_decision_id = gid;
+  }
+
+  if (flags['finding-id'] !== undefined) {
+    const fid = String(flags['finding-id']);
+    if (!FINDING_ID_RE.test(fid)) {
+      process.stderr.write('mccp-state msw-event emit: --finding-id must match '
+        + String(FINDING_ID_RE) + ' (got ' + JSON.stringify(fid) + ')\n');
+      return 1;
+    }
+    event.finding_id = fid;
+  }
+
+  // `remediation_pr`는 그 이름이 뜻하는 바가 PR 번호이므로 번호 없이는 무의미하다.
+  if (kind === 'remediation_pr' && event.pr_number === undefined) {
+    process.stderr.write('mccp-state msw-event emit: --kind remediation_pr requires --pr-number\n');
+    return 1;
+  }
+
+  // local review H3 — `--finding-id`도 같은 이유로 필수다. 조인 키가 없는 귀속
+  // 레코드는 **어느 소비처도 읽을 수 없다**: `derive/sources/findings.js`는
+  // distinct finding_id로 `with_remediation_pr`을 세므로, id 없는 레코드는
+  // 디스크에 남아도 커버리지를 영원히 0으로 만든다. 그 상태(writer는 쓰는데
+  // reader가 못 읽음)가 이 milestone이 갚는 부채와 같은 형태라 여기서 막는다.
+  if (kind === 'remediation_pr' && event.finding_id === undefined) {
+    process.stderr.write('mccp-state msw-event emit: --kind remediation_pr requires --finding-id '
+      + '(a record with no join key can never be read back)\n');
+    return 1;
+  }
+
+  const sid = sanitizeSessionId(typeof flags.session === 'string' ? flags.session : null)
+    || sanitizeSessionId(resolveRawSessionId(process.env));
+  if (!sid) {
+    process.stderr.write('mccp-state msw-event emit: no resolvable session id '
+      + '(pass --session <id> or set MCCP_SESSION_ID)\n');
+    return 1;
+  }
+
+  let res;
+  try {
+    res = mswEvents.appendEvent(sid, event, { repoRoot: resolveCwd(flags) });
+  } catch (err) {
+    process.stderr.write('mccp-state msw-event emit: ' + ((err && err.message) || String(err)) + '\n');
+    return 1;
+  }
+  if (!res || !res.ok) {
+    process.stderr.write('mccp-state msw-event emit: append failed: '
+      + ((res && res.reason) || 'unknown') + '\n');
+    return 1;
+  }
+
+  emit(flags, { ok: true, kind: kind, work_unit: workUnit, session_id: sid },
+    ['emitted ' + kind + ' work_unit=' + workUnit + ' session=' + sid]);
+  return 0;
+}
+
+function cmdMswEvent(flags, rest) {
+  const action = rest[0];
+  switch (action) {
+    case 'emit': return cmdMswEventEmit(flags);
+    default:
+      process.stderr.write('mccp-state msw-event: pick one of emit\n');
+      return 1;
+  }
+}
+
 function cmdJournal(flags, rest) {
   const action = rest[0];
   switch (action) {
@@ -361,6 +505,8 @@ function main(argv) {
       return cmdDedupeKey(flags);
     case 'journal':
       return cmdJournal(flags, flags._);
+    case 'msw-event':
+      return cmdMswEvent(flags, flags._);
     default:
       process.stderr.write('mccp-state: unknown subcommand "' + sub + '"\n');
       showHelp();

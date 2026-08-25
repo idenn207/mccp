@@ -29,6 +29,13 @@ const envRegistry = require('../lib/env-contract/registry');
 const TOGGLE_DEFAULTS = Object.freeze(envRegistry.ENTRIES.reduce((acc, e) => {
   if (e.status === 'test-only') return acc;
   if (e.domain === 'external' || e.domain === 'retired') return acc;
+  // multi-session-work-loop M8 Task 8 (DD7) — `MCCP_` 접두 규약이 mccp 토글의
+  // **정의**다(measurement-design.md §B3 실행 규칙). 접두사가 없는 이름은 애초에
+  // 분모 우주 밖이므로 분자 표에도 있으면 안 된다. 실측 대상은 정확히 하나
+  // (`CODEX_DEDUPE_AT_PR`)이고, 이것은 **은퇴가 아니라 분류 오류의 시정**이다 —
+  // 동작 분기를 없앤 것이 아니라 분모에 속하지도 않는 이름을 분자에서 뺀 것이라
+  // 은퇴 건수는 M8에서도 0이다(UI6 · UI14).
+  if (!/^MCCP_/.test(e.name)) return acc;
   acc[e.name] = e.default === null ? undefined : e.default;
   return acc;
 }, {}));
@@ -88,10 +95,56 @@ const TOGGLE_EXCLUSIONS = Object.freeze({
     class: 'test-only',
     evidence: 'plugins/mccp/commands/plan.md:687 — critique 결과를 강제 실패로 mock하는 test env',
   }),
+
+  // ── multi-session-work-loop M8 Task 8 (DD7) ────────────────────────────────
+  //
+  // 분모(정규식 스캔)에만 있고 분자 우주(`TOGGLE_DEFAULTS`)에는 없던 7개다.
+  // 전부 **환경변수가 아니다** — JS 상수 3 · 주석 잔존 1 · 에러 코드 1 ·
+  // 접두사 오탐 1 · test 전용 1. 근거는 `env-contract/registry.js`가 이미 각각에
+  // 대해 `scan-artifact`/`comment-only`/`test-only`로 분류하며 갖고 있던 file:line을
+  // 그대로 옮긴 것이다.
+  //
+  // **자동 파생하지 않는 이유**(UI7): 제외를 레지스트리에서 자동으로 뽑으면 미래의
+  // 레지스트리 편집이 분모를 조용히 줄일 수 있고, 그것이 §B3이 금지한 "범위를
+  // 조용히 좁히는 것"이다. 이름은 여기와 규범 문서에 **명시로** 적고, 대신 집합
+  // 등식을 기계 검사로 세워 앞으로의 모든 불일치가 명시 편집으로만 해소되게 한다.
+  //
+  // **은퇴는 0건이다**(UI6 · UI14). 이것은 동작 분기를 없앤 것이 아니라 애초에
+  // 분기가 아니었던 이름을 분모에서 뺀 것이다.
+  MCCP_DISABLE_VALUES: Object.freeze({
+    class: 'js-constant',
+    evidence: 'plugins/mccp/scripts/hooks/gateguard-fact-force.js:49 — 비활성 값 어휘를 담은 JS `Set` 상수이며 환경변수가 아니다',
+  }),
+  MCCP_IGNORE_BLOCK: Object.freeze({
+    class: 'js-constant',
+    evidence: 'plugins/mccp/scripts/lib/gitignore-provision.js:60 — .gitignore 블록 본문을 담은 JS 상수(registry: scan-artifact)',
+  }),
+  MCCP_IGNORE_ENTRIES: Object.freeze({
+    class: 'js-constant',
+    evidence: 'plugins/mccp/scripts/lib/gitignore-provision.js:192 — 무시 항목 배열을 담은 JS 상수(registry: scan-artifact)',
+  }),
+  MCCP_EXPLORE_CONTROL_PLACEMENT: Object.freeze({
+    class: 'comment-residue',
+    evidence: 'plugins/mccp/scripts/lib/renderer/html.js:1109 — 토글은 제거됐고 그 사실을 적은 주석만 남았다(registry: comment-only/retired)',
+  }),
+  MCCP_JOURNAL_DEGRADED_UNRECORDED: Object.freeze({
+    class: 'error-code',
+    evidence: 'plugins/mccp/scripts/state/state-writer.js:675 — degraded marker의 사유 **코드 문자열**이며 환경변수가 아니다(registry: scan-artifact)',
+  }),
+  MCCP_PLAN_REVIEW_: Object.freeze({
+    class: 'dynamic-key-prefix',
+    evidence: 'plugins/mccp/scripts/lib/env-contract/measure-evidence.js:19 — `MCCP_PLAN_REVIEW_*` 접두사 표기가 정규식에 잘려 잡힌 것. 실 멤버(MCCP_PLAN_REVIEW_L3 등)는 각자 분모에 남는다',
+  }),
+  MCCP_PLAN_REVIEW_TEST_INVOKE: Object.freeze({
+    class: 'test-only',
+    evidence: 'plugins/mccp/scripts/lib/plan-review/cli.js:543 — `--invoke-module` 주입을 허용하는 test 전용 bypass flag',
+  }),
 });
 
 const EXCLUSION_CLASSES = Object.freeze([
   'shell-local', 'browser-global', 'dynamic-key-prefix', 'test-only',
+  // M8 Task 8 — 위 7개가 쓰는 세 분류. 기존 넷은 무변경이다.
+  'js-constant', 'comment-residue', 'error-code',
 ]);
 
 function isExcludedToggle(name) {
@@ -264,11 +317,30 @@ function scanSurfaceDetailed(repoRoot) {
   excluded.forEach((e) => { (byClass[e.class] = byClass[e.class] || []).push(e.name); });
 
   // 제외된 이름이 TOGGLE_DEFAULTS(분자 표)에도 있으면 두 표가 모순이다. 조용히
-  // 넘기면 numerator가 분모 밖 토글을 셀 수 있으므로 표면화한다. 정합화 자체는
-  // numerator 작업이라 M8 소관이다.
+  // 넘기면 numerator가 분모 밖 토글을 셀 수 있으므로 표면화한다.
   const defaultsConflicts = excluded
     .map((e) => e.name)
     .filter((n) => Object.prototype.hasOwnProperty.call(TOGGLE_DEFAULTS, n));
+
+  // ── 분자 커버리지 등식 (multi-session-work-loop M8 Task 8 · DD7) ───────────
+  //
+  // 이 자리에 있던 주석은 "정합화 자체는 numerator 작업이라 M8 소관"이라고 적어
+  // 두었다. 이것이 그 정합화다.
+  //
+  // 분모 집합(정규식 스캔 후 명시 제외를 뺀 것)과 분자 우주(`TOGGLE_DEFAULTS`
+  // 키)가 **양방향으로 같아야** 한다. 한쪽에만 있는 이름은 두 종류의 결함이다:
+  //   - `denominator_only`: 영원히 분자가 될 수 없는 축 — B3가 구조적으로 100%에
+  //     도달하지 못한다.
+  //   - `numerator_only`: 분모 밖을 세는 축 — 비율이 1을 넘을 수 있다.
+  //
+  // 등식을 **계산만 하고 버리지 않는다**: `toggle-usage.js`가 이 값을 읽어
+  // `degraded:true` + 사유로 소비처까지 올린다. 그래서 앞으로의 모든 불일치는
+  // 명시 편집(제외 표 또는 레지스트리)으로만 해소된다.
+  const numeratorNames = Object.keys(TOGGLE_DEFAULTS);
+  const denSet = new Set(toggles);
+  const numSet = new Set(numeratorNames);
+  const denominatorOnly = toggles.filter((n) => !numSet.has(n)).sort();
+  const numeratorOnly = numeratorNames.filter((n) => !denSet.has(n)).sort();
 
   return {
     raw: raw,
@@ -278,6 +350,18 @@ function scanSurfaceDetailed(repoRoot) {
     excluded: excluded,
     excluded_by_class: byClass,
     defaults_conflicts: defaultsConflicts,
+    numerator_coverage: {
+      denominator: toggles.length,
+      numerator_universe: numeratorNames.length,
+      denominator_only: denominatorOnly,
+      numerator_only: numeratorOnly,
+      // 양방향 차집합이 둘 다 비었을 때만 참이다. 크기 비교로는 부족하다 —
+      // 서로 다른 이름이 한 개씩 어긋나도 개수는 같기 때문이다.
+      equal: denominatorOnly.length === 0 && numeratorOnly.length === 0,
+    },
+    // 은퇴 건수. **M8은 축을 은퇴시키지 않는다**(UI6 · UI14) — 이 자리에 0을
+    // 명시로 두어, 제외 확대가 은퇴로 오독되는 것을 막는다.
+    retired_count: 0,
     // Surfaced next to the denominator it governs: a reader who sees
     // "denominator 96" should be able to see, in the same object, whether the
     // exclusions producing that 96 are the ones the normative table names.

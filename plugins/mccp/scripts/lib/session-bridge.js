@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { resolveRawSessionId } = require('./session-identity');
 
 const MAX_SESSION_ID_LENGTH = 64;
 
@@ -133,8 +134,7 @@ function renameWithRetry(tmp, target) {
  * @returns {string|null} Sanitized session ID or null
  */
 function resolveSessionId() {
-  const raw = process.env.MCCP_SESSION_ID || process.env.CLAUDE_SESSION_ID || '';
-  return sanitizeSessionId(raw);
+  return sanitizeSessionId(resolveRawSessionId(process.env));
 }
 
 module.exports = {

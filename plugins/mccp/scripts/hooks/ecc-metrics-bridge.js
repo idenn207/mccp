@@ -15,6 +15,7 @@ const os = require('os');
 const path = require('path');
 const { sanitizeSessionId, readBridge, writeBridgeAtomic } = require('../lib/session-bridge');
 const { getClaudeDir } = require('../lib/utils');
+const { resolveRawSessionId } = require('../lib/session-identity');
 
 const MAX_STDIN = 1024 * 1024;
 const MAX_FILES_TRACKED = 200;
@@ -190,7 +191,7 @@ function run(rawInput) {
     const toolName = String(input.tool_name || '');
     const toolInput = input.tool_input || {};
 
-    const sessionId = sanitizeSessionId(input.session_id) || sanitizeSessionId(process.env.MCCP_SESSION_ID) || sanitizeSessionId(process.env.CLAUDE_SESSION_ID);
+    const sessionId = sanitizeSessionId(input.session_id) || sanitizeSessionId(resolveRawSessionId(process.env));
 
     if (!sessionId) return rawInput;
 

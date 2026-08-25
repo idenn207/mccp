@@ -3,7 +3,7 @@
 > `/mccp:prp-implement .claude/plans/santa-delta-review-m3.plan.md` 산출물.
 > Task 7(backlog 전건 처리) · Task 8(fix-task 방출)의 감사 앵커다.
 
-backlog rows processed: 65
+backlog rows processed: 68
 
 ---
 
@@ -15,10 +15,11 @@ backlog rows processed: 65
 
 | 축 | 건수 |
 |---|---|
-| 사이클 행 총계 (`source_plan` ⊃ `santa-delta-review`) | 65 |
+| 사이클 행 총계 (`source_plan` ⊃ `santa-delta-review`) | 68 |
 | 이번 M3가 새로 흡수 (`ABSORBED → santa-delta-review M3`) | 4 |
 | 이전 사이클이 이미 판정(triage 행 등) | 15 |
 | 이번 M3가 새로 이연 사유를 붙임 | 46 |
+| 이번 M3가 새로 **적재**한 이연 행(정정 기록 · main 승계 red · CHANGELOG 중복) | 3 |
 | 미처리 잔여 | **0** |
 
 ### 1.1 흡수 4건 — 무엇이 닫았는가
@@ -34,9 +35,9 @@ backlog rows processed: 65
 「backlog 파서가 이스케이프된 파이프 문자에서 finding을 잘라 버린다」(`impeccable-detection-contract-m6`)는
 Task 1이 **같은 커밋에서** 닫는다 — finding 셀의 잔여 파이프를 다시 이어 붙이므로 꼬리 소실이 사라지고,
 `invalid_count`의 리터럴 0을 실제 계수로 바꿔 «관측되지 않는다»는 지적의 나머지 절반도 닫는다.
-그 행에도 `ABSORBED` 마커를 달았다(사이클 필터 밖이라 위 65건 계수에는 들어가지 않는다).
+그 행에도 `ABSORBED` 마커를 달았다(사이클 필터 밖이라 위 68건 계수에는 들어가지 않는다).
 
-### 1.2 이연 61건 — 왜 닫지 않았는가
+### 1.2 이연 64건 — 왜 닫지 않았는가
 
 - **46건은 L2 패널이 자동 적재한 원본 기록 행이다.** 판정은 같은 사이클의 «triage:» 행과 plan 본문
   `## Review History` 표가 소유하고, 원문은 `.claude/reviews/plan-review-santa-delta-review.md`가 정본이다.

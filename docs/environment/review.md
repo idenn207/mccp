@@ -14,18 +14,26 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 
 ### MCCP_PLAN_REVIEW
 
-**종류** `enum` — **값** `off` · `multi-agent` · `codex` · `hybrid` — **기본값** `multi-agent`
+**종류** `enum` — **값** `multi-agent` · `codex` · `hybrid` — **기본값** `multi-agent`
 
 **한 줄** plan 승인 리뷰 소스.
 
 **소비처** `plugins/mccp/scripts/lib/plan-review/decide.js:50`
+
+**값별 결과**
+
+- `multi-agent` — L2 다관점 패널(architect·security·test·invariant)이 plan 승인을 판정한다.
+- `codex` — cross-model Codex 리뷰가 판정한다.
+- `hybrid` — 패널과 Codex를 함께 요구한다. L3 수렴까지 봐야 통과다.
+
+**제거된 값** — `off`는 문서에만 있었고 `decide.js`의 `MODES`에 없어 판독 불가 값으로 `codex`에 fallback했다. 리뷰를 줄이려는 의도였다면 오늘 쓸 것은 라운드를 1회로 고정하는 `MCCP_REVIEW_SINGLE_PASS`다. 리뷰 없음 모드는 구현되지 않는다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "MCCP_PLAN_REVIEW": "off"
+    "MCCP_PLAN_REVIEW": "hybrid"
   }
 }
 ```
@@ -90,20 +98,18 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 
 ### MCCP_PLAN_REVIEW_QUORUM
 
-**종류** `int` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+**종류** `string` — **값** 자유 문자열 — **기본값** `3of4`
 
 **한 줄** 수렴에 필요한 승인 수.
 
-**소비처** `plugins/mccp/scripts/lib/plan-review/quorum.js:22`
-
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**소비처** `plugins/mccp/scripts/lib/plan-review/quorum.js:44`
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "MCCP_PLAN_REVIEW_QUORUM": "1"
+    "MCCP_PLAN_REVIEW_QUORUM": "3of4"
   }
 }
 ```
@@ -148,6 +154,14 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 
 **소비처** `plugins/mccp/scripts/lib/review-single-pass.js:21`
 
+**값별 결과**
+
+- `scope_too_small` — 리뷰 루프를 1회로 고정한다. 봉인되는 사유는 «변경이 반복 리뷰를 정당화할 만큼 크지 않다».
+- `deadline_pressure` — 1회로 고정한다. 봉인되는 사유는 «시간 제약».
+- `deferred_to_prd_completion` — 1회로 고정한다. 봉인되는 사유는 «PRD 종료 시점으로 이연».
+
+값이 곧 감사 사유이므로 별도 사유 변수가 없다. 열거 밖 값은 fail-closed(꺼진 것으로 보고 loud warn)이고 **대소문자를 구분한다** — 값이 receipt에 그대로 봉인되므로 정규화하면 서로 다른 입력이 같은 감사 필드를 채운다.
+
 **사용 예시**
 
 ```json
@@ -187,13 +201,18 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 
 ### MCCP_SANTA_SEVERITY_GATE
 
-**종류** `enum` — **값** `off` · `high` · `critical` — **기본값** 없음 (미설정이 기본)
+**종류** `enum` — **값** `enforce` · `off` — **기본값** `enforce`
 
 **한 줄** santa 차단 최소 severity.
 
 **소비처** `plugins/mccp/scripts/lib/santa/gate.js:81`
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**값별 결과**
+
+- `enforce` — CRITICAL·HIGH finding이 남아 있으면 라운드를 통과시키지 않는다.
+- `off` — severity 축을 끄고 전원 PASS 판정만 본다.
+
+**제거된 값** — `high`·`critical`은 코드에 없다. 임계를 고르는 축이 아니라 켜고 끄는 2상태이며, 차단 severity 집합은 `BLOCKING_SEVERITIES` 상수가 고정한다. 임계를 낮추고 싶었다면 오늘 있는 선택지는 `off` 하나다.
 
 **사용 예시**
 
@@ -213,13 +232,18 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 
 ### MCCP_SANTA_TERMINATOR
 
-**종류** `enum` — **값** `off` · `on` — **기본값** 없음 (미설정이 기본)
+**종류** `enum` — **값** `enforce` · `off` — **기본값** `enforce`
 
 **한 줄** santa 종료 판정기.
 
 **소비처** `plugins/mccp/scripts/lib/santa/terminator.js:18`
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**값별 결과**
+
+- `enforce` — 직전 패치의 hunk 범위와 대조해 patch-chasing을 분류하고 루프를 종료시킨다.
+- `off` — 종료 판정기를 끈다. 라운드는 캡에 도달할 때까지 돈다.
+
+**제거된 값** — `on`은 코드에 없다. 같은 의도의 값은 `enforce`다.
 
 **사용 예시**
 
@@ -239,13 +263,18 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 
 ### MCCP_SANTA_ADJUDICATION_GATE
 
-**종류** `enum` — **값** `off` · `warn` · `enforce` — **기본값** 없음 (미설정이 기본)
+**종류** `enum` — **값** `enforce` · `off` — **기본값** `enforce`
 
 **한 줄** santa 심판 게이트 모드.
 
 **소비처** `plugins/mccp/scripts/lib/santa/adjudication.js:40`
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**값별 결과**
+
+- `enforce` — 심판 기록이 없는 지적을 통과시키지 않는다 (coverage fail-closed).
+- `off` — 심판 게이트를 끈다.
+
+**제거된 값** — `warn`은 코드에 없다. 중간 등급이 있다고 가르쳤지만 파서는 2상태이며, 완화가 필요하면 오늘의 선택지는 `off` 하나다.
 
 **사용 예시**
 
@@ -266,13 +295,18 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 
 ### MCCP_SANTA_LEDGER_SUPPRESSION
 
-**종류** `enum` — **값** `off` · `on` — **기본값** 없음 (미설정이 기본)
+**종류** `enum` — **값** `enforce` · `off` — **기본값** `enforce`
 
 **한 줄** santa 원장 억제.
 
 **소비처** `plugins/mccp/scripts/lib/santa/adjudication.js:41`
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**값별 결과**
+
+- `enforce` — 원장의 suppression 판정을 적용한다 — 이미 심판된 지적의 재등장을 억제한다.
+- `off` — 억제를 끄고 모든 지적을 매 라운드 다시 세운다.
+
+**제거된 값** — `on`은 코드에 없다. 같은 의도의 값은 `enforce`다. 이 토글은 `MCCP_SANTA_ADJUDICATION_GATE`와 같은 파서(`GATE_VALUES`)를 공유하므로 어휘가 항상 같다.
 
 **사용 예시**
 
@@ -300,6 +334,14 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 
 **상태** `active` — v1.28.2 santa-evidence-diversity M1에서 도입.
 
+**값별 결과**
+
+- `a` — 리뷰어 A를 블라인드 레인, B를 번들 레인에 배정한다.
+- `b` — 반대로 배정한다 — A가 번들, B가 블라인드다.
+- `off` — 둘 다 번들 레인이다. 블라인드 리뷰어가 없다.
+
+전원 블라인드(`both`)는 **의도적으로 만들지 않았다** — 오케스트레이터가 스코프를 정하는 의미가 사라지기 때문이다.
+
 **사용 예시**
 
 ```json
@@ -322,6 +364,13 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 
 **상태** `active` — v1.29.2 santa-evidence-diversity M2에서 도입.
 
+**값별 결과**
+
+- `enforce` — decision 범위의 관계 폐포(plan·PRD)를 상시 스코프로 항상 싣는다.
+- `off` — 상시 스코프를 끄고 변경 파일만 싣는다.
+
+기본값이 발화 쪽(`enforce`)인 것은 의도다 — `off`가 기본이면 오타 하나가 kill switch를 켜고 그 실행이 축 도입 이전과 똑같아 보인다.
+
 **사용 예시**
 
 ```json
@@ -343,6 +392,13 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 **소비처** `plugins/mccp/scripts/lib/santa/model-diversity.js:28`
 
 **상태** `active` — v1.30.0 santa-evidence-diversity M3에서 도입.
+
+**값별 결과**
+
+- `enforce` — 두 리뷰어가 같은 모델 계열이면 그 라운드를 degrade로 강등한다.
+- `off` — 계열 다양성 검사를 끈다.
+
+`off`로 끄는 대신 1회 승인이 필요하면 감사되는 `MCCP_SANTA_DEGRADE_ACK`(사유 문자열)를 쓴다 — 그쪽은 기본값이 없고 부재가 곧 «승인 없음»이다.
 
 **사용 예시**
 
@@ -385,6 +441,14 @@ plan 승인 패널(L1/L2/L3), santa-loop, 단일통과, intent 게이트, design
 **한 줄** 오심 대조 모드.
 
 **소비처** `plugins/mccp/scripts/lib/intent-context.js:878`
+
+**값별 결과**
+
+- `enforce` — 리뷰어 per-finding 계약을 프롬프트에 싣고, 주장과 저자 라벨을 대조해 미해소 불일치를 차단한다.
+- `warn` — 대조는 하되 mislabel 축(inconclusive·mislabel_unresolved)으로 차단하지 않는다. 커버리지 축에는 열리지 않는다.
+- `off` — 계약 문단을 프롬프트에 붙이지 않고 주장을 파싱하지도 않는다 — 판정 억제가 아니라 경로 미진입이다.
+
+`warn`은 cross-gate dedupe를 열지 않는다 — PR-Codex가 실제로 발화하므로 공짜가 아니다.
 
 **사용 예시**
 
@@ -485,6 +549,14 @@ MCCP_SKIP_INTENT_GATE=<사유를 한 문장으로> /mccp:pr
 
 **소비처** `plugins/mccp/scripts/lib/design-grounding.js:31`
 
+**값별 결과**
+
+- `enforce` — 산출 diff의 H15(heading depth 3 이하) 위반과 판독 불가(inconclusive)를 차단한다.
+- `warn` — 같은 판정을 내되 차단하지 않고 advisory로 기록한다.
+- `off` — grounding lint를 끈다.
+
+열거 밖 값과 미설정은 `enforce`로 되돌아가며 열거 밖은 loud warn을 남긴다 — 조용한 비활성이 불가능하도록 만든 것이다.
+
 **사용 예시**
 
 ```json
@@ -527,6 +599,14 @@ MCCP_DESIGN_INTENT_REASON=<사유를 한 문장으로> /mccp:pr
 
 **소비처** `plugins/mccp/scripts/lib/impeccable-routing.js:118`
 
+**값별 결과**
+
+- `auto` — 라우팅 표의 callForm 그대로 실제 호출한다.
+- `hybrid` — evaluate 단계만 실제 호출하고 나머지는 recommend로 강등한다.
+- `recommend` — 전부 권장만 한다. 어떤 impeccable 명령도 호출하지 않는다.
+
+게이트별 상위 규칙이 이 값을 덮을 수 있다 — plan·plan-prd는 모드와 무관하게 recommend-only이고, `/mccp:pr`도 review-only 불변식 때문에 recommend-only다. `critique`은 어느 모드에서도 이 표가 라우팅하지 않는다(retry loop 전용).
+
 **사용 예시**
 
 ```json
@@ -552,6 +632,12 @@ MCCP_DESIGN_INTENT_REASON=<사유를 한 문장으로> /mccp:pr
 **소비처** `plugins/mccp/scripts/lib/impeccable-routing.js:127`
 
 **상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+
+**멤버 어휘**
+
+**허용 토큰** — `plugins/mccp/scripts/lib/impeccable-routing.js#MOOD_COMMANDS`에서 파생된다. 오늘의 토큰은 `bolder` · `quieter` · `overdrive` · `delight`이다.
+
+**미상 멤버** — 열거 밖 토큰은 조용히 버려진다 (impeccable-routing.js:127 parseIntentCommands)
 
 **사용 예시**
 

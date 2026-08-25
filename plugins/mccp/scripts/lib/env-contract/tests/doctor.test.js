@@ -284,3 +284,25 @@ test('a settings file with no env block is distinguished from an absent one', ()
   const project = r.layers.find(function (l) { return l.layer === 'project'; });
   assert.equal(project.state, 'no-env-block');
 });
+
+// ── M2 — 격리 배수의 진단 쪽 관측 ───────────────────────────────────────────
+// DD4는 «격리된 토글에는 절대 ok를 주지 않는다»였다. M2가 격리를 비웠으므로 이 저장소의
+// 실제 레지스트리로 진단하면 contract-drift가 한 건도 나오지 않아야 한다 — 나온다면
+// 격리가 남아 있다는 뜻이고, 그것은 owner 마일스톤이 끝나지 않았다는 뜻이다.
+test('M2 — 실제 레지스트리에는 contract-drift가 0건이다 (격리 배수)', () => {
+  const vocabularyMod = require('../vocabulary');
+  const registryMod = require('../registry');
+  const processEnv = {};
+  registryMod.ENTRIES.forEach((e) => {
+    if (e.values && e.values.length) processEnv[e.name] = e.values[0];
+  });
+  const r = doctor.diagnose({
+    declared: {},
+    processEnv,
+    entries: registryMod.ENTRIES,
+    vocabularies: {},
+    quarantine: vocabularyMod.quarantineByName(),
+  });
+  const drift = r.findings.filter((f) => f.code === 'contract-drift');
+  assert.deepEqual(drift.map((f) => f.name), []);
+});

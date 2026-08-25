@@ -20,6 +20,12 @@ receipt chain, Codex 호출, Stop-loop, auto-chain, 그리고 감사되는 우�
 
 **소비처** `plugins/mccp/scripts/hooks/receipt-prompt.js:217`
 
+**값별 결과**
+
+- `hard` — 누락·stale·advisory receipt를 전부 게이트 미통과로 본다. chain-of-custody가 유지된다.
+- `soft` — 누락 receipt만 통과시킨다. stale·blocking·open-critical은 여전히 차단한다.
+- `off` — receipt 게이트 자체를 끈다. loud stderr 경고가 나가며 디버깅 전용이다.
+
 **사용 예시**
 
 ```json
@@ -228,7 +234,13 @@ MCCP_CODEX_DISABLED=1 /mccp:pr
 
 **한 줄** Stop-loop 게이트 모드.
 
-**소비처** `plugins/mccp/scripts/hooks/stop-review-loop.js:47`
+**소비처** `plugins/mccp/scripts/hooks/stop-review-loop.js:54`
+
+**값별 결과**
+
+- `off` — Stop hook이 품질 검사를 돌리지 않고 언제나 allow한다.
+- `observe` — 검사는 돌리되 절대 차단하지 않는다. 실패는 fix-task.md와 루프 카운터에만 남는다.
+- `enforce` — 검사 실패 시 block 결정을 내보내 응답 종료를 막는다.
 
 **사용 예시**
 
@@ -304,11 +316,11 @@ MCCP_CODEX_DISABLED=1 /mccp:pr
 
 ### MCCP_AUTO_CHAIN_SKIP_PR
 
-**종류** `bool` — **값** `on` · `off` — **기본값** `off`
+**종류** `bypass-flag` — **값** `1` — **기본값** `off`
 
 **한 줄** commit까지만, PR 생략.
 
-**소비처** `plugins/mccp/commands/prp-implement.md:1615`
+**소비처** `plugins/mccp/commands/prp-implement.md:1616`
 
 **극성** 미설정이면 **꺼져 있다**. 극성은 레지스트리가 선언하고 파서는 읽기만 한다.
 
@@ -317,7 +329,7 @@ MCCP_CODEX_DISABLED=1 /mccp:pr
 ```json
 {
   "env": {
-    "MCCP_AUTO_CHAIN_SKIP_PR": "on"
+    "MCCP_AUTO_CHAIN_SKIP_PR": "1"
   }
 }
 ```
@@ -507,6 +519,13 @@ MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN=<사유를 한 문장으로> /mccp:pr
 
 **소비처** `plugins/mccp/scripts/hooks/gateguard-fact-force.js:438`
 
+**값별 결과**
+
+- `on` — gateguard hook이 사실 강제 검사를 수행한다.
+- `off` — hook을 끈다. GATEGUARD_DISABLED=1도 같은 결과를 낸다.
+
+이 토글의 판정은 canonical enum이 아니라 **disable 별칭 집합**이다 — `0`·`false`·`off`·`none`·`disabled` 중 하나면 꺼지고 그 밖의 어떤 값도 켜진 것으로 본다.
+
 **사용 예시**
 
 ```json
@@ -550,7 +569,15 @@ MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN=<사유를 한 문장으로> /mccp:pr
 
 **한 줄** native /goal 가용성 강제.
 
-**소비처** `plugins/mccp/scripts/lib/goal-detect.js:59`
+**소비처** `plugins/mccp/scripts/lib/goal-detect.js:62`
+
+**값별 결과**
+
+- `available` — native `/goal`이 있다고 강제 선언한다. settings 신호 probe를 건너뛴다.
+- `missing` — 없다고 강제 선언한다. goal 경로가 안내 없이 skip된다.
+- `unknown` — 판정을 보류한다. 안내를 내지 않는 silent skip이 결과다.
+
+미설정이면 리터럴 기본값 대신 `settings-signal`이 hooks 신호를 실제로 probe한다 — 그래서 기본값이 «없음»이다.
 
 **사용 예시**
 
@@ -568,7 +595,15 @@ MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN=<사유를 한 문장으로> /mccp:pr
 
 **한 줄** ultracode 가용성 강제.
 
-**소비처** `plugins/mccp/scripts/lib/ultracode-detect.js:50`
+**소비처** `plugins/mccp/scripts/lib/ultracode-detect.js:52`
+
+**값별 결과**
+
+- `available` — native ultracode 모드가 있다고 강제 선언한다. probe를 건너뛴다.
+- `missing` — 없다고 강제 선언한다. 위임 안내(GUIDE PROMPT)가 나가지 않는다.
+- `unknown` — 판정을 보류한다. phantom 안내 금지 불변식대로 silent skip이 결과다.
+
+미설정이면 `settings-signal`의 workflows 신호를 probe한다 — deep-research와 같은 신호를 공유한다.
 
 **사용 예시**
 

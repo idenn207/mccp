@@ -55,12 +55,42 @@ function costWarningsEnabled(env = process.env) {
 
 // Notify-only mode strips the imperative tail from cost messages so the
 // dollar amount is reported without telling the model to halt or change
-// course. Toggle via `MCCP_CONTEXT_MONITOR_COST_MODE`:
-//   unset / anything else → default directive behavior
-//   notify | notification | info | informational → notify-only
+// course.
+//
+// M2 — canonical 어휘와 별칭을 **분리**한다. 문서(레지스트리 `values`)가 가르치는 것은
+// canonical 2값이고 파서는 그보다 넓은 별칭 집합을 받아 canonical 로 정규화한다 — bool 이
+// `on`/`off` 를 가르치면서 `true`/`yes` 도 받는 것과 같은 구조다.
+//
+// 문서가 가르치던 off|observe|enforce 는 **셋 다 이 파서에 존재하지 않았다** — 어느 값을
+// 넣어도 directive 로 동작했다. `off` 가 의도하던 «비용 경고를 끈다»는 별도 축인
+// `MCCP_CONTEXT_MONITOR_COST_WARNINGS` 가 이미 소유한다.
+const COST_MODE_VALUES = ['directive', 'notify'];
+const COST_MODE_DEFAULT = 'directive';
+const COST_MODE_ALIASES = Object.freeze({
+  notification: 'notify',
+  info: 'notify',
+  informational: 'notify',
+});
+// 이 hook 은 프롬프트마다 도는 경로라 매 호출 warn 은 신호가 아니라 소음이 된다.
+// 프로세스당 1회로 묶어 «설정이 무효다»는 사실은 남기되 반복은 없앤다.
+let costModeWarned = false;
+
+function parseCostMode(env = process.env) {
+  const raw = String(env.MCCP_CONTEXT_MONITOR_COST_MODE || '').trim().toLowerCase();
+  if (raw === '') return COST_MODE_DEFAULT;
+  if (COST_MODE_VALUES.indexOf(raw) !== -1) return raw;
+  if (Object.prototype.hasOwnProperty.call(COST_MODE_ALIASES, raw)) return COST_MODE_ALIASES[raw];
+  if (!costModeWarned) {
+    costModeWarned = true;
+    process.stderr.write('[mccp:context-monitor] WARNING: unknown MCCP_CONTEXT_MONITOR_COST_MODE="'
+      + raw + '" — falling back to ' + COST_MODE_DEFAULT
+      + ' (allowed: ' + COST_MODE_VALUES.join('|') + ')\n');
+  }
+  return COST_MODE_DEFAULT;
+}
+
 function costNotifyOnly(env = process.env) {
-  const value = String(env.MCCP_CONTEXT_MONITOR_COST_MODE || '').trim().toLowerCase();
-  return value === 'notify' || value === 'notification' || value === 'info' || value === 'informational';
+  return parseCostMode(env) === 'notify';
 }
 
 /**

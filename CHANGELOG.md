@@ -2,7 +2,99 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.30.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.32.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.32.3] — 2026-08-25
+
+> **§3.7**: `1.30.2 → 1.32.3` (**patch** — env-contract-integrity PRD의 M2 하나이고
+> PRD에는 M3~M6이 남아 있다). 4면(plugin.json · html.js page-foot · markdown.js
+> derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄고 `i18n-surface.test.js`가
+> 재검증한다.
+>
+> **미해소 — 이 브랜치의 두 항목이 모두 재계산 대상이다.** 실측(2026-08-25):
+> `origin/main`은 `1.32.2`이고 이 브랜치의 M1(`31a779d`)은 **미머지**다. 그런데
+> main에도 이미 `## [1.30.2]`가 있고 그것은 **다른 PRD**(diverse-agent-review
+> milestone #7)의 것이다 — 즉 아래 M1 항목의 번호는 이미 선점된 번호와 충돌한다.
+> §3.7의 forward-only 규칙대로 발행된 번호는 불가침이므로, `git merge origin/main`
+> 해소 시점에 **M1 항목도 함께 위로 밀어야 한다**(이 항목만 고치면 CHANGELOG에 같은
+> 헤딩이 둘 남는다). 여기서 미리 고치지 않은 이유는 §3.7이 해소 시점을 «머지 후 중복
+> 헤딩이 관측될 때»로 규정하기 때문이다 — 머지 전에 추정으로 밀면 그 사이 main이
+> 발행하는 번호에 따라 두 번 고치게 된다. `1.32.3`도 같은 이유로 잠정값이며
+> `/mccp:pr` 진입 직전 재계산한다.
+
+### Changed
+
+- **환경변수 계약의 어긋난 값 12건 수리** — M1이 격리표로 «보이게» 만든 8건을 전부
+  코드 쪽 사실에 맞췄다. `MCCP_PLAN_REVIEW`에서 존재하지 않던 `off`를 제거하고,
+  santa 4종(`_SEVERITY_GATE`·`_TERMINATOR`·`_ADJUDICATION_GATE`·`_LEDGER_SUPPRESSION`)을
+  실제 어휘 `enforce|off` + 기본값 `enforce`로, `MCCP_HOOK_PROFILE`을
+  `minimal|standard|strict` + 기본값 `standard`로, `MCCP_STATE_JOURNAL`을
+  `enforce|shadow|off`로, `MCCP_SESSION_LEDGER_SCOPE`를 `global|repo|hybrid`로
+  정정했다(문서의 `host`는 코드에 없고 `VALID_SCOPES`가 정본). 기본값이 채워진 7건은
+  `status`가 `undocumented-default` → `active`로 올라갔다.
+- **격리표 전량 배수** — `vocabulary.js`의 `QUARANTINE`이 공집합이 됐다. DD3-ii의
+  배수 규칙이 양방향이라 수리와 삭제는 **한 커밋 불변식**이다(어느 순서로 나눠도 중간
+  상태가 red). 규칙 자체는 `lint.test.js`의 합성 격리 fixture가 계속 고정한다 —
+  표가 비었다고 규칙 test를 지우면 다음에 격리가 생겼을 때 배수가 살아 있는지 알 수 없다.
+- **`MCCP_CONTEXT_MONITOR_COST_MODE`의 어휘를 실제 파서에 맞췄다** — 문서가 가르치던
+  `off`·`observe`·`enforce`는 **셋 다 파서에 존재한 적이 없고** 어느 값을 넣어도
+  `directive`로 동작했다. canonical 2값(`directive`|`notify`) + 별칭 3종
+  (`notification`·`info`·`informational`) 구조로 정정했다. 비용 경고 억제는 별도 축인
+  `MCCP_CONTEXT_MONITOR_COST_WARNINGS`가 이미 소유한다.
+- **`MCCP_BRIEFING`에서 `always` 제거** — `cost-guard.js`가 `=== 'off'` 한 값만
+  비교했으므로 `always`는 조용히 `auto`로 흘렀다. 어휘 상수 승격과 함께 열거 밖 값에
+  loud warn을 붙였다(판정 자체는 불변).
+- **kind 오기 2건** — `MCCP_PLAN_REVIEW_QUORUM`은 `<M>of<N>` 형식이라 `int` →
+  `string`(기본값 `3of4`), `MCCP_AUTO_CHAIN_SKIP_PR`은 정확히 `1`만 보므로 `bool` →
+  `bypass-flag`. 후자로 `bypass-flag` 집합이 셋에서 넷이 됐고, §2의 «그 셋» 서사를
+  «파싱 계약이 같다»로 정정했다(게이트 약화는 그 셋의 공통 성질이었을 뿐 kind의 정의가 아니다).
+- **`LIST_MEMBER_POLICY` 단일 소유 이전** — `doctor.js`에 있던 표를 `vocabulary.js`로
+  옮기고 없던 4건을 채워 list 9개를 완비했다. `doctor.js`는 재-export가 아니라 require로
+  읽어, 두 소비처가 같은 표를 본다는 사실이 import 그래프에 남는다.
+- **저장소 자신의 설정 수리** — `.claude/settings.json`의
+  `MCCP_SANTA_SEVERITY_GATE: "high"`를 `"enforce"`로(오늘 warn 후 default로
+  되돌아가므로 동작은 불변, 선언만 정직해진다), 무효값이던
+  `MCCP_CONTEXT_MONITOR_COST_MODE: "off"`를 제거했다. `doctor` 경고가 2건 → 0건이 된다.
+
+### Added
+
+- **어휘 상수 승격 6건** — `MCCP_STOP_LOOP`(`stop-review-loop.js#STOP_LOOP_VALUES`) ·
+  `MCCP_GOAL_FEATURE`·`MCCP_ULTRACODE_FEATURE`(각 `#FEATURE_VALUES`) ·
+  `MCCP_EVIDENCE_CONFLICT_GUARD`(`#GUARD_MODE_VALUES`) ·
+  `MCCP_BRIEFING`(`#BRIEFING_VALUES`) ·
+  `MCCP_CONTEXT_MONITOR_COST_MODE`(`#COST_MODE_VALUES`). 전부 «같은 판정, 다른 표현»이며
+  레지스트리가 결속할 대상이 생겼다. 어휘 gap은 13건 → **7건**.
+- **L11 — 값별 결과 · 멤버 어휘의 기계 대조.** enum 27개 앵커의 `**값별 결과**` 블록에서
+  줄의 키 집합을 뽑아 레지스트리 `values`와 **양방향** 비교하고, list 9개 앵커의
+  `**멤버 어휘**` 블록이 어휘 출처와 `LIST_MEMBER_POLICY` 문장을 그대로 싣는지 대조한다.
+  파싱 규격(섹션 경계 · 블록 경계 · fence 제외 · 항목 줄 형식)을 코드 옆에 명시했고,
+  블록 부재 · 항목 0줄 · 블록 중복 · 대상 집합 공집합을 전부 problem으로 둬 vacuous-pass를
+  닫았다. 산문을 스캔하지 않는 이유는 실측이다 — 값 토큰의 본문 등장을 세면 오늘 이미
+  대부분 통과해 아무것도 강제하지 못한다.
+- **상세 문서에 값별 결과 27 + 멤버 어휘 9 블록** — 제거된 값마다 «이것을 원했다면 오늘
+  무엇을 쓰는가»를 함께 남겼다(조용한 삭제는 운영자에게 «내가 쓰던 게 사라졌다»만 남긴다).
+
+### Fixed
+
+- 수리로 깨진 사용 예시 5건(`MCCP_HOOK_PROFILE` `full` · `MCCP_PLAN_REVIEW` `off` ·
+  `MCCP_PLAN_REVIEW_QUORUM` `"1"` · `MCCP_AUTO_CHAIN_SKIP_PR` `on` ·
+  `MCCP_CONTEXT_MONITOR_COST_MODE` `off`)과 색인 12행을 함께 맞췄다.
+- `docs/ENVIRONMENT.md` §2의 list 불량값 처리 줄 — «빈 목록» 한 줄이 실측에 반증됐다.
+  파서마다 다르고(수용 / 전체 무효 / 조용한 폐기), 분리자가 `path.delimiter`인 것도 있다.
+
+### 주장하지 않는 것
+
+- **문서만 알던 값을 구현하지 않았다.** `MCCP_PLAN_REVIEW=off` · `MCCP_BRIEFING=always` ·
+  `MCCP_SANTA_ADJUDICATION_GATE=warn`은 계약에서 제거됐을 뿐이며, 그 기능이 필요하다는
+  판단은 게이트 의미를 바꾸는 별개 변경이다.
+- **파서 이원화를 고치지 않았다.** `MCCP_WORK_MERGE_STRATEGY`(정본이 셸 비교, JS는 mirror)와
+  `MCCP_SESSION_START_CONTEXT`(disable 별칭 집합)는 승격이 **틀린 처방**임이 실측으로
+  밝혀져 승격 대신 gap 사유를 정정했다. gap이 13 → 7로만 준 이유가 이것이다 — 사유가 참인
+  것이 목적이고 수를 줄이는 것은 목적이 아니다.
+- **값 서술의 정확성을 기계로 보장하지 않는다.** L11이 강제하는 명제는 «선언된 각 값에 한
+  줄이 있고, 선언에 없는 값의 줄은 없다»까지다. 그 줄이 코드와 맞는지는 사람이 읽어야 한다.
+
+---
 
 ## [1.30.2] — 2026-08-21
 

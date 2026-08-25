@@ -193,8 +193,15 @@ test('resolveVocabulary rejects an unknown deriver by name', () => {
 });
 
 // ── 격리표의 형태 ───────────────────────────────────────────────────────────
+// M2가 격리 8건을 전부 수리하고 같은 커밋에서 표를 비웠다(DD8). 표가 비었다는 것은
+// «격리할 어긋남이 없다»는 뜻이지 «검사가 꺼졌다»는 뜻이 아니다 — 새 어긋남은 격리되지
+// 않은 채 L10에서 즉시 붉어지고, 배수 규칙 자체는 lint.test.js의 합성 격리가 고정한다.
+test('quarantine is drained — M2 repaired every entry (DD8)', () => {
+  assert.equal(vocabulary.QUARANTINE.length, 0,
+    '격리가 남아 있으면 그 항목의 owner 마일스톤이 아직 끝나지 않은 것이다');
+});
+
 test('every quarantine entry is well formed and names a real enum entry', () => {
-  assert.ok(vocabulary.QUARANTINE.length > 0, 'an empty quarantine makes the stale rule vacuous');
   vocabulary.QUARANTINE.forEach((q) => {
     const e = registry.get(q.name);
     assert.ok(e, q.name + ' is quarantined but not in the registry');
@@ -211,6 +218,24 @@ test('every quarantine entry is well formed and names a real enum entry', () => 
     const same = q.expected.length === q.actual.length
       && q.expected.slice().sort().every((v, i) => v === q.actual.slice().sort()[i]);
     assert.equal(same, false, q.name + ': expected and actual are the same set — nothing to quarantine');
+  });
+});
+
+// ── list 멤버 정책표 (M2 DD6) ───────────────────────────────────────────────
+// 손으로 센 «9»는 다음 list가 추가되는 순간 낡는다. 레지스트리에서 파생해 대조한다.
+test('LIST_MEMBER_POLICY covers exactly the registry list entries', () => {
+  const lists = registry.ENTRIES.filter((e) => e.kind === 'list').map((e) => e.name).sort();
+  assert.ok(lists.length > 0, 'list 항목이 0개면 이 검사는 공허하다');
+  const documented = Object.keys(vocabulary.LIST_MEMBER_POLICY).sort();
+  assert.deepEqual(documented, lists,
+    '빠진 항목은 doctor에서 «문서화되지 않았다»로 떨어지고 L11에서는 problem이다 (UI10)');
+});
+
+test('every LIST_MEMBER_POLICY entry states a substantive direction', () => {
+  Object.keys(vocabulary.LIST_MEMBER_POLICY).forEach((name) => {
+    const v = vocabulary.LIST_MEMBER_POLICY[name];
+    assert.equal(typeof v, 'string');
+    assert.ok(v.trim().length >= 30, name + ': 처리 방향은 한 문장 이상이어야 한다');
   });
 });
 

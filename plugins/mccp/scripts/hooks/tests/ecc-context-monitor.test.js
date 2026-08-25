@@ -28,6 +28,13 @@ const contextState = require('../../lib/context-state');
 const harnessCost = require('../../lib/harness-cost');
 const stateWriter = require('../../state/state-writer');
 
+// 이 스위트는 «기본 동작»을 가정하므로 앰비언트 env 를 걷어낸다. 실측: 셸에
+// MCCP_CONTEXT_MONITOR_COST_WARNINGS=0 이 떠 있으면 Axis B (f) 가 붉어지는데 원인은
+// 코드가 아니라 환경이다 — 그 둘이 구분되지 않으면 회귀 신호를 잃는다. withThresholds
+// 가 threshold 축에 하는 격리를 나머지 cost 축에도 적용한다.
+['MCCP_CONTEXT_MONITOR_COST_WARNINGS', 'MCCP_CONTEXT_MONITOR_COST_MODE',
+  'MCCP_HANDOFF_THRESHOLDS_USD'].forEach(function (k) { delete process.env[k]; });
+
 const origReadBridge = sessionBridge.readBridge;
 const origWriteMerged = costState.writeStateMerged;
 const origWriteState = contextState.writeState;

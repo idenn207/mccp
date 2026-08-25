@@ -16,6 +16,7 @@
 //   L8  evidence의 형식과 실재 — **어휘 검사를 fs 호출보다 먼저**
 //   L9  등록된 boolean 토글의 raw 비교가 `env-contract/` 밖에 0건인가
 //   L10 레지스트리 `values`가 코드의 어휘 상수와 집합으로 같은가 (격리는 양방향)
+//   L11 상세 문서의 값별 결과 · 멤버 어휘 블록이 레지스트리와 양방향으로 같은가
 //
 // **L8의 순서는 load-bearing이다.** 실재를 먼저 보면 디스크에 존재하는 절대경로가
 // 통과해 CLAUDE.md §3.12가 닫은 누출 경로가 다시 열린다. `lib/instruction-contract/lint.js:41`이
@@ -42,6 +43,72 @@ const INDEX_REL = 'docs/ENVIRONMENT.md';
 const DETAIL_DIR_REL = 'docs/environment';
 // 은퇴 항목에 사용법을 다는 것은 모순이므로 L7에서 제외한다.
 const EXAMPLE_EXEMPT = 'retired.md';
+
+// ── L11 파싱 규격 ───────────────────────────────────────────────────────────
+// 규격을 코드 옆에 **명시**한다. 없으면 fail-closed가 조용한 degrade로 무너진다 —
+// 「블록을 못 찾았다」와 「블록이 비었다」가 구현 세부에 따라 통과로 접히기 때문이다.
+//
+//   섹션 경계  `### <NAME>` 부터 다음 `### ` 또는 파일 끝까지 (L7의 분할과 같은 규약)
+//   블록 시작  섹션 안에서 라벨 한 줄. 0개면 problem, 2개 이상이면 problem —
+//              모호한 소스에서 임의로 하나를 고르는 것은 fail-open이다
+//   블록 끝    그 뒤 첫 `**사용 예시**` 줄. 부재면 problem — 경계가 정의되지 않은
+//              상태를 통과로 치지 않는다 (L7이 이미 그 줄을 모든 앵커에 요구한다)
+//   fence      블록 안의 ``` 구간은 스캔에서 제외한다
+//   항목 줄    `- ``<값>`` — <서술>` (em-dash 구분자 필수, 값은 백틱 안)
+//
+// **vacuous-pass 차단**: 항목 0줄은 통과가 아니라 problem이고, 대상 집합이 비어도
+// problem이다. 「못 읽었으므로 위반이 없다」는 이 파일에서 통과가 아니다.
+const VALUE_RESULT_LABEL = '**값별 결과**';
+const MEMBER_VOCAB_LABEL = '**멤버 어휘**';
+const BLOCK_END_LABEL = '**사용 예시**';
+const ALLOWED_TOKENS_PREFIX = '**허용 토큰** — ';
+const UNKNOWN_MEMBER_PREFIX = '**미상 멤버** — ';
+const NO_ENUMERATION_MARKER = '열거 없음';
+// 서술의 **품질**은 기계로 잴 수 없다(DD3). 재는 것은 «자리가 채워졌는가»뿐이다.
+const MIN_DESCRIPTION_CHARS = 8;
+const PLACEHOLDER_DESCRIPTIONS = ['tbd', 'todo', 'n/a', 'na', '?', '-', '—', '...', '…'];
+const BULLET_RE = /^-\s+`([^`\n]+)`\s+—\s+(.*)$/;
+
+// 한 앵커의 구조 블록을 잘라 낸다. 실패는 전부 `{ok:false, reason}`이다.
+function sliceBlock(sectionLines, label) {
+  const starts = [];
+  sectionLines.forEach(function (l, i) { if (l.trim() === label) starts.push(i); });
+  if (starts.length === 0) return { ok: false, reason: 'no ' + label + ' block' };
+  if (starts.length > 1) {
+    return { ok: false, reason: starts.length + ' ' + label + ' blocks — ambiguous, refusing to pick one' };
+  }
+  // 시작과 **같은 규약**으로 찾는다(라벨 단독 줄). startsWith 로 두면 헤더의 산문
+  //  `**사용 예시**는 전부 …` 같은 줄이 종료로 오인돼 블록이 조기에 잘린다.
+  // fence 안의 예시 줄도 종료로 세지 않는다 — 본문 추출과 같은 토글을 쓴다.
+  let end = -1;
+  let scanFence = false;
+  for (let i = starts[0] + 1; i < sectionLines.length; i += 1) {
+    const line = sectionLines[i];
+    if (/^s*```/.test(line)) { scanFence = !scanFence; continue; }
+    if (!scanFence && line.trim() === BLOCK_END_LABEL) { end = i; break; }
+  }
+  if (end === -1) {
+    return { ok: false, reason: label + ' has no ' + BLOCK_END_LABEL + ' terminator — the block boundary is undefined' };
+  }
+  // fence 구간 제거. 블록 안에 예시 코드가 들어와도 항목 줄로 오인하지 않는다.
+  const body = [];
+  let inFence = false;
+  for (let i = starts[0] + 1; i < end; i += 1) {
+    const line = sectionLines[i];
+    if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
+    if (!inFence) body.push(line);
+  }
+  return { ok: true, body: body };
+}
+
+function splitAnchorSections(text) {
+  const map = new Map();
+  text.split(/\n(?=### )/).forEach(function (sec) {
+    const hm = /^### ([A-Z][A-Z0-9_]*)/.exec(sec);
+    if (hm) map.set(hm[1], sec.split(/\r?\n/));
+  });
+  return map;
+}
 
 const STALE_MARKER_RE = /\u{1F6A7}\s*(미구현|예정)/gu;
 
@@ -525,6 +592,115 @@ function run(repoRoot) {
     checks.L10 = fail('registry values are bound to the code vocabulary', problems);
     checks.L10.notes = notes;
     checks.L10.quarantined = Array.from(seenQuarantine).sort();
+  }
+
+  // L11 — 값별 결과 · 멤버 어휘 블록의 양방향 대조
+  //
+  // L3~L7이 문서의 **존재**를 보는 데 반해 여기는 문서가 가르치는 **값의 목록**이
+  // 레지스트리와 같은지를 본다. 산문을 스캔하지 않는 이유는 실측 때문이다: 값 토큰이
+  // 본문 어딘가에 등장하는지 세면 오늘 이미 대부분 통과하므로 아무것도 강제하지 못한다
+  // (하단 원문 블록의 값 나열까지 「등장」으로 세어진다). 그래서 값을 **키로 갖는 구조
+  // 블록**만 본다 — 측정 불가능한 산문 속성을 측정 가능한 구조 속성으로 바꾼 것이다.
+  //
+  // 강제하는 명제는 정확히 「선언된 각 값에 한 줄이 있고, 선언에 없는 값의 줄은 없다」
+  // 까지다. 그 줄이 코드와 맞는지는 사람이 읽어야 한다(DD3).
+  {
+    const problems = [];
+    const notes = [];
+    const targets = entries.filter(function (e) {
+      // 은퇴 도메인 제외 — L7이 사용 예시를 면제하는 것과 같은 근거이고, 애초에
+      // 블록의 종료 표지가 그 사용 예시 줄이라 면제된 앵커에는 경계가 없다.
+      return e.domain !== 'retired' && (e.kind === 'enum' || e.kind === 'list');
+    });
+    if (targets.length === 0) {
+      problems.push('no enum/list entries outside the retired domain — the block check would pass vacuously');
+    }
+    const sectionCache = new Map();
+    targets.forEach(function (e) {
+      const rel = DETAIL_DIR_REL + '/' + e.domain + '.md';
+      if (!sectionCache.has(rel)) {
+        const r = readFile(path.join(root, rel));
+        sectionCache.set(rel, r.ok ? splitAnchorSections(r.text) : null);
+      }
+      const sections = sectionCache.get(rel);
+      if (!sections) { problems.push(e.name + ': cannot read ' + rel + ' (read failure is drift, not a pass)'); return; }
+      const sec = sections.get(e.name);
+      if (!sec) { problems.push(e.name + ': no ### ' + e.name + ' anchor in ' + rel); return; }
+
+      if (e.kind === 'enum') {
+        const sliced = sliceBlock(sec, VALUE_RESULT_LABEL);
+        if (!sliced.ok) { problems.push(e.name + ': ' + sliced.reason); return; }
+        const seen = new Map();
+        sliced.body.forEach(function (line) {
+          const m = BULLET_RE.exec(line.trim());
+          if (!m) return;
+          const key = m[1];
+          const desc = String(m[2]).trim();
+          if (seen.has(key)) { problems.push(e.name + ': value `' + key + '` is listed more than once'); return; }
+          seen.set(key, desc);
+        });
+        if (seen.size === 0) {
+          problems.push(e.name + ': ' + VALUE_RESULT_LABEL + ' block has 0 parsable rows — an empty block is not a pass');
+          return;
+        }
+        const declared = e.values || [];
+        declared.forEach(function (v) {
+          if (!seen.has(v)) problems.push(e.name + ': value `' + v + '` is declared in the registry but has no row');
+        });
+        seen.forEach(function (desc, key) {
+          if (declared.indexOf(key) === -1) {
+            problems.push(e.name + ': row for `' + key + '` has no matching registry value');
+            return;
+          }
+          const lowered = desc.toLowerCase();
+          if (desc.length < MIN_DESCRIPTION_CHARS || PLACEHOLDER_DESCRIPTIONS.indexOf(lowered) !== -1) {
+            problems.push(e.name + ': row for `' + key + '` has a placeholder/too-short description');
+          }
+        });
+        notes.push(e.name + ': ' + seen.size + ' value row(s)');
+        return;
+      }
+
+      // list — 멤버 어휘. `values`가 null이라 집합 비교가 성립하지 않으므로, 대신
+      // (a) 어휘의 출처와 (b) 미상 멤버 처리 방향이 **명시**돼 있는지를 본다.
+      // 처리 방향의 정본은 vocabulary.js의 단일 표이고 여기서는 그 문장이 문서에
+      // 그대로 실렸는지 대조한다 — 두 곳이 갈라지면 문서가 주장하는 방향과 진단이
+      // 보고하는 방향이 달라진다(DD6).
+      const sliced = sliceBlock(sec, MEMBER_VOCAB_LABEL);
+      if (!sliced.ok) { problems.push(e.name + ': ' + sliced.reason); return; }
+      const allowedLine = sliced.body.find(function (l) { return l.startsWith(ALLOWED_TOKENS_PREFIX); });
+      const unknownLine = sliced.body.find(function (l) { return l.startsWith(UNKNOWN_MEMBER_PREFIX); });
+      if (!allowedLine) { problems.push(e.name + ': ' + MEMBER_VOCAB_LABEL + ' block has no `' + ALLOWED_TOKENS_PREFIX.trim() + '` line'); }
+      if (!unknownLine) { problems.push(e.name + ': ' + MEMBER_VOCAB_LABEL + ' block has no `' + UNKNOWN_MEMBER_PREFIX.trim() + '` line'); }
+      const policy = vocabulary.LIST_MEMBER_POLICY[e.name];
+      if (!policy) {
+        problems.push(e.name + ': no LIST_MEMBER_POLICY entry — the unknown-member direction is undocumented');
+      } else if (unknownLine && unknownLine.slice(UNKNOWN_MEMBER_PREFIX.length).trim() !== policy.trim()) {
+        problems.push(e.name + ': the documented unknown-member direction differs from LIST_MEMBER_POLICY');
+      }
+      if (allowedLine) {
+        const resolved = vocabulary.resolveVocabulary(root, e);
+        if (resolved.ok) {
+          if (allowedLine.indexOf(resolved.source) === -1) {
+            problems.push(e.name + ': the 허용 토큰 line does not cite the vocabulary source (' + resolved.source + ')');
+          }
+        } else if (resolved.form !== 'gap') {
+          // «어휘가 없다»(gap)와 «읽지 못했다»(ref/derive 실패 · malformed ·
+          // unspecified)는 다른 사실이다. 둘을 한 분기로 접으면 상수 rename 으로
+          // 어휘 참조가 깨진 항목이 문서의 「열거 없음」 한 줄로 통과한다 — DD7 이
+          // 금지하는 «침묵과 구분되지 않는 예외»가 정확히 그것이다.
+          problems.push(e.name + ': vocabulary could not be resolved (' + resolved.form + ': '
+            + resolved.reason + ') — a read failure is drift, not a declared gap');
+        } else if (allowedLine.indexOf(NO_ENUMERATION_MARKER) === -1) {
+          // 선언된 gap 도 명시 형식으로만 허용한다.
+          problems.push(e.name + ': vocabulary is a declared gap but the 허용 토큰 line does not say "' + NO_ENUMERATION_MARKER + '"');
+        }
+      }
+      notes.push(e.name + ': member vocabulary block present');
+    });
+    checks.L11 = fail('detail docs spell out every declared value and list-member policy', problems);
+    checks.L11.notes = notes;
+    checks.L11.targets = targets.length;
   }
 
   const ok = Object.keys(checks).every(function (k) { return checks[k].ok; });

@@ -116,11 +116,18 @@ test('explain resolves the code vocabulary alongside the documented values', () 
   assert.ok(j.settingsExample.env.MCCP_REVIEW_SINGLE_PASS !== undefined);
 });
 
-test('explain of a quarantined toggle exits 1 and surfaces the drift', () => {
+// M2가 격리를 전량 배수했으므로 «격리된 토글»을 실제 저장소에서 고를 수 없다. 이
+// test는 그 사실 자체를 관측한다 — 격리 시절 대표 항목이던 MCCP_PLAN_REVIEW가 이제
+// 깨끗하게 읽히는 것이 배수가 실제로 일어났다는 end-to-end 증거다.
+//
+// **잃은 것을 적어 둔다**: CLI의 격리 표면(exit 1 + «계약 격리 대상» 출력)은 이제
+// 직접 test되지 않는다. CLI를 자식 프로세스로 띄우므로 합성 격리를 주입할 수 없기
+// 때문이다. 그 분기의 규칙은 lint.test.js의 합성 격리(L10)와 doctor.test.js의
+// DD4 test가 나눠 덮는다.
+test('explain of a formerly quarantined toggle now reads clean (M2 배수)', () => {
   const r = run(['explain', 'MCCP_PLAN_REVIEW']);
-  assert.equal(r.status, 1, 'a quarantined toggle must not read as clean');
-  assert.match(r.stdout, /계약 격리 대상/);
-  assert.match(r.stdout, /코드가 실제로 받는 값/);
+  assert.equal(r.status, 0, 'M2가 수리했으므로 더 이상 격리가 아니다: ' + r.stdout);
+  assert.doesNotMatch(r.stdout, /계약 격리 대상/);
 });
 
 // ── doctor ──────────────────────────────────────────────────────────────────

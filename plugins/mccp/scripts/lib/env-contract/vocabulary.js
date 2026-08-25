@@ -259,78 +259,51 @@ const DERIVERS = Object.freeze({
 // `expected`는 레지스트리의 `values`, `actual`은 코드가 실제로 받는 어휘다. 둘 다
 // 정렬된 집합으로 비교되므로 순서는 의미가 없다.
 //
-// 아래 8건은 L10을 켠 **첫 실행에서 실측된 전부**다. 어느 것도 추정이 아니며, 각
-// `actual`은 이 파일의 추출기가 그 시점에 소스에서 읽어 낸 값 그대로다.
-const QUARANTINE = Object.freeze([
-  Object.freeze({
-    name: 'MCCP_PLAN_REVIEW',
-    expected: Object.freeze(['off', 'multi-agent', 'codex', 'hybrid']),
-    actual: Object.freeze(['codex', 'multi-agent', 'hybrid']),
-    reason: '문서만 아는 `off`. plan-review/decide.js:50 `MODES`에 없으므로 판독 불가 값으로 '
-      + '취급돼 `codex`로 fallback한다 — «리뷰 없음»을 기대한 운영자가 정반대로 cross-model '
-      + '리뷰를 받는다. UI10대로 M1은 이 모드를 구현하지 않는다.',
-    owner: 'M2 (문서에서 `off`를 제거)',
-  }),
-  Object.freeze({
-    name: 'MCCP_SANTA_SEVERITY_GATE',
-    expected: Object.freeze(['off', 'high', 'critical']),
-    actual: Object.freeze(['enforce', 'off']),
-    reason: '코드는 2상태(enforce|off)인데 문서는 severity 임계 어휘를 가르친다. '
-      + 'santa/gate.js:148이 열거 밖 값을 거부하므로 문서대로 `high`를 넣으면 warn 후 '
-      + 'default로 되돌아간다 — 이 저장소의 `.claude/settings.json`이 실제로 `high`를 쓴다.',
-    owner: 'M2 (값 수리)',
-  }),
-  Object.freeze({
-    name: 'MCCP_SANTA_TERMINATOR',
-    expected: Object.freeze(['off', 'on']),
-    actual: Object.freeze(['enforce', 'off']),
-    reason: '문서의 `on`이 santa/terminator.js:20 `TERMINATOR_VALUES`에 없다. '
-      + '같은 파일 :89가 열거 밖 값을 거부한다.',
-    owner: 'M2 (값 수리)',
-  }),
-  Object.freeze({
-    name: 'MCCP_SANTA_ADJUDICATION_GATE',
-    expected: Object.freeze(['off', 'warn', 'enforce']),
-    actual: Object.freeze(['enforce', 'off']),
-    reason: '문서의 `warn`이 santa/adjudication.js:43 `GATE_VALUES`에 없다. '
-      + '중간 등급이 있다고 가르치지만 코드는 2상태다.',
-    owner: 'M2 (값 수리)',
-  }),
-  Object.freeze({
-    name: 'MCCP_SANTA_LEDGER_SUPPRESSION',
-    expected: Object.freeze(['off', 'on']),
-    actual: Object.freeze(['enforce', 'off']),
-    reason: '문서의 `on`이 santa/adjudication.js:43 `GATE_VALUES`에 없다. '
-      + '이 토글은 위 ADJUDICATION_GATE와 같은 상수를 공유한다(같은 `parseEnum`).',
-    owner: 'M2 (값 수리)',
-  }),
-  Object.freeze({
-    name: 'MCCP_HOOK_PROFILE',
-    expected: Object.freeze(['full', 'lean', 'minimal']),
-    actual: Object.freeze(['minimal', 'standard', 'strict']),
-    reason: '겹치는 값이 `minimal` 하나뿐이다. 문서의 `full`·`lean`은 코드에 없고, '
-      + 'hook-flags.js:19가 실제로 쓰는 기본값 `standard`는 문서에 없다 — 양방향으로 어긋난 '
-      + '유일한 항목이다.',
-    owner: 'M2 (값 수리 + 기본값 문서화)',
-  }),
-  Object.freeze({
-    name: 'MCCP_STATE_JOURNAL',
-    expected: Object.freeze(['off', 'on']),
-    actual: Object.freeze(['enforce', 'off', 'shadow']),
-    reason: '문서의 `on`이 state-journal/index.js `JOURNAL_MODES`에 없다. '
-      + '코드의 3상태(enforce|shadow|off)를 문서가 boolean으로 축약했다.',
-    owner: 'M2 (값 수리)',
-  }),
-  Object.freeze({
-    name: 'MCCP_SESSION_LEDGER_SCOPE',
-    expected: Object.freeze(['repo', 'host', 'global']),
-    actual: Object.freeze(['global', 'repo', 'hybrid']),
-    reason: '문서의 `host`가 state/session-ledger.js `VALID_SCOPES`에 없고, 코드의 `hybrid`가 '
-      + '문서에 없다. 이름이 비슷해 오탈자로 보이지만 두 값의 의미가 다르므로 어느 쪽을 '
-      + '정본으로 삼을지는 소비처 확인이 필요하다.',
-    owner: 'M2 (정본 확정 후 수리)',
-  }),
-]);
+// **M2에서 전량 배수됐다(2026-08-25).** M1이 실측 열거한 8건은 registry.js의 `values`·
+// `default`·`status` 수리로 전부 해소됐고, DD3-ii의 배수 규칙대로 같은 커밋에서 이 표를
+// 비웠다 — 수리와 삭제를 나누면 어느 순서든 중간 상태가 red다. 표가 비었다는 것은 «격리할
+// 어긋남이 없다»는 뜻이지 «검사가 꺼졌다»는 뜻이 아니다: 새 어긋남은 격리되지 않은 채
+// L10의 `documented values do not match the code vocabulary`로 즉시 붉어진다.
+//
+// 새 항목을 넣을 때는 `name`·`expected`(레지스트리 `values`)·`actual`(추출기가 읽은 값)·
+// `reason`(실파일 근거)·`owner`(담당 마일스톤)를 전부 채운다. 배수가 강제되므로 수리한
+// 뒤 이 표에서 지우지 않으면 lint가 실패한다.
+const QUARANTINE = Object.freeze([]);
+
+// ── list 멤버 정책표 ────────────────────────────────────────────────────────
+// 미상 멤버(열거 밖 토큰)를 만났을 때 **각 파서가 실제로 하는 일**. M2는 이것을
+// 통일하지 않고 보고한다(UI12) — 운영자는 결과를 알고 값을 고를 수 있어야 하고,
+// 어느 방향이 옳은지는 아직 답해지지 않았다.
+//
+// M1에서는 이 표가 `doctor.js`에 있었다. L11이 같은 사실을 읽어야 하므로,
+// `resolveVocabulary`가 L10과 `doctor`에 대해 갖는 관계와 동형으로 이 파일이
+// 소유한다(DD6) — 두 축이 갈라지면 문서가 주장하는 처리 방향과 진단이 보고하는
+// 처리 방향이 달라진다. `doctor.js`는 재-export가 아니라 require로 읽어, 두
+// 소비처가 같은 표를 본다는 사실이 import 그래프에 남는다.
+//
+// **레지스트리의 list 항목 전부가 여기 있어야 한다.** 빠진 항목은 `doctor`에서
+// «이 파서의 처리 방향은 문서화되지 않았다»로 떨어지고 L11에서는 problem이다 —
+// 침묵과 구분되지 않는 예외를 두지 않는다(UI10).
+const LIST_MEMBER_POLICY = Object.freeze({
+  MCCP_DISABLED_HOOKS:
+    '알 수 없는 토큰을 검증 없이 수용한다 (hook-flags.js:24 getDisabledHookIds) — 오타는 조용히 무시되고 그 hook은 계속 돈다',
+  MCCP_WORK_PARALLEL_AUTODISABLE_TIER:
+    '토큰 하나라도 열거 밖이면 override 전체가 무효가 된다 (implement-dispatch/budget.js:122 parseTierOverride)',
+  MCCP_PLAN_FANOUT_AUTODISABLE_TIER:
+    '토큰 하나라도 열거 밖이면 override 전체가 무효가 된다 (plan-fanout/budget.js:85 parseTierOverride)',
+  MCCP_BRIEFING_AUTODISABLE_TIER:
+    '토큰 하나라도 열거 밖이면 override 전체가 무효가 된다 (briefing/cost-guard.js:108 parseTierOverride)',
+  MCCP_IMPECCABLE_INTENT_COMMANDS:
+    '열거 밖 토큰은 조용히 버려진다 (impeccable-routing.js:127 parseIntentCommands)',
+  MCCP_HANDOFF_THRESHOLDS_USD:
+    '멤버가 어휘가 아니라 오름차순 USD 정수 3개다 — 개수가 3이 아니거나, 비유한/비양수거나, notice<warning<critical을 어기면 목록 전체를 버리고 기본값 50,80,100으로 되돌리며 stderr에 사유를 남긴다 (cost-thresholds.js:31 parseEnvOverride)',
+  MCCP_MCP_CONFIG_PATH:
+    '멤버가 파일 경로라 이 계약이 어휘를 정의하지 않는다. 분리자가 콤마가 아니라 path.delimiter(Windows ";" · POSIX ":")이고 각 항목은 path.resolve로 절대화된다 — 실재하지 않는 경로는 조용히 읽기 실패로 넘어간다 (mcp-health-check.js:55 configPaths)',
+  MCCP_EVIDENCE_STAGE_ROOT:
+    '멤버 분리가 일어나지 않는다 — 파서는 값 전체를 단일 디렉토리 경로로 쓰고 미설정이면 cwd로 되돌린다 (evidence-stage-guard.js:154). kind가 list인 것은 오기이며 그 정정은 별도 축으로 이연한다',
+  ECC_DISABLED_MCPS:
+    '이 계약이 소유하지 않는 외부 MCP 서버 이름이라 어휘를 정의하지 않는다 (UI11). 미상 토큰의 처리는 ECC 쪽 소비처가 정하며 mccp는 이름을 읽어 넘길 뿐이다 (mcp-health-check.js:55)',
+});
 
 /**
  * 한 레지스트리 항목의 어휘를 3형태 중 맞는 것으로 해석한다.
@@ -375,6 +348,7 @@ module.exports = {
   resolveVocabulary: resolveVocabulary,
   DERIVERS: DERIVERS,
   QUARANTINE: QUARANTINE,
+  LIST_MEMBER_POLICY: LIST_MEMBER_POLICY,
   quarantineByName: quarantineByName,
   MAX_FILE_BYTES: MAX_FILE_BYTES,
   MAX_LITERALS: MAX_LITERALS,

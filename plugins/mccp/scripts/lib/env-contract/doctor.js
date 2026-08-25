@@ -43,20 +43,11 @@ const SEVERITY = Object.freeze({
   silent: 'silent',
 });
 
-// DD8 — 미상 멤버의 처리 방향은 파서마다 다르고 M1은 그것을 **바꾸지 않고 보고한다**.
-// 운영자는 결과를 알고 값을 고를 수 있어야 한다.
-const LIST_MEMBER_POLICY = Object.freeze({
-  MCCP_DISABLED_HOOKS:
-    '알 수 없는 토큰을 검증 없이 수용한다 (hook-flags.js getDisabledHookIds) — 오타는 조용히 무시되고 그 hook은 계속 돈다',
-  MCCP_WORK_PARALLEL_AUTODISABLE_TIER:
-    '토큰 하나라도 열거 밖이면 override 전체가 무효가 된다 (implement-dispatch/budget.js parseTierOverride)',
-  MCCP_PLAN_FANOUT_AUTODISABLE_TIER:
-    '토큰 하나라도 열거 밖이면 override 전체가 무효가 된다 (plan-fanout/budget.js parseTierOverride)',
-  MCCP_BRIEFING_AUTODISABLE_TIER:
-    '토큰 하나라도 열거 밖이면 override 전체가 무효가 된다 (briefing/cost-guard.js parseTierOverride)',
-  MCCP_IMPECCABLE_INTENT_COMMANDS:
-    '열거 밖 토큰은 조용히 버려진다 (impeccable-routing.js parseIntentCommands)',
-});
+// DD6 (M2) — 미상 멤버의 처리 방향은 파서마다 다르고 이 계약은 그것을 **바꾸지 않고
+// 보고한다**(UI12). 표 본문은 `vocabulary.js`가 소유한다 — L11도 같은 사실을 읽어야
+// 하므로, 두 소비처가 같은 표를 본다는 것이 import 그래프에 남아야 한다. 재-export하지
+// 않는다: 여기서 다시 내보내면 소비처가 어느 쪽을 정본으로 삼는지가 다시 흐려진다.
+const { LIST_MEMBER_POLICY } = require('./vocabulary');
 
 function splitList(value) {
   return String(value || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
@@ -201,6 +192,5 @@ module.exports = {
   detectHarness: detectHarness,
   HARNESS_MARKERS: HARNESS_MARKERS,
   SEVERITY: SEVERITY,
-  LIST_MEMBER_POLICY: LIST_MEMBER_POLICY,
   MCCP_NAME_RE: MCCP_NAME_RE,
 };

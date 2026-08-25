@@ -14,7 +14,11 @@ const registry = require('../registry');
 
 // DD1이 이름까지 못 박은 집합. 여기를 늘리는 것은 «리뷰 게이트를 약화하는 토글을
 // 하나 더 만든다»는 뜻이고, 그 판단은 사람이 한다.
-const WANT_BYPASS = ['MCCP_ALLOW_CODEX_UNAVAILABLE', 'MCCP_CODEX_DISABLED', 'MCCP_SKIP_RECEIPT'].sort();
+// M2에서 MCCP_AUTO_CHAIN_SKIP_PR이 bool → bypass-flag로 정정돼 넷이 됐다(DD9) —
+// 파싱 계약이 «정확히 `1`»이라 bool의 별칭 집합과 다르다. kind는 파싱 계약을 뜻하고
+// «게이트를 약화한다»는 이전 셋의 공통 성질이었을 뿐 kind의 정의가 아니다.
+const WANT_BYPASS = ['MCCP_ALLOW_CODEX_UNAVAILABLE', 'MCCP_AUTO_CHAIN_SKIP_PR',
+  'MCCP_CODEX_DISABLED', 'MCCP_SKIP_RECEIPT'].sort();
 
 test('export 표면이 계획서 산문과 일치한다', () => {
   ['ENTRIES', 'names', 'get', 'byKind', 'byDomain'].forEach((k) => {
@@ -24,7 +28,7 @@ test('export 표면이 계획서 산문과 일치한다', () => {
   assert.ok(registry.ENTRIES.length > 0);
 });
 
-test('bypass-flag 집합이 이름까지 DD1의 3개와 일치한다', () => {
+test('bypass-flag 집합이 이름까지 DD1의 4개와 일치한다', () => {
   const got = registry.byKind('bypass-flag').map((e) => e.name).sort();
   assert.deepEqual(got, WANT_BYPASS,
     '이 집합을 바꾸려면 DD1 · 색인 · 이 test를 함께 고쳐야 한다 — 그것이 의도다');
@@ -175,5 +179,31 @@ test('그 밖의 kind에는 어휘 열이 붙지 않는다 (가산적 변경)', 
     if (e.kind === 'enum' || e.kind === 'list') return;
     assert.equal(e.vocabulary, null, e.name + ': bool/bypass-flag/int/string은 values가 어휘를 갖지 않는다');
     assert.equal(e.vocabularyGap, null, e.name);
+  });
+});
+
+// ── M2 — 어휘 결속의 실측 ────────────────────────────────────────────────────
+// 수치를 손으로 적지 않고 레지스트리에서 세어 대조한다. «7」과 «6」은 M2가 실측한
+// 값이고, 이 test가 그 실측을 다음 변경까지 끌고 간다.
+test('M2 — 어휘를 읽을 수 없는 항목은 정확히 7건이고 모두 사유를 갖는다', () => {
+  const gaps = registry.ENTRIES.filter((e) => e.vocabularyGap);
+  assert.equal(gaps.length, 7,
+    'gap이 늘었다면 승격이 되돌려졌거나 새 enum/list가 사유만 달고 들어온 것이다');
+  gaps.forEach((e) => {
+    assert.equal(e.vocabulary, null, e.name + ': gap과 vocabulary는 동시에 존재할 수 없다');
+    assert.ok(e.vocabularyGap.trim().length >= 10, e.name + ': 사유가 형식적이다');
+  });
+});
+
+test('M2 — 승격된 어휘 결속 6건이 실제 상수를 가리킨다', () => {
+  const PROMOTED = [
+    'MCCP_STOP_LOOP', 'MCCP_GOAL_FEATURE', 'MCCP_ULTRACODE_FEATURE',
+    'MCCP_EVIDENCE_CONFLICT_GUARD', 'MCCP_BRIEFING', 'MCCP_CONTEXT_MONITOR_COST_MODE',
+  ];
+  PROMOTED.forEach((name) => {
+    const e = registry.get(name);
+    assert.ok(e, name + ' is missing from the registry');
+    assert.equal(typeof e.vocabulary, 'string', name + ': M2가 상수로 승격했으므로 ref여야 한다');
+    assert.equal(e.vocabularyGap, null, name + ': 승격됐으면 gap은 없다');
   });
 });

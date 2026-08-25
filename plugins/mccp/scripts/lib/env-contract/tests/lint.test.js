@@ -1,6 +1,6 @@
 'use strict';
 
-// lint.test.js — 10개 검사가 **각각 실제로 붉어지는지**를 확인한다.
+// lint.test.js — 11개 검사가 **각각 실제로 붉어지는지**를 확인한다.
 //
 // exit 0만 보는 검사는 «빈 JSON을 뱉고 정상 종료하는 lint»도 통과시킨다. 그래서 여기서는
 // 검사마다 그것 하나만 위반하는 fixture를 만들고, 그 fixture에서 **그 검사만** 실패하는지
@@ -180,12 +180,12 @@ let negativeFixtures = 0;
 let fixtureJs = 0;
 let fixtureMd = 0;
 
-test('baseline — 손대지 않은 fixture repo에서는 10개가 전부 통과한다', () => {
+test('baseline — 손대지 않은 fixture repo에서는 11개가 전부 통과한다', () => {
   const root = makeRepo();
   const r = lint.run(root);
   const failed = Object.keys(r.checks).filter((k) => !r.checks[k].ok);
   assert.deepEqual(failed, [], 'baseline이 붉으면 아래 fixture들이 무엇을 증명하는지 알 수 없다');
-  assert.equal(Object.keys(r.checks).length, 10);
+  assert.equal(Object.keys(r.checks).length, 11);
 });
 
 test('L1 — 레지스트리에 없는 런타임 토글', () => {
@@ -331,27 +331,47 @@ test('L10 — 격리되지 않은 값 불일치', () => {
   negativeFixtures++;
 });
 
+// ── 합성 격리 ───────────────────────────────────────────────────────────────
+// M2가 격리표를 **전량 배수**했으므로(`QUARANTINE.length === 0`) 아래 두 규칙은
+// 실제 표로는 더 이상 발화시킬 수 없다. 그렇다고 test를 지우면 다음에 격리가 다시
+// 생겼을 때 배수 규칙이 살아 있는지 아무도 모른다 — 검사되지 않는 규칙은 없는
+// 규칙이다. 그래서 합성 항목을 주입해 **규칙 자체**를 고정한다.
+function withQuarantine(entries, fn) {
+  const original = vocabularyMod.quarantineByName;
+  vocabularyMod.quarantineByName = function () {
+    const m = new Map();
+    entries.forEach((q) => m.set(q.name, q));
+    return m;
+  };
+  try { return fn(); } finally { vocabularyMod.quarantineByName = original; }
+}
+
 test('L10 — 격리는 배수된다: 수리된 항목이 남아 있으면 붉어진다 (DD3-ii)', () => {
   // 이 분기가 없으면 격리표는 영구 면죄부가 되어 M2가 고쳐도 아무도 지우지 않는다.
-  // Acceptance의 수동 1회 확인과 **같은 명제**를 fixture로 고정한다 — 수동 확인만
-  // 남기면 다음 변경에서 이 규칙이 깨져도 알 길이 없다.
-  const root = makeRepo();
-  const q = vocabularyMod.QUARANTINE[0];
-  // 코드 어휘를 레지스트리와 «일치»시킨다 = 어긋남이 수리된 상태.
-  rewriteVocabLine(root, q.name, (c) => 'const ' + c + ' = ' + JSON.stringify(registry.get(q.name).values) + ';');
-  const r = lint.run(root);
+  // Acceptance의 수동 1회 확인과 **같은 명제**를 fixture로 고정한다.
+  const name = 'MCCP_REVIEW_SINGLE_PASS';
+  const declared = registry.get(name).values.slice();
+  const root = makeRepo();   // 코드 어휘는 레지스트리와 일치 = 어긋남이 수리된 상태
+  const r = withQuarantine(
+    [{ name, expected: declared, actual: ['drifted'], reason: 'synthetic', owner: 'fixture' }],
+    () => lint.run(root),
+  );
   only(r, 'L10');
   assert.match(r.checks.L10.problems.join('\n'),
-    new RegExp(q.name + ': quarantined but the mismatch is gone'));
+    new RegExp(name + ': quarantined but the mismatch is gone'));
 });
 
 test('L10 — 격리에 적어 둔 어긋남과 관측된 어긋남이 다르면 붉어진다', () => {
   // 격리가 «지금도 어긋난다»만 보고 «같은 어긋남인가»를 안 보면, 형태가 바뀐 다른
   // 결함을 옛 격리가 덮는다.
+  const name = 'MCCP_REVIEW_SINGLE_PASS';
+  const declared = registry.get(name).values.slice();
   const root = makeRepo();
-  const q = vocabularyMod.QUARANTINE[0];
-  rewriteVocabLine(root, q.name, (c) => 'const ' + c + " = ['something-else-entirely'];");
-  const r = lint.run(root);
+  rewriteVocabLine(root, name, (c) => 'const ' + c + " = ['something-else-entirely'];");
+  const r = withQuarantine(
+    [{ name, expected: declared, actual: ['recorded-other'], reason: 'synthetic', owner: 'fixture' }],
+    () => lint.run(root),
+  );
   only(r, 'L10');
   assert.match(r.checks.L10.problems.join('\n'),
     /the observed mismatch differs from the recorded one/);
@@ -407,10 +427,98 @@ test('읽기 실패는 통과가 아니라 drift로 보고된다', () => {
   assert.match(r.checks.L2.problems.join('\n'), /cannot read/);
 });
 
+// ── L11 ─────────────────────────────────────────────────────────────────────
+// fixture는 실제 상세 문서를 복사한 repo 위에서 **한 줄만** 건드린다. 통째로 합성하면
+// «이 검사가 실제 문서 형태에서 발화하는가»를 증명하지 못한다.
+const VALUE_DOC = 'docs/environment/review.md';
+const VALUE_TOGGLE = 'MCCP_IMPECCABLE_ROUTING_MODE';
+
+function patchDoc(root, rel, fn) {
+  const abs = path.join(root, rel);
+  const lines = fs.readFileSync(abs, 'utf8').split(/\r?\n/);
+  fn(lines);
+  fs.writeFileSync(abs, lines.join('\n'), 'utf8');
+}
+
+function findRow(lines, value) {
+  const i = lines.findIndex((l) => l.startsWith('- `' + value + '` — '));
+  assert.ok(i !== -1, 'fixture expected a value row for `' + value + '`');
+  return i;
+}
+
+test('L11 — 선언된 값에 줄이 없으면 붉어진다 (누락)', () => {
+  const root = makeRepo();
+  patchDoc(root, VALUE_DOC, (lines) => lines.splice(findRow(lines, 'recommend'), 1));
+  const r = lint.run(root);
+  only(r, 'L11');
+  assert.match(r.checks.L11.problems.join('\n'),
+    new RegExp(VALUE_TOGGLE + ': value `recommend` is declared in the registry but has no row'));
+  negativeFixtures++;
+});
+
+test('L11 — 선언에 없는 값의 줄이 있으면 붉어진다 (잉여, 양방향)', () => {
+  const root = makeRepo();
+  patchDoc(root, VALUE_DOC, (lines) => {
+    lines.splice(findRow(lines, 'recommend') + 1, 0, '- `invented` — 레지스트리에 없는 값이다.');
+  });
+  const r = lint.run(root);
+  only(r, 'L11');
+  assert.match(r.checks.L11.problems.join('\n'), /row for `invented` has no matching registry value/);
+});
+
+test('L11 — placeholder 서술은 통과가 아니다', () => {
+  const root = makeRepo();
+  patchDoc(root, VALUE_DOC, (lines) => {
+    const i = findRow(lines, 'recommend');
+    lines[i] = '- `recommend` — TBD';
+  });
+  const r = lint.run(root);
+  only(r, 'L11');
+  assert.match(r.checks.L11.problems.join('\n'), /placeholder\/too-short description/);
+});
+
+test('L11 — 블록이 통째로 없으면 통과가 아니다 (vacuous-pass 차단)', () => {
+  const root = makeRepo();
+  patchDoc(root, VALUE_DOC, (lines) => {
+    const start = lines.findIndex((l) => l.trim() === '**값별 결과**');
+    assert.ok(start !== -1);
+    let end = start;
+    while (end < lines.length && !lines[end].startsWith('**사용 예시**')) end += 1;
+    lines.splice(start, end - start);
+  });
+  const r = lint.run(root);
+  only(r, 'L11');
+  assert.match(r.checks.L11.problems.join('\n'), /no \*\*값별 결과\*\* block/);
+});
+
+test('L11 — 블록이 둘이면 임의로 고르지 않고 거부한다', () => {
+  const root = makeRepo();
+  patchDoc(root, VALUE_DOC, (lines) => {
+    const start = lines.findIndex((l) => l.trim() === '**값별 결과**');
+    lines.splice(start + 1, 0, '', '**값별 결과**');
+  });
+  const r = lint.run(root);
+  only(r, 'L11');
+  assert.match(r.checks.L11.problems.join('\n'), /ambiguous, refusing to pick one/);
+});
+
+test('L11 — 문서의 미상 멤버 방향이 정책표와 다르면 붉어진다 (DD6)', () => {
+  const root = makeRepo();
+  patchDoc(root, 'docs/environment/cost.md', (lines) => {
+    const i = lines.findIndex((l) => l.startsWith('**미상 멤버** — ') && l.indexOf('USD') !== -1);
+    assert.ok(i !== -1, 'fixture expected the HANDOFF_THRESHOLDS_USD policy line');
+    lines[i] = '**미상 멤버** — 이 파서는 아무 문제 없이 넘어간다.';
+  });
+  const r = lint.run(root);
+  only(r, 'L11');
+  assert.match(r.checks.L11.problems.join('\n'),
+    /differs from LIST_MEMBER_POLICY/);
+});
+
 test('마커 — 7c가 대조할 fixture 수와 확장자 분포를 찍는다', () => {
   process.stdout.write('LINT negative-fixtures=' + negativeFixtures
     + ' js=' + fixtureJs + ' md=' + fixtureMd + '\n');
-  assert.equal(negativeFixtures, 10, 'L1..L10 각각에 붉어지는 fixture가 하나씩 있어야 한다');
+  assert.equal(negativeFixtures, 11, 'L1..L11 각각에 붉어지는 fixture가 하나씩 있어야 한다');
   assert.ok(fixtureJs >= 1);
   assert.ok(fixtureMd >= 1);
   cleanup();

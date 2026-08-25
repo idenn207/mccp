@@ -272,8 +272,10 @@ function runCli(dir, args, env) {
     cwd: dir, encoding: 'utf8',
     // M2: 상시 스코프 토글도 주변 env에서 끊는다. 두 축 모두 default가 발화 쪽이라
     // 주변 셸이 켜 두면 test가 그 값을 물려받아 비결정적이 된다.
-    env: Object.assign({}, process.env,
-      { MCCP_SANTA_BLIND_LANE: undefined, MCCP_SANTA_ALWAYS_SCOPE: undefined }, env || {}),
+    // M3 Task 3: 게이트 정책 축(`MCCP_REVIEW_SINGLE_PASS`)도 같은 이유로 끊는다 —
+    // 열거는 helpers/gate-env.js가 소유한다. 명시 지정(`env`)은 여전히 이긴다.
+    env: childEnv(Object.assign(
+      { MCCP_SANTA_BLIND_LANE: undefined, MCCP_SANTA_ALWAYS_SCOPE: undefined }, env || {})),
   });
   return { status: res.status, stdout: res.stdout || '', stderr: res.stderr || '' };
 }
@@ -771,6 +773,7 @@ test('#125 회귀: 상시 경로가 실제로 블라인드 프롬프트 본문�
 
 const md = require('../santa/model-diversity');
 const seal = require('../santa/seal');
+const { childEnv } = require('./helpers/gate-env');
 
 // ── familyOf ─────────────────────────────────────────────────────────────────
 

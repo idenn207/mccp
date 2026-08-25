@@ -24,6 +24,13 @@ const { runCli, EX_OK, EX_USAGE, EX_CAP, EX_TEMPFAIL, MAX_REVIEWER_BYTES,
 const counter = require('../santa/counter');
 const ledger = require('../santa/ledger');
 const decision = require('../../receipt/decision');
+const { childEnv, scrubGatePolicyEnv } = require('./helpers/gate-env');
+
+// `cli()`는 `runCli`를 in-process로 부르므로 이 파일의 CLI test는 실행한 사람의 셸을
+// 읽는다. 이 저장소 자신의 settings가 단일통과 토글을 켜 두면 begin-round가 라운드를
+// 열지 않아(review-loop-bypass M1 DD5) 이 파일이 상시 red가 된다 — 실측 25/28.
+// `santa-adjudication.test.js:51-52`가 `MCCP_SANTA_*`에 이미 적용한 것과 같은 정규화다.
+scrubGatePolicyEnv();
 
 const CLI_PATH = path.join(__dirname, '..', 'santa', 'cli.js');
 const SANTA_LOOP_MD = path.join(__dirname, '..', '..', '..', 'commands', 'santa-loop.md');
@@ -83,7 +90,7 @@ function spawnCli(args, opts) {
   return new Promise(function (resolve) {
     const p = spawn(process.execPath, [CLI_PATH].concat(args), {
       cwd: opts.cwd || process.cwd(),
-      env: Object.assign({}, process.env, opts.env || {}),
+      env: childEnv(opts.env),
     });
     let so = '', se = '';
     p.stdout.on('data', function (d) { so += d; });

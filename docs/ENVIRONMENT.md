@@ -98,12 +98,14 @@
 |`MCCP_INTENT_MISLABEL`|enum|enforce/warn/off|enforce|오심 대조 모드.|[→](environment/review.md#mccp_intent_mislabel)|
 |`MCCP_SKIP_INTENT_GATE`|string|—|—|intent 게이트 override.|[→](environment/review.md#mccp_skip_intent_gate)|
 |`MCCP_INTENT_ADJUDICATION_TIMEOUT_MS`|int|—|—|판정 대기 상한.|[→](environment/review.md#mccp_intent_adjudication_timeout_ms)|
+|`MCCP_INTENT_ARBITER`|enum|subagent/author|subagent|판정 주체(심판 분리).|[→](environment/review.md#mccp_intent_arbiter)|
 |`MCCP_DESIGN_CRITIQUE_MAX_RETRY`|int|—|2|critique 재시도 상한.|[→](environment/review.md#mccp_design_critique_max_retry)|
 |`MCCP_DESIGN_GROUNDING`|enum|enforce/warn/off|enforce|grounding lint 모드.|[→](environment/review.md#mccp_design_grounding)|
 |`MCCP_DESIGN_INTENT_REASON`|string|—|—|critique 강제 override.|[→](environment/review.md#mccp_design_intent_reason)|
 |`MCCP_IMPECCABLE_ROUTING_MODE`|enum|auto/hybrid/recommend|auto|impeccable 라우팅 모드.|[→](environment/review.md#mccp_impeccable_routing_mode)|
 |`MCCP_IMPECCABLE_INTENT_COMMANDS`|list|—|—|추가 라우팅 명령 목록.|[→](environment/review.md#mccp_impeccable_intent_commands)|
-|`MCCP_IMPECCABLE_SKILL`|string|—|—|impeccable skill 이름.|[→](environment/review.md#mccp_impeccable_skill)|
+|`MCCP_IMPECCABLE_SKILL`|enum|available/missing|—|impeccable 탐지 결과 강제 override.|[→](environment/review.md#mccp_impeccable_skill)|
+|`MCCP_PLAN_REVIEW_TEST_INVOKE`|bypass-flag|1|off|test 전용 — `--invoke-module` 허용.|[→](environment/review.md#mccp_plan_review_test_invoke)|
 |`MCCP_A11Y_AUTO_INVOKE`|bool|on/off|on|PR에서 a11y 자동 호출.|[→](environment/review.md#mccp_a11y_auto_invoke)|
 |`MCCP_DEEP_RESEARCH_SKILL`|string|—|—|deep-research skill 이름.|[→](environment/review.md#mccp_deep_research_skill)|
 

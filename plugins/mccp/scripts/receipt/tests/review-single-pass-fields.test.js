@@ -29,6 +29,15 @@ const { isConvergedVerdict } = require('../../lib/receipt-convergence');
 const { scanReceipts } = require('../../derive/sources/receipts');
 const { decideReview } = require('../../lib/plan-review/decide');
 
+// **주변 env 를 중화한다** (local review M3). 이 저장소의 tracked
+// `.claude/settings.json` 은 `MCCP_REVIEW_SINGLE_PASS=deadline_pressure` 를 싣는데,
+// 이 파일에는 **토글이 꺼져 있을 때**를 단언하는 test 가 있어(`without the toggle the
+// keys do not exist at all`) ambient 값이 그대로 새면 그 단언이 기본 개발 환경에서
+// 붉어진다. 축을 켜서 보는 test 는 아래에서 스스로 값을 설정했다가 되돌리므로,
+// 여기서 지우는 것이 두 방향 모두의 출발 상태를 명시하는 유일한 방법이다.
+delete process.env.MCCP_REVIEW_SINGLE_PASS;
+
+
 const EVIDENCE = ['.claude/state/plan-review/l2.json'];
 
 function withRepo(fn) {

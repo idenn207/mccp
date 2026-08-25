@@ -237,6 +237,73 @@ test('the 5.2 wait has a real timeout branch, not only prose', function () {
     'and it must not fire on the legitimate markerless break out of the same loop');
 });
 
+// ── M2 — the arbiter branch exists in the command body ──────────────────────
+//
+// What this layer can and cannot do, stated plainly. A regex sees KEYWORDS: it
+// matches `arbiter_degraded` inside a comment as happily as inside a branch, and
+// it cannot tell whether `parseAdjudicationFile` is actually being used to JUDGE
+// validity. So these are regression guards — "the branch did not disappear" —
+// and not a correctness proof. The behaviour of the degradation path is asserted
+// by the e2e scenarios in intent-arbiter-e2e.test.js, which run it. The two
+// layers are not merged into one claim.
+//
+// Every assertion below was mutation-checked against `git show HEAD:…` at the
+// time it was written: revert the branch it names and it fails.
+
+test('M2: the required arbiter mode is decided by the caller and forwarded', function () {
+  // DD5 #1. If the runner grew an env fallback the two could disagree, and the
+  // value the receipt seals would then be neither process's fact.
+  assert.match(body, /--arbiter-mode/,
+    'the runner must be told which arbiter this run requires');
+  assert.match(body, /parseArbiterMode/,
+    'and the caller — not the runner — must be the one reading the env');
+});
+
+test('M2: the required mode is recoverable at the point it is branched on', function () {
+  // 5.2z computes it; 5.5a branches on it; nothing in between preserves shell state.
+  // The runner publishes the authoritative copy into the awaiting artifact for
+  // exactly this reason, so 5.5a must read it from there rather than trust a
+  // variable it may no longer hold — a lost variable guessed as `author` produces a
+  // receipt sealing `subagent` over an adjudication the author wrote.
+  assert.match(body, /arbiter_mode/,
+    '5.5a must source the required mode from the awaiting artifact');
+  assert.match(body, /\|\| echo "subagent"/,
+    'and the 5.2z computation must not be able to leave the variable empty');
+});
+
+test('M2: the command body actually dispatches the separated arbiter', function () {
+  assert.match(body, /Task\(mccp:intent-arbiter/,
+    'the whole milestone is this dispatch; without it the author still adjudicates');
+});
+
+test('M2: degradation is decided by a validity probe, not by file existence', function () {
+  // `[ -f ]` passes for syntactically broken JSON. The runner would then wait out
+  // its adjudication timeout and die `incomplete` — the exact stall this step
+  // exists to remove.
+  assert.match(body, /parseAdjudicationFile/,
+    'the probe must parse, not merely stat');
+  assert.match(body, /arbiter_degraded/,
+    'a degradation must be recorded in the adjudication file itself');
+});
+
+test('M2: a race with a late arbiter does not silently erase the separation', function () {
+  // Unconditional overwrite would take a run where the arbiter DID produce valid
+  // output and record it as `author`.
+  assert.match(body, /wx/,
+    'the degraded publish must be create-exclusive, not a clobber');
+  assert.match(body, /degradation CANCELLED/,
+    'and EEXIST plus a valid file must cancel the degradation, not proceed with it');
+});
+
+test('M2: the degradation reason is never left empty', function () {
+  // An empty reason makes parseAdjudicationFile reject the whole record, so
+  // omitting it does not "leave it unsaid" — it voids the degradation.
+  assert.match(body, /unknown-task-failure/,
+    'cause unknown still needs a canonical reason');
+  assert.match(body, /replaced-invalid-arbiter-output/,
+    'and replacing a broken late output is a different cause with its own name');
+});
+
 test('a stale prior receipt is not reported as a concurrent winner', function () {
   // Nonce alone cannot tell "another run just won" from "a receipt from last week
   // is still on disk" — both are simply "not our nonce".

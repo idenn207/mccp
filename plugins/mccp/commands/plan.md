@@ -683,6 +683,21 @@ DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
   --plan "<plan-path>" \
   --json)
 SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
+# v1.31.3 M3 — the call form is RESOLVED, never hardcoded. The plugin channel
+# registers the skill as <pluginName>:<skillDirName>, so a hardcoded bare name
+# reaches unknown_skill for every plugin-only install; the oracle already knows
+# which body opens, so ask it.
+#
+# The carrier the LLM reads is the stderr LINE below, not this shell variable:
+# shell state does not survive a tool-call boundary, so a prompt that said
+# "use $IMPECCABLE_INVOCATION" would be read as an empty name.
+#
+# Exactly one line, exactly this shape. Its absence is meaningful — see the
+# call-form rule in the prose below.
+IMPECCABLE_INVOCATION=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.impeccable_invocation||"")}catch{process.stdout.write("")}')
+if [ -n "$IMPECCABLE_INVOCATION" ]; then
+  echo "[mccp:impeccable] call-form: Skill($IMPECCABLE_INVOCATION, ...)" 1>&2
+fi
 SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
 DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
 # v1.3.0 M1 — silent-skip surface. detect() now emits silent_skip (SKILL_AVAIL=1
@@ -760,7 +775,8 @@ VERDICT=""
 FORCE_FAIL="${MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL:-0}"
 
 while [ "$ROUND" -le "$CAP" ]; do
-  # 1. Invoke Skill(impeccable, "critique <plan slug>") OR mock when
+  # 1. Invoke the RESOLVED call form (see the call-form rule below) with the
+  #    argument "critique <plan slug>", OR mock when
   #    FORCE_FAIL=1 (returns [{severity:'HIGH', title:'forced-fail mock'}]).
   # 2. Parse critique findings as a JSON array under the body's actionable
   #    instructions. Critique invariant: each finding MUST name the plan
@@ -805,8 +821,27 @@ esac
 DESIGN_CRITIQUE_ROUNDS=$((ROUND + 1))  # ROUND is 0-indexed; receipt counts invocations
 ```
 
-If `Skill(impeccable, ...)` returns `unknown_skill` / `not found` at any
-iteration, fall back to the SKILL_AVAIL=0 row above (treat as skipped).
+**Call-form rule (v1.31.3 M3) — do NOT type a literal skill name.** The detect
+block above printed exactly one line:
+
+```
+[mccp:impeccable] call-form: Skill(<invocation>, ...)
+```
+
+Invoke the name that line carries between `Skill(` and the comma. That is the
+body the oracle established will actually open — `impeccable` for a bare
+install, `impeccable:impeccable` for a plugin-only one. Read it off the line,
+not off `$IMPECCABLE_INVOCATION`: shell state does not survive a tool-call
+boundary, so the variable is empty by the time this instruction is acted on.
+
+**An absent line means the skill did not resolve** — take the `SKILL_AVAIL=0` row above (record the fallback note and treat as skipped).
+Never guess a name, and in particular never fall back to the bare name
+`impeccable` as a hardcoded call: from v1.31.3 this repository ships no bare
+copy, so a guessed bare call reaches `unknown_skill` and records a skip the
+gate did not have to take.
+
+If the resolved call form still returns `unknown_skill` / `not found` at any
+iteration, fall back to the same `SKILL_AVAIL=0` row (treat as skipped).
 
 Loud stderr warn pattern for the SKILL_AVAIL=1 SIGNAL=0 row (Task 3):
 
@@ -891,7 +926,9 @@ mkdir -p "$REVIEW_DIR"
 rm -f "$REVIEW_DIR/codex-verdict" "$REVIEW_DIR/codex-class" "$REVIEW_DIR/decision.json" "$REVIEW_DIR/proof.json" \
       "$REVIEW_DIR/l1.json" "$REVIEW_DIR/l2.json" "$REVIEW_DIR/l3.json" \
       "$REVIEW_DIR/reservation.json" "$REVIEW_DIR/workflow-args.json" \
-      "$REVIEW_DIR/backlog.json" "$REVIEW_DIR/started-at"
+      "$REVIEW_DIR/backlog.json" "$REVIEW_DIR/started-at" \
+      "$REVIEW_DIR/l3-run-nonce" "$REVIEW_DIR/l3-deadline" "$REVIEW_DIR/l3-pid" \
+      "$REVIEW_DIR/l3-findings.json"
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" mode > "$REVIEW_DIR/mode.json"
 REVIEW_MODE=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mode)}catch{process.stdout.write("codex")}' "$REVIEW_DIR/mode.json")
 echo "[mccp:plan-review] mode=$REVIEW_MODE" 1>&2
@@ -900,8 +937,8 @@ echo "[mccp:plan-review] mode=$REVIEW_MODE" 1>&2
 | `$REVIEW_MODE` | Branch |
 |---|---|
 | `codex` | **5.2z** below — the pre-M1 Codex path, unchanged. Skip 5.2a–5.2h entirely and stamp NO `review_*` fields. |
-| `multi-agent` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2e → 5.2g → 5.2g2 → 5.2h (L3 is not fired) |
-| `hybrid` | 5.2a → 5.2b → 5.2c → 5.2d → 5.2f → 5.2e → 5.2g → 5.2g2 → 5.2h — **5.2f only when `mode.json` `fires.l3` is true** (see below) |
+| `multi-agent` | 5.2a-0 (no-op — `hybrid_without_l3` is false outside hybrid) → 5.2a → 5.2b → 5.2c → 5.2d → 5.2e → 5.2g → 5.2g2 → 5.2h (L3 is not fired) |
+| `hybrid` | **5.2a-0** → 5.2a → 5.2b → 5.2c → 5.2d → 5.2f → 5.2e → 5.2g → 5.2g2 → 5.2h — 5.2a-0 stops the run *before any agent is reserved* when `mode.json` `hybrid_without_l3` is true, so by the time 5.2f is reached `fires.l3` is true |
 
 `5.2g2` is a no-op unless the single-pass toggle actually relaxed this run — see its
 section for why the capture is a precondition of that relaxation.
@@ -931,6 +968,43 @@ injection, which changes `plan_hash` (section addition is not normalized away) �
 makes the write exit 12 with "plan changed after L2 reviewed it". So in panel
 modes the review record goes to a **sibling artifact** (5.2h), never into the plan.
 Recovery from a genuine mismatch is to rerun L2, never to reseal.
+
+#### 5.2a-0 — hybrid without L3 is a dead end; stop before spending the panel
+
+`cmdMode` already computes `hybrid_without_l3`, and until now nothing read it.
+That combination — `MCCP_PLAN_REVIEW=hybrid` with `MCCP_PLAN_REVIEW_L3` unset or
+`0` — has exactly one possible ending: 5.2f writes `invoked:false`, and 5.2e's
+`!ran` branch turns it into `unavailable` / `multi-agent` and HALTs (DD2 row 9).
+`MCCP_PLAN_REVIEW_L3` defaults to **off**, so an operator who sets only the mode
+lands here every time.
+
+This block is not a new policy. The outcome is already decided the moment the
+environment is read; the only question is whether the operator learns it now or
+after four agents and eight minutes of panel time. Bringing it forward costs
+nothing and refunds nothing, because nothing has been reserved yet — 5.2a-0 runs
+**before** 5.2b, which is where the budget is charged.
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+# Absence and unreadability both read as "0" here, deliberately. This block only
+# ever ADDS a halt, so a false 0 costs nothing but a panel that would have run
+# anyway; a false 1 would stop a legitimate multi-agent run. The unreadable-
+# mode.json case is diagnosed where it belongs — 5.2f Step 0 distinguishes it
+# from "policy says no" with its own `-1` sentinel, and 5.6b HALTs on it too.
+HYBRID_WITHOUT_L3=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.hybrid_without_l3?"1":"0")}catch{process.stdout.write("0")}' "$REVIEW_DIR/mode.json")
+if [ "$HYBRID_WITHOUT_L3" = "1" ]; then
+  DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+    --command mccp:plan --args "$ARGUMENTS")
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2a-0 1>/dev/null || true
+  echo "[MCCP-GATE-STOP] MCCP_PLAN_REVIEW=hybrid but MCCP_PLAN_REVIEW_L3 is off, so the cross-model layer cannot fire."
+  echo "That combination can only end in verdict=unavailable — hybrid requires BOTH variables."
+  echo "  · to actually run hybrid:  export MCCP_PLAN_REVIEW_L3=1"
+  echo "  · to run the panel alone:  export MCCP_PLAN_REVIEW=multi-agent"
+  echo "Stopping here rather than after the L2 panel: the outcome is already determined, and no agents have been reserved yet."
+  exit 12
+fi
+```
 
 #### 5.2a — L1 mechanical gatekeeper
 
@@ -978,7 +1052,7 @@ DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decisio
   --command mccp:plan --args "$ARGUMENTS")
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
   --slug "$DECISION_SLUG" --plan "<plan path>" \
-  --halt-stage "<5.2a|5.2b|5.2c-emit|5.2c-pin|5.2d|5.2e|5.2e-proof|5.2f|5.2g|5.2g2>"
+  --halt-stage "<5.2a-0|5.2a|5.2b|5.2c-emit|5.2c-pin|5.2d|5.2e|5.2e-proof|5.2f|5.2g|5.2g2>"
 ```
 
 **That stage list is the complete set of HALTs in 5.2.** An earlier revision
@@ -994,7 +1068,7 @@ depends on you following an instruction:
 
 | Enforcement | Stages |
 |---|---|
-| Shell — the block records, then exits | 5.2a · 5.2b · 5.2c-emit · 5.2c-pin · 5.2d · 5.2e · 5.2e-proof · 5.2f · 5.2g · 5.2g2 |
+| Shell — the block records, then exits | 5.2a-0 · 5.2a · 5.2b · 5.2c-emit · 5.2c-pin · 5.2d · 5.2e · 5.2e-proof · 5.2f · 5.2g · 5.2g2 |
 
 5.2e was the last holdout, and the argument for leaving it to prose turned out to
 be circular. It read: 5.2e already routes through 5.2h, so recording inline would
@@ -1364,52 +1438,188 @@ is not hybrid, and the gate says so rather than stamping a corroboration that
 never happened. Unreadable `mode.json` reads as `0`: an unknown policy must not
 silently spend a Codex call.
 
-**Step 1 — actually run the wrapper.** Execute 5.2z's Codex wrapper block below
-*verbatim*. It ends by persisting the verdict to `$REVIEW_DIR/codex-verdict`,
-which is what bridges it to this section. **Then stop** — do NOT continue into
-5.3's plan injection: the plan is frozen (invariant ii) and adding the Codex
-section would change `plan_hash` and make the 5.6 write exit 12.
+**Step 1 — launch the dedicated L3 call.** L3 has its own subcommand,
+`plan-review/cli.js l3`. Do **not** run 5.2z's block: that block launches
+`plan-codex-runner.js`, whose job is to write the mccp-plan-codex receipt, and on
+this path 5.6b writes that receipt. Two writers for one receipt with no ordering
+between them was the defect this milestone removes, and it is removed by
+SUBTRACTION — hybrid never starts the runner, so there is no order to get wrong
+(DD1). `plan-codex-runner.js` must not appear anywhere in 5.2f;
+`plan-review-command-body.test.js` fails the build if it does.
 
-This must be spelled out because "run the same wrapper as 5.2z" is not a thing
-the mode table makes happen. Hybrid's branch is 5.2a → … → **5.2f** → 5.2e and
-skips 5.2z entirely, so nothing else in this document ever executes that wrapper.
-Reading the artifact without running the wrapper leaves it absent on every hybrid
-run, and the branch below writes `invoked:false` forever — hybrid would be a mode
-that can never reach its own verdict (it fails closed to `unavailable`, so it is
-a dead mode rather than an unsafe one, but dead all the same).
+The subcommand writes the same two bridge artifacts 5.2z writes
+(`codex-verdict`, `codex-class`) under the same names, which is what DD5 kept: the
+FILENAMES stay a shared contract, and `mode=codex` — the path that actually reads
+them — is left entirely outside this milestone's blast radius.
 
-**Step 2 — record the outcome as JSON** (a separate block, so read the artifact,
-not `$CODEX_VERDICT`, which the block boundary has already emptied):
+**On the hybrid path 5.6b does NOT read those files.** DD5's original wording said
+5.6b was unchanged; the L3-Codex F1 absorption changed it, and this paragraph is
+the corrected statement. 5.6b now takes the hybrid verdict out of the
+nonce-verified `l3.json` (see its comment there for why), so on this path the two
+bridge files have no reader at all — they exist for the filename contract above
+and as a plain-text trace. Do not "simplify" 5.6b back to the bridge read;
+`plan-review-command-body.test.js` M3(h) pins both branches.
+
+It writes `l3.json` **last**, which is what makes polling for that one file
+sufficient: its presence means the whole artifact set landed, so the poll's
+success condition and the completeness condition are one fact. It writes no
+receipt, takes no lock, and cannot block the gate — `decide` remains the only
+place that stops this gate (DD2).
+
+Codex can block for 900s while the Bash tool caps at 600s, so the call is
+**detached** and the outcome is collected by polling, exactly as 5.2z does for the
+runner.
 
 ```bash
 REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
-# The artifact is written at the end of 5.2z's wrapper block (Step 1 above).
-# Absent here means Step 1 was skipped or the wrapper died before persisting —
-# NOT "Codex chose not to speak". Both fail closed, but only one is a wiring bug,
-# so say which. $CODEX_VERDICT is useless at this point: it was set in the
-# wrapper's block and shell state does not cross a fence.
-L3_VERDICT=$(cat "$REVIEW_DIR/codex-verdict" 2>/dev/null || printf '')
-if [ -z "$L3_VERDICT" ]; then
-  echo "[mccp:plan-review] WARNING: \$REVIEW_DIR/codex-verdict is absent. If you did not run 5.2z's wrapper block first (Step 1), that is the bug — hybrid will fail closed to 'unavailable' and HALT." 1>&2
+MCCP_TMP="$(git rev-parse --git-path mccp/tmp)"   # worktree-safe (§3.8)
+mkdir -p "$REVIEW_DIR" "$MCCP_TMP"
+
+# The focus is written through a SINGLE-QUOTED heredoc and never inlined into the
+# command line. Everywhere else in this file the focus text is a shell literal you
+# type into the markdown — so a backtick, a `$(`, or a stray quote inside a phrase
+# you lifted out of the plan is shell SOURCE and gets expanded or breaks the
+# parse. A quoted heredoc performs no expansion on its body at all, so whatever
+# you write between the markers is inert. Passing it as "$L3_FOCUS" afterwards is
+# then safe for a second, independent reason: a parameter expansion's VALUE is
+# never rescanned for command substitution.
+cat > "$MCCP_TMP/l3-focus.txt" <<'L3FOCUS'
+challenge the following plan decisions: <list 1-3 key decisions from the plan>
+L3FOCUS
+L3_FOCUS=$(cat "$MCCP_TMP/l3-focus.txt")
+
+# Same design-scope wire-up 5.2z uses: narrow Codex to security/correctness/perf
+# when impeccable owns the design axis.
+IMPECCABLE_FLAG=$(node -e "
+const honored = require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/env-contract/value')
+  .parseBool(process.env, 'MCCP_CODEX_DESIGN_SCOPE_HONOR');
+const detect = require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect');
+process.stdout.write(honored && detect.probeSkillAvailable({}) ? '--impeccable-available' : '');
+" || echo "")
+
+# The nonce goes INSIDE the record, not into a path (DD6). 5.2z can put its nonce
+# in filenames because it owns those filenames; l3.json's name is fixed — 5.6b and
+# `decide` both read it by that name — so the discriminator has to travel in the
+# body. The poll below accepts a record only when this value comes back in it.
+#
+# WHAT THE NONCE DOES AND DOES NOT COVER (L3-Codex R1 F2, high — rejected with
+# evidence, recorded in the backlog). It separates a STALE record — one left by an
+# earlier run that has already finished — from this run's. It does NOT make two
+# OVERLAPPING /mccp:plan runs in one worktree safe: this file has a fixed name, so
+# a second launch overwrites it and the first run's poll would then expect the
+# second run's nonce. That is not an L3 defect. REVIEW_DIR is a singleton for
+# l1.json, l2.json, decision.json, proof.json, reservation.json and mode.json
+# alike — see the purge list at the top of Phase 5.2 — so two concurrent runs are
+# already incoherent well before L3 exists. Do not run two /mccp:plan gates
+# against one worktree; use a second worktree (§3.8).
+#
+# It is persisted because the poll is a LATER fenced block and shell state does
+# not cross a fence (invariant i). Same for the pid and the deadline: a poll that
+# re-derived its own deadline would restart the clock every time the Bash tool
+# cut it off, and could never time out.
+RUN_NONCE=$(node -e 'process.stdout.write(require("crypto").randomUUID())')
+printf '%s' "$RUN_NONCE" > "$REVIEW_DIR/l3-run-nonce"
+node -e 'process.stdout.write(String(Math.floor(Date.now()/1000)+1000))' > "$REVIEW_DIR/l3-deadline"
+
+nohup node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" l3 \
+  --review-dir "$REVIEW_DIR" \
+  --plan "<plan path>" \
+  --focus "$L3_FOCUS" \
+  --run-nonce "$RUN_NONCE" \
+  $IMPECCABLE_FLAG \
+  > "$MCCP_TMP/l3-call.out" 2> "$MCCP_TMP/l3-call.err" &
+printf '%s' "$!" > "$REVIEW_DIR/l3-pid"
+echo "[mccp:plan-review] L3 launched detached (nonce $RUN_NONCE, deadline +1000s)" 1>&2
+```
+
+**Step 2 — poll for the record.** A separate block, because Step 1 must return
+immediately. Everything it needs is on disk; nothing is read from a variable.
+
+Re-run this block if it prints `still-running` — the deadline lives in an artifact,
+so re-entry continues the same clock rather than restarting it. The per-invocation
+cap is 540s, under the Bash tool's 600s ceiling, so the block always returns a
+state instead of being killed mid-answer.
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.claude/state/plan-review"
+MCCP_TMP="$(git rev-parse --git-path mccp/tmp)"
+RUN_NONCE=$(cat "$REVIEW_DIR/l3-run-nonce" 2>/dev/null || printf '')
+DEADLINE=$(cat "$REVIEW_DIR/l3-deadline" 2>/dev/null || printf '0')
+L3_PID=$(cat "$REVIEW_DIR/l3-pid" 2>/dev/null || printf '')
+BLOCK_CAP=$(( $(date +%s) + 540 ))
+L3_STATE=""
+
+if [ -z "$RUN_NONCE" ]; then
+  L3_STATE="not-launched"
 fi
-if [ -n "$L3_VERDICT" ]; then
-  # From the artifact, not $CODEX_CLASS: that is set in the wrapper's block and
-  # this is a later fence, so it read `unknown` on EVERY successful hybrid run —
-  # the record said it did not know why L3 ran when it did (santa-loop R6, Codex).
-  L3_CLASS=$(cat "$REVIEW_DIR/codex-class" 2>/dev/null || printf 'unknown')
-  printf '{"invoked":true,"verdict":"%s","reason":"%s"}\n' "$L3_VERDICT" "$L3_CLASS" \
-    > "$REVIEW_DIR/l3.json"
-else
-  printf '{"invoked":false,"reason":"codex verdict artifact absent — L3 did not complete"}\n' \
-    > "$REVIEW_DIR/l3.json"
+while [ -z "$L3_STATE" ]; do
+  if [ -f "$REVIEW_DIR/l3.json" ]; then
+    # Accept ONLY our own record. A survivor from another run answers about a
+    # different plan body and a different Codex call; treating it as ours is how a
+    # stale `converged` gets sealed into a fresh receipt.
+    GOT_NONCE=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).run_nonce||""))}catch{process.stdout.write("")}' "$REVIEW_DIR/l3.json")
+    if [ "$GOT_NONCE" = "$RUN_NONCE" ]; then L3_STATE="succeeded"; else L3_STATE="nonce-mismatch"; fi
+  elif [ -n "$L3_PID" ] && ! kill -0 "$L3_PID" 2>/dev/null; then
+    # RE-TEST BEFORE CONCLUDING. The child renames l3.json and THEN exits, so a
+    # probe that lands between those two events sees no file and no process and
+    # would report a completed run as a dead one. The window is microseconds, but
+    # it sits exactly at the moment the run ends, and the cost of losing the race
+    # is discarding a finished 900s Codex call and being told to re-run Phase 5.2.
+    if [ -f "$REVIEW_DIR/l3.json" ]; then continue; fi
+    # The process is gone and wrote nothing. `l3` writes a record on every path it
+    # returns from — including every Codex failure — so this is not "Codex said
+    # nothing", it is "the call did not survive to say anything".
+    L3_STATE="died-without-record"
+  elif [ "$(date +%s)" -ge "$DEADLINE" ]; then
+    L3_STATE="timeout"
+  elif [ "$(date +%s)" -ge "$BLOCK_CAP" ]; then
+    L3_STATE="still-running"
+  else
+    sleep 10
+  fi
+done
+echo "[mccp:plan-review] L3 poll state=$L3_STATE" 1>&2
+
+if [ "$L3_STATE" = "still-running" ]; then
+  echo "[mccp:plan-review] L3 has not finished within this block's 540s window. Re-run THIS block; the deadline artifact keeps the overall 1000s bound." 1>&2
+  exit 0
+fi
+if [ "$L3_STATE" != "succeeded" ]; then
+  DECISION_SLUG=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js derive-decision \
+    --command mccp:plan --args "$ARGUMENTS")
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
+    --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2f 1>/dev/null || true
+  echo "[MCCP-GATE-STOP] L3 did not produce a usable record (state=$L3_STATE)."
+  echo "  not-launched        Step 1 never ran — \$REVIEW_DIR/l3-run-nonce is absent."
+  echo "  died-without-record the l3 call exited without writing; see $MCCP_TMP/l3-call.err."
+  echo "  nonce-mismatch      l3.json belongs to another run; wait for it, then re-run /mccp:plan."
+  echo "  timeout             1000s elapsed with no record. Do NOT assume success."
+  echo "Recovery is to re-run Phase 5.2, or MCCP_PLAN_REVIEW=multi-agent to drop the L3 layer."
+  exit 12
 fi
 ```
 
-The verdict must be one of `converged|divergent|critical|unavailable|skipped`.
-If L3 did not run at all (`MCCP_PLAN_REVIEW_L3=0`, Codex disabled, timeout), write
-`{"invoked":false,"reason":"<why>"}` — never `"verdict":""`. Do not fake a verdict:
-"requested hybrid" is not "hybrid happened", and 5.2e fails closed on the
-difference. L3's findings reach the operator through 5.2h, not the plan body.
+`succeeded` is the only path into 5.2e. There is no Step 3: `l3.json` is written by
+the subcommand, in full, from the record oracle — there is nothing left for the
+shell to assemble. That is the point of moving production into Node. The old Step 2
+built the JSON with `printf` from a shell variable, and an empty variable there
+emits `"verdict":""` — a value `REVIEW_VERDICT_VALUES` forbids and `decide.js:355`
+had to defend against downstream. `buildL3Record` cannot construct it.
+
+The verdict, when present, is one of `converged|divergent|critical|unavailable|skipped`.
+When Codex did not speak — disabled, timed out, unauthenticated, or answered with
+something unreadable — the record is `{"invoked":false,"reason":"<why>"}` with **no
+verdict key at all** (DD4). "Requested hybrid" is not "hybrid happened", and 5.2e
+fails closed on the difference.
+
+**L3's findings are in `$REVIEW_DIR/l3-findings.json`.** Read them there when the
+verdict is not `converged`; the plan body stays frozen, so nothing is injected into
+it. This artifact exists because the first live hybrid run returned `divergent` and
+there was no way to learn *to what*: `l3.json` carries a verdict and a reason, and
+`record.js#readL3` reads exactly those two, so 5.2h prints one word. Codex's findings
+were parsed, collapsed to that word, and dropped. 5.2h still prints only the verdict
+— surfacing the findings inside the review record is a separate change to
+`record.js`, tracked in the backlog — so this file is where they live today.
 
 #### 5.2e — Compose the verdict
 
@@ -1711,10 +1921,26 @@ if [ "${SILENT_SKIP:-0}" = "1" ] && [ -z "${IMPECCABLE_FORCE_OVERRIDE_REASON:-}"
   SILENT_SKIP_FORWARD=1     # schema mutex: suppressed when the audited escape is set
 fi
 
+# codex-intent-context M2 (DD5 #1) — the REQUIRED arbiter mode is decided HERE and
+# handed to the runner as an argument. The runner does not read MCCP_INTENT_ARBITER
+# at all: if both processes interpreted the same env independently they could reach
+# different answers, and the value the receipt seals would then be neither one's
+# fact. `subagent` is the default; `author` is how you ask for the M1 behaviour back.
+# The `|| echo` is not decoration. Without it a module-load or node failure leaves
+# ARBITER_MODE empty: the runner still lands on `subagent` (an out-of-enum argument
+# falls back), but 5.5a's routing table has no row for "" and would be left guessing —
+# and a guess of `author` records a separation that never happened. stderr is NOT
+# redirected: parseArbiterMode's warning on a typo is the whole point of it.
+ARBITER_MODE=$(node -e "
+  const a = require('${CLAUDE_PLUGIN_ROOT}/scripts/lib/intent-arbiter');
+  process.stdout.write(a.parseArbiterMode(process.env, function (w) { process.stderr.write(w + '\n'); }));
+" || echo "subagent")
+
 nohup node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-codex-runner.js" \
   --plan "<plan path>" \
   --decision "$DECISION_SLUG" \
   --run-nonce "$RUN_NONCE" \
+  --arbiter-mode "$ARBITER_MODE" \
   --focus "challenge the following plan decisions: <list 1-3 key decisions from the plan>" \
   $IMPECCABLE_FLAG \
   ${IMPECCABLE_SKIPPED_REASON:+--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"} \
@@ -2055,13 +2281,216 @@ Scan for auto-CRITICAL items (per §0 catalog: secret exposure, data loss, irrev
    ```
 3. End the response.
 
-### 5.5a — Write the adjudication file (codex-intent-context M1, L2-A)
+### 5.5a — Adjudicate every finding (codex-intent-context M1 · M2 심판 분리)
 
 **PRD-mode plans only.** If Phase 5.2 launched the runner (i.e. `$RUN_NONCE` is set)
 and the awaiting artifact lists ≥1 finding, the runner is **still alive**, holding the
-review payload in memory and waiting for your adjudication. Every finding must receive
+review payload in memory and waiting for the adjudication. Every finding must receive
 an explicit verdict — a single omission makes the gate `incomplete` and **no receipt is
 written**.
+
+M2 did not change *what* is decided. It changed *who decides*. You wrote the plan, so
+you hold every argument in its favour; that is exactly the party that should not also
+rule on whether it violates the user's constraints. The required mode selects the path.
+
+**Read that mode from `$AWAITING`, not from the `$ARBITER_MODE` shell variable.** 5.2z
+computed it, but shell state does not survive across tool calls and that value is
+recoverable from nowhere else on disk — while the runner holds the authoritative copy
+(it arrived as `--arbiter-mode`) and seals it either way. A lost variable guessed as
+`author` therefore produces the one outcome this milestone exists to prevent: the
+author adjudicates, nothing records a degradation, and the receipt says `subagent`.
+`$AWAITING` is the file you have to read anyway, so key off it:
+
+```bash
+ARBITER_MODE=$(node -e '
+  const fs = require("fs");
+  const a = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  process.stdout.write(typeof a.arbiter_mode === "string" ? a.arbiter_mode : "subagent");
+' "$AWAITING")
+```
+
+| `$ARBITER_MODE` | path |
+|---|---|
+| `subagent` (default) | **5.5a-1** — dispatch `Task(mccp:intent-arbiter)`; fall through to 5.5a-2 **only** when the probe rejects its output |
+| `author` | **5.5a-2** directly, with **no** `arbiter_degraded` key |
+
+#### 5.5a-1 — Dispatch the arbiter (`$ARBITER_MODE = subagent`)
+
+Build the projection and the prompt. The projection is a **whitelist**: it carries the
+payload digest, the user-stated constraints, and the findings, and nothing else — not
+`plan_path`, not any field a future runner adds. The arbiter also has no file-reading
+tool, so the whitelist is the second wall rather than the only one.
+
+```bash
+ARBITER_PROMPT_FILE="$MCCP_TMP/intent-arbiter-prompt-$RUN_NONCE.txt"
+node -e '
+  const fs = require("fs");
+  const a = require(process.argv[1] + "/scripts/lib/intent-arbiter");
+  const awaiting = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  // 0600, same as the awaiting artifact it is derived from: this file carries the
+  // findings and the user constraints, and it is written by this shell rather than by
+  // the runner, so it would otherwise land with the ambient umask. The runner deletes
+  // it in its own `finally` — cleanup in prose is cleanup that gets skipped.
+  fs.writeFileSync(process.argv[4], a.buildArbiterTaskPrompt({
+    projection: a.buildArbiterProjection(awaiting),
+    adjudicationPath: process.argv[3],
+  }), { mode: 0o600 });
+' "${CLAUDE_PLUGIN_ROOT}" "$AWAITING" "$ADJUDICATION" "$ARBITER_PROMPT_FILE"
+```
+
+The path is fixed by `plan-codex-runner.js#paths` (`intent-arbiter-prompt-<nonce>.txt`)
+so the runner can remove it. Renaming it here orphans the file, it does not relocate it.
+
+Read `$ARBITER_PROMPT_FILE` and dispatch its contents **verbatim**:
+
+> `Task(mccp:intent-arbiter, "<contents of $ARBITER_PROMPT_FILE>")`
+
+Add nothing of your own to that prompt — no plan excerpt, no rationale, no summary of
+what you were trying to achieve. Everything you would be tempted to add is the author
+context the separation exists to withhold.
+
+Then publish and **probe**. The probe is a validity check, not an existence check: an
+arbiter that writes syntactically broken JSON passes `[ -f ]`, and the runner would
+then sit until its adjudication timeout before dying as `incomplete` — reinstating the
+exact stall this step removes. The contract is narrow on purpose: `parseAdjudicationFile`
+says `ok` → **exit 0**, anything else → **exit 1**, stdout stays empty, reasons go to
+stderr. Branch on the exit code only. A probe that crashes outright (module gone, node
+gone) also exits non-zero and therefore lands on "invalid", which is the fail-closed
+direction — folding "cannot tell" into "fine" would switch the degradation off silently.
+
+```bash
+if node -e '
+  const fs = require("fs");
+  const ic = require(process.argv[1] + "/scripts/lib/intent-context");
+  const target = process.argv[2];
+  const staged = target + ".tmp";
+  const parse = function (p) {
+    try { return ic.parseAdjudicationFile(fs.readFileSync(p, "utf8")); }
+    catch (e) { return { ok: false, reason: "unreadable (" + e.message + ")" }; }
+  };
+  // The arbiter writes "<path>.tmp" because the runner polls the un-suffixed path
+  // and reads it the instant it appears; a direct write could be read half-done.
+  // Publishing here with rename(2) is atomic, and the arbiter (Write-only) has no
+  // way to rename for itself.
+  //
+  // VALIDATE FIRST, then publish. Moving the staged file across unconditionally
+  // would hand the runner a malformed read instead of letting this step degrade —
+  // the gate would die `incomplete` on the arbiter output rather than falling back.
+  if (fs.existsSync(staged)) {
+    const s = parse(staged);
+    if (!s.ok) {
+      process.stderr.write("[mccp:intent-arbiter] staged output invalid: " + s.reason + "\n");
+      process.exit(1);
+    }
+    fs.renameSync(staged, target);
+  }
+  const t = parse(target);
+  if (!t.ok) {
+    process.stderr.write("[mccp:intent-arbiter] no usable output: " + t.reason + "\n");
+    process.exit(1);
+  }
+' "${CLAUDE_PLUGIN_ROOT}" "$ADJUDICATION"; then
+  ARBITER_DEGRADE_REASON=""
+  echo "[mccp:intent-arbiter] arbiter output accepted — adjudication is separated" 1>&2
+else
+  # Cause is deliberately NOT enumerated. Agent not registered, tool refused, error,
+  # cancellation, returned-but-wrote-nothing, wrote-garbage — all the same branch.
+  # An earlier draft handled only "agent type not found" and every other failure fell
+  # into the runner's timeout.
+  ARBITER_DEGRADE_REASON="unknown-task-failure"
+  echo "[mccp:intent-arbiter] DEGRADING to author adjudication — see stderr above" 1>&2
+fi
+```
+
+**When `$ARBITER_DEGRADE_REASON` is non-empty**, write the adjudication yourself with
+the 5.5a-2 procedure below — with two differences: the file goes to
+`"$ADJUDICATION.degraded.tmp"` instead of `"$ADJUDICATION.tmp"`, and it carries one
+extra top-level key:
+
+```json
+"arbiter_degraded": { "from": "subagent", "to": "author", "reason": "unknown-task-failure" }
+```
+
+Write the **complete** adjudication — every field, every finding, judged by you the way
+M1 always had you judge it. Nothing here reconstructs a judgement programmatically, and
+no helper fills in default verdicts: a degradation that writes its own verdicts is an
+automatic approval, which is the "acceptance with no record" M1 exists to prevent. An
+incomplete degraded file simply dies on the M1 rules — `arbiter_degraded` exempts
+nothing.
+
+Then publish it:
+
+```bash
+node -e '
+  const fs = require("fs");
+  const ic = require(process.argv[1] + "/scripts/lib/intent-context");
+  const target = process.argv[2];
+  const staged = target + ".degraded.tmp";
+  const ok = function (p) {
+    try { return ic.parseAdjudicationFile(fs.readFileSync(p, "utf8")).ok; } catch (_) { return false; }
+  };
+  // Create-EXCLUSIVE, never clobber. A late arbiter can still land a valid file at
+  // the target, and overwriting it would erase a separation that really happened and
+  // record `author` in its place. link(2) is atomic and fails EEXIST instead.
+  let published = false;
+  try { fs.linkSync(staged, target); published = true; }
+  catch (e) {
+    if (e.code !== "EEXIST") {
+      // Hard links are unavailable on some filesystems. "wx" is create-exclusive too;
+      // writing through the fd is not atomic against the runner poll, which is why it
+      // is the fallback and not the primary.
+      try {
+        const fd = fs.openSync(target, "wx");
+        try { fs.writeSync(fd, fs.readFileSync(staged)); } finally { fs.closeSync(fd); }
+        published = true;
+      } catch (e2) { if (e2.code !== "EEXIST") throw e2; }
+    }
+  }
+  if (!published) {
+    // Re-probe and re-decide IN THIS PROCESS. Splitting the check and the write across
+    // two shell steps reopens the window between them.
+    if (ok(target)) {
+      fs.unlinkSync(staged);
+      process.stderr.write("[mccp:intent-arbiter] late arbiter output is valid — degradation CANCELLED\n");
+      process.exit(3);
+    }
+    // Guard before the mutation. Without it a staged file that is malformed, or that
+    // simply lost its `arbiter_degraded` key, dies on a raw SyntaxError/TypeError and
+    // the shell below reports "could not publish" — naming the publish step for a
+    // fault that is entirely in the file you just wrote. Still fail-closed; only the
+    // diagnosis changes, and the diagnosis is what someone acts on at 2am.
+    let body = null;
+    try { body = JSON.parse(fs.readFileSync(staged, "utf8")); } catch (e3) { body = null; }
+    if (!body || typeof body.arbiter_degraded !== "object" || body.arbiter_degraded === null) {
+      process.stderr.write("[mccp:intent-arbiter] the degraded adjudication you staged at " +
+        staged + " is not usable (unparsable, or missing the arbiter_degraded key). " +
+        "Rewrite it per 5.5a-2 including that key, then re-run this publish.\n");
+      process.exit(5);
+    }
+    body.arbiter_degraded.reason = "replaced-invalid-arbiter-output";
+    fs.writeFileSync(staged, JSON.stringify(body, null, 2));
+    fs.renameSync(staged, target);
+    process.stderr.write("[mccp:intent-arbiter] replaced an invalid late arbiter output\n");
+    process.exit(4);
+  }
+  try { fs.unlinkSync(staged); } catch (_) {}
+' "${CLAUDE_PLUGIN_ROOT}" "$ADJUDICATION"
+PUBLISH_EXIT=$?
+# 0 = degraded and published · 3 = cancelled, the arbiter won after all · 4 = replaced
+# an invalid late file. 3 leaves the seal at `subagent`, which is the honest record.
+if [ "$PUBLISH_EXIT" != "0" ] && [ "$PUBLISH_EXIT" != "3" ] && [ "$PUBLISH_EXIT" != "4" ]; then
+  # 5 = the staged file itself was unusable. Anything else = a real publish failure.
+  echo "[MCCP-INTENT-GATE-STOP] degraded adjudication not published (exit $PUBLISH_EXIT) — the stderr above says why." 1>&2
+  exit 1
+fi
+```
+
+The reason is never omitted. `unknown-task-failure` covers "we could not tell why", and
+`replaced-invalid-arbiter-output` covers "a late file was there and it was broken" —
+because an empty reason makes `parseAdjudicationFile` reject the whole degradation, and
+then the file claims nothing at all.
+
+#### 5.5a-2 — Write the adjudication yourself (`$ARBITER_MODE = author`, or after a degradation)
 
 Read `$AWAITING` (written by the runner) and produce one entry per finding. Copy
 `finding_index` and `finding_digest` **verbatim** from that file — they bind your
@@ -2388,7 +2817,32 @@ FORWARD_CODEX=$(node -e 'const fs=require("fs");try{process.stdout.write(JSON.pa
 # than none: it reads as a second line of defence that does not exist. 5.2z now
 # fails closed (exit 12) if the artifact cannot be written or does not read back,
 # so an empty value here means Codex genuinely produced no verdict.
-CODEX_VERDICT_EFF=$(cat "$REVIEW_DIR/codex-verdict" 2>/dev/null || printf '')
+#
+# M3 (L3-Codex R1 F1, high) — on the HYBRID path the verdict comes out of
+# `l3.json`, not out of the bridge file. The four L3 artifacts carry fixed names
+# and are renamed independently, so two overlapping runs can interleave as
+# A:codex-verdict → B:codex-verdict → A:l3.json. A's poll then accepts l3.json on
+# a matching nonce while this line reads B's bridge file, and the receipt seals a
+# verdict from a review of someone else's plan.
+#
+# So this block RE-VERIFIES the nonce; it does not inherit the poll's check. An
+# earlier revision said reading the same record the poll accepted made the two
+# "agree by construction" — that is true within one run and false as stated,
+# because the poll is an earlier fenced block and l3.json's name is fixed, so a
+# third overlapping run can replace the record in between. Checking it here costs
+# one comparison and makes the sentence true. A missing or mismatched nonce yields
+# an empty verdict, which drops --codex-verdict: fail-closed, and cross-gate
+# dedupe stays shut.
+#
+# The codex path is deliberately untouched (DD5): there 5.2z is the only producer,
+# there is no l3.json, and rerouting it would pull `mode=codex` into this
+# milestone's blast radius for no gain.
+if [ "$REVIEW_SOURCE" = "hybrid" ]; then
+  L3_NONCE_EXPECT=$(cat "$REVIEW_DIR/l3-run-nonce" 2>/dev/null || printf '')
+  CODEX_VERDICT_EFF=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const want=process.argv[2]||"";process.stdout.write(want!==""&&String(j.run_nonce||"")===want&&j.invoked===true&&typeof j.verdict==="string"?j.verdict:"")}catch{process.stdout.write("")}' "$REVIEW_DIR/l3.json" "$L3_NONCE_EXPECT")
+else
+  CODEX_VERDICT_EFF=$(cat "$REVIEW_DIR/codex-verdict" 2>/dev/null || printf '')
+fi
 if [ "$FORWARD_CODEX" = "1" ] && [ -n "$CODEX_VERDICT_EFF" ]; then
   WRITE_FLAGS+=(--codex-verdict "$CODEX_VERDICT_EFF")
 fi
@@ -2463,6 +2917,25 @@ fi
 # measured, not asserted). 5.2a wrote started-at as a FILE for exactly this hop.
 if [ "$REVIEW_SOURCE" = "hybrid" ]; then
   WRITE_FLAGS+=(--review-l3-invoked)
+  # …and WHY it reached that verdict. `write.js` has accepted --review-l3-reason
+  # since the field was introduced; nothing ever passed it, so every hybrid
+  # receipt recorded that L3 fired and nothing about what it saw — the boolean
+  # alone cannot distinguish a structured `approve` from a free-text fallback.
+  # `l3.json.reason` carries exactly that (`classification=ok verdict-source=…`).
+  #
+  # A hybrid decision can only exist when L3 actually ran, so the file is present
+  # here by construction. Guarded on a non-empty VALUE anyway, because
+  # schema.js:1007 rejects an empty string and would fail the whole write over a
+  # missing annotation — the flag is dropped rather than the receipt lost.
+  #
+  # Same nonce re-verification as the verdict read above, and for the same reason:
+  # a reason lifted from another run's record annotates this receipt with an
+  # explanation of a review that was not this one. An audit field is not worth
+  # less scrutiny than the verdict it explains.
+  REVIEW_L3_REASON=$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const want=process.argv[2]||"";process.stdout.write(want!==""&&String(j.run_nonce||"")===want?String(j.reason||""):"")}catch{process.stdout.write("")}' "$REVIEW_DIR/l3.json" "$L3_NONCE_EXPECT")
+  if [ -n "$REVIEW_L3_REASON" ]; then
+    WRITE_FLAGS+=(--review-l3-reason "$REVIEW_L3_REASON")
+  fi
 fi
 if [ -f "$REVIEW_DIR/started-at" ]; then
   WRITE_FLAGS+=(--review-wall-clock-ms "$(( $(date +%s%3N) - $(cat "$REVIEW_DIR/started-at") ))")

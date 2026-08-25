@@ -25,6 +25,10 @@ const { parseTableRows } = require('./markdown-table');
 // validator를 재사용한다. 이 모듈은 순수 함수이며(fs/process/clock 없음) 여기서
 // 가져오는 것도 순수 함수다.
 const { validateReason } = require('../receipt/lib/force-override-reason');
+// M2 — the degradation record names a mode on both sides, so the enum has one
+// owner. Duplicating the two strings here is how the parser and the seal oracle
+// would eventually disagree about what `author` means.
+const { ARBITER_MODES } = require('./intent-arbiter');
 
 const INTENT_KINDS = ['constraint', 'exception', 'exclusion', 'direction'];
 
@@ -507,6 +511,31 @@ function parseAdjudicationFile(text) {
       && parsed.plan_path.length > ADJUDICATION_LIMITS.PLAN_PATH_CHARS) {
     return { ok: false, reason: 'plan-path-too-long' };
   }
+  // M2 DD5 6번 — 강등은 별도 IPC 채널이 아니라 **같은 파일의 최상위 키**다. 그래서
+  // runner에 새 판독 분기가 없고, 여기서 형태만 받는다. 키 부재는 정상이다(구 파일
+  // 무손상). 위반은 예외가 아니라 **거부 사유**다 — M1의 "위반은 verdict" 원칙.
+  //
+  // 이 검사는 M1 규칙을 **면제하지 않는다**. 강등 파일도 개수·index·digest·rationale
+  // 검사를 그대로 받는다 — 강등이 곧 자동 승인이 되면 M1이 막은 "기록 없는 수용"이
+  // 강등 한 번으로 부활한다.
+  if (parsed.arbiter_degraded !== undefined && parsed.arbiter_degraded !== null) {
+    const deg = parsed.arbiter_degraded;
+    if (typeof deg !== 'object' || Array.isArray(deg)) {
+      return { ok: false, reason: 'arbiter-degraded-not-an-object' };
+    }
+    if (ARBITER_MODES.indexOf(deg.from) === -1 || ARBITER_MODES.indexOf(deg.to) === -1) {
+      return { ok: false, reason: 'arbiter-degraded-bad-mode' };
+    }
+    // 빈 사유는 강등 자체를 무효로 만든다. 원인을 특정할 수 없으면 생략하는 것이
+    // 아니라 canonical `unknown-task-failure`를 쓰는 이유가 이것이다.
+    if (typeof deg.reason !== 'string' || deg.reason.trim() === '') {
+      return { ok: false, reason: 'arbiter-degraded-reason-empty' };
+    }
+    if (deg.reason.length > ADJUDICATION_LIMITS.DISPUTE_REASON_CHARS) {
+      return { ok: false, reason: 'arbiter-degraded-reason-too-long' };
+    }
+  }
+
   const items = parsed.adjudications;
   if (!Array.isArray(items)) return { ok: false, reason: 'adjudications-not-array' };
   if (items.length > ADJUDICATION_LIMITS.ITEMS) return { ok: false, reason: 'too-many-adjudications' };
@@ -909,6 +938,14 @@ module.exports = {
   decodeBoundedEntities: decodeBoundedEntities,
   normalizeForDirectiveCheck: normalizeForDirectiveCheck,
   hasMixedScript: hasMixedScript,
+  // multi-session-work-loop M7 DD9 — 승격 표면(state-injector 의 `## Open Findings`)
+  // 이 같은 신뢰 경계 문제를 풀어야 하므로 이 네 함수를 **재사용**한다. 두 벌을
+  // 두면 §3.13 이 이미 닫은 경계가 그쪽에서만 조용히 뒤처진다. 순수 함수의 export
+  // 확대일 뿐 판정 로직은 무변경이고, 기존 소비자도 영향받지 않는다.
+  escapeReferenceText: escapeReferenceText,
+  trimDanglingEscape: trimDanglingEscape,
+  anyTokenMixedScript: anyTokenMixedScript,
+  looksDirective: looksDirective,
   isPrdModePlan: isPrdModePlan,
   extractIntentSection: extractIntentSection,
   buildIntentReference: buildIntentReference,

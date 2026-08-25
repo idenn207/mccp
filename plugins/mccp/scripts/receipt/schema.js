@@ -67,6 +67,14 @@ const ISO8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENVELOPE_PATH_RE = /^\.claude\/state\/dispatches\/[0-9a-f-]{36}\.envelope\.json$/;
 
+// v1.32.1 code-review M2 — the canonical `meta.impeccable_commands_routed[]`
+// entry shape. It lives at module scope (not inside `validate`) purely so it can
+// be exported: `write.js` owns an identical list and cannot import this one
+// without closing a require cycle (write.js -> schema.js already exists), so the
+// two are held together by an assertion in the tests rather than by a shared
+// module. Exported on both sides is what makes that assertion possible.
+const MODULE_ROUTED_ENTRY_KEYS = Object.freeze(['command', 'call_form', 'status']);
+
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -908,6 +916,15 @@ function validate(receipt) {
     const ROUTING_MODE_VALUES = ['auto', 'hybrid', 'recommend'];
     const ROUTING_CALL_FORM_VALUES = ['invoke', 'background', 'foreground-fallback', 'recommend'];
     const ROUTING_STATUS_VALUES = ['invoked', 'recommended', 'failed', 'unknown-skill', 'skipped'];
+    // v1.32.1 M6 — the canonical entry shape, kept in step with
+    // write.js#ROUTED_ENTRY_KEYS. Duplicated rather than imported because
+    // schema.js is required BY write.js; importing back would close the cycle.
+    // v1.32.1 code-review M2 — the duplication is now EXPORTED from both sides
+    // and a test asserts the two lists are identical. Duplicating without that
+    // assertion is the same defect M6 Task 5 removed from measure-evidence.js:
+    // split the list and one side can be widened while nothing turns red, at
+    // which point producer and validator disagree about what a valid entry is.
+    const ROUTED_ENTRY_KEYS = MODULE_ROUTED_ENTRY_KEYS;
     if (m.impeccable_routing_mode !== null && m.impeccable_routing_mode !== undefined) {
       req(typeof m.impeccable_routing_mode === 'string' &&
         ROUTING_MODE_VALUES.indexOf(m.impeccable_routing_mode) !== -1,
@@ -924,6 +941,21 @@ function validate(receipt) {
             err(at + ' must be an object');
             return;
           }
+          // v1.32.1 M6 — an unknown key is a producer/consumer disagreement,
+          // not noise. write.js#canonicalRoutedEntry already refuses one on the
+          // restamp path (:1223-1231); without the same rule HERE a receipt
+          // carrying an extra key validates, so the two sides of the same field
+          // disagree about what a valid entry is. Refuse rather than normalize:
+          // silently dropping the key would seal a receipt that does not match
+          // what the caller believed it recorded. No legacy carve-out — the
+          // corpus was measured at 0 non-canonical entries (M6 Task 0(b)), and
+          // an exception is precisely the door a forged entries file uses.
+          const extraKeys = Object.keys(entry).filter(function (k) {
+            return ROUTED_ENTRY_KEYS.indexOf(k) === -1;
+          });
+          req(extraKeys.length === 0,
+            at + ' must have exactly ' + ROUTED_ENTRY_KEYS.join('/') +
+            ' (unexpected key(s): ' + extraKeys.join(', ') + ')');
           req(typeof entry.command === 'string' && entry.command.length > 0,
             at + '.command must be a non-empty string');
           req(typeof entry.call_form === 'string' &&
@@ -1141,6 +1173,10 @@ function validate(receipt) {
       'free_form_plan', 'no_codex_findings', 'codex_disabled', 'codex_not_invoked',
     ];
     const INTENT_CONTRACT_VALUES = ['full', 'partial', 'absent'];
+    // M2 — mirrors intent-arbiter.js ARBITER_MODES. Kept as a literal here for the
+    // same reason every other enum in this file is: schema.js is the one module
+    // that must stay loadable with no lib/ dependency.
+    const INTENT_ARBITER_VALUES = ['subagent', 'author'];
     const INTENT_MISLABEL_MODES = ['enforce', 'warn', 'off'];
     const INTENT_MISLABEL_CLASSIFICATIONS = ['reviewer-only', 'id-mismatch'];
     // 'relabelled' is unreachable by construction (relabelling reclassifies the
@@ -1573,6 +1609,56 @@ function validate(receipt) {
         'meta.intent_gate_force_override is not true — the reason must be dropped ' +
         'when the override did not apply');
     }
+
+    // ── M2 arbiter axis — 2 present-only fields ─────────────────────────────
+    //
+    // intent_arbiter: which party this run REQUIRED to adjudicate, and whether a
+    //   degradation was observed. It is a RECORD, not a proof: plan-codex-runner
+    //   cannot observe who wrote the adjudication file, so `subagent` asserts
+    //   "this run asked for a separated arbiter and saw no degradation" and
+    //   nothing stronger (DD4). null means the axis did not apply — a skipped
+    //   gate never had an adjudication for anyone to write.
+    // intent_arbiter_degraded_reason: why the run fell back to the author.
+    //
+    // Present-only, absent from makeSkeleton: the tracked ship corpus's
+    // receipt_hash is untouched. NOT carved out of receipt_hash either — an audit
+    // field outside the hash is an unsigned field, and `validate-cmd`'s
+    // receipt-tamper check would pass over an edit to it.
+    if (m.intent_arbiter !== null && m.intent_arbiter !== undefined) {
+      req(typeof m.intent_arbiter === 'string'
+        && INTENT_ARBITER_VALUES.indexOf(m.intent_arbiter) !== -1,
+        'meta.intent_arbiter must be one of: ' +
+        INTENT_ARBITER_VALUES.join(', ') + ' (or null)');
+    }
+    if (m.intent_arbiter_degraded_reason !== null
+        && m.intent_arbiter_degraded_reason !== undefined) {
+      req(typeof m.intent_arbiter_degraded_reason === 'string'
+        && m.intent_arbiter_degraded_reason.trim().length > 0,
+        'meta.intent_arbiter_degraded_reason must be a non-empty string or null');
+    }
+    // The pairing lives HERE, in the validator, not only in a test. A rule that
+    // exists only in a test leaves the runtime acceptance path taking receipts
+    // the schema says are impossible (mirror of pr_codex_force_override above).
+    // Both directions: a degradation with no reason is an unexplained fallback,
+    // and a reason without a degradation documents something that did not happen.
+    if (m.intent_arbiter === 'author'
+        && Object.prototype.hasOwnProperty.call(m, 'intent_arbiter_degraded_reason')) {
+      // `author` covers two different runs — one that ASKED for the author and one
+      // that fell back to it — and only the second has a reason. So the forward
+      // direction is not "author implies a reason"; it is the reverse below.
+      req(m.intent_arbiter_degraded_reason === null
+        || (typeof m.intent_arbiter_degraded_reason === 'string'
+            && m.intent_arbiter_degraded_reason.trim().length > 0),
+        'meta.intent_arbiter_degraded_reason must be null or a substantive string');
+    }
+    if (typeof m.intent_arbiter_degraded_reason === 'string'
+        && m.intent_arbiter_degraded_reason.length > 0) {
+      req(m.intent_arbiter === 'author',
+        'meta.intent_arbiter_degraded_reason is sealed but meta.intent_arbiter is ' +
+        JSON.stringify(m.intent_arbiter === undefined ? null : m.intent_arbiter) +
+        ' — a degradation reason without a degradation records a fallback that ' +
+        'never happened');
+    }
   }
 
   return { ok: errors.length === 0, errors: errors };
@@ -1717,6 +1803,7 @@ module.exports = {
   DECISION_ID_RE: DECISION_ID_RE,
   UUID_V4_RE: UUID_V4_RE,
   ENVELOPE_PATH_RE: ENVELOPE_PATH_RE,
+  ROUTED_ENTRY_KEYS: MODULE_ROUTED_ENTRY_KEYS,
   validate: validate,
   makeSkeleton: makeSkeleton,
 };

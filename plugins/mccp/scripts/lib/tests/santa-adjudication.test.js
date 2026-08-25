@@ -1622,6 +1622,15 @@ const terminator = require('../santa/terminator');
 const { patchRangesFrom } = require('../santa/cli');
 const { validate: validateReceipt } = require('../../receipt/schema');
 
+// **주변 env 를 중화한다** (local review M3). 이 저장소의 tracked
+// `.claude/settings.json` 은 `MCCP_REVIEW_SINGLE_PASS=deadline_pressure` 를 싣고 있고,
+// §3.15 대로 그 값은 라운드를 여는 경로를 닫는다. 즉 **기본 개발 환경에서** 이 파일의
+// 단언이 붉어지고, 그러면 실제 회귀와 env 잡음을 구분할 수 없다. 자식 프로세스는
+// `process.env` 를 복사하므로 여기서 지우면 in-process 와 spawn 양쪽에 걸린다.
+// 이 축을 의도적으로 켜서 보는 test 는 스스로 값을 설정했다가 되돌린다.
+delete process.env.MCCP_REVIEW_SINGLE_PASS;
+
+
 const SANTA_LOOP_MD_REL = ['..', '..', '..', 'commands', 'santa-loop.md'];
 
 // 원장 fixture — CLI 경로 검증이 목적인 항목은 라운드를 8회 CLI로 쌓는 대신

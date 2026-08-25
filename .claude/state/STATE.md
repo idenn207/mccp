@@ -1,6 +1,6 @@
 ---
 state_version: 1
-task_fingerprint: santa-adjudication-m3
+task_fingerprint: impeccable-detection-contract-m5
 created_at: 2026-06-03T18:51:31.328Z
 updated_at: 2026-08-21T07:28:22.081Z
 last_event: stop_loop_pass

@@ -183,6 +183,19 @@ function formatValue(metric) {
     }
     return metric.numerator + '건';
   }
+  // M7 — C1 은 **폐쇄율과 이연률을 분리 표기**한다. 단일 폐쇄율만 보이면 이연으로
+  // 100% 를 만드는 경로가 표면에서 사라져, UI5 의 유형 분리가 렌더 층에서 무너진다.
+  // B1 의 커버리지 병기와 같은 근거로 이 지표에 한해 단일-수치 규칙(F3)보다 우선한다:
+  // 맨 `60%` 는 "60% 를 고쳤다" 로 읽히지만, 나머지 40% 가 이연인지 미해소인지는
+  // 다른 진술이고 그 둘을 한 숫자로 접는 것이 정확히 이 milestone 이 막으려는 조작이다.
+  // 신규 색 클래스를 만들지 않는다(제약 2) — 괄호 병기만으로 낸다.
+  if (metric.id === 'C1' && typeof metric.numerator === 'number'
+      && typeof metric.denominator === 'number' && metric.denominator > 0) {
+    const closure = Math.round((metric.numerator / metric.denominator) * 100);
+    const deferredRate = typeof metric.deferred_rate === 'number'
+      ? Math.round(metric.deferred_rate * 100) : null;
+    return closure + '%' + (deferredRate === null ? '' : ' (이연 ' + deferredRate + '%)');
+  }
   // Percentile 값(A2 등): value={p50,p95}면 잔여%를 직접 표시한다. num/den(=coverage)로
   // 렌더하면 모든 세션이 5% 잔여로 끝나도 100%(기록률)로 보여 고갈을 은폐한다(PR-Codex R2-F2).
   if (metric.value && typeof metric.value === 'object' && metric.value.p50 != null) {
@@ -288,6 +301,26 @@ function coReportDetails(metrics) {
       '원시 행 ' + b1.raw_row_count + '개',
       '아카이브 PRD 제외 ' + (b1.archived_excluded_count || 0) + '개',
     ].join(' · '));
+  }
+
+  // M7 — C1 유형 분해. 값 셀은 두 수치(폐쇄율·이연률)까지가 한도이므로 나머지
+  // 유형별 건수는 여기서 낸다. **새 collapse 를 열지 않는다** — B1 상세와 동일
+  // 계층(이 배열의 한 원소)이다. 신규 문자열은 em-dash 없이 `·` 와 괄호만 쓴다.
+  const c1 = metrics.C1;
+  if (c1 && c1.status === 'computed' && typeof c1.denominator === 'number') {
+    const parts = [
+      'C1 유형 분해: 해소 ' + c1.numerator + '/' + c1.denominator + '건',
+      '이연 ' + (c1.deferred_count || 0) + '건',
+      '강등 ' + (c1.downgraded_count || 0) + '건',
+      '기각 ' + (c1.rejected_count || 0) + '건',
+      '미해소 ' + (c1.open_count || 0) + '건',
+    ];
+    // 유실이 있었던 주기의 값은 깨끗한 값이 아니다(DD8). 그 사실을 값 옆이 아니라
+    // 여기서 낸다 — 감추면 계측 결함이 성적으로 보인다.
+    if (typeof c1.coverage === 'string' && c1.coverage.indexOf('degraded') !== -1) {
+      parts.push('계측 유실 있음 (하한값)');
+    }
+    lines.push(parts.join(' · '));
   }
 
   const prevented = preventedDetail(metrics);

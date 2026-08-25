@@ -7,7 +7,8 @@ const HEADER_RE = /^\|\s*Date\s*\|\s*Severity\s*\|\s*Source plan\s*\|\s*Finding\
 const SEPARATOR_RE = /^\|\s*-+\s*\|/;
 
 // GFM makes the leading and trailing pipe of a table row OPTIONAL. Requiring
-// both dropped 272 of 443 real rows silently, so the parser — not the data —
+// both dropped 272 of the 443 rows the file held WHEN THIS WAS MEASURED, so the
+// parser — not the data —
 // is what gets fixed here (M3 DD1). Loosening the row shape opens a surface
 // for prose to be misread as a row, so the date cell tightens in the same
 // change: a row is only an item when cell 0 is exactly an ISO date.
@@ -17,8 +18,19 @@ const COLUMNS = 4;
 // splitRow — GFM cell split with optional boundary pipes. Returns the content
 // cells only; an empty cell produced by a leading or trailing pipe is dropped
 // once on each side, never from the interior.
+//
+// A backslash-escaped pipe is CONTENT, not a delimiter (GFM 4.10). Splitting on
+// it tore findings that quote a regex — `/\s*\|\s*/` is real backlog text — into
+// two cells, and the rejoin below then handed the consumer `/\s* | \s*/`. That is
+// the same silent alteration this parser exists to stop, one layer down. The
+// escape is removed after the split so the cell reads as the author wrote it.
+//
+// An escaped BACKSLASH followed by a delimiter is read here as an escaped pipe.
+// GFM is ambiguous there, no backlog row has ever held one, and the cost of
+// guessing wrong is a single un-split cell — which loses nothing.
 function splitRow(line) {
-  const cells = line.trim().split(/\s*\|\s*/);
+  const cells = line.trim().split(/\s*(?<!\\)\|\s*/)
+    .map(function (c) { return c.replace(/\\\|/g, '|'); });
   if (cells.length && cells[0] === '') cells.shift();
   if (cells.length && cells[cells.length - 1] === '') cells.pop();
   return cells;

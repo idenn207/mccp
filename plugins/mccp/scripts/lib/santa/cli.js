@@ -735,16 +735,27 @@ const DIFF_HUNK_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
 //
 // 반환은 `Object.create(null)`이다 — 경로가 `__proto__`인 파일이 own property를
 // 잃고 **조용히 사라지는** 것을 막는다(오염이 아니라 소실이 여기서의 실패 모드다).
-function patchRangesFrom(rev, opts) {
+function patchRangesFrom(rev, opts, ctx) {
+  // 진단 문맥은 **호출자가 준다**. 이 함수는 두 경로가 부르는데(`check-termination`의
+  // `--prev-fix-rev` · `scope-delta`의 anchor 파일), 한쪽 문맥을 상수로 박아 두면 다른
+  // 쪽에서 **존재하지 않는 플래그와 일어나지 않는 결과**를 보고한다 — 실측으로 손상된
+  // anchor 하나가 `scope-delta`에서 "--prev-fix-rev ... the terminator will not fire"를
+  // 냈고, 그 경로에 그 플래그는 없고 terminator도 무관하며 실제 결과는 미축소였다.
+  // 기본값은 기존 호출부(`check-termination`)의 문언 그대로다.
+  const c = (ctx !== null && typeof ctx === 'object') ? ctx : {};
+  const source = (typeof c.source === 'string' && c.source !== '') ? c.source : '--prev-fix-rev';
+  const consequence = (typeof c.consequence === 'string' && c.consequence !== '')
+    ? c.consequence
+    : 'every location falls to `unknown`, and the terminator will not fire. The loop ' +
+      'ends at the cap instead.';
   const empty = Object.create(null);
   // 셸이 쓴 파일에는 trailing newline이 붙는다 — trim 없이는 정상 rev가 전부
   // 불량으로 떨어져 terminator가 영원히 미발화한다(security-reviewer 권고 1).
   const clean = typeof rev === 'string' ? rev.trim() : '';
   if (clean === '') return empty;
   if (!REV_RE.test(clean)) {
-    errln('--prev-fix-rev ' + JSON.stringify(rev) + ' is not a 7..40 hex object name; ' +
-      'patch ranges are empty, every location falls to `unknown`, and the terminator ' +
-      'will not fire. The loop ends at the cap instead.');
+    errln(source + ' ' + JSON.stringify(rev) + ' is not a 7..40 hex object name; ' +
+      'patch ranges are empty, ' + consequence);
     return empty;
   }
 
@@ -759,7 +770,7 @@ function patchRangesFrom(rev, opts) {
       });
   } catch (_err) {
     errln('git show ' + clean + ' failed or exceeded the output limit; patch ranges are ' +
-      'empty and the terminator will not fire.');
+      'empty, ' + consequence);
     return empty;
   }
 
@@ -1445,7 +1456,16 @@ function cmdScopeDelta(args) {
     // **조회한 anchor는 범위를 냈든 아니든 `revs`에 남는다** — 진단에서 "anchor는 있는데
     // hunk가 0"과 "anchor 자체가 없다"를 가르는 것이 `revs`와 `reason`의 조합이다.
     revs.push(rev);
-    const ranges = patchRangesFrom(rev, opts);
+    const ranges = patchRangesFrom(rev, opts, {
+      // 경로 구분자는 슬래시로 접는다 — `hook-trace.toRepoRelative`가 표면 경로에
+      // 쓰는 규약과 같다. Windows 경로를 JSON.stringify하면 `\`가 이스케이프돼
+      // 두 배로 늘어난 것이 진단으로 읽힌다.
+      source: 'the rev in fix anchor ' +
+        JSON.stringify(path.relative(repoRoot, a.file).split(path.sep).join('/')) + ' —',
+      consequence: 'so this anchor contributes no ranges. The scope narrows LESS ' +
+        '(or not at all, reason `no-ranges`) — the safe direction. No termination ' +
+        'decision is involved on this path.',
+    });
     Object.keys(ranges).forEach(function (k) {
       if (!Object.prototype.hasOwnProperty.call(union, k)) union[k] = [];
       ranges[k].forEach(function (pair) { union[k].push(pair); });

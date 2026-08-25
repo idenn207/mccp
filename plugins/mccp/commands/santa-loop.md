@@ -376,8 +376,13 @@ fi
 # --ranges-file is Step 1's delta output, passed through verbatim (M1 Task 3). It makes
 # the target-path lines read `- path:12-40, 88-95` instead of `- path`. Nothing else
 # about the prompt changes: there is no argument on `buildBlindPrompt` that could carry
-# a sentence about a prior round, which is the structural half of UI2. The file is absent
-# on a non-delta round and the flag is then omitted.
+# a sentence about a prior round, which is the structural half of UI2.
+#
+# Step 1 writes this file on EVERY run, including `mode=off`, where it holds `{}`.
+# So the flag is normally present and the empty map renders exactly the `- path`
+# lines M1 never touched. What `-s` covers is the abnormal case: Step 1 did not run,
+# or its write failed. Do not read a present flag as "this is a delta round" — the
+# discriminator is `applied` in $DELTA_JSON, which the stderr line above reports.
 RANGES_FLAG=""
 if [ -s "$TMPDIR_SANTA/delta-ranges.json" ]; then
   RANGES_FLAG="--ranges-file $TMPDIR_SANTA/delta-ranges.json"
@@ -393,6 +398,13 @@ if [ "$LANES_EXIT" -ne 0 ]; then
   echo "[santa] NOT launching reviewers: without an assignment a zero-blind round" 1>&2
   echo "[santa] would succeed silently, and record would reject it at exit 2 anyway," 1>&2
   echo "[santa] throwing away the round's tokens." 1>&2
+  echo "[santa] If stderr names SANTA_SCOPE_ASSERTION, the RUBRIC you authored in" 1>&2
+  echo "[santa] Step 2 matched the UI2 denylist. On a delta round that list is applied" 1>&2
+  echo "[santa] to the whole assembled prompt, and it cannot tell a status claim from" 1>&2
+  echo "[santa] an instruction to re-review (\"이미 검토된 곳도 다시 본다\" trips it)." 1>&2
+  echo "[santa] Recovery: reword that criterion and run Step 3 again. The round stays" 1>&2
+  echo "[santa] OPEN (verdict null), so begin-round returns the SAME index and spends" 1>&2
+  echo "[santa] no cap — retrying is free. Do not weaken the denylist to get past it." 1>&2
   exit "$LANES_EXIT"
 fi
 

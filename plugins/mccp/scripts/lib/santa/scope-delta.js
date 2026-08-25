@@ -426,6 +426,15 @@ function deltaCoverageFrom(projection) {
   return { deltaRounds: deltaRounds, pathsDropped: pathsDropped, rounds: rounds.length };
 }
 
+// 위 두 패턴 목록(`SCOPE_ASSERTION_PATTERNS` · `PRIOR_ROUND_PATTERNS`)은 export되므로
+// 소비처가 `.length = 0`으로 검사기를 조용히 끌 수 있다. 원소 집합을 고정하는 test가
+// 정적으로 잡지만, freeze는 그 창을 런타임에서도 닫는다. **정의 자리가 아니라 여기서**
+// 얼리는 것은 위쪽 줄 번호를 밀지 않기 위해서다 — `detection-corpus.js:15-16`이 이
+// 파일의 절을 줄 번호로 인용한다. 원소인 RegExp 자체는 얼리지 않는다: `g` 플래그가
+// 없어 `lastIndex` 상태가 없고, 얼리면 미래의 정당한 패턴 추가까지 막는다.
+Object.freeze(SCOPE_ASSERTION_PATTERNS);
+Object.freeze(PRIOR_ROUND_PATTERNS);
+
 module.exports = {
   ENV_DELTA_SCOPE: ENV_DELTA_SCOPE,
   DELTA_SCOPE_DEFAULT: DELTA_SCOPE_DEFAULT,

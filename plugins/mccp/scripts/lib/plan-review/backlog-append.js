@@ -21,12 +21,13 @@
 // 원소이므로 함께 적재한다. **적재는 판정이 아니다.**
 //
 // ── 소비자 계약 (DD4) ──
-// derive/sources/backlog.js:37이 셀을 리터럴 파이프로 분할하고 셀 수가 모자란
-// 행을 조용히 `continue`로 버린다. 그래서 렌더 전에 파이프를 HTML 수치 참조로
-// 치환한다 — 마크다운은 그것을 파이프로 렌더하고 파서는 분할하지 않는다
-// (`&#124;`에는 리터럴 파이프 문자가 없다). 열은 정확히 4개를 유지한다:
-// backlog.js:6의 헤더 정규식이 그 4열을 리터럴로 고정하므로 5번째 열을 만들면
-// 파서가 표 전체를 찾지 못해 기존 행이 한꺼번에 사라진다.
+// derive/sources/backlog.js:31(`splitRow`)이 셀을 파이프로 분할한다. 그래서 렌더
+// 전에 파이프를 HTML 수치 참조로 치환한다 — 마크다운은 그것을 파이프로 렌더하고
+// 파서는 분할하지 않는다(`&#124;`에는 리터럴 파이프 문자가 없다). santa-delta-review
+// M3이 그 분할에 백슬래시 이스케이프 예외를 더했지만(`|`는 내용이다) 이 치환은
+// 그것과 무관하게 유효하고, 이스케이프보다 단순하므로 그대로 둔다.
+// 열은 정확히 4개를 유지한다: backlog.js:6의 헤더 정규식이 그 4열을 리터럴로
+// 고정하므로 5번째 열을 만들면 파서가 표 전체를 찾지 못해 기존 행이 한꺼번에 사라진다.
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -215,15 +216,16 @@ function deriveBacklogRows(opts) {
   const repoRoot = typeof o.repoRoot === 'string' ? o.repoRoot : '';
   const planPath = normalizeRepoPath(o.planPath, repoRoot);
   const reviewPath = normalizeRepoPath(reviewRecordPath(o.slug), repoRoot);
-  // 빈 date 셀은 소비자에게 **행이 없는 것과 같다** — derive/sources/backlog.js:43이
-  // date가 빈 행을 조용히 버리므로, 허용하면 파일에는 있으나 어느 소비자도 읽지
-  // 못하는 행이 된다. 그것은 적재가 아니라 유실이고, 헤더 부재를 실패로 다루는
+  // 빈 date 셀은 소비자에게 **행이 없는 것과 같다** — derive/sources/backlog.js:79가
+  // ISO date가 아닌 행을 item에서 제외하므로, 허용하면 파일에는 있으나 어느 소비자도
+  // 읽지 못하는 행이 된다(M3 이후 그 행은 `invalid_count`로 계수되고 `degraded`를
+  // 켜므로 더는 조용하지 않다 — 그러나 여전히 item이 아니다). 그것은 적재가 아니라 유실이고, 헤더 부재를 실패로 다루는
   // 것과 같은 이유로 여기서 멈춘다. 추론하지 않는 이유도 같다: 순수 오라클이
   // `new Date()`를 읽으면 같은 입력이 실행 시각마다 다른 행을 낸다.
   const today = (typeof o.today === 'string' && o.today.trim()) ? o.today.trim() : '';
   if (today === '') {
     throw new Error('deriveBacklogRows: opts.today is absent — an empty date cell is ' +
-      'dropped by derive/sources/backlog.js:43, so the row would be written to the file ' +
+      'dropped by derive/sources/backlog.js:79, so the row would be written to the file ' +
       'and be invisible to every consumer');
   }
 

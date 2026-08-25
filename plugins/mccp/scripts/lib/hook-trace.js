@@ -91,6 +91,13 @@ function repoBaseDir(repoRoot) {
 // **fail-open이 요건이다**(DD6-2). hook이 던져서 도구 호출을 막는 것은 이 축이 사려는
 // 것이 아니므로 git이 없든 cwd가 저장소 밖이든 절대 던지지 않는다.
 // mirror: `hooks/session-activity-tracker.js:358-360` 의 `gitRepoRoot(cwd)`.
+//
+// **`receipt/hash.js#gitRepoRoot`를 재사용하지 않는 것은 의도다.** 이 모듈은 fail-open
+// hook 두 개가 부팅 경로에서 require하는데, `receipt/hash`는 canonicalization·해시·
+// receipt 스키마 보조까지 끌고 들어온다 — 그 그래프에서 나는 어떤 로드 실패도 hook을
+// degraded로 만들고, 그것이 정확히 v1.20.5가 닫은 실패 모드다. 그래서 이 축은 자기
+// 의존을 `child_process` 하나로 묶는다. 대가는 같은 git 호출의 세 번째 사본이고,
+// 그 사본들은 계약이 서로 다르다(이쪽은 절대 던지지 않고 cwd로 접는다).
 function resolveRepoRoot(event) {
   const cwd = (event && typeof event.cwd === 'string' && event.cwd) ? event.cwd : process.cwd();
   try {

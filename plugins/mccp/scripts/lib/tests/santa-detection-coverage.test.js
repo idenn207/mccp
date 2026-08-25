@@ -207,6 +207,86 @@ test('oracle — 계층이 열거 밖이면 합산에 들어가지 않고 unmatc
   assert.deepEqual(cmp.unmatched, [{ id: 'D1', side: 'class-unknown' }]);
 });
 
+// ── M3 Task 2 — 미측정이 무손실로 읽히지 않는다 ─────────────────────────────
+//
+// `degraded`의 정의는 건드리지 않는다(M3 DD3). 세 축이 닫는 것은 그 필드가 답하지 못하는
+// 질문들이다 — 재기는 했는가 · delta 쪽 형태 이탈도 세는가 · id를 못 읽은 레코드가
+// 어딘가에 남는가.
+
+test('M3 — 전건이 형태 이탈이면 measured=false이고 degraded는 여전히 false다', () => {
+  const junk = [{ id: 'D1', class: 'A_IN_FIX', inScope: false, reason: 'unknown' }];
+  const cmp = corpusLib.compareCoverage({ fullCoverage: junk, deltaCoverage: junk });
+  // `degraded`만 보면 "손실 없음"으로 읽힌다 — 바로 그것이 옆에 토큰을 둔 이유다.
+  assert.equal(cmp.degraded, false);
+  assert.equal(cmp.measured, false);
+  assert.equal(cmp.degradedReason, corpusLib.COVERAGE_DEGRADED_REASONS.UNMEASURED);
+});
+
+test('M3 — 실제로 비교된 쌍이 있으면 measured=true이고 사유가 손실 여부를 가른다', () => {
+  const clean = corpusLib.compareCoverage({
+    fullCoverage: [{ id: 'D1', class: 'A_IN_FIX', inScope: true, reason: 'in-range' }],
+    deltaCoverage: [{ id: 'D1', class: 'A_IN_FIX', inScope: true, reason: 'in-range' }],
+  });
+  assert.equal(clean.measured, true);
+  assert.equal(clean.degraded, false);
+  assert.equal(clean.degradedReason, corpusLib.COVERAGE_DEGRADED_REASONS.NONE);
+
+  const lost = corpusLib.compareCoverage({
+    fullCoverage: [{ id: 'D1', class: 'C_DROPPED_PATH', inScope: true, reason: 'path-unrestricted' }],
+    deltaCoverage: [{ id: 'D1', class: 'C_DROPPED_PATH', inScope: false, reason: 'path-dropped' }],
+  });
+  assert.equal(lost.measured, true);
+  assert.equal(lost.degraded, true);
+  assert.equal(lost.degradedReason, corpusLib.COVERAGE_DEGRADED_REASONS.LOST);
+});
+
+test('M3 — delta 쪽 형태 이탈도 totals.unknown에 세어진다 (양측 계수)', () => {
+  const cmp = corpusLib.compareCoverage({
+    fullCoverage: [{ id: 'D1', class: 'A_IN_FIX', inScope: true, reason: 'in-range' }],
+    deltaCoverage: [{ id: 'D1', class: 'A_IN_FIX', inScope: false, reason: 'unknown' }],
+  });
+  // 색인만 훑던 시절 이 값은 0이었다 — delta 쪽 이탈이 한 번도 세어지지 않았다.
+  assert.equal(cmp.totals.unknown, 1);
+  assert.equal(cmp.measured, false, '한쪽이 이탈이면 그 쌍은 비교된 것이 아니다');
+
+  const both = corpusLib.compareCoverage({
+    fullCoverage: [{ id: 'D1', class: 'A_IN_FIX', inScope: false, reason: 'unknown' }],
+    deltaCoverage: [{ id: 'D1', class: 'A_IN_FIX', inScope: false, reason: 'unknown' }],
+  });
+  assert.equal(both.totals.unknown, 2, '양측이 이탈이면 2다');
+});
+
+test('M3 — id를 못 읽은 레코드는 unmatched에 unindexable로 남는다', () => {
+  const cmp = corpusLib.compareCoverage({
+    fullCoverage: [
+      { id: null, class: 'A_IN_FIX', inScope: false, reason: 'unknown' },
+      { id: 'D1', class: 'A_IN_FIX', inScope: true, reason: 'in-range' },
+    ],
+    deltaCoverage: [
+      { id: undefined, class: 'A_IN_FIX', inScope: false, reason: 'unknown' },
+      { id: 'D1', class: 'A_IN_FIX', inScope: true, reason: 'in-range' },
+    ],
+  });
+  const unindexable = cmp.unmatched.filter(function (u) { return u.side === 'unindexable'; });
+  assert.equal(unindexable.length, 2, '양측 각 1건이 남는다');
+  assert.deepEqual(unindexable[0], { id: null, side: 'unindexable' });
+  // 색인이 건너뛰던 시절 이 레코드들은 totals에도 unmatched에도 없었다.
+  assert.equal(cmp.totals.unknown, 2);
+});
+
+test('M3 — 신규 필드는 추가일 뿐 기존 필드를 바꾸지 않는다', () => {
+  const cmp = corpusLib.compareCoverage({
+    fullCoverage: [{ id: 'D1', class: 'A_IN_FIX', inScope: true, reason: 'in-range' }],
+    deltaCoverage: [{ id: 'D1', class: 'A_IN_FIX', inScope: true, reason: 'in-range' }],
+  });
+  assert.deepEqual(Object.keys(cmp).sort(),
+    ['byClass', 'degraded', 'degradedReason', 'measured', 'totals', 'unmatched']);
+  assert.deepEqual(Object.keys(cmp.totals).sort(), ['delta', 'full', 'lost', 'unknown']);
+  // 닫힌 enum — 소비처가 무엇이든 받는 필드를 갖지 않게 한다.
+  assert.ok(corpusLib.COVERAGE_DEGRADED_REASON_VALUES.indexOf(cmp.degradedReason) !== -1);
+  assert.equal(corpusLib.COVERAGE_DEGRADED_REASON_VALUES.length, 3);
+});
+
 // ── 사전 등록 규칙 (DD3) ─────────────────────────────────────────────────────
 
 test('DD3 — 규칙 문장은 plan 본문과 축자 일치하고 상수로 동결된다', () => {

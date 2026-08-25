@@ -76,6 +76,20 @@ const COVERAGE_REASON_VALUES = Object.keys(COVERAGE_REASONS).map(function (k) {
   return COVERAGE_REASONS[k];
 });
 
+// `degraded`가 답하지 못하는 질문이 하나 있다: **재기는 했는가.** 전 레코드가 형태 이탈이면
+// `full=0, delta=0`이라 `degraded=false`가 되고, 측정 실패가 "손실 없음"과 같은 값으로 접힌다.
+// `degraded`의 정의를 넓혀서 고치면 기존 소비처의 명제가 조용히 달라지므로, `FLIP_DECISIONS`가
+// ABSENT를 DEGRADED와 다른 토큰으로 둔 것과 같은 수단을 쓴다 — 옆에 토큰을 하나 더 둔다(M3 DD3).
+const COVERAGE_DEGRADED_REASONS = {
+  LOST: 'containment-lost',        // 재봤고 delta < full
+  NONE: 'no-containment-loss',     // 재봤고 손실 없음
+  UNMEASURED: 'not-measured',      // 비교 가능한 쌍이 0 — 미상이지 무손실이 아니다
+};
+
+const COVERAGE_DEGRADED_REASON_VALUES = Object.keys(COVERAGE_DEGRADED_REASONS).map(function (k) {
+  return COVERAGE_DEGRADED_REASONS[k];
+});
+
 // ── flip 판정 토큰 ───────────────────────────────────────────────────────────
 //
 // DD3의 규칙은 조건문 하나지만 **전건이 성립하지 않는 경우**가 따로 있다. 규칙은
@@ -478,10 +492,23 @@ function compareCoverage(opts) {
   const unmatched = [];
   const totals = { full: 0, delta: 0, lost: 0, unknown: 0 };
 
+  // 형태 이탈과 색인 불가는 **배열에서** 센다. 색인을 훑으면 (a) delta 쪽 unknown이 한 번도
+  // 세어지지 않고 (b) id를 못 읽은 레코드는 `indexRecords`가 건너뛰므로 어느 집계에도 남지
+  // 않는다 — corpus 조립이 깨진 만큼 정확히 조용해진다(M3 DD4).
+  [full, delta].forEach(function (records) {
+    records.forEach(function (r) {
+      if (r.reason === COVERAGE_REASONS.UNKNOWN) totals.unknown += 1;
+      if (typeof r.id !== 'string') unmatched.push({ id: null, side: 'unindexable' });
+    });
+  });
+
+  // 「재기는 했는가」의 근거. 양쪽에 다 있고, 계층이 열거 안이고, 형태 이탈이 아닌 쌍만
+  // 실제로 비교된 것이다.
+  let compared = 0;
+
   Object.keys(fullById).forEach(function (id) {
     const f = fullById[id];
     const d = deltaById[id];
-    if (f.reason === COVERAGE_REASONS.UNKNOWN) totals.unknown += 1;
     if (!d) {
       unmatched.push({ id: id, side: 'delta-missing' });
       return;
@@ -493,6 +520,9 @@ function compareCoverage(opts) {
       // 넣지 않고, 조용히 버리지도 않는다.
       unmatched.push({ id: id, side: 'class-unknown' });
       return;
+    }
+    if (f.reason !== COVERAGE_REASONS.UNKNOWN && d.reason !== COVERAGE_REASONS.UNKNOWN) {
+      compared += 1;
     }
     if (f.inScope) { bucket.full += 1; totals.full += 1; }
     if (d.inScope) { bucket.delta += 1; totals.delta += 1; }
@@ -509,11 +539,19 @@ function compareCoverage(opts) {
     }
   });
 
+  const degraded = totals.delta < totals.full;
+  const measured = compared > 0;
+
   return {
     byClass: byClass,
     totals: totals,
     unmatched: unmatched,
-    degraded: totals.delta < totals.full,
+    // 정의 무변경 — 기존 소비처의 명제를 건드리지 않는다(M3 DD3).
+    degraded: degraded,
+    measured: measured,
+    degradedReason: !measured
+      ? COVERAGE_DEGRADED_REASONS.UNMEASURED
+      : (degraded ? COVERAGE_DEGRADED_REASONS.LOST : COVERAGE_DEGRADED_REASONS.NONE),
   };
 }
 
@@ -598,6 +636,8 @@ module.exports = {
   DEFECT_ID_RE: DEFECT_ID_RE,
   COVERAGE_REASONS: COVERAGE_REASONS,
   COVERAGE_REASON_VALUES: COVERAGE_REASON_VALUES,
+  COVERAGE_DEGRADED_REASONS: COVERAGE_DEGRADED_REASONS,
+  COVERAGE_DEGRADED_REASON_VALUES: COVERAGE_DEGRADED_REASON_VALUES,
   FLIP_DECISIONS: FLIP_DECISIONS,
   FLIP_DECISION_VALUES: FLIP_DECISION_VALUES,
   buildCorpus: buildCorpus,

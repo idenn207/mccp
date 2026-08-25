@@ -103,11 +103,11 @@ const RAW = [
   ['MCCP_STOP_LOOP_CODEX', 'bool', B, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/hooks/stop-review-loop.js:53', 'Stop-loop에 Codex 병행.'],
   ['MCCP_AUTO_CHAIN_DISABLE', 'bool', B, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/lib/auto-chain.js:141', 'auto-chain 자동 진행 중단.'],
   ['MCCP_AUTO_CHAIN_SKIP_PR', 'bool', B, 'off', OFF, 'active', 'gates', 'plugins/mccp/commands/prp-implement.md:1615', 'commit까지만, PR 생략.'],
-  ['MCCP_GATE_ROUND_CAP', 'int', null, '1', null, 'active', 'gates', 'plugins/mccp/scripts/lib/review-single-pass.js:31', '게이트 라운드 상한.'],
+  ['MCCP_GATE_ROUND_CAP', 'int', null, '1', null, 'active', 'gates', 'plugins/mccp/scripts/lib/review-single-pass.js:42', '게이트 라운드 상한.'],
   ['MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/scripts/lib/pr-phase-helpers/finalize-receipt.js:318', '비수렴 ship override.'],
-  ['MCCP_FORCE_PR_WITHOUT_IMPECCABLE', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:45', 'impeccable 미가용 override.'],
+  ['MCCP_FORCE_PR_WITHOUT_IMPECCABLE', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:61', 'impeccable 미가용 override.'],
   ['MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:659', 'security 미가용 override.'],
-  ['MCCP_PR_SKIP_CODEX_REVIEW', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:71', 'PR-Codex skip escape.'],
+  ['MCCP_PR_SKIP_CODEX_REVIEW', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:87', 'PR-Codex skip escape.'],
   ['MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:846', 'design chain 차단 1회 우회.'],
   ['MCCP_GATEGUARD', 'enum', ['on', 'off'], 'on', null, 'active', 'gates', 'plugins/mccp/scripts/hooks/gateguard-fact-force.js:438', 'gateguard hook 활성.'],
   // 운영자가 설정하는 토글이 아니라 게이트 사이에서 전달되는 신호다. 이름에
@@ -118,7 +118,7 @@ const RAW = [
   // 게이트가 스스로 도출해 자식 프로세스에 넘기는 값이며, 파싱도 JS가 아니라
   // 셸 비교(`[ "${CODEX_DEDUPE_AT_PR:-0}" = "1" ]`)라 공유 파서를 지나지 않는다.
   // `values: ['1']`은 그 셸 비교가 인정하는 유일한 값을 그대로 적은 것이다.
-  ['CODEX_DEDUPE_AT_PR', 'string', ['1'], null, null, 'internal', 'gates', 'plugins/mccp/commands/pr.md:101', 'cross-gate dedupe 전달 신호.'],
+  ['CODEX_DEDUPE_AT_PR', 'string', ['1'], null, null, 'internal', 'gates', 'plugins/mccp/commands/pr.md:117', 'cross-gate dedupe 전달 신호.'],
   // 두 detector는 boolean이 아니라 **가용성 3상태**를 받는다. 미설정이면 settings
   // 신호를 실제로 probe하므로 정적 default가 없다 — `default: null`은 "확정 불가"가
   // 아니라 "리터럴 default가 존재하지 않는다"는 사실이다.
@@ -243,7 +243,7 @@ const RAW = [
   ['GITHUB_TOKEN', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/github-discussions.js:38', 'gh 인증 토큰.'],
   ['ECC_DISABLED_MCPS', 'list', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/hooks/mcp-health-check.js:55', 'ECC 비활성 MCP 목록.'],
   ['CLV2_HOMUNCULUS_DIR', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/hooks/observe-runner.js:73', 'CLv2 instinct 디렉토리.'],
-  ['IMPECCABLE_FORCE_OVERRIDE_REASON', 'string', null, null, null, 'active', 'external', 'plugins/mccp/commands/prp-implement.md:713', 'impeccable 게이트 override.'],
+  ['IMPECCABLE_FORCE_OVERRIDE_REASON', 'string', null, null, null, 'active', 'external', 'plugins/mccp/commands/prp-implement.md:701', 'impeccable 게이트 override.'],
   ['IMPECCABLE_VERSION', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:277', 'impeccable 버전 문자열.'],
   ['IMPECCABLE_NO_UPDATE_CHECK', 'bool', B, 'off', OFF, 'not-consumed', 'external', 'docs/environment/external.md:315', '업데이트 확인 끔.'],
   ['IMPECCABLE_UPDATE_HOST', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:345', '업데이트 확인 호스트.'],

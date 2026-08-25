@@ -673,6 +673,22 @@ This phase applies when the command is invoked as `/mccp:plan`. It implements th
 
 After the plan artifact is written in Phase 4:
 
+### 5.-1 — Seal the Codex policy for this gate execution (v1.32.6)
+
+Write the operator policy to disk **before any round runs**. From here on the
+authority on "is Codex disabled?" is `codex-policy`, not `process.env` — so a
+later round cannot resurrect Codex by clearing the variable. `seal` resolves the
+git dir itself (worktree-safe) and exits 0 even when it fails, because a failed
+seal must degrade to the pre-v1.32.6 behaviour (env only) rather than stop the gate.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-policy.js" seal 1>&2
+```
+
+**Never unset, override, or re-export `MCCP_CODEX_DISABLED` anywhere in this
+command.** It is a persistent operator policy, not a one-shot escape, and R1 does
+not consume it.
+
 ### 5.0 — impeccable design gate (자동, /mccp:plan 진입 시 MANDATORY, v0.2.6 Milestone 1 · v1.3.0-m2 3-axis trigger)
 
 Pre-flight detection — pre-commits to mode and feeds skill_available / design_signal:
@@ -2193,6 +2209,16 @@ After R1's YAGNI triage table (5.3) is written, escalate ONLY if BOTH:
   (b) The R1 absorption could not fully resolve it (Claude self-attests in plan body)
 If escalate triggers, run R2 with focus restricted to the unresolved item(s).
 
+> **Codex가 비활성이면 R2는 존재하지 않는다.** 캡이 1로 pin되어 있고, 설령 그 캡을
+> 지나쳐 호출하더라도 `codex-invoke.js`가 spawn 직전에 봉인된 정책을 읽어
+> `disabled`로 short-circuit한다.
+>
+> **`MCCP_CODEX_DISABLED`는 1회성 escape가 아니라 영구 운영자 정책이다.** 게이트는
+> 어떤 라운드에서도 이 변수를 해제하거나 override하거나 `0`으로 재설정하지 않는다.
+> R1이 이를 소진하지 않는다. 진짜 1회성인 형제 토글들(`MCCP_SKIP_RECEIPT`,
+> `MCCP_PR_SKIP_CODEX_REVIEW`)과 혼동하지 말 것.
+
+
 Read the cap from the shared oracle — do NOT hardcode a literal here. It is the
 one source the three gates agree on, and it pins the cap to 1 whenever
 `MCCP_REVIEW_SINGLE_PASS` carries a valid reason, whatever `MCCP_GATE_ROUND_CAP`
@@ -2200,11 +2226,16 @@ holds (review-loop-bypass M1):
 
 ```bash
 ROUND_CAP_JSON=$(node -e '
-  const {effectiveRoundCap}=require(process.argv[1]+"/scripts/lib/review-single-pass");
-  process.stdout.write(JSON.stringify(effectiveRoundCap(process.env)));
+  const root = process.argv[1];
+  const policy = require(root + "/scripts/lib/codex-policy");
+  const {effectiveRoundCap} = require(root + "/scripts/lib/review-single-pass");
+  const gitDir = policy.resolveGitDir(process.cwd());
+  const codexDisabled = policy.resolveCodexDisabled({ gitDir: gitDir, env: process.env });
+  process.stdout.write(JSON.stringify(effectiveRoundCap(process.env, { codexDisabled: codexDisabled })));
 ' "${CLAUDE_PLUGIN_ROOT}")
 ROUND_CAP=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).cap))}catch{process.stdout.write("1")}' <<<"$ROUND_CAP_JSON")
-node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));if(j.pinned)process.stderr.write("[mccp:single-pass] round cap pinned to "+j.cap+" by MCCP_REVIEW_SINGLE_PASS="+j.reason+"\n")}catch(_){}' <<<"$ROUND_CAP_JSON"
+node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));if(j.note)process.stderr.write("[mccp:round-cap] "+j.note+" (pinnedBy="+j.pinnedBy+")
+")}catch(_){}' <<<"$ROUND_CAP_JSON"
 ```
 
 Repeat up to `$ROUND_CAP` rounds (default `1`, allowed `1`/`2`/`3`). Beyond the cap,

@@ -39,8 +39,13 @@ const FAKE_PASS_PATTERNS = [
 const FILE_PATH_RE =
   /\b((?:[a-zA-Z0-9_.\-]+[\/\\])*[a-zA-Z0-9_.\-]+\.(?:js|ts|tsx|jsx|mjs|cjs|md|json|py|go|rs))\b/g;
 
+// M3 Task 5 (DD7) — plan 표의 `Files to Change` 첫 열은 관례상 백틱으로 감싼 경로다.
+// 백틱을 제거하지 않으면 파싱 결과가 백틱을 달고 나오고 diff 경로는 맨몸이라
+// `isInPlan`이 **영구 미매칭**한다 — 변경 파일 전부가 unplanned로 보고되고, 항상
+// 발화하는 가드는 꺼진 가드와 같다.
 function normalizePath(p) {
-  return String(p || '').replace(/\\/g, '/').replace(/^\.\//, '').trim();
+  return String(p || '').replace(/`/g, '')
+    .replace(/\\/g, '/').replace(/^\.\//, '').trim();
 }
 
 function isInPlan(file, planFiles) {

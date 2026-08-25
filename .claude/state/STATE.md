@@ -1,10 +1,10 @@
 ---
 state_version: 1
-task_fingerprint: impeccable-detection-contract-m5
+task_fingerprint: santa-adjudication-m3
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-21T07:28:22.081Z
-last_event: stop_loop_pass
-last_event_at: 2026-08-21T07:28:22.081Z
+updated_at: 2026-08-25T03:32:10.449Z
+last_event: precompact
+last_event_at: 2026-08-25T03:32:10.449Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -15,7 +15,7 @@ escalate_pending: true
 escalate_pending_decision_id: santa-delta-review
 ---
 ## Goal
-santa-delta-review M2 구현 완료 (Layer 1 착지 · Layer 2 미실행) — 커밋/PR 대기.
+santa-delta-review M3 구현 완료 (사이클 잔여 마감) — 커밋 완료, PR 대기.
 
 ## Plan
 - plan: `.claude/plans/santa-delta-review-m2.plan.md` — `plan_hash` sha256:60931158…로 mccp-plan-codex가 봉인. **편집 금지**(편집하면 stale → PR이 §3.11 guard 2에 막힌다)
@@ -45,12 +45,11 @@ santa-delta-review M2 구현 완료 (Layer 1 착지 · Layer 2 미실행) — �
 plan Task 6은 minor(1.31.0)를 지시했으나 그 전제(PRD 전 milestone 완료)가 성립하지 않는다 — Layer 2 미실행이라 PRD M2를 complete로 적을 수 없고, complete가 아니면 §3.7상 patch다. 동시에 main이 1.30.1을 다른 축에 선점한 것이 확인돼 forward-only 상향으로 M1을 1.30.2, M2를 1.30.3에 착지시켰다.
 
 ## Open Questions
-- Layer 2(라이브 리뷰어 비교) 미실행 — 세션 지시가 서브에이전트 발화를 금지. PRD Open Question으로 이연했고 default off를 묶는 것이 정확히 이 부재다
-- 탐지율 보존은 여전히 미주장 — 배송된 Layer 1은 containment(보일 기회)를 재고 detection(찾는가)을 재지 않는다
-- 이 저장소 settings의 MCCP_REVIEW_SINGLE_PASS가 전체 스위트를 상시 53 red로 만든다(제거 시 대부분 통과). 상시 red는 새 red를 묻는다 — backlog HIGH
-- plan-conflict-detector 호출부가 두 점 diff를 써서 발산 브랜치에서 항상 오발화(74 unplanned, 실제 집합으로는 conflict:false) — backlog MEDIUM
-- (main 승계) 선재 red: renderer verdict-label.test.js · b2-coverage-gate 2건
-- (main 승계) worktree cleanup .worktrees/review-loop-bypass-m2 잔존
+- Layer 2(라이브 리뷰어 비교) 여전히 미실행 — PRD Open Question으로 열려 있고 그것이 default off를 묶는다. 아카이브 보류(DD10)
+- M3는 cross-model adversarial review를 받지 않았다 — Plan-Codex 미발화(receipt 부재) + Implement-Codex는 MCCP_CODEX_DISABLED=1로 skip. 실제 리뷰는 L2 패널 3라운드뿐
+- security-reviewer 미발화(UI9 운영 제약) — receipt에 security_skipped=true 봉인, /mccp:pr에서 blocking으로 남는다
+- 선재 red 1건 승계: hooks/tests/ecc-context-monitor.test.js Axis B (f) — origin/main과 byte 동일, backlog 이연
+- /mccp:pr 진입 직전 §3.7 version 재계산 필수 (이 사이클에서 이미 세 번 충돌)
 
 ## Last Updated
-2026-08-21T07:28:22.081Z
+2026-08-25T03:32:10.449Z

@@ -122,7 +122,7 @@ test('explain resolves the code vocabulary alongside the documented values', () 
 //
 // **잃은 것을 적어 둔다**: CLI의 격리 표면(exit 1 + «계약 격리 대상» 출력)은 이제
 // 직접 test되지 않는다. CLI를 자식 프로세스로 띄우므로 합성 격리를 주입할 수 없기
-// 때문이다. 그 분기의 규칙은 lint.test.js의 합성 격리(L10)와 doctor.test.js의
+// 때문이다. 그 분기의 규칙은 lint.test.js의 합성 격리(L11)와 doctor.test.js의
 // DD4 test가 나눠 덮는다.
 test('explain of a formerly quarantined toggle now reads clean (M2 배수)', () => {
   const r = run(['explain', 'MCCP_PLAN_REVIEW']);

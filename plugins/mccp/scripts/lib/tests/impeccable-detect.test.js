@@ -32,13 +32,46 @@ function withEnv(overrides, fn) {
   }
 }
 
+// A SKILL.md shaped like the real ones (frontmatter fence, then `version`).
+function writeSkillFixture(dir, version) {
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'SKILL.md');
+  fs.writeFileSync(file, ['---', 'name: impeccable', 'version: ' + version, '---', '', 'body'].join('\n'), 'utf8');
+  return file;
+}
+
+// The key is `impeccable@impeccable` on a default install — the old fixture
+// planted `impeccable@anthropics` with installPath '/fake', so it encoded two
+// errors at once and the suite kept them alive. The install tree is now real,
+// because a plugin entry whose installPath is not on disk is deliberately not
+// counted (stale installPath = `install-path-stale`).
 function writePluginsManifest(dir, hasImpeccable) {
   const file = path.join(dir, 'installed_plugins.json');
-  const payload = hasImpeccable
-    ? { version: 2, plugins: { 'impeccable@anthropics': [{ scope: 'user', version: '0.1.0', installPath: '/fake' }] } }
-    : { version: 2, plugins: {} };
+  let payload = { version: 2, plugins: {} };
+  if (hasImpeccable) {
+    const installPath = path.join(dir, 'plugin-cache');
+    writeSkillFixture(path.join(installPath, 'skills', 'impeccable'), '4.1.1');
+    payload = {
+      version: 2,
+      plugins: { 'impeccable@impeccable': [{ scope: 'user', version: '4.1.1', installPath: installPath }] },
+    };
+  }
   fs.writeFileSync(file, JSON.stringify(payload), 'utf8');
   return file;
+}
+
+// v1.31.1 M1 — resolveImpeccable added a PROJECT channel that defaults to
+// <repoRoot>/.claude/skills/impeccable, and this repository has a real copy
+// there. Without pinning repoRoot and projectSkillDir at a fixture path,
+// every probe below would read the developer's own checkout instead of its
+// fixture — two of these cases were already passing for that reason rather
+// than for the reason they claim to assert.
+function probeOpts(dir, over) {
+  return Object.assign({
+    repoRoot: dir,
+    projectSkillDir: path.join(dir, 'no-project-skill'),
+    userSkillDir: path.join(dir, 'no-user-skill'),
+  }, over || {});
 }
 
 // === Mode plumbing ===
@@ -170,7 +203,7 @@ test('probeSkillAvailable: impeccable plugin entry in manifest → true', () => 
   withTempDir((dir) => {
     const file = writePluginsManifest(dir, true);
     withEnv({ MCCP_IMPECCABLE_SKILL: undefined }, () => {
-      assert.strictEqual(detector.probeSkillAvailable({ installedPluginsPath: file }), true);
+      assert.strictEqual(detector.probeSkillAvailable(probeOpts(dir, { installedPluginsPath: file })), true);
     });
   });
 });
@@ -179,10 +212,10 @@ test('probeSkillAvailable: empty manifest → false', () => {
   withTempDir((dir) => {
     const file = writePluginsManifest(dir, false);
     withEnv({ MCCP_IMPECCABLE_SKILL: undefined }, () => {
-      assert.strictEqual(detector.probeSkillAvailable({
+      assert.strictEqual(detector.probeSkillAvailable(probeOpts(dir, {
         installedPluginsPath: file,
         userSkillDir: path.join(dir, 'nonexistent-impeccable'),
-      }), false);
+      })), false);
     });
   });
 });
@@ -209,12 +242,12 @@ test('isDesignPlanPath: matches .claude/design/*.design.plan.md', () => {
 test('probeSkillAvailable: user-level skill directory triggers true (no manifest entry)', () => {
   withTempDir((dir) => {
     const userSkillDir = path.join(dir, 'impeccable');
-    fs.mkdirSync(userSkillDir);
+    writeSkillFixture(userSkillDir, '3.5.0');
     withEnv({ MCCP_IMPECCABLE_SKILL: undefined }, () => {
-      const result = detector.probeSkillAvailable({
+      const result = detector.probeSkillAvailable(probeOpts(dir, {
         installedPluginsPath: writePluginsManifest(dir, false),
         userSkillDir: userSkillDir,
-      });
+      }));
       assert.strictEqual(result, true);
     });
   });
@@ -223,10 +256,10 @@ test('probeSkillAvailable: user-level skill directory triggers true (no manifest
 test('probeSkillAvailable: missing user-level skill directory + no manifest entry returns false', () => {
   withTempDir((dir) => {
     withEnv({ MCCP_IMPECCABLE_SKILL: undefined }, () => {
-      const result = detector.probeSkillAvailable({
+      const result = detector.probeSkillAvailable(probeOpts(dir, {
         installedPluginsPath: writePluginsManifest(dir, false),
         userSkillDir: path.join(dir, 'nonexistent-impeccable'),
-      });
+      }));
       assert.strictEqual(result, false);
     });
   });
@@ -235,10 +268,10 @@ test('probeSkillAvailable: missing user-level skill directory + no manifest entr
 test('probeSkillAvailable: plugin manifest still wins when user-level skill directory absent', () => {
   withTempDir((dir) => {
     withEnv({ MCCP_IMPECCABLE_SKILL: undefined }, () => {
-      const result = detector.probeSkillAvailable({
+      const result = detector.probeSkillAvailable(probeOpts(dir, {
         installedPluginsPath: writePluginsManifest(dir, true),
         userSkillDir: path.join(dir, 'nonexistent-impeccable'),
-      });
+      }));
       assert.strictEqual(result, true);
     });
   });
@@ -247,12 +280,12 @@ test('probeSkillAvailable: plugin manifest still wins when user-level skill dire
 test('probeSkillAvailable: env override "missing" beats user-level skill directory presence', () => {
   withTempDir((dir) => {
     const userSkillDir = path.join(dir, 'impeccable');
-    fs.mkdirSync(userSkillDir);
+    writeSkillFixture(userSkillDir, '3.5.0');
     withEnv({ MCCP_IMPECCABLE_SKILL: 'missing' }, () => {
-      const result = detector.probeSkillAvailable({
+      const result = detector.probeSkillAvailable(probeOpts(dir, {
         installedPluginsPath: writePluginsManifest(dir, false),
         userSkillDir: userSkillDir,
-      });
+      }));
       assert.strictEqual(result, false);
     });
   });
@@ -261,11 +294,70 @@ test('probeSkillAvailable: env override "missing" beats user-level skill directo
 test('probeSkillAvailable: env override "available" beats both manifest and directory absence', () => {
   withTempDir((dir) => {
     withEnv({ MCCP_IMPECCABLE_SKILL: 'available' }, () => {
-      const result = detector.probeSkillAvailable({
+      const result = detector.probeSkillAvailable(probeOpts(dir, {
         installedPluginsPath: writePluginsManifest(dir, false),
         userSkillDir: path.join(dir, 'nonexistent-impeccable'),
-      });
+      }));
       assert.strictEqual(result, true);
+    });
+  });
+});
+
+// === v1.31.1 M1 — the six reporting fields detect() layers on top ===
+
+// CLAUDE.md §3.17 and the CHANGELOG both call detect() a STRICT SUPERSET of the
+// pre-M1 shape. That is a claim about EVERY branch, not just the resolved one,
+// and the rejected --plan branch quietly broke it: it returned the eight old
+// keys and none of the six new ones, so a consumer reading impeccable_source
+// there could not tell `null` (measured, unknown) from `undefined` (never
+// asked) — a distinction this repo relies on elsewhere. Nothing pinned it,
+// which is why the omission survived to code review.
+const RESOLUTION_KEYS = [
+  'impeccable_invocation', 'impeccable_source', 'impeccable_version',
+  'impeccable_path', 'impeccable_sources', 'impeccable_shadowed',
+];
+
+test('detect: every branch carries the six reporting fields', () => {
+  withTempDir((dir) => {
+    withEnv({ MCCP_IMPECCABLE_SKILL: undefined }, () => {
+      const base = probeOpts(dir, { installedPluginsPath: writePluginsManifest(dir, false) });
+      const branches = [
+        ['mode-mismatch', detector.detect(Object.assign({ mode: 'bogus' }, base))],
+        ['path-traversal', detector.detect(Object.assign({ mode: 'plan', planPath: '../../../etc/passwd' }, base))],
+        ['resolved', detector.detect(Object.assign({ mode: 'plan', planPath: 'absent-plan.md' }, base))],
+      ];
+      branches.forEach(([label, result]) => {
+        RESOLUTION_KEYS.forEach((key) => {
+          assert.ok(
+            Object.prototype.hasOwnProperty.call(result, key),
+            label + ' branch (reason=' + result.reason + ') is missing ' + key
+          );
+        });
+      });
+      // The branch that was broken, named outright so a regression reads plainly.
+      assert.strictEqual(branches[1][1].reason, 'path-traversal');
+    });
+  });
+});
+
+test('detect: the six fields carry exactly what the oracle resolved', () => {
+  withTempDir((dir) => {
+    const projectSkillDir = path.join(dir, 'project-skill');
+    writeSkillFixture(projectSkillDir, '3.5.0');
+    withEnv({ MCCP_IMPECCABLE_SKILL: undefined }, () => {
+      const opts = probeOpts(dir, {
+        installedPluginsPath: writePluginsManifest(dir, false),
+        projectSkillDir: projectSkillDir,
+      });
+      const resolved = detector.resolveImpeccable(opts);
+      const result = detector.detect(Object.assign({ mode: 'implement' }, opts));
+      // detect() must not resolve a second time and disagree with itself.
+      assert.strictEqual(result.impeccable_invocation, resolved.invocation);
+      assert.strictEqual(result.impeccable_source, 'project');
+      assert.strictEqual(result.impeccable_version, '3.5.0');
+      assert.strictEqual(result.impeccable_shadowed, false);
+      assert.strictEqual(result.skill_available, resolved.available);
+      assert.deepStrictEqual(result.impeccable_sources, resolved.sources);
     });
   });
 });

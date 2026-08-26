@@ -74,7 +74,7 @@ We'll know we're right when **운영자가 명령 하나로 자신의 설정이 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | 계약 대조 + 설정 진단 | 계약이 코드와 어긋나면 착지가 막힌다. 운영자가 명령 하나로 자기 설정이 선언대로 도달했는지 안다 | complete | .claude/plans/env-contract-integrity-m1.plan.md |
-| 2 | 어긋난 값 수리 + 값 의미·멤버 어휘 문서화 | 문서가 가르치는 값이 전부 실제로 동작하고, 각 값이 무엇을 켜고 끄는지 읽을 수 있다 | in-progress | .claude/plans/env-contract-integrity-m2.plan.md |
+| 2 | 어긋난 값 수리 + 값 의미·멤버 어휘 문서화 | 문서가 가르치는 값이 전부 실제로 동작하고, 각 값이 무엇을 켜고 끄는지 읽을 수 있다 | complete | .claude/plans/env-contract-integrity-m2.plan.md |
 | 3 | 라운드 캡 기계 강제 | 단일통과 토글을 켜면 실제로 1라운드에서 멈춘다 | pending | — |
 | 4 | 문서 생성 자동화 + 착지 게이트 | 토글을 추가하면 문서가 생성된다. 갱신을 잊으면 착지가 막힌다 | pending | — |
 | 5 | 온보딩 계층 + 설정 안내 명령 | 설치 시 주요 설정을 하나씩 설명받고 정한다. 나중에 무엇을 설정했는지 되짚을 수 있다 | pending | — |

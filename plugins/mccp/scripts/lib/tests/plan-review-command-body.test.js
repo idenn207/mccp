@@ -253,3 +253,166 @@ test('R5: every artifact the recorder reads is reset at Phase 5.2 entry', () => 
   assert.ok(startedAtIdx > entryIdx,
     'the purge must run before started-at is stamped, not after');
 });
+
+// ── codex-intent-context M3 — the hybrid L3 wiring ───────────────────────────
+//
+// M3's whole claim is that hybrid no longer delegates to 5.2z. That claim lives
+// in markdown, which is exactly the surface this file exists to lint: the oracles
+// under it can be perfectly green while the block that calls them says something
+// else. Each assertion below pins one sentence of the claim.
+
+// A markdown heading and a bash comment are the same three characters at the
+// start of a line. Terminating a section on `/^#{1,4} /` alone cut 5.2f off at
+// its first `# comment` — eight lines in — and every assertion below then ran
+// against a body that did not contain the wiring it was checking, which is a
+// LINT THAT SILENTLY PASSES if the regex happens to be a doesNotMatch. Ask the
+// fence tracker whether the line is code before treating it as a heading.
+function sectionLines(startRe, label) {
+  const bashNums = new Set(bashBlockLines().map((b) => b.n));
+  const start = LINES.findIndex((l) => startRe.test(l));
+  assert.ok(start >= 0, 'section not found: ' + label);
+  let end = LINES.length;
+  for (let i = start + 1; i < LINES.length; i++) {
+    if (bashNums.has(i + 1)) continue;
+    if (/^#{1,4} /.test(LINES[i])) { end = i; break; }
+  }
+  assert.ok(end - start > 8,
+    'section ' + label + ' resolved to ' + (end - start) + ' lines — that is a ' +
+    'boundary-detection failure, not a short section');
+  return LINES.slice(start, end).map((line, k) => ({ line: line, n: start + k + 1 }));
+}
+
+function splitBash(sectionRows) {
+  const bashNums = new Set(bashBlockLines().map((b) => b.n));
+  return {
+    bash: sectionRows.filter((r) => bashNums.has(r.n)),
+    prose: sectionRows.filter((r) => !bashNums.has(r.n)),
+  };
+}
+
+test('M3 (a): the hybrid L3 section never launches plan-codex-runner', () => {
+  // The double-writer removal is structural, not sequenced: hybrid does not start
+  // the runner at all, so "the runner finishes before 5.6b" is not a race that can
+  // be lost — it is a race that does not exist (DD1). One line of the runner's
+  // name inside 5.2f would restore it silently, because both writers would still
+  // produce a receipt and only the interleaving would decide which survived.
+  const { bash } = splitBash(sectionLines(/^#### 5\.2f — /, '5.2f'));
+  assert.ok(bash.length > 0, 'expected fenced bash inside 5.2f');
+  const offenders = bash
+    .filter((b) => /plan-codex-runner/.test(b.line))
+    .map((b) => ({ line: b.n, text: b.line.trim() }));
+  assert.deepEqual(offenders, [],
+    '5.2f must not invoke plan-codex-runner.js — that is the receipt writer, and ' +
+    '5.6b writes the receipt on this path');
+});
+
+test('M3 (b): 5.2f no longer tells the operator to run 5.2z verbatim', () => {
+  // The prose is the other half of the wiring. It used to say "execute 5.2z's
+  // block verbatim", and an operator following it would launch the runner even
+  // with the shell here clean. Mentioning 5.2z is fine and necessary (5.2f
+  // explains why it does NOT run it); pairing it with `verbatim` on one line is
+  // the instruction that must not come back.
+  const { prose } = splitBash(sectionLines(/^#### 5\.2f — /, '5.2f'));
+  const offenders = prose
+    .filter((b) => /5\.2z/.test(b.line) && /verbatim/i.test(b.line))
+    .map((b) => ({ line: b.n, text: b.line.trim() }));
+  assert.deepEqual(offenders, [],
+    '5.2f must not instruct verbatim execution of 5.2z; L3 has its own subcommand');
+});
+
+test('M3 (c): hybrid_without_l3 is actually consumed by the command body', () => {
+  // cmdMode computed this field from the first day of the mode oracle and nothing
+  // read it, so `MCCP_PLAN_REVIEW=hybrid` alone spent a full panel to reach a
+  // conclusion the environment had already fixed. A value computed and never read
+  // is indistinguishable from one that is not computed at all.
+  const readers = bashBlockLines().filter((b) => /hybrid_without_l3/.test(b.line));
+  assert.ok(readers.length > 0,
+    'hybrid_without_l3 is computed by cli.js mode but no bash block reads it');
+});
+
+test('M3 (d): the hybrid-without-L3 halt costs zero agents', () => {
+  // The acceptance criterion is "agents 0", not merely "it halts". That property
+  // is positional: the halt has to sit before the reservation, because after it
+  // the panel has been paid for whether or not it answers.
+  const halt = LINES.findIndex((l) => /^#### 5\.2a-0 — /.test(l));
+  const reserve = LINES.findIndex((l) => /^#### 5\.2b — /.test(l));
+  assert.ok(halt >= 0, '5.2a-0 section is missing');
+  assert.ok(reserve >= 0, '5.2b section is missing');
+  assert.ok(halt < reserve,
+    '5.2a-0 must precede 5.2b; after the reservation the agents are already charged');
+
+  const { bash } = splitBash(sectionLines(/^#### 5\.2a-0 — /, '5.2a-0'));
+  const spends = bash
+    .filter((b) => /orchestration-runaway\.js" reserve|Workflow|Task\(/.test(b.line))
+    .map((b) => ({ line: b.n, text: b.line.trim() }));
+  assert.deepEqual(spends, [],
+    '5.2a-0 must not reserve or launch anything — it exists to stop before that');
+
+  const body = bash.map((b) => b.line).join('\n');
+  assert.match(body, /--halt-stage 5\.2a-0 /,
+    '5.2a-0 must record its own halt like every other stop in 5.2');
+  assert.match(body, /\bexit 12\b/,
+    '5.2a-0 must exit; a recorder is non-blocking and would leave the branch at 0');
+});
+
+test('M3 (e): 5.2f calls the l3 subcommand and accepts only its own record', () => {
+  // DD6 moved the nonce from the PATH (5.2z's shape, where the runner owns its own
+  // filenames) into the RECORD, because l3.json's name is fixed — `decide` and 5.6b
+  // both read it by that name. A poll that only tested for the file's existence
+  // would accept a survivor from another run, which is how a stale `converged`
+  // reaches a fresh receipt.
+  const { bash } = splitBash(sectionLines(/^#### 5\.2f — /, '5.2f'));
+  const body = bash.map((b) => b.line).join('\n');
+
+  assert.match(body, /plan-review\/cli\.js" l3 /,
+    '5.2f must invoke the dedicated l3 subcommand');
+  assert.match(body, /--run-nonce "\$RUN_NONCE"/,
+    'the l3 call must carry this run\'s nonce');
+  assert.match(body, /\.run_nonce/,
+    'the poll must read run_nonce back out of the record');
+  assert.match(body, /"\$GOT_NONCE" = "\$RUN_NONCE"/,
+    'the poll must COMPARE the record\'s nonce to this run\'s, not merely read it');
+  assert.match(body, /nohup /,
+    'the l3 call must be detached — codex 900s exceeds the Bash tool\'s 600s cap');
+});
+
+test('M3 (f): the focus text is built through a quoted heredoc, never inlined', () => {
+  // Security review, absorbed. Everywhere else in this file the Codex focus is a
+  // shell LITERAL typed into the markdown, so a backtick or `$(` inside a phrase
+  // lifted out of the plan is shell source. A single-quoted heredoc performs no
+  // expansion on its body, which makes whatever the author writes inert.
+  const { bash } = splitBash(sectionLines(/^#### 5\.2f — /, '5.2f'));
+  const body = bash.map((b) => b.line).join('\n');
+  assert.match(body, /<<'L3FOCUS'/,
+    'the focus heredoc delimiter must be QUOTED; an unquoted one expands its body');
+  assert.match(body, /--focus "\$L3_FOCUS"/,
+    'the focus must reach the subcommand as a quoted variable, not as an inline literal');
+});
+
+test('M3 (g): a hybrid receipt records WHY L3 reached its verdict', () => {
+  // write.js has accepted --review-l3-reason since the field existed; nothing
+  // passed it, so every hybrid receipt said L3 fired and nothing about what it
+  // saw. The boolean alone cannot separate a structured `approve` from a
+  // free-text fallback, which is the one distinction the audit needs.
+  const bash = bashBlockLines().map((b) => b.line).join('\n');
+  assert.match(bash, /--review-l3-invoked/, 'the L3 boolean forward is missing');
+  assert.match(bash, /--review-l3-reason "\$REVIEW_L3_REASON"/,
+    '5.6b must forward the L3 reason alongside the boolean');
+});
+
+test('M3 (h): a hybrid receipt takes its verdict from the nonce-verified record', () => {
+  // L3-Codex R1 F1, absorbed. The four L3 artifacts have fixed names and are
+  // renamed independently, so overlapping runs can interleave A:codex-verdict →
+  // B:codex-verdict → A:l3.json. A's poll accepts l3.json on a matching nonce
+  // while a bridge-file read returns B's verdict, and the receipt then seals a
+  // verdict produced by a review of a different plan. Reading the same record the
+  // poll accepted makes the two agree by construction.
+  //
+  // The codex path must keep reading the bridge file: 5.2z is its only producer
+  // there and there is no l3.json to read (DD5).
+  const bash = bashBlockLines().map((b) => b.line).join('\n');
+  assert.match(bash, /CODEX_VERDICT_EFF=.*l3\.json/,
+    'the hybrid branch must derive CODEX_VERDICT_EFF from l3.json');
+  assert.match(bash, /CODEX_VERDICT_EFF=\$\(cat "\$REVIEW_DIR\/codex-verdict"/,
+    'the non-hybrid branch must keep reading the bridge artifact unchanged');
+});

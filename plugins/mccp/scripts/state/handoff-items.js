@@ -121,6 +121,55 @@ function readStateFrontmatter(statePath) {
   }
 }
 
+// ── multi-session-work-loop M7 Task 5 — finding 승격 ─────────────────────────
+//
+// 미해소 HIGH·CRITICAL finding 을 다음 세션의 작업 목록에 올린다. 임계는
+// `PROMOTE_MIN_SEVERITY` **상수**이고 env 토글을 만들지 않는다(UI7 · DD1) —
+// CLAUDE.md §3.14 가 이미 저장소를 운영하고 있는 규칙(CRITICAL·HIGH 만 흡수)의
+// 세션 경계 확장이므로 임계가 저장소 관행과 일치한다.
+//
+// **레지스트리 읽기 실패는 열거 전체를 막지 않는다** — 나머지 세 유형은 그대로
+// 나온다. 계측이 인계를 막으면 그것이 이 milestone 이 없애려는 실패 모드다.
+function enumerateOpenFindings(cwd) {
+  try {
+    const registry = require('./findings-registry');
+    const all = registry.readAll({ repoRoot: cwd });
+    const promotable = all.findings.filter(function (f) { return registry.isPromotable(f); });
+
+    // 심각도 내림차순 — 상한에 걸릴 때 CRITICAL 이 먼저 남는다.
+    promotable.sort(function (a, b) {
+      return registry.severityRank(b.severity) - registry.severityRank(a.severity);
+    });
+
+    const truncated = Math.max(0, promotable.length - registry.PROMOTE_MAX_ITEMS);
+    const kept = promotable.slice(0, registry.PROMOTE_MAX_ITEMS);
+    return {
+      items: kept.map(function (f) {
+        return {
+          type: 'finding',
+          id: f.finding_id,
+          // 리뷰어 산문은 레지스트리에 없다(allowlist 에 `claim` 이 없다) — 여기
+          // 실리는 텍스트는 우리 어휘 + 리뷰어가 **주장한** 경로뿐이고, 원문은
+          // 리뷰 기록이 갖는다. 그 포인터를 name 에 담아 다음 세션이 찾아갈 수 있게 한다.
+          name: (f.severity || 'UNKNOWN') + ' ' + (f.perspective || '?') +
+            (f.cited_path ? ' · ' + f.cited_path : ''),
+          source: '.claude/reviews/plan-review-' + (f.work_unit || 'unknown') + '.md',
+          severity: f.severity || null,
+          perspective: f.perspective || null,
+          cited_path: f.cited_path || null,
+          work_unit: f.work_unit || null,
+        };
+      }),
+      truncated: truncated,
+      total_open_promotable: promotable.length,
+    };
+  } catch (err) {
+    process.stderr.write('[mccp:handoff-items] findings promotion skipped (' +
+      ((err && err.message) || err) + ') — the other item types are unaffected\n');
+    return { items: [], truncated: 0, total_open_promotable: 0 };
+  }
+}
+
 // 열거 함수: 미완 항목 목록
 function enumerateUnfinishedItems(cwd) {
   cwd = cwd || process.cwd();
@@ -202,6 +251,10 @@ function enumerateUnfinishedItems(cwd) {
   } catch (_e) {
     // 디렉토리 읽기 실패는 무시
   }
+
+  // 4. 승격된 finding (M7 Task 5) — 미해소 HIGH·CRITICAL.
+  const promoted = enumerateOpenFindings(cwd);
+  promoted.items.forEach(function (f) { items.push(f); });
 
   return items;
 }
@@ -300,6 +353,7 @@ function restoreAndMatch(currentSessionId, opts) {
 // 공개 API
 module.exports = {
   enumerateUnfinishedItems,
+  enumerateOpenFindings,
   writeHandoffItems,
   restoreAndMatch,
   readStateFrontmatter,

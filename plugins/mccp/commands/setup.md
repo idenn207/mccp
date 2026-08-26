@@ -1,7 +1,7 @@
 ---
-description: "Install mccp's required dependencies (codex plugin + impeccable CLI) and run /codex:setup"
+description: "Install mccp's required dependencies (codex plugin + impeccable skill) and run /codex:setup"
 argument-hint: "[--dry-run | --skip-codex | --skip-impeccable | --skip-gitignore]"
-allowed-tools: Bash(node:*), Bash(claude:*), Bash(npm:*), Bash(impeccable:*), Bash(git:*), AskUserQuestion, Skill(codex:setup)
+allowed-tools: Bash(node:*), Bash(claude:*), Bash(npx impeccable:*), Bash(git:*), AskUserQuestion, Skill(codex:setup)
 ---
 
 # /mccp:setup — install dependencies idempotently
@@ -17,7 +17,7 @@ Flags (parse from `$ARGUMENTS`):
 - `--dry-run` — detection only. Skip every install/AskUserQuestion. Report what
   each Phase *would* do and write nothing.
 - `--skip-codex` — do not install or chain codex plugin (Phase 2 + 4 noop).
-- `--skip-impeccable` — do not install impeccable CLI (Phase 3 noop).
+- `--skip-impeccable` — do not resolve or install the impeccable skill (Phase 3 noop).
 - `--skip-gitignore` — do not touch the repository `.gitignore` (Phase 5 noop).
 
 **Flag → shell binding (mandatory).** Phases whose bash reads a flag get it as an
@@ -45,9 +45,20 @@ Parse the JSON. Display a small table to the user:
 ```
 mccp dep-check
   codex plugin    : installed (v1.0.4) | missing
-  impeccable CLI  : installed (/path)  | missing
+  impeccable skill: available (project v3.5.0, impeccable) | ambiguous (2 sources) | missing
+  impeccable CLI  : installed (/path)  | missing  [telemetry only — no gate reads this]
   codex disabled  : yes (MCCP_CODEX_DISABLED=1) | no
 ```
+
+The two impeccable rows answer **different questions** and are expected to
+disagree. `impeccable skill` is `checkImpeccable()` — does the name our command
+bodies call resolve to a skill body, and through which channel. Since v1.31.3
+that name is not hardcoded: each design gate reads the resolved invocation from
+this same oracle, so the channel reported here is the channel the gates use. `impeccable CLI` is a PATH probe for a binary named `impeccable`,
+which only an npm-global install leaves behind. Only the first has decision
+authority: no gate branch and no phase below reads the CLI row (v1.0.0-baseline
+F-W1-2 prescribed two honest fields over one ambiguous one). `ambiguous` means
+two bare-name bodies were found and the oracle refuses to guess which one opens.
 
 If `--dry-run` was passed, print which Phases 2/3/4 *would* execute, then skip
 Phases 2/3/4 and advance to Phase 5. Phase 5 has its own read-only dry-run path
@@ -85,30 +96,184 @@ do not retry blindly.
 
 ---
 
-## Phase 3 — Install impeccable CLI
+## Phase 3 — Resolve the impeccable skill
 
 Skip entirely if `--skip-impeccable` was passed.
 
-If `checkImpeccableCli().installed === false`, use `AskUserQuestion` **once**:
+### 3.1 — Entry condition: already resolved means ask nothing
 
-- Question: `impeccable is a separate npm CLI (not a Claude plugin). Install globally with npm?`
-- Options:
-  - `Install impeccable (Recommended)` — runs both steps below
-  - `Skip` — leave it missing; /mccp:impeccable will not work
+Read `checkImpeccable()` from the Phase 1 JSON (`result.impeccable`). **If
+`available === true`, skip this entire Phase** — do not call `AskUserQuestion`,
+do not install, do not offer to install. Report one line and move on:
 
-On `Install`:
-
-```bash
-npm install -g impeccable
-impeccable skills install
+```
+impeccable skill: already resolved via <source> v<version> as `<invocation>` — nothing to install.
 ```
 
-The second command deploys SKILL files into `~/.claude/skills/`. If
-`npm install -g` fails with a permission error, surface the stderr and tell
-the user that nvm or a user-local npm prefix is required — do not attempt
-`sudo` automatically.
+This gate reads the **skill resolution**, never the PATH probe. The version
+before M2 branched on the CLI row instead, so every user who had installed
+impeccable through the plugin, project, or user channel — leaving no
+`impeccable` binary on PATH — was asked to install it again on every run.
 
-Then re-run `dep-check --json` and report.
+When `shadowed === true` the answer is still `available`, so this Phase still
+skips: two bodies resolving is not a missing dependency. Report the ambiguity in
+the same line (`ambiguous (N sources)`). Phase 3.5 below owns what to do about
+it -- and its answer for the shadowed case is to show the paths and stop, because
+`impeccable-cleanup` refuses every source when no winner is established.
+
+### 3.2 — Install branch (only when `available === false`)
+
+Use `AskUserQuestion` **once**, with three options:
+
+- Question: `impeccable's design-review skill does not resolve. Install it?`
+- Options:
+  - `Install impeccable plugin (Recommended)` — the official plugin channel
+  - `Install via npx CLI` — the official CLI channel
+  - `Skip` — leave it unresolved (consequences in 3.4)
+
+On `Install impeccable plugin`, run the marketplace + install pair. **This form
+is measured, not assumed**: `.claude/notes/impeccable-detection-contract-m2.md`
+Task 0 (b) confirmed `claude plugin marketplace add` and `claude plugin install`
+are real subcommands of the installed `claude` CLI, and confirmed the chain
+`pbakaus/impeccable` → marketplace `impeccable` → key `impeccable@impeccable`
+from `known_marketplaces.json` + `installed_plugins.json`.
+
+```bash
+claude plugin marketplace add pbakaus/impeccable
+claude plugin install impeccable@impeccable
+```
+
+If the `claude` binary is unavailable in this environment, do **not** invent a
+CLI form. Fall back to having the user run the official slash commands
+themselves — that is outside what this command can perform, so the "no manual
+steps" rule does not apply (README uses the same shape for codex):
+
+```
+/plugin marketplace add pbakaus/impeccable
+/plugin install impeccable@impeccable
+```
+
+On `Install via npx CLI`, run the official CLI installer from the repo root:
+
+```bash
+npx impeccable install
+```
+
+### 3.3 — After any install, re-check and re-report (mandatory)
+
+Whichever branch ran, re-run the detector and reprint the Phase 1 table so the
+user sees the state that now exists rather than the one from before the install:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dep-check.js" --json
+```
+
+Report the refreshed `impeccable skill` row verbatim. Skipping this step leaves
+the command reporting stale Phase 1 state as if it were the outcome. If an
+install reports an interactive prompt or a permission error, surface the stderr
+verbatim and stop — do not retry blindly and do not attempt `sudo`.
+
+### 3.4 — Say what the chosen channel actually buys (both branches)
+
+The plugin channel registers the skill under `<pluginName>:<skillDirName>`, so a
+plugin-only install resolves as `impeccable:impeccable`. **Since v1.31.3 the mccp
+command bodies no longer hardcode a call form**: each design gate reads the
+resolved invocation out of `impeccable-detect.js` and prints it as one
+`[mccp:impeccable] call-form:` line, which is what the gate then invokes. Every
+official channel therefore fires the design gate, and no channel needs an env
+override to do it (UI1).
+
+So print this, once, after the install:
+
+```
+Note: the plugin channel registers this skill as `impeccable:impeccable` rather than
+the bare `impeccable`. mccp's gates read the resolved name at run time, so both forms
+fire the design gate — the `impeccable skill` row above shows which body opens.
+```
+
+Do not turn this into a recommendation for one channel over another. All four
+channels are supported and none is deprecated (UI2); the `impeccable skill` row
+from 3.3 is what tells the operator which body their install actually opens.
+
+
+### 3.5 — Report the other copies, and offer cleanup only when it is real
+
+Runs on every invocation, install branch or not. It reads the SAME dep-check
+result Phase 1 already produced -- no second probe.
+
+Ask the oracle what may be removed. This command never decides that itself:
+the rejection rules are code, and a command body that reasoned about paths
+would be a second, weaker copy of them.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-cleanup.js" plan --json
+```
+
+Branch on the JSON, not on impressions:
+
+| State | What to show |
+|---|---|
+| `shadowed === true` | Print every row in `skipped` with its path. Say plainly that two bodies answer the same name and mccp does not know which one opens. **Show no removal option.** Leave the choice with the user. |
+| `removable.length > 0` | Print all sources, mark which one opens, then `AskUserQuestion` **once** (below). |
+| `removable.length === 0` and `skipped.length > 0` | Print the rows and say why nothing is offered -- see the note below. **Show no removal option.** |
+| neither | Say nothing. One resolved copy is not a finding. |
+
+The `shadowed` row shows no removal option because `impeccable-cleanup` rule (6)
+would refuse it anyway: with no winner, "never delete the winner" cannot be
+evaluated, so every source is refused. Offering the action here would be
+proposing something the oracle is built to reject.
+
+**Why `removable` is always empty today, and what to say instead.** A bare
+source always wins, so a bare copy is either the winner (rule 1 protects it) or
+one of two bare copies (rule 6 refuses both). What is left eclipsed is a
+`plugin` row, and rule 2 keeps those out: plugin removal is
+`claude plugin uninstall`'s job, and deleting a cache directory behind the
+registry leaves `installed_plugins.json` pointing at nothing. The one
+configuration that used to escape all three -- `MCCP_IMPECCABLE_SKILL=available`,
+under which every real copy is eclipsed because the winner is the override
+itself -- is refused by rule 7: that winner names no body on disk, so "never
+delete the winner" cannot be evaluated against it. So this Phase reports and
+does not act, in every configuration. Say that, with the reason and the
+paths -- do not soften it into "nothing to do", and do not offer a removal the
+next command would refuse:
+
+```
+impeccable resolves via <source> v<version> as `<invocation>`.
+<N> other cop(y|ies) are installed and are NOT opened:
+  - <source> v<version>  <path>
+mccp will not remove these: a plugin copy is removed with `claude plugin uninstall`,
+and the copy that opens is never deleted. Remove one by hand if you want only one left.
+```
+
+When `removable.length > 0`, use `AskUserQuestion` **once**:
+
+- Question: `<N> eclipsed impeccable cop(y|ies) found. Remove?`
+- Options:
+  - `Keep both (Recommended)` -- change nothing
+  - `Remove the eclipsed copy` -- run the apply command below
+  - `Show paths only` -- print the paths and stop
+
+On `Remove the eclipsed copy`, for the chosen row's `source`:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-cleanup.js" apply \
+  --source <project|user> --confirm --json
+```
+
+Under `--dry-run` (the flag this command was invoked with), call `plan` only and
+never `apply` -- in either branch.
+
+The apply step re-derives every check from a fresh resolution; it does not trust
+the plan output above. If it exits non-zero, surface `reason` and `message`
+verbatim and stop. Do not retry, do not fall back to `rm`, and do not commit --
+a tracked copy is left staged on purpose so the user can review and revert it.
+
+Then re-run the detector and reprint the `impeccable skill` row, exactly as 3.3
+requires after an install:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dep-check.js"
+```
 
 ---
 
@@ -274,7 +439,14 @@ user what state the gates are in:
 - codex missing AND not disabled → gates run, Codex calls auto-fallback per
   call (slower, noisier — `/mccp:setup` again or set
   `MCCP_CODEX_DISABLED=1` to silence).
-- impeccable missing → `/mccp:impeccable` will refuse; other gates unaffected.
+- impeccable skill unresolved → the design gate records `impeccable_skipped`, and the
+  gates then diverge: `/mccp:plan` is **lenient** and passes with a warning, while
+  `/mccp:prp-implement` and `/mccp:pr` are **strict** and block on that field
+  (`scripts/receipt/validate-cmd.js`). The audited escape is
+  `MCCP_FORCE_PR_WITHOUT_IMPECCABLE="<substantive reason>"` (`pr.md` Phase 0.1).
+  This plugin ships 22 commands and an `impeccable` command is not among them, so the
+  wording that stood here described a refusal by a command that does not exist — and
+  in doing so hid the two blocks that really happen.
 
 End with a one-line `Next:` suggestion (e.g.
 `Next: /mccp:plan <feature>` if all green; `Next: !codex login` if Phase 4

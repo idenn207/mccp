@@ -45,6 +45,7 @@ const { assertContained } = require('../path-containment');
 const { SLUG_RE } = require('../../receipt/decision');
 const { gitRepoRoot, planAwareMarkdownHash } = require('../../receipt/hash');
 const { write } = require('../../receipt/write');
+const findingsRegistry = require('../../state/findings-registry');
 
 const GATE_ID = 'mccp-santa-review';
 const REVIEW_SOURCE = 'multi-agent';
@@ -362,6 +363,115 @@ function rejectGenericSlug(decisionId) {
 //
 // 순서가 계약이다: slug 검증이 **경로 조립보다 먼저**이고, 리포트 write가 hash보다
 // 먼저이며, receipt write가 마지막이다.
+// ── multi-session-work-loop M7 Task 4 — santa 라운드 finding emit ────────────
+//
+// legacy envelope 흡수 규칙은 `gate.js#findingsOf` 와 같다 — `findings` 가 있으면
+// 그대로, 없으면 `criticalIssues`(claim 문자열 배열)에서 파생한다. 그 함수는
+// export 되어 있지 않고 이 milestone 의 Files to Change 에 gate.js 가 없으므로,
+// 규칙을 여기 다시 적되 출처를 명시한다.
+function findingsOfEnvelope(envelope) {
+  if (envelope && Array.isArray(envelope.findings)) return envelope.findings;
+  const ci = (envelope && Array.isArray(envelope.criticalIssues)) ? envelope.criticalIssues : [];
+  return ci.map(function (c) {
+    return { claim: typeof c === 'string' ? c : '', severity: null, evidence: null };
+  });
+}
+
+// 라운드별 finding 목록. 원장 읽기가 던지면 그 라운드는 빈 목록이다(fail-open).
+function santaRoundFindings(state, decisionId) {
+  const rounds = (state && Array.isArray(state.rounds)) ? state.rounds : [];
+  return rounds.map(function (_r, i) {
+    const out = [];
+    let envelopes = [];
+    try { envelopes = ledger.reviewersFrom(state, i); } catch (_e) { return out; }
+    envelopes.forEach(function (e) {
+      findingsOfEnvelope(e).forEach(function (f) {
+        const claim = (f && typeof f.claim === 'string') ? f.claim : '';
+        if (!claim) return;
+        // 리뷰어 id 를 perspective 로 쓴다. 패널의 관점 이름공간과 섞지 않는 것이
+        // 요점 — 섞이면 2차 매칭 키가 서로 다른 리뷰 축을 한 키에 합류시킨다.
+        const perspective = 'santa-' + String((e && e.id) || '?');
+        const severity = (f && typeof f.severity === 'string') ? f.severity.toUpperCase() : null;
+        out.push({
+          round: i,
+          perspective: perspective,
+          severity: severity,
+          claim: claim,
+          cited_path: findingsRegistry.extractCitedPath(
+            ((f && typeof f.evidence === 'string') ? f.evidence : '') + ' ' + claim),
+          finding_id: findingsRegistry.deriveFindingId({
+            work_unit: decisionId,
+            gate_id: 'mccp-santa-loop',
+            perspective: perspective,
+            severity: severity,
+            claim: claim,
+          }),
+        });
+      });
+    });
+    return out;
+  });
+}
+
+function emitSantaFindings(repoRoot, decisionId, state, verdict) {
+  try {
+    const byRound = santaRoundFindings(state, decisionId);
+    const events = [];
+    byRound.forEach(function (list, i) {
+      list.forEach(function (f) {
+        events.push({
+          kind: 'finding_opened',
+          finding_id: f.finding_id,
+          gate_id: 'mccp-santa-loop',
+          perspective: f.perspective,
+          severity: f.severity,
+          claim: f.claim,
+          claim_digest: findingsRegistry.claimDigestOf(f.claim),
+          cited_path: f.cited_path,
+          round: i,
+        });
+      });
+    });
+
+    // DD3 — 라운드 N 에 열린 finding 이 라운드 N+1 에서 **pass 판정과 함께**
+    // 재발하지 않으면 해소로 기록한다. `converged` 가 아닌 실행에서는 아무것도
+    // 닫지 않는다: 캡 소진이나 강등으로 끝난 루프는 "고쳐졌다"의 근거가 아니다.
+    if (byRound.length >= 2) {
+      const current = byRound[byRound.length - 1];
+      const prior = [];
+      for (let i = 0; i < byRound.length - 1; i++) {
+        byRound[i].forEach(function (f) { prior.push(Object.assign({ state: 'open' }, f)); });
+      }
+      const closures = findingsRegistry.deriveNonRecurrenceClosures({
+        priorFindings: prior,
+        currentFindings: current,
+        roundPassed: verdict === 'converged',
+      });
+      const closedIds = new Set();
+      closures.forEach(function (f) {
+        if (closedIds.has(f.finding_id)) return;
+        closedIds.add(f.finding_id);
+        events.push({
+          kind: 'finding_closed',
+          finding_id: f.finding_id,
+          closure_type: 'fixed',
+        });
+      });
+    }
+
+    if (events.length === 0) return;
+    // 한 번의 batch — opened 와 closed 가 같은 write 에 실린다(DD8 1항).
+    const r = findingsRegistry.appendFindings(decisionId, events, { repoRoot: repoRoot });
+    if (!r.ok) {
+      process.stderr.write('[santa:seal] findings registry emit failed (' + r.reason +
+        ') — the seal is unaffected; C1 will show the loss as a seq gap' + '\n');
+    }
+  } catch (err) {
+    process.stderr.write('[santa:seal] findings registry emit threw: ' +
+      ((err && err.message) || err) + '\n');
+  }
+}
+
 function seal(opts) {
   const o = opts || {};
   const cwd = o.cwd || process.cwd();
@@ -421,6 +531,11 @@ function seal(opts) {
   const agg = Object.assign({}, rawAgg, {
     exitReason: verdict !== 'divergent' ? null : rawAgg.exitReason,
   });
+
+  // multi-session-work-loop M7 Task 4 (emit point 3/3) — 라운드 finding 을 레지스트리에
+  // 기록하고, DD3 의 라운드 간 비재발 종결을 **여기서 계산한다**. 새 LLM 호출은 없다
+  // (UI3): 이미 구조화되어 있는 원장의 라운드 이력만 읽는다.
+  emitSantaFindings(repoRoot, decisionId, state, verdict);
 
   // (4) 리포트 write (containment 봉인).
   //     두 방어가 서로 다른 것을 막는다. **파일명**은 SLUG_RE가 이미 안전하게

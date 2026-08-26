@@ -627,25 +627,45 @@ function computeC1(model) {
   const downgradedFindings = findings.downgraded_count || 0;
   const rejectedFindings = findings.rejected_count || 0;
 
-  // Anti-gaming: 유형 분리 (defer/downgrade/reject NOT counted as closure)
-  // Check: ensure type separation is clear
-  const typeIntegrity = (deferredFindings + downgradedFindings + rejectedFindings) > 0
-    && (closedFindings + deferredFindings + downgradedFindings + rejectedFindings) <= allFindings;
+  const openFindings = findings.open_count || 0;
 
-  if (!typeIntegrity) {
+  // Anti-gaming: 유형 분리 (defer/downgrade/reject NOT counted as closure).
+  //
+  // M7 DD5 — 이전 추론은 `(deferred + downgraded + rejected) > 0` 을 요구했다. 즉
+  // **모든 finding 이 실제로 고쳐진 작업 단위가 `invalid` 로 판정됐다.** 무결성
+  // 요구는 "비해소가 존재해야 한다"가 아니라 "유형이 분리 기록되어야 한다"이므로
+  // 그 추론은 요구를 잘못 구현한 것이었고, 정정 없이는 M7 이 성공할수록 C1 이
+  // invalid 가 된다.
+  //
+  // 두 실패는 원인이 다르므로 이름을 나눈다 — 한 이름으로 접으면 진단이 사라진다.
+  //   type_separation_undeclared : 소스가 유형별 분리 기록을 **계약으로 선언**하지
+  //                                않았다(또는 손상 샤드로 선언이 뒤집혔다)
+  //   type_separation_violated   : 유형별 합이 전체를 넘는다(산술 모순)
+  const typeDeclared = findings.type_separation === true;
+  const sumWithinTotal =
+    (closedFindings + deferredFindings + downgradedFindings + rejectedFindings) <= allFindings;
+
+  if (!typeDeclared || !sumWithinTotal) {
     return {
       id: C1_FEEDBACK_CLOSURE,
       numerator: null,
       denominator: null,
       value: null,
       integrity_ok: false,
-      invalid_reason: 'type_separation_violated',
+      invalid_reason: !typeDeclared ? 'type_separation_undeclared' : 'type_separation_violated',
       status: 'invalid',
       coverage: findings.producer_coverage || 'unknown',
     };
   }
 
   const value = allFindings > 0 ? closedFindings / allFindings : null;
+
+  // **`degraded` 는 `status` 를 뒤집지 않는다**(M7 Task 2). 소스가 seq 구멍·중복·
+  // malformed 로 강등을 올려도 C1 은 여전히 `computed` 이고 그 사실은 `coverage` 에
+  // 실린다 — 유실은 대부분 분자만 줄이는 보수적 방향이라 값이 여전히 하한으로서
+  // 유효하고, 계측 결함이 지표를 통째로 지우면 M2 가 겪은 "산출 0개"로 되돌아간다.
+  // 대신 **배송 증거로는 쓰지 않는다**: `c1-coverage-gate.js --acceptance` 가
+  // degraded 를 거부한다. 두 층을 분리하지 않으면 둘 중 하나가 반드시 틀린다.
   return {
     id: C1_FEEDBACK_CLOSURE,
     numerator: closedFindings,
@@ -655,6 +675,10 @@ function computeC1(model) {
     deferred_count: deferredFindings,
     downgraded_count: downgradedFindings,
     rejected_count: rejectedFindings,
+    open_count: openFindings,
+    // 산출식이 "이연률을 함께 보고한다"를 요구한다(measurement-design.md §5 C1).
+    // 단일 폐쇄율만 보이면 이연으로 100% 를 만드는 경로가 표면에서 사라진다.
+    deferred_rate: allFindings > 0 ? deferredFindings / allFindings : null,
     status: allFindings > 0 ? 'computed' : 'insufficient',
     coverage: findings.producer_coverage || 'unknown',
   };

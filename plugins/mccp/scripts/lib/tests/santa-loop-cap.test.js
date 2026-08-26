@@ -28,6 +28,14 @@ const decision = require('../../receipt/decision');
 const CLI_PATH = path.join(__dirname, '..', 'santa', 'cli.js');
 const SANTA_LOOP_MD = path.join(__dirname, '..', '..', '..', 'commands', 'santa-loop.md');
 const IS_WINDOWS = process.platform === 'win32';
+
+// **주변 env 를 중화한다** (local review M3). 이 저장소의 tracked `.claude/settings.json`
+// 은 `MCCP_REVIEW_SINGLE_PASS=deadline_pressure` 를 싣고 있고, §3.15 대로 그 값은
+// `begin-round` 가 라운드를 열지 않게 한다(exit 2). 즉 **기본 개발 환경에서** 이 파일의
+// 캡·원장 단언 28건이 붉어지고, 그러면 실제 회귀와 env 잡음을 구분할 수 없다.
+// `withCap()` 이 `MCCP_SANTA_ROUND_CAP` 에 대해 이미 하고 있는 것을 이 축에도 한다.
+// 자식 프로세스(`spawnCli`)는 `process.env` 를 복사하므로 여기서 지우면 양쪽에 걸린다.
+delete process.env.MCCP_REVIEW_SINGLE_PASS;
 const SUBCOMMANDS = ['resolve-decision', 'begin-round', 'record', 'verdict', 'status'];
 
 // ── fixture helpers ──────────────────────────────────────────────────────────
@@ -1097,7 +1105,7 @@ test('UI4/UI11 — receipt 배선은 seal.js에만 있다 (M1 4개 모듈은 여
   assert.match(sealSrc, /mccp-santa-review/);
 });
 
-test('Acceptance — 외부 의존이 문서화된 7개뿐이고 npm 의존 0', () => {
+test('Acceptance — 외부 의존이 문서화된 8개뿐이고 npm 의존 0', () => {
   const santaDir = path.join(__dirname, '..', 'santa');
   // M2가 정확히 둘을 더했다: 내부 `./seal`, 외부 `../../receipt/write`.
   // 목록을 열거식으로 두는 것이 이 단언의 전부다 — 새 의존이 조용히 들어오면
@@ -1148,6 +1156,14 @@ test('Acceptance — 외부 의존이 문서화된 7개뿐이고 npm 의존 0', 
   // 갖게 되고, 그 갈림은 어떤 test도 잡지 않는다 — 그래서 의존을 지는 쪽이 옳다.
   // 이 줄이 그 승인 기록이다. (파서는 fs/path 외 의존이 없는 순수 모듈이라
   // 프로세스 실행 의존을 끌어들이지 않는다.)
+  //
+  // multi-session-work-loop M7이 여덟 번째를 더했다: `seal.js`가 라운드 finding을
+  // `findings-registry#appendFindings`로 기록하고 DD3 비재발 종결을
+  // `deriveNonRecurrenceClosures`로 계산한다. 레지스트리를 여기 다시 구현하면 append
+  // 형식·`finding_id` 파생·종결 enum이 emit 지점마다 갈리고, 그 갈림은 C1의 분모를
+  // 조용히 어긋나게 만든다 — 그래서 의존을 지는 쪽이 옳다. 그 모듈의 자체 의존은
+  // builtin `fs`/`path`/`crypto`와 같은 디렉토리의 `./msw-events`(walk-up 재사용)뿐이라
+  // 프로세스 실행 의존을 끌어들이지 않는다. 이 줄이 그 승인 기록이다.
   const allowed = new Set([
     './counter', './ledger', './gate', './seal',          // 내부
     './adjudication',                                     // 내부 (santa-adjudication M2)
@@ -1160,6 +1176,7 @@ test('Acceptance — 외부 의존이 문서화된 7개뿐이고 npm 의존 0', 
     '../../receipt/write',                                // 외부 5 (M2)
     '../../receipt/lib/force-override-reason',            // 외부 6 (santa-adjudication M1)
     '../review-single-pass',                              // 외부 7 (review-loop-bypass M1)
+    '../../state/findings-registry',                      // 외부 8 (multi-session-work-loop M7)
     'fs', 'os', 'path', 'child_process',                  // node builtin
     'crypto',                                             // node builtin (santa-adjudication M2)
   ]);

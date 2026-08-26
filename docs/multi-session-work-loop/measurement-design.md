@@ -141,9 +141,9 @@ M1은 A3의 *방법*만 freeze하고 *baseline 값*은 만들지 않는다. 이�
 
 - 분모: 발견된 finding 전수
 - 분자: 같은 작업 단위 안에서 해소된 finding 수
-- 소스: finding 생성·해소 이벤트(M2 신설). 현재는 PR body 산문과 backlog 6행뿐이다
+- 소스: finding 생성·해소 이벤트 — **M7이 배선한 `.claude/state/findings/<work_unit>.jsonl` append-only 레지스트리**(`derive/sources/findings.js` → `SOURCE_SCANNERS.findings`). 게이트 3지점(패널 `plan-review/cli.js` record 경계 · `plan-codex-runner.js` 판정 소비 지점 · `santa/seal.js` 라운드 집계)이 emit하며, 종결 유형 5종 중 `fixed`·`invalidated`만 분자다. M7 이전에는 소스가 미배선이라 `forward-only('no live findings derive source wired')`였다 — 그 상태와 배선 후 상태의 대조는 [m7-before.json](./m7-before.json) · [m7-after.json](./m7-after.json). 계약 상세는 [feedback-loop-design.md](./feedback-loop-design.md)
 - 산출식: 해소 비율. 이연률을 함께 보고한다
-- 무결성 검사: 해소 사유를 유형별로 분리 보고하며 **강등·기각은 해소로 계상 금지**. 유형 분리가 없는 집계는 무효
+- 무결성 검사: 해소 사유를 유형별로 분리 보고하며 **강등·기각은 해소로 계상 금지**. 유형 분리가 없는 집계는 무효 — 소스가 `type_separation`을 **계약으로 선언**해야 하고 그 값은 스캔 결과에서 파생한다(하드코딩하면 항진명제가 된다). 미선언은 `type_separation_undeclared`, 유형별 합이 전체를 넘으면 `type_separation_violated`로 서로 다른 사유를 갖는다. 계측 유실(`seq` 구멍·중복·malformed)은 `status`를 뒤집지 않고 `coverage`에 실리되, `c1-coverage-gate.js --acceptance`가 degraded 값을 **배송 증거로는 거부**한다
 - 소급 가부: `recoverability-undetermined` — [measurement-feasibility.md §4](./measurement-feasibility.md) 프로토콜 미실행. **C계열 중 유일한 소급 프로토콜 대상**이며, 임계 미달일 때만 불가로 확정된다. C2·C3은 label-protocol이 이미 forward-only로 확정했으므로 이 라벨을 쓰지 않는다 — 라벨의 구분 자체가 계약이다(PR-Codex R2 F2)
 
 ### C2 게이트 헛발화율

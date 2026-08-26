@@ -27,42 +27,90 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 
 // Acceptance 가 요구하는 단언의 **하한**이다(상한이 아니다 — 구현 중 늘면 manifest 에
 // 추가한다). plan Task 7 의 평면 열거 블록과 1:1 이어야 한다.
-const REQUIRED_IDS = [
-  'B1-EQ-BASENAME',
-  'B1-EVIDENCE-SCHEMA',
-  'B1-SHIPPED-ON-DIVERGENT',
-  'B1-MUTATION-EVIDENCE',
-  'B1-MUTATION-DRIFT',
-  'B1-FIXTURE-SANITY',
-  'B1-GIT-TRACKED',
-  'B1-RECEIPT-COMMITTED',
-  'B1-GIT-FALLBACK',
-  'B1-DUP-DECISION',
-  'B1-LINT-NEG-LEDGER',
-  'B1-LINT-NEG-FS',
-  'B1-LINT-NEG-STATUS',
-  'B1-LINT-NEG-EVIDENCE-SOURCE',
-  'B1-LADDER-DEGRADED',
-  'B1-LADDER-INDEPENDENCE',
-  'B1-LADDER-EMPTY',
-  'B1-LADDER-COMPUTED',
-  'B1-ARCHIVE-DEGRADED',
-  'B1-ARCHIVE-INVARIANT',
-  'B1-RENDER-CONSTRAINTS',
-  // local review 흡수분 — 두 표면의 **입력 정규화** 일치(오라클 공유만으로는 부족했다),
-  // 미정규 입력에 대한 builder 백스톱, 충돌 검출 범위, git 배관 hoisting.
-  'B1-JOINKEY-RESOLVE',
-  'B1-BUILDER-GUARD',
-  'B1-ARCHIVE-JOINKEY',
-  'B1-ARCHIVE-JOINKEY-REL',
-  'B1-ARCHIVE-DUPKEY',
-  'B1-ARCHIVE-PLUMBING',
-  'B1-ARCHIVE-NOGIT',
-];
+// Acceptance 가 요구하는 단언의 **하한**이다(상한이 아니다 — 구현 중 늘면 manifest 에
+// 추가한다). 각 plan 의 `## Assertion Roster` 평면 열거와 1:1 이어야 한다.
+//
+// **milestone 별로 나눠 둔다.** 하나의 평면 목록이면 M6 manifest 는 C1 id 가 없어서,
+// M7 manifest 는 B1 id 가 없어서 서로를 영구히 붉힌다 — 즉 milestone 이 하나 더
+// 생기는 순간 이 대조기가 어느 manifest 도 통과시키지 못한다. 하한의 목적("manifest
+// 에서 id 를 빼면 통과"를 막는 것)은 **milestone 범위 안에서** 그대로 유지된다.
+//
+// 미등록 milestone 은 **UsageError 로 fail-closed** 다. 빈 하한을 주면 floor 를
+// 등록하지 않은 manifest 가 곧 무검사 통과가 되어, 이 대조기가 막으려는 바로 그
+// 우회가 열린다.
+const REQUIRED_IDS_BY_MILESTONE = {
+  'multi-session-work-loop-m6': [
+    'B1-EQ-BASENAME',
+    'B1-EVIDENCE-SCHEMA',
+    'B1-SHIPPED-ON-DIVERGENT',
+    'B1-MUTATION-EVIDENCE',
+    'B1-MUTATION-DRIFT',
+    'B1-FIXTURE-SANITY',
+    'B1-GIT-TRACKED',
+    'B1-RECEIPT-COMMITTED',
+    'B1-GIT-FALLBACK',
+    'B1-DUP-DECISION',
+    'B1-LINT-NEG-LEDGER',
+    'B1-LINT-NEG-FS',
+    'B1-LINT-NEG-STATUS',
+    'B1-LINT-NEG-EVIDENCE-SOURCE',
+    'B1-LADDER-DEGRADED',
+    'B1-LADDER-INDEPENDENCE',
+    'B1-LADDER-EMPTY',
+    'B1-LADDER-COMPUTED',
+    'B1-ARCHIVE-DEGRADED',
+    'B1-ARCHIVE-INVARIANT',
+    'B1-RENDER-CONSTRAINTS',
+    'B1-JOINKEY-RESOLVE',
+    'B1-BUILDER-GUARD',
+    'B1-ARCHIVE-JOINKEY',
+    'B1-ARCHIVE-JOINKEY-REL',
+    'B1-ARCHIVE-DUPKEY',
+    'B1-ARCHIVE-PLUMBING',
+    'B1-ARCHIVE-NOGIT',
+  ],
+  'multi-session-work-loop-m7': [
+    'C1-REGISTRY-APPEND',
+    'C1-REGISTRY-ALLOWLIST',
+    'C1-REGISTRY-TRACKED',
+    'C1-ID-SECONDARY-KEY',
+    'C1-REGISTRY-PATH-NORMALIZED',
+    'C1-DEGRADED-MARKER',
+    'C1-BATCH-ATOMIC',
+    'C1-MERGE-UNION',
+    'C1-TYPE-SEPARATION-CONTRACT',
+    'C1-TYPE-COLLAPSE-REJECTED',
+    'C1-DEFER-NOT-CLOSURE',
+    'C1-SOURCE-REGISTERED-COPRESENT',
+    'C1-SOURCE-WIRED',
+    'C1-TYPE-SEPARATION-DERIVED',
+    'C1-EMIT-PLAN-REVIEW',
+    'C1-EMIT-PLAN-CODEX',
+    'C1-EMIT-SANTA',
+    'C1-EMIT-FAILOPEN',
+    'C1-EMIT-LOSS-VISIBLE',
+    'C1-PROMOTE-THRESHOLD',
+    'C1-PROMOTE-CONSTANT',
+    'C1-PROMOTE-BOUNDED',
+    'C1-A4-DENOMINATOR-REPORTED',
+    'C1-PROMOTE-SANITIZED',
+    'C1-RENDER-SPLIT',
+    'C1-COVERAGE-STATIC',
+    'C1-COVERAGE-REGISTRY-WRITER',
+    'C1-ACCEPTANCE-MECHANIZED',
+    'C1-COVERAGE-RUNTIME',
+    'C1-CONTRACT-COPRESENT',
+    'C1-GATE-MERGE-UNION',
+    'C1-ACCEPTANCE-PROMOTED',
+  ],
+};
 
 // test 제목은 `id: ` 접두로 시작해야 한다 — 표현 차이로 리터럴 매칭이 깨지는 것을
 // 없애기 위함이다. manifest 의 test_title 이 계약이고 test 가 그것을 따른다.
-const TITLE_PREFIX = /^B1-[A-Z0-9-]+: /;
+// M7 — C1 계열이 합류하면서 접두 검사가 계열을 열거한다. 와일드카드로 넓히지 않는
+// 이유는 그 순간 이 검사가 "id 로 시작한다" 는 규약만 남고 **어느 지표의 단언인지**를
+// 잃기 때문이다(오타 계열이 조용히 통과한다).
+const TITLE_PREFIX = /^(?:B1|C1)-[A-Z0-9-]+: /;
 
 // 제목이 **test 호출의 인자로** 등장하는지 본다 (local review M3).
 //
@@ -130,8 +178,15 @@ function check(opts) {
   const repoRoot = o.repoRoot || REPO_ROOT;
   const manifest = readManifest(o.manifest);
 
+  const floor = REQUIRED_IDS_BY_MILESTONE[manifest.milestone];
+  if (!Array.isArray(floor)) {
+    throw new UsageError('no REQUIRED_IDS floor registered for milestone "' + manifest.milestone +
+      '" — register one in assertion-manifest-check.js. An unregistered milestone would ' +
+      'otherwise pass with no floor at all, which is the bypass this checker exists to close.');
+  }
+
   const declared = new Set(manifest.assertions.map((a) => a.id));
-  const missingFromManifest = REQUIRED_IDS.filter((id) => !declared.has(id));
+  const missingFromManifest = floor.filter((id) => !declared.has(id));
 
   const missingFile = [];
   const absentInTests = [];
@@ -171,7 +226,7 @@ function check(opts) {
   return {
     ok: ok,
     checked: manifest.assertions.length,
-    required: REQUIRED_IDS.length,
+    required: floor.length,
     missing_from_manifest: missingFromManifest,
     missing_test_file: missingFile,
     absent_in_tests: absentInTests,
@@ -240,4 +295,4 @@ function main(argv) {
 
 if (require.main === module) main(process.argv);
 
-module.exports = { check, readManifest, hasTestTitle, REQUIRED_IDS, UsageError, TITLE_PREFIX };
+module.exports = { check, readManifest, hasTestTitle, REQUIRED_IDS_BY_MILESTONE, UsageError, TITLE_PREFIX };

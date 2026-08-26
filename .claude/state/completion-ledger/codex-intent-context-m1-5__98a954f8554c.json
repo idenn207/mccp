@@ -1,0 +1,28 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "codex-intent-context-m1-5",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.23.9",
+    "completed_at": "2026-08-13T15:56:17.134Z",
+    "commit_sha": "0ede44d3b6812856b44df4c909599f3a42d87e81",
+    "plan_basename": "codex-intent-context-m1-5.plan.md",
+    "plan_file_hash": "sha256:b4b2dc24bdbdcc93fc9a952152b152591c5fb18d375a85f3f85efccc31fba594",
+    "risks_closed": [
+      "리뷰어가 `INTENT:` 계약을 아예 안 따라 탐지 축이 죽는다",
+      "**`full` 요구가 게이트를 자주 막는다**(DD5가 `partial`을 없앤 대가)",
+      "계약 강제가 게이트를 영구 wedge",
+      "**`warn` 축이 M1 blocking verdict까지 열어버린다**",
+      "리뷰어가 충돌을 날조해 dispute 부담만 증가",
+      "`intent_dispute_reason`이 새 고무도장 통로가 된다",
+      "Codex 계정 한도로 Task 0 실측 불가",
+      "앵커 정규식 오탐으로 산문이 주장으로 오인",
+      "병렬 브랜치 version 충돌 (`diverse-agent-review-m1` 미머지)",
+      "자기적용 유보 — 이번 게이트는 구 캐시로 돈다"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:98a954f8554c7999d27627653fd0fecbae92c24f9ffd2846c8ad7509594805c1",
+    "verdict_provenance": "codex-verdict"
+  }
+}

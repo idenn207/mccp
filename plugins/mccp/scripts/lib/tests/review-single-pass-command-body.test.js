@@ -60,13 +60,70 @@ test('all three gate bodies read the round cap from the shared oracle', () => {
 });
 
 test('every gate surfaces WHY the cap was pinned', () => {
-  // effectiveRoundCap returns {cap, pinned, reason} and the shell exports only
-  // `.cap`. Without this line a pinned cap is indistinguishable from a
-  // configured one in the logs.
+  // effectiveRoundCap returns {cap, pinned, reason, pinnedBy, note} and the shell
+  // exports only `.cap`. Without this line a pinned cap is indistinguishable from
+  // a configured one in the logs.
+  //
+  // v1.32.6 — the sentence now lives in `note` rather than in a shell literal,
+  // because TWO axes pin the cap (single-pass and codex-disabled). A literal
+  // naming only the first would report the wrong cause whenever the second fired,
+  // which is precisely the case this milestone adds.
   GATES.forEach(function (g) {
     const src = read(g[0]);
-    assert.match(src, /\[mccp:single-pass\] round cap pinned to/,
-      g[0] + ' must print the pinned-cap diagnostic');
+    assert.match(src, /\[mccp:round-cap\] "\+j\.note/,
+      g[0] + ' must print the pinned-cap diagnostic the oracle composed');
+    assert.doesNotMatch(src, /by MCCP_REVIEW_SINGLE_PASS="\+j\.reason/,
+      g[0] + ' must not hardcode a single-axis cause — a codex-disabled pin would read as a single-pass one');
+  });
+});
+
+test('every gate resolves the cap from the SEALED policy, not from env alone', () => {
+  // The whole point of the milestone: `effectiveRoundCap(process.env)` with no
+  // second argument reads the live env, which is exactly the value a mid-run
+  // clear can change. Each gate must hand it the policy codex-policy resolved.
+  GATES.forEach(function (g) {
+    const src = read(g[0]);
+    const wiring = bashBlocks(src).filter(function (b) {
+      return b.includes('scripts/lib/codex-policy') && b.includes('effectiveRoundCap');
+    });
+    assert.ok(wiring.length >= 1,
+      g[0] + ' must resolve codexDisabled via codex-policy in the same block as effectiveRoundCap');
+    assert.ok(wiring.some(function (b) { return /effectiveRoundCap\(process\.env,\s*\{\s*codexDisabled/.test(b); }),
+      g[0] + ' must inject codexDisabled — the one-argument form reads live env and is what the bug exploited');
+  });
+});
+
+test('every gate seals the Codex policy before any round runs', () => {
+  GATES.forEach(function (g) {
+    const src = read(g[0]);
+    assert.ok(bashBlocks(src).some(function (b) { return /codex-policy\.js"?\s+seal/.test(b); }),
+      g[0] + ' must seal the policy at gate entry');
+  });
+});
+
+test('every gate carries the unseal prohibition — presence only, NOT compliance', () => {
+  // DD9: this clause is the THIRD line of defence and it is not enforced. The
+  // mechanical guarantee is codex-invoke.js reading the seal; CLAUDE.md 3.15 and
+  // the measured R13-under-a-cap-of-1 incident are why prose is never claimed as
+  // enforcement here. This test fixes that the clause EXISTS, and asserts nothing
+  // about whether a run obeys it.
+  GATES.forEach(function (g) {
+    const src = read(g[0]);
+    assert.match(src, /MCCP_CODEX_DISABLED`?는 1회성 escape가 아니라 영구 운영자 정책이다/,
+      g[0] + ' must state that the flag is persistent policy, not a one-shot escape');
+  });
+});
+
+test('no gate body clears or re-exports MCCP_CODEX_DISABLED', () => {
+  // The observed failure was a run deciding the flag was spent and setting it to
+  // 0 for R2. Nothing in a command body has a legitimate reason to assign it.
+  GATES.forEach(function (g) {
+    bashBlocks(read(g[0])).forEach(function (b) {
+      assert.doesNotMatch(b, /^\s*(export\s+)?MCCP_CODEX_DISABLED=/m,
+        g[0] + ' must never assign MCCP_CODEX_DISABLED — it is operator policy, not gate state');
+      assert.doesNotMatch(b, /\bunset\s+MCCP_CODEX_DISABLED\b/,
+        g[0] + ' must never unset MCCP_CODEX_DISABLED');
+    });
   });
 });
 

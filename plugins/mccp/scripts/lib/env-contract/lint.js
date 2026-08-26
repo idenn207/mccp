@@ -15,8 +15,15 @@
 //   L7  사용 예시 3검사 — 존재 · JSON.parse 실행 · 레지스트리 values 정합
 //   L8  evidence의 형식과 실재 — **어휘 검사를 fs 호출보다 먼저**
 //   L9  등록된 boolean 토글의 raw 비교가 `env-contract/` 밖에 0건인가
-//   L10 레지스트리 `values`가 코드의 어휘 상수와 집합으로 같은가 (격리는 양방향)
-//   L11 상세 문서의 값별 결과 · 멤버 어휘 블록이 레지스트리와 양방향으로 같은가
+//   L10 evidence가 **실제로 그 이름을 가리키는가** (+ `not-consumed` 역방향 + 래칫)
+//   L11 레지스트리 `values`가 코드의 어휘 상수와 집합으로 같은가 (격리는 양방향)
+//   L12 상세 문서의 값별 결과 · 멤버 어휘 블록이 레지스트리와 양방향으로 같은가
+//
+// **L10이 L8과 다른 질문을 한다.** L8은 형식과 실재만 본다 — 파일이 있고 행이 범위
+// 안이면 통과이므로, 무관한 줄을 가리켜도 `ok`다(실측 M5: `impeccable-detect.js:135`를
+// 19번 적은 항목들이 전부 L8을 통과했고 그 줄은 `isDesignSurfacePath()` 내부였다).
+// 판정 자체는 `evidence-name.js`가 순수 함수로 소유하고 이 파일은 fs와 범위만 대며,
+// 그 분리가 fixture registry로 래칫 양방향을 단위 test할 수 있게 하는 유일한 지점이다.
 //
 // **L8의 순서는 load-bearing이다.** 실재를 먼저 보면 디스크에 존재하는 절대경로가
 // 통과해 CLAUDE.md §3.12가 닫은 누출 경로가 다시 열린다. `lib/instruction-contract/lint.js:41`이
@@ -38,6 +45,76 @@ const path = require('path');
 const registry = require('./registry');
 const vocabulary = require('./vocabulary');
 const scan = require('./scan');
+const evidenceName = require('./evidence-name');
+
+// v1.32.1 M6 — L10 **역방향**(status=not-consumed 이름이 런타임 표면에 나타나면 그 주장이
+// 거짓이다) 전용 표면 정책. `scan.walkSurfaces`는 env-contract/ 전체를 제외하는데(그
+// 디렉토리가 raw 비교의 정당한 자리이므로 L1·L9에는 맞는 제외다) 그 결과 역방향이 자기
+// 구현 디렉토리를 보지 못하는 사각지대가 생긴다.
+//
+// **근거를 실측대로 적는다.** plan은 `value.js`를 «이 디렉토리에서 유일하게 런타임에 env를
+// 읽는 파일»이라 불렀는데, 문자 그대로는 참이 아니다 — 실측하면 이 디렉토리의 어느 파일도
+// `process.env`를 직접 읽지 않고(그 이름이 등장하는 3곳은 전부 **주석**이다), `value.js`는
+// 호출자가 건네는 `env` 객체를 **해석하는 계층**이다. 포함시키는 진짜 이유는 그것이다:
+// mccp가 언젠가 `IMPECCABLE_*`를 실제로 소비하기 시작하면 그 이름이 **리터럴로 처음 나타날**
+// 자리가 값 해석 계층이고, 그 순간 «mccp는 읽지 않는다»가 거짓이 된다. 오늘 그 파일의
+// `IMPECCABLE_` 리터럴은 0건이라 위양성 없이 들어온다.
+//
+// 나머지는 **이름으로 열거하고 각각 사유를 적는다** — mirror: `state/toggle-snapshot.js`의
+// `TOGGLE_EXCLUSIONS`(제외는 정규식이 아니라 이름이고, 각 이름에 실파일 근거가 붙는다).
+// 이 표는 장식이 아니라 강제된다: 아래 L10이 디렉토리를 열거해 **분류되지 않은 새 파일**을
+// problem으로 보고하므로, 미래에 여기 파일이 생기면 침묵으로 넘어가지 못한다.
+const L10_REVERSE_SURFACE_POLICY = Object.freeze([
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/value.js', include: true,
+    why: '값 해석 계층 — IMPECCABLE_* 이름이 리터럴로 처음 나타날 자리다(오늘 0건).',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/registry.js', include: false,
+    why: '계약 표 자체 — 모든 토글 이름이 데이터로 실려 있어 포함하면 전 not-consumed 이름이 즉시 위양성이 된다.',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/lint.js', include: false,
+    why: '검사기 자신 — 이 정책 표와 problem 메시지가 이름을 인용하므로 같은 위양성을 낳는다.',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/evidence-name.js', include: false,
+    why: '판정 코어 — 이름을 인자로 받아 메시지에 싣는다. 소비가 아니라 판정이다.',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/evidence-debt.js', include: false,
+    why: '면제 목록 — 이름이 데이터로 실려 있다. 포함하면 목록에 오른 이름이 자기 때문에 붉어진다.',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/measure-evidence.js', include: false,
+    why: '계측기 — registry를 읽어 이름을 다루기만 하고 토글로 소비하지 않는다.',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/scan.js', include: false,
+    why: '파일 열거기 — env 값을 해석하지 않으므로 런타임 표면이 아니다.',
+  }),
+  // ── env-contract-integrity M1/M2가 더한 4파일 ────────────────────────────
+  // 분류 기준은 «이름이 데이터로 실려 있는가»다(registry.js·evidence-debt.js와 같은 축).
+  // 실측: 토글 이름 리터럴이 cli.js 0건 · settings-layers.js 0건 · doctor.js 0건
+  // (`MCCP_`는 접두사 정규식이고 `MCCP_NAME_RE`는 식별자다) · vocabulary.js 8건.
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/cli.js', include: true,
+    why: '레지스트리의 CLI 투영 — 이름 리터럴 0건이고 process.env를 진단 대상으로 통째 넘길 뿐이다. 여기 이름이 리터럴로 나타나면 그것이 실제 소비의 시작이다.',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/settings-layers.js', include: true,
+    why: 'settings 계층 병합기 — 이름 리터럴 0건이고 파일을 일반적으로 읽는다. value.js와 같은 이유로 포함한다.',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/doctor.js', include: true,
+    why: '선언 대 프로세스 값 진단기 — 이름을 레지스트리에서 동적으로 읽어 보고하므로 리터럴이 없다. 위양성 없이 들어온다.',
+  }),
+  Object.freeze({
+    rel: 'plugins/mccp/scripts/lib/env-contract/vocabulary.js', include: false,
+    why: '어휘·정책 표 자체 — LIST_MEMBER_POLICY가 토글 이름을 키로 싣는다. 포함하면 표에 오른 이름이 자기 때문에 붉어진다(registry.js·evidence-debt.js와 동형).',
+  }),
+]);
+const ENV_CONTRACT_DIR_REL = 'plugins/mccp/scripts/lib/env-contract';
 
 const INDEX_REL = 'docs/ENVIRONMENT.md';
 const DETAIL_DIR_REL = 'docs/environment';
@@ -484,11 +561,118 @@ function run(repoRoot) {
     checks.L9.filesScanned = files.length;
   }
 
-  // L10 — `values`와 코드 어휘의 집합 대조
+  // L10 — evidence가 실제로 그 이름을 가리키는가 (+ not-consumed 역방향 + 래칫)
+  {
+    // 래칫 로더는 fail-closed다. 모듈이 없거나 throw하거나 모양이 틀리면 면제 집합이
+    // **빈 집합**이 되고 정방향 검사가 전부 그대로 판정된다 — 관대한 방향으로 실패하면
+    // 목록이 조용히 «전체 면제»가 된다(Implement-Codex R1 F1). `assertShape`를 로드
+    // 성공 뒤에 한 번 더 부르는 것은 모듈이 자기 검증을 지운 채로 배포되는 경우까지
+    // lint 쪽에서 잡기 위해서다.
+    // 목록은 **이 모듈 옆**에서 읽는다 — `root` 밑이 아니다. `run()`이 이미 registry를
+    // 그렇게 쓰고 있고(`entries = registry.ENTRIES`), 둘은 같은 선언 집합을 설명하므로
+    // 출처가 갈리면 fixture repo에서 «남의 registry를 이 repo의 목록으로 판정»하게 된다.
+    let debt = null;
+    let debtError = null;
+    try {
+      const mod = require('./evidence-debt');
+      debt = mod.EVIDENCE_DEBT;
+      mod.assertShape(debt);
+    } catch (e) {
+      debt = null;
+      debtError = e.message;
+    }
+
+    const lineCache = new Map();
+    const readLines = function (rel) {
+      if (!lineCache.has(rel)) {
+        const r = readFile(path.join(root, rel));
+        lineCache.set(rel, r.ok ? r.text.split(/\r?\n/) : null);
+      }
+      return lineCache.get(rel);
+    };
+
+    const problemsExtra = [];
+
+    // 범위는 `scan.walkSurfaces`가 소유한다 — 자체 walk를 갖지 않는 L4·L9와 같은 계약.
+    const surfaces = [];
+    scan.walkSurfaces(root).forEach(function (rel) {
+      const r = readFile(path.join(root, rel));
+      if (r.ok) surfaces.push({ rel: rel, text: r.text });
+    });
+
+    // v1.32.1 M6 — 역방향에만 더한다. L1(:283)·L9(:413)의 입력은 **바꾸지 않는다**: 그들의
+    // 범위를 넓히면 이 milestone이 검증하지 않은 축이 붉어진다. surfaces는
+    // `evidence-name.js`의 not-consumed 분기에서만 소비되므로(그 파일의 역방향 루프가
+    // 유일한 독자다) 이 추가는 정방향 판정에 도달하지 않는다.
+    //
+    // **디렉토리 부재는 problem이 아니다.** 이 정책의 대상은 *이 저장소의 구현 디렉토리*이고,
+    // 그것이 없는 root(합성 fixture · 이 계약을 벤더링하지 않은 저장소)에는 인증할 env-contract
+    // 파일이 애초에 없다. 그런 root에서 옳은 동작은 M6 이전과 같다 — walkSurfaces가 준 표면만
+    // 쓴다. 부재를 붉히면 «대상이 없다»를 «검사에 실패했다»로 보고하게 되고, 그 거짓 신호가
+    // 다른 검사의 fixture까지 오염시킨다(실측: lint.test.js의 «이 검사만 붉다» 단언이 전부
+    // 무너졌다). 디렉토리가 **있는데** 선언된 파일이 안 읽히거나 미분류 파일이 있으면 그때는
+    // 진짜 드리프트이므로 problem이다.
+    const classified = new Set(L10_REVERSE_SURFACE_POLICY.map(function (p) { return p.rel; }));
+    let dirEntries = null;
+    try {
+      dirEntries = fs.readdirSync(path.join(root, ENV_CONTRACT_DIR_REL), { withFileTypes: true });
+    } catch (_) {
+      dirEntries = null;
+    }
+    if (dirEntries) {
+      L10_REVERSE_SURFACE_POLICY.filter(function (p) { return p.include; }).forEach(function (p) {
+        const r = readFile(path.join(root, p.rel));
+        if (r.ok) surfaces.push({ rel: p.rel, text: r.text });
+        else problemsExtra.push('L10 reverse surface ' + p.rel + ' is declared but unreadable — '
+          + 'absence cannot be certified against a file that was not read');
+      });
+
+      // 표가 화석이 되지 않게 한다: 이 디렉토리에 분류되지 않은 .js가 생기면 침묵이 아니라
+      // problem이다. 그것이 «미래의 조용한 면제를 막는다»는 이 태스크의 유일한 실질이다.
+      const onDisk = new Set();
+      dirEntries.forEach(function (e) {
+        if (!e.isFile() || !/\.js$/.test(e.name)) return;
+        const rel = ENV_CONTRACT_DIR_REL + '/' + e.name;
+        onDisk.add(rel);
+        if (!classified.has(rel)) {
+          problemsExtra.push(rel + ': new file in env-contract/ is not classified in '
+            + 'L10_REVERSE_SURFACE_POLICY — declare include:true (it interprets env values) or '
+            + 'include:false with a reason');
+        }
+      });
+
+      // v1.32.1 code-review L1 — 화석 방지는 **양방향**이어야 한다. 위 루프는 새 파일만
+      // 잡는다: 표에 열거된 `include:false` 파일은 읽지 않으므로 디스크에서 사라져도
+      // 아무것도 붉지 않고, 표는 존재하지 않는 파일에 사유를 다는 문서로 남는다. 그것은
+      // 이 milestone이 `EVIDENCE_DEBT`에서 지적한 비대칭(«고쳐졌는데 목록에 남는다»)과
+      // 같은 형태다. `include:true` 항목은 위에서 읽기 실패로 이미 붉으므로 여기서는
+      // 중복을 피해 나머지만 본다.
+      L10_REVERSE_SURFACE_POLICY.forEach(function (p) {
+        if (p.include) return;
+        if (!onDisk.has(p.rel)) {
+          problemsExtra.push(p.rel + ': listed in L10_REVERSE_SURFACE_POLICY but absent from '
+            + 'env-contract/ — delete the row (the table only describes files that exist)');
+        }
+      });
+    }
+
+    const problems = problemsExtra.concat(evidenceName.evidenceNameProblems({
+      entries: entries,
+      debt: debt,
+      debtError: debtError,
+      readLines: readLines,
+      surfaces: surfaces,
+      lexicalProblem: evidenceLexicalProblem,
+    }));
+    checks.L10 = fail('registry evidence names the toggle it points at', problems);
+    checks.L10.debtSize = debt ? debt.length : null;
+  }
+
+  // L11 — `values`와 코드 어휘의 집합 대조
   //
   // L1~L9는 전부 계약 **내부**(레지스트리 ↔ 색인 ↔ 상세)의 정합만 본다. 셋이 서로를
   // 베끼므로, 존재하지 않는 값이 레지스트리에 들어가면 세 표면에 일관되게 복제된 뒤
-  // green으로 보고된다. L10은 그 바깥과 결속하는 유일한 검사다.
+  // green으로 보고된다. L11은 그 바깥과 결속하는 유일한 검사다.
   //
   // 판정은 kind마다 다르다(DD9). enum은 `values`와 코드 어휘가 **집합 동일**해야 하고,
   // list는 `values`가 오늘 전부 null이므로 «어휘가 지정됐고 해석되는가»까지만 본다 —
@@ -589,12 +773,12 @@ function run(repoRoot) {
       }
     });
 
-    checks.L10 = fail('registry values are bound to the code vocabulary', problems);
-    checks.L10.notes = notes;
-    checks.L10.quarantined = Array.from(seenQuarantine).sort();
+    checks.L11 = fail('registry values are bound to the code vocabulary', problems);
+    checks.L11.notes = notes;
+    checks.L11.quarantined = Array.from(seenQuarantine).sort();
   }
 
-  // L11 — 값별 결과 · 멤버 어휘 블록의 양방향 대조
+  // L12 — 값별 결과 · 멤버 어휘 블록의 양방향 대조
   //
   // L3~L7이 문서의 **존재**를 보는 데 반해 여기는 문서가 가르치는 **값의 목록**이
   // 레지스트리와 같은지를 본다. 산문을 스캔하지 않는 이유는 실측 때문이다: 값 토큰이
@@ -698,16 +882,26 @@ function run(repoRoot) {
       }
       notes.push(e.name + ': member vocabulary block present');
     });
-    checks.L11 = fail('detail docs spell out every declared value and list-member policy', problems);
-    checks.L11.notes = notes;
-    checks.L11.targets = targets.length;
+    checks.L12 = fail('detail docs spell out every declared value and list-member policy', problems);
+    checks.L12.notes = notes;
+    checks.L12.targets = targets.length;
   }
 
   const ok = Object.keys(checks).every(function (k) { return checks[k].ok; });
   return { ok: ok, checks: checks };
 }
 
-module.exports = { run: run, evidenceLexicalProblem: evidenceLexicalProblem, rawComparisonHits: rawComparisonHits };
+module.exports = {
+  run: run,
+  evidenceLexicalProblem: evidenceLexicalProblem,
+  rawComparisonHits: rawComparisonHits,
+  // L10의 판정 코어는 `evidence-name.js`가 소유한다. 여기서 re-export하는 것은
+  // 소비처가 «lint의 검사»로 부를 수 있게 하기 위해서이고, 구현이 둘이 되지 않도록
+  // 정의는 한 곳에만 둔다.
+  evidenceNameProblems: evidenceName.evidenceNameProblems,
+  nameAppears: evidenceName.nameAppears,
+  EVIDENCE_WINDOW: evidenceName.EVIDENCE_WINDOW,
+};
 
 if (require.main === module) {
   const json = process.argv.indexOf('--json') !== -1;

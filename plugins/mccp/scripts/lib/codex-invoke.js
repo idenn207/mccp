@@ -198,6 +198,45 @@ function composeFocus(focus, opts) {
   return out;
 }
 
+// resolveDisabledPolicy — "is Codex disabled for this call?" answered from the
+// sealed policy when one is available, and from env when it is not.
+//
+// The require is lazy and guarded because this module is on the hot path of
+// every gate: a load failure here must cost a warning, never a blocked review.
+// `opts.gitDir` exists so tests can point at a scratch repo without chdir.
+function resolveDisabledPolicy(env, opts) {
+  const envDisabled = envValue.parseBool(env, 'MCCP_CODEX_DISABLED');
+  let policy;
+  try {
+    policy = require('./codex-policy');
+  } catch (err) {
+    process.stderr.write('[mccp:codex-invoke] codex-policy unavailable (' +
+      (err && err.message ? err.message : String(err)) +
+      ') — falling back to env-only policy; a sealed policy cannot be honoured this call\n');
+    return envDisabled;
+  }
+
+  try {
+    const gitDir = Object.prototype.hasOwnProperty.call(opts, 'gitDir')
+      ? opts.gitDir
+      : policy.resolveGitDir(process.cwd());
+    const disabled = policy.resolveCodexDisabled({ gitDir: gitDir, env: env });
+    // Only the interesting transition is logged. Saying "env said so" on every
+    // call would bury the one line an operator actually needs to see: the seal
+    // overriding a cleared env, which is the whole point of this axis.
+    if (disabled && !envDisabled) {
+      const r = policy.readPolicy({ gitDir: gitDir });
+      process.stderr.write('[mccp:codex-invoke] Codex disabled by SEALED policy (env is off, seal reason=' +
+        r.reason + ') — a gate may not clear MCCP_CODEX_DISABLED mid-run\n');
+    }
+    return disabled;
+  } catch (err) {
+    process.stderr.write('[mccp:codex-invoke] sealed-policy read threw (' +
+      (err && err.message ? err.message : String(err)) + ') — falling back to env-only policy\n');
+    return envDisabled;
+  }
+}
+
 function invokeAdversarialReview(focus, opts) {
   opts = opts || {};
   const env = opts.env || process.env;
@@ -210,7 +249,24 @@ function invokeAdversarialReview(focus, opts) {
   // (independent of MCCP_ALLOW_CODEX_UNAVAILABLE) — disabled is intentional,
   // not a failure mode. Caller (codex-runner / receipt write) maps to
   // verdict='skipped' + reason='codex_disabled' for receipt audit.
-  if (envValue.parseBool(env, 'MCCP_CODEX_DISABLED')) {
+  //
+  // v1.32.6 — the condition is no longer `env` alone. This function is the ONE
+  // chokepoint every Codex call in every gate passes through, including an R2
+  // escalation call improvised by the model, so it is the only place where the
+  // policy can be made round-invariant. Reading env alone left exactly one open
+  // window: honour the toggle in R1, then have the run clear it and call again
+  // (measured 2026-08-25). codex-policy resolves `seal OR env` instead, so a
+  // cleared env no longer resurrects Codex within a gate execution.
+  //
+  // FAIL-OPEN on a broken policy module. If codex-policy cannot be required or
+  // its reader throws, we degrade to env alone and say so loudly. The inverse
+  // (fail-closed) would let one broken require silently disable Codex for every
+  // user of every gate, which is a far larger and far likelier harm than the
+  // window this guard closes. Note the asymmetry is only about the MODULE being
+  // unusable — an unreadable seal FILE is handled inside codex-policy and folds
+  // toward disabled, because a seal that exists but cannot be read is an anomaly
+  // rather than the normal "never sealed" state.
+  if (resolveDisabledPolicy(env, opts)) {
     return {
       ok: true,
       stdout: '',

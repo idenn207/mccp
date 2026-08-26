@@ -980,13 +980,14 @@ test('M1.5 — a blocked inconclusive marker carries the claimed/total count', f
 // an `off` run reads as reviewer non-compliance. `reviewer_claim_status` is the
 // discriminator, which is why plan.md 5.5a points at it and not at the value.
 
-function snapshotAwaiting(s, nonce, envelope, mode) {
+function snapshotAwaiting(s, nonce, envelope, mode, arbiterMode) {
   let snap = null;
   const planHash = require('../../receipt/hash').planAwareMarkdownHash(s.planAbs);
   const p = runner.paths(s.tmpDir, 'r', nonce);
   fs.writeFileSync(p.adjudication,
     JSON.stringify(adjudicationFor(s, envelope), null, 2));
-  const res = runWith(s, { runNonce: nonce, env: { MCCP_INTENT_MISLABEL: mode } }, envelope,
+  const res = runWith(s, { runNonce: nonce, arbiterMode: arbiterMode,
+    env: { MCCP_INTENT_MISLABEL: mode } }, envelope,
     function () {
       // `write` runs after the wait and before the finally that deletes the
       // artifact — the only point it is still on disk without a subprocess.
@@ -1083,4 +1084,137 @@ test('M1.5 — but the override DOES release a blocking judgement', function () 
   const d = out.captured[0].intentDecision;
   assert.strictEqual(d.verdict, 'mislabel_unresolved', 'sealed, not laundered');
   assert.strictEqual(d.force_override, true);
+});
+
+// ── M2 — 투영 · 봉인 · 모순 ──────────────────────────────────────────────────
+
+const iarb = require('../intent-arbiter');
+
+// 저자 정당화가 들어 있는 plan. arbiter가 이 문장에 도달할 수 있는지가 M2의 전부다.
+const PRD_PLAN_WITH_RATIONALE = PRD_PLAN.replace('## Summary',
+  '## Design Decisions\n\nDD1 — we chose the narrow scope because the wide one would ' +
+  'have forced a second review round, and that is the argument the arbiter must not see.\n\n## Summary');
+
+test('M2 — the awaiting artifact carries intent_items, matching the parsed section', function () {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ severity: 'HIGH', title: 'f', body: 'b', recommendation: 'r' }]);
+  const got = snapshotAwaiting(s, 'm2a', env, 'enforce');
+  assert.ok(got.snap, 'the artifact must exist while write runs');
+  assert.deepStrictEqual(got.snap.intent_items,
+    ic.extractIntentSection(fs.readFileSync(s.planAbs, 'utf8')).items,
+    'the projection source must be the parsed section, not a re-read of the table');
+});
+
+test('M2 — the awaiting artifact carries the REQUIRED arbiter mode, so 5.5a need not remember it', function () {
+  // The shell variable 5.2z computes does not survive across tool calls and is
+  // recoverable from nowhere else. If 5.5a has to guess and guesses `author`, the
+  // author adjudicates with no degradation recorded while this process — which holds
+  // the real value in argv — seals `subagent`. That receipt claims a separation that
+  // did not happen, which is the one thing this milestone is for.
+  const env = envelopeWith([{ severity: 'HIGH', title: 'f', body: 'b', recommendation: 'r' }]);
+  ['subagent', 'author'].forEach(function (mode, i) {
+    const s = scratch(PRD_PLAN);
+    const got = snapshotAwaiting(s, 'm2mode' + i, env, 'enforce', mode);
+    assert.strictEqual(got.snap.arbiter_mode, mode,
+      'the artifact must publish the mode this run actually required, not a default');
+  });
+});
+
+test('M2 — an out-of-enum mode is published as what the runner RESOLVED, not as what it was told', function () {
+  // Otherwise 5.5a keys off a value the runner already rejected, and the two disagree
+  // about the same run — the exact split this axis forbids.
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ severity: 'HIGH', title: 'f', body: 'b', recommendation: 'r' }]);
+  const got = snapshotAwaiting(s, 'm2mode9', env, 'enforce', 'subagnet');
+  assert.strictEqual(got.snap.arbiter_mode, iarb.DEFAULT_ARBITER_MODE);
+});
+
+test('M2 — publishing the mode does NOT hand it to the arbiter (the whitelist earns its keep)', function () {
+  // A blacklist would have needed editing here. The whitelist needed nothing, which
+  // is the property that makes adding runner fields safe rather than a review burden.
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ severity: 'HIGH', title: 'f', body: 'b', recommendation: 'r' }]);
+  const got = snapshotAwaiting(s, 'm2mode10', env, 'enforce', 'author');
+  assert.strictEqual(got.snap.arbiter_mode, 'author', 'present in the artifact — the premise');
+  const projection = iarb.buildArbiterProjection(got.snap);
+  assert.ok(!Object.prototype.hasOwnProperty.call(projection, 'arbiter_mode'));
+  assert.doesNotMatch(JSON.stringify(projection), /arbiter_mode/);
+});
+
+test('M2 — the runner removes the arbiter prompt file it did not write', function () {
+  // The command body writes it (plan.md 5.5a-1) and it holds the same findings and
+  // constraints the awaiting artifact does. Cleanup lives here rather than in prose
+  // because a prose step is a step that gets skipped.
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ severity: 'HIGH', title: 'f', body: 'b', recommendation: 'r' }]);
+  const p = runner.paths(s.tmpDir, 'r', 'm2prompt');
+  assert.match(p.arbiterPrompt, /intent-arbiter-prompt-m2prompt\.txt$/,
+    'the name is a contract with the command body — renaming it orphans the file');
+  fs.writeFileSync(p.arbiterPrompt, 'findings + constraints');
+  fs.writeFileSync(p.adjudication, JSON.stringify(adjudicationFor(s, env), null, 2));
+  runWith(s, { runNonce: 'm2prompt', env: { MCCP_INTENT_MISLABEL: 'enforce' } }, env);
+  assert.strictEqual(fs.existsSync(p.arbiterPrompt), false);
+});
+
+test('M2 — what the arbiter ACTUALLY receives carries no plan path and no author rationale', function () {
+  // The check is on the PROJECTION, not on the awaiting artifact. Asserting on the
+  // artifact would pass while `plan_path` rides straight through to the arbiter —
+  // and `plan_path` is deliberately still in the artifact, because the author path
+  // keeps using it (DD1 puts the isolation in the whitelist, not in field deletion).
+  const s = scratch(PRD_PLAN_WITH_RATIONALE);
+  const env = envelopeWith([{ severity: 'HIGH', title: 'f', body: 'b', recommendation: 'r' }]);
+  const got = snapshotAwaiting(s, 'm2b', env, 'enforce');
+  assert.ok(got.snap.plan_path, 'the artifact still carries it — that is the premise');
+
+  const projection = iarb.buildArbiterProjection(got.snap);
+  const serialized = JSON.stringify(projection);
+  assert.ok(!Object.prototype.hasOwnProperty.call(projection, 'plan_path'));
+  assert.doesNotMatch(serialized, /\.plan\.md/);
+  assert.doesNotMatch(serialized, /Design Decisions/);
+  assert.doesNotMatch(serialized, /the argument the arbiter must not see/);
+});
+
+function sealCase(nonce, arbiterMode, degraded) {
+  const s = scratch(PRD_PLAN);
+  const env = envelopeWith([{ severity: 'HIGH', title: 'f', body: 'b', recommendation: 'r' }]);
+  const p = runner.paths(s.tmpDir, 'r', nonce);
+  const file = JSON.parse(JSON.stringify(adjudicationFor(s, env)));
+  if (degraded) file.arbiter_degraded = degraded;
+  fs.writeFileSync(p.adjudication, JSON.stringify(file, null, 2));
+  return runWith(s, { runNonce: nonce, arbiterMode: arbiterMode,
+    env: { MCCP_INTENT_MISLABEL: 'enforce' } }, env);
+}
+
+const DEGRADED = { from: 'subagent', to: 'author', reason: 'unknown-task-failure' };
+
+test('M2 — the four seal combinations reach the writer exactly as resolveArbiterSeal decided', function () {
+  const a = sealCase('m2s1', 'subagent', null);
+  assert.strictEqual(a.captured[0].intentDecision.arbiter, 'subagent');
+  assert.strictEqual(a.captured[0].intentDecision.arbiter_degraded_reason, null);
+
+  const b = sealCase('m2s2', 'subagent', DEGRADED);
+  assert.strictEqual(b.captured[0].intentDecision.arbiter, 'author');
+  assert.strictEqual(b.captured[0].intentDecision.arbiter_degraded_reason, 'unknown-task-failure');
+
+  const c = sealCase('m2s3', 'author', null);
+  assert.strictEqual(c.captured[0].intentDecision.arbiter, 'author');
+  assert.strictEqual(c.captured[0].intentDecision.arbiter_degraded_reason, null,
+    'a run that ASKED for the author never fell back, so there is no fallback to explain');
+});
+
+test('M2 — `author` plus a degradation record blocks and calls the writer ZERO times', function () {
+  const d = sealCase('m2s4', 'author', DEGRADED);
+  assert.strictEqual(d.res.exitCode, runner.EX_BLOCKED);
+  assert.strictEqual(d.res.verdict, 'incomplete');
+  assert.strictEqual(d.captured.length, 0,
+    'silently ignoring the flag would seal a value the file itself contradicts');
+});
+
+test('M2 — a skipped gate seals no arbiter at all, rather than claiming one', function () {
+  const s = scratch(FREE_FORM_PLAN);
+  const env = envelopeWith([{ severity: 'HIGH', title: 'f', body: 'b', recommendation: 'r' }]);
+  const out = runWith(s, { runNonce: 'm2s5', arbiterMode: 'subagent' }, env);
+  assert.strictEqual(out.res.verdict, 'skipped');
+  assert.strictEqual(out.captured[0].intentDecision.arbiter, null,
+    'no adjudication happened, so no arbiter adjudicated it');
 });

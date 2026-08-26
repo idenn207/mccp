@@ -1,23 +1,23 @@
 name: env-contract drift gate
 
-# L10 enforcement point. Goes red when the registry's documented `values` and the
+# L11 enforcement point. Goes red when the registry's documented `values` and the
 # code vocabulary they claim to describe disagree, and when any of L1..L9 drift.
 #
 # WHY THIS FILE EXISTS AT ALL: `lint.js` had zero callers — no hook, no CI, no
-# settings entry. Adding L10 without a runner would have changed nothing except
+# settings entry. Adding L11 without a runner would have changed nothing except
 # for people who happen to type the command; the check would be true and unread.
 # This workflow is what makes "landing is blocked" a claim about the repository
 # rather than about one operator's habits.
 #
 # THE PATHS FILTER IS BROAD ON PURPOSE. The mirror (gitignore-drift.yml) narrows
 # its filter to the lint's decision inputs, and the same rule applied here comes
-# out wide: L10 resolves each `vocabulary` ref by reading the SOURCE FILE it
+# out wide: L11 resolves each `vocabulary` ref by reading the SOURCE FILE it
 # names, and those files are scattered across the whole scripts tree (20 distinct
 # files today, and the set moves whenever the registry does). L1/L4/L9 were
 # already this broad — `scan.js#walkSurfaces` walks every `scripts/**/*.js` and
 # `commands/*.md`. A filter listing only `env-contract/` would skip the workflow
 # for a PR that edits `plan-review/decide.js#MODES`, which is exactly the drift
-# L10 exists to catch: GitHub skips a workflow entirely when no path matches, so
+# L11 exists to catch: GitHub skips a workflow entirely when no path matches, so
 # a filter that misses an input turns the gate into dead code.
 #
 # `plugins/mccp/hooks/hooks.json` is listed separately because it is not under
@@ -66,8 +66,8 @@ jobs:
       # failures matter. The lint answers "does the contract hold right now?"
       # against the real tree; the unit tests answer "does each check still go
       # red when it should?" against synthetic fixtures. A suite that only ran
-      # the lint would stay green if L10 were quietly reduced to a no-op.
-      - name: env-contract lint (L1..L10)
+      # the lint would stay green if L11 were quietly reduced to a no-op.
+      - name: env-contract lint (L1..L12)
         run: node plugins/mccp/scripts/lib/env-contract/lint.js
 
       # 셸이 펼치는 glob이다. 세 형태 중 이것만 Node 20에서 산다:

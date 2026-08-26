@@ -17,8 +17,21 @@ const registry = require('../registry');
 // M2에서 MCCP_AUTO_CHAIN_SKIP_PR이 bool → bypass-flag로 정정돼 넷이 됐다(DD9) —
 // 파싱 계약이 «정확히 `1`»이라 bool의 별칭 집합과 다르다. kind는 파싱 계약을 뜻하고
 // «게이트를 약화한다»는 이전 셋의 공통 성질이었을 뿐 kind의 정의가 아니다.
-const WANT_BYPASS = ['MCCP_ALLOW_CODEX_UNAVAILABLE', 'MCCP_AUTO_CHAIN_SKIP_PR',
-  'MCCP_CODEX_DISABLED', 'MCCP_SKIP_RECEIPT'].sort();
+//
+// M5(v1.32.0)가 다섯 번째를 더했다: `MCCP_PLAN_REVIEW_TEST_INVOKE`. 이것은 **게이트를
+// 약화하지 않는다** — 반대로 `plan-review/cli.js:542`가 `--invoke-module`(임의 모듈을
+// Codex wrapper 자리에 끼워 넣어 «Codex 없이 converged»를 만들 수 있는 플래그)을
+// 게이트 실행 경로에서 **거부**하기 위해 요구하는 test 전용 스위치다. 이 이름이
+// registry에 없어서 L1이 붉었고, 등재하지 않으면 M5는 자기가 확장하는 lint를 green으로
+// 검증할 수 없었다. 다섯의 공통점은 방향이 아니라 파싱 계약이다 — 앞의 셋은 게이트를 열고,
+// 이것은 게이트가 닫혀 있음을 강제한다.
+const WANT_BYPASS = [
+  'MCCP_ALLOW_CODEX_UNAVAILABLE',
+  'MCCP_AUTO_CHAIN_SKIP_PR',
+  'MCCP_CODEX_DISABLED',
+  'MCCP_PLAN_REVIEW_TEST_INVOKE',
+  'MCCP_SKIP_RECEIPT',
+].sort();
 
 test('export 표면이 계획서 산문과 일치한다', () => {
   ['ENTRIES', 'names', 'get', 'byKind', 'byDomain'].forEach((k) => {
@@ -28,7 +41,7 @@ test('export 표면이 계획서 산문과 일치한다', () => {
   assert.ok(registry.ENTRIES.length > 0);
 });
 
-test('bypass-flag 집합이 이름까지 DD1의 4개와 일치한다', () => {
+test('bypass-flag 집합이 이름까지 DD1의 5개와 일치한다', () => {
   const got = registry.byKind('bypass-flag').map((e) => e.name).sort();
   assert.deepEqual(got, WANT_BYPASS,
     '이 집합을 바꾸려면 DD1 · 색인 · 이 test를 함께 고쳐야 한다 — 그것이 의도다');
@@ -142,10 +155,11 @@ test('마커 — 7c가 대조할 수치를 stdout에 찍는다', () => {
 
 test('values가 의미를 갖는 kind는 전부 3형태 중 하나를 갖는다', () => {
   // `build()`가 이미 throw로 막지만, 그 throw는 «채우지 않은 신규 항목»만 잡는다.
-  // 여기서는 오늘의 36개가 실제로 어떤 형태로 채워졌는지를 고정한다 — 형태 분포가
-  // 조용히 gap 쪽으로 기울면 L10이 검사하는 표면이 줄어든 것이다.
+  // 여기서는 오늘의 38개가 실제로 어떤 형태로 채워졌는지를 고정한다 — 형태 분포가
+  // 조용히 gap 쪽으로 기울면 L11이 검사하는 표면이 줄어든 것이다.
+  // 36 → 38: main 머지가 MCCP_INTENT_ARBITER·MCCP_IMPECCABLE_SKILL 두 enum을 더했다.
   const targets = registry.byKind('enum').concat(registry.byKind('list'));
-  assert.equal(targets.length, 36, '어휘 결속 대상 수가 바뀌었다면 분포도 다시 봐야 한다');
+  assert.equal(targets.length, 38, '어휘 결속 대상 수가 바뀌었다면 분포도 다시 봐야 한다');
 
   let refForm = 0;
   let deriveForm = 0;
@@ -183,11 +197,15 @@ test('그 밖의 kind에는 어휘 열이 붙지 않는다 (가산적 변경)', 
 });
 
 // ── M2 — 어휘 결속의 실측 ────────────────────────────────────────────────────
-// 수치를 손으로 적지 않고 레지스트리에서 세어 대조한다. «7」과 «6」은 M2가 실측한
-// 값이고, 이 test가 그 실측을 다음 변경까지 끌고 간다.
-test('M2 — 어휘를 읽을 수 없는 항목은 정확히 7건이고 모두 사유를 갖는다', () => {
+// 수치를 손으로 적지 않고 레지스트리에서 세어 대조한다. 이 test가 그 실측을 다음
+// 변경까지 끌고 간다.
+//
+// 7 → 8: main 머지의 MCCP_IMPECCABLE_SKILL. 두 값이 resolveImpeccable 안의 인라인
+// 리터럴 비교로만 존재하고 export된 상수가 없어 gap으로 들어왔다 — 상수 승격은
+// impeccable-detection-contract PRD 소유 파일의 변경이라 머지 범위 밖이다.
+test('M2 — 어휘를 읽을 수 없는 항목은 정확히 8건이고 모두 사유를 갖는다', () => {
   const gaps = registry.ENTRIES.filter((e) => e.vocabularyGap);
-  assert.equal(gaps.length, 7,
+  assert.equal(gaps.length, 8,
     'gap이 늘었다면 승격이 되돌려졌거나 새 enum/list가 사유만 달고 들어온 것이다');
   gaps.forEach((e) => {
     assert.equal(e.vocabulary, null, e.name + ': gap과 vocabulary는 동시에 존재할 수 없다');

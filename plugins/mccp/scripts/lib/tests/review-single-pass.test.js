@@ -105,7 +105,7 @@ test('parseRoundCap: unset is quiet, bad input is loud — both land on 1', () =
 test('effectiveRoundCap: toggle off passes the configured cap straight through', () => {
   ['1', '2', '3'].forEach(function (n) {
     const r = effectiveRoundCap({ [ENV_ROUND_CAP]: n });
-    assert.deepEqual(r, { cap: Number(n), pinned: false, reason: null });
+    assert.deepEqual(r, { cap: Number(n), pinned: false, reason: null, pinnedBy: null, note: null });
   });
 });
 
@@ -116,14 +116,18 @@ test('effectiveRoundCap: an active toggle pins the cap to 1 over any MCCP_GATE_R
     [ENV_SINGLE_PASS]: 'deadline_pressure',
     [ENV_ROUND_CAP]: '3',
   });
-  assert.deepEqual(r, { cap: 1, pinned: true, reason: 'deadline_pressure' });
+  assert.deepEqual(r, {
+    cap: 1, pinned: true, reason: 'deadline_pressure',
+    pinnedBy: 'single-pass',
+    note: 'round cap pinned to 1 by MCCP_REVIEW_SINGLE_PASS=deadline_pressure',
+  });
 });
 
 test('effectiveRoundCap: a REJECTED toggle value does not pin — it is simply off', () => {
   const r = withCapturedStderr(function () {
     return effectiveRoundCap({ [ENV_SINGLE_PASS]: 'nope', [ENV_ROUND_CAP]: '2' });
   });
-  assert.deepEqual(r.value, { cap: 2, pinned: false, reason: null });
+  assert.deepEqual(r.value, { cap: 2, pinned: false, reason: null, pinnedBy: null, note: null });
 });
 
 // ── decideReview relaxation boundary ──────────────────────────────────────────

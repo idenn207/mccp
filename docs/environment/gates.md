@@ -178,7 +178,34 @@ MCCP_ALLOW_CODEX_UNAVAILABLE=1 /mccp:pr
 
 **극성** 미설정이면 **꺼져 있다**. 극성은 레지스트리가 선언하고 파서는 읽기만 한다.
 
-**사용 예시**
+**이것은 1회성 escape가 아니라 영구 운영자 정책이다 (v1.32.6).** `kind` 가
+`bypass-flag` 라 형제들과 한 부류로 보이지만, 그 형제들과 성질이 다르다 —
+`MCCP_SKIP_RECEIPT`("일회성 bypass (한 호출만)")와 `MCCP_PR_SKIP_CODEX_REVIEW`
+("one-shot")는 **한 번 쓰고 버리는 audited escape** 이고, 이 토글은 "이 환경에서는
+Codex 를 부르지 않는다"는 **상시 선언**이다. 그 차이가 문서에 적혀 있지 않던 동안,
+게이트가 R1 에서 이 플래그를 존중한 뒤 "소진됐다"고 판단해 R2 를 위해 `0` 으로
+되돌리고 Codex 를 호출하는 일이 실측됐다(2026-08-25).
+
+**게이트는 이 변수를 스스로 해제하지 않는다.** 어떤 라운드에서도 unset·override·
+`0` 재설정을 하지 않으며, R1 이 이를 소진하지 않는다. 세 명령 본문에 그 금지 조항이
+있고 `review-single-pass-command-body.test.js` 가 **조항의 존재**를 고정한다 — 다만
+그 test 는 이행을 주장하지 않는다(산문은 강제되지 않는다, CLAUDE.md 3.15).
+
+**기계적 강제는 봉인이 한다.** 게이트 진입 시 `codex-policy.js seal` 이 그 시점의
+정책을 `<git-dir>/mccp/tmp/codex-policy.json` 에 기록하고, 이후 모든 Codex 호출의
+유일한 chokepoint 인 `codex-invoke.js` 가 `봉인 OR env` 로 판정한다. 그래서 실행
+도중 env 가 지워져도 정책이 살아남는다.
+
+- **보장 범위는 1회 게이트 실행이다.** 게이트를 다시 호출하면 진입 시 봉인이 새 env
+  로 덮어써진다 — 토글을 끄고 다시 돌렸다면 정책을 *바꾼* 것이지 우회한 것이 아니다.
+- **봉인 부재는 env 단독**으로 떨어진다(이 토글을 쓴 적 없는 다수가 정상 경로를
+  유지한다). **판독 불가는 부재가 아니라** 이상 상태이므로 비용이 줄어드는 방향으로
+  접힌다. 6시간이 지난 봉인은 부재로 취급한다.
+- 봉인을 즉시 지우려면 `node plugins/mccp/scripts/lib/codex-policy.js clear`. 현재
+  봉인 상태는 `... codex-policy.js read` 로 확인한다(JSON, `reason` 은
+  `ok`/`absent`/`expired`/`unreadable`).
+
+**사용 예시** — 영구 정책이므로 `.claude/settings.json` 의 `env` 블록에 둔다.
 
 ```json
 {
@@ -188,10 +215,13 @@ MCCP_ALLOW_CODEX_UNAVAILABLE=1 /mccp:pr
 }
 ```
 
-한 호출에만 적용하려면 셸에서 앞에 붙인다:
+셸에서 1회만 켜는 것은 **가능하지만 이 토글의 용법이 아니다** — 그렇게 켜면 그
+호출의 게이트 진입이 정책을 `true` 로 봉인하고, 다음 호출은 다시 `false` 로 봉인한다.
+정책을 관측하고 정리하는 명령은 이것이다:
 
 ```bash
-MCCP_CODEX_DISABLED=1 /mccp:pr
+node plugins/mccp/scripts/lib/codex-policy.js read
+node plugins/mccp/scripts/lib/codex-policy.js clear
 ```
 
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.

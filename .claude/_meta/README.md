@@ -16,6 +16,7 @@
 | [verification-layer-design.md](verification-layer-design.md) | 2026-08-06 | active | L1/L2/L3 3층 verification 설계 |
 | [2026-08-20-env-settings-authoring-surface.md](2026-08-20-env-settings-authoring-surface.md) | 2026-08-20 | active | 환경변수 발견성과 settings.json 작성 표면 — 외부 스키마 import 대 setup 시드 대 제3안 |
 | [2026-08-20-env-contract-behavior-drift.md](2026-08-20-env-contract-behavior-drift.md) | 2026-08-20 | active | 환경변수 계약 대 실제 동작 — 선언 값이 코드에 없는 결함과 값 의미 문서 부재 |
+| [2026-08-22-impeccable-plugin-channel-migration.md](2026-08-22-impeccable-plugin-channel-migration.md) | 2026-08-22 | active | impeccable 배포 채널 전환(npm CLI 3.6.0 → marketplace plugin 4.1.1)이 mccp의 탐지·setup·디자인 게이트에 만든 결함 전수 조사 |
 
 ## 2026-08 — 리뷰 루프 신뢰성
 

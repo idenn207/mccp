@@ -44,7 +44,7 @@ const SEVERITY = Object.freeze({
 });
 
 // DD6 (M2) — 미상 멤버의 처리 방향은 파서마다 다르고 이 계약은 그것을 **바꾸지 않고
-// 보고한다**(UI12). 표 본문은 `vocabulary.js`가 소유한다 — L11도 같은 사실을 읽어야
+// 보고한다**(UI12). 표 본문은 `vocabulary.js`가 소유한다 — L12도 같은 사실을 읽어야
 // 하므로, 두 소비처가 같은 표를 본다는 것이 import 그래프에 남아야 한다. 재-export하지
 // 않는다: 여기서 다시 내보내면 소비처가 어느 쪽을 정본으로 삼는지가 다시 흐려진다.
 const { LIST_MEMBER_POLICY } = require('./vocabulary');

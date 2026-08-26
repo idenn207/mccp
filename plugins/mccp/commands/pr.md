@@ -37,6 +37,22 @@ fi
 
 This Phase 0 runs before `gh pr list` so an advisory invocation never touches GitHub. The auto-chain `pr` step from [auto-chain.js](../scripts/lib/auto-chain.js) mirrors this rejection at chain-orchestration time as defense-in-depth.
 
+### Phase 0.0b — Seal the Codex policy for this gate execution (v1.32.6)
+
+Write the operator policy to disk **before any round runs**. From here on the
+authority on "is Codex disabled?" is `codex-policy`, not `process.env` — so a
+later round cannot resurrect Codex by clearing the variable. `seal` resolves the
+git dir itself (worktree-safe) and exits 0 even when it fails, because a failed
+seal must degrade to the pre-v1.32.6 behaviour (env only) rather than stop the gate.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-policy.js" seal 1>&2
+```
+
+**Never unset, override, or re-export `MCCP_CODEX_DISABLED` anywhere in this
+command.** It is a persistent operator policy, not a one-shot escape, and R1 does
+not consume it.
+
 ### Phase 0.1 — `MCCP_FORCE_PR_WITHOUT_IMPECCABLE` audited escape preflight (v0.2.6 Milestone 1 Task 1.6)
 
 Symmetric with the v0.2.4 security-reviewer audited escape but with **stricter reason validation** (Codex R1 F4 absorption). If the env var is set, validate the reason **before** 2.5.1 runs the impeccable gate, so a missing-Skill fallback can short-circuit to force-override path without re-prompting the user mid-flow.
@@ -360,6 +376,21 @@ DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
   --base "origin/<base>" \
   --json)
 SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
+# v1.31.3 M3 — the call form is RESOLVED, never hardcoded. The plugin channel
+# registers the skill as <pluginName>:<skillDirName>, so a hardcoded bare name
+# reaches unknown_skill for every plugin-only install; the oracle already knows
+# which body opens, so ask it.
+#
+# The carrier the LLM reads is the stderr LINE below, not this shell variable:
+# shell state does not survive a tool-call boundary, so a prompt that said
+# "use $IMPECCABLE_INVOCATION" would be read as an empty name.
+#
+# Exactly one line, exactly this shape. Its absence is meaningful — see the
+# call-form rule in the prose below.
+IMPECCABLE_INVOCATION=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.impeccable_invocation||"")}catch{process.stdout.write("")}')
+if [ -n "$IMPECCABLE_INVOCATION" ]; then
+  echo "[mccp:impeccable] call-form: Skill($IMPECCABLE_INVOCATION, ...)" 1>&2
+fi
 SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
 DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
 # v1.3.0 M1 — silent-skip surface. detect() now emits silent_skip (SKILL_AVAIL=1
@@ -376,7 +407,26 @@ Decision tree (v1.3.0 M1 — silent-skip is no longer silent):
 |---|---|---|
 | 0 | * | Record `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` in the in-memory `## Design Review` section. **Export** `IMPECCABLE_SKIPPED_REASON="$DETECT_REASON"` so 2.5.7 forwards it. Then check `MCCP_FORCE_PR_WITHOUT_IMPECCABLE` (see 2.5.5c). |
 | 1 | 0 | Detector found no design surface on this PR. Emit a loud stderr warn (`[mccp:impeccable] silent-skip reason=$SILENT_SKIP_REASON · PR declares no design surface (whitelist hit 0)`) and forward `--impeccable-silent-skip --impeccable-silent-skip-reason "$SILENT_SKIP_REASON"` to 2.5.7 — UNLESS `IMPECCABLE_FORCE_OVERRIDE_REASON` is set, in which case the silent_skip forward is suppressed (schema mutex). M1 records silent_skip as informational warning at every gate; M2 will promote to blocking once SKILL first-step + critique loop are wired (Codex F2 deferred). |
-| 1 | 1 | Invoke `Skill(impeccable, "critique <PR title or branch name>")` and `Skill(impeccable, "audit <PR title or branch name>")` (critique+audit both since `29ded48`, 2026-06-03 Sprint 3). Capture highlights — Phase 4 injects them into PR body as `## Design Review`. **`audit` is advisory** — review-only, it surfaces in `## Design Review` but never blocks this gate; only the Phase 1.6 critique chain-check blocks (framing parallel to `code-review.md` 2.5.2). If Skill returns `unknown_skill` / `not found`, fall back to the skipped path (set `IMPECCABLE_SKIPPED_REASON="skill-missing"`). |
+| 1 | 1 | Invoke the resolved call form (see the call-form rule below) twice — with `critique <PR title or branch name>` and with `audit <PR title or branch name>` (critique+audit both since `29ded48`, 2026-06-03 Sprint 3). Capture highlights — Phase 4 injects them into PR body as `## Design Review`. **`audit` is advisory** — review-only, it surfaces in `## Design Review` but never blocks this gate; only the Phase 1.6 critique chain-check blocks (framing parallel to `code-review.md` 2.5.2). If the call-form line is absent, or the resolved call still returns `unknown_skill` / `not found`, fall back to the skipped path (set `IMPECCABLE_SKIPPED_REASON="skill-missing"`). |
+
+**Call-form rule (v1.31.3 M3) — do NOT type a literal skill name.** The detect
+block above printed exactly one line:
+
+```
+[mccp:impeccable] call-form: Skill(<invocation>, ...)
+```
+
+Invoke the name that line carries between `Skill(` and the comma. That is the
+body the oracle established will actually open — `impeccable` for a bare
+install, `impeccable:impeccable` for a plugin-only one. Read it off the line,
+not off `$IMPECCABLE_INVOCATION`: shell state does not survive a tool-call
+boundary, so the variable is empty by the time this instruction is acted on.
+
+**An absent line means the skill did not resolve** — take the skipped path (`IMPECCABLE_SKIPPED_REASON="skill-missing"`).
+Never guess a name, and in particular never fall back to the bare name
+`impeccable` as a hardcoded call: from v1.31.3 this repository ships no bare
+copy, so a guessed bare call reaches `unknown_skill` and records a skip the
+gate did not have to take.
 
 Loud stderr warn for the SKILL_AVAIL=1 SIGNAL=0 row (M1 Task 3):
 
@@ -520,11 +570,16 @@ CODEX_RESULT_FILE="$MCCP_TMP/codex-result.json"
 # The oracle returns an object; only `.cap` is exported. `.pinned`/`.reason` exist
 # so the reason a cap is 1 does not vanish from the logs.
 ROUND_CAP_JSON=$(node -e '
-  const {effectiveRoundCap}=require(process.argv[1]+"/scripts/lib/review-single-pass");
-  process.stdout.write(JSON.stringify(effectiveRoundCap(process.env)));
+  const root = process.argv[1];
+  const policy = require(root + "/scripts/lib/codex-policy");
+  const {effectiveRoundCap} = require(root + "/scripts/lib/review-single-pass");
+  const gitDir = policy.resolveGitDir(process.cwd());
+  const codexDisabled = policy.resolveCodexDisabled({ gitDir: gitDir, env: process.env });
+  process.stdout.write(JSON.stringify(effectiveRoundCap(process.env, { codexDisabled: codexDisabled })));
 ' "${CLAUDE_PLUGIN_ROOT}")
 export MCCP_GATE_ROUND_CAP=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).cap))}catch{process.stdout.write("1")}' <<<"$ROUND_CAP_JSON")
-node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));if(j.pinned)process.stderr.write("[mccp:single-pass] round cap pinned to "+j.cap+" by MCCP_REVIEW_SINGLE_PASS="+j.reason+"\n")}catch(_){}' <<<"$ROUND_CAP_JSON"
+node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));if(j.note)process.stderr.write("[mccp:round-cap] "+j.note+" (pinnedBy="+j.pinnedBy+")
+")}catch(_){}' <<<"$ROUND_CAP_JSON"
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/codex-runner.js" "${RUNNER_FLAGS[@]}" > "$CODEX_RESULT_FILE"
 CODEX_RUNNER_EXIT=$?
 if [ "$CODEX_RUNNER_EXIT" != "0" ]; then
@@ -598,7 +653,20 @@ Severity-gated re-rerun (default cap=1): after R1's YAGNI triage table is writte
   (a) ≥1 finding is `verdict=ACCEPT_NOW` AND `severity ∈ {CRITICAL, HIGH}`
   (b) The R1 absorption could not fully resolve it (Claude self-attests in PR body)
 If escalate triggers, run R2 with focus restricted to the unresolved item(s).
-Repeat up to `MCCP_GATE_ROUND_CAP` (default `1`, allowed `1`/`2`/`3`). Beyond the cap,
+
+> **Codex가 비활성이면 R2는 존재하지 않는다.** 캡이 1로 pin되어 있고, 설령 그 캡을
+> 지나쳐 호출하더라도 `codex-invoke.js`가 spawn 직전에 봉인된 정책을 읽어
+> `disabled`로 short-circuit한다.
+>
+> **`MCCP_CODEX_DISABLED`는 1회성 escape가 아니라 영구 운영자 정책이다.** 게이트는
+> 어떤 라운드에서도 이 변수를 해제하거나 override하거나 `0`으로 재설정하지 않는다.
+> R1이 이를 소진하지 않는다. 진짜 1회성인 형제 토글들(`MCCP_SKIP_RECEIPT`,
+> `MCCP_PR_SKIP_CODEX_REVIEW`)과 혼동하지 말 것.
+
+Repeat up to `$ROUND_CAP` — the value the shared oracle produced above, NOT the raw
+`MCCP_GATE_ROUND_CAP` (default `1`, allowed `1`/`2`/`3`). The oracle pins it to 1 when
+the single-pass toggle is set or when Codex is disabled, and quoting the raw env here
+would tell the reader a cap the gate is not actually using. Beyond the cap,
 annotate `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
 
 If no `ACCEPT_NOW` HIGH/CRITICAL remains, stop at R1.

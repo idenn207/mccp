@@ -963,6 +963,93 @@ test('an oversized dispute reason is a file-level parse rejection', function () 
   assert.strictEqual(parsed.reason, 'dispute-reason-too-long');
 });
 
+// ---------------------------------------------------------------------------
+// M2 Task 7 — `arbiter_degraded` 형태 검증
+//
+// 강등은 새 IPC 경로가 아니라 같은 adjudication 파일의 최상위 키다(DD5 6번). 그래서
+// 여기서 하는 일은 **형태 수용**뿐이고, 판정 규칙(개수·index·digest·rationale)에는
+// 손대지 않는다 — 강등이 M1의 면제가 되면 "기록 없는 수용"이 한 번에 부활한다.
+// ---------------------------------------------------------------------------
+
+function degradedFile(degraded) {
+  const body = { plan_path: 'p', adjudications: [] };
+  if (degraded !== undefined) body.arbiter_degraded = degraded;
+  return JSON.stringify(body);
+}
+
+test('(m2) an absent arbiter_degraded leaves M1 behaviour exactly as it was', function () {
+  const parsed = ic.parseAdjudicationFile(degradedFile(undefined));
+  assert.strictEqual(parsed.ok, true);
+  assert.ok(!Object.prototype.hasOwnProperty.call(parsed.value, 'arbiter_degraded'),
+    'old files must round-trip untouched — the key is optional, not defaulted');
+});
+
+test('(m2) a well-formed degradation record is accepted and preserved verbatim', function () {
+  const record = { from: 'subagent', to: 'author', reason: 'unknown-task-failure' };
+  const parsed = ic.parseAdjudicationFile(degradedFile(record));
+  assert.strictEqual(parsed.ok, true);
+  assert.deepStrictEqual(parsed.value.arbiter_degraded, record,
+    'the seal oracle reads this value, so the parser must not normalise it away');
+});
+
+test('(m2) a mode outside the enum is rejected', function () {
+  ['nobody', 'SUBAGENT ', '', null, 0].forEach(function (bad) {
+    assert.strictEqual(
+      ic.parseAdjudicationFile(degradedFile({ from: bad, to: 'author', reason: 'r' })).reason,
+      'arbiter-degraded-bad-mode', 'from=' + JSON.stringify(bad));
+    assert.strictEqual(
+      ic.parseAdjudicationFile(degradedFile({ from: 'subagent', to: bad, reason: 'r' })).reason,
+      'arbiter-degraded-bad-mode', 'to=' + JSON.stringify(bad));
+  });
+});
+
+test('(m2) a homoglyph mode is rejected, because strict equality is the check', function () {
+  // Cyrillic `ѕ` (U+0455) in "ѕubagent". Strict membership in a closed enum is
+  // what rejects this; NFKC would not fold it to Latin anyway.
+  const parsed = ic.parseAdjudicationFile(
+    degradedFile({ from: 'ѕubagent', to: 'author', reason: 'unknown-task-failure' }));
+  assert.strictEqual(parsed.reason, 'arbiter-degraded-bad-mode');
+});
+
+test('(m2) an empty or whitespace-only reason invalidates the degradation', function () {
+  // Omitting the reason must not be cheaper than writing one: a degradation with
+  // no cause is a claim with nothing behind it.
+  ['', '   ', '\n\t', null, 42, {}].forEach(function (bad) {
+    const parsed = ic.parseAdjudicationFile(
+      degradedFile({ from: 'subagent', to: 'author', reason: bad }));
+    assert.strictEqual(parsed.reason, 'arbiter-degraded-reason-empty', JSON.stringify(bad));
+  });
+});
+
+test('(m2) an oversized reason is bounded by the shared adjudication limit', function () {
+  const parsed = ic.parseAdjudicationFile(degradedFile({
+    from: 'subagent', to: 'author',
+    reason: 'x'.repeat(ic.ADJUDICATION_LIMITS.DISPUTE_REASON_CHARS + 1),
+  }));
+  assert.strictEqual(parsed.reason, 'arbiter-degraded-reason-too-long');
+});
+
+test('(m2) a non-object degradation record is rejected, and null reads as absent', function () {
+  ['a string', 42, true, ['subagent', 'author']].forEach(function (bad) {
+    assert.strictEqual(ic.parseAdjudicationFile(degradedFile(bad)).reason,
+      'arbiter-degraded-not-an-object', JSON.stringify(bad));
+  });
+  // `null` is how JSON spells "nothing here", and the M1 files that predate this
+  // key spell it by omission. Both must mean the same thing.
+  assert.strictEqual(ic.parseAdjudicationFile(degradedFile(null)).ok, true);
+});
+
+test('(m2) a degradation record does not exempt the file from the M1 rules', function () {
+  // The whole point of accepting the key here is that it changes nothing else.
+  // A degraded file with a duplicate finding_index is still an invalid file.
+  const file = JSON.stringify({
+    plan_path: 'p',
+    arbiter_degraded: { from: 'subagent', to: 'author', reason: 'unknown-task-failure' },
+    adjudications: [{ intent_conflict: 'x'.repeat(ic.ADJUDICATION_LIMITS.INTENT_CONFLICT_CHARS + 1) }],
+  });
+  assert.strictEqual(ic.parseAdjudicationFile(file).reason, 'intent-conflict-too-long');
+});
+
 // DD12 — the three sealed combinations. The flag records whether an override
 // actually took EFFECT, not whether it was set.
 test('DD12: warn passing means the override was never applied', function () {

@@ -119,8 +119,25 @@ function buildSeededModel() {
         stale_reason: null,
         producer_coverage: 'instruction-cost',
       },
-      // PR-Codex R2-F3: `findings` source는 실 derive에 배선돼 있지 않으므로
-      // fixture에 주입하지 않는다(fake source 주입 = masquerade). C1은 forward-only.
+      // multi-session-work-loop M7 — `findings` source 가 실 derive 에 배선됐으므로
+      // 이제 fixture 주입이 masquerade 가 아니다(derive/index.js `SOURCE_SCANNERS`
+      // 에 `findings` 키가 실재하고, 그 사실은 `C1-SOURCE-REGISTERED-COPRESENT` 가
+      // 단언한다). `type_separation` 은 소스가 스캔 결과에서 파생하는 계약 필드라
+      // fixture 도 그것을 선언해야 compute 경로를 탄다 — 선언 없는 fixture 는
+      // `type_separation_undeclared` 로 invalid 가 되며, 그 대칭이 M7 이 고친 결함이다.
+      findings: {
+        ok: true,
+        count: 12,
+        closed_count: 5,
+        deferred_count: 3,
+        downgraded_count: 1,
+        rejected_count: 1,
+        open_count: 2,
+        type_separation: true,
+        producer_coverage: 'findings-registry',
+        degraded: false,
+        invalid_count: 0,
+      },
     },
   };
 }

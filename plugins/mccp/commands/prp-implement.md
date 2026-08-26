@@ -191,6 +191,22 @@ This phase applies when invoked as `/mccp:prp-implement`. It implements the **Au
 
 This runs **after** Phase 2 (PREPARE — git state, branch) and **before** Phase 3 (EXECUTE — first code change).
 
+### 2.5.0 — Seal the Codex policy for this gate execution (v1.32.6)
+
+Write the operator policy to disk **before any round runs**. From here on the
+authority on "is Codex disabled?" is `codex-policy`, not `process.env` — so a
+later round cannot resurrect Codex by clearing the variable. `seal` resolves the
+git dir itself (worktree-safe) and exits 0 even when it fails, because a failed
+seal must degrade to the pre-v1.32.6 behaviour (env only) rather than stop the gate.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-policy.js" seal 1>&2
+```
+
+**Never unset, override, or re-export `MCCP_CODEX_DISABLED` anywhere in this
+command.** It is a persistent operator policy, not a one-shot escape, and R1 does
+not consume it.
+
 ### 2.5.1 — Cross-gate dedupe check
 
 Read the plan file. If it contains `## Codex Adversarial Review` with a `합치 결론` line that mentions the same architectural decisions you're about to implement (file structure, abstraction boundaries, external deps, concurrency model), AND no new decision was introduced since the plan was approved, AND `git diff --name-only origin/<base>...HEAD` ⊆ the plan's `Files to Change` list (no implement-time file expansion), write a single line into the plan body:
@@ -315,6 +331,16 @@ After R1's YAGNI triage table is written, escalate ONLY if BOTH:
   (b) The R1 absorption could not fully resolve it (Claude self-attests in plan body)
 If escalate triggers, run R2 with focus restricted to the unresolved item(s).
 
+> **Codex가 비활성이면 R2는 존재하지 않는다.** 캡이 1로 pin되어 있고, 설령 그 캡을
+> 지나쳐 호출하더라도 `codex-invoke.js`가 spawn 직전에 봉인된 정책을 읽어
+> `disabled`로 short-circuit한다.
+>
+> **`MCCP_CODEX_DISABLED`는 1회성 escape가 아니라 영구 운영자 정책이다.** 게이트는
+> 어떤 라운드에서도 이 변수를 해제하거나 override하거나 `0`으로 재설정하지 않는다.
+> R1이 이를 소진하지 않는다. 진짜 1회성인 형제 토글들(`MCCP_SKIP_RECEIPT`,
+> `MCCP_PR_SKIP_CODEX_REVIEW`)과 혼동하지 말 것.
+
+
 Read the cap from the shared oracle — do NOT hardcode a literal here. This gate
 has no child-process export point (unlike `pr.md`, which hands the value to
 codex-runner), so the value lands in `$ROUND_CAP` and the round loop's entry
@@ -322,11 +348,16 @@ condition reads it (review-loop-bypass M1):
 
 ```bash
 ROUND_CAP_JSON=$(node -e '
-  const {effectiveRoundCap}=require(process.argv[1]+"/scripts/lib/review-single-pass");
-  process.stdout.write(JSON.stringify(effectiveRoundCap(process.env)));
+  const root = process.argv[1];
+  const policy = require(root + "/scripts/lib/codex-policy");
+  const {effectiveRoundCap} = require(root + "/scripts/lib/review-single-pass");
+  const gitDir = policy.resolveGitDir(process.cwd());
+  const codexDisabled = policy.resolveCodexDisabled({ gitDir: gitDir, env: process.env });
+  process.stdout.write(JSON.stringify(effectiveRoundCap(process.env, { codexDisabled: codexDisabled })));
 ' "${CLAUDE_PLUGIN_ROOT}")
 ROUND_CAP=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).cap))}catch{process.stdout.write("1")}' <<<"$ROUND_CAP_JSON")
-node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));if(j.pinned)process.stderr.write("[mccp:single-pass] round cap pinned to "+j.cap+" by MCCP_REVIEW_SINGLE_PASS="+j.reason+"\n")}catch(_){}' <<<"$ROUND_CAP_JSON"
+node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));if(j.note)process.stderr.write("[mccp:round-cap] "+j.note+" (pinnedBy="+j.pinnedBy+")
+")}catch(_){}' <<<"$ROUND_CAP_JSON"
 ```
 
 Repeat up to `$ROUND_CAP` rounds (default `1`, allowed `1`/`2`/`3`). Beyond the cap,

@@ -266,9 +266,18 @@ test('disabled honor: MCCP_CODEX_DISABLED=1 short-circuits before registry resol
   assert.ok(typeof r.durationMs === 'number' && r.durationMs >= 0);
 });
 
+// v1.32.6 — `gitDir: null` below is load-bearing, not decoration. The disabled
+// decision is no longer env-only: it is `sealed policy OR env`, and the seal lives
+// in the repository's git dir. Without an explicit gitDir these two cases would
+// read whatever seal this working tree happens to hold, so running the suite right
+// after a gate sealed `codex_disabled: true` would flip them to `disabled` and go
+// red for a reason having nothing to do with the code under test. Any NEW case
+// asserting a NON-disabled outcome must pin gitDir the same way.
+
 test('disabled honor: env unset → 11-enum matrix intact (regression on registry-missing)', () => {
   const r = invokeAdversarialReview('any', {
     env: {}, // MCCP_CODEX_DISABLED absent
+    gitDir: null, // and no sealed policy — see the note above
     registryPath: '/nonexistent/path/never/read.json',
   });
   assert.strictEqual(r.ok, false);
@@ -279,6 +288,7 @@ test('disabled honor: env unset → 11-enum matrix intact (regression on registr
 test('disabled honor: env value != "1" does NOT short-circuit', () => {
   const r = invokeAdversarialReview('any', {
     env: { MCCP_CODEX_DISABLED: '0' },
+    gitDir: null,
     registryPath: '/nonexistent/path/never/read.json',
   });
   assert.strictEqual(r.classification, 'registry-missing');
@@ -585,4 +595,95 @@ test('the CLI exposes --mislabel-contract so Task 0 can measure the production p
   assert.strictEqual(parsed.opts.mislabelContract, true);
   const without = parseCliArgs(['adversarial-review', '--focus', 'f']);
   assert.strictEqual(without.opts.mislabelContract, undefined);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.32.6 — the SEALED policy axis. This is the layer that makes the toggle
+// round-invariant: codex-invoke is the one chokepoint every Codex call in every
+// gate passes through, including an R2 escalation call the model improvises, so
+// it is the only place the policy can bind regardless of who opened the round.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const codexPolicy = require('../codex-policy');
+
+function sealedGitDir(disabled) {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-invoke-seal-'));
+  codexPolicy.sealPolicy({ gitDir: d, env: disabled ? { MCCP_CODEX_DISABLED: '1' } : {} });
+  return d;
+}
+
+function captureStderr(fn) {
+  const original = process.stderr.write;
+  let captured = '';
+  process.stderr.write = function (chunk) { captured += String(chunk); return true; };
+  try { return { value: fn(), stderr: captured }; }
+  finally { process.stderr.write = original; }
+}
+
+test('THE REGRESSION: a sealed policy short-circuits even when env says 0', () => {
+  // Measured 2026-08-25: the gate honoured MCCP_CODEX_DISABLED in R1, the run then
+  // treated the flag as a spent one-shot, set it to 0, and called Codex for R2.
+  // The bogus registry path is the proof of "no spawn" — reaching it would surface
+  // registry-missing instead.
+  const r = captureStderr(function () {
+    return invokeAdversarialReview('any', {
+      env: { MCCP_CODEX_DISABLED: '0' },
+      gitDir: sealedGitDir(true),
+      registryPath: '/nonexistent/path/never/read.json',
+    });
+  });
+  assert.strictEqual(r.value.ok, true);
+  assert.strictEqual(r.value.classification, 'disabled');
+  assert.strictEqual(r.value.blocking, false);
+  assert.strictEqual(r.value.advisory, false);
+  assert.strictEqual(r.value.stdout, '');
+  assert.match(r.stderr, /disabled by SEALED policy/,
+    'the override must be visible — a silent one cannot be audited');
+});
+
+test('a seal recording FALSE does not disable anything', () => {
+  // The seal is not a one-way switch. An operator who re-enabled Codex and re-ran
+  // the gate must get Codex back (DD4).
+  const r = invokeAdversarialReview('any', {
+    env: {},
+    gitDir: sealedGitDir(false),
+    registryPath: '/nonexistent/path/never/read.json',
+  });
+  assert.strictEqual(r.classification, 'registry-missing');
+});
+
+test('an UNREADABLE seal short-circuits; an ABSENT one does not', () => {
+  // The asymmetry is the point. "Never sealed" is the normal state of most
+  // installs and must stay on the env path; "sealed but unreadable" is an anomaly
+  // and folds toward not spending a Codex call.
+  const corrupt = sealedGitDir(true);
+  fs.writeFileSync(codexPolicy.sealPathFor(corrupt), '{ corrupt');
+  assert.strictEqual(invokeAdversarialReview('any', {
+    env: {}, gitDir: corrupt, registryPath: '/nonexistent/path/never/read.json',
+  }).classification, 'disabled');
+
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-invoke-noseal-'));
+  assert.strictEqual(invokeAdversarialReview('any', {
+    env: {}, gitDir: empty, registryPath: '/nonexistent/path/never/read.json',
+  }).classification, 'registry-missing');
+});
+
+test('a throwing policy lookup FAILS OPEN to env and says so loudly', () => {
+  // A broken policy layer must never be the thing that blocks every review. The
+  // inverse (fail-closed) would let one bad read silently disable Codex for every
+  // gate and every user — far larger harm than the window the seal closes.
+  const bad = 12345; // not a path: sealPathFor throws inside resolveCodexDisabled
+  const off = captureStderr(function () {
+    return invokeAdversarialReview('any', {
+      env: {}, gitDir: bad, registryPath: '/nonexistent/path/never/read.json',
+    });
+  });
+  assert.strictEqual(off.value.classification, 'registry-missing', 'env off → normal path');
+  assert.match(off.stderr, /sealed-policy read threw/);
+
+  const on = invokeAdversarialReview('any', {
+    env: { MCCP_CODEX_DISABLED: '1' }, gitDir: bad,
+    registryPath: '/nonexistent/path/never/read.json',
+  });
+  assert.strictEqual(on.classification, 'disabled', 'env on must still be honoured');
 });

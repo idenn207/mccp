@@ -10,7 +10,8 @@ confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-18T03:44:26.285Z
+dep_check_at: 2026-08-23T09:38:09.736Z
+dep_check_missing: impeccable
 escalate_pending: true
 escalate_pending_decision_id: santa-delta-review
 ---

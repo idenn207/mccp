@@ -361,7 +361,7 @@ verbatim 실행하지 않고(그 블록은 receipt writer인 `plan-codex-runner.
 
 **소비처** `plugins/mccp/scripts/lib/santa/scope-delta.js:19`
 
-**상태** `active` — v1.30.2 santa-delta-review M1에서 도입. M2(탐지율 보존 검증)가 default를 재검토했고 `off`로 유지했다 — 아래 **M2 판정** 참조.
+**상태** `active` — v1.30.2 santa-delta-review M1에서 도입. M2(탐지율 보존 검증)가 default를 재검토했고 `off`로 유지했다 — 아래 **판정** 참조.
 
 **사용 예시**
 
@@ -377,7 +377,9 @@ verbatim 실행하지 않고(그 블록은 receipt writer인 `plan-codex-runner.
 
 **비대칭 주의 — 이 토글만 default가 `off`다.** 형제 4종(`MCCP_SANTA_BLIND_LANE` · `MCCP_SANTA_ALWAYS_SCOPE` · `MCCP_SANTA_TERMINATOR` · `MCCP_SANTA_DEGRADE_GATE`)은 전부 발화를 default에 두고 그 근거는 "오타가 kill switch를 켜면 그 실행이 도입 이전과 똑같아 보인다"이다. 델타는 방향이 반대다 — 발화가 **더 느슨한** 쪽이고(파일을 검토 대상에서 뺀다), 틀렸을 때의 대가가 PRD가 인용한 16~93%p 탐지율 하락이다. 검증 전에 발화를 기본으로 두는 것은 PRD Risk 1을 그대로 실행하는 것이다.
 
-**M2 판정 — default는 `off`로 유지된다.** M2는 사전 등록 규칙(plan DD3 — `detection-corpus.js#DECISION_RULE`에 축자 동결)을 측정 결과에 기계적으로 적용한다. 규칙의 전건은 "델타의 **Layer 2**(라이브 리뷰어) 발견 수가 full과 같거나 크다"인데, M2가 배송한 것은 **Layer 1**(결정적 containment)뿐이라 전건이 거짓이 아니라 *미상*이고 미상은 flip 근거가 아니다 — `decideDefaultFlip({layer2: null})`이 `layer2-absent`를 낸다. 이 정합은 산문이 아니라 회귀 test가 잡는다(`santa-detection-coverage.test.js` — Layer 2 증거 없이 default를 `enforce`로 바꾸면 붉어진다).
+**판정 — default는 `off`로 유지된다. 근거는 이제 미상이 아니라 실측이다.** 사전 등록 규칙(plan DD3 — `detection-corpus.js#DECISION_RULE`에 축자 동결)을 측정 결과에 기계적으로 적용한다. 규칙의 전건은 "델타의 **Layer 2**(라이브 리뷰어) 발견 수가 full과 같거나 크다"이다. M2가 배송한 것은 **Layer 1**(결정적 containment)뿐이라 그 시점의 전건은 거짓이 아니라 *미상*이었고(`decideDefaultFlip({layer2: null})` → `layer2-absent`), **2026-08-25에 Layer 2를 완주해 그 자리가 실측으로 채워졌다** — 실제 리뷰어 레인을 두 모드로 완주한 결과 `fullFindings=3` · `deltaFindings=2`로 **1건 하락**이 관측됐다. 규칙은 하락이 아무리 작아도 flip을 거부하므로 판정은 `layer2-degraded`이고 default는 그대로 `off`다.
+
+**같은 `off`지만 사유 토큰이 달라졌다** — `layer2-absent`(재지 않았다) → `layer2-degraded`(재봤더니 하락). 잃은 것은 Class C(fix 커밋이 건드리지 않아 경로째 드롭된 파일)의 결함 하나이고, 그것은 Layer 1이 containment 손실을 예측한 바로 그 계층이다. 관측·한계·원시 산출물은 [detection-rate-layer2.md](../santa-loop/detection-rate-layer2.md)가 소유한다(N=1 합성 fixture · 모드당 1회 · 두 레인이 같은 model family). 이 정합은 산문이 아니라 회귀 test가 잡는다(`santa-detection-coverage.test.js` — 증거를 지운 채 default를 뒤집거나 증거를 남긴 채 default만 뒤집으면 붉어진다).
 
 **M2가 실제로 잰 것.** 합성 corpus(N=1, 계층당 결함 1건)를 실제 git fixture에 심고 실제 CLI를 `off`·`enforce` 두 모드로 호출한 결과, 델타의 containment 손실은 **Class C 하나**(fix가 건드리지 않은 파일 — 경로째 드롭이라 산술적으로 스코프 밖)로 국소화된다. **Class B**(같은 파일 안이지만 `CONTEXT_LINES` 밖)는 경로가 남으므로 containment가 보존된다 — 범위가 절단이 아니라 포인터라는 위 설계가 그 계층에서 성립한다는 뜻이다. **Class D**(plan/PRD)는 두 모드 모두 스코프 안이다(상시 스코프 면제). 계층 합산 `full=4 · delta=3 · lost=1`. **이것은 탐지율이 아니라 containment다** — "리뷰어에게 보일 기회가 있는가"를 재고 "리뷰어가 찾는가"는 재지 않는다. 후자는 Layer 2 소유이고 미실행이다. 근거·한계·재현: [.claude/notes/santa-delta-review-m2.md](../../.claude/notes/santa-delta-review-m2.md).
 

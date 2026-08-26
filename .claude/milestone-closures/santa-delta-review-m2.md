@@ -1,5 +1,14 @@
 # Milestone Closure — santa-delta-review-m2
 
+> **후속 (2026-08-25 추가 — 아래 closure 본문은 고치지 않는다).** 이 closure가
+> 「미충족」으로 기록한 acceptance 4b(Layer 2 라이브 리뷰어 비교)가 그 뒤 완주됐다.
+> 관측은 `fullFindings=3` · `deltaFindings=2`(**1건 하락**)이고, 사전 등록 규칙이 flip을
+> 거부해 `MCCP_SANTA_DELTA_SCOPE` default는 `off`로 유지되되 사유 토큰이
+> `layer2-absent` → **`layer2-degraded`** 로 바뀌었다. 즉 본문이 「미상」이라 적은 자리가
+> 실측으로 채워졌고, **결론(default `off`)은 같지만 근거가 다르다.**
+> 기록: [docs/santa-loop/detection-rate-layer2.md](../../docs/santa-loop/detection-rate-layer2.md).
+> **closure 시점(2026-08-21)의 판단은 그때 참이었으므로 그대로 둔다.**
+
 ## Milestone
 - ID         : santa-delta-review-m2
 - Name       : 탐지율 보존 검증

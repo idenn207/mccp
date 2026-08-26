@@ -2,7 +2,52 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.32.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.32.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.32.6] — 2026-08-25
+
+> **§3.7**: `1.32.5 → 1.32.6` (**patch** — axis close. 새 milestone이 아니라
+> santa-delta-review PRD의 마지막 Open Question을 실측으로 닫는 변경이고, 코드
+> 표면은 test 상수 하나와 문서다). 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 항목 + currently 노트) 동기 완료.
+
+### Measured
+
+- **santa 델타 리뷰 Layer 2(라이브 리뷰어 비교) 완주** — M2 plan Task 3이 세션 운영
+  제약으로 미실행이던 축을 그대로 실행했다. 같은 합성 fixture · 같은 CLI · 두
+  모드(`off`·`enforce`) 각각 blind + bundled 레인 완주. 관측
+  **`fullFindings=3` · `deltaFindings=2`(1건 하락)**. 잃은 것은 Class C(fix가 건드리지
+  않아 경로째 드롭된 파일)의 결함이고, Layer 1이 containment 손실을 예측한 그 계층이
+  탐지 손실로 실현됐다. **Class B의 핵심 질문은 답해지지 않았다** — 그 결함은 full
+  스코프에서도 미발견이라 관측이 질문에 도달하지 못했다.
+- 사전 등록(`PREREGISTRATION.md`)을 **리뷰어 발화 이전에** 동결했다 — 상위 규칙 인용 ·
+  실행 구성 · finding→결함 id 대조 알고리즘(plan 승인 패널이 `미지정`으로 지적한
+  L2 id=77fbb4db) · 비결정성 처리 · 실행 증명. 결과를 보고 규칙을 고치지 않았다.
+- **이탈 1건을 기록했다**: Reviewer B의 `codex exec -m gpt-5.4`가 사용량 한도로 두 모드
+  모두 실패해 `santa-loop.md`가 규정한 Claude fallback으로 **대칭** 전환했다. 델타 축
+  비교는 교란되지 않으나 cross-model 독립성은 달성되지 않았다.
+
+### Changed
+
+- `santa-detection-coverage.test.js` — `LAYER2_EVIDENCE`가 `null`에서
+  `{fullFindings: 3, deltaFindings: 2}`로 교체됐다. `decideDefaultFlip` 판정이
+  `layer2-absent` → **`layer2-degraded`**. **`MCCP_SANTA_DELTA_SCOPE`의 default는
+  `off`로 무변경** — 값이 아니라 사유가 바뀌었고, 그 둘을 다른 토큰으로 나눠 둔 이유가
+  이 자리다. `scope-delta.js`·`registry.js` 코드 변경 0건.
+- `docs/environment/review.md` · `commands/santa-loop.md` — default `off`의 근거를
+  「미상」에서 「실측 하락」으로 교체(M2가 남긴 미래 시제 문언 정정).
+- PRD Open Question 6건이 전부 해소됐고, **M3 DD10의 아카이브 보류가 해제**됐다 —
+  보류 사유는 "default를 묶는 미상이 활성 표면에서 사라진다"였고 미상이 실측으로
+  대체됐으며 잔여 한계는 아카이브가 옮기지 않는 `docs/` 파일이 소유한다.
+
+### Added
+
+- `docs/santa-loop/detection-rate-layer2.md` — 측정 기록(주장하지 않는 것 · 사전 등록 ·
+  이탈 · Layer 1 재현 · Layer 2 관측 · 규칙 적용 · 닫은 것과 닫지 않은 것 · 재현 절차).
+- `docs/santa-loop/layer2-evidence/` — 원시 산출물 13건(리뷰어 판정 JSON 4 · 조립
+  프롬프트 4 · 매처 결과 · 매처 · fixture 빌더 · 사전 등록). 머신-로컬 절대경로는
+  placeholder로 치환했다.
+- backlog 2행 — Class B 미답(MEDIUM) · cross-model 미달성(LOW).
 
 ## [1.32.5] — 2026-08-25
 

@@ -326,11 +326,18 @@ test('DD3 — 형태 이탈은 flip을 사지 못한다', () => {
   });
 });
 
-// M2가 이 사이클에 기록한 Layer 2 증거. **`null`은 "하락 없음"이 아니라 "재지 않았다"다**
-// — `.claude/notes/santa-delta-review-m2.md`가 그 사실과 사유를 갖는다. Layer 2를 실제로
-// 완주하면 이 상수를 `{fullFindings, deltaFindings}`로 교체하고, 아래 test가 그때의
-// default를 다시 판정한다.
-const LAYER2_EVIDENCE = null;
+// 이 저장소가 기록한 Layer 2 증거. 2026-08-25에 실제 리뷰어 레인을 `off`·`enforce`
+// 두 번 완주해 얻은 실측치다 — 근거·한계·원시 산출물은
+// `docs/santa-loop/detection-rate-layer2.md`가 갖는다.
+//
+// **하락이 관측됐다.** 델타는 corpus 4건 중 2건을, full은 3건을 지목했고 잃은 것은
+// Class C(fix가 건드리지 않아 경로째 드롭된 파일)의 D3다. 그래서 아래 test가 판정하는
+// default는 여전히 `off`이지만 **사유 토큰이 다르다** — `layer2-absent`(재지 않았다)가
+// 아니라 `layer2-degraded`(재봤더니 하락)다. 두 토큰을 나눠 둔 이유가 이 자리다.
+//
+// 값을 바꾸려면 측정을 다시 하고 그 문서를 갱신해야 한다. 상수만 고치면 문서와
+// 어긋나고, 문서만 고치면 이 상수가 남는다.
+const LAYER2_EVIDENCE = { fullFindings: 3, deltaFindings: 2 };
 
 // **이 단언이 M2의 배송 결정을 코드에 묶는다.** Layer 2를 돌리지 않은 채 누군가
 // `DELTA_SCOPE_DEFAULT`를 `enforce`로 바꾸면 여기서 붉어진다 — 규칙이 산문으로만

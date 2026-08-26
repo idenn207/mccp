@@ -85,7 +85,15 @@ fix 커밋이 `src/parser.js:16-17`을 바꾸므로 `patchRangesFrom`이 `[16,17
 `.claude/plans/corpus-fixture.plan.md`)로 렌더한 결과이며 M1 fixture 경로로 잰 것과
 별개 입력이다. 범위 표기는 고정 형태(`- src/parser.js:1-37`)로 나온다.
 
-## 3. Layer 2 — 라이브 리뷰어 비교 (**실행하지 않음**)
+## 3. Layer 2 — 라이브 리뷰어 비교 (**이 사이클에서는 실행하지 않음**)
+
+> **후속 (2026-08-25 추가 — 아래 M2 기록은 고치지 않는다).** Layer 2는 나중에
+> 완주됐다. 사용자가 서브에이전트 발화를 명시 요청한 세션에서 같은 fixture로 실제
+> 리뷰어 레인을 두 모드 완주했고, `fullFindings=3` · `deltaFindings=2`로 **1건 하락**이
+> 관측됐다 — 판정은 `layer2-degraded`이고 default는 그대로 `off`다. 관측·한계·원시
+> 산출물은 [docs/santa-loop/detection-rate-layer2.md](../../docs/santa-loop/detection-rate-layer2.md)가
+> 소유한다. **아래 3장은 M2 사이클 시점의 기록으로 그대로 둔다** — 그때 실행되지
+> 않은 것은 사실이고, 사후에 고쳐 쓰면 그 사실이 사라진다.
 
 plan Task 3은 같은 fixture에서 실제 리뷰어 레인을 `off`·`enforce` 두 번 완주해 발견
 id를 대조하라고 적었다. **이 사이클에서 실행되지 않았다.**

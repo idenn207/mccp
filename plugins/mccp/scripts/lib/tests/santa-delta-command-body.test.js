@@ -169,6 +169,14 @@ test('c — Notes에 델타 축 6항목이 있다 (천장 서술 + M2 판정 포
   // 통과한다. 어느 쪽이든 "탐지율이 보존됐다"는 문장은 이 단언들을 만족시키지 못한다.
   assert.match(BODY, /left the default at/);
   assert.match(BODY, /where the delta loses reach, not whether reviewers still find things/);
+
+  // Layer 2 완주(2026-08-25) 이후 추가 — **완화가 아니라 확장이다.** 위 두 단언은
+  // 본문이 "탐지율이 보존됐다"고 말하는 것을 막지만, 이제 실측이 존재하므로 막아야 할
+  // 것이 하나 늘었다: 본문이 그 실측을 **하락 없음으로 바꿔 적는 것**. 규칙이 하락의
+  // 크기와 무관하게 flip을 거부한다는 문장이 본문에 남아 있어야 통과한다 —
+  // "1건이라도 적으면"이 사라진 본문은 곧 임계를 도입한 본문이고, 그 임계는
+  // `DECISION_RULE`의 축자와 어긋난다.
+  assert.match(BODY, /refuses a flip on any shortfall/);
 });
 
 // ── 소유권 경계 ──────────────────────────────────────────────────────────────

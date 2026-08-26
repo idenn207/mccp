@@ -37,6 +37,22 @@ fi
 
 This Phase 0 runs before `gh pr list` so an advisory invocation never touches GitHub. The auto-chain `pr` step from [auto-chain.js](../scripts/lib/auto-chain.js) mirrors this rejection at chain-orchestration time as defense-in-depth.
 
+### Phase 0.0b — Seal the Codex policy for this gate execution (v1.32.6)
+
+Write the operator policy to disk **before any round runs**. From here on the
+authority on "is Codex disabled?" is `codex-policy`, not `process.env` — so a
+later round cannot resurrect Codex by clearing the variable. `seal` resolves the
+git dir itself (worktree-safe) and exits 0 even when it fails, because a failed
+seal must degrade to the pre-v1.32.6 behaviour (env only) rather than stop the gate.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-policy.js" seal 1>&2
+```
+
+**Never unset, override, or re-export `MCCP_CODEX_DISABLED` anywhere in this
+command.** It is a persistent operator policy, not a one-shot escape, and R1 does
+not consume it.
+
 ### Phase 0.1 — `MCCP_FORCE_PR_WITHOUT_IMPECCABLE` audited escape preflight (v0.2.6 Milestone 1 Task 1.6)
 
 Symmetric with the v0.2.4 security-reviewer audited escape but with **stricter reason validation** (Codex R1 F4 absorption). If the env var is set, validate the reason **before** 2.5.1 runs the impeccable gate, so a missing-Skill fallback can short-circuit to force-override path without re-prompting the user mid-flow.
@@ -554,11 +570,16 @@ CODEX_RESULT_FILE="$MCCP_TMP/codex-result.json"
 # The oracle returns an object; only `.cap` is exported. `.pinned`/`.reason` exist
 # so the reason a cap is 1 does not vanish from the logs.
 ROUND_CAP_JSON=$(node -e '
-  const {effectiveRoundCap}=require(process.argv[1]+"/scripts/lib/review-single-pass");
-  process.stdout.write(JSON.stringify(effectiveRoundCap(process.env)));
+  const root = process.argv[1];
+  const policy = require(root + "/scripts/lib/codex-policy");
+  const {effectiveRoundCap} = require(root + "/scripts/lib/review-single-pass");
+  const gitDir = policy.resolveGitDir(process.cwd());
+  const codexDisabled = policy.resolveCodexDisabled({ gitDir: gitDir, env: process.env });
+  process.stdout.write(JSON.stringify(effectiveRoundCap(process.env, { codexDisabled: codexDisabled })));
 ' "${CLAUDE_PLUGIN_ROOT}")
 export MCCP_GATE_ROUND_CAP=$(node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).cap))}catch{process.stdout.write("1")}' <<<"$ROUND_CAP_JSON")
-node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));if(j.pinned)process.stderr.write("[mccp:single-pass] round cap pinned to "+j.cap+" by MCCP_REVIEW_SINGLE_PASS="+j.reason+"\n")}catch(_){}' <<<"$ROUND_CAP_JSON"
+node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));if(j.note)process.stderr.write("[mccp:round-cap] "+j.note+" (pinnedBy="+j.pinnedBy+")
+")}catch(_){}' <<<"$ROUND_CAP_JSON"
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/codex-runner.js" "${RUNNER_FLAGS[@]}" > "$CODEX_RESULT_FILE"
 CODEX_RUNNER_EXIT=$?
 if [ "$CODEX_RUNNER_EXIT" != "0" ]; then
@@ -632,7 +653,20 @@ Severity-gated re-rerun (default cap=1): after R1's YAGNI triage table is writte
   (a) ≥1 finding is `verdict=ACCEPT_NOW` AND `severity ∈ {CRITICAL, HIGH}`
   (b) The R1 absorption could not fully resolve it (Claude self-attests in PR body)
 If escalate triggers, run R2 with focus restricted to the unresolved item(s).
-Repeat up to `MCCP_GATE_ROUND_CAP` (default `1`, allowed `1`/`2`/`3`). Beyond the cap,
+
+> **Codex가 비활성이면 R2는 존재하지 않는다.** 캡이 1로 pin되어 있고, 설령 그 캡을
+> 지나쳐 호출하더라도 `codex-invoke.js`가 spawn 직전에 봉인된 정책을 읽어
+> `disabled`로 short-circuit한다.
+>
+> **`MCCP_CODEX_DISABLED`는 1회성 escape가 아니라 영구 운영자 정책이다.** 게이트는
+> 어떤 라운드에서도 이 변수를 해제하거나 override하거나 `0`으로 재설정하지 않는다.
+> R1이 이를 소진하지 않는다. 진짜 1회성인 형제 토글들(`MCCP_SKIP_RECEIPT`,
+> `MCCP_PR_SKIP_CODEX_REVIEW`)과 혼동하지 말 것.
+
+Repeat up to `$ROUND_CAP` — the value the shared oracle produced above, NOT the raw
+`MCCP_GATE_ROUND_CAP` (default `1`, allowed `1`/`2`/`3`). The oracle pins it to 1 when
+the single-pass toggle is set or when Codex is disabled, and quoting the raw env here
+would tell the reader a cap the gate is not actually using. Beyond the cap,
 annotate `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
 
 If no `ACCEPT_NOW` HIGH/CRITICAL remains, stop at R1.

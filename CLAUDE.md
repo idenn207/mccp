@@ -219,6 +219,22 @@ my-claude-code-plugin/
 4. `/mccp:receipt-write` — 게이트 receipt 수동 작성 (이유 명시 필수)
 5. `MCCP_SKIP_RECEIPT=1` — 일회성 bypass (한 호출만)
 
+> **`MCCP_CODEX_DISABLED`는 위 목록의 1회성 항목들과 다릅니다 (v1.32.6).** 2번·5번은
+> 한 번 쓰고 버리는 audited escape지만, 이 토글은 "이 환경에서는 Codex를 부르지 않는다"는
+> **영구 운영자 정책**입니다. **게이트는 어떤 라운드에서도 이 변수를 해제·override·`0`
+> 재설정하지 않으며, R1이 이를 소진하지 않습니다.** 그 구분이 문서에 없던 동안, 게이트가
+> R1에서 존중한 뒤 "소진됐다"고 판단해 R2를 위해 되돌리고 Codex를 호출하는 일이
+> 실측됐습니다(2026-08-25).
+>
+> 강제는 산문이 아니라 **봉인**이 합니다 — 게이트 진입 시 `codex-policy.js seal`이 그
+> 시점의 정책을 `<git-dir>/mccp/tmp/codex-policy.json`에 기록하고, 모든 Codex 호출의
+> 유일한 chokepoint인 `codex-invoke.js`가 `봉인 OR env`로 판정하므로 실행 중 env가 지워져도
+> 정책이 살아남습니다. 보장 범위는 **1회 게이트 실행**이고(재호출은 새 env로 다시 봉인 —
+> 토글을 끄고 다시 돌린 것은 정책 *변경*이지 우회가 아닙니다), 봉인 부재는 env 단독,
+> **판독 불가는 부재가 아니라 이상 상태**라 비용이 줄어드는 방향으로 접힙니다. 봉인 관측·정리는
+> `node plugins/mccp/scripts/lib/codex-policy.js read|clear`. 값·판정 순서는
+> [docs/environment/gates.md](docs/environment/gates.md#mccp_codex_disabled)가 소유합니다.
+
 자세한 fallback 매트릭스 + sequence diagram은 [docs/gate-design.md](docs/gate-design.md) 참조.
 
 ### 3.4 코드 스타일 / 컨벤션

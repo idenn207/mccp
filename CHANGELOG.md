@@ -6,14 +6,15 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ## [1.33.0] — 2026-08-25
 
-> **§3.7**: `1.32.2 → 1.33.0` (**minor** — M8은 multi-session-work-loop PRD의 **마지막
-> milestone**이라 PRD 전체 종료 축이다). 4면 동기: `plugin.json` · `renderer/html.js`
+> **§3.7**: `1.32.6 → 1.33.0` (**minor** — M8은 multi-session-work-loop PRD의 **마지막
+> milestone**이라 PRD 전체 종료 축이다). base는 머지 시점에 `1.32.2`에서
+> `1.32.6`으로 이동했으나 `1.33.0`이 그 위이므로 재상향은 불필요하다. 4면 동기: `plugin.json` · `renderer/html.js`
 > page-foot · `renderer/markdown.js` derived 줄 · 이 파일의 `currently` 노트.
 > `renderer/tests/i18n-surface.test.js`는 기대값을 `plugin.json`에서 파생하므로
 > 동기 대상이 아니라 검증 수단이다(green 확인).
 >
 > **설치 캐시 지연**: 실 세션의 hook은 `~/.claude/plugins/cache/mccp/mccp/<version>/`
-> 에서 돌고 현재 캐시 최고 버전은 `1.30.0`이다. 이 릴리스의 producer가 실제 세션에서
+> 에서 돌고 현재 캐시 최고 버전은 `1.32.2`이다. 이 릴리스의 producer가 실제 세션에서
 > 자동 발화하려면 머지 후 `claude plugin update`가 필요하다(DD10).
 
 ### multi-session-work-loop M8 — 측정 부채 상환
@@ -93,6 +94,52 @@ A1 착수 · A2 종료 · B3 사용이력 producer가 같은 이유로 전부 �
   out-of-order 가드가 write를 건너뛴다. 표본을 지어내지 않았다.
 - **B3만 `forward-only → computed`로 전환됐다**(20/116).
 
+## [1.32.6] — 2026-08-25
+
+> **§3.7**: `1.32.2 → 1.32.6` (**patch** — codex-disabled-round-invariant PRD의
+> 단일 milestone M1이고 PRD 종료 축이 아니다). **번호를 한 번 상향했다**: origin/main은
+> `1.32.2`이지만 미머지 sibling worktree가 `1.32.3`·`1.32.5`·`1.33.0`을 이미 선언해
+> 1.32.x 최대치 위인 `1.32.6`에 착지한다. 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄고
+> `i18n-surface.test.js`가 재검증한다.
+
+### Fixed
+
+- **`MCCP_CODEX_DISABLED`가 R1에만 적용되고 escalation 라운드에서 무시되던 결함**
+  (실측 2026-08-25). 이 토글은 `codex-invoke.js`의 spawn 직전 short-circuit 한 곳에서만
+  honor됐고, 그것은 *호출 1건에 대한 분류*이지 게이트 전체에 걸리는 정책이 아니었다.
+  게이트가 R1에서 존중한 뒤 "1회성 설정이라 소진됐다"고 판단해 R2를 위해 `0`으로 되돌리고
+  Codex를 호출했다 — Codex 사용량이 소진돼 토글을 켠 운영자가 라운드마다 의도치 않은
+  호출을 지불했다.
+
+### Added
+
+- `plugins/mccp/scripts/lib/codex-policy.js` — 게이트 진입 시 정책을
+  `<git-dir>/mccp/tmp/codex-policy.json`에 봉인하고 `봉인 OR env`로 판정하는 오라클.
+  `seal`/`read`/`clear` CLI, spawn 없는 worktree-safe git-dir 해소(`.git`이 파일인 경우
+  `gitdir:` 포인터를 따라간다), write 후 read-back 검증. `MAX_SEAL_AGE_MS`(6h)는 export되어
+  test가 값을 직접 단언한다.
+
+### Changed
+
+- **1차 방어** `codex-invoke.js` — spawn 직전 판정이 env 단독에서 `봉인 OR env`로 바뀌었다.
+  이 함수는 세 게이트의 모든 Codex 호출이(즉흥으로 구성된 R2 호출을 포함해) 예외 없이
+  지나는 유일한 chokepoint라, 정책을 라운드 불변으로 만들 수 있는 유일한 지점이다. 반환
+  형태·14종 classification·`blocking`/`advisory` 계약은 무변경. 정책 모듈이 로드되지 않거나
+  판독이 throw하면 **fail-open**으로 env 단독 강등 + loud stderr — 깨진 require가 전 사용자의
+  Codex를 조용히 끄는 쪽이 훨씬 큰 해악이다.
+- **2차 방어** `review-single-pass.js#effectiveRoundCap(env, opts)` — `opts.codexDisabled`
+  (미주입 시 env)를 읽어 캡을 1로 pin한다. 반환에 `pinnedBy`·`note` 추가; `reason`은
+  single-pass 전용이라는 의미가 무변경이다(두 축이 같은 필드를 쓰면 stderr가 잘못된 원인을
+  보고한다). 이 층은 캡 블록이 실행될 때만 걸리므로 부분 기계다.
+- **3차 방어** plan·prp-implement·pr 세 명령 본문 — 게이트 진입 봉인 블록, 캡 판독의 정책
+  주입, 그리고 해제 금지 조항. `pr.md`가 산문에서 하드코딩하던 `MCCP_GATE_ROUND_CAP` 참조를
+  오라클 산출 `$ROUND_CAP`으로 교정. **이 층은 강제되지 않는다** — 정적 test는 조항의 존재만
+  고정하고 이행은 주장하지 않는다(§3.15).
+- `docs/environment/gates.md`·`CLAUDE.md` §3.3 — 이 토글이 진짜 1회성 형제들
+  (`MCCP_SKIP_RECEIPT`·`MCCP_PR_SKIP_CODEX_REVIEW`)과 같은 부류로 읽히던 어휘를 정정하고
+  봉인 계약(보장 범위 1회 게이트 실행 · 부재는 env fallback · **판독 불가는 부재가 아니라**
+  이상 상태 · 6h 상한)을 서술.
 ## [1.32.2] — 2026-08-21
 
 > **§3.7**: `1.32.1 → 1.32.2` (**patch** — M7은 multi-session-work-loop PRD의 단일

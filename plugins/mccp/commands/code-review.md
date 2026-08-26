@@ -168,11 +168,46 @@ DETECT=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/impeccable-detect.js" detect \
   --base "origin/<base>" \
   --json)
 SKILL_AVAIL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.skill_available?"1":"0")}catch{process.stdout.write("0")}')
+# v1.31.3 M3 — the call form is RESOLVED, never hardcoded. The plugin channel
+# registers the skill as <pluginName>:<skillDirName>, so a hardcoded bare name
+# reaches unknown_skill for every plugin-only install; the oracle already knows
+# which body opens, so ask it.
+#
+# The carrier the LLM reads is the stderr LINE below, not this shell variable:
+# shell state does not survive a tool-call boundary, so a prompt that said
+# "use $IMPECCABLE_INVOCATION" would be read as an empty name.
+#
+# Exactly one line, exactly this shape. Its absence is meaningful — see the
+# call-form rule in the prose below.
+IMPECCABLE_INVOCATION=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.impeccable_invocation||"")}catch{process.stdout.write("")}')
+if [ -n "$IMPECCABLE_INVOCATION" ]; then
+  echo "[mccp:impeccable] call-form: Skill($IMPECCABLE_INVOCATION, ...)" 1>&2
+fi
 SIGNAL=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.design_signal?"1":"0")}catch{process.stdout.write("0")}')
 DETECT_REASON=$(echo "$DETECT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"unknown")}catch{process.stdout.write("parse-error")}')
 ```
 
-**Reuse-first**: If design signal present, check the PR body for an existing `## Design Review` section (injected by `/mccp:pr` Phase 2.5.1, which invokes both `critique` and `audit`). Reuse those findings — do NOT re-invoke `Skill(impeccable, ...)`. Cross-gate dedupe — same PR shouldn't pay impeccable cost twice. **`audit` is advisory** — like `critique` here it surfaces into the REPORT but never blocks; the code-reviewer gate is lenient (warning, not blocking) and only the `critique` retry loop (§3.9) owns divergent gate-blocking.
+**Reuse-first**: If design signal present, check the PR body for an existing `## Design Review` section (injected by `/mccp:pr` Phase 2.5.1, which invokes both `critique` and `audit`). Reuse those findings — do NOT re-invoke impeccable at all. Cross-gate dedupe — same PR shouldn't pay impeccable cost twice. **`audit` is advisory** — like `critique` here it surfaces into the REPORT but never blocks; the code-reviewer gate is lenient (warning, not blocking) and only the `critique` retry loop (§3.9) owns divergent gate-blocking.
+
+**Call-form rule (v1.31.3 M3) — do NOT type a literal skill name.** The detect
+block above printed exactly one line:
+
+```
+[mccp:impeccable] call-form: Skill(<invocation>, ...)
+```
+
+Invoke the name that line carries between `Skill(` and the comma. That is the
+body the oracle established will actually open — `impeccable` for a bare
+install, `impeccable:impeccable` for a plugin-only one. Read it off the line,
+not off `$IMPECCABLE_INVOCATION`: shell state does not survive a tool-call
+boundary, so the variable is empty by the time this instruction is acted on.
+
+**An absent line means the skill did not resolve** — take the `SKILL_AVAIL=0`
+row below (record the fallback note; this gate is lenient, so it warns rather
+than blocks). Never guess a name, and in particular never fall back to the bare
+name `impeccable` as a hardcoded call: from v1.31.3 this repository ships no
+bare copy, so a guessed bare call reaches `unknown_skill` and records a skip the
+gate did not have to take.
 
 Decision tree (reuse-first):
 
@@ -181,7 +216,7 @@ Decision tree (reuse-first):
 | * | 0 | * | Sub-step skip silently |
 | * | 1 | yes | Reuse existing `## Design Review` findings (both `critique` + `audit`) into Phase 6 REPORT |
 | 0 | 1 | no | Record `> impeccable unavailable, skipped (auto-fallback): $DETECT_REASON` in Phase 6 REPORT. Export `IMPECCABLE_SKIPPED_REASON="$DETECT_REASON"`. code-reviewer gate is **lenient** — surfaces as warning, not blocking |
-| 1 | 1 | no | Invoke `Skill(impeccable, "critique PR #<NUMBER>")` and `Skill(impeccable, "audit PR #<NUMBER>")` (mirror of `/mccp:pr` 2.5.1). Capture both — Phase 6 REPORT surfaces them; `audit` is advisory (gate lenient, never blocks). If Skill returns `unknown_skill` / `not found`, fall back to skipped path |
+| 1 | 1 | no | Invoke the resolved call form (see the call-form rule above) twice — with `critique PR #<NUMBER>` and with `audit PR #<NUMBER>` (mirror of `/mccp:pr` 2.5.1). Capture both — Phase 6 REPORT surfaces them; `audit` is advisory (gate lenient, never blocks). If the call-form line is absent, or the resolved call returns `unknown_skill` / `not found`, fall back to skipped path |
 
 Receipt-write at 7.5 MUST forward `--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON"` when skipped or fell back.
 

@@ -1,0 +1,21 @@
+{
+  "milestone": "multi-session-work-loop-m7",
+  "metric": "C1",
+  "captured": "reproduced",
+  "method": "computeMetrics({sources:{}})[C1] — M7 착수 시점의 입력(등록된 findings 소스 없음)에 대한 computeC1 의 실제 출력. 착수 순간에 파일로 봉인하지 못했으므로 산문 재구성 대신 **같은 함수를 같은 입력으로 호출**해 재현했다. 재현 가능성 자체가 이 축의 근거이며, 그렇지 않았다면 before 를 주장하지 않았을 것이다.",
+  "producer_state": {
+    "source_scanners_has_findings": false,
+    "receipt_findings_field_populated": false,
+    "note": "plan Producer Preflight 가 실측한 상태 — derive/index.js SOURCE_SCANNERS 에 findings 항목 부재, --findings-file 플래그의 caller 0건."
+  },
+  "c1": {
+    "id": "C1",
+    "numerator": null,
+    "denominator": null,
+    "value": null,
+    "integrity_ok": true,
+    "invalid_reason": "no live findings derive source wired",
+    "status": "forward-only",
+    "coverage": "n/a"
+  }
+}

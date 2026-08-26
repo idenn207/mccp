@@ -1,0 +1,46 @@
+{
+  "milestone": "multi-session-work-loop-m7",
+  "metric": "C1",
+  "captured": "live",
+  "method": "node plugins/mccp/scripts/derive/cli.js run --json 의 metrics.C1 — 이 사이클의 실제 패널 실행이 남긴 레지스트리를 읽은 값이다.",
+  "anchor": {
+    "commit_sha": "63d4c08476c397e4a3942bf767cedbfaccc1f031",
+    "plugin_version": "1.30.0",
+    "work_unit": "multi-session-work-loop-m7"
+  },
+  "c1": {
+    "id": "C1",
+    "numerator": 0,
+    "denominator": 12,
+    "value": 0,
+    "integrity_ok": true,
+    "deferred_count": 0,
+    "downgraded_count": 0,
+    "rejected_count": 0,
+    "open_count": 12,
+    "deferred_rate": 0,
+    "status": "computed",
+    "coverage": "findings-registry"
+  },
+  "source": {
+    "ok": true,
+    "count": 12,
+    "closed_count": 0,
+    "deferred_count": 0,
+    "downgraded_count": 0,
+    "rejected_count": 0,
+    "open_count": 12,
+    "type_separation": true,
+    "producer_coverage": "findings-registry",
+    "degraded": false,
+    "invalid_count": 0,
+    "work_units": 1,
+    "error": null
+  },
+  "undetected_tail": {
+    "claim": "이 수용 조건들은 `seq` 구멍이 없음을 확인할 뿐 \"말미 연속 실패\" 구간의 부재를 증명하지 않는다.",
+    "detail": "DD8 의 미탐지 꼬리는 (a) `finding_closed` batch 전체가 유실되고 (b) 그 work_unit 에 이후 성공한 write 가 없는 구간이다. 그 구간의 C1 은 실제보다 **낮게** 보고된다(분자만 줄어드는 보수적 방향). 부풀리는 방향(`finding_opened` 유실 → 분모 축소)은 Task 7 런타임 falsifier 가 표면 delta 대조로 잡는다.",
+    "additionally": "`seq` 고수위는 **프로세스 지역**이므로, 실패 직후 프로세스가 종료하고 다른 프로세스가 이어 쓰면 구멍이 생기지 않는다. 그 구간은 `.degraded` 마커(2차)와 표면 대조(독립 축)가 덮으며, 어느 축도 닿지 않는 잔여가 있다는 사실을 여기 기록한다.",
+    "proven_here": false
+  }
+}

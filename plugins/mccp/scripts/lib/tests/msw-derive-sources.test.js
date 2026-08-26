@@ -152,3 +152,21 @@ test('toggle-usage: exclusion-table drift degrades the live denominator, not jus
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// multi-session-work-loop M7 Task 3 — findings source 등록.
+// 미등록이면 computeC1 이 영구 forward-only 다('no live findings derive source
+// wired'). fixture 만 findings 를 주입하면 fixture gate 는 통과하나 실 derive 는
+// 절대 C1 을 산출하지 못하는 masquerade 가 된다 — 그 상태를 이 단언이 막는다.
+test('findings source: registered in SOURCE_SCANNERS and scans the live repo surface', () => {
+  const { SOURCE_SCANNERS } = require('../../derive/index');
+  assert.ok(Object.prototype.hasOwnProperty.call(SOURCE_SCANNERS, 'findings'),
+    'SOURCE_SCANNERS must carry the findings key');
+
+  const repoRoot = path.resolve(__dirname, '..', '..', '..', '..', '..');
+  const r = SOURCE_SCANNERS.findings(repoRoot);
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(typeof r.count, 'number');
+  assert.strictEqual(typeof r.type_separation, 'boolean',
+    'the contract is derived from the scan, never a hardcoded literal');
+  assert.ok(/^findings-registry(-degraded)?$/.test(r.producer_coverage));
+});

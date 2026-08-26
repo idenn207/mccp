@@ -17,8 +17,19 @@
 
 const fs = require('fs');
 const path = require('path');
+const envValue = require('./env-contract/value');
 
 const ENV_SINGLE_PASS = 'MCCP_REVIEW_SINGLE_PASS';
+
+// v1.32.6 — 캡을 pin 하는 두 번째 축. Codex 가 꺼져 있으면 라운드 2 가 물을 리뷰어가
+// 없으므로 캡이 1 보다 큰 것은 조정값이 아니라 모순이다.
+//
+// **이 층은 2차 방어다.** 캡을 읽는 블록은 세 게이트의 escalation 산문 안에 있어서
+// 실행 주체가 그 블록을 돌려야만 걸린다 — 그 자체가 이 저장소가 이미 실측한 실패
+// 계열이다(CLAUDE.md 3.15, memory round-cap-is-prose-not-enforced). 정책의 기계적
+// 강제는 codex-policy 를 읽는 codex-invoke.js 의 spawn 직전 short-circuit 이 맡고,
+// 여기서는 라운드를 여는 비용 자체를 없앤다.
+const ENV_CODEX_DISABLED = 'MCCP_CODEX_DISABLED';
 
 // 사유는 토글의 **값 자체**다. 별도 사유 변수를 두면 잊을 수 있고, 잊힌 사유는
 // 감사 불가다 — 토글을 켜는 행위와 사유를 대는 행위가 같은 동작이어야 한다(PRD).
@@ -79,21 +90,50 @@ function parseRoundCap(env) {
   return n;
 }
 
-// effectiveRoundCap(env) → { cap, pinned, reason }
+// effectiveRoundCap(env, opts) → { cap, pinned, reason, pinnedBy, note }
 //
-// 토글이 켜지면 `MCCP_GATE_ROUND_CAP`의 값과 **무관하게** 1이다(PRD Open
-// Question 2의 답). 근거는 토글이 상위 정책 선언이고 캡은 그 아래 조정값이라는
-// 것 — 정책이 "단일 통과"라고 말했는데 조정값이 3라운드를 여는 것은 정책을
-// 조정값이 뒤집는 형태다.
+// 두 축이 각각 캡을 1로 pin 한다. 어느 쪽이든 근거는 같다 — 상위 정책 선언이
+// 조정값(`MCCP_GATE_ROUND_CAP`)을 뒤집을 수는 없다는 것이다.
+//   single-pass    운영자가 "이 작업은 1회 통과"라고 선언했다(PRD Open Question 2).
+//   codex-disabled Codex 가 꺼져 있어 라운드 2 가 물을 리뷰어가 없다.
 //
-// `pinned`/`reason`은 stderr 진단 전용이다. 셸 호출자가 export하는 것은 `.cap`
-// 하나뿐이므로, 이 둘이 없으면 캡이 왜 1인지가 로그 어디에도 남지 않는다.
-function effectiveRoundCap(env) {
+// **`reason` 의 의미는 바뀌지 않았다** — single-pass 사유 전용이고 그 축이 아니면
+// `null` 이다. 세 게이트의 기존 stderr 한 줄이 `MCCP_REVIEW_SINGLE_PASS=` + reason 을
+// 찍으므로, codex 축이 이 필드를 채우면 그 줄이 거짓말을 한다. 어느 축이 pin 했는지는
+// `pinnedBy` 가, 사람이 읽을 문장은 `note` 가 나른다 — 셸은 `note` 를 출력만 하므로
+// 문구가 코드 한 곳에 산다.
+//
+// `opts.codexDisabled` 는 **주입**이다. 미주입이면 env 를 직접 읽으므로 호출부를
+// 고치지 않아도 절반은 고쳐지고, 봉인을 주입한 호출만이 env 변조에 면역이다. 그
+// 분리가 있어야 배선을 빠뜨린 게이트가 조용히 옛 동작으로 남지 않는다.
+function effectiveRoundCap(env, opts) {
+  const o = opts || {};
   const sp = parseSinglePass(env);
-  if (sp.active) {
-    return { cap: MIN_ROUND_CAP, pinned: true, reason: sp.reason };
+  const codexDisabled = Object.prototype.hasOwnProperty.call(o, 'codexDisabled')
+    ? o.codexDisabled === true
+    : envValue.parseBool(env || {}, ENV_CODEX_DISABLED);
+
+  const axes = [];
+  if (sp.active) axes.push('single-pass');
+  if (codexDisabled) axes.push('codex-disabled');
+
+  if (axes.length === 0) {
+    return { cap: parseRoundCap(env), pinned: false, reason: null, pinnedBy: null, note: null };
   }
-  return { cap: parseRoundCap(env), pinned: false, reason: null };
+
+  const pinnedBy = axes.join('+');
+  const why = axes.map(function (a) {
+    return a === 'single-pass'
+      ? ENV_SINGLE_PASS + '=' + sp.reason
+      : ENV_CODEX_DISABLED + ' (Codex is off; there is no reviewer for a second round)';
+  }).join(' AND ');
+  return {
+    cap: MIN_ROUND_CAP,
+    pinned: true,
+    reason: sp.reason,
+    pinnedBy: pinnedBy,
+    note: 'round cap pinned to ' + MIN_ROUND_CAP + ' by ' + why,
+  };
 }
 
 // ── assert-single-round ───────────────────────────────────────────────────────

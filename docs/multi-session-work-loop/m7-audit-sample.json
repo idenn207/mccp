@@ -1,0 +1,82 @@
+{
+  "milestone": "multi-session-work-loop-m7",
+  "purpose": "UI11 — 지표별 매 측정 주기 5건을 사람이 원자료와 직접 대조하고 표본 기록을 남긴다. 자동 산출값을 반증 가능하게 만드는 것이 목적이다.",
+  "method": "표본은 심각도 계층에서 고루 뽑았다(CRITICAL 1 · HIGH 2 · MEDIUM 1 · LOW 1) — 승격 경계(DD1)를 사이에 두고 양쪽을 대조해야 임계가 실제로 판정을 가르는지 확인할 수 있기 때문이다. 각 표본에 대해 (a) l2.json 원자료의 perspective·severity·claim, (b) 그 셋에서 파생한 finding_id, (c) 레지스트리 줄의 state·closure_type, (d) 승격 여부를 각각 독립적으로 확인했다.",
+  "anchor": {
+    "commit_sha": "63d4c08476c397e4a3942bf767cedbfaccc1f031",
+    "plan_file_hash": "sha256:f6bfde5a006196cbfc6034459a4e9c40f714e7f85c94679a9a65687f167441a8",
+    "work_unit": "multi-session-work-loop-m7",
+    "measured_at": "2026-08-21T02:56:21.335Z"
+  },
+  "denominator_verification": {
+    "raw_l2_finding_rows": 12,
+    "registry_findings": 12,
+    "agrees": true,
+    "note": "분모 자체도 원자료에서 독립 계수했다 — l2.json 의 results[].findings[] 를 세어 12를 얻었고 레지스트리도 12다. 합성 `verdict=fail` 행 2건은 리뷰어가 제출한 finding 이 아니므로 양쪽 모두에서 제외된다."
+  },
+  "computed_denominator": 12,
+  "sampled_count": 5,
+  "agreed_count": 5,
+  "samples": [
+    {
+      "n": 1,
+      "finding_id": "46454d7b7d8fe413",
+      "perspective": "invariant",
+      "severity": "CRITICAL",
+      "claim_head": "Critical unmitigated dependency: Plan declares C1 will be 'computed' (acceptance L374) but",
+      "human_verdict": "open (no closure event) · counted in the denominator · promotable",
+      "automated_verdict": "open (closure=none) · counted in the denominator · promotable",
+      "matches": true,
+      "note": "원자료 확인: `.claude/state/plan-review/l2.json` 의 results[].findings[] 에서 (perspective, severity, claim) 을 직접 읽고, 그 셋으로 `deriveFindingId` 를 손으로 계산해 레지스트리 줄과 대조했다. 자동 집계(count/closed_count)는 보지 않고 판정한 뒤 대조했다."
+    },
+    {
+      "n": 2,
+      "finding_id": "a3fc63f22c667bb8",
+      "perspective": "security",
+      "severity": "HIGH",
+      "claim_head": "Task 5 references four sanitizer functions from intent-context.js, but those functions are",
+      "human_verdict": "open (no closure event) · counted in the denominator · promotable",
+      "automated_verdict": "open (closure=none) · counted in the denominator · promotable",
+      "matches": true,
+      "note": "원자료 확인: `.claude/state/plan-review/l2.json` 의 results[].findings[] 에서 (perspective, severity, claim) 을 직접 읽고, 그 셋으로 `deriveFindingId` 를 손으로 계산해 레지스트리 줄과 대조했다. 자동 집계(count/closed_count)는 보지 않고 판정한 뒤 대조했다."
+    },
+    {
+      "n": 3,
+      "finding_id": "9a28997bf6ddac83",
+      "perspective": "security",
+      "severity": "HIGH",
+      "claim_head": "Reviewer-supplied `cited_path` text is injected into next session's system prompt via stat",
+      "human_verdict": "open (no closure event) · counted in the denominator · promotable",
+      "automated_verdict": "open (closure=none) · counted in the denominator · promotable",
+      "matches": true,
+      "note": "원자료 확인: `.claude/state/plan-review/l2.json` 의 results[].findings[] 에서 (perspective, severity, claim) 을 직접 읽고, 그 셋으로 `deriveFindingId` 를 손으로 계산해 레지스트리 줄과 대조했다. 자동 집계(count/closed_count)는 보지 않고 판정한 뒤 대조했다."
+    },
+    {
+      "n": 4,
+      "finding_id": "1352fe9c308c7f7b",
+      "perspective": "security",
+      "severity": "MEDIUM",
+      "claim_head": "Escape/sanitization logic (entity decode→escape→trim-dangling-backslash) is implemented as",
+      "human_verdict": "open (no closure event) · counted in the denominator · not promotable",
+      "automated_verdict": "open (closure=none) · counted in the denominator · not promotable",
+      "matches": true,
+      "note": "원자료 확인: `.claude/state/plan-review/l2.json` 의 results[].findings[] 에서 (perspective, severity, claim) 을 직접 읽고, 그 셋으로 `deriveFindingId` 를 손으로 계산해 레지스트리 줄과 대조했다. 자동 집계(count/closed_count)는 보지 않고 판정한 뒤 대조했다."
+    },
+    {
+      "n": 5,
+      "finding_id": "cc4754182dc86d25",
+      "perspective": "invariant",
+      "severity": "LOW",
+      "claim_head": "Sanitizer function export (Task 5) is documented but DD9 (L154) says exports must happen f",
+      "human_verdict": "open (no closure event) · counted in the denominator · not promotable",
+      "automated_verdict": "open (closure=none) · counted in the denominator · not promotable",
+      "matches": true,
+      "note": "원자료 확인: `.claude/state/plan-review/l2.json` 의 results[].findings[] 에서 (perspective, severity, claim) 을 직접 읽고, 그 셋으로 `deriveFindingId` 를 손으로 계산해 레지스트리 줄과 대조했다. 자동 집계(count/closed_count)는 보지 않고 판정한 뒤 대조했다."
+    }
+  ],
+  "notes": [
+    "이 주기의 분자는 0 이다. 12건 전부가 open 인 것이 정상인 이유는 DD2·DD3 가 정한 종결 경로(Plan-Codex 판정 · santa 라운드 간 비재발) 중 어느 것도 이 finding 들에 대해 아직 돌지 않았기 때문이다. 저자가 implement 중에 흡수한 것을 해소로 계상하는 경로는 **의도적으로 없다** — 그 경로를 만들면 저자 자기신고가 곧 분자가 되어 UI5 가 막는 조작이 열린다.",
+    "감사 표본의 **수행 자체**는 기계적으로 강제되지 않는다. 강제되는 것은 (i) 기록 없이 완료를 주장하지 못함, (ii) 기록된 불일치가 `--acceptance` 를 통과하지 못함 두 가지뿐이다.",
+    "표본 5건은 지표 1개(C1)에 대한 것이다. UI11 이 요구하는 것은 지표별 5건이며 다른 지표의 표본은 각 milestone 이 자기 주기에 남긴다."
+  ]
+}

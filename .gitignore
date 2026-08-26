@@ -133,9 +133,12 @@ ECC/
 # impeccable Skill plan-stage critique artifacts (user-local tool 산출,
 # finding은 plan/code/PR body absorption note로 audit trail 처리).
 # Pattern mirrors ECC/ above — 사용자 개별 설치 tool의 작업 부산물.
-# 단, design.json은 팀 공유 design-direction 설정(공동 파일)이라 tracked.
+# 단, config.json은 팀 공유 커밋 대상이라 예외로 둔다 — impeccable 자체
+# reference/hooks.md가 per-developer override와 설치 동의 값은 gitignored
+# config.local.json에 산다고 명시하므로 config.json에는 비밀이 없다.
+# design.json은 detector가 다시 만드는 생성 sidecar라 나머지와 같은 부산물이다.
 .impeccable/*
-!.impeccable/design.json
+!.impeccable/config.json
 
 # work-context-isolation M1 — dispatch envelope IPC state. Written by
 # /mccp:work Step 3 single-worker delegation (dispatch-cli.js prepare-single).

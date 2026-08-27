@@ -31,6 +31,9 @@ function scanToggleUsage(repoRoot) {
     snapshot_files_read: 0,
     snapshot_files_parsed: 0,
     producer_coverage: 'toggle-usage',
+    // M8 Task 8 (DD7) — 분모/분자 우주 등식과 은퇴 건수.
+    numerator_coverage: null,
+    retired_count: null,
     degraded: false,
     invalid_count: 0,
     error: null,
@@ -55,6 +58,34 @@ function scanToggleUsage(repoRoot) {
       result.degraded = true;
       result.error = 'exclusion table drift — the denominator is not the one the normative ' +
         'document names: ' + result.exclusion_doc_drift.join('; ');
+    }
+
+    // ── 분자 커버리지 등식 (multi-session-work-loop M8 Task 8 · DD7) ──────────
+    //
+    // 바로 위 exclusion-doc drift와 **같은 근거, 다른 축**이다: drift를 계산만 하고
+    // 버리면 test 하나만 빨개지고 그 test를 지우면 신호가 사라진다. 분모를 내는
+    // 이 자리에서 degrade시켜 소비처까지 닿게 한다.
+    //
+    // 이 축이 잡는 것은 "분모와 분자가 서로 다른 우주를 센다"는 상태다. 그런
+    // 주기의 B3는 값이 있어도 **의미가 없다** — `denominator_only`가 있으면 B3는
+    // 구조적으로 100%에 도달하지 못하고, `numerator_only`가 있으면 비율이 1을
+    // 넘을 수 있다. degraded는 그 사실을 값 옆에 붙인다.
+    const cov = surface.numerator_coverage;
+    result.numerator_coverage = cov || null;
+    result.retired_count = typeof surface.retired_count === 'number' ? surface.retired_count : null;
+    if (cov && !cov.equal) {
+      result.degraded = true;
+      const parts = [];
+      if (cov.denominator_only.length) {
+        parts.push('denominator-only (can never become numerator): ' + cov.denominator_only.join(', '));
+      }
+      if (cov.numerator_only.length) {
+        parts.push('numerator-only (counts outside the denominator): ' + cov.numerator_only.join(', '));
+      }
+      const msg = 'B3 numerator coverage drift — ' + parts.join(' | ');
+      // 앞선 drift 사유를 덮지 않는다. 두 축이 동시에 깨질 수 있고, 하나만
+      // 보고하면 나머지 하나는 조용히 사라진다.
+      result.error = result.error ? result.error + ' || ' + msg : msg;
     }
 
     // 2. env-snapshot을 읽어 non-default 사용 이력(분자)을 센다.

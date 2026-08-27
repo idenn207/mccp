@@ -1,0 +1,161 @@
+{
+  "milestone": "multi-session-work-loop-m8",
+  "contract": "docs/multi-session-work-loop/measurement-design.md",
+  "note": "test_title is the contract — assertion-manifest-check.js searches each test_file for that literal string as a test() argument. Test titles must therefore be written exactly as recorded here, prefixed with their own id. REQUIRED_IDS in the checker is a floor, not a ceiling.",
+  "assertions": [
+    {
+      "id": "M8-ROOT-SINGLE-SOURCE",
+      "task": 2,
+      "assertion": "세션 id 우선순위 체인은 session-identity.js 하나에만 살고 legacy 단독 read는 런타임 표면에 0건이다",
+      "test_file": "plugins/mccp/scripts/lib/tests/session-identity.test.js",
+      "test_title": "M8-ROOT-SINGLE-SOURCE: (a) the legacy session variable is read nowhere on the runtime surface but the chain owner"
+    },
+    {
+      "id": "M8-ROOT-NO-PATH-REACH",
+      "task": 2,
+      "assertion": "미sanitize raw 세션 id가 경로 생산에 직접 도달하지 않는다 (텍스트 검사 한계는 test 헤더에 명시)",
+      "test_file": "plugins/mccp/scripts/lib/tests/session-identity.test.js",
+      "test_title": "M8-ROOT-NO-PATH-REACH: (b) the raw resolved id never reaches path production directly"
+    },
+    {
+      "id": "M8-ROOT-CHOKE-POINTS",
+      "task": 2,
+      "assertion": "세션 id가 파일명이 되는 두 초크 포인트가 탈출 입력을 동작으로 거절한다",
+      "test_file": "plugins/mccp/scripts/lib/tests/session-identity.test.js",
+      "test_title": "M8-ROOT-CHOKE-POINTS: (b3) the two choke points that turn a session id into a filename actually reject traversal"
+    },
+    {
+      "id": "M8-ROOT-CONTRACT-PRESERVED",
+      "task": 1,
+      "assertion": "완전한 체인을 이미 갖고 있던 두 해소기의 반환값이 8조합 전수에서 불변이다",
+      "test_file": "plugins/mccp/scripts/lib/tests/session-identity.test.js",
+      "test_title": "M8-ROOT-CONTRACT-PRESERVED: (c1) resolvers that already had the full chain are byte-equivalent across all 8 combos"
+    },
+    {
+      "id": "M8-ROOT-DEAD-CANDIDATE-REVIVED",
+      "task": 1,
+      "assertion": "깨져 있던 두 해소기가 정규화 계약을 지킨 채 죽어 있던 후보(CLAUDE_CODE_SESSION_ID)를 얻는다",
+      "test_file": "plugins/mccp/scripts/lib/tests/session-identity.test.js",
+      "test_title": "M8-ROOT-DEAD-CANDIDATE-REVIVED: (c2) resolvers whose chain was broken keep their return contract and gain the dead candidate"
+    },
+    {
+      "id": "M8-A1-WORK-UNIT-DENOMINATOR",
+      "task": 5,
+      "assertion": "A1 분모는 세션 수가 아니라 distinct work_unit 수다 (계약 위반의 시정)",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "test_title": "M8-A1-WORK-UNIT-DENOMINATOR: A1 denominator counts distinct work units, not sessions"
+    },
+    {
+      "id": "M8-A1-SEALED-COREPORT",
+      "task": 5,
+      "assertion": "sealed_without_completion은 병기될 뿐 비율을 바꾸지 않는다",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "test_title": "M8-A1-SEALED-COREPORT: A1 co-reports sealed-without-completion without folding it into the ratio (DD5)"
+    },
+    {
+      "id": "M8-A1-SEAL-IS-NOT-COMPLETION",
+      "task": 4,
+      "assertion": "task_ship_sealed는 분자가 아니다 — 봉인 뒤 gh pr create가 실패하면 완주가 아니다",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "test_title": "M8-A1-SEAL-IS-NOT-COMPLETION: task_ship_sealed is NOT a completion (DD5) — it never moves the numerator"
+    },
+    {
+      "id": "M8-A1-STARTUP-PRODUCER-GATE",
+      "task": 5,
+      "assertion": "분모 producer가 없으면 A1은 forward-only이고 분모를 숫자로 보고하지 않는다",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-metrics.test.js",
+      "test_title": "M8-A1-STARTUP-PRODUCER-GATE: A1: no live startup producer → forward-only with a null denominator (M8 DD3)"
+    },
+    {
+      "id": "M8-A2-SESSION-BINDING",
+      "task": 6,
+      "assertion": "A2는 세션 일치와 신선도를 모두 통과한 표본만 stamp하고 그 외에는 null이다",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "test_title": "M8-A2-SESSION-BINDING: A2 binding: a value is stamped ONLY on session match AND freshness"
+    },
+    {
+      "id": "M8-A2-TYPE-CONFUSION",
+      "task": 6,
+      "assertion": "귀속 비교는 엄격 문자열 비교라 손상 스냅샷의 타입 혼동에 견딘다",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "test_title": "M8-A2-TYPE-CONFUSION: A2 binding: strict string comparison resists type confusion (R1 F5)"
+    },
+    {
+      "id": "M8-A2-PERCENTILE-NO-MEAN",
+      "task": 6,
+      "assertion": "A2는 p50과 p95만 보고하고 평균을 내지 않으며 표본 수를 병기한다",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-metrics.test.js",
+      "test_title": "M8-A2-PERCENTILE-NO-MEAN: A2: session-bound samples → computed p50/p95 (no mean)"
+    },
+    {
+      "id": "M8-B3-SET-EQUALITY",
+      "task": 8,
+      "assertion": "분모 집합과 분자 우주의 양방향 차집합이 공집합이다 (크기 비교가 아니라 차집합)",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "test_title": "M8-B3-SET-EQUALITY: B3: denominator and numerator universes are the same set, both directions"
+    },
+    {
+      "id": "M8-B3-NO-RETIREMENT",
+      "task": 8,
+      "assertion": "제외는 명명되고 3중 보고되며 은퇴 건수는 0이다",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "test_title": "M8-B3-NO-RETIREMENT: B3: exclusions are named, triple-reported, and retire nothing"
+    },
+    {
+      "id": "M8-C2C3-ATTRIBUTION-FORM",
+      "task": 7,
+      "assertion": "귀속 필드는 형태가 어긋나면 seq 번호를 소모하기 전에 거절된다",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "test_title": "M8-C2C3-ATTRIBUTION-FORM: attribution fields are rejected before any seq number is spent"
+    },
+    {
+      "id": "M8-C2C3-ATTRIBUTION-JOINED",
+      "task": 7,
+      "assertion": "귀속 삼각의 우변(msw-events remediation_pr)이 finding_id로 조인되어 with_remediation_pr로 읽힌다 — writer만 있고 reader가 없는 상태를 닫는다 (local review H3)",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "test_title": "M8-C2C3-ATTRIBUTION-JOINED: a remediation record is readable back as attribution coverage"
+    },
+    {
+      "id": "M8-C2C3-REMEDIATION-JOIN-KEY",
+      "task": 7,
+      "assertion": "CLI가 조인 키(--finding-id) 없는 remediation_pr 레코드를 거부한다 — 읽힐 수 없는 기록은 남기지 않는다 (local review H3)",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "test_title": "M8-C2C3-REMEDIATION-JOIN-KEY: the CLI refuses a remediation record that could never be read back"
+    },
+    {
+      "id": "M8-PATH-GUARD-FINDINGS",
+      "task": 7,
+      "assertion": "findings-registry가 레지스트리 디렉토리를 탈출하는 work_unit을 거절한다",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "test_title": "M8-PATH-GUARD-FINDINGS: findings-registry refuses a work unit that would escape the registry directory"
+    },
+    {
+      "id": "M8-GATE-REGISTRY",
+      "task": 9,
+      "assertion": "승인 emit 지점이 전부 실재하고 목록 밖의 파일은 emit하지 않는다",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "test_title": "M8-GATE-REGISTRY: m8-coverage-gate: every approved emit site still exists and nothing else emits"
+    },
+    {
+      "id": "M8-GATE-MEASURED-SET",
+      "task": 9,
+      "assertion": "승인 집합은 plan의 부분 열거(5)가 아니라 실측 집합(7)이며 감사자와 writer 모듈은 제외다",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "test_title": "M8-GATE-MEASURED-SET: m8-coverage-gate: the approved set is the MEASURED set, and self/writer are exempt"
+    },
+    {
+      "id": "M8-CLAIMED-LOCKSTEP",
+      "task": 9,
+      "assertion": "두 claimed-computable 목록이 같은 집합이다 (산문 lockstep을 기계로 이전)",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-metrics-acceptance.test.js",
+      "test_title": "M8-CLAIMED-LOCKSTEP: msw-metrics-acceptance: the two claimed-computable lists are the SAME SET (M8 — lockstep mechanized)"
+    },
+    {
+      "id": "M8-PROMOTION-NOT-MASQUERADE",
+      "task": 9,
+      "assertion": "A1 승격이 producer 부재를 computed-0%로 위장하지 않는다 (승격과 forward-only가 동시에 참)",
+      "test_file": "plugins/mccp/scripts/lib/tests/msw-metrics-acceptance.test.js",
+      "test_title": "M8-PROMOTION-NOT-MASQUERADE: msw-metrics-acceptance: A1 is claimed-computable, yet still forward-only without a live producer (M8)"
+    }
+  ]
+}

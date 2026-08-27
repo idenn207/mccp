@@ -8,6 +8,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { execSync, spawnSync } = require('child_process');
+const { resolveRawSessionId } = require('./session-identity');
 
 // Platform detection
 const isWindows = process.platform === 'win32';
@@ -169,11 +170,12 @@ function sanitizeSessionId(raw) {
 }
 
 /**
- * Get short session ID from CLAUDE_SESSION_ID environment variable
+ * Get short session ID from the canonical session-identity chain
+ * (MCCP_SESSION_ID -> CLAUDE_CODE_SESSION_ID -> CLAUDE_SESSION_ID).
  * Returns last 8 characters, falls back to a sanitized project name then 'default'.
  */
 function getSessionIdShort(fallback = 'default') {
-  const sessionId = process.env.CLAUDE_SESSION_ID;
+  const sessionId = resolveRawSessionId(process.env);
   if (sessionId && sessionId.length > 0) {
     const sanitized = sanitizeSessionId(sessionId.slice(-8));
     if (sanitized) return sanitized;

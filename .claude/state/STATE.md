@@ -1,55 +1,56 @@
 ---
 state_version: 1
-task_fingerprint: santa-adjudication-m3
+task_fingerprint: multi-session-work-loop-m8
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-27T00:54:35.746Z
+updated_at: 2026-08-25T10:14:37.272Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-27T00:54:35.746Z
+last_event_at: 2026-08-25T10:14:37.272Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-18T03:44:26.285Z
+dep_check_at: 2026-08-23T09:38:09.736Z
+dep_check_missing: impeccable
 escalate_pending: true
-escalate_pending_decision_id: santa-delta-review
+escalate_pending_decision_id: multi-session-work-loop
 ---
 ## Goal
-santa-delta-review M3 구현 완료 (사이클 잔여 마감) — 커밋 완료, PR 대기.
+multi-session-work-loop M8 — 측정 부채 상환 (v1.33.0). 구현 + 로컬 리뷰 흡수 완료, commit/PR 대기. PRD 전체 8 milestone 종료.
 
 ## Plan
-- plan: `.claude/plans/santa-delta-review-m2.plan.md` — `plan_hash` sha256:60931158…로 mccp-plan-codex가 봉인. **편집 금지**(편집하면 stale → PR이 §3.11 guard 2에 막힌다)
-- 게이트 산출물: `.claude/notes/santa-delta-review-m2-implement-codex.md` (plan 본문 대신 이 자리 — M1 선례)
-- Layer 1 실측: `.claude/notes/santa-delta-review-m2.md` · report: `.claude/PRPs/reports/santa-delta-review-m2-report.md`
-- receipt: mccp-plan-codex/**santa-delta-review**(review_verdict=divergent, single-pass 봉인) · mccp-implement-codex/**santa-delta-review**(codex_verdict=skipped)
-- **decision slug은 `santa-delta-review`다**(`-m2` 아님). hook이 plan basename 축으로 파생해 receipt 없음을 보고했으나 봉인 해시가 M2 plan과 일치 — 위조 없이 --decision override로 해소
-- **version 1.30.3** (patch — PRD 미완료라 minor 아님). §3.7 충돌 해소: main이 1.30.1을 codex-intent-context M2에 선점 → M1을 1.30.2로, M2가 1.30.3. 4면 동기 완료
+- PRD: `.claude/prds/multi-session-work-loop.prd.md` — M1~M8 전부 complete (M8이 마지막 milestone)
+- plan: `.claude/plans/multi-session-work-loop-m8.plan.md` — 봉인됨(plan_hash). **편집 금지**
+- 게이트 산출물·라이브 증거: `.claude/notes/multi-session-work-loop-m8.md`
+- 구현 보고: `.claude/PRPs/reports/multi-session-work-loop-m8-report.md`
+- 전후 스냅샷: `docs/multi-session-work-loop/m8-{before,after,assertion-manifest,audit-sample}.json`
+- version 1.33.0 (minor — PRD 전체 종료). 4면 동기 완료. branch multi-session-work-loop-m8
 
 ## Done
-- Task 1 detection-corpus.js — 4계층 닫힌 enum · anchor 역산 좌표 · 미던지는 판정 3종(coverageOf/compareCoverage/decideDefaultFlip). 외부 의존 0건
-- Task 2 santa-detection-coverage.test.js — 신규 21건. 실제 git fixture + 실제 scope-delta/scope-always CLI를 off·enforce 두 모드로 통과
-- Task 4 판정 적용 — Layer 2 부재 → decideDefaultFlip이 `layer2-absent` → default `off` 유지. 규칙 미수정(축자 일치 test가 동결)
-- Task 5 문서 — review.md · santa-loop.md의 DD7 미래 시제 2자리를 실측으로 교체. PRD M2를 in-progress + OQ 해소 1 · 신규 1
-- Task 6 version 4면 1.30.3 + M1 항목 1.30.2 상향 · Task 7 report
-- Layer 1 실측: before 3→1 · full=4 delta=3 lost=1 · 손실은 Class C 하나 · Class B는 containment 보존 · Class D는 두 모드 모두 스코프 안
-- backlog 4건 등재(Layer 2 미실행 HIGH · detect 사전실행 MEDIUM · single-pass가 test 가림 HIGH · plan-conflict 두 점 diff MEDIUM)
-- 검증: 신규 21/21 · 델타 축 6 suite green · env lint L1~L9 · instruction lint C1~C4 · i18n-surface 10/10
+- 뿌리 단일화 — `lib/session-identity.js` 신설. `CLAUDE_SESSION_ID` 단독 read 12곳이 빈 값을 받아 M2 계측 블록 전체가 죽어 있던 것을 체인(MCCP_SESSION_ID → CLAUDE_CODE_SESSION_ID → CLAUDE_SESSION_ID)으로 닫음. 체인만 옮기고 정규화는 각 소비처에 존치(DD1)
+- A1 — 분모를 세션 수에서 distinct work_unit으로 시정(DD3, 계약 위반의 시정). 착수는 `receipt-prompt` hook, 완주는 `/mccp:pr` Phase 5.1(DD4). `sealed_without_completion` 병기(DD5)
+- A2 — `context-state` 스냅샷에 session_id 보존 + `resolveSessionBoundPct`가 귀속·신선도 통과분만 stamp(DD6). 미충족 시 여전히 null
+- B3 — forward-only → **computed** 전환(20/116). 분모·분자 우주 양방향 차집합 공집합. 제외 7건 명시 추가, 은퇴 0건(UI6·UI14)
+- C2/C3 — 값 미산출 유지(DD8·UI8), 귀속 삼각 기록 경로만 수립
+- coverage gate `m8-coverage-gate.js` — 승인 emit 지점 7 + 정적 lint + `--acceptance` opt-in
+- 리뷰 흡수 H1/H2 — `pr.md` 5.1이 DECISION_SLUG·PR_NUMBER를 자기 블록에서 재도출. fenced block은 각자의 셸이라 상속이 성립하지 않아 A1 분자가 매 사이클 **결정적으로** skip되고 있었다
+- 리뷰 흡수 H3 — `with_remediation_pr`에 producer가 0개였다. msw-events allowlist에 `finding_id` 추가 + CLI가 remediation_pr에 필수 요구 + `findings.js` reader가 조인
+- 리뷰 흡수 M1~M3·L1~L3 — SLUG_RE 복제 제거 · 가드를 수신자 무관 `.readState(`로 확대 · `mccp:plan-prd` 분모 제외 · 길이 상한 근거 명시 · 낡은 주석 4곳 정정 · L3는 증거와 함께 backlog 기각
+- 검증: 전 suite 5250 tests / 5233 pass / 1 fail(셸 env 토글 의존, 기존 이연) · m8-coverage-gate ok · assertion-manifest 22/22 · env-contract L1~L10 · instruction-contract C1~C4 · metrics-assert exit 0
 
 ## In Progress
-전체 스위트 최종 실행(렌더러 포함) 확인 중
+
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. **PR 진입 직전 §3.7 version 재계산 필수**(이번 사이클에 이미 1회 충돌 실측). 브랜치가 origin/main보다 뒤처져 있으므로 머지 시 §3.5.1 삭제 검증도 필수.
+/mccp:pr. 진입 직전 §3.7 version 재계산 필수(origin/main 1.32.2, 로컬 1.33.0). PR 생성 후 A1 완주 이벤트가 최초 발화하므로 derive를 재실행해 A1 전환을 note에 기록할 것.
 
 ## Last Decision
-plan Task 6은 minor(1.31.0)를 지시했으나 그 전제(PRD 전 milestone 완료)가 성립하지 않는다 — Layer 2 미실행이라 PRD M2를 complete로 적을 수 없고, complete가 아니면 §3.7상 patch다. 동시에 main이 1.30.1을 다른 축에 선점한 것이 확인돼 forward-only 상향으로 M1을 1.30.2, M2를 1.30.3에 착지시켰다.
+H3 삼각 우변을 reader 확장으로 닫았다 — registry에 finding_closed를 새로 쓰면 closure_type enum을 통과해 C1 해소 계상을 오염시키므로, 우변은 msw-events에 남기고 finding_id로 조인한다. 조인 키 없는 레코드는 CLI가 애초에 거부한다.
 
 ## Open Questions
-- Layer 2(라이브 리뷰어 비교) 여전히 미실행 — PRD Open Question으로 열려 있고 그것이 default off를 묶는다. 아카이브 보류(DD10)
-- M3는 cross-model adversarial review를 받지 않았다 — Plan-Codex 미발화(receipt 부재) + Implement-Codex는 MCCP_CODEX_DISABLED=1로 skip. 실제 리뷰는 L2 패널 3라운드뿐
-- security-reviewer 미발화(UI9 운영 제약) — receipt에 security_skipped=true 봉인, /mccp:pr에서 blocking으로 남는다
-- 선재 red 1건 승계: hooks/tests/ecc-context-monitor.test.js Axis B (f) — origin/main과 byte 동일, backlog 이연
-- /mccp:pr 진입 직전 §3.7 version 재계산 필수 (이 사이클에서 이미 세 번 충돌)
+- 설치 캐시가 1.30.0이고 워크트리는 1.33.0 — 실 세션 hook 자동 발화는 머지 + `claude plugin update` 이후에만 참(DD10)
+- A2는 상류 텔레메트리(session-bridge context_remaining_pct)가 null이라 표본 0건. 전역 context-current.json의 out-of-order 가드도 별도 축(backlog 등재)
+- 병렬 동시성 8에서 git init 실패·lock/tmp 경합으로 6종 flake — 동시성 4에서 전부 소실. test isolation 축은 backlog
 
 ## Last Updated
-2026-08-27T00:54:35.746Z
+2026-08-25T10:14:37.272Z

@@ -1,0 +1,102 @@
+{
+  "milestone": "multi-session-work-loop M8",
+  "phase": "after",
+  "measured_at": "2026-08-25",
+  "measured_how": "derive/cli.js run --json + m8-coverage-gate.js --acceptance --json, 워크트리 hook을 실제 payload로 직접 실행한 뒤(DD10)",
+  "note": "**커밋 시점 상태를 그대로 둔다.** A1의 완주 신호는 이 milestone 자신의 /mccp:pr에서 처음 발화하므로(plan Risks에 기록된 순환) 여기서는 아직 전환되지 않은 것이 정직한 값이다. PR 생성 후 재실행 결과는 .claude/notes/multi-session-work-loop-m8.md가 별도로 기록한다.",
+  "event_corpus": {
+    "kinds_observed": [
+      "evidence_guard_active",
+      "session_start",
+      "session_end",
+      "task_started"
+    ],
+    "kinds_still_absent": [
+      "task_completed",
+      "task_ship_sealed"
+    ],
+    "absent_why": "둘 다 /mccp:pr 경로에서만 발화한다 — task_completed는 pr.md Phase 5, task_ship_sealed는 finalize-receipt.js의 ship 봉인 시점",
+    "env_snapshot_files": 1,
+    "first_non_guard_kind_ever": true
+  },
+  "metrics": {
+    "A1": {
+      "status": "forward-only",
+      "numerator": null,
+      "denominator": 1,
+      "sealed_without_completion": 0,
+      "transition": "분모 producer가 살아났다(startups_producer_present=true, 이전 false). 분모 의미도 세션 수 → distinct work_unit으로 시정됐다(DD3).",
+      "not_yet": "완주 producer는 이 milestone 자신의 PR에서 처음 발화한다. 소급 backfill은 §A1이 금지하므로 하지 않는다."
+    },
+    "A2": {
+      "status": "forward-only",
+      "numerator": null,
+      "denominator": 2,
+      "sample_count": 0,
+      "transition": "세션 바인딩 경로가 배선됐다 — context-state 스냅샷이 session_id를 보존하고, session-end.js는 귀속·신선도를 모두 통과한 값만 stamp한다.",
+      "not_yet": "라이브 표본 0건. **원인은 M8 밖이다**: session-bridge의 context_remaining_pct 자체가 null이고(하네스 텔레메트리), 전역 context-current.json은 11일 전 다른 세션의 tool_count=900이라 out-of-order 가드가 write를 건너뛴다. 표본을 지어내지 않았다 — 게이팅 오라클의 4경로는 unit test가 단언한다."
+    },
+    "B3": {
+      "status": "computed",
+      "numerator": 20,
+      "denominator": 116,
+      "transition": "**forward-only → computed.** env-snapshot corpus가 0건에서 1건이 되어 분자가 산출 가능해졌고, 분모/분자 우주의 양방향 차집합이 공집합이 됐다.",
+      "raw_surface_count": 133,
+      "excluded_count": 17,
+      "retired_count": 0,
+      "operation_branch_count": 243,
+      "operation_branch_method": "enum-table+boolean-floor (lower bound)"
+    },
+    "C2": {
+      "status": "forward-only",
+      "attribution_coverage": {
+        "with_gate_decision": 0,
+        "with_remediation_pr": 0,
+        "findings_total": 12
+      },
+      "note": "**값은 만들지 않는다**(DD8 · UI8). 세운 것은 기록 경로뿐이고 status는 forward-only에 머문다. 커버리지 0은 아직 귀속 레코드를 생성한 해소 주기가 없다는 뜻이다. 좌변(gate_decision_id)은 plan-codex-runner·plan-review가 레지스트리에 stamp하고, 우변(remediation_pr)은 msw-events 레코드를 finding_id로 조인해 읽는다 — 로컬 리뷰 H3 이전에는 우변에 producer가 0개라 구조적으로 0이었다."
+    },
+    "C3": {
+      "status": "forward-only",
+      "attribution_coverage": {
+        "with_gate_decision": 0,
+        "with_remediation_pr": 0,
+        "findings_total": 12
+      }
+    }
+  },
+  "b3_set_equality": {
+    "denominator": 116,
+    "numerator_universe": 116,
+    "denominator_only": [],
+    "numerator_only": [],
+    "equal": true,
+    "how": "denominator-only 7개를 TOGGLE_EXCLUSIONS + measurement-design.md §B3에 명시로 추가(자동 파생 아님 — UI7) · numerator-only 1개(CODEX_DEDUPE_AT_PR)는 MCCP_ 접두 규약으로 분자 우주에서 제외",
+    "retirement_count": 0
+  },
+  "claimed_computable": [
+    "A1",
+    "A2",
+    "A3",
+    "B2",
+    "B3",
+    "C1"
+  ],
+  "claimed_computable_lockstep": "두 목록(msw-metrics-acceptance.test.js · derive/cli.js#CLAIMED_COMPUTABLE_IDS)의 집합 동일성을 test가 단언한다 — M7이 깨뜨린 lockstep을 산문에서 기계로 옮겼다",
+  "coverage_gate": {
+    "approved_emit_sites": 7,
+    "registry_ok": true,
+    "static_lint_ok": true,
+    "acceptance_pre_ok": true,
+    "acceptance_post_pending": [
+      "task_completed",
+      "task_ship_sealed"
+    ]
+  },
+  "honest_limits": [
+    "설치 캐시가 1.30.0이고 워크트리는 1.33.0이다 — 실 세션의 hook은 캐시에서 돌므로 '다음 세션에서 자동으로 산출된다'는 머지 + `claude plugin update` 이후에만 참이다(DD10).",
+    "A1은 이 주기 안에 computed에 도달하지 못한다(구조적 순환).",
+    "A2는 상류 context_remaining_pct 텔레메트리가 null이라 표본이 없다 — M8이 배선한 것은 귀속 경로이고, 값의 부재는 M8 밖 원인이다.",
+    "A3는 insufficient로 남는다 — M8이 CLAUDE.md를 편집하므로 재측정해도 다시 낡는다. M4 축이라 손대지 않았다."
+  ]
+}

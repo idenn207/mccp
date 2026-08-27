@@ -92,8 +92,8 @@ const OFF = 'disable-by-default';
 // ─────────────────────────────────────────────────────────────────────────────
 const RAW = [
   // ── gates — receipt · Codex · stop-loop · auto-chain · audited escape ──────
-  ['MCCP_RECEIPT_GATE_MODE', 'enum', ['hard', 'soft', 'off'], 'hard', null, 'active', 'gates', 'plugins/mccp/scripts/hooks/receipt-prompt.js:217', 'receipt 게이트 강도.'],
-  ['MCCP_SKIP_RECEIPT', 'bypass-flag', BY, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/hooks/receipt-prompt.js:260', 'receipt 게이트 1회 우회.'],
+  ['MCCP_RECEIPT_GATE_MODE', 'enum', ['hard', 'soft', 'off'], 'hard', null, 'active', 'gates', 'plugins/mccp/scripts/hooks/receipt-prompt.js:354', 'receipt 게이트 강도.'],
+  ['MCCP_SKIP_RECEIPT', 'bypass-flag', BY, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/hooks/receipt-prompt.js:327', 'receipt 게이트 1회 우회.'],
   ['MCCP_RECEIPT_DEBUG', 'bool', B, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/hooks/goal-phase-guard.js:196', 'receipt 디버그 출력.'],
   ['MCCP_RECEIPT_DEBUG_LEGACY_INLINE', 'bool', B, 'on', ON, 'active', 'gates', 'plugins/mccp/scripts/hooks/receipt-prompt.js:125', '구형 inline 디버그 유지.'],
   ['MCCP_ALLOW_CODEX_UNAVAILABLE', 'bypass-flag', BY, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/lib/codex-invoke.js:168', 'Codex 미가용 시 advisory.'],
@@ -177,7 +177,7 @@ const RAW = [
   ['MCCP_ORCHESTRATION_RESERVATION_LEASE_MS', 'int', null, '600000', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/orchestration-runaway.js:108', '예약 lease 유효 시간.'],
   ['MCCP_ORCHESTRATOR_POLL_MS', 'int', null, '500', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/dispatch-watcher.js:63', 'watcher 폴링 간격.'],
   ['MCCP_DISPATCH_CONTEXT', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/receipt/write.js:75', 'dispatch worker 선언.'],
-  ['MCCP_AUTO_HANDOFF', 'enum', ['off', 'notify', 'spawn'], 'notify', null, 'active', 'orchestration', 'plugins/mccp/scripts/derive/sources/toggle-usage.js:142', '핸드오프 신호 처리.'],
+  ['MCCP_AUTO_HANDOFF', 'enum', ['off', 'notify', 'spawn'], 'notify', null, 'active', 'orchestration', 'plugins/mccp/scripts/derive/sources/toggle-usage.js:173', '핸드오프 신호 처리.'],
   ['MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/state/session-spawner.js:282', '실험적 세션 spawn.'],
   ['MCCP_MULTI_SESSION_SCAN', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/derive/sources/worktrees.js:316', '다중 세션 스캔.'],
 
@@ -201,7 +201,7 @@ const RAW = [
   ['MCCP_HOOK_INPUT_MAX_BYTES', 'int', null, null, null, 'undocumented-default', 'hooks', 'plugins/mccp/scripts/hooks/config-protection.js:157', 'hook 입력 바이트 상한.'],
   ['MCCP_HOOK_INPUT_TRUNCATED', 'bool', B, 'off', OFF, 'internal', 'hooks', 'plugins/mccp/scripts/hooks/config-protection.js:142', '입력 절단 신호.'],
   ['MCCP_PLUGIN_ROOT', 'string', null, null, null, 'internal', 'hooks', 'plugins/mccp/scripts/hooks/bootstrap.js:68', '플러그인 루트 경로.'],
-  ['MCCP_SESSION_ID', 'string', null, null, null, 'internal', 'hooks', 'plugins/mccp/scripts/hooks/cost-tracker.js:130', '현재 세션 id.'],
+  ['MCCP_SESSION_ID', 'string', null, null, null, 'internal', 'hooks', 'plugins/mccp/scripts/lib/session-identity.js:55', '현재 세션 id — 체인 1순위(M8 DD1: 해소는 session-identity 단독).'],
   ['MCCP_SESSION_START_CONTEXT', 'enum', ['off', 'on'], null, null, 'undocumented-default', 'hooks', 'plugins/mccp/scripts/hooks/session-start.js:167', 'STATE.md 주입 여부.'],
   ['MCCP_SESSION_START_MAX_CHARS', 'int', null, null, null, 'undocumented-default', 'hooks', 'plugins/mccp/scripts/hooks/session-start.js:172', '주입 블록 문자 상한.'],
   ['MCCP_SESSION_RETENTION_DAYS', 'int', null, null, null, 'undocumented-default', 'hooks', 'plugins/mccp/scripts/hooks/session-start.js:160', '세션 산출물 보존 일수.'],
@@ -219,7 +219,7 @@ const RAW = [
   ['MCCP_GH_SHIM', 'string', null, null, null, 'undocumented-default', 'hooks', 'plugins/mccp/scripts/lib/github-discussions.js:38', 'gh CLI 대체 경로.'],
   ['MCCP_CODE_CLI', 'string', null, null, null, 'undocumented-default', 'hooks', 'plugins/mccp/scripts/lib/find-code-cli.js:70', 'claude CLI 경로.'],
   ['MCCP_GITIGNORE_LOCK_WAIT_MS', 'int', null, null, null, 'undocumented-default', 'hooks', 'plugins/mccp/scripts/lib/gitignore-provision.js:509', 'gitignore lock 대기 상한.'],
-  ['MCCP_A3_READ_USER_MEMORY', 'bool', B, 'off', OFF, 'active', 'hooks', 'plugins/mccp/scripts/derive/cli.js:349', 'derive의 메모리 읽기 허용.'],
+  ['MCCP_A3_READ_USER_MEMORY', 'bool', B, 'off', OFF, 'active', 'hooks', 'plugins/mccp/scripts/derive/cli.js:374', 'derive의 메모리 읽기 허용.'],
 
   // ── observability — renderer/dashboard · journal · evidence · session ───────
   ['MCCP_RENDER_TRIGGER_DEBOUNCE_MS', 'int', null, '5000', null, 'active', 'observability', 'plugins/mccp/scripts/lib/renderer/trigger.js:233', '재렌더 debounce.'],
@@ -237,7 +237,7 @@ const RAW = [
 
   // ── external — mccp가 정의하지 않지만 mccp 경로가 읽는 이름 ─────────────────
   ['CLAUDE_PLUGIN_ROOT', 'string', null, null, null, 'internal', 'external', 'plugins/mccp/scripts/hooks/bootstrap.js:68', '주입된 플러그인 루트.'],
-  ['CLAUDE_SESSION_ID', 'string', null, null, null, 'internal', 'external', 'plugins/mccp/scripts/hooks/cost-tracker.js:130', '주입된 세션 id.'],
+  ['CLAUDE_SESSION_ID', 'string', null, null, null, 'internal', 'external', 'plugins/mccp/scripts/lib/session-identity.js:57', 'legacy 세션 id — 이 CLI는 설정하지 않는다. 체인 3순위(M8 DD1).'],
   ['CLAUDE_PID', 'string', null, null, null, 'internal', 'external', 'plugins/mccp/scripts/lib/session-processes.js:946', 'Claude Code PID.'],
   ['CLAUDE_RULES_DIR', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/hooks/bootstrap.js:68', 'ECC rule 디렉토리.'],
   ['CLAUDE_PACKAGE_MANAGER', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/hooks/bootstrap.js:68', 'installer 패키지 매니저.'],

@@ -170,3 +170,50 @@ test('M9 Task 2: when the backlog append fails, nothing is closed', () => {
 
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+// ---- Task 3 - adjudication separates disposition from resolution ------------
+
+test('M9 Task 3: deferring a finding never counts as resolving it', () => {
+  // Task 3 closed 12 M7-era findings: 4 fixed, 1 invalidated, 7 deferred. That
+  // is the first non-zero C1 this PRD has produced, so the separation has to
+  // hold mechanically -- otherwise "we filed it" reads as "we fixed it" and the
+  // metric measures paperwork.
+  const slug = 'm9-separation';
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-m9sep-')));
+
+  const cases = [
+    { perspective: 'security', severity: 'HIGH', claim: 'was fixed in shipped code', closure: 'fixed' },
+    { perspective: 'invariant', severity: 'CRITICAL', claim: 'its premise no longer holds', closure: 'invalidated' },
+    { perspective: 'security', severity: 'MEDIUM', claim: 'was moved to the backlog', closure: 'deferred' },
+    { perspective: 'invariant', severity: 'LOW', claim: 'was also moved to the backlog', closure: 'deferred' },
+  ];
+
+  cases.forEach((c) => {
+    const id = openFinding(root, slug, c);
+    const r = registry.appendFindings(slug, [{
+      kind: 'finding_closed',
+      finding_id: id,
+      closure_type: c.closure,
+      gate_id: 'mccp-plan-codex',
+      perspective: c.perspective,
+      severity: c.severity,
+    }], { repoRoot: root });
+    assert.ok(r.ok, 'closure append must succeed');
+  });
+
+  const counts = shardOf(root, slug).counts;
+  assert.strictEqual(counts.total, 4);
+  assert.strictEqual(counts.open, 0, 'every adjudicated finding leaves the open pool');
+  assert.strictEqual(counts.fixed, 1);
+  assert.strictEqual(counts.invalidated, 1);
+  assert.strictEqual(counts.deferred, 2);
+
+  // The load-bearing line: two of the four left the open pool without entering
+  // the numerator. An adjudication pass that closed everything as `fixed` would
+  // report 4/4 while nothing was actually repaired.
+  assert.strictEqual(counts.resolved, 2, 'only fixed + invalidated may resolve');
+  assert.strictEqual(counts.closed_untyped, 0, 'an untyped closure is an unreadable disposition');
+  assert.strictEqual(counts.closed_unknown_type, 0);
+
+  fs.rmSync(root, { recursive: true, force: true });
+});

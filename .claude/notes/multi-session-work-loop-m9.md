@@ -87,3 +87,29 @@ M9의 완료를 archive-complete 성공으로 정의하므로 순환이 닫히�
 
 `archive-complete/scan.js --json` → `rawRowCount:9 complete:5 inProgress:1 nonCanonical:3`,
 `archivable:false`, reason `"not all rows complete/dropped (in-progress=1, non-canonical=3)"`.
+
+## Task 3 — M7 미판정 12건 판정 (2026-08-27)
+
+대상은 `.claude/state/findings/multi-session-work-loop-m7.jsonl`의 open 12건이고, 전부
+**이미 ship된 M7 계획**에 대한 지적이다. 따라서 판정은 "그 우려가 실제로 실현됐는가"를
+현재 코드에서 확인하는 것이다. §3.14대로 CRITICAL·HIGH만 그 자리에서 흡수하고 나머지는
+증거와 함께 backlog로 이연했다.
+
+| # | Sev | 관점 | 판정 | 근거 |
+|---|---|---|---|---|
+| 1 | HIGH | security | `fixed` | sanitizer 3함수가 export됨 · `state-injector.js:185-192`가 셋 다 호출 |
+| 2 | HIGH | security | `fixed` | `sanitizeForInjection`(`:185`)이 decode→escape→trim 적용, `:213`이 `cited_path`를 그 경로로 |
+| 3 | HIGH | security | `fixed` | `c1-coverage-gate.js:35/47`이 두 writer 목록을 갖고 `:163-164`가 양 표면 lint · gate `ok:true` |
+| 7 | CRITICAL | invariant | `invalidated` | 전제 "M8 pending"이 무너짐 — M8이 `d2d7117`로 ship, C1이 `computed` |
+| 8 | HIGH | invariant | `fixed` | gate `contract_copresence` 축 `ok:true`(3개 하위 단언 전부) |
+| 4·5·6 | MEDIUM | security | `deferred` | backlog 이연(각 행에 증거 동봉) |
+| 9·10·12 | MEDIUM | invariant | `deferred` | backlog 이연 |
+| 11 | LOW | invariant | `deferred` | backlog 이연 — Task 5가 실제로 ship돼 조건절 불성립 |
+
+결과: shard `total=12 resolved=5 open=0 fixed=4 invalidated=1 deferred=7`.
+전역 C1은 **0/66 → 5/66**(이 PRD 최초의 비영점 폐쇄율), `open_count` 59 → 47,
+`type_separation` true 유지.
+
+> 종결 유형이 (perspective, severity) 조합으로 완전히 결정되므로 위치 기반 추정을 쓰지
+> 않았다 — HIGH는 전부 `fixed`, 유일한 CRITICAL은 `invalidated`, MEDIUM·LOW는 전부
+> `deferred`다.

@@ -847,3 +847,61 @@ test('B1: source 부재는 insufficient (invalid 가 아니다)', () => {
   const notOk = computeMetrics({ sources: { milestone_evidence: b1Source({ ok: false }) } })[B1_STATUS_DRIFT];
   assert.strictEqual(notOk.status, 'insufficient');
 });
+
+// --- M9 Task 1a — A3 degrades honestly instead of killing the process --------
+
+test('A3: an unimportable tiktoken degrades to a status, not an unhandled crash', () => {
+  // The measurer writes the payload to a python child over stdin. When tiktoken
+  // cannot be imported the child dies FIRST, so the write lands on a broken
+  // pipe — and a broken pipe surfaces as an ASYNC 'error' event on the stream,
+  // which the try/catch around write() cannot see. With no listener Node called
+  // that unhandled and killed the process:
+  //
+  //   Error: write EOF
+  //       at WriteWrap.onWriteComplete (node:internal/stream_base_commons:87:19)
+  //
+  // Asserting the exit code alone would NOT catch a regression here: cli.js maps
+  // both 'error' and the pre-existing 'baseline-unavailable' to non-zero, and a
+  // crashed process is non-zero too. What separates the fixed path from the
+  // crashed one is that a fixed run still PRODUCES a parseable measurement on
+  // stdout — a crashed one prints a stack trace and stdout stays empty.
+  const { spawnSync } = require('node:child_process');
+  const path = require('node:path');
+
+  const repoRoot = path.resolve(__dirname, '..', '..', '..', '..', '..');
+  const cli = path.join(repoRoot, 'plugins', 'mccp', 'scripts', 'lib', 'msw-metrics', 'cli.js');
+  const run = spawnSync(process.execPath, [cli, 'a3', '--print'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    timeout: 120000,
+  });
+
+  assert.strictEqual(run.signal, null, 'the measurement must not be killed by a signal');
+
+  const stderr = run.stderr || '';
+  assert.ok(
+    !/Unhandled 'error' event/.test(stderr),
+    'an unhandled stream error means the stdin listener regressed:\n' + stderr
+  );
+  assert.ok(
+    !/at WriteWrap\.onWriteComplete/.test(stderr),
+    'a broken-pipe stack trace means the crash is back:\n' + stderr
+  );
+
+  let record;
+  assert.doesNotThrow(() => { record = JSON.parse(run.stdout || ''); },
+    'a degraded measurement must still emit a parseable record; empty stdout is the crash signature');
+
+  // Both outcomes are legitimate — this repo has no tiktoken, a developer box
+  // may. The claim under test is that NEITHER of them is a crash, and that the
+  // unimportable case names its own cause rather than borrowing the "no
+  // interpreter" one.
+  assert.ok(
+    ['computed', 'error', 'baseline-unavailable', 'insufficient'].includes(record.status),
+    'unexpected status: ' + record.status
+  );
+  if (record.status === 'error') {
+    assert.match(String(record.not_delivered_reason || ''), /tiktoken/i,
+      'an unimportable tokenizer must say so in not_delivered_reason');
+  }
+});

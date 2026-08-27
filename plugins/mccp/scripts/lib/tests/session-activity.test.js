@@ -76,10 +76,20 @@ test('session-activity: concurrent pairs detected', (t) => {
       task_completed: true,
     });
 
+    // M8 (DD3) — 세션 축과 작업 단위 축은 **다른 축**이다. 이 test의 주제는
+    // 동시성(세션)이므로 세션 수를 계속 단언하고, A1 분모는 착수 이벤트를 실은
+    // 만큼만 센다. 세션 3개가 작업 단위 2개에 걸치는 형태로 두어 "세션 수 ≠
+    // 작업 단위 수"가 실제로 갈리는 것을 이 자리에서 고정한다.
+    writeMswEvent(tmpDir, 'sid-1', { kind: 'task_started', session_id: 'sid-1', work_unit: 'wu-1', ts: '2026-07-24T10:00:00Z' });
+    writeMswEvent(tmpDir, 'sid-2', { kind: 'task_started', session_id: 'sid-2', work_unit: 'wu-1', ts: '2026-07-24T10:15:00Z' });
+    writeMswEvent(tmpDir, 'sid-3', { kind: 'task_started', session_id: 'sid-3', work_unit: 'wu-2', ts: '2026-07-24T11:00:00Z' });
+
     const result = scanSessionActivity(tmpDir);
 
     assert.strictEqual(result.ok, true);
-    assert.strictEqual(result.task_startups_count, 3);
+    assert.strictEqual(result.task_startups_count, 2,
+      'A1 분모는 세션(3)이 아니라 distinct work_unit(2)이다 — 계약 위반의 시정');
+    assert.strictEqual(result.startups_producer_present, true);
     assert.strictEqual(result.concurrent_pairs_count, 1); // sid-1 overlaps sid-2
     assert.strictEqual(result.sessions.length, 3);
   } finally {

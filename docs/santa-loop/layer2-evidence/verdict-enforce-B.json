@@ -1,0 +1,27 @@
+{
+  "verdict": "FAIL",
+  "checks": [
+    { "criterion": "Runtime safety", "result": "FAIL", "detail": "takeField() does not guard against out-of-bounds access; raw.trim() on undefined will throw. splitRecords() references undefined SEPARATOR constant." },
+    { "criterion": "Contract integrity", "result": "FAIL", "detail": "takeField claims to extract a field but crashes on missing index. splitRecords cannot fulfill its contract due to undefined SEPARATOR." },
+    { "criterion": "Type discipline", "result": "FAIL", "detail": "takeField applies .trim() to potentially undefined value without null check or coercion." },
+    { "criterion": "Document consistency", "result": "FAIL", "detail": "corpus-fixture.plan.md claims PRD declares 3 milestones; PRD actually declares 2." },
+    { "criterion": "Dead or unreachable logic", "result": "PASS", "detail": "No exported function is structurally unreachable." }
+  ],
+  "critical_issues": [
+    { "claim": "splitRecords() references undefined SEPARATOR constant and will throw ReferenceError", "severity": "CRITICAL",
+      "failure_scenario": "Any call to splitRecords(text) will immediately throw ReferenceError: SEPARATOR is not defined. The function cannot execute on any input.",
+      "evidence": "src/parser.js:21 - String(text).split(SEPARATOR)", "locations": [ { "file": "src/parser.js", "line": 21 } ] },
+    { "claim": "takeField() calls .trim() on undefined when index is out of bounds", "severity": "CRITICAL",
+      "failure_scenario": "Calling takeField(['a', 'b'], 10) will assign undefined to raw (line 16), then line 17 calls undefined.trim(), throwing TypeError: Cannot read property 'trim' of undefined.",
+      "evidence": "src/parser.js:16-17 - const raw = list[index]; return raw.trim();", "locations": [ { "file": "src/parser.js", "line": 17 } ] },
+    { "claim": "corpus-fixture.plan.md makes false claim about PRD content", "severity": "HIGH",
+      "failure_scenario": "Plan states 'This plan asserts the PRD declares 3 milestones' but corpus-fixture.prd.md contains exactly 2 milestone rows (first, second). Any downstream logic that trusts the plan's description of the PRD will use wrong expectations.",
+      "evidence": "corpus-fixture.plan.md:14 claims 3; corpus-fixture.prd.md:5-8 declares 2",
+      "locations": [ { "file": ".claude/plans/corpus-fixture.plan.md", "line": 14 }, { "file": ".claude/prds/corpus-fixture.prd.md", "line": 5 } ] }
+  ],
+  "suggestions": [
+    "Define SEPARATOR at module level or pass it as a parameter to splitRecords()",
+    "Add bounds check in takeField()",
+    "Correct plan.md line 14"
+  ]
+}

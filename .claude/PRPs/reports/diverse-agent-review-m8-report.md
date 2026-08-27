@@ -2,7 +2,7 @@
 
 **Plan**: `.claude/plans/diverse-agent-review-m8.plan.md`
 **PRD**: `.claude/prds/diverse-agent-review.prd.md` (milestone #8)
-**Branch**: `diverse-agent-review-m8` · **Version**: `1.32.6 → 1.32.9` (patch)
+**Branch**: `diverse-agent-review-m8` · **Version**: `1.33.0 → 1.33.1` (patch)
 **Date**: 2026-08-26
 
 ## Summary
@@ -35,7 +35,7 @@
 | 3 | 실측 동결 + 판정 문서 | 완료 | `--json` 출력 축자 인용, 바이트 동일성 기계 확인 |
 | 4 | PRD 갱신 | 완료 | #8 complete · #11 신설 · Evidence · Success Metrics · Open Questions 3항 |
 | 5 | milestone 보고서 | 완료 | 이 문서 |
-| 6 | version bump 4면 동기 | 완료 | target을 §3.7대로 **재계산**: 잠정 1.32.9 → 실측 후에도 1.32.9 |
+| 6 | version bump 4면 동기 | 완료 | target을 §3.7대로 **두 번 재계산**: 잠정 1.32.9 → PR 직전 origin/main 병합 시 `1.33.0` 발행 확인 → forward-only 상향으로 **1.33.1** 착지 |
 
 ## 판정 4개 (전부 도구 출력에 앵커)
 
@@ -119,10 +119,10 @@ receipt에 hash 봉인돼 있어 수정할 수 없으므로(§3.16) 여기 기�
 | `docs/diverse-agent-review/quorum-calibration.md` | CREATE | 판정 문서 (축자 동결) |
 | `.claude/prds/diverse-agent-review.prd.md` | UPDATE | #8 complete · #11 신설 |
 | `.claude/PRPs/reports/diverse-agent-review-m8-report.md` | CREATE | 이 문서 |
-| `plugins/mccp/.claude-plugin/plugin.json` | UPDATE | `1.32.6 → 1.32.9` |
+| `plugins/mccp/.claude-plugin/plugin.json` | UPDATE | `1.33.0 → 1.33.1` |
 | `plugins/mccp/scripts/lib/renderer/html.js` | UPDATE | page-foot version |
 | `plugins/mccp/scripts/lib/renderer/markdown.js` | UPDATE | derived 줄 version |
-| `CHANGELOG.md` | UPDATE | `[1.32.9]` heading + `currently` 노트 |
+| `CHANGELOG.md` | UPDATE | `[1.33.1]` heading + `currently` 노트 |
 | `.claude/notes/diverse-agent-review-m8.md` | CREATE | 게이트 산출물 (plan 봉인으로 인한 우회) |
 
 ## Deviations from Plan
@@ -225,7 +225,7 @@ terminal `/mccp:pr`에서 PR-Codex가 발화한다. 상세는
 - [x] 게이트 배선 diff 공집합 — plan의 7개가 아니라 **12개**로 확대 검사(위 Validation 7)
 - [x] 삭제 파일 0건 (§3.5.1)
 - [x] 기본 quorum 값과 severity 게이트를 바꾸지 않았음을 diff로 확인 — `quorum.js` 무변경
-- [x] version 4면 동기 + `i18n-surface.test.js` green — `1.32.9`, 10/10
+- [x] version 4면 동기 + `i18n-surface.test.js` green — `1.33.1`, 10/10
 
 ## Next Steps
 

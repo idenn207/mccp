@@ -35,8 +35,21 @@ function debug(msg) {
   }
 }
 
+// M3 Task 4 (DD6-1) — 저장소 루트 판정은 hook-trace.js가 소유한다. 로컬 복사본은
+// `event.cwd`를 그대로 루트로 써서 하위 디렉토리 호출이 shard를 산란시켰다.
+// 모듈 로드 실패는 이 hook의 기존 fail-open 계약대로 접는다.
 function repoRootOf(event) {
+  const ht = loadHookTrace();
+  if (ht && typeof ht.resolveRepoRoot === 'function') return ht.resolveRepoRoot(event);
   return (event && event.cwd) ? event.cwd : process.cwd();
+}
+
+// 표면에 실릴 경로를 repo 기준으로 접는다(DD6-3). repoRoot 밖이면 원본 그대로.
+function surfacePath(repoRoot, abs) {
+  if (!abs) return abs;
+  const ht = loadHookTrace();
+  if (ht && typeof ht.toRepoRelative === 'function') return ht.toRepoRelative(repoRoot, abs);
+  return abs;
 }
 
 function loadHookTrace() {
@@ -100,11 +113,12 @@ async function main() {
 
   // Opportunistic L1 shard write — never block surface on this (G1).
   let traceLogPath = null;
+  const repoRoot = repoRootOf(event);
   try {
     const ht = loadHookTrace();
     if (ht && event.session_id && event.tool_use_id) {
       const result = ht.recordWrite(
-        repoRootOf(event),
+        repoRoot,
         event.session_id,
         event.tool_use_id,
         'PostToolUseFailure',
@@ -117,7 +131,7 @@ async function main() {
           exit_code: typeof event.exit_code === 'number' ? event.exit_code : null,
         }
       );
-      if (result && result.ok) traceLogPath = result.path;
+      if (result && result.ok) traceLogPath = surfacePath(repoRoot, result.path);
       else if (result && !result.ok) debug('L1 write soft-failed: ' + result.code);
     }
   } catch (err) {

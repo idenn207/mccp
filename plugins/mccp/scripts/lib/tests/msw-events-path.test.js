@@ -59,14 +59,18 @@ test('two worktrees do not cross-count each other events (B2 denominator integri
   const t1 = '2026-01-01T01:00:00.000Z';
 
   mswEvents.appendEvent('sess-A', { kind: 'session_start', created_at: t0, ts: t0 }, { repoRoot: wtA });
+  // M8 (DD3) — A1의 분모는 세션이 아니라 **작업 단위**다. 격리 성질을 계속
+  // 의미 있게 단언하려면 fixture가 착수 이벤트를 실제로 실어야 한다.
+  mswEvents.appendEvent('sess-A', { kind: 'task_started', work_unit: 'unit-a', ts: t0 }, { repoRoot: wtA });
   mswEvents.appendEvent('sess-A', { kind: 'session_end', ended_at: t1, ts: t1 }, { repoRoot: wtA });
   mswEvents.appendEvent('sess-B', { kind: 'session_start', created_at: t0, ts: t0 }, { repoRoot: wtB });
+  mswEvents.appendEvent('sess-B', { kind: 'task_started', work_unit: 'unit-b', ts: t0 }, { repoRoot: wtB });
   mswEvents.appendEvent('sess-B', { kind: 'session_end', ended_at: t1, ts: t1 }, { repoRoot: wtB });
 
   const a = scanSessionActivity(wtA);
   const b = scanSessionActivity(wtB);
-  assert.equal(a.task_startups_count, 1, 'worktree A sees only its own session');
-  assert.equal(b.task_startups_count, 1, 'worktree B sees only its own session');
+  assert.equal(a.task_startups_count, 1, 'worktree A sees only its own work unit');
+  assert.equal(b.task_startups_count, 1, 'worktree B sees only its own work unit');
   assert.equal(a.concurrent_pairs_count, 0,
     "one worktree's session must not pair with the other's");
 });
@@ -114,8 +118,13 @@ test('duplicate event ids across locations are counted once (F6 dedupe)', () => 
   const repo = mkRepo('dedupe');
   const dir = eventsDirOf(repo);
   fs.mkdirSync(dir, { recursive: true });
+  // M8 — dedupe 성질은 kind와 무관하지만, 이 단언이 읽는 카운터가
+  // `task_startups_count`(distinct work_unit)이므로 fixture도 그 축으로 옮긴다.
+  // 같은 event_id가 두 줄이어도 접혀야 하고, 접히지 않아도 같은 work_unit이라
+  // Set이 한 번 더 접는다 — 그래서 event_id 중복을 **다른** work_unit으로 두면
+  // 이 test가 dedupe를 실제로 검사하게 된다.
   const shared = JSON.stringify({
-    kind: 'session_start', ts: '2026-01-01T00:00:00.000Z',
+    kind: 'task_started', ts: '2026-01-01T00:00:00.000Z', work_unit: 'dup-unit',
     created_at: '2026-01-01T00:00:00.000Z', session_id: 'dup', event_id: 'same-id',
   });
   // Two lines with the SAME event_id inside one file — the reader must fold them.
@@ -127,6 +136,16 @@ test('duplicate event ids across locations are counted once (F6 dedupe)', () => 
 
   const r = scanSessionActivity(repo);
   assert.equal(r.task_startups_count, 1, 'a duplicated event_id must not double count');
+  // event_id dedupe 자체를 직접 단언한다 — work_unit Set이 결과를 가려버리지
+  // 않도록, 두 번째 줄에 **다른** work_unit을 실어 dedupe가 꺼지면 2가 되게 한다.
+  const distinct = JSON.stringify({
+    kind: 'task_started', ts: '2026-01-01T00:00:00.000Z', work_unit: 'other-unit',
+    created_at: '2026-01-01T00:00:00.000Z', session_id: 'dup2', event_id: 'same-id',
+  });
+  fs.appendFileSync(path.join(dir, 'dup2.jsonl'), distinct + '\n', 'utf8');
+  const r2 = scanSessionActivity(repo);
+  assert.equal(r2.task_startups_count, 1,
+    'the SAME event_id in another shard must fold, not add a second work unit');
 });
 
 test('taxonomy counters read the new kinds and the dead read is gone', () => {

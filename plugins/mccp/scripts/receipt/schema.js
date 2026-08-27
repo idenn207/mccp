@@ -1098,6 +1098,22 @@ function validate(receipt) {
       req(Number.isInteger(m.santa_model_families) && m.santa_model_families >= 0,
         'meta.santa_model_families must be a non-negative integer if present');
     }
+    // santa-delta-review M1 — 델타 스코프 관측 2종. 같은 present-only 규약이고 0은
+    // 유효한 값이다(`MCCP_SANTA_DELTA_SCOPE=off` 실행의 관측된 0). 부재만이 "이 축이
+    // 없던 시절"을 뜻한다.
+    //
+    // **양방향 불변식을 걸지 않는다.** `santa_degrade_ack`/`_reason` 쌍과 달리 이 둘은
+    // 서로를 함의하지 않는다 — `santa_delta_rounds > 0`인데 `paths_dropped === 0`은
+    // 정상이다(모든 diff 파일이 fix hunk 안에 있어 축소가 0인 라운드). 산술 관계를
+    // 강제하면 그 정상 출력이 거부된다.
+    if (m.santa_delta_rounds !== null && m.santa_delta_rounds !== undefined) {
+      req(Number.isInteger(m.santa_delta_rounds) && m.santa_delta_rounds >= 0,
+        'meta.santa_delta_rounds must be a non-negative integer if present');
+    }
+    if (m.santa_delta_paths_dropped !== null && m.santa_delta_paths_dropped !== undefined) {
+      req(Number.isInteger(m.santa_delta_paths_dropped) && m.santa_delta_paths_dropped >= 0,
+        'meta.santa_delta_paths_dropped must be a non-negative integer if present');
+    }
     // 불리언 2종은 `true`만 허용한다. `false`를 명시 저장하면 부재와 뜻이 겹치고,
     // 겹치는 순간 present-only 의미론("부재 = 모름, 값 = 관측")이 무너진다.
     if (m.santa_model_degraded !== null && m.santa_model_degraded !== undefined) {

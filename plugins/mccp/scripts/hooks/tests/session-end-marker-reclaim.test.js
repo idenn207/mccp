@@ -43,14 +43,27 @@ function captureStderr(fn) {
   finally { process.stderr.write = original; }
 }
 
+// multi-session-work-loop M8 — "세션 키가 전혀 없다"는 상태는 이제 **세 이름을
+// 전부** 비워야 성립한다. 이전 판본은 `CLAUDE_SESSION_ID` 하나만 지웠는데, M8이
+// 해소기를 단일 체인(`MCCP_SESSION_ID` → `CLAUDE_CODE_SESSION_ID` →
+// `CLAUDE_SESSION_ID`)으로 모으면서 나머지 둘이 주변 환경에서 새어 들어와
+// "키 없음" 시나리오가 실제로는 키가 있는 상태가 됐다.
+//
+// 이름 목록을 여기 다시 적지 않고 오라클에서 가져온다 — 두 번 적으면 체인이
+// 또 넓어질 때 이 test가 조용히 거짓이 되는 자리가 하나 더 생긴다.
+const { SESSION_ID_ENV_NAMES } = require('../../lib/session-identity');
+
 function withSessionEnv(sid, fn) {
-  const prev = process.env.CLAUDE_SESSION_ID;
-  if (sid === null) delete process.env.CLAUDE_SESSION_ID;
-  else process.env.CLAUDE_SESSION_ID = sid;
+  const prev = {};
+  SESSION_ID_ENV_NAMES.forEach(function (n) { prev[n] = process.env[n]; });
+  SESSION_ID_ENV_NAMES.forEach(function (n) { delete process.env[n]; });
+  if (sid !== null) process.env.CLAUDE_SESSION_ID = sid;
   try { return fn(); }
   finally {
-    if (prev === undefined) delete process.env.CLAUDE_SESSION_ID;
-    else process.env.CLAUDE_SESSION_ID = prev;
+    SESSION_ID_ENV_NAMES.forEach(function (n) {
+      if (prev[n] === undefined) delete process.env[n];
+      else process.env[n] = prev[n];
+    });
   }
 }
 

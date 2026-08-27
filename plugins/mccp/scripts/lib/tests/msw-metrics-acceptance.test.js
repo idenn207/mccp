@@ -84,7 +84,15 @@ const { buildSeededModel } = require('../msw-metrics/fixture');
 // on a lost `merge=union` declaration, and on a review record that lists more
 // findings than the registry holds. Its own falsifiability is pinned by negative
 // fixtures in lib/tests/c1-coverage-gate.test.js.
+//
+// multi-session-work-loop M8: **A1·A2 합류.** 두 지표의 제외 사유는 각각
+// "live producer 부재"(A1)와 "unverified stamp로 계산이 오염"(A2)이었고, 둘 다
+// 그 사유를 없애는 조건을 원 주석이 명시해 두었다 — A1은 "producer가 배선되면",
+// A2는 "session-bound context가 구현되면". M8 Task 3·4·6이 그 조건을 충족시켰다.
+// A4는 남는다: self-credit 문제는 경계 복원 축(M5)의 소관이고 M8이 손대지 않는다.
 const CLAIMED_COMPUTABLE = [
+  A1_WORK_COMPLETION_RATE,
+  A2_CONTEXT_REMAINING,
   A3_INSTRUCTION_COST,
   B2_CONCURRENT_CONFLICTS,
   B3_TOGGLE_AXES,
@@ -100,8 +108,6 @@ const CLAIMED_COMPUTABLE = [
 // producers are still absent or contaminated, so no fixture flag is injected for
 // them and they must resolve to forward-only.
 const DOWNGRADED_FORWARD_ONLY = [
-  A1_WORK_COMPLETION_RATE,
-  A2_CONTEXT_REMAINING,
   A4_RESTORE_RATE,
 ];
 
@@ -176,13 +182,15 @@ test('msw-metrics-acceptance: seeded fixture with non-null numerator/denominator
   }
 });
 
-test('msw-metrics-acceptance: A1 is NOT claimed-computable and is forward-only without a live producer (re-R3 F0)', async (t) => {
-  // A1 has no live task_completed producer in production, so a real-corpus model (no
-  // completions_producer_present) must yield forward-only, and A1 must be excluded from
-  // the claimed-computable set — same PF2 rule applied to B2/A4/A2.
+test('M8-PROMOTION-NOT-MASQUERADE: msw-metrics-acceptance: A1 is claimed-computable, yet still forward-only without a live producer (M8)', async (t) => {
+  // **승격은 producer 부재를 computed-0%로 위장하지 않는다.** 두 명제가 동시에
+  // 참이어야 한다: (1) A1이 claimed-computable 집합에 있고, (2) producer flag가
+  // 없는 실 corpus 모델에서는 여전히 forward-only다. 둘 중 하나만 단언하면
+  // 승격이 곧 "언제나 숫자를 낸다"가 되어 re-R3 F0이 막으려던 masquerade가
+  // 방향만 바꿔 부활한다.
   assert(
-    !CLAIMED_COMPUTABLE.includes(A1_WORK_COMPLETION_RATE),
-    'A1 must NOT be in the claimed-computable set (no live task_completed producer)'
+    CLAIMED_COMPUTABLE.includes(A1_WORK_COMPLETION_RATE),
+    'A1 joins the claimed-computable set in M8 (task_started + task_completed producers wired)'
   );
   const realCorpusModel = {
     sources: {
@@ -190,14 +198,31 @@ test('msw-metrics-acceptance: A1 is NOT claimed-computable and is forward-only w
         ok: true,
         task_startups_count: 6,
         task_completions_count: 0,
-        // completions_producer_present intentionally absent — real production state.
+        // 두 flag 모두 의도적으로 부재 — producer가 아직 돌지 않은 corpus.
         producer_coverage: 'session-activity',
       },
     },
   };
   const a1 = computeMetrics(realCorpusModel)[A1_WORK_COMPLETION_RATE];
-  assert.strictEqual(a1.status, 'forward-only', 'A1 must be forward-only without a live completion producer');
+  assert.strictEqual(a1.status, 'forward-only', 'A1 must stay forward-only until producers actually emit');
   assert.strictEqual(a1.numerator, null);
+});
+
+test('M8-CLAIMED-LOCKSTEP: msw-metrics-acceptance: the two claimed-computable lists are the SAME SET (M8 — lockstep mechanized)', async (t) => {
+  // 이 단언이 없던 동안 lockstep은 산문이었고, 실제로 어긋났다: M7이 test 파일에
+  // C1을 넣고 `derive/cli.js`를 빠뜨렸다. 그 파일의 주석이 스스로 "editing one
+  // without the other is the silent-promotion path this list exists to block"이라
+  // 적어 두었는데도 그 일이 일어났다는 것이, 산문 계약의 한계에 대한 실측이다.
+  const { CLAIMED_COMPUTABLE_IDS } = require('../../derive/cli');
+
+  const here = CLAIMED_COMPUTABLE.slice().sort();
+  const there = CLAIMED_COMPUTABLE_IDS.slice().sort();
+
+  assert.deepStrictEqual(there, here,
+    'derive/cli.js#CLAIMED_COMPUTABLE_IDS and this file\'s CLAIMED_COMPUTABLE must be identical sets — '
+    + 'editing one without the other is the silent-promotion path both lists exist to block');
+  assert.strictEqual(new Set(here).size, here.length, 'no duplicates on this side');
+  assert.strictEqual(new Set(there).size, there.length, 'no duplicates on the derive side');
 });
 
 test('msw-metrics-acceptance: forward-only ids must have forward-only status', async (t) => {

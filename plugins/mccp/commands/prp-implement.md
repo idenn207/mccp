@@ -209,7 +209,7 @@ not consume it.
 
 ### 2.5.1 — Cross-gate dedupe check
 
-Read the plan file. If it contains `## Codex Adversarial Review` with a `합치 결론` line that mentions the same architectural decisions you're about to implement (file structure, abstraction boundaries, external deps, concurrency model), AND no new decision was introduced since the plan was approved, AND `git diff --name-only origin/<base>..HEAD` ⊆ the plan's `Files to Change` list (no implement-time file expansion), write a single line into the plan body:
+Read the plan file. If it contains `## Codex Adversarial Review` with a `합치 결론` line that mentions the same architectural decisions you're about to implement (file structure, abstraction boundaries, external deps, concurrency model), AND no new decision was introduced since the plan was approved, AND `git diff --name-only origin/<base>...HEAD` ⊆ the plan's `Files to Change` list (no implement-time file expansion), write a single line into the plan body:
 
 ```markdown
 ## Codex Implementation Review
@@ -1115,7 +1115,7 @@ During task execution AND after each validation level, run **plan-conflict detec
 CONFLICT_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-conflict-detector.js" detect \
   --plan "$ARGUMENTS" \
   --failure-output "$LAST_VALIDATION_OUTPUT" \
-  --files-changed "$(git diff --name-only origin/main..HEAD)" \
+  --files-changed "$(git diff --name-only origin/main...HEAD)" \
   --json)
 CONFLICT=$(echo "$CONFLICT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.conflict?"1":"0")}catch{process.stdout.write("0")}')
 CONFLICT_REASON=$(echo "$CONFLICT_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason||"")}catch{process.stdout.write("")}')

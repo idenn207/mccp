@@ -14,14 +14,14 @@ dep_check_at: 2026-08-23T09:38:09.736Z
 dep_check_missing: impeccable
 ---
 ## Goal
-diverse-agent-review M8 — 패널 quorum 캘리브레이션 재검토(판정 milestone). 구현 + code-review 흡수 완료(v1.32.9), commit/PR 대기.
+diverse-agent-review M8 — 패널 quorum 캘리브레이션 재검토(판정 milestone). 구현 + code-review 흡수 완료(v1.33.1), commit/PR 대기.
 
 ## Plan
 - PRD: `.claude/prds/diverse-agent-review.prd.md` — #1·#4·#6·#7·**#8 complete**, #11 신설(승인 품질 감사)
 - plan: `.claude/plans/diverse-agent-review-m8.plan.md` — 봉인됨(plan_hash). **편집 금지**
 - 산출물: `plugins/mccp/scripts/lib/plan-review/corpus.js` + test + `docs/diverse-agent-review/quorum-calibration.md`
 - 구현 보고: `.claude/PRPs/reports/diverse-agent-review-m8-report.md` · 노트: `.claude/notes/diverse-agent-review-m8.md`
-- version 1.32.9 (patch — PRD 내 단일 milestone, sibling worktree 충돌로 2칸 상향). 4면 동기 완료. branch diverse-agent-review-m8
+- version 1.33.1 (patch — PRD 내 단일 milestone). origin/main이 1.33.0을 발행해 §3.7 forward-only로 재상향. 4면 동기 완료. branch diverse-agent-review-m8
 
 ## Done
 - M8 구현 — read-only·LLM-free·standalone 집계 오라클 `corpus.js`. 게이트 배선 diff 공집합(UI6, 기계 확인)

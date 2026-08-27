@@ -13,6 +13,7 @@ const {
   stopObserverForContext,
   resolveSessionId
 } = require('../lib/observer-sessions');
+const { resolveRawSessionId } = require('../lib/session-identity');
 
 function log(message) {
   process.stderr.write(`[SessionEnd] ${message}\n`);
@@ -98,7 +99,7 @@ function run(rawInput, deps) {
         process.stderr.write('[SessionEnd] hook-trace L5 runSync failed — writing degraded marker: ' + err.message + '\n');
         try {
           const repoRoot = event.cwd || process.cwd();
-          const sid = event.session_id || process.env.CLAUDE_SESSION_ID || null;
+          const sid = event.session_id || resolveRawSessionId(process.env) || null;
           if (sid) trace.writeDegradedEndMarker(repoRoot, sid);
         } catch (degErr) {
           process.stderr.write('[SessionEnd] degraded marker also failed: ' + degErr.message + '\n');
@@ -131,7 +132,7 @@ function run(rawInput, deps) {
   const reclaimSid = payloadSid || sessionId || null;
 
   if (!sessionId) {
-    log('No CLAUDE_SESSION_ID available; skipping observer cleanup');
+    log('No session id available (MCCP_SESSION_ID / CLAUDE_CODE_SESSION_ID / CLAUDE_SESSION_ID all absent); skipping observer cleanup');
     if (reclaimSid) {
       reclaimOwnedProcesses((event && event.cwd) || process.cwd(), reclaimSid, deps);
     }

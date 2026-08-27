@@ -25,6 +25,25 @@ const MAX_LINE_BYTES = 8192;
 const PER_FILE_MAX_BYTES = 256 * 1024; // 256KB per session file
 const GLOBAL_MAX_BYTES = 100 * 1024 * 1024; // 100MB total
 
+// sessionId는 `<session_id>.jsonl` 파일명이 되므로 **파일명 성분 검증**이
+// 필요하다. 타입 검사만으로는 `'../../evil'`이 통과해 이벤트 디렉토리를
+// 탈출한다 — 지금까지 호출자들이 sanitize된 값을 넘겨 안전했을 뿐이고,
+// M8이 새 producer(Task 3 착수 emit · Task 4 CLI emit)를 더하며 그중 하나는
+// **미sanitize raw 세션 id**(`session-identity.resolveRawSessionId`)에 닿는다.
+// 그래서 검증을 모든 producer가 지나는 초크 포인트에 둔다.
+//
+// 허용 문자는 `utils.sanitizeSessionId`의 산출 집합(`[A-Za-z0-9_-]`)과 같다 —
+// 좁히면 정상 세션 id가 거절되어 fail-open 호출자에게 조용한 미계상이 되고,
+// 그것은 이 milestone이 없애려는 실패 양상 자체다. `.` `/` `\` `:`는 배제된다.
+//
+// **길이 상한은 의도적으로 sanitize보다 좁다** (local review L1). `sanitizeSessionId`
+// 에는 길이 제한이 없어 128자를 넘는 `MCCP_SESSION_ID`를 그대로 통과시키지만, 이
+// 값은 `<sid>.jsonl` 파일명이 되므로 파일시스템 상한(NAME_MAX 255)에 여유를 두고
+// 잘라야 한다. 초과 입력은 **거절**이지 절삭이 아니다 — 절삭하면 서로 다른 두
+// 세션이 같은 파일로 붕괴해 이벤트가 섞이고, 그 오염은 미계상보다 나쁘다.
+// 호출자는 전부 fail-open + loud stderr이므로 거절은 시끄럽게 보인다.
+const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
 // allowlist — 이 필드들만 기록 가능.
 //
 // M3 추가분(work_unit ~ event_id)은 **추가만**이다: 기존 필드 · cap ·
@@ -52,6 +71,18 @@ const ALLOWED_FIELDS = new Set([
   'claim_epoch',     // fence 바인딩
   'target',          // repo-relative receipt 경로 (건별 상관의 키)
   'event_id',        // 안정적 dedupe 키 (Implement-Codex R1 F6)
+  // multi-session-work-loop M8 — A1 완주 · C2/C3 귀속
+  //
+  // 같은 규약이다: 여기 없는 키는 `eventToJsonLine`이 **조용히 버리므로**, emit
+  // 지점을 배선하기 **전에** 이 집합을 넓혀야 한다. 넓히지 않으면 producer는
+  // 도는데 디스크에는 남지 않고, 집계는 영원히 0을 보고한다.
+  'pr_number',         // 완주를 증명하는 PR 번호 (A1 분자 — DD4)
+  'gate_decision_id',  // finding을 낳은 차단 판정 (C2/C3 귀속 삼각의 좌변 — DD8)
+  // local review H3 — 삼각의 **가운데**. 이것이 없으면 `remediation_pr` 레코드는
+  // 어떤 finding에도 결속되지 않고, `derive/sources/findings.js`는 distinct
+  // finding_id로 세므로 `with_remediation_pr`이 구조적으로 0에 머문다. writer는
+  // 쓰는데 reader가 읽을 수 없는 상태가 정확히 이 milestone이 갚는 부채다.
+  'finding_id',        // 해소된 finding의 registry id (C2/C3 조인 키)
 ]);
 
 class MswEventsError extends Error {
@@ -214,8 +245,9 @@ function resolveEventsDir(opts) {
 // 핵심: append 이벤트
 function appendEvent(sessionId, event, opts) {
   opts = opts || {};
-  if (!sessionId || typeof sessionId !== 'string') {
-    throw new MswEventsError('invalid_session_id', 'sessionId must be non-empty string');
+  if (!sessionId || typeof sessionId !== 'string' || !SESSION_ID_RE.test(sessionId)) {
+    throw new MswEventsError('invalid_session_id',
+      'sessionId must be a non-empty filename-safe token matching ' + String(SESSION_ID_RE));
   }
 
   // 필드 검증: kind + ts는 필수
@@ -281,6 +313,7 @@ module.exports = {
   sanitizeField,
   MswEventsError,
   ALLOWED_FIELDS,
+  SESSION_ID_RE,
   FIELD_MAX_CHARS,
   MAX_LINE_BYTES,
   PER_FILE_MAX_BYTES,

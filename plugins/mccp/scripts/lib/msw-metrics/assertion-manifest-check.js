@@ -39,6 +39,32 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 // 등록하지 않은 manifest 가 곧 무검사 통과가 되어, 이 대조기가 막으려는 바로 그
 // 우회가 열린다.
 const REQUIRED_IDS_BY_MILESTONE = {
+  // multi-session-work-loop M8 — 하한이지 상한이 아니다. manifest에만 의존하면
+  // "manifest에서 지우면 통과"가 되므로 필수 id를 여기 하드코딩한다.
+  'multi-session-work-loop-m8': [
+    'M8-ROOT-SINGLE-SOURCE',
+    'M8-ROOT-NO-PATH-REACH',
+    'M8-ROOT-CHOKE-POINTS',
+    'M8-ROOT-CONTRACT-PRESERVED',
+    'M8-ROOT-DEAD-CANDIDATE-REVIVED',
+    'M8-A1-WORK-UNIT-DENOMINATOR',
+    'M8-A1-SEALED-COREPORT',
+    'M8-A1-SEAL-IS-NOT-COMPLETION',
+    'M8-A1-STARTUP-PRODUCER-GATE',
+    'M8-A2-SESSION-BINDING',
+    'M8-A2-TYPE-CONFUSION',
+    'M8-A2-PERCENTILE-NO-MEAN',
+    'M8-B3-SET-EQUALITY',
+    'M8-B3-NO-RETIREMENT',
+    'M8-C2C3-ATTRIBUTION-FORM',
+    'M8-C2C3-ATTRIBUTION-JOINED',
+    'M8-C2C3-REMEDIATION-JOIN-KEY',
+    'M8-PATH-GUARD-FINDINGS',
+    'M8-GATE-REGISTRY',
+    'M8-GATE-MEASURED-SET',
+    'M8-CLAIMED-LOCKSTEP',
+    'M8-PROMOTION-NOT-MASQUERADE',
+  ],
   'multi-session-work-loop-m6': [
     'B1-EQ-BASENAME',
     'B1-EVIDENCE-SCHEMA',
@@ -110,7 +136,11 @@ const REQUIRED_IDS_BY_MILESTONE = {
 // M7 — C1 계열이 합류하면서 접두 검사가 계열을 열거한다. 와일드카드로 넓히지 않는
 // 이유는 그 순간 이 검사가 "id 로 시작한다" 는 규약만 남고 **어느 지표의 단언인지**를
 // 잃기 때문이다(오타 계열이 조용히 통과한다).
-const TITLE_PREFIX = /^(?:B1|C1)-[A-Z0-9-]+: /;
+// 접두사 allowlist. 열린 정규식(`[A-Z0-9]+-`)으로 두지 않는 이유는 오타 id가
+// 조용히 통과하면 이 검사기의 목적(제목과 id의 결속)이 사라지기 때문이다.
+// M8은 지표축(B1·C1)이 아니라 **milestone축** 접두사를 쓴다 — 하나의 지표가
+// 아니라 A1·A2·B3·C2/C3을 가로지르는 producer 배선이라 지표 하나에 귀속시킬 수 없다.
+const TITLE_PREFIX = /^(?:B1|C1|M8)-[A-Z0-9-]+: /;
 
 // 제목이 **test 호출의 인자로** 등장하는지 본다 (local review M3).
 //

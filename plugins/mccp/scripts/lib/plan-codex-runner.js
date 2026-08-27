@@ -47,6 +47,19 @@ const { planAwareMarkdownHash, gitRepoRoot } = require('../receipt/hash');
 // 동작이 승인된 계층 안에서 일어난다(gate-guard-integrity M2 축 C).
 const receiptStore = require('../receipt/store');
 const findingsRegistry = require('../state/findings-registry');
+const { SLUG_RE } = require('../receipt/decision');
+
+// M8 Task 7 — 귀속 stamp. 유효한 slug일 때만 붙인다(호출부 주석 참조).
+//
+// canonical `SLUG_RE`를 **import한다** (local review M1). 리터럴을 복제하면
+// "형태가 어긋나면 붙이지 않는다"는 안전 논증이 두 정규식이 영원히 같다는
+// 전제 위에 서는데, 그 전제를 지키는 기계가 없다. 레지스트리의 귀속 검증
+// (`findings-registry.validateAttributionFields`)도 같은 상수를 쓰므로,
+// 여기서 통과한 값은 정의상 거기서도 통과한다.
+function stampGateDecision(events, decisionId) {
+  if (!SLUG_RE.test(String(decisionId || ''))) return;
+  events.forEach(function (e) { if (e) e.gate_decision_id = decisionId; });
+}
 
 // Exit codes. 12 mirrors codex-invoke's BLOCKING_EXIT so callers branch on one
 // vocabulary; 11 is distinct so "another run owns this decision" never reads as
@@ -835,6 +848,13 @@ function emitCodexFindings(cwd, decisionId, payload) {
       if (e) events.push(e);
     });
     if (events.length === 0) return;
+    // multi-session-work-loop M8 Task 7 (DD8) — C2/C3 귀속 삼각의 좌변.
+    // 이 finding들을 낳은 **차단 판정**의 decision slug를 함께 싣는다.
+    //
+    // 형태가 어긋나면 **붙이지 않는다**: 레지스트리의 귀속 검증은 배치 전체를
+    // 거절하므로, 유효하지 않은 slug를 붙이면 귀속을 얻으려다 finding 자체를
+    // 잃는다. 귀속은 있으면 좋은 것이고 finding은 잃으면 안 되는 것이다.
+    stampGateDecision(events, decisionId);
     const r = findingsRegistry.appendFindings(decisionId, events, { cwd: cwd });
     if (!r.ok) {
       process.stderr.write('[plan-codex-runner] findings registry emit failed (' +
@@ -877,6 +897,13 @@ function emitAdjudicationOutcomes(cwd, decisionId, payload, parsedValue) {
       }
     });
     if (events.length === 0) return;
+    // multi-session-work-loop M8 Task 7 (DD8) — C2/C3 귀속 삼각의 좌변.
+    // 이 finding들을 낳은 **차단 판정**의 decision slug를 함께 싣는다.
+    //
+    // 형태가 어긋나면 **붙이지 않는다**: 레지스트리의 귀속 검증은 배치 전체를
+    // 거절하므로, 유효하지 않은 slug를 붙이면 귀속을 얻으려다 finding 자체를
+    // 잃는다. 귀속은 있으면 좋은 것이고 finding은 잃으면 안 되는 것이다.
+    stampGateDecision(events, decisionId);
     const r = findingsRegistry.appendFindings(decisionId, events, { cwd: cwd });
     if (!r.ok) {
       process.stderr.write('[plan-codex-runner] findings adjudication emit failed (' +

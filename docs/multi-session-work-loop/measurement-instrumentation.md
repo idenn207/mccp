@@ -23,6 +23,33 @@ This document specifies:
 | **6-conflict-window** | Concurrent sessions touched same file during overlap — **⚠ forward-only** (no live producer) | hook-trace shard diff union + PR diff audit | `session-activity.js` | B2 (forward-only) |
 | **7-codex-finding** | Codex-produced finding from any gate (plan/implement/pr) | `receipt` `findings[]` count (mccp-plan/implement/pr-codex) | `recoverability-probe.js` | C1 numerator/denominator |
 
+### M8 producer 배선 (v1.33.0 — 측정 부채 상환)
+
+M2가 "배송했다"고 선언한 producer 중 셋이 프로덕션에서 한 번도 발화하지 않았다.
+원인은 셋이 아니라 **하나**였다 — `observer-sessions.resolveSessionId()`가 이 하네스에
+존재하지 않는 `CLAUDE_SESSION_ID`만 읽어 빈 문자열을 반환했고, 그 falsy 값이
+`session-start.js`/`session-end.js`의 M2 계측 블록 **전체**를 실행되지 않게 했다.
+
+| Event | Producer (file:line) | 전환 조건 | 상태 (2026-08-25) |
+|---|---|---|---|
+| `task_started` | `hooks/receipt-prompt.js` — ALLOW/INFORMATIONAL 경로에서만. **차단 경로는 emit하지 않는다**(게이트가 막은 것은 착수가 아니다). `mccp:plan-prd`도 제외 — PRD는 작업 단위가 아니라 그 상위 granularity다 | `/mccp:*` 최초 발화 | **발화 확인** |
+| `task_completed` | `commands/pr.md` Phase 5.1 → `state/cli.js msw-event emit`. 그 블록은 `DECISION_SLUG`·`PR_NUMBER`를 **자기 안에서** 뽑는다(fenced block은 각자의 셸이라 상속이 성립하지 않는다) | `gh pr create` 이후(PR 번호 존재 시점) | 이 milestone 자신의 PR에서 최초 발화 |
+| `remediation_pr` | `commands/pr.md` Phase 5.1 → 같은 CLI. `--finding-id` **필수** — 조인 키 없는 레코드는 `derive/sources/findings.js`가 읽을 수 없다 | 해소한 finding이 있는 PR | 해소 주기에서 최초 발화 |
+| `task_ship_sealed` | `lib/pr-phase-helpers/finalize-receipt.js` — **분자가 아니다**(DD5). 산문 누락을 수치로 드러내는 커버리지 축 | ship receipt 봉인 | 위와 동일 |
+| `session_start` + env-snapshot | `hooks/session-start.js` | 세션 시작 | **발화 확인** (이전 트리 전체 0건) |
+| `session_end` (+ A2 context%) | `hooks/session-end.js` — 스냅샷 `session_id`가 종료 세션과 일치 ∧ 신선도 통과일 때만 stamp | 세션 종료 | **발화 확인**, 단 context%는 상류 텔레메트리 부재로 표본 0 |
+
+**A1 분모의 의미가 바뀌었다**: `session_start`를 가진 **세션 수**에서 `task_started`가
+관측된 **distinct `work_unit` 수**로. 이것은 계약 변경이 아니라 계약 위반의 시정이다 —
+[measurement-design.md](measurement-design.md) §A1(FROZEN)이 이미 "작업 단위 전수"라
+적어 두었고 코드가 세션을 세고 있었을 뿐이다.
+
+**설치 캐시 지연 (한계)**: 실 세션의 hook은 `~/.claude/plugins/cache/mccp/mccp/<version>/`
+에서 돈다. 워크트리에 코드가 있다는 것과 실 세션에서 발화한다는 것은 다른 명제이며,
+후자는 머지 + `claude plugin update` 이후에만 참이다. 그래서 M8의 라이브 증명은
+워크트리 hook을 **실제 payload로 직접 실행**하는 방식으로 했다. 전후 스냅샷은
+[m8-before.json](m8-before.json) · [m8-after.json](m8-after.json)이 소유한다.
+
 ### Current metric status (v1.22.7 measurement-honesty downgrade)
 
 Codex R3 cross-model review found that A2/A4/B2 could report **confidently-wrong** values, so they are downgraded to `forward-only` (not claimed-computable). The event table above describes the *intended* instrumentation; the current honest status is:

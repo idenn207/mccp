@@ -79,8 +79,22 @@ function computeMetrics(model) {
   metrics[C1_FEEDBACK_CLOSURE] = computeC1(model);
 
   // C2·C3: Forward-only (귀속 체인만, 값 never computed until label-protocol seeded)
-  metrics[C2_GATE_FALSE_POSITIVE] = forwardOnlyMetric(C2_GATE_FALSE_POSITIVE);
-  metrics[C3_LEAKED_DEFECTS] = forwardOnlyMetric(C3_LEAKED_DEFECTS);
+  // multi-session-work-loop M8 Task 7 (DD8) — **status는 그대로 forward-only다.**
+  // 더해지는 것은 값이 아니라 귀속 커버리지 두 수치뿐이다. label-protocol §2.2/§4.2가
+  // "M2가 귀속을 전향 기록하기 전까지 산출하지 않는다"를 확정했고 그 문서는 계약층이라
+  // (UI9) M8은 값을 만들 권한이 없다. 따라서 M8의 완료 판정에서 C2/C3은 UI2의
+  // "computed로 뒤집힘"이 **적용되지 않는 축**이고, 대신 "귀속 레코드가 라이브에서
+  // 실제로 생성됐는가"로 판정한다 — 그 판정에 쓰는 수치가 이것이다.
+  const findingsSrc = model.sources && model.sources.findings;
+  const attribution = {
+    with_gate_decision: (findingsSrc && findingsSrc.with_gate_decision) || 0,
+    with_remediation_pr: (findingsSrc && findingsSrc.with_remediation_pr) || 0,
+    findings_total: (findingsSrc && findingsSrc.count) || 0,
+  };
+  metrics[C2_GATE_FALSE_POSITIVE] = Object.assign(
+    forwardOnlyMetric(C2_GATE_FALSE_POSITIVE), { attribution_coverage: attribution });
+  metrics[C3_LEAKED_DEFECTS] = Object.assign(
+    forwardOnlyMetric(C3_LEAKED_DEFECTS), { attribution_coverage: attribution });
 
   return metrics;
 }
@@ -118,6 +132,24 @@ function computeA1(model) {
     };
   }
 
+  // M8 (DD3) — **분모 쪽 producer가 먼저다.** `task_started`를 emit하는 producer가
+  // 없으면 `startupCount`는 계약이 정의한 값(착수 이벤트가 기록된 작업 단위 전수)이
+  // 아니라 그냥 0이고, 그 0을 분모로 쓴 비율은 어떤 의미도 없다. 완료 producer
+  // 부재보다 이쪽이 더 근본이므로 먼저 판정한다.
+  if (!sessionActivity.startups_producer_present) {
+    return {
+      id: A1_WORK_COMPLETION_RATE,
+      numerator: null,
+      denominator: null,
+      value: null,
+      integrity_ok: true,
+      invalid_reason: 'no live startup producer wired (task_started events not emitted; denominator is not the contracted work-unit census)',
+      status: 'forward-only',
+      coverage: sessionActivity.producer_coverage || 'unknown',
+      sealed_without_completion: sessionActivity.sealed_without_completion || 0,
+    };
+  }
+
   // PR-Codex F2: 완료 신호(task_completed KIND 이벤트)를 emit하는 live producer가
   // 없으면 실 corpus에서 A1은 구조적으로 0/startups다. 이를 'computed 0%'로 표기하면
   // "모든 세션이 실패"로 오독된다. producer 부재 시 forward-only로 정직 표기 —
@@ -133,6 +165,7 @@ function computeA1(model) {
       invalid_reason: 'no live completion producer wired (task_completed events not emitted under current hook lifecycle)',
       status: 'forward-only',
       coverage: sessionActivity.producer_coverage || 'unknown',
+      sealed_without_completion: sessionActivity.sealed_without_completion || 0,
     };
   }
 
@@ -145,6 +178,9 @@ function computeA1(model) {
     integrity_ok: true,
     status: startupCount > 0 ? 'computed' : 'insufficient',
     coverage: sessionActivity.producer_coverage || 'unknown',
+    // DD5 병기 축 — 봉인됐으나 완주 기록이 없는 작업 단위 수. 값 셀이 아니라
+    // 대시보드의 `A1 커버리지:` 줄로 나간다(DD11: 값 셀은 한 지표만 담는다).
+    sealed_without_completion: sessionActivity.sealed_without_completion || 0,
   };
 }
 
@@ -164,15 +200,47 @@ function computeA2(model) {
   }
 
   const sessions = sessionActivity.sessions || [];
+
+  // M8 Task 6 (DD6) — 위 강등 주석이 명시한 복원 조건이 충족됐다. `session-end.js`는
+  // 이제 스냅샷의 `session_id`가 종료 세션과 일치하고 샘플이 신선할 때에만 값을
+  // stamp하고, 그 외에는 여전히 `null`을 쓴다. 따라서 여기 도달하는 non-null 샘플은
+  // **귀속이 검증된 것들뿐**이고, 오염된 값을 세지 않는다.
+  //
+  // 평균은 내지 않는다(§A2 계약) — p50·p95만 보고한다. 표본 수는 값 셀이 아니라
+  // `coReportDetails()`의 `A2 상세:` 줄로 나간다(DD11: percentile 분기는 이미
+  // 두 사실로 차 있다).
+  const samples = sessions
+    .map((s) => (s && s.context_remaining_pct))
+    .filter((v) => Number.isFinite(v))
+    .sort((a, b) => a - b);
+
+  if (samples.length > 0) {
+    // nearest-rank. 표본이 적을 때 보간은 없는 정밀도를 지어내므로 쓰지 않는다.
+    const at = (q) => samples[Math.min(samples.length - 1, Math.max(0, Math.ceil(q * samples.length) - 1))];
+    return {
+      id: A2_CONTEXT_REMAINING,
+      numerator: samples.length,
+      denominator: sessions.length || samples.length,
+      value: { p50: at(0.5), p95: at(0.95) },
+      integrity_ok: true,
+      status: 'computed',
+      coverage: sessionActivity.producer_coverage || 'unknown',
+      // 소표본 caveat의 근거 수치. 목표 판정(p50 30% 이상)은 표본이 쌓인 뒤로
+      // 미룬다 — M8은 산출 가능성만 주장한다.
+      sample_count: samples.length,
+    };
+  }
+
   return {
     id: A2_CONTEXT_REMAINING,
     numerator: null,
     denominator: sessions.length || null,
     value: null,
     integrity_ok: true,
-    invalid_reason: 'context% not session-bound/freshness-verified (session-end reads latest-wins context-current.json)',
+    invalid_reason: 'no session-bound context sample yet (session-end stamps a value only when the snapshot session_id matches the ending session and the sample is fresh)',
     status: 'forward-only',
     coverage: sessionActivity.producer_coverage || 'unknown',
+    sample_count: 0,
   };
 }
 

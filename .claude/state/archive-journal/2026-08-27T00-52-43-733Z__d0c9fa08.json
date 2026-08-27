@@ -1,0 +1,35 @@
+{
+  "schema_version": "v1",
+  "id": "2026-08-27T00-52-43-733Z__d0c9fa08",
+  "created_at": "2026-08-27T00:52:43.733Z",
+  "session_id": "unknown",
+  "scan_hash": "68f339f2878e443e2fe93c951111f48104355a042c6374647691aee0cea42234",
+  "status_corrections": [],
+  "archives": [
+    {
+      "prd": ".claude/prds/santa-delta-review.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/santa-delta-review.prd.md",
+          "to": ".claude/prds/archived/santa-delta-review.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/santa-delta-review-m1.plan.md",
+          "to": ".claude/PRPs/plans/archived/santa-delta-review-m1.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/santa-delta-review-m2.plan.md",
+          "to": ".claude/PRPs/plans/archived/santa-delta-review-m2.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/santa-delta-review-m3.plan.md",
+          "to": ".claude/PRPs/plans/archived/santa-delta-review-m3.plan.md"
+        }
+      ]
+    }
+  ]
+}

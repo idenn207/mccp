@@ -29,6 +29,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { stripAxisIdPrefix } = require('../renderer/parsers/plan-body');
+const { resolveRawSessionId } = require('../session-identity');
 const { scanPlans } = require('../../derive/sources/plans');
 const { classifyMilestones, isArchivable, sourcePrdPathOf } = require('./scan');
 
@@ -303,7 +304,7 @@ function apply(opts) {
   opts = opts || {};
   const repoRoot = opts.repoRoot || process.cwd();
   const now = opts.now || new Date().toISOString();
-  const sessionId = opts.sessionId || process.env.CLAUDE_SESSION_ID || 'unknown';
+  const sessionId = opts.sessionId || resolveRawSessionId(process.env) || 'unknown';
   const scanHash = opts.scanHash || null;
   const gitMv = typeof opts.gitMv === 'function' ? opts.gitMv : defaultGitMv;
   const statusCorrections = Array.isArray(opts.statusCorrections) ? opts.statusCorrections : [];

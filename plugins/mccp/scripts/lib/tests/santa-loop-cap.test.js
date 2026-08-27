@@ -24,6 +24,13 @@ const { runCli, EX_OK, EX_USAGE, EX_CAP, EX_TEMPFAIL, MAX_REVIEWER_BYTES,
 const counter = require('../santa/counter');
 const ledger = require('../santa/ledger');
 const decision = require('../../receipt/decision');
+const { childEnv, scrubGatePolicyEnv } = require('./helpers/gate-env');
+
+// `cli()`는 `runCli`를 in-process로 부르므로 이 파일의 CLI test는 실행한 사람의 셸을
+// 읽는다. 이 저장소 자신의 settings가 단일통과 토글을 켜 두면 begin-round가 라운드를
+// 열지 않아(review-loop-bypass M1 DD5) 이 파일이 상시 red가 된다 — 실측 25/28.
+// `santa-adjudication.test.js:51-52`가 `MCCP_SANTA_*`에 이미 적용한 것과 같은 정규화다.
+scrubGatePolicyEnv();
 
 const CLI_PATH = path.join(__dirname, '..', 'santa', 'cli.js');
 const SANTA_LOOP_MD = path.join(__dirname, '..', '..', '..', 'commands', 'santa-loop.md');
@@ -91,7 +98,7 @@ function spawnCli(args, opts) {
   return new Promise(function (resolve) {
     const p = spawn(process.execPath, [CLI_PATH].concat(args), {
       cwd: opts.cwd || process.cwd(),
-      env: Object.assign({}, process.env, opts.env || {}),
+      env: childEnv(opts.env),
     });
     let so = '', se = '';
     p.stdout.on('data', function (d) { so += d; });
@@ -1083,12 +1090,28 @@ test('UI4/UI11 — receipt 배선은 seal.js에만 있다 (M1 4개 모듈은 여
   // 모른다(`lanes.js`·`terminator.js`와 동형). ack 2종도 마찬가지로 여기서 **판정만**
   // 하고 stamp는 `seal.js` 소관이다. 목록을 넓히는 대신 지우면 M1이 이 test로 막으려던
   // 결함이 그대로 돌아온다.
+  // santa-delta-review M1이 `scope-delta.js`를 더했다(소유권 표의 P1 신규 파일). 같은
+  // 규약으로 승인한다 — 목록에 한 줄, receipt-free 목록에도 한 줄. 계측 정수 2종은
+  // receipt `meta.santa_delta_{rounds,paths_dropped}`에 실리지만 그 봉인은 `seal.js`가
+  // 하고 `scope-delta.js`는 순수 oracle이라 receipt를 모른다(`lanes.js`·`terminator.js`·
+  // `model-diversity.js`와 동형). 목록을 넓히는 대신 지우면 M1이 이 test로 막으려던
+  // 결함이 그대로 돌아온다.
+  //
+  // santa-delta-review M2가 `detection-corpus.js`를 더했다(같은 소유권 표의 P3 신규
+  // 파일). 같은 규약으로 승인한다 — 목록에 한 줄, receipt-free 목록에도 한 줄. 이쪽은
+  // `scope-always.js`와 같은 **강한** 형태로 receipt-free다: M2는 측정 결과를 receipt에
+  // 전혀 봉인하지 않는다(측정은 1회성 검증이지 런타임 기능이 아니라는 M2 DD6 — 새 env도
+  // 새 CLI 하위명령도 만들지 않는다). 관측 표면은 회귀 test와
+  // `.claude/notes/santa-delta-review-m2.md` 둘뿐이다. 목록을 넓히는 대신 지우면 M1이
+  // 이 test로 막으려던 결함이 그대로 돌아온다.
   assert.deepEqual(files.sort(),
-    ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'lanes.js', 'ledger.js',
-      'model-diversity.js', 'scope-always.js', 'seal.js', 'terminator.js']);
+    ['adjudication.js', 'cli.js', 'counter.js', 'detection-corpus.js', 'gate.js',
+      'lanes.js', 'ledger.js', 'model-diversity.js', 'scope-always.js', 'scope-delta.js',
+      'seal.js', 'terminator.js']);
 
-  const RECEIPT_FREE = ['adjudication.js', 'cli.js', 'counter.js', 'gate.js', 'lanes.js',
-    'ledger.js', 'model-diversity.js', 'scope-always.js', 'terminator.js'];
+  const RECEIPT_FREE = ['adjudication.js', 'cli.js', 'counter.js', 'detection-corpus.js',
+    'gate.js', 'lanes.js', 'ledger.js', 'model-diversity.js', 'scope-always.js',
+    'scope-delta.js', 'terminator.js'];
   for (const f of RECEIPT_FREE) {
     const src = fs.readFileSync(path.join(santaDir, f), 'utf8');
     // 주석의 서술("M2 소유")은 허용하고, 실제 배선만 금지한다.
@@ -1164,6 +1187,16 @@ test('Acceptance — 외부 의존이 문서화된 8개뿐이고 npm 의존 0', 
   // 조용히 어긋나게 만든다 — 그래서 의존을 지는 쪽이 옳다. 그 모듈의 자체 의존은
   // builtin `fs`/`path`/`crypto`와 같은 디렉토리의 `./msw-events`(walk-up 재사용)뿐이라
   // 프로세스 실행 의존을 끌어들이지 않는다. 이 줄이 그 승인 기록이다.
+
+  // santa-delta-review M1이 내부 하나(`./scope-delta` — 소유권 표의 P1 신규 파일)를
+  // 더했다. **외부 의존은 0건 추가**다: `scope-delta.js`는 아무것도 require하지 않는
+  // 순수 oracle이고(형제 `lanes.js`·`terminator.js`와 같은 형태 — `scope-always.js`가
+  // builtin `path`를 지는 것보다도 가볍다), anchor 열거·`git show`·파일 읽기는 전부
+  // `cli.js`가 이미 지고 있는 `fs`/`child_process`가 처리한다(DD2와 같은 분리).
+  // 소비처는 셋이다: `cli.js`(하위명령) · `lanes.js`(범위 렌더 + 상태 단언 검사) ·
+  // `seal.js`(집계). `lanes.js`가 `scope-delta`를 지는 것이 이 milestone에서 유일하게
+  // 새로 생긴 **oracle 간** 내부 의존인데, 렌더 규칙을 `lanes.js`에 베껴 적으면 금지
+  // 패턴 목록의 사본이 둘이 되고 그 갈림은 어떤 test도 잡지 않는다.
   const allowed = new Set([
     './counter', './ledger', './gate', './seal',          // 내부
     './adjudication',                                     // 내부 (santa-adjudication M2)
@@ -1171,6 +1204,7 @@ test('Acceptance — 외부 의존이 문서화된 8개뿐이고 npm 의존 0', 
     './lanes',                                            // 내부 (santa-evidence-diversity M1)
     './scope-always',                                     // 내부 (santa-evidence-diversity M2)
     './model-diversity',                                  // 내부 (santa-evidence-diversity M3)
+    './scope-delta',                                      // 내부 (santa-delta-review M1)
     '../../receipt/evidence-lock', '../../receipt/hash',
     '../../receipt/decision', '../path-containment',
     '../../receipt/write',                                // 외부 5 (M2)

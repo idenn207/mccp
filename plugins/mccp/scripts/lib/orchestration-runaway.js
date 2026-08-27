@@ -97,6 +97,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const envValue = require('./env-contract/value');
+const { resolveRawSessionId } = require('./session-identity');
 
 const ENV_MAX_AGENTS = 'MCCP_ORCHESTRATION_MAX_AGENTS';
 const DEFAULT_MAX_AGENTS = 24;
@@ -555,7 +556,7 @@ function bumpCounter(opts) {
 // bucket (genuinely session-less contexts, e.g. a bare `node` invocation).
 function resolveSessionKey(env) {
   env = env || process.env;
-  return env.MCCP_SESSION_ID || env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID || 'unknown';
+  return resolveRawSessionId(env) || 'unknown';
 }
 
 // resolveCliSession(args, env) — a CLI `--session ''` or the literal `--session unknown`

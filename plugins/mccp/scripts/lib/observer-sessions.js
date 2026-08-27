@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { ensureDir, sanitizeSessionId } = require('./utils');
+const { resolveRawSessionId } = require('./session-identity');
 
 function getHomunculusDir() {
   const override = process.env.CLV2_HOMUNCULUS_DIR;
@@ -124,17 +125,17 @@ function getSessionLeaseDir(context) {
   return path.join(context.projectDir, '.observer-sessions');
 }
 
-function resolveSessionId(rawSessionId = process.env.CLAUDE_SESSION_ID) {
+function resolveSessionId(rawSessionId = resolveRawSessionId(process.env)) {
   return sanitizeSessionId(rawSessionId || '') || '';
 }
 
-function getSessionLeaseFile(context, rawSessionId = process.env.CLAUDE_SESSION_ID) {
+function getSessionLeaseFile(context, rawSessionId = resolveRawSessionId(process.env)) {
   const sessionId = resolveSessionId(rawSessionId);
   if (!sessionId) return '';
   return path.join(getSessionLeaseDir(context), `${sessionId}.json`);
 }
 
-function writeSessionLease(context, rawSessionId = process.env.CLAUDE_SESSION_ID, extra = {}) {
+function writeSessionLease(context, rawSessionId = resolveRawSessionId(process.env), extra = {}) {
   const leaseFile = getSessionLeaseFile(context, rawSessionId);
   if (!leaseFile) return '';
 
@@ -150,7 +151,7 @@ function writeSessionLease(context, rawSessionId = process.env.CLAUDE_SESSION_ID
   return leaseFile;
 }
 
-function removeSessionLease(context, rawSessionId = process.env.CLAUDE_SESSION_ID) {
+function removeSessionLease(context, rawSessionId = resolveRawSessionId(process.env)) {
   const leaseFile = getSessionLeaseFile(context, rawSessionId);
   if (!leaseFile) return false;
   try {

@@ -235,9 +235,21 @@ function preventedDetail(metrics) {
 // 톤이 깨진다(Output Constraint 4). 값 셀은 지표 정의 그대로의 단일 수치를 유지하고
 // 무결성 규칙이 요구하는 병기는 collapse 안에서 충족한다 — 숨김이 아니라 계층화다.
 // 신규 문자열은 em-dash 대신 `·`와 괄호만 쓴다(M3 F4 카피 규칙).
+// M8 DD11 (b) — 줄 순서는 **지표 id 순**으로 결정적이다. M8이 세 줄을 더해
+// collapse가 4 → 7줄이 되는데, 순서 규약이 없으면 늘어난 줄이 순서 없는 덤프가
+// 된다(design critique F4). 각 줄에 자기 지표 id를 달고 마지막에 정렬한다 —
+// 호출 순서가 곧 표시 순서이던 구조에서는 새 줄을 어디에 끼울지가 매번 판단
+// 대상이 되고, 그 판단이 사람마다 다르면 순서는 결국 무작위가 된다.
+// C2·C3은 METRICS_ORDER에 없으므로(값을 내지 않는 축) 맨 뒤로 보낸다.
+function coReportRank(id) {
+  const i = METRICS_ORDER.indexOf(id);
+  return i === -1 ? METRICS_ORDER.length : i;
+}
+
 function coReportDetails(metrics) {
-  const lines = [];
-  if (!metrics) return lines;
+  const rows = [];
+  const add = (id, text) => rows.push({ id: id, text: text });
+  if (!metrics) return [];
 
   const a3 = metrics.A3;
   if (a3 && typeof a3.reduction_ratio === 'number') {
@@ -249,7 +261,7 @@ function coReportDetails(metrics) {
       parts.push('CLAUDE.md 성분만 ' + (a3.claude_md_reduction_ratio * 100).toFixed(1) + '%');
     }
     if (a3.tokenizer_version) parts.push('tiktoken ' + a3.tokenizer_version);
-    lines.push(parts.join(' · '));
+    add('A3', parts.join(' · '));
   }
 
   const b3 = metrics.B3;
@@ -263,7 +275,7 @@ function coReportDetails(metrics) {
       parts.push('동작 분기 ' + b3.operation_branches + '개' +
         (b3.operation_branch_method ? ' (' + b3.operation_branch_method + ')' : ''));
     }
-    lines.push(parts.join(' · '));
+    add('B3', parts.join(' · '));
   }
 
   // M6 — B1 상세. **새 collapse 를 열지 않는다.** 이 렌더러에는 이미 단일 공유
@@ -286,14 +298,14 @@ function coReportDetails(metrics) {
         + ' (문서 ' + (d.doc_status || '?') + ' · 증거 ' + (d.evidence_verdict || '?') + ')');
     });
     const truncated = b1.drift_items.length - shown.length;
-    lines.push(parts.join(' · ') + (truncated > 0 ? ' (+' + truncated + '건)' : ''));
+    add('B1', parts.join(' · ') + (truncated > 0 ? ' (+' + truncated + '건)' : ''));
   }
 
   // 커버리지 병기 — B3 의 `raw_surface_count` 미러. 제외분과 대조 못 한 행을 값 옆에
   // 두지 못하는 분량이므로 여기서 낸다. 이것이 없으면 `0건` 이 "완벽" 으로 읽힌다.
   if (b1 && typeof b1.raw_row_count === 'number' && typeof b1.denominator === 'number') {
     const undetermined = b1.undetermined_evidence_count || 0;
-    lines.push([
+    add('B1', [
       'B1 커버리지: 대조 ' + (b1.denominator - undetermined) + '/' + b1.denominator + ' 행',
       '증거 미확정 ' + undetermined + '건',
       '비정규 status ' + (b1.noncanonical_status_count || 0) + '건 (분모 제외)',
@@ -320,13 +332,63 @@ function coReportDetails(metrics) {
     if (typeof c1.coverage === 'string' && c1.coverage.indexOf('degraded') !== -1) {
       parts.push('계측 유실 있음 (하한값)');
     }
-    lines.push(parts.join(' · '));
+    add('C1', parts.join(' · '));
+  }
+
+  // ── multi-session-work-loop M8 (DD11) — 신규 병기 축 3줄 ───────────────────
+  //
+  // 셋 다 **값 셀이 아니라 여기** 산다. 값 셀 예외는 정확히 둘(B1 커버리지 ·
+  // C1 이연률)이고 둘 다 근거가 같다 — "맨 숫자가 다른 진술로 오독된다". M8이
+  // 더하는 셋은 그 근거를 만족하지 않는다:
+  //   - `sealed_without_completion`은 **커버리지 축**이다. A1의 맨 백분율은
+  //     오독되지 않고, 이 수치가 말하는 것은 "분자 producer가 얼마나 덮였는가"라
+  //     `B1 커버리지:`와 같은 계층이 정확한 자리다.
+  //   - C2/C3 귀속은 값 셀에 붙이는 것이 **구조적으로 불가능**하다. `formatValue`가
+  //     `status === 'forward-only'`를 다른 어떤 분기보다 먼저 검사해 `'-'`를 조기
+  //     반환하고, 그 분기를 고치면 모듈 헤더가 선언한 "C2·C3 forward-only 정직
+  //     표기(값 미산출)"가 깨진다.
+  //   - A2 표본 수도 같다 — percentile 분기는 `p50 X% · p95 Y%` 두 사실로 이미 차 있다.
+  //
+  // 신규 collapse 0개(단일 공유 collapse 안의 원소) · 신규 색 클래스 0개 ·
+  // em-dash 금지(`·`와 괄호만).
+  const a1 = metrics.A1;
+  if (a1 && typeof a1.sealed_without_completion === 'number') {
+    const parts = ['A1 커버리지: 봉인 후 완주 미기록 ' + a1.sealed_without_completion + '건'];
+    // 0건은 "누락이 없다"가 아니라 "관측된 누락이 없다"이다. 완주 emit은 명령
+    // 본문(산문)이 하므로 그 차이를 문구가 지운다.
+    parts.push(a1.sealed_without_completion === 0
+      ? '관측된 산문 누락 없음'
+      : '분자 미계상 (봉인은 완주가 아님 · 과소 계상 방향)');
+    add('A1', parts.join(' · '));
+  }
+
+  const a2 = metrics.A2;
+  if (a2 && typeof a2.sample_count === 'number') {
+    const parts = ['A2 상세: 세션 바인딩 표본 ' + a2.sample_count + '건'];
+    if (typeof a2.denominator === 'number') parts.push('관측 세션 ' + a2.denominator + '개');
+    // 소표본 caveat. 목표 판정(p50 30% 이상)은 표본이 쌓인 뒤로 미룬다 —
+    // M8이 주장하는 것은 산출 가능성이지 분위수의 의미가 아니다.
+    if (a2.sample_count > 0 && a2.sample_count < 5) parts.push('소표본 (목표 판정 보류)');
+    add('A2', parts.join(' · '));
+  }
+
+  const c2 = metrics.C2;
+  if (c2 && c2.attribution_coverage) {
+    const ac = c2.attribution_coverage;
+    add('C2', [
+      'C2/C3 귀속: 차단 판정 연결 ' + (ac.with_gate_decision || 0) + '건',
+      '해소 PR 연결 ' + (ac.with_remediation_pr || 0) + '건',
+      'finding 전수 ' + (ac.findings_total || 0) + '건',
+      '값 미산출 유지 (label-protocol 계약)',
+    ].join(' · '));
   }
 
   const prevented = preventedDetail(metrics);
-  if (prevented) lines.push(prevented);
+  if (prevented) add('B2', prevented);
 
-  return lines;
+  return rows
+    .sort((x, y) => coReportRank(x.id) - coReportRank(y.id))
+    .map((r) => r.text);
 }
 
 // 마크다운 렌더: 지표 테이블 + 상세 설명

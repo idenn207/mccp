@@ -1,0 +1,31 @@
+{
+  "verdict": "FAIL",
+  "checks": [
+    { "criterion": "Runtime safety", "result": "FAIL", "detail": "Three functions reference undefined identifiers (SEPARATOR, PADDING) and one dereferences a potentially undefined value." },
+    { "criterion": "Contract integrity", "result": "PASS", "detail": "All exported functions that do complete are internally consistent with their contracts." },
+    { "criterion": "Type discipline", "result": "PASS", "detail": "String and numeric operations are appropriately typed (coercion via String() is explicit)." },
+    { "criterion": "Document consistency", "result": "FAIL", "detail": "The plan document makes a claim about the PRD that is contradicted by the PRD's actual content." },
+    { "criterion": "Dead or unreachable logic", "result": "FAIL", "detail": "Two exported functions are structurally incapable of returning without throwing because they reference undefined globals." }
+  ],
+  "critical_issues": [
+    { "claim": "takeField() dereferences potentially undefined value without null check", "severity": "CRITICAL",
+      "failure_scenario": "Call takeField([], 5) with an index beyond the array bounds. The function will assign raw=undefined (since list[5] on empty array is undefined), then attempt raw.trim(), throwing TypeError: Cannot read property 'trim' of undefined.",
+      "evidence": "src/parser.js:14-17", "locations": [ { "file": "src/parser.js", "line": 17 } ] },
+    { "claim": "splitRecords() references undefined global SEPARATOR", "severity": "CRITICAL",
+      "failure_scenario": "Call splitRecords('test'). The function attempts to split by SEPARATOR, which is not declared, imported, or defined anywhere in the module. This throws ReferenceError: SEPARATOR is not defined on every invocation.",
+      "evidence": "src/parser.js:21", "locations": [ { "file": "src/parser.js", "line": 21 } ] },
+    { "claim": "pad() references undefined global PADDING", "severity": "CRITICAL",
+      "failure_scenario": "Call pad('hi', 10) with width greater than string length. The ternary takes the false branch and attempts PADDING.repeat(...), throwing ReferenceError: PADDING is not defined.",
+      "evidence": "src/format.js:8", "locations": [ { "file": "src/format.js", "line": 8 } ] },
+    { "claim": "Plan document makes false claim about PRD content", "severity": "MEDIUM",
+      "failure_scenario": "A developer reads the plan note asserting 'the PRD declares 3 milestones' and then inspects corpus-fixture.prd.md to verify. The PRD shows exactly 2 milestones in the table (first, second). The claim is factually wrong and violates the contract that plan assertions about the PRD match the PRD's actual content.",
+      "evidence": ".claude/plans/corpus-fixture.plan.md:14 claims PRD declares 3 milestones; .claude/prds/corpus-fixture.prd.md:5-8 shows 2 milestones",
+      "locations": [ { "file": ".claude/plans/corpus-fixture.plan.md", "line": 14 }, { "file": ".claude/prds/corpus-fixture.prd.md", "line": 5 } ] }
+  ],
+  "suggestions": [
+    "Define SEPARATOR as a module constant or parameter",
+    "Define PADDING as a module constant or accept it as a parameter",
+    "Add bounds checking or fallback in takeField()",
+    "Correct the plan note to accurately reflect the PRD"
+  ]
+}

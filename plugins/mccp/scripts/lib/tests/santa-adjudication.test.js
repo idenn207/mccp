@@ -51,6 +51,10 @@ const CANARY = 'SANTA_FINDING_CANARY_4b17c2';
 for (const k of Object.keys(process.env)) {
   if (k.indexOf('MCCP_SANTA_') === 0) delete process.env[k];
 }
+// 같은 논증이 `MCCP_SANTA_*` 밖의 게이트 정책 축에도 그대로 성립한다 —
+// `MCCP_REVIEW_SINGLE_PASS`가 켜져 있으면 begin-round가 라운드를 열지 않아 이 파일이
+// 상시 red가 된다(실측 68/22). 열거는 helpers/gate-env.js가 소유한다(M3 Task 3).
+require('./helpers/gate-env').scrubGatePolicyEnv();
 
 // ── fixture helpers ──────────────────────────────────────────────────────────
 

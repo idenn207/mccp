@@ -43,6 +43,15 @@ mccp의 plan/implement/pr 게이트는 dual-review를 위해 Codex(외부 cross-
 - **부수 확정 — 패널이 이 결함을 먼저 지목했다**: 같은 turn의 L2 `test/HIGH` finding 원문이 *"there is no test in this repository that verifies the Workflow harness actually extracts `+200k` from the prompt and sets `budget.total`. The only place `budget.total` is set in code is in the unit test mock"*였다. 라이브 실행이 그 지적을 실측으로 확인했다 — **패널의 예측과 라이브 관측이 같은 지점에서 만난 첫 사례**다. 다만 이것이 O1을 뒤집지는 않는다: 패널은 이번에도 승인하지 않았고(`divergent`, 관점 4 중 `pass` 2), 진행은 단일통과 토글(`deadline_pressure`)이 냈다. **이번 turn의 관점 단위는 4회 중 `pass` 2회**(architect · security)이며, M6의 16회 누계와 합산하지 않는다 — 그 사이 M7 round 1이 한 번 더 돌았고 그 판을 이 자리에서 재검증하지 않았다.
 - **판정 — 미달 축은 #10으로 이관한다**: #7이 소유하는 것은 "budget 게이트를 라이브로 발화시켰다"가 아니라 **"왜 이 경로로는 발화시킬 수 없는지를 실측으로 확정했다"**이다. 산출물은 [plan-review-diverse-agent-review-m7-budget.md](../reviews/plan-review-diverse-agent-review-m7-budget.md)(관측 레코드 고정 · `## Measurement` 바이트 무변경)와 [m7 보고서](../PRPs/reports/diverse-agent-review-m7-report.md)다. **동작 코드는 0줄 바꿨다**(UI6).
 
+**M8 실측 (2026-08-26 추가)** — 이번에는 선행 조건이 아니라 **집계 범위**가 문제였다. `.claude/reviews/`의 코퍼스는 이미 판정에 충분했고, #6·#7이 "표본 0"으로 적은 것은 데이터 부재가 아니라 세는 범위가 이 PRD 자신의 게이트 실행으로 좁혀져 있었기 때문이다. 판정은 read-only·LLM-free 집계 도구([corpus.js](../../plugins/mccp/scripts/lib/plan-review/corpus.js))가 재도출하며 원자료는 [quorum-calibration.md](../../docs/diverse-agent-review/quorum-calibration.md)에 축자 동결돼 있다. **동작 게이트 코드는 0줄 바꿨다**(UI6 — 사전 파일 9종 diff 공집합, 기계 확인).
+
+- **Q1 — 승인 경로는 존재한다**: `pass_path.count = 5`. 5건 전부 `reviewed_plan_hash` 결속이 있고(`hash_bound = 5`), 5건 전부 quorum이 실제로 만족돼 통과했다. wall-clock 중앙값 6.4분. **다만 5/35를 승인 확률로 부르지 않는다** — O3 생존 편향의 방향이 불분명하고 커버리지가 48건 중 35건이라 모든 수치가 하한이다(DN8 · UI7 · UI8). **UI9는 충족되나 그 근거는 관측이 아니다**: `single_pass_tainted = 0`은 `decide.js:338`이 완화를 언제나 `divergent`로 봉인하므로 어떤 코퍼스에서도 구조적으로 0이다(§3.15). 그 필드는 관측이 아니라 그 봉인의 회귀 가드이며, 완화가 실제로 몇 번 일어났는지는 별도 축 `single_pass`가 센다 — **14건**(전부 divergent).
+- **Q2 — M과 K는 승인 임계가 아니었다**: 차단 30건 중 quorum이 실제 평가된 27건에 대해 `m_binding = 0` · `k_binding = 0` · `findings_binding = 27`. 나머지 3건은 quorum 도달 전 halt라 모수에서 제외했다(분모에 넣으면 무력성 주장이 공짜로 강해진다). `quorum.js`의 세 사유가 독립 누적이고 `passed`가 `reasons.length === 0`이므로, 두 손잡이가 한 번도 binding이 아니었다면 어떻게 돌려도 승인 빈도는 움직이지 않는다.
+- **Q2b — K는 이미 돌아갔고 지표는 움직이지 않았다 (자연 실험)**: `MCCP_PLAN_REVIEW_ROLES_MIN=1`이 tracked settings에 들어간 `794c4de`(2026-08-20T16:36:03Z)로 코퍼스가 자연 분할된다 — K=3 구간 25건 중 converged 4건, K=1 구간 10건 중 1건. **손잡이를 실제로 돌렸는데 지표가 반응하지 않았다.** `k_binding = 0`과 독립적으로 같은 방향을 가리키는 유일한 관측 증거다.
+- **Q3 — 실제 승인 규칙은 severity 게이트다**: 27건 전부가 `findings_binding`이다. 관점별 통과율은 고르지 않으나(invariant 10/33 pass, security 22/33) **이를 임계 과잉으로 읽지 않는다** — 실패 리뷰어 인스턴스 64건 중 52건이 실물 차단 finding을 동반했다. 리뷰어는 실제로 결함을 찾은 것이고, 승인 빈도를 올리려 severity 게이트를 손보는 것은 UI4가 금지하는 축의 변형이다. **기본값 무변경**(DN6). **단 문장은 좁혀 읽어야 한다**: `single_pass.records = 14`이므로 차단 30건 중 14건(47%)은 게이트가 `divergent`를 봉인하고도 단일통과 토글로 작업이 진행됐다. severity 게이트는 *verdict를 결정하는* 규칙이지 항상 *작업을 멈추는* 규칙이 아니며, 이 코퍼스에서 둘은 30건 중 16건에서만 일치했다.
+- **Q4 — F6 기여도는 0이 아니라 1이다 (예비 실측 정정)**: plan의 DN7은 "F6 단독으로 막힌 레코드 0건"을 시사했으나 도구의 판정은 **1건**이다(`archive/plan-review-followup-R12.md` — 3/3 응답·3 roles로 M·K 만족, 두 실패 리뷰어의 finding이 전부 MEDIUM). 리뷰어 인스턴스 단위로는 12건에서 F6이 유일한 차단 사유였다. 예비 실측과 이 milestone의 **초판 구현이 함께 0으로 본 이유**는 `record.js#findingRows`가 finding 0건일 때만 합성 `FAIL` 행을 쓰기 때문이다 — 그 행만 세면 MEDIUM만 낸 실패 리뷰어가 구조적으로 관측되지 않는다(코퍼스 전체 합성 행 0건). 정본 소스는 `## Refutation attempted` 표이며 회귀 test가 이 결함을 고정한다. **UI10대로 증거가 바뀌었으므로 판정을 갱신했다.**
+- **판정 — #8은 답했고 #11을 연다**: #8이 소유하는 것은 "quorum을 튜닝했다"가 아니라 **"튜닝할 손잡이가 아니었음을 실측으로 확정했다"**이다. `3of4`도 K도 severity 게이트도 바꾸지 않았고 그것이 결론이다. 남은 질문(승인 **품질** = false-approve 비율)은 converged 5건의 사후 감사를 요구하는 별개 관측 작업이라 **#11**로 이관한다. **M8은 CLAUDE.md §3.14를 해제하지 않는다** — 해제는 운영자 판정이고, M8이 제공하는 것은 그 근거("0이라 안전하다"가 아니라 "1이고 그 1건을 지목할 수 있다")다.
+
 ## Users
 - **Primary**: mccp를 운영하며 `/mccp:plan`·`/mccp:prp-implement`·`/mccp:pr` 게이트를 매번 통과해야 하는 단일 운영자(skypark207). trigger: 게이트 진입 시 Codex 리뷰 대기.
 - **Not for**: 팀 협업 다중 사용자 시나리오 — 현재 개인용 plugin monorepo.
@@ -54,7 +63,7 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 ## Success Metrics
 | Metric | Target | How measured |
 |---|---|---|
-| plan 게이트 wall-clock (통과 경로) | 실측 1회 이상 ≤ 10분 | **미산출 (forward-only) — #6에서 4회 시도, 승인 0건(O1)** — 표본이 0이므로 달성으로 적지 않는다(UI3). 선행 조건은 해소돼 있었다: 캐시 `1.23.8`에 `record.js`·`budget.js`가 있고 `mccp:review-*` 4종이 세션 레지스트리에 등록돼 있으며 `cli.js mode`가 `multi-agent`(quorum 3of4)를 반환한다(실측). **막은 것은 런타임이 아니라 승인이었다** — 관점 단위 16회 중 `pass` 2회. 승인 경로 관측은 #8의 캘리브레이션 판정에 의존한다. **M7(2026-08-21)에서도 미산출** — 그 turn의 패널 역시 승인하지 않았고(`divergent`, 관점 4 중 `pass` 2) 진행은 단일통과 토글이 냈다. 토글이 낸 진행은 승인이 아니므로 통과 경로 표본으로 세지 않는다 |
+| plan 게이트 wall-clock (통과 경로) | 실측 1회 이상 ≤ 10분 | **M8 달성 (2026-08-26) — 5건 관측, 중앙값 6.4분, 5건 중 4건이 10분 이내** (`499,741` · `779,328` · `357,124` · `363,402` · `382,180` ms). 5건 전부 `reviewed_plan_hash` 결속이 있고 `MCCP_REVIEW_SINGLE_PASS` 흔적이 **없다**. 다만 **UI9 충족의 근거는 이 관측이 아니라 상류 불변식**이다 — `decide.js:338`이 완화를 언제나 `divergent`로 봉인하므로 `single_pass_tainted`는 어떤 코퍼스에서도 구조적으로 0이고(§3.15), 이 코퍼스는 그 불변식에 반례가 없음을 확인해 줄 뿐이다. 완화 자체는 별도 축 `single_pass`가 세며 **14건**(전부 divergent)이다. 원자료는 [quorum-calibration.md](../../docs/diverse-agent-review/quorum-calibration.md)에 `corpus.js --json` 축자 인용으로 동결. **이 갱신의 근거는 새 데이터 수집이 아니라 집계 범위 정정이다**(DN9): 지표 이름은 "plan 게이트 wall-clock"이지 "이 PRD의 게이트 실행"이 아닌데, #6·#7은 자기 PRD의 실행만 세어 표본 0을 봤다. 실제로는 그 5건 중 **4건이 이미 M7 tip(`11f7dc2`)에 존재**했다 — 즉 #6·#7 시점에도 코퍼스에는 있었고 세지 않았을 뿐이다. **이전 판정은 그 범위에서 옳았다**: "이 PRD의 게이트 실행에서 승인 0건"은 지금도 참이다(아래 이력 보존). 골대를 옮기지 않기 위해 무엇이 바뀌었는지를 이 칸 안에 적는다 — 바뀐 것은 목표도 데이터도 아니고 **무엇을 세는가**다. 차단 경로 행은 손대지 않는다(UI8). **이력(범위 정정 이전)**: 미산출 (forward-only) — #6에서 4회 시도, 승인 0건(O1) — 표본이 0이므로 달성으로 적지 않는다(UI3). 선행 조건은 해소돼 있었다: 캐시 `1.23.8`에 `record.js`·`budget.js`가 있고 `mccp:review-*` 4종이 세션 레지스트리에 등록돼 있으며 `cli.js mode`가 `multi-agent`(quorum 3of4)를 반환한다(실측). **막은 것은 런타임이 아니라 승인이었다** — 관점 단위 16회 중 `pass` 2회. 승인 경로 관측은 #8의 캘리브레이션 판정에 의존한다. **M7(2026-08-21)에서도 미산출** — 그 turn의 패널 역시 승인하지 않았고(`divergent`, 관점 4 중 `pass` 2) 진행은 단일통과 토글이 냈다. 토글이 낸 진행은 승인이 아니므로 통과 경로 표본으로 세지 않는다 |
 | plan 게이트 wall-clock (차단 경로) | 계측 도달 (M1에서 구조적 미계측) | **M4 달성 · #6에서 4회 실측** — `307,578` · `342,767` · `321,954` · `280,209` ms(평균 약 313초=5.2분, 최대 5.7분)로 4회 모두 통과 경로 목표(10분) 이내. 다만 이는 **차단 경로 수치이며 통과 경로 지표를 대신하지 않는다**(UI3·UI10 — 인접 측정을 목표 측정으로 승격하지 않는다). 증거 강도는 균일하지 않다: R4(`280,209`)만 [plan-review-diverse-agent-review-m6-r4-blocked.md](../reviews/plan-review-diverse-agent-review-m6-r4-blocked.md)에 파일로 남고 R1–R3은 세션 관측이다(사유는 O3, 표기는 DN4). 표면은 receipt(worktree-only)가 아니라 git-tracked `.claude/reviews/`. **M7에서 2회 추가**(`458,271` · `482,116` ms) — 둘 다 목표 이내이나 같은 이유로 통과 경로 칸으로 옮겨 적지 않는다. 후자는 [plan-review-diverse-agent-review-m7-budget.md](../reviews/plan-review-diverse-agent-review-m7-budget.md)에 파일로 남고 전자는 세션 캡처다(사유는 여전히 O3) |
 | `converged` 봉인 무결성 | proof 없으면 no-ship, 회귀 0 | dedupe/ship-gate 회귀 test |
 | dual-review 불변식 | 무손상 | 기존 게이트 test suite green |
@@ -95,7 +104,8 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 | 4 | 차단 경로 계측 + 지표 부채 상환 | wall-clock이 **차단 경로에서도** 기록돼 survivorship bias 제거 · 계측 표면이 worktree-only receipt에서 git-tracked `.claude/reviews/`로 이전 · budget 게이트가 **구조적 도달 불가**에서 벗어나 런타임 실행으로 확인 · "라이브 완주"가 acceptance 항목으로 명문화 | complete | `.claude/plans/diverse-agent-review-m4.plan.md` |
 | 6 | 설치된 런타임에서 패널 실측 | 설치된 런타임에서 패널을 **4회 라이브 실측**하고 그 결과를 milestone 산출물로 확정 — 승인 0건(O1) · 차단 경로 wall-clock 4회 모두 목표 이내(O2) · 계측 표면의 **재실행 편향** 발견(O3) · 미달 축과 신규 축을 #7·#8·#9로 이관 | complete | `.claude/plans/diverse-agent-review-m6.plan.md` |
 | 7 | budget 게이트 라이브 발화 관측 | 라이브 `/mccp:plan`에서 budget 게이트가 실제로 발화해 agent 0개 spawn + 실측 `remaining`/`minRemaining`이 남음 — 시뮬레이션은 라이브 발화의 증거가 아니다(UI10). #4에서 도달 가능해졌고 #6이 관측하지 못한 축. **관측 결과는 발화가 아니라 발화 불가의 원인이었다** — `budget.total=null` · `remaining()=Infinity`를 직접 실측해 threshold 쪽 어떤 값으로도 발화 불가임을 확정(B1). 라이브 발화 축은 #10으로 이관 | complete | `.claude/plans/diverse-agent-review-m7.plan.md` |
-| 8 | 패널 quorum 캘리브레이션 재검토 | 관점 단위 16회 중 `pass` 2회(O1)라는 실측 위에서 `3of4` + 고유 역할 K=3이 적정한지 판정 — **승인이 발급되는 경로가 존재하는가**에 먼저 답하고, 그 뒤에야 승인 품질(false-approve 비율)을 물을 수 있다 | pending | — |
+| 8 | 패널 quorum 캘리브레이션 재검토 | `3of4` + K=3의 적정성을 **35건 코퍼스 실측으로 판정** — 승인 경로는 **존재한다**(converged 5건, 전부 hash 결속·단일통과 토글 미사용). quorum이 평가된 차단 27건 중 M·K가 binding이었던 것은 **0건**이고, K를 3→1로 실제로 낮춘 자연 실험에서도 승인 빈도가 움직이지 않았다 — **손잡이는 무력하고 실제 승인 규칙은 severity 게이트다**. F6 기여도는 예비 실측의 0건이 아니라 **1건**으로 정정됐다(UI10). 기본값 무변경 · 게이트 배선 diff 공집합. 승인 **품질**은 #11로 이관 | complete | `.claude/plans/diverse-agent-review-m8.plan.md` |
+| 11 | 패널 승인 품질 감사 (false-approve) | #8이 확정한 converged 5건을 사후 감사해 **승인이 옳았는가**를 판정 — 각 승인 plan을 그 시점 코퍼스와 대조해 패널이 놓친 실물 결함이 있었는지 본다. #8 이전에는 표본 0이라 질문 자체가 성립하지 않았다. 관측 작업이므로 배선 추가가 아니고 #5 앞에 둘 수 있다 | pending | — |
 | 5 | 게이트 배선 오라클 추출 | 게이트 승인 배선이 단위 test 사거리 안으로 이동 — seam 결함이 ship 후 리뷰가 아니라 test로 잡힘 | pending | — |
 | 9 | 계측 재실행 편향 해소 | 같은 결정에 대한 재실행이 이전 레코드를 덮어쓰지 않아 수렴 과정이 축적됨(O3) — 레코드 경로 slug가 PRD 경로 파생이라 한 PRD의 모든 milestone·모든 라운드가 한 파일을 공유한다. 배선 변경이므로 **#5의 오라클 추출 뒤에** 착수한다(UI6) | pending | — |
 | 10 | budget 게이트 전달 경로 확정 | `budget.total`을 세우는 전달 경로가 **존재하는지 먼저 확정**하고, 존재하면 그때 라이브 발화를 관측한다 — #7 실측으로 turn 프롬프트의 `+200k`가 `total`을 세우지 못하고 `remaining()`이 `Infinity`로 퇴화함이 확정됐다(B1). 저장소 코드로 닿지 않는 축이므로 harness 계약 확인이 선행하며, 존재를 모르는 채 "발화시킨다"를 acceptance로 적으면 #4가 맞았던 순환을 형태만 바꿔 반복한다 | pending | — |
@@ -124,6 +134,14 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 > 이관 규칙은 #4 → #6 → #7과 같다(**판정을 바꾸지 않고 사유를 갱신한다**). 달라진 것은 사유의 종류다. #4·#6은 선행 조건(머지된 런타임)이 milestone **밖**에 있다는 것이었고 **시간이 해소했다**. #7이 만난 것은 전달 경로가 **저장소 밖**이라는 것이며 **시간이 해소하지 않는다** — `budget.total`은 harness가 turn 프롬프트에서 등록하는 값이고 이 저장소의 어떤 코드도 그것을 만들 수 없다. M7 plan의 DN9는 그 경로를 "harness 계약"으로 단언했는데 **실측이 그 단언을 반증했다**. 그래서 #10의 Outcome은 "발화시킨다"가 아니라 **"발화시킬 수 있는 전달 경로가 존재하는지 먼저 확정한다"**로 적는다.
 >
 > **#7은 미달을 이관하면서도 `complete`다** — #6과 같은 이유다. 소유하는 것은 "발화시켰다"가 아니라 **"실측으로 확정했다"**이며, 관측이 미달을 확정하는 것도 milestone의 산출물이다. #7이 이번에 닫은 것은 B1이고, 그것은 계획했던 것보다 강한 형태로 닫혔다(임계 손잡이가 무력하다는 것까지 포함).
+>
+> **#8이 확정한 것과 #11이 생긴 이유 — 이번 사유는 네 번째 종류다: 집계 범위 (2026-08-26).** 앞선 이관들의 사유는 셋이었다. #4·#6은 선행 조건이 milestone **밖**(머지된 런타임)이었고 시간이 해소했다. #7은 전달 경로가 **저장소 밖**이었고 시간이 해소하지 않는다. **#8이 만난 것은 그 어느 쪽도 아니다** — 데이터는 처음부터 저장소 안에 있었고 선행 조건도 해소돼 있었다. 막고 있던 것은 **무엇을 세는가**였다. converged 5건 중 4건이 이미 M7 tip에 존재했으므로, #6·#7이 본 "표본 0"은 부재가 아니라 자기 PRD의 실행만 센 범위의 산물이다.
+>
+> 그래서 이번 갱신은 골대 이동이 아니다 — 목표(≤10분)도 데이터도 그대로이고 집계 범위만 지표 이름이 원래 말하던 것으로 되돌렸다. **감추면 그때 골대 이동이 되므로** 그 사실과 "이전 판정이 어떤 범위에서 옳았는지"를 Success Metrics 칸 안에 함께 남긴다(DN9). 차단 경로 행은 손대지 않았다(UI8).
+>
+> **#11은 미달의 이관이 아니라 질문의 승격이다.** #6·#7·#10의 이관은 "하려던 것을 못 했다"였지만, #8은 하려던 것을 했다 — 그 결과 **이전에는 물을 수 없던 질문**이 물을 수 있게 됐다. "승인 품질(false-approve 비율)"은 승인 표본이 0인 동안 성립하지 않는 질문이었고, 이제 5건이 있으므로 성립한다. 관측 작업이라 배선을 늘리지 않으므로 #7·#8과 같이 #5 앞에 둔다(UI6).
+>
+> **#8도 `complete`다** — 다만 앞의 둘과 이유가 다르다. #6·#7은 미달을 확정해서 complete였고, #8은 **묻던 것에 실제로 답해서** complete다. 답은 "튜닝했다"가 아니라 "튜닝할 손잡이가 아니었다"이며, 기본값을 하나도 바꾸지 않은 것이 결론 그 자체다.
 
 ## Open Questions
 
@@ -133,13 +151,15 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 - [x] `review_proof` 위조 방지 강도 → all-or-nothing 부분 stamp 거부 + `reviewed_plan_hash` bind(리뷰 후 plan 편집 시 승인 무효, 복구는 재봉인이 아니라 재실행) + evidence 경로 불변식은 verdict와 무관하게 상시 적용.
 
 **미해결**
-- [ ] 목표 10분 달성 실측 — 통과 경로는 4회 시도에도 관측되지 않았고(O1) **M7의 관측 turn도 이 질문에 답하지 않는다**: 그 turn 역시 승인 없이 끝났고(단일통과 토글이 낸 진행은 승인이 아니다) 차단 경로 표본만 2건 늘렸다. 차단 경로는 이제 6회 모두 목표 이내이나 그것은 다른 지표다. 승인이 발급되는 경로가 먼저 필요하다 (#8 → 그 뒤 이 질문)
+- [x] 목표 10분 달성 실측 — **M8이 답했다 (2026-08-26)**: 통과 경로 5건 관측, 중앙값 6.4분, 5건 중 4건이 10분 이내(최대 13.0분). 5건 전부 hash 결속이 있고 단일통과 토글 흔적이 없다. **답이 나온 이유는 새 실행이 아니라 집계 범위 정정**이다 — 그 5건 중 4건은 M7 tip에 이미 존재했다. 이전 판정("이 PRD의 게이트 실행에서 표본 0")은 그 범위에서 여전히 참이며 Success Metrics 칸에 이력으로 보존했다(DN9)
 - [ ] L3 자동 트리거 조건 임계값 — "L2 divergent" 판정 기준, risk-signal 파일 패턴. 근거 없는 임계를 날조하지 않는다. **#6의 실측은 이 질문에 답하지 않았다** — 통과 경로 표본이 0이라 과발동↔지연 균형을 볼 수 없다 (#2)
 - [ ] self-consistency 샘플 수 — M1은 역할 다양성(4역할 × 1샘플)만 diversity 축으로 썼다. 동일 질문 N회 독립 샘플 majority의 비용 대비 값 미확인
 - [ ] 지표 코퍼스의 내구성 — **O3으로 갱신**: worktree-only 소멸에 더해, 레코드 경로 slug가 PRD 경로 파생이라 **재실행이 이전 라운드를 덮어쓴다**. 4회 실행에 잔존 1건이라 수렴 과정 자체가 코퍼스가 되지 못한다. 단발 실측으로 충분한가가 아니라 **누적이 가능한가**가 질문이 됐다 (#9)
 - [ ] **`budget.total`을 세우는 전달 경로가 존재하는가** — M7 실측: turn 프롬프트 본문의 `+200k`로는 `null`이었고 `remaining()`은 `Infinity`로 퇴화한다. 따라서 threshold 쪽 어떤 값으로도(`MCCP_PLAN_REVIEW_BUDGET` 포함) budget 게이트를 발화시킬 수 없다(B1). 이것이 harness 사양인지 결함인지, 다른 전달 형태가 있는지는 **미확인**이며 관측 표본은 1이다. 저장소 코드로 닿지 않는 축이라 근거 없이 절차를 날조하지 않는다 (#10)
 - [ ] **`remaining()`의 무예산 반환값이 `Infinity`라는 사실의 파급** — `plan-review.js:161`은 좌항 `budget.total` 단락평가로 안전하지만, `remaining()`만 읽고 분기하는 소비처가 생기면 무예산 turn을 "무한 예산"으로 읽는다. 현재 그런 소비처가 있는지 전수 확인하지 않았다
-- [ ] 패널 승인의 실제 품질 — **O1로 갱신**: 질문이 한 칸 앞으로 당겨졌다. 4회 라이브에서 승인 0건 · 관점 단위 16회 중 `pass` 2회이므로, false-approve 비율을 묻기 전에 **승인이 발급되는가**에 먼저 답해야 한다. 표본은 여전히 0이다 (#8)
+- [ ] 패널 승인의 실제 품질 — **M8로 갱신: 앞당겨졌던 질문이 답해졌으므로 원래 질문으로 돌아온다.** "승인이 발급되는가"는 예이고(converged 5건, 전부 hash 결속·토글 미사용), 이제 false-approve 비율을 물을 표본이 있다. 각 승인 plan을 그 시점 코퍼스와 대조해 패널이 놓친 실물 결함이 있었는지 보는 사후 감사가 필요하다 (#11)
+- [ ] **quorum 손잡이는 무력한데 승인 빈도는 왜 낮은가** — M8 실측: M·K가 binding이었던 차단 레코드 0건, K를 3→1로 실제로 낮춘 자연 실험에서도 승인 빈도 무변화. 즉 실제 승인 규칙은 severity 게이트 단독이다. 그런데 실패 리뷰어 64건 중 52건이 실물 CRITICAL/HIGH를 동반했으므로 이것이 **과잉 차단인지 정직한 탐지인지는 severity 판정의 정확도에 달려 있고, 그 정확도는 아직 측정된 바 없다**. #11의 사후 감사가 반대 방향(false-approve)을 보므로 이 질문(false-block)은 그 대칭축으로 남는다. 근거 없이 임계를 내리지 않는다(UI4 · UI11)
+- [ ] **F6이 단독으로 막은 1건을 어떻게 처리할 것인가** — M8 실측: `archive/plan-review-followup-R12.md`가 그 사례다(3/3 응답·3 roles로 M·K 만족, 두 실패 리뷰어의 finding이 전부 MEDIUM). CLAUDE.md §3.14의 해제 조건은 정확히 이 합성 동작을 겨냥하는데, 실측은 F6이 **무해하지도(1건 단독 차단) 지배적이지도(27건 중 26건은 F6 없이도 차단) 않다**고 말한다. 해제는 운영자 판정이고 이 PRD 소관이 아니다 — M8은 근거만 제공한다
 
 ## Risks
 | Risk | Likelihood | Impact | Mitigation |
@@ -154,5 +174,5 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 | 기존 git-tracked ship corpus의 receipt_hash 변경(재봉인 사고) | Low | High | present-only 필드 + skeleton 미materialize(§3.12 no-rehash) + hash 안정성 test |
 
 ---
-*Status: #1·#4·#6 배송 완료 · 다음은 #7(budget 라이브 발화) → #8(quorum 캘리브레이션) · 나머지는 요구사항 단계. 구현 계획은 /mccp:plan.*
-*Co-created with user on 2026-08-06. Revised 2026-08-09 (M1 ship 후 실측 반영 — 지표 정직화 + milestone 4건 추가). Revised 2026-08-14 (M6 실측 반영 — Outcome을 관측 결과로 재정의 + #7·#8·#9 신설).*
+*Status: #1·#4·#6·#7·#8 배송 완료 · 다음은 #11(승인 품질 감사) → #5(오라클 추출) → #9 · 나머지는 요구사항 단계. 구현 계획은 /mccp:plan.*
+*Co-created with user on 2026-08-06. Revised 2026-08-09 (M1 ship 후 실측 반영 — 지표 정직화 + milestone 4건 추가). Revised 2026-08-14 (M6 실측 반영 — Outcome을 관측 결과로 재정의 + #7·#8·#9 신설). Revised 2026-08-26 (M8 실측 반영 — 통과 경로 지표를 집계 범위 정정으로 산출 전환 + quorum 손잡이 무력성 확정 + #11 신설).*

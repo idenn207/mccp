@@ -2,7 +2,58 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.33.1] — 2026-08-26
+
+> **§3.7**: `1.33.0 → 1.33.1` (**patch** — diverse-agent-review PRD의 단일
+> milestone M8이고 PRD 종료 축이 아니다). **초판은 `1.32.9`를 선언했으나 재상향했다**:
+> 이 브랜치가 사는 동안 origin/main이 `1.32.7`(santa-delta-review)과
+> `1.33.0`(multi-session-work-loop M8)을 발행해 1.32.x 자리가 이미 지나갔다. §3.7의
+> forward-only 규칙대로 발행된 번호는 불가침이므로 미머지 쪽인 이 항목만 위로 민다.
+> 4면(plugin.json · html.js page-foot · markdown.js derived 줄 · 이 파일의
+> `currently` 노트)을 함께 맞췄고 `i18n-surface.test.js`가 재검증한다.
+
+### Added
+
+- **diverse-agent-review M8 — 패널 quorum 캘리브레이션 재검토 (판정 milestone)**:
+  `plan-review/corpus.js` — `.claude/reviews/`의 패널 레코드를 집계하는 read-only ·
+  LLM-free · standalone 오라클(`evidence-audit.js` 형태 미러). **게이트 배선은 한
+  바이트도 바뀌지 않았다**(UI6 — 사전 파일 9종 diff 공집합, 기계 확인).
+  임계값을 갖지 않으며(DN11 · UI11) 세는 것은 도구가, 판정은 문서가 한다.
+- `docs/diverse-agent-review/quorum-calibration.md` — 도구 출력을 **축자 동결**하고
+  그 위에 판정 4개를 적은 앱커 문서(재현 명령 포함).
+
+### Changed
+
+- **통과 경로 wall-clock 지표가 미산출 → 산출로 전환**됐다 — 근거는 새 데이터
+  수집이 아니라 **집계 범위 정정**이다. converged 5건 중 4건이 M7 tip에 이미
+  존재했으므로 #6·#7의 "표본 0"은 부재가 아니라 자기 PRD의 실행만 센 범위의
+  산물이었다. 과거 판정이 어느 범위에서 옳았는지를 PRD 칸 안에 함께 남겼다(감추면
+  그것이 골대 이동이 된다). 차단 경로 행은 무변경(UI8).
+- PRD `.claude/prds/diverse-agent-review.prd.md` — #8 complete · **#11 신설**(승인
+  품질 false-approve 감사) · Evidence에 M8 실측 문단 · Open Questions 3항 갱신.
+
+### Fixed
+
+- **단일통과 완화 측정이 구조적으로 0을 보던 결함** — 초판은 완화 카운트를
+  `pass_path.single_pass_tainted` 하나로만 두었는데 그 필드는 **converged 레코드만**
+  필터한다. `decide.js:338`은 완화를 언제나 `'divergent'`로 봉인하므로(§3.15
+  "converged 위장 없음") 그 값은 어떤 코퍼스에서도 0이고, 실코퍼스의 완화 **14건**이
+  출력 어디에도 나타나지 않았다 — 그러면서 그 0이 문서·PRD에서 UI9 충족의 *실측
+  근거*로 인용됐다. **아래 F6과 정확히 같은 형태의 오류**(잘못된 소스에서 얻은 구조적
+  0)라 같은 처방을 적용한다: verdict와 무관하게 세는 `single_pass` 축을 신설하고,
+  기존 필드는 지우지 않고 그 봉인의 **회귀 가드**로 의미를 정정했다. 문서·PRD의 UI9
+  문장은 "관측했다"에서 "상류 불변식이 보장하고 코퍼스에 반례가 없다"로 좁혔고,
+  판정 3에는 "차단 30건 중 14건은 작업을 멈추지 않았다"를 명시했다. 도구 헤더에
+  **"구조적 0을 관측으로 착각하지 않는다"** 절을 두어 두 사례를 한 규칙으로 묶었고
+  회귀 test 3건이 고정한다.
+- **F6 기여도 측정이 구조적으로 0을 보던 결함** — `record.js#findingRows`는 실패
+  리뷰어가 finding을 **하나도 안 냈을 때만** 합성 `FAIL` 행을 쓴다. 그 행만 세면
+  MEDIUM만 낸 실패 리뷰어가 관측되지 않아 F6 기여도가 항상 0으로 보고된다(실측:
+  코퍼스 전체 합성 행 0건). 정본 소스는 `## Refutation attempted` 표이며,
+  예비 실측과 이 milestone 초판이 함께 0으로 본 원인이 이것이다. 정정 후 판정은
+  **1건**(`archive/plan-review-followup-R12.md`)이며 회귀 test가 고정한다.
 
 ## [1.33.0] — 2026-08-25
 

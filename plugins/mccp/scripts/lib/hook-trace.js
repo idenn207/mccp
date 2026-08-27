@@ -18,6 +18,7 @@
 // (G1 invariant). Active-session lease guards LRU + compactor.
 
 const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -68,8 +69,72 @@ class HookTraceError extends Error {
   }
 }
 
+// ── repo root 판정 (santa-delta-review M3 Task 4 · DD6) ──────────────────────
+//
+// 두 hook(`post-tool-use-failure.js` · `session-end-trace.js`)이 `event.cwd`를 그대로
+// 저장소 루트로 썼다. 하위 디렉토리에서 실패한 Bash 호출 하나가
+// `plugins/mccp/scripts/.claude/state/hook-trace/<sid>/`를 만드는 것이 실측됐고,
+// 쓰레기 파일보다 나쁜 것은 **shard와 `.end` 마커가 다른 디렉토리로 갈리는 것**이다 —
+// shard가 루트에 쌓이는 동안 세션이 하위 디렉토리에서 끝나면 루트 세션 디렉토리에 `.end`가
+// 없고, 다음 세션의 `scanCrashAlerts`가 거짓 crash alert를 낸다(§3.2 · v1.20.5가 닫은 실패
+// 모드가 cwd 표류로 다시 열린다).
+//
+// 판정은 **여기 한 자리**다(DD6-1). 두 hook에 같은 로직을 복사하면 다음 수정에서 갈린다.
+// 이 모듈이 이미 `repoBaseDir`·`sessionDir`·`shardPath` 전부를 `repoRoot` 인자로 받는
+// 소유자이므로, 그 인자를 만드는 판정도 여기가 자리다.
 function repoBaseDir(repoRoot) {
   return path.join(repoRoot, TRACE_DIRNAME);
+}
+
+// resolveRepoRoot — git toplevel 우선, 실패 시 `event.cwd` fallback.
+//
+// **fail-open이 요건이다**(DD6-2). hook이 던져서 도구 호출을 막는 것은 이 축이 사려는
+// 것이 아니므로 git이 없든 cwd가 저장소 밖이든 절대 던지지 않는다.
+// mirror: `hooks/session-activity-tracker.js:358-360` 의 `gitRepoRoot(cwd)`.
+//
+// **`receipt/hash.js#gitRepoRoot`를 재사용하지 않는 것은 의도다.** 이 모듈은 fail-open
+// hook 두 개가 부팅 경로에서 require하는데, `receipt/hash`는 canonicalization·해시·
+// receipt 스키마 보조까지 끌고 들어온다 — 그 그래프에서 나는 어떤 로드 실패도 hook을
+// degraded로 만들고, 그것이 정확히 v1.20.5가 닫은 실패 모드다. 그래서 이 축은 자기
+// 의존을 `child_process` 하나로 묶는다. 대가는 같은 git 호출의 세 번째 사본이고,
+// 그 사본들은 계약이 서로 다르다(이쪽은 절대 던지지 않고 cwd로 접는다).
+function resolveRepoRoot(event) {
+  const cwd = (event && typeof event.cwd === 'string' && event.cwd) ? event.cwd : process.cwd();
+  try {
+    const out = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const top = String(out || '').trim();
+    if (top) return path.resolve(top);
+  } catch (_err) {
+    // 비-git cwd, git 미설치, 권한 거부 — 전부 fallback으로 접는다.
+  }
+  return cwd;
+}
+
+// toRepoRelative — 사용자 표면에 실릴 경로를 repo 기준 상대경로로 접는다(DD6-3).
+//
+// §3.12가 receipt `meta.cwd`에 대해 이미 정한 관례(절대경로 leak 회피)를 hook 표면에도
+// 적용한다. **대상이 `repoRoot` 밖이면 원본을 그대로 돌려준다** — `..` 사슬을 표면에
+// 싣는 것이 절대경로보다 나쁘기 때문이다. 즉 「표면 절대경로 0건」은 git 해석이 성공한
+// 경로에 한정된 주장이고, 비-git fallback의 절대경로는 결함이 아니라 명시된 잔여다.
+function toRepoRelative(repoRoot, abs) {
+  if (typeof abs !== 'string' || !abs) return abs;
+  if (typeof repoRoot !== 'string' || !repoRoot) return abs;
+  let root;
+  let target;
+  try {
+    root = path.resolve(repoRoot);
+    target = path.resolve(abs);
+  } catch (_err) {
+    return abs;
+  }
+  const rel = path.relative(root, target);
+  // 접두 일치일 때만 상대화한다. `..`로 시작하거나 절대경로가 나오면 대상이 루트 밖이다.
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return abs;
+  return rel.split(path.sep).join('/');
 }
 
 function assertPathToken(value, label) {
@@ -481,6 +546,8 @@ module.exports = {
   LEASE_SUFFIX,
   HookTraceError,
   repoBaseDir,
+  resolveRepoRoot,
+  toRepoRelative,
   sessionDir,
   shardPath,
   leasePath,

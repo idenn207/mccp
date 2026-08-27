@@ -1,0 +1,148 @@
+{
+  "modes": {
+    "off": {
+      "perDefect": {
+        "D1": {
+          "class": "A_IN_FIX",
+          "found": true,
+          "by": [
+            "A:location",
+            "A:location",
+            "B:location",
+            "B:location"
+          ]
+        },
+        "D2": {
+          "class": "B_SAME_FILE_OUT_OF_RANGE",
+          "found": false,
+          "by": []
+        },
+        "D3": {
+          "class": "C_DROPPED_PATH",
+          "found": true,
+          "by": [
+            "A:location"
+          ]
+        },
+        "D4": {
+          "class": "D_ALWAYS_SCOPE",
+          "found": true,
+          "by": [
+            "A:location",
+            "B:location"
+          ]
+        }
+      },
+      "byClass": {
+        "A_IN_FIX": {
+          "total": 1,
+          "found": 1,
+          "ids": [
+            "D1=found"
+          ]
+        },
+        "B_SAME_FILE_OUT_OF_RANGE": {
+          "total": 1,
+          "found": 0,
+          "ids": [
+            "D2=missed"
+          ]
+        },
+        "C_DROPPED_PATH": {
+          "total": 1,
+          "found": 1,
+          "ids": [
+            "D3=found"
+          ]
+        },
+        "D_ALWAYS_SCOPE": {
+          "total": 1,
+          "found": 1,
+          "ids": [
+            "D4=found"
+          ]
+        }
+      },
+      "findings": 3,
+      "nonCorpus": [
+        {
+          "reviewer": "A",
+          "claim": "Undefined constant causes ReferenceError in pad function"
+        },
+        {
+          "reviewer": "B",
+          "claim": "pad() references undefined global PADDING"
+        }
+      ]
+    },
+    "enforce": {
+      "perDefect": {
+        "D1": {
+          "class": "A_IN_FIX",
+          "found": true,
+          "by": [
+            "A:location",
+            "A:location",
+            "B:location",
+            "B:location"
+          ]
+        },
+        "D2": {
+          "class": "B_SAME_FILE_OUT_OF_RANGE",
+          "found": false,
+          "by": []
+        },
+        "D3": {
+          "class": "C_DROPPED_PATH",
+          "found": false,
+          "by": []
+        },
+        "D4": {
+          "class": "D_ALWAYS_SCOPE",
+          "found": true,
+          "by": [
+            "A:location",
+            "B:location"
+          ]
+        }
+      },
+      "byClass": {
+        "A_IN_FIX": {
+          "total": 1,
+          "found": 1,
+          "ids": [
+            "D1=found"
+          ]
+        },
+        "B_SAME_FILE_OUT_OF_RANGE": {
+          "total": 1,
+          "found": 0,
+          "ids": [
+            "D2=missed"
+          ]
+        },
+        "C_DROPPED_PATH": {
+          "total": 1,
+          "found": 0,
+          "ids": [
+            "D3=missed"
+          ]
+        },
+        "D_ALWAYS_SCOPE": {
+          "total": 1,
+          "found": 1,
+          "ids": [
+            "D4=found"
+          ]
+        }
+      },
+      "findings": 2,
+      "nonCorpus": []
+    }
+  },
+  "tolerance": 12,
+  "layer2": {
+    "fullFindings": 3,
+    "deltaFindings": 2
+  }
+}

@@ -83,9 +83,80 @@ single producer (M1 DD11).
 TMPDIR_SANTA=".claude/state/santa-loop/tmp"      # gitignored with the ledger
 mkdir -p "$TMPDIR_SANTA"
 printf '%s' "$SCOPE_PATHS_JSON" > "$TMPDIR_SANTA/scope-diff.json"
+```
+
+**Delta scope (M1) — this runs BEFORE `scope-always`, and the order is the contract.**
+Round 2 onward, the scope narrows to the hunk ranges of the fix commits prior rounds
+landed. The always-on items join *after* the narrowing, so UI4's exemption holds by
+**sequence** rather than by a special case — and a special case is a thing that can be
+forgotten. The reviewer receives ranges and nothing else: no claim about what an earlier
+round concluded (UI2).
+
+`scope-delta` takes **no `--round`**. The set of fix anchors that exists on disk already
+answers "which anchor is the previous one", and round 0 has none — so "no delta on round
+1" (UI3) falls out as a `no-anchor` passthrough instead of a separate check that could
+disagree with `counter.decideRound`.
+
+```bash
+DELTA_JSON=$(node "$SANTA" scope-delta --decision "$DECISION" \
+  --paths-file "$TMPDIR_SANTA/scope-diff.json")
+DELTA_EXIT=$?
+if [ "$DELTA_EXIT" -ne 0 ]; then
+  echo "[santa] scope-delta failed (exit $DELTA_EXIT) — NOT launching reviewers." 1>&2
+  echo "[santa] The axis does not degrade to the full scope on failure: a round that" 1>&2
+  echo "[santa] silently skipped narrowing is indistinguishable from a pre-M1 run," 1>&2
+  echo "[santa] which is the exact condition DD10 exists to make observable." 1>&2
+  exit "$DELTA_EXIT"
+fi
+
+# Ask whether the output PARSED before reading anything out of it — the same 3-state
+# check, for the same reason, as PATHS_STATE below. `absent` is a broken producer;
+# `empty` cannot occur here (narrowScope passes the diff through rather than emptying
+# it), so an empty array is also a producer fault.
+DELTA_STATE=$(echo "$DELTA_JSON" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(!Array.isArray(j.paths)?"absent":(j.paths.length>0?"ok":"empty"))}catch{process.stdout.write("absent")}')
+if [ "$DELTA_STATE" != "ok" ]; then
+  echo "[santa] scope-delta exited 0 but emitted no usable paths array ($DELTA_STATE)." 1>&2
+  echo "[santa] NOT launching reviewers: narrowScope returns the input scope when it" 1>&2
+  echo "[santa] cannot narrow, so neither state is reachable from a healthy producer." 1>&2
+  exit 1
+fi
+
+# THIS is the narrowing. Replacing the variable is the whole of it.
+SCOPE_PATHS_JSON=$(echo "$DELTA_JSON" | node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(0,"utf8")).paths))')
+# Ranges travel in their own file. Step 3 hands it to `lanes --ranges-file` verbatim,
+# so the name carries no $ROUND — Step 3 is where the round index is first assigned,
+# and a file named for it here could not be written yet.
+echo "$DELTA_JSON" | node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(0,"utf8")).ranges||{}))' \
+  > "$TMPDIR_SANTA/delta-ranges.json"
+
+# The four scalars Step 3 forwards to `begin-round` (Task 4). They are scalars, not this
+# JSON file, by design: a JSON object read off disk is the prototype-pollution path
+# cli.js:76-79 documents, and this value is stored DURABLY in the ledger.
+DELTA_APPLIED=$(echo "$DELTA_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).applied?"true":"false")}catch{process.stdout.write("")}')
+DELTA_REASON=$(echo "$DELTA_JSON" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).reason||"")}catch{process.stdout.write("")}')
+DELTA_BEFORE=$(echo "$DELTA_JSON" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).before))}catch{process.stdout.write("")}')
+DELTA_AFTER=$(echo "$DELTA_JSON" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).after))}catch{process.stdout.write("")}')
+
+# Observation surface — every run, whether or not the axis fired. A round that narrowed
+# nothing must be distinguishable from a round that ran before M1 existed.
+echo "$DELTA_JSON" | node -e '
+  const j=JSON.parse(require("fs").readFileSync(0,"utf8"));
+  process.stderr.write("[santa] delta scope: mode="+j.mode+" applied="+j.applied+
+    " reason="+(j.reason||"-")+" "+j.before+"->"+j.after+
+    " revs="+(j.revs||[]).length+"\n");
+'
+```
+
+Now the always-on items join, **after** the narrowing. `scope-always` must be fed the
+**narrowed** scope, not `scope-diff.json` — handing it the original file would merge the
+always-on items into the un-narrowed list and undo the delta in the same breath, at exit
+0, with the observation line above still reporting a narrowing that no longer holds.
+
+```bash
+printf '%s' "$SCOPE_PATHS_JSON" > "$TMPDIR_SANTA/scope-narrowed.json"
 
 ALWAYS_JSON=$(node "$SANTA" scope-always --decision "$DECISION" \
-  --paths-file "$TMPDIR_SANTA/scope-diff.json")
+  --paths-file "$TMPDIR_SANTA/scope-narrowed.json")
 ALWAYS_EXIT=$?
 if [ "$ALWAYS_EXIT" -ne 0 ]; then
   echo "[santa] scope-always failed (exit $ALWAYS_EXIT) — NOT launching reviewers." 1>&2
@@ -192,7 +263,21 @@ Keep the full rubric text in one place: Step 3 writes it to a file and passes it
 **Open the round first — before launching anything.** A round is opened at the moment reviewers are launched, so the cap must be spent here, not after the tokens are gone:
 
 ```bash
-ROUND_JSON=$(node "$SANTA" begin-round --decision "$DECISION")
+# The four --scope-* scalars carry Step 1's delta observation into the ledger (M1 Task 4).
+# They are optional and all-or-nothing: pass all four when Step 1 produced them, none
+# otherwise. A partial set is refused and the round still opens — only the observation is
+# dropped, because a `before` with no `applied` has no meaning. `--scope-reason` is
+# required exactly when `--scope-applied=false`, which is why it is built conditionally.
+SCOPE_FLAGS=""
+if [ -n "$DELTA_APPLIED" ] && [ -n "$DELTA_BEFORE" ] && [ -n "$DELTA_AFTER" ]; then
+  SCOPE_FLAGS="--scope-applied $DELTA_APPLIED --scope-before $DELTA_BEFORE --scope-after $DELTA_AFTER"
+  if [ "$DELTA_APPLIED" = "false" ] && [ -n "$DELTA_REASON" ]; then
+    SCOPE_FLAGS="$SCOPE_FLAGS --scope-reason $DELTA_REASON"
+  fi
+fi
+
+# shellcheck disable=SC2086  # SCOPE_FLAGS is built from enum/integer values only
+ROUND_JSON=$(node "$SANTA" begin-round --decision "$DECISION" $SCOPE_FLAGS)
 BEGIN_EXIT=$?
 ROUND=$(echo "$ROUND_JSON" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).roundIndex))}catch{process.stdout.write("")}')
 ```
@@ -288,15 +373,38 @@ if [ -n "$CONSISTENCY_RUBRIC_ROW" ]; then
   fi
 fi
 
+# --ranges-file is Step 1's delta output, passed through verbatim (M1 Task 3). It makes
+# the target-path lines read `- path:12-40, 88-95` instead of `- path`. Nothing else
+# about the prompt changes: there is no argument on `buildBlindPrompt` that could carry
+# a sentence about a prior round, which is the structural half of UI2.
+#
+# Step 1 writes this file on EVERY run, including `mode=off`, where it holds `{}`.
+# So the flag is normally present and the empty map renders exactly the `- path`
+# lines M1 never touched. What `-s` covers is the abnormal case: Step 1 did not run,
+# or its write failed. Do not read a present flag as "this is a delta round" — the
+# discriminator is `applied` in $DELTA_JSON, which the stderr line above reports.
+RANGES_FLAG=""
+if [ -s "$TMPDIR_SANTA/delta-ranges.json" ]; then
+  RANGES_FLAG="--ranges-file $TMPDIR_SANTA/delta-ranges.json"
+fi
+
+# shellcheck disable=SC2086  # RANGES_FLAG is a fixed flag plus a path this file wrote
 LANES_JSON=$(node "$SANTA" lanes --decision "$DECISION" \
   --paths-file "$TMPDIR_SANTA/lane-paths-$ROUND.json" \
-  --rubric-file "$TMPDIR_SANTA/rubric-$ROUND.md")
+  --rubric-file "$TMPDIR_SANTA/rubric-$ROUND.md" $RANGES_FLAG)
 LANES_EXIT=$?
 if [ "$LANES_EXIT" -ne 0 ]; then
   echo "[santa] lanes failed (exit $LANES_EXIT) — no lane assignment." 1>&2
   echo "[santa] NOT launching reviewers: without an assignment a zero-blind round" 1>&2
   echo "[santa] would succeed silently, and record would reject it at exit 2 anyway," 1>&2
   echo "[santa] throwing away the round's tokens." 1>&2
+  echo "[santa] If stderr names SANTA_SCOPE_ASSERTION, the RUBRIC you authored in" 1>&2
+  echo "[santa] Step 2 matched the UI2 denylist. On a delta round that list is applied" 1>&2
+  echo "[santa] to the whole assembled prompt, and it cannot tell a status claim from" 1>&2
+  echo "[santa] an instruction to re-review (\"이미 검토된 곳도 다시 본다\" trips it)." 1>&2
+  echo "[santa] Recovery: reword that criterion and run Step 3 again. The round stays" 1>&2
+  echo "[santa] OPEN (verdict null), so begin-round returns the SAME index and spends" 1>&2
+  echo "[santa] no cap — retrying is free. Do not weaken the denylist to get past it." 1>&2
   exit "$LANES_EXIT"
 fi
 
@@ -326,6 +434,15 @@ to a zero-blind round.
 
 The two sections stay **symmetric**: `codex`'s `-C "$(pwd)"` and the model selection are
 unchanged (UI10). The only thing that varies is whether file contents ride in the prompt.
+
+**Bundled lane on a delta round (M1).** When `$TMPDIR_SANTA/delta-ranges.json` is
+non-empty, the bundled reviewer's file bundle is built **around those ranges**: for each
+listed path, include the file centred on the ranges given for it rather than the whole
+tree. That is the entire instruction. Do **not** describe what an earlier round did with
+the rest of the file, do not write that the remainder "passed" or "was already reviewed",
+and do not summarise a prior verdict — the delta hands out a *scope*, never a *status*
+(UI2). The blind lane cannot carry such a sentence because `buildBlindPrompt` has no
+argument for one; on this lane the constraint is prose, so it is stated once, here.
 
 The blind prompt is **not assembled here** (DD4). The CLI emits it, so the honest path
 is also the cheapest one.
@@ -852,4 +969,10 @@ Result:     [PUSHED / PUSHED UNDER DEGRADE ACK / BLOCKED (degraded) / ESCALATED 
 - The degrade kill switch is `MCCP_SANTA_DEGRADE_GATE` (`enforce` default / `off`), registered in docs/ENVIRONMENT.md §11 with the other santa toggles. `off` turns off **the verdict narrowing only** — the three observation fields are still stamped, so an `off` run stays distinguishable from a pre-M3 one. As with the other santa toggles the default is the firing side and a malformed value falls back to firing, because a typo that silently reverts a run to pre-M3 behaviour is the exact defect shape this axis exists to close.
 - `MCCP_SANTA_DEGRADE_ACK="<substantive reason>"` lets a degraded run push. It is judged once, inside `seal`, against the same strict reason validator the other audited overrides use, and it **does not rewrite the sealed verdict** — the receipt still says `review_verdict='divergent'` with `santa_model_degraded=true`, plus `santa_degrade_ack` and `santa_degrade_ack_reason`. On a machine with no external CLI every run degrades and the ack tends to become a resident setting; leaving the verdict alone is what keeps the degraded ratio countable under a resident ack, and that ratio is the measured case for installing `codex`.
 - `record --model` is re-derived against `PATH`: declaring an `openai`/`google` family model while `codex`/`gemini` is absent exits 2 with the round left open. What that establishes is that a model name for an uninstalled CLI cannot be typed in to buy diversity. What it does **not** establish is that the declared model is the one that answered — `codex` being installed does not prove it ran. Same ceiling as `--lane`, claimed no wider, and verified the same way: by outcome distribution, not by the stamp.
+- From round 2 on, the review scope narrows to the hunk ranges of the fix commits prior rounds landed (`santa/scope-delta.js` + `scope-delta`). What reaches the reviewer is a **range and nothing else** — `renderScopeLines` takes `{paths, ranges}` and has no argument that could carry a sentence, which is the structural half of UI2; the pattern denylist layered on top is a belt, not the primary control, and it is not claimed to be exhaustive. Round 1 is always the full scope: the delta is built from the fix anchors that exist on disk, and round 0 has none, so `no-anchor` passthrough gives UI3 without a separate round check.
+- The always-on plan/PRD items are **exempt from the narrowing**, and that exemption is the call order (`diff → scope-delta → scope-always`), not a conditional. A special case is a thing a later edit can forget; a sequence is not. Narrowing is cumulative — the union of every existing fix anchor, not just the last one — because the non-cumulative form is cheaper but leans on "round 1 really did look at rev0".
+- The delta kill switch is `MCCP_SANTA_DELTA_SCOPE` (`off` default / `enforce`), registered in docs/ENVIRONMENT.md §11 with the other santa toggles. **Its default is the opposite of every other santa toggle, deliberately.** The others default to firing because a typo that silently reverts a run to pre-axis behaviour is invisible; here firing is the *looser* direction — it removes files from review — and the cost of being wrong is the 16–93pp detection-rate drop the PRD cites. Measurement **left the default at `off`**, by applying the pre-registered rule rather than by judgement. M2 shipped only the deterministic containment layer, so the rule's antecedent — a *live-reviewer* comparison — was unmeasured, and an unmeasured antecedent is not a satisfied one. That comparison has since been run (2026-08-25): the live lanes found 3 corpus defects at full scope and 2 under the delta, and the rule **refuses a flip on any shortfall** however small. The default is unchanged; what changed is the reason it holds — `layer2-degraded` (measured, and it fell short) rather than `layer2-absent` (never measured). A regression test binds the shipped default to the recorded evidence, so flipping it without that evidence turns the suite red.
+- Two layers were measured, and they say different things. The deterministic layer measured **where the delta loses reach, not whether reviewers still find things**: on a synthetic corpus (N=1, one defect per class) run through the real CLI in both modes, the only containment loss is the class of defect living in a file the fix commit never touched — dropped wholesale, which is arithmetic, not a surprise. A defect in the *same* file but outside the context window keeps its path, so the "a range is a pointer, not a cut" design holds for that class. The live-reviewer layer answered the second half, and the containment loss showed up as a real detection loss: the dropped-path defect was found at full scope and missed under the delta. The same-file-out-of-range question did **not** get answered — that defect went unfound in *both* modes, so the run never reached the question. Details and limits (N=1 synthetic, one observation per mode, both lanes on the same model family): `docs/santa-loop/detection-rate-layer2.md`.
+- Two present-only integers are sealed: `meta.santa_delta_rounds` and `meta.santa_delta_paths_dropped`. Both are written **regardless of the kill switch**, so an `off` run stamps `santa_delta_rounds=0` and stays distinguishable from a pre-M1 run whose field is simply absent. That distinction is the entire guard against this axis being dark-shipped: with a default of `off`, "nobody ever turned it on" would otherwise be silent, and it is now countable across receipts. It does not make the axis fire.
+- Those two integers are **observation, not enforcement, and they are not forgery-resistant** — the numbers come from the four `--scope-*` scalars the command body passes to `begin-round`, and the CLI does not re-derive them from git. That is a deliberately different posture from `record --lane` and `record --model`, which *are* re-derived, and the reason is that no gate reads these fields: a forged value buys nothing. If a gate ever consumes them, this ceiling has to be closed first.
 - The cap is scoped to the decision slug, which is derived from the branch name. Renaming or switching branches starts a fresh cap (different branch = different review scope). Pass `--decision <slug>` to every subcommand to pin one scope across a rename.

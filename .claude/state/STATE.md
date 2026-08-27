@@ -1,56 +1,55 @@
 ---
 state_version: 1
-task_fingerprint: impeccable-detection-contract-m5
+task_fingerprint: santa-adjudication-m3
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-25T09:45:32.757Z
+updated_at: 2026-08-27T00:54:35.746Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-25T09:45:32.757Z
+last_event_at: 2026-08-27T00:54:35.746Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-23T09:38:09.736Z
-dep_check_missing: impeccable
+dep_check_at: 2026-08-18T03:44:26.285Z
+escalate_pending: true
+escalate_pending_decision_id: santa-delta-review
 ---
 ## Goal
-impeccable-detection-contract M5 — 문서·계약 드리프트 정리. 구현 완료(v1.32.0), commit/PR 대기. PRD 전체 종료.
+santa-delta-review M3 구현 완료 (사이클 잔여 마감) — 커밋 완료, PR 대기.
 
 ## Plan
-- PRD: `.claude/prds/impeccable-detection-contract.prd.md` — M1·M2·M3·**M4 complete**, M5(문서 드리프트) pending
-- plan: `.claude/plans/impeccable-detection-contract-{m1,m2,m3,m4}.plan.md` — 넷 다 봉인됨(plan_hash). **편집 금지**
-- 게이트 산출물·라이브 증거: `.claude/notes/impeccable-detection-contract-{m1,m2,m3,m4}.md`
-- 구현 보고: `.claude/PRPs/reports/impeccable-detection-contract-m4-report.md`
-- version 1.31.4 (patch — PRD 내 단일 milestone). 4면 동기 완료. branch impeccable-detection-contract
+- plan: `.claude/plans/santa-delta-review-m2.plan.md` — `plan_hash` sha256:60931158…로 mccp-plan-codex가 봉인. **편집 금지**(편집하면 stale → PR이 §3.11 guard 2에 막힌다)
+- 게이트 산출물: `.claude/notes/santa-delta-review-m2-implement-codex.md` (plan 본문 대신 이 자리 — M1 선례)
+- Layer 1 실측: `.claude/notes/santa-delta-review-m2.md` · report: `.claude/PRPs/reports/santa-delta-review-m2-report.md`
+- receipt: mccp-plan-codex/**santa-delta-review**(review_verdict=divergent, single-pass 봉인) · mccp-implement-codex/**santa-delta-review**(codex_verdict=skipped)
+- **decision slug은 `santa-delta-review`다**(`-m2` 아님). hook이 plan basename 축으로 파생해 receipt 없음을 보고했으나 봉인 해시가 M2 plan과 일치 — 위조 없이 --decision override로 해소
+- **version 1.30.3** (patch — PRD 미완료라 minor 아님). §3.7 충돌 해소: main이 1.30.1을 codex-intent-context M2에 선점 → M1을 1.30.2로, M2가 1.30.3. 4면 동기 완료
 
 ## Done
-- M1 (3d38358, v1.31.1) 정직한 탐지 / M2 (87c6acb·0433538, v1.31.2) 판정 권한 일원화 / M3 (66aaa19, v1.31.3) 섀도잉 해소
-- **M4 (미커밋, v1.31.4) 게이트 발화 정합** — 8 task 전부 착지
-- M4/T1 UI10 재확인 실측 — `shape`는 벤더 메타데이터상 **조건 없이** required interview. **정정**: `teach`는 4.1.1의 23개 카탈로그에 없다(차단 프로즈만 부름) — 집합 유지 근거는 미래 카탈로그 확장 방어
-- M4/T2 `INTERVIEW_REQUIRED_COMMANDS` 신설 + implement `shape` background→recommend. `background`는 오라클 전체 **도달 불가**가 됐으나 enum 유지(과거 receipt 해석 보존) — test가 전수 128조합에서 고정
-- M4/T3 테이블 `phase` 축(pre/finish). implement 16→19(pre 14 + finish 5). `clarify`/`distill` finish 이동 + `polish`/`harden`/`optimize` 신설. `onboard`은 "없던 표면을 새로 짓는" 성질이라 제외. plan/prd/pr 출력 바이트 동일
-- M4/T4 `restampRoutedCommands` + `cli.js restamp-routed` — append-only(중복=drift 신호) ∧ **restamp 내 멱등**(tail match, 락 **안**). 게이트 `mccp-implement-codex` 한정, 여분 키 거부, 경로 resolve
-- M4/T5 prp-implement 재배선 — 2.5.5b `phase:"pre"` 명시 · Phase 3.6 전면 교체(오라클 구동 → 처리 → restamp) · 낡은 문단 정정. **duplicate-call 불변식이 산문에서 phase 필터로 이동**
-- M4/T6 test — routing +11(전수 128조합) · restamp-routed 14 신규 · guard 짝 단언 4(`phase:"finish"` ⟺ `restamp-routed`)
-- M4/T7 gate-design `#### 게이트 발화 정합` · CLAUDE.md §3.10(낡은 stage→command 나열 제거) · CHANGELOG 1.31.4 · 4면 동기 · PRD milestone 4 complete · backlog 5건 이연
-- M4/T8 라이브 — finish 오라클 5종 `invoke` → `impeccable:impeccable`로 전부 완주(어느 것도 멎지 않음) → restamp 착지. receipt에 finish 5건, `shape` non-recommend 0건, 재생 시 `noop:true`
-- 검증: V1 37/37 · V2 14/14 · V3 16/16 · V4 81/81 · **V5 682(681 pass·0 fail)** · V6 10/10 · V7 C1~C4 pass · V8 매트릭스 일치
-- 리뷰 산출: Codex R1 divergent(HIGH 2건 전건 흡수) · security-reviewer 4건 흡수 + 2건 PASS 독립 확인(F3 HIGH→MEDIUM 증거 정정) · backlog 5건 이연
+- Task 1 detection-corpus.js — 4계층 닫힌 enum · anchor 역산 좌표 · 미던지는 판정 3종(coverageOf/compareCoverage/decideDefaultFlip). 외부 의존 0건
+- Task 2 santa-detection-coverage.test.js — 신규 21건. 실제 git fixture + 실제 scope-delta/scope-always CLI를 off·enforce 두 모드로 통과
+- Task 4 판정 적용 — Layer 2 부재 → decideDefaultFlip이 `layer2-absent` → default `off` 유지. 규칙 미수정(축자 일치 test가 동결)
+- Task 5 문서 — review.md · santa-loop.md의 DD7 미래 시제 2자리를 실측으로 교체. PRD M2를 in-progress + OQ 해소 1 · 신규 1
+- Task 6 version 4면 1.30.3 + M1 항목 1.30.2 상향 · Task 7 report
+- Layer 1 실측: before 3→1 · full=4 delta=3 lost=1 · 손실은 Class C 하나 · Class B는 containment 보존 · Class D는 두 모드 모두 스코프 안
+- backlog 4건 등재(Layer 2 미실행 HIGH · detect 사전실행 MEDIUM · single-pass가 test 가림 HIGH · plan-conflict 두 점 diff MEDIUM)
+- 검증: 신규 21/21 · 델타 축 6 suite green · env lint L1~L9 · instruction lint C1~C4 · i18n-surface 10/10
 
 ## In Progress
-
+전체 스위트 최종 실행(렌더러 포함) 확인 중
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 version 재계산 필수(origin/main 1.31.0, 로컬 1.32.0 minor=PRD 종료).
+/mccp:prp-commit → /mccp:pr. **PR 진입 직전 §3.7 version 재계산 필수**(이번 사이클에 이미 1회 충돌 실측). 브랜치가 origin/main보다 뒤처져 있으므로 머지 시 §3.5.1 삭제 검증도 필수.
 
 ## Last Decision
-Codex R1 HIGH(래칫 로더 fail-closed 미명시)와 plan L2 CRITICAL이 같은 축이라 R1에서 전건 흡수 — evidence-debt.js 로드 시점 throw + lint try/catch 2겹. MEDIUM 2건은 §3.14대로 backlog 이연. §3.16대로 1라운드로 끝내고 divergent를 정직하게 봉인.
+plan Task 6은 minor(1.31.0)를 지시했으나 그 전제(PRD 전 milestone 완료)가 성립하지 않는다 — Layer 2 미실행이라 PRD M2를 complete로 적을 수 없고, complete가 아니면 §3.7상 patch다. 동시에 main이 1.30.1을 다른 축에 선점한 것이 확인돼 forward-only 상향으로 M1을 1.30.2, M2를 1.30.3에 착지시켰다.
 
 ## Open Questions
-- EVIDENCE_DEBT 29건(plan 예상 28)은 각 축의 부채 — 경계 일치가 MCCP_PLAN_REVIEW_(scan-artifact)를 C로 분류한 차이
-- L10 역방향은 walkSurfaces 범위 부재만 증명 — env-contract/ 디렉토리 전체 제외(backlog)
-- 설치 plugin cache가 1.31.0(pre-M1) — 머지 후 claude plugin update 필요
-- sibling worktree env-contract-integrity가 같은 subsystem PRD 보유(1.30.0, 문서 전용) — 충돌 없음
+- Layer 2(라이브 리뷰어 비교) 여전히 미실행 — PRD Open Question으로 열려 있고 그것이 default off를 묶는다. 아카이브 보류(DD10)
+- M3는 cross-model adversarial review를 받지 않았다 — Plan-Codex 미발화(receipt 부재) + Implement-Codex는 MCCP_CODEX_DISABLED=1로 skip. 실제 리뷰는 L2 패널 3라운드뿐
+- security-reviewer 미발화(UI9 운영 제약) — receipt에 security_skipped=true 봉인, /mccp:pr에서 blocking으로 남는다
+- 선재 red 1건 승계: hooks/tests/ecc-context-monitor.test.js Axis B (f) — origin/main과 byte 동일, backlog 이연
+- /mccp:pr 진입 직전 §3.7 version 재계산 필수 (이 사이클에서 이미 세 번 충돌)
 
 ## Last Updated
-2026-08-25T09:45:32.757Z
+2026-08-27T00:54:35.746Z

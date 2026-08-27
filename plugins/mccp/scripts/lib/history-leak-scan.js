@@ -59,6 +59,24 @@ const DEFAULT_ALLOWLIST = Object.freeze([
     path: '.claude/plans/codex-findings-backlog.md',
     contains: 'history-leak-scan.js:90',
   },
+  // Third entry, same category as the second: the backlog line that REJECTS an
+  // L2 security finding about hook-trace does so by QUOTING the absolute path the
+  // running hook actually produced, because that measurement IS the refutation —
+  // the claim was that anchoring at the git toplevel would introduce a leak, and
+  // the evidence is that `event.cwd` already produced a longer absolute path
+  // before the change. Redacting the quotation would leave the rejection asserting
+  // a measurement it no longer shows, which is the same bind the entry above
+  // resolves for this scanner's own false-positive report.
+  //
+  // The marker is the finding digest — unique to that one line, and not a word
+  // this file otherwise accumulates. Keying on `hook-trace` or on the repo name
+  // would exempt every future backlog row that happens to mention either. If the
+  // line is ever rewritten the digest goes with it, the exemption lapses, and the
+  // gate fires again — fail-closed, which is the correct direction.
+  {
+    path: '.claude/plans/codex-findings-backlog.md',
+    contains: 'digest 22877fd2',
+  },
 ]);
 
 function git(args, cwd) {

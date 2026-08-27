@@ -1,0 +1,30 @@
+{
+  "verdict": "FAIL",
+  "checks": [
+    { "criterion": "Runtime safety", "result": "FAIL", "detail": "takeField() calls .trim() on potentially undefined value; splitRecords() references undefined identifier SEPARATOR" },
+    { "criterion": "Contract integrity", "result": "FAIL", "detail": "toPairs() return statement is incomplete (line 50 ends without closing the map expression)" },
+    { "criterion": "Type discipline", "result": "PASS", "detail": "No type mismatches observed; all string operations guard with String() wrapper" },
+    { "criterion": "Document consistency", "result": "FAIL", "detail": "Plan asserts PRD declares 3 milestones; PRD only declares 2" },
+    { "criterion": "Dead or unreachable logic", "result": "FAIL", "detail": "splitRecords() is unreachable due to undefined SEPARATOR identifier" }
+  ],
+  "critical_issues": [
+    { "claim": "takeField() will crash on undefined array index", "severity": "CRITICAL",
+      "failure_scenario": "Caller invokes takeField(fields, 10) where fields array has length 5. Line 16 assigns list[10] to raw (undefined). Line 17 calls raw.trim(), throwing 'Cannot read property trim of undefined'.",
+      "evidence": "src/parser.js:14-18, specifically line 17: return raw.trim();",
+      "locations": [ { "file": "src/parser.js", "line": 17 } ] },
+    { "claim": "splitRecords() references undefined variable SEPARATOR", "severity": "CRITICAL",
+      "failure_scenario": "splitRecords() is invoked with any text argument. Line 21 attempts to access SEPARATOR, which is not declared or defined anywhere in the module. ReferenceError thrown at runtime.",
+      "evidence": "src/parser.js:20-22, specifically line 21: return String(text).split(SEPARATOR).filter(...)",
+      "locations": [ { "file": "src/parser.js", "line": 21 } ] },
+    { "claim": "Plan document makes false assertion about PRD content", "severity": "HIGH",
+      "failure_scenario": "Reader consults plan.md line 14 which claims 'PRD declares 3 milestones'. They check the referenced PRD file and find only 2 milestones declared in the table (rows for 'first' and 'second'). The assertion is contradicted by actual PRD content.",
+      "evidence": "corpus-fixture.plan.md:14 states assertion; corpus-fixture.prd.md shows only 2 milestone rows in table",
+      "locations": [ { "file": ".claude/plans/corpus-fixture.plan.md", "line": 14 }, { "file": ".claude/prds/corpus-fixture.prd.md", "line": 3 } ] }
+  ],
+  "suggestions": [
+    "Line 17: Add bounds check before calling .trim()",
+    "Line 21: Define SEPARATOR constant at module level or pass it as parameter",
+    "Line 50: Complete the toPairs return statement",
+    "Update plan.md line 14 to match actual PRD milestone count"
+  ]
+}

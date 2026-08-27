@@ -45,6 +45,7 @@ const adjudication = require('./adjudication');
 const terminator = require('./terminator');
 const lanes = require('./lanes');
 const scopeAlways = require('./scope-always');
+const scopeDelta = require('./scope-delta');
 const modelDiversity = require('./model-diversity');
 const seal = require('./seal');
 const { gitRepoRoot } = require('../../receipt/hash');
@@ -514,6 +515,80 @@ function readJsonStringArray(file, opts, flagName) {
   return parsed;
 }
 
+// santa-delta-review M1 — `--ranges-file` 로더 (implement-gate security CRITICAL-1 ·
+// HIGH-2 · HIGH-3 흡수).
+//
+// **이것은 `--paths-file`과 다른 종류의 입력이다.** 저쪽은 문자열 배열이라
+// `readJsonStringArray`의 원소 검사만으로 끝나지만, 이쪽은 **디스크에서 읽는 JSON
+// 객체**라 `cli.js:76-79`가 문서화한 prototype pollution 경로가 그대로 열린다
+// (`JSON.parse`가 `__proto__`를 own property로 만들고, 하류가 spread/`Object.assign`을
+// 쓰는 순간 오염이 성립한다). `begin-round`의 계측 4종을 **스칼라 플래그로** 둔 것이
+// 바로 이 표면을 없애기 위해서였는데(plan Task 4), 범위 맵은 스칼라로 접을 수 없으므로
+// 여기서는 표면을 **없애는 대신 기존 방어를 그대로 재사용**한다:
+//
+//   1. containment + 크기 상한 — `readJsonStringArray`와 같은 두 단
+//   2. `assertSafeGraph` — FORBIDDEN_KEYS(`__proto__`/`constructor`/`prototype`) ·
+//      깊이 32 · 배열 원소 1000. 파싱 직후, 값을 읽기 **전에** 건다
+//   3. 키를 `scopeAlways.toRepoRelative`로 접는다 — 접히지 않는 키는 **드롭**한다.
+//      이 키는 그대로 블라인드 프롬프트의 대상 경로가 되므로, `../../etc/passwd`나
+//      개행이 든 키가 통과하면 프롬프트 구조 주입이 성립한다(HIGH-2).
+//
+// 드롭은 조용하지 않다 — `warnDroppedDiffPaths`와 같은 취급으로 stderr에 표면화한다.
+// 던지지 않는 이유는 범위가 없으면 스코프가 덜 좁혀질 뿐 안전한 쪽이기 때문이다(DD8).
+function readRangesFile(file, opts, flagName) {
+  assertContained(ledger.canonicalPath(file),
+    ledger.canonicalPath(repoRootOrThrow(opts.cwd)), null);
+
+  let stat;
+  try {
+    stat = fs.statSync(file);
+  } catch (err) {
+    throw new SantaCliError('SANTA_USAGE',
+      flagName + ' does not exist: ' + file + ' (' + err.code + ')');
+  }
+  if (stat.size > MAX_REVIEWER_BYTES) {
+    throw new SantaCliError('SANTA_USAGE',
+      flagName + ' is ' + stat.size + ' bytes (max ' + MAX_REVIEWER_BYTES + ')');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    throw new SantaCliError('SANTA_USAGE',
+      flagName + ' is not valid JSON: ' + err.message);
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new SantaCliError('SANTA_USAGE',
+      flagName + ' must be a JSON object mapping repo-relative path -> [[start,end], ...]; got ' +
+      (parsed === null ? 'null' : (Array.isArray(parsed) ? 'array' : typeof parsed)));
+  }
+  // **값을 읽기 전에** 건다 — 오염 키가 하류에 도달할 창을 남기지 않는다.
+  assertSafeGraph(parsed, 0);
+
+  const keys = Object.keys(parsed);
+  if (keys.length > MAX_REVIEWER_ARRAY) {
+    throw new SantaCliError('SANTA_USAGE',
+      flagName + ' has ' + keys.length + ' path keys (max ' + MAX_REVIEWER_ARRAY + ')');
+  }
+
+  const out = Object.create(null);
+  const dropped = [];
+  keys.forEach(function (key) {
+    const norm = scopeAlways.toRepoRelative(key);
+    if (norm === null) { dropped.push(key); return; }
+    const list = parsed[key];
+    if (!Array.isArray(list)) { dropped.push(key); return; }
+    out[norm] = list;
+  });
+  if (dropped.length > 0) {
+    errln(flagName + ' dropped ' + dropped.length + ' key(s) that do not normalize to a ' +
+      'repo-relative path (or whose value is not an array) — no ranges are rendered for them:');
+    dropped.forEach(function (k) { errln('  dropped ' + JSON.stringify(k)); });
+  }
+  return out;
+}
+
 function repoRootOrThrow(cwd) {
   const root = gitRepoRoot(cwd || process.cwd());
   if (!root) {
@@ -660,16 +735,27 @@ const DIFF_HUNK_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
 //
 // 반환은 `Object.create(null)`이다 — 경로가 `__proto__`인 파일이 own property를
 // 잃고 **조용히 사라지는** 것을 막는다(오염이 아니라 소실이 여기서의 실패 모드다).
-function patchRangesFrom(rev, opts) {
+function patchRangesFrom(rev, opts, ctx) {
+  // 진단 문맥은 **호출자가 준다**. 이 함수는 두 경로가 부르는데(`check-termination`의
+  // `--prev-fix-rev` · `scope-delta`의 anchor 파일), 한쪽 문맥을 상수로 박아 두면 다른
+  // 쪽에서 **존재하지 않는 플래그와 일어나지 않는 결과**를 보고한다 — 실측으로 손상된
+  // anchor 하나가 `scope-delta`에서 "--prev-fix-rev ... the terminator will not fire"를
+  // 냈고, 그 경로에 그 플래그는 없고 terminator도 무관하며 실제 결과는 미축소였다.
+  // 기본값은 기존 호출부(`check-termination`)의 문언 그대로다.
+  const c = (ctx !== null && typeof ctx === 'object') ? ctx : {};
+  const source = (typeof c.source === 'string' && c.source !== '') ? c.source : '--prev-fix-rev';
+  const consequence = (typeof c.consequence === 'string' && c.consequence !== '')
+    ? c.consequence
+    : 'every location falls to `unknown`, and the terminator will not fire. The loop ' +
+      'ends at the cap instead.';
   const empty = Object.create(null);
   // 셸이 쓴 파일에는 trailing newline이 붙는다 — trim 없이는 정상 rev가 전부
   // 불량으로 떨어져 terminator가 영원히 미발화한다(security-reviewer 권고 1).
   const clean = typeof rev === 'string' ? rev.trim() : '';
   if (clean === '') return empty;
   if (!REV_RE.test(clean)) {
-    errln('--prev-fix-rev ' + JSON.stringify(rev) + ' is not a 7..40 hex object name; ' +
-      'patch ranges are empty, every location falls to `unknown`, and the terminator ' +
-      'will not fire. The loop ends at the cap instead.');
+    errln(source + ' ' + JSON.stringify(rev) + ' is not a 7..40 hex object name; ' +
+      'patch ranges are empty, ' + consequence);
     return empty;
   }
 
@@ -684,7 +770,7 @@ function patchRangesFrom(rev, opts) {
       });
   } catch (_err) {
     errln('git show ' + clean + ' failed or exceeded the output limit; patch ranges are ' +
-      'empty and the terminator will not fire.');
+      'empty, ' + consequence);
     return empty;
   }
 
@@ -841,6 +927,89 @@ function cmdCheckTermination(args) {
   return EX_OK;
 }
 
+// santa-delta-review M1 (Task 4.2) — 델타 계측 4종의 **스칼라** 파서.
+//
+// **JSON 파일을 받지 않는다**(implement-gate security CRITICAL-1의 뿌리를 설계로
+// 제거). 초안은 Task 2의 출력 JSON을 `--scope-file`로 그대로 받으라 했는데,
+// `cli.js:76-79`가 문서화한 prototype pollution 경로가 정확히 그것이고 — 그 값은
+// **원장에 durable하게 저장**돼 뒤에 `seal.js`의 `Object.assign` 경로로 흘러간다.
+// 해소는 검증을 나열하는 것이 아니라 **파싱을 없애는 것**이다: 스칼라 4개는
+// `parseArgs`가 문자열로만 만들 수 있어 그래프가 존재하지 않고, 따라서 오염될 객체도
+// malformed JSON도 없다(`--lane`·`--model`·`--id`가 이미 스칼라다). 이것이
+// `lanes.buildBlindPrompt`에서 "실을 자리를 없앤다"를 쓴 것과 같은 수단이다.
+//
+// 남는 것은 **값 검증뿐**이고, `parseState`가 라운드 내부를 검사하지 않으므로
+// **쓰기 시점의 이 검증이 유일한 관문**이다.
+//
+// 부분 기록을 금지한다 — `applied` 없는 `before`는 아무 뜻이 없다. 넷 다 부재는
+// 정상(델타 미사용 실행)이고 그때 `null`을 낸다.
+//
+// 정합성 두 축을 함께 건다(초안의 "넷이 다 있으면"보다 엄격하다):
+//   applied=false → `reason`은 `NO_NARROW` 원소여야 한다. 사유 없는 passthrough는
+//                   원장에 남길 값이 없다.
+//   applied=true  → `reason`은 **부재여야 한다**. 좁혀진 라운드에 미축소 사유가 붙은
+//                   레코드는 자기모순이고, 그것을 허용하면 집계가 무엇을 세는지 흔들린다.
+//
+// 정수는 `/^\d+$/` 후 `Number`다 — `"1e10"`·`" 12"`·`"12.0"`·`"-1"`을 한 번에 접는다
+// (`Number()`만 쓰면 앞 셋이 통과한다).
+function parseScopeFlags(args) {
+  const rawApplied = args['scope-applied'];
+  const rawReason = args['scope-reason'];
+  const rawBefore = args['scope-before'];
+  const rawAfter = args['scope-after'];
+
+  const allAbsent = rawApplied === undefined && rawReason === undefined &&
+    rawBefore === undefined && rawAfter === undefined;
+  if (allAbsent) return null;
+
+  function refuse(why) {
+    errln('--scope-* instrumentation NOT recorded: ' + why + '. The round still opens; ' +
+      'only the delta observation is dropped (a partial record is worse than none — ' +
+      'a `before` without an `applied` has no meaning).');
+    return null;
+  }
+
+  if (rawApplied !== 'true' && rawApplied !== 'false') {
+    return refuse('--scope-applied must be the literal "true" or "false"; got ' +
+      JSON.stringify(rawApplied));
+  }
+  const applied = rawApplied === 'true';
+
+  const INT_RE = /^\d+$/;
+  if (typeof rawBefore !== 'string' || !INT_RE.test(rawBefore)) {
+    return refuse('--scope-before must be a non-negative decimal integer; got ' +
+      JSON.stringify(rawBefore));
+  }
+  if (typeof rawAfter !== 'string' || !INT_RE.test(rawAfter)) {
+    return refuse('--scope-after must be a non-negative decimal integer; got ' +
+      JSON.stringify(rawAfter));
+  }
+  const before = Number(rawBefore);
+  const after = Number(rawAfter);
+  if (!Number.isSafeInteger(before) || !Number.isSafeInteger(after)) {
+    return refuse('--scope-before/--scope-after exceed the safe integer range');
+  }
+  if (after > before) {
+    return refuse('--scope-after (' + after + ') exceeds --scope-before (' + before +
+      ') — narrowing cannot grow the scope');
+  }
+
+  if (applied) {
+    if (rawReason !== undefined) {
+      return refuse('--scope-reason must be absent when --scope-applied=true (a narrowed ' +
+        'round has no no-narrow reason); got ' + JSON.stringify(rawReason));
+    }
+    return { applied: true, reason: null, before: before, after: after };
+  }
+  if (typeof rawReason !== 'string' ||
+      scopeDelta.NO_NARROW_VALUES.indexOf(rawReason) === -1) {
+    return refuse('--scope-reason must be one of ' +
+      JSON.stringify(scopeDelta.NO_NARROW_VALUES) + ' when --scope-applied=false; got ' +
+      JSON.stringify(rawReason));
+  }
+  return { applied: false, reason: rawReason, before: before, after: after };
+}
+
 function cmdBeginRound(args) {
   const opts = baseOpts(args);
 
@@ -872,7 +1041,7 @@ function cmdBeginRound(args) {
   // **`assertAdjudicationCoverage` 뒤, `ledger.beginRound` 이전이다**(DD7). 순서가
   // 뒤가 아니라 앞이면 판정 미완료 루프가 종료 메시지를 받아 진단이 틀린다.
   assertNotTerminated(opts);
-  const r = ledger.beginRound(opts);
+  const r = ledger.beginRound(Object.assign({}, opts, { scope: parseScopeFlags(args) }));
   out({ allowed: r.allowed, roundIndex: r.roundIndex, exitReason: r.exitReason });
   return r.allowed ? EX_OK : EX_CAP;
 }
@@ -1106,9 +1275,17 @@ function cmdLanes(args) {
   // 커맨드 본문이 문자열 비교를 하므로 타입이 갈리면 비교가 조용히 어긋난다.
   // prompt도 같은 이유로 빈 문자열이다: 배정된 블라인드가 없는데 프롬프트를 내면
   // 호출자가 그것을 쓸 자리가 생긴다.
+  // santa-delta-review M1 — 선택 `--ranges-file`. 부재는 정상(델타 미적용 라운드)이고
+  // 그때 `buildBlindPrompt`는 기존과 정확히 같은 `- path` 줄을 낸다.
+  let ranges = null;
+  const rangesFile = args['ranges-file'];
+  if (typeof rangesFile === 'string' && rangesFile !== '') {
+    ranges = readRangesFile(rangesFile, opts, '--ranges-file');
+  }
+
   const blindId = blindIds.length === 1 ? blindIds[0] : '';
   const prompt = blindId === '' ? '' : lanes.buildBlindPrompt({
-    repoRoot: repoRoot, targetPaths: targetPaths, rubric: rubric,
+    repoRoot: repoRoot, targetPaths: targetPaths, rubric: rubric, ranges: ranges,
   });
 
   out({ assignment: assignment, blindId: blindId, prompt: prompt });
@@ -1189,6 +1366,131 @@ function warnDroppedDiffPaths(dropped) {
   errln('scope-always dropped ' + dropped.length + ' path(s) that do not normalize to a ' +
     'repo-relative location — they are NOT in the review scope:');
   dropped.forEach(function (p) { errln('  dropped ' + JSON.stringify(p)); });
+}
+
+// santa-delta-review M1 — fix anchor 열거.
+//
+// **anchor를 호출자에게서 받지 않는다**(`discoverSlugPlans` 동형 — 경로 주입 표면을
+// 설계로 제거). `.claude/state/santa-loop/tmp/<decision>/`을 `readdirSync`로 열고
+// `round-<r>-fix-rev.txt`만 리터럴 정규식으로 수집한다. `decisionId`는 `baseOpts`가
+// 이미 `SLUG_RE`를 통과시켰으므로 경로 성분에 `..`도 구분자도 들어갈 수 없다.
+//
+// **`--round`가 없는 근거가 여기 있다**(plan Task 2). 델타가 `--round`로 답하려던
+// 질문은 "어느 anchor가 직전 것인가"인데, 존재하는 anchor 집합이 **이미 그 답**이다.
+// anchor는 Step 5(NAUGHTY 경로)가 닫힌 라운드마다 하나씩 쓰므로 라운드 0 진입 시점엔
+// 0개다 — 따라서 UI3("라운드 1에는 델타 미적용")이 별도 검사가 아니라 **anchor 0개 →
+// `no-anchor` passthrough**로 성립한다. 라운드 번호를 여기서 재도출하면
+// `counter.decideRound`와 판정 자리가 둘이 되어 갈릴 수 있는데, 그 자리가 사라진다.
+//
+// 디렉토리 부재는 오류가 아니라 빈 집합이다(라운드 1의 정상 상태).
+const FIX_ANCHOR_RE = /^round-(\d+)-fix-rev\.txt$/;
+
+// 캡. 루프 캡은 1..10이라 실측 anchor는 그 이하지만, 이 열거는 디스크가 낸 것이고
+// `git show`를 anchor마다 한 번씩 spawn하므로 병리적 디렉토리가 프로세스 수로 번지는
+// 것만 막는다. 초과분은 조용히 사라지지 않고 stderr에 남는다.
+const MAX_FIX_ANCHORS = 64;
+
+function discoverFixAnchors(repoRoot, decisionId) {
+  const dir = path.join(repoRoot, '.claude', 'state', 'santa-loop', 'tmp', decisionId);
+  let names;
+  try { names = fs.readdirSync(dir); } catch (_err) { return []; }
+  const found = [];
+  names.forEach(function (name) {
+    const hit = FIX_ANCHOR_RE.exec(name);
+    if (!hit) return;
+    found.push({ round: Number(hit[1]), file: path.join(dir, name) });
+  });
+  found.sort(function (a, b) { return a.round - b.round; });
+  if (found.length > MAX_FIX_ANCHORS) {
+    errln('found ' + found.length + ' fix anchors (cap ' + MAX_FIX_ANCHORS + ') — the ' +
+      'oldest ' + MAX_FIX_ANCHORS + ' are used and the rest are ignored. A delta built ' +
+      'from fewer anchors narrows LESS, which is the safe direction.');
+    return found.slice(0, MAX_FIX_ANCHORS);
+  }
+  return found;
+}
+
+// scope-delta — 델타 스코프 계산 (santa-delta-review M1 / Task 2).
+//
+// **판정이 아니라 보고다** — exit은 usage 오류를 빼면 항상 0이고 커맨드 본문이 stdout의
+// `applied`에 분기한다(`check-termination` 동형). 비영점을 쓰면 "좁히지 않았다"가
+// 오류로 읽혀 Step 1의 다른 실패와 구별되지 않는다.
+function cmdScopeDelta(args) {
+  const opts = baseOpts(args);
+  const repoRoot = repoRootOrThrow(opts.cwd);
+
+  // `--paths-file`은 **필수**다(`cmdLanes`·`cmdScopeAlways` 동형). 선택으로 두면 diff
+  // 스코프 없이 범위만 낸 출력이 나오고, 호출자가 그것으로 `SCOPE_PATHS_JSON`을
+  // 교체하면 변경 파일이 통째로 스코프에서 사라진다.
+  const pathsFile = args['paths-file'];
+  if (typeof pathsFile !== 'string' || pathsFile === '') {
+    throw new SantaCliError('SANTA_USAGE',
+      '--paths-file <path> is required (JSON array of repo-relative paths, the diff ' +
+      'scope written by santa-loop.md Step 1). The delta narrows that scope — without ' +
+      'it there is nothing to narrow.');
+  }
+  const diffPaths = readJsonStringArray(pathsFile, opts, '--paths-file');
+
+  const mode = scopeDelta.parseDeltaScope(opts.env);
+
+  // `off`는 anchor 열거도 `git show`도 하지 않는다 — kill switch가 비용까지 끄지
+  // 못하면 그것은 절반만 꺼진 것이다(`cmdScopeAlways`의 `off` 분기와 같은 규약).
+  if (mode !== 'enforce') {
+    const passthrough = scopeDelta.narrowScope({ mode: mode, diffPaths: diffPaths });
+    out({
+      mode: mode, applied: false, reason: passthrough.reason, revs: [],
+      paths: passthrough.paths, ranges: {},
+      before: passthrough.before, after: passthrough.after,
+    });
+    return EX_OK;
+  }
+
+  const anchors = discoverFixAnchors(repoRoot, opts.decisionId);
+  const revs = [];
+  const union = Object.create(null);
+  anchors.forEach(function (a) {
+    let raw;
+    try { raw = fs.readFileSync(a.file, 'utf8'); } catch (_err) { return; }
+    const rev = String(raw).trim();
+    if (rev === '') return;
+    // **조회한 anchor는 범위를 냈든 아니든 `revs`에 남는다** — 진단에서 "anchor는 있는데
+    // hunk가 0"과 "anchor 자체가 없다"를 가르는 것이 `revs`와 `reason`의 조합이다.
+    revs.push(rev);
+    const ranges = patchRangesFrom(rev, opts, {
+      // 경로 구분자는 슬래시로 접는다 — `hook-trace.toRepoRelative`가 표면 경로에
+      // 쓰는 규약과 같다. Windows 경로를 JSON.stringify하면 `\`가 이스케이프돼
+      // 두 배로 늘어난 것이 진단으로 읽힌다.
+      source: 'the rev in fix anchor ' +
+        JSON.stringify(path.relative(repoRoot, a.file).split(path.sep).join('/')) + ' —',
+      consequence: 'so this anchor contributes no ranges. The scope narrows LESS ' +
+        '(or not at all, reason `no-ranges`) — the safe direction. No termination ' +
+        'decision is involved on this path.',
+    });
+    Object.keys(ranges).forEach(function (k) {
+      if (!Object.prototype.hasOwnProperty.call(union, k)) union[k] = [];
+      ranges[k].forEach(function (pair) { union[k].push(pair); });
+    });
+  });
+
+  // DD6 — 누적이다. 합집합의 대상은 **존재하는 fix anchor 전부**이고, 라운드 N 진입
+  // 시점에 그것이 곧 라운드 0..N-1의 anchor다. 비누적이 축소 효과는 크지만 "라운드 1이
+  // rev0을 제대로 봤다"에 의존하고, 캡 기본 3에서 누적 대상은 최대 2~3개 커밋이라
+  // 축소 효과는 여전히 압도적이다 — 안전한 쪽이 싸다.
+  const result = scopeDelta.narrowScope({
+    mode: mode, diffPaths: diffPaths, patchRanges: union, anchorCount: anchors.length,
+  });
+
+  out({
+    mode: mode,
+    applied: result.applied,
+    reason: result.reason,
+    revs: revs,
+    paths: result.paths,
+    ranges: result.ranges,
+    before: result.before,
+    after: result.after,
+  });
+  return EX_OK;
 }
 
 function cmdScopeAlways(args) {
@@ -1339,14 +1641,21 @@ function usage() {
   process.stderr.write([
     'usage: santa/cli.js <subcommand> [--decision <slug>] [--cwd <path>]',
     '  resolve-decision',
-    '  begin-round',
+    '  begin-round [--scope-applied true|false --scope-before <N> --scope-after <N>',
+    '               --scope-reason <token>   (required iff --scope-applied=false)]',
+    '               (the four are scalars by design — no JSON file reaches the ledger)',
     '  record   --round <N> --id A|B --model <str> --reviewer-file <path>',
     '           --lane blind|bundled   (required; must match the `lanes` assignment)',
     '  verdict  --round <N>',
     '  adjudicate --round <N> --issue <id> --disposition absorbed|rejected|skipped|reopened',
     '             --evidence <text>   (claim/severity come from the ledger, not from flags)',
-    '  lanes    --paths-file <path> [--rubric-file <path>]',
-    '             (assignment/blindId/prompt on stdout; blindId is "" when lane=off)',
+    '  lanes    --paths-file <path> [--rubric-file <path>] [--ranges-file <path>]',
+    '             (assignment/blindId/prompt on stdout; blindId is "" when lane=off;',
+    '              --ranges-file renders `- path:12-40` target lines, never prose)',
+    '  scope-delta --paths-file <path>',
+    '             (mode/applied/reason/revs/paths/ranges/before/after on stdout;',
+    '              anchors are discovered, NOT passed in — there is no --round flag;',
+    '              `off` passes the diff scope through and runs no git command)',
     '  scope-always --paths-file <path>',
     '             (mode/paths/added/pairs/unresolved/rubricRow/truncated on stdout;',
     '              `off` passes the diff scope through and reads no plan file)',
@@ -1371,6 +1680,7 @@ function runCli(argv) {
       case 'verdict': return cmdVerdict(args);
       case 'adjudicate': return cmdAdjudicate(args);
       case 'lanes': return cmdLanes(args);
+      case 'scope-delta': return cmdScopeDelta(args);
       case 'scope-always': return cmdScopeAlways(args);
       case 'check-termination': return cmdCheckTermination(args);
       case 'status': return cmdStatus(args);

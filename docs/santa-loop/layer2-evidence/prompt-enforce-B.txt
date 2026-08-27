@@ -1,0 +1,119 @@
+# Bundled review lane
+
+Files under review are inlined below. The repository root is:
+  <FIXTURE_ROOT>
+
+### src/parser.js (lines 1-37)
+
+```
+   1  'use strict';
+   2  
+   3  // Fixture module for santa-delta-review M2 detection-rate measurement.
+   4  // Synthetic content only — nothing here is imported or executed. The defect
+   5  // coordinates in detection-corpus.js are resolved from anchor strings, never
+   6  // from hand-counted line numbers.
+   7  
+   8  function parseHeader(line) {
+   9    const parts = String(line).split(':');
+  10    if (parts.length < 2) return null;
+  11    return { name: parts[0].trim(), value: parts.slice(1).join(':').trim() };
+  12  }
+  13  
+  14  function takeField(fields, index) {
+  15    const list = Array.isArray(fields) ? fields : [];
+  16    const raw = list[index];
+  17    return raw.trim();
+  18  }
+  19  
+  20  function splitRecords(text) {
+  21    return String(text).split(SEPARATOR).filter(function (l) { return l !== ''; });
+  22  }
+  23  
+  24  function countTokens(line) {
+  25    return String(line).split(/\s+/).filter(Boolean).length;
+  26  }
+  27  
+  28  function normalizeKey(key) {
+  29    return String(key).trim().toLowerCase();
+  30  }
+  31  
+  32  function indexBy(rows, key) {
+  33    const out = Object.create(null);
+  34    rows.forEach(function (row) {
+  35      const k = normalizeKey(row[key]);
+  36      if (k === '') return;
+  37      out[k] = row;
+```
+
+### .claude/plans/corpus-fixture.plan.md
+
+```
+   1  # Plan: corpus fixture
+   2  
+   3  **Source PRD**: [corpus-fixture](../prds/corpus-fixture.prd.md)
+   4  
+   5  ## Delivery Milestones
+   6  
+   7  | # | Milestone | Status |
+   8  |---|---|---|
+   9  | 1 | first | complete |
+  10  | 2 | second | pending |
+  11  
+  12  ## Notes
+  13  
+  14  This plan asserts the PRD declares 3 milestones.
+  15  
+```
+
+### .claude/prds/corpus-fixture.prd.md
+
+```
+   1  # PRD: corpus fixture
+   2  
+   3  ## Delivery Milestones
+   4  
+   5  | # | Milestone | Status |
+   6  |---|---|---|
+   7  | 1 | first | complete |
+   8  | 2 | second | pending |
+   9  
+```
+
+## Rubric
+
+Evaluate the code under review against every criterion below. Mark each PASS or FAIL.
+
+1. **Runtime safety** — no operation can throw on a reachable input (undefined/null
+   dereference, missing bounds check, unresolved identifier).
+2. **Contract integrity** — every value a function records or accepts is honoured by
+   the code that consumes it; no field is written and then ignored.
+3. **Type discipline** — arithmetic and string operations are not silently applied to
+   the wrong type.
+4. **Document consistency** — where a plan document and a PRD document are both under
+   review, any claim one makes about the other is true of the other's actual content.
+5. **Dead or unreachable logic** — no exported function is structurally incapable of
+   doing what its name states.
+
+You are an independent quality reviewer. You have NOT seen any other review. Your job
+is to find problems, not to approve.
+
+Severity contract: every entry in `critical_issues` carries a `claim` and a `severity`
+(exactly one of CRITICAL|HIGH|MEDIUM|LOW, case-sensitive). Only an issue whose concrete
+failure you can write out in `failure_scenario` may be called a blocker — write the
+concrete misbehaviour: what breaks, under which input or state, and with what wrong
+result. If you cannot describe the malfunction, the observation belongs in `suggestions`.
+
+Location contract: `locations` says WHERE the issue is and nothing more. Give the
+repo-relative path plus a line number when you have one. Do not characterise the code
+you point at and do not draw any conclusion from the location.
+
+Return ONLY this JSON, no prose around it:
+
+{ "verdict": "PASS" | "FAIL",
+  "checks": [ { "criterion": "...", "result": "PASS|FAIL", "detail": "..." } ],
+  "critical_issues": [
+    { "claim": "...", "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+      "failure_scenario": "...", "evidence": "path:line or a quote",
+      "locations": [ { "file": "repo/relative/path.js", "line": 212 } ] } ],
+  "suggestions": ["..."] }
+

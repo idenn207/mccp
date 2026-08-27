@@ -157,6 +157,7 @@ We believe **세션 스코프 상태 모델 + 증거 기반 진행 판정 + 검�
 | 6 | **진행 상태 기계 판정** | milestone 완료 여부를 사람이 아니라 증거가 판정한다. drift 교정 명령이 상시 필요하지 않게 된다 (B1) | complete | [multi-session-work-loop-m6.plan.md](../plans/multi-session-work-loop-m6.plan.md) |
 | 7 | **세션 경계 피드백 루프** | 한 세션에서 발견된 실수가 다음 세션의 작업 목록에 자동으로 올라온다. 발견과 해소 사이의 유실이 사라진다 (C1) | complete | [multi-session-work-loop-m7.plan.md](../plans/multi-session-work-loop-m7.plan.md) |
 | 8 | **측정 부채 상환** | M2가 배송했으나 프로덕션에서 산출하지 못하는 지표의 producer가 실제로 배선된다 — A1 완주 신호(`task_completed` KIND 발화), A2 세션 바인딩 컨텍스트, B3 numerator 커버리지(`TOGGLE_DEFAULTS` ↔ 분모 정합), C2·C3 귀속 스캐폴드(`gate_decision_id → finding_id → remediation_pr`). **지표가 `computed`로 뒤집히는 것이 완료 판정이며, 코드 존재는 판정 근거가 아니다**(M3 B2 coverage gate 선례). 이 milestone이 끝나야 A1 기반 반증 조건 판정이 기계화되고, 축 은퇴(M4에서 이연)의 근거 데이터가 생긴다 | complete (인정 조건 부분 미충족: B3만 computed 전환 · A1은 이 PR 이후 전환 · A2는 상류 텔레메트리 부재) | [multi-session-work-loop-m8.plan.md](../plans/multi-session-work-loop-m8.plan.md) |
+| 9 | **아카이브 조건 충족** | M4·M5·M8이 status 안에 남긴 미충족 인정 조건이 **닫히거나, 닫을 수 없음이 증거와 함께 개정된다**. A3 측정 경로가 크래시 대신 정직한 미산출을 내고 재측정값이 실제 값으로 갱신되며, C1 패널 경로에 종결 producer가 생기고, C2/C3 귀속이 산문이 아니라 기계적 파생으로 발화한다. A2는 대체 producer를 먼저 조사하고 불가로 확인되면 그 사실이 실측 문서로 남는다. **완료 판정은 `/mccp:archive-complete`가 이 PRD를 `archivable:true`로 판정하고 실제 이동을 1회 완주하는 것**이며, 미충족 원문이 `## 순서의 근거`로 이전돼 소실되지 않았음이 함께 확인된다 | in-progress | [multi-session-work-loop-m9.plan.md](../plans/multi-session-work-loop-m9.plan.md) |
 
 ### 순서의 근거
 

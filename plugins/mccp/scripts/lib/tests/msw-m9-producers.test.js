@@ -217,3 +217,99 @@ test('M9 Task 3: deferring a finding never counts as resolving it', () => {
 
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+// ---- Task 4 - C2/C3 attribution is derived, never typed ---------------------
+
+function openWithGate(root, slug, f) {
+  const r = registry.appendFindings(slug, [{
+    kind: 'finding_opened',
+    gate_id: 'mccp-plan-codex',
+    gate_decision_id: f.gate,
+    perspective: f.perspective,
+    severity: f.severity,
+    claim: f.claim,
+    claim_digest: registry.claimDigestOf(f.claim),
+  }], { repoRoot: root });
+  assert.ok(r.ok, 'fixture setup: finding_opened must append');
+  const id = registry.deriveFindingId({
+    work_unit: slug,
+    gate_id: 'mccp-plan-codex',
+    perspective: f.perspective,
+    severity: f.severity,
+    claim: f.claim,
+  });
+  const c = registry.appendFindings(slug, [{
+    kind: 'finding_closed',
+    finding_id: id,
+    closure_type: f.closure,
+    gate_id: 'mccp-plan-codex',
+    perspective: f.perspective,
+    severity: f.severity,
+  }], { repoRoot: root });
+  assert.ok(c.ok, 'fixture setup: finding_closed must append');
+  return id;
+}
+
+function runQuery(root, slug) {
+  const stateCli = path.join(__dirname, '..', '..', 'state', 'cli.js');
+  const run = spawnSync(process.execPath,
+    [stateCli, 'findings-unattributed', '--work-unit', slug, '--cwd', root, '--json'],
+    { encoding: 'utf8', cwd: root });
+  assert.strictEqual(run.status, 0, 'query must exit 0 even with nothing to report:\n' + run.stderr);
+  return JSON.parse(run.stdout);
+}
+
+test('M9 Task 4: resolved findings are enumerated for attribution, deferred ones are not', () => {
+  const slug = 'm9-attrib';
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-m9at-')));
+
+  const fixedId = openWithGate(root, slug, {
+    perspective: 'security', severity: 'HIGH', claim: 'this one was actually repaired',
+    gate: 'some-earlier-gate', closure: 'fixed',
+  });
+  const invalidatedId = openWithGate(root, slug, {
+    perspective: 'test', severity: 'HIGH', claim: 'this premise stopped holding',
+    gate: 'some-earlier-gate', closure: 'invalidated',
+  });
+  openWithGate(root, slug, {
+    perspective: 'invariant', severity: 'MEDIUM', claim: 'this one was only filed away',
+    gate: 'some-earlier-gate', closure: 'deferred',
+  });
+
+  const q = runQuery(root, slug);
+  const ids = q.findings.map((r) => r.finding_id).sort();
+  assert.deepStrictEqual(ids, [fixedId, invalidatedId].sort(),
+    'only RESOLVING closures may be attributed to a PR');
+  assert.strictEqual(q.count, 2);
+  // A PR that merely deferred a finding did not remediate it. Attributing a
+  // deferral would make the attribution rate measure paperwork.
+  q.findings.forEach((r) => {
+    assert.notStrictEqual(r.closure_type, 'deferred');
+    assert.ok(r.gate_decision_id, 'every row must carry the join key');
+  });
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('M9 Task 4: a finding with no gate_decision_id is dropped, not attributed on a guess', () => {
+  // The M7 cohort predates the gate_decision_id stamp, so its records carry no
+  // left-hand side of the triangle. A row without the join key is one no
+  // consumer can read; inventing one would be worse than reporting zero.
+  const slug = 'm9-nogate';
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-m9ng-')));
+
+  const id = openFinding(root, slug, {
+    perspective: 'security', severity: 'HIGH', claim: 'repaired but never stamped',
+  });
+  const c = registry.appendFindings(slug, [{
+    kind: 'finding_closed', finding_id: id, closure_type: 'fixed',
+    gate_id: 'mccp-plan-codex', perspective: 'security', severity: 'HIGH',
+  }], { repoRoot: root });
+  assert.ok(c.ok);
+  assert.strictEqual(shardOf(root, slug).counts.resolved, 1, 'precondition: it IS resolved');
+
+  const q = runQuery(root, slug);
+  assert.strictEqual(q.count, 0, 'no join key means no attribution row');
+
+  fs.rmSync(root, { recursive: true, force: true });
+});

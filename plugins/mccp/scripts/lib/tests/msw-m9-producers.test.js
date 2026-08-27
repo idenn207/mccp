@@ -313,3 +313,71 @@ test('M9 Task 4: a finding with no gate_decision_id is dropped, not attributed o
 
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+// ---- Task 6 - the gate blocks a flip whose predicate is false --------------
+
+const m9gate = require('../msw-metrics/m9-coverage-gate');
+
+function makePrdRepo(statusCell) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-m9gate-')));
+  fs.mkdirSync(path.join(root, '.claude', 'prds'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.claude', 'prds', 'multi-session-work-loop.prd.md'), [
+    '# PRD',
+    '',
+    '## Delivery Milestones',
+    '',
+    '| # | Milestone | Outcome | Status | Plan |',
+    '|---|---|---|---|---|',
+    '| 5 | Fifth | something | ' + statusCell + ' | [p](p.md) |',
+    '',
+  ].join('\n'), 'utf8');
+  return root;
+}
+
+test('M9 Task 6: a row flipped to canonical complete with a false predicate fails the gate', () => {
+  // This is the whole reason axis 3 exists. Evaluating predicates and printing
+  // them would produce a report; it would not stop a row whose parentheses were
+  // deleted while its condition stayed false. scan.js:106 treats bare
+  // `complete` as canonical, so that one edit flips archivability on its own.
+  const root = makePrdRepo('complete');
+
+  // No metrics corpus in the fixture, so M5's predicate (A4 === computed)
+  // cannot hold. The row IS flipped, so the gate must check it and refuse.
+  const cross = m9gate.predicateCrossCheck(root);
+  const m5 = (cross.rows || []).find((r) => r.milestone === 'M5');
+  assert.ok(m5, 'M5 must appear in the cross-check');
+  assert.strictEqual(m5.flipped, true, 'a bare `complete` cell is a flip');
+  assert.strictEqual(m5.checked, true, 'a flipped row must be checked, not reported');
+  assert.strictEqual(m5.ok, false, 'the predicate is false, so the flip is not permitted');
+  assert.strictEqual(cross.ok, false);
+
+  const gate = m9gate.evaluateGate({ repoRoot: root });
+  assert.strictEqual(gate.ok, false, 'the gate as a whole must refuse');
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('M9 Task 6: a row still carrying its condition marker is not checked, and does not fail', () => {
+  // "Predicate false" and "row not flipped" are different states. A row that
+  // still says `complete (인정 조건 미충족: ...)` is non-canonical, which means
+  // M9 has not touched it -- honest incompleteness, not a violation. Failing it
+  // would push an author to flip rows just to quiet the gate.
+  const root = makePrdRepo('complete (인정 조건 미충족: 무언가)');
+
+  const cross = m9gate.predicateCrossCheck(root);
+  const m5 = (cross.rows || []).find((r) => r.milestone === 'M5');
+  assert.ok(m5);
+  assert.strictEqual(m5.flipped, false);
+  assert.strictEqual(m5.checked, false);
+  assert.strictEqual(cross.ok, true, 'an untouched row is not a gate failure');
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('M9 Task 6: an unreadable PRD fails closed rather than reporting nothing to check', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-m9noprd-')));
+  const cross = m9gate.predicateCrossCheck(root);
+  assert.strictEqual(cross.ok, false, 'not being able to tell what was flipped is not a pass');
+  assert.match(String(cross.reason || ''), /PRD unreadable/);
+  fs.rmSync(root, { recursive: true, force: true });
+});

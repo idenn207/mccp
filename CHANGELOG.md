@@ -15,6 +15,17 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 > (merge `e458f0c`). §3.7 forward-only에 따라 발행된 번호는 불가침이므로
 > 미머지인 이쪽을 `1.32.7`로 밀었다.
 
+### Fixed
+
+- **pre-push 유출 게이트가 이 브랜치를 막았다 — 정직한 예외로 풀었다.**
+  `history-leak-scan.js`의 `DEFAULT_ALLOWLIST`에 세 번째 항목을 더했다.
+  대상은 `codex-findings-backlog.md`의 한 행으로, hook-trace에 대한 L2 security
+  finding을 **기각하면서 그 근거로 실제 관측된 절대경로를 인용**한다. 그 인용이
+  곧 반박이라 지우면 기각이 보여주지 않는 측정을 주장하게 된다 — 두 번째 항목이
+  이 scanner 자신의 오탐 보고에 대해 이미 해소한 것과 같은 구속이다. 마커는 finding
+  digest(`22877fd2`)라 그 한 행에만 걸리고, 행이 재작성되면 면제가 자동 소멸한다
+  (fail-closed). 디렉토리 단위 면제가 아니므로 다른 파일·다른 행의 유출은 그대로 잡힌다.
+
 ### Measured
 
 - **santa 델타 리뷰 Layer 2(라이브 리뷰어 비교) 완주** — M2 plan Task 3이 세션 운영

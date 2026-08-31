@@ -27,6 +27,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const { resolveRawSessionId } = require('../lib/session-identity');
 
 // 임계구역은 파일 IO ms 단위다. LLM 호출은 절대 들어오지 않는다.
 const LEASE_MS = 5000;
@@ -68,8 +69,7 @@ function sha256(str) {
 // 재실행 사이에 안정하다.
 function resolveSessionId(env) {
   env = env || process.env;
-  const v = env.MCCP_SESSION_ID || env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID || '';
-  const s = String(v).trim();
+  const s = resolveRawSessionId(env);
   return s && s !== 'unknown' ? s : null;
 }
 

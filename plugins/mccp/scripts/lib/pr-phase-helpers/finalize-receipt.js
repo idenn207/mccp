@@ -444,6 +444,47 @@ function run(args) {
     }
   }
 
+  // ── ship 봉인 관측 (multi-session-work-loop M8 Task 4 · DD5) ───────────────
+  //
+  // **이것은 A1의 분자가 아니다.** 봉인 뒤 `gh pr create`가 실패하면 완주가
+  // 아니기 때문이다. 완주(`task_completed`)는 PR 번호가 생긴 **뒤에** 명령
+  // 본문이 기록한다(DD4).
+  //
+  // 그럼 왜 기록하는가: DD4가 완주 emit을 산문에 맡겼고 이 저장소의 산문 지시는
+  // 자주 불이행된다. 그 간극을 침묵시키지 않기 위해 봉인 사실을 코드로 남긴다 —
+  // `sealed_without_completion`(봉인은 됐는데 완주 기록이 없는 작업 단위 수)이
+  // 그 차이를 **관측 가능한 수치**로 만든다. 침묵하는 과소 계상과 보이는 과소
+  // 계상은 다르다.
+  //
+  // fail-open: 이 emit이 실패해도 PR finalize는 계속된다. 관측이 게이트를
+  // 막으면 관측이 아니라 게이트다(UI4).
+  try {
+    const mswEvents = require('../../state/msw-events');
+    const { resolveRawSessionId } = require('../session-identity');
+    const { sanitizeSessionId } = require('../utils');
+    const sid = sanitizeSessionId(resolveRawSessionId(process.env));
+    if (sid) {
+      // repoRoot는 위 ship-gate 블록 **안**에서만 선언되므로 여기서 다시 푼다.
+      // 그 이름을 빌려 쓰면 non-PR 게이트에서 ReferenceError가 되고, 이 try가
+      // 그것을 삼켜 emit이 조용히 사라진다 — fail-open이 결함을 숨기는 형태다.
+      const emitRoot = gitRepoRoot(args.cwd || process.cwd());
+      const r = mswEvents.appendEvent(sid, {
+        kind: 'task_ship_sealed',
+        work_unit: args.decision,
+        producer: 'finalize-receipt',
+      }, { repoRoot: emitRoot });
+      if (!r || !r.ok) {
+        process.stderr.write('[mccp:msw-a1] task_ship_sealed append failed: '
+          + ((r && r.reason) || 'unknown') + '\n');
+      }
+    } else {
+      process.stderr.write('[mccp:msw-a1] task_ship_sealed skipped — no resolvable session id\n');
+    }
+  } catch (err) {
+    process.stderr.write('[mccp:msw-a1] task_ship_sealed emit error (fail-open): '
+      + ((err && err.message) || String(err)) + '\n');
+  }
+
   // Receipt write succeeded — compose summary
   const receiptPath = path.posix.join('.claude', 'receipts', gateId, args.decision + '.json');
   return emit({

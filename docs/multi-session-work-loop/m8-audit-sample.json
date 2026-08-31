@@ -1,0 +1,107 @@
+{
+  "milestone": "multi-session-work-loop M8",
+  "purpose": "UI12 — 지표별 표본을 사람이 원자료와 직접 대조하고 그 기록을 남긴다. 자동 산출값과 사람 판정이 어긋나면 plan Validation의 대조 스크립트가 실패한다.",
+  "audited_at": "2026-08-25",
+  "auditor_note": "표본은 **실제로 대조한 것만** 적는다. corpus가 작아 지표당 5건을 채울 수 없는 축은 그 사실을 적고 채운 척하지 않는다 — 지어낸 표본은 UI12가 막으려는 바로 그 행위다.",
+
+  "computed": {
+    "A1": { "numerator": null, "denominator": 1 },
+    "A2": { "numerator": null, "denominator": 2 },
+    "B3": { "numerator": 20, "denominator": 116 },
+    "C1": { "numerator": 0, "denominator": 12 }
+  },
+
+  "samples": [
+    {
+      "metric": "A1",
+      "claim": "분모 1 = distinct work_unit 1개",
+      "raw": ".claude/state/msw-events/d4db96d9-b2e4-4f99-94f5-0154e89021fb.jsonl — kind=task_started · work_unit=multi-session-work-loop-m8 · producer=receipt-prompt · ts=2026-08-25T04:45:21.831Z",
+      "human_reading": "task_started 이벤트는 1건이고 work_unit은 한 종류다. 세션은 2개지만 분모는 작업 단위 기준이므로 1이 맞다.",
+      "matches": true
+    },
+    {
+      "metric": "A1",
+      "claim": "분자가 null인 것은 완주 producer 미발화 때문이지 완주율 0%가 아니다",
+      "raw": "msw-events 전 kind 집계: evidence_guard_active · session_start · session_end · task_started. task_completed 0건",
+      "human_reading": "completions_producer_present=false이므로 computeA1이 forward-only를 반환한다. 0%로 표기하지 않는 것이 계약이다.",
+      "matches": true
+    },
+    {
+      "metric": "A1",
+      "claim": "sealed_without_completion=0",
+      "raw": "task_ship_sealed 0건",
+      "human_reading": "봉인 이벤트가 아직 없으므로 봉인-완주 간극도 0이다. 0이 '누락이 없다'가 아니라 '관측된 누락이 없다'임을 대시보드 문구가 그대로 말한다.",
+      "matches": true
+    },
+    {
+      "metric": "A2",
+      "claim": "분모 2 = 관측된 세션 2개",
+      "raw": "session-activity sessions: 8ab2b06d-… · d4db96d9-… (둘 다 context_remaining_pct=null)",
+      "human_reading": "세션 2개가 맞고, 둘 다 귀속·신선도 게이트를 통과한 context 표본이 없어 null이다.",
+      "matches": true
+    },
+    {
+      "metric": "A2",
+      "claim": "표본 0건의 원인은 상류 텔레메트리이지 M8 배선이 아니다",
+      "raw": "session-bridge(ecc-metrics-d4db96d9-….json).context_remaining_pct = null · 전역 context-current.json = {session_id:null, tool_count:900, context_ts 11일 전}",
+      "human_reading": "브리지 자체가 context%를 갖고 있지 않고, 전역 스냅샷은 다른 세션의 더 높은 tool_count라 out-of-order 가드가 write를 건너뛴다. M8이 배선한 것은 귀속 경로이며 값의 부재는 그 밖의 원인이다.",
+      "matches": true
+    },
+    {
+      "metric": "B3",
+      "claim": "분자 20 = env-snapshot에서 is_set=true인 토글 수",
+      "raw": ".claude/state/d4db96d9-….env-snapshot.json — used total 20. 상위 5: MCCP_RECEIPT_GATE_MODE · MCCP_RECEIPT_DEBUG · MCCP_CODEX_DISABLED · MCCP_STOP_LOOP_CODEX · MCCP_GATE_ROUND_CAP",
+      "human_reading": "다섯 개 모두 이 저장소의 .claude/settings.json 또는 셸 env에 실제로 설정돼 있다. 스냅샷의 is_set 판정이 실제 설정 상태와 일치한다.",
+      "matches": true
+    },
+    {
+      "metric": "B3",
+      "claim": "분모 116 = 원시 표면 133에서 명명된 제외 17을 뺀 값",
+      "raw": "scanSurfaceDetailed: raw_surface_count=133 · excluded=17 · toggle_count=116",
+      "human_reading": "133 − 17 = 116. 산술이 맞고, 제외 17개는 전부 measurement-design.md §B3 표에 이름이 적혀 있다(exclusion_doc.ok=true).",
+      "matches": true
+    },
+    {
+      "metric": "B3",
+      "claim": "분모 집합과 분자 우주가 같은 집합이다",
+      "raw": "numerator_coverage: denominator=116 · numerator_universe=116 · denominator_only=[] · numerator_only=[]",
+      "human_reading": "양방향 차집합이 모두 비었다. M8 이전에는 denominator_only 7개 · numerator_only 1개였고, 그 8개 이름을 각각 제외 표(7)와 접두 규약(1)으로 명시 해소했다.",
+      "matches": true
+    },
+    {
+      "metric": "B3",
+      "claim": "은퇴 0건 — 제외 확대가 감축이 아니다",
+      "raw": "retired_count=0 · raw_surface_count는 133으로 불변",
+      "human_reading": "원시 표면 수가 그대로이므로 동작 분기를 없앤 것이 아니다. 제외된 7개는 전부 환경변수가 아닌 이름(JS 상수 3 · 주석 잔존 1 · 에러 코드 1 · 접두사 오탐 1 · test 전용 1)이다.",
+      "matches": true
+    },
+    {
+      "metric": "C1",
+      "claim": "분모 12 = findings 레지스트리 전 샤드의 finding 전수",
+      "raw": ".claude/state/findings/multi-session-work-loop-m7.jsonl — 샤드 1개",
+      "human_reading": "샤드가 하나이고 그 안의 distinct finding_id가 12개다. 첫 레코드는 finding_id=a3fc63f22c667bb8 · gate_id=mccp-plan-codex · severity=HIGH.",
+      "matches": true
+    },
+    {
+      "metric": "C1",
+      "claim": "분자 0 = 해소(fixed·invalidated) 종결이 아직 없다",
+      "raw": "같은 샤드의 closure_type 분포 — resolved 0",
+      "human_reading": "이연·강등·기각은 분자가 아니므로(UI5) 0이 맞다. 미해소 12건은 별도 축으로 병기된다.",
+      "matches": true
+    },
+    {
+      "metric": "C2/C3",
+      "claim": "귀속 커버리지 0/0이고 status는 forward-only를 유지한다",
+      "raw": "findings 소스: with_gate_decision=0 · with_remediation_pr=0 · count=12. metrics.C2.status='forward-only'",
+      "human_reading": "기존 12건은 M8 이전에 기록돼 gate_decision_id가 없다(allowlist에 없던 시절). 배선은 신규 emit부터 적용되며, 값 산출은 label-protocol 개정 전까지 금지이므로 forward-only 유지가 맞다.",
+      "matches": true
+    }
+  ],
+
+  "coverage_shortfall": {
+    "A1": "표본 3건 (목표 5) — corpus에 work_unit이 1개뿐이라 더 대조할 원자료가 없다",
+    "A2": "표본 2건 (목표 5) — 세션 바인딩 표본이 0건이라 값 대조 자체가 불가능하다",
+    "C1": "표본 2건 (목표 5) — 샤드가 1개이고 종결 이벤트가 없다",
+    "why_not_padded": "표본 수를 맞추려고 같은 사실을 쪼개 적는 것은 대조가 아니라 분량이다. 부족분은 corpus가 쌓인 다음 주기에 채운다."
+  }
+}

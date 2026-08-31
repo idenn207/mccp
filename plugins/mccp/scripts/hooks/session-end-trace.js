@@ -57,7 +57,12 @@ function loadHookTrace() {
   }
 }
 
+// M3 Task 4 (DD6-1) — 같은 공유 판정을 쓴다. 이 hook과 post-tool-use-failure.js가 서로
+// 다른 루트를 고르면 shard는 한 디렉토리에 쌓이고 `.end` 마커는 다른 디렉토리에 찍혀,
+// 다음 세션의 `scanCrashAlerts`가 거짓 crash alert를 낸다(§3.2).
 function repoRootOf(event) {
+  const ht = loadHookTrace();
+  if (ht && typeof ht.resolveRepoRoot === 'function') return ht.resolveRepoRoot(event);
   return (event && event.cwd) ? event.cwd : process.cwd();
 }
 

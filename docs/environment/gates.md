@@ -389,7 +389,7 @@ node plugins/mccp/scripts/lib/codex-policy.js clear
 }
 ```
 
-> v1.33.4 (env-contract-integrity M3)부터 이 상한은 **산문이 아니다.** 그 전까지 세 게이트
+> v1.33.5 (env-contract-integrity M3)부터 이 상한은 **산문이 아니다.** 그 전까지 세 게이트
 > 본문은 값을 `$ROUND_CAP`에 담고 "Repeat up to `$ROUND_CAP` rounds"라고 적었을 뿐이라
 > 네 번째 호출을 막는 것이 없었다(실측 15+ 라운드, 그런데 receipt는 `rounds: 1`을 봉인).
 > 이제 두 chokepoint가 원장을 읽어 초과 호출을 거부한다 — 어느 캡이 실제로 적용됐는지는

@@ -16,6 +16,7 @@
 //   - malformed 격리는 호출자(journal-store)가 per-line으로 수행
 
 const crypto = require('crypto');
+const { resolveRawSessionId } = require('../session-identity');
 
 // 레코드 allowlist. 이 목록이 곧 스키마다.
 //
@@ -284,8 +285,7 @@ function resolveIdentity(opts) {
   const env = opts.env || {};
   const ts = opts.ts || new Date().toISOString();
 
-  const sessionId = env.MCCP_SESSION_ID || env.CLAUDE_CODE_SESSION_ID ||
-    env.CLAUDE_SESSION_ID || 'unknown';
+  const sessionId = resolveRawSessionId(env) || 'unknown';
 
   let sessionEpoch = null;
   let epochSource = 'ts-fallback';

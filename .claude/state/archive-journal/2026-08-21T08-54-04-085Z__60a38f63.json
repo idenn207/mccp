@@ -1,0 +1,68 @@
+{
+  "schema_version": "v1",
+  "id": "2026-08-21T08-54-04-085Z__60a38f63",
+  "created_at": "2026-08-21T08:54:04.085Z",
+  "session_id": "unknown",
+  "scan_hash": "7883dffbc73fc0a4a59cad952ae3d1f0c3706e952b85c1b6e3149099af4efe0a",
+  "status_corrections": [
+    {
+      "prd": ".claude/prds/workflow-orchestration-live-activation.prd.md",
+      "milestone": "live 완주 검증 (복수 cycle)",
+      "new_status": "complete",
+      "reason": "M2 ship receipt가 converged verdict로 존재하고 완료 ledger에도 기록돼 있어 사용자 승인 아래 complete로 정정한다(스캐너 driftSuspect 후보).",
+      "evidence": "receipt: .claude/receipts/mccp-pr-codex/workflow-orchestration-live-activation-m2.json · resolution.codex_verdict=converged · ledger: decision=workflow-orchestration-live-activation-m2 verdict=converged at 2026-07-14T14:48:31.194Z"
+    }
+  ],
+  "archives": [
+    {
+      "prd": ".claude/prds/codex-intent-context.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/codex-intent-context.prd.md",
+          "to": ".claude/prds/archived/codex-intent-context.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/codex-intent-context-m1.plan.md",
+          "to": ".claude/PRPs/plans/archived/codex-intent-context-m1.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/codex-intent-context-m1-5.plan.md",
+          "to": ".claude/PRPs/plans/archived/codex-intent-context-m1-5.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/codex-intent-context-m2.plan.md",
+          "to": ".claude/PRPs/plans/archived/codex-intent-context-m2.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/codex-intent-context-m3.plan.md",
+          "to": ".claude/PRPs/plans/archived/codex-intent-context-m3.plan.md"
+        }
+      ]
+    },
+    {
+      "prd": ".claude/prds/review-loop-bypass.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/review-loop-bypass.prd.md",
+          "to": ".claude/prds/archived/review-loop-bypass.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/review-loop-bypass-m1.plan.md",
+          "to": ".claude/PRPs/plans/archived/review-loop-bypass-m1.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/review-loop-bypass-m2.plan.md",
+          "to": ".claude/PRPs/plans/archived/review-loop-bypass-m2.plan.md"
+        }
+      ]
+    }
+  ]
+}

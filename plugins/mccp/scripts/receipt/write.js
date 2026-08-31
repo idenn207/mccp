@@ -894,6 +894,12 @@ function buildReceipt(args) {
     // 재료화 규약이고 0은 유효한 값이다(계열이 하나도 식별되지 않은 라운드 = 전원
     // unknown). 부재만이 "이 필드가 없던 시절"을 뜻한다.
     ['santa-model-families', 'santa_model_families', 0],
+    // santa-delta-review M1 — 델타 스코프 관측 2종. 같은 조건부 재료화 규약이고 0은
+    // 유효한 값이다: `MCCP_SANTA_DELTA_SCOPE=off` 실행이 `santa_delta_rounds=0`을
+    // 남기는 것이 이 축의 dark-ship 관측 수단 전부다(DD12). **부재만이** "이 필드가
+    // 없던 시절"을 뜻한다.
+    ['santa-delta-rounds', 'santa_delta_rounds', 0],
+    ['santa-delta-paths-dropped', 'santa_delta_paths_dropped', 0],
   ];
   SANTA_INT_FIELDS.forEach(function (spec) {
     const raw = args[spec[0]];

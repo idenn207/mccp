@@ -107,6 +107,7 @@ lint L12가 대조한다.
 |`MCCP_SANTA_LEDGER_SUPPRESSION`|enum|enforce/off|enforce|santa 원장 억제.|[→](environment/review.md#mccp_santa_ledger_suppression)|
 |`MCCP_SANTA_BLIND_LANE`|enum|a/b/off|a|santa 증거 레인 배정.|[→](environment/review.md#mccp_santa_blind_lane)|
 |`MCCP_SANTA_ALWAYS_SCOPE`|enum|enforce/off|enforce|santa 상시 스코프 + 정합 rubric.|[→](environment/review.md#mccp_santa_always_scope)|
+|`MCCP_SANTA_DELTA_SCOPE`|enum|enforce/off|off|santa 델타 스코프 축소 (default가 형제와 **반대**).|[→](environment/review.md#mccp_santa_delta_scope)|
 |`MCCP_SANTA_DEGRADE_GATE`|enum|enforce/off|enforce|santa 모델 계열 degrade 강등.|[→](environment/review.md#mccp_santa_degrade_gate)|
 |`MCCP_SANTA_DEGRADE_ACK`|string|—|—|santa degrade audited override 사유.|[→](environment/review.md#mccp_santa_degrade_ack)|
 |`MCCP_INTENT_MISLABEL`|enum|enforce/warn/off|enforce|오심 대조 모드.|[→](environment/review.md#mccp_intent_mislabel)|

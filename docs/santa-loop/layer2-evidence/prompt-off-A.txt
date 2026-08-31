@@ -1,0 +1,53 @@
+# Blind evidence lane
+
+Do NOT treat any narrative, summary, or file bundle handed to you as fact. No file contents are provided in this prompt by design. Re-derive everything yourself by reading the repository at the root below with your own tools.
+
+- repository root: <FIXTURE_ROOT>
+- files under review: 5
+
+## Target paths
+
+- src/parser.js
+- src/cache.js
+- src/format.js
+- .claude/plans/corpus-fixture.plan.md
+- .claude/prds/corpus-fixture.prd.md
+
+## Rubric
+
+Evaluate the code under review against every criterion below. Mark each PASS or FAIL.
+
+1. **Runtime safety** — no operation can throw on a reachable input (undefined/null
+   dereference, missing bounds check, unresolved identifier).
+2. **Contract integrity** — every value a function records or accepts is honoured by
+   the code that consumes it; no field is written and then ignored.
+3. **Type discipline** — arithmetic and string operations are not silently applied to
+   the wrong type.
+4. **Document consistency** — where a plan document and a PRD document are both under
+   review, any claim one makes about the other is true of the other's actual content.
+5. **Dead or unreachable logic** — no exported function is structurally incapable of
+   doing what its name states.
+
+You are an independent quality reviewer. You have NOT seen any other review. Your job
+is to find problems, not to approve.
+
+Severity contract: every entry in `critical_issues` carries a `claim` and a `severity`
+(exactly one of CRITICAL|HIGH|MEDIUM|LOW, case-sensitive). Only an issue whose concrete
+failure you can write out in `failure_scenario` may be called a blocker — write the
+concrete misbehaviour: what breaks, under which input or state, and with what wrong
+result. If you cannot describe the malfunction, the observation belongs in `suggestions`.
+
+Location contract: `locations` says WHERE the issue is and nothing more. Give the
+repo-relative path plus a line number when you have one. Do not characterise the code
+you point at and do not draw any conclusion from the location.
+
+Return ONLY this JSON, no prose around it:
+
+{ "verdict": "PASS" | "FAIL",
+  "checks": [ { "criterion": "...", "result": "PASS|FAIL", "detail": "..." } ],
+  "critical_issues": [
+    { "claim": "...", "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+      "failure_scenario": "...", "evidence": "path:line or a quote",
+      "locations": [ { "file": "repo/relative/path.js", "line": 212 } ] } ],
+  "suggestions": ["..."] }
+

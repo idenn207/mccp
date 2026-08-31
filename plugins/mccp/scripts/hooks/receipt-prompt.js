@@ -20,6 +20,7 @@ const envValue = require('../lib/env-contract/value');
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..', '..');
 const RECEIPT_DIR = path.join(PLUGIN_ROOT, 'scripts', 'receipt');
 const LIB_DIR = path.join(PLUGIN_ROOT, 'scripts', 'lib');
+const STATE_DIR = path.join(PLUGIN_ROOT, 'scripts', 'state');
 // v1.23.5 G1 — receipt-mode was an UNGUARDED top-level require. A load failure
 // killed the process at module scope, before main() existed to route it, so the
 // documented fail-open above never ran: the hook died instead of allowing. Guard
@@ -135,6 +136,71 @@ function allowWithMessage(commandName, decisionId) {
     }));
   } catch (_) { /* best-effort */ }
   return 0;
+}
+
+// ── A1 착수 producer (multi-session-work-loop M8 Task 3 · DD4) ───────────────
+//
+// 왜 이 hook인가: matcher가 `^mccp:.*`라 `/mccp:*` 최초 발화 시점에 확실히 돌고,
+// `event.session_id`와 `deriveDecisionId(commandName, command_args)`를 **둘 다**
+// 이미 들고 있다. UI3이 요구하는 "최초 지시 시점"에 기계가 도달할 수 있는 가장
+// 이른 지점이다. 늦게 기록하면 완주율이 부풀려진다.
+//
+// 왜 차단 경로에서는 emit하지 않는가: **게이트가 막은 것은 착수가 아니다.** 막힌
+// 프롬프트는 사용자가 복구한 뒤 다시 발화하고 그때 이 hook이 다시 돈다. 차단을
+// 분모에 넣으면 A1은 "게이트에 막힌 횟수"를 완주 실패로 세게 된다.
+//
+// 중복은 문제가 아니다 — A1 분모는 distinct `work_unit` 수이므로(DD3) 같은 작업
+// 단위의 재발화는 집계에서 하나로 접힌다.
+//
+// fail-open이 절대 조건이다(UI4 — 게이트 동작 불변): 이 함수는 어떤 경우에도
+// throw하지 않고, 실패는 조용히 삼키지 않고 loud stderr로 표면화한다.
+//
+// **작업 단위가 아닌 granularity는 분모에 넣지 않는다** (local review M3):
+// `deriveDecisionId`는 (command, args)에 결정적이라 명령마다 다른 슬러그를 낼 수
+// 있다. `mccp:plan-prd`가 그렇다 — PLAN_PATH_COMMANDS라 **PRD basename**을 내는데,
+// UI1이 정의한 작업 단위는 "PRD milestone 1개 = plan 1개 = PR 1개"이고 PRD는 그
+// 여러 개를 담는 **상위 granularity**다. 실측: PRD `multi-session-work-loop` vs
+// plan/branch `multi-session-work-loop-m8`. 전자를 착수로 세면 완주 기록을 영영
+// 받지 못하는 유령 work_unit이 분모에 남아 A1이 눌린다. 방향은 과소(안전)지만
+// DD3이 주장한 "work_unit은 단일 키"가 성립하지 않게 된다.
+const NON_WORK_UNIT_COMMANDS = new Set(['mccp:plan-prd']);
+
+function emitTaskStarted(event, decisionId, commandName) {
+  try {
+    // decisionId 해소에 실패한 degraded 경로('default')는 착수로 세지 않는다 —
+    // 세면 서로 다른 작업이 한 버킷으로 붕괴해 분모가 조용히 1이 된다.
+    if (!decisionId || decisionId === 'default') return;
+    if (NON_WORK_UNIT_COMMANDS.has(String(commandName || ''))) return;
+
+    const mswEvents = require(path.join(STATE_DIR, 'msw-events'));
+    const { resolveRawSessionId } = require(path.join(LIB_DIR, 'session-identity'));
+    const { sanitizeSessionId } = require(path.join(LIB_DIR, 'utils'));
+
+    // hook payload의 session_id가 canonical이고 env 체인은 fallback이다.
+    // sanitize를 여기서 거치는 이유는 이 값이 `<sid>.jsonl` 파일명이 되기
+    // 때문이다 — `appendEvent`도 자체 guard를 갖지만 그것은 초크 포인트의
+    // 방어이지 호출자의 면제가 아니다(security review R1 F2).
+    const sid = sanitizeSessionId(event && event.session_id)
+      || sanitizeSessionId(resolveRawSessionId(process.env));
+    if (!sid) {
+      process.stderr.write('[mccp:msw-a1] task_started skipped — no resolvable session id\n');
+      return;
+    }
+
+    const res = mswEvents.appendEvent(sid, {
+      kind: 'task_started',
+      work_unit: decisionId,
+      producer: 'receipt-prompt',
+    }, { repoRoot: (event && event.cwd) || process.cwd() });
+
+    if (!res || !res.ok) {
+      process.stderr.write('[mccp:msw-a1] task_started append failed: '
+        + ((res && res.reason) || 'unknown') + '\n');
+    }
+  } catch (err) {
+    process.stderr.write('[mccp:msw-a1] task_started emit error (fail-open): '
+      + ((err && err.message) || String(err)) + '\n');
+  }
 }
 
 // v0.2.7 G1 helpers — opportunistic L1 shard log + universal systemMessage emit
@@ -349,6 +415,7 @@ async function main() {
 
   if (result.ok) {
     debug('OK ' + commandName + ' (decision="' + decisionId + '")');
+    emitTaskStarted(event, decisionId, commandName);
     return allowWithMessage(commandName, decisionId);
   }
 
@@ -362,6 +429,7 @@ async function main() {
   const kind = classify ? classify.classifyValidationResult(result) : (result.ok ? 'ok' : 'block');
   if (kind === 'tempfail') {
     debug('TEMPFAIL ' + commandName + ' — emitting retry hint + ALLOW');
+    emitTaskStarted(event, decisionId, commandName);
     try {
       process.stdout.write(JSON.stringify({
         systemMessage: '[MCCP-RECEIPT-GATE] TEMPFAIL ' + commandName +
@@ -399,6 +467,7 @@ async function main() {
       (result.open_critical || []).length === 0) {
     debug('INFORMATIONAL ' + commandName + ' (decision="' + decisionId +
           '") — missing-only, recoverable, emitting context + ALLOW');
+    emitTaskStarted(event, decisionId, commandName);
     try {
       const ctx = receiptContext.buildAdditionalContext(
         commandName,
@@ -433,6 +502,7 @@ async function main() {
       ' with ' + (result.missing || []).length + ' missing receipt(s). ' +
       'Audit-write a placeholder via: node ${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js write --codex-skipped\n'
     );
+    emitTaskStarted(event, decisionId, commandName);
     return allow();
   }
 

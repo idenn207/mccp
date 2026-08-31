@@ -70,6 +70,10 @@ mccp의 차별점은 **Claude(Opus) ↔ Codex(GPT-5.4 계열) cross-model advers
   - `hard` (default — chain-of-custody 유지) — 누락/skipped/advisory receipt는 게이트 미통과
   - `soft` (opt-in only) — 누락 receipt만 통과, stale/blocking/critical은 여전히 차단
   - `off` — receipt 게이트 비활성 (loud stderr warning, 디버깅 전용)
+  - **이 저장소는 `soft`를 opt-in 중이다**(`.claude/settings.json`). 즉 여기서 게이트를
+    디버깅할 때의 실효 강도는 `hard`가 아니다 — 누락 receipt는 통과하고 stale/blocking/
+    critical만 차단된다. §3.3의 복구 옵션 3번(`soft`로 전환)은 이 저장소에서 이미 적용된
+    상태라 추가 완화 효과가 없다.
 - **v0.2.8 PR step 보호 (Task 2.6.1 B+D+C)**: `/mccp:pr` + `/mccp:prp-pr`는 cross-gate dedupe + review-only invariant 양축으로 dual-review 가치를 보존합니다. 같은 decision-slug에 대해 plan-codex + implement-codex 양쪽 모두 `codex_verdict='converged'`이면(v1.20.3 — 실제 Codex verdict 기반, fail-closed) PR step의 Codex 재호출은 skip되고 receipt에 `codex_dedupe_at_pr=true`가 기록됩니다. dedupe 조건 미충족 시에만 Codex가 실제로 발화하지만, 발화한 경우에도 findings는 PR body의 `## Codex Review` 섹션에만 inject되며 본문 command가 Edit/Write를 호출하지 않는 review-only invariant가 runtime PR-phase guard hook (`pr-phase-guard.js`)로 mechanical하게 보호됩니다. Codex 호출 자체를 명시적으로 우회해야 하는 경우 `MCCP_PR_SKIP_CODEX_REVIEW="<reason>"` audited escape (§4 운영 토글 참조).
   - **v1.20.3 무결성 복구**: 이전에는 dedupe가 실제 Codex verdict가 아니라 receipt-write 시 항상 `true`로 default되던 `resolution.converged`를 검사해, divergent 판정도 조용히 skip되던 결함이 있었다(dual-review invariant 무력화). 이제 신규 present-only 필드 `resolution.codex_verdict`(enum `converged|divergent|critical|unavailable|skipped`)를 검사하며, 부재(구 receipt)·divergent·기타 값은 모두 fail-closed로 skip 불가 → PR-Codex 실행. plan/implement command body는 `$CODEX_VERDICT` **전용 변수**(design-critique `$RECEIPT_VERDICT`와 분리)로 실제 verdict를 forward하고, `/mccp:pr` 진입 시 stale `CODEX_DEDUPE_AT_PR` env를 hard-reset한다.
   - **dedupe 발화 전제 — plan `Files to Change`는 repo-root full 경로로 작성**: `receipt/dedupe.js`의 planned matcher는 plan 표의 첫 열을 git diff 경로와 **리터럴/glob 매칭**한다(경로 prefix를 유추하지 않음). plan이 축약 경로(`receipt/schema.js`)를 쓰고 실제 diff가 full 경로(`plugins/mccp/scripts/receipt/schema.js`)면 매칭 실패 → 모든 파일이 residual로 떨어져 `skip_safe=false`가 된다(양쪽 게이트가 converged여도). 즉 dedupe 최적화가 조용히 불발하고 PR-Codex가 (이미 수렴한 planned 파일에 대해) 다시 돈다 — 이는 fail-closed라 안전하지만 비효율이다. **plan의 `Files to Change` 표는 항상 repo-root 상대 full 경로**로 작성하라(P1 PR #86 회고: 축약 경로 탓에 dedupe 불발 → `MCCP_PR_SKIP_CODEX_REVIEW` audited escape로 우회).
@@ -188,7 +192,7 @@ my-claude-code-plugin/
 |---|---|---|---|
 | `ok` | 정상 응답 | 통과 (`blocking=false`) | n/a |
 | `disabled` | `MCCP_CODEX_DISABLED=1` (v0.3.5 first-class skip) | 통과 (`blocking=false`, `advisory=false`) — spawn 직전 short-circuit, durationMs=0. receipt에 `meta.codex_disabled=true` + `meta.codex_skip_reason='codex_disabled'` 자동 stamp. terminal `/mccp:pr` Phase 0 advisory-rejection 룰에서 예외. | n/a — intentional, not failure |
-| `round-cap-reached` | 이 `(gate, decision)`이 이미 리뷰 라운드를 소진 (v1.33.4 env-contract-integrity M3) | 통과 (`blocking=false`, `advisory=false`) — `disabled` 다음 순서로 spawn 직전 short-circuit, durationMs=0. `plan`·`prp-implement`는 `CODEX_VERDICT="divergent"`로 매핑(§3.16 배경 참조), `/mccp:pr`은 `codex-runner.js`가 HALT하되 예산 소진을 장애와 구별해 보고. | n/a — 예산 소진은 가용성 문제가 아니므로 advisory 경로를 지나지 않는다 |
+| `round-cap-reached` | 이 `(gate, decision)`이 이미 리뷰 라운드를 소진 (v1.33.5 env-contract-integrity M3) | 통과 (`blocking=false`, `advisory=false`) — `disabled` 다음 순서로 spawn 직전 short-circuit, durationMs=0. `plan`·`prp-implement`는 `CODEX_VERDICT="divergent"`로 매핑(§3.16 배경 참조), `/mccp:pr`은 `codex-runner.js`가 HALT하되 예산 소진을 장애와 구별해 보고. | n/a — 예산 소진은 가용성 문제가 아니므로 advisory 경로를 지나지 않는다 |
 | `registry-missing` | `~/.claude/plugins/installed_plugins.json` 없음 | block (exit 12) | warn + 통과 (non-approving receipt) |
 | `registry-malformed` | `installed_plugins.json` JSON parse 실패 (malformed) | block | warn + 통과 |
 | `plugin-not-installed` | codex@openai-codex registry entry 없음 | block | warn + 통과 |
@@ -793,7 +797,7 @@ receipt는 미작성도 미승인도 아니라 **사유가 봉인된 기록**이
 발생한다. M2의 정적 단언은 배선 누락과 위치 drift만 잡고 셸 인용 실수·종료코드 미검사는 통과한다 — 실행 축은
 CLI를 실제로 spawn하는 test와 라이브 발화가 나눠 덮는다.
 
-> **v1.33.4 정정 (env-contract-integrity M3).** 이 자리에는 "기계화된 것은 캡 계산과 `pr.md`의 자식 프로세스
+> **v1.33.5 정정 (env-contract-integrity M3).** 이 자리에는 "기계화된 것은 캡 계산과 `pr.md`의 자식 프로세스
 > export, receipt 봉인, 정적 test뿐"이라고 적혀 있었고 M3 이후로는 거짓이다. 캡은 이제 **리뷰어 발화 지점**에서
 > 강제된다 — `codex-invoke.js`가 spawn 직전에, `plan-review/cli.js emit-workflow-args`가 패널 launch 직전에
 > 원장을 읽어 초과 호출을 거부한다. 여전히 산문인 것은 라운드 루프를 **도는 방식**이지 라운드를 **여는 것**이
@@ -829,7 +833,7 @@ R5 계약 위반 2건 + 정지 → R6 새 축 0건 → Plan-Codex R1 실재 1건
 #### 어떻게
 
 - 라운드 캡은 `MCCP_GATE_ROUND_CAP=1`(프로젝트 기본, 이미 `.claude/settings.json`에 설정).
-  **v1.33.4(env-contract-integrity M3)부터 이 문장은 참이고, 그 캡은 강제된다.** 그 전까지
+  **v1.33.5(env-contract-integrity M3)부터 이 문장은 참이고, 그 캡은 강제된다.** 그 전까지
   설정값은 실제로 `3`이었고 캡은 어느 값이든 산문이었다 — 이 절이 근거로 든 8시간 사건이
   재발하지 못하게 막는 것이 없었다. G7 판정으로 설정값을 `1`로 맞췄고, 이제 같은
   `(게이트, decision)`에 대한 2회차 리뷰는 기계가 거부한다. 즉 이 절을 지키는 비용은
@@ -958,6 +962,29 @@ L8이 형식과 실재만 보므로 이 축은 L8을 통과하면서 거짓일 �
 환경변수 계약은 `node plugins/mccp/scripts/lib/env-contract/lint.js`(L1~L10)와
 `node plugins/mccp/scripts/lib/env-contract/measure-evidence.js --json`(A/B/C 재측정)이 검사한다.
 배경(4소스 표·해소 규칙·경로 정규화·방어·M2 채널 표·M3 재배선과 거부 규칙·주장하지 않는 것): [상세](docs/gate-design.md#impeccable-detection)
+
+---
+
+### 3.18 세션 식별은 단일 체인이다 (v1.33.0 — multi-session-work-loop M8 DD1)
+
+세션 id는 [session-identity.js](plugins/mccp/scripts/lib/session-identity.js)의
+`resolveRawSessionId(env)` **하나**로만 해소한다: `MCCP_SESSION_ID` →
+`CLAUDE_CODE_SESSION_ID` → `CLAUDE_SESSION_ID`. **`process.env.CLAUDE_SESSION_ID`를
+직접 읽지 마라** — 그 이름은 이 하네스의 CLI가 설정하지 않으므로 단독 read는 항상
+빈 값이고, 그 falsy 값이 M2 계측 블록 전체를 죽여 A1·A2·B3 producer가 한 줄 때문에
+전부 침묵했다. 런타임 표면에 그 이름이 0회 등장함을 `session-identity.test.js` (a)가
+스캔으로 단언한다(`env-contract/lint.js` L10 역방향과 같은 형태).
+
+**옮긴 것은 체인뿐이고 정규화는 각 소비처에 남는다.** `evidence-lock`은 `null`,
+`observer-sessions`는 빈 문자열, `orchestration-runaway`는 `'unknown'`을 반환하며
+호출자들이 그 차이에 의존한다 — 반환 계약을 통일하려 들면 M3 증거 락과 섞인다.
+변환 패턴은 기본값 표현식 교체 한 줄이라 arity·호출 형태·반환값이 전부 불변이다.
+
+**`resolveRawSessionId`는 sanitize하지 않는다.** 그 값이 파일명이나 `path.join`에
+닿으면 경로 주입이므로, 파일명을 만드는 지점은 반드시 `utils.sanitizeSessionId`를
+거친다. 세션 id가 실제로 파일명이 되는 두 초크 포인트(`msw-events.appendEvent`의
+`SESSION_ID_RE`, `observer-sessions`의 sanitize)는 탈출 입력을 **동작으로** 거절하며
+그 사실을 test가 호출로 확인한다. 이것은 구조적 보장이 아니라 test 보장이다.
 
 ---
 

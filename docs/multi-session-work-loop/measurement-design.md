@@ -124,6 +124,17 @@ M1은 A3의 *방법*만 freeze하고 *baseline 값*은 만들지 않는다. 이�
   | test-only | `MCCP_IMPECCABLE_CLI_MOCK` | `lib/impeccable-detect.js:256` |
   | test-only | `MCCP_STOP_LOOP_E2E` | `quality/runner.js:7` |
   | test-only | `MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL` | `commands/plan.md:687` |
+  | js-constant | `MCCP_DISABLE_VALUES` | `hooks/gateguard-fact-force.js:49` — 비활성 값 어휘를 담은 JS `Set` 상수이며 환경변수가 아니다 |
+  | js-constant | `MCCP_IGNORE_BLOCK` | `lib/gitignore-provision.js:60` — .gitignore 블록 본문을 담은 JS 상수 |
+  | js-constant | `MCCP_IGNORE_ENTRIES` | `lib/gitignore-provision.js:192` — 무시 항목 배열을 담은 JS 상수 |
+  | comment-residue | `MCCP_EXPLORE_CONTROL_PLACEMENT` | `lib/renderer/html.js:1109` — 토글은 제거됐고 그 사실을 적은 주석만 남았다 |
+  | error-code | `MCCP_JOURNAL_DEGRADED_UNRECORDED` | `state/state-writer.js:675` — degraded marker의 사유 코드 문자열이며 환경변수가 아니다 |
+  | dynamic-key-prefix | `MCCP_PLAN_REVIEW_` | `lib/env-contract/measure-evidence.js:19` — 접두사 표기가 잘려 잡힌 것. 실 멤버는 각자 분모에 남는다 |
+  | test-only | `MCCP_PLAN_REVIEW_TEST_INVOKE` | `lib/plan-review/cli.js:543` — `--invoke-module` 주입을 허용하는 test 전용 bypass flag |
+
+- **분자 커버리지 등식** (multi-session-work-loop M8 · DD7): 분모 집합과 분자 우주(`TOGGLE_DEFAULTS`, 레지스트리 파생)는 **양방향 차집합이 공집합**이어야 한다. 한쪽에만 있는 이름은 결함이며 두 방향의 의미가 다르다 — `denominator_only`는 영원히 분자가 될 수 없는 축(B3가 구조적으로 100%에 도달 불가)이고, `numerator_only`는 분모 밖을 세는 축(비율이 1을 넘을 수 있다)이다. `scanSurfaceDetailed().numerator_coverage`가 이 등식을 계산하고, 깨지면 `derive/sources/toggle-usage.js`가 `degraded:true` + 사유로 소비처까지 올린다. 개수 비교로는 부족하다: 서로 다른 이름이 한 개씩 어긋나도 개수는 같다.
+
+- **분자 우주의 접두 규약**: `MCCP_` 접두사가 mccp 토글의 정의이므로(위 실행 규칙) 접두사 없는 이름은 분자 표에서도 빠진다. 실측 대상은 `CODEX_DEDUPE_AT_PR` 하나이며 이것은 **은퇴가 아니라 분류 오류의 시정**이다 — 동작 분기를 없앤 것이 아니라 분모에 속하지도 않는 이름을 분자에서 뺀 것이다. 같은 이유로 위 7개의 제외 확대도 은퇴가 아니다. **M8의 은퇴 건수는 0이다**(`scanSurfaceDetailed().retired_count`).
 
   **제외는 은퇴가 아니다.** 제외 전 분모(`raw_surface_count`)와 제외 후 분모(`denominator`)를 **둘 다** 보고하며, 둘의 차이가 정확히 제외 건수다. M4의 토글 은퇴 건수는 **0**이다. 하나만 보고하면 제외가 곧 감축으로 오독된다.
 

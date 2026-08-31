@@ -27,6 +27,9 @@ test('A1: work completion rate computes value', (t) => {
         task_completions_count: 7,
         // PR-Codex F2: compute 경로는 완료 producer가 배선됐을 때만.
         completions_producer_present: true,
+        // M8 DD3: 분모 쪽 producer도 배선돼야 한다 — 없으면 분모가 계약이
+        // 정의한 작업 단위 전수가 아니라 그냥 0이다.
+        startups_producer_present: true,
         producer_coverage: 'session-activity',
       },
     },
@@ -50,6 +53,7 @@ test('A1: no live completion producer → forward-only (not computed 0%)', (t) =
         ok: true,
         task_startups_count: 4,
         task_completions_count: 0,
+        startups_producer_present: true,
         completions_producer_present: false,
         producer_coverage: 'session-activity',
       },
@@ -60,6 +64,51 @@ test('A1: no live completion producer → forward-only (not computed 0%)', (t) =
   assert.strictEqual(a1.status, 'forward-only');
   assert.strictEqual(a1.value, null);
   assert.match(a1.invalid_reason, /no live completion producer/);
+});
+
+test('M8-A1-STARTUP-PRODUCER-GATE: A1: no live startup producer → forward-only with a null denominator (M8 DD3)', (t) => {
+  // 분모 쪽 producer가 없으면 startupCount는 계약이 정의한 값(착수 이벤트가
+  // 기록된 작업 단위 전수)이 아니라 그냥 0이고, 그 0을 분모로 쓴 비율은 어떤
+  // 의미도 없다. 완료 producer 부재보다 이쪽이 더 근본이므로 먼저 판정한다.
+  const model = {
+    sources: {
+      session_activity: {
+        ok: true,
+        task_startups_count: 0,
+        task_completions_count: 0,
+        startups_producer_present: false,
+        completions_producer_present: true,
+        producer_coverage: 'session-activity',
+      },
+    },
+  };
+
+  const a1 = computeMetrics(model)[A1_WORK_COMPLETION_RATE];
+  assert.strictEqual(a1.status, 'forward-only');
+  assert.strictEqual(a1.value, null);
+  assert.strictEqual(a1.denominator, null, 'a non-contracted denominator must not be reported as a number');
+  assert.match(a1.invalid_reason, /no live startup producer/);
+});
+
+test('A1: sealed_without_completion is co-reported, never folded into the value (M8 DD5)', (t) => {
+  const model = {
+    sources: {
+      session_activity: {
+        ok: true,
+        task_startups_count: 4,
+        task_completions_count: 3,
+        startups_producer_present: true,
+        completions_producer_present: true,
+        sealed_without_completion: 2,
+        producer_coverage: 'session-activity',
+      },
+    },
+  };
+
+  const a1 = computeMetrics(model)[A1_WORK_COMPLETION_RATE];
+  assert.strictEqual(a1.status, 'computed');
+  assert.strictEqual(a1.value, 0.75, 'the co-reported gap must not alter the ratio');
+  assert.strictEqual(a1.sealed_without_completion, 2);
 });
 
 test('A1: timestamp inversion detected → invalid', (t) => {
@@ -88,7 +137,20 @@ test('A1: timestamp inversion detected → invalid', (t) => {
 // producer-flag design let confidently-wrong values through; these tests lock the honest
 // forward-only state + the specific defects (A4 self-credit, A2 unverified stamp).
 
-test('A2: context remaining → forward-only (not session-bound/freshness-verified)', (t) => {
+// ── A2 (multi-session-work-loop M8 Task 6 · DD6) ────────────────────────────
+//
+// **오염 방어의 자리가 옮겨졌다.** M2 정직성 강등은 `session-end.js`가 세션 귀속도
+// 신선도도 없는 latest-wins 스냅샷을 그대로 stamp했기 때문에 A2를 forward-only로
+// 눌렀다. M8은 그 강등이 명시한 복원 조건을 충족시켰다 — 이제 producer가 귀속과
+// 신선도를 **둘 다** 통과한 값만 stamp하고, 그 외에는 여전히 `null`을 쓴다.
+//
+// 따라서 오염 차단을 여기(집계 층)서 단언하는 것은 더 이상 옳지 않다: 여기 도달한
+// 샘플은 이미 검증된 것들이고, 이 층에서 그것을 다시 버리면 producer가 고쳐졌는데도
+// 지표가 영원히 산출되지 않는다. 오염 차단의 회귀는 그 실제 locus인
+// `context-state.resolveSessionBoundPct`(일치·신선도·타입 혼동·legacy 스냅샷 4경로)를
+// 단언하는 `msw-m8-producers.test.js`가 소유한다.
+
+test('M8-A2-PERCENTILE-NO-MEAN: A2: session-bound samples → computed p50/p95 (no mean)', (t) => {
   const model = {
     sources: {
       session_activity: {
@@ -104,21 +166,22 @@ test('A2: context remaining → forward-only (not session-bound/freshness-verifi
   };
 
   const a2 = computeMetrics(model)[A2_CONTEXT_REMAINING];
-  assert.strictEqual(a2.status, 'forward-only');
-  assert.strictEqual(a2.value, null);
-  assert.strictEqual(a2.numerator, null);
-  assert.strictEqual(a2.denominator, 3); // session volume observation preserved
-  assert.match(a2.invalid_reason, /not session-bound/);
+  assert.strictEqual(a2.status, 'computed');
+  assert.ok(a2.value && typeof a2.value === 'object', 'A2 reports a percentile pair, not a scalar');
+  assert.strictEqual(a2.value.p50, 40);
+  assert.strictEqual(a2.value.p95, 60);
+  assert.strictEqual(a2.sample_count, 3, 'sample count is co-reported for the small-sample caveat');
+  assert.ok(!('mean' in a2.value), '§A2 계약은 평균을 금지한다');
 });
 
-test('A2: stale/cross-session sample is NOT attributed as a computed A2 value (Codex R3 F3)', (t) => {
-  // Even with a numeric context_remaining_pct present (which the contaminated producer
-  // could have stamped from another session), A2 must stay forward-only.
+test('A2: no session-bound sample → forward-only (session volume preserved)', (t) => {
+  // producer가 귀속·신선도를 통과시키지 못하면 `session-end.js`는 null을 쓴다.
+  // 그런 주기의 A2는 "0%"가 아니라 "아직 산출 불가"다.
   const model = {
     sources: {
       session_activity: {
         ok: true,
-        sessions: [{ context_remaining_pct: 99 }], // could be a stale/cross-session value
+        sessions: [{ context_remaining_pct: null }, { context_remaining_pct: null }],
         producer_coverage: 'session-activity',
       },
     },
@@ -127,6 +190,27 @@ test('A2: stale/cross-session sample is NOT attributed as a computed A2 value (C
   const a2 = computeMetrics(model)[A2_CONTEXT_REMAINING];
   assert.strictEqual(a2.status, 'forward-only');
   assert.strictEqual(a2.value, null);
+  assert.strictEqual(a2.numerator, null);
+  assert.strictEqual(a2.denominator, 2, 'session volume observation preserved');
+  assert.strictEqual(a2.sample_count, 0);
+});
+
+test('A2: a single sample computes but is flagged by its sample_count (small-sample caveat)', (t) => {
+  const model = {
+    sources: {
+      session_activity: {
+        ok: true,
+        sessions: [{ context_remaining_pct: 99 }],
+        producer_coverage: 'session-activity',
+      },
+    },
+  };
+
+  const a2 = computeMetrics(model)[A2_CONTEXT_REMAINING];
+  assert.strictEqual(a2.status, 'computed');
+  assert.strictEqual(a2.value.p50, 99);
+  assert.strictEqual(a2.sample_count, 1,
+    'M8 claims computability, not that the percentile is meaningful at n=1');
 });
 
 test('A4: restore rate → forward-only (not boundary-scoped)', (t) => {

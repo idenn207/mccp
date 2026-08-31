@@ -45,6 +45,7 @@ const {
 const { isRepoRelativeEvidencePath } = require('../review-verdict');
 const { planAwareMarkdownHash } = require('../../receipt/hash');
 const findingsRegistry = require('../../state/findings-registry');
+const { SLUG_RE } = require('../../receipt/decision');
 
 const EX_OK = 0;
 const EX_L1_DIVERGENT = 1;
@@ -1020,6 +1021,12 @@ function emitPanelFindings(root, slug, l2) {
       });
     });
     if (events.length === 0) return;
+    // M8 Task 7 (DD8) — plan-codex-runner와 같은 규약. 형태가 어긋나면 붙이지
+    // 않는다(귀속을 얻으려다 finding을 잃지 않는다). canonical `SLUG_RE`를
+    // import해 쓴다 — 리터럴 복제는 레지스트리 검증과 갈릴 자리다(local review M1).
+    if (SLUG_RE.test(String(slug || ''))) {
+      events.forEach(function (e) { if (e) e.gate_decision_id = slug; });
+    }
     const r = findingsRegistry.appendFindings(slug, events, { repoRoot: root });
     if (!r.ok) {
       errln('findings registry emit failed (' + r.reason + ') — the gate is unaffected, ' +

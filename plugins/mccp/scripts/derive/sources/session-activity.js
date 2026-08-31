@@ -33,6 +33,22 @@ function scanSessionActivity(repoRoot) {
     // 아니라 forward-only(신호 미배선)로 정직하게 판정한다. fixture는 명시적으로
     // true를 주입해 compute 경로를 실증한다.
     completions_producer_present: false,
+    // multi-session-work-loop M8 — A1 분모의 계약 위반 시정 (DD3).
+    //
+    // `measurement-design.md` §A1(FROZEN)은 분모를 "착수 이벤트가 기록된 **작업
+    // 단위** 전수"로 고정했는데 이 소스는 `session_start`를 가진 **세션 수**를
+    // 세고 있었다. 세션과 작업 단위는 1:1이 아니다 — PRD가 없애려는 문제 자체가
+    // "한 작업이 여러 세션에 걸친다"이므로, 세션을 세면 한 작업이 세 세션에
+    // 걸릴 때 분모가 3이 되어 완주율이 1/3로 눌린다. 계약 변경이 아니라 코드가
+    // 계약을 어기고 있던 것의 시정이다.
+    //
+    // 새 키 체계를 만들지 않는다: `work_unit`은 M3 evidence-claim이 이미 쓰는
+    // decision slug와 **같은 키**다.
+    startups_producer_present: false,
+    // DD5 — 봉인은 됐는데 완주 기록이 없는 작업 단위 수. 분자가 아니라 **커버리지
+    // 축**이다. DD4가 완주 emit을 산문에 맡겼고 그 산문은 불이행될 수 있으므로,
+    // 그 간극을 침묵시키지 않고 수치로 낸다.
+    sealed_without_completion: 0,
     sessions: [],
     concurrent_pairs_count: 0,
     collision_events_count: 0,
@@ -99,6 +115,12 @@ function scanSessionActivity(repoRoot) {
     }
 
     const sessions = {};
+    // M8 (DD3 · DD5) — A1의 세 축은 전부 **distinct work_unit** 집합이다.
+    // 세션 축(`sessions`)과 나란히 두되 서로 섞지 않는다: 아래 B2 동시성은
+    // 세션을, A1은 작업 단위를 센다.
+    const startedWorkUnits = new Set();
+    const completedWorkUnits = new Set();
+    const sealedWorkUnits = new Set();
     const seenEventIds = new Set();
     const seenLegacyKeys = new Set();
     const legacyKeyOf = (e) => [e.session_id, e.kind, e.ts, e.ended_at || '', e.created_at || ''].join('\u0000');
@@ -154,9 +176,27 @@ function scanSessionActivity(repoRoot) {
 
               // Count task completions. task_completed는 별도 KIND 이벤트로만
               // 계상한다 — 존재 자체가 완료 producer가 배선됐다는 신호(F2).
+              //
+              // M8: 계수 단위가 **이벤트**에서 **distinct work_unit**으로 바뀐다.
+              // producer-present는 여전히 이벤트 관측에서 파생한다 — work_unit이
+              // 없는 이벤트도 producer가 살아 있다는 사실은 증명하므로, 둘을
+              // 같은 조건에 묶으면 배선 신호가 attribution 결함에 가려진다.
               if (evt.kind === 'task_completed') {
-                result.task_completions_count++;
                 result.completions_producer_present = true;
+                if (evt.work_unit) completedWorkUnits.add(String(evt.work_unit));
+              }
+
+              // M8 — A1 분모(DD3). 착수는 `receipt-prompt` hook이 `/mccp:*` 최초
+              // 발화 시점에 emit한다. 같은 작업 단위의 재발화는 Set이 접는다.
+              if (evt.kind === 'task_started') {
+                result.startups_producer_present = true;
+                if (evt.work_unit) startedWorkUnits.add(String(evt.work_unit));
+              }
+
+              // M8 — DD5 병기 축. 분자가 **아니다**: 봉인 뒤 `gh pr create`가
+              // 실패하면 완주가 아니기 때문이다.
+              if (evt.kind === 'task_ship_sealed') {
+                if (evt.work_unit) sealedWorkUnits.add(String(evt.work_unit));
               }
 
               // M3 증거 충돌 taxonomy. guard_active는 충돌 유무와 무관하게
@@ -181,14 +221,25 @@ function scanSessionActivity(repoRoot) {
       }
     }
 
-    // 2. Count task startups (from session_start events)
-    for (const sid of Object.keys(sessions)) {
-      const sess = sessions[sid];
-      const hasStart = sess.events.some(e => e.kind === 'session_start');
-      if (hasStart) {
-        result.task_startups_count++;
-      }
+    // 2. A1의 분모·분자는 **작업 단위** 기준이다 (M8 · DD3).
+    //
+    // 이전 판본은 `session_start`를 가진 세션 수를 세었다. 그것은
+    // `measurement-design.md` §A1(FROZEN)이 정의한 값이 아니다 — 그 문서는
+    // 분모를 "착수 이벤트가 기록된 작업 단위 전수"로 이미 고정해 두었다.
+    // 세션 축은 사라지지 않는다: 아래 B2 동시성 계산은 여전히 `sessions`와
+    // `spanOf`를 쓴다. 바뀐 것은 A1이 무엇을 세는가뿐이다.
+    result.task_startups_count = startedWorkUnits.size;
+    result.task_completions_count = completedWorkUnits.size;
+
+    // DD5 — 봉인됐으나 완주 기록이 없는 작업 단위. 산문 의존(DD4)이 남긴 간극의
+    // 크기이며, 0이 아니라고 해서 결함이라는 뜻은 아니다(봉인 후 PR 생성이 실제로
+    // 실패했을 수도 있다). 주장하는 것은 "누락이 0"이 아니라 "침묵하는 누락이
+    // 없다"이다.
+    let sealedWithout = 0;
+    for (const wu of sealedWorkUnits) {
+      if (!completedWorkUnits.has(wu)) sealedWithout++;
     }
+    result.sealed_without_completion = sealedWithout;
 
     // PR-Codex F3: session-end.js는 Stop hook이라 매 응답마다 session_end 이벤트를
     // emit한다. 따라서 세션은 session_end를 여러 개 갖고, 활성 구간의 종료는 첫

@@ -477,12 +477,39 @@ function beginRound(opts) {
     // 마커를 그대로 두면 그 뒤의 수렴까지 종료로 읽혀 divergent로 봉인된다.
     state.cap = cap;
     state.terminated = null;
-    state.rounds.push({
+    const round = {
       index: decision.roundIndex,
       started_at: new Date().toISOString(),
       reviewers: [],
       verdict: null,
-    });
+    };
+    // santa-delta-review M1 (DD10) — 델타 관측의 additive present-only 저장.
+    //
+    // **`SCHEMA_VERSION`은 올리지 않는다**(위 `terminated` 필드가 지나간 자리와 동형).
+    // 올리면 기존 원장이 전부 `SANTA_LEDGER_CORRUPT`로 읽혀 캡이 무의미해진다.
+    // 부재는 "이 필드가 없던 시절"이고 값은 "관측했다"라 서로 다른 상태다.
+    //
+    // **신규 push 분기에서만 쓴다.** 위 멱등 OPEN 분기(`write:false`)는 손대지 않는데,
+    // 같은 라운드의 두 번째 `begin-round`가 첫 기록을 덮으면 "이 라운드가 무엇으로
+    // 열렸는가"가 흔들리기 때문이다 — 그 값은 프롬프트를 만든 계산의 기록이고, 프롬프트는
+    // 첫 호출이 만든다.
+    //
+    // 값 검증은 `cli.js#parseScopeFlags`가 이미 끝냈다(`parseState`가 라운드 내부를
+    // 검사하지 않으므로 그 쓰기 시점이 유일한 관문이다). 여기서는 형태만 재확인한다 —
+    // 프로그래매틱 호출자가 CLI를 우회할 수 있고, 그 경로로 들어온 임의 객체가 원장에
+    // durable하게 앉으면 하류 집계가 무엇을 세는지 알 수 없게 된다.
+    const scope = opts && opts.scope;
+    // 형태 술어는 `scope-delta`가 소유한다 — 쓰기·투영·집계 셋이 같은 함수를 부르므로
+    // 규칙이 갈릴 자리가 없다. 지연 require는 `counter`와 같은 이유(로드 그래프 무변경).
+    if (require('./scope-delta').isValidScopeRecord(scope)) {
+      round.scope = {
+        applied: scope.applied,
+        reason: scope.reason === null ? null : String(scope.reason),
+        before: scope.before,
+        after: scope.after,
+      };
+    }
+    state.rounds.push(round);
     return {
       write: true,
       state: state,

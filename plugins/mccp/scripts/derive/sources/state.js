@@ -5,12 +5,13 @@ const path = require('path');
 const stateWriter = require('../../state/state-writer');
 const sessionLedger = require('../../state/session-ledger');
 const observerSessions = require('../../lib/observer-sessions');
+const { resolveRawSessionId } = require('../../lib/session-identity');
 
 const GIVEUP_THRESHOLD = 3;
 
 // v1.4.0-m3 — self_session_id + self_resolution contracted surface
 // (Codex Implement R1 F3 absorption). Resolution chain:
-//   1. CLAUDE_SESSION_ID env (sanitized) → 'resolved'
+//   1. session-identity chain env (sanitized) → 'resolved'
 //   2. ledger cwd === process.cwd() (resolved-path match) → 'resolved-by-cwd'
 //   3. env present but sanitize failed (after cwd fallback) → 'unresolved'
 //   4. env unset (after cwd fallback) → 'env-missing'
@@ -19,7 +20,7 @@ function resolveSelfSessionId(ledgers, options) {
   options = options || {};
   const envRaw = Object.prototype.hasOwnProperty.call(options, 'envSessionId')
     ? options.envSessionId
-    : process.env.CLAUDE_SESSION_ID;
+    : resolveRawSessionId(process.env);
   const cwdRaw = options.cwd || process.cwd();
 
   const envProvided = typeof envRaw === 'string' && envRaw.length > 0;

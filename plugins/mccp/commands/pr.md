@@ -1424,6 +1424,72 @@ gh pr view --json number,url,title,state,baseRefName,headRefName,additions,delet
 gh pr checks --json name,status,conclusion 2>/dev/null || true
 ```
 
+### 5.1 — A1 완주 기록 + C2/C3 귀속 (multi-session-work-loop M8 · DD4 · DD8)
+
+PR 번호가 **처음 존재하는 지점**이 여기다. `task_completed`는 그 번호가 있어야
+성립하므로 코드가 아니라 이 명령 본문이 기록한다 — 착수는 hook이, 완주는 본문이
+쓰는 비대칭은 의도적이다(DD4). 빠지면 **분자가 준다**(과소 계상). A1은 부풀리면
+안 되는 지표이므로 과소가 안전한 방향이고, 빠진 만큼은 `sealed_without_completion`
+(DD5, `finalize-receipt.js`가 코드로 기록)이 수치로 드러낸다.
+
+`$DECISION_SLUG`은 이 PR이 봉인한 ship receipt의 decision slug이고 A1의
+`work_unit` 키와 **같은 키**다(DD3 — 새 키 체계를 만들지 않는다).
+
+**`DECISION_SLUG`은 이 블록에서 재도출한다** (local review H1). 2.5.8 · 2.5.9 ·
+Phase 3이 같은 이유로 같은 일을 한다 — fenced block은 각자의 셸로 돌 수 있어
+상속된 슬러그는 비어 있는 것이 정상이고, 여기서 비면 `-n` 가드가 걸려 A1 분자가
+**매 사이클 조용히 skip된다**(guard 자체는 옳지만 그 앞의 값이 없다). derive-decision은
+(command, args)에 결정적이므로 이미 스코프에 있었다면 no-op이다. `PR_NUMBER`도
+같은 블록에서 뽑아, 아래 귀속 emit이 앞 블록의 변수를 상속하지 않게 한다(H2).
+
+```bash
+DECISION_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decision \
+  --command mccp:pr \
+  --args "$ARGUMENTS")
+PR_NUMBER=$(gh pr view --json number --jq .number 2>/dev/null || echo "")
+
+if [ -n "$PR_NUMBER" ] && [ -n "${DECISION_SLUG:-}" ]; then
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/state/cli.js" msw-event emit \
+    --kind task_completed \
+    --work-unit "$DECISION_SLUG" \
+    --pr-number "$PR_NUMBER" \
+    || echo "[mccp:msw-a1] task_completed emit failed (fail-open; A1 numerator undercounts)" 1>&2
+else
+  echo "[mccp:msw-a1] task_completed skipped — PR_NUMBER or DECISION_SLUG empty" 1>&2
+fi
+
+# ── C2/C3 귀속 (DD8 · UI8) — **이 PR이 해소한 finding이 있을 때만** ───────────
+#
+# 같은 블록 안에 둔다: 위에서 뽑은 두 변수를 다음 fenced block으로 넘길 수 없다.
+# 레코드 0건은 정상이므로 `FINDING_ID`가 비어 있으면 통째로 건너뛴다.
+#
+# `FINDING_ID`는 해소한 finding의 registry id(`.claude/state/findings/` 샤드의
+# `finding_id`)이고, `GATE_DECISION_ID`는 그 finding을 낳은 **차단 판정**의
+# decision slug다. 셋 다 채울 수 없으면 기록하지 않는다 — 조인 키 없는 귀속
+# 레코드는 어느 소비처도 읽을 수 없다(local review H3).
+FINDING_ID=""          # 예: 3f2a1c9e… (해소한 finding이 없으면 빈 값 유지)
+GATE_DECISION_ID=""    # 예: multi-session-work-loop-m7
+
+if [ -n "$FINDING_ID" ] && [ -n "$GATE_DECISION_ID" ] && [ -n "$PR_NUMBER" ]; then
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/state/cli.js" msw-event emit \
+    --kind remediation_pr \
+    --work-unit "$DECISION_SLUG" \
+    --pr-number "$PR_NUMBER" \
+    --finding-id "$FINDING_ID" \
+    --gate-decision-id "$GATE_DECISION_ID" \
+    || echo "[mccp:msw-c2] remediation_pr emit failed (fail-open; attribution coverage undercounts)" 1>&2
+fi
+```
+
+CLI는 `--kind`를 `task_completed | remediation_pr` **두 종으로 고정**하고
+`--work-unit`/`--gate-decision-id`를 canonical `SLUG_RE`로, `--finding-id`를
+16~64자 hex로, `--pr-number`를 부호없는 정수로 검증한다. `remediation_pr`은
+`--pr-number`와 `--finding-id`를 **둘 다 요구한다** — 전자가 없으면 그 이름이
+뜻하는 바가 없고, 후자가 없으면 `derive/sources/findings.js`가 그 레코드를 어떤
+finding에도 결속하지 못해 `with_remediation_pr`이 영원히 0에 머문다. 착수
+(`task_started`)와 세션 수명 이벤트는 이 경로로 쓸 수 없다 — A1의 **분모**는
+hook만 쓴다.
+
 ---
 
 ## Phase 6 — OUTPUT

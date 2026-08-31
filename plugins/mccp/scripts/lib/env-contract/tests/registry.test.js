@@ -161,8 +161,12 @@ test('values가 의미를 갖는 kind는 전부 3형태 중 하나를 갖는다'
   // 38 → 39: env-contract-integrity M3이 MCCP_ROUND_LEDGER(enum `enforce|observe`)를
   //   더했다. ref 형태이므로 아래 deriveForm===1 불변식은 그대로다 — 이 인구조사가
   //   붉어진 것 자체가 의도한 동작이다(레지스트리 행만 넣고 분포를 안 보면 잡힌다).
+  // 39 → 40: main 머지(santa-delta-review M1)가 MCCP_SANTA_DELTA_SCOPE(enum
+  //   `enforce|off`)를 더했다. 머지 해소에서 형제 santa 4종과 같은 ref 형태
+  //   (`scope-delta.js#DELTA_SCOPE_VALUES`)를 붙였으므로 분포는 ref만 +1이고
+  //   deriveForm===1은 그대로다.
   const targets = registry.byKind('enum').concat(registry.byKind('list'));
-  assert.equal(targets.length, 39, '어휘 결속 대상 수가 바뀌었다면 분포도 다시 봐야 한다');
+  assert.equal(targets.length, 40, '어휘 결속 대상 수가 바뀌었다면 분포도 다시 봐야 한다');
 
   let refForm = 0;
   let deriveForm = 0;

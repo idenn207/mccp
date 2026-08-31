@@ -2,32 +2,30 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
-## [1.33.4] — 2026-08-31
+## [1.33.5] — 2026-08-31
 
-> **§3.7**: `1.32.8 → 1.33.4` (**patch** — env-contract-integrity PRD의 M3 하나이고
+> **§3.7**: `1.33.4 → 1.33.5` (**patch** — env-contract-integrity PRD의 M3 하나이고
 > PRD에는 M4~M6이 남아 있다). 4면(plugin.json · html.js page-foot · markdown.js
 > derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄고 `i18n-surface.test.js`가
 > 재검증한다.
 >
-> **번호가 세 칸 뛴 것은 §3.7 "forward-only 상향"의 7번째 재발이다 — 그리고 이 값은
-> 잠정이며, 머지 해소 때 반드시 재계산해야 한다.** 이 브랜치가 `origin/main`을 마지막으로
-> 병합한 시점(`19f6dd1`)의 main은 `1.32.6`이었으나, 그 뒤 main이 20여 커밋을 더 발행해
-> 현재 최대치는 **`1.33.1`**이다. 발행된 번호는 불가침이므로 미머지인 이쪽 세 항목이
-> 전부 위로 밀린다.
+> **§3.7 "forward-only 상향"의 7번째 재발이고, 이번에는 세 항목이 함께 밀렸다.** 이
+> 브랜치가 `origin/main`을 마지막으로 병합한 시점(`19f6dd1`)의 main은 `1.32.6`이었으나
+> 그 뒤 main이 54커밋을 더 발행해 최대치가 `1.33.2`가 됐다. 발행된 번호는 불가침이므로
+> 미머지인 이쪽 세 항목을 전부 위로 밀었다.
 >
-> **머지 시 해소해야 하는 것 (아직 하지 않았다 — 머지 자체가 별도 단계다):**
->
-> | 이 브랜치 항목 | 현재 번호 | 충돌 종류 | 머지 후 목표 |
+> | 이 브랜치 항목 | 머지 전 | 충돌 종류 | 착지 |
 > |---|---|---|---|
-> | M1 | `1.32.7` | **정면 충돌** — main이 `83ed37a`에서 santa-delta-review에 같은 번호를 발행했다(`## [1.32.7] — 2026-08-25`). 병합하면 헤딩이 둘 생긴다 | `1.33.2` |
-> | M2 | `1.32.8` | **역행** — 발행된 최대치 `1.33.1`보다 낮다 | `1.33.3` |
-> | M3 (이 항목) | `1.33.4` | 위 둘이 `.2`·`.3`을 차지한다는 전제로 잡은 잠정값 | 재계산 |
+> | M1 | `1.32.7` | **정면 충돌** — main이 `83ed37a`에서 santa-delta-review에 같은 번호를 발행했다(`## [1.32.7] — 2026-08-25`). 병합하면 헤딩이 둘 생긴다 | `1.33.3` |
+> | M2 | `1.32.8` | **역행** — 발행된 최대치 `1.33.2`보다 낮다 | `1.33.4` |
+> | M3 (이 항목) | `1.33.4` | main이 `1.33.2`를 발행해 이 번호가 M2 자리로 밀렸다 | `1.33.5` |
 >
-> 셋은 서로 다른 축이므로 **하나로 합치지 않는다**. 그리고 §3.7대로 target은 (a) 머지 해소
-> 시점과 (b) `/mccp:pr` 진입 직전 **두 번** 재계산한다 — main은 그 사이에도 움직인다.
-> 재상향하면 4면이 다시 어긋나므로 `i18n-surface.test.js`를 그때 다시 돌릴 것.
+> 셋은 서로 다른 축이므로 **하나로 합치지 않았다**. 직전 기록이 잡아 둔 목표값(M1
+> `1.33.2` · M2 `1.33.3`)조차 그 사이 main이 `1.33.2`를 발행해 한 칸씩 더 밀렸다 —
+> §3.7이 재계산 시점을 (a) 머지 해소 때와 (b) `/mccp:pr` 진입 직전 **두 번**으로
+> 규정한 이유가 이것이다. (b)는 아직 남아 있다.
 
 ### Added
 
@@ -76,9 +74,9 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - CLAUDE.md §3.3의 classification 표(14종 → 15종)와 §3.15의 "주장하지 않는 것"을 정정.
   후자는 "기계화된 것은 캡 계산뿐"이라 적고 있었고 M3 이후 거짓이다.
 
-## [1.32.8] — 2026-08-25
+## [1.33.4] — 2026-08-25
 
-> **§3.7**: `1.32.7 → 1.32.8` (**patch** — env-contract-integrity PRD의 M2 하나이고
+> **§3.7**: `1.33.3 → 1.33.4` (**patch** — env-contract-integrity PRD의 M2 하나이고
 > PRD에는 M3~M6이 남아 있다). 4면(plugin.json · html.js page-foot · markdown.js
 > derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄고 `i18n-surface.test.js`가
 > 재검증한다.
@@ -89,7 +87,9 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 > (diverse-agent-review milestone #7)와 헤딩이 겹쳤고, M2의 `1.32.3`은 발행된
 > 최대치 `1.32.6`보다 낮았다. 발행된 번호는 불가침이므로 미머지인 이쪽 두 항목만
 > 각각 한 칸씩 밀어 M1 `1.32.7` · M2 `1.32.8`에 착지했다 — 서로 다른 축이라 하나로
-> 합치지 않는다. `1.32.8`도 잠정값이며 `/mccp:pr` 진입 직전 다시 재계산한다.
+> 합치지 않는다. **그 `1.32.8`은 실제로 잠정값이었다** — 다음 머지(2026-08-31)에서
+> main의 최대치가 `1.33.2`가 되어 이 항목은 `1.33.4`로 한 칸 더 밀렸다(7번째 재발,
+> `[1.33.5]` 항목의 표 참조).
 
 ### Changed
 
@@ -165,9 +165,9 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ---
 
-## [1.32.7] — 2026-08-21
+## [1.33.3] — 2026-08-21
 
-> **§3.7**: `1.32.6 → 1.32.7` (**patch** — env-contract-integrity PRD의 M1 하나이고
+> **§3.7**: `1.33.2 → 1.33.3` (**patch** — env-contract-integrity PRD의 M1 하나이고
 > PRD에는 M2~M6이 남아 있다). 4면(plugin.json · html.js page-foot · markdown.js
 > derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄고 `i18n-surface.test.js`가
 > 재검증한다.
@@ -179,7 +179,9 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 > diverse-agent-review milestone #7)과 겹쳐 머지 해소 시점에 `1.32.7`로 다시 밀렸다.
 > §3.7이 재계산 시점을 (a) 머지 해소 때와 (b) `/mccp:pr` 진입 직전 **두 번**으로
 > 규정한 이유가 이것이다 — 충돌 창은 브랜치를 딴 시점이 아니라 머지와 PR 사이에도
-> 열려 있다. 상향 후 4면 + PR title을 다시 맞췄다.
+> 열려 있다. 상향 후 4면 + PR title을 다시 맞췄다. **그 뒤 세 번째로 밀렸다** —
+> 2026-08-31 머지에서 main의 `1.32.7`(santa-delta-review)과 정면 충돌해
+> `1.33.3`에 착지했다(7번째 재발, `[1.33.5]` 항목의 표 참조).
 
 ---
 
@@ -287,6 +289,273 @@ fallback — 리뷰 없음을 기대한 운영자가 정반대를 받는다) · 
 
 ---
 
+## [1.33.2] — 2026-08-31
+
+> **§3.7**: `1.33.1 → 1.33.2` (**patch** — diverse-agent-review PRD의 단일 milestone
+> M11이고 PRD 종료 축이 아니다). 진입 직전 재계산했다(§3.7 실측 4회 재발): `origin/main`이
+> `1.33.1`, 미머지 sibling이 `1.33.4`(env-contract-integrity)와 `1.34.0`(msw M9)을
+> 선언하므로 `1.33.2`는 비어 있다.
+
+### Added
+
+- **diverse-agent-review M11 — 패널 승인 품질 감사.** #8이 "승인이 발급되는가"에 답한
+  뒤에야 물을 수 있게 된 질문 — **그 승인은 옳았는가** — 에 답한다. 새 read-only ·
+  LLM-free · standalone 오라클
+  [`plan-review/approval-audit.js`](plugins/mccp/scripts/lib/plan-review/approval-audit.js)가
+  승인 레코드마다 **승인 이후 다른 생산자가 남긴 결함 증거**를 결속해 dossier를 낸다.
+  M8 `corpus.js`가 세운 분업 그대로 **도구는 세고 결속하며 판정은 문서가 한다** — 출력에
+  `false_approve` 류의 판정 필드가 없음을 회귀 test가 고정한다.
+- **회귀 test 24건** — [`plan-review-approval-audit.test.js`](plugins/mccp/scripts/lib/tests/plan-review-approval-audit.test.js).
+  blind · 구조적 공집합 vs 부재 · 해시 체제 · `unauditable` 격리 · 경로 탈출(읽기 0회를
+  io 스텁으로 단언) · coverage 항등식 · quorum 모순 · slug 귀속 · durability.
+- **판정 문서** — [`docs/diverse-agent-review/approval-quality-audit.md`](docs/diverse-agent-review/approval-quality-audit.md)가
+  도구 출력을 축자 동결하고 그 위에서 G1(앵커)·G2(사거리)·G3(독립 기록) 세 관문으로 판정한다.
+
+### Observed (판정 milestone — 동작 게이트 코드 0줄 변경)
+
+- **답은 "미탐 없음"이 아니다.** 감사 가능한 **4건 전부**에서 미탐이 나왔다(5건 중 1건은
+  리뷰된 본문이 복구 불가라 `unauditable`). **비율은 산출하지 않는다** — 표본 4, O3 생존
+  편향 방향 불명, 코퍼스 커버리지 하한.
+- **미탐 유형이 무작위가 아니다.** 11건이 다섯 유형으로 접히고 셋이 반복된다:
+  `Files to Change` 누락 3 · plan 내부 모순 3 · **저장소에 대한 낡은 사실 2 — 같은 오류가
+  두 패널을 각각 통과했다**. 앞의 둘과 셋째는 성질이 다르다(전자는 저장소 대조 축, 후자
+  C2는 plan 본문만 읽어도 판정 가능한 사거리 **안**의 미탐).
+- **cross-model 채널은 어느 승인도 근거짓지 못한다.** ship receipt가 해시로 결속된 4건은
+  전부 ship 시점에 Codex가 꺼져 있었다
+  (`meta.codex_disabled=true` · `codex_verdict='skipped'` · `findings=[]`). 나머지 1건은
+  그 본문을 봉인한 receipt가 **아예 없어** `absent`이며, 그쪽 0은 Codex에 대해 아무것도
+  말하지 않는다 — 두 사유를 한 칸에 접으면 receipt 부재를 receipt의 관측으로 읽게 된다.
+  5건 어느 것도 Codex 관측을 내지 않았으므로 도구가 `can_ground_absence=false`로 보고하고,
+  어떤 판정도 그 채널에 기대지 않는다.
+- **`.claude/reviews/` 재현성은 측정으로 답했다** — `durability_summary.untracked = 0`.
+  plan L2 패널의 CRITICAL 2건이 세운 전제("worktree-only라 감사 재현 불가")는 실측상
+  거짓이다(`.gitignore:154`가 무시하는 것은 `.claude/state/plan-review/`이고 같은 주석이
+  `.claude/reviews/`를 DURABLE로 지목한다).
+
+### Fixed
+
+- **이름이 아니라 해시로 증인을 귀속한다.** 레코드 파일명에서 slug를 뽑으면 **다른 plan의
+  ship receipt**가 증인으로 붙는 함정이 이 코퍼스에 실재한다(`impeccable-detection-contract`
+  → `plan_hash` `sha256:c7d1d27d…` vs 레코드의 `sha256:887fc89d…`). 도구는 전 ship
+  receipt를 `plan_hash`로 색인해 일치하는 것만 인정하고, 나머지 채널은 원리상 slug
+  귀속뿐이므로 `slug_claimed`로 표기한다. **plan DN10의 "본문이 승인 후 바뀌었다"는 이
+  잘못된 결속의 산물이었고, 정직한 서술은 `no_ship_receipt`다** — 문서가 그 정정을 적는다.
+- **경로 검증은 읽기 전에, 원본에 대해.** `measurement.plan_path`는 마크다운에서 파싱한
+  신뢰되지 않은 입력이다. 정본 `isRepoRelativeEvidencePath`를 재사용하되 그 위에 세 층을
+  얹었다 — 선행 대시 거부(실측: `('--all')` · `('-n')`이 정본을 통과해 **git 옵션 주입**이
+  된다) · Windows 예약 장치명 거부(실측: `('CON')`이 통과하고 win32에서 읽으면 stdin
+  대기 정지) · `realpathSync` 봉쇄. 모든 git 호출에 `--` 구분자.
+
+### Notes
+
+- 정본 `isRepoRelativeEvidencePath`의 두 구멍(선행 대시 · 예약 장치명)은 형제 호출자
+  `review_proof.dispatch_evidence[]`에도 열려 있으나, 그 파일은 게이트 경로 소유물이라
+  UI5(#5 오라클 추출 전 배선 확대 금지)에 걸려 **원장으로 이연**했다. M11은 자기 사거리만 닫았다.
+- 처방(리뷰어에게 저장소 대조 요구 · `Files to Change` 완전성 기계 검사 · plan 내부 모순
+  lint)은 전부 게이트 배선이라 **#5 뒤**다. 관측 milestone은 관측만 한다.
+
+## [1.33.1] — 2026-08-26
+
+> **§3.7**: `1.33.0 → 1.33.1` (**patch** — diverse-agent-review PRD의 단일
+> milestone M8이고 PRD 종료 축이 아니다). **초판은 `1.32.9`를 선언했으나 재상향했다**:
+> 이 브랜치가 사는 동안 origin/main이 `1.32.7`(santa-delta-review)과
+> `1.33.0`(multi-session-work-loop M8)을 발행해 1.32.x 자리가 이미 지나갔다. §3.7의
+> forward-only 규칙대로 발행된 번호는 불가침이므로 미머지 쪽인 이 항목만 위로 민다.
+> 4면(plugin.json · html.js page-foot · markdown.js derived 줄 · 이 파일의
+> `currently` 노트)을 함께 맞췄고 `i18n-surface.test.js`가 재검증한다.
+
+### Added
+
+- **diverse-agent-review M8 — 패널 quorum 캘리브레이션 재검토 (판정 milestone)**:
+  `plan-review/corpus.js` — `.claude/reviews/`의 패널 레코드를 집계하는 read-only ·
+  LLM-free · standalone 오라클(`evidence-audit.js` 형태 미러). **게이트 배선은 한
+  바이트도 바뀌지 않았다**(UI6 — 사전 파일 9종 diff 공집합, 기계 확인).
+  임계값을 갖지 않으며(DN11 · UI11) 세는 것은 도구가, 판정은 문서가 한다.
+- `docs/diverse-agent-review/quorum-calibration.md` — 도구 출력을 **축자 동결**하고
+  그 위에 판정 4개를 적은 앱커 문서(재현 명령 포함).
+
+### Changed
+
+- **통과 경로 wall-clock 지표가 미산출 → 산출로 전환**됐다 — 근거는 새 데이터
+  수집이 아니라 **집계 범위 정정**이다. converged 5건 중 4건이 M7 tip에 이미
+  존재했으므로 #6·#7의 "표본 0"은 부재가 아니라 자기 PRD의 실행만 센 범위의
+  산물이었다. 과거 판정이 어느 범위에서 옳았는지를 PRD 칸 안에 함께 남겼다(감추면
+  그것이 골대 이동이 된다). 차단 경로 행은 무변경(UI8).
+- PRD `.claude/prds/diverse-agent-review.prd.md` — #8 complete · **#11 신설**(승인
+  품질 false-approve 감사) · Evidence에 M8 실측 문단 · Open Questions 3항 갱신.
+
+### Fixed
+
+- **단일통과 완화 측정이 구조적으로 0을 보던 결함** — 초판은 완화 카운트를
+  `pass_path.single_pass_tainted` 하나로만 두었는데 그 필드는 **converged 레코드만**
+  필터한다. `decide.js:338`은 완화를 언제나 `'divergent'`로 봉인하므로(§3.15
+  "converged 위장 없음") 그 값은 어떤 코퍼스에서도 0이고, 실코퍼스의 완화 **14건**이
+  출력 어디에도 나타나지 않았다 — 그러면서 그 0이 문서·PRD에서 UI9 충족의 *실측
+  근거*로 인용됐다. **아래 F6과 정확히 같은 형태의 오류**(잘못된 소스에서 얻은 구조적
+  0)라 같은 처방을 적용한다: verdict와 무관하게 세는 `single_pass` 축을 신설하고,
+  기존 필드는 지우지 않고 그 봉인의 **회귀 가드**로 의미를 정정했다. 문서·PRD의 UI9
+  문장은 "관측했다"에서 "상류 불변식이 보장하고 코퍼스에 반례가 없다"로 좁혔고,
+  판정 3에는 "차단 30건 중 14건은 작업을 멈추지 않았다"를 명시했다. 도구 헤더에
+  **"구조적 0을 관측으로 착각하지 않는다"** 절을 두어 두 사례를 한 규칙으로 묶었고
+  회귀 test 3건이 고정한다.
+- **F6 기여도 측정이 구조적으로 0을 보던 결함** — `record.js#findingRows`는 실패
+  리뷰어가 finding을 **하나도 안 냈을 때만** 합성 `FAIL` 행을 쓴다. 그 행만 세면
+  MEDIUM만 낸 실패 리뷰어가 관측되지 않아 F6 기여도가 항상 0으로 보고된다(실측:
+  코퍼스 전체 합성 행 0건). 정본 소스는 `## Refutation attempted` 표이며,
+  예비 실측과 이 milestone 초판이 함께 0으로 본 원인이 이것이다. 정정 후 판정은
+  **1건**(`archive/plan-review-followup-R12.md`)이며 회귀 test가 고정한다.
+
+## [1.33.0] — 2026-08-25
+
+> **§3.7**: `1.32.7 → 1.33.0` (**minor** — M8은 multi-session-work-loop PRD의 **마지막
+> milestone**이라 PRD 전체 종료 축이다). base는 이 브랜치가 사는 동안 `1.32.2` →
+> `1.32.6` → `1.32.7`로 두 번 이동했으나 `1.33.0`이 그 위이므로 재상향은 불필요하다. 4면 동기: `plugin.json` · `renderer/html.js`
+> page-foot · `renderer/markdown.js` derived 줄 · 이 파일의 `currently` 노트.
+> `renderer/tests/i18n-surface.test.js`는 기대값을 `plugin.json`에서 파생하므로
+> 동기 대상이 아니라 검증 수단이다(green 확인).
+>
+> **설치 캐시 지연**: 실 세션의 hook은 `~/.claude/plugins/cache/mccp/mccp/<version>/`
+> 에서 돌고 현재 캐시 최고 버전은 `1.32.6`이다. 이 릴리스의 producer가 실제 세션에서
+> 자동 발화하려면 머지 후 `claude plugin update`가 필요하다(DD10).
+
+### multi-session-work-loop M8 — 측정 부채 상환
+
+**뿌리는 한 줄이었다.** `observer-sessions.resolveSessionId()`가 이 하네스에 존재하지
+않는 `CLAUDE_SESSION_ID`만 읽어 빈 문자열을 반환했고, 그 falsy 값이
+`session-start.js`/`session-end.js`의 M2 계측 블록 **전체**를 실행되지 않게 했다.
+A1 착수 · A2 종료 · B3 사용이력 producer가 같은 이유로 전부 죽어 있었다.
+
+#### Added
+- `plugins/mccp/scripts/lib/session-identity.js` — 세션 id 우선순위 체인
+  (`MCCP_SESSION_ID` → `CLAUDE_CODE_SESSION_ID` → `CLAUDE_SESSION_ID`)의 단일 진실원.
+  **체인만 옮기고 정규화는 각 소비처에 남긴다**(DD1) — `evidence-lock`은 `null`,
+  `observer-sessions`는 빈 문자열, `orchestration-runaway`는 `'unknown'`을 반환하며
+  호출자들이 그 차이에 의존한다.
+- `plugins/mccp/scripts/lib/msw-metrics/m8-coverage-gate.js` — 승인 emit 지점
+  레지스트리(**7개**) + 정적 lint + `--acceptance` opt-in 판정.
+- `mccp-state msw-event emit` 서브커맨드 — `--kind`를 `task_completed | remediation_pr`
+  **두 종으로 고정**하고 `--work-unit`/`--gate-decision-id`를 canonical `SLUG_RE`,
+  `--finding-id`를 16자 hex(`FINDING_ID_RE`), `--pr-number`를 부호없는 정수로
+  검증한다. `remediation_pr`은 `--pr-number`와 `--finding-id`를 **둘 다 요구한다**.
+  착수(`task_started`)와 세션 수명 이벤트는 이 셸 경로로 쓸 수 없다 — A1의
+  **분모**는 hook만 쓴다.
+- `docs/multi-session-work-loop/m8-{before,after,assertion-manifest,audit-sample}.json`.
+
+### Fixed
+- **A1 분모의 계약 위반 시정**(DD3): `measurement-design.md` §A1(FROZEN)은 분모를
+  "착수 이벤트가 기록된 **작업 단위** 전수"로 고정했는데 코드는 `session_start`를 가진
+  **세션 수**를 세고 있었다. 계약 변경이 아니라 코드가 계약을 어기고 있던 것의 시정이다.
+- **A2 세션 바인딩**(DD6): `context-state` 스냅샷이 `session_id`를 보존하고,
+  `session-end.js`는 그 귀속과 신선도를 **둘 다** 통과한 값만 stamp한다. M2 정직성
+  강등이 명시했던 복원 조건을 충족시킨 것이지 강등을 되돌린 것이 아니다.
+- **B3 집합 등식**(DD7): 분모 집합과 분자 우주(`TOGGLE_DEFAULTS`)의 양방향 차집합이
+  공집합이 됐다(116 = 116). 분모에만 있던 7개는 `TOGGLE_EXCLUSIONS`와 규범 문서에
+  **명시로** 추가했고(자동 파생 아님 — UI7), 분자에만 있던 `CODEX_DEDUPE_AT_PR`은
+  `MCCP_` 접두 규약으로 제외했다. **은퇴 0건**(UI6 · UI14).
+- **claimed-computable lockstep 복구**: `derive/cli.js`의 목록에 M7이 승격한 C1이
+  빠져 있어 산문 계약이 이미 깨져 있었다. 두 목록의 집합 동일성을 test로 단언해
+  lockstep을 산문에서 기계로 옮겼다.
+- **경로 주입 방어**(security review R1 흡수): `findings-registry.appendFindings`와
+  `writeDegradedMarker`가 `workUnit`을 canonical `SLUG_RE`로, `msw-events.appendEvent`가
+  `sessionId`를 파일명 안전 토큰으로 검증한다. 셋 다 타입 검사만 하고 그 값을
+  `path.join`에 넘기고 있었다.
+
+### Changed
+- `mccp-implement-codex` receipt에 `pr_number` · `gate_decision_id` allowlist 추가.
+- 대시보드 병기 축 3줄 추가(`A1 커버리지:` · `A2 상세:` · `C2/C3 귀속:`) — 값 셀과
+  상태 컬럼은 **무변경**이고 신규 collapse·색 클래스는 0개다(DD11). collapse 줄
+  순서가 **지표 id 순**으로 결정적이 됐다.
+
+### 로컬 리뷰 흡수 (`/mccp:code-review`, 커밋 전)
+- **A1 완주 emit이 셸 경계에서 죽어 있었다**(H1·H2): `pr.md` Phase 5.1이
+  `DECISION_SLUG`을 상속에 기댔는데 fenced block은 각자의 셸이라 그 값은 항상
+  비어 있었다 — `-n` 가드가 걸려 A1 분자가 **매 사이클 결정적으로 skip**됐다.
+  같은 파일 2.5.8 · 2.5.9 · Phase 3이 이미 재도출하고 있었고 5.1만 빠져 있었다.
+  이제 `DECISION_SLUG`·`PR_NUMBER`를 그 블록 안에서 뽑고, 귀속 emit도 같은 블록에
+  넣어 앞 블록 변수 상속을 없앴다.
+- **C2/C3 귀속 삼각의 우변이 writer만 있고 reader가 없었다**(H3):
+  `derive/sources/findings.js`는 findings-registry 이벤트에서 `remediation_pr`을
+  찾는데 그 필드를 쓰는 producer가 **0개**였고, `pr.md`가 쓰는 msw-event
+  `remediation_pr`은 `finding_id`가 없어 어떤 finding에도 결속되지 않았다 —
+  대시보드의 `해소 PR 연결 N건`이 **어떤 주기로도 0을 벗어날 수 없는** 상태였다.
+  msw-events allowlist에 `finding_id`를 더하고 reader가 그 레코드를 조인한다.
+  레지스트리에 `finding_closed`로 쓰는 대안은 `closure_type` enum을 통과해 C1의
+  해소 계상을 오염시키므로 배제했다.
+- **A1 분모의 granularity 혼입**(M3): `mccp:plan-prd`는 PRD basename을 슬러그로
+  내는데 PRD는 작업 단위가 아니라 그 상위다(UI1). 착수로 세면 완주 기록을 영영
+  못 받는 유령 work_unit이 분모에 남는다 — `NON_WORK_UNIT_COMMANDS`로 제외했다.
+- `SLUG_RE` 리터럴 복제 제거(M1) · `session-hooks-no-llm` 가드를 수신자 무관
+  `.readState(` 로 확대(M2) · `CLAUDE_SESSION_ID`를 가리키던 낡은 주석·로그 정정(L2).
+
+### 인정 조건 (정직한 미달)
+- **A1은 이 주기 안에 `computed`에 도달하지 못한다.** 완주 신호는 이 milestone
+  자신의 `/mccp:pr`에서 처음 발화한다(구조적 순환). 소급 backfill은 §A1이 금지한다.
+- **A2는 표본 0건이다.** 원인은 M8 밖이다 — session-bridge의 `context_remaining_pct`
+  자체가 `null`이고, 전역 `context-current.json`은 11일 전 다른 세션의 `tool_count`라
+  out-of-order 가드가 write를 건너뛴다. 표본을 지어내지 않았다.
+- **B3만 `forward-only → computed`로 전환됐다**(20/116).
+
+## [1.32.7] — 2026-08-25
+
+> **§3.7**: `1.32.6 → 1.32.7` (**patch** — axis close. 새 milestone이 아니라
+> santa-delta-review PRD의 마지막 Open Question을 실측으로 닫는 변경이고, 코드
+> 표면은 test 상수 하나와 문서다). 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 항목 + currently 노트) 동기 완료.
+> **번호를 한 번 상향했다**: 이 항목은 원래 `1.32.6`으로 작성됐으나
+> origin/main이 그 번호를 codex-disabled-round-invariant M1에 먼저 발행했다
+> (merge `e458f0c`). §3.7 forward-only에 따라 발행된 번호는 불가침이므로
+> 미머지인 이쪽을 `1.32.7`로 밀었다.
+
+### Fixed
+
+- **pre-push 유출 게이트가 이 브랜치를 막았다 — 정직한 예외로 풀었다.**
+  `history-leak-scan.js`의 `DEFAULT_ALLOWLIST`에 세 번째 항목을 더했다.
+  대상은 `codex-findings-backlog.md`의 한 행으로, hook-trace에 대한 L2 security
+  finding을 **기각하면서 그 근거로 실제 관측된 절대경로를 인용**한다. 그 인용이
+  곧 반박이라 지우면 기각이 보여주지 않는 측정을 주장하게 된다 — 두 번째 항목이
+  이 scanner 자신의 오탐 보고에 대해 이미 해소한 것과 같은 구속이다. 마커는 finding
+  digest(`22877fd2`)라 그 한 행에만 걸리고, 행이 재작성되면 면제가 자동 소멸한다
+  (fail-closed). 디렉토리 단위 면제가 아니므로 다른 파일·다른 행의 유출은 그대로 잡힌다.
+
+### Measured
+
+- **santa 델타 리뷰 Layer 2(라이브 리뷰어 비교) 완주** — M2 plan Task 3이 세션 운영
+  제약으로 미실행이던 축을 그대로 실행했다. 같은 합성 fixture · 같은 CLI · 두
+  모드(`off`·`enforce`) 각각 blind + bundled 레인 완주. 관측
+  **`fullFindings=3` · `deltaFindings=2`(1건 하락)**. 잃은 것은 Class C(fix가 건드리지
+  않아 경로째 드롭된 파일)의 결함이고, Layer 1이 containment 손실을 예측한 그 계층이
+  탐지 손실로 실현됐다. **Class B의 핵심 질문은 답해지지 않았다** — 그 결함은 full
+  스코프에서도 미발견이라 관측이 질문에 도달하지 못했다.
+- 사전 등록(`PREREGISTRATION.md`)을 **리뷰어 발화 이전에** 동결했다 — 상위 규칙 인용 ·
+  실행 구성 · finding→결함 id 대조 알고리즘(plan 승인 패널이 `미지정`으로 지적한
+  L2 id=77fbb4db) · 비결정성 처리 · 실행 증명. 결과를 보고 규칙을 고치지 않았다.
+- **이탈 1건을 기록했다**: Reviewer B의 `codex exec -m gpt-5.4`가 사용량 한도로 두 모드
+  모두 실패해 `santa-loop.md`가 규정한 Claude fallback으로 **대칭** 전환했다. 델타 축
+  비교는 교란되지 않으나 cross-model 독립성은 달성되지 않았다.
+
+### Changed
+
+- `santa-detection-coverage.test.js` — `LAYER2_EVIDENCE`가 `null`에서
+  `{fullFindings: 3, deltaFindings: 2}`로 교체됐다. `decideDefaultFlip` 판정이
+  `layer2-absent` → **`layer2-degraded`**. **`MCCP_SANTA_DELTA_SCOPE`의 default는
+  `off`로 무변경** — 값이 아니라 사유가 바뀌었고, 그 둘을 다른 토큰으로 나눠 둔 이유가
+  이 자리다. `scope-delta.js`·`registry.js` 코드 변경 0건.
+- `docs/environment/review.md` · `commands/santa-loop.md` — default `off`의 근거를
+  「미상」에서 「실측 하락」으로 교체(M2가 남긴 미래 시제 문언 정정).
+- PRD Open Question 6건이 전부 해소됐고, **M3 DD10의 아카이브 보류가 해제**됐다 —
+  보류 사유는 "default를 묶는 미상이 활성 표면에서 사라진다"였고 미상이 실측으로
+  대체됐으며 잔여 한계는 아카이브가 옮기지 않는 `docs/` 파일이 소유한다.
+
+### Added
+
+- `docs/santa-loop/detection-rate-layer2.md` — 측정 기록(주장하지 않는 것 · 사전 등록 ·
+  이탈 · Layer 1 재현 · Layer 2 관측 · 규칙 적용 · 닫은 것과 닫지 않은 것 · 재현 절차).
+- `docs/santa-loop/layer2-evidence/` — 원시 산출물 13건(리뷰어 판정 JSON 4 · 조립
+  프롬프트 4 · 매처 결과 · 매처 · fixture 빌더 · 사전 등록). 머신-로컬 절대경로는
+  placeholder로 치환했다.
+- backlog 2행 — Class B 미답(MEDIUM) · cross-model 미달성(LOW).
+
+
 ## [1.32.6] — 2026-08-25
 
 > **§3.7**: `1.32.2 → 1.32.6` (**patch** — codex-disabled-round-invariant PRD의
@@ -333,6 +602,182 @@ fallback — 리뷰 없음을 기대한 운영자가 정반대를 받는다) · 
   (`MCCP_SKIP_RECEIPT`·`MCCP_PR_SKIP_CODEX_REVIEW`)과 같은 부류로 읽히던 어휘를 정정하고
   봉인 계약(보장 범위 1회 게이트 실행 · 부재는 env fallback · **판독 불가는 부재가 아니라**
   이상 상태 · 6h 상한)을 서술.
+## [1.32.5] — 2026-08-25
+
+> **§3.7**: `1.32.4 → 1.32.5` (**patch** — M3는 santa-delta-review PRD의 셋째
+> milestone이고 **PRD 전체 완료가 아니다**. Layer 2(라이브 리뷰어 비교)가 여전히
+> 미실행이라 PRD Open Question이 열려 있고, 그러므로 §3.7의 보수적 default인
+> patch를 취한다). 4면(plugin.json · html.js page-foot · markdown.js derived 줄 ·
+> 이 파일의 `currently` 노트)을 함께 맞추고 `i18n-surface.test.js`가 재검증한다.
+>
+> **병렬 브랜치 충돌 재해소(§3.7 — 이 사이클에서 세 번째)**: M3의 `git merge origin/main`
+> 시점 재계산에서 `origin/main`이 **`1.30.2`를 diverse-agent-review M7에 이미 발행**했고
+> (`c9e941c`) 천장이 `1.32.2`까지 올라가 있었다. 발행된 번호는 불가침이므로 미머지 항목만
+> 체일링 위로 민다 — M1 `1.30.2 → 1.32.3` · M2 `1.30.3 → 1.32.4` · M3 `1.32.5`.
+> 두 항목을 하나로 합치지 않는다(서사가 뭉개진다). 날짜 역전은 정상이다 — version
+> 순서가 정본이다.
+
+### Fixed — santa 델타 리뷰 M3: 사이클 잔여 마감 (backlog · fix-task · 부수 정정)
+
+- **`derive/sources/backlog.js`** — GFM은 leading/trailing pipe를 **선택**으로 두는데
+  파서가 둘 다를 필수로 요구해 443행 중 **272행을 경고 없이 버렸다**. 데이터가 아니라
+  파서를 고친다(DD1). 느슨해지는 축과 조이는 축을 같은 커밋에 둔다 — date 셀을
+  엄격한 ISO 일치로 좁혀 산문 줄이 행으로 오인되는 표면을 닫는다. `invalid_count`의
+  리터럴 `0` 반환을 제거하고 `degraded`를 그 값에서 파생시킨다(DD2). finding 셀 안의
+  파이프도 꼬리가 보존된다 — 첫 파이프에서 잘리던 조용한 손실이다.
+  실측: 181 → 453행 · `invalid_count` 0 · 대시보드 이월 finding rail 69 → 135.
+- **`santa/detection-corpus.js` `compareCoverage`** — 전건이 형태 이탈이면 `full=0, delta=0`이라
+  `degraded=false`가 되어 **측정 실패가 "손실 없음"으로 읽혔다**. `degraded`의 정의를 넓히지
+  않고 그 옆에 `measured` + 닫힌 enum `degradedReason`을 둔다(DD3 — `FLIP_DECISIONS`가
+  ABSENT를 DEGRADED와 따로 둔 것과 같은 수단). `totals.unknown`을 색인이 아니라 양측
+  records 배열에서 세고(delta 쪽 이탈이 한 번도 안 세어졌다), id 없는 레코드를
+  `unmatched`에 `side:'unindexable'`로 남긴다(DD4). 기존 필드 무변경 · M2의 21건 green 유지.
+- **`lib/tests/helpers/gate-env.js`** (신규) — 게이트 정책 env가 test 스위트를 상시 red로
+  만들지 않게 한다. 저장소 자신의 `settings.json`이 `MCCP_REVIEW_SINGLE_PASS`를 켜 둔 탓에
+  전 스위트 **51건 전부**가 그 한 축에서 나왔다 — santa-loop-cap 25/28 · santa-adjudication
+  68/22 · santa-lanes 76/1. 요건은 «53/0 재현»이 아니라 **«env 유무와 무관하게 같은 결과»**
+  이다(DD5) — 세 파일 모두 두 조합에서 53/0 · 90/0 · 77/0으로 동일. 적용 대상은
+  **실측으로 red인 파일**로 한정했다.
+- **`lib/hook-trace.js` `resolveRepoRoot`/`toRepoRelative`** (신규) — 두 hook이 `event.cwd`를
+  그대로 저장소 루트로 써서 하위 디렉토리의 실패 호출 하나가 shard를 산란시켰다(실측).
+  더 나쁜 것은 shard와 `.end` 마커가 **다른 디렉토리로 갈리는 것**이다 — 다음 세션의
+  `scanCrashAlerts`가 거짓 crash alert를 낸다(v1.20.5가 닫은 실패 모드가 cwd 표류로 재개).
+  **판정은 한 자리**이고(DD6-1) fail-open을 유지하며(DD6-2) 사용자 표면은 repo-relative로
+  접는다(DD6-3, §3.12 관례). 「표면 절대경로 0건」은 git 해석 성공 경로에 한정된 주장이다.
+- **`plan-conflict-detector.js` + `commands/prp-implement.md`** — 같은 결함의 양끝이라
+  한 커밋이다(DD7). `normalizePath`가 백틱을 안 벗겨 plan 표의 모든 경로가 영구
+  미매칭했고, 명령 본문이 두 점 diff(`origin/main..HEAD`)를 넘겨 발산 브랜치에서
+  base 쪽 변경까지 보고했다. **항상 발화하는 가드는 꺼진 가드와 같다.**
+  실측(M3 plan 기준): unplanned 270 → 41 → 32. 잔여 32는 오발화가 아니라
+  이 브랜치가 M1·M2 커밋을 함께 지고 있어서다 — 가드가 처음으로 *참인 것을 보고*한다.
+
+### Known limits (주장하지 않는 것)
+
+- **M3는 탐지율을 검증하지 않았다.** 닫은 것은 *사이클이 남긴 부채*이지 *PRD의 측정 축*이
+  아니다. `MCCP_SANTA_DELTA_SCOPE` default는 `off` 그대로이고 델타 스코프 로직은 무변경이다.
+- **Plan-Codex가 M3에서 발화하지 않았다.** `mccp-plan-codex/santa-delta-review-m3` receipt가
+  부재하고 plan의 `## Codex Adversarial Review`가 placeholder다. 실제로 발화한 리뷰는
+  L2 다관점 패널 3라운드뿐이고, Implement-Codex도 `MCCP_CODEX_DISABLED=1` env 정책으로
+  skip됐다. 근거와 사유는 `.claude/notes/santa-delta-review-m3-implement-codex.md`에
+  기록했다(§3.16 — 라운드를 늘리지 않고 문서화된 우회 + 사유 기록).
+- **plan의 acceptance 명령 한 건이 결함이었다.** 두 점 diff 판정 grep의
+  `origin/[^ ]+\.\.[^.]`는 `[^ ]+`가 여분의 점을 삼켜 **세 점 표기도 매칭**하므로 고쳐도
+  0이 되지 않는다. `[^ .]+`로 정정했고(실측: 두 점 fixture 1 · 세 점 fixture 0) 그 정정을
+  report와 backlog에 기록했다. plan 본문은 receipt가 봉인해 수정하지 않는다.
+
+---
+
+## [1.32.4] — 2026-08-21
+
+> **§3.7**: `1.32.3 → 1.32.4` (**patch** — M2는 santa-delta-review PRD의 둘째
+> milestone이고, **PRD 전체 완료가 아니라서 minor가 아니다**. M2는 Layer 1만
+> 배송했고 Layer 2가 미실행이라 PRD의 M2 행이 `in-progress`로 남는다 — plan
+> Task 6이 "PRD 전 milestone 완료이므로 minor"라고 적은 전제가 성립하지 않으므로
+> §3.7의 보수적 default인 patch를 취한다). 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞추고
+> `i18n-surface.test.js`가 재검증한다.
+>
+> **병렬 브랜치 충돌 해소(§3.7 실측 5회째)**: 진입 시점 재계산에서 `origin/main`이
+> 이미 `1.30.1`을 **다른 축**(codex-intent-context M2, `9c6c836`)에 발행한 것이
+> 확인됐다. 발행된 번호는 불가침이므로 이 브랜치의 미머지 항목을 각각 한 칸씩
+> 밀었다 — M1 `1.30.1 → 1.30.2`, M2가 `1.30.3`. 두 항목은 서로 다른 축이므로
+> 합치지 않는다. M1 커밋 메시지(`feat(v1.30.1)`)는 이미 기록된 history라 그대로
+> 두고, 정본은 이 파일과 manifest다. **`/mccp:pr` 진입 직전에 한 번 더
+> 재계산한다** — 이 충돌이 정확히 그 재계산이 잡아낸 것이다.
+
+---
+
+### Added — santa 델타 리뷰 M2: 탐지율 보존 검증 (Layer 1)
+
+- **`plugins/mccp/scripts/lib/santa/detection-corpus.js`** (신규 순수 oracle) —
+  계층화 결함 corpus와 커버리지 판정. `DEFECT_CLASSES`는 결함을 **위치로** 4계층
+  (`A_IN_FIX` · `B_SAME_FILE_OUT_OF_RANGE` · `C_DROPPED_PATH` · `D_ALWAYS_SCOPE`)으로
+  닫고, `buildCorpus()`가 파일 내용과 결함 좌표를 **데이터로** 낸다(fs·git·시각·env
+  미접촉). 좌표는 anchor 문자열로 역산하므로 줄이 밀려도 조용히 어긋나지 않는다.
+  `coverageOf` / `compareCoverage`는 어떤 입력에도 던지지 않는다 — 던지는 측정
+  도구는 측정을 중단시키고, 중단된 측정은 "하락 없음"과 구별되지 않는다.
+- **`decideDefaultFlip`** — 사전 등록 규칙(`DECISION_RULE`, plan DD3 축자 동결)의
+  기계적 적용. **Layer 2 증거 부재는 거짓이 아니라 미상이고 미상은 flip 근거가
+  아니다**(`layer2-absent`). `layer2-degraded`와 별도 토큰이라 "재봤더니 하락"과
+  "안 재봤다"가 사후에 구별된다.
+- **`plugins/mccp/scripts/lib/tests/santa-detection-coverage.test.js`** (신규 21건) —
+  실제 git fixture + 실제 `scope-delta`/`scope-always` CLI를 `off`·`enforce` 두 모드로
+  지나는 Layer 1 회귀. 사전 등록 기대치를 동결한다: 델타는 A를 범위로 지목하고, B는
+  경로를 유지한 채 범위 밖이며, C는 경로째 드롭되고, D는 두 모드 모두 스코프 안이다
+  (상시 스코프 면제). 계층 합산 `full=4 · delta=3 · lost=1`.
+- **default 판정은 코드에 묶인다** — "배송된 default는 이 저장소가 기록한 Layer 2
+  증거와 정합한다" test가 `LAYER2_EVIDENCE`와 실제 `DELTA_SCOPE_DEFAULT`를
+  `decideDefaultFlip`으로 대조하므로, 측정 없이 default를 뒤집으면 스위트가 붉어진다
+  (plan 승인 패널 L2 id=6116eeb8 · 5fb50bd9 흡수).
+
+### Changed
+
+- **`MCCP_SANTA_DELTA_SCOPE`의 default는 `off`로 유지된다** — 규칙을 그대로 적용한
+  결과이지 판단이 아니다. `scope-delta.js` · `docs/environment/review.md` ·
+  `plugins/mccp/commands/santa-loop.md`의 "M2가 뒤집는다"류 미래 시제를 실측 결과로
+  교체했다(plan DD7).
+- **PRD `santa-delta-review` M2 행은 `in-progress`** — Layer 2(라이브 리뷰어 비교)가
+  미실행이라 milestone Outcome인 "탐지율 비교"가 아직 성립하지 않는다. `complete`로
+  적는 것은 과대 주장이다(UI5). Open Question "탐지율 fixture를 어디서 얻는가"는
+  해소(합성 + 계층화)하고, Layer 2 완주를 신규 Open Question으로 남겼다.
+
+### Notes
+
+- **이 milestone은 탐지율 보존을 주장하지 않는다.** 배송된 Layer 1이 인증하는 명제는
+  "리뷰어에게 보일 기회가 있다"(containment)이고 "리뷰어가 찾는다"(detection)가
+  아니다. fixture는 합성 N=1이며 계층당 결함 1건이다. 한계와 재현 절차:
+  `.claude/notes/santa-delta-review-m2.md`.
+
+---
+
+## [1.32.3] — 2026-08-20
+
+> **§3.7**: `1.32.2 → 1.32.3` (**patch** — M1은 santa-delta-review PRD 2 milestone
+> 중 첫째라 PRD 전체 완료 축이 아니다). 4면(plugin.json · html.js page-foot ·
+> markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께 맞추고
+> `i18n-surface.test.js`가 재검증한다. **원래 `1.30.1`로 작성했으나 `origin/main`이
+> 그 번호를 codex-intent-context M2(`9c6c836`)에 먼저 발행했기에 forward-only
+> 상향으로 재동기했다** — 발행된 번호는 불가침이고 미머지 브랜치의 항목만 위로
+> 민다(§3.7). 상향 시점은 M2 사이클의 `/mccp:prp-implement` Task 6 재계산이다.
+
+---
+
+### Added — santa 델타 리뷰 M1: 델타 스코프 계산 + 상태 단언 금지 가드
+
+- **`plugins/mccp/scripts/lib/santa/scope-delta.js`** (신규 순수 oracle) — `parseDeltaScope`
+  (`MCCP_SANTA_DELTA_SCOPE`, enum `enforce`/`off`, **default `off`**) · `narrowScope` ·
+  `expandRanges`(±20줄 문맥 + 병합) · `renderScopeLines` · `assertNoStatusAssertion` ·
+  닫힌 사유 enum `NO_NARROW` 4종 · 금지 패턴 2목록 · `deltaCoverageFrom` ·
+  공유 술어 `isValidScopeRecord`. fs·git·시각을 모르고 외부 의존 0건.
+- **`cli.js` 하위명령 `scope-delta`** — anchor를 호출자에게 받지 않고
+  `.claude/state/santa-loop/tmp/<decision>/round-<r>-fix-rev.txt`를 자체 열거한다.
+  **`--round`가 없다** — anchor 집합이 이미 라운드의 답이므로 UI3(라운드 1
+  미적용)이 별도 검사가 아니라 `no-anchor` passthrough로 성립한다.
+- **`lanes --ranges-file`** — 대상 경로 줄이 `- path:12-40, 88-95`로 렌더된다.
+  데이터는 JSON 객체라 `assertSafeGraph` + 크기 상한 + 키 `toRepoRelative` 정규화를
+  거친다(implement-gate security CRITICAL-1 · HIGH-2 · HIGH-3 흡수).
+- **`begin-round --scope-*` 스칼라 4종** — 계측을 JSON 파일로 받지 **않는다**.
+  원장에 durable하게 앜는 값이라 prototype pollution 경로를 설계로 제거한다.
+- **receipt 계측 2종** — `meta.santa_delta_rounds` · `meta.santa_delta_paths_dropped`
+  (present-only 비음 정수). **kill switch와 무관하게** stamp하므로 `off` 실행도
+  `0`을 남기고, 필드 부재(M1 이전)와 관측된 0이 구별된다.
+
+### Changed
+
+- `santa-loop.md` Step 1이 `scope-delta`를 **`scope-always` 앞에** 호출한다 — UI4의
+  상시 스코프 면제가 조건 분기가 아니라 **순서**로 성립한다.
+- `scope-always`는 이제 좁혀진 스코프(`scope-narrowed.json`)를 받는다.
+
+### Known limits (주장하지 않는 것)
+
+- **탐지율 보존을 주장하지 않는다.** M1은 *스코프가 얼마나 줄었는가*를 재고,
+  *줄여도 결함을 놓치지 않는가*는 재지 않는다 — 후자는 M2 소유다.
+- 계측 2종은 **위조 저항을 주장하지 않는다**(DD11) — 값은 호출자 선언이고 CLI가
+  git으로 재도출하지 않는다. 근거는 이 필드를 읽는 게이트가 없다는 것이다.
+- 패턴 denylist는 **완결성을 주장하지 않는다**. 1차 통제는 `renderScopeLines`에
+  서술 인자가 없다는 구조 분리다.
+
+---
 ## [1.32.2] — 2026-08-21
 
 > **§3.7**: `1.32.1 → 1.32.2` (**patch** — M7은 multi-session-work-loop PRD의 단일

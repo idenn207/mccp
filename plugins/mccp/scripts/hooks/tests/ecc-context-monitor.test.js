@@ -117,7 +117,9 @@ test('Task 3 (a): PostToolUse forwards bridge context signal to context-state wr
   currentBridge = bridgeFixture({ context_remaining_pct: 60, tool_count: 12 });
   const out = monitor.run(RAW);
   assert.equal(ctxCalls.length, 1, 'context write attempted exactly once');
-  assert.deepEqual(ctxCalls[0], { contextRemainingPct: 60, toolCount: 12 });
+  // M8 DD6 — writer가 버리던 귀속 필드를 이제 실어 보낸다. 이 hook은 이 값을
+  // 이미 갖고 있었고, 그것을 보존하는 것이 A2 세션 바인딩의 전제다.
+  assert.deepEqual(ctxCalls[0], { contextRemainingPct: 60, toolCount: 12, sessionId: 'testsession' });
   assert.equal(out, RAW, 'no warnings → hook returns pass-through');
 });
 
@@ -155,8 +157,8 @@ test('Task 3 (c): unconditional per-PostToolUse forward — metered path (MCCP_S
     currentBridge = bridgeFixture({ context_remaining_pct: 50, tool_count: 13 });
     monitor.run(RAW);
     assert.equal(ctxCalls.length, 2, 'stamped on both PostToolUse calls even with subscription unset');
-    assert.deepEqual(ctxCalls[0], { contextRemainingPct: 55, toolCount: 12 });
-    assert.deepEqual(ctxCalls[1], { contextRemainingPct: 50, toolCount: 13 }, 'forwards each fresh bridge sample verbatim, in order');
+    assert.deepEqual(ctxCalls[0], { contextRemainingPct: 55, toolCount: 12, sessionId: 'testsession' });
+    assert.deepEqual(ctxCalls[1], { contextRemainingPct: 50, toolCount: 13, sessionId: 'testsession' }, 'forwards each fresh bridge sample verbatim, in order');
   } finally {
     if (prev === undefined) delete process.env.MCCP_SUBSCRIPTION;
     else process.env.MCCP_SUBSCRIPTION = prev;
@@ -168,7 +170,7 @@ test('Task 3 (d): bridge missing context fields forwards undefined (writeState n
   currentBridge = bridgeFixture({ context_remaining_pct: undefined, tool_count: undefined });
   const out = monitor.run(RAW);
   assert.equal(ctxCalls.length, 1);
-  assert.deepEqual(ctxCalls[0], { contextRemainingPct: undefined, toolCount: undefined });
+  assert.deepEqual(ctxCalls[0], { contextRemainingPct: undefined, toolCount: undefined, sessionId: 'testsession' });
   assert.equal(out, RAW, 'hook still returns pass-through');
 });
 

@@ -1,0 +1,35 @@
+{
+  "verdict": "FAIL",
+  "checks": [
+    { "criterion": "Runtime safety", "result": "FAIL", "detail": "Three functions will throw ReferenceError on reachable inputs due to undefined constants and missing bounds checks." },
+    { "criterion": "Contract integrity", "result": "FAIL", "detail": "cache.js put() accepts ttlMs parameter but get() does not check expiry, violating the implicit contract that values respect TTL." },
+    { "criterion": "Type discipline", "result": "PASS", "detail": "Type operations are consistently applied to appropriate types." },
+    { "criterion": "Document consistency", "result": "FAIL", "detail": "plan.md asserts the PRD declares 3 milestones; prd.md shows only 2." },
+    { "criterion": "Dead or unreachable logic", "result": "FAIL", "detail": "Exported functions cannot perform their named purpose when dependencies are missing." }
+  ],
+  "critical_issues": [
+    { "claim": "Undefined constant causes ReferenceError in splitRecords", "severity": "CRITICAL",
+      "failure_scenario": "Any code that calls splitRecords() will throw ReferenceError: SEPARATOR is not defined. The function cannot parse any input.",
+      "evidence": "src/parser.js:21", "locations": [ { "file": "src/parser.js", "line": 21 } ] },
+    { "claim": "Undefined array element causes TypeError in takeField", "severity": "CRITICAL",
+      "failure_scenario": "Calling takeField(fields, index) where index >= fields.length will throw TypeError: Cannot read property 'trim' of undefined. For example, takeField(['a', 'b'], 5) fails.",
+      "evidence": "src/parser.js:17", "locations": [ { "file": "src/parser.js", "line": 17 } ] },
+    { "claim": "Undefined constant causes ReferenceError in pad function", "severity": "CRITICAL",
+      "failure_scenario": "Any code that calls pad(text, width) will throw ReferenceError: PADDING is not defined. The function cannot format any input.",
+      "evidence": "src/format.js:8", "locations": [ { "file": "src/format.js", "line": 8 } ] },
+    { "claim": "Cache get() does not respect TTL contract", "severity": "HIGH",
+      "failure_scenario": "A caller puts a key with put('x', 'value', 100) and waits 150ms, then calls get('x'). The function returns 'value' even though the 100ms TTL has expired. The contract promised expiry would be respected, but the implementation ignores the expiresAt field.",
+      "evidence": "src/cache.js:12-15", "locations": [ { "file": "src/cache.js", "line": 14 } ] },
+    { "claim": "Plan document contradicts PRD content", "severity": "HIGH",
+      "failure_scenario": "The plan at line 14 asserts 'the PRD declares 3 milestones', but reading the actual PRD shows only 2 milestones (first, second) in the delivery table. The claim is factually false.",
+      "evidence": ".claude/plans/corpus-fixture.plan.md:14 claims 3 milestones; .claude/prds/corpus-fixture.prd.md table shows only 2",
+      "locations": [ { "file": ".claude/plans/corpus-fixture.plan.md", "line": 14 }, { "file": ".claude/prds/corpus-fixture.prd.md", "line": 3 } ] }
+  ],
+  "suggestions": [
+    "Define SEPARATOR constant at module level in parser.js",
+    "Add bounds check in takeField before calling .trim()",
+    "Define PADDING constant in format.js",
+    "Implement expiry check in cache.js get()",
+    "Verify the actual milestone count in corpus-fixture.prd.md and correct the plan assertion"
+  ]
+}

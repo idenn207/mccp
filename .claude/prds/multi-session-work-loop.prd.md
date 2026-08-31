@@ -157,7 +157,7 @@ We believe **세션 스코프 상태 모델 + 증거 기반 진행 판정 + 검�
 | 6 | **진행 상태 기계 판정** | milestone 완료 여부를 사람이 아니라 증거가 판정한다. drift 교정 명령이 상시 필요하지 않게 된다 (B1) | complete | [multi-session-work-loop-m6.plan.md](../plans/multi-session-work-loop-m6.plan.md) |
 | 7 | **세션 경계 피드백 루프** | 한 세션에서 발견된 실수가 다음 세션의 작업 목록에 자동으로 올라온다. 발견과 해소 사이의 유실이 사라진다 (C1) | complete | [multi-session-work-loop-m7.plan.md](../plans/multi-session-work-loop-m7.plan.md) |
 | 8 | **측정 부채 상환** | M2가 배송했으나 프로덕션에서 산출하지 못하는 지표의 producer가 실제로 배선된다 — A1 완주 신호(`task_completed` KIND 발화), A2 세션 바인딩 컨텍스트, B3 numerator 커버리지(`TOGGLE_DEFAULTS` ↔ 분모 정합), C2·C3 귀속 스캐폴드(`gate_decision_id → finding_id → remediation_pr`). **지표가 `computed`로 뒤집히는 것이 완료 판정이며, 코드 존재는 판정 근거가 아니다**(M3 B2 coverage gate 선례). 이 milestone이 끝나야 A1 기반 반증 조건 판정이 기계화되고, 축 은퇴(M4에서 이연)의 근거 데이터가 생긴다 (인정 조건 부분 충족 + A2 개정: [순서의 근거 §M8](#순서의-근거)) | complete | [multi-session-work-loop-m8.plan.md](../plans/multi-session-work-loop-m8.plan.md) |
-| 9 | **아카이브 조건 충족** | M4·M5·M8이 status 안에 남긴 미충족 인정 조건이 **닫히거나, 닫을 수 없음이 증거와 함께 개정된다**. A3 측정 경로가 크래시 대신 정직한 미산출을 내고 재측정값이 실제 값으로 갱신되며, C1 패널 경로에 종결 producer가 생기고, C2/C3 귀속이 산문이 아니라 기계적 파생으로 발화한다. A2는 대체 producer를 먼저 조사하고 불가로 확인되면 그 사실이 실측 문서로 남는다. **완료 판정은 행별 선행 술어를 `m9-coverage-gate.js`가 통과시키고 PRD status가 정본화되는 것**이며, `/mccp:archive-complete`의 라이브 1회 완주는 그 판정의 **검증**이다(정의로 두면 §3.11 C3와 순환한다 — 개정 근거는 `## 순서의 근거` §M9). 미충족 원문이 `## 순서의 근거`로 이전돼 소실되지 않았음이 함께 확인된다 (완료 판정 개정: [순서의 근거 §M9](#순서의-근거) — 라이브 완주는 정의가 아니라 검증) | complete | [multi-session-work-loop-m9.plan.md](../plans/multi-session-work-loop-m9.plan.md) |
+| 9 | **아카이브 조건 충족** | M4·M5·M8이 status 안에 남긴 미충족 인정 조건이 **닫히거나, 닫을 수 없음이 증거와 함께 개정된다**. A3 측정 경로가 크래시 대신 정직한 미산출을 내고 재측정값이 실제 값으로 갱신되며, C1 패널 경로에 종결 producer가 생기고, C2/C3 귀속이 산문이 아니라 기계적 파생으로 발화한다. A2는 대체 producer를 먼저 조사하고 불가로 확인되면 그 사실이 실측 문서로 남는다. **완료 판정은 행별 선행 술어를 `m9-coverage-gate.js`가 통과시키고 PRD status가 정본화되는 것**이며, `/mccp:archive-complete`의 라이브 1회 완주는 그 판정의 **검증**이다(정의로 두면 §3.11 C3와 순환한다 — 개정 근거는 `## 순서의 근거` §M9). 미충족 원문이 `## 순서의 근거`로 이전돼 소실되지 않았음이 함께 확인된다 (완료 판정 개정: [순서의 근거 §M9](#순서의-근거) — 라이브 완주는 정의가 아니라 검증) (최종 검토 범위: [m9-final-review-scope.md](../../docs/multi-session-work-loop/m9-final-review-scope.md) — UI7·UI8) | complete | [multi-session-work-loop-m9.plan.md](../plans/multi-session-work-loop-m9.plan.md) |
 
 ### 순서의 근거
 
@@ -222,6 +222,23 @@ We believe **세션 스코프 상태 모델 + 증거 기반 진행 판정 + 검�
   [m9-coverage-gate.js](../../plugins/mccp/scripts/lib/msw-metrics/m9-coverage-gate.js)가
   소유하며 exit code로 답한다. 이 개정은 조건을 **낮추지 않는다** — 라이브 완주 요구는
   그대로 남고, 다만 그것이 완료의 *정의*가 아니라 *검증*이 된다.
+
+- **UI7·UI8이 기록만 되고 이행되지 않았다 (2026-08-31, PR #164 PR-Codex R1 F1 대응)** —
+  M9 plan의 `## User Intent` 표는 "최종 검토는 사람이 한다"(UI7)와 "검토 대상에 자식 PRD를
+  포함한다"(UI8)를 기록했으나, plan 본문 Task·Acceptance·notes·report 어디에도 이행이 없는
+  채 M9 행이 정본화됐다. PR-Codex가 이를 HIGH로 지목했고 **기각하지 않았다**. 해소는 status를
+  되돌리는 것이 아니라 **검토 자료를 만들어 미이행을 실제로 닫는 것**으로 했다 —
+  [m9-final-review-scope.md](../../docs/multi-session-work-loop/m9-final-review-scope.md)가
+  부모/자식 관계를 실측하고(선언된 자식 PRD는 **0건**이며 유일한 참조는 선례 인용이다),
+  활성 PRD 전량을 후보로 열거해 각각의 처분을 적으며, 최종 검토자가 판단해야 할 3가지를
+  명시한다. 그 문서는 **"사람이 검토했다"고 주장하지 않는다** — UI7이 말한 검토는 PR #164의
+  승인이고 문서는 그 앞에 놓이는 자료다.
+  왜 게이트가 이것을 못 잡았는가도 함께 적는다: M9의 plan 게이트는
+  `MCCP_PLAN_REVIEW=multi-agent`로 돌아 intent 축이 패널 carve-out으로 skip됐다(§3.13.2가
+  이미 문서화한 구멍). 즉 UI7·UI8은 adjudication을 한 번도 받지 않았다. 이는 M9의 실수이면서
+  동시에 그 구멍의 실측 사례이며, `diverse-agent-review` PRD의 후속 축이 인용할 근거다.
+  **기계화하지 않은 것을 기계화했다고 적지 않는다** — `m9-coverage-gate.js`는 여전히 이 두
+  제약을 술어로 검사하지 않는다.
 
 ## Open Questions
 

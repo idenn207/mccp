@@ -381,3 +381,72 @@ test('M9 Task 6: an unreadable PRD fails closed rather than reporting nothing to
   assert.match(String(cross.reason || ''), /PRD unreadable/);
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+// ── PR-Codex R1 F2 — A3 미산출 분류 ──────────────────────────────────────────
+//
+// 옛 술어는 정책 파일의 존재만 보았다. 그 파일은 커밋된 정적 파일이라 영구히 참이므로,
+// A3 가 무엇 때문에 미산출인지와 무관하게 M4 행이 통과했다. 아래 test 들이 고정하는
+// 명제는 하나다: **정책이 설명한 상태만 통과하고, 설명된 적 없는 고장은 막힌다.**
+
+test('M9 F2: the two non-delivery states the policy describes are classified, and named', () => {
+  const tokenizer = m9gate.classifyA3({
+    metrics: {
+      A3: { status: 'error', not_delivered_reason: "tiktoken unavailable: No module named 'tiktoken'" },
+    },
+  });
+  assert.equal(tokenizer.ok, true);
+  assert.equal(tokenizer.key, 'tokenizer-unavailable');
+
+  const stale = m9gate.classifyA3({
+    metrics: {
+      A3: { status: 'insufficient', invalid_reason: 'CLAUDE.md changed since the A3 measurement (re-run: ...)' },
+    },
+  });
+  assert.equal(stale.ok, true);
+  assert.equal(stale.key, 'sealed-pair-stale');
+
+  // 이름이 붙어 있어야 감사에서 두 상태를 구분할 수 있다. 옛 detail 은
+  // `a3Policy=true` 하나였고 그것은 두 상태 모두에 대해 같은 문자열이었다.
+  assert.notEqual(tokenizer.detail, stale.detail);
+});
+
+test('M9 F2: an UNRELATED failure in the same status is rejected, not waved through', () => {
+  // 이것이 F2 그 자체다. status 만 보면 아래 둘은 위 두 sanctioned 상태와 구분되지
+  // 않는데, 정책은 이들에 대해 아무 말도 한 적이 없다.
+  const unrelatedError = m9gate.classifyA3({
+    metrics: { A3: { status: 'error', not_delivered_reason: 'numerator components corrupt: unexpected token' } },
+  });
+  assert.equal(unrelatedError.ok, false, 'an error the policy never described must not pass');
+  assert.equal(unrelatedError.key, 'unclassified');
+
+  const unrelatedInsufficient = m9gate.classifyA3({
+    metrics: { A3: { status: 'insufficient', invalid_reason: 'baseline artifact missing' } },
+  });
+  assert.equal(unrelatedInsufficient.ok, false, 'an unrelated insufficient must not pass');
+
+  // 사유가 아예 없으면 대조할 것이 없다 → 분류되지 않는다.
+  const silent = m9gate.classifyA3({ metrics: { A3: { status: 'error' } } });
+  assert.equal(silent.ok, false, 'a silent non-delivery is the case the gate exists to catch');
+
+  // 레코드 자체의 부재도 통과가 아니다.
+  assert.equal(m9gate.classifyA3({ metrics: {} }).ok, false);
+  assert.equal(m9gate.classifyA3(null).ok, false);
+});
+
+test('M9 F2: the policy file is now a NECESSARY condition, not a sufficient one', () => {
+  // 파일이 디스크에 실재하는 진짜 저장소에서, A3 를 분류 불가 상태로 만들면 M4 행이
+  // 막혀야 한다. 옛 술어에서는 같은 입력이 통과했다 — 파일이 있었기 때문이다.
+  const table = m9gate.A3_SANCTIONED_NON_DELIVERY;
+  assert.equal(table.length, 2, 'exactly the two states the policy documents');
+  table.forEach(function (c) {
+    assert.ok(c.status && c.re instanceof RegExp && c.why,
+      'each sanctioned row must name its status, its reason pattern, and the policy clause');
+  });
+
+  // 표에 없는 status 는 어떤 사유로도 통과하지 못한다.
+  const bogus = m9gate.classifyA3({
+    metrics: { A3: { status: 'baseline-unavailable', not_delivered_reason: 'tiktoken unavailable' } },
+  });
+  assert.equal(bogus.ok, false,
+    'a tiktoken-shaped reason under a status the table does not list is still unclassified');
+});

@@ -158,6 +158,62 @@ function statusOf(model, id) {
   return m && m.status ? m.status : null;
 }
 
+// PR-Codex R1 F2 — 정책 문서의 *존재*는 미산출을 설명하지 않는다.
+//
+// 이전 술어는 `a3 === 'computed' || fileExists(a3-freshness-policy.md)` 였다. 그 파일은
+// 커밋된 정적 파일이라 한 번 착지하면 영구히 참이고, 그러면 A3 가 **무엇 때문에**
+// 미산출인지와 무관하게 M4 행이 통과한다 — 토크나이저 부재든, 무관한 측정 회귀든,
+// 손상된 입력이든 전부 같은 문을 지난다. 실측으로도 그랬다: 현재 A3 는 토크나이저가
+// 아니라 CLAUDE.md 재성장 때문에 `insufficient` 인데 옛 술어는 그 차이를 보지 못했다.
+//
+// 정책이 sanctioned 로 **설명하는** 미산출은 정확히 둘이고, 둘은 서로 다른 문장이다.
+// 그래서 status 와 사유를 함께 대조하고 나머지는 전부 거부한다. 목록에 없는 상태는
+// "정책이 설명한 적 없는 고장"이며, 그것을 통과시키면 gate 가 아니라 통과 티켓이다.
+//
+// **분업 (중요)**: 이 gate 는 *분류*를 소유한다. "크래시 대신 정직한 미산출을 낸다"는
+// *동작*은 `lib/tests/msw-metrics.test.js` 의
+// 'A3: an unimportable tiktoken degrades to a status, not an unhandled crash' 가
+// 실제 CLI 를 spawn 해 stack trace 부재까지 단언한다. 그 probe 를 gate 안으로 옮기면
+// (a) 매 실행마다 python 을 띄워 느려지고 (b) tiktoken 이 설치된 환경에서는 그 분기가
+// 아예 실행되지 않아 단언이 성립하지 않는다. 분류는 어느 환경에서나 성립한다.
+const A3_SANCTIONED_NON_DELIVERY = Object.freeze([
+  Object.freeze({
+    key: 'tokenizer-unavailable',
+    status: 'error',
+    re: /tiktoken|No module named|ModuleNotFoundError/i,
+    why: 'policy 1절 — 인터프리터는 있으나 tiktoken import 실패',
+  }),
+  Object.freeze({
+    key: 'sealed-pair-stale',
+    status: 'insufficient',
+    re: /changed since the A3 measurement/i,
+    why: 'policy 3절 — CLAUDE.md 재성장. 재측정은 주장을 바꾸므로 stale 을 그대로 둔다',
+  }),
+]);
+
+// `{ ok, key, detail }`. `ok` 는 "정책이 설명하는 상태인가"이지 "산출됐는가"가 아니다.
+function classifyA3(model) {
+  const m = model && model.metrics && model.metrics.A3;
+  if (!m) return { ok: false, key: 'absent', detail: 'A3 record absent from the derive model' };
+  if (m.status === 'computed') return { ok: true, key: 'computed', detail: 'A3.status=computed' };
+  // derive 는 `invalid_reason` 으로, 산출기는 `not_delivered_reason` 으로 말한다.
+  // 어느 쪽이든 사유가 없으면 대조할 것이 없으므로 분류되지 않는다.
+  const reason = String((m.invalid_reason || m.not_delivered_reason) || '');
+  for (let i = 0; i < A3_SANCTIONED_NON_DELIVERY.length; i++) {
+    const c = A3_SANCTIONED_NON_DELIVERY[i];
+    if (m.status === c.status && c.re.test(reason)) {
+      return { ok: true, key: c.key, detail: 'A3.status=' + m.status + ' sanctioned=' + c.key };
+    }
+  }
+  return {
+    ok: false,
+    key: 'unclassified',
+    detail: 'A3.status=' + m.status
+      + ' reason=' + (reason ? JSON.stringify(reason.slice(0, 120)) : '(none)')
+      + ' — not a non-delivery this policy describes',
+  };
+}
+
 // 행별 술어. 각 항목은 `{ ok, detail }` 을 낸다 — 거짓일 때 *무엇이* 거짓인지
 // 말하지 않으면 운영자는 gate 를 끄는 쪽으로 간다.
 function predicates(repoRoot, model) {
@@ -193,14 +249,15 @@ function predicates(repoRoot, model) {
   const M4 = function () {
     const b1 = statusOf(model, 'B1');
     const c1 = statusOf(model, 'C1');
-    const a3 = statusOf(model, 'A3');
-    // A3 는 tiktoken 부재로 산출되지 않을 수 있다. 그 경우 미산출 사유가 신선도
-    // 정책 문서로 남아 있어야 한다 — 침묵한 미산출은 통과시키지 않는다.
-    const a3Ok = a3 === 'computed'
-      || fileExists(repoRoot, 'docs/multi-session-work-loop/a3-freshness-policy.md');
+    // 분류가 먼저다 — 어떤 미산출인지 모르는 채로는 그것이 설명된 미산출인지 말할 수 없다.
+    const a3 = classifyA3(model);
+    // 정책 문서는 여전히 필요하다: 분류가 가리키는 문장이 디스크에 실재해야 인용
+    // 가능하다. 다만 이제 **필요조건이지 충분조건이 아니다** — 그 역전이 F2 의 수정이다.
+    const a3Policy = fileExists(repoRoot, 'docs/multi-session-work-loop/a3-freshness-policy.md');
+    const a3Ok = a3.key === 'computed' || (a3.ok && a3Policy);
     return {
       ok: b1 === 'computed' && c1 === 'computed' && a3Ok,
-      detail: 'B1=' + b1 + ' C1=' + c1 + ' A3=' + a3 + ' a3Policy=' + a3Ok,
+      detail: 'B1=' + b1 + ' C1=' + c1 + ' a3=' + a3.detail + ' a3Policy=' + a3Policy,
     };
   };
 
@@ -291,6 +348,8 @@ if (require.main === module) {
 
 module.exports = {
   evaluateGate: evaluateGate,
+  classifyA3: classifyA3,
+  A3_SANCTIONED_NON_DELIVERY: A3_SANCTIONED_NON_DELIVERY,
   producerRegistry: producerRegistry,
   staticLint: staticLint,
   predicateCrossCheck: predicateCrossCheck,

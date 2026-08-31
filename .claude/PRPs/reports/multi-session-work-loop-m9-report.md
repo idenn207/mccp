@@ -151,3 +151,110 @@ tiktoken 부재로 재측정 불가), `plugins/mccp/scripts/state/findings-regis
 - [ ] `/mccp:pr` — 진입 직전 §3.7 version 재계산(현재 target 1.34.0, origin/main 1.33.1)
 - [ ] PR 착지 후 `/mccp:archive-complete` 1회 실행 (Task 8의 파괴적 절반)
 - [ ] 그 뒤 B1 drift 1건이 해소되는지 확인
+
+---
+
+## 재검증 (2026-08-31, 후속 `/mccp:prp-implement` 재진입)
+
+이전 세션이 컨텍스트 소진으로 끊긴 뒤 같은 plan으로 재진입해 게이트와 검증을 다시 돌렸다.
+구현은 이미 Task 1~7이 커밋된 상태였고, **새로 구현한 것은 없다**. 아래는 재측정 결과와
+그 과정에서 드러난 환경 문제다.
+
+### 게이트 상태
+
+`receipt/cli.js validate --command mccp:prp-implement --decision multi-session-work-loop-m9`
+→ `ok:true` · missing 0 · stale 0 · blocking 0. plan hash 봉인(`bc41d001…`)이 유지되고 있어
+`mccp-plan-codex` receipt가 stale로 떨어지지 않았다.
+
+### 재측정 결과
+
+| 검사 | 결과 |
+|---|---|
+| `a3 --print` | `status:"error"` · `not_delivered_reason:"tiktoken unavailable: … No module named 'tiktoken'"` · **stack trace 없음** · exit 0 |
+| `msw-m9-producers.test.js` | 9/9 |
+| `msw-metrics.test.js` | 37/37 |
+| `m9-coverage-gate.js --json` | exit 0 — M4·M5·M8·M9 4행 전부 `flipped:true` ∧ `ok:true` |
+| `env-contract/lint.js` | exit 0 (L1~L10) |
+| `instruction-contract/lint.js` | exit 0 (C1~C4, rows=33) |
+| `archive-complete/scan.js` | `archivable:true` · `complete 9/9` · `nonCanonical 0` · plans 9 |
+| `derive run` | 16 source **전부 `degraded:false`** |
+| `derive render` | exit 0 (`design-lint 1 violation: H16 (advisory)` — plan Assessment B가 이미 귀속 밖으로 판정한 기존 드리프트) |
+| 버전 4면 동기 | `plugin.json` · `html.js` · `markdown.js` · `CHANGELOG.md` 전부 `1.34.0` · `i18n-surface.test.js` 10/10 |
+| `state/tests/` | 215/215 |
+| `receipt/tests/` | 687/688 (skip 1, fail 0) |
+| `lib/tests/plan-review-*` | 325/326 (skip 1, fail 0) |
+| **전수 회귀 347 파일** | **5532 tests · 5515 pass · fail 0 · skip 17 · exit 0** (`MCCP_CODEX_DISABLED=1` + `--test-concurrency=2`) |
+
+지표는 forward-only 축이 자연 누적해 스냅샷 시점과 다르다(A1 1/1→1/2 · A4 0/42→35/55 ·
+B3 20/117→24/117). **C1은 5/66 불변**이고 `deferred_count 14` · `open_count 47` ·
+`integrity_ok:true`다 — 종결 producer가 분자를 올리지 않았다는 인정 조건이 재확인됐다.
+`m9-after.json`은 milestone 종료 시점의 기록이므로 **덮어쓰지 않았다**.
+
+### 정정 1건 — PRD M4 개정문의 B1 값
+
+M4 개정문이 `B1(computed 0/26)`을 근거로 "산출되고 건강하다"고 적었는데, 같은 사이클의 이
+리포트는 after 값을 `1/29`로 기록하고 있었다 — **같은 사이클 문서 두 개가 같은 측정을 두고
+어긋난 상태**였고, 빠진 drift 1건이 하필 **M9 자기 행**이었다. 즉 M9가 스스로 만든 drift를
+세지 않은 값이 "건강하다"를 뒷받침하고 있었다. 실측값으로 정정하고 drift의 정체와 해소 조건
+(이 PR 착지)을 함께 적었다. 편집 후 `m9-coverage-gate` exit 0 · `scan.js archivable:true` 불변.
+
+### 전수 회귀는 1차 시도가 무효였다 — 자원 고갈
+
+`node --test` 347개 파일을 동시성 4로 돌린 1차 시도가 대량 실패로 끝났으나, **실패는 코드가
+아니라 환경 때문**이었다:
+
+- 이 환경은 `MCCP_CODEX_DISABLED`가 **설정돼 있지 않다**(이전 세션의 receipt는
+  `codex_disabled:true`로 봉인돼 있어 그때는 설정돼 있었다). 그래서 codex 경로를 타는 test가
+  **실제 Codex를 호출**했고, 호출마다 `app-server-broker.mjs` + `codex app-server` 쌍이 떴다.
+- 러너가 중단되자 broker가 **고아 상태로 자식을 무한 재생성**하는 자가 지속 루프가 됐다.
+  node 프로세스가 **519개**까지 늘었고, 그 부하가 test 파일을 로드조차 못 하게 만들어
+  `receipt/tests` · `state/tests` 전체가 **파일 단위 ✖(~45ms)** 로 무더기 실패했다.
+  `santa-seal.test.js`의 `1292989ms`(21.5분)도 실패가 아니라 그 굶주림의 증상이다.
+- 정리: 고아 test runner → 부모가 죽은 broker 순으로 종료. **519 → 15 프로세스**, 증가율 0.
+  부모가 살아 있는 codex 프로세스는 다른 세션 소유일 수 있어 **건드리지 않았다**.
+- 재확인: 위 표의 `state/tests` 215/215 · `receipt/tests` 687/688 · `plan-review` 325/326은
+  **정리 후 깨끗한 머신에서** 나온 값이며, 1차 시도에서 이름이 찍혔던 실패
+  (`ultracode-phase-guard` · `evidence-claim` · M1.5/M2 intent · merged_verify)는 전부
+  단독·직렬 재실행에서 통과했다. **회귀 0건**.
+- **결론** — 같은 347개 파일을 안전한 조건으로 다시 돌리자 `fail 0 · exit 0`으로 끝났다.
+  1차 시도의 실패 목록은 단 한 건도 코드에 귀속되지 않는다.
+
+> **운용 교훈** — 이 저장소의 전수 회귀는 `MCCP_CODEX_DISABLED=1` **없이 돌리면 안 된다**.
+> 비용(실 Codex 수백 회)과 프로세스 러너웨이가 함께 온다. 안전한 형태:
+> `MCCP_CODEX_DISABLED=1 node --test --test-concurrency=2 …`
+
+### 여전히 남은 것
+
+- **Task 8의 파괴적 절반** — 위 이연 근거(§3.11 guard 2 자기차단)가 그대로 유효하다.
+  `archivable:true`가 재확인됐으므로 PR 착지 후 `/mccp:archive-complete` 1회로 닫는다.
+- **A3 재측정(1c)** — tiktoken 부재로 여전히 불가. 정직한 미산출이 유지된다.
+
+### 로컬 리뷰 수용 (2026-08-31, `/mccp:code-review` Local Mode)
+
+커밋 직전 advisory 리뷰가 위 표의 주장 13건을 **전부 재측정해 대조**했다(B1 `1/29` ·
+C1 `5/66` · A1 `1/2` · A4 `35/55` · B3 `24/117` · derive 16 source degraded 0 ·
+`m9-coverage-gate` 4행 ok · `scan archivable:true` · 버전 4면 `1.34.0` + `i18n-surface` 10/10 ·
+lint 2종 exit 0 · msw test 46/46 · `state/tests` 215/215 · A3 정직한 error). **불일치 0건.**
+전수 회귀 5532 tests는 시간 비용상 재현하지 않았다 — 재현되지 않은 유일한 주장이다.
+CRITICAL·HIGH 0건이라 §3.14 흡수 임계에는 걸리지 않았으나, 사용자 지시로 MEDIUM 2 + LOW 1을
+이 커밋에서 함께 닫는다.
+
+- **MEDIUM 1 — 러너웨이 근본원인이 문서화만 되고 닫히지 않았다.** `dep-check`가 지금도
+  `codex disabled : no`를 보고하고 `.claude/settings.json`에 그 토글이 없다. 위 "운용 교훈"은
+  사람이 매번 기억하라는 것인데 그 조건은 이미 한 번 실패했다(519 프로세스). 다만 전역 상주는
+  이 저장소의 라이브 dogfood를 죽이므로 **채택하지 않았고**, 대신 규칙을 사람이 실제로 읽는
+  표면인 **CLAUDE.md §3.4 테스트 항목**으로 올려 실측 근거와 트레이드오프를 함께 적었다.
+- **MEDIUM 2 — PRD의 drift 해소 조건이 판정 축과 한 단계 어긋났다.** "이 PR이 착지하면
+  해소된다"고 적었으나 `b1-status-drift.js`의 실제 축은 `.claude/receipts/mccp-pr-codex/`
+  `<decision_id>.json`이 **git-tracked로 HEAD에서 도달 가능**한가다(`:29`, `:60-67`). plan만
+  default branch에 닿고 receipt가 없으면 `undetermined`(evidence-gap)로 **강등될 뿐 해소가
+  아니다** — 분자에서 빠지는 것과 `shipped`가 되는 것은 다르다. PRD 문장을 그 두 경로가
+  구분되도록 정정했다.
+- **LOW 1 — `fix-task-applied.md`가 취소된 escalation을 지시한 채로 남아 있었다.**
+  `escalate: true` + "Next: run /mccp:santa-loop"인데 그 escalation은 §3.15 단일통과로
+  의도적으로 미수행됐다. `state-injector.js`가 applied 파일을 **재주입하지 않음**을 확인해
+  (rotate 목적지 + 7일 sweep 전용) 실효 위험은 없으나, git-tracked라 사람이 읽는 표면이므로
+  미수행이 곧 결정이었다는 사실과 그 receipt 근거를 본문에 덧붙였다. frontmatter는 무손상이다.
+- **LOW 2 — `dep_check_missing`/`escalate_pending` 제거는 정당**하다고 판정되어 조치 없음.
+  전자는 실제 해소(`impeccable skill: available (user v4.0.4)`), 후자는 `write.js:1017-1024`의
+  reverse-path가 같은 decision_id receipt 기록 시 clear하는 present-only 동작이다.

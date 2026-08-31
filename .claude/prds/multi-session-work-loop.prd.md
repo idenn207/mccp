@@ -192,9 +192,20 @@ We believe **세션 스코프 상태 모델 + 증거 기반 진행 판정 + 검�
   "before"가 존재하지 않고 소급 생성도 불가능하다. 여기서 전방 증거가 과거 주장을 검증한다고
   말하면 그것은 거짓이다 — "지금 B1 drift가 0이다"는 "그때 감축이 품질을 유지했다"를
   함의하지 않는다. 그러므로 이 조건은 **반증 불가로 판정되어 포기한다.** 대체하는 것은 같은
-  명제의 약한 판본이 아니라 **다른 명제**다: 현재 시점의 B1(`computed 0/26`)과
-  C1(`computed 5/66`)이 산출되고 건강하다는 **전방 관측**이며, 과거 감축의 품질에 대해
-  아무것도 말하지 않는다. A3는 이 환경에 tiktoken이 없어 여전히 미산출(`insufficient`)이고,
+  명제의 약한 판본이 아니라 **다른 명제**다: 현재 시점의 B1과 C1이 산출된다는 **전방 관측**
+  이며, 과거 감축의 품질에 대해 아무것도 말하지 않는다. 실측은 B1 `computed 1/29` ·
+  C1 `computed 5/66`이고(2026-08-31 재측정), B1의 **유일한 drift는 M9 자기 행**이다 —
+  선언이 ship receipt보다 앞선 상태를 B1이 잡은 것이다. 해소 조건은 "PR 착지"가 아니라
+  [b1-status-drift.js](../../plugins/mccp/scripts/lib/msw-metrics/b1-status-drift.js)의 판정
+  사다리가 요구하는 것 — `.claude/receipts/mccp-pr-codex/multi-session-work-loop-m9.json`이
+  **git-tracked로 HEAD에서 도달 가능**해져 `shipped`가 되는 것이다. plan만 default branch에
+  닿고 그 receipt가 없으면 판정은 `not-shipped`에서 **`undetermined`(evidence-gap)로 강등될
+  뿐**이라 분자에서 빠지는 것이지 해소된 것이 아니다. 두 경로를 구분하지 않으면 "머지했는데
+  왜 아직"이라는 오독이 남는다.
+  두 지표는 forward-only라 값이 계속 움직이므로 여기 적은 것은 주장이 아니라 **측정 시점이
+  붙은 관측**이다. 앞서 이 자리에 적혀 있던 `computed 0/26`은 status flip 직전 값이라,
+  M9가 스스로 만든 drift를 세지 않은 채 "건강하다"를 뒷받침하고 있었다.
+  A3는 이 환경에 tiktoken이 없어 여전히 미산출(`insufficient`)이고,
   M9 Task 1a는 그것을 **크래시 대신 정직한 미산출**로 만드는 데까지다. 감축 비율의 신선도
   정책은 [a3-freshness-policy.md](../../docs/multi-session-work-loop/a3-freshness-policy.md)가
   소유한다 — 봉인된 측정 쌍 밖의 재성장은 감축 비율에 접어 넣지 않는다.

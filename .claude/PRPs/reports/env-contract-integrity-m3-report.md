@@ -99,6 +99,28 @@ derived 줄의 version 리터럴 교체 하나뿐이고, plan의 Design Critique
 판정한 그대로다(새 컴포넌트·레이아웃·색·타이포그래피 0). 검증 수단은
 `renderer/tests/i18n-surface.test.js`이며 10/10 통과했다.
 
+### Security Reviewer
+
+`mccp:security-reviewer`를 2026-08-31 머지 해소 뒤 실행했다(리뷰 전용, 파일 미편집).
+대상은 M3이 신설·개변한 6파일이고 질문은 4축 + OWASP였다 — 경로 봉쇄 · 파일 모드 ·
+심볼릭 링크/TOCTOU · 봉인 대 live env의 신뢰 경계.
+
+**CRITICAL·HIGH 0건.** CLAUDE.md §3.14 임계에 따라 그 자리 흡수는 없고 4건 전부
+[codex-findings-backlog.md](../../plans/codex-findings-backlog.md)로 이연했다.
+
+| 축 | 판정 | 근거 |
+|---|---|---|
+| 경로 봉쇄 (Q1) | **SAFE** | `assertKeyComponent`(`ledger.js:75-81` · `seal.js:90-96`)가 `decision.js:32`의 `SLUG_RE`로 gate·decision을 게이트하고, 그 정규식이 `.`·`/`·`\`·`:`·NUL·제어문자를 전부 배제한다. 파일명이 항상 복합 `<gate>__<decision>.json`(`ledger.js:106-108`)이라 Windows 예약 장치명으로 축약될 수 없다. 2차 방어로 `ensureStateDir`(`:131-138`)이 `realpathSync.native` 기반 `assertContained`로 디렉토리 탈출을 막는다 — `santa/ledger.js:240-252`와 동형이고, `/` 다중 세그먼트를 허용하는 `review-verdict.js:80-95`보다 오히려 좁다 |
+| 파일 모드 (Q2) | LOW · 기존 잔여 | `writeFileAtomic:246`이 tmp에 mode를 안 넘겨 rename 직후 umask 기본을 잠깐 갖는다. `chmodState`(`ledger.js:227`) + `repairModeIfNeeded`(`:145-151`)가 교정. `santa/ledger.js:254-264`가 이미 출하한 trade-off이며 본 파일이 그 주석을 축자 복제해 잔여로 명시. `seal.js:127-131`은 해당 없음(`seal.test.js:227` 단언) |
+| 심볼릭 링크·TOCTOU (Q3) | LOW · 기존 잔여 | 원장은 안전 — lock이 `O_EXCL`(`evidence-lock.js:175`), 내용은 `renameSync`(`:251`)라 목적지 링크로 write가 리다이렉트되지 않는다. seal의 unlink→write 창은 `codex-policy.js:108-123`에서 축자 상속(v1.32.6 production) |
+| 봉인 대 env (Q4) | **MEDIUM** | `readCap()`(`seal.js:170`)이 `>= 1`만 보고 상한이 없어, `parseRoundCap`이 `[1,3]`으로 clamp하는 env와 달리 봉인 파일 손편집이 무제한 예산을 준다. 권한 경계는 넘지 않고 더 단순한 by-design 우회(봉인 미실행 → `inert` fail-open)가 이미 존재해 MEDIUM |
+| 기타 (Q5) | LOW | `resolveRoundBudget`가 `codex-invoke.js`·`plan-review/cli.js`에 독립 중복 — 한쪽만 하드닝하면 두 발화 지점이 갈라진다. 주입 표면·하드코딩 비밀 0건. `receipt/write.js`의 `ROUND_LEDGER_MISMATCH`는 fail-closed로 정상 |
+
+**Q4를 그 자리에서 고치지 않은 이유**는 §3.14다(HIGH 이상만 흡수). 처방 자체는 작지만
+(`readCap()`에서 `MAX_ROUND_CAP` clamp + `schema.js:428-431` 동형 정렬) 리뷰어 자신이
+"더 큰 by-design 문이 이미 열려 있어" MEDIUM으로 보정했고, 그 문(봉인 미실행 fail-open)은
+plan이 의도한 설계라 함께 다루는 것이 맞는 별도 축이다.
+
 ## Acceptance — 라이브 실증
 
 단위 test 통과와 **별도로** 실제 바이너리·실제 원장·실제 receipt로 확인했다.

@@ -15,6 +15,8 @@
 | [converged-redefinition-design.md](converged-redefinition-design.md) | 2026-08-06 | active | `converged` verdict 재정의 + 소비처 계승 |
 | [verification-layer-design.md](verification-layer-design.md) | 2026-08-06 | active | L1/L2/L3 3층 verification 설계 |
 | [2026-08-22-impeccable-plugin-channel-migration.md](2026-08-22-impeccable-plugin-channel-migration.md) | 2026-08-22 | active | impeccable 배포 채널 전환(npm CLI 3.6.0 → marketplace plugin 4.1.1)이 mccp의 탐지·setup·디자인 게이트에 만든 결함 전수 조사 |
+| [2026-08-31-remaining-issue-disposition.md](2026-08-31-remaining-issue-disposition.md) | 2026-08-31 | active | 남은 open issue 4건(#127·#128·#129·#130) 통합 처분 조사 |
+| [2026-08-31-harness-instability-and-command-bloat.md](2026-08-31-harness-instability-and-command-bloat.md) | 2026-08-31 | active | 하네스 구조 불안정성과 명령 본문 비대화 — 대범위 메타 분석 |
 
 ## 2026-08 — 리뷰 루프 신뢰성
 

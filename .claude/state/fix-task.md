@@ -11,6 +11,7 @@ escalate: true
 originating_receipts:
   - .claude/receipts/mccp-pr-codex/diverse-agent-review-m11.json
   - .claude/receipts/mccp-implement-codex/env-contract-integrity.json
+  - .claude/receipts/mccp-pr-codex/env-contract-integrity.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -28,6 +29,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 ## Originating Decisions
 - .claude/receipts/mccp-pr-codex/diverse-agent-review-m11.json
 - .claude/receipts/mccp-implement-codex/env-contract-integrity.json
+- .claude/receipts/mccp-pr-codex/env-contract-integrity.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/env-contract-integrity>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-pr-codex/env-contract-integrity>'

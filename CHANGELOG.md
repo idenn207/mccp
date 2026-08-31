@@ -37,6 +37,12 @@ PRD를 아카이브 가능한 상태로 만든다.
   **정의**돼 있어 §3.11 C3와 순환했다(M9가 in-progress인 한 아카이브 거부, 아카이브가
   성공해야 M9 flip). 완료 판정을 "술어 통과 ∧ status 정본화"로 옮기고 라이브 완주는
   그 **검증**으로 격하했다. `scan.js`가 `archivable: true`(9/9)를 보고한다.
+- **history-leak-scan allowlist 4번째 항목** — M9 스냅샷(`m9-after.json`)이 backlog를
+  파생 캡처하면서 이미 면제된 2번 항목의 줄을 두 번째 경로로 **그대로 복사**했다.
+  allowlist는 경로별로 평가되므로(설계대로) 그 복사본이 pre-push 게이트를 차단했다.
+  같은 고유 인용(`history-leak-scan.js:90`)을 키로 스냅샷 경로 한 줄만 면제한다 —
+  두 항목이 같은 키를 쓰므로 그 finding이 재작성되면 **함께** 만료되고, 같은 바이트를
+  가진 sibling 스냅샷은 여전히 차단된다(회귀 test가 두 성질을 함께 단언).
 ## [1.33.1] — 2026-08-26
 
 > **§3.7**: `1.33.0 → 1.33.1` (**patch** — diverse-agent-review PRD의 단일

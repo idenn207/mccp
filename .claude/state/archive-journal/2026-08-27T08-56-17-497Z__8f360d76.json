@@ -1,0 +1,25 @@
+{
+  "schema_version": "v1",
+  "id": "2026-08-27T08-56-17-497Z__8f360d76",
+  "created_at": "2026-08-27T08:56:17.497Z",
+  "session_id": "a3ede689-4861-4b9d-a454-f0eced72859b",
+  "scan_hash": null,
+  "status_corrections": [],
+  "archives": [
+    {
+      "prd": ".claude/prds/review-loop-trust.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/review-loop-trust.prd.md",
+          "to": ".claude/prds/archived/review-loop-trust.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/review-loop-trust-closeout.plan.md",
+          "to": ".claude/PRPs/plans/archived/review-loop-trust-closeout.plan.md"
+        }
+      ]
+    }
+  ]
+}

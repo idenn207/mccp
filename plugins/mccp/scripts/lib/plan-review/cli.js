@@ -357,6 +357,37 @@ function recordPanelRound(budget) {
   }
 }
 
+// PR-Codex R1 F2 — the refusal's recovery sentence MUST branch on `pinnedBy`.
+// `effectiveRoundCap` (review-single-pass.js) returns MIN_ROUND_CAP without ever
+// reading MCCP_GATE_ROUND_CAP once any pin axis is active, so naming that variable
+// to a pinned operator prescribes an action that does nothing — and the refusal
+// prints `pinned by` two clauses earlier, so the unbranched text contradicted
+// itself in the same breath. The two axes are not interchangeable: `single-pass`
+// is a per-work-unit opt-in the operator can drop on the retry, while
+// `codex-disabled` is a standing policy (CLAUDE.md 3.3), so that configuration has
+// no cap-raising path at all and goes straight to 3.16 triage.
+function describeRoundCapRecovery(budget) {
+  if (!budget || !budget.pinnedBy) {
+    return 'The in-band recovery is to raise MCCP_GATE_ROUND_CAP (max 3) and re-run. ' +
+      'If the cap is already at its maximum this decision has no further review ' +
+      'budget — CLAUDE.md 3.16 says triage what the earlier rounds produced and ' +
+      'defer the rest, not open another round.';
+  }
+  const axes = String(budget.pinnedBy).split('+');
+  let out = 'The cap is PINNED by ' + budget.pinnedBy + ', and a pinned cap never ' +
+    'reads MCCP_GATE_ROUND_CAP — raising it has no effect here. ';
+  if (axes.indexOf('single-pass') !== -1) {
+    out += 'The `single-pass` axis is a per-work-unit opt-in, so re-running without ' +
+      'MCCP_REVIEW_SINGLE_PASS restores the configured cap. ';
+  }
+  if (axes.indexOf('codex-disabled') !== -1) {
+    out += 'The `codex-disabled` axis is a standing operator policy rather than a ' +
+      'one-shot escape, so while it holds there is no cap-raising path at all. ';
+  }
+  return out + 'CLAUDE.md 3.16 then applies: triage what the earlier rounds produced ' +
+    'and defer the rest, not open another round.';
+}
+
 // ── emit-workflow-args ────────────────────────────────────────────────────────
 // DD13: reviewed_plan_hash is computed HERE, on the same side of the fence as
 // the L2 agents that are about to read the plan. Computing it later (at decide
@@ -480,10 +511,7 @@ function cmdEmitWorkflowArgs(args) {
       ' — the L2 panel is not launched and no workflow args are written. Unlike the ' +
       'Codex channel, this gate CANNOT proceed on a spent budget: `decide` needs a ' +
       'panel verdict and an absent l2.json resolves to `unavailable`, which blocks. ' +
-      'The only in-band recovery is to raise MCCP_GATE_ROUND_CAP (max 3) and re-run. ' +
-      'If the cap is already at its maximum this decision has no further review ' +
-      'budget — CLAUDE.md 3.16 says triage what the earlier rounds produced and ' +
-      'defer the rest, not open another round.');
+      describeRoundCapRecovery(budget));
     return EX_BLOCK;
   }
 

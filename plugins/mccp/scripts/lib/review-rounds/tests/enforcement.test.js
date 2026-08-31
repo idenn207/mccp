@@ -283,7 +283,7 @@ test('resolveRoundBudget reports the pin so the refusal can name its cause', () 
 
 // ── 패널 채널 (Task 5) ───────────────────────────────────────────────────────
 
-function stagePanel(capReached) {
+function stagePanel(capReached, sealEnv) {
   const repo = makeRepo();
   const gitDir = seal.resolveGitDir(repo) || path.join(repo, '.git');
   fs.mkdirSync(path.join(repo, '.claude', 'plans'), { recursive: true });
@@ -292,7 +292,12 @@ function stagePanel(capReached) {
     '# Plan: fixture\n\n## Summary\n\nround cap enforcement fixture.\n');
 
   seal.sealCap({
-    gitDir: gitDir, env: { MCCP_GATE_ROUND_CAP: '1' }, gateId: GATE, decisionId: SLUG,
+    gitDir: gitDir,
+    // A pinned fixture seals through the SAME oracle production uses — the pin has
+    // to come from effectiveRoundCap, not from a hand-written cap, or the test
+    // proves nothing about the axis it names.
+    env: sealEnv || { MCCP_GATE_ROUND_CAP: '1' },
+    gateId: GATE, decisionId: SLUG,
   });
   if (capReached) {
     ledger.recordRound({ gateId: GATE, decisionId: SLUG, channel: 'panel', cwd: repo });
@@ -467,6 +472,46 @@ test('a seal call that cannot name its key CLEARS the previous seal', () => {
   // 그리고 그 상태에서 호출은 통과하되 세어지지 않는다(등록되지 않은 실행).
   assert.equal(callCodex(st).classification, 'ok');
   assert.equal(count(st), 0);
+});
+
+test('a PINNED refusal does not prescribe raising a cap the pin makes unreadable', () => {
+  // PR-Codex R1 F2. The refusal printed `pinned by …` and then, two clauses later,
+  // named MCCP_GATE_ROUND_CAP as "the only in-band recovery" — but
+  // `effectiveRoundCap` returns MIN_ROUND_CAP without reading that variable once
+  // any axis pins, so the operator was told to do something that cannot work, in
+  // the same sentence that told them why it cannot. An operator who tries the
+  // prescribed action and watches it fail reaches for the ledger next, which is
+  // exactly the outcome the sibling test above exists to prevent.
+  const st = stagePanel(true, { MCCP_REVIEW_SINGLE_PASS: 'scope_too_small' });
+  const r = runEmit(st);
+
+  assert.equal(r.status, 12, 'a spent budget still blocks');
+  assert.match(r.stderr, /pinned by single-pass/, 'the pin is still named');
+  assert.match(r.stderr, /never reads MCCP_GATE_ROUND_CAP|no effect here/,
+    'the refusal must say the cap knob is inert while pinned');
+  assert.match(r.stderr, /MCCP_REVIEW_SINGLE_PASS/,
+    'and name the axis-specific action that DOES work');
+  assert.match(r.stderr, /3\.16/, 'triage remains the fallback');
+  assert.doesNotMatch(r.stderr, /delete|rm -|unlink/i,
+    'the refusal must never point at the ledger as an escape');
+});
+
+test('the codex-disabled pin is reported as having no cap-raising path at all', () => {
+  // The two axes are not interchangeable. `single-pass` is a per-work-unit opt-in
+  // the operator drops on the retry; `codex-disabled` is a standing policy
+  // (CLAUDE.md 3.3 — the gate must never clear it), so there is no cap action to
+  // offer and 3.16 triage is the whole answer. Collapsing the two into one
+  // sentence would hand a standing-policy operator a per-call remedy they do not
+  // have.
+  const st = stagePanel(true, { MCCP_CODEX_DISABLED: '1' });
+  const r = runEmit(st);
+
+  assert.equal(r.status, 12);
+  assert.match(r.stderr, /pinned by codex-disabled/);
+  assert.match(r.stderr, /no cap-raising path at all/,
+    'a standing policy leaves no per-call cap remedy — say so instead of implying one');
+  assert.doesNotMatch(r.stderr, /MCCP_REVIEW_SINGLE_PASS/,
+    'the single-pass remedy must not be offered for an axis that is not active');
 });
 
 test('the panel refusal names a recovery path that this channel actually has', () => {

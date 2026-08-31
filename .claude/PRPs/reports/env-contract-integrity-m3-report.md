@@ -139,6 +139,38 @@ implement 안에서 정직하게 주장할 수 없다. 위 표의 마지막-1행
 receipt 3필드 · `rounds` 일치)을 실제 아티팩트로 대신 실증하지만, "`/mccp:plan`을 끝까지 돌렸다"는
 **주장하지 않는다**. 데모 잔여물(scratch 원장·receipt·봉인)은 전부 정리했다.
 
+### PR-Codex R1 흡수 — pin 상태의 거짓 복구 안내 (2026-08-31)
+
+PR-Codex가 `needs-attention`("Do not ship")으로 HIGH 2건을 냈고, 그중 하나는 **이 milestone이
+만든 것**이었다. `plan-review/cli.js`의 캡 거부 메시지가 «The only in-band recovery is to raise
+`MCCP_GATE_ROUND_CAP`»라고 안내하는데, 같은 메시지가 두 절 앞에서 `pinned by`를 출력하는 그
+상태에서는 [`review-single-pass.js`](../../../plugins/mccp/scripts/lib/review-single-pass.js)의
+`effectiveRoundCap`이 그 변수를 **읽지 않고** `MIN_ROUND_CAP=1`을 반환한다. 즉 한 문장 안에서
+자기모순이었다.
+
+pin 축 둘은 성격이 다르고 그 차이가 처방을 가른다 — `single-pass`는 작업 단위 opt-in이라 재시도
+때 내리면 되지만, `codex-disabled`는 CLAUDE.md §3.3이 "영구 운영자 정책"이라 못박은 것이고
+§3.17이 "표준 설치"라 부르는 상태다. 후자에서는 캡 상향 경로가 **아예 없다**. 둘을 한 문장으로
+뭉치면 상시 정책 운영자에게 있지도 않은 per-call 구제책을 쥐여주게 된다.
+
+M3 이전에는 캡이 강제되지 않아 낭비된 라운드가 무해했다. 강제를 켠 것이 이 milestone이므로
+이 결함의 귀속도 여기다.
+
+**수정**: `describeRoundCapRecovery(budget)`를 신설해 `pinnedBy`로 분기. `resolveRoundBudget`이
+이미 그 필드를 반환하므로 **시그니처 변경 0**이다. `enforcement.test.js`에 축별 test 2건
+(`single-pass` · `codex-disabled`) 추가 — 픽스처는 하드코딩 캡이 아니라 **production과 같은
+오라클**(`sealCap` + env)로 pin을 만든다. 그러지 않으면 test가 이름 붙인 축에 대해 아무것도
+증명하지 못한다. 두 단언 문자열은 수정 전 코드에 존재하지 않았으므로 반증 가능하다.
+
+**부수 수정**: 삽입된 28줄이 `MCCP_PLAN_REVIEW_TEST_INVOKE`의 read site를 밀어 registry
+evidence가 `:670` → `:699`로 stale해졌고 lint L10이 이를 잡았다. 갱신했다 — 계약 검사가
+의도대로 동작한 사례다.
+
+**닫히지 않은 것**: Codex가 처방한 pending-claim 예약 상태 기계는 범위 밖이고, `recordPanelRound`가
+Workflow launch **이전에** 라운드를 소진하는 창 자체는 그대로다. 달라진 것은 그 창에 빠진 운영자가
+**작동하는** 복구를 안내받는다는 점뿐이다. 나머지 HIGH(캡 검사의 check-then-act 비원자성)도
+backlog에 남았다.
+
 ## Deviations from Plan
 
 ### 1. `opts.notAReviewRound` 면제 축 추가 (Files to Change 밖 2파일)

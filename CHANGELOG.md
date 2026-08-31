@@ -2,7 +2,72 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.33.2] — 2026-08-31
+
+> **§3.7**: `1.33.1 → 1.33.2` (**patch** — diverse-agent-review PRD의 단일 milestone
+> M11이고 PRD 종료 축이 아니다). 진입 직전 재계산했다(§3.7 실측 4회 재발): `origin/main`이
+> `1.33.1`, 미머지 sibling이 `1.33.4`(env-contract-integrity)와 `1.34.0`(msw M9)을
+> 선언하므로 `1.33.2`는 비어 있다.
+
+### Added
+
+- **diverse-agent-review M11 — 패널 승인 품질 감사.** #8이 "승인이 발급되는가"에 답한
+  뒤에야 물을 수 있게 된 질문 — **그 승인은 옳았는가** — 에 답한다. 새 read-only ·
+  LLM-free · standalone 오라클
+  [`plan-review/approval-audit.js`](plugins/mccp/scripts/lib/plan-review/approval-audit.js)가
+  승인 레코드마다 **승인 이후 다른 생산자가 남긴 결함 증거**를 결속해 dossier를 낸다.
+  M8 `corpus.js`가 세운 분업 그대로 **도구는 세고 결속하며 판정은 문서가 한다** — 출력에
+  `false_approve` 류의 판정 필드가 없음을 회귀 test가 고정한다.
+- **회귀 test 24건** — [`plan-review-approval-audit.test.js`](plugins/mccp/scripts/lib/tests/plan-review-approval-audit.test.js).
+  blind · 구조적 공집합 vs 부재 · 해시 체제 · `unauditable` 격리 · 경로 탈출(읽기 0회를
+  io 스텁으로 단언) · coverage 항등식 · quorum 모순 · slug 귀속 · durability.
+- **판정 문서** — [`docs/diverse-agent-review/approval-quality-audit.md`](docs/diverse-agent-review/approval-quality-audit.md)가
+  도구 출력을 축자 동결하고 그 위에서 G1(앵커)·G2(사거리)·G3(독립 기록) 세 관문으로 판정한다.
+
+### Observed (판정 milestone — 동작 게이트 코드 0줄 변경)
+
+- **답은 "미탐 없음"이 아니다.** 감사 가능한 **4건 전부**에서 미탐이 나왔다(5건 중 1건은
+  리뷰된 본문이 복구 불가라 `unauditable`). **비율은 산출하지 않는다** — 표본 4, O3 생존
+  편향 방향 불명, 코퍼스 커버리지 하한.
+- **미탐 유형이 무작위가 아니다.** 11건이 다섯 유형으로 접히고 셋이 반복된다:
+  `Files to Change` 누락 3 · plan 내부 모순 3 · **저장소에 대한 낡은 사실 2 — 같은 오류가
+  두 패널을 각각 통과했다**. 앞의 둘과 셋째는 성질이 다르다(전자는 저장소 대조 축, 후자
+  C2는 plan 본문만 읽어도 판정 가능한 사거리 **안**의 미탐).
+- **cross-model 채널은 어느 승인도 근거짓지 못한다.** ship receipt가 해시로 결속된 4건은
+  전부 ship 시점에 Codex가 꺼져 있었다
+  (`meta.codex_disabled=true` · `codex_verdict='skipped'` · `findings=[]`). 나머지 1건은
+  그 본문을 봉인한 receipt가 **아예 없어** `absent`이며, 그쪽 0은 Codex에 대해 아무것도
+  말하지 않는다 — 두 사유를 한 칸에 접으면 receipt 부재를 receipt의 관측으로 읽게 된다.
+  5건 어느 것도 Codex 관측을 내지 않았으므로 도구가 `can_ground_absence=false`로 보고하고,
+  어떤 판정도 그 채널에 기대지 않는다.
+- **`.claude/reviews/` 재현성은 측정으로 답했다** — `durability_summary.untracked = 0`.
+  plan L2 패널의 CRITICAL 2건이 세운 전제("worktree-only라 감사 재현 불가")는 실측상
+  거짓이다(`.gitignore:154`가 무시하는 것은 `.claude/state/plan-review/`이고 같은 주석이
+  `.claude/reviews/`를 DURABLE로 지목한다).
+
+### Fixed
+
+- **이름이 아니라 해시로 증인을 귀속한다.** 레코드 파일명에서 slug를 뽑으면 **다른 plan의
+  ship receipt**가 증인으로 붙는 함정이 이 코퍼스에 실재한다(`impeccable-detection-contract`
+  → `plan_hash` `sha256:c7d1d27d…` vs 레코드의 `sha256:887fc89d…`). 도구는 전 ship
+  receipt를 `plan_hash`로 색인해 일치하는 것만 인정하고, 나머지 채널은 원리상 slug
+  귀속뿐이므로 `slug_claimed`로 표기한다. **plan DN10의 "본문이 승인 후 바뀌었다"는 이
+  잘못된 결속의 산물이었고, 정직한 서술은 `no_ship_receipt`다** — 문서가 그 정정을 적는다.
+- **경로 검증은 읽기 전에, 원본에 대해.** `measurement.plan_path`는 마크다운에서 파싱한
+  신뢰되지 않은 입력이다. 정본 `isRepoRelativeEvidencePath`를 재사용하되 그 위에 세 층을
+  얹었다 — 선행 대시 거부(실측: `('--all')` · `('-n')`이 정본을 통과해 **git 옵션 주입**이
+  된다) · Windows 예약 장치명 거부(실측: `('CON')`이 통과하고 win32에서 읽으면 stdin
+  대기 정지) · `realpathSync` 봉쇄. 모든 git 호출에 `--` 구분자.
+
+### Notes
+
+- 정본 `isRepoRelativeEvidencePath`의 두 구멍(선행 대시 · 예약 장치명)은 형제 호출자
+  `review_proof.dispatch_evidence[]`에도 열려 있으나, 그 파일은 게이트 경로 소유물이라
+  UI5(#5 오라클 추출 전 배선 확대 금지)에 걸려 **원장으로 이연**했다. M11은 자기 사거리만 닫았다.
+- 처방(리뷰어에게 저장소 대조 요구 · `Files to Change` 완전성 기계 검사 · plan 내부 모순
+  lint)은 전부 게이트 배선이라 **#5 뒤**다. 관측 milestone은 관측만 한다.
 
 ## [1.33.1] — 2026-08-26
 

@@ -9,7 +9,7 @@
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50",
     "MCCP_RECEIPT_GATE_MODE": "soft",
     "MCCP_RECEIPT_DEBUG": "on",
-    "MCCP_GATE_ROUND_CAP": "3",
+    "MCCP_GATE_ROUND_CAP": "1",
     "MCCP_GOAL_FEATURE": "available",
     "MCCP_ULTRACODE_FEATURE": "available",
     "MCCP_PLAN_REVIEW": "multi-agent",

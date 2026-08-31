@@ -269,6 +269,93 @@ function cmdL1(args) {
   return EX_BLOCK;
 }
 
+// ── round budget (env-contract-integrity M3) ─────────────────────────────────
+//
+// The panel half of the two-chokepoint cap enforcement. Identical policy to
+// codex-invoke.js#resolveRoundBudget and identical failure direction: FAIL-OPEN
+// on a broken module, an unusable seal, or a corrupt ledger, because an absent
+// seal is the normal state of a repository that predates M3 and one broken
+// require must not stop every plan review everywhere. The degraded run stays
+// auditable through the receipt's `meta.round_ledger_count` (null = the ledger
+// was never consulted), not through stderr alone.
+//
+// The ledger key lives in the gate-entry seal rather than in flags here, for the
+// same reason as the Codex channel: emit-workflow-args receives `--plan`, never a
+// decision slug, and threading one through would put the wiring back into prose.
+function resolveRoundBudget() {
+  const inert = {
+    allowed: true, canRecord: false, roundsSoFar: null, cap: null,
+    pinnedBy: null, gateId: null, decisionId: null, mode: null,
+  };
+  let seal;
+  let ledger;
+  let counter;
+  try {
+    seal = require('../review-rounds/seal');
+    ledger = require('../review-rounds/ledger');
+    counter = require('../santa/counter');
+  } catch (e) {
+    errln('review-rounds unavailable (' + (e && e.message ? e.message : String(e)) +
+      ') — the round cap cannot be enforced for this panel');
+    return inert;
+  }
+
+  let state;
+  try {
+    state = seal.resolveEnforcement({
+      gitDir: seal.resolveGitDir(process.cwd()),
+      env: process.env,
+    });
+  } catch (e) {
+    errln('round seal read threw (' + (e && e.message ? e.message : String(e)) +
+      ') — the round cap cannot be enforced for this panel');
+    return inert;
+  }
+
+  if (!state.canRecord) {
+    errln('no usable round seal (reason=' + state.sealReason + ') — this panel is not ' +
+      'counted and the cap is not enforced. A gate enrols by running ' +
+      'review-rounds/cli.js seal --gate <id> --decision <slug> at entry.');
+    return inert;
+  }
+
+  let roundsSoFar;
+  try {
+    roundsSoFar = ledger.count({ gateId: state.gateId, decisionId: state.decisionId });
+  } catch (e) {
+    errln('round ledger unreadable (' + (e && e.message ? e.message : String(e)) +
+      ') — not counting this panel');
+    return inert;
+  }
+
+  const d = counter.decideRound({ roundsSoFar: roundsSoFar, cap: state.cap });
+  return {
+    allowed: state.canEnforce ? d.allowed : true,   // observe records, never refuses
+    canRecord: true,
+    roundsSoFar: roundsSoFar,
+    cap: state.cap,
+    pinnedBy: state.pinnedBy,
+    gateId: state.gateId,
+    decisionId: state.decisionId,
+    mode: state.mode,
+  };
+}
+
+function recordPanelRound(budget) {
+  if (!budget || budget.canRecord !== true) return;
+  try {
+    require('../review-rounds/ledger').recordRound({
+      gateId: budget.gateId,
+      decisionId: budget.decisionId,
+      channel: 'panel',
+      classification: 'emitted',
+    });
+  } catch (e) {
+    errln('could not record the panel round (' + (e && e.message ? e.message : String(e)) +
+      ') — this panel is NOT counted against the cap');
+  }
+}
+
 // ── emit-workflow-args ────────────────────────────────────────────────────────
 // DD13: reviewed_plan_hash is computed HERE, on the same side of the fence as
 // the L2 agents that are about to read the plan. Computing it later (at decide
@@ -375,6 +462,30 @@ function cmdEmitWorkflowArgs(args) {
     return EX_BLOCK;
   }
 
+  // env-contract-integrity M3 — the SECOND enforcement chokepoint for the review
+  // round cap (the first is codex-invoke.js, just before spawn). This one is
+  // chosen because it is already a mandatory, fail-closed step: 5.2c HALTs on any
+  // non-zero exit here, returns the runaway reservation and records the halt. No
+  // new chokepoint is introduced — a chokepoint that only works when prose says
+  // "call it" would reproduce the very defect M3 removes.
+  //
+  // It runs BEFORE the args file is written so that a refused round leaves no
+  // workflow-args.json behind for a later step to pick up.
+  const budget = resolveRoundBudget();
+  if (!budget.allowed) {
+    errln('BLOCK: round cap reached (' + budget.roundsSoFar + '/' + budget.cap +
+      ' for ' + budget.gateId + '__' + budget.decisionId + ')' +
+      (budget.pinnedBy ? ' pinned by ' + budget.pinnedBy : '') +
+      ' — the L2 panel is not launched and no workflow args are written. Unlike the ' +
+      'Codex channel, this gate CANNOT proceed on a spent budget: `decide` needs a ' +
+      'panel verdict and an absent l2.json resolves to `unavailable`, which blocks. ' +
+      'The only in-band recovery is to raise MCCP_GATE_ROUND_CAP (max 3) and re-run. ' +
+      'If the cap is already at its maximum this decision has no further review ' +
+      'budget — CLAUDE.md 3.16 says triage what the earlier rounds produced and ' +
+      'defer the rest, not open another round.');
+    return EX_BLOCK;
+  }
+
   const payload = {
     planPath: planPath,
     prdPath: (args.prd && args.prd !== true) ? args.prd : null,
@@ -408,6 +519,22 @@ function cmdEmitWorkflowArgs(args) {
     errln('cannot write workflow args: ' + (e && e.message ? e.message : String(e)));
     return EX_BLOCK;
   }
+
+  // The args file is written, so the panel is committed to fire and the round is
+  // spent HERE — which is NOT the same instant the Codex channel charges at.
+  // That one records after the reviewer answered; this one records before the
+  // launch, because `emit-workflow-args` is the last mechanical step this channel
+  // has. The launch itself is a `Workflow` call the LLM makes at 5.2c, and 5.2d
+  // reconciles only after it returns — the body says plainly that nothing reaches
+  // 5.2d if the controller dies mid-flight. In that window a round is charged for
+  // a panel that produced no findings, and under a cap of 1 the next attempt is
+  // refused. Recovery is documented (raise the cap and re-run); closing the window
+  // properly needs the debt-marker shape 5.2c already uses for the reservation,
+  // which is a state machine this milestone does not build. Tracked in the backlog.
+  // Charging at the far side instead would be worse: `decide` is re-runnable and
+  // also runs when L2 is unreadable, so it would either double-charge or let a
+  // panel that really fired go uncounted.
+  recordPanelRound(budget);
 
   out({ argsPath: target, reviewedPlanHash: reviewedPlanHash,
     fleetKeys: fleet.map(function (f) { return f.key; }) });
@@ -561,6 +688,13 @@ function cmdL3(args) {
     envelope = codexInvoke.invokeAdversarialReview(String(args.focus), {
       json: true,
       impeccableAvailable: args['impeccable-available'] === true,
+      // env-contract-integrity M3 — L3 is the third LAYER of a pass that
+      // emit-workflow-args already charged a round for, not a second pass.
+      // Charging it again would make one hybrid pass cost two rounds, so
+      // `MCCP_PLAN_REVIEW=hybrid` under the default cap of 1 would halt on
+      // arithmetic before Codex was ever asked. The cap still binds: the panel
+      // channel is what a re-run hits, and it is enforced.
+      notAReviewRound: true,
     });
   } catch (e) {
     // A throw out of the wrapper is not an approval and not a crash of this

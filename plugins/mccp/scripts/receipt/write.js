@@ -37,6 +37,61 @@ function readJsonIfPresent(filePath, fallback) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+// env-contract-integrity M3 — `resolution.rounds` stops being a literal.
+//
+// Before M3 `defaultResolution.rounds` was the number 1 and no CLI flag could
+// change it (`--rounds` does not exist; the only override, `--resolution-file`, is
+// documented in receipt-write.md and passed by none of the three gates). So a
+// receipt sealed `rounds: 1` after a measured 15+ rounds — the author's narrative
+// and the sealed fact were the same literal, which is to say the field carried no
+// information at all.
+//
+// The ledger is keyed by (gate id, decision slug), and this command already
+// receives BOTH as flags — so unlike the two enforcement chokepoints it does not
+// need the seal to find the key. It reads the seal only for the cap metadata, and
+// that is precisely what makes `round_cap: null` meaningful: no usable seal means
+// this run was never enrolled, which means enforcement did not run, which means
+// the count beside it is not authoritative. That pairing is how a degraded run
+// stays auditable in the receipt instead of only in stderr (Implement-Codex R1 F3).
+function readRoundLedgerState(opts) {
+  const out = { available: false, count: null, cap: null, pinnedBy: null };
+  let ledger;
+  let seal;
+  try {
+    ledger = require('../lib/review-rounds/ledger');
+    seal = require('../lib/review-rounds/seal');
+  } catch (_err) {
+    return out;                     // this build has no round-ledger axis: omit the fields
+  }
+  out.available = true;
+
+  try {
+    // repoRoot is forwarded because buildReceipt already resolved it: `gitRepoRoot`
+    // spawns `git rev-parse` (546ms/call measured on Windows) and re-deriving it
+    // here charged every single receipt write for a second identical spawn.
+    out.count = ledger.count({
+      gateId: opts.gateId, decisionId: opts.decisionId, cwd: opts.cwd,
+      repoRoot: opts.repoRoot,
+    });
+  } catch (err) {
+    // null, never 0. Reading a corrupt ledger as "zero rounds" would silently
+    // reset the cap and seal that reset as a fact.
+    process.stderr.write('[mccp:receipt-write] round ledger unreadable (' +
+      (err && err.message ? err.message : String(err)) +
+      ') — sealing meta.round_ledger_count=null\n');
+  }
+
+  try {
+    const observed = seal.readCap({ gitDir: seal.resolveGitDir(opts.cwd || process.cwd()) });
+    if (observed.reason === 'ok') {
+      out.cap = observed.cap;
+      out.pinnedBy = observed.pinnedBy;
+    }
+  } catch (_err) { /* no usable seal → cap stays null, which is the honest report */ }
+
+  return out;
+}
+
 function relativeToRepo(filePath, repoRoot) {
   const abs = path.resolve(filePath);
   const rel = path.relative(repoRoot, abs);
@@ -398,6 +453,40 @@ function buildReceipt(args) {
     open_questions: [],
   };
   const resolution = readJsonIfPresent(args['resolution-file'], defaultResolution);
+
+  // env-contract-integrity M3 (DD8 · DD9) — derive rounds from the ledger.
+  //
+  // Only when the ledger holds at least one round. `schema.js` requires
+  // `rounds >= 1`, so an empty ledger cannot be written as 0 without relaxing
+  // that rule, and relaxing it is a separate axis. Nothing is lost: "Codex was
+  // disabled so nobody answered" is already carried by
+  // `resolution.codex_verdict='skipped'`, and the true count (0 included) is
+  // sealed in `meta.round_ledger_count` below.
+  const roundState = readRoundLedgerState({
+    gateId: gateId, decisionId: decisionId, cwd: cwd, repoRoot: repoRoot,
+  });
+  const explicitRounds = (args['resolution-file'] &&
+    Object.prototype.hasOwnProperty.call(resolution, 'rounds'))
+    ? resolution.rounds
+    : null;
+  if (Number.isInteger(roundState.count) && roundState.count >= 1) {
+    // DD9 — an explicit --resolution-file that disagrees with the ledger is
+    // fail-closed, not silently overridden. Quietly preferring the ledger would
+    // achieve the goal (separating the sealed fact from the author's narrative)
+    // while erasing the observable event: the author believed a different number.
+    if (explicitRounds !== null && explicitRounds !== roundState.count) {
+      const err = new Error(
+        '--resolution-file declares rounds=' + JSON.stringify(explicitRounds) +
+        ' but the round ledger for ' + gateId + '__' + decisionId + ' records ' +
+        roundState.count + '. Refusing to seal a receipt whose round count ' +
+        'contradicts the ledger. Either drop `rounds` from the resolution file ' +
+        '(the ledger is the single source of truth) or explain the divergence ' +
+        'before re-running.');
+      err.code = 'ROUND_LEDGER_MISMATCH';
+      throw err;
+    }
+    resolution.rounds = roundState.count;
+  }
 
   // v1.20.3 — codex_verdict (Option B). The real Codex adversarial-review
   // verdict is forwarded here so cross-gate dedupe checks the actual outcome
@@ -894,6 +983,28 @@ function buildReceipt(args) {
     receipt.meta.review_single_pass_bypassed_verdict = true;
   }
   warnSinglePassChainDrift(repoRoot, gateId, receipt.decision_id, singlePassReason);
+
+  // env-contract-integrity M3 — round-ledger audit, 3 present-only fields.
+  //
+  // NOT in `makeSkeleton` (the `pr_codex_force_override` precedent): adding keys
+  // to the skeleton changes every receipt's hash input, and CLAUDE.md 3.12 keeps
+  // the git-tracked ship corpus stable. Absence therefore means "this build had
+  // no round-ledger axis", which is a third state distinct from the two below.
+  //
+  // The three read together:
+  //   round_ledger_count  integer  the REAL count, 0 included — unlike
+  //                                resolution.rounds, which schema.js forces >= 1
+  //                       null     the ledger existed but could not be read
+  //   round_cap           integer  a usable seal was found: enforcement RAN
+  //                       null     no usable seal: enforcement did NOT run, and
+  //                                the count beside it is not authoritative
+  //   round_cap_pinned_by string   which axis pinned the cap to 1
+  //                       null     nothing pinned it (the cap is the env value)
+  if (roundState.available) {
+    receipt.meta.round_ledger_count = roundState.count;
+    receipt.meta.round_cap = roundState.cap;
+    receipt.meta.round_cap_pinned_by = roundState.pinnedBy;
+  }
 
   stampIntentDecision(receipt, args, gateId, planText);
 

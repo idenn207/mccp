@@ -155,11 +155,14 @@ test('마커 — 7c가 대조할 수치를 stdout에 찍는다', () => {
 
 test('values가 의미를 갖는 kind는 전부 3형태 중 하나를 갖는다', () => {
   // `build()`가 이미 throw로 막지만, 그 throw는 «채우지 않은 신규 항목»만 잡는다.
-  // 여기서는 오늘의 38개가 실제로 어떤 형태로 채워졌는지를 고정한다 — 형태 분포가
+  // 여기서는 오늘의 39개가 실제로 어떤 형태로 채워졌는지를 고정한다 — 형태 분포가
   // 조용히 gap 쪽으로 기울면 L11이 검사하는 표면이 줄어든 것이다.
   // 36 → 38: main 머지가 MCCP_INTENT_ARBITER·MCCP_IMPECCABLE_SKILL 두 enum을 더했다.
+  // 38 → 39: env-contract-integrity M3이 MCCP_ROUND_LEDGER(enum `enforce|observe`)를
+  //   더했다. ref 형태이므로 아래 deriveForm===1 불변식은 그대로다 — 이 인구조사가
+  //   붉어진 것 자체가 의도한 동작이다(레지스트리 행만 넣고 분포를 안 보면 잡힌다).
   const targets = registry.byKind('enum').concat(registry.byKind('list'));
-  assert.equal(targets.length, 38, '어휘 결속 대상 수가 바뀌었다면 분포도 다시 봐야 한다');
+  assert.equal(targets.length, 39, '어휘 결속 대상 수가 바뀌었다면 분포도 다시 봐야 한다');
 
   let refForm = 0;
   let deriveForm = 0;

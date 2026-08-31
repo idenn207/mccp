@@ -2,7 +2,79 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.32.8`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.33.4] — 2026-08-31
+
+> **§3.7**: `1.32.8 → 1.33.4` (**patch** — env-contract-integrity PRD의 M3 하나이고
+> PRD에는 M4~M6이 남아 있다). 4면(plugin.json · html.js page-foot · markdown.js
+> derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄고 `i18n-surface.test.js`가
+> 재검증한다.
+>
+> **번호가 세 칸 뛴 것은 §3.7 "forward-only 상향"의 7번째 재발이다 — 그리고 이 값은
+> 잠정이며, 머지 해소 때 반드시 재계산해야 한다.** 이 브랜치가 `origin/main`을 마지막으로
+> 병합한 시점(`19f6dd1`)의 main은 `1.32.6`이었으나, 그 뒤 main이 20여 커밋을 더 발행해
+> 현재 최대치는 **`1.33.1`**이다. 발행된 번호는 불가침이므로 미머지인 이쪽 세 항목이
+> 전부 위로 밀린다.
+>
+> **머지 시 해소해야 하는 것 (아직 하지 않았다 — 머지 자체가 별도 단계다):**
+>
+> | 이 브랜치 항목 | 현재 번호 | 충돌 종류 | 머지 후 목표 |
+> |---|---|---|---|
+> | M1 | `1.32.7` | **정면 충돌** — main이 `83ed37a`에서 santa-delta-review에 같은 번호를 발행했다(`## [1.32.7] — 2026-08-25`). 병합하면 헤딩이 둘 생긴다 | `1.33.2` |
+> | M2 | `1.32.8` | **역행** — 발행된 최대치 `1.33.1`보다 낮다 | `1.33.3` |
+> | M3 (이 항목) | `1.33.4` | 위 둘이 `.2`·`.3`을 차지한다는 전제로 잡은 잠정값 | 재계산 |
+>
+> 셋은 서로 다른 축이므로 **하나로 합치지 않는다**. 그리고 §3.7대로 target은 (a) 머지 해소
+> 시점과 (b) `/mccp:pr` 진입 직전 **두 번** 재계산한다 — main은 그 사이에도 움직인다.
+> 재상향하면 4면이 다시 어긋나므로 `i18n-surface.test.js`를 그때 다시 돌릴 것.
+
+### Added
+
+- **라운드 캡의 기계적 강제** — 캡은 그동안 판정만 있고 강제가 없었다. `effectiveRoundCap`은
+  정확한 수를 돌려주고 세 게이트가 그 오라클을 실제로 불렀지만, 라운드를 여는 것은 LLM이 읽는
+  산문이라 초과를 막는 장치가 없었다(실측 15+ 라운드, 그런데 receipt는 `rounds: 1`을 봉인).
+  M3은 캡을 **리뷰어 발화 지점**에서 강제한다.
+  - `plugins/mccp/scripts/lib/review-rounds/{ledger,seal,cli}.js` — 라운드 수의 단일 출처
+    (`<repoRoot>/.claude/state/review-rounds/<gate-id>__<decision-slug>.json`, `0o600`,
+    gitignored, decision slug 키잉)와 게이트 진입 봉인
+    (`<git-dir>/mccp/tmp/review-rounds-seal.json`, 수명은 `codex-policy.MAX_SEAL_AGE_MS`
+    재사용). 판정은 `santa/counter.js#decideRound`를 **재사용**한다(복제하지 않는다).
+  - **두 chokepoint** — `codex-invoke.js` spawn 직전과 `plan-review/cli.js
+    emit-workflow-args` 직전. 둘 다 이미 필수이고 fail-closed로 배선된 자리라 새 chokepoint를
+    만들지 않는다. 패널 쪽은 args 파일을 쓰기 **전**에 판정하므로 거부된 라운드가
+    `workflow-args.json`을 남기지 않는다.
+  - 신규 classification `round-cap-reached`(15번째, 두 번째 비-실패 값) — `blocking=false` ·
+    `advisory=false` · `durationMs=0` · spawn 0회. `plan`·`prp-implement`는 `divergent`로
+    매핑하므로 cross-gate dedupe가 열리지 않는다.
+- **`MCCP_ROUND_LEDGER`** (`enforce` | `observe`, 기본 `enforce`) — `off`는 없다. 끄는 것은
+  M3 이전 동작을 요청하는 것이고 그것이 결함 자체이며, `observe`가 이미 비차단 + 전량 기록을
+  준다. 불량값은 `enforce`로 **fail-closed**(`MCCP_GATE_ROUND_CAP`의 fail-open과 방향이
+  반대인 것이 의도다 — 모드의 오타가 강제를 통째로 끄는 조용한 kill switch가 되면 안 된다).
+- **receipt present-only 3필드** — `meta.round_ledger_count`(진짜 수, 0 포함 / `null`은 원장을
+  읽지 못함) · `meta.round_cap`(`null`이면 봉인 부재 = 강제가 돌지 않았고 옆의 count는 정본이
+  아님) · `meta.round_cap_pinned_by`. `makeSkeleton` 미포함(§3.12 hash 안정성)이되 hash **안**에
+  있다 — hash 밖의 감사 필드는 서명되지 않은 필드다.
+
+### Changed
+
+- **`resolution.rounds`가 리터럴을 그만둔다** — 원장 count가 1 이상이면 거기서 파생한다
+  (0이면 legacy `1` 유지: `schema.js`가 `rounds >= 1`을 요구하므로 0을 쓰려면 완화가 필요하고
+  그것은 별개 축이다). 명시 `--resolution-file`이 원장과 다른 수를 실으면 **exit 12**로
+  fail-closed하며 두 수를 모두 출력한다 — 조용히 원장을 채택하면 "저자가 다른 수를 믿고
+  있었다"는 관측 가능한 사건이 사라진다.
+- **리뷰가 아닌 Codex 호출은 예산을 쓰지 않는다** — `briefing/invoke.js`(receipt 요약)와
+  `plan-review/cli.js l3`(패널이 이미 과금한 pass의 3번째 층)가 `invokeAdversarialReview`를
+  transport로만 재사용한다. 면제는 `opts.notAReviewRound`이고 **opt-out**(선언을 잊은 리뷰는
+  여전히 세어진다) · **프로그래매틱 전용**(`parseCliArgs`가 닫힌 allowlist라 셸 호출자는 자기에게
+  면제를 발급할 수 없다). 이 배선이 없으면 요약 하나가 캡 1인 decision의 예산을 전부 먹고
+  hybrid는 기본 캡에서 매번 산술로 멎는다.
+- **`.claude/settings.json`의 `MCCP_GATE_ROUND_CAP`을 `3` → `1`로** (G7 종결). CLAUDE.md
+  §3.16은 "캡 1 고정, 이미 settings.json에 설정"이라 적었으나 실제 값은 `3`이었다. 캡이 산문일
+  때는 무해한 오기였지만 M3이 강제하는 순간 "운영자가 기대하는 캡"과 "강제되는 캡"의 불일치가
+  된다. 사람의 판정으로 **문서가 정본**이 됐다.
+- CLAUDE.md §3.3의 classification 표(14종 → 15종)와 §3.15의 "주장하지 않는 것"을 정정.
+  후자는 "기계화된 것은 캡 계산뿐"이라 적고 있었고 M3 이후 거짓이다.
 
 ## [1.32.8] — 2026-08-25
 

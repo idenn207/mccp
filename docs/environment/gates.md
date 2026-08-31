@@ -389,6 +389,52 @@ node plugins/mccp/scripts/lib/codex-policy.js clear
 }
 ```
 
+> v1.33.4 (env-contract-integrity M3)부터 이 상한은 **산문이 아니다.** 그 전까지 세 게이트
+> 본문은 값을 `$ROUND_CAP`에 담고 "Repeat up to `$ROUND_CAP` rounds"라고 적었을 뿐이라
+> 네 번째 호출을 막는 것이 없었다(실측 15+ 라운드, 그런데 receipt는 `rounds: 1`을 봉인).
+> 이제 두 chokepoint가 원장을 읽어 초과 호출을 거부한다 — 어느 캡이 실제로 적용됐는지는
+> 아래 [MCCP_ROUND_LEDGER](#mccp_round_ledger)가 정하고, 판정 순서와 원장 수명은
+> [gate-design.md](../gate-design.md#round-cap-enforcement)가 소유한다.
+
+### MCCP_ROUND_LEDGER
+
+**종류** `enum` — **값** `enforce` · `observe` — **기본값** `enforce`
+
+**한 줄** 라운드 원장 강제 모드.
+
+**소비처** `plugins/mccp/scripts/lib/review-rounds/seal.js:49`
+
+**값별 결과**
+
+- `enforce` — 캡을 넘긴 호출을 실제로 거부한다. Codex 채널은 spawn 없이 `round-cap-reached`를 반환하고(`durationMs=0`), 패널 채널은 `workflow-args.json`을 만들지 않고 exit 12로 끝난다.
+- `observe` — 라운드를 원장에 기록하되 거부하지 않는다. 단계적 배포와 "이 저장소에서 실제로 몇 라운드가 도는가"의 계측용이다.
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_ROUND_LEDGER": "observe"
+  }
+}
+```
+
+`off`는 **없다.** 끄는 것은 M3 이전 동작(강제 없음)을 요청하는 것이고 그것이 이 milestone이
+고친 결함 자체다. `observe`가 이미 비차단 + 전량 기록을 주므로 `off`가 더할 수 있는 것은
+침묵뿐이다 — 같은 판단을 `MCCP_PLAN_REVIEW`가 M2에서 `off`를 제거하며 내렸다.
+
+불량값은 **`enforce`로 fail-closed**다. 같은 파일의 `MCCP_GATE_ROUND_CAP`이 불량값에서
+기본 캡으로 fail-open하는 것과 방향이 반대인데, 두 파서가 답하는 질문이 다르기 때문이다:
+캡의 오타는 "몇 회인가"의 오답이라 기본 회수로 접어도 권한이 늘지 않지만, 모드의 오타를
+관대한 쪽으로 접으면 오타 하나가 강제를 통째로 끄는 조용한 kill switch가 된다.
+
+**봉인이 없으면 강제도 없다.** 이 모드는 게이트 진입 시
+`review-rounds/cli.js seal --gate <id> --decision <slug>`이 쓴 봉인에 실려 자식 프로세스까지
+간다. 봉인이 부재·만료·판독불가이면 원장 키(gate id + decision slug)를 알 수 없어 셀 수조차
+없으므로 강제가 **구조적으로 불가능**하고, 그 실행은 loud stderr와 함께 M3 이전처럼 돈다.
+그 열화는 침묵하지 않는다 — receipt의 `meta.round_cap`이 `null`로 봉인되어 "이 실행은
+등록되지 않았고 따라서 옆의 `meta.round_ledger_count`는 정본이 아니다"를 말한다.
+
 ### MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE
 
 **종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)

@@ -410,6 +410,41 @@ function validate(receipt) {
     //
     // present-only. 부재는 정상 상태이지 마이그레이션 부채가 아니다 — 기존 corpus는
     // 무변경으로 통과한다(§3.12 hash 안정성).
+    // env-contract-integrity M3 — round-ledger audit (present-only, additive).
+    //
+    // `null` is a MEANING here, not "unset". `round_ledger_count: null` says the
+    // ledger existed but could not be read; `round_cap: null` says no usable seal
+    // was found, so enforcement did not run and the count beside it is not
+    // authoritative. Absence of all three says this build predates the axis. The
+    // shape contract keeps those three states distinguishable — collapsing them
+    // would make a degraded run indistinguishable from a clean one, which is the
+    // whole reason these fields exist.
+    if (m.round_ledger_count !== undefined) {
+      req(m.round_ledger_count === null ||
+        (Number.isInteger(m.round_ledger_count) && m.round_ledger_count >= 0),
+        'meta.round_ledger_count must be a non-negative integer or null (null = the ' +
+        'ledger could not be read); got ' + JSON.stringify(m.round_ledger_count));
+    }
+    if (m.round_cap !== undefined) {
+      req(m.round_cap === null || (Number.isInteger(m.round_cap) && m.round_cap >= 1),
+        'meta.round_cap must be an integer >= 1 or null (null = no usable seal, so ' +
+        'the cap was not enforced); got ' + JSON.stringify(m.round_cap));
+    }
+    if (m.round_cap_pinned_by !== undefined) {
+      req(m.round_cap_pinned_by === null ||
+        (typeof m.round_cap_pinned_by === 'string' && m.round_cap_pinned_by.length > 0),
+        'meta.round_cap_pinned_by must be a non-empty string or null; got ' +
+        JSON.stringify(m.round_cap_pinned_by));
+      // A pin names the axis that forced the cap to 1, so it cannot exist without
+      // the cap it pinned. Allowing the pair to split would let a receipt claim an
+      // enforcement that never had a value to enforce.
+      if (typeof m.round_cap_pinned_by === 'string') {
+        req(Number.isInteger(m.round_cap),
+          'meta.round_cap_pinned_by names the axis that pinned the cap, so it requires ' +
+          'meta.round_cap to be an integer (got ' + JSON.stringify(m.round_cap) + ')');
+      }
+    }
+
     if (m.review_single_pass_reason !== undefined && m.review_single_pass_reason !== null) {
       req(typeof m.review_single_pass_reason === 'string'
         && SINGLE_PASS_REASONS.indexOf(m.review_single_pass_reason) !== -1,

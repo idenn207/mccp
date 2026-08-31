@@ -106,7 +106,7 @@ const RAW = [
   ['MCCP_SKIP_RECEIPT', 'bypass-flag', BY, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/hooks/receipt-prompt.js:260', 'receipt 게이트 1회 우회.'],
   ['MCCP_RECEIPT_DEBUG', 'bool', B, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/hooks/goal-phase-guard.js:196', 'receipt 디버그 출력.'],
   ['MCCP_RECEIPT_DEBUG_LEGACY_INLINE', 'bool', B, 'on', ON, 'active', 'gates', 'plugins/mccp/scripts/hooks/receipt-prompt.js:125', '구형 inline 디버그 유지.'],
-  ['MCCP_ALLOW_CODEX_UNAVAILABLE', 'bypass-flag', BY, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/lib/codex-invoke.js:168', 'Codex 미가용 시 advisory.'],
+  ['MCCP_ALLOW_CODEX_UNAVAILABLE', 'bypass-flag', BY, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/lib/codex-invoke.js:176', 'Codex 미가용 시 advisory.'],
   ['MCCP_CODEX_DISABLED', 'bypass-flag', BY, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/lib/codex-bridge.js:135', 'Codex 호출 영구 skip.'],
   ['MCCP_CODEX_DESIGN_SCOPE_HONOR', 'bool', B, 'on', ON, 'active', 'gates', 'plugins/mccp/scripts/lib/pr-phase-helpers/codex-runner.js:275', 'Codex design-scope preamble.'],
   ['MCCP_STOP_LOOP', 'enum', ['off', 'observe', 'enforce'], 'observe', null, 'active', 'gates', 'plugins/mccp/scripts/hooks/stop-review-loop.js:54', 'Stop-loop 게이트 모드.', 'plugins/mccp/scripts/hooks/stop-review-loop.js#STOP_LOOP_VALUES'],
@@ -114,10 +114,14 @@ const RAW = [
   ['MCCP_AUTO_CHAIN_DISABLE', 'bool', B, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/lib/auto-chain.js:141', 'auto-chain 자동 진행 중단.'],
   ['MCCP_AUTO_CHAIN_SKIP_PR', 'bypass-flag', BY, 'off', OFF, 'active', 'gates', 'plugins/mccp/commands/prp-implement.md:1615', 'commit까지만, PR 생략 — LLM이 읽고 판단하며 기계 강제가 없다.'],
   ['MCCP_GATE_ROUND_CAP', 'int', null, '1', null, 'active', 'gates', 'plugins/mccp/scripts/lib/review-single-pass.js:42', '게이트 라운드 상한.'],
+  // M3 — 캡의 «강제» 축. 캡 자체는 위 토글이 정하고, 이것은 그 캡을 넘긴 호출을
+  // 거부할지(`enforce`) 기록만 할지(`observe`)를 정한다. `off`가 없는 것이 설계다
+  // (DD7 — 끄는 것은 M3 이전 동작을 요청하는 것이고 그것이 결함 자체다).
+  ['MCCP_ROUND_LEDGER', 'enum', ['enforce', 'observe'], 'enforce', null, 'active', 'gates', 'plugins/mccp/scripts/lib/review-rounds/seal.js:49', '라운드 원장 강제 모드.', 'plugins/mccp/scripts/lib/review-rounds/seal.js#LEDGER_MODES'],
   ['MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/scripts/lib/pr-phase-helpers/finalize-receipt.js:318', '비수렴 ship override.'],
-  ['MCCP_FORCE_PR_WITHOUT_IMPECCABLE', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:61', 'impeccable 미가용 override.'],
+  ['MCCP_FORCE_PR_WITHOUT_IMPECCABLE', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:79', 'impeccable 미가용 override.'],
   ['MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:659', 'security 미가용 override.'],
-  ['MCCP_PR_SKIP_CODEX_REVIEW', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:87', 'PR-Codex skip escape.'],
+  ['MCCP_PR_SKIP_CODEX_REVIEW', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:105', 'PR-Codex skip escape.'],
   ['MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:846', 'design chain 차단 1회 우회.'],
   ['MCCP_GATEGUARD', 'enum', ['on', 'off'], 'on', null, 'active', 'gates', 'plugins/mccp/scripts/hooks/gateguard-fact-force.js:438', 'gateguard hook 활성.', null, '판정이 canonical enum이 아니라 disable 별칭 집합이다 — gateguard-fact-force.js:48 `MCCP_DISABLE_VALUES`의 원소면 off, 그 밖은 전부 on이라 수용 어휘가 열거로 존재하지 않는다'],
   // 운영자가 설정하는 토글이 아니라 게이트 사이에서 전달되는 신호다. 이름에
@@ -128,7 +132,7 @@ const RAW = [
   // 게이트가 스스로 도출해 자식 프로세스에 넘기는 값이며, 파싱도 JS가 아니라
   // 셸 비교(`[ "${CODEX_DEDUPE_AT_PR:-0}" = "1" ]`)라 공유 파서를 지나지 않는다.
   // `values: ['1']`은 그 셸 비교가 인정하는 유일한 값을 그대로 적은 것이다.
-  ['CODEX_DEDUPE_AT_PR', 'string', ['1'], null, null, 'internal', 'gates', 'plugins/mccp/commands/pr.md:117', 'cross-gate dedupe 전달 신호.'],
+  ['CODEX_DEDUPE_AT_PR', 'string', ['1'], null, null, 'internal', 'gates', 'plugins/mccp/commands/pr.md:135', 'cross-gate dedupe 전달 신호.'],
   // 두 detector는 boolean이 아니라 **가용성 3상태**를 받는다. 미설정이면 settings
   // 신호를 실제로 probe하므로 정적 default가 없다 — `default: null`은 "확정 불가"가
   // 아니라 "리터럴 default가 존재하지 않는다"는 사실이다.
@@ -185,7 +189,7 @@ const RAW = [
   ['MCCP_ORCHESTRATION_COST_FAIL_OPEN', 'bool', B, 'on', ON, 'active', 'orchestration', 'plugins/mccp/scripts/lib/orchestration-preview.js:61', '비용 신호 부재 시 진행.'],
   ['MCCP_ORCHESTRATION_RESERVATION_LEASE_MS', 'int', null, '600000', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/orchestration-runaway.js:108', '예약 lease 유효 시간.'],
   ['MCCP_ORCHESTRATOR_POLL_MS', 'int', null, '500', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/dispatch-watcher.js:63', 'watcher 폴링 간격.'],
-  ['MCCP_DISPATCH_CONTEXT', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/receipt/write.js:75', 'dispatch worker 선언.'],
+  ['MCCP_DISPATCH_CONTEXT', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/receipt/write.js:131', 'dispatch worker 선언.'],
   ['MCCP_AUTO_HANDOFF', 'enum', ['off', 'notify', 'spawn'], 'notify', null, 'active', 'orchestration', 'plugins/mccp/scripts/derive/sources/toggle-usage.js:142', '핸드오프 신호 처리.', 'plugins/mccp/scripts/state/session-spawner.js#MODES'],
   ['MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/state/session-spawner.js:282', '실험적 세션 spawn.'],
   ['MCCP_MULTI_SESSION_SCAN', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/derive/sources/worktrees.js:316', '다중 세션 스캔.'],
@@ -253,7 +257,7 @@ const RAW = [
   ['GITHUB_TOKEN', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/lib/github-discussions.js:38', 'gh 인증 토큰.'],
   ['ECC_DISABLED_MCPS', 'list', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/hooks/mcp-health-check.js:55', 'ECC 비활성 MCP 목록.', null, 'mccp가 정의하지 않는 외부 MCP 서버 이름이라 이 계약이 어휘를 소유하지 않는다 (UI6)'],
   ['CLV2_HOMUNCULUS_DIR', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/hooks/observe-runner.js:73', 'CLv2 instinct 디렉토리.'],
-  ['IMPECCABLE_FORCE_OVERRIDE_REASON', 'string', null, null, null, 'active', 'external', 'plugins/mccp/commands/prp-implement.md:701', 'impeccable 게이트 override.'],
+  ['IMPECCABLE_FORCE_OVERRIDE_REASON', 'string', null, null, null, 'active', 'external', 'plugins/mccp/commands/prp-implement.md:741', 'impeccable 게이트 override.'],
   ['IMPECCABLE_VERSION', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:283', 'impeccable 버전 문자열.'],
   ['IMPECCABLE_NO_UPDATE_CHECK', 'bool', B, 'off', OFF, 'not-consumed', 'external', 'docs/environment/external.md:321', '업데이트 확인 끔.'],
   ['IMPECCABLE_UPDATE_HOST', 'string', null, null, null, 'not-consumed', 'external', 'docs/environment/external.md:351', '업데이트 확인 호스트.'],
@@ -285,7 +289,7 @@ const RAW = [
   // 축 밖 1행(M5 Task 3.3): origin/main `b111dca`(codex-intent-context M3)가 도입했으나
   // 미등재라 L1이 red였다. 런타임 동작 변경 0이며, 이 줄이 없으면 M5는 자기가 확장하는
   // lint를 green으로 검증할 수 없다.
-  ['MCCP_PLAN_REVIEW_TEST_INVOKE', 'bypass-flag', BY, 'off', OFF, 'test-only', 'review', 'plugins/mccp/scripts/lib/plan-review/cli.js:542', 'test 전용 — `--invoke-module` 허용.'],
+  ['MCCP_PLAN_REVIEW_TEST_INVOKE', 'bypass-flag', BY, 'off', OFF, 'test-only', 'review', 'plugins/mccp/scripts/lib/plan-review/cli.js:670', 'test 전용 — `--invoke-module` 허용.'],
   ['MCCP_PLAN_REVIEW_L1', 'string', null, null, null, 'absent-by-design', 'retired', 'docs/environment/retired.md:1', '의도적 부재 — 끌 수 없다.'],
   ['MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL', 'bool', B, 'off', OFF, 'test-only', 'retired', 'plugins/mccp/commands/plan.md:687', 'test 전용 — critique 강제 실패.'],
   ['MCCP_PERF_INJECT_QUADRATIC', 'string', null, null, null, 'test-only', 'retired', 'docs/environment/retired.md:1', 'test 전용, 표면 밖.'],

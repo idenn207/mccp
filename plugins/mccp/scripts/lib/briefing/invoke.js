@@ -90,6 +90,11 @@ function invokeBriefing(receipt, deriveModel, opts) {
       timeoutMs: BRIEFING_TIMEOUT_MS,
       json: true,
       impeccableAvailable: false,
+      // env-contract-integrity M3 — this is a summary, not a review round. The
+      // wrapper is reused for its transport, not for its meaning. Without this
+      // the briefing would spend the decision's review budget at receipt-write
+      // time and `resolution.rounds` would count summaries as reviews.
+      notAReviewRound: true,
     });
   } catch (err) {
     return {

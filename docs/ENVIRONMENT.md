@@ -79,6 +79,7 @@ lint L12가 대조한다.
 |`MCCP_AUTO_CHAIN_DISABLE`|bool|on/off|off|auto-chain 자동 진행 중단.|[→](environment/gates.md#mccp_auto_chain_disable)|
 |`MCCP_AUTO_CHAIN_SKIP_PR`|bypass-flag|1|off|commit까지만, PR 생략 — LLM이 읽고 판단하며 기계 강제가 없다.|[→](environment/gates.md#mccp_auto_chain_skip_pr)|
 |`MCCP_GATE_ROUND_CAP`|int|—|1|게이트 라운드 상한.|[→](environment/gates.md#mccp_gate_round_cap)|
+|`MCCP_ROUND_LEDGER`|enum|enforce/observe|enforce|라운드 원장 강제 모드.|[→](environment/gates.md#mccp_round_ledger)|
 |`MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE`|string|—|—|비수렴 ship override.|[→](environment/gates.md#mccp_force_pr_without_codex_convergence)|
 |`MCCP_FORCE_PR_WITHOUT_IMPECCABLE`|string|—|—|impeccable 미가용 override.|[→](environment/gates.md#mccp_force_pr_without_impeccable)|
 |`MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER`|string|—|—|security 미가용 override.|[→](environment/gates.md#mccp_force_pr_without_security_reviewer)|

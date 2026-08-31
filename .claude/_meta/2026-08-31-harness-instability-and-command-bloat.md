@@ -42,23 +42,29 @@
 
 이 이음매에서 "선언은 참, 실행은 0"이 반복 생산됐다 — hybrid L3 죽은 배선, 캡 1 아래 R13 실측, cost STOP 구조적 발동 불가, `dispatch_chain_aborted`의 production emitter 0건, 전제 10의 거짓 강제 주장, 전제 11의 미배선 코드, 전제 2의 파일명 오타 하나로 죽은 escape 재확인.
 
-### B. 핵심 가치가 실측상 꺼져 있다
+### B. 승인이 아니라 기록이 비어 있다 (초안에서 정정된 절)
 
-`§1.2`가 선언한 cross-model dual review의 실제 운용:
+> **이 절의 초안은 "cross-model dual review가 최근 6주간 실측 0회 가동"이라고 적었다. 거짓이다.** 완결성 비평이 반증했고 재측정으로 확정했다. 진단이 정반대로 갈리는 구분이라 원문을 지우지 않고 정정 경위를 남긴다 — 기계가 죽은 것과, 기계는 살아 있는데 운용이 우회하는 것은 처방이 다르다.
+
+main 체크아웃 `.claude/receipts/mccp-pr-codex/` 72건 전수:
 
 | 지표 | 값 |
 |---|---|
-| ship receipt corpus (git-tracked `mccp-pr-codex`) | 71건 |
-| `codex_verdict` 분포 (필드 보유 49건) | converged **7** / divergent 9 / skipped 33 (legacy 무필드 22) |
-| 마지막 converged | 2026-07-08 ~ 07-14 구간에 7건 전부 집중 |
-| 이후 6주 ship | `codex_disabled_at_pr` 25 · audited skip 14 · force override 5 |
+| `codex_verdict` 분포 (필드 보유 50건) | converged **7** / **divergent 10** / skipped 33 (legacy 무필드 22) |
+| divergent 중 `pr_codex_force_override=true` | **6건** |
+| 가장 최근 divergent ship | `review-loop-trust.json` — **2026-08-31 (오늘)** |
 | cross-gate dedupe 실측 발화 | **0건** |
 | plan 게이트 L3(Codex) 발화 | **0 / 37** |
-| receipt 전수 findings·round | **85 / 85** 가 `findings=[]`, `round=1` (실제로 R6까지 돈 receipt 포함) |
+
+**Codex는 8월에도 반복 발화했다.** override 사유문이 그것을 증언한다 — `diverse-agent-review.json`의 "PR-Codex **round 6** findings are fully absorbed", `multi-session-work-loop-m5.json`의 "No-ship on **four consecutive rounds** ... **six were fixed rather than waived**", `review-loop-trust.json`의 "R1/R2/R3가 세 라운드 연속". 6주간 0인 것은 *가동*이 아니라 **`converged` 승인**이다.
+
+그런데 그 세 receipt의 `resolution.rounds`는 전부 **`1`**이고 `findings`는 전부 **빈 배열**이다. 사유문이 "round 6"이라 적힌 receipt가 `rounds: 1`로 봉인돼 있다. 원인은 `plugins/mccp/scripts/receipt/write.js:393-394`의 `defaultResolution = { converged: true, rounds: 1, ... }` 리터럴이다.
+
+**따라서 관측의 의미가 뒤집힌다.** "receipt가 findings 0 · round 1"은 *게이트가 아무것도 못 찾았다*가 아니라 **게이트가 찾은 것을 receipt가 기록하지 않는다**는 뜻이다. 실제로는 여섯 개의 실물 결함이 waive가 아니라 수정됐는데 그 사실이 감사 corpus 어디에도 없다. 결함은 리뷰가 아니라 **감사 채널**에 있다(C절).
 
 동시에 dogfood 설정은 전방위 완화다 — `soft` mode · 패널 정족수 3→1 · 서브에이전트 haiku · gateguard 2훅 off · 비용 임계 10배. CLAUDE.md는 그중 `soft` 하나만 자인한다. 완화 채널이 축별로 독립(env · settings · hook disable)이라 **합성 상태를 아무도 설계하지 않았고 렌더하는 표면도 없다**. `MCCP_DISABLED_HOOKS`는 "for local debugging"으로 도입돼(`36fb0d5`, 2026-06-17) 2.5개월 영구화됐고 diff에 사유가 없다.
 
-결론: 이 저장소가 자기 게이트에 대해 수집한 모든 실측 — 패널 라운드, quorum 캘리브레이션, ship corpus — 은 **완화 조합 위의 측정**이다.
+**"핵심 가치 드리프트"라는 프레이밍도 정정한다.** plan 게이트가 Codex를 부르지 않는 것은 드리프트가 아니라 [diverse-agent-review PRD](../prds/diverse-agent-review.prd.md)의 **명시적 제품 결정**(제목이 문자 그대로 "cross-model 의존 전환", M1 complete, 논문 8편 + 타사 11사례 근거)이다. 남는 진짜 gap은 전략 실패가 아니라 **CLAUDE.md §1.2가 그 결정을 반영하지 않은 문서 드리프트**다. 훨씬 작은 문제이고 고치는 법도 다르다.
 
 ### C. 감사 채널이 자기신고다
 
@@ -124,21 +130,25 @@ registry 164 항목, 런타임 표면 분모 117, `MCCP_*` 고유 토큰 190. �
 
 ## Verdict
 
-**한 문장**: mccp의 강제 피라미드는 상층(오라클·스키마·락)은 정교한 fail-closed 기계지만 최전선(push · PR 생성 · 라운드 집행 · CI · 핵심 cross-model 리뷰)은 산문과 완화된 설정 위에 서 있어 "게이트가 존재한다"는 참이고 "게이트가 출하 강도로 돌고 있다"는 거짓인 상태가 기본 운용이 됐다 — 그리고 그 gap을 가장 정직하게 측정·기록해 온 것 역시 이 저장소 자신이다.
+**한 문장**: mccp의 게이트 기계는 살아 있고 실제로 결함을 잡는다 — 8월에도 divergent 10건에 다라운드 실행, 여섯 개 실물 결함이 waive가 아니라 수정됐다. 무너진 것은 **그 사실이 기록되는 층**이다: 그 receipt들은 `rounds: 1` · `findings: []`로 봉인됐고, 최전선(push · PR 생성 · 라운드 집행 · CI)의 강제는 산문이며, 완화 설정의 합성 상태를 렌더하는 표면이 없다. 즉 문제는 "게이트가 안 돈다"가 아니라 **"게이트가 무엇을 했는지 아무도 사후에 알 수 없다"** 이다.
 
 ### 개선 방향 (우선순위 순)
 
-| # | 방향 | 무엇을 닫는가 | 비용 | 핵심 위험 |
-|---|---|---|---|---|
-| 1 | **강제 최전선의 기계화** — 산문 chokepoint를 도구·CI 계층으로 이관 | A절 전부. markdown 산문 / Node 코드 / test 3계층의 이음매에 링커·타입체커가 없다 | 큼 | — |
-| 2 | **실효 게이트 강도의 단일 표면** — 재점화 또는 재선언 | B절. 완화 조합의 합성 상태가 렌더되지 않는다 | 렌더는 저비용, 재정렬은 판단 비용 | 강도를 올리면 방향 4 미해결 시 8시간/plan 발산 재발 |
-| 3 | **감사 채널의 판별력 복구** — 자기신고에서 생산자-검증으로 | C절 | 중간 | CLI 봉쇄가 수동 복구 UX를 좁히면 운영자가 더 큰 우회로 밀린다 |
-| 4 | **리뷰 경제 재설계** — 라운드 기억 · 장식 손잡이 제거 · backlog 회수 루프 | D절 | 중간~큼 | 라운드 기억 주입이 리뷰어 독립성(§3.13의 구조 분리 원칙)과 긴장 |
-| 5 | **명령 본문 다이어트** — 예산 · relocation ledger · 블록→CLI 치환 | E절 | 큼, 그러나 분할 가능 | fence 병합·산문 이전은 현행 정적 test가 못 잡는 파손 클래스 |
-| 6 | **공유 기판 단일화** — 경로 정규화 · 락 정책 · STATE 스코프 · fail-open 계수 | 전제 12·13, cwd-상대 결함 재발 | 중간 (신설보다 수렴) | 경로 모듈 치환의 회귀 표면이 넓다 |
-| 7 | **env 계약의 역방향 검증과 표면 래칫** | F절 | 작음~중간 | 봉인 arming 자체가 산문이라 방향 1 없이는 반쪽 |
+**대부분이 이미 in-flight다.** 완결성 비평이 브랜치 실명으로 확인했다 — 이 표의 "상태" 열은 새 PRD를 여는 대신 **기존 축에 라우팅**하라는 뜻이다.
 
-**방향 1이 rank 1인 이유**: 나머지 여섯 방향의 수리 자체가 결국 배선이라, 이 방향이 서지 않으면 나머지 수리도 같은 방식(선언은 참, 실행은 0)으로 죽는다. hybrid L3와 budget 게이트가 이미 그렇게 죽은 채 출하됐다.
+| # | 방향 | 무엇을 닫는가 | 상태 |
+|---|---|---|---|
+| 1 | **강제 최전선의 기계화** — 산문 chokepoint를 도구·CI 계층으로 | A절 전부 | 부분 in-flight — 배선 lint는 `diverse-agent-review` #5(pending), 라운드 캡 기계화는 `env-contract-integrity` M3(구현 완료·미커밋, `review-rounds/` untracked 실재) |
+| 2 | **실효 게이트 강도의 단일 표면** | B절의 완화 합성 상태 | **범위 축소** — "핵심 가치 재정의"는 이미 결정됨(diverse-agent-review PRD). 남는 것은 (a) 완화 조합 렌더 (b) CLAUDE.md §1.2 문서 정정 (c) `MCCP_DISABLED_HOOKS`에 사유·만기 부여 |
+| 3 | **감사 채널의 판별력 복구** | C절 + B절의 `rounds`/`findings` 위조 | 부분 in-flight — `write.js:394` 리터럴 진단은 `env-contract-integrity` M3 plan이 동일 표현으로 이미 함. 나머지(CLI 위조 표면·evidence-audit 배선)는 미소유 |
+| 4 | **리뷰 경제 재설계** | D절 | **대부분 결정 완료 또는 충돌** — quorum M·K 은퇴는 HEAD 커밋 `d1db647`(M8)이 *의도적 무변경*을 이미 택함(#11·#5로 이연). "직전 adjudication을 리뷰어에 주입"은 `santa-delta-review` P3의 "이전 판정은 리뷰어에게 노출되지 않음"과 **정면 충돌** — 중재 없이 둘 다 살아 있다 |
+| 5 | **명령 본문 다이어트** | E절 | **유일하게 진짜로 열려 있는 축** — 어느 PRD·브랜치도 소유하지 않음 |
+| 6 | **공유 기판 단일화** | 전제 12·13 | 부분 in-flight — fail-open 계수는 backlog:714가 MSW M8에서 명시 이연, `multi-session-work-loop-m9`가 진행 중 |
+| 7 | **env 계약의 역방향 검증** | F절 | **이미 수리됨(미머지)** — `env-contract-integrity` M1(`31a779d`) + M2(`443b906`)가 착지했고, 전제 6의 거짓 enum이 그 브랜치에서 canonical + alias 정규화로 재작성됨 |
+
+**따라서 실행 권고가 바뀐다.** 새 PRD를 7개 여는 것이 아니라: (a) **방향 5만 신규 PRD**로 열고, (b) 방향 2의 (b)·(c)는 즉시 처리 가능한 소품이며, (c) 나머지는 in-flight 브랜치가 머지된 뒤 **잔여만 재측정**한다. 지금 열면 `env-contract-integrity`가 이미 고친 것을 다시 고치게 된다.
+
+**방향 4는 착수 전에 중재가 필요하다** — `santa-delta-review` P3와의 충돌은 설계 취향 차이가 아니라 리뷰어 독립성(§3.13의 anchoring 회피 구조 분리)에 대한 상반된 판정이다.
 
 **방향 5의 안전 조건** — 감축 단위는 **블록→CLI 치환만**이다. 선행 조건 둘: (a) 전제 8의 lint before-state 파라미터화(한 줄), (b) 본문별 relocation ledger. 이 둘 없이 산문을 문서로 이전하는 것은 금지다 — 현행 정적 test는 green인 채로 nonce 가드와 산문 의무가 죽는 파손을 못 잡는다. 회고 주석의 이전 목적지는 전제 15로 이미 실재하고, 상한 래칫은 `EVIDENCE_DEBT_CEILING`(상수 + 짝 test) 선례를 그대로 쓴다.
 
@@ -161,12 +171,45 @@ registry 164 항목, 런타임 표면 분모 117, `MCCP_*` 고유 토큰 190. �
 - **이연 원장은 "조용히 버리지 않는다"를 달성했다.** 756행 보존, 파서가 건너뛴 행을 `invalid_count`로 계수하도록 이미 수리. 미달성은 회수 루프이지 보존이 아니다.
 - **사고를 계약으로 승격하는 회로가 있다.** 머지 파일 드롭 → §3.5.1 삭제 검증 의무, env 해제 사고 → `codex-policy.js` 봉인, CL-5 → session-identity 단일 체인 + 스캔 test. 재발 방지가 산문에 그치지 않고 기계까지 간 사례가 축마다 최소 1건씩 있다 — **이 회로를 축 1개가 아니라 계급 전체에 일반화하는 것**이 위 방향들의 요지다.
 
+## 완결성 비평과 자기정정
+
+조사의 마지막 단계는 "무엇을 아무도 안 봤는가"를 묻는 비평이다. 그 결과 **종합의 헤드라인이 거짓으로 판정됐고** 수치 4건이 정정됐다. 이 절이 그 기록이다 — 정정을 본문에 반영하면서 경위를 지우면 이 문서 자신이 비판하는 결함("선언은 참, 검증은 0")을 재연하게 된다.
+
+### 정정된 주장
+
+| 초안 주장 | 실측 | 처리 |
+|---|---|---|
+| "cross-model dual review 최근 6주간 실측 0회 가동" | divergent 10건, 최신이 오늘(2026-08-31). override 사유문이 round 6 · 4연속 라운드를 증언 | **B절 전면 개정** — 0인 것은 가동이 아니라 `converged` 승인 |
+| "cross-model 축소는 드리프트" | `diverse-agent-review` PRD의 명시 결정(제목이 "cross-model 의존 전환", M1 complete) | **재프레이밍** — 남는 gap은 CLAUDE.md §1.2 문서 드리프트 |
+| "receipt 85건 전부 `findings=[]`·`round=1`" | 모수 재현 불가. git-tracked ship corpus는 worktree 71 / main 72이고 위반은 71/72 | **분모 정정**, 관측의 의미는 오히려 강화(B절) |
+| "force override 5건" | **6건** | 정정 |
+| "`MCCP_SKIP_RECEIPT`는 stamp도 없는 무감사 우회" | `write.js:546`이 `skipReason='MCCP_SKIP_RECEIPT=1'`을 **자동 stamp한다** | 절반 거짓 — "사유 *검증* 없음"만 참 |
+| quorum "측정가능 37 / 평가된 차단 29" | 5일 전 봉인 문서 `docs/diverse-agent-review/quorum-calibration.md:36`은 records **35** / `quorum_evaluated_blocked` **27** | 재측정임을 명시 — corpus가 5일 새 증가했고, 봉인 문서를 인용하지 않은 것이 초안의 흠이다 |
+| `catch (_)` 275건 | 이 worktree 재현값 275(비-test). 비평의 323은 다른 카운팅 규칙 | 규칙 명시로 해소 — 세는 법을 안 적은 것이 흠 |
+
+### 아무 렌즈도 읽지 않은 표면
+
+10개 렌즈가 전부 게이트 기계·명령 본문·hook·env·상태에 조준돼 다음이 사거리 밖이었다.
+
+- **`plugins/mccp/agents/` 58개** — D절이 패널 wall-clock을 12.14시간까지 계측하면서 **그 비용을 소모하는 리뷰어의 프롬프트 본문**(`review-{architect,invariant,security,test}.md`, `code-reviewer.md`)을 한 렌즈도 읽지 않았다. 리뷰어가 무엇을 지시받는지 안 보고 리뷰 품질을 판정한 셈이다. 또 `marketing-agent.md`·`seo-specialist.md` 같은 ECC 잔재가 다수인데 E절과 동형인 "fork 잔재 비대" 축이고 미조사다.
+- **`plugins/mccp/skills/` 47종** — §3.9 디자인 게이트의 load-bearing 산출물(`frontend-design-direction/`)조차 안 읽었다. 명령 본문 11,080줄을 세면서 같은 주입 계열인 skill 표면이 분모에서 빠졌다.
+- **`plugins/mccp/scripts/derive/` + `lib/renderer/`** — 방향 2가 "완화 조합을 렌더하라"고 처방하면서 그 처방이 얹힐 기존 파이프라인(16 source)을 감사한 렌즈가 없다.
+- **`.claude/reviews/` 72개 원문** — quorum 판정이 `corpus.js` 집계값만 소비했고 수렴 실패의 실제 텍스트는 아무도 읽지 않았다.
+- **`plugins/mccp/scripts/migrations/` 7개** — schema 이행 표면 전체.
+- **동적 실행** — `evidence-audit`·`corpus.js`는 돌렸지만 **test 346개를 실제로 실행해 지금 HEAD에서 green인지 확인한 렌즈가 없다.** "CI가 3개만 돈다"(사실)와 "나머지 343개가 통과하는가"는 다른 질문이고 후자는 미측정이다.
+
+### 안 읽은 선행 문서
+
+가장 뼈아픈 것은 `.claude/_meta/` 선행 산출물 8건을 종합이 **하나도 인용하지 않은 것**이다. 특히 `diverse-agent-review-analysis.md`와 그 PRD를 읽었다면 위 첫 두 정정은 애초에 발생하지 않았다. `env-contract-integrity` 브랜치의 `_meta` 2건(2026-08-20)은 F절과 같은 결함 계급을 **11일 먼저** 전수 조사했다.
+
 ## Open Questions
 
-- **방향 2의 갈래 선택은 운영자 결정이다.** codex token cap이 영구 정책이라면 (a) cross-model 발화를 terminal PR 1점으로 집중하고 재원을 fan-out 4→2~3 축소분에서 마련하거나, (b) §1.2 선언을 "조건부 cross-model"로 정정한다. 조사는 어느 쪽도 대신 고를 수 없다 — 다만 실측상 이미 (b)의 상태이고 문서만 아니라고 말하는 중이라, 위험은 정직화가 아니라 현상 유지 쪽에 있다.
+- **방향 4의 P3 충돌 중재.** "직전 adjudication을 다음 라운드 리뷰어에 주입"(라운드 기억)과 `santa-delta-review` P3의 "이전 판정은 리뷰어에게 노출되지 않음"이 정면 충돌한다. 리뷰어 독립성(§3.13의 anchoring 회피를 위한 구조 분리)에 대한 상반된 판정이며, 어느 쪽도 이 조사가 대신 정할 수 없다.
 - **fail-open 정당성의 통일 기준.** "실패가 계수·가시화되는가"를 기준으로 채택할지, 계층별 재량을 유지할지가 미결이다. 채택하면 205라인 / 98파일의 fail-open 분기 전수에 계수 의무가 붙는다.
 - **enum 역방향 lint(L11)의 면제 목록 관리.** 의도적 legacy 어휘(`notify`/`notification` 류 하위호환)를 오검출하므로 면제가 필요한데, 그 면제 목록이 또 화석화되지 않으려면 래칫이 필요하다 — `EVIDENCE_DEBT_CEILING`이 같은 문제를 이미 풀었으므로 그 형태의 재사용 여부만 정하면 된다.
 - **명령 본문 예산의 분모 정의.** 전제 7대로 A3 분모에 본문이 없다. 넣으면 M4가 봉인한 baseline(`a3-baseline.json`, 159,013B)의 의미가 바뀌므로, 별도 지표로 세울지 분모를 확장할지 결정이 필요하다. 확장은 봉인 재작성이라 `multi-session-work-loop` 축의 동의가 선행이다.
 - **모드별 분리 로딩의 기제.** `plan.md`의 codex 816줄 + hybrid 260줄을 조건부로 로드할 수단이 Claude Code에 있는지 미확인이다. 없다면 방향 5의 최대 항목(~1,100줄)이 성립하지 않고 남는 것은 블록 치환 525줄 + 앵커 이전 575줄이다.
 - **`santa-loop.md`의 재비대.** `2026-08-12-prd-decomposition-addendum.md`의 P0 당시 199줄이었고 thin caller가 목표였는데 978줄이다. 추출을 했는데 본문이 5배가 된 것이 E절 "추출은 감축이 아니었다"의 가장 선명한 사례인지, 다른 요인이 있는지 미분석이다.
-- **완결성 비평 미완.** 본 조사의 마지막 단계(어느 디렉토리를 아무 렌즈도 읽지 않았는가)가 세션 중단으로 미완료다. 확인되지 않은 사각으로 `plugins/mccp/skills/` 47종 · `plugins/mccp/agents/` · `docs/` 하위 다수가 남는다.
+- **위 "아무 렌즈도 읽지 않은 표면" 6종은 미조사로 남는다.** 특히 `agents/` 58개(리뷰어 프롬프트 본문)와 `skills/` 47종은 E절의 비대화 축과 동형일 가능성이 높아 후속 조사의 1순위다. `.claude/reviews/` 72개 원문은 D절 판정의 유일한 미소비 1차 자료다.
+- **343개 test가 지금 green인가.** 미측정이다. 이 값을 모른 채로는 방향 5(명령 본문 다이어트)의 안전 조건 중 "치환 전후 대조 test"의 기준선이 없다.
+- **초안 헤드라인이 거짓이었던 원인.** 종합 에이전트가 `.claude/_meta/` 선행 8건과 `diverse-agent-review` PRD를 읽지 않고 하위 렌즈의 요약만 합성했다. 이것은 이 문서가 A절에서 지적한 "producer-consumer 계약 표류"의 조사 절차판이다 — 다음 메타 조사는 종합 단계에 선행 `_meta` 색인 필독을 명시 조건으로 걸어야 한다.

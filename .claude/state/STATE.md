@@ -1,52 +1,56 @@
 ---
 state_version: 1
-task_fingerprint: diverse-agent-review-m8
+task_fingerprint: env-contract-integrity-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-31T04:02:01.086Z
+updated_at: 2026-08-31T07:11:28.642Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-31T04:02:01.086Z
+last_event_at: 2026-08-31T07:11:28.642Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-31T02:32:31.185Z
+dep_check_at: 2026-08-31T06:36:34.084Z
 escalate_pending: true
-escalate_pending_decision_id: diverse-agent-review-m11
+escalate_pending_decision_id: env-contract-integrity
 ---
 ## Goal
-diverse-agent-review M11 — 패널 승인 품질 감사(판정 milestone). 구현 완료(v1.33.2), commit/PR 대기.
+env-contract-integrity PRD M3 (라운드 캡 기계 강제) 구현 완료 — 머지 해소 후 커밋·PR 대기.
 
 ## Plan
-- PRD: `.claude/prds/diverse-agent-review.prd.md` — #1·#4·#6·#7·#8·**#11 complete**, 다음은 #5(오라클 추출) → #9
-- plan: `.claude/plans/diverse-agent-review-m11.plan.md` — 봉인됨(plan_hash). **편집 금지**
-- 산출물: `plugins/mccp/scripts/lib/plan-review/approval-audit.js` + test 24건 + `docs/diverse-agent-review/approval-quality-audit.md`
-- 구현 보고: `.claude/PRPs/reports/diverse-agent-review-m11-report.md` · 노트: `.claude/notes/diverse-agent-review-m11.md`
-- version 1.33.2 (patch — PRD 내 단일 milestone). 4면 동기 완료(plugin.json · html.js · markdown.js · CHANGELOG). branch **diverse-agent-review**
+- plan: `.claude/plans/env-contract-integrity-m3.plan.md` — 편집 금지(plan_hash가 어긋나면 §3.11 guard 2에 PR이 막힌다)
+- report: `.claude/PRPs/reports/env-contract-integrity-m3-report.md`
+- receipt: `mccp-{plan,implement}-codex/env-contract-integrity.json` — canonical slug(`-m3` 아님). hook의 missing 보고는 slug derivation 아티팩트
+- version 1.33.4 (잠정 — main 최대치 1.33.1 위). §3.7 재계산 2회 남음
 
 ## Done
-- M11 구현 — read-only·LLM-free·standalone 승인 dossier 결속 오라클 `approval-audit.js`. 게이트 배선 diff 공집합(UI5, 기계 확인)
-- 판정 — 감사 가능한 4건 전부에서 미탐 11건(5건 중 1건은 리뷰된 본문 복구 불가로 `unauditable`). 비율은 산출하지 않는다(표본 4 · O3 생존 편향 방향 불명)
-- 미탐 유형 5종 중 셋이 반복 — `Files to Change` 누락 3 · plan 내부 모순 3 · 저장소 낡은 사실 2(같은 오류가 두 패널을 각각 통과)
-- 이름이 아니라 해시로 증인 귀속 — plan DN10의 "본문이 승인 후 바뀌었다"는 slug 오결속의 산물이었고 정직한 서술은 `no_ship_receipt`
-- **code-review HIGH 2건 흡수** — (1) STATE 의 Plan·Done 이 M8 그대로라 Goal 과 모순이었다(이번 SessionStart 가 그 모순을 실제로 주입) (2) "5건 전부 Codex 꺼짐" 서술이 실측 4건과 어긋나 receipt **부재**를 receipt 의 관측으로 접었다 — DN3 이 막으려는 오독을 요약 문장이 저질렀다
-- 검증 — 신규 test 24/24 · 동결 블록 stdout·stderr 바이트 일치 · i18n-surface 10/10 · 게이트 배선 diff 공집합 · 삭제 파일 0건 · 도구 exit 1 state=degraded(원인 1건, 그것이 감사 결과다)
-- MEDIUM 4 + LOW 4 는 §3.14 대로 backlog 이연(증거 동봉, 8행 append)
+- Task 7 배선 — 세 본문에 review-rounds seal 1건씩 + plan/prp-implement에 `round-cap-reached` 분기(→ divergent) + 캡이 산문이 아님을 명시
+- test 5파일 85건 신규 — ledger 15 · seal 21 · enforcement 22 · command-body 11 · round-ledger-fields 16
+- 결함 수정: briefing과 hybrid L3가 리뷰 아닌 호출로 예산을 먹던 것을 `opts.notAReviewRound` opt-out으로 차단(프로그래매틱 전용)
+- Task 8 — .gitignore · gate-design.md#round-cap-enforcement 앵커 · CLAUDE.md §3.3(14→15종)·§3.15·§3.16
+- G7 종결(사용자 판정) — .claude/settings.json MCCP_GATE_ROUND_CAP 3 → 1. 문서가 정본
+- Task 9 — 4면 버전 1.32.8 → 1.33.4 + CHANGELOG 항목 + PRD M3 complete + 라운드 캡 Open Question 종결 기록
+- 검증 — lint L1~L12 exit 0 · doctor 0 · review-rounds 58 · command-body 11 · round-ledger 16 · single-pass 31 · env-contract 138 · i18n-surface 10 · 삭제 0건
+- Acceptance 라이브 실증 4/5 — Codex 2회차 durationMs=0 spawn 0 · emit 2회차 exit 12 파일 미생성 · observe 둘 다 발화 count=2 · receipt resolution.rounds=2(리터럴 1 깨짐)
 
 ## In Progress
 
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 version 재계산 필수. base 머지 시 §3.5.1 삭제 검증 재실행(origin/main이 12커밋 앞섬, review-loop-trust 산출물 9건 포함).
+머지 해소 먼저 — `git merge origin/main`(20여 커밋). CHANGELOG 3항목 재번호(M1→1.33.2 · M2→1.33.3 · M3 재계산) + §3.5.1 삭제 검증. 그 다음 `/mccp:prp-commit` → `/mccp:pr`(진입 직전 version 3차 재계산).
 
 ## Last Decision
-판정은 "미탐 없음"이 아니다 — 감사 가능한 4건 전부에서 미탐 11건. 유형이 무작위가 아니라 셋이 반복(Files to Change 누락 3 · plan 내부 모순 3 · 저장소 낡은 사실 2). 처방은 게이트 배선이라 UI5대로 #5 뒤로 남겼다. plan-conflict conflict=true는 게이트/훅 state 투입 오탐으로 판정(구현 집합 재실행 시 conflict=false, 10파일 1:1).
+PR 게이트의 round-cap-reached는 divergent로 매핑하지 않았다 — 그러려면 ship-gate proof 경로(codex_outcome enum + verdict map)를 바꿔야 하고 Files to Change 밖이며 gate-guard-integrity M1이 수리한 고위험 영역이다. 운영자 결과가 어느 쪽이든 동일(감사된 조치가 필요한 차단)하므로 codex-runner가 HALT하되 예산 소진을 장애와 구별해 말하게만 했다. 라이브 /mccp:plan 완주는 하지 않았고 주장하지도 않는다 — 그 실질(원장 생성·receipt 3필드·rounds 일치)만 실제 아티팩트로 실증했다.
 
 ## Open Questions
-- 패널이 저장소를 대조하지 못하는 축(미탐 11건 중 5건) — 리뷰어는 Read/Grep/Glob을 갖고 있으므로 능력이 아니라 프롬프트 문제일 수 있으나 미확인. #5 뒤
-- plan-gate receipt가 worktree-only라 승인 proof가 사후 검증 불가 — §3.12는 ship receipt만 tracked로 만든다. proof_backing은 해시 한 값의 교차 확인일 뿐
-- isRepoRelativeEvidencePath의 선행 대시·Windows 예약 장치명 구멍이 dispatch_evidence[]에도 열려 있음 — backlog 이연
-- codex-invoke.test.js 9건 선재 red — 별도 축의 부채
+- **머지 전 필수 (HIGH)** — origin/main이 마지막 병합(19f6dd1) 이후 20여 커밋 진행, 최대치 1.33.1. 이 브랜치 M1 `[1.32.7]`은 main의 santa-delta-review 1.32.7과 **정면 충돌**(헤딩 중복), M2 `[1.32.8]`은 역행. §3.7대로 M1→1.33.2 · M2→1.33.3 · M3 재계산. 표는 CHANGELOG [1.33.4] 항목에 있다
+- **머지 전 확인 (LOW — 종전 기록 정정)** — 이전 기록은 main과 이 브랜치의 `env-contract/lint.js`가 "L-번호 정면 충돌"이라 적었으나 실측과 다르다. `git diff origin/main HEAD -- plugins/mccp/scripts/lib/env-contract/lint.js`는 309 insertions / 1 deletion이고, L10은 양쪽이 같은 검사(evidence 소비 + 래칫)다 — 이 브랜치가 그 위에 L11·L12를 얹은 형태이며 main의 L10은 이미 19f6dd1 병합으로 들어와 있다. 머지 난이도는 기록보다 낮고, 실재하는 충돌 축은 CHANGELOG 버전 하나다.
+- PR 게이트만 `round-cap-reached`를 divergent로 매핑하지 않는다(ship-gate proof 경로가 Files to Change 밖). backlog 이연 — codex_outcome enum + verdict map 확장이 처방
+- 라이브 `/mccp:plan` 완주 미실시 — Acceptance 그 1항목은 미달성으로 보고했다. 실질(원장 생성·receipt 3필드·rounds 일치)은 실제 아티팩트로 실증
+- 봉인은 저장소 단위 한 파일이라 같은 worktree에서 두 게이트가 겹치면 나중 봉인이 먼저 것을 갈아치운다. run-scoped 불변 봉인은 backlog(codex-policy·REVIEW_DIR 6종이 같은 설계를 공유하므로 한 축만 고치면 규약이 둘이 된다)
+- check-then-act는 프로세스 사이에서 원자적이지 않다 — 진짜 동시 진입한 두 게이트는 둘 다 통과 가능. §3.8(worktree 분리)이 실무에서 닫는다
+- (선재) `ecc-context-monitor.test.js` Axis B (f) 1건 — 변경 전 파일에서도 동일 실패
+- (main 승계) worktree cleanup `.worktrees/review-loop-bypass-m2` 잔존
 
 ## Last Updated
-2026-08-31T04:02:01.086Z
+2026-08-31T07:11:28.642Z

@@ -14,20 +14,26 @@ hook 무게, 세션 수명, governance capture, MCP health, installer 경로를 
 
 ### MCCP_HOOK_PROFILE
 
-**종류** `enum` — **값** `full` · `lean` · `minimal` — **기본값** 없음 (미설정이 기본)
+**종류** `enum` — **값** `minimal` · `standard` · `strict` — **기본값** `standard`
 
 **한 줄** hook 무게 프로파일.
 
 **소비처** `plugins/mccp/scripts/lib/hook-flags.js:19`
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**값별 결과**
+
+- `minimal` — 가장 가벼운 프로파일. profiles에 minimal을 명시한 hook만 돈다.
+- `standard` — 표준 프로파일. hook의 기본 허용 집합(standard·strict)에 포함된다.
+- `strict` — 가장 무거운 프로파일. 기본 허용 집합에 포함되며 strict 전용 hook까지 돈다.
+
+**제거된 값** — `full`·`lean`은 코드에 없다. `full`을 원했다면 오늘의 최대치는 `strict`, `lean`을 원했다면 `minimal`이다. 기본값 `standard`는 문서에 아예 없던 값이라 이번에 함께 적었다. 개별 hook을 끄는 것은 이 축이 아니라 `MCCP_DISABLED_HOOKS`가 소유한다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "MCCP_HOOK_PROFILE": "full"
+    "MCCP_HOOK_PROFILE": "standard"
   }
 }
 ```
@@ -47,6 +53,12 @@ hook 무게, 세션 수명, governance capture, MCP health, installer 경로를 
 **소비처** `plugins/mccp/scripts/lib/hook-flags.js:24`
 
 **상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+
+**멤버 어휘**
+
+**허용 토큰** — `derive:hook-ids`에서 파생된다. 오늘 26개가 파생된다 — 목록은 그 소스가 정본이다.
+
+**미상 멤버** — 알 수 없는 토큰을 검증 없이 수용한다 (hook-flags.js:24 getDisabledHookIds) — 오타는 조용히 무시되고 그 hook은 계속 돈다
 
 **사용 예시**
 
@@ -208,9 +220,16 @@ MCCP_SESSION_ID=<사유를 한 문장으로> /mccp:pr
 
 **한 줄** STATE.md 주입 여부.
 
-**소비처** `plugins/mccp/scripts/hooks/session-start.js:167`
+**소비처** `plugins/mccp/scripts/hooks/session-start.js:168`
 
 **상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+
+**값별 결과**
+
+- `on` — SessionStart hook이 STATE.md를 system-reminder 블록으로 주입한다.
+- `off` — 주입하지 않는다.
+
+이 토글의 판정은 canonical enum이 아니라 **disable 별칭 집합**이다 — `0`·`false`·`off`·`none`·`disabled` 중 하나면 꺼지고 그 밖의 어떤 값도 켜진 것으로 본다. 그래서 수용 어휘가 열거로 존재하지 않으며 어휘 상수로 승격되지 않았다.
 
 **사용 예시**
 
@@ -373,6 +392,12 @@ MCCP_SESSION_RECORDING_DIR=<사유를 한 문장으로> /mccp:pr
 **소비처** `plugins/mccp/scripts/hooks/mcp-health-check.js:55`
 
 **상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+
+**멤버 어휘**
+
+**허용 토큰** — 열거 없음. 멤버가 파일 경로라 열거 어휘가 존재하지 않는다.
+
+**미상 멤버** — 멤버가 파일 경로라 이 계약이 어휘를 정의하지 않는다. 분리자가 콤마가 아니라 path.delimiter(Windows ";" · POSIX ":")이고 각 항목은 path.resolve로 절대화된다 — 실재하지 않는 경로는 조용히 읽기 실패로 넘어간다 (mcp-health-check.js:55 configPaths)
 
 **사용 예시**
 

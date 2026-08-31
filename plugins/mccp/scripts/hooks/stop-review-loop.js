@@ -44,10 +44,15 @@ const envValue = require('../lib/env-contract/value');
 const MAX_STDIN_BYTES = 1024 * 1024;
 const CODEX_INPUT_REL = path.join('.claude', 'state', 'codex-stop-loop-input.txt');
 
+// M2 — 수용 어휘를 명명 상수로 승격한다. 인라인 비교는 레지스트리가 결속할 대상을
+// 남기지 않으므로, 문서가 가르치는 값과 코드가 받는 값이 갈려도 L10이 볼 것이 없다.
+// 판정은 승격 전후로 한 글자도 다르지 않다 — 상수 조회로 표현만 바뀐다.
+const STOP_LOOP_VALUES = ['off', 'observe', 'enforce'];
+const STOP_LOOP_DEFAULT = 'observe';
+
 function modeFromEnv(env) {
-  const raw = String((env || {}).MCCP_STOP_LOOP || 'observe').toLowerCase().trim();
-  if (raw === 'off' || raw === 'observe' || raw === 'enforce') return raw;
-  return 'observe';
+  const raw = String((env || {}).MCCP_STOP_LOOP || STOP_LOOP_DEFAULT).toLowerCase().trim();
+  return STOP_LOOP_VALUES.indexOf(raw) !== -1 ? raw : STOP_LOOP_DEFAULT;
 }
 
 function codexOptIn(env) {

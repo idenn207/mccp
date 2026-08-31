@@ -42,15 +42,15 @@ const settingsSignal = require('./settings-signal');
 
 const MODES = ['implement'];
 const KNOWN_TIERS = ['ultracode'];
+// M2 — goal-detect.js와 동형. env override의 수용 어휘를 명명 상수로 승격한다.
+const FEATURE_VALUES = ['available', 'missing', 'unknown'];
 const MARKER_REGEX = /^\s*-\s+\*\*Effort\*\*:\s*([a-z][a-z0-9-]*)\s*$/;
 const TASK_HEADING_REGEX = /^### Task (\d+):\s+(.+)$/;
 
 function probeAvailability(options) {
   const opts = options || {};
   const env = process.env.MCCP_ULTRACODE_FEATURE;
-  if (env === 'available') return 'available';
-  if (env === 'missing') return 'missing';
-  if (env === 'unknown') return 'unknown';
+  if (FEATURE_VALUES.indexOf(env) !== -1) return env;
 
   // ultracode shares the workflows signal with deep-research. Delegate to the
   // settings-signal helper; on any unexpected failure fall open to 'unknown'.

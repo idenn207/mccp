@@ -2,7 +2,73 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.33.6] — 2026-09-01
+
+> **§3.7**: `1.33.5 → 1.33.6` (**patch** — diverse-agent-review PRD의 단일 milestone
+> M5이고 PRD 종료 축이 아니다). **§3.7 "forward-only 상향"의 8번째 재발이다** — 이
+> 항목은 작성 시점에 `1.33.3`을 선언했고 그때는 비어 있었으나, `/mccp:pr` 진입 직전
+> `origin/main`을 병합하자 main이 env-contract-integrity M1~M3을 `1.33.3` · `1.33.4` ·
+> `1.33.5`로 이미 발행한 상태였다. `1.33.3`은 **정면 충돌**(헤딩 중복)이므로 발행된
+> 번호를 불가침으로 두고 미머지인 이쪽만 발행 최대치 위로 밀었다.
+>
+> 직전 기록(1.33.5)이 "재계산 시점은 (a) 머지 해소 때와 (b) `/mccp:pr` 진입 직전 두
+> 번"이라 적어 두었고, 이 항목은 그 (b)가 실제로 값을 바꾼 사례다 — 작성 시점의
+> 예측치로 고정했다면 CHANGELOG에 `## [1.33.3]` 헤딩이 둘 생겼을 것이다.
+>
+> 4면(plugin.json · html.js page-foot · markdown.js derived 줄 · 이 파일의 `currently`
+> 노트)을 함께 맞췄고 `i18n-surface.test.js`가 재검증한다.
+
+### Added
+
+- `plugins/mccp/scripts/lib/command-body/` — 게이트 배선 seam lint 오라클 4모듈.
+  `blocks.js`가 저장소에 넷 있던 셸 블록 추출기를 정본화하고(유일하게 옳던
+  `command-tmp-worktree-safe.test.js:39`를 승격), `rules.js`가 실측에서 도출한 seam 규칙
+  S1/S2/S3를 순수 함수로 구현하며, `debt.js`가 기존 위반 18건을 `(file, rule, textDigest)`
+  키로 열거하고 `SEAM_DEBT_CEILING` 래칫을 로드 시점 throw로 강제하고, `lint.js`가
+  `run(repoRoot)` + `--json` CLI를 낸다.
+- test 3종 — 추출기 계약(dedented closer·미종료 블록·EOF fixture), 규칙별 **변이 test**
+  (합성 위반에 red 1건 / 위반만 제거한 짝에 green 0건), 실코퍼스 + 부채 래칫 양방향.
+
+### Changed
+
+- `plan-review-command-body.test.js` · `review-single-pass-command-body.test.js` — 자체
+  추출기를 제거하고 정본 오라클을 소비한다. 기존 단언은 축자 보존했고, F1 lookahead의 블록
+  종결 판정을 0칼럼 fence 정규식에서 오라클의 `{start, end}`로 옮겼다(들여쓴 닫는 fence를
+  못 보면 lookahead가 블록을 넘어가 **fail-open을 막는 단언 안에 새 fail-open이 생긴다**).
+  모수를 갖는 단언에 비공허 짝을 추가했다(assert 46 → 48 · 42 → 42).
+
+### Fixed
+
+- `/mccp:code-review` 로컬 리뷰 흡수 6건 (모두 M5 신규 코드 내부 — 게이트 본문 무편집 유지).
+  - **H1** — S2의 분기 종결자 집합이 `fi`+블록 끝뿐이라 **같은 if/else의 반쪽을 놓쳤다**
+    (`prp-implement.md:1410`은 등재, 구조가 동일한 `:1408`은 불가시). 종결자는 실측 열거가
+    아니라 의미 클래스이므로 `else`·`elif`·`done`·`esac`·`;;`로 넓히고 첫 토큰으로 판정한다
+    (`done < "$f"`). 실측 S2 5 → 8, `SEAM_DEBT_CEILING` 15 → 18 — 배선이 나빠진 게 아니라
+    규칙이 넓어진 것이다.
+  - **M1** — `stripLexical`이 인용 구분자 heredoc(`<<'EOF'`, 코퍼스 8건)을 감지하지 못했다.
+    `scrubQuotes`가 구분자를 지운 뒤 감지해서 본문이 코드로 스캔됐고, 본문의 `$VAR`가 유령
+    read가 되어 S1이 죽은 캡처를 놓쳤다. 인용 구분자는 원시 줄에서 먼저 받는다(인용 없는
+    `<<EOF`는 홑따옴표 안 데이터일 수 있어 정제 줄 판정 유지). 실코퍼스 결과는 수정 전후
+    동일 — 활성 사례가 0이었을 뿐 잠재는 실재했다. 함께, 놓치는 방향이 "언제나 위반을 더
+    보고하는 쪽"이라던 주석은 **S1에 대해 거짓**이라 정정했다.
+  - **M2** — `ASSERT_BASELINE`에 코드 소비처가 없어, 나란한 `SEAM_DEBT_CEILING`이 짝 단언으로
+    기계 강제되는 동안 baseline만 강제가 없었다(유일 대조가 plan 본문 셸 스니펫이고 그 plan은
+    §3.11대로 archived/로 간다). 두 파일의 `assert.` 수를 세어 대조하는 단언 추가.
+  - **M3/L1/L2** — 문서 §4의 자기모순 문장 정정 + 알려진 한계 표로 확장 · backlog 5행의 누락된
+    선행 파이프 복원 · `lint.js` CLI에 repo-root 탐색 추가(하위 디렉토리 실행이 코퍼스 오류로
+    오진되던 문제)와 readdir 실패 시 중복 메시지 제거.
+
+### Notes
+
+- **게이트 본문은 한 줄도 바뀌지 않았다** — `plugins/mccp/commands/` diff가 공집합이고 그것이
+  이 milestone의 기계적 acceptance 조건이다(UI2). 오라클이 찾은 18건은 전부
+  `.claude/plans/codex-findings-backlog.md`로 이연했다.
+- 이 lint은 어떤 CI에도 hook에도 등재되지 않는다 — 강제 지점은 사이클의 `## Validation`이며
+  §3.17이 `env-contract/lint.js`에 대해 명시한 것과 같은 천장이다.
+- 도출 근거·sizing 실측·미채택 규칙(blanket cross-fence)은
+  [docs/diverse-agent-review/gate-wiring-oracle.md](docs/diverse-agent-review/gate-wiring-oracle.md).
 
 ## [1.33.5] — 2026-08-31
 

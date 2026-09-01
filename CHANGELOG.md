@@ -2,7 +2,70 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.34.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.34.1] — 2026-09-01
+
+> **§3.7**: `1.34.0 → 1.34.1` (**patch** — multi-session-work-loop PRD의 단일
+> milestone M10). base가 `1.33.6`인데 `1.34.1`을 선언하는 것은 **번호 갭이 아니라
+> 미머지 PR #164(M9, `1.34.0`)와의 순서 유지**다 — 두 PR은 함께 머지되며 M9가 먼저
+> 착지한다. M10이 이 PRD의 마지막 milestone이지만 minor가 아닌 이유는 M9가 (당시
+> PRD 종료로 판단해) 이미 `1.34.0` minor를 소비했고, M10은 그 뒤에 신설된 milestone
+> 하나이기 때문이다. §3.7의 "애매하면 patch가 보수적 default"를 따른다.
+
+### Added
+
+- **multi-session-work-loop M10 — 부채 정산과 종결 경로.** 세 원장(backlog 936 ·
+  findings 레지스트리 178 · fix-task 1)을 단일 인벤토리로 정규화해 **분모 1115건을
+  봉인**하고(`docs/multi-session-work-loop/debt-inventory.json`), 그 전건에 처분을
+  기록하는 append-only 원장(`debt-dispositions.jsonl`)을 붙였다. 각 처분 줄은
+  `inventory_sha256`에 결속되므로 봉인을 지우고 다시 만든 경우가 조용히 통과하지
+  않는다. 완료 판정은 [m10-coverage-gate.js](plugins/mccp/scripts/lib/msw-metrics/m10-coverage-gate.js)의
+  exit 0이다(봉인 결속 · 처분 완전성 · 의도 위반 레코드 · flip 교차검증 4축).
+- **처분 어휘 6종과 승격 억제의 분리.** `fixed`·`obsolete`·`superseded`·`duplicate`만
+  SessionStart 승격을 억제하고 `deferred`·`rejected`는 억제하지 않는다 — 레지스트리의
+  `RESOLVING_CLOSURE_TYPES`가 코드로 세운 경계를 그대로 미러한다. plan은 이 구분 없이
+  "처분된 finding을 목록에서 내린다"고 적었고 L2 세 관점(architect·security·invariant)이
+  각각 HIGH를 냈다: 미수정 CRITICAL이 `deferred`만으로 다음 세션 목록에서 사라지면
+  M7 불변식이 모든 게이트가 green인 채로 꺼지고, C1은 승격을 보지 않으므로 탐지 수단이
+  없다. 억제는 fail-open이다(원장 부재·판독 불가 → 아무것도 억제하지 않음).
+- **`debt-deferred-{critical,high,minor}.md`** — 983건의 이연이 무엇을 왜 판정하지
+  못했는지 적는 successor 3종. successor는 실재만으로 부족하고 **봉인 digest를 본문에
+  담아야** 한다(M9 gate가 자기 소스에서 지목한 "커밋된 정적 파일은 영원히 참" 함정 차단).
+- **`intent-violation-ledger.json`** — 선언과 실제가 어긋난 6축. `declaration-corrected`
+  항목은 파일 실재가 아니라 **문장 실재**로 검증된다.
+
+### Changed
+
+- `derive/sources/backlog.js`가 `closed_count`/`open_count`/`resolved_count`를 낸다.
+  4열 스키마와 표 본문은 무변경이다(`rowId`가 행 본문 해시라 한 글자만 바뀌어도 모든
+  처분 결속이 끊긴다). `closed`는 **처분됨**이지 해소됨이 아니며, 그 구분을 위해
+  `resolved_count`가 따로 있다. `splitRow`·`isRowShaped`·`rowId`·`COLUMNS` export.
+- CLAUDE.md §3.16에 라운드 계수의 한계를 명시(`IV1`) — 캡은 `(게이트, decision)`으로
+  강제되지만 dispatch 원장의 `round_index`는 같은 plan hash 안에서만 증가하므로,
+  plan을 고쳐 재실행한 라운드는 **원장에서 라운드로 보이지 않는다**.
+
+### Fixed
+
+- **C2 귀속 줄이 미측정을 "0건"으로 보고하던 문제** (`renderer/sections/msw-metrics.js`).
+  같은 파일 A3·B3는 `typeof === 'number'` 가드를 쓰는데 이 줄만 `|| 0`이라, 비숫자가
+  문자열 연결에 그대로 실릴 수 있었고 더 나쁘게는 **읽지 못한 값이 0으로 단정**됐다.
+  없는 값은 `?`로 낸다. 실제 0은 여전히 0이다. (M10 인벤토리에서 still-valid로 남은
+  CRITICAL 1건의 실수정.)
+
+### Measured
+
+- C1은 `computed 0/178`로 **불변**이다. 처분 1115건이 레지스트리를 오염시키지 않았음이
+  실증됐다 — `computeC1`이 work-unit 귀속 검사 없이 계산하므로, 다른 작업 단위의 finding을
+  닫으면 정의상 분자가 아닌 것이 분자로 계상된다. 그래서 처분은 레지스트리 **밖**에 쌓는다.
+- 처분 분포: `deferred` 983 · `superseded` 111 · `duplicate` 19 · `fixed` 1 · `obsolete` 1.
+  **backlog는 미해소 목록이 아니라 판정 이력이 섞인 원장**이다 — CRITICAL 65행을 전건
+  읽은 결과 대다수가 이미 판정된 기록(triage·기각·흡수)이었고 어떤 기계 원장도 그것을
+  기록한 적이 없었다. M10이 겨냥한 비대칭은 "부채가 안 고쳐진다"보다 **"고친 사실이
+  기계가 읽을 수 있는 흔적을 남기지 않는다"** 쪽이 크다.
+- 판정 범위는 **CRITICAL 우선**이며 운영자 결정이다. 봉인 분모가 plan 추정(~800 · 개별
+  판정 대상 37)이 아니라 1115건 · 448건으로 확인된 뒤 정해졌다. HIGH 이하는 이연이고
+  그 사실은 successor 문서가 그대로 적는다.
 
 ## [1.33.6] — 2026-09-01
 

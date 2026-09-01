@@ -519,6 +519,117 @@ test('the C2 attribution line reports a missing count as unknown, not as zero', 
     /차단 판정 연결 0건/);
 });
 
+// ── the coverage gate ────────────────────────────────────────────────────────
+
+const gate = require('../msw-metrics/m10-coverage-gate');
+
+function gateRepo(over) {
+  const o = over || {};
+  const { root, doc } = sealed({
+    backlogRows: ['| 2026-09-01 | CRITICAL | a.md | one |'],
+  });
+  di.appendDispositions(root, [{
+    item_id: doc.items[0].item_id, disposition: 'fixed', evidence: '#164',
+  }]);
+
+  fs.mkdirSync(path.join(root, '.claude', 'prds'), { recursive: true });
+  fs.writeFileSync(path.join(root, gate.PRD_REL),
+    '| # | Milestone | Outcome | Status | Plan |\n' +
+    '| 10 | **debt** | outcome | ' + (o.status || 'complete') + ' | [p](p.md) |\n', 'utf8');
+
+  fs.mkdirSync(path.join(root, 'docs', 'multi-session-work-loop'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'multi-session-work-loop', 'note.md'),
+    (o.assertedText === undefined ? 'the declaration says so' : o.assertedText) + '\n', 'utf8');
+  fs.writeFileSync(path.join(root, gate.LEDGER_REL), JSON.stringify({
+    items: gate.REQUIRED_IV_IDS.map(function (id) {
+      return {
+        id: id,
+        resolution: 'declaration-corrected',
+        evidence: 'docs/multi-session-work-loop/note.md',
+        asserted_text: 'the declaration says so',
+      };
+    }),
+  }, null, 1), 'utf8');
+  return { root, doc };
+}
+
+test('the gate passes only when all four axes hold', () => {
+  const { root } = gateRepo();
+  const r = gate.evaluateGate({ repoRoot: root });
+  assert.equal(r.seal.ok, true);
+  assert.equal(r.dispositions.ok, true);
+  assert.equal(r.intent_violations.ok, true);
+  assert.equal(r.prd_flip.ok, true);
+  assert.equal(r.ok, true);
+});
+
+test('axes 1 to 3 are evaluated even before the PRD row flips', () => {
+  const { root } = gateRepo({ status: 'in-progress' });
+  const r = gate.evaluateGate({ repoRoot: root });
+  assert.equal(r.ok, false);
+  assert.equal(r.prd_flip.ok, false);
+  // The M9 gate skipped un-flipped rows entirely, which is why its plan had to
+  // mandate two runs. Here the other three axes still say something.
+  assert.equal(r.seal.ok, true);
+  assert.equal(r.dispositions.ok, true);
+  assert.equal(r.intent_violations.ok, true);
+});
+
+test('deleting the asserted text from its document turns axis 3 red', () => {
+  const { root } = gateRepo();
+  assert.equal(gate.evaluateGate({ repoRoot: root }).intent_violations.ok, true);
+
+  // The document still EXISTS — only the sentence is gone. A file-existence
+  // predicate would stay green here forever, which is the trap this checks.
+  fs.writeFileSync(path.join(root, 'docs', 'multi-session-work-loop', 'note.md'),
+    'unrelated content\n', 'utf8');
+  const r = gate.evaluateGate({ repoRoot: root });
+  assert.equal(r.intent_violations.ok, false);
+  assert.match(r.intent_violations.problems[0].reason, /not present/);
+  assert.equal(r.ok, false);
+});
+
+test('a missing intent-violation id fails rather than being counted as none', () => {
+  const { root } = gateRepo();
+  const led = JSON.parse(fs.readFileSync(path.join(root, gate.LEDGER_REL), 'utf8'));
+  led.items = led.items.filter(function (i) { return i.id !== 'IV3'; });
+  fs.writeFileSync(path.join(root, gate.LEDGER_REL), JSON.stringify(led), 'utf8');
+  const r = gate.evaluateGate({ repoRoot: root });
+  assert.deepEqual(r.intent_violations.missing_ids, ['IV3']);
+  assert.equal(r.ok, false);
+});
+
+test('an unreadable input fails closed rather than passing', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-m10-bare-'));
+  const r = gate.evaluateGate({ repoRoot: root });
+  assert.equal(r.ok, false);
+  assert.equal(r.seal.ok, false);
+  assert.match(r.seal.reason, /inventory absent/);
+  assert.equal(r.prd_flip.ok, false);
+});
+
+test('a disposition line bound to another seal fails axis 1 and leaves the item open', () => {
+  const { root, doc } = gateRepo();
+  fs.appendFileSync(di.dispositionsPath(root), JSON.stringify({
+    item_id: doc.items[0].item_id, disposition: 'fixed', evidence: '#1',
+    inventory_sha256: 'sha256:' + '0'.repeat(64), disposed_at: '2026-09-01T00:00:00.000Z',
+  }) + '\n', 'utf8');
+  const r = gate.evaluateGate({ repoRoot: root });
+  assert.equal(r.seal.mismatched_lines, 1);
+  assert.equal(r.seal.ok, false);
+  assert.equal(r.ok, false);
+});
+
+test('the gate recomputes the disposition verdict instead of trusting the producer', () => {
+  const { root } = gateRepo();
+  const r = gate.evaluateGate({ repoRoot: root });
+  // Both numbers are present and compared. If the producer's own verify ever
+  // loosens, producer_agrees goes false and the gate fails on the disagreement.
+  assert.equal(r.dispositions.producer_agrees, true);
+  assert.equal(r.dispositions.recomputed.open, r.dispositions.producer_reported.open);
+  assert.equal(r.dispositions.recomputed.adjudicable_fixed, 1);
+});
+
 // ── suppression eligibility (the L2 HIGH that three perspectives landed) ─────
 
 test('deferring or rejecting an item never makes it eligible for suppression', () => {

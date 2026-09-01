@@ -1,0 +1,54 @@
+{
+  "schema": "msw-m10-intent-violations/1",
+  "inventory_sha256": "sha256:f171a42e2c344849b988f613e827b11e3515dfcd777ad1d997645d917e71dfba",
+  "note": "Axes where what this repository DECLARED and what it DOES had come apart. Each is either fixed, or the declaration is corrected to match reality. The gate checks that every id is present, that a `fixed` entry's evidence resolves, and that a `declaration-corrected` entry's asserted_text is actually present in the document it names — file existence alone would be true forever once committed, which is the trap the M9 gate names in its own source. What the gate does NOT check is whether a correction is itself accurate. A person reads that.",
+  "items": [
+    {
+      "id": "IV1",
+      "claim": "The panel dispatch ledger's round_index only increases within one plan hash, so editing a plan and re-running the panel records a fresh round_index:0. The pattern §3.16 exists to stop is invisible in the ledger that would evidence it.",
+      "resolution": "declaration-corrected",
+      "evidence": "CLAUDE.md",
+      "asserted_text": "패널 dispatch 원장의 `round_index`는 **같은 plan hash",
+      "why_not_fixed": "Counting rounds across plan edits means re-keying the dispatch ledger off something other than the plan hash, and the hash binding is what makes a round record refer to a specific reviewed artifact. That is a design change, not a correction. The round CAP is already enforced on (gate, decision), so the operational risk is bounded; what is lost is retrospective readability, and §3.16 now says so."
+    },
+    {
+      "id": "IV2",
+      "claim": "One receipt can seal resolution.converged:true alongside resolution.codex_verdict:'divergent', so three consumers (fix-task, ship gate, dashboard) read different answers out of the same file.",
+      "resolution": "declaration-corrected",
+      "evidence": "CLAUDE.md",
+      "asserted_text": "`resolution.converged`는 신뢰 불가 필드 — 완료 판정 키로 쓰지 마라",
+      "why_not_fixed": "converged is a pre-existing field inside the hashed receipt body. Removing or re-deriving it would change receipt_hash for every existing receipt, which §3.12's no-rehash invariant forbids: the completion ledger keys entries on (decision_id, receipt_hash), so a re-seal unbinds them. The declaration already names the field untrustworthy and routes every consumer to codex_verdict instead."
+    },
+    {
+      "id": "IV3",
+      "claim": "The intent axis is skipped in the default mode: MCCP_PLAN_REVIEW unset resolves to multi-agent, and the panel path carves the intent gate out.",
+      "resolution": "declaration-corrected",
+      "evidence": "CLAUDE.md",
+      "asserted_text": "기본 모드에서 intent 축은 여전히 skip된다",
+      "why_not_fixed": "Ownership. The carve-out lives in the diverse-agent-review PRD's panel path, not in this one, and M10 does not edit another PRD's gate. The declaration records the skip, and the safety argument for the remainder does not lean on the intent axis — a panel approval cannot satisfy cross-gate dedupe, so PR-Codex still fires at the terminal gate."
+    },
+    {
+      "id": "IV4",
+      "claim": "§3.14's release condition is unmet: quorum.js still synthesizes a bare verdict='fail' into a severity:'FAIL' blocking finding, regardless of how the reviewer graded its own findings.",
+      "resolution": "declaration-corrected",
+      "evidence": "CLAUDE.md",
+      "asserted_text": "`quorum.js`가 bare `verdict='fail'`을 `severity:'FAIL'` blocking finding으로",
+      "why_not_fixed": "Recomputing a reviewer's blocking severity from its own findings changes what every gate treats as blocking, which is a review-semantics change and needs its own cycle. §3.14 already declares itself temporary and names this exact release condition, so the declaration matches reality. M10 measured the cost: 67 sealed items carry the synthesized FAIL severity and therefore say nothing about how severe anything was — recorded in debt-deferred-minor.md."
+    },
+    {
+      "id": "IV5",
+      "claim": "The fix-task slot carried an unresolved escalation with no path to closure — a pending correction that no ledger counted.",
+      "resolution": "fixed",
+      "evidence": "docs/multi-session-work-loop/debt-inventory.json:1",
+      "why_fixed": "The slot is now a source of the sealed inventory (item fix-task:env-contract-integrity-m1) and carries a disposition like every other item. Whatever else is true of it, it is no longer debt that nothing counts."
+    },
+    {
+      "id": "IV6",
+      "claim": "The findings registry points at claim text that no longer exists. .claude/reviews holds one file per work unit and each gate run overwrites it, while the registry stores only claim_digest — so the SessionStart banner's promise that '원문은 각 항목이 가리키는 리뷰 기록에 있습니다' is false for a measurable share of findings.",
+      "resolution": "declaration-corrected",
+      "evidence": "docs/multi-session-work-loop/debt-deferred-critical.md",
+      "asserted_text": "of the 14 undisposed CRITICAL registry findings, exactly",
+      "why_not_fixed": "Found by measurement during Task 5, not carried in from the plan: 10 of 14 undisposed CRITICAL findings could not be traced back to a surviving claim. Fixing it means either not overwriting review records per work unit, or storing the claim in the registry — the second was refused deliberately when the registry was designed (the allowlist has no claim field), so this is a design decision to revisit, not a bug to patch. The consequence is recorded where the deferral is: an item whose claim cannot be read cannot be honestly judged."
+    }
+  ]
+}

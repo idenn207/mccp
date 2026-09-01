@@ -423,6 +423,260 @@ function sealInventory(repoRoot) {
   return doc;
 }
 
+// ── dispositions ─────────────────────────────────────────────────────────────
+
+// Every line carries the `inventory_sha256` it was written against. Existence
+// alone would not show the case this binding exists for: delete the seal, seal
+// again over a changed tree, and the old lines would silently certify a
+// different denominator. The gate compares, so that path is red instead.
+function readDispositions(repoRoot) {
+  const abs = dispositionsPath(repoRoot);
+  if (!fs.existsSync(abs)) return { ok: true, lines: [], malformed: 0, error: null };
+  let raw;
+  try {
+    raw = fs.readFileSync(abs, 'utf8');
+  } catch (err) {
+    return { ok: false, lines: [], malformed: 0, error: err.message };
+  }
+  const lines = [];
+  let malformed = 0;
+  for (const text of raw.split(/\r?\n/)) {
+    if (!text.trim()) continue;
+    try {
+      const rec = JSON.parse(text);
+      if (rec && typeof rec.item_id === 'string') lines.push(rec);
+      else malformed += 1;
+    } catch (err) {
+      malformed += 1;
+    }
+  }
+  return { ok: true, lines, malformed, error: null };
+}
+
+// A successor must both exist AND name the seal it is taking items from.
+//
+// Existence alone is the trap this plan's own Patterns section flagged in the M9
+// gate: "커밋된 정적 파일이라 한 번 착지하면 영구히 참". Any file already in the
+// repo would satisfy it, so mass deferral would pass with no friction at all —
+// which the plan's Risks table rates as the likely path. Requiring the digest
+// means the successor had to be edited in THIS cycle to accept the handoff, and
+// one line covers a batch, so the friction is real without being busywork.
+function checkSuccessor(repoRoot, successor, inventorySha) {
+  const cls = classifyEvidence(successor, repoRoot, { allowBarePath: true });
+  if (!cls.ok) return { ok: false, reason: 'successor ' + cls.reason };
+  const abs = path.join(repoRoot, cls.path);
+  if (!fs.existsSync(abs)) {
+    return { ok: false, reason: 'successor does not exist: ' + cls.path };
+  }
+  let body;
+  try {
+    body = fs.readFileSync(abs, 'utf8');
+  } catch (err) {
+    return { ok: false, reason: 'successor unreadable: ' + err.message };
+  }
+  if (inventorySha && body.indexOf(inventorySha) === -1) {
+    return {
+      ok: false,
+      reason: 'successor ' + cls.path + ' does not name the inventory it is ' +
+        'taking items from (' + inventorySha + ') — file existence alone would ' +
+        'let any committed file absorb an unlimited deferral',
+    };
+  }
+  return { ok: true, path: cls.path };
+}
+
+function validateDisposition(repoRoot, rec, index, inventorySha) {
+  if (!rec || typeof rec.item_id !== 'string' || !rec.item_id) {
+    return { ok: false, reason: 'missing item_id' };
+  }
+  if (DISPOSITIONS.indexOf(rec.disposition) === -1) {
+    return { ok: false, reason: 'disposition must be one of ' + DISPOSITIONS.join('|') };
+  }
+  if (index && !index.has(rec.item_id)) {
+    return { ok: false, reason: 'item_id is not in the sealed inventory' };
+  }
+  if (rec.disposition === 'duplicate') {
+    if (typeof rec.duplicate_of !== 'string' || !rec.duplicate_of) {
+      return { ok: false, reason: 'duplicate requires --duplicate-of <item_id>' };
+    }
+    if (index && !index.has(rec.duplicate_of)) {
+      return { ok: false, reason: 'duplicate_of is not in the sealed inventory' };
+    }
+    return { ok: true };
+  }
+  if (rec.disposition === 'deferred') {
+    if (typeof rec.successor !== 'string' || !rec.successor) {
+      return { ok: false, reason: 'deferred requires --successor <path>' };
+    }
+    return checkSuccessor(repoRoot, rec.successor, inventorySha);
+  }
+  // fixed · obsolete · superseded · rejected
+  const cls = classifyEvidence(rec.evidence, repoRoot, { allowBarePath: false });
+  if (!cls.ok) return { ok: false, reason: rec.disposition + ' requires --evidence: ' + cls.reason };
+  return { ok: true };
+}
+
+function itemIndex(doc) {
+  const map = new Map();
+  for (const it of (doc && doc.items) || []) map.set(it.item_id, it);
+  return map;
+}
+
+function appendDispositions(repoRoot, records) {
+  const doc = readInventory(repoRoot);
+  if (!doc) {
+    throw new DebtInventoryError(
+      'no sealed inventory at ' + INVENTORY_REL + ' — seal before disposing',
+      'NOT_SEALED');
+  }
+  const index = itemIndex(doc);
+  const now = new Date().toISOString();
+  const accepted = [];
+  const rejected = [];
+  for (const raw of records) {
+    const rec = {
+      item_id: raw.item_id,
+      disposition: raw.disposition,
+      evidence: raw.evidence || null,
+      successor: raw.successor || null,
+      duplicate_of: raw.duplicate_of || null,
+      note: raw.note || null,
+      inventory_sha256: doc.inventory_sha256,
+      disposed_at: now,
+    };
+    const v = validateDisposition(repoRoot, rec, index, doc.inventory_sha256);
+    if (!v.ok) { rejected.push({ item_id: rec.item_id, reason: v.reason }); continue; }
+    accepted.push(rec);
+  }
+  // All-or-nothing per call: a partially applied batch leaves the ledger in a
+  // state no one asked for, and the ledger is append-only so it cannot be undone.
+  if (rejected.length) {
+    return { ok: false, appended: 0, accepted: accepted.length, rejected };
+  }
+  if (accepted.length) {
+    const abs = dispositionsPath(repoRoot);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.appendFileSync(abs,
+      accepted.map(function (r) { return JSON.stringify(r); }).join('\n') + '\n', 'utf8');
+  }
+  return { ok: true, appended: accepted.length, rejected: [] };
+}
+
+// Latest line wins per item. The ledger is append-only, so a re-judgment is
+// recorded rather than overwritten — both readings stay auditable.
+function foldDispositions(lines) {
+  const byItem = new Map();
+  for (const rec of lines) byItem.set(rec.item_id, rec);
+  return byItem;
+}
+
+function verifyDispositions(repoRoot) {
+  const doc = readInventory(repoRoot);
+  if (!doc) {
+    return {
+      ok: false, reason: 'no sealed inventory at ' + INVENTORY_REL,
+      open: null, unmatched_dispositions: null,
+    };
+  }
+  const sealedHash = inventoryHash(doc.items);
+  const sealIntact = sealedHash === doc.inventory_sha256;
+
+  const led = readDispositions(repoRoot);
+  if (!led.ok) {
+    return {
+      ok: false, reason: 'disposition ledger unreadable: ' + led.error,
+      open: null, unmatched_dispositions: null,
+    };
+  }
+
+  const index = itemIndex(doc);
+  const unmatched = [];
+  const boundMismatch = [];
+  const invalid = [];
+  for (const rec of led.lines) {
+    if (rec.inventory_sha256 !== doc.inventory_sha256) {
+      boundMismatch.push(rec.item_id);
+      continue;
+    }
+    if (!index.has(rec.item_id)) { unmatched.push(rec.item_id); continue; }
+    const v = validateDisposition(repoRoot, rec, index, doc.inventory_sha256);
+    if (!v.ok) invalid.push({ item_id: rec.item_id, reason: v.reason });
+  }
+
+  const folded = foldDispositions(led.lines.filter(function (r) {
+    return r.inventory_sha256 === doc.inventory_sha256 && index.has(r.item_id);
+  }));
+
+  const openItems = [];
+  const byDisposition = {};
+  let adjudicableFixed = 0;
+  for (const it of doc.items) {
+    const rec = folded.get(it.item_id);
+    if (!rec) { openItems.push(it.item_id); continue; }
+    byDisposition[rec.disposition] = (byDisposition[rec.disposition] || 0) + 1;
+    if (rec.disposition === 'fixed' && ADJUDICABLE_SEVERITIES.indexOf(it.severity) !== -1) {
+      adjudicableFixed += 1;
+    }
+  }
+
+  // Deferral concentration is surfaced, not capped. No defensible threshold
+  // exists, so the gate reports where a single successor absorbed many items and
+  // leaves the judgment to the audit sample the PRD already requires.
+  const deferralsBySuccessor = {};
+  for (const rec of folded.values()) {
+    if (rec.disposition !== 'deferred' || !rec.successor) continue;
+    deferralsBySuccessor[rec.successor] = (deferralsBySuccessor[rec.successor] || 0) + 1;
+  }
+
+  const ok = sealIntact && openItems.length === 0 && unmatched.length === 0 &&
+    boundMismatch.length === 0 && invalid.length === 0 && led.malformed === 0 &&
+    adjudicableFixed >= 1;
+
+  return {
+    ok,
+    seal_intact: sealIntact,
+    inventory_sha256: doc.inventory_sha256,
+    total_items: doc.items.length,
+    disposed: doc.items.length - openItems.length,
+    open: openItems.length,
+    open_sample: openItems.slice(0, 10),
+    unmatched_dispositions: unmatched.length,
+    unmatched_sample: unmatched.slice(0, 10),
+    binding_mismatch: boundMismatch.length,
+    invalid_dispositions: invalid.length,
+    invalid_sample: invalid.slice(0, 10),
+    malformed_lines: led.malformed,
+    by_disposition: byDisposition,
+    adjudicable_fixed: adjudicableFixed,
+    deferrals_by_successor: deferralsBySuccessor,
+  };
+}
+
+// Which findings a session may stop being told about.
+//
+// Returns null — meaning suppress NOTHING — whenever the ledger cannot be read
+// with confidence. Over-suppression removes a live CRITICAL from the next
+// session's list, which is exactly the failure M7 exists to prevent, and C1 does
+// not watch promotion so nothing would detect it. Under-suppression only shows
+// an item that was already dealt with.
+function suppressedFindingIds(repoRoot) {
+  const doc = readInventory(repoRoot);
+  if (!doc) return null;
+  const led = readDispositions(repoRoot);
+  if (!led.ok) return null;
+  const index = itemIndex(doc);
+  const folded = foldDispositions(led.lines.filter(function (r) {
+    return r.inventory_sha256 === doc.inventory_sha256 && index.has(r.item_id);
+  }));
+  const out = new Set();
+  for (const rec of folded.values()) {
+    if (SUPPRESSING_DISPOSITIONS.indexOf(rec.disposition) === -1) continue;
+    if (rec.item_id.slice(0, 9) !== 'findings:') continue;
+    out.add(rec.item_id.slice(9));
+  }
+  return out;
+}
+
 // ── cli ──────────────────────────────────────────────────────────────────────
 
 const EX_OK = 0;
@@ -461,6 +715,12 @@ const USAGE = [
   '  seal      normalize the three ledgers into an immutable denominator',
   '            (refuses if ' + INVENTORY_REL + ' already exists)',
   '  stats     report what a seal would contain, without writing anything',
+  '  dispose   record a disposition:',
+  '              --item <item_id> --disposition <' + DISPOSITIONS.join('|') + '>',
+  '              [--evidence <path:line|sha|#pr>] [--successor <path>]',
+  '              [--duplicate-of <item_id>] [--note <text>]',
+  '            or --batch <file.jsonl> for many at once (all-or-nothing)',
+  '  verify    report open items, binding, and rule compliance',
   '',
 ].join('\n');
 
@@ -482,6 +742,38 @@ function runCli(argv) {
       process.stdout.write(json ? JSON.stringify(payload, null, 2) + '\n'
         : JSON.stringify(payload.stats, null, 2) + '\n');
       return EX_OK;
+    }
+    if (cmd === 'dispose') {
+      let records;
+      if (flags.batch && flags.batch !== true) {
+        const abs = path.isAbsolute(String(flags.batch))
+          ? String(flags.batch) : path.join(repoRoot, String(flags.batch));
+        records = fs.readFileSync(abs, 'utf8').split(/\r?\n/)
+          .filter(function (l) { return l.trim(); })
+          .map(function (l) { return JSON.parse(l); });
+      } else {
+        if (!flags.item || flags.item === true || !flags.disposition || flags.disposition === true) {
+          process.stderr.write('dispose requires --item and --disposition (or --batch)\n');
+          return EX_USAGE;
+        }
+        records = [{
+          item_id: String(flags.item),
+          disposition: String(flags.disposition),
+          evidence: flags.evidence && flags.evidence !== true ? String(flags.evidence) : null,
+          successor: flags.successor && flags.successor !== true ? String(flags.successor) : null,
+          duplicate_of: flags['duplicate-of'] && flags['duplicate-of'] !== true
+            ? String(flags['duplicate-of']) : null,
+          note: flags.note && flags.note !== true ? String(flags.note) : null,
+        }];
+      }
+      const res = appendDispositions(repoRoot, records);
+      process.stdout.write(JSON.stringify(res, null, 2) + '\n');
+      return res.ok ? EX_OK : EX_FAIL;
+    }
+    if (cmd === 'verify' || flags.verify) {
+      const report = verifyDispositions(repoRoot);
+      process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+      return report.ok ? EX_OK : EX_FAIL;
     }
     if (cmd === 'seal') {
       const doc = sealInventory(repoRoot);
@@ -532,4 +824,11 @@ module.exports = {
   sealInventory,
   inventoryPath,
   dispositionsPath,
+  readDispositions,
+  appendDispositions,
+  validateDisposition,
+  checkSuccessor,
+  foldDispositions,
+  verifyDispositions,
+  suppressedFindingIds,
 };

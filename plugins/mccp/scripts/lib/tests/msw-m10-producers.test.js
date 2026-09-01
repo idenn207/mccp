@@ -232,6 +232,216 @@ test('the absorbed marker matches the written marker, not the Korean verb', () =
     '흡수 as ordinary prose must not earn a machine superseded disposition');
 });
 
+// ── dispositions ─────────────────────────────────────────────────────────────
+
+function sealed(opts) {
+  const root = makeRepo(opts);
+  const doc = di.sealInventory(root);
+  return { root, doc };
+}
+
+test('a disposition binds to the seal and must name an item inside it', () => {
+  const { root, doc } = sealed({
+    backlogRows: ['| 2026-09-01 | HIGH | a.md | a row |'],
+    findingEvents: [openEvent({ severity: 'CRITICAL' })],
+  });
+  const findingItem = doc.items.find(function (i) { return i.source === 'findings'; });
+
+  const ok = di.appendDispositions(root, [{
+    item_id: findingItem.item_id, disposition: 'fixed', evidence: '#164',
+  }]);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.appended, 1);
+
+  const led = di.readDispositions(root);
+  assert.equal(led.lines[0].inventory_sha256, doc.inventory_sha256);
+
+  const bad = di.appendDispositions(root, [{
+    item_id: 'findings:ffffffffffffffff', disposition: 'fixed', evidence: '#164',
+  }]);
+  assert.equal(bad.ok, false);
+  assert.match(bad.rejected[0].reason, /not in the sealed inventory/);
+});
+
+test('a batch is all-or-nothing so a partial write cannot land in an append-only ledger', () => {
+  const { root, doc } = sealed({ backlogRows: ['| 2026-09-01 | LOW | a.md | a row |'] });
+  const good = doc.items[0].item_id;
+  const res = di.appendDispositions(root, [
+    { item_id: good, disposition: 'fixed', evidence: '#1' },
+    { item_id: 'backlog:deadbeefdeadbeef', disposition: 'fixed', evidence: '#1' },
+  ]);
+  assert.equal(res.ok, false);
+  assert.equal(res.appended, 0);
+  assert.equal(di.readDispositions(root).lines.length, 0);
+});
+
+test('each disposition demands the evidence its own kind requires', () => {
+  const { root, doc } = sealed({
+    backlogRows: [
+      '| 2026-09-01 | LOW | a.md | one |',
+      '| 2026-09-01 | LOW | a.md | two |',
+    ],
+  });
+  const [a, b] = doc.items.map(function (i) { return i.item_id; });
+  const attempt = function (rec) {
+    return di.validateDisposition(root, Object.assign({ item_id: a }, rec),
+      new Map(doc.items.map(function (i) { return [i.item_id, i]; })), doc.inventory_sha256);
+  };
+
+  assert.equal(attempt({ disposition: 'fixed' }).ok, false, 'fixed needs evidence');
+  assert.equal(attempt({ disposition: 'fixed', evidence: '#12' }).ok, true);
+  assert.equal(attempt({ disposition: 'duplicate' }).ok, false, 'duplicate needs a twin');
+  assert.equal(attempt({ disposition: 'duplicate', duplicate_of: b }).ok, true);
+  assert.equal(attempt({ disposition: 'deferred', evidence: '#12' }).ok, false,
+    'deferred needs a successor, and evidence is not one');
+  assert.equal(attempt({ disposition: 'invented' }).ok, false);
+});
+
+test('a successor must exist AND name the seal, closing the static-file trap', () => {
+  const { root, doc } = sealed({ backlogRows: ['| 2026-09-01 | LOW | a.md | one |'] });
+  const item = doc.items[0].item_id;
+  const index = new Map(doc.items.map(function (i) { return [i.item_id, i]; }));
+  const attempt = function (successor) {
+    return di.validateDisposition(root,
+      { item_id: item, disposition: 'deferred', successor },
+      index, doc.inventory_sha256);
+  };
+
+  assert.equal(attempt('docs/nope.md').ok, false, 'a missing file is not a successor');
+
+  // A file that already exists is NOT enough. That is the trap the M9 gate's
+  // own comment names: a committed static file is true forever, so any repo
+  // file could absorb an unlimited deferral.
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'bystander.md'), 'unrelated\n', 'utf8');
+  const bystander = attempt('docs/bystander.md');
+  assert.equal(bystander.ok, false);
+  assert.match(bystander.reason, /does not name the inventory/);
+
+  fs.writeFileSync(path.join(root, 'docs', 'successor.md'),
+    'This takes items from ' + doc.inventory_sha256 + '\n', 'utf8');
+  assert.equal(attempt('docs/successor.md').ok, true);
+});
+
+test('verify reports open items, binding, and the CRITICAL/HIGH fixed floor', () => {
+  const { root, doc } = sealed({
+    backlogRows: ['| 2026-09-01 | HIGH | a.md | a row |'],
+    findingEvents: [openEvent({ severity: 'CRITICAL' })],
+  });
+  let r = di.verifyDispositions(root);
+  assert.equal(r.ok, false);
+  assert.equal(r.open, 2);
+  assert.equal(r.seal_intact, true);
+
+  for (const it of doc.items) {
+    di.appendDispositions(root, [{ item_id: it.item_id, disposition: 'fixed', evidence: '#164' }]);
+  }
+  r = di.verifyDispositions(root);
+  assert.equal(r.open, 0);
+  assert.equal(r.unmatched_dispositions, 0);
+  assert.equal(r.binding_mismatch, 0);
+  assert.ok(r.adjudicable_fixed >= 1);
+  assert.equal(r.ok, true);
+});
+
+test('a line bound to a different seal is counted, not silently honoured', () => {
+  const { root, doc } = sealed({ backlogRows: ['| 2026-09-01 | HIGH | a.md | a row |'] });
+  fs.appendFileSync(di.dispositionsPath(root), JSON.stringify({
+    item_id: doc.items[0].item_id, disposition: 'fixed', evidence: '#1',
+    inventory_sha256: 'sha256:' + '0'.repeat(64), disposed_at: '2026-09-01T00:00:00.000Z',
+  }) + '\n', 'utf8');
+  const r = di.verifyDispositions(root);
+  assert.equal(r.binding_mismatch, 1);
+  assert.equal(r.open, 1, 'a mismatched line does not dispose its item');
+  assert.equal(r.ok, false);
+});
+
+test('a malformed ledger line is counted rather than skipped', () => {
+  const { root, doc } = sealed({ backlogRows: ['| 2026-09-01 | HIGH | a.md | a row |'] });
+  di.appendDispositions(root, [{ item_id: doc.items[0].item_id, disposition: 'fixed', evidence: '#1' }]);
+  fs.appendFileSync(di.dispositionsPath(root), '{ not json\n', 'utf8');
+  const r = di.verifyDispositions(root);
+  assert.equal(r.malformed_lines, 1);
+  assert.equal(r.ok, false, 'an unreadable line means the ledger is not fully accounted for');
+});
+
+test('deferral concentration is surfaced rather than capped', () => {
+  const { root, doc } = sealed({
+    backlogRows: [
+      '| 2026-09-01 | LOW | a.md | one |',
+      '| 2026-09-01 | LOW | a.md | two |',
+    ],
+  });
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'next.md'), doc.inventory_sha256 + '\n', 'utf8');
+  for (const it of doc.items) {
+    di.appendDispositions(root, [{
+      item_id: it.item_id, disposition: 'deferred', successor: 'docs/next.md',
+    }]);
+  }
+  const r = di.verifyDispositions(root);
+  assert.equal(r.deferrals_by_successor['docs/next.md'], 2);
+  // No threshold blocks it — but with zero CRITICAL/HIGH fixed the gate is red,
+  // so deferring everything is visible rather than quietly successful.
+  assert.equal(r.adjudicable_fixed, 0);
+  assert.equal(r.ok, false);
+});
+
+// ── suppression (both directions) ────────────────────────────────────────────
+
+test('suppression removes disposed findings and keeps everything else', () => {
+  const handoff = require('../../state/handoff-items');
+  const { root, doc } = sealed({
+    findingEvents: [
+      openEvent({ finding_id: 'aaaaaaaaaaaaaaaa', severity: 'CRITICAL', seq: 1,
+        event_id: '00000000-0000-4000-8000-00000000000a', batch_expected: 2 }),
+      openEvent({ finding_id: 'bbbbbbbbbbbbbbbb', severity: 'CRITICAL', seq: 2,
+        event_id: '00000000-0000-4000-8000-00000000000b', batch_expected: 2 }),
+    ],
+  });
+  assert.equal(doc.items.length, 2);
+
+  // (b) before any disposition, both are promoted.
+  let ids = handoff.enumerateOpenFindings(root).items.map(function (i) { return i.id; }).sort();
+  assert.deepEqual(ids, ['aaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbb']);
+
+  // (a) a resolving disposition removes exactly one.
+  di.appendDispositions(root, [{
+    item_id: 'findings:aaaaaaaaaaaaaaaa', disposition: 'fixed', evidence: '#164',
+  }]);
+  ids = handoff.enumerateOpenFindings(root).items.map(function (i) { return i.id; });
+  assert.deepEqual(ids, ['bbbbbbbbbbbbbbbb'],
+    'the undisposed CRITICAL must still be promoted');
+
+  // (c) a corrupt ledger suppresses nothing — over-suppression is the unsafe
+  // direction, and nothing downstream would detect it.
+  fs.writeFileSync(di.dispositionsPath(root), 'garbage not json\n', 'utf8');
+  ids = handoff.enumerateOpenFindings(root).items.map(function (i) { return i.id; }).sort();
+  assert.deepEqual(ids, ['aaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbb']);
+});
+
+test('a deferred CRITICAL is still promoted — the L2 HIGH that three perspectives landed', () => {
+  const handoff = require('../../state/handoff-items');
+  const { root, doc } = sealed({
+    findingEvents: [openEvent({ finding_id: 'cccccccccccccccc', severity: 'CRITICAL' })],
+  });
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'next.md'), doc.inventory_sha256 + '\n', 'utf8');
+
+  di.appendDispositions(root, [{
+    item_id: 'findings:cccccccccccccccc', disposition: 'deferred', successor: 'docs/next.md',
+  }]);
+  const ids = handoff.enumerateOpenFindings(root).items.map(function (i) { return i.id; });
+  assert.deepEqual(ids, ['cccccccccccccccc'],
+    'deferring decides who fixes it, never whether the next session hears about it');
+
+  // Same for a rejection: the registry still calls it open, so the list does too.
+  di.appendDispositions(root, [{
+    item_id: 'findings:cccccccccccccccc', disposition: 'rejected', evidence: '#164',
+  }]);
+  assert.equal(handoff.enumerateOpenFindings(root).items.length, 1);
+});
+
 // ── suppression eligibility (the L2 HIGH that three perspectives landed) ─────
 
 test('deferring or rejecting an item never makes it eligible for suppression', () => {

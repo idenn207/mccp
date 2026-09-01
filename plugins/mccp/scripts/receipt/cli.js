@@ -220,6 +220,11 @@ function cmdWrite(args) {
     // plan version) is fail-closed at the same severity: the write did not
     // happen and the caller must HALT rather than proceed on an unsealed gate.
     if (err.code === 'REVIEW_STAMP_INVALID') return 12;
+    // env-contract-integrity M3 (DD9) — an explicit --resolution-file whose round
+    // count contradicts the ledger is fail-closed at the same severity: the write
+    // did not happen, and the caller must reconcile the two numbers rather than
+    // seal a receipt that disagrees with the record of what actually ran.
+    if (err.code === 'ROUND_LEDGER_MISMATCH') return 12;
     return 1;
   }
 }

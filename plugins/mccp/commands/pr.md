@@ -47,6 +47,24 @@ seal must degrade to the pre-v1.32.6 behaviour (env only) rather than stop the g
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-policy.js" seal 1>&2
+
+# env-contract-integrity M3 — seal the ROUND policy in the same breath, and for
+# the same reason. PR-Codex runs two processes down (`codex-runner.js` spawns
+# `codex-invoke.js`), and this PRD's own evidence is an instance of "the value
+# never reached the process", so the cap and the ledger key travel on disk.
+#
+# The ledger is per (gate, decision): `mccp-pr-codex__<slug>` starts empty even
+# when the plan and implement gates have spent theirs, so a first `/mccp:pr` is
+# never refused. A SECOND `/mccp:pr` for the same decision is — deliberately
+# (DD6). Recovery is `MCCP_GATE_ROUND_CAP` (max 3) or the audited
+# `MCCP_PR_SKIP_CODEX_REVIEW`, and `codex-runner.js` names both when it refuses.
+#
+# `seal` exits 0 even on failure: a failed seal degrades to pre-M3 behaviour
+# (no enforcement) rather than stopping the gate, and says so loudly.
+ROUND_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decision \
+  --command mccp:pr --args "$ARGUMENTS")
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/review-rounds/cli.js" seal \
+  --gate mccp-pr-codex --decision "$ROUND_SLUG" 1>&2
 ```
 
 **Never unset, override, or re-export `MCCP_CODEX_DISABLED` anywhere in this
@@ -668,6 +686,14 @@ Repeat up to `$ROUND_CAP` — the value the shared oracle produced above, NOT th
 the single-pass toggle is set or when Codex is disabled, and quoting the raw env here
 would tell the reader a cap the gate is not actually using. Beyond the cap,
 annotate `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
+
+> **이 캡은 v1.33.4부터 산문이 아니다.** 초과 호출은 `codex-invoke.js`가 spawn 직전에
+> 거부하고 `round-cap-reached`를 돌려주므로 Codex는 발화하지 않는다. 다만 이 게이트는
+> plan·prp-implement와 달리 그 분류를 `divergent`로 매핑하지 **않는다** — 그렇게 하려면
+> ship-gate proof 경로(`codex_outcome` enum과 verdict map)를 바꿔야 하고 그것은 이
+> milestone의 Files to Change 밖이다. 여기서는 `codex-runner.js`가 HALT하되 "예산을 다
+> 썼다"를 장애와 구별해 말하고 두 복구 경로를 제시한다. 원장은 게이트별이라 첫 `/mccp:pr`은
+> 절대 걸리지 않는다.
 
 If no `ACCEPT_NOW` HIGH/CRITICAL remains, stop at R1.
 

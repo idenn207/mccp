@@ -192,6 +192,7 @@ my-claude-code-plugin/
 |---|---|---|---|
 | `ok` | 정상 응답 | 통과 (`blocking=false`) | n/a |
 | `disabled` | `MCCP_CODEX_DISABLED=1` (v0.3.5 first-class skip) | 통과 (`blocking=false`, `advisory=false`) — spawn 직전 short-circuit, durationMs=0. receipt에 `meta.codex_disabled=true` + `meta.codex_skip_reason='codex_disabled'` 자동 stamp. terminal `/mccp:pr` Phase 0 advisory-rejection 룰에서 예외. | n/a — intentional, not failure |
+| `round-cap-reached` | 이 `(gate, decision)`이 이미 리뷰 라운드를 소진 (v1.33.5 env-contract-integrity M3) | 통과 (`blocking=false`, `advisory=false`) — `disabled` 다음 순서로 spawn 직전 short-circuit, durationMs=0. `plan`·`prp-implement`는 `CODEX_VERDICT="divergent"`로 매핑(§3.16 배경 참조), `/mccp:pr`은 `codex-runner.js`가 HALT하되 예산 소진을 장애와 구별해 보고. | n/a — 예산 소진은 가용성 문제가 아니므로 advisory 경로를 지나지 않는다 |
 | `registry-missing` | `~/.claude/plugins/installed_plugins.json` 없음 | block (exit 12) | warn + 통과 (non-approving receipt) |
 | `registry-malformed` | `installed_plugins.json` JSON parse 실패 (malformed) | block | warn + 통과 |
 | `plugin-not-installed` | codex@openai-codex registry entry 없음 | block | warn + 통과 |
@@ -205,7 +206,7 @@ my-claude-code-plugin/
 | `spawn-enoent` | node 실행 실패 | block | warn + 통과 |
 | `parse-error` | wrapper JSON parse 실패 | block | warn + 통과 |
 
-위 표는 [`codex-invoke.js`](plugins/mccp/scripts/lib/codex-invoke.js)가 생산하는 **정확히 14종** classification입니다(주석 header enum과 1:1).
+위 표는 [`codex-invoke.js`](plugins/mccp/scripts/lib/codex-invoke.js)가 생산하는 **정확히 15종** classification입니다(주석 header enum과 1:1). 그중 **실패가 아닌 것은 둘**(`disabled` · `round-cap-reached`)이고 서로 다른 축입니다 — 전자는 운영자가 Codex를 껐다는 뜻이고, 후자는 이 decision이 리뷰 라운드를 다 썼다는 뜻입니다.
 
 > **v1.23.0 M3 — verdict-level ship gate는 위 classification 계층과 별개 축입니다.** 위 표는 codex 호출의 *transport* 상태(호출이 됐는가·응답이 왔는가)를 다루고, terminal `/mccp:pr`의 M3 ship gate는 그 위에서 *review verdict* 자체(`resolution.codex_verdict`)를 판정합니다. classification=`ok`(정상 응답)이어도 review verdict가 `divergent`/`critical`이면 [pr-ship-gate.js](plugins/mccp/scripts/lib/pr-ship-gate.js) `deriveShipDecision`이 no-ship으로 판정 → finalize `exit 12` + validate `--check-ship-verdict` `pr_codex_nonconverged`로 mechanical HALT(§1.4 M3 참조). advisory mode(`MCCP_ALLOW_CODEX_UNAVAILABLE`)는 verdict를 `unavailable`로 만들어 이 역시 no-ship(fail-closed)이지만, terminal `/mccp:pr`은 Phase 0에서 advisory를 이미 거부하므로 finalize에 `unavailable`이 도달하는 경로는 companion defect뿐입니다. 유일 우회는 audited override `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE`(§4)이며 verdict는 봉인 유지.
 
@@ -800,11 +801,18 @@ receipt는 미작성도 미승인도 아니라 **사유가 봉인된 기록**이
 적재원이 아니다(non-blocking 카운트로만 읽고, 판독 불가는 0이 아니라 null). 표는 **4열 고정**이다 —
 `derive/sources/backlog.js`가 헤더를 리터럴로 고정하므로 5번째 열은 기존 행 전부를 파서에서 사라지게 한다.
 
-**주장하지 않는 것**: plan·prp-implement의 라운드 루프는 여전히 LLM이 읽는 산문이라 기계화된 것은 캡 계산과
-`pr.md`의 자식 프로세스 export, receipt 봉인, 그리고 세 본문이 공유 오라클을 읽는지의 정적 test뿐이다 —
-마지막 것이 막는 것은 **배선 누락**이지 산문 불이행이 아니다. L2 비용은 여전히 1회분 발생한다. M2의 정적
-단언도 같은 천장을 갖는다(배선 누락과 위치 drift만 잡고 셸 인용 실수·종료코드 미검사는 통과) — 실행 축은
+**주장하지 않는 것**: plan·prp-implement의 라운드 루프는 여전히 LLM이 읽는 산문이다. L2 비용은 여전히 1회분
+발생한다. M2의 정적 단언은 배선 누락과 위치 drift만 잡고 셸 인용 실수·종료코드 미검사는 통과한다 — 실행 축은
 CLI를 실제로 spawn하는 test와 라이브 발화가 나눠 덮는다.
+
+> **v1.33.5 정정 (env-contract-integrity M3).** 이 자리에는 "기계화된 것은 캡 계산과 `pr.md`의 자식 프로세스
+> export, receipt 봉인, 정적 test뿐"이라고 적혀 있었고 M3 이후로는 거짓이다. 캡은 이제 **리뷰어 발화 지점**에서
+> 강제된다 — `codex-invoke.js`가 spawn 직전에, `plan-review/cli.js emit-workflow-args`가 패널 launch 직전에
+> 원장을 읽어 초과 호출을 거부한다. 여전히 산문인 것은 라운드 루프를 **도는 방식**이지 라운드를 **여는 것**이
+> 아니다. 그리고 그 강제는 게이트 진입 시 봉인이 있을 때만 성립하며, 봉인이 없는 실행은 M3 이전처럼 돌되
+> receipt의 `meta.round_cap=null`이 그 사실을 봉인한다. 판정 순서·원장 수명·주장하지 않는 것은
+> [gate-design.md](docs/gate-design.md#round-cap-enforcement)가 소유한다.
+
 배경: [상세](docs/gate-design.md#single-pass-review-toggle)
 
 ---
@@ -832,10 +840,13 @@ R5 계약 위반 2건 + 정지 → R6 새 축 0건 → Plan-Codex R1 실재 1건
 
 #### 어떻게
 
-- 라운드 캡의 **코드 기본은 1**이지만 이 저장소의 `.claude/settings.json`은
-  `MCCP_GATE_ROUND_CAP=3`을 설정한다 — 캡은 *천장*이지 *목표*가 아니다. 캡이 3이어도
-  이 절의 실무 기본은 여전히 **1라운드**이고, 2라운드 이상은 1라운드 결과가 실재
-  blocking을 남겼을 때만 쓴다. 캡을 1로 되돌리면 그 판단이 기계적으로 강제된다.
+- 라운드 캡은 `MCCP_GATE_ROUND_CAP=1`(프로젝트 기본, 이미 `.claude/settings.json`에 설정).
+  **v1.33.5(env-contract-integrity M3)부터 이 문장은 참이고, 그 캡은 강제된다.** 그 전까지
+  설정값은 실제로 `3`이었고 캡은 어느 값이든 산문이었다 — 이 절이 근거로 든 8시간 사건이
+  재발하지 못하게 막는 것이 없었다. G7 판정으로 설정값을 `1`로 맞췄고, 이제 같은
+  `(게이트, decision)`에 대한 2회차 리뷰는 기계가 거부한다. 즉 이 절을 지키는 비용은
+  더 이상 실행 주체의 성실성이 아니다. 캡에 걸렸을 때의 정당한 행동은 아래 우회 목록과
+  같으며(사유를 남긴다), 원장을 지우는 것은 그 목록에 없다.
 - 1라운드 결과를 §3.14로 triage → receipt 작성 → 진행.
 - 게이트가 막으면 **문서화된 감사 우회**(`MCCP_SKIP_RECEIPT` · `MCCP_SKIP_INTENT_GATE` ·
   `MCCP_ALLOW_CODEX_UNAVAILABLE` · `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE`)를 쓰되
@@ -1005,6 +1016,12 @@ L8이 형식과 실재만 보므로 이 축은 L8을 통과하면서 거짓일 �
 # 메타 조사 (v1.24.0) — PRD를 쓰기 전 단계. 게이트 아님(receipt 미발행)
 /mccp:meta-research <주제>          # 조사 골격 5 phase 고정 + .claude/_meta/ 규격 산출물 + README 색인 등재
 node plugins/mccp/scripts/lib/meta-research.js lint --all --json   # 전 산출물 형식/전제/색인 검사
+
+# 환경변수 계약 (v1.30.2) — 레지스트리의 CLI 투영. doctor는 진단이며 게이트가 아니다
+node plugins/mccp/scripts/lib/env-contract/cli.js list --domain gates
+node plugins/mccp/scripts/lib/env-contract/cli.js explain MCCP_PLAN_REVIEW   # 격리 시 exit 1
+node plugins/mccp/scripts/lib/env-contract/cli.js doctor [--all] [--json]    # 선언값 vs 프로세스값
+node plugins/mccp/scripts/lib/env-contract/lint.js                           # L1~L10 계약 정합
 
 # Receipt 운영
 /mccp:receipt-status                # 현재 receipt chain 상태

@@ -136,6 +136,12 @@
 
 **소비처** `plugins/mccp/scripts/lib/implement-dispatch/budget.js:122`
 
+**멤버 어휘**
+
+**허용 토큰** — `plugins/mccp/scripts/lib/implement-dispatch/budget.js#allowed`에서 파생된다. 오늘의 토큰은 `green` · `notice` · `warning` · `critical`이다.
+
+**미상 멤버** — 토큰 하나라도 열거 밖이면 override 전체가 무효가 된다 (implement-dispatch/budget.js:122 parseTierOverride)
+
 **사용 예시**
 
 ```json
@@ -160,6 +166,13 @@
 
 **소비처** `plugins/mccp/scripts/lib/orchestration-preview.js:70`
 
+**값별 결과**
+
+- `worktree-merge` — worker 산출물을 worktree 병합으로 합친다. 병렬 implement가 가능한 유일한 값이다.
+- `sequential` — 병렬을 끄고 순차로 처리한다.
+
+정본 판정은 `plugins/mccp/commands/work.md`의 셸 문자열 비교이고 JS(`orchestration-preview.js`)는 그 mirror다 — 두 경로가 오타를 다르게 처리하므로(preview는 warn 후 기본값 복귀, live는 «worktree-merge가 아니므로» 병렬 해제) 이 토글은 어휘 상수로 승격되지 않았다.
+
 **사용 예시**
 
 ```json
@@ -183,6 +196,14 @@
 **한 줄** 병합 후 verify 모드.
 
 **소비처** `plugins/mccp/scripts/lib/implement-dispatch/verify.js:38`
+
+**값별 결과**
+
+- `enforce` — 병합 후 verify가 비수렴이면 차단한다.
+- `warn` — 판정은 그대로 내되 차단하지 않는다.
+- `off` — 병합 후 verify를 끈다. 호출자가 그 사실을 loud하게 남긴다.
+
+미설정과 열거 밖 값은 `enforce`로 되돌아간다(fail-closed + loud warn).
 
 **사용 예시**
 
@@ -251,6 +272,12 @@
 **한 줄** fan-out 자동 해제 tier.
 
 **소비처** `plugins/mccp/scripts/lib/plan-fanout/budget.js:85`
+
+**멤버 어휘**
+
+**허용 토큰** — `plugins/mccp/scripts/lib/plan-fanout/budget.js#allowed`에서 파생된다. 오늘의 토큰은 `green` · `notice` · `warning` · `critical`이다.
+
+**미상 멤버** — 토큰 하나라도 열거 밖이면 override 전체가 무효가 된다 (plan-fanout/budget.js:85 parseTierOverride)
 
 **사용 예시**
 
@@ -445,6 +472,14 @@
 **한 줄** 핸드오프 신호 처리.
 
 **소비처** `plugins/mccp/scripts/derive/sources/toggle-usage.js:142`
+
+**값별 결과**
+
+- `off` — lock도 spawn도 STATE.md 기록도 하지 않는다. 즉시 noop으로 끝난다.
+- `notify` — stderr 안내와 STATE.md의 handoff_spawn 신호만 쓴다. 실제 spawn은 하지 않는다.
+- `spawn` — 실제로 새 세션을 띄운다. claude 바이너리나 (win32 밖의) tmux가 없으면 notify로 강등하고 그 사유를 기록한다.
+
+`notify`가 기본이며 `/mccp:resume`이 그 신호를 읽어 다음 명령으로 dispatch한다.
 
 **사용 예시**
 

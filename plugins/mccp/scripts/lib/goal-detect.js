@@ -50,6 +50,9 @@ const path = require('path');
 const settingsSignal = require('./settings-signal');
 
 const MODES = ['milestone-close'];
+// M2 — env override의 수용 어휘를 명명 상수로 승격한다(레지스트리 가 결속하는
+// 대상). 판정은 불변이다: 정확 일치 3값만 override로 인정하고 나머지는 probe로 넘어간다.
+const FEATURE_VALUES = ['available', 'missing', 'unknown'];
 const PRD_TABLE_HEADER_RE = /^\|\s*#\s*\|\s*Milestone\s*\|\s*Outcome\s*\|\s*Status\s*\|\s*Plan\s*\|/;
 const PRD_TABLE_SEPARATOR_RE = /^\|\s*-{2,}\s*\|/;
 const STATUS_VALUES = ['pending', 'in-progress', 'complete', 'dropped'];
@@ -57,9 +60,7 @@ const STATUS_VALUES = ['pending', 'in-progress', 'complete', 'dropped'];
 function probeAvailability(options) {
   const opts = options || {};
   const env = process.env.MCCP_GOAL_FEATURE;
-  if (env === 'available') return 'available';
-  if (env === 'missing') return 'missing';
-  if (env === 'unknown') return 'unknown';
+  if (FEATURE_VALUES.indexOf(env) !== -1) return env;
 
   // goal is gated on hooks (disableAllHooks / allowManagedHooksOnly), not the
   // workflows feature. Delegate to the settings-signal helper; on any

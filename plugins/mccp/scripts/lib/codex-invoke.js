@@ -14,7 +14,14 @@
 // Classification enum: ok | disabled | registry-missing | registry-malformed
 //   | plugin-not-installed | install-path-stale | companion-not-found
 //   | companion-version-mismatch | not-authenticated | timeout | exit-nonzero
-//   | stdout-empty | spawn-enoent | parse-error
+//   | stdout-empty | spawn-enoent | parse-error | round-cap-reached
+//
+// v1.33.4 (env-contract-integrity M3) — `round-cap-reached` is the 15th value and
+// the second non-failure one. Like `disabled` it is an intentional skip rather
+// than an outage (blocking=false, advisory=false, durationMs=0, no spawn), but it
+// is a distinct axis: `disabled` means the operator turned Codex off, this means
+// this decision has already spent its review rounds. CLAUDE.md 3.3 carries the
+// same table.
 //
 // v0.3.5 — MCCP_CODEX_DISABLED=1 short-circuits to classification='disabled'
 //   BEFORE registry resolution. This is a first-class success path (blocking=false,
@@ -237,6 +244,131 @@ function resolveDisabledPolicy(env, opts) {
   }
 }
 
+// ── round budget (env-contract-integrity M3) ─────────────────────────────────
+//
+// resolveRoundBudget — "has this gate already spent its review rounds?"
+//
+// This function is the FIRST of the two enforcement chokepoints for the review
+// round cap (the other is plan-review/cli.js emit-workflow-args). Before M3 the
+// cap was decided by `effectiveRoundCap` and then obeyed only by prose — three
+// command bodies each said "Repeat up to $ROUND_CAP rounds" and nothing stopped
+// a fourth call. Measured: 15+ rounds against a cap of 1.
+//
+// The ledger key (gate id + decision slug) is NOT an argument to this module and
+// never has been — codex-policy.js says so in its own header. It lives in the
+// round seal that the gate body writes once at entry. That is deliberate: adding
+// --gate/--decision flags here would make every prose-driven call site in three
+// command bodies responsible for passing them, and prose-dependent wiring is the
+// exact failure this milestone removes.
+//
+// FAIL-OPEN on a broken module, an unusable seal, or a corrupt ledger — the same
+// asymmetry the disabled policy above documents: one broken require must not
+// silently stop every review in every repo, and an ABSENT seal is the normal
+// state of any repository that predates M3, so it cannot be an error. The cost of
+// that choice is paid in visibility, not in silence: write.js seals
+// `meta.round_ledger_count = null` whenever the ledger was not consulted, so a
+// degraded run is auditable in the receipt instead of only in stderr.
+function resolveRoundBudget(env, opts) {
+  opts = opts || {};   // exported surface: the gitDir/cwd reads below must not throw
+  const inert = {
+    allowed: true, canRecord: false, roundsSoFar: null, cap: null,
+    pinnedBy: null, gateId: null, decisionId: null, mode: null,
+  };
+  const warn = function (line) {
+    process.stderr.write('[mccp:codex-invoke] ' + line + '\n');
+  };
+
+  let seal;
+  let ledger;
+  let counter;
+  try {
+    seal = require('./review-rounds/seal');
+    ledger = require('./review-rounds/ledger');
+    counter = require('./santa/counter');
+  } catch (err) {
+    warn('review-rounds unavailable (' + (err && err.message ? err.message : String(err)) +
+      ') — the round cap cannot be enforced this call');
+    return inert;
+  }
+
+  let state;
+  try {
+    const gitDir = Object.prototype.hasOwnProperty.call(opts, 'gitDir')
+      ? opts.gitDir
+      : seal.resolveGitDir(process.cwd());
+    state = seal.resolveEnforcement({ gitDir: gitDir, env: env });
+  } catch (err) {
+    warn('round seal read threw (' + (err && err.message ? err.message : String(err)) +
+      ') — the round cap cannot be enforced this call');
+    return inert;
+  }
+
+  // No usable seal means no ledger key, and without a key there is nothing to
+  // count. Enforcement here is structurally impossible rather than declined.
+  if (!state.canRecord) {
+    warn('no usable round seal (reason=' + state.sealReason + ') — this call is not ' +
+      'counted and the cap is not enforced. A gate enrols by running ' +
+      'review-rounds/cli.js seal --gate <id> --decision <slug> at entry.');
+    return inert;
+  }
+
+  let roundsSoFar;
+  try {
+    roundsSoFar = ledger.count({
+      gateId: state.gateId,
+      decisionId: state.decisionId,
+      cwd: opts.cwd,
+    });
+  } catch (err) {
+    warn('round ledger unreadable (' + (err && err.message ? err.message : String(err)) +
+      ') — not counting this call');
+    return inert;
+  }
+
+  // `state.cap` is always an integer >= 1: sealCap writes effectiveRoundCap's
+  // output and readCap rejects anything else as `unreadable`. decideRound's own
+  // fallback (santa's DEFAULT_CAP of 3, a different axis' number) is therefore
+  // unreachable from here by construction, which is why this call site does not
+  // clamp defensively — a second clamp would be a second cap policy.
+  const d = counter.decideRound({ roundsSoFar: roundsSoFar, cap: state.cap });
+
+  return {
+    // `observe` records but never refuses (DD7) — it is the staged-rollout and
+    // measurement mode, and the only reason `off` does not exist.
+    allowed: state.canEnforce ? d.allowed : true,
+    canRecord: true,
+    roundsSoFar: roundsSoFar,
+    cap: state.cap,
+    pinnedBy: state.pinnedBy,
+    gateId: state.gateId,
+    decisionId: state.decisionId,
+    mode: state.mode,
+  };
+}
+
+// A round is spent when a reviewer ANSWERED, not when one was asked (DD3).
+// Transport failures (timeout / spawn-enoent / exit-nonzero) produced no findings
+// to triage, so charging them would let one flaky Codex call permanently exhaust a
+// decision's budget under a cap of 1. They cannot run away either: those
+// classifications are already `blocking`, so the gate stops on them anyway.
+function recordRoundSafely(budget, classification, opts) {
+  if (!budget || budget.canRecord !== true) return;
+  try {
+    require('./review-rounds/ledger').recordRound({
+      gateId: budget.gateId,
+      decisionId: budget.decisionId,
+      channel: 'codex',
+      classification: classification,
+      cwd: opts && opts.cwd,
+      env: opts && opts.env,
+    });
+  } catch (err) {
+    process.stderr.write('[mccp:codex-invoke] could not record the round (' +
+      (err && err.message ? err.message : String(err)) +
+      ') — this review is NOT counted against the cap\n');
+  }
+}
+
 function invokeAdversarialReview(focus, opts) {
   opts = opts || {};
   const env = opts.env || process.env;
@@ -275,6 +407,60 @@ function invokeAdversarialReview(focus, opts) {
       classification: 'disabled',
       blocking: false,
       advisory: false,
+    };
+  }
+
+  // env-contract-integrity M3 — the round cap becomes mechanical HERE, one step
+  // after the disabled short-circuit. The order matters: when Codex is off there
+  // is no reviewer for any round, so the concept of spending one does not apply
+  // and a disabled call must not consume budget.
+  //
+  // Exceeding the cap is NOT a failure (DD4). Every command body already says
+  // "Beyond the cap, annotate as Open Questions: DIVERGENT_UNRESOLVED and
+  // proceed", so this is an ordinary terminal outcome: blocking=false,
+  // advisory=false, durationMs exactly 0 (nothing was spawned). Reporting it as
+  // blocking would make a normal end-of-budget look like an environment outage
+  // and operators would read it as "the gate is broken". The caller maps it to
+  // CODEX_VERDICT="divergent", which does not open cross-gate dedupe, so this
+  // path cannot be used to slip past dual review.
+  //
+  // `opts.notAReviewRound` exempts callers that reuse this wrapper for something
+  // that is NOT a review round. There are exactly two, and both were measured to
+  // be wrong without it:
+  //
+  //   - briefing/invoke.js calls this as a "degenerate adversarial-review" to
+  //     summarise a receipt. It runs at receipt-WRITE time, so under a cap of 1
+  //     it would spend the decision's entire budget on a summary — and then
+  //     `resolution.rounds` would derive a count containing no reviews at all,
+  //     which is the exact opposite of what DD1 makes the ledger for.
+  //   - plan-review/cli.js `l3` is the THIRD LAYER of a pass the L2 panel has
+  //     already charged at emit-workflow-args. Charging it again makes one
+  //     hybrid pass cost two rounds, so `MCCP_PLAN_REVIEW=hybrid` under the
+  //     default cap of 1 would halt on arithmetic every single time.
+  //
+  // It is opt-OUT, never opt-in: a review that forgets to declare itself must
+  // still be counted, because an uncounted round is a cap that does not bind.
+  // And it is PROGRAMMATIC-ONLY — `parseCliArgs` is a closed allowlist with no
+  // `--*` passthrough, so no shell caller can hand itself an exemption (the same
+  // structural argument CLAUDE.md 3.13 makes for the intent decision).
+  const budget = opts.notAReviewRound === true ? null : resolveRoundBudget(env, opts);
+  if (budget && !budget.allowed) {
+    process.stderr.write('[mccp:codex-invoke] round cap reached (' + budget.roundsSoFar +
+      '/' + budget.cap + ' for ' + budget.gateId + '__' + budget.decisionId + ')' +
+      (budget.pinnedBy ? ' pinned by ' + budget.pinnedBy : '') +
+      ' — not spawning. Raise MCCP_GATE_ROUND_CAP (max 3), or accept the divergence ' +
+      'and proceed; both are documented, auditable actions.\n');
+    return {
+      ok: true,
+      stdout: '',
+      stderr: '',
+      durationMs: 0,
+      classification: 'round-cap-reached',
+      blocking: false,
+      advisory: false,
+      roundsSoFar: budget.roundsSoFar,
+      cap: budget.cap,
+      pinnedBy: budget.pinnedBy,
     };
   }
 
@@ -343,6 +529,10 @@ function invokeAdversarialReview(focus, opts) {
       'companion exited 0 but produced no stdout');
   }
 
+  // The reviewer answered — only now is a round spent (DD3). Recorded before the
+  // return so no path can produce a reviewed round that the ledger never saw.
+  recordRoundSafely(budget, 'ok', opts);
+
   return {
     ok: true,
     stdout: stdout,
@@ -400,7 +590,8 @@ function runCli(argv) {
   // A caller that asked for intent injection and cannot get it must not get a
   // review that silently lacks it, so this fails hard. Exit 2 (usage-class), NOT
   // a new classification: CLAUDE.md §3.3 pins the classification enum at exactly
-  // 14 values, and a read failure here is a caller error, not a codex outcome.
+  // 15 values (14 before env-contract-integrity M3 added `round-cap-reached`), and
+  // a read failure here is a caller error, not a codex outcome.
   if (typeof opts.intentReferenceFile === 'string' && opts.intentReferenceFile.length) {
     try {
       opts.intentReference = fs.readFileSync(opts.intentReferenceFile, 'utf8');
@@ -445,6 +636,7 @@ module.exports = {
   resolveCodexInstallPath: resolveCodexInstallPath,
   verifyCompanionInterface: verifyCompanionInterface,
   invokeAdversarialReview: invokeAdversarialReview,
+  resolveRoundBudget: resolveRoundBudget,
   composeFocus: composeFocus,
   parseCliArgs: parseCliArgs,
   runCli: runCli,

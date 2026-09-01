@@ -44,6 +44,12 @@
 
 **소비처** `plugins/mccp/scripts/lib/cost-thresholds.js:23`
 
+**멤버 어휘**
+
+**허용 토큰** — 열거 없음. 멤버가 USD 임계 숫자 3단계라 열거 어휘가 존재하지 않는다.
+
+**미상 멤버** — 멤버가 어휘가 아니라 오름차순 USD 정수 3개다 — 개수가 3이 아니거나, 비유한/비양수거나, notice<warning<critical을 어기면 목록 전체를 버리고 기본값 50,80,100으로 되돌리며 stderr에 사유를 남긴다 (cost-thresholds.js:31 parseEnvOverride)
+
 **사용 예시**
 
 ```json
@@ -185,11 +191,18 @@
 
 ### MCCP_BRIEFING
 
-**종류** `enum` — **값** `auto` · `off` · `always` — **기본값** `auto`
+**종류** `enum` — **값** `auto` · `off` — **기본값** `auto`
 
 **한 줄** briefing stamp 정책.
 
-**소비처** `plugins/mccp/scripts/lib/briefing/cost-guard.js:75`
+**소비처** `plugins/mccp/scripts/lib/briefing/cost-guard.js:82`
+
+**값별 결과**
+
+- `auto` — 비용 tier와 PR-phase lock을 보고 briefing 실행 여부를 스스로 정한다.
+- `off` — briefing stamp를 실행하지 않는다 (ENV_OFF).
+
+**제거된 값** — `always`는 파서에 존재한 적이 없다. 넣어도 `auto`로 동작했고 이제는 그 사실이 stderr warn으로 보인다. 항상 실행하는 모드가 필요하다는 판단은 게이트 의미를 바꾸는 별개 변경이다. 값은 **대소문자를 구분한다** — `OFF`는 열거 밖이라 `auto`로 되돌아간다.
 
 **사용 예시**
 
@@ -215,6 +228,12 @@
 
 **소비처** `plugins/mccp/scripts/lib/briefing/cost-guard.js:102`
 
+**멤버 어휘**
+
+**허용 토큰** — `plugins/mccp/scripts/lib/briefing/cost-guard.js#allowed`에서 파생된다. 오늘의 토큰은 `green` · `notice` · `warning` · `critical`이다.
+
+**미상 멤버** — 토큰 하나라도 열거 밖이면 override 전체가 무효가 된다 (briefing/cost-guard.js:108 parseTierOverride)
+
 **사용 예시**
 
 ```json
@@ -233,20 +252,25 @@
 
 ### MCCP_CONTEXT_MONITOR_COST_MODE
 
-**종류** `enum` — **값** `off` · `observe` · `enforce` — **기본값** 없음 (미설정이 기본)
+**종류** `enum` — **값** `directive` · `notify` — **기본값** `directive`
 
 **한 줄** 비용 모니터 모드.
 
-**소비처** `plugins/mccp/scripts/hooks/ecc-context-monitor.js:61`
+**소비처** `plugins/mccp/scripts/hooks/ecc-context-monitor.js:79`
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**값별 결과**
+
+- `directive` — 비용 메시지에 «멈추라»는 지시형 꼬리를 붙인다.
+- `notify` — 금액만 보고하고 지시형 꼬리를 뗀다. 별칭 `notification`·`info`·`informational`도 같은 결과로 정규화된다.
+
+**제거된 값** — 문서가 가르치던 `off`·`observe`·`enforce`는 **셋 다 파서에 존재한 적이 없고** 어느 값을 넣어도 directive로 동작했다. 이 저장소의 `.claude/settings.json`도 실제로 `off`를 쓰고 있었다. 비용 경고를 끄려던 것이라면 오늘 쓸 것은 별도 축인 `MCCP_CONTEXT_MONITOR_COST_WARNINGS`(bool, 기본 on)다.
 
 **사용 예시**
 
 ```json
 {
   "env": {
-    "MCCP_CONTEXT_MONITOR_COST_MODE": "off"
+    "MCCP_CONTEXT_MONITOR_COST_MODE": "notify"
   }
 }
 ```

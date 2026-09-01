@@ -15,14 +15,15 @@ escalate_pending: true
 escalate_pending_decision_id: diverse-agent-review-m5
 ---
 ## Goal
-diverse-agent-review M5 — 게이트 배선 오라클 추출. 구현 + 전 Validation 완료(v1.33.3), commit/PR 대기.
+diverse-agent-review M5 — 게이트 배선 오라클 추출. 구현 + 전 Validation 완료, origin/main 머지 해소 완료(v1.33.6), PR 대기.
 
 ## Plan
 - PRD: `.claude/prds/diverse-agent-review.prd.md` — #5 complete로 갱신됨. 남은 축은 #9
 - plan: `.claude/plans/diverse-agent-review-m5.plan.md` — 봉인됨(plan_hash sha256:98d3039053). **편집 금지** — 그래서 Codex 리뷰는 `.claude/notes/diverse-agent-review-m5.md`에 썼다
 - 산출물: `plugins/mccp/scripts/lib/command-body/{blocks,rules,debt,lint}.js` + test 3종(40건) + `docs/diverse-agent-review/gate-wiring-oracle.md`
 - 구현 보고: `.claude/PRPs/reports/diverse-agent-review-m5-report.md`
-- version 1.33.3 (patch). 4면 동기 완료. branch **diverse-agent-review** (origin/main과 ff 동기됨)
+- version **1.33.6** (patch — §3.7 forward-only 8번째 재발). 4면 동기 완료. branch **diverse-agent-review**
+  (origin/main `f5622bf` 머지 완료 — 충돌 8건 해소)
 
 ## Done
 - 정본 셸 블록 추출기 — 0칼럼 고정 사본 2벌을 오라클 소비로 이전. 들여쓴 fence 13건이 그동안 불가시였다
@@ -30,13 +31,16 @@ diverse-agent-review M5 — 게이트 배선 오라클 추출. 구현 + 전 Vali
 - 게이트 본문 무편집 확인 — commit range · working tree · index 3축 모두 공집합(Codex F1 흡수)
 - Implement-Codex R1 divergent — HIGH 3건 전부 구현으로 흡수, MEDIUM 2건 backlog 이연
 - **변이 test가 실제 결함을 잡았다** — 부채 래칫의 축소 방향이 조용히 꺼져 있었다(debtKey는 NUL join, 화석 필터는 공백 split → 필터 항상 false, lint은 green). 키 되파싱을 없애 그 실패가 존재할 수 없게 고침
-- Validation 9종 전부 통과 — lint 22/22·debt 15 · 신규 test 40 · 이전 test 38 · plan-review 99 · i18n 10 · assert 48≥46·42=42 · 삭제 0건 · backlog parity 15/15
+- Validation 전건 재실행(머지 후) — command-body lint ok/violations 0/fossils 0 · 신규 test 49 · 이전 test 49
+  · plan-review 349 · review-rounds 58 · env-contract lint L1~L12 · i18n-surface 10 · 삭제 검증 1건(의도)
 
 ## In Progress
 
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 version 재계산 필수(sibling이 1.33.4·1.34.0 선언 중이라 1.33.3은 현재 비어 있음).
+`/mccp:pr` 진행 중. origin/main(`f5622bf`) 머지 해소 완료 — 충돌 8건(version 3면 · CHANGELOG · backlog · state 3종).
+version은 §3.7 재계산으로 1.33.3 → **1.33.6**: main이 env-contract-integrity M1~M3에 1.33.3·1.33.4·1.33.5를
+이미 발행해 1.33.3은 CHANGELOG 헤딩 **정면 충돌**이었다. 머지 후 전 Validation 재실행 green.
 
 ## Last Decision
 plan 문면 3곳을 실측·리뷰 근거로 따르지 않았다 — (1) 닫는 fence 술어는 dedented closer를 삼켜 S1을 32/32 오탐으로 만들었다(참값 5). (2) S3에 node 계측 조건을 더하지 않으면 41건 중 36건이 git·mktemp 등 loud-fail-open 계약이 없는 명령이다. (3) 미채택 규칙 sizing이 283 대신 163/182 — 숫자를 맞추려 측정 방법을 바꾸지 않고 재현 불가 사실을 문서화했다.

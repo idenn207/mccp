@@ -51,6 +51,17 @@ build/
 # orchestration-runaway.json과 같은 축이며, 디렉토리 단위 항목이라 형제
 # `<slug>.json.lock` · `<slug>.json.<pid>.<rand>.tmp`도 함께 덮는다.
 .claude/state/santa-loop/
+# env-contract-integrity M3 — 게이트 리뷰 라운드 원장 (review-rounds/ledger.js).
+# santa-loop과 같은 축이고 같은 이유로 gitignored다: 라운드마다 diff 노이즈를 만들지
+# 않되 집계값은 receipt의 `resolution.rounds` + `meta.round_ledger_count`에 봉인된다.
+#
+# 커밋하지 않는 것에는 두 번째 결과가 있고 그것도 의도다 — 원장은 워크트리마다
+# 독립이므로 새 워크트리에서 캡이 0에서 시작한다. 워크트리는 독립된 시도이고,
+# 반대(커밋)로 하면 한 사람이 소진한 예산이 clone 전체에 고정된다.
+#
+# 디렉토리 단위 항목이라 형제 `<gate>__<slug>.json.lock` ·
+# `<gate>__<slug>.json.<pid>.<rand>.tmp`도 함께 덮는다.
+.claude/state/review-rounds/
 .claude/state/*.lock
 # dashboard-truthfulness M1 — completion-ledger entries ARE git-tracked, but the
 # per-entry write lock + atomic tmp are local-only ephemera. The single-level

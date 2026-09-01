@@ -94,14 +94,19 @@ function isPidAlive(pid) {
 // enforce(default) = fail-closed lock + fence
 // warn             = 관측·이벤트는 유지하되 차단하지 않음 (복구용 kill switch)
 // off              = guard 전체 비활성 (loud warn)
+// M2 — 수용 어휘를 명명 상수로 승격한다. 판정은 승격 전후로 불변이다 — 상수 조회로
+// 표현만 바뀌고, 레지스트리 `values`가 결속할 대상이 생긴다.
+const GUARD_MODE_VALUES = ['enforce', 'warn', 'off'];
+const GUARD_MODE_DEFAULT = 'enforce';
+
 function parseGuardMode(env) {
   env = env || process.env;
   const raw = String(env.MCCP_EVIDENCE_CONFLICT_GUARD || '').trim().toLowerCase();
-  if (raw === '') return 'enforce';
-  if (raw === 'enforce' || raw === 'warn' || raw === 'off') return raw;
+  if (raw === '') return GUARD_MODE_DEFAULT;
+  if (GUARD_MODE_VALUES.indexOf(raw) !== -1) return raw;
   process.stderr.write('[mccp:evidence-lock] WARNING: unknown MCCP_EVIDENCE_CONFLICT_GUARD='
-    + raw + ' — falling back to enforce (fail-closed)\n');
-  return 'enforce';
+    + raw + ' — falling back to ' + GUARD_MODE_DEFAULT + ' (fail-closed)\n');
+  return GUARD_MODE_DEFAULT;
 }
 
 // ── lock primitive ───────────────────────────────────────────────────────────

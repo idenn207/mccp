@@ -1305,3 +1305,132 @@ Task 9가 소유한다.
   L9의 boolean 집합에 넣으므로 `plan-review/cli.js`의 raw 비교 한 줄도 `parseBool`로 옮겼다 —
   bypass-flag 분기가 `raw === '1'`이라 **바이트 단위로 동일**하다. "런타임 무변경 1행"이라는
   plan의 예상보다 한 줄 넓어졌고, 그 사실을 여기 적는다.
+
+---
+
+### round-cap-enforcement
+
+CLAUDE.md §3.15의 "주장하지 않는 것"과 §3.16의 배경이다. 절 자체는 두 chokepoint의
+이름만 상주시키고, 판정 순서·원장 수명·열화 규약·주장하지 않는 것은 여기가 소유한다.
+
+#### 왜 판정만으로는 아무것도 강제되지 않았나
+
+`effectiveRoundCap`은 v1.32.6부터 정확한 답을 돌려주고 세 게이트 본문이 그 오라클을
+실제로 호출한다. 그런데 그 값을 받은 다음 줄이 **산문**이었다 — "Repeat up to
+`$ROUND_CAP` rounds". 네 번째 호출을 막는 것이 어디에도 없었고, 실측으로 캡 1에 대해
+15+ 라운드가 돌았다. 더 나쁜 것은 그 사실이 기록되지도 않았다는 점이다:
+`write.js`의 `defaultResolution.rounds`가 리터럴 `1`이고 그것을 바꿀 CLI 플래그가
+없었으므로, R13을 돌아도 receipt는 반드시 `1`을 봉인했다. 저자의 서술과 봉인된 사실이
+같은 리터럴이면 그 필드는 아무 정보도 나르지 않는다.
+
+M3은 그 자리에 **원장**(사실)과 **두 chokepoint**(강제)를 넣는다.
+
+#### 두 chokepoint — 새로 만들지 않는다
+
+| 채널 | 지점 | 왜 그 자리인가 |
+|---|---|---|
+| Codex | `codex-invoke.js` spawn 직전 | 세 게이트의 모든 Codex 호출이 지나는 **단일** 지점이다. 산문이 즉흥으로 연 R2도 여기를 지난다 |
+| 패널 | `plan-review/cli.js emit-workflow-args` | 이미 필수이고 fail-closed다 — 5.2c가 비영점 exit에서 예약을 반환하고 halt를 기록한다 |
+
+새 chokepoint를 만들지 않는 것이 핵심이다. "산문이 부르라고 지시해야만 작동하는 지점"을
+하나 더 두면 M3은 자기가 없애려는 결함을 이름만 바꿔 재생산한다.
+
+패널 지점은 args 파일을 쓰기 **전**에 판정한다. 거부된 라운드가 `workflow-args.json`을
+남기면 뒤의 단계가 그것을 주워 패널이 결국 발화하고, 거부가 거부가 아니게 된다.
+
+#### 라운드는 답했을 때 계상한다
+
+transport 실패(`timeout` · `spawn-enoent` · `exit-nonzero`)는 triage할 findings를
+생산하지 않았으므로 예산을 소모하지 않는다. 물었을 때 계상하면 캡 1과 일시적 Codex
+장애의 조합이 그 decision의 게이트를 **영구 차단**한다. 그 실패들은 이미
+`blocking=true`라 게이트가 그 자리에서 멎으므로 계상하지 않아도 폭주하지 않는다.
+
+캡 초과는 **차단이 아니라 수렴 실패**다. `round-cap-reached`는 `blocking=false` ·
+`advisory=false` · `durationMs=0`이고 호출부가 `divergent`로 매핑한다. `blocking=true`로
+잡으면 정상적인 예산 소진이 환경 장애로 보고되고 운영자는 "게이트가 고장났다"로 읽는다.
+`divergent`는 cross-gate dedupe를 열지 않으므로(§3.12) 이 경로로 dual-review를 우회할 수
+없다.
+
+**그러나 «답했을 때»는 두 채널에서 같은 순간이 아니다.** Codex 채널은 companion이 응답한 뒤에
+기록하지만, 패널 채널은 `emit-workflow-args`가 args 파일을 쓴 **직후** — 즉 launch 전에 —
+기록한다. 그 CLI가 이 채널이 가진 마지막 기계적 단계이기 때문이다: 실제 launch는 5.2c에서
+LLM이 하는 `Workflow` 호출이고 5.2d는 그것이 돌아온 뒤에야 정산하는데, 본문 스스로 «컨트롤러가
+mid-flight로 죽으면 5.2d에 도달하지 못한다»고 적는다. 그 창에서는 findings를 하나도 내지 않은
+패널에 라운드가 과금되고, 캡 1이면 다음 시도가 거부된다. 복구는 문서화돼 있다(캡을 올리고
+재실행). 창을 제대로 닫으려면 5.2c가 예약에 이미 쓰는 debt-marker 형태가 필요하고 그것은 이
+milestone이 만들지 않는 상태 기계라 backlog에 있다. 반대편(`decide` 시점 과금)은 더 나쁘다 —
+`decide`는 재실행 가능하고 L2가 판독 불가일 때도 돌므로 이중 과금이거나, 실제로 발화한 패널이
+미계상되거나 둘 중 하나가 된다.
+
+#### 리뷰가 아닌 호출은 예산을 쓰지 않는다
+
+`invokeAdversarialReview`는 두 곳에서 transport로만 재사용된다.
+
+- `briefing/invoke.js` — receipt 요약. receipt-**write** 시점에 돌므로, 계상하면 캡 1인
+  decision의 예산을 요약 하나가 전부 먹고 `resolution.rounds`가 리뷰 0건인 수를 봉인한다.
+- `plan-review/cli.js l3` — `emit-workflow-args`가 이미 과금한 pass의 3번째 **층**이다.
+  다시 과금하면 hybrid 한 번이 2라운드가 되어 기본 캡 1에서 매번 산술로 멎는다.
+
+면제는 `opts.notAReviewRound`이고 **opt-out**이다 — 선언을 잊은 리뷰는 여전히 세어진다.
+세어지지 않는 라운드는 곧 구속하지 않는 캡이기 때문이다. 그리고 **프로그래매틱 전용**이다:
+`parseCliArgs`가 임의 `--*` passthrough 없는 닫힌 allowlist라 셸 호출자는 자기에게 면제를
+발급할 수 없다(§3.13이 intent 결정에 대해 펴는 것과 같은 구조 논증).
+
+#### 원장과 봉인의 수명
+
+- **원장** `<repoRoot>/.claude/state/review-rounds/<gate-id>__<decision-slug>.json` ·
+  `0o600` · gitignored. **decision slug로 키잉하고 plan hash로 하지 않는다** — escalation
+  라운드는 본문을 고친 뒤 도는 것이므로 hash로 키잉하면 캡이 영원히 발화하지 않는다.
+  게이트별로 파일이 갈리므로 plan에서 캡을 다 쓴 decision도 implement 게이트에서는 새
+  예산으로 시작한다. mutation은 `{mode:'enforce'}`를 **무조건** 넘겨
+  `MCCP_EVIDENCE_CONFLICT_GUARD=off` 상속으로 직렬화가 꺼지지 않게 한다 — lost update는
+  라운드를 **적게** 세어 캡을 fail-open시키므로, 여기서 직렬화는 하드닝이 아니라 정확성이다.
+- **봉인** `<git-dir>/mccp/tmp/review-rounds-seal.json` · `0o600` · 수명은
+  `codex-policy.MAX_SEAL_AGE_MS`를 **require해서** 같은 상수를 쓴다. `codex-policy.json`과
+  별도 파일인 이유는 방금 ship된 스키마를 확장하면 두 축의 실패가 서로 묶이기 때문이다.
+- **워크트리마다 독립**이다. 원장이 gitignored라 새 워크트리에서 count가 0에서 시작한다 —
+  의도된 동작이고(워크트리는 독립된 시도다), 반대로 커밋하면 한 사람이 소진한 예산이 clone
+  전체에 고정된다.
+
+#### 열화는 세 상태로 구별되고 침묵하지 않는다
+
+봉인이 부재·만료·판독불가이면 원장 키를 알 수 없어 **세는 것 자체가 불가능**하다. 그때는
+fail-open + loud warn이다 — 봉인한 적 없는 저장소(= M3 이전 사용자)의 모든 Codex 호출을
+막는 것이 캡 초과보다 큰 해이기 때문이다. 그 열화가 stderr에만 살지 않도록 receipt가
+present-only 3필드로 봉인한다:
+
+| 필드 | 정수 | `null` |
+|---|---|---|
+| `meta.round_ledger_count` | 진짜 라운드 수(0 포함) | 원장이 있었으나 읽지 못했다 |
+| `meta.round_cap` | 봉인이 읽혔다 — 강제가 **돌았다** | 쓸 수 있는 봉인이 없었다 — 강제가 돌지 **않았고**, 옆의 count는 정본이 아니다 |
+| `meta.round_cap_pinned_by` | 캡을 1로 고정한 축 | 고정한 것이 없다 |
+
+세 필드가 모두 **부재**하면 그 빌드에 이 축이 없었다는 세 번째 상태다(`makeSkeleton`
+미포함 — §3.12 tracked ship corpus hash 안정성). 셋 다 hash **안**에 있다 — hash 밖의 감사
+필드는 서명되지 않은 필드이고 `validate-cmd`의 tamper 검사가 그 편집을 지나친다.
+
+`resolution.rounds`는 원장 count가 1 이상일 때만 파생하고 0이면 legacy `1`을 유지한다
+(`schema.js`가 `rounds >= 1`을 요구하므로 0을 쓰려면 완화가 필요하고 그것은 별개 축이다).
+명시 `--resolution-file`이 원장과 다른 수를 실으면 **fail-closed**(exit 12, 두 수를 모두
+출력)다 — 조용히 원장을 채택하면 "저자가 다른 수를 믿고 있었다"는 관측 가능한 사건이 사라진다.
+
+#### 주장하지 않는 것
+
+- **명령 본문의 라운드 루프는 여전히 산문이다.** 기계화된 것은 리뷰어 **발화 지점**의 거부이지
+  본문이 라운드를 세는 방식이 아니다. `round-cap-command-body.test.js`가 막는 것은 **배선
+  누락과 위치 drift**이지 산문 불이행이 아니다.
+- **check-then-act는 프로세스 사이에서 원자적이지 않다.** DD3대로 판정(spawn 전)과 기록(spawn
+  후) 사이에 spawn이 통째로 들어가므로, 진짜로 동시에 진입한 두 게이트는 둘 다 통과할 수 있다.
+  강제되는 명제는 "기록된 라운드 수가 캡을 넘지 않는다"이지 "동시 spawn이 불가능하다"가 아니다.
+  저장소 규약(§3.8 — 동시 게이트는 worktree를 나눠 돌린다)이 그 창을 실무에서 닫는다.
+- **봉인은 저장소 단위 한 파일이다.** 같은 worktree에서 두 게이트가 겹치면 나중 봉인이 먼저
+  게이트의 정체성을 갈아치울 수 있고, 만료는 신선한 동시 봉인을 막지 못한다. run-scoped 불변
+  봉인은 backlog에 있다 — 같은 단일 파일 설계를 `codex-policy.js`와 `REVIEW_DIR` 6종이
+  공유하므로 한 축만 고치면 저장소 안에 서로 다른 두 봉인 규약이 생긴다.
+- **`/mccp:pr`은 `round-cap-reached`를 `divergent`로 매핑하지 않는다.** 그 게이트의 Codex
+  호출은 `codex-runner.js` 안에 있고, 매핑하려면 `codex_outcome` enum과 verdict map — 즉
+  ship-gate proof 경로 — 을 바꿔야 하는데 그것은 이 milestone의 Files to Change 밖이다.
+  대신 runner가 HALT하되 예산 소진을 장애와 구별해 말하고 두 복구 경로를 제시한다. 운영자
+  결과는 어느 쪽이든 "감사된 조치가 필요한 차단"으로 동일하다.
+- **위조 방지가 아니다.** 같은 권한으로 Node를 실행할 수 있는 주체는 원장을 직접 쓸 수 있다.
+  닫는 것은 산문 불이행과 배선 누락이지 적대적 조작이 아니다.

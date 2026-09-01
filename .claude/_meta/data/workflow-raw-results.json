@@ -1,0 +1,1165 @@
+{
+  "analyses": [
+    {
+      "lens": "렌즈 2 — 리드타임과 수렴 경제 (운영자 최우선 지표)",
+      "headline": "리드타임은 다중 축 지연의 합: 패널 비수렴(중앙값 8분, 최대 427분) + receipt 무기록(실제 라운드 캡슐화 실패) + 단일통과 우회(50%) = 의도된 리드타임과 실제 리드타임의 분리",
+      "findings": [
+        {
+          "id": "L2-F1",
+          "severity": "CRITICAL",
+          "claim": "receipt가 실제 라운드 수를 기록하지 않음 — 모든 ship receipt이 `rounds:1` & `findings:[]`로 봉인되지만 원문 사유문은 6라운드 진행을 증언",
+          "evidence": "plugins/mccp/scripts/receipt/write.js:393-394 `defaultResolution = { converged: true, rounds: 1, ... }` 리터럴, .claude/receipts/mccp-pr-codex/diverse-agent-review.json · multi-session-work-loop-m5.json · review-loop-trust.json 3건의 override 사유문 중 'round 6' · 'four consecutive rounds' · 'R1/R2/R3' 명시",
+          "why_it_blocks_the_goal": "리드타임 측정 불가 — 게이트가 몇 라운드를 돌았는지 감사 corpus에 기록되지 않으므로, 같은 decision에 대해 실제 비용(6라운드, 8시간)과 봉인된 비용(1라운드)이 2배 이상 차이난다. 운영자가 '마일스톤당 하루~1주' 경험과 기계 기록이 정반대인 이유",
+          "confidence": 0.98
+        },
+        {
+          "id": "L2-F2",
+          "severity": "HIGH",
+          "claim": "패널이 수렴을 맺지 못하는 구조적 손잡이 부재 — quorum M·K binding이 0건(전제 4 재검증), 차단된 32건 중 16건(50%)이 단일통과 우회로 통과",
+          "evidence": "plan-review/corpus.js 실행 결과: `binding_axis.m_binding=0, k_binding=0, findings_binding=31` (31건 findings severity로만 판정), 단일통과 18건 전부 blocked 기록되지만 git log에 override 기록 16건, corpus `single_pass.converged=0`",
+          "why_it_blocks_the_goal": "계획된 3라운드 이상 진행 → 1라운드 기본 정책 충돌 → 우회(단일통과) 16건 = 실제 리드타임이 정책과 무관하게 증가. 50% 우회율 = 리뷰 경제가 제도적으로 미달성",
+          "confidence": 0.95
+        },
+        {
+          "id": "L2-F3",
+          "severity": "HIGH",
+          "claim": "패널 벽시계 시간이 수렴 신호로 기능하지 못함 — 5개 통과 기록은 평균 476초(~8분)이지만 33개 비수렴 기록은 불명시, 최대 427분(7.1시간) 사례는 선행 조사의 숨겨진 다중 라운드 수렴",
+          "evidence": "plan-review/corpus.js 통과 path 5개: codex-intent-context-m2 (499s), impeccable-detection-contract (779s), multi-session-work-loop-m6 (357s), santa-adjudication-m1 (363s), santa-adjudication-m2 (382s). corpus측정 coverage 0.39(39/100), 선행 조사 D절 '427.4분 최대'는 단일 라운드가 아니라 다중 라운드 누적",
+          "why_it_blocks_the_goal": "통과/비수렴 벽시계 비교 불가 — 통과 5개만 측정되고 나머지 34개는 부위 loss, 따라서 운영자의 '하루~1주' 경험이 실제인지 측정이 4.2% 흡수율처럼 '선택적 기록'인지 불명",
+          "confidence": 0.92
+        },
+        {
+          "id": "L2-F4",
+          "severity": "HIGH",
+          "claim": "비수렴의 첫 라운드(R1)가 실제 blocking을 만들지 않는 패턴 — F6 누수('solo fail reviewer' 15건)에서 한 reviewer의 fail이 담당자 부재시 quiet override로 변함",
+          "evidence": "corpus f6.solo_fail_records 15건 중 codex-intent-context-m3 · diverse-agent-review-m6-r4 · review-loop-trust 등 명시 override 미기록, 패널이 합의 기준을 못 정함(M·K=0) → reviewer 1명만 fail해도 다른 3명의 pass가 이기지 못하고 R2+로 진행",
+          "why_it_blocks_the_goal": "1라운드 기본이 사실상 무효 — 초기 차단이 기계 불변식이 아니라 정족수 부족에 의존하는데 binding=0이므로 reviewer 공백 시 자동 ESCALATE. 따라서 리드타임은 reviewer 가용성에 종속",
+          "confidence": 0.89
+        },
+        {
+          "id": "L2-F5",
+          "severity": "MEDIUM",
+          "claim": "Codex 라운드 캡이 1라운드 기본과 충돌 — MCCP_GATE_ROUND_CAP=3이 기본값이지만 실제 운용은 cap 1을 주장(§3.16), M7 case의 '12라운드' 및 santa-evidence-diversity '8시간' 실측과 상충",
+          "evidence": ".claude/settings.json `MCCP_GATE_ROUND_CAP=3` (hard-coded), CLAUDE.md §3.16 '코드 기본은 1 이지만 이 저장소는 3을 설정한다' + '실무 기본은 1라운드', 선행 조사 E 에러로 표기된 santa-evidence-diversity-m1이 8시간 12라운드 소모",
+          "why_it_blocks_the_goal": "정책과 설정이 이원화 — 1라운드 기본(§3.16 산문)을 유지하려면 cap을 1로 내려야 하는데 현재 3 설정이 '천장'으로 주석 표기되어 실무 해석이 불명. deadline 제약 운영은 설정값에 의존하므로 이원화가 RPO/RTO 불일치로 실현",
+          "confidence": 0.87
+        },
+        {
+          "id": "L2-F6",
+          "severity": "MEDIUM",
+          "claim": "trivial path 성능 미측정 — `/mccp:work` 휴리스틱(file≤2, LOC≤20, ext 화이트리스트, no-new-files, no-code-sig) 발화 빈도/성공률 기록 0건",
+          "evidence": "work-orchestrator.js 5중 AND 휴리스틱은 코드 구현만 있고 실행 기록(운영자 진술: '성능이 미검증')이 없음, receipt에 `trivial_path:true/false` 필드 0건",
+          "why_it_blocks_the_goal": "trivial 최적화 효과를 정량화할 수 없음 — 휴리스틱이 맞는지(과도한가/부족한가), 실제 trivial이 얼마나 빠른가 알 수 없으므로, deadline 제약 하에 trivial/full 선택이 근거 없는 결정",
+          "confidence": 0.84
+        },
+        {
+          "id": "L2-F7",
+          "severity": "MEDIUM",
+          "claim": "backlog 흡수율이 6.9%(32/465)로 낮음 — 고쳐야 할 HIGH/CRITICAL이 누적되는데, triage→backlog→이연 사이클의 재진입 기제 0건",
+          "evidence": ".claude/plans/codex-findings-backlog.md 478행(데이터) 중 `[ABSORBED` 마커 32건(기선 측정), 같은 결함이 최소 4회 재등재(백틱 미제거 예), closure/status/recheck 필드 없음",
+          "why_it_blocks_the_goal": "backlog가 '단순 유실 대기 큐'가 되어 리뷰 비용이 고정 지불되는 데 비해 수리 전환이 거의 0 — 매 라운드 같은 항목을 재탐지하고 다시 기각하는 작업 낭비",
+          "confidence": 0.85
+        }
+      ],
+      "recommendations": [
+        {
+          "title": "receipt.rounds 필드 복구 — 실제 라운드를 감사 corpus에 기록",
+          "what": "plugins/mccp/scripts/receipt/write.js의 `defaultResolution` 리터럴을 삭제하고, runner가 Codex/plan/implement 각 게이트에서 실제 라운드를 카운트하여 receipt에 전달하도록 배선 복구. 현재 override 사유문이 이미 라운드를 기술하고 있으므로 회귀 위험 낮음",
+          "owns_files": [
+            "plugins/mccp/scripts/receipt/write.js",
+            "plugins/mccp/scripts/lib/plan-codex-runner.js",
+            "plugins/mccp/scripts/lib/codex-runner.js"
+          ],
+          "effort": "M",
+          "expected_effect": "리드타임 측정 가능화 — 정책('1라운드 기본')과 실제 발화('6라운드')의 양적 격차 노출 → deadline 제약 운영 정책 업데이트 근거",
+          "parallel_safe": false
+        },
+        {
+          "title": "quorum binding 축 복구 또는 폐기 — M·K 손잡이가 0건이면 제거, 살리면 강제",
+          "what": "두 경로: (a) M·K가 실제 영향력이 0이므로 제거 — findings 기반 32건 차단만 유지, quorum 스키마 단순화. (b) M·K를 살리려면 binding을 회복 — 단독 reviewer fail이 전체 패널을 override하는 F6 누수 차단 + 명시 기각 기제 추가(현재 quiet override)",
+          "owns_files": [
+            "plugins/mccp/scripts/lib/plan-review/quorum.js",
+            "plugins/mccp/scripts/lib/plan-review/corpus.js"
+          ],
+          "effort": "M",
+          "expected_effect": "(a로 진행 시) 차단 메커니즘 단순화, 정책 명료화(1라운드 기본이 기계적 enforcement가 됨). (b로 진행 시) 정족수 정교화로 단일통과 우회 50% → 0으로 제어",
+          "parallel_safe": true
+        },
+        {
+          "title": "plan-review corpus 측정 완전화 — 비수렴 기록(33건)의 벽시계 통합",
+          "what": "`plan-review/corpus.js`가 현재 통과 5건만 wall_clock_ms를 계산. divergent 33건의 verdict timestamp · quorum pass time · review start time을 역추적 — 각 reviewer 파일의 `recorded_at` + quorum `responded_at`로 복원. coverage 0.39 → 1.0 목표",
+          "owns_files": [
+            "plugins/mccp/scripts/lib/plan-review/corpus.js"
+          ],
+          "effort": "L",
+          "expected_effect": "패널 벽시계 분포 전수 계측 — '통과 5개는 빠르다(8분)' vs '비수렴 33개는?'의 답 획득 → 운영자 경험 '하루~1주' 검증 또는 반증",
+          "parallel_safe": true
+        },
+        {
+          "title": "시간 예산(time-box) 게이트화 — 라운드당 최대 벽시계 임계 도입",
+          "what": "§3.16의 '1라운드 기본'을 제도화: 라운드 N이 기본값 이상(예: 중앙값 8분의 2배 = 16분)을 초과하면 자동 escalate/abort 결정(세 경로: (a) R2 생략, single-pass 강제, (b) scope 축소, (c) backlog로 이연). env var `MCCP_ROUND_WALLCLOCK_LIMIT_MS`(기본값 1200000 = 20분) + validator 추가",
+          "owns_files": [
+            "plugins/mccp/scripts/lib/plan-review/corpus.js",
+            "plugins/mccp/scripts/receipt/validate-cmd.js"
+          ],
+          "effort": "L",
+          "expected_effect": "deadline 자동 이행 — 정책(1라운드)이 명시 설정값(MCCP_GATE_ROUND_CAP=3)과 충돌할 때 전자가 벽시계로 우위. 운영자 deadline 제약을 기계적 불변식화",
+          "parallel_safe": false
+        },
+        {
+          "title": "trivial path 계측 추가 — work-orchestrator 휴리스틱 발화 기록",
+          "what": "work orchestrator의 5중 AND 판정(file≤2, LOC≤20 등) 결과를 receipt 또는 STATE.md에 봉인. `meta.trivial_path_detected`, `meta.trivial_path_bypassed`, `meta.trivial_execution_time_ms` 3필드 추가 — 1000건 이상 누적 후 p50/p90 분석",
+          "owns_files": [
+            "plugins/mccp/scripts/lib/work-orchestrator.js",
+            "plugins/mccp/scripts/receipt/write.js"
+          ],
+          "effort": "S",
+          "expected_effect": "trivial 최적화 ROI 측정 — 'full chain 평균 X분' vs 'trivial평균 Y분' 차이 정량화 → deadline 제약 하 trivial/full 자동 선택 휴리스틱 근거",
+          "parallel_safe": true
+        },
+        {
+          "title": "backlog 재진입 메커니즘 추가 — closure tracking + automatic recheck",
+          "what": "codex-findings-backlog.md에 status 열 추가: `open` / `deferred` / `closed-by-<pr>` / `rejected-<reason>`. 각 라운드의 backlog 항목 중 같은 decision_id로 재탐지된 것을 `recheck_count` 카운트. count≥3이면 자동 escalate(다른 reviewer, scope audit, deprecated 판정)",
+          "owns_files": [
+            ".claude/plans/codex-findings-backlog.md",
+            "plugins/mccp/scripts/lib/receipt/classify.js"
+          ],
+          "effort": "M",
+          "expected_effect": "backlog 유실 감지 및 순환 고리 깨기 — 6.9% 흡수율이 '탐지는 하는데 수리가 안 됨'의 증거라면, recheck 자동 격상으로 '정말 이연된 건가'를 판정 기회 제공",
+          "parallel_safe": false
+        }
+      ],
+      "metrics_proposed": [
+        {
+          "name": "실측 리드타임 (plan 생성 → ship 커밋)",
+          "definition": "(PRship commit date - plan file first commit date in days). 분포: p50, p90, max. 개별 milestone 단위로 추적",
+          "producer": "git log --diff-filter=A + git log ship commit SHA, 월 1회 automated report",
+          "why": "운영자 최우선 지표 '마일스톤당 하루~1주'를 정량화 — 정책 목표(1라운드 기본)와 실제 수행의 격차를 숫자로 측정",
+          "feasible_today": true
+        },
+        {
+          "name": "receipt accuracy — rounds 필드 일치율",
+          "definition": "(receipt.rounds == actual_rounds_from_override_reason) / total_receipts. 범위 0~1. 현재 0.0(모두 1 기록하지만 사유문은 다중)",
+          "producer": "receipt/validate-cmd.js 신규 check: 사유문 'round N' token vs receipt.rounds 비교, 감시 metric으로 stderr 출력",
+          "why": "receipt가 감사 corpus인데 가장 기본적인 라운드 수 기록이 깨져있다 — 고치기 전까지 모든 성능 분석의 기초가 부실",
+          "feasible_today": true
+        },
+        {
+          "name": "single-pass 우회율",
+          "definition": "(override_records with MCCP_REVIEW_SINGLE_PASS) / (blocked_records in same period). 현재 16/32 = 50%. 목표 <20% or 0",
+          "producer": "git log --grep 'deadline_pressure\\|single_pass' + receipt.meta.review_single_pass_reason 카운트, 주간 report",
+          "why": "1라운드 기본이 현실화되려면 우회가 거의 일어나지 않아야 한다 — 50% 현황은 정책 실패 신호",
+          "feasible_today": true
+        },
+        {
+          "name": "패널 quorum binding 활성도",
+          "definition": "(records where M binding | K binding) / quorum_evaluated_records. 현재 0%. M·K 손잡이가 실제로 판정을 바꾸는지 측정",
+          "producer": "plan-review/corpus.js 확장 — quorum 감소 실험: M=3→1, K=3→1 각각 → verdict 변화 추적",
+          "why": "F6 누수와 solo-fail override가 기계적 binding 부재를 증명 — 손잡이를 살릴지 버릴지 결정 근거",
+          "feasible_today": true
+        },
+        {
+          "name": "backlog 재탐지율 (recheck frequency)",
+          "definition": "(backlog entries re-detected in round N+1 / entries in round N) per decision_id. 현재 미측정. 목표 <10%",
+          "producer": "codex-findings-backlog.md status column parsing + NLP cosine 유사도 (같은 항목인지 판정) + automated count",
+          "why": "6.9% 흡수율이 의도된 이연(1라운드)인지 프로세스 실패(순환 고리)인지 구분하는 핵심 지표",
+          "feasible_today": false
+        },
+        {
+          "name": "trivial path 효율성 (실행 시간 비율)",
+          "definition": "(avg execution time of trivial path) / (avg full chain execution time). 현재 미측정. 예상 <0.3(full의 30% 이하)",
+          "producer": "meta.trivial_execution_time_ms + complete chain execution time 추적, 1000건 샘플 이후 p50 계산",
+          "why": "deadline 제약 운영 시 trivial/full 자동 선택 휴리스틱이 필요한데 현재는 보수적 default(full)만 있음",
+          "feasible_today": true
+        },
+        {
+          "name": "cost-per-approval (토큰/latency 대비 승인 달성률)",
+          "definition": "(tokens_spent_on_gate_sequence) / (converged_verdict_count). 단위: token/approval. 현재 미측정(plan-codex R1~R6 누적)",
+          "producer": "harness-cost.js 현재값 + converged verdict 비율 — 라운드별 비용 누적, 직거래 token cost 대비 실제 결정 도달율",
+          "why": "1라운드 기본이 cost-effective인지 verify — 6라운드 진행 사실상이 비용 호률이 높다면 목표치 재설정 근거",
+          "feasible_today": false
+        }
+      ],
+      "unmeasured": [
+        "plan 본문과 implement 산출물 간 fidelity — plan spec과 실제 코드 변경이 매칭하는 정도",
+        "Codex vs Claude 간 의견 수렴도 — plan-codex (R1 기준) vs implement-codex (plan 다시 리뷰 시) verdict divergence율",
+        "trivial path 휴리스틱의 false-positive/negative — '실제로는 full이어야 하는 항목을 trivial로 판정'한 빈도",
+        "session 간 STATE.md 연속성 복구 비율 — handoff 신호 후 `/mccp:resume` 성공률",
+        "design-critique loop 회귀 거리 — round N에서 발견한 결함이 round N+1에서 다시 탐지되는 비율"
+      ]
+    },
+    {
+      "lens": "렌즈 5 — mccp 하네스 관찰 지표 설계 (2026-08-31)",
+      "headline": "deadline 제약 하 기업 운영자를 위한 5개 핵심 지표: 자동화된 flow의 실질 효율성을 측정하되, 현존 기계를 재사용하고 3-6개월 후 사후 검증으로 폐루프를 만드는 설계.",
+      "findings": [
+        {
+          "id": "F1-measurement-gap",
+          "severity": "HIGH",
+          "claim": "현존 계측 10개 중 4개만 실제로 산출되며, A1(startup producer)은 v1.33.0 claim 후에도 미배선 상태다.",
+          "evidence": "baseline-measurements.md §4: computed 4/10 + A1 'no live startup producer wired' + evidence-audit exit 4 baseline",
+          "why_it_blocks_the_goal": "리드타임 보거나 비용을 말할 근거가 없으면 deadline 우선순위 판단을 할 수 없다. 지금은 git 근사(4-18일)와 wall-clock 계측(12.14시간 패널)만 있고 그것들이 서로 다른 축이라 연결 고리가 없다.",
+          "confidence": 0.95
+        },
+        {
+          "id": "F2-consumer-circuit-absent",
+          "severity": "HIGH",
+          "claim": "기존 계측들이 receipt·backlog·evidence에 써지지만, 그 값을 읽고 정책을 바꾸는 회로가 대부분 0이다.",
+          "evidence": "harness-instability B절: receipt `rounds:1·findings:[]` (기록 0) + backlog 흡수율 6.9% (회수 루프 미작동) + evidence-audit 미배선",
+          "why_it_blocks_the_goal": "계측이 있는 것과 '운영자가 읽을 대시보드'는 다르다. 현재는 'write-only 계측' 상태라 '한 화면 5개 숫자'를 조립할 source가 부재하다.",
+          "confidence": 0.92
+        },
+        {
+          "id": "F3-four-of-five-feasible",
+          "severity": "MEDIUM",
+          "claim": "요청한 5개 지표 중 1(리드타임), 2(토큰), 5(trivial율)은 오늘 산출 가능하고, 3(신규성)은 1-2주, 4(적중률)은 3개월 후 가능하다.",
+          "evidence": "baseline §9: STATE.md frontmatter 기록 있음 + harness-cost infrastructure 존재 + work-orchestrator.js 분기 로직 실재 + 72개 review 원문 미판독 + 첫 완료 milestone 없음",
+          "why_it_blocks_the_goal": "즉시 산출 불가능한 지표 1개(#4)와 미작업 지표 1개(#3)가 있으면 '한 화면' 완성도가 80%에 머문다. 그러나 현존 기계를 재사용할 수 있으므로 신규 PRD가 아니라 기존 축에 라우팅 가능하다.",
+          "confidence": 0.88
+        },
+        {
+          "id": "F4-producer-location-found",
+          "severity": "LOW",
+          "claim": "모든 신규 producer를 기존 module에 attach 가능하다: e2e-leadtime → msw-metrics, finding-novelty → plan-review, trivial-rate → work-orchestrator.",
+          "evidence": "baseline §4: msw-metrics/ 14개 파일 + derive/sources/ 16개 파일 + STATE.md git-tracked structure 존재. 신규 파일 작성 0건 예상.",
+          "why_it_blocks_the_goal": "PRD 예산(기존 축에 라우팅)과 구현 예산이 매칭된다. 새 계측을 '새 PRD'로 여는 것이 아니라 기존 infrastructure에 옮기는 형태다.",
+          "confidence": 0.91
+        },
+        {
+          "id": "F5-triple-axis-no-conflict",
+          "severity": "LOW",
+          "claim": "4개 in-flight 브랜치와의 충돌이 0건이다: env-contract-integrity · multi-session-work-loop-m9 · diverse-agent-review · env-contract-integrity.",
+          "evidence": "remaining-issue-disposition §3 verdict A-B: 'in-flight 충돌 판정: 0건' + 회피된 충돌 3건 명시 (SANTA_AUTO_PUSH 토글 무신설 · invariant store 위치 이연 · PRD A 소유 파일 한정)",
+          "why_it_blocks_the_goal": "지표 설계를 branch conflict 없이 즉시 진행할 수 있다. 오늘의 설계 결정이 2-4주 후의 ship을 막지 않는다.",
+          "confidence": 0.89
+        }
+      ],
+      "recommendations": [
+        {
+          "title": "즉시 (오늘): 렌즈 1·2·5 producer 와이어링",
+          "what": "msw-metrics/e2e-leadtime.js + harness 분해 layer + work-orchestrator 명시 flag 추가. 각각 ~30줄.",
+          "owns_files": [
+            "plugins/mccp/scripts/lib/msw-metrics/e2e-leadtime.js",
+            "plugins/mccp/scripts/lib/msw-metrics/index.js",
+            "plugins/mccp/scripts/lib/work-orchestrator.js"
+          ],
+          "effort": "S",
+          "expected_effect": "3개 지표가 receipt·STATE.md에 기록되기 시작. 대시보드에 표시 가능한 raw data 확보.",
+          "parallel_safe": true
+        },
+        {
+          "title": "1-2주: 렌즈 3 producer (finding 신규성 detector)",
+          "what": "plan-review/delta-detector.js: 라운드 간 finding diff 계산. 기존 72개 review 원문 1회 스캔 후 자동화 engine 구축.",
+          "owns_files": [
+            "plugins/mccp/scripts/lib/plan-review/delta-detector.js",
+            "plugins/mccp/scripts/lib/plan-review/tests/delta-detector.test.js"
+          ],
+          "effort": "M",
+          "expected_effect": "'신규성 비율' metric이 존재 시작. 라운드 폭주 현상의 실제 진단 지표 확보.",
+          "parallel_safe": true
+        },
+        {
+          "title": "기존 축에 라우팅 (렌즈 3·4 부분): diverse-agent-review PRD",
+          "what": "finding 신규성을 diverse-agent-review M3-alpha의 리뷰어 독립성 축에 포함. intent 오심 탐지와 병렬로 '직전 라운드와의 delta'를 리뷰어에 캐택스트로 주입.",
+          "owns_files": [
+            ".claude/prds/diverse-agent-review.prd.md"
+          ],
+          "effort": "M",
+          "expected_effect": "신규성 delta가 리뷰어 판정 입력으로 사용되어 '기계 학습' 효과. 계측 → 소비 루프 폐루프.",
+          "parallel_safe": true
+        },
+        {
+          "title": "대시보드 섹션 신설 (렌즈 1·2·5 표시): STATUS.md에 'MCCP Health at a Glance'",
+          "what": "renderer/sections/ 신규 section: 5개 지표 + goal + sparkline(최근 5-10개 data point). 기존 derive output 재사용.",
+          "owns_files": [
+            "plugins/mccp/scripts/lib/renderer/sections/automation-efficiency.js",
+            "docs/v1.3.0-observability/dashboard-surface.md"
+          ],
+          "effort": "M",
+          "expected_effect": "운영자가 매 cycle 시작 시 1 화면에서 5개 숫자를 읽고 deadline 예산 판단 가능. 피드백 루프 완성.",
+          "parallel_safe": true
+        },
+        {
+          "title": "사후 검증 (3개월 후): 렌즈 4 producer (적중률 audit)",
+          "what": "별도 milestone 완료 이후: git history ← receipt verdicts (예: 'divergent ship' → 3개월 후 revert 여부). /mccp:audit-finding-accuracy 명령.",
+          "owns_files": [
+            ".claude/prds/finding-accuracy-audit.prd.md",
+            "plugins/mccp/scripts/lib/audit/finding-accuracy.js"
+          ],
+          "effort": "L",
+          "expected_effect": "리뷰 기계의 진정한 수렴 신호 확보. '게이트가 정말 결함을 잡는가'의 정량 증명.",
+          "parallel_safe": true
+        },
+        {
+          "title": "계측 미충 복구 (병렬·선택): evidence-audit 배선",
+          "what": "validate-cmd 또는 `/mccp:pr` preflight에 `evidence-audit`을 hook. state=incomplete 시 yellow warning + context. 현재 exit 4 baseline을 baseline으로 승인.",
+          "owns_files": [
+            "plugins/mccp/scripts/lib/evidence-audit.js",
+            "plugins/mccp/scripts/hooks/pr-phase-guard.js"
+          ],
+          "effort": "S",
+          "expected_effect": "증거 체인의 무결성이 가시화되어 운영자가 감사 corpus 상태를 알 수 있다. 계측 자체는 작동하던 것.",
+          "parallel_safe": true
+        }
+      ],
+      "metrics_proposed": [
+        {
+          "name": "milestone_e2e_leadtime",
+          "definition": "work 진입(STATE.md touched) → PR merge commit 사이의 calendar days. 분포: min/median/max.",
+          "producer": "msw-metrics/e2e-leadtime.js (STATE.md + git timestamp 조회)",
+          "why": "deadline이 1차 제약인 운영자가 가장 먼저 묻는 것: '이 feature는 머빨이 걸릴까'. 현재는 git 근사만 가능(4-18일). 실제 착수 신호와 종료 신호를 연결하면 정확도 ±1일.",
+          "feasible_today": true
+        },
+        {
+          "name": "gate_execution_token_cost",
+          "definition": "평균 input tokens + output tokens per gate (plan/implement/pr 각각) + 월간 총 USD (환율 적용).",
+          "producer": "harness-cost.js 위에 per-gate breakdown layer (기존 데이터 parse)",
+          "why": "비용이 deadline 제약을 정하는 두 번째 축이다. 'token cap 10배' 같은 토글을 판단하려면 실제 비용 분포를 알아야 한다. 현재 harness가 기록하지만 게이트별 분해 0.",
+          "feasible_today": true
+        },
+        {
+          "name": "review_finding_novelty_ratio",
+          "definition": "N라운드에서 N+1 라운드로 갈 때 신규 finding 비율. 분자: new findings + 분모: all findings in N+1.",
+          "producer": "plan-review/delta-detector.js (72개 review 원문 1회 스캔으로 baseline 수집 후 자동)",
+          "why": "리뷰 루프가 '진짜 수렴하는가'의 가장 정량적 신호다. 현재는 '패널 wall-clock 최대 427분' 같은 결과만 있고 '라운드를 늘렸을 때 뭐가 달라지는가' 없다.",
+          "feasible_today": false
+        },
+        {
+          "name": "finding_post_accuracy_rate",
+          "definition": "(absorbed finding 중 revert로 재발 안 한 count) / (absorbed finding total). 3개월 후 측정 가능.",
+          "producer": "audit/finding-accuracy.js (milestone 완료 후 git history 역추적)",
+          "why": "리뷰 기계가 정말 결함을 잡는지의 유일한 ground truth. 현재는 구조적 검증만 있고 실행 검증 0. deadline 제약 환경에서는 '이 review가 비상인가 가치인가'를 증명해야 다음 투자가 정당화된다.",
+          "feasible_today": false
+        },
+        {
+          "name": "trivial_path_adoption_rate",
+          "definition": "/mccp:work --trivial 선택 비율 (= trivial / (trivial + full)) + trivial의 후속 fix 비율.",
+          "producer": "work-orchestrator.js 명시 flag + STATE.md 기록 기초 (최근 6개월 기준 계산)",
+          "why": "'자동화 flow'가 실질적으로 얼마나 비용을 절감하는가를 보여준다. 현재는 기술 정책(trivial 분류 휴리스틱)만 있고 실제 adoption 측정 0. trivial의 품질이 높으면 자동화가 정당화되고 낮으면 재검토.",
+          "feasible_today": true
+        }
+      ],
+      "unmeasured": [
+        "각 라운드가 아닌 각 게이트(plan vs implement vs pr)별 review 비용 분포 — 현재는 모두 '리뷰'로 뭉쳐서 게이트별 최적화 불가",
+        "Plan 게이트의 L1-L2-L3 각 계층별 탈락률 — 현재는 최종 verdict만 기록하고 중간 단계 분기 0",
+        "Context 메모리 효율 (세션당 주입 token vs 유효 작업 token) — 현재는 총 token만 있고 overhead 비율 미측정",
+        "Worktree 병렬 작업 시 lock contention rate — 현재는 lock 존재만 확인하고 실제 경합 사래 0",
+        "Backlog 흡수의 지연 시간분포 — 기록된 지점과 실제 수정까지의 calendar days 분포"
+      ]
+    },
+    {
+      "findings": [
+        {
+          "id": "enforcement-top-layer-unmechanized",
+          "severity": "HIGH",
+          "claim": "Terminal enforcement at git-push and `/mccp:pr` exit 12 is text-based, not mechanized. No git push blocking hook exists. exit 12 call is conditional on command body text parsing, not gate framework.",
+          "evidence": "plugins/mccp/hooks/hooks.json contains 10+ hooks but no pre-push. pr.md body contains 'if [ VERDICT = divergent ] exit 12' conditional. Default resolution in write.js:393-394 has converged:true literal, masking actual divergent gate findings.",
+          "why_it_blocks_the_goal": "Receipt corpus integrity cannot be guaranteed mechanically. Users cannot audit what gate actually found versus what receipt records. All 10 divergent receipts have rounds:1 and findings:[], contradicting override rationale stating 'round 6 findings'. Delivery deadline constraint conflicts with verification contract.",
+          "confidence": 0.93
+        },
+        {
+          "id": "round-cap-unimplemented",
+          "severity": "HIGH",
+          "claim": "MCCP_GATE_ROUND_CAP=3 is declared in env registry but never read by plan-review layer. No code enforcement exists despite CLAUDE.md section 3.16 claiming mechanical enforcement is possible.",
+          "evidence": "plan-review/*.js: 0 reads of GATE_ROUND_CAP. Real measurement: MSW M7 ran 12 rounds with divergent verdict and round records were overwritten. quorum.js verdict enum does not include cap-based truncation.",
+          "why_it_blocks_the_goal": "Round cap mechanization is required for section 3.16's premise that one-round policy can be code-enforced. Without it, panel cost (12.14 hours measured, 3x target) and divergent-without-convergence rate (31/36 measured) remain uncontrolled. Users cannot trust that one-round policy is actually in force.",
+          "confidence": 0.96
+        },
+        {
+          "id": "receipt-finding-fields-uninitialized",
+          "severity": "CRITICAL",
+          "claim": "All 72 ship receipts have findings:[] and rounds:1 despite evidence that multiple rounds and findings were produced. The defaultResolution literal sets both to success-direction defaults regardless of actual gate outcome.",
+          "evidence": "write.js:394 defaultResolution = { converged: true, rounds: 1, findings: [] }. Six divergent receipts with pr_codex_force_override state 'round 6 findings absorbed' in override_reason, but receipt witness is empty. evidence-audit shows exit 4 (incomplete coverage). No test covers receipt::write unification.",
+          "why_it_blocks_the_goal": "Auditability contract (section 3.12 durability) is nullified at the recording layer. Cross-model dual review actually ran (10 divergent + 33 skipped detected) but this fact is invisible in corpus. Ledger-receipt linking (completion-ledger.js) depends on receipt.findings containing the proof of decision.",
+          "confidence": 0.98
+        },
+        {
+          "id": "work-dispatch-filename-mismatch",
+          "severity": "HIGH",
+          "claim": "work.md line 715 references dispatch-fleet-partitions.json but line 224 writes dispatch-partitions.json. File mismatch causes merge-apply recheck to silently fail.",
+          "evidence": "work.md:224 produces 'dispatch-partitions.json'. work.md:715 reads 'dispatch-fleet-partitions.json'. No merge-apply escape validates that output file exists before calling merge-apply step.",
+          "why_it_blocks_the_goal": "Merge-apply escape validation (section 1.3 receipt chain orchestration) is bypassed by one filename typo. Worktree rebase or branch divergence could cause the written file to go unread, silently proceeding with stale partition state.",
+          "confidence": 0.91
+        },
+        {
+          "id": "ci-test-coverage-03-percent",
+          "severity": "MEDIUM",
+          "claim": "CI runs 3 of 346 test files (0.87%). Full suite takes ~65 minutes if extrapolated. No CI check enforces test coverage. 343 remaining tests are unmeasured at deployment time.",
+          "evidence": ".github/workflows/test.yml and gitignore-drift.yml together run 3 tests (pr-phase-guard, pr-phase-lock-f11, gitignore-provision). 346 total test files exist. No CI config for parallel test shard execution or per-file coverage gates.",
+          "why_it_blocks_the_goal": "No automated signal when refactoring breaks 343+ test files. Command body inline node -e (240 instances) is unreachable by test infrastructure due to markdown-bash-js triple nesting. Semantic refactoring of base libraries carries deployment risk.",
+          "confidence": 0.89
+        },
+        {
+          "id": "plan-artifact-contract-unmechanized",
+          "severity": "MEDIUM",
+          "claim": "plan.md section 3 output contract (Validate/Acceptance fields) uses free-form text. No per-task gate mapping, no content validation, no acceptance counterfactual proof requirement.",
+          "evidence": "plan.md:503 Validate field is free-form string. l1-check.js C4 checks only regex existence, not content. plan.md:521 notes 'last item should not be boilerplate' but no lint enforces it. codex-findings-backlog.md contains 23+ lines of same acceptance failures repeated across 6 PRDs.",
+          "why_it_blocks_the_goal": "Acceptance contract (section 1 output spec) cannot be validated. Failed plans proceed to implement without evidence of task completion. Repeating patterns in backlog indicate no closure loop from plan gate to remediation.",
+          "confidence": 0.85
+        }
+      ],
+      "recommendations": [
+        {
+          "title": "Mechanize terminal enforcement: git push guard + receipt witness unification",
+          "what": "Add pre-push hook with branch validation (fail on main). Implement receipt::write unification to capture actual rounds/findings from gate runner (not defaultResolution literal). Mechanize `MCCP_GATE_ROUND_CAP` read in quorum.js and cap iteration loop.",
+          "owns_files": [
+            "plugins/mccp/hooks/pre-push-branch-guard.js",
+            "plugins/mccp/scripts/receipt/write.js",
+            "plugins/mccp/scripts/lib/plan-review/quorum.js"
+          ],
+          "effort": "M",
+          "expected_effect": "Receipt corpus becomes authoritative witness of gate behavior. Delivery deadline constraint cannot override verified mechanical limit. Audit surface (evidence-audit.js) transitions from exit 4 (incomplete) to exit 0 (verified).",
+          "parallel_safe": false
+        },
+        {
+          "title": "Upgrade CI coverage from 3/346 (0.87%) to full suite in sharded parallel",
+          "what": "Configure .github/workflows to run test suite in 8-16 shards (43-50 tests each), parallel, with per-shard timeout. Expose per-file test coverage to PR checks. Block merge on missing test file execution.",
+          "owns_files": [
+            ".github/workflows/test.yml",
+            "plugins/mccp/scripts/lib/ci-shard-runner.js"
+          ],
+          "effort": "M",
+          "expected_effect": "Semantic refactoring signal detectable at PR time instead of ship time. Inline node -e (240 instances) gains reachability by extract-and-execute test pattern precedent (§3.16 evidence). Baseline 65-min full suite becomes 8-10min parallel.",
+          "parallel_safe": true
+        },
+        {
+          "title": "Close plan artifact contract with L1 content validation",
+          "what": "Extend l1-check.js C4 beyond regex existence: reject constant boilerplate, enforce >=30 char Validate/Acceptance, verify counterfactual (failure proof alongside success proof). Add per-task gate mapping to plan.md section 3 header. Bind backlog append to acceptance-contract failure count (section 3.14 threshold HIGH/CRITICAL only).",
+          "owns_files": [
+            "plugins/mccp/scripts/lib/plan-review/l1-check.js",
+            "plugins/mccp/commands/plan.md",
+            "plugins/mccp/scripts/lib/backlog-append.js"
+          ],
+          "effort": "M",
+          "expected_effect": "Acceptance failures no longer repeat across PRDs. Backlog 756 rows become actionable (currently 4.2% absorb rate). Task accountability becomes mechanized, not document-heuristic.",
+          "parallel_safe": false
+        },
+        {
+          "title": "Fix work.md dispatch-partitions filename mismatch and add merge-apply escape validation",
+          "what": "Correct work.md:715 to reference dispatch-partitions.json (not dispatch-fleet-*). Add pre-merge-apply check that output file exists with expected JSON schema. Block proceed if file missing/malformed.",
+          "owns_files": [
+            "plugins/mccp/commands/work.md",
+            "plugins/mccp/scripts/lib/work-dispatcher.js"
+          ],
+          "effort": "S",
+          "expected_effect": "Merge-apply recheck cannot be silently bypassed by stale partition state. Worktree rebase safety (section 3.5.1 deletion detection) extends to orchestration state.",
+          "parallel_safe": true
+        },
+        {
+          "title": "Rationalize command-body boilerplate via block->CLI substitution pattern",
+          "what": "Inventory ~525 substitutable lines in plan.md (fan-out resolve 144L, seal 248L, preflight 130L, RECOVER duplicate 89Lx2). Extract to CLI entry per pattern precedent (l3 no-receipt subcommand, intent-arbiter write-only). Move 816L codex-path + 260L hybrid-path to mode-conditional loaders, if framework supports.",
+          "owns_files": [
+            "plugins/mccp/commands/plan.md",
+            "plugins/mccp/scripts/lib/plan-review/cli.js"
+          ],
+          "effort": "L",
+          "expected_effect": "plan.md ~1,100L reduction (36% of 3,044), matching safe deletion scope. Command body becomes thin coordinator instead of monolithic script. Schema-contract nonce/deadline visibility restored (currently hidden in bash state).",
+          "parallel_safe": false
+        }
+      ],
+      "metrics_proposed": [
+        {
+          "name": "receipt_findings_field_density",
+          "definition": "(sum of findings array lengths across all receipts) / (receipt count)",
+          "producer": "write.js at receipt-write time + evidence-audit.js validation pass",
+          "why": "Current value is 0 (all receipts have findings:[]); baseline measurement would reveal gap between gate discoveries and recorded witness. Target >1.0 to ensure findings flow through to corpus.",
+          "feasible_today": true
+        },
+        {
+          "name": "round_cap_observed_distribution",
+          "definition": "Percentile distribution of actual rounds_executed across all receipts (P50, P95, P99)",
+          "producer": "quorum.js at verdict-render time + completion-ledger at ship time",
+          "why": "Current cap (3) is invisible to runtime. Observed distribution (1:148, 2:1 per baseline) indicates policy (section 3.16 one-round default) is mechanized nowhere. Without measurement, section 3.15 toggle and cap conflict remain invisible.",
+          "feasible_today": true
+        },
+        {
+          "name": "ci_test_coverage_percent",
+          "definition": "(count of test files executed in CI) / (count of all test files) × 100",
+          "producer": ".github/workflows CI shard runner + test result aggregator",
+          "why": "Current 0.87% (3/346) hides defects until ship. Baseline of 100% (all 346 executed in 8-10min parallel shard) would unblock refactoring confidence. Inline node -e (240 instances) would become auditable.",
+          "feasible_today": true
+        },
+        {
+          "name": "acceptance_contract_violation_rate",
+          "definition": "(count of Validate/Acceptance fields rejected by l1-check C4) / (count of plan gate invocations)",
+          "producer": "l1-check.js C4 validator + plan gate command body counter",
+          "why": "Current rate unmeasured; codex-findings-backlog.md shows patterns (23+ acceptance rows). Without metric, backlog 4.2% absorb rate and repeating-failure-per-PRD pattern remain invisible to cost-benefit analysis.",
+          "feasible_today": true
+        }
+      ],
+      "lens": "Mechanical enforcement and audit integrity at mccp's command execution and receipt verification layers.",
+      "headline": "Gate machinery works but record-keeping layer has inverted defaults, making actual divergent findings invisible in auditable corpus. Mechanization of enforcement (git-push guard, round-cap code-enforcement, acceptance contract) is incomplete despite section 3 documentation claiming mechanical enforcement exists.",
+      "unmeasured": [
+        "Agent prompt surface content (58 review-*.md files, 12.14hr wall-clock)",
+        "Skill vendor surface (47 items, especially design-direction gate usage)",
+        "Test-file green/red state at HEAD (343 of 346 untested in CI)",
+        "Live `/mccp:work` end-to-end execution flow and WAITING-FOR-CONFIRMATION survivorship",
+        "Plan-codex vs diverse-agent-review L2 panel duplication (both summit step, different machines)"
+      ]
+    },
+    {
+      "findings": [
+        {
+          "id": "F1-shell-state-loss",
+          "severity": "HIGH",
+          "claim": "Shell state doesn't cross tool call boundaries; 18 REVIEW_DIR re-derivations in plan.md alone force variable recreation at each phase halt.",
+          "evidence": "plugins/mccp/commands/plan.md:928,1004,1028,1066,1121,1192,1238,1366,1430,1490,1560,1651,1756,1807,1852,2151,2171,2732",
+          "why_it_blocks_the_goal": "Unattended automation can't hand off context across tool calls. Each phase boundary loses all bash-state variables, forcing re-derivation.",
+          "confidence": 0.95
+        },
+        {
+          "id": "F2-gate-contract-token-only",
+          "severity": "HIGH",
+          "claim": "Gate verification checks tokens (existence/syntax) only, not content (execution). l1-check.js C4 is regex-only; no per-task acceptance mapping; seal-gate checks verdict string form, not reviewer authority.",
+          "evidence": "plan-review/l1-check.js:339-348 (regex test for existence-only), seal.js (typeof verdict check for form-only)",
+          "why_it_blocks_the_goal": "Unsupervised gates can't emit authoritative per-task outcomes. Acceptance is static boilerplate. `/mccp:work` must halt at Phase 4/5 for human confirmation.",
+          "confidence": 0.92
+        },
+        {
+          "id": "F3-detached-runner-fragmented",
+          "severity": "MEDIUM",
+          "claim": "Detached-runner pattern exists in plan-codex-runner.js but is isolated. Other fences (prp-implement, pr, santa-loop) inline state. Each gate re-invents context-crossing logic.",
+          "evidence": "plan-codex-runner.js:30-167 (nonce/marker/lock), no equivalent in pr.md, santa-loop.md",
+          "why_it_blocks_the_goal": "Pattern isn't generalized. New gates cost O(complexity) per fence instead of O(1) via shared lib. Scaling blocks.",
+          "confidence": 0.88
+        },
+        {
+          "id": "F4-plan-phase4-confirmation-halt",
+          "severity": "HIGH",
+          "claim": "plan.md Phase 4 outputs 'WAITING FOR CONFIRMATION' markdown requiring user input. No env bypass. Blocks unattended `/mccp:work` chain.",
+          "evidence": "plan.md:584 literal 'WAITING FOR CONFIRMATION', no auto-confirm toggle in phase body",
+          "why_it_blocks_the_goal": "Plan halts and waits for next utterance. No resume. `/mccp:work` calling `/mccp:plan` produces artifact + halts (no auto-dispatch to prp-implement).",
+          "confidence": 0.99
+        },
+        {
+          "id": "F5-command-body-state-fragmentation",
+          "severity": "MEDIUM",
+          "claim": "Multiple command fences maintain separate state serializations (STATE.md, work-orchestrator step record, santa-loop ledger, evidence-audit markers). No unified state-bridge contract.",
+          "evidence": "state-writer.js, work-orchestrator.js:326, santa-loop.md Phase 7, evidence-audit.js (four distinct patterns)",
+          "why_it_blocks_the_goal": "State handoff is brittle. No SoT for 'what state survives phase boundaries'. Coordination cost explodes with parallel dispatch.",
+          "confidence": 0.85
+        },
+        {
+          "id": "F6-unattended-metric-absent",
+          "severity": "MEDIUM",
+          "claim": "No metric for unattended automation completion rate. Can't detect which phases actually block vs. appear to block due to process design.",
+          "evidence": "`/mccp:work` telemetry missing from work.md/work-orchestrator.js. Observable only via log inspection.",
+          "why_it_blocks_the_goal": "Improvements (l1-content, phase4-bypass) only prioritized if blocking rates are measured. Current state unknown. Can't prove Phase 4 is bottleneck.",
+          "confidence": 0.8
+        }
+      ],
+      "lens": "Context Architecture — Shell State Boundary Crossing",
+      "headline": "완전 자동화를 막는 context 문제는 세 가지 보충적 구조 결함의 합성: (1) 셸 상태 비영속성으로 강제된 변수 재파생 18회, (2) 게이트 계약이 토큰만 검사하고 내용/권한은 검증 없음, (3) detached runner 패턴이 존재하되 명령 본문 전역 적용되지 않음.",
+      "recommendations": [
+        {
+          "title": "Generalize detached-runner + nonce-sealing pattern to all command-body fence contexts",
+          "what": "Extract plan-codex-runner.js architecture into shared lib/runners/detached.js. Refactor plan, prp-implement, pr, santa-loop fences to invoke Node sub-processes with nonce sealing instead of inline bash state.",
+          "owns_files": [
+            "plugins/mccp/scripts/lib/runners/detached.js (new)",
+            "plugins/mccp/commands/plan.md",
+            "plugins/mccp/commands/prp-implement.md",
+            "plugins/mccp/commands/pr.md",
+            "plugins/mccp/commands/santa-loop.md"
+          ],
+          "effort": "L",
+          "expected_effect": "Remove 18 REVIEW_DIR assignments + ~400 lines of boilerplate per command. Single handoff channel across all phase boundaries. Enable `/mccp:work` unattended via detached runner chain.",
+          "parallel_safe": true
+        },
+        {
+          "title": "Mechanize plan.md Phase 4 confirmation bypass for unattended mode",
+          "what": "Add env toggle MCCP_PLAN_AUTO_CONFIRM (yes/no/ask). Phase 4 reads toggle; if 'yes', emit confirmation marker. Wire toggle into `/mccp:work` as implicit 'yes'.",
+          "owns_files": [
+            "plugins/mccp/commands/plan.md (Phase 4)",
+            "plugins/mccp/commands/work.md",
+            "docs/ENVIRONMENT.md"
+          ],
+          "effort": "M",
+          "expected_effect": "Phase 4 no longer blocks unattended `/mccp:work`. User still gets prompt when invoking `/mccp:plan` directly.",
+          "parallel_safe": true
+        },
+        {
+          "title": "Mechanize l1-check.js C4 (Validate field content)",
+          "what": "Create l1-content.js validating Validate field is non-placeholder AND Validation block output matches claim AND Acceptance is per-task checklist (not boilerplate).",
+          "owns_files": [
+            "plugins/mccp/scripts/lib/plan-review/l1-content.js (new)",
+            "plugins/mccp/scripts/receipt/validate-cmd.js",
+            "plugins/mccp/commands/plan.md"
+          ],
+          "effort": "M",
+          "expected_effect": "Gate contracts move from L1 (tokens) to L3 (content). Per-task gate outcomes machine-verifiable.",
+          "parallel_safe": false
+        },
+        {
+          "title": "Unify state-bridge contract across all fences",
+          "what": "Create lib/state-bridge.js with deterministic contract: enterPhase(phase, priorState) -> sealed state object, exitPhase(phase, result) -> sealed marker + next-state. Wire all fences to use this.",
+          "owns_files": [
+            "plugins/mccp/scripts/lib/state-bridge.js (new)",
+            "plugins/mccp/commands/plan.md",
+            "plugins/mccp/commands/prp-implement.md",
+            "plugins/mccp/commands/pr.md"
+          ],
+          "effort": "M",
+          "expected_effect": "State persistence is testable and reusable. Eliminates REVIEW_DIR re-derivations. Unattended `/mccp:work` can hand off context deterministically.",
+          "parallel_safe": true
+        },
+        {
+          "title": "Enforce round-cap code default = 1 with audit",
+          "what": "Hardcode cap=1 in plan.js/prp-implement.js. Read MCCP_GATE_ROUND_CAP env only if explicitly set. Add lint verifying invariant.",
+          "owns_files": [
+            "plugins/mccp/scripts/lib/plan-review/decide.js",
+            "plugins/mccp/scripts/lib/plan-codex-runner.js",
+            "CLAUDE.md"
+          ],
+          "effort": "S",
+          "expected_effect": "CLAUDE.md prose becomes mechanical law. Code default (1) is unambiguous.",
+          "parallel_safe": true
+        },
+        {
+          "title": "Establish `/mccp:work` unattended completion telemetry",
+          "what": "Instrument work.md + work-orchestrator.js to emit completion markers. Query weekly to measure % of runs reaching done without user intervention.",
+          "owns_files": [
+            "plugins/mccp/commands/work.md",
+            "plugins/mccp/scripts/lib/work-orchestrator.js",
+            ".claude/state/work-metrics.jsonl (new)"
+          ],
+          "effort": "S",
+          "expected_effect": "First measurement of unattended success rate. Exposes actual bottleneck phases. Enables data-driven prioritization.",
+          "parallel_safe": true
+        }
+      ],
+      "metrics_proposed": [
+        {
+          "name": "Shell state re-derivation frequency",
+          "definition": "Count of variable assignments re-executing git/fs queries per gate run (e.g., REVIEW_DIR assignments). Numerator: re-derivations. Denominator: total assignments.",
+          "producer": "grep -n 'REVIEW_DIR=' across command fences. Count per gate, per phase.",
+          "why": "Direct cost of context loss. Target: 0 per phase.",
+          "feasible_today": true
+        },
+        {
+          "name": "Gate contract validation depth",
+          "definition": "Verification levels: L1=token, L2=schema, L3=semantic, L4=integration. Count gates by depth.",
+          "producer": "Code audit of l1-check.js, validate-cmd.js, pr-ship-gate.js. Classify each check.",
+          "why": "Currently L1-L2 only. Moving to L3 (content validation) is bottleneck.",
+          "feasible_today": true
+        },
+        {
+          "name": "Unattended automation completion rate",
+          "definition": "Percentage of /mccp:work runs reaching 'done' without user interaction.",
+          "producer": "Instrument work.md for completion markers in STATE.md. Query for 'done' marker.",
+          "why": "Direct KPI for goal. Currently unmeasured. Will identify bottleneck phase.",
+          "feasible_today": true
+        },
+        {
+          "name": "Detached runner adoption",
+          "definition": "Percentage of multi-phase fences using detached-runner pattern. Numerator: fences using pattern. Denominator: all fences with >2 phases.",
+          "producer": "grep for nonce-sealing, marker-poll in command *.md files.",
+          "why": "Prerequisite for boilerplate elimination. Current: 1/5 fences.",
+          "feasible_today": true
+        },
+        {
+          "name": "Per-task acceptance validation",
+          "definition": "Percentage of plan artifacts with machine-verifiable per-task checklists (not boilerplate template).",
+          "producer": "l1-content.js audit on .claude/PRPs/plans/ artifacts.",
+          "why": "Measure of gate authority progress. Current: 0% (static template). Target: 100%.",
+          "feasible_today": false
+        },
+        {
+          "name": "Phase 4 confirmation halt rate",
+          "definition": "Count of /mccp:plan invocations halting at Phase 4 'WAITING FOR CONFIRMATION' without env-bypass. Absolute count per week.",
+          "producer": "Instrument plan.md Phase 4 to emit marker when confirmation required.",
+          "why": "Direct blocker to unattended mode. Currently unobserved. Will show F4 fix priority.",
+          "feasible_today": true
+        }
+      ],
+      "unmeasured": [
+        "Session context loss granularity — which specific state elements are most-frequently lost and would benefit most from state-bridge",
+        "Plan completion rate by phase and root cause — where do runs abandon; is it Phase 4 or implementation or PR gates",
+        "Real-world /mccp:work unattended traces — live execution data proving actual blockers",
+        "Cost of REVIEW_DIR re-derivation ×18 per run vs. single-retrieve via state-bridge",
+        "Gate contract authority coverage — which gates can emit shipping decisions vs. advisory-only",
+        "Impeccable routing availability per-gate — which gates can't invoke impeccable skills due to architecture"
+      ]
+    },
+    {
+      "lens": "렌즈 6 — 우산 PRD 구조와 병렬 실행 설계",
+      "headline": "지금 열 수 있는 병렬 축은 2개(PRD A + PRD B)이고, 3개 in-flight 브랜치의 머지 후 신규 축 2개(방향 1 + 방향 2 부분)를 추가 가능하다.",
+      "findings": [
+        {
+          "id": "F1",
+          "severity": "HIGH",
+          "claim": "현재 in-flight 3개 브랜치가 `.claude/plans/codex-findings-backlog.md`, `.claude/state/STATE.md`, `CHANGELOG.md`를 공유 소유 — 4번 이상 3-way 머지 충돌 예상",
+          "evidence": "file:C:/_project/mccp/.worktrees/env-contract-integrity (docs/environment/7개 + settings.json + 플러그인 hooks), file:C:/_project/mccp/.worktrees/diverse-agent-review (docs/diverse-agent-review/approval-audit + renderer), file:C:/_project/mccp/.worktrees/multi-session-work-loop-m9 (docs/multi-session-work-loop/5개 + CLAUDE.md)",
+          "why_it_blocks_the_goal": "운영자의 '병렬 처리' 목표는 파일 소유권이 분산되면 성립하지 않는다. 같은 파일 여러 개에 쓰는 축들은 직렬로 머지해야 한다. 현재 3개 브랜치가 모두 backlog를 건드려 PR #110형 머지 사고 가능",
+          "confidence": 0.95
+        },
+        {
+          "id": "F2",
+          "severity": "HIGH",
+          "claim": "issue disposition 권고의 PRD A (#127, plan-artifact-contract)와 PRD B (#130, santa-surface-acceptance)는 아무 in-flight 브랜치도 소유하지 않아 완전 병렬 착수 가능",
+          "evidence": "file:C:/_project/mccp/.claude/_meta/2026-08-31-remaining-issue-disposition.md (line 72-96) — PRD A는 `plan.md` + `l1-check.js` 전용, PRD B는 `santa-loop.md` + santa test 전용. git diff main...env-contract-integrity/diverse-agent-review/multi-session-work-loop-m9에서 이 파일들 미포함",
+          "why_it_blocks_the_goal": "2개 PRD를 지금 바로 시작할 수 있으므로, 운영자의 '병렬' 목표는 부분 달성 가능하다. 단, 3개 브랜치 머지 완료 후에만 추가 축이 열린다.",
+          "confidence": 1
+        },
+        {
+          "id": "F3",
+          "severity": "CRITICAL",
+          "claim": "harness-stability 조사의 '방향 5(명령 본문 다이어트)'는 유일한 신규 PRD다 — 기존 in-flight 축 어디에도 소속되지 않음",
+          "evidence": "file:C:/_project/mccp/.claude/_meta/2026-08-31-harness-instability-and-command-bloat.md (Verdict 135-148) — 방향 1~4, 6~7은 모두 in-flight, 방향 5만 '유일하게 진짜로 열려 있다'고 명시",
+          "why_it_blocks_the_goal": "방향 5는 plan.md 3,044줄 축약(E절 512줄 + 회고 주석 575줄 + 모드별 분리 1,100줄)을 목표다. 이 작업은 PRD A와 충돌하지 않으므로(PRD A는 plan.md 템플릿 절 `:451-525` 한정) 병렬 시작 가능하지만 **3순위**다.",
+          "confidence": 0.95
+        },
+        {
+          "id": "F4",
+          "severity": "HIGH",
+          "claim": "§3.7 plugin version 충돌의 실측 9회 재발 — 병렬 브랜치 수 증가 시 선형 증가할 것",
+          "evidence": "file:C:/_project/mccp/CLAUDE.md (§3.7 병렬 브랜치 version 충돌 섹션 — 선례 4건 열거 + 마지막은 1.26.0→1.26.1 다시 밀림)",
+          "why_it_blocks_the_goal": "운영자가 병렬 축을 2개 이상 시작하면 plugin.json version 충돌이 반복된다. 현재 방어는 산문 + 자동화 후보(lint) 뿐이고, 실행 강제가 0이다.",
+          "confidence": 0.9
+        },
+        {
+          "id": "F5",
+          "severity": "MEDIUM",
+          "claim": "§3.5.1 머지 파일 드롭 사고(PR #110 재현)는 worktree 수 증가 시 개연성이 올라간다",
+          "evidence": "file:C:/_project/mccp/CLAUDE.md (§3.5.1) — PR #110이 PR #109의 9파일 삭제. 기존 방어는 `git diff --diff-filter=D` 수동 확인만. git worktree list에 현재 4개 worktree 실재",
+          "why_it_blocks_the_goal": "병렬 작업이 많아질수록 일시적으로 많은 브랜치가 동시에 존재한다. 그중 둘이 intervening PR을 놓치고 머지할 때 파일 손실 가능성이 있다.",
+          "confidence": 0.8
+        },
+        {
+          "id": "F6",
+          "severity": "MEDIUM",
+          "claim": "review-loop-trust 우산 PRD 아카이브(commit 0e89005)가 완료되어 '인질 비용' 선례가 확정 — 새 우산은 같은 형태 재생산 위험",
+          "evidence": "file:C:/_project/mccp/.claude/_meta/2026-08-31-remaining-issue-disposition.md (§Verdict 정정 1번 — 인질 비용 섹션 언급 + 선례 인용)",
+          "why_it_blocks_the_goal": "운영자가 새로운 '우산 PRD'를 만들 계획이라면, review-loop-trust의 착수 → 아카이브 기간(대략 일주일)과 신규 자식 PRD 7개의 실제 배신일이 일치하는지 검증 필요. 우산이 자식을 '인질'로 잡으면 자식 완료가 늦어진다.",
+          "confidence": 0.85
+        },
+        {
+          "id": "F7",
+          "severity": "MEDIUM",
+          "claim": "현재 활성 PRD 5개 중 완료는 3개(impeccable-detection-contract, workflow-orchestration-live-activation, multi-session-work-loop M1~M8), in-progress는 2개(diverse-agent-review 다단, codex-disabled-round-invariant)",
+          "evidence": "Bash output: codex-findings-backlog.md 밀리스톤 행 + 각 PRD의 Status 열 확인. diverse-agent-review는 M8까지는 ship되고 M9+ 진행 중, codex-disabled-round-invariant는 M1만 in-progress",
+          "why_it_blocks_the_goal": "신규 우산에 포함될 전체 PRD 세트가 명확하지 않으면 병렬 가능 범위를 정할 수 없다. 현재 주인 관계(누가 어느 PRD의 다음 milestone을 책임)도 미명시.",
+          "confidence": 0.9
+        }
+      ],
+      "recommendations": [
+        {
+          "title": "즉시 병렬 시작: PRD A + PRD B 착수",
+          "what": "issue disposition 권고를 즉시 이행. PRD A (#127, plan-artifact-contract, M1~M3 순 직렬) + PRD B (#130, santa-surface-acceptance, M1~M3 순 직렬)를 동시 분기로 시작",
+          "owns_files": [
+            ".claude/prds/plan-artifact-contract.prd.md",
+            ".claude/prds/santa-surface-acceptance.prd.md",
+            "plugins/mccp/commands/plan.md",
+            "plugins/mccp/scripts/lib/plan-review/l1-check.js",
+            "plugins/mccp/commands/santa-loop.md"
+          ],
+          "effort": "L",
+          "expected_effect": "2개 PRD의 M1이 병렬로 1주 내 완료되고, 나머지 M2/M3은 그 이후 순차. in-flight 브랜치 머지 대기 0",
+          "parallel_safe": true
+        },
+        {
+          "title": "in-flight 3개 브랜치 병렬 머지 계획 수립",
+          "what": "env-contract-integrity (M3 완료), diverse-agent-review (M11 진행), multi-session-work-loop-m9 (M9 진행)의 머지 순서를 결정. backlog/STATE.md 충돌을 최소화하는 순서는 (1) env-contract (settings.json 신규 추가이므로 conflict 비용 낮음) → (2) multi-session (STATE.md 큰 변경) → (3) diverse-agent (renderer 변경만, conflict 최소). 또는 각자 `git rebase -i --autosquash`로 commit 조정 후 동시 PR",
+          "owns_files": [
+            ".claude/state/STATE.md",
+            ".claude/plans/codex-findings-backlog.md",
+            "CHANGELOG.md",
+            "docs/environment/**",
+            "docs/multi-session-work-loop/**",
+            "docs/diverse-agent-review/**"
+          ],
+          "effort": "M",
+          "expected_effect": "3개 브랜치의 순차 머지 충돌이 예측 가능해지고 PR #110형 사고 회피. 각 브랜치 머지 후 즉시 worktree cleanup으로 stale STATE.md 주입 방지",
+          "parallel_safe": false
+        },
+        {
+          "title": "새 우산 PRD의 '인질 비용' 정책 명문화",
+          "what": "review-loop-trust 선례(자식 7개 ship 후 우산 아카이브)를 분석해 새 우산의 target completion date와 각 자식의 target ship date를 **연동시켜야 하는지** 결정. 분리 가능하면 우산=메타 프레임, 자식=독립 축으로 설계",
+          "owns_files": [
+            ".claude/prds/(umbrella-name).prd.md",
+            "CLAUDE.md§3.11 아카이브 소유권 섹션"
+          ],
+          "effort": "S",
+          "expected_effect": "우산이 자식을 인질로 잡는 anti-pattern 회피. PRD A/B의 독립적 ship이 우산 완료를 미루지 않도록 보장",
+          "parallel_safe": true
+        },
+        {
+          "title": "plugin.json version 충돌 자동화 강제",
+          "what": "현재 `CLAUDE.md§3.7` 후보 3개 중 첫 번째(pre-PR hook으로 version bump 요구)를 구현. `.claude-plugin/plugin.json` 변경 없이 `commands/*.md` 변경이 있으면 commit hook이 fail 또는 loud warn. 또는 `/mccp:pr` Phase 1의 freshness check로 \"마지막 version bump commit이 base 이후가 아니면\" warning",
+          "owns_files": [
+            ".git/hooks/pre-commit",
+            "plugins/mccp/scripts/lib/pr-phase-helpers/preflight.js"
+          ],
+          "effort": "M",
+          "expected_effect": "병렬 브랜치 3개 이상일 때 version 충돌이 자동 검출되고 리바이트 유도. 운영자 수동 상향 부담 감소",
+          "parallel_safe": true
+        },
+        {
+          "title": "방향 5(명령 본문 다이어트)를 PRD A 직후 3순위로 스케줄",
+          "what": "신규 PRD (command-body-refactor)를 생성하되, PRD A M1~M3 완료 후 착수. 범위: (1) 블록→CLI 치환 ~525줄 (2) 회고 주석 이전 ~575줄 (3) 모드별 분리 로딩 ~1,100줄. 선행 조건: `instruction-contract/lint.js` before-state 파라미터화 + 각 명령별 relocation ledger",
+          "owns_files": [
+            "plugins/mccp/commands/plan.md",
+            "plugins/mccp/commands/prp-implement.md",
+            "plugins/mccp/commands/pr.md",
+            "plugins/mccp/commands/santa-loop.md"
+          ],
+          "effort": "L",
+          "expected_effect": "plan.md 3,044줄을 절반 이하로 축약. 미검증 glue 제거로 위험 총량 감소. 단, 회고 주석의 이전 목적지(docs/gate-design.md)가 이미 존재하므로 앵커 이전만 남음",
+          "parallel_safe": false
+        },
+        {
+          "title": "PRD 병렬 가능성의 실시간 매트릭스 유지",
+          "what": ".claude/_meta/prd-conflict-matrix.md (신규)를 생성해 **현재 진행 중인 모든 PRD의 파일 소유권을 행렬로 유지**. 새 milestone이 착수될 때마다 동일 파일 소유권으로 인한 순차 강제 여부를 자동 판정. 기준: 같은 파일 ≥2개 edit이 동시이면 `parallel_safe:false`",
+          "owns_files": [
+            ".claude/_meta/prd-conflict-matrix.md"
+          ],
+          "effort": "S",
+          "expected_effect": "병렬 가능 범위가 명시적으로 가시화되고, 운영자가 각 PRD의 착수 시점을 데이터 기반으로 결정 가능. 음의 외부효과(문서 수정 충돌)의 조기 탐지",
+          "parallel_safe": true
+        }
+      ],
+      "metrics_proposed": [
+        {
+          "name": "병렬 축 최대 동시 개수",
+          "definition": "같은 파일에 쓰지 않으므로 동시 진행 가능한 PRD의 최대 개수. 분자: 현재 착수 가능 축, 분모: 현재 전체 활성 PRD",
+          "producer": "prd-conflict-matrix.md (신규 도구)",
+          "why": "운영자의 '병렬' 목표 달성도를 정량화. deadline 감축의 상한을 이론적으로 계산 가능 (현재 5개 활성 PRD, 병렬 가능 최대 2개 = 효율성 40%)",
+          "feasible_today": true
+        },
+        {
+          "name": "파일 소유권 충돌률",
+          "definition": "(같은 파일을 2개 이상 PRD가 소유하는 파일 수) / (전체 tracked 파일 수 중 milestone artifact 범위)",
+          "producer": "git diff main..branch --name-only --stat을 수집 후 집계",
+          "why": "병렬 실행 불가능한 '결합도'를 측정. 높을수록 우산 구조가 과도한 공유 파일을 강제하고 있다는 신호",
+          "feasible_today": true
+        },
+        {
+          "name": "PR 머지 충돌 개수",
+          "definition": "(3-way merge conflict 발생 횟수) / (PRD 병렬 축 개수)",
+          "producer": "git merge-base + git diff-tree 조합으로 post-merge conflict 측정",
+          "why": "병렬 실행의 **실제 비용**(해석 시간). 낮을수록 파일 소유권 분리가 잘 이뤄진 것",
+          "feasible_today": true
+        },
+        {
+          "name": "우산 PRD 자식 완료율",
+          "definition": "(완료된 자식 PRD 수) / (우산 PRD의 total children count, Delivery Milestones 표 기준)",
+          "producer": "각 우산 PRD의 .prd.md 마일스톤 표에서 Status='complete' 행 계수",
+          "why": "review-loop-trust 선례와 신규 우산의 '인질 비용' 비교 가능. 낮을수록 우산이 자식을 오래 붙잡고 있다는 뜻",
+          "feasible_today": true
+        },
+        {
+          "name": "명령 본문 라인 수 추세",
+          "definition": "sum(wc -l plugins/mccp/commands/*.md) 월별 누적",
+          "producer": "git log --pretty=format:\"%H %ai\" -- plugins/mccp/commands/ | 월별 그룹화 + wc 재계산",
+          "why": "방향 5(명령 본문 다이어트)의 성공 여부를 측정. 계획은 절반 이하로 축약이지만, 과거 '추출' 3번은 순증이었음",
+          "feasible_today": true
+        }
+      ],
+      "unmeasured": [
+        "issue disposition의 PRD A/B 실제 작업 규모 (M1~M3 각 예상 시간). baseline이 부재",
+        "현재 3개 in-flight 브랜치의 각 M 단계별 착수 예정일. 착수 신호가 발견되지 않으면 상태가 stale일 가능성",
+        "worktree 4개의 실제 작업 분담 — 누가 어느 브랜치를 어디까지 진행했는가",
+        "병렬 실행 시 환경 격리도(shared .claude/state 사용으로 인한 race 가능성)",
+        "우산 PRD의 신규 정의 — 기존 선례(review-loop-trust)를 반복할지, 새로운 구조를 실험할지 미결정"
+      ]
+    }
+  ],
+  "verdicts": [
+    {
+      "lens": "leadtime-economy (리드타임과 수렴 경제)",
+      "survived": [
+        "L2-F1",
+        "L2-F2",
+        "L2-F4",
+        "L2-F5"
+      ],
+      "refuted": [
+        {
+          "id": "L2-F3",
+          "reason": "선행 조사의 '427.4분 최대'가 미측정 비수렴 33개에 대한 것이 아니라, 오류이거나 다른 방식 계산인 것으로 보임. 현재 corpus 재실행에서 통과 5개만 wall_clock 데이터 있음",
+          "counter_evidence": "plan-review/corpus.js 현재 출력: pass_path count=5만 wall_clock_ms 배열 제공, 비수렴 33개는 time 데이터 없음"
+        }
+      ],
+      "corrections": [
+        {
+          "id": "L2-F3-amended",
+          "original": "패널 벽시계 시간 측정 불완전 - 통과 5개는 측정되고 비수렴 33개는 불명시, 최대 427분 사례는 선행 조사의 숨겨진 다중 라운드 수렴",
+          "corrected": "패널 벽시계 시간 측정 불완전 - 통과 5개는 measured (avg 8분), 비수렴 33개는 time 데이터 부재. 선행 조사의 '427분 최대'는 현 corpus에 재현되지 않음",
+          "evidence": "plan-review/corpus.js 출력과 baseline-measurements.md §7 비교 — pass_path wall_clock_ms=[499741,779328,357124,363402,382180]로 모두 13분 이하"
+        }
+      ],
+      "missed": [
+        "라운드 회귀 메커니즘 부재 — 다중 라운드에서 R(N) 발견이 R(N+1)에서 다시 탐지되는 반복 구조. L2-F3 기저 원인이 벽시계가 아니라 발견→수정→재탐지 사이클일 수 있음",
+        "라운드 간 증거 소실 — MSW M7의 'r1~r5 레코드는 덮어쓰기로 소실'(선행 조사 D절) 현상. 비단일 receipt만이 아니라 intermediate state도 보존되지 않아 진정한 라운드 히스토리 복원 불가",
+        "단일통과 우회의 기계적 정당성 부재 — 16건의 우회가 발동한 조건(scope_too_small/deadline_pressure)의 실제 충족 여부 미감사. receipt에 이유만 봉인되고 검증은 0",
+        "backlog 재진입 감지 불가 — codex-findings-backlog.md의 'status/closure 열 없음'(기선 측정)로 같은 결함의 재등재를 자동화할 수 없음. '최소 4회 재등재' 현상은 사람이 놓친 것",
+        "패널 초기 차단 약화 현상 — L1(첫 리뷰어) 단독 실패가 override가 아니라 L2 비수렴(quorum miss)으로 자동 escalate. 초기 차단의 기계적 강제가 정족수 부족에만 의존",
+        "리드타임 단위 측정 정의 부재 — 'plan 생성→ship 커밋' 단위는 git-inferred(4~18일)이고 실제 작업 착수/중단/재개는 기록 0. 통계 기반이 아니라 관측 기반 'deadline 하루~1주'와 비교 불가"
+      ]
+    },
+    {
+      "lens": "Context Architecture — Shell State Boundary Crossing",
+      "survived": [
+        "F1-shell-state-loss",
+        "F2-gate-contract-token-only",
+        "F3-detached-runner-fragmented"
+      ],
+      "refuted": [
+        {
+          "id": "F4-plan-phase4-confirmation-halt",
+          "reason": "Phase 4 대기는 `/mccp:work` 진입 경로에 의해 우회되고, `work-orchestrator.js`가 trivial/full 분류를 통해 plan을 건너뛸 수 있다. 선행 조사 기준선 측정에서도 work 호출이 기록된 사례가 없어 실제 차단 경로를 확인할 수 없다. 문서상 '완전 자동화를 막는다'는 주장은 `/mccp:work --trivial` 경로로 반박된다.",
+          "counter_evidence": "work-orchestrator.js:5중 AND 휴리스틱이 LOC≤20이면 plan/implement를 skip. Plan Phase 4는 prp-commit 경로에서만 실행되고, 해당 경로는 work를 통해 회피 가능."
+        },
+        {
+          "id": "F5-command-body-state-fragmentation",
+          "reason": "STATE.md 연속성 메커니즘이 이미 구현되어 있고(session-start.js, state-writer.js), work-orchestrator.js가 step record를 사용 중이다. 4개 상태 직렬화가 '단일 bridge 부재'로 문제화되지만, 이는 최적화 부재이지 차단이 아니다.",
+          "counter_evidence": "`.claude/state/STATE.md`는 git-tracked이며 세션 간 연속성을 보존. Session-start.js가 부팅 시 inject하고, work-orchestrator.js가 handoff_spawn 신호로 resume을 트리거한다(v1.1.0+). 단일 bridge가 없어도 상태 전달 체인이 존재한다."
+        },
+        {
+          "id": "F6-unattended-metric-absent",
+          "reason": "측정 부재는 사실이지만, 그것이 '개선 우선순위를 정할 수 없다'는 주장은 과장이다. 선행 조사가 이미 actual bottleneck(receipt 봉인 불충실, 게이트 계약 토큰만 검사, plan Phase 4)을 실증했으므로, 측정 없이도 우선순위 순서를 정할 수 있다.",
+          "counter_evidence": "Baseline measurements가 72개 receipt의 비수렴 원인(find ings 미기록)을 추적했다. 선행 조사 harness-instability가 8월 근래 발화 로그(round 6, 여섯 개 실물 결함)를 제시하며 지점을 이미 실증했다. 측정이 없어도 가설 검증이 가능하다."
+        }
+      ],
+      "corrections": [
+        {
+          "id": "F1-qualification",
+          "original": "완전 자동화를 막는다: Shell state doesn't cross tool call boundaries; 18 REVIEW_DIR re-derivations in plan.md alone force variable recreation at each phase halt.",
+          "corrected": "자동화 비효율을 야기한다: Shell state는 tool 경계를 못 넘으므로 REVIEW_DIR이 18회 재파생되나, `/mccp:work`와 work-orchestrator.js는 이를 우회하고 있다. 재파생은 비용이지 차단이 아니다.",
+          "evidence": "work-orchestrator.js는 phase halt마다 state를 전달하고 `/mccp:work`가 실제로 호출되며, 선행 조사 diverse-agent-review 실행이 full chain을 완주했다(기록: 다수 receipt·PRD 아카이브 완료)."
+        },
+        {
+          "id": "F2-severity-downgrade",
+          "original": "HIGH severity: 게이트 계약이 토큰만 검사한다 — gate verification은 개입 권한/내용을 검증하지 않는다",
+          "corrected": "MEDIUM severity로 강등: C4 토큰 검사만의 문제는 남은 이슈 #127 형태의 'per-task acceptance mapping 부재'로 이미 식별됐고, 두 선행 조사가 모두 해결 방향(PRD A: plan-artifact-contract)을 제시했다.",
+          "evidence": "remaining-issue-disposition.md가 #127을 PRD A로 라우팅하고 M1(템플릿 계약 강화 + l1-check.js C4 내용화)를 제시. 문제는 known이고 해법은 in-flight이다(env-contract-integrity 브랜치에서 별도 축)."
+        },
+        {
+          "id": "F3-scope-clarification",
+          "original": "detached-runner 패턴이 isolated — 다른 fences는 inline state를 유지",
+          "corrected": "detached-runner는 plan-codex-runner.js에서만 구현되고 나머지 fences는 inline이지만, 이미 in-flight 해결책이 있다: env-contract-integrity M3(review-rounds/)와 multi-session-work-loop-m9(dispatch-controller)가 generalized pattern을 준비 중이다.",
+          "evidence": "git log에서 diverse-agent-review M11·multi-session-work-loop-m9 모두 main merge 완료. env-contract-integrity는 리뷰 라운드 캡 기계화를 포함하고 있다."
+        }
+      ],
+      "missed": [
+        "선행 조사가 놓친 축: `/mccp:work`의 실제 호출 빈도 측정 부재. work-orchestrator.js가 구현돼 있지만 실제 deployed 사용이 라이브 로그(completion-ledger) 기반으로 추적되지 않았다.",
+        "Phase 4 우회의 실제 경로 검증 부재: plan.md:584 'WAITING FOR CONFIRMATION'이 정말 차단하는지, 아니면 `/mccp:work --trivial` 내부에서 이미 우회되는지 단언하는 실행 로그가 없다.",
+        "기본값 토글의 실효성: CLAUDE.md §3.16이 '1라운드 기본'을 선포했으나 `.claude/settings.json` 실제 설정이 `MCCP_GATE_ROUND_CAP=3`으로 기본을 무시한다. 실효 강도 불일치 측정이 없다.",
+        "In-flight 브랜치의 merge 예정: env-contract-integrity, diverse-agent-review, multi-session-work-loop-m9 모두 main merge 대기 상태인데 merge 순서와 일정이 명시되지 않았다.",
+        "Diverse-agent-review M1.5(intent adjudication)의 상태: 선행 조사가 'pending'이라 했으나, 현재 로컬 브랜치(M11)의 구체적 내용과 진행률이 불명확하다.",
+        "저장소의 실제 단일 사용자 제약: CLAUDE.md가 개인용 저장소라 밝혔으나 MCCP_SESSION_ID 체인, completion-ledger git-tracked 구조, evidence-audit merge-commit 정책이 모두 multi-tenant 안정성을 가정한다."
+      ]
+    },
+    {
+      "lens": "context-architecture — shell-state-loss-at-phase-boundaries",
+      "survived": [
+        "F1-shell-state-loss",
+        "F4-plan-phase4-confirmation-halt"
+      ],
+      "refuted": [
+        {
+          "id": "F2-gate-contract-token-only",
+          "reason": "l1-check.js contains content validation beyond tokens: C2 checks path semantics (repo-root-relative vs abbreviated), C3 validates action/file-existence agreement, C4 checks Validate field presence, C5 validates PRD path resolution. Claim of 'token-only' verification is false; semantic content checks are present and load-bearing.",
+          "counter_evidence": "plugins/mccp/scripts/lib/plan-review/l1-check.js lines 243-348 show C1-C5 checks that verify plan *content* (section names, file paths, actions, tasks, PRD references), not just token existence/syntax."
+        },
+        {
+          "id": "F3-detached-runner-fragmented",
+          "reason": "Detached-runner pattern (nonce-sealing, marker-polling, orphan reclaim) has reached prp-implement.md via plan-codex-runner.js sharing. The concern about 'isolated pattern' misses that plan-review/l1-check.js, l2.js, and runner share OracleLock + nonce mechanics as common infrastructure. In-flight env-contract-integrity and diverse-agent-review branches show deliberate architectural refinement, not fragmentation.",
+          "counter_evidence": "plugins/mccp/scripts/lib/plan-codex-runner.js (lines 30-167) houses the nonce/marker/lock pattern; plugins/mccp/scripts/lib/plan-review/ relies on shared receipt architecture. The claim that 'other fences inline state' is contradicted by prp-implement.md's use of stateful markers for plan validation (nonce + hash sealing)."
+        }
+      ],
+      "corrections": [],
+      "missed": [
+        "Missing: Phase 4 confirmation is blockable iff user responds affirmatively in *same session*. When `/mccp:work` invokes `/mccp:plan` as subprocess, Phase 4 halt blocks the **parent chain**, not the user interaction — it surfaces to work.md's orchestrator, not an interactive terminal. Evidence: plan.md:584 prompt assumes interactive input; work-orchestrator.js spawns subprocesses. This creates a **mode-dependent gate** (interactive vs subprocess) not captured in findings.",
+        "Missing: Receipt write.js L394 `defaultResolution` literal (`converged: true, rounds: 1`) is documented in baseline-measurements.md as already-known defect (B节 正定); env-contract-integrity M3 plan reiterates same findings. The claimed 'rounds/findings 위조' has in-flight fix in unmerged branch. Findings reference un-merged work.",
+        "Missing: `/mccp:work --resume` handoff path reduces plan-gate autonomy requirement via STATE.md continuity, but findings ignore that alternate entry point. Resume path uses different state channel than `/mccp:work` direct invocation — this is **not** a missing toggle but a documented mode in CLAUDE.md §1.3.",
+        "Missing: Cross-gate dedupe dedupe.js line 0 — no findings capture that plan-review L3 (hybrid mode) is explicitly non-blocking for dedupe (`scope_too_small` bypass exists). This allows `/mccp:prp-implement` to proceed even when `/mccp:plan` L3 divergent, converting the gate contract from *blocking* to *advisory-only* under specific conditions — a structural coupling not in original findings.",
+        "Missing: Evidence-audit corpus state=incomplete (exit 4, coverage 0.568) means ledger has 44 entries but only 25 have corresponding receipts. However, findings don't check whether those 25 are *ship* receipts (mccp-pr-codex, 72 built) vs plan/implement receipts (working-tree only, ephemeral). The 'incomplete' verdict conflates two classes with different retention policies.",
+        "Missing: Baseline reports `MCCP_GATE_ROUND_CAP=3` in `.claude/settings.json` but doesn't verify whether default code value (cap=1) is actually overridden at runtime. Settings load is indirect (via hook injection at SessionStart); if hook fails silently, env becomes effective 1 despite settings.json 3. No findings audit the settings-load contract for fail-open vulnerabilities."
+      ]
+    },
+    {
+      "lens": "leadtime-economy — 리드타임과 수렴 경제 (운영자 최우선 지표)",
+      "survived": [
+        "L2-F1",
+        "L2-F2",
+        "L2-F3",
+        "L2-F4",
+        "L2-F5",
+        "L2-F7"
+      ],
+      "refuted": [
+        {
+          "id": "L2-F6",
+          "reason": "receipt에 `trivial_path_detected` 필드가 없고, work-orchestrator.js의 5중 AND 휴리스틱이 메모리 변수로만 존재",
+          "counter_evidence": "grep -r trivial_path plugins/mccp/scripts/receipt/write.js 0건, work-orchestrator.js 휴리스틱 구현 존재하지만 receipt 기록 경로 없음"
+        }
+      ],
+      "corrections": [
+        {
+          "id": "L2-F7-backlog-rate",
+          "original": "backlog 흡수율이 6.9%(32/465)",
+          "corrected": "기준선 재측정 결과 476행 기준 6.7%(32/476), 선행 조사 756행 기준 4.2%(32/756) — 분모 정의 불일치",
+          "evidence": ".claude/plans/codex-findings-backlog.md 실측(기준선) vs 선행 조사 전제 14 — 동일 파일 790행이 분류 기준에 따라 465/476/756행으로 분석됨"
+        }
+      ],
+      "missed": [
+        "agents/ 58개 리뷰어 프롬프트 본문 미감사 — 12.14시간 패널 비용의 실제 입력 지시(review-architect.md 등) 미검증",
+        "skills/ 47종 — 특히 design-critique-decide.js의 loop-retry 메커니즘이 E절의 명령 본문 비대화와 동근인지 미확인",
+        "test 346개 중 CI 실행 3개 제외 343개의 현재 green 상태 미검증 — 감축 후 회귀 기준선 부재",
+        "inline `node -e` 240건(5개 파일) — 어떤 unit test도 닿지 않는 표면, 감축 대상 선별 불가",
+        "live end-to-end chain 1회 실행 기록 부재 — /mccp:work Phase 4 'WAITING FOR CONFIRMATION' 우회 여부 미실측",
+        "산문 강제의 기계화 범위 — CLAUDE.md §3.5 'main 직접 push 금지'는 hook이 없고 gh pr create도 가드 0건, pre-bash-git-push-reminder.js의 exit 0은 reminder만 출력"
+      ]
+    },
+    {
+      "lens": "enforcement-frontline (terminal enforcement · receipt witness integrity · mechanical vs procedural control)",
+      "survived": [
+        "enforcement-top-layer-unmechanized",
+        "receipt-finding-fields-uninitialized",
+        "work-dispatch-filename-mismatch",
+        "ci-test-coverage-03-percent",
+        "plan-artifact-contract-unmechanized"
+      ],
+      "refuted": [
+        {
+          "id": "round-cap-unimplemented",
+          "reason": "Finding overstates scope. MCCP_GATE_ROUND_CAP is actually read by review-single-pass.js (line ~42) and evaluated as a cap on Codex round escalation. The claim that plan-review has 0 code enforcement is true, but plan-review is NOT the only enforcement point—the cap is enforced at the turbo-escalate decision layer via command body shell export of MCCP_GATE_ROUND_CAP (plan.md, prp-implement.md, pr.md all export it). Receipt rounds field records what was observed, not what was capped. The mechanical enforcement exists, just not in the lexicon the finding searched.",
+          "counter_evidence": "plugins/mccp/scripts/lib/review-single-pass.js:42 reads MCCP_GATE_ROUND_CAP. plan.md, prp-implement.md, pr.md export MCCP_GATE_ROUND_CAP for CLI to consume. The finding conflates 'no cap field in quorum.js' (true) with 'cap is not mechanically enforced' (false). Enforcement is outside quorum, in command body turbo logic."
+        }
+      ],
+      "corrections": [],
+      "missed": [
+        "agent-prompt-surface-unmeasured",
+        "inline-node-e-testability-gap",
+        "receipt-convergence-field-aliasing-risk",
+        "cross-gate-dedupe-invocation-unreachability",
+        "codex-intent-context-m2-arbiter-whitelist-bypass-residual",
+        "receipt-hash-carve-out-precedent-absence"
+      ]
+    },
+    {
+      "lens": "렌즈 5 — mccp 하네스 관찰 지표 설계 (2026-08-31)",
+      "survived": [
+        "F3-four-of-five-feasible",
+        "F4-producer-location-found",
+        "F5-triple-axis-no-conflict"
+      ],
+      "refuted": [
+        {
+          "id": "F1-measurement-gap",
+          "reason": "A1 상태를 '미배선'으로 표현은 오도적. 실제로는 computeA1() 함수가 존재하며, status=forward-only (startup producer 이벤트 부재). 함수 존재 vs 데이터 부재는 다른 문제다. 또한 의존 버전(v1.33.1)에서 A3만 stale로 표시되고 A1/A2는 그대로 forward-only 상태이므로, '배선'이 아니라 '조건 부재'라 해야 정확.",
+          "counter_evidence": "plugins/mccp/scripts/lib/msw-metrics/index.js:102에 computeA1 함수 존재 + baseline JSON에서 A1.status='forward-only', invalid_reason='no live startup producer wired' (배선이 아니라 runtime data 부재)"
+        },
+        {
+          "id": "F2-consumer-circuit-absent",
+          "reason": "Premise 오류: 계측이 receipt에 '써진다'는 주장이 거짓. 실측으로 72개 PR-Codex receipt 모두 resolution.findings 필드 자체 정의 안 됨 (undefined). 따라서 '계측이 써지지만 소비 회로 0'은 성립하지 않음. 순수 계측 부재 상태.",
+          "counter_evidence": "72개 receipt 전수 검사: empty=0, present=0, undefined=72. 샘플 receipt의 resolution 필드에 findings 없음. 따라서 '써지지만 안 읽힌다'는 frame이 초기에 거짓."
+        }
+      ],
+      "corrections": [
+        {
+          "id": "F1-confidence",
+          "original": "confidence: 0.95",
+          "corrected": "confidence: 0.60 (함수 존재 vs 데이터 부재를 구분하지 않음. v1.33.0 이후 상태 변화도 미실증)",
+          "evidence": "baseline-measurements.json self_metrics: A1.status='forward-only' not 'unwired'"
+        },
+        {
+          "id": "F2-confidence",
+          "original": "confidence: 0.92",
+          "corrected": "confidence: 0.15 (본문 premise인 '계측이 써진다'가 거짓)",
+          "evidence": "72/72 receipt에 resolution.findings 필드 부재. 계측이 기록되지 않음 자체가 문제지, 회로가 없는 게 아님"
+        }
+      ],
+      "missed": [
+        "in-flight 브랜치들(env-contract-integrity·multi-session-work-loop-m9) 간 dependency 맵핑 미확인 — F3 권장사항의 owns_files 배타성이 이들과 충돌할 여지를 측정하지 않음",
+        "baseline-measurements.md 이후 현재 HEAD 간 drift — baseline이 main과 다른 커밋(d1db647)에서 나왔으며, worktree는 meta-research-consolidation. 검증 대상 JSON이 어느 상태를 기준으로 했는지 불명확",
+        "recommendation 6개 중 4개의 'parallel_safe=true' 단언 미검증 — 실제로 file-level lock이나 schema 의존이 없는지 코드 레벨 확인 0",
+        "렌즈 5의 10개 계측 정의(A1-A4, B1-B3, C1-C3)와 요청 5개 지표 간 매핑이 1:1이 아님 — F3가 '5개 중 4개 오늘 가능'이라 했을 때 어느 5개를 지칭하는지 불명",
+        "선행 조사 'harness-instability' B절이 이후 정정됐는데, 그 정정 내용이 검증 대상 JSON에 반영됐는지 선형 확인 없음",
+        "receipt.findings 부재 상태가 언제부터인지(schema migration 기준점) 미파악 — v0.2.8 generic-receipt quarantine 이후 의도적 변경인지 버그인지 구분 불가"
+      ]
+    },
+    {
+      "lens": "렌즈 6 — 우산 PRD 구조와 병렬 실행 설계",
+      "survived": [
+        "F1",
+        "F2",
+        "F3",
+        "F6",
+        "F7"
+      ],
+      "refuted": [
+        {
+          "id": "F4",
+          "reason": "plugin.json 변경 212건은 많지만, CLAUDE.md §3.7에 명시된 실측은 '3회 재발'(선례 4건)이고, F1의 '9회'는 재검증 없는 과장. version bump 기계화 부채는 타당하지만 선행 조사의 기준선과 충돌.",
+          "counter_evidence": "git log --all -- plugins/mccp/.claude-plugin/plugin.json | wc -l: 212건은 전체 변경이고, CLAUDE.md §3.7 '병렬 브랜치 version 충돌' 선례는 4건 기술. 새 branch 추가(env-contract·diverse-agent·multi-session)가 '9회 이상'으로 선형 증가할 확률은 높지만, 현재 실측은 4건."
+        },
+        {
+          "id": "F5",
+          "reason": "PR #110 파일 드롭은 CLAUDE.md §3.5.1에 기록된 사실이지만, 현재 4개 worktree에서 '재발 개연성 올라간다'는 주장(confidence 0.8)은 일반적 추론이지 구체적 재발 증거가 아님. F1의 머지 충돌 위험(3-way 4번+)이 더 직접적 압박.",
+          "counter_evidence": "현재 worktree: meta-research-consolidation(조사용) · env-contract-integrity · diverse-agent-review · multi-session-work-loop-m9. 모두 backlog/STATE.md/CHANGELOG 공유(F1 실증) → 머지 충돌이 더 직접적 위험. 파일 드롭 사고 재발은 '§3.8 worktree 경로 강제' 실행으로도 방지 가능하고, 현재 우려는 추측."
+        }
+      ],
+      "corrections": [
+        {
+          "id": "F4-version-history",
+          "original": "plugin.json version 충돌 9회 재발 실측, 병렬 브랜치 수 증가 시 선형 증가",
+          "corrected": "plugin.json 변경 커밋 212건 역사상 있지만, CLAUDE.md §3.7에 기술된 '병렬 브랜치 version 충돌'은 4건(2026-08-25까지). F4의 주장은 미래 위험 추정이지 과거 실측 9회가 아님",
+          "evidence": "git log --all -- plugins/mccp/.claude-plugin/plugin.json: 212건은 모든 변경. CLAUDE.md §3.7 '선례 4건' 섹션이 실측값. F4에서 인용한 'version 충돌 9회'는 기술되지 않음"
+        }
+      ],
+      "missed": [
+        "병렬 브랜치의 실제 시간적 상태 미파악 (env-contract-integrity·diverse-agent-review·multi-session-work-loop-m9의 각 milestone 진행률과 머지 예정일이 명시되지 않아 'F1 2개 충돌 예상'을 정량화 불가)",
+        "PRD A/B의 실제 작업 규모 미측정 (issue disposition 권고가 'PRD A M1~M3 순차'라고만 하고, 각 milestone 예상 시간이 baseline에 부재)",
+        "worktree cleanup 강제 정책 미확인 (PR #110 사고 후 '같은 cycle에 cleanup' 규칙이 현행 hook에 기계화돼 있는지 확인 안 함)",
+        "신규 우산 PRD의 형태 미결정 (review-loop-trust와 동형 구조인지, 아니면 다른 설계인지 기록 없음)",
+        "평행 브랜치 충돌 재현율 실측 부재 (3-way merge가 실제로 '4번 이상 발생할 것'인지는 예상일 뿐, 이전 중첩 cycle의 충돌 기록이 없음)"
+      ]
+    }
+  ],
+  "other": [
+    {
+      "codex_ran": true,
+      "verdict": "divergent",
+      "disagreements": [
+        {
+          "target": "F1-shell-state-loss",
+          "codex_position": "18회 REVIEW_DIR 재파생은 사실이나, JSON artifact를 통한 fresh-shell 계약이 이미 구현되어 있으므로 무인 자동화 불가능의 직접 증거가 아님. 인과관계와 severity가 과장됨",
+          "severity": "medium"
+        },
+        {
+          "target": "F5-command-body-state-fragmentation",
+          "codex_position": "state-writer가 이미 state journal을 권위 투영층으로 통합했고(state-writer.js:624), Santa ledger와 evidence ledger는 서로 다른 감사 도메인이므로 실제 충돌 없이 '통합 SoT 부재'를 결함으로 단정함",
+          "severity": "medium"
+        },
+        {
+          "target": "F6-unattended-metric-absent",
+          "codex_position": "A1 work-completion metric 정의가 이미 존재하지만(msw-metrics/index.js:38) live producer가 없어 forward-only 상태. '전혀 없다'가 아니라 '운영 산출 불가'가 정확함",
+          "severity": "low"
+        },
+        {
+          "target": "R1-detached-runner-generalization",
+          "codex_position": "plan-codex-runner는 Codex 장시간 실행·nonce·receipt 봉인을 위한 gate 전용이며, 일반 command fence의 대체물이 아님. '400줄 절감' 산출 근거 부재, Effort는 L이 아니라 XL에 가까움",
+          "severity": "high"
+        },
+        {
+          "target": "M1-shell-state-rederivation-frequency",
+          "codex_position": "구현 세부사항이며 fresh-shell 계약과 충돌. 무인 완주율이나 blocking phase를 측정하지 못하므로 핵심 성공 metric으로 부적합",
+          "severity": "medium"
+        }
+      ],
+      "endorsed": [
+        "F4-plan-phase4-confirmation-halt",
+        "F6-unattended-metric-absent (수정 후 찬성)",
+        "R2-phase4-bypass (방향 찬성, 단 구현 방식 수정 필요)"
+      ],
+      "codex_additions": [
+        "work.md는 next-step 호출이 선언상 단계마다 호출되지만 실제로는 1회뿐이며, record-step 호출은 0회다. 단계 진행·실패·완주 계측 wiring이 기계적으로 연결되지 않은 더 직접적인 결함",
+        "현재 저장소 버전은 v1.33.1이며, v1.33.0 baseline이 드리프트. 기계 상태 전제가 부실함",
+        "ship receipt findings는 '72/72 empty'가 아니라 '71 empty + 1 receipt with 3 findings'. 주장과 실제 데이터 불일치",
+        "두 recommendation(R1, R2)이 모두 plan.md를 수정하므로 둘 다 parallel_safe=true 단언 불가능",
+        "Phase 4 bypass에는 직접 plan 호출의 확인 유지, work-scoped bypass, Phase 5·receipt 강제 실행을 검증하는 acceptance test가 필수"
+      ],
+      "raw_excerpt": "검증 결과는 divergent입니다. 핵심 자동화 중단점(F4 Phase 4 halt)은 맞지만, 상태 단절·통합 상태 부재·metric 부재 주장은 일부 과장되거나 현재 코드와 어긋합니다. 현재 소스는 v1.33.1(v1.33.0이 아님)이며, JSON artifact handoff가 fresh-shell 계약으로 이미 구현되어 있고, state-writer가 권위 투영층을 제공합니다. R1의 detached-runner 일반화는 gate 전용 패턴을 상이한 문맥에 과도하게 확장하며, 400줄 절감도 산출 근거가 부족합니다. 추가로 work.md의 record-step 호출 0회(선언 대비)는 계측 wiring 누락의 더 직접적인 결함입니다."
+    }
+  ]
+}

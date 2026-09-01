@@ -1,0 +1,58 @@
+## 저장소 맥락
+
+mccp는 Claude Code 플러그인으로:
+- 무인 자동화 파이프라인(PRD→plan→implement→PR) 목표
+- receipt 봉인으로 의사결정 추적 및 감사 corpus 유지
+- 다중 모델 dual-review 체계(Claude vs Codex)
+- 운영자의 최우선 제약: deadline(하루~1주/마일스톤)
+
+## 검증 요청
+
+아래의 findings / recommendations를 **적대적으로** 검증하라.
+
+1. 거짓이거나 과장된 주장을 찾아라
+2. 이미 해결된 것을 미해결로 본 경우를 지적하라
+3. 놓친 더 큰 결함을 발견하면 추가하라
+4. 증거 인용이 부정확하면 정정하라
+5. confidence 수치가 근거 대비 과하거나 부족하면 조정하라
+
+## 최종 형식
+
+마지막에 정확히 이 형식으로 요약하라:
+
+```
+VERDICT: converged|divergent
+DISAGREEMENTS:
+- <target>: <codex 위치> — <이유> (severity: high|medium|low)
+ENDORSED: <찬성하는 항목 id 나열>
+ADDITIONS:
+- <새로 발견한 것>
+```
+
+## 검증 데이터
+
+이어지는 JSON에는 5개 렌즈(context-automation, leadtime-economy, enforcement-frontline, metrics-design, prd-decomposition)의 findings/recommendations/metrics가 담겨 있다.
+
+각 렌즈별로:
+- findings: 관찰된 결함 5-7개
+- recommendations: 해결 방안 5-6개
+- metrics_proposed: 측정 가능 지표 6개
+- corrections: 자체 정정 사항
+- missed: 감사되지 않은 축
+
+현재 기계 상태(v1.33.0 baseline):
+- receipt.findings 필드: 모든 72개 ship receipt에 빈 배열(의도적?)
+- actual rounds: 6라운드 진행도 rounds:1로 봉인
+- ci test coverage: 346개 test 중 3개만 CI 실행(0.87%)
+- backlog absorption: 6.9%(32/465)
+- quorum binding: M/K 손잡이 0개(미작동)
+- single-pass override: 50% 우회율
+- plan.md: 3,044줄 명령문 (블록→CLI 치환 기회 525줄)
+
+이 기계 위에서 제안된 개선이 (a) 구조적 진실인지, (b) 실증 근거가 충분한지, (c) 낭비하지 않는 해결인지 판단하라.
+
+---
+
+[JSON 본문 이어짐]
+
+[{"lens":"context-automation","headline":"완전 자동화를 막는 context 문제는 세 가지 보충적 구조 결함의 합성: (1) 셸 상태 비영속성으로 강제된 변수 재파생 18회, (2) 게이트 계약이 토큰만 검사하고 내용/권한은 검증 없음, (3) detached runner 패턴이 존재하되 명령 본문 전역 적용되지 않음.","findings":[{"id":"F1-shell-state-loss","severity":"HIGH","claim":"Shell state doesn't cross tool call boundaries; 18 REVIEW_DIR re-derivations in plan.md alone force variable recreation at each phase halt.","evidence":"plugins/mccp/commands/plan.md:928,1004,1028,1066,1121,1192,1238,1366,1430,1490,1560,1651,1756,1807,1852,2151,2171,2732","why_it_blocks_the_goal":"Unattended automation can't hand off context across tool calls. Each phase boundary loses all bash-state variables, forcing re-derivation.","confidence":0.95},{"id":"F4-plan-phase4-confirmation-halt","severity":"HIGH","claim":"plan.md Phase 4 outputs 'WAITING FOR CONFIRMATION' markdown requiring user input. No env bypass. Blocks unattended `/mccp:work` chain.","evidence":"plan.md:584 literal 'WAITING FOR CONFIRMATION', no auto-confirm toggle in phase body","why_it_blocks_the_goal":"Plan halts and waits for next utterance. No resume. `/mccp:work` calling `/mccp:plan` produces artifact + halts (no auto-dispatch to prp-implement).","confidence":0.99},{"id":"F5-command-body-state-fragmentation","severity":"MEDIUM","claim":"Multiple command fences maintain separate state serializations (STATE.md, work-orchestrator step record, santa-loop ledger, evidence-audit markers). No unified state-bridge contract.","evidence":"state-writer.js, work-orchestrator.js:326, santa-loop.md Phase 7, evidence-audit.js (four distinct patterns)","why_it_blocks_the_goal":"State handoff is brittle. No SoT for 'what state survives phase boundaries'. Coordination cost explodes with parallel dispatch.","confidence":0.85},{"id":"F6-unattended-metric-absent","severity":"MEDIUM","claim":"No metric for unattended automation completion rate. Can't detect which phases actually block vs. appear to block due to process design.","evidence":"`/mccp:work` telemetry missing from work.md/work-orchestrator.js. Observable only via log inspection.","why_it_blocks_the_goal":"Improvements (l1-content, phase4-bypass) only prioritized if blocking rates are measured. Current state unknown. Can't prove Phase 4 is bottleneck.","confidence":0.8}],"recommendations":[{"title":"Generalize detached-runner + nonce-sealing pattern to all command-body fence contexts","what":"Extract plan-codex-runner.js architecture into shared lib/runners/detached.js. Refactor plan, prp-implement, pr, santa-loop fences to invoke Node sub-processes with nonce sealing instead of inline bash state.","owns_files":["plugins/mccp/scripts/lib/runners/detached.js (new)","plugins/mccp/commands/plan.md","plugins/mccp/commands/prp-implement.md","plugins/mccp/commands/pr.md","plugins/mccp/commands/santa-loop.md"],"effort":"L","expected_effect":"Remove 18 REVIEW_DIR assignments + ~400 lines of boilerplate per command. Single handoff channel across all phase boundaries. Enable `/mccp:work` unattended via detached runner chain.","parallel_safe":true},{"title":"Mechanize plan.md Phase 4 confirmation bypass for unattended mode","what":"Add env toggle MCCP_PLAN_AUTO_CONFIRM (yes/no/ask). Phase 4 reads toggle; if 'yes', emit confirmation marker. Wire toggle into `/mccp:work` as implicit 'yes'.","owns_files":["plugins/mccp/commands/plan.md (Phase 4)","plugins/mccp/commands/work.md","docs/ENVIRONMENT.md"],"effort":"M","expected_effect":"Phase 4 no longer blocks unattended `/mccp:work`. User still gets prompt when invoking `/mccp:plan` directly.","parallel_safe":true}],"metrics_proposed":[{"name":"Shell state re-derivation frequency","definition":"Count of variable assignments re-executing git/fs queries per gate run (e.g., REVIEW_DIR assignments). Numerator: re-derivations. Denominator: total assignments.","producer":"grep -n 'REVIEW_DIR=' across command fences. Count per gate, per phase.","why":"Direct cost of context loss. Target: 0 per phase.","feasible_today":true}]}]

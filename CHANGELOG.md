@@ -2,7 +2,40 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.6`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.7`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.33.7] — 2026-09-01
+
+> **§3.7**: `1.33.6 → 1.33.7` (**patch** — release-channel-separation PRD의 단일 milestone
+> M1이고 PRD 종료 축이 아니다). 이 bump는 4면 동기 의무일 뿐 아니라 **M1의 계측
+> 도구**다 — main이 이 번호로 앞서 나갔는데 사용자 설치 version이 `1.33.6`에 머무는
+> 것이 채널 분리가 실제로 작동했다는 증거다(성공 지표 3). 4면(plugin.json ·
+> html.js page-foot · markdown.js derived 줄 · 이 파일의 `currently` 노트)을 함께
+> 맞췄고 `i18n-surface.test.js`가 재검증한다. 병합 시점 origin/main이 `1.33.6`이었고
+> sibling worktree 하나가 `1.34.0`(minor)을 선언 중이라 patch 자리가 비어 있었다.
+
+### Changed
+
+- **release-channel-separation M1 — channel-pin**: `.claude-plugin/marketplace.json`의
+  plugin `source`가 상대 경로 `"./plugins/mccp"`에서 `git-subdir` + `url` + `path` +
+  `ref: release`로 전환됐다. **`sha`는 pin하지 않는다**(UI5) — 릴리스가 manifest 편집이
+  아니라 `release` 브랜치를 fast-forward하는 행위가 되도록 하기 위함이다. 공식
+  marketplace 코퍼스 291건 중 `ref` 사용 84건은 **전부** `sha`를 함께 pin하므로
+  (`oracle/netsuite-suitecloud-sdk`의 `ai-plugins-dist` 포함) 이 형태는 스키마가
+  허용하되 선례가 없는 쪽이다. 그 차이가 라이브 검증을 이 마일스톤의 핵심 산출물로
+  만든다.
+- 그 결과 **main 머지가 plugin 본문을 배포하는 일이 끝났다.** 다만 닫히는 표면은
+  하나지 둘이 아니다 — `known_marketplaces.json`의 mccp 항목에는 `ref`가 없어
+  marketplace clone은 계속 main을 추종하므로, `marketplace.json` 자체의 편집은 여전히
+  머지 즉시 사용자에게 도달한다. 그 잔여는 사용자의 재등록을 요구하므로 M3 소유다.
+- `README.md` 설치 절과 `CLAUDE.md` §3.7에 채널 사실과 **번호 소유자 이전**을 기록했다.
+  §3.7의 major/minor/patch 판정 기준 자체는 불변이다(UI8).
+
+### Added
+
+- `release` 브랜치(`647dfec` = v1.33.6)와 롤백 좌표 태그 `mccp--v1.33.6`을 origin에
+  생성했다. UI5가 `sha` pin을 포기한 대가를 태그가 갚는다 — 브랜치가 움직여도 되돌릴
+  지점이 남는다.
 
 ## [1.33.6] — 2026-09-01
 

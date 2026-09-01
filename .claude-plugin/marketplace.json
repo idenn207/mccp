@@ -6,7 +6,12 @@
   "plugins": [
     {
       "name": "mccp",
-      "source": "./plugins/mccp",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/idenn207/mccp.git",
+        "path": "plugins/mccp",
+        "ref": "release"
+      },
       "description": "My Claude Code Plugin — ECC gate core, packaged as a self-contained Apache-2.0 plugin."
     }
   ]

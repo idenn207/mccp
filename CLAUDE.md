@@ -301,6 +301,19 @@ mccp는 state lock 3종을 운용한다 — `pr-phase.lock`(`ownership_token_has
 - 사용자 환경의 hook 호출 path(`${CLAUDE_PLUGIN_ROOT}/scripts/...`)가 worktree의 변경을 보지 못함
 - 결과적으로 PR이 merge돼도 hook이 old behavior로 작동 → cache 직접 copy 같은 bootstrap workaround가 매 cycle 반복됨
 
+**v1.33.7 정정 — 번호의 소유자가 브랜치에서 릴리스 컷으로 옮겨졌다.** 위 두 문단은
+`claude plugin update`가 **main의** version을 보고 사용자 캐시 경로를 정한다는 전제 위에
+서 있는데, release-channel-separation M1 이후 그 전제는 거짓이다 — `marketplace.json`의
+plugin `source`가 `git-subdir` + `ref: release`라서 사용자가 읽는 `plugin.json`은
+`release` 브랜치의 것이다. 따라서 (a) 배포 표면은 `release`로 옮겨졌고, (b) feature
+브랜치에서 올리는 bump는 사용자에게 즉시 도달하지 않는 **dogfood 빌드 번호**이며,
+(c) major/minor/patch 판정 기준 자체는 **하나도 바뀌지 않는다**(아래 표 그대로).
+낡은 문장을 지우지 않는 이유는 §3.17과 같다 — 무엇이 왜 달라졌는지가 함께 남아야
+한다. 위 문단들은 `release`가 그 커밋으로 옮겨진 **뒤**의 사용자 경험을 여전히
+정확히 기술한다. 다만 닫히는 표면은 **plugin 본문**뿐이다: `known_marketplaces.json`의
+mccp 항목에는 `ref`가 없어 marketplace clone은 계속 main을 추종하므로
+`marketplace.json` 자체의 편집은 머지 즉시 도달한다(M3 소유).
+
 cache 디렉토리 ls 결과로 누락 cycle을 진단 가능: 예를 들어 `0.2.8/ 0.3.0/ 0.3.1/ 0.3.2/ 0.3.4/ 0.3.6/ 0.4.0/ 1.1.0/`처럼 띄엄띄엄이면 그 사이 cycle들이 version bump을 빠뜨렸다는 의미.
 
 #### 언제 어떻게 bump

@@ -869,6 +869,11 @@ module.exports = {
   parseRecord: parseRecord,
   aggregate: aggregate,
   audit: audit,
+  // leadtime-observability M1 (DD2) — 코퍼스 경계의 단일 진실 원천. 리더를 복제하면
+  // `REVIEW_SUBDIRS`가 두 곳에 살고, 스캔 경로가 갈라지는 날 두 도구가 **서로 다른
+  // 분모**로 같은 커버리지를 주장한다. 추가 export일 뿐 본문·출력은 무변경이다.
+  readReviewRecords: readReviewRecords,
+  REVIEW_SUBDIRS: REVIEW_SUBDIRS,
   splitRow: splitRow,
   classifyBinding: classifyBinding,
   classifyF6: classifyF6,

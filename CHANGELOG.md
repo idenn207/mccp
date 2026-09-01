@@ -2,7 +2,49 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.8`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.33.8] — 2026-09-01
+
+> **§3.7**: `1.33.1 → 1.33.8` (**patch** — leadtime-observability PRD의 단일 milestone
+> M1이고 PRD 종료 축이 아니다). 이 브랜치가 사는 동안 origin/main이 `1.33.6`까지
+> 발행했고, 미머지 형제 worktree가 `1.33.7`(release-channel-separation)과
+> `1.34.0`(multi-session-work-loop M9)을 이미 선언했다. §3.7의 forward-only 규칙대로
+> 발행된 번호는 불가침이고 알려진 선점과도 충돌하지 않는 다음 patch 자리를 택했다.
+> 4면(plugin.json · html.js page-foot · markdown.js derived 줄 · 이 파일의 `currently`
+> 노트)을 함께 맞췄고 `i18n-surface.test.js`가 재검증한다. **base 머지 시점과
+> `/mccp:pr` 진입 직전에 다시 재계산해야 한다** — 그 사이에도 형제가 번호를 발행할 수 있다.
+
+### Added
+
+- **leadtime-observability M1 — 패널 벽시계 집계(`panel_span`)**:
+  `plugins/mccp/scripts/lib/leadtime.js` — `.claude/reviews/`의 패널 레코드에 이미
+  non-null로 기록돼 있던 `measurement.wall_clock_ms`를 전건 읽어 분포로 내는 read-only ·
+  LLM-free · standalone 도구. 새 계측을 심지 않는다. `evidence-audit.js` 선례대로
+  `scripts/lib/` 루트에 산다(M2가 조인할 두 소스가 모두 plan-review 산출물이 아니기 때문).
+  - 재는 구간은 `panel_span`(5.2a `started-at` → 레코드 write) **하나**다. 패널 종료→ship은
+    M2, `/mccp:work` 진입은 C2, 임계값은 C7 소유이며 이 도구는 분포만 내고 숫자를 정하지 않는다.
+  - state ladder는 `corpus.js` 미러에 **`read_error` 축을 포함**한다 — 없으면 디렉토리 읽기
+    실패가 분모까지 줄여 커버리지가 100%로 접힌다(fail-open).
+  - 부재 규칙 3종: 관측 0건이면 `panel_span` 키 자체를 싣지 않고(`blind`), `wall_clock_ms`
+    결측은 분포에서 빼되 이름으로 남기며(0으로 접지 않는다), 관측 0건인 층은 키를 만들지 않는다.
+  - 백분위는 nearest-rank이고 `method`를 매 출력에 실어 재계산으로 반증 가능하다.
+  - `records[].plan_path`는 직렬화 직전 repo-relative로 정규화한다 — `record.js`가 호출자
+    문자열을 무정규화로 봉인하므로 절대경로가 커밋 산출물로 샐 수 있다(§3.12 `meta.cwd` 선례와 동형).
+- `plugins/mccp/scripts/lib/tests/leadtime.test.js` — 부재 규칙 · `read_error` 사다리 ·
+  nearest-rank 경계(n=1·n=2) · 경로 정규화 · 층화 키 회귀 고정 19건. 실코퍼스에 의존하지
+  않는다.
+- `docs/leadtime-observability/panel-span.md` — M1 실측의 축자 동결(`<!-- BEGIN
+  leadtime.js --json (verbatim) -->`)과 판정. **`corpus.js`의 pass-path 보고가 분포를
+  과소보고한다**: converged 5건 p50 6.4분 · max 13.0분 대 전체 39건 p50 7.6분 ·
+  max 427.4분(7.12시간). 집계 커버리지 5/39가 max를 33배 과소보고하고 있었다.
+
+### Changed
+
+- `plugins/mccp/scripts/lib/plan-review/corpus.js` — `module.exports`에
+  `readReviewRecords`·`REVIEW_SUBDIRS` **추가만**. 코퍼스 경계의 단일 진실 원천을 유지하기
+  위한 것이며 본문·stdout·JSON 출력은 무변경이다. 그 무변경을 `leadtime.test.js`의
+  `corpus.aggregate` 바이트 동결 test가 기계적으로 강제한다.
 
 ## [1.33.1] — 2026-08-26
 

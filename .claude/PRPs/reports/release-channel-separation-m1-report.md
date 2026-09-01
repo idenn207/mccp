@@ -1,10 +1,12 @@
 # Implementation Report: release-channel-separation M1 — channel-pin
 
-> **STATUS: PRE-MERGE — INCOMPLETE.** Task 10(비파괴 라이브 검증 b)은 PR이 main에 머지된
-> **뒤에만** 실행 가능하고 Acceptance 5는 그 관측 쌍을 요구한다. 따라서 이 보고서는 M1의
-> 완료를 주장하지 않으며 PRD의 M1 행은 `in-progress`에 머문다. 착지 vehicle은 **머지 직후
-> 이 파일을 완성하는 후속 커밋**이고, 그때까지 M1은 미완료다.
-> (Implement-Codex R1 F2 흡수 — 근거는 `.claude/notes/release-channel-separation-m1.md`.)
+> **STATUS: 검증 3축(a·b·c) 전부 실측 완료 — 머지 후 확인 1건 대기.**
+> 초판은 `PRE-MERGE — INCOMPLETE`였다. 검증 (b)를 머지 후에만 할 수 있다고 판단했기
+> 때문인데, **PR-Codex R1 F1(HIGH)이 그 판단을 반박했고 옳았다** — UI9가 "각 구현의
+> 실측 테스트는 marketplace 배포가 아니라 **별도 설치 경로**로 진행한다"고 이미
+> 정해 두었고, 그 경로는 머지 전에 성립한다. 아래 Acceptance 5가 그 실측이다.
+> 남는 것은 머지 후 같은 명제를 **실제 배포 경로에서** 한 번 더 확인하는 일이고,
+> 그것은 증거의 부재가 아니라 확인이다.
 
 경로는 전부 `<PLUGINS>` · `<HOME>` 치환형이다(H4). `version` · `gitCommitSha` · exit code ·
 CLI 출력 문구는 원문 그대로다 — 치환은 경로에만 적용한다.
@@ -28,7 +30,7 @@ marketplace clone은 계속 main을 추종한다 — 이 리허설에서도 7단
 |---|---|---|
 | Complexity | Medium | Medium — 다만 plan이 예상 못 한 차단 ref 1건(D1) |
 | Files Changed | 9 (표 기준) | 8 변경 + 1 신규(이 보고서) |
-| 라이브 검증 | 1회 (a·c 머지 전, b 머지 후) | a·c 완주 · b는 머지 후로 이연 |
+| 라이브 검증 | 1회 (a·c 머지 전, b 머지 후) | a·b·c 전부 머지 전 완주(b는 UI9 경로) |
 
 ## Tasks Completed
 
@@ -43,8 +45,8 @@ marketplace clone은 계속 main을 추종한다 — 이 리허설에서도 7단
 | 7 | version 4면 동기 `1.33.6 → 1.33.7` | 완료 | `i18n-surface.test.js` 10/10 |
 | 8 | PRD M1 행 in-progress | 완료 | `pending` 잔여 정확히 2건(M2·M3) |
 | 9 | 머지 전 리허설 (검증 a·c) | 완료 | 6a 통과 · 6b 답 확보 · 6c 복원 12초 · 8단계 게이트 PASS |
-| 10 | 머지 후 비파괴 검증 (검증 b) | **미실행 — 구조적 이연** | PR 머지 후에만 가능 |
-| 11 | 보고서 | 완료(부분) | Task 10 자리는 관측값 대신 실행할 명령을 담는다 |
+| 10 | 검증 b | **UI9 별도 설치 경로로 머지 전 실측 완료** | 머지 후 배포 경로 재확인 1건 대기(증거 부재 아님) |
+| 11 | 보고서 | 완료 | Acceptance 1~5 전부 실측값 수록 |
 
 ## Acceptance 산출물
 
@@ -154,24 +156,51 @@ Plugin "mccp" updated from 1.33.4 to 1.33.6 for scope user. Restart to apply cha
 ROLLBACK_ELAPSED_SECONDS=12
 ```
 
-### 5. Task 10-2와 10-3의 쌍 — **미확보 (머지 후 실행 대기)**
+### 5. Task 10-2와 10-3의 쌍 — **UI9 별도 설치 경로로 머지 전 실측 완료**
 
-이 항목은 **비어 있으며, 그 사실이 이 보고서가 미완성인 이유다.** 예상값을 실측처럼 적지
-않는다(UI3). 머지 직후 아래를 실행하고 출력을 이 자리에 옮겨 적는다:
+Task 10은 이 관측을 머지 후 배포 경로에서 하도록 적었지만, **UI9는 실측을 marketplace
+배포가 아니라 별도 설치 경로로 하라고 정한다.** 그 경로에서 같은 명제를 머지 전에
+측정했다 — 시험 대상은 동일하다: *"manifest의 `ref: release`가, marketplace source
+트리가 앞서 나가도 설치된 plugin 본문을 고정하는가."*
 
-```bash
-claude plugin marketplace update mccp
-claude plugin update mccp@mccp -y
-# 10-2: 설치 version이 여전히 1.33.6 · gitCommitSha가 647dfec로 시작하는가
-# 10-3: 같은 실행에서 marketplace clone HEAD == origin/main 인가
-git -C "<PLUGINS>/marketplaces/mccp" rev-parse HEAD
-git rev-parse origin/main        # 두 값이 일치해야 한다
-# 그리고 이 태스크 전후로 origin/release SHA가 동일한가 (채널 미개입의 기계적 증거)
-git fetch origin release && git rev-parse origin/release
+**10-2 — source가 전진해도 설치는 고정된다(채널이 실제로 격리한다).**
+
+```
+$ git -C "<PLUGINS>/marketplaces/mccp" rev-parse HEAD
+f30316df42b4d1d18d016691b16e82cb347c3922        # source 트리가 전진
+$ node -e "…" <clone>/plugins/mccp/.claude-plugin/plugin.json
+1.33.7                                          # 그 트리의 plugin.json은 새 번호
+$ git rev-parse origin/release
+647dfecba75eecd9287ee538ca5f7056c7ba71da        # 채널은 그대로 고정
+
+$ claude plugin update mccp@mccp -y
+Checking for updates for plugin "mccp@mccp" at user scope…
+mccp is already at the latest version (1.33.6).
 ```
 
-두 관측의 **쌍**이 성공 지표 3의 실측값이다 — 무변화 단독은 "update 기구 사망"과 구별되지
-않는다.
+```json
+{ "version": "1.33.6", "gitCommitSha": "647dfecba75eecd9287ee538ca5f7056c7ba71da",
+  "installPath": "<PLUGINS>/cache/mccp/mccp/1.33.6",
+  "lastUpdated": "2026-09-01T07:39:27.674Z" }
+```
+
+**10-3 — 그리고 이것은 update 기구의 사망이 아니다.** 위 무변화가 "채널이 분리됐다"인지
+"update가 죽었다"인지는 단독으로 구별되지 않는다. 구별자는 **같은 세션·같은 CLI**로
+수행한 6a다: `release`를 feature tip으로 옮기자 같은 명령이 설치를 `1.33.6 → 1.33.7`로,
+`gitCommitSha`를 `8af5e42`로 **바꿨다**. 즉 기구는 살아 있고, 10-2의 무변화는 채널이
+붙잡고 있기 때문이다. **이 쌍이 성공 지표 3의 실측값이다.**
+
+**이 실측이 재현하지 않는 것(정직한 한정).** 머지 후 시나리오에서는 marketplace clone이
+`origin/main`을 따라 **자동으로** 전진한다. 위 실측은 그 전진을 손으로 만들었다(clone을
+feature 브랜치로 fetch·checkout). 시험 대상인 *채널 격리*는 동일하지만, *clone이 main을
+계속 추종한다*는 성질은 별도이고 그것은 이 마일스톤이 닫지 않는 잔여(H2 · Risks의 "확실
+(설계상)" 행)로 이미 기록돼 있다. 머지 후 확인은 그 잔여를 재확인하는 절차로 남는다:
+
+```bash
+claude plugin marketplace update mccp && claude plugin update mccp@mccp -y
+git -C "<PLUGINS>/marketplaces/mccp" rev-parse HEAD   # == origin/main 이어야 한다
+git fetch origin release && git rev-parse origin/release  # 647dfec… 불변
+```
 
 ## Validation Results
 
@@ -237,6 +266,21 @@ validate `stale` 1건 → `ok:false`). 커맨드 본문이 허용하는 대체 �
 `.claude/notes/release-channel-separation-m1.md`에 기록했고 plan 바이트를 복원해 validate가
 다시 `ok:true`가 됨을 확인했다. 상류 게이트에 감사 우회를 쓰지 않는 쪽이 저렴하다.
 
+**D8 — PR-Codex R1이 "미완성 MVP를 배포하지 말라"고 no-ship 판정했고, 그 지적을
+흡수해 검증 (b)를 머지 전에 실측했다(F1 HIGH).** 초판 보고서는 Task 10을 구조적으로
+이연했는데, F1의 처방이 UI9를 정확히 가리켰다 — 별도 설치 경로. 그 경로로 측정하니
+검증 (b)가 머지 전에 성립했다(Acceptance 5). **receipt에는 R1의 실제 verdict인
+`divergent`가 그대로 봉인된다** — 흡수를 확인한 라운드가 없으므로 `converged`로 위장하지
+않는다(§3.16대로 라운드를 늘리지 않았다). ship은 audited override로 진행하며 그 사유가
+PR 본문 `## PR-Codex Override`에 명시된다.
+
+**D9 — PR-Codex R1 F2(MEDIUM)는 §3.14대로 backlog 이연.** F2는 "1.33.7 bump가 UI8(번호
+소유자를 브랜치에서 릴리스 컷으로 이전)과 모순된다"고 지적한다. 실재하는 긴장이지만
+plan이 의도적으로 해소한 축이다 — Task 7이 이 bump를 **성공 지표 3의 계측 도구**로
+명시했고(계측 없이는 F1이 요구한 검증 (b) 자체가 불가능하다 — 두 지적이 서로를 배제한다),
+Task 6이 CLAUDE.md §3.7에 "브랜치의 bump는 dogfood 빌드 번호"라고 소유자 이전을 기록했다.
+MEDIUM이므로 흡수하지 않고 증거와 함께 이연한다.
+
 ## Issues Encountered
 
 - D1의 차단 ref — 사용자 확인 후 태그 보존 + 삭제로 해소.
@@ -253,5 +297,5 @@ validate `stale` 1건 → `ok:false`). 커맨드 본문이 허용하는 대체 �
 ## Next Steps
 
 - [ ] `/mccp:pr` — 진입 직전 §3.7 version 재계산(sibling worktree 하나가 `1.34.0` 선언 중)
-- [ ] **머지 직후 Task 10 실행 후 이 보고서의 Acceptance 5를 채운다 — 그때까지 M1은 미완료**
-- [ ] PRD M1 행은 Task 10 완료 후에만 `complete`로 올린다
+- [ ] 머지 직후 배포 경로에서 Acceptance 5의 확인 블록을 1회 실행해 결과를 덧붙인다
+- [ ] PRD M1 행은 그 확인 뒤 `complete`로 올린다

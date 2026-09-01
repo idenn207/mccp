@@ -677,6 +677,71 @@ function suppressedFindingIds(repoRoot) {
   return out;
 }
 
+// ── machine dispositions ─────────────────────────────────────────────────────
+//
+// Only two kinds are proposed, and both cite something already written down:
+//
+//   superseded — the row says so itself. The evidence is that row's own
+//                location, because what is being asserted is "this line
+//                records its own absorption", not "the work happened".
+//   duplicate  — the seal linked it to a finding carrying the same claim.
+//
+// `obsolete` is NOT proposed. The plan called it a candidate for a reason: a
+// cited path missing from the tree cannot be told apart from a path that moved,
+// and 241 items match that shape here. Retiring them on a moved file would
+// delete real debt, so they stay for human judgment.
+function backlogLineIndex(repoRoot) {
+  const abs = path.join(repoRoot, '.claude', 'plans', 'codex-findings-backlog.md');
+  const index = new Map();
+  if (!fs.existsSync(abs)) return index;
+  const lines = fs.readFileSync(abs, 'utf8').split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const cells = backlogSource.splitRow(lines[i]);
+    if (cells.length < backlogSource.COLUMNS) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cells[0])) continue;
+    const id = backlogSource.rowId({
+      date: cells[0],
+      severity: cells[1].trim(),
+      source_plan: cells[2].trim(),
+      finding: cells.slice(backlogSource.COLUMNS - 1).join(' | ').trim(),
+    });
+    if (!index.has(id)) index.set(id, i + 1);
+  }
+  return index;
+}
+
+function proposeMachineDispositions(repoRoot) {
+  const doc = readInventory(repoRoot);
+  if (!doc) {
+    throw new DebtInventoryError('no sealed inventory — seal first', 'NOT_SEALED');
+  }
+  const lineIndex = backlogLineIndex(repoRoot);
+  const proposals = [];
+  const skipped = [];
+  for (const it of doc.items) {
+    if (it.duplicate_of) {
+      proposals.push({
+        item_id: it.item_id,
+        disposition: 'duplicate',
+        duplicate_of: it.duplicate_of,
+        note: 'seal linked this row to a finding carrying the same claim digest',
+      });
+      continue;
+    }
+    if (it.absorbed_marker && it.source === 'backlog') {
+      const line = lineIndex.get(it.coords.row_id);
+      if (!line) { skipped.push({ item_id: it.item_id, reason: 'row line not locatable' }); continue; }
+      proposals.push({
+        item_id: it.item_id,
+        disposition: 'superseded',
+        evidence: '.claude/plans/codex-findings-backlog.md:' + line,
+        note: 'the row itself records an ABSORBED/RESOLVED marker',
+      });
+    }
+  }
+  return { proposals, skipped };
+}
+
 // ── cli ──────────────────────────────────────────────────────────────────────
 
 const EX_OK = 0;
@@ -741,6 +806,19 @@ function runCli(argv) {
       const payload = { ok: true, sealed: !!readInventory(repoRoot), stats: built.stats };
       process.stdout.write(json ? JSON.stringify(payload, null, 2) + '\n'
         : JSON.stringify(payload.stats, null, 2) + '\n');
+      return EX_OK;
+    }
+    if (cmd === 'propose') {
+      const res = proposeMachineDispositions(repoRoot);
+      if (flags.apply) {
+        const applied = appendDispositions(repoRoot, res.proposals);
+        process.stdout.write(JSON.stringify(
+          { proposed: res.proposals.length, skipped: res.skipped, applied }, null, 2) + '\n');
+        return applied.ok ? EX_OK : EX_FAIL;
+      }
+      process.stdout.write(res.proposals.map(function (p) { return JSON.stringify(p); }).join('\n') + '\n');
+      process.stderr.write('[debt-inventory] proposed ' + res.proposals.length +
+        ', skipped ' + res.skipped.length + ' (pass --apply to write them)\n');
       return EX_OK;
     }
     if (cmd === 'dispose') {

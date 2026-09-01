@@ -489,6 +489,36 @@ test('a deferred CRITICAL is still promoted — the L2 HIGH that three perspecti
   assert.equal(handoff.enumerateOpenFindings(root).items.length, 1);
 });
 
+// ── Task 6: a still-valid CRITICAL, actually fixed ───────────────────────────
+
+test('the C2 attribution line reports a missing count as unknown, not as zero', () => {
+  const { coReportDetails } = require('../renderer/sections/msw-metrics');
+  const lineFor = function (ac) {
+    return coReportDetails({ C2: { attribution_coverage: ac } })
+      .find(function (t) { return t.indexOf('C2/C3 귀속') === 0; });
+  };
+
+  assert.match(lineFor({ with_gate_decision: 119, with_remediation_pr: 0, findings_total: 178 }),
+    /차단 판정 연결 119건 · 해소 PR 연결 0건 · finding 전수 178건/);
+
+  // Absent is not zero. Reporting "0건" for a count nobody measured is the same
+  // confidently-wrong shape this PRD exists to remove.
+  const unknown = lineFor({ with_gate_decision: null, findings_total: undefined });
+  assert.match(unknown, /차단 판정 연결 \?건/);
+  assert.match(unknown, /해소 PR 연결 \?건/);
+  assert.match(unknown, /finding 전수 \?건/);
+
+  // A non-number never reaches string concatenation as itself.
+  const junk = lineFor({ with_gate_decision: {}, with_remediation_pr: '12', findings_total: NaN });
+  assert.doesNotMatch(junk, /\[object Object\]/);
+  assert.doesNotMatch(junk, /NaN/);
+  assert.match(junk, /해소 PR 연결 \?건/, 'a numeric string is still not a number');
+
+  // A real zero keeps saying zero.
+  assert.match(lineFor({ with_gate_decision: 0, with_remediation_pr: 0, findings_total: 0 }),
+    /차단 판정 연결 0건/);
+});
+
 // ── suppression eligibility (the L2 HIGH that three perspectives landed) ─────
 
 test('deferring or rejecting an item never makes it eligible for suppression', () => {

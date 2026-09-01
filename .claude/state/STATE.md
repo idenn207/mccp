@@ -2,16 +2,17 @@
 state_version: 1
 task_fingerprint: diverse-agent-review-m8
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-27T05:46:45.211Z
+updated_at: 2026-09-01T06:31:41.704Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-27T05:46:45.211Z
+last_event_at: 2026-09-01T06:31:41.704Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-23T09:38:09.736Z
-dep_check_missing: impeccable
+dep_check_at: 2026-09-01T06:21:31.668Z
+escalate_pending: true
+escalate_pending_decision_id: release-channel-separation-m1
 ---
 ## Goal
 diverse-agent-review M8 — 패널 quorum 캘리브레이션 재검토(판정 milestone). 구현 + code-review 흡수 완료(v1.33.1), commit/PR 대기.
@@ -48,4 +49,4 @@ code-review HIGH 를 §3.14 대로 그 자리에서 흡수했다 — 출력 형�
 - 설치 plugin cache 가 1.32.6 — 머지 후 `claude plugin update` 필요
 
 ## Last Updated
-2026-08-27T05:46:45.211Z
+2026-09-01T06:31:41.704Z

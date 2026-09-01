@@ -21,6 +21,12 @@
 //
 // 그래서 이 파일을 고칠 때의 규칙: **셸 heredoc으로 쓰지 마라.** 백슬래시를 보존하는
 // 경로로 쓰고, 저장 직후 `node --check scripts/test-suite/redact.js`로 확인하라.
+//
+// ── santa-loop round 1 (2026-09-01) ──────────────────────────────────────────
+// 두 리뷰어가 다시 같은 단일 결함에 수렴했다: `redactPath`의 fold 판정을 호스트의
+// `path` 구현에 맡기면 **POSIX 호스트가 Windows 형태를 "절대경로가 아니다"라고 답한다.**
+// 그러면 계정 경로가 repo-relative 집계 키로 그대로 나간다. 판정을 형태 기반으로
+// 옮겼다(아래 `redactPath` 주석 참조).
 
 const os = require('os');
 const fs = require('fs');
@@ -36,27 +42,31 @@ const WIN = process.platform === 'win32';
 // 즉 `.native`가 없으면 plan이 "두 후보"라 부른 것이 실제로는 한 값이고,
 // 장형 별칭(`C:\Users\Administrator\...`)이 치환도 invariant도 통과한다.
 //
-// catch가 삼키는 것을 **구분해서 보고한다**. 경로 부재는 후보 하나가 없을 뿐이지만,
-// `.native`가 EPERM/ELOOP 등으로 죽으면 A-1이 CRITICAL로 지목한 장형 별칭의 유일한
-// 생산자가 사라진다 — 그것을 조용히 넘기면 "규칙이 짧아졌다"는 사실이 어디에도 안 남는다.
+// 두 catch는 **같은 정책**을 쓴다 — 어느 쪽이든 후보 하나를 잃은 사실을 `onDegrade`로
+// 올린다. round 1 리뷰: 이전 판본은 헤더가 "구분해서 보고한다"고 선언해 놓고 앞의
+// catch만 무구분 폐기해, 권한 오류로 realpath가 죽은 경우가 아무 흔적도 남기지 않았다.
 function rootVariants(dir, onDegrade) {
   const out = [];
   if (!dir) return out;
   out.push(dir);
-  try { out.push(fs.realpathSync(dir)); } catch (_) { /* 경로 부재는 후보 하나가 없을 뿐 */ }
-  try {
-    out.push(fs.realpathSync.native(dir));
-  } catch (err) {
-    if (typeof onDegrade === 'function') {
-      onDegrade({ dir: dir, code: (err && err.code) || 'UNKNOWN' });
+  const tryPush = (fn, which) => {
+    try {
+      out.push(fn(dir));
+    } catch (err) {
+      if (typeof onDegrade === 'function') {
+        onDegrade({ which: which, code: (err && err.code) || 'UNKNOWN' });
+      }
     }
-  }
+  };
+  tryPush(fs.realpathSync, 'realpath');
+  tryPush(fs.realpathSync.native, 'realpath-native');
   return out;
 }
 
-// 정규식 메타문자를 중화한다. **백슬래시가 클래스에 반드시 들어가야 한다** — Windows
-// root에서 중화가 필요한 유일한 문자이고, 빠지면 root가 살아있는 패턴 소스로
-// `new RegExp`에 주입된다(`.`는 wildcard가 되고, 짝 없는 `[`는 생성 시점에 throw).
+// 정규식 메타문자를 중화한다. 이 저장소에서 실제로 값을 하는 문자는 `.`다
+// (`.worktrees` 세그먼트 — 중화하지 않으면 wildcard가 되어 sibling worktree를 삼킨다).
+// 백슬래시는 `rootRegex`가 split으로 먼저 걷어내므로 세그먼트 안에 남지 않지만,
+// 이 함수는 root 전용이 아니므로 클래스에 유지한다.
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -74,13 +84,20 @@ function rootRegex(root) {
   return new RegExp('(?:file:/{2,3})?' + body, WIN ? 'gi' : 'g');
 }
 
+// 절대경로 **형태** 술어. 호스트의 `path.isAbsolute`를 쓰지 않는 이유는 그것이
+// 플랫폼 구현이기 때문이다 — `path.posix.isAbsolute('C:\\Users\\x')`는 false다.
+const WIN_ABS_RE = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/;   // 드라이브 절대 또는 UNC
+const URL_SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*:\/{2}/;    // file:// http:// 등
+
 // 치환 후에도 남은 **절대경로 형태**를 잡는 구조적 스캔.
 //
 // Windows 축(`win-drive-abs`)은 드라이브 문자 + 구분자라는 형태를 보므로 등록 여부와
-// 무관하게 `C:\…`와 `C:/…`를 함께 잡는다. 다만 **전수는 아니다**: UNC(`\\server\share`)와
-// 드라이브 상대(`\Users\x`)는 이 형태에 해당하지 않아 잡히지 않는다(backlog 이연).
-// 앞의 `(?<![A-Za-z0-9])`는 `https://`의 `s:/`를 배제한다 — 그것이 없으면 URL을 담은
-// 진단 문자열 하나가 유출이 전혀 없는 run 전체를 redaction 실패로 만든다.
+// 무관하게 `C:\…`와 `C:/…`를 함께 잡는다. 다만 **전수는 아니다**, 그리고 그 한계는
+// 둘이다: (a) UNC(`\\server\share`)와 드라이브 상대(`\Users\x`)는 이 형태에 해당하지
+// 않아 잡히지 않는다. (b) 앞의 `(?<![A-Za-z0-9])`는 `https://`의 `s:/`를 배제하지만,
+// 그 대가로 **앞 문자가 영숫자면 매치하지 않는다** — `node20C:\Users\x`처럼 구분자
+// 없이 앞말과 붙은 경로는 통과한다. 두 한계 모두 backlog에 이연돼 있다
+// (.claude/plans/codex-findings-backlog.md, 2026-09-01 santa round 1 행).
 //
 // POSIX 축은 **열거다.** 형태만으로는 경로와 비경로를 가를 수 없기 때문이다 —
 // `/mccp:plan`도 `--flag=/x`도 `/`로 시작한다. 그래서 이 축은 알려진 홈/임시
@@ -94,16 +111,21 @@ const RESIDUAL_PATTERNS = [
   { name: 'file-url', re: /file:\/{2,3}[^\s"'`,;)\]}]+/g },
 ];
 
-// 재귀 상한. 흡수표 C-4/C-5가 20으로 고정했으므로 그 값을 쓴다 — 두 가드가 서로 다른
-// 깊이를 보면 21~24 구간을 한쪽만 검사하게 된다.
+// 재귀 상한. 흡수표 C-4/C-5가 재귀 깊이를 20으로 고정했으므로 그 값을 쓴다 — 다른
+// 가드가 다른 깊이를 보면 그 사이 구간을 한쪽만 검사하게 된다.
 const MAX_DEPTH = 20;
+// hit 상한은 흡수표가 정한 값이 **아니다**(어느 행도 hit 수를 고정하지 않는다).
+// 20은 진단 가독성을 위한 이 모듈의 선택이며, 조기 반환 시점에 이미 hits가
+// 비어있지 않으므로 "깨끗함"으로 읽힐 수 없다.
 const MAX_HITS = 20;
 
 function createRedactor(opts) {
   const o = opts || {};
   const repoRoot = o.repoRoot || process.cwd();
 
-  // 장형 별칭 생산자가 죽은 경우를 규칙 개수와 함께 노출한다(위 rootVariants 주석).
+  // 후보 생산자가 죽은 경우를 규칙 개수와 함께 노출한다. **경로는 싣지 않는다** —
+  // round 1 리뷰: 이 배열은 caller가 산출에 stamp하도록 안내된 표면인데 raw
+  // 절대경로를 담고 있었다. 그러면 유출을 지우는 모듈이 스스로 유출 채널이 된다.
   const degraded = [];
   const onDegrade = (d) => degraded.push(d);
 
@@ -141,23 +163,51 @@ function createRedactor(opts) {
     return s;
   }
 
-  // 집계 키용. write.js:54-60(normalizeReceiptCwd)의 3조건을 그대로 채택한다 —
-  // `path.isAbsolute(rel)`이 빠지면 cross-drive에서 path.relative가 돌려주는
-  // **원본 절대경로**가 집계 키 자체에 실린다(자유 텍스트가 아니라 키다).
+  // 집계 키가 repo 밖을 가리킬 때의 표현. 마지막 실질 세그먼트만 남긴다 —
+  // `..`/`.`를 걸러내므로 어떤 입력도 부모를 탈출하는 키를 만들 수 없다.
+  function externalKey(raw) {
+    const parts = String(raw).split(/[\\/]/)
+      .filter((p) => p && p !== '.' && p !== '..');
+    return '<external>/' + (parts.length ? parts[parts.length - 1] : 'unknown');
+  }
+
+  // 집계 키용. write.js:54-60(normalizeReceiptCwd)의 3조건을 그대로 채택하되,
+  // **판정을 호스트의 `path`에 맡기지 않는다.**
   //
-  // `<external>` fallback의 basename은 **양 구분자 기준**으로 직접 자른다.
-  // `path.basename`은 플랫폼 구현이라, POSIX 호스트에서 Windows 형태를 받으면
-  // 문자열 전체를 그대로 돌려주고 절대경로가 키에 실린다(실측).
+  // round 1 리뷰가 실측한 것: `path.relative`/`isAbsolute`는 플랫폼 구현이라
+  // POSIX 호스트가 `C:\Users\...`를 받으면 "절대경로가 아니고 부모를 탈출하지도
+  // 않는다"고 답한다. 그러면 세 조건이 전부 통과해 계정 경로가 **repo-relative
+  // 키로 그대로** 나간다. Task 5의 matrix가 ubuntu-latest이므로 CI 원소가 정확히
+  // 그 경로를 탄다. 키에는 `redactText`가 적용되지 않으므로 백스톱도 없다.
+  //
+  // 그래서 (1) 형태로 먼저 거르고, (2) 입력의 형태에 맞는 `path` 구현으로 계산한다.
   function redactPath(abs) {
     if (!abs) return null;
     const raw = String(abs);
-    const rel = path.relative(repoRoot, raw);
-    if (rel && rel !== '..' && !rel.startsWith('..' + path.sep) && !rel.startsWith('../')
-        && !path.isAbsolute(rel)) {
+
+    // URL 형태는 경로가 아니다 — 어떤 flavour로도 relative를 계산하면 안 된다.
+    if (URL_SCHEME_RE.test(raw)) return externalKey(raw);
+
+    const rawWinAbs = WIN_ABS_RE.test(raw);
+    const rawRooted = raw.charAt(0) === '/' || raw.charAt(0) === '\\';
+
+    // 절대경로가 아니면 이미 상대다. 구분자만 정규화하고 탈출만 막는다.
+    if (!rawWinAbs && !rawRooted) {
+      const norm = raw.split(/[\\/]/).join('/');
+      return (norm === '..' || norm.startsWith('../')) ? externalKey(raw) : norm;
+    }
+
+    // 입력과 repoRoot의 형태가 다르면 같은 트리일 수 없다.
+    const rootWinAbs = WIN_ABS_RE.test(repoRoot);
+    if (rawWinAbs !== rootWinAbs) return externalKey(raw);
+
+    const impl = rawWinAbs ? path.win32 : path.posix;
+    const rel = impl.relative(repoRoot, raw);
+    if (rel && rel !== '..' && !rel.startsWith('..' + impl.sep) && !rel.startsWith('../')
+        && !impl.isAbsolute(rel) && !WIN_ABS_RE.test(rel)) {
       return rel.split(/[\\/]/).join('/');
     }
-    const parts = raw.split(/[\\/]/).filter(Boolean);
-    return '<external>/' + (parts.length ? parts[parts.length - 1] : raw);
+    return externalKey(raw);
   }
 
   // 산출 전체를 훑어 잔여 절대경로를 찾는다.

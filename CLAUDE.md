@@ -246,6 +246,14 @@ my-claude-code-plugin/
 
 - **언어**: 주력 코드는 JavaScript (Node 20+). 한국어 주석 허용 (기존 codebase에 다수 존재).
 - **테스트**: 새 hook/스크립트는 `tests/*.test.js` 동반. Node native test runner (`node --test`) 사용.
+  **전수 회귀는 `MCCP_CODEX_DISABLED=1` 없이 돌리지 마라** — codex 경로를 타는 test가 실제
+  Codex를 수백 회 호출하고, 러너가 끊기면 고아 broker가 자식을 무한 재생성하는 자가 지속
+  루프가 된다. 2026-08-31 실측: node 프로세스 519개까지 늘었고 그 부하가 test 파일 로드를
+  막아 `receipt/tests`·`state/tests`가 **파일 단위로 무더기 실패**했다 — 코드 회귀가 아니라
+  자원 고갈이었고, 정리 후 같은 347개 파일이 `fail 0`으로 끝났다. 안전한 형태는
+  `MCCP_CODEX_DISABLED=1 node --test --test-concurrency=2 <files>`다. 이 값을
+  `.claude/settings.json`에 **상주시키지 않는 것은 의도**다 — 이 저장소는 게이트 자체를
+  개발하므로 전역으로 끄면 라이브 dogfood가 죽는다. 그래서 호출할 때마다 붙인다.
 - **comment 정책**: 일반 instruction과 동일 — *왜*가 명확하지 않으면 쓰지 않음. *무엇을 하는지*는 코드가 말함.
 - **로그**: hook stderr 출력은 사용자에게 노이즈로 보일 수 있음. `COST WARNING`, `Stop hook feedback` 등은 신호 vs 노이즈 구분이 중요 ([memory: feedback-cost-not-stop-signal] 참조).
 
@@ -606,7 +614,7 @@ companion의 finding 스키마는 **외부 plugin 소유**라 필드를 추가�
 
 blocking 규칙은 단 하나다: **"리뷰어가 지목한 id를 저자가 지목하지 않았다"**. `id-mismatch`를 통과시키면 conflict-vs-none만 탐지하면서 "라벨 비대칭을 탐지한다"고 주장하게 된다.
 
-해소는 ① `intent_conflict`를 리뷰어가 지목한 id로 **정정**(그 순간 M1의 override 규칙 발동)하거나 ② `intent_dispute_reason`에 **리뷰어가 틀린 이유**를 쓰는 것뿐이다. 둘 다 없으면 `mislabel_unresolved`. dispute는 strict `validateReason`을 재사용하되 **코드 어휘 half는 면제**한다(`allowCodeVocabulary`) — `"no"` 류 1-token과 명백한 filler(`lorem`·`asdf`)는 여전히 **부재로 취급**되지만, 반론은 코드를 논하는 산문이라 `test` scaffolding이나 `bar.ts`를 이름으로 부를 수 있어야 한다. 그것까지 막으면 저자의 출구는 validator가 놓아줄 때까지 문장을 고쳐 쓰는 것(게이밍 학습)이거나 포기하고 오심하는 것(게이트가 막으려는 바로 그 실패)뿐이다. override 표면은 면제 대상이 아니다 — opt-in per call이라 전체 목록을 그대로 유지한다.
+해소는 (1) `intent_conflict`를 리뷰어가 지목한 id로 **정정**(그 순간 M1의 override 규칙 발동)하거나 (2) `intent_dispute_reason`에 **리뷰어가 틀린 이유**를 쓰는 것뿐이다. 둘 다 없으면 `mislabel_unresolved`. dispute는 strict `validateReason`을 재사용하되 **코드 어휘 half는 면제**한다(`allowCodeVocabulary`) — `"no"` 류 1-token과 명백한 filler(`lorem`·`asdf`)는 여전히 **부재로 취급**되지만, 반론은 코드를 논하는 산문이라 `test` scaffolding이나 `bar.ts`를 이름으로 부를 수 있어야 한다. 그것까지 막으면 저자의 출구는 validator가 놓아줄 때까지 문장을 고쳐 쓰는 것(게이밍 학습)이거나 포기하고 오심하는 것(게이트가 막으려는 바로 그 실패)뿐이다. override 표면은 면제 대상이 아니다 — opt-in per call이라 전체 목록을 그대로 유지한다.
 
 #### `partial`은 통과 상태가 아니다
 
@@ -616,7 +624,7 @@ compliance는 `claimed/total`로 **계측**하되 판정은 이분법이다: `fu
 
 #### 3-mode — `off`는 판정 억제가 아니라 경로 미진입
 
-`MCCP_INTENT_MISLABEL=enforce|warn|off`(§4). mode는 runner가 **Codex 호출보다 먼저** 해석하며 `off`면 ① 계약 문단을 프롬프트에 붙이지 않고 ② claims를 파싱하지 않으며 ③ `comparison`을 넘기지 않는다. ①이 빠지면 오라클을 건드리지 않았는데 **리뷰 payload 자체가 달라져** end-to-end M1 등가가 아니게 된다.
+`MCCP_INTENT_MISLABEL=enforce|warn|off`(§4). mode는 runner가 **Codex 호출보다 먼저** 해석하며 `off`면 (1) 계약 문단을 프롬프트에 붙이지 않고 (2) claims를 파싱하지 않으며 (3) `comparison`을 넘기지 않는다. (1)이 빠지면 오라클을 건드리지 않았는데 **리뷰 payload 자체가 달라져** end-to-end M1 등가가 아니게 된다.
 
 등가의 **범위는 리뷰 경로**(프롬프트 · 파싱 · 판정)다. 임시 작업 파일 `$AWAITING`은 등가 대상이 아니며 `off`에서도 `mislabel_mode`와 finding별 `reviewer_claim*` 키를 **null로** 싣는다 — 키를 지우면 그 파일을 읽는 저자가 "축이 꺼졌다"와 "리뷰어가 답을 안 했다"를 구분할 방법이 없어진다. 구분자는 `reviewer_claim_status`다: `'unclaimed'`는 물었는데 못 받은 것(→ `inconclusive`), `null`은 애초에 묻지 않은 것(→ M1.5 규칙 자체가 미적용). `reviewer_claim` **값**만 보면 둘이 똑같이 `null`이므로, plan.md 5.5a는 값이 아니라 status를 읽도록 지시한다.
 

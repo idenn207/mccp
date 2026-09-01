@@ -210,6 +210,39 @@ test('DEFAULT allowlist suppresses the backlog line that REPORTS this scanner, k
     'only the un-cited line 2 leaks; the reporting line 1 is suppressed: ' + JSON.stringify(res.leaks));
 });
 
+test('DEFAULT allowlist covers the M9 snapshot copy of that same reporting line, and covers ONLY it', function () {
+  // The snapshot artifact is a derived capture of the backlog, so it carries the
+  // entry-2 line verbatim into a second path. Because the allowlist is evaluated
+  // per path, the copy was reported until it got its own row. This test pins the
+  // two properties that make that row safe rather than a blind spot: it is keyed
+  // on the SAME citation (so both rows lapse together if the finding is rewritten)
+  // and it is scoped to the ONE snapshot file (so a sibling snapshot carrying the
+  // identical bytes still leaks).
+  const root = initBase();
+  const snapshot = 'docs/multi-session-work-loop/m9-after.json';
+  const sibling = 'docs/multi-session-work-loop/m9-before.json';
+  const citedLine = '{"finding": "old-repo pattern false-positives.'
+    + ' `history-leak-scan.js:90` targets `C:\\_project\\my-claude-code-plugin\\x`"}';
+  const unCitedLine = '{"finding": "leaked C:\\_project\\my-claude-code-plugin\\y"}';
+  commit(root, {
+    [snapshot]: [citedLine, unCitedLine, ''].join('\n'),
+    // Same bytes as the exempted line, different file. A directory-wide or
+    // content-keyed exemption would swallow this; a path-exact one must not.
+    [sibling]: [citedLine, ''].join('\n'),
+  });
+  const res = scan.scanRange({ repoRoot: root, base: 'main' }); // NO explicit allowlist
+
+  const snapHits = res.leaks.filter(function (l) { return l.path === snapshot; });
+  assert.deepEqual(snapHits.map(function (l) { return l.line; }), [2],
+    'only the un-cited line 2 leaks in the snapshot; the cited line 1 is suppressed: '
+      + JSON.stringify(res.leaks));
+
+  const sibHits = res.leaks.filter(function (l) { return l.path === sibling; });
+  assert.equal(sibHits.length, 1,
+    'the identical cited line in a SIBLING snapshot is still reported (exemption is path-exact): '
+      + JSON.stringify(res.leaks));
+});
+
 test('R5-F3: same blob at an allowlisted path AND a non-allowlisted path → non-allowlisted leak still reported', function () {
   // The masking bug: `git rev-list --objects` annotates a blob with only its
   // FIRST-seen path. If that representative path is allowlisted, the old code

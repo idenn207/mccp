@@ -1023,6 +1023,78 @@ function cmdVerifyProof(args) {
 // **모든 finding 을 낸다**: severity 로 거르지 않는다. 분모는 "발견된 finding
 // 전수"이고, 여기서 걸러내면 그 걸러냄이 곧 분모 축소가 되어 폐쇄율을 부풀린다.
 // 승격 임계(DD1)는 표면 쪽 관심사이지 기록 쪽 관심사가 아니다.
+// M9 Task 2 — the panel path had no CLOSURE producer. `emitPanelFindings`
+// opened findings and nothing ever closed them, so every review round added
+// permanently-open records and C1 could only fall (measured: 12 -> 24 -> 66
+// open, 0 closed). Loading a finding into the backlog IS a disposition — it is
+// deferred, not resolved — so this records it as one.
+//
+// `deferred` is NOT in RESOLVING_CLOSURE_TYPES, so this producer cannot inflate
+// the closure rate. It moves a finding from `open` to `deferred`, which is what
+// actually happened. A producer that wrote `fixed` here would be lying.
+//
+// ONLY findings that are currently OPEN in the registry are closed. Two members
+// of `blockingFindings` were never opened by emitPanelFindings and closing them
+// would fabricate closed records with `opened_at: null` — phantom denominator:
+//   - the synthesised `verdict=fail` rows (quorum.js), which carry no claim from
+//     any reviewer;
+//   - findings whose severity was unreadable: the opener writes `null` while
+//     quorum normalises to 'UNKNOWN', so the two derive DIFFERENT finding_ids.
+// Both are skipped and counted. Leaving them open is the conservative answer —
+// it under-reports closure rather than inventing a record.
+function emitPanelClosures(root, slug, rows) {
+  const result = { emitted: 0, skipped_unmatched: 0 };
+  try {
+    if (!Array.isArray(rows) || rows.length === 0) return result;
+
+    let openIds;
+    try {
+      const shard = findingsRegistry.readShard(slug, { repoRoot: root });
+      openIds = new Set((shard.findings || [])
+        .filter(function (f) { return f && f.state === 'open'; })
+        .map(function (f) { return f.finding_id; }));
+    } catch (e) {
+      errln('cannot read the findings shard (' + (e && e.message ? e.message : String(e)) +
+        ') — skipping closure emit; the backlog rows are already durable');
+      return result;
+    }
+
+    const events = [];
+    rows.forEach(function (row) {
+      if (!row || typeof row !== 'object') return;
+      const id = findingsRegistry.deriveFindingId({
+        work_unit: slug,
+        gate_id: 'mccp-plan-codex',
+        perspective: row.perspective,
+        severity: row.severity,
+        claim: row.claim,
+      });
+      if (!openIds.has(id)) { result.skipped_unmatched += 1; return; }
+      events.push({
+        kind: 'finding_closed',
+        finding_id: id,
+        closure_type: 'deferred',
+        gate_id: 'mccp-plan-codex',
+        perspective: row.perspective,
+        severity: row.severity,
+      });
+    });
+
+    if (events.length === 0) return result;
+    const r = findingsRegistry.appendFindings(slug, events, { repoRoot: root });
+    if (!r.ok) {
+      errln('findings registry closure emit failed (' + r.reason + ') — the backlog rows are durable, ' +
+        'so nothing is lost; C1 will keep showing these as open');
+      return result;
+    }
+    result.emitted = events.length;
+  } catch (e) {
+    errln('findings registry closure emit threw (' + (e && e.message ? e.message : String(e)) +
+      ') — the backlog rows are durable, so nothing is lost');
+  }
+  return result;
+}
+
 function emitPanelFindings(root, slug, l2) {
   try {
     if (!l2 || !Array.isArray(l2.results)) return;
@@ -1265,6 +1337,17 @@ function cmdBacklogAppend(args) {
     return EX_BLOCK;
   }
 
+  // M9 Task 2 — ORDER IS THE CONTRACT: the closure emit happens only after
+  // appendRows succeeded. A finding closed as `deferred` without a deferral
+  // record behind it is a closure with nothing to point at, and the failure
+  // path above already returns EX_BLOCK before reaching here.
+  //
+  // Fail-OPEN by design: the backlog rows are already durable at this point, so
+  // a registry problem must not turn a completed load into a blocked gate. The
+  // cost of failing here is that C1 keeps reporting these as open, which is the
+  // pre-M9 behaviour and is loudly logged.
+  const closureResult = emitPanelClosures(root, slug, rows);
+
   // 관측값 — 적재원이 아니다. DD2는 MEDIUM/LOW를 적재하지 않되 "몇 건을 그렇게
   // 두었는지는 명시적으로 센다"고 정했다. 읽을 수 없으면 0이 아니라 null이다:
   // 부재와 0은 다른 사실이고, 0으로 적으면 세지 않은 것이 "없었다"로 읽힌다.
@@ -1291,6 +1374,10 @@ function cmdBacklogAppend(args) {
     appended: appendResult.appended,
     skipped_duplicate: appendResult.skipped_duplicate,
     skipped_nonblocking: skippedNonblocking,
+    // M9 Task 2 — observable, so a silent closure regression is visible in the
+    // same artifact assert-backlog-parity already reads.
+    closures_emitted: closureResult.emitted,
+    closures_skipped_unmatched: closureResult.skipped_unmatched,
     rows: appendResult.rows,
   };
   try {

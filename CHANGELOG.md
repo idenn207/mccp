@@ -8,7 +8,8 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **§3.7**: `1.34.0 → 1.34.1` (**patch** — multi-session-work-loop PRD의 단일
 > milestone M10). base가 `1.33.6`인데 `1.34.1`을 선언하는 것은 **번호 갭이 아니라
-> 미머지 PR #164(M9, `1.34.0`)와의 순서 유지**다 — 두 PR은 함께 머지되며 M9가 먼저
+> 같은 PR 안에서의 순서 유지**다 — M9(`1.34.0`)와 M10(`1.34.1`)은 원래 두 PR로
+> 나뉘어 있었으나 PR #164 하나로 합쳐졌고, 두 항목은 그 PR 안에서 M9 → M10 순으로
 > 착지한다. M10이 이 PRD의 마지막 milestone이지만 minor가 아닌 이유는 M9가 (당시
 > PRD 종료로 판단해) 이미 `1.34.0` minor를 소비했고, M10은 그 뒤에 신설된 milestone
 > 하나이기 때문이다. §3.7의 "애매하면 patch가 보수적 default"를 따른다.
@@ -133,6 +134,63 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - 도출 근거·sizing 실측·미채택 규칙(blanket cross-fence)은
   [docs/diverse-agent-review/gate-wiring-oracle.md](docs/diverse-agent-review/gate-wiring-oracle.md).
 
+## [1.34.0] — 2026-08-27
+
+> **§3.7**: `1.33.5 → 1.34.0` (**minor** — multi-session-work-loop PRD 전체
+> 종료. M9가 마지막 milestone이고 M1~M8은 이미 ship됐다). 4면(plugin.json ·
+> html.js page-foot · markdown.js derived 줄 · 이 파일의 currently 노트) 동기 완료.
+>
+> **PR 진입 직전 재계산(§3.7 (b))**: 분기 시점의 base는 `1.33.1`이었으나 그 뒤
+> main이 `1.33.2`~`1.33.5`를 발행했다. 목표 `1.34.0`은 **충돌하지 않으므로
+> 그대로 둔다** — 상향이 필요한 것은 이미 발행된 번호와 겹칠 때뿐이고,
+> 이 항목은 minor 자리에 있어 main의 patch 행진과 서로 어긋나지 않는다.
+
+### multi-session-work-loop M9 — 아카이브 조건 충족
+
+M4·M5·M8이 status 셀 안에 남긴 미충족 인정 조건을 판정해 닫거나 증거와 함께 개정하고,
+PRD를 아카이브 가능한 상태로 만든다.
+
+- **A3 측정 경로 복구** — tiktoken import 실패 시 자식이 먼저 죽어 stdin write가 broken
+  pipe에 떨어지는데, 그 비동기 `error` 이벤트에 리스너가 없어 프로세스가 죽었다
+  (`Error: write EOF`). 리스너를 등록해 크래시를 분류 가능한 rejection으로 바꾸고,
+  "인터프리터 부재"(`baseline-unavailable`)와 "토크나이저 부재"(`error`)를 분리했다.
+- **C1 종결 producer** — 패널 경로가 finding을 열기만 하고 닫지 않아 라운드마다 영구 open이
+  쌓였다(12 → 24 → 66). backlog 적재를 `deferred` 종결로 기록한다. `deferred`는 RESOLVING이
+  아니라 폐쇄율을 부풀리지 못한다. 열린 적 없는 항목(합성 `verdict=fail` 행)은 유령 레코드를
+  만들지 않도록 skip한다.
+- **M7 미판정 12건 판정** — 전부 ship된 계획에 대한 지적이라 현재 코드에서 실현 여부를 확인했다.
+  fixed 4 · invalidated 1 · deferred 7. C1이 **0/66 → 5/66**으로 이 PRD 최초의 비영점
+  폐쇄율을 냈다.
+- **C2/C3 귀속 기계화** — `pr.md`가 빈 리터럴 두 개를 하드코딩하고 산문으로 채우라고 해
+  emit이 한 번도 발화한 적이 없었다. `mccp-state findings-unattributed` 파생으로 교체.
+- **A2 조사** — 후보 4종 실측. 분자(토큰 회계)는 접근 가능하나 분모(창 크기)를 하네스도
+  저장소도 노출하지 않으며, 유일한 상수(200,000)를 적용하면 최근 세션 5건 전부 잔여가
+  음수다. `forward-only` 유지 + 인정 조건 개정.
+- **m9-coverage-gate** — 술어를 평가만 하면 보고서일 뿐이라, PRD에서 실제로 정본화된 행을
+  읽어 그 행의 술어와 교차 검증하고 하나라도 거짓이면 비영점으로 답한다.
+- **PRD 정본화 + 순환 해소** — M9의 완료 판정이 `/mccp:archive-complete` 성공으로
+  **정의**돼 있어 §3.11 C3와 순환했다(M9가 in-progress인 한 아카이브 거부, 아카이브가
+  성공해야 M9 flip). 완료 판정을 "술어 통과 ∧ status 정본화"로 옮기고 라이브 완주는
+  그 **검증**으로 격하했다. `scan.js`가 `archivable: true`(9/9)를 보고한다.
+- **history-leak-scan allowlist 4번째 항목** — M9 스냅샷(`m9-after.json`)이 backlog를
+  파생 캡처하면서 이미 면제된 2번 항목의 줄을 두 번째 경로로 **그대로 복사**했다.
+  allowlist는 경로별로 평가되므로(설계대로) 그 복사본이 pre-push 게이트를 차단했다.
+  같은 고유 인용(`history-leak-scan.js:90`)을 키로 스냅샷 경로 한 줄만 면제한다 —
+  두 항목이 같은 키를 쓰므로 그 finding이 재작성되면 **함께** 만료되고, 같은 바이트를
+  가진 sibling 스냅샷은 여전히 차단된다(회귀 test가 두 성질을 함께 단언).
+- **PR-Codex R1 지적 2건 흡수 (PR #164)** — 두 HIGH 모두 실재로 확인돼 수정했다.
+  - **F2 · `a3Ok` 술어** — 정책 문서의 *존재*만 보던 술어가 A3의 미산출 **사유**를
+    대조하지 않아, 토크나이저 부재든 무관한 회귀든 같은 문을 지났다. 정책이 sanctioned로
+    설명하는 미산출은 정확히 둘(`error`+tiktoken · `insufficient`+봉인쌍 staleness)이므로
+    그 둘을 분류로 대조하고 나머지는 거부한다. 정책 파일은 필요조건으로 남되 충분조건이
+    아니게 됐다. gate가 *분류*를, `msw-metrics.test.js`가 *동작*(크래시 대신 정직한
+    미산출)을 소유하는 분업을 코드에 명시했다.
+  - **F1 · UI7·UI8 미이행** — 두 제약이 plan의 User Intent 표에만 있고 이행 기록 없이
+    M9가 정본화됐다. status를 되돌리는 대신 미이행을 실제로 닫았다:
+    `m9-final-review-scope.md`가 부모/자식 관계를 실측하고(선언된 자식 PRD **0건**,
+    유일 참조는 선례 인용), 활성 PRD 전량의 처분과 최종 검토자의 판단 3가지를 적는다.
+    PRD M9 행 Outcome에 포인터를 걸어 결속을 유지하고, 게이트가 이를 놓친 이유
+    (`MCCP_PLAN_REVIEW=multi-agent`의 intent 축 carve-out)를 `## 순서의 근거`에 남겼다.
 ## [1.33.5] — 2026-08-31
 
 > **§3.7**: `1.33.4 → 1.33.5` (**patch** — env-contract-integrity PRD의 M3 하나이고

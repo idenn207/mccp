@@ -1,6 +1,6 @@
 ---
 state_version: 1
-task_fingerprint: diverse-agent-review-m8
+task_fingerprint: multi-session-work-loop-m10
 created_at: 2026-06-03T18:51:31.328Z
 updated_at: 2026-09-01T01:00:08.107Z
 last_event: stop_loop_pass
@@ -9,49 +9,41 @@ unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
-last_pr_url: https://github.com/idenn207/mccp/pull/71
+last_pr_url: https://github.com/idenn207/mccp/pull/164
 dep_check_at: 2026-09-01T00:42:53.385Z
 ---
 ## Goal
-diverse-agent-review M5 — 게이트 배선 오라클 추출. **PR #166 생성 완료**(v1.33.6). 리뷰/머지 대기.
+multi-session-work-loop M9 + M10 — 두 milestone을 **PR #164 하나로 합쳐** ship. M10(부채 정산과 종결 경로)이 이 PRD의 마지막 milestone이고, 착지하면 PRD 전체가 종료된다.
 
 ## Plan
-- PRD: `.claude/prds/diverse-agent-review.prd.md` — #5 complete로 갱신됨. 남은 축은 #9
-- plan: `.claude/plans/diverse-agent-review-m5.plan.md` — 봉인됨(plan_hash sha256:98d3039053). **편집 금지** — 그래서 Codex 리뷰는 `.claude/notes/diverse-agent-review-m5.md`에 썼다
-- 산출물: `plugins/mccp/scripts/lib/command-body/{blocks,rules,debt,lint}.js` + test 3종(40건) + `docs/diverse-agent-review/gate-wiring-oracle.md`
-- 구현 보고: `.claude/PRPs/reports/diverse-agent-review-m5-report.md`
-- version **1.33.6** (patch — §3.7 forward-only 8번째 재발: main이 1.33.3~1.33.5를 선점해 정면 충돌).
-  branch **diverse-agent-review-m5** (기존 `diverse-agent-review`는 이미 ship된 이름이라 slug 충돌 —
-  fresh slug로 개명). origin/main `f5622bf` 머지 완료 — 충돌 8건 해소, §3.5.1 삭제 검증 통과
+- PRD: `.claude/prds/multi-session-work-loop.prd.md` — 표가 1~10으로 정합됐고 M9·M10 모두 complete. 번호 갭 과도 주석 제거(M10 plan Task 9)
+- plan: `.claude/plans/multi-session-work-loop-m9.plan.md`(hash bc41d001) · `.claude/plans/multi-session-work-loop-m10.plan.md` — 둘 다 봉인, **편집 금지**
+- version **1.34.1** (M9가 1.34.0 minor를 소비 → M10은 patch, §3.7). 4면 동기: plugin.json · html.js page-foot · markdown.js derived 줄 · CHANGELOG `currently` 노트
+- branch **multi-session-work-loop-m10** → `origin/multi-session-work-loop-m9`로 fast-forward push (PR #164 head)
 
 ## Done
-- 정본 셸 블록 추출기 — 0칼럼 고정 사본 2벌을 오라클 소비로 이전. 들여쓴 fence 13건이 그동안 불가시였다
-- seam 규칙 3종 실측 — S1 5건 · S2 5건 · S3 5건. S1/S3는 plan 실측과 정확히 일치
-- 게이트 본문 무편집 확인 — commit range · working tree · index 3축 모두 공집합(Codex F1 흡수)
-- Implement-Codex R1 divergent — HIGH 3건 전부 구현으로 흡수, MEDIUM 2건 backlog 이연
-- **변이 test가 실제 결함을 잡았다** — 부채 래칫의 축소 방향이 조용히 꺼져 있었다(debtKey는 NUL join, 화석 필터는 공백 split → 필터 항상 false, lint은 green). 키 되파싱을 없애 그 실패가 존재할 수 없게 고침
-- Validation 전건 재실행(머지 후) — command-body lint ok/violations 0/fossils 0 · 부채 래칫 18=18
-  · 신규 test 49 · 이전 test 49 · plan-review 349 · review-rounds 58 · env-contract L1~L12 · i18n 10
-- **PR 게이트 완주** — Codex `approve`(1라운드, finding 0) · impeccable critique+audit 격리 2종
-  (PR 귀속 결함 0, MEDIUM/LOW는 선재라 §3.14로 이연) · ship gate `ok=true` · receipt
-  `mccp-pr-codex/diverse-agent-review-m5.json` 봉인 + evidence commit
+- **M9** (`1.34.0`): M4·M5·M8의 미충족 인정 조건을 닫거나 증거와 함께 개정. `m9-coverage-gate.js` exit 0, `/mccp:archive-complete` scan `archivable:true`
+- **M10** (`1.34.1`): 세 원장(backlog 936 · findings 178 · fix-task 1)을 단일 인벤토리로 정규화해 **분모 1115건 봉인**. 전건에 처분(6종) 부여, `inventory_sha256` 결속. `m10-coverage-gate.js` exit 0(4축)
+- 처분 어휘와 승격 억제 분리 — `fixed`·`obsolete`·`superseded`·`duplicate`만 억제, `deferred`·`rejected`는 미억제(L2 3관점 HIGH 흡수)
+- still-valid CRITICAL 1건 수정. 선언-실제 괴리 축은 수정 또는 선언 정정
+- **머지 2단**: `origin/main`(647dfec) 클린 머지 → `origin/multi-session-work-loop-m9` 머지, 충돌 8건 해소. §3.5.1 삭제 검증 통과(의도치 않은 삭제 0)
 
 ## In Progress
-
+없음 — 머지 해소 완료, /mccp:pr 게이트 진행 중
 
 ## Next Step
-PR #166(https://github.com/idenn207/mccp/pull/166) 리뷰 → 머지. 머지 후 worktree 정리
-(`git worktree remove .worktrees/diverse-agent-review` — 디렉토리명이 branch와 어긋나 있다, §3.8).
-PRD `diverse-agent-review`의 남은 축은 #9.
+PR #164(https://github.com/idenn207/mccp/pull/164) 리뷰 → 머지. 머지 후 worktree 2개 정리
+(`.worktrees/msw-m10` · `.worktrees/multi-session-work-loop-m8` — 후자는 디렉토리명이 branch와 어긋나 있다, §3.8).
+착지 후 `/mccp:archive-complete` 1회로 이 PRD 아카이브.
 
 ## Last Decision
-plan 문면 3곳을 실측·리뷰 근거로 따르지 않았다 — (1) 닫는 fence 술어는 dedented closer를 삼켜 S1을 32/32 오탐으로 만들었다(참값 5). (2) S3에 node 계측 조건을 더하지 않으면 41건 중 36건이 git·mktemp 등 loud-fail-open 계약이 없는 명령이다. (3) 미채택 규칙 sizing이 283 대신 163/182 — 숫자를 맞추려 측정 방법을 바꾸지 않고 재현 불가 사실을 문서화했다.
+M9와 M10을 별도 PR로 두지 않고 PR #164 하나로 합쳤다. PRD가 예고한 "두 PR을 함께 머지할 때 M9 행이 M10 행 위에 삽입된다"를 머지 해소 시점에 수행했고, 그 과도 주석을 제거했다. CHANGELOG의 §3.7 노트도 "두 PR" 서술이 거짓이 되므로 같은 커밋에서 정정했다.
 
 ## Open Questions
-- S2가 `work.md:60`을 미검출 — 줄 단위 lexical 근사의 한계(앞 줄에서 열린 홑따옴표를 닫는 줄). 놓치는 방향은 안전하나 그 1건은 부채에도 없다
-- ASSERT_BASELINE이 origin/main 출처를 봉인해 반증 가능해졌을 뿐, 매 실행 기계 대조는 아니다 — L2 패널 HIGH의 완전 해소는 backlog에 남음
-- 이 lint은 어떤 CI·hook에도 등재되지 않는다(§3.17과 같은 천장). 발동 지점 배선은 UI2대로 #5 뒤 축
-- mccp-plan-codex receipt가 slug `diverse-agent-review`에 봉인돼 있고 m5 slug 것은 intent-gate audited override로 작성됨 — 승인 proof는 해시 역추적으로만 닿는다
+- A3는 tiktoken 부재로 여전히 미산출(정직한 error) — 재측정은 환경 변경이 선행되어야 한다
+- C1은 올리지 않는다(설계) — `computeC1`이 work-unit 귀속 검사 없이 계산하므로 다른 작업 단위 finding 종결은 정의상 분자가 아니다
+- 설치 plugin cache가 1.33.5 — 머지 후 `claude plugin update` 필요
+- sibling worktree `.worktrees/multi-session-work-loop-m8`가 이 push 뒤 behind 상태가 된다 — 그 세션에서 `git pull` 필요
 
 ## Last Updated
 2026-09-01T01:00:08.107Z

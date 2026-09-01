@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -43,6 +44,31 @@ function splitRow(line) {
 // as a defect.
 function isRowShaped(line, cells) {
   return line.trim().startsWith('|') || cells.length >= COLUMNS;
+}
+
+// rowId — a backlog row's identity, and the ONLY implementation of it. M10's
+// debt inventory keys `backlog:<rowId>` items with this, and a disposition line
+// that cannot find its row is a red gate axis, so a second implementation
+// drifting from this one would silently unbind the ledger.
+//
+// It takes the ITEM, not the raw cells. The plan sketched `rowId(cells)`, but
+// cells[3] holds only the finding up to its first interior pipe — scanBacklog
+// rejoins the tail below precisely because that truncation loses content. A
+// cells-based id would have to repeat that rejoin, which is the "two parsers"
+// this export exists to prevent.
+//
+// Fields are joined with NUL rather than the `|` the plan wrote, because a
+// finding may contain `|` (that is why the rejoin exists) and a printable
+// separator that occurs in the data lets two different rows collide.
+function rowId(item) {
+  const it = item || {};
+  const material = [
+    String(it.date == null ? '' : it.date),
+    String(it.severity == null ? '' : it.severity),
+    String(it.source_plan == null ? '' : it.source_plan),
+    String(it.finding == null ? '' : it.finding),
+  ].join('\0');
+  return crypto.createHash('sha256').update(material, 'utf8').digest('hex').slice(0, 16);
 }
 
 function scanBacklog(repoRoot) {
@@ -102,4 +128,10 @@ function scanBacklog(repoRoot) {
 
 module.exports = {
   scanBacklog,
+  // Widened for M10 Task 2: the debt inventory normalizes this same file and
+  // must not carry a second copy of the row grammar.
+  splitRow,
+  isRowShaped,
+  rowId,
+  COLUMNS,
 };

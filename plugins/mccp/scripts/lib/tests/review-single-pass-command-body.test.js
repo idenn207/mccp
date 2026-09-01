@@ -27,15 +27,16 @@ function read(name) {
 
 // Only fenced bash blocks are executable. Prose mentions the same tokens in
 // tables and narrative and must not be linted as wiring.
+//
+// M5 Task 6 — the local extractor is gone; this is a thin adapter over the
+// canonical oracle (`command-body/blocks`) that preserves this file's return
+// shape (one joined string per block), so every assertion below is unchanged.
+// The local copy pinned fences to column 0 and to the `bash` tag alone and
+// therefore could not see indented fences or `sh`/`shell` blocks.
+const blocksOracle = require('../command-body/blocks');
+
 function bashBlocks(src) {
-  const out = [];
-  let cur = null;
-  src.split(/\r?\n/).forEach(function (line) {
-    if (/^```bash\s*$/.test(line)) { cur = []; return; }
-    if (/^```\s*$/.test(line)) { if (cur) out.push(cur.join('\n')); cur = null; return; }
-    if (cur) cur.push(line);
-  });
-  return out;
+  return blocksOracle.bashBlocks(src).map(function (b) { return b.lines.join('\n'); });
 }
 
 const GATES = [

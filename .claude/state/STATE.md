@@ -1,56 +1,57 @@
 ---
 state_version: 1
-task_fingerprint: env-contract-integrity-m1
+task_fingerprint: diverse-agent-review-m8
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-31T07:11:28.642Z
+updated_at: 2026-09-01T01:00:08.107Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-31T07:11:28.642Z
+last_event_at: 2026-09-01T01:00:08.107Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-31T06:36:34.084Z
-escalate_pending: true
-escalate_pending_decision_id: env-contract-integrity
+dep_check_at: 2026-09-01T00:42:53.385Z
 ---
 ## Goal
-env-contract-integrity PRD M3 (라운드 캡 기계 강제) 구현 완료 — 머지 해소 후 커밋·PR 대기.
+diverse-agent-review M5 — 게이트 배선 오라클 추출. **PR #166 생성 완료**(v1.33.6). 리뷰/머지 대기.
 
 ## Plan
-- plan: `.claude/plans/env-contract-integrity-m3.plan.md` — 편집 금지(plan_hash가 어긋나면 §3.11 guard 2에 PR이 막힌다)
-- report: `.claude/PRPs/reports/env-contract-integrity-m3-report.md`
-- receipt: `mccp-{plan,implement}-codex/env-contract-integrity.json` — canonical slug(`-m3` 아님). hook의 missing 보고는 slug derivation 아티팩트
-- version 1.33.4 (잠정 — main 최대치 1.33.1 위). §3.7 재계산 2회 남음
+- PRD: `.claude/prds/diverse-agent-review.prd.md` — #5 complete로 갱신됨. 남은 축은 #9
+- plan: `.claude/plans/diverse-agent-review-m5.plan.md` — 봉인됨(plan_hash sha256:98d3039053). **편집 금지** — 그래서 Codex 리뷰는 `.claude/notes/diverse-agent-review-m5.md`에 썼다
+- 산출물: `plugins/mccp/scripts/lib/command-body/{blocks,rules,debt,lint}.js` + test 3종(40건) + `docs/diverse-agent-review/gate-wiring-oracle.md`
+- 구현 보고: `.claude/PRPs/reports/diverse-agent-review-m5-report.md`
+- version **1.33.6** (patch — §3.7 forward-only 8번째 재발: main이 1.33.3~1.33.5를 선점해 정면 충돌).
+  branch **diverse-agent-review-m5** (기존 `diverse-agent-review`는 이미 ship된 이름이라 slug 충돌 —
+  fresh slug로 개명). origin/main `f5622bf` 머지 완료 — 충돌 8건 해소, §3.5.1 삭제 검증 통과
 
 ## Done
-- Task 7 배선 — 세 본문에 review-rounds seal 1건씩 + plan/prp-implement에 `round-cap-reached` 분기(→ divergent) + 캡이 산문이 아님을 명시
-- test 5파일 85건 신규 — ledger 15 · seal 21 · enforcement 22 · command-body 11 · round-ledger-fields 16
-- 결함 수정: briefing과 hybrid L3가 리뷰 아닌 호출로 예산을 먹던 것을 `opts.notAReviewRound` opt-out으로 차단(프로그래매틱 전용)
-- Task 8 — .gitignore · gate-design.md#round-cap-enforcement 앵커 · CLAUDE.md §3.3(14→15종)·§3.15·§3.16
-- G7 종결(사용자 판정) — .claude/settings.json MCCP_GATE_ROUND_CAP 3 → 1. 문서가 정본
-- Task 9 — 4면 버전 1.32.8 → 1.33.4 + CHANGELOG 항목 + PRD M3 complete + 라운드 캡 Open Question 종결 기록
-- 검증 — lint L1~L12 exit 0 · doctor 0 · review-rounds 58 · command-body 11 · round-ledger 16 · single-pass 31 · env-contract 138 · i18n-surface 10 · 삭제 0건
-- Acceptance 라이브 실증 4/5 — Codex 2회차 durationMs=0 spawn 0 · emit 2회차 exit 12 파일 미생성 · observe 둘 다 발화 count=2 · receipt resolution.rounds=2(리터럴 1 깨짐)
+- 정본 셸 블록 추출기 — 0칼럼 고정 사본 2벌을 오라클 소비로 이전. 들여쓴 fence 13건이 그동안 불가시였다
+- seam 규칙 3종 실측 — S1 5건 · S2 5건 · S3 5건. S1/S3는 plan 실측과 정확히 일치
+- 게이트 본문 무편집 확인 — commit range · working tree · index 3축 모두 공집합(Codex F1 흡수)
+- Implement-Codex R1 divergent — HIGH 3건 전부 구현으로 흡수, MEDIUM 2건 backlog 이연
+- **변이 test가 실제 결함을 잡았다** — 부채 래칫의 축소 방향이 조용히 꺼져 있었다(debtKey는 NUL join, 화석 필터는 공백 split → 필터 항상 false, lint은 green). 키 되파싱을 없애 그 실패가 존재할 수 없게 고침
+- Validation 전건 재실행(머지 후) — command-body lint ok/violations 0/fossils 0 · 부채 래칫 18=18
+  · 신규 test 49 · 이전 test 49 · plan-review 349 · review-rounds 58 · env-contract L1~L12 · i18n 10
+- **PR 게이트 완주** — Codex `approve`(1라운드, finding 0) · impeccable critique+audit 격리 2종
+  (PR 귀속 결함 0, MEDIUM/LOW는 선재라 §3.14로 이연) · ship gate `ok=true` · receipt
+  `mccp-pr-codex/diverse-agent-review-m5.json` 봉인 + evidence commit
 
 ## In Progress
 
 
 ## Next Step
-머지 해소 먼저 — `git merge origin/main`(20여 커밋). CHANGELOG 3항목 재번호(M1→1.33.2 · M2→1.33.3 · M3 재계산) + §3.5.1 삭제 검증. 그 다음 `/mccp:prp-commit` → `/mccp:pr`(진입 직전 version 3차 재계산).
+PR #166(https://github.com/idenn207/mccp/pull/166) 리뷰 → 머지. 머지 후 worktree 정리
+(`git worktree remove .worktrees/diverse-agent-review` — 디렉토리명이 branch와 어긋나 있다, §3.8).
+PRD `diverse-agent-review`의 남은 축은 #9.
 
 ## Last Decision
-PR 게이트의 round-cap-reached는 divergent로 매핑하지 않았다 — 그러려면 ship-gate proof 경로(codex_outcome enum + verdict map)를 바꿔야 하고 Files to Change 밖이며 gate-guard-integrity M1이 수리한 고위험 영역이다. 운영자 결과가 어느 쪽이든 동일(감사된 조치가 필요한 차단)하므로 codex-runner가 HALT하되 예산 소진을 장애와 구별해 말하게만 했다. 라이브 /mccp:plan 완주는 하지 않았고 주장하지도 않는다 — 그 실질(원장 생성·receipt 3필드·rounds 일치)만 실제 아티팩트로 실증했다.
+plan 문면 3곳을 실측·리뷰 근거로 따르지 않았다 — (1) 닫는 fence 술어는 dedented closer를 삼켜 S1을 32/32 오탐으로 만들었다(참값 5). (2) S3에 node 계측 조건을 더하지 않으면 41건 중 36건이 git·mktemp 등 loud-fail-open 계약이 없는 명령이다. (3) 미채택 규칙 sizing이 283 대신 163/182 — 숫자를 맞추려 측정 방법을 바꾸지 않고 재현 불가 사실을 문서화했다.
 
 ## Open Questions
-- **머지 전 필수 (HIGH)** — origin/main이 마지막 병합(19f6dd1) 이후 20여 커밋 진행, 최대치 1.33.1. 이 브랜치 M1 `[1.32.7]`은 main의 santa-delta-review 1.32.7과 **정면 충돌**(헤딩 중복), M2 `[1.32.8]`은 역행. §3.7대로 M1→1.33.2 · M2→1.33.3 · M3 재계산. 표는 CHANGELOG [1.33.4] 항목에 있다
-- **머지 전 확인 (LOW — 종전 기록 정정)** — 이전 기록은 main과 이 브랜치의 `env-contract/lint.js`가 "L-번호 정면 충돌"이라 적었으나 실측과 다르다. `git diff origin/main HEAD -- plugins/mccp/scripts/lib/env-contract/lint.js`는 309 insertions / 1 deletion이고, L10은 양쪽이 같은 검사(evidence 소비 + 래칫)다 — 이 브랜치가 그 위에 L11·L12를 얹은 형태이며 main의 L10은 이미 19f6dd1 병합으로 들어와 있다. 머지 난이도는 기록보다 낮고, 실재하는 충돌 축은 CHANGELOG 버전 하나다.
-- PR 게이트만 `round-cap-reached`를 divergent로 매핑하지 않는다(ship-gate proof 경로가 Files to Change 밖). backlog 이연 — codex_outcome enum + verdict map 확장이 처방
-- 라이브 `/mccp:plan` 완주 미실시 — Acceptance 그 1항목은 미달성으로 보고했다. 실질(원장 생성·receipt 3필드·rounds 일치)은 실제 아티팩트로 실증
-- 봉인은 저장소 단위 한 파일이라 같은 worktree에서 두 게이트가 겹치면 나중 봉인이 먼저 것을 갈아치운다. run-scoped 불변 봉인은 backlog(codex-policy·REVIEW_DIR 6종이 같은 설계를 공유하므로 한 축만 고치면 규약이 둘이 된다)
-- check-then-act는 프로세스 사이에서 원자적이지 않다 — 진짜 동시 진입한 두 게이트는 둘 다 통과 가능. §3.8(worktree 분리)이 실무에서 닫는다
-- (선재) `ecc-context-monitor.test.js` Axis B (f) 1건 — 변경 전 파일에서도 동일 실패
-- (main 승계) worktree cleanup `.worktrees/review-loop-bypass-m2` 잔존
+- S2가 `work.md:60`을 미검출 — 줄 단위 lexical 근사의 한계(앞 줄에서 열린 홑따옴표를 닫는 줄). 놓치는 방향은 안전하나 그 1건은 부채에도 없다
+- ASSERT_BASELINE이 origin/main 출처를 봉인해 반증 가능해졌을 뿐, 매 실행 기계 대조는 아니다 — L2 패널 HIGH의 완전 해소는 backlog에 남음
+- 이 lint은 어떤 CI·hook에도 등재되지 않는다(§3.17과 같은 천장). 발동 지점 배선은 UI2대로 #5 뒤 축
+- mccp-plan-codex receipt가 slug `diverse-agent-review`에 봉인돼 있고 m5 slug 것은 intent-gate audited override로 작성됨 — 승인 proof는 해시 역추적으로만 닿는다
 
 ## Last Updated
-2026-08-31T07:11:28.642Z
+2026-09-01T01:00:08.107Z

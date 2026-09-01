@@ -23,16 +23,35 @@ const LINES = SRC.split(/\r?\n/);
 
 // Recorder invocations only exist inside fenced bash blocks. Prose mentions the
 // same token (tables, narrative) and must not be linted as code.
+//
+// M5 Task 6 — the local extractor is gone; this consumes the canonical oracle
+// (`command-body/blocks`). The local copy pinned fences to column 0 and to the
+// `bash` tag alone, so it could not see indented fences (13 across the corpus,
+// 2 of them in this file) nor `sh`/`shell` blocks. Every existing assertion is
+// preserved verbatim — only the extractor underneath changed.
+const blocks = require('../command-body/blocks');
+
+const BASH_BLOCKS = blocks.bashBlocks(SRC);
+
 function bashBlockLines() {
   const out = [];
-  let inBlock = false;
-  for (let i = 0; i < LINES.length; i++) {
-    if (/^```bash\s*$/.test(LINES[i])) { inBlock = true; continue; }
-    if (/^```\s*$/.test(LINES[i])) { inBlock = false; continue; }
-    if (inBlock) out.push({ line: LINES[i], n: i + 1 });
-  }
+  BASH_BLOCKS.forEach(function (b) {
+    b.lines.forEach(function (line, i) {
+      out.push({ line: line, n: blocks.lineNumberOf(b, i) });
+    });
+  });
   return out;
 }
+
+// Which block a 1-based line belongs to. The F1 lookahead below needs a block
+// boundary it can trust: judging the end with its own `/^```\s*$/` would miss an
+// indented closing fence and run the lookahead past the block into following
+// prose, where a stray `exit N` or `}` would resolve it — a NEW fail-open inside
+// the very assertion that exists to prevent fail-open, and green on screen.
+const BLOCK_OF_LINE = new Map();
+BASH_BLOCKS.forEach(function (b) {
+  b.lines.forEach(function (_line, i) { BLOCK_OF_LINE.set(blocks.lineNumberOf(b, i), b); });
+});
 
 const RECORDER_CALL = /--halt-stage 5\.[0-9a-z-]+ /;
 
@@ -47,19 +66,30 @@ test('F1: no halt-path recorder is the last statement on its failure branch', ()
   const offenders = [];
   const inBash = new Set(bashBlockLines().map((b) => b.n));
 
+  let scanned = 0;
   for (let i = 0; i < LINES.length; i++) {
     if (!inBash.has(i + 1)) continue;
     if (!RECORDER_CALL.test(LINES[i])) continue;
+    scanned++;
 
+    // M5 Task 6b — the block boundary comes from the oracle, not from a local
+    // fence regex. Leaving the owning block ends the lookahead.
+    const owner = BLOCK_OF_LINE.get(i + 1);
     let resolved = null;
     for (let j = i + 1; j < Math.min(i + 12, LINES.length); j++) {
+      if (BLOCK_OF_LINE.get(j + 1) !== owner) break;   // left the block
       if (/\bexit\s+\d+/.test(LINES[j])) { resolved = 'exit'; break; }
       // PIN_HALT()-style helper: the body ends, and the call site does the exit.
       if (/^\s*\}\s*$/.test(LINES[j])) { resolved = 'helper'; break; }
-      if (/^\s*fi\s*$/.test(LINES[j]) || /^```\s*$/.test(LINES[j])) break;
+      if (/^\s*fi\s*$/.test(LINES[j])) break;
     }
     if (!resolved) offenders.push({ line: i + 1, text: LINES[i].trim() });
   }
+
+  // M5 Task 6c — non-empty population. A widened extractor can only shrink this
+  // set silently; without this pair the assertion below passes vacuously the day
+  // RECORDER_CALL stops matching anything.
+  assert.ok(scanned > 0, 'no recorder invocation was scanned — the assertion would be vacuous');
 
   assert.deepEqual(offenders, [],
     'every halt branch must end in an explicit exit; a non-blocking recorder as ' +
@@ -85,8 +115,11 @@ test('F3: no recorder invocation discards stderr', () => {
   // rejected"). Redirecting 2>&1 to /dev/null removes the loud half of a
   // deliberate loud-fail-open design and leaves the blocked paths this milestone
   // added with neither a record nor a warning.
-  const offenders = bashBlockLines()
-    .filter((b) => RECORDER_CALL.test(b.line))
+  const recorderCalls = bashBlockLines().filter((b) => RECORDER_CALL.test(b.line));
+  // M5 Task 6c — non-empty population pair (see F1).
+  assert.ok(recorderCalls.length > 0, 'no recorder invocation found — the assertion would be vacuous');
+
+  const offenders = recorderCalls
     .filter((b) => /2>&1/.test(b.line))
     .map((b) => ({ line: b.n, text: b.line.trim() }));
 

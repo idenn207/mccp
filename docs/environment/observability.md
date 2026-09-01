@@ -82,13 +82,19 @@
 
 ### MCCP_STATE_JOURNAL
 
-**종류** `enum` — **값** `off` · `on` — **기본값** 없음 (미설정이 기본)
+**종류** `enum` — **값** `enforce` · `shadow` · `off` — **기본값** `enforce`
 
 **한 줄** STATE.md 저널 기록.
 
 **소비처** `plugins/mccp/scripts/lib/state-journal/index.js:29`
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**값별 결과**
+
+- `enforce` — STATE.md 쓰기를 저널 경로로 강제한다.
+- `shadow` — 저널을 기록하되 직접 경로도 함께 쓴다 (관측 전용).
+- `off` — 저널을 끈다. loud warn이 나간다.
+
+**제거된 값** — `on`은 코드에 없다. 같은 의도의 값은 `enforce`이며, 코드의 3상태를 문서가 boolean으로 축약한 것이 어긋남의 원인이었다. 수동 전용 축이라 자동 강등 경로는 없고, `.degraded` 마커가 있으면 값과 무관하게 직접 경로를 탄다(마커 > 토글).
 
 **사용 예시**
 
@@ -114,7 +120,15 @@
 
 **한 줄** 중복 claim 가드 모드.
 
-**소비처** `plugins/mccp/scripts/receipt/evidence-lock.js:99`
+**소비처** `plugins/mccp/scripts/receipt/evidence-lock.js:104`
+
+**값별 결과**
+
+- `enforce` — fail-closed lock과 fence를 건다. 중복 claim이 감지되면 쓰기를 막는다.
+- `warn` — 관측과 이벤트는 유지하되 차단하지 않는다 (복구용 kill switch).
+- `off` — guard 전체를 끈다. loud warn이 나간다.
+
+미설정과 열거 밖 값은 `enforce`로 되돌아간다.
 
 **사용 예시**
 
@@ -142,6 +156,12 @@
 
 **상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
 
+**멤버 어휘**
+
+**허용 토큰** — 열거 없음. 멤버가 디렉토리 경로라 열거 어휘가 존재하지 않는다.
+
+**미상 멤버** — 멤버 분리가 일어나지 않는다 — 파서는 값 전체를 단일 디렉토리 경로로 쓰고 미설정이면 cwd로 되돌린다 (evidence-stage-guard.js:154). kind가 list인 것은 오기이며 그 정정은 별도 축으로 이연한다
+
 **사용 예시**
 
 ```json
@@ -154,13 +174,19 @@
 
 ### MCCP_SESSION_LEDGER_SCOPE
 
-**종류** `enum` — **값** `repo` · `host` · `global` — **기본값** 없음 (미설정이 기본)
+**종류** `enum` — **값** `global` · `repo` · `hybrid` — **기본값** `global`
 
 **한 줄** 세션 원장 조회 범위.
 
 **소비처** `plugins/mccp/scripts/state/session-ledger.js:210`
 
-**상태** `undocumented-default` — 코드에 리터럴 기본값이 적혀 있지 않다. 미설정 시의 동작은 소비처가 정한다 — 추정해서 적지 않았다.
+**값별 결과**
+
+- `global` — 프로젝트 디렉토리 하나만 읽고 쓴다.
+- `repo` — 저장소의 .claude/state/session-ledgers만 본다. 저장소 밖이면 global로 되돌아간다.
+- `hybrid` — global과 repo를 함께 읽고 쓰기는 global을 primary로 쓴다.
+
+**제거된 값** — `host`는 `VALID_SCOPES`에 없다. 여러 위치를 함께 보려던 것이라면 오늘의 값은 `hybrid`다.
 
 **사용 예시**
 

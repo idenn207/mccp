@@ -683,6 +683,24 @@ seal must degrade to the pre-v1.32.6 behaviour (env only) rather than stop the g
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-policy.js" seal 1>&2
+
+# env-contract-integrity M3 — seal the ROUND policy in the same breath, and for
+# the same reason. This gate has TWO reviewer channels and both enforce the cap
+# in a CHILD process: `codex-invoke.js` just before spawn (5.2z) and
+# `plan-review/cli.js emit-workflow-args` just before the L2 panel launches
+# (5.2c). Reading env there would make the milestone fall to the defect it
+# removes — this PRD's own evidence is an instance of "the value never reached
+# the process" — so the cap and the ledger key travel on disk instead.
+#
+# This must run BEFORE 5.2, not beside 5.2z: the panel fires first, and a seal
+# written after it would leave the panel channel unenrolled and uncounted.
+#
+# `seal` exits 0 even on failure: a failed seal degrades to pre-M3 behaviour
+# (no enforcement) rather than stopping the gate, and says so loudly.
+ROUND_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decision \
+  --command mccp:plan --args "$ARGUMENTS")
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/review-rounds/cli.js" seal \
+  --gate mccp-plan-codex --decision "$ROUND_SLUG" 1>&2
 ```
 
 **Never unset, override, or re-export `MCCP_CODEX_DISABLED` anywhere in this
@@ -1208,7 +1226,7 @@ if [ "$EMIT_EXIT" -ne 0 ]; then
     --command mccp:plan --args "$ARGUMENTS")
   node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" record \
     --slug "$DECISION_SLUG" --plan "<plan path>" --halt-stage 5.2c-emit 1>/dev/null || true
-  echo "[MCCP-GATE-STOP] emit-workflow-args failed (exit $EMIT_EXIT) — the granted fleet cannot satisfy the quorum, or the plan could not be hashed. Reservation returned (--actual 0); nothing was launched."
+  echo "[MCCP-GATE-STOP] emit-workflow-args failed (exit $EMIT_EXIT) — this decision has spent its review rounds, OR the granted fleet cannot satisfy the quorum, OR the plan could not be hashed. The CLI printed which one on stderr just above; do not guess from this line. Reservation returned (--actual 0); nothing was launched."
   exit 12
 fi
 ```
@@ -2085,7 +2103,7 @@ CODEX_EXIT=0
 CODEX_BLOCKING=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.blocking?"1":"0")}catch{console.log("1")}' "$CODEX_STDOUT")
 CODEX_CLASS=$(node -e 'try{const j=JSON.parse(process.argv[1]);console.log(j.classification||"unknown")}catch{console.log("parse-error")}' "$CODEX_STDOUT")
 
-if [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || { [ "$CODEX_CLASS" != "ok" ] && [ "$CODEX_CLASS" != "disabled" ]; }; then
+if [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || { [ "$CODEX_CLASS" != "ok" ] && [ "$CODEX_CLASS" != "disabled" ] && [ "$CODEX_CLASS" != "round-cap-reached" ]; }; then
   if [ "${MCCP_ALLOW_CODEX_UNAVAILABLE:-0}" = "1" ]; then
     echo "[mccp] Codex unavailable in advisory mode (class=$CODEX_CLASS exit=$CODEX_EXIT)"
     # Replace the placeholder with auto-fallback marker + advisory annotation, then jump to 5.5
@@ -2095,6 +2113,14 @@ if [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || { [ "$CODEX_CLASS"
     echo "Set MCCP_ALLOW_CODEX_UNAVAILABLE=1 to proceed in advisory mode (yields non-approving receipt)."
     exit 1
   fi
+elif [ "$CODEX_CLASS" = "round-cap-reached" ]; then
+  # env-contract-integrity M3 — the budget for this decision is spent. This is a
+  # TERMINAL OUTCOME, not an outage: it is the mechanical form of the sentence
+  # this body already carried ("Beyond the cap, annotate as Open Questions:
+  # DIVERGENT_UNRESOLVED and proceed"). blocking=false, durationMs=0, no spawn.
+  echo "[mccp] round cap reached — Codex did not fire. Recording the divergence and proceeding."
+  # Replace the placeholder with a round-cap marker and annotate
+  # 'Open Questions: DIVERGENT_UNRESOLVED', then jump to 5.5.
 elif [ "$CODEX_CLASS" = "disabled" ]; then
   # v0.3.5 — MCCP_CODEX_DISABLED=1 first-class skip. No advisory env required.
   # Receipt write at 5.6 auto-stamps meta.codex_disabled=true via env detection.
@@ -2112,6 +2138,12 @@ fi
 CODEX_VERDICT=""
 if [ "$CODEX_CLASS" = "disabled" ]; then
   CODEX_VERDICT="skipped"          # MCCP_CODEX_DISABLED=1 env policy — Codex never ran
+elif [ "$CODEX_CLASS" = "round-cap-reached" ]; then
+  # DD4 — divergent, NOT unavailable. `unavailable` claims Codex could not be
+  # reached; here it was deliberately not asked because this decision had already
+  # spent its rounds. divergent is also the value that keeps cross-gate dedupe
+  # CLOSED (§3.12), so a spent budget can never be used to slip past dual review.
+  CODEX_VERDICT="divergent"
 elif [ "$CODEX_EXIT" != "0" ] || [ "$CODEX_BLOCKING" = "1" ] || [ "$CODEX_CLASS" != "ok" ]; then
   CODEX_VERDICT="unavailable"      # advisory-mode auto-fallback (non-approving)
 else
@@ -2240,6 +2272,13 @@ node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));if(j.note)
 
 Repeat up to `$ROUND_CAP` rounds (default `1`, allowed `1`/`2`/`3`). Beyond the cap,
 annotate as `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
+
+> **이 캡은 v1.33.4부터 산문이 아니다.** 초과 호출은 `codex-invoke.js`가 spawn 직전에
+> 거부하고 `round-cap-reached`를 돌려주므로 Codex는 발화하지 않으며, L2 패널 쪽은
+> `emit-workflow-args`가 exit 12로 끝나고 `workflow-args.json`을 만들지 않는다. 위 문장은
+> 그대로 유효하되, 그것을 지키는 것이 더는 이 문서를 읽는 실행 주체의 성실성이 아니라
+> 5.-1이 봉인한 정책과 라운드 원장이다. 봉인이 없으면(M3 이전 저장소) 강제도 없고, 그
+> 사실은 receipt의 `meta.round_cap=null`로 남는다 — 조용히 넘어가지 않는다.
 
 If no `ACCEPT_NOW` HIGH/CRITICAL remains, stop at R1.
 

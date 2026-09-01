@@ -100,6 +100,15 @@ const MCCP_IGNORE_BLOCK = [
   // it is installed, so a target repo that only has the REPO_ONLY half would
   // commit it on first use.
   '.claude/state/santa-loop/',
+  // The review-round ledger is the same category and the same reason as the
+  // santa-loop one above: any repo that runs a /mccp:* gate grows one file per
+  // (gate, decision), and the ledger is the cap's working state, not evidence —
+  // the receipt seals `resolution.rounds` + `meta.round_ledger_count`. Committing
+  // it would pin one person's spent budget across every clone, which is the exact
+  // failure the entry exists to prevent. Canonical, not REPO_ONLY: the plugin
+  // produces it wherever it is installed. The directory entry also covers the
+  // sibling `<gate>__<slug>.json.lock` and `.<pid>.<rand>.tmp`.
+  '.claude/state/review-rounds/',
   // The long-lived process registry is canonical for the same reason, and its
   // cost of being wrong is higher than the others in this block. A record binds
   // {pid, host, session_id, proc_started_at_ms} of a LIVE process on ONE machine

@@ -66,6 +66,38 @@ function isInPRCodexReviewSubphase(repoRoot) {
   }
 }
 
+// M2 — briefing 정책의 수용 어휘를 명명 상수로 승격한다.
+//
+// 오늘까지 이 경로는 `=== 'off'` 한 값만 비교하고 나머지는 전부 기본 경로로 흘렸다.
+// 그래서 문서가 가르치던 `always` 는 «구현되지 않았다»가 아니라 «구현되지 않았다는
+// 사실조차 보이지 않는다»였다 — 운영자가 그 값을 넣으면 조용히 auto 로 동작했다.
+// 승격 후 판정은 불변이고(off 만 skip), 열거 밖 값에 loud warn 한 줄이 늘 뿐이다.
+//
+// 대소문자를 접지 **않는다**: 접으면 오늘 auto 로 흐르던 `OFF` 가 skip 으로 바뀌어
+// 판정이 실제로 달라진다. canonical 어휘는 소문자이고 그 밖은 전부 열거 밖이다.
+// 같은 이유로 `trim()` 도 하지 않는다 — " off" 는 오늘 `=== 'off'` 에서 auto 로 흐르므로
+// 다듬으면 skip 으로 바뀐다. 이 파서의 계약은 «오늘의 판정을 한 글자도 바꾸지 않고
+// 열거 밖 값을 보이게 한다» 이고, 어휘를 넓히는 것은 그 위에 얹는 별개 변경이다.
+//
+// receipt-write 경로라 hook 만큼 잦지는 않지만 한 사이클에 여러 번 도는 것은 같다.
+// ecc-context-monitor 의 cost-mode 파서와 같은 규약으로 프로세스당 1회로 묶는다 —
+// 반복 warn 은 신호가 아니라 소음이다.
+const BRIEFING_VALUES = ['auto', 'off'];
+const BRIEFING_DEFAULT = 'auto';
+let briefingModeWarned = false;
+
+function parseBriefingMode(env) {
+  const raw = (env || process.env).MCCP_BRIEFING;
+  if (raw === undefined || raw === null || raw === '') return BRIEFING_DEFAULT;
+  if (BRIEFING_VALUES.indexOf(raw) !== -1) return raw;
+  if (briefingModeWarned) return BRIEFING_DEFAULT;
+  briefingModeWarned = true;
+  process.stderr.write('[mccp:briefing] WARNING: unknown MCCP_BRIEFING="' + raw
+    + '" — falling back to ' + BRIEFING_DEFAULT
+    + ' (allowed: ' + BRIEFING_VALUES.join('|') + ')\n');
+  return BRIEFING_DEFAULT;
+}
+
 function shouldSkipBriefing(opts) {
   opts = opts || {};
   const env = opts.env || process.env;
@@ -73,7 +105,7 @@ function shouldSkipBriefing(opts) {
   const read = opts.costStateRead || costState.readState;
   const lockProbe = opts.lockProbe || isInPRCodexReviewSubphase;
 
-  if (env.MCCP_BRIEFING === 'off') {
+  if (parseBriefingMode(env) === 'off') {
     return { skip: true, reason: REASONS.ENV_OFF, tier: null };
   }
   if (envValue.parseBool(env, 'MCCP_CODEX_DISABLED')) {

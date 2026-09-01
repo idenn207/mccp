@@ -1,49 +1,54 @@
 ---
 state_version: 1
-task_fingerprint: multi-session-work-loop-m9
+task_fingerprint: release-channel-separation-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-31T09:08:23.228Z
-last_event: stop_loop_pass
-last_event_at: 2026-08-31T09:08:23.228Z
+updated_at: 2026-09-01T07:50:27.358Z
+last_event: receipt_write
+last_event_at: 2026-09-01T07:50:27.358Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-31T08:13:37.361Z
+dep_check_at: 2026-09-01T07:08:47.823Z
 escalate_pending: true
-escalate_pending_decision_id: multi-session-work-loop
+escalate_pending_decision_id: release-channel-separation-m1
 ---
 ## Goal
-multi-session-work-loop M9 — 구현 완료, 재검증 green. PR 대기.
+release-channel-separation M1 — channel-pin. marketplace.json의 plugin source를 git-subdir + ref: release로 전환하고 release 채널을 647dfec(v1.33.6)에 세운다. 구현 완주, commit/PR 대기.
 
 ## Plan
-- PRD: `.claude/prds/multi-session-work-loop.prd.md` — M1~M8 complete(M4·M5·M8은 비정본 status), M9 in-progress
-- plan: `.claude/plans/multi-session-work-loop-m9.plan.md` — 봉인됨(hash bc41d001). **편집 금지**
-- 리뷰 기록: `.claude/reviews/plan-review-multi-session-work-loop-m9.md` (verdict divergent, halt_stage null)
-- receipt: `.claude/receipts/mccp-plan-codex/multi-session-work-loop-m9.json` — review_verdict=divergent 봉인, validate exit 0
-- version target 1.34.0 (minor — PRD 전체 종료). origin/main이 1.33.1이므로 PR 직전 §3.7 재계산 필수
-- branch multi-session-work-loop-m9 (M8은 이미 main에 머지됨 — d2d7117)
+- PRD: `.claude/prds/release-channel-separation.prd.md` — M1 **in-progress**(Task 10 미완이라 complete 아님), M2·M3 pending
+- plan: `.claude/plans/release-channel-separation-m1.plan.md` — plan_hash로 봉인됨. **편집 금지** (편집 시 guard 2 stale 발동을 실측함)
+- 게이트 기록: `.claude/notes/release-channel-separation-m1.md` (Codex Implementation Review + Security Reviewer)
+- 구현 보고: `.claude/PRPs/reports/release-channel-separation-m1-report.md` — **STATUS: PRE-MERGE — INCOMPLETE**
+- version 1.33.7 (patch — PRD 내 단일 milestone). branch release-channel-separation, tip 8af5e42, origin push 완료
 
 ## Done
-- Task 1~7 커밋 완료(이전 세션) — Task 8은 §3.11 guard 2 자기차단 회피로 PR 이후 이연
-- 재검증 green: m9-coverage-gate exit 0(4행 술어 참) · scan archivable:true(9/9 complete, nonCanonical 0) · derive 16 source degraded:false
-- test: state 215/215 · receipt 687/688 · plan-review 325/326 · msw-m9-producers 9/9 · msw-metrics 37/37 — 회귀 0건
-- PRD M4 개정문의 B1 값 정정(0/26 → 1/29 + drift 정체·해소조건). 편집 후 gate/scan 불변
-- 고아 프로세스 러너웨이 정리: node 519 → 15, 증가율 0
+- Task 1~9·11 완료. Task 10은 머지 후에만 가능해 구조적 이연(Implement-Codex F2 흡수)
+- **6a 상향 대조 통과 — 검증 (a) 성립**: release를 feature tip으로 옮기자 설치가 1.33.6→**1.33.7**, gitCommitSha가 **8af5e42**로 이동. git-subdir가 실제로 fetch한다는 양성 증거
+- **6b가 PRD OQ1에 답함**: CLI는 버전 하향을 수용한다(1.33.7→**1.33.4**). H8이 지적한 복원의 순환 논증이 실측으로 해소
+- **6c 복원 12초** — 경로 (1) 하향 롤백 자체이며 대체 경로 미사용. 성공 지표 2의 실측값
+- 8단계 채널 좌표 게이트 PASS(origin/release == 647dfec) · 원상복구 완료(설치 1.33.6/647dfec · autoUpdate=true · clone=main)
+- 게이트: Implement-Codex R1 divergent(HIGH 3건 전부 흡수) · security-reviewer HIGH 1건 흡수 · impeccable silent-skip(no-signal)
+- D1 차단 ref 해소: refs/heads/release/v0.4.0-version-bump가 이름을 점유 → e160eef를 태그 archive/release-v0.4.0-version-bump로 보존한 뒤 삭제(이력 손실 0)
+- 검증 — manifest 형태 단언(변경 전 실패/후 통과 실측) · claude plugin validate exit 0 · i18n-surface 10/10 · instruction-contract C1~C4 pass · 삭제 0건 · H4 유출 2축 0건
 
 ## In Progress
-없음 — 구현 종료. /mccp:pr 진입 대기
+
 
 ## Next Step
-/mccp:pr (진입 직전 §3.7 version 재계산 — 현재 target 1.34.0, origin/main 1.33.1). 착지 후 /mccp:archive-complete 1회로 Task 8 종료
+/mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 version 재계산 필수(sibling worktree multi-session-work-loop-m8이 1.34.0 선언 중). 머지 직후 Task 10으로 보고서 Acceptance 5를 채우기 전까지 M1은 미완료.
 
 ## Last Decision
-전수 회귀 1차 실패는 코드가 아니라 자원 고갈이었다 — MCCP_CODEX_DISABLED 미설정으로 test가 실제 Codex를 수백 회 호출해 고아 broker가 자가 재생성 루프를 만들었다. 이 저장소의 전수 회귀는 MCCP_CODEX_DISABLED=1 + --test-concurrency=2 로만 돌린다.
+Implement-Codex F2를 흡수해 M1 완료를 주장하지 않는다 — Task 10(머지 후 비파괴 검증)이 이 실행 안에서 성립 불가이므로 보고서를 PRE-MERGE INCOMPLETE로 발행하고 착지 vehicle(머지 직후 같은 파일을 완성하는 후속 커밋)을 명명했다. plan 본문은 plan_hash 봉인 때문에 손대지 않고 게이트 기록을 notes로 옮겼다 — 상류 게이트에 감사 우회를 쓰지 않는 쪽이 저렴하다.
 
 ## Open Questions
-- A3는 tiktoken 부재로 여전히 미산출(정직한 error) — 재측정은 환경 변경이 선행되어야 한다
-- 설치 plugin cache가 1.33.1 — 머지 후 claude plugin update 필요
+- Task 10(검증 b) 미실행 — 머지 후 marketplace clone 전진 ∧ 설치 version 무변화의 **쌍**을 관측해야 성공 지표 3이 실측된다
+- plan `## Validation`:386의 채널 좌표 게이트가 리터럴 개행 이스케이프 때문에 항상 HALT — 구현은 정정 형태로 실행했고 본문 정정은 backlog id=d7d1f4a0
+- Task 9 4단계 HALT 조건이 5단계 기대값과 모순(H5↔H6) — plan-conflict-detector CONFLICT=0으로 기록 후 진행. plan 정정 축
+- release 브랜치에 branch protection 부재 · sha 미pin — 보완 통제 0(M3 런북 축, backlog)
+- 리허설 CAS 창의 TOCTOU 잔여 — 파일시스템 트랜잭션 없이는 미해소(backlog)
 
 ## Last Updated
-2026-08-31T09:08:23.228Z
+2026-09-01T07:50:27.358Z

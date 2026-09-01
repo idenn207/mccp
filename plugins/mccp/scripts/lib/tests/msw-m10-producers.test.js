@@ -387,6 +387,53 @@ test('deferral concentration is surfaced rather than capped', () => {
   assert.equal(r.ok, false);
 });
 
+// ── backlog open/closed split ────────────────────────────────────────────────
+
+test('one ledger line moves a backlog row from open to closed, and resolved tracks separately', () => {
+  const { scanBacklog } = require('../../derive/sources/backlog');
+  const { root, doc } = sealed({
+    backlogRows: [
+      '| 2026-09-01 | HIGH | a.md | one |',
+      '| 2026-09-01 | LOW | a.md | two |',
+    ],
+  });
+  const before = scanBacklog(root);
+  assert.equal(before.count, 2);
+  assert.equal(before.open_count, 2);
+  assert.equal(before.closed_count, 0);
+
+  di.appendDispositions(root, [{
+    item_id: doc.items[0].item_id, disposition: 'fixed', evidence: '#164',
+  }]);
+  const after = scanBacklog(root);
+  assert.equal(after.count, 2, 'the table itself is never edited');
+  assert.equal(after.open_count, 1);
+  assert.equal(after.closed_count, 1);
+  assert.equal(after.resolved_count, 1);
+
+  // A deferral is disposed but NOT resolved. Reading closed_count as "dealt
+  // with" is the misreading the second field exists to prevent.
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'next.md'), doc.inventory_sha256 + '\n', 'utf8');
+  di.appendDispositions(root, [{
+    item_id: doc.items[1].item_id, disposition: 'deferred', successor: 'docs/next.md',
+  }]);
+  const end = scanBacklog(root);
+  assert.equal(end.closed_count, 2);
+  assert.equal(end.resolved_count, 1);
+  assert.equal(end.open_count, 0);
+});
+
+test('a ledger bound to another seal does not close any backlog row', () => {
+  const { scanBacklog } = require('../../derive/sources/backlog');
+  const { root, doc } = sealed({ backlogRows: ['| 2026-09-01 | HIGH | a.md | one |'] });
+  fs.appendFileSync(di.dispositionsPath(root), JSON.stringify({
+    item_id: doc.items[0].item_id, disposition: 'fixed', evidence: '#1',
+    inventory_sha256: 'sha256:' + '0'.repeat(64), disposed_at: '2026-09-01T00:00:00.000Z',
+  }) + '\n', 'utf8');
+  assert.equal(scanBacklog(root).open_count, 1);
+});
+
 // ── suppression (both directions) ────────────────────────────────────────────
 
 test('suppression removes disposed findings and keeps everything else', () => {

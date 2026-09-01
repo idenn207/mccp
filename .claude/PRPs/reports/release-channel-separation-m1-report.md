@@ -294,6 +294,45 @@ MEDIUM이므로 흡수하지 않고 증거와 함께 이연한다.
 단언 (iii) 라이브 리허설이다. `marketplace.json`을 읽는 JS 소비처가 저장소에 없어 단위 test를
 걸 표면이 없다(plan Task 4가 같은 이유로 형태 단언을 택했다).
 
+## Evidence Durability — 이력 재작성이 남긴 도달성 결손 (santa-loop R0 HIGH 흡수)
+
+push 직전 유출 게이트를 통과시키려 `filter-branch`로 이력을 재작성하면서, 이 보고서와
+ship receipt가 인용하는 커밋들이 **published ref에서 도달 불가**가 됐다. 실측:
+
+| 커밋 | 역할 | 상태 |
+|---|---|---|
+| `e33a2be` | `mccp-pr-codex` receipt의 `head_sha` | 재작성 전 이력에만 존재 |
+| `8af5e42` | 검증 (a) 양성 대조 — 설치 `gitCommitSha`가 이 값으로 이동 | 동일 |
+| `f30316d` | 검증 (b) UI9 경로 증거 | 동일 |
+
+셋 다 `git cat-file -t`로는 살아 있으나 `git branch -r --contains` · `git tag --contains`가
+비어 있었고, 유일한 보유 ref는 **푸시되지 않은 로컬 브랜치** `backup/pre-leak-rewrite`였다.
+§3.12가 ship receipt corpus를 git-tracked로 두는 목적(worktree 삭제 후에도 ledger↔receipt
+대조 성립)이 그대로 무력화되는 상태다.
+
+**흡수** — 그 브랜치 tip(`41de628`)에 annotated tag
+`archive/release-channel-separation-m1-evidence`를 걸어 이름 있는 ref로 고정했다. 세 커밋
+모두 `git tag --contains`로 포함을 확인했다. **receipt는 재봉인하지 않았다** — §3.12
+no-rehash 불변식이 이를 금지하며 `head_sha`는 `e33a2be` 그대로다.
+
+도달 가능 등가물(재작성으로 달라진 것은 redact된 경로 문자열뿐):
+
+- `853fc27` ~ `8af5e42`
+- `743d7f7` ~ `f30316d`
+
+**남는 것 둘.** (1) 태그는 **push해야 published가 된다** — 로컬 생성까지가 이 흡수의
+범위이고, 푸시 전까지 결손은 실질적으로 유지된다. (2) `--check-ship-verdict`는 여전히
+`ok:false / ship-gate-stale-head`를 낸다. 그 원인은 도달성이 아니라 **HEAD 드리프트**다
+(receipt는 `e33a2be`에 봉인됐고 그 뒤 `9091831`·`4f4720a`·`df5e52e`가 착지했다). 그리고
+`validate-cmd.js:788`의 stale-head 분기는 `:813`의 `pr_codex_force_override`보다 **먼저**
+평가되므로 봉인된 audited override로는 풀리지 않는다 — 이 decision slug의 재-ship은 막힌
+상태다. PR #168은 이미 열려 있어 머지 경로 자체에는 영향이 없으나, 재-ship이 필요해지면
+새 decision slug가 필요하다.
+
+**재발 방지** — ship receipt가 봉인된 뒤에는 브랜치 이력을 재작성하지 않는다. receipt가
+`head_sha`를 결속하고 ship gate가 audited override보다 **먼저** 그 결속을 검사하므로,
+재작성은 되돌릴 수 없는 결손을 만든다. 유출 redaction이 필요하면 봉인 **전에** 수행한다.
+
 ## Next Steps
 
 - [ ] `/mccp:pr` — 진입 직전 §3.7 version 재계산(sibling worktree 하나가 `1.34.0` 선언 중)

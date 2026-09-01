@@ -1,0 +1,967 @@
+{
+  "measured_at": "2026-08-31T06:12:17.746Z",
+  "head": "0e89005",
+  "head_subject": "chore(review-loop-trust): retire umbrella PRD after all seven children shipped (#162)",
+  "scale": {
+    "commits": 666,
+    "tracked_files": 1902,
+    "js_nontest_loc": 108985,
+    "js_test_loc": 96930,
+    "test_files": 346,
+    "command_files": 22,
+    "command_loc": 11080,
+    "claude_md_bytes": 119295,
+    "docs_md_files": 47,
+    "doc_bytes_total": 1813809,
+    "code_bytes_total": 4588757,
+    "agents": 58,
+    "skills": 48
+  },
+  "ship_receipts": {
+    "total": 72,
+    "verdict": {
+      "converged": 7,
+      "skipped": 33,
+      "ABSENT": 22,
+      "divergent": 10
+    },
+    "rounds_field": {
+      "1": 71,
+      "2": 1
+    },
+    "findings_field": {
+      "ABSENT": 72
+    },
+    "force_override": 6,
+    "rows": [
+      {
+        "file": "mccp-roadmap-implement.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-06",
+        "skip_reason": null
+      },
+      {
+        "file": "v0-2-8-pr-workflow-hardening.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-06",
+        "skip_reason": null
+      },
+      {
+        "file": "v0-2-8-finalize.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-07",
+        "skip_reason": null
+      },
+      {
+        "file": "v0-2-8-task-2-6-1-fix.json",
+        "verdict": "ABSENT",
+        "rounds": 2,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-07",
+        "skip_reason": null
+      },
+      {
+        "file": "v0-2-8-task-2-6-1-followup-f5-f8.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-07",
+        "skip_reason": "cross-gate dedupe applies: mccp-plan-codex and mccp-implement-codex receipts already converged on this decision (cap-at-3 reached on plan-codex R1+R2+R3 per plan body Convergence note); PR diff is the same atomic unit those rounds approved"
+      },
+      {
+        "file": "v0-2-8-task-2-6-1-followup.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-07",
+        "skip_reason": "cross-gate dedupe applies: mccp-plan-codex and mccp-implement-codex receipts already converged on this decision (cap-at-3 reached on plan-codex R1+R2+R3 per plan body Convergence note); PR diff is the same atomic unit those rounds approved"
+      },
+      {
+        "file": "v0-2-9-gate-round-yagni.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-07",
+        "skip_reason": null
+      },
+      {
+        "file": "v0-3-0-auto-handoff.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-08",
+        "skip_reason": "MCCP_CODEX_DISABLED permanent bypass active — token cap exhausted, codex-runner cannot gracefully skip in this session"
+      },
+      {
+        "file": "v0-3-1-mccp-work.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-08",
+        "skip_reason": "codex permanently disabled per user memory rule feedback-codex-permanent-bypass — MCCP_CODEX_DISABLED=1 + MCCP_RECEIPT_GATE_MODE=off in .claude/settings.local.json; chain-of-custody warning is intentional design feature, not a defect"
+      },
+      {
+        "file": "v0-3-2-escalate.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-08",
+        "skip_reason": "MCCP_CODEX_DISABLED=1 permanent bypass per project policy due to token cap exhaustion; PR ships v0.3.2 internal cross-gate escalate-detector dual-reviewer logic"
+      },
+      {
+        "file": "stop-review-loop-env-leak.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-09",
+        "skip_reason": "codex permanently disabled per MCCP_CODEX_DISABLED user policy in settings.local.json; cross-gate dedupe condition not satisfied since plan and implement gates entered advisory mode rather than approve verdict"
+      },
+      {
+        "file": "v0-3-4-test-env-hygiene.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-09",
+        "skip_reason": "codex permanently disabled per user memory (feedback-codex-runner-disabled-blind); cross-model chain validation reduced by design"
+      },
+      {
+        "file": "v0-3-5-codex-disabled-honor.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-10",
+        "skip_reason": "v0.3.5 wrapper-level Codex disabled honor PR introduces the exact fix removing this audited escape — self-referential bootstrap paradox closes after plugin reload activates the new short-circuit code"
+      },
+      {
+        "file": "v0-4-0-axis-h.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-10",
+        "skip_reason": "permanent Codex bypass via MCCP_CODEX_DISABLED=1 token cap exhaustion in .claude/settings.local.json"
+      },
+      {
+        "file": "v1-0-0-post-ship-state-roll.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-14",
+        "skip_reason": "Codex permanent bypass per feedback-codex-permanent-bypass memory rule — codex token cap exhausted since 2026-06-08, MCCP_CODEX_DISABLED=1 intended permanent in user environment, applied automatically per feedback-codex-runner-disabled-blind rule for v1.0.0 post-ship housekeeping chore (B2 STATE.md roll)"
+      },
+      {
+        "file": "v1-0-0-release-notes.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-14",
+        "skip_reason": "Codex permanent bypass per feedback-codex-permanent-bypass memory rule — codex token cap exhausted since 2026-06-08, MCCP_CODEX_DISABLED=1 intended permanent in user environment, applied automatically per feedback-codex-runner-disabled-blind rule for v1.0.0 release notes trivial chain"
+      },
+      {
+        "file": "v1-0-0-skip-pr-demote-axis-m.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-14",
+        "skip_reason": "W-VERDICT C2 axis M doc-only demotion; Codex permanent bypass per user memory feedback-codex-permanent-bypass (token cap exhausted)"
+      },
+      {
+        "file": "v1-0-1-axis-k-pr-phase-guard-pid-alive.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-15",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "v1-3-0-observability-m2-briefing-stamp.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-18",
+        "skip_reason": null
+      },
+      {
+        "file": "chore-v1-3-0-state-md-roll.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-19",
+        "skip_reason": null
+      },
+      {
+        "file": "dashboard-serve-refresh.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-06-22",
+        "skip_reason": null
+      },
+      {
+        "file": "work-context-isolation.json",
+        "verdict": "ABSENT",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-04",
+        "skip_reason": null
+      },
+      {
+        "file": "archive-completed-prds-plans.json",
+        "verdict": "converged",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-07",
+        "skip_reason": null
+      },
+      {
+        "file": "archive-cleanup-1-20-14.json",
+        "verdict": "converged",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-08",
+        "skip_reason": null
+      },
+      {
+        "file": "worktree-gitdir-tmp-resolve.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-08",
+        "skip_reason": "plan-codex and implement-codex both recorded codex_verdict=converged for this decision; the PR-step residual is a mechanical version-collision bump from 1.20.8 to 1.20.10 plus rebase-inflated false residuals from #92, with no substantive code change since the implement gate"
+      },
+      {
+        "file": "cost-model-subscription-m1.json",
+        "verdict": "converged",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-09",
+        "skip_reason": null
+      },
+      {
+        "file": "workflow-orchestration-m4-parallel-activation.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-09",
+        "skip_reason": "M4 dual-review completed in plan-codex and implement-codex gates (both resolution.converged=true, report absorbed 2 Codex findings F1 F2); dedupe failed only on missing codex_verdict field and plan-parse table-separator false-negative"
+      },
+      {
+        "file": "cost-model-subscription-m2.json",
+        "verdict": "converged",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-11",
+        "skip_reason": null
+      },
+      {
+        "file": "cost-model-subscription-m3.json",
+        "verdict": "converged",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-12",
+        "skip_reason": null
+      },
+      {
+        "file": "workflow-orchestration-live-activation-m1.json",
+        "verdict": "converged",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-14",
+        "skip_reason": null
+      },
+      {
+        "file": "workflow-orchestration-live-activation-m2.json",
+        "verdict": "converged",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-14",
+        "skip_reason": null
+      },
+      {
+        "file": "workflow-orchestration-live-activation-m3.json",
+        "verdict": "divergent",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-15",
+        "skip_reason": null
+      },
+      {
+        "file": "live-activation-m3-pr-codex-absorption.json",
+        "verdict": "divergent",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-21",
+        "skip_reason": null
+      },
+      {
+        "file": "durable-evidence-substrate.json",
+        "verdict": "divergent",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-23",
+        "skip_reason": null
+      },
+      {
+        "file": "multi-session-work-loop-m2.json",
+        "verdict": "divergent",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-07-25",
+        "skip_reason": null
+      },
+      {
+        "file": "multi-session-work-loop.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-08",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "red-test-suite-restore.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-08",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "codex-intent-context.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-09",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "diverse-agent-review-m1.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-09",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "gate-guard-integrity.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-09",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "multi-session-work-loop-m4.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-09",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "context-budget-cleanup.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-10",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "gate-guard-integrity-m1-completion.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-10",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "diverse-agent-review.json",
+        "verdict": "divergent",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": true,
+        "created_at": "2026-08-12",
+        "skip_reason": null
+      },
+      {
+        "file": "codex-intent-context-m1-5.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-13",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "gate-guard-integrity-m2.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-13",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "multi-session-work-loop-m5.json",
+        "verdict": "divergent",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": true,
+        "created_at": "2026-08-13",
+        "skip_reason": null
+      },
+      {
+        "file": "meta-research-command-m1.json",
+        "verdict": "divergent",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": true,
+        "created_at": "2026-08-14",
+        "skip_reason": null
+      },
+      {
+        "file": "setup-gitignore-m1.json",
+        "verdict": "divergent",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": true,
+        "created_at": "2026-08-14",
+        "skip_reason": null
+      },
+      {
+        "file": "diverse-agent-review-m6.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-15",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "gate-guard-integrity-m3.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-16",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "santa-adjudication-m1.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-16",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "santa-loop-materialize-m2.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-16",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "multi-session-work-loop-m6.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-17",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "santa-adjudication-m2.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-17",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "session-process-reclaim-followup.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-17",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "review-loop-bypass.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-18",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "santa-adjudication-m3.json",
+        "verdict": "divergent",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": true,
+        "created_at": "2026-08-18",
+        "skip_reason": null
+      },
+      {
+        "file": "review-loop-bypass-m2.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-19",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "environment-doc-uniformity.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-20",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "santa-evidence-diversity.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-20",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "codex-intent-context-m2.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-21",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "codex-intent-context-m3.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-21",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "diverse-agent-review-m7.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-21",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "multi-session-work-loop-m7.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-21",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "impeccable-detection-contract.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-23",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "codex-disabled-round-invariant.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-25",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "archive-codex-intent-context.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-26",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "diverse-agent-review-m8.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-27",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "multi-session-work-loop-m8.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-27",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "santa-delta-review.json",
+        "verdict": "skipped",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": false,
+        "created_at": "2026-08-27",
+        "skip_reason": "codex_disabled"
+      },
+      {
+        "file": "review-loop-trust.json",
+        "verdict": "divergent",
+        "rounds": 1,
+        "findings_len": null,
+        "force_override": true,
+        "created_at": "2026-08-31",
+        "skip_reason": null
+      }
+    ]
+  },
+  "backlog": {
+    "data_rows": 476,
+    "severity": {
+      "MEDIUM": 145,
+      "HIGH": 164,
+      "LOW": 68,
+      "CRITICAL": 44,
+      "FAIL": 53,
+      "TRIAGE": 1,
+      "CRITICAL×3 → 부분수용·부분기각": 1
+    },
+    "absorbed_markers": 8,
+    "absorb_rate": 0.0168,
+    "cannot_fire_class": 17,
+    "has_status_column": false,
+    "count_definitions": {
+      "strict_date_anchored": 476,
+      "any_pipe_row": 476,
+      "total_lines": 804,
+      "note": "prior meta-research (2026-08-31 harness doc) reports 756 data rows; definition differs. Both recorded, neither adjudicated here.",
+      "at_d1db647_pipe_rows": 790
+    },
+    "reconciliation": {
+      "at_commit": "d1db647",
+      "pipe_rows": 465,
+      "col3_severity_rows": 462,
+      "col3_tally": {
+        "CRITICAL": 43,
+        "FAIL": 51,
+        "HIGH": 157,
+        "LOW": 67,
+        "MEDIUM": 144
+      },
+      "severity_tokens_anywhere_in_file": 1254,
+      "prior_meta_research_claim": {
+        "data_rows": 756,
+        "CRITICAL": 57,
+        "HIGH": 230,
+        "MEDIUM": 294,
+        "LOW": 106,
+        "sum": 687,
+        "FAIL": "not counted"
+      },
+      "discrepancy": "prior claim ~1.5x this measurement and omits the FAIL class; most likely counted severity tokens appearing anywhere in a row body rather than the Severity column. Absorb rate 32/756=4.2% would become 32/465=6.9% under the column-anchored denominator.",
+      "status": "UNADJUDICATED — recorded for downstream review, not resolved here"
+    }
+  },
+  "ci": {
+    "workflow_files": 2,
+    "tests_run_in_ci": 3,
+    "ci_coverage_ratio": 0.00867
+  },
+  "env": {
+    "runtime_unique_mccp": 146,
+    "bypass_class": [
+      "MCCP_ALLOW_CODEX_UNAVAILABLE",
+      "MCCP_AUTO_CHAIN_DISABLE",
+      "MCCP_AUTO_CHAIN_SKIP_PR",
+      "MCCP_BRIEFING_AUTODISABLE_TIER",
+      "MCCP_CODEX_DISABLED",
+      "MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL",
+      "MCCP_DISABLE_VALUES",
+      "MCCP_DISABLED_HOOKS",
+      "MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE",
+      "MCCP_FORCE_PR_WITHOUT_IMPECCABLE",
+      "MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER",
+      "MCCP_PLAN_FANOUT_AUTODISABLE_TIER",
+      "MCCP_PR_SKIP_CODEX_REVIEW",
+      "MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN",
+      "MCCP_SKIP_INTENT_GATE",
+      "MCCP_SKIP_OBSERVE",
+      "MCCP_SKIP_RECEIPT",
+      "MCCP_WORK_PARALLEL_AUTODISABLE_TIER"
+    ],
+    "fail_open_markers": 297,
+    "fail_closed_markers": 216,
+    "catch_swallow_count": 277
+  },
+  "derived": {
+    "test_to_code_ratio": 0.889,
+    "doc_to_code_ratio": 0.395,
+    "converged_share": 0.0972,
+    "divergent_share": 0.1389,
+    "skipped_share": 0.4583,
+    "rounds_one_share": 0.9861,
+    "findings_empty_share": 0
+  },
+  "self_metrics": {
+    "A1": {
+      "status": "forward-only",
+      "value": null,
+      "integrity_ok": true,
+      "invalid_reason": "no live startup producer wired (task_started events not emitted; denominator is not the contracted work-unit census)"
+    },
+    "A2": {
+      "status": "forward-only",
+      "value": null,
+      "integrity_ok": true,
+      "invalid_reason": "no session-bound context sample yet (session-end stamps a value only when the snapshot session_id matches the ending session and the sample is fresh)"
+    },
+    "A3": {
+      "status": "insufficient",
+      "value": null,
+      "integrity_ok": false,
+      "invalid_reason": "CLAUDE.md changed since the A3 measurement (re-run: msw-metrics/cli.js a3 --emit-after)"
+    },
+    "A4": {
+      "status": "computed",
+      "value": 1,
+      "integrity_ok": true,
+      "invalid_reason": null
+    },
+    "B1": {
+      "status": "computed",
+      "value": null,
+      "integrity_ok": true,
+      "invalid_reason": null
+    },
+    "B2": {
+      "status": "forward-only",
+      "value": null,
+      "integrity_ok": true,
+      "invalid_reason": "b2 coverage gate not passed (runtime mutation audit missing or found uncovered writes)"
+    },
+    "B3": {
+      "status": "computed",
+      "value": 0.17094017094017094,
+      "integrity_ok": true,
+      "invalid_reason": null
+    },
+    "C1": {
+      "status": "computed",
+      "value": 0,
+      "integrity_ok": true,
+      "invalid_reason": null
+    },
+    "C2": {
+      "status": "forward-only",
+      "value": null,
+      "integrity_ok": true,
+      "invalid_reason": null
+    },
+    "C3": {
+      "status": "forward-only",
+      "value": null,
+      "integrity_ok": true,
+      "invalid_reason": null
+    }
+  },
+  "self_metrics_summary": {
+    "computed": 4,
+    "total": 10,
+    "integrity_failed": [
+      "A3"
+    ]
+  },
+  "derive": {
+    "correlations": 326,
+    "warnings": 53,
+    "receipt_anchored_to_plan": 20
+  },
+  "evidence_audit": {
+    "state": "incomplete",
+    "comparable": 25,
+    "ok": 25,
+    "false_positive": 0,
+    "unverifiable": 19,
+    "hash_bound": 25,
+    "coverage": 0.5681818181818182,
+    "ledger_count": 44,
+    "ship_receipt_count": 72,
+    "degraded": false,
+    "read_error": false,
+    "parse_failures": 0,
+    "repo_root": "C:/_project/mccp",
+    "exit_code": 4
+  },
+  "review_wall_clock_prior_claim": {
+    "source": "2026-08-31-harness-instability-and-command-bloat.md D절",
+    "measurable_panels": 37,
+    "total_hours": 12.14,
+    "median_minutes": 8,
+    "max_minutes": 427.4,
+    "panel_verdicts": {
+      "converged": 5,
+      "divergent": 31
+    },
+    "single_pass_bypassed_of_blocked": "16 of 32 (50%)",
+    "note": "not independently re-measured in this dataset"
+  },
+  "test_suite_run": {
+    "harness": "PowerShell + $LASTEXITCODE. The first harness was defective — Start-Process left ExitCode blank, so `-eq 0` folded false and all 346 files reported FAIL. Corrected after validating on 3 files. Recorded because it is the same failure class this repo carries 49 of.",
+    "executed": 346,
+    "total": 346,
+    "coverage": 1,
+    "pass": 345,
+    "fail": 1,
+    "failures": [
+      {
+        "file": "plugins\\mccp\\scripts\\derive\\tests\\mccp-fixture.test.js",
+        "runs": 1,
+        "results": [
+          "FAIL"
+        ]
+      }
+    ],
+    "duration": {
+      "total_minutes": 151.1,
+      "median_s": 0.8,
+      "p90_s": 44.5,
+      "max_s": 1399.1
+    },
+    "slowest": [
+      {
+        "file": "plugins\\mccp\\scripts\\receipt\\tests\\intent-gate-fields.test.js",
+        "seconds": 1399.1
+      },
+      {
+        "file": "plugins\\mccp\\scripts\\receipt\\tests\\review-single-pass-fields.test.js",
+        "seconds": 659.4
+      },
+      {
+        "file": "plugins\\mccp\\scripts\\receipt\\tests\\impeccable-skipped.test.js",
+        "seconds": 572.7
+      },
+      {
+        "file": "plugins\\mccp\\scripts\\lib\\tests\\santa-seal.test.js",
+        "seconds": 502.4
+      },
+      {
+        "file": "plugins\\mccp\\scripts\\receipt\\tests\\santa-review-gate.test.js",
+        "seconds": 468.7
+      },
+      {
+        "file": "plugins\\mccp\\scripts\\receipt\\tests\\design-grounding-fields.test.js",
+        "seconds": 353.3
+      },
+      {
+        "file": "plugins\\mccp\\scripts\\receipt\\tests\\merged-verify-fields.test.js",
+        "seconds": 347.4
+      },
+      {
+        "file": "plugins\\mccp\\scripts\\lib\\renderer\\tests\\index-outer-fail-open.test.js",
+        "seconds": 331.9
+      }
+    ],
+    "ci_shard_implication": "SUPERSEDED by timing_reliability. The earlier claim (longest file sets the floor; 8 files = 51% of total) rests on contaminated durations and must be re-derived on a quiet machine before it can size any CI target.",
+    "status": "complete",
+    "timing_reliability": {
+      "verdict": "UNRELIABLE — do not use these durations to size CI",
+      "why": "The run executed while 6 workflow subagents and other node processes competed for the machine. Re-timing two files on a quieter machine gave 30.2s (recorded 331.9s, 11x) and 246.0s (recorded 353.3s, 1.4x). The contention factor is not uniform, so no single correction factor recovers the true values.",
+      "what_still_holds": "Pass/fail is valid — contention changes wall-clock, not exit codes. 325 pass / 1 fail out of 326 executed stands.",
+      "isolation_probes": [
+        {
+          "probe": "node --test on a trivial file, repo root",
+          "ms": 209
+        },
+        {
+          "probe": "node --test on a trivial file, empty dir",
+          "ms": 207
+        },
+        {
+          "probe": "plain node -e \"1\", repo root",
+          "ms": 114
+        },
+        {
+          "probe": "require('renderer/index')",
+          "ms": 71
+        },
+        {
+          "probe": "renderStatus(null)",
+          "ms": 61
+        }
+      ],
+      "open_finding": "index-outer-fail-open.test.js is 39 lines of pure in-process assertions with no spawn, no sleep, no I/O. Its module loads in 71ms and its first call runs in 61ms, and the node --test harness costs ~209ms — yet the file takes 30.2s even uncontended. That ~100x gap is unexplained and is C3 task 1, not an analysis conclusion.",
+      "contamination_note": "Recorded rather than dropped. A measurement taken under unstated load that is later quoted as fact is the same failure this repo carries 49 of."
+    },
+    "duplicate_runs": 7,
+    "tally_note": "The raw log holds 353 rows for 346 unique files — the resume logic re-ran 7 file(s) across restarts. The SUMMARY line in the log (pass=352) counts rows, not files; this field counts files."
+  }
+}

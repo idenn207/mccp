@@ -1,6 +1,6 @@
 ---
 fix_task_version: 1
-task_fingerprint: diverse-agent-review-m8
+task_fingerprint: release-channel-separation-m1
 gate_id: stop-review-loop
 decision_id: release-channel-separation-m1
 created_at: 2026-09-01T07:21:30.159Z
@@ -10,6 +10,7 @@ verdict: codex_divergent
 escalate: true
 originating_receipts:
   - .claude/receipts/mccp-implement-codex/release-channel-separation-m1.json
+  - .claude/receipts/mccp-pr-codex/release-channel-separation-m1.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -26,6 +27,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 
 ## Originating Decisions
 - .claude/receipts/mccp-implement-codex/release-channel-separation-m1.json
+- .claude/receipts/mccp-pr-codex/release-channel-separation-m1.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/release-channel-separation-m1>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-pr-codex/release-channel-separation-m1>'

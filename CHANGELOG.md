@@ -2,7 +2,63 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.8`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.33.8] — 2026-09-01
+
+> **§3.7**: `1.33.7 → 1.33.8` (**patch** — review-record-linkage PRD의 단일
+> milestone M1이고 PRD 종료 축이 아니다). 이 브랜치의 base(`bacd96a`)는
+> `1.33.1`을 갖지만 origin/main이 그 사이 `1.33.6`까지 발행했으므로 forward-only
+> 규칙대로 그 위로 민다. 4면(plugin.json · html.js page-foot · markdown.js
+> derived 줄 · 이 파일의 `currently` 노트)을 함께 맞췄고 `i18n-surface.test.js`가
+> 재검증한다. **머지 해소 시점과 `/mccp:pr` 진입 직전에 재계산 의무**가 남는다.
+
+### Added
+
+- **review-record-linkage M1 — linkage-baseline-parser (정의 고정 milestone)**:
+  `plan-review/linkage-defs.js`(순수 · dep-free · `require` 0건)가 세 판정 기준을
+  코드로 소유하고, `linkage-audit.js`(read-only · LLM-free · standalone,
+  `evidence-audit.js` 형태 미러)가 그것을 소비해 과거 코퍼스를 동결 보고한다.
+  **쓰기 0건 · 게이트 배선 무접촉**(receipt/write·cli·schema·hash ·
+  plan-review/record·corpus · 게이트 본문 3종 diff 공집합, 기계 확인).
+  - D1 라운드 구조 = `measurement.rounds` 정수 ≥ 1. 5개 후보 중 **오늘 값이 가장
+    낮은**(0/37) 정의를 골랐고, 대조값 5종이 `ROUND_STRUCTURE_CONTROLS`로 코드에
+    상주해 매 실행마다 함께 출력된다(기준 게이밍의 직접 반증).
+  - D2 리뷰 대상 ship = 3값이며 과거 71건은 **전건 `undecidable`**. `plan_hash`
+    71/71 · `meta.command` 상수 71/71 · `resolution.review_verdict` 0/71 · 상류
+    plan receipt는 git에 한 번도 tracked된 적 없음 — 판정 수단이 없다는 관측이지
+    0이 아니다. "패널 레코드가 있으면 리뷰 대상"은 분모를 분자로 정의하므로
+    명시 거부했다.
+  - D3 층간 링크 = **구조적 위치**에서만(receipt `meta.review_record_path` ↔
+    레코드 `measurement.receipt_hash`). 선행 조사가 센 `receipt_hash` 문자열 4건은
+    전수 확인 결과 리뷰어가 그 필드를 논한 finding 본문이었고, 위치 제약이 그
+    오탐을 규칙 하나로 없앤다.
+- `docs/review-record-linkage/frozen-baseline.md` — `--frozen-only` 출력을 **축자
+  동결**하고 그 위에 정의 선택 근거를 적은 앵커 문서. `linkage-frozen-baseline.test.js`가
+  도구를 실제로 spawn해 바이트 비교하므로 동결이 산문이 아니다.
+
+### Changed
+
+- `.claude/prds/review-record-linkage.prd.md` — **M2 `rounds-channel`을 `dropped`로
+  판정**했다. `env-contract-integrity M3`(origin/main v1.33.6)가 그 outcome을 이미
+  출시했음을 기계 확인했다: `write.js`가 round ledger에서 `resolution.rounds`를
+  파생하고(gate 무관), 증분 채널이 둘 실재하며(`codex-invoke.js` · `plan-review/cli.js`),
+  세 게이트 본문이 전부 round 정책을 seal한다. 이 PRD 자신의 M1 게이트가
+  `resolution.rounds: 3`을 봉인한 것이 end-to-end 실증이다. PRD 작성 시점의 실측은
+  정직했고(이 워크트리의 `write.js:395`는 여전히 리터럴 `rounds: 1`), 바뀐 것은
+  upstream이다. **MVP는 M1 단독**이 된다.
+
+### Notes
+
+- 동결은 스냅샷이 아니라 **파티션**이다. `--frozen-only`는 핀 고정 ref(`647dfec` —
+  origin/main 도달 가능 + ship 71/71 선행, 기계 확인) 하나로 값이 정해지는 것만
+  방출하고 `post_baseline`·전역 `undated`는 `--json` 전용이다. 전역 `undated`를
+  동결 블록에 넣으면 경계 밖 파일 하나가 동결 바이트를 움직인다 — test가 그
+  불변성을 직접 단언한다.
+- plan 게이트는 패널 3라운드 후 §3.15 단일통과(`deferred_to_prd_completion`)로
+  종결했다. `resolution.review_verdict`는 **`divergent` 그대로 봉인**돼 cross-gate
+  dedupe가 열리지 않으므로 `/mccp:pr`에서 PR-Codex가 반드시 발화한다. 미해소
+  blocking 5건은 backlog에 기계 적재됐다.
 
 ## [1.33.1] — 2026-08-26
 

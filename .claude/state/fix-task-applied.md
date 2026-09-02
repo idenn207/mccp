@@ -1,15 +1,16 @@
 ---
 fix_task_version: 1
-task_fingerprint: impeccable-detection-contract-m5
+task_fingerprint: diverse-agent-review-m8
 gate_id: stop-review-loop
-decision_id: diverse-agent-review-m8
-created_at: 2026-08-27T00:53:10.365Z
-expires_at: 2026-09-03T00:53:10.365Z
+decision_id: review-record-linkage
+created_at: 2026-09-01T07:04:02.481Z
+expires_at: 2026-09-08T07:04:02.481Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-plan-codex/diverse-agent-review-m8.json
+  - .claude/receipts/mccp-plan-codex/review-record-linkage.json
+  - .claude/receipts/mccp-implement-codex/review-record-linkage.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -25,7 +26,8 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- .claude/receipts/mccp-plan-codex/diverse-agent-review-m8.json
+- .claude/receipts/mccp-plan-codex/review-record-linkage.json
+- .claude/receipts/mccp-implement-codex/review-record-linkage.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-plan-codex/diverse-agent-review-m8>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/review-record-linkage>'

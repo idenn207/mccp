@@ -333,12 +333,39 @@ no-rehash 불변식이 이를 금지하며 `head_sha`는 `e33a2be` 그대로다.
 (receipt는 `e33a2be`에 봉인됐고 그 뒤 `9091831`·`4f4720a`·`df5e52e`가 착지했다). 그리고
 `validate-cmd.js:788`의 stale-head 분기는 `:813`의 `pr_codex_force_override`보다 **먼저**
 평가되므로 봉인된 audited override로는 풀리지 않는다 — 이 decision slug의 재-ship은 막힌
-상태다. PR #168은 이미 열려 있어 머지 경로 자체에는 영향이 없으나, 재-ship이 필요해지면
-새 decision slug가 필요하다.
+상태다. PR #168은 **이미 머지됐다**(`2bf60ad` ∈ `origin/main`, 2026-09-01T08:59Z) — 앞선
+santa-loop 라운드에서 이 자리에 "아직 열려 있다"고 적은 것은 세션 초 `gh` 응답에 근거한
+오기였고 실측으로 정정한다. 머지 경로 자체에는 영향이 없으나, 재-ship이 필요해지면 새
+decision slug가 필요하다.
 
 **재발 방지** — ship receipt가 봉인된 뒤에는 브랜치 이력을 재작성하지 않는다. receipt가
 `head_sha`를 결속하고 ship gate가 audited override보다 **먼저** 그 결속을 검사하므로,
 재작성은 되돌릴 수 없는 결손을 만든다. 유출 redaction이 필요하면 봉인 **전에** 수행한다.
+
+## 경로 유출 — HEAD에서 흡수, 이력은 잔존 (santa-loop R2 HIGH 흡수)
+
+R2의 bundled 레인이 이 사이클이 계정명 포함 홈 경로를 **순증**으로 실었음을 측정으로 보였고,
+그 측정을 재현했다: `git grep -l "Users/Administrator" 647dfec` = **2파일**, `HEAD` = **4파일**.
+순증 2건은 `.claude/reviews/plan-review-release-channel-separation.md`(인용된 증거 셀 3곳)와
+`.claude/state/findings/release-channel-separation.jsonl`(`cited_path` 1곳)이고,
+`git check-ignore`는 넷 중 어느 것도 무시하지 않는다.
+
+**탐지가 실패한 이유가 핵심이다.** plan Task 11의 유일한 기계 검사는 **보고서 한 파일만**
+grep하므로 0건을 보고하며 통과했다 — L2 security 패널이 backlog `57a9c7db`·`f08c78ac`로
+사전에 예측한 그대로다. 즉 게이트가 뚫린 것이 아니라, 게이트가 애초에 그 파일들을 보지 않았다.
+
+**흡수** — 두 파일의 해당 문자열을 `<HOME>` 토큰으로 치환했다(실측 4건 → 0건, JSONL 17행
+유효 유지). 형제 파일 `plan-review-…-m1.md:16`이 이미 받은 처리와 동형이다.
+
+**닫히지 않은 것 둘.** (1) PR #168이 이미 머지됐으므로(`2bf60ad` ∈ `origin/main`) **공개
+이력에는 그대로 남는다**. 이력 재작성은 처방이 아니다 — 그 행위가 위 Evidence Durability의
+도달성 HIGH를 만든 원인이고, §3.12가 ship receipt 봉인 후 금지한다. (2) 재발 방지는 grep
+확대가 아니라 **생성물 writer의 write 시점 마스킹**이어야 한다: 유출이 착지한 두 파일은 사람이
+쓴 것이 아니라 리뷰 기록 writer와 findings 원장 writer의 산출물이므로, 저자 규율을 요구하는
+방식으로는 닫히지 않는다. 두 축 모두 backlog가 소유한다.
+
+선재 2건(`.claude/notes/santa-loop-materialize-m1-implement-codex.md` ·
+`plugins/mccp/scripts/lib/santa/ledger.js`)은 `647dfec`에도 존재하므로 이 마일스톤 밖이다.
 
 ## Next Steps
 

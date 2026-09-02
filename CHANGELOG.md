@@ -2,7 +2,91 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.34.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.34.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.34.2] — 2026-09-02
+
+> **§3.7**: `1.34.1 → 1.34.2` (**patch** — review-record-linkage PRD의 단일
+> milestone M1이고 PRD 종료 축이 아니다). 이 번호는 **두 번 재상향됐다**: 브랜치는
+> 1.33.8을 선언했으나 origin/main이 그사이 1.33.7과 1.34.1을 발행했다. §3.7이
+> 머지 해소 시점과 `/mccp:pr` 진입 직전 두 번 재계산을 의무화하는 이유가 이
+> 사이클에서 실측됐다 — 첫 계산은 산출 당시 이미 stale이었다.
+
+### Added
+
+- **review-record-linkage M1 — linkage-baseline-parser (정의 고정 milestone)**:
+  `plan-review/linkage-defs.js`(순수 · dep-free · `require` 0건)가 세 판정 기준을
+  코드로 소유하고, `linkage-audit.js`(read-only · LLM-free · standalone,
+  `evidence-audit.js` 형태 미러)가 그것을 소비해 과거 코퍼스를 동결 보고한다.
+  **쓰기 0건 · 게이트 배선 무접촉**(receipt/write·cli·schema·hash ·
+  plan-review/record·corpus · 게이트 본문 3종 diff 공집합, 기계 확인).
+  - D1 라운드 구조 = `measurement.rounds` 정수 ≥ 1. 5개 후보 중 **오늘 값이 가장
+    낮은**(0/42) 정의를 골랐고, 대조값 5종이 `ROUND_STRUCTURE_CONTROLS`로 코드에
+    상주해 매 실행마다 함께 출력된다(기준 게이밍의 직접 반증).
+  - D2 리뷰 대상 ship = 3값이며 경계 트리의 75건은 **전건 `undecidable`**.
+    `plan_hash` 75/75 · `meta.command` 상수 75/75 · `resolution.review_verdict`
+    0/75 · 상류 plan receipt는 git에 한 번도 tracked된 적 없음 — 판정 수단이
+    없다는 관측이지 0이 아니다. "패널 레코드가 있으면 리뷰 대상"은 분모를 분자로
+    정의하므로 명시 거부했다.
+  - D3 층간 링크 = **구조적 위치**에서만(receipt `meta.review_record_path` ↔
+    레코드 `measurement.receipt_hash`). 양방향 각 0이고 **분모는 `null`**이다
+    (아래 PR-Codex R1 흡수 참조). 그 조인이 파일명 관례라는 사실과 그로 인한
+    구조적 천장(`filename_convention.match` 27/75)을 `linkage.join` ·
+    `join_note`가 매 실행마다 함께 싣는다.
+- **PR-Codex R1 흡수 — 지표 2의 분모가 자격 집합이 됐다(UI2).** 초판은
+  `classifyShipEligibility`로 자격을 판정해 놓고 링크 분모로는 `pre.ships.length`를
+  썼다. 같은 실행이 75건 전건을 `undecidable`로 판정하므로 동결 산출물이
+  `undecidable: 75`와 `denominator: 75`를 나란히 실었고, 읽는 사람이 `0/75`를 유효
+  링크율로 오독할 수밖에 없는 표면이었다. 이제 분자는 **자격 집합 위에서만** 세고
+  분모는 그 크기이며, 집합이 비면 `null`이다 — `0`은 "리뷰 대상이 없다"는 **판정**,
+  `null`은 "판별 수단이 없다"는 **관측**이라는 구분이 D2가 `undecidable`을 0으로
+  접지 않는 것과 같은 형태다(DD2). `linkage.scope` · `linkage.coverage`가 그 사실을
+  기계로 나르고, human render는 비율 대신 `RATE NOT COMPUTABLE`을 인쇄한다.
+  **이 분모는 어느 test도 고정하지 않고 있었다**(실측 `denominator` 단언 0건) —
+  자격 0건·자격 2건 양방향 회귀 test 2건을 추가했다.
+- `docs/review-record-linkage/frozen-baseline.md` — `--frozen-only` 출력을 **축자
+  동결**하고 그 위에 정의 선택 근거를 적은 앵커 문서. `linkage-frozen-baseline.test.js`가
+  도구를 실제로 spawn해 바이트 비교하므로 동결이 산문이 아니다.
+
+### Changed
+
+- `.claude/prds/review-record-linkage.prd.md` — **M2 `rounds-channel`을 `dropped`로
+  판정**했다. `env-contract-integrity M3`가 그 outcome을 이미 출시했음을 기계
+  확인했다: `write.js`가 round ledger에서 `resolution.rounds`를 파생하고(gate 무관),
+  증분 채널이 둘 실재하며(`codex-invoke.js` · `plan-review/cli.js`), 세 게이트
+  본문이 전부 round 정책을 seal한다. 이 PRD 자신의 M1 게이트가
+  `resolution.rounds: 3`을 봉인한 것이 end-to-end 실증이다. **MVP는 M1 단독**이 된다.
+  같은 커밋에서 M2 dropped 주석을 Delivery Milestones 표 **아래로** 옮겼다 — 표
+  중간의 blockquote가 파서 3종(`archive-complete/scan.js` · `renderer/parsers/plan-body.js` ·
+  `goal-detect.js`)을 2행에서 끊어, `archive-complete`가 M3·M4가 pending인 PRD를
+  `archivable: true`로 판정하고 있었다.
+
+### Notes
+
+- **동결은 트리다 — 파티션이 아니다.** 초판은 살아 있는 작업 트리를 자기신고
+  타임스탬프로 pre/post 파티션했고, santa-loop 라운드 0에서 두 리뷰어가 독립적으로
+  그 설계가 자기 주장을 만족하지 못함을 보였다: 경계 커밋이 이 브랜치의 조상이
+  아니라 트리가 달랐고(그 ref의 트리는 ship 75건, 도구는 71건을 셌다), 그 차이가
+  어느 카운터에도 없이 `state: "ok"`로 보고됐다. 이제 멤버십을 고정 SHA의 트리가
+  정한다(`git ls-tree -r` + `git show <ref>:<path>`). 그 결과 병합 드리프트 ·
+  `measurement.recorded_at` 가변성 · `filename_convention` 미스코프가 함께 닫혔다.
+  - 초판이 이 자리에 적었던 "ship 71/71 선행, 기계 확인"은 **삭제했다** — 실측하면
+    그 ref의 트리는 75건이라 거짓이었고, 멤버십이 날짜와 무관해진 지금은 그 문장이
+    참이어야 할 이유도 없다. 경계 ref는 전체 40-hex SHA로 고정했다.
+  - `undated_at_baseline` → `unreadable_at_baseline`. 날짜가 멤버십을 정하지 않으므로
+    "날짜 없음"은 더는 결손이 아니고, 남는 결손은 읽기/파싱 실패뿐이며 그것은
+    건수가 아니라 **파일명으로** 실린다. 코퍼스 전역 `undated`는 개념째 사라졌다 —
+    `--json` 출력에 그 키가 없다.
+  - `--frozen-only`의 `baseline.state`가 이제 blind · read_error · parse_failure를
+    반영한다. 초판은 그 셋을 전역 `state`에만 실어, 코퍼스를 통째로 못 본 실행이
+    `ok` + exit 0 + 전 필드 0인 블록을 내보냈다.
+- plan 게이트는 패널 3라운드 후 §3.15 단일통과(`deferred_to_prd_completion`)로
+  종결했고, `resolution.review_verdict`는 **`divergent` 그대로 봉인**됐다.
+  구현 후 `/mccp:santa-loop`을 2라운드 돌려 라운드 0의 blocking 13건을 전부
+  흡수했다(라운드 1에서 재발 0건). 루프는 `patch_chasing`으로 종료돼
+  `mccp-santa-review` receipt가 `divergent` + `santa_model_degraded: true`
+  (`same_family` — codex 사용량 한도로 리뷰어 B가 opus fallback)로 봉인됐다.
+  라운드 1의 잔여 지적은 이 커밋이 흡수했고 패널은 재발화하지 않았다.
 
 ## [1.34.1] — 2026-09-01
 

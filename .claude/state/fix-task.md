@@ -3,8 +3,8 @@ fix_task_version: 1
 task_fingerprint: review-record-linkage-m1
 gate_id: stop-review-loop
 decision_id: review-record-linkage
-created_at: 2026-09-02T02:50:19.754Z
-expires_at: 2026-09-09T02:50:19.754Z
+created_at: 2026-09-02T06:19:20.075Z
+expires_at: 2026-09-09T06:19:20.075Z
 counter: 1
 verdict: codex_divergent
 escalate: true

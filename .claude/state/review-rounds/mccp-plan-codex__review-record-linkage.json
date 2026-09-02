@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "gate_id": "mccp-plan-codex",
+  "decision_id": "review-record-linkage",
+  "rounds": [
+    {
+      "index": 0,
+      "at": "2026-09-01T06:44:05.916Z",
+      "channel": "panel",
+      "classification": "emitted"
+    },
+    {
+      "index": 1,
+      "at": "2026-09-01T06:54:07.713Z",
+      "channel": "panel",
+      "classification": "emitted"
+    },
+    {
+      "index": 2,
+      "at": "2026-09-01T07:00:33.514Z",
+      "channel": "panel",
+      "classification": "emitted"
+    }
+  ]
+}

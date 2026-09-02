@@ -2,17 +2,15 @@
 state_version: 1
 task_fingerprint: leadtime-observability-m2
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-02T06:33:59.972Z
+updated_at: 2026-09-02T07:01:32.942Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-02T06:33:59.972Z
+last_event_at: 2026-09-02T07:01:32.942Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-09-02T06:04:33.669Z
-escalate_pending: true
-escalate_pending_decision_id: leadtime-observability-m2
 ---
 ## Goal
 leadtime-observability M2 — span-join. 구현 + 검증 + 문서 동결 완료(v1.34.2). commit/PR 대기.
@@ -39,7 +37,7 @@ leadtime-observability M2 — span-join. 구현 + 검증 + 문서 동결 완료(
 
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 version 재계산 필수(main이 1.34.1까지 발행). base 머지 시 M1의 1.33.8 항목도 위로 밀 것.
+PR #173 리뷰 대기. merge 후 worktree cleanup(§3.8) + M3 one-line-consumption 착수.
 
 ## Last Decision
 Phase 2.5.4의 plan 본문 주입이 plan_hash를 어긋내 상류 receipt가 stale이 되자, audited bypass 대신 명령 본문이 스스로 허용하는 대체 위치(.claude/notes/)에 게이트 기록을 뒀다 — plan을 원래 바이트로 복원해 chain이 우회 없이 통과한다. Implement-Codex HIGH 2건은 §3.14대로 R1에서 흡수(증인의 방향별 자격 비대칭 + probe 진리표 명문화).
@@ -51,4 +49,4 @@ Phase 2.5.4의 plan 본문 주입이 plan_hash를 어긋내 상류 receipt가 st
 - plugins/mccp/scripts/lib/tests/ 전체 스위트는 선재적으로 10분 타임아웃(codex spawn 포함) — 영향 범위 스위트만 개별 green
 
 ## Last Updated
-2026-09-02T06:33:59.972Z
+2026-09-02T07:01:32.942Z

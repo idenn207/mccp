@@ -1,7 +1,7 @@
 # Review-Loop Trust — 우산 PRD
 
 > **우산 PRD**. 자체 구현 milestone을 갖지 않는다. 아래 7개 자식 PRD의 **의존 순서**와 **승계 불변식**만 소유하며, 실제 delivery는 각 자식이 한다.
-> 근거: [.claude/_meta/2026-08-12-review-loop-meta-analysis.md](../_meta/2026-08-12-review-loop-meta-analysis.md)(본편) · [.claude/_meta/2026-08-12-prd-decomposition-addendum.md](../_meta/2026-08-12-prd-decomposition-addendum.md)(분해 판정)
+> 근거: [.claude/_meta/2026-08-12-review-loop-meta-analysis.md](../../_meta/2026-08-12-review-loop-meta-analysis.md)(본편) · [.claude/_meta/2026-08-12-prd-decomposition-addendum.md](../../_meta/2026-08-12-prd-decomposition-addendum.md)(분해 판정)
 
 ## Problem
 
@@ -10,7 +10,7 @@ mccp의 리뷰 루프가 **수렴하지 않고**(문서상 3라운드, 실사용
 ## Evidence
 
 - **계측 부재 (실측)** — `.claude/receipts/` 전수 149건: `findings[]` 총합 **3** · `resolution.rejected` 총합 **0** · duration 필드 보유 **0** · round 분포 `{1:148, 2:1}`. 기각 판정이 corpus 전체에 1건도 없어 오탐율이 **반증 불가능**하다.
-- **santa-loop은 계측 대상 밖** — `GATE_IDS`에 없어 receipt 미발행. [santa-loop.md](../../plugins/mccp/commands/santa-loop.md) 199행 전부 산문, 백킹 스크립트 0. 라운드 카운터도 상태 파일도 없다.
+- **santa-loop은 계측 대상 밖** — `GATE_IDS`에 없어 receipt 미발행. [santa-loop.md](../../../plugins/mccp/commands/santa-loop.md) 199행 전부 산문, 백킹 스크립트 0. 라운드 카운터도 상태 파일도 없다.
 - **patch-chasing 실측** ([#124](https://github.com/idenn207/mccp/issues/124)) — 6라운드 실행에서 라운드 4~6의 지적이 **전부 직전 라운드가 넣은 코드**를 겨눔. 원 산출물 불변식은 라운드 3에서 이미 전부 강제됐음.
 - **증거 격리 실패 실측** ([#125](https://github.com/idenn207/mccp/issues/125)) — 동일모델 4인스턴스 × 12라운드가 못 찾은 plan⟷PRD 정합 위반을 Reviewer B가 1라운드에 포착. 승인은 모델 차이가 아니라 **저장소 재탐색** 때문.
 - **문헌 — 오탐 수치는 타당** — 중립 조건 LLM 리뷰어 precision 29.0~42.4%, 즉 오탐 58~71% ([arXiv:2603.18740](https://arxiv.org/html/2603.18740v1)). 운영자 체감 80%는 문헌 범위 안.
@@ -38,6 +38,8 @@ We'll know we're right when **santa 라운드별 제기/흡수/기각 건수가 
 
 > 1순위를 "라운드 수 감소"가 아니라 **계측 가능성**으로 둔 이유: 고정 캡은 수렴시킨 게 아니라 잘라낸 것이라, 캡만 강제하면 목표는 정의상 달성되면서 실제 개선 여부는 여전히 알 수 없다. 계측이 먼저 서야 나머지 지표가 다음 사이클부터 실측으로 전환된다(본편 §1).
 
+**종료 시점 실측(2026-08-27) — 1순위 지표는 기전 완비 · 관측 0건으로 닫힌다.** 계측 기전은 전부 착지했다: `mccp-santa-review`가 `plugins/mccp/scripts/receipt/schema.js:35`의 `GATE_IDS`에 등재됐고, aggregate 4필드도 같은 파일 1055-1075행에서 검증되며, `resolution.review_source === "multi-agent"` 강제까지 붙어 있다(289행). **그러나 이 저장소의 두 체크아웃 어디에도 `mccp-santa-review` receipt와 `.claude/state/santa-loop/` 원장이 없다** — 따라서 "원장 행 수 ≥ 제기 finding 수"를 대조할 표본이 0이고, 2·3순위 지표가 기대던 baseline도 아직 확정되지 않았다. 둘 다 gitignored이므로 이것이 "한 번도 안 돌았다"의 증명은 **아니다**. 이 상태는 아래 Risks 표 마지막 행("계측을 붙였는데 corpus가 안 쌓여…")이 예견한 것이고, 그 mitigation(forward-only 누적)에 따라 **다음 santa 실행이 첫 관측**이 된다. 우산이 아카이브되면 이 사실을 들고 있는 활성 문서가 사라지므로 `.claude/plans/codex-findings-backlog.md`에 HIGH로 이중 등재했다.
+
 ## Scope
 
 **MVP** — 이 우산은 **코드를 만들지 않는다**. 자식 PRD 7개의 의존 순서와 승계 불변식을 확정해, 병렬 착수가 파일 충돌 없이 성립하도록 보장하는 것이 전부다.
@@ -57,13 +59,13 @@ We'll know we're right when **santa 라운드별 제기/흡수/기각 건수가 
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | **P0 santa-loop 실체화** | santa-loop 결정 로직이 산문에서 모듈로 내려와 캡이 기계적으로 강제되고, 후속 축들이 서로 다른 파일을 소유하게 됨. **자식 PRD 2 milestone 전부 complete** — 단 배송은 **브랜치 착지까지**이고 브랜치 `santa-loop-materialize`가 main에 아직 머지되지 않았다(PR 미생성 → 후속 사이클). 소유권 경계는 [ownership.md](../../docs/santa-loop/ownership.md)로 확정돼 P1·P2·P3는 지금 병렬 착수 가능 | complete | [santa-loop-materialize.prd.md](archived/santa-loop-materialize.prd.md) |
-| 2 | **P1 판정 계약** (#124) | severity 축·판정 원장·종료 조건이 생겨 루프가 실제로 수렴하고 기각이 보존됨 | pending | [santa-adjudication.prd.md](santa-adjudication.prd.md) |
-| 3 | **P2 증거 다양성** (#125) | 리뷰어 최소 1명이 오케스트레이터 번들 대신 디스크를 직접 재유도해 오류 상관이 끊김 | pending | [santa-evidence-diversity.prd.md](santa-evidence-diversity.prd.md) |
-| 4 | **P3 델타 리뷰** | 리뷰 스코프가 라운드마다 축소되어 인지 부하와 소요가 줄되, 이전 판정은 리뷰어에게 노출되지 않음 | pending | [santa-delta-review.prd.md](santa-delta-review.prd.md) |
-| 5 | **H1 setup gitignore** | 신규 설치자가 mccp 런타임 산출물 무시 규칙을 재발명하지 않아도 됨. main 머지 완료 — PR #136 (`295b628`, v1.25.0) | complete | [setup-gitignore.prd.md](archived/setup-gitignore.prd.md) |
-| 6 | **H2 메타 조사 커맨드** | 조사·판정 결과가 `_meta/`에 재현 가능한 절차로 누적됨. main 머지 완료 — PR #135 (`0ed9b1c`, v1.24.0) | complete | [meta-research-command.prd.md](archived/meta-research-command.prd.md) |
-| 7 | **H3 세션 프로세스 회수** | 세션 종료 시 detached 자식 프로세스가 남지 않음 | pending | [session-process-reclaim.prd.md](session-process-reclaim.prd.md) |
+| 1 | **P0 santa-loop 실체화** | santa-loop 결정 로직이 산문에서 모듈로 내려와 캡이 기계적으로 강제되고, 후속 축들이 서로 다른 파일을 소유하게 됨. **자식 PRD 2 milestone 전부 complete**. main 머지 완료 — PR #139 (`ee9f8e0`, M1 v1.25.2 · M2 v1.26.0). 소유권 경계는 [ownership.md](../../../docs/santa-loop/ownership.md)로 확정돼 P1·P2·P3는 지금 병렬 착수 가능 | complete | [santa-loop-materialize.prd.md](santa-loop-materialize.prd.md) |
+| 2 | **P1 판정 계약** (#124) | severity 축·판정 원장·종료 조건이 생겨 루프가 실제로 수렴하고 기각이 보존됨. main 머지 완료 — PR #141 (`767a2c7`, v1.26.2) · PR #143 (`614eb79`, v1.27.1) · PR #145 (`22937aa`, v1.28.0) | complete | [santa-adjudication.prd.md](santa-adjudication.prd.md) |
+| 3 | **P2 증거 다양성** (#125) | 리뷰어 최소 1명이 오케스트레이터 번들 대신 디스크를 직접 재유도해 오류 상관이 끊김. main 머지 완료 — PR #150 (`c1115c3`, v1.30.0 — M1~M3 일괄) | complete | [santa-evidence-diversity.prd.md](santa-evidence-diversity.prd.md) |
+| 4 | **P3 델타 리뷰** | 리뷰 스코프가 라운드마다 축소되어 인지 부하와 소요가 줄되, 이전 판정은 리뷰어에게 노출되지 않음. main 머지 완료 — PR #160 (`83ed37a`, v1.32.7 — M1~M3 일괄) | complete | [santa-delta-review.prd.md](santa-delta-review.prd.md) |
+| 5 | **H1 setup gitignore** | 신규 설치자가 mccp 런타임 산출물 무시 규칙을 재발명하지 않아도 됨. main 머지 완료 — PR #136 (`295b628`, v1.25.0) | complete | [setup-gitignore.prd.md](setup-gitignore.prd.md) |
+| 6 | **H2 메타 조사 커맨드** | 조사·판정 결과가 `_meta/`에 재현 가능한 절차로 누적됨. main 머지 완료 — PR #135 (`0ed9b1c`, v1.24.0) | complete | [meta-research-command.prd.md](meta-research-command.prd.md) |
+| 7 | **H3 세션 프로세스 회수** | 세션 종료 시 detached 자식 프로세스가 남지 않음. main 머지 완료 — PR #142 (`1384cbe`, v1.27.0 — M1+M2 출하 + M3 잔여 정리) | complete | [session-process-reclaim.prd.md](session-process-reclaim.prd.md) |
 
 ### 착수 순서 (구속력 있음)
 
@@ -88,9 +90,9 @@ P1·P2·P3 전부 종료 후: work chain 재배열(항목 1.5) — 별도 PRD
 
 ## Open Questions
 
-- [ ] **우산 PRD의 대시보드 가시성** — 이 PRD는 자체 plan을 갖지 않는다. [archive-complete C1](../../CLAUDE.md)대로 PRD discovery는 *활성 plan의 `source_prd`*로만 이뤄지므로 **이 우산은 대시보드에 안 잡힌다**. 자식 7개는 각자 plan을 가지므로 정상 노출된다. 선택지: (a) 미노출 감수 — 우산은 사람이 읽는 문서, (b) 우산에 명목상 plan 1개를 물림. 현재 **(a)로 진행**하되 자식이 하나도 안 보이는 상황이 오면 재검토.
+- [x] **우산 PRD의 대시보드 가시성** — 이 PRD는 자체 plan을 갖지 않는다. [archive-complete C1](../../../CLAUDE.md)대로 PRD discovery는 *활성 plan의 `source_prd`*로만 이뤄지므로 **이 우산은 대시보드에 안 잡힌다**. 자식 7개는 각자 plan을 가지므로 정상 노출된다. **결정(2026-08-27): (a) 미노출 감수로 확정한다.** 재검토 조건이었던 "자식이 하나도 안 보이는 상황"은 도래하지 않았고, 자식 7개는 전부 complete로 종료해 각자의 이력을 남겼다. 실측 두 가지를 근거로 남긴다 — (1) 마감 plan(`review-loop-trust-closeout.plan.md`)이 물려 있는 동안에는 `scan.js`가 `plans=1`로 잡으므로 우산이 **일시적으로 노출**되고, 그 plan은 아카이브와 **같은 원자 단위**로 함께 이동한다(`apply.js` C2 — 실측: `archivable=true · reason=all 7 milestone rows complete/dropped · plans=1`). (2) 아카이브 후에도 `plugins/mccp/scripts/lib/renderer/sections/milestone-history.js:218`이 `.claude/prds/archived/`를 **직접** 스캔하므로 완료 이력은 타임라인에 남는다 — 미노출은 *활성* 표면에 한한다.
 - [x] **archive 시점** — 자식 7개가 전부 complete가 돼도 우산은 `Delivery Milestones` 행이 전부 complete여야 archivable(C3 등식). **결정(2026-08-16): 수동 동기화한다.** 우산 행의 `Plan` 셀이 plan이 아니라 자식 PRD를 가리키므로(`plan: null`) `/mccp:archive-complete`의 drift 스캐너에는 대조할 ledger/receipt 증거원이 없고, `/mccp:milestone-close`도 stamp할 plan body와 `in-progress` 행이 없어 구조적으로 적용 불가다(실측: `goal-detect` → `reason=not-started`). 따라서 자식 PRD가 complete/archived로 전이할 때 우산 행을 **사람이** 같은 사이클에 정정한다 — 이 규칙의 첫 적용이 P0·H1·H2 3행이다.
-- [ ] **santa 원장의 git-tracked 여부** — P0가 결정. 권장은 원장 본문 gitignored + 집계값만 receipt에 봉인(부록 §6).
+- [x] **santa 원장의 git-tracked 여부** — P0가 결정. 권장은 원장 본문 gitignored + 집계값만 receipt에 봉인(부록 §6). **결정(2026-08-27): P0 M1이 권고안 그대로 착지했다.** 원장 본문은 `.gitignore:53`의 `.claude/state/santa-loop/`로 gitignored이고(같은 파일 48행 주석이 UI9 근거를 명시), 집계는 `plugins/mccp/scripts/lib/santa/seal.js:51`이 `mccp-santa-review` receipt로 봉인한다 — `meta.santa_rounds` · `santa_entries` · `santa_cap` · `santa_blind_records` 4필드가 `plugins/mccp/scripts/receipt/schema.js:1055-1075`에서 검증된다. 즉 원장은 로컬 진단물, 감사 대조 corpus는 receipt다.
 
 ## Risks
 

@@ -138,13 +138,34 @@ test('header absent / file absent keep their existing contracts', () => {
 
   const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-backlog-none-'));
   const r2 = scanBacklog(empty);
-  assert.deepEqual(r2, { ok: true, count: 0, items: [], invalid_count: 0, degraded: false, error: null });
+  assert.deepEqual(r2, {
+    ok: true, count: 0, items: [], invalid_count: 0, degraded: false, error: null,
+    closed_count: 0, open_count: 0, resolved_count: 0,
+  });
 });
 
-test('the return shape is unchanged so consumers need no edit', () => {
+// M10 widened this shape by three keys. What the original test protected —
+// that consumers reading the existing keys need no edit — is still asserted:
+// the six original keys keep their names and their meanings, and with no
+// disposition ledger present open_count simply equals count.
+test('the original return shape is intact and the M10 fields are additive', () => {
   const r = scanBacklog(makeRepo(['| 2026-08-25 | LOW | a.md | fine |']));
   assert.deepEqual(
     Object.keys(r).sort(),
-    ['count', 'degraded', 'error', 'invalid_count', 'items', 'ok']
+    ['closed_count', 'count', 'degraded', 'error', 'invalid_count', 'items',
+      'ok', 'open_count', 'resolved_count']
   );
+  assert.equal(r.count, 1);
+  assert.equal(r.closed_count, 0);
+  assert.equal(r.open_count, r.count);
+  assert.equal(r.resolved_count, 0);
+});
+
+test('a missing disposition ledger leaves every row open rather than guessing', () => {
+  const r = scanBacklog(makeRepo([
+    '| 2026-08-25 | LOW | a.md | one |',
+    '| 2026-08-25 | HIGH | a.md | two |',
+  ]));
+  assert.equal(r.open_count, 2);
+  assert.equal(r.closed_count, 0);
 });

@@ -47,6 +47,24 @@ seal must degrade to the pre-v1.32.6 behaviour (env only) rather than stop the g
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-policy.js" seal 1>&2
+
+# env-contract-integrity M3 — seal the ROUND policy in the same breath, and for
+# the same reason. PR-Codex runs two processes down (`codex-runner.js` spawns
+# `codex-invoke.js`), and this PRD's own evidence is an instance of "the value
+# never reached the process", so the cap and the ledger key travel on disk.
+#
+# The ledger is per (gate, decision): `mccp-pr-codex__<slug>` starts empty even
+# when the plan and implement gates have spent theirs, so a first `/mccp:pr` is
+# never refused. A SECOND `/mccp:pr` for the same decision is — deliberately
+# (DD6). Recovery is `MCCP_GATE_ROUND_CAP` (max 3) or the audited
+# `MCCP_PR_SKIP_CODEX_REVIEW`, and `codex-runner.js` names both when it refuses.
+#
+# `seal` exits 0 even on failure: a failed seal degrades to pre-M3 behaviour
+# (no enforcement) rather than stopping the gate, and says so loudly.
+ROUND_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decision \
+  --command mccp:pr --args "$ARGUMENTS")
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/review-rounds/cli.js" seal \
+  --gate mccp-pr-codex --decision "$ROUND_SLUG" 1>&2
 ```
 
 **Never unset, override, or re-export `MCCP_CODEX_DISABLED` anywhere in this
@@ -668,6 +686,14 @@ Repeat up to `$ROUND_CAP` — the value the shared oracle produced above, NOT th
 the single-pass toggle is set or when Codex is disabled, and quoting the raw env here
 would tell the reader a cap the gate is not actually using. Beyond the cap,
 annotate `Open Questions: DIVERGENT_UNRESOLVED` and proceed.
+
+> **이 캡은 v1.33.4부터 산문이 아니다.** 초과 호출은 `codex-invoke.js`가 spawn 직전에
+> 거부하고 `round-cap-reached`를 돌려주므로 Codex는 발화하지 않는다. 다만 이 게이트는
+> plan·prp-implement와 달리 그 분류를 `divergent`로 매핑하지 **않는다** — 그렇게 하려면
+> ship-gate proof 경로(`codex_outcome` enum과 verdict map)를 바꿔야 하고 그것은 이
+> milestone의 Files to Change 밖이다. 여기서는 `codex-runner.js`가 HALT하되 "예산을 다
+> 썼다"를 장애와 구별해 말하고 두 복구 경로를 제시한다. 원장은 게이트별이라 첫 `/mccp:pr`은
+> 절대 걸리지 않는다.
 
 If no `ACCEPT_NOW` HIGH/CRITICAL remains, stop at R1.
 
@@ -1441,17 +1467,44 @@ fi
 # `finding_id`)이고, `GATE_DECISION_ID`는 그 finding을 낳은 **차단 판정**의
 # decision slug다. 셋 다 채울 수 없으면 기록하지 않는다 — 조인 키 없는 귀속
 # 레코드는 어느 소비처도 읽을 수 없다(local review H3).
-FINDING_ID=""          # 예: 3f2a1c9e… (해소한 finding이 없으면 빈 값 유지)
-GATE_DECISION_ID=""    # 예: multi-session-work-loop-m7
+# M9 Task 4 — the two ids are DERIVED, not typed. They used to be empty string
+# literals with prose asking the model to fill them in, so the guard below was
+# shut on every run that ever executed and `with_remediation_pr` sat at a
+# structural 0. A value a human has to remember to paste is not a producer.
+#
+# The query answers "which findings did THIS work unit resolve that carry no
+# remediation_pr yet". It is read-only and returns an empty list rather than
+# failing when there is nothing to attribute — 0 rows is the normal answer, and
+# for a PR that fixed no previously-recorded finding it is the CORRECT one.
+ATTRIB_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/state/cli.js" findings-unattributed \
+  --work-unit "$DECISION_SLUG" --json 2>/dev/null || echo '{"findings":[]}')
 
-if [ -n "$FINDING_ID" ] && [ -n "$GATE_DECISION_ID" ] && [ -n "$PR_NUMBER" ]; then
-  node "${CLAUDE_PLUGIN_ROOT}/scripts/state/cli.js" msw-event emit \
-    --kind remediation_pr \
-    --work-unit "$DECISION_SLUG" \
-    --pr-number "$PR_NUMBER" \
-    --finding-id "$FINDING_ID" \
-    --gate-decision-id "$GATE_DECISION_ID" \
-    || echo "[mccp:msw-c2] remediation_pr emit failed (fail-open; attribution coverage undercounts)" 1>&2
+# One emit per finding. `--finding-id` is the join key `derive/sources/findings.js`
+# counts distinct on; without it the record binds to nothing and the metric stays
+# at 0 no matter how many rows are written.
+if [ -n "$PR_NUMBER" ]; then
+  echo "$ATTRIB_JSON" | node -e '
+    let s = "";
+    process.stdin.on("data", (d) => { s += d; });
+    process.stdin.on("end", () => {
+      let rows = [];
+      try { rows = (JSON.parse(s).findings) || []; } catch (_) {}
+      rows.forEach((r) => {
+        if (r && r.finding_id && r.gate_decision_id) {
+          process.stdout.write(r.finding_id + " " + r.gate_decision_id + "\n");
+        }
+      });
+    });
+  ' | while read -r FINDING_ID GATE_DECISION_ID; do
+    [ -n "$FINDING_ID" ] && [ -n "$GATE_DECISION_ID" ] || continue
+    node "${CLAUDE_PLUGIN_ROOT}/scripts/state/cli.js" msw-event emit \
+      --kind remediation_pr \
+      --work-unit "$DECISION_SLUG" \
+      --pr-number "$PR_NUMBER" \
+      --finding-id "$FINDING_ID" \
+      --gate-decision-id "$GATE_DECISION_ID" \
+      || echo "[mccp:msw-c2] remediation_pr emit failed for $FINDING_ID (fail-open; attribution coverage undercounts)" 1>&2
+  done
 fi
 ```
 

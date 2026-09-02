@@ -1,0 +1,75 @@
+{
+  "schema_version": "v1",
+  "id": "2026-08-27T05-06-06-685Z__686411b9",
+  "created_at": "2026-08-27T05:06:06.685Z",
+  "session_id": "245ccc24-0234-4f1b-a309-f308f6271dea",
+  "scan_hash": "b412d0cb953e22d2faf046852af1f100666aa663e029ee49571e401a8590fd98",
+  "status_corrections": [],
+  "archives": [
+    {
+      "prd": ".claude/prds/impeccable-detection-contract.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/impeccable-detection-contract.prd.md",
+          "to": ".claude/prds/archived/impeccable-detection-contract.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/impeccable-detection-contract-m1.plan.md",
+          "to": ".claude/PRPs/plans/archived/impeccable-detection-contract-m1.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/impeccable-detection-contract-m2.plan.md",
+          "to": ".claude/PRPs/plans/archived/impeccable-detection-contract-m2.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/impeccable-detection-contract-m3.plan.md",
+          "to": ".claude/PRPs/plans/archived/impeccable-detection-contract-m3.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/impeccable-detection-contract-m4.plan.md",
+          "to": ".claude/PRPs/plans/archived/impeccable-detection-contract-m4.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/impeccable-detection-contract-m5.plan.md",
+          "to": ".claude/PRPs/plans/archived/impeccable-detection-contract-m5.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/impeccable-detection-contract-m6.plan.md",
+          "to": ".claude/PRPs/plans/archived/impeccable-detection-contract-m6.plan.md"
+        }
+      ]
+    },
+    {
+      "prd": ".claude/prds/workflow-orchestration-live-activation.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/workflow-orchestration-live-activation.prd.md",
+          "to": ".claude/prds/archived/workflow-orchestration-live-activation.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/workflow-orchestration-live-activation-m1.plan.md",
+          "to": ".claude/PRPs/plans/archived/workflow-orchestration-live-activation-m1.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/workflow-orchestration-live-activation-m2.plan.md",
+          "to": ".claude/PRPs/plans/archived/workflow-orchestration-live-activation-m2.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/workflow-orchestration-live-activation-m3.plan.md",
+          "to": ".claude/PRPs/plans/archived/workflow-orchestration-live-activation-m3.plan.md"
+        }
+      ]
+    }
+  ]
+}

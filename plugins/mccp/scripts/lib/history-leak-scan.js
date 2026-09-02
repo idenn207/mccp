@@ -77,6 +77,24 @@ const DEFAULT_ALLOWLIST = Object.freeze([
     path: '.claude/plans/codex-findings-backlog.md',
     contains: 'digest 22877fd2',
   },
+  // Fourth entry, same category as the second — and the reason it needs its own
+  // row rather than a broader key. The M9 snapshot artifact is a derived capture
+  // of the backlog, so it carries a VERBATIM copy of the entry-2 line into a
+  // second path. Entry 2 exempts that line where it is authored; this scanner
+  // deliberately evaluates the allowlist PER PATH (see the scan loop below), so
+  // the copy is reported — which is correct behaviour for laundering in general
+  // and merely path-scoped here, because the bytes are the same already-sanctioned
+  // bug report about what this detector matches.
+  //
+  // The marker is entry 2's marker, on purpose. Keying the exemption to the same
+  // unique citation means the two rows cannot drift apart: if that finding is
+  // ever rewritten, BOTH exemptions lapse together and the gate fires again.
+  // Keying on the old-repo name instead would exempt every future line in a
+  // snapshot that happens to mention it, and snapshots capture arbitrary content.
+  {
+    path: 'docs/multi-session-work-loop/m9-after.json',
+    contains: 'history-leak-scan.js:90',
+  },
 ]);
 
 function git(args, cwd) {

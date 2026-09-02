@@ -38,6 +38,10 @@ Codex 이중 검사를 도입한 이유가 3번이었는데, 검사가 찾은 �
 - **리뷰 다양성의 조용한 감소**: 교차 게이트 dedupe는 양쪽 게이트가 수렴하면 PR 단계 재검토를 생략한다. 비용상 합리적이지만 **리뷰어 수를 정확히 그만큼 줄인다**. 그 손실은 측정된 적 없다. 판정 순서·위치만 바꿔도 코드 평가 정확도가 10%p 이상 변동한다는 보고가 있는 상황에서, 단일 판정을 enum으로 고정하고 재샘플링 없이 신뢰하고 있다.
 - **오류 누적의 통로**: 자동 게이트는 실패 카운터가 상한에 도달하면 사람에게 넘기며 **통과시킨다**. 장기 작업에서 초기 오류가 자동회귀적으로 누적된다는 연구에 비추면, 이 "통과"는 오류를 하류로 흘리는 통로다. 어느 단계가 원인이었는지 역추적할 기록도 없다.
 - **자기 참조 과적합**: 파이프라인의 산출물이 거의 전부 파이프라인 자신의 코드다. "게이트가 통과했다"가 "산출물이 좋다"의 대리 지표로 굳는 순환이 이미 작동 중이다. 벤치마크 정렬 연구는 이 함정에서 성능이 극적으로 과장될 수 있음을 보고한다(동일 모델이 한 벤치마크 74.4% → 다른 벤치마크 11.0%).
+- **발견은 기계화됐고 종결은 기계화되지 않았다 (2026-09-01 실측 — M10 신설 근거)**: M7이 findings 레지스트리를, `review-loop-bypass` M2가 backlog 자동 적재를 만들면서 **finding을 남기는 일**은 사람 손을 떠났다. 그 반대편은 그대로다. `origin/main`(`046178d`) 기준 정본 스캐너 실측 — backlog `scanBacklog` **936건**(`invalid_count:0`), findings 레지스트리 `readAll` **178건이 전부 `state:'open'`**(CRITICAL 14 · HIGH 69 · MEDIUM 80 · LOW 15), **종결 이벤트 0건**. 그 결과 C1은 `computed 0/178`이고 `deferred_count`·`downgraded_count`·`rejected_count`도 전부 0이다 — 이연이나 기각으로 빠져나간 것조차 아니라 **아무 처분도 받지 않은 채 열려 있다**.
+  > **이 수치가 M10 plan 본문의 인용치(backlog 801 · findings open 74 · C1 `5/93`)와 다른 것은 오류가 아니라 분모가 다른 것이다.** plan은 미머지 M9 브랜치에서 작성됐고 그 트리에는 `main`이 그 뒤 받은 작업 단위 shard(`diverse-agent-review` · `-m11` · `env-contract-integrity` · `review-loop-trust` 계열)가 없었다. M10은 `origin/main` 기준 브랜치에서 진행하므로(UI2) **착수 분모는 위 실측이며 plan의 인용치가 아니다**. 실제 착수 상한은 plan이 추정한 것보다 크다(개별 판정 대상 CRITICAL/HIGH가 37건이 아니라 **83건**). 이 차이를 plan에 맞춰 줄이지 않는 이유는 봉인된 plan을 고쳐 재리뷰하지 않는다는 규약(CLAUDE.md §3.16)과, 분모를 작게 잡는 것이 곧 이 PRD가 측정하려는 drift이기 때문이다.
+  >
+  > **C1을 소급 종결로 올리지 않는다.** `computeC1`(`msw-metrics/index.js`)은 work-unit 귀속 검사 **없이** `closedFindings / allFindings`를 계산하므로, M10이 다른 작업 단위의 finding을 닫으면 C1의 동결된 분자 정의("같은 작업 단위 안에서 해소된 수")가 아닌 것이 분자로 계상된다. 저장소는 이미 같은 판단을 코드에 적어 두었다(`state/cli.js` — 사이드카에 쓰고 레지스트리에 쓰지 않는 이유가 "`closure_type` enum을 지나 C1을 오염시키기 때문"). **C1이 낮은 것은 계측 결함이 아니라 사실이다** — findings가 자기 작업 단위 안에서 해소되지 않았다는 뜻이고, M10은 그 진실을 지우는 대신 레지스트리 밖에서 처분한다.
 
 ### 측정 가능성의 한계 (정직한 기록)
 
@@ -152,11 +156,13 @@ We believe **세션 스코프 상태 모델 + 증거 기반 진행 판정 + 검�
 | 1 | **측정 설계** | 무엇을 어떤 분모로 세고, 무엇을 결함으로 볼지, 관측 창은 얼마이고 표본은 층화 후 검정력이 나오는지가 문서로 확정된다. 대형 작업 코호트가 사전 지정된다. **산출물은 설계 문서와 라벨 규약뿐 — 동작 코드 변경 0, 데이터 수집 0.**(릴리스 메타데이터인 `plugin.json` version bump와 footer 동기는 CLAUDE.md §3.7 의무이므로 면제 대상이 아니다) 이 단계가 끝나야 이후 측정이 반박 가능해진다 | complete | [multi-session-work-loop-m1.plan.md](../plans/multi-session-work-loop-m1.plan.md) |
 | 2 | **관측 계측** | M1 설계대로 지표가 산출되어 대시보드에 추세와 함께 표시된다. **코드 변경이 있음을 명시한다** — 착수·종료, 인계 항목, 충돌, finding 생성·해소 이벤트가 현재 존재하지 않으므로 전향적으로 기록해야 한다. 소급 감사는 M1이 인정한 범위로 제한한다. 추가 LLM 호출은 도입하지 않는다. **진입 조건**: M1의 [measurement-feasibility.md](../../docs/multi-session-work-loop/measurement-feasibility.md)가 PROVISIONAL이므로, `durable-evidence-substrate` chore와 ledger 승인 술어 정정이 착지한 뒤 **re-freeze되기 전에는 착수하지 않는다**(부패한 corpus 기준 baseline이 고정되는 것을 막는다) | complete | [multi-session-work-loop-m2.plan.md](../plans/multi-session-work-loop-m2.plan.md) |
 | 3 | **증거 충돌 소거** | 게이트 증거가 세션 간에 덮이지 않는다. 같은 작업을 두 세션이 잡는 상황이 구조적으로 불가능해진다. **상태 진실원 이전(M5)보다 앞선다** — 덮어쓰기가 가능한 상태로 진실원을 옮기면 손상이 그대로 이전되기 때문 (B2) | complete | [multi-session-work-loop-m3.plan.md](../plans/multi-session-work-loop-m3.plan.md) |
-| 4 | **예산 감축** | 작업 시작 전 소진되던 컨텍스트가 절반 이하로 줄고, 토글 분모가 정직해져 축 감축의 출발점이 확정된다. **감축 전 "반드시 남겨야 할 최소 지시 계약"을 먼저 확정**하고, 감축 후 지시 준수 회귀 검사를 통과해야 인정된다 (A3 · B3 분모) | complete (인정 조건 미충족: B1·C1 회귀 검사 산출 불가) | [multi-session-work-loop-m4.plan.md](../plans/multi-session-work-loop-m4.plan.md) |
-| 5 | **상태 진실원 이전** | 세션 기록이 되돌릴 수 없는 요약이 아니라 질의 가능한 이력이 된다. 요약 문서는 파생 표시물로 강등된다. 크래시·재개 세션의 지연·재생 기록이 이미 닫힌 작업을 되살리지 못한다 (A4) | complete (인정 조건 미충족: A4 전환 미확인) | [multi-session-work-loop-m5.plan.md](../plans/multi-session-work-loop-m5.plan.md) |
+| 4 | **예산 감축** | 작업 시작 전 소진되던 컨텍스트가 절반 이하로 줄고, 토글 분모가 정직해져 축 감축의 출발점이 확정된다. **감축 전 "반드시 남겨야 할 최소 지시 계약"을 먼저 확정**하고, 감축 후 지시 준수 회귀 검사를 통과해야 인정된다 (A3 · B3 분모) (인정 조건 개정: [순서의 근거 §M4](#순서의-근거) — 전후 회귀 검사는 반증 불가로 판정되어 포기) | complete | [multi-session-work-loop-m4.plan.md](../plans/multi-session-work-loop-m4.plan.md) |
+| 5 | **상태 진실원 이전** | 세션 기록이 되돌릴 수 없는 요약이 아니라 질의 가능한 이력이 된다. 요약 문서는 파생 표시물로 강등된다. 크래시·재개 세션의 지연·재생 기록이 이미 닫힌 작업을 되살리지 못한다 (A4) (인정 조건 충족 확인: [순서의 근거 §M5](#순서의-근거)) | complete | [multi-session-work-loop-m5.plan.md](../plans/multi-session-work-loop-m5.plan.md) |
 | 6 | **진행 상태 기계 판정** | milestone 완료 여부를 사람이 아니라 증거가 판정한다. drift 교정 명령이 상시 필요하지 않게 된다 (B1) | complete | [multi-session-work-loop-m6.plan.md](../plans/multi-session-work-loop-m6.plan.md) |
 | 7 | **세션 경계 피드백 루프** | 한 세션에서 발견된 실수가 다음 세션의 작업 목록에 자동으로 올라온다. 발견과 해소 사이의 유실이 사라진다 (C1) | complete | [multi-session-work-loop-m7.plan.md](../plans/multi-session-work-loop-m7.plan.md) |
-| 8 | **측정 부채 상환** | M2가 배송했으나 프로덕션에서 산출하지 못하는 지표의 producer가 실제로 배선된다 — A1 완주 신호(`task_completed` KIND 발화), A2 세션 바인딩 컨텍스트, B3 numerator 커버리지(`TOGGLE_DEFAULTS` ↔ 분모 정합), C2·C3 귀속 스캐폴드(`gate_decision_id → finding_id → remediation_pr`). **지표가 `computed`로 뒤집히는 것이 완료 판정이며, 코드 존재는 판정 근거가 아니다**(M3 B2 coverage gate 선례). 이 milestone이 끝나야 A1 기반 반증 조건 판정이 기계화되고, 축 은퇴(M4에서 이연)의 근거 데이터가 생긴다 | complete (인정 조건 부분 미충족: B3만 computed 전환 · A1은 이 PR 이후 전환 · A2는 상류 텔레메트리 부재) | [multi-session-work-loop-m8.plan.md](../plans/multi-session-work-loop-m8.plan.md) |
+| 8 | **측정 부채 상환** | M2가 배송했으나 프로덕션에서 산출하지 못하는 지표의 producer가 실제로 배선된다 — A1 완주 신호(`task_completed` KIND 발화), A2 세션 바인딩 컨텍스트, B3 numerator 커버리지(`TOGGLE_DEFAULTS` ↔ 분모 정합), C2·C3 귀속 스캐폴드(`gate_decision_id → finding_id → remediation_pr`). **지표가 `computed`로 뒤집히는 것이 완료 판정이며, 코드 존재는 판정 근거가 아니다**(M3 B2 coverage gate 선례). 이 milestone이 끝나야 A1 기반 반증 조건 판정이 기계화되고, 축 은퇴(M4에서 이연)의 근거 데이터가 생긴다 (인정 조건 부분 충족 + A2 개정: [순서의 근거 §M8](#순서의-근거)) | complete | [multi-session-work-loop-m8.plan.md](../plans/multi-session-work-loop-m8.plan.md) |
+| 9 | **아카이브 조건 충족** | M4·M5·M8이 status 안에 남긴 미충족 인정 조건이 **닫히거나, 닫을 수 없음이 증거와 함께 개정된다**. A3 측정 경로가 크래시 대신 정직한 미산출을 내고 재측정값이 실제 값으로 갱신되며, C1 패널 경로에 종결 producer가 생기고, C2/C3 귀속이 산문이 아니라 기계적 파생으로 발화한다. A2는 대체 producer를 먼저 조사하고 불가로 확인되면 그 사실이 실측 문서로 남는다. **완료 판정은 행별 선행 술어를 `m9-coverage-gate.js`가 통과시키고 PRD status가 정본화되는 것**이며, `/mccp:archive-complete`의 라이브 1회 완주는 그 판정의 **검증**이다(정의로 두면 §3.11 C3와 순환한다 — 개정 근거는 `## 순서의 근거` §M9). 미충족 원문이 `## 순서의 근거`로 이전돼 소실되지 않았음이 함께 확인된다 (완료 판정 개정: [순서의 근거 §M9](#순서의-근거) — 라이브 완주는 정의가 아니라 검증) (최종 검토 범위: [m9-final-review-scope.md](../../docs/multi-session-work-loop/m9-final-review-scope.md) — UI7·UI8) | complete | [multi-session-work-loop-m9.plan.md](../plans/multi-session-work-loop-m9.plan.md) |
+| 10 | **부채 정산과 종결 경로** | 세 원장(backlog · findings 레지스트리 · fix-task)에 쌓인 미종결 부채가 단일 인벤토리로 정규화되어 **분모가 봉인**되고, 그 전건이 별도 append-only 원장에 처분(`fixed`·`obsolete`·`superseded`·`duplicate`·`rejected`·`deferred`)을 갖는다. still-valid CRITICAL/HIGH가 수정되고, 선언과 실제가 어긋난 축은 수정되거나 선언이 실제에 맞게 정정된다. **C1을 올리지 않는다** — `computeC1`이 work-unit 귀속 검사 없이 계산하므로 다른 작업 단위의 finding을 닫으면 정의상 분자가 아닌 것이 분자로 계상된다(무결성 규칙 C1이 지목한 조작 경로). 처분은 레지스트리 **밖** 사이드카에 쌓이고 `findings-registry.js`는 무변경이다. 완료 판정은 `m10-coverage-gate.js`의 exit 0이며 그 술어는 봉인 결속 · 처분 완전성 · 의도 위반 레코드 · flip 교차검증 4축이다. **판정하지 않는 것**: 무엇이 still-valid인지의 판단 자체 — 전건 `deferred`로 밀어도 gate는 통과하므로, 마찰은 차단이 아니라 **대량 이연을 보이게 만드는 것**이다 | complete | [multi-session-work-loop-m10.plan.md](../plans/multi-session-work-loop-m10.plan.md) |
 
 ### 순서의 근거
 
@@ -164,8 +170,82 @@ We believe **세션 스코프 상태 모델 + 증거 기반 진행 판정 + 검�
 - **M3이 M5보다 앞선 이유** — 증거 덮어쓰기가 가능한 상태에서 진실원을 새 모델로 옮기면 손상된 데이터가 그대로 이전된다. 보호가 먼저다.
 - **M4가 중간인 이유** — 컨텍스트 예산은 M5~M7이 모두 소비하는 자원이라 먼저 회복하면 뒤가 쉬워진다. 다만 어느 토글이 미사용인지는 M2 데이터가 있어야 알 수 있어 M2 뒤에 둔다.
 - **M8이 뒤에 붙었으나 논리적으로는 M2의 미완 부분인 이유 (2026-08-09 신설)** — M8은 새 기능이 아니라 **M2가 배송했다고 선언한 것의 실제 배선**이다. 뒤에 붙인 것은 M2를 되돌리면 감사 이력이 흐려지기 때문이고(위 Evidence 정정), 앞으로 당기지 않은 것은 M4의 A3 축이 M8과 독립이기 때문이다. **다만 M5·M6·M7은 각각 A4·B1·C1 producer를 전제하므로 M8보다 뒤에 오거나 M8과 함께 진행되어야 한다** — 그러지 않으면 M3·M4가 그랬듯 각 milestone이 자기 producer를 즉석에서 떠안는 패턴이 반복된다.
-- **M4의 status가 순정 `complete`가 아닌 이유 (2026-08-09)** — 8개 Task는 전부 ship됐고 A3는 **42.2% 감축**(45,646 → 26,377 토큰 · CLAUDE.md 성분만 보면 45.3%), B3 분모는 104 → 94로 정직화됐다. 구현 시점 측정은 49.3%(CLAUDE.md 50.2%)였는데, ship 직전 `origin/main` rebase로 main이 그 사이 CLAUDE.md에 더한 8,819B(§3.13 신설 등)를 승계하면서 낮아졌다 — baseline은 `a3-baseline.json`에 `7fe48d9`로 봉인돼 있고 emitter가 재봉인을 거부하므로(감축 주장을 반증 가능하게 유지) `after`만 재측정했다. 그러나 이 milestone의 인정 조건에 명시된 **"감축 전후 B1·C1 회귀 검사 통과"는 두 지표의 producer가 없어 산출 자체가 불가능**하다(`computeB1`은 무조건 `insufficient`, C1은 live findings source 미배선 — M8 소관). M4는 그 대신 **도달성·보존만** 기계 검증했다(relocation ledger + 4중 lint). 즉 "옮긴 지시를 여전히 찾아갈 수 있고 어느 절도 조용히 사라지지 않았다"까지이며, **"옮긴 뒤에도 준수율이 유지되는가"는 미측정**이다. status를 순정 `complete`로 적으면 충족하지 못한 조건을 충족한 것으로 기록하게 되므로 — 그것이 이 PRD가 B1로 측정하려는 drift 그 자체다 — 미충족을 status 안에 남긴다. 이 표기는 §3.11 C4 기준상 non-canonical이라 `/mccp:archive-complete`가 보수적으로 아카이브를 거부하며, 그 거부는 의도된 것이다.
+- **M4의 status가 순정 `complete`가 아닌 이유 (2026-08-09)** — 8개 Task는 전부 ship됐고 A3는 **42.2% 감축**(45,646 → 26,377 토큰 · CLAUDE.md 성분만 보면 45.3%), B3 분모는 104 → 94로 정직화됐다. 구현 시점 측정은 49.3%(CLAUDE.md 50.2%)였는데, ship 직전 `origin/main` rebase로 main이 그 사이 CLAUDE.md에 더한 8,819B(§3.13 신설 등)를 승계하면서 낮아졌다 — baseline은 `a3-baseline.json`에 `7fe48d9`로 봉인돼 있고 emitter가 재봉인을 거부하므로(감축 주장을 반증 가능하게 유지) `after`만 재측정했다. 그러나 이 milestone의 인정 조건에 명시된 **"감축 전후 B1·C1 회귀 검사 통과"는 두 지표의 producer가 없어 산출 자체가 불가능**하다(`computeB1`은 무조건 `insufficient`, C1은 live findings source 미배선 — M8 소관). M4는 그 대신 **도달성·보존만** 기계 검증했다(relocation ledger + 4중 lint). 즉 "옮긴 지시를 여전히 찾아갈 수 있고 어느 절도 조용히 사라지지 않았다"까지이며, **"옮긴 뒤에도 준수율이 유지되는가"는 미측정**이다. status를 순정 `complete`로 적으면 충족하지 못한 조건을 충족한 것으로 기록하게 되므로 — 그것이 이 PRD가 B1로 측정하려는 drift 그 자체다 — 미충족을 status 안에 남긴다. 이 표기는 §3.11 C4 기준상 non-canonical이라 `/mccp:archive-complete`가 보수적으로 아카이브를 거부했고, **그 거부는 2026-08-09부터 2026-08-27까지 의도된 것이었다**. M9가 그 조건을 판정해 (아래 「M4의 인정 조건은 충족이 아니라 포기다」) status를 정본화했으므로 이 문장은 더 이상 현재 상태를 서술하지 않는다 — 삭제하지 않고 경위로 남긴다. 왜 한동안 거부됐는지가 사라지면 그 거부가 실수였는지 설계였는지 사후에 구분할 수 없다.
 - **M4에서 축 은퇴가 이연된 이유 (2026-08-09)** — 은퇴 기준은 "non-default 사용 이력 0인 것만"인데, B3 producer가 아티팩트를 남긴 적이 없어 **모든 토글의 사용 이력이 0**이다. 이 상태에서 기준을 적용하면 전량이 은퇴 대상으로 판정되므로 기준이 아무것도 걸러내지 못한다. 사용 이력은 forward-only라 **작업이 아니라 경과 시간**을 요구한다. 따라서 M4는 분모 정직화(제외 분류표·동작 분기 수 계수)까지만 하고, 실제 은퇴는 M8이 producer를 고쳐 이력이 쌓인 뒤의 별도 주기로 넘긴다. "측정 없는 감축 금지"를 A3에 적용한 논리를 B3에 동일 적용한 것이다.
+- **M10이 M9 뒤인 이유, 그리고 이 PRD의 아카이브를 의도적으로 다시 여는 이유 (2026-09-01 신설)** — M10은 새 축이 아니라 **앞선 아홉 milestone이 남긴 부채의 처분**이다. 앞에 둘 수 없었던 것은 처분할 대상이 앞 단계들이 발견을 기계화한 **결과**로 쌓이기 때문이고(M7 레지스트리 · `review-loop-bypass` M2 자동 적재), 뒤로 더 미룰 수 없는 것은 그 축적이 한 달에 700행 규모로 진행 중이기 때문이다(위 Evidence). **이 행을 신설하면 §3.11 C3의 `rawRowCount === complete + dropped` 등식이 다시 거짓이 되어 `/mccp:archive-complete`가 이 PRD의 아카이브를 거부한다 — 그것은 부작용이 아니라 의도다.** M9가 "아카이브 조건 충족"으로 닫은 것은 M1~M9의 인정 조건이지 이 PRD가 만든 부채가 아니었고, 부채를 남긴 채 표면에서 내리는 것은 이 PRD가 B1로 측정하려는 drift와 같은 동작이다. 아카이브는 M10이 끝난 뒤 사람이 한 번 수행한다.
+  > **완료 판정이 지표를 미는 행위와 같아지지 않게 한다.** 초안은 Acceptance에 "C1 numerator 증가"를 넣었으나 삭제했다 — 그 판정 아래에서는 M10을 통과시키는 가장 싼 경로가 *부채를 처분하는 것*이 아니라 *C1이 세는 필드를 쓰는 것*이 된다. 그래서 완료 술어는 지표가 아니라 **처분의 완전성**(봉인 분모의 전건이 처분 줄을 갖는가)이고, 그 술어가 보증하지 않는 것은 M10 plan의 `## 이 milestone의 술어가 보증하지 않는 것`이 소유한다.
+
+- **M5의 인정 조건은 충족됐다 (2026-08-27, M9 Task 7)** — 원 조건은 "A4 전환 확인"이었고,
+  M5 ship 시점에는 저널 경계 표본이 없어 미확인으로 남겼다. 현재 `derive`는 A4를
+  `computed 0/42`(boundary 2)로 산출한다. 값이 0인 것은 조건이 아니다 — 조건은 **산출**이었고
+  그것은 성립한다. 낮은 값은 낮은 값대로 기록한다.
+
+- **M8의 인정 조건은 부분 충족 + 개정이다 (2026-08-27, M9 Task 7)** — 원 조건은 "지표가
+  `computed`로 뒤집히는 것"이었다. A1(`computed 1/1`)과 B3(`computed 20/117`)는 충족했다.
+  **A2는 충족하지 못했고, 앞으로도 이 환경에서는 충족할 수 없다.** 후보 4종을 실측 조사한
+  결과가 [a2-producer-investigation.md](../../docs/multi-session-work-loop/a2-producer-investigation.md)에
+  있고, 결론은 plan이 예상한 것과 다르다 — 분자(토큰 회계)는 transcript로 접근 가능한데
+  **분모(컨텍스트 창 크기)를 하네스도 저장소도 노출하지 않는다**. 저장소의 유일한 창 크기
+  상수(200,000)를 적용하면 최근 세션 5건 전부에서 잔여가 음수(-21% ~ -195%)로 나온다.
+  따라서 A2는 `forward-only`로 남기고, 해제 조건은 (a) mccp statusline이 등록된 환경에서
+  세션이 종료되거나 (b) 하네스가 창 크기를 hook payload로 노출하는 것 — 둘 다 이 저장소
+  밖이다. C2/C3 귀속은 스캐폴드가 목적이었고 `with_gate_decision=30`으로 좌변이 실제로
+  섰다. 우변(`with_remediation_pr`)은 0인데, 그것은 배선 부재가 아니라 **아직 이 저장소가
+  종결한 finding 중 `gate_decision_id`를 가진 것이 없기 때문**이다(M7 코호트는 그 stamp
+  이전 기록이다). 파생 경로는 M9 Task 4가 배선했다.
+
+- **M4의 인정 조건은 충족이 아니라 포기다 (2026-08-27, M9 Task 7d)** — 원 조건은 "감축
+  **전후** B1·C1 회귀 검사 통과"다. 감축 시점(2026-08-09)에 두 producer가 없었으므로
+  "before"가 존재하지 않고 소급 생성도 불가능하다. 여기서 전방 증거가 과거 주장을 검증한다고
+  말하면 그것은 거짓이다 — "지금 B1 drift가 0이다"는 "그때 감축이 품질을 유지했다"를
+  함의하지 않는다. 그러므로 이 조건은 **반증 불가로 판정되어 포기한다.** 대체하는 것은 같은
+  명제의 약한 판본이 아니라 **다른 명제**다: 현재 시점의 B1과 C1이 산출된다는 **전방 관측**
+  이며, 과거 감축의 품질에 대해 아무것도 말하지 않는다. 실측은 B1 `computed 1/29` ·
+  C1 `computed 5/66`이고(2026-08-31 재측정), B1의 **유일한 drift는 M9 자기 행**이다 —
+  선언이 ship receipt보다 앞선 상태를 B1이 잡은 것이다. 해소 조건은 "PR 착지"가 아니라
+  [b1-status-drift.js](../../plugins/mccp/scripts/lib/msw-metrics/b1-status-drift.js)의 판정
+  사다리가 요구하는 것 — `.claude/receipts/mccp-pr-codex/multi-session-work-loop-m9.json`이
+  **git-tracked로 HEAD에서 도달 가능**해져 `shipped`가 되는 것이다. plan만 default branch에
+  닿고 그 receipt가 없으면 판정은 `not-shipped`에서 **`undetermined`(evidence-gap)로 강등될
+  뿐**이라 분자에서 빠지는 것이지 해소된 것이 아니다. 두 경로를 구분하지 않으면 "머지했는데
+  왜 아직"이라는 오독이 남는다.
+  두 지표는 forward-only라 값이 계속 움직이므로 여기 적은 것은 주장이 아니라 **측정 시점이
+  붙은 관측**이다. 앞서 이 자리에 적혀 있던 `computed 0/26`은 status flip 직전 값이라,
+  M9가 스스로 만든 drift를 세지 않은 채 "건강하다"를 뒷받침하고 있었다.
+  A3는 이 환경에 tiktoken이 없어 여전히 미산출(`insufficient`)이고,
+  M9 Task 1a는 그것을 **크래시 대신 정직한 미산출**로 만드는 데까지다. 감축 비율의 신선도
+  정책은 [a3-freshness-policy.md](../../docs/multi-session-work-loop/a3-freshness-policy.md)가
+  소유한다 — 봉인된 측정 쌍 밖의 재성장은 감축 비율에 접어 넣지 않는다.
+
+- **M9의 완료 판정을 개정한다 (2026-08-27, M9 구현 시점 deviation)** — 원 Outcome은 M9의
+  완료를 "`/mccp:archive-complete`가 `archivable:true`로 판정하고 실제 이동을 1회 완주하는
+  것"으로 **정의**했다. 그 정의는 닫히지 않는다: §3.11 C3의 `rawRowCount === complete +
+  dropped`는 M9 행이 `in-progress`인 한 거짓이므로 archive-complete가 거부하고, M9 행은
+  archive-complete가 성공해야 flip할 수 있다. 실측이 그 순환을 확인했다 —
+  `scan.js --json`이 `rawRowCount:9 complete:5 inProgress:1 nonCanonical:3`을 보고했고,
+  M4·M5·M8만 정본화해도 `inProgress:1`(M9 자기 행)이 남는다. 그래서 완료 판정을 **"행별
+  선행 술어 통과 ∧ PRD status 정본화"**로 옮기고, archive-complete 라이브 완주는 그 판정의
+  **검증**으로 격하한다. 술어는 산문이 아니라
+  [m9-coverage-gate.js](../../plugins/mccp/scripts/lib/msw-metrics/m9-coverage-gate.js)가
+  소유하며 exit code로 답한다. 이 개정은 조건을 **낮추지 않는다** — 라이브 완주 요구는
+  그대로 남고, 다만 그것이 완료의 *정의*가 아니라 *검증*이 된다.
+
+- **UI7·UI8이 기록만 되고 이행되지 않았다 (2026-08-31, PR #164 PR-Codex R1 F1 대응)** —
+  M9 plan의 `## User Intent` 표는 "최종 검토는 사람이 한다"(UI7)와 "검토 대상에 자식 PRD를
+  포함한다"(UI8)를 기록했으나, plan 본문 Task·Acceptance·notes·report 어디에도 이행이 없는
+  채 M9 행이 정본화됐다. PR-Codex가 이를 HIGH로 지목했고 **기각하지 않았다**. 해소는 status를
+  되돌리는 것이 아니라 **검토 자료를 만들어 미이행을 실제로 닫는 것**으로 했다 —
+  [m9-final-review-scope.md](../../docs/multi-session-work-loop/m9-final-review-scope.md)가
+  부모/자식 관계를 실측하고(선언된 자식 PRD는 **0건**이며 유일한 참조는 선례 인용이다),
+  활성 PRD 전량을 후보로 열거해 각각의 처분을 적으며, 최종 검토자가 판단해야 할 3가지를
+  명시한다. 그 문서는 **"사람이 검토했다"고 주장하지 않는다** — UI7이 말한 검토는 PR #164의
+  승인이고 문서는 그 앞에 놓이는 자료다.
+  왜 게이트가 이것을 못 잡았는가도 함께 적는다: M9의 plan 게이트는
+  `MCCP_PLAN_REVIEW=multi-agent`로 돌아 intent 축이 패널 carve-out으로 skip됐다(§3.13.2가
+  이미 문서화한 구멍). 즉 UI7·UI8은 adjudication을 한 번도 받지 않았다. 이는 M9의 실수이면서
+  동시에 그 구멍의 실측 사례이며, `diverse-agent-review` PRD의 후속 축이 인용할 근거다.
+  **기계화하지 않은 것을 기계화했다고 적지 않는다** — `m9-coverage-gate.js`는 여전히 이 두
+  제약을 술어로 검사하지 않는다.
 
 ## Open Questions
 

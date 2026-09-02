@@ -375,10 +375,17 @@ function coReportDetails(metrics) {
   const c2 = metrics.C2;
   if (c2 && c2.attribution_coverage) {
     const ac = c2.attribution_coverage;
+    // A3(:253)와 B3(:267)는 `typeof === 'number'`로 거르는데 이 줄만 `|| 0`이었다.
+    // 두 결함이 겹친다: 비숫자가 그대로 문자열 연결에 실려 `[object Object]건`이
+    // 될 수 있고, 더 나쁘게는 **미측정이 "0건"으로 보고된다** — 이 저장소가 다른
+    // 축에서 반복해 세운 "판독 불가는 0이 아니라 모름"의 반대다. 없는 값은 `?`로
+    // 낸다. 0건과 모름을 같은 글자로 쓰면 대시보드를 읽는 사람이 귀속이 비었다는
+    // 사실과 귀속을 못 읽었다는 사실을 구분할 수 없다.
+    const count = (v) => (typeof v === 'number' && Number.isFinite(v) ? String(v) : '?');
     add('C2', [
-      'C2/C3 귀속: 차단 판정 연결 ' + (ac.with_gate_decision || 0) + '건',
-      '해소 PR 연결 ' + (ac.with_remediation_pr || 0) + '건',
-      'finding 전수 ' + (ac.findings_total || 0) + '건',
+      'C2/C3 귀속: 차단 판정 연결 ' + count(ac.with_gate_decision) + '건',
+      '해소 PR 연결 ' + count(ac.with_remediation_pr) + '건',
+      'finding 전수 ' + count(ac.findings_total) + '건',
       '값 미산출 유지 (label-protocol 계약)',
     ].join(' · '));
   }
@@ -590,4 +597,7 @@ function renderMswMetrics(model, formatUtils, options) {
   };
 }
 
-module.exports = { renderMswMetrics };
+// `coReportDetails` is exported for the M10 regression that pins the C2 count
+// guard. Rendering the whole section to reach one line would make the assertion
+// depend on unrelated layout.
+module.exports = { renderMswMetrics, coReportDetails };

@@ -1,8 +1,8 @@
 ---
 fix_task_version: 1
-task_fingerprint: review-record-linkage-m1
+task_fingerprint: ci-full-suite-m1
 gate_id: stop-review-loop
-decision_id: review-record-linkage
+decision_id: ci-full-suite
 created_at: 2026-09-02T06:19:20.075Z
 expires_at: 2026-09-09T06:19:20.075Z
 counter: 1
@@ -10,6 +10,7 @@ verdict: codex_divergent
 escalate: true
 originating_receipts:
   - .claude/receipts/mccp-pr-codex/review-record-linkage.json
+  - .claude/receipts/mccp-pr-codex/ci-full-suite.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -26,6 +27,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 
 ## Originating Decisions
 - .claude/receipts/mccp-pr-codex/review-record-linkage.json
+- .claude/receipts/mccp-pr-codex/ci-full-suite.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-pr-codex/review-record-linkage>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-pr-codex/ci-full-suite>'

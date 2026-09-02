@@ -1,52 +1,50 @@
 ---
 state_version: 1
-task_fingerprint: leadtime-observability-m2
+task_fingerprint: ci-full-suite-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-02T07:01:32.942Z
+updated_at: 2026-09-02T07:20:08.104Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-02T07:01:32.942Z
+last_event_at: 2026-09-02T07:20:08.104Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-09-02T06:04:33.669Z
+dep_check_at: 2026-09-02T07:04:50.184Z
+escalate_pending: true
+escalate_pending_decision_id: ci-full-suite
 ---
 ## Goal
-leadtime-observability M2 — span-join. 구현 + 검증 + 문서 동결 완료(v1.34.2). commit/PR 대기.
+ci-full-suite (우산 PRD harness-wiring-integrity 자식 C3) M1 — 전수 진입점 + baseline. 구현·측정 완료, PR 대기.
 
 ## Plan
-- PRD: `.claude/prds/leadtime-observability.prd.md` — M1·M2 **complete**, M3 one-line-consumption 남음
-- plan: `.claude/plans/leadtime-observability-m2.plan.md` — 봉인됨(plan_hash). **편집 금지**
-- 산출물: `plugins/mccp/scripts/lib/leadtime.js` + `lib/tests/leadtime.test.js` + `docs/leadtime-observability/post-panel-span.md` (+ M1 문서 `panel-span.md` 동결 재생성)
-- 구현 보고: `.claude/PRPs/reports/leadtime-observability-m2-report.md` · 노트: `.claude/notes/leadtime-observability-m2.md`
-- version 1.34.2 (patch — PRD 내 단일 milestone). origin/main이 1.34.1까지 발행해 §3.7 forward-only로 재상향. 4면 동기 완료. branch leadtime-observability
+- PRD: `.claude/prds/ci-full-suite.prd.md` — MVP는 축 A 하나(측정 가능)
+- plan: `.claude/plans/ci-full-suite-m1.plan.md` — 봉인됨 `sha256:dab39c61…`. **편집하면 receipt가 stale이 된다**
+- receipt: `.claude/receipts/mccp-plan-codex/ci-full-suite-m1.json` (verdict=divergent, single-pass 봉인)
+- 리뷰 기록: `.claude/reviews/plan-review-ci-full-suite-m1.md` (직전 slug `ci-full-suite` 기록도 별도 보존)
+- branch ci-full-suite · plugin.json version bump 없음 (우산 결정 1: `.github/`는 배포 표면 밖)
 
 ## Done
-- M2 구현 — `leadtime.js`에 `post_panel_span` 축 추가. 두 앵커 계열(`ledger_basename` · `ship_plan_hash`)을 각각 산출하고 절대 합치지 않는다(DD2). 최상위 `state`는 실린 축의 사다리 최악값(`state_is_composite`)이고 `axis` 스칼라는 제거
-- 미짝 5종 분해 + 증인 3-state 비대칭 — `not_shipped`는 증인 4종 만장일치 부정일 때만, `anchor_absent` 승격은 ship 자격 증인(W0 반대축 · W1 archived)만. `unavailable`은 `no`가 아니다
-- ship 자격은 `pr-ship-gate.js#deriveShipDecision` 반환값 그대로(DD14) — receipt 전체 + forceOverrideActive 바인딩. 실측 46/78 자격(무증거 skip 6 배제 · override 10 포함)
-- 실측 — eligible 48 · matched 11/16 · both 6 · anchor_absent 29/11 · key_mismatch 0/16 · unclassified 8/5 · not_shipped 0. p50은 0.38일 / 0.28일
-- PRD OQ 2건 종결 — ledger 쓰기가 멈춘 것(복구는 C1 사거리) · 미짝 분해가 배선 축을 연다. 신규 OQ 1건 기록(지표 4가 시각 축에서 구조적 0)
-- 문서 2면 동결 — `post-panel-span.md`(--json 전문) + `panel-span.md`(panel_span 하위) 재생성 후 라이브 출력과 바이트 일치 재확인
-- 검증 — leadtime test 47/47 · i18n-surface 10/10 · 도구 exit 0 state=ok · §3.5.1 삭제 검증 0건 · origin/main(1.34.1)과 version 충돌 없음
-- **code-review HIGH 2건 흡수** — (1) 이 STATE.md의 Plan/Done이 diverse-agent-review M8을 가리키던 stale을 정정 (2) 두 앵커 축의 ship 자격 비대칭(ledger는 엔트리 존재만으로 인정 — 무자격 receipt 결속 4건 실재)을 `post-panel-span.md` 한계에 명시. MEDIUM 2 + LOW 4는 backlog 이연, stale backlog 2행은 흡수 표시로 정정
-- **PR 게이트에서 base 병합 후 두 문서를 재생성했다** — 병합이 리뷰 레코드 9건 + 아카이브 plan을 코퍼스에 들여 `post-panel-span.md` 결론 3의 다수·소수가 뒤집혔다(unclassified 17→8 · anchor_absent 12→29). 동결 블록 2면 + 유도 산문 + CHANGELOG/PRD 인용을 실측에 맞춰 고쳤고, 뒤집힘과 그 원인(아카이브 상태 의존)을 문서에 명시했다
+- M1 Acceptance 6/6 충족. 컨테이너 5원소(local · ci-node20/24 · 각 r2) 전부 ok:true · attribution:complete · redaction_ok:true
+- 핵심 발견 — 전수 시간은 스위트가 아니라 플랫폼의 성질. 같은 Node v24.19.0에서 Windows 순차 합계가 Linux의 64.8배(코어는 Windows가 4배 많은데도). Linux 전수 75.5초 대 Windows 31.4분
+- OQ1 해결(조용한 머신 = GitHub runner) · OQ4 해결(Node 20 하한 유지 무비용, data.file 귀속 6363/6363 완전) · OQ5 해결. PRD milestone 1 → complete
+- red가 플랫폼마다 다름 — Windows 전용 6 · Linux 전용 7 · 교집합 2. M3의 CI matrix 필요 여부에 직접 근거
+- run 간 편차 실측 — node20 벽시계 +27.1%. 그래서 node20-faster 주장을 철회했고 병렬 하한을 구간(17.5~27.2초)으로 기록
+- plan 154줄 복구(직전 세션 섹션 치환 사고) · Task 0 재수행(PR CONFLICTING이면 pull_request run이 생성조차 안 됨)
 
 ## In Progress
 
 
 ## Next Step
-PR #173 리뷰 대기. merge 후 worktree cleanup(§3.8) + M3 one-line-consumption 착수.
+/mccp:pr — PR #171을 draft에서 ready로 승격. PR-Codex가 반드시 발화한다(dedupe divergent로 닫힘) — 이 사이클에 없던 cross-model 반증의 회수 지점
 
 ## Last Decision
-Phase 2.5.4의 plan 본문 주입이 plan_hash를 어긋내 상류 receipt가 stale이 되자, audited bypass 대신 명령 본문이 스스로 허용하는 대체 위치(.claude/notes/)에 게이트 기록을 뒀다 — plan을 원래 바이트로 복원해 chain이 우회 없이 통과한다. Implement-Codex HIGH 2건은 §3.14대로 R1에서 흡수(증인의 방향별 자격 비대칭 + probe 진리표 명문화).
+로컬 재측정을 중단했다. 경합 하에서 clean run의 2배를 넘겨도 안 끝나고 node 자식 336개에서 셸이 fork 실패에 도달했다. 오염된 값으로 clean local을 덮어쓰지 않는다 — 그 실패 자체가 OQ1 답을 보강한다.
 
 ## Open Questions
-- 지표 4(두 앵커 불일치)가 시각 축에서 구조적 0 — ledger completed_at이 ship receipt created_at의 복사본이다. 지표 정의를 커버리지 축으로 옮길지 미판정(PRD에 신규 OQ로 기록)
-- not_shipped는 오늘 코퍼스 0건 — 도달 가능하나 이 저장소 plan이 거의 전부 커밋돼 git 증인이 yes를 낸다. test가 도달성을 증명
-- evidence-claim liveness가 /clear 후 session-id 회전을 자기 프로세스와 구분 못 함 — 15분 TTL 대기로 해소, backlog 축
-- plugins/mccp/scripts/lib/tests/ 전체 스위트는 선재적으로 10분 타임아웃(codex spawn 포함) — 영향 범위 스위트만 개별 green
+- cross-model 반증 미수행 — Implement-Codex가 round-cap-reached(3/3)로 발화하지 않았다. /mccp:pr의 PR-Codex가 회수 지점
+- M2 전제 재검토 필요 — Linux 75.5초는 이미 어떤 PR 피드백 임계에도 들어간다. M2가 무엇을 최적화하는지(CI 피드백 대 로컬 루프) 먼저 정해야 한다
+- MCCP_GATE_ROUND_CAP 선언값(settings.json=1) 대 실효값(process env=3) 불일치 — 별도 축
 
 ## Last Updated
-2026-09-02T07:01:32.942Z
+2026-09-02T07:20:08.104Z

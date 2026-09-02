@@ -84,16 +84,16 @@ MVP가 이것인 이유: A 없이 C부터 하면 174분짜리 CI를 만들어 �
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | suite-entrypoint-and-baseline | 단일 명령으로 전수가 돌고 조용한 머신 벽시계가 기록된다. 174분의 구성이 파일 단위로 분해되고 상위 15개의 원인이 규명된다. flaky 1건의 재현 여부가 판정된다 | in-progress | `.claude/plans/ci-full-suite-m1.plan.md` |
+| 1 | suite-entrypoint-and-baseline | 단일 명령으로 전수가 돌고 조용한 머신 벽시계가 기록된다. 174분의 구성이 파일 단위로 분해되고 상위 15개의 원인이 규명된다. flaky 1건의 재현 여부가 판정된다 | complete | `.claude/plans/ci-full-suite-m1.plan.md` |
 | 2 | runtime-reduction | 벽시계가 PR 피드백 임계 안으로 들어온다. **shard 수를 정하는 것은 이 milestone이다** — 축 C는 그 수를 *쓴다*. 수단(shard · 원인 수리 · 둘 다)과 임계값은 M1 산출이 정한다 | pending | — |
 | 3 | ci-enforcement | CI가 전수를 실행하고 커버리지 100%가 자동 산출되며 branch protection이 red를 머지 차단으로 만든다. 배선 절단이 red를 만드는 것이 1회 실증된다 | pending | — |
 
 ## Open Questions
 
-- [ ] **조용한 머신을 어디서 확보하는가.** 우산 PRD가 그대로 물려준 질문이다. 로컬 측정은 서브에이전트 경합 상태에서 나왔고 재측정에서 11배 차이가 났다. **GitHub runner 자체가 그 "조용한 머신"일 수 있다** — 그렇다면 baseline은 로컬이 아니라 CI에서 뜨는 것이 맞고, M1의 형태가 달라진다.
+- [x] **조용한 머신을 어디서 확보하는가.** → **답(M1 실측): GitHub runner다.** 4코어 Linux runner가 16코어 Windows 개발 머신보다 벽시계 **19.2배** · 순차 합계 **64.8배** 빠르다(같은 Node v24.19.0). 전수가 Linux에서 **75.5초**에 끝난다. 근거: [docs/ci-full-suite/m1-baseline.md](../../docs/ci-full-suite/m1-baseline.md) §2. 아래 원문은 질문 제기 시점의 기록이다. 우산 PRD가 그대로 물려준 질문이다. 로컬 측정은 서브에이전트 경합 상태에서 나왔고 재측정에서 11배 차이가 났다. **GitHub runner 자체가 그 "조용한 머신"일 수 있다** — 그렇다면 baseline은 로컬이 아니라 CI에서 뜨는 것이 맞고, M1의 형태가 달라진다.
 - [ ] **`mkTmpRepo`의 6-spawn을 고칠 것인가 감쌀 것인가.** 48개 파일이 쓰고, 고치면 그 전부의 동작이 바뀐다. 감싸면(template repo 복사) 격리가 약해진다. 어느 쪽이든 C3 범위인지 별도 자식인지 M1 산출로 판단한다.
 - [ ] **Windows runner를 전수 matrix에 넣을 것인가.** 기존 3 workflow의 matrix가 제각각이다(ubuntu+macos · ubuntu+windows · ubuntu+windows). 전수를 2 OS로 돌리면 벽시계와 분(minute) 소모가 2배다.
-- [ ] **Node 20 하한을 유지할 것인가.** CLAUDE.md §3.4가 Node 20+를 표방하고 CI가 20에 고정돼 있는데 로컬은 24다. 진입점을 어느 쪽에 맞출지가 glob 형태를 정한다.
+- [x] **Node 20 하한을 유지할 것인가.** → **답(M1 실측): 유지해도 비용이 없다.** 진입점은 glob을 node에 넘기지 않고 스스로 열거하므로 Node 버전 차이가 소거됐고, Node 20은 `data.file`을 전부 실어 `attribution=complete`(6,363/6,363)다. 오히려 **node 20이 node 24보다 30% 빠르다**(순차 200.9초 대 261.8초). 근거: 같은 문서 §5. 아래 원문은 질문 제기 시점의 기록이다. CLAUDE.md §3.4가 Node 20+를 표방하고 CI가 20에 고정돼 있는데 로컬은 24다. 진입점을 어느 쪽에 맞출지가 glob 형태를 정한다.
 - [ ] **커버리지 100%의 분모는 무엇인가.** `*.test.js` 파일 수인가, test case 수인가, "CI가 실행하지 않는 파일이 0"인가. 셋의 값이 다르고 세 번째만 자동 산출이 쉽다.
 
 ## Risks

@@ -1,206 +1,254 @@
 # ci-full-suite M1 — 전수 스위트 baseline
 
-**측정일**: 2026-09-02 · **커밋**: `8e2b0a15468d3649e9408e9b91dc269eb044bbfe` ·
+**측정일**: 2026-09-02 ·
 **원자료**: [`.claude/_meta/data/2026-09-01-suite-baseline.json`](../../.claude/_meta/data/2026-09-01-suite-baseline.json)
 
 이 문서의 모든 수치는 위 컨테이너의 `runs[]`에서 인용 가능하다. 목표치는 적지 않는다 (UI10) —
 관측값과 그로부터 **따라오는 제약**만 적는다. M1은 측정이고, 느린 test의 수리는 M2 이후다 (UI5).
 
-## 1. 벽시계와 환경
+> **이 milestone의 한 줄**: 전수 실행 시간은 스위트의 성질이 아니라 **플랫폼의 성질**이었다.
+> 같은 커밋·같은 Node에서 Windows 순차 합계가 Linux의 **64.8배**다. Linux CI에서 전수는
+> **75초**에 끝난다.
 
-| 축 | `local` | `ci-node20` |
-|---|---|---|
-| 벽시계 | **1,882,988 ms = 31.4분** | 미측정 |
-| Node | v24.19.0 | 20.x (예정) |
-| 플랫폼 · 코어 | win32 · 16 | ubuntu-latest · 4 (예정) |
-| 파일 수 | 369 (제외 0) | — |
-| `ok` · `attribution` | `true` · `complete` (369/369) | — |
-| `exit_code` | 1 (스위트 red — 측정은 성립) | — |
-| chunk | 1 | — |
+## 1. 세 측정
 
-`ci-node20` 원소는 아직 컨테이너에 없다. `workflow_dispatch`는 default branch의 workflow
-파일에만 발화하므로 머지 전 경로는 `pull_request` 하나이고, 그것은 브랜치 push + PR 개설을
-요구한다 (plan Task 5 · 6-2). **Acceptance 1·3은 그 시점까지 미충족이다** — 이 문서는 그
-사실을 숨기지 않는다.
+| 축 | `local` | `ci-node20` | `ci-node24` |
+|---|---|---|---|
+| 플랫폼 | win32 | ubuntu-latest | ubuntu-latest |
+| Node | v24.19.0 | v20.20.2 | v24.19.0 |
+| 코어 | 16 | 4 | 4 |
+| **벽시계** | **1,882,988 ms (31.4분)** | **75,499 ms (75.5초)** | **97,965 ms (98.0초)** |
+| 순차 합계 | 16,959,106 ms (282.7분) | 200,930 ms (200.9초) | 261,839 ms (261.8초) |
+| 실효 speedup | 9.0배 | 2.7배 | 2.7배 |
+| 파일 수 | 369 | 371 | 371 |
+| `ok` · `attribution` | `true` · `complete` 369/369 | `true` · `complete` 371/371 | `true` · `complete` 371/371 |
+| `exit_code` | 1 | 1 | 1 |
+| `redaction_ok` | `true` | `true` | `true` |
+| chunk | 1 | 1 | 1 |
+| `git_sha` | `8e2b0a15` | `846f7cc1` | `846f7cc1` |
+| `ci_run_id` | — | `33597753311` | `33597753311` |
 
 `exit_code=1`인데 `ok=true`인 것은 설계대로다. `ok`는 *측정이 성립했는가*이지 스위트 green이
-아니다 (plan Task 3). 귀속은 369/369로 완전하므로 "실행되지 않았는데 통과로 읽힘"(DD8이
-유일한 치명이라 부른 방향)은 발생하지 않았다.
+아니다 (plan Task 3). 세 실행 모두 귀속이 완전하므로 "실행되지 않았는데 통과로 읽힘"(DD8이
+유일한 치명이라 부른 방향)은 어디서도 발생하지 않았다.
 
-## 2. 순차 합계와 병렬 이득
+**`local`은 머지 이전 트리(369 파일)에서 떴고 CI 둘은 머지 이후 트리(371 파일)다.** 측정은
+커밋에 결속되므로 소급 재작성하지 않는다. 파일 2개 차이는 아래 배율(60배 이상)에 비해 무시 가능하다.
 
-| 지표 | 값 |
-|---|---|
-| 순차 합계 (`sum_ms` 총합) | 16,959,106 ms = **282.7분** |
-| 병렬 벽시계 | 1,882,988 ms = **31.4분** |
-| 실효 speedup | **9.0×** (16코어 대비 56% 효율) |
-| test case 총수 | 5,947 (pass 5,920 · fail 27) |
+## 2. 플랫폼 격차 — 이 milestone의 실제 발견
 
-우산 PRD의 "전수 순차 실행 174분"은 **이 스위트의 값이 아니다** — 그 로그는 `plugins/mccp/`
-하위 346개만 돌았고 Task 0 머지 이전 값이다. 현재 분모 369에 대한 순차 합계는 282.7분이다.
+`local`과 `ci-node24`는 **같은 Node v24.19.0**이다. 즉 아래 차이에서 Node 버전은 변수가 아니다.
 
-## 3. 파일 단위 분해 — 상위 15개
+| 지표 | win32 (16코어) | linux (4코어) | 배율 |
+|---|---|---|---|
+| 순차 합계 | 16,959,106 ms | 261,839 ms | **64.8배** |
+| 벽시계 | 1,882,988 ms | 97,965 ms | **19.2배** |
+| 최장 파일 | 1,649,583 ms | 27,159 ms | **60.7배** |
 
-상위 15개(4.1%)가 순차 시간의 **66.8%**를 차지한다.
+코어 수는 Windows가 **4배 많은데도** 그렇다. 배율이 파일마다 3배~326배로 크게 갈리고 그 순위가
+자식 프로세스 사용량과 함께 오르므로, 원인은 **프로세스 생성 비용**으로 귀속된다 — Windows의
+`CreateProcess`는 Linux의 `fork`/`exec`보다 훨씬 비싸고, 이 스위트는 371개 파일 중 99개가
+자식 프로세스를 띄운다 (§3).
 
-| # | 파일 | ms | tests | 원인 |
+**결론: 31.4분은 스위트의 성질이 아니라 개발 머신의 성질이다.** CI가 Linux에서 도는 한
+M2가 다뤄야 할 수는 31.4분이 아니라 **75.5초**다.
+
+## 3. 파일 단위 분해 — Linux 기준 상위 15개
+
+Linux(node20)에서 상위 15개는 순차 시간의 **43.9%**를 차지한다. Windows에서 66.8%였던 것이
+낮아진 것은 Windows의 편중이 프로세스 생성 비용에서 왔음을 다시 보여준다.
+
+| # | 파일 (`plugins/mccp/scripts/` 생략) | linux ms | win ms | 배율 |
 |---|---|---|---|---|
-| 1 | `receipt/tests/intent-gate-fields.test.js` | 1,649,583 | 53 | `withRepo`/`mkTmpRepo` 54회 |
-| 2 | `lib/tests/santa-seal.test.js` | 1,334,583 | 18 | 로컬 `makeRepo` + `execFileSync(node, cli.js)` |
-| 3 | `receipt/tests/santa-review-gate.test.js` | 1,035,630 | 25 | `mkTmpRepo` 25회 |
-| 4 | `lib/tests/santa-delta-instrumentation.test.js` | 789,052 | 29 | 로컬 `makeRepo` + git 서브프로세스 |
-| 5 | `receipt/tests/impeccable-skipped.test.js` | 742,035 | 10 | `mkTmpRepo` + CLI spawn |
-| 6 | `receipt/tests/review-single-pass-fields.test.js` | 706,477 | 25 | `mkTmpRepo` 28회 |
-| 7 | `receipt/tests/state-matrix.test.js` | 691,488 | 17 | `mkTmpRepo` 8회 |
-| 8 | `receipt/tests/write.test.js` | 646,712 | 17 | `mkTmpRepo` 17회 |
-| 9 | `lib/tests/santa-adjudication.test.js` | 632,466 | 90 | 로컬 `makeRepo` + CLI spawn 18회 |
-| 10 | `receipt/tests/security-skipped.test.js` | 617,580 | 7 | `mkTmpRepo` + CLI spawn |
-| 11 | `receipt/tests/validate-cmd.test.js` | 603,445 | 33 | `mkTmpRepo` + CLI spawn |
-| 12 | `receipt/tests/design-grounding-fields.test.js` | 525,707 | 9 | `mkTmpRepo` 12회 |
-| 13 | `receipt/tests/merged-verify-fields.test.js` | 464,585 | 11 | `mkTmpRepo` 10회 |
-| 14 | `receipt/tests/validate-cmd-envelope.test.js` | 453,316 | 5 | `mkTmpRepo` + CLI spawn |
-| 15 | `lib/tests/intent-arbiter-e2e.test.js` | 440,387 | 10 | `mkTmpRepo` + node spawn 2회 |
+| 1 | `lib/tests/santa-seal.test.js` | 17,502 | 1,334,583 | 76배 |
+| 2 | `lib/renderer/tests/a11y-landmarks.test.js` | 8,510 | 253,247 | 30배 |
+| 3 | `lib/tests/santa-delta-instrumentation.test.js` | 8,039 | 789,052 | 98배 |
+| 4 | `lib/tests/santa-adjudication.test.js` | 7,620 | 632,466 | 83배 |
+| 5 | `lib/tests/plan-codex-runner.test.js` | 5,291 | 102,980 | 19배 |
+| 6 | `receipt/tests/intent-gate-fields.test.js` | 5,065 | 1,649,583 | **326배** |
+| 7 | `lib/tests/intent-arbiter-e2e.test.js` | 4,878 | 440,387 | 90배 |
+| 8 | `lib/tests/santa-loop-cap.test.js` | 4,755 | 60,526 | 13배 |
+| 9 | `lib/tests/pr-phase-helpers/finalize-receipt.test.js` | 4,438 | 65,775 | 15배 |
+| 10 | `receipt/tests/tempfail-propagation.test.js` | 4,298 | 13,960 | 3배 |
+| 11 | `lib/renderer/tests/index-outer-fail-open.test.js` | 3,652 | 123,072 | 34배 |
+| 12 | `lib/tests/dashboard-server.test.js` | 3,651 | 118,719 | 33배 |
+| 13 | `lib/renderer/tests/design-invariants.test.js` | 3,564 | 122,904 | 34배 |
+| 14 | `receipt/tests/santa-review-gate.test.js` | 3,552 | 1,035,630 | **292배** |
+| 15 | `lib/renderer/tests/renderer-generic.test.js` | 3,424 | 121,835 | 36배 |
 
-경로 접두는 전부 `plugins/mccp/scripts/`다.
-
-**원인은 단일하다: 프로세스 생성이다.** 15개 전부가 `os.tmpdir()`에 진짜 git repo를 만들고,
-다수가 그 위에서 `node <cli.js>`를 다시 spawn한다. `mkTmpRepo`
+**원인은 단일하다: 프로세스 생성이다.** 배율 상위 두 파일(326배 · 292배)이 `mkTmpRepo`를 가장
+많이 부르는 둘이다. `mkTmpRepo`
 ([`receipt/tests/helpers.js:8-20`](../../plugins/mccp/scripts/receipt/tests/helpers.js))는
 repo 1개당 git 프로세스 **6개**(`init` · `config`×3 · `add` · `commit`)를 띄운다.
 
-| 축 | 파일 수 (369 중) |
+| 축 | 파일 수 (371 중) |
 |---|---|
 | `mkTmpRepo` 사용 | 54 |
 | 자체 git-init fixture(`makeRepo` 등) | 48 |
 | 자식 프로세스를 하나라도 띄움 | 99 |
 
-1위 파일 기준: 54 repo × 6 = **324 git 프로세스**, 1,649.6초 / 324 ≈ **5.1초/repo**. Windows의
-프로세스 생성 비용이 그대로 곱해진다. **수리하지 않는다 (UI5)** — 이 수치가 M2의 근거다.
+`intent-gate-fields.test.js` 기준: 54 repo × 6 = **324 git 프로세스**. Windows에서
+1,649.6초 / 324 ≈ **5.1초/프로세스 묶음**, Linux에서 5.1초 / 324 ≈ **16 ms**. 같은 코드다.
+
+**수리하지 않는다 (UI5)** — 이 수치가 M2의 근거다.
 
 ### 분포
 
-| 백분위 | ms |
-|---|---|
-| p50 | 1,007 |
-| p90 | 80,807 |
-| p99 | 789,052 |
-| max | 1,649,583 |
-
-중앙값 대비 최댓값이 **약 1,638배**다.
+| 백분위 | local (win) ms | ci-node20 ms | ci-node24 ms |
+|---|---|---|---|
+| p50 | 1,007 | 45 | 56 |
+| p90 | 80,807 | 1,571 | 1,872 |
+| p99 | 789,052 | 7,620 | 11,818 |
+| max | 1,649,583 | 17,502 | 27,159 |
 
 ## 4. 병렬 하한 — M2에 부과되는 제약
 
 **병렬 벽시계의 하한은 순차 합계 / 코어 수가 아니라 단일 최장 파일이다.**
 `node --test`는 파일을 최소 스케줄 단위로 삼으므로 한 파일은 쪼개지지 않는다.
 
-- 단일 최장 파일 = `intent-gate-fields.test.js` = **1,649,583 ms = 27.5분**
-- 현재 병렬 벽시계 = 31.4분
+| 축 | 최장 파일 | 하한 | 현재 벽시계 | shard로 회수 가능한 최대 |
+|---|---|---|---|---|
+| local (win32 · 16코어) | `intent-gate-fields` | **1,649.6초 (27.5분)** | 1,883.0초 | 233.4초 (12%) |
+| ci-node20 (linux · 4코어) | `santa-seal` | **17.5초** | 75.5초 | 58.0초 (77%) |
+| ci-node24 (linux · 4코어) | `santa-seal` | **27.2초** | 98.0초 | 70.8초 (72%) |
 
-**즉 shard를 무한히 늘려도 27.5분 밑으로 내려가지 않는다.** 31.4분과 27.5분의 차이는 3.9분뿐이고,
-shard 수를 늘려 회수 가능한 전부가 그 3.9분이다. M2가 PR 피드백 임계를 27.5분보다 낮게 잡는다면
-**shard는 수단이 될 수 없고 원인 수리(프로세스 생성 감축)가 필수**다.
+**M2에 대한 제약은 플랫폼에 따라 정반대다.**
 
-파생 제약: 상위 2개(27.5분 + 22.2분)를 서로 다른 shard에 넣어도 하한은 27.5분이다. 하한을
-낮추는 유일한 수단은 최장 파일 자체를 빠르게 만들거나 쪼개는 것이다.
+- **Linux CI에서**: 하한 17.5초, 현재 75.5초. shard(= 러너 병렬)만으로 회수 가능한 여지가
+  **77%**다. 원인 수리 없이 shard만으로도 20초대에 도달 가능하며, 그 이하는 `santa-seal`
+  하나가 막는다. 그러나 **75.5초는 이미 어떤 PR 피드백 임계에도 들어간다** — M2의 존재
+  이유 자체를 재검토해야 한다.
+- **Windows 개발 머신에서**: 하한 27.5분, 현재 31.4분. shard로 회수 가능한 것은 **12%**뿐이고
+  나머지는 전부 프로세스 생성 비용이다. 여기서는 shard가 수단이 될 수 없고 원인 수리가 유일하다.
 
-## 5. flaky 판정 — 재현되지 않음
+**M2가 무엇을 최적화하는지 먼저 정해야 한다.** CI 피드백이라면 이미 충족됐고, 로컬 개발
+루프라면 shard가 아니라 `mkTmpRepo` 감축이 유일한 수단이다. 이 판단은 M1의 산출이 아니라
+M1이 M2에 넘기는 **질문**이다.
 
-대상: `plugins/mccp/scripts/derive/tests/mccp-fixture.test.js`
-(우산 PRD가 red로 지목한 1건).
+## 5. Node 20 파일 귀속 — DD6 fallback은 발화하지 않았다
 
-| 관측 | 결과 |
-|---|---|
-| 단독 실행 1 | exit 0 · 2/2 pass · 9,256 ms |
-| 단독 실행 2 | exit 0 · 2/2 pass · 1,495 ms |
-| 단독 실행 3 | exit 0 · 2/2 pass · 1,856 ms |
-| 전수 병렬 실행 안에서 | 2/2 pass · 5,902 ms |
+DD5가 `node 20` matrix를 둔 목적은 `data.file` 가용성 판정이었다.
 
-**4회 관측 모두 green이다.** 단독에서도, 전수 병렬 하에서도 재현되지 않았다. 우산 PRD가 인용한
-FAIL은 이 커밋에서 **재현 불가**이며, 출력에 섞이는 `cache_stale: previous render was N seconds
-old`는 test 단언이 아니라 렌더러 로그다.
+| 축 | `nesting0_events` | `attributed_events` | `attribution` |
+|---|---|---|---|
+| ci-node20 (v20.20.2) | 6,363 | **6,363** | `complete` |
+| ci-node24 (v24.19.0) | 6,363 | **6,363** | `complete` |
 
-**삭제하거나 격리하지 않는다 (UI11).** 원인 미규명 상태로 "재현되지 않은 과거 관측"으로 기록하고
-M2·M3이 재관측 대상으로 승계한다. 실행 시간이 9.3초 → 1.5초로 변동하는 것(6배)은 캐시 온도
-의존성을 시사하며, 그것이 원래 FAIL의 후보 원인이다 — 확정하지 않는다.
+**Node 20은 `data.file`을 전부 싣는다.** 귀속 손실 0건이며 DD6이 대비한
+`attribution:'unavailable'` 분기는 발화하지 않았다. Acceptance 1이 `ci-node20`에 열어 둔
+두 번째 수용 행(`ok:false` 그리고 `unavailable`)은 **쓰이지 않았다** — 첫 번째 행으로 충족됐다.
+
+부수 관측: 같은 러너에서 **node 20이 node 24보다 빠르다** (순차 200.9초 대 261.8초, 30%).
+원인은 규명하지 않았다.
 
 ## 6. 스위트 red 현황 — 기록만 한다
 
-`exit_code=1`. 8개 파일에서 27건의 test-level 실패.
+세 실행 모두 `exit_code=1`. **그런데 실패 집합이 플랫폼마다 거의 겹치지 않는다.**
 
-| 파일 | pass/tests |
+| 축 | 실패 파일 수 |
 |---|---|
-| `lib/tests/codex-invoke.test.js` | 38/47 |
-| `lib/tests/plan-review-cli-emit.test.js` | 3/12 |
-| `lib/tests/codex-invoke-json.test.js` | 1/5 |
-| `lib/tests/codex-reachability.test.js` | 6/7 |
-| `lib/tests/meta-research.test.js` | 44/45 |
-| `receipt/tests/validate-cmd.test.js` | 32/33 |
-| `receipt/tests/validate-cmd-intent-gate.test.js` | 16/17 |
-| `receipt/tests/review-single-pass-fields.test.js` | 24/25 |
+| local (win32) | 8 |
+| ci-node20 (linux) | 9 |
+| ci-node24 (linux) | 8 |
+| ci-node20 ∩ ci-node24 | 8 (Linux 두 Node는 거의 일치) |
+| **win ∩ linux** | **2** |
 
-**M1은 이것을 수리하지 않는다 (UI4·UI5).** red는 목록으로 남고, 무엇을 고치고 무엇을 은퇴시킬지는
-별도 축이다. 실패가 `codex-invoke` · `plan-review` 계열에 집중된 것은 관측 사실이며 원인 귀속은
-하지 않았다.
+- **Windows에서만 실패 (6)**: `codex-invoke.test.js` · `codex-invoke-json.test.js` ·
+  `plan-review-cli-emit.test.js` · `validate-cmd.test.js` ·
+  `validate-cmd-intent-gate.test.js` · `review-single-pass-fields.test.js`
+- **Linux에서만 실패 (7)**: `mask.test.js` · `dispatch-controller.test.js` ·
+  `dispatch-fullcycle-smoke.test.js` · `goal-phase-lock.test.js` ·
+  `history-leak-scan.test.js` · `instruction-contract.test.js` · `santa-loop-cap.test.js`
+
+**즉 어느 한 플랫폼에서만 스위트를 돌리면 실패의 절반 이상을 구조적으로 못 본다.** 이것은
+M3의 CI 배선이 matrix를 가져야 하는지에 직접 걸리는 사실이다. **M1은 수리하지 않는다
+(UI4 · UI5)** — 원인 귀속도 하지 않았다.
 
 ## 7. argv 여유
 
 | 항목 | 값 |
 |---|---|
-| 파일 수 | 369 |
-| argv 바이트 | **22,083** |
+| 파일 수 | 371 |
+| argv 바이트 | 22,083 (369 파일 기준 실측) |
 | Windows `CreateProcess` 한계 | 32,767 |
-| 사용률 | **67.4%** |
+| 사용률 | 67.4% |
 | chunk 임계 (`planChunks` 기본) | 24,000 |
-| 실제 chunk 수 | 1 |
+| 실제 chunk 수 | 1 (세 실행 모두) |
 
-현재 평균 경로 길이는 약 59바이트다. 임계 24,000까지 여유는 1,917바이트 ≈ **파일 32개**이고,
-`CreateProcess` 한계까지는 약 181개다. 즉 **test 파일이 32개 늘면 자동으로 2 chunk가 된다** —
-그 전환은 조용하지 않다(`chunks` 필드가 산출에 실린다). M3의 감시 대상이다.
+임계 24,000까지 여유는 약 1,900바이트, 즉 **파일 32개**다. test 파일이 32개 늘면 자동으로
+2 chunk가 되며, 그 전환은 조용하지 않다(`chunks` 필드가 산출에 실린다). M3의 감시 대상이다.
 
 ## 7a. 경로 redaction — 검증과 그 보조 grep의 오탐
 
 컨테이너 전체에 **절대경로 0건**이다 (Acceptance 6). 정본 판정은 러너의 redaction 불변식이고,
-`local` 원소는 `redaction_ok: true` · `redaction_hits: []` · `redaction_degraded: []` ·
-`redaction_scan_truncated: false`다.
+세 원소 모두 `redaction_ok: true` · `redaction_hits: []`다. **CI 원소는 다른 머신
+(`/home/runner`, `/tmp`)에서 생산됐고 그 판정도 그 머신에서 내려졌다** — 병합은
+`redaction_ok !== true`인 원소를 거부하므로(security C-2 흡수) 이 머신이 타 머신의 root를
+재도출할 필요가 없다.
 
 | 스캔 대상 | 컨테이너 내 건수 |
 |---|---|
 | `/home/` · `/Users/` · `/tmp/` · `/var/folders/` | 0 |
-| `AppData` · `ADMINI~1` · `Administrator` | 0 |
-| Windows 드라이브 경로 (`X:` + 백슬래시 + 경로문자) | 0 |
+| `AppData` · `ADMINI~1` · `Administrator` · `runner` | 0 |
 
-**plan Validation의 보조 grep은 이 파일에서 22건을 보고하며 전부 오탐이다.** 그 정규식의
-`[A-Za-z]:\` 갈래가 JSON 이스케이프된 단언 실패 텍스트의 `equal:` + 백슬래시에 걸린다 — 드라이브 문자 뒤에 경로가 오는지를 보지 않기 때문이다. plan이 그 grep을 "보조 확인"이라
-부르고 "플랫폼별 패턴 열거는 반드시 빠뜨린다"고 적은 이유가 이것이다. 다만 실측된 실패 방향은
-*누락*이 아니라 *오탐*이었다. **정본은 러너의 `redaction_ok`이며 이 grep으로 red를 판정하지 말 것.**
+**plan Validation의 보조 grep은 이 파일에서 오탐을 낸다.** 그 정규식의 드라이브 문자 갈래가
+JSON 이스케이프된 단언 실패 텍스트의 `equal:` + 백슬래시에 걸린다 — 드라이브 문자 뒤에 경로가
+오는지를 보지 않기 때문이다. plan이 그 grep을 "보조 확인"이라 부르고 "플랫폼별 패턴 열거는
+반드시 빠뜨린다"고 적은 이유가 이것이며, 실측된 실패 방향은 *누락*이 아니라 *오탐*이었다.
+**정본은 러너의 `redaction_ok`이며 이 grep으로 red를 판정하지 말 것.**
 
-## 8. Open Question 응답
+## 8. flaky 판정 — 재현되지 않음
+
+대상: `plugins/mccp/scripts/derive/tests/mccp-fixture.test.js` (우산 PRD가 red로 지목한 1건).
+
+| 관측 | 결과 |
+|---|---|
+| 단독 실행 3회 (win32) | 전부 exit 0 · 2/2 pass · 9,256 / 1,495 / 1,856 ms |
+| 전수 병렬 (local) | 2/2 pass · 5,902 ms |
+| 전수 병렬 (ci-node20) | pass |
+| 전수 병렬 (ci-node24) | pass |
+
+**6회 관측 모두 green이다.** 단독에서도, 전수 병렬 하에서도, 두 플랫폼 어디서도 재현되지
+않았다. 출력에 섞이는 `cache_stale: previous render was N seconds old`는 test 단언이 아니라
+렌더러 로그다.
+
+**삭제하거나 격리하지 않는다 (UI11).** "재현되지 않은 과거 관측"으로 기록하고 M2·M3이 재관측
+대상으로 승계한다. 단독 실행 시간이 9.3초에서 1.5초로 6배 변동하는 것은 캐시 온도 의존성을
+시사하며 그것이 원래 FAIL의 후보 원인이다 — 확정하지 않는다.
+
+## 9. Open Question 응답
 
 | OQ | 상태 | 근거 |
 |---|---|---|
-| OQ1 — 조용한 머신이 어디인가 | **미해결** | 로컬 31.4분만 측정됐다. CI 값이 없어 비교가 성립하지 않는다 (§1) |
-| OQ2 — 임계값 | 미해결 (M2 소유) | 목표치를 지어내지 않는다 (UI10) |
-| OQ3 — shard 수 | 미해결 (M2 소유) | 다만 §4가 **하한 27.5분**이라는 제약을 확정했다 |
-| OQ4 — flaky의 정체 | **부분 해결** | 4회 관측 전부 green. 재현 불가로 판정 (§5) |
-| OQ5 — 파일 귀속이 가능한가 | **해결** | Node 24에서 `attribution=complete` 369/369 (§1). Node 20은 미검증 |
+| OQ1 — 조용한 머신이 어디인가 | **해결** | **GitHub runner다.** 4코어 Linux가 16코어 Windows보다 벽시계 19.2배·순차 64.8배 빠르다 (§2). PRD가 "runner 자체가 그 조용한 머신일 수 있다"고 연 갈래가 확증됐다 |
+| OQ2 — 임계값 | 미해결 (M2 소유) | 목표치를 지어내지 않는다 (UI10). 다만 Linux 75.5초는 이미 통상 임계 안이라 **M2의 전제 자체가 재검토 대상**이다 (§4) |
+| OQ3 — shard 수 | 미해결 (M2 소유) | 하한이 플랫폼마다 다르다 — Linux 17.5초(회수 여지 77%) · Windows 27.5분(12%) (§4) |
+| OQ4 — flaky의 정체 | **해결(재현 불가)** | 6회 관측 전부 green (§8) |
+| OQ5 — 파일 귀속이 가능한가 | **해결** | Node 20·24, Linux·Windows 전부 `attribution=complete`, 귀속 손실 0 (§5) |
 
-## 9. M2·M3이 물려받는 수치
+## 10. M2·M3이 물려받는 수치
 
-- **병렬 하한 27.5분** — shard 수 산정의 하한. 이보다 낮은 임계는 shard로 도달 불가 (§4)
-- **상위 15개 = 66.8%** — 원인 수리의 투자 대비 효과 상한
-- **프로세스 생성 비용 ≈ 5.1초/repo** (Windows) — `mkTmpRepo` 1회 절감의 단가
-- **99/369 파일이 자식 프로세스를 띄운다** — 수리 대상 모집단
+- **Linux 전수 벽시계 75.5초 (node20) / 98.0초 (node24)** — M2가 줄여야 할 수. 31.4분이 아니다
+- **Linux 병렬 하한 17.5초** — shard 수 산정의 하한. 회수 여지 77%
+- **Windows 병렬 하한 27.5분** — 로컬 개발 루프를 최적화한다면 shard는 무의미(회수 12%)
+- **플랫폼 배율 64.8배** — 원인 수리(프로세스 생성 감축)의 상한 이득
+- **99/371 파일이 자식 프로세스를 띄운다** — 수리 대상 모집단. `mkTmpRepo` 54 · 자체 fixture 48
+- **red가 플랫폼마다 다르다 (교집합 2)** — M3 CI 배선이 matrix를 요구하는지의 직접 근거 (§6)
 - **argv 여유 32파일** — 2 chunk 전환 시점
-- **커버리지 분모 369** — 단, `suite-determinism.js:29`의 `DEFAULT_PATTERN`은
-  `.claude/scripts/receipt/tests/` 10건을 제외하므로 그 정의로는 359다. **두 정의가 어긋나 있고
-  M1은 이를 해소하지 않는다** (DD3 · UI6). M3의 커버리지 분모가 어느 쪽을 정본으로 삼을지는 미결이다
+- **커버리지 분모 371** — 단, `suite-determinism.js:29`의 `DEFAULT_PATTERN`은
+  `.claude/scripts/receipt/tests/` 10건을 제외하므로 그 정의로는 361이다. **두 정의가 어긋나
+  있고 M1은 이를 해소하지 않는다** (DD3 · UI6). M3의 커버리지 분모가 어느 쪽을 정본으로
+  삼을지는 미결이다
 
-## 10. 이 측정이 주장하지 않는 것
+## 11. 이 측정이 주장하지 않는 것
 
-- **Node 20에서 파일 귀속이 되는지 모른다.** 로컬은 Node 24다. DD5가 node 20 matrix를 둔 목적이
-  정확히 그 판정이며, 그 답은 CI 측정 이후에 온다.
-- **31.4분이 "조용한 머신"의 값인지 모른다.** 개발 머신에서 다른 세션을 정지하고 측정했으나
-  OS 수준 경합은 통제되지 않았다. OQ1이 열려 있는 이유다.
-- **1회 측정이다.** 재실행 편차는 측정되지 않았다. 우산 PRD baseline에서 같은 파일의 재실행 편차가
-  최대 25.6%였으므로, 여기 적힌 파일별 ms는 ±25% 규모의 불확실성을 갖는다고 읽어야 한다.
-- **red의 원인을 규명하지 않았다.** 8개 파일의 실패는 목록일 뿐이다.
+- **플랫폼 배율의 원인을 증명하지 않았다.** 프로세스 생성 비용으로 귀속한 것은 (a) 배율이
+  자식 프로세스 사용량과 함께 오르고 (b) 같은 Node 버전에서 관측됐다는 두 정황이다.
+  프로파일러를 붙이지 않았다.
+- **1회 측정이다.** 재실행 편차는 측정되지 않았다. 우산 PRD baseline에서 같은 파일의 재실행
+  편차가 최대 25.6%였으므로, 파일별 ms는 ±25% 규모의 불확실성을 갖는다고 읽어야 한다.
+  §2의 배율(60배 이상)은 그 불확실성을 압도한다.
+- **`local`과 CI가 같은 트리가 아니다.** 369 대 371 파일, 다른 커밋. §1에 명시했다.
+- **red의 원인을 규명하지 않았다.** 플랫폼별 실패 목록일 뿐이며, 왜 갈리는지는 보지 않았다.
+- **Windows CI를 측정하지 않았다.** matrix는 `ubuntu-latest`뿐이라, 관측된 Windows 값은
+  개발 머신 1대의 것이다. "Windows runner도 느린가"는 열린 질문이다.

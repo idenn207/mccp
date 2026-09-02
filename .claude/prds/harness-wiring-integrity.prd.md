@@ -9,7 +9,7 @@
 
 ## Problem
 
-이 저장소는 게이트 기계를 만드는 데는 능하고, **그 기계를 부르는 한 줄을 빠뜨리며, 그 부재를 볼 수 있는 test가 없다.** 세 증상이 같은 뿌리를 갖는다 — 지표 producer가 구현됐는데 caller가 0회이고, 감사 corpus의 `rounds` 필드가 71/72에서 실제 라운드를 담지 않으며, merge-apply escape가 파일명 한 글자 차이로 조용히 미실행된다. 성공 방향 기본값(`converged: true, rounds: 1`)이 배선 단절을 **무증상**으로 만들고, CI가 346개 test 중 3개(0.87%)만 실행해 그 무증상을 확정한다.
+이 저장소는 게이트 기계를 만드는 데는 능하고, **그 기계를 부르는 한 줄을 빠뜨리며, 그 부재를 볼 수 있는 test가 없다.** 세 증상이 같은 뿌리를 갖는다 — 지표 producer가 구현됐는데 caller가 0회이고, 감사 corpus의 `rounds` 필드에 게이트가 값을 넣을 **통로 자체가 없어** 전건이 리터럴 `1`로 봉인되며(C1 실측 — 최상위 `round`도 71/71이 `1`이라 소급 복원의 원천이 없다), merge-apply escape가 파일명 한 글자 차이로 조용히 미실행된다. 성공 방향 기본값(`converged: true, rounds: 1`)이 배선 단절을 **무증상**으로 만들고, CI가 346개 test 중 3개(0.87%)만 실행해 그 무증상을 확정한다.
 
 대가는 셋이다. (a) 리드타임이 관측되지 않아 deadline을 제약으로 걸 수 없다 — 벽시계는 레코드 37건 전부에 기록돼 있는데 `corpus.js`가 통과 5건분만 집계해 보고한다(집계 커버리지 13.5%). (b) 자기 지표 10개 중 4개만 산출된다. (c) main = production이라 이 모든 수정이 매번 실사용자에게 나간다 — 마일스톤 하나가 여러 bump를 낳으므로 실측 노출은 **최근 14일 26건, 주당 약 13회** 다(C0 실측) — 태그가 `v1.0.0` 하나뿐이라 롤백 경로가 없다.
 
@@ -59,7 +59,7 @@ We'll know we're right when **오늘 산출되지 않는 5대 지표가 전부 �
 |---|---|---|---|---|---|
 | 1 | 무인 완주율 (사람 개입 없이 완료된 `/mccp:work` / 전체) | **미측정** | 산출된다 | baseline 후 확정 | `/mccp:work` 진입 배너 → 하락 시 어느 phase가 막았는지 표시 |
 | 2 | 마일스톤 e2e 리드타임 p50/p90/max | git 근사 4~18일 | 실측이 근사를 대체 | baseline 후 확정 | `STATUS.md` 상단 → p90 초과 시 timebox 임계 재조정 |
-| 3 | 게이트 기록 충실도 (실제 라운드 수 + 리뷰 원문 링크를 **둘 다** 가진 ship receipt / 전체) | **0%** (rounds 정확 1/72, 링크 0/72) | 산출된다 | **100%** | `validate-cmd` 경고 → 미달 시 stderr WARN (차단 아님) |
+| 3 | 게이트 기록 충실도 (실제 라운드 수 + 리뷰 원문 링크를 **둘 다** 가진 ship receipt / 전체) | **0%** (rounds 통로 부재, 링크 양방향 0/71) | 산출된다 | **100%** — 분모는 착지 후 **리뷰 대상** ship (C1 결정 2) | `validate-cmd` 경고 → 미달 시 stderr WARN (차단 아님) |
 | 4 | 단일통과 우회율 (단일통과로 통과한 차단 / 전체 차단) | **50%** (16/32) | 유지 | **20% 미만** | 주간 리포트 → 초과 시 라운드 정책 재검토 |
 | 5 | CI 강제 커버리지 (CI가 실행하는 test / 전체) | **0.87%** (3/346) | 산출된다 | **100%** | PR 체크 → 미달 시 머지 차단 |
 
@@ -69,7 +69,7 @@ We'll know we're right when **오늘 산출되지 않는 5대 지표가 전부 �
 |---|---|---|---|
 | halt율 · halt당 차단 벽시계 (p50/p90) | 미측정 | C9 M1 | **리드타임의 실제 구성요소.** 패널 구간은 중앙값 7.6분이고 패널 종료 → ship은 중앙값 0.3일인데 마일스톤 체감은 하루~1주다 — 그 차이의 대부분이 계산이 아니라 대기일 가능성이 높고 그 구간에 관측이 없다 |
 | 사용자 노출 케이던스 | **주 13회** (26 / 14일, C0 실측) | C0 | PRD 단위(2~3주 1회)로. 기존 bump 기준을 릴리스 경계로 승격하는 것이라 새 규칙이 아니다 |
-| 내용층 라운드 구조 커버리지 | 45.2% (33/73) | C1 | `.claude/reviews/` 평균 94줄 |
+| 내용층 라운드 구조 커버리지 | **정의 미확정** — 같은 코퍼스가 정의에 따라 4.2~59.2% (C1 실측). 45.2%는 그중 `R1`/`R2` 토큰 정의의 값 | C1 | `.claude/reviews/` 71파일 평균 94줄. C1 M1이 정의를 파서로 고정한 뒤에야 목표가 반증 가능해진다 |
 | backlog 흡수율 | 6.9% (32/465) | 미정 | 상태 열이 없어 closure 추적 불가 — Open Question 2 |
 | evidence chain coverage | 0.568 (`evidence-audit` exit 4) | 미정 | 상시 비영점 baseline이라 신호가 되지 못한다 — Open Question 3 |
 | 자기 지표 산출률 | 4 / 10 computed | C2·C4 | A3는 `integrity_ok:false` |
@@ -114,7 +114,7 @@ C0가 MVP인 이유는 그것이 **안전의 전제**이기 때문이다. C5·C6
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 0 | release-channel-separation | main이 dogfood trunk가 되고 `release` ref가 사용자 채널이 된다. 롤백이 manifest를 되돌리는 **수동** 절차로 성립한다(자동 롤백은 스키마에 없다 — 자식 `## References` 참조). 버전 번호의 소유자가 브랜치에서 릴리스 컷으로 이전한다. 로컬 dogfood 설치가 문서화되어 캐시 직접 복사 workaround가 은퇴한다 | in-progress | [release-channel-separation.prd.md](release-channel-separation.prd.md) |
-| 1 | review-record-linkage | `rounds`가 실제 라운드 수를 담고, ship receipt와 리뷰 원문이 양방향으로 연결되며, 내용층 라운드 구조 커버리지가 100%가 된다. **얇은 ship receipt 설계는 유지한다** | pending | `review-record-linkage.prd.md` (미생성) |
+| 1 | review-record-linkage | `rounds`가 실제 라운드 수를 담고, ship receipt와 리뷰 원문이 양방향으로 연결되며, 내용층 라운드 구조 커버리지가 100%가 된다. **얇은 ship receipt 설계는 유지한다** | in-progress | [review-record-linkage.prd.md](review-record-linkage.prd.md) |
 | 2 | orchestrator-step-wiring | `/mccp:work`가 orchestrator를 실제로 호출해 무인 완주율이 `null`을 벗어난다. 기록 실패가 체인을 멈추지 않는다 | pending | `orchestrator-step-wiring.prd.md` (미생성) |
 | 3 | ci-full-suite | CI가 전체 test를 강제한다. 그 전에 실행 시간이 신뢰 가능해진다 — 오늘 타이밍은 경합 오염으로 자체 무효 판정됐다. 첫 작업은 순수 in-process 단언 파일이 조용한 머신에서도 30초 걸리는 **미설명 100배 격차**의 규명이다. red 1건 해소 | pending | `ci-full-suite.prd.md` (미생성) |
 | 4 | leadtime-observability | 집계에서 누락된 32건의 벽시계가 집계에 들어오고, 패널 종료 → ship 구간이 git 근사가 아닌 실측으로 산출되며 그 커버리지가 값과 함께 표기된다 | pending | [`leadtime-observability.prd.md`](leadtime-observability.prd.md) |

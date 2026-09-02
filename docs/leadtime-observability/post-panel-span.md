@@ -28,24 +28,24 @@
 ship 자격은 **재구현하지 않고** `pr-ship-gate.js`의 `deriveShipDecision`을 부른 반환값이다
 (DD14). receipt 전체(`meta` 포함)를 넘기고 `forceOverrideActive`를 묶는다 — 그래야
 무증거 skip이 배제되고, audited override로 실제 머지된 ship이 no-ship으로 접히지 않는다.
-오늘 그 필터는 receipt 78건 중 **46건**을 자격 있는 것으로 인정했고,
-그중 **10건**은 override가 자격을 만들었으며, **6건**은 증거 없는 `skipped`라
+오늘 그 필터는 receipt 79건 중 **47건**을 자격 있는 것으로 인정했고,
+그중 **11건**은 override가 자격을 만들었으며, **6건**은 증거 없는 `skipped`라
 배제됐다.
 
 ## 커버리지 — 값보다 먼저 온다
 
-측정 가능 패널 레코드 **48건**에 대해:
+측정 가능 패널 레코드 **49건**에 대해:
 
 | 관측 | 값 |
 |---|---|
-| `ledger_basename` 조인 | 11/48 |
-| `ship_plan_hash` 조인 | 16/48 |
+| `ledger_basename` 조인 | 11/49 |
+| `ship_plan_hash` 조인 | 16/49 |
 | 두 축 모두 매치 | 6 |
 | `ledger`만 | 5 |
 | `ship`만 | 10 |
-| 둘 다 없음 | 27 |
+| 둘 다 없음 | 28 |
 
-교차표 4칸의 합은 48이다(항등식 — 두 불리언 분할이므로 구성상 참이고, 회귀
+교차표 4칸의 합은 49이다(항등식 — 두 불리언 분할이므로 구성상 참이고, 회귀
 가드일 뿐이다).
 
 | 계열 | n | p50 | p90 | max |
@@ -85,9 +85,9 @@ plan의 Measured Baseline은 미짝 약 2/3가 "아직 ship 안 됨"인지 "앵�
 | `no_plan_path` | 0 | 0 |
 | `key_mismatch` | 0 | 16 |
 | `anchor_absent` | 29 | 11 |
-| `not_shipped` | 0 | 0 |
+| `not_shipped` | 1 | 1 |
 | `unclassified` | 8 | 5 |
-| **합계** | **37** | **32** |
+| **합계** | **38** | **33** |
 
 합계 등식 `unmatched === Σ(counts)`는 두 계열 모두 성립한다(깨지면 축이 `degraded`가
 된다 — §3.11 C3의 fail-closed 등식과 같은 형태).
@@ -104,18 +104,20 @@ plan들은 ship됐고 ledger 쪽 기록만 빠졌다. ledger의 마지막 엔트
 존재만 세던 라운드 1의 판정이 아니라, `deriveShipDecision`이 자격을 인정한 receipt만
 센 결과다.
 
-### 결론 2 — `not_shipped`는 도달 가능하지만 오늘 0건이다
+### 결론 2 — `not_shipped`는 도달 가능하고, 이제 실제 사례가 있다
 
-두 계열 모두 `not_shipped` **0건**이다. 이것을 "미짝이 전부 설명됐다"로 읽으면 안
-된다. `not_shipped`는 증인 4종이 **전부 `no`**일 때만 성립하는데, 이 저장소의 plan은
-거의 전부 커밋돼 있어 git 증인이 `yes`를 낸다. 즉 오늘 코퍼스에는 "작성됐고 리뷰됐지만
-커밋조차 되지 않은 plan"이 없다.
+두 계열 모두 `not_shipped` **1건**이다: `.claude/reviews/plan-review-review-record-linkage.md`
+— 증인 4종(반대축 · 아카이브 plan · implement receipt · git 이력)이 **전부 `no`** 다.
+`not_shipped`는 그 만장일치에서만 성립하므로, 이 한 건은 "리뷰됐으나 어느 증인도 ship을
+증언하지 못하고 plan 파일이 커밋조차 되지 않았다"를 뜻한다.
 
-버킷이 죽은 것이 아니라 **비어 있는 것**이며, 그 차이는 회귀 test가 직접 증명한다
-(`leadtime.test.js` — 증인 하나를 `unavailable`에서 `no`로 바꾸면 같은 입력이
-`unclassified`에서 `not_shipped`로 넘어간다).
+**초판 측정에서는 이 버킷이 0건이었다.** 당시 문서는 "버킷이 죽은 것이 아니라 비어 있는
+것"이라 적고 그 차이를 회귀 test로만 증명했는데(`leadtime.test.js` — 증인 하나를
+`unavailable`에서 `no`로 바꾸면 같은 입력이 `unclassified`에서 `not_shipped`로
+넘어간다), 코퍼스가 자라며 **실코퍼스 사례가 생겼다**. 도달 가능성 주장이 test에서
+관측으로 승격한 것이고, 0건이던 시절의 서술이 과소 주장이었음을 보여준다.
 
-### 결론 3 — `unclassified`는 소수(8/37)이고, 그 크기는 아카이브 상태에 달려 있다
+### 결론 3 — `unclassified`는 소수(8/38)이고, 그 크기는 아카이브 상태에 달려 있다
 
 `ledger_basename`의 `unclassified` **8건**은 "plan은 커밋됐지만 ship을 증언하는
 것이 아무것도 없다"는 상태다. 증인 W2(implement receipt)·W3(git 이력)는 **ship 자격이
@@ -190,8 +192,8 @@ node plugins/mccp/scripts/lib/leadtime.js --json
 {
   "tool": "leadtime",
   "state": "ok",
-  "files_scanned": 90,
-  "records": 48,
+  "files_scanned": 92,
+  "records": 49,
   "pre_measurement": 13,
   "pre_measurement_records": [
     ".claude/reviews/plan-review-gate-guard-integrity-m2.md",
@@ -208,7 +210,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     ".claude/reviews/plan-review-setup-gitignore-m1.md",
     ".claude/reviews/plan-review-setup-gitignore.md"
   ],
-  "out_of_corpus": 29,
+  "out_of_corpus": 30,
   "parse_failures": 0,
   "read_error": false,
   "parse_errors": [],
@@ -216,7 +218,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     {
       "dir": ".claude/reviews",
       "present": true,
-      "files": 83
+      "files": 85
     },
     {
       "dir": ".claude/reviews/archive",
@@ -225,11 +227,11 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     }
   ],
   "coverage": {
-    "panel_records": 61,
-    "measurable": 48,
+    "panel_records": 62,
+    "measurable": 49,
     "unmeasurable": 13,
     "counts_are_lower_bound": true,
-    "panel_span_observed": 48,
+    "panel_span_observed": 49,
     "panel_span_missing": 0,
     "panel_span_missing_records": []
   },
@@ -237,7 +239,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     "state": "ok",
     "unit": "ms",
     "method": "nearest-rank",
-    "n": 48,
+    "n": 49,
     "min": 43984,
     "p50": 455662,
     "p90": 756525,
@@ -251,7 +253,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "max": 779328
       },
       "divergent": {
-        "n": 42,
+        "n": 43,
         "min": 43984,
         "p50": 457806,
         "p90": 716586,
@@ -267,9 +269,9 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     },
     "by_halt_stage": {
       "(completed)": {
-        "n": 31,
-        "min": 191178,
-        "p50": 499741,
+        "n": 32,
+        "min": 179485,
+        "p50": 490482,
         "p90": 779328,
         "max": 25642300
       },
@@ -315,6 +317,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "recorded_at": "2026-08-18T06:42:59.137Z",
         "plan_path": ".claude/plans/review-loop-bypass-m1.plan.md",
         "reviewed_plan_hash": null
+      },
+      {
+        "record": ".claude/reviews/plan-review-review-record-linkage.md",
+        "verdict": "divergent",
+        "halt_stage": null,
+        "panel_span_ms": 179485,
+        "recorded_at": "2026-09-01T07:03:32.527Z",
+        "plan_path": ".claude/plans/review-record-linkage-m1.plan.md",
+        "reviewed_plan_hash": "sha256:e85bad7d90d1cff70f321767ca36f4261edcd59292cc891d8586e4775b3f21ee"
       },
       {
         "record": ".claude/reviews/plan-review-leadtime-observability-m2.md",
@@ -986,7 +997,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     },
     "negative_spans": [],
     "coverage": {
-      "eligible": 48,
+      "eligible": 49,
       "no_panel_timestamp": 0,
       "no_panel_timestamp_records": [],
       "matched_ledger_basename": 11,
@@ -994,12 +1005,12 @@ node plugins/mccp/scripts/lib/leadtime.js --json
       "both": 6,
       "only_ledger": 5,
       "only_ship": 10,
-      "neither": 27,
+      "neither": 28,
       "ledger_entries_total": 44,
-      "ship_receipts_total": 78,
-      "ship_receipts_qualified": 46,
+      "ship_receipts_total": 79,
+      "ship_receipts_qualified": 47,
       "ship_receipts_unproven_skip": 6,
-      "ship_receipts_override_qualified": 10,
+      "ship_receipts_override_qualified": 11,
       "sources": [
         {
           "dir": ".claude/state/completion-ledger",
@@ -1013,7 +1024,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
           "present": true,
           "read_error": false,
           "parse_failures": 0,
-          "files": 78
+          "files": 79
         },
         {
           "dir": ".claude/PRPs/plans/archived",
@@ -1037,12 +1048,12 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     },
     "unmatched": {
       "ledger_basename": {
-        "total": 37,
+        "total": 38,
         "counts": {
           "no_plan_path": 0,
           "key_mismatch": 0,
           "anchor_absent": 29,
-          "not_shipped": 0,
+          "not_shipped": 1,
           "unclassified": 8
         },
         "sum_equation_holds": true,
@@ -1341,7 +1352,17 @@ node plugins/mccp/scripts/lib/leadtime.js --json
               }
             }
           ],
-          "not_shipped": [],
+          "not_shipped": [
+            {
+              "record": ".claude/reviews/plan-review-review-record-linkage.md",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "no",
+                "implement_receipt": "no",
+                "git_history": "no"
+              }
+            }
+          ],
           "unclassified": [
             {
               "record": ".claude/reviews/plan-review-diverse-agent-review-m4-postimpl-l1.md",
@@ -1419,12 +1440,12 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         }
       },
       "ship_plan_hash": {
-        "total": 32,
+        "total": 33,
         "counts": {
           "no_plan_path": 0,
           "key_mismatch": 16,
           "anchor_absent": 11,
-          "not_shipped": 0,
+          "not_shipped": 1,
           "unclassified": 5
         },
         "sum_equation_holds": true,
@@ -1592,7 +1613,17 @@ node plugins/mccp/scripts/lib/leadtime.js --json
               }
             }
           ],
-          "not_shipped": [],
+          "not_shipped": [
+            {
+              "record": ".claude/reviews/plan-review-review-record-linkage.md",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "no",
+                "implement_receipt": "no",
+                "git_history": "no"
+              }
+            }
+          ],
           "unclassified": [
             {
               "record": ".claude/reviews/plan-review-diverse-agent-review-m4-postimpl-l1.md",

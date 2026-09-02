@@ -28,18 +28,18 @@ M2·C2가 아직 재지 않은 두 구간을 0으로 가정하는 것이 된다.
 
 ## 커버리지 — 값보다 먼저 온다
 
-`.claude/reviews/` + `.claude/reviews/archive/`에서 **90개 파일**을 스캔했다. 그중:
+`.claude/reviews/` + `.claude/reviews/archive/`에서 **92개 파일**을 스캔했다. 그중:
 
-- **29건** `out_of_corpus` — PR·santa·local·security 리뷰 등 다른 생산자의 문서. 코퍼스가
+- **30건** `out_of_corpus` — PR·santa·local·security 리뷰 등 다른 생산자의 문서. 코퍼스가
   아니므로 결손이 아니다.
 - **13건** `pre_measurement` — 패널 레코드이지만 `## Measurement` 블록 자체가 없다.
   그 블록을 도입하기 전 레코드라 오독할 측정값이 애초에 없다. 계측 고장이 아니라
   **코퍼스의 시간 경계**다.
 - **0건** `parse_failure`, `read_error=false`.
 
-남는 것이 코퍼스다: 패널 레코드 **61건 중 측정 가능 48건**. 따라서 아래 카운트는 전부
-**하한**이다(`counts_are_lower_bound: true`). 그리고 그 48건의 `wall_clock_ms` 결측은
-**0건**이다 — 즉 측정 가능한 레코드는 전부 실제로 관측됐다(`panel_span_observed: 48`,
+남는 것이 코퍼스다: 패널 레코드 **62건 중 측정 가능 49건**. 따라서 아래 카운트는 전부
+**하한**이다(`counts_are_lower_bound: true`). 그리고 그 49건의 `wall_clock_ms` 결측은
+**0건**이다 — 즉 측정 가능한 레코드는 전부 실제로 관측됐다(`panel_span_observed: 49`,
 `panel_span_missing: 0`).
 
 `panel_span.state: "ok"`. 최상위 `state`도 `ok`이지만 그것은 **합성값**이다 — M2 이후
@@ -54,15 +54,15 @@ M1 이전에 이 벽시계를 보고하던 유일한 소비처는 `corpus.js`의
 | 층 | n | p50 | p90 | max |
 |---|---|---|---|---|
 | `converged` (pass_path가 보던 전부) | 5 | 6.4분 | 13.0분 | 13.0분 |
-| **전체** | **48** | **7.6분** | **12.6분** | **427.4분 (7.12시간)** |
-| `divergent` | 42 | 7.6분 | 11.9분 | 427.4분 |
+| **전체** | **49** | **7.6분** | **12.6분** | **427.4분 (7.12시간)** |
+| `divergent` | 43 | 7.6분 | 11.9분 | 427.4분 |
 | `unknown` (verdict 미기재 1건) | 1 | 1.3분 | 1.3분 | 1.3분 |
 
 converged 층만 보면 이 게이트는 **최악이 13분**인 절차로 보인다. 실제 최악은
 **7.12시간**이고 그 레코드는 `.claude/reviews/plan-review-review-loop-bypass-m2.md`다.
-즉 집계 커버리지 5/48(10.4%)가 max를 약 33배(32.9×) 과소보고하고 있었다.
+즉 집계 커버리지 5/49(10.2%)가 max를 약 33배(32.9×) 과소보고하고 있었다.
 
-**미관측은 측정 부재가 아니라 집계 부재였다.** 이 48건은 M1이 새로 계측한 것이 아니라
+**미관측은 측정 부재가 아니라 집계 부재였다.** 이 49건은 M1이 새로 계측한 것이 아니라
 줄곧 디스크에 non-null로 적혀 있었고, 그 값을 읽는 소비처가 converged 필터 뒤에 있었을
 뿐이다. 우산 PRD의 정정("없는 값이 아니라 안 읽는 값")과 정합한다.
 
@@ -70,7 +70,7 @@ converged 층만 보면 이 게이트는 **최악이 13분**인 절차로 보인
 
 | halt_stage | n | p50 | max |
 |---|---|---|---|
-| `(completed)` (중단 없이 완주) | 31 | 8.3분 | 427.4분 |
+| `(completed)` (중단 없이 완주) | 32 | 8.2분 | 427.4분 |
 | `5.2e` (verdict 합성에서 차단) | 16 | 5.4분 | 11.9분 |
 | `5.2b` (예약 실패) | 1 | 1.3분 | 1.3분 |
 
@@ -99,8 +99,9 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
 > [post-panel-span.md](post-panel-span.md)가 단독으로 소유한다. 두 블록은 같은 실행에서
 > 나왔으므로 **함께** 재생성해야 한다.
 >
-> 코퍼스가 자라 수치도 함께 갱신됐다(측정 가능 39 → 40 → **48건**). 마지막 갱신은 이 PR이
-> base(origin/main)를 병합하며 리뷰 레코드 9건과 아카이브 plan을 코퍼스에 들인 것이다.
+> 코퍼스가 자라 수치도 함께 갱신됐다(측정 가능 39 → 40 → 48 → **49건**). 마지막 두 갱신은
+> 이 PR이 base(origin/main)를 **두 번** 병합한 것이다 — 두 번째는 게이트가 도는 도중
+> main이 전진해(PR #172) 일어났고, 그때 `not_shipped` 버킷이 0건에서 1건이 됐다.
 > **이 축의 결론은 세 번 모두 바뀌지 않았다** — 과소보고 배수(약 33배)도 최악 레코드도
 > 그대로다. 다만 형제 축은 그렇지 않았다: 같은 병합이
 > [post-panel-span.md](post-panel-span.md)의 결론 3에서 다수·소수를 뒤집었고, 그 문서가
@@ -113,7 +114,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
   "state": "ok",
   "unit": "ms",
   "method": "nearest-rank",
-  "n": 48,
+  "n": 49,
   "min": 43984,
   "p50": 455662,
   "p90": 756525,
@@ -127,7 +128,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "max": 779328
     },
     "divergent": {
-      "n": 42,
+      "n": 43,
       "min": 43984,
       "p50": 457806,
       "p90": 716586,
@@ -143,9 +144,9 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
   },
   "by_halt_stage": {
     "(completed)": {
-      "n": 31,
-      "min": 191178,
-      "p50": 499741,
+      "n": 32,
+      "min": 179485,
+      "p50": 490482,
       "p90": 779328,
       "max": 25642300
     },
@@ -191,6 +192,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "recorded_at": "2026-08-18T06:42:59.137Z",
       "plan_path": ".claude/plans/review-loop-bypass-m1.plan.md",
       "reviewed_plan_hash": null
+    },
+    {
+      "record": ".claude/reviews/plan-review-review-record-linkage.md",
+      "verdict": "divergent",
+      "halt_stage": null,
+      "panel_span_ms": 179485,
+      "recorded_at": "2026-09-01T07:03:32.527Z",
+      "plan_path": ".claude/plans/review-record-linkage-m1.plan.md",
+      "reviewed_plan_hash": "sha256:e85bad7d90d1cff70f321767ca36f4261edcd59292cc891d8586e4775b3f21ee"
     },
     {
       "record": ".claude/reviews/plan-review-leadtime-observability-m2.md",

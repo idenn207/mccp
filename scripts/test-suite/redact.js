@@ -91,25 +91,32 @@ function escapeRe(s) {
 // 그러면 전체 경로가 남아 잔여 스캔이 잡아 `redaction_ok:false`가 된다. 조용히
 // 세탁되는 것보다 시끄럽게 막히는 쪽이 이 모듈의 계약이다.
 //
-// 선행 경계는 세그먼트 문자 **와 구분자**를 함께 배제한다. 구분자를 빼면 매치가
-// 구분자 연속의 두 번째 자리에서 시작할 수 있어 `/var//tmp/…`가 `/var/<tmp>/…`로
-// 접혔다(round 3 실측) — 선행 경계가 run 전체에 걸리지 않았던 것이다.
+// 선행 경계도 round 4에서 **극성을 뒤집었다.** round 3까지는 "세그먼트 문자가 아니면
+// 시작 가능"이었는데, 그 집합은 열린 집합이라 빠진 문자가 곧 세탁 경로였다 — `:`이
+// 없어서 `C:\tmp\corp\token.txt`가 드라이브 지정자 **뒤의 구분자**에서 매치를 시작해
+// `C:<tmp>/corp/token.txt`가 됐고, 남은 문자열은 드라이브+구분자 형태를 잃어 잔여
+// 스캔이 못 봤다(round 4 실측). 열거에서 빠지는 쪽이 **위험한** 방향이었다.
+//
+// 이제 `LEAD_OK`는 매치가 시작될 수 있는 위치의 **선행 문자 allowlist**다. 여기 없는
+// 문자가 앞에 오면 치환이 일어나지 않고, 그러면 전체 경로가 남아 잔여 스캔이 잡는다.
+// 즉 열거에서 빠지는 쪽이 fail-closed다 — 후행 경계와 같은 극성이 됐다.
 //
 // 빈 세그먼트는 버리고 rooted 여부를 따로 기록한다. 버리지 않으면 join이 본문 앞에
-// 수량자를 만들어 UNC root에서 인접 수량자가 생긴다. 다만 **초선형 잔여는 남아
-// 있다** — rooted/UNC root는 구분자 연속 입력에서 대략 O(n²)다(round 3 실측:
-// 16k 구분자에서 ~1s). 실제 reporter 산출에는 그런 형태가 없어 backlog로 이연한다.
-const SEG_CHAR = 'A-Za-z0-9_.~$%+\\-';
+// 수량자를 만들어 UNC root에서 인접 수량자가 생긴다. **매칭 비용은 선형이다**
+// (round 4 실측: rooted root · 구분자 연속 입력에서 16k 0ms · 128k 1ms). 각 수량자가
+// escape된 리터럴 세그먼트로 고정돼 있고 선행 경계가 run 내부의 모든 시작 위치를
+// 막기 때문이다. 비용은 매칭이 아니라 **생성**에 있다 — 아래 rootVariants 주석 참조.
+const LEAD_OK = '\\s"\'`(\\[{=,;';
 
 function rootRegex(root) {
   const segs = root.split(/[\\/]/);
-  const rooted = segs.length > 0 && segs[0] === '';
+  const rooted = segs[0] === '';
   const parts = segs.filter((s) => s !== '');
   if (parts.length === 0) return null;          // 구분자뿐인 root — 규칙을 만들지 않는다
   const body = parts.map(escapeRe).join('[\\\\/]+');
   const lead = rooted ? '[\\\\/]+' : '';
   return new RegExp(
-    '(?<![' + SEG_CHAR + '\\\\/])(?:file:/{2,3})?' + lead + body + '(?![^\\\\/])',
+    '(?<![^' + LEAD_OK + '])(?:file:/{2,3})?' + lead + body + '(?![^\\\\/])',
     WIN ? 'gi' : 'g'
   );
 }
@@ -134,11 +141,23 @@ const URL_SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*:\/{2}/;    // file:// http:// �
 // 유출에 대한 1차 방어는 producer가 자기 머신에서 봉인한 `redaction_ok`이고
 // (그 머신만이 자기 root를 안다), 이 스캔은 그 위에 얹는 2차다.
 //
-// **이 목록은 exhaustive하지 않다.** 위 둘 외에도 원장에 이 모듈의 미커버 축이
-// 있다 — 퇴화 root(세그먼트 1개짜리 root가 catch-all이 된다) · `RESIDUAL_PATTERNS`
-// export의 공유 `lastIndex` · `Map`/`Set`/`Error`/`toJSON` 값 미순회 · POSIX 패턴의
-// 비앵커 오탐 · A-2 퍼센트 디코드 미구현. 전부
-// `.claude/plans/codex-findings-backlog.md`의 2026-09-01 santa 행에 있다.
+// **이 목록은 exhaustive하지 않다.** 위 둘 외에도 원장에 이 모듈의 미커버 축이 있다:
+//
+//   - **얕은 root** — 등록된 root가 무관한 데이터의 조상일 만큼 얕으면 그 아래 전부가
+//     태그로 접히고 잔여 스캔이 clean을 낸다. **세그먼트 개수의 문제가 아니다**:
+//     `TEMP=C:\`(1개)뿐 아니라 `TEMP=C:\Users`(2개)도 남의 계정 경로를 삼킨다(round 4
+//     실측). 코드의 유일한 가드(`parts.length === 0`)는 둘 중 어느 쪽도 막지 않는다.
+//   - `RESIDUAL_PATTERNS` export의 공유 `lastIndex`
+//   - `Map`/`Set`/`Error`/`toJSON` 값 미순회
+//   - POSIX 패턴의 비앵커 오탐
+//   - A-2 퍼센트 디코드 미구현
+//   - **UNC root에서 `createRedactor`가 ~2.7초 블록** — 아래 `rootVariants`의 realpath
+//     두 호출이 도달 불가 공유에 대해 Windows 이름 해석을 시도한다. 매칭이 아니라
+//     **생성** 비용이고, 타임아웃이 없어 hang된 공유에서는 더 길어진다.
+//   - 태그가 다음 규칙의 선행 경계가 되어 `<repo>/tmp/x`가 `<repo><tmp>/x`로 재접힘
+//     (자유 텍스트 오귀속만, 집계 키는 무영향)
+//
+// 전부 `.claude/plans/codex-findings-backlog.md`의 2026-09-01 santa 행에 있다.
 // **run.js를 쓰기 전에 그 행들을 읽어라** — 특히 export 함정은 흡수행 C-2가 요구하는
 // merge-time 2차 스캔의 실행 지점에서 발화한다.
 const RESIDUAL_PATTERNS = [

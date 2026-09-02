@@ -31,6 +31,18 @@ Claude Code의 `/mccp:*` namespace에 게이트 시스템을 제공한다:
 /mccp:setup
 ```
 
+설치가 받는 것은 **`release` 채널**이다 — `marketplace.json`의 plugin `source`가
+`git-subdir` + `ref: release`를 가리키므로, 위 명령이 해소하는 본문은 `main`이 아니라
+`release` 브랜치의 것이다. `main`은 dogfood trunk이고 릴리스는 PRD 단위로 잘려
+`release`를 그 지점으로 옮기는 별도 행위다. 즉 main 머지가 곧 **plugin 본문**
+배포는 아니다.
+
+닫히는 표면은 그 본문뿐이다 — marketplace 등록(`known_marketplaces.json`)의 mccp
+항목에는 `ref`가 없어 clone은 계속 `main`을 추종한다. 따라서 `marketplace.json` 자체의
+편집(`source`·`ref` 변경 등)은 여전히 머지 즉시 설치에 도달한다. 이 잔여는 M3이 소유한다.
+
+설치 명령 자체는 바뀌지 않는다 — 위 3줄 그대로다.
+
 `/mccp:setup`은 idempotent — codex plugin이 없거나 impeccable **skill이 해소되지 않을 때** 사용자 동의 후 설치, 인증 미완료 시 `!codex login` 또는 `MCCP_CODEX_DISABLED=1` 옵션 제공. 이미 모든 게 갖춰진 상태면 zero-install로 통과한다. impeccable 판정 기준은 PATH의 바이너리가 아니라 mccp 명령 본문이 부르는 이름이 실제로 열리는지다 — 어느 공식 채널로 설치했든 해소되면 다시 묻지 않는다.
 
 새 Claude Code 세션을 시작하면 `/mccp:*` 명령이 활성화된다.

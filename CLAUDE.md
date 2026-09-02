@@ -246,6 +246,14 @@ my-claude-code-plugin/
 
 - **언어**: 주력 코드는 JavaScript (Node 20+). 한국어 주석 허용 (기존 codebase에 다수 존재).
 - **테스트**: 새 hook/스크립트는 `tests/*.test.js` 동반. Node native test runner (`node --test`) 사용.
+  **전수 회귀는 `MCCP_CODEX_DISABLED=1` 없이 돌리지 마라** — codex 경로를 타는 test가 실제
+  Codex를 수백 회 호출하고, 러너가 끊기면 고아 broker가 자식을 무한 재생성하는 자가 지속
+  루프가 된다. 2026-08-31 실측: node 프로세스 519개까지 늘었고 그 부하가 test 파일 로드를
+  막아 `receipt/tests`·`state/tests`가 **파일 단위로 무더기 실패**했다 — 코드 회귀가 아니라
+  자원 고갈이었고, 정리 후 같은 347개 파일이 `fail 0`으로 끝났다. 안전한 형태는
+  `MCCP_CODEX_DISABLED=1 node --test --test-concurrency=2 <files>`다. 이 값을
+  `.claude/settings.json`에 **상주시키지 않는 것은 의도**다 — 이 저장소는 게이트 자체를
+  개발하므로 전역으로 끄면 라이브 dogfood가 죽는다. 그래서 호출할 때마다 붙인다.
 - **comment 정책**: 일반 instruction과 동일 — *왜*가 명확하지 않으면 쓰지 않음. *무엇을 하는지*는 코드가 말함.
 - **로그**: hook stderr 출력은 사용자에게 노이즈로 보일 수 있음. `COST WARNING`, `Stop hook feedback` 등은 신호 vs 노이즈 구분이 중요 ([memory: feedback-cost-not-stop-signal] 참조).
 
@@ -300,6 +308,19 @@ mccp는 state lock 3종을 운용한다 — `pr-phase.lock`(`ownership_token_has
 - 새 cache 디렉토리가 만들어지지 않고 기존 디렉토리에 overwrite (best-case) 또는 update가 no-op (worst-case)
 - 사용자 환경의 hook 호출 path(`${CLAUDE_PLUGIN_ROOT}/scripts/...`)가 worktree의 변경을 보지 못함
 - 결과적으로 PR이 merge돼도 hook이 old behavior로 작동 → cache 직접 copy 같은 bootstrap workaround가 매 cycle 반복됨
+
+**v1.33.7 정정 — 번호의 소유자가 브랜치에서 릴리스 컷으로 옮겨졌다.** 위 두 문단은
+`claude plugin update`가 **main의** version을 보고 사용자 캐시 경로를 정한다는 전제 위에
+서 있는데, release-channel-separation M1 이후 그 전제는 거짓이다 — `marketplace.json`의
+plugin `source`가 `git-subdir` + `ref: release`라서 사용자가 읽는 `plugin.json`은
+`release` 브랜치의 것이다. 따라서 (a) 배포 표면은 `release`로 옮겨졌고, (b) feature
+브랜치에서 올리는 bump는 사용자에게 즉시 도달하지 않는 **dogfood 빌드 번호**이며,
+(c) major/minor/patch 판정 기준 자체는 **하나도 바뀌지 않는다**(아래 표 그대로).
+낡은 문장을 지우지 않는 이유는 §3.17과 같다 — 무엇이 왜 달라졌는지가 함께 남아야
+한다. 위 문단들은 `release`가 그 커밋으로 옮겨진 **뒤**의 사용자 경험을 여전히
+정확히 기술한다. 다만 닫히는 표면은 **plugin 본문**뿐이다: `known_marketplaces.json`의
+mccp 항목에는 `ref`가 없어 marketplace clone은 계속 main을 추종하므로
+`marketplace.json` 자체의 편집은 머지 즉시 도달한다(M3 소유).
 
 cache 디렉토리 ls 결과로 누락 cycle을 진단 가능: 예를 들어 `0.2.8/ 0.3.0/ 0.3.1/ 0.3.2/ 0.3.4/ 0.3.6/ 0.4.0/ 1.1.0/`처럼 띄엄띄엄이면 그 사이 cycle들이 version bump을 빠뜨렸다는 의미.
 
@@ -606,7 +627,7 @@ companion의 finding 스키마는 **외부 plugin 소유**라 필드를 추가�
 
 blocking 규칙은 단 하나다: **"리뷰어가 지목한 id를 저자가 지목하지 않았다"**. `id-mismatch`를 통과시키면 conflict-vs-none만 탐지하면서 "라벨 비대칭을 탐지한다"고 주장하게 된다.
 
-해소는 ① `intent_conflict`를 리뷰어가 지목한 id로 **정정**(그 순간 M1의 override 규칙 발동)하거나 ② `intent_dispute_reason`에 **리뷰어가 틀린 이유**를 쓰는 것뿐이다. 둘 다 없으면 `mislabel_unresolved`. dispute는 strict `validateReason`을 재사용하되 **코드 어휘 half는 면제**한다(`allowCodeVocabulary`) — `"no"` 류 1-token과 명백한 filler(`lorem`·`asdf`)는 여전히 **부재로 취급**되지만, 반론은 코드를 논하는 산문이라 `test` scaffolding이나 `bar.ts`를 이름으로 부를 수 있어야 한다. 그것까지 막으면 저자의 출구는 validator가 놓아줄 때까지 문장을 고쳐 쓰는 것(게이밍 학습)이거나 포기하고 오심하는 것(게이트가 막으려는 바로 그 실패)뿐이다. override 표면은 면제 대상이 아니다 — opt-in per call이라 전체 목록을 그대로 유지한다.
+해소는 (1) `intent_conflict`를 리뷰어가 지목한 id로 **정정**(그 순간 M1의 override 규칙 발동)하거나 (2) `intent_dispute_reason`에 **리뷰어가 틀린 이유**를 쓰는 것뿐이다. 둘 다 없으면 `mislabel_unresolved`. dispute는 strict `validateReason`을 재사용하되 **코드 어휘 half는 면제**한다(`allowCodeVocabulary`) — `"no"` 류 1-token과 명백한 filler(`lorem`·`asdf`)는 여전히 **부재로 취급**되지만, 반론은 코드를 논하는 산문이라 `test` scaffolding이나 `bar.ts`를 이름으로 부를 수 있어야 한다. 그것까지 막으면 저자의 출구는 validator가 놓아줄 때까지 문장을 고쳐 쓰는 것(게이밍 학습)이거나 포기하고 오심하는 것(게이트가 막으려는 바로 그 실패)뿐이다. override 표면은 면제 대상이 아니다 — opt-in per call이라 전체 목록을 그대로 유지한다.
 
 #### `partial`은 통과 상태가 아니다
 
@@ -616,7 +637,7 @@ compliance는 `claimed/total`로 **계측**하되 판정은 이분법이다: `fu
 
 #### 3-mode — `off`는 판정 억제가 아니라 경로 미진입
 
-`MCCP_INTENT_MISLABEL=enforce|warn|off`(§4). mode는 runner가 **Codex 호출보다 먼저** 해석하며 `off`면 ① 계약 문단을 프롬프트에 붙이지 않고 ② claims를 파싱하지 않으며 ③ `comparison`을 넘기지 않는다. ①이 빠지면 오라클을 건드리지 않았는데 **리뷰 payload 자체가 달라져** end-to-end M1 등가가 아니게 된다.
+`MCCP_INTENT_MISLABEL=enforce|warn|off`(§4). mode는 runner가 **Codex 호출보다 먼저** 해석하며 `off`면 (1) 계약 문단을 프롬프트에 붙이지 않고 (2) claims를 파싱하지 않으며 (3) `comparison`을 넘기지 않는다. (1)이 빠지면 오라클을 건드리지 않았는데 **리뷰 payload 자체가 달라져** end-to-end M1 등가가 아니게 된다.
 
 등가의 **범위는 리뷰 경로**(프롬프트 · 파싱 · 판정)다. 임시 작업 파일 `$AWAITING`은 등가 대상이 아니며 `off`에서도 `mislabel_mode`와 finding별 `reviewer_claim*` 키를 **null로** 싣는다 — 키를 지우면 그 파일을 읽는 저자가 "축이 꺼졌다"와 "리뷰어가 답을 안 했다"를 구분할 방법이 없어진다. 구분자는 `reviewer_claim_status`다: `'unclaimed'`는 물었는데 못 받은 것(→ `inconclusive`), `null`은 애초에 묻지 않은 것(→ M1.5 규칙 자체가 미적용). `reviewer_claim` **값**만 보면 둘이 똑같이 `null`이므로, plan.md 5.5a는 값이 아니라 status를 읽도록 지시한다.
 
@@ -837,7 +858,13 @@ R5 계약 위반 2건 + 정지 → R6 새 축 0건 → Plan-Codex R1 실재 1건
   설정값은 실제로 `3`이었고 캡은 어느 값이든 산문이었다 — 이 절이 근거로 든 8시간 사건이
   재발하지 못하게 막는 것이 없었다. G7 판정으로 설정값을 `1`로 맞췄고, 이제 같은
   `(게이트, decision)`에 대한 2회차 리뷰는 기계가 거부한다. 즉 이 절을 지키는 비용은
-  더 이상 실행 주체의 성실성이 아니다. 캡에 걸렸을 때의 정당한 행동은 아래 우회 목록과
+  더 이상 실행 주체의 성실성이 아니다. **다만 그 강제는 라운드를 *세는* 축까지 고치지는
+  않았다 (v1.34.0 M10 · `IV1`)** — 패널 dispatch 원장의 `round_index`는 **같은 plan hash
+  안에서만** 증가하므로, plan을 한 글자라도 고치고 다시 돌리면 hash가 바뀌어 새 실행이
+  `round_index:0`으로 기록된다. 즉 "plan을 고쳐 재리뷰"는 원장에서 라운드로 보이지 않고,
+  이 절이 막으려는 패턴이 정확히 그것이다. 캡 강제는 `(게이트, decision)` 키라 편집 뒤
+  재실행도 거부하지만, **사후에 몇 라운드를 돌았는지 원장에서 읽을 수는 없다.** 라운드
+  수를 근거로 무엇을 주장할 때는 그 한계를 함께 적어라. 캡에 걸렸을 때의 정당한 행동은 아래 우회 목록과
   같으며(사유를 남긴다), 원장을 지우는 것은 그 목록에 없다.
 - 1라운드 결과를 §3.14로 triage → receipt 작성 → 진행.
 - 게이트가 막으면 **문서화된 감사 우회**(`MCCP_SKIP_RECEIPT` · `MCCP_SKIP_INTENT_GATE` ·

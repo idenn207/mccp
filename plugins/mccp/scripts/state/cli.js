@@ -26,6 +26,8 @@ function showHelp() {
     '                            [--pr-number <n>] [--gate-decision-id <slug>] [--finding-id <hex16>]',
     '                            [--session <id>] [--cwd <path>] [--json]',
     '                            (remediation_pr requires --pr-number AND --finding-id)',
+    '  mccp-state findings-unattributed --work-unit <slug> [--cwd <path>] [--json]',
+    '                            (resolved findings not yet bound to a remediation_pr)',
     '',
   ].join('\n'));
 }
@@ -458,6 +460,105 @@ function cmdMswEventEmit(flags) {
   return 0;
 }
 
+// M9 Task 4 — enumerate the findings THIS work unit resolved that carry no
+// remediation_pr yet. Until now `pr.md` hard-coded two empty literals and asked
+// the model in prose to fill them, so the emit was guarded shut on every run and
+// `with_remediation_pr` sat at a structural 0.
+//
+// The triangle is gate_decision_id -> finding_id -> remediation_pr. Only the
+// RESOLVING closure types qualify: a finding this PR merely DEFERRED was not
+// remediated by it, and attributing a deferral to a PR would make the
+// attribution rate measure paperwork.
+//
+// Read-only. It derives what is already on disk and emits nothing; the caller
+// decides whether to record. Zero rows is a normal answer, not a failure.
+function cmdFindingsUnattributed(flags) {
+  // Local require, matching the existing style in this file (see the
+  // FINDING_ID_RE destructure in cmdMswEventEmit).
+  const findingsRegistry = require('./findings-registry');
+  const { SLUG_RE } = require('../receipt/decision');
+  const root = resolveCwd(flags);
+  const workUnit = typeof flags["work-unit"] === "string" ? flags["work-unit"] : null;
+  if (!workUnit || !SLUG_RE.test(workUnit)) {
+    process.stderr.write("mccp-state findings-unattributed: --work-unit must be a canonical slug\n");
+    return 1;
+  }
+
+  let shard;
+  try {
+    shard = findingsRegistry.readShard(workUnit, { repoRoot: root });
+  } catch (err) {
+    process.stderr.write("mccp-state findings-unattributed: " +
+      ((err && err.message) || String(err)) + "\n");
+    return 1;
+  }
+
+  // Already-attributed ids come from the msw-events sidecar, which is where the
+  // right-hand side of the triangle lives (writing finding_closed into the
+  // registry instead would pass through the closure_type enum and pollute C1).
+  const bound = readBoundFindingIds(root);
+
+  // gate_decision_id is carried on the EVENT, not folded into the record, so it
+  // is recovered from the raw event stream. Without it the row is dropped: a
+  // record missing a join key is one no consumer can read.
+  const gateById = new Map();
+  (shard.events || []).forEach(function (e) {
+    if (!e || !e.finding_id || !e.gate_decision_id) return;
+    if (!gateById.has(e.finding_id)) gateById.set(e.finding_id, String(e.gate_decision_id));
+  });
+
+  const rows = [];
+  (shard.findings || []).forEach(function (f) {
+    if (!f || f.state !== "closed") return;
+    if (findingsRegistry.RESOLVING_CLOSURE_TYPES.indexOf(f.closure_type) === -1) return;
+    if (bound.has(f.finding_id)) return;
+    const gate = gateById.get(f.finding_id) || null;
+    if (!gate || !SLUG_RE.test(gate)) return;
+    rows.push({
+      finding_id: f.finding_id,
+      gate_decision_id: gate,
+      closure_type: f.closure_type,
+      severity: f.severity || null,
+      perspective: f.perspective || null,
+    });
+  });
+
+  emit(flags, { ok: true, work_unit: workUnit, count: rows.length, findings: rows },
+    rows.length === 0
+      ? ["no unattributed resolved findings for " + workUnit]
+      : rows.map(function (r) {
+        return r.finding_id + " " + r.gate_decision_id + " (" + r.closure_type + ")";
+      }));
+  return 0;
+}
+
+// Mirror of derive/sources/findings.js#readRemediationFindingIds. Read-only,
+// per-line isolated, fail-open: the sidecar is append-only and a damaged line
+// must not take the whole query down.
+function readBoundFindingIds(root) {
+  // Local requires, matching this file's style (`path` is the only module-level one).
+  const fs = require('fs');
+  const findingsRegistry = require('./findings-registry');
+  const ids = new Set();
+  const dir = path.join(root, ".claude", "state", "msw-events");
+  let files = [];
+  try { files = fs.readdirSync(dir); } catch (_e) { return ids; }
+  files.forEach(function (f) {
+    if (!f.endsWith(".jsonl")) return;
+    let text = "";
+    try { text = fs.readFileSync(path.join(dir, f), "utf8"); } catch (_e) { return; }
+    text.split(/\r?\n/).forEach(function (line) {
+      if (!line.trim()) return;
+      let o = null;
+      try { o = JSON.parse(line); } catch (_e) { return; }
+      if (!o || o.kind !== "remediation_pr") return;
+      if (!o.finding_id || !findingsRegistry.FINDING_ID_RE.test(String(o.finding_id))) return;
+      ids.add(String(o.finding_id));
+    });
+  });
+  return ids;
+}
+
 function cmdMswEvent(flags, rest) {
   const action = rest[0];
   switch (action) {
@@ -507,6 +608,8 @@ function main(argv) {
       return cmdJournal(flags, flags._);
     case 'msw-event':
       return cmdMswEvent(flags, flags._);
+    case 'findings-unattributed':
+      return cmdFindingsUnattributed(flags);
     default:
       process.stderr.write('mccp-state: unknown subcommand "' + sub + '"\n');
       showHelp();

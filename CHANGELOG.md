@@ -36,6 +36,14 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   현 코퍼스는 불량 0건(ledger 44 · ship 78)이라 **실측값은 한 자리도 바뀌지 않는다**;
   닫은 것은 잠재 경로다. 회귀 test 3건(불량·결측 각각 damaged로 승격 + 건전한 코퍼스가
   거짓 damaged가 되지 않음)이 고정한다.
+- **짝은 패널 이후 앵커로만 맺는다(PR-Codex R2 F1 흡수)**: `pickAnchor`가
+  `after || before`로 폴백하던 것을 고쳤다. 재리뷰된 plan은 **직전 lifecycle의 ship**과
+  짝지어져 음수 span을 냈고, 그 짝이 `by_anchor`·백분위·커버리지에 남아 관측되지 않은
+  ship이 "매치"로 세어졌다 — UI6 위반이다. 이제 이전 후보는 짝을 만들지 않고
+  `pre_panel_anchors[]`에 lag과 함께 보고되며(관측 0건이어도 축 키를 실어 증거가 사라지지
+  않게 한다), 해당 레코드는 증인 규칙으로 분류된다. 부수 결과로 `negative_spans[]`는
+  구조적 도달 불가가 됐고 그 사실을 test가 봉인한다. 현 코퍼스는 해당 0건이라 실측값과
+  동결본 2면은 바이트 동일하다.
 - **미짝 사유 분해 + 합계 등식**: 미짝 레코드 전건을 닫힌 5종(`no_plan_path` ·
   `key_mismatch` · `anchor_absent` · `not_shipped` · `unclassified`)으로 분류하고
   `unmatched === Σ(counts)`를 fail-closed로 강제한다(깨지면 축이 `degraded`). PRD Open

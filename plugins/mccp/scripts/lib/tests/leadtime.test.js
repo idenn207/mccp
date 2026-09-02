@@ -459,29 +459,51 @@ test('post_panel_span emits TWO independent anchor series and no merged summary 
   assert.equal('axis' in out, false, 'the top-level axis scalar cannot represent two axes');
 });
 
-// ── M2-2. 음수 span은 clamp되지 않고 보고되며 그 축을 degraded로 만든다 (DD6) ─
+// ── M2-2. 패널보다 앞선 앵커는 짝이 아니다 — 진단으로 남고 분포에 들어가지 않는다 ──
+//
+// PR-Codex R2 F1 흡수. 이전 계약은 `after || before` 폴백이라 직전 lifecycle의 ship이
+// 이 패널의 끝점으로 쓰였고, 그 음수 span이 `by_anchor`·백분위·커버리지에 들어갔다.
+// UI6("과거 시각을 추정해 미짝을 메우지 않는다")의 위반이라 짝을 맺지 않는 쪽으로 고쳤다.
+// 그 결과 `negative_spans`는 **구조적으로 도달 불가**가 됐다(아래 마지막 test가 고정).
 
-test('an anchor that PRECEDES the panel yields a negative span, reported and degrading', () => {
+test('an anchor that PRECEDES the panel is NOT paired — it is reported, and never joins the distribution', () => {
   const out = aggregate([panelRecord('a.md', { slug: 'a' })], {
     anchors: anchors({ ledgerEntries: [ledgerEntry('a', -3 * DAY)] }),
   });
   const s = out.post_panel_span;
-  assert.equal(s.negative_spans.length, 1, 'DD5 fallback must make DD6 reachable at all');
-  assert.equal(s.negative_spans[0].span_ms, -3 * DAY);
-  assert.equal(s.negative_spans[0].anchor, 'ledger_basename');
-  // 0으로 접혔다면 "즉시 ship"이라는 없는 사실이 생긴다.
-  assert.equal(s.by_anchor.ledger_basename.min, -3 * DAY);
-  assert.equal(s.state, 'degraded');
-  assert.equal(out.state, 'degraded');
-  assert.equal(exitCodeForState(out.state), 1);
+  assert.ok(s, 'the axis must still load — dropping the key would erase the observation');
+  assert.equal(s.pre_panel_anchors.length, 1, 'the pre-panel candidate is reported, not silently dropped');
+  assert.equal(s.pre_panel_anchors[0].anchor, 'ledger_basename');
+  assert.equal(s.pre_panel_anchors[0].lag_ms, 3 * DAY, 'the lag is stated so the reader can judge it');
+  assert.equal('by_anchor' in s, false, 'zero observations -> no distribution at all (부재 규칙 a)');
+  assert.equal(s.state, 'ok',
+    'a prior lifecycle anchor is an ordinary fact, not instrument damage — degrading here would cry wolf');
 });
 
-test('pickAnchor prefers the earliest AFTER the panel, else the latest BEFORE it', () => {
+test('a pre-panel anchor does not inflate coverage — the record stays unmatched', () => {
+  const out = aggregate([panelRecord('a.md', { slug: 'a' }), carrierRecord()], {
+    anchors: anchors({ ledgerEntries: [ledgerEntry('a', -3 * DAY), carrierLedger()] }),
+  });
+  const s = out.post_panel_span;
+  assert.equal(s.by_anchor.ledger_basename.n, 1, 'only the carrier joined — the pre-panel record did not');
+  assert.equal(s.negative_spans.length, 0, 'no fabricated pairing means no negative span');
+  assert.ok(s.by_anchor.ledger_basename.min >= 0, 'a negative value can no longer reach the distribution');
+  assert.equal(s.pre_panel_anchors.length, 1);
+});
+
+test('pickAnchor pairs ONLY at-or-after the panel, and separates the pre-panel candidate', () => {
   const c = [{ at_ms: 100 }, { at_ms: 300 }, { at_ms: 50 }];
-  assert.equal(pickAnchor(c, 200).at_ms, 300, 'earliest at-or-after the panel');
-  assert.equal(pickAnchor(c, 400).at_ms, 300, 'no candidate after -> latest before');
-  assert.equal(pickAnchor([], 400), null);
-  assert.equal(pickAnchor([{ at_ms: null }], 400), null, 'unparseable anchor times are not candidates');
+  assert.equal(pickAnchor(c, 200).picked.at_ms, 300, 'earliest at-or-after the panel');
+  assert.equal(pickAnchor(c, 200).prePanel, null, 'a real pairing exists -> nothing to diagnose');
+
+  const none = pickAnchor(c, 400);
+  assert.equal(none.picked, null, 'no candidate at-or-after -> NO pairing (UI6: never backfill)');
+  assert.equal(none.prePanel.at_ms, 300, 'the latest pre-panel candidate is surfaced as diagnostic');
+
+  assert.equal(pickAnchor([], 400).picked, null);
+  assert.equal(pickAnchor([], 400).prePanel, null);
+  assert.equal(pickAnchor([{ at_ms: null }], 400).picked, null, 'unparseable anchor times are not candidates');
+  assert.equal(pickAnchor([{ at_ms: null }], 400).prePanel, null, 'nor are they diagnosable candidates');
 });
 
 // ── M2-3~6. ship 자격은 오라클의 반환값이다 (DD14) ──────────────────────────
@@ -814,11 +836,12 @@ test('with no axis loaded at all the composite is undefined, so it is blind (exi
 });
 
 test('one degraded axis makes the composite degraded even when the other is ok', () => {
+  // 음수 span 경로가 닫힌 뒤로 이 축을 degrade시키는 것은 소스 손상이다.
   const out = aggregate([panelRecord('a.md', { slug: 'a' })], {
-    anchors: anchors({ ledgerEntries: [ledgerEntry('a', -DAY)] }),
+    anchors: anchors({ ledgerEntries: [ledgerEntry('a', DAY)], shipSource: { read_error: true } }),
   });
   assert.equal(out.panel_span.state, 'ok');
-  assert.equal(out.post_panel_span.state, 'degraded', 'negative span degrades its own axis');
+  assert.equal(out.post_panel_span.state, 'degraded', 'a damaged anchor source degrades its own axis');
   assert.equal(out.state, 'degraded');
   assert.equal(exitCodeForState(out.state), 1);
 });
@@ -939,4 +962,22 @@ test('a healthy anchor corpus is NOT degraded by the validation above (no false 
   });
   assert.equal(sourceDamaged(readLedger(root).source), false);
   assert.equal(sourceDamaged(readShipReceipts(root).source), false);
+});
+
+
+// ── M2-14. `negative_spans`는 이제 구조적으로 도달 불가다 ────────────────────
+//
+// 짝이 패널 이후 후보로만 맺히므로 `span_ms < 0`인 hit은 만들어질 수 없다. 키는
+// 스키마 안정성을 위해 남기되(문서 동결본이 그 키를 담고 있다), 그것이 **살아있는
+// 신호가 아니라 잔존 가드**라는 사실을 여기서 고정한다 — 죽은 축을 살아있는 척
+// 두면 다음 독자가 그 부재를 '음수 span이 없다'는 관측으로 오독한다.
+test('no input this oracle accepts can put a negative span in the distribution', () => {
+  for (const offset of [-3 * DAY, -DAY, -1]) {
+    const out = aggregate([panelRecord('a.md', { slug: 'a' }), carrierRecord()], {
+      anchors: anchors({ ledgerEntries: [ledgerEntry('a', offset), carrierLedger()] }),
+    });
+    const s = out.post_panel_span;
+    assert.equal(s.negative_spans.length, 0, 'offset ' + offset + ' must not fabricate a pairing');
+    assert.equal(s.pre_panel_anchors.length, 1, 'offset ' + offset + ' must still be reported');
+  }
 });

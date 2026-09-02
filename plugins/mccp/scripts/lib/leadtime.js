@@ -475,6 +475,18 @@ function qualifyShipReceipts(receipts, shipGate) {
 // 후자는 음수 span이 되며 그대로 보고한다(DD6) — clamp하면 앵커가 뒤집힌 실재
 // 사고가 "즉시 ship"으로 보인다. fallback 절이 없으면 음수 span이 정의상 생성될
 // 수 없어 DD6의 경보가 구조적으로 도달 불가가 된다.
+// PR-Codex R2 F1 — 짝은 **패널 이후** 후보로만 맺는다.
+//
+// 이전에는 `after || before`로 폴백해, 패널 이후 앵커가 없으면 **가장 최근의 이전**
+// 후보를 골랐다. 같은 basename/hash가 재리뷰되면 그 패널이 **직전 lifecycle의 ship**과
+// 짝지어져 음수 span이 나오고, 그 짝은 축을 degraded로 만들면서도 `hits`에 먼저 들어가
+// `by_anchor`·백분위·사람 출력에 그대로 남았다. 커버리지도 함께 부풀었다 — 관측되지
+// 않은 ship이 "매치"로 세어지므로. 그것은 UI6("없는 기록을 소급 생성하지 않고 과거 시각을
+// 추정해 미짝을 메우지 않는다")의 정면 위반이다.
+//
+// 이제 `picked`는 패널 이후 최초 후보뿐이고, 이전 후보는 버리지 않고 `prePanel`로
+// 분리해 진단에 싣는다 — DD6의 취지("조용히 접지 말고 표면화하고 degrade")는 유지하되
+// 짝을 만들지는 않는다. 짝이 없으면 그 레코드는 증인 규칙으로 분류된다.
 function pickAnchor(candidates, panelMs) {
   let after = null;
   let before = null;
@@ -486,7 +498,7 @@ function pickAnchor(candidates, panelMs) {
       before = c;
     }
   });
-  return after || before || null;
+  return { picked: after, prePanel: after ? null : before };
 }
 
 // ── M2: post_panel_span 집계 (순수 — 모든 I/O는 opts로 주입된다) ────────────
@@ -568,6 +580,8 @@ function computePostPanelSpan(entities, anchorsIn) {
     eligible.push({ e: e, panelMs: ms });
   });
 
+  // 패널보다 앞선 앵커 후보 — 짝으로 쓰지 않되 조용히 버리지도 않는다(DD6의 취지).
+  const prePanelAnchors = [];
   const matched = {};
   const perRecord = {};
   ANCHOR_SERIES.forEach(function (k) { matched[k] = Object.create(null); perRecord[k] = []; });
@@ -585,7 +599,17 @@ function computePostPanelSpan(entities, anchorsIn) {
     ANCHOR_SERIES.forEach(function (k) {
       // 소스를 못 읽었으면 그 계열의 조인 자체가 성립하지 않는다.
       if (seriesSourceUnavailable[k]) return;
-      const picked = pickAnchor(cands[k], item.panelMs);
+      const sel = pickAnchor(cands[k], item.panelMs);
+      if (sel.prePanel) {
+        prePanelAnchors.push({
+          anchor: k,
+          record: e.record,
+          panel_recorded_at: e.recorded_at,
+          anchor_at: sel.prePanel.at,
+          lag_ms: item.panelMs - sel.prePanel.at_ms,
+        });
+      }
+      const picked = sel.picked;
       if (!picked) return;
       matched[k][e.record] = {
         record: e.record,
@@ -772,6 +796,7 @@ function computePostPanelSpan(entities, anchorsIn) {
   });
 
   return {
+    prePanelAnchors: prePanelAnchors,
     observedTotal: observedTotal,
     anchorsDamaged: anchorsDamaged,
     byAnchor: byAnchor,
@@ -936,6 +961,16 @@ function aggregate(records, opts) {
         // damaged-first — 관측 0건이어도 키를 싣는다. 사유 분해는 싣지 않는다(DD13).
         result.post_panel_span = { state: 'degraded', coverage: pps.coverage };
         axisStates.push('degraded');
+      } else if (pps.prePanelAnchors.length > 0) {
+        // 관측은 0건이지만 "앵커가 있긴 한데 전부 패널보다 앞선다"는 것은 관측된
+        // 사실이다. 축 키를 만들지 않으면 그 사실이 통째로 사라져, 짝을 안 맺기로 한
+        // 결정이 곧 증거 인멸이 된다. 분포는 없으므로 싣지 않는다(부재 규칙 a).
+        result.post_panel_span = {
+          state: 'ok',
+          coverage: pps.coverage,
+          pre_panel_anchors: pps.prePanelAnchors,
+        };
+        axisStates.push('ok');
       }
     } else {
       const st = (ppsDamaged || pps.negativeSpans.length > 0 || equationBroken) ? 'degraded' : 'ok';
@@ -948,6 +983,11 @@ function aggregate(records, opts) {
         negative_spans: pps.negativeSpans,
         coverage: pps.coverage,
       };
+      // 패널보다 앞선 앵커 후보는 짝이 아니지만 관측 사실이다 — 0건이면 키를 만들지
+      // 않고(부재 규칙 a), 있으면 싣는다. 짝이 아니므로 분포·커버리지에는 들어가지 않는다.
+      if (pps.prePanelAnchors.length > 0) {
+        result.post_panel_span.pre_panel_anchors = pps.prePanelAnchors;
+      }
       // DD13 — 앵커 소스를 못 읽었으면 사유 분해를 내지 않는다. 빈 분해를 싣는 것은
       // "분류했더니 0건"과 구분되지 않고, 계측 고장이 완전한 측정으로 보인다.
       if (!ppsDamaged) result.post_panel_span.unmatched = pps.unmatched;
@@ -1046,6 +1086,10 @@ function renderPostPanelSpan(r) {
       '): p50=' + fmtDay(d.p50) + ' max=' + fmtDay(d.max));
   } else {
     L.push('    disagreement: n=0 (no record matched BOTH axes — this is coverage, not agreement)');
+  }
+  if (s.pre_panel_anchors && s.pre_panel_anchors.length) {
+    L.push('    pre-panel anchor candidates: ' + s.pre_panel_anchors.length +
+      ' (NOT paired — a prior lifecycle anchor cannot date this panel ship)');
   }
   if (s.negative_spans && s.negative_spans.length) {
     L.push('    negative spans: ' + s.negative_spans.length +

@@ -388,7 +388,7 @@ decision slug가 필요하다.
 ## 경로 유출 — HEAD에서 흡수, 이력은 잔존 (santa-loop R2 HIGH 흡수)
 
 R2의 bundled 레인이 이 사이클이 계정명 포함 홈 경로를 **순증**으로 실었음을 측정으로 보였고,
-그 측정을 재현했다: `git grep -l "Users/Administrator" 647dfec` = **2파일**, `HEAD` = **4파일**.
+그 측정을 재현했다: `git grep -l "<홈 경로의 계정명 토큰>" 647dfec` = **2파일**, `HEAD` = **4파일**.
 순증 2건은 `.claude/reviews/plan-review-release-channel-separation.md`(인용된 증거 셀 3곳)와
 `.claude/state/findings/release-channel-separation.jsonl`(`cited_path` 1곳)이고,
 `git check-ignore`는 넷 중 어느 것도 무시하지 않는다.
@@ -409,6 +409,31 @@ grep하므로 0건을 보고하며 통과했다 — L2 security 패널이 backlo
 
 선재 2건(`.claude/notes/santa-loop-materialize-m1-implement-codex.md` ·
 `plugins/mccp/scripts/lib/santa/ledger.js`)은 `647dfec`에도 존재하므로 이 마일스톤 밖이다.
+
+### Close-out 흡수 — Task 11 기계 검사가 실제로 0건이 됐다 (Codex F1, MEDIUM)
+
+머지 후 close-out 단계에서 이 diff를 `codex-invoke.js adversarial-review`로 리뷰했고,
+유일한 finding이 위 서술의 결함을 정확히 지적했다: **보고서가 "redaction 완료"를
+주장하면서 계정명 리터럴을 본문에 그대로 들고 있었다.** 그것을 "인용된 grep 패턴이라
+무해하다"고 읽은 것은 기계적 0건 불변식을 산문으로 무효화한 것이고, 실제로 plan Task 11이
+지정한 검사는 계정명 토큰을 패턴의 세 번째 항으로 포함하므로 결과가 1건이었다. 그 상태에서 STATUS를
+COMPLETE로 올린 것은 자기 acceptance를 어긴 것이다.
+
+**기록을 남기는 것과 리터럴을 남기는 것은 다르다** — 전자만 유지하고 후자를 없앴다.
+위 문단의 명령 인용을 구조적 서술(`"<홈 경로의 계정명 토큰>"`)로 치환했고, 같은 리터럴을
+들고 있던 `.claude/plans/codex-findings-backlog.md`의 R2 행과 `.claude/state/STATE.md`의
+done 항목도 함께 치환했다. 측정값(`647dfec` = 2파일, `HEAD` = 4파일)은 그대로다.
+
+치환 후 plan `## Validation`이 지정한 정확한 형태로 재측정:
+
+```
+$ grep -cE "<plan ## Validation이 지정한 3-토큰 경로 패턴>" <보고서 경로>
+0
+```
+
+트리 전체에 남은 리터럴은 `.claude/notes/santa-loop-materialize-m1-implement-codex.md`와
+`plugins/mccp/scripts/lib/santa/ledger.js` 2건뿐이고 둘 다 `647dfec`에도 존재하므로
+이 마일스톤이 들인 것이 아니다(순증 0건). 이력에 남은 몫은 위에 적은 대로 닫히지 않는다.
 
 ## Next Steps
 

@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: release-channel-separation-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-02T01:37:49.639Z
+updated_at: 2026-09-02T02:16:53.553Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-02T01:37:49.639Z
+last_event_at: 2026-09-02T02:16:53.553Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -30,7 +30,7 @@ release-channel-separation M1 — channel-pin. **완료**. PR #168 머지 + 머�
 - 6a 상향 대조(검증 a) · 6b 하향 왕복(PRD OQ1 답) · 6c 복원 12초(지표 2) · 8단계 채널 좌표 게이트 PASS — 전부 머지 전 실측 완료
 - Validation 전 항목 재통과(2026-09-02): manifest 형태 단언 · `claude plugin validate .` exit 0 · i18n-surface 10/10 · instruction-contract C1~C4 pass · 삭제 0건 · `claude plugin list` = 1.33.6 enabled
 - 게이트: Implement-Codex R1 divergent(HIGH 3건 흡수) · security-reviewer HIGH 1건 흡수 · santa-loop R0~R2 HIGH 흡수(커밋 3건) · impeccable silent-skip(no-signal)
-- H4 유출: 순증 2건을 R2가 `<HOME>` 치환으로 흡수. 현재 트리의 `Users/Administrator` 잔존 문자열은 **인용된 grep 패턴**이라 절대경로 정규식 0건. 선재 2건은 `647dfec`에도 있어 마일스톤 밖
+- H4 유출: 순증을 R2가 `<HOME>` 치환으로 흡수했고, 이번 close-out에서 Codex F1(MEDIUM)을 흡수해 보고서·backlog의 잔존 리터럴까지 구조적 서술로 치환했다. plan Task 11의 기계 검사가 **실측 0건**으로 통과한다. 남은 2건은 `647dfec`에도 있는 선재라 마일스톤 밖
 
 ## In Progress
 
@@ -49,4 +49,4 @@ santa-loop 후속 커밋 3건 + 이번 문서 갱신(보고서 COMPLETE · PRD M
 - plan `## Validation`:386 리터럴 개행 이스케이프 버그 — 구현은 정정 형태로 실행, 본문 정정은 backlog id=d7d1f4a0
 
 ## Last Updated
-2026-09-02T01:37:49.639Z
+2026-09-02T02:16:53.553Z

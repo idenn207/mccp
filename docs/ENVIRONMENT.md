@@ -24,17 +24,31 @@
 | `bypass-flag` | `1` / 미설정 | **정확히 `1`만.** 별칭 없음, 공백·대소문자 관용 없음 | 그 밖의 값은 전부 미설정과 같다 (조용) |
 | `enum` | 열거된 값 | 열거 그대로 (앞뒤 공백만 무시) | 기본값으로 복귀 + loud warn |
 | `int` | 정수 | 정수 (범위는 소비처가 정한다) | 기본값으로 복귀 + loud warn |
-| `list` | 쉼표 구분 | 쉼표로 나누고 각 항목 trim, 빈 항목 제거 | 빈 목록 |
+| `list` | 쉼표 구분 | 쉼표로 나누고 각 항목 trim, 빈 항목 제거 (분리자가 다른 파서도 있다) | **파서마다 다르다** — 각 토글의 «멤버 어휘» 항목이 소유한다 |
 | `string` | 자유 문자열 | 그대로 | 없음 |
 
-`bypass-flag`가 따로 있는 이유는 그 셋이 **리뷰 게이트를 약화**하기 때문이다. 별칭을 더하면
-잠들어 있던 `MCCP_SKIP_RECEIPT=true`가 어느 날 게이트를 우회한다. 이름에 `DISABLE`이 들어가는
-것은 기준이 아니다 — `MCCP_AUTO_CHAIN_DISABLE`은 자동 진행만 멈추므로 `bool`이다.
+`bypass-flag`가 따로 있는 이유는 **파싱 계약이 다르기 때문**이다: 활성화 리터럴이 정확히 `1`
+하나이고 별칭이 없다. 별칭을 더하면 잠들어 있던 `MCCP_SKIP_RECEIPT=true`가 어느 날 게이트를
+우회한다. 이름에 `DISABLE`이 들어가는 것은 기준이 아니다 — `MCCP_AUTO_CHAIN_DISABLE`은 자동
+진행만 멈추므로 `bool`이다.
+
+처음 세 항목(`MCCP_SKIP_RECEIPT` · `MCCP_ALLOW_CODEX_UNAVAILABLE` · `MCCP_CODEX_DISABLED`)은
+**리뷰 게이트를 약화**한다는 성질을 공유했지만, 그것은 그 셋의 공통 성질이었을 뿐 kind의
+정의가 아니다. v1.30.x에서 `MCCP_AUTO_CHAIN_SKIP_PR`이 넷째로 합류했다 — 게이트를 약화하지
+않고 auto-chain의 PR 단계만 생략하지만, 파서가 정확히 `1`만 보므로 파싱 계약이 같다.
 
 불량값의 기본값 복귀가 보장하는 것은 **«이전 대비 권한을 넓히지 않는다»**이지 «항상
 제한적이다»가 아니다. `enum`·`int`의 불량값 처리 방향 통일은 별개 축이며, 이 문서가
 «통일했다»고 주장하는 범위는 **boolean 계열**이다. 근거는
 [value.js](../plugins/mccp/scripts/lib/env-contract/value.js) 헤더에 있다.
+
+`list`의 불량값 처리는 **통일되어 있지 않고, 통일하지도 않았다**. 실측하면 파서마다 다르다 —
+알 수 없는 토큰을 그대로 수용하는 것, 하나만 어긋나도 목록 전체를 버리는 것, 어긋난 토큰만
+조용히 떨어뜨리는 것이 모두 존재하고, 분리자가 쉼표가 아니라 `path.delimiter`인 것도 있다.
+어느 방향이 옳은지는 아직 답해지지 않았으므로, 이 문서는 통일하는 대신 **각 토글이 자기
+항목에 자기 방향을 적는다**. 정본은 [vocabulary.js](../plugins/mccp/scripts/lib/env-contract/vocabulary.js)의
+`LIST_MEMBER_POLICY` 하나이고, 상세 문서의 «멤버 어휘» 블록이 그 문장을 그대로 싣는지는
+lint L12가 대조한다.
 
 ## 3. 운영 토글 색인 (canonical)
 
@@ -63,8 +77,9 @@
 |`MCCP_STOP_LOOP`|enum|off/observe/enforce|observe|Stop-loop 게이트 모드.|[→](environment/gates.md#mccp_stop_loop)|
 |`MCCP_STOP_LOOP_CODEX`|bool|on/off|off|Stop-loop에 Codex 병행.|[→](environment/gates.md#mccp_stop_loop_codex)|
 |`MCCP_AUTO_CHAIN_DISABLE`|bool|on/off|off|auto-chain 자동 진행 중단.|[→](environment/gates.md#mccp_auto_chain_disable)|
-|`MCCP_AUTO_CHAIN_SKIP_PR`|bool|on/off|off|commit까지만, PR 생략.|[→](environment/gates.md#mccp_auto_chain_skip_pr)|
+|`MCCP_AUTO_CHAIN_SKIP_PR`|bypass-flag|1|off|commit까지만, PR 생략 — LLM이 읽고 판단하며 기계 강제가 없다.|[→](environment/gates.md#mccp_auto_chain_skip_pr)|
 |`MCCP_GATE_ROUND_CAP`|int|—|1|게이트 라운드 상한.|[→](environment/gates.md#mccp_gate_round_cap)|
+|`MCCP_ROUND_LEDGER`|enum|enforce/observe|enforce|라운드 원장 강제 모드.|[→](environment/gates.md#mccp_round_ledger)|
 |`MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE`|string|—|—|비수렴 ship override.|[→](environment/gates.md#mccp_force_pr_without_codex_convergence)|
 |`MCCP_FORCE_PR_WITHOUT_IMPECCABLE`|string|—|—|impeccable 미가용 override.|[→](environment/gates.md#mccp_force_pr_without_impeccable)|
 |`MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER`|string|—|—|security 미가용 override.|[→](environment/gates.md#mccp_force_pr_without_security_reviewer)|
@@ -79,17 +94,17 @@
 
 | 변수 | 종류 | 값 | Default | 한 줄 설명 | 상세 |
 |---|---|---|---|---|---|
-|`MCCP_PLAN_REVIEW`|enum|off/multi-agent/codex/hybrid|multi-agent|plan 승인 리뷰 소스.|[→](environment/review.md#mccp_plan_review)|
+|`MCCP_PLAN_REVIEW`|enum|multi-agent/codex/hybrid|multi-agent|plan 승인 리뷰 소스.|[→](environment/review.md#mccp_plan_review)|
 |`MCCP_PLAN_REVIEW_L3`|bool|on/off|off|hybrid에서 L3 요구.|[→](environment/review.md#mccp_plan_review_l3)|
 |`MCCP_PLAN_REVIEW_BUDGET`|int|—|—|리뷰어 1인 최소 예산.|[→](environment/review.md#mccp_plan_review_budget)|
-|`MCCP_PLAN_REVIEW_QUORUM`|int|—|—|수렴에 필요한 승인 수.|[→](environment/review.md#mccp_plan_review_quorum)|
+|`MCCP_PLAN_REVIEW_QUORUM`|string|—|3of4|수렴에 필요한 승인 수 — 3of4 형식.|[→](environment/review.md#mccp_plan_review_quorum)|
 |`MCCP_PLAN_REVIEW_ROLES_MIN`|int|—|—|최소 역할 수.|[→](environment/review.md#mccp_plan_review_roles_min)|
 |`MCCP_REVIEW_SINGLE_PASS`|enum|scope_too_small/deadline_pressure/deferred_to_prd_completion|—|리뷰 단일통과 + 사유.|[→](environment/review.md#mccp_review_single_pass)|
 |`MCCP_SANTA_ROUND_CAP`|int|—|—|santa 라운드 상한.|[→](environment/review.md#mccp_santa_round_cap)|
-|`MCCP_SANTA_SEVERITY_GATE`|enum|off/high/critical|—|santa 차단 최소 severity.|[→](environment/review.md#mccp_santa_severity_gate)|
-|`MCCP_SANTA_TERMINATOR`|enum|off/on|—|santa 종료 판정기.|[→](environment/review.md#mccp_santa_terminator)|
-|`MCCP_SANTA_ADJUDICATION_GATE`|enum|off/warn/enforce|—|santa 심판 게이트 모드.|[→](environment/review.md#mccp_santa_adjudication_gate)|
-|`MCCP_SANTA_LEDGER_SUPPRESSION`|enum|off/on|—|santa 원장 억제.|[→](environment/review.md#mccp_santa_ledger_suppression)|
+|`MCCP_SANTA_SEVERITY_GATE`|enum|enforce/off|enforce|santa 차단 최소 severity.|[→](environment/review.md#mccp_santa_severity_gate)|
+|`MCCP_SANTA_TERMINATOR`|enum|enforce/off|enforce|santa 종료 판정기.|[→](environment/review.md#mccp_santa_terminator)|
+|`MCCP_SANTA_ADJUDICATION_GATE`|enum|enforce/off|enforce|santa 심판 게이트 모드.|[→](environment/review.md#mccp_santa_adjudication_gate)|
+|`MCCP_SANTA_LEDGER_SUPPRESSION`|enum|enforce/off|enforce|santa 원장 억제.|[→](environment/review.md#mccp_santa_ledger_suppression)|
 |`MCCP_SANTA_BLIND_LANE`|enum|a/b/off|a|santa 증거 레인 배정.|[→](environment/review.md#mccp_santa_blind_lane)|
 |`MCCP_SANTA_ALWAYS_SCOPE`|enum|enforce/off|enforce|santa 상시 스코프 + 정합 rubric.|[→](environment/review.md#mccp_santa_always_scope)|
 |`MCCP_SANTA_DELTA_SCOPE`|enum|enforce/off|off|santa 델타 스코프 축소 (default가 형제와 **반대**).|[→](environment/review.md#mccp_santa_delta_scope)|
@@ -147,16 +162,16 @@
 |`MCCP_SUBSCRIPTION_OVERFLOW_CONTEXT_CRITICAL_PCT`|int|—|25|컨텍스트 critical 임계.|[→](environment/cost.md#mccp_subscription_overflow_context_critical_pct)|
 |`MCCP_SUBSCRIPTION_OVERFLOW_TOOL_WARN`|int|—|0|도구 호출 경고 임계.|[→](environment/cost.md#mccp_subscription_overflow_tool_warn)|
 |`MCCP_SUBSCRIPTION_OVERFLOW_TOOL_CRITICAL`|int|—|0|도구 호출 critical 임계.|[→](environment/cost.md#mccp_subscription_overflow_tool_critical)|
-|`MCCP_BRIEFING`|enum|auto/off/always|auto|briefing stamp 정책.|[→](environment/cost.md#mccp_briefing)|
+|`MCCP_BRIEFING`|enum|auto/off|auto|briefing stamp 정책.|[→](environment/cost.md#mccp_briefing)|
 |`MCCP_BRIEFING_AUTODISABLE_TIER`|list|—|notice,warning,critical|briefing 자동 해제 tier.|[→](environment/cost.md#mccp_briefing_autodisable_tier)|
-|`MCCP_CONTEXT_MONITOR_COST_MODE`|enum|off/observe/enforce|—|비용 모니터 모드.|[→](environment/cost.md#mccp_context_monitor_cost_mode)|
+|`MCCP_CONTEXT_MONITOR_COST_MODE`|enum|directive/notify|directive|비용 메시지 어조 모드.|[→](environment/cost.md#mccp_context_monitor_cost_mode)|
 |`MCCP_CONTEXT_MONITOR_COST_WARNINGS`|bool|on/off|on|비용 경고 출력.|[→](environment/cost.md#mccp_context_monitor_cost_warnings)|
 
 ### hooks — hook · 세션 · MCP · 설치
 
 | 변수 | 종류 | 값 | Default | 한 줄 설명 | 상세 |
 |---|---|---|---|---|---|
-|`MCCP_HOOK_PROFILE`|enum|full/lean/minimal|—|hook 무게 프로파일.|[→](environment/hooks.md#mccp_hook_profile)|
+|`MCCP_HOOK_PROFILE`|enum|minimal/standard/strict|standard|hook 무게 프로파일.|[→](environment/hooks.md#mccp_hook_profile)|
 |`MCCP_DISABLED_HOOKS`|list|—|—|비활성 hook id 목록.|[→](environment/hooks.md#mccp_disabled_hooks)|
 |`MCCP_HOOK_ID`|string|—|—|실행 중 hook id.|[→](environment/hooks.md#mccp_hook_id)|
 |`MCCP_HOOK_INPUT_MAX_BYTES`|int|—|—|hook 입력 바이트 상한.|[→](environment/hooks.md#mccp_hook_input_max_bytes)|
@@ -189,10 +204,10 @@
 |`MCCP_RENDER_TRIGGER_DEBOUNCE_MS`|int|—|5000|재렌더 debounce.|[→](environment/observability.md#mccp_render_trigger_debounce_ms)|
 |`MCCP_RENDER_LOCK_LEASE_MS`|int|—|90000|렌더 lock lease.|[→](environment/observability.md#mccp_render_lock_lease_ms)|
 |`MCCP_DASHBOARD_STALE_DAYS`|int|—|—|plan stale 판정 일수.|[→](environment/observability.md#mccp_dashboard_stale_days)|
-|`MCCP_STATE_JOURNAL`|enum|off/on|—|STATE.md 저널 기록.|[→](environment/observability.md#mccp_state_journal)|
+|`MCCP_STATE_JOURNAL`|enum|enforce/shadow/off|enforce|STATE.md 저널 기록.|[→](environment/observability.md#mccp_state_journal)|
 |`MCCP_EVIDENCE_CONFLICT_GUARD`|enum|enforce/warn/off|enforce|중복 claim 가드 모드.|[→](environment/observability.md#mccp_evidence_conflict_guard)|
 |`MCCP_EVIDENCE_STAGE_ROOT`|list|—|—|증거 스테이징 루트.|[→](environment/observability.md#mccp_evidence_stage_root)|
-|`MCCP_SESSION_LEDGER_SCOPE`|enum|repo/host/global|—|세션 원장 조회 범위.|[→](environment/observability.md#mccp_session_ledger_scope)|
+|`MCCP_SESSION_LEDGER_SCOPE`|enum|global/repo/hybrid|global|세션 원장 조회 범위.|[→](environment/observability.md#mccp_session_ledger_scope)|
 |`MCCP_RECLAIM_OUTLIVES`|bool|on/off|off|잔존 프로세스 회수.|[→](environment/observability.md#mccp_reclaim_outlives)|
 |`MCCP_RECLAIM_BUDGET_MS`|int|—|—|회수 시간 예산.|[→](environment/observability.md#mccp_reclaim_budget_ms)|
 |`MCCP_RECLAIM_IDENTITY_TOLERANCE_MS`|int|—|—|동일성 판정 허용 오차.|[→](environment/observability.md#mccp_reclaim_identity_tolerance_ms)|
@@ -272,6 +287,38 @@
 - hook 무게 줄이기 — [hooks.md#mccp_hook_profile](environment/hooks.md#mccp_hook_profile)
 - 병렬 implement 끄기 — [orchestration.md#mccp_work_implement_parallel](environment/orchestration.md#mccp_work_implement_parallel)
 - 비용 임계 조정 — [cost.md#mccp_handoff_thresholds_usd](environment/cost.md#mccp_handoff_thresholds_usd)
+
+### 이 표를 CLI로 조회하기 (v1.30.2)
+
+```bash
+# 레지스트리 열거. 필터 값은 레지스트리 상수로 검증되며 오탈자는 exit 2다.
+node plugins/mccp/scripts/lib/env-contract/cli.js list --domain gates
+node plugins/mccp/scripts/lib/env-contract/cli.js list --kind enum --json
+
+# 한 토글의 kind · values · default · 소비처 evidence · settings.json 예시.
+# 계약 격리 대상이면 «코드가 실제로 받는 값»을 함께 보여 주고 exit 1.
+node plugins/mccp/scripts/lib/env-contract/cli.js explain MCCP_PLAN_REVIEW
+
+# 3계층 settings(user · project · local)가 **선언한 값**과 프로세스가 **실제로 받은 값**을
+# 나란히 놓는다. --all 은 이 계약이 소유하지 않는 이름을 이름만 덧붙인다(값 미표시).
+node plugins/mccp/scripts/lib/env-contract/cli.js doctor
+node plugins/mccp/scripts/lib/env-contract/cli.js doctor --json
+```
+
+**`doctor`는 진단이며 게이트가 아니다.** hook 등록 0건, receipt 0건이고 어떤 게이트도 이
+종료코드를 읽지 않는다. `0`(error 0건) / `1`(error 1건 이상) / `2`(오용)는 사람과 스크립트를
+위한 것이지 자동 차단을 위한 것이 아니다.
+
+주장 범위도 좁다 — `doctor`는 **자기 프로세스가 받은 env**를 인증할 뿐, dispatch worker ·
+detached runner · Workflow agent가 받는 env는 인증하지 않는다.
+
+계약 자체의 정합은 lint가 본다. `values`가 코드의 어휘와 어긋나면 L11이 붉어지고, 알려진
+어긋남은 [vocabulary.js](../plugins/mccp/scripts/lib/env-contract/vocabulary.js)의 격리표에
+근거와 담당 마일스톤을 달아 명시 열거한다 — 격리는 **수리되면 붉어지므로** 쌓이지 않는다.
+
+```bash
+node plugins/mccp/scripts/lib/env-contract/lint.js
+```
 
 ## 6. 변경 이력 관리 규칙
 

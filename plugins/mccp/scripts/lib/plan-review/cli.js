@@ -270,6 +270,124 @@ function cmdL1(args) {
   return EX_BLOCK;
 }
 
+// ── round budget (env-contract-integrity M3) ─────────────────────────────────
+//
+// The panel half of the two-chokepoint cap enforcement. Identical policy to
+// codex-invoke.js#resolveRoundBudget and identical failure direction: FAIL-OPEN
+// on a broken module, an unusable seal, or a corrupt ledger, because an absent
+// seal is the normal state of a repository that predates M3 and one broken
+// require must not stop every plan review everywhere. The degraded run stays
+// auditable through the receipt's `meta.round_ledger_count` (null = the ledger
+// was never consulted), not through stderr alone.
+//
+// The ledger key lives in the gate-entry seal rather than in flags here, for the
+// same reason as the Codex channel: emit-workflow-args receives `--plan`, never a
+// decision slug, and threading one through would put the wiring back into prose.
+function resolveRoundBudget() {
+  const inert = {
+    allowed: true, canRecord: false, roundsSoFar: null, cap: null,
+    pinnedBy: null, gateId: null, decisionId: null, mode: null,
+  };
+  let seal;
+  let ledger;
+  let counter;
+  try {
+    seal = require('../review-rounds/seal');
+    ledger = require('../review-rounds/ledger');
+    counter = require('../santa/counter');
+  } catch (e) {
+    errln('review-rounds unavailable (' + (e && e.message ? e.message : String(e)) +
+      ') — the round cap cannot be enforced for this panel');
+    return inert;
+  }
+
+  let state;
+  try {
+    state = seal.resolveEnforcement({
+      gitDir: seal.resolveGitDir(process.cwd()),
+      env: process.env,
+    });
+  } catch (e) {
+    errln('round seal read threw (' + (e && e.message ? e.message : String(e)) +
+      ') — the round cap cannot be enforced for this panel');
+    return inert;
+  }
+
+  if (!state.canRecord) {
+    errln('no usable round seal (reason=' + state.sealReason + ') — this panel is not ' +
+      'counted and the cap is not enforced. A gate enrols by running ' +
+      'review-rounds/cli.js seal --gate <id> --decision <slug> at entry.');
+    return inert;
+  }
+
+  let roundsSoFar;
+  try {
+    roundsSoFar = ledger.count({ gateId: state.gateId, decisionId: state.decisionId });
+  } catch (e) {
+    errln('round ledger unreadable (' + (e && e.message ? e.message : String(e)) +
+      ') — not counting this panel');
+    return inert;
+  }
+
+  const d = counter.decideRound({ roundsSoFar: roundsSoFar, cap: state.cap });
+  return {
+    allowed: state.canEnforce ? d.allowed : true,   // observe records, never refuses
+    canRecord: true,
+    roundsSoFar: roundsSoFar,
+    cap: state.cap,
+    pinnedBy: state.pinnedBy,
+    gateId: state.gateId,
+    decisionId: state.decisionId,
+    mode: state.mode,
+  };
+}
+
+function recordPanelRound(budget) {
+  if (!budget || budget.canRecord !== true) return;
+  try {
+    require('../review-rounds/ledger').recordRound({
+      gateId: budget.gateId,
+      decisionId: budget.decisionId,
+      channel: 'panel',
+      classification: 'emitted',
+    });
+  } catch (e) {
+    errln('could not record the panel round (' + (e && e.message ? e.message : String(e)) +
+      ') — this panel is NOT counted against the cap');
+  }
+}
+
+// PR-Codex R1 F2 — the refusal's recovery sentence MUST branch on `pinnedBy`.
+// `effectiveRoundCap` (review-single-pass.js) returns MIN_ROUND_CAP without ever
+// reading MCCP_GATE_ROUND_CAP once any pin axis is active, so naming that variable
+// to a pinned operator prescribes an action that does nothing — and the refusal
+// prints `pinned by` two clauses earlier, so the unbranched text contradicted
+// itself in the same breath. The two axes are not interchangeable: `single-pass`
+// is a per-work-unit opt-in the operator can drop on the retry, while
+// `codex-disabled` is a standing policy (CLAUDE.md 3.3), so that configuration has
+// no cap-raising path at all and goes straight to 3.16 triage.
+function describeRoundCapRecovery(budget) {
+  if (!budget || !budget.pinnedBy) {
+    return 'The in-band recovery is to raise MCCP_GATE_ROUND_CAP (max 3) and re-run. ' +
+      'If the cap is already at its maximum this decision has no further review ' +
+      'budget — CLAUDE.md 3.16 says triage what the earlier rounds produced and ' +
+      'defer the rest, not open another round.';
+  }
+  const axes = String(budget.pinnedBy).split('+');
+  let out = 'The cap is PINNED by ' + budget.pinnedBy + ', and a pinned cap never ' +
+    'reads MCCP_GATE_ROUND_CAP — raising it has no effect here. ';
+  if (axes.indexOf('single-pass') !== -1) {
+    out += 'The `single-pass` axis is a per-work-unit opt-in, so re-running without ' +
+      'MCCP_REVIEW_SINGLE_PASS restores the configured cap. ';
+  }
+  if (axes.indexOf('codex-disabled') !== -1) {
+    out += 'The `codex-disabled` axis is a standing operator policy rather than a ' +
+      'one-shot escape, so while it holds there is no cap-raising path at all. ';
+  }
+  return out + 'CLAUDE.md 3.16 then applies: triage what the earlier rounds produced ' +
+    'and defer the rest, not open another round.';
+}
+
 // ── emit-workflow-args ────────────────────────────────────────────────────────
 // DD13: reviewed_plan_hash is computed HERE, on the same side of the fence as
 // the L2 agents that are about to read the plan. Computing it later (at decide
@@ -376,6 +494,27 @@ function cmdEmitWorkflowArgs(args) {
     return EX_BLOCK;
   }
 
+  // env-contract-integrity M3 — the SECOND enforcement chokepoint for the review
+  // round cap (the first is codex-invoke.js, just before spawn). This one is
+  // chosen because it is already a mandatory, fail-closed step: 5.2c HALTs on any
+  // non-zero exit here, returns the runaway reservation and records the halt. No
+  // new chokepoint is introduced — a chokepoint that only works when prose says
+  // "call it" would reproduce the very defect M3 removes.
+  //
+  // It runs BEFORE the args file is written so that a refused round leaves no
+  // workflow-args.json behind for a later step to pick up.
+  const budget = resolveRoundBudget();
+  if (!budget.allowed) {
+    errln('BLOCK: round cap reached (' + budget.roundsSoFar + '/' + budget.cap +
+      ' for ' + budget.gateId + '__' + budget.decisionId + ')' +
+      (budget.pinnedBy ? ' pinned by ' + budget.pinnedBy : '') +
+      ' — the L2 panel is not launched and no workflow args are written. Unlike the ' +
+      'Codex channel, this gate CANNOT proceed on a spent budget: `decide` needs a ' +
+      'panel verdict and an absent l2.json resolves to `unavailable`, which blocks. ' +
+      describeRoundCapRecovery(budget));
+    return EX_BLOCK;
+  }
+
   const payload = {
     planPath: planPath,
     prdPath: (args.prd && args.prd !== true) ? args.prd : null,
@@ -409,6 +548,22 @@ function cmdEmitWorkflowArgs(args) {
     errln('cannot write workflow args: ' + (e && e.message ? e.message : String(e)));
     return EX_BLOCK;
   }
+
+  // The args file is written, so the panel is committed to fire and the round is
+  // spent HERE — which is NOT the same instant the Codex channel charges at.
+  // That one records after the reviewer answered; this one records before the
+  // launch, because `emit-workflow-args` is the last mechanical step this channel
+  // has. The launch itself is a `Workflow` call the LLM makes at 5.2c, and 5.2d
+  // reconciles only after it returns — the body says plainly that nothing reaches
+  // 5.2d if the controller dies mid-flight. In that window a round is charged for
+  // a panel that produced no findings, and under a cap of 1 the next attempt is
+  // refused. Recovery is documented (raise the cap and re-run); closing the window
+  // properly needs the debt-marker shape 5.2c already uses for the reservation,
+  // which is a state machine this milestone does not build. Tracked in the backlog.
+  // Charging at the far side instead would be worse: `decide` is re-runnable and
+  // also runs when L2 is unreadable, so it would either double-charge or let a
+  // panel that really fired go uncounted.
+  recordPanelRound(budget);
 
   out({ argsPath: target, reviewedPlanHash: reviewedPlanHash,
     fleetKeys: fleet.map(function (f) { return f.key; }) });
@@ -562,6 +717,13 @@ function cmdL3(args) {
     envelope = codexInvoke.invokeAdversarialReview(String(args.focus), {
       json: true,
       impeccableAvailable: args['impeccable-available'] === true,
+      // env-contract-integrity M3 — L3 is the third LAYER of a pass that
+      // emit-workflow-args already charged a round for, not a second pass.
+      // Charging it again would make one hybrid pass cost two rounds, so
+      // `MCCP_PLAN_REVIEW=hybrid` under the default cap of 1 would halt on
+      // arithmetic before Codex was ever asked. The cap still binds: the panel
+      // channel is what a re-run hits, and it is enforced.
+      notAReviewRound: true,
     });
   } catch (e) {
     // A throw out of the wrapper is not an approval and not a crash of this
@@ -861,6 +1023,78 @@ function cmdVerifyProof(args) {
 // **모든 finding 을 낸다**: severity 로 거르지 않는다. 분모는 "발견된 finding
 // 전수"이고, 여기서 걸러내면 그 걸러냄이 곧 분모 축소가 되어 폐쇄율을 부풀린다.
 // 승격 임계(DD1)는 표면 쪽 관심사이지 기록 쪽 관심사가 아니다.
+// M9 Task 2 — the panel path had no CLOSURE producer. `emitPanelFindings`
+// opened findings and nothing ever closed them, so every review round added
+// permanently-open records and C1 could only fall (measured: 12 -> 24 -> 66
+// open, 0 closed). Loading a finding into the backlog IS a disposition — it is
+// deferred, not resolved — so this records it as one.
+//
+// `deferred` is NOT in RESOLVING_CLOSURE_TYPES, so this producer cannot inflate
+// the closure rate. It moves a finding from `open` to `deferred`, which is what
+// actually happened. A producer that wrote `fixed` here would be lying.
+//
+// ONLY findings that are currently OPEN in the registry are closed. Two members
+// of `blockingFindings` were never opened by emitPanelFindings and closing them
+// would fabricate closed records with `opened_at: null` — phantom denominator:
+//   - the synthesised `verdict=fail` rows (quorum.js), which carry no claim from
+//     any reviewer;
+//   - findings whose severity was unreadable: the opener writes `null` while
+//     quorum normalises to 'UNKNOWN', so the two derive DIFFERENT finding_ids.
+// Both are skipped and counted. Leaving them open is the conservative answer —
+// it under-reports closure rather than inventing a record.
+function emitPanelClosures(root, slug, rows) {
+  const result = { emitted: 0, skipped_unmatched: 0 };
+  try {
+    if (!Array.isArray(rows) || rows.length === 0) return result;
+
+    let openIds;
+    try {
+      const shard = findingsRegistry.readShard(slug, { repoRoot: root });
+      openIds = new Set((shard.findings || [])
+        .filter(function (f) { return f && f.state === 'open'; })
+        .map(function (f) { return f.finding_id; }));
+    } catch (e) {
+      errln('cannot read the findings shard (' + (e && e.message ? e.message : String(e)) +
+        ') — skipping closure emit; the backlog rows are already durable');
+      return result;
+    }
+
+    const events = [];
+    rows.forEach(function (row) {
+      if (!row || typeof row !== 'object') return;
+      const id = findingsRegistry.deriveFindingId({
+        work_unit: slug,
+        gate_id: 'mccp-plan-codex',
+        perspective: row.perspective,
+        severity: row.severity,
+        claim: row.claim,
+      });
+      if (!openIds.has(id)) { result.skipped_unmatched += 1; return; }
+      events.push({
+        kind: 'finding_closed',
+        finding_id: id,
+        closure_type: 'deferred',
+        gate_id: 'mccp-plan-codex',
+        perspective: row.perspective,
+        severity: row.severity,
+      });
+    });
+
+    if (events.length === 0) return result;
+    const r = findingsRegistry.appendFindings(slug, events, { repoRoot: root });
+    if (!r.ok) {
+      errln('findings registry closure emit failed (' + r.reason + ') — the backlog rows are durable, ' +
+        'so nothing is lost; C1 will keep showing these as open');
+      return result;
+    }
+    result.emitted = events.length;
+  } catch (e) {
+    errln('findings registry closure emit threw (' + (e && e.message ? e.message : String(e)) +
+      ') — the backlog rows are durable, so nothing is lost');
+  }
+  return result;
+}
+
 function emitPanelFindings(root, slug, l2) {
   try {
     if (!l2 || !Array.isArray(l2.results)) return;
@@ -1103,6 +1337,17 @@ function cmdBacklogAppend(args) {
     return EX_BLOCK;
   }
 
+  // M9 Task 2 — ORDER IS THE CONTRACT: the closure emit happens only after
+  // appendRows succeeded. A finding closed as `deferred` without a deferral
+  // record behind it is a closure with nothing to point at, and the failure
+  // path above already returns EX_BLOCK before reaching here.
+  //
+  // Fail-OPEN by design: the backlog rows are already durable at this point, so
+  // a registry problem must not turn a completed load into a blocked gate. The
+  // cost of failing here is that C1 keeps reporting these as open, which is the
+  // pre-M9 behaviour and is loudly logged.
+  const closureResult = emitPanelClosures(root, slug, rows);
+
   // 관측값 — 적재원이 아니다. DD2는 MEDIUM/LOW를 적재하지 않되 "몇 건을 그렇게
   // 두었는지는 명시적으로 센다"고 정했다. 읽을 수 없으면 0이 아니라 null이다:
   // 부재와 0은 다른 사실이고, 0으로 적으면 세지 않은 것이 "없었다"로 읽힌다.
@@ -1129,6 +1374,10 @@ function cmdBacklogAppend(args) {
     appended: appendResult.appended,
     skipped_duplicate: appendResult.skipped_duplicate,
     skipped_nonblocking: skippedNonblocking,
+    // M9 Task 2 — observable, so a silent closure regression is visible in the
+    // same artifact assert-backlog-parity already reads.
+    closures_emitted: closureResult.emitted,
+    closures_skipped_unmatched: closureResult.skipped_unmatched,
     rows: appendResult.rows,
   };
   try {

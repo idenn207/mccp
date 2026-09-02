@@ -134,7 +134,34 @@ function enumerateOpenFindings(cwd) {
   try {
     const registry = require('./findings-registry');
     const all = registry.readAll({ repoRoot: cwd });
-    const promotable = all.findings.filter(function (f) { return registry.isPromotable(f); });
+    let promotable = all.findings.filter(function (f) { return registry.isPromotable(f); });
+
+    // M10 — an item this repo has already dealt with stops being re-promoted.
+    //
+    // The suppression lives HERE, not in `isPromotable`: that predicate is a
+    // one-argument pure function and `c1-feedback-loop.test.js` pins both its
+    // call shape and the absence of `process.env` in the registry source.
+    // Reading a ledger from inside it would put IO in a pure predicate.
+    //
+    // Only resolving dispositions suppress. `deferred` and `rejected` leave the
+    // finding in the list, because deferring changes who will fix it, never
+    // whether the next session is told it exists — suppressing those would turn
+    // off M7's invariant while every gate still read green, and C1 does not
+    // watch promotion so nothing would catch it.
+    //
+    // Fail-open by construction: `suppressedFindingIds` returns null when the
+    // ledger is absent, unreadable, or unsealed, and null suppresses nothing.
+    try {
+      const debt = require('../lib/msw-metrics/debt-inventory');
+      const suppressed = debt.suppressedFindingIds(cwd);
+      if (suppressed && suppressed.size) {
+        promotable = promotable.filter(function (f) { return !suppressed.has(f.finding_id); });
+      }
+    } catch (err) {
+      process.stderr.write('[mccp:handoff-items] disposition ledger unreadable (' +
+        ((err && err.message) || err) + ') — nothing is suppressed; every open ' +
+        'finding is still promoted\n');
+    }
 
     // 심각도 내림차순 — 상한에 걸릴 때 CRITICAL 이 먼저 남는다.
     promotable.sort(function (a, b) {

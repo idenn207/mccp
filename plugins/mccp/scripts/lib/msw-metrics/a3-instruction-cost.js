@@ -284,13 +284,31 @@ async function measureA3(opts = {}) {
       result.status = 'computed';
       result.ratio = totalBytes > 0 ? result.numerator_tokens / result.denominator_tokens : 0;
     } catch (e) {
-      // Tokenizer unavailable
+      // M9 Task 1a — an absent INTERPRETER and an absent TOKENIZER are different
+      // facts, and until now they collapsed into one status. Keep the documented
+      // answer where it belongs (measurement-instrumentation.md: "Python not
+      // found" -> baseline-unavailable) and give the other case its own: a
+      // reachable interpreter that cannot import tiktoken is a BROKEN measurement
+      // path, not a missing baseline.
+      //
+      // The split is also what makes Task 1a falsifiable. Before this milestone
+      // that path did not return at all — it killed the process — so asserting
+      // 'baseline-unavailable' would also pass on the interpreter branch and
+      // prove nothing about the fix.
+      const detail = e && e.message ? e.message : String(e);
+      const tokenizerMissing = /ModuleNotFoundError|No module named|ImportError/i.test(detail);
+
       result.baseline_available = false;
-      result.status = 'baseline-unavailable';
-      result.not_delivered_reason = `tiktoken tokenization failed: ${e.message}`;
+      if (tokenizerMissing) {
+        result.status = 'error';
+        result.not_delivered_reason = `tiktoken unavailable: ${detail}`;
+      } else {
+        result.status = 'baseline-unavailable';
+        result.not_delivered_reason = `tiktoken tokenization failed: ${detail}`;
+      }
 
       // Log loudly to stderr
-      console.error(`\n[A3 MEASUREMENT] Baseline unavailable: ${result.not_delivered_reason}`);
+      console.error(`\n[A3 MEASUREMENT] Not delivered: ${result.not_delivered_reason}`);
       console.error('[A3 MEASUREMENT] Ensure tiktoken is installed: pip install tiktoken');
     }
 
@@ -404,7 +422,10 @@ async function tokenizeWithTiktoken(...texts) {
       if (settled) return;
       settled = true;
       if (code !== 0) {
-        reject(new Error(`tiktoken subprocess failed: ${stderr || 'unknown error'}`));
+        const detail = stderr
+          || (stdinError && stdinError.message ? 'stdin: ' + stdinError.message : '')
+          || 'unknown error';
+        reject(new Error(`tiktoken subprocess failed: ${detail}`));
         return;
       }
 
@@ -423,6 +444,23 @@ async function tokenizeWithTiktoken(...texts) {
       } catch (e) {
         reject(new Error(`Failed to parse tiktoken output: ${e.message}`));
       }
+    });
+
+    // M9 Task 1a — a broken pipe arrives as an ASYNC 'error' event on the stdin
+    // stream, which the try/catch below cannot see: that only catches synchronous
+    // throws. With no listener here Node treats it as an unhandled 'error' and
+    // kills the whole process — measured as `Error: write EOF` at
+    // WriteWrap.onWriteComplete whenever the child dies before we finish writing
+    // (the tiktoken ImportError path). Registering the listener is what turns a
+    // crash into a rejection the caller can classify.
+    //
+    // It records rather than settles on purpose: 'close' fires right after with
+    // the child's exit code AND its stderr, and that stderr carries the real
+    // cause (ModuleNotFoundError: tiktoken). Rejecting from here would win the
+    // race and throw that away, leaving 'write EOF' as the only diagnosis.
+    let stdinError = null;
+    proc.stdin.on('error', (err) => {
+      stdinError = err;
     });
 
     try {

@@ -338,6 +338,23 @@ function runMain(args) {
       // Release lock before fail-stop so next invocation isn't blocked.
       tryHeartbeatStop(heartbeatChild);
       tryLockExit(lockCli, runId, rawToken, cwd);
+      // env-contract-integrity M3 — a spent round budget is not a broken Codex.
+      // The PR gate still HALTs (fail-closed, and the operator's next action is an
+      // audited one either way), but it must not report an ordinary end-of-budget
+      // as an outage: "codex review failed" sends the operator to /codex:setup for
+      // a problem that is not there. This gate does NOT map the classification to
+      // `divergent` the way plan/prp-implement do (DD4) — doing so means adding a
+      // codex_outcome value and a verdict mapping inside the ship-gate proof path,
+      // which is out of this milestone's Files to Change. Tracked in the backlog.
+      if (codexClass === 'round-cap-reached') {
+        const so = codexJson && codexJson.roundsSoFar;
+        const cp = codexJson && codexJson.cap;
+        return fail('PR-Codex did not run: this decision has already spent its review ' +
+          'rounds (' + so + '/' + cp + ' for ' + args.decision + '). Nothing is broken — ' +
+          'the round cap refused the call before spawning. Raise MCCP_GATE_ROUND_CAP ' +
+          '(max 3) to allow another round, or take the audited MCCP_PR_SKIP_CODEX_REVIEW ' +
+          'escape with a substantive reason.', 12);
+      }
       return fail('codex review failed (class=' + codexClass +
         ' exit=' + codexRes.status + ')', 12);
     }

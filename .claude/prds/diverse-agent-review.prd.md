@@ -52,6 +52,19 @@ mccp의 plan/implement/pr 게이트는 dual-review를 위해 Codex(외부 cross-
 - **Q4 — F6 기여도는 0이 아니라 1이다 (예비 실측 정정)**: plan의 DN7은 "F6 단독으로 막힌 레코드 0건"을 시사했으나 도구의 판정은 **1건**이다(`archive/plan-review-followup-R12.md` — 3/3 응답·3 roles로 M·K 만족, 두 실패 리뷰어의 finding이 전부 MEDIUM). 리뷰어 인스턴스 단위로는 12건에서 F6이 유일한 차단 사유였다. 예비 실측과 이 milestone의 **초판 구현이 함께 0으로 본 이유**는 `record.js#findingRows`가 finding 0건일 때만 합성 `FAIL` 행을 쓰기 때문이다 — 그 행만 세면 MEDIUM만 낸 실패 리뷰어가 구조적으로 관측되지 않는다(코퍼스 전체 합성 행 0건). 정본 소스는 `## Refutation attempted` 표이며 회귀 test가 이 결함을 고정한다. **UI10대로 증거가 바뀌었으므로 판정을 갱신했다.**
 - **판정 — #8은 답했고 #11을 연다**: #8이 소유하는 것은 "quorum을 튜닝했다"가 아니라 **"튜닝할 손잡이가 아니었음을 실측으로 확정했다"**이다. `3of4`도 K도 severity 게이트도 바꾸지 않았고 그것이 결론이다. 남은 질문(승인 **품질** = false-approve 비율)은 converged 5건의 사후 감사를 요구하는 별개 관측 작업이라 **#11**로 이관한다. **M8은 CLAUDE.md §3.14를 해제하지 않는다** — 해제는 운영자 판정이고, M8이 제공하는 것은 그 근거("0이라 안전하다"가 아니라 "1이고 그 1건을 지목할 수 있다")다.
 
+**M11 실측 (2026-08-31 추가)** — #8이 확정한 converged 5건에 대해 **승인 이후 다른 생산자가 남긴 결함 증거**를 기계적으로 결속했다. 도구는 read-only·LLM-free standalone([approval-audit.js](../../plugins/mccp/scripts/lib/plan-review/approval-audit.js))이고 판정은 문서가 한다 — 원자료는 [approval-quality-audit.md](../../docs/diverse-agent-review/approval-quality-audit.md)에 축자 동결. **동작 게이트 코드는 0줄 바꿨다**(UI6). 미탐의 정의는 세 관문의 논리곱이다: **G1** 결함이 리뷰된 본문에 실재 · **G2** 그 실행에서 발화한 관점의 렌즈 안 · **G3** 승인 시각(`measurement.recorded_at`) 이후 패널 아닌 생산자의 git-tracked 기록.
+
+- **A1 — 감사 커버리지는 4/5다**: `impeccable-detection-contract-m6`의 `reviewed_plan_hash`(`sha256:887fc89d…`)가 디스크·그 경로의 어떤 git 리비전(3건 순회)과도 일치하지 않는다. 패널이 무엇을 읽고 승인했는지 복구 불가이므로 G1을 판정할 수 없고 `unauditable`이다. **이 1건을 분모에 넣어 "미탐 없음"을 세지 않는다.** 상한 소진(`history_limit_exhausted`)이 아니라 진짜 부재(`unrecoverable`)임을 도구가 구분해 보고한다.
+- **A2 — 답은 "미탐 없음"이 아니다**: 감사 가능한 **4건 전부**에서 미탐이 나왔다 — `codex-intent-context-m2` 3건 · `multi-session-work-loop-m6` 4건 · `santa-adjudication-m1` 1건 · `santa-adjudication-m2` 3건. **비율로 부르지 않는다**(DN8 · UI7 · UI9) — 표본 4, O3 생존 편향 방향 불명, 코퍼스 커버리지 하한. 관측 빈도다.
+- **A3 — 미탐은 한 종류로 몰린다**: 11건을 유형으로 접으면 다섯이고 셋이 반복된다. **C1 `Files to Change` 누락**(3건/3레코드 — 변경이 기계적으로 강제하는 test 파일을 plan이 열거하지 않음) · **C2 plan 내부 모순**(3건/2레코드 — 한 Task의 절차가 같은 plan의 다른 조항이나 자기 도구 권한과 충돌) · **C3 저장소에 대한 낡은 사실**(2건/2레코드) · C4 명세 공백이 실제 오계상을 낳음(위양성 3건 + 커버리지 누락 5행) · C5 환경에서 성립하지 않는 Validation 명령.
+- **A4 — C3이 가장 무겁다**: 서로 다른 두 패널이 **같은 낡은 사실**을 각각 통과시켰다(`i18n-surface.test.js`가 version을 `plugin.json`에서 파생한다는 것을 두 plan이 모두 몰랐다). 개별 실행의 운이 아니라 **패널이 구조적으로 못 보는 축**을 시사한다 — 리뷰어는 plan 본문을 읽지만 그 본문이 *저장소에 대해 주장하는 사실*을 대조하지 않는다. C1도 같은 성질이다. 반면 C2는 plan 본문만 읽어도 판정 가능한 내부 모순이므로 **사거리 밖이 아니라 사거리 안의 미탐**이다.
+- **A5 — G2가 실제로 작동했다**: `santa-adjudication-m2`는 렌즈가 3종만 발화했고(`test` 미발화), 그 레코드의 "반증 불가능한 요구" 증거 1건은 `out_of_lens`로 떨어졌다. 아무도 보지 않기로 한 축은 놓친 것이 아니다.
+- **A6 — cross-model 채널은 어느 승인도 근거짓지 못한다**: ship receipt가 해시로 결속된 **4건**은 전부 `meta.codex_disabled=true` · `resolution.codex_verdict='skipped'` · `findings=[]`이고, 나머지 1건(`impeccable-detection-contract-m6`)은 그 본문을 봉인한 receipt가 **아예 없어** `absent`다(A7·A8과 같은 사실). 두 사유를 "5건 전부 꺼져 있었다"로 접으면 receipt 부재를 receipt의 관측 내용으로 읽는 것이라 DN3이 막으려는 오독 그 자체가 된다. 그 0은 "Codex가 보았는데 없었다"가 아니라 **"발화하지 않았다"** 이며, 도구가 `can_ground_absence=false`로 보고한다. **판정의 실질 채널은 구현 보고서 하나**(`report`: 5/5 증거 산출)이고 위 A2의 모든 근거가 거기서 왔다.
+- **A7 — DN10 정정 · 이름으로 결속하면 안 된다**: plan DN10은 `impeccable-detection-contract-m6`을 두고 "리뷰 해시와 ship 해시가 다르다 = 승인 대상이 승인 후 바뀌었다"고 적었으나, 그 판정 자체가 **레코드 파일명 slug로 다른 plan의 receipt를 끌어온 결과**다. 해시로 귀속하면 정직한 서술은 "그 본문을 봉인한 ship receipt가 **아예 없다**"(`no_ship_receipt`)이다. auditable 4건은 전부 `edited_after_approval=false`이며, 이 함정은 가설이 아니라 이 코퍼스에 실재한다(Implement-Codex R1 F1이 독립적으로 같은 형태를 지목).
+- **A8 — `state=degraded`의 원인은 하나이고 그것이 감사 결과다**: 파싱 실패 0 · `rejected` 0 · `read_error` false이고, 유일한 원인은 위 A7의 `no_ship_receipt`다. 승인의 `review_proof`는 plan-gate receipt에만 실렸고 그 디렉토리는 worktree-only라 5건 분이 없다 — 남은 유일한 독립 증인이 ship receipt인데 그 1건에는 그것도 없다. 즉 **그 레코드가 정말 그 게이트 실행이 쓴 것인지 보증할 증인이 0**이다. 나머지 4건은 서로 다른 writer가 같은 본문을 봉인했으나 **해시 한 값의 교차 확인일 뿐 전사 전체의 증명이 아니다**(quorum 블록·findings 표는 여전히 무증인).
+- **A9 — 감사는 재현 가능하다(측정된 답)**: `durability_summary.untracked = 0`. plan L2 패널의 CRITICAL 2건("`.claude/reviews/`가 worktree-only라 감사 재현 불가")은 전제가 실측상 거짓이다 — `.gitignore:154`가 무시하는 것은 `.claude/state/plan-review/`(per-invocation IPC)이고 같은 주석 `:149-152`가 `.claude/reviews/plan-review-<slug>.md`를 DURABLE record로 지목한다. 주장이 아니라 도구의 필드가 매 실행 이를 답한다.
+- **판정 — #11은 관측이고 처방은 #5 뒤다**: #11이 소유하는 것은 "패널을 고쳤다"가 아니라 **"승인 4건 전부에 미탐이 있었고 그 유형이 무작위가 아님을 증거와 함께 확정했다"**이다. A3·A4가 시사하는 조치(리뷰어에게 저장소 대조 능력 부여 · `Files to Change` 완전성 기계 검사 · plan 내부 모순 lint)는 전부 **게이트 배선 변경**이고 UI5가 그것을 #5 뒤로 못박는다. 관측 milestone은 관측만 한다(DN11 · UI11).
+
 ## Users
 - **Primary**: mccp를 운영하며 `/mccp:plan`·`/mccp:prp-implement`·`/mccp:pr` 게이트를 매번 통과해야 하는 단일 운영자(skypark207). trigger: 게이트 진입 시 Codex 리뷰 대기.
 - **Not for**: 팀 협업 다중 사용자 시나리오 — 현재 개인용 plugin monorepo.
@@ -105,8 +118,8 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 | 6 | 설치된 런타임에서 패널 실측 | 설치된 런타임에서 패널을 **4회 라이브 실측**하고 그 결과를 milestone 산출물로 확정 — 승인 0건(O1) · 차단 경로 wall-clock 4회 모두 목표 이내(O2) · 계측 표면의 **재실행 편향** 발견(O3) · 미달 축과 신규 축을 #7·#8·#9로 이관 | complete | `.claude/plans/diverse-agent-review-m6.plan.md` |
 | 7 | budget 게이트 라이브 발화 관측 | 라이브 `/mccp:plan`에서 budget 게이트가 실제로 발화해 agent 0개 spawn + 실측 `remaining`/`minRemaining`이 남음 — 시뮬레이션은 라이브 발화의 증거가 아니다(UI10). #4에서 도달 가능해졌고 #6이 관측하지 못한 축. **관측 결과는 발화가 아니라 발화 불가의 원인이었다** — `budget.total=null` · `remaining()=Infinity`를 직접 실측해 threshold 쪽 어떤 값으로도 발화 불가임을 확정(B1). 라이브 발화 축은 #10으로 이관 | complete | `.claude/plans/diverse-agent-review-m7.plan.md` |
 | 8 | 패널 quorum 캘리브레이션 재검토 | `3of4` + K=3의 적정성을 **35건 코퍼스 실측으로 판정** — 승인 경로는 **존재한다**(converged 5건, 전부 hash 결속·단일통과 토글 미사용). quorum이 평가된 차단 27건 중 M·K가 binding이었던 것은 **0건**이고, K를 3→1로 실제로 낮춘 자연 실험에서도 승인 빈도가 움직이지 않았다 — **손잡이는 무력하고 실제 승인 규칙은 severity 게이트다**. F6 기여도는 예비 실측의 0건이 아니라 **1건**으로 정정됐다(UI10). 기본값 무변경 · 게이트 배선 diff 공집합. 승인 **품질**은 #11로 이관 | complete | `.claude/plans/diverse-agent-review-m8.plan.md` |
-| 11 | 패널 승인 품질 감사 (false-approve) | #8이 확정한 converged 5건을 사후 감사해 **승인이 옳았는가**를 판정 — 각 승인 plan을 그 시점 코퍼스와 대조해 패널이 놓친 실물 결함이 있었는지 본다. #8 이전에는 표본 0이라 질문 자체가 성립하지 않았다. 관측 작업이므로 배선 추가가 아니고 #5 앞에 둘 수 있다 | pending | — |
-| 5 | 게이트 배선 오라클 추출 | 게이트 승인 배선이 단위 test 사거리 안으로 이동 — seam 결함이 ship 후 리뷰가 아니라 test로 잡힘 | pending | — |
+| 11 | 패널 승인 품질 감사 (false-approve) | #8이 확정한 converged 5건을 사후 감사해 **승인이 옳았는가**를 판정. **관측 결과는 "미탐 없음"이 아니었다** — 감사 가능한 4건(1건은 리뷰된 본문 복구 불가로 `unauditable`) **전부에서 미탐이 발견**됐고, 11건을 유형으로 접으면 셋이 반복된다(`Files to Change` 누락 3 · plan 내부 모순 3 · **저장소에 대한 낡은 사실 2 — 같은 오류가 두 패널을 각각 통과**). cross-model 채널은 5건 전부 `structurally_empty`라 어떤 판정도 그 채널에 기대지 않는다. 비율은 산출하지 않는다(표본 4 · 생존 편향 방향 불명). 처방은 게이트 배선이라 **#5 뒤** | complete | `.claude/plans/diverse-agent-review-m11.plan.md` |
+| 5 | 게이트 배선 오라클 추출 | 게이트 승인 배선이 단위 test 사거리 안으로 이동 — seam 결함이 ship 후 리뷰가 아니라 test로 잡힘 | complete | `.claude/plans/diverse-agent-review-m5.plan.md` |
 | 9 | 계측 재실행 편향 해소 | 같은 결정에 대한 재실행이 이전 레코드를 덮어쓰지 않아 수렴 과정이 축적됨(O3) — 레코드 경로 slug가 PRD 경로 파생이라 한 PRD의 모든 milestone·모든 라운드가 한 파일을 공유한다. 배선 변경이므로 **#5의 오라클 추출 뒤에** 착수한다(UI6) | pending | — |
 | 10 | budget 게이트 전달 경로 확정 | `budget.total`을 세우는 전달 경로가 **존재하는지 먼저 확정**하고, 존재하면 그때 라이브 발화를 관측한다 — #7 실측으로 turn 프롬프트의 `+200k`가 `total`을 세우지 못하고 `remaining()`이 `Infinity`로 퇴화함이 확정됐다(B1). 저장소 코드로 닿지 않는 축이므로 harness 계약 확인이 선행하며, 존재를 모르는 채 "발화시킨다"를 acceptance로 적으면 #4가 맞았던 순환을 형태만 바꿔 반복한다 | pending | — |
 | 1.5 | 패널 intent adjudication | 패널이 user intent를 입력으로 받고 자기 findings를 그에 대해 판정 · panel run에서 intent gate가 *skip*이 아니라 *satisfied* | pending | — |
@@ -142,6 +155,12 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 > **#11은 미달의 이관이 아니라 질문의 승격이다.** #6·#7·#10의 이관은 "하려던 것을 못 했다"였지만, #8은 하려던 것을 했다 — 그 결과 **이전에는 물을 수 없던 질문**이 물을 수 있게 됐다. "승인 품질(false-approve 비율)"은 승인 표본이 0인 동안 성립하지 않는 질문이었고, 이제 5건이 있으므로 성립한다. 관측 작업이라 배선을 늘리지 않으므로 #7·#8과 같이 #5 앞에 둔다(UI6).
 >
 > **#8도 `complete`다** — 다만 앞의 둘과 이유가 다르다. #6·#7은 미달을 확정해서 complete였고, #8은 **묻던 것에 실제로 답해서** complete다. 답은 "튜닝했다"가 아니라 "튜닝할 손잡이가 아니었다"이며, 기본값을 하나도 바꾸지 않은 것이 결론 그 자체다.
+>
+> **#11이 확정한 것 — 이관이 발생하지 않았다 (2026-08-31).** 앞선 넷은 전부 무언가를 다음 milestone으로 넘겼고 그 사유가 네 종류였다(선행 조건 밖 · 전달 경로 밖 · 집계 범위 · 질문의 승격). **#11은 아무것도 이관하지 않는다** — 물었던 것에 답했고, 답이 "미탐 없음"이 아니라 "감사 가능한 4건 전부에 미탐이 있었고 그 유형이 무작위가 아니다"였다. 이관할 미달이 없는 이유는 성취가 아니라 **범위 설계**다: #11의 Outcome은 처음부터 "감사한다"였지 "고친다"가 아니었고, A3·A4가 지목한 처방(리뷰어에게 저장소 대조를 요구 · `Files to Change` 완전성 기계 검사 · plan 내부 모순 lint)은 전부 게이트 배선이라 UI5가 **#5 뒤**로 이미 못박아 뒀다.
+>
+> **그래서 "보고만 하고 끝"이 아니라 "범위가 관측까지"다.** 이 구분을 적어 두지 않으면 다음 독자가 #11을 미완으로 읽는다 — 관측 milestone이 처방까지 하면 그것은 #5를 앞지르는 것이고, 이 PRD가 #1.5·#9에 대해 두 번 거절한 형태다(배선을 늘리기 전에 추출한다).
+>
+> **다만 한 가지는 정직하게 적는다**: #11이 발견한 것은 **패널의 사거리 안에서 일어난 미탐**이다(C2 3건은 plan 본문만 읽어도 판정 가능한 내부 모순이었다). 이것은 "리뷰어에게 도구를 더 주면 해결된다"는 결론을 지지하지 않는다 — C1·C3(5건)은 저장소 대조 축이지만 C2는 아니다. 처방을 설계할 때 두 축을 한 원인으로 뭉치면 절반만 닫힌다.
 
 ## Open Questions
 
@@ -157,7 +176,8 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 - [ ] 지표 코퍼스의 내구성 — **O3으로 갱신**: worktree-only 소멸에 더해, 레코드 경로 slug가 PRD 경로 파생이라 **재실행이 이전 라운드를 덮어쓴다**. 4회 실행에 잔존 1건이라 수렴 과정 자체가 코퍼스가 되지 못한다. 단발 실측으로 충분한가가 아니라 **누적이 가능한가**가 질문이 됐다 (#9)
 - [ ] **`budget.total`을 세우는 전달 경로가 존재하는가** — M7 실측: turn 프롬프트 본문의 `+200k`로는 `null`이었고 `remaining()`은 `Infinity`로 퇴화한다. 따라서 threshold 쪽 어떤 값으로도(`MCCP_PLAN_REVIEW_BUDGET` 포함) budget 게이트를 발화시킬 수 없다(B1). 이것이 harness 사양인지 결함인지, 다른 전달 형태가 있는지는 **미확인**이며 관측 표본은 1이다. 저장소 코드로 닿지 않는 축이라 근거 없이 절차를 날조하지 않는다 (#10)
 - [ ] **`remaining()`의 무예산 반환값이 `Infinity`라는 사실의 파급** — `plan-review.js:161`은 좌항 `budget.total` 단락평가로 안전하지만, `remaining()`만 읽고 분기하는 소비처가 생기면 무예산 turn을 "무한 예산"으로 읽는다. 현재 그런 소비처가 있는지 전수 확인하지 않았다
-- [ ] 패널 승인의 실제 품질 — **M8로 갱신: 앞당겨졌던 질문이 답해졌으므로 원래 질문으로 돌아온다.** "승인이 발급되는가"는 예이고(converged 5건, 전부 hash 결속·토글 미사용), 이제 false-approve 비율을 물을 표본이 있다. 각 승인 plan을 그 시점 코퍼스와 대조해 패널이 놓친 실물 결함이 있었는지 보는 사후 감사가 필요하다 (#11)
+- [x] 패널 승인의 실제 품질 — **M11이 답했다 (2026-08-31)**: 감사 가능한 4건(5건 중 1건은 리뷰된 본문 복구 불가) **전부에서 미탐**이 나왔고, 11건의 유형이 무작위가 아니다 — `Files to Change` 누락 3 · plan 내부 모순 3 · **저장소에 대한 낡은 사실 2(같은 오류가 두 패널을 각각 통과)** · 명세 공백 2 · 성립하지 않는 Validation 1. **비율은 산출하지 않는다**(표본 4 · O3 생존 편향 방향 불명 · 커버리지 하한) — 그 사실 자체가 산출물이다. 근거는 [approval-quality-audit.md](../../docs/diverse-agent-review/approval-quality-audit.md)에 G1·G2·G3 관문별로 축자 인용돼 있다. **남는 것은 처방이고 그것은 배선이라 #5 뒤다**
+- [ ] **패널이 저장소를 대조하지 못한다는 축을 어떻게 닫을 것인가** — M11 실측: 미탐 11건 중 5건(C1 `Files to Change` 누락 + C3 낡은 사실)이 "plan 본문만 읽어서는 판정 불가, 저장소와 대조해야 하는" 종류다. 리뷰어 4관점은 전부 `Read`/`Grep`/`Glob`을 갖고 있으므로 능력 부재가 아니라 **프롬프트가 그 대조를 요구하지 않는 것**이 원인일 수 있으나 확인되지 않았다. 프롬프트 변경은 UI3(통과 목적 완화 금지)의 반대 방향이라도 리뷰 계약 변경이므로 #5 오라클 추출 뒤에 다룬다. **근거 없이 프롬프트를 손보지 않는다**
 - [ ] **quorum 손잡이는 무력한데 승인 빈도는 왜 낮은가** — M8 실측: M·K가 binding이었던 차단 레코드 0건, K를 3→1로 실제로 낮춘 자연 실험에서도 승인 빈도 무변화. 즉 실제 승인 규칙은 severity 게이트 단독이다. 그런데 실패 리뷰어 64건 중 52건이 실물 CRITICAL/HIGH를 동반했으므로 이것이 **과잉 차단인지 정직한 탐지인지는 severity 판정의 정확도에 달려 있고, 그 정확도는 아직 측정된 바 없다**. #11의 사후 감사가 반대 방향(false-approve)을 보므로 이 질문(false-block)은 그 대칭축으로 남는다. 근거 없이 임계를 내리지 않는다(UI4 · UI11)
 - [ ] **F6이 단독으로 막은 1건을 어떻게 처리할 것인가** — M8 실측: `archive/plan-review-followup-R12.md`가 그 사례다(3/3 응답·3 roles로 M·K 만족, 두 실패 리뷰어의 finding이 전부 MEDIUM). CLAUDE.md §3.14의 해제 조건은 정확히 이 합성 동작을 겨냥하는데, 실측은 F6이 **무해하지도(1건 단독 차단) 지배적이지도(27건 중 26건은 F6 없이도 차단) 않다**고 말한다. 해제는 운영자 판정이고 이 PRD 소관이 아니다 — M8은 근거만 제공한다
 
@@ -174,5 +194,5 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 | 기존 git-tracked ship corpus의 receipt_hash 변경(재봉인 사고) | Low | High | present-only 필드 + skeleton 미materialize(§3.12 no-rehash) + hash 안정성 test |
 
 ---
-*Status: #1·#4·#6·#7·#8 배송 완료 · 다음은 #11(승인 품질 감사) → #5(오라클 추출) → #9 · 나머지는 요구사항 단계. 구현 계획은 /mccp:plan.*
+*Status: #1·#4·#6·#7·#8·#11 배송 완료 · 다음은 #5(오라클 추출) → #9 · 나머지는 요구사항 단계. #11이 확정한 미탐 유형(저장소 대조 축 5건 · plan 내부 모순 3건)의 처방은 전부 게이트 배선이라 #5 뒤에 착수한다(UI5). 구현 계획은 /mccp:plan.*
 *Co-created with user on 2026-08-06. Revised 2026-08-09 (M1 ship 후 실측 반영 — 지표 정직화 + milestone 4건 추가). Revised 2026-08-14 (M6 실측 반영 — Outcome을 관측 결과로 재정의 + #7·#8·#9 신설). Revised 2026-08-26 (M8 실측 반영 — 통과 경로 지표를 집계 범위 정정으로 산출 전환 + quorum 손잡이 무력성 확정 + #11 신설).*

@@ -320,8 +320,15 @@ no-rehash 불변식이 이를 금지하며 `head_sha`는 `e33a2be` 그대로다.
 - `853fc27` ~ `8af5e42`
 - `743d7f7` ~ `f30316d`
 
-**남는 것 둘.** (1) 태그는 **push해야 published가 된다** — 로컬 생성까지가 이 흡수의
-범위이고, 푸시 전까지 결손은 실질적으로 유지된다. (2) `--check-ship-verdict`는 여전히
+**태그는 published다 (santa-loop R1 흡수).** 최초 흡수는 태그를 **만들기만 하고 push하지
+않았고**, 그럼에도 흡수로 기록돼 있었다 — round 1에서 blind·bundled 두 레인이 독립적으로
+같은 HIGH를 제기해 이를 잡았다. 실측 확인:
+`git ls-remote origin refs/tags/archive/release-channel-separation-m1-evidence` → `62b20f3`,
+그리고 `git tag --contains`가 `e33a2be`·`8af5e42`·`f30316d` 셋 모두에 대해 이 태그를
+돌려준다. 이제 fresh clone이 세 커밋을 해소할 수 있고, §3.8대로 worktree를 제거해도
+마지막 사본이 사라지지 않는다.
+
+**남는 것 하나.** `--check-ship-verdict`는 여전히
 `ok:false / ship-gate-stale-head`를 낸다. 그 원인은 도달성이 아니라 **HEAD 드리프트**다
 (receipt는 `e33a2be`에 봉인됐고 그 뒤 `9091831`·`4f4720a`·`df5e52e`가 착지했다). 그리고
 `validate-cmd.js:788`의 stale-head 분기는 `:813`의 `pr_codex_force_override`보다 **먼저**

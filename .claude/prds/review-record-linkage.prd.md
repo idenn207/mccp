@@ -108,7 +108,7 @@ M1이 먼저인 이유는 **M2·M3·M4의 목표치가 전부 M1이 정하는 �
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | linkage-baseline-parser | "라운드 구조 보유" · "리뷰 대상 ship" · "층간 링크"의 정의가 **파서 코드**로 고정되고, 경계 트리의 코퍼스가 그 정의로 동결 보고된다(착지 실측 ship 75 · 레코드 55). 쓰기 0건 · read-only · LLM-free | in-progress | [.claude/plans/review-record-linkage-m1.plan.md](../plans/review-record-linkage-m1.plan.md) |
-| 2 | rounds-channel | `resolution.rounds`에 게이트용 입력 통로가 생기고 세 게이트가 실값을 넘긴다. **acceptance는 producer가 아니라 산출된 실값** — 배선 부재를 보는 test가 없으면 완료가 아니다 | dropped | — (상류 선점 — 표 아래 주 참조) |
+| 2 | rounds-channel | `resolution.rounds`에 게이트용 입력 통로가 생기고 세 게이트가 실값을 넘긴다. **acceptance는 producer가 아니라 산출된 실값** — 배선 부재를 보는 test가 없으면 완료가 아니다 | dropped | 검증 산출물: [review-record-linkage-m2-upstream-verification.md](../PRPs/reports/review-record-linkage-m2-upstream-verification.md) |
 | 3 | bidirectional-link | receipt가 리뷰 경로를, 리뷰가 receipt 식별자를 갖는다. 필드는 present-only(`makeSkeleton` 미포함)라 과거 receipt의 hash가 불변이다 | pending | — |
 | 4 | review-round-structure | `record.js`가 M1의 파서 정의를 만족하는 형식으로만 기록하고, 착지 후 리뷰의 커버리지가 100%가 된다 | pending | — |
 
@@ -126,6 +126,18 @@ M1이 먼저인 이유는 **M2·M3·M4의 목표치가 전부 M1이 정하는 �
 >
 > 이 결정으로 **MVP는 M1 단독**이 된다(원래 M1 + M2). Scope 절의 MVP 문장은 그 전제 위에서
 > 읽어야 한다.
+>
+> **2026-09-02 — 판단을 증거로 대체했다.** PR-Codex R1 F2(HIGH)가 "저자 판단이 사용자
+> 범위 진술(UI9)을 대체할 수 없다"를 지적했고, 그 지적이 옳다. 위 사유는 **판단**이었지
+> acceptance 대조가 아니었다. 이제 M2 outcome 문장을 A~D 네 명제로 쪼개 각각 재현 명령과
+> 함께 대조한 산출물이 있다 —
+> [review-record-linkage-m2-upstream-verification.md](../PRPs/reports/review-record-linkage-m2-upstream-verification.md).
+> 결정적 증거는 C절이다: 이 PRD 자신의 M1 plan 게이트가 `resolution.rounds: 3`을 봉인했고
+> 그 값이 `meta.round_ledger_count: 3`과 일치한다 — "산출된 실값" acceptance의 end-to-end
+> 실물이다. D절은 배선 부재를 겨냥한 test 85 pass / 0 fail을 싣는다.
+>
+> 따라서 **UI9는 폐기가 아니라 충족**으로 읽는다 — MVP가 요구한 상태(M1의 정의 + M2의
+> 통로)에 도달했고, 통로만 상류가 제공한다. 사용자가 2026-09-02에 이 해소 방식을 택했다.
 
 **직렬 강제**: M1 → (M2 병렬 M3) → M4. M2와 M3는 소유 파일이 다르나(`receipt/write.js`+`cli.js` 대 `plan-review/record.js`) 둘 다 M1의 정의를 소비하므로 M1이 선행이다. M4는 M3의 링크 필드를 형식 계약에 포함하므로 M3 뒤다.
 

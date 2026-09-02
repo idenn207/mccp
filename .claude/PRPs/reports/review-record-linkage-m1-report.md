@@ -200,8 +200,8 @@ plan-review-corpus 계열 42 · evidence-audit 22 · i18n-surface 10).
 
 - [x] `origin/main` 머지 후 §3.7 version 재계산 — 두 번 상향해 **1.34.2**에 착지(origin/main은 1.34.1). 4면 동기 완료, `i18n-surface` 10/10
 - [x] PR-Codex R1 F1(UI2 분모) 흡수 — 위 6번
-- [ ] **UI12 판정 (사용자 소유)** — "C0가 먼저 착지하면 이 브랜치는 version 선언을 철회한다"의 발동 조건이 충족됐다(C0 = `release-channel-separation`, M1이 PR #170으로 착지). 다만 C0 M1 이후의 CLAUDE.md §3.7은 feature 브랜치 bump를 "dogfood 빌드 번호"로 여전히 정상 기술하고, 우산 결정 1의 강제 기구와 CHANGELOG 누적 형태는 C0 M2·M3(pending) 소관이라 **철회의 착지점이 아직 정의되지 않았다**. 유지/철회 판정 필요
-- [ ] **UI9 판정 (사용자 소유)** — M2 `dropped`가 사용자 범위 진술과 어긋난다(Deviation 4). 복원 / 명시 범위 변경 / 상류가 M2 acceptance를 충족한다는 검증을 M2 산출물로 남기기 중 택1
+- [x] **UI12 판정 (사용자, 2026-09-02) — 1.34.2 유지, 적용은 이연.** 발동 조건은 충족됐다(C0 = `release-channel-separation` M1이 PR #170으로 착지). 그러나 C0 M1 **이후의** CLAUDE.md §3.7이 feature 브랜치 bump를 "dogfood 빌드 번호"로 여전히 정상 기술하며 4면 동기를 요구하고, 우산 PRD 결정 1의 강제 기구와 "CHANGELOG를 릴리스 컷까지 미확정으로 누적하는 형태"는 C0 M2·M3(pending) 소관이라 **철회의 착지점이 정의되지 않았다**. 지금 철회하면 CHANGELOG가 미정의 상태로 떨어진다. UI12는 **폐기가 아니라 이연**이며, C0 M2·M3이 착지점을 정의한 뒤 적용한다
+- [x] **UI9 판정 (사용자, 2026-09-02) — M2 dropped 유지 + 검증 산출물.** 저자 판단을 acceptance 대조로 대체했다: [review-record-linkage-m2-upstream-verification.md](review-record-linkage-m2-upstream-verification.md). A~D 네 명제 전부 충족이고 결정적 증거는 이 PRD 자신의 plan 게이트가 봉인한 `resolution.rounds: 3`(= `round_ledger_count: 3`)이다. UI9는 **폐기가 아니라 충족**으로 읽는다
 - [ ] `/mccp:pr` 재실행 — plan-receipt staleness는 여전히 구조적이므로 문서화된 우회 + 사유 필요
 - [ ] M3 `bidirectional-link` 착수 시: `classifyLink`는 **경로 안전성 게이트가 아니다** —
       `path.resolve` containment check를 반드시 별도로 더할 것 (security S3)

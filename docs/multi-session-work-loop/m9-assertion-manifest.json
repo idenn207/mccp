@@ -1,0 +1,119 @@
+{
+  "milestone": "multi-session-work-loop M9",
+  "captured_at": "2026-08-27",
+  "note": "Each row is a claim M9 makes and the mechanical check that can refute it. A claim with no refuting check does not belong here — it belongs in the report as an observation.",
+  "assertions": [
+    {
+      "id": "M9-A1",
+      "task": 1,
+      "claim": "A3 reports an unimportable tiktoken instead of killing the process",
+      "check": "node --test plugins/mccp/scripts/lib/tests/msw-metrics.test.js --test-name-pattern 'unimportable tiktoken'",
+      "refutes_by": "asserting stdout still parses; a crashed run leaves stdout empty, which exit code alone cannot distinguish from a non-computed status",
+      "observed": "pass"
+    },
+    {
+      "id": "M9-A2",
+      "task": 1,
+      "claim": "an absent interpreter and an absent tokenizer are different statuses",
+      "check": "measureA3 sets status='error' with a tiktoken reason on ImportError, 'baseline-unavailable' otherwise",
+      "refutes_by": "live run reports status=error, not_delivered_reason contains 'tiktoken'",
+      "observed": "status=error, reason='tiktoken unavailable: ... No module named tiktoken'"
+    },
+    {
+      "id": "M9-B1",
+      "task": 2,
+      "claim": "backlogged panel findings are closed as deferred and the closure rate does not move",
+      "check": "node --test plugins/mccp/scripts/lib/tests/msw-m9-producers.test.js",
+      "refutes_by": "asserting counts.resolved stays 0 while counts.deferred rises, and total does not grow",
+      "observed": "live shard open 66 -> 59, numerator 0 unchanged, denominator 66 unchanged"
+    },
+    {
+      "id": "M9-B2",
+      "task": 2,
+      "claim": "a blocking entry the panel never opened is skipped, not fabricated",
+      "check": "backlog.json closures_skipped_unmatched",
+      "refutes_by": "asserting the synthesised verdict=fail rows produce no closed record with opened_at null",
+      "observed": "closures_emitted 7, closures_skipped_unmatched 3"
+    },
+    {
+      "id": "M9-B3",
+      "task": 2,
+      "claim": "a failed backlog append closes nothing",
+      "check": "negative test with a header-less backlog",
+      "refutes_by": "asserting the finding is still open after a non-zero exit",
+      "observed": "pass"
+    },
+    {
+      "id": "M9-C1",
+      "task": 3,
+      "claim": "deferring a finding never counts as resolving it",
+      "check": "countFindings separates RESOLVING_CLOSURE_TYPES from the rest",
+      "refutes_by": "a fixture with all closure types asserts resolved counts only fixed + invalidated",
+      "observed": "pass; live C1 0/66 -> 5/66 with 7 deferred excluded from the numerator"
+    },
+    {
+      "id": "M9-D1",
+      "task": 4,
+      "claim": "attribution enumerates only resolved findings that carry a join key",
+      "check": "findings-unattributed against a fixture with fixed / invalidated / deferred rows",
+      "refutes_by": "asserting the deferred row is absent and every returned row has gate_decision_id",
+      "observed": "pass"
+    },
+    {
+      "id": "M9-D2",
+      "task": 4,
+      "claim": "a resolved finding with no gate_decision_id is dropped rather than guessed at",
+      "check": "fixture with a fixed finding and no stamp",
+      "refutes_by": "asserting count === 0 while counts.resolved === 1",
+      "observed": "pass; the live M7 cohort reports 0 for exactly this reason"
+    },
+    {
+      "id": "M9-E1",
+      "task": 5,
+      "claim": "A2 cannot be produced in this installation, and the reason is the denominator rather than the numerator",
+      "check": "docs/multi-session-work-loop/a2-producer-investigation.md enumerates 4 candidates with file:line",
+      "refutes_by": "applying the repo's only context-window constant to 5 live transcripts yields negative remaining (-21% to -195%)",
+      "observed": "recorded"
+    },
+    {
+      "id": "M9-F1",
+      "task": 6,
+      "claim": "a row flipped to canonical complete with a false predicate fails the gate",
+      "check": "node plugins/mccp/scripts/lib/msw-metrics/m9-coverage-gate.js",
+      "refutes_by": "fixture PRD with a bare `complete` cell and no metrics corpus must exit non-zero",
+      "observed": "pass"
+    },
+    {
+      "id": "M9-F2",
+      "task": 6,
+      "claim": "a row still carrying its marker is not checked and does not fail",
+      "check": "same gate against a non-canonical fixture",
+      "refutes_by": "asserting checked=false and cross.ok=true",
+      "observed": "pass"
+    },
+    {
+      "id": "M9-F3",
+      "task": 6,
+      "claim": "M8 may not be flipped until the A2 revision is reflected in the PRD, not merely written",
+      "check": "predicate checks both file existence and PRD reference",
+      "refutes_by": "before the revision the predicate was measured false with a2Doc=true a2Revised=false",
+      "observed": "false before the revision, true after"
+    },
+    {
+      "id": "M9-G1",
+      "task": 7,
+      "claim": "the PRD is archivable after normalisation",
+      "check": "node plugins/mccp/scripts/lib/archive-complete/scan.js --json",
+      "refutes_by": "counts must show inProgress 0 and nonCanonical 0 across all 9 rows",
+      "observed": "archivable true, complete 9/9"
+    },
+    {
+      "id": "M9-H1",
+      "task": 8,
+      "claim": "the archive move plan resolves to the PRD plus all 9 plans with no C2 violation",
+      "check": "archive-complete/apply.js preflight with the full planPaths set",
+      "refutes_by": "errors[] must be empty and the move list must contain 10 entries",
+      "observed": "errors [], 10 moves. The destructive run is DEFERRED to after this cycle's PR - executing it now moves the m9 plan and self-blocks the PR staleness guard (CLAUDE.md 3.11 guard 2)"
+    }
+  ]
+}

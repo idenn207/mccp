@@ -1,54 +1,49 @@
 ---
 state_version: 1
-task_fingerprint: release-channel-separation-m1
+task_fingerprint: multi-session-work-loop-m10
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-01T07:50:27.358Z
-last_event: receipt_write
-last_event_at: 2026-09-01T07:50:27.358Z
+updated_at: 2026-09-01T01:00:08.107Z
+last_event: stop_loop_pass
+last_event_at: 2026-09-01T01:00:08.107Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
-last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-09-01T07:08:47.823Z
-escalate_pending: true
-escalate_pending_decision_id: release-channel-separation-m1
+last_pr_url: https://github.com/idenn207/mccp/pull/164
+dep_check_at: 2026-09-01T00:42:53.385Z
 ---
 ## Goal
-release-channel-separation M1 — channel-pin. marketplace.json의 plugin source를 git-subdir + ref: release로 전환하고 release 채널을 647dfec(v1.33.6)에 세운다. 구현 완주, commit/PR 대기.
+multi-session-work-loop M9 + M10 — 두 milestone을 **PR #164 하나로 합쳐** ship. M10(부채 정산과 종결 경로)이 이 PRD의 마지막 milestone이고, 착지하면 PRD 전체가 종료된다.
 
 ## Plan
-- PRD: `.claude/prds/release-channel-separation.prd.md` — M1 **in-progress**(Task 10 미완이라 complete 아님), M2·M3 pending
-- plan: `.claude/plans/release-channel-separation-m1.plan.md` — plan_hash로 봉인됨. **편집 금지** (편집 시 guard 2 stale 발동을 실측함)
-- 게이트 기록: `.claude/notes/release-channel-separation-m1.md` (Codex Implementation Review + Security Reviewer)
-- 구현 보고: `.claude/PRPs/reports/release-channel-separation-m1-report.md` — **STATUS: PRE-MERGE — INCOMPLETE**
-- version 1.33.7 (patch — PRD 내 단일 milestone). branch release-channel-separation, tip 8af5e42, origin push 완료
+- PRD: `.claude/prds/multi-session-work-loop.prd.md` — 표가 1~10으로 정합됐고 M9·M10 모두 complete. 번호 갭 과도 주석 제거(M10 plan Task 9)
+- plan: `.claude/plans/multi-session-work-loop-m9.plan.md`(hash bc41d001) · `.claude/plans/multi-session-work-loop-m10.plan.md` — 둘 다 봉인, **편집 금지**
+- version **1.34.1** (M9가 1.34.0 minor를 소비 → M10은 patch, §3.7). 4면 동기: plugin.json · html.js page-foot · markdown.js derived 줄 · CHANGELOG `currently` 노트
+- branch **multi-session-work-loop-m10** → `origin/multi-session-work-loop-m9`로 fast-forward push (PR #164 head)
 
 ## Done
-- Task 1~9·11 완료. Task 10은 머지 후에만 가능해 구조적 이연(Implement-Codex F2 흡수)
-- **6a 상향 대조 통과 — 검증 (a) 성립**: release를 feature tip으로 옮기자 설치가 1.33.6→**1.33.7**, gitCommitSha가 **8af5e42**로 이동. git-subdir가 실제로 fetch한다는 양성 증거
-- **6b가 PRD OQ1에 답함**: CLI는 버전 하향을 수용한다(1.33.7→**1.33.4**). H8이 지적한 복원의 순환 논증이 실측으로 해소
-- **6c 복원 12초** — 경로 (1) 하향 롤백 자체이며 대체 경로 미사용. 성공 지표 2의 실측값
-- 8단계 채널 좌표 게이트 PASS(origin/release == 647dfec) · 원상복구 완료(설치 1.33.6/647dfec · autoUpdate=true · clone=main)
-- 게이트: Implement-Codex R1 divergent(HIGH 3건 전부 흡수) · security-reviewer HIGH 1건 흡수 · impeccable silent-skip(no-signal)
-- D1 차단 ref 해소: refs/heads/release/v0.4.0-version-bump가 이름을 점유 → e160eef를 태그 archive/release-v0.4.0-version-bump로 보존한 뒤 삭제(이력 손실 0)
-- 검증 — manifest 형태 단언(변경 전 실패/후 통과 실측) · claude plugin validate exit 0 · i18n-surface 10/10 · instruction-contract C1~C4 pass · 삭제 0건 · H4 유출 2축 0건
+- **M9** (`1.34.0`): M4·M5·M8의 미충족 인정 조건을 닫거나 증거와 함께 개정. `m9-coverage-gate.js` exit 0, `/mccp:archive-complete` scan `archivable:true`
+- **M10** (`1.34.1`): 세 원장(backlog 936 · findings 178 · fix-task 1)을 단일 인벤토리로 정규화해 **분모 1115건 봉인**. 전건에 처분(6종) 부여, `inventory_sha256` 결속. `m10-coverage-gate.js` exit 0(4축)
+- 처분 어휘와 승격 억제 분리 — `fixed`·`obsolete`·`superseded`·`duplicate`만 억제, `deferred`·`rejected`는 미억제(L2 3관점 HIGH 흡수)
+- still-valid CRITICAL 1건 수정. 선언-실제 괴리 축은 수정 또는 선언 정정
+- **머지 2단**: `origin/main`(647dfec) 클린 머지 → `origin/multi-session-work-loop-m9` 머지, 충돌 8건 해소. §3.5.1 삭제 검증 통과(의도치 않은 삭제 0)
 
 ## In Progress
-
+없음 — 머지 해소 완료, /mccp:pr 게이트 진행 중
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 version 재계산 필수(sibling worktree multi-session-work-loop-m8이 1.34.0 선언 중). 머지 직후 Task 10으로 보고서 Acceptance 5를 채우기 전까지 M1은 미완료.
+PR #164(https://github.com/idenn207/mccp/pull/164) 리뷰 → 머지. 머지 후 worktree 2개 정리
+(`.worktrees/msw-m10` · `.worktrees/multi-session-work-loop-m8` — 후자는 디렉토리명이 branch와 어긋나 있다, §3.8).
+착지 후 `/mccp:archive-complete` 1회로 이 PRD 아카이브.
 
 ## Last Decision
-Implement-Codex F2를 흡수해 M1 완료를 주장하지 않는다 — Task 10(머지 후 비파괴 검증)이 이 실행 안에서 성립 불가이므로 보고서를 PRE-MERGE INCOMPLETE로 발행하고 착지 vehicle(머지 직후 같은 파일을 완성하는 후속 커밋)을 명명했다. plan 본문은 plan_hash 봉인 때문에 손대지 않고 게이트 기록을 notes로 옮겼다 — 상류 게이트에 감사 우회를 쓰지 않는 쪽이 저렴하다.
+M9와 M10을 별도 PR로 두지 않고 PR #164 하나로 합쳤다. PRD가 예고한 "두 PR을 함께 머지할 때 M9 행이 M10 행 위에 삽입된다"를 머지 해소 시점에 수행했고, 그 과도 주석을 제거했다. CHANGELOG의 §3.7 노트도 "두 PR" 서술이 거짓이 되므로 같은 커밋에서 정정했다.
 
 ## Open Questions
-- Task 10(검증 b) 미실행 — 머지 후 marketplace clone 전진 ∧ 설치 version 무변화의 **쌍**을 관측해야 성공 지표 3이 실측된다
-- plan `## Validation`:386의 채널 좌표 게이트가 리터럴 개행 이스케이프 때문에 항상 HALT — 구현은 정정 형태로 실행했고 본문 정정은 backlog id=d7d1f4a0
-- Task 9 4단계 HALT 조건이 5단계 기대값과 모순(H5↔H6) — plan-conflict-detector CONFLICT=0으로 기록 후 진행. plan 정정 축
-- release 브랜치에 branch protection 부재 · sha 미pin — 보완 통제 0(M3 런북 축, backlog)
-- 리허설 CAS 창의 TOCTOU 잔여 — 파일시스템 트랜잭션 없이는 미해소(backlog)
+- A3는 tiktoken 부재로 여전히 미산출(정직한 error) — 재측정은 환경 변경이 선행되어야 한다
+- C1은 올리지 않는다(설계) — `computeC1`이 work-unit 귀속 검사 없이 계산하므로 다른 작업 단위 finding 종결은 정의상 분자가 아니다
+- 설치 plugin cache가 1.33.5 — 머지 후 `claude plugin update` 필요
+- sibling worktree `.worktrees/multi-session-work-loop-m8`가 이 push 뒤 behind 상태가 된다 — 그 세션에서 `git pull` 필요
 
 ## Last Updated
-2026-09-01T07:50:27.358Z
+2026-09-01T01:00:08.107Z

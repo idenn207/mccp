@@ -1,0 +1,42 @@
+{
+  "provenance": {
+    "captured_at": "2026-08-27",
+    "how": "live `node plugins/mccp/scripts/derive/cli.js run --json` at Task 1 entry, before any M9 code change landed",
+    "note": "Transcribed rather than emitted straight to this path: the run happened while diagnosing the A3 crash, before the snapshot artifact existed. The same values are recorded independently in .claude/notes/multi-session-work-loop-m9.md, so the two can be compared. Values are the measurement, not an estimate.",
+    "base_commit": "8469529",
+    "worktree": ".worktrees/multi-session-work-loop-m8"
+  },
+  "metrics": {
+    "A1": { "status": "computed", "numerator": 1, "denominator": 1 },
+    "A2": { "status": "forward-only", "numerator": null, "denominator": null },
+    "A3": { "status": "insufficient", "note": "cli.js a3 --print crashed with an unhandled 'error' event (Error: write EOF at WriteWrap.onWriteComplete)" },
+    "A4": { "status": "computed", "numerator": 0, "denominator": 42 },
+    "B1": { "status": "computed", "numerator": 0, "denominator": 26 },
+    "B2": { "status": "forward-only", "numerator": null, "denominator": null },
+    "B3": { "status": "computed", "numerator": 20, "denominator": 117 },
+    "C1": { "status": "computed", "numerator": 0, "denominator": 66 },
+    "C2": { "status": "forward-only", "numerator": null, "denominator": null },
+    "C3": { "status": "forward-only", "numerator": null, "denominator": null }
+  },
+  "sources": {
+    "findings": {
+      "open_count": 66,
+      "with_gate_decision": 30,
+      "with_remediation_pr": 0,
+      "type_separation": true
+    }
+  },
+  "archive_scan": {
+    "prd": ".claude/prds/multi-session-work-loop.prd.md",
+    "archivable": false,
+    "counts": {
+      "rawRowCount": 9,
+      "complete": 5,
+      "dropped": 0,
+      "pending": 0,
+      "inProgress": 1,
+      "nonCanonical": 3
+    },
+    "reason": "not all rows complete/dropped (in-progress=1, non-canonical=3)"
+  }
+}

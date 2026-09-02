@@ -1467,17 +1467,44 @@ fi
 # `finding_id`)이고, `GATE_DECISION_ID`는 그 finding을 낳은 **차단 판정**의
 # decision slug다. 셋 다 채울 수 없으면 기록하지 않는다 — 조인 키 없는 귀속
 # 레코드는 어느 소비처도 읽을 수 없다(local review H3).
-FINDING_ID=""          # 예: 3f2a1c9e… (해소한 finding이 없으면 빈 값 유지)
-GATE_DECISION_ID=""    # 예: multi-session-work-loop-m7
+# M9 Task 4 — the two ids are DERIVED, not typed. They used to be empty string
+# literals with prose asking the model to fill them in, so the guard below was
+# shut on every run that ever executed and `with_remediation_pr` sat at a
+# structural 0. A value a human has to remember to paste is not a producer.
+#
+# The query answers "which findings did THIS work unit resolve that carry no
+# remediation_pr yet". It is read-only and returns an empty list rather than
+# failing when there is nothing to attribute — 0 rows is the normal answer, and
+# for a PR that fixed no previously-recorded finding it is the CORRECT one.
+ATTRIB_JSON=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/state/cli.js" findings-unattributed \
+  --work-unit "$DECISION_SLUG" --json 2>/dev/null || echo '{"findings":[]}')
 
-if [ -n "$FINDING_ID" ] && [ -n "$GATE_DECISION_ID" ] && [ -n "$PR_NUMBER" ]; then
-  node "${CLAUDE_PLUGIN_ROOT}/scripts/state/cli.js" msw-event emit \
-    --kind remediation_pr \
-    --work-unit "$DECISION_SLUG" \
-    --pr-number "$PR_NUMBER" \
-    --finding-id "$FINDING_ID" \
-    --gate-decision-id "$GATE_DECISION_ID" \
-    || echo "[mccp:msw-c2] remediation_pr emit failed (fail-open; attribution coverage undercounts)" 1>&2
+# One emit per finding. `--finding-id` is the join key `derive/sources/findings.js`
+# counts distinct on; without it the record binds to nothing and the metric stays
+# at 0 no matter how many rows are written.
+if [ -n "$PR_NUMBER" ]; then
+  echo "$ATTRIB_JSON" | node -e '
+    let s = "";
+    process.stdin.on("data", (d) => { s += d; });
+    process.stdin.on("end", () => {
+      let rows = [];
+      try { rows = (JSON.parse(s).findings) || []; } catch (_) {}
+      rows.forEach((r) => {
+        if (r && r.finding_id && r.gate_decision_id) {
+          process.stdout.write(r.finding_id + " " + r.gate_decision_id + "\n");
+        }
+      });
+    });
+  ' | while read -r FINDING_ID GATE_DECISION_ID; do
+    [ -n "$FINDING_ID" ] && [ -n "$GATE_DECISION_ID" ] || continue
+    node "${CLAUDE_PLUGIN_ROOT}/scripts/state/cli.js" msw-event emit \
+      --kind remediation_pr \
+      --work-unit "$DECISION_SLUG" \
+      --pr-number "$PR_NUMBER" \
+      --finding-id "$FINDING_ID" \
+      --gate-decision-id "$GATE_DECISION_ID" \
+      || echo "[mccp:msw-c2] remediation_pr emit failed for $FINDING_ID (fail-open; attribution coverage undercounts)" 1>&2
+  done
 fi
 ```
 

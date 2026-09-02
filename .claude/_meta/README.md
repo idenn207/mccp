@@ -21,6 +21,7 @@
 | [2026-08-31-harness-instability-and-command-bloat.md](2026-08-31-harness-instability-and-command-bloat.md) | 2026-08-31 | active | 하네스 구조 불안정성과 명령 본문 비대화 — 대범위 메타 분석 |
 | [2026-08-31-receipt-intent-archaeology.md](2026-08-31-receipt-intent-archaeology.md) | 2026-08-31 | active | receipt 지속성·finding 정본의 설계 의도 역추적 — 직전 판정의 정정 |
 | [2026-08-31-final-harness-assessment-and-umbrella-prd.md](2026-08-31-final-harness-assessment-and-umbrella-prd.md) | 2026-08-31 | active | 하네스 최종 판정 + 우산 PRD 분해 — 6렌즈 병렬 조사와 Codex 교차검증으로 C0~C10 자식 11개를 도출 |
+| [2026-09-02-command-body-decomposition-audit.md](2026-09-02-command-body-decomposition-audit.md) | 2026-09-02 | active | 명령 본문 분해 — 컨텍스트 엔지니어링 관점 다관점 감사 |
 
 ## 2026-08 — 리뷰 루프 신뢰성
 

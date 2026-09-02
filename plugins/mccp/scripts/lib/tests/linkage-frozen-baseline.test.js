@@ -76,8 +76,21 @@ test('the doc quotes no hand-copied numbers outside the frozen block', function 
     'the D1 headline in the prose must match round_structure.denominator');
   assert.ok(prose.indexOf(String(frozen.pre_baseline.ship_eligibility.counts.undecidable) + '건 전건') !== -1,
     'the D2 headline must match ship_eligibility.counts.undecidable');
-  assert.ok(prose.indexOf('각 0 / ' + frozen.pre_baseline.linkage.denominator) !== -1,
-    'the D3 headline must match linkage.denominator');
+  // D3 는 분모가 **null 일 수 있다** — 자격 판정이 서기 전까지 링크 "비율"은 아예
+  // 존재하지 않는다. 그 상태에서 산문이 `0 / N` 을 인용하면 그것이 바로 이 도구가
+  // 막으려는 오독(UI2)이므로, 두 세계를 각각 단언한다. 단일 `indexOf` 로 두면
+  // 분모가 null 일 때 산문이 문자열 "null" 을 적어야 통과하는 test 가 된다.
+  if (frozen.pre_baseline.linkage.coverage.rate_computable) {
+    assert.ok(prose.indexOf('각 0 / ' + frozen.pre_baseline.linkage.denominator) !== -1,
+      'the D3 headline must match linkage.denominator');
+  } else {
+    assert.equal(frozen.pre_baseline.linkage.denominator, null,
+      'a non-computable rate must carry denominator null, never 0 — 0 asserts "no ship is review-eligible", null observes "nothing decides it"');
+    assert.ok(prose.indexOf('비율 계산 불가') !== -1,
+      'the D3 headline must say the rate is not computable when no ship is decidably review-eligible');
+    assert.equal(prose.indexOf('각 0 / ' + frozen.pre_baseline.ship_eligibility.counts.undecidable), -1,
+      'the prose must NOT quote a rate over the full ship count — that is the UI2 misreading this milestone exists to prevent');
+  }
 });
 
 test('the frozen block never carries an absolute path (DD6)', function () {

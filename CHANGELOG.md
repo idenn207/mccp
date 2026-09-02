@@ -29,9 +29,21 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
     없다는 관측이지 0이 아니다. "패널 레코드가 있으면 리뷰 대상"은 분모를 분자로
     정의하므로 명시 거부했다.
   - D3 층간 링크 = **구조적 위치**에서만(receipt `meta.review_record_path` ↔
-    레코드 `measurement.receipt_hash`). 양방향 각 0/75이고, 그 조인이 파일명
-    관례라는 사실과 그로 인한 구조적 천장(`filename_convention.match` 27/75)을
-    `linkage.join` · `join_note`가 매 실행마다 함께 싣는다.
+    레코드 `measurement.receipt_hash`). 양방향 각 0이고 **분모는 `null`**이다
+    (아래 PR-Codex R1 흡수 참조). 그 조인이 파일명 관례라는 사실과 그로 인한
+    구조적 천장(`filename_convention.match` 27/75)을 `linkage.join` ·
+    `join_note`가 매 실행마다 함께 싣는다.
+- **PR-Codex R1 흡수 — 지표 2의 분모가 자격 집합이 됐다(UI2).** 초판은
+  `classifyShipEligibility`로 자격을 판정해 놓고 링크 분모로는 `pre.ships.length`를
+  썼다. 같은 실행이 75건 전건을 `undecidable`로 판정하므로 동결 산출물이
+  `undecidable: 75`와 `denominator: 75`를 나란히 실었고, 읽는 사람이 `0/75`를 유효
+  링크율로 오독할 수밖에 없는 표면이었다. 이제 분자는 **자격 집합 위에서만** 세고
+  분모는 그 크기이며, 집합이 비면 `null`이다 — `0`은 "리뷰 대상이 없다"는 **판정**,
+  `null`은 "판별 수단이 없다"는 **관측**이라는 구분이 D2가 `undecidable`을 0으로
+  접지 않는 것과 같은 형태다(DD2). `linkage.scope` · `linkage.coverage`가 그 사실을
+  기계로 나르고, human render는 비율 대신 `RATE NOT COMPUTABLE`을 인쇄한다.
+  **이 분모는 어느 test도 고정하지 않고 있었다**(실측 `denominator` 단언 0건) —
+  자격 0건·자격 2건 양방향 회귀 test 2건을 추가했다.
 - `docs/review-record-linkage/frozen-baseline.md` — `--frozen-only` 출력을 **축자
   동결**하고 그 위에 정의 선택 근거를 적은 앵커 문서. `linkage-frozen-baseline.test.js`가
   도구를 실제로 spawn해 바이트 비교하므로 동결이 산문이 아니다.

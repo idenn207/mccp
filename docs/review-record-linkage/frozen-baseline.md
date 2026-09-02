@@ -37,7 +37,7 @@ PRD는 "게이트가 한 일이 그 게이트의 기록에 남지 않는다"를 
 |---|---|---|---|
 | D1 | 라운드 구조 보유 | 패널 레코드 `## Measurement` JSON의 `rounds`가 **정수 ≥ 1** | 0 / 42 |
 | D2 | 리뷰 대상 ship | 3값 — 명시 proof 필드(`meta.plan_review_expected`)가 결정. 부재는 `undecidable` | 75건 전건 `undecidable` |
-| D3 | 층간 링크 | **구조적 위치**에서만 — receipt의 `meta.review_record_path`(repo-relative) ↔ 패널 레코드 `measurement.receipt_hash` | 양방향 각 0 / 75 |
+| D3 | 층간 링크 | **구조적 위치**에서만 — receipt의 `meta.review_record_path`(repo-relative) ↔ 패널 레코드 `measurement.receipt_hash` | 양방향 각 0, **비율 계산 불가** (분모 `null`) |
 
 > **D3 의 조인은 파일명 관례이고, 그것이 이 방향의 천장이다.** `review->receipt` 은
 > ship 을 순회하며 그 slug 로 레코드를 찾으므로, 파일명이 어긋난 ship 은 레코드가
@@ -84,6 +84,29 @@ proof 필드**여야 한다(휴리스틱이 아니라) — `codex_disabled`(ambi
 결과 **4건 모두 리뷰어가 그 필드를 주제로 논한 finding 본문**이었고 링크가 아니었다.
 파서가 `## Measurement` JSON의 키만 보면 그 오탐이 규칙 하나로 사라진다 — 산문 필터가
 아니라 위치 제약이 막는다.
+
+### D3의 분모가 `null`인 이유 — 0이 아니다 (PR-Codex R1 흡수)
+
+이 문서의 초판은 D3을 `양방향 각 0`에 **전체 ship 수**를 분모로 붙여 적었다. 그런데
+바로 위 D2가 그 ship 전건을 `undecidable`로 판정한다. 즉 도구가 자격 판별자를 정의해
+놓고(UI2 전반부) 지표는 그 판별을 쓰지 않았다(UI2 후반부 위반). 그 조합의 실제 대가는
+숫자가 틀린 것이 아니라 **읽는 사람이 그 분수를 유효 링크율 0%로 읽을 수밖에 없다**는
+것이다 — 사실은 분자도 분모도 아직 의미를 갖지 않는데.
+
+(이 문단이 은퇴한 분수를 리터럴로 인용하지 않는 것은 의도다. 인용하면 "블록 밖 산문이
+오늘 값으로 내건 수치"를 검사하는 정합 test가 그것을 현재 주장으로 읽는다 — 실제로
+초고가 그렇게 걸렸다.)
+
+이제 링크는 자격 집합 **위에서만** 세고 분모는 그 집합의 크기다. 자격 집합이 비면
+분모는 `null`이며, 이는 D2가 `undecidable`을 0으로 접지 않는 것과 **같은 구분**이다:
+
+- `0`은 "리뷰 대상 ship이 없다"는 **판정**이다.
+- `null`은 "리뷰 대상을 판별할 수단이 없다"는 **관측**이다.
+
+오늘 값은 후자다. `linkage.coverage.rate_computable=false`가 그 사실을 기계로 나르고,
+사람이 읽는 표면도 비율 대신 `RATE NOT COMPUTABLE`을 인쇄한다. 명시 proof 필드
+(`meta.plan_review_expected`)가 서는 순간 분모는 자격 집합 크기가 되고 비율이 성립한다 —
+그 전이는 `linkage-audit.test.js`의 PR-Codex R1 회귀 test 2건이 양방향으로 고정한다.
 
 ## 정의가 값을 바꾼다 — 그리고 같은 정의의 다른 구현도 바꾼다
 
@@ -246,7 +269,15 @@ cwd 에서 재생성하면 그 0 들이 이 문서에 커밋되고 바이트 tes
       "receipt_to_review": 0,
       "review_to_receipt": 0,
       "bidirectional": 0,
-      "denominator": 75,
+      "denominator": null,
+      "scope": "review_eligible_ships",
+      "coverage": {
+        "eligible": 0,
+        "not_eligible": 0,
+        "undecidable": 75,
+        "rate_computable": false,
+        "note": "numerators are counted over the eligible set only; denominator is null (NOT 0) when that set is empty, so a link RATE is not computable — see ship_eligibility.by_reason for why"
+      },
       "join": "filename_convention",
       "join_note": "review->receipt and bidirectional are joined ship-slug <-> plan-review-<slug>.md, so filename_convention.match is their structural ceiling"
     },

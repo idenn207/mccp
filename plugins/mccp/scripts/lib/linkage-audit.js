@@ -366,6 +366,24 @@ function aggregate(input) {
     if (b.indexOf(REVIEW_NAME_PREFIX) === 0) recordBySlug.set(b.slice(REVIEW_NAME_PREFIX.length).replace(/\.md$/, ''), p.parsed);
   });
 
+  // 자격 판정이 먼저다 — 링크는 **리뷰 대상 ship 위에서만** 센다.
+  //
+  // 초판은 자격을 판정해 놓고 분모로는 `pre.ships.length` 를 썼다. 그 조합은
+  // UI2("분모는 전체 ship 이 아니라 리뷰 대상 ship")의 후반부를 위반하고, 전건이
+  // `undecidable` 인 코퍼스에서 `0/75` 를 발행한다 — 읽는 사람이 유효 링크율로
+  // 오독할 수밖에 없는 수다. 자격 집합 위에서 세면 두 필드가 같은 모집단을 말하게
+  // 되고, 자격 집합이 비면 분모는 0 이 아니라 **null**(계산 불가)이다. 0 은
+  // "리뷰 대상이 없다"는 판정이고 null 은 "판정 수단이 없다"는 관측이라, 이
+  // 도구가 `undecidable` 을 0 으로 접지 않는 이유(DD2)와 같은 구분이다.
+  const eligibleShips = [];
+  pre.ships.forEach(function (s) {
+    const e = defs.classifyShipEligibility(s.body);
+    eligibility[e.verdict] = (eligibility[e.verdict] || 0) + 1;
+    eligibilityReasons[e.reason] = (eligibilityReasons[e.reason] || 0) + 1;
+    if (reviewSlugs.has(s.slug)) nameConventionMatch += 1;
+    if (e.verdict === 'eligible') eligibleShips.push(s);
+  });
+
   // `join` 은 장식이 아니라 이 수치의 **상한을 알리는 필드**다. review->receipt 은
   // ship 을 순회하며 그 slug 로 레코드를 찾으므로, 파일명이 어긋난 ship 은 레코드가
   // 아무리 정확한 `receipt_hash` 를 실어도 영원히 미계상이다 — 즉 이 방향의
@@ -375,15 +393,19 @@ function aggregate(input) {
     receipt_to_review: 0,
     review_to_receipt: 0,
     bidirectional: 0,
-    denominator: pre.ships.length,
+    denominator: eligibleShips.length > 0 ? eligibleShips.length : null,
+    scope: 'review_eligible_ships',
+    coverage: {
+      eligible: eligibleShips.length,
+      not_eligible: eligibility.not_eligible || 0,
+      undecidable: eligibility.undecidable || 0,
+      rate_computable: eligibleShips.length > 0,
+      note: 'numerators are counted over the eligible set only; denominator is null (NOT 0) when that set is empty, so a link RATE is not computable — see ship_eligibility.by_reason for why',
+    },
     join: 'filename_convention',
     join_note: 'review->receipt and bidirectional are joined ship-slug <-> plan-review-<slug>.md, so filename_convention.match is their structural ceiling',
   };
-  pre.ships.forEach(function (s) {
-    const e = defs.classifyShipEligibility(s.body);
-    eligibility[e.verdict] = (eligibility[e.verdict] || 0) + 1;
-    eligibilityReasons[e.reason] = (eligibilityReasons[e.reason] || 0) + 1;
-    if (reviewSlugs.has(s.slug)) nameConventionMatch += 1;
+  eligibleShips.forEach(function (s) {
     const l = defs.classifyLink(s.body, { measurement: (recordBySlug.get(s.slug) || {}).measurement });
     if (l.receipt_to_review) link.receipt_to_review += 1;
     if (l.review_to_receipt) link.review_to_receipt += 1;
@@ -518,9 +540,15 @@ function renderHuman(r) {
       : ''));
   L.push('  controls: ' + p.round_structure.controls.map(function (c) { return c.id + '=' + c.hits + '/' + c.denominator; }).join(' '));
   L.push('  ship_eligibility: ' + JSON.stringify(p.ship_eligibility.counts));
+  // 분모가 null 이면 비율을 인쇄하지 않는다. `0/null` 을 찍으면 사람이 그것을
+  // 0% 로 읽는데, 실제 상태는 "리뷰 대상을 판별할 수단이 없다"이다.
   L.push('  linkage: receipt->review=' + p.linkage.receipt_to_review +
     ' review->receipt=' + p.linkage.review_to_receipt +
-    ' bidirectional=' + p.linkage.bidirectional + ' / ' + p.linkage.denominator +
+    ' bidirectional=' + p.linkage.bidirectional +
+    (p.linkage.coverage.rate_computable
+      ? ' / ' + p.linkage.denominator + ' review-eligible ship(s)'
+      : ' — RATE NOT COMPUTABLE, no ship is decidably review-eligible (' +
+        p.linkage.coverage.undecidable + ' undecidable)') +
     ' (join=' + p.linkage.join + ')');
   L.push('  filename_convention (label only; also the review->receipt ceiling): ' +
     p.filename_convention.match + '/' + p.filename_convention.denominator);

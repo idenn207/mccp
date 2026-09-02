@@ -358,6 +358,72 @@ test('D3 surfaces the join it actually uses, and its ceiling', function () {
     'the join makes filename_convention.match an upper bound on review->receipt');
 });
 
+// ── PR-Codex R1 흡수 ────────────────────────────────────────────────────────
+
+test('PR-Codex R1 HIGH — the linkage denominator is the ELIGIBLE set, never every ship', function () {
+  // 초판은 자격을 판정해 놓고 분모로 `pre.ships.length` 를 썼다. 그 조합은 UI2 의
+  // 후반부("그 판별을 M1 이 파서로 정의한다")를 위반하고, 전건 undecidable 인
+  // 코퍼스에서 `0/75` 를 발행한다 — 읽는 사람이 유효 링크율로 오독할 수밖에 없는
+  // 수다. **어느 test 도 그 분모를 고정하지 않아 조용히 통과했다**(실측: 이 파일에
+  // denominator 단언 0건). 이 test 가 그 자리다.
+  const { root, baseline } = mkRepo();
+  const r = runJson(root, ['--frozen-only', '--baseline-ref', baseline]);
+
+  const lk = r.json.pre_baseline.linkage;
+  const el = r.json.pre_baseline.ship_eligibility.counts;
+
+  assert.equal(el.eligible, 0, 'fixture seeds no explicit proof field');
+  assert.equal(el.undecidable, r.json.pre_baseline.ships, 'every fixture ship is undecidable');
+
+  assert.equal(lk.denominator, null,
+    '0 asserts "no ship is review-eligible"; null observes "nothing decides it" — the same ' +
+    'distinction that keeps undecidable from folding to 0 (DD2)');
+  assert.equal(lk.coverage.rate_computable, false);
+  assert.equal(lk.scope, 'review_eligible_ships');
+  assert.notEqual(lk.denominator, r.json.pre_baseline.ships,
+    'the whole point: the denominator must not track the full ship count');
+
+  // 그리고 사람이 읽는 표면도 비율을 인쇄하지 않아야 한다 — JSON 만 고치고 human
+  // render 가 `0 / null` 을 찍으면 오독은 그대로 남는다.
+  const human = run(root, ['--baseline-ref', baseline]);
+  assert.ok(human.stdout.indexOf('RATE NOT COMPUTABLE') !== -1,
+    'the human surface must refuse to print a rate it cannot compute');
+});
+
+test('PR-Codex R1 HIGH — an eligible ship restores a real denominator, and links count over it', function () {
+  // 반대편. 분모가 영원히 null 이면 그것은 고장이지 판정이 아니다 — 명시 proof
+  // 필드가 서는 순간 분모가 자격 집합 크기가 되고 분자도 그 위에서만 세어져야 한다.
+  const { root } = mkRepo();
+  const rc = path.join(root, '.claude', 'receipts', 'mccp-pr-codex');
+  const rv = path.join(root, '.claude', 'reviews');
+  const BEFORE = '2020-01-01T00:00:00.000Z';
+
+  // 자격 있는 ship 2건 — 하나는 레코드로 되짚는 링크를 싣고, 하나는 안 싣는다.
+  fs.writeFileSync(path.join(rc, 'linked.json'), shipReceipt(BEFORE, {
+    plan_review_expected: true,
+    review_record_path: '.claude/reviews/plan-review-linked.md',
+  }));
+  fs.writeFileSync(path.join(rc, 'bare.json'), shipReceipt(BEFORE, { plan_review_expected: true }));
+  fs.writeFileSync(path.join(rv, 'plan-review-linked.md'),
+    panelRecord('linked', { verdict: 'converged', recorded_at: BEFORE }));
+  commitAt(root, '2022-06-01T00:00:00+00:00', 'land two review-eligible ships');
+  const baseline = git(root, ['rev-parse', 'HEAD']).trim();
+
+  const r = runJson(root, ['--frozen-only', '--baseline-ref', baseline]);
+  const lk = r.json.pre_baseline.linkage;
+
+  assert.equal(r.json.pre_baseline.ship_eligibility.counts.eligible, 2);
+  assert.equal(lk.denominator, 2, 'the denominator is the eligible set size, not r.ships');
+  assert.ok(lk.denominator < r.json.pre_baseline.ships,
+    'the fixture also carries undecidable ships, so a full-ship denominator would be larger');
+  assert.equal(lk.coverage.rate_computable, true);
+  assert.equal(lk.coverage.undecidable, r.json.pre_baseline.ships - 2);
+
+  assert.equal(lk.receipt_to_review, 1, 'only the ship that carries the path links back');
+  assert.ok(lk.receipt_to_review <= lk.denominator,
+    'a numerator counted over the eligible set can never exceed its own denominator');
+});
+
 // ── DD8 ─────────────────────────────────────────────────────────────────────
 
 test('DD8 — the default baseline ref is a full, unambiguous SHA', function () {

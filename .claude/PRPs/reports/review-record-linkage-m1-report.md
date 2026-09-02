@@ -37,7 +37,7 @@ M1은 값을 개선하지 않는다. 무엇을 세는지 고정하고 오늘 값
 | Level | Status | Notes |
 |---|---|---|
 | 계약 (dep-free · 복제 금지) | Pass | `require` 0 · `isPanelRecord`/`PANEL_SIGNATURE_RE` 미export · `parseRecord` 소비 확인 |
-| 신규 test | Pass | linkage-defs 14 · linkage-audit 17 · frozen-baseline 4 |
+| 신규 test | Pass | linkage-defs 14 · linkage-audit **24** · frozen-baseline 4 (PR-Codex R1 흡수 후 재측정) |
 | 인접 회귀 | Pass | plan-review-corpus 33 · evidence-audit 22 |
 | version 4면 | Pass | i18n-surface 10 |
 | 라이브 완주 | Pass | 아래 Acceptance 참조 |
@@ -163,13 +163,46 @@ M3`가 M2의 outcome을 이미 출시). UI9는 봉인 당시 사용자 진술로
 | Implement-Codex R1 | **divergent** (needs-attention) | HIGH 2 + MEDIUM 1 **전건 ACCEPT_NOW 흡수** |
 | security-reviewer | **CRITICAL/HIGH 0** | MEDIUM 3 흡수 · LOW 1 이연 |
 | impeccable (implement) | silent-skip | `design_signal=false` (rendered surface 0) |
+| **PR-Codex R1** | **divergent** (needs-attention) | HIGH 2 + MEDIUM 1. HIGH 1건(F1) **흡수**(아래 6번), 나머지 2건은 사용자 소유 범위·버전 결정이라 이연 |
+| PR security-reviewer | **CRITICAL/HIGH 0** | git 호출 5곳 전수 가드 확인 · ReDoS 벽시계 상한 실측 · DD6 절대경로 0건. MEDIUM 1 이연 |
+| PR impeccable (critique A+B) | **CRITICAL/HIGH 0** | rendered surface 변경이 version 문자열 2줄뿐. detector 48건 전부 `advisory`·전부 선재 |
 
-흡수한 HIGH 총 12건(plan L2 10 + Codex 2), backlog 이연 24건.
+흡수한 HIGH 총 13건(plan L2 10 + Implement-Codex 2 + PR-Codex 1), backlog 이연 31건.
+
+### 6. PR-Codex R1 F1 흡수 — 지표 2의 분모 (UI2)
+
+`linkage-audit.js`가 `classifyShipEligibility`로 자격을 판정해 놓고 링크 분모로는
+`pre.ships.length`(75)를 썼다. 같은 실행이 75건 전건을 `undecidable`로 판정하므로
+동결 산출물이 `undecidable: 75`와 `denominator: 75`를 나란히 실었고, 그것은 UI2의
+후반부("그 판별을 M1이 파서로 정의한다")를 위반한다. 실제 대가는 숫자 오류가 아니라
+**`0/75`를 유효 링크율로 읽을 수밖에 없는 표면**이었다.
+
+| 축 | 이전 | 이후 |
+|---|---|---|
+| 분자 모집단 | 전체 ship | **자격(`eligible`) 집합** |
+| 분모 | `pre.ships.length` | 자격 집합 크기, 비면 **`null`** |
+| 신규 필드 | — | `linkage.scope` · `linkage.coverage{eligible, not_eligible, undecidable, rate_computable, note}` |
+| human render | `… / 75` | `RATE NOT COMPUTABLE, no ship is decidably review-eligible (75 undecidable)` |
+
+`0`(리뷰 대상이 없다는 **판정**)과 `null`(판별 수단이 없다는 **관측**)의 구분은 D2가
+`undecidable`을 0으로 접지 않는 것과 같은 형태다(DD2).
+
+**이 분모는 어느 test도 고정하지 않고 있었다** — 실측으로 `linkage-audit.test.js`의
+`denominator` 단언 0건을 확인했다. 즉 초판 동작은 회귀 보호 없이 통과 중이었다. 회귀
+test 2건을 양방향으로 추가했다: 자격 0건이면 `denominator===null` ∧ `≠ships` ∧ human
+표면이 비율 미인쇄, 자격 2건이면 `denominator===2` ∧ `<ships` ∧ 분자가 그 위에서만
+계상. 동결 블록과 D3 산문·그 정합 test도 함께 갱신했다(byte test는 재생성으로 통과).
+
+검증: 116 pass / 0 fail (linkage-audit **24** · linkage-defs 14 · frozen-baseline 4 ·
+plan-review-corpus 계열 42 · evidence-audit 22 · i18n-surface 10).
 
 ## Next Steps
 
-- [ ] `origin/main` 머지 후 §3.7 version 재계산 (현재 1.33.7 선언, origin/main은 1.33.6)
-- [ ] `/mccp:pr` — plan-receipt staleness에 대한 문서화된 우회 + 사유 필요
+- [x] `origin/main` 머지 후 §3.7 version 재계산 — 두 번 상향해 **1.34.2**에 착지(origin/main은 1.34.1). 4면 동기 완료, `i18n-surface` 10/10
+- [x] PR-Codex R1 F1(UI2 분모) 흡수 — 위 6번
+- [ ] **UI12 판정 (사용자 소유)** — "C0가 먼저 착지하면 이 브랜치는 version 선언을 철회한다"의 발동 조건이 충족됐다(C0 = `release-channel-separation`, M1이 PR #170으로 착지). 다만 C0 M1 이후의 CLAUDE.md §3.7은 feature 브랜치 bump를 "dogfood 빌드 번호"로 여전히 정상 기술하고, 우산 결정 1의 강제 기구와 CHANGELOG 누적 형태는 C0 M2·M3(pending) 소관이라 **철회의 착지점이 아직 정의되지 않았다**. 유지/철회 판정 필요
+- [ ] **UI9 판정 (사용자 소유)** — M2 `dropped`가 사용자 범위 진술과 어긋난다(Deviation 4). 복원 / 명시 범위 변경 / 상류가 M2 acceptance를 충족한다는 검증을 M2 산출물로 남기기 중 택1
+- [ ] `/mccp:pr` 재실행 — plan-receipt staleness는 여전히 구조적이므로 문서화된 우회 + 사유 필요
 - [ ] M3 `bidirectional-link` 착수 시: `classifyLink`는 **경로 안전성 게이트가 아니다** —
       `path.resolve` containment check를 반드시 별도로 더할 것 (security S3)
 - [ ] M2는 **dropped** — 상류 선점 확인됨. MVP는 M1 단독

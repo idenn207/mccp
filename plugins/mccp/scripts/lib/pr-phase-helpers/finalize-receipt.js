@@ -467,12 +467,23 @@ function run(args) {
       // repoRoot는 위 ship-gate 블록 **안**에서만 선언되므로 여기서 다시 푼다.
       // 그 이름을 빌려 쓰면 non-PR 게이트에서 ReferenceError가 되고, 이 try가
       // 그것을 삼켜 emit이 조용히 사라진다 — fail-open이 결함을 숨기는 형태다.
-      const emitRoot = gitRepoRoot(args.cwd || process.cwd());
+      //
+      // orchestrator-step-wiring M1 (DD8) — 이 파일은 **세 번째 A1 producer**다
+      // (`task_ship_sealed`). 앞의 둘과 root 해소 방식이 다르다: `gitRepoRoot`는
+      // `git rev-parse --show-toplevel` spawn이고 실패 시 null을 낸다. null을 그대로
+      // 넘기면 `resolveEventsDir`가 `process.cwd()` walk-up으로 떨어져 sealed 이벤트가
+      // completed와 **다른 root 아래**에 착지하고, `sealed_without_completion`이
+      // 유령 gap을 보고한다. 그래서 실패 시 나머지 둘과 같은 해소기로 넘긴다.
+      const emitCwd = args.cwd || process.cwd();
+      const emitRoot = gitRepoRoot(emitCwd) || mswEvents.discoverRepoRoot(emitCwd);
       const r = mswEvents.appendEvent(sid, {
         kind: 'task_ship_sealed',
         work_unit: args.decision,
         producer: 'finalize-receipt',
-      }, { repoRoot: emitRoot });
+        // `cwd`도 함께 넘긴다 (local review L1). 둘 다 실패해 `emitRoot`가 null이면
+        // 해소기가 walk-up으로 떨어지는데, `cwd`가 없으면 그 출발점이 `process.cwd()`가
+        // 되어 `args.cwd`가 다를 때 앞의 두 producer와 **다른 root**에서 탐색한다.
+      }, { repoRoot: emitRoot, cwd: emitCwd });
       if (!r || !r.ok) {
         process.stderr.write('[mccp:msw-a1] task_ship_sealed append failed: '
           + ((r && r.reason) || 'unknown') + '\n');

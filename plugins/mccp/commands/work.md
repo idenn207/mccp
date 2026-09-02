@@ -95,6 +95,45 @@ TYPE=$(echo "$CLASSIFY" | node -e 'try{const j=JSON.parse(require("fs").readFile
 REASON=$(echo "$CLASSIFY" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.reason)}catch{process.stdout.write("classify-failed")}')
 
 echo "[mccp:work] classification=$TYPE reason=$REASON"
+
+# A1 배너 (orchestrator-step-wiring M1 · Task 7 · DD5 · UI9).
+#
+# 상한은 **자식 프로세스 경계**에서만 성립한다. `a1`이 부르는 `scanSessionActivity`는
+# `readdirSync`+`readFileSync`의 완전 동기 중첩 루프라, in-process `setTimeout`은
+# 그 루프가 이벤트 루프를 쥐고 있는 동안 발화하지 못한다 — `derive/sources/worktrees.js:27`
+# 의 `SCAN_TIMEOUT_MS`가 `execFileSync`에 걸리는 것과 같은 이유다. 그래서 여기서
+# `execFileSync(..., { timeout })`로 건다.
+#
+# 타임아웃 · 비영점 · 빈 stdout은 전부 "배너 없음"으로 접는다. 계측이 진입을 막으면
+# 그것은 계측이 아니라 게이트다.
+#
+# **다만 조용히 사라지지는 않는다** (local review M3). 공유 corpus는 evict되지 않아
+# 단조 증가하고 `scanSessionActivity`는 전 파일을 동기 파싱하므로, 언젠가 이 상한을
+# 넘긴다. 그때 아무 말 없이 사라지면 지표가 왜 없어졌는지도, 회복 수단이 사람의
+# retention 결정이라는 것도 전달되지 않는다. 그래서 실패는 배너 자리에 한 줄로 남긴다.
+# `spawnSync`를 쓰는 이유는 그것이 throw하지 않아 종료 사유(signal · stderr)를
+# 그대로 읽을 수 있기 때문이다 — CLI 자신은 어떤 실패에도 exit 0 + 빈 stdout이라
+# 사유가 stderr에만 있다.
+A1_LINE=$(node -e '
+  const { spawnSync } = require("child_process");
+  const path = require("path");
+  const r = spawnSync(process.execPath,
+    [path.join(process.argv[1], "scripts", "lib", "msw-metrics", "cli.js"), "a1"],
+    { encoding: "utf8", timeout: 3000 });
+  const out = String((r && r.stdout) || "").trim();
+  if (out) { process.stdout.write(out); }
+  else {
+    const why = (r && r.signal === "SIGTERM")
+      ? "타임아웃(3s) — 공유 corpus가 커졌을 수 있음 (retention은 사람이 결정)"
+      : ((r && r.error && r.error.message)
+        || String((r && r.stderr) || "").split("\n").filter(Boolean)[0]
+        || "");
+    if (why) process.stdout.write("A1 배너 생략: " + why.slice(0, 140));
+  }
+' "${CLAUDE_PLUGIN_ROOT}" 2>/dev/null)
+if [ -n "$A1_LINE" ]; then
+  echo "[mccp:work] $A1_LINE"
+fi
 ```
 
 ---

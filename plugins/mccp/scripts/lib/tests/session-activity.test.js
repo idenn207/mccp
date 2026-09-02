@@ -23,6 +23,27 @@ function writeMswEvent(tmpDir, sessionId, event) {
   fs.appendFileSync(filePath, JSON.stringify(event) + '\n');
 }
 
+// orchestrator-step-wiring M1 (L2 R0 test HIGH) — 이 파일의 fixture는 **repo 내부**
+// (`__dirname/.tmp-…`)에 만들어지고 정확 수치를 단언한다. 공유 위치 해소가 `.git`을
+// **walk-up**으로 찾았다면 조상인 이 저장소의 실제 corpus를 끌어와 아래 단언들이
+// 전부 깨졌을 것이다. DD7이 `root/.git`만 보게 한 덕에 경로가 불변인데, 그 불변성이
+// 우연이 아님을 여기서 고정한다 — 이 단언이 없으면 walk-up으로 되돌리는 변경이
+// 아래 test들을 깨뜨린 **뒤에야** 발견된다.
+test('session-activity: a repo-internal fixture never resolves to the ancestor git dir', () => {
+  const mswEvents = require('../../state/msw-events');
+  const tmpDir = path.join(__dirname, '.tmp-session-activity-anchor-' + Date.now());
+  createTempRepo(tmpDir);
+  try {
+    assert.equal(mswEvents.commonDirOf(tmpDir), null,
+      'the fixture has no .git of its own; the repository ancestor must be unreachable');
+    assert.equal(
+      path.resolve(mswEvents.resolveEventsDir({ repoRoot: tmpDir, kind: 'task_started' })),
+      path.resolve(path.join(tmpDir, '.claude', 'state', 'msw-events')));
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('session-activity: concurrent pairs detected', (t) => {
   const tmpDir = path.join(__dirname, '.tmp-session-activity-test-' + Date.now());
   createTempRepo(tmpDir);

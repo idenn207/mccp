@@ -117,6 +117,20 @@ test('msw-metrics: renders when at least one computed metric exists', async (t) 
   assert.ok(result.html);
   assert.match(result.md, /A1/);
   assert.match(result.html, /A1/);
+
+  // orchestrator-step-wiring M1 (Task 6) — A1의 라벨은 **작업 단위**를 말해야 한다.
+  //
+  // 이 지표는 M8부터 distinct `work_unit`을 세는데 라벨은 세션을 말하고 있었다. 옛
+  // 이름의 **부재**까지 단언하는 이유는, 새 이름을 더하기만 하면 두 이름이 공존하는
+  // 상태도 green이 되기 때문이다.
+  //
+  // `desc`는 단언하지 않는다: 렌더러는 `meta.name`만 출력하고 `desc`의 read site는
+  // 정의부 외에 0건이라 **반증 불가능한 문자열**이다. 그런 값에 통과 단언을 걸면
+  // green이 아무것도 뜻하지 않게 된다.
+  assert.match(result.md, /작업 단위 완주율/);
+  assert.match(result.html, /작업 단위 완주율/);
+  assert.doesNotMatch(result.md, /세션 착수 안정성/);
+  assert.doesNotMatch(result.html, /세션 착수 안정성/);
 });
 
 test('msw-metrics: heading depth ≤ 3 constraint', async (t) => {

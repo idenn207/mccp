@@ -1,15 +1,15 @@
 ---
 fix_task_version: 1
-task_fingerprint: ci-full-suite-m1
+task_fingerprint: orchestrator-step-wiring-m1
 gate_id: stop-review-loop
-decision_id: ci-full-suite-m1
-created_at: 2026-09-02T06:51:30.382Z
-expires_at: 2026-09-09T06:51:30.382Z
+decision_id: orchestrator-step-wiring-m1
+created_at: 2026-09-02T01:35:17.197Z
+expires_at: 2026-09-09T01:35:17.197Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-santa-review/ci-full-suite-m1.json
+  - .claude/receipts/mccp-implement-codex/orchestrator-step-wiring-m1.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -25,7 +25,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- .claude/receipts/mccp-santa-review/ci-full-suite-m1.json
+- .claude/receipts/mccp-implement-codex/orchestrator-step-wiring-m1.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-santa-review/ci-full-suite-m1>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/orchestrator-step-wiring-m1>'

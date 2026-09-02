@@ -1,0 +1,105 @@
+name: test-suite baseline measurement
+
+# C3 (ci-full-suite) M1 축 A. 전수 test 실행의 벽시계와 **파일 단위 분해**를 뜬다.
+#
+# ── Scope note (mirror: gitignore-drift.yml) ─────────────────────────────────
+# 이 workflow는 **측정이다. 강제가 아니다.** 여기서 red가 나도 아무것도 막지
+# 않는다 — 실행 단계가 `continue-on-error: true`이기 때문이다. 전 PR 적용 범위 ·
+# 커버리지 산출 · branch protection은 전부 M3 소유이고, 머지 차단은 이 파일이
+# 아니라 저장소 설정이 정한다.
+#
+# ── 트리거가 둘인 이유 ───────────────────────────────────────────────────────
+# GitHub은 `workflow_dispatch`를 **default branch에 있는 workflow 파일에 대해서만**
+# 받는다. 이 파일은 머지 전에는 feature branch에만 있으므로 `gh workflow run`이
+# 찾지 못한다. 그러면 DD5가 M1의 존재 이유로 든 "Node 20에서 `data.file` 귀속
+# 가용성을 실증한다"가 수단을 잃는다. 그래서 머지 전 발화 경로로 `pull_request`를
+# 둔다 — `paths`가 자기 자신과 `scripts/**`로 좁혀져 있어 여전히 전 PR 게이트가
+# 아니다. 미러 선례(`axis-k-m2-cross-platform.yml`)도 둘 다 갖는다.
+#
+# ── run 성공은 증거가 아니다 ─────────────────────────────────────────────────
+# `continue-on-error: true` + `if: always()`가 결합하면 `run.js`가 예외로 죽어
+# **빈 artifact**를 남겨도 run은 success이고 artifact는 존재한다. 그래서 수용
+# 증거는 run 상태가 아니라 **artifact 내용**이다 — 다운로드한 JSON이
+# `ok === true` ∧ `per_file.length === files_total` ∧ `redaction_ok === true`
+# 여야 한다(Acceptance 1·3). 그 검사를 이 workflow 안에 넣지 않는 이유는
+# `continue-on-error`가 그것도 함께 삼키기 때문이다.
+#
+# ── 비용 ─────────────────────────────────────────────────────────────────────
+# 전수 순차 합계는 로컬 실측 173.6분이고 단일 최장 파일이 23.3분이다. 병렬
+# 벽시계의 하한은 코어 수가 아니라 **그 최장 파일**이며, 러너 코어가 적으면
+# `합계 / 코어`가 지배한다. `timeout-minutes`를 넉넉히 두되 무한은 아니다 —
+# 시간 초과는 잘린 artifact를 남기고, 그것은 위 내용 검사에서 걸린다.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/test-suite-baseline.yml'
+      - 'scripts/**'
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: node ${{ matrix.node }} — full-suite wall clock + per-file breakdown
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Enumerate (sanity — must equal git ls-files '*.test.js')
+        run: |
+          node scripts/test-suite/run.js --list | sort > /tmp/enum.txt
+          git ls-files '*.test.js' | sort > /tmp/tracked.txt
+          diff /tmp/enum.txt /tmp/tracked.txt
+          echo "enumerated $(wc -l < /tmp/enum.txt) file(s)"
+
+      # 측정이다. red는 기록되고 수리되지 않는다(UI4·UI5) — 그래서
+      # continue-on-error다. 이 플래그가 없으면 스위트의 red가 dispatch를 실패로
+      # 만들어 **실패 목록을 담은 artifact가 올라오지 않는다.**
+      - name: Full-suite measurement
+        continue-on-error: true
+        run: node scripts/test-suite/run.js --json > baseline-node${{ matrix.node }}.json
+
+      # `if: always()`가 필수다 — 위 단계가 어떻게 끝나든 산출물을 건져야 한다.
+      # artifact 이름은 계약이다: Validation의 `gh run download --name
+      # test-suite-baseline-node20`이 이 이름에 의존한다(미러 원본도 matrix 축을
+      # 이름에 넣는다).
+      - name: Upload measurement artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-suite-baseline-node${{ matrix.node }}
+          path: baseline-node${{ matrix.node }}.json
+          if-no-files-found: warn
+
+      # 사람이 run 페이지에서 바로 읽을 수 있는 한 줄. 판정이 아니라 요약이다 —
+      # 판정은 artifact 내용을 받아 로컬에서 한다(위 Scope note).
+      - name: Summarise (non-authoritative)
+        if: always()
+        continue-on-error: true
+        run: |
+          f=baseline-node${{ matrix.node }}.json
+          if [ -s "$f" ]; then
+            node -e '
+              const j = require("./" + process.argv[1]);
+              console.log("ok=" + j.ok +
+                " attribution=" + j.attribution +
+                " redaction_ok=" + j.redaction_ok +
+                " files_total=" + j.files_total +
+                " per_file=" + (j.per_file ? j.per_file.length : "null") +
+                " wall_clock_ms=" + j.wall_clock_ms +
+                " exit_code=" + j.exit_code);
+            ' "$f"
+          else
+            echo "artifact is empty or missing — the runner died before emitting JSON"
+          fi

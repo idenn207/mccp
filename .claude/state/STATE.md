@@ -2,15 +2,17 @@
 state_version: 1
 task_fingerprint: ci-full-suite-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-01T08:28:12.850Z
+updated_at: 2026-09-02T01:50:52.554Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-01T08:28:12.850Z
+last_event_at: 2026-09-02T01:50:52.554Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-09-01T08:11:10.168Z
+dep_check_at: 2026-09-02T00:29:35.303Z
+escalate_pending: true
+escalate_pending_decision_id: ci-full-suite-m1
 ---
 ## Goal
 ci-full-suite (우산 PRD harness-wiring-integrity 자식 C3) M1 — 전수 test 실행의 정본 진입점 + baseline 측정. plan 게이트 통과, 구현 대기.
@@ -43,4 +45,4 @@ ci-full-suite (우산 PRD harness-wiring-integrity 자식 C3) M1 — 전수 test
 - 지표 2(전수 벽시계)의 목표치는 M1 산출 전까지 미정 — PRD가 의도적으로 비워 뒀다
 
 ## Last Updated
-2026-09-01T08:28:12.850Z
+2026-09-02T01:50:52.554Z

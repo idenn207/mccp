@@ -19,10 +19,13 @@ test 368개가 있고 사실상 green인데 **아무도 전수로 돌리지 않�
 전부 2026-09-01 실측이며 대상은 이 worktree(base `bacd96a`)와 `origin/main`(`647dfec`)이다. 우산 PRD의 서술 3건을 정정한다.
 
 - **CI 강제 커버리지는 0.87%가 아니라 2.7%다** (10 / 368). 우산 PRD의 `3/346`은 세 번째 workflow `env-contract-drift.yml`을 세지 않았다 — 그것은 `node --test .../env-contract/tests/*.test.js`로 7개를 glob 실행한다. 분모도 `origin/main` 기준 368이다(로컬 base는 346). **방향은 불변이다** — 2.7%도 극히 낮다.
+- **"CI 세 workflow"는 `origin/main` 기준이다.** 이 자식의 branch base(`bacd96a`)에는 **2개뿐이었다** — `env-contract-drift.yml`이 base 이후에 main에 들어왔다. M1 Task 0의 base 머지가 이것을 해소했고, M1이 `test-suite-baseline.yml`을 추가해 현재 이 branch는 **4개**다.
 - **2.7%는 상한이지 실효 실행률이 아니다.** 세 workflow 모두 `pull_request.paths:` 필터를 갖고, GitHub은 매치가 없으면 workflow를 통째로 건너뛴다. 최근 실행 15건(`gh run list`)에서 PR 하나당 실행된 workflow는 1~2개다.
-- **전수 실행의 정본 진입점이 없다.** `package.json` 부재 · npm script 부재 · `node_modules` 부재. 368개를 한 번에 도는 명령이 저장소 어디에도 선언돼 있지 않다. CI가 10개만 도는 이유의 일부는 정책이 아니라 **수단 부재**다.
+- **전수 실행의 정본 진입점이 없다.** ~~`package.json` 부재~~ → **정정(M1 실측)**: 루트에는 없지만 저장소에 **2개 존재한다** — `plugins/mccp/scripts/receipt/package.json`과 `.claude/scripts/receipt/package.json`이고 둘 다 `"test": "node --test tests/"`를 선언한다(그 형태는 디렉토리 인자라 Node 24에서 죽는다). npm script로 전수를 도는 경로는 여전히 없고 `node_modules`도 없다. 368개를 한 번에 도는 명령이 저장소 어디에도 선언돼 있지 않다는 결론은 **불변**이다. CI가 10개만 도는 이유의 일부는 정책이 아니라 **수단 부재**다. **M1이 그 수단을 만들었다** — `scripts/test-suite/run.js`(§Delivery Milestones 1행 참조).
 - **로컬과 CI의 Node가 다르고, 그 차이가 진입점 설계에 직접 걸린다.** 로컬 `v24.19.0` · CI `node-version: '20'`. `env-contract-drift.yml` 주석이 세 형태를 실측으로 기록한다 — 디렉토리 인자는 Node 24가 모듈 경로로 해석해 죽고, 인용 glob은 node 자체 glob이 22.6.0 도입이라 Node 20에서 죽으며, **셸이 펼치는 glob만 양쪽에서 산다**. Windows runner 기본 pwsh는 네이티브 명령 인자에 glob을 펼치지 않으므로 `shell: bash`가 load-bearing이다.
-- **전수 순차 실행 = 174분.** `test-suite-run.txt` 353행 합계 10,434,124ms. 우산 PRD가 인용한 "약 69분 외삽"과 근거 조사가 적은 "105/346에서 중단"은 둘 다 이 로그와 어긋난다 — 로그는 352 PASS + 1 FAIL로 **353개 결과를 담고 있다**(중단이 아니라 resume 후 완주).
+- **전수 순차 실행 = 174분** → **정정(M1 실측): 고유 파일 기준 169.6분이다.** `test-suite-run.txt`의 353행 합계는 10,434,124ms(173.9분)가 맞지만, 그중 **7개 파일이 resume 때문에 두 번 실행됐다**. 고유 346개 기준 합계는 10,176,088ms = **169.6분**이다. 우산 PRD가 인용한 "약 69분 외삽"과 근거 조사가 적은 "105/346에서 중단"은 둘 다 이 로그와 어긋난다 — 로그는 352 PASS + 1 FAIL로 **353개 결과를 담고 있다**(중단이 아니라 resume 후 완주).
+- **재실행된 7건이 경합 오염의 직접 증거다.** 같은 커밋·같은 파일인데 실행 간 편차가 최대 **25.6%**였다(`pr-codex-skip-env` 104.2초 대 82.9초 · `preflight` 132.4초 대 113.7초). 지표 2의 "경합 오염 의심"은 의심이 아니라 관측이다.
+- **이 로그의 적용 범위는 `plugins/mccp/` 하위뿐이다.** 고유 346개가 전부 그 접두이며 `.claude/scripts/receipt/tests/` 10개는 **한 번도 실행되지 않았다**. 즉 346은 이 로그의 *적용 범위*이지 스위트 크기가 아니다 — 현재 tracked `*.test.js`는 실측 **368**(`plugins/mccp/scripts/` 358 + `.claude/scripts/` 10)이고 위 21행의 368이 정본이다. **346을 스위트 크기로 옮겨 적지 말 것.**
 - **분포가 극단적으로 skewed하다.** p50 = 0.85초 · p90 = 60.6초 · p99 = 468.7초 · **max = 1399초(23.3분)**. 상위 15개 파일(4.2%)이 총 시간의 **63%**를 차지하고, 중앙값 대비 최댓값은 약 1600배다.
 - **그 격차는 "미설명"이 아니다.** 가장 느린 `receipt/tests/intent-gate-fields.test.js`는 `child_process`를 import하지 않아 순수 in-process로 보이지만, 그 파일이 52회 호출하는 `withRepo`가 helper `mkTmpRepo()`를 부르고 그 helper는 repo 1개당 **git 프로세스 6개**(`init` · `config`×3 · `add` · `commit`)를 spawn한다. 52 × 6 = **312개 프로세스**, 1399초 / 312 ≈ **4.5초/repo**. 같은 helper를 쓰는 test 파일이 **48개**다.
 - **우산 PRD가 red라 지목한 `derive/tests/mccp-fixture.test.js`가 이 worktree에서 green이다** — 2/2 pass, 6.7초. 그 test 본문에 시간 의존 코드는 없고, 출력에 renderer의 `cache_stale: previous render was 153 seconds old`가 섞여 있다. **red 수리가 아니라 flaky 규명이 축이다.**
@@ -45,7 +48,7 @@ We'll know we're right when **CI 강제 커버리지가 100%가 되고, 전수 �
 
 | 축 | 기준 | 왜 이 순서인가 |
 |---|---|---|
-| **A. 측정 가능 (MVP)** | 단일 명령 진입점이 존재하고, 조용한 머신 전수 완주 벽시계가 기록된다 | 축 B의 목표치도 축 C의 shard 수도 전부 A가 내놓는 숫자에서 파생된다 |
+| **A. 측정 가능 (MVP)** | 단일 명령 진입점이 존재하고, 조용한 머신 전수 완주 벽시계가 기록된다 | 축 B의 목표치도 shard 수도 전부 A가 내놓는 숫자에서 파생된다 |
 | **B. 감당 가능** | 벽시계가 PR 피드백 임계 안. **임계값은 A 이후 확정** | 오늘 값 174분은 순차 실행 합계이고 경합 오염 자체 판정을 받았다. 지금 목표를 정하면 근거 없는 숫자다 |
 | **C. 강제** | 커버리지 100% + branch protection 1회 설정 | 파일로 표현 가능한 부분과 저장소 설정이 나뉘므로 완료 조건에 수동 1회가 들어간다 |
 | **D. 실증 (음성 통제)** | 배선을 끊는 변경이 실제로 red를 만드는 것을 1회 확인 | 커버리지 100%는 "test가 실행됐다"만 말하고 "그것이 결함을 잡는다"를 말하지 않는다. 우산 PRD가 모든 자식에게 요구한 *"producer가 아니라 산출된 실값"* 규율의 C3판이다 |
@@ -82,7 +85,7 @@ MVP가 이것인 이유: A 없이 C부터 하면 174분짜리 CI를 만들어 �
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | suite-entrypoint-and-baseline | 단일 명령으로 전수가 돌고 조용한 머신 벽시계가 기록된다. 174분의 구성이 파일 단위로 분해되고 상위 15개의 원인이 규명된다. flaky 1건의 재현 여부가 판정된다 | in-progress | `.claude/plans/ci-full-suite-m1.plan.md` |
-| 2 | runtime-reduction | 벽시계가 PR 피드백 임계 안으로 들어온다. 수단(shard · 원인 수리 · 둘 다)과 임계값은 M1 산출이 정한다 | pending | — |
+| 2 | runtime-reduction | 벽시계가 PR 피드백 임계 안으로 들어온다. **shard 수를 정하는 것은 이 milestone이다** — 축 C는 그 수를 *쓴다*. 수단(shard · 원인 수리 · 둘 다)과 임계값은 M1 산출이 정한다 | pending | — |
 | 3 | ci-enforcement | CI가 전수를 실행하고 커버리지 100%가 자동 산출되며 branch protection이 red를 머지 차단으로 만든다. 배선 절단이 red를 만드는 것이 1회 실증된다 | pending | — |
 
 ## Open Questions

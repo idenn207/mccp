@@ -329,17 +329,63 @@ routing mode: auto (implement 단계에서 유효). plan 단계는 rendered UI�
 ## Codex Implementation Review
 
 - 호출: `node <plugin-root>/scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, v0.2.2)
-- 라운드 수: 0 (호출 3회 시도, 전부 spawn 단계 통과 후 API 거부 — 라운드 원장 `rounds_so_far=0`)
-- 합치 결론: **Codex unavailable, skipped (auto-fallback): exit-nonzero** — 계정 usage limit 소진.
-  companion 직접 실행이 원인을 확정한다: `[codex] Codex error: You've hit your usage limit.
-  Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at
-  Sep 7th, 2026 11:26 AM.` 배선 결함도 focus 텍스트 문제도 아니다 — trivial smoke focus
-  (`"smoke test - reply briefly"`)도 같은 8초 exit-nonzero로 죽는다. 2026-09-07 이전에는
-  이 저장소의 어떤 게이트도 Codex를 얻을 수 없다.
-- 처리: CLAUDE.md §3.3 복구 옵션 2 + §3.16(게이트가 막으면 문서화된 감사 우회를 쓰되 사유를
-  남긴다)에 따라 advisory 경로. receipt는 `codex_verdict='unavailable'`로 **비승인** 봉인되며
-  cross-gate dedupe는 닫힌 채로 남는다. terminal `/mccp:pr`은 Phase 0에서 advisory를 거부하므로
-  이 사이클의 PR은 quota 회복 또는 audited override를 요구한다 — 이 사실을 숨기지 않는다.
+- 라운드 수: 1 (원장 `rounds_so_far=2` — 첫 호출은 `class=ok`로 완주했으나 stdout을 셸 변수에만
+  담아 **운영 실수로 유실**했고, 둘째 호출은 같은 focus의 회수다. 실질 리뷰 라운드는 1이며
+  §3.16대로 escalate하지 않았다. 원장 2와 실질 1의 차이를 감추지 않는다.)
+- 합치 결론: **`verdict=needs-attention` → `codex_verdict='divergent'`** (구조화 verdict,
+  free-text fallback 아님). 2026-09-01 세션이 기록한 quota 소진은 **해소됐다** — 이 세션의
+  호출은 `class=ok` · `blocking=false` · 99.9초로 정상 완주했다. 아래 그 판정과 흡수.
+- 처리: 비승인 봉인. cross-gate dedupe는 닫힌 채로 남고 PR-Codex가 실제 diff에 대해 발화한다 —
+  이는 R1이 스스로 요구한 next step(`Re-run the adversarial review against the actual
+  implementation diff`)과 정확히 같은 동작이다.
+
+### Codex R2 미발화 — 라운드 예산 소진 (2026-09-02, 본 사이클)
+
+> Codex not invoked: round cap reached for this decision.
+
+`codex-invoke.js`가 spawn 직전에 봉인된 원장을 읽어 `class=round-cap-reached`
+(`blocking=false` · `durationMs=0`)로 short-circuit했다 — `(mccp-implement-codex,
+ci-full-suite-m1)`의 `rounds_so_far=3`이고 봉인 cap도 3이다. 가용성 문제가 아니라
+**예산 소진**이므로 `codex_verdict='divergent'`로 매핑한다(DD4 — `unavailable`은
+"닿지 못했다"를 주장하므로 여기서는 거짓이다). cross-gate dedupe는 닫힌 채로 남는다.
+
+§3.16대로 캡을 올려 라운드를 늘리지 않았다. 본 사이클이 한 편집은 (a) 직전 세션의
+잘못된 섹션 치환이 삭제한 `## Validation` · `## Risks` · `## Acceptance` ·
+`## Design Critique` · `## Design Routing Guide` · `## Codex Adversarial Review`
+복원과 (b) 잔여 Task(6-2 · 6-4 · 6-5 · 6-6 · 7 · 8) 수행이다. (a)는 새 설계 결정이
+아니라 유실 복구다.
+
+- Open Questions: 설계 축의 cross-model 반증은 여전히 미수행 — severity HIGH ·
+  **DIVERGENT_UNRESOLVED**. 회수 지점은 terminal `/mccp:pr`의 PR-Codex다.
+
+### Codex R1 — 판정 대상 불일치 (2026-09-02)
+
+R1의 유일한 finding은 CRITICAL "Required runner implementation is absent"이고, 근거는
+**working tree diff에 구현이 없다**는 것이다(`target.mode='working-tree'`, "0 staged,
+3 unstaged, 1 untracked"). 정확한 관측이지만 **판정 대상이 어긋났다**: Phase 2.5는
+EXECUTE **이전**에 도는 게이트라 그 시점의 diff에 구현이 없는 것은 정의상 참이고, 어떤
+plan에 대해서도 같은 finding이 나온다. `--focus`가 지목한 다섯 결정(roll-up 분리 ·
+`redaction_ok` merge 거부 · run.js 자기 텍스트 redaction · ESM/CJS 공유 · 전역 attribution
+접기)에 대한 반론은 **한 건도 없다**.
+
+- YAGNI Triage:
+  | Finding | Severity | Verdict | Why |
+  |---|---|---|---|
+  | R1-1 구현 부재 | CRITICAL | ACCEPT_NOW | 지적이 요구하는 행동이 정확히 Phase 3 EXECUTE다. 그 recommendation("planned runner/reporter/enumerator/tests/workflow/baseline을 구현하고 tracked로 만든 뒤 전용 test와 로컬/CI baseline을 돌려라")은 Task 1~7과 1:1이다. 본 사이클이 그것을 수행해 흡수한다 |
+- Deferred to backlog: 0
+- Open Questions: **설계 축의 cross-model 반증은 여전히 미수행**이다 — 리뷰어가 본 것은
+  설계가 아니라 빈 diff였다. 실제 반증은 terminal `/mccp:pr`의 PR-Codex가 구현 diff에
+  대해 수행하며, dedupe가 `divergent`로 닫혀 있으므로 그 발화는 **보장된다**(§3.12).
+  severity HIGH · **DIVERGENT_UNRESOLVED**
+- Codex session 참조: threadId `01a05fe8-fcc8-7651-b436-06549a623fc1`
+
+### Security Reviewer (2026-09-01 세션 — 본 사이클의 구속 명세로 승계)
+
+`Task(mccp:security-reviewer)`는 **이 plan에 대해 이미 완주했고**(601초) 그 흡수표가 아래
+`### Security Reviewer` 절에 그대로 있다. 본 세션은 plan을 바꾸지 않았으므로 같은 입력에
+같은 리뷰를 다시 돌리지 않는다(§3.16 — 라운드를 늘리지 않는다). 그 표의 12개 흡수행이
+Phase 3의 구속 명세이며 미해소 CRITICAL/HIGH는 0건이다. **skip이 아니다** —
+`security_skipped`는 forward하지 않는다.
 
 ### 무엇이 리뷰를 대신했는가 (그리고 무엇을 대신하지 못했는가)
 

@@ -3,8 +3,8 @@ fix_task_version: 1
 task_fingerprint: ci-full-suite-m1
 gate_id: stop-review-loop
 decision_id: ci-full-suite-m1
-created_at: 2026-09-02T02:21:30.875Z
-expires_at: 2026-09-09T02:21:30.875Z
+created_at: 2026-09-02T04:25:01.523Z
+expires_at: 2026-09-09T04:25:01.523Z
 counter: 1
 verdict: codex_divergent
 escalate: true

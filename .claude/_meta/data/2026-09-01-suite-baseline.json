@@ -1,0 +1,3971 @@
+{
+  "schema": "mccp-suite-baseline/v1",
+  "runs": [
+    {
+      "ok": true,
+      "reason": null,
+      "attribution": "complete",
+      "node_version": "v24.19.0",
+      "platform": "win32",
+      "cpus": 16,
+      "git_sha": "8e2b0a15468d3649e9408e9b91dc269eb044bbfe",
+      "ci_run_id": null,
+      "files_total": 369,
+      "files_excluded": 0,
+      "exclusions": [],
+      "exclusions_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_clock_ms": 1882988,
+      "exit_code": 1,
+      "chunks": 1,
+      "chunks_failed": [
+        0
+      ],
+      "per_file": [
+        {
+          "file": ".claude/scripts/receipt/tests/aliases.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 8.8602,
+          "file_ms": 463.4652,
+          "first_at": 1788317013864,
+          "last_at": 1788317013924
+        },
+        {
+          "file": ".claude/scripts/receipt/tests/decision.test.js",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "sum_ms": 6589.223000000001,
+          "file_ms": 6967.0657,
+          "first_at": 1788317020279,
+          "last_at": 1788317020423
+        },
+        {
+          "file": ".claude/scripts/receipt/tests/dedupe.test.js",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "sum_ms": 23349.1164,
+          "file_ms": 23893.4567,
+          "first_at": 1788317037203,
+          "last_at": 1788317037369
+        },
+        {
+          "file": ".claude/scripts/receipt/tests/hash.test.js",
+          "tests": 36,
+          "pass": 36,
+          "fail": 0,
+          "sum_ms": 398.971,
+          "file_ms": 776.5839,
+          "first_at": 1788317014176,
+          "last_at": 1788317014273
+        },
+        {
+          "file": ".claude/scripts/receipt/tests/jcs.test.js",
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "sum_ms": 14.040099999999999,
+          "file_ms": 434.294,
+          "first_at": 1788317013868,
+          "last_at": 1788317013952
+        },
+        {
+          "file": ".claude/scripts/receipt/tests/pr-body.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 12780.9835,
+          "file_ms": 13277.9997,
+          "first_at": 1788317026603,
+          "last_at": 1788317026819
+        },
+        {
+          "file": ".claude/scripts/receipt/tests/preflight.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 6579.8968,
+          "file_ms": 7122.6707,
+          "first_at": 1788317020561,
+          "last_at": 1788317020687
+        },
+        {
+          "file": ".claude/scripts/receipt/tests/schema.test.js",
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "sum_ms": 18.507899999999996,
+          "file_ms": 404.9231,
+          "first_at": 1788317013958,
+          "last_at": 1788317013995
+        },
+        {
+          "file": ".claude/scripts/receipt/tests/validate-cmd.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 14792.9545,
+          "file_ms": 15275.9482,
+          "first_at": 1788317028768,
+          "last_at": 1788317028896
+        },
+        {
+          "file": ".claude/scripts/receipt/tests/write.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 15454.2666,
+          "file_ms": 15890.1076,
+          "first_at": 1788317029413,
+          "last_at": 1788317029539
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/backlog-source.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 321.9261,
+          "file_ms": 835.9846,
+          "first_at": 1788317014411,
+          "last_at": 1788317014517
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/briefing-surface.test.js",
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "sum_ms": 518.6996,
+          "file_ms": 1474.846,
+          "first_at": 1788317015131,
+          "last_at": 1788317015190
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/capability.test.js",
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "sum_ms": 12.6819,
+          "file_ms": 2751.0675,
+          "first_at": 1788317016418,
+          "last_at": 1788317016497
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/correlation.test.js",
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "sum_ms": 108027.30170000001,
+          "file_ms": 110792.6471,
+          "first_at": 1788317124446,
+          "last_at": 1788317124569
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/empty-repo.test.js",
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "sum_ms": 18.6306,
+          "file_ms": 2761.9628,
+          "first_at": 1788317016440,
+          "last_at": 1788317016566
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/envelope-absent.test.js",
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "sum_ms": 2386.1103,
+          "file_ms": 5102.0604,
+          "first_at": 1788317018798,
+          "last_at": 1788317019013
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/envelopes-mask.test.js",
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "sum_ms": 2377.376,
+          "file_ms": 5089.1688,
+          "first_at": 1788317018841,
+          "last_at": 1788317019040
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/generic-interface.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 11546.6082,
+          "file_ms": 14137.2946,
+          "first_at": 1788317027969,
+          "last_at": 1788317028131
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/host-version.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 13.567,
+          "file_ms": 332.2394,
+          "first_at": 1788317014520,
+          "last_at": 1788317014605
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/ledger-source.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 2557.4202999999998,
+          "file_ms": 4755.2669,
+          "first_at": 1788317019014,
+          "last_at": 1788317019293
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/mask-secrets.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 4690.1516,
+          "file_ms": 6591.901,
+          "first_at": 1788317021105,
+          "last_at": 1788317021197
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/mask.test.js",
+          "tests": 20,
+          "pass": 20,
+          "fail": 0,
+          "sum_ms": 6912.811300000001,
+          "file_ms": 8382.8962,
+          "first_at": 1788317023342,
+          "last_at": 1788317023575
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/mccp-fixture.test.js",
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "sum_ms": 5902.191000000001,
+          "file_ms": 6509.3659,
+          "first_at": 1788317022890,
+          "last_at": 1788317023007
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/milestone-evidence.test.js",
+          "tests": 13,
+          "pass": 13,
+          "fail": 0,
+          "sum_ms": 318.1846,
+          "file_ms": 903.4437,
+          "first_at": 1788317017325,
+          "last_at": 1788317017469
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/no-new-deps.test.js",
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "sum_ms": 951.3458,
+          "file_ms": 1369.0991,
+          "first_at": 1788317018735,
+          "last_at": 1788317018840
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/perf-budget.test.js",
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "sum_ms": 5049.3701,
+          "file_ms": 6133.5467,
+          "first_at": 1788317024850,
+          "last_at": 1788317024972
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/plans-source-prd.test.js",
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "sum_ms": 67.8992,
+          "file_ms": 649.2179,
+          "first_at": 1788317019574,
+          "last_at": 1788317019652
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/schema-drift.test.js",
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "sum_ms": 2226.0784000000003,
+          "file_ms": 2924.5934,
+          "first_at": 1788317021802,
+          "last_at": 1788317021977
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/state-source.test.js",
+          "tests": 16,
+          "pass": 16,
+          "fail": 0,
+          "sum_ms": 13388.7241,
+          "file_ms": 14078.4987,
+          "first_at": 1788317033130,
+          "last_at": 1788317033350
+        },
+        {
+          "file": "plugins/mccp/scripts/derive/tests/worktrees-source.test.js",
+          "tests": 20,
+          "pass": 20,
+          "fail": 0,
+          "sum_ms": 25125.664599999996,
+          "file_ms": 25898.7598,
+          "first_at": 1788317045361,
+          "last_at": 1788317045552
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/auto-handoff.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 1141.8038,
+          "file_ms": 2102.3455,
+          "first_at": 1788317022437,
+          "last_at": 1788317022527
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/dep0190-guard.test.js",
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "sum_ms": 20570.3887,
+          "file_ms": 21071.333,
+          "first_at": 1788317041621,
+          "last_at": 1788317041758
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/ecc-context-monitor.test.js",
+          "tests": 23,
+          "pass": 23,
+          "fail": 0,
+          "sum_ms": 174.21810000000002,
+          "file_ms": 871.7796,
+          "first_at": 1788317021880,
+          "last_at": 1788317022070
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/ecc-metrics-bridge.test.js",
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "sum_ms": 29.1188,
+          "file_ms": 595.8633,
+          "first_at": 1788317022457,
+          "last_at": 1788317022561
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/ecc-statusline.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 9.704699999999999,
+          "file_ms": 633.8809,
+          "first_at": 1788317022592,
+          "last_at": 1788317022702
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/g1-patch.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 22876.394999999997,
+          "file_ms": 23406.1429,
+          "first_at": 1788317045836,
+          "last_at": 1788317045933
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/goal-phase-guard.test.js",
+          "tests": 31,
+          "pass": 31,
+          "fail": 0,
+          "sum_ms": 25974.7468,
+          "file_ms": 26608.3017,
+          "first_at": 1788317048949,
+          "last_at": 1788317049173
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/hook-trace-root-anchor.test.js",
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "sum_ms": 6977.533899999999,
+          "file_ms": 7454.5036,
+          "first_at": 1788317030070,
+          "last_at": 1788317030192
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/post-edit-format-md.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 123.4189,
+          "file_ms": 816.8029,
+          "first_at": 1788317023732,
+          "last_at": 1788317023823
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/post-tool-use-failure.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 2830.4419999999996,
+          "file_ms": 3204.1874,
+          "first_at": 1788317026664,
+          "last_at": 1788317026779
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/pr-phase-guard.test.js",
+          "tests": 76,
+          "pass": 76,
+          "fail": 0,
+          "sum_ms": 917.2756999999999,
+          "file_ms": 1605.7117,
+          "first_at": 1788317025194,
+          "last_at": 1788317025431
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/receipt-context-schema.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 28.619200000000003,
+          "file_ms": 731.4959,
+          "first_at": 1788317025581,
+          "last_at": 1788317025734
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/receipt-prompt-alias-bypass.test.js",
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "sum_ms": 7108.556700000001,
+          "file_ms": 7670.9066,
+          "first_at": 1788317032961,
+          "last_at": 1788317033103
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/receipt-prompt-informational.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 11918.0354,
+          "file_ms": 12833.0441,
+          "first_at": 1788317038375,
+          "last_at": 1788317038536
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/receipt-prompt-tamper.test.js",
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "sum_ms": 117389.69429999999,
+          "file_ms": 118205.3443,
+          "first_at": 1788317144868,
+          "last_at": 1788317144986
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/receipt-prompt-tempfail.test.js",
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "sum_ms": 4714.6425,
+          "file_ms": 5439.4022,
+          "first_at": 1788317032183,
+          "last_at": 1788317032272
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/receipt-skill-tempfail.test.js",
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "sum_ms": 2365.0175,
+          "file_ms": 2847.4556,
+          "first_at": 1788317030926,
+          "last_at": 1788317030980
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/render-trigger-session-start.test.js",
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "sum_ms": 5674.711700000001,
+          "file_ms": 6233.7157,
+          "first_at": 1788317035054,
+          "last_at": 1788317035133
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/session-end-marker-reclaim.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 4142.528499999999,
+          "file_ms": 5098.0368,
+          "first_at": 1788317034531,
+          "last_at": 1788317034637
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/session-end-trace.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 366.97119999999995,
+          "file_ms": 1277.3025,
+          "first_at": 1788317031312,
+          "last_at": 1788317031439
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/session-hooks-no-llm.test.js",
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "sum_ms": 11.53,
+          "file_ms": 772.642,
+          "first_at": 1788317031563,
+          "last_at": 1788317031787
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/session-start-bootstrap.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 19376.0886,
+          "file_ms": 20186.4276,
+          "first_at": 1788317051543,
+          "last_at": 1788317051622
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/session-start-dep-check.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 18834.6962,
+          "file_ms": 19533.4037,
+          "first_at": 1788317051170,
+          "last_at": 1788317051288
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/session-start-discovery.test.js",
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "sum_ms": 178.1162,
+          "file_ms": 1308.0495,
+          "first_at": 1788317033411,
+          "last_at": 1788317033567
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/stop-review-loop.test.js",
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "sum_ms": 23593.698399999997,
+          "file_ms": 24110.5667,
+          "first_at": 1788317057115,
+          "last_at": 1788317057209
+        },
+        {
+          "file": "plugins/mccp/scripts/hooks/tests/ultracode-phase-guard.test.js",
+          "tests": 34,
+          "pass": 34,
+          "fail": 0,
+          "sum_ms": 19852.896799999995,
+          "file_ms": 20497.0242,
+          "first_at": 1788317053652,
+          "last_at": 1788317053849
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/archive-complete/tests/apply.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 9058.3712,
+          "file_ms": 9653.5584,
+          "first_at": 1788317043148,
+          "last_at": 1788317043222
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/archive-complete/tests/scan.test.js",
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "sum_ms": 1623.909,
+          "file_ms": 2372.3676,
+          "first_at": 1788317036907,
+          "last_at": 1788317037010
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/briefing/tests/cost-guard.test.js",
+          "tests": 13,
+          "pass": 13,
+          "fail": 0,
+          "sum_ms": 10.002799999999997,
+          "file_ms": 707.1506,
+          "first_at": 1788317035673,
+          "last_at": 1788317035840
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/briefing/tests/index.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 1715.8473,
+          "file_ms": 2386.176,
+          "first_at": 1788317038109,
+          "last_at": 1788317038233
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/briefing/tests/invoke.test.js",
+          "tests": 13,
+          "pass": 13,
+          "fail": 0,
+          "sum_ms": 8.9306,
+          "file_ms": 792.5005,
+          "first_at": 1788317037607,
+          "last_at": 1788317037801
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/completion-ledger/tests/index.test.js",
+          "tests": 13,
+          "pass": 13,
+          "fail": 0,
+          "sum_ms": 2947.7603000000004,
+          "file_ms": 4017.1726,
+          "first_at": 1788317041216,
+          "last_at": 1788317041397
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/completion-ledger/tests/store.test.js",
+          "tests": 13,
+          "pass": 13,
+          "fail": 0,
+          "sum_ms": 305.69700000000006,
+          "file_ms": 838.3224,
+          "first_at": 1788317038538,
+          "last_at": 1788317038640
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/env-contract/tests/cli.test.js",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "sum_ms": 10579.119700000001,
+          "file_ms": 11335.9435,
+          "first_at": 1788317049475,
+          "last_at": 1788317049561
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/env-contract/tests/doctor.test.js",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "sum_ms": 279.0188,
+          "file_ms": 1013.17,
+          "first_at": 1788317039457,
+          "last_at": 1788317039549
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/env-contract/tests/evidence-debt.test.js",
+          "tests": 16,
+          "pass": 16,
+          "fail": 0,
+          "sum_ms": 6140.3594,
+          "file_ms": 6958.216,
+          "first_at": 1788317045412,
+          "last_at": 1788317045699
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/env-contract/tests/lint.test.js",
+          "tests": 34,
+          "pass": 34,
+          "fail": 0,
+          "sum_ms": 45402.2702,
+          "file_ms": 46061.4141,
+          "first_at": 1788317085441,
+          "last_at": 1788317085610
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/env-contract/tests/registry.test.js",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "sum_ms": 55.1992,
+          "file_ms": 837.7977,
+          "first_at": 1788317042133,
+          "last_at": 1788317042223
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/env-contract/tests/value.test.js",
+          "tests": 13,
+          "pass": 13,
+          "fail": 0,
+          "sum_ms": 18.037300000000002,
+          "file_ms": 872.8547,
+          "first_at": 1788317042471,
+          "last_at": 1788317042630
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/env-contract/tests/vocabulary.test.js",
+          "tests": 21,
+          "pass": 21,
+          "fail": 0,
+          "sum_ms": 618.9560999999998,
+          "file_ms": 1142.465,
+          "first_at": 1788317043255,
+          "last_at": 1788317043367
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/implement-dispatch/tests/budget.test.js",
+          "tests": 52,
+          "pass": 52,
+          "fail": 0,
+          "sum_ms": 42.491099999999996,
+          "file_ms": 857.7867,
+          "first_at": 1788317043328,
+          "last_at": 1788317043489
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/implement-dispatch/tests/dispatch-wiring-harness.test.js",
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "sum_ms": 30910.655899999998,
+          "file_ms": 31559.3659,
+          "first_at": 1788317074704,
+          "last_at": 1788317074777
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/implement-dispatch/tests/partition.test.js",
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "sum_ms": 26.8354,
+          "file_ms": 622.111,
+          "first_at": 1788317043869,
+          "last_at": 1788317043988
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/implement-dispatch/tests/result-schema.test.js",
+          "tests": 37,
+          "pass": 37,
+          "fail": 0,
+          "sum_ms": 30.717299999999994,
+          "file_ms": 711.5967,
+          "first_at": 1788317044063,
+          "last_at": 1788317044215
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/implement-dispatch/tests/route.test.js",
+          "tests": 20,
+          "pass": 20,
+          "fail": 0,
+          "sum_ms": 16.761299999999995,
+          "file_ms": 679.674,
+          "first_at": 1788317044490,
+          "last_at": 1788317044668
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/implement-dispatch/tests/verify.test.js",
+          "tests": 22,
+          "pass": 22,
+          "fail": 0,
+          "sum_ms": 31.502000000000002,
+          "file_ms": 698.0427,
+          "first_at": 1788317044747,
+          "last_at": 1788317044899
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/implement-dispatch/tests/worktree-merge.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 6558.205,
+          "file_ms": 7111.2668,
+          "first_at": 1788317051689,
+          "last_at": 1788317051780
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/plan-fanout/tests/budget.test.js",
+          "tests": 40,
+          "pass": 40,
+          "fail": 0,
+          "sum_ms": 78.50600000000001,
+          "file_ms": 830.1896,
+          "first_at": 1788317045510,
+          "last_at": 1788317045735
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/plan-fanout/tests/perspectives.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 9.7087,
+          "file_ms": 447.0145,
+          "first_at": 1788317045892,
+          "last_at": 1788317045999
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/plan-fanout/tests/reconcile.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 10.551200000000001,
+          "file_ms": 668.6705,
+          "first_at": 1788317046119,
+          "last_at": 1788317046266
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/plan-fanout/tests/synthesize.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 13.060699999999999,
+          "file_ms": 507.1579,
+          "first_at": 1788317046117,
+          "last_at": 1788317046236
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/a11y-aria-labels.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 95445.9468,
+          "file_ms": 96284.1343,
+          "first_at": 1788317142110,
+          "last_at": 1788317142214
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/a11y-contrast.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 11.5948,
+          "file_ms": 494.5089,
+          "first_at": 1788317046385,
+          "last_at": 1788317046494
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/a11y-landmarks.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 253247.42199999996,
+          "file_ms": 254197.9106,
+          "first_at": 1788317300299,
+          "last_at": 1788317300448
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/a11y-severity-non-color.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 15.981300000000001,
+          "file_ms": 622.9601,
+          "first_at": 1788317046748,
+          "last_at": 1788317046890
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/action-prompt.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 8.4246,
+          "file_ms": 522.868,
+          "first_at": 1788317046898,
+          "last_at": 1788317047017
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/active-sessions.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 11.0894,
+          "file_ms": 616.8686,
+          "first_at": 1788317047307,
+          "last_at": 1788317047507
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/audit-timeline-snapshot.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 182.9375,
+          "file_ms": 882.6273,
+          "first_at": 1788317047773,
+          "last_at": 1788317047900
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/cli.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 7858.119099999999,
+          "file_ms": 8442.5747,
+          "first_at": 1788317055831,
+          "last_at": 1788317055949
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/completion-detect.test.js",
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "sum_ms": 93.0387,
+          "file_ms": 644.6457,
+          "first_at": 1788317048451,
+          "last_at": 1788317048545
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/console-shell.test.js",
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "sum_ms": 483.08919999999995,
+          "file_ms": 1165.7883,
+          "first_at": 1788317049590,
+          "last_at": 1788317049710
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/cross-section-dedupe.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 9.487300000000001,
+          "file_ms": 476.4849,
+          "first_at": 1788317049562,
+          "last_at": 1788317049647
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/dashboard-overview.test.js",
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "sum_ms": 888.1148,
+          "file_ms": 1539.7824,
+          "first_at": 1788317050996,
+          "last_at": 1788317051102
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/decision-state.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 13.054700000000002,
+          "file_ms": 539.4598,
+          "first_at": 1788317050048,
+          "last_at": 1788317050187
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/design-invariants.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 122903.6251,
+          "file_ms": 123672.0485,
+          "first_at": 1788317173218,
+          "last_at": 1788317173382
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/drawer.test.js",
+          "tests": 21,
+          "pass": 21,
+          "fail": 0,
+          "sum_ms": 314.9047,
+          "file_ms": 1143.7678,
+          "first_at": 1788317051191,
+          "last_at": 1788317051331
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/escaping.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 96153.50450000001,
+          "file_ms": 96849.8156,
+          "first_at": 1788317147682,
+          "last_at": 1788317147951
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/explore-controls.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 1360.709,
+          "file_ms": 2034.5582,
+          "first_at": 1788317053155,
+          "last_at": 1788317053323
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/explore-search.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 1497.0546,
+          "file_ms": 2262.1509,
+          "first_at": 1788317053480,
+          "last_at": 1788317053594
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/explore-sort.test.js",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "sum_ms": 22.6279,
+          "file_ms": 568.4995,
+          "first_at": 1788317052062,
+          "last_at": 1788317052192
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/format-utils.test.js",
+          "tests": 32,
+          "pass": 32,
+          "fail": 0,
+          "sum_ms": 41.37580000000001,
+          "file_ms": 874.7373,
+          "first_at": 1788317052567,
+          "last_at": 1788317052656
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/four-part-rendering.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 49.085300000000004,
+          "file_ms": 753.5543,
+          "first_at": 1788317052818,
+          "last_at": 1788317052946
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/header-hoist.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 982.9197000000001,
+          "file_ms": 1667.9732,
+          "first_at": 1788317054223,
+          "last_at": 1788317054324
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 1058.7332999999999,
+          "file_ms": 1963.1357,
+          "first_at": 1788317054717,
+          "last_at": 1788317054907
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/index-outer-fail-open.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 123071.74789999999,
+          "file_ms": 123939.9541,
+          "first_at": 1788317177151,
+          "last_at": 1788317177263
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/integration.test.js",
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "sum_ms": 63843.07059999999,
+          "file_ms": 64645.7805,
+          "first_at": 1788317117982,
+          "last_at": 1788317118244
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/intent-extractor.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 7.1927,
+          "file_ms": 553.2179,
+          "first_at": 1788317054295,
+          "last_at": 1788317054400
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/jargon-dictionary.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 9.858300000000002,
+          "file_ms": 622.8233,
+          "first_at": 1788317054853,
+          "last_at": 1788317054946
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/markdown-equivalence.test.js",
+          "tests": 21,
+          "pass": 21,
+          "fail": 0,
+          "sum_ms": 34180.988699999994,
+          "file_ms": 34854.7307,
+          "first_at": 1788317089078,
+          "last_at": 1788317089254
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/milestone-history.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 83.43929999999999,
+          "file_ms": 620.7706,
+          "first_at": 1788317055392,
+          "last_at": 1788317055527
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/milestone-lifecycle.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 18.064300000000003,
+          "file_ms": 608.9155,
+          "first_at": 1788317055450,
+          "last_at": 1788317055556
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/multi-session.test.js",
+          "tests": 30,
+          "pass": 30,
+          "fail": 0,
+          "sum_ms": 62.34220000000001,
+          "file_ms": 780.2947,
+          "first_at": 1788317056140,
+          "last_at": 1788317056309
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/next-action.test.js",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "sum_ms": 17.5119,
+          "file_ms": 471.3864,
+          "first_at": 1788317055953,
+          "last_at": 1788317056026
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/oklch-conformance.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 8.592799999999999,
+          "file_ms": 603.828,
+          "first_at": 1788317056401,
+          "last_at": 1788317056553
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/output-constraints.test.js",
+          "tests": 86,
+          "pass": 86,
+          "fail": 0,
+          "sum_ms": 36461.27099999999,
+          "file_ms": 37323.2486,
+          "first_at": 1788317093130,
+          "last_at": 1788317093351
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/pipeline.test.js",
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "sum_ms": 18.6076,
+          "file_ms": 639.0528,
+          "first_at": 1788317056843,
+          "last_at": 1788317056947
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/plan-body-parser.test.js",
+          "tests": 27,
+          "pass": 27,
+          "fail": 0,
+          "sum_ms": 162.14979999999997,
+          "file_ms": 833.0292,
+          "first_at": 1788317057253,
+          "last_at": 1788317057385
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/prd-grouping.test.js",
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "sum_ms": 554.1045000000001,
+          "file_ms": 1423.5429,
+          "first_at": 1788317058195,
+          "last_at": 1788317058420
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/render-integration.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 7452.610199999999,
+          "file_ms": 8182.6565,
+          "first_at": 1788317065271,
+          "last_at": 1788317065392
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/renderer-generic.test.js",
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "sum_ms": 121834.82370000001,
+          "file_ms": 122602.1427,
+          "first_at": 1788317179879,
+          "last_at": 1788317179989
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/resolution-classify.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 7.9198,
+          "file_ms": 752.5081,
+          "first_at": 1788317059001,
+          "last_at": 1788317059123
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/resolution-marker.test.js",
+          "tests": 16,
+          "pass": 16,
+          "fail": 0,
+          "sum_ms": 13.2178,
+          "file_ms": 712.2347,
+          "first_at": 1788317059701,
+          "last_at": 1788317059838
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/responsive-layout.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 31747.867,
+          "file_ms": 32855.9474,
+          "first_at": 1788317092592,
+          "last_at": 1788317092689
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/risks-source-time.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 34.240199999999994,
+          "file_ms": 728.8637,
+          "first_at": 1788317066010,
+          "last_at": 1788317066121
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/section-fidelity.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 34.773,
+          "file_ms": 724.3356,
+          "first_at": 1788317066657,
+          "last_at": 1788317066847
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/sections.test.js",
+          "tests": 21,
+          "pass": 21,
+          "fail": 0,
+          "sum_ms": 117.8184,
+          "file_ms": 837.0323,
+          "first_at": 1788317067516,
+          "last_at": 1788317067688
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/staleness-guard.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 27.1826,
+          "file_ms": 729.9495,
+          "first_at": 1788317068250,
+          "last_at": 1788317068413
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/tabs.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 8.1185,
+          "file_ms": 353.4232,
+          "first_at": 1788317068706,
+          "last_at": 1788317068767
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/timeline-chart.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 18.9288,
+          "file_ms": 454.4563,
+          "first_at": 1788317069135,
+          "last_at": 1788317069220
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/trigger.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 755.7184,
+          "file_ms": 1266.5874,
+          "first_at": 1788317070381,
+          "last_at": 1788317070487
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/verdict-label.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 667.9371,
+          "file_ms": 1309.4158,
+          "first_at": 1788317071669,
+          "last_at": 1788317071796
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/verdict-secret-banner.test.js",
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "sum_ms": 17.264,
+          "file_ms": 452.4175,
+          "first_at": 1788317072191,
+          "last_at": 1788317072250
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/renderer/tests/verdict.test.js",
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "sum_ms": 11.683499999999999,
+          "file_ms": 597.6869,
+          "first_at": 1788317072758,
+          "last_at": 1788317072847
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/review-rounds/tests/enforcement.test.js",
+          "tests": 25,
+          "pass": 25,
+          "fail": 0,
+          "sum_ms": 27960.039899999992,
+          "file_ms": 28503.5482,
+          "first_at": 1788317101236,
+          "last_at": 1788317101351
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/review-rounds/tests/ledger.test.js",
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "sum_ms": 11786.7416,
+          "file_ms": 12232.9353,
+          "first_at": 1788317086980,
+          "last_at": 1788317087038
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/review-rounds/tests/seal.test.js",
+          "tests": 21,
+          "pass": 21,
+          "fail": 0,
+          "sum_ms": 800.9274999999999,
+          "file_ms": 1491.3556,
+          "first_at": 1788317086982,
+          "last_at": 1788317087109
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/snapshot/tests/snapshot-generic.test.js",
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "sum_ms": 111.75840000000001,
+          "file_ms": 709.3649,
+          "first_at": 1788317087509,
+          "last_at": 1788317087720
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/snapshot/tests/snapshot.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 259.19759999999997,
+          "file_ms": 764.5747,
+          "first_at": 1788317087722,
+          "last_at": 1788317087869
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/stale-audit/tests/apply.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 688.4376,
+          "file_ms": 1255.9966,
+          "first_at": 1788317088866,
+          "last_at": 1788317088976
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/stale-audit/tests/enumerate.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 205.62040000000002,
+          "file_ms": 846.1978,
+          "first_at": 1788317088548,
+          "last_at": 1788317088710
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/stale-audit/tests/item-id.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 46.9234,
+          "file_ms": 478.6475,
+          "first_at": 1788317089106,
+          "last_at": 1788317089190
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/a3-instruction-cost.test.js",
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "sum_ms": 19279.403400000007,
+          "file_ms": 19791.4231,
+          "first_at": 1788317094597,
+          "last_at": 1788317108769
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/a4-boundary-restore.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 69.3477,
+          "file_ms": 521.524,
+          "first_at": 1788317089618,
+          "last_at": 1788317089712
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/assertion-manifest-check.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 5166.3304,
+          "file_ms": 5723.4268,
+          "first_at": 1788317094858,
+          "last_at": 1788317094977
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/auto-chain-tempfail.test.js",
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "sum_ms": 3992.2299,
+          "file_ms": 4501.3585,
+          "first_at": 1788317094142,
+          "last_at": 1788317094215
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/auto-chain.test.js",
+          "tests": 21,
+          "pass": 21,
+          "fail": 0,
+          "sum_ms": 813.4291000000001,
+          "file_ms": 1583.1871,
+          "first_at": 1788317094157,
+          "last_at": 1788317094273
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/b1-independence-lint.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 8482.4869,
+          "file_ms": 8949.0479,
+          "first_at": 1788317102215,
+          "last_at": 1788317102297
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/b1-status-drift.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 729.6732999999999,
+          "file_ms": 1101.5492,
+          "first_at": 1788317095233,
+          "last_at": 1788317095315
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/b2-coverage-gate.test.js",
+          "tests": 23,
+          "pass": 23,
+          "fail": 0,
+          "sum_ms": 4683.231500000001,
+          "file_ms": 5253.9607,
+          "first_at": 1788317099400,
+          "last_at": 1788317099527
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/c1-coverage-gate.test.js",
+          "tests": 23,
+          "pass": 23,
+          "fail": 0,
+          "sum_ms": 11130.2501,
+          "file_ms": 11801.9701,
+          "first_at": 1788317106599,
+          "last_at": 1788317106777
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/c1-feedback-loop.test.js",
+          "tests": 35,
+          "pass": 35,
+          "fail": 0,
+          "sum_ms": 2497.107300000001,
+          "file_ms": 3360.9289,
+          "first_at": 1788317098536,
+          "last_at": 1788317098676
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-bridge.test.js",
+          "tests": 20,
+          "pass": 20,
+          "fail": 0,
+          "sum_ms": 24.387599999999992,
+          "file_ms": 558.959,
+          "first_at": 1788317099114,
+          "last_at": 1788317099235
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-companion-smoke.test.js",
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "sum_ms": 3.9459,
+          "file_ms": 449.2805,
+          "first_at": 1788317099606,
+          "last_at": 1788317099895
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke-json.test.js",
+          "tests": 5,
+          "pass": 1,
+          "fail": 4,
+          "sum_ms": 1234.338,
+          "file_ms": 1543.9557,
+          "first_at": 1788317101003,
+          "last_at": 1788317101077
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke.test.js",
+          "tests": 47,
+          "pass": 38,
+          "fail": 9,
+          "sum_ms": 1504.6556,
+          "file_ms": 2181.8735,
+          "first_at": 1788317101735,
+          "last_at": 1788317101867
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-policy.test.js",
+          "tests": 23,
+          "pass": 23,
+          "fail": 0,
+          "sum_ms": 2673.4290000000005,
+          "file_ms": 3251.4007,
+          "first_at": 1788317104222,
+          "last_at": 1788317104325
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-reachability.test.js",
+          "tests": 7,
+          "pass": 6,
+          "fail": 1,
+          "sum_ms": 8.5936,
+          "file_ms": 604.9173,
+          "first_at": 1788317101800,
+          "last_at": 1788317101963
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-result-filter.test.js",
+          "tests": 46,
+          "pass": 46,
+          "fail": 0,
+          "sum_ms": 23.748100000000015,
+          "file_ms": 535.5386,
+          "first_at": 1788317102300,
+          "last_at": 1788317102408
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-review-payload.test.js",
+          "tests": 20,
+          "pass": 20,
+          "fail": 0,
+          "sum_ms": 15.967599999999997,
+          "file_ms": 572.9712,
+          "first_at": 1788317102432,
+          "last_at": 1788317102527
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/command-body-blocks.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 58.8707,
+          "file_ms": 456.5123,
+          "first_at": 1788317102659,
+          "last_at": 1788317102756
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/command-body-lint.test.js",
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "sum_ms": 685.9361,
+          "file_ms": 1169.9378,
+          "first_at": 1788317103465,
+          "last_at": 1788317103572
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/command-body-rules.test.js",
+          "tests": 26,
+          "pass": 26,
+          "fail": 0,
+          "sum_ms": 22.8102,
+          "file_ms": 486.7315,
+          "first_at": 1788317102917,
+          "last_at": 1788317103015
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/command-tmp-worktree-safe.test.js",
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "sum_ms": 1894.7905999999998,
+          "file_ms": 2378.336,
+          "first_at": 1788317105020,
+          "last_at": 1788317105133
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/context-state.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 226.7637,
+          "file_ms": 760.3167,
+          "first_at": 1788317103640,
+          "last_at": 1788317103775
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/cost-state.test.js",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "sum_ms": 216.32540000000003,
+          "file_ms": 682.3304,
+          "first_at": 1788317104165,
+          "last_at": 1788317104255
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/cost-thresholds.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 27.0057,
+          "file_ms": 517.6405,
+          "first_at": 1788317104209,
+          "last_at": 1788317104296
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/dashboard-server.test.js",
+          "tests": 34,
+          "pass": 34,
+          "fail": 0,
+          "sum_ms": 118718.9605,
+          "file_ms": 119167.6053,
+          "first_at": 1788317104742,
+          "last_at": 1788317223422
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/deep-research-detect.test.js",
+          "tests": 26,
+          "pass": 26,
+          "fail": 0,
+          "sum_ms": 769.9513,
+          "file_ms": 1204.7597,
+          "first_at": 1788317105401,
+          "last_at": 1788317105498
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/dep-check.test.js",
+          "tests": 28,
+          "pass": 28,
+          "fail": 0,
+          "sum_ms": 1704.6916,
+          "file_ms": 2189.2501,
+          "first_at": 1788317106417,
+          "last_at": 1788317106512
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/design-critique-decide.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 10.8698,
+          "file_ms": 454.0251,
+          "first_at": 1788317105466,
+          "last_at": 1788317105590
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/design-critique-loop-e2e.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 9577.4405,
+          "file_ms": 10056.8617,
+          "first_at": 1788317115424,
+          "last_at": 1788317115553
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/design-grounding.test.js",
+          "tests": 25,
+          "pass": 25,
+          "fail": 0,
+          "sum_ms": 89.8139,
+          "file_ms": 537.3071,
+          "first_at": 1788317106040,
+          "last_at": 1788317106124
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/dispatch-cli.test.js",
+          "tests": 60,
+          "pass": 60,
+          "fail": 0,
+          "sum_ms": 66836.40179999999,
+          "file_ms": 67461.311,
+          "first_at": 1788317173388,
+          "last_at": 1788317173594
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/dispatch-controller.test.js",
+          "tests": 27,
+          "pass": 27,
+          "fail": 0,
+          "sum_ms": 618.5244,
+          "file_ms": 1109.2083,
+          "first_at": 1788317107511,
+          "last_at": 1788317107626
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/dispatch-envelope-forward-compat.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 7.8177,
+          "file_ms": 457.8365,
+          "first_at": 1788317107138,
+          "last_at": 1788317107235
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/dispatch-envelope.test.js",
+          "tests": 37,
+          "pass": 37,
+          "fail": 0,
+          "sum_ms": 503.8653999999999,
+          "file_ms": 955.8996,
+          "first_at": 1788317108096,
+          "last_at": 1788317108190
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/dispatch-fullcycle-smoke.test.js",
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "sum_ms": 1988.0149,
+          "file_ms": 2453.3306,
+          "first_at": 1788317108273,
+          "last_at": 1788317110075
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/dispatch-watcher.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 384.4645,
+          "file_ms": 876.9429,
+          "first_at": 1788317108658,
+          "last_at": 1788317109069
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/escalate-detector.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 12.5494,
+          "file_ms": 400.7792,
+          "first_at": 1788317109101,
+          "last_at": 1788317109168
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/evidence-audit.test.js",
+          "tests": 22,
+          "pass": 22,
+          "fail": 0,
+          "sum_ms": 937.6993999999999,
+          "file_ms": 1351.5893,
+          "first_at": 1788317110336,
+          "last_at": 1788317110421
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/evidence-claim.test.js",
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "sum_ms": 3811.805,
+          "file_ms": 4310.9351,
+          "first_at": 1788317113338,
+          "last_at": 1788317113480
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/evidence-stage-guard.test.js",
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "sum_ms": 3012.6531999999997,
+          "file_ms": 3542.677,
+          "first_at": 1788317113483,
+          "last_at": 1788317113624
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/extract-plan-path.test.js",
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "sum_ms": 11.933099999999998,
+          "file_ms": 372.4302,
+          "first_at": 1788317110713,
+          "last_at": 1788317110791
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/findings-registry.test.js",
+          "tests": 23,
+          "pass": 23,
+          "fail": 0,
+          "sum_ms": 1000.3792,
+          "file_ms": 1419.6488,
+          "first_at": 1788317112128,
+          "last_at": 1788317112213
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/friction-telemetry.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 977.3787000000001,
+          "file_ms": 1710.267,
+          "first_at": 1788317113815,
+          "last_at": 1788317113923
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/g1-guard.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 13.7057,
+          "file_ms": 806.9525,
+          "first_at": 1788317114141,
+          "last_at": 1788317114286
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/gitignore-provision.test.js",
+          "tests": 94,
+          "pass": 94,
+          "fail": 0,
+          "sum_ms": 28410.249300000007,
+          "file_ms": 29032.3132,
+          "first_at": 1788317135721,
+          "last_at": 1788317142652
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/goal-detect.test.js",
+          "tests": 28,
+          "pass": 28,
+          "fail": 0,
+          "sum_ms": 1077.5049999999999,
+          "file_ms": 1572.9484,
+          "first_at": 1788317115399,
+          "last_at": 1788317115497
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/goal-phase-lock.test.js",
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "sum_ms": 40378.9752,
+          "file_ms": 41136.2195,
+          "first_at": 1788317155319,
+          "last_at": 1788317155424
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/harness-cost.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 4480.5025,
+          "file_ms": 4976.8984,
+          "first_at": 1788317120403,
+          "last_at": 1788317120474
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/history-leak-scan.test.js",
+          "tests": 22,
+          "pass": 22,
+          "fail": 0,
+          "sum_ms": 49153.2854,
+          "file_ms": 49721.8873,
+          "first_at": 1788317165167,
+          "last_at": 1788317165278
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/hook-caps.test.js",
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "sum_ms": 2085.8495999999996,
+          "file_ms": 2985.1072,
+          "first_at": 1788317121078,
+          "last_at": 1788317121222
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/hook-trace-integration.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 3867.0577,
+          "file_ms": 4493.9651,
+          "first_at": 1788317124852,
+          "last_at": 1788317124973
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/hook-trace.test.js",
+          "tests": 16,
+          "pass": 16,
+          "fail": 0,
+          "sum_ms": 2838.463799999999,
+          "file_ms": 3471.5705,
+          "first_at": 1788317124637,
+          "last_at": 1788317124726
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/impeccable-cleanup.test.js",
+          "tests": 13,
+          "pass": 13,
+          "fail": 0,
+          "sum_ms": 1011.9948000000002,
+          "file_ms": 1637.5807,
+          "first_at": 1788317126061,
+          "last_at": 1788317126212
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/impeccable-detect-design-surface.test.js",
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "sum_ms": 318.7157,
+          "file_ms": 953.0874,
+          "first_at": 1788317125427,
+          "last_at": 1788317125647
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/impeccable-detect.test.js",
+          "tests": 26,
+          "pass": 26,
+          "fail": 0,
+          "sum_ms": 2531.3515,
+          "file_ms": 3286.817,
+          "first_at": 1788317128102,
+          "last_at": 1788317128254
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/impeccable-guard.test.js",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "sum_ms": 6026.5142000000005,
+          "file_ms": 6536.9101,
+          "first_at": 1788317132063,
+          "last_at": 1788317132183
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/impeccable-resolve.test.js",
+          "tests": 27,
+          "pass": 27,
+          "fail": 0,
+          "sum_ms": 2643.7640999999994,
+          "file_ms": 3311.0306,
+          "first_at": 1788317129399,
+          "last_at": 1788317129516
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/impeccable-routing.test.js",
+          "tests": 38,
+          "pass": 38,
+          "fail": 0,
+          "sum_ms": 82.8303,
+          "file_ms": 727.8281,
+          "first_at": 1788317128803,
+          "last_at": 1788317128984
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/instruction-contract.test.js",
+          "tests": 28,
+          "pass": 28,
+          "fail": 0,
+          "sum_ms": 3769.2094,
+          "file_ms": 4398.7332,
+          "first_at": 1788317133253,
+          "last_at": 1788317133381
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/intent-arbiter-e2e.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 440386.60679999995,
+          "file_ms": 441291.2945,
+          "first_at": 1788317570557,
+          "last_at": 1788317570824
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/intent-arbiter.test.js",
+          "tests": 26,
+          "pass": 26,
+          "fail": 0,
+          "sum_ms": 45.9723,
+          "file_ms": 591.6491,
+          "first_at": 1788317132640,
+          "last_at": 1788317132776
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/intent-claims.test.js",
+          "tests": 62,
+          "pass": 62,
+          "fail": 0,
+          "sum_ms": 34.96050000000001,
+          "file_ms": 839.1846,
+          "first_at": 1788317133442,
+          "last_at": 1788317133615
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/intent-context.test.js",
+          "tests": 66,
+          "pass": 66,
+          "fail": 0,
+          "sum_ms": 164.10580000000002,
+          "file_ms": 857.6931,
+          "first_at": 1788317134132,
+          "last_at": 1788317134373
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/merge-l2c.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 6.5183,
+          "file_ms": 596.2764,
+          "first_at": 1788317134074,
+          "last_at": 1788317134211
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/meta-research.test.js",
+          "tests": 45,
+          "pass": 44,
+          "fail": 1,
+          "sum_ms": 3086.7861999999996,
+          "file_ms": 3860.7381,
+          "first_at": 1788317137901,
+          "last_at": 1788317138078
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/msw-derive-sources.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 938.0406,
+          "file_ms": 1690.363,
+          "first_at": 1788317135841,
+          "last_at": 1788317135932
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/msw-events-path.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 364.74140000000006,
+          "file_ms": 933.4213,
+          "first_at": 1788317136783,
+          "last_at": 1788317136865
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/msw-events.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 1364.9002,
+          "file_ms": 1914.7158,
+          "first_at": 1788317138111,
+          "last_at": 1788317138779
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "sum_ms": 3009.9003000000007,
+          "file_ms": 3562.8569,
+          "first_at": 1788317141510,
+          "last_at": 1788317141639
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/msw-metrics-acceptance.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 219.1345,
+          "file_ms": 735.4628,
+          "first_at": 1788317139409,
+          "last_at": 1788317139515
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/msw-metrics-b2.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 12.631099999999998,
+          "file_ms": 515.0337,
+          "first_at": 1788317139927,
+          "last_at": 1788317140032
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/msw-metrics-render.test.js",
+          "tests": 20,
+          "pass": 20,
+          "fail": 0,
+          "sum_ms": 26.062300000000004,
+          "file_ms": 342.5816,
+          "first_at": 1788317140260,
+          "last_at": 1788317140373
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/msw-metrics.test.js",
+          "tests": 36,
+          "pass": 36,
+          "fail": 0,
+          "sum_ms": 44.090399999999995,
+          "file_ms": 345.6169,
+          "first_at": 1788317140637,
+          "last_at": 1788317140719
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/orchestration-preview.test.js",
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "sum_ms": 562.9561,
+          "file_ms": 1036.574,
+          "first_at": 1788317141669,
+          "last_at": 1788317141764
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/orchestration-runaway.test.js",
+          "tests": 75,
+          "pass": 75,
+          "fail": 0,
+          "sum_ms": 8124.4306,
+          "file_ms": 8698.9207,
+          "first_at": 1788317150214,
+          "last_at": 1788317150340
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/perf-scaling.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 4.9233,
+          "file_ms": 492.6467,
+          "first_at": 1788317142152,
+          "last_at": 1788317142249
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-codex-runner.test.js",
+          "tests": 51,
+          "pass": 51,
+          "fail": 0,
+          "sum_ms": 102979.8541,
+          "file_ms": 103745.8204,
+          "first_at": 1788317245812,
+          "last_at": 1788317245963
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-command-marker-states.test.js",
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "sum_ms": 24.170100000000005,
+          "file_ms": 543.6236,
+          "first_at": 1788317142706,
+          "last_at": 1788317142791
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-conflict-detector.test.js",
+          "tests": 13,
+          "pass": 13,
+          "fail": 0,
+          "sum_ms": 18.815300000000004,
+          "file_ms": 602.8184,
+          "first_at": 1788317143085,
+          "last_at": 1788317143255
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-approval-audit.test.js",
+          "tests": 24,
+          "pass": 24,
+          "fail": 0,
+          "sum_ms": 102.89620000000004,
+          "file_ms": 834.2089,
+          "first_at": 1788317143453,
+          "last_at": 1788317143626
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-backlog-append.test.js",
+          "tests": 40,
+          "pass": 40,
+          "fail": 0,
+          "sum_ms": 8147.969200000001,
+          "file_ms": 8842.6383,
+          "first_at": 1788317151912,
+          "last_at": 1788317152097
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-budget.test.js",
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "sum_ms": 12.722999999999999,
+          "file_ms": 617.1596,
+          "first_at": 1788317144052,
+          "last_at": 1788317144246
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-cli-decide-dd3.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 656.6804999999999,
+          "file_ms": 1324.7358,
+          "first_at": 1788317145450,
+          "last_at": 1788317145569
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-cli-emit.test.js",
+          "tests": 12,
+          "pass": 3,
+          "fail": 9,
+          "sum_ms": 1442.4511,
+          "file_ms": 2166.4374,
+          "first_at": 1788317147068,
+          "last_at": 1788317147154
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-command-body.test.js",
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "sum_ms": 125.26770000000003,
+          "file_ms": 759.4548,
+          "first_at": 1788317146115,
+          "last_at": 1788317146329
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-corpus.test.js",
+          "tests": 33,
+          "pass": 33,
+          "fail": 0,
+          "sum_ms": 57.80439999999999,
+          "file_ms": 676.8591,
+          "first_at": 1788317146869,
+          "last_at": 1788317147007
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-decide.test.js",
+          "tests": 27,
+          "pass": 27,
+          "fail": 0,
+          "sum_ms": 40.868199999999995,
+          "file_ms": 724.8676,
+          "first_at": 1788317147606,
+          "last_at": 1788317147733
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-intent-carveout.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 3888.77,
+          "file_ms": 4677.4215,
+          "first_at": 1788317151637,
+          "last_at": 1788317151830
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-l1.test.js",
+          "tests": 26,
+          "pass": 26,
+          "fail": 0,
+          "sum_ms": 156.6679,
+          "file_ms": 732.9366,
+          "first_at": 1788317148292,
+          "last_at": 1788317148469
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-l3.test.js",
+          "tests": 35,
+          "pass": 35,
+          "fail": 0,
+          "sum_ms": 5924.6982,
+          "file_ms": 6466.4846,
+          "first_at": 1788317154293,
+          "last_at": 1788317154417
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-mode-rollback.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 7.892600000000001,
+          "file_ms": 471.9464,
+          "first_at": 1788317148829,
+          "last_at": 1788317148937
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-partial-panel.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 60.62970000000001,
+          "file_ms": 646.5211,
+          "first_at": 1788317149462,
+          "last_at": 1788317149582
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-quorum.test.js",
+          "tests": 27,
+          "pass": 27,
+          "fail": 0,
+          "sum_ms": 19.959199999999996,
+          "file_ms": 617.297,
+          "first_at": 1788317150077,
+          "last_at": 1788317150202
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-r3-absorptions.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 159220.15619999997,
+          "file_ms": 159959.376,
+          "first_at": 1788317310082,
+          "last_at": 1788317310158
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-record.test.js",
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "sum_ms": 1073.8535,
+          "file_ms": 1735.5483,
+          "first_at": 1788317151935,
+          "last_at": 1788317152071
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-workflow-port.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 18.058800000000005,
+          "file_ms": 680.3038,
+          "first_at": 1788317152356,
+          "last_at": 1788317152511
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-write-invariants.test.js",
+          "tests": 21,
+          "pass": 21,
+          "fail": 0,
+          "sum_ms": 14430.9853,
+          "file_ms": 15068.676,
+          "first_at": 1788317167023,
+          "last_at": 1788317167140
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/pr-phase-helpers/body-builder.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 2200.2775,
+          "file_ms": 2613.1469,
+          "first_at": 1788317154622,
+          "last_at": 1788317154712
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/pr-phase-helpers/codex-runner.test.js",
+          "tests": 28,
+          "pass": 28,
+          "fail": 0,
+          "sum_ms": 56375.71679999999,
+          "file_ms": 57146.1979,
+          "first_at": 1788317209507,
+          "last_at": 1788317209657
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/pr-phase-helpers/dedupe-check.test.js",
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "sum_ms": 787.1921,
+          "file_ms": 1326.3617,
+          "first_at": 1788317155670,
+          "last_at": 1788317155743
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/pr-phase-helpers/finalize-receipt.test.js",
+          "tests": 31,
+          "pass": 31,
+          "fail": 0,
+          "sum_ms": 65775.428,
+          "file_ms": 66441.4314,
+          "first_at": 1788317221067,
+          "last_at": 1788317221151
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/pr-phase-helpers/stdout-pipe-ipc.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 2814.0397,
+          "file_ms": 3324.374,
+          "first_at": 1788317158567,
+          "last_at": 1788317158750
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/pr-phase-lock-boundary.test.js",
+          "tests": 28,
+          "pass": 28,
+          "fail": 0,
+          "sum_ms": 38908.36340000001,
+          "file_ms": 39427.4632,
+          "first_at": 1788317195084,
+          "last_at": 1788317195170
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/pr-phase-lock-f11.test.js",
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "sum_ms": 20163.7471,
+          "file_ms": 20844.3803,
+          "first_at": 1788317179498,
+          "last_at": 1788317179594
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/pr-ship-gate.test.js",
+          "tests": 28,
+          "pass": 28,
+          "fail": 0,
+          "sum_ms": 20.9354,
+          "file_ms": 486.5155,
+          "first_at": 1788317165669,
+          "last_at": 1788317165765
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/receipt-convergence.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 344.3683,
+          "file_ms": 795.7752,
+          "first_at": 1788317166465,
+          "last_at": 1788317166561
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/recoverability-probe.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 120.9652,
+          "file_ms": 427.7111,
+          "first_at": 1788317166915,
+          "last_at": 1788317166988
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/review-single-pass-command-body.test.js",
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "sum_ms": 125.14290000000001,
+          "file_ms": 426.5306,
+          "first_at": 1788317167330,
+          "last_at": 1788317167415
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/review-single-pass-gate.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 9510.982,
+          "file_ms": 10059.9609,
+          "first_at": 1788317177100,
+          "last_at": 1788317177200
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/review-single-pass.test.js",
+          "tests": 31,
+          "pass": 31,
+          "fail": 0,
+          "sum_ms": 1566.0109,
+          "file_ms": 2126.3991,
+          "first_at": 1788317169444,
+          "last_at": 1788317169541
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/review-verdict-corpus-hash.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 87.27090000000001,
+          "file_ms": 724.0753,
+          "first_at": 1788317170124,
+          "last_at": 1788317170267
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/review-verdict.test.js",
+          "tests": 44,
+          "pass": 44,
+          "fail": 0,
+          "sum_ms": 40.46740000000002,
+          "file_ms": 518.274,
+          "first_at": 1788317170668,
+          "last_at": 1788317170784
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/round-budget.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 6.163399999999999,
+          "file_ms": 500.6252,
+          "first_at": 1788317171165,
+          "last_at": 1788317171286
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/round-cap-command-body.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 106.479,
+          "file_ms": 500.9209,
+          "first_at": 1788317171708,
+          "last_at": 1788317171787
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/santa-adjudication.test.js",
+          "tests": 90,
+          "pass": 90,
+          "fail": 0,
+          "sum_ms": 632466.4381000001,
+          "file_ms": 633348.5747,
+          "first_at": 1788317804973,
+          "last_at": 1788317805152
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/santa-delta-command-body.test.js",
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "sum_ms": 36.775200000000005,
+          "file_ms": 937.4537,
+          "first_at": 1788317174197,
+          "last_at": 1788317174320
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/santa-delta-instrumentation.test.js",
+          "tests": 29,
+          "pass": 29,
+          "fail": 0,
+          "sum_ms": 789051.9299999998,
+          "file_ms": 789876.7897,
+          "first_at": 1788317963305,
+          "last_at": 1788317963442
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/santa-detection-coverage.test.js",
+          "tests": 26,
+          "pass": 26,
+          "fail": 0,
+          "sum_ms": 16614.6343,
+          "file_ms": 17368.8731,
+          "first_at": 1788317191576,
+          "last_at": 1788317191690
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/santa-gate.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 11.494500000000002,
+          "file_ms": 451.4159,
+          "first_at": 1788317177557,
+          "last_at": 1788317177653
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/santa-lanes.test.js",
+          "tests": 77,
+          "pass": 77,
+          "fail": 0,
+          "sum_ms": 20710.711299999995,
+          "file_ms": 21388.1472,
+          "first_at": 1788317198530,
+          "last_at": 1788317198649
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js",
+          "tests": 56,
+          "pass": 56,
+          "fail": 0,
+          "sum_ms": 60526.36619999999,
+          "file_ms": 61120.0459,
+          "first_at": 1788317204870,
+          "last_at": 1788317238770
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/santa-scope-delta.test.js",
+          "tests": 33,
+          "pass": 33,
+          "fail": 0,
+          "sum_ms": 46.88210000000001,
+          "file_ms": 544.3379,
+          "first_at": 1788317180054,
+          "last_at": 1788317180138
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/santa-seal.test.js",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "sum_ms": 1334582.8139999998,
+          "file_ms": 1335002.0616,
+          "first_at": 1788318514906,
+          "last_at": 1788318514982
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/security-reviewer-dogfood.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 23.1763,
+          "file_ms": 350.6115,
+          "first_at": 1788317180418,
+          "last_at": 1788317180489
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/security-reviewer-guard.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 17.1113,
+          "file_ms": 299.7525,
+          "first_at": 1788317180724,
+          "last_at": 1788317180789
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/session-activity.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 353.8111,
+          "file_ms": 752.1615,
+          "first_at": 1788317181471,
+          "last_at": 1788317181541
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/session-identity.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 463.713,
+          "file_ms": 899.2401,
+          "first_at": 1788317182283,
+          "last_at": 1788317182441
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/session-processes-reclaim.test.js",
+          "tests": 41,
+          "pass": 41,
+          "fail": 0,
+          "sum_ms": 6893.302200000001,
+          "file_ms": 7394.7307,
+          "first_at": 1788317189705,
+          "last_at": 1788317189835
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/session-processes-reclaimable.test.js",
+          "tests": 36,
+          "pass": 36,
+          "fail": 0,
+          "sum_ms": 89.95620000000001,
+          "file_ms": 606.4696,
+          "first_at": 1788317190261,
+          "last_at": 1788317190443
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/session-processes-spawn-sites.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 1006.9933000000001,
+          "file_ms": 1554.3315,
+          "first_at": 1788317191898,
+          "last_at": 1788317191996
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/session-processes.test.js",
+          "tests": 36,
+          "pass": 36,
+          "fail": 0,
+          "sum_ms": 1449.4705999999999,
+          "file_ms": 1870.1667,
+          "first_at": 1788317193466,
+          "last_at": 1788317193560
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/settings-signal.test.js",
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "sum_ms": 548.4186,
+          "file_ms": 965.6136,
+          "first_at": 1788317192875,
+          "last_at": 1788317192982
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/settings-writer.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 493.9524,
+          "file_ms": 893.9864,
+          "first_at": 1788317193774,
+          "last_at": 1788317193856
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/setup-command-body.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 12.311799999999998,
+          "file_ms": 378.6744,
+          "first_at": 1788317193869,
+          "last_at": 1788317193937
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/state-journal-integrity.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 18865.2684,
+          "file_ms": 19576.6844,
+          "first_at": 1788317213270,
+          "last_at": 1788317213430
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/state-journal-order.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 19.237500000000004,
+          "file_ms": 487.1207,
+          "first_at": 1788317194299,
+          "last_at": 1788317194425
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/state-journal-projection.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 4078.0080999999996,
+          "file_ms": 4489.3751,
+          "first_at": 1788317198830,
+          "last_at": 1788317198913
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/state-journal-replay.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 942.5611,
+          "file_ms": 1411.3804,
+          "first_at": 1788317196491,
+          "last_at": 1788317196580
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/state-journal-retention.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 3174.9332000000004,
+          "file_ms": 3563.6722,
+          "first_at": 1788317200072,
+          "last_at": 1788317200145
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/state-journal-single-writer.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 2377.5535,
+          "file_ms": 2752.5614,
+          "first_at": 1788317201307,
+          "last_at": 1788317201400
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/state-resumption.test.js",
+          "tests": 21,
+          "pass": 21,
+          "fail": 0,
+          "sum_ms": 29.4761,
+          "file_ms": 436.9124,
+          "first_at": 1788317199261,
+          "last_at": 1788317199351
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/subscription.test.js",
+          "tests": 16,
+          "pass": 16,
+          "fail": 0,
+          "sum_ms": 15.477200000000003,
+          "file_ms": 460.8495,
+          "first_at": 1788317199723,
+          "last_at": 1788317199811
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/suite-determinism.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 13.733000000000002,
+          "file_ms": 360.3504,
+          "first_at": 1788317200097,
+          "last_at": 1788317200173
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/task-tool-smoke.test.js",
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "sum_ms": 2.7021,
+          "file_ms": 288.2464,
+          "first_at": 1788317200345,
+          "last_at": 1788317200434
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/toggle-snapshot.test.js",
+          "tests": 16,
+          "pass": 16,
+          "fail": 0,
+          "sum_ms": 2851.6148999999996,
+          "file_ms": 3194.436,
+          "first_at": 1788317203249,
+          "last_at": 1788317203373
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/ultracode-detect.test.js",
+          "tests": 25,
+          "pass": 25,
+          "fail": 0,
+          "sum_ms": 475.5396999999999,
+          "file_ms": 784.2523,
+          "first_at": 1788317201136,
+          "last_at": 1788317201218
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/ultracode-phase-lock.test.js",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "sum_ms": 28571.126600000007,
+          "file_ms": 28844.5132,
+          "first_at": 1788317229969,
+          "last_at": 1788317230061
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/work-orchestrator.test.js",
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "sum_ms": 173.53760000000003,
+          "file_ms": 582.2817,
+          "first_at": 1788317201842,
+          "last_at": 1788317201983
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/worktree-sync.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 234.0002,
+          "file_ms": 535.6174,
+          "first_at": 1788317202428,
+          "last_at": 1788317202521
+        },
+        {
+          "file": "plugins/mccp/scripts/lint/tests/validate-callsite-lint.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 45.7014,
+          "file_ms": 426.1084,
+          "first_at": 1788317202876,
+          "last_at": 1788317202945
+        },
+        {
+          "file": "plugins/mccp/scripts/migrations/tests/host-aware-reclaim.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 8735.4142,
+          "file_ms": 9228.5822,
+          "first_at": 1788317212011,
+          "last_at": 1788317212173
+        },
+        {
+          "file": "plugins/mccp/scripts/migrations/tests/path-containment.test.js",
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "sum_ms": 4254.335300000001,
+          "file_ms": 4742.1434,
+          "first_at": 1788317208036,
+          "last_at": 1788317208109
+        },
+        {
+          "file": "plugins/mccp/scripts/migrations/tests/r6r2-ownership-verification.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 7956.5899,
+          "file_ms": 8445.2607,
+          "first_at": 1788317216438,
+          "last_at": 1788317216555
+        },
+        {
+          "file": "plugins/mccp/scripts/migrations/tests/v0.2.8-generic-receipt-quarantine.test.js",
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "sum_ms": 20548.198200000003,
+          "file_ms": 21073.3388,
+          "first_at": 1788317230620,
+          "last_at": 1788317230729
+        },
+        {
+          "file": "plugins/mccp/scripts/migrations/tests/v0.3.6-codex-scope-fields.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 454.32890000000003,
+          "file_ms": 1227.1809,
+          "first_at": 1788317213290,
+          "last_at": 1788317213403
+        },
+        {
+          "file": "plugins/mccp/scripts/migrations/tests/v1.2.0-dispatch-fields.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 304.0442,
+          "file_ms": 1357.3825,
+          "first_at": 1788317214607,
+          "last_at": 1788317214767
+        },
+        {
+          "file": "plugins/mccp/scripts/migrations/tests/v1.22.4-cwd-rebind.test.js",
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "sum_ms": 25147.913599999993,
+          "file_ms": 25915.8375,
+          "first_at": 1788317239264,
+          "last_at": 1788317239353
+        },
+        {
+          "file": "plugins/mccp/scripts/migrations/tests/v1.22.5-ledger-verdict-repair.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 559.5032,
+          "file_ms": 1138.5497,
+          "first_at": 1788317215777,
+          "last_at": 1788317215898
+        },
+        {
+          "file": "plugins/mccp/scripts/quality/tests/cli.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 1848.7909,
+          "file_ms": 2566.9598,
+          "first_at": 1788317218400,
+          "last_at": 1788317218463
+        },
+        {
+          "file": "plugins/mccp/scripts/quality/tests/detect.test.js",
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "sum_ms": 351.147,
+          "file_ms": 813.6206,
+          "first_at": 1788317217290,
+          "last_at": 1788317217368
+        },
+        {
+          "file": "plugins/mccp/scripts/quality/tests/runner.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 1604.9353000000003,
+          "file_ms": 1943.0988,
+          "first_at": 1788317219243,
+          "last_at": 1788317219313
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/aliases.test.js",
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "sum_ms": 9.7287,
+          "file_ms": 471.5995,
+          "first_at": 1788317218801,
+          "last_at": 1788317218935
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/block-format.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 12.0597,
+          "file_ms": 404.4031,
+          "first_at": 1788317219221,
+          "last_at": 1788317219340
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/briefing-fields.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 19.9951,
+          "file_ms": 443.1034,
+          "first_at": 1788317219653,
+          "last_at": 1788317219755
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/classify.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 3.7485,
+          "file_ms": 341.3031,
+          "first_at": 1788317219616,
+          "last_at": 1788317219683
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/codex-disabled-precedence.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 80806.59909999999,
+          "file_ms": 81270.8899,
+          "first_at": 1788317300822,
+          "last_at": 1788317300954
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/cwd-normalization.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 4537.964599999999,
+          "file_ms": 5006.1535,
+          "first_at": 1788317224678,
+          "last_at": 1788317224760
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/decision.test.js",
+          "tests": 52,
+          "pass": 52,
+          "fail": 0,
+          "sum_ms": 26651.331300000005,
+          "file_ms": 27077.1217,
+          "first_at": 1788317248139,
+          "last_at": 1788317248236
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/dedupe.test.js",
+          "tests": 40,
+          "pass": 40,
+          "fail": 0,
+          "sum_ms": 53098.837999999996,
+          "file_ms": 53602.9329,
+          "first_at": 1788317276925,
+          "last_at": 1788317277025
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/design-grounding-fields.test.js",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "sum_ms": 525707.4279,
+          "file_ms": 526234.5362,
+          "first_at": 1788317750867,
+          "last_at": 1788317751001
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/e2e-dogfood.test.js",
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "sum_ms": 291579.0767,
+          "file_ms": 292200.9911,
+          "first_at": 1788317522108,
+          "last_at": 1788317522267
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/evidence-lock.test.js",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "sum_ms": 1483.7969999999998,
+          "file_ms": 1974.906,
+          "first_at": 1788317232586,
+          "last_at": 1788317232704
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/hash-briefing-exclusion.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 24.7262,
+          "file_ms": 497.5457,
+          "first_at": 1788317233128,
+          "last_at": 1788317233202
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/hash-ledger-exclusion.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 16.5212,
+          "file_ms": 484.4527,
+          "first_at": 1788317233611,
+          "last_at": 1788317233687
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/hash.test.js",
+          "tests": 36,
+          "pass": 36,
+          "fail": 0,
+          "sum_ms": 734.8361000000002,
+          "file_ms": 1181.171,
+          "first_at": 1788317234779,
+          "last_at": 1788317234874
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/impeccable-force-override.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 237738.7377,
+          "file_ms": 238274.4172,
+          "first_at": 1788317473059,
+          "last_at": 1788317473146
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/impeccable-routing-fields.test.js",
+          "tests": 13,
+          "pass": 13,
+          "fail": 0,
+          "sum_ms": 425796.3306,
+          "file_ms": 426345.104,
+          "first_at": 1788317664963,
+          "last_at": 1788317665122
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/impeccable-skipped.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 742035.1695000001,
+          "file_ms": 742478.061,
+          "first_at": 1788317981727,
+          "last_at": 1788317981800
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/intent-gate-fields.test.js",
+          "tests": 53,
+          "pass": 53,
+          "fail": 0,
+          "sum_ms": 1649583.0940999996,
+          "file_ms": 1650077.9217,
+          "first_at": 1788318895962,
+          "last_at": 1788318896017
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/jcs.test.js",
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "sum_ms": 15.621500000000005,
+          "file_ms": 275.6451,
+          "first_at": 1788317248433,
+          "last_at": 1788317248506
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/merged-verify-fields.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 464584.9629,
+          "file_ms": 465162.92,
+          "first_at": 1788317713468,
+          "last_at": 1788317713669
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/overwrite-guard.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 3178.4885000000004,
+          "file_ms": 3602.9329,
+          "first_at": 1788317280563,
+          "last_at": 1788317280650
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/pr-body.test.js",
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "sum_ms": 15122.817899999998,
+          "file_ms": 15468.3552,
+          "first_at": 1788317296007,
+          "last_at": 1788317296097
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/pr-codex-dedupe.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 210004.47389999998,
+          "file_ms": 210410.9479,
+          "first_at": 1788317506411,
+          "last_at": 1788317506510
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/pr-codex-no-automutation.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 35.5801,
+          "file_ms": 648.1892,
+          "first_at": 1788317300976,
+          "last_at": 1788317301095
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/pr-codex-skip-env.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 97158.0916,
+          "file_ms": 98003.946,
+          "first_at": 1788317398809,
+          "last_at": 1788317398956
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/pr-mutex-preflight.test.js",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "sum_ms": 2427.5523000000003,
+          "file_ms": 3041.8455,
+          "first_at": 1788317304062,
+          "last_at": 1788317304136
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/pr-on-main-stale-receipt.fixture.test.js",
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "sum_ms": 3507.9056,
+          "file_ms": 4226.1127,
+          "first_at": 1788317308207,
+          "last_at": 1788317308363
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/preflight.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 184022.87170000002,
+          "file_ms": 186071.2427,
+          "first_at": 1788317494344,
+          "last_at": 1788317494448
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/receipt-bytes-stable.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 1088.8519,
+          "file_ms": 1618.4006,
+          "first_at": 1788317311634,
+          "last_at": 1788317311776
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/receipt-write-concurrency.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 6996.240100000001,
+          "file_ms": 7638.6308,
+          "first_at": 1788317319321,
+          "last_at": 1788317319415
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/restamp-routed.test.js",
+          "tests": 16,
+          "pass": 16,
+          "fail": 0,
+          "sum_ms": 51333.10669999999,
+          "file_ms": 51961.7694,
+          "first_at": 1788317371205,
+          "last_at": 1788317371377
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/review-single-pass-fields.test.js",
+          "tests": 25,
+          "pass": 24,
+          "fail": 1,
+          "sum_ms": 706476.7066000002,
+          "file_ms": 707265.1536,
+          "first_at": 1788318078551,
+          "last_at": 1788318078616
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/round-ledger-fields.test.js",
+          "tests": 16,
+          "pass": 16,
+          "fail": 0,
+          "sum_ms": 40606.2491,
+          "file_ms": 41578.8665,
+          "first_at": 1788317440341,
+          "last_at": 1788317440541
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/santa-review-gate.test.js",
+          "tests": 25,
+          "pass": 25,
+          "fail": 0,
+          "sum_ms": 1035629.6928000001,
+          "file_ms": 1036254.8821,
+          "first_at": 1788318476708,
+          "last_at": 1788318476764
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/schema-plan-conflict.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 103623.7015,
+          "file_ms": 104381.1201,
+          "first_at": 1788317577261,
+          "last_at": 1788317577524
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/schema.test.js",
+          "tests": 57,
+          "pass": 57,
+          "fail": 0,
+          "sum_ms": 98.75529999999999,
+          "file_ms": 1388.8239,
+          "first_at": 1788317495681,
+          "last_at": 1788317495860
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/security-force-override.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 375338.49049999996,
+          "file_ms": 376661.0124,
+          "first_at": 1788317872402,
+          "last_at": 1788317872459
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/security-skipped.test.js",
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "sum_ms": 617580.0944,
+          "file_ms": 617940.2977,
+          "first_at": 1788318124376,
+          "last_at": 1788318124412
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/state-matrix.test.js",
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "sum_ms": 691487.5887,
+          "file_ms": 692443.2335,
+          "first_at": 1788318214561,
+          "last_at": 1788318214681
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/store-quarantine.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 348.92490000000004,
+          "file_ms": 898.782,
+          "first_at": 1788317571609,
+          "last_at": 1788317571720
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/store-readreceipt-symlink.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 4268.3527,
+          "file_ms": 4775.9153,
+          "first_at": 1788317576380,
+          "last_at": 1788317576496
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/tempfail-precedence.test.js",
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "sum_ms": 14.3018,
+          "file_ms": 998.1035,
+          "first_at": 1788317577215,
+          "last_at": 1788317577495
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/tempfail-propagation.test.js",
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "sum_ms": 13960.053899999999,
+          "file_ms": 14567.1613,
+          "first_at": 1788317591991,
+          "last_at": 1788317592073
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/v1-3-0-baseline.test.js",
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "sum_ms": 22.735400000000002,
+          "file_ms": 880.0395,
+          "first_at": 1788317578235,
+          "last_at": 1788317578408
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/validate-cmd-design-critique.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 31681.6425,
+          "file_ms": 32299.5448,
+          "first_at": 1788317610587,
+          "last_at": 1788317610704
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/validate-cmd-envelope.test.js",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "sum_ms": 453315.97469999996,
+          "file_ms": 454707.2184,
+          "first_at": 1788318046670,
+          "last_at": 1788318046742
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/validate-cmd-explicit-pass.test.js",
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "sum_ms": 65122.5327,
+          "file_ms": 65781.608,
+          "first_at": 1788317676301,
+          "last_at": 1788317676486
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/validate-cmd-generic-no-plan-reject.test.js",
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "sum_ms": 3786.9942,
+          "file_ms": 4384.9751,
+          "first_at": 1788317669403,
+          "last_at": 1788317669502
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/validate-cmd-generic-reject.test.js",
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "sum_ms": 124306.5499,
+          "file_ms": 124921.4693,
+          "first_at": 1788317794277,
+          "last_at": 1788317794433
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/validate-cmd-intent-gate.test.js",
+          "tests": 17,
+          "pass": 16,
+          "fail": 1,
+          "sum_ms": 29915.527500000004,
+          "file_ms": 30533.1591,
+          "first_at": 1788317706934,
+          "last_at": 1788317707020
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/validate-cmd.test.js",
+          "tests": 33,
+          "pass": 32,
+          "fail": 1,
+          "sum_ms": 603445.4408000002,
+          "file_ms": 603996.7467,
+          "first_at": 1788318310925,
+          "last_at": 1788318310984
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/write-controller-context.test.js",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "sum_ms": 113640.39420000001,
+          "file_ms": 114616.7787,
+          "first_at": 1788317828051,
+          "last_at": 1788317828406
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/write.test.js",
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "sum_ms": 646711.7364,
+          "file_ms": 647244.1646,
+          "first_at": 1788318398171,
+          "last_at": 1788318398211
+        },
+        {
+          "file": "plugins/mccp/scripts/state/tests/breakpoint-detector.test.js",
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "sum_ms": 15.404399999999999,
+          "file_ms": 558.7197,
+          "first_at": 1788317794892,
+          "last_at": 1788317794989
+        },
+        {
+          "file": "plugins/mccp/scripts/state/tests/cli.test.js",
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "sum_ms": 9148.3814,
+          "file_ms": 9567.6224,
+          "first_at": 1788317804491,
+          "last_at": 1788317804562
+        },
+        {
+          "file": "plugins/mccp/scripts/state/tests/dedupe-key.test.js",
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "sum_ms": 23297.755400000002,
+          "file_ms": 23668.2333,
+          "first_at": 1788317828093,
+          "last_at": 1788317828257
+        },
+        {
+          "file": "plugins/mccp/scripts/state/tests/fix-task-plan-conflict.test.js",
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "sum_ms": 17.493,
+          "file_ms": 331.4175,
+          "first_at": 1788317805398,
+          "last_at": 1788317805472
+        },
+        {
+          "file": "plugins/mccp/scripts/state/tests/fix-task.test.js",
+          "tests": 22,
+          "pass": 22,
+          "fail": 0,
+          "sum_ms": 254.9555,
+          "file_ms": 664.205,
+          "first_at": 1788317805895,
+          "last_at": 1788317806130
+        },
+        {
+          "file": "plugins/mccp/scripts/state/tests/journal-store.test.js",
+          "tests": 13,
+          "pass": 13,
+          "fail": 0,
+          "sum_ms": 18848.6482,
+          "file_ms": 20980.0025,
+          "first_at": 1788317827029,
+          "last_at": 1788317827137
+        },
+        {
+          "file": "plugins/mccp/scripts/state/tests/loop-counter.test.js",
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "sum_ms": 1231.8990999999999,
+          "file_ms": 1679.7131,
+          "first_at": 1788317828413,
+          "last_at": 1788317828809
+        },
+        {
+          "file": "plugins/mccp/scripts/state/tests/session-ledger.test.js",
+          "tests": 44,
+          "pass": 44,
+          "fail": 0,
+          "sum_ms": 2113.6792,
+          "file_ms": 2855.7159,
+          "first_at": 1788317830973,
+          "last_at": 1788317831083
+        },
+        {
+          "file": "plugins/mccp/scripts/state/tests/session-spawner.test.js",
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "sum_ms": 3412.8220999999994,
+          "file_ms": 4469.1316,
+          "first_at": 1788317832682,
+          "last_at": 1788317832765
+        },
+        {
+          "file": "plugins/mccp/scripts/state/tests/state-injector.test.js",
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "sum_ms": 1898.0900000000001,
+          "file_ms": 2667.4748,
+          "first_at": 1788317831354,
+          "last_at": 1788317831548
+        },
+        {
+          "file": "plugins/mccp/scripts/state/tests/state-writer-plan-conflict-event.test.js",
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "sum_ms": 1283.8456999999999,
+          "file_ms": 1718.3559,
+          "first_at": 1788317832704,
+          "last_at": 1788317832766
+        },
+        {
+          "file": "plugins/mccp/scripts/state/tests/state-writer.test.js",
+          "tests": 48,
+          "pass": 48,
+          "fail": 0,
+          "sum_ms": 21631.209,
+          "file_ms": 22200.7986,
+          "first_at": 1788317853559,
+          "last_at": 1788317853631
+        },
+        {
+          "file": "scripts/tests/test-suite.test.js",
+          "tests": 39,
+          "pass": 39,
+          "fail": 0,
+          "sum_ms": 3490.369900000001,
+          "file_ms": 4245.1784,
+          "first_at": 1788317836906,
+          "last_at": 1788317836973
+        }
+      ],
+      "failing": [
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke-json.test.js",
+          "name": "wrapper without json forwards no --json to companion argv (regression guard)",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Unexpected end of JSON input cause: Unexpected end of JSON input",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke-json.test.js",
+          "name": "--json appears before the focus positional in argv",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Unexpected end of JSON input cause: Unexpected end of JSON input",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke-json.test.js",
+          "name": "runCli accepts --json without parser crash (line 223 contract)",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: unexpected classification: round-cap-reached cause: unexpected classification: round-cap-reached",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke-json.test.js",
+          "name": "fake companion structured JSON verdict round-trips through wrapper unchanged",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Unexpected end of JSON input cause: Unexpected end of JSON input",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke-json.test.js",
+          "name": "plugins/mccp/scripts/lib/tests/codex-invoke-json.test.js",
+          "kind": "file",
+          "error": "test failed",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke.test.js",
+          "name": "invokeAdversarialReview: ok path returns classification=ok, blocking=false",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:\n+ actual - expected\n\n+ 'round-cap-reached'\n- 'ok'\n cause: Expected values to be strictly equal:\n+ actual - expected\n\n+ 'round-cap-reached'\n- 'ok'\n",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke.test.js",
+          "name": "invokeAdversarialReview: exit-nonzero from companion → blocking=true",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:\n\ntrue !== false\n cause: Expected values to be strictly equal:\n\ntrue !== false\n",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke.test.js",
+          "name": "invokeAdversarialReview: not-authenticated detected via stderr pattern + nonzero exit",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:\n+ actual - expected\n\n+ 'round-cap-reached'\n- 'not-authenticated'\n cause: Expected values to be strictly equal:\n+ actual - expected\n\n+ 'round-cap-reached'\n- 'not-authenticated'\n",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke.test.js",
+          "name": "invokeAdversarialReview: stdout-empty when exit 0 but no stdout",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:\n+ actual - expected\n\n+ 'round-cap-reached'\n- 'stdout-empty'\n cause: Expected values to be strictly equal:\n+ actual - expected\n\n+ 'round-cap-reached'\n- 'stdout-empty'\n",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke.test.js",
+          "name": "invokeAdversarialReview: advisory mode demotes blocking=false",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:\n\ntrue !== false\n cause: Expected values to be strictly equal:\n\ntrue !== false\n",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke.test.js",
+          "name": "invokeAdversarialReview: timeout classification when companion exceeds limit",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:\n\ntrue !== false\n cause: Expected values to be strictly equal:\n\ntrue !== false\n",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke.test.js",
+          "name": "design-scope preamble: invokeAdversarialReview integration — companion receives composed focus when impeccable=true",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Unexpected end of JSON input cause: Unexpected end of JSON input",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke.test.js",
+          "name": "design-scope preamble: invokeAdversarialReview integration — companion receives raw focus when impeccable=false",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Unexpected end of JSON input cause: Unexpected end of JSON input",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke.test.js",
+          "name": "intent reference: file content reaches the companion argv end-to-end",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Unexpected end of JSON input cause: Unexpected end of JSON input",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-invoke.test.js",
+          "name": "plugins/mccp/scripts/lib/tests/codex-invoke.test.js",
+          "kind": "file",
+          "error": "test failed",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-reachability.test.js",
+          "name": "(d2) the enumerated list matches the codex-invoke comment header verbatim",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: the comment header declares 15 values: [\"ok\",\"disabled\",\"registry-missing\",\"registry-malformed\",\"plugin-not-installed\",\"install-path-stale\",\"companion-not-found\",\"companion-version-mismatch\",\"not-authenticated\",\"timeout\",\"exit-nonzero\",\"stdout-empty\",\"spawn-enoent\",\"parse-error\",\"round-cap-reached\"]\n\n15 !== 14\n cause: the comment header declares 15 values: [\"ok\",\"disabled\",\"registry-missing\",\"registry-malformed\",\"plugin-not-installed\",\"install-path-stale\",\"companion-not-found\",\"companion-version-mismatch\",\"not-authenticated\",\"timeout\",\"exit-nonzero\",\"stdout-empty\",\"spawn-enoent\",\"parse-error\",\"round-cap-reached\"]\n\n15 !== 14\n",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/codex-reachability.test.js",
+          "name": "plugins/mccp/scripts/lib/tests/codex-reachability.test.js",
+          "kind": "file",
+          "error": "test failed",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/meta-research.test.js",
+          "name": "real repo: lint --all is green and exempts exactly the five legacy documents",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: violations: [{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"BAD_TIMESTAMP\",\"detail\":\"HEAD\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"BAD_TIMESTAMP\",\"detail\":\"HEAD\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"REF_NOT_FOUND\",\"detail\":\"같은 corpus\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"BAD_TIMESTAMP\",\"detail\":\"HEAD\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"BAD_TIMESTAMP\",\"detail\":\"HEAD\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"BAD_TIMESTAMP\",\"detail\":\"HEAD\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"BAD_TIMESTAMP\",\"detail\":\"HEAD\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"REF_NOT_FOUND\",\"detail\":\"derive `metrics.A1\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"REF_NOT_FOUND\",\"detail\":\"test suite 실행\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"BAD_TIMESTAMP\",\"detail\":\"HEAD\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"BAD_TIMESTAMP\",\"detail\":\"HEAD\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"REF_NOT_FOUND\",\"detail\":\"plan-review/corpus.js` 실행\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"BAD_TIMESTAMP\",\"detail\":\"HEAD\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"BAD_TIMESTAMP\",\"detail\":\"HEAD\"},{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"REF_NOT_FOUND\",\"detail\":\"git worktree · branch\"}]\n\nfalse !== true\n cause: violations: [{\"doc\":\"2026-08-31-final-harness-assessment-and-umbrella-prd.md\",\"check\":\"L3\",\"code\":\"B",
+          "error_truncated": true
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/meta-research.test.js",
+          "name": "plugins/mccp/scripts/lib/tests/meta-research.test.js",
+          "kind": "file",
+          "error": "test failed",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-cli-emit.test.js",
+          "name": "the payload carries fleetKeys — the field the workflow actually reads",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:\n\n12 !== 0\n cause: Expected values to be strictly equal:\n\n12 !== 0\n",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-cli-emit.test.js",
+          "name": "--granted caps the fleet to what the reservation actually allowed",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:\n\n12 !== 0\n cause: Expected values to be strictly equal:\n\n12 !== 0\n",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-cli-emit.test.js",
+          "name": "omitting --granted keeps the pre-existing uncapped behaviour",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:\n\n12 !== 0\n cause: Expected values to be strictly equal:\n\n12 !== 0\n",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-cli-emit.test.js",
+          "name": "rolesMin in the payload is clamped to the fielded panel",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Cannot read properties of null (reading 'quorum') cause: Cannot read properties of null (reading 'quorum')",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-cli-emit.test.js",
+          "name": "the payload carries minRemaining — the field the budget gate reads",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:\n\n12 !== 0\n cause: Expected values to be strictly equal:\n\n12 !== 0\n",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-cli-emit.test.js",
+          "name": "minRemaining tracks the fleet CAPPED by --granted, not the requested panel",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:\n\n12 !== 0\n cause: Expected values to be strictly equal:\n\n12 !== 0\n",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-cli-emit.test.js",
+          "name": "MCCP_PLAN_REVIEW_BUDGET overrides the per-reviewer estimate",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Cannot read properties of null (reading 'minRemaining') cause: Cannot read properties of null (reading 'minRemaining')",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-cli-emit.test.js",
+          "name": "a malformed MCCP_PLAN_REVIEW_BUDGET falls back to the default, never to 0",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Cannot read properties of null (reading 'minRemaining') cause: Cannot read properties of null (reading 'minRemaining')",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-cli-emit.test.js",
+          "name": "the emitted reviewedPlanHash binds the plan as it is NOW (DD13)",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Cannot read properties of null (reading 'reviewedPlanHash') cause: Cannot read properties of null (reading 'reviewedPlanHash')",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/lib/tests/plan-review-cli-emit.test.js",
+          "name": "plugins/mccp/scripts/lib/tests/plan-review-cli-emit.test.js",
+          "kind": "file",
+          "error": "test failed",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/validate-cmd-intent-gate.test.js",
+          "name": "integrity checks win: a tampered receipt is never read for its intent fields",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: tamper must be detected cause: tamper must be detected",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/validate-cmd-intent-gate.test.js",
+          "name": "plugins/mccp/scripts/receipt/tests/validate-cmd-intent-gate.test.js",
+          "kind": "file",
+          "error": "test failed",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/review-single-pass-fields.test.js",
+          "name": "negative: forged hybrid — a dissenting L3 cannot be dressed as a bypass",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Command failed: git config commit.gpgsign false cause: Command failed: git config commit.gpgsign false",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/review-single-pass-fields.test.js",
+          "name": "plugins/mccp/scripts/receipt/tests/review-single-pass-fields.test.js",
+          "kind": "file",
+          "error": "test failed",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/validate-cmd.test.js",
+          "name": "validate-cmd: subject-field tamper wins as subject-tamper (pre-empts receipt-tamper via continue)",
+          "kind": "test",
+          "error": "Error [ERR_TEST_FAILURE]: Command failed: git add . cause: Command failed: git add .",
+          "error_truncated": false
+        },
+        {
+          "file": "plugins/mccp/scripts/receipt/tests/validate-cmd.test.js",
+          "name": "plugins/mccp/scripts/receipt/tests/validate-cmd.test.js",
+          "kind": "file",
+          "error": "test failed",
+          "error_truncated": false
+        }
+      ],
+      "nesting0_events": 6316,
+      "attributed_events": 6316,
+      "redaction_degraded": [],
+      "redaction_ok": true,
+      "redaction_hits": [],
+      "redaction_scan_truncated": false,
+      "label": "local"
+    }
+  ]
+}

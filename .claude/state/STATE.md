@@ -2,15 +2,15 @@
 state_version: 1
 task_fingerprint: leadtime-observability-m2
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-02T04:25:46.996Z
+updated_at: 2026-09-02T06:33:59.972Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-02T04:25:46.996Z
+last_event_at: 2026-09-02T06:33:59.972Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-09-02T04:19:11.964Z
+dep_check_at: 2026-09-02T06:04:33.669Z
 escalate_pending: true
 escalate_pending_decision_id: leadtime-observability-m2
 ---
@@ -27,12 +27,13 @@ leadtime-observability M2 — span-join. 구현 + 검증 + 문서 동결 완료(
 ## Done
 - M2 구현 — `leadtime.js`에 `post_panel_span` 축 추가. 두 앵커 계열(`ledger_basename` · `ship_plan_hash`)을 각각 산출하고 절대 합치지 않는다(DD2). 최상위 `state`는 실린 축의 사다리 최악값(`state_is_composite`)이고 `axis` 스칼라는 제거
 - 미짝 5종 분해 + 증인 3-state 비대칭 — `not_shipped`는 증인 4종 만장일치 부정일 때만, `anchor_absent` 승격은 ship 자격 증인(W0 반대축 · W1 archived)만. `unavailable`은 `no`가 아니다
-- ship 자격은 `pr-ship-gate.js#deriveShipDecision` 반환값 그대로(DD14) — receipt 전체 + forceOverrideActive 바인딩. 실측 39/71 자격(무증거 skip 6 배제 · override 5 포함)
-- 실측 — eligible 40 · matched 11/12 · both 6 · anchor_absent 12/4 · key_mismatch 0/16 · unclassified 17/8 · not_shipped 0. p50은 0.38일 / 0.28일
+- ship 자격은 `pr-ship-gate.js#deriveShipDecision` 반환값 그대로(DD14) — receipt 전체 + forceOverrideActive 바인딩. 실측 46/78 자격(무증거 skip 6 배제 · override 10 포함)
+- 실측 — eligible 48 · matched 11/16 · both 6 · anchor_absent 29/11 · key_mismatch 0/16 · unclassified 8/5 · not_shipped 0. p50은 0.38일 / 0.28일
 - PRD OQ 2건 종결 — ledger 쓰기가 멈춘 것(복구는 C1 사거리) · 미짝 분해가 배선 축을 연다. 신규 OQ 1건 기록(지표 4가 시각 축에서 구조적 0)
 - 문서 2면 동결 — `post-panel-span.md`(--json 전문) + `panel-span.md`(panel_span 하위) 재생성 후 라이브 출력과 바이트 일치 재확인
 - 검증 — leadtime test 47/47 · i18n-surface 10/10 · 도구 exit 0 state=ok · §3.5.1 삭제 검증 0건 · origin/main(1.34.1)과 version 충돌 없음
 - **code-review HIGH 2건 흡수** — (1) 이 STATE.md의 Plan/Done이 diverse-agent-review M8을 가리키던 stale을 정정 (2) 두 앵커 축의 ship 자격 비대칭(ledger는 엔트리 존재만으로 인정 — 무자격 receipt 결속 4건 실재)을 `post-panel-span.md` 한계에 명시. MEDIUM 2 + LOW 4는 backlog 이연, stale backlog 2행은 흡수 표시로 정정
+- **PR 게이트에서 base 병합 후 두 문서를 재생성했다** — 병합이 리뷰 레코드 9건 + 아카이브 plan을 코퍼스에 들여 `post-panel-span.md` 결론 3의 다수·소수가 뒤집혔다(unclassified 17→8 · anchor_absent 12→29). 동결 블록 2면 + 유도 산문 + CHANGELOG/PRD 인용을 실측에 맞춰 고쳤고, 뒤집힘과 그 원인(아카이브 상태 의존)을 문서에 명시했다
 
 ## In Progress
 
@@ -50,4 +51,4 @@ Phase 2.5.4의 plan 본문 주입이 plan_hash를 어긋내 상류 receipt가 st
 - plugins/mccp/scripts/lib/tests/ 전체 스위트는 선재적으로 10분 타임아웃(codex spawn 포함) — 영향 범위 스위트만 개별 green
 
 ## Last Updated
-2026-09-02T04:25:46.996Z
+2026-09-02T06:33:59.972Z

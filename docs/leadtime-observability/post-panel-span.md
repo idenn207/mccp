@@ -28,30 +28,30 @@
 ship 자격은 **재구현하지 않고** `pr-ship-gate.js`의 `deriveShipDecision`을 부른 반환값이다
 (DD14). receipt 전체(`meta` 포함)를 넘기고 `forceOverrideActive`를 묶는다 — 그래야
 무증거 skip이 배제되고, audited override로 실제 머지된 ship이 no-ship으로 접히지 않는다.
-오늘 그 필터는 receipt 71건 중 **39건**을 자격 있는 것으로 인정했고,
-그중 **5건**은 override가 자격을 만들었으며, **6건**은 증거 없는 `skipped`라
+오늘 그 필터는 receipt 78건 중 **46건**을 자격 있는 것으로 인정했고,
+그중 **10건**은 override가 자격을 만들었으며, **6건**은 증거 없는 `skipped`라
 배제됐다.
 
 ## 커버리지 — 값보다 먼저 온다
 
-측정 가능 패널 레코드 **40건**에 대해:
+측정 가능 패널 레코드 **48건**에 대해:
 
 | 관측 | 값 |
 |---|---|
-| `ledger_basename` 조인 | 11/40 |
-| `ship_plan_hash` 조인 | 12/40 |
+| `ledger_basename` 조인 | 11/48 |
+| `ship_plan_hash` 조인 | 16/48 |
 | 두 축 모두 매치 | 6 |
 | `ledger`만 | 5 |
-| `ship`만 | 6 |
-| 둘 다 없음 | 23 |
+| `ship`만 | 10 |
+| 둘 다 없음 | 27 |
 
-교차표 4칸의 합은 40이다(항등식 — 두 불리언 분할이므로 구성상 참이고, 회귀
+교차표 4칸의 합은 48이다(항등식 — 두 불리언 분할이므로 구성상 참이고, 회귀
 가드일 뿐이다).
 
 | 계열 | n | p50 | p90 | max |
 |---|---|---|---|---|
 | `ledger_basename` | 11 | 0.38일 | 0.70일 | 1.74일 |
-| `ship_plan_hash` | 12 | 0.28일 | 1.74일 | 5.92일 |
+| `ship_plan_hash` | 16 | 0.28일 | 4.18일 | 5.92일 |
 
 백분위는 M1과 같은 nearest-rank이며 보간하지 않는다(DD7). n이 10 안팎이라 보간은 없는
 정밀도를 만들고, 두 계열이 서로 다른 방법을 쓰면 비교 자체가 무의미해진다.
@@ -67,7 +67,7 @@ plan은 두 앵커의 불일치 자체를 지표로 삼았다. 실측하면 **�
 정의상 같다.
 
 따라서 **이 축에서 두 계열이 실제로 다른 것은 시각이 아니라 커버리지다**: `ledger`만
-5건, `ship`만 6건. plan이 "불일치 자체가 지표 4"라고 적은 것은 시각 불일치를
+5건, `ship`만 10건. plan이 "불일치 자체가 지표 4"라고 적은 것은 시각 불일치를
 염두에 둔 것이었고, 그 형태의 불일치는 오늘 코퍼스에서 **0이며 앞으로도 구조적으로 0에
 가까울 것**이다. 살아있는 신호는 커버리지 차이 쪽이다.
 
@@ -84,20 +84,21 @@ plan의 Measured Baseline은 미짝 약 2/3가 "아직 ship 안 됨"인지 "앵�
 |---|---|---|
 | `no_plan_path` | 0 | 0 |
 | `key_mismatch` | 0 | 16 |
-| `anchor_absent` | 12 | 4 |
+| `anchor_absent` | 29 | 11 |
 | `not_shipped` | 0 | 0 |
-| `unclassified` | 17 | 8 |
-| **합계** | **29** | **28** |
+| `unclassified` | 8 | 5 |
+| **합계** | **37** | **32** |
 
 합계 등식 `unmatched === Σ(counts)`는 두 계열 모두 성립한다(깨지면 축이 `degraded`가
 된다 — §3.11 C3의 fail-closed 등식과 같은 형태).
 
 ### 결론 1 — ledger 쓰기가 멈춘 것이 맞다 (PRD Open Question 4)
 
-`ledger_basename`의 `anchor_absent` 12건 중 **6건은 반대축(ship receipt)이
-직접 ship을 증언**한다. 그 plan들은 ship됐고 ledger 쪽 기록만 빠졌다. ledger의 마지막
-엔트리는 **2026-08-21**인데 그 이후 발행된 자격 있는 ship receipt가 존재한다는 사실이
-같은 방향을 가리킨다.
+`ledger_basename`의 `anchor_absent` **29건**은 전건 ship 자격 증인을 갖는다 —
+**10건은 반대축(ship receipt)이 직접 ship을 증언**하고, **19건은 plan이 아카이브됐다**
+(§3.11 C2대로 아카이브는 PRD 전체 완료 시에만 일어나므로 archived ⇒ shipped다). 그
+plan들은 ship됐고 ledger 쪽 기록만 빠졌다. ledger의 마지막 엔트리는 **2026-08-21**인데
+그 이후 발행된 자격 있는 ship receipt가 존재한다는 사실이 같은 방향을 가리킨다.
 
 이 결론은 **ship verdict 필터를 통과한 뒤에도 유지된다**(Task 6 선행조건 b). receipt
 존재만 세던 라운드 1의 판정이 아니라, `deriveShipDecision`이 자격을 인정한 receipt만
@@ -114,16 +115,27 @@ plan의 Measured Baseline은 미짝 약 2/3가 "아직 ship 안 됨"인지 "앵�
 (`leadtime.test.js` — 증인 하나를 `unavailable`에서 `no`로 바꾸면 같은 입력이
 `unclassified`에서 `not_shipped`로 넘어간다).
 
-### 결론 3 — 남은 미짝의 대부분은 `unclassified`이고, 그것이 정직한 산출이다
+### 결론 3 — `unclassified`는 소수(8/37)이고, 그 크기는 아카이브 상태에 달려 있다
 
-`ledger_basename`의 `unclassified` 17건은 대부분 "plan은 커밋됐지만 ship을 증언하는
+`ledger_basename`의 `unclassified` **8건**은 "plan은 커밋됐지만 ship을 증언하는
 것이 아무것도 없다"는 상태다. 증인 W2(implement receipt)·W3(git 이력)는 **ship 자격이
 없다** — 구현이 돌았다는 것도, plan 파일이 커밋됐다는 것도 ship이 아니기 때문이다. 이
-둘을 ship 증인으로 승격시키면 **커밋된 모든 plan이 ship된 것으로 보인다**.
+둘을 ship 증인으로 승격시키면 **커밋된 모든 plan이 ship된 것으로 보인다**. 그래서 이
+8건은 "모른다"로 남는다. 미지를 미지로 두는 것이 이 분해의 산출물이고, 각 행에는 증인
+4종의 3-state 값이 함께 실려 있어 판정을 재계산으로 반증할 수 있다.
 
-그래서 이 17건은 "모른다"로 남는다. 미지를 미지로 두는 것이 이 분해의 산출물이고,
-그 규모가 C1(배선 축)을 여는 근거다. 각 행에는 증인 4종의 3-state 값이 함께 실려 있어
-판정을 재계산으로 반증할 수 있다.
+**이 버킷의 크기는 코드가 아니라 저장소의 아카이브 상태가 정한다.** 초판 측정에서는
+`unclassified`가 17건으로 다수였고 `anchor_absent`가 12건이었다. 같은 도구·같은
+코드로 재측정한 지금은 **8 대 29로 뒤집혔다** — 그 사이에 일어난 일은 base 병합이
+`.claude/PRPs/plans/archived/`를 156건으로 늘린 것뿐이다(PR #169 아카이브). 아카이브가
+늘자 W1이 답할 수 있는 레코드가 늘었고, 같은 레코드가 "모른다"에서 "ship됐는데 ledger에
+없다"로 넘어갔다.
+
+즉 `unclassified`의 상당 부분은 영구적 미지가 아니라 **아직 아카이브되지 않은 PRD의
+그림자**다. 그리고 C1(배선 축)을 여는 근거는 이제 이 버킷이 아니라 **결론 1의 29건**이다
+— 미지의 규모가 아니라 ship됐음이 증언되는데 원장에 없다는 사실이 배선 결함의 직접
+증거이기 때문이다. 두 버킷의 경계가 코퍼스 상태에 따라 움직인다는 것 자체가, 이 분해를
+단일 시점 스냅샷으로만 읽어야 하는 이유다.
 
 ### `key_mismatch` — 리뷰와 ship 사이에 plan이 바뀌는 것은 정상이다
 
@@ -170,8 +182,8 @@ node plugins/mccp/scripts/lib/leadtime.js --json
 {
   "tool": "leadtime",
   "state": "ok",
-  "files_scanned": 81,
-  "records": 40,
+  "files_scanned": 90,
+  "records": 48,
   "pre_measurement": 13,
   "pre_measurement_records": [
     ".claude/reviews/plan-review-gate-guard-integrity-m2.md",
@@ -188,7 +200,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     ".claude/reviews/plan-review-setup-gitignore-m1.md",
     ".claude/reviews/plan-review-setup-gitignore.md"
   ],
-  "out_of_corpus": 28,
+  "out_of_corpus": 29,
   "parse_failures": 0,
   "read_error": false,
   "parse_errors": [],
@@ -196,7 +208,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     {
       "dir": ".claude/reviews",
       "present": true,
-      "files": 74
+      "files": 83
     },
     {
       "dir": ".claude/reviews/archive",
@@ -205,11 +217,11 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     }
   ],
   "coverage": {
-    "panel_records": 53,
-    "measurable": 40,
+    "panel_records": 61,
+    "measurable": 48,
     "unmeasurable": 13,
     "counts_are_lower_bound": true,
-    "panel_span_observed": 40,
+    "panel_span_observed": 48,
     "panel_span_missing": 0,
     "panel_span_missing_records": []
   },
@@ -217,7 +229,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     "state": "ok",
     "unit": "ms",
     "method": "nearest-rank",
-    "n": 40,
+    "n": 48,
     "min": 43984,
     "p50": 455662,
     "p90": 756525,
@@ -231,10 +243,10 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "max": 779328
       },
       "divergent": {
-        "n": 34,
+        "n": 42,
         "min": 43984,
-        "p50": 458072,
-        "p90": 756525,
+        "p50": 457806,
+        "p90": 716586,
         "max": 25642300
       },
       "unknown": {
@@ -247,10 +259,10 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     },
     "by_halt_stage": {
       "(completed)": {
-        "n": 24,
+        "n": 31,
         "min": 191178,
-        "p50": 499883,
-        "p90": 873036,
+        "p50": 499741,
+        "p90": 779328,
         "max": 25642300
       },
       "5.2b": {
@@ -261,9 +273,9 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "max": 79246
       },
       "5.2e": {
-        "n": 15,
+        "n": 16,
         "min": 43984,
-        "p50": 347898,
+        "p50": 321649,
         "p90": 665570,
         "max": 716586
       }
@@ -304,6 +316,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "recorded_at": "2026-09-02T01:23:24.419Z",
         "plan_path": ".claude/plans/leadtime-observability-m2.plan.md",
         "reviewed_plan_hash": "sha256:d3fd826ad2addfd0f8b67dfa54c7a9993a9194d7b5a76c29e2ad7c4e8fe4a7b5"
+      },
+      {
+        "record": ".claude/reviews/plan-review-release-channel-separation-m1.md",
+        "verdict": "divergent",
+        "halt_stage": null,
+        "panel_span_ms": 257556,
+        "recorded_at": "2026-09-01T07:04:53.843Z",
+        "plan_path": ".claude/plans/release-channel-separation-m1.plan.md",
+        "reviewed_plan_hash": "sha256:de602af7fa4ff017ff0d34b761ee766f62a7d8444ff6a72a7c2a2e8059c26818"
       },
       {
         "record": ".claude/reviews/plan-review-leadtime-observability.md",
@@ -369,6 +390,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "reviewed_plan_hash": "sha256:2e33d2e1e0f9730f34ec1a0f4ba4f38d4c7f01ccc205d07447267d6522e4ac4c"
       },
       {
+        "record": ".claude/reviews/plan-review-release-channel-separation.md",
+        "verdict": "divergent",
+        "halt_stage": "5.2e",
+        "panel_span_ms": 321649,
+        "recorded_at": "2026-09-01T05:55:06.267Z",
+        "plan_path": ".claude/plans/release-channel-separation-m1.plan.md",
+        "reviewed_plan_hash": "sha256:ff0b4df4e35b1e98194c79c2d55c174b68f4fc803e59acdc2df96bd579f167b9"
+      },
+      {
         "record": ".claude/reviews/plan-review-codex-intent-context.md",
         "verdict": "divergent",
         "halt_stage": "5.2e",
@@ -405,6 +435,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "reviewed_plan_hash": "sha256:1f77424e0164f92c172a638ac7e821149ddb3cc6b0f7e4c17033e8964f0fe475"
       },
       {
+        "record": ".claude/reviews/plan-review-env-contract-integrity-m1.md",
+        "verdict": "divergent",
+        "halt_stage": null,
+        "panel_span_ms": 364106,
+        "recorded_at": "2026-08-21T01:41:06.502Z",
+        "plan_path": ".claude/plans/env-contract-integrity-m1.plan.md",
+        "reviewed_plan_hash": "sha256:1e4806b94f046698958fe1ed071285ba88ad6e08be11303bc9fbbf1f635373da"
+      },
+      {
         "record": ".claude/reviews/plan-review-santa-adjudication.md",
         "verdict": "converged",
         "halt_stage": null,
@@ -412,6 +451,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "recorded_at": "2026-08-17T05:52:56.874Z",
         "plan_path": ".claude/plans/santa-adjudication-m2.plan.md",
         "reviewed_plan_hash": "sha256:407a98258c7d6942f9c6b6943bdb86b953cb2643e761cca2cb4a3a85f89ad91b"
+      },
+      {
+        "record": ".claude/reviews/plan-review-review-loop-trust.md",
+        "verdict": "divergent",
+        "halt_stage": null,
+        "panel_span_ms": 428716,
+        "recorded_at": "2026-08-27T06:52:26.744Z",
+        "plan_path": ".claude/plans/review-loop-trust-closeout.plan.md",
+        "reviewed_plan_hash": "sha256:d897e00664248a674b0e0198c11bdd2411722275859454c49c2f160659641892"
       },
       {
         "record": ".claude/reviews/plan-review-santa-delta-review-r0.md",
@@ -450,6 +498,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "reviewed_plan_hash": "sha256:38b192d9f1f8632080ee7f670c3cbad656971de5c97e225c3243b17ee4bd044b"
       },
       {
+        "record": ".claude/reviews/plan-review-multi-session-work-loop-m9.md",
+        "verdict": "divergent",
+        "halt_stage": null,
+        "panel_span_ms": 457806,
+        "recorded_at": "2026-08-27T07:47:19.193Z",
+        "plan_path": ".claude/plans/multi-session-work-loop-m9.plan.md",
+        "reviewed_plan_hash": "sha256:bc41d0011125a86633a9548b3c5adf5f4324ef18750bccbd08e4eff079e2aaf4"
+      },
+      {
         "record": ".claude/reviews/plan-review-multi-session-work-loop-m7.md",
         "verdict": "divergent",
         "halt_stage": null,
@@ -466,6 +523,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "recorded_at": "2026-08-21T03:42:10.877Z",
         "plan_path": ".claude/plans/diverse-agent-review-m7.plan.md",
         "reviewed_plan_hash": "sha256:bce85ab6ad9faf5719edd759f67b79773e8e1a6f9c457ea3ec79be5c9492fcae"
+      },
+      {
+        "record": ".claude/reviews/plan-review-review-loop-trust-closeout.md",
+        "verdict": "divergent",
+        "halt_stage": null,
+        "panel_span_ms": 490482,
+        "recorded_at": "2026-08-27T07:39:23.804Z",
+        "plan_path": ".claude/plans/review-loop-trust-closeout.plan.md",
+        "reviewed_plan_hash": "sha256:d897e00664248a674b0e0198c11bdd2411722275859454c49c2f160659641892"
       },
       {
         "record": ".claude/reviews/plan-review-codex-intent-context-m2.md",
@@ -495,6 +561,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "reviewed_plan_hash": "sha256:eb71d6cf71b5781fc83813ad9285bd9347cd89747ad7286f48d5c11e9ce384f2"
       },
       {
+        "record": ".claude/reviews/plan-review-env-contract-integrity.md",
+        "verdict": "divergent",
+        "halt_stage": null,
+        "panel_span_ms": 559150,
+        "recorded_at": "2026-08-27T04:36:31.577Z",
+        "plan_path": ".claude/plans/env-contract-integrity-m3.plan.md",
+        "reviewed_plan_hash": "sha256:840953a92bb66c0d7b507c1a00ac7956f59358df3eb4d435046678c393d2f0fb"
+      },
+      {
         "record": ".claude/reviews/archive/plan-review-followup-R12.md",
         "verdict": "divergent",
         "halt_stage": "5.2e",
@@ -511,6 +586,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "recorded_at": "2026-08-25T09:18:57.141Z",
         "plan_path": ".claude/plans/codex-disabled-round-invariant-m1.plan.md",
         "reviewed_plan_hash": "sha256:17c335d4446ace724472480de240f5ce48391fb4fa1d0b71dc195850ba84e9fb"
+      },
+      {
+        "record": ".claude/reviews/plan-review-diverse-agent-review-m11.md",
+        "verdict": "divergent",
+        "halt_stage": null,
+        "panel_span_ms": 633022,
+        "recorded_at": "2026-08-31T01:00:01.984Z",
+        "plan_path": ".claude/plans/diverse-agent-review-m11.plan.md",
+        "reviewed_plan_hash": "sha256:43e5914331d56a123c99294df2775c3e16448c34f8617db61878a3b591220563"
       },
       {
         "record": ".claude/reviews/plan-review-santa-evidence-diversity.md",
@@ -538,6 +622,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "recorded_at": "2026-08-16T21:08:08.275Z",
         "plan_path": ".claude/plans/session-process-reclaim-followup.plan.md",
         "reviewed_plan_hash": "sha256:685fc9e9da4a2ddde67b1d98eb6abd1f5960eee71979a225057a83606790914c"
+      },
+      {
+        "record": ".claude/reviews/plan-review-diverse-agent-review.md",
+        "verdict": "divergent",
+        "halt_stage": null,
+        "panel_span_ms": 668403,
+        "recorded_at": "2026-08-31T07:56:12.943Z",
+        "plan_path": ".claude/plans/diverse-agent-review-m5.plan.md",
+        "reviewed_plan_hash": "sha256:98d30390534bab8bc2bf9d15a286588cd983b342f743e41fc6e63a9d2b0f4f4e"
       },
       {
         "record": ".claude/reviews/plan-review-santa-evidence-diversity-m2.md",
@@ -576,15 +669,6 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "reviewed_plan_hash": "sha256:1d2e9caeb4fd2e8e95d2d8f17e09747d030e068d2dce71662372b27336b02232"
       },
       {
-        "record": ".claude/reviews/plan-review-diverse-agent-review.md",
-        "verdict": "divergent",
-        "halt_stage": null,
-        "panel_span_ms": 739649,
-        "recorded_at": "2026-08-26T02:30:12.370Z",
-        "plan_path": ".claude/plans/diverse-agent-review-m8.plan.md",
-        "reviewed_plan_hash": "sha256:766d368f6673bfc3685e40e9477715a082f782ae015e2f4654f62949e69d9de6"
-      },
-      {
         "record": ".claude/reviews/plan-review-impeccable-detection-contract-m2.md",
         "verdict": "divergent",
         "halt_stage": null,
@@ -615,10 +699,10 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         "record": ".claude/reviews/plan-review-multi-session-work-loop.md",
         "verdict": "divergent",
         "halt_stage": null,
-        "panel_span_ms": 1162476,
-        "recorded_at": "2026-08-25T01:25:49.542Z",
-        "plan_path": ".claude/plans/multi-session-work-loop-m8.plan.md",
-        "reviewed_plan_hash": "sha256:3b5b0470a301aa84564076557e40c4a20b397cbeb4322670344088ff81bc1ad6"
+        "panel_span_ms": 1155572,
+        "recorded_at": "2026-08-31T09:08:07.784Z",
+        "plan_path": ".claude/plans/multi-session-work-loop-m10.plan.md",
+        "reviewed_plan_hash": "sha256:ce3d993d70ae9250d4ff1f13b40162091d4c1fc07d83238078e97824134b98d5"
       },
       {
         "record": ".claude/reviews/plan-review-review-loop-bypass-m2.md",
@@ -725,10 +809,10 @@ node plugins/mccp/scripts/lib/leadtime.js --json
       },
       "ship_plan_hash": {
         "source_unavailable": false,
-        "n": 12,
+        "n": 16,
         "min": 1963023,
         "p50": 24176707,
-        "p90": 150743189,
+        "p90": 360895695,
         "max": 511876477,
         "records": [
           {
@@ -736,6 +820,13 @@ node plugins/mccp/scripts/lib/leadtime.js --json
             "panel_recorded_at": "2026-08-25T09:18:57.141Z",
             "anchor_at": "2026-08-25T09:51:40.164Z",
             "span_ms": 1963023,
+            "candidates": 1
+          },
+          {
+            "record": ".claude/reviews/plan-review-release-channel-separation-m1.md",
+            "panel_recorded_at": "2026-09-01T07:04:53.843Z",
+            "anchor_at": "2026-09-01T08:10:23.739Z",
+            "span_ms": 3929896,
             "candidates": 1
           },
           {
@@ -767,6 +858,13 @@ node plugins/mccp/scripts/lib/leadtime.js --json
             "candidates": 1
           },
           {
+            "record": ".claude/reviews/plan-review-diverse-agent-review-m11.md",
+            "panel_recorded_at": "2026-08-31T01:00:01.984Z",
+            "anchor_at": "2026-08-31T06:54:41.460Z",
+            "span_ms": 21279476,
+            "candidates": 1
+          },
+          {
             "record": ".claude/reviews/plan-review-multi-session-work-loop-m7.md",
             "panel_recorded_at": "2026-08-21T01:42:15.498Z",
             "anchor_at": "2026-08-21T08:25:12.205Z",
@@ -778,6 +876,13 @@ node plugins/mccp/scripts/lib/leadtime.js --json
             "panel_recorded_at": "2026-08-16T12:37:33.053Z",
             "anchor_at": "2026-08-16T22:09:38.606Z",
             "span_ms": 34325553,
+            "candidates": 1
+          },
+          {
+            "record": ".claude/reviews/plan-review-diverse-agent-review.md",
+            "panel_recorded_at": "2026-08-31T07:56:12.943Z",
+            "anchor_at": "2026-09-01T01:00:07.917Z",
+            "span_ms": 61434974,
             "candidates": 1
           },
           {
@@ -795,17 +900,24 @@ node plugins/mccp/scripts/lib/leadtime.js --json
             "candidates": 1
           },
           {
-            "record": ".claude/reviews/plan-review-diverse-agent-review.md",
-            "panel_recorded_at": "2026-08-26T02:30:12.370Z",
-            "anchor_at": "2026-08-27T05:56:17.644Z",
-            "span_ms": 98765274,
-            "candidates": 1
-          },
-          {
             "record": ".claude/reviews/plan-review-multi-session-work-loop-m6.md",
             "panel_recorded_at": "2026-08-15T18:10:05.530Z",
             "anchor_at": "2026-08-17T12:02:28.719Z",
             "span_ms": 150743189,
+            "candidates": 1
+          },
+          {
+            "record": ".claude/reviews/plan-review-multi-session-work-loop-m9.md",
+            "panel_recorded_at": "2026-08-27T07:47:19.193Z",
+            "anchor_at": "2026-08-31T07:14:35.727Z",
+            "span_ms": 343636534,
+            "candidates": 1
+          },
+          {
+            "record": ".claude/reviews/plan-review-env-contract-integrity.md",
+            "panel_recorded_at": "2026-08-27T04:36:31.577Z",
+            "anchor_at": "2026-08-31T08:51:27.272Z",
+            "span_ms": 360895695,
             "candidates": 1
           },
           {
@@ -866,20 +978,20 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     },
     "negative_spans": [],
     "coverage": {
-      "eligible": 40,
+      "eligible": 48,
       "no_panel_timestamp": 0,
       "no_panel_timestamp_records": [],
       "matched_ledger_basename": 11,
-      "matched_ship_plan_hash": 12,
+      "matched_ship_plan_hash": 16,
       "both": 6,
       "only_ledger": 5,
-      "only_ship": 6,
-      "neither": 23,
+      "only_ship": 10,
+      "neither": 27,
       "ledger_entries_total": 44,
-      "ship_receipts_total": 71,
-      "ship_receipts_qualified": 39,
+      "ship_receipts_total": 78,
+      "ship_receipts_qualified": 46,
       "ship_receipts_unproven_skip": 6,
-      "ship_receipts_override_qualified": 5,
+      "ship_receipts_override_qualified": 10,
       "sources": [
         {
           "dir": ".claude/state/completion-ledger",
@@ -893,14 +1005,14 @@ node plugins/mccp/scripts/lib/leadtime.js --json
           "present": true,
           "read_error": false,
           "parse_failures": 0,
-          "files": 71
+          "files": 78
         },
         {
           "dir": ".claude/PRPs/plans/archived",
           "present": true,
           "read_error": false,
           "parse_failures": 0,
-          "files": 136
+          "files": 156
         },
         {
           "dir": ".claude/receipts/mccp-implement-codex",
@@ -917,13 +1029,13 @@ node plugins/mccp/scripts/lib/leadtime.js --json
     },
     "unmatched": {
       "ledger_basename": {
-        "total": 29,
+        "total": 37,
         "counts": {
           "no_plan_path": 0,
           "key_mismatch": 0,
-          "anchor_absent": 12,
+          "anchor_absent": 29,
           "not_shipped": 0,
-          "unclassified": 17
+          "unclassified": 8
         },
         "sum_equation_holds": true,
         "by_reason": {
@@ -961,7 +1073,27 @@ node plugins/mccp/scripts/lib/leadtime.js --json
               }
             },
             {
+              "record": ".claude/reviews/plan-review-diverse-agent-review-m11.md",
+              "witness": "opposite_anchor",
+              "witnesses": {
+                "opposite_anchor": "yes",
+                "archived_plan": "no",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
               "record": ".claude/reviews/plan-review-diverse-agent-review.md",
+              "witness": "opposite_anchor",
+              "witnesses": {
+                "opposite_anchor": "yes",
+                "archived_plan": "no",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-env-contract-integrity.md",
               "witness": "opposite_anchor",
               "witnesses": {
                 "opposite_anchor": "yes",
@@ -981,13 +1113,163 @@ node plugins/mccp/scripts/lib/leadtime.js --json
               }
             },
             {
+              "record": ".claude/reviews/plan-review-impeccable-detection-contract-m1.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-impeccable-detection-contract-m2.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-impeccable-detection-contract-m5.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-impeccable-detection-contract.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-multi-session-work-loop-m7-r10-blocked.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-multi-session-work-loop-m7-r11-blocked.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-multi-session-work-loop-m7-r6-blocked.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-multi-session-work-loop-m7-r7-blocked.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-multi-session-work-loop-m7-r8-blocked.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-multi-session-work-loop-m7-r9-blocked.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
               "record": ".claude/reviews/plan-review-multi-session-work-loop-m7.md",
+              "witness": "opposite_anchor",
+              "witnesses": {
+                "opposite_anchor": "yes",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-multi-session-work-loop-m9.md",
+              "witness": "opposite_anchor",
+              "witnesses": {
+                "opposite_anchor": "yes",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-multi-session-work-loop.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-release-channel-separation-m1.md",
               "witness": "opposite_anchor",
               "witnesses": {
                 "opposite_anchor": "yes",
                 "archived_plan": "no",
                 "implement_receipt": "no",
                 "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-review-loop-trust-closeout.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "no"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-review-loop-trust.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "no"
               }
             },
             {
@@ -1072,43 +1354,16 @@ node plugins/mccp/scripts/lib/leadtime.js --json
               }
             },
             {
+              "record": ".claude/reviews/plan-review-env-contract-integrity-m1.md",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "no",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
               "record": ".claude/reviews/plan-review-environment-uniformity.md",
-              "witnesses": {
-                "opposite_anchor": "no",
-                "archived_plan": "no",
-                "implement_receipt": "no",
-                "git_history": "yes"
-              }
-            },
-            {
-              "record": ".claude/reviews/plan-review-impeccable-detection-contract-m1.md",
-              "witnesses": {
-                "opposite_anchor": "no",
-                "archived_plan": "no",
-                "implement_receipt": "no",
-                "git_history": "yes"
-              }
-            },
-            {
-              "record": ".claude/reviews/plan-review-impeccable-detection-contract-m2.md",
-              "witnesses": {
-                "opposite_anchor": "no",
-                "archived_plan": "no",
-                "implement_receipt": "no",
-                "git_history": "yes"
-              }
-            },
-            {
-              "record": ".claude/reviews/plan-review-impeccable-detection-contract-m5.md",
-              "witnesses": {
-                "opposite_anchor": "no",
-                "archived_plan": "no",
-                "implement_receipt": "no",
-                "git_history": "yes"
-              }
-            },
-            {
-              "record": ".claude/reviews/plan-review-impeccable-detection-contract.md",
               "witnesses": {
                 "opposite_anchor": "no",
                 "archived_plan": "no",
@@ -1131,7 +1386,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
                 "opposite_anchor": "no",
                 "archived_plan": "no",
                 "implement_receipt": "yes",
-                "git_history": "no"
+                "git_history": "yes"
               }
             },
             {
@@ -1144,61 +1399,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
               }
             },
             {
-              "record": ".claude/reviews/plan-review-multi-session-work-loop-m7-r10-blocked.md",
-              "witnesses": {
-                "opposite_anchor": "no",
-                "archived_plan": "no",
-                "implement_receipt": "no",
-                "git_history": "yes"
-              }
-            },
-            {
-              "record": ".claude/reviews/plan-review-multi-session-work-loop-m7-r11-blocked.md",
-              "witnesses": {
-                "opposite_anchor": "no",
-                "archived_plan": "no",
-                "implement_receipt": "no",
-                "git_history": "yes"
-              }
-            },
-            {
-              "record": ".claude/reviews/plan-review-multi-session-work-loop-m7-r6-blocked.md",
-              "witnesses": {
-                "opposite_anchor": "no",
-                "archived_plan": "no",
-                "implement_receipt": "no",
-                "git_history": "yes"
-              }
-            },
-            {
-              "record": ".claude/reviews/plan-review-multi-session-work-loop-m7-r7-blocked.md",
-              "witnesses": {
-                "opposite_anchor": "no",
-                "archived_plan": "no",
-                "implement_receipt": "no",
-                "git_history": "yes"
-              }
-            },
-            {
-              "record": ".claude/reviews/plan-review-multi-session-work-loop-m7-r8-blocked.md",
-              "witnesses": {
-                "opposite_anchor": "no",
-                "archived_plan": "no",
-                "implement_receipt": "no",
-                "git_history": "yes"
-              }
-            },
-            {
-              "record": ".claude/reviews/plan-review-multi-session-work-loop-m7-r9-blocked.md",
-              "witnesses": {
-                "opposite_anchor": "no",
-                "archived_plan": "no",
-                "implement_receipt": "no",
-                "git_history": "yes"
-              }
-            },
-            {
-              "record": ".claude/reviews/plan-review-multi-session-work-loop.md",
+              "record": ".claude/reviews/plan-review-release-channel-separation.md",
               "witnesses": {
                 "opposite_anchor": "no",
                 "archived_plan": "no",
@@ -1210,13 +1411,13 @@ node plugins/mccp/scripts/lib/leadtime.js --json
         }
       },
       "ship_plan_hash": {
-        "total": 28,
+        "total": 32,
         "counts": {
           "no_plan_path": 0,
           "key_mismatch": 16,
-          "anchor_absent": 4,
+          "anchor_absent": 11,
           "not_shipped": 0,
-          "unclassified": 8
+          "unclassified": 5
         },
         "sum_equation_holds": true,
         "by_reason": {
@@ -1250,7 +1451,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
               "record": ".claude/reviews/plan-review-multi-session-work-loop-m7-r9-blocked.md"
             },
             {
-              "record": ".claude/reviews/plan-review-multi-session-work-loop.md"
+              "record": ".claude/reviews/plan-review-release-channel-separation.md"
             },
             {
               "record": ".claude/reviews/plan-review-review-loop-bypass.md"
@@ -1272,6 +1473,76 @@ node plugins/mccp/scripts/lib/leadtime.js --json
             }
           ],
           "anchor_absent": [
+            {
+              "record": ".claude/reviews/plan-review-impeccable-detection-contract-m1.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-impeccable-detection-contract-m2.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-impeccable-detection-contract-m5.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-impeccable-detection-contract.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-multi-session-work-loop.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "yes"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-review-loop-trust-closeout.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "no"
+              }
+            },
+            {
+              "record": ".claude/reviews/plan-review-review-loop-trust.md",
+              "witness": "archived_plan",
+              "witnesses": {
+                "opposite_anchor": "no",
+                "archived_plan": "yes",
+                "implement_receipt": "no",
+                "git_history": "no"
+              }
+            },
             {
               "record": ".claude/reviews/plan-review-santa-delta-review-r0.md",
               "witness": "archived_plan",
@@ -1325,34 +1596,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
               }
             },
             {
-              "record": ".claude/reviews/plan-review-impeccable-detection-contract-m1.md",
-              "witnesses": {
-                "opposite_anchor": "no",
-                "archived_plan": "no",
-                "implement_receipt": "no",
-                "git_history": "yes"
-              }
-            },
-            {
-              "record": ".claude/reviews/plan-review-impeccable-detection-contract-m2.md",
-              "witnesses": {
-                "opposite_anchor": "no",
-                "archived_plan": "no",
-                "implement_receipt": "no",
-                "git_history": "yes"
-              }
-            },
-            {
-              "record": ".claude/reviews/plan-review-impeccable-detection-contract-m5.md",
-              "witnesses": {
-                "opposite_anchor": "no",
-                "archived_plan": "no",
-                "implement_receipt": "no",
-                "git_history": "yes"
-              }
-            },
-            {
-              "record": ".claude/reviews/plan-review-impeccable-detection-contract.md",
+              "record": ".claude/reviews/plan-review-env-contract-integrity-m1.md",
               "witnesses": {
                 "opposite_anchor": "no",
                 "archived_plan": "no",
@@ -1375,7 +1619,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json
                 "opposite_anchor": "no",
                 "archived_plan": "no",
                 "implement_receipt": "yes",
-                "git_history": "no"
+                "git_history": "yes"
               }
             },
             {

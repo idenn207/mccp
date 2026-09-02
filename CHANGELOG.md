@@ -25,11 +25,11 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   `leadtime.js`가 두 번째 축을 낸다. 끝점을 두 앵커로 **각각** 산출하고 절대 합치지
   않는다(DD2) — `ledger_basename`(completion-ledger `plan_basename` ↔ `completed_at`)과
   `ship_plan_hash`(`mccp-pr-codex` `plan_hash` ↔ `meta.created_at`). 실측 커버리지는
-  11/40 · 12/40이고 p50은 각각 0.38일 · 0.28일이다.
+  11/48 · 16/48이고 p50은 각각 0.38일 · 0.28일이다.
 - **미짝 사유 분해 + 합계 등식**: 미짝 레코드 전건을 닫힌 5종(`no_plan_path` ·
   `key_mismatch` · `anchor_absent` · `not_shipped` · `unclassified`)으로 분류하고
   `unmatched === Σ(counts)`를 fail-closed로 강제한다(깨지면 축이 `degraded`). PRD Open
-  Question 4가 **"ledger 쓰기가 멈춘 것"** 으로 갈렸다 — `anchor_absent` 12건 중 6건이
+  Question 4가 **"ledger 쓰기가 멈춘 것"** 으로 갈렸다 — `anchor_absent` 29건 중 10건이
   반대축 ship receipt의 직접 증언이다.
 - **증인 3-state + 비대칭 사용**: `not_shipped`는 증인 4종이 **전부 `no`**일 때만
   성립하고, `anchor_absent`로의 승격은 **ship 자격이 있는 증인**(반대축 앵커 ·
@@ -50,8 +50,8 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   receipt 전체(`meta` 포함)를 넘겨 무증거 skip을 배제하고, `forceOverrideActive`를 묶어
   audited override로 실제 머지된 ship이 no-ship으로 접히지 않게 한다. 판정 근거
   (`ship_receipts_total`/`_qualified`/`_unproven_skip`/`_override_qualified`)를 출력에
-  실어 필터가 켜져 있음을 관측 가능하게 했다. 실측: 71건 중 39건 자격 · 무증거 skip 6건
-  배제 · override 5건 포함.
+  실어 필터가 켜져 있음을 관측 가능하게 했다. 실측: 78건 중 46건 자격 · 무증거 skip 6건
+  배제 · override 10건 포함.
 - `docs/leadtime-observability/panel-span.md`의 동결 블록을 **재생성**했다. M1은 `--json`
   전문을 동결했는데 위 출력 형태 변경으로 거짓이 됐다. 이제 그 문서는 `panel_span` 하위만
   동결하고 전문 동결은 신규 `post-panel-span.md`가 단독 소유한다.
@@ -223,8 +223,8 @@ PRD를 아카이브 가능한 상태로 만든다.
   않는다.
 - `docs/leadtime-observability/panel-span.md` — M1 실측의 축자 동결(`<!-- BEGIN
   leadtime.js --json (verbatim) -->`)과 판정. **`corpus.js`의 pass-path 보고가 분포를
-  과소보고한다**: converged 5건 p50 6.4분 · max 13.0분 대 전체 39건 p50 7.6분 ·
-  max 427.4분(7.12시간). 집계 커버리지 5/39가 max를 33배 과소보고하고 있었다.
+  과소보고한다**: converged 5건 p50 6.4분 · max 13.0분 대 전체 48건 p50 7.6분 ·
+  max 427.4분(7.12시간). 집계 커버리지 5/48이 max를 33배 과소보고하고 있었다.
 
 ### Changed
 

@@ -28,18 +28,18 @@ M2·C2가 아직 재지 않은 두 구간을 0으로 가정하는 것이 된다.
 
 ## 커버리지 — 값보다 먼저 온다
 
-`.claude/reviews/` + `.claude/reviews/archive/`에서 **81개 파일**을 스캔했다. 그중:
+`.claude/reviews/` + `.claude/reviews/archive/`에서 **90개 파일**을 스캔했다. 그중:
 
-- **28건** `out_of_corpus` — PR·santa·local·security 리뷰 등 다른 생산자의 문서. 코퍼스가
+- **29건** `out_of_corpus` — PR·santa·local·security 리뷰 등 다른 생산자의 문서. 코퍼스가
   아니므로 결손이 아니다.
 - **13건** `pre_measurement` — 패널 레코드이지만 `## Measurement` 블록 자체가 없다.
   그 블록을 도입하기 전 레코드라 오독할 측정값이 애초에 없다. 계측 고장이 아니라
   **코퍼스의 시간 경계**다.
 - **0건** `parse_failure`, `read_error=false`.
 
-남는 것이 코퍼스다: 패널 레코드 **53건 중 측정 가능 40건**. 따라서 아래 카운트는 전부
-**하한**이다(`counts_are_lower_bound: true`). 그리고 그 40건의 `wall_clock_ms` 결측은
-**0건**이다 — 즉 측정 가능한 레코드는 전부 실제로 관측됐다(`panel_span_observed: 40`,
+남는 것이 코퍼스다: 패널 레코드 **61건 중 측정 가능 48건**. 따라서 아래 카운트는 전부
+**하한**이다(`counts_are_lower_bound: true`). 그리고 그 48건의 `wall_clock_ms` 결측은
+**0건**이다 — 즉 측정 가능한 레코드는 전부 실제로 관측됐다(`panel_span_observed: 48`,
 `panel_span_missing: 0`).
 
 `panel_span.state: "ok"`. 최상위 `state`도 `ok`이지만 그것은 **합성값**이다 — M2 이후
@@ -54,15 +54,15 @@ M1 이전에 이 벽시계를 보고하던 유일한 소비처는 `corpus.js`의
 | 층 | n | p50 | p90 | max |
 |---|---|---|---|---|
 | `converged` (pass_path가 보던 전부) | 5 | 6.4분 | 13.0분 | 13.0분 |
-| **전체** | **40** | **7.6분** | **12.6분** | **427.4분 (7.12시간)** |
-| `divergent` | 34 | 7.6분 | 12.6분 | 427.4분 |
+| **전체** | **48** | **7.6분** | **12.6분** | **427.4분 (7.12시간)** |
+| `divergent` | 42 | 7.6분 | 11.9분 | 427.4분 |
 | `unknown` (verdict 미기재 1건) | 1 | 1.3분 | 1.3분 | 1.3분 |
 
 converged 층만 보면 이 게이트는 **최악이 13분**인 절차로 보인다. 실제 최악은
 **7.12시간**이고 그 레코드는 `.claude/reviews/plan-review-review-loop-bypass-m2.md`다.
-즉 집계 커버리지 5/40(12.5%)가 max를 약 33배(32.9×) 과소보고하고 있었다.
+즉 집계 커버리지 5/48(10.4%)가 max를 약 33배(32.9×) 과소보고하고 있었다.
 
-**미관측은 측정 부재가 아니라 집계 부재였다.** 이 37→39건은 M1이 새로 계측한 것이 아니라
+**미관측은 측정 부재가 아니라 집계 부재였다.** 이 48건은 M1이 새로 계측한 것이 아니라
 줄곧 디스크에 non-null로 적혀 있었고, 그 값을 읽는 소비처가 converged 필터 뒤에 있었을
 뿐이다. 우산 PRD의 정정("없는 값이 아니라 안 읽는 값")과 정합한다.
 
@@ -70,8 +70,8 @@ converged 층만 보면 이 게이트는 **최악이 13분**인 절차로 보인
 
 | halt_stage | n | p50 | max |
 |---|---|---|---|
-| `(completed)` (중단 없이 완주) | 24 | 8.3분 | 427.4분 |
-| `5.2e` (verdict 합성에서 차단) | 15 | 5.8분 | 11.9분 |
+| `(completed)` (중단 없이 완주) | 31 | 8.3분 | 427.4분 |
+| `5.2e` (verdict 합성에서 차단) | 16 | 5.4분 | 11.9분 |
 | `5.2b` (예약 실패) | 1 | 1.3분 | 1.3분 |
 
 중단된 실행이 완주한 실행보다 **짧다**. 게이트가 늦게 막는 것이 아니라 일찍 막고 있고,
@@ -99,7 +99,12 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
 > [post-panel-span.md](post-panel-span.md)가 단독으로 소유한다. 두 블록은 같은 실행에서
 > 나왔으므로 **함께** 재생성해야 한다.
 >
-> 코퍼스가 자라 수치도 함께 갱신됐다(측정 가능 39 → 40건). 결론은 하나도 바뀌지 않았다.
+> 코퍼스가 자라 수치도 함께 갱신됐다(측정 가능 39 → 40 → **48건**). 마지막 갱신은 이 PR이
+> base(origin/main)를 병합하며 리뷰 레코드 9건과 아카이브 plan을 코퍼스에 들인 것이다.
+> **이 축의 결론은 세 번 모두 바뀌지 않았다** — 과소보고 배수(약 33배)도 최악 레코드도
+> 그대로다. 다만 형제 축은 그렇지 않았다: 같은 병합이
+> [post-panel-span.md](post-panel-span.md)의 결론 3에서 다수·소수를 뒤집었고, 그 문서가
+> 뒤집힘과 원인을 명시한다. 스냅샷은 갱신하면 되지만 **결론은 갱신될 때 다시 읽어야 한다.**
 
 <!-- BEGIN leadtime.js panel_span (verbatim) -->
 
@@ -108,7 +113,7 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
   "state": "ok",
   "unit": "ms",
   "method": "nearest-rank",
-  "n": 40,
+  "n": 48,
   "min": 43984,
   "p50": 455662,
   "p90": 756525,
@@ -122,10 +127,10 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "max": 779328
     },
     "divergent": {
-      "n": 34,
+      "n": 42,
       "min": 43984,
-      "p50": 458072,
-      "p90": 756525,
+      "p50": 457806,
+      "p90": 716586,
       "max": 25642300
     },
     "unknown": {
@@ -138,10 +143,10 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
   },
   "by_halt_stage": {
     "(completed)": {
-      "n": 24,
+      "n": 31,
       "min": 191178,
-      "p50": 499883,
-      "p90": 873036,
+      "p50": 499741,
+      "p90": 779328,
       "max": 25642300
     },
     "5.2b": {
@@ -152,9 +157,9 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "max": 79246
     },
     "5.2e": {
-      "n": 15,
+      "n": 16,
       "min": 43984,
-      "p50": 347898,
+      "p50": 321649,
       "p90": 665570,
       "max": 716586
     }
@@ -195,6 +200,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "recorded_at": "2026-09-02T01:23:24.419Z",
       "plan_path": ".claude/plans/leadtime-observability-m2.plan.md",
       "reviewed_plan_hash": "sha256:d3fd826ad2addfd0f8b67dfa54c7a9993a9194d7b5a76c29e2ad7c4e8fe4a7b5"
+    },
+    {
+      "record": ".claude/reviews/plan-review-release-channel-separation-m1.md",
+      "verdict": "divergent",
+      "halt_stage": null,
+      "panel_span_ms": 257556,
+      "recorded_at": "2026-09-01T07:04:53.843Z",
+      "plan_path": ".claude/plans/release-channel-separation-m1.plan.md",
+      "reviewed_plan_hash": "sha256:de602af7fa4ff017ff0d34b761ee766f62a7d8444ff6a72a7c2a2e8059c26818"
     },
     {
       "record": ".claude/reviews/plan-review-leadtime-observability.md",
@@ -260,6 +274,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "reviewed_plan_hash": "sha256:2e33d2e1e0f9730f34ec1a0f4ba4f38d4c7f01ccc205d07447267d6522e4ac4c"
     },
     {
+      "record": ".claude/reviews/plan-review-release-channel-separation.md",
+      "verdict": "divergent",
+      "halt_stage": "5.2e",
+      "panel_span_ms": 321649,
+      "recorded_at": "2026-09-01T05:55:06.267Z",
+      "plan_path": ".claude/plans/release-channel-separation-m1.plan.md",
+      "reviewed_plan_hash": "sha256:ff0b4df4e35b1e98194c79c2d55c174b68f4fc803e59acdc2df96bd579f167b9"
+    },
+    {
       "record": ".claude/reviews/plan-review-codex-intent-context.md",
       "verdict": "divergent",
       "halt_stage": "5.2e",
@@ -296,6 +319,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "reviewed_plan_hash": "sha256:1f77424e0164f92c172a638ac7e821149ddb3cc6b0f7e4c17033e8964f0fe475"
     },
     {
+      "record": ".claude/reviews/plan-review-env-contract-integrity-m1.md",
+      "verdict": "divergent",
+      "halt_stage": null,
+      "panel_span_ms": 364106,
+      "recorded_at": "2026-08-21T01:41:06.502Z",
+      "plan_path": ".claude/plans/env-contract-integrity-m1.plan.md",
+      "reviewed_plan_hash": "sha256:1e4806b94f046698958fe1ed071285ba88ad6e08be11303bc9fbbf1f635373da"
+    },
+    {
       "record": ".claude/reviews/plan-review-santa-adjudication.md",
       "verdict": "converged",
       "halt_stage": null,
@@ -303,6 +335,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "recorded_at": "2026-08-17T05:52:56.874Z",
       "plan_path": ".claude/plans/santa-adjudication-m2.plan.md",
       "reviewed_plan_hash": "sha256:407a98258c7d6942f9c6b6943bdb86b953cb2643e761cca2cb4a3a85f89ad91b"
+    },
+    {
+      "record": ".claude/reviews/plan-review-review-loop-trust.md",
+      "verdict": "divergent",
+      "halt_stage": null,
+      "panel_span_ms": 428716,
+      "recorded_at": "2026-08-27T06:52:26.744Z",
+      "plan_path": ".claude/plans/review-loop-trust-closeout.plan.md",
+      "reviewed_plan_hash": "sha256:d897e00664248a674b0e0198c11bdd2411722275859454c49c2f160659641892"
     },
     {
       "record": ".claude/reviews/plan-review-santa-delta-review-r0.md",
@@ -341,6 +382,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "reviewed_plan_hash": "sha256:38b192d9f1f8632080ee7f670c3cbad656971de5c97e225c3243b17ee4bd044b"
     },
     {
+      "record": ".claude/reviews/plan-review-multi-session-work-loop-m9.md",
+      "verdict": "divergent",
+      "halt_stage": null,
+      "panel_span_ms": 457806,
+      "recorded_at": "2026-08-27T07:47:19.193Z",
+      "plan_path": ".claude/plans/multi-session-work-loop-m9.plan.md",
+      "reviewed_plan_hash": "sha256:bc41d0011125a86633a9548b3c5adf5f4324ef18750bccbd08e4eff079e2aaf4"
+    },
+    {
       "record": ".claude/reviews/plan-review-multi-session-work-loop-m7.md",
       "verdict": "divergent",
       "halt_stage": null,
@@ -357,6 +407,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "recorded_at": "2026-08-21T03:42:10.877Z",
       "plan_path": ".claude/plans/diverse-agent-review-m7.plan.md",
       "reviewed_plan_hash": "sha256:bce85ab6ad9faf5719edd759f67b79773e8e1a6f9c457ea3ec79be5c9492fcae"
+    },
+    {
+      "record": ".claude/reviews/plan-review-review-loop-trust-closeout.md",
+      "verdict": "divergent",
+      "halt_stage": null,
+      "panel_span_ms": 490482,
+      "recorded_at": "2026-08-27T07:39:23.804Z",
+      "plan_path": ".claude/plans/review-loop-trust-closeout.plan.md",
+      "reviewed_plan_hash": "sha256:d897e00664248a674b0e0198c11bdd2411722275859454c49c2f160659641892"
     },
     {
       "record": ".claude/reviews/plan-review-codex-intent-context-m2.md",
@@ -386,6 +445,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "reviewed_plan_hash": "sha256:eb71d6cf71b5781fc83813ad9285bd9347cd89747ad7286f48d5c11e9ce384f2"
     },
     {
+      "record": ".claude/reviews/plan-review-env-contract-integrity.md",
+      "verdict": "divergent",
+      "halt_stage": null,
+      "panel_span_ms": 559150,
+      "recorded_at": "2026-08-27T04:36:31.577Z",
+      "plan_path": ".claude/plans/env-contract-integrity-m3.plan.md",
+      "reviewed_plan_hash": "sha256:840953a92bb66c0d7b507c1a00ac7956f59358df3eb4d435046678c393d2f0fb"
+    },
+    {
       "record": ".claude/reviews/archive/plan-review-followup-R12.md",
       "verdict": "divergent",
       "halt_stage": "5.2e",
@@ -402,6 +470,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "recorded_at": "2026-08-25T09:18:57.141Z",
       "plan_path": ".claude/plans/codex-disabled-round-invariant-m1.plan.md",
       "reviewed_plan_hash": "sha256:17c335d4446ace724472480de240f5ce48391fb4fa1d0b71dc195850ba84e9fb"
+    },
+    {
+      "record": ".claude/reviews/plan-review-diverse-agent-review-m11.md",
+      "verdict": "divergent",
+      "halt_stage": null,
+      "panel_span_ms": 633022,
+      "recorded_at": "2026-08-31T01:00:01.984Z",
+      "plan_path": ".claude/plans/diverse-agent-review-m11.plan.md",
+      "reviewed_plan_hash": "sha256:43e5914331d56a123c99294df2775c3e16448c34f8617db61878a3b591220563"
     },
     {
       "record": ".claude/reviews/plan-review-santa-evidence-diversity.md",
@@ -429,6 +506,15 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "recorded_at": "2026-08-16T21:08:08.275Z",
       "plan_path": ".claude/plans/session-process-reclaim-followup.plan.md",
       "reviewed_plan_hash": "sha256:685fc9e9da4a2ddde67b1d98eb6abd1f5960eee71979a225057a83606790914c"
+    },
+    {
+      "record": ".claude/reviews/plan-review-diverse-agent-review.md",
+      "verdict": "divergent",
+      "halt_stage": null,
+      "panel_span_ms": 668403,
+      "recorded_at": "2026-08-31T07:56:12.943Z",
+      "plan_path": ".claude/plans/diverse-agent-review-m5.plan.md",
+      "reviewed_plan_hash": "sha256:98d30390534bab8bc2bf9d15a286588cd983b342f743e41fc6e63a9d2b0f4f4e"
     },
     {
       "record": ".claude/reviews/plan-review-santa-evidence-diversity-m2.md",
@@ -467,15 +553,6 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "reviewed_plan_hash": "sha256:1d2e9caeb4fd2e8e95d2d8f17e09747d030e068d2dce71662372b27336b02232"
     },
     {
-      "record": ".claude/reviews/plan-review-diverse-agent-review.md",
-      "verdict": "divergent",
-      "halt_stage": null,
-      "panel_span_ms": 739649,
-      "recorded_at": "2026-08-26T02:30:12.370Z",
-      "plan_path": ".claude/plans/diverse-agent-review-m8.plan.md",
-      "reviewed_plan_hash": "sha256:766d368f6673bfc3685e40e9477715a082f782ae015e2f4654f62949e69d9de6"
-    },
-    {
       "record": ".claude/reviews/plan-review-impeccable-detection-contract-m2.md",
       "verdict": "divergent",
       "halt_stage": null,
@@ -506,10 +583,10 @@ node plugins/mccp/scripts/lib/leadtime.js --json \
       "record": ".claude/reviews/plan-review-multi-session-work-loop.md",
       "verdict": "divergent",
       "halt_stage": null,
-      "panel_span_ms": 1162476,
-      "recorded_at": "2026-08-25T01:25:49.542Z",
-      "plan_path": ".claude/plans/multi-session-work-loop-m8.plan.md",
-      "reviewed_plan_hash": "sha256:3b5b0470a301aa84564076557e40c4a20b397cbeb4322670344088ff81bc1ad6"
+      "panel_span_ms": 1155572,
+      "recorded_at": "2026-08-31T09:08:07.784Z",
+      "plan_path": ".claude/plans/multi-session-work-loop-m10.plan.md",
+      "reviewed_plan_hash": "sha256:ce3d993d70ae9250d4ff1f13b40162091d4c1fc07d83238078e97824134b98d5"
     },
     {
       "record": ".claude/reviews/plan-review-review-loop-bypass-m2.md",

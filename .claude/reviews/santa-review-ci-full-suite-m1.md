@@ -2,7 +2,7 @@
 
 - verdict: `divergent`
 - rounds: 5 / cap 5
-- entries: 24
+- entries: 25
 - exit reason: `cap_reached`
 
 > 집계 전용 리포트다. 리뷰어 제출 본문(`checks`/`suggestions`)과 critical

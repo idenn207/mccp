@@ -78,8 +78,28 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - **L2** 공유 위치의 cap 경고 뒤에도 매 append마다 디렉토리를 전수 stat했다. 이미
   경고했으면 재계산하지 않는다.
 
+PR-Codex R1이 낸 HIGH 2건도 흡수했다. 둘 다 마이그레이션 도구 한 파일에 국한되고,
+셋 다 되돌리면 붉어지는 것을 확인했다(가드 무력화 주입 → 해당 test만 red → 원복).
+
+- **F1** `forEachLine`은 open/read 실패에 `false`를 내는데 호출부 두 곳이 그 값을
+  버렸다. 읽지 못한 파일이 0건을 기여하고도 `report`에 남지 않고 marker는 `complete`가
+  됐다 — 그 worktree의 이벤트는 공유 집계에서 영구 누락되는데 운영자는 성공으로 읽는다.
+  plan **UI6**(기록 실패를 조용히 삼키지 않는다)가 금지하는 형태다. 두 단계의 처방은
+  다르다: 공유 corpus 읽기 실패는 `seen`을 불완전하게 만들어 **중복**을 낳으므로
+  `abort`(`state=failed` · append 0건)이고, 소스 읽기 실패는 **누락**이므로 `partial`
+  + `report.unreadable` + `pending` 유지다(재실행이 idempotent하므로 다음 실행이 재시도).
+- **F2** 수집은 read-then-append 트랜잭션인데 락이 없었다. 두 worktree가 동시에 돌리면
+  둘 다 같은 `seen`을 스냅샷하고 같은 줄을 각자 append한다. `event_id`가 있는 이벤트는
+  reader가 걸러내지만 `event_id` 없는 legacy 이벤트는 `session-activity.js`가 **첫
+  디렉토리**(= 공유 위치)에서 dedupe하지 않아 중복이 남고, Task 1이 공유 위치의 evict를
+  껐으므로 그 부풀림은 **영구**다. §3.6 `quarantine.lock`과 동형인 락을 도입했다 —
+  body에 raw token 평문 + `0o600` + orphan 판정 `(PID dead) OR (mtime > 60s lease)` +
+  append 루프 heartbeat. 락은 append가 아니라 **read-then-append 전체**를 감싼다.
+  획득 실패는 fail-closed(진행하지 않음)이고, dry-run은 쓰지 않으므로 락을 잡지 않는다.
+
 `--repo-root` 검증 강화(L3) · 소비처별 스캔 상한(M3 잔여) · base 미머지(M4) ·
-선재 red인 `meta-research.test.js:583`은
+선재 red인 `meta-research.test.js:583` · 라운드 원장을 오염시키는
+`plan-review-cli-emit.test.js`의 격리 결함은
 [backlog](.claude/plans/codex-findings-backlog.md)에 증거와 함께 이연했다.
 
 ### Note

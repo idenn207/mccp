@@ -20,7 +20,9 @@
 // 되돌림 여지를 남긴다. `evictLRU`도 호출하지 않는다(Task 1이 그 규칙의 소유자다).
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { StringDecoder } = require('string_decoder');
 
@@ -196,6 +198,102 @@ function forEachLine(filePath, onLine) {
   }
 }
 
+// PR-Codex F2 흡수 — 수집은 read-then-append 트랜잭션이므로 **직렬화해야 한다**.
+//
+// 락이 없으면 두 worktree가 동시에 이 마이그레이션을 돌릴 때 둘 다 같은 시점의
+// `seen`을 스냅샷하고 같은 줄을 각자 append한다. `event_id`가 있는 이벤트는 reader가
+// 걸러내지만, `event_id` 없는 legacy 이벤트는 `session-activity.js`가 **첫 디렉토리**
+// (= 공유 위치)에서 dedupe하지 않으므로 중복이 그대로 남는다. Task 1이 공유 위치의
+// `evictLRU`를 껐으므로 그 부풀림은 **영구적**이고, A1 baseline을 소급 오염시킨다.
+//
+// 모델은 §3.6 `quarantine.lock`과 동형이다 — body에 raw token 평문 + `0o600` +
+// orphan 판정 `(PID dead) OR (mtime > lease)`. heartbeat는 append 루프가 친다.
+// 락 자체가 실패하면 **획득하지 않은 것으로 접고 진행하지 않는다**(fail-closed):
+// 여기서 fail-open하면 락을 도입한 이유가 사라진다.
+const LOCK_NAME = 'msw-events-common-dir.lock';
+const LOCK_LEASE_MS = 60000;
+
+function readLockBody(lockPath) {
+  try {
+    return JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+  } catch (_e) {
+    return null;   // 판독 불가 — 아래에서 lease에만 위임한다
+  }
+}
+
+// orphan이면 true. **판독 불가는 orphan이 아니다** — 방금 create된 뒤 body가
+// 쓰이기 전인 좁은 창이 존재하므로, 그 경우는 lease 만료로만 회수한다.
+function lockIsOrphan(lockPath) {
+  let st;
+  try {
+    st = fs.statSync(lockPath);
+  } catch (_e) {
+    return true;   // 사라졌다 — 재시도해도 안전하다
+  }
+  if (Date.now() - st.mtimeMs > LOCK_LEASE_MS) return true;
+
+  const body = readLockBody(lockPath);
+  if (!body || body.host !== os.hostname() || !Number.isInteger(body.pid)) return false;
+  try {
+    process.kill(body.pid, 0);
+    return false;   // 살아 있다 — lease가 남아 있는 한 회수하지 않는다
+  } catch (err) {
+    return !!err && err.code === 'ESRCH';
+  }
+}
+
+function acquireLock(mdir) {
+  const lockPath = path.join(mdir, LOCK_NAME);
+  const token = crypto.randomUUID();
+  const body = JSON.stringify({
+    token: token,
+    pid: process.pid,
+    host: os.hostname(),
+    at: new Date().toISOString(),
+  });
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let fd;
+    try {
+      fd = fs.openSync(lockPath, 'wx', 0o600);
+    } catch (err) {
+      if (!err || err.code !== 'EEXIST') {
+        return { ok: false, reason: 'lock-open-failed: ' + ((err && err.message) || String(err)) };
+      }
+      if (attempt === 0 && lockIsOrphan(lockPath)) {
+        warn('reclaiming an orphaned migration lock (' + lockPath + ')');
+        try { fs.unlinkSync(lockPath); } catch (_e) { /* 경쟁자가 먼저 지웠다 */ }
+        continue;
+      }
+      const held = readLockBody(lockPath);
+      return {
+        ok: false,
+        reason: 'another migration holds the lock'
+          + (held && held.pid ? ' (pid=' + held.pid + ' host=' + held.host + ' at=' + held.at + ')' : ''),
+      };
+    }
+    try { fs.writeSync(fd, body); } catch (_e) { /* body 부재는 lease로 회수된다 */ }
+    finally { try { fs.closeSync(fd); } catch (_e) { /* ignore */ } }
+    return { ok: true, path: lockPath, token: token };
+  }
+  return { ok: false, reason: 'lock contended after reclaim' };
+}
+
+function heartbeatLock(lock) {
+  if (!lock || !lock.ok) return;
+  const now = new Date();
+  try { fs.utimesSync(lock.path, now, now); } catch (_e) { /* ignore */ }
+}
+
+// ownership 일치 시에만 unlink한다. 어긋나면 남의 락이므로 건드리지 않고 lease에
+// 맡긴다 — §3.6의 no-token 잔여 리스크를 여기서는 애초에 만들지 않는다.
+function releaseLock(lock) {
+  if (!lock || !lock.ok) return;
+  const body = readLockBody(lock.path);
+  if (!body || body.token !== lock.token) return;
+  try { fs.unlinkSync(lock.path); } catch (_e) { /* ignore */ }
+}
+
 function collect(opts) {
   const cwd = opts.cwd || process.cwd();
   const dryRun = !!opts.dryRun;
@@ -207,27 +305,91 @@ function collect(opts) {
   }
   const sharedDir = path.join(expectedCommon, SHARED_SUBPATH);
 
+  // dry-run은 쓰지 않으므로 락을 잡지 않는다. 동시 실행 중의 dry-run 수치가 조금
+  // 어긋날 수 있다는 것은 dry-run의 성격이고, 락을 요구하면 진단이 차단된다.
+  if (dryRun) {
+    return runCollect({ cwd: cwd, expectedCommon: expectedCommon, sharedDir: sharedDir, dryRun: true, lock: null });
+  }
+
+  const mdir = path.join(sharedDir, '.migrations');
+  try {
+    fs.mkdirSync(mdir, { recursive: true });
+  } catch (err) {
+    warn('could not create the shared directory: ' + ((err && err.message) || String(err)));
+    return { ok: false, state: 'failed', reason: 'mkdir-failed' };
+  }
+
+  const lock = acquireLock(mdir);
+  if (!lock.ok) {
+    warn('migration lock unavailable — NOT collecting: ' + lock.reason);
+    warn('  a concurrent run would append the same legacy events twice, and the reader');
+    warn('  cannot de-duplicate them inside the shared directory. Retry once it finishes.');
+    return { ok: false, state: 'failed', reason: 'lock-unavailable', lock_reason: lock.reason };
+  }
+  try {
+    return runCollect({
+      cwd: cwd, expectedCommon: expectedCommon, sharedDir: sharedDir, dryRun: false, lock: lock,
+    });
+  } finally {
+    releaseLock(lock);
+  }
+}
+
+function runCollect(ctx) {
+  const cwd = ctx.cwd;
+  const dryRun = ctx.dryRun;
+  const expectedCommon = ctx.expectedCommon;
+  const sharedDir = ctx.sharedDir;
+  const lock = ctx.lock;
+
   // 1단계 — 공유 위치에 이미 있는 것을 키로 읽어들인다. 재실행이 0건이 되는 근거다.
+  //
+  // PR-Codex F1 흡수 — `forEachLine`의 반환값을 버리면 안 된다. 여기서의 읽기 실패는
+  // 2단계와 성질이 다르다: `seen`이 불완전해지면 **이미 공유 위치에 있는 이벤트를
+  // 다시 append**하게 되고, legacy 이벤트는 reader가 첫 디렉토리에서 dedupe하지
+  // 않으므로 그 중복이 영구화된다. 그래서 이 단계의 실패는 partial이 아니라
+  // **abort**다 — 불완전한 `seen`으로는 어떤 append도 안전하지 않다.
   const seen = new Set();
+  const sharedUnreadable = [];
   let existingLines = 0;
   try {
     for (const f of fs.readdirSync(sharedDir)) {
       if (!f.endsWith('.jsonl')) continue;
       const fp = path.join(sharedDir, f);
       try { if (fs.lstatSync(fp).isSymbolicLink()) continue; } catch (_e) { continue; }
-      forEachLine(fp, function (line) {
+      const read = forEachLine(fp, function (line) {
         if (!line.trim()) return;
         try {
           seen.add(keyOf(JSON.parse(line)));
           existingLines++;
         } catch (_e) { /* S8 — per-line 격리 */ }
       });
+      if (!read) {
+        warn('UNREADABLE shared-corpus file: ' + f + ' — dedupe keys are incomplete');
+        sharedUnreadable.push(f);
+      }
     }
   } catch (_e) { /* 공유 디렉토리 부재는 정상 (최초 실행) */ }
 
+  if (sharedUnreadable.length) {
+    warn('aborting: ' + sharedUnreadable.length + ' shared-corpus file(s) could not be read.');
+    warn('  Appending against an incomplete dedupe key set would duplicate legacy events');
+    warn('  permanently (the reader does not de-duplicate inside the shared directory).');
+    return {
+      ok: false,
+      state: 'failed',
+      reason: 'shared-corpus-unreadable',
+      unreadable_shared: sharedUnreadable,
+    };
+  }
+
   // 2단계 — 각 worktree에서 A1 축 이벤트만 골라 모은다.
   const pending = new Map();   // basename -> string[]
-  const report = { sources: [], candidates: 0, new_lines: 0, skipped_non_a1: 0, invalid: 0 };
+  const report = {
+    sources: [], candidates: 0, new_lines: 0, skipped_non_a1: 0, invalid: 0,
+    // PR-Codex F1 — 읽지 못한 소스는 **셈에 남는다**. 이것이 비어야만 `complete`다.
+    unreadable: [],
+  };
 
   for (const wt of listWorktrees(cwd)) {
     const eventsDir = acceptWorktree(wt, expectedCommon);
@@ -243,7 +405,7 @@ function collect(opts) {
       try { if (fs.lstatSync(fp).isSymbolicLink()) { warn('skip symlinked file ' + f); continue; } }
       catch (_e) { continue; }
 
-      forEachLine(fp, function (line) {
+      const read = forEachLine(fp, function (line) {
         if (!line.trim()) return;
         let evt;
         try { evt = JSON.parse(line); } catch (_e) { report.invalid++; return; }   // S8
@@ -257,6 +419,15 @@ function collect(opts) {
         report.new_lines++;
         fromThis++;
       });
+      // PR-Codex F1 — 여기서 반환값을 버리면 읽기 실패한 소스가 0건을 기여하고도
+      // `complete` marker를 받는다. 그 worktree의 이벤트는 공유 집계에서 영구
+      // 누락되는데 운영자는 성공으로 읽는다 — plan UI6(기록 실패를 조용히 삼키지
+      // 않는다)가 금지하는 형태다. 1단계와 달리 이것은 누락이지 중복이 아니므로
+      // abort가 아니라 `partial` + 재실행 대상으로 남긴다(재실행은 idempotent).
+      if (!read) {
+        warn('UNREADABLE source file: ' + path.basename(wt) + '/' + f);
+        report.unreadable.push({ worktree: path.basename(wt), file: f });
+      }
     }
     report.sources.push({ worktree: path.basename(wt), new_lines: fromThis });
   }
@@ -277,12 +448,21 @@ function collect(opts) {
   const failed = [];
   for (const [basename, lines] of pending) {
     if (!lines.length) continue;
+    // 큰 corpus에서 append가 lease를 넘길 수 있다. sync 루프에서는 `setInterval`이
+    // 발화하지 않으므로 heartbeat도 루프 안에서 친다(§3.6 quarantine과 같은 이유).
+    heartbeatLock(lock);
     try {
       fs.appendFileSync(path.join(sharedDir, basename), lines.join('\n') + '\n', 'utf8');
       written += lines.length;
     } catch (err) {
       failed.push({ file: basename, reason: (err && err.message) || String(err) });
     }
+  }
+
+  // PR-Codex F1 — 읽지 못한 소스가 있으면 `complete`가 아니다. 그 파일들은 다음
+  // 실행에서 다시 시도되며(idempotent), 그때까지 marker가 미완을 그대로 말한다.
+  for (const u of report.unreadable) {
+    failed.push({ file: u.worktree + '/' + u.file, reason: 'source unreadable' });
   }
 
   const state = failed.length ? 'partial' : 'complete';

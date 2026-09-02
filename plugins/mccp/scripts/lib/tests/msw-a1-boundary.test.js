@@ -430,3 +430,124 @@ test('the migration line reader survives a multi-byte character on the chunk bou
     assert.equal(JSON.parse(seen[1]).work_unit, '끝');
     assert.ok(!seen.join('').includes('�'), 'no replacement character survived');
   });
+
+// ── (13)-(16) PR-Codex R1 흡수 — 조용한 누락과 동시 실행 중복 ────────────────
+//
+// 읽기 실패 주입은 monkey-patch가 아니라 **파일 자리에 디렉토리를 둔다**. 이름이
+// `.jsonl`로 끝나고 symlink가 아니므로 두 스캔 모두 이것을 열려 하고, 어느 플랫폼에서든
+// `forEachLine`이 `false`를 낸다(win32는 open에서, POSIX는 read에서 EISDIR). 실제
+// 실패 경로를 그대로 타므로 이 주입은 구현 세부에 기대지 않는다.
+//
+// `collect`는 git에게 common dir과 worktree 목록을 직접 묻는다(S3). 그래서 여기서는
+// 다른 test들의 합성 fixture가 아니라 **진짜 `git init` 저장소**를 쓴다.
+function mkGitRepo(label) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-a1b-' + label + '-'));
+  execFileSync('git', ['-C', dir, 'init', '-q'], { stdio: 'ignore', windowsHide: true });
+  return dir;
+}
+
+function migSharedDirOf(repo) {
+  const mig = require('../../migrations/msw-events-common-dir');
+  return path.join(mig.gitCommonDirOf(repo), mswEvents.SHARED_SUBPATH);
+}
+
+function unreadableFile(dir, name) {
+  fs.mkdirSync(path.join(dir, name), { recursive: true });   // 파일 자리의 디렉토리
+}
+
+test('an unreadable shared-corpus file aborts instead of appending against partial keys', () => {
+  const mig = require('../../migrations/msw-events-common-dir');
+  const repo = mkGitRepo('f1shared');
+  writeLine(localDirOf(repo), 'sess-x', { kind: 'task_started', work_unit: 'u1', ts: 't1' });
+
+  const shared = migSharedDirOf(repo);
+  fs.mkdirSync(shared, { recursive: true });
+  unreadableFile(shared, 'broken.jsonl');
+
+  const r = mig.collect({ cwd: repo });
+
+  assert.equal(r.ok, false);
+  assert.equal(r.state, 'failed');
+  assert.equal(r.reason, 'shared-corpus-unreadable',
+    'an incomplete `seen` set must abort — appending against it duplicates legacy ' +
+    'events permanently, because the reader does not de-duplicate inside the shared dir');
+  assert.deepEqual(r.unreadable_shared, ['broken.jsonl']);
+  assert.equal(fs.existsSync(path.join(shared, 'sess-x.jsonl')), false,
+    'nothing may be appended once the dedupe key set is known to be incomplete');
+});
+
+test('an unreadable source file yields partial, never a complete marker', () => {
+  const mig = require('../../migrations/msw-events-common-dir');
+  const repo = mkGitRepo('f1source');
+  const local = localDirOf(repo);
+  writeLine(local, 'sess-ok', { kind: 'task_started', work_unit: 'u1', ts: 't1' });
+  unreadableFile(local, 'sess-broken.jsonl');
+
+  const r = mig.collect({ cwd: repo });
+
+  assert.equal(r.state, 'partial',
+    'a source we could not read is a KNOWN omission — reporting `complete` tells the ' +
+    'operator the corpus is unified when that worktree is silently missing from it');
+  assert.equal(r.ok, false);
+  assert.equal(r.report.unreadable.length, 1);
+  assert.equal(r.report.unreadable[0].file, 'sess-broken.jsonl');
+  assert.ok(r.pending.some((p) => /sess-broken\.jsonl$/.test(p.file)),
+    'the unreadable source stays in `pending` so the next (idempotent) run retries it');
+
+  const shared = migSharedDirOf(repo);
+  assert.equal(fs.existsSync(path.join(shared, 'sess-ok.jsonl')), true,
+    'the readable source is still collected — one bad file does not stop the rest');
+
+  const marker = JSON.parse(fs.readFileSync(
+    path.join(shared, '.migrations', 'msw-events-common-dir.json'), 'utf8'));
+  assert.equal(marker.state, 'partial');
+});
+
+test('a live migration lock refuses a concurrent run rather than double-appending', () => {
+  const mig = require('../../migrations/msw-events-common-dir');
+  const repo = mkGitRepo('f2held');
+  writeLine(localDirOf(repo), 'sess-y', { kind: 'task_started', work_unit: 'u1', ts: 't1' });
+
+  const shared = migSharedDirOf(repo);
+  const mdir = path.join(shared, '.migrations');
+  fs.mkdirSync(mdir, { recursive: true });
+  // 이 프로세스의 pid + hostname → orphan 판정이 "살아 있다"로 떨어진다.
+  fs.writeFileSync(path.join(mdir, 'msw-events-common-dir.lock'), JSON.stringify({
+    token: 'someone-elses-token', pid: process.pid, host: os.hostname(),
+    at: new Date().toISOString(),
+  }));
+
+  const r = mig.collect({ cwd: repo });
+
+  assert.equal(r.state, 'failed');
+  assert.equal(r.reason, 'lock-unavailable');
+  assert.equal(fs.existsSync(path.join(shared, 'sess-y.jsonl')), false,
+    'the whole read-then-append transaction must be serialized, not just the append');
+  assert.equal(fs.existsSync(path.join(mdir, 'msw-events-common-dir.lock')), true,
+    'a refused run must not release a lock it does not own');
+});
+
+test('an orphaned lock is reclaimed, and a successful run releases its own', () => {
+  const mig = require('../../migrations/msw-events-common-dir');
+  const repo = mkGitRepo('f2orphan');
+  writeLine(localDirOf(repo), 'sess-z', { kind: 'task_started', work_unit: 'u1', ts: 't1' });
+
+  const shared = migSharedDirOf(repo);
+  const mdir = path.join(shared, '.migrations');
+  fs.mkdirSync(mdir, { recursive: true });
+  const lockPath = path.join(mdir, 'msw-events-common-dir.lock');
+  fs.writeFileSync(lockPath, JSON.stringify({
+    token: 'stale', pid: process.pid, host: os.hostname(), at: '2020-01-01T00:00:00.000Z',
+  }));
+  // lease(60s)를 넘긴 mtime — PID가 살아 있어도 회수 대상이다.
+  const old = new Date(Date.now() - 10 * 60 * 1000);
+  fs.utimesSync(lockPath, old, old);
+
+  const r = mig.collect({ cwd: repo });
+
+  assert.equal(r.state, 'complete', 'a lease-expired lock must not block forever');
+  assert.equal(fs.existsSync(path.join(shared, 'sess-z.jsonl')), true);
+  assert.equal(fs.existsSync(lockPath), false,
+    'the run must release the lock it acquired — otherwise the next run waits out a ' +
+    'full lease for no reason');
+});

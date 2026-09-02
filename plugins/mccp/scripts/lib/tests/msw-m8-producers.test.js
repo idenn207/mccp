@@ -297,6 +297,16 @@ test('m8-coverage-gate: acceptance separates PRE from POST and never fails on th
   // gate가 그것을 실패로 세면 커밋 전 실행이 구조적으로 통과 불가가 된다.
   assert.ok(Array.isArray(acc.post_missing));
   assert.ok(Array.isArray(acc.pre_missing));
+
+  // orchestrator-step-wiring M1 (Task 8-11) — **`acc.ok`를 직접 본다.**
+  //
+  // 이 test는 `Array.isArray`만 보고 있었다. 그래서 게이트가 뒤집혀도 green을
+  // 유지했고, DD8이 `task_started`를 공유 위치로 옮겼을 때 이 게이트가 살아 있는
+  // producer를 "제거됨"으로 보고하는 회귀가 여기서 잡히지 않았다.
+  assert.deepEqual(acc.pre_missing, [],
+    'a PRE kind reported missing means the gate is looking in the wrong directory — '
+    + 'evaluateAcceptance must ask resolveEventsDir, not assemble the path itself');
+  assert.equal(acc.ok, true);
   if (acc.post_missing.length > 0) {
     assert.ok(acc.post_note, 'a missing POST kind must be explained, not silently ignored');
   }

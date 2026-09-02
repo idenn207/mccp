@@ -509,3 +509,34 @@
 }
 ```
 
+
+### MCCP_MSW_EVENTS_SHARED
+
+**종류** `bool` — **값** `on` · `off` — **기본값** `on`
+
+**한 줄** A1 축 이벤트를 git common dir에 모은다.
+
+**소비처** `plugins/mccp/scripts/state/msw-events.js:255`
+
+**극성** 미설정이면 **켜져 있다**. 극성은 레지스트리가 선언하고 파서는 읽기만 한다.
+
+**무엇을 바꾸는가** `task_started` · `task_completed` · `task_ship_sealed` **세 kind만** 기록 위치가
+`<git-common-dir>/mccp/msw-events`로 올라간다. 나머지 kind는 값과 무관하게
+`<repo-root>/.claude/state/msw-events`에 그대로 남는다 — 그 경계가 B2 동시성·증거 taxonomy·
+findings 축의 worktree 격리를 보존한다.
+
+**끄면 무엇이 돌아오는가** A1 축도 worktree-local로 복귀한다. 이미 공유 위치에 쓰인 이벤트는
+지워지지 않고, 읽는 쪽은 토글과 무관하게 두 위치를 계속 읽으므로 유실되지 않는다.
+
+**열거 밖 값** `off`로 접고 loud warn을 낸다(fail-closed). 공유 파서의 기본 fold는 레지스트리
+default(`on`)이지만 이 토글은 신규 producer 경로를 켜므로, 오타가 그것을 켠 채 남기지 않는다.
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_MSW_EVENTS_SHARED": "off"
+  }
+}
+```

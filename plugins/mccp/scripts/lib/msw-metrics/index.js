@@ -201,6 +201,22 @@ function computeA2(model) {
 
   const sessions = sessionActivity.sessions || [];
 
+  // orchestrator-step-wiring M1 (Task 5a) — 분모는 **로컬에서 관측된 세션**이다.
+  //
+  // A1 축 이벤트가 git common dir로 올라가면 `session-activity.js`의 세션 맵은
+  // kind 가드가 없어서(그 파일 `:154` 선례) 타 worktree의 A1 이벤트로도 엔트리를
+  // 만든다. 분자(`samples`)는 로컬 `session_end`의 `context_remaining_pct`에서만
+  // 오므로 두 축이 비대칭으로 움직이고, 그대로 두면 A2의 sample coverage가
+  // **관측된 적 없는 세션 수만큼 희석**된다 — 이 PRD가 A1에서 없애는 위치
+  // 의존성을 A2에서 새로 만드는 셈이다.
+  //
+  // `sessions_local` 부재는 **구 소스이거나 이 필드를 모르는 producer**라는 뜻이고,
+  // 그때는 오늘의 동작(`sessions`)으로 접는다. 이 fallback은 조용하지 않다 —
+  // `msw-metrics.test.js`가 두 경우를 각각 단언한다.
+  const localSessions = Array.isArray(sessionActivity.sessions_local)
+    ? sessionActivity.sessions_local
+    : sessions;
+
   // M8 Task 6 (DD6) — 위 강등 주석이 명시한 복원 조건이 충족됐다. `session-end.js`는
   // 이제 스냅샷의 `session_id`가 종료 세션과 일치하고 샘플이 신선할 때에만 값을
   // stamp하고, 그 외에는 여전히 `null`을 쓴다. 따라서 여기 도달하는 non-null 샘플은
@@ -220,7 +236,7 @@ function computeA2(model) {
     return {
       id: A2_CONTEXT_REMAINING,
       numerator: samples.length,
-      denominator: sessions.length || samples.length,
+      denominator: localSessions.length || samples.length,
       value: { p50: at(0.5), p95: at(0.95) },
       integrity_ok: true,
       status: 'computed',
@@ -234,7 +250,7 @@ function computeA2(model) {
   return {
     id: A2_CONTEXT_REMAINING,
     numerator: null,
-    denominator: sessions.length || null,
+    denominator: localSessions.length || null,
     value: null,
     integrity_ok: true,
     invalid_reason: 'no session-bound context sample yet (session-end stamps a value only when the snapshot session_id matches the ending session and the sample is fresh)',

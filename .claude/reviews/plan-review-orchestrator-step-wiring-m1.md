@@ -1,0 +1,66 @@
+# Plan Review Panel — orchestrator-step-wiring-m1
+
+**Plan**: `.claude/plans/orchestrator-step-wiring-m1.plan.md` · **Plan version**: `sha256:47a53275c35576ddf53a057ef977bc4d2f2b67d7b8072ff384ae2358f1c97af0`
+**Verdict**: `divergent` via `multi-agent`
+**Quorum**: 4/3 responses · 4 distinct roles (of 4 fielded) · passed=false
+**Layers**: L1 converged · L2 divergent · L3 not fired
+**Halted at**: `5.2e`
+
+> Reason: L2 quorum not satisfied: 5 blocking finding(s): test/HIGH, test/HIGH, test/FAIL, invariant/HIGH
+
+## Findings
+
+| Perspective | Severity | Claim | Evidence |
+|---|---|---|---|
+| architect | MEDIUM | Task 5b가 `m8-coverage-gate`의 탐지 능력을 구조적으로 무력화한다 — 그 게이트는 "producer가 조용히 제거됐는가"를 판정하는데, `task_started`의 조회처를 repo-wide 공유 디렉토리로 바꾸면 그 kind는 어느 worktree에서 한 번이라도 emit된 뒤 영구히 관측된다. 게이트에 시간창·범위 결속이 없고(`kinds` Set은 전 파일 전 라인 누적, `evaluateAcceptance`가 mtime/window를 전혀 보지 않는다) Task 1이 공유 위치에서 `evictLRU`를 빼므로 그 증거는 절대 사라지지 않는다. 즉 PRE 판정은 producer가 실제로 죽어도 통과한다. 게다가 Task 8(11)이 `acc.ok === true`를 단언하므로 새 test는 이 약화된 의미를 고정할 뿐 탐지 실패를 잡지 못한다. 계획은 이 변경을 '오탐(false ok:false) 제거'로만 서술하고 반대 방향(false ok:true)의 비용을 어디에도 적지 않는다. | plugins/mccp/scripts/lib/msw-metrics/m8-coverage-gate.js:164-192 (`const eventsDir = path.join(repoRoot,'.claude','state','msw-events')` → `kinds` 누적 → `ok: preMissing.length === 0 && snapshots > 0`, 시간·범위 필터 0건; 주석 :157 "라이브 corpus가 M8이 주장하는 상태에 실제로 도달했는가") vs plan Task 1 "`appendEvent`가 공유 위치에 쓸 때는 `evictLRU`를 호출하지 않는다" + Task 8(11) "`evaluateAcceptance(...).ok === true`인지 단언한다" |
+| architect | LOW | A1에 적용한 '분자·분모 같은 필터' 규율(Task 5)이 A2에는 비대칭으로 적용된다. Task 5a는 `computeA2`의 **분모만** `sessions_local.length`로 바꾸고 분자 `samples`는 여전히 전체 `sessions`(공유 위치의 외래 세션 포함)에서 파생하도록 둔다. 현재는 `context_remaining_pct`가 로컬 `session_end`에만 실려 도달 불가이지만, 그 안전성은 구조가 아니라 KIND 목록의 우연에 의존하고 — 공유 대상 kind가 하나 늘면 A1에서 HIGH로 지적됐던 `num > den`이 A2에서 재생산된다. 계획은 이 잔여를 명시하지 않는다. | plugins/mccp/scripts/lib/msw-metrics/index.js:212-223 (`const samples = sessions.map(...)`, `denominator: sessions.length \|\| samples.length`) vs plan Task 5a "`computeA2`는 분모를 `sessions.length`가 아니라 **`sessions_local.length`** 로 읽는다. `sessions`(전체)는 그대로 두어" |
+| security | MEDIUM | DD8의 격리 불변식(공유 위치에는 A1 축 kind만 존재한다)이 writer/migration 쪽에만 강제되고 reader에는 kind 가드가 없다. 공유 디렉토리에 비-A1 이벤트가 한 번이라도 착지하면 session-activity.js:141-160의 per-line 루프가 kind 구분 없이 sessions 맵을 채우므로, 같은 파일 :93-99가 명시적으로 막으려는 worktree 간 교차 계상(B2 분모·guard 커버리지 오염)이 되살아난다. 게다가 Task 1이 공유 위치에서 evictLRU를 제거하고 '삭제는 사람의 판단에 맡긴다'고 정하므로, 일시적 producer 결함이 남긴 오염이 자동으로는 영원히 제거되지 않는다. 이 저장소는 서로 다른 브랜치의 worktree가 병렬로 도는 것이 상시 상태이므로(§3.8), 공유 corpus에 대해 '모든 실행 중인 빌드가 KIND 경계를 지킨다'는 전제는 reader가 검증하지 않는 신뢰 가정이다. Task 8(9) fixture는 공유 위치에 A1 이벤트만 넣으므로 이 경로를 반증하지 못한다. | plugins/mccp/scripts/derive/sources/session-activity.js:154 `if (!sessions[sessionId])` — kind 가드 없음; 같은 파일 :93-99 주석이 'a DIFFERENT repo or worktree' 스캔을 B2 오염으로 규정. plan Task 1 "appendEvent가 공유 위치에 쓸 때는 evictLRU를 호출하지 않는다" + Task 2 "공유 위치 해소 실패는 후보 미추가로 접힌다"(kind 필터 언급 없음), Task 8(9) fixture는 '외래 worktree의 A1 이벤트만'. |
+| security | MEDIUM | 공유 corpus가 무제한 증가하도록 설계됐는데(evict 제거, cap 초과는 loud stderr만) 그것을 동기적으로 전량 읽는 소비처 중 코드 레벨 상한을 갖는 것은 배너 하나뿐이다. `derive/cli.js run`과 `m8-coverage-gate.evaluateAcceptance`(Task 5b로 같은 공유 디렉토리를 조회하게 됨)는 timeout 경계가 없고, 스캔은 readdirSync + readFileSync 완전 동기 중첩 루프라 DD5가 스스로 인정한 stall 논거가 그 두 경로에는 그대로 남는다. | plan DD5 "Task 1이 공유 위치에서 evictLRU를 빼므로 스캔 대상은 GLOBAL_MAX_BYTES(100MB)를 설계상 넘길 수 있고" + Task 7만 `execFileSync(..., { timeout: 3000 })`; 스캔 실체는 plugins/mccp/scripts/derive/sources/session-activity.js:131(readdirSync)·:138(readFileSync). |
+| test | HIGH | Task 5a changes computeA2's denominator source, but the file that unit-tests that exact assertion (msw-metrics.test.js) is absent from Files to Change and its fixtures cannot produce the new field — so implementation must add an untested silent fallback, or the suite breaks unplanned. | plan Task 5a: "`computeA2`는 분모를 `sessions.length`가 아니라 **`sessions_local.length`** 로 읽는다"; existing test plugins/mccp/scripts/lib/tests/msw-metrics.test.js:184-194 builds `session_activity: { ok:true, sessions:[{context_remaining_pct:null},…] }` with no `sessions_local` and asserts `assert.strictEqual(a2.denominator, 2, 'session volume observation preserved')`. `msw-metrics.test.js` appears in the Validation run list (plan:624) but not in Files to Change (plan:337-364). A `sessions_local ?? sessions` fallback would make every producer that forgets the field silently revert to the contaminated denominator — the over-permissive direction — and no planned assertion covers the field-absent case. |
+| test | MEDIUM | Only one of computeA2's two denominator read sites is covered; the forward-only branch (the likeliest production shape of the pollution the task exists to prevent) has no planned assertion. | plugins/mccp/scripts/lib/msw-metrics/index.js:223 (`denominator: sessions.length \|\| samples.length`) and :237 (`denominator: sessions.length \|\| null`, forward-only branch). Plan cites only "`msw-metrics/index.js:202`, `:223`" (plan:299-300) and Task 8(9) asserts only `denominator === 2` with `status:'computed'` (plan:568-571). A repo with foreign shared A1 sessions and no local context sample lands on :237, where an unfixed `sessions.length` would report an inflated session volume and nothing would go red. |
+| test | HIGH | The new producer predicate (work_unit_kind = prd vs milestone) is asserted nowhere; every planned check either exercises a helper in isolation or uses hand-built reader fixtures, and the live run is structurally incapable of distinguishing a producer hardcoded to 'milestone'. | Task 4 Validate: "`eventToJsonLine`이 `work_unit_kind`를 보존하는지 단언" (plan:461-462) — that is the serializer, not `emitTaskStarted`. Task 8(7) is "Task 5의 fixture 단언", i.e. reader-side injected events (plan:562, 479-482). No test file references `emitTaskStarted` (grep over plugins/mccp/scripts/lib/tests returns only hook-trace-integration/g1-guard/extract-plan-path, none for the emitter), and receipt-prompt.js:166-192 is where the predicate would live. Acceptance 3 concedes the live cycle yields `kind='milestone'` only (plan:756-762), so a producer that always emits 'milestone' passes every planned check. |
+| invariant | HIGH | DD5는 fail-open 경계를 '코드'에 둔다고 선언한 뒤, 유일하게 남은 stall 상한을 명령 본문 산문으로 되돌린다. `a1`은 스스로 타임아웃을 주장하지 않고(plan:529-530) 유일한 상한은 `work.md`가 `execFileSync(..., {timeout:3000})`로 부른다는 지시(plan:534)인데, 그 삽입 지점은 JS가 아니라 bash fence다(work.md:71-98, plan 스스로 mirror로 :90의 `node -e` 관용구를 인용). 즉 지시된 메커니즘이 그 표면에서 그대로 표현되지 않으며(셸 인용을 낀 `node -e` 재작성이 필요), 그 재작성이 누락·오작동해도 붉어지는 것이 하나도 없다 — Task 8은 타임아웃 항목이 0건이고 Task 7의 Validate는 라이브 수동 '확인'(plan:538-541)뿐이다. 동기 스캔이 이벤트 루프를 쥐면 프로세스는 exit하지 못하므로(plan:214-221이 직접 인정) 실패 모드는 '배너 생략'이 아니라 `/mccp:work` Phase 0 정지 = 체인 정지이고, 이는 PRD 결정 3(fail-open)과 UI6이 acceptance로 못박은 바로 그 불변식이다. plan:212가 '이 저장소는 산문 강제가 불이행된 실측을 이미 갖고 있다'고 적은 그 자리에서 산문에 의존한다. | plan .claude/plans/orchestrator-step-wiring-m1.plan.md:529-541 ("`a1`은 자체 타임아웃을 주장하지 않는다" / "`work.md`가 … `execFileSync(..., { timeout: 3000 })`로") vs plugins/mccp/commands/work.md:71-98 (Phase 0는 bash fence) · plan:212 · Task 8 항목 (1)~(11) 어디에도 타임아웃 단언 없음 |
+| invariant | MEDIUM | 선언된 롤백 경로가 실제로 이전 동작을 복원하지 못하는데, plan은 복원한다고 단언하고 test는 그 단언을 고정하지 않는다. Risks 표는 "`resolveEventsDir` 한 함수만 바뀌고 … 토글로 즉시 복귀"라 적지만(plan:730), Files to Change는 reader 필터(Task 5 분모·분자 제외), A2 분모 정의 변경(Task 5a `sessions_local`), `m8-coverage-gate` 경로 해소 변경(Task 5b), `finalize-receipt.js`의 root 해소 방식 변경(Task 1)을 전부 포함하며 이들 중 어느 것도 `MCCP_MSW_EVENTS_SHARED` 뒤에 있지 않다. 토글을 끄면 경로만 worktree-local로 돌아가고 A1/A2의 계산 의미는 새 것으로 남는다. Task 8(8)은 '경로 복원'만 단언하므로(plan:563-566) 값 복원 불가라는 사실을 잡아낼 test가 0건이다. | plan:730 ("resolveEventsDir 한 함수만 바뀌고 … 토글로 즉시 복귀") vs plan:343-345(Files to Change: msw-metrics/index.js · m8-coverage-gate.js · finalize-receipt.js) · plan:484-497(Task 5a) · plan:563-566(Task 8(8)은 경로만 단언) |
+| invariant | MEDIUM | 공유 코퍼스의 유일한 크기 상한을 제거하면서 대체 상한을 소비처 하나에만 둔다. Task 1은 `appendEvent`가 공유 위치에 쓸 때 `evictLRU`를 호출하지 않고 cap 초과는 loud stderr만 낸다고 정한다(plan:388-392). `evictLRU`는 `GLOBAL_MAX_BYTES=100MB` 초과 시에만 동작하는 유일한 retention 장치이고(msw-events.js:26,119-123,299), 그 디렉토리는 `scanSessionActivity`가 `readdirSync`+`readFileSync` 완전 동기 중첩 루프로 읽는다(session-activity.js:131,138). 상한이 걸리는 소비처는 배너 하나뿐이고(그마저 finding 1의 산문 의존) `derive/cli.js run`·renderer·`evaluateAcceptance`는 아무 상한 없이 무제한 코퍼스를 동기 스캔한다. 조용한 삭제를 막으려다 조용한 무한 성장을 열어 두었고, 어느 test·acceptance 항목도 cap 초과 상태의 소비처 동작을 단언하지 않는다. | plan:388-392 · plugins/mccp/scripts/state/msw-events.js:26,119-123,299 · plugins/mccp/scripts/derive/sources/session-activity.js:131,138 · plan:220-221("설계상 넘길 수 있고, 그 디렉토리를 모든 /mccp:work Phase 0가 읽는다") |
+
+## Refutation attempted
+
+| Perspective | Verdict | What was attacked |
+|---|---|---|
+| architect | pass | 1) DD7 파생 구조의 4개 인용을 원본 대조: `msw-events.js:223` `discoverRepoRoot`(44ms 주석 실재) · `:236-243` `resolveEventsDir` 사슬 · `:299` `evictLRU` 무조건 호출 — 전부 계획이 적은 그대로였다. 2) DD8의 KIND 경계가 실제로 B2를 지키는지: `session-activity.js:117`(sessions 루프 밖) · `:154`(kind 가드 없음) · `:249-262` `spanOf`가 `session_start` 요구 — 계획의 정정된 메커니즘 서술이 맞다(초안의 거짓 근거를 스스로 뒤집은 것도 확인). 3) '단일 진실 원천' 주장 반증 시도 — `resolveEventsDir`를 우회해 이벤트 디렉토리를 직접 조립하는 지점을 전수 grep했고 4곳(`session-activity.js:91/104` · `m8-coverage-gate.js:164` · `b2-coverage-gate.js:173` · `findings.js:37`)을 찾았다. 계획은 앞 셋을 열거하고 `b2-coverage-gate.js:173`만 빠뜨렸으나, 그것은 `evidence_*` kind만 읽으므로(`:185`) KIND 경계상 경로 불변이라 결함이 아니다 — 누락이지만 무해다. 4) '어디서 돌려도 같은 값'을 3-root 시나리오로 손으로 시뮬레이션: `cwdInsideRepo`(`:100-105`)가 root마다 후보 집합을 다르게 만들지만 `event_id`/`legacyKeyOf` dedupe와 공유 위치를 `di>0`에 두는 Task 2 규칙 아래 세 root의 계수가 일치함을 확인 — 값이 갈리는 반례를 만들지 못했다. 5) `state/cli.js:445`가 A1 kind와 비-A1 kind(`remediation_pr`, `m8-coverage-gate.js:47`)를 같은 호출 지점에서 낸다는 점으로 caller 단위 경계를 반증하려 했으나, 경계가 caller가 아니라 `event.kind`에 걸려 있어 성립하지 않았다. 6) `producer_coverage`(정적 문자열, `:69`)와 `coverage_gate_ok`(별도 아티팩트, `:298`)가 공유 corpus에 오염되는지 확인 — 둘 다 무관. 남은 것이 위 두 건이고 어느 쪽도 HIGH가 아니다. |
+| security | pass | 공격 시도: (1) G2/F12의 \\"work_unit은 SLUG_RE로 제약된다\\"가 허위 인용인지 — receipt/decision.js:32,45,74,102,192에서 모든 반환 경로가 SLUG_RE 검사를 거치는 것을 확인, 반증 실패. (2) 파일명 경로 주입 — msw-events.js:248의 SESSION_ID_RE 초크 포인트 + :281이 sessionId만 파일명으로 쓰므로 슬러그는 파일명이 되지 않음, 반증 실패. (3) F9의 절대경로 유출 — common dir은 worktree 상위이지만 path.relative로 ../ 사슬이 나오므로 절대경로/사용자 디렉토리 유출 경로를 만들지 못함, 반증 실패. (4) `.git` 파일의 `gitdir:`/`commondir` 내용을 통한 traversal — 그 파일들은 tracked 될 수 없어(git이 `.git` 경로 컴포넌트 체크아웃 거부) 외부 입력 경로가 없음, 반증 실패. (5) DD7의 조상 저장소 해소 — `root/.git`만 보는 규칙과 discoverRepoRoot(msw-events.js:223)의 `.claude` walk-up 조합에서 조상 git dir에 닿는 입력을 구성하지 못함, 반증 실패. (6) receipt-prompt.js:194가 hook payload의 `event.cwd`를 repoRoot로 신뢰하는 축 — 변경 전후 동일한 기존 성질이라 이 계획이 도입한 결함이 아님. 남은 두 건은 reader 측 kind 가드 부재(신뢰 경계가 writer 한쪽에만 있음)와 evict 제거로 생긴 무제한 corpus에 대한 상한 비대칭이며, 둘 다 HIGH로 올릴 만큼의 게이트 판정 영향은 증거로 세우지 못했다. |
+| test | fail | Verified the plan's code citations against source: msw-events.js:223/236/299 (discoverRepoRoot, resolveEventsDir, unconditional evictLRU) and session-activity.js:87/117/126/130/154 (candidates, sessions outside kind guard, legacyKeyOf, di>0) — all accurate, so DD7/DD8's premises hold. Attacked (a) the migration dedupe claim, (b) the KIND-boundary Validation 1b/7 shell blocks (they do assert both polarities and are non-vacuous), (c) the render label test for the dead `desc` field (correctly restricted to `name`), (d) worktree-deletion resilience — found nothing. Found defects in three places: the computeA2 denominator change vs. its hand-built existing unit fixtures, the uncovered forward-only denominator read site, and the entirely untested work_unit_kind producer predicate. |
+| invariant | fail | 읽은 것: plan 전문(838행) · PRD 전문 · session-activity.js:80-210(candidates/di>0/legacyKeyOf/sessions 루프) · msw-events.js:200-320(discoverRepoRoot/resolveEventsDir/appendEvent/evictLRU) · m8-coverage-gate.js:140-205(evaluateAcceptance 하드코딩 경로·PRE/POST) · work.md:70-98(Phase 0 실제 fence). 공격한 게이트: (a) DD7 파생 구조가 조상 저장소로 새는지 — root/.git 단일 검사라 새지 않음, 반증 실패. (b) Task 2의 di>0 dedupe가 legacy 이벤트를 흘리는지 — :130/:147-153을 실측했고 공유 위치를 di>0에 두면 legacyKeyOf가 실제로 걸린다, 반증 실패. (c) 토글 typo 극성 — off로 접고 reader는 토글을 안 읽으므로 union이라 이벤트 유실 경로 없음, 반증 실패. (d) Task 5의 분자 필터가 A1>100%를 닫는지 — num⊆den이 구조 보장, 반증 실패. (e) Validation 7의 양방향 쌍이 공허한지 — kind를 주고 on/off 양방향이라 공허하지 않음, 반증 실패. 남은 셋(fail-open 상한의 산문 회귀 · 롤백 실효 미고정 · retention 상한 제거)은 반증에 성공했다. |
+
+## Measurement
+
+<!-- Written by plan-review/cli.js record on EVERY exit path, pass or halt.
+     Machine-readable; do not hand-edit. A null field means the axis was
+     not observed, never that it was zero. -->
+
+```json
+{
+  "verdict": "divergent",
+  "source": "multi-agent",
+  "layers": {
+    "l1": "converged",
+    "l2": "divergent",
+    "l3": "not fired"
+  },
+  "quorum": {
+    "responded": 4,
+    "required": 3,
+    "roles": 4,
+    "of": 4,
+    "passed": false
+  },
+  "wall_clock_ms": 320262,
+  "halt_stage": "5.2e",
+  "backlog_appended": null,
+  "backlog_skipped_nonblocking": null,
+  "granted": 4,
+  "reviewed_plan_hash": "sha256:47a53275c35576ddf53a057ef977bc4d2f2b67d7b8072ff384ae2358f1c97af0",
+  "plan_path": ".claude/plans/orchestrator-step-wiring-m1.plan.md",
+  "recorded_at": "2026-09-02T01:14:17.188Z"
+}
+```

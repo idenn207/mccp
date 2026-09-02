@@ -7,6 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const mswEvents = require('../../state/msw-events');
 
 // `evidence_conflict_prevented` 중 **claim fence**가 막은 것들의 `conflict_kind`.
 //
@@ -49,7 +50,17 @@ function scanSessionActivity(repoRoot) {
     // 축**이다. DD4가 완주 emit을 산문에 맡겼고 그 산문은 불이행될 수 있으므로,
     // 그 간극을 침묵시키지 않고 수치로 낸다.
     sealed_without_completion: 0,
+    // orchestrator-step-wiring M1 (DD3 · DD4) — 진단 축 3종. `computeA1`은 이 값을
+    // 읽지 않는다(DD6 — computeA1 변경 0). 여기 있는 이유는 분모에서 무엇이
+    // 빠졌는지를 침묵시키지 않기 위해서다.
+    prd_granularity_excluded_count: 0,   // `work_unit_kind='prd'`라 분모에서 뺀 작업 단위
+    work_unit_kind_unknown_count: 0,     // 필드 부재/미지값 — 분모에는 **포함**하되 병기
+    completion_without_startup: 0,       // 완주는 있는데 분모에 없는 작업 단위 (DD4 비대칭)
     sessions: [],
+    // Task 5a — **worktree-local 후보에서 관측된** 세션만. `computeA2`의 분모는
+    // 이것을 읽는다. `sessions`(전체)는 공유 위치의 외래 A1 세션까지 포함하므로,
+    // 그것을 분모로 쓰면 A2의 "분모 = 관측된 세션 수" 계약이 조용히 거짓이 된다.
+    sessions_local: [],
     concurrent_pairs_count: 0,
     collision_events_count: 0,
     // multi-session-work-loop M3 — 증거 충돌 taxonomy.
@@ -100,18 +111,41 @@ function scanSessionActivity(repoRoot) {
     const cwdAbs = path.resolve(process.cwd());
     const rootAbs = path.resolve(repoRoot);
     const cwdInsideRepo = cwdAbs === rootAbs || cwdAbs.startsWith(rootAbs + path.sep);
-    const candidates = cwdInsideRepo
-      ? [primaryDir, path.join(cwdAbs, '.claude', 'state', 'msw-events')]
-      : [primaryDir];
+    // orchestrator-step-wiring M1 (Task 2) — 공유 위치를 후보에 더한다.
+    //
+    // **토글을 읽지 않는다** (DD2). reader가 `MCCP_MSW_EVENTS_SHARED`를 보면,
+    // 공유 위치에 쓴 뒤 토글을 끈 사람이 그 이벤트를 잃는다. 공유 위치를 계속 읽는
+    // 것은 무해하다 — 없으면 후보에서 빠질 뿐이다. 그래서 해소는 토글을 거치는
+    // `resolveEventsDirInfo`가 아니라 `commonDirOf`를 직접 쓴다.
+    //
+    // **순서가 dedupe 극성을 정한다**: `isCrossLocation = di > 0`이라 첫 디렉토리는
+    // 전건 수용이다. 마이그레이션이 여러 worktree의 이벤트를 공유 디렉토리 하나로
+    // 모으므로, 그것을 `di=0`에 두면 `event_id` 없는 레거시 이벤트가 복합키 dedupe를
+    // 통과해 중복 계상된다. 그래서 **뒤쪽**이다.
+    let sharedDir = null;
+    try {
+      const common = mswEvents.commonDirOf(repoRoot);
+      if (common) sharedDir = path.join(common, mswEvents.SHARED_SUBPATH);
+    } catch (_e) {
+      sharedDir = null;   // 해소 실패는 후보 미추가로 접힌다 (throw 금지)
+    }
+
+    // `shared` 표식은 Task 5a가 쓴다 — 세션이 **로컬에서 관측됐는지**를 판정해야
+    // A2 분모가 외래 세션으로 희석되지 않는다.
+    const candidates = [{ dir: primaryDir, shared: false }];
+    if (sharedDir) candidates.push({ dir: sharedDir, shared: true });
+    if (cwdInsideRepo) {
+      candidates.push({ dir: path.join(cwdAbs, '.claude', 'state', 'msw-events'), shared: false });
+    }
 
     const scanDirs = [];
     const seenDirs = new Set();
-    for (const d of candidates) {
-      if (!fs.existsSync(d)) continue;
-      const key = canonical(d);
+    for (const c of candidates) {
+      if (!fs.existsSync(c.dir)) continue;
+      const key = canonical(c.dir);
       if (seenDirs.has(key)) continue;
       seenDirs.add(key);
-      scanDirs.push(d);
+      scanDirs.push(c);
     }
 
     const sessions = {};
@@ -119,6 +153,13 @@ function scanSessionActivity(repoRoot) {
     // 세션 축(`sessions`)과 나란히 두되 서로 섞지 않는다: 아래 B2 동시성은
     // 세션을, A1은 작업 단위를 센다.
     const startedWorkUnits = new Set();
+    // DD3 — work_unit → 그 단위에서 관측된 granularity 표식의 집합. 분모 판정을
+    // 루프 **뒤**로 미루는 이유는 같은 단위가 여러 이벤트로 나타날 수 있고, 그때
+    // 결과가 스캔 순서에 의존하면 안 되기 때문이다. `prd`가 한 번이라도 보이면
+    // 그 단위는 제외이고, 그 규칙은 어느 순서로 읽어도 같은 답을 낸다.
+    const startupKinds = new Map();
+    const prdExcludedWorkUnits = new Set();
+    const unknownKindWorkUnits = new Set();
     const completedWorkUnits = new Set();
     const sealedWorkUnits = new Set();
     const seenEventIds = new Set();
@@ -126,7 +167,8 @@ function scanSessionActivity(repoRoot) {
     const legacyKeyOf = (e) => [e.session_id, e.kind, e.ts, e.ended_at || '', e.created_at || ''].join('\u0000');
 
     for (let di = 0; di < scanDirs.length; di++) {
-      const mswEventsDir = scanDirs[di];
+      const mswEventsDir = scanDirs[di].dir;
+      const dirIsShared = scanDirs[di].shared;
       const isCrossLocation = di > 0;   // 첫 디렉토리는 전부 수용
       const files = fs.readdirSync(mswEventsDir);
       for (const file of files) {
@@ -159,8 +201,14 @@ function scanSessionActivity(repoRoot) {
                   task_completed: false,
                   created_at: evt.created_at,
                   ended_at: evt.ended_at,
+                  // Task 5a — 이 세션을 worktree-local 후보에서 본 적이 있는가.
+                  // 이 맵은 kind 가드가 없어(`:154` 선례) 공유 위치의 외래 A1
+                  // 이벤트도 엔트리를 만든다. 그래서 "봤다"와 "여기서 봤다"를
+                  // 구분하는 표식이 필요하다.
+                  observed_local: false,
                 };
               }
+              if (!dirIsShared) sessions[sessionId].observed_local = true;
               sessions[sessionId].events.push(evt);
 
               // Collect context_remaining_pct and task_completed from session_end events
@@ -190,7 +238,15 @@ function scanSessionActivity(repoRoot) {
               // 발화 시점에 emit한다. 같은 작업 단위의 재발화는 Set이 접는다.
               if (evt.kind === 'task_started') {
                 result.startups_producer_present = true;
-                if (evt.work_unit) startedWorkUnits.add(String(evt.work_unit));
+                if (evt.work_unit) {
+                  const wu = String(evt.work_unit);
+                  if (!startupKinds.has(wu)) startupKinds.set(wu, new Set());
+                  // 열거 밖 값과 필드 부재를 같은 통(`unknown`)에 넣는다. 둘 다
+                  // "모른다"이고, 모르는 것을 `milestone`으로 접으면 그것이 DD3가
+                  // 금지한 조용한 오분류다.
+                  const k = evt.work_unit_kind;
+                  startupKinds.get(wu).add(k === 'prd' || k === 'milestone' ? k : 'unknown');
+                }
               }
 
               // M8 — DD5 병기 축. 분자가 **아니다**: 봉인 뒤 `gh pr create`가
@@ -228,8 +284,38 @@ function scanSessionActivity(repoRoot) {
     // 분모를 "착수 이벤트가 기록된 작업 단위 전수"로 이미 고정해 두었다.
     // 세션 축은 사라지지 않는다: 아래 B2 동시성 계산은 여전히 `sessions`와
     // `spanOf`를 쓴다. 바뀐 것은 A1이 무엇을 세는가뿐이다.
+    // DD3 — 분모 확정. `prd`가 한 번이라도 관측된 단위는 제외하고, 나머지는 포함하되
+    // `milestone`이 한 번도 관측되지 않았으면 unknown으로 병기한다.
+    for (const [wu, kinds] of startupKinds) {
+      if (kinds.has('prd')) { prdExcludedWorkUnits.add(wu); continue; }
+      startedWorkUnits.add(wu);
+      if (!kinds.has('milestone')) unknownKindWorkUnits.add(wu);
+    }
+    result.prd_granularity_excluded_count = prdExcludedWorkUnits.size;
+    result.work_unit_kind_unknown_count = unknownKindWorkUnits.size;
+
     result.task_startups_count = startedWorkUnits.size;
-    result.task_completions_count = completedWorkUnits.size;
+
+    // L2 R1 invariant HIGH — **분자에도 같은 필터를 적용한다.**
+    //
+    // 분모에서만 빼면 분자가 분모에 없는 항목을 세게 된다. 실측 사례가 있다:
+    // `env-contract-integrity`는 PRD 이름 슬러그로 착수와 완주를 둘 다 가졌다
+    // (착수는 인자 경로에서, 완주는 branch에서 파생 — DD4). 그러면
+    // `completedWorkUnits.size > startedWorkUnits.size`가 가능하고, `computeA1`은
+    // 상한도 무결성 분기도 없이 그 비율을 그대로 내어 **A1 > 100%가
+    // `status:'computed'` · `integrity_ok:true`로 인증된다**.
+    //
+    // 여기서 `num <= den`을 구조적으로 보장하므로 DD6(computeA1 무변경)이 유지된다.
+    // 빠진 완주는 버리지 않고 `completion_without_startup`으로 계상한다 —
+    // `sealed_without_completion`과 같은 형태의 커버리지 축이다.
+    let countedCompletions = 0;
+    let completionWithoutStartup = 0;
+    for (const wu of completedWorkUnits) {
+      if (startedWorkUnits.has(wu)) countedCompletions++;
+      else completionWithoutStartup++;
+    }
+    result.task_completions_count = countedCompletions;
+    result.completion_without_startup = completionWithoutStartup;
 
     // DD5 — 봉인됐으나 완주 기록이 없는 작업 단위. 산문 의존(DD4)이 남긴 간극의
     // 크기이며, 0이 아니라고 해서 결함이라는 뜻은 아니다(봉인 후 PR 생성이 실제로
@@ -312,6 +398,9 @@ function scanSessionActivity(repoRoot) {
     }
 
     result.sessions = Object.values(sessions);
+    // Task 5a — 필드 **추가**이지 `sessions`의 의미 변경이 아니다. 기존 소비처는
+    // 그대로 두고, A2만 분모를 이 배열에서 읽는다.
+    result.sessions_local = result.sessions.filter(function (s) { return s && s.observed_local; });
   } catch (err) {
     result.ok = false;
     result.error = err.message;

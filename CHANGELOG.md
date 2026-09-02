@@ -2,8 +2,89 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.1`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.34.3`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [1.34.3] — 2026-09-02
+
+> **§3.7**: `1.34.1 → 1.34.3` (**patch** — orchestrator-step-wiring PRD의 단일
+> milestone M1이고 PRD 종료 축이 아니다). **초판 plan은 `1.33.8`을 잠정 target으로
+> 적었으나 그 전제가 stale했다**: plan 작성 시점의 origin/main은 `1.33.7`이었는데 이
+> 브랜치가 사는 동안 `1.34.1`까지 발행됐다. 발행된 번호는 불가침이므로 그 위로 밀되,
+> sibling worktree `c1-review-record-linkage`가 `1.34.2`를 선언 중이라 예측 가능한
+> 충돌을 피해 한 칸 더 올렸다. §3.7대로 `/mccp:pr` 진입 직전 다시 재계산한다.
+
+### Added
+
+- `plugins/mccp/scripts/migrations/msw-events-common-dir.js` — 기존 worktree-local A1
+  이벤트를 git common dir로 1회 수집(idempotent · dry-run · marker). 컨테인먼트 기준은
+  repo-root가 아니라 **common dir**이고, 판정은 손수 파싱이 아니라
+  `git rev-parse --git-common-dir`에 묻는다.
+- `plugins/mccp/scripts/lib/msw-metrics/cli.js` — `a1` 서브커맨드(경량 A1 산출,
+  `--repo-root`, 어떤 실패에도 exit 0 + 빈 stdout). 상한은 자체 `setTimeout`이 아니라
+  호출자의 `execFileSync(..., { timeout })`가 건다 — 동기 스캔 위에서 in-process
+  타임아웃은 발화할 수 없다.
+- `MCCP_MSW_EVENTS_SHARED` (bool · default `on`) — 공유 위치 producer 경로의 되돌림
+  수단. 열거 밖 값은 **off로 접고 loud warn**한다.
+- `plugins/mccp/scripts/lib/tests/msw-a1-boundary.test.js` — 위치 독립성 · KIND 경계 ·
+  조상 격리 · 경로 불변 · legacy dedupe · granularity · A1 상한 · A2 분모 오염 ·
+  세 번째 producer root 일치 · m8-gate acceptance(토글 양방향) · 마이그레이션 리더의
+  청크 경계 디코딩 회귀 가드 19건.
+
+### Changed
+
+- `resolveEventsDir`가 DD7 파생 구조를 갖는다 — 공유 위치는 `repoRoot`의 **파생물**이고
+  `root/.git` 하나만 본다(walk-up 없음). 이동하는 것은 `task_started` ·
+  `task_completed` · `task_ship_sealed` **세 kind뿐**이라 B2 동시성 · 증거 taxonomy ·
+  findings 축은 무변경이다.
+- `session-activity.js` — 공유 위치를 후보 `di>0`에 추가(cross-location dedupe 유지),
+  `work_unit_kind=prd` 단위를 분모에서 제외하고 **분자에도 같은 필터**를 적용해
+  `num <= den`을 reader에서 구조 보장. 진단 3종(`prd_granularity_excluded_count` ·
+  `work_unit_kind_unknown_count` · `completion_without_startup`) 병기.
+- `computeA2`의 분모가 `sessions.length`가 아니라 `sessions_local.length`다 — 공유
+  위치의 외래 A1 세션이 A2 sample coverage를 희석하는 경로를 닫는다.
+- `m8-coverage-gate.evaluateAcceptance`가 경로를 조립하지 않고 reader와 **같은
+  방식**(`commonDirOf`)으로 해소한다 — 안 고치면 신규 worktree에서 `ok:false`가
+  영구화되고, `resolveEventsDir`로 물으면 토글 off에서 살아 있는 producer를
+  "제거됨"으로 보고한다(아래 로컬 리뷰 H1).
+- A1 라벨을 계산 단위와 맞춘다 — `세션 착수 안정성` → `작업 단위 완주율`.
+- 공유 위치에서는 `appendEvent`가 `evictLRU`를 호출하지 않는다. cap 초과는 loud
+  stderr만 — 조용한 삭제가 A1 baseline을 소급 파괴하는 경로를 닫는다.
+
+### Fixed
+
+커밋 전 로컬 리뷰(`/mccp:code-review`)가 낸 지적을 흡수했다. 두 건은 회귀 test로
+반증 가능함을 확인했다 — 수정을 되돌리면 붉어진다.
+
+- **H1** `m8-coverage-gate`가 `resolveEventsDir`를 통해 토글에 종속돼, `off`에서
+  공유 위치를 후보에서 빼고 살아 있는 producer를 "제거됨"으로 보고했다(실측:
+  `post_missing:["task_completed","task_ship_sealed"]`). 그 함수 자신의 주석이 막겠다고
+  선언한 실패 양상이다. 이제 reader와 같이 `commonDirOf`로 해소하며 **읽는 쪽은 토글을
+  읽지 않는다** — 쓰는 쪽만 보면 충분하다. plan 리뷰가 id=1a4104dd로 이미 예고했던 축이다.
+- **M1** `classifyWorkUnitKind`가 비문자열 인자를 `milestone`으로 단언해, producer가
+  "모른다"를 표현할 수단이 없었다. reader의 `unknown` 통이 구 이벤트 전용이 되어
+  hook payload에서 `command_args`가 사라지는 날 전 착수가 조용히 오분류된다. 이제
+  `null`을 내고 reader가 `unknown`으로 센다. 빈 문자열은 여전히 `milestone`이다 —
+  그것은 관측이지 부재가 아니다.
+- **M2** 마이그레이션의 청크 리더가 `buf.toString('utf8', …)`로 디코딩해 청크 경계의
+  multi-byte 문자를 손상시켰다. 손상된 라인은 `JSON.parse`에 걸려 `report.invalid`로
+  조용히 빠진다. `StringDecoder`로 교체.
+- **M3** 배너가 타임아웃에 조용히 사라졌다. `spawnSync`로 종료 사유를 읽어
+  `A1 배너 생략: <사유>` 한 줄을 남긴다 — 공유 corpus는 evict되지 않으므로 그 침묵은
+  언젠가 온다.
+- **L1** `task_ship_sealed` emit이 `repoRoot`만 넘겨, 둘 다 null일 때 walk-up
+  출발점이 `process.cwd()`가 됐다. `cwd`를 함께 넘긴다.
+- **L2** 공유 위치의 cap 경고 뒤에도 매 append마다 디렉토리를 전수 stat했다. 이미
+  경고했으면 재계산하지 않는다.
+
+`--repo-root` 검증 강화(L3) · 소비처별 스캔 상한(M3 잔여) · base 미머지(M4) ·
+선재 red인 `meta-research.test.js:583`은
+[backlog](.claude/plans/codex-findings-backlog.md)에 증거와 함께 이연했다.
+
+### Note
+
+- A1 값은 마이그레이션 시점에 점프한다(실측 `n/a (-/2 · forward-only)` →
+  `27.3% (6/22 · computed)`). 이 시점 **이전 값과는 비교 불가**다 — 개선이 아니라
+  집계 경계가 처음 확정된 것이다.
 ## [1.33.1] — 2026-08-26
 
 > **§3.7**: `1.33.0 → 1.33.1` (**patch** — diverse-agent-review PRD의 단일

@@ -297,8 +297,8 @@ worktree를 넘어 같은 `work_unit`으로 결속되는 유일한 축이다.
 - **그래서 A2가 실제로 깨진다 (신규 — 초안이 이 소비처를 열거하지 않았다).**
   `computeA2`는 `sessions.length`를 **분모로** 쓰고(`msw-metrics/index.js:202`, `:223`),
   분자 `samples.length`는 `context_remaining_pct`를 실은 로컬 `session_end`에서만 온다. 두 축이
-  비대칭으로 움직이므로 A1 이벤트를 공유 위치로 올리는 순간 A2의 sample coverage가 **관측된 적 없는
-  세션 수만큼 희석**된다. `index.js:44-45`·`:196`이 명시한 "분모 = 관측된 세션 수" 계약이 조용히
+  비대칭으로 움직이므로 A1 이벤트를 공유 위치로 올리는 순간 A2의 sample coverage가
+  **관측된 적 없는 세션 수만큼 희석**된다. `index.js:44-45`·`:196`이 명시한 "분모 = 관측된 세션 수" 계약이 조용히
   거짓이 되고, **이 PRD가 없애려는 위치 의존성이 두 번째 지표에서 재생산된다.**
   대응은 Task 5a와 Task 8(9)가 소유한다(아래).
 - **taxonomy·findings가 보존된다** — `evidence_*`·`remediation_pr`도 worktree-local이다.
@@ -306,8 +306,8 @@ worktree를 넘어 같은 `work_unit`으로 결속되는 유일한 축이다.
   거치지 않는다)도 **결함이 아니게 된다** — 그 축의 이벤트가 애초에 이동하지 않기 때문이다.
 - **호출자 census는 2개가 아니라 3개다 (R2 흡수 — 초안이 자기모순이었다).**
   R1이 지적한 5개 중 4개(`session-start.js:774` · `session-end.js:377` · `evidence-lock.js:295` ·
-  `handoff-items.js:76`)는 비-A1 kind라 경로가 바뀌지 않는다. 그러나 **`finalize-receipt.js:472`는
-  `kind: 'task_ship_sealed'`를 emit**하며, 그것은 바로 위 문단이 A1 축으로 정의한 셋 중 하나다.
+  `handoff-items.js:76`)는 비-A1 kind라 경로가 바뀌지 않는다. 그러나
+  **`finalize-receipt.js:472`는 `kind: 'task_ship_sealed'`를 emit**하며, 그것은 바로 위 문단이 A1 축으로 정의한 셋 중 하나다.
   초안은 이 파일을 "전부 비-A1"에 넣어 자기 KIND 경계와 정면으로 모순됐다
   (`m8-coverage-gate.js:52`의 승인 emit 레지스트리도 이 파일을 `task_ship_sealed`로 등록한다).
 - **그 세 번째 호출자는 root 해소 방식까지 다르다.** `finalize-receipt.js`는
@@ -530,14 +530,14 @@ worktree에서 모인 legacy 이벤트가 dedupe를 통과한다(architect HIGH 
   지킬 수 없는 보장을 계약에 적으면 그것이 곧 조용한 degradation이다.
   **`--repo-root <path>`를 받는다** — 기본값은 cwd. Validation 1b·5가 "빌드 하나를 여러 root에
   대해" 돌리는 형태를 취하므로 이 플래그는 편의가 아니라 그 검증의 전제다(R2 흡수).
-  (b) `work.md` Phase 0의 classification echo 직후에 그 CLI를 **`execFileSync(..., { timeout: 3000 })`
-  로** 부르고(경계는 자식 프로세스 — `plugins/mccp/scripts/derive/sources/worktrees.js:27`과 같은 형태), 타임아웃·비영점·빈 stdout은
+  (b) `work.md` Phase 0의 classification echo 직후에 그 CLI를
+  **`execFileSync(..., { timeout: 3000 })`로** 부르고(경계는 자식 프로세스 — `plugins/mccp/scripts/derive/sources/worktrees.js:27`과 같은 형태), 타임아웃·비영점·빈 stdout은
   전부 "배너 없음"으로 접어 한 줄을 생략한다.
 - **Mirror**: `plugins/mccp/commands/work.md:90` — CLI 호출 후 `node -e`로 JSON을 안전 파싱하는 관용구.
   타임아웃 경계는 `derive/sources/worktrees.js:27`의 `execFileSync` + `timeout` 형태를 **그대로** 쓴다.
 - **Validate**: `/mccp:work` 라이브 1회에서 배너 줄이 실제로 출력되는 것을 확인(UI9). 공유
-  디렉토리를 읽기 불가로 만든 상태에서 CLI가 exit 0 + 빈 stdout인지 확인. **그리고 스캔이
-  3초를 넘도록 만든 fixture에서 `/mccp:work` 진입이 멈추지 않고 배너만 생략되는지 확인** —
+  디렉토리를 읽기 불가로 만든 상태에서 CLI가 exit 0 + 빈 stdout인지 확인.
+  **그리고 스캔이 3초를 넘도록 만든 fixture에서 `/mccp:work` 진입이 멈추지 않고 배너만 생략되는지 확인** —
   이것이 DD5가 약속한 상한이 실제로 존재하는지의 유일한 증거다.
 
 ### Task 8: 회귀 test
@@ -565,15 +565,15 @@ worktree에서 모인 legacy 이벤트가 dedupe를 통과한다(architect HIGH 
     같은 경로를 복원하는지 함께 단언한다 — DD2가 내세운 되돌림 수단이 실제로 되돌리는지를
     확인하는 것이지 exit code만 보는 것이 아니다(L2 test·invariant MEDIUM 부분 흡수).
 
-  - **(9) A2 분모 오염 — CRITICAL 회귀 가드 (R2 신설)**: 공유 위치에 **외래 worktree의 A1
-    이벤트만** 있는 세션 3건과 로컬 `session_start`/`session_end` 세션 2건을 fixture에 넣고,
+  - **(9) A2 분모 오염 — CRITICAL 회귀 가드 (R2 신설)**: 공유 위치에
+    **외래 worktree의 A1 이벤트만** 있는 세션 3건과 로컬 `session_start`/`session_end` 세션 2건을 fixture에 넣고,
     `computeA2`의 `denominator === 2`인지 단언한다. 이 항목이 없으면 DD8이 틀려도 붉어지는 test가
     0건이라는 R1 test HIGH가 그대로 남는다 — 초안이 실제로 그 상태였다.
     같은 fixture에서 B2의 `concurrent_pairs_count`가 불변인지도 함께 단언한다(그것이 살아남는
     이유가 `spanOf`의 `session_start` 요구임을 고정한다).
   - **(10) 세 번째 A1 producer의 root 일치 — HIGH 회귀 가드 (R2 신설)**:
-    `finalize-receipt.js` 경로로 emit되는 `task_ship_sealed`가 `task_completed`와 **같은 root
-    아래**에 착지하는지 단언한다. `gitRepoRoot`가 null을 반환하는 상황을 주입해
+    `finalize-receipt.js` 경로로 emit되는 `task_ship_sealed`가 `task_completed`와
+    **같은 root 아래**에 착지하는지 단언한다. `gitRepoRoot`가 null을 반환하는 상황을 주입해
     `sealed_without_completion`이 유령 gap을 만들지 않는지도 확인한다.
   - **(11) `m8-coverage-gate` acceptance 불변 — HIGH 회귀 가드 (R2 신설)**: Task 5b 적용 후
     fixture worktree에서 `evaluateAcceptance(...).ok === true`인지 단언한다.
@@ -600,6 +600,14 @@ worktree에서 모인 legacy 이벤트가 dedupe를 통과한다(architect HIGH 
 > sibling worktree가 1.34.0을 선언 중이다. target은 (a) base 머지 해소 시점과
 > (b) `/mccp:pr` 진입 직전 **두 번 재계산**한다. 단일 milestone이므로 patch 축(**잠정 1.33.8**)이며,
 > 재상향 시 위 4면을 **전부 다시** 동기하고 `i18n-surface.test.js`를 재실행한다.
+>
+> **implement 시점 재계산 결과 — 위 문단의 전제가 이미 stale했다 (2026-09-02).**
+> 실측하니 origin/main은 1.33.7이 아니라 **1.34.1**이고, sibling `c1-review-record-linkage`가
+> **1.34.2**를 선언 중이다. 발행된 번호는 불가침이므로 그 위로 밀되 예측 가능한 충돌을 피해
+> 한 칸 더 올려 **1.34.3**에 착지했다. 4면(`plugin.json` · `renderer/html.js` page-foot ·
+> `renderer/markdown.js` derived 줄 · `CHANGELOG.md`)을 동기하고 `i18n-surface.test.js`를
+> 재실행해 green을 확인했다. 이 절이 경고한 대로 **`/mccp:pr` 진입 직전 한 번 더 재계산한다** —
+> 위 세 브랜치 중 어느 것이든 그 사이에 머지되면 target이 또 밀린다.
 >
 > **R2 흡수 — 초안은 여기서 "origin/main은 이미 1.33.6"이라 적고 target을 1.33.7로 골랐다.**
 > 1.33.7은 **이미 발행된 번호**이므로 그대로 따르면 `CHANGELOG.md`에 `## [1.33.7]` 헤딩이 둘
@@ -770,13 +778,14 @@ node -e '
 detector `design_signal=true` (signal files: `renderer/sections/msw-metrics.js` · `renderer/html.js` ·
 `renderer/markdown.js` · `derive/sources/session-activity.js`). SKILL first-step으로
 `frontend-design-direction/SKILL.md`의 `## Output Constraints` 4개 앵커를 읽고 R0 1회를 돌렸다.
-verdict `CONVERGED` (round 0/2, HIGH·CRITICAL 0건).
+verdict `CONVERGED` (round 0/2, HIGH·CRITICAL 0건). santa-loop R0 흡수로 본문이 바뀐 뒤
+게이트를 재진입하며 네 앵커를 다시 기계 측정했고, 그 결과가 아래 표다.
 
 | 앵커 | 측정 | 판정 |
 |---|---|---|
-| 정보 위계 3단계 (H15) | heading depth `#`1 / `##`11 / `###`17 — 최대 3, H4 이상 0건 | 통과 |
-| 강조색 화면당 1개 | 강조 채널 1종(bold)만. italic · strike · HTML emphasis 0건 | 통과 |
-| raw markdown marker 금지 | 줄을 넘는 `**` 3쌍 검출 → **R0에서 흡수** (한 줄 안에서 닫도록 재배치) | 흡수 후 통과 |
+| 정보 위계 3단계 (H15) | fence 제외 실제 heading `#`1 / `##`14 / `###`23 — 최대 3, H4 이상 0건 | 통과 |
+| 강조색 화면당 1개 | inline-code span 제외 후 강조 채널 1종(bold)만. italic · strike · HTML emphasis 0건 | 통과 |
+| raw markdown marker 금지 | 줄을 넘는 `**` **6쌍 재유입**(santa R0 흡수가 되돌려 놓음) → 이번 R0에서 재흡수 (줄바꿈 위치만 이동, 문구 무변경) | 흡수 후 0건 |
 | 한 화면 항목 수 상한 | 7개 섹션이 3행 초과 → 파서 비-입력 2개 표를 **R0에서 흡수** (상위 3 + collapse) | 흡수 후 통과 · 나머지는 적용 대상 아님 |
 
 MEDIUM 2건은 §3.14상 backlog 대상이지만 편집 비용이 낮고 라운드를 늘리지 않으므로 R0 안에서
@@ -834,3 +843,40 @@ routing mode: `auto` (effective at implement stage). plan 단계는 **recommend-
 ## Codex Adversarial Review
 
 <!-- placeholder: will be replaced by Phase 7.3 -->
+
+## Codex Implementation Review
+
+- 호출: `node ${CLAUDE_PLUGIN_ROOT}/scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, v0.2.2)
+- 라운드 수: 2 (R0는 payload를 저장하지 않아 내용을 읽지 못했고, 읽지 못한 리뷰는 리뷰가 아니므로 R1에서 파일로 재수신했다. cap 3, 1라운드 잔여)
+- 합치 결론: 리뷰어는 `needs-attention` · CRITICAL 1건을 냈고, 그 사실 주장 3건은 전부 참이지만 결론은 범주 오류다 — 이 게이트는 EXECUTE **이전**에 돌므로 "구현이 diff에 없다"는 정상 상태다. 새 implement-time 결정은 반증되지 않았고 계획대로 진행한다.
+- YAGNI Triage:
+  | Finding | Severity | Verdict | Why |
+  |---|---|---|---|
+  | F1 — 요청한 구현이 target diff에 없다 | CRITICAL | REJECT_YAGNI | 범주 오류. 사실 3건(`resolveEventsDir` kind 미배선 · `computeA2`가 `sessions.length` · CLI가 `a3` 단독)은 직접 확인해 전부 참이나, 그것이 곧 이 게이트 시점의 정상 상태다. 리뷰어 target이 `working-tree`로 기본 해소돼 존재하지 않는 diff를 읽었다. ship 시점 diff 리뷰는 `/mccp:pr`의 PR-Codex 소유 |
+- Deferred to backlog: 1 → `.claude/plans/codex-findings-backlog.md` (기각 근거 + 파생 축: implement-gate가 Codex에 *결정 텍스트*를 target으로 넘길 플래그가 없다는 구조 결함)
+- Open Questions: 없음 (auto-CRITICAL 카탈로그 해당 0건 — security boundary/atomic state/schema breakage 어디에도 속하지 않는다)
+- Codex session 참조: threadId `01a05fb9-e400-7a70-a983-847ed16ff201`
+
+### Design Review
+
+- detector: `skill_available=1` · `design_signal=0` · `reason=no-signal` → **silent_skip**. plan 단계의 `design_signal=true`는 *예정된* 렌더러 변경에 근거했고, 게이트 시점의 tracked diff에는 아직 rendered surface가 없다. critique retry loop과 stage routing은 트리거 미발화로 돌지 않았고, 그 사실을 receipt에 `impeccable_silent_skip`으로 정직하게 남긴다.
+
+### Security Reviewer
+
+`Task(security-reviewer)`가 실행됐고(auto-fallback 아님) 경로 처리 축에서 HIGH 3 · MEDIUM 3 · LOW 2를 냈다.
+게이트가 EXECUTE **이전**이므로 흡수의 형태는 "설계 수정"이고, 아래 항목은 전부 Task 1/3/7의
+구현 계약에 반영된 뒤 Phase 3에 진입한다(§3.14 — HIGH는 그 자리에서 흡수).
+
+| # | severity | 지적 | 처리 |
+|---|---|---|---|
+| S1 | HIGH | `commonDirOf`가 resolve 결과에 아무 경계 검사가 없어 `commondir`의 `../` 누적이 저장소 밖 write anchor를 만든다 | **흡수 — 단, 리뷰어의 처방은 채택하지 않는다.** `assertContained(root, common)`는 이 축에서 **항상 거짓**이다: worktree의 common dir(`<repo-root>/.git`)은 worktree root(`.worktrees/c2-…`)의 하위가 아니다. 그 규칙을 쓰면 공유 위치가 어떤 worktree에서도 성립하지 않아 milestone이 통째로 무력화된다. 실제로 성립하는 불변식은 **구조 검증**이다 — resolve된 디렉토리가 git dir의 형태(`HEAD` 존재 ∧ (`objects` ∨ `refs`) 디렉토리 존재)여야 하고 아니면 `null`. 임의 디렉토리로의 착지를 막으면서 정당한 common dir은 전부 통과한다 |
+| S2 | HIGH | `commonDirOf(x) === commonDirOf(cwd)` 문자열 동등은 Windows에서 unsound (대소문자 · 구분자 · junction) | **흡수** — 비교 전 `path.resolve` → `fs.realpathSync.native` → win32에서 case-fold → 후행 구분자 제거. realpath 실패는 fail-closed(비동등으로 처리) |
+| S3 | HIGH | 마이그레이션의 cross-worktree 열람 gate가 S1/S2와 같은 primitive를 유일 인가로 재사용해 순환이다 | **흡수** — 마이그레이션은 1회 실행 도구라 spawn이 허용되므로(Task 3) 손수 파싱 대신 `git -C <path> rev-parse --git-common-dir`로 **git 자신에게 묻는다**. 더해 대상 경로가 symlink 아닌 실디렉토리인지 `lstatSync`로 확인한다. `commonDirOf` 손수 파싱은 hot path(spawn 금지)에만 남는다 |
+| S4 | MEDIUM | `gitdir:` 행과 `commondir` 내용의 trailing LF/CRLF 미처리 시 경로 세그먼트에 제어문자가 섞여 throw | **흡수** — 두 read 직후 `.trim()`. 이것은 보안 이전에 정확성 결함이다(실 worktree 파일이 실제로 LF 종단) |
+| S5 | MEDIUM | `a1 --repo-root`가 argv를 무검증으로 `path.join`에 넘긴다 | **흡수** — `.claude` 또는 `.git` 마커 보유를 요구하고 미보유면 거절. 거절해도 `a1`은 계약대로 exit 0 + 빈 stdout |
+| S6 | MEDIUM | 마이그레이션 copy loop에 per-file 크기 상한이 없다 (writer는 `PER_FILE_MAX_BYTES` 보유) | **흡수** — writer와 같은 상한을 적용하고 초과 파일은 skip + loud stderr |
+| S7 | LOW-MED | `*.jsonl` glob이 symlink 항목을 거르지 않는다 | **흡수** — `lstatSync(file).isSymbolicLink()`이면 skip |
+| S8 | LOW | copy loop의 malformed line 처리 미명시 | **흡수** — writer 헤더가 선언한 per-line 격리를 그대로 미러 |
+
+MEDIUM·LOW도 전부 흡수한 이유는 신규 작성 코드의 1~3줄 변경이라 backlog 추적 비용이 흡수 비용보다
+크기 때문이다(§3.16의 선례 — 라운드를 늘리지 않는 것이 요지이지 고치지 않는 것이 아니다).

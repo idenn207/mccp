@@ -93,7 +93,7 @@ const OFF = 'disable-by-default';
 const RAW = [
   // ── gates — receipt · Codex · stop-loop · auto-chain · audited escape ──────
   ['MCCP_RECEIPT_GATE_MODE', 'enum', ['hard', 'soft', 'off'], 'hard', null, 'active', 'gates', 'plugins/mccp/scripts/hooks/receipt-prompt.js:354', 'receipt 게이트 강도.'],
-  ['MCCP_SKIP_RECEIPT', 'bypass-flag', BY, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/hooks/receipt-prompt.js:327', 'receipt 게이트 1회 우회.'],
+  ['MCCP_SKIP_RECEIPT', 'bypass-flag', BY, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/hooks/receipt-prompt.js:335', 'receipt 게이트 1회 우회.'],
   ['MCCP_RECEIPT_DEBUG', 'bool', B, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/hooks/goal-phase-guard.js:196', 'receipt 디버그 출력.'],
   ['MCCP_RECEIPT_DEBUG_LEGACY_INLINE', 'bool', B, 'on', ON, 'active', 'gates', 'plugins/mccp/scripts/hooks/receipt-prompt.js:125', '구형 inline 디버그 유지.'],
   ['MCCP_ALLOW_CODEX_UNAVAILABLE', 'bypass-flag', BY, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/lib/codex-invoke.js:168', 'Codex 미가용 시 advisory.'],
@@ -161,7 +161,7 @@ const RAW = [
   // ── orchestration — work 격리/병렬/merge · plan fan-out · runaway · dispatch ─
   ['MCCP_WORK_ISOLATE_IMPLEMENT', 'bool', B, 'on', ON, 'active', 'orchestration', 'plugins/mccp/scripts/lib/orchestration-preview.js:78', 'implement worktree 격리.'],
   ['MCCP_WORK_IMPLEMENT_WORKFLOW', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/lib/implement-dispatch/route.js:68', 'Workflow 런타임 사용.'],
-  ['MCCP_WORK_IMPLEMENT_PARALLEL', 'bool', B, 'on', ON, 'active', 'orchestration', 'plugins/mccp/commands/work.md:200', '병렬 implement 허용.'],
+  ['MCCP_WORK_IMPLEMENT_PARALLEL', 'bool', B, 'on', ON, 'active', 'orchestration', 'plugins/mccp/commands/work.md:239', '병렬 implement 허용.'],
   ['MCCP_WORK_PARALLEL_MAX', 'int', null, '4', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/implement-dispatch/budget.js:120', '동시 worker 상한.'],
   ['MCCP_WORK_PARALLEL_BUDGET', 'int', null, '150000', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/implement-dispatch/budget.js:121', '병렬 최소 토큰 예산.'],
   ['MCCP_WORK_PARALLEL_AUTODISABLE_TIER', 'list', null, '', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/implement-dispatch/budget.js:122', '병렬 자동 해제 tier.'],
@@ -180,6 +180,7 @@ const RAW = [
   ['MCCP_AUTO_HANDOFF', 'enum', ['off', 'notify', 'spawn'], 'notify', null, 'active', 'orchestration', 'plugins/mccp/scripts/derive/sources/toggle-usage.js:173', '핸드오프 신호 처리.'],
   ['MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/state/session-spawner.js:282', '실험적 세션 spawn.'],
   ['MCCP_MULTI_SESSION_SCAN', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/derive/sources/worktrees.js:316', '다중 세션 스캔.'],
+  ['MCCP_MSW_EVENTS_SHARED', 'bool', B, 'on', ON, 'active', 'orchestration', 'plugins/mccp/scripts/state/msw-events.js:255', 'A1 축 이벤트를 git common dir에 모은다.'],
 
   // ── cost — cost-state · subscription · handoff · briefing · context monitor ─
   ['MCCP_COST_STATE_DECAY_HOURS', 'int', null, '6', null, 'active', 'cost', 'plugins/mccp/scripts/lib/cost-state.js:42', 'cost 마커 decay 시간.'],

@@ -281,10 +281,70 @@ function writeJson(target, doc) {
   }
 }
 
+// orchestrator-step-wiring M1 (Task 7 · DD5) — 배너용 경량 A1 경로.
+//
+// `derive/cli.js run`은 9개 source를 전부 돌아 실측 2.28초다. `/mccp:work` 진입마다
+// 그것을 지불할 수 없으므로 A1에 필요한 두 호출만 한다.
+//
+// **자체 타임아웃을 주장하지 않는다.** `scanSessionActivity`는 `readdirSync` +
+// `readFileSync`의 완전 동기 중첩 루프이고, 동기 루프가 이벤트 루프를 쥐고 있는
+// 동안 `setTimeout` 콜백은 실행될 수 없다. 상한은 **자식 프로세스 경계**에서만
+// 성립하므로 호출자(`work.md`)가 `execFileSync(..., { timeout })`로 건다. 지킬 수
+// 없는 보장을 CLI 계약에 적으면 그것이 곧 조용한 degradation이다.
+//
+// 계약은 하나다: **어떤 실패에도 exit 0 + 빈 stdout.** 호출자는 stdout이 비면
+// 배너 줄을 생략할 뿐이다.
+function cmdA1(argv) {
+  try {
+    let repoRoot = process.cwd();
+    for (let i = 0; i < argv.length; i++) {
+      if (argv[i] === '--repo-root' && typeof argv[i + 1] === 'string') {
+        repoRoot = argv[i + 1];
+        i++;
+      }
+    }
+    const resolved = path.resolve(repoRoot);
+
+    // security review S5 — argv를 무검증으로 경로 조립에 넘기지 않는다.
+    // `discoverRepoRoot`가 기본 경로에 요구하는 것과 같은 종류의 마커를 요구한다.
+    const marked = ['.claude', '.git'].some(function (m) {
+      try { fs.statSync(path.join(resolved, m)); return true; } catch (_e) { return false; }
+    });
+    if (!marked) {
+      process.stderr.write('[mccp:a1] --repo-root has no .claude or .git marker — refusing'
+        + ' (banner omitted).\n');
+      return 0;
+    }
+
+    const { scanSessionActivity } = require('../../derive/sources/session-activity');
+    const metricsMod = require('./index');
+    const scan = scanSessionActivity(resolved);
+    const metrics = metricsMod.computeMetrics({ sources: { session_activity: scan } });
+    const a1 = metrics && metrics[metricsMod.A1_WORK_COMPLETION_RATE];
+    if (!a1) return 0;
+
+    const pct = (a1.value === null || a1.value === undefined)
+      ? 'n/a'
+      : (Math.round(a1.value * 1000) / 10) + '%';
+    const num = (a1.numerator === null || a1.numerator === undefined) ? '-' : a1.numerator;
+    const den = (a1.denominator === null || a1.denominator === undefined) ? '-' : a1.denominator;
+    process.stdout.write('A1 작업 단위 완주율 ' + pct + ' (' + num + '/' + den
+      + ' · status=' + a1.status + ')\n');
+    return 0;
+  } catch (err) {
+    // F9 — 절대경로를 흘리지 않는다. 무엇이 실패했는지만 말한다.
+    process.stderr.write('[mccp:a1] failed (fail-open, banner omitted): '
+      + ((err && err.message) || String(err)) + '\n');
+    return 0;
+  }
+}
+
 async function main(argv) {
   const sub = argv[0];
   if (sub === 'a3') return cmdA3(argv.slice(1));
-  process.stderr.write('usage: cli.js a3 [--emit <path> [--force] | --emit-after <path> | --print]\n');
+  if (sub === 'a1') return cmdA1(argv.slice(1));
+  process.stderr.write('usage: cli.js a3 [--emit <path> [--force] | --emit-after <path> | --print]\n'
+    + '       cli.js a1 [--repo-root <path>]\n');
   return 2;
 }
 

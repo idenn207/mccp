@@ -52,6 +52,20 @@ test('resolution precedence: dir > repoRoot > walk-up', () => {
     path.resolve(eventsDirOf(repo)));
 });
 
+// orchestrator-step-wiring M1 — 공유 위치 해소가 이 파일의 격리 계약을 **건드리지
+// 않는다**는 것을 같은 자리에서 고정한다. 위 fixture들은 `.git`이 없는 tmpdir이라
+// `commonDirOf`가 null을 내고 경로가 v1.33.x와 바이트 단위로 같다. 그 불변성이
+// 우연이 아니라 DD7의 파생 구조에서 나온다는 것을 여기서 말한다.
+test('the shared A1 location derives from repoRoot/.git only — no .git means no change', () => {
+  const repo = mkRepo('shared-noop');
+  assert.equal(mswEvents.commonDirOf(repo), null,
+    'mkRepo builds no .git, so there is nothing to derive a common dir from');
+  assert.equal(path.resolve(mswEvents.resolveEventsDir({ repoRoot: repo, kind: 'task_started' })),
+    path.resolve(eventsDirOf(repo)),
+    'the A1 axis must fall back to the exact pre-M1 path — this is what keeps the isolation '
+    + 'assertions below meaningful instead of accidentally green');
+});
+
 test('two worktrees do not cross-count each other events (B2 denominator integrity)', () => {
   const wtA = mkRepo('wtA');
   const wtB = mkRepo('wtB');

@@ -31,8 +31,20 @@ const { renderProseHtml, renderProseMd } = require('../format-utils');
 // 지표 metadata (id → {한국어 이름, 설명, 카테고리})
 const METRICS_META = {
   A1: {
-    name: '세션 착수 안정성',
-    desc: '정상 완료 세션 비율',
+    // orchestrator-step-wiring M1 (Task 6) — 라벨을 계산 단위와 맞춘다.
+    //
+    // 이 지표는 M8부터 **작업 단위**(distinct `work_unit`)를 세는데 라벨은 여전히
+    // 세션을 말하고 있었다. 세션과 작업 단위는 1:1이 아니고, 이 PRD가 없애려는
+    // 문제 자체가 "한 작업이 여러 세션에 걸친다"이므로 그 어긋남은 지표를
+    // 정반대로 읽히게 한다.
+    //
+    // **`desc`는 렌더되지 않는다.** 렌더러는 `meta.name`만 출력하고(이 파일
+    // `:444` · `:469` · `:530`) `desc`의 read site는 정의부 외에 0건이다. 그래도
+    // 고치는 이유는 이 파일이 지표 계약을 읽는 사람의 참조점이기 때문이며,
+    // **test는 `name`에만 건다** — 반증 불가능한 문자열에 통과 단언을 걸면
+    // green이 아무것도 뜻하지 않게 된다.
+    name: '작업 단위 완주율',
+    desc: '착수 기록이 있는 작업 단위 중 PR 번호까지 도달한 비율',
     category: 'A',
     type: 'standard',
   },

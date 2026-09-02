@@ -134,6 +134,7 @@
 |`MCCP_AUTO_HANDOFF`|enum|off/notify/spawn|notify|핸드오프 신호 처리.|[→](environment/orchestration.md#mccp_auto_handoff)|
 |`MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN`|bool|on/off|off|실험적 세션 spawn.|[→](environment/orchestration.md#mccp_auto_handoff_experimental_spawn)|
 |`MCCP_MULTI_SESSION_SCAN`|bool|on/off|off|다중 세션 스캔.|[→](environment/orchestration.md#mccp_multi_session_scan)|
+|`MCCP_MSW_EVENTS_SHARED`|bool|on/off|on|A1 축 이벤트를 git common dir에 모은다.|[→](environment/orchestration.md#mccp_msw_events_shared)|
 
 ### cost — 비용 · 구독 · briefing
 

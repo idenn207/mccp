@@ -17,6 +17,10 @@
 | [2026-08-20-env-settings-authoring-surface.md](2026-08-20-env-settings-authoring-surface.md) | 2026-08-20 | active | 환경변수 발견성과 settings.json 작성 표면 — 외부 스키마 import 대 setup 시드 대 제3안 |
 | [2026-08-20-env-contract-behavior-drift.md](2026-08-20-env-contract-behavior-drift.md) | 2026-08-20 | active | 환경변수 계약 대 실제 동작 — 선언 값이 코드에 없는 결함과 값 의미 문서 부재 |
 | [2026-08-22-impeccable-plugin-channel-migration.md](2026-08-22-impeccable-plugin-channel-migration.md) | 2026-08-22 | active | impeccable 배포 채널 전환(npm CLI 3.6.0 → marketplace plugin 4.1.1)이 mccp의 탐지·setup·디자인 게이트에 만든 결함 전수 조사 |
+| [2026-08-31-remaining-issue-disposition.md](2026-08-31-remaining-issue-disposition.md) | 2026-08-31 | active | 남은 open issue 4건(#127·#128·#129·#130) 통합 처분 조사 |
+| [2026-08-31-harness-instability-and-command-bloat.md](2026-08-31-harness-instability-and-command-bloat.md) | 2026-08-31 | active | 하네스 구조 불안정성과 명령 본문 비대화 — 대범위 메타 분석 |
+| [2026-08-31-receipt-intent-archaeology.md](2026-08-31-receipt-intent-archaeology.md) | 2026-08-31 | active | receipt 지속성·finding 정본의 설계 의도 역추적 — 직전 판정의 정정 |
+| [2026-08-31-final-harness-assessment-and-umbrella-prd.md](2026-08-31-final-harness-assessment-and-umbrella-prd.md) | 2026-08-31 | active | 하네스 최종 판정 + 우산 PRD 분해 — 6렌즈 병렬 조사와 Codex 교차검증으로 C0~C10 자식 11개를 도출 |
 
 ## 2026-08 — 리뷰 루프 신뢰성
 

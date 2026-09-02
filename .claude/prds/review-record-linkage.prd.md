@@ -75,7 +75,7 @@ We'll know we're right when **C1 착지 후 발행된 ship receipt가 실제 라
 | 3 | 내용층 라운드 구조 커버리지 (파서 정의를 만족한 리뷰 / 착지 후 전체) | **정의 미확정** (4.2~59.2%) | 정의가 파서로 고정되고 값이 산출된다 | **100%** | `record.js` 자체 검증 → 미달 형식은 기록 시점에 거부 |
 | 4 | 리드타임 소스 가용성 (`rounds`를 읽어 라운드당 벽시계를 산출 가능한 receipt / 착지 후 전체) | **0%** | 산출된다 | C4가 목표를 소유 | C4 `leadtime-observability` |
 
-**관측만 하고 목표를 두지 않는 것**: 과거 71건의 동결 baseline(라운드 상수 71/71 · 링크 0/71 · 파일명 일치 24/71). 이 값들은 개선 대상이 아니라 **C1 이전을 구분하는 기준선**이다.
+**관측만 하고 목표를 두지 않는 것**: C1 이전 코퍼스의 동결 baseline. 이 값들은 개선 대상이 아니라 **C1 이전을 구분하는 기준선**이고, 정본은 [frozen-baseline.md](../../docs/review-record-linkage/frozen-baseline.md)의 동결 블록이다 — 여기 옮겨 적지 않는다. M1 착지 시점 실측은 ship 75 · 패널 레코드 55 · 링크 양방향 각 0/75 · 파일명 일치 27/75. (이 PRD가 Problem·Evidence 절에서 인용하는 71 계열 수치는 **작성 시점의 작업 트리** 실측이고 그때는 정직했다. M1이 멤버십을 경계 트리로 고정하면서 분모가 확정됐다 — 자세한 경위는 M1 보고서의 Deviations 4번.)
 
 ## Scope
 
@@ -107,7 +107,7 @@ M1이 먼저인 이유는 **M2·M3·M4의 목표치가 전부 M1이 정하는 �
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | linkage-baseline-parser | "라운드 구조 보유" · "리뷰 대상 ship" · "층간 링크"의 정의가 **파서 코드**로 고정되고, 과거 71건이 그 정의로 동결 보고된다. 쓰기 0건 · read-only · LLM-free | in-progress | [.claude/plans/review-record-linkage-m1.plan.md](../plans/review-record-linkage-m1.plan.md) |
+| 1 | linkage-baseline-parser | "라운드 구조 보유" · "리뷰 대상 ship" · "층간 링크"의 정의가 **파서 코드**로 고정되고, 경계 트리의 코퍼스가 그 정의로 동결 보고된다(착지 실측 ship 75 · 레코드 55). 쓰기 0건 · read-only · LLM-free | in-progress | [.claude/plans/review-record-linkage-m1.plan.md](../plans/review-record-linkage-m1.plan.md) |
 | 2 | rounds-channel | `resolution.rounds`에 게이트용 입력 통로가 생기고 세 게이트가 실값을 넘긴다. **acceptance는 producer가 아니라 산출된 실값** — 배선 부재를 보는 test가 없으면 완료가 아니다 | dropped | — (상류 선점 — 표 아래 주 참조) |
 | 3 | bidirectional-link | receipt가 리뷰 경로를, 리뷰가 receipt 식별자를 갖는다. 필드는 present-only(`makeSkeleton` 미포함)라 과거 receipt의 hash가 불변이다 | pending | — |
 | 4 | review-round-structure | `record.js`가 M1의 파서 정의를 만족하는 형식으로만 기록하고, 착지 후 리뷰의 커버리지가 100%가 된다 | pending | — |

@@ -2,7 +2,7 @@
 
 **Plan**: [.claude/plans/review-record-linkage-m1.plan.md](../../plans/review-record-linkage-m1.plan.md)
 **PRD**: [.claude/prds/review-record-linkage.prd.md](../../prds/review-record-linkage.prd.md)
-**Branch**: `review-record-linkage` · **Version**: `1.33.7` (§3.7 patch)
+**Branch**: `review-record-linkage` · **Version**: `1.34.2` (§3.7 patch — origin/main 이 1.33.7 과 1.34.1 을 연속 발행해 두 번 재상향)
 
 ## Summary
 
@@ -28,7 +28,7 @@ M1은 값을 개선하지 않는다. 무엇을 세는지 고정하고 오늘 값
 | 1 | `linkage-defs.js` 순수 정의 | 완료 | `require` 0건 · `isPanelRecord` 미export |
 | 2 | `linkage-audit.js` 수집·집계·ladder | 완료 | `corpus.parseRecord` 소비(재구현 0줄) |
 | 3 | 술어 회귀 test | 완료 | 14 pass — 긍정 픽스처 + ReDoS 벽시계 상한 포함 |
-| 4 | 집계 회귀 test | 완료 | 17 pass — `archive/` 포함 픽스처 |
+| 4 | 집계 회귀 test | 완료 | 22 pass — `archive/` 포함 픽스처 + santa-loop 회귀 4건 |
 | 5 | 동결 문서 + 바이트 일치 test | 완료 | 4 pass — 도구를 실제 spawn해 비교 |
 | 6 | 게이트 무접촉 · PRD 행 · version 4면 | 완료 | `i18n-surface` 10 pass |
 
@@ -49,29 +49,32 @@ M1은 값을 개선하지 않는다. 무엇을 세는지 고정하고 오늘 값
 
 | # | 요구 | 실측 |
 |---|---|---|
-| 1 | `undated_at_baseline` = 0, `baseline.state` = ok | **0 / ok** |
+| 1 | `unreadable_at_baseline` = 0, `baseline.state` = ok | **0 / ok** |
 | 2 | 동결 블록 ↔ 라이브 출력 바이트 일치, `post_baseline` 부재 | **일치 · 부재** (test가 spawn해 검증) |
-| 3 | `round_structure.selected` = 0, controls 5개 동봉 | **0/37** · A=0 B=4 C=20 D=22 E=28 (분모 50) |
-| 4 | `ship_eligibility` 전건 `undecidable` + 사유 | **71 undecidable**, 사유 1종 |
+| 3 | `round_structure.selected` = 0, controls 5개 동봉 | **0/42** · A=0 B=4 C=21 D=23 E=32 (분모 55) |
+| 4 | `ship_eligibility` 전건 `undecidable` + 사유 | **75 undecidable**, 사유 1종 |
 | 5 | `linkage` 양방향 각 0, 산문 `receipt_hash`가 계상되지 않음 | **0/0/0**, 오탐 가드 test 통과 |
 | 6 | 해소 불가 ref → exit 3 (`unresolved`), ok 아님 | **exit 3** 확인 |
 | 7 | 게이트 파일 diff 0 (corpus.js 포함) | **0** |
 
-**건수 정정 기록**: plan 초안은 "패널 레코드 47건"이라 적었으나 수집 범위가
-`archive/`를 포함하므로 실제는 51건이고, 이 사이클 자신의 리뷰 레코드 1건이
-경계 이후로 가 `pre_baseline`은 **50**이다. 리뷰어가 이 모순을 잡아 acceptance를
-리터럴 대신 등식으로 바꿨고, 라이브 완주가 그 등식을 만족했다.
+**건수 정정 기록 (santa-loop R0 이후 재작성)**: plan 초안은 "패널 레코드 47건"이라
+적었고, 이 보고서의 초판은 그것을 `archive/` 포함 51건 → 경계 이후 1건 제외 → **50**
+으로 정정했다. 그 계산 전체가 은퇴했다 — 셋 다 *작업 트리를 날짜로 가른* 수치였고,
+santa-loop 라운드 0 이 그 파티션 자체를 결함으로 판정했다. 멤버십이 경계 트리로
+바뀐 뒤의 실측은 **ship 75 · 레코드 55 · D1 분모 42** 이고, 이 값들은 `git ls-tree`
+실측과 직접 대조된다. acceptance 를 리터럴 대신 등식으로 바꾼 판단은 유효했고,
+바뀐 것은 등식이 평가되는 코퍼스다.
 
 ## Files Changed
 
 | File | Action | Lines |
 |---|---|---|
 | `plugins/mccp/scripts/lib/plan-review/linkage-defs.js` | CREATED | +211 |
-| `plugins/mccp/scripts/lib/linkage-audit.js` | CREATED | +538 |
+| `plugins/mccp/scripts/lib/linkage-audit.js` | CREATED | +578 |
 | `plugins/mccp/scripts/lib/tests/linkage-defs.test.js` | CREATED | +232 |
-| `plugins/mccp/scripts/lib/tests/linkage-audit.test.js` | CREATED | +329 |
+| `plugins/mccp/scripts/lib/tests/linkage-audit.test.js` | CREATED | +370 |
 | `plugins/mccp/scripts/lib/tests/linkage-frozen-baseline.test.js` | CREATED | +101 |
-| `docs/review-record-linkage/frozen-baseline.md` | CREATED | +211 |
+| `docs/review-record-linkage/frozen-baseline.md` | CREATED | +248 |
 | `plugins/mccp/.claude-plugin/plugin.json` | UPDATED | version |
 | `plugins/mccp/scripts/lib/renderer/html.js` | UPDATED | page-foot version |
 | `plugins/mccp/scripts/lib/renderer/markdown.js` | UPDATED | derived 줄 version |
@@ -93,6 +96,46 @@ M1은 값을 개선하지 않는다. 무엇을 세는지 고정하고 오늘 값
    "재구현 금지"이고 정본은 Task 3이 명시한 **export 부재 단언**이다(그 test는
    통과). 산문 쪽 grep 라인이 계획에 남아 있다 — plan은 receipt에 봉인돼 수정하지
    않았다.
+
+### 4. plan의 동결 설계가 통째로 대체됐다 (santa-loop R0)
+
+**plan은 `plan_hash`로 봉인돼 있어 고칠 수 없다. 그래서 무엇이 대체됐는지가 여기
+남는다** — 이 절이 없으면 다음 마일스톤이 plan을 읽고 은퇴한 설계를 구현한다.
+
+santa-loop 라운드 0에서 두 리뷰어가 독립적으로, plan의 DD5(날짜 원천 3행 표) ·
+DD7(`undated_at_baseline`) 위에 선 "살아 있는 작업 트리를 자기신고 타임스탬프로
+pre/post 파티션" 설계가 **자기 주장을 만족하지 못함**을 실측으로 보였다. 경계
+커밋이 이 브랜치의 조상이 아니라 트리가 달랐고(`647dfec`의 트리는 ship 75건,
+도구는 71건을 셌다), 그 차이가 어느 카운터에도 없이 `state: "ok"`로 보고됐다.
+
+| plan이 지시한 것 | 실제 shipped |
+|---|---|
+| DD5 날짜 원천 3행 (`meta.created_at` · `measurement.recorded_at` · `git log --diff-filter=A --follow`) | **전부 삭제.** 날짜가 아무것도 결정하지 않는다 |
+| DD7 동결 필드 `undated_at_baseline` | `unreadable_at_baseline` (트리에 있는데 읽거나 파싱하지 못한 것) |
+| `DEFAULT_BASELINE_REF = '647dfec'` (축약) | 전체 40-hex SHA |
+| "ship receipt 71건 전부가 이 시각보다 앞선다, 기계 확인" | **거짓이었다.** 그 ref의 트리는 75건이다 |
+| Task 4의 `undated` test 4건 · origin/main 도달성 단언 | `undated` 개념 부재로 미작성. 도달성은 **HEAD 기준**으로 작성(아래 5번) |
+| Acceptance 1 (`undated_at_baseline` 읽기) · 4 (`71건 전건`) | 필드명·분모가 바뀌어 그대로는 평가 불가 |
+
+**plan의 `## User Intent` UI9("MVP는 M1과 M2")도 현재 PRD와 어긋난다.** PRD가 M2를
+`dropped`로 판정하고 MVP를 M1 단독으로 좁혔기 때문이다(상류 `env-contract-integrity
+M3`가 M2의 outcome을 이미 출시). UI9는 봉인 당시 사용자 진술로 정확했고, 바뀐 것은
+그 뒤의 상류 사실이다 — 그러나 plan만 읽는 사람은 M2를 살아 있는 것으로 보므로 이
+줄이 그 오독을 막는다.
+
+### 5. 경계 ref 도달성 · ref 주입 · 레코드 결손 (santa-loop R1)
+
+- **도달성**: 초판은 도달성을 `origin/main` 기준으로 확인했으나, 동결 바이트를
+  커밋하는 것은 **이 브랜치**다. 단독 클론에서 경계 객체가 없어 도구가 exit 3으로
+  죽었다. origin/main을 머지해 `647dfec`를 HEAD의 조상으로 만들었고, test가 이제
+  **HEAD 기준** 도달성을 단언한다.
+- **ref 주입**: `--baseline-ref '--output=<file>'`가 git 옵션으로 파싱돼 실제로
+  파일을 만들었다 — "쓰기 0건"이 표제인 도구에서. ref 형태 검증 + 전 호출부
+  `--end-of-options` 두 겹으로 막고 회귀 test를 걸었다.
+- **레코드 결손**: `## Measurement` JSON이 깨진 패널 레코드가 분모에서 조용히
+  빠지면서 `unreadable_at_baseline`은 `files: []`를 유지했다 — "부재 ≠ 0"을 담당하는
+  필드가 잃어버린 코퍼스에 대해 결손 0을 인증한 것이다. 이제 그 레코드가 이름으로
+  실리고 `baseline.state`가 사유와 함께 `degraded`가 된다.
 
 ## Issues Encountered
 

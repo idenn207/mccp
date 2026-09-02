@@ -368,3 +368,82 @@ test('DD8 — the default baseline ref is a full, unambiguous SHA', function () 
   assert.equal(mod.DEFAULT_BASELINE_REF, '647dfecba75eecd9287ee538ca5f7056c7ba71da',
     'the boundary that defines the historical corpus must not drift silently');
 });
+
+// ── santa-loop R1 흡수 ──────────────────────────────────────────────────────
+
+test('R1 HIGH — the pinned boundary is reachable from HEAD, not just from origin/main', function () {
+  // 라운드 1 리뷰어가 브랜치를 단독 클론해 재현했다: 경계 객체가 없으면 도구는
+  // exit 3 으로 죽고, 동결 test 는 execFileSync 가 먼저 throw 해서 줄 단위 안내
+  // 없이 'Command failed' 만 남긴다. 초판의 도달성 확인은 **origin/main 기준**이라
+  // 이 조건을 보지 못했다 — 동결 바이트를 커밋하는 것은 이 브랜치다.
+  const mod = require('../linkage-audit');
+  const repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'],
+    { cwd: __dirname, encoding: 'utf8' }).trim();
+  let reachable = true;
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', mod.DEFAULT_BASELINE_REF, 'HEAD'],
+      { cwd: repoRoot, stdio: ['ignore', 'ignore', 'ignore'] });
+  } catch (_err) { reachable = false; }
+  assert.equal(reachable, true,
+    'DEFAULT_BASELINE_REF must be an ancestor of HEAD, or a fresh single-branch clone of ' +
+    'this branch cannot regenerate the frozen block and the byte test fails opaquely');
+});
+
+test('R1 HIGH — a ref shape git could read as an option is refused, and nothing is written', function () {
+  const { root, baseline } = mkRepo();
+  const target = path.join(root, 'injected.txt');
+  // `git show --output=<file>` writes to disk, so a leading dash turns a tool
+  // whose headline claim is "writes nothing" into a file creator. Demonstrated,
+  // not theorised — hence a test rather than a backlog line.
+  const r = run(root, ['--frozen-only', '--baseline-ref', '--output=' + target]);
+  assert.notEqual(r.code, 0, 'an unsafe ref must fail closed');
+  assert.equal(fs.existsSync(target), false, 'the read-only tool must not have created a file');
+  // 그리고 정상 ref 는 여전히 통과한다 — 가드가 도구를 못 쓰게 만들면 안 된다.
+  assert.equal(run(root, ['--frozen-only', '--baseline-ref', baseline]).code, 0);
+});
+
+test('R1 HIGH — a record whose Measurement fence is malformed is NAMED, not dropped', function () {
+  const { root } = mkRepo();
+  // 패널 서명은 있고 Measurement JSON 만 깨진 레코드. 초판은 이것을 카운터만 올리고
+  // 분모에서 조용히 빼면서 unreadable_at_baseline 은 files: [] 로 유지했다 —
+  // "부재 ≠ 0" 을 담당하는 그 필드가 잃어버린 코퍼스에 대해 결손 0 을 인증한 것이다.
+  const broken = [
+    '# Plan Review Panel — brokenmeas', '',
+    '**Verdict**: `divergent` via `multi-agent`', '',
+    '## Measurement', '', '```json', '{ "verdict": "divergent", ', '```', '',
+  ].join('\n');
+  fs.writeFileSync(path.join(root, '.claude', 'reviews', 'plan-review-brokenmeas.md'), broken);
+  commitAt(root, '2022-06-01T00:00:00+00:00', 'land a record with a malformed fence');
+  const baseline = git(root, ['rev-parse', 'HEAD']).trim();
+
+  const r = runJson(root, ['--frozen-only', '--baseline-ref', baseline]);
+  assert.equal(r.json.unreadable_at_baseline.records, 1);
+  assert.ok(r.json.unreadable_at_baseline.files
+    .indexOf('.claude/reviews/plan-review-brokenmeas.md') !== -1,
+    'the record must be named in the coverage gap, not merely counted somewhere else');
+  assert.equal(r.json.baseline.state, 'degraded');
+  assert.ok(typeof r.json.baseline.reason === 'string' && r.json.baseline.reason.length > 0,
+    'a degraded frozen view must say why, exactly as the blind one does');
+  assert.equal(r.code, 1);
+});
+
+test('R1 MEDIUM — when the boundary tree cannot be listed, no partition is emitted', function () {
+  // 트리를 못 읽으면 "코퍼스가 0" 이 아니라 "코퍼스를 못 봤다" 이다. 초판은 그 경우에도
+  // pre_baseline 전 필드 0 + 빈 결손 목록을 방출했고, 그것은 내부적으로 정합해서
+  // 재생성 시 문서에 그대로 커밋될 수 있었다.
+  const mod = require('../linkage-audit');
+  const r = mod.aggregate({
+    repoRoot: '.',
+    baselineRef: 'deadbeef',
+    baseline: { ms: Date.parse('2020-01-01T00:00:00Z'), iso: '2020-01-01T00:00:00Z', reason: null },
+    baselineTree: null,
+    ships: { receipts: [], read_error: true, parse_failures: 0, parse_errors: [], unreadable: [] },
+    reviews: { records: [], read_error: true, sources: [], unreadable: [] },
+  });
+  assert.equal(r.baseline.state, 'degraded');
+  assert.equal(r.baseline.scope_unknown, true);
+  const frozen = mod.frozenOnly(r);
+  assert.equal('pre_baseline' in frozen, false, 'scope unknown must not publish a corpus of zeros');
+  assert.equal('unreadable_at_baseline' in frozen, false,
+    'nor an empty gap list, which would certify full coverage over a corpus never read');
+});

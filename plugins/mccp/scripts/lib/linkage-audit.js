@@ -109,9 +109,10 @@ function exitCodeForState(state) {
   return typeof code === 'number' ? code : 1;   // 미지 state → 비영점 (fail-closed)
 }
 
-// 파일명 관례. **정의가 아니라 라벨이다** — 실측 일치율 24/71 이고 그 불일치의
-// 지배 원인은 chore ship 이 아니라 시간 경계다(41/71 이 최초 패널 레코드보다 앞선다).
-// 세되 D2 판정에 쓰지 않는다.
+// 파일명 관례. **정의가 아니라 라벨이다** — 경계 트리 실측 일치율 27/75 다.
+// (초판 주석의 24/71 과 '41/71 이 최초 패널 레코드보다 앞선다' 는 삭제된 작업-트리
+// 파티션에서 나온 수치라 지웠다. 후자는 날짜 비교를 전제하는데 이 도구는 더 이상
+// 어떤 날짜도 계산하지 않는다.) 세되 D2 판정에 쓰지 않는다.
 const REVIEW_NAME_PREFIX = 'plan-review-';
 
 function warn(line) {
@@ -149,7 +150,7 @@ function readShipReceipts(root, ref, tree) {
   if (paths === null) { out.read_error = true; return out; }
   paths.forEach(function (rel) {
     const name = rel.slice(SHIP_RECEIPT_SUBDIR.length + 1);
-    const r = git(root, ['show', ref + ':' + rel]);
+    const r = gitRev(root, ['show'], ref + ':' + rel);
     if (!r.ok) { out.read_error = true; out.unreadable.push(rel); return; }
     try {
       out.receipts.push({ name: rel, slug: name.replace(/\.json$/, ''), body: JSON.parse(r.out) });
@@ -169,7 +170,7 @@ function readReviewRecords(root, ref, tree) {
     const paths = corpusPathsInTree(tree, sub, '.md') || [];
     const src = { dir: sub, present: paths.length > 0, files: 0 };
     paths.forEach(function (rel) {
-      const r = git(root, ['show', ref + ':' + rel]);
+      const r = gitRev(root, ['show'], ref + ':' + rel);
       if (!r.ok) { out.read_error = true; out.unreadable.push(rel); return; }
       out.records.push({ name: rel, basename: rel.slice(sub.length + 1), text: r.out });
       src.files += 1;
@@ -215,8 +216,30 @@ function git(root, args) {
   }
 }
 
+// ── ref 가드 (santa-loop R1 흡수) ────────────────────────────────────────────
+//
+// `-` 로 시작하는 ref 는 git 이 **옵션으로 파싱**하고, `git show` 는 diff 옵션
+// `--output=<file>` 을 받는다. 즉 `--baseline-ref '--output=...'` 하나로 "쓰기
+// 0건" 을 표제로 내건 도구가 임의 파일을 만든다. 이론이 아니라 재현됐다.
+//
+// 두 겹으로 막는다. 어느 한쪽만으로도 오늘은 충분하지만 둘 다 얇다: 형태 검증은
+// 미래에 새 호출부가 생기면 그 호출부를 덮지 못하고, `--end-of-options` 는
+// 그것을 빠뜨린 호출부를 덮지 못한다.
+const REF_SHAPE = /^[0-9A-Za-z][0-9A-Za-z._/-]{0,254}$/;
+
+function isSafeRef(ref) {
+  return typeof ref === 'string' && REF_SHAPE.test(ref);
+}
+
+// `--` 가 아니라 `--end-of-options` 다. `git show -s --format=%cI -- <ref>` 는
+// ref 를 **경로**로 해석해 조용히 빈 출력을 내므로, 그것을 쓰면 주입은 막히지만
+// 도구가 모든 ref 에 대해 unresolved 가 된다. git 2.24+ 가 요구된다.
+function gitRev(root, args, ref) {
+  return git(root, args.concat(['--end-of-options', ref]));
+}
+
 function resolveBaseline(root, ref) {
-  const r = git(root, ['show', '-s', '--format=%cI', ref]);
+  const r = gitRev(root, ['show', '-s', '--format=%cI'], ref);
   if (!r.ok) return { ms: null, iso: null, reason: 'ref did not resolve' };
   const iso = r.out.trim();
   const ms = Date.parse(iso);
@@ -227,7 +250,7 @@ function resolveBaseline(root, ref) {
 // 경계 트리의 파일 집합. **코퍼스 멤버십 그 자체다** — 범위를 좁히는 보조 장치가
 // 아니라 무엇이 동결 대상인지를 정하는 유일한 원천이다.
 function baselineTree(root, ref) {
-  const r = git(root, ['ls-tree', '-r', '--name-only', ref]);
+  const r = gitRev(root, ['ls-tree', '-r', '--name-only'], ref);
   if (!r.ok) return null;
   const set = new Set();
   r.out.split(/\r?\n/).forEach(function (l) { if (l.trim()) set.add(toPosix(l.trim())); });
@@ -282,6 +305,7 @@ function aggregate(input) {
   // 이다. 자기신고 타임스탬프로 가르던 초판의 파티션은 삭제했다(헤더 참조):
   // 그것이 세 드리프트 벡터의 공통 뿌리였다.
   const pre = { ships: [], records: [] };
+  const recordParseFailures = [];
 
   // ── ship 층 ──
   const eligibility = { eligible: 0, not_eligible: 0, undecidable: 0 };
@@ -298,8 +322,14 @@ function aggregate(input) {
     const kind = parsed.kind;
     if (Object.prototype.hasOwnProperty.call(result.corpus_boundary, kind)) result.corpus_boundary[kind] += 1;
     if (kind === 'parse_failure') {
+      // santa-loop R1 — this record IS in the boundary tree and we could not read
+      // its Measurement block, so it belongs in the coverage-gap list. Before this
+      // it only bumped a counter and vanished from every denominator, while
+      // `unreadable_at_baseline` still affirmed `files: []` — the designated
+      // "absence is not zero" field certifying no gap over a corpus it had lost.
       result.parse_failures += 1;
       result.parse_errors.push({ record: rec.name, error: parsed.error || 'unknown' });
+      recordParseFailures.push(rec.name);
       return;
     }
     if (kind === 'out_of_corpus') return;
@@ -388,10 +418,13 @@ function aggregate(input) {
   // 이전의 `undated_at_baseline` 은 날짜가 멤버십을 정할 때만 의미가 있었고,
   // 트리에 있으나 작업 트리에 없는 파일은 애초에 세어지지도 않아 `files: []` 로
   // 완전 커버리지를 주장했다. 이제 트리에서 직접 읽으므로 그 상태는 존재할 수 없다.
-  const unreadable = (ships.unreadable || []).concat(reviews.unreadable || []).sort();
+  const unreadable = (ships.unreadable || [])
+    .concat(reviews.unreadable || [])
+    .concat(recordParseFailures)
+    .sort();
   result.unreadable_at_baseline = {
     ships: (ships.unreadable || []).length,
-    records: (reviews.unreadable || []).length,
+    records: (reviews.unreadable || []).length + recordParseFailures.length,
     files: unreadable,
   };
 
@@ -406,11 +439,19 @@ function aggregate(input) {
   if (tree === null) {
     result.baseline.state = 'degraded';
     result.baseline.reason = 'baseline tree could not be listed — corpus scope unknown, not zero';
+    // santa-loop R1 — and the partition must not be EMITTED. Before this the
+    // frozen view still published pre_baseline zeros plus an empty gap list, so
+    // a run that read nothing produced an internally consistent block that a
+    // regeneration could commit and the byte test would then seal.
+    result.baseline.scope_unknown = true;
   } else if (totalCorpus === 0) {
     result.baseline.state = 'blind';
     result.baseline.reason = 'the boundary tree yielded no corpus file — absence is not a finding of zero';
   } else if (result.read_error || result.parse_failures > 0 || unreadable.length > 0) {
     result.baseline.state = 'degraded';
+    // A state with no reason is a gap the reader cannot act on. The blind branch
+    // above already says why; this one used to say nothing at all.
+    result.baseline.reason = unreadable.length + ' corpus file(s) in the boundary tree could not be read or parsed';
   }
 
   // 진단 전용 (동결 대상 아님) — 작업 트리에 있으나 경계 트리에 없는 것.
@@ -434,6 +475,7 @@ function frozenOnly(result) {
     baseline: result.baseline,
   };
   if (result.baseline.state === 'unresolved') return out;
+  if (result.baseline.scope_unknown) return out;   // scope unknown != a corpus of zeros
   out.pre_baseline = result.pre_baseline;
   out.unreadable_at_baseline = result.unreadable_at_baseline;
   return out;
@@ -516,7 +558,20 @@ function main(argv) {
     if (a === '--json') asJson = true;
     else if (a === '--frozen-only') frozen = true;
     else if (a === '--repo-root') { repoRoot = argv[++i]; if (!repoRoot) { warn('--repo-root requires a path'); process.exit(1); } }
-    else if (a === '--baseline-ref') { ref = argv[++i]; if (!ref) { warn('--baseline-ref requires a ref'); process.exit(1); } }
+    else if (a === '--baseline-ref') {
+      ref = argv[++i];
+      if (!ref) { warn('--baseline-ref requires a ref'); process.exit(1); }
+      // santa-loop R1 — fail-CLOSED on a ref shape git could read as an option.
+      // The call sites also pass `--end-of-options`, but this tool's headline
+      // claim is that it writes nothing, and a claim that categorical should not
+      // rest on one layer.
+      if (!isSafeRef(ref)) {
+        warn('--baseline-ref "' + ref + '" is not a safe ref shape (must start with an ' +
+          'alphanumeric and contain only [0-9A-Za-z._/-]). A leading "-" would be parsed ' +
+          'by git as an option, and `git show --output=<file>` writes to disk.');
+        process.exit(1);
+      }
+    }
     else if (a === '-h' || a === '--help') { printUsage(); process.exit(0); }
     else warn('unknown argument "' + a + '" (ignored — loud fail-open).');
   }

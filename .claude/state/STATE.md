@@ -2,20 +2,20 @@
 state_version: 1
 task_fingerprint: release-channel-separation-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-02T02:16:53.553Z
-last_event: stop_loop_pass
-last_event_at: 2026-09-02T02:16:53.553Z
+updated_at: 2026-09-02T02:21:28.098Z
+last_event: pr_created
+last_event_at: 2026-09-02T02:21:28.098Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
-last_pr_url: https://github.com/idenn207/mccp/pull/168
+last_pr_url: https://github.com/idenn207/mccp/pull/170
 dep_check_at: 2026-09-02T01:25:38.599Z
 escalate_pending: true
 escalate_pending_decision_id: release-channel-separation-m1
 ---
 ## Goal
-release-channel-separation M1 — channel-pin. **완료**. PR #168 머지 + 머지 후 배포 경로 확인 실측 완료, PRD M1 행 complete.
+release-channel-separation M1 — channel-pin. **완료**. 머지 후 배포 경로 검증 실측 + PRD M1 complete. close-out PR #170 리뷰/머지 대기.
 
 ## Plan
 - PRD: `.claude/prds/release-channel-separation.prd.md` — M1 **complete**, M2·M3 pending
@@ -36,17 +36,18 @@ release-channel-separation M1 — channel-pin. **완료**. PR #168 머지 + 머�
 
 
 ## Next Step
-santa-loop 후속 커밋 3건 + 이번 문서 갱신(보고서 COMPLETE · PRD M1 complete)을 main에 반영. 그 다음 M2(dogfood-install 문서화).
+PR #170 리뷰·머지. 그 다음 M2(dogfood-install 문서화) → M3(release-runbook). 릴리스 컷은 PRD 결정 3대로 2.0.0을 선언하며 M1 산출물이 아니다(UI6).
 
 ## Last Decision
-머지된 M1 슬러그로 /mccp:plan 게이트를 재진입하지 않았다 — 같은 decision slug라 Phase 5.1이 봉인된 plan을 편집하고 5.6b가 shipped receipt를 덮어쓰는데, 라운드 3/캡 1이라 새 리뷰는 얻지 못한다(얻는 것 0, 잃는 것 감사 기록). 대신 인라인 참조로 잔여를 판별하고 Task 10만 실행했다. Task 11 유출 검사 1건은 R2 흡수를 기록한 인용 패턴이므로 증거를 지우는 방향으로 고치지 않았다.
+머지된 M1 slug로 게이트를 재진입하지 않았다 — 같은 slug는 tracked ship receipt 덮어쓰기 가드(TRACKED_RECEIPT_OVERWRITE)에, 가드가 처방한 새 slug는 상류 chain 부재에 각각 막히는 구조적 코너였다. 상류 receipt를 손으로 만드는 우회는 버렸다: 그 verdict가 cross-gate dedupe를 열면 PR-Codex가 skip되어, 게이트를 통과시키려는 행위가 유일하게 실재하는 리뷰를 없애기 때문이다. 대신 codex-invoke를 직접 호출해 리뷰만 실제로 받고 receipt는 쓰지 않았으며, 게이트 미완주 사실과 사유를 PR 본문 ## Gate Status에 명시했다. Codex F1(MEDIUM)은 옳았고 흡수했다 — Task 11의 0건 불변식을 산문으로 무효화한 내 판단이 틀렸다.
 
 ## Open Questions
-- clone이 origin/main을 자동 추종하는 **전이 과정**은 미관측 — Task 10은 전진의 **결과**(clone HEAD == origin/main, 손대지 않음)만 봤다. 지표 3 쌍은 성립
-- ship receipt의 head_sha e33a2be가 이력 재작성으로 dangling — receipt_hash·ledger 결속은 무손상(§3.12 잔여, PR 본문 기록)
-- PR-Codex F2 — 1.33.7 선언과 UI8 소유자 이전의 긴장. M3 런북에서 릴리스 컷이 자기 번호를 고르는 절차로 닫을 것(backlog)
-- impeccable 선재 8건 — 대시보드 `--faint` 토큰 WCAG AA 미달 포함. 별도 /impeccable harden 사이클
-- plan `## Validation`:386 리터럴 개행 이스케이프 버그 — 구현은 정정 형태로 실행, 본문 정정은 backlog id=d7d1f4a0
+- close-out PR #170은 ship receipt 없이 열렸다 — 감사 근거는 git history + M1 본체의 전 체인 receipt + PR 본문의 Codex 리뷰 기록
+- close-out Codex 리뷰는 diff 접근 실패(dubious ownership)로 열화된 입력에서 돌았다 — 정상 PR-Codex보다 약한 커버리지
+- clone이 origin/main을 자동 추종하는 **전이 과정**은 여전히 미관측(결과만 관측). 지표 3 쌍은 성립
+- ship receipt의 head_sha e33a2be dangling — receipt_hash·ledger 결속은 무손상(§3.12 잔여)
+- santa-review receipt가 divergent를 봉인 중이라 escalate_pending=true 유지. 리뷰어 2인이 같은 모델 계열(distinct=1)이라 verdict가 degraded
+- 선재 계정명 리터럴 2건(notes/santa-loop-materialize · santa/ledger.js)은 647dfec에도 있어 별도 축
 
 ## Last Updated
-2026-09-02T02:16:53.553Z
+2026-09-02T02:21:28.098Z

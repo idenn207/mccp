@@ -2,17 +2,17 @@
 state_version: 1
 task_fingerprint: ci-full-suite-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-02T06:46:10.603Z
+updated_at: 2026-09-02T07:20:08.104Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-02T06:46:10.603Z
+last_event_at: 2026-09-02T07:20:08.104Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-09-02T06:43:56.618Z
+dep_check_at: 2026-09-02T07:04:50.184Z
 escalate_pending: true
-escalate_pending_decision_id: ci-full-suite-m1
+escalate_pending_decision_id: ci-full-suite
 ---
 ## Goal
 ci-full-suite (우산 PRD harness-wiring-integrity 자식 C3) M1 — 전수 진입점 + baseline. 구현·측정 완료, PR 대기.
@@ -47,4 +47,4 @@ ci-full-suite (우산 PRD harness-wiring-integrity 자식 C3) M1 — 전수 진�
 - MCCP_GATE_ROUND_CAP 선언값(settings.json=1) 대 실효값(process env=3) 불일치 — 별도 축
 
 ## Last Updated
-2026-09-02T06:46:10.603Z
+2026-09-02T07:20:08.104Z

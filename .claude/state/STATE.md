@@ -2,49 +2,48 @@
 state_version: 1
 task_fingerprint: orchestrator-step-wiring-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-02T06:45:28.358Z
+updated_at: 2026-09-02T08:27:11.925Z
 last_event: precompact
-last_event_at: 2026-09-02T06:45:28.357Z
+last_event_at: 2026-09-02T08:27:11.925Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
-last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-09-02T06:04:01.060Z
+last_pr_url: https://github.com/idenn207/mccp/pull/174
+dep_check_at: 2026-09-02T06:49:03.213Z
 escalate_pending: true
 escalate_pending_decision_id: orchestrator-step-wiring-m1
 ---
 ## Goal
-orchestrator-step-wiring M1 (metric-boundary-unification) — 구현·로컬 리뷰 흡수·커밋 완료(a9e8a86). base 머지 후 PR 대기.
+orchestrator-step-wiring M1 (metric-boundary-unification) — PR #174 OPEN. 게이트 완주 + base 재머지까지 끝났고 리뷰 대기 중.
 
 ## Plan
-- PRD: `.claude/prds/orchestrator-step-wiring.prd.md` — M1 complete, M2(halt 기록) pending
-- plan: `.claude/plans/orchestrator-step-wiring-m1.plan.md` — R2 흡수로 편집됨. plan_hash 변경 → 두 plan-codex receipt 전부 stale (PR guard 2에서 복구 판단)
-- receipt: `mccp-plan-codex/orchestrator-step-wiring.json`(패널 3라운드) + `…-m1.json`. 둘 다 review_verdict=divergent
-- 리뷰 기록: plan-review 2건(`.claude/reviews/`) · 로컬 코드리뷰는 CHANGELOG Fixed + backlog에 기록
-- version: 이 브랜치 1.34.3 (origin/main 1.34.1 · sibling c1이 1.34.2 선언 중) — §3.7대로 머지 시점과 PR 직전 재계산
+- PRD: .claude/prds/orchestrator-step-wiring.prd.md — M1 complete, M2(halt 기록) pending
+- plan: .claude/plans/orchestrator-step-wiring-m1.plan.md — 게이트 이후 2.5.4가 의무 주입한 3개 섹션 탓에 plan_hash 불일치. 재봉인은 write.js DD13 bind가 거부하므로 stale이 구조적으로 남는다(backlog 등재)
+- receipt: mccp-pr-codex/orchestrator-step-wiring-m1.json — verdict=divergent 봉인 + pr_codex_force_override. decision slug는 브랜치가 아니라 상위 게이트가 쓴 -m1에 맞췄다
+- version: 1.34.4 (세 번째 상향 — main이 #173으로 1.34.3 발행). 4면 동기 완료
 
 ## Done
-- Task 1~9 전량 구현 완료 (state/cli.js는 무변경으로 충분함이 도달성 test로 증명)
-- Validation 재실행 — msw+i18n 153 · hook/finalize 43 · env-lint L1~L10 전건 ok · 마이그레이션 dry-run invalid=0 · 3위치 A1 동일(27.3% 6/22 computed)
-- 커밋 전 로컬 리뷰(/mccp:code-review) 흡수 6건 — H1 gate 토글 종속 · M1 unknown 표현 · M2 StringDecoder · M3 배너 사유 · L1 cwd 전달 · L2 cap 재계산. H1/M2는 되돌리면 붉어지는 것을 확인(반증 가능)
-- L3 · M3 잔여 · M4(base 미머지) · 선재 red(meta-research.test.js:583)는 backlog에 증거와 함께 이연
-- version 1.34.3 4면 동기 · commit a9e8a86 (33 files, +1962/-81)
+- PR #174 생성 — https://github.com/idenn207/mccp/pull/174
+- PR-Codex R1 HIGH 2건 흡수(판독 실패의 조용한 누락 · 동시 실행 중복) + security 축 4건 흡수(readdirSync abort 우회 · symlink events dir CWE-59 · read 단계 heartbeat 누락 · pid 0). 5건 전부 반증 확인
+- PR-Codex R2 HIGH 1건은 UI5 exclusion 위반으로 증거 기각(공유 corpus 완주 7건 전부 pr_number 보유) → backlog
+- history-leak 게이트가 잡은 저장소 루트 절대경로 6건을 filter-branch로 redact(커밋 서사 유지, receipt는 재작성 후 발행)
+- base 재머지 2회 완료 · 삭제 검증 0건 · 라운드 원장 오염(plan-review-cli-emit.test.js) 복구 후 backlog 이연
 
 ## In Progress
-없음 — M1 구현·리뷰·커밋 완료. 다음은 base 머지와 PR.
+없음 — PR #174 리뷰 대기. push까지 완료된 상태.
 
 ## Next Step
-git merge origin/main (99커밋 뒤처짐) → 삭제 검증 git diff --diff-filter=D → version 재계산 → /mccp:pr
+PR #174 리뷰 반영 또는 머지. 머지 후 worktree cleanup(3.8) + PRD M2(halt 기록) 착수.
 
 ## Last Decision
-로컬 리뷰 지적을 전부 수용했다. 코드로 닫을 수 있는 6건은 그 자리에서 고치고 회귀 test로 고정했으며, 신뢰 경계가 없어 방어 대상이 없는 것(L3)과 ship 절차 항목(M4), 선재 실패는 backlog에 증거와 함께 이연했다. H1은 plan 리뷰가 id=1a4104dd로 이미 예고했던 축이 구현에 그대로 착지한 것이라, 이연이 아니라 흡수가 맞다고 판단했다.
+stale receipt를 재봉인하지 않고 audited escape + 사유 기록으로 넘겼다. 원인이 게이트 자신의 의무 주입이고 DD13 bind가 재봉인을 코드로 거부하며 shipped plan 전건이 같은 상태를 통과했기 때문이다. verdict 비수렴도 위장하지 않고 divergent를 봉인한 채 override했다.
 
 ## Open Questions
-- base가 99커밋 뒤처져 있다 — main이 1.34.0·1.34.1을 발행했고 이 브랜치 CHANGELOG에 그 항목이 없다. 머지 시 §3.5.1 삭제 검증 필수(main이 추가한 env-contract-integrity-m*.plan.md 등)
-- lib/tests 전체 스위트는 green이 아니다 — meta-research.test.js:583이 선재 red(단일 문서 .claude/_meta/2026-08-31-*.md의 L3 위반 15건). PR 본문에 test 전량 green이라 쓰면 거짓
-- 지표 3 후반부 · 지표 5(라이브 배너)는 머지 + claude plugin update 이후에만 관측 가능 — 설치 캐시가 1.33.6이라 라이브 진입은 옛 work.md를 연다
-- codex 사용량 한도 소진(2026-09-07 해제) — PR-Codex가 같은 CLI를 쓰므로 그때까지 모델 다양성 확보 불가
+- PR #174의 stale 2건과 divergent verdict를 리뷰어가 수용할지 미지수 — 근거는 PR 본문 게이트 상태 절에 전부 적었다
+- 라운드 원장이 slug 정정으로 갈렸다(R1은 __orchestrator-step-wiring, R2는 -m1). chain 결속을 우선한 판단이고 본문에 명시했다
+- lib/tests 전체는 green이 아니다 — plan-review-cli-emit.test.js 4건 + meta-research.test.js:583. 둘 다 선재이며 backlog 등재
+- codex 사용량 한도(2026-09-07 해제)로 그때까지 모델 다양성 제약
 
 ## Last Updated
-2026-09-02T06:45:28.358Z
+2026-09-02T08:27:11.925Z

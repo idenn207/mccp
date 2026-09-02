@@ -11,7 +11,7 @@
 
 이 저장소는 게이트 기계를 만드는 데는 능하고, **그 기계를 부르는 한 줄을 빠뜨리며, 그 부재를 볼 수 있는 test가 없다.** 세 증상이 같은 뿌리를 갖는다 — 지표 producer가 구현됐는데 caller가 0회이고, 감사 corpus의 `rounds` 필드에 게이트가 값을 넣을 **통로 자체가 없어** 전건이 리터럴 `1`로 봉인되며(C1 실측 — 최상위 `round`도 71/71이 `1`이라 소급 복원의 원천이 없다), merge-apply escape가 파일명 한 글자 차이로 조용히 미실행된다. 성공 방향 기본값(`converged: true, rounds: 1`)이 배선 단절을 **무증상**으로 만들고, CI가 346개 test 중 3개(0.87%)만 실행해 그 무증상을 확정한다.
 
-대가는 셋이다. (a) 리드타임이 관측되지 않아 deadline을 제약으로 걸 수 없다 — 통과한 패널 5건만 벽시계가 있고 비수렴 33건은 측정 자체가 없다. (b) 자기 지표 10개 중 4개만 산출된다. (c) main = production이라 이 모든 수정이 매번 실사용자에게 나간다 — 주당 2~3 마일스톤이 곧 릴리스이고 — 마일스톤 하나가 여러 bump를 낳으므로 실측 노출은 **최근 14일 26건, 주당 약 13회** 다(C0 실측) — 태그가 `v1.0.0` 하나뿐이라 롤백 경로가 없다.
+대가는 셋이다. (a) 리드타임이 관측되지 않아 deadline을 제약으로 걸 수 없다 — 벽시계는 레코드 37건 전부에 기록돼 있는데 `corpus.js`가 통과 5건분만 집계해 보고한다(집계 커버리지 13.5%). (b) 자기 지표 10개 중 4개만 산출된다. (c) main = production이라 이 모든 수정이 매번 실사용자에게 나간다 — 마일스톤 하나가 여러 bump를 낳으므로 실측 노출은 **최근 14일 26건, 주당 약 13회** 다(C0 실측) — 태그가 `v1.0.0` 하나뿐이라 롤백 경로가 없다.
 
 ## Evidence
 
@@ -20,7 +20,7 @@
 - **배선 누락이 코드로 확정됐다.** `work-orchestrator.js`가 `record-step`을 구현하고 `autoChain.recordStep`에 위임하는데, `commands/work.md`에 `record-step`이 **0회** 등장한다. orchestrator CLI를 부르는 줄은 하나뿐이고 그것도 실행 블록이 아니라 산문이다. v1.33.0이 *"측정 부채 상환 (A1/A2/B3 producer 배선)"* 이라는 제목으로 ship된 **이후**의 관측이다. Codex가 독립적으로 같은 결함을 발견했다.
 - **감사 corpus 실측** — ship receipt 72건에서 `resolution.rounds === 1`이 71건(98.6%)이다. override 사유문이 "round 6"과 4연속 라운드를 증언하는 receipt가 `rounds:1`로 봉인돼 있다. `resolution.findings` 키는 **존재하지 않는다** — 선행 조사와 본 세션 초기 판정과 Codex가 각각 다른 방식으로 이 필드를 오인했고, 실측이 셋을 모두 정정했다.
 - **얇은 ship receipt는 결함이 아니라 심의된 설계다.** `.gitignore`가 의도를 명시하고(2026-07-22, 미검토 부트스트랩 기본값 대체), 리뷰 내용은 `.claude/reviews/`에 **git-tracked 73파일 / 6,760줄**로 durable하게 있다. 따라서 남는 진짜 결함은 "내용 복원"이 아니라 **두 층의 연결 부재**다 — receipt에 리뷰 경로도, 리뷰 원문에 receipt 해시도 없고, 내용층의 라운드 구조 커버리지가 45.2%(33/73)다.
-- **리뷰 경제에 수렴 장치가 없다.** `plan-review/corpus.js` 실행 결과 quorum M binding **0건** · K binding **0건** · findings binding 31건이다. 실제 승인 규칙은 severity 하나이고 정족수 손잡이는 판정을 바꾼 적이 없다. 차단 32건 중 **16건(50%)** 이 단일통과 우회로 통과했다. 벽시계는 통과 5건(357~779초, 평균 8분)만 산출되고 비수렴 33건은 미산출 — 운영자가 겪는 "하루~1주"는 정확히 그 미관측 구간에 있다.
+- **리뷰 경제에 수렴 장치가 없다.** `plan-review/corpus.js` 실행 결과 quorum M binding **0건** · K binding **0건** · findings binding 31건이다. 실제 승인 규칙은 severity 하나이고 정족수 손잡이는 판정을 바꾼 적이 없다. 차단 32건 중 **16건(50%)** 이 단일통과 우회로 통과했다. 벽시계는 측정 가능 레코드 **37건 전부에 non-null로 기록돼 있으나**(중앙값 7.6분 · p90 12.6분 · max 7.1시간) `corpus.js`는 통과 5건분만 보고한다 — 미관측은 측정이 아니라 **집계**다(C4가 2026-09-01 재측정으로 정정). 운영자가 겪는 "하루~1주"는 패널 안이 아니라 **패널 밖**에 있다: 패널 종료 → ship 구간은 실측 중앙값 0.3일이고 git 근사는 4~18일이라 두 값이 10배 어긋나며, 어느 쪽도 검증된 바 없다.
 - **CI 강제 커버리지 0.87%** (3 / 346). test는 있고 green이다 — 전수 실행 결과 **346/346 완주, 345 PASS / 1 FAIL**(`derive/tests/mccp-fixture.test.js`). 저장소는 red가 아니라 **아무도 안 돌린다**가 정확하다.
 - **그 전수 실행의 타이밍은 신뢰 불가로 자체 판정됐다** — 6개 워크플로 서브에이전트와 경합한 상태에서 측정됐고, 조용한 머신 재측정에서 11배 차이가 났다. 데이터가 스스로 *"UNRELIABLE — do not use these durations to size CI"* 라 적었다. 통과/실패는 유효하다(경합은 exit code를 바꾸지 않는다).
 - **배포 표면은 46%다** — marketplace manifest의 `source`가 `./plugins/mccp`이므로 그 하위 876파일만 배포되고 `.github/` · `.claude/` · `docs/` · `CLAUDE.md` 1,017파일은 사용자에게 가지 않는다. 그리고 marketplace 스키마는 ref 고정을 지원한다 — 공식 marketplace 291개 항목 중 84개가 `{path, ref, sha, source, url}` 형태이고 태그 고정 릴리스가 실재한다. **"main = production"은 제약이 아니라 현재의 설정값이다.**
@@ -67,7 +67,7 @@ We'll know we're right when **오늘 산출되지 않는 5대 지표가 전부 �
 
 | 지표 | 오늘 | 소유 자식 | 비고 |
 |---|---|---|---|
-| halt율 · halt당 차단 벽시계 (p50/p90) | 미측정 | C9 M1 | **리드타임의 실제 구성요소.** 패널 통과분은 평균 8분인데 마일스톤은 하루~1주다 — 그 차이의 대부분이 계산이 아니라 대기일 가능성이 높고 그 구간에 관측이 없다 |
+| halt율 · halt당 차단 벽시계 (p50/p90) | 미측정 | C9 M1 | **리드타임의 실제 구성요소.** 패널 구간은 중앙값 7.6분이고 패널 종료 → ship은 중앙값 0.3일인데 마일스톤 체감은 하루~1주다 — 그 차이의 대부분이 계산이 아니라 대기일 가능성이 높고 그 구간에 관측이 없다 |
 | 사용자 노출 케이던스 | **주 13회** (26 / 14일, C0 실측) | C0 | PRD 단위(2~3주 1회)로. 기존 bump 기준을 릴리스 경계로 승격하는 것이라 새 규칙이 아니다 |
 | 내용층 라운드 구조 커버리지 | **정의 미확정** — 같은 코퍼스가 정의에 따라 4.2~59.2% (C1 실측). 45.2%는 그중 `R1`/`R2` 토큰 정의의 값 | C1 | `.claude/reviews/` 71파일 평균 94줄. C1 M1이 정의를 파서로 고정한 뒤에야 목표가 반증 가능해진다 |
 | backlog 흡수율 | 6.9% (32/465) | 미정 | 상태 열이 없어 closure 추적 불가 — Open Question 2 |
@@ -117,7 +117,7 @@ C0가 MVP인 이유는 그것이 **안전의 전제**이기 때문이다. C5·C6
 | 1 | review-record-linkage | `rounds`가 실제 라운드 수를 담고, ship receipt와 리뷰 원문이 양방향으로 연결되며, 내용층 라운드 구조 커버리지가 100%가 된다. **얇은 ship receipt 설계는 유지한다** | in-progress | [review-record-linkage.prd.md](review-record-linkage.prd.md) |
 | 2 | orchestrator-step-wiring | `/mccp:work`가 orchestrator를 실제로 호출해 무인 완주율이 `null`을 벗어난다. 기록 실패가 체인을 멈추지 않는다 | pending | `orchestrator-step-wiring.prd.md` (미생성) |
 | 3 | ci-full-suite | CI가 전체 test를 강제한다. 그 전에 실행 시간이 신뢰 가능해진다 — 오늘 타이밍은 경합 오염으로 자체 무효 판정됐다. 첫 작업은 순수 in-process 단언 파일이 조용한 머신에서도 30초 걸리는 **미설명 100배 격차**의 규명이다. red 1건 해소 | pending | `ci-full-suite.prd.md` (미생성) |
-| 4 | leadtime-observability | 비수렴 33건의 벽시계가 복원되고, 마일스톤 e2e 리드타임이 git 근사가 아닌 실측으로 산출된다 | pending | `leadtime-observability.prd.md` (미생성) |
+| 4 | leadtime-observability | 집계에서 누락된 32건의 벽시계가 집계에 들어오고, 패널 종료 → ship 구간이 git 근사가 아닌 실측으로 산출되며 그 커버리지가 값과 함께 표기된다 | pending | [`leadtime-observability.prd.md`](leadtime-observability.prd.md) |
 | 5 | plan-artifact-contract | plan 산출물의 검증 절이 자유 서술에서 게이트 계약으로 재정의되고, 검증이 형식이 아니라 내용을 본다 | pending | `plan-artifact-contract.prd.md` (미생성) |
 | 6 | santa-surface-acceptance | 무인 push에 human-gate와 브랜치 가드가 생기고, 리뷰어가 범위 밖 관찰을 버릴 곳을 갖는다 | pending | `santa-surface-acceptance.prd.md` (미생성) |
 | 7 | deadline-timebox | 라운드 벽시계가 임계를 넘으면 자동으로 분기한다. 라운드 캡 설정과 "실무 기본 1라운드" 산문의 이원화가 끝난다 | pending | `deadline-timebox.prd.md` (미생성) |

@@ -47,8 +47,8 @@ const WIN = process.platform === 'win32';
 // 즉 `.native`가 없으면 plan이 "두 후보"라 부른 것이 실제로는 한 값이고,
 // 장형 별칭(`C:\Users\Administrator\...`)이 치환도 invariant도 통과한다.
 //
-// 두 catch는 **같은 정책**을 쓴다 — 어느 쪽이든 후보 하나를 잃은 사실을 `onDegrade`로
-// 올리고, 경로는 싣지 않는다.
+// 두 realpath 호출은 **하나의 catch**(`tryPush` 안)를 공유하므로 정책이 갈릴 수 없다 —
+// 어느 쪽이 죽든 후보 하나를 잃은 사실을 `onDegrade`로 올리고, 경로는 싣지 않는다.
 function rootVariants(dir, onDegrade) {
   const out = [];
   if (!dir) return out;
@@ -73,23 +73,34 @@ function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// 경로 세그먼트를 이룰 수 있는 문자. root 매치의 앞뒤 경계를 이 집합의 부재로 정의한다.
-const SEG_CHAR = 'A-Za-z0-9_.~$%+\\-';
-
 // 하나의 root를 문자열 안에서 찾기 위한 정규식.
 //
 // 구분자는 `\`와 `/`를 서로 호환으로 본다(Windows 진단 텍스트는 둘을 섞는다).
 // Windows에서는 대소문자를 무시한다. `file://` 스킴은 접두로 함께 먹는다 — ESM
 // 스택 프레임이 `file:///C:/Users/...` 형태로 렌더링되기 때문이다.
 //
-// **경계 둘이 핵심이다**(round 2).
-//   - 빈 세그먼트를 버리고 rooted 여부를 따로 기록한다. 버리지 않으면 join이
-//     본문 앞에 수량자를 만들어 (i) `/tmp`가 `/var/tmp` 중간에 매치하고,
-//     (ii) UNC root는 빈 세그먼트가 둘이라 인접 수량자 `[\/]+[\/]+`가 생겨
-//     구분자 연속 입력에서 초선형 backtracking에 빠진다(실측 O(n³)).
-//   - 앞뒤로 «세그먼트 문자가 아님»을 요구한다. 후행이 없으면
-//     `…\Administrator` 규칙이 `AdministratorBACKUP`을 삼켜, 남은 문자열이
-//     절대경로 형태를 잃고 잔여 스캔이 못 본다.
+// **경계는 열거하지 않는다**(round 3). round 2는 후행 경계를 «세그먼트 문자가
+// 아님»으로 정의했는데, 그 «세그먼트 문자» 집합은 **열린 집합**이라 반드시 샜다 —
+// 공백·`@`·`(`·`,`는 파일명에 합법인데 집합에 없어서 `…\Administrator Backup\…`이
+// 부분 치환됐고, 남은 문자열은 절대경로 형태를 잃어 잔여 스캔이 못 봤다. 즉
+// 치환이 불변식을 무력화했다. 이제 후행은 **`(?![^\\/])`** — 구분자이거나 문자열
+// 끝. 열거가 없으므로 샐 곳이 없다.
+//
+// **그 대가는 명시적으로 fail-closed다.** root 뒤에 구분자가 아닌 구분 문자가
+// 오면(`"C:\Users\Administrator"`의 닫는 따옴표 등) 치환이 **일어나지 않고**,
+// 그러면 전체 경로가 남아 잔여 스캔이 잡아 `redaction_ok:false`가 된다. 조용히
+// 세탁되는 것보다 시끄럽게 막히는 쪽이 이 모듈의 계약이다.
+//
+// 선행 경계는 세그먼트 문자 **와 구분자**를 함께 배제한다. 구분자를 빼면 매치가
+// 구분자 연속의 두 번째 자리에서 시작할 수 있어 `/var//tmp/…`가 `/var/<tmp>/…`로
+// 접혔다(round 3 실측) — 선행 경계가 run 전체에 걸리지 않았던 것이다.
+//
+// 빈 세그먼트는 버리고 rooted 여부를 따로 기록한다. 버리지 않으면 join이 본문 앞에
+// 수량자를 만들어 UNC root에서 인접 수량자가 생긴다. 다만 **초선형 잔여는 남아
+// 있다** — rooted/UNC root는 구분자 연속 입력에서 대략 O(n²)다(round 3 실측:
+// 16k 구분자에서 ~1s). 실제 reporter 산출에는 그런 형태가 없어 backlog로 이연한다.
+const SEG_CHAR = 'A-Za-z0-9_.~$%+\\-';
+
 function rootRegex(root) {
   const segs = root.split(/[\\/]/);
   const rooted = segs.length > 0 && segs[0] === '';
@@ -98,7 +109,7 @@ function rootRegex(root) {
   const body = parts.map(escapeRe).join('[\\\\/]+');
   const lead = rooted ? '[\\\\/]+' : '';
   return new RegExp(
-    '(?<![' + SEG_CHAR + '])(?:file:/{2,3})?' + lead + body + '(?![' + SEG_CHAR + '])',
+    '(?<![' + SEG_CHAR + '\\\\/])(?:file:/{2,3})?' + lead + body + '(?![^\\\\/])',
     WIN ? 'gi' : 'g'
   );
 }
@@ -143,8 +154,12 @@ const MAX_DEPTH = 20;
 // 20은 진단 가독성을 위한 이 모듈의 선택이며, 조기 반환 시점에 이미 hits가
 // 비어있지 않으므로 "깨끗함"으로 읽힐 수 없다.
 const MAX_HITS = 20;
-// 라벨에 그대로 실을 수 있는 객체 키의 최대 길이. 넘으면 서수로 대체한다.
+// 라벨에 원문 그대로 실어도 되는 객체 키의 형태. **positive allowlist**이고,
+// 구분자·콜론·점·물결·퍼센트를 전부 배제하므로 어떤 경로 형태도 통과하지 못한다.
+// 탐지 규칙(RESIDUAL_PATTERNS)에 결속하지 않는 것이 요점이다 — 결속하면 탐지의
+// 사각이 곧 억제의 사각이 된다.
 const MAX_LABEL_KEY = 64;
+const SAFE_LABEL_KEY_RE = new RegExp('^[A-Za-z0-9_-]{1,' + MAX_LABEL_KEY + '}$');
 
 function createRedactor(opts) {
   const o = opts || {};
@@ -233,9 +248,20 @@ function createRedactor(opts) {
     const impl = rawWinAbs ? path.win32 : path.posix;
     const rel = impl.relative(repoRoot, raw);
     if (rel === '') return '.';                       // repo 루트 자신
-    if (rel && rel !== '..' && !rel.startsWith('..' + impl.sep) && !rel.startsWith('../')
-        && !impl.isAbsolute(rel) && !WIN_ABS_RE.test(rel)) {
-      return rel.split(/[\\/]/).join('/');
+
+    // **검사 대상은 반환할 값 그 자체다**(round 3). 이전 판본은 `rel`을 검사하고
+    // *정규화한* 값을 반환했는데, 그 둘이 다른 문자열이라 POSIX 호스트에서
+    // `\Users\Administrator\secret.txt`가 통과했다 — `path.posix`에게 backslash는
+    // 구분자가 아니라 `isAbsolute`가 false이고 `..`도 세그먼트로 안 보이는데,
+    // 마지막 `split(/[\\/]/)`에서만 구분자로 취급돼 `/Users/Administrator/secret.txt`
+    // 라는 **절대 키**가 나왔다. 정규화를 먼저 하고 그 결과를 검사하면 그 비대칭이
+    // 사라지고, 플랫폼 구현에 판정을 맡기지 않으므로 호스트 무관하다.
+    const relNorm = rel.split(/[\\/]/).join('/');
+    if (relNorm
+        && !relNorm.startsWith('/')                       // 절대(POSIX 형태)
+        && !WIN_ABS_RE.test(relNorm)                      // 절대(Windows 형태)
+        && relNorm.split('/').indexOf('..') === -1) {     // 부모 탈출(위치 무관)
+      return relNorm;
     }
     return externalKey(raw);
   }
@@ -285,8 +311,12 @@ function createRedactor(opts) {
       if (v && typeof v === 'object') {
         Object.keys(v).forEach((k, i) => {
           const km = matchRule(k);
-          // 키가 규칙에 걸리거나 너무 길면 라벨에 원문을 싣지 않는다.
-          const label = (km || k.length > MAX_LABEL_KEY) ? at + '.{key:' + i + '}' : at + '.' + k;
+          // 라벨에 원문 키를 실을 조건은 **positive allowlist**다(round 3).
+          // 이전 판본은 "잔여 규칙에 안 걸리면 싣는다"였는데, 그 규칙은 UNC·드라이브
+          // 상대·비열거 POSIX를 못 보므로 **탐지 못 하는 키가 정확히 라벨에 남았다**
+          // — 억제 술어와 탐지 술어가 같은 사각을 공유했다. 이제 경로일 수 **없는**
+          // 형태(구분자·콜론·점 없는 짧은 식별자)만 통과시킨다.
+          const label = SAFE_LABEL_KEY_RE.test(k) ? at + '.' + k : at + '.{key:' + i + '}';
           if (km) hits.push({ at: label, rule: km.rule, length: km.length });
           walk(v[k], label, depth + 1);
         });

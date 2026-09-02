@@ -184,7 +184,7 @@ M3의 shard 수가 그 숫자에서 파생된다.
   - "전수 순차 실행 = 174분" → 353개 **결과 줄**의 합이고 그중 7개 파일이 resume 때문에 두 번 실행됐다. **고유 346개 기준 169.6분**이다. 재실행된 7건은 실행 간 최대 25% 편차를 보였다(`pr-codex-skip-env` 104.2초 대 82.9초 · `preflight` 113.7초 대 132.4초) — "경합 오염 의심"의 직접 증거다.
   - "`package.json` 부재" → **루트에 없다**. `plugins/mccp/scripts/receipt/package.json`과 `.claude/scripts/receipt/package.json` 2개가 존재하며 둘 다 `"test": "node --test tests/"`를 선언한다(Node 24에서 죽는 형태).
   - "CI 세 workflow" → `origin/main` 기준으로 맞다. **이 브랜치의 base에는 2개뿐**이었다(Task 0에서 해소).
-  - baseline 로그가 `.claude/scripts/receipt/tests/` 10개를 **한 번도 돌리지 않았다** — 분모 346은 `plugins/mccp/scripts/` 하위만이다.
+  - baseline 로그가 `.claude/scripts/receipt/tests/` 10개를 **한 번도 돌리지 않았다** — 그 로그의 분모 346은 `plugins/mccp/scripts/` 하위만이고, **Task 0 머지 이전 값**이다. **346을 현재 스위트 크기로 옮겨 적지 말 것**: 그것은 baseline 로그의 적용 범위이지 분모가 아니다. 현재 tracked 수는 실측 **368**(`plugins/mccp/scripts/` 358 + `.claude/scripts/` 10)이고 PRD:21의 368이 정본이므로, 그 줄은 정정 대상이 아니라 **유지 대상**이다. 아래 `## Codex Implementation Review`의 "tracked `*.test.js` 356건"은 그 세션의 실측 기록이라 그대로 둔다(역사적 기록).
 - **Validate**: milestone 1행 status가 `complete`이고 Plan 셀이 이 파일을 가리킴 · 정정 네 건이 본문에 반영됨
 
 ## Validation

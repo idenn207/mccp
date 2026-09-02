@@ -2,7 +2,72 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.33.8`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.34.2`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.34.2] — 2026-09-02
+
+> **§3.7**: `1.33.8 → 1.34.2` (**patch** — leadtime-observability PRD의 단일 milestone
+> M2이고 PRD 종료 축이 아니다. M3 one-line-consumption이 남아 있다). 이 브랜치가 M1을
+> `1.33.8`로 선언한 뒤 origin/main이 `1.33.7` · `1.34.0` · `1.34.1`을 발행했다.
+> forward-only 규칙대로 발행된 번호는 불가침이므로 main의 head(`1.34.1`) **위**의 다음
+> patch 자리를 택했다. 4면(plugin.json · html.js page-foot · markdown.js derived 줄 ·
+> 이 파일의 `currently` 노트)을 함께 맞췄고 `i18n-surface.test.js`가 재검증한다.
+>
+> **미해소로 남기는 것**: 바로 아래 `## [1.33.8]`(M1, 미머지)은 이제 main의 `1.34.1`보다
+> **낮은 번호**라 base를 머지하면 CHANGELOG 순서가 역전된다. 번호가 main에 선점된 것은
+> 아니므로 충돌은 아니지만, `claude plugin update`가 설치본보다 낮은 버전을 해소하게 되는
+> 것은 §3.7이 막으려는 상황이다. **base 머지 시점에 M1 항목도 함께 위로 밀어야 한다**
+> (그때 M2도 다시 재계산 — §3.7의 "두 번 재계산" 규칙).
+
+### Added
+
+- **leadtime-observability M2 — 패널 종료 → ship 구간(`post_panel_span`)**:
+  `leadtime.js`가 두 번째 축을 낸다. 끝점을 두 앵커로 **각각** 산출하고 절대 합치지
+  않는다(DD2) — `ledger_basename`(completion-ledger `plan_basename` ↔ `completed_at`)과
+  `ship_plan_hash`(`mccp-pr-codex` `plan_hash` ↔ `meta.created_at`). 실측 커버리지는
+  11/40 · 12/40이고 p50은 각각 0.38일 · 0.28일이다.
+- **미짝 사유 분해 + 합계 등식**: 미짝 레코드 전건을 닫힌 5종(`no_plan_path` ·
+  `key_mismatch` · `anchor_absent` · `not_shipped` · `unclassified`)으로 분류하고
+  `unmatched === Σ(counts)`를 fail-closed로 강제한다(깨지면 축이 `degraded`). PRD Open
+  Question 4가 **"ledger 쓰기가 멈춘 것"** 으로 갈렸다 — `anchor_absent` 12건 중 6건이
+  반대축 ship receipt의 직접 증언이다.
+- **증인 3-state + 비대칭 사용**: `not_shipped`는 증인 4종이 **전부 `no`**일 때만
+  성립하고, `anchor_absent`로의 승격은 **ship 자격이 있는 증인**(반대축 앵커 ·
+  `archived/`의 plan)만 할 수 있다. implement receipt와 git 이력은 `yes`여도 ship을
+  증언하지 못한다 — 승격시키면 커밋된 모든 plan이 ship으로 보인다. 소스가 부재하거나
+  읽히지 않으면 증인은 `no`가 아니라 `unavailable`이고, 그러면 만장일치가 깨져
+  `not_shipped`를 단언할 수 없다(`mccp-implement-codex`가 §3.12상 working-tree only라
+  다른 클론에서 디렉토리 자체가 없는 경우를 닫는다).
+
+### Changed
+
+- **최상위 `state`가 합성값이 됐다** — `state_is_composite:true`를 동반하며 실린 축들의
+  사다리 최악값이다. 최상위 `axis` 스칼라는 **제거**했다(두 축을 대표하지 못한다).
+  `panel_span`에 자기 `state`가 생겼고, damaged-first가 두 축에 똑같이 걸린다: 소스가
+  손상됐으면 관측 0건이어도 축 키를 싣고 `degraded`로 낸다(키를 지우면 합성에서 빠져
+  최상위가 `ok`로 남는 fail-open이 된다).
+- **ship 자격은 `pr-ship-gate.js`의 오라클 반환값이다** — 멤버십을 재구현하지 않는다.
+  receipt 전체(`meta` 포함)를 넘겨 무증거 skip을 배제하고, `forceOverrideActive`를 묶어
+  audited override로 실제 머지된 ship이 no-ship으로 접히지 않게 한다. 판정 근거
+  (`ship_receipts_total`/`_qualified`/`_unproven_skip`/`_override_qualified`)를 출력에
+  실어 필터가 켜져 있음을 관측 가능하게 했다. 실측: 71건 중 39건 자격 · 무증거 skip 6건
+  배제 · override 5건 포함.
+- `docs/leadtime-observability/panel-span.md`의 동결 블록을 **재생성**했다. M1은 `--json`
+  전문을 동결했는데 위 출력 형태 변경으로 거짓이 됐다. 이제 그 문서는 `panel_span` 하위만
+  동결하고 전문 동결은 신규 `post-panel-span.md`가 단독 소유한다.
+
+### Notes
+
+- **지표 4('두 앵커의 불일치')는 시각 축에서 구조적으로 0이다.** 양쪽 매치 6건의
+  `anchor_delta_ms`가 전건 정확히 `0` — ledger의 `completed_at`이 ship receipt의
+  `meta.created_at`을 그대로 복사하기 때문이다. 두 앵커는 독립된 증인이 아니라 한 사건의
+  두 기록이므로, 살아있는 신호는 시각이 아니라 **커버리지 차이**(`ledger`만 5 · `ship`만
+  6)다. PRD에 새 Open Question으로 기록했다.
+- `not_shipped`는 오늘 코퍼스에서 **0건**이다. 버킷이 죽은 것이 아니라 비어 있는 것이며
+  (이 저장소의 plan은 거의 전부 커밋돼 있어 git 증인이 `yes`를 낸다), 도달 가능성은
+  회귀 test가 직접 증명한다.
+- 게이트 배선 diff는 **공집합**이다(UI7) — `commands/` · `hooks/` · `scripts/hooks/` ·
+  `plan-review/` 변경 0건. read-only 계측이라 사용자 체감 변화가 없다.
 
 ## [1.33.8] — 2026-09-01
 

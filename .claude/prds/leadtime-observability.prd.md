@@ -73,15 +73,16 @@ We'll know we're right when **분포가 커버리지와 함께 한 화면에 뜨
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | wall-clock-aggregate | 측정 가능 레코드 전건의 벽시계 분포가 산출된다(이전 소비처는 converged 5건만 보고했다). 코퍼스 커버리지가 하한으로 명시된다. `corpus.js` 출력은 한 바이트도 바뀌지 않는다 | complete | `.claude/plans/leadtime-observability-m1.plan.md` |
-| 2 | span-join | 패널 종료 → ship 구간이 두 끝 앵커로 각각 산출되고, 미짝 레코드 전건이 사유별로 분류된다(미ship / 앵커 부재 / 키 불일치). 두 앵커의 불일치가 함께 나온다 | pending | — |
+| 2 | span-join | 패널 종료 → ship 구간이 두 끝 앵커로 각각 산출되고, 미짝 레코드 전건이 사유별로 분류된다(미ship / 앵커 부재 / 키 불일치). 두 앵커의 불일치가 함께 나온다 | complete | `.claude/plans/leadtime-observability-m2.plan.md` |
 | 3 | one-line-consumption | `STATUS.md` 상단 한 줄에 값과 커버리지가 **함께** 뜬다. 값이 없으면 없다고 적고 0으로 적지 않는다. C7이 인용할 분포가 파일로 남는다 | pending | — |
 
 ## Open Questions
 
 - [x] **`pre_measurement` 13건을 분모에서 뺄 것인가, 하한으로 계속 표시할 것인가.** → **하한 표시로 결정**(M1 DD5). `corpus.js`와 같은 규약을 따른다. 분모에서 빼면 커버리지가 영원히 100%로 보여 코퍼스의 시간 경계가 출력에서 사라진다. `leadtime.js`는 `counts_are_lower_bound`를 매 출력에 싣고 `renderHuman`이 값보다 먼저 커버리지를 낸다.
-- [ ] **미짝 26건의 분해 결과에 따라 C4가 아닌 축이 열릴 수 있다.** 'ship됐는데 앵커가 없다'가 다수면 그것은 집계 문제가 아니라 **기록 배선 문제**이고 C1의 사거리다.
-- [ ] **10배 격차가 표본 편향인지 패널 밖 구간인지.** 갈리지 않으면 지표 2는 "무엇의 리드타임인지"를 말하지 못한다. M2의 미짝 분해가 1차 증거다.
-- [ ] **completion-ledger가 2026-08-21에서 멈췄다.** 그 이후 ship에 엔트리가 없다 — 쓰기가 멈춘 것인지 그 plan들이 아직 ship되지 않은 것인지 미판정. 전자면 지표 4의 한쪽 축이 죽어 있다.
+- [x] **미짝 26건의 분해 결과에 따라 C4가 아닌 축이 열릴 수 있다.** → **열린다**(M2 실측, 2026-09-02 · [post-panel-span.md](../../docs/leadtime-observability/post-panel-span.md)). `ledger_basename` 미짝 29건 중 `anchor_absent` **12건**이 'ship됐는데 이 축의 앵커가 없다'이고, 그중 **6건**은 반대축 ship receipt가 직접 증언한다. 집계 문제가 아니라 **기록 배선 문제**가 맞고 C1 사거리다. 남은 **17건**은 `unclassified` — 증인 어느 것도 ship을 증언하지 못한 상태이며, 그 규모 자체가 배선 축을 여는 두 번째 근거다. `not_shipped`는 **0건**이다(도달 가능하지만 오늘 코퍼스에 해당 사례가 없다 — 근거는 문서 결론 2).
+- [ ] **10배 격차가 표본 편향인지 패널 밖 구간인지.** 갈리지 않으면 지표 2는 "무엇의 리드타임인지"를 말하지 못한다. M2의 미짝 분해가 1차 증거다. → **부분 진전**: 패널 밖 구간이 실제로 측정됐다(`post_panel_span` p50 0.28~0.38일). 그러나 커버리지가 11~12/40이라 이 값으로 격차를 설명하는 것은 **생존 편향에 노출**된다 — 조인된 것은 ship까지 간 것들뿐이다. 나머지 축(`/mccp:work` 진입 → 패널)이 C2에 남아 있으므로 이 질문은 **열어 둔다**.
+- [x] **completion-ledger가 2026-08-21에서 멈췄다.** → **쓰기가 멈춘 것이다**(M2 실측, 2026-09-02). `anchor_absent` 12건 중 6건이 '자격 있는 ship receipt는 있는데 ledger 엔트리가 없다'이고, ledger 마지막 엔트리(08-21) 이후 발행된 자격 receipt가 실재한다. 그 판정은 **receipt 존재가 아니라 `pr-ship-gate.js#deriveShipDecision`이 자격을 인정한 것만** 센 결과다(무증거 skip 6건 배제 · audited override 5건 포함). 지표 4의 한쪽 축이 죽어 있는 것이 맞고, **복구는 C1 사거리**다 — M2는 고치지 않고 표면화했다.
+- [ ] **지표 4('두 앵커의 불일치')는 시각 축에서 구조적으로 0이다.** (M2가 새로 연 질문) 양쪽 매치 6건의 `anchor_delta_ms`가 전건 정확히 0이다 — ledger의 `completed_at`이 ship receipt의 `meta.created_at`을 그대로 복사하기 때문이다. 두 앵커는 독립된 증인이 아니라 **한 사건의 두 기록**이므로, 살아있는 신호는 시각 불일치가 아니라 **커버리지 차이**(`ledger`만 5 · `ship`만 6)다. 지표 4의 정의를 커버리지 축으로 옮길지, 아니면 C2가 세 번째 **독립** 앵커를 만들 때까지 보류할지 미판정.
 
 ## Risks
 

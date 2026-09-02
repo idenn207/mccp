@@ -1,51 +1,53 @@
 ---
 state_version: 1
-task_fingerprint: diverse-agent-review-m8
+task_fingerprint: leadtime-observability-m2
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-27T05:46:45.211Z
+updated_at: 2026-09-02T04:25:46.996Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-27T05:46:45.211Z
+last_event_at: 2026-09-02T04:25:46.996Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-23T09:38:09.736Z
-dep_check_missing: impeccable
+dep_check_at: 2026-09-02T04:19:11.964Z
+escalate_pending: true
+escalate_pending_decision_id: leadtime-observability-m2
 ---
 ## Goal
-diverse-agent-review M8 — 패널 quorum 캘리브레이션 재검토(판정 milestone). 구현 + code-review 흡수 완료(v1.33.1), commit/PR 대기.
+leadtime-observability M2 — span-join. 구현 + 검증 + 문서 동결 완료(v1.34.2). commit/PR 대기.
 
 ## Plan
-- PRD: `.claude/prds/diverse-agent-review.prd.md` — #1·#4·#6·#7·**#8 complete**, #11 신설(승인 품질 감사)
-- plan: `.claude/plans/diverse-agent-review-m8.plan.md` — 봉인됨(plan_hash). **편집 금지**
-- 산출물: `plugins/mccp/scripts/lib/plan-review/corpus.js` + test + `docs/diverse-agent-review/quorum-calibration.md`
-- 구현 보고: `.claude/PRPs/reports/diverse-agent-review-m8-report.md` · 노트: `.claude/notes/diverse-agent-review-m8.md`
-- version 1.33.1 (patch — PRD 내 단일 milestone). origin/main이 1.33.0을 발행해 §3.7 forward-only로 재상향. 4면 동기 완료. branch diverse-agent-review-m8
+- PRD: `.claude/prds/leadtime-observability.prd.md` — M1·M2 **complete**, M3 one-line-consumption 남음
+- plan: `.claude/plans/leadtime-observability-m2.plan.md` — 봉인됨(plan_hash). **편집 금지**
+- 산출물: `plugins/mccp/scripts/lib/leadtime.js` + `lib/tests/leadtime.test.js` + `docs/leadtime-observability/post-panel-span.md` (+ M1 문서 `panel-span.md` 동결 재생성)
+- 구현 보고: `.claude/PRPs/reports/leadtime-observability-m2-report.md` · 노트: `.claude/notes/leadtime-observability-m2.md`
+- version 1.34.2 (patch — PRD 내 단일 milestone). origin/main이 1.34.1까지 발행해 §3.7 forward-only로 재상향. 4면 동기 완료. branch leadtime-observability
 
 ## Done
-- M8 구현 — read-only·LLM-free·standalone 집계 오라클 `corpus.js`. 게이트 배선 diff 공집합(UI6, 기계 확인)
-- 판정 4건 — 승인 경로 존재(converged 5, 중앙값 6.4분) · M·K binding 0건 · 실제 규칙은 severity 게이트 · F6 단독 차단 1건
-- K 자연 실험(`794c4de` 분할) — K=3 구간 25건/converged 4 vs K=1 구간 10건/1. 손잡이를 돌려도 지표 무반응
-- **code-review HIGH 흡수** — `single_pass_tainted` 가 converged 만 필터해 구조적 0이었다. `decide.js:338` 이 완화를 항상 divergent 로 봉인하므로 그 축은 회귀 가드일 뿐이고, 실완화 14건은 신설 `single_pass` 축이 센다(F6 과 동형 오류)
-- 동결 블록 재생성 + 라이브 출력과 바이트 일치 재검증 · 문서/PRD 의 UI9 문장을 "관측" 에서 "상류 불변식" 으로 정정
-- 검증 — corpus test 33/33 · plan-review 전체 322 pass/0 fail · i18n-surface 10/10 · 도구 exit 0 state=ok
-- MEDIUM 2 + LOW 7 은 §3.14 대로 backlog 이연(증거 동봉, 9행 append)
+- M2 구현 — `leadtime.js`에 `post_panel_span` 축 추가. 두 앵커 계열(`ledger_basename` · `ship_plan_hash`)을 각각 산출하고 절대 합치지 않는다(DD2). 최상위 `state`는 실린 축의 사다리 최악값(`state_is_composite`)이고 `axis` 스칼라는 제거
+- 미짝 5종 분해 + 증인 3-state 비대칭 — `not_shipped`는 증인 4종 만장일치 부정일 때만, `anchor_absent` 승격은 ship 자격 증인(W0 반대축 · W1 archived)만. `unavailable`은 `no`가 아니다
+- ship 자격은 `pr-ship-gate.js#deriveShipDecision` 반환값 그대로(DD14) — receipt 전체 + forceOverrideActive 바인딩. 실측 39/71 자격(무증거 skip 6 배제 · override 5 포함)
+- 실측 — eligible 40 · matched 11/12 · both 6 · anchor_absent 12/4 · key_mismatch 0/16 · unclassified 17/8 · not_shipped 0. p50은 0.38일 / 0.28일
+- PRD OQ 2건 종결 — ledger 쓰기가 멈춘 것(복구는 C1 사거리) · 미짝 분해가 배선 축을 연다. 신규 OQ 1건 기록(지표 4가 시각 축에서 구조적 0)
+- 문서 2면 동결 — `post-panel-span.md`(--json 전문) + `panel-span.md`(panel_span 하위) 재생성 후 라이브 출력과 바이트 일치 재확인
+- 검증 — leadtime test 47/47 · i18n-surface 10/10 · 도구 exit 0 state=ok · §3.5.1 삭제 검증 0건 · origin/main(1.34.1)과 version 충돌 없음
+- **code-review HIGH 2건 흡수** — (1) 이 STATE.md의 Plan/Done이 diverse-agent-review M8을 가리키던 stale을 정정 (2) 두 앵커 축의 ship 자격 비대칭(ledger는 엔트리 존재만으로 인정 — 무자격 receipt 결속 4건 실재)을 `post-panel-span.md` 한계에 명시. MEDIUM 2 + LOW 4는 backlog 이연, stale backlog 2행은 흡수 표시로 정정
 
 ## In Progress
 
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 version 재계산 필수(sibling worktree 가 1.32.7·1.32.8·1.33.0 선언).
+/mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 version 재계산 필수(main이 1.34.1까지 발행). base 머지 시 M1의 1.33.8 항목도 위로 밀 것.
 
 ## Last Decision
-code-review HIGH 를 §3.14 대로 그 자리에서 흡수했다 — 출력 형태가 바뀌므로 문서의 축자 동결 블록을 재생성하고 바이트 일치를 다시 확인했다(재생성하지 않으면 문서의 중심 주장이 거짓이 된다). MEDIUM·LOW 9건은 고치지 않고 backlog 에 증거와 함께 이연했다. §3.16 대로 라운드를 늘리지 않는다.
+Phase 2.5.4의 plan 본문 주입이 plan_hash를 어긋내 상류 receipt가 stale이 되자, audited bypass 대신 명령 본문이 스스로 허용하는 대체 위치(.claude/notes/)에 게이트 기록을 뒀다 — plan을 원래 바이트로 복원해 chain이 우회 없이 통과한다. Implement-Codex HIGH 2건은 §3.14대로 R1에서 흡수(증인의 방향별 자격 비대칭 + probe 진리표 명문화).
 
 ## Open Questions
-- 완화 14건의 사유 분포(`review_single_pass_reason`)와 그때 놓친 결함의 사후 대조 — 임계 과잉인지 마감 압력인지 이 코퍼스는 답하지 않는다 (#11 과 같은 종류)
-- `binding_axis` 의 `l2_not_evaluated` ↔ `quorum_evaluated_blocked` 상호배타가 코드로 강제되지 않음(현재는 우연히 정합) — backlog
-- `codex-invoke.test.js` 9건 상시 실패는 `MCCP_CODEX_DISABLED=1` 영구 정책 + 봉인 때문 — 이 변경과 무관하나 별도 축의 부채
-- 설치 plugin cache 가 1.32.6 — 머지 후 `claude plugin update` 필요
+- 지표 4(두 앵커 불일치)가 시각 축에서 구조적 0 — ledger completed_at이 ship receipt created_at의 복사본이다. 지표 정의를 커버리지 축으로 옮길지 미판정(PRD에 신규 OQ로 기록)
+- not_shipped는 오늘 코퍼스 0건 — 도달 가능하나 이 저장소 plan이 거의 전부 커밋돼 git 증인이 yes를 낸다. test가 도달성을 증명
+- evidence-claim liveness가 /clear 후 session-id 회전을 자기 프로세스와 구분 못 함 — 15분 TTL 대기로 해소, backlog 축
+- plugins/mccp/scripts/lib/tests/ 전체 스위트는 선재적으로 10분 타임아웃(codex spawn 포함) — 영향 범위 스위트만 개별 green
 
 ## Last Updated
-2026-08-27T05:46:45.211Z
+2026-09-02T04:25:46.996Z

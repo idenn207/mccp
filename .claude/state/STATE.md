@@ -1,51 +1,50 @@
 ---
 state_version: 1
-task_fingerprint: diverse-agent-review-m8
+task_fingerprint: orchestrator-step-wiring-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-08-27T05:46:45.211Z
+updated_at: 2026-09-02T00:38:03.857Z
 last_event: stop_loop_pass
-last_event_at: 2026-08-27T05:46:45.211Z
+last_event_at: 2026-09-02T00:38:03.857Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-08-23T09:38:09.736Z
-dep_check_missing: impeccable
+dep_check_at: 2026-09-02T00:29:29.836Z
+escalate_pending: true
+escalate_pending_decision_id: orchestrator-step-wiring-m1
 ---
 ## Goal
-diverse-agent-review M8 — 패널 quorum 캘리브레이션 재검토(판정 milestone). 구현 + code-review 흡수 완료(v1.33.1), commit/PR 대기.
+orchestrator-step-wiring M1 (metric-boundary-unification) — plan 게이트 divergent 상태. santa-loop R0 흡수 중.
 
 ## Plan
-- PRD: `.claude/prds/diverse-agent-review.prd.md` — #1·#4·#6·#7·**#8 complete**, #11 신설(승인 품질 감사)
-- plan: `.claude/plans/diverse-agent-review-m8.plan.md` — 봉인됨(plan_hash). **편집 금지**
-- 산출물: `plugins/mccp/scripts/lib/plan-review/corpus.js` + test + `docs/diverse-agent-review/quorum-calibration.md`
-- 구현 보고: `.claude/PRPs/reports/diverse-agent-review-m8-report.md` · 노트: `.claude/notes/diverse-agent-review-m8.md`
-- version 1.33.1 (patch — PRD 내 단일 milestone). origin/main이 1.33.0을 발행해 §3.7 forward-only로 재상향. 4면 동기 완료. branch diverse-agent-review-m8
+- PRD: `.claude/prds/orchestrator-step-wiring.prd.md` — M1 in-progress, M2(halt 기록) pending
+- plan: `.claude/plans/orchestrator-step-wiring-m1.plan.md` — **R2 흡수로 편집됨**. plan_hash 변경 → 두 plan-codex receipt 전부 stale
+- receipt: `mccp-plan-codex/orchestrator-step-wiring.json`(패널 3라운드) + `…-m1.json`(같은 리뷰를 implement 슬러그로 봉인). 둘 다 review_verdict=divergent
+- 리뷰 기록: `.claude/reviews/plan-review-orchestrator-step-wiring.md` (L2 패널) · santa ledger `.claude/state/santa-loop/`
+- version: origin/main이 1.33.7 발행 → 이 브랜치 잠정 target 1.33.8 (§3.7 forward-only, PR 직전 재계산)
 
 ## Done
-- M8 구현 — read-only·LLM-free·standalone 집계 오라클 `corpus.js`. 게이트 배선 diff 공집합(UI6, 기계 확인)
-- 판정 4건 — 승인 경로 존재(converged 5, 중앙값 6.4분) · M·K binding 0건 · 실제 규칙은 severity 게이트 · F6 단독 차단 1건
-- K 자연 실험(`794c4de` 분할) — K=3 구간 25건/converged 4 vs K=1 구간 10건/1. 손잡이를 돌려도 지표 무반응
-- **code-review HIGH 흡수** — `single_pass_tainted` 가 converged 만 필터해 구조적 0이었다. `decide.js:338` 이 완화를 항상 divergent 로 봉인하므로 그 축은 회귀 가드일 뿐이고, 실완화 14건은 신설 `single_pass` 축이 센다(F6 과 동형 오류)
-- 동결 블록 재생성 + 라이브 출력과 바이트 일치 재검증 · 문서/PRD 의 UI9 문장을 "관측" 에서 "상류 불변식" 으로 정정
-- 검증 — corpus test 33/33 · plan-review 전체 322 pass/0 fail · i18n-surface 10/10 · 도구 exit 0 state=ok
-- MEDIUM 2 + LOW 7 은 §3.14 대로 backlog 이연(증거 동봉, 9행 append)
+- plan 게이트 재실행 — plan 경로 슬러그(`orchestrator-step-wiring-m1`)로 receipt 봉인, prp-implement 체인 연결(validate ok:true)
+- santa-loop R0 — A(blind)/B(bundled) 둘 다 FAIL, blocking 9건. contract=full, mismatch 0
+- 핵심 사실 주장 4건 직접 검증 — 4/4 참(origin/main 1.33.7 · finalize-receipt가 task_ship_sealed emit · session-activity.js:154 kind 가드 부재 · m8-coverage-gate 하드코딩 경로)
+- R2 흡수 — DD8의 거짓 단언 2건(A2 오염·census 2개) 정정 · m8-coverage-gate 소비처 추가 · version 1.33.6→1.33.7 전제 정정 + 파일명에서 버전 제거 · Validation 1b/5/7 vacuous 3건 기계 판정으로 교체 · DD5 타임아웃을 execFileSync 경계로 정정
+- 신설 — Task 5a(A2 분모) · Task 5b(m8-coverage-gate) · Task 8(9)(10)(11) 회귀 가드 · Files to Change 4행
 
 ## In Progress
-
+santa-loop Step 5 — adjudication 기록 후 commit. R1 재발화 여부는 사용자 판단(§3.16).
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 version 재계산 필수(sibling worktree 가 1.32.7·1.32.8·1.33.0 선언).
+santa adjudicate 9건 → commit → (선택) santa R1. plan 편집으로 receipt가 stale이므로 implement 전 /mccp:plan 재실행 필요.
 
 ## Last Decision
-code-review HIGH 를 §3.14 대로 그 자리에서 흡수했다 — 출력 형태가 바뀌므로 문서의 축자 동결 블록을 재생성하고 바이트 일치를 다시 확인했다(재생성하지 않으면 문서의 중심 주장이 거짓이 된다). MEDIUM·LOW 9건은 고치지 않고 backlog 에 증거와 함께 이연했다. §3.16 대로 라운드를 늘리지 않는다.
+santa R0의 blocking 9건 중 CRITICAL/HIGH를 §3.14대로 그 자리에서 흡수했다. 흡수 전에 사실 주장 4건을 직접 검증해 4/4 참임을 확인했고, 리뷰어가 지어내지 않았음을 근거로 편집했다. plan 편집이 두 receipt를 stale로 만드는 것은 알고 한 선택이다 — 검증된 거짓 단언을 그대로 두고 receipt만 지키는 것은 봉인의 목적과 반대다.
 
 ## Open Questions
-- 완화 14건의 사유 분포(`review_single_pass_reason`)와 그때 놓친 결함의 사후 대조 — 임계 과잉인지 마감 압력인지 이 코퍼스는 답하지 않는다 (#11 과 같은 종류)
-- `binding_axis` 의 `l2_not_evaluated` ↔ `quorum_evaluated_blocked` 상호배타가 코드로 강제되지 않음(현재는 우연히 정합) — backlog
-- `codex-invoke.test.js` 9건 상시 실패는 `MCCP_CODEX_DISABLED=1` 영구 정책 + 봉인 때문 — 이 변경과 무관하나 별도 축의 부채
-- 설치 plugin cache 가 1.32.6 — 머지 후 `claude plugin update` 필요
+- santa R1을 돌릴 것인가 — §3.16은 라운드를 늘리지 말라고 하고, R0 흡수는 이미 실재 결함 7종을 닫았다. 사용자 판단 대기
+- codex 사용량 한도 소진(2026-09-07 해제) — santa Reviewer B·PR-Codex·hybrid L3가 전부 같은 CLI를 쓰므로 그때까지 모델 다양성 확보 불가. seal은 degraded로 봉인됨
+- 두 plan-codex receipt가 같은 reviewed_plan_hash에 rounds 3 대 1로 모순 — 리뷰어 양쪽이 독립 지적. 우산 PRD C1(review-record-linkage)의 표제 결함과 동형
+- MEDIUM/LOW 미흡수분(fan-out 26 대 20 · 토글 만기 부재 · PRD Open Question 3 오참조 등)은 backlog 이연 대상
 
 ## Last Updated
-2026-08-27T05:46:45.211Z
+2026-09-02T00:38:03.857Z

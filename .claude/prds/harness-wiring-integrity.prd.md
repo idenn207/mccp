@@ -18,6 +18,7 @@
 전부 2026-08-31 세션의 저장소 직접 실측이며, 6렌즈 병렬 조사 + 적대적 검증 + Codex(`gpt-5.6-sol`, read-only) 교차검증을 거쳤다. Codex는 `verdict: divergent`(이견 5 · 지지 3 · 신규 5)를 냈고, 이견 5건은 전부 수용되어 아래 근거에서 제외되거나 문언이 정정됐다. 원자료는 [workflow-raw-results.json](../_meta/data/workflow-raw-results.json).
 
 - **배선 누락이 코드로 확정됐다.** `work-orchestrator.js`가 `record-step`을 구현하고 `autoChain.recordStep`에 위임하는데, `commands/work.md`에 `record-step`이 **0회** 등장한다. orchestrator CLI를 부르는 줄은 하나뿐이고 그것도 실행 블록이 아니라 산문이다. v1.33.0이 *"측정 부채 상환 (A1/A2/B3 producer 배선)"* 이라는 제목으로 ship된 **이후**의 관측이다. Codex가 독립적으로 같은 결함을 발견했다.
+  **2026-09-01 C2 정정** — `record-step` 0회는 사실이나 그것이 A1을 막고 있다는 인과는 거짓이다. `recordStep`은 STATE.md `chain_progress`에 쓰고 A1은 `msw-events`의 KIND 이벤트를 읽어 **두 경로가 만나지 않는다**. A1의 producer 2종(`receipt-prompt.js:191` · `pr.md:1427`)은 실재하며 발화 중이고, 게이트를 실제로 돌린 worktree에서 A1은 이미 `computed`다. 위 `null`은 게이트가 한 번도 돌지 않은 **main repo에서 derive를 돌린 값**이다 — 관측된 것은 배선 단절이 아니라 **집계 경계의 부재**다. 근거는 [orchestrator-step-wiring.prd.md](orchestrator-step-wiring.prd.md) Evidence.
 - **감사 corpus 실측** — ship receipt 72건에서 `resolution.rounds === 1`이 71건(98.6%)이다. override 사유문이 "round 6"과 4연속 라운드를 증언하는 receipt가 `rounds:1`로 봉인돼 있다. `resolution.findings` 키는 **존재하지 않는다** — 선행 조사와 본 세션 초기 판정과 Codex가 각각 다른 방식으로 이 필드를 오인했고, 실측이 셋을 모두 정정했다.
 - **얇은 ship receipt는 결함이 아니라 심의된 설계다.** `.gitignore`가 의도를 명시하고(2026-07-22, 미검토 부트스트랩 기본값 대체), 리뷰 내용은 `.claude/reviews/`에 **git-tracked 73파일 / 6,760줄**로 durable하게 있다. 따라서 남는 진짜 결함은 "내용 복원"이 아니라 **두 층의 연결 부재**다 — receipt에 리뷰 경로도, 리뷰 원문에 receipt 해시도 없고, 내용층의 라운드 구조 커버리지가 45.2%(33/73)다.
 - **리뷰 경제에 수렴 장치가 없다.** `plan-review/corpus.js` 실행 결과 quorum M binding **0건** · K binding **0건** · findings binding 31건이다. 실제 승인 규칙은 severity 하나이고 정족수 손잡이는 판정을 바꾼 적이 없다. 차단 32건 중 **16건(50%)** 이 단일통과 우회로 통과했다. 벽시계는 통과 5건(357~779초, 평균 8분)만 산출되고 비수렴 33건은 미산출 — 운영자가 겪는 "하루~1주"는 정확히 그 미관측 구간에 있다.
@@ -57,7 +58,7 @@ We'll know we're right when **오늘 산출되지 않는 5대 지표가 전부 �
 
 | # | 지표 | 오늘 | 축 A 기준 | 축 B 기준 | 읽는 주체 → 바꾸는 행동 |
 |---|---|---|---|---|---|
-| 1 | 무인 완주율 (사람 개입 없이 완료된 `/mccp:work` / 전체) | **미측정** | 산출된다 | baseline 후 확정 | `/mccp:work` 진입 배너 → 하락 시 어느 phase가 막았는지 표시 |
+| 1 | 무인 완주율 (사람 개입 없이 완료된 `/mccp:work` / 전체) | **5/13 = 38.5%** (2026-09-01 C2가 전 worktree 합산으로 처음 산출. 읽는 위치에 따라 `null`~0.5로 갈림) | 위치와 무관하게 한 값이 산출된다 | baseline 후 확정 | `/mccp:work` 진입 배너 → 하락 시 어느 phase가 막았는지 표시 |
 | 2 | 마일스톤 e2e 리드타임 p50/p90/max | git 근사 4~18일 | 실측이 근사를 대체 | baseline 후 확정 | `STATUS.md` 상단 → p90 초과 시 timebox 임계 재조정 |
 | 3 | 게이트 기록 충실도 (실제 라운드 수 + 리뷰 원문 링크를 **둘 다** 가진 ship receipt / 전체) | **0%** (rounds 정확 1/72, 링크 0/72) | 산출된다 | **100%** | `validate-cmd` 경고 → 미달 시 stderr WARN (차단 아님) |
 | 4 | 단일통과 우회율 (단일통과로 통과한 차단 / 전체 차단) | **50%** (16/32) | 유지 | **20% 미만** | 주간 리포트 → 초과 시 라운드 정책 재검토 |
@@ -115,7 +116,7 @@ C0가 MVP인 이유는 그것이 **안전의 전제**이기 때문이다. C5·C6
 |---|---|---|---|---|
 | 0 | release-channel-separation | main이 dogfood trunk가 되고 `release` ref가 사용자 채널이 된다. 롤백이 manifest 한 줄 되돌리기로 성립한다. 버전 번호의 소유자가 브랜치에서 릴리스 컷으로 이전한다. 로컬 dogfood 설치가 문서화되어 캐시 직접 복사 workaround가 은퇴한다 | pending | `release-channel-separation.prd.md` (미생성) |
 | 1 | review-record-linkage | `rounds`가 실제 라운드 수를 담고, ship receipt와 리뷰 원문이 양방향으로 연결되며, 내용층 라운드 구조 커버리지가 100%가 된다. **얇은 ship receipt 설계는 유지한다** | pending | `review-record-linkage.prd.md` (미생성) |
-| 2 | orchestrator-step-wiring | `/mccp:work`가 orchestrator를 실제로 호출해 무인 완주율이 `null`을 벗어난다. 기록 실패가 체인을 멈추지 않는다 | pending | `orchestrator-step-wiring.prd.md` (미생성) |
+| 2 | orchestrator-step-wiring | 무인 완주율이 읽는 위치에 좌우되지 않는다 — 집계 경계가 저장소 전체가 되고 분모가 단일 granularity를 가지며 값이 실제로 표시된다(M1). `/mccp:work`가 멈춘 step이 기록된다(M2). 기록 실패가 체인을 멈추지 않는다 | in-progress | `orchestrator-step-wiring.prd.md` |
 | 3 | ci-full-suite | CI가 전체 test를 강제한다. 그 전에 실행 시간이 신뢰 가능해진다 — 오늘 타이밍은 경합 오염으로 자체 무효 판정됐다. 첫 작업은 순수 in-process 단언 파일이 조용한 머신에서도 30초 걸리는 **미설명 100배 격차**의 규명이다. red 1건 해소 | pending | `ci-full-suite.prd.md` (미생성) |
 | 4 | leadtime-observability | 비수렴 33건의 벽시계가 복원되고, 마일스톤 e2e 리드타임이 git 근사가 아닌 실측으로 산출된다 | pending | `leadtime-observability.prd.md` (미생성) |
 | 5 | plan-artifact-contract | plan 산출물의 검증 절이 자유 서술에서 게이트 계약으로 재정의되고, 검증이 형식이 아니라 내용을 본다 | pending | `plan-artifact-contract.prd.md` (미생성) |

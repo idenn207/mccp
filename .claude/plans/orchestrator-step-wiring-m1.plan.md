@@ -212,9 +212,9 @@ fail-open 경계는 **코드**에 둔다. 배너 CLI가 전역 try/catch를 갖�
 산문("실패해도 진행하라")에 의존하지 않는다 — 이 저장소는 산문 강제가 불이행된 실측을 이미 갖고 있다.
 
 **타임아웃은 in-process `setTimeout`으로 성립하지 않는다 (R2 흡수 — 초안의 메커니즘은 발화 불가였다).**
-초안은 `a1`에 "자체 타임아웃(3000ms)"을 두고 `worktrees.js:27 SCAN_TIMEOUT_MS`를 선례로 들었다.
+초안은 `a1`에 "자체 타임아웃(3000ms)"을 두고 `plugins/mccp/scripts/derive/sources/worktrees.js:27` `SCAN_TIMEOUT_MS`를 선례로 들었다.
 그 상수는 `execFileSync`에 넘기는 **자식 프로세스** 경계이고, `a1`이 부르는 `scanSessionActivity`는
-`fs.readdirSync`(`session-activity.js:131`) + `fs.readFileSync`(`:138`)의 **완전 동기 중첩 루프**다.
+`fs.readdirSync`(`plugins/mccp/scripts/derive/sources/session-activity.js:131`) + `fs.readFileSync`(`:138`)의 **완전 동기 중첩 루프**다.
 동기 루프가 이벤트 루프를 쥐고 있는 동안 `setTimeout` 콜백은 실행될 수 없으므로, 약속된 상한은
 존재하지 않고 "어떤 실패에도 exit 0" 역시 **stall을 덮지 못한다** — 그 경우 exit 자체가 없다.
 게다가 Task 1이 공유 위치에서 `evictLRU`를 빼므로 스캔 대상은 `GLOBAL_MAX_BYTES`(100MB)를
@@ -290,7 +290,7 @@ worktree-local(`<root>/.claude/state/msw-events`)에 **무변경**으로 남는�
 worktree를 넘어 같은 `work_unit`으로 결속되는 유일한 축이다.
 
 - **B2는 보존되지만 `sessions`가 합쳐지지 않기 때문이 아니다 (R2 흡수 — 초안의 근거는 거짓이었다).**
-  `sessions` 맵은 **합쳐진다**. `session-activity.js:154`의 `if (!sessions[sessionId])`는 per-line
+  `sessions` 맵은 **합쳐진다**. `plugins/mccp/scripts/derive/sources/session-activity.js:154`의 `if (!sessions[sessionId])`는 per-line
   루프 안에 있고 **kind 가드가 없어서**, 공유 위치에 모인 타 worktree의 A1 이벤트가 그대로 세션
   엔트리를 만든다. B2가 살아남는 것은 `spanOf`가 `session_start` 없이는 null을 반환하기 때문이지,
   맵이 분리돼서가 아니다 — 즉 결론만 맞고 메커니즘은 존재하지 않았다.
@@ -531,7 +531,7 @@ worktree에서 모인 legacy 이벤트가 dedupe를 통과한다(architect HIGH 
   **`--repo-root <path>`를 받는다** — 기본값은 cwd. Validation 1b·5가 "빌드 하나를 여러 root에
   대해" 돌리는 형태를 취하므로 이 플래그는 편의가 아니라 그 검증의 전제다(R2 흡수).
   (b) `work.md` Phase 0의 classification echo 직후에 그 CLI를 **`execFileSync(..., { timeout: 3000 })`
-  로** 부르고(경계는 자식 프로세스 — `worktrees.js:27`과 같은 형태), 타임아웃·비영점·빈 stdout은
+  로** 부르고(경계는 자식 프로세스 — `plugins/mccp/scripts/derive/sources/worktrees.js:27`과 같은 형태), 타임아웃·비영점·빈 stdout은
   전부 "배너 없음"으로 접어 한 줄을 생략한다.
 - **Mirror**: `plugins/mccp/commands/work.md:90` — CLI 호출 후 `node -e`로 JSON을 안전 파싱하는 관용구.
   타임아웃 경계는 `derive/sources/worktrees.js:27`의 `execFileSync` + `timeout` 형태를 **그대로** 쓴다.

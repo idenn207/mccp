@@ -1,12 +1,13 @@
 # Implementation Report: release-channel-separation M1 — channel-pin
 
-> **STATUS: 검증 3축(a·b·c) 전부 실측 완료 — 머지 후 확인 1건 대기.**
+> **STATUS: COMPLETE — 검증 3축(a·b·c) 실측 완료 + 머지 후 배포 경로 확인 완료(2026-09-02).**
 > 초판은 `PRE-MERGE — INCOMPLETE`였다. 검증 (b)를 머지 후에만 할 수 있다고 판단했기
 > 때문인데, **PR-Codex R1 F1(HIGH)이 그 판단을 반박했고 옳았다** — UI9가 "각 구현의
 > 실측 테스트는 marketplace 배포가 아니라 **별도 설치 경로**로 진행한다"고 이미
 > 정해 두었고, 그 경로는 머지 전에 성립한다. 아래 Acceptance 5가 그 실측이다.
-> 남는 것은 머지 후 같은 명제를 **실제 배포 경로에서** 한 번 더 확인하는 일이고,
-> 그것은 증거의 부재가 아니라 확인이다.
+> 머지 후 같은 명제를 **실제 배포 경로에서** 한 번 더 확인했다(Acceptance 5 말미) —
+> main이 `1.34.1`을 선언하는 시점에도 설치는 `1.33.6`/`647dfec`에 고정돼 있었고
+> `origin/release`는 전후 동일했다. 확인이 끝났으므로 M1은 완료다.
 
 경로는 전부 `<PLUGINS>` · `<HOME>` 치환형이다(H4). `version` · `gitCommitSha` · exit code ·
 CLI 출력 문구는 원문 그대로다 — 치환은 경로에만 적용한다.
@@ -202,6 +203,48 @@ git -C "<PLUGINS>/marketplaces/mccp" rev-parse HEAD   # == origin/main 이어야
 git fetch origin release && git rev-parse origin/release  # 647dfec… 불변
 ```
 
+**머지 후 확인 — 실행 완료(2026-09-02).** PR #168이 `origin/main`에 머지된 뒤 실제 배포
+경로에서 위 블록을 1회 실행했다. 결과는 머지 전 UI9 측정보다 **강하다** — 그 사이 다른
+마일스톤이 더 머지되어 main이 선언하는 번호가 `1.34.1`까지 나갔는데도 설치는 움직이지 않았다.
+
+```
+$ claude plugin marketplace update mccp
+Updating marketplace: mccp...Refreshing marketplace cache (timeout: 120s)…
+✔ Successfully updated marketplace: mccp                      # exit 0
+
+$ claude plugin update mccp@mccp -y
+Checking for updates for plugin "mccp@mccp" at user scope…
+✔ mccp is already at the latest version (1.33.6).             # exit 0
+```
+
+관측 **쌍** — 둘을 함께 읽어야 판별력을 갖는다(L2 test HIGH 흡수):
+
+| 축 | 실행 전 | 실행 후 | 판정 |
+|---|---|---|---|
+| 설치 `version` | `1.33.6` | `1.33.6` | 불변 |
+| 설치 `gitCommitSha` | `647dfec…` | `647dfec…` | 불변 |
+| 설치 `lastUpdated` | `2026-09-01T07:39:27.674Z` | 동일 | 쓰기조차 없었다 |
+| marketplace clone HEAD | `d8aa0d5` | `d8aa0d5` | `== origin/main` |
+| main이 선언한 `plugin.json` | — | `1.34.1` | 채널과 4릴리스 벌어짐 |
+| `origin/release` | `647dfec…` | `647dfec…` | **전후 동일** — 채널 미접촉의 기계적 증거 |
+
+```json
+{ "version": "1.33.6", "gitCommitSha": "647dfecba75eecd9287ee538ca5f7056c7ba71da",
+  "installPath": "<PLUGINS>/cache/mccp/mccp/1.33.6",
+  "lastUpdated": "2026-09-01T07:39:27.674Z" }
+```
+
+`claude plugin list` = `mccp@mccp · Version 1.33.6 · enabled` · `claude plugin validate .`
+= exit 0 (경고 1건은 marketplace description 부재로 이 축과 무관한 선재 항목).
+
+**이 실행이 닫은 잔여, 그리고 닫지 않은 것.** 위 "재현하지 않는 것"이 별도로 남겨 둔 성질 —
+*clone이 `origin/main`을 자동으로 추종한다* — 의 **결과**가 여기서 관측됐다. 이 세션이 어떤
+명령도 내리기 전에 이미 clone HEAD `== origin/main`이었고, 전진을 손으로 만들지 않았다
+(BEFORE 측정이 그 시점의 값이다). 다만 정직하게 한정하면 이 실행은 전진의 **결과**를 봤지
+전이 **과정**을 지켜보지 않았다 — 언제 어느 기구가 옮겼는지는 측정하지 않았다. 그럼에도
+성공 지표 3이 요구한 쌍은 성립한다: 갱신 기구는 사람 개입 없이 최신이고, 그럼에도 설치
+본문은 `release`가 붙잡고 있다.
+
 ## Validation Results
 
 | Level | Status | Notes |
@@ -369,6 +412,11 @@ grep하므로 0건을 보고하며 통과했다 — L2 security 패널이 backlo
 
 ## Next Steps
 
-- [ ] `/mccp:pr` — 진입 직전 §3.7 version 재계산(sibling worktree 하나가 `1.34.0` 선언 중)
-- [ ] 머지 직후 배포 경로에서 Acceptance 5의 확인 블록을 1회 실행해 결과를 덧붙인다
-- [ ] PRD M1 행은 그 확인 뒤 `complete`로 올린다
+- [x] `/mccp:pr` — 진입 직전 §3.7 version 재계산. `1.33.7`로 확정해 PR #168로 ship, 머지 완료.
+- [x] 머지 직후 배포 경로에서 Acceptance 5의 확인 블록을 1회 실행 — 완료(2026-09-02). 결과는
+      Acceptance 5 말미에 표로 실었다. 설치 `1.33.6`/`647dfec` 불변 · clone HEAD `== origin/main` ·
+      `origin/release` 전후 동일.
+- [x] PRD M1 행을 `complete`로 올렸다.
+
+남은 것은 이 브랜치의 santa-loop 후속 커밋을 `main`에 반영하는 일뿐이며, M1의 산출물
+계약(Acceptance 1~5)은 전부 충족됐다. 다음 마일스톤은 M2(dogfood-install)다.

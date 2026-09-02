@@ -323,21 +323,31 @@ function readJsonDir(root, subdir, onEntry) {
 
 // RAW ledger — decision-dedup 뷰가 아니다. 같은 decision을 N번 재-PR하면 N개
 // 파일이 각각 후보다(`evidence-audit.js:11-16` 규약).
+// PR-Codex R1 F1 — 이 축이 앵커로 쓰는 필드는 `decision_id`가 아니라 **시각**이다.
+// `decision_id`만 검사하면 `completed_at`이 깨진 엔트리가 "정상 파싱"으로 세어지고,
+// 그 후보는 `pickAnchor`가 `Number.isFinite` 가드로 조용히 버려 미짝으로만 나타난다
+// — `parse_failures`가 0이라 `anchorsDamaged`도 false로 남는다. 그러면 앵커 코퍼스가
+// 스키마째 어긋난 상황이 **완전한 측정으로 보인다**. 그것은 이 도구의 문서가
+// "부재와 손상은 다르다"로 금지한 바로 그 상태다(post-panel-span.md). 그래서 시각
+// 결측·불량은 여기서 schema failure로 세고 소스를 damaged로 만든다 — fail-closed.
 function readLedger(root) {
   const entries = [];
   const src = readJsonDir(root, LEDGER_SUBDIR, function (parsed) {
     const e = parsed && parsed.entry;
     if (!e || typeof e.decision_id !== 'string' || e.decision_id === '') return false;
+    if (parseIsoMs(e.completed_at) === null) return false;
     entries.push(e);
     return true;
   });
   return { entries: entries, source: src };
 }
 
+// 같은 이유로 ship receipt는 `meta.created_at`이 앵커다(위 주석 참조).
 function readShipReceipts(root) {
   const receipts = [];
   const src = readJsonDir(root, SHIP_RECEIPT_SUBDIR, function (j) {
     if (!j || typeof j.decision_id !== 'string' || j.decision_id === '') return false;
+    if (parseIsoMs(j.meta && j.meta.created_at) === null) return false;
     receipts.push(j);
     return true;
   });

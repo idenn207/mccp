@@ -26,6 +26,16 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   않는다(DD2) — `ledger_basename`(completion-ledger `plan_basename` ↔ `completed_at`)과
   `ship_plan_hash`(`mccp-pr-codex` `plan_hash` ↔ `meta.created_at`). 실측 커버리지는
   11/48 · 16/48이고 p50은 각각 0.38일 · 0.28일이다.
+- **앵커 시각을 read 시점에 검증한다(PR-Codex R1 F1 흡수)**: `readLedger` ·
+  `readShipReceipts`가 `decision_id`만 보던 것을 고쳐, 앵커로 쓰는 시각
+  (`completed_at` · `meta.created_at`)이 파싱되지 않으면 **schema failure로 세고
+  소스를 damaged로 만든다**. 이전에는 그런 레코드가 '정상 파싱'으로 집계된 뒤
+  `pickAnchor`의 `Number.isFinite` 가드에 조용히 버려져 **미짝으로만** 나타났고,
+  `parse_failures`가 0이라 `anchorsDamaged`도 false로 남아 스키마째 어긋난 코퍼스가
+  완전한 측정으로 보였다 — 이 축의 문서가 "부재와 손상은 다르다"로 금지한 상태다.
+  현 코퍼스는 불량 0건(ledger 44 · ship 78)이라 **실측값은 한 자리도 바뀌지 않는다**;
+  닫은 것은 잠재 경로다. 회귀 test 3건(불량·결측 각각 damaged로 승격 + 건전한 코퍼스가
+  거짓 damaged가 되지 않음)이 고정한다.
 - **미짝 사유 분해 + 합계 등식**: 미짝 레코드 전건을 닫힌 5종(`no_plan_path` ·
   `key_mismatch` · `anchor_absent` · `not_shipped` · `unclassified`)으로 분류하고
   `unmatched === Σ(counts)`를 fail-closed로 강제한다(깨지면 축이 `degraded`). PRD Open

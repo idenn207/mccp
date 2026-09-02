@@ -41,6 +41,9 @@ const {
   pickAnchor,
   qualifyShipReceipts,
   compositeState,
+  readLedger,
+  readShipReceipts,
+  sourceDamaged,
 } = require('../leadtime');
 
 const corpus = require('../plan-review/corpus');
@@ -864,4 +867,76 @@ test('a zero-join series says so instead of silently omitting itself', () => {
   });
   const text = renderHuman(out);
   assert.match(text, /ship_plan_hash: n=0 \(no join — absence is not a value of zero\)/);
+});
+
+
+// ── M2-13. PR-Codex R1 F1 — 앵커 시각이 깨진 소스는 '정상'이 아니라 damaged다 ──
+//
+// 회귀의 형태: 두 reader가 `decision_id`만 검사하면 시각이 깨진 레코드가 정상
+// 파싱으로 세어지고, 그 후보는 `pickAnchor`의 `Number.isFinite` 가드가 조용히
+// 버려 **미짝으로만** 나타난다. `parse_failures`가 0이므로 `anchorsDamaged`도
+// false로 남아, 스키마째 어긋난 코퍼스가 완전한 측정으로 보인다 — 이 도구의 문서가
+// "부재와 손상은 다르다"로 금지한 상태다. 아래 둘은 그 경로를 직접 막는다.
+
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+function tmpRepo(files) {
+  const root = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'leadtime-anchor-'));
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = nodePath.join(root, rel);
+    fs.mkdirSync(nodePath.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, JSON.stringify(body));
+  }
+  return root;
+}
+
+const LEDGER_DIR = nodePath.join('.claude', 'state', 'completion-ledger');
+const SHIP_DIR = nodePath.join('.claude', 'receipts', 'mccp-pr-codex');
+
+test('a ledger entry with an unparseable completed_at is a schema failure, not a healthy record', () => {
+  const root = tmpRepo({
+    [nodePath.join(LEDGER_DIR, 'good.json')]:
+      { entry: { decision_id: 'good', completed_at: '2026-08-21T00:00:00.000Z', plan_basename: 'g.plan.md' } },
+    [nodePath.join(LEDGER_DIR, 'broken.json')]:
+      { entry: { decision_id: 'broken', completed_at: 'not-a-timestamp', plan_basename: 'b.plan.md' } },
+    [nodePath.join(LEDGER_DIR, 'missing.json')]:
+      { entry: { decision_id: 'missing', plan_basename: 'm.plan.md' } },
+  });
+  const { entries, source } = readLedger(root);
+
+  assert.deepEqual(entries.map((e) => e.decision_id), ['good'],
+    'only the entry whose anchor timestamp actually parses is accepted');
+  assert.equal(source.parse_failures, 2,
+    'a broken anchor timestamp and a missing one are BOTH schema failures');
+  assert.equal(sourceDamaged(source), true,
+    'the source must degrade the axis — silently dropping these would look like ordinary unmatched coverage');
+});
+
+test('a ship receipt with an unparseable meta.created_at is a schema failure, not a healthy record', () => {
+  const root = tmpRepo({
+    [nodePath.join(SHIP_DIR, 'good.json')]:
+      { decision_id: 'good', plan_hash: 'sha256:aa', meta: { created_at: '2026-08-21T00:00:00.000Z' } },
+    [nodePath.join(SHIP_DIR, 'broken.json')]:
+      { decision_id: 'broken', plan_hash: 'sha256:bb', meta: { created_at: '' } },
+    [nodePath.join(SHIP_DIR, 'nometa.json')]:
+      { decision_id: 'nometa', plan_hash: 'sha256:cc' },
+  });
+  const { receipts, source } = readShipReceipts(root);
+
+  assert.deepEqual(receipts.map((r) => r.decision_id), ['good']);
+  assert.equal(source.parse_failures, 2);
+  assert.equal(sourceDamaged(source), true);
+});
+
+test('a healthy anchor corpus is NOT degraded by the validation above (no false damage)', () => {
+  const root = tmpRepo({
+    [nodePath.join(LEDGER_DIR, 'a.json')]:
+      { entry: { decision_id: 'a', completed_at: '2026-08-21T00:00:00.000Z', plan_basename: 'a.plan.md' } },
+    [nodePath.join(SHIP_DIR, 'a.json')]:
+      { decision_id: 'a', plan_hash: 'sha256:aa', meta: { created_at: '2026-08-21T00:00:00.000Z' } },
+  });
+  assert.equal(sourceDamaged(readLedger(root).source), false);
+  assert.equal(sourceDamaged(readShipReceipts(root).source), false);
 });

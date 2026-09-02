@@ -153,6 +153,16 @@ function acceptWorktree(wt, expectedCommon) {
 
   const eventsDir = path.join(wt, LOCAL_SUBPATH);
   try {
+    // Security review HIGH — `statSync`는 symlink를 **따라간다**. 위의 containment
+    // 검사는 `wt`가 이 저장소 소유임만 보장하고 그 **내용**은 해당 worktree 소유자가
+    // 정한다. 이 경로가 symlink면 스캔이 저장소 밖 디렉토리로 재지향되고, 거기서 JSON으로
+    // 파싱되는 것이 전부 공유 baseline에 실린다(CWE-59 confused deputy — 경쟁 창이
+    // 필요 없는 결정적 우회다). plan S3/S7이 채택한 symlink 거부가 `wt`와 개별 파일에만
+    // 걸려 있어 그 사이의 디렉토리가 비었다.
+    if (fs.lstatSync(eventsDir).isSymbolicLink()) {
+      warn('skip ' + path.basename(wt) + ': events dir is a symlink — refusing to follow it');
+      return null;
+    }
     if (!fs.statSync(eventsDir).isDirectory()) return null;
   } catch (_e) {
     return null;   // 이벤트 디렉토리 부재는 정상 — 조용히 넘어간다
@@ -233,7 +243,10 @@ function lockIsOrphan(lockPath) {
   if (Date.now() - st.mtimeMs > LOCK_LEASE_MS) return true;
 
   const body = readLockBody(lockPath);
-  if (!body || body.host !== os.hostname() || !Number.isInteger(body.pid)) return false;
+  // `pid > 0`은 형식 검사가 아니다 — POSIX `kill(0, 0)`은 **자기 프로세스 그룹**에
+  // 신호를 보내므로 던지지 않는다. `pid:0`을 그대로 받으면 조작된 body가 lease 안에서
+  // 영원히 "살아 있음"으로 판정된다(security review LOW).
+  if (!body || body.host !== os.hostname() || !Number.isInteger(body.pid) || body.pid <= 0) return false;
   try {
     process.kill(body.pid, 0);
     return false;   // 살아 있다 — lease가 남아 있는 한 회수하지 않는다
@@ -352,24 +365,48 @@ function runCollect(ctx) {
   const seen = new Set();
   const sharedUnreadable = [];
   let existingLines = 0;
+
+  // Security review HIGH — 디렉토리 **열거 실패**를 "최초 실행"과 뭉뚱그리면 안 된다.
+  // 이 자리의 원래 catch는 `ENOENT`(공유 디렉토리 부재)를 정상으로 접기 위한 것인데,
+  // `EACCES`/`EPERM`/`EBUSY` 같은 일시적 오류도 같은 자리에서 삼켜졌다. 그러면 `seen`이
+  // 빈 채로 진행되고, **이미 공유 위치에 있는 corpus 전체를 다시 append**한다 — 바로 위
+  // 문단이 막겠다고 선언한 중복이 per-file 검사를 우회해 그대로 재현된다. 열거 실패는
+  // 판독 실패보다 넓은 사건이므로 abort도 같이 넓어야 한다.
+  let sharedEntries = [];
   try {
-    for (const f of fs.readdirSync(sharedDir)) {
-      if (!f.endsWith('.jsonl')) continue;
-      const fp = path.join(sharedDir, f);
-      try { if (fs.lstatSync(fp).isSymbolicLink()) continue; } catch (_e) { continue; }
-      const read = forEachLine(fp, function (line) {
-        if (!line.trim()) return;
-        try {
-          seen.add(keyOf(JSON.parse(line)));
-          existingLines++;
-        } catch (_e) { /* S8 — per-line 격리 */ }
-      });
-      if (!read) {
-        warn('UNREADABLE shared-corpus file: ' + f + ' — dedupe keys are incomplete');
-        sharedUnreadable.push(f);
-      }
+    sharedEntries = fs.readdirSync(sharedDir);
+  } catch (err) {
+    const code = (err && err.code) || null;
+    if (code !== 'ENOENT') {
+      warn('shared directory exists but is not listable (' + (code || 'unknown') + ') — aborting.');
+      warn('  An empty dedupe key set here is indistinguishable from a first run, and');
+      warn('  appending against it would duplicate the entire existing corpus.');
+      return { ok: false, state: 'failed', reason: 'shared-dir-unreadable', error_code: code };
     }
-  } catch (_e) { /* 공유 디렉토리 부재는 정상 (최초 실행) */ }
+    sharedEntries = [];   // ENOENT — 최초 실행이다
+  }
+
+  for (const f of sharedEntries) {
+    if (!f.endsWith('.jsonl')) continue;
+    const fp = path.join(sharedDir, f);
+    try { if (fs.lstatSync(fp).isSymbolicLink()) continue; } catch (_e) { continue; }
+    // Security review MEDIUM — heartbeat는 append 루프에만 있으면 부족하다. 이 스캔이
+    // lease(60s)를 넘기면 두 번째 실행이 **살아 있는 holder의 락을 orphan으로 판정해
+    // 회수**하고(판정이 mtime을 PID보다 먼저 본다), 두 프로세스가 F2가 막으려던 바로
+    // 그 트랜잭션을 동시에 돌린다. 공유 corpus는 cap까지 자랄 수 있으므로 가정이 아니다.
+    heartbeatLock(lock);
+    const read = forEachLine(fp, function (line) {
+      if (!line.trim()) return;
+      try {
+        seen.add(keyOf(JSON.parse(line)));
+        existingLines++;
+      } catch (_e) { /* S8 — per-line 격리 */ }
+    });
+    if (!read) {
+      warn('UNREADABLE shared-corpus file: ' + f + ' — dedupe keys are incomplete');
+      sharedUnreadable.push(f);
+    }
+  }
 
   if (sharedUnreadable.length) {
     warn('aborting: ' + sharedUnreadable.length + ' shared-corpus file(s) could not be read.');
@@ -392,6 +429,10 @@ function runCollect(ctx) {
   };
 
   for (const wt of listWorktrees(cwd)) {
+    // 같은 이유의 heartbeat(security review MEDIUM). 이 루프는 worktree마다 `git
+    // rev-parse`를 **동기로** spawn하므로(각 10s 상한) worktree가 여럿이면 read 단계만으로
+    // lease를 넘길 수 있다.
+    heartbeatLock(lock);
     const eventsDir = acceptWorktree(wt, expectedCommon);
     if (!eventsDir) continue;
 

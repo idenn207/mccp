@@ -97,9 +97,31 @@ PR-Codex R1이 낸 HIGH 2건도 흡수했다. 둘 다 마이그레이션 도구 
   append 루프 heartbeat. 락은 append가 아니라 **read-then-append 전체**를 감싼다.
   획득 실패는 fail-closed(진행하지 않음)이고, dry-run은 쓰지 않으므로 락을 잡지 않는다.
 
+PR 게이트의 security 축(`mccp:security-reviewer`)이 그 **수정들의 완전성 구멍** 3건을
+다시 냈고 전부 흡수했다. 앞의 둘은 되돌리면 붉어지는 것을 확인했다.
+
+- **S-H1** F1의 abort가 per-file 판독 실패에만 걸려 있었다. `fs.readdirSync(sharedDir)`
+  **자신의** 실패는 같은 try 안에서 "최초 실행(ENOENT)"과 함께 삼켜졌고, 그러면 `seen`이
+  빈 채로 진행해 **이미 공유 위치에 있는 corpus 전체를 다시 append**한다 — F1이 막으려던
+  중복이 그 검사를 우회해 그대로 재현된다. 열거는 판독보다 넓은 사건이므로 `ENOENT`만
+  정상으로 접고 나머지는 `shared-dir-unreadable`로 abort한다.
+- **S-H2** `acceptWorktree`가 `eventsDir`에 `statSync`를 써서 symlink를 **따라갔다**.
+  containment 검사는 `wt`가 이 저장소 소유임만 증명하고 그 **내용**은 해당 worktree
+  소유자가 정하므로, 그 경로가 symlink면 스캔이 저장소 밖으로 재지향되고 거기서 JSON으로
+  파싱되는 것이 전부 공유 baseline에 실린다(CWE-59, 경쟁 창이 필요 없는 결정적 우회).
+  plan S3/S7이 채택한 symlink 거부가 `wt`와 개별 파일에만 걸려 그 사이 디렉토리가 비어
+  있었다. 회귀 test는 저장소 밖에 심어둔 이벤트가 실제로 실리는 것을 확인한 뒤 막는다.
+- **S-M1** F2의 heartbeat가 append 루프에만 있었다. orphan 판정은 mtime을 PID보다 **먼저**
+  보므로, read 단계(공유 corpus 전수 스캔 + worktree마다 동기 `git rev-parse`)가 60s
+  lease를 넘기면 두 번째 실행이 **살아 있는 holder의 락을 회수**하고 두 프로세스가 F2가
+  막으려던 트랜잭션을 동시에 돈다. 두 read 루프에도 heartbeat를 건다.
+- **S-L** 조작된 lock body의 `pid:0`이 POSIX `kill(0,0)`에서 던지지 않아 lease 동안
+  "살아 있음"으로 판정되던 것도 `pid > 0`으로 함께 닫았다.
+
 `--repo-root` 검증 강화(L3) · 소비처별 스캔 상한(M3 잔여) · base 미머지(M4) ·
 선재 red인 `meta-research.test.js:583` · 라운드 원장을 오염시키는
-`plan-review-cli-emit.test.js`의 격리 결함은
+`plan-review-cli-emit.test.js`의 격리 결함 · PR-Codex R2의 완주 정의 축(UI5 exclusion과
+충돌해 증거 기각) · security LOW 3건(symlink 파일의 조용한 skip 2종 · per-file TOCTOU)은
 [backlog](.claude/plans/codex-findings-backlog.md)에 증거와 함께 이연했다.
 
 ### Note

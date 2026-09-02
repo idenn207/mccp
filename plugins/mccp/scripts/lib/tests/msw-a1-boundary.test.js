@@ -527,6 +527,64 @@ test('a live migration lock refuses a concurrent run rather than double-appendin
     'a refused run must not release a lock it does not own');
 });
 
+// ── (17)-(18) security review 흡수 — F1/F2 수정의 완전성 구멍 ────────────────
+test('a shared dir that exists but cannot be listed aborts, and is not read as a first run', () => {
+  const mig = require('../../migrations/msw-events-common-dir');
+  const repo = mkGitRepo('secdirlist');
+  writeLine(localDirOf(repo), 'sess-q', { kind: 'task_started', work_unit: 'u1', ts: 't1' });
+
+  const shared = migSharedDirOf(repo);
+  fs.mkdirSync(shared, { recursive: true });
+
+  // 열거 실패 주입: readdirSync만 던지게 한다. per-file 검사(`forEachLine`)는 이 경로에
+  // 도달조차 하지 못하므로, 이 단언은 **디렉토리 축**을 정확히 겨냥한다.
+  const realReaddir = fs.readdirSync;
+  const target = path.resolve(shared);
+  fs.readdirSync = function (p, ...rest) {
+    if (path.resolve(String(p)) === target) {
+      const err = new Error('EACCES: permission denied'); err.code = 'EACCES'; throw err;
+    }
+    return realReaddir.call(fs, p, ...rest);
+  };
+  let r;
+  try { r = mig.collect({ cwd: repo }); } finally { fs.readdirSync = realReaddir; }
+
+  assert.equal(r.state, 'failed');
+  assert.equal(r.reason, 'shared-dir-unreadable',
+    'EACCES on an EXISTING shared dir must not be folded into the ENOENT "first run" path — ' +
+    'an empty `seen` there re-appends the whole existing corpus, which is exactly the ' +
+    'duplication the per-file abort exists to prevent');
+  assert.equal(r.error_code, 'EACCES');
+  assert.equal(fs.existsSync(path.join(shared, 'sess-q.jsonl')), false);
+});
+
+test('a symlinked events dir is refused, so containment cannot be redirected outside the repo', () => {
+  const mig = require('../../migrations/msw-events-common-dir');
+  const repo = mkGitRepo('secsymdir');
+
+  // 저장소 밖의 "심어둔" corpus. 링크를 따라가면 이 이벤트가 공유 baseline에 실린다.
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-a1b-outside-'));
+  fs.writeFileSync(path.join(outside, 'planted.jsonl'),
+    JSON.stringify({ kind: 'task_completed', work_unit: 'planted', ts: 't1', pr_number: '9999' }) + '\n');
+
+  const local = localDirOf(repo);
+  fs.mkdirSync(path.dirname(local), { recursive: true });
+  try {
+    fs.symlinkSync(outside, local, 'junction');
+  } catch (_e) {
+    return;   // symlink 생성 권한이 없는 환경(win32 비관리자)에서는 주입 자체가 불가
+  }
+
+  const r = mig.collect({ cwd: repo });
+
+  const shared = migSharedDirOf(repo);
+  assert.equal(fs.existsSync(path.join(shared, 'planted.jsonl')), false,
+    'following a symlinked events dir would copy arbitrary outside JSON into the shared ' +
+    'A1 baseline — the containment check proves `wt` belongs to this repo, never that its ' +
+    'contents do (CWE-59)');
+  assert.equal(r.report.candidates, 0);
+});
+
 test('an orphaned lock is reclaimed, and a successful run releases its own', () => {
   const mig = require('../../migrations/msw-events-common-dir');
   const repo = mkGitRepo('f2orphan');

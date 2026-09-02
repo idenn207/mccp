@@ -75,7 +75,7 @@ M1이 MVP인 이유는 **가설이 M1만으로 검증되기 때문**이다. M2(�
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | channel-pin | `marketplace.json`이 `git-subdir` + `ref: release`가 되고 `release` 브랜치가 `647dfec`(v1.33.6)에 선다. **라이브 검증 1회로** (a) source 타입 변경이 설치를 깨지 않고 (b) main 머지가 사용자 version을 바꾸지 않으며 (c) `release`를 되돌리면 이전 버전이 설치되는 것이 실측된다. 사용자 가시 변화 0 | in-progress | [.claude/plans/release-channel-separation-m1.plan.md](../plans/release-channel-separation-m1.plan.md) |
+| 1 | channel-pin | `marketplace.json`이 `git-subdir` + `ref: release`가 되고 `release` 브랜치가 `647dfec`(v1.33.6)에 선다. **라이브 검증 1회로** (a) source 타입 변경이 설치를 깨지 않고 (b) main 머지가 사용자 version을 바꾸지 않으며 (c) `release`를 되돌리면 이전 버전이 설치되는 것이 실측된다. 사용자 가시 변화 0 | complete | [.claude/plans/release-channel-separation-m1.plan.md](../plans/release-channel-separation-m1.plan.md) |
 | 2 | dogfood-install | worktree를 가리키는 로컬 설치 절차가 문서화되어 "캐시 직접 복사" workaround(§3.7)가 은퇴한다. 다른 프로젝트에서 main을 시험할 수 있는 경로가 생긴다 | pending | — |
 | 3 | release-runbook | 릴리스 컷 절차(version bump → tag → `release` fast-forward → 확인)와 **롤백 절차**가 `docs/release-channel.md`에 기록된다. M1이 실제로 수행한 것을 옮겨 적는다 | pending | — |
 

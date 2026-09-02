@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "gate_id": "mccp-plan-codex",
+  "decision_id": "release-channel-separation",
+  "rounds": [
+    {
+      "index": 0,
+      "at": "2026-09-01T05:50:08.505Z",
+      "channel": "panel",
+      "classification": "emitted"
+    }
+  ]
+}

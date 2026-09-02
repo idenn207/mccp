@@ -198,7 +198,12 @@ Applied at **compute time** (msw-metrics/index.js), mechanical enforcement:
 - **Runtime**: Python 3.8+ with `tiktoken` package
 - **Model**: `o200k_base` encoding (GPT-4.0 era)
 - **Tokenizer pin**: `tiktoken==0.7.0` (exact version required for reproducibility)
-- **Fallback**: If tokenizer unavailable or Python not found → status = `baseline-unavailable` (loud log, not silent pass)
+- **Fallback** (M9 Task 1a — the two cases were split): Python not found → status =
+  `baseline-unavailable`; Python found but `tiktoken` unimportable → status = `error` with
+  `not_delivered_reason` naming the tokenizer. Both are a loud log, never a silent pass.
+  Before the split the second case did not return a status at all — the broken pipe on the
+  child's stdin was an unhandled `'error'` event that killed the process. Policy and runbook:
+  [a3-freshness-policy.md](a3-freshness-policy.md).
 
 **Artifact storage**:
 - Raw CLAUDE.md / MEMORY.md / STATE.md text: ❌ **NEVER stored**

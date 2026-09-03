@@ -911,11 +911,44 @@ DECISION_SLUG=$(node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" derive-decis
 # Build the finalize-receipt flag list. Helper handles codex-result-driven
 # conditional flags internally (skipped/dedupe/actionable) — caller only
 # forwards the env-driven overrides.
+# review-record-linkage M3 — `--plan` is DERIVED here, no longer a placeholder.
+#
+# This value is now load-bearing: `finalize-receipt.js` matches it against the
+# upstream plan receipt's `meta.plan_path` to decide which review record this ship
+# may claim. While it was an LLM placeholder, choosing a plan that satisfies the
+# anchor was enough to seal ANOTHER milestone's review as this ship's approval
+# evidence. 2.5.8 (`:1023`) and 2.5.9 (`:1097`) already derive exactly this way, so
+# this applies the migration v1.25.2 C6 performed there to the last call site — it
+# is not a new mechanism.
+SHIP_PLAN_PATH="${PR_PLAN_PATH:-.claude/plans/${DECISION_SLUG}.plan.md}"
+# `write.js:428` calls `planAwareMarkdownHash(planAbs)`, which THROWS ENOENT on a
+# path that does not resolve — the receipt write would die as an opaque exception.
+# Check first and HALT with the recovery instruction instead. This is not a new
+# block: the same path already fails at 2.5.9 as `stale` (`ok=false`). It moves the
+# failure one step earlier and gives it a name. PR_PLAN_PATH is an operator channel
+# and this body deliberately does not guess it from the branch — that would revive
+# the filename convention this milestone removed.
+if [ ! -f "$SHIP_PLAN_PATH" ]; then
+  echo "[MCCP-GATE-STOP] the ship plan path does not resolve: $SHIP_PLAN_PATH" 1>&2
+  echo "  The receipt write hashes this file, so a missing path is an ENOENT throw," 1>&2
+  echo "  and 2.5.9 would reject the same path as stale a few steps later." 1>&2
+  echo "  Recovery: export PR_PLAN_PATH=<repo-relative plan path> and re-run /mccp:pr." 1>&2
+  exit 1
+fi
+
 FINALIZE_FLAGS=(--gate mccp-pr-codex
   --decision "$DECISION_SLUG"
-  --plan "<plan path or PR title>"
+  --plan "$SHIP_PLAN_PATH"
   --codex-result "$CODEX_RESULT_FILE"
   --quiet)
+# M3 — MCCP_PR_SKIP_LINK_EVIDENCE is read HERE, at 2.5.7, and not at Phase 3.0.
+# The receipt is finalized in this step; by 3.0 it is already hash-sealed, so an
+# edit there would either break the §3.12 no-rehash invariant or, written without a
+# rehash, trip `evidence-stage-guard.js:75-77` and HALT every ship. 3.0 only reads
+# the sealed field to decide whether to stage the record.
+if [ -n "${MCCP_PR_SKIP_LINK_EVIDENCE:-}" ]; then
+  FINALIZE_FLAGS+=(--link-evidence-skip-reason "$MCCP_PR_SKIP_LINK_EVIDENCE")
+fi
 if [ -n "$SECURITY_FORCE_OVERRIDE_REASON" ]; then
   FINALIZE_FLAGS+=(--security-force-override-reason "$SECURITY_FORCE_OVERRIDE_REASON")
 fi
@@ -976,6 +1009,80 @@ fi
 # R3 F5 — capture the receipt_hash finalize sealed so the 2.5.9 read-back can bind
 # to THIS write (defense-in-depth against a same-decision/head receipt swap).
 FINALIZE_RECEIPT_HASH=$(printf '%s' "$FINALIZE_OUT" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(j.receipt_hash||"")}catch{process.stdout.write("")}')
+
+# ── review-record-linkage M3 — back-patch the record, then hand Phase 3.0 ONE
+#    artifact naming exactly what it may stage.
+#
+# The artifact is deleted FIRST, unconditionally. Its absence is the default state,
+# so a failed or skipped back-patch cannot leave a previous run's value behind for
+# 3.0 to act on. It is a file rather than an exported variable for the same reason:
+# shell state does not cross a fenced block, and an exported var that DOES survive
+# is the stale-value class this body has already had to hard-`unset` twice
+# (`CODEX_DEDUPE_AT_PR`, `PR_CODEX_FORCE_OVERRIDE_REASON`).
+MCCP_TMP=$(git rev-parse --git-path mccp/tmp)
+mkdir -p "$MCCP_TMP"
+LINK_EVIDENCE_FILE="$MCCP_TMP/link-evidence--${DECISION_SLUG}.json"
+rm -f "$LINK_EVIDENCE_FILE"
+
+# The record path is the one the ship receipt just SEALED — never re-derived from
+# the slug. Re-deriving would resurrect the filename convention M3 removed, and on
+# a no-stamp run (the anchor found 0 or >=2 upstream receipts) there is no record to
+# patch and the correct behaviour is to do nothing.
+SEALED_RECORD=$(node -e '
+  const { readReceipt } = require(process.argv[1] + "/scripts/receipt/store");
+  const { gitRepoRoot } = require(process.argv[1] + "/scripts/receipt/hash");
+  try {
+    const r = readReceipt(gitRepoRoot(process.cwd()), "mccp-pr-codex", process.argv[2]);
+    process.stdout.write((r && r.meta && r.meta.review_record_path) || "");
+  } catch (_) { process.stdout.write(""); }
+' "${CLAUDE_PLUGIN_ROOT}" "$DECISION_SLUG" 2>/dev/null || printf '')
+
+LINK_SKIPPED=$(node -e '
+  const { readReceipt } = require(process.argv[1] + "/scripts/receipt/store");
+  const { gitRepoRoot } = require(process.argv[1] + "/scripts/receipt/hash");
+  try {
+    const r = readReceipt(gitRepoRoot(process.cwd()), "mccp-pr-codex", process.argv[2]);
+    process.stdout.write((r && r.meta && r.meta.link_evidence_skip_reason) ? "1" : "0");
+  } catch (_) { process.stdout.write("0"); }
+' "${CLAUDE_PLUGIN_ROOT}" "$DECISION_SLUG" 2>/dev/null || printf '0')
+
+if [ -n "$SEALED_RECORD" ] && [ -n "$FINALIZE_RECEIPT_HASH" ] && [ "$LINK_SKIPPED" != "1" ]; then
+  # Failure is warn-and-proceed: instrumentation must not block a ship (the same
+  # line `record.js` draws). The record simply stays unlinked and the audit's
+  # HEAD-tree partition reports it as such.
+  #
+  # This write happens BEFORE the ship is known to land — Phase 3.0 can still HALT
+  # (OUTSIDE, guard offender) and the push can still fail. When it does, the
+  # working tree keeps a git-tracked record naming a receipt that never reached
+  # history, and there is no rollback: re-pointing it would mean rewriting a hash
+  # the §3.12 no-rehash invariant seals. That residue is not silent — the audit's
+  # `stale_receipt_hash` counts exactly this shape, because the record's declared
+  # hash will not equal any HEAD-tree ship's. Re-running /mccp:pr to completion
+  # overwrites it with the hash that did land (the transform is idempotent).
+  if node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" link-receipt \
+       --record "$SEALED_RECORD" \
+       --receipt-hash "$FINALIZE_RECEIPT_HASH" \
+       --expect-plan-path "$SHIP_PLAN_PATH" >/dev/null; then
+    node -e '
+      const fs = require("fs");
+      const out = process.argv[1];
+      const tmp = out + "." + process.pid + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify({
+        record_path: process.argv[2],
+        receipt_path: ".claude/receipts/mccp-pr-codex/" + process.argv[3] + ".json",
+        receipt_hash: process.argv[4],
+      }, null, 2));
+      fs.renameSync(tmp, out);
+    ' "$LINK_EVIDENCE_FILE" "$SEALED_RECORD" "$DECISION_SLUG" "$FINALIZE_RECEIPT_HASH"
+    echo "[mccp:linkage] back-patched $SEALED_RECORD with receipt_hash — evidence artifact at $LINK_EVIDENCE_FILE" 1>&2
+  else
+    echo "[mccp:linkage] link-receipt refused (see BLOCK above) — the record stays unlinked and NOTHING extra is staged. This does not block the ship." 1>&2
+  fi
+elif [ "$LINK_SKIPPED" = "1" ]; then
+  echo "[mccp:linkage] MCCP_PR_SKIP_LINK_EVIDENCE is sealed on this receipt — skipping back-patch. The link stays incomplete and the HEAD-tree audit partition reports it." 1>&2
+else
+  echo "[mccp:linkage] no sealed meta.review_record_path (anchor unresolved or upstream is legacy) — nothing to back-patch. This is the honest bootstrap state, not a failure." 1>&2
+fi
 ```
 
 Bash hook block handling: same as Plan-Codex Phase 7.6 — output `[MCCP-GATE-STOP]` with captured hook stderr and end the response. Do NOT enter Phase 3.
@@ -999,9 +1106,15 @@ Bash hook block handling: same as Plan-Codex Phase 7.6 — output `[MCCP-GATE-ST
 # described an intent, not the code. All three gating callsites in this file
 # (Phase 1.6 preflight, this one, 2.5.9 ship-gate) now pass a real variable, and
 # `validate-callsite-lint` asserts that mechanically for pr.md. NOTE the labels:
-# the preflight is Phase 1.6, NOT 2.5.7 — 2.5.7 is the finalize-receipt WRITE
-# step, and its `--plan "<plan path or PR title>"` is still a placeholder by
-# design (it names the receipt subject; it is not a validate callsite).
+# the preflight is Phase 1.6, NOT 2.5.7 — 2.5.7 is the finalize-receipt WRITE step.
+#
+# review-record-linkage M3 UPDATE: 2.5.7's `--plan` is NO LONGER a placeholder. It
+# derives `SHIP_PLAN_PATH` exactly as this block and 2.5.9 do. The old note said it
+# stayed a placeholder "by design" because it only named the receipt subject — that
+# stopped being true when the subject became load-bearing: `finalize-receipt.js`
+# matches that value against the upstream plan receipt's `meta.plan_path` to decide
+# which review record this ship may claim as its own. All THREE derivations in this
+# file now agree, and `linkage-wiring.test.js` asserts the literal is gone.
 #
 # DECISION_SLUG is re-derived HERE rather than inherited from 2.5.7 (local
 # review, 2026-08-16). Each fenced block may run as its own shell, so an
@@ -1186,16 +1299,64 @@ cannot be cleanly committed, HALT rather than push. PR creation stays reachable
 only when the evidence commit succeeded (or there was nothing to persist).
 
 ```bash
-if [ -n "$(git status --porcelain .claude/receipts/mccp-pr-codex/ 2>/dev/null)" ]; then
+# ── review-record-linkage M3 — the link's OTHER half must reach history too ────
+#
+# The back-patched panel record is git-tracked. Without the four widenings below it
+# never gets committed, the HEAD-tree audit partition reads zero, and M3 ships as
+# wiring with no measurable value — the dominant failure mode this PRD names.
+#
+# The four are a SINGLE-COMMIT invariant; any one alone is broken in a different
+# direction:
+#   0. the entry predicate — a run where only the RECORD is dirty would skip this
+#      whole block and HALT nowhere, silently dropping half the link;
+#   1. the stage set + OUTSIDE-HALT exception;
+#   2. the guard's stdin producer — it is pathspec-filtered to the receipt dir, so
+#      widening only the stage set leaves the record unreachable by the guard and
+#      the hash check silently never fires (a gate that stops nothing);
+#   3. the guard's review-record branch — `:133-136` refuses every non-`.json`
+#      path, so widening only the stdin producer HALTS every ship.
+#
+# Scope comes from ONE artifact, never a prefix. `$LINK_RECORD` is a single path
+# validated by the same `parseLinkEvidence` the guard uses; a `^\.claude/reviews/`
+# prefix here would open the whole record corpus to the evidence commit, which is
+# precisely what the OUTSIDE-HALT exists to refuse.
+MCCP_TMP=$(git rev-parse --git-path mccp/tmp)
+LINK_EVIDENCE_FILE="$MCCP_TMP/link-evidence--${DECISION_SLUG}.json"
+# NO top-level `return` in this snippet. `node -e` evaluates through `vm`, where a
+# return outside a function is `SyntaxError: Illegal return statement` — a PARSE
+# failure, so the script never runs at all, even on the happy path. With stderr
+# discarded and `|| printf ''` absorbing the exit code, that spelling made
+# `$LINK_RECORD` unconditionally empty and silently killed all four widenings
+# below: the record never reached history and the HEAD-tree partition read zero
+# forever. `linkage-wiring.test.js` now EXECUTES this block, because a static
+# assertion that the four call sites exist cannot see a syntax error inside one.
+LINK_RECORD=$(node -e '
+  const fs = require("fs");
+  const { parseLinkEvidence } = require(process.argv[1] + "/scripts/lib/plan-review/link-receipt");
+  let raw = "";
+  try { raw = fs.readFileSync(process.argv[2], "utf8"); } catch (_) { raw = ""; }
+  const p = raw ? parseLinkEvidence(raw) : { ok: false };
+  process.stdout.write(p.ok ? p.record_path : "");
+' "${CLAUDE_PLUGIN_ROOT}" "$LINK_EVIDENCE_FILE" 2>/dev/null || printf '')
+
+if [ -n "$(git status --porcelain .claude/receipts/mccp-pr-codex/ 2>/dev/null)" ] \
+   || { [ -n "$LINK_RECORD" ] && [ -n "$(git status --porcelain -- "$LINK_RECORD" 2>/dev/null)" ]; }; then
   git add -- .claude/receipts/mccp-pr-codex/
+  if [ -n "$LINK_RECORD" ]; then git add -- "$LINK_RECORD"; fi
   # F2 (PR-Codex R2 absorption): the corpus-wide `git add` above is deliberately
   # broad (the audit corpus is ALL ship receipts), but a corrupt, unrelated, or
   # leak-carrying receipt would otherwise be published as durable evidence. Validate
   # EVERY staged receipt fail-CLOSED before the commit — unreadable/unparseable JSON,
   # a missing receipt_hash, or an absolute meta.cwd HALTs the push (the pre-stage cwd
   # guard fail-OPEN-skipped unreadable files; this closes that exact gap).
-  STAGED_OFFENDERS=$(git diff --cached --name-only -- .claude/receipts/mccp-pr-codex/ \
-    | node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/evidence-stage-guard.js")
+  #
+  # M3 — the pathspec now also carries the ONE linked record, and `--anchor-file`
+  # hands the guard this run's expected (record path, receipt hash). The anchor is
+  # argv, not env: an env var either fails to cross this fence (silently disabling
+  # the check) or outlives its run (the stale-value class already patched twice in
+  # this file). With no anchor the guard's review-record branch is fail-CLOSED.
+  STAGED_OFFENDERS=$(git diff --cached --name-only -- .claude/receipts/mccp-pr-codex/ ${LINK_RECORD:+"$LINK_RECORD"} \
+    | node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/evidence-stage-guard.js" --anchor-file "$LINK_EVIDENCE_FILE")
   if [ "$?" != "0" ]; then
     echo "[MCCP-EVIDENCE-STOP] staged receipt validation failed — NOT committing/pushing (unsafe evidence would be published):" 1>&2
     echo "$STAGED_OFFENDERS" 1>&2
@@ -1205,7 +1366,16 @@ if [ -n "$(git status --porcelain .claude/receipts/mccp-pr-codex/ 2>/dev/null)" 
   # Guard: refuse to commit if ANYTHING outside the ship-receipt path is staged
   # (esp. completion-ledger/ — E6). A wrong staged set means we cannot produce a
   # clean evidence commit → HALT (F3 fail-closed), do NOT push an unpersisted set.
-  OUTSIDE=$(git diff --cached --name-only | grep -v '^\.claude/receipts/mccp-pr-codex/' | grep -v '^$' || true)
+  #
+  # M3 — exactly ONE additional path is exempt, matched literally by the artifact's
+  # value. Deliberately NOT `grep -v '^\.claude/reviews/'`: a prefix exemption would
+  # admit any number of unrelated records while satisfying every stated test, which
+  # is the erosion the security review flagged. A second staged `.claude/reviews/*.md`
+  # still HALTs here.
+  OUTSIDE=$(git diff --cached --name-only \
+    | grep -v '^\.claude/receipts/mccp-pr-codex/' \
+    | { if [ -n "$LINK_RECORD" ]; then grep -vxF "$LINK_RECORD"; else cat; fi; } \
+    | grep -v '^$' || true)
   if [ -n "$OUTSIDE" ]; then
     echo "[MCCP-EVIDENCE-STOP] non-receipt paths staged — refusing evidence commit, NOT pushing (receipts would be working-tree-only):" 1>&2
     printf '  %s\n' $OUTSIDE 1>&2

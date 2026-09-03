@@ -13,10 +13,42 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 ## [Unreleased]
 
 > 아래 항목들은 main 에 누적된 것이고 아직 어느 릴리스에도 실리지 않았다.
-> `release` 는 `647dfec`(1.33.6)에 서 있고 marketplace 의 plugin `source` 가
-> `ref: release` 를 해소하므로, main 의 어떤 상태도 사용자에게 도달하지 않는다.
+> 번호는 릴리스 컷이 부여한다(우산 결정 1) — 자식 브랜치는 `plugin.json`
+> version 을 선언하지 않는다. 강제는
+> `node scripts/version-declaration-guard.js` 가 한다.
 
 ### Added
+
+- **review-record-linkage M3 — bidirectional-link**: 결정층(ship receipt)과 내용층
+  (패널 레코드)이 서로를 가리킨다. 링크는 **파생하지 않고 운반한다** — `/mccp:plan`이
+  레코드 경로를 plan receipt에 봉인하고, `/mccp:pr`이 그 값을 ship receipt로 전파한 뒤
+  ship이 봉인된 직후 그 해시를 레코드로 되쓴다.
+  - **앵커는 plan의 repo-relative 경로다 — 내용이 아니라 신원이다.** 슬러그는 두 게이트가
+    서로 다른 입력에서 파생해 구조적으로 어긋나고(`/mccp:plan`은 인자, `/mccp:pr`은 브랜치),
+    `plan_hash`는 Phase 2.5.4의 `## Codex Implementation Review` 주입 때문에 매 사이클
+    움직인다(이미 머지된 M1 쌍에서 실측: ship `a467cd83…` vs plan receipt `e85bad7d…`).
+    경로는 그 주입에 불변이므로 `evidence-stage-guard.js:95-98`의 슬러그↔`decision_id`
+    대조와 **동형**이다.
+  - **일치가 정확히 1건일 때만 스탬프한다.** 0건(미배선·legacy·다른 plan)도 ≥2건(같은
+    plan을 두 슬러그로 재리뷰)도 무스탬프이며 `link_anchor_unresolved`로 loud warn한다.
+    첫 줄을 고르지 않는 것이 규칙이다 — 모호성을 통과시키면 이 축이 닫겠다는 실패(다른
+    마일스톤의 리뷰를 자기 승인 증거로 삼음)가 이름만 바꿔 남는다.
+  - present-only 5필드 — `meta.review_record_path` · `plan_review_expected` ·
+    `no_plan_review_reason` · `link_evidence_skip_reason` · `plan_path`. 전부
+    `makeSkeleton` 미포함이라 과거 receipt의 `receipt_hash`가 한 바이트도 움직이지 않는다
+    (실측: tracked ship receipt 79건 무변경, `evidence-audit` `ok:25 false_positive:0`).
+    `hash.js` carve-out은 만들지 않았다 — 서명 밖의 감사 필드는 서명되지 않은 필드다.
+  - **`meta.plan_path`는 CLI 플래그를 갖지 않는다.** `receipt/cli.js parseFlags`가 임의
+    `--*`를 `write()`로 전달하므로, 플래그가 있으면 아무 셸 호출자나 자기가 갖지 않은 plan
+    신원을 주장할 수 있고 그 순간 앵커는 검사가 아니라 **자기신고**가 된다(§3.13과 같은
+    논거). 부재 증명이 아니라 **행위 증명**으로 고정한다 — 적대적 `--plan-path`를 실제로
+    넘겨도 봉인값이 `--plan` 파생 그대로임을 test가 확인한다.
+  - **schema 규칙은 형태만 본다.** `--plan` 파생이 게이트 중립이라 이 필드는
+    `mccp-implement-codex`·`mccp-pr-codex`에도 실리고, 그 호출처들은 plan 경로가 아닌 값을
+    정당하게 넘긴다(`pr.md`의 PR 제목 허용 · `prp-implement`/`resume`의 `$ARGUMENTS`).
+    접두·확장자를 강제하면 그런 receipt가 schema-invalid가 되어 terminal ship이 막힌다 —
+    계측 필드가 ship 차단 조건을 넓혀서는 안 된다(R14). 대신 **stamp를 좁힌다**: repo 하위
+    실재 파일일 때만 봉인한다.
 
 - `docs/dogfood-install.md` — M2의 본 산출물. worktree 본문을 로컬에서 여는 절차와
   그 한계, 캐시 직접 복사 금지의 사유, 채널 선택 규칙(PRD Open Question 4의 답)이
@@ -32,6 +64,26 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   릴리스 정책이 사용자 저장소로 실려 가지 않게 한다.
 
 ### Changed
+
+- **`linkage-audit.js`의 join이 `filename_convention` → `explicit_field`**. M1의 조인은
+  ship slug ↔ `plan-review-<slug>.md`였고 그 실측 일치율 27/75가 `review->receipt` 방향의
+  구조적 천장이었다. 이제 receipt가 봉인한 `meta.review_record_path`로 조회한다 — 그 경로로
+  **파일을 열지 않고** 이미 스캔한 코퍼스 맵에서 찾을 뿐이라 traversal 표면이 생기지 않는다.
+  조회 실패는 링크 부재로 계상된다(dangling 봉인 경로는 링크가 아니다).
+- **`bidirectional`이 해시를 실제로 비교한다.** `linkage-defs.js`의 `classifyLink`는
+  `review_to_receipt`를 비어있지 않은 문자열인지로만 보는데(그 정의는 M1 소유이고 M3는
+  손대지 않는다 — UI4), back-patch 실패가 warn+진행이라 **이전 ship의 stale 해시가 남은
+  레코드가 새 receipt와 짝지어져 계수되는 경로가 실재했다.** 감사 쪽에서 레코드의
+  `receipt_hash`가 그 receipt의 실제 값과 같은지 대조해 확정하고, 그 차이를 `join_note`가
+  명시한다.
+- **동결 baseline 재생성 — 수치 필드는 바이트 불변.** 변경은 `join`/`join_note` 문자열
+  둘뿐이다(기계 확인: 재생성 전후 differing fields = 2, NUMERIC = 0). 라이브 전용 진단
+  2필드는 동결 블록에 넣지 않는다 — `frozenOnly` 화이트리스트는 최상위만 보므로
+  `pre_baseline.linkage` 안쪽은 산출 지점에서 막아야 한다.
+- **`/mccp:pr` 2.5.7의 `--plan`이 placeholder에서 기계 파생으로 바뀌었다.** `pr.md:1003`이
+  "still a placeholder by design"이라 선언했지만 그 값이 앵커의 대조 대상이 되는 순간
+  **앵커를 통과할 plan을 고르는 것만으로** 다른 마일스톤의 리뷰를 자기 승인 증거로 봉인할
+  수 있다. 2.5.8·2.5.9가 이미 쓰던 `${PR_PLAN_PATH:-…}` 파생을 마지막 callsite에 적용했다.
 
 - **`CLAUDE.md` §3.7의 부호가 뒤집혔다 — bump 지시 → 선언 금지.** 우산 PRD
   [harness-wiring-integrity](.claude/prds/harness-wiring-integrity.prd.md) 결정 1
@@ -54,6 +106,58 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   운영자가 어느 채널에 있어야 하는가")에 답을 기입하고 체크했다. 답은
   `docs/dogfood-install.md`의 채널 선택 규칙과 같은 내용이다.
 
+### Added (신설 라이브 파티션)
+
+- **`post_baseline`이 지표 2의 산출 표면이 됐다.** M1의 `ships`/`records`는 **작업 트리**
+  진단 그대로 남고(의미 무변경), 그 옆에 `ref`·`state`·`head_ships`·`head_records`·
+  `ship_eligibility`·`linkage`가 **`HEAD` 트리**를 동결 파티션과 같은 판독 경로로 읽어
+  붙는다. 두 파티션은 결코 합산하지 않는다.
+  - **읽기 원천이 `HEAD`인 것이 이 축의 급소다.** 작업 트리를 세면
+    `MCCP_PR_SKIP_LINK_EVIDENCE`를 쓰거나 evidence commit이 실패해도 back-patch된 레코드가
+    디스크에 남아 감사가 만점을 세고, 히스토리에 증거가 0인 채로 100%를 보고한다 — 우회가
+    지표를 강등시키지 않는다.
+  - **blind/degraded 사다리를 갖는다.** `HEAD` 트리를 통째로 못 읽으면 `state='degraded'` +
+    `scope_unknown:true`이고 그때는 `linkage`를 **방출하지 않는다**. 판독 실패가 "정상적으로
+    링크 0건"과 구별되지 않으면 그 위의 어떤 acceptance도 아무것도 반증하지 못한다.
+
+### Security
+
+- **back-patch에 결정 결속이 붙었다 (fail-closed, 쓰기 *이전*).** Task 4의 containment는
+  `.claude/reviews/` **하위인지**만 보므로, 상류가 봉인한 경로가 다른 결정의 레코드를
+  가리키면 그 레코드가 덮어써지고 — 방금 덮어썼으므로 해시는 당연히 일치해 — guard가
+  통과시킨다. `link-receipt --expect-plan-path`가 필수이고(부재도 exit 12), 레코드의
+  `measurement.plan_path`가 이 ship의 plan과 다르면 **쓰기 0건**으로 거절한다. Phase 3.0의
+  guard는 커밋을 거절할 수 있을 뿐 이미 일어난 쓰기를 되돌리지 못한다.
+- **`link-receipt`는 읽기 전용 resolver를 재사용하지 않는다.** `resolveContained`는 realpath
+  실패를 치명적으로 보지 않고 **미해소 lexical 경로로 `ok:true`**를 낸다(그 fallback은 읽기
+  호출자를 위해 의도된 것이다). `.claude/reviews`가 디렉토리 심볼릭 링크이고 leaf가 아직
+  없으면 containment는 통과하고 실제 쓰기는 저장소 밖으로 나간다 — `writePrivate`의 rename
+  보장은 **leaf** 심볼릭 링크에 대한 것이지 중간 디렉토리에 대한 것이 아니다. 전용 resolver는
+  실재·비-심볼릭-leaf·realpath 성공을 요구하고 해소된 realpath에 대해서만 읽고 쓴다.
+- **stage guard의 리뷰-레코드 분기는 앵커를 argv로 받고, 경로 동등까지 검사한다.** env로
+  나르면 펜스를 못 넘어 조용히 상시 비활성이거나, 넘도록 export하면 이 저장소가 두 번 패치한
+  stale-env 부류(`CODEX_DEDUPE_AT_PR`·`PR_CODEX_FORCE_OVERRIDE_REASON`)가 재현된다. 앵커
+  부재는 fail-closed이고, staged 경로가 앵커가 지목한 그 경로가 아니면 offender다 — 그래야
+  훗날 누가 stdin 생산자를 prefix로 넓혀도 guard가 단독으로 막는다.
+- **evidence commit의 예외는 정확히 한 경로다.** `grep -v '^\.claude/reviews/'` 같은 prefix
+  예외는 선언된 모든 test를 만족시키면서 레코드 코퍼스를 통째로 연다. 아티팩트가 명명한 값을
+  `grep -vxF`로 리터럴 매칭하며, 두 번째 `.claude/reviews/*.md`가 staged면 여전히 HALT한다.
+
+### Fixed
+
+- `receipt/write.js`가 `meta.plan_path`를 파생할 때 `fs.realpathSync.native`로 두 경로를
+  정규화한다. `repoRoot`는 `git rev-parse --show-toplevel`에서, `planAbs`는 `cwd`에서 오므로
+  Windows에서 한쪽이 8.3 단축명(`ADMINI~1`)을 가질 수 있고(실측), 그러면 fold가 plan을
+  repo **밖**으로 보고해 키가 조용히 누락된다. 일반 `fs.realpathSync`는 단축명을 확장하지
+  **않는다**(실측) — `.native`만 한다.
+
+### Operational
+
+- 신규 audited escape `MCCP_PR_SKIP_LINK_EVIDENCE` (strict reason). **읽는 지점이 Phase
+  2.5.7인 것이 계약의 일부다** — receipt는 2.5.7에서 봉인되므로 3.0에서의 편집은 §3.12
+  no-rehash 위반이거나, 재해시 없이 쓰면 `evidence-stage-guard.js:75-77`에 걸려 **모든
+  ship이 HALT**한다. env-contract registry·색인·상세 문서에 등재됐고 lint L1~L12 green.
+
 ### Measured
 
 - **`--plugin-dir`가 1순위 기제로 확정됐다.** worktree 사본에만 심은 판별 marker가
@@ -67,6 +171,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   **타지 않았다**.
 - **설치 상태 무개입.** 실행 전후 `installed_plugins.json`의 sha256이 동일했고 캐시에
   새 디렉토리가 0개 생겼다. 이것이 캐시 복사 은퇴의 기계적 근거다.
+
 
 ## [1.34.4] — 2026-09-02
 
@@ -272,7 +377,6 @@ PR 게이트의 security 축(`mccp:security-reviewer`)이 그 **수정들의 완
   회귀 test가 직접 증명한다.
 - 게이트 배선 diff는 **공집합**이다(UI7) — `commands/` · `hooks/` · `scripts/hooks/` ·
   `plan-review/` 변경 0건. read-only 계측이라 사용자 체감 변화가 없다.
-
 
 ## [1.34.2] — 2026-09-02
 

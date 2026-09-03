@@ -153,7 +153,11 @@ function cmdRender(rest) {
     // entry, so opt the worktree scanner IN here. Without this the default-off
     // scanner would make the multi-session surface permanently invisible. bare
     // derive() (run / validate / perf-budget) stays default-off → spawn-free.
-    model = derive(cwd, { raw: wantRaw, strict: !!rest.strict, worktreeScan: true });
+    // leadtime-observability M3 (DD16) — 렌더 진입점 둘 중 하나. 축 계산은 렌더
+    // 경로로 한정된다(기본 off). 되돌리면 STATUS.md 한 줄이 사라진다.
+    model = derive(cwd, {
+      raw: wantRaw, strict: !!rest.strict, worktreeScan: true, leadtimeScan: true,
+    });
   } catch (err) {
     process.stderr.write('[mccp:derive:render] ERROR derive failed: ' + err.message + '\n');
     return 1;
@@ -191,6 +195,24 @@ function cmdRender(rest) {
   }
   if (rendered.design_lint_degraded) {
     process.stderr.write('[mccp:renderer] design-lint subsystem degraded (advisory)\n');
+  }
+  // leadtime-observability M3 (DD17) — 분포 파일은 **이 경로에서만** 발행한다.
+  // `trigger.js` 에는 배선하지 않는다: 그 경로의 호출자는 SessionStart hook ·
+  // receipt/write.js · dispatch watcher 라 운영자가 부르지 않는 ambient 이고,
+  // 코퍼스는 게이트 실행마다 자라므로 payload 가 사실상 매 사이클 바뀐다. 그러면
+  // 병렬 worktree 가 같은 tracked 파일을 서로 다르게 덮어써 무관한 브랜치의 작업
+  // 트리가 hook 한 번으로 dirty 해진다. 이 경로의 호출자는 넷 다 human-gate 다
+  // (`/mccp:dashboard`·`dashboard-refresh`·`dashboard-audit`·`archive-complete`).
+  // snapshot writer 와 같은 fail-open 호출 형태 — 부수 산출물이 렌더를 깨지 않는다.
+  try {
+    const { writeDistribution } = require('../lib/leadtime-distribution');
+    const res = writeDistribution(cwd, model.leadtime);
+    if (res.written) {
+      process.stderr.write('[mccp:leadtime] distribution ' + res.reason + ': ' + res.path + '\n');
+    }
+  } catch (err) {
+    process.stderr.write('[mccp:leadtime] distribution write failed (allow): '
+      + (err && err.message) + '\n');
   }
   // v1.3.0-m5 — piggyback the daily snapshot writer on the CLI render path.
   // Lazy require + try/catch so a missing snapshot module never breaks render.

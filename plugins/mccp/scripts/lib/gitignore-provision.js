@@ -84,6 +84,15 @@ const MCCP_IGNORE_BLOCK = [
   '.claude/state/completion-ledger/*.lock',
   '.claude/state/completion-ledger/*.tmp',
   '',
+  // The leadtime distribution is the same category and the same reason: the
+  // file itself IS tracked (it is the corpus other sessions cite), only its
+  // atomic-write tmp is local. Canonical, not REPO_ONLY — any repo that runs
+  // /mccp:dashboard-refresh writes it, so a target repo without this entry
+  // would commit a partial JSON orphan the first time a render is killed
+  // between write and rename (the writer only unlinks on a rename FAILURE).
+  '# leadtime distribution.json IS tracked; only its atomic-write tmp is local.',
+  '.claude/state/leadtime/*.tmp',
+  '',
   '# Per-session runtime state — never committed.',
   '.claude/state/evidence-claims/',
   '.claude/state/dispatches/',

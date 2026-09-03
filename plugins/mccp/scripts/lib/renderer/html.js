@@ -1062,6 +1062,9 @@ function renderHeroPanel(verdict, grid, projectName, escapeHtml, escapeAttr, for
     + escapeHtml(status.label) + '</span>'
     + '<h1 class="verdict s-' + escapeHtml(verdict.tone) + '">' + safeText + '</h1>'
     + subtextHtml
+    // leadtime-observability M3 (DD7) — hero-status/verdict 띠 **직후**,
+    // widget-grid **앞**. md 의 “summaryLine 다음” 과 같은 자리다. 신규 CSS 0개.
+    + ((grid && grid.leadtimeHtml) || '')
     + promptHtml
     + '</section>';
 }

@@ -1,50 +1,52 @@
 ---
 state_version: 1
-task_fingerprint: release-channel-separation-m2
+task_fingerprint: leadtime-observability-m2
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-03T05:12:45.952Z
+updated_at: 2026-09-03T07:13:19.219Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-03T05:12:45.952Z
+last_event_at: 2026-09-03T07:13:19.219Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
-last_pr_url: https://github.com/idenn207/mccp/pull/170
-dep_check_at: 2026-09-03T04:13:06.520Z
-escalate_pending: true
-escalate_pending_decision_id: release-channel-separation-m1
+last_pr_url: https://github.com/idenn207/mccp/pull/71
+dep_check_at: 2026-09-03T04:12:52.323Z
 ---
 ## Goal
-release-channel-separation M2 — dogfood-install. Task 1~11 구현 완료, Validation 15개 검사 전건 통과. 다음은 PR.
+leadtime-observability M3 — one-line-consumption. 구현 + 검증 + 문서 동결 완료(v1.35.0). commit/PR 대기.
 
 ## Plan
-- PRD: `.claude/prds/release-channel-separation.prd.md` — M1 complete, **M2 구현 완료**, M3 pending
-- plan: `.claude/plans/release-channel-separation-m2.plan.md` (검증 블록 1건 수정 — 아래 Last Decision)
-- 보고서: `.claude/PRPs/reports/release-channel-separation-m2-report.md` (실측 원문 + 부수 관측)
-- 산출물: `docs/dogfood-install.md` (신규) · README/CLAUDE.md 포인터 · version 4면 1.34.5
+- PRD: `.claude/prds/leadtime-observability.prd.md` — M1·M2·M3 **전부 complete** (PRD 종료)
+- plan: `.claude/plans/leadtime-observability-m3.plan.md` — 봉인됨(plan_hash). **편집 금지**. 게이트 기록은 `.claude/notes/leadtime-observability-m3.md`
+- 산출물: `lib/leadtime-surface.js` · `lib/leadtime-derive.js` · `lib/leadtime-distribution.js` · `renderer/sections/leadtime-line.js` + test 5면 + `docs/leadtime-observability/one-line-consumption.md`
+- 구현 보고: `.claude/PRPs/reports/leadtime-observability-m3-report.md`
+- version 1.35.0 (**minor** — PRD 전 milestone 완료). 4면 동기 완료. branch leadtime-observability
 
 ## Done
-- **base 동기화** — 브랜치가 origin/main보다 57커밋 뒤라 병합. 충돌 2건(backlog union · STATE.md ours) 해소, 삭제 0건(§3.5.1)
-- **Task 3 양성 대조 통과** — worktree에만 심은 marker(nonce 9f8a5f7cc76a)가 `--plugin-dir` 실행에서 관측되고 플래그 없는 실행에서 미관측. `CLAUDE_PLUGIN_ROOT`가 캐시가 아닌 worktree를 가리킴
-- **Task 4 충돌 없음 확정** — CLI가 `Plugin "mccp" from --plugin-dir overrides installed version`으로 스스로 해소. hook 등록 단일(29+3=32). 회피 후보 (a)(b)는 같은 기제이고 둘 다 전역 무영향 → 절차에 채널 재우기 선행 단계 없음
-- **Task 5 후퇴선 미사용** — 조건 미성립. `marketplace.dev.json` 미생성, `mccp-dev` 등록 이력 없음
-- **캐시 무개입 실측** — `installed_plugins.json` sha256 무변화 · 신규 캐시 디렉토리 0개 (UI3 은퇴의 기계적 근거)
-- **Validation 15개 전건 exit 0** + 검사 13·15 판별력 대조 3축(흔들면 HALT / 되돌리면 통과)
+- M3 구현 — derive가 `model.leadtime`(순수 투영)을 싣고 renderer가 상태 띠 바로 다음에 값+커버리지 한 줄을 낸다. 같은 투영이 git-tracked `.claude/state/leadtime/distribution.json`으로 발행된다
+- 한 줄은 `sections` 배열이 아니라 `opts.leadtimeLine → renderStatusGrid → grid` 채널로 두 composer에 도달한다 — `markdown.js:8`·`html.js:1230`이 정확히 10슬롯을 구조분해하므로 11번째 원소는 읽히지 않는다(L2 architect HIGH 흡수)
+- 커버리지 인접 규칙에 예외를 두지 않았다 — 통계 이름(`p50`)을 헤드에서 한 번 선언하고 모든 값 토큰이 짝을 단다. `assertCoverageAdjacency`가 강제하고 짝 test가 그것이 no-op이 아님을 고정한다(L2 test HIGH 흡수)
+- plan이 Validation에서 실행하지만 아무 Task도 만들지 않던 `derive/tests/leadtime-source.test.js`를 생성했다 — sentinel 경로 유출·spawn-free 예산 두 HIGH 리스크의 유일한 falsifier다(L2 test HIGH 흡수)
+- renderHuman 100칼럼 초과가 지목된 2줄이 아니라 실측 5줄이었다. 전부 정리(최대 91칼럼) — 안 하면 plan 자신의 Validation 6b가 통과 불가였다
+- distribution writer의 tmp가 `<target>.<pid>-<rand>.tmp`다(§3.6) — 목적지가 tracked라 고정 이름은 고아·충돌을 부른다. rename 실패 시 unlink
+- hide 술어를 "키 부재 또는 null"로 확장 — `emptyModel`이 키를 항상 선언하므로 실제 판별자는 값이고, null에 `미산출`을 찍으면 UI10(소급 부재 생성) 위반
+- 실측 — 리드타임 (50/63 측정) · p50: 패널 7.5min (50/50) · 패널→ship ledger 0.38d (11/50) · hash 0.28d (17/50)
+- 검증 — Validation 1~12 전항 통과. leadtime 6파일 112/112 · renderer 683/683 · derive 147/147 · i18n-surface 10/10 · 삭제 0건 · UI7/UI11 공집합 · 두 번째 렌더 mtime 불변
+- 문서 — `one-line-consumption.md` 신규(한계 절이 동결 블록 위, 블록은 `<details>`) + `dashboard-surface.md` §2/§5 등재 + PRD milestone 3 complete
 
 ## In Progress
 
 
 ## Next Step
-/mccp:pr — 단, plan 게이트 승인 receipt가 없으므로 PR-Codex가 실제 발화한다(dedupe 미개방). PR 직전 §3.7 version target 재계산 필요(현재 1.34.5, main 1.34.4 기준)
+/mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 forward-only 재계산(main 1.34.4, 33 behind) + base 병합 후 문서 동결 2면 재생성.
 
 ## Last Decision
-plan의 `## Validation` 검사 13에 있던 JS 문자열 리터럴의 raw 개행을 ` `으로 고쳤다. 그 단언은 구문 오류라 **한 번도 실행된 적이 없었다** — 고치자 라이브 대조가 발화했고 판별력도 확인됐다. 단언 내용은 한 글자도 바꾸지 않았고 개행만 이스케이프로 되돌렸다.
+plan-review L2 패널이 divergent(quorum 2/4)로 봉인돼 있고 plan 본문은 plan_hash로 봉인돼 고칠 수 없으므로, blocking finding 중 HIGH 3건 + Validation 통과를 막던 MEDIUM 3건을 **구현에서** 닫았다(D1~D7). 특히 한 줄은 sections 배열이 아니라 grid 채널로 두 composer에 도달한다 — 두 composer가 정확히 10슬롯을 구조분해하므로 11번째 원소는 읽히지 않는다.
 
 ## Open Questions
-- PR 생성은 아직 하지 않았다 — 승인 receipt 없는 상태의 착지라 운영자 확인 뒤 진행
-- 부수 관측(backlog 적재): `run-with-flags.js`의 텍스트 기반 `hasRunExport` 판정이 거짓 양성을 내어 hook 모듈이 세션당 2회 실행된다. M2 Files to Change 밖이라 미수정
-- 측정 OS는 Windows 하나 · CLI 2.1.259. plan이 적은 2.1.252와 다르며 문서는 실측값을 적었다
-- M1 잔여: santa-review receipt divergent 봉인 → escalate_pending 유지
+- PRD Open Question 2건은 M3이 닫지 않는다 — 10배 격차(표본 편향 vs 패널 밖 구간) · 지표 4의 구조적 0. M3은 소비 회로이지 그 질문의 답이 아니다.
+- Validation 6b의 ≤100칼럼이 라이브 코퍼스에 걸려 있어 코퍼스가 자라면 다시 붉어진다(backlog 이연). 오늘 최대 91칼럼.
+- node --test <dir>/ 가 Node 24.19 에서 Cannot find module 로 죽는다 — Validation 7 은 <dir>/*.test.js glob 으로 돌렸다.
 
 ## Last Updated
-2026-09-03T05:12:45.952Z
+2026-09-03T07:13:19.219Z

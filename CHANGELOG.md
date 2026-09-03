@@ -19,6 +19,27 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Added
 
+- `plugins/mccp/scripts/lib/leadtime-surface.js` — 한 줄 포매터. `formatLeadtimeLine`이
+  CLI · `STATUS.md` · `status.html` · `distribution.json` **네 면이 공유하는 유일한 문장**을
+  만든다. `assertCoverageAdjacency`가 "커버리지 없는 값 토큰은 존재할 수 없다"를 기계적으로
+  강제하고, 짝을 뗀 입력이 실제로 throw하는 것을 test가 고정한다(no-op 게이트 방지).
+  단위 어휘(`fmtMin`/`fmtDay`)의 소유도 여기로 옮겨 `leadtime.js`가 require한다 —
+  반대 방향은 순환이라 `module.exports` 할당 전에 `undefined`를 받는다.
+- `plugins/mccp/scripts/lib/leadtime-derive.js` — `scanLeadtime(root, opts)`. `leadtimeScan`
+  이 참일 때만 돌고(기본 off) 절대 throw하지 않는다. 실패는 blind 골격의 한 인스턴스인
+  sentinel이며 `error_kind`는 **닫힌 열거형**이다 — `err.message`는 절대경로를 품으므로
+  stderr로만 나간다.
+- `plugins/mccp/scripts/lib/leadtime-distribution.js` — `.claude/state/leadtime/distribution.json`
+  writer. **git-tracked** 목적지라 tmp 이름이 `<target>.<pid>-<rand>.tmp`이고 rename 실패 시
+  unlink한다(§3.6). payload에 시각 필드가 하나도 없어 content-stability가 구성상 성립하고,
+  판정은 mtime이 아니라 **반환값**(`{written:false, reason:'unchanged'}`)이 한다.
+- `plugins/mccp/scripts/lib/renderer/sections/leadtime-line.js` — `{md, html}` 또는 `null`.
+  hide 조건은 **축 부재 하나**(키 부재 또는 `null`)이고 값 부재는 숨기지 않는다.
+- `docs/leadtime-observability/one-line-consumption.md` — 한 줄 문법 · 파일 스키마 · 강등
+  계약 · 동결 실측. 「한계」 절이 동결 블록 **위**에 오고 블록은 `<details>`로 접힌다.
+- test 3면 신규 + 2면 확장 — `leadtime-surface` · `leadtime-distribution` ·
+  `renderer/tests/leadtime-line` · `derive/tests/leadtime-source` · `leadtime.test.js` M3 절.
+
 - **review-record-linkage M3 — bidirectional-link**: 결정층(ship receipt)과 내용층
   (패널 레코드)이 서로를 가리킨다. 링크는 **파생하지 않고 운반한다** — `/mccp:plan`이
   레코드 경로를 plan receipt에 봉인하고, `/mccp:pr`이 그 값을 ship receipt로 전파한 뒤
@@ -75,6 +96,27 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   `MCCP_CODEX_DISABLED=1`이라 거짓을, `transport`는 예산 소진을 장애로 보고한다.
 
 ### Changed
+
+- `leadtime.js` — `audit(opts)`에 `allowGit`(기본 `true`) spawn 게이트 추가. `false`면 W3이
+  `no`가 아니라 `unavailable`이 되고 `degradations:['git-disabled']`가 산출물에 실린다.
+  **분포는 두 모드에서 동일하다** — 증인은 미짝의 분류에만 쓰인다. 순수 투영
+  `summarizeForSurface(result)`를 추가했다: 산술 없이 필드를 고르기만 하고, 경로·레코드명·
+  해시를 하나도 싣지 않으며, 두 앵커 키를 **언제나** 싣는다(부재는 `null`).
+- `leadtime.js#renderHuman` — 카운터 6개가 아니라 **공유 한 줄**로 시작한다. 100칼럼을
+  넘던 5줄을 전부 정리했다(coverage 114 · post_panel_span coverage 129 · unmatched 2×112 ·
+  헤드라인 111). `unmatched[…]`는 비-0 버킷 상위 3개 + `(+N in --json)`로 절삭하되 **`--json`은
+  무변경**이고 test가 그 5키 집합을 동결한다. backlog가 M3을 재판정 시점으로 지목해 이연한
+  impeccable HIGH 2건의 흡수다.
+- `derive/model.js` — `leadtime`을 additive top-level로 선언(`null`)하고 `validateShape`가
+  present-only로 검사한다. **선언된 `null`을 허용**하는 것이 계약의 일부다. `MODEL_VERSION`
+  은 `v1` 무변경.
+- `derive/index.js` · `derive/cli.js` · `renderer/trigger.js` — 렌더 진입점 **둘 모두**
+  `leadtimeScan`을 켠다(auto-refresh가 실사용 렌더의 대부분이다). 분포 **파일**은
+  `cmdRender`에만 배선한다 — ambient hook이 git-tracked 파일을 만지는 경로가 0개가 된다.
+- `renderer/index.js` · `sections/status-grid.js` · `renderer/html.js` — 한 줄이
+  `opts.leadtimeLine` → `renderStatusGrid` → `grid` 채널로 두 composer에 도달한다.
+  `sections` 배열에 append하지 **않는다**: `markdown.js`와 `html.js`가 정확히 10개 위치로
+  구조분해하므로 11번째 원소는 어느 쪽도 읽지 않는다(plan-review L2 패널 HIGH 흡수).
 
 - **`linkage-audit.js`의 join이 `filename_convention` → `explicit_field`**. M1의 조인은
   ship slug ↔ `plan-review-<slug>.md`였고 그 실측 일치율 27/75가 `review->receipt` 방향의
@@ -155,6 +197,9 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   `grep -vxF`로 리터럴 매칭하며, 두 번째 `.claude/reviews/*.md`가 staged면 여전히 HALT한다.
 
 ### Fixed
+
+- 투영의 zero-join 계열이 `{n:0, p50:null}`이 아니라 `null`이다 — 빈 분포를 실으면
+  "관측했더니 0"과 "관측이 없음"이 구분되지 않는다(부재 규칙 (a)의 투영 층 대우).
 
 - `receipt/write.js`가 `meta.plan_path`를 파생할 때 `fs.realpathSync.native`로 두 경로를
   정규화한다. `repoRoot`는 `git rev-parse --show-toplevel`에서, `planAbs`는 `cwd`에서 오므로

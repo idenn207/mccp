@@ -8,6 +8,7 @@
 //   dashboard-truthfulness M1: sources.ledger (additive count-source)
 //   dashboard-truthfulness M2: host_version (additive top-level object)
 //   dashboard-multi-session M1: sources.worktrees (additive count-source)
+//   leadtime-observability M3: leadtime (additive top-level object OR null)
 // Consumers MUST tolerate missing optional fields (null fallback). A bump
 // would force receipt-side migration which the additive surface avoids.
 const MODEL_VERSION = 'v1';
@@ -40,6 +41,10 @@ function emptyModel(repoRoot) {
     // stamped at derive time so the renderer never reads host files. additive
     // optional (MODEL_VERSION 'v1' unchanged).
     host_version: { version: null, source: 'unknown', latest_plan: null, degraded: false, error: null },
+    // leadtime-observability M3 — 리드타임 분포 투영(top-level, additive optional).
+    // `null` 은 "이 축이 계산되지 않았다" 이지 "측정했더니 0" 이 아니다 — 렌더는
+    // 그 구분을 hide 로 지킨다(DD3). `leadtimeScan` 기본 off 라 bare derive 는 null.
+    leadtime: null,
     correlations: [],
     warnings: [],
   };
@@ -98,6 +103,31 @@ function validateShape(model) {
       if (!('version' in hv)) errors.push('host_version.version missing');
       if (typeof hv.source !== 'string') errors.push('host_version.source not a string');
       if (typeof hv.degraded !== 'boolean') errors.push('host_version.degraded not a boolean');
+    }
+  }
+  // leadtime-observability M3 — leadtime present-only. **선언된 `null` 을 허용한다**:
+  // `emptyModel` 이 키를 항상 선언하므로 host_version 형태의 'present but not an
+  // object' 를 그대로 쓰면 빈 모델이 자기 스키마에 걸린다.
+  if ('leadtime' in model && model.leadtime !== null) {
+    const lt = model.leadtime;
+    if (!lt || typeof lt !== 'object') {
+      errors.push('leadtime present but neither an object nor null');
+    } else {
+      if (typeof lt.state !== 'string') errors.push('leadtime.state not a string');
+      if (!lt.coverage || typeof lt.coverage !== 'object') errors.push('leadtime.coverage missing');
+      if (!('panel_span' in lt)) errors.push('leadtime.panel_span missing');
+      const pps = lt.post_panel_span;
+      if (!pps || typeof pps !== 'object') {
+        errors.push('leadtime.post_panel_span missing');
+      } else if (!pps.by_anchor || typeof pps.by_anchor !== 'object') {
+        errors.push('leadtime.post_panel_span.by_anchor missing');
+      } else {
+        // 두 앵커 키는 언제나 실린다(부재는 null) — 조건부 키를 소비처가 물려받지 않는다.
+        for (const k of ['ledger_basename', 'ship_plan_hash']) {
+          if (!(k in pps.by_anchor)) errors.push('leadtime.post_panel_span.by_anchor.' + k + ' missing');
+        }
+      }
+      if (!Array.isArray(lt.degradations)) errors.push('leadtime.degradations not an array');
     }
   }
   return { ok: errors.length === 0, errors: errors };

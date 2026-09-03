@@ -294,7 +294,12 @@ function triggerRender(reason, opts) {
         // dashboard-multi-session M1 (Codex F1) — auto-refresh is a render
         // entry, so opt the worktree scanner IN (mirrors cli.js render). bare
         // derive() stays default-off for the spawn-free perf-budget path.
-        model = deriveImpl(repoRoot, { worktreeScan: true });
+        // leadtime-observability M3 (DD16) — auto-refresh 도 렌더 진입점이므로 축을
+        // 켠다. 실사용 렌더의 대부분이 이 경로라, 한쪽만 켜면 한 줄이 CLI 를 직접
+        // 칠 때만 존재한다. **distribution writer 는 여기 배선하지 않는다**(DD17):
+        // 그 파일은 git-tracked 발행물이고 이 경로의 호출자는 SessionStart hook ·
+        // receipt/write.js · dispatch watcher 라 운영자가 부르지 않는 ambient 다.
+        model = deriveImpl(repoRoot, { worktreeScan: true, leadtimeScan: true });
         rendered = renderImpl(model, { snapshotsDir: path.join(cacheDir, 'snapshots') });
       } catch (err) {
         stderr('[mccp:renderer-trigger] reason=' + reason

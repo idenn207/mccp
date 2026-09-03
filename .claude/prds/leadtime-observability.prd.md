@@ -74,7 +74,7 @@ We'll know we're right when **분포가 커버리지와 함께 한 화면에 뜨
 |---|---|---|---|---|
 | 1 | wall-clock-aggregate | 측정 가능 레코드 전건의 벽시계 분포가 산출된다(이전 소비처는 converged 5건만 보고했다). 코퍼스 커버리지가 하한으로 명시된다. `corpus.js` 출력은 한 바이트도 바뀌지 않는다 | complete | `.claude/plans/leadtime-observability-m1.plan.md` |
 | 2 | span-join | 패널 종료 → ship 구간이 두 끝 앵커로 각각 산출되고, 미짝 레코드 전건이 사유별로 분류된다(미ship / 앵커 부재 / 키 불일치). 두 앵커의 불일치가 함께 나온다 | complete | `.claude/plans/leadtime-observability-m2.plan.md` |
-| 3 | one-line-consumption | `STATUS.md` 상단 한 줄에 값과 커버리지가 **함께** 뜬다. 값이 없으면 없다고 적고 0으로 적지 않는다. C7이 인용할 분포가 파일로 남는다 | pending | — |
+| 3 | one-line-consumption | `STATUS.md` 상단 한 줄에 값과 커버리지가 **함께** 뜬다. 값이 없으면 없다고 적고 0으로 적지 않는다. C7이 인용할 분포가 파일로 남는다 | complete | `.claude/plans/leadtime-observability-m3.plan.md` |
 
 ## Open Questions
 

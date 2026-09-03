@@ -250,7 +250,17 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
     widgetMd('이월 finding', deferredItems, formatUtils, deferredCount),
     widgetMd('위험', riskItems, formatUtils, risksOpen),
   ].join('\n');
-  const md = [summaryLine, '', widgetsMd, '', nextActionMd(nextAction)].join('\n');
+  // leadtime-observability M3 (DD7) — 리드타임 한 줄은 대시보드 블록 **최상단의**
+  // 상태 띠(summaryLine) 바로 다음이다. next-action 은 이 블록의 끝에 있으므로
+  // 그 아래에 붙이면 2600줄 문서의 460행대에 놓여 'STATUS.md 상단 한 줄' 이
+  // 성립하지 않는다. 축 부재면 원소를 넣지 않는다(graceful-hide).
+  const leadtimeLine = opts.leadtimeLine || null;
+  // 빈 줄을 **앞에** 둔다 — CommonMark에서 연속 두 줄은 한 문단이라, 빈 줄이 없으면
+  // 렌더된 STATUS.md에서 상태 띠와 리드타임 줄이 한 문단으로 이어져 붙는다.
+  // 자리는 그대로 최상단이다(상태 띠 바로 다음).
+  const leadtimeMd = (leadtimeLine && leadtimeLine.md) ? ['', leadtimeLine.md] : [];
+  const md = [summaryLine].concat(leadtimeMd,
+    ['', widgetsMd, '', nextActionMd(nextAction)]).join('\n');
 
   const htmlCells = cells.map(c => {
     let valueHtml;
@@ -276,7 +286,12 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   const html = '<div class="status-grid">' + htmlCells + '</div>';
 
   // md/html/cells 키 불변(기존 소비자 호환) + version/nextAction 추가(F1/F2 소비처).
-  return { md, html, cells, version, nextAction };
+  // md/html/cells 키 불변. `leadtimeHtml` 은 M3 이 더한 추가 채널로,
+  // `renderHeroPanel` 이 verdict 띠 직후 · widget-grid 앞에 놓는다(DD7).
+  return {
+    md, html, cells, version, nextAction,
+    leadtimeHtml: (leadtimeLine && leadtimeLine.html) || null,
+  };
 }
 
 module.exports = { renderStatusGrid, formatPlanLabel };

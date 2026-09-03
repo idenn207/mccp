@@ -183,7 +183,7 @@ M1 baseline이 M2에 넘긴 것은 답이 아니라 질문이었다:
 | `.claude/prds/ci-full-suite.prd.md` | UPDATE | milestone 2 행 재정의 + OQ2·OQ3 응답 + Metric 2·3 갱신 |
 | `plugins/mccp/scripts/lib/plan-review/l1-check.js` | UPDATE | 갈래 D(확장) — C6 `CITATION_RE`가 선행 점을 표현하지 못해 dotfile 디렉토리 인용에 오탐. 본 계획 자신의 게이트가 그것에 막혔다 |
 | `plugins/mccp/scripts/lib/tests/plan-review-l1.test.js` | UPDATE | 위 수정의 짝 test — dot 경로가 해소되고, **존재하지 않는** dot 경로는 여전히 거부됨을 고정 |
-| `plugins/mccp/.claude-plugin/plugin.json` | UPDATE | §3.7 — Task 4가 배포 표면(`plugins/mccp/`)을 건드리므로 patch bump (아래 Risks 참조) |
+| `plugins/mccp/.claude-plugin/plugin.json` | UNCHANGED | **버전을 선언하지 않는다** — 우산 결정 1. 이 행은 원래 "patch bump"였고 그것이 결정 위반이었다(아래 Risks 참조에서 정정) |
 | `CHANGELOG.md` | UPDATE | 같은 bump의 기록 |
 
 | `plugins/mccp/scripts/lib/plan-review/cli.js` | UPDATE | **계획 밖 — 확장 사유**: Task 1 Action 2가 예비한 퇴로("도달하지 않으면 그 seam이 결함이고 그것을 수리 대상으로 삼는다")가 발동했다. 라운드 칩 초크포인트만 `--repo-root`를 무시하고 `process.cwd()`를 읽었다 |
@@ -323,7 +323,7 @@ for (const r of j.runs) console.log(r.ok, r.attribution, r.redaction_ok, r.exit_
 |---|---|---|
 | 갈래 H 중화가 test를 *통과시키기만* 하고 실제 격리를 주지 않는다 (예: `observe`가 소비처에 도달하지 않는데 다른 이유로 green) | 중 | Validate 1을 **seal이 존재하는 상태**에서 돌린다. seal을 지우고 통과시키면 무엇이 고쳐졌는지 알 수 없다 |
 | `MCCP_CODEX_DISABLED=1` 강제가 codex 경로 test의 의미를 바꾼다 | 낮음 | 실측: 해당 test들은 `invokeAdversarialReview(..., { env: {} })`로 **명시 env 객체**를 넘기므로 `process.env` 강제에 영향받지 않는다 (`codex-invoke.test.js:134,152,…`). 그럼에도 Task 1 Validate가 이를 재확인한다 |
-| Task 4의 `codex-reachability` 수정이 배포 표면(`plugins/mccp/`)을 건드려 PRD의 "version bump 하지 않는다"와 충돌한다 | **높음** | PRD의 그 문장은 `.github/`만 바꾼다는 전제에서 쓰였다. Task 4는 그 전제를 벗어나므로 **patch bump를 기본으로 두고 이 계획에 명시**한다. §3.7 v1.33.7 정정대로 feature branch의 bump는 `release` 채널로 즉시 도달하지 않는 dogfood 번호다. 운영자가 반대하면 Task 4를 별도 자식으로 분리하는 것이 대안이다 |
+| Task 4의 `codex-reachability` 수정이 배포 표면(`plugins/mccp/`)을 건드린다 | **해소됨(정정)** | **이 행의 이전 판정은 틀렸다.** 원래 여기에는 "PRD의 그 문장은 `.github/`만 바꾼다는 전제에서 쓰였다 … patch bump를 기본으로 두고 이 계획에 명시한다"라고 적혀 있었다. 그러나 PRD L77이 인용한 것은 전제가 아니라 **우산 결정 1**(harness-wiring-integrity.prd.md)이고, 그 결정은 배포 표면을 건드리는지와 무관하게 **자식 브랜치의 version 선언 자체**를 금한다 — 근거가 배포 도달이 아니라 병렬 브랜치 번호 충돌(9회 재발)이기 때문이다. §3.7 v1.33.7 정정("dogfood 번호")을 면허로 읽은 것도 오독이었다. 그 정정은 도달하지 않음을 말할 뿐 선언을 허가하지 않는다. 2026-09-03 실측에서 자식 다섯이 `1.34.5`를 셋·`1.35.0`을 둘 동시 주장했고 이 브랜치가 그중 하나였다. **bump를 되돌렸고**(4면 전부 1.34.4) 강제는 `scripts/version-declaration-guard.js` + CI 가 맡는다 |
 | 3회 반복이 flaky를 판정하기에 부족하다 (M1 §5a가 run 간 편차 최대 27.1% 실측) | 중 | 3회는 PRD가 정한 수다 (UI5 — 지어내지 않는다). 3회로 갈리면 flaky로 기록하고, 갈리지 않아도 "3회에서 재현되지 않음"이라고만 쓴다 — M1이 `mccp-fixture`에 쓴 표현 그대로 |
 | 갈래 R(자원 고갈)이 test 결함이 아니라 러너 동시성 문제라 Task 5에서 test를 고치려다 헛돈다 | 중 | 판정을 먼저 한다 — 같은 파일이 `--test-concurrency=2` 단독 실행에서 green이면 test가 아니라 부하다. 그 경우 수리 지점은 러너이고, 그것은 벽시계 축이 아니라 green 축이므로 이 milestone 안이다 |
 | 격리 목록이 "고치지 않기 위한 통로"가 된다 | 중 | `reason`이 공백을 거부하는 것은 이미 기제가 하고, 그 위에 **격리 건수 자체를 M2 산출 문서에 적는다**. 수가 크면 그것이 M3 진입을 막는 근거다 |

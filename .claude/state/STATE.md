@@ -1,50 +1,47 @@
 ---
 state_version: 1
-task_fingerprint: review-record-linkage-m1
+task_fingerprint: review-record-linkage-m3
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-02T01:34:20.809Z
+updated_at: 2026-09-03T04:31:02.149Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-02T01:34:20.809Z
+last_event_at: 2026-09-03T04:31:02.149Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-09-02T00:29:26.759Z
-escalate_pending: true
-escalate_pending_decision_id: review-record-linkage
+dep_check_at: 2026-09-03T04:13:10.580Z
 ---
 ## Goal
-review-record-linkage M1 — linkage-baseline-parser. 구현 + santa-loop 2라운드 흡수 완료(v1.34.2). commit 완료, PR 대기.
+review-record-linkage M3 — bidirectional-link. R11(층간 링크 신원 앵커)을 경로 신원으로 해소하고 R4를 완주했다. plan receipt 발행됨(verdict=divergent, 단일통과 봉인) — 구현 착수 가능.
 
 ## Plan
-- PRD: `.claude/prds/review-record-linkage.prd.md` — M1 in-progress · M2 dropped(상류 선점) · M3·M4 pending
-- plan: `.claude/plans/review-record-linkage-m1.plan.md` — `plan_hash` 봉인. **편집 금지**. 대체된 설계는 보고서 Deviations 4·5가 기록한다
-- 산출물: `plugins/mccp/scripts/lib/{linkage-audit.js, plan-review/linkage-defs.js}` + test 3종 + `docs/review-record-linkage/frozen-baseline.md`
-- version 1.34.2 (§3.7 — origin/main 이 1.33.7·1.34.1 을 연속 발행해 두 번 재상향). 4면 동기 완료
-- branch review-record-linkage · HEAD 는 origin/main 머지(ed9c4d6) 를 포함한다
+- PRD `.claude/prds/review-record-linkage.prd.md` — M1 complete · M2 dropped · M3 in-progress · M4 pending
+- plan `.claude/plans/review-record-linkage-m3.plan.md` — L1 converged · plan_hash `sha256:0b32a1d5…`
+- receipt `.claude/receipts/mccp-plan-codex/review-record-linkage-m3.json` — `review_verdict=divergent` + `review_single_pass_reason=deferred_to_prd_completion`. 위조 아님: 실제 verdict 그대로 봉인이라 dedupe는 닫힌 채이고 `/mccp:pr`에서 PR-Codex가 반드시 발화한다
+- 리뷰 레코드 `.claude/reviews/plan-review-review-record-linkage-m3.md` — R4분(4/4 fail, wall_clock 710s)
+- 라운드 원장 `round_ledger_count=5` / `round_cap=3` — `MCCP_ROUND_LEDGER=observe`로 열었고 원장은 지우지 않았다
 
 ## Done
-- M1 구현 — read-only·LLM-free·standalone 링크 baseline 도구. 게이트 배선 diff 공집합
-- **santa-loop R0 (blocking 13) 전건 흡수** — 뿌리는 하나였다: 동결 baseline 이 경계 ref 가 아니라 살아 있는 작업 트리에서 계산됐다. 멤버십을 고정 SHA 의 트리로 옮겨 병합 드리프트 · recorded_at 가변성 · filename_convention 미스코프가 함께 닫혔다
-- **santa-loop R1 (blocking 9) 전건 흡수** — ref 주입(실제 파일 생성 재현) 2겹 차단 · 레코드 파싱 실패를 unreadable 에 계상 · degraded 사유 · scope_unknown 시 파티션 미방출 · 보고서/CHANGELOG/PRD 의 거짓 수치 정정
-- origin/main 머지 — 경계 SHA 가 HEAD 조상이 됐다(단독 클론 재현 가능). **동결 블록은 머지를 바이트 그대로 통과**(ships 75 · records 55 · 분모 42), 움직인 것은 진단용 post_baseline 뿐
-- 검증 105 pass / 0 fail (linkage-defs 14 · linkage-audit 22 · frozen-baseline 4 · plan-review-corpus 33 · evidence-audit 22 · i18n-surface 10)
+- R11 해소: 앵커를 가변 `plan_hash`에서 불변 경로 신원으로 교체. 레코드 층 `measurement.plan_path`는 이미 봉인 중(신규 코드 0줄) · receipt 층은 Task 1의 present-only `meta.plan_path`(CLI 플래그 없음 — 있으면 자기신고가 된다) · ship 층은 Task 6(c)가 2.5.7 placeholder를 기계 파생 `SHIP_PLAN_PATH`로 교체
+- 실측 근거: M1 ship receipt `plan_hash=a467cd83…`가 오늘 디스크의 `-m1` plan 해시와 정확히 일치하고 plan receipt는 `e85bad7d…` → R3의 "항상 거짓" 주장이 이미 머지된 쌍에서 확인됨. `planAwareMarkdownHash(<없는 경로>)`는 ENOENT throw
+- R4 1차 발화가 `fleetKeys` 누락으로 1관점 강등 → 그 architect HIGH 2건(상류도 placeholder · schema 규칙의 게이트 중립 blast radius) 흡수 후 4관점 재발화. 경위는 plan의 «R4 흡수 — 1차 발화» 절에 기록
+- R4 정식(4/4 fail): blocking 9건 backlog 기계 적재 + MEDIUM 8건 §3.14 이연 적재
+- 신설 Risk R12(`SHIP_PLAN_PATH` 기본 파생이 이 브랜치에서 미실재 — 오늘도 2.5.9가 stale로 막는다) · R13(같은 `plan_path` 봉인 receipt ≥2건) · R14(필드가 게이트 중립이라 모든 receipt에 실림) · R15(앵커 두 끝이 저자 전사)
 
 ## In Progress
 
 
 ## Next Step
-/mccp:pr. 진입 직전 §3.7 version 재계산 필수(이 사이클에서만 두 번 밀렸다). plan receipt 는 구조적 stale 이므로 §3.16 대로 감사 우회 + 사유 기록으로 통과시킨다 — plan 게이트 재실행이 아니다.
+`/mccp:prp-implement .claude/plans/review-record-linkage-m3.plan.md` — 단 착수 전 backlog의 R4 HIGH 4건(id=7a88ff03 공유 정규화 헬퍼 거처 · 613d8e5f back-patch 결정 결속의 구현 지점·test 부재 · 682a31c5 Task 8 축 3 over-permissive test 부재 · 9ffdd2e3 라이브 파티션 blind/degraded 사다리 부재)을 먼저 흡수할 것. Validation 3번은 linked worktree에서 `.git`이 파일이라 실행 불가이니 `$(git rev-parse --git-path mccp/tmp)`로 고칠 것(id=0c8735fe).
 
 ## Last Decision
-santa-loop 이 patch_chasing 으로 종료(터미네이터 발화)한 뒤 **패널을 재발화하지 않고** 잔여 9건을 흡수했다. 터미네이터의 파일 단위 매칭은 R0 커밋이 건드린 파일 전부를 patch-chasing 으로 접으므로 최소 2건(ref 주입 · UI9)은 오분류였지만, 판정 자체는 존중해 라운드를 늘리지 않았다(§3.16). seal 은 divergent + degraded(same_family) 로 봉인돼 push 는 열리지 않는다.
+사용자가 «앵커 확정 후 R4»를 선택했다. `MCCP_GATE_ROUND_CAP`이 1..3만 허용해 4로 올릴 수 없어 문서화된 `MCCP_ROUND_LEDGER=observe`(기록은 유지, 차단만 해제)로 열었다. R4도 4/4 fail이었으나 지적이 전부 구현 명세의 공백이고 경로 앵커 축 자체는 반박되지 않아, §3.16대로 라운드를 늘리지 않고 `MCCP_REVIEW_SINGLE_PASS=deferred_to_prd_completion`으로 봉인했다. DD13(decide.js:293) 때문에 지금 plan을 고치면 R5가 강제되므로 HIGH 흡수는 implement 단계로 이연했다.
 
 ## Open Questions
-- codex 사용량 한도가 2026-09-07 재설정 — 그때까지 모든 dual-review 가 same_family degraded 다. `/mccp:pr` 의 PR-Codex 도 같은 자격증명을 쓰므로 fail-closed 차단 가능성이 있다(미실측)
-- `corpus.js#parseRecord` 가 동결 분모를 정하는데 그 모듈은 pin 되지 않는다 — 다른 브랜치의 파서 수정이 이 문서의 바이트 test 를 붉게 만든다. 문서에 드리프트 벡터로 명시했으나 기계 장치는 없다
-- 신규 test 3종이 `.github/workflows/` 에 없다 — 동결의 기계 강제가 로컬 실행에만 의존한다
-- santa 터미네이터의 파일 단위 tier 가 같은 파일을 건드린 후속 라운드를 구조적으로 patch-chasing 으로 접는다 — 별도 축의 부채
+- R4 HIGH 4건이 미흡수 상태로 backlog에 있다 — implement 착수 시 먼저 흡수
+- `resolution.converged=true`는 신뢰 불가 필드(§3.12). 정본은 `review_verdict=divergent`
+- codex 사용량 한도 2026-09-07 재설정 — 그때까지 dual-review는 same_family degraded
 
 ## Last Updated
-2026-09-02T01:34:20.809Z
+2026-09-03T04:31:02.149Z

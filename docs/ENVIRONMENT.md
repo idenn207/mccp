@@ -85,6 +85,7 @@ lint L12가 대조한다.
 |`MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER`|string|—|—|security 미가용 override.|[→](environment/gates.md#mccp_force_pr_without_security_reviewer)|
 |`MCCP_PR_SKIP_CODEX_REVIEW`|string|—|—|PR-Codex skip escape.|[→](environment/gates.md#mccp_pr_skip_codex_review)|
 |`MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN`|string|—|—|design chain 차단 1회 우회.|[→](environment/gates.md#mccp_pr_skip_design_critique_chain)|
+|`MCCP_PR_SKIP_LINK_EVIDENCE`|string|—|—|back-patch된 리뷰 레코드를 evidence commit에 싣지 않는 1회 우회 (strict reason).|[→](environment/gates.md#mccp_pr_skip_link_evidence)|
 |`MCCP_GATEGUARD`|enum|on/off|on|gateguard hook 활성.|[→](environment/gates.md#mccp_gateguard)|
 |`CODEX_DEDUPE_AT_PR`|string|1|—|cross-gate dedupe 전달 신호.|[→](environment/gates.md#codex_dedupe_at_pr)|
 |`MCCP_GOAL_FEATURE`|enum|available/missing/unknown|—|native /goal 가용성 강제.|[→](environment/gates.md#mccp_goal_feature)|

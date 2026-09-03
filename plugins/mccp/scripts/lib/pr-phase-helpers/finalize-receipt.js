@@ -20,6 +20,8 @@
 //   --impeccable-silent-skip        v1.3.0 M1 — forwarded when detector reported
 //                                   SKILL_AVAIL=1 + SIGNAL=0 (silent fall-through).
 //   --impeccable-silent-skip-reason <text>
+//   --link-evidence-skip-reason <text>  M3 — MCCP_PR_SKIP_LINK_EVIDENCE audited escape,
+//                                   sealed at 2.5.7 because 3.0 is past the hash
 //   --quiet                         forwarded to receipt CLI
 //   [--cwd <path>]
 // Stdout (JSON): { ok, gate_id, decision, receipt_path, write_flags_used }
@@ -32,7 +34,10 @@ const { parseArgs, locateReceiptCli, callReceiptCli, emit, fail } =
 // integrity-unification M3 — runtime primary ship gate. finalize is the write
 // path itself (pr.md runs it unconditionally + checks its exit unconditionally),
 // so enforcing here cannot be skipped by an LLM dropping a markdown step (DD2).
-const { readReceipt } = require('../../receipt/store');
+const { readReceipt, listReceipts } = require('../../receipt/store');
+// review-record-linkage M3 — the shared repo-relative fold + M1's path-shape rule.
+const { toRepoRelativePosix } = require('../repo-path');
+const { isRepoRelativePath } = require('../plan-review/linkage-defs');
 const { gitRepoRoot, subjectHash, receiptHash, gitRefs } = require('../../receipt/hash');
 const { validate: validateReceiptSchema } = require('../../receipt/schema');
 const { deriveShipDecision, EX_SHIP_BLOCKED } = require('../pr-ship-gate');
@@ -214,6 +219,123 @@ function deriveCodexFlags(codexResult) {
   return flags;
 }
 
+// ── review-record-linkage M3 — the path anchor + D2 eligibility ──────────────
+//
+// The link is CARRIED, not derived: the plan gate seals the review-record path on
+// its own receipt, and this step propagates that value onto the ship receipt.
+// The hard part is deciding WHICH upstream receipt is ours.
+//
+// Not by slug. The two gates build their slugs from different inputs (`/mccp:plan`
+// from its argument, `/mccp:pr` from the branch), so they diverge structurally —
+// and on this very branch the ship slug `review-record-linkage` names M1's
+// receipt exactly. Opening by name would seal ANOTHER milestone's review as this
+// ship's approval evidence.
+//
+// Not by `plan_hash` either. Phase 2.5.4 injects `## Codex Implementation Review`
+// into the plan body, so the ship's re-computed hash and the plan receipt's hash
+// differ on every cycle — measured on an already-merged pair (M1's ship carries
+// `a467cd83…`, its plan receipt `e85bad7d…`).
+//
+// So the anchor is the plan's repo-relative PATH: immutable under that injection,
+// and an identifier-to-identifier comparison, which is what makes it isomorphic
+// to `evidence-stage-guard.js:95-98` (slug <-> decision_id).
+//
+// Four rules, all fail-closed toward NO STAMP:
+//   - exactly one match stamps; 0 and >=2 do not (>=2 is real here — the same plan
+//     can be reviewed under two slugs — and picking the first row would reinstate
+//     the very failure this closes, under a new name);
+//   - an upstream receipt with no `meta.plan_path` is legacy, not a match;
+//   - "don't know" is never promoted to a negative. Absent/corrupt/null/unknown
+//     `review_source` forwards nothing, so D2 reports `undecidable`. Sealing
+//     `false` would permanently drop a genuinely-reviewed ship out of metric 2's
+//     denominator and put a falsehood in a hash-sealed audit field;
+//   - the carried path is re-validated before forwarding. The upstream receipt is
+//     working-tree-only and hash-unverified (`evidence-stage-guard` checks
+//     `mccp-pr-codex` alone), so a malformed value would otherwise reach the ship
+//     receipt's schema and fail-CLOSE a terminal ship — an instrumentation field
+//     must not widen the ship-blocking condition (R14's argument, applied to the
+//     propagation axis).
+function deriveLinkageFlags(opts) {
+  const o = opts || {};
+  const repoRoot = o.repoRoot;
+  const warn = o.warn || function (m) { process.stderr.write('[finalize-receipt] ' + m + '\n'); };
+  const out = { flags: [], anchor: null, reason: null };
+
+  const shipPlan = toRepoRelativePosix(o.shipPlanPath, repoRoot);
+  if (shipPlan === null) {
+    out.reason = 'link_anchor_unresolved: this ship has no resolvable repo-relative plan path (' +
+      JSON.stringify(o.shipPlanPath) + ')';
+    warn(out.reason);
+    return out;
+  }
+
+  let rows = [];
+  try { rows = listReceipts(repoRoot, 'mccp-plan-codex') || []; }
+  catch (e) {
+    out.reason = 'link_anchor_unresolved: cannot list mccp-plan-codex receipts (' +
+      (e && e.message) + ')';
+    warn(out.reason);
+    return out;
+  }
+
+  const matches = [];
+  for (const row of rows) {
+    let receipt = null;
+    try { receipt = readReceipt(repoRoot, 'mccp-plan-codex', row.decision_id); }
+    catch (_e) { continue; }                 // unreadable/corrupt is not a match
+    if (!receipt || typeof receipt !== 'object') continue;
+    const meta = receipt.meta;
+    if (!meta || typeof meta !== 'object') continue;
+    const declared = toRepoRelativePosix(meta.plan_path, repoRoot);
+    if (declared === null) continue;         // legacy receipt — absence is not a match
+    if (declared === shipPlan) matches.push({ decision_id: row.decision_id, receipt: receipt });
+  }
+
+  if (matches.length !== 1) {
+    out.reason = 'link_anchor_unresolved: ' + matches.length + ' upstream mccp-plan-codex ' +
+      'receipt(s) seal meta.plan_path=' + JSON.stringify(shipPlan) + ', expected exactly 1' +
+      (matches.length > 1
+        ? ' (ambiguous: ' + matches.map(function (m) { return m.decision_id; }).join(', ') +
+          ' — NOT picking the first)'
+        : ' (0 = not wired yet, a legacy receipt with no meta.plan_path, or a different plan)') +
+      '. No link is stamped; the audit reports this as undecidable.';
+    warn(out.reason);
+    return out;
+  }
+
+  const upstream = matches[0].receipt;
+  out.anchor = { decision_id: matches[0].decision_id, plan_path: shipPlan };
+
+  const carried = upstream.meta.review_record_path;
+  if (typeof carried === 'string' && carried.length > 0) {
+    if (isRepoRelativePath(carried) && carried.indexOf('.claude/reviews/') === 0) {
+      out.flags.push('--review-record-path', carried);
+    } else {
+      warn('the upstream receipt carries a malformed meta.review_record_path (' +
+        JSON.stringify(carried) + ') — NOT forwarding it. The upstream receipt is ' +
+        'working-tree-only and hash-unverified, so forwarding it verbatim would let a ' +
+        'bad value fail-close this ship on the receipt schema.');
+    }
+  }
+
+  // D2 eligibility. Positive only for the two sources that actually run a panel;
+  // `codex` is the one negative we can establish, and it carries its reason.
+  const source = upstream.resolution && upstream.resolution.review_source;
+  if (source === 'multi-agent' || source === 'hybrid') {
+    out.flags.push('--plan-review-expected=true');
+  } else if (source === 'codex') {
+    out.flags.push('--plan-review-expected=false');
+    out.flags.push('--no-plan-review-reason',
+      'plan gate ran in codex mode; the review record is the plan body\'s Codex section, ' +
+      'not a panel record');
+  } else {
+    warn('upstream review_source is ' + JSON.stringify(source) + ' — not one of ' +
+      'multi-agent/hybrid/codex, so eligibility stays UNSTAMPED (undecidable). ' +
+      'schema.js:206 permits a null review_source, and "unknown" is not "not reviewed".');
+  }
+  return out;
+}
+
 function run(args) {
   if (!args.decision) return fail('--decision <slug> required');
   if (!args.plan) return fail('--plan <path> required');
@@ -312,6 +434,33 @@ function run(args) {
   // validating MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE HERE is authoritative; a
   // forwarded flag with no valid env this run is dropped fail-closed (the sealed
   // verdict then gates the ship at the runtime primary check below).
+  // review-record-linkage M3 — path-anchored link + D2 eligibility forward.
+  // Runs unconditionally: every branch inside deriveLinkageFlags that cannot
+  // establish the anchor returns an EMPTY flag list plus a loud reason, so the
+  // absence of a link is always the honest kind.
+  const linkage = deriveLinkageFlags({
+    repoRoot: gitRepoRoot(args.cwd || process.cwd()),
+    shipPlanPath: args.plan,
+  });
+  for (let i = 0; i < linkage.flags.length; i++) writeFlags.push(linkage.flags[i]);
+
+  // The MCCP_PR_SKIP_LINK_EVIDENCE audited escape is sealed HERE, at 2.5.7 —
+  // not at Phase 3.0. The ship receipt is finalized before the evidence commit
+  // runs, so a 3.0-time edit would either violate the §3.12 no-rehash invariant
+  // or, written without a rehash, trip `evidence-stage-guard.js:75-77` and HALT
+  // every ship. Phase 3.0 only READS this field to decide whether to stage the
+  // record. The link then stays incomplete and the audit says so.
+  if (args['link-evidence-skip-reason'] && args['link-evidence-skip-reason'] !== true) {
+    const lv = validateForceReason(args['link-evidence-skip-reason'], { strict: true });
+    if (lv.ok) {
+      writeFlags.push('--link-evidence-skip-reason', String(args['link-evidence-skip-reason']));
+    } else {
+      process.stderr.write('[finalize-receipt] --link-evidence-skip-reason rejected (' +
+        lv.reason + ') — DROPPING it. The escape is not applied and the record will be ' +
+        'staged normally.\n');
+    }
+  }
+
   if (args['pr-codex-force-override-reason']
       && args['pr-codex-force-override-reason'] !== true) {
     const forceProv = validateForceReason(
@@ -507,6 +656,10 @@ if (require.main === module) {
 module.exports = {
   run,
   deriveCodexFlags,
+  // review-record-linkage M3 — exported so the seven anchor branches can be
+  // asserted directly. The NEGATIVE branches are the body of that test: with only
+  // the positive one, deleting the whole anchor still passes.
+  deriveLinkageFlags,
   consumeStaleReclaimMarker,
   STALE_RECLAIM_MARKER_REL,
 };

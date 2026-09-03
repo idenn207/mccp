@@ -39,12 +39,26 @@ PRD는 "게이트가 한 일이 그 게이트의 기록에 남지 않는다"를 
 | D2 | 리뷰 대상 ship | 3값 — 명시 proof 필드(`meta.plan_review_expected`)가 결정. 부재는 `undecidable` | 75건 전건 `undecidable` |
 | D3 | 층간 링크 | **구조적 위치**에서만 — receipt의 `meta.review_record_path`(repo-relative) ↔ 패널 레코드 `measurement.receipt_hash` | 양방향 각 0, **비율 계산 불가** (분모 `null`) |
 
-> **D3 의 조인은 파일명 관례이고, 그것이 이 방향의 천장이다.** `review->receipt` 은
-> ship 을 순회하며 그 slug 로 레코드를 찾으므로, 파일명이 어긋난 ship 은 레코드가
-> 아무리 정확한 `receipt_hash` 를 실어도 미계상이다 — 즉 구조적 상한은
-> `filename_convention.match`(27/75)다. 출력의 `linkage.join` · `linkage.join_note`
-> 가 매 실행마다 그 사실을 함께 싣는다. M3 이후 "링크율 100%" 를 이 도구로 재려는
-> 소비자는 먼저 그 천장을 올려야 한다.
+> **M1 의 조인은 파일명 관례였고 그것이 이 방향의 천장이었다 — M3 가 그 천장을 없앴다.**
+> M1 의 `review->receipt` 은 ship 을 순회하며 그 slug 로 레코드를 찾았으므로, 파일명이
+> 어긋난 ship 은 레코드가 아무리 정확한 `receipt_hash` 를 실어도 미계상이었다. 실측
+> 상한이 `filename_convention.match`(27/75)였다. **v1.34.5(M3)부터 조인은
+> `explicit_field`** 다 — receipt 가 봉인한 `meta.review_record_path` 로 조회한다.
+> 그 경로로 파일을 여는 것이 아니라 이미 스캔한 코퍼스 맵에서 찾을 뿐이므로 traversal
+> 표면이 생기지 않고, 조회 실패는 링크 부재로 계상된다(dangling 봉인 경로는 링크가
+> 아니다). `filename_convention.match` 는 이제 **라벨로만** 남는다.
+>
+> 위 동결 수치가 M3 에서 **한 자리도 움직이지 않은** 것은 조인이 무력해서가 아니라
+> 이 코퍼스의 자격 ship 이 0건(전건 `undecidable`)이라 두 조인 모두 0 을 내기
+> 때문이다. 재생성 diff 에서 바뀐 것은 `join` · `join_note` 문자열 **둘뿐**이고,
+> 그것이 "정의를 바꾸되 기준선은 흔들지 않는다" 의 기계적 확인이다.
+>
+> 같은 milestone 에서 `bidirectional` 이 **더 엄격**해졌다: 레코드의
+> `measurement.receipt_hash` 가 그 receipt 의 실제 `receipt_hash` 와 **같아야** 한다.
+> `linkage-defs.js` 의 `classifyLink` 는 비어있지 않은 문자열인지만 보므로(그 정의는
+> M1 소유이고 M3 는 손대지 않는다 — UI4), 이전 ship 이 남긴 stale 해시가 새 receipt
+> 와 짝지어져 계수되는 경로가 실재했다. 감사 쪽에서 더 강한 조건을 얹고 그 차이를
+> `join_note` 가 명시한다.
 
 ### D1을 산문 토큰이 아니라 구조로 정한 이유
 
@@ -170,9 +184,48 @@ pre/post 파티션한다"고 적었고, 그 설계가 자기 주장을 만족하
 않아 `files: []` 로 완전 커버리지를 주장했다. 이제 트리에서 직접 읽으므로 그 상태는
 존재할 수 없다.
 
-`post_baseline`(작업 트리에 있으나 경계 트리에 없는 것)은 `--json` 전용 진단이고
-동결 계산에 한 줄도 기여하지 않는다. 코퍼스 전역 `undated` 는 개념째 사라졌다 —
-날짜가 아무것도 결정하지 않으므로 답할 질문이 없다.
+`post_baseline` 은 `--json` 전용이고 동결 계산에 한 줄도 기여하지 않는다. 코퍼스
+전역 `undated` 는 개념째 사라졌다 — 날짜가 아무것도 결정하지 않으므로 답할 질문이
+없다.
+
+**M3 이후 `post_baseline` 은 두 가지를 함께 싣는다 (지표 2 가 읽는 것은 후자다).**
+
+- `ships` / `records` — M1 그대로의 **작업 트리** 진단(디스크에 있으나 경계 트리에
+  없는 것). 의미는 바뀌지 않았다.
+- `ref` · `state` · `head_ships` · `head_records` · `ship_eligibility` · `linkage` —
+  **`HEAD` 트리**를 동결 파티션과 같은 판독 경로(`ls-tree` + `git show`)로 읽은
+  라이브 파티션. 동결 파티션과 **결코 합산하지 않는다**.
+
+읽기 원천이 `HEAD` 인 것이 이 축의 급소다. 작업 트리를 세면
+`MCCP_PR_SKIP_LINK_EVIDENCE` 를 쓰거나 evidence commit 이 실패해도 back-patch 된
+레코드가 디스크에 남아 있으므로 감사가 `bidirectional` 을 만점으로 세고, 히스토리에
+증거가 0 인 채로 100% 를 보고한다 — 우회가 지표를 강등시키지 않는다. 두 카운트를
+나란히 두는 이유도 같다: 값이 갈라지는 것 자체가 "커밋되지 않은 링크가 있다"는
+신호다.
+
+`state` 는 동결 쪽과 같은 사다리다 — `ok` · `degraded` · `blind`, 그리고 `HEAD`
+트리를 통째로 못 읽으면 `scope_unknown: true` 이며 그때는 **`linkage` 를 방출하지
+않는다**. 판독 실패가 "정상적으로 링크 0건" 과 구별되지 않으면 그 위의 어떤
+acceptance 도 아무것도 반증하지 못한다.
+
+### 아카이브는 링크를 일방향으로 끊는다 (알려진 한계)
+
+조인 키는 receipt 가 봉인한 **경로 그대로**다. 따라서 패널 레코드를
+`.claude/reviews/` 에서 `.claude/reviews/archive/` 로 옮기면 그 ship 의 링크는
+소실되고 `post_baseline.linkage.dangling_record_path` 로 계수된다. receipt 는
+hash 봉인이라 새 경로로 고쳐 가리킬 수 없다(CLAUDE.md §3.12 no-rehash 불변식) —
+즉 아카이브는 **되돌릴 수 없는 링크 절단**이다. 가정이 아니라 이미 실재하는
+관행이다: 이 저장소에 아카이브된 패널 레코드가 4건 있다.
+
+`basename` 으로 되찾는 fallback 은 **의도적으로 넣지 않았다.** 그것은 M3 가 없앤
+파일명 관례 조인을 뒷문으로 되살리는 일이고, 서로 다른 두 디렉토리의 동명 레코드를
+같은 것으로 보게 만든다. 끊긴 링크를 끊겼다고 보고하는 편이, 이름이 우연히 맞는
+레코드를 승인 증거로 세는 것보다 낫다.
+
+**운영 지침**: 패널 레코드를 아카이브하면 그 ship 의 링크가 영구히 끊긴다.
+`dangling_record_path` 가 0 이 아니면 그 값은 대개 결함이 아니라 아카이브 이력이며,
+지표 2 를 읽을 때 그 사실을 함께 인용해야 한다. 링크율을 보존해야 하는
+코퍼스라면 레코드를 옮기지 않는 것이 유일한 방법이다.
 
 **동결 뷰의 종료 코드가 이제 blind 와 read_error 를 반영한다.** 초판은 그 둘을 전역
 `state` 에만 실었는데 `--frozen-only` 는 `baseline.state` 로 종료하므로, 코퍼스를
@@ -278,8 +331,8 @@ cwd 에서 재생성하면 그 0 들이 이 문서에 커밋되고 바이트 tes
         "rate_computable": false,
         "note": "numerators are counted over the eligible set only; denominator is null (NOT 0) when that set is empty, so a link RATE is not computable — see ship_eligibility.by_reason for why"
       },
-      "join": "filename_convention",
-      "join_note": "review->receipt and bidirectional are joined ship-slug <-> plan-review-<slug>.md, so filename_convention.match is their structural ceiling"
+      "join": "explicit_field",
+      "join_note": "joined on the receipt-sealed meta.review_record_path (NOT the filename convention, whose 27/75 match was M1's structural ceiling); bidirectional additionally requires the record's measurement.receipt_hash to EQUAL that receipt's receipt_hash, which is stricter than linkage-defs classifyLink (non-empty string) — a stale hash left by an earlier ship does not count"
     },
     "filename_convention": {
       "note": "label only — NOT the definition of review-eligibility (see ship_eligibility)",

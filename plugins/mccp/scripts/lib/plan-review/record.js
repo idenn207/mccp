@@ -20,6 +20,14 @@
 // blocked at 5.2c-emit has no decision.json. Absent axes are written as null and
 // `halt_stage` says where the run stopped. Nothing is inferred.
 
+// review-record-linkage M3 — the ONE owner of repo-relative POSIX folding, shared
+// with `receipt/write.js`. This is the only `require` in this file and it does not
+// break the dep-free contract declared above: `repo-path.js` requires `path` alone
+// (a pure builtin, zero I/O), so the transitive dependency set this module drags
+// into the write path is still empty — which is what that contract protects
+// (`linkage-defs.js` header: "순수 술어만 담은 파일을 import하면 전이 의존이 0이다").
+const { toRepoRelativePosix } = require('../repo-path');
+
 const VERDICT_UNKNOWN = 'unknown';
 
 // ── small helpers (all total — no throw, no assumption) ───────────────────────
@@ -311,7 +319,25 @@ function buildReviewRecord(opts) {
     backlog_skipped_nonblocking: backlogSkippedNonblocking,
     granted: (reservation && Number.isFinite(reservation.granted)) ? reservation.granted : null,
     reviewed_plan_hash: reviewedPlanHash,
-    plan_path: (typeof o.planPath === 'string' && o.planPath) ? o.planPath : null,
+    // review-record-linkage M3 — folded by the SAME rule receipt/write.js uses for
+    // `meta.plan_path`. This value is one end of the M3 path anchor, and the
+    // back-patch decision-binding that reads it is FAIL-CLOSED: a notation
+    // difference here does not surface as a missing stamp, it surfaces as a
+    // REJECTED SHIP. Two normalizations would therefore turn a cosmetic
+    // difference into an outage, which is why the rule has exactly one owner
+    // (`lib/repo-path.js`, R4 architect HIGH `7a88ff03`).
+    //
+    // Unfoldable input (absolute with no repoRoot, escaping, non-string) folds to
+    // `null` — "not recorded", never a half-normalized string. `repoRoot` is
+    // optional: without it only separators/`./`/duplicate slashes collapse, which
+    // is what the caller supplies today for an already-relative path.
+    plan_path: toRepoRelativePosix(o.planPath, o.repoRoot),
+    // M3 — the receipt-side of the bidirectional link. NEVER filled here: the
+    // record is written BEFORE the ship receipt exists, so at this moment there is
+    // no hash to record. `null` says "not yet sealed"; an ABSENT key says "this
+    // build has no linkage axis at all", and an audit must be able to tell a
+    // pre-M3 record from an unlinked one.
+    receipt_hash: null,
     recorded_at: nowMs === null ? null : new Date(nowMs).toISOString(),
   };
 

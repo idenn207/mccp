@@ -514,3 +514,10 @@ plan 본문에 주입하므로 상류 `mccp-plan-codex` receipt의 `plan_hash`�
 본문 해시), `missing`·`blocking`·`open_critical`은 전부 비어 있으며 `stale` 1건이 그 항목 하나다.
 memory `plan-receipt-goes-stale-at-implement`가 같은 사실을 "구조적이며 모든 shipped 사이클이 겪음"으로
 기록한다. §3.16대로 라운드를 늘리지 않고 문서화된 우회를 쓰되 사유를 남긴다.
+
+## Milestone Closure Provenance
+- Milestone : review-record-linkage-m3
+- Verdict   : done
+- Closure   : .claude/milestone-closures/review-record-linkage-m3.md
+- sha256    : sha256:d7cf3940ce169c5dce075b95d9e25821c5207c268219afb4967b6d8ceea638a1
+- Stamped at: 2026-09-03T06:46:42.086Z

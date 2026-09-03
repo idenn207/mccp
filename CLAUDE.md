@@ -297,7 +297,53 @@ mccp는 state lock 3종을 운용한다 — `pr-phase.lock`(`ownership_token_has
 
 ---
 
+### 3.7 Plugin version — 브랜치는 번호를 선언하지 않는다 (우산 결정 1)
+
+> **이 절은 v1.33.7·v1.34.5 정정을 거쳐 v1.34.6에서 부호가 뒤집혔다. 아래 규칙이
+> 현행이고, 그 뒤의 낡은 본문은 왜 달라졌는지를 남기기 위해 보존한다.**
+
+**자식 브랜치는 `plugins/mccp/.claude-plugin/plugin.json`의 `version`을 선언하지
+않는다. 번호는 릴리스 컷이 결정한다.** 우산 PRD
+[harness-wiring-integrity](../.claude/prds/harness-wiring-integrity.prd.md) 의 못박은
+결정 1이고 귀속은 C0(release-channel-separation)다. 근거는 실측이다 — 병렬 브랜치
+version 충돌이 **9회 재발**했고, 원인은 브랜치가 미리 번호를 잡는 것이다. main이
+릴리스가 아니게 된 이상(M1이 `marketplace.json`을 `ref: release`로 못박았다) 그 원인은
+소멸했다. 별도 재번호 기계를 만들 필요가 없다 — **선언을 멈추면 된다.**
+
+따라서 milestone PR에서 해야 할 일은 bump가 아니라 **아무것도 안 하는 것**이다.
+착지한 작업은 `CHANGELOG.md`의 **`## [Unreleased]`** 아래에 쌓이고, 릴리스 컷이 그
+블록에 번호를 부여한다. 다음 컷의 번호는 `2.0.0`이다
+([release-channel-separation.prd.md](../.claude/prds/release-channel-separation.prd.md) 결정 3).
+
+**강제는 기계가 한다:**
+
+```bash
+node scripts/version-declaration-guard.js [--base origin/main] [--json]
+```
+
+세 축을 함께 잰다 — `plugin.json`이 base와 다른가(선언) · 4면 중 하나만 어긋났는가
+(반쪽 선언) · `CHANGELOG`에 base에 없던 `## [X.Y.Z]` 헤딩이 생겼는가(번호 선점).
+셋은 같은 행위의 다른 표면이라 한 가드가 소유한다. CI
+(`.github/workflows/version-declaration-gate.yml`)가 모든 PR에서 돌린다.
+릴리스 컷만이 유일한 합법 경로이고, 그때는 `MCCP_RELEASE_CUT`에 **사유**를 담아
+켠다(값이 곧 사유 — §3.15와 같은 형태).
+
+> **이 절이 스스로를 어긴 이력 (2026-09-03).** 결정 1은 채택된 날부터 **관례로만**
+> 존재했다(C0 PRD L87: "옮기지 않으면 결정 1은 관례로만 남는다"). 그 사이 §3.7은
+> 계속 bump를 지시했고, M2 plan의 `## Validation` 검사 6은 **bump하지 않으면
+> HALT**했다. 결과: 결정을 소유한 C0 자신이 PR #176에서 `1.34.4 → 1.34.5`를
+> 선언했고, in-flight 자식 다섯이 `1.34.5`를 셋·`1.35.0`을 둘 동시 주장하는
+> 상태가 실측됐다. 산문이 기계에게 진 사례이므로, 같은 자리에 반대 부호의 기계를
+> 두는 것으로 닫았다.
+
+---
+
 ### 3.7 Plugin version bump (`plugin.json`) — 빈번한 누락 axis
+
+> **이 제목은 v1.34.6에서 은퇴했고, 블록은 독자가 찾아올 자리에 포인터로 남긴다.**
+> 아래는 그 이전의 규칙이며 **더는 따르지 마라** — 현행은 바로 위 절이다. 판정
+> 기준표(major/minor/patch)는 릴리스 컷이 번호를 정할 때 여전히 참고 자료로 쓰이지만,
+> **브랜치가 그것을 적용해 `plugin.json`을 고치는 행위**는 금지다.
 
 `plugins/mccp/.claude-plugin/plugin.json`의 `version` 필드는 **수동 bump**입니다. code 변경이나 commit chain만으로 자동 증가하지 않으므로, milestone PR을 작성할 때 의무 체크리스트의 일부로 처리해야 합니다.
 

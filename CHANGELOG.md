@@ -2,17 +2,19 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.34.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.34.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
-## [1.34.5] — 2026-09-03
+> **번호의 소유자는 릴리스 컷이다 (우산 결정 1).** 자식 브랜치는 `plugin.json`
+> version 을 선언하지 않으므로, 착지한 작업은 번호가 붙은 헤딩이 아니라
+> **`## [Unreleased]`** 아래에 쌓인다. 릴리스 컷이 그 블록에 번호를 부여하며
+> 다음 컷의 번호는 `2.0.0`이다(release-channel-separation.prd.md 결정 3).
+> 강제는 `node scripts/version-declaration-guard.js` 가 한다.
 
-> **§3.7**: `1.34.4 → 1.34.5` (**patch** — release-channel-separation PRD의 단일
-> milestone M2이고 PRD 종료 축이 아니다. M3 release-runbook이 남아 있다).
-> **이 번호는 사용자에게 도달하지 않는다** — `release`가 `647dfec`에 서 있고
-> marketplace의 plugin `source`가 `ref: release`를 해소하므로, 이 bump는 dogfood
-> 빌드 번호다(§3.7 v1.33.7 정정). plan이 잠정 target으로 적은 `1.34.1`은 브랜치가
-> 사는 동안 main이 `1.34.4`까지 발행해 stale이 됐고, 여기서 한 번 재계산했다 —
-> §3.7 forward-only 실측 5회차다.
+## [Unreleased]
+
+> 아래 항목들은 main 에 누적된 것이고 아직 어느 릴리스에도 실리지 않았다.
+> `release` 는 `647dfec`(1.33.6)에 서 있고 marketplace 의 plugin `source` 가
+> `ref: release` 를 해소하므로, main 의 어떤 상태도 사용자에게 도달하지 않는다.
 
 ### Added
 
@@ -21,9 +23,26 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   여기 상주한다. 담긴 값은 전부 문서를 쓰기 **전에** 끝낸 실측이다.
 - `.claude/PRPs/reports/release-channel-separation-m2-report.md` — Task 3~5 실측의
   원문 증거. 채택한 기제와 **탈락한 기제의 탈락 사유**를 함께 적는다.
+- `scripts/version-declaration-guard.js` + `scripts/tests/…` + CI
+  `version-declaration-gate.yml` — **우산 결정 1의 기계 강제.** 자식 브랜치가
+  version 을 선언하면 붉어진다. 세 축을 함께 잰다(manifest 선언 · 4면 중 반쪽만
+  움직인 반쪽 선언 · CHANGELOG 번호 선점) — 셋은 같은 행위의 다른 표면이라 한
+  가드가 소유한다. 유일한 합법 경로는 릴리스 컷이고 `MCCP_RELEASE_CUT` 에 사유를
+  담아 켠다(값이 곧 사유). 배포 경계 밖(repo-root `scripts/`)에 두어 이 저장소의
+  릴리스 정책이 사용자 저장소로 실려 가지 않게 한다.
 
 ### Changed
 
+- **`CLAUDE.md` §3.7의 부호가 뒤집혔다 — bump 지시 → 선언 금지.** 우산 PRD
+  [harness-wiring-integrity](.claude/prds/harness-wiring-integrity.prd.md) 결정 1
+  ("자식 브랜치는 `plugin.json` version 을 선언하지 않는다. 번호는 릴리스 컷이
+  결정한다", **귀속 C0**)이 채택된 뒤에도 §3.7과 M2 plan 검사 6이 계속 bump 를
+  *요구*했고, 그 결과 결정을 소유한 C0 자신이 PR #176에서 `1.34.4 → 1.34.5`를
+  선언했다. 같은 시점 실측에서 in-flight 자식 다섯이 `1.34.5`를 셋·`1.35.0`을 둘
+  동시 주장하는 상태가 확인됐다 — 결정 1이 근거로 든 "병렬 브랜치 version 충돌
+  9회 재발"이 결정 채택 **후에** 그대로 재현된 것이다. 이 사이클에서 선언을
+  되돌리고(4면 전부 `1.34.4`), 검사 6을 반대 부호로 바꾸고, 관례를 기계로
+  대체했다. 낡은 §3.7 본문은 지우지 않고 은퇴 표시와 함께 같은 자리에 남긴다.
 - `CLAUDE.md` §3.7 — "cache 직접 copy 같은 bootstrap workaround가 매 cycle 반복됨"이
   **은퇴**했다. 낡은 불릿을 지우지 않고 v1.33.7 정정과 같은 형식으로 병기한다:
   그 workaround는 이제 **금지**이고, 사유는 편의가 아니라 정합이다 — 캐시 디렉토리는

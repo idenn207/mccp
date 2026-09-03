@@ -124,7 +124,10 @@ R1은 라인 단위 패치가 아니라 블록을 **구조적으로** 다시 써
 | `README.md` | UPDATE | 설치 절 뒤에 dogfood 경로 포인터 2~3줄. 사용자 설치 명령 3줄은 무변경 |
 | `CLAUDE.md` | UPDATE | §3.7의 "cache 직접 copy 같은 bootstrap workaround가 매 cycle 반복됨"을 **은퇴**시킨다 — 문장을 지우지 않고 정정을 병기하며 금지 사유와 대체 경로 포인터를 단다 |
 | `.claude/prds/release-channel-separation.prd.md` | UPDATE | M2 행을 `pending`에서 `in-progress`로 바꾸고 `Plan` 셀을 채운다. Open Question 4(어느 채널에 있어야 하는가)에 답을 기입한다 |
-| `plugins/mccp/.claude-plugin/plugin.json` | UPDATE | §3.7 patch bump (`1.34.1` 기준 — `/mccp:pr` 진입 직전 재계산) |
+| `plugins/mccp/.claude-plugin/plugin.json` | UNCHANGED | **버전을 선언하지 않는다** — 우산 결정 1. 번호는 릴리스 컷이 정한다. (이 행은 원래 "§3.7 patch bump"였고 그것이 결정 1 위반이었다 — M2 close에서 정정) |
+| `scripts/version-declaration-guard.js` | ADD | 결정 1의 기계 강제. 배포되지 않는 repo-root `scripts/`에 둔다 — 이 저장소의 릴리스 정책이지 플러그인 동작이 아니다 |
+| `scripts/tests/version-declaration-guard.test.js` | ADD | 위 가드의 판별력 test |
+| `.github/workflows/version-declaration-gate.yml` | ADD | 모든 PR에서 가드를 돌리는 CI drift gate |
 | `plugins/mccp/scripts/lib/renderer/html.js` | UPDATE | §3.7 4면 동기 — page-foot version |
 | `plugins/mccp/scripts/lib/renderer/markdown.js` | UPDATE | §3.7 4면 동기 — derived 줄 version |
 | `CHANGELOG.md` | UPDATE | §3.7 4면 동기 — 새 항목 + `currently` 노트 |
@@ -435,35 +438,29 @@ test -f .claude/PRPs/reports/release-channel-separation-m2-report.md \
 grep -q "dogfood-install" README.md || { echo 'HALT: README has no pointer'; exit 1; }
 grep -q "dogfood-install" CLAUDE.md || { echo 'HALT: CLAUDE.md 3.7 has no pointer'; exit 1; }
 
-# ── 6. version bump이 실제로 일어났는가 ─────────────────────────────────────────
+# ── 6. 이 브랜치가 version을 **선언하지 않았는가** ──────────────────────────────
 #
-# `i18n-surface.test.js`는 기대값을 `plugin.json`에서 파생하므로 bump를 아예 하지 않아도
-# green이다 — 그 test는 4면 **동기**를 보지 bump 발생을 보지 못한다(L2 R1 test MEDIUM 흡수).
+# **M2 close 정정 — 이 검사는 반대 방향이었고, 그래서 우산 결정을 기계로 어겼다.**
+# 이 자리에는 "version bump이 실제로 일어났는가"가 있었고 bump를 하지 않으면 HALT했다
+# (`HALT: plugin.json version was not bumped`). 그런데 우산 PRD
+# [harness-wiring-integrity](../prds/harness-wiring-integrity.prd.md) 의 못박은 결정 1은
+# 정반대다 — **"자식 브랜치는 `plugin.json` version을 선언하지 않는다. 번호는 릴리스 컷이
+# 결정한다"** 이고, 그 결정의 **귀속이 C0**다. 즉 그 규칙을 세우는 것이 임무인 마일스톤이
+# 자기 Validation으로 그 규칙의 위반을 강제하고 있었다.
 #
-# **R6 정정 (L2 R6 invariant HIGH)** — 이전 형태 `[ "$V_NEW" != "$V_OLD" ]`는 bump를 관측하지
-# 못했다. 그것이 재는 것은 "이 브랜치가 올렸는가"가 아니라 "main과 다른가"이므로 (a) 병렬
-# 브랜치가 main을 올리면 이 브랜치가 한 글자도 bump하지 않아도 통과하고(§3.7이 실측 4회로
-# 기록한 상황) (b) version을 **낮춘** forward-only 위반도 통과한다. 두 조건을 명시적으로
-# 나눠 잰다 — **이 브랜치가 그 파일을 건드렸는가**(커밋분 ∪ 작업 트리) ∧ **상향인가**.
-V_NEW=$(node -e "process.stdout.write(require('./plugins/mccp/.claude-plugin/plugin.json').version)") \
-  || { echo 'HALT: cannot read plugin.json version — instrument failure, not a passing bump check'; exit 1; }
-V_OLD=$(git show origin/main:plugins/mccp/.claude-plugin/plugin.json \
-        | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).version))") \
-  || { echo 'HALT: cannot read origin/main plugin.json version — instrument failure'; exit 1; }
-
-# (a) 이 브랜치가 실제로 그 파일을 건드렸는가. 커밋 전후 어느 시점에 돌려도 같은 것을 본다.
-BUMP_TOUCHED=$(
-  { git diff --name-only origin/main...HEAD -- plugins/mccp/.claude-plugin/plugin.json
-    git status --porcelain --untracked-files=all -- plugins/mccp/.claude-plugin/plugin.json | sed 's/^...//'
-  } | sort -u | grep -c . ) || true
-[ "${BUMP_TOUCHED:-0}" -gt 0 ] \
-  || { echo "HALT: this branch does not touch plugin.json at all — a version that merely differs from main is not a bump (§3.7 forward-only)"; exit 1; }
-
-# (b) 상향인가. `sort -V`의 최댓값이 새 값과 같고 두 값이 다르면 엄격히 상향이다.
-[ "$V_NEW" != "$V_OLD" ] || { echo "HALT: plugin.json version was not bumped (still $V_OLD)"; exit 1; }
-V_MAX=$(printf '%s\n%s\n' "$V_OLD" "$V_NEW" | sort -V | tail -1)
-[ "$V_MAX" = "$V_NEW" ] \
-  || { echo "HALT: plugin.json version went DOWN ($V_OLD -> $V_NEW) — §3.7 requires forward-only"; exit 1; }
+# 대가는 실측됐다(2026-09-03): 결정이 선 뒤에도 in-flight 자식 다섯이 각자 번호를 선언해
+# `1.34.5`를 셋이(C0·C1·C3), `1.35.0`을 둘이(C2·C4) 동시에 주장했다. 결정 1이 근거로 든
+# "병렬 브랜치 version 충돌(9회 재발)"이 결정 채택 후에 그대로 재현된 것이다.
+#
+# 왜 산문이 아니라 검사로 뒤집는가: 결정 1은 채택된 날부터 **관례로만** 존재했다 —
+# C0 PRD 자신이 그렇게 적었다("옮기지 않으면 결정 1은 관례로만 남는다", prd L87). 관례는
+# 이 검사에게 졌다. 그래서 같은 자리에 반대 부호의 기계를 둔다.
+#
+# 판정은 이 plan이 아니라 저장소 인프라가 소유한다 — `scripts/version-declaration-guard.js`
+# 는 CI(`.github/workflows/version-declaration-gate.yml`)가 모든 PR에서 돌리므로, 이 검사는
+# 그 오라클을 **재구현하지 않고 호출**한다. 두 벌을 쓰면 drift가 시간 문제다.
+node scripts/version-declaration-guard.js --base origin/main \
+  || { echo 'HALT: this branch declares a version — see umbrella decision 1'; exit 1; }
 
 # ── 7. 경로 유출 — 이 브랜치가 **추가한** 줄에 절대 경로 0건 ────────────────────
 #

@@ -331,17 +331,30 @@ for (const r of j.runs) console.log(r.ok, r.attribution, r.redaction_ok, r.exit_
 
 ## Acceptance
 
-- [ ] All tasks complete
-- [ ] Validation passes
-- [ ] Patterns mirrored, not reinvented
-- [ ] 게이트/경로를 실제로 1회 완주하고 산출물을 확인 (단위 test 통과 ≠ 경로 작동)
+> **종결 시점 상태 — 2026-09-03, `/mccp:milestone-close` verdict `done`.**
+> 운영자가 미충족분을 M3 및 PR CI로 이연하고 M2를 complete로 닫기로 판정했다. 아래는
+> 그 판정 시점의 실제 상태이며, **부분 충족을 완전으로 반올림하지 않는다.**
+
+- [ ] All tasks complete — Task 0~5·7 완료. **Task 6만 부분**: 4개 action 중 6.1(Linux CI 2 Node × 3회를 컨테이너에 병합)이 미완이다. 브랜치가 원격에 올라간 뒤에만 가능하다 ([m2-green.md](../../docs/ci-full-suite/m2-green.md) §5c)
+- [ ] Validation passes — Validate 0~4·6 통과. **Validate 5(전수 3회 CI 병합)만 미실행** — 위와 같은 사유
+- [x] Patterns mirrored, not reinvented — `## Patterns to Mirror`의 7개 관용구를 전부 기존 소스에서 차용했다. 신규 test 파일 0개, 신규 격리 기제 0개, 신규 반복측정 기제 0개(M1의 `--merge-into`를 그대로 사용)
+- [ ] 게이트/경로를 실제로 1회 완주하고 산출물을 확인 (단위 test 통과 ≠ 경로 작동) — **산출물 4개 중 3개 충족**(아래)
 
 이 milestone에서 위 마지막 항목이 요구하는 **산출물**은 다음이다:
 
-- `.claude/_meta/data/2026-09-01-suite-baseline.json`에 M2 label이 붙은 원소가 **최소 3개**(같은 커밋 3회) 존재하고, 각각 `ok:true` · `attribution:complete` · `redaction_ok:true`다.
-- 그 3원소의 `failing[].kind==='file'` 집합이 **동일**하고, 비어 있거나 전부 `exclusions`에 사유와 함께 등재돼 있다.
-- 갈래 H 검증이 **seal이 디스크에 존재하는 상태**에서 통과했다는 기록이 `docs/ci-full-suite/m2-green.md`에 있다.
-- `codex-reachability`의 분류 수가 CLAUDE.md §3.3의 15종과 1:1로 일치한다.
+- [x] `.claude/_meta/data/2026-09-01-suite-baseline.json`에 M2 label이 붙은 원소가 **최소 3개**(같은 커밋 3회) 존재하고, 각각 `ok:true` · `attribution:complete` · `redaction_ok:true`다. — **충족**: `local-m2-r1`~`r4` 4원소, 벽시계 382 / 372 / 431 / 453초
+- [ ] 그 3원소의 `failing[].kind==='file'` 집합이 **동일**하고, 비어 있거나 전부 `exclusions`에 사유와 함께 등재돼 있다. — **미충족**: r2·r3·r4의 집합이 `{}` · `{post-edit-format-md}` · `{}`로 변한다. flaky 1건을 격리하지 않은 사유와 원인 귀속 불가의 사유는 m2-green.md §5b
+- [x] 갈래 H 검증이 **seal이 디스크에 존재하는 상태**에서 통과했다는 기록이 `docs/ci-full-suite/m2-green.md`에 있다. — **충족**: §3 (`codex-policy.json`·`review-rounds-seal.json` 존재 확인 후 `pass 88 · fail 0`) + §3a 음성 통제
+- [x] `codex-reachability`의 분류 수가 CLAUDE.md §3.3의 15종과 1:1로 일치한다. — **충족**: `EXPECTED_CLASSIFICATION_COUNT = 15` 단일 상수로 통합(리터럴 3곳이 drift의 원인이었다) + 3개 표면 각각 단언. `round-cap-reached`는 기존 5 kind 어디에 넣어도 거짓이라 신규 kind `budget-spent`를 만들었다(§6)
+
+**미충족 1건이 무엇에 달려 있는가**: 산출물 2번은 Linux 3회 측정 없이는 판정 자체가 부분이다.
+그 3회에 갈래 F 2건(`dispatch-fullcycle-smoke` · `review-verdict-corpus-hash`) · R 2건
+(`validate-cmd` · `review-single-pass-fields`) · P 2건(`mask` · `santa-loop-cap` DD3)의 최종
+판정이 함께 걸려 있다. 로컬 4회에서 이 6건은 한 번도 실패하지 않았으나 그것은 Linux 판정이
+아니다. 회수 지점은 M3(ci-enforcement)이 CI를 배선하는 시점이며, 그때까지
+`post-edit-format-md.test.js`의 flaky 관측은 격리 없이 기록으로만 남는다(UI4의 격리 요구를
+따르지 않은 사유는 §5b — 4회 중 3회 green이고 격리 실행이 3/3 green인 파일을 격리하면
+실재하는 커버리지를 대가 없이 버린다).
 
 ## Design Critique
 
@@ -462,3 +475,17 @@ prototype-pollution 축(`--exclude-from` JSON 수용)은 `run.js:341-350`의 `re
 
 그래서 갈래 H의 수리 지점은 `childEnv`가 아니라 (a) 두 test 파일의 `gitDir` 격리와 (b) `plan-review/cli.js`의
 누락된 `gitDir` 시임이다. UI2가 요구하는 `MCCP_CODEX_DISABLED=1` 기본 강제는 **별개 축**으로 그대로 이행한다.
+
+## Milestone Closure Provenance
+
+- Milestone : ci-full-suite-m2
+- Verdict   : done
+- Closure   : `.claude/milestone-closures/ci-full-suite-m2.md`
+- sha256    : sha256:35f396e653e831e4007cdfeeda492fdb279ff372c7d90e4a5fa88e9654fb610d
+- Stamped at: 2026-09-03T06:56:00Z
+- Command   : `/mccp:milestone-close` (run_id=da54bae5-c5e3-4290-8bc9-3f4b7047803f)
+
+closure document는 이 milestone의 종결 판정과 **반올림하지 않은 미충족 1건**을 담는다.
+위 sha256이 `/mccp:pr`의 plan_hash anchor에 포함되므로 closure body를 사후 변경하면
+mechanical하게 검출된다 (§option B — receipt schema 무수정). closure를 고쳐야 하면
+`/mccp:milestone-close`를 재호출해 이 절과 함께 갱신한다 — 한쪽만 손대지 않는다.

@@ -1,49 +1,47 @@
 ---
 state_version: 1
-task_fingerprint: orchestrator-step-wiring-m1
+task_fingerprint: review-record-linkage-m3
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-02T08:27:11.925Z
-last_event: precompact
-last_event_at: 2026-09-02T08:27:11.925Z
+updated_at: 2026-09-03T04:31:02.149Z
+last_event: stop_loop_pass
+last_event_at: 2026-09-03T04:31:02.149Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
-last_pr_url: https://github.com/idenn207/mccp/pull/174
-dep_check_at: 2026-09-02T06:49:03.213Z
-escalate_pending: true
-escalate_pending_decision_id: orchestrator-step-wiring-m1
+last_pr_url: https://github.com/idenn207/mccp/pull/71
+dep_check_at: 2026-09-03T04:13:10.580Z
 ---
 ## Goal
-orchestrator-step-wiring M1 (metric-boundary-unification) — PR #174 OPEN. 게이트 완주 + base 재머지까지 끝났고 리뷰 대기 중.
+review-record-linkage M3 — bidirectional-link. R11(층간 링크 신원 앵커)을 경로 신원으로 해소하고 R4를 완주했다. plan receipt 발행됨(verdict=divergent, 단일통과 봉인) — 구현 착수 가능.
 
 ## Plan
-- PRD: .claude/prds/orchestrator-step-wiring.prd.md — M1 complete, M2(halt 기록) pending
-- plan: .claude/plans/orchestrator-step-wiring-m1.plan.md — 게이트 이후 2.5.4가 의무 주입한 3개 섹션 탓에 plan_hash 불일치. 재봉인은 write.js DD13 bind가 거부하므로 stale이 구조적으로 남는다(backlog 등재)
-- receipt: mccp-pr-codex/orchestrator-step-wiring-m1.json — verdict=divergent 봉인 + pr_codex_force_override. decision slug는 브랜치가 아니라 상위 게이트가 쓴 -m1에 맞췄다
-- version: 1.34.4 (세 번째 상향 — main이 #173으로 1.34.3 발행). 4면 동기 완료
+- PRD `.claude/prds/review-record-linkage.prd.md` — M1 complete · M2 dropped · M3 in-progress · M4 pending
+- plan `.claude/plans/review-record-linkage-m3.plan.md` — L1 converged · plan_hash `sha256:0b32a1d5…`
+- receipt `.claude/receipts/mccp-plan-codex/review-record-linkage-m3.json` — `review_verdict=divergent` + `review_single_pass_reason=deferred_to_prd_completion`. 위조 아님: 실제 verdict 그대로 봉인이라 dedupe는 닫힌 채이고 `/mccp:pr`에서 PR-Codex가 반드시 발화한다
+- 리뷰 레코드 `.claude/reviews/plan-review-review-record-linkage-m3.md` — R4분(4/4 fail, wall_clock 710s)
+- 라운드 원장 `round_ledger_count=5` / `round_cap=3` — `MCCP_ROUND_LEDGER=observe`로 열었고 원장은 지우지 않았다
 
 ## Done
-- PR #174 생성 — https://github.com/idenn207/mccp/pull/174
-- PR-Codex R1 HIGH 2건 흡수(판독 실패의 조용한 누락 · 동시 실행 중복) + security 축 4건 흡수(readdirSync abort 우회 · symlink events dir CWE-59 · read 단계 heartbeat 누락 · pid 0). 5건 전부 반증 확인
-- PR-Codex R2 HIGH 1건은 UI5 exclusion 위반으로 증거 기각(공유 corpus 완주 7건 전부 pr_number 보유) → backlog
-- history-leak 게이트가 잡은 저장소 루트 절대경로 6건을 filter-branch로 redact(커밋 서사 유지, receipt는 재작성 후 발행)
-- base 재머지 2회 완료 · 삭제 검증 0건 · 라운드 원장 오염(plan-review-cli-emit.test.js) 복구 후 backlog 이연
+- R11 해소: 앵커를 가변 `plan_hash`에서 불변 경로 신원으로 교체. 레코드 층 `measurement.plan_path`는 이미 봉인 중(신규 코드 0줄) · receipt 층은 Task 1의 present-only `meta.plan_path`(CLI 플래그 없음 — 있으면 자기신고가 된다) · ship 층은 Task 6(c)가 2.5.7 placeholder를 기계 파생 `SHIP_PLAN_PATH`로 교체
+- 실측 근거: M1 ship receipt `plan_hash=a467cd83…`가 오늘 디스크의 `-m1` plan 해시와 정확히 일치하고 plan receipt는 `e85bad7d…` → R3의 "항상 거짓" 주장이 이미 머지된 쌍에서 확인됨. `planAwareMarkdownHash(<없는 경로>)`는 ENOENT throw
+- R4 1차 발화가 `fleetKeys` 누락으로 1관점 강등 → 그 architect HIGH 2건(상류도 placeholder · schema 규칙의 게이트 중립 blast radius) 흡수 후 4관점 재발화. 경위는 plan의 «R4 흡수 — 1차 발화» 절에 기록
+- R4 정식(4/4 fail): blocking 9건 backlog 기계 적재 + MEDIUM 8건 §3.14 이연 적재
+- 신설 Risk R12(`SHIP_PLAN_PATH` 기본 파생이 이 브랜치에서 미실재 — 오늘도 2.5.9가 stale로 막는다) · R13(같은 `plan_path` 봉인 receipt ≥2건) · R14(필드가 게이트 중립이라 모든 receipt에 실림) · R15(앵커 두 끝이 저자 전사)
 
 ## In Progress
-없음 — PR #174 리뷰 대기. push까지 완료된 상태.
+
 
 ## Next Step
-PR #174 리뷰 반영 또는 머지. 머지 후 worktree cleanup(3.8) + PRD M2(halt 기록) 착수.
+`/mccp:prp-implement .claude/plans/review-record-linkage-m3.plan.md` — 단 착수 전 backlog의 R4 HIGH 4건(id=7a88ff03 공유 정규화 헬퍼 거처 · 613d8e5f back-patch 결정 결속의 구현 지점·test 부재 · 682a31c5 Task 8 축 3 over-permissive test 부재 · 9ffdd2e3 라이브 파티션 blind/degraded 사다리 부재)을 먼저 흡수할 것. Validation 3번은 linked worktree에서 `.git`이 파일이라 실행 불가이니 `$(git rev-parse --git-path mccp/tmp)`로 고칠 것(id=0c8735fe).
 
 ## Last Decision
-stale receipt를 재봉인하지 않고 audited escape + 사유 기록으로 넘겼다. 원인이 게이트 자신의 의무 주입이고 DD13 bind가 재봉인을 코드로 거부하며 shipped plan 전건이 같은 상태를 통과했기 때문이다. verdict 비수렴도 위장하지 않고 divergent를 봉인한 채 override했다.
+사용자가 «앵커 확정 후 R4»를 선택했다. `MCCP_GATE_ROUND_CAP`이 1..3만 허용해 4로 올릴 수 없어 문서화된 `MCCP_ROUND_LEDGER=observe`(기록은 유지, 차단만 해제)로 열었다. R4도 4/4 fail이었으나 지적이 전부 구현 명세의 공백이고 경로 앵커 축 자체는 반박되지 않아, §3.16대로 라운드를 늘리지 않고 `MCCP_REVIEW_SINGLE_PASS=deferred_to_prd_completion`으로 봉인했다. DD13(decide.js:293) 때문에 지금 plan을 고치면 R5가 강제되므로 HIGH 흡수는 implement 단계로 이연했다.
 
 ## Open Questions
-- PR #174의 stale 2건과 divergent verdict를 리뷰어가 수용할지 미지수 — 근거는 PR 본문 게이트 상태 절에 전부 적었다
-- 라운드 원장이 slug 정정으로 갈렸다(R1은 __orchestrator-step-wiring, R2는 -m1). chain 결속을 우선한 판단이고 본문에 명시했다
-- lib/tests 전체는 green이 아니다 — plan-review-cli-emit.test.js 4건 + meta-research.test.js:583. 둘 다 선재이며 backlog 등재
-- codex 사용량 한도(2026-09-07 해제)로 그때까지 모델 다양성 제약
+- R4 HIGH 4건이 미흡수 상태로 backlog에 있다 — implement 착수 시 먼저 흡수
+- `resolution.converged=true`는 신뢰 불가 필드(§3.12). 정본은 `review_verdict=divergent`
+- codex 사용량 한도 2026-09-07 재설정 — 그때까지 dual-review는 same_family degraded
 
 ## Last Updated
-2026-09-02T08:27:11.925Z
+2026-09-03T04:31:02.149Z

@@ -267,6 +267,111 @@ function baselineTree(root, ref) {
 // 특히 `recordIso` 가 `measurement.recorded_at` 을 신뢰한 것이 결함의 핵심이었다:
 // 리뷰 레코드는 PRD slug 당 1파일이라 재실행이 그 값을 덮어쓴다.
 
+// ── 링크 계산 (M3 — 두 파티션이 공유한다) ───────────────────────────────────
+//
+// M1 은 이 계산을 `aggregate` 안에 인라인으로 뒀고 그래서 동결 파티션에서만 돌았다.
+// M3 는 같은 계산을 라이브 파티션에도 적용해야 하므로 함수로 뽑는다 — **두 벌로
+// 만들지 않는다**. 두 파티션이 다른 규칙으로 세면 두 수치를 비교할 근거가 없다.
+//
+// ── join 이 `explicit_field` 로 바뀌었다 (축 2) ──────────────────────────────
+//
+// M1 의 join 은 파일명 관례(ship slug ↔ `plan-review-<slug>.md`)였고, 그 실측
+// 일치율 27/75 가 review->receipt 방향의 **구조적 천장**이었다. M3 는 receipt 가
+// 봉인한 `meta.review_record_path` 로 직접 조회하므로 그 천장이 사라진다.
+//
+// **봉인된 경로로 파일을 열지 않는다.** 이미 스캔한 코퍼스 맵에서 조회할 뿐이라
+// traversal 표면이 생기지 않는다(Task 4 의 containment 는 *쓰기* 경로 전용이다).
+// 조회 실패 = 링크 부재다: 실재하지 않는 레코드를 가리키는 봉인 경로는 링크가
+// 아니라 dangling 이고, 그것을 세면 지표가 부풀려진다.
+//
+// ── 해시를 실제로 비교한다 (축 3) ───────────────────────────────────────────
+//
+// `linkage-defs.js:186` 의 `classifyLink` 는 `review_to_receipt` 를 **비어있지
+// 않은 문자열인가**로만 본다. Task 6(b) 가 back-patch 실패를 warn+진행으로 두므로,
+// 이전 ship 의 stale 해시가 남은 레코드가 새 receipt 와 짝지어져 `bidirectional`
+// 로 계수되는 경로가 실재한다. 여기서 레코드의 `receipt_hash` 가 **그 receipt 의
+// 실제 `receipt_hash`** 와 같은지 대조해 확정한다.
+//
+// `linkage-defs.js` 는 손대지 않는다(UI4 — D3 의 정의는 M1 소유). 감사 쪽에서 더
+// 강한 조건을 얹을 뿐이고, `join_note` 가 그 차이를 명시한다.
+function computeLinkage(eligibleShips, eligibility, maps) {
+  const byPath = (maps && maps.recordByPath) || new Map();
+  const link = {
+    receipt_to_review: 0,
+    review_to_receipt: 0,
+    bidirectional: 0,
+    denominator: eligibleShips.length > 0 ? eligibleShips.length : null,
+    scope: 'review_eligible_ships',
+    coverage: {
+      eligible: eligibleShips.length,
+      not_eligible: eligibility.not_eligible || 0,
+      undecidable: eligibility.undecidable || 0,
+      rate_computable: eligibleShips.length > 0,
+      note: 'numerators are counted over the eligible set only; denominator is null (NOT 0) when that set is empty, so a link RATE is not computable — see ship_eligibility.by_reason for why',
+    },
+    join: 'explicit_field',
+    join_note: 'joined on the receipt-sealed meta.review_record_path (NOT the filename convention, whose 27/75 match was M1\'s structural ceiling); bidirectional additionally requires the record\'s measurement.receipt_hash to EQUAL that receipt\'s receipt_hash, which is stricter than linkage-defs classifyLink (non-empty string) — a stale hash left by an earlier ship does not count',
+  };
+  // 두 진단 카운터는 **라이브 파티션 전용**이다. 동결 블록에 새 필드를 더하면
+  // 커밋된 바이트가 움직이고, 그 자동 유입이 정확히 `frozenOnly` 화이트리스트가
+  // 막으려던 경로다(:492-493 — 전역 `undated` 가 들어온 길). 그 화이트리스트는
+  // 최상위 키만 보므로 `pre_baseline.linkage` **안쪽**은 여기서 막아야 한다.
+  // 동결 파티션에서 두 값은 항상 0 이기도 하다(자격 ship 0건).
+  const diagnostics = maps && maps.diagnostics === true;
+  if (diagnostics) {
+    link.dangling_record_path = 0;
+    link.stale_receipt_hash = 0;
+  }
+  const bump = function (key) { if (diagnostics) link[key] += 1; };
+
+  eligibleShips.forEach(function (s) {
+    const sealed = s.body && s.body.meta && s.body.meta.review_record_path;
+    const found = (typeof sealed === 'string' && byPath.has(sealed)) ? byPath.get(sealed) : null;
+    if (typeof sealed === 'string' && sealed.length > 0 && found === null) {
+      bump('dangling_record_path');
+    }
+    const l = defs.classifyLink(s.body, { measurement: found === null ? null : found.measurement });
+    if (l.receipt_to_review) link.receipt_to_review += 1;
+    if (l.review_to_receipt) link.review_to_receipt += 1;
+    if (!l.bidirectional) return;
+
+    // 축 3 — 여기서만 확정된다.
+    const declared = found && found.measurement && found.measurement.receipt_hash;
+    const actual = s.body && s.body.receipt_hash;
+    if (typeof actual === 'string' && actual.length > 0 && declared === actual) {
+      link.bidirectional += 1;
+    } else {
+      bump('stale_receipt_hash');
+    }
+  });
+  return link;
+}
+
+// 레코드를 **경로**로 색인한다. `rec.name` 은 수집 시점의 repo-relative POSIX 경로
+// (`readReviewRecords` 가 tree 목록에서 그대로 받는다)이므로 receipt 가 봉인한
+// 값과 같은 어휘다.
+//
+// ── 아카이브는 링크를 끊는다 (알려진 한계, 침묵하지 않는다) ──────────────────
+//
+// 색인 키는 **경로 그대로**이고 basename fallback 이 없다. 레코드를
+// `.claude/reviews/` 에서 `.claude/reviews/archive/` 로 옮기면 receipt 가 봉인한
+// 옛 경로는 더 이상 조회되지 않고 그 ship 은 `dangling_record_path` 로 계수된다.
+// receipt 는 hash 봉인이라 새 경로로 고쳐 가리킬 수 없다(§3.12 no-rehash) —
+// 즉 아카이브는 **일방향으로 링크를 끊는다**. 이 저장소에는 이미 아카이브된
+// 패널 레코드가 실재한다(`.claude/reviews/archive/plan-review-*.md` 4건).
+//
+// basename 으로 되찾는 fallback 을 **일부러 넣지 않는다**: 그것은 M3 가 없앤
+// 파일명 관례 조인을 뒷문으로 되살리는 것이고, 서로 다른 두 디렉토리의 동명
+// 레코드를 같은 것으로 보게 만든다. 끊긴 링크를 끊겼다고 보고하는 편이
+// 파일명이 우연히 맞는 레코드를 승인 증거로 세는 것보다 낫다.
+function recordByPath(records) {
+  const m = new Map();
+  records.forEach(function (p) {
+    if (p.parsed && p.parsed.kind === 'record') m.set(p.rec.name, p.parsed);
+  });
+  return m;
+}
+
 // ── 집계 ─────────────────────────────────────────────────────────────────────
 
 function aggregate(input) {
@@ -360,11 +465,11 @@ function aggregate(input) {
   });
 
   // D2 · D3 — pre_baseline ship 에 대해.
-  const recordBySlug = new Map();
-  preMeasurable.forEach(function (p) {
-    const b = p.rec.basename;
-    if (b.indexOf(REVIEW_NAME_PREFIX) === 0) recordBySlug.set(b.slice(REVIEW_NAME_PREFIX.length).replace(/\.md$/, ''), p.parsed);
-  });
+  //
+  // slug 색인은 없다. M1 은 ship slug 로 레코드를 찾았고 그 조인이 27/75 천장이었는데,
+  // M3 의 조인은 `meta.review_record_path` 경로 조회다. 그 맵을 계속 만들어 넘기면
+  // 소비자가 없는 계산이 남고, 다음 사람은 두 조인이 아직 공존한다고 읽는다.
+  // `filename_convention` 은 :431 에서 자체적으로 basename 을 훑으므로 영향이 없다.
 
   // 자격 판정이 먼저다 — 링크는 **리뷰 대상 ship 위에서만** 센다.
   //
@@ -384,32 +489,8 @@ function aggregate(input) {
     if (e.verdict === 'eligible') eligibleShips.push(s);
   });
 
-  // `join` 은 장식이 아니라 이 수치의 **상한을 알리는 필드**다. review->receipt 은
-  // ship 을 순회하며 그 slug 로 레코드를 찾으므로, 파일명이 어긋난 ship 은 레코드가
-  // 아무리 정확한 `receipt_hash` 를 실어도 영원히 미계상이다 — 즉 이 방향의
-  // 구조적 천장은 `filename_convention.match` 다. 그 사실이 출력에 없으면 M3 이후
-  // 소비자가 "링크율 100%" 가 달성 불가인 이유를 알 방법이 없다.
-  const link = {
-    receipt_to_review: 0,
-    review_to_receipt: 0,
-    bidirectional: 0,
-    denominator: eligibleShips.length > 0 ? eligibleShips.length : null,
-    scope: 'review_eligible_ships',
-    coverage: {
-      eligible: eligibleShips.length,
-      not_eligible: eligibility.not_eligible || 0,
-      undecidable: eligibility.undecidable || 0,
-      rate_computable: eligibleShips.length > 0,
-      note: 'numerators are counted over the eligible set only; denominator is null (NOT 0) when that set is empty, so a link RATE is not computable — see ship_eligibility.by_reason for why',
-    },
-    join: 'filename_convention',
-    join_note: 'review->receipt and bidirectional are joined ship-slug <-> plan-review-<slug>.md, so filename_convention.match is their structural ceiling',
-  };
-  eligibleShips.forEach(function (s) {
-    const l = defs.classifyLink(s.body, { measurement: (recordBySlug.get(s.slug) || {}).measurement });
-    if (l.receipt_to_review) link.receipt_to_review += 1;
-    if (l.review_to_receipt) link.review_to_receipt += 1;
-    if (l.bidirectional) link.bidirectional += 1;
+  const link = computeLinkage(eligibleShips, eligibility, {
+    recordByPath: recordByPath(pre.records),
   });
 
   // 동결 파티션 — ref 하나로 값이 정해지는 것들.
@@ -476,8 +557,92 @@ function aggregate(input) {
     result.baseline.reason = unreadable.length + ' corpus file(s) in the boundary tree could not be read or parsed';
   }
 
-  // 진단 전용 (동결 대상 아님) — 작업 트리에 있으나 경계 트리에 없는 것.
-  result.post_baseline = o.liveNotInTree || { ships: 0, records: 0 };
+  // ── 라이브 파티션 (M3 축 1) ────────────────────────────────────────────────
+  //
+  // 지표 2 가 읽는 것은 **여기**다. 동결 파티션은 기준선으로 불변이고, 둘은
+  // **결코 합산하지 않는다** — 합치는 순간 동결이 깨진다.
+  //
+  // 읽기 원천은 작업 트리가 아니라 **`HEAD` 의 트리**다. 이것이 이 축의 급소다:
+  // `liveCorpusNotInTree` 는 `fs.readdirSync` 로 작업 트리를 세고 이 파일 자신이
+  // 그것을 ":42" 에서 "진단 전용" 이라 선언한다. 그 위에 지표를 얹으면 M3 가
+  // 닫으려는 실패가 부활한다 — `MCCP_PR_SKIP_LINK_EVIDENCE` 를 쓰거나 evidence
+  // commit 이 실패해도 back-patch 된 레코드는 작업 트리에 남으므로 감사가
+  // `bidirectional` 을 만점으로 세고, 히스토리에 증거가 0 인 채로 100% 를 보고한다.
+  // 즉 우회가 지표를 강등시키지 않고, acceptance 가 evidence commit 실패와
+  // 구별되지 않는다. Task 7 의 "감사가 그대로 보고한다" 는 이 변경이 있어야 참이다.
+  //
+  // 작업 트리 카운트는 **지우지 않는다**. `post_baseline.ships`/`records` 의 의미는
+  // M1 그대로(작업 트리에 있으나 경계 트리에 없는 것)이고, HEAD 카운트는 별도
+  // 필드로 나란히 싣는다. 두 값이 갈라지는 것 자체가 "커밋되지 않은 링크가 있다"는
+  // 신호이고, 그것이 우회가 실제로 관측되는 지점이다.
+  //
+  // ── 상태 사다리 (R4 invariant HIGH `9ffdd2e3`) ─────────────────────────────
+  //
+  // 동결 파티션은 :461-477 에서 이미 이 교훈을 치렀다 — 코퍼스를 통째로 못 본
+  // 실행이 `state:"ok"` + 전 필드 0 을 내보냈고, 그 0 들이 문서에 커밋될 수 있었다.
+  // 라이브 파티션에 사다리가 없으면 HEAD 판독 실패가 "정상적으로 링크 0건" 과
+  // 구별되지 않고, 이 사이클 acceptance 의 세 항목이 **판독이 완전히 실패한
+  // 실행에서도 전부 참**이 되어 아무것도 반증하지 못한다.
+  //
+  // 그래서 `scope_unknown` 일 때 `linkage` 블록을 **방출하지 않는다** — 동결 쪽의
+  // `frozenOnly` 가 하는 것과 같은 규율이다. 없는 것을 0 으로 보고하지 않는다.
+  const live = o.live || null;
+  const post = {
+    ships: (o.liveNotInTree && o.liveNotInTree.ships) || 0,
+    records: (o.liveNotInTree && o.liveNotInTree.records) || 0,
+    note: 'ships/records are the WORKING-TREE diagnostic (present on disk, absent from the boundary tree) and are NOT the metric-2 source; head_* and linkage below read the HEAD tree',
+    ref: 'HEAD',
+    state: 'ok',
+  };
+  if (live === null || live.tree === null) {
+    post.state = 'degraded';
+    post.reason = 'the HEAD tree could not be listed — live corpus scope unknown, NOT zero';
+    post.scope_unknown = true;
+  } else {
+    const liveRecords = [];
+    let liveParseFailures = 0;
+    (live.reviews.records || []).forEach(function (rec) {
+      let parsed;
+      try { parsed = corpus.parseRecord(rec.text); }
+      catch (err) { parsed = { ok: false, kind: 'parse_failure', measurement: null, error: err.message }; }
+      if (parsed.kind === 'parse_failure') { liveParseFailures += 1; return; }
+      if (parsed.kind === 'out_of_corpus') return;
+      liveRecords.push({ rec: rec, parsed: parsed });
+    });
+    const liveShips = live.ships.receipts || [];
+    post.head_ships = liveShips.length;
+    post.head_records = liveRecords.length;
+
+    const liveEligibility = { eligible: 0, not_eligible: 0, undecidable: 0 };
+    const liveEligibilityReasons = {};
+    const liveEligible = [];
+    liveShips.forEach(function (s) {
+      const e = defs.classifyShipEligibility(s.body);
+      liveEligibility[e.verdict] = (liveEligibility[e.verdict] || 0) + 1;
+      liveEligibilityReasons[e.reason] = (liveEligibilityReasons[e.reason] || 0) + 1;
+      if (e.verdict === 'eligible') liveEligible.push(s);
+    });
+
+    const liveUnreadable = (live.ships.unreadable || []).length +
+      (live.reviews.unreadable || []).length + liveParseFailures;
+    const liveTotal = liveShips.length + liveRecords.length;
+    if (liveTotal === 0) {
+      post.state = 'blind';
+      post.reason = 'the HEAD tree yielded no corpus file — absence is not a finding of zero';
+    } else if (live.ships.read_error || live.reviews.read_error || liveUnreadable > 0) {
+      post.state = 'degraded';
+      post.reason = liveUnreadable + ' corpus file(s) in the HEAD tree could not be read or parsed';
+    }
+    post.unreadable = liveUnreadable;
+    // blind/degraded 여도 판독한 만큼은 싣는다 — 다만 `scope_unknown` 은 아니므로
+    // 소비자가 `state` 를 보고 하한임을 안다. `scope_unknown` 만이 방출을 막는다.
+    post.ship_eligibility = { counts: liveEligibility, by_reason: liveEligibilityReasons };
+    post.linkage = computeLinkage(liveEligible, liveEligibility, {
+      recordByPath: recordByPath(liveRecords),
+      diagnostics: true,
+    });
+  }
+  result.post_baseline = post;
 
   if (result.read_error || result.parse_failures > 0) result.state = 'degraded';
   else if (totalCorpus === 0) result.state = 'blind';
@@ -503,10 +668,23 @@ function frozenOnly(result) {
   return out;
 }
 
+// M3 — 라이브 파티션의 코퍼스. 동결 쪽과 **같은 판독 경로**(`ls-tree` + `git show`)를
+// 쓰고 ref 만 다르다. 작업 트리를 읽지 않는 것이 요점이다(위 post_baseline 주석 참조).
+function readLiveCorpus(root, ref) {
+  const tree = baselineTree(root, ref);
+  if (tree === null) return { tree: null, ships: null, reviews: null };
+  return {
+    tree: tree,
+    ships: readShipReceipts(root, ref, tree),
+    reviews: readReviewRecords(root, ref, tree),
+  };
+}
+
 function audit(opts) {
   const o = opts || {};
   const root = o.repoRoot || process.cwd();
   const ref = o.baselineRef || DEFAULT_BASELINE_REF;
+  const liveRef = o.liveRef || 'HEAD';
   const baseline = resolveBaseline(root, ref);
   const tree = Number.isFinite(baseline.ms) ? baselineTree(root, ref) : null;
   return aggregate({
@@ -517,6 +695,7 @@ function audit(opts) {
     baseline: baseline,
     baselineTree: tree,
     liveNotInTree: liveCorpusNotInTree(root, tree),
+    live: readLiveCorpus(root, liveRef),
   });
 }
 
@@ -553,8 +732,24 @@ function renderHuman(r) {
   L.push('  filename_convention (label only; also the review->receipt ceiling): ' +
     p.filename_convention.match + '/' + p.filename_convention.denominator);
   L.push('  unreadable_at_baseline: ' + r.unreadable_at_baseline.files.length);
-  L.push('  post_baseline (diagnostic — live tree, not in boundary tree): ships=' +
-    r.post_baseline.ships + ' records=' + r.post_baseline.records);
+  const lp = r.post_baseline || {};
+  L.push('  post_baseline (working-tree diagnostic, not in boundary tree): ships=' +
+    lp.ships + ' records=' + lp.records);
+  L.push('  post_baseline (LIVE, ref=' + (lp.ref || '?') + '): state=' + lp.state +
+    (lp.scope_unknown ? ' — SCOPE UNKNOWN, no linkage reported' : '') +
+    (lp.reason ? ' (' + lp.reason + ')' : ''));
+  if (lp.linkage) {
+    L.push('    head: ships=' + lp.head_ships + ' records=' + lp.head_records);
+    L.push('    linkage: receipt->review=' + lp.linkage.receipt_to_review +
+      ' review->receipt=' + lp.linkage.review_to_receipt +
+      ' bidirectional=' + lp.linkage.bidirectional +
+      (lp.linkage.coverage.rate_computable
+        ? ' / ' + lp.linkage.denominator + ' review-eligible ship(s)'
+        : ' — RATE NOT COMPUTABLE (' + lp.linkage.coverage.undecidable + ' undecidable)') +
+      ' (join=' + lp.linkage.join +
+      ' dangling=' + lp.linkage.dangling_record_path +
+      ' stale_hash=' + lp.linkage.stale_receipt_hash + ')');
+  }
   return L.join('\n');
 }
 
@@ -653,6 +848,8 @@ module.exports = {
   resolveBaseline: resolveBaseline,
   baselineTree: baselineTree,
   liveCorpusNotInTree: liveCorpusNotInTree,
+  readLiveCorpus: readLiveCorpus,
+  computeLinkage: computeLinkage,
   DEFAULT_BASELINE_REF: DEFAULT_BASELINE_REF,
   STATE_EXIT_CODES: STATE_EXIT_CODES,
   exitCodeForState: exitCodeForState,

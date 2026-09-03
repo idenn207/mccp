@@ -2,20 +2,18 @@
 state_version: 1
 task_fingerprint: ci-full-suite-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-02T08:58:45.525Z
+updated_at: 2026-09-03T05:30:27.715Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-02T08:58:45.525Z
+last_event_at: 2026-09-03T05:30:27.715Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-09-02T08:40:00.651Z
-escalate_pending: true
-escalate_pending_decision_id: ci-full-suite-m2
+dep_check_at: 2026-09-03T04:12:44.806Z
 ---
 ## Goal
-ci-full-suite (우산 PRD harness-wiring-integrity 자식 C3) M1 — 전수 진입점 + baseline. 구현·측정 완료, PR 대기.
+ci-full-suite (우산 PRD harness-wiring-integrity 자식 C3) M2 — suite-green. 구현·로컬 측정 완료, commit/PR 대기.
 
 ## Plan
 - PRD: `.claude/prds/ci-full-suite.prd.md` — MVP는 축 A 하나(측정 가능)
@@ -36,15 +34,16 @@ ci-full-suite (우산 PRD harness-wiring-integrity 자식 C3) M1 — 전수 진�
 
 
 ## Next Step
-/mccp:pr — PR #171을 draft에서 ready로 승격. PR-Codex가 반드시 발화한다(dedupe divergent로 닫힘) — 이 사이클에 없던 cross-model 반증의 회수 지점
+/mccp:prp-commit → /mccp:pr. PR CI에서 Linux 3회 측정을 받아 컨테이너에 병합하고 m2-green.md §5c를 갱신한다.
 
 ## Last Decision
-로컬 재측정을 중단했다. 경합 하에서 clean run의 2배를 넘겨도 안 끝나고 node 자식 336개에서 셸이 fork 실패에 도달했다. 오염된 값으로 clean local을 덮어쓰지 않는다 — 그 실패 자체가 OQ1 답을 보강한다.
+갈래 H의 귀속을 정정했다 — run.js 오염이 아니라 test가 gitDir를 격리하지 않은 것이고, 계획이 지시한 MCCP_ROUND_LEDGER 주입은 세 리뷰 관점이 반증해 폐기했다. 격리 경계는 env가 아니라 gitDir다.
 
 ## Open Questions
-- cross-model 반증 미수행 — Implement-Codex가 round-cap-reached(3/3)로 발화하지 않았다. /mccp:pr의 PR-Codex가 회수 지점
-- M2 전제 재검토 필요 — Linux 75.5초는 이미 어떤 PR 피드백 임계에도 들어간다. M2가 무엇을 최적화하는지(CI 피드백 대 로컬 루프) 먼저 정해야 한다
-- MCCP_GATE_ROUND_CAP 선언값(settings.json=1) 대 실효값(process env=3) 불일치 — 별도 축
+- Linux 3회 미측정 — 갈래 F·R 4건과 갈래 P 2건(mask · santa-loop-cap DD3)의 최종 판정이 거기 달려 있다
+- post-edit-format-md.test.js는 flaky 확정이나 귀속 불가 — reporter가 파일 단위 실패의 내부 단언을 싣지 않는다(backlog 등재)
+- 선행 mccp-plan-codex receipt가 구조적 stale — 2.5.4의 의무 주입이 plan_hash를 바꾸고 재봉인은 §3.12가 금지한다(backlog 등재)
+- 계획 Acceptance 2번(3원소 failing 집합 동일) 로컬 미충족 — 반올림하지 않고 기록
 
 ## Last Updated
-2026-09-02T08:58:45.525Z
+2026-09-03T05:30:27.715Z

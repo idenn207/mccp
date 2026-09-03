@@ -129,6 +129,7 @@ test('invokeAdversarialReview: ok path returns classification=ok, blocking=false
     'codex@openai-codex': [{ installPath: installPath, version: '1.0.4' }],
   });
   const r = invokeAdversarialReview('focus text', {
+    gitDir: null,   // pin: see the note at the disabled-honor block
     registryPath: file,
     timeoutMs: 10_000,
     env: {}, // no advisory
@@ -149,7 +150,7 @@ test('invokeAdversarialReview: exit-nonzero from companion → blocking=true', (
   const file = writeRegistry(tmp, {
     'codex@openai-codex': [{ installPath: installPath, version: '1.0.4' }],
   });
-  const r = invokeAdversarialReview('focus', { registryPath: file, env: {}, timeoutMs: 5_000 });
+  const r = invokeAdversarialReview('focus', { gitDir: null, registryPath: file, env: {}, timeoutMs: 5_000 });
   assert.strictEqual(r.ok, false);
   assert.strictEqual(r.classification, 'exit-nonzero');
   assert.strictEqual(r.blocking, true);
@@ -165,7 +166,7 @@ test('invokeAdversarialReview: not-authenticated detected via stderr pattern + n
   const file = writeRegistry(tmp, {
     'codex@openai-codex': [{ installPath: installPath, version: '1.0.4' }],
   });
-  const r = invokeAdversarialReview('focus', { registryPath: file, env: {}, timeoutMs: 5_000 });
+  const r = invokeAdversarialReview('focus', { gitDir: null, registryPath: file, env: {}, timeoutMs: 5_000 });
   assert.strictEqual(r.classification, 'not-authenticated');
   assert.strictEqual(r.blocking, true);
 });
@@ -179,7 +180,7 @@ test('invokeAdversarialReview: stdout-empty when exit 0 but no stdout', () => {
   const file = writeRegistry(tmp, {
     'codex@openai-codex': [{ installPath: installPath, version: '1.0.4' }],
   });
-  const r = invokeAdversarialReview('focus', { registryPath: file, env: {}, timeoutMs: 5_000 });
+  const r = invokeAdversarialReview('focus', { gitDir: null, registryPath: file, env: {}, timeoutMs: 5_000 });
   assert.strictEqual(r.classification, 'stdout-empty');
   assert.strictEqual(r.blocking, true);
 });
@@ -188,6 +189,7 @@ test('invokeAdversarialReview: advisory mode demotes blocking=false', () => {
   const tmp = makeTmpDir('adv');
   const file = path.join(tmp, 'no-such-registry.json');
   const r = invokeAdversarialReview('focus', {
+    gitDir: null,   // pin: see the note at the disabled-honor block
     registryPath: file,
     env: { MCCP_ALLOW_CODEX_UNAVAILABLE: '1' },
     timeoutMs: 1_000,
@@ -211,7 +213,7 @@ test('invokeAdversarialReview: timeout classification when companion exceeds lim
   const file = writeRegistry(tmp, {
     'codex@openai-codex': [{ installPath: installPath, version: '1.0.4' }],
   });
-  const r = invokeAdversarialReview('focus', { registryPath: file, env: {}, timeoutMs: 300 });
+  const r = invokeAdversarialReview('focus', { gitDir: null, registryPath: file, env: {}, timeoutMs: 300 });
   assert.strictEqual(r.ok, false);
   assert.ok(r.classification === 'timeout' || r.classification === 'exit-nonzero',
     'expected timeout or exit-nonzero, got ' + r.classification);
@@ -226,7 +228,7 @@ test('runCli: ok exit 0 with JSON stdout', () => {
   });
   // Mimic CLI by overriding REGISTRY env via opts — CLI uses default, so capture
   // via invoke directly here. (runCli end-to-end is covered by Task 11 dogfood.)
-  const r = invokeAdversarialReview('focus', { registryPath: file, env: {}, timeoutMs: 5_000 });
+  const r = invokeAdversarialReview('focus', { gitDir: null, registryPath: file, env: {}, timeoutMs: 5_000 });
   assert.strictEqual(r.ok, true);
   assert.strictEqual(r.blocking, false);
 });
@@ -398,6 +400,7 @@ test('design-scope preamble: invokeAdversarialReview integration — companion r
     'codex@openai-codex': [{ installPath: installPath, version: '1.0.4' }],
   });
   const r = invokeAdversarialReview('payload', {
+    gitDir: null,   // pin: see the note at the disabled-honor block
     registryPath: file,
     env: {},
     timeoutMs: 5_000,
@@ -424,6 +427,7 @@ test('design-scope preamble: invokeAdversarialReview integration — companion r
     'codex@openai-codex': [{ installPath: installPath, version: '1.0.4' }],
   });
   const r = invokeAdversarialReview('payload', {
+    gitDir: null,   // pin: see the note at the disabled-honor block
     registryPath: file,
     env: {},
     timeoutMs: 5_000,
@@ -524,6 +528,7 @@ test('intent reference: file content reaches the companion argv end-to-end', () 
 
   const ref = '<user_intent_reference>\n- [UI7] (exclusion) no perf work this cycle\n</user_intent_reference>';
   const r = invokeAdversarialReview('payload', {
+    gitDir: null,   // pin: see the note at the disabled-honor block
     registryPath: file, env: {}, timeoutMs: 5_000, intentReference: ref,
   });
   assert.strictEqual(r.ok, true);

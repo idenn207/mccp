@@ -186,6 +186,31 @@ M1 baseline이 M2에 넘긴 것은 답이 아니라 질문이었다:
 | `plugins/mccp/.claude-plugin/plugin.json` | UPDATE | §3.7 — Task 4가 배포 표면(`plugins/mccp/`)을 건드리므로 patch bump (아래 Risks 참조) |
 | `CHANGELOG.md` | UPDATE | 같은 bump의 기록 |
 
+| `plugins/mccp/scripts/lib/plan-review/cli.js` | UPDATE | **계획 밖 — 확장 사유**: Task 1 Action 2가 예비한 퇴로("도달하지 않으면 그 seam이 결함이고 그것을 수리 대상으로 삼는다")가 발동했다. 라운드 칩 초크포인트만 `--repo-root`를 무시하고 `process.cwd()`를 읽었다 |
+| `plugins/mccp/scripts/lib/tests/codex-invoke.test.js` | UPDATE | **계획 밖 — 확장 사유**: 갈래 H의 실제 수리 지점. 귀속이 `run.js`가 아니라 test의 `gitDir` 미격리로 밝혀졌다 |
+| `plugins/mccp/scripts/lib/tests/codex-invoke-json.test.js` | UPDATE | **계획 밖 — 확장 사유**: 같은 귀속 + 하드코딩된 14종 집합(갈래 D와 동종) |
+| `plugins/mccp/scripts/lib/tests/plan-review-cli-emit.test.js` | UPDATE | **계획 밖 — 확장 사유**: 같은 귀속. 새 `gitDir` 시임을 쓴다 |
+| `plugins/mccp/scripts/lib/env-contract/registry.js` | UPDATE | **계획 밖 — 파생**: 위 `cli.js` 줄 삽입으로 evidence 앵커(`:699`)가 실제 read site(`:715`)에서 밀렸다. L10 정방향이 잡았다 |
+| `plugins/mccp/scripts/lib/renderer/html.js` | UPDATE | **계획 밖 — 의무**: §3.7 동기 4면. `plugin.json`만 올리면 `i18n-surface.test.js`가 red다(L2-test HIGH 흡수) |
+| `plugins/mccp/scripts/lib/renderer/markdown.js` | UPDATE | **계획 밖 — 의무**: 같은 4면 동기 |
+
+### 계획을 벗어난 변경 (deviation rationale)
+
+`plan-conflict-detector`가 `file-expansion`으로 잡았고, 조용히 흡수하지 않고 여기 적는다.
+위 7행이 계획이 예견하지 못한 변경이며, 세 부류다:
+
+1. **계획 자신이 순인한 퇴로가 발동** — `plan-review/cli.js`. Task 1 Action 2가 env 주입을
+   1차 방책으로 제시하면서 "도달하지 않으면 그 seam이 결함"이라 적었다. 세 리뷰 관점이
+   env 경로를 반증했고(봉인 우선 · 운영자 정책 불변식), 그래서 퇴로를 타 그 파일을 고쳤다.
+2. **귀속이 바뀌자 수리 지점이 이동** — 갈래 H test 3건. 계획은 `run.js`를 지목했으나
+   실측이 그것을 반증했다(러너 없이 `node --test`로도 동일 실패). 수리하지 않았다면
+   갈래 H가 그대로 남는다.
+3. **상위 규약이 요구** — renderer 2면은 CLAUDE.md §3.7이 `plugin.json` bump에 묶은
+   의무이고, `registry.js`는 1의 기계적 파생이다.
+
+어느 행도 새 축을 열지 않는다 — 전부 갈래 H·D와 §3.7 의무의 범위 안이다. UI3·UI8·UI9가
+제외한 것(신규 커버리지 test · `mkTmpRepo` · 느린 test 재작성)은 여전히 건드리지 않았다.
+
 **격리 파일은 위 표에 없다.** Task 5가 격리를 선택하면 `--exclude-from`이 읽는 JSON이 새로 생기며, 그 경로는 Task 5가 정한다 — 지금 지어내지 않는다 (UI5).
 
 ## Tasks
@@ -360,6 +385,80 @@ retry loop이 소유한다.
 | polish | `/impeccable polish` |
 | system | `/impeccable document` · `/impeccable extract` |
 
+
 ## Codex Adversarial Review
 
-<!-- placeholder: will be replaced by Phase 7.3 -->
+Plan-Codex는 이 계획에서 **발화하지 않았다**. `/mccp:plan`이 `multi-agent` 모드로 돌아 L2 패널이
+리뷰를 수행했고(`review_source: multi-agent`), Codex 채널은 그 경로에 없다. 플레이스홀더를 지우지
+않고 그 사실을 적는 이유는, 빈 섹션이 "Codex가 돌았는데 아무 말도 안 했다"로 읽히기 때문이다.
+
+- 판정 기록: `.claude/reviews/plan-review-ci-full-suite-m2.md` (verdict=`divergent`, L1 converged · L2 divergent · L3 미발화)
+- 봉인: `.claude/receipts/mccp-plan-codex/ci-full-suite-m2.json` — `review_single_pass_reason: deadline_pressure`로 진행하되 verdict는 `divergent` 그대로 봉인
+- cross-model 반증의 회수 지점은 `/mccp:pr`의 PR-Codex다 (dedupe는 divergent로 닫혀 있으므로 반드시 발화한다)
+
+## Codex Implementation Review
+
+- 호출: `node .../scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, v0.2.2)
+- 라운드 수: 0 — Codex는 발화하지 않았다
+- 합치 결론: `MCCP_CODEX_DISABLED=1`(영구 운영자 정책)로 `classification=disabled` first-class skip.
+  cross-model 반증은 이 게이트에서 회수되지 않으며 `/mccp:pr`의 PR-Codex가 회수 지점이다.
+- Codex 정책 봉인: `codex-policy.js seal` → `codex_disabled=true`
+- 라운드 봉인: `review-rounds/cli.js seal --gate mccp-implement-codex --decision ci-full-suite-m2` → cap=1 pinned-by=codex-disabled
+- Deferred to backlog: 3 → `.claude/plans/codex-findings-backlog.md`
+- Open Questions: 없음 (auto-CRITICAL 카탈로그 해당 없음)
+
+### 이 게이트가 실제로 받은 반증 — plan-review L2 패널 (`ci-full-suite-m2`)
+
+Codex가 침묵했으므로 이 구현이 딛는 반증은 plan 단계 L2 패널(4관점, verdict=divergent, single-pass 봉인)이다.
+그 패널은 Task 1의 **기제 자체를 반증했고**, 아래 YAGNI triage는 그 결과를 구현 결정으로 옮긴 것이다.
+
+| Finding | Severity | Verdict | Why |
+|---|---|---|---|
+| L2-arch/inv/sec: `MCCP_ROUND_LEDGER=observe`를 `childEnv`에 싣는 Task 1 Action 2는 seal 존재 시 구조적으로 무효이고, 그 변수는 "게이트가 절대 대입하지 않는다"는 선언된 불변식이다 | HIGH | ACCEPT_NOW | 기제를 **폐기**한다. `seal.js:207-213`이 봉인 우선·env fallback을 의도로 명시하고 `round-cap-command-body.test.js:209-212`가 대입 금지를 단언한다. 실측으로 근인이 달라졌다 — 갈래 H는 `run.js` 오염이 아니라 **test가 `gitDir`를 격리하지 않아** 저장소의 살아있는 봉인을 읽는 것이고, `node --test` 직접 실행에서도 동일 재현된다. 격리 경계는 env가 아니라 `gitDir`다 |
+| L2-test: `MCCP_SUITE_REPO_ROOT` 소비처 0건이라는 Task 1 Action 4의 근거가 거짓 | HIGH | ACCEPT_NOW | 실측 확인 — `scripts/test-suite/reporter.mjs:223`이 소비한다(`--include=*.js` grep이 `.mjs`를 놓쳤다). **변수를 유지**하고 plan의 거짓 주장을 정정한다. 제거는 reporter의 repo-relative 산출을 깨뜨린다 |
+| L2-test: Task 1의 핵심 주장을 반증할 test가 없다(`childEnv`가 export되지 않음) | HIGH | ACCEPT_NOW | `childEnv`를 export하고 자식 env의 키 유무를 **직접** 단언한다. 간접 오라클("갈래 H가 green")은 `MCCP_CODEX_DISABLED` 강제만으로도 만족되므로 두 축을 구분하지 못한다 |
+| L2-test: `l1-check.js` 2행에 대응 Task도 Validate 줄도 없다 | HIGH | ACCEPT_NOW | Task 4에 흡수하고 `## Validation`에 `plan-review-l1.test.js`를 추가한다 |
+| L2-test: `plugin.json` bump의 동기 4면과 그 drift 검증(`i18n-surface.test.js`)이 Validation에 없다 | HIGH | ACCEPT_NOW | 4면 동기 + 해당 test를 Validation에 추가한다 (§3.7) |
+| L2-inv: Validation 3번은 항상 exit 0이라 검증력이 0이다 | HIGH | ACCEPT_NOW | 실제 단언을 하는 명령으로 교체한다 |
+| L2-arch/test/inv: `round-cap-reached`가 어느 `kind`에 들어가는지 미지정이고, 기존 5종 중 정직한 값이 없다 | MEDIUM | ACCEPT_NOW | MEDIUM이지만 **이 축의 결정 없이는 Task 4를 쓸 수 없다.** 새 kind `budget-spent`를 만든다 — `env-policy`는 사유 문자열이 `MCCP_CODEX_DISABLED=1`이라 거짓을 보고하고, `transport`는 "도달 못 함"이라 의도적 미질의를 장애로 오보한다 (CLAUDE.md §3.3 "서로 다른 축") |
+| L2-arch: `MCCP_CODEX_DISABLED=1` 기본 강제가 `codex-companion-smoke.test.js`를 항상 skip으로 접어 허위 커버리지를 만든다 | MEDIUM | DEFER_TO_BACKLOG | UI2가 기본 강제를 요구하고 `--allow-codex`가 해제 경로다. 그 대가(전수 러너 경로에서 이 파일은 "실행됐다"만 주장)를 M2 산출 문서에 적고 축은 M3(커버리지 분모)로 이연한다 |
+| L2-arch: Task 7의 취소선 정정을 `## Delivery Milestones` **status 셀**에 적용하면 C4 파싱에서 non-canonical이 되어 영구 archivable 불가 | MEDIUM | ACCEPT_NOW | MEDIUM이지만 데이터 손실 축이라 흡수한다. status 셀은 canonical 토큰만 두고 정정 서술은 다른 열/각주로 옮긴다 |
+| L2-sec: fan-out의 security finding 4건이 Tasks/Risks/backlog 어디에도 없다 | MEDIUM | DEFER_TO_BACKLOG | 아래 security-reviewer 결과가 그 4건 중 3건을 실제 좌표로 다시 냈다. 미다룬 축은 backlog에 등재 |
+| L2-test: 격리 남용(상시 red를 전부 exclusions로 옮기면 Acceptance 성립)을 기계가 아니라 산문이 막는다 | MEDIUM | DEFER_TO_BACKLOG | Task 5 산출 시 격리 건수를 문서에 적는 것은 유지하되, 기계적 상한은 M3(강제) 소유로 이연 |
+
+### Security Reviewer
+
+`Task(security-reviewer)` 실행 완료 (fallback 없음). HIGH 2건은 **차단이 아니라 흡수**로 처리한다 —
+둘 다 이 사이클의 편집 지점 안에서 한 줄~한 함수로 닫히며, §3.16이 금지하는 것은 라운드를 늘리는 것이지
+지적을 흡수하는 것이 아니다.
+
+| # | Severity | Location | Finding | Verdict |
+|---|---|---|---|---|
+| S1 | HIGH | `review-rounds/seal.js:219-254` | Task 1.2의 env 강제는 seal-우선 의미론에서 무시된다. round-ledger 축은 `MCCP_CODEX_DISABLED`(OR 의미론)와 **다른 기제**가 필요하다 | ACCEPT_NOW — 위 L2 HIGH와 같은 결론에 독립 도달. env 기제 폐기, `gitDir` 격리로 전환 |
+| S2 | HIGH | `.github/workflows/test-suite-baseline.yml:53` | `persist-credentials: false` 부재 → GITHUB_TOKEN이 `.git/config` extraheader에 평문 잔류. 전수 실행은 PR이 추가한 test까지 돌리고 `redact.js`의 `RESIDUAL_PATTERNS`에는 credential 클래스가 0건이라, 그 값이 `failing[].error`를 거쳐 `if: always()` artifact로 나간다 | ACCEPT_NOW — Task 3이 바로 이 step을 편집하므로 같은 자리에서 한 줄 추가. 이 workflow는 이후 git 쓰기를 하지 않아 기능 손실 없음 |
+| S3 | MEDIUM | `derive/mask.js` 전체 | `redact.js`의 구조적 재스캔·`redaction_ok` fail-closed 백스톱이 **0건**. 화이트리스트 밖 필드의 절대경로 유출은 무방비 | DEFER_TO_BACKLOG — `mask.test.js` 단건 수리는 이번 범위, 재스캔 백스톱 이식은 별도 축 |
+| S4 | MEDIUM | `scripts/test-suite/run.js:423-427` | `--allow-codex`가 미래에 `pull_request` workflow로 배선되면 codex 자식이 CI env 전량을 물려받는다 | ACCEPT_NOW — 플래그 선언부에 명시 금지 주석 한 줄 (저비용) |
+| S5 | MEDIUM | `scripts/test-suite/enumerate.js:69-76` | exclusion `reason`의 **작성자 provenance**가 검증되지 않는다. measurement-only인 지금은 무해하나 M3 강제 승격 시 코드화 필수 | DEFER_TO_BACKLOG — M3 소유로 명시 이연 |
+| S6 | LOW | 같은 workflow (`fetch-depth: 0`) | 노출 확대 아님 — 전체 히스토리는 read 권한자가 이미 clone으로 얻는다. S2와 직교 | REJECT_YAGNI — 조치 불필요 |
+| S7 | LOW | (프롬프트 전제 정정) | 이 workflow는 어떤 step에도 `GITHUB_TOKEN`을 env로 설정하지 않는다. 노출 경로는 env가 아니라 checkout persist-credentials | 기록만 — S2의 해법 방향을 정한다 |
+
+prototype-pollution 축(`--exclude-from` JSON 수용)은 `run.js:341-350`의 `readJsonFile` → `assertNoPollution` + `sanitize`가 **이미 닫고 있음**을 리뷰어가 실독 확인했다. Task 5는 그 경로를 그대로 재사용하므로 추가 조치가 없다.
+
+### Design Review
+
+> impeccable silent-skip (auto-fallback): `no-signal` — 이 시점의 diff에 렌더 표면이 없다
+> (`skill_available=1` · `design_signal=0`). plan 단계에서는 `derive/mask.js`가 신호를 냈으나
+> 그 편집은 아직 일어나지 않았다. 게이트 규약대로 pre-EXECUTE 시점의 관측을 그대로 기록한다.
+
+### 근인 정정 — 갈래 H는 러너 오염이 아니다
+
+계획 §Summary와 갈래표는 "`run.js`가 저장소 루트를 cwd로 자식을 띄우므로 test가 살아있는 게이트 상태를
+읽는다"고 적었다. **실측이 이를 반증한다** — `node --test`로 해당 파일을 직접 실행해도 동일하게 실패한다
+(러너를 거치지 않았다). 근인은 러너가 아니라, 이 두 소비처가 `gitDir` 인자를 받는 시임을 갖고 있는데
+(`codex-invoke.js`의 `opts.gitDir` — 주석이 "so tests can point at a scratch repo without chdir"라고
+명시) test가 그것을 쓰지 않고 `process.cwd()` 폴백에 떨어지는 것이다. `plan-review/cli.js:306-307`은
+같은 결함의 더 강한 형태다 — `--repo-root`를 받아 다른 모든 경로에 쓰면서 라운드 캡 초크포인트만
+`process.cwd()`를 읽는다.
+
+그래서 갈래 H의 수리 지점은 `childEnv`가 아니라 (a) 두 test 파일의 `gitDir` 격리와 (b) `plan-review/cli.js`의
+누락된 `gitDir` 시임이다. UI2가 요구하는 `MCCP_CODEX_DISABLED=1` 기본 강제는 **별개 축**으로 그대로 이행한다.

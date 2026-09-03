@@ -26,12 +26,24 @@ const envValue = require('./env-contract/value');
 // 있다는 것은 companion 이 spawn 되지 않았다는 뜻이고, 그 판정은 하위 계층의
 // 정직성과 무관하게 성립해야 한다(방어적 중복, fail-closed).
 
-// `codex-invoke.js:14-22` 주석 헤더의 14종과 1:1. 이름을 그대로 쓰고 새 이름을
+// `codex-invoke.js` 주석 헤더의 15종과 1:1. 이름을 그대로 쓰고 새 이름을
 // 만들지 않는다.
+//
+// ci-full-suite M2 갈래 D — v1.33.5가 15번째 분류 `round-cap-reached`를 넣었는데
+// 이 오라클은 14에 멈춰 있었다. 그 동안 모르는 값은 fail-closed 대체 경로
+// (`transport` + "unknown classification")로 떨어졌으므로 안전하긴 했으나,
+// **사유가 거짓이었다** — 예산 소진을 "도달하지 못함"으로 보고했다.
 const CLASSIFICATION_KIND = Object.freeze({
   'ok': 'reached',
 
   'disabled': 'env-policy',
+
+  // 기존 5종 중 정직한 값이 없어 **새 kind를 만든다**. `env-policy`는
+  // 사유 문자열이 `MCCP_CODEX_DISABLED=1`이라 거짓을 보고하고, `transport`는
+  // "도달 못 함"이라 의도적 미질의를 장애로 오보한다. CLAUDE.md §3.3이
+  // `disabled`와 `round-cap-reached`를 "서로 다른 축"이라 못박았고, 그 둘을
+  // 같은 버킷에 넣으면 오라클이 그 구분을 지우게 된다.
+  'round-cap-reached': 'budget-spent',
 
   'registry-missing': 'not-installed',
   'registry-malformed': 'not-installed',
@@ -51,11 +63,15 @@ const CLASSIFICATION_KIND = Object.freeze({
 
 const KNOWN_CLASSIFICATIONS = Object.freeze(Object.keys(CLASSIFICATION_KIND));
 
-const KINDS = Object.freeze(['env-policy', 'not-installed', 'unauthenticated', 'transport', 'reached']);
+const KINDS = Object.freeze(['env-policy', 'budget-spent', 'not-installed', 'unauthenticated',
+  'transport', 'reached']);
 
 const REASON = Object.freeze({
   'env-policy': 'env-policy: MCCP_CODEX_DISABLED=1 — codex-invoke short-circuits before spawn, '
     + 'so the companion was never reached (this is a policy decision, not a contract observation)',
+  'budget-spent': 'budget-spent: this (gate, decision) had already spent its review rounds, so '
+    + 'codex-invoke short-circuited before spawn — the companion was deliberately not asked, '
+    + 'which is an end of budget rather than an outage',
   'not-installed': 'not-installed: the codex plugin/companion could not be resolved on this machine',
   'unauthenticated': 'unauthenticated: the codex CLI is installed but not authenticated (/codex:setup)',
   'transport': 'transport: the companion could not be reached or produced no usable response',

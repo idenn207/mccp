@@ -70,6 +70,7 @@ function setupRegistry(prefix) {
 test('wrapper with json:true forwards --json to companion argv', () => {
   const { registryPath } = setupRegistry('with-json');
   const r = invokeAdversarialReview('focus text', {
+    gitDir: null,   // ci-full-suite M2 갈래 H — ambient 봉인을 읽지 않는다
     registryPath,
     timeoutMs: 10_000,
     env: {},
@@ -86,6 +87,7 @@ test('wrapper with json:true forwards --json to companion argv', () => {
 test('wrapper without json forwards no --json to companion argv (regression guard)', () => {
   const { registryPath } = setupRegistry('no-json');
   const r = invokeAdversarialReview('focus text', {
+    gitDir: null,   // ci-full-suite M2 갈래 H — ambient 봉인을 읽지 않는다
     registryPath,
     timeoutMs: 10_000,
     env: {},
@@ -101,6 +103,7 @@ test('wrapper without json forwards no --json to companion argv (regression guar
 test('--json appears before the focus positional in argv', () => {
   const { registryPath } = setupRegistry('order');
   const r = invokeAdversarialReview('focus-marker-XYZ', {
+    gitDir: null,   // ci-full-suite M2 갈래 H — ambient 봉인을 읽지 않는다
     registryPath,
     timeoutMs: 10_000,
     env: {},
@@ -125,12 +128,14 @@ test('runCli accepts --json without parser crash (line 223 contract)', () => {
   //   - stdout is valid JSON
   //   - classification is a non-empty string from the documented enum
   const { runCli } = codexInvoke;
-  const validClassifications = new Set([
-    'ok', 'disabled', 'registry-missing', 'registry-malformed',
-    'plugin-not-installed', 'install-path-stale', 'companion-not-found',
-    'companion-version-mismatch', 'not-authenticated', 'timeout',
-    'exit-nonzero', 'stdout-empty', 'spawn-enoent', 'parse-error',
-  ]);
+  // ci-full-suite M2 갈래 D — 이 목록은 손으로 쓰지 않는다. 손으로 쓰인 동안 그것은
+  // 14종에 멈춰 있었고, v1.33.5가 15번째(`round-cap-reached`)를 넣자 이 test는 그
+  // 정상 분류를 "unexpected classification"으로 보고했다. 여기서 검증하려는 것은
+  // "enum 안의 값인가"이지 "내가 아는 14개 중 하나인가"가 아니므로, enum을 소유한
+  // 오라클에서 파생한다. 그 오라클과 codex-invoke 주석 헤더의 1:1은
+  // codex-reachability.test.js (d)/(d2)가 별도로 고정한다.
+  const validClassifications = new Set(
+    require('../codex-reachability').KNOWN_CLASSIFICATIONS);
   const captured = { out: '' };
   const origOut = process.stdout.write.bind(process.stdout);
   process.stdout.write = (s) => { captured.out += String(s); return true; };
@@ -150,6 +155,7 @@ test('runCli accepts --json without parser crash (line 223 contract)', () => {
 test('fake companion structured JSON verdict round-trips through wrapper unchanged', () => {
   const { registryPath } = setupRegistry('roundtrip');
   const r = invokeAdversarialReview('challenge X', {
+    gitDir: null,   // ci-full-suite M2 갈래 H — ambient 봉인을 읽지 않는다
     registryPath,
     timeoutMs: 10_000,
     env: {},

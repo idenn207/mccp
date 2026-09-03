@@ -283,7 +283,21 @@ function cmdL1(args) {
 // The ledger key lives in the gate-entry seal rather than in flags here, for the
 // same reason as the Codex channel: emit-workflow-args receives `--plan`, never a
 // decision slug, and threading one through would put the wiring back into prose.
-function resolveRoundBudget() {
+//
+// ci-full-suite M2 갈래 H — `opts.gitDir`는 **프로그래매틱 전용** 시임이며
+// CLI 플래그를 갖지 않는다. `codex-invoke.js#resolveRoundBudget`의 `opts.gitDir`와
+// 같은 모양이고 같은 이유다 — "so tests can point at a scratch repo without
+// chdir".
+//
+// **왜 `--repo-root`를 따르지 않는가.** 이 명령의 다른 모든 경로는
+// `--repo-root`를 존중하지만, 라운드 캡만은 그래서는 안 된다. `resolveGitDir`는
+// 주어진 디렉토리에서 **위로** 걸어 올라가므로, 저장소의 부모를
+// `--repo-root`로 넘기면 plan은 여전히 contained이면서 git dir는 못 찾아
+// `canRecord:false` → inert → **캡이 조용히 우회된다**. 셸 호출자가 닿을 수
+// 없는 자리에 둔 것이 그 우회를 구조적으로 닫는다(§3.13의 "intent 결정은
+// CLI 표면을 갖지 않는다"와 같은 논거).
+function resolveRoundBudget(opts) {
+  opts = opts || {};
   const inert = {
     allowed: true, canRecord: false, roundsSoFar: null, cap: null,
     pinnedBy: null, gateId: null, decisionId: null, mode: null,
@@ -304,7 +318,9 @@ function resolveRoundBudget() {
   let state;
   try {
     state = seal.resolveEnforcement({
-      gitDir: seal.resolveGitDir(process.cwd()),
+      gitDir: Object.prototype.hasOwnProperty.call(opts, 'gitDir')
+        ? opts.gitDir
+        : seal.resolveGitDir(process.cwd()),
       env: process.env,
     });
   } catch (e) {
@@ -393,7 +409,8 @@ function describeRoundCapRecovery(budget) {
 // the L2 agents that are about to read the plan. Computing it later (at decide
 // time) would read the post-edit file and erase the very mismatch the binding
 // exists to detect.
-function cmdEmitWorkflowArgs(args) {
+function cmdEmitWorkflowArgs(args, ctx) {
+  ctx = ctx || {};
   const planPath = args.plan;
   if (!planPath || planPath === true) {
     errln('emit-workflow-args requires --plan <path>');
@@ -503,7 +520,7 @@ function cmdEmitWorkflowArgs(args) {
   //
   // It runs BEFORE the args file is written so that a refused round leaves no
   // workflow-args.json behind for a later step to pick up.
-  const budget = resolveRoundBudget();
+  const budget = resolveRoundBudget(ctx);
   if (!budget.allowed) {
     errln('BLOCK: round cap reached (' + budget.roundsSoFar + '/' + budget.cap +
       ' for ' + budget.gateId + '__' + budget.decisionId + ')' +
@@ -1525,13 +1542,16 @@ function usage() {
   ].join('\n'));
 }
 
-function runCli(argv) {
+// `opts` is the programmatic-only channel described at resolveRoundBudget. It is
+// never built from argv, so no shell caller can reach it.
+function runCli(argv, opts) {
+  opts = opts || {};
   const sub = argv[0];
   const args = parseArgs(argv.slice(1));
   switch (sub) {
     case 'mode': return cmdMode(args);
     case 'l1': return cmdL1(args);
-    case 'emit-workflow-args': return cmdEmitWorkflowArgs(args);
+    case 'emit-workflow-args': return cmdEmitWorkflowArgs(args, opts);
     case 'l3': return cmdL3(args);
     case 'decide': return cmdDecide(args);
     case 'verify-proof': return cmdVerifyProof(args);

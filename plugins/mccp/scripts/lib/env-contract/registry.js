@@ -291,7 +291,7 @@ const RAW = [
   // 축 밖 1행(M5 Task 3.3): origin/main `b111dca`(codex-intent-context M3)가 도입했으나
   // 미등재라 L1이 red였다. 런타임 동작 변경 0이며, 이 줄이 없으면 M5는 자기가 확장하는
   // lint를 green으로 검증할 수 없다.
-  ['MCCP_PLAN_REVIEW_TEST_INVOKE', 'bypass-flag', BY, 'off', OFF, 'test-only', 'review', 'plugins/mccp/scripts/lib/plan-review/cli.js:699', 'test 전용 — `--invoke-module` 허용.'],
+  ['MCCP_PLAN_REVIEW_TEST_INVOKE', 'bypass-flag', BY, 'off', OFF, 'test-only', 'review', 'plugins/mccp/scripts/lib/plan-review/cli.js:715', 'test 전용 — `--invoke-module` 허용.'],
   ['MCCP_PLAN_REVIEW_L1', 'string', null, null, null, 'absent-by-design', 'retired', 'docs/environment/retired.md:1', '의도적 부재 — 끌 수 없다.'],
   ['MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL', 'bool', B, 'off', OFF, 'test-only', 'retired', 'plugins/mccp/commands/plan.md:687', 'test 전용 — critique 강제 실패.'],
   ['MCCP_PERF_INJECT_QUADRATIC', 'string', null, null, null, 'test-only', 'retired', 'docs/environment/retired.md:1', 'test 전용, 표면 밖.'],

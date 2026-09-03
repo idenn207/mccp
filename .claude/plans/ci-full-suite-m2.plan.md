@@ -479,13 +479,26 @@ prototype-pollution 축(`--exclude-from` JSON 수용)은 `run.js:341-350`의 `re
 ## Milestone Closure Provenance
 
 - Milestone : ci-full-suite-m2
-- Verdict   : done
+- Verdict   : done (보정 후에도 유지 — 아래 amendment)
 - Closure   : `.claude/milestone-closures/ci-full-suite-m2.md`
-- sha256    : sha256:35f396e653e831e4007cdfeeda492fdb279ff372c7d90e4a5fa88e9654fb610d
-- Stamped at: 2026-09-03T06:56:00Z
+- sha256    : sha256:50ad6848f58e5a40c9ad45a0835e6ab04760e9175266cd37300ff6d3cb64658e
+- Stamped at: 2026-09-03T06:56:00Z (최초 종결)
 - Command   : `/mccp:milestone-close` (run_id=da54bae5-c5e3-4290-8bc9-3f4b7047803f)
 
-closure document는 이 milestone의 종결 판정과 **반올림하지 않은 미충족 1건**을 담는다.
+### Amendment — 2026-09-03, 종결 후 Linux 측정 반영
+
+- 이전 sha256 : `sha256:35f396e653e831e4007cdfeeda492fdb279ff372c7d90e4a5fa88e9654fb610d`
+- 변경 사유   : PR #177의 CI가 낸 Linux 원소 2개가 종결 **이후** 도착했고, 그것이 계획
+  Acceptance 산출물 1번의 충족을 조건부로 만든다(`redaction_ok=false`). closure에
+  `## 종결 후 보정` 절을 추가해 기록했다.
+- 갱신 방식   : `/mccp:milestone-close` **재호출이 아니라** closure와 이 절의 수동 짝
+  갱신이다. verdict가 바뀌지 않았고 재판정이 아니라 증거 추가이므로 새 goal-loop을 돌리지
+  않았다. 그래서 위 `Stamped at`·`run_id`는 최초 종결의 값 그대로이며 이 amendment의
+  것이 아니다 — 일어나지 않은 실행을 기록하지 않기 위해서다.
+
+closure document는 이 milestone의 종결 판정과 **반올림하지 않은 미충족 1건**(산출물 2번)을
+담고, 보정 절이 산출물 1번의 충족이 **조건부**임을 기록한다 — 실패하는 Linux 원소를 컨테이너에
+병합하지 않아서만 성립한다.
 위 sha256이 `/mccp:pr`의 plan_hash anchor에 포함되므로 closure body를 사후 변경하면
 mechanical하게 검출된다 (§option B — receipt schema 무수정). closure를 고쳐야 하면
-`/mccp:milestone-close`를 재호출해 이 절과 함께 갱신한다 — 한쪽만 손대지 않는다.
+closure와 이 절을 **함께** 갱신한다 — 한쪽만 손대지 않는다.

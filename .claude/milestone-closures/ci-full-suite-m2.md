@@ -99,6 +99,110 @@ backlog에 등재돼 있다.
 - **cross-model 반증을 받았다고 주장하지 않는다.** 이 사이클의 Implement-Codex는 운영자
   정책(`MCCP_CODEX_DISABLED=1`)으로 발화하지 않았다. Codex 축의 회수 지점은 `/mccp:pr`이다.
 
+## 종결 후 보정 — Linux 측정이 도착했다 (2026-09-03)
+
+이 절은 **종결 판정 이후에 도착한 증거**를 기록한다. 위 본문은 종결 시점(06:51)의 상태이고,
+이 절은 그 뒤 PR #177의 CI가 낸 것이다. 위를 고쳐 쓰지 않는 이유는 무엇을 알고 닫았는지가
+감사 대상이기 때문이다.
+
+### 무엇이 도착했나
+
+PR #177의 `test-suite baseline measurement` (run `33734889607`, head `bab00a8`)가
+Linux 원소 **2개**(node 20 · 24)를 냈다. **3개가 아니다** — matrix는 Node 버전당 1회다.
+
+| | node 20 | node 24 |
+|---|---|---|
+| `ok` | true | true |
+| `attribution` | complete | complete |
+| `redaction_ok` | **false** | **false** |
+| `files_total` / `per_file` | 380 / 380 | 380 / 380 |
+| 벽시계 | 120.5초 | 123.4초 |
+| red 파일 수 | **6** | **5** |
+
+### 이것이 계획 Acceptance를 어떻게 바꾸는가 — 개수가 아니라 **성립 조건**이 바뀐다
+
+**미충족은 여전히 1건이다(산출물 2번).** 개수를 늘려 적고 싶은 유혹이 있으나 그것은 부정확하다 —
+산출물 1번은 **컨테이너 내용에 대한 진술**이고("`2026-09-01-suite-baseline.json`에 M2 label
+원소가 최소 3개 존재하고 각각 …"), Linux 원소는 그 컨테이너에 **병합되지 않았다**. 실독하면
+컨테이너의 M2 원소는 `local-m2-r1`~`r4` 4개뿐이고 넷 다 `ok` · `attribution:complete` ·
+`redaction_ok:true`이므로 산출물 1번은 **문자 그대로 충족이다.**
+
+**바뀐 것은 그 충족이 조건부임이 드러난 것이다.** 산출물 1번은 지금 이 순간
+`redaction_ok=false`인 원소가 컨테이너 밖에 있기 때문에만 참이다. m2-green.md §5c와 STATE.md가
+예고한 다음 행동(Linux 측정을 컨테이너에 병합)을 실제로 수행하면 산출물 1번은 **그 즉시 거짓이
+된다.** 즉 현재의 충족은 실패하는 측정을 아직 들여놓지 않아서 성립하는 **공허한 충족**이고,
+이 milestone이 반올림을 거부한 이유가 정확히 그런 종류의 성립을 경계하기 위해서였다.
+
+그래서 이 절이 기록하는 것은 "미충족이 하나 늘었다"가 아니라 **"산출물 1번을 계속 충족으로
+유지하는 유일한 방법이 실패 데이터를 병합하지 않는 것이다"** 라는 사실이다. 그 사실은 개수보다
+무겁다. M3이 Linux 데이터를 병합하는 순간 산출물 1번이 미충족으로 전환되며, 그것은 회귀가
+아니라 이미 존재하던 상태가 기록에 도달하는 것이다.
+
+산출물 2번은 무변경 미충족이고, Linux가 그것을 **강화**한다 — 로컬 r2·r3·r4가 이미 갈렸는데
+Linux 두 원소도 6 대 5로 갈린다(`dispatch-fullcycle-smoke`가 node 20에서만 red).
+산출물 3번·4번은 무변경 충족.
+
+### `redaction_ok=false`의 진단 — 유출이 아니고, 정규식 결함도 아니다
+
+`redaction_hits`는 양쪽 모두 **정확히 1건**이고 `redaction_degraded:[]` ·
+`redaction_scan_truncated:false`다. 매치는 red test의 단언 diff에 실린 **합성 fixture 리터럴**
+`C:/repo/.claude/plans/x.plan.md`이며, `win-drive-abs`가 그것을 잡았다 — **설계대로**다.
+그 규칙은 `(?<![A-Za-z0-9])[A-Za-z]:[\/]`로 드라이브 문자 앞 경계를 이미 갖고 있고
+(`redact.js:133-135`가 그 목적이 `https://`의 `s:/` 배제임을 명시한다), 여기서는 그
+경계를 통과한 진짜 드라이브 모양 문자열을 잡은 것이다.
+
+**따라서 드러난 것은 결함이 아니라 결합이다: `redaction_ok`는 test greenness와 독립이 아니다.**
+계획은 `ok` · `attribution` · `redaction_ok`를 독립 조건으로 다뤘으나, 실패한 test의 단언
+텍스트가 경로 모양 fixture를 담으면 redaction 조건이 함께 무너진다. **red 하나가 Acceptance
+조건 둘을 깬다.** M3이 이 측정을 merge-gating으로 승격시키기 전에 닫아야 한다 — 아니면 무관한
+test 하나가 붉어질 때마다 유출 게이트가 함께 붉어져 신호가 죽는다. 수리 후보는 (a) 해당 red를
+고치는 것(근본) · (b) fixture를 드라이브 모양이 아닌 값으로 바꾸는 것 · (c) 스캔 대상에서
+단언 diff를 분리하는 것이며, (b)는 증상만 가리고 (c)는 탐지 표면을 좁히므로 (a)가 우선이다.
+
+### "Linux 판정 대기 6건"의 실제 판정 — 3 red · 3 green
+
+위 `### 반올림하지 않은 잔여` 절이 열거한 6건에 Linux 답이 왔다:
+
+| 갈래 | 항목 | Linux 판정 |
+|---|---|---|
+| F | `dispatch-fullcycle-smoke` | **red** (node 20에서만 — node 24는 green) |
+| F | `review-verdict-corpus-hash` | green |
+| R | `validate-cmd` | green |
+| R | `review-single-pass-fields` | green |
+| P | `mask` | **red** (양쪽) |
+| P | `santa-loop-cap` | **red** (양쪽) |
+
+즉 6건 중 3건이 실재하는 Linux red이고 3건은 해소다. `dispatch-fullcycle-smoke`는 Node
+버전 간에도 갈리므로 flaky 축이 추가로 의심된다 — 2원소로는 판정할 수 없다.
+
+### 열거 밖의 Linux red 3건 — M2의 변경이 아니다
+
+`leadtime.test.js` · `msw-m8-producers.test.js` · `receipt-linkage-fields.test.js`가
+Linux에서 red인데, 셋 다 **main 쪽 작업이 마지막으로 건드린 파일**이다(각각 leadtime-observability
+M3 `8107d5a` · orchestrator-step-wiring `5e4732e` · review-record-linkage M3 `9bd78b5`).
+이 브랜치가 병합으로 받아온 트리의 관측이지 M2가 만든 red가 아니므로 M2에 귀속하지 않는다.
+소유 축에 전달할 사실로만 남긴다.
+
+### 그럼에도 verdict는 `done`을 유지한다
+
+운영자가 `/goal`에 넘긴 수용 조건 3절은 **전부 여전히 충족**이다:
+
+1. 6갈래 분해가 갈래별 귀속과 함께 기록 — 충족이고, 이 보정이 **더 강화**한다(대기 6건 중 3건이 판정됐다)
+2. Linux 3회가 병합 또는 사유와 함께 명시 이연 — 여전히 **이연**이다. 측정은 도착했으나 3회가
+   아니라 2회이고 컨테이너에 병합되지 않았으며, 사유는 m2-green.md §5c와 이 절이 적는다
+3. 미충족 acceptance 항목이 반올림 없이 기록 — 충족이고, 이 보정이 미충족을 1건에서 **2건으로
+   늘려 적는다**. 줄이지 않는다
+
+수용 조건은 *측정이 통과할 것*을 요구하지 않았고 *측정을 병합하거나 사유와 함께 이연할 것*을
+요구했다. M2의 축은 red 16파일의 분해와 귀속이었고 그것은 성립했으며, Linux 데이터는 그
+귀속을 반증한 것이 아니라 진전시켰다. `redaction_ok` 결합을 닫는 것은 ci-enforcement(M3)의
+소유이고, 여기서 그것을 쫓는 것은 milestone 경계를 넘는 것이다.
+
+**이 판정을 뒤집을 조건**: Linux red 3건(`mask` · `santa-loop-cap` · `dispatch-fullcycle-smoke`)
+중 하나라도 M2가 수리했다고 주장한 갈래의 회귀로 밝혀지면, 그것은 M2가 닫았다고 적은 것이
+닫히지 않았다는 뜻이므로 종결을 재검토해야 한다. 현재까지 그 증거는 없다 — 세 건 모두 M1이
+Linux 전용 red로 이미 열거했고 M2가 수리를 주장하지 않은 항목이다.
+
 ## Provenance
 - Lock run_id        : da54bae5-c5e3-4290-8bc9-3f4b7047803f
 - Lock owner session : d4a212b0-961a-46d1-a48d-39faf59209d8

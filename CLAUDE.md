@@ -328,6 +328,27 @@ node scripts/version-declaration-guard.js [--base origin/main] [--json]
 릴리스 컷만이 유일한 합법 경로이고, 그때는 `MCCP_RELEASE_CUT`에 **사유**를 담아
 켠다(값이 곧 사유 — §3.15와 같은 형태).
 
+**언제 확인하는가가 무엇을 확인하는가만큼 중요하다.** CI 게이트는 구조적으로
+**ship receipt 봉인 이후**다 — `/mccp:pr`이 finalize(2.5.7)하고 push(3.2)한 **뒤에야**
+CI가 돈다. 그래서 CI가 위반을 잡으면 그것을 고치는 커밋이 그 브랜치의 ship receipt를
+`ship-gate-stale-head`로 만들고, receipt는 git-tracked라 재봉인이 금지다(§3.12
+`TRACKED_RECEIPT_OVERWRITE`). 실측(2026-09-03): 이 사이클의 선언 철회가 자식 **네
+브랜치를 전부** 그 상태로 만들었다.
+
+따라서 확인 지점은 셋이고 **앞의 둘이 진짜 방어선**이다:
+
+1. **구현 중** — `node --test scripts/tests/version-declaration-guard.test.js`의
+   self-check이 저장소 자신을 본다. plan의 `## Validation`이 test를 돌리는 흐름이면
+   여기서 잡히고, 이 시점은 `/mccp:pr`보다 앞이라 receipt가 아직 없다. **비용 0**.
+2. **`/mccp:pr` 진입 직전** — `node scripts/version-declaration-guard.js`를 손으로 한 번.
+3. **CI** — 최후 그물. 여기서 잡히면 이미 비용이 발생한 뒤다.
+
+**사후에 발견됐다면 — 되돌리되 재봉인하지 마라.** 선언 철회 커밋을 올리고,
+`ship-gate-stale-head`를 **PR 본문에 이탈로 기록**한다(`## Gate Deviation`). receipt가
+덮지 못하는 델타가 무엇인지 명시하면 그 기록은 정직하다. 하지 말아야 할 것 둘:
+tracked receipt 덮어쓰기(가드가 fail-closed로 막는다)와 위반을 그냥 두는 것. 델타가
+게이트 재실행을 요구할 만큼 실질적이면 그때는 **새 decision slug로 재-ship**한다(§3.12).
+
 > **이 절이 스스로를 어긴 이력 (2026-09-03).** 결정 1은 채택된 날부터 **관례로만**
 > 존재했다(C0 PRD L87: "옮기지 않으면 결정 1은 관례로만 남는다"). 그 사이 §3.7은
 > 계속 bump를 지시했고, M2 plan의 `## Validation` 검사 6은 **bump하지 않으면

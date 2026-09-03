@@ -127,6 +127,30 @@ test('release cut is the one legal path, and only with a substantive reason', ()
   assert.ok(real.json.violations.length > 0, 'the cut is allowed, not undetected — violations stay visible');
 });
 
+// 첫 구현이 실제로 낸 거짓 양성이다. base 의 **tip** 과 대조하면 아무것도 하지
+// 않은 뒤처진 브랜치가 위반으로 잡힌다(실측: command-body-diet 1.34.1 vs main
+// 1.34.4). 재는 것은 "main 과 다른가"가 아니라 "물려받은 값에서 움직였는가"다.
+test('a branch merely BEHIND base is not a declaration', () => {
+  const { root, git } = makeRepo('1.34.1');
+
+  // base-ref(=비교 대상)가 그 뒤로 1.34.4 까지 나아간다. 브랜치는 그 커밋들을
+  // 갖지 않으며 자기 version 은 한 글자도 건드리지 않았다.
+  git(['checkout', '-q', '-b', 'feature']);
+  write(root, 'docs/note.md', 'work unrelated to versioning\n');
+  git(['add', '-A']);
+  git(['commit', '-qm', 'feature work']);
+
+  git(['checkout', '-q', 'base-ref']);
+  seed(root, '1.34.4');
+  git(['add', '-A']);
+  git(['commit', '-qm', 'base moves on']);
+
+  git(['checkout', '-q', 'feature']);
+  const r = run(root);
+  assert.strictEqual(r.status, 0, 'a stale branch declares nothing: ' + JSON.stringify(r.json && r.json.violations));
+  assert.strictEqual(r.json.base_version, '1.34.1', 'compared against merge-base, not base tip');
+});
+
 test('an unresolvable base halts instead of reporting clean', () => {
   const { root } = makeRepo('1.34.4');
   const r = spawnSync(process.execPath, [GUARD, '--base', 'no/such/ref', '--json'], {
@@ -143,6 +167,40 @@ test('releaseCutReason throws rather than killing the caller process', () => {
   assert.strictEqual(
     guard.releaseCutReason({ MCCP_RELEASE_CUT: '  release cut for the   umbrella delivery line  ' }),
     'release cut for the umbrella delivery line');
+});
+
+// 순서 축 (C3 관측, 2026-09-03). CI 게이트는 구조적으로 **ship receipt 봉인
+// 이후**다 — `/mccp:pr` 이 finalize(2.5.7) 하고 push(3.2) 한 뒤에야 CI 가 돈다.
+// 따라서 CI 가 위반을 잡으면 그것을 고치는 커밋이 그 브랜치의 ship receipt 를
+// `ship-gate-stale-head` 로 만들고, receipt 는 git-tracked 라 재봉인이 금지다
+// (§3.12 TRACKED_RECEIPT_OVERWRITE). 실측: 이 사이클의 undeclare 수정이 자식
+// 네 브랜치를 전부 그 상태로 만들었다.
+//
+// 그래서 저장소 자신을 보는 검사를 test 계층에 둔다. test 는 구현 중에 돌고
+// 그것은 `/mccp:pr` 보다 **앞**이므로, 위반이 receipt 를 봉인하기 전에 잡힌다.
+//
+// base 를 해소할 수 없으면 skip 한다. 여기서 skip 이 허용되는 이유는 이것이
+// 권위 있는 지점이 아니기 때문이다 — 권위는 CI 게이트이고 그쪽은 같은 상황에서
+// 통과가 아니라 HALT 한다. 얕은 clone 에서 붉어지는 test 는 신뢰를 잃고, 신뢰를
+// 잃은 test 는 꺼진다.
+test('this repository itself declares no version (runs before /mccp:pr seals a receipt)', (t) => {
+  const repoRoot = path.join(__dirname, '..', '..');
+  const resolvable = spawnSync('git', ['rev-parse', '--verify', 'origin/main'],
+    { cwd: repoRoot, encoding: 'utf8' }).status === 0;
+  if (!resolvable) {
+    t.skip('origin/main not resolvable here — the CI gate is the authoritative locus');
+    return;
+  }
+  const r = spawnSync(process.execPath, [GUARD, '--base', 'origin/main', '--json'], {
+    cwd: repoRoot, encoding: 'utf8',
+  });
+  const detail = (() => {
+    try { return JSON.parse(r.stdout).violations.map((v) => v.rule + ': ' + v.detail).join('\n'); }
+    catch (_e) { return r.stderr; }
+  })();
+  assert.strictEqual(r.status, 0,
+    'this branch declares a version — fix it NOW, before /mccp:pr seals a ship receipt ' +
+    'that a later fix commit would strand as stale-head:\n' + detail);
 });
 
 test('changelog heading scanner sees every version heading, not just the first', () => {

@@ -1062,6 +1062,9 @@ function renderHeroPanel(verdict, grid, projectName, escapeHtml, escapeAttr, for
     + escapeHtml(status.label) + '</span>'
     + '<h1 class="verdict s-' + escapeHtml(verdict.tone) + '">' + safeText + '</h1>'
     + subtextHtml
+    // leadtime-observability M3 (DD7) — hero-status/verdict 띠 **직후**,
+    // widget-grid **앞**. md 의 “summaryLine 다음” 과 같은 자리다. 신규 CSS 0개.
+    + ((grid && grid.leadtimeHtml) || '')
     + promptHtml
     + '</section>';
 }
@@ -1416,7 +1419,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.34.3 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">v1.35.0 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.

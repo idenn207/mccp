@@ -105,3 +105,46 @@ test('schema-drift: envelope with unknown_top_level_key flagged as invalid + deg
     cleanup(root);
   }
 });
+
+// leadtime-observability M3 — `leadtime` 은 additive top-level 필드다. `emptyModel`
+// 이 **`null` 로** 선언하고 `validateShape` 가 present-only 로 검사한다. 선언된
+// `null` 을 거부하면 빈 모델이 자기 스키마에 걸리므로, 그 허용이 계약의 일부다.
+test('schema-drift: leadtime is a declared additive top-level field that tolerates null', () => {
+  const m = emptyModel('/x');
+  assert.ok('leadtime' in m, 'emptyModel declares the leadtime key');
+  assert.strictEqual(m.leadtime, null, 'the declared value is null — "축이 계산되지 않았다"');
+  assert.strictEqual(validateShape(m).ok, true, 'a declared null leadtime is shape-valid');
+  assert.strictEqual(m.schema_version, 'v1', 'MODEL_VERSION stays v1 (additive)');
+
+  // 정상 투영 shape 은 통과한다.
+  m.leadtime = {
+    tool: 'leadtime',
+    state: 'ok',
+    coverage: { panel_records: 1, measurable: 1, counts_are_lower_bound: false },
+    panel_span: { n: 1, min: 1, p50: 1, p90: 1, max: 1 },
+    post_panel_span: {
+      by_anchor: { ledger_basename: null, ship_plan_hash: null },
+      coverage: {
+        eligible: 0, matched_ledger: 0, matched_ship: 0,
+        both: 0, only_ledger: 0, only_ship: 0, neither: 0,
+      },
+      unmatched: {}, disagreement: null, disagreement_note: '',
+    },
+    degradations: [],
+  };
+  assert.strictEqual(validateShape(m).ok, true, 'a well-formed projection is shape-valid');
+
+  // 두 앵커 키 중 하나가 사라지면 붉어진다 — 조건부 키가 소비처로 새는 회귀 가드.
+  delete m.leadtime.post_panel_span.by_anchor.ship_plan_hash;
+  const missingAnchor = validateShape(m);
+  assert.strictEqual(missingAnchor.ok, false);
+  assert.ok(missingAnchor.errors.some(e => e.indexOf('by_anchor.ship_plan_hash') !== -1),
+    'validateShape flags a dropped anchor key');
+
+  // 비객체·비null 은 present-only 로 잡힌다.
+  m.leadtime = 'not-an-object';
+  const v = validateShape(m);
+  assert.strictEqual(v.ok, false);
+  assert.ok(v.errors.some(e => e.indexOf('leadtime') !== -1),
+    'validateShape flags a malformed leadtime');
+});

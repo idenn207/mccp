@@ -1,0 +1,64 @@
+{
+  "coverage": {
+    "counts_are_lower_bound": true,
+    "measurable": 50,
+    "panel_records": 63
+  },
+  "degradations": [],
+  "panel_span": {
+    "max": 25642300,
+    "min": 43984,
+    "n": 50,
+    "p50": 449737,
+    "p90": 716586
+  },
+  "post_panel_span": {
+    "by_anchor": {
+      "ledger_basename": {
+        "max": 150743189,
+        "n": 11,
+        "p50": 33035593,
+        "p90": 60830831
+      },
+      "ship_plan_hash": {
+        "max": 511876477,
+        "n": 17,
+        "p50": 24176707,
+        "p90": 360895695
+      }
+    },
+    "coverage": {
+      "both": 6,
+      "eligible": 50,
+      "matched_ledger": 11,
+      "matched_ship": 17,
+      "neither": 28,
+      "only_ledger": 5,
+      "only_ship": 11
+    },
+    "disagreement": {
+      "max": 0,
+      "n": 6,
+      "p50": 0
+    },
+    "disagreement_note": "structurally-zero: ledger.completed_at copies ship receipt meta.created_at (PRD open question)",
+    "unmatched": {
+      "ledger_basename": {
+        "anchor_absent": 30,
+        "key_mismatch": 0,
+        "no_plan_path": 0,
+        "not_shipped": 0,
+        "unclassified": 9
+      },
+      "ship_plan_hash": {
+        "anchor_absent": 11,
+        "key_mismatch": 16,
+        "no_plan_path": 0,
+        "not_shipped": 0,
+        "unclassified": 6
+      }
+    }
+  },
+  "state": "ok",
+  "tool": "leadtime"
+}

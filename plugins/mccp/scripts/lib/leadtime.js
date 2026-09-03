@@ -135,12 +135,52 @@
 // 이미 한 번 닫느라 sanctioned 재봉인 도구까지 만든 선례가 있다(CLAUDE.md §3.12 —
 // `write.js`가 `meta.cwd`를 repo-relative로 정규화하게 된 이유). 그래서 직렬화 직전에
 // `normalizePlanPath`를 통과시키고, repo 밖을 가리키는 경로는 값을 버리고 마커만 남긴다.
+//
+// ── M3: 소비 회로 — `allowGit` 게이트 + `summarizeForSurface` 투영 ───────────
+//
+// M1·M2는 이 도구 안에서만 살았다. M3은 소비처 셋(STATUS.md 한 줄 · status.html
+// 한 줄 · `.claude/state/leadtime/distribution.json`)을 붙이되, **해석 지점을 하나로**
+// 둔다. `summarizeForSurface(result)`가 유일한 투영이고 세 소비처가 그 반환값만
+// 읽는다 — 각자 `audit()` 결과를 해석하면 언젠가 서로 다른 숫자를 낸다. 이 PRD가
+// 열린 이유가 정확히 그것이다(DD1).
+//
+// 투영이 **버리는** 것 (DD8):
+//   per-record 배열 전부 — `panel_span.records` · `disagreement.records` ·
+//   `negative_spans` · `pre_panel_anchors` · `panel_span_missing_records` ·
+//   `parse_errors` · `by_verdict` · `by_halt_stage`.
+//   전건 상세는 `--json`과 문서 동결면이 계속 소유한다. 투영은 백분위 · 커버리지 ·
+//   미짝 사유 카운트까지다. 100KB급 결과를 모델에 실으면 렌더마다 직렬화 비용을 내고
+//   git-tracked 파일에서는 코퍼스가 자랄수록 diff가 폭발한다.
+//
+// 투영이 **경로를 버리는** 이유 (DD12):
+//   결과의 레코드 행은 `.claude/reviews/…` 파일명 · `plan_path` · `reviewed_plan_hash`를
+//   담는다. 그것이 렌더 면에 흐르면 HTML escaping 규율에, git-tracked 파일에 실리면
+//   머신 고유 문자열의 커밋에 의존하게 된다. 투영은 **수치와 열거형 키만** 담으므로
+//   escaping이 규율이 아니라 구조적으로 불필요해진다. 실패 sentinel도 예외가 아니다 —
+//   `err.message`는 절대경로를 품으므로 stderr로만 나가고 투영에는 닫힌 열거형만 실린다.
+//
+// 투영은 **산술을 하지 않는다** (DD13):
+//   `aggregate`가 이미 낸 값을 선택·재배치만 한다. 결측을 `0`이나 `100%`로 채우지
+//   않고, 음수 span을 clamp하지 않으며, 두 축을 평균하지 않는다. 부재는 `null`로
+//   남는다. 단위 환산은 표시 계층(`leadtime-surface.js`)에서만 일어난다.
+//
+// `allowGit:false`는 **spawn 게이트이자 test 주입 seam**이다(DD2). 렌더 경로가
+// `audit()`을 부르므로 git spawn을 끌 수 있어야 하고, 오늘 `audit()`은 test가 전혀
+// 건드리지 않는다 — `allowGit:false`가 spawn 없이 `audit()`을 완주시킬 유일한 통로다.
+// 끄면 W3이 `no`가 아니라 **`unavailable`**이 되고(그 계약은 M2가 못박았다),
+// `not_shipped`가 그 모드에서 도달 불가가 되어 해당 행이 `unclassified`로 떨어진다.
+// **분포는 영향을 받지 않는다** — 증인은 미짝의 *분류*에만 쓰이므로 백분위와 커버리지는
+// 두 모드에서 동일하다. 그 사실을 `degradations:['git-disabled']`로 산출물에 싣는다.
+// 감추면 `unclassified` 증가가 코퍼스의 성질로 오독된다.
 
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
 const corpus = require('./plan-review/corpus');
+// 단위 어휘의 소유자는 surface 모듈이다(Task 2). 의존은 이 방향 하나뿐 —
+// surface 모듈은 이 파일을 부르지 않으므로 순환이 없다.
+const { fmtMin, fmtDay, formatLeadtimeLine } = require('./leadtime-surface');
 
 const STATE_EXIT_CODES = Object.freeze({
   ok: 0,
@@ -239,6 +279,10 @@ const ANCHOR_SERIES = Object.freeze([ANCHOR_LEDGER, ANCHOR_SHIP]);
 // 항상 실린다 — 부재 규칙 (c)(관측 0건인 층은 키를 만들지 않는다)와 반대인데,
 // 그것은 층화(열린 집합)와 분류(닫힌 집합)가 다른 것이기 때문이다. 합계 등식
 // `unmatched === Σ(counts)`가 검사 가능하려면 분모가 전부 보여야 한다(§3.11 C3).
+// M3 Task 6b — 사람 면의 미짝 버킷 표시 상한(Output Constraint 4). `--json` 은
+// 이 상한을 받지 않는다 — 전 버킷을 유지하고 test 가 그 키 집합을 동결한다.
+const UNMATCHED_HUMAN_TOP_N = 3;
+
 const UNMATCHED_REASONS = Object.freeze([
   'no_plan_path',
   'key_mismatch',
@@ -1022,7 +1066,15 @@ function audit(opts) {
     const norm = normalizePlanPath(p.measurement.plan_path, root);
     if (norm && norm !== NON_REPO_PATH) planPaths[norm] = true;
   });
-  const git = readGitTouchedPaths(root, Object.keys(planPaths));
+  // M3 DD2 — spawn 게이트. `false`면 `readGitTouchedPaths`를 아예 부르지 않고
+  // 기존 `git-exec-failed` 경로와 **같은 형태**의 unavailable 증인을 주입한다.
+  // `available:false`이므로 `sourceUnavailable`이 W3을 `unavailable`로 판정하고
+  // `aggregate` 하류는 한 줄도 바뀌지 않는다. reason만 새 값이라 소비처가
+  // "못 물어봤다"와 "물어봤는데 실패했다"를 구분할 수 있다.
+  const allowGit = o.allowGit !== false;
+  const git = allowGit
+    ? readGitTouchedPaths(root, Object.keys(planPaths))
+    : { available: false, touched: [], reason: 'git-disabled' };
 
   return aggregate(read.records, {
     readError: read.read_error,
@@ -1038,12 +1090,103 @@ function audit(opts) {
   });
 }
 
-function fmtMin(ms) {
-  return (ms / 60000).toFixed(1) + 'min';
+// ── M3: 소비 표면 투영 ───────────────────────────────────────────────────────
+//
+// 순수 함수. I/O 없음, **산술 없음**(DD13) — `aggregate`가 이미 낸 값을 고르고
+// 재배치할 뿐이다. 부재는 `null`이고 절대 기본값을 넣지 않는다.
+//
+// DD11 — 지표 4(두 앵커 불일치)는 **파일에만** 싣고 한 줄에는 싣지 않는다. 그 값은
+// 오늘 구조적으로 0이라(`completed_at`이 `meta.created_at`의 복사본) "두 기록이 잘
+// 맞는다"로 읽히면 측정되지 않은 주장이 된다. 그래서 note를 함께 봉인해 인용자가
+// 맥락 없이 집어가지 못하게 한다.
+const DISAGREEMENT_NOTE =
+  'structurally-zero: ledger.completed_at copies ship receipt meta.created_at (PRD open question)';
+
+// 백분위만 고른다. `unit`·`method`·`records`·층화는 버린다(DD8).
+//
+// **관측 0건은 분포가 아니라 `null`이다.** `{n:0, p50:null}`을 실으면 "관측했더니
+// 0"과 "관측이 없음"이 구분되지 않는다 — 부재 규칙 (a)의 투영 층 대우이고,
+// `renderPostPanelSpan`이 `!b.n`을 "no join — absence is not a value of zero"로
+// 쓰는 것과 같은 판정이다. 커버리지 수치는 별도 필드가 계속 소유하므로 잃는 것이 없다.
+function pickSpan(axis, keys) {
+  if (!axis) return null;
+  if (!Number.isFinite(axis.n) || axis.n <= 0) return null;
+  const out = {};
+  keys.forEach(function (k) {
+    const v = axis[k];
+    out[k] = Number.isFinite(v) ? v : null;
+  });
+  return out;
 }
 
-function fmtDay(ms) {
-  return (ms / 86400000).toFixed(2) + 'd';
+function summarizeForSurface(result) {
+  const r = result || {};
+  const cov = r.coverage || {};
+  const pps = r.post_panel_span || null;
+  const ppsCov = (pps && pps.coverage) || {};
+  const rawByAnchor = (pps && pps.by_anchor) || null;
+
+  // 두 앵커 키는 **언제나** 실린다. 원본 `by_anchor`는 조건부 키(관측 0건·degraded
+  // 분기에서 아예 없다)라, 소비처가 그 조건성을 물려받으면 Validation 1과 4가 같은
+  // 명제를 다르게 검사하게 된다. 부재는 `null`이다 — DD13의 부재 규칙 그대로.
+  const byAnchor = {};
+  ANCHOR_SERIES.forEach(function (k) {
+    byAnchor[k] = pickSpan(rawByAnchor ? rawByAnchor[k] : null, ['n', 'p50', 'p90', 'max']);
+  });
+
+  // 미짝 사유 카운트만 — 레코드 이름은 원본에도 이 안에는 없다(닫힌 열거형 키).
+  const unmatched = {};
+  if (pps && pps.unmatched) {
+    ANCHOR_SERIES.forEach(function (k) {
+      const u = pps.unmatched[k];
+      if (!u || !u.counts) return;
+      const bucket = {};
+      UNMATCHED_REASONS.forEach(function (reason) {
+        bucket[reason] = Number.isFinite(u.counts[reason]) ? u.counts[reason] : 0;
+      });
+      unmatched[k] = bucket;
+    });
+  }
+
+  // 강등은 닫힌 열거형이다. 자유 문자열을 실으면 DD12가 실패 경로에서 깨진다.
+  const degradations = [];
+  if (r.read_error) degradations.push('read-error');
+  if (Number.isFinite(r.parse_failures) && r.parse_failures > 0) degradations.push('parse-failures');
+  const gitWitness = ppsCov.git_witness || null;
+  if (gitWitness && gitWitness.reason === 'git-disabled') degradations.push('git-disabled');
+  if (pps && !rawByAnchor && pps.state === 'degraded') degradations.push('anchor-source-damaged');
+  if (pps && Array.isArray(pps.negative_spans) && pps.negative_spans.length > 0) {
+    degradations.push('negative-spans');
+  }
+
+  return {
+    tool: 'leadtime',
+    state: typeof r.state === 'string' ? r.state : 'blind',
+    coverage: {
+      panel_records: Number.isFinite(cov.panel_records) ? cov.panel_records : 0,
+      measurable: Number.isFinite(cov.measurable) ? cov.measurable : 0,
+      counts_are_lower_bound: cov.counts_are_lower_bound === true,
+    },
+    panel_span: pickSpan(r.panel_span || null, ['n', 'min', 'p50', 'p90', 'max']),
+    post_panel_span: {
+      by_anchor: byAnchor,
+      coverage: {
+        eligible: Number.isFinite(ppsCov.eligible) ? ppsCov.eligible : 0,
+        matched_ledger: Number.isFinite(ppsCov.matched_ledger_basename)
+          ? ppsCov.matched_ledger_basename : 0,
+        matched_ship: Number.isFinite(ppsCov.matched_ship_plan_hash)
+          ? ppsCov.matched_ship_plan_hash : 0,
+        both: Number.isFinite(ppsCov.both) ? ppsCov.both : 0,
+        only_ledger: Number.isFinite(ppsCov.only_ledger) ? ppsCov.only_ledger : 0,
+        only_ship: Number.isFinite(ppsCov.only_ship) ? ppsCov.only_ship : 0,
+        neither: Number.isFinite(ppsCov.neither) ? ppsCov.neither : 0,
+      },
+      unmatched: unmatched,
+      disagreement: pickSpan((pps && pps.disagreement) || null, ['n', 'p50', 'max']),
+      disagreement_note: DISAGREEMENT_NOTE,
+    },
+    degradations: degradations,
+  };
 }
 
 // UI3 — 커버리지 줄이 값보다 **먼저** 나온다. 합성 state는 합성임을 문구로 밝힌다.
@@ -1057,11 +1200,13 @@ function renderPostPanelSpan(r) {
   }
   L.push('  post_panel_span — state=' + s.state);
   const c = s.coverage || {};
+  // M3 Task 6b — Output Constraint 4. 한 줄이 129칼럼이던 것을 매치 축과 교차표 축
+  // 두 줄로 가른다. 버킷을 지우지 않고 줄만 나눈다 — 교차표는 분할 불변식의 분모다.
   L.push('    coverage: eligible ' + c.eligible +
     ' · matched ledger_basename ' + c.matched_ledger_basename +
-    ' · matched ship_plan_hash ' + c.matched_ship_plan_hash +
-    ' · both ' + c.both + ' only_ledger ' + c.only_ledger +
-    ' only_ship ' + c.only_ship + ' neither ' + c.neither);
+    ' · matched ship_plan_hash ' + c.matched_ship_plan_hash);
+  L.push('      cross: both ' + c.both + ' · only_ledger ' + c.only_ledger +
+    ' · only_ship ' + c.only_ship + ' · neither ' + c.neither);
   L.push('    ship receipts: ' + c.ship_receipts_qualified + '/' + c.ship_receipts_total +
     ' qualified (unproven-skip ' + c.ship_receipts_unproven_skip +
     ' · override-qualified ' + c.ship_receipts_override_qualified + ')');
@@ -1099,8 +1244,20 @@ function renderPostPanelSpan(r) {
     ANCHOR_SERIES.forEach(function (k) {
       const u = s.unmatched[k];
       if (!u) return;
-      const parts = UNMATCHED_REASONS.map(function (rr) { return rr + '=' + u.counts[rr]; });
-      L.push('    unmatched[' + k + ']: ' + u.total + ' = ' + parts.join(' ') +
+      // M3 Task 6b — Output Constraint 4. 사람 면은 **비-0 버킷 내림차순 상위 3개**만
+      // 낸다. 5버킷 전건은 129칼럼이었고 그중 셋이 `=0`이라 신호가 잡음에 묻혔다.
+      // 절삭은 **항상 보인다**(`(+N in --json)`) — 조용한 절삭이 아니다.
+      // `--json`은 무변경이다: 전 버킷이 그대로 남고 test가 그 키 집합을 동결한다.
+      const nonZero = UNMATCHED_REASONS
+        .filter(function (rr) { return u.counts[rr] > 0; })
+        .sort(function (a, b) { return u.counts[b] - u.counts[a]; });
+      const shown = nonZero.slice(0, UNMATCHED_HUMAN_TOP_N);
+      const hidden = nonZero.length - shown.length;
+      const body = shown.length
+        ? shown.map(function (rr) { return rr + '=' + u.counts[rr]; }).join(' ')
+        : '(all buckets zero)';
+      L.push('    unmatched[' + k + ']: ' + u.total + ' = ' + body +
+        (hidden > 0 ? ' (+' + hidden + ' in --json)' : '') +
         (u.sum_equation_holds ? '' : '  *** SUM EQUATION BROKEN ***'));
     });
   }
@@ -1109,18 +1266,25 @@ function renderPostPanelSpan(r) {
 
 function renderHuman(r) {
   const L = [];
-  L.push('panel-span leadtime — state=' + r.state +
+  // M3 Task 6b (DD15) — Output Constraint 1. 사람 출력은 카운터 6개가 아니라
+  // **공유 한 줄**로 시작한다. CLI · STATUS.md · distribution.json 세 면이 같은
+  // 문장을 쓰게 되어 DD1의 단일 투영이 세 번째 면까지 확장된다. 카운터는 아래로.
+  const line = formatLeadtimeLine(summarizeForSurface(r));
+  L.push(line.text);
+  if (line.parts.note) L.push(line.parts.note);
+  L.push('  state=' + r.state +
     ' records=' + r.records +
     ' pre_measurement=' + r.pre_measurement +
     ' parse_failures=' + r.parse_failures +
     ' out_of_corpus=' + r.out_of_corpus +
     ' read_error=' + r.read_error);
-  // UI3 — 커버리지는 어떤 출력에서도 값보다 먼저 나온다.
+  // UI3 — 커버리지는 어떤 출력에서도 값보다 먼저 나온다. M3 Task 6b — 한 줄이
+  // 114칼럼이던 것을 코퍼스 축과 관측 축 두 줄로 가른다(정보 제거 0).
   L.push('  coverage: ' + r.coverage.measurable + '/' + r.coverage.panel_records +
     ' panel records measurable' +
-    (r.coverage.counts_are_lower_bound ? ' — counts below are a LOWER BOUND' : '') +
-    '; panel_span observed ' + r.coverage.panel_span_observed + '/' + r.coverage.measurable +
-    ' (missing ' + r.coverage.panel_span_missing + ')');
+    (r.coverage.counts_are_lower_bound ? ' (counts below are a LOWER BOUND)' : ''));
+  L.push('  panel_span observed ' + r.coverage.panel_span_observed + '/' + r.coverage.measurable +
+    ' measurable (missing ' + r.coverage.panel_span_missing + ')');
   if (r.state_is_composite) {
     L.push('  (state above is COMPOSITE — the worst of the loaded axes, not a single axis)');
   }
@@ -1251,6 +1415,10 @@ module.exports = {
   percentile: percentile,
   normalizePlanPath: normalizePlanPath,
   renderHuman: renderHuman,
+  // ── M3 ──
+  summarizeForSurface: summarizeForSurface,
+  UNMATCHED_HUMAN_TOP_N: UNMATCHED_HUMAN_TOP_N,
+  DISAGREEMENT_NOTE: DISAGREEMENT_NOTE,
   COMPLETED_KEY: COMPLETED_KEY,
   NON_REPO_PATH: NON_REPO_PATH,
   STATE_EXIT_CODES: STATE_EXIT_CODES,

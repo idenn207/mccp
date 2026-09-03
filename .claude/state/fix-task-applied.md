@@ -1,15 +1,15 @@
 ---
 fix_task_version: 1
-task_fingerprint: diverse-agent-review-m8
+task_fingerprint: leadtime-observability-m2
 gate_id: stop-review-loop
-decision_id: leadtime-observability-m2
-created_at: 2026-09-02T01:39:40.396Z
-expires_at: 2026-09-09T01:39:40.396Z
+decision_id: leadtime-observability-m3
+created_at: 2026-09-03T04:18:14.831Z
+expires_at: 2026-09-10T04:18:14.831Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-implement-codex/leadtime-observability-m2.json
+  - .claude/receipts/mccp-plan-codex/leadtime-observability-m3.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -25,7 +25,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- .claude/receipts/mccp-implement-codex/leadtime-observability-m2.json
+- .claude/receipts/mccp-plan-codex/leadtime-observability-m3.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/leadtime-observability-m2>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-plan-codex/leadtime-observability-m3>'

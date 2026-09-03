@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "gate_id": "mccp-plan-codex",
+  "decision_id": "orchestrator-step-wiring-m1",
+  "rounds": [
+    {
+      "index": 0,
+      "at": "2026-09-02T00:47:20.288Z",
+      "channel": "panel",
+      "classification": "emitted"
+    },
+    {
+      "index": 1,
+      "at": "2026-09-02T01:09:16.088Z",
+      "channel": "panel",
+      "classification": "emitted"
+    }
+  ]
+}

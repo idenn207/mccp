@@ -187,9 +187,17 @@ function emitTaskStarted(event, decisionId, commandName) {
       return;
     }
 
+    // DD3 — granularity는 emit 시점에 인자에서 판정한다. 여기가 `command_args`를
+    // 들고 있는 유일한 지점이라 사후 추론이 필요 없다. `NON_WORK_UNIT_COMMANDS`는
+    // 그대로 둔다 — 그것은 명령 축이고 이것은 인자 축이라 조건이 서로 다르다.
+    //
+    // 제외는 producer가 아니라 reader가 한다: 여기서 emit을 막으면 PRD 단위 착수가
+    // 몇 건이었는지 사후 확인이 영구히 불가능해지고, PRD Open Question 1이 열어 둔
+    // "두 축을 분리해 각각 산출"의 문이 닫힌다.
     const res = mswEvents.appendEvent(sid, {
       kind: 'task_started',
       work_unit: decisionId,
+      work_unit_kind: mswEvents.classifyWorkUnitKind(event && event.command_args),
       producer: 'receipt-prompt',
     }, { repoRoot: (event && event.cwd) || process.cwd() });
 

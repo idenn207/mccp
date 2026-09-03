@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "gate_id": "mccp-plan-codex",
+  "decision_id": "leadtime-observability",
+  "rounds": [
+    {
+      "index": 0,
+      "at": "2026-09-01T06:42:19.165Z",
+      "channel": "panel",
+      "classification": "emitted"
+    }
+  ]
+}

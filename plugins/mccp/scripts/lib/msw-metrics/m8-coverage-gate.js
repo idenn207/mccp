@@ -161,22 +161,56 @@ function staticLint(repoRoot) {
 // 검증이 구조적으로 실패한다. 그래서 판정은 opt-in이고, PRE 단계에서 확인 가능한
 // 것과 POST에서만 가능한 것을 **나눠서** 보고한다.
 function evaluateAcceptance(repoRoot) {
-  const eventsDir = path.join(repoRoot, '.claude', 'state', 'msw-events');
+  const PRE = ['session_start', 'session_end', 'task_started'];
+  const POST = ['task_completed', 'task_ship_sealed'];
+
+  // orchestrator-step-wiring M1 (Task 5b) — **경로를 조립하지 않고 해소기에 묻는다.**
+  //
+  // 이전 판본은 `<repoRoot>/.claude/state/msw-events`를 직접 만들었다. DD8이
+  // `task_started`를 git common dir로 옮기면 그 kind가 이 디렉토리에서 사라지고,
+  // `PRE`가 전건 관측을 요구하므로 **신규 worktree에서 `ok:false`가 영구화**된다 —
+  // producer가 조용히 제거됐는지 보려는 게이트가, 살아서 다른 곳에 쓰고 있는
+  // producer를 두고 정확히 그렇게 보고하게 된다.
+  //
+  // 두 위치를 **둘 다, 토글과 무관하게** 본다. local은 공유로 옮기기 전에 쌓인
+  // 이벤트가 여전히 거기 있어서이고, shared는 아래 이유로 그렇다.
+  //
+  // 해소는 `resolveEventsDir`가 아니라 reader(`derive/sources/session-activity.js`)와
+  // **같은 방식**으로 한다 — `commonDirOf`를 직접 부르고 토글은 읽지 않는다.
+  // `resolveEventsDir`는 `MCCP_MSW_EVENTS_SHARED`를 통과하므로 토글이 off면 공유
+  // 위치가 후보에서 빠지고, 그러면 이 게이트는 살아서 그곳에 쓰고 있는 producer를
+  // 두고 위 문단이 막겠다고 한 "제거됨" 보고를 그대로 낸다(local review H1 —
+  // 토글 off에서 `post_missing`에 두 kind가 실리는 것으로 실증). 읽는 쪽이 토글을
+  // 보지 않는 것은 무해하다: 공유 위치가 없으면 후보에서 빠질 뿐이고, 있으면 그
+  // 이벤트는 실재한다. 쓰는 쪽만 토글을 읽으면 충분하다.
+  const localDir = path.join(repoRoot, '.claude', 'state', 'msw-events');
+  const scanDirs = [localDir];
+  try {
+    const mswEvents = require('../../state/msw-events');
+    const common = mswEvents.commonDirOf(repoRoot);
+    if (common) {
+      const shared = path.join(common, mswEvents.SHARED_SUBPATH);
+      if (scanDirs.indexOf(shared) === -1) scanDirs.push(shared);
+    }
+  } catch (_) {
+    // 해소기를 못 읽으면 local만 본다 — 오늘의 동작이고 fail 방향이 보수적이다.
+  }
+
   const kinds = new Set();
-  let files = [];
-  try { files = fs.readdirSync(eventsDir); } catch (_) { files = []; }
-  files.forEach(function (f) {
-    if (!f.endsWith('.jsonl')) return;
-    let text = '';
-    try { text = fs.readFileSync(path.join(eventsDir, f), 'utf8'); } catch (_) { return; }
-    text.split(/\r?\n/).forEach(function (line) {
-      if (!line.trim()) return;
-      try { const o = JSON.parse(line); if (o && o.kind) kinds.add(o.kind); } catch (_) { /* per-line 격리 */ }
+  scanDirs.forEach(function (eventsDir) {
+    let files = [];
+    try { files = fs.readdirSync(eventsDir); } catch (_) { files = []; }
+    files.forEach(function (f) {
+      if (!f.endsWith('.jsonl')) return;
+      let text = '';
+      try { text = fs.readFileSync(path.join(eventsDir, f), 'utf8'); } catch (_) { return; }
+      text.split(/\r?\n/).forEach(function (line) {
+        if (!line.trim()) return;
+        try { const o = JSON.parse(line); if (o && o.kind) kinds.add(o.kind); } catch (_) { /* per-line 격리 */ }
+      });
     });
   });
 
-  const PRE = ['session_start', 'session_end', 'task_started'];
-  const POST = ['task_completed', 'task_ship_sealed'];
   const preMissing = PRE.filter(function (k) { return !kinds.has(k); });
   const postMissing = POST.filter(function (k) { return !kinds.has(k); });
 

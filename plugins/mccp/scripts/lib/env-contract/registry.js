@@ -118,11 +118,15 @@ const RAW = [
   // 거부할지(`enforce`) 기록만 할지(`observe`)를 정한다. `off`가 없는 것이 설계다
   // (DD7 — 끄는 것은 M3 이전 동작을 요청하는 것이고 그것이 결함 자체다).
   ['MCCP_ROUND_LEDGER', 'enum', ['enforce', 'observe'], 'enforce', null, 'active', 'gates', 'plugins/mccp/scripts/lib/review-rounds/seal.js:49', '라운드 원장 강제 모드.', 'plugins/mccp/scripts/lib/review-rounds/seal.js#LEDGER_MODES'],
-  ['MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/scripts/lib/pr-phase-helpers/finalize-receipt.js:318', '비수렴 ship override.'],
+  ['MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/scripts/lib/pr-phase-helpers/finalize-receipt.js:434', '비수렴 ship override.'],
   ['MCCP_FORCE_PR_WITHOUT_IMPECCABLE', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:79', 'impeccable 미가용 override.'],
   ['MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:659', 'security 미가용 override.'],
   ['MCCP_PR_SKIP_CODEX_REVIEW', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:105', 'PR-Codex skip escape.'],
   ['MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:846', 'design chain 차단 1회 우회.'],
+  // review-record-linkage M3. 읽는 지점이 Phase 3.0이 아니라 2.5.7인 것이 계약의
+  // 일부다 — receipt는 2.5.7에서 봉인되므로 3.0에서의 편집은 §3.12 no-rehash 위반
+  // 이거나 evidence-stage-guard의 해시 불일치로 모든 ship을 HALT시킨다.
+  ['MCCP_PR_SKIP_LINK_EVIDENCE', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/commands/pr.md:949', 'back-patch된 리뷰 레코드를 evidence commit에 싣지 않는 1회 우회 (strict reason).'],
   ['MCCP_GATEGUARD', 'enum', ['on', 'off'], 'on', null, 'active', 'gates', 'plugins/mccp/scripts/hooks/gateguard-fact-force.js:438', 'gateguard hook 활성.', null, '판정이 canonical enum이 아니라 disable 별칭 집합이다 — gateguard-fact-force.js:48 `MCCP_DISABLE_VALUES`의 원소면 off, 그 밖은 전부 on이라 수용 어휘가 열거로 존재하지 않는다'],
   // 운영자가 설정하는 토글이 아니라 게이트 사이에서 전달되는 신호다. 이름에
   // MCCP_ prefix가 없어 런타임 스캐너가 보지 못하므로 여기 명시로 올린다.
@@ -190,7 +194,7 @@ const RAW = [
   ['MCCP_ORCHESTRATION_COST_FAIL_OPEN', 'bool', B, 'on', ON, 'active', 'orchestration', 'plugins/mccp/scripts/lib/orchestration-preview.js:61', '비용 신호 부재 시 진행.'],
   ['MCCP_ORCHESTRATION_RESERVATION_LEASE_MS', 'int', null, '600000', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/orchestration-runaway.js:108', '예약 lease 유효 시간.'],
   ['MCCP_ORCHESTRATOR_POLL_MS', 'int', null, '500', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/dispatch-watcher.js:63', 'watcher 폴링 간격.'],
-  ['MCCP_DISPATCH_CONTEXT', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/receipt/write.js:131', 'dispatch worker 선언.'],
+  ['MCCP_DISPATCH_CONTEXT', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/receipt/write.js:147', 'dispatch worker 선언.'],
   ['MCCP_AUTO_HANDOFF', 'enum', ['off', 'notify', 'spawn'], 'notify', null, 'active', 'orchestration', 'plugins/mccp/scripts/derive/sources/toggle-usage.js:173', '핸드오프 신호 처리.', 'plugins/mccp/scripts/state/session-spawner.js#MODES'],
   ['MCCP_AUTO_HANDOFF_EXPERIMENTAL_SPAWN', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/state/session-spawner.js:282', '실험적 세션 spawn.'],
   ['MCCP_MULTI_SESSION_SCAN', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/derive/sources/worktrees.js:316', '다중 세션 스캔.'],
@@ -242,7 +246,7 @@ const RAW = [
   ['MCCP_DASHBOARD_STALE_DAYS', 'int', null, null, null, 'undocumented-default', 'observability', 'plugins/mccp/scripts/lib/renderer/parsers/plan-body.js:20', 'plan stale 판정 일수.'],
   ['MCCP_STATE_JOURNAL', 'enum', ['enforce', 'shadow', 'off'], 'enforce', null, 'active', 'observability', 'plugins/mccp/scripts/lib/state-journal/index.js:29', 'STATE.md 저널 기록.', 'plugins/mccp/scripts/lib/state-journal/index.js#JOURNAL_MODES'],
   ['MCCP_EVIDENCE_CONFLICT_GUARD', 'enum', ['enforce', 'warn', 'off'], 'enforce', null, 'active', 'observability', 'plugins/mccp/scripts/receipt/evidence-lock.js:104', '중복 claim 가드 모드.', 'plugins/mccp/scripts/receipt/evidence-lock.js#GUARD_MODE_VALUES'],
-  ['MCCP_EVIDENCE_STAGE_ROOT', 'list', null, null, null, 'undocumented-default', 'observability', 'plugins/mccp/scripts/lib/evidence-stage-guard.js:154', '증거 스테이징 루트.', null, '멤버가 디렉토리 경로라 열거 어휘가 존재하지 않는다'],
+  ['MCCP_EVIDENCE_STAGE_ROOT', 'list', null, null, null, 'undocumented-default', 'observability', 'plugins/mccp/scripts/lib/evidence-stage-guard.js:238', '증거 스테이징 루트.', null, '멤버가 디렉토리 경로라 열거 어휘가 존재하지 않는다'],
   ['MCCP_SESSION_LEDGER_SCOPE', 'enum', ['global', 'repo', 'hybrid'], 'global', null, 'active', 'observability', 'plugins/mccp/scripts/state/session-ledger.js:210', '세션 원장 조회 범위.', 'plugins/mccp/scripts/state/session-ledger.js#VALID_SCOPES'],
   ['MCCP_RECLAIM_OUTLIVES', 'bool', B, 'off', OFF, 'active', 'observability', 'plugins/mccp/scripts/lib/session-processes.js:1118', '잔존 프로세스 회수.'],
   ['MCCP_RECLAIM_BUDGET_MS', 'int', null, null, null, 'undocumented-default', 'observability', 'plugins/mccp/scripts/lib/session-processes.js:1104', '회수 시간 예산.'],
@@ -291,7 +295,7 @@ const RAW = [
   // 축 밖 1행(M5 Task 3.3): origin/main `b111dca`(codex-intent-context M3)가 도입했으나
   // 미등재라 L1이 red였다. 런타임 동작 변경 0이며, 이 줄이 없으면 M5는 자기가 확장하는
   // lint를 green으로 검증할 수 없다.
-  ['MCCP_PLAN_REVIEW_TEST_INVOKE', 'bypass-flag', BY, 'off', OFF, 'test-only', 'review', 'plugins/mccp/scripts/lib/plan-review/cli.js:715', 'test 전용 — `--invoke-module` 허용.'],
+  ['MCCP_PLAN_REVIEW_TEST_INVOKE', 'bypass-flag', BY, 'off', OFF, 'test-only', 'review', 'plugins/mccp/scripts/lib/plan-review/cli.js:719', 'test 전용 — `--invoke-module` 허용.'],
   ['MCCP_PLAN_REVIEW_L1', 'string', null, null, null, 'absent-by-design', 'retired', 'docs/environment/retired.md:1', '의도적 부재 — 끌 수 없다.'],
   ['MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL', 'bool', B, 'off', OFF, 'test-only', 'retired', 'plugins/mccp/commands/plan.md:687', 'test 전용 — critique 강제 실패.'],
   ['MCCP_PERF_INJECT_QUADRATIC', 'string', null, null, null, 'test-only', 'retired', 'docs/environment/retired.md:1', 'test 전용, 표면 밖.'],

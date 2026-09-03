@@ -60,7 +60,8 @@
 | S3.4 | 3.4 코드 스타일 / 컨벤션 | resident | - | - | - | (c) 모든 편집의 매 줄에 적용되며 0.4%로 저렴 |
 | S3.5 | 3.5 커밋·PR | resident | - | - | - | (a) §3.5.1 머지 삭제 사고는 파일 소실이며 발견이 늦으면 복구가 어렵다(PR #110 실측) · (b) 강제기 없음 · (c) 머지 해소 직전에 알아야 함 |
 | S3.6 | 3.6 Atomic state locks (`pr-phase.lock` + `quarantine.lock` + `evidence write lock`) | on-demand | - | - | - | (c) 불성립 — lock 내부 구조는 lock을 건드릴 때 참조한다. 7,684B(4.8%). 이번 주기 미이전(분류만) |
-| S3.7 | 3.7 Plugin version bump (`plugin.json`) — 빈번한 누락 axis | resident | - | - | - | (a) 누락 시 사용자 캐시가 갱신 안 돼 머지 후에도 옛 동작 · (b) 강제기 없음(자동화는 미구현 부채로 명시) · (c) PR 작성 시점에 알아야 함 |
+| S3.7-r1 | 3.7 Plugin version bump (`plugin.json`) — 빈번한 누락 axis | retire | - | - | - | RETIRE — 이제 지시가 아니라 **이력**이다. v1.34.6에서 이 절의 부호가 뒤집혔고(bump 지시 → 선언 금지, 우산 결정 1) 새 규칙은 S3.7이 소유한다. 헤딩을 지우지 않는 이유는 독자가 찾아올 자리이기 때문이며, 블록 첫 줄이 은퇴를 명시하고 현행을 가리킨다. major/minor/patch 판정표는 릴리스 컷의 참고 자료로만 남는다 |
+| S3.7 | 3.7 Plugin version — 브랜치는 번호를 선언하지 않는다 (우산 결정 1) | resident | - | - | - | (a) 우산 결정 1의 유일한 상주 서술 — 어기면 병렬 브랜치 version 충돌이 재발한다(9회 이력 + 결정 채택 후 5중 충돌 실측) · (b) 강제기는 `scripts/version-declaration-guard.js` + CI지만 **작성 시점에 알아야** 가드에 안 걸린다 · (c) v1.34.6에서 부호가 뒤집힌 절이라 낡은 지시를 따르는 것을 막아야 함 |
 | S3.8 | 3.8 Worktree 경로 컨벤션 (`.worktrees/<branch-suffix>/`) | resident | - | - | - | (a) sibling worktree는 gitignore 보호 밖이라 산출물이 parent repo로 새고 envelope 라우팅이 어긋남 · (b) 강제기 없음 · (c) worktree 생성 직전에 알아야 함 |
 | S3.9 | 3.9 디자인 surface 변경 시 SKILL first-step + critique retry loop (v1.3.0-m2) | on-demand | - | - | - | (b) 불성립 — critique loop과 grounding lint가 기계로 강제한다. 7,967B(5.0%). 이번 주기 미이전(분류만) |
 | S3.10 | 3.10 Stage-aware impeccable command routing (v1.13.0 M1) | on-demand | - | - | - | (b) 불성립 — routing oracle이 기계 판정한다. 7,074B(4.4%). 이번 주기 미이전(분류만) |

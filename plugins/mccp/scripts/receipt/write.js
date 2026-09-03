@@ -22,6 +22,9 @@ const fixTask = require('../state/fix-task');
 const stateWriter = require('../state/state-writer');
 const briefing = require('../lib/briefing');
 const envValue = require('../lib/env-contract/value');
+// review-record-linkage M3 — the single owner of repo-relative POSIX folding,
+// shared with lib/plan-review/record.js so the M3 path anchor cannot drift.
+const { toRepoRelativePosix } = require('../lib/repo-path');
 
 function asArray(v) {
   if (v === undefined || v === null) return [];
@@ -92,10 +95,23 @@ function readRoundLedgerState(opts) {
   return out;
 }
 
+// review-record-linkage M3 — the rule now lives in ONE module.
+//
+// This wrapper is kept (rather than replacing its 4 call sites) so the existing
+// behaviour is byte-identical: `toRepoRelativePosix` folds `./`, duplicate
+// slashes and separators exactly as the old body did, and returns `null` only
+// for inputs the old body would have turned into a `../`-escaping string — which
+// no existing caller produces. The reason for sharing at all is that
+// `plan-review/record.js` must fold `measurement.plan_path` by the SAME rule:
+// the M3 anchor compares those two sealed strings on a fail-closed path, so two
+// implementations would surface as rejected ships, not as silent drift
+// (R4 architect HIGH `7a88ff03`).
 function relativeToRepo(filePath, repoRoot) {
-  const abs = path.resolve(filePath);
-  const rel = path.relative(repoRoot, abs);
-  return rel.split(path.sep).join('/');
+  const folded = toRepoRelativePosix(filePath, repoRoot);
+  if (folded !== null) return folded;
+  // Preserve the legacy return shape for out-of-repo inputs. `meta.plan_path`
+  // does NOT use this path — it stamps only when the fold succeeds.
+  return path.relative(repoRoot, path.resolve(filePath)).split(path.sep).join('/');
 }
 
 // durable-evidence-substrate Task A3 — normalize the receipt's meta.cwd to a
@@ -1012,6 +1028,8 @@ function buildReceipt(args) {
     receipt.meta.round_cap_pinned_by = roundState.pinnedBy;
   }
 
+  stampLinkageFields(receipt, args, planAbs, repoRoot);
+
   stampIntentDecision(receipt, args, gateId, planText);
 
   receipt.subject_hash = subjectHash(receipt);
@@ -1038,6 +1056,100 @@ function buildReceipt(args) {
 // 전체를 미리 계획하게 만들어, 이 토글이 없애려는 마찰을 다른 모양으로 되살린다
 // (UI12의 "작업 단위 opt-in"과 어긋난다). 강제안은 backlog 소유다.
 const REVIEW_CHAIN_ORDER = ['mccp-plan-codex', 'mccp-implement-codex', 'mccp-pr-codex'];
+
+// ── review-record-linkage M3 — 5 present-only linkage fields ─────────────────
+//
+// NOT in `makeSkeleton` (the `pr_codex_force_override` / round-ledger precedent):
+// adding keys to the skeleton changes EVERY receipt's hash input, and CLAUDE.md
+// §3.12 keeps the git-tracked ship corpus stable (UI2 · UI16). Absence therefore
+// means "this receipt predates the axis", which is a third state distinct from
+// any value these fields can hold. None of them is carved out of `receiptHash`,
+// so each is signed — an audit field outside the signature is an unsigned field.
+//
+//   meta.review_record_path       receipt -> review : repo-relative record path
+//   meta.plan_review_expected     D2 eligibility, explicit boolean
+//   meta.no_plan_review_reason    paired reason for `false` (linkage-defs D2)
+//   meta.link_evidence_skip_reason  MCCP_PR_SKIP_LINK_EVIDENCE audited escape
+//   meta.plan_path                the M3 path anchor — NO CLI FLAG (see below)
+//
+// ── why `meta.plan_path` has no flag of its own (R3 absorption) ──────────────
+//
+// `receipt/cli.js parseFlags` forwards ANY `--*` into `write()`. If a
+// `--plan-path` flag existed, any shell caller could assert a plan identity it
+// does not hold, and the anchor would stop being a check and become a
+// self-report (§3.13's "intent decisions have no CLI surface", same argument).
+// So the value is derived from the already-required `--plan` and nothing else.
+// `receipt-linkage-fields.test.js` proves that BEHAVIOURALLY — it passes
+// `--plan-path <hostile>` and asserts the sealed value still tracks `--plan`.
+//
+// ── why the shape rule is loose, and the stamp is narrow (R14 absorption) ────
+//
+// The `--plan` derivation is GATE-NEUTRAL, so this key also lands on
+// mccp-implement-codex and mccp-pr-codex receipts — and those call sites legally
+// pass non-plan values (`pr.md:916` allows a PR title; prp-implement/resume pass
+// `$ARGUMENTS`). Requiring a `.claude/` prefix or an `.md` suffix would make
+// such a receipt schema-INVALID and fail-close a terminal ship: an instrumen-
+// tation field must never widen the ship-blocking condition. So the schema
+// checks SHAPE only, and the stamp itself is narrowed instead — we seal it only
+// when the resolved path is an existing FILE under the repo root. Anything else
+// omits the key, which is present-only's honest absence.
+function stampLinkageFields(receipt, args, planAbs, repoRoot) {
+  const recordPath = strFlag(args['review-record-path']);
+  if (recordPath !== null) receipt.meta.review_record_path = recordPath;
+
+  // Explicit boolean only. The flag's mere presence is the `true` assertion;
+  // `false` travels as `--plan-review-expected=false` so the negative claim is
+  // as deliberate as the positive one. Absence stays absent — D2 folds an
+  // unstated eligibility to `undecidable`, never to a decision.
+  const expected = args['plan-review-expected'];
+  if (expected === true || expected === 'true') {
+    receipt.meta.plan_review_expected = true;
+  } else if (expected === 'false') {
+    receipt.meta.plan_review_expected = false;
+  }
+
+  const noReviewReason = strFlag(args['no-plan-review-reason']);
+  if (noReviewReason !== null) receipt.meta.no_plan_review_reason = noReviewReason;
+
+  const skipReason = strFlag(args['link-evidence-skip-reason']);
+  if (skipReason !== null) receipt.meta.link_evidence_skip_reason = skipReason;
+
+  // The anchor's upstream half. Derived, never declared.
+  let isFile = false;
+  try { isFile = fs.statSync(planAbs).isFile(); } catch (_err) { isFile = false; }
+  if (!isFile) return;
+
+  let rel = toRepoRelativePosix(planAbs, repoRoot);
+  if (rel === null) {
+    // The two ends can SPELL the same location differently without either being
+    // wrong: `repoRoot` comes from `git rev-parse --show-toplevel` while `planAbs`
+    // is resolved from `cwd`, and on Windows one may carry an 8.3 short name
+    // (`ADMINI~1`) where the other has the long one — measured. The same happens on
+    // macOS where `/var` is a symlink to `/private/var`. The fold then reports the
+    // plan as OUTSIDE the repo and the key is silently omitted: safe (absence is
+    // "undecidable"), but silently wrong for a perfectly ordinary plan.
+    //
+    // Asking the filesystem which file each spelling denotes is exactly what
+    // realpath is for. Note this is STAMP time — deriving the value once. The
+    // anchor COMPARISON downstream stays pure string equality on the two sealed
+    // strings, as Task 5 requires; resolving there would turn an identity promise
+    // into a filesystem query.
+    //
+    // `.native` specifically: plain `fs.realpathSync` does NOT expand an 8.3 short
+    // name on Windows (measured — it returns `ADMINI~1` unchanged), so it cannot
+    // reconcile the exact mismatch git creates. `.native` does. Both sides go
+    // through it so the comparison is between two canonical spellings.
+    try {
+      rel = toRepoRelativePosix(
+        fs.realpathSync.native(planAbs), fs.realpathSync.native(repoRoot));
+    } catch (_err) { rel = null; }
+  }
+  if (rel !== null) receipt.meta.plan_path = rel;
+}
+
+function strFlag(v) {
+  return (typeof v === 'string' && v.length > 0) ? v : null;
+}
 
 function warnSinglePassChainDrift(repoRoot, gateId, decisionId, currentReason) {
   const idx = REVIEW_CHAIN_ORDER.indexOf(gateId);

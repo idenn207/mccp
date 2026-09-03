@@ -6,6 +6,11 @@ const { validateReason } = require('./lib/force-override-reason');
 // produced. Importing rather than restating it is what keeps them from drifting.
 const { isValidDisputeReason } = require('../lib/intent-context');
 const { REASONS: SINGLE_PASS_REASONS } = require('../lib/review-single-pass');
+// review-record-linkage M3 — the path-shape predicate is M1's, and M3 consumes it
+// rather than restating it (UI4). Safe to require from here: linkage-defs.js has
+// `require` 0건 by contract, so this pulls in no transitive dependency, and
+// schema.js already imports from `../lib/` (intent-context, review-single-pass).
+const { isRepoRelativePath } = require('../lib/plan-review/linkage-defs');
 
 const SCHEMA_VERSION = 'v1';
 
@@ -443,6 +448,78 @@ function validate(receipt) {
           'meta.round_cap_pinned_by names the axis that pinned the cap, so it requires ' +
           'meta.round_cap to be an integer (got ' + JSON.stringify(m.round_cap) + ')');
       }
+    }
+
+    // ── review-record-linkage M3 — 5 present-only linkage fields ────────────
+    //
+    // Same present-only contract as the intent/round-ledger blocks above: none of
+    // these is in makeSkeleton, so a receipt that predates M3 omits every key and
+    // its receipt_hash is bit-identical (UI2 · UI16 · §3.12).
+    if (m.review_record_path !== undefined && m.review_record_path !== null) {
+      req(typeof m.review_record_path === 'string' && isRepoRelativePath(m.review_record_path),
+        'meta.review_record_path must be a repo-relative path (no absolute form, no ' +
+        'drive letter, no "..", no whitespace/control chars); got ' +
+        JSON.stringify(m.review_record_path));
+      // Unlike meta.plan_path below, THIS field is produced by exactly one axis
+      // (the plan gate's panel record), so pinning its directory costs nothing and
+      // stops a mispointed value from being sealed as a link.
+      req(m.review_record_path.indexOf('.claude/reviews/') === 0,
+        'meta.review_record_path must live under .claude/reviews/ — the panel record ' +
+        'corpus is the only thing this field may name; got ' +
+        JSON.stringify(m.review_record_path));
+    }
+    if (m.plan_review_expected !== undefined && m.plan_review_expected !== null) {
+      req(typeof m.plan_review_expected === 'boolean',
+        'meta.plan_review_expected must be a boolean (or absent — absence is D2 ' +
+        '"undecidable", which is NOT the same claim as false); got ' +
+        JSON.stringify(m.plan_review_expected));
+      // linkage-defs.js:127-139 pairing invariant, enforced at the write side too:
+      // an unexplained exclusion shrinks metric 2's denominator with no evidence,
+      // and that is exactly the direction pressure runs. A `false` with no reason
+      // folds to `undecidable` on the read side, so sealing it would put a claim in
+      // the corpus that no reader will ever honour.
+      if (m.plan_review_expected === false) {
+        req(typeof m.no_plan_review_reason === 'string'
+          && m.no_plan_review_reason.trim().length > 0,
+          'meta.plan_review_expected=false requires a non-empty meta.no_plan_review_reason ' +
+          '— an unexplained exclusion is not a decision (linkage-defs D2)');
+      }
+    }
+    if (m.no_plan_review_reason !== undefined && m.no_plan_review_reason !== null) {
+      req(typeof m.no_plan_review_reason === 'string' && m.no_plan_review_reason.trim().length > 0,
+        'meta.no_plan_review_reason must be a non-empty string or absent; got ' +
+        JSON.stringify(m.no_plan_review_reason));
+    }
+    if (m.link_evidence_skip_reason !== undefined && m.link_evidence_skip_reason !== null) {
+      req(typeof m.link_evidence_skip_reason === 'string',
+        'meta.link_evidence_skip_reason must be a string or absent');
+      if (typeof m.link_evidence_skip_reason === 'string') {
+        const lv = validateReason(m.link_evidence_skip_reason, { strict: true });
+        if (!lv.ok) {
+          err('meta.link_evidence_skip_reason rejected (' + lv.reason + '): ' +
+            'MCCP_PR_SKIP_LINK_EVIDENCE requires a substantive reason ≥30 chars + ≥3 words, ' +
+            'no placeholder/URL-only/banlist token');
+        }
+      }
+    }
+    // SHAPE ONLY — deliberately no `.claude/` prefix and no `.md` suffix rule.
+    // `write.js`'s `--plan` derivation is gate-neutral, and several call sites
+    // legally pass a non-plan value (pr.md:916 allows a PR title; prp-implement /
+    // resume pass `$ARGUMENTS`). A prefix rule here would make those receipts
+    // schema-invalid and fail-close a terminal ship — an instrumentation field
+    // must not widen the ship-blocking condition (R14). The anchor holds by
+    // EQUALITY with the ship's plan path, never by prefix, so it needs nothing
+    // more than this. write.js narrows the STAMP instead: it seals the key only
+    // for an existing file under the repo root.
+    if (m.plan_path !== undefined && m.plan_path !== null) {
+      req(typeof m.plan_path === 'string' && isRepoRelativePath(m.plan_path),
+        'meta.plan_path must be a repo-relative POSIX path (no absolute form, no ' +
+        'drive letter, no "..", no whitespace/control chars); got ' +
+        JSON.stringify(m.plan_path));
+      req(typeof m.plan_path === 'string' && m.plan_path.indexOf('\\') === -1,
+        'meta.plan_path must use POSIX separators — a backslash form would make the ' +
+        'same file a different identity on the M3 path anchor; got ' +
+        JSON.stringify(m.plan_path));
     }
 
     if (m.review_single_pass_reason !== undefined && m.review_single_pass_reason !== null) {

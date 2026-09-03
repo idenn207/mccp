@@ -76,7 +76,7 @@ M1이 MVP인 이유는 **가설이 M1만으로 검증되기 때문**이다. M2(�
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | channel-pin | `marketplace.json`이 `git-subdir` + `ref: release`가 되고 `release` 브랜치가 `647dfec`(v1.33.6)에 선다. **라이브 검증 1회로** (a) source 타입 변경이 설치를 깨지 않고 (b) main 머지가 사용자 version을 바꾸지 않으며 (c) `release`를 되돌리면 이전 버전이 설치되는 것이 실측된다. 사용자 가시 변화 0 | complete | [.claude/plans/release-channel-separation-m1.plan.md](../plans/release-channel-separation-m1.plan.md) |
-| 2 | dogfood-install | worktree를 가리키는 로컬 설치 절차가 문서화되어 "캐시 직접 복사" workaround(§3.7)가 은퇴한다. 다른 프로젝트에서 main을 시험할 수 있는 경로가 생긴다 | pending | — |
+| 2 | dogfood-install | worktree를 가리키는 로컬 설치 절차가 문서화되어 "캐시 직접 복사" workaround(§3.7)가 은퇴한다. 다른 프로젝트에서 main을 시험할 수 있는 경로가 생긴다 | complete | [.claude/plans/release-channel-separation-m2.plan.md](../plans/release-channel-separation-m2.plan.md) |
 | 3 | release-runbook | 릴리스 컷 절차(version bump → tag → `release` fast-forward → 확인)와 **롤백 절차**가 `docs/release-channel.md`에 기록된다. M1이 실제로 수행한 것을 옮겨 적는다 | pending | — |
 
 소유 파일: `.claude-plugin/marketplace.json` · `README.md` · `docs/release-channel.md`(신설). **어느 in-flight 브랜치도 이 파일들을 소유하지 않는다** — C1·C2·C3·C4와 완전 병렬 가능하다.
@@ -86,7 +86,7 @@ M1이 MVP인 이유는 **가설이 M1만으로 검증되기 때문**이다. M2(�
 - [ ] **롤백이 version 하향을 요구하는데 Claude Code가 그것을 수용하는가.** 문서는 "users only receive updates when it **changes**"라 적지 실패 조건을 말하지 않는다. 2.0.0에서 1.33.6으로 되돌릴 때 업데이트가 발생하는지 **M1의 라이브 검증이 답해야 한다.** 수용하지 않으면 롤백은 "version을 올리면서 내용을 되돌리는" 형태(예: `2.0.1` = 1.33.6의 코드)가 되고, 그건 결정 3의 번호 정책을 바꾼다.
 - [ ] **버전 선언 위치를 `plugin.json`에서 marketplace entry로 옮길 것인가.** 문서상 marketplace entry의 `version`도 업데이트 신호가 될 수 있다. 옮기면 릴리스 컷이 한 파일만 고치고, `plugin.json`은 브랜치가 건드리지 않아 우산 결정 1이 **기계적으로** 강제된다. 옮기지 않으면 결정 1은 관례로만 남는다. 비용·부작용 미조사.
 - [ ] **`release`가 fast-forward 불가가 되는 경우의 처리.** main이 rebase되거나 hot-fix가 release에서 먼저 나가면 fast-forward가 깨진다. 그때 강제 이동을 허용할 것인지, 아니면 release를 항상 main의 조상으로 유지할 것인지.
-- [ ] **다른 프로젝트에서 운영자가 어느 채널에 있어야 하는가.** 안정을 원하면 `release`지만, 그러면 새 게이트를 실사용으로 검증할 표면이 사라진다(우산 §7.2가 "실사용자는 운영자 자신이면 된다"고 적은 지점). M2가 여기에 답해야 한다.
+- [x] **다른 프로젝트에서 운영자가 어느 채널에 있어야 하는가.** 안정을 원하면 `release`지만, 그러면 새 게이트를 실사용으로 검증할 표면이 사라진다(우산 §7.2가 "실사용자는 운영자 자신이면 된다"고 적은 지점). M2가 여기에 답해야 한다. — **답(M2):** 기본은 모든 프로젝트에서 `release`에 상주하고, main을 시험하려는 프로젝트만 `claude --plugin-dir <worktree>/plugins/mccp`로 **세션 단위 opt-in**한다. 안정과 검증 표면을 둘 다 갖는 방법은 "어느 한쪽에 상주"가 아니라 프로젝트별·세션별 선택이며, `--plugin-dir`가 세션 한정인 것이 그 배치를 가능하게 한다. 실측에서 그 실행은 설치 상태를 바꾸지 않았고(`installed_plugins.json` sha256 무변화 · 신규 캐시 디렉토리 0개) CLI가 plugin 이름 수준에서 worktree 사본을 우선하므로 채널을 재우는 선행 단계도 없다. 절차·한계는 [docs/dogfood-install.md](../../docs/dogfood-install.md)가 소유한다.
 - [ ] **`autoUpdate: true`를 유지할 것인가.** 유지하면 릴리스가 사용자에게 자동 도달하고, 끄면 명시적 업데이트를 요구한다. 채널 분리 후에는 자동이 안전해지지만 확인 필요.
 
 ## Risks

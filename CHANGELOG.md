@@ -2,7 +2,52 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.34.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.34.5`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+
+## [1.34.5] — 2026-09-03
+
+> **§3.7**: `1.34.4 → 1.34.5` (**patch** — release-channel-separation PRD의 단일
+> milestone M2이고 PRD 종료 축이 아니다. M3 release-runbook이 남아 있다).
+> **이 번호는 사용자에게 도달하지 않는다** — `release`가 `647dfec`에 서 있고
+> marketplace의 plugin `source`가 `ref: release`를 해소하므로, 이 bump는 dogfood
+> 빌드 번호다(§3.7 v1.33.7 정정). plan이 잠정 target으로 적은 `1.34.1`은 브랜치가
+> 사는 동안 main이 `1.34.4`까지 발행해 stale이 됐고, 여기서 한 번 재계산했다 —
+> §3.7 forward-only 실측 5회차다.
+
+### Added
+
+- `docs/dogfood-install.md` — M2의 본 산출물. worktree 본문을 로컬에서 여는 절차와
+  그 한계, 캐시 직접 복사 금지의 사유, 채널 선택 규칙(PRD Open Question 4의 답)이
+  여기 상주한다. 담긴 값은 전부 문서를 쓰기 **전에** 끝낸 실측이다.
+- `.claude/PRPs/reports/release-channel-separation-m2-report.md` — Task 3~5 실측의
+  원문 증거. 채택한 기제와 **탈락한 기제의 탈락 사유**를 함께 적는다.
+
+### Changed
+
+- `CLAUDE.md` §3.7 — "cache 직접 copy 같은 bootstrap workaround가 매 cycle 반복됨"이
+  **은퇴**했다. 낡은 불릿을 지우지 않고 v1.33.7 정정과 같은 형식으로 병기한다:
+  그 workaround는 이제 **금지**이고, 사유는 편의가 아니라 정합이다 — 캐시 디렉토리는
+  version으로 키가 잡히므로 내용만 바꾸면 `installed_plugins.json`의
+  `version`·`gitCommitSha`가 디스크 내용과 어긋난 거짓이 된다.
+- `README.md` — 설치 절에 dogfood 경로 포인터 한 문단. 절차 본문은 복제하지 않고
+  사용자 설치 명령 3줄은 무변경이다.
+- `.claude/prds/release-channel-separation.prd.md` — Open Question 4("다른 프로젝트에서
+  운영자가 어느 채널에 있어야 하는가")에 답을 기입하고 체크했다. 답은
+  `docs/dogfood-install.md`의 채널 선택 규칙과 같은 내용이다.
+
+### Measured
+
+- **`--plugin-dir`가 1순위 기제로 확정됐다.** worktree 사본에만 심은 판별 marker가
+  그 실행에서 관측되고 플래그 없는 실행에서는 관측되지 않았다(쌍). `CLAUDE_PLUGIN_ROOT`는
+  캐시가 아니라 worktree를 가리켰고, 명령 22 · 에이전트 58 · skill 47 · hook 29가 전부
+  worktree 경로에서 로드됐다.
+- **충돌은 없다 — CLI가 스스로 해소한다.** 디버그 로그가
+  `Plugin "mccp" from --plugin-dir overrides installed version`을 남기고 hook을 한 번만
+  등록한다(`Registered 32 hooks from 2 plugins` = worktree mccp 29 + codex 3). 따라서
+  채널을 재우는 선행 단계가 절차에 없다. Task 5의 후퇴선(dev marketplace manifest)은
+  **타지 않았다**.
+- **설치 상태 무개입.** 실행 전후 `installed_plugins.json`의 sha256이 동일했고 캐시에
+  새 디렉토리가 0개 생겼다. 이것이 캐시 복사 은퇴의 기계적 근거다.
 
 ## [1.34.4] — 2026-09-02
 

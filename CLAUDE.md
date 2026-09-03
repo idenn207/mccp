@@ -322,6 +322,19 @@ plugin `source`가 `git-subdir` + `ref: release`라서 사용자가 읽는 `plug
 mccp 항목에는 `ref`가 없어 marketplace clone은 계속 main을 추종하므로
 `marketplace.json` 자체의 편집은 머지 즉시 도달한다(M3 소유).
 
+**v1.34.5 정정 — 위 세 번째 불릿의 workaround는 은퇴했다.** "cache 직접 copy 같은
+bootstrap workaround가 매 cycle 반복됨"은 M2 이전의 관측이고, 그때는 대체 경로가
+없었으므로 병리의 서술이자 사실상의 처방이었다. 지금은 **금지**다. 대체 경로는
+[docs/dogfood-install.md](docs/dogfood-install.md)가 소유한다 — 실측된 절차는
+`claude --plugin-dir <worktree>/plugins/mccp`이고, CLI가 plugin 이름 수준에서 그 사본을
+설치된 릴리스 사본보다 우선하므로 채널을 재우는 선행 단계가 없다. 그 실행은 설치 상태를
+바꾸지 않는다(실측: `installed_plugins.json` sha256 무변화 · 신규 캐시 디렉토리 0개).
+금지의 사유는 편의가 아니라 정합이다: 캐시 디렉토리는 **version으로 키가 잡히므로**
+내용만 바꾸면 `installed_plugins.json`의 `version`·`gitCommitSha`가 디스크 내용과
+어긋난 거짓이 되고, 그 상태에서 `claude plugin update`는 무엇을 고쳐야 할지 모른다.
+낡은 불릿을 지우지 않는 이유는 바로 위 v1.33.7 정정과 같다 — 그 문장은 M2 이전의
+운영을 여전히 정확히 기술하고, 무엇이 왜 달라졌는지가 함께 남아야 한다.
+
 cache 디렉토리 ls 결과로 누락 cycle을 진단 가능: 예를 들어 `0.2.8/ 0.3.0/ 0.3.1/ 0.3.2/ 0.3.4/ 0.3.6/ 0.4.0/ 1.1.0/`처럼 띄엄띄엄이면 그 사이 cycle들이 version bump을 빠뜨렸다는 의미.
 
 #### 언제 어떻게 bump

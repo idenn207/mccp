@@ -157,12 +157,26 @@ function main(argv) {
       'an unrunnable guard must not read as a pass. Fetch it first (git fetch origin main).');
   }
 
-  const baseManifest = readAtRef(opts.base, PLUGIN_MANIFEST);
-  if (baseManifest === null) {
-    fail('cannot read ' + PLUGIN_MANIFEST + ' at ' + opts.base + ' — instrument failure');
+  // 비교 기준은 base 의 **tip 이 아니라 merge-base** 다. tip 과 대조하면 "이
+  // 브랜치가 선언했는가"가 아니라 "main 과 다른가"를 재게 되고, 그러면 아무것도
+  // 하지 않은 **뒤처진 브랜치**가 위반으로 잡힌다(실측: command-body-diet 1.34.1
+  // vs main 1.34.4 — 그 브랜치는 올린 적이 없다). 같은 혼동을 M2 plan 의 R6
+  // 정정이 반대 방향에서 이미 지적했다. 재는 것은 언제나 **이 브랜치가 물려받은
+  // 값에서 움직였는가** 다.
+  let compareRef;
+  try {
+    compareRef = git(['merge-base', opts.base, 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch (_e) {
+    fail('no merge-base between ' + opts.base + ' and HEAD — unrelated histories. ' +
+      'The guard cannot tell inherited from declared and must not report clean.');
   }
 
-  const baseVersion = manifestVersion(baseManifest, opts.base);
+  const baseManifest = readAtRef(compareRef, PLUGIN_MANIFEST);
+  if (baseManifest === null) {
+    fail('cannot read ' + PLUGIN_MANIFEST + ' at merge-base ' + compareRef + ' — instrument failure');
+  }
+
+  const baseVersion = manifestVersion(baseManifest, compareRef);
   const headVersion = manifestVersion(readWorkingTree(repoRoot, PLUGIN_MANIFEST), 'working tree');
 
   const faces = {
@@ -172,7 +186,7 @@ function main(argv) {
     changelog_note: changelogNoteVersion(readWorkingTree(repoRoot, CHANGELOG)),
   };
 
-  const baseHeadings = changelogVersionHeadings(readAtRef(opts.base, CHANGELOG));
+  const baseHeadings = changelogVersionHeadings(readAtRef(compareRef, CHANGELOG));
   const headHeadings = changelogVersionHeadings(readWorkingTree(repoRoot, CHANGELOG));
   const newHeadings = headHeadings.filter((h) => baseHeadings.indexOf(h) === -1);
 
@@ -181,8 +195,9 @@ function main(argv) {
   if (headVersion !== baseVersion) {
     violations.push({
       rule: 'manifest-version-declared',
-      detail: PLUGIN_MANIFEST + ' declares ' + headVersion + ' but ' + opts.base +
-        ' has ' + baseVersion + '. A branch does not pick the number; the release cut does.',
+      detail: PLUGIN_MANIFEST + ' declares ' + headVersion + ' but its merge-base with ' +
+        opts.base + ' (' + compareRef.slice(0, 12) + ') has ' + baseVersion +
+        '. A branch does not pick the number; the release cut does.',
     });
   }
 
@@ -209,7 +224,7 @@ function main(argv) {
   if (newHeadings.length > 0) {
     violations.push({
       rule: 'changelog-version-heading-claimed',
-      detail: 'CHANGELOG.md introduces version heading(s) absent from ' + opts.base + ': ' +
+      detail: 'CHANGELOG.md introduces version heading(s) absent from the merge-base: ' +
         newHeadings.join(', ') + '. Unreleased work goes under "## [Unreleased]" — ' +
         'claiming a numbered heading reserves a number the release cut has not assigned.',
     });
@@ -226,6 +241,7 @@ function main(argv) {
   const report = {
     ok: ok,
     base: opts.base,
+    merge_base: compareRef,
     base_version: baseVersion,
     declared_version: headVersion,
     faces: faces,
@@ -237,8 +253,8 @@ function main(argv) {
   if (opts.json) {
     process.stdout.write(JSON.stringify(report, null, 2) + '\n');
   } else if (violations.length === 0) {
-    process.stdout.write('ok: no version declaration on this branch (base ' + opts.base +
-      ' = ' + baseVersion + ')\n');
+    process.stdout.write('ok: no version declaration on this branch (merge-base with ' +
+      opts.base + ' = ' + baseVersion + ')\n');
   } else if (cutReason) {
     process.stdout.write('release cut allowed: ' + cutReason + '\n');
     violations.forEach(function (v) {

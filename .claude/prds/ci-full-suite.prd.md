@@ -85,7 +85,7 @@ MVP가 이것인 이유: A 없이 C부터 하면 174분짜리 CI를 만들어 �
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | suite-entrypoint-and-baseline | 단일 명령으로 전수가 돌고 조용한 머신 벽시계가 기록된다. 174분의 구성이 파일 단위로 분해되고 상위 15개의 원인이 규명된다. flaky 1건의 재현 여부가 판정된다 | complete | `.claude/plans/ci-full-suite-m1.plan.md` |
-| 2 | runtime-reduction | 벽시계가 PR 피드백 임계 안으로 들어온다. **shard 수를 정하는 것은 이 milestone이다** — 축 C는 그 수를 *쓴다*. 수단(shard · 원인 수리 · 둘 다)과 임계값은 M1 산출이 정한다 | pending | — |
+| 2 | runtime-reduction | 벽시계가 PR 피드백 임계 안으로 들어온다. **shard 수를 정하는 것은 이 milestone이다** — 축 C는 그 수를 *쓴다*. 수단(shard · 원인 수리 · 둘 다)과 임계값은 M1 산출이 정한다 | in-progress | `.claude/plans/ci-full-suite-m2.plan.md` |
 | 3 | ci-enforcement | CI가 전수를 실행하고 커버리지 100%가 자동 산출되며 branch protection이 red를 머지 차단으로 만든다. 배선 절단이 red를 만드는 것이 1회 실증된다 | pending | — |
 
 ## Open Questions
